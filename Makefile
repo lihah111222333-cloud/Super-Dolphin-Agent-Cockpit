@@ -227,7 +227,7 @@ clean:
 	rm -rf bin/
 
 guard:
-	$(TEST_WITH_GUARD) ./internal/archtest -count=1
+	$(TEST_WITH_GUARD) --guard-only
 
 code-size-guard:
 	$(TEST_WITH_GUARD) --guard-only

@@ -17,11 +17,17 @@ func TestGuardHookModeFailsOnBaselineOrFreezeDrift(t *testing.T) {
 	)
 	assertGuardModeFileContains(t, root, ".githooks/pre-commit",
 		"SUPER_DOLPHIN_GUARD_FAIL_ON_DRIFT=1",
-		"./scripts/test_with_guard.sh --guard-only",
+		"run_ai_maintenance_staged_gate",
+		"./scripts/ai_maintenance_gates.sh",
+	)
+	assertGuardModeFileContains(t, root, "scripts/ai_maintenance/main.go",
+		`"backend:test_with_guard"`,
+		`"./scripts/test_with_guard.sh"`,
 	)
 	assertGuardModeFileContains(t, root, ".githooks/pre-push",
 		"SUPER_DOLPHIN_GUARD_FAIL_ON_DRIFT=1",
-		"./scripts/test_with_guard.sh",
+		"run_ai_maintenance_push_gate",
+		"./scripts/ai_maintenance_gates.sh",
 	)
 	assertGuardModeFileContains(t, root, ".github/workflows/ci.yml",
 		"SUPER_DOLPHIN_GUARD_FAIL_ON_DRIFT: \"1\"",

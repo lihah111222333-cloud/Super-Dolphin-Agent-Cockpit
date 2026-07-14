@@ -23,7 +23,6 @@ func TestBuildGatePlanRoutesFrontendBackendAndGeneratedFiles(t *testing.T) {
 		"frontend:lint",
 		"frontend:test",
 		"project-map:check",
-		"repo:guard",
 	)
 	assertStringSetContains(t, plan.RequiredEvidence,
 		"generated:source",
@@ -51,23 +50,22 @@ func TestBuildGatePlanRoutesProjectMapOverridesToCodemapChecks(t *testing.T) {
 	assertStringSetContains(t, plan.RequiredGates, "codemap:check", "project-map:check", "diff:whitespace")
 }
 
-func TestExecuteGatePlanSoftensGeneratedDriftOnlyForPrePush(t *testing.T) {
+func TestExecuteGatePlanKeepsGeneratedDriftFailFast(t *testing.T) {
 	binDir := t.TempDir()
 	makePath := filepath.Join(binDir, "make")
 	if err := os.WriteFile(makePath, []byte("#!/usr/bin/env bash\nexit 1\n"), 0o755); err != nil {
 		t.Fatalf("write fake make: %v", err)
 	}
 	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
-	t.Setenv("SUPER_DOLPHIN_PRE_PUSH_SOFT_GENERATED_DRIFT", "")
 	plan := gatePlan{RequiredGates: []string{"codemap:check", "project-map:check"}}
 
 	if err := executeGatePlan(plan); err == nil {
-		t.Fatal("generated drift gate succeeded without pre-push softening")
+		t.Fatal("generated drift gate unexpectedly succeeded")
 	}
 
 	t.Setenv("SUPER_DOLPHIN_PRE_PUSH_SOFT_GENERATED_DRIFT", "1")
-	if err := executeGatePlan(plan); err != nil {
-		t.Fatalf("pre-push soft generated drift gate failed: %v", err)
+	if err := executeGatePlan(plan); err == nil {
+		t.Fatal("legacy soft-generated environment variable bypassed a failing gate")
 	}
 }
 
@@ -93,7 +91,8 @@ func TestBuildGatePlanRequiresFullLSPEvidenceForGoScripts(t *testing.T) {
 		"lsp:read_file",
 		"lsp:xref",
 	)
-	assertStringSetContains(t, plan.RequiredGates, "backend:test_with_guard", "ai-maintenance:self-test")
+	assertStringSetContains(t, plan.RequiredGates, "backend:test_with_guard")
+	assertStringSetOmits(t, plan.RequiredGates, "ai-maintenance:self-test")
 	assertStringSetContains(t, plan.AffectedGoPackages, "./scripts/ai_maintenance")
 }
 
@@ -104,12 +103,142 @@ func TestBuildGatePlanIncludesChangedBackendPackages(t *testing.T) {
 		"internal/contract/provider.go",
 	})
 
-	assertStringSetContains(t, plan.RequiredGates, "backend:test_with_guard", "repo:guard")
+	assertStringSetContains(t, plan.RequiredGates, "backend:test_with_guard")
+	assertStringSetOmits(t, plan.RequiredGates, "repo:guard")
 	assertStringSetContains(t, plan.AffectedGoPackages,
 		"./internal/store/thread",
 		"./internal/module/memory",
 		"./internal/contract",
 	)
+	assertStringSetOmits(t, plan.AffectedGoPackages, "./internal/archtest")
+}
+
+func TestBuildGatePlanRoutesGateInfrastructureToOwnedChecks(t *testing.T) {
+	tests := []struct {
+		path  string
+		gates []string
+	}{
+		{"Makefile", []string{"backend:test_with_guard", "codemap:check", "frontend:embed-verify", "project-map:check", "sqlc:verify"}},
+		{"scripts/test_with_guard.sh", []string{"backend:test_with_guard"}},
+		{"scripts/sqlc_verify_worktree.sh", []string{"ai-maintenance:self-test", "sqlc:verify"}},
+		{"scripts/frontend_embed_verify.sh", []string{"ai-maintenance:self-test", "frontend:embed-verify"}},
+		{"scripts/refresh_generated_artifacts.sh", []string{"ai-maintenance:self-test", "codemap:check", "project-map:check"}},
+	}
+	for _, test := range tests {
+		t.Run(test.path, func(t *testing.T) {
+			plan := buildGatePlan([]string{test.path})
+			assertStringSetContains(t, plan.RequiredGates, test.gates...)
+			assertStringSetContains(t, plan.RequiredGates, "diff:whitespace")
+		})
+	}
+}
+
+func TestBuildGatePlanRoutesSQLCAndGoModuleInputs(t *testing.T) {
+	tests := []struct {
+		path        string
+		wantBackend bool
+	}{
+		{"go.mod", true},
+		{"go.sum", true},
+		{"go.work", true},
+		{"go.work.sum", true},
+		{"sqlc.yaml", false},
+		{"cmd/mcp-orch/sqlc.yaml", true},
+		{"sql/queries.sql", false},
+		{"migrations/001.sql", false},
+		{"cmd/mcp-orch/sql/queries.sql", true},
+		{"internal/platform/db/sqlite/migrations/001.sql", true},
+		{"internal/store/thread/store.go", true},
+	}
+	for _, test := range tests {
+		t.Run(test.path, func(t *testing.T) {
+			plan := buildGatePlan([]string{test.path})
+			assertStringSetContains(t, plan.RequiredGates, "sqlc:verify", "diff:whitespace")
+			if test.wantBackend {
+				assertStringSetContains(t, plan.RequiredGates, "backend:test_with_guard")
+			} else {
+				assertStringSetOmits(t, plan.RequiredGates, "backend:test_with_guard")
+			}
+		})
+	}
+}
+
+func TestBuildGatePlanUsesBackendAsAIMaintenanceSelfTestSuperset(t *testing.T) {
+	plan := buildGatePlan([]string{"scripts/ai_maintenance/main.go"})
+	assertStringSetContains(t, plan.RequiredGates, "backend:test_with_guard")
+	assertStringSetOmits(t, plan.RequiredGates, "ai-maintenance:self-test")
+
+	hookPlan := buildGatePlan([]string{".githooks/pre-commit"})
+	assertStringSetContains(t, hookPlan.RequiredGates, "ai-maintenance:self-test")
+}
+
+func TestGatePlanProducerMatchesRunnerAndEvidenceRegistries(t *testing.T) {
+	producerGates := map[string]bool{}
+	for _, files := range [][]string{
+		{"scripts/ai_maintenance/main.go"},
+		{".githooks/pre-commit"},
+		{"frontend-app/src/App.jsx"},
+		{"internal/store/thread/store.go"},
+		{"docs/doc/codemap/ai-index.json"},
+	} {
+		for _, gate := range buildGatePlan(files).RequiredGates {
+			producerGates[gate] = true
+		}
+	}
+
+	runners := gateRunners(gatePlan{}, gateExecutionScope{})
+	assertRegistryMatchesProducer(t, producerGates, runners, "runner", "diff:whitespace")
+	assertRegistryMatchesProducer(t, producerGates, gateEvidenceCommandFragments(), "evidence", "diff:whitespace")
+}
+
+func TestGateRunnersCacheOnlyStaticGeneratedChecks(t *testing.T) {
+	cacheable := map[string]bool{
+		"project-map:check": true,
+	}
+	for gate, runner := range gateRunners(gatePlan{}, gateExecutionScope{}) {
+		if runner.cacheable != cacheable[gate] {
+			t.Errorf("gate %q cacheable=%v, want %v", gate, runner.cacheable, cacheable[gate])
+		}
+	}
+}
+
+func TestNewGateExecutionScopeRejectsAmbiguousWhitespaceTruth(t *testing.T) {
+	if _, err := newGateExecutionScope(true, []string{"base..head"}); err == nil {
+		t.Fatal("staged and push-range whitespace scopes were both accepted")
+	}
+	if _, err := newGateExecutionScope(false, []string{" "}); err == nil {
+		t.Fatal("empty push range was accepted")
+	}
+}
+
+func TestRunWhitespaceCheckUsesExplicitGitTruthScope(t *testing.T) {
+	binDir := t.TempDir()
+	logPath := filepath.Join(t.TempDir(), "git-args.log")
+	gitPath := filepath.Join(binDir, "git")
+	if err := os.WriteFile(gitPath, []byte("#!/usr/bin/env bash\nprintf '%s\\n' \"$*\" >>\"$GIT_ARGS_LOG\"\nif [ \"$*\" = \"hash-object -t tree /dev/null\" ]; then\n  printf '%040d\\n' 0\nfi\n"), 0o755); err != nil {
+		t.Fatalf("write fake git: %v", err)
+	}
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("GIT_ARGS_LOG", logPath)
+
+	if err := runWhitespaceCheck(gateExecutionScope{diffCached: true}); err != nil {
+		t.Fatalf("staged whitespace check: %v", err)
+	}
+	if err := runWhitespaceCheck(gateExecutionScope{diffRanges: []string{"a..b", "c..d", "head"}}); err != nil {
+		t.Fatalf("range whitespace check: %v", err)
+	}
+	if err := runWhitespaceCheck(gateExecutionScope{}); err != nil {
+		t.Fatalf("worktree whitespace check: %v", err)
+	}
+	data, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("read git args: %v", err)
+	}
+	got := strings.Split(strings.TrimSpace(string(data)), "\n")
+	want := []string{"diff --cached --check", "diff --check a..b", "diff --check c..d", "hash-object -t tree /dev/null", "diff --check 0000000000000000000000000000000000000000 head", "diff --check"}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("git whitespace invocations = %q, want %q", got, want)
+	}
 }
 
 func TestExcludeDeferredE2EGoPackagesKeepsFastPackages(t *testing.T) {
@@ -299,6 +428,28 @@ func writeEvidence(t *testing.T, body string) string {
 	return path
 }
 
+func TestGateCommandEnvironmentIsolatesCacheIndexFromNonGitGates(t *testing.T) {
+	t.Setenv("GIT_INDEX_FILE", filepath.Join(t.TempDir(), "staged-index"))
+
+	for _, entry := range gateCommandEnvironment("go") {
+		if strings.HasPrefix(entry, "GIT_INDEX_FILE=") {
+			t.Fatalf("non-git gate inherited staged index: %q", entry)
+		}
+	}
+
+	want := "GIT_INDEX_FILE=" + os.Getenv("GIT_INDEX_FILE")
+	found := false
+	for _, entry := range gateCommandEnvironment("git") {
+		if entry == want {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("git whitespace gate lost staged index %q", want)
+	}
+}
+
 func assertStringSetContains(t *testing.T, values []string, wants ...string) {
 	t.Helper()
 	set := map[string]bool{}
@@ -308,6 +459,38 @@ func assertStringSetContains(t *testing.T, values []string, wants ...string) {
 	for _, want := range wants {
 		if !set[want] {
 			t.Fatalf("missing %q in %#v", want, values)
+		}
+	}
+}
+
+func assertStringSetOmits(t *testing.T, values []string, unwanted ...string) {
+	t.Helper()
+	for _, value := range values {
+		for _, blocked := range unwanted {
+			if value == blocked {
+				t.Fatalf("unexpected value %q in %v", blocked, values)
+			}
+		}
+	}
+}
+
+func assertRegistryMatchesProducer[T any](t *testing.T, producer map[string]bool, registry map[string]T, name string, exempt ...string) {
+	t.Helper()
+	exemptions := map[string]bool{}
+	for _, gate := range exempt {
+		exemptions[gate] = true
+	}
+	for gate := range producer {
+		if exemptions[gate] {
+			continue
+		}
+		if _, ok := registry[gate]; !ok {
+			t.Errorf("%s registry missing produced gate %q", name, gate)
+		}
+	}
+	for gate := range registry {
+		if !producer[gate] {
+			t.Errorf("%s registry contains stale gate %q", name, gate)
 		}
 	}
 }

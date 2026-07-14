@@ -44,11 +44,11 @@ func assertPrePushGoOnlyScope(t *testing.T) {
 	fixture := newPrePushScopeFixture(t)
 	head := commitPrePushGoOnlyChange(t, fixture.root)
 	out := fixture.run(t, head)
-	assertOutputContainsAll(t, out, "[pre-push] go package tests: ./internal/app", "fake go package test ./internal/app -count=1", "pre-push OK")
+	assertOutputContainsAll(t, out, "[pre-push] AI maintenance gates", "pre-push OK")
 	assertOutputOmitsAll(t, out, "frontend-app tests")
 	log := fixture.log(t)
-	assertOutputContainsAll(t, log, "go-test ./internal/app -count=1 skip-gosec=1")
-	assertOutputOmitsAll(t, log, "node ", "npx ", "npm ")
+	assertOutputContainsAll(t, log, "ai-maintenance --skip-deferred-e2e --changed-file go.mod --changed-file internal/app/app.go")
+	assertOutputOmitsAll(t, log, "go-test ", "node ", "npx ", "npm ")
 }
 
 func commitPrePushGoOnlyChange(t *testing.T, root string) string {
@@ -65,11 +65,10 @@ func assertPrePushExcludesDeferredE2EScope(t *testing.T) {
 	fixture := newPrePushScopeFixture(t)
 	head := commitPrePushMixedFastAndDeferredE2EChange(t, fixture.root)
 	out := fixture.run(t, head)
-	assertOutputContainsAll(t, out, "[pre-push] go package tests: ./internal/app", "pre-push OK")
-	assertOutputOmitsAll(t, out, "./internal/provider/claudecli", "./internal/provider/codexapp")
+	assertOutputContainsAll(t, out, "[pre-push] AI maintenance gates", "pre-push OK")
 	log := fixture.log(t)
-	assertOutputContainsAll(t, log, "go-test ./internal/app -count=1", "ai-maintenance --skip-deferred-e2e")
-	assertOutputOmitsAll(t, log, "go-test ./internal/provider/claudecli", "go-test ./internal/provider/codexapp")
+	assertOutputContainsAll(t, log, "ai-maintenance --skip-deferred-e2e --changed-file go.mod --changed-file internal/app/app.go --changed-file internal/provider/claudecli/provider.go --changed-file internal/provider/codexapp/provider.go")
+	assertOutputOmitsAll(t, log, "go-test ")
 }
 
 func commitPrePushMixedFastAndDeferredE2EChange(t *testing.T, root string) string {
@@ -88,11 +87,11 @@ func assertPrePushFrontendAppOnlyScope(t *testing.T) {
 	fixture := newPrePushScopeFixture(t)
 	head := commitPrePushFrontendAppOnlyChange(t, fixture.root)
 	out := fixture.run(t, head)
-	assertOutputContainsAll(t, out, "[pre-push] frontend-app lint", "[pre-push] frontend-app tests", "[pre-push] frontend-app build", "pre-push OK")
+	assertOutputContainsAll(t, out, "[pre-push] AI maintenance gates", "pre-push OK")
 	assertOutputOmitsAll(t, out, "go package tests")
 	log := fixture.log(t)
-	assertOutputContainsAll(t, log, "npm run lint", "npm run test:hook", "npm run build")
-	assertOutputOmitsAll(t, log, "go-test ", "node ", "npx ")
+	assertOutputContainsAll(t, log, "ai-maintenance --skip-deferred-e2e --changed-file frontend-app/package.json --changed-file frontend-app/src/App.jsx")
+	assertOutputOmitsAll(t, log, "npm ", "go-test ", "node ", "npx ")
 }
 
 func commitPrePushFrontendAppOnlyChange(t *testing.T, root string) string {
@@ -199,9 +198,23 @@ func writePreCommitFakeCodeGuardScript(t *testing.T, root string) {
 	}
 }
 
+func preparePreCommitGateFixture(t *testing.T) string {
+	t.Helper()
+	root := prepareFixTestGuardRepo(t)
+	copyFixTestGuardRepoFile(t, root, ".githooks/pre-commit", 0o755)
+	copyFixTestGuardRepoFile(t, root, "scripts/configure_hook_node_runtime.sh", 0o755)
+	copyFixTestGuardRepoFile(t, root, "scripts/refresh_generated_artifacts.sh", 0o755)
+	writePreCommitFakeCodeGuardScript(t, root)
+	writeFakeAIMaintenanceGateScript(t, root)
+	writePreCommitFakeCodemapMakefile(t, root)
+	runFixTestGuardGit(t, root, "add", ".githooks/pre-commit", "scripts/configure_hook_node_runtime.sh", "scripts/refresh_generated_artifacts.sh", "scripts/test_with_guard.sh", "scripts/ai_maintenance_gates.sh", "Makefile")
+	runFixTestGuardGit(t, root, "commit", "-m", "chore: 安装 precommit fixture")
+	return root
+}
+
 func writeFakeAIMaintenanceGateScript(t *testing.T, root string) {
 	t.Helper()
-	content := "#!/usr/bin/env bash\nset -e\nprintf 'fake ai maintenance gate %s\\n' \"$*\"\nif [ -n \"${HOOK_SCOPE_LOG:-}\" ]; then\n  printf 'ai-maintenance %s\\n' \"$*\" >>\"$HOOK_SCOPE_LOG\"\nfi\n"
+	content := "#!/usr/bin/env bash\nset -e\nprintf 'fake ai maintenance gate %s\\n' \"$*\"\nprintf 'gate-worktree=%s\\n' \"$PWD\"\nif [ -n \"${GATE_MUTATE_ORIGINAL_PATH:-}\" ]; then\n  printf 'mutated during gate\\n' >\"$GATE_MUTATE_ORIGINAL_PATH\"\nfi\nif [ -n \"${GATE_ASSERT_RELATIVE_PATH:-}\" ]; then\n  grep -Fq \"${GATE_ASSERT_CONTENT:?}\" \"$GATE_ASSERT_RELATIVE_PATH\"\nfi\nif [ -n \"${GIT_INDEX_FILE:-}\" ]; then\n  printf 'gate-index=%s gate-tree=%s\\n' \"$GIT_INDEX_FILE\" \"$(git write-tree)\"\nfi\nif [ -n \"${GATE_ASSERT_WORKTREE_INDEX:-}\" ]; then\n  cache_tree=$(git write-tree)\n  worktree_tree=$(unset GIT_INDEX_FILE; git write-tree)\n  printf 'cache-tree=%s worktree-tree=%s\\n' \"$cache_tree\" \"$worktree_tree\"\n  [ \"$cache_tree\" = \"$worktree_tree\" ]\nfi\nif [ -n \"${GATE_ASSERT_NODE_MODULES_COPY:-}\" ]; then\n  [ -d frontend-app/node_modules ]\n  [ ! -L frontend-app/node_modules ]\n  [ -x frontend-app/node_modules/.bin/vite ]\nfi\nif [ -n \"${HOOK_SCOPE_LOG:-}\" ]; then\n  printf 'soft-generated=%s ai-maintenance %s\\n' \"${SUPER_DOLPHIN_PRE_PUSH_SOFT_GENERATED_DRIFT:-}\" \"$*\" >>\"$HOOK_SCOPE_LOG\"\nfi\n"
 	path := filepath.Join(root, "scripts", "ai_maintenance_gates.sh")
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatalf("mkdir fake ai maintenance gate dir: %v", err)
@@ -271,9 +284,20 @@ func runPrePushScopeHook(t *testing.T, root, stdin, binDir, logPath string) (str
 
 func runPreCommitHook(t *testing.T, root string) (string, error) {
 	t.Helper()
+	return runPreCommitHookWithEnv(t, root, nil)
+}
+
+func runPreCommitHookWithEnv(t *testing.T, root string, extra map[string]string) (string, error) {
+	t.Helper()
 	cmd := exec.Command("bash", bashPath(".githooks", "pre-commit"))
 	cmd.Dir = root
-	cmd.Env = appendWSLEnvKeysWithGitPath(t, os.Environ(), "PATH")
+	env := os.Environ()
+	keys := []string{"PATH"}
+	for key, value := range extra {
+		env = append(env, key+"="+value)
+		keys = append(keys, key)
+	}
+	cmd.Env = appendWSLEnvKeysWithGitPath(t, env, keys...)
 	out, err := cmd.CombinedOutput()
 	return string(out), err
 }

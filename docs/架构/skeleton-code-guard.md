@@ -30,7 +30,7 @@ guard rule source
 | CLI 适配 | `scripts/code_size_guard.go` | `check` / `--strict` / `--freeze` / 单文件模式；调用 `archtest.CheckAll` 和 freeze 流程 | 直接跑业务包测试 |
 | 验证编排 | `scripts/test_with_guard.sh`、`scripts/test_with_guard.ps1`、`scripts/go_with_guard.sh` | 禁 raw `go test`、运行代码守卫、跑 `internal/archtest`、按需追加 copylocks 和目标包测试 | 自动修复违规 |
 | Make 入口 | `make guard`、`make code-size-guard` | 给人工和脚本提供稳定命令 | 替代 hooks |
-| Hook 准入 | `.githooks/pre-commit`、`.githooks/pre-push` | 提交前跑全仓 guard；推送前按路径跑 Go/前端/SQL/codemap/skill/AI-maintenance gate | 生成任意未授权修改 |
+| Hook 准入 | `.githooks/pre-commit`、`.githooks/pre-push` | 提交前拒绝 index/worktree 真值分裂；推送前由 AI maintenance 单次执行 Go/前端/SQL/codemap 门禁，另跑 skill/capcontract | 生成任意未授权修改 |
 | 前端守卫 | `frontend-app/scripts/*guard*.mjs`、`frontend-app/package.json` | React/Vite 侧 critical skip、silent async failure、contract store、code-size、RPC contract 等校验 | Go 架构边界 |
 | 代码地图/能力索引 | `docs/doc/codemap/*`、`docs/doc/codemap/project-map/*`、`docs/doc/codemap/capability-contract/*` | 给人和 AI 提供模块边界、文件索引、能力契约和漂移报告 | 代替源码/LSP 判断 |
 | 生成物/AI gate | `scripts/refresh_generated_artifacts.sh`、`scripts/ai_maintenance_gates.sh`、`scripts/ai_maintenance/*` | codemap/project-map/capcontract 刷新与漂移检查、按变更路径推导 gate 和证据 | 代替源代码事实 |
@@ -134,11 +134,11 @@ npm run guard:critical-skip
 - Go 代码：`./scripts/test_with_guard.sh <packages> -count=1`。
 - 前端代码：`npm run lint`、`npm run test:hook`、`npm run build`。
 - SQL/store：`make sqlc-verify`。
-- codemap/project-map/capcontract：对应 `make *-check`；codemap/project-map drift 在 pre-push 是 soft warning。
+- codemap/project-map：由 AI maintenance 对应 `make *-check`，任何 drift 在 pre-commit/pre-push 都 fail-fast；capcontract 保留独立路径门禁。
 - skill/doc skill surface：`python3 scripts/validate_super_agent_skills.py`。
 - AI-maintenance 自身或相关路径：`scripts/ai_maintenance_gates.sh`。
 
-`scripts/ai_maintenance/*` 的 gate plan 以变更路径推导 required gates，例如 `backend:test_with_guard`、`repo:guard`、`sqlc:verify`、`codemap:check`、`project-map:check`、`frontend:*` 和 `diff:whitespace`。
+`scripts/ai_maintenance/*` 的 gate plan 以变更路径推导 required gates，例如 `backend:test_with_guard`、`sqlc:verify`、`codemap:check`、`project-map:check`、`frontend:*` 和 `diff:whitespace`；Go module、两个 sqlc 配置、查询与迁移目录，以及 Makefile/门禁脚本都路由到真实下游检查。`backend:test_with_guard` 已包含 AI maintenance Go 自测、全仓代码守卫和 archtest，不再追加等价的 self-test、`repo:guard` 或第二轮 archtest。pre-commit 会把最终 staged tree 展开到临时 linked worktree，再执行 AI maintenance，避免原 worktree 的 TOCTOU/ABA；结果缓存仅允许输入闭包可审计的 `project-map:check` 短期复用，指纹绑定 staged tree 派生的隔离 index、临时 staged worktree 和 UTC 日期。override symlink 直接阻断，与 project-map 无关的 untracked 文件不进入 key。codemap、行为测试、前端检查、ignored embed 产物验证和 SQLC 再生成检查每次真实执行。pre-commit 的 whitespace gate 使用 `git diff --cached --check`；pre-push 不复用缓存，并逐个检查实际 push range；无共同祖先的新分支按 empty tree 到 HEAD 的完整文件面路由，由 AI maintenance 作为这些门禁的唯一执行 owner。
 
 ---
 
@@ -164,7 +164,7 @@ source tree / generator
 
 1. 回答路径、影响面或架构边界问题时，先用 codemap/project-map 缩小范围，再用源码、测试和 LSP 确认。
 2. codemap/project-map/capcontract 看起来过期时，优先修生成器或运行统一刷新入口，不手改生成内容。
-3. pre-commit 可以刷新并 stage 生成索引；pre-push 对 codemap/project-map drift 目前是 soft warning，但仍是必须解释的架构证据。
+3. pre-commit 可以刷新并 stage 生成索引；pre-push 由 AI maintenance 单次检查 codemap/project-map，任何 drift 都会阻断，不能以 warning 形成假绿。
 4. AI-maintenance gate 把 `codemap:check`、`project-map:check` 和 `generated:source` 当成证据要求，避免 stale map 继续指导修复。
 
 ---

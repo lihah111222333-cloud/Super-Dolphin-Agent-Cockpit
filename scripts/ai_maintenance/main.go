@@ -17,6 +17,17 @@ import (
 
 var agentIDPattern = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
 
+var aiMaintenanceFiles = map[string]bool{
+	"Makefile":                                   true,
+	"scripts/ai_maintenance_gates.sh":            true,
+	"scripts/ai_maintenance_gates_guard_test.go": true,
+	"scripts/configure_hook_node_runtime.sh":     true,
+	"scripts/frontend_embed_verify.sh":           true,
+	"scripts/refresh_generated_artifacts.sh":     true,
+	"scripts/sqlc_verify_worktree.sh":            true,
+	"scripts/test_with_guard.sh":                 true,
+}
+
 var coreBackendGatePackages = []string{
 	"./cmd/mcp-lsp",
 	"./cmd/mcp-orch",
@@ -29,7 +40,6 @@ var coreBackendGatePackages = []string{
 	"./internal/provider/codexapp",
 	"./internal/provider/claudecli",
 	"./internal/provider",
-	"./internal/archtest",
 	"./scripts",
 	"./scripts/ai_maintenance",
 }
@@ -122,8 +132,14 @@ func runGates(args []string) error {
 	evidencePath := fs.String("evidence", "", "optional AI maintenance evidence file to validate")
 	printPlan := fs.Bool("print-plan", false, "print gate plan and exit")
 	skipDeferredE2E := fs.Bool("skip-deferred-e2e", false, "exclude deferred provider E2E packages from this gate run")
+	cacheDir := fs.String("cache-dir", "", "optional directory for staged-input gate result caching")
+	cacheMaxAge := fs.Duration("cache-max-age", defaultGateCacheMaxAge, "maximum age for a cached green gate result")
+	cacheScope := fs.String("cache-scope", "", "staged Git tree used as the cache truth source")
+	diffCached := fs.Bool("diff-cached", false, "run whitespace checks against the staged index")
 	changed := multiFlag{}
+	diffRanges := multiFlag{}
 	fs.Var(&changed, "changed-file", "changed file path; may be repeated")
+	fs.Var(&diffRanges, "diff-range", "Git range checked for whitespace errors; may be repeated")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -151,14 +167,29 @@ func runGates(args []string) error {
 		enc.SetIndent("", "  ")
 		return enc.Encode(plan)
 	}
-	if *evidencePath != "" {
-		if err := validateEvidenceFile(*evidencePath, plan); err != nil {
-			return err
-		}
-	} else if plan.RequiresEvidenceDoc {
+	if err := validateOptionalEvidence(*evidencePath, plan); err != nil {
+		return err
+	}
+	cache, err := optionalGateResultCache(*cacheDir, *cacheMaxAge, *cacheScope)
+	if err != nil {
+		return err
+	}
+	executionScope, err := newGateExecutionScope(*diffCached, diffRanges)
+	if err != nil {
+		return err
+	}
+	return executeGatePlanWithCache(plan, cache, executionScope)
+}
+
+// validateOptionalEvidence 校验显式证据文件；未提供时保留控制器阻断提示但继续运行命令 gate。
+func validateOptionalEvidence(path string, plan gatePlan) error {
+	if path != "" {
+		return validateEvidenceFile(path, plan)
+	}
+	if plan.RequiresEvidenceDoc {
 		fmt.Fprintln(os.Stderr, "ai-maintenance evidence file not supplied; command gates will run, but LSP evidence remains controller-blocking")
 	}
-	return executeGatePlan(plan)
+	return nil
 }
 
 func runValidateEvidence(args []string) error {
@@ -200,7 +231,7 @@ func buildGatePlan(files []string) gatePlan {
 	}
 	if backendChanged {
 		gates["backend:test_with_guard"] = true
-		gates["repo:guard"] = true
+		delete(gates, "ai-maintenance:self-test")
 	}
 	plan.RequiredGates = orderedGates(gates)
 	plan.RequiredEvidence = sortedKeys(evidence)
@@ -218,7 +249,13 @@ func applyFileGateRules(file string, gates, evidence, generated map[string]bool)
 	if aiMaintenanceRelevant(file) {
 		gates["ai-maintenance:self-test"] = true
 	}
-	if strings.HasPrefix(file, "sql/") || strings.HasPrefix(file, "migrations/") || strings.HasPrefix(file, "internal/store/") {
+	if applyGateInfrastructureRules(file, gates) {
+		backendChanged = true
+	}
+	if goModuleFile(file) {
+		backendChanged = true
+	}
+	if sqlcRelevant(file) {
 		gates["sqlc:verify"] = true
 	}
 	if codemapRelevant(file) {
@@ -232,13 +269,54 @@ func applyFileGateRules(file string, gates, evidence, generated map[string]bool)
 	return backendChanged
 }
 
+func goModuleFile(file string) bool {
+	switch file {
+	case "go.mod", "go.sum", "go.work", "go.work.sum":
+		return true
+	default:
+		return false
+	}
+}
+
+// sqlcRelevant 覆盖两个生成入口、其配置、查询、迁移以及共享 store 消费面。
+func sqlcRelevant(file string) bool {
+	return file == "sqlc.yaml" ||
+		file == "cmd/mcp-orch/sqlc.yaml" ||
+		goModuleFile(file) ||
+		strings.HasPrefix(file, "sql/") ||
+		strings.HasPrefix(file, "migrations/") ||
+		strings.HasPrefix(file, "cmd/mcp-orch/sql/") ||
+		strings.HasPrefix(file, "internal/platform/db/sqlite/migrations/") ||
+		strings.HasPrefix(file, "internal/store/")
+}
+
 // aiMaintenanceRelevant 识别会改变本 gate 自身行为的文件，触发自测避免 workflow/script 空绿。
 func aiMaintenanceRelevant(file string) bool {
-	return file == ".githooks/pre-commit" ||
-		file == ".githooks/pre-push" ||
-		file == "scripts/ai_maintenance_gates.sh" ||
-		file == "scripts/ai_maintenance_gates_guard_test.go" ||
+	return aiMaintenanceFiles[file] ||
+		(strings.HasPrefix(file, ".githooks/") && !strings.HasSuffix(file, ".md")) ||
 		strings.HasPrefix(file, "scripts/ai_maintenance/")
+}
+
+// applyGateInfrastructureRules 将门禁基础设施变更路由到其真实下游验证面。
+func applyGateInfrastructureRules(file string, gates map[string]bool) bool {
+	switch file {
+	case "Makefile":
+		gates["sqlc:verify"] = true
+		gates["frontend:embed-verify"] = true
+		gates["codemap:check"] = true
+		gates["project-map:check"] = true
+		return true
+	case "scripts/test_with_guard.sh":
+		return true
+	case "scripts/sqlc_verify_worktree.sh":
+		gates["sqlc:verify"] = true
+	case "scripts/frontend_embed_verify.sh":
+		gates["frontend:embed-verify"] = true
+	case "scripts/refresh_generated_artifacts.sh":
+		gates["codemap:check"] = true
+		gates["project-map:check"] = true
+	}
+	return false
 }
 
 func applySourceGateRules(file string, gates, evidence map[string]bool) bool {
@@ -259,7 +337,7 @@ func applySourceGateRules(file string, gates, evidence map[string]bool) bool {
 	return false
 }
 
-// affectedGoPackages combines stable backend regression packages with concrete Go packages touched by the diff.
+// affectedGoPackages 合并稳定后端回归包与 diff 命中的 Go 包，并避免 archtest 被守卫包装器重复执行。
 func affectedGoPackages(files []string) []string {
 	packages := map[string]bool{}
 	for _, pkg := range coreBackendGatePackages {
@@ -267,6 +345,9 @@ func affectedGoPackages(files []string) []string {
 	}
 	for _, file := range files {
 		if pkg, ok := changedGoPackage(file); ok {
+			if pkg == "./internal/archtest" {
+				continue
+			}
 			packages[pkg] = true
 		}
 	}
@@ -299,57 +380,6 @@ func requireLSPEvidence(file string, evidence map[string]bool) {
 		evidence["lsp:inspect"] = true
 		evidence["lsp:xref"] = true
 		evidence["lsp:read_file"] = true
-	}
-}
-
-// executeGatePlan 严格按计划执行命令；必需 gate 缺少 runner 时立即失败。
-func executeGatePlan(plan gatePlan) error {
-	runners := gateRunners(plan)
-	for _, gate := range plan.RequiredGates {
-		run, ok := runners[gate]
-		if !ok {
-			return fmt.Errorf("required gate %q has no runner", gate)
-		}
-		if err := run(); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// gateRunners 根据 gate 计划构造可执行命令表，并在 pre-push 软漂移模式下放行生成物检查。
-func gateRunners(plan gatePlan) map[string]func() error {
-	generatedCheck := func(name string, args ...string) func() error {
-		return func() error {
-			err := runCommand("", name, args...)
-			if err != nil && os.Getenv("SUPER_DOLPHIN_PRE_PUSH_SOFT_GENERATED_DRIFT") == "1" {
-				fmt.Fprintf(os.Stderr, "ai-maintenance: generated artifact drift warning for %s %s: %v\n", name, strings.Join(args, " "), err)
-				return nil
-			}
-			return err
-		}
-	}
-	return map[string]func() error{
-		"ai-maintenance:self-test": func() error {
-			if err := runCommand("", "go", "test", "./scripts/ai_maintenance", "-count=1"); err != nil {
-				return err
-			}
-			return runCommand("", "go", "test", "./scripts", "-run", "TestAIMaintenanceGate", "-count=1")
-		},
-		"backend:test_with_guard": func() error {
-			args := append([]string{"./scripts/test_with_guard.sh"}, plan.AffectedGoPackages...)
-			args = append(args, "-count=1")
-			return runCommand("", args[0], args[1:]...)
-		},
-		"frontend:lint":         func() error { return runCommand("frontend-app", "npm", "run", "lint") },
-		"frontend:test":         func() error { return runCommand("frontend-app", "npm", "test") },
-		"frontend:build":        func() error { return runCommand("frontend-app", "npm", "run", "build") },
-		"frontend:embed-verify": func() error { return runCommand("", "make", "frontend-embed-verify") },
-		"codemap:check":         generatedCheck("make", "codemap-check"),
-		"project-map:check":     generatedCheck("make", "project-map-check"),
-		"repo:guard":            func() error { return runCommand("", "make", "guard") },
-		"sqlc:verify":           func() error { return runCommand("", "make", "sqlc-verify-worktree") },
-		"diff:whitespace":       func() error { return runCommand("", "git", "diff", "--check") },
 	}
 }
 
@@ -643,18 +673,7 @@ func (p *evidenceParser) setGeneratedPrecheck(value string) {
 
 // commandForGatePresent 将 gate 名称映射到 evidence 中必须出现的命令片段。
 func commandForGatePresent(commands []evidenceCommand, gate string) bool {
-	wants := map[string][]string{
-		"ai-maintenance:self-test": {"go test ./scripts/ai_maintenance", "go test ./scripts -run TestAIMaintenanceGate"},
-		"backend:test_with_guard":  {"./scripts/test_with_guard.sh"},
-		"frontend:lint":            {"npm run lint"},
-		"frontend:test":            {"npm test"},
-		"frontend:build":           {"npm run build"},
-		"frontend:embed-verify":    {"make frontend-embed-verify"},
-		"codemap:check":            {"make codemap-check"},
-		"project-map:check":        {"make project-map-check"},
-		"repo:guard":               {"make guard"},
-		"sqlc:verify":              {"make sqlc-verify-worktree", "make sqlc-verify"},
-	}
+	wants := gateEvidenceCommandFragments()
 	for _, cmd := range commands {
 		for _, want := range wants[gate] {
 			if strings.Contains(cmd.Cmd, want) {
@@ -663,6 +682,20 @@ func commandForGatePresent(commands []evidenceCommand, gate string) bool {
 		}
 	}
 	return false
+}
+
+func gateEvidenceCommandFragments() map[string][]string {
+	return map[string][]string{
+		"ai-maintenance:self-test": {"go test ./scripts/ai_maintenance", "go test ./scripts -run TestAIMaintenanceGate"},
+		"backend:test_with_guard":  {"./scripts/test_with_guard.sh"},
+		"frontend:lint":            {"npm run lint"},
+		"frontend:test":            {"npm test"},
+		"frontend:build":           {"npm run build"},
+		"frontend:embed-verify":    {"make frontend-embed-verify"},
+		"codemap:check":            {"make codemap-check"},
+		"project-map:check":        {"make project-map-check"},
+		"sqlc:verify":              {"make sqlc-verify-worktree", "make sqlc-verify"},
+	}
 }
 
 func generatedEvidencePresent(files []evidenceGeneratedFile, path string) bool {
@@ -725,6 +758,7 @@ func changedFilesFromGit(base string) ([]string, error) {
 func runCommand(dir, name string, args ...string) error {
 	fmt.Printf("\n==> %s %s\n", name, strings.Join(args, " "))
 	cmd := exec.Command(name, args...)
+	cmd.Env = gateCommandEnvironment(name)
 	if dir != "" {
 		cmd.Dir = dir
 	}
@@ -797,7 +831,6 @@ func orderedGates(values map[string]bool) []string {
 		"sqlc:verify",
 		"codemap:check",
 		"project-map:check",
-		"repo:guard",
 		"diff:whitespace",
 	}
 	var out []string

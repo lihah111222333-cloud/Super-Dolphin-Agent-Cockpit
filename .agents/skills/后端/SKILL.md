@@ -100,7 +100,7 @@ trigger_words: ["Go后端", "golang", "go", "backend", "fx", "sqlc", "jrpc2", "r
 |------|----------------|---------|
 | 推送对象 | push 前记录 `git rev-parse HEAD`、当前分支与目标 remote/ref | `.githooks/pre-push` 只允许推送当前 `HEAD`；检查对象不一致即阻断。 |
 | pre-push | 本次 `git push` 输出中出现实际执行的提交信息、fix-test、AI maintenance 和变更影响面 gate，最终 `pre-push OK`，且 push 退出码为 0 | Go 变更按 push range 跑受影响包；前端变更跑 lint、非 e2e test、build；相关 sqlc、capability contract、技能镜像检查必须按 hook 条件执行。 |
-| 软门禁 | 输出中的 codemap / project-map drift warning 及对应失败命令 | 当前 pre-push 对这两类生成物漂移只告警、不阻断。可以报告“push hook 通过但有软门禁告警”，不得写成“全部门禁全绿”。 |
+| 生成物门禁 | codemap / project-map check 的命令与退出码 | pre-commit 和 pre-push 都必须 fail-fast；任一 drift 或生成命令失败均为 blocker，不得降级成 warning。 |
 | 远端落点 | push 成功输出，并用 `git ls-remote <remote> <ref>` 或等价远端查询确认目标 ref SHA 等于推送前记录的 `HEAD` | `pre-push OK` 只证明推送前检查通过，不证明远端已接收；远端 SHA 未对齐时不得声称“已推送”。 |
 
 ### 结论口径
@@ -109,7 +109,7 @@ trigger_words: ["Go后端", "golang", "go", "backend", "fx", "sqlc", "jrpc2", "r
 - “已提交”：提交门禁通过，且已核对 commit SHA 与提交内容；同时报告未提交/未跟踪的同范围改动。
 - “可推送”：提交对象和 pre-push 所需检查具备通过证据，但尚未确认远端更新。
 - “已推送”：`git push` 成功，且远端目标 ref SHA 与本地目标 commit 一致。
-- 任一强制 gate 失败均为 blocker；软门禁告警、未覆盖的 deferred E2E / CI 检查和脏工作区必须单独披露，不能被汇总成全绿。
+- 任一强制 gate 失败均为 blocker；未覆盖的 deferred E2E / CI 检查和脏工作区必须单独披露，不能被汇总成全绿。
 
 提交/推送 hook 的当前行为以 `.githooks/pre-commit`、`.githooks/commit-msg`、`.githooks/pre-push` 和 `.githooks/README.md` 为事实来源；技能不得复制一份与 hook 漂移的静态命令清单。
 

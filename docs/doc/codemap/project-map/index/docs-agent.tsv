@@ -906,7 +906,7 @@ docs/契约/statemachine-event-convention.md	docs	docs-agent	doc	32361	项目文
 docs/契约/workflow-runtime-state-contract.md	docs	docs-agent	doc	4630	项目文档体系	docs,契约,workflow,runtime,state,contract,项目文档体系
 docs/架构/fx-rungroup-skeleton.md	docs	docs-agent	doc	4096	项目文档体系	docs,架构,fx,rungroup,skeleton,项目文档体系
 docs/架构/README.md	docs	docs-agent	doc	2026	项目文档体系	docs,架构,README,项目文档体系
-docs/架构/skeleton-code-guard.md	docs	docs-agent	doc	10700	项目文档体系	docs,架构,skeleton,code,guard,项目文档体系
+docs/架构/skeleton-code-guard.md	docs	docs-agent	doc	11851	项目文档体系	docs,架构,skeleton,code,guard,项目文档体系
 docs/架构/skeleton-event.md	docs	docs-agent	doc	4409	项目文档体系	docs,架构,skeleton,event,项目文档体系
 docs/架构/skeleton-fx.md	docs	docs-agent	doc	14159	项目文档体系	docs,架构,skeleton,fx,项目文档体系
 docs/架构/skeleton-jrpc2.md	docs	docs-agent	doc	4952	项目文档体系	docs,架构,skeleton,jrpc2,项目文档体系
@@ -920,9 +920,9 @@ docs/调研/context-window/raw-opensource-agents.md	docs	docs-agent	doc	17535	�
 docs/调研/context-window/上下文窗口去硬编码调研.md	docs	docs-agent	doc	21665	项目文档体系	docs,调研,context,window,上下文窗口去硬编码调研,项目文档体系
 docs/迁移/契约/stateless-convention.md	docs	docs-agent	doc	4071	项目文档体系	docs,迁移,契约,stateless,convention,项目文档体系
 docs/面试试题.md	docs	docs-agent	doc	7567	项目文档体系	docs,面试试题,项目文档体系
-README.de.md	(root)	docs-agent	doc	30960	仓库根级配置、入口或说明文件	README,de,仓库根级配置,入口或说明文件
-README.es.md	(root)	docs-agent	doc	31496	仓库根级配置、入口或说明文件	README,es,仓库根级配置,入口或说明文件
-README.ja.md	(root)	docs-agent	doc	32286	仓库根级配置、入口或说明文件	README,ja,仓库根级配置,入口或说明文件
-README.ko.md	(root)	docs-agent	doc	30931	仓库根级配置、入口或说明文件	README,ko,仓库根级配置,入口或说明文件
-README.md	(root)	docs-agent	doc	27829	仓库根级配置、入口或说明文件	README,仓库根级配置,入口或说明文件
-README.zh-CN.md	(root)	docs-agent	doc	24810	仓库根级配置、入口或说明文件	README,zh,CN,仓库根级配置,入口或说明文件
+README.de.md	(root)	docs-agent	doc	31692	仓库根级配置、入口或说明文件	README,de,仓库根级配置,入口或说明文件
+README.es.md	(root)	docs-agent	doc	32239	仓库根级配置、入口或说明文件	README,es,仓库根级配置,入口或说明文件
+README.ja.md	(root)	docs-agent	doc	33008	仓库根级配置、入口或说明文件	README,ja,仓库根级配置,入口或说明文件
+README.ko.md	(root)	docs-agent	doc	31627	仓库根级配置、入口或说明文件	README,ko,仓库根级配置,入口或说明文件
+README.md	(root)	docs-agent	doc	28436	仓库根级配置、入口或说明文件	README,仓库根级配置,入口或说明文件
+README.zh-CN.md	(root)	docs-agent	doc	25369	仓库根级配置、入口或说明文件	README,zh,CN,仓库根级配置,入口或说明文件

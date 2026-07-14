@@ -348,7 +348,19 @@ function loadRuleOverrides(options) {
   for (const absPath of candidates) {
     if (seen.has(absPath)) continue;
     seen.add(absPath);
-    if (!fs.existsSync(absPath)) continue;
+    let info;
+    try {
+      info = fs.lstatSync(absPath);
+    } catch (error) {
+      if (error?.code === 'ENOENT') continue;
+      throw error;
+    }
+    if (info.isSymbolicLink()) {
+      throw new Error(`project-map: rules file must not be a symbolic link: ${path.relative(ROOT, absPath)}`);
+    }
+    if (!info.isFile()) {
+      throw new Error(`project-map: rules path must be a regular file: ${path.relative(ROOT, absPath)}`);
+    }
     const raw = fs.readFileSync(absPath, 'utf8');
     const patch = JSON.parse(raw);
     applyRulesPatch(patch, absPath);

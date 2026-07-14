@@ -5,7 +5,10 @@ set -e
 
 # Push hooks must not run gosec; keep security scans out of the local push path.
 export SUPER_DOLPHIN_GITHOOK_SKIP_GOSEC=1
+export SUPER_DOLPHIN_GUARD_FAIL_ON_DRIFT=1
 
+# Hook contract fixes cwd at the repository root.
+# shellcheck disable=SC1091
 source scripts/configure_hook_node_runtime.sh
 
 run_without_git_env() (
@@ -24,21 +27,13 @@ run_without_git_env() (
 )
 
 PUSH_RANGES=$(mktemp -t pre-push-ranges.XXXXXX)
-GO_LIST_ERR=$(mktemp -t pre-push-golist.XXXXXX)
-LOG=
-GO_PKG_CANDIDATES=()
 AI_MAINTENANCE_CHANGED_FILES=()
-DEFERRED_E2E_GO_PACKAGES_FILE=scripts/ai_maintenance/deferred_e2e_packages.txt
 HAS_FRONTEND_APP_CODE_CHANGES=0
-HAS_SQLC_CHANGES=0
 HAS_CODEMAP_CHANGES=0
 HAS_CAPCONTRACT_CHANGES=0
 HAS_SKILL_CHANGES=0
 cleanup() {
-  rm -f "$PUSH_RANGES" "$GO_LIST_ERR"
-  if [ -n "${LOG:-}" ]; then
-    rm -f "$LOG"
-  fi
+  rm -f "$PUSH_RANGES"
 }
 trap cleanup EXIT
 
@@ -84,53 +79,6 @@ array_contains() {
   return 1
 }
 
-is_go_path() {
-  case "$1" in
-    *.go) return 0 ;;
-    *) return 1 ;;
-  esac
-}
-
-pkg_for_path() {
-  local dir
-  dir=$(dirname "$1")
-  if [ "$dir" = "." ]; then
-    printf '.'
-  else
-    printf './%s' "$dir"
-  fi
-}
-
-is_deferred_e2e_go_pkg() {
-  local candidate package_name
-  candidate=$1
-  if [ ! -r "$DEFERRED_E2E_GO_PACKAGES_FILE" ]; then
-    echo "❌ deferred E2E package manifest missing: $DEFERRED_E2E_GO_PACKAGES_FILE" >&2
-    exit 1
-  fi
-  while IFS= read -r package_name || [ -n "$package_name" ]; do
-    case "$package_name" in
-      ''|'#'*) continue ;;
-    esac
-    if [ "$candidate" = "$package_name" ]; then
-      return 0
-    fi
-  done <"$DEFERRED_E2E_GO_PACKAGES_FILE"
-  return 1
-}
-
-add_go_pkg_for_path() {
-  local pkg
-  is_go_path "$1" || return 0
-  pkg=$(pkg_for_path "$1")
-  if is_deferred_e2e_go_pkg "$pkg"; then
-    return 0
-  fi
-  if ! array_contains "$pkg" "${GO_PKG_CANDIDATES[@]}"; then
-    GO_PKG_CANDIDATES+=("$pkg")
-  fi
-}
-
 add_ai_maintenance_path() {
   if ! array_contains "$1" "${AI_MAINTENANCE_CHANGED_FILES[@]}"; then
     AI_MAINTENANCE_CHANGED_FILES+=("$1")
@@ -174,18 +122,6 @@ add_frontend_path() {
   fi
 }
 
-add_sqlc_path() {
-  case "$1" in
-    sql/queries/*|\
-    internal/platform/db/sqlite/migrations/*|\
-    cmd/mcp-orch/sql/*|\
-    sqlc.yaml|\
-    cmd/mcp-orch/sqlc.yaml)
-      HAS_SQLC_CHANGES=1
-      ;;
-  esac
-}
-
 add_codemap_path() {
   case "$1" in
     docs/doc/codemap/*|.ai-project-map.overrides.json|scripts/codemap_index.go|scripts/generate_ai_project_map.mjs)
@@ -215,9 +151,7 @@ add_skill_path() {
 
 record_changed_path() {
   add_ai_maintenance_path "$1"
-  add_go_pkg_for_path "$1"
   add_frontend_path "$1"
-  add_sqlc_path "$1"
   add_codemap_path "$1"
   add_capcontract_path "$1"
   add_skill_path "$1"
@@ -242,11 +176,15 @@ consume_name_status_stream() {
 }
 
 collect_changed_paths_for_range() {
-  local range=$1
+  local range=$1 empty_tree
   if [[ "$range" == *..* ]]; then
     consume_name_status_stream < <(git diff --name-status -z --diff-filter=ACMRD "$range")
   else
-    consume_name_status_stream < <(git diff-tree --root --no-commit-id --name-status -z -r "$range")
+    if ! empty_tree=$(git hash-object -t tree /dev/null); then
+      echo "❌ 无法计算新分支 empty tree，拒绝缩小 gate 变更面" >&2
+      exit 1
+    fi
+    consume_name_status_stream < <(git diff --name-status -z --diff-filter=ACMRD "$empty_tree" "$range")
   fi
 }
 
@@ -260,129 +198,7 @@ collect_changed_test_scopes() {
   done < <(sort -u "$PUSH_RANGES")
 }
 
-resolve_go_pkgs() {
-  local p pkg_dir
-  GO_PKGS=()
-  for p in "${GO_PKG_CANDIDATES[@]}"; do
-    pkg_dir=${p#./}
-    if [ "$p" = "." ]; then
-      pkg_dir="."
-    fi
-    if [ ! -d "$pkg_dir" ]; then
-      continue
-    fi
-    if run_without_git_env go list "$p" >/dev/null 2>"$GO_LIST_ERR"; then
-      GO_PKGS+=("$p")
-      continue
-    fi
-    if grep -q -e "no Go files" -e "build constraints exclude all Go files" "$GO_LIST_ERR"; then
-      continue
-    fi
-    echo "❌ go list 失败：$p" >&2
-    cat "$GO_LIST_ERR" >&2
-    exit 1
-  done
-}
-
-run_go_package_tests() {
-  resolve_go_pkgs
-  if [ ${#GO_PKGS[@]} -eq 0 ]; then
-    if [ ${#GO_PKG_CANDIDATES[@]} -gt 0 ]; then
-      echo "[pre-push] go package tests... (skipped: no remaining Go package)"
-    fi
-    return 0
-  fi
-
-  echo "[pre-push] go package tests: ${GO_PKGS[*]}"
-  LOG=$(mktemp -t pre-push-go.XXXXXX)
-  if run_without_git_env env SUPER_DOLPHIN_GUARD_FAIL_ON_DRIFT=1 ./scripts/test_with_guard.sh "${GO_PKGS[@]}" -count=1 >"$LOG" 2>&1; then
-    grep -v '^ld: warning:' "$LOG" || true
-    rm -f "$LOG"
-    LOG=
-    return 0
-  else
-    local rc=$?
-    grep -v '^ld: warning:' "$LOG" >&2 || true
-    echo "" >&2
-    echo "❌ Go 包级测试未通过，push 已拒绝" >&2
-    echo "  ⚠️  紧急 bypass（违反仓库规约 docs/1/会话习惯.md §10.12«禁止 bypass pre-commit hook»、需事后补检查）：git push --no-verify" >&2
-    exit "$rc"
-  fi
-}
-
-run_frontend_app_package_tests() {
-  if [ "$HAS_FRONTEND_APP_CODE_CHANGES" -ne 1 ]; then
-    return 0
-  fi
-
-  echo "[pre-push] frontend-app lint..."
-  (
-    cd frontend-app
-    if ! npm run lint; then
-      echo "❌ frontend-app lint 失败，push 已拒绝" >&2
-      echo "  ⚠️  紧急 bypass（违反仓库规约 docs/1/会话习惯.md §10.12«禁止 bypass pre-commit hook»、需事后补检查）：git push --no-verify" >&2
-      exit 1
-    fi
-  )
-
-  echo "[pre-push] frontend-app tests..."
-  (
-    cd frontend-app
-    if ! npm run test:hook; then
-      echo "❌ frontend-app 测试失败，push 已拒绝" >&2
-      echo "  ⚠️  紧急 bypass（违反仓库规约 docs/1/会话习惯.md §10.12«禁止 bypass pre-commit hook»、需事后补检查）：git push --no-verify" >&2
-      exit 1
-    fi
-  )
-
-  echo "[pre-push] frontend-app build..."
-  (
-    cd frontend-app
-    if ! npm run build; then
-      echo "❌ frontend-app 构建失败，push 已拒绝" >&2
-      echo "  ⚠️  紧急 bypass（违反仓库规约 docs/1/会话习惯.md §10.12«禁止 bypass pre-commit hook»、需事后补检查）：git push --no-verify" >&2
-      exit 1
-    fi
-  )
-}
-
-run_frontend_embed_verify() {
-  if [ "$HAS_FRONTEND_APP_CODE_CHANGES" -ne 1 ]; then
-    return 0
-  fi
-
-  echo "[pre-push] frontend embed verify..."
-  if [ ! -f Makefile ]; then
-    echo "[pre-push] frontend embed verify... (skipped: Makefile missing)"
-    return 0
-  fi
-  run_without_git_env make frontend-embed-verify
-}
-
-warn_generated_artifact_drift() {
-  local label="$1"
-  shift
-
-  echo "[pre-push] ${label}..."
-  if run_without_git_env "$@"; then
-    return 0
-  fi
-
-  echo "⚠️  [pre-push] ${label} reported generated artifact drift; this gate is soft and will not block push" >&2
-  echo "  如果 push 随后失败，请查看本 warning 之后的第一条 ❌ 或失败命令；那才是阻断原因。" >&2
-  echo "  提交前请用对应 refresh 命令更新生成物，或确认 pre-commit 已在提交中刷新。" >&2
-  return 0
-}
-
 run_path_based_repository_gates() {
-  if [ "$HAS_SQLC_CHANGES" -eq 1 ]; then
-    echo "[pre-push] sqlc verify..."
-    run_without_git_env make sqlc-verify
-  fi
-  if [ "$HAS_CODEMAP_CHANGES" -eq 1 ]; then
-    warn_generated_artifact_drift "codemap check" make codemap-check
-    warn_generated_artifact_drift "project map check" make project-map-check
-  fi
   if [ "$HAS_CAPCONTRACT_CHANGES" -eq 1 ]; then
     echo "[pre-push] capability contract check..."
     run_without_git_env make capcontract-check
@@ -399,13 +215,17 @@ run_ai_maintenance_push_gate() {
   fi
 
   local args=(--skip-deferred-e2e)
-  local path
+  local path range
   for path in "${AI_MAINTENANCE_CHANGED_FILES[@]}"; do
     args+=(--changed-file "$path")
   done
+  while IFS= read -r range; do
+    [ -n "$range" ] || continue
+    args+=(--diff-range "$range")
+  done < <(sort -u "$PUSH_RANGES")
 
   echo "[pre-push] AI maintenance gates..."
-  SUPER_DOLPHIN_PRE_PUSH_SOFT_GENERATED_DRIFT=1 run_without_git_env ./scripts/ai_maintenance_gates.sh "${args[@]}"
+  run_without_git_env ./scripts/ai_maintenance_gates.sh "${args[@]}"
 }
 
 configure_pre_push_node_runtime() {
@@ -463,9 +283,6 @@ fi
 collect_changed_test_scopes
 configure_pre_push_node_runtime
 run_ai_maintenance_push_gate
-run_go_package_tests
-run_frontend_app_package_tests
-run_frontend_embed_verify
 run_path_based_repository_gates
 
 echo "✅ pre-push OK"
