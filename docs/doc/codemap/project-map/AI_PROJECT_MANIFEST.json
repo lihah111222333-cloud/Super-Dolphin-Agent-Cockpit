@@ -1,17 +1,17 @@
 {
   "version": "1.0",
   "generator": "node:scripts/generate_ai_project_map.mjs",
-  "generated_at": "2026-07-13",
+  "generated_at": "2026-07-14",
   "rules_sources": [
     ".ai-project-map.overrides.json"
   ],
-  "files": 4543,
+  "files": 4542,
   "domains": {
     "docs-agent": 921,
     "other": 631,
     "app-ui": 516,
     "platform-provider": 1016,
-    "orchestration": 419,
+    "orchestration": 418,
     "modules": 725,
     "store-sql": 315
   },
@@ -29,8 +29,8 @@
       {
         "key": "orchestration",
         "file": "docs/doc/codemap/project-map/index/orchestration.tsv",
-        "file_count": 419,
-        "size_kb": 94,
+        "file_count": 418,
+        "size_kb": 93.8,
         "desc": "mcp-orch 编排 peer、DAG、workspace、prompt、command、shared-file 工具"
       },
       {
@@ -72,7 +72,7 @@
   },
   "module_counts": {
     "(root)": 12,
-    "cmd": 668,
+    "cmd": 667,
     "docs": 913,
     "frontend-app": 514,
     "internal": 2131,
