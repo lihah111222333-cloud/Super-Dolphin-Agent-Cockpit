@@ -10,6 +10,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"gopkg.in/yaml.v3"
 )
 
 type knownMigrationDuplicate struct {
@@ -21,6 +23,68 @@ var knownDeployedDuplicateMigrations = []knownMigrationDuplicate{
 	{Number: 1, Names: []string{"0001_initial_schema.sql", "001_baseline.sql"}},
 	{Number: 6, Names: []string{"0006_agent_status.sql", "0006_workspace_runs.sql"}},
 	{Number: 25, Names: []string{"0025_agent_thread_config_override.sql", "0025_hook_pending_reviews.sql"}},
+}
+
+type sqlcDatabaseConfig struct {
+	SQL []struct {
+		Engine string   `yaml:"engine"`
+		Schema []string `yaml:"schema"`
+	} `yaml:"sql"`
+}
+
+func TestMCPOrchSQLCUsesSQLiteBaseline(t *testing.T) {
+	root := repoRoot(t)
+	configPath := filepath.Join(root, "cmd", "mcp-orch", "sqlc.yaml")
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("read cmd/mcp-orch/sqlc.yaml: %v", err)
+	}
+	var config sqlcDatabaseConfig
+	if err := yaml.Unmarshal(data, &config); err != nil {
+		t.Fatalf("parse cmd/mcp-orch/sqlc.yaml: %v", err)
+	}
+	if len(config.SQL) != 1 {
+		t.Fatalf("cmd/mcp-orch/sqlc.yaml sql entries = %d, want 1 SQLite owner", len(config.SQL))
+	}
+	entry := config.SQL[0]
+	if entry.Engine != "sqlite" {
+		t.Fatalf("cmd/mcp-orch/sqlc.yaml engine = %q, want sqlite", entry.Engine)
+	}
+	wantSchema := []string{"../../internal/platform/db/sqlite/migrations/001_baseline.sql"}
+	if !reflect.DeepEqual(entry.Schema, wantSchema) {
+		t.Fatalf("cmd/mcp-orch/sqlc.yaml schema = %#v, want SQLite baseline %#v", entry.Schema, wantSchema)
+	}
+}
+
+func TestSQLiteTaskDAGTestsRejectPostgreSQLDrift(t *testing.T) {
+	root := repoRoot(t)
+	paths, err := filepath.Glob(filepath.Join(root, "cmd", "mcp-orch", "store", "taskdag", "*_test.go"))
+	if err != nil {
+		t.Fatalf("glob taskdag tests: %v", err)
+	}
+	if len(paths) == 0 {
+		t.Fatal("no taskdag tests found")
+	}
+	var violations []string
+	for _, path := range paths {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("read %s: %v", path, err)
+		}
+		content := strings.ToLower(string(data))
+		for _, forbidden := range []string{
+			"taskdag_integration",
+			"testtaskdagpgintegration",
+			"testcontainers",
+			"requires pg",
+			"select for update",
+		} {
+			if strings.Contains(content, forbidden) {
+				violations = append(violations, fmt.Sprintf("%s contains PostgreSQL-only marker %q", filepath.Base(path), forbidden))
+			}
+		}
+	}
+	failIfViolations(t, violations)
 }
 
 func TestSqlcQueryParameterLimitPinned(t *testing.T) {

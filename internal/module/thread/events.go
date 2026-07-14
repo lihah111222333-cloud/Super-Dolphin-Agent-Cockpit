@@ -81,9 +81,9 @@ func (s *service) onAgentLaunched(ev agentdto.AgentLaunched) {
 
 // processAgentLaunched 根据 provider 启动事件补写 binding 中的 session 身份。
 // 事件可能缺 agent_id，因此先用 threadID 反查 binding；只有 UUID 可恢复且历史文件存在时才写 provider_thread_id。
-func (s *service) processAgentLaunched(ev agentdto.AgentLaunched) {
+func (s *service) processAgentLaunched(ev agentdto.AgentLaunched) error {
 	if s.threadBindingStorePort() == nil {
-		return
+		return nil
 	}
 	threadID := strings.TrimSpace(ev.ThreadID)
 	agentID := strings.TrimSpace(ev.AgentID)
@@ -91,51 +91,58 @@ func (s *service) processAgentLaunched(ev agentdto.AgentLaunched) {
 	ctx := context.Background()
 	// Claude system:init 可能不带 agent_id，因此用 threadID 反查 binding 作为权威身份。
 	binding, err := s.resolveBindingForEvent(ctx, agentID, threadID)
-	if err != nil || binding == nil {
-		return
+	if err != nil {
+		return err
 	}
-	s.syncAgentLaunchCWD(ctx, binding, threadID, ev.CWD)
+	if binding == nil {
+		return nil
+	}
+	if err := s.syncAgentLaunchCWD(ctx, binding, threadID, ev.CWD); err != nil {
+		return err
+	}
 	agentID = strings.TrimSpace(binding.AgentID)
 	if agentID == "" || sessionID == "" || !identifier.LooksLikeUUID(sessionID) {
-		return
+		return nil
 	}
-	s.recordAgentLaunchSessionUUID(ctx, binding, threadID, agentID, sessionID)
-	s.recordAgentLaunchProviderThreadID(ctx, binding, threadID, agentID, sessionID)
+	if err := s.recordAgentLaunchSessionUUID(ctx, binding, threadID, agentID, sessionID); err != nil {
+		return err
+	}
+	return s.recordAgentLaunchProviderThreadID(ctx, binding, threadID, agentID, sessionID)
 }
 
-func (s *service) recordAgentLaunchSessionUUID(ctx context.Context, binding *threadBindingRecord, threadID, agentID, sessionID string) {
+func (s *service) recordAgentLaunchSessionUUID(ctx context.Context, binding *threadBindingRecord, threadID, agentID, sessionID string) error {
 	if strings.TrimSpace(binding.SessionUUID) == sessionID {
-		return
+		return nil
 	}
 	store := s.threadBindingStorePort()
 	if store == nil {
-		return
+		return nil
 	}
 	if err := store.UpdateSessionUUID(ctx, threadBindingSessionUUIDUpdate{
 		AgentID:     agentID,
 		SessionUUID: sessionID,
 		UpdatedAt:   time.Now().Unix(),
 	}); err != nil {
-		s.logger.Warn("thread: update session_uuid from agent event failed", "thread_id", threadID, "agent_id", agentID, "session_uuid", sessionID, "error", err)
-		return
+		return err
 	}
 	binding.SessionUUID = sessionID
 	s.logger.Info("thread: updated session_uuid from agent event", "thread_id", threadID, "agent_id", agentID, "session_uuid", sessionID)
+	return nil
 }
 
 // recordAgentLaunchProviderThreadID 从启动事件记录可恢复的 provider thread id。
 // 已存在的真实 UUID 不会被覆盖；无法定位 provider 历史文件时只记日志，避免写入不可恢复身份。
-func (s *service) recordAgentLaunchProviderThreadID(ctx context.Context, binding *threadBindingRecord, threadID, agentID, sessionID string) {
+func (s *service) recordAgentLaunchProviderThreadID(ctx context.Context, binding *threadBindingRecord, threadID, agentID, sessionID string) error {
 	providerThreadID := normalizeProviderThreadID(binding.Provider, sessionID)
 	if providerThreadID == "" {
-		return
+		return nil
 	}
 	current := strings.TrimSpace(binding.ProviderThreadID)
 	if current == providerThreadID {
-		return
+		return nil
 	}
 	if current != "" && current != agentID && identifier.LooksLikeUUID(current) {
-		return
+		return nil
 	}
 	if !bindingRecordHasProviderHistoryForUUID(binding, providerThreadID) {
 		if s.logger != nil {
@@ -147,34 +154,34 @@ func (s *service) recordAgentLaunchProviderThreadID(ctx context.Context, binding
 			fields = append(fields, platformshared.SafePathLogFields("rollout_path", binding.RolloutPath)...)
 			s.logger.Info("thread: provider_thread_id from agent event is not recoverable", fields...)
 		}
-		return
+		return nil
 	}
 	store := s.threadBindingStorePort()
 	if store == nil {
-		return
+		return nil
 	}
 	if err := store.UpdateProviderThreadID(ctx, threadBindingProviderThreadIDUpdate{
 		AgentID:          agentID,
 		ProviderThreadID: providerThreadID,
 		UpdatedAt:        time.Now().Unix(),
 	}); err != nil {
-		s.logger.Warn("thread: update provider_thread_id from agent event failed", "thread_id", threadID, "agent_id", agentID, "provider_thread_id", providerThreadID, "error", err)
-		return
+		return err
 	}
 	binding.ProviderThreadID = providerThreadID
 	s.logger.Info("thread: updated provider_thread_id from agent event", "thread_id", threadID, "agent_id", agentID, "provider_thread_id", providerThreadID)
+	return nil
 }
 
 // syncAgentLaunchCWD 将启动事件里的 CWD 回写到 binding。
 // 只有原 binding 还没有可信 CWD 时才写入；若新旧目录冲突，拒绝事件值以保护后续 prompt 可见性判断。
-func (s *service) syncAgentLaunchCWD(ctx context.Context, binding *threadBindingRecord, threadID, nextCWD string) {
+func (s *service) syncAgentLaunchCWD(ctx context.Context, binding *threadBindingRecord, threadID, nextCWD string) error {
 	agentID, nextCWD, ok := normalizedAgentLaunchCWD(s, binding, nextCWD)
 	if !ok {
-		return
+		return nil
 	}
 	prevCWD := strings.TrimSpace(binding.Cwd)
 	if comparablePromptCWD(prevCWD) == nextCWD {
-		return
+		return nil
 	}
 	if comparablePromptCWD(prevCWD) != "" {
 		if s.logger != nil {
@@ -183,35 +190,31 @@ func (s *service) syncAgentLaunchCWD(ctx context.Context, binding *threadBinding
 			fields = append(fields, platformshared.SafePathLogFields("event_cwd", nextCWD)...)
 			s.logger.Warn("thread: rejected cwd mismatch from agent event", fields...)
 		}
-		return
+		return nil
 	}
 	store := s.threadBindingStorePort()
 	if store == nil {
-		return
+		return nil
+	}
+	if promptWorktreeSwitchRequiresInvalidation(prevCWD, nextCWD, s.cfg) {
+		if err := s.invalidatePromptAssembly(ctx, contract.InvalidateWorktree); err != nil {
+			return err
+		}
 	}
 	if err := store.UpdateAgentCwd(ctx, threadBindingCWDUpdate{
 		AgentID:   agentID,
 		Cwd:       nextCWD,
 		UpdatedAt: time.Now().Unix(),
 	}); err != nil {
-		fields := []any{"thread_id", threadID, "agent_id", agentID, "error", err}
-		fields = append(fields, platformshared.SafePathLogFields("cwd", nextCWD)...)
-		s.logger.Warn("thread: update cwd from agent event failed", fields...)
-		return
+		return err
 	}
 	binding.Cwd = nextCWD
-	if promptWorktreeSwitchRequiresInvalidation(prevCWD, nextCWD, s.cfg) {
-		if err := s.invalidatePromptAssembly(ctx, contract.InvalidateWorktree); err != nil {
-			fields := []any{"thread_id", threadID, "agent_id", agentID, "reason", contract.InvalidateWorktree, "error", err}
-			fields = append(fields, platformshared.SafePathLogFields("cwd", nextCWD)...)
-			s.logger.Warn("thread: prompt invalidate after cwd change failed", fields...)
-		}
-	}
 	if s.logger != nil {
 		fields := []any{"thread_id", threadID, "agent_id", agentID}
 		fields = append(fields, platformshared.SafePathLogFields("cwd", nextCWD)...)
 		s.logger.Info("thread: updated cwd from agent event", fields...)
 	}
+	return nil
 }
 
 // normalizedAgentLaunchCWD 校验启动事件具备可写 CWD 的最小条件。
@@ -332,6 +335,9 @@ func (s *service) resolveBindingForEvent(ctx context.Context, agentID, threadID 
 		b, err := store.GetByAgentID(ctx, agentID)
 		if err == nil && b != nil {
 			return b, nil
+		}
+		if err != nil && !contract.IsNotFound(err) {
+			return nil, err
 		}
 	}
 	if threadID != "" {

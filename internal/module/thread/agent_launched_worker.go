@@ -16,12 +16,23 @@ import (
 
 // agentLaunchedDrainGrace 限制 agent 启动事件 worker 的停止等待时间。
 // 绑定写入或 prompt 缓存失效卡在 I/O 上时，订阅 OnStop 也不能无限阻塞。
-const agentLaunchedDrainGrace = 10 * time.Second
+const (
+	agentLaunchedDrainGrace     = 10 * time.Second
+	agentLaunchedMaxAttempts    = 3
+	agentLaunchedRetryBaseDelay = 100 * time.Millisecond
+)
 
 // agentLaunchedProcessor 是 worker 对 thread service 的最小依赖。
 // worker 只负责串行化和合并事件，真正的绑定解析、CWD 同步和缓存失效由 service 执行。
 type agentLaunchedProcessor interface {
-	processAgentLaunched(ev agentdto.AgentLaunched)
+	processAgentLaunched(ev agentdto.AgentLaunched) error
+}
+
+// agentLaunchedWorkerHealth 是 worker 的进程内健康快照，不扩散到 RPC 契约。
+type agentLaunchedWorkerHealth struct {
+	Enqueued, Coalesced, Processed int64
+	Failed, Retried, Dropped       int64
+	LastError                      string
 }
 
 // agentLaunchedWorker 串行处理 AgentLaunched 事件中的慢路径副作用。
@@ -39,13 +50,22 @@ type agentLaunchedWorker struct {
 	stopCh, doneCh      chan struct{}
 
 	enqueuedTotal, coalescedTotal, processedTotal atomic.Int64
+	failedTotal, retriedTotal, droppedTotal       atomic.Int64
+	retryBaseDelay                                time.Duration
+	lastErrorMu                                   sync.RWMutex
+	lastError                                     string
 }
 
 func newAgentLaunchedWorker(processor agentLaunchedProcessor, logger *slog.Logger) *agentLaunchedWorker {
 	if logger == nil {
 		logger = pkglogger.Get()
 	}
-	return &agentLaunchedWorker{processor: processor, logger: logger, pending: map[string]agentdto.AgentLaunched{}, wake: make(chan struct{}, 1), stopCh: make(chan struct{}), doneCh: make(chan struct{})}
+	return &agentLaunchedWorker{
+		processor: processor, logger: logger,
+		pending: map[string]agentdto.AgentLaunched{},
+		wake:    make(chan struct{}, 1), stopCh: make(chan struct{}), doneCh: make(chan struct{}),
+		retryBaseDelay: agentLaunchedRetryBaseDelay,
+	}
 }
 
 // Start 启动后台 worker goroutine。
@@ -127,8 +147,24 @@ func (w *agentLaunchedWorker) EnqueuedTotal() int64 { return w.enqueuedTotal.Loa
 // CoalescedTotal 返回按同一 key 合并掉的重复事件数。
 func (w *agentLaunchedWorker) CoalescedTotal() int64 { return w.coalescedTotal.Load() }
 
-// ProcessedTotal 返回已交给 service 处理的事件数。
+// ProcessedTotal 返回已被 service 成功处理的事件数。
 func (w *agentLaunchedWorker) ProcessedTotal() int64 { return w.processedTotal.Load() }
+
+// Health 返回 worker 的进程内健康快照。
+func (w *agentLaunchedWorker) Health() agentLaunchedWorkerHealth {
+	if w == nil {
+		return agentLaunchedWorkerHealth{}
+	}
+	w.lastErrorMu.RLock()
+	lastError := w.lastError
+	w.lastErrorMu.RUnlock()
+	return agentLaunchedWorkerHealth{
+		Enqueued: w.enqueuedTotal.Load(), Coalesced: w.coalescedTotal.Load(),
+		Processed: w.processedTotal.Load(), Failed: w.failedTotal.Load(),
+		Retried: w.retriedTotal.Load(), Dropped: w.droppedTotal.Load(),
+		LastError: lastError,
+	}
+}
 
 func (w *agentLaunchedWorker) runWorker() {
 	defer close(w.doneCh)
@@ -144,7 +180,6 @@ func (w *agentLaunchedWorker) runWorker() {
 }
 
 // drainPending 取出当前待处理集合并在锁外调用 service。
-// processAgentLaunched 自行记录错误并跳过失败事件，worker 只维护处理计数。
 func (w *agentLaunchedWorker) drainPending() {
 	for {
 		w.mu.Lock()
@@ -159,8 +194,43 @@ func (w *agentLaunchedWorker) drainPending() {
 		w.pending = map[string]agentdto.AgentLaunched{}
 		w.mu.Unlock()
 		for _, ev := range batch {
-			w.processor.processAgentLaunched(ev)
-			w.processedTotal.Add(1)
+			w.processWithRetry(ev)
 		}
+	}
+}
+
+func (w *agentLaunchedWorker) processWithRetry(ev agentdto.AgentLaunched) {
+	for attempt := 1; attempt <= agentLaunchedMaxAttempts; attempt++ {
+		err := w.processor.processAgentLaunched(ev)
+		if err == nil {
+			w.processedTotal.Add(1)
+			return
+		}
+		w.recordFailure(err)
+		w.logger.Error("thread: AgentLaunched processing failed",
+			"attempt", attempt, "max_attempts", agentLaunchedMaxAttempts, "error", err)
+		if attempt == agentLaunchedMaxAttempts {
+			w.droppedTotal.Add(1)
+			return
+		}
+		w.retriedTotal.Add(1)
+		w.waitRetry(attempt)
+	}
+}
+
+func (w *agentLaunchedWorker) recordFailure(err error) {
+	w.failedTotal.Add(1)
+	w.lastErrorMu.Lock()
+	w.lastError = err.Error()
+	w.lastErrorMu.Unlock()
+}
+
+func (w *agentLaunchedWorker) waitRetry(attempt int) {
+	delay := w.retryBaseDelay * time.Duration(1<<(attempt-1))
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-timer.C:
+	case <-w.stopCh:
 	}
 }

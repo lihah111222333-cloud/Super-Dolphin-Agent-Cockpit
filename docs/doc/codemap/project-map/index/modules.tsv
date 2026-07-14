@@ -391,7 +391,7 @@ internal/module/skill/builtin_seed_test.go	internal	modules	go-test	3307	skill c
 internal/module/skill/canonical_store_test.go	internal	modules	go-test	28032	skill canonical 管理与 provider-native mirror	internal,module,skill,canonical,store,test,管理与,provider-native,mirror
 internal/module/skill/canonical_store.go	internal	modules	go-source	23905	skill canonical 管理与 provider-native mirror	internal,module,skill,canonical,store,管理与,provider-native,mirror
 internal/module/skill/contract.go	internal	modules	go-source	16233	skill canonical 管理与 provider-native mirror	internal,module,skill,contract,canonical,管理与,provider-native,mirror
-internal/module/skill/create_skill_test.go	internal	modules	go-test	4584	skill canonical 管理与 provider-native mirror	internal,module,skill,create,test,canonical,管理与,provider-native,mirror
+internal/module/skill/create_skill_test.go	internal	modules	go-test	4491	skill canonical 管理与 provider-native mirror	internal,module,skill,create,test,canonical,管理与,provider-native,mirror
 internal/module/skill/cwd_scope_test.go	internal	modules	go-test	9863	skill canonical 管理与 provider-native mirror	internal,module,skill,cwd,scope,test,canonical,管理与,provider-native,mirror
 internal/module/skill/embedded_skills/使用git工作区/SKILL.md	internal	modules	doc	5803	skill canonical 管理与 provider-native mirror	internal,module,skill,embedded,skills,使用git工作区,SKILL,canonical,管理与,provider-native,mirror
 internal/module/skill/embedded_skills/使用超能力/SKILL.md	internal	modules	doc	5353	skill canonical 管理与 provider-native mirror	internal,module,skill,embedded,skills,使用超能力,SKILL,canonical,管理与,provider-native,mirror
@@ -407,8 +407,8 @@ internal/module/skill/embedded_skills/编写技能/SKILL.md	internal	modules	doc
 internal/module/skill/embedded_skills/编写计划/SKILL.md	internal	modules	doc	5823	skill canonical 管理与 provider-native mirror	internal,module,skill,embedded,skills,编写计划,SKILL,canonical,管理与,provider-native,mirror
 internal/module/skill/embedded_skills/请求代码审查/SKILL.md	internal	modules	doc	2828	skill canonical 管理与 provider-native mirror	internal,module,skill,embedded,skills,请求代码审查,SKILL,canonical,管理与,provider-native,mirror
 internal/module/skill/embedded_skills/调度并行代理/SKILL.md	internal	modules	doc	6178	skill canonical 管理与 provider-native mirror	internal,module,skill,embedded,skills,调度并行代理,SKILL,canonical,管理与,provider-native,mirror
-internal/module/skill/events_test.go	internal	modules	go-test	11972	skill canonical 管理与 provider-native mirror	internal,module,skill,events,test,canonical,管理与,provider-native,mirror
-internal/module/skill/events.go	internal	modules	go-source	8692	skill canonical 管理与 provider-native mirror	internal,module,skill,events,canonical,管理与,provider-native,mirror
+internal/module/skill/events_test.go	internal	modules	go-test	15880	skill canonical 管理与 provider-native mirror	internal,module,skill,events,test,canonical,管理与,provider-native,mirror
+internal/module/skill/events.go	internal	modules	go-source	9901	skill canonical 管理与 provider-native mirror	internal,module,skill,events,canonical,管理与,provider-native,mirror
 internal/module/skill/exec_test.go	internal	modules	go-test	9049	skill canonical 管理与 provider-native mirror	internal,module,skill,exec,test,canonical,管理与,provider-native,mirror
 internal/module/skill/exec_tokenizer_safety.go	internal	modules	go-source	5340	skill canonical 管理与 provider-native mirror	internal,module,skill,exec,tokenizer,safety,canonical,管理与,provider-native,mirror
 internal/module/skill/exec_tokenizer.go	internal	modules	go-source	7819	skill canonical 管理与 provider-native mirror	internal,module,skill,exec,tokenizer,canonical,管理与,provider-native,mirror
@@ -434,7 +434,7 @@ internal/module/skill/mirror_reconciler_root_actions.go	internal	modules	go-sour
 internal/module/skill/mirror_reconciler_test.go	internal	modules	go-test	34028	skill canonical 管理与 provider-native mirror	internal,module,skill,mirror,reconciler,test,canonical,管理与,provider-native
 internal/module/skill/mirror_reconciler.go	internal	modules	go-source	25689	skill canonical 管理与 provider-native mirror	internal,module,skill,mirror,reconciler,canonical,管理与,provider-native
 internal/module/skill/mirrorpath/path.go	internal	modules	go-source	4725	skill canonical 管理与 provider-native mirror	internal,module,skill,mirrorpath,path,canonical,管理与,provider-native,mirror
-internal/module/skill/module.go	internal	modules	go-source	3212	skill canonical 管理与 provider-native mirror	internal,module,skill,canonical,管理与,provider-native,mirror
+internal/module/skill/module.go	internal	modules	go-source	3503	skill canonical 管理与 provider-native mirror	internal,module,skill,canonical,管理与,provider-native,mirror
 internal/module/skill/ownerperms/permissions_unix.go	internal	modules	go-source	1303	skill canonical 管理与 provider-native mirror	internal,module,skill,ownerperms,permissions,unix,canonical,管理与,provider-native,mirror
 internal/module/skill/ownerperms/permissions_windows.go	internal	modules	go-source	7170	skill canonical 管理与 provider-native mirror	internal,module,skill,ownerperms,permissions,windows,canonical,管理与,provider-native,mirror
 internal/module/skill/ownerperms/permissions.go	internal	modules	go-source	562	skill canonical 管理与 provider-native mirror	internal,module,skill,ownerperms,permissions,canonical,管理与,provider-native,mirror
@@ -457,12 +457,12 @@ internal/module/skill/scope_model_permissions_windows_test.go	internal	modules	g
 internal/module/skill/scope_model_test.go	internal	modules	go-test	6287	skill canonical 管理与 provider-native mirror	internal,module,skill,scope,model,test,canonical,管理与,provider-native,mirror
 internal/module/skill/scope_model.go	internal	modules	go-source	15400	skill canonical 管理与 provider-native mirror	internal,module,skill,scope,model,canonical,管理与,provider-native,mirror
 internal/module/skill/scope_test.go	internal	modules	go-test	9617	skill canonical 管理与 provider-native mirror	internal,module,skill,scope,test,canonical,管理与,provider-native,mirror
-internal/module/skill/service.go	internal	modules	go-source	13250	skill canonical 管理与 provider-native mirror	internal,module,skill,service,canonical,管理与,provider-native,mirror
+internal/module/skill/service.go	internal	modules	go-source	13709	skill canonical 管理与 provider-native mirror	internal,module,skill,service,canonical,管理与,provider-native,mirror
 internal/module/skill/skill_name_test.go	internal	modules	go-test	3951	skill canonical 管理与 provider-native mirror	internal,module,skill,name,test,canonical,管理与,provider-native,mirror
 internal/module/skill/skillhash/hash.go	internal	modules	go-source	14191	skill canonical 管理与 provider-native mirror	internal,module,skill,skillhash,hash,canonical,管理与,provider-native,mirror
 internal/module/skill/skills_fs_test.go	internal	modules	go-test	28618	skill canonical 管理与 provider-native mirror	internal,module,skill,skills,fs,test,canonical,管理与,provider-native,mirror
 internal/module/skill/skills_fs.go	internal	modules	go-source	17441	skill canonical 管理与 provider-native mirror	internal,module,skill,skills,fs,canonical,管理与,provider-native,mirror
-internal/module/skill/skills_import_test.go	internal	modules	go-test	23935	skill canonical 管理与 provider-native mirror	internal,module,skill,skills,import,test,canonical,管理与,provider-native,mirror
+internal/module/skill/skills_import_test.go	internal	modules	go-test	23976	skill canonical 管理与 provider-native mirror	internal,module,skill,skills,import,test,canonical,管理与,provider-native,mirror
 internal/module/skill/skills_import.go	internal	modules	go-source	16629	skill canonical 管理与 provider-native mirror	internal,module,skill,skills,import,canonical,管理与,provider-native,mirror
 internal/module/skill/skills_inventory_test.go	internal	modules	go-test	4256	skill canonical 管理与 provider-native mirror	internal,module,skill,skills,inventory,test,canonical,管理与,provider-native,mirror
 internal/module/skill/skills_match_test.go	internal	modules	go-test	6362	skill canonical 管理与 provider-native mirror	internal,module,skill,skills,match,test,canonical,管理与,provider-native,mirror
@@ -482,8 +482,8 @@ internal/module/skill/trust_test.go	internal	modules	go-test	7574	skill canonica
 internal/module/skill/trust.go	internal	modules	go-source	5868	skill canonical 管理与 provider-native mirror	internal,module,skill,trust,canonical,管理与,provider-native,mirror
 internal/module/thread/agent_dispatch_test.go	internal	modules	go-test	4247	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,agent,dispatch,test,start,resume,fork,stop,生命周期与绑定真相源
 internal/module/thread/agent_id_dedupe_test.go	internal	modules	go-test	4030	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,agent,id,dedupe,test,start,resume,fork,stop,生命周期与绑定真相源
-internal/module/thread/agent_launched_worker_test.go	internal	modules	go-test	7999	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,agent,launched,worker,test,start,resume,fork,stop,生命周期与绑定真相源
-internal/module/thread/agent_launched_worker.go	internal	modules	go-source	4832	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,agent,launched,worker,start,resume,fork,stop,生命周期与绑定真相源
+internal/module/thread/agent_launched_worker_test.go	internal	modules	go-test	11829	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,agent,launched,worker,test,start,resume,fork,stop,生命周期与绑定真相源
+internal/module/thread/agent_launched_worker.go	internal	modules	go-source	6781	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,agent,launched,worker,start,resume,fork,stop,生命周期与绑定真相源
 internal/module/thread/archive_alias_test.go	internal	modules	go-test	1202	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,archive,alias,test,start,resume,fork,stop,生命周期与绑定真相源
 internal/module/thread/archive.go	internal	modules	go-source	5165	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,archive,start,resume,fork,stop,生命周期与绑定真相源
 internal/module/thread/available_experts_provider_test.go	internal	modules	go-test	835	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,available,experts,provider,test,start,resume,fork,stop,生命周期与绑定真相源
@@ -505,8 +505,8 @@ internal/module/thread/config_set_test.go	internal	modules	go-test	17030	thread 
 internal/module/thread/contract_adapter.go	internal	modules	go-source	16681	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,contract,adapter,start,resume,fork,stop,生命周期与绑定真相源
 internal/module/thread/contract.go	internal	modules	go-source	11664	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,contract,start,resume,fork,stop,生命周期与绑定真相源
 internal/module/thread/event_publish.go	internal	modules	go-source	5314	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,event,publish,start,resume,fork,stop,生命周期与绑定真相源
-internal/module/thread/events_test.go	internal	modules	go-test	12990	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,events,test,start,resume,fork,stop,生命周期与绑定真相源
-internal/module/thread/events.go	internal	modules	go-source	11862	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,events,start,resume,fork,stop,生命周期与绑定真相源
+internal/module/thread/events_test.go	internal	modules	go-test	13589	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,events,test,start,resume,fork,stop,生命周期与绑定真相源
+internal/module/thread/events.go	internal	modules	go-source	11344	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,events,start,resume,fork,stop,生命周期与绑定真相源
 internal/module/thread/factory_config_failfast_test.go	internal	modules	go-test	16256	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,factory,config,failfast,test,start,resume,fork,stop,生命周期与绑定真相源
 internal/module/thread/factory_config.go	internal	modules	go-source	19304	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,factory,config,start,resume,fork,stop,生命周期与绑定真相源
 internal/module/thread/factory.go	internal	modules	go-source	20533	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,factory,start,resume,fork,stop,生命周期与绑定真相源

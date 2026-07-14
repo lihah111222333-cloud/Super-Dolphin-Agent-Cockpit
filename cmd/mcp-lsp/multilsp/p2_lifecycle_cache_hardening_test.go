@@ -189,6 +189,92 @@ func TestPoolRecyclerIdleWorkspaceWinsOverRSSRecycle(t *testing.T) {
 	assertIdleRecyclerDebugLog(t, logs.String())
 }
 
+func TestRecyclerProbeFailureHealthAndRecovery(t *testing.T) {
+	root := t.TempDir()
+	secretPath := filepath.Join(root, "private", "workspace")
+	probeErr := errors.New("probe failed for " + secretPath)
+	var logs bytes.Buffer
+	logger := slog.New(slog.NewJSONHandler(&logs, nil))
+	mgr := &manager{logger: logger}
+	client := &p2LifecycleClient{}
+	workspace := workspaceClient{key: secretPath, languageID: "go", client: client}
+	scope := ResolvedLSPToolScope{ManagerKey: "manager-test", ScopeKey: "scope-test"}
+	recycler := newPoolRecycler(nil)
+	recycler.rssProbe = func(Client) (uint64, int, error) {
+		return 0, 0, probeErr
+	}
+
+	for range recyclerProbeDegradedThreshold {
+		recycler.recycleIfNeeded(mgr, scope, workspace)
+	}
+	health := recycler.HealthSnapshot()
+	assertRecyclerProbeFailureHealth(t, health)
+	if client.closed {
+		t.Fatal("probe failure closed client")
+	}
+	logText := logs.String()
+	assertRecyclerProbeFailureLog(t, logText, root)
+
+	recycler.rssProbe = func(Client) (uint64, int, error) { return 1, 42, nil }
+	recycler.recycleIfNeeded(mgr, scope, workspace)
+	health = recycler.HealthSnapshot()
+	assertRecyclerProbeRecoveryHealth(t, health)
+}
+
+func assertRecyclerProbeFailureHealth(t *testing.T, health recyclerHealthSnapshot) {
+	t.Helper()
+	if health.ProbeFailuresTotal != recyclerProbeDegradedThreshold ||
+		health.ConsecutiveProbeFailures != recyclerProbeDegradedThreshold ||
+		!health.Degraded || health.LastProbeError == "" || health.LastProbeAt.IsZero() {
+		t.Fatalf("health after probe failures = %#v", health)
+	}
+}
+
+func assertRecyclerProbeFailureLog(t *testing.T, logText, secretRoot string) {
+	t.Helper()
+	for _, want := range []string{
+		"LSP recycler RSS probe failed", "\"manager_key\":\"manager-test\"",
+		"\"scope_key\":\"scope-test\"", "\"workspace_sha256\":", "\"language\":\"go\"",
+	} {
+		if !strings.Contains(logText, want) {
+			t.Fatalf("probe failure log missing %q: %s", want, logText)
+		}
+	}
+	if strings.Contains(logText, secretRoot) {
+		t.Fatalf("probe failure log leaked absolute path: %s", logText)
+	}
+}
+
+func assertRecyclerProbeRecoveryHealth(t *testing.T, health recyclerHealthSnapshot) {
+	t.Helper()
+	if health.ProbeFailuresTotal != recyclerProbeDegradedThreshold ||
+		health.ConsecutiveProbeFailures != 0 || health.Degraded ||
+		health.LastProbeError != "" || health.LastProbeAt.IsZero() {
+		t.Fatalf("health after probe recovery = %#v", health)
+	}
+}
+
+func TestRecyclerInvalidPIDAndMultiWorkspaceFailuresAreObservable(t *testing.T) {
+	clientA := &p2LifecycleClient{}
+	clientB := &p2LifecycleClient{}
+	mgr := &manager{workspaces: map[string]*workspaceClient{
+		"workspace-a": {key: "workspace-a", languageID: "go", client: clientA},
+		"workspace-b": {key: "workspace-b", languageID: "typescript", client: clientB},
+	}}
+	recycler := newPoolRecycler(nil)
+	recycler.rssProbe = func(Client) (uint64, int, error) {
+		return 1024, 0, nil
+	}
+	recycler.checkManager(0, mgr, ResolvedLSPToolScope{})
+	health := recycler.HealthSnapshot()
+	if health.ProbeFailuresTotal != 2 || health.ConsecutiveProbeFailures != 2 {
+		t.Fatalf("multi-workspace invalid pid health = %#v", health)
+	}
+	if clientA.closed || clientB.closed {
+		t.Fatal("invalid pid probe closed a client")
+	}
+}
+
 func assertIdleRecyclerDebugLog(t *testing.T, logText string) {
 	t.Helper()
 	for _, want := range []string{

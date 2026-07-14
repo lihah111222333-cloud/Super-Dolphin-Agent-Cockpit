@@ -76,8 +76,18 @@ function renderRuntimeActivityPanel(overrides = {}) {
   it('renders diff counters from the provided summary', () => {
     render(<RuntimeToolbar diffSummary={{ fileCount: 1, changedLines: 3, additions: 2, deletions: 1 }} />);
 
-    expect(screen.getByRole('button', { name: '代码变更文件数' })).toHaveTextContent('1');
-    expect(screen.getByRole('button', { name: '代码变更行数' })).toHaveTextContent('3');
+    const fileStat = screen.getByLabelText('代码变更文件数');
+    const lineStat = screen.getByLabelText('代码变更行数');
+    expect(screen.queryByRole('button', { name: '代码变更文件数' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '代码变更行数' })).not.toBeInTheDocument();
+    expect(fileStat).toHaveTextContent('1');
+    expect(lineStat).toHaveTextContent('3');
+    expect(fileStat.tagName).toBe('OUTPUT');
+    expect(lineStat.tagName).toBe('OUTPUT');
+    expect(fileStat).toHaveClass('runtime-stat');
+    expect(lineStat).toHaveClass('runtime-stat');
+    expect(fileStat).not.toHaveAttribute('tabindex');
+    expect(lineStat).not.toHaveAttribute('tabindex');
     expect(screen.getByLabelText('代码新增行数')).toHaveTextContent('+2');
     expect(screen.getByLabelText('代码删除行数')).toHaveTextContent('-1');
   });

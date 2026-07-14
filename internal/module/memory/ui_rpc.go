@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -159,7 +160,7 @@ func buildUIMemorySnapshot(ctx context.Context, svc Service, logger *slog.Logger
 	}
 
 	health := computeUIMemoryHealth(privateSection.Entries, teamSection.Entries)
-	populateUIMemoryHealthSimilarGroups(health, privateRoot, privateSection.Entries, teamSection.RootPath, teamSection.Entries, scanBudget)
+	populateUIMemoryHealthSimilarGroups(health, logger, privateRoot, privateSection.Entries, teamSection.RootPath, teamSection.Entries, scanBudget)
 	if autoHealth := uiAutoDreamHealthFromSnapshot(svc.GetDreamTaskStatus()); autoHealth != nil {
 		health.AutoDream = autoHealth
 	}
@@ -227,21 +228,28 @@ func computeUIMemoryHealth(privateEntries, teamEntries []UIMemoryEntry) *UIMemor
 }
 
 // populateUIMemoryHealthSimilarGroups 计算相似记忆组，并过滤用户已经忽略的 pair。
-func populateUIMemoryHealthSimilarGroups(health *UIMemoryHealth, privateRoot string, privateEntries []UIMemoryEntry, teamRoot string, teamEntries []UIMemoryEntry, budget *uiMemoryScanBudget) {
+func populateUIMemoryHealthSimilarGroups(health *UIMemoryHealth, logger *slog.Logger, privateRoot string, privateEntries []UIMemoryEntry, teamRoot string, teamEntries []UIMemoryEntry, budget *uiMemoryScanBudget) {
 	if health == nil {
 		return
 	}
 	if budget != nil && budget.isStopped() {
 		health.SimilarityDegraded = true
+		health.SimilarGroups = nil
+		return
+	}
+	ignored, err := similarity.LoadIgnored(privateRoot)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		health.SimilarityDegraded = true
+		health.SimilarGroups = nil
+		if logger != nil {
+			logger.Warn("memory similarity ignored set unavailable", "event", "memory_similarity_ignored_unavailable")
+		}
 		return
 	}
 	pairs := dedup.FindSimilarPairs(buildUIMemoryHealthSnapshots(privateRoot, privateEntries, "private", teamRoot, teamEntries, "team"))
 	if len(pairs) == 0 {
 		return
 	}
-	// ignored set 持久化在 private root 下；加载失败按空 set 处理，
-	// 避免 ignored 文件损坏阻塞 banner 渲染。
-	ignored, _ := similarity.LoadIgnored(privateRoot)
 	groups := make([]UISimilarGroup, 0, len(pairs))
 	for _, p := range pairs {
 		if _, hit := ignored[similarity.IgnoreKey(p.ScopeA, p.PathA, p.ScopeB, p.PathB)]; hit {

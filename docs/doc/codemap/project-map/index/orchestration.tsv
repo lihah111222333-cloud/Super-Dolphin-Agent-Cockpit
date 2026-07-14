@@ -265,7 +265,6 @@ cmd/mcp-orch/store/sqlctx/db_test.go	cmd	orchestration	go-test	1178	orchestratio
 cmd/mcp-orch/store/sqlctx/db.go	cmd	orchestration	go-source	7226	orchestration MCP peer、bootstrap、registry、store 与 sidecar 入口	cmd,mcp,orch,store,sqlctx,db,orchestration,MCP,peer,bootstrap,registry,与,sidecar,入口
 cmd/mcp-orch/store/taskdag/contract.go	cmd	orchestration	go-source	30672	DAG/node/wakeup/worker lease 持久化 store	cmd,mcp,orch,store,taskdag,contract,DAG,node,wakeup,worker,lease,持久化
 cmd/mcp-orch/store/taskdag/factory.go	cmd	orchestration	go-source	6235	DAG/node/wakeup/worker lease 持久化 store	cmd,mcp,orch,store,taskdag,factory,DAG,node,wakeup,worker,lease,持久化
-cmd/mcp-orch/store/taskdag/integration_test.go	cmd	orchestration	go-test	3972	DAG/node/wakeup/worker lease 持久化 store	cmd,mcp,orch,store,taskdag,integration,test,DAG,node,wakeup,worker,lease,持久化
 cmd/mcp-orch/store/taskdag/module.go	cmd	orchestration	go-source	3948	DAG/node/wakeup/worker lease 持久化 store	cmd,mcp,orch,store,taskdag,module,DAG,node,wakeup,worker,lease,持久化
 cmd/mcp-orch/store/taskdag/row_mappers.go	cmd	orchestration	go-source	11390	DAG/node/wakeup/worker lease 持久化 store	cmd,mcp,orch,store,taskdag,row,mappers,DAG,node,wakeup,worker,lease,持久化
 cmd/mcp-orch/store/taskdag/run_event_sqlite_golden_test.go	cmd	orchestration	go-test	6583	DAG/node/wakeup/worker lease 持久化 store	cmd,mcp,orch,store,taskdag,run,event,sqlite,golden,test,DAG,node,wakeup,worker,lease,持久化

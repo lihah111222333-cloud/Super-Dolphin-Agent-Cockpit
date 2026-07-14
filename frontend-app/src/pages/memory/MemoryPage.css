@@ -197,6 +197,10 @@ meter {
   border-color: color-mix(in srgb, var(--warning) 44%, var(--border));
 }
 
+.similar-alert.is-degraded {
+	background: color-mix(in srgb, var(--warning) 10%, transparent);
+}
+
 .memory-tabs {
   border-bottom: 1px solid var(--line);
   margin: 0 28px;

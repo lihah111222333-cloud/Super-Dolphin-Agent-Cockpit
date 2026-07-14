@@ -167,6 +167,24 @@ function createTraceContext() {
 let frontendTraceQueue = [];
 let frontendTraceFlushScheduled = false;
 let frontendTraceFlushInFlight = false;
+let frontendTracePendingBatch = null;
+let frontendTraceRetryTimer = null;
+let frontendTraceRetryAttempt = 0;
+let frontendTraceRetryDelayMS = 0;
+let frontendTraceDisabled = false;
+let frontendTraceDisabledReason = '';
+const frontendTraceHealth = {
+  accepted: 0,
+  acknowledged: 0,
+  serverDropped: 0,
+  failures: 0,
+  malformedACKs: 0,
+  overflowDropped: 0,
+  terminalDropped: 0,
+  lastFailure: '',
+};
+const FRONTEND_TRACE_RETRY_BASE_MS = 100;
+const FRONTEND_TRACE_RETRY_MAX_MS = 5000;
 
 function isUITestMCPTraceSuppressed() {
   return !import.meta.env.PROD && import.meta.env.VITE_SUPER_DOLPHIN_UI_TEST_MCP === '1';
@@ -300,18 +318,108 @@ function shouldRemoteFlushFrontendTrace(event) {
   return isFrontendTraceDebugEnabled();
 }
 
+function frontendTraceQueuedCount() {
+  return frontendTraceQueue.length + (frontendTracePendingBatch?.length || 0);
+}
+
+function getFrontendTraceQueueHealth() {
+  return {
+    ...frontendTraceHealth,
+    queueLength: frontendTraceQueuedCount(),
+    retryPending: frontendTraceRetryTimer !== null,
+    retryAttempt: frontendTraceRetryAttempt,
+    retryDelayMS: frontendTraceRetryDelayMS,
+    disabled: frontendTraceDisabled,
+    disabledReason: frontendTraceDisabledReason,
+  };
+}
+
+function clearFrontendTraceRetry() {
+  if (frontendTraceRetryTimer !== null) {
+    clearTimeout(frontendTraceRetryTimer);
+    frontendTraceRetryTimer = null;
+  }
+  frontendTraceRetryAttempt = 0;
+  frontendTraceRetryDelayMS = 0;
+}
+
+function scheduleFrontendTraceRetry() {
+  if (frontendTraceDisabled || frontendTraceRetryTimer !== null || frontendTraceQueuedCount() === 0) return;
+  frontendTraceRetryAttempt += 1;
+  frontendTraceRetryDelayMS = Math.min(
+    FRONTEND_TRACE_RETRY_BASE_MS * (2 ** (frontendTraceRetryAttempt - 1)),
+    FRONTEND_TRACE_RETRY_MAX_MS,
+  );
+  frontendTraceRetryTimer = setTimeout(() => {
+    frontendTraceRetryTimer = null;
+    frontendTraceRetryDelayMS = 0;
+    scheduleFrontendTraceFlush();
+  }, frontendTraceRetryDelayMS);
+}
+
+function classifyFrontendTraceACK(response, batchLength) {
+  if (!response || typeof response !== 'object' || Array.isArray(response)) return 'malformed';
+  const recorded = response.recorded;
+  const dropped = response.dropped ?? 0;
+  if (!Number.isInteger(recorded) || recorded < 0 || !Number.isInteger(dropped) || dropped < 0) return 'malformed';
+  if (response.enabled === false) {
+    const disabledReason = typeof response.disabled_reason === 'string' ? response.disabled_reason.trim() : '';
+    return recorded === 0 && dropped === batchLength && disabledReason ? 'disabled' : 'malformed';
+  }
+  if (response.enabled !== undefined && response.enabled !== true) return 'malformed';
+  return recorded + dropped === batchLength ? 'acknowledged' : 'malformed';
+}
+
 async function flushFrontendTraceQueue() {
-  if (frontendTraceFlushInFlight || frontendTraceQueue.length === 0) return;
   frontendTraceFlushScheduled = false;
+  if (frontendTraceDisabled || frontendTraceFlushInFlight || frontendTraceQueuedCount() === 0) return;
   frontendTraceFlushInFlight = true;
-  const batch = frontendTraceQueue.splice(0, FRONTEND_TRACE_BATCH_LIMIT);
+  if (!frontendTracePendingBatch) {
+    frontendTracePendingBatch = frontendTraceQueue.splice(0, FRONTEND_TRACE_BATCH_LIMIT);
+  }
+  const batch = frontendTracePendingBatch;
+  let shouldRetry = false;
   try {
     const runtime = await waitRuntime();
-    if (runtime?.Call?.ByID) {
-      await runtime.Call.ByID(METHOD_IDS.CALL_API, FRONTEND_TRACE_INGEST_METHOD, { events: batch });
+    if (typeof runtime?.Call?.ByID !== 'function') {
+      throw new Error('runtime Call.ByID is unavailable');
     }
+    const response = await runtime.Call.ByID(
+      METHOD_IDS.CALL_API,
+      FRONTEND_TRACE_INGEST_METHOD,
+      { events: batch },
+    );
+    const ack = classifyFrontendTraceACK(response, batch.length);
+    if (ack === 'malformed') {
+      frontendTraceHealth.malformedACKs += 1;
+      throw new Error('frontend trace ingest returned a malformed ACK');
+    }
+    if (ack === 'disabled') {
+      frontendTraceDisabled = true;
+      frontendTraceDisabledReason = typeof response.disabled_reason === 'string' ? response.disabled_reason : '';
+      frontendTraceHealth.terminalDropped += batch.length + frontendTraceQueue.length;
+      frontendTracePendingBatch = null;
+      frontendTraceQueue = [];
+      clearFrontendTraceRetry();
+      return;
+    }
+    frontendTraceHealth.acknowledged += response.recorded;
+    frontendTraceHealth.serverDropped += response.dropped ?? 0;
+    if ((response.dropped ?? 0) > 0) {
+      writeBridgeLog('warn', 'frontend.trace.flush.partial_drop', {
+        count: batch.length,
+        recorded: response.recorded,
+        dropped: response.dropped,
+      });
+    }
+    frontendTracePendingBatch = null;
+    frontendTraceHealth.lastFailure = '';
+    clearFrontendTraceRetry();
   }
   catch (error) {
+    frontendTraceHealth.failures += 1;
+    frontendTraceHealth.lastFailure = safeTraceErrorMessage(error);
+    shouldRetry = true;
     console.warn('[Bridge warn] frontend.trace.flush.failed', {
       error: error?.name || 'Error',
       count: batch.length,
@@ -319,35 +427,55 @@ async function flushFrontendTraceQueue() {
   }
   finally {
     frontendTraceFlushInFlight = false;
-    if (frontendTraceQueue.length > 0) scheduleFrontendTraceFlush();
+    if (shouldRetry) scheduleFrontendTraceRetry();
+    else if (!frontendTraceDisabled && frontendTraceQueuedCount() > 0) scheduleFrontendTraceFlush();
   }
 }
 
 function scheduleFrontendTraceFlush() {
-  if (frontendTraceFlushScheduled || frontendTraceFlushInFlight) return;
+  if (
+    frontendTraceDisabled
+    || frontendTraceFlushScheduled
+    || frontendTraceFlushInFlight
+    || frontendTraceRetryTimer !== null
+    || frontendTraceQueuedCount() === 0
+  ) return;
   frontendTraceFlushScheduled = true;
   void Promise.resolve()
     .then(flushFrontendTraceQueue)
     .catch((error) => {
+      frontendTraceFlushScheduled = false;
       writeBridgeLog('error', 'frontend.trace.flush.schedule.failed', { error });
+      scheduleFrontendTraceRetry();
     });
 }
 
 function enqueueFrontendTraceEvent(event) {
   // 误判防护：enqueueFrontendTraceEvent 使用 FRONTEND_TRACE_QUEUE_LIMIT 限制 trace 队列。
-  if (frontendTraceQueue.length >= FRONTEND_TRACE_QUEUE_LIMIT) {
-    const overflow = frontendTraceQueue.length - FRONTEND_TRACE_QUEUE_LIMIT + 1;
-    frontendTraceQueue.splice(0, overflow);
+  frontendTraceHealth.accepted += 1;
+  if (frontendTraceQueuedCount() >= FRONTEND_TRACE_QUEUE_LIMIT) {
+    if (frontendTraceQueue.length === 0) {
+      frontendTraceHealth.overflowDropped += 1;
+      return false;
+    }
+    frontendTraceQueue.splice(0, 1);
+    frontendTraceHealth.overflowDropped += 1;
   }
   frontendTraceQueue.push(event);
+  return true;
 }
 
 function emitFrontendTraceEvent(event, options = {}) {
+  if (frontendTraceDisabled) return false;
   const sanitized = sanitizeFrontendTraceEvent(event);
   if (!shouldRemoteFlushFrontendTrace(sanitized)) return false;
-  enqueueFrontendTraceEvent(sanitized);
+  if (!enqueueFrontendTraceEvent(sanitized)) return false;
   if (options.flush !== false) scheduleFrontendTraceFlush();
   return true;
+}
+
+function flushFrontendTraceQueueForTest() {
+  return flushFrontendTraceQueue();
 }
 
 function runtimeTelemetryMetadata(event) {
@@ -463,5 +591,5 @@ installRuntimeTelemetryHook();
 export {
   parseRuntimeEventNumber, parseRuntimeEventJSON, normalizeRuntimeEventEnvelope, subscribeRuntimeEvent, resolveClientMeta, createTraceContext,
   isUITestMCPTraceSuppressed, isFrontendTraceDebugEnabled, safeTraceErrorMessage, currentMonotonicMS, elapsedMS, createFrontendTraceTimestamp,
-  installRuntimeTelemetryHook, emitFrontendTraceEvent,
+  installRuntimeTelemetryHook, emitFrontendTraceEvent, getFrontendTraceQueueHealth, flushFrontendTraceQueueForTest,
 };

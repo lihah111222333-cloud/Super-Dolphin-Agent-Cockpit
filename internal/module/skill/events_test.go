@@ -3,13 +3,16 @@ package skill
 import (
 	"context"
 	"encoding/json"
+	"os"
 	"reflect"
-	"sync"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/kelindar/event"
 	uidto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/ui"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util/safego"
+	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
 )
 
 func TestWriteLocalPublishesSkillsChanged(t *testing.T) {
@@ -25,6 +28,7 @@ func TestWriteLocalPublishesSkillsChanged(t *testing.T) {
 	svc.root = t.TempDir()
 	svc.projectSkillsRoot = defaultProjectSkillsRoot(projectRoot)
 	svc.bindDispatcher(dispatcher)
+	startSkillsChangedRunnerCleanup(t, svc)
 	if _, err := svc.WriteLocal(skillTestContext(projectRoot), "demo-skill", "# Demo", skillScopeProject); err != nil {
 		t.Fatalf("WriteLocal() error = %v", err)
 	}
@@ -63,6 +67,97 @@ func TestPublishSkillsChangedDebouncesBurst(t *testing.T) {
 	}
 
 	assertNoExtraSkillsChanged(t, got)
+}
+
+func TestSkillsChangedDebounceRunnerFlushesBurstAndStops(t *testing.T) {
+	dispatcher := event.NewDispatcher()
+	defer func() { _ = dispatcher.Close() }()
+	got := make(chan uidto.SkillsChanged, 2)
+	cancelSubscription := event.Subscribe(dispatcher, func(ev uidto.SkillsChanged) { got <- ev })
+	defer cancelSubscription()
+
+	svc := NewService("").(*service)
+	svc.bindDispatcher(dispatcher)
+	svc.skillsChangedDebounceWindow = 5 * time.Millisecond
+	cancelRunner, runnerDone := startSkillsChangedRunnerForTest(svc)
+
+	for i := range 1000 {
+		actions := []string{"write", "import_dir", "delete"}
+		svc.publishSkillsChanged(context.Background(), actions[i%len(actions)], "skill", skillScopePersonal)
+	}
+	ev := mustReceiveSkillsChanged(t, got)
+	if !reflect.DeepEqual(ev.Actions, []string{"write", "import", "delete"}) {
+		t.Fatalf("debounced burst actions = %#v", ev)
+	}
+	assertNoExtraSkillsChanged(t, got)
+
+	cancelRunner()
+	if err := <-runnerDone; err != nil {
+		t.Fatalf("skills changed runner error = %v", err)
+	}
+}
+
+func TestSkillsChangedDebounceRunnerFinalFlushesAndRejectsAfterStop(t *testing.T) {
+	svc := NewService("").(*service)
+	emitted := make(chan uidto.SkillsChanged, 2)
+	svc.emitSkillsChanged = func(ev uidto.SkillsChanged) { emitted <- ev }
+	svc.skillsChangedDebounceWindow = time.Second
+	cancelRunner, runnerDone := startSkillsChangedRunnerForTest(svc)
+
+	svc.publishSkillsChanged(context.Background(), "write", "skill", skillScopePersonal)
+	cancelRunner()
+	if err := <-runnerDone; err != nil {
+		t.Fatalf("skills changed runner error = %v", err)
+	}
+	ev := mustReceiveSkillsChanged(t, emitted)
+	if ev.Name != "skill" || ev.Action != "write" {
+		t.Fatalf("final flush event = %#v", ev)
+	}
+	health := svc.skillsChangedHealthSnapshot()
+	assertSkillsChangedFinalFlushHealth(t, health)
+
+	svc.publishSkillsChanged(context.Background(), "delete", "late", skillScopePersonal)
+	health = svc.skillsChangedHealthSnapshot()
+	assertSkillsChangedPostStopHealth(t, health)
+	assertNoExtraSkillsChanged(t, emitted)
+}
+
+func assertSkillsChangedFinalFlushHealth(t *testing.T, health skillsChangedHealthSnapshot) {
+	t.Helper()
+	if !health.Stopped || health.Pending != 0 || health.DroppedAfterStop != 0 || health.LastError != "" {
+		t.Fatalf("health after final flush = %#v", health)
+	}
+}
+
+func assertSkillsChangedPostStopHealth(t *testing.T, health skillsChangedHealthSnapshot) {
+	t.Helper()
+	if !health.Stopped || health.Pending != 0 || health.DroppedAfterStop != 1 ||
+		health.LastError != skillsChangedStoppedError {
+		t.Fatalf("health after post-stop publish = %#v", health)
+	}
+}
+
+func TestSkillsChangedDebounceUsesRunnerOwnedSingleTimer(t *testing.T) {
+	eventsSource, err := os.ReadFile("events.go")
+	if err != nil {
+		t.Fatalf("read events.go: %v", err)
+	}
+	source := string(eventsSource)
+	if strings.Contains(source, "safego.Go(") {
+		t.Fatal("skill debounce still starts an event-scoped goroutine")
+	}
+	if got := strings.Count(source, "time.NewTimer("); got != 1 {
+		t.Fatalf("runner-owned timer constructors = %d, want 1", got)
+	}
+	moduleSource, err := os.ReadFile("module.go")
+	if err != nil {
+		t.Fatalf("read module.go: %v", err)
+	}
+	for _, want := range []string{"skillServiceAsRunner", `group:"runners"`} {
+		if !strings.Contains(string(moduleSource), want) {
+			t.Fatalf("module.go missing runner assembly %q", want)
+		}
+	}
 }
 
 func TestPublishSkillsChangedDedupesRepeatedActions(t *testing.T) {
@@ -192,6 +287,7 @@ func TestServiceEmitsScopedSkillsChangedProject(t *testing.T) {
 	svc.root = t.TempDir()
 	svc.projectSkillsRoot = defaultProjectSkillsRoot(projectRoot)
 	svc.bindDispatcher(dispatcher)
+	startSkillsChangedRunnerCleanup(t, svc)
 
 	if _, err := svc.WriteLocal(skillTestContext(projectRoot), "scope-project", "# hi", skillScopeProject); err != nil {
 		t.Fatalf("WriteLocal(project) error = %v", err)
@@ -219,6 +315,7 @@ func TestServiceEmitsScopedSkillsChangedPersonal(t *testing.T) {
 
 	svc := NewService("").(*service)
 	svc.bindDispatcher(dispatcher)
+	startSkillsChangedRunnerCleanup(t, svc)
 
 	svc.publishSkillsChanged(context.Background(), "remote_write", "sysname", skillScopePersonal)
 
@@ -335,19 +432,31 @@ func TestServiceMergeableEventsStillCoalesce(t *testing.T) {
 	assertNoExtraSkillsChanged(t, got)
 }
 
-func blockSkillsChangedFlushForTest(t *testing.T, svc *service) func() {
+func startSkillsChangedRunnerForTest(svc *service) (context.CancelFunc, <-chan error) {
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	safego.Go(ctx, pkglogger.Get(), "skill.test.skillsChangedRunner", func(ctx context.Context) {
+		done <- svc.Run(ctx)
+	})
+	return cancel, done
+}
+
+func startSkillsChangedRunnerCleanup(t *testing.T, svc *service) {
 	t.Helper()
-	release := make(chan struct{})
-	var once sync.Once
-	svc.skillsChangedDelay = func() { <-release }
-	releaseFlush := func() { once.Do(func() { close(release) }) }
-	t.Cleanup(releaseFlush)
-	return releaseFlush
+	cancel, done := startSkillsChangedRunnerForTest(svc)
+	t.Cleanup(func() {
+		cancel()
+		if err := <-done; err != nil {
+			t.Errorf("skills changed runner cleanup: %v", err)
+		}
+	})
+}
+
+func blockSkillsChangedFlushForTest(t *testing.T, _ *service) func() {
+	t.Helper()
+	return func() {}
 }
 
 func flushSkillsChangedNowForTest(svc *service) {
-	svc.skillsChangedMu.Lock()
-	seq := svc.skillsChangedSeq
-	svc.skillsChangedMu.Unlock()
-	svc.flushSkillsChanged(seq)
+	svc.flushSkillsChanged()
 }

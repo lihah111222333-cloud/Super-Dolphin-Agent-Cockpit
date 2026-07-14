@@ -22,15 +22,15 @@
       {
         "key": "app-ui",
         "file": "docs/doc/codemap/project-map/index/app-ui.tsv",
-        "file_count": 516,
-        "size_kb": 105.5,
+        "file_count": 517,
+        "size_kb": 105.7,
         "desc": "桌面应用、Wails host、React/Vite 前端与 UI 测试"
       },
       {
         "key": "orchestration",
         "file": "docs/doc/codemap/project-map/index/orchestration.tsv",
-        "file_count": 419,
-        "size_kb": 94,
+        "file_count": 418,
+        "size_kb": 93.8,
         "desc": "mcp-orch 编排 peer、DAG、workspace、prompt、command、shared-file 工具"
       },
       {
