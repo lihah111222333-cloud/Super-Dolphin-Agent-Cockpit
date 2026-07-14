@@ -261,9 +261,10 @@ internal/module/memory/team/team_sync_push.go	internal	modules	go-source	9992	me
 internal/module/memory/team/team_sync_remote.go	internal	modules	go-source	10147	memory canonical 管理、UI RPC 与持久化接线	internal,module,memory,team,sync,remote,canonical,管理,UI,RPC,与持久化接线
 internal/module/memory/team/team_sync_state.go	internal	modules	go-source	4377	memory canonical 管理、UI RPC 与持久化接线	internal,module,memory,team,sync,state,canonical,管理,UI,RPC,与持久化接线
 internal/module/memory/team/team_sync_test.go	internal	modules	go-test	11514	memory canonical 管理、UI RPC 与持久化接线	internal,module,memory,team,sync,test,canonical,管理,UI,RPC,与持久化接线
+internal/module/memory/team/team_sync_transition_test.go	internal	modules	go-test	8702	memory canonical 管理、UI RPC 与持久化接线	internal,module,memory,team,sync,transition,test,canonical,管理,UI,RPC,与持久化接线
 internal/module/memory/team/team_sync_watcher_test.go	internal	modules	go-test	4139	memory canonical 管理、UI RPC 与持久化接线	internal,module,memory,team,sync,watcher,test,canonical,管理,UI,RPC,与持久化接线
 internal/module/memory/team/team_sync_watcher.go	internal	modules	go-source	14898	memory canonical 管理、UI RPC 与持久化接线	internal,module,memory,team,sync,watcher,canonical,管理,UI,RPC,与持久化接线
-internal/module/memory/team/team_sync.go	internal	modules	go-source	12343	memory canonical 管理、UI RPC 与持久化接线	internal,module,memory,team,sync,canonical,管理,UI,RPC,与持久化接线
+internal/module/memory/team/team_sync.go	internal	modules	go-source	15404	memory canonical 管理、UI RPC 与持久化接线	internal,module,memory,team,sync,canonical,管理,UI,RPC,与持久化接线
 internal/module/memory/team/team_test.go	internal	modules	go-test	1385	memory canonical 管理、UI RPC 与持久化接线	internal,module,memory,team,test,canonical,管理,UI,RPC,与持久化接线
 internal/module/memory/team/test_helpers_test.go	internal	modules	go-test	1391	memory canonical 管理、UI RPC 与持久化接线	internal,module,memory,team,test,helpers,canonical,管理,UI,RPC,与持久化接线
 internal/module/memory/team/test_symlink_unix_test.go	internal	modules	go-test	133	memory canonical 管理、UI RPC 与持久化接线	internal,module,memory,team,test,symlink,unix,canonical,管理,UI,RPC,与持久化接线
