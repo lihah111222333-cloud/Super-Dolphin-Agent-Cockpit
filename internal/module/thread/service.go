@@ -68,6 +68,7 @@ type service struct {
 	turns                   contract.TurnThreadCleaner
 	orchestration           OrchestrationFacade
 	sessionGenerationBinder SessionGenerationBinder
+	scratchpadCleanup       func(string) error
 	tracing                 *platformobs.Service
 	bus                     *event.Dispatcher
 
@@ -371,17 +372,17 @@ func (s *service) deleteThreadState(
 	stopState threadStopState,
 	binding *bindingStoreRecord,
 ) error {
-	s.cleanupThreadScratchpad(ctx, threadID, binding)
+	cleanupErr := s.cleanupThreadScratchpad(ctx, threadID, binding)
 	s.forgetThreadAgents(stopState.targets...)
 	if s.threadStore == nil {
-		return errors.New("thread store is not configured")
+		return joinScratchpadPartialCleanupError("delete", errors.New("thread store is not configured"), cleanupErr)
 	}
 	if err := s.threadStore.DeleteByThreadID(ctx, stopState.stoppedID); err != nil {
-		return err
+		return joinScratchpadPartialCleanupError("delete", err, cleanupErr)
 	}
 	s.cleanupThreadTurns(ctx, "thread_deleted", stopState.targets...)
 	s.publishThreadStopped(stopState.stoppedID, agentIDFromBinding(binding, stopState.stoppedID), "deleted", "deleted")
-	return nil
+	return newScratchpadPartialCleanupError("delete", cleanupErr)
 }
 
 // forgetThreadAgents 批量移除进程内 threadID→agentID 映射缓存。
