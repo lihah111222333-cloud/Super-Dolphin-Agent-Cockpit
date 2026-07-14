@@ -69,52 +69,58 @@ func runFrontendEmbedVerify(t *testing.T, env []string) ([]byte, error) {
 	return cmd.CombinedOutput()
 }
 
+type prePushReleaseGateCase struct {
+	name     string
+	path     string
+	content  string
+	wantOut  []string
+	wantLog  []string
+	omitLog  []string
+	makefile string
+}
+
 func TestPrePushRunsPathBasedReleaseGates(t *testing.T) {
-	cases := []struct {
-		name     string
-		path     string
-		content  string
-		wantOut  []string
-		wantLog  []string
-		omitLog  []string
-		makefile string
-	}{
+	cases := []prePushReleaseGateCase{
 		{
-			name:     "frontend app runs embed verify",
+			name:     "frontend app delegates to AI maintenance",
 			path:     "frontend-app/src/App.jsx",
 			content:  "export const App = () => null\n",
-			wantOut:  []string{"[pre-push] frontend embed verify"},
-			wantLog:  []string{"make frontend-embed-verify"},
+			wantOut:  []string{"[pre-push] AI maintenance gates"},
+			wantLog:  []string{"ai-maintenance --skip-deferred-e2e --changed-file frontend-app/src/App.jsx"},
+			omitLog:  []string{"make frontend-embed-verify", "npm "},
 			makefile: "frontend-embed-verify:\n\t@true\n",
 		},
 		{
-			name:    "sql changes run sqlc verify",
+			name:    "sql changes delegate to AI maintenance",
 			path:    "sql/queries/example.sql",
 			content: "-- query\n",
-			wantOut: []string{"[pre-push] sqlc verify"},
-			wantLog: []string{"make sqlc-verify"},
-			omitLog: []string{"npm run lint"},
+			wantOut: []string{"[pre-push] AI maintenance gates"},
+			wantLog: []string{"ai-maintenance --skip-deferred-e2e --changed-file sql/queries/example.sql"},
+			omitLog: []string{"make sqlc-verify", "npm run lint"},
 		},
 		{
-			name:    "codemap changes run codemap check",
+			name:    "codemap changes delegate to AI maintenance",
 			path:    "docs/doc/codemap/01-terminal-ui.md",
 			content: "codemap\n",
-			wantOut: []string{"[pre-push] codemap check", "[pre-push] project map check"},
-			wantLog: []string{"make codemap-check", "make project-map-check"},
+			wantOut: []string{"[pre-push] AI maintenance gates"},
+			wantLog: []string{"ai-maintenance --skip-deferred-e2e --changed-file docs/doc/codemap/01-terminal-ui.md"},
+			omitLog: []string{"make codemap-check", "make project-map-check"},
 		},
 		{
-			name:    "project map generator changes run codemap checks",
+			name:    "project map generator delegates to AI maintenance",
 			path:    "scripts/generate_ai_project_map.mjs",
 			content: "#!/usr/bin/env node\n",
-			wantOut: []string{"[pre-push] codemap check", "[pre-push] project map check"},
-			wantLog: []string{"make codemap-check", "make project-map-check"},
+			wantOut: []string{"[pre-push] AI maintenance gates"},
+			wantLog: []string{"ai-maintenance --skip-deferred-e2e --changed-file scripts/generate_ai_project_map.mjs"},
+			omitLog: []string{"make codemap-check", "make project-map-check"},
 		},
 		{
-			name:    "project map overrides changes run codemap checks",
+			name:    "project map overrides delegate to AI maintenance",
 			path:    ".ai-project-map.overrides.json",
 			content: "{}\n",
-			wantOut: []string{"[pre-push] codemap check", "[pre-push] project map check"},
-			wantLog: []string{"make codemap-check", "make project-map-check"},
+			wantOut: []string{"[pre-push] AI maintenance gates"},
+			wantLog: []string{"ai-maintenance --skip-deferred-e2e --changed-file .ai-project-map.overrides.json"},
+			omitLog: []string{"make codemap-check", "make project-map-check"},
 		},
 		{
 			name:    "skill changes run skill validation",
@@ -127,30 +133,34 @@ func TestPrePushRunsPathBasedReleaseGates(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			fixture := newPrePushScopeFixture(t)
-			writePrePushFakeMake(t, fixture.binDir)
-			writePrePushFakePython3(t, fixture.binDir)
-			if tc.makefile != "" {
-				writeFixTestGuardFile(t, fixture.root, "Makefile", tc.makefile)
-				runFixTestGuardGit(t, fixture.root, "add", "Makefile")
-				runFixTestGuardGit(t, fixture.root, "commit", "-m", "chore: 更新 make gate")
-				fixture.base = strings.TrimSpace(runFixTestGuardGitOutput(t, fixture.root, "rev-parse", "HEAD"))
-			}
-			writeFixTestGuardFile(t, fixture.root, tc.path, tc.content)
-			runFixTestGuardGit(t, fixture.root, "add", tc.path)
-			runFixTestGuardGit(t, fixture.root, "commit", "-m", "chore: 更新 gate path")
-			head := strings.TrimSpace(runFixTestGuardGitOutput(t, fixture.root, "rev-parse", "HEAD"))
-
-			out := fixture.run(t, head)
-			assertOutputContainsAll(t, out, tc.wantOut...)
-			log := fixture.log(t)
-			assertOutputContainsAll(t, log, tc.wantLog...)
-			assertOutputOmitsAll(t, log, tc.omitLog...)
+			runPrePushReleaseGateCase(t, tc)
 		})
 	}
 }
 
-func TestPrePushWarnsButAllowsGeneratedArtifactDrift(t *testing.T) {
+func runPrePushReleaseGateCase(t *testing.T, tc prePushReleaseGateCase) {
+	t.Helper()
+	fixture := newPrePushScopeFixture(t)
+	writePrePushFakeMake(t, fixture.binDir)
+	writePrePushFakePython3(t, fixture.binDir)
+	if tc.makefile != "" {
+		writeFixTestGuardFile(t, fixture.root, "Makefile", tc.makefile)
+		runFixTestGuardGit(t, fixture.root, "add", "Makefile")
+		runFixTestGuardGit(t, fixture.root, "commit", "-m", "chore: 更新 make gate")
+		fixture.base = strings.TrimSpace(runFixTestGuardGitOutput(t, fixture.root, "rev-parse", "HEAD"))
+	}
+	writeFixTestGuardFile(t, fixture.root, tc.path, tc.content)
+	runFixTestGuardGit(t, fixture.root, "add", tc.path)
+	runFixTestGuardGit(t, fixture.root, "commit", "-m", "chore: 更新 gate path")
+	head := strings.TrimSpace(runFixTestGuardGitOutput(t, fixture.root, "rev-parse", "HEAD"))
+	out := fixture.run(t, head)
+	assertOutputContainsAll(t, out, tc.wantOut...)
+	log := fixture.log(t)
+	assertOutputContainsAll(t, log, tc.wantLog...)
+	assertOutputOmitsAll(t, log, tc.omitLog...)
+}
+
+func TestPrePushKeepsGeneratedDriftFailFastAndPassesPushRange(t *testing.T) {
 	fixture := newPrePushScopeFixture(t)
 	writePrePushFakeMake(t, fixture.binDir)
 	t.Setenv("HOOK_SCOPE_FAIL_MAKE_TARGETS", "codemap-check project-map-check")
@@ -162,14 +172,15 @@ func TestPrePushWarnsButAllowsGeneratedArtifactDrift(t *testing.T) {
 
 	out := fixture.run(t, head)
 	assertOutputContainsAll(t, out,
-		"[pre-push] codemap check",
-		"[pre-push] project map check",
-		"generated artifact drift; this gate is soft and will not block push",
-		"如果 push 随后失败，请查看本 warning 之后的第一条",
+		"[pre-push] AI maintenance gates",
 		"pre-push OK",
 	)
 	log := fixture.log(t)
-	assertOutputContainsAll(t, log, "make codemap-check", "make project-map-check")
+	assertOutputContainsAll(t, log,
+		"soft-generated= ai-maintenance --skip-deferred-e2e --changed-file docs/doc/codemap/01-terminal-ui.md",
+		"--diff-range "+fixture.base+".."+head,
+	)
+	assertOutputOmitsAll(t, log, "make codemap-check", "make project-map-check")
 }
 
 func TestCodeSizeGuardDefaultAndStrictEnableFunctionCommentGuard(t *testing.T) {

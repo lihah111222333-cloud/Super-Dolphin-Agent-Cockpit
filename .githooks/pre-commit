@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# pre-commit — 每次提交先跑全量代码守卫，再检查 staged 的 Go/前端影响面。
+# pre-commit — 刷新 staged 生成物并按变更面运行唯一一轮代码守卫、Go/前端检查。
 # Bypass: git commit --no-verify
 set -e
 
@@ -10,9 +10,13 @@ export GOFLAGS=
 
 # Commit hooks must not run gosec; keep security scans out of the local commit path.
 export SUPER_DOLPHIN_GITHOOK_SKIP_GOSEC=1
+export SUPER_DOLPHIN_GUARD_FAIL_ON_DRIFT=1
 
+# Hook contract fixes cwd at the repository root.
+# shellcheck disable=SC1091
 source scripts/configure_hook_node_runtime.sh
 configure_hook_node_runtime
+REPO_ROOT=$(pwd -P)
 
 # Git hook 运行时会注入 GIT_DIR/GIT_INDEX_FILE 以及 `git -c` 传播的 GIT_CONFIG_*。
 # go test 中若再创建临时 git repo，这些环境会污染子 git 命令并误触发本 hook。
@@ -34,10 +38,19 @@ run_go_without_git_env() (
 FMT_OUT=$(mktemp -t pre-commit-fmt.XXXXXX)
 GO_LIST_ERR=$(mktemp -t pre-commit-golist.XXXXXX)
 CODEMAP_TMP=
+CACHE_INDEX=
+CACHE_INDEX_DIR=
+GATE_WORKTREE=
 cleanup() {
   rm -f "$FMT_OUT" "$GO_LIST_ERR"
   if [ -n "${CODEMAP_TMP:-}" ]; then
     rm -rf "$CODEMAP_TMP"
+  fi
+  if [ -n "${CACHE_INDEX_DIR:-}" ]; then
+    rm -rf "$CACHE_INDEX_DIR"
+  fi
+  if [ -n "${GATE_WORKTREE:-}" ]; then
+    run_go_without_git_env git worktree remove --force "$GATE_WORKTREE" >/dev/null 2>&1 || rm -rf "$GATE_WORKTREE"
   fi
 }
 trap 'cleanup' EXIT
@@ -49,7 +62,7 @@ GOFMT_FILES=()
 PKG_CANDIDATES=()
 MISSING_FILES=()
 DIRTY_FILES=()
-HAS_FRONTEND_APP_CHANGES=0
+HAS_EXECUTABLE_GATE_CHANGES=0
 CODEMAP_GENERATED_PATHS=(
   README.md
   docs/doc/codemap/13-archtest-boundaries.md
@@ -58,41 +71,12 @@ CODEMAP_GENERATED_PATHS=(
   docs/doc/codemap/project-map
 )
 
-is_frontend_app_code_path() {
+add_executable_gate_path() {
   case "$1" in
-    frontend-app/node_modules/*|\
-    frontend-app/.vite-cache/*|\
-    frontend-app/.build-cache/*|\
-    frontend-app/.vitest/*|\
-    frontend-app/.eslintcache|\
-    frontend-app/dist/*|\
-    frontend-app/coverage/*|\
-    frontend-app/playwright-report/*|\
-    frontend-app/test-results/*|\
-    frontend-app/test-report/*|\
-    frontend-app/html-report/*|\
-    frontend-app/reports/*|\
-    frontend-app/vitest-report/*|\
-    frontend-app/npm-debug.log|\
-    frontend-app/yarn-error.log|\
-    frontend-app/pnpm-debug.log|\
-    frontend-app/full_test_output.txt|\
-    frontend-app/.DS_Store)
-      return 1
-      ;;
-    frontend-app/*)
-      return 0
-      ;;
-    *)
-      return 1
+    *.go|frontend-app/*|scripts/*|.githooks/*|Makefile|go.mod|go.sum|sql/*|internal/*|cmd/*|pkg/*|*.yaml|*.yml|*.json)
+      HAS_EXECUTABLE_GATE_CHANGES=1
       ;;
   esac
-}
-
-add_frontend_path() {
-  if is_frontend_app_code_path "$1"; then
-    HAS_FRONTEND_APP_CHANGES=1
-  fi
 }
 
 ensure_codemap_generated_paths_clean() {
@@ -158,6 +142,7 @@ refresh_codemap_generated_files() {
 run_ai_maintenance_staged_gate() {
   local args=()
   local path
+  local cache_scope
   while IFS= read -r -d '' path; do
     args+=(--changed-file "$path")
   done < <(git diff --cached --name-only -z --diff-filter=ACMRD)
@@ -167,9 +152,167 @@ run_ai_maintenance_staged_gate() {
   fi
 
   echo "[pre-commit] AI maintenance gates..."
-  if ! run_go_without_git_env ./scripts/ai_maintenance_gates.sh "${args[@]}"; then
+  if ! cache_scope=$(git write-tree); then
+    echo "❌ 无法固定 staged tree，拒绝使用不确定的门禁缓存" >&2
+    exit 1
+  fi
+  ensure_cache_scope_matches_real_index "$cache_scope"
+  create_immutable_cache_index "$cache_scope"
+  create_staged_gate_worktree "$cache_scope"
+  verify_staged_go_inputs
+  if ! (
+    cd "$GATE_WORKTREE"
+    run_go_without_git_env env GIT_INDEX_FILE="$CACHE_INDEX" ./scripts/ai_maintenance_gates.sh \
+      --cache-dir .build-cache/ai-maintenance-gates \
+      --cache-max-age 10m \
+      --cache-scope "$cache_scope" \
+      --diff-cached \
+      "${args[@]}"
+  ); then
     echo "❌ AI maintenance gates 未通过" >&2
     echo "  ⚠️  紧急 bypass（违反仓库规约 docs/1/会话习惯.md §10.12«禁止 bypass pre-commit hook»、需事后补检查）：git commit --no-verify" >&2
+    exit 1
+  fi
+}
+
+verify_staged_go_inputs() (
+  local f p pkg_dir
+  local pkgs=()
+  cd "$GATE_WORKTREE"
+
+  if [ ${#GOFMT_FILES[@]} -gt 0 ]; then
+    echo "[pre-commit] gofmt (staged snapshot)..."
+    : > "$FMT_OUT"
+    for f in "${GOFMT_FILES[@]}"; do
+      if ! gofmt -l "$f" >> "$FMT_OUT" 2>&1; then
+        echo "❌ gofmt 自身执行失败：" >&2
+        cat "$FMT_OUT" >&2
+        exit 1
+      fi
+    done
+    if [ -s "$FMT_OUT" ]; then
+      echo "❌ 以下 staged Go 文件未格式化：" >&2
+      cat "$FMT_OUT" >&2
+      echo "  请在原 worktree 运行 gofmt -w 后重新 git add。" >&2
+      exit 1
+    fi
+  elif [ ${#PKG_CANDIDATES[@]} -gt 0 ]; then
+    echo "[pre-commit] gofmt... (skipped: only deleted Go files)"
+  fi
+
+  for p in "${PKG_CANDIDATES[@]}"; do
+    pkg_dir=${p#./}
+    if [ "$p" = "." ]; then
+      pkg_dir="."
+    fi
+    if [ ! -d "$pkg_dir" ]; then
+      continue
+    fi
+    if run_go_without_git_env go list "$p" >/dev/null 2>"$GO_LIST_ERR"; then
+      pkgs+=("$p")
+      continue
+    fi
+    if grep -q -e "no Go files" -e "build constraints exclude all Go files" "$GO_LIST_ERR"; then
+      continue
+    fi
+    echo "❌ staged snapshot go list 失败：$p" >&2
+    cat "$GO_LIST_ERR" >&2
+    exit 1
+  done
+
+  if [ ${#pkgs[@]} -gt 0 ]; then
+    echo "[pre-commit] go vet (staged snapshot)..."
+    if ! run_go_without_git_env go vet "${pkgs[@]}"; then
+      echo "❌ staged snapshot go vet 失败" >&2
+      exit 1
+    fi
+  fi
+)
+
+create_staged_gate_worktree() {
+  local cache_scope=$1 base_commit empty_tree
+  if ! base_commit=$(run_go_without_git_env git rev-parse --verify HEAD 2>/dev/null); then
+    if ! empty_tree=$(run_go_without_git_env git hash-object -t tree /dev/null); then
+      echo "❌ 无法创建首次提交门禁的 empty tree" >&2
+      exit 1
+    fi
+    if ! base_commit=$(printf 'pre-commit empty base\n' | run_go_without_git_env git commit-tree "$empty_tree"); then
+      echo "❌ 无法创建首次提交门禁的临时 base commit" >&2
+      exit 1
+    fi
+  fi
+
+  GATE_WORKTREE=$(mktemp -d -t pre-commit-worktree.XXXXXX)
+  rmdir "$GATE_WORKTREE"
+  if ! run_go_without_git_env git worktree add --quiet --detach --no-checkout "$GATE_WORKTREE" "$base_commit"; then
+    echo "❌ 无法创建 staged gate 临时 worktree" >&2
+    exit 1
+  fi
+  if ! GIT_INDEX_FILE="$CACHE_INDEX" git checkout-index -a --prefix="$GATE_WORKTREE/"; then
+    echo "❌ 无法将 staged tree 展开到临时门禁 worktree" >&2
+    exit 1
+  fi
+  if ! run_go_without_git_env git -C "$GATE_WORKTREE" read-tree "$cache_scope"; then
+    echo "❌ 无法将 staged tree 写入临时门禁 worktree index" >&2
+    exit 1
+  fi
+
+  mkdir -p "$REPO_ROOT/.build-cache"
+  ln -s "$REPO_ROOT/.build-cache" "$GATE_WORKTREE/.build-cache"
+  if [ -x "$REPO_ROOT/frontend-app/node_modules/.bin/vite" ] && \
+    [ -f "$GATE_WORKTREE/frontend-app/package.json" ] && \
+    [ -f "$GATE_WORKTREE/frontend-app/package-lock.json" ] && \
+    cmp -s "$REPO_ROOT/frontend-app/package.json" "$GATE_WORKTREE/frontend-app/package.json" && \
+    cmp -s "$REPO_ROOT/frontend-app/package-lock.json" "$GATE_WORKTREE/frontend-app/package-lock.json" && \
+    [ ! "$REPO_ROOT/frontend-app/package.json" -nt "$REPO_ROOT/frontend-app/node_modules" ] && \
+    [ ! "$REPO_ROOT/frontend-app/package-lock.json" -nt "$REPO_ROOT/frontend-app/node_modules" ]; then
+    mkdir "$GATE_WORKTREE/frontend-app/node_modules"
+    while IFS= read -r -d '' dependency; do
+      if ! ln -s "$dependency" "$GATE_WORKTREE/frontend-app/node_modules/"; then
+        echo "❌ 无法链接已验证的新鲜 frontend 依赖：$dependency" >&2
+        exit 1
+      fi
+    done < <(find "$REPO_ROOT/frontend-app/node_modules" -mindepth 1 -maxdepth 1 -print0)
+    touch "$GATE_WORKTREE/frontend-app/node_modules"
+  fi
+}
+
+create_immutable_cache_index() {
+  local cache_scope=$1
+  CACHE_INDEX_DIR=$(mktemp -d -t pre-commit-index.XXXXXX)
+  CACHE_INDEX="$CACHE_INDEX_DIR/index"
+  case "$CACHE_INDEX_DIR" in
+    /*) ;;
+    *)
+      CACHE_INDEX_DIR="$PWD/$CACHE_INDEX_DIR"
+      CACHE_INDEX="$CACHE_INDEX_DIR/index"
+      ;;
+  esac
+  if ! GIT_INDEX_FILE="$CACHE_INDEX" git read-tree "$cache_scope"; then
+    echo "❌ 无法从 staged tree 创建不可变门禁 index" >&2
+    exit 1
+  fi
+}
+
+ensure_cache_scope_matches_real_index() {
+  local cache_scope=$1
+  local real_git_dir real_index real_scope
+  if ! real_git_dir=$(git rev-parse --absolute-git-dir); then
+    echo "❌ 无法定位真实 Git 目录，拒绝 partial-index 门禁" >&2
+    exit 1
+  fi
+  real_index="$real_git_dir/index"
+  if [ ! -f "$real_index" ]; then
+    echo "❌ 真实 Git index 不存在：$real_index" >&2
+    exit 1
+  fi
+  if ! real_scope=$(GIT_INDEX_FILE="$real_index" git write-tree); then
+    echo "❌ 无法读取真实 Git index，拒绝 partial-index 门禁" >&2
+    exit 1
+  fi
+  if [ "$real_scope" != "$cache_scope" ]; then
+    echo "❌ 检测到 partial commit 临时 index 与真实 index 不一致；当前门禁会读取真实 index，无法证明提交内容为绿。" >&2
+    echo "  请先整理 staging，使真实 index 与本次提交一致后重试。" >&2
     exit 1
   fi
 }
@@ -233,8 +376,7 @@ add_dirty_file() {
 
 check_worktree_matches_index() {
   local f=$1
-  is_go_path "$f" || return 0
-  if [ ! -f "$f" ]; then
+  if [ ! -e "$f" ] && [ ! -L "$f" ]; then
     add_missing_file "$f"
     return 0
   fi
@@ -252,27 +394,27 @@ while IFS= read -r -d '' status; do
       IFS= read -r -d '' new_path || { echo "❌ 解析 staged rename/copy new path 失败" >&2; exit 1; }
       add_pkg_for_path "$old_path"
       add_pkg_for_path "$new_path"
-      add_frontend_path "$old_path"
-      add_frontend_path "$new_path"
+      add_executable_gate_path "$old_path"
+      add_executable_gate_path "$new_path"
       add_gofmt_file "$new_path"
       check_worktree_matches_index "$new_path"
       ;;
     D)
       IFS= read -r -d '' path || { echo "❌ 解析 staged delete path 失败" >&2; exit 1; }
       add_pkg_for_path "$path"
-      add_frontend_path "$path"
+      add_executable_gate_path "$path"
       ;;
     A|M)
       IFS= read -r -d '' path || { echo "❌ 解析 staged path 失败" >&2; exit 1; }
       add_pkg_for_path "$path"
-      add_frontend_path "$path"
+      add_executable_gate_path "$path"
       add_gofmt_file "$path"
       check_worktree_matches_index "$path"
       ;;
     *)
       IFS= read -r -d '' path || { echo "❌ 解析 staged path 失败" >&2; exit 1; }
       add_pkg_for_path "$path"
-      add_frontend_path "$path"
+      add_executable_gate_path "$path"
       add_gofmt_file "$path"
       check_worktree_matches_index "$path"
       ;;
@@ -280,9 +422,8 @@ while IFS= read -r -d '' status; do
 done < <(git diff --cached --name-status -z --diff-filter=ACMRD)
 
 refresh_codemap_generated_files
-run_ai_maintenance_staged_gate
 
-# go vet / go test 以 worktree 包为输入；为避免测试到未提交内容，
+# go vet / AI maintenance tests 以 worktree 包为输入；为避免测试到未提交内容，
 # staged Go 影响到的包内若还有未暂存或未跟踪 .go，也必须先处理。
 for p in "${PKG_CANDIDATES[@]}"; do
   pkg_dir=${p#./}
@@ -304,144 +445,40 @@ for p in "${PKG_CANDIDATES[@]}"; do
   done < <(git ls-files --others --exclude-standard -z -- "$pkg_dir")
 done
 
-# ── Full codebase guard
-echo "[pre-commit] full codebase guard..."
-if ! SUPER_DOLPHIN_GUARD_FAIL_ON_DRIFT=1 ./scripts/test_with_guard.sh --guard-only; then
-  echo "❌ 后端代码守卫未通过" >&2
-  echo "  ⚠️  紧急 bypass（违反仓库规约 docs/1/会话习惯.md §10.12«禁止 bypass pre-commit hook»、需事后补检查）：git commit --no-verify" >&2
-  exit 1
-fi
-
-if [ ${#GOFMT_FILES[@]} -eq 0 ] && [ ${#PKG_CANDIDATES[@]} -eq 0 ] && [ "$HAS_FRONTEND_APP_CHANGES" -eq 0 ]; then
-  echo "✅ pre-commit OK"
-  exit 0
+# 代码/门禁提交会在真实 worktree 上执行检查；任何额外 tracked/untracked 输入都必须阻断。
+if [ "$HAS_EXECUTABLE_GATE_CHANGES" -eq 1 ]; then
+  while IFS= read -r -d '' dirty_path; do
+    add_dirty_file "$dirty_path"
+  done < <(git diff --name-only -z)
+  while IFS= read -r -d '' other_path; do
+    add_dirty_file "$other_path"
+  done < <(git ls-files --others --exclude-standard -z)
 fi
 
 if [ ${#MISSING_FILES[@]} -gt 0 ]; then
-  echo "❌ 以下 staged .go 文件在 worktree 中不存在（常见 AD：git add 后又 rm）：" >&2
+  echo "❌ 以下 staged 文件在 worktree 中不存在（常见 AD：git add 后又 rm）：" >&2
   for f in "${MISSING_FILES[@]}"; do
     printf '  %q\n' "$f" >&2
   done
   echo "" >&2
   echo "  请先处理 staging：git restore --staged <file>，或恢复文件后重新 git add。" >&2
-  echo "  hook 不会静默跳过 index 里实际会被提交的 Go blob。" >&2
+  echo "  hook 不会静默跳过 index 里实际会被提交的 blob。" >&2
   echo "  ⚠️  紧急 bypass（违反仓库规约 docs/1/会话习惯.md §10.12«禁止 bypass pre-commit hook»，需事后补检查）：git commit --no-verify" >&2
   exit 1
 fi
 
 if [ ${#DIRTY_FILES[@]} -gt 0 ]; then
-  echo "❌ 以下 staged Go 影响包内的 .go 文件还有未暂存或未跟踪 worktree 改动：" >&2
+  echo "❌ 当前代码/门禁提交还存在未暂存或未跟踪 worktree 输入：" >&2
   for f in "${DIRTY_FILES[@]}"; do
     printf '  %q\n' "$f" >&2
   done
   echo "" >&2
   echo "  请先 git add 这些文件，或还原/删除未暂存改动。" >&2
-  echo "  否则 gofmt/go vet/go test 检查的不是将被提交的内容。" >&2
+  echo "  否则门禁检查的不是将被提交的完整内容，可能制造假绿。" >&2
   echo "  ⚠️  紧急 bypass（违反仓库规约 docs/1/会话习惯.md §10.12«禁止 bypass pre-commit hook»，需事后补检查）：git commit --no-verify" >&2
   exit 1
 fi
 
-# ── gofmt（仅对新增/修改/rename/copy 的 Go 文件；删除只影响包测试）
-if [ ${#GOFMT_FILES[@]} -gt 0 ]; then
-  echo "[pre-commit] gofmt..."
-  : > "$FMT_OUT"
-  for f in "${GOFMT_FILES[@]}"; do
-    if ! gofmt -l "$f" >> "$FMT_OUT" 2>&1; then
-      echo "❌ gofmt 自身执行失败：" >&2
-      cat "$FMT_OUT" >&2
-      exit 1
-    fi
-  done
-  if [ -s "$FMT_OUT" ]; then
-    echo "❌ 以下文件未格式化：" >&2
-    cat "$FMT_OUT" >&2
-    echo "" >&2
-    echo "  一键修复（自动处理空格/中文路径）：" >&2
-    printf '  gofmt -w' >&2
-    while IFS= read -r f; do
-      printf ' %q' "$f" >&2
-    done < "$FMT_OUT"
-    printf '\n' >&2
-    echo "" >&2
-    echo "  修复后请重新 git add，再 commit。" >&2
-    echo "  ⚠️  紧急 bypass（违反仓库规约 docs/1/会话习惯.md §10.12«禁止 bypass pre-commit hook»，需事后补检查）：git commit --no-verify" >&2
-    exit 1
-  fi
-elif [ ${#PKG_CANDIDATES[@]} -gt 0 ]; then
-  echo "[pre-commit] gofmt... (skipped: only deleted Go files)"
-fi
-
-PKGS=()
-for p in "${PKG_CANDIDATES[@]}"; do
-  pkg_dir=${p#./}
-  if [ "$p" = "." ]; then
-    pkg_dir="."
-  fi
-  # 全包删除 / 目录删除时没有剩余包可测；删除影响同包时目录仍存在，会继续 go list。
-  if [ ! -d "$pkg_dir" ]; then
-    continue
-  fi
-  if run_go_without_git_env go list "$p" >/dev/null 2>"$GO_LIST_ERR"; then
-    PKGS+=("$p")
-    continue
-  fi
-  if grep -q -e "no Go files" -e "build constraints exclude all Go files" "$GO_LIST_ERR"; then
-    continue
-  fi
-  echo "❌ go list 失败：$p" >&2
-  cat "$GO_LIST_ERR" >&2
-  exit 1
-done
-
-if [ ${#PKGS[@]} -gt 0 ]; then
-  # ── go vet
-  echo "[pre-commit] go vet..."
-  if ! run_go_without_git_env go vet "${PKGS[@]}"; then
-    echo "❌ go vet 失败" >&2
-    echo "  ⚠️  紧急 bypass（违反仓库规约 docs/1/会话习惯.md §10.12«禁止 bypass pre-commit hook»、需事后补检查）：git commit --no-verify" >&2
-    exit 1
-  fi
-
-  # ── go test -short
-  echo "[pre-commit] go test -short..."
-  if ! run_go_without_git_env go test -short -timeout 240s "${PKGS[@]}"; then
-    echo "❌ 短测失败" >&2
-    echo "  ⚠️  紧急 bypass（违反仓库规约 docs/1/会话习惯.md §10.12«禁止 bypass pre-commit hook»、需事后补检查）：git commit --no-verify" >&2
-    exit 1
-  fi
-fi
-
-# ── Current React Frontend Tests
-if [ "$HAS_FRONTEND_APP_CHANGES" -eq 1 ]; then
-  echo "[pre-commit] frontend-app lint..."
-  (
-    cd frontend-app
-    if ! npm run lint; then
-      echo "❌ frontend-app lint 失败" >&2
-      echo "  ⚠️  紧急 bypass（违反仓库规约 docs/1/会话习惯.md §10.12«禁止 bypass pre-commit hook»、需事后补检查）：git commit --no-verify" >&2
-      exit 1
-    fi
-  )
-
-  echo "[pre-commit] frontend-app tests..."
-  (
-    cd frontend-app
-    if ! npm run test:hook; then
-      echo "❌ frontend-app 测试失败" >&2
-      echo "  ⚠️  紧急 bypass（违反仓库规约 docs/1/会话习惯.md §10.12«禁止 bypass pre-commit hook»、需事后补检查）：git commit --no-verify" >&2
-      exit 1
-    fi
-  )
-
-  echo "[pre-commit] frontend-app build..."
-  (
-    cd frontend-app
-    if ! npm run build; then
-      echo "❌ frontend-app 构建失败" >&2
-      echo "  ⚠️  紧急 bypass（违反仓库规约 docs/1/会话习惯.md §10.12«禁止 bypass pre-commit hook»、需事后补检查）：git commit --no-verify" >&2
-      exit 1
-    fi
-  )
-fi
+run_ai_maintenance_staged_gate
 
 echo "✅ pre-commit OK"

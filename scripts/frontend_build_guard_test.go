@@ -27,7 +27,7 @@ func TestMakefileGuardRunsFullArchtestAndFrontendEmbedVerify(t *testing.T) {
 
 	assertScriptContains(t, makefile, "frontend-embed-verify: frontend-app-build")
 	assertScriptContains(t, makefile, "./scripts/frontend_embed_verify.sh")
-	assertScriptContains(t, makefile, "guard:\n\t$(TEST_WITH_GUARD) ./internal/archtest -count=1")
+	assertScriptContains(t, makefile, "guard:\n\t$(TEST_WITH_GUARD) --guard-only")
 	assertScriptContains(t, makefile, "code-size-guard:\n\t$(TEST_WITH_GUARD) --guard-only")
 
 	assertScriptContains(t, workflow, "Frontend embed verify")

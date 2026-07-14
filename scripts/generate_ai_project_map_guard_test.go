@@ -209,6 +209,26 @@ func TestProjectMapGeneratorAppliesRuleOverrides(t *testing.T) {
 	}
 }
 
+func TestProjectMapGeneratorRejectsSymlinkRuleOverrides(t *testing.T) {
+	requireNodeForProjectMap(t)
+	root := prepareProjectMapFixture(t, true)
+	external := filepath.Join(t.TempDir(), "external-overrides.json")
+	if err := os.WriteFile(external, []byte("{}\n"), 0o600); err != nil {
+		t.Fatalf("write external override: %v", err)
+	}
+	override := filepath.Join(root, ".ai-project-map.overrides.json")
+	if err := os.Symlink(external, override); err != nil {
+		t.Fatalf("create override symlink: %v", err)
+	}
+	runFixTestGuardGit(t, root, "add", ".ai-project-map.overrides.json")
+
+	out, err := runProjectMapGenerator(t, root)
+	if err == nil {
+		t.Fatalf("project map accepted external override symlink:\n%s", out)
+	}
+	assertOutputContainsAll(t, out, "rules file must not be a symbolic link", ".ai-project-map.overrides.json")
+}
+
 func TestProjectMapManifestIncludesRoutesAndShardStats(t *testing.T) {
 	requireNodeForProjectMap(t)
 	root := prepareProjectMapFixture(t, true)

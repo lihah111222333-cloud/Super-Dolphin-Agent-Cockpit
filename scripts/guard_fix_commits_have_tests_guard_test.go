@@ -248,7 +248,7 @@ func TestFixTestGuardSkipsMergeCommitSubjects(t *testing.T) {
 	assertOutputContainsAll(t, out, "fix-test guard OK")
 }
 
-func TestPreCommitRunsCodeGuardForDocsOnlyCommit(t *testing.T) {
+func TestPreCommitRoutesDocsOnlyThroughCachedAIMaintenance(t *testing.T) {
 	root := prepareFixTestGuardRepo(t)
 	copyFixTestGuardRepoFile(t, root, ".githooks/pre-commit", 0o755)
 	copyFixTestGuardRepoFile(t, root, "scripts/configure_hook_node_runtime.sh", 0o755)
@@ -266,8 +266,21 @@ func TestPreCommitRunsCodeGuardForDocsOnlyCommit(t *testing.T) {
 	if err != nil {
 		t.Fatalf("pre-commit failed: %v\n%s", err, out)
 	}
-	assertOutputContainsAll(t, out, "[pre-commit] codemap refresh", "[generated] refresh codemap artifacts", "[generated] refresh AI project map", "[pre-commit] AI maintenance gates", "[pre-commit] full codebase guard", "fake code guard --guard-only skip-gosec=1", "pre-commit OK")
-	assertOutputOmitsAll(t, out, "go vet", "frontend-app tests")
+	assertOutputContainsAll(t, out,
+		"[pre-commit] codemap refresh",
+		"[generated] refresh codemap artifacts",
+		"[generated] refresh AI project map",
+		"[pre-commit] AI maintenance gates",
+		"--cache-dir .build-cache/ai-maintenance-gates",
+		"--cache-max-age 10m",
+		"--cache-scope",
+		"--diff-cached",
+		"gate-index=",
+		"pre-commit OK",
+	)
+	stagedTree := strings.TrimSpace(runFixTestGuardGitOutput(t, root, "write-tree"))
+	assertOutputContainsAll(t, out, "gate-tree="+stagedTree)
+	assertOutputOmitsAll(t, out, "full codebase guard", "fake code guard", "go vet", "frontend-app tests")
 }
 
 func TestPreCommitStagesRefreshedCodemapFiles(t *testing.T) {
@@ -306,6 +319,147 @@ func TestPreCommitStagesRefreshedCodemapFiles(t *testing.T) {
 	assertOutputContainsAll(t, stagedREADME, "root readme refreshed")
 	stagedArchtestMap := runFixTestGuardGitOutput(t, root, "show", ":docs/doc/codemap/13-archtest-boundaries.md")
 	assertOutputContainsAll(t, stagedArchtestMap, "archtest map refreshed")
+}
+
+func TestPreCommitRejectsNonGoStagedWorktreeMismatch(t *testing.T) {
+	root := preparePreCommitGateFixture(t)
+	writeFixTestGuardFile(t, root, "frontend-app/src/App.jsx", "export const App = () => 'staged'\n")
+	runFixTestGuardGit(t, root, "add", "frontend-app/src/App.jsx")
+	writeFixTestGuardFile(t, root, "frontend-app/src/App.jsx", "export const App = () => 'worktree'\n")
+
+	out, err := runPreCommitHook(t, root)
+	if err == nil {
+		t.Fatalf("pre-commit accepted a non-Go staged/worktree mismatch:\n%s", out)
+	}
+	assertOutputContainsAll(t, out, "当前代码/门禁提交还存在未暂存或未跟踪 worktree 输入", "frontend-app/src/App.jsx", "可能制造假绿")
+}
+
+func TestPreCommitRejectsRenamedPathWithWorktreeMismatch(t *testing.T) {
+	root := preparePreCommitGateFixture(t)
+	writeFixTestGuardFile(t, root, "docs/original.md", "original\n")
+	runFixTestGuardGit(t, root, "add", "docs/original.md")
+	runFixTestGuardGit(t, root, "commit", "-m", "docs: 添加重命名样例")
+	runFixTestGuardGit(t, root, "mv", "docs/original.md", "docs/renamed.md")
+	writeFixTestGuardFile(t, root, "docs/renamed.md", "unstaged replacement\n")
+
+	out, err := runPreCommitHook(t, root)
+	if err == nil {
+		t.Fatalf("pre-commit accepted a renamed staged/worktree mismatch:\n%s", out)
+	}
+	assertOutputContainsAll(t, out, "当前代码/门禁提交还存在未暂存或未跟踪 worktree 输入", "docs/renamed.md", "可能制造假绿")
+}
+
+func TestPreCommitAcceptsCleanStagedDeletion(t *testing.T) {
+	root := preparePreCommitGateFixture(t)
+	writeFixTestGuardFile(t, root, "docs/deleted.md", "delete me\n")
+	runFixTestGuardGit(t, root, "add", "docs/deleted.md")
+	runFixTestGuardGit(t, root, "commit", "-m", "docs: 添加删除样例")
+	runFixTestGuardGit(t, root, "rm", "docs/deleted.md")
+
+	out, err := runPreCommitHook(t, root)
+	if err != nil {
+		t.Fatalf("pre-commit rejected a clean staged deletion: %v\n%s", err, out)
+	}
+	assertOutputContainsAll(t, out, "--changed-file docs/deleted.md", "pre-commit OK")
+}
+
+func TestPreCommitAcceptsCleanBrokenSymlink(t *testing.T) {
+	root := preparePreCommitGateFixture(t)
+	symlink := filepath.Join(root, "docs", "broken-link.md")
+	if err := os.MkdirAll(filepath.Dir(symlink), 0o755); err != nil {
+		t.Fatalf("create symlink directory: %v", err)
+	}
+	if err := os.Symlink("missing-target.md", symlink); err != nil {
+		t.Fatalf("create broken symlink: %v", err)
+	}
+	runFixTestGuardGit(t, root, "add", "docs/broken-link.md")
+
+	out, err := runPreCommitHook(t, root)
+	if err != nil {
+		t.Fatalf("pre-commit rejected a clean staged broken symlink: %v\n%s", err, out)
+	}
+	assertOutputContainsAll(t, out, "--changed-file docs/broken-link.md", "pre-commit OK")
+}
+
+func TestPreCommitRejectsPartialIndexMismatch(t *testing.T) {
+	root := preparePreCommitGateFixture(t)
+	writeFixTestGuardFile(t, root, "docs/readme.md", "partial index\n")
+	runFixTestGuardGit(t, root, "add", "docs/readme.md")
+	realIndex := filepath.Join(root, ".git", "index")
+	altIndex := filepath.Join(t.TempDir(), "partial-index")
+	data, err := os.ReadFile(realIndex)
+	if err != nil {
+		t.Fatalf("read real index: %v", err)
+	}
+	if err := os.WriteFile(altIndex, data, 0o600); err != nil {
+		t.Fatalf("write partial index: %v", err)
+	}
+	writeFixTestGuardFile(t, root, "real-index-only.txt", "real index\n")
+	runFixTestGuardGit(t, root, "add", "real-index-only.txt")
+
+	out, err := runPreCommitHookWithEnv(t, root, map[string]string{"GIT_INDEX_FILE": altIndex})
+	if err == nil {
+		t.Fatalf("pre-commit accepted a partial index mismatch:\n%s", out)
+	}
+	assertOutputContainsAll(t, out, "partial commit 临时 index 与真实 index 不一致", "无法证明提交内容为绿")
+}
+
+func TestPreCommitRunsLongGatesFromStagedSnapshot(t *testing.T) {
+	root := preparePreCommitGateFixture(t)
+	writeFixTestGuardFile(t, root, ".gitignore", "frontend-app/node_modules/\n")
+	writeFixTestGuardFile(t, root, "frontend-app/package.json", "{}\n")
+	writeFixTestGuardFile(t, root, "frontend-app/package-lock.json", "{}\n")
+	vitePath := filepath.Join(root, "frontend-app", "node_modules", ".bin", "vite")
+	if err := os.MkdirAll(filepath.Dir(vitePath), 0o755); err != nil {
+		t.Fatalf("mkdir fake frontend dependencies: %v", err)
+	}
+	if err := os.WriteFile(vitePath, []byte("#!/usr/bin/env bash\n"), 0o755); err != nil {
+		t.Fatalf("write fake vite: %v", err)
+	}
+	runFixTestGuardGit(t, root, "add", ".gitignore", "frontend-app/package.json", "frontend-app/package-lock.json", "scripts/guard_fix_commits_have_tests.sh")
+	runFixTestGuardGit(t, root, "commit", "-m", "chore: 纳入 fixture 守卫脚本")
+	path := ".githooks/snapshot-input.sh"
+	writeFixTestGuardFile(t, root, path, "staged snapshot\n")
+	runFixTestGuardGit(t, root, "add", path)
+
+	out, err := runPreCommitHookWithEnv(t, root, map[string]string{
+		"GATE_MUTATE_ORIGINAL_PATH":     filepath.Join(root, path),
+		"GATE_ASSERT_RELATIVE_PATH":     path,
+		"GATE_ASSERT_CONTENT":           "staged snapshot",
+		"GATE_ASSERT_NODE_MODULES_COPY": "1",
+		"GATE_ASSERT_WORKTREE_INDEX":    "1",
+	})
+	if err != nil {
+		t.Fatalf("pre-commit staged snapshot failed: %v\n%s", err, out)
+	}
+	assertOutputContainsAll(t, out, "gate-worktree=", "cache-tree=", "worktree-tree=", "pre-commit OK")
+	if strings.Contains(out, "gate-worktree="+root) {
+		t.Fatalf("AI gate ran in mutable original worktree:\n%s", out)
+	}
+	data, readErr := os.ReadFile(filepath.Join(root, path))
+	if readErr != nil {
+		t.Fatalf("read mutated original input: %v", readErr)
+	}
+	if !strings.Contains(string(data), "mutated during gate") {
+		t.Fatalf("fixture did not mutate original worktree during gate: %q", data)
+	}
+	staged := runFixTestGuardGitOutput(t, root, "show", ":"+path)
+	assertOutputContainsAll(t, staged, "staged snapshot")
+}
+
+func TestPreCommitChecksGoFormattingInsideStagedSnapshot(t *testing.T) {
+	root := preparePreCommitGateFixture(t)
+	writeFixTestGuardFile(t, root, "go.mod", "module example.com/precommit\n\ngo 1.24\n")
+	runFixTestGuardGit(t, root, "add", "go.mod", "scripts/guard_fix_commits_have_tests.sh")
+	runFixTestGuardGit(t, root, "commit", "-m", "chore: 安装 Go fixture")
+	writeFixTestGuardFile(t, root, "internal/app/unformatted.go", "package app\n\nfunc unformatted( ){ }\n")
+	runFixTestGuardGit(t, root, "add", "internal/app/unformatted.go")
+
+	out, err := runPreCommitHook(t, root)
+	if err == nil {
+		t.Fatalf("pre-commit accepted unformatted staged Go source:\n%s", out)
+	}
+	assertOutputContainsAll(t, out, "gofmt (staged snapshot)", "以下 staged Go 文件未格式化", "internal/app/unformatted.go")
 }
 
 func TestCommitMsgRunsChineseTitleGuard(t *testing.T) {
@@ -554,6 +708,31 @@ func TestPrePushAllowsDirtyLocalWorktree(t *testing.T) {
 	out := fixture.run(t, head)
 	assertOutputContainsAll(t, out, "[pre-push] Chinese commit message guard", "[pre-push] fix-test guard", "pre-push OK")
 	assertOutputOmitsAll(t, out, "worktree 有未暂存改动", "index 有已暂存但未提交改动", "worktree 有未跟踪文件")
+}
+
+func TestPrePushNewBranchRoutesAllReachableTreeChanges(t *testing.T) {
+	fixture := newPrePushScopeFixture(t)
+	writeFixTestGuardFile(t, fixture.root, "scripts/guard_commit_titles.sh", "#!/usr/bin/env bash\nexit 0\n")
+	if err := os.Chmod(filepath.Join(fixture.root, "scripts", "guard_commit_titles.sh"), 0o755); err != nil {
+		t.Fatalf("chmod fake title guard: %v", err)
+	}
+	runFixTestGuardGit(t, fixture.root, "add", "scripts/guard_commit_titles.sh")
+	runFixTestGuardGit(t, fixture.root, "commit", "-m", "chore: 安装新分支标题 fixture")
+	writeFixTestGuardFile(t, fixture.root, "internal/app/early.go", "package app\n")
+	runFixTestGuardGit(t, fixture.root, "add", "internal/app/early.go")
+	runFixTestGuardGit(t, fixture.root, "commit", "-m", "chore: 添加早期后端变更")
+	writeFixTestGuardFile(t, fixture.root, "docs/late.md", "late docs\n")
+	runFixTestGuardGit(t, fixture.root, "add", "docs/late.md")
+	runFixTestGuardGit(t, fixture.root, "commit", "-m", "docs: 添加末尾文档")
+	head := strings.TrimSpace(runFixTestGuardGitOutput(t, fixture.root, "rev-parse", "HEAD"))
+	zeroSHA := strings.Repeat("0", 40)
+
+	out, err := runPrePushScopeHook(t, fixture.root, prePushStdin(zeroSHA, head), fixture.binDir, fixture.logPath)
+	if err != nil {
+		t.Fatalf("new-branch pre-push failed: %v\n%s", err, out)
+	}
+	log := fixture.log(t)
+	assertOutputContainsAll(t, log, "--changed-file internal/app/early.go", "--changed-file docs/late.md")
 }
 
 type prePushScopeFixture struct {
