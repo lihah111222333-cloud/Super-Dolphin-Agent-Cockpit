@@ -69,10 +69,11 @@ func (r *fakeResolver) ResolveSession(_ context.Context, threadID string) (contr
 
 // fakeTurnService 记录 cron turn 调用，并允许每个步骤注入成功或失败结果。
 type fakeTurnService struct {
-	prepareFn func(context.Context, contract.Session, contract.CronPrepareInput) (providerdto.TurnRequest, error)
-	startFn   func(context.Context, contract.Session, providerdto.TurnRequest) (contract.TurnHandle, error)
-	trackFn   func(context.Context, string) (contract.CronTurnStatus, error)
-	lookupFn  func(context.Context, string) (contract.CronTurnStatus, bool, error)
+	prepareFn   func(context.Context, contract.Session, contract.CronPrepareInput) (providerdto.TurnRequest, error)
+	startFn     func(context.Context, contract.Session, providerdto.TurnRequest) (contract.TurnHandle, error)
+	trackFn     func(context.Context, string) (contract.CronTurnStatus, error)
+	lookupFn    func(context.Context, string) (contract.CronTurnStatus, bool, error)
+	interruptFn func(context.Context, contract.Session, string) error
 
 	prepareCalls []contract.CronPrepareInput
 	lookupCalls  []string
@@ -105,6 +106,33 @@ func (f *fakeTurnService) CronLookupByDedupeKey(ctx context.Context, key string)
 		return f.lookupFn(ctx, key)
 	}
 	return contract.CronTurnStatus{}, false, nil
+}
+
+func (f *fakeTurnService) CronInterruptActiveTurn(ctx context.Context, session contract.Session, source string) error {
+	if f.interruptFn != nil {
+		return f.interruptFn(ctx, session, source)
+	}
+	return nil
+}
+
+func TestTurnServiceAdapterCancelsLeaseLostTurn(t *testing.T) {
+	session := &fakeSession{threadID: "thread-1"}
+	called := false
+	svc := &fakeTurnService{interruptFn: func(_ context.Context, got contract.Session, source string) error {
+		called = true
+		if got != session || source != "cron_lease_lost" {
+			t.Fatalf("interrupt got session=%p source=%q", got, source)
+		}
+		return nil
+	}}
+	adapter := NewTurnServiceAdapter(nil, svc, &fakeResolver{known: map[string]contract.Session{"thread-1": session}})
+
+	if err := adapter.CancelLeaseLostTurn(context.Background(), JobRecord{ID: "job-1", ThreadID: "thread-1", ActiveTurnID: "turn-1"}); err != nil {
+		t.Fatalf("CancelLeaseLostTurn() error = %v", err)
+	}
+	if !called {
+		t.Fatal("CronInterruptActiveTurn() was not called")
+	}
 }
 
 type fakeHandle struct {

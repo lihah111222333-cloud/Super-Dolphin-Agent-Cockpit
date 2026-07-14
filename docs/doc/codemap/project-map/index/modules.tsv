@@ -11,7 +11,7 @@ internal/module/appupdate/service.go	internal	modules	go-source	26045	业务模�
 internal/module/appupdate/windows_signature.go	internal	modules	go-source	3923	业务模块层	internal,module,appupdate,windows,signature,业务模块层
 internal/module/cron/actors_test.go	internal	modules	go-test	2751	业务模块层	internal,module,cron,actors,test,业务模块层
 internal/module/cron/contract.go	internal	modules	go-source	14501	业务模块层	internal,module,cron,contract,业务模块层
-internal/module/cron/lease_actor.go	internal	modules	go-source	1682	业务模块层	internal,module,cron,lease,actor,业务模块层
+internal/module/cron/lease_actor.go	internal	modules	go-source	3250	业务模块层	internal,module,cron,lease,actor,业务模块层
 internal/module/cron/module.go	internal	modules	go-source	4179	业务模块层	internal,module,cron,业务模块层
 internal/module/cron/progress_subscriber_test.go	internal	modules	go-test	3967	业务模块层	internal,module,cron,progress,subscriber,test,业务模块层
 internal/module/cron/progress_subscriber.go	internal	modules	go-source	12393	业务模块层	internal,module,cron,progress,subscriber,业务模块层
@@ -19,10 +19,11 @@ internal/module/cron/rpc_list_page_test.go	internal	modules	go-test	1316	业务�
 internal/module/cron/rpc.go	internal	modules	go-source	10009	业务模块层	internal,module,cron,rpc,业务模块层
 internal/module/cron/schedule_test.go	internal	modules	go-test	3396	业务模块层	internal,module,cron,schedule,test,业务模块层
 internal/module/cron/schedule.go	internal	modules	go-source	4262	业务模块层	internal,module,cron,schedule,业务模块层
+internal/module/cron/scheduler_lease_safety_test.go	internal	modules	go-test	4316	业务模块层	internal,module,cron,scheduler,lease,safety,test,业务模块层
 internal/module/cron/scheduler_publish_test.go	internal	modules	go-test	4500	业务模块层	internal,module,cron,scheduler,publish,test,业务模块层
 internal/module/cron/scheduler_publish.go	internal	modules	go-source	1864	业务模块层	internal,module,cron,scheduler,publish,业务模块层
 internal/module/cron/scheduler_recovery_finalize_test.go	internal	modules	go-test	7562	业务模块层	internal,module,cron,scheduler,recovery,finalize,test,业务模块层
-internal/module/cron/scheduler_recovery.go	internal	modules	go-source	17352	业务模块层	internal,module,cron,scheduler,recovery,业务模块层
+internal/module/cron/scheduler_recovery.go	internal	modules	go-source	18864	业务模块层	internal,module,cron,scheduler,recovery,业务模块层
 internal/module/cron/scheduler_test.go	internal	modules	go-test	31410	业务模块层	internal,module,cron,scheduler,test,业务模块层
 internal/module/cron/scheduler.go	internal	modules	go-source	16936	业务模块层	internal,module,cron,scheduler,业务模块层
 internal/module/cron/service_test.go	internal	modules	go-test	18584	业务模块层	internal,module,cron,service,test,业务模块层
@@ -33,8 +34,8 @@ internal/module/cron/thread_bootstrapper.go	internal	modules	go-source	2831	业�
 internal/module/cron/tick_actor.go	internal	modules	go-source	1873	业务模块层	internal,module,cron,tick,actor,业务模块层
 internal/module/cron/timer_jitter.go	internal	modules	go-source	594	业务模块层	internal,module,cron,timer,jitter,业务模块层
 internal/module/cron/turn_adapter_shard11_helpers_test.go	internal	modules	go-test	4906	业务模块层	internal,module,cron,turn,adapter,shard11,helpers,test,业务模块层
-internal/module/cron/turn_adapter_test.go	internal	modules	go-test	22495	业务模块层	internal,module,cron,turn,adapter,test,业务模块层
-internal/module/cron/turn_adapter.go	internal	modules	go-source	9057	业务模块层	internal,module,cron,turn,adapter,业务模块层
+internal/module/cron/turn_adapter_test.go	internal	modules	go-test	23559	业务模块层	internal,module,cron,turn,adapter,test,业务模块层
+internal/module/cron/turn_adapter.go	internal	modules	go-source	9844	业务模块层	internal,module,cron,turn,adapter,业务模块层
 internal/module/dashboard/agent_status_test.go	internal	modules	go-test	2709	dashboard 读模型与 UI RPC 服务	internal,module,dashboard,agent,status,test,读模型与,UI,RPC,服务
 internal/module/dashboard/agent_status.go	internal	modules	go-source	428	dashboard 读模型与 UI RPC 服务	internal,module,dashboard,agent,status,读模型与,UI,RPC,服务
 internal/module/dashboard/ai_logs.go	internal	modules	go-source	1561	dashboard 读模型与 UI RPC 服务	internal,module,dashboard,ai,logs,读模型与,UI,RPC,服务
@@ -604,7 +605,7 @@ internal/module/threadprompt/runtime_provider_test.go	internal	modules	go-test	2
 internal/module/threadprompt/types.go	internal	modules	go-source	4301	业务模块层	internal,module,threadprompt,types,业务模块层
 internal/module/turn/argument_preview_sanitizer_test.go	internal	modules	go-test	1515	turn 启动、执行、审批与 provider 调度	internal,module,turn,argument,preview,sanitizer,test,启动,执行,审批与,provider,调度
 internal/module/turn/assembler.go	internal	modules	go-source	8840	turn 启动、执行、审批与 provider 调度	internal,module,turn,assembler,启动,执行,审批与,provider,调度
-internal/module/turn/contract.go	internal	modules	go-source	7579	turn 启动、执行、审批与 provider 调度	internal,module,turn,contract,启动,执行,审批与,provider,调度
+internal/module/turn/contract.go	internal	modules	go-source	7953	turn 启动、执行、审批与 provider 调度	internal,module,turn,contract,启动,执行,审批与,provider,调度
 internal/module/turn/expanded_state_test.go	internal	modules	go-test	10133	turn 启动、执行、审批与 provider 调度	internal,module,turn,expanded,state,test,启动,执行,审批与,provider,调度
 internal/module/turn/expanded_state.go	internal	modules	go-source	9667	turn 启动、执行、审批与 provider 调度	internal,module,turn,expanded,state,启动,执行,审批与,provider,调度
 internal/module/turn/factory.go	internal	modules	go-source	23580	turn 启动、执行、审批与 provider 调度	internal,module,turn,factory,启动,执行,审批与,provider,调度

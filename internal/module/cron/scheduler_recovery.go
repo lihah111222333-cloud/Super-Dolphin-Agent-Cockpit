@@ -152,14 +152,67 @@ func (s *Scheduler) nextRetryAndRun(job JobRecord, now time.Time) (time.Time, ti
 	return NextRetryAt(s.cfg.Backoff, now, nextRunAt, job.FailureCount+1), nextRunAt, nil
 }
 
+type leaseRenewFailure struct {
+	job JobRecord
+	err error
+}
+
+type leaseRenewalError struct {
+	failures []leaseRenewFailure
+	err      error
+}
+
+// Error 返回聚合后的续租失败文本。
+func (e *leaseRenewalError) Error() string {
+	if e == nil || e.err == nil {
+		return "cron: lease renewal failed"
+	}
+	return e.err.Error()
+}
+
+// Unwrap 保留 errors.Is/As 对底层 store 错误的识别能力。
+func (e *leaseRenewalError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.err
+}
+
+type leaseLostTurnCanceler interface {
+	CancelLeaseLostTurn(context.Context, JobRecord) error
+}
+
+// cancelLeaseFailures 中断已无法安全续租的 active turn，并按 job 聚合失败。
+func (s *Scheduler) cancelLeaseFailures(ctx context.Context, failures []leaseRenewFailure) error {
+	canceler, ok := s.submitter.(leaseLostTurnCanceler)
+	var joined error
+	for _, failure := range failures {
+		if strings.TrimSpace(failure.job.ActiveTurnID) == "" {
+			continue
+		}
+		if !ok {
+			joined = errors.Join(joined, fmt.Errorf(
+				"cron: cancel lease-lost job %s: turn canceler is not wired", failure.job.ID,
+			))
+			continue
+		}
+		if err := canceler.CancelLeaseLostTurn(ctx, failure.job); err != nil {
+			joined = errors.Join(joined, fmt.Errorf("cron: cancel lease-lost job %s: %w", failure.job.ID, err))
+		}
+	}
+	return joined
+}
+
 // RenewLeases 是 lease actor 的续租入口。
-// 它只延长当前实例 claim 的 job；单个续租失败只记录日志，后续 tick/recovery 会接手过期 claim。
+// 它只延长当前实例 claim 的 job；失败按 job 聚合并交给 lease actor 在安全预算内重试。
 func (s *Scheduler) RenewLeases(ctx context.Context) error {
 	jobs, err := s.store.ListJobsClaimedBy(ctx, s.cfg.ClaimedBy)
 	if err != nil {
 		return err
 	}
 	now := s.now().UTC()
+	var failures []leaseRenewFailure
+	var joined error
 	for _, job := range jobs {
 		err := s.store.RenewLease(ctx, LeaseParams{
 			ID:             job.ID,
@@ -168,11 +221,13 @@ func (s *Scheduler) RenewLeases(ctx context.Context) error {
 			Now:            now,
 		})
 		if err != nil {
-			s.logger.Debug("cron: renew lease failed",
-				slog.String("job_id", job.ID),
-				slog.String("error", err.Error()),
-			)
+			wrapped := fmt.Errorf("cron: renew lease job %s: %w", job.ID, err)
+			failures = append(failures, leaseRenewFailure{job: job, err: wrapped})
+			joined = errors.Join(joined, wrapped)
 		}
+	}
+	if joined != nil {
+		return &leaseRenewalError{failures: failures, err: joined}
 	}
 	return nil
 }
