@@ -2,9 +2,50 @@ package multilsp
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 )
+
+func TestPoolRecyclerRunContinuesAfterProbeFailure(t *testing.T) {
+	client := &p2LifecycleClient{}
+	mgr := &manager{workspaces: map[string]*workspaceClient{
+		"workspace": {key: "workspace", languageID: "go", client: client},
+	}}
+	pool := NewManagerPool(mgr, 1)
+	mgr.pool = pool
+	pool.recycler.interval = time.Millisecond
+	pool.recycler.rssProbe = func(Client) (uint64, int, error) {
+		return 0, 0, errors.New("probe unavailable")
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	goroutines := newTestGoroutineGroup(t)
+	t.Cleanup(cancel)
+	goroutines.Go(func() { done <- pool.recycler.Run(ctx) })
+	deadline := time.Now().Add(time.Second)
+	for pool.recycler.HealthSnapshot().ProbeFailuresTotal == 0 && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	if pool.recycler.HealthSnapshot().ProbeFailuresTotal == 0 {
+		t.Fatal("runner did not record probe failure")
+	}
+	select {
+	case err := <-done:
+		t.Fatalf("runner exited after probe failure: %v", err)
+	default:
+	}
+	cancel()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("Run error after cancel = %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("runner did not exit after cancel")
+	}
+}
 
 // TestPoolRecyclerRunExitsOnCtxCancel 固定 poolRecycler 的 runner 关闭边界。
 // Run 必须在传入 ctx 取消后返回且不留下后台 goroutine，关闭责任由根 runner 聚合器统一驱动。

@@ -15,6 +15,7 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/mcpserver/common"
 	platformconfig "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/config"
 	platformrunner "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/runner"
+	platformshared "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/shared"
 )
 
 const (
@@ -24,10 +25,19 @@ const (
 	lspRSSLimitEnv          = "AGENT_LSP_RSS_LIMIT_MB"
 	lspGoRSSLimitEnv        = "AGENT_LSP_GO_RSS_LIMIT_MB"
 
-	idleTimeout = 10 * time.Minute
+	idleTimeout                    = 10 * time.Minute
+	recyclerProbeDegradedThreshold = 3
 )
 
 type recyclerRSSProbe func(Client) (uint64, int, error)
+
+type recyclerHealthSnapshot struct {
+	ProbeFailuresTotal       int64
+	ConsecutiveProbeFailures int64
+	LastProbeError           string
+	LastProbeAt              time.Time
+	Degraded                 bool
+}
 
 // poolRecycler 周期性扫描池内 LSP 子进程的 RSS 和 workspace 闲置时间。
 // 它只实现 platformrunner.Runner，不自行启动 goroutine；启动和停止都由根 runner 聚合器负责。
@@ -38,6 +48,7 @@ type poolRecycler struct {
 
 	mu         sync.Mutex
 	lastActive map[int]time.Time
+	health     recyclerHealthSnapshot
 }
 
 // 编译期确认 poolRecycler 满足根 runner 聚合器消费的 Runner 合约。
@@ -61,6 +72,36 @@ func (r *poolRecycler) TouchShard(index int) {
 	r.mu.Lock()
 	r.lastActive[index] = time.Now()
 	r.mu.Unlock()
+}
+
+// HealthSnapshot 返回 RSS 探测链路的线程安全健康快照。
+func (r *poolRecycler) HealthSnapshot() recyclerHealthSnapshot {
+	if r == nil {
+		return recyclerHealthSnapshot{}
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.health
+}
+
+func (r *poolRecycler) recordProbeFailure(summary string) recyclerHealthSnapshot {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.health.ProbeFailuresTotal++
+	r.health.ConsecutiveProbeFailures++
+	r.health.LastProbeError = summary
+	r.health.LastProbeAt = time.Now()
+	r.health.Degraded = r.health.ConsecutiveProbeFailures >= recyclerProbeDegradedThreshold
+	return r.health
+}
+
+func (r *poolRecycler) recordProbeSuccess() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.health.ConsecutiveProbeFailures = 0
+	r.health.LastProbeError = ""
+	r.health.LastProbeAt = time.Now()
+	r.health.Degraded = false
 }
 
 // Run 按固定间隔执行回收检查，直到 ctx 取消。
@@ -108,8 +149,8 @@ func (r *poolRecycler) checkManager(index int, mgr *manager, scope ResolvedLSPTo
 // recycleIfNeeded 在单个 workspace client 超过 RSS 上限时尝试回收。
 // 仍有活跃租约时只记录日志不关闭进程，避免正在执行的 LSP 请求被异步切断。
 func (r *poolRecycler) recycleIfNeeded(mgr *manager, scope ResolvedLSPToolScope, workspace workspaceClient) {
-	rssBytes, pid, err := r.clientRSSBytes(workspace.client)
-	if err != nil || pid <= 0 {
+	rssBytes, pid, ok := r.probeWorkspace(mgr, scope, workspace)
+	if !ok {
 		return
 	}
 	limit := rssLimitBytesForLanguage(workspace.languageID)
@@ -236,7 +277,7 @@ func (r *poolRecycler) logIdleWindowExceeded(mgr *manager, scope ResolvedLSPTool
 		"action", action,
 		"reason", "idle_timeout",
 	)
-	args = r.appendRecyclerRSSProbeArgs(args, workspace.client)
+	args = r.appendRecyclerRSSProbeArgs(args, mgr, scope, workspace)
 	mgr.logger.Debug("LSP recycler idle window exceeded", args...)
 }
 
@@ -263,18 +304,47 @@ func recyclerWorkspaceLogArgs(scope ResolvedLSPToolScope, workspace workspaceCli
 	args := []any{
 		"manager_key", scope.ManagerKey,
 		"scope_key", scope.ScopeKey,
-		"workspace", workspace.key,
 		"language", normalizeLanguageID(workspace.languageID),
 	}
+	args = append(args, platformshared.SafePathLogFields("workspace", workspace.key)...)
 	return append(args, extra...)
 }
 
-func (r *poolRecycler) appendRecyclerRSSProbeArgs(args []any, client Client) []any {
-	rssBytes, pid, err := r.clientRSSBytes(client)
-	if err != nil {
-		return append(args, "rss_error", err.Error())
+func (r *poolRecycler) appendRecyclerRSSProbeArgs(args []any, mgr *manager, scope ResolvedLSPToolScope, workspace workspaceClient) []any {
+	rssBytes, pid, ok := r.probeWorkspace(mgr, scope, workspace)
+	if !ok {
+		return append(args, "rss_probe_failed", true)
 	}
 	return append(args, "pid", pid, "rss_bytes", rssBytes)
+}
+
+func (r *poolRecycler) probeWorkspace(mgr *manager, scope ResolvedLSPToolScope, workspace workspaceClient) (uint64, int, bool) {
+	rssBytes, pid, err := r.clientRSSBytes(workspace.client)
+	summary := "rss_probe_error"
+	if err == nil && pid <= 0 {
+		err = fmt.Errorf("RSS probe returned invalid pid")
+		summary = "rss_probe_invalid_pid"
+	}
+	if err != nil {
+		health := r.recordProbeFailure(summary)
+		r.logProbeFailure(mgr, scope, workspace, err, health)
+		return 0, 0, false
+	}
+	r.recordProbeSuccess()
+	return rssBytes, pid, true
+}
+
+func (r *poolRecycler) logProbeFailure(mgr *manager, scope ResolvedLSPToolScope, workspace workspaceClient, probeErr error, health recyclerHealthSnapshot) {
+	if mgr == nil || mgr.logger == nil {
+		return
+	}
+	args := recyclerWorkspaceLogArgs(scope, workspace,
+		"probe_failures_total", health.ProbeFailuresTotal,
+		"consecutive_probe_failures", health.ConsecutiveProbeFailures,
+		"degraded", health.Degraded,
+	)
+	args = append(args, platformshared.SafePayloadLogFields("probe_error", probeErr.Error())...)
+	mgr.logger.Warn("LSP recycler RSS probe failed", args...)
 }
 
 func (r *poolRecycler) clientRSSBytes(current Client) (uint64, int, error) {

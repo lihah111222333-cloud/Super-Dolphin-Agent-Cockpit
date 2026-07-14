@@ -10,6 +10,16 @@ import (
 	"testing"
 )
 
+func TestLifecycleGuardHasNoSkeletonSkips(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join(repoRootForGuardTests(t), "internal", "archtest", "lifecycle_onstart_guard_test.go"))
+	if err != nil {
+		t.Fatalf("read lifecycle guard: %v", err)
+	}
+	if strings.Contains(string(data), "t."+"Skipf(") {
+		t.Fatal("lifecycle OnStart guard still contains skeleton skips")
+	}
+}
+
 // TestLifecycleOnStartGuard 固定 fx.Lifecycle.OnStart 的运行时归属守卫。
 // 它复用 rootBridgeAllowlist 验证根桥接豁免，并确保普通 OnStart 目标不会被误判成 bridge。
 // 子测试同时描述一跳 helper 解析边界：OnStart 包一层 helper 后启动 goroutine 或 ticker 也必须被识别。
@@ -18,7 +28,7 @@ func TestLifecycleOnStartGuard(t *testing.T) {
 
 	t.Run("shared_root_bridge_allowlist_is_consumable", assertRootBridgeAllowlistConsumable)
 	t.Run("root_bridge_entries_exempted_by_call_site_and_symbol", assertRootBridgeEntries)
-	runLifecycleMatcherSkeletonSubtests(t)
+	runLifecycleMatcherSubtests(t)
 	t.Run("onstart_must_not_start_ticker_goroutine", assertNoOnStartTickerGoroutine)
 	t.Run("onstart_must_not_fire_and_forget_serve_proxy", assertNoFireAndForgetServeProxy)
 }
@@ -63,26 +73,98 @@ func rootBridgeNegativeCases() []struct{ path, symbol string } {
 	}
 }
 
-func runLifecycleMatcherSkeletonSubtests(t *testing.T) {
-	matcherCases := []struct {
-		name        string
-		owningSlice string
-	}{
-		{
-			name:        "onstart_must_not_start_watcher_goroutine",
-			owningSlice: "P2 (Finding 6, memory team_sync_watcher)",
-		},
-		{
-			name:        "onstart_one_hop_helper_resolution_wired",
-			owningSlice: "P0 contract / first owning slice to land the AST walker",
-		},
-	}
-
-	for _, tc := range matcherCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			t.Skipf("matcher skeleton only; owning slice will flip red→green: %s", tc.owningSlice)
+func runLifecycleMatcherSubtests(t *testing.T) {
+	t.Run("onstart_must_not_start_watcher_goroutine", func(t *testing.T) {
+		root := writeLifecycleGuardFixture(t, `
+package fixture
+func registerLifecycle() {
+	_ = fx.Hook{OnStart: func(context.Context) error {
+		go watcher.Watch()
+		return nil
+	}}
+}
+`)
+		hits := findLifecycleOnStartCallHits(t, root, map[string]bool{"Watch": true})
+		assertLifecycleFixtureHits(t, hits, "Watch")
+	})
+	t.Run("onstart_one_hop_helper_resolution_wired", func(t *testing.T) {
+		root := writeLifecycleGuardFixture(t, `
+package fixture
+func registerLifecycle() {
+	_ = fx.Hook{OnStart: func(context.Context) error {
+		startWorkers()
+		return nil
+	}}
+}
+func startWorkers() {
+	go watcher.Watch()
+	safego.Go()
+	time.NewTicker()
+	runner.Start()
+	runner.Run()
+	server.Serve()
+}
+`)
+		forbidden := map[string]bool{
+			"Watch": true, "Go": true, "NewTicker": true,
+			"Start": true, "Run": true, "Serve": true,
+		}
+		hits := findLifecycleOnStartCallHits(t, root, forbidden)
+		assertLifecycleFixtureHits(t, hits,
+			"Watch (via startWorkers)", "Go (via startWorkers)",
+			"NewTicker (via startWorkers)", "Start (via startWorkers)",
+			"Run (via startWorkers)", "Serve (via startWorkers)")
+	})
+	t.Run("synchronous_setup_is_allowed", func(t *testing.T) {
+		root := writeLifecycleGuardFixture(t, `
+package fixture
+func registerLifecycle() {
+	_ = fx.Hook{OnStart: func(context.Context) error {
+		configure()
+		return nil
+	}}
+}
+func configure() {}
+`)
+		hits := findLifecycleOnStartCallHits(t, root, map[string]bool{
+			"Watch": true, "Go": true, "NewTicker": true,
+			"Start": true, "Run": true, "Serve": true,
 		})
+		if len(hits) != 0 {
+			t.Fatalf("synchronous setup hits = %#v, want none", hits)
+		}
+	})
+}
+
+func writeLifecycleGuardFixture(t *testing.T, src string) string {
+	t.Helper()
+	root := t.TempDir()
+	dir := filepath.Join(root, "internal", "module", "fixture")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("mkdir lifecycle fixture: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "module.go"), []byte(src), 0o600); err != nil {
+		t.Fatalf("write lifecycle fixture: %v", err)
+	}
+	return root
+}
+
+func assertLifecycleFixtureHits(t *testing.T, hits []lifecycleCallHit, wants ...string) {
+	t.Helper()
+	if len(hits) != len(wants) {
+		t.Fatalf("lifecycle fixture hits = %#v, want %d", hits, len(wants))
+	}
+	wantSet := make(map[string]bool, len(wants))
+	for _, want := range wants {
+		wantSet[want] = true
+	}
+	for _, hit := range hits {
+		if !wantSet[hit.Call] {
+			t.Errorf("unexpected lifecycle fixture call %q", hit.Call)
+		}
+		if hit.Path == "" || hit.Line <= 0 {
+			t.Errorf("lifecycle fixture hit lacks path/line: %#v", hit)
+		}
 	}
 }
 
