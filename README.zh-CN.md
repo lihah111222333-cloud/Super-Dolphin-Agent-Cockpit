@@ -7,6 +7,8 @@
 > [!IMPORTANT]
 > **维护者声明：原创代码与项目自有文档 100% 由 AI 编写，由人类指导，由仓库守护。** 产品代码、测试代码和项目自有文档均由 AI 智能体编写或重构。人类负责产品意图、架构裁决、凭据和发布。AI 作者身份不代表绝对正确：每项被接受的改动仍必须通过仓库拥有的证据与门禁。上游法律和社区文本保留其原始署名。
 
+**本地优先的交付门禁。** 日常提交与推送由纳入版本控制的 [Git hooks](.githooks/README.md) 强制验收，不依赖付费的 GitHub 托管 CI。`pre-commit` 检查暂存快照、AI 维护规则、全仓守卫和受影响代码；`commit-msg` 要求修复类提交携带回归证据；`pre-push` 校验当前 `HEAD` 的推送范围，并运行受影响包与契约检查。Race 测试、延后执行的 Provider E2E、安全扫描和发布检查仍是明确的独立门禁，不会被夸大为日常 hook 路径已经覆盖的能力。
+
 Super Dolphin Agent 是一套 **生产级、AI 原生的氛围编程工程与多智能体开发控制平面**。它把本地桌面运行时、MCP 编排、多语言 LSP 导航、Provider 集成、持久化工作流和机器强制执行的工程边界整合为一个可工作的参考实现。
 
 英文 [README.md](README.md) 是规范概览。各译本保持相同的产品范围、命令、路径、环境变量、仓库身份和许可证。详细事实见[架构说明](docs/open-source/ARCHITECTURE.md)、[治理实证](docs/open-source/GOVERNANCE.md)以及生成的[代码地图](docs/doc/codemap/README.md)。
