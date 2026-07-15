@@ -1,7 +1,8 @@
 import React from 'react';
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import App from './App.jsx';
+import { getStoredTheme, syncThemeDOM } from './app/appShellModel.js';
 import appSource from './App.jsx?raw';
 import appRoutesSource from './AppRoutes.jsx?raw';
 import { AppErrorBoundary } from './app/AppErrorBoundary.jsx';
@@ -11,6 +12,35 @@ import chatWorkbenchLayoutSource from './pages/chat/hooks/useChatWorkbenchLayout
 import { rightPanelDefaultWidth, rightPanelMaxWidth, threadRailTargetWidth } from './pages/chat/model/chatWorkbenchLayoutModel.js';
 import { resetClientStoreForTests, useClientStore } from './entities/client/model/useClientStore.js';
 import mermaid from 'mermaid';
+
+let createRootMock = null;
+vi.mock('react-dom/client', async (importOriginal) => {
+  const original = await importOriginal();
+  return {
+    ...original,
+    createRoot: (...args) => {
+      if (createRootMock) return createRootMock(...args);
+      return original.createRoot(...args);
+    },
+  };
+});
+
+let syncThemeDOMMock = null;
+let getStoredThemeMock = null;
+vi.mock('./app/appShellModel.js', async (importOriginal) => {
+  const original = await importOriginal();
+  return {
+    ...original,
+    syncThemeDOM: (...args) => {
+      if (syncThemeDOMMock) return syncThemeDOMMock(...args);
+      return original.syncThemeDOM(...args);
+    },
+    getStoredTheme: (...args) => {
+      if (getStoredThemeMock) return getStoredThemeMock(...args);
+      return original.getStoredTheme(...args);
+    },
+  };
+});
 
 let bridgeCallback;
 let appOverlayHost;
@@ -1191,27 +1221,114 @@ async function showAllTraceDashboardEvents() {
     expect(screen.getByText('安装程序已启动，请按提示完成更新。')).toBeInTheDocument();
   });
 
-  it('toggles the local color theme without calling backend preferences', async () => {
-    render(<App />);
+  describe('theme cold start and switching behavior', () => {
+    beforeEach(() => {
+      window.localStorage.clear();
+      document.documentElement.removeAttribute('data-theme');
+      document.body.removeAttribute('data-theme');
+    });
 
-    const shell = await screen.findByTestId('frontend-app');
-    const preferenceCallsBeforeToggle = backend.setPreference.mock.calls.length;
-    expect(shell).toHaveAttribute('data-theme', 'light');
-    expect(appOverlayHost).toHaveAttribute('data-theme', 'light');
+    afterEach(() => {
+      window.localStorage.clear();
+      document.documentElement.removeAttribute('data-theme');
+      document.body.removeAttribute('data-theme');
+    });
 
-    fireEvent.click(screen.getByRole('button', { name: '切换到黑夜模式' }));
-    expect(shell).toHaveAttribute('data-theme', 'dark');
-    expect(appOverlayHost).toHaveAttribute('data-theme', 'dark');
-    expect(window.localStorage.getItem('super-dolphin-theme')).toBe('dark');
-    expect(screen.getByRole('button', { name: '切换到白天模式' })).toBeInTheDocument();
+    it('performs cold start with no stored value (defaults to light)', () => {
+      const theme = getStoredTheme();
+      expect(theme).toBe('light');
+      syncThemeDOM(theme);
+      expect(document.documentElement).toHaveAttribute('data-theme', 'light');
+      expect(document.body).toHaveAttribute('data-theme', 'light');
+    });
 
-    appOverlayHost.setAttribute('data-theme', 'tampered');
-    fireEvent.click(screen.getByRole('button', { name: '切换到白天模式' }));
-    expect(shell).toHaveAttribute('data-theme', 'light');
-    expect(appOverlayHost).toHaveAttribute('data-theme', 'light');
-    expect(window.localStorage.getItem('super-dolphin-theme')).toBe('light');
-    expect(screen.getByRole('button', { name: '切换到黑夜模式' })).toBeInTheDocument();
-    expect(backend.setPreference.mock.calls.length).toBe(preferenceCallsBeforeToggle);
+    it('performs cold start with pre-stored dark theme', () => {
+      window.localStorage.setItem('super-dolphin-theme', 'dark');
+      const theme = getStoredTheme();
+      expect(theme).toBe('dark');
+      syncThemeDOM(theme);
+      expect(document.documentElement).toHaveAttribute('data-theme', 'dark');
+      expect(document.body).toHaveAttribute('data-theme', 'dark');
+    });
+
+    it('executes main.jsx with no stored theme, calling syncThemeDOM before createRoot', async () => {
+      const rootDiv = document.createElement('div');
+      rootDiv.id = 'root';
+      document.body.appendChild(rootDiv);
+
+      const renderMock = vi.fn();
+      createRootMock = vi.fn().mockReturnValue({ render: renderMock });
+      syncThemeDOMMock = vi.fn();
+
+      await import('./main.jsx?t=no-stored-theme');
+
+      expect(syncThemeDOMMock).toHaveBeenCalledWith('light');
+      expect(createRootMock).toHaveBeenCalled();
+
+      const syncCallOrder = syncThemeDOMMock.mock.invocationCallOrder[0];
+      const renderCallOrder = createRootMock.mock.invocationCallOrder[0];
+      expect(syncCallOrder).toBeLessThan(renderCallOrder);
+
+      createRootMock = null;
+      syncThemeDOMMock = null;
+      rootDiv.remove();
+    });
+
+    it('executes main.jsx with dark stored theme, calling syncThemeDOM before createRoot', async () => {
+      window.localStorage.setItem('super-dolphin-theme', 'dark');
+
+      const rootDiv = document.createElement('div');
+      rootDiv.id = 'root';
+      document.body.appendChild(rootDiv);
+
+      const renderMock = vi.fn();
+      createRootMock = vi.fn().mockReturnValue({ render: renderMock });
+      syncThemeDOMMock = vi.fn();
+
+      await import('./main.jsx?t=dark-stored-theme');
+
+      expect(syncThemeDOMMock).toHaveBeenCalledWith('dark');
+      expect(createRootMock).toHaveBeenCalled();
+
+      const syncCallOrder = syncThemeDOMMock.mock.invocationCallOrder[0];
+      const renderCallOrder = createRootMock.mock.invocationCallOrder[0];
+      expect(syncCallOrder).toBeLessThan(renderCallOrder);
+
+      createRootMock = null;
+      syncThemeDOMMock = null;
+      rootDiv.remove();
+    });
+
+    it('toggles the local color theme without calling backend preferences', async () => {
+      render(<App />);
+
+      const shell = await screen.findByTestId('frontend-app');
+      const preferenceCallsBeforeToggle = backend.setPreference.mock.calls.length;
+
+      // Check initial light theme synchronization
+      expect(shell).toHaveAttribute('data-theme', 'light');
+      expect(appOverlayHost).toHaveAttribute('data-theme', 'light');
+      expect(document.documentElement).toHaveAttribute('data-theme', 'light');
+      expect(document.body).toHaveAttribute('data-theme', 'light');
+
+      fireEvent.click(screen.getByRole('button', { name: '切换到黑夜模式' }));
+      expect(shell).toHaveAttribute('data-theme', 'dark');
+      expect(appOverlayHost).toHaveAttribute('data-theme', 'dark');
+      expect(document.documentElement).toHaveAttribute('data-theme', 'dark');
+      expect(document.body).toHaveAttribute('data-theme', 'dark');
+      expect(window.localStorage.getItem('super-dolphin-theme')).toBe('dark');
+      expect(screen.getByRole('button', { name: '切换到白天模式' })).toBeInTheDocument();
+
+      appOverlayHost.setAttribute('data-theme', 'tampered');
+      fireEvent.click(screen.getByRole('button', { name: '切换到白天模式' }));
+      expect(shell).toHaveAttribute('data-theme', 'light');
+      expect(appOverlayHost).toHaveAttribute('data-theme', 'light');
+      expect(document.documentElement).toHaveAttribute('data-theme', 'light');
+      expect(document.body).toHaveAttribute('data-theme', 'light');
+      expect(window.localStorage.getItem('super-dolphin-theme')).toBe('light');
+      expect(screen.getByRole('button', { name: '切换到黑夜模式' })).toBeInTheDocument();
+      expect(backend.setPreference.mock.calls.length).toBe(preferenceCallsBeforeToggle);
+    });
   });
 
   it('opens observability tracing dashboard and queries by trace id', async () => {
@@ -5906,6 +6023,16 @@ async function createGeneratedPromptIntent() {
     expect(screen.getByText('推荐一杯咖啡')).toBeInTheDocument();
     expect(screen.getByText('需要说明哪些问题不适合使用它。')).toBeInTheDocument();
     expect(screen.queryByText('internal field copy')).not.toBeInTheDocument();
+  });
+
+  it('renders memory create button inside search toolbar', async () => {
+    render(<App />);
+    await waitForBackendThreadHeading();
+    fireEvent.click(screen.getByRole('button', { name: '记忆中心' }));
+    const toolbar = await screen.findByTestId('memory-toolbar');
+    expect(toolbar).toBeInTheDocument();
+    expect(within(toolbar).getByRole('textbox', { name: '搜索记忆' })).toBeInTheDocument();
+    expect(within(toolbar).getByRole('button', { name: /\+ 新建/ })).toBeInTheDocument();
   });
 
   it('loads memory center through ui/memory/get and groups entries by type', async () => {

@@ -9,14 +9,21 @@ export function MCPToolCard({ errorMessage, mcpServerStatus, state, tool }) {
   const model = mcpToolCardModel({ errorMessage, mcpServerStatus, state, tool });
   const Icon = tool.Icon;
   return (
-    <section className="mcp-tool-card" aria-label={`${tool.title} 控制`}>
-      <div className={`mcp-tool-icon ${tool.id}`} aria-hidden="true"><Icon size={20} /></div>
+    <section className="mcp-tool-card fusion-surface" aria-label={`${tool.title} 控制`}>
+      <div className={`mcp-tool-icon fusion-surface-glass ${tool.id}`} aria-hidden="true"><Icon size={20} /></div>
       <MCPToolMain model={model} tool={tool} />
       <span className={`mcp-tool-status is-${model.status.tone}`} data-testid={tool.testId}>{model.status.label}</span>
       <div className="mcp-tool-actions">
-        <button type="button" aria-label={`${model.actionLabel} ${tool.title}`} className={model.nextAction === 'stop' ? 'is-stop' : ''} onClick={() => { void state.runMCPAction(tool, model.nextAction); }} disabled={!state.projectReady || Boolean(model.action)}>
-          <model.ActionIcon size={15} aria-hidden="true" />
-          <span>{model.action ? model.busyLabel : model.actionLabel}</span>
+        <button
+          type="button"
+          aria-label={`${model.actionLabel} ${tool.title}`}
+          className={`suiyuan-switch-btn mcp-tool-toggle ${model.nextAction === 'stop' ? 'active is-stop' : 'is-start'}`}
+          onClick={() => { void state.runMCPAction(tool, model.nextAction); }}
+          disabled={!state.projectReady || Boolean(model.action)}
+        >
+          <div className="suiyuan-switch-track">
+            <div className="suiyuan-switch-thumb" />
+          </div>
         </button>
       </div>
     </section>

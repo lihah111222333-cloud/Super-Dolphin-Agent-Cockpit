@@ -295,10 +295,11 @@ describe('layer token and overlay host contract', () => {
     expect(invalid).toEqual([]);
   });
 
-  it('shares one light palette rule between the app shell and overlay host', () => {
+  it('shares one light-default palette rule between the document root and app shell', () => {
     const expectedSelectors = new Set([
+      ':root',
+      ':root[data-theme="light"]',
       '.sa-window[data-theme="light"]',
-      '#overlay-root[data-theme="light"]',
     ]);
     const stylesRoot = postcss.parse(cssSources.get('src/styles.css'), { from: 'src/styles.css' });
     const paletteRules = stylesRoot.nodes.filter((node) => (
@@ -866,8 +867,8 @@ describe('timeline content styles', () => {
     expect(page.padding).toBe('18px 24px 36px');
     expect(search.width).toBe('100%');
     expect(search['min-width']).toBe('0');
-    expect(search.border).toContain('var(--line)');
-    expect(search.background).toContain('var(--panel)');
+    expect(search.border).toBeUndefined();
+    expect(search.background).toBeUndefined();
     expect(grid.width).toBe('100%');
     expect(grid['min-width']).toBe('0');
     expect(grid['grid-template-columns']).toBe('repeat(4, minmax(0, 1fr))');
@@ -2064,6 +2065,10 @@ describe('card layout styles', () => {
     expect(status['justify-self']).toBe('end');
     expect(notice.margin).toBe('0');
     expect(notice['line-height']).toBe('1.35');
+
+    // contract: the card provides its own base surface styling
+    expect(card.background).toBe('var(--surface)');
+    expect(card.border).toBe('1px solid var(--border)');
   });
 
   it('keeps card badges and actions horizontal beside long content', () => {
@@ -2115,6 +2120,40 @@ describe('card layout styles', () => {
   });
 });
 
+describe('fusion surface redesign contracts', () => {
+  it('keeps personalization overview split between hero and content', () => {
+    const overview = topLevelDeclarationsFor('.personalization-overview');
+    const hero = topLevelDeclarationsFor('.personalization-overview-hero');
+
+    // contract: overview must not have fusion bg
+    expect(overview.background).not.toContain('color-mix(in srgb, var(--orange)');
+    expect(overview.background).toBe('var(--surface)');
+
+    // contract: hero has specific grid
+    expect(hero.display).toBe('grid');
+    expect(hero['grid-template-columns']).toBe('minmax(220px, 1fr) auto');
+  });
+
+  it('keeps skills resolution panel neutral with a distinct header', () => {
+    const panel = declarationsFor('.skills-resolution-panel');
+    const header = declarationsFor('.skills-resolution-header');
+
+    // contract: panel must be neutral
+    expect(panel.background).toBe('var(--surface)');
+    expect(panel.background).not.toContain('color-mix(in srgb, var(--orange)');
+
+    // contract: header is distinct (receives fusion-surface via JSX)
+    expect(header['border-radius']).toBe('0');
+  });
+
+  it('keeps datasource empty state neutral', () => {
+    const emptyCard = declarationsFor('.datasource-empty-card');
+
+    // contract: empty state must not use fusion background
+    expect(emptyCard.background).toBe('var(--surface)');
+  });
+});
+
 describe('suiyuan theme contract', () => {
   it('keeps the retired late visual layers out of the stylesheet', () => {
     const retiredFragments = [
@@ -2133,18 +2172,21 @@ describe('suiyuan theme contract', () => {
     }
   });
 
-  it('defines one root dark token contract plus one light override contract', () => {
-    const themeRootSelectors = [];
+  it('defines one root light-default token contract plus one dark override contract', () => {
+    const themeRootRules = [];
     root.walkRules((rule) => {
-      if (rule.selector === ':root' && rule.nodes.some((node) => node.type === 'decl' && node.prop === '--bg')) {
-        themeRootSelectors.push(rule);
+      if (splitSelectors(rule.selector).includes(':root') && rule.nodes.some((node) => node.type === 'decl' && node.prop === '--bg')) {
+        themeRootRules.push(rule);
       }
     });
 
-    const dark = declarationsFor(':root');
+    const rootLight = declarationsFor(':root');
+    const dark = declarationsFor(':root[data-theme="dark"]');
     const light = declarationsFor('.sa-window[data-theme="light"]');
 
-    expect(themeRootSelectors).toHaveLength(1);
+    expect(themeRootRules).toHaveLength(1);
+    expect(rootLight['--bg']).toBe('#fbf9f3');
+    expect(rootLight['--surface']).toBe('#ffffff');
     expect(dark['--bg']).toBe('#131411');
     expect(dark['--surface']).toBe('#1b1c18');
     expect(dark['--surface-2']).toBe('#1e1f1b');
@@ -2165,7 +2207,7 @@ describe('suiyuan theme contract', () => {
   });
 
   it('uses the Suiyuan primary action treatment in light mode', () => {
-    const tokens = declarationsFor(':root');
+    const tokens = declarationsFor(':root[data-theme="dark"]');
     const light = declarationsFor('.sa-window[data-theme="light"]');
     const primary = declarationsFor('.btn-primary');
     const primaryHover = declarationsFor('.btn-primary:hover');

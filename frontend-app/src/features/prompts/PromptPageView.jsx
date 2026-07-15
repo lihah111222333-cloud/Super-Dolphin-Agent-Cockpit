@@ -1,8 +1,9 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'; import React, { useCallback, useEffect, useMemo, useReducer, useState } from 'react'; import { Dialog, Modal, ModalOverlay, Radio, RadioGroup } from 'react-aria-components'; import { z } from 'zod';
-import { CheckCircle2, File, FileText } from 'lucide-react'; import {
+import { CheckCircle2, File, FileText, Upload } from 'lucide-react'; import {
 commitPromptIntent, copyTextToClipboard, deletePrompt, discardPromptIntent, draftPromptIntent, dryRunPromptIntent, getDashboardPrompts, getPersonalizationProfile, getPreference, getPrompt, listPromptAssets, savePersonalizationProfile, setPreference, writePrompt,
 } from '../../pages/prompts/services/promptPageService.js'; import { APP_COPY } from '../../shared/i18n/appI18n.js';
 import { firstPresentText, parseStrictJsonValue, rawTextValue } from '../../pages/shared/pageShared.js'; import './PromptPageView.css';
+import { requiredAppStoragePort } from '../../shared/api/browser/browserStorage.js';
 const ACTIVE_PROMPT_PREF_KEY = 'settings.activePromptKey'; const PROMPTS_REQUEST_TIMEOUT_MS = 8000;
 const PROMPT_KIND_OPTIONS = Object.freeze([ { key: 'expert', label: '专家能力' }, { key: 'recall', label: '参考资料' }, { key: 'default_rule', label: '默认规则' }, ]);
 const PROMPT_DRAFT_NOT_READY_MESSAGE = '这条内容还需要完善后才能保存，请调整描述后重新生成。'; const PROMPT_DRAFT_REVIEW_MESSAGE = '保存前请先确认提示里的风险。'; const PROMPT_ISSUE_COPY = Object.freeze({ missing_title: '需要补充一个清晰名称。', missing_summary: '需要补充一句简短说明。', missing_when_to_use: '需要说明 AI 什么时候会使用它。',
@@ -66,7 +67,7 @@ function optionalPromptCwd(value) { const cwd = textValue(value); return cwd && 
 function firstText(...values) { for (const value of values) { const text = textValue(value); if (text) return text; } return ''; }
 function cleanPromptTags(tags) { return tags.filter((tag) => ( !tag.startsWith('intent:') && tag !== 'scope.global' && !tag.startsWith('scope.cwd:') && !tag.startsWith('scope://') )); }
 function optionalPromptDebugStorageEnabled() { if (typeof window === 'undefined') return false; if (window.__SUPER_DOLPHIN_PROMPT_DEBUG__ === true) return true; try {
-const storage = window['localStorage']; return storage && typeof storage.getItem === 'function' && storage.getItem('super-dolphin.promptDebug') === '1'; } catch { return false; } }
+const storage = requiredAppStoragePort('prompt debug storage'); return storage.get('super-dolphin.promptDebug') === '1'; } catch { return false; } }
 function isReadonlyFallbackListError(error) { const message = firstPresentText(error?.message, error).toLowerCase(); return error?.code === -32601
 || message.includes('method not found') || message.includes('not registered') || message.includes('unknown method') || message.includes('not implemented') || message.includes('unimplemented'); }
 function serializeJsonForEditor(value) { if (value === undefined || value === null || value === '') return ''; if (typeof value === 'string') return value; try { return JSON.stringify(value, null, 2); } catch { return ''; } }
@@ -217,15 +218,52 @@ function PromptPersonalizationOverview({ copy, counts, isProjectPending, fallbac
 const updateProfile = (key) => (event) => { personalization?.onProfileChange?.({ ...profile, [key]: event.target.value });
 }; const profileStatus = isProjectPending ? copy.waitingProject : personalization?.error ? copy.loadFailed : profileLoading ? copy.loadingShort : copy.connected; const overviewText = isProjectPending ? copy.overviewConnecting : fallbackMode ? copy.overviewFallback
 : copy.overviewReady; return (
-<section className="personalization-overview" aria-label={copy.overviewAria}> <div className="personalization-overview-copy"> <span>{copy.profile}</span> <h2>{copy.overviewTitle}</h2> <p>{overviewText}</p> </div> <dl> {metrics.map(([label, value]) => (
-<div key={label}> <dt>{label}</dt> <dd>{value}</dd> </div>
-))} </dl> <div className="personalization-profile-grid"> <section className="personalization-profile-card" aria-label={copy.profile}> <header> <h3>{copy.profile}</h3> <span>{profileStatus}</span> </header> <div className="personalization-form-grid">
-<label>{copy.displayName}<input aria-label={copy.displayName} type="text" value={profile.displayName} onChange={updateProfile('displayName')} disabled={profileDisabled} /></label>
-<label>{copy.role}<input aria-label={copy.role} type="text" value={profile.role} onChange={updateProfile('role')} disabled={profileDisabled} /></label>
-<label>{copy.background}<textarea aria-label={copy.background} rows={3} value={profile.background} onChange={updateProfile('background')} disabled={profileDisabled} /></label>
-<label>{copy.customInstructions}<textarea aria-label={copy.customInstructions} rows={3} value={profile.customInstructions} onChange={updateProfile('customInstructions')} disabled={profileDisabled} /></label> </div>
-<button type="button" disabled={profileDisabled || profileSaving} onClick={personalization?.onSaveProfile}> {profileSaving ? copy.saving : copy.saveProfile} </button> </section> <section className="personalization-profile-card" aria-label={copy.importMemoryTitle}>
-<header> <h3>{copy.importMemoryTitle}</h3> <span>{copy.reuseReferences}</span> </header> <p>{copy.importMemoryText}</p> <button type="button" disabled={isProjectPending} onClick={personalization?.onImportMemory}>{copy.importMemory}</button> </section> </div> </section> ); }
+<section className="personalization-overview" aria-label={copy.overviewAria}>
+  <div className="personalization-overview-hero fusion-surface">
+    <div className="personalization-overview-copy">
+      <span>{copy.profile}</span>
+      <h2>{copy.overviewTitle}</h2>
+      <p>{overviewText}</p>
+    </div>
+    <dl>
+      {metrics.map(([label, value]) => (
+        <div key={label} className="fusion-surface-glass">
+          <dt>{label}</dt>
+          <dd>{value}</dd>
+        </div>
+      ))}
+    </dl>
+  </div>
+  <div className="personalization-overview-content personalization-profile-grid">
+    <section className="personalization-profile-card" aria-label={copy.profile}>
+      <header>
+        <h3>{copy.profile}</h3>
+        <span>{profileStatus}</span>
+      </header>
+      <div className="personalization-form-grid">
+        <label>{copy.displayName}<input aria-label={copy.displayName} type="text" value={profile.displayName} onChange={updateProfile('displayName')} disabled={profileDisabled} /></label>
+        <label>{copy.role}<input aria-label={copy.role} type="text" value={profile.role} onChange={updateProfile('role')} disabled={profileDisabled} /></label>
+        <label>{copy.background}<textarea aria-label={copy.background} rows={3} value={profile.background} onChange={updateProfile('background')} disabled={profileDisabled} /></label>
+        <label>{copy.customInstructions}<textarea aria-label={copy.customInstructions} rows={3} value={profile.customInstructions} onChange={updateProfile('customInstructions')} disabled={profileDisabled} /></label>
+      </div>
+      <button type="button" disabled={profileDisabled || profileSaving} onClick={personalization?.onSaveProfile}>
+        {profileSaving ? copy.saving : copy.saveProfile}
+      </button>
+    </section>
+    <section className="personalization-profile-card suiyuan-import-memory-card" aria-label={copy.importMemoryTitle}>
+      <div className="suiyuan-import-memory-content">
+        <Upload size={28} className="suiyuan-import-memory-icon" />
+        <h3>{copy.importMemoryTitle}</h3>
+        <p>{copy.importMemoryText}</p>
+        <button type="button" disabled={isProjectPending} onClick={personalization?.onImportMemory}>
+          {copy.importMemory}
+        </button>
+      </div>
+    </section>
+  </div>
+</section>
+);
+}
 function promptBucketLabel(bucket) { if (bucket === 'expert') return '专家能力'; if (bucket === 'recall') return '参考资料'; if (bucket === 'default_rule') return '默认规则'; return '待确认'; }
 function PromptBadges({ item, active }) { const bucket = promptBucket(item); const lifecycleStatus = promptLifecycleStatus(item, active); const lifecycleLabel = promptLifecycleStatusLabel(lifecycleStatus); return (
 <div className="prompt-badges"> <span>{promptBucketLabel(bucket)}</span> {item.scope === 'global' ? <span>全局可用</span> : null} {item.isPendingDraft ? <span>待确认</span> : null} {!item.isPendingDraft && lifecycleLabel ? <span>{lifecycleLabel}</span> : null}

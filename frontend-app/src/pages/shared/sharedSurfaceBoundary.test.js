@@ -16,6 +16,7 @@ const appShellBackendApiAllowlist = new Set([
   'checkAppUpdate',
   'getSidebarState',
   'installLatestAppUpdate',
+  'getPersonalizationProfile',
 ]);
 const ownerlessFeatureSurfaceImportAllowlist = new Map([
   ['App.jsx', new Set([

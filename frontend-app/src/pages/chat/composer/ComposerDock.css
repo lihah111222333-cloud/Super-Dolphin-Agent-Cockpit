@@ -222,7 +222,8 @@
   box-shadow: var(--suiyuan-input-shadow);
 }
 
-.sa-window[data-theme="light"] .conversation--intro .composer.composer--floating[data-file-drop-target] .composer-attach {
+.sa-window[data-theme="light"] .conversation--intro .composer.composer--floating[data-file-drop-target] .composer-attach,
+.sa-window[data-theme="light"] .conversation--intro .composer.composer--floating[data-file-drop-target] .composer-attach-image {
   border-color: var(--suiyuan-surface-variant);
   background: var(--suiyuan-surface-low);
   color: var(--suiyuan-secondary);
@@ -356,7 +357,8 @@
   color: var(--text-sec);
 }
 
-.composer-attach {
+.composer-attach,
+.composer-attach-image {
   flex: 0 0 36px;
   width: 36px;
   min-width: 36px;
@@ -367,7 +369,8 @@
   place-items: center;
 }
 
-.composer.composer--floating[data-file-drop-target] .composer-attach {
+.composer.composer--floating[data-file-drop-target] .composer-attach,
+.composer.composer--floating[data-file-drop-target] .composer-attach-image {
   flex: 0 0 36px;
   width: 36px;
   min-width: 36px;

@@ -116,13 +116,47 @@ const exportDefaultPath = optionalSettingsCwd(projectPath); const dashboard = us
 const filters = useSharedFilesFilters({ files: dashboard.files, finalOutputRefs: dashboard.finalOutputRefs, retention: dashboard.retention, copy }); const actions = useSharedFileActions({ exportDefaultPath,
 refreshFiles: dashboard.refreshFiles, store, protectionFor: filters.protectionFor, }); return <SharedFilesPageView actions={actions} copy={copy} dashboard={dashboard} filters={filters} />; } function SharedFilesPageView({ actions, copy, dashboard, filters }) { return (
 <section className="console-page shared-files-page"> <SharedFilesHeader copy={copy} dashboard={dashboard} filters={filters} /> <SharedFilesOverview copy={copy} dashboard={dashboard} filters={filters} /> <SharedFilesIntro copy={copy} />
+<SharedFilesToolbar copy={copy} filters={filters} />
 <SharedFilesTabs category={filters.category} categoryCounts={filters.categoryCounts} copy={copy} onCategory={filters.setCategory} /> <SharedFilesStatus actions={actions} copy={copy} dashboard={dashboard} />
 <SharedFilesContent actions={actions} copy={copy} dashboard={dashboard} filters={filters} /> <SharedFilesModals actions={actions} /> </section> ); } function SharedFilesOverview({ copy, dashboard, filters }) { const cleanupCount = Number(dashboard.retention?.cleanupCandidateCount || 0); return (
-<section className="shared-files-overview" aria-label={copy.overviewAria}> <div className="shared-files-overview-copy"> <span>{copy.currentAssets}</span> <h2>{copy.overviewTitle}</h2> </div> <dl> <div><dt>{copy.allFiles}</dt><dd>{dashboard.files.length}</dd></div>
-<div><dt>{copy.finalOutputs}</dt><dd>{filters.finalCount}</dd></div> <div><dt>{copy.workFiles}</dt><dd>{filters.workCount}</dd></div> <div><dt>{copy.cleanupCandidates}</dt><dd>{cleanupCount}</dd></div> </dl> </section> ); } function SharedFilesHeader({ copy, dashboard, filters }) { return (
-<PageHeader icon={FolderOpen} title={copy.title} subtitle={`${filters.activeSortLabel} · ${copy.allFiles} ${dashboard.files.length} · ${copy.finalOutputs} ${filters.finalCount} · ${copy.workFiles} ${filters.workCount}`} actions={(
-<> <label className="shared-files-search"> <Search size={15} /> <input aria-label={copy.search} placeholder={copy.searchPlaceholder} value={filters.searchText} onChange={(event) => filters.setSearchText(event.target.value)} /> </label>
-<select aria-label={copy.sort} value={filters.sortMode} onChange={(event) => filters.setSortMode(event.target.value)}> {SHARED_FILE_SORT_KEYS.map((key) => <option key={key} value={key}>{copy.sorts[key]}</option>)} </select> </> )} /> ); }
+<section className="shared-files-overview fusion-surface" aria-label={copy.overviewAria}>
+  <div className="shared-files-overview-copy">
+    <span>{copy.currentAssets}</span>
+    <h2>{copy.overviewTitle}</h2>
+  </div>
+  <dl>
+    <div className="fusion-surface-glass">
+      <dt>{copy.allFiles}</dt>
+      <dd>{dashboard.files.length}</dd>
+    </div>
+    <div className="fusion-surface-glass">
+      <dt>{copy.finalOutputs}</dt>
+      <dd>{filters.finalCount}</dd>
+    </div>
+    <div className="fusion-surface-glass">
+      <dt>{copy.workFiles}</dt>
+      <dd>{filters.workCount}</dd>
+    </div>
+    <div className="fusion-surface-glass">
+      <dt>{copy.cleanupCandidates}</dt>
+      <dd>{cleanupCount}</dd>
+    </div>
+  </dl>
+</section>
+);
+}
+function SharedFilesHeader({ copy, dashboard, filters }) { return (
+<PageHeader icon={FolderOpen} title={copy.title} subtitle={`${filters.activeSortLabel} · ${copy.allFiles} ${dashboard.files.length} · ${copy.finalOutputs} ${filters.finalCount} · ${copy.workFiles} ${filters.workCount}`} /> ); }
+function SharedFilesToolbar({ copy, filters }) { return (
+<div className="shared-files-toolbar" data-testid="shared-files-toolbar">
+  <label className="shared-files-search">
+    <Search size={15} />
+    <input aria-label={copy.search} placeholder={copy.searchPlaceholder} value={filters.searchText} onChange={(event) => filters.setSearchText(event.target.value)} />
+  </label>
+  <select aria-label={copy.sort} value={filters.sortMode} onChange={(event) => filters.setSortMode(event.target.value)}>
+    {SHARED_FILE_SORT_KEYS.map((key) => <option key={key} value={key}>{copy.sorts[key]}</option>)}
+  </select>
+</div> ); }
 function SharedFilesIntro({ copy }) { return ( <div className="file-intro"> <FolderOpen size={29} /> <h2>{copy.introTitle}</h2> <p>{copy.introText}</p> </div> ); }
 function SharedFilesTabs(props) { const { category, categoryCounts, copy, onCategory } = props; return ( <div className="shared-files-tabs" role="tablist" aria-label={copy.categoryAria}> {SHARED_FILE_CATEGORY_KEYS.map((key) => (
 <button key={key} type="button" role="tab" aria-selected={category === key} className={category === key ? 'active' : ''} onClick={() => onCategory(key)}> {copy.categories[key]} {categoryCounts[key] || 0} </button> ))} </div> ); }

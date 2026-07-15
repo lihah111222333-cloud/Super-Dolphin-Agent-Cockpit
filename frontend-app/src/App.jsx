@@ -21,12 +21,14 @@ import {
   Plus,
   Sun,
   X,
+  HelpCircle,
 } from 'lucide-react';
 import { useClientStore } from './entities/client/model/useClientStore.js';
+import { checkAppUpdate, installLatestAppUpdate, getPersonalizationProfile } from './shared/api/backendApi.js';
+import { requiredAppStoragePort } from './shared/api/browser/browserStorage.js';
 import { UITestMCPShell } from './devtools/UITestMCPShell.jsx';
 import { ActivePageContent, PageLoadingFallback } from './AppRoutes.jsx';
 import { SidebarProjectTree as ChatSidebarProjectTree } from './WorkbenchSidebarProjectTree.jsx';
-import { checkAppUpdate, installLatestAppUpdate } from './shared/api/backendApi.js';
 import {
   dashboardQueryKey,
   errorMessage,
@@ -47,8 +49,10 @@ import {
   appPageFromPathname,
   appRouteForPage,
   normalizeAppPathname,
-  normalizeColorTheme,
   selectAppShellStore,
+  THEME_STORAGE_KEY,
+  getStoredTheme,
+  syncThemeDOM,
 } from './app/appShellModel.js';
 import { createShellLayoutStore } from './app/shell/model/useShellLayoutStore.js';
 import { appCommandPreferencePort } from './app/commands/appCommandPreferencePort.js';
@@ -69,7 +73,6 @@ const DASHBOARD_QUERY_GC_MS = 10 * 60_000;
 
 export const APP_PROFILER_ID = 'App';
 
-const THEME_STORAGE_KEY = 'super-dolphin-theme';
 const SUIYUAN_NAV_ITEMS = Object.freeze([
   { id: 'chat', label: 'Chat', labelKey: 'chat', icon: MessageSquareText },
   { id: 'skills', label: 'Plugins', labelKey: 'skills', icon: Puzzle },
@@ -123,7 +126,7 @@ function hasExplicitAppPageRoute() {
 }
 
 function useColorTheme() {
-  const [theme, setTheme] = useState(() => normalizeColorTheme(requiredAppStoragePort('theme storage').get(THEME_STORAGE_KEY)));
+  const [theme, setTheme] = useState(() => getStoredTheme());
 
   const toggleTheme = useCallback(() => {
     setTheme((current) => {
@@ -132,6 +135,10 @@ function useColorTheme() {
       return next;
     });
   }, []);
+
+  useLayoutEffect(() => {
+    syncThemeDOM(theme);
+  }, [theme]);
 
   return { theme, toggleTheme };
 }
@@ -161,30 +168,6 @@ function createDashboardQueryClient() {
       },
     },
   });
-}
-
-function requiredAppStoragePort(label = 'app storage') {
-  if (typeof globalThis === 'undefined') throw new Error(`${label} global object is unavailable`);
-  const storage = globalThis.window?.['localStorage'];
-  if (
-    !storage
-    || typeof storage.getItem !== 'function'
-    || typeof storage.setItem !== 'function'
-    || typeof storage.removeItem !== 'function'
-  ) {
-    throw new Error(`${label} is unavailable`);
-  }
-  return {
-    get(key) {
-      return storage.getItem(key);
-    },
-    set(key, value) {
-      storage.setItem(key, value);
-    },
-    remove(key) {
-      storage.removeItem(key);
-    },
-  };
 }
 
 function memorySimilarGroupCount(response) {
@@ -468,6 +451,16 @@ function SuiyuanChatNavGroup({ copy, item, projectPath, sidebar, store }) {
 function SuiyuanSidebar({ copy, projectPath, sidebar, store }) {
   const { activePage, closeSidebar, isOpen, memorySimilarCount, setActivePage, startNewChat } = sidebar;
   const memoryBadgeCount = Math.max(0, Number(memorySimilarCount) || 0);
+
+  const { data: profileData } = useQuery({
+    queryKey: ['personalizationProfile', projectPath],
+    queryFn: () => getPersonalizationProfile({ cwd: projectPath }),
+    enabled: Boolean(projectPath) && projectPath !== '未选择项目',
+  });
+  const profile = profileData?.profile;
+  const profileName = profile?.displayName ? profile.displayName : 'Alex Rivera';
+  const profileEmailOrRole = profile?.role ? profile.role : 'alex.r@suiyuan.ai';
+
   return (
     <aside
       id="app-sidebar"
@@ -482,7 +475,7 @@ function SuiyuanSidebar({ copy, projectPath, sidebar, store }) {
         <img className="suiyuan-brand-dark-mark" data-testid="suiyuan-brand-dark-logo" src={suiyuanBrandIcon} alt="" aria-hidden="true" />
         <div className="suiyuan-brand-meta">
           <strong>{APP_BRAND_NAME}</strong>
-          <span>AI Canvas</span>
+          <span>AI Desktop</span>
         </div>
         <button
           type="button"
@@ -528,6 +521,24 @@ function SuiyuanSidebar({ copy, projectPath, sidebar, store }) {
           <SettingsIcon size={15} aria-hidden="true" />
           <span>{copy.workbench.settings}</span>
         </button>
+        <a
+          href="https://github.com/anthropic-ai/super-agent-v3"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="suiyuan-footer-item"
+        >
+          <HelpCircle size={15} aria-hidden="true" />
+          <span>{copy.workbench.help || 'Help'}</span>
+        </a>
+      </div>
+      <div className="suiyuan-sidebar-profile-card">
+        <div className="suiyuan-profile-avatar-wrapper">
+          <CircleUserRound size={28} />
+        </div>
+        <div className="suiyuan-profile-info">
+          <div className="suiyuan-profile-name">{profileName}</div>
+          <div className="suiyuan-profile-subtext">{profileEmailOrRole}</div>
+        </div>
       </div>
     </aside>
   );

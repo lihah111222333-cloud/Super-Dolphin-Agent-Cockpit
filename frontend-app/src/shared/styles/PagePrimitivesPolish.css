@@ -480,9 +480,7 @@
   color: var(--text-muted);
 }
 
-.skills-resolution-panel {
-  background: color-mix(in srgb, var(--orange) 11%, var(--surface));
-}
+
 
 .modal-overlay {
   inset: 48px 0 0;
@@ -692,15 +690,24 @@
 }
 
 .personalization-overview {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin-bottom: 16px;
+  border: 1px solid color-mix(in srgb, var(--primary) 24%, var(--border));
+  border-radius: var(--radius-xl, 16px);
+  background: var(--surface);
+  box-shadow: var(--suiyuan-card-shadow);
+  padding: 16px;
+}
+
+.personalization-overview-hero {
   display: grid;
   grid-template-columns: minmax(220px, 1fr) auto;
-  gap: 14px;
+  gap: 16px;
   align-items: start;
-  margin-bottom: 14px;
-  padding: 14px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  background: color-mix(in srgb, var(--surface-2) 70%, var(--surface));
+  border-radius: var(--radius-lg, 12px);
+  padding: 20px 24px;
 }
 
 .personalization-overview-copy {
@@ -711,7 +718,7 @@
 
 .personalization-overview-copy span,
 .personalization-profile-card header span {
-  color: var(--text-muted);
+  opacity: 0.8;
   font-size: 12px;
   font-weight: 650;
 }
@@ -719,7 +726,6 @@
 .personalization-overview-copy h2,
 .personalization-profile-card h3 {
   margin: 0;
-  color: var(--text-pri);
   font-size: 17px;
   font-weight: 760;
   line-height: 1.25;
@@ -728,7 +734,7 @@
 .personalization-overview-copy p,
 .personalization-profile-card p {
   margin: 0;
-  color: var(--text-sec);
+  opacity: 0.9;
   font-size: 13px;
   line-height: 1.45;
 }
@@ -741,32 +747,35 @@
   min-width: 0;
 }
 
-.personalization-overview dl div,
+.personalization-overview dl div {
+  min-width: 0;
+  padding: 12px;
+}
+
 .personalization-profile-card {
   min-width: 0;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: var(--surface);
-  padding: 10px;
+  border: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+  border-radius: var(--radius-md, 8px);
+  background: var(--panel);
+  padding: 16px;
+  box-shadow: var(--suiyuan-card-shadow);
 }
 
 .personalization-overview dt {
-  color: var(--text-muted);
+  opacity: 0.8;
   font-size: 12px;
 }
 
 .personalization-overview dd {
   margin: 4px 0 0;
-  color: var(--text-pri);
   font-size: 18px;
   font-weight: 700;
 }
 
 .personalization-profile-grid {
-  grid-column: 1 / -1;
   display: grid;
   grid-template-columns: minmax(0, 1.45fr) minmax(220px, 0.75fr);
-  gap: 10px;
+  gap: 16px;
 }
 
 .personalization-profile-card {
@@ -775,7 +784,7 @@
 }
 
 @media (max-width: 1100px) {
-  .personalization-overview {
+  .personalization-overview-hero {
     grid-template-columns: 1fr;
   }
 
@@ -1056,4 +1065,67 @@
   .personalization-overview dl {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+}
+
+/* Suiyuan Redesign Tabs: Synchronizing style with Skill tab (.skills-subtabs-header) */
+.shared-files-tabs,
+.memory-tabs,
+.prompt-tabs,
+.prompt-kind-tabs,
+.workflow-list .tabs {
+  display: flex !important;
+  gap: 8px !important;
+  border: 0 !important;
+  border-bottom: 1px solid var(--line) !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  padding: 0 28px !important;
+  margin-bottom: 24px !important;
+  margin-top: 14px !important;
+  box-shadow: none !important;
+}
+
+/* Also reset custom paddings and borders that might be defined locally */
+.shared-files-tabs {
+  padding-left: 28px !important;
+  padding-right: 28px !important;
+}
+
+.shared-files-tabs button,
+.memory-tabs button,
+.prompt-tabs button,
+.prompt-kind-tabs button,
+.workflow-list .tabs button {
+  background: transparent !important;
+  border: 0 !important;
+  border-bottom: 2px solid transparent !important;
+  border-radius: 0 !important;
+  color: var(--text-muted) !important;
+  font-size: 14px !important;
+  font-weight: 600 !important;
+  padding: 12px 16px !important;
+  min-height: 0 !important;
+  cursor: pointer;
+  transition: all var(--transition) !important;
+  box-shadow: none !important;
+}
+
+.shared-files-tabs button:hover,
+.memory-tabs button:hover,
+.prompt-tabs button:hover,
+.prompt-kind-tabs button:hover,
+.workflow-list .tabs button:hover {
+  color: var(--text-pri) !important;
+}
+
+.shared-files-tabs .active,
+.memory-tabs .active,
+.prompt-tabs button.active,
+.prompt-tabs button[aria-selected="true"],
+.prompt-kind-tabs button.active,
+.workflow-list .tabs .active {
+  background: transparent !important;
+  border-bottom-color: var(--primary) !important;
+  color: var(--text-pri) !important;
+  box-shadow: none !important;
 }

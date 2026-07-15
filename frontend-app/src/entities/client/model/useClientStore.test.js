@@ -82,11 +82,14 @@ async function flushAssistantDeltaBatch() {
   await flushPromises();
 }
 
-vi.mock('../../../shared/api/backendApi.js', () => ({
-  ...backend,
-  registerBridgeLogStore: vi.fn(),
-  sendFrontendLogBatch: vi.fn(),
-}));
+vi.mock('../../../shared/api/backendApi.js', async (importOriginal) => {
+  const actual = await importOriginal();
+  return {
+    ...backend,
+    registerBridgeLogStore: actual.registerBridgeLogStore,
+    sendFrontendLogBatch: vi.fn(),
+  };
+});
 
 import { resetClientStoreForTests, setClientStoreClockMillisForTests, useClientStore } from './useClientStore.js';
 import * as frontendBreadcrumbs from '../../../shared/diagnostics/frontendBreadcrumbs.js';
@@ -6483,13 +6486,13 @@ function registerBridgeEventHandlersForTest() {
       method: 'thread/messages',
       threadId: 'thread-1',
       req_id: 1,
-      result_preview: resultPreview,
+      result: resultPreview,
     });
     useClientStore.getState().addLog('debug', 'api.rpc.done', {
       method: 'thread/messages',
       threadId: 'thread-1',
       req_id: 2,
-      result_preview: resultPreview,
+      result: resultPreview,
     });
 
     const results = useClientStore.getState().runtimeResultEntries;
@@ -6506,6 +6509,48 @@ function registerBridgeEventHandlersForTest() {
     expect(serializedFields).not.toContain('/home/l4place');
     expect(serializedFields).not.toContain('sk-live-secret');
     expect(serializedFields).not.toContain('secret.txt');
+  });
+
+  it('integrates large result from bridge producer to client store without crashing and without leaking sensitive values', async () => {
+    const hadTraceDebugFlag = Object.prototype.hasOwnProperty.call(window, '__AO_FRONTEND_TRACE_DEBUG__');
+    const previousTraceDebugFlag = window.__AO_FRONTEND_TRACE_DEBUG__;
+
+    try {
+      window.__AO_FRONTEND_TRACE_DEBUG__ = true;
+      const largeResult = {
+        api_key: 'super-secret-password-123',
+        values: Array.from({ length: 900 }, (_, index) => index),
+      };
+
+      vi.doMock('/wails/runtime.js', () => ({
+        Call: {
+          ByID: vi.fn().mockResolvedValue({
+            ok: true,
+            tool: 'mcp__large__tool',
+            result: largeResult,
+          }),
+        },
+        Events: { On: vi.fn() },
+      }));
+
+      const { callAPI } = await import('../../../shared/api/wailsBridge.js');
+      await callAPI('tools/call', { name: 'mcp__large__tool' });
+
+      const entries = useClientStore.getState().runtimeResultEntries;
+      const entry = entries.find(e => e.fields?.method === 'tools/call');
+      expect(entry).toBeDefined();
+      expect(entry.detail).toHaveLength(500);
+      expect(entry.detail.endsWith('...')).toBe(true);
+      expect(entry.detail).not.toContain('super-secret-password-123');
+      expect(JSON.stringify(entry.fields)).not.toContain('super-secret-password-123');
+    } finally {
+      vi.doUnmock('/wails/runtime.js');
+      if (hadTraceDebugFlag) {
+        window.__AO_FRONTEND_TRACE_DEBUG__ = previousTraceDebugFlag;
+      } else {
+        delete window.__AO_FRONTEND_TRACE_DEBUG__;
+      }
+    }
   });
 
   it('connects conversation card actions to backend RPCs with explicit cwd', async () => {

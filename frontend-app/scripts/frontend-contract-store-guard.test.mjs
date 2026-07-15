@@ -178,7 +178,63 @@ describe('frontend contract/store guard', () => {
     `;
 
     expect(contractStoreGuardViolationsInSource('src/shared/api/safeDiagnosticPreview.js', source)).toEqual([
-      expect.objectContaining({ kind: 'mutable-browser-storage' }),
+      expect.objectContaining({
+        kind: 'mutable-browser-storage',
+        snippet: "return window.localStorage.getItem('language');",
+      }),
+      expect.objectContaining({
+        kind: 'mutable-browser-storage',
+        snippet: "return window.localStorage.getItem('other');",
+      }),
+    ]);
+  });
+
+  it('allows mutable browser storage only for exact file and helper name pairs', () => {
+    const allowedSources = new Map([
+      ['src/shared/api/browser/browserStorage.js', `
+        function requiredAppStoragePort() {
+          return window.localStorage.getItem('app');
+        }
+      `],
+      ['src/shared/i18n/appI18n.js', `
+        function initialAppLocale() {
+          return window.localStorage.getItem('language');
+        }
+      `],
+      ['src/shared/api/wails/wailsBridgeLogRuntime.js', `
+        function isFrontendTraceDebugEnabled() {
+          return window.localStorage.getItem('trace');
+        }
+      `],
+      ['src/shared/api/wails/wailsBridgeTraceEvents.js', `
+        function isFrontendTraceDebugEnabled() {
+          return window.localStorage.getItem('trace');
+        }
+      `],
+    ]);
+    const allowedViolations = contractStoreGuardViolationsFromSources(allowedSources)
+      .filter(({ kind }) => kind === 'mutable-browser-storage');
+
+    expect(allowedViolations).toEqual([]);
+
+    const reusedNames = `
+      function initialAppLocale() {
+        return window.localStorage.getItem('language');
+      }
+      function isFrontendTraceDebugEnabled() {
+        return window.localStorage.getItem('trace');
+      }
+      function requiredAppStoragePort() {
+        return window.localStorage.getItem('app');
+      }
+    `;
+    const blockedViolations = contractStoreGuardViolationsInSource('src/pages/unsafeStorage.js', reusedNames)
+      .filter(({ kind }) => kind === 'mutable-browser-storage');
+
+    expect(blockedViolations).toEqual([
+      expect.objectContaining({ snippet: "return window.localStorage.getItem('language');" }),
+      expect.objectContaining({ snippet: "return window.localStorage.getItem('trace');" }),
+      expect.objectContaining({ snippet: "return window.localStorage.getItem('app');" }),
     ]);
   });
 
@@ -228,5 +284,18 @@ describe('frontend contract/store guard', () => {
     })).toEqual([
       { kind: 'default-value-fallback', count: 2, limit: 1 },
     ]);
+  });
+
+  it('detects both dot access and string element access to browser storage', () => {
+    const source = `
+      const a = window.localStorage.getItem('theme');
+      const b = window['localStorage'].getItem('theme');
+      const c = window["sessionStorage"].getItem('theme');
+    `;
+    expect(contractStoreGuardViolationsInSource('src/pages/unsafe.js', source)).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'mutable-browser-storage', snippet: "const a = window.localStorage.getItem('theme');" }),
+      expect.objectContaining({ kind: 'mutable-browser-storage', snippet: "const b = window['localStorage'].getItem('theme');" }),
+      expect.objectContaining({ kind: 'mutable-browser-storage', snippet: 'const c = window["sessionStorage"].getItem(\'theme\');' }),
+    ]));
   });
 });

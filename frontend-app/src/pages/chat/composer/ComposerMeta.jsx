@@ -1,5 +1,5 @@
 import React from 'react';
-import { ArrowUp, CircleStop, Folder, Paperclip } from 'lucide-react';
+import { ArrowUp, CircleStop, Folder, Paperclip, Image } from 'lucide-react';
 import { APP_COPY } from '../../../shared/i18n/appI18n.js';
 import { ProjectSelector } from '../components/ProjectSelector.jsx';
 import { ComposerModelSelector } from './ComposerModelSelector.jsx';
@@ -54,6 +54,18 @@ function ComposerMeta({
         }}
       >
         <Paperclip size={18} aria-hidden="true" />
+      </button>
+      <button
+        type="button"
+        className="composer-icon-action composer-attach-image"
+        aria-label="Add image"
+        title={projectActionBlocked ? projectActionBlockedTitle : "Add image"}
+        disabled={projectActionBlocked}
+        onClick={() => {
+          if (!projectActionBlocked) runUIAction(() => selectFiles());
+        }}
+      >
+        <Image size={18} aria-hidden="true" />
       </button>
       {showProjectSelector ? (
         <ProjectSelector copy={copy} projectPath={projectPath} store={store} isDisabled={projectActionBlocked} />

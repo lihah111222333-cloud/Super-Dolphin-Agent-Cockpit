@@ -175,4 +175,19 @@ describe('FilesPage module', () => {
     expect(dialog.querySelector('.shared-file-content-preview')?.textContent).toContain('latest preview content');
     expect(dialog.querySelector('.shared-file-content-preview')?.textContent).not.toContain('stale preview content');
   });
+
+  it('renders sort dropdown inside search toolbar', async () => {
+    backend.listSharedFilesDashboard.mockResolvedValue({
+      files: [{ id: 'a.md:0', path: 'a.md', content: 'hello', updatedAt: '2026-06-06T08:00:00Z' }],
+      finalOutputRefs: [],
+      retention: { items: [], protectedCount: 0, cleanupCandidateCount: 0 },
+    });
+
+    renderFilesPage();
+
+    const toolbar = await screen.findByTestId('shared-files-toolbar');
+    expect(toolbar).toBeInTheDocument();
+    expect(within(toolbar).getByRole('combobox', { name: '共享文件排序' })).toBeInTheDocument();
+    expect(within(toolbar).getByRole('textbox', { name: '搜索共享文件' })).toBeInTheDocument();
+  });
 });

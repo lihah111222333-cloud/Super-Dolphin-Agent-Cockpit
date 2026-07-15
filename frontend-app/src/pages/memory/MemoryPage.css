@@ -17,9 +17,37 @@
   align-items: center;
 }
 
-.memory-page .page-actions label {
-  flex: 1 1 420px;
-  min-width: 220px;
+.memory-toolbar {
+  margin: 14px 24px;
+}
+
+.memory-search {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.memory-search input {
+  flex: 1;
+  width: 100%;
+  border: none;
+  background: transparent;
+  color: inherit;
+  outline: none;
+  font-size: 14px;
+}
+
+.memory-create {
+  flex: 0 0 auto;
+}
+
+@media (max-width: 640px) {
+  .memory-toolbar {
+    flex-direction: column;
+    align-items: stretch;
+  }
 }
 
 .memory-page .memory-stats {
@@ -457,4 +485,262 @@ meter {
     grid-row: auto;
     justify-self: start;
   }
+}
+
+/* Redesigned 3-column memory stats layout */
+.sa-window[data-brand="suiyuan"] .memory-page .memory-stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(200px, 1fr));
+  gap: 16px;
+  margin: 24px 28px;
+}
+
+.memory-stats-card.panel {
+  display: flex;
+  flex-direction: column;
+  border-radius: 12px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  padding: 16px;
+  min-height: 140px;
+}
+
+.memory-stats-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  flex: 1;
+}
+
+.memory-stats-card-body.toggle-layout {
+  position: relative;
+  padding-bottom: 36px;
+}
+
+.memory-stats-card-body.toggle-layout .suiyuan-switch-btn {
+  position: absolute;
+  bottom: 0;
+  right: 0;
+}
+
+.memory-stats-progress-ring {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 999px;
+  border: 3px solid var(--primary);
+  color: var(--text-pri);
+  font-weight: 700;
+  font-size: 13px;
+}
+
+.progress-value {
+  line-height: 1;
+}
+
+.bias-value-badge {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.bias-number {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 999px;
+  background: var(--primary-soft);
+  color: var(--primary);
+  font-weight: 700;
+  font-size: 13px;
+}
+
+.bias-label {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-pri);
+}
+
+.memory-stats-card-desc {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+
+.memory-auto-dream-status {
+  margin: 0 0 4px;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-pri);
+}
+
+/* Custom Memory Empty State Canvas */
+.suiyuan-memory-empty-canvas {
+  border: 2px dashed var(--border);
+  background: transparent;
+  border-radius: 16px;
+  min-height: 280px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 28px;
+}
+
+.suiyuan-empty-canvas-inner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  max-width: 320px;
+  gap: 12px;
+}
+
+.suiyuan-empty-canvas-inner svg {
+  color: var(--text-muted);
+}
+
+.suiyuan-empty-canvas-inner h2 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text-pri);
+}
+
+.suiyuan-empty-canvas-inner p {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+
+.empty-canvas-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.empty-canvas-actions button {
+  min-height: 34px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 700;
+  padding: 0 16px;
+  cursor: pointer;
+  transition: all var(--transition);
+}
+
+.canvas-btn-primary {
+  background: var(--primary) !important;
+  color: var(--primary-ink) !important;
+  border: 0 !important;
+}
+
+.canvas-btn-primary:hover {
+  background: var(--primary-2) !important;
+}
+
+.canvas-btn-secondary {
+  background: var(--surface-2) !important;
+  color: var(--text-pri) !important;
+  border: 1px solid var(--border) !important;
+}
+
+.canvas-btn-secondary:hover {
+  background: var(--surface-3) !important;
+}
+
+/* Redesigned Memory Cards in Fusion style */
+.memory-card {
+  background: var(--suiyuan-fusion-bg) !important;
+  border: 1px solid var(--suiyuan-fusion-border) !important;
+  border-left: 4px solid var(--orange) !important;
+  box-shadow: var(--suiyuan-fusion-shadow) !important;
+  color: var(--suiyuan-fusion-color) !important;
+  border-radius: 16px !important;
+  padding: 20px !important;
+  transition: all var(--transition) !important;
+}
+
+.memory-card:hover {
+  border-color: var(--primary) !important;
+  transform: translateY(-2px) !important;
+  box-shadow: var(--suiyuan-send-shadow) !important;
+}
+
+.memory-card h3 {
+  color: inherit !important;
+  font-size: 16px !important;
+  font-weight: 700 !important;
+}
+
+.memory-card header span {
+  background: color-mix(in srgb, var(--suiyuan-fusion-color) 20%, transparent) !important;
+  color: var(--suiyuan-fusion-color) !important;
+  border: 1px solid color-mix(in srgb, var(--suiyuan-fusion-color) 30%, transparent) !important;
+  font-size: 11px !important;
+  font-weight: 700 !important;
+  border-radius: 999px !important;
+  padding: 2px 8px !important;
+}
+
+.memory-card header em {
+  background: var(--suiyuan-beta-bg) !important;
+  color: var(--suiyuan-beta-color) !important;
+  font-size: 10px !important;
+  font-weight: 700 !important;
+  padding: 2px 6px !important;
+  border-radius: 999px !important;
+  font-style: normal !important;
+}
+
+.memory-card p {
+  color: inherit !important;
+  opacity: 0.9 !important;
+  font-size: 13px !important;
+  margin: 8px 0 !important;
+}
+
+.memory-card code {
+  font-family: var(--font-mono) !important;
+  font-size: 12px !important;
+  color: inherit !important;
+  background: color-mix(in srgb, var(--suiyuan-fusion-color) 10%, transparent) !important;
+  border: 1px dashed color-mix(in srgb, var(--suiyuan-fusion-color) 20%, transparent) !important;
+  border-radius: 8px !important;
+}
+
+.memory-card footer time {
+  color: inherit !important;
+  opacity: 0.75 !important;
+  font-size: 12px !important;
+}
+
+.memory-card button {
+  background: color-mix(in srgb, var(--suiyuan-fusion-color) 10%, transparent) !important;
+  border: 1px solid color-mix(in srgb, var(--suiyuan-fusion-color) 15%, transparent) !important;
+  color: var(--suiyuan-fusion-color) !important;
+  border-radius: 12px !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  transition: all var(--transition) !important;
+}
+
+.memory-card button:hover {
+  background: color-mix(in srgb, var(--suiyuan-fusion-color) 25%, transparent) !important;
+}
+
+.memory-card button.text-danger {
+  color: var(--error) !important;
+  background: color-mix(in srgb, var(--error) 15%, transparent) !important;
+  border-color: transparent !important;
+}
+
+.memory-card button.text-danger:hover {
+  background: var(--error) !important;
+  color: var(--primary-action-text) !important;
 }

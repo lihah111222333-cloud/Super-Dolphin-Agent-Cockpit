@@ -1,21 +1,40 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react'; import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
+import React, { useCallback, useEffect, useMemo, useState } from 'react'; import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { z } from 'zod';
-import { Database, Eye, FileText, MousePointer2, Pencil, RefreshCw, Search, Sparkles, Trash2, Upload } from 'lucide-react'; import { FocusTrapDialog } from '../../shared/ui/FocusTrapDialog.jsx';
+import { Database, FileText, MousePointer2, RefreshCw, Search, Plus } from 'lucide-react';
+import { FocusTrapDialog } from '../../shared/ui/FocusTrapDialog.jsx';
 import { APP_COPY } from '../../shared/i18n/appI18n.js'; import { skillsPageService } from './services/skillsPageService.js';
-import { cleanScalar, dashboardQueryKey, errorMessage, listToText, optionalSettingsCwd, SKILLS_REQUEST_TIMEOUT_MS, textValue, withTimeout, wordListFromText } from '../shared/pageShared.js'; import { PageHeader, RetryableSyncError } from '../shared/pageComponents.jsx'; import './SkillsPage.css';
+import { cleanScalar, dashboardQueryKey, errorMessage, listToText, optionalSettingsCwd, SKILLS_REQUEST_TIMEOUT_MS, textValue, withTimeout, wordListFromText } from '../shared/pageShared.js'; import { RetryableSyncError } from '../shared/pageComponents.jsx'; import './SkillsPage.css';
 import { SkillMarkdownPreview } from './SkillMarkdownPreview.jsx';
 import { resolveSkillPreviewFile, skillCitationFromLink, skillPreviewDir, stripLinkHash } from './SkillMarkdownPreviewModel.js';
 import { SkillToolsState } from './SkillToolsTable.jsx';
 import { MCPToolCard } from './MCPToolCard.jsx';
-const SKILLS_DASHBOARD_TIMEOUT_MS = Math.max(1, SKILLS_REQUEST_TIMEOUT_MS - 250); const { applySkillResolution, deleteDatasourceDocument, getDashboardPage, getDatasourceDocument, importSkillDirectories, listDatasourceChunks,
-listDatasourceDocuments, listMCPServers, listSkillFiles, listSkillResolutions, listSkillTools, previewSkillResolution, readSkill, selectDatasourceImportFile, selectProjectDirs, startPlaywrightMCPServer, startSQLiteMCPServer, stopPlaywrightMCPServer, stopSQLiteMCPServer,
-suggestSkillSummary, updateDatasourceDocument, } = skillsPageService; function normalizeSettingsCwd(value) { const cwd = trimmedText(value); if (!cwd || cwd === '.' || cwd === '未选择项目') { throw new Error('settings: cwd is required'); } return cwd; }
+import { DataSourceView } from './DataSourceView.jsx';
+
+const SKILLS_DASHBOARD_TIMEOUT_MS = Math.max(1, SKILLS_REQUEST_TIMEOUT_MS - 250);
+
+const {
+  applySkillResolution,
+  getDashboardPage,
+  importSkillDirectories,
+  listMCPServers,
+  listSkillFiles,
+  listSkillResolutions,
+  listSkillTools,
+  previewSkillResolution,
+  readSkill,
+  selectProjectDirs,
+  startPlaywrightMCPServer,
+  startSQLiteMCPServer,
+  stopPlaywrightMCPServer,
+  stopSQLiteMCPServer,
+  suggestSkillSummary,
+} = skillsPageService; function normalizeSettingsCwd(value) { const cwd = trimmedText(value); if (!cwd || cwd === '.' || cwd === '未选择项目') { throw new Error('settings: cwd is required'); } return cwd; }
 function textFromValue(value) { if (value === null || value === undefined) return ''; return value.toString(); } function trimmedText(value) { return textFromValue(value).trim(); } function lowerTrimmedText(value) { return trimmedText(value).toLowerCase(); }
 function requiredText(value, field, source) { const text = trimmedText(value); if (!text) throw new Error(`${source} is missing ${field}`); return text; } function optionalArray(value) { return Array.isArray(value) ? value : []; }
 function optionalObject(value) { return value && typeof value === 'object' && !Array.isArray(value) ? value : null; }
 function firstTextField(raw, fields, source, required = false) { for (const field of fields) { const text = trimmedText(raw?.[field]); if (text) return text; } if (required) throw new Error(`${source} is missing ${fields[0]}`); return ''; }
 function firstArrayField(raw, fields, source, required = false) { for (const field of fields) { const value = raw?.[field]; if (Array.isArray(value)) return value; } if (required) throw new Error(`${source} is missing ${fields[0]}`); return []; }
-function hasOwnField(raw, field) { return Boolean(raw && typeof raw === 'object' && Object.prototype.hasOwnProperty.call(raw, field)); }
+
 const skillDashboardItemSchema = z.object({ name: z.unknown().optional(), dir: z.unknown().optional(), skill_file: z.unknown().optional() }).passthrough();
 const skillsDashboardResponseSchema = z.object({ skills: z.array(skillDashboardItemSchema) }).passthrough();
 const skillResolutionItemsSchema = z.array(z.unknown());
@@ -170,16 +189,11 @@ function importNotice(importedCount, drafts, failures, scope) {
 const parts = []; if (importedCount > 0) parts.push(`已导入 ${importedCount} 个技能目录`); const draftMessage = importSummaryDraftMessage(drafts); if (draftMessage) parts.push(draftMessage); const duplicateFailures = failures.filter((failure) => failure.duplicate);
 if (duplicateFailures.length > 0) parts.push(duplicateImportNotice(scope, duplicateFailures)); const otherFailures = failures.filter((failure) => !failure.duplicate);
 if (otherFailures.length > 0) parts.push(`${otherFailures.length} 个目录导入失败：${otherFailures[0].source || otherFailures[0].message}`); return parts.length > 0 ? parts.join('，') : '未导入任何技能目录'; }
-const DATASOURCE_LIST_LIMIT = 200; const DATASOURCE_CHUNK_PAGE_LIMIT = 50; const DATASOURCE_IMPORT_FILTERS = Object.freeze([ Object.freeze({ displayName: 'PDF/TXT/TEXT', pattern: '*.pdf;*.txt;*.text' }), ]); const SKILL_TOOLS_LIST_LIMIT = 200;
+const SKILL_TOOLS_LIST_LIMIT = 200;
 const SKILL_TOOLS_UI = Object.freeze({ actions: '\u64cd\u4f5c', create: '\u65b0\u589e\u5de5\u5177', description: '\u63cf\u8ff0', disabled: '\u5df2\u5173\u95ed', enabled: '\u5df2\u542f\u7528', empty: '\u6682\u65e0 Skill \u5de5\u5177',
 errorPrefix: '\u8bfb\u53d6 Skill \u5de5\u5177\u5931\u8d25\uff1a', loading: '\u8bfb\u53d6\u4e2d...', methodName: '\u65b9\u6cd5\u540d', refresh: '\u5237\u65b0', sectionTitle: '\u63d2\u4ef6\u4e0e\u6280\u80fd', status: '\u72b6\u6001', title: 'Skill\u5de5\u5177',
 waitingProject: '\u6b63\u5728\u8fde\u63a5\u672c\u5730\u9879\u76ee...', });
-const DATASOURCE_UI = Object.freeze({ actions: '\u64cd\u4f5c', cancel: '\u53d6\u6d88', chunks: '\u5206\u5757', close: '\u5173\u95ed', confirmDelete: '\u786e\u8ba4\u5220\u9664', content: '\u5206\u5757\u5185\u5bb9', delete: '\u5220\u9664',
-deletePrompt: '\u5220\u9664\u540e\u4f1a\u79fb\u9664\u8be5\u6570\u636e\u6e90\u548c\u5df2\u5bfc\u5165\u7684\u6587\u672c\u5206\u5757\u3002', deleteSuccess: '\u5df2\u5220\u9664\u6570\u636e\u6e90\u3002', deleteTitle: '\u5220\u9664\u6570\u636e\u6e90',
-detailTitle: '\u6570\u636e\u6e90\u8be6\u60c5', edit: '\u7f16\u8f91', editTitle: '\u7f16\u8f91\u6570\u636e\u6e90', empty: '\u6682\u65e0\u6570\u636e\u6e90', errorPrefix: '\u64cd\u4f5c\u5931\u8d25\uff1a', extension: '\u6269\u5c55\u540d', fileName: '\u6587\u4ef6\u540d', id: 'ID',
-import: '\u5bfc\u5165', importPlaceholder: '\u652f\u6301 PDF\u3001TXT \u548c TEXT \u6587\u4ef6', importSuccess: '\u5df2\u5bfc\u5165\u6570\u636e\u6e90\u3002', loadingMore: '\u7ee7\u7eed\u8bfb\u53d6\u5206\u5757...', loading: '\u8bfb\u53d6\u4e2d...',
-noChunks: '\u6682\u65e0\u5206\u5757\u3002', path: '\u8def\u5f84', refresh: '\u5237\u65b0', save: '\u4fdd\u5b58', size: '\u5927\u5c0f', sourcePath: '\u672c\u5730\u6587\u4ef6\u8def\u5f84', status: '\u72b6\u6001', totalChars: '\u5b57\u7b26',
-updateSuccess: '\u5df2\u66f4\u65b0\u6570\u636e\u6e90\u3002', view: '\u67e5\u770b', }); function SkillsPage({ copy = APP_COPY.zh.skills, projectPath, refreshKey = 0, resolveLaunchPreferences }) { const [subTab, setSubTab] = useState('plugins'); return (
+ function SkillsPage({ copy = APP_COPY.zh.skills, projectPath, refreshKey = 0, resolveLaunchPreferences }) { const [subTab, setSubTab] = useState('plugins'); return (
 <div className="skills-tabbed-container"> <div className="skills-subtabs-header"> <button type="button" className={subTab === 'plugins' ? 'active' : ''} onClick={() => setSubTab('plugins')} > {copy.tabs.plugins} </button> <button type="button"
 className={subTab === 'library' ? 'active' : ''} onClick={() => setSubTab('library')} > {copy.tabs.library} </button> <button type="button" className={subTab === 'datasource' ? 'active' : ''} onClick={() => setSubTab('datasource')} > {copy.tabs.datasource} </button>
 </div> <div className="skills-tab-content"> {subTab === 'plugins' ? ( <PluginsSquareView copy={copy} projectPath={projectPath} /> ) : subTab === 'datasource' ? ( <DataSourceView copy={copy} /> ) : subTab === 'skills' ? ( <SkillToolsView projectPath={projectPath} /> ) : (
@@ -197,95 +211,8 @@ return ( <section className="skill-tools-panel" aria-label={SKILL_TOOLS_UI.title
 <button type="button">{SKILL_TOOLS_UI.create}</button> <button type="button" className="ghost" onClick={refreshTools} disabled={!cwd || isFetching}> <RefreshCw size={16} aria-hidden="true" /> <span>{SKILL_TOOLS_UI.refresh}</span> </button> </div> </div>
 {!cwd ? <p className="skill-tools-notice">{SKILL_TOOLS_UI.waitingProject}</p> : null} {cwd && isLoading ? <p className="skill-tools-notice">{SKILL_TOOLS_UI.loading}</p> : null}
 <SkillToolsState cwd={cwd} error={error} errorMessage={errorMessage} isError={isError} isLoading={isLoading} tools={tools} /> </section> ); }
-function datasourceDocumentsQueryKey() { return ['datasourceV2', 'documents']; } function datasourceDocumentQueryKey(documentId) { return ['datasourceV2', 'document', documentId]; }
-const datasourceDocumentsResponseSchema = z.object({ documents: z.array(z.unknown()) }).passthrough();
-const datasourceDetailResponseSchema = z.object({ document: z.unknown() }).passthrough();
-const datasourceChunkPageResponseSchema = z.object({ chunks: z.array(z.unknown()).optional(), hasMore: z.unknown().optional(), has_more: z.unknown().optional() }).passthrough();
-function parseDatasourceObjectResponse(response, source) { if (!response || typeof response !== 'object' || Array.isArray(response)) { throw new Error(`${source} response must be an object`); } return response; }
-function parseDatasourceDocumentsResponse(response) { const result = datasourceDocumentsResponseSchema.safeParse(response); if (result.success) return result.data; parseDatasourceObjectResponse(response, 'datasourceV2/list');
-throw new Error('datasourceV2/list response.documents must be an array'); }
-function parseDatasourceDetailResponse(response) { const result = datasourceDetailResponseSchema.safeParse(response); if (result.success) return result.data; parseDatasourceObjectResponse(response, 'datasourceV2/get'); return response; }
-function parseDatasourceChunkPageResponse(response, source) { const result = datasourceChunkPageResponseSchema.safeParse(response); if (result.success) { const parsed = result.data; if (Array.isArray(parsed.chunks)) return parsed;
-if (parsed.hasMore ?? parsed.has_more) throw new Error(`${source} returned hasMore without chunks`); throw new Error(`${source} response.chunks must be an array`); } parseDatasourceObjectResponse(response, source); throw new Error(`${source} response.chunks must be an array`); }
-function normalizeDatasourceDocument(raw, index = 0) { if (!raw || typeof raw !== 'object' || Array.isArray(raw)) { throw new Error(`datasource document ${index} must be an object`);
-} const documentId = Number(raw.documentId ?? raw.document_id ?? raw.id); if (!Number.isInteger(documentId) || documentId <= 0) { throw new Error(`datasource document ${index} is missing documentId`); } return { documentId,
-sourcePath: cleanScalar(raw.sourcePath ?? raw.source_path), fileName: cleanScalar(raw.fileName ?? raw.file_name), extension: cleanScalar(raw.extension), sizeBytes: Number(raw.sizeBytes ?? raw.size_bytes ?? 0), contentHash: cleanScalar(raw.contentHash ?? raw.content_hash),
-chunkCount: Number(raw.chunkCount ?? raw.chunk_count ?? 0), totalChars: Number(raw.totalChars ?? raw.total_chars ?? 0), status: cleanScalar(raw.status), errorMessage: cleanScalar(raw.errorMessage ?? raw.error_message), createdAt: cleanScalar(raw.createdAt ?? raw.created_at),
-updatedAt: cleanScalar(raw.updatedAt ?? raw.updated_at), }; } function normalizeDatasourceDocuments(response) { const parsed = parseDatasourceDocumentsResponse(response); return parsed.documents.map(normalizeDatasourceDocument); }
-function normalizeDatasourceDetail(response) { const parsed = parseDatasourceDetailResponse(response); const document = normalizeDatasourceDocument(parsed.document, 0); return { document,
-...normalizeDatasourceChunkPage(response, document, 'datasourceV2/get'), }; }
-function normalizeDatasourceChunkPage(response, document, source) { const parsed = parseDatasourceChunkPageResponse(response, source);
-const chunks = parsed.chunks.map((raw, index) => normalizeDatasourceChunk(raw, document, index)); return { chunks, hasMore: Boolean(response.hasMore ?? response.has_more),
-nextCursor: Number(response.nextCursor ?? response.next_cursor ?? -1), }; } function normalizeDatasourceChunk(raw, document, index) { if (!raw || typeof raw !== 'object' || Array.isArray(raw)) { throw new Error(`datasource chunk ${index} must be an object`); } return { id: Number(raw.id),
-documentId: Number(hasOwnField(raw, 'documentId') ? raw.documentId : document.documentId), chunkIndex: Number(hasOwnField(raw, 'chunkIndex') ? raw.chunkIndex : index), content: textFromValue(raw.content), charCount: Number(raw.charCount), byteCount: Number(raw.byteCount), }; }
-function assertDatasourceChunkPageProgress(page, source) { if (page.hasMore && page.chunks.length === 0) { throw new Error(`${source} returned hasMore without chunks`); } return page; }
-async function fetchDatasourceDetailPage(documentId, pageParam) { if (pageParam === null || pageParam === undefined) { return assertDatasourceChunkPageProgress( normalizeDatasourceDetail(await getDatasourceDocument({ documentId })), 'datasourceV2/get', ); } return {
-document: null, ...assertDatasourceChunkPageProgress( normalizeDatasourceChunkPage( await listDatasourceChunks({ documentId, limit: DATASOURCE_CHUNK_PAGE_LIMIT, cursor: pageParam }), { documentId }, 'datasourceV2/list_chunks', ), 'datasourceV2/list_chunks', ), }; }
-function combineDatasourceDetailPages(pages) { if (!Array.isArray(pages) || pages.length === 0) return undefined; const first = pages[0]; const last = pages[pages.length - 1]; return { ...first, chunks: pages.flatMap((page) => page.chunks), hasMore: last.hasMore, nextCursor: last.nextCursor, }; }
-function datasourceMatches(doc, search) { const keyword = search.trim().toLowerCase(); if (!keyword) return true; return [doc.fileName, doc.sourcePath, doc.extension, doc.status] .some((value) => value.toLowerCase().includes(keyword)); }
-function formatDatasourceBytes(value) { const bytes = Number(value); if (!Number.isFinite(bytes) || bytes < 0) return '-'; if (bytes < 1024) return `${bytes} B`;
-const units = ['KB', 'MB', 'GB', 'TB']; let size = bytes / 1024; let unitIndex = 0; while (size >= 1024 && unitIndex < units.length - 1) { size /= 1024; unitIndex += 1; } return `${size >= 10 ? size.toFixed(0) : size.toFixed(1)} ${units[unitIndex]}`; }
-function datasourceDetailPagesWithDocument(current, normalized) { if (!current || !Array.isArray(current.pages)) return current; return { ...current, pages: current.pages.map((page, index) => (index === 0 ? datasourceFirstDetailPage(page, normalized) : page)), }; }
-function datasourceFirstDetailPage(page, normalized) { return { ...page, document: normalized }; } function datasourceStatusTone(status) { const value = status.toLowerCase(); if (value === 'ready') return 'ready'; if (value === 'failed') return 'failed'; return 'pending'; }
-function datasourceEditForm(doc) { return { sourcePath: doc.sourcePath, fileName: doc.fileName, extension: doc.extension, sizeBytes: String(Number.isFinite(doc.sizeBytes) ? doc.sizeBytes : 0), }; }
-// eslint-disable-next-line react-refresh/only-export-components
-export async function importDatasourceSelection(ctx) {
-await ctx.facade.importDatasourceLocalFile({ sourcePath: ctx.sourcePath, pickerToken: ctx.pickerToken }); ctx.setSourcePath(''); ctx.setNotice(ctx.successText); await ctx.invalidateDocuments(); }
-function DataSourceView({ copy }) {
-const queryClient = useQueryClient(); const [search, setSearch] = useState(''); const [sourcePath, setSourcePath] = useState(''); const [busyAction, setBusyAction] = useState(''); const [notice, setNotice] = useState(''); const [actionError, setActionError] = useState('');
-const [detailID, setDetailID] = useState(0); const [editingDoc, setEditingDoc] = useState(null); const [deletingDoc, setDeletingDoc] = useState(null);
-const { data: documents = [], error: documentsError, isError: documentsIsError, isFetching: documentsIsFetching, isLoading: documentsIsLoading, refetch: refetchDocuments, } = useQuery({ queryKey: datasourceDocumentsQueryKey(),
-queryFn: async () => normalizeDatasourceDocuments(await listDatasourceDocuments({ limit: DATASOURCE_LIST_LIMIT })), }); const { data: detailPagesData, error: detailError, fetchNextPage: fetchNextDatasourcePage, hasNextPage: detailHasNextPage, isError: detailIsError,
-isFetchingNextPage: detailIsFetchingNextPage, isLoading: detailIsLoading, } = useInfiniteQuery({ queryKey: datasourceDocumentQueryKey(detailID), enabled: detailID > 0, initialPageParam: null, queryFn: async ({ pageParam }) => fetchDatasourceDetailPage(detailID, pageParam),
-getNextPageParam: (lastPage) => (lastPage.hasMore ? lastPage.nextCursor : undefined), }); const detailData = useMemo( () => combineDatasourceDetailPages(detailPagesData?.pages), [detailPagesData], ); const filtered = documents.filter((doc) => datasourceMatches(doc, search));
-useEffect(() => { if (detailID <= 0 || detailIsError || !detailHasNextPage || detailIsFetchingNextPage) return; void fetchNextDatasourcePage(); }, [detailHasNextPage, detailID, detailIsError, detailIsFetchingNextPage, fetchNextDatasourcePage]);
-const invalidateDocuments = useCallback(async () => { await queryClient.invalidateQueries({ queryKey: datasourceDocumentsQueryKey() }); }, [queryClient]);
-const runAction = useCallback(async (action, successText) => { setNotice(''); setActionError(''); try { await action(); setNotice(successText); await invalidateDocuments(); } catch (error) { setActionError(`${DATASOURCE_UI.errorPrefix}${errorMessage(error)}`); } }, [invalidateDocuments]);
-const handleImport = useCallback(async () => { setBusyAction('import'); setNotice(''); setActionError(''); try { const selected = await selectDatasourceImportFile({ filters: DATASOURCE_IMPORT_FILTERS }); const selectedPath = cleanScalar(selected?.sourcePath); if (!selectedPath) return;
-const pickerToken = cleanScalar(selected?.pickerToken); if (!pickerToken) throw new Error('pickerToken is required'); setSourcePath(selectedPath); await importDatasourceSelection({
-facade: skillsPageService, invalidateDocuments, pickerToken, setNotice, setSourcePath, sourcePath: selectedPath, successText: DATASOURCE_UI.importSuccess,
-});
-} catch (error) { setActionError(`${DATASOURCE_UI.errorPrefix}${errorMessage(error)}`); } finally { setBusyAction(''); } }, [invalidateDocuments]);
-const handleUpdate = useCallback(async (form) => { if (!editingDoc) return; setBusyAction('update'); await runAction(async () => { const updated = await updateDatasourceDocument({ documentId: editingDoc.documentId, sourcePath: form.sourcePath, fileName: form.fileName,
-extension: form.extension, sizeBytes: form.sizeBytes, }); setEditingDoc(null); const normalized = normalizeDatasourceDocument(updated, 0); if (detailID === normalized.documentId) { queryClient.setQueryData( datasourceDocumentQueryKey(detailID),
-(current) => datasourceDetailPagesWithDocument(current, normalized), ); } }, DATASOURCE_UI.updateSuccess); setBusyAction(''); }, [detailID, editingDoc, queryClient, runAction]);
-const handleDelete = useCallback(async () => { if (!deletingDoc) return; const documentID = deletingDoc.documentId; setBusyAction('delete'); await runAction(async () => {
-await deleteDatasourceDocument({ documentId: documentID }); setDeletingDoc(null); if (detailID === documentID) setDetailID(0); queryClient.removeQueries({ queryKey: datasourceDocumentQueryKey(documentID) }); }, DATASOURCE_UI.deleteSuccess); setBusyAction('');
-}, [deletingDoc, detailID, queryClient, runAction]);
-return ( <div className="datasource-container"> <div className="datasource-header"> <div> <h1>{copy.datasourceTitle}</h1> <p className="datasource-subtitle">{copy.datasourceSubtitle}</p> </div> <button type="button" className="datasource-icon-button" title={DATASOURCE_UI.refresh}
-aria-label={DATASOURCE_UI.refresh} disabled={documentsIsFetching} onClick={() => { void refetchDocuments(); }} > <RefreshCw size={18} /> </button> </div>
-<div className="datasource-import-row"> <label className="datasource-path-field"> <span>{DATASOURCE_UI.sourcePath}</span> <input data-testid="datasource-source-path" value={sourcePath} readOnly placeholder={DATASOURCE_UI.importPlaceholder} /> </label>
-<button type="button" data-testid="datasource-import-button" disabled={busyAction === 'import'} onClick={() => { void handleImport(); }}> <Upload size={16} /> <span>{busyAction === 'import' ? DATASOURCE_UI.loading : DATASOURCE_UI.import}</span> </button> </div>
-<div className="plugins-search-bar-wrap"> <div className="plugins-search-input-container"> <Search className="search-icon" size={18} /> <input type="text" placeholder={copy.datasourceSearch} value={search} onChange={(e) => setSearch(e.target.value)}
-aria-label={copy.datasourceSearch} /> </div> </div> {notice ? <p className="datasource-notice" role="status">{notice}</p> : null} {actionError ? <p className="datasource-error" role="alert">{actionError}</p> : null}
-{documentsIsError ? <p className="datasource-error" role="alert">{`${DATASOURCE_UI.errorPrefix}${errorMessage(documentsError)}`}</p> : null}
-<div className="datasource-table-wrap"> <table className="datasource-table"> <thead> <tr> <th>{DATASOURCE_UI.fileName}</th> <th>{DATASOURCE_UI.path}</th> <th>{DATASOURCE_UI.size}</th> <th>{DATASOURCE_UI.chunks}</th> <th>{DATASOURCE_UI.status}</th>
-<th>{DATASOURCE_UI.actions}</th> </tr> </thead> <tbody> {documentsIsLoading ? ( <tr><td colSpan={6}>{DATASOURCE_UI.loading}</td></tr> ) : filtered.length === 0 ? ( <tr><td colSpan={6}>{DATASOURCE_UI.empty}</td></tr> ) : filtered.map((doc) => (
-<tr key={doc.documentId}> <td> <div className="datasource-file-cell"> <FileText size={16} /> <span>{doc.fileName || doc.sourcePath || `#${doc.documentId}`}</span> </div> </td> <td><span className="datasource-path-text">{doc.sourcePath || '-'}</span></td>
-<td>{formatDatasourceBytes(doc.sizeBytes)}</td> <td>{doc.chunkCount}</td> <td><span className={`datasource-status datasource-status-${datasourceStatusTone(doc.status)}`}>{doc.status || '-'}</span></td> <td> <div className="datasource-actions">
-<button type="button" data-testid={`datasource-view-${doc.documentId}`} title={DATASOURCE_UI.view} aria-label={`${DATASOURCE_UI.view} ${doc.fileName}`} onClick={() => setDetailID(doc.documentId)}><Eye size={16} /></button>
-<button type="button" data-testid={`datasource-edit-${doc.documentId}`} title={DATASOURCE_UI.edit} aria-label={`${DATASOURCE_UI.edit} ${doc.fileName}`} onClick={() => setEditingDoc(doc)}><Pencil size={16} /></button>
-<button type="button" data-testid={`datasource-delete-${doc.documentId}`} title={DATASOURCE_UI.delete} aria-label={`${DATASOURCE_UI.delete} ${doc.fileName}`} onClick={() => setDeletingDoc(doc)}><Trash2 size={16} /></button> </div> </td> </tr> ))} </tbody> </table> </div>
-{detailID > 0 ? ( <DatasourceDetailModal detail={detailData} error={detailError} isError={detailIsError} isFetchingNextPage={detailIsFetchingNextPage} isLoading={detailIsLoading} onClose={() => setDetailID(0)} /> ) : null} {editingDoc ? (
-<DatasourceEditModal key={editingDoc.documentId} doc={editingDoc} saving={busyAction === 'update'} onClose={() => setEditingDoc(null)} onSave={handleUpdate} /> ) : null} {deletingDoc ? (
-<DatasourceDeleteModal doc={deletingDoc} deleting={busyAction === 'delete'} onClose={() => setDeletingDoc(null)} onConfirm={handleDelete} /> ) : null} </div> ); } function DatasourceDetailModal(props) { const { detail, error, isError, isFetchingNextPage, isLoading, onClose } = props; return (
-<FocusTrapDialog ariaLabel={DATASOURCE_UI.detailTitle} className="modal-box datasource-modal" closeDisabled={false} onClose={onClose}> <header> <h2>{DATASOURCE_UI.detailTitle}</h2> <button type="button" className="ghost" onClick={onClose}>{DATASOURCE_UI.close}</button>
-</header> {isLoading ? <p>{DATASOURCE_UI.loading}</p> : null} {isError ? <p className="datasource-error" role="alert">{`${DATASOURCE_UI.errorPrefix}${errorMessage(error)}`}</p> : null} {detail ? (
-<> <dl className="datasource-detail-grid"> <div><dt>{DATASOURCE_UI.id}</dt><dd>{detail.document.documentId}</dd></div> <div><dt>{DATASOURCE_UI.fileName}</dt><dd>{detail.document.fileName || '-'}</dd></div>
-<div><dt>{DATASOURCE_UI.path}</dt><dd>{detail.document.sourcePath || '-'}</dd></div> <div><dt>{DATASOURCE_UI.size}</dt><dd>{formatDatasourceBytes(detail.document.sizeBytes)}</dd></div> <div><dt>{DATASOURCE_UI.totalChars}</dt><dd>{detail.document.totalChars}</dd></div>
-<div><dt>{DATASOURCE_UI.status}</dt><dd>{detail.document.status || '-'}</dd></div> </dl> <div className="datasource-chunks"> <h3>{DATASOURCE_UI.content}</h3> {detail.chunks.length === 0 ? <p>{DATASOURCE_UI.noChunks}</p> : detail.chunks.map((chunk) => (
-<pre key={`${chunk.id}-${chunk.chunkIndex}`} data-testid="datasource-detail-chunk">{chunk.content}</pre> ))} {isFetchingNextPage ? <p className="datasource-chunk-loading" role="status">{DATASOURCE_UI.loadingMore}</p> : null} </div> </> ) : null} </FocusTrapDialog> ); }
-function DatasourceEditModal({ doc, saving, onClose, onSave }) { const [form, setForm] = useState(() => datasourceEditForm(doc)); const update = (key) => (event) => setForm((current) => ({ ...current, [key]: event.target.value })); return (
-<FocusTrapDialog ariaLabel={DATASOURCE_UI.editTitle} className="modal-box datasource-modal" closeDisabled={saving} onClose={onClose}> <header> <h2>{DATASOURCE_UI.editTitle}</h2>
-<button type="button" className="ghost" onClick={onClose} disabled={saving}>{DATASOURCE_UI.close}</button> </header> <div className="datasource-form-grid">
-<label>{DATASOURCE_UI.sourcePath}<input data-testid="datasource-edit-source-path" value={form.sourcePath} onChange={update('sourcePath')} /></label>
-<label>{DATASOURCE_UI.fileName}<input data-testid="datasource-edit-file-name" value={form.fileName} onChange={update('fileName')} /></label> <label>{DATASOURCE_UI.extension}<input value={form.extension} onChange={update('extension')} /></label>
-<label>{DATASOURCE_UI.size}<input type="number" min="0" value={form.sizeBytes} onChange={update('sizeBytes')} /></label> </div> <footer> <button type="button" className="ghost" onClick={onClose} disabled={saving}>{DATASOURCE_UI.cancel}</button>
-<button type="button" data-testid="datasource-edit-save" onClick={() => { void onSave(form); }} disabled={saving}>{saving ? DATASOURCE_UI.loading : DATASOURCE_UI.save}</button> </footer> </FocusTrapDialog> ); }
-function DatasourceDeleteModal({ doc, deleting, onClose, onConfirm }) { return ( <FocusTrapDialog ariaLabel={DATASOURCE_UI.deleteTitle} className="modal-box datasource-modal" closeDisabled={deleting} onClose={onClose}> <header> <h2>{DATASOURCE_UI.deleteTitle}</h2>
-<button type="button" className="ghost" onClick={onClose} disabled={deleting}>{DATASOURCE_UI.close}</button> </header> <p>{DATASOURCE_UI.deletePrompt}</p> <p className="datasource-delete-target">{doc.fileName || doc.sourcePath || `#${doc.documentId}`}</p> <footer>
-<button type="button" className="ghost" onClick={onClose} disabled={deleting}>{DATASOURCE_UI.cancel}</button>
-<button type="button" className="text-danger" data-testid="datasource-delete-confirm" onClick={() => { void onConfirm(); }} disabled={deleting}>{deleting ? DATASOURCE_UI.loading : DATASOURCE_UI.confirmDelete}</button> </footer> </FocusTrapDialog> ); }
+
+
 function mcpServersListQueryKey(projectPath) { return ['mcpServer', 'list', optionalSettingsCwd(projectPath) || 'pending']; }
 const MCP_TOOL_DEFINITIONS = [ { id: 'sqlite', title: 'SQLite MCP', description: '使用 @bytebase/dbhub 暴露本地 Super-Dolphin SQLite 数据库。', Icon: Database, testId: 'sqlite-mcp-status', start: startSQLiteMCPServer, stop: stopSQLiteMCPServer, }, { id: 'playwright',
 title: 'Playwright MCP', description: '使用 @playwright/mcp@latest 提供浏览器自动化 MCP 工具。', Icon: MousePointer2, testId: 'playwright-mcp-status', start: startPlaywrightMCPServer, stop: stopPlaywrightMCPServer, }, ];
@@ -298,17 +225,101 @@ function mergeMCPServerEnabled(response, result, serverName, enabled) { const cu
 const servers = mcpServerMap(current); const resultName = trimmedText(result?.serverName || serverName); if (!resultName) return current;
 const existingConfig = servers[resultName]; const existing = existingConfig && typeof existingConfig === 'object' && !Array.isArray(existingConfig) ? existingConfig : {}; const nextConfig = { ...existing, enabled, }; return { ...current, mcpServers: { ...servers, [resultName]: nextConfig, }, }; }
 function PluginsSquareView({ copy, projectPath }) {
-const projectReady = Boolean(optionalSettingsCwd(projectPath)); const queryClient = useQueryClient(); const [mcpActions, setMCPActions] = useState({}); const [mcpNotices, setMCPNotices] = useState({}); const [mcpErrors, setMCPErrors] = useState({}); const { data: mcpServersData,
-error: mcpServersError, isError: mcpServersIsError, isFetching: mcpServersIsFetching, isLoading: mcpServersIsLoading, } = useQuery({ queryKey: mcpServersListQueryKey(projectPath), queryFn: () => listMCPServers(), enabled: projectReady, }); const mcpStatusQuery = useMemo(() => ({
-data: mcpServersData, isError: mcpServersIsError, isFetching: mcpServersIsFetching, isLoading: mcpServersIsLoading, }), [mcpServersData, mcpServersIsError, mcpServersIsFetching, mcpServersIsLoading]);
-  // 本地状态只跟一次按钮操作绑定，真实开关状态仍以 mcpServer/list 的表数据为准。
-const runMCPAction = useCallback(async (tool, action) => {
-const label = action === 'start' ? '开启' : '关闭'; const enabled = action === 'start'; setMCPActions((current) => ({ ...current, [tool.id]: action })); setMCPNotices((current) => ({ ...current, [tool.id]: '' })); setMCPErrors((current) => ({ ...current, [tool.id]: '' })); try {
-normalizeSettingsCwd(projectPath); const queryKey = mcpServersListQueryKey(projectPath); const result = action === 'start' ? await tool.start() : await tool.stop(); queryClient.setQueryData(queryKey, (current) => mergeMCPServerEnabled(current, result, tool.id, enabled));
-setMCPNotices((current) => ({ ...current, [tool.id]: `${tool.title} 已${label}` })); } catch (error) { setMCPErrors((current) => ({ ...current, [tool.id]: `${tool.title} ${label}失败：${errorMessage(error)}` })); } finally {
-setMCPActions((current) => ({ ...current, [tool.id]: '' })); } }, [projectPath, queryClient]); return ( <div className="plugins-square-container"> <div className="plugins-square-header"> <h1>{copy.pluginsTitle}</h1> <p className="plugins-square-subtitle">{copy.pluginsSubtitle}</p> </div>
-<div className="mcp-tool-panel"> {MCP_TOOL_DEFINITIONS.map((tool) => <MCPToolCard errorMessage={errorMessage} key={tool.id} mcpServerStatus={mcpServerStatus} tool={tool}
-state={mcpToolState({ mcpActions, mcpErrors, mcpNotices, mcpServersError, mcpServersIsError, mcpStatusQuery, projectReady, runMCPAction })} />)} </div> </div> ); }
+  const projectReady = Boolean(optionalSettingsCwd(projectPath));
+  const queryClient = useQueryClient();
+  const [mcpActions, setMCPActions] = useState({});
+  const [mcpNotices, setMCPNotices] = useState({});
+  const [mcpErrors, setMCPErrors] = useState({});
+  const {
+    data: mcpServersData,
+    error: mcpServersError,
+    isError: mcpServersIsError,
+    isFetching: mcpServersIsFetching,
+    isLoading: mcpServersIsLoading,
+  } = useQuery({
+    queryKey: mcpServersListQueryKey(projectPath),
+    queryFn: () => listMCPServers(),
+    enabled: projectReady,
+  });
+  const mcpStatusQuery = useMemo(() => ({
+    data: mcpServersData,
+    isError: mcpServersIsError,
+    isFetching: mcpServersIsFetching,
+    isLoading: mcpServersIsLoading,
+  }), [mcpServersData, mcpServersIsError, mcpServersIsFetching, mcpServersIsLoading]);
+
+  const runMCPAction = useCallback(async (tool, action) => {
+    const label = action === 'start' ? '开启' : '关闭';
+    const enabled = action === 'start';
+    setMCPActions((current) => ({ ...current, [tool.id]: action }));
+    setMCPNotices((current) => ({ ...current, [tool.id]: '' }));
+    setMCPErrors((current) => ({ ...current, [tool.id]: '' }));
+    try {
+      normalizeSettingsCwd(projectPath);
+      const queryKey = mcpServersListQueryKey(projectPath);
+      const result = action === 'start' ? await tool.start() : await tool.stop();
+      queryClient.setQueryData(queryKey, (current) => mergeMCPServerEnabled(current, result, tool.id, enabled));
+      setMCPNotices((current) => ({ ...current, [tool.id]: `${tool.title} 已${label}` }));
+    } catch (error) {
+      setMCPErrors((current) => ({ ...current, [tool.id]: `${tool.title} ${label}失败：${errorMessage(error)}` }));
+    } finally {
+      setMCPActions((current) => ({ ...current, [tool.id]: '' }));
+    }
+  }, [projectPath, queryClient]);
+
+  return (
+    <div className="plugins-square-container">
+      {/* Skill Fusion Beta Promo Banner */}
+      <div className="skill-fusion-banner">
+        <div className="skill-fusion-banner-content">
+          <span className="beta-badge">BETA</span>
+          <h3>Skill Fusion</h3>
+          <p>Combine multiple local skills and MCP tools into a unified super-agent workflow.</p>
+        </div>
+        <button type="button" className="fusion-btn">Try Fusion</button>
+      </div>
+
+      <div className="plugins-square-header">
+        <h1>{copy.pluginsTitle}</h1>
+        <p className="plugins-square-subtitle">{copy.pluginsSubtitle}</p>
+      </div>
+
+      <div className="mcp-tool-panel">
+        {MCP_TOOL_DEFINITIONS.map((tool) => (
+          <MCPToolCard
+            errorMessage={errorMessage}
+            key={tool.id}
+            mcpServerStatus={mcpServerStatus}
+            tool={tool}
+            state={mcpToolState({
+              mcpActions,
+              mcpErrors,
+              mcpNotices,
+              mcpServersError,
+              mcpServersIsError,
+              mcpStatusQuery,
+              projectReady,
+              runMCPAction,
+            })}
+          />
+        ))}
+
+        {/* Add New Skill card */}
+        <div className="mcp-tool-card add-new-card">
+          <div className="mcp-tool-icon add-new" aria-hidden="true">
+            <Plus size={20} />
+          </div>
+          <div className="mcp-tool-main">
+            <div className="mcp-tool-title-line">
+              <h2>Add New Skill</h2>
+            </div>
+            <p className="mcp-tool-notice">Register custom MCP servers or local scripts</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
 function mcpToolState(state) { return state; }
 function useSkillsPageModel({ projectPath, refreshKey, resolveLaunchPreferences }) {
 const projectCwd = optionalSettingsCwd(projectPath); const [query, setQuery] = useState(''); const [scopeFilter, setScopeFilter] = useState('all'); const [status, setStatus] = useState({ projectCwd, error: '', notice: '' }); if (status.projectCwd !== projectCwd) {
@@ -348,9 +359,7 @@ function useSkillEditor(options) {
 const { projectPath, refreshSkillSurface, resolveLaunchPreferences, setError, setNotice, skills } = options; const [state, setState] = useState(defaultSkillEditorState); const setPatch = useCallback((patch) => setState((current) => ({ ...current, ...patch })), []);
 const setForm = useCallback((updater) => setState((current) => ({ ...current, editorForm: typeof updater === 'function' ? updater(current.editorForm) : updater })), []);
 const actions = useMemo(
-() => skillEditorActions({
-facade: skillsPageService, projectPath, refreshSkillSurface, resolveLaunchPreferences, setError, setForm, setNotice, setPatch, skills, state,
-}),
+() => skillEditorActions({ facade: skillsPageService, projectPath, refreshSkillSurface, resolveLaunchPreferences, setError, setForm, setNotice, setPatch, skills, state }),
 [projectPath, refreshSkillSurface, resolveLaunchPreferences, setError, setForm, setNotice, setPatch, skills, state],
 );
 return { ...state, ...actions, setForm }; } function defaultSkillEditorState() {
@@ -447,12 +456,33 @@ async function confirmResolutionName(options) { const { nameInput, namePrompt, r
 if (await runAction(namePrompt.conflict, namePrompt.action, namePrompt.entry, newName)) { setNamePrompt(null); setNameInput(''); } }
 async function confirmResolutionPreview(ctx) { const proof = Array.isArray(ctx.preview?.items) ? ctx.preview.items[0] : null; if (!ctx.preview?.requiresApply || !proof?.preview_id || !proof?.preview_hash) return; ctx.setActioning('confirm'); try {
 const report = await applySkillResolution(resolutionApplyPayload(ctx.preview.payload, proof)); ctx.setPreview(null); ctx.setNamePrompt(null); ctx.setNameInput(''); await ctx.refreshSkillSurface(); applyResolutionReportFeedback(ctx, report); } catch (err) {
-ctx.setError('应用技能冲突处理失败：' + (err.message || String(err))); } finally { ctx.setActioning(''); } } function SkillsPageView({ copy, model }) { return (
-<section className="console-page"> <PageHeader icon={Sparkles} title={copy.title} subtitle={copy.subtitle} /> <SkillsOverview copy={copy} model={model} /> <div className="subhead">{copy.localLibrary}</div> <SkillsToolbar copy={copy} model={model} />
-<SkillFilter copy={copy} filters={model.filters} scopeFilter={model.scopeFilter} setScopeFilter={model.setScopeFilter} /> <SkillsStatus copy={copy} model={model} /> <SkillImportSummaryPanel editor={model.editor} /> <SkillResolutionPanel model={model} />
-<SkillGrid copy={copy} model={model} /> <SkillModals model={model} /> </section> ); }
+ctx.setError('应用技能冲突处理失败：' + (err.message || String(err))); } finally { ctx.setActioning(''); } }
+function SkillsPageView({ copy, model }) {
+  return (
+    <div className="plugins-square-container">
+      <div className="plugins-square-header">
+        <h1>{copy.title}</h1>
+        <p className="plugins-square-subtitle">{copy.subtitle}</p>
+      </div>
+      <div className="subhead">{copy.localLibrary}</div>
+      <SkillsOverview copy={copy} model={model} />
+      <SkillsToolbar copy={copy} model={model} />
+      <SkillFilter
+        copy={copy}
+        filters={model.filters}
+        scopeFilter={model.scopeFilter}
+        setScopeFilter={model.setScopeFilter}
+      />
+      <SkillsStatus copy={copy} model={model} />
+      <SkillImportSummaryPanel editor={model.editor} />
+      <SkillResolutionPanel model={model} />
+      <SkillGrid copy={copy} model={model} />
+      <SkillModals model={model} />
+    </div>
+  );
+}
 function SkillsOverview({ copy, model }) { const counts = model.filters.counts; const conflictValue = model.isProjectPending || model.dashboard.isResolutionPending || model.dashboard.resolutionSyncErrorText ? copy.pending : model.dashboard.resolutionConflicts.length; return (
-<section className="skills-overview" aria-label={copy.overviewAria}> <div className="skills-overview-copy"> <span>{copy.currentConnection}</span> <h2>{copy.overviewTitle}</h2> </div> <dl> <div><dt>{copy.localSkills}</dt><dd>{counts.all}</dd></div>
+<section className="skills-overview-compact" aria-label={copy.overviewAria}> <dl className="overview-stats-row"> <div><dt>{copy.localSkills}</dt><dd>{counts.all}</dd></div>
 <div><dt>{copy.projectShared}</dt><dd>{counts.project}</dd></div> <div><dt>{copy.personalUse}</dt><dd>{counts.personal}</dd></div> <div><dt>{copy.pendingConflicts}</dt><dd>{conflictValue}</dd></div> </dl> </section> ); }
 function SkillImportSummaryPanel({ editor }) { const drafts = Array.isArray(editor.importSummaryDrafts) ? editor.importSummaryDrafts : []; if (drafts.length === 0) return null; return (
 <section className="skills-import-summary-panel" data-testid="skills-import-summary-panel"> <div className="skills-import-summary-head"> <div><strong>{importSummaryPanelTitle(drafts)}</strong><span>{importSummaryPanelHint(drafts)}</span></div>
@@ -463,18 +493,59 @@ function SkillImportSummaryItem({ draft, editor, index }) { return (
 {draft.status === 'ready' ? <button type="button" data-testid={'skills-import-summary-apply-' + index} onClick={() => { void editor.applyImportSummaryDraft(draft); }}>采用并编辑</button> : null} {draft.status === 'applied' ? <span className="skills-inline-tip">已采用，保存后生效</span> : null}
 {draft.status === 'error' ? <button type="button" data-testid={'skills-import-summary-edit-' + index} onClick={() => { void editor.openImportSummaryDraft(draft); }}>编辑简介</button> : null}
 <button type="button" className="ghost" data-testid={'skills-import-summary-dismiss-' + index} onClick={() => editor.dismissImportSummaryDraft(draft)}>跳过</button> </div> </article> ); } function SkillsToolbar({ copy, model }) { return (
-<div className="skills-toolbar"> <button type="button" onClick={model.editor.openImportScope} disabled={model.editor.importing}>{copy.importDirs}</button> <button type="button" className="ghost" onClick={model.editor.openCreateEditor}>{copy.newSkill}</button>
-<label><Search size={18} /><input value={model.query} onChange={(event) => model.setQuery(event.target.value)} placeholder={copy.searchSkillsPlaceholder} aria-label={copy.searchSkills} /></label> </div> ); }
+<div className="skills-toolbar skills-toolbar-unified">
+  <label>
+    <Search size={18} />
+    <input value={model.query} onChange={(event) => model.setQuery(event.target.value)} placeholder={copy.searchSkillsPlaceholder} aria-label={copy.searchSkills} />
+  </label>
+  <div className="skills-toolbar-actions">
+    <button type="button" className="btn-secondary" onClick={model.editor.openImportScope} disabled={model.editor.importing}>{copy.importDirs}</button>
+    <button type="button" className="btn-primary" onClick={model.editor.openCreateEditor}>{copy.newSkill}</button>
+  </div>
+</div>
+); }
 function SkillFilter({ copy, filters, scopeFilter, setScopeFilter }) { const labels = { personal: copy.personalUse, project: copy.projectShared, all: copy.scopeAll }; return (
 <div className="skill-filter"> {filters.scopeOptions.map(([value]) => <button key={value} type="button" className={scopeFilter === value ? 'active' : ''} onClick={() => setScopeFilter(value)}>{labels[value]} {filters.counts[value]}</button>)} </div> ); }
-function SkillsStatus({ copy, model }) { return (
-<> {model.isProjectPending ? <p className="console-message">{copy.connecting}</p> : null} {model.dashboard.isInitialLoading ? <p className="console-message">{copy.loading}</p> : null} {model.notice ? <p className="settings-status">{model.notice}</p> : null}
-{model.dashboard.showCachedSyncError ? <CachedSkillSyncError copy={copy} dashboard={model.dashboard} /> : null}
-{model.dashboard.showBlockingSyncError ? <RetryableSyncError className="danger-text skills-sync-alert" message={model.dashboard.syncErrorText} onRetry={model.dashboard.retrySkillSurface} /> : null} {model.error ? <p className="danger-text" role="alert">{model.error}</p> : null} </> ); }
+function SkillsStatus({ copy, model }) {
+  return (
+    <>
+      {model.isProjectPending ? (
+        <div className="status-surface-line info-status">{copy.connecting}</div>
+      ) : null}
+      {model.dashboard.isInitialLoading ? (
+        <div className="status-surface-line loading-status">{copy.loading}</div>
+      ) : null}
+      {model.notice ? (
+        <div className="status-surface-line success-status">{model.notice}</div>
+      ) : null}
+      {model.dashboard.showCachedSyncError ? (
+        <CachedSkillSyncError copy={copy} dashboard={model.dashboard} />
+      ) : null}
+      {model.dashboard.showBlockingSyncError ? (
+        <RetryableSyncError
+          className="danger-text skills-sync-alert"
+          message={model.dashboard.syncErrorText}
+          onRetry={model.dashboard.retrySkillSurface}
+        />
+      ) : null}
+      {model.error ? (
+        <div className="status-surface-line error-status" role="alert">{model.error}</div>
+      ) : null}
+    </>
+  );
+}
 function CachedSkillSyncError({ copy, dashboard }) { return (
 <div className="danger-text skills-sync-alert" role="alert"> <span>同步失败，显示的是上次成功的数据：{dashboard.syncErrorText}</span> <button type="button" className="ghost" onClick={() => { void dashboard.retrySkillSurface(); }}>{copy.retrySync}</button> </div> ); }
-function SkillResolutionPanel({ model }) { const conflicts = model.dashboard.resolutionConflicts; if (!conflicts.length) return null; return ( <section className="skills-resolution-panel"> <strong>发现 {conflicts.length} 个技能冲突，需要处理后再使用。</strong>
-{conflicts.map((conflict, index) => <SkillResolutionConflict conflict={conflict} index={index} key={textFromValue(conflict.conflict_id) || String(index)} resolution={model.resolution} />)} {model.resolution.preview ? <SkillResolutionPreview resolution={model.resolution} /> : null} </section> ); }
+function SkillResolutionPanel({ model }) { const conflicts = model.dashboard.resolutionConflicts; if (!conflicts.length) return null; return (
+<section className="skills-resolution-panel">
+  <header className="skills-resolution-header fusion-surface">
+    <strong>发现 {conflicts.length} 个技能冲突，需要处理后再使用。</strong>
+  </header>
+  <div className="skills-resolution-list">
+    {conflicts.map((conflict, index) => <SkillResolutionConflict conflict={conflict} index={index} key={textFromValue(conflict.conflict_id) || String(index)} resolution={model.resolution} />)}
+    {model.resolution.preview ? <SkillResolutionPreview resolution={model.resolution} /> : null}
+  </div>
+</section> ); }
 function SkillResolutionConflict({ conflict, index, resolution }) {
 const conflictID = textFromValue(conflict.conflict_id) || String(index); const promptConflictID = textFromValue(resolution.namePrompt?.conflict?.conflict_id); const promptApplies = resolution.namePrompt && promptConflictID === textFromValue(conflict.conflict_id);
 const manualSteps = resolutionManualSteps(conflict); return (
@@ -485,10 +556,32 @@ const manualSteps = resolutionManualSteps(conflict); return (
 function SkillResolutionActionRow({ conflict, conflictID, providerEntry, resolution, sourceIndex }) { const providerEntries = resolutionProviderEntries(conflict); return (
 <div className="skills-resolution-actions"> {providerEntries.length > 1 ? <span className="skills-resolution-source">{resolutionProviderEntryLabel(providerEntry)}</span> : null}
 {resolutionActionEntries(conflict).map((actionEntry, actionIndex) => <SkillResolutionActionButton actionEntry={actionEntry} actionIndex={actionIndex} conflict={conflict} providerEntry={providerEntry} resolution={resolution} key={conflictID + ':' + sourceIndex + ':' + actionIndex} />)} </div> ); }
+function resolutionActionVisualKind(actionEntry) {
+  const action = (actionEntry.action || actionEntry).toString();
+  if (action === 'view_diff' || action === 'view_unmanaged') return 'ghost resolution-btn-secondary';
+  if (action === 'delete') return 'danger-button';
+  if (actionEntry.recommended || actionEntry.preferred) return 'suiyuan-btn-fusion resolution-btn-primary';
+  return 'suiyuan-btn-fusion-ghost resolution-btn-secondary';
+}
+
 function SkillResolutionActionButton({ actionEntry, actionIndex, conflict, providerEntry, resolution }) {
-const action = (actionEntry.action || actionEntry).toString(); const targetEntry = resolutionActionEntryTarget(actionEntry, providerEntry); const applyKey = resolutionApplyKey(conflict, action, targetEntry); return (
-<button key={applyKey + ':' + actionIndex} type="button" title={resolutionActionEntryHelp(actionEntry)} onClick={() => { void resolution.runAction(conflict, actionEntry, providerEntry); }} disabled={resolution.actioning === applyKey}>
-{resolution.actioning === applyKey ? '处理中...' : resolutionActionEntryLabel(actionEntry)} </button> ); }
+  const action = (actionEntry.action || actionEntry).toString();
+  const targetEntry = resolutionActionEntryTarget(actionEntry, providerEntry);
+  const applyKey = resolutionApplyKey(conflict, action, targetEntry);
+  const buttonClass = resolutionActionVisualKind(actionEntry);
+  return (
+    <button
+      key={applyKey + ':' + actionIndex}
+      type="button"
+      className={buttonClass}
+      title={resolutionActionEntryHelp(actionEntry)}
+      onClick={() => { void resolution.runAction(conflict, actionEntry, providerEntry); }}
+      disabled={resolution.actioning === applyKey}
+    >
+      {resolution.actioning === applyKey ? '处理中...' : resolutionActionEntryLabel(actionEntry)}
+    </button>
+  );
+}
 function SkillResolutionNamePrompt({ resolution }) { return ( <div className="skills-resolution-name-field"> <label>新技能名称<input value={resolution.nameInput} onChange={(event) => resolution.setNameInput(event.target.value)} aria-label="新技能名称" /></label>
 <button type="button" onClick={() => { void resolution.confirmName(); }} disabled={resolution.actioning === resolution.namePrompt.applyKey}>{resolutionPromptActionLabel(resolution)}</button>
 <button type="button" className="ghost" onClick={() => { resolution.setNamePrompt(null); resolution.setNameInput(''); }}>取消</button> </div> ); }
@@ -505,17 +598,39 @@ function SkillGrid({ copy, model }) { const showReadyEmpty = !model.isProjectPen
 <> {showReadyEmpty ? <SkillsEmptyState copy={copy} hasSkills={model.filters.counts.all > 0} /> : null}
 {model.filters.filteredItems.length > 0 ? <div className="skill-grid">{model.filters.filteredItems.map((skill) => <SkillCard copy={copy} key={skill.id} skill={skill} onEdit={model.editor.openEditSkill} onDelete={model.editor.onDeleteSkill} />)}</div> : null}
 {model.filters.countText ? <p className="skills-inline-tip">{model.filters.countText}</p> : null} </> ); }
-function SkillsEmptyState({ copy, hasSkills }) { if (hasSkills) { return ( <div className="empty-state"> <h3>{copy.noMatchesTitle}</h3> <p>{copy.noMatchesText}</p> </div> ); } return <p className="console-message">{copy.empty}</p>; }
+function SkillsEmptyState({ copy, hasSkills }) { if (hasSkills) { return ( <div className="empty-state"> <h3>{copy.noMatchesTitle}</h3> <p>{copy.noMatchesText}</p> </div> ); } return <div className="status-surface-line empty-status">{copy.empty}</div>; }
 function SkillModals({ model }) { const editor = model.editor; return (
 <> {editor.editorOpen ? <SkillEditorDialog editor={editor} /> : null} {editor.deleteTarget ? <ConfirmSkillDeleteModal skill={editor.deleteTarget} deleting={editor.deleting} onClose={editor.closeDelete} onConfirm={editor.confirmDeleteSkill} /> : null}
 {editor.importScopeOpen ? <ImportScopeModal importing={editor.importing} onClose={editor.closeImportScope} onConfirm={editor.confirmImportScope} /> : null} </> ); } function SkillEditorDialog({ editor }) { return (
 <SkillEditorModal key={editor.activeSkillPath || 'new'} form={editor.editorForm} setForm={editor.setForm} activeSkillPath={editor.activeSkillPath} files={editor.skillFiles} summarySuggestion={editor.summarySuggestion} summarySuggesting={editor.summarySuggesting}
 saving={editor.saving} onSuggestSummary={editor.suggestSummary} onApplySummary={editor.applySummary} onOpenCitation={editor.openSkillCitation} onOpenFile={editor.openSkillFile} onClose={editor.closeEditor} onSave={editor.saveEditor} /> ); } function SkillCard({ copy, skill, onEdit, onDelete }) {
-const tags = skill.tags.slice(0, 4); const extraTagCount = skill.tags.length - tags.length; const descriptionText = trimmedText(skill.description); const summaryText = trimmedText(skill.summary); const description = descriptionText || summaryText || copy.noDescription;
-const shouldShowSummary = Boolean(summaryText && summaryText !== description);
-return ( <article className="skill-card"> <header><h3>{skill.title}</h3><span>{scopeLabel(skill.scope)}</span></header> <p className="path">{skill.dir || copy.noPath}</p> <p>{description}</p> {shouldShowSummary ? <div className="quote">{summaryText}</div> : null}
-<small>{copy.keywords}</small> <div className="tags"> {tags.length > 0 ? tags.map((tag) => <span key={tag}>{tag}</span>) : <span>{copy.noKeywords}</span>} {extraTagCount > 0 ? <span>+{extraTagCount}</span> : null} </div> <footer>
-<button type="button" onClick={() => { void onEdit(skill); }} disabled={!skill.dir}>{copy.editDetails}</button> <button type="button" className="text-danger" onClick={() => { void onDelete(skill); }} disabled={!skill.name}>{copy.delete}</button> </footer> </article> ); }
+  const tags = skill.tags.slice(0, 4); const extraTagCount = skill.tags.length - tags.length; const descriptionText = trimmedText(skill.description); const summaryText = trimmedText(skill.summary); const description = descriptionText || summaryText || copy.noDescription;
+  const shouldShowSummary = Boolean(summaryText && summaryText !== description);
+  return (
+    <article className="skill-card skill-card-redesign">
+      <div className="skill-card-icon" aria-hidden="true">
+        <FileText size={20} />
+      </div>
+      <div className="mcp-tool-main">
+        <header className="mcp-tool-title-line">
+          <h3>{skill.title}</h3>
+        </header>
+        <p className="path-text">{skill.dir || copy.noPath}</p>
+        <p className="description-text">{description}</p>
+        {shouldShowSummary ? <div className="summary-quote">{summaryText}</div> : null}
+        <div className="card-tags">
+          {tags.length > 0 ? tags.map((tag) => <span key={tag} className="card-tag">{tag}</span>) : <span className="card-tag">{copy.noKeywords}</span>}
+          {extraTagCount > 0 ? <span className="card-tag">+{extraTagCount}</span> : null}
+        </div>
+      </div>
+      <span className="mcp-tool-status is-enabled">{scopeLabel(skill.scope)}</span>
+      <div className="card-actions-redesign">
+        <button type="button" onClick={() => { void onEdit(skill); }} disabled={!skill.dir}>{copy.editDetails}</button>
+        <button type="button" className="danger-btn" onClick={() => { void onDelete(skill); }} disabled={!skill.name}>{copy.delete}</button>
+      </div>
+    </article>
+  );
+}
 function SkillEditorModal(props) { const { form, setForm, activeSkillPath, files, summarySuggestion, summarySuggesting, saving, onSuggestSummary, onApplySummary, onOpenCitation, onOpenFile, onClose, onSave } = props;
 const isMain = !activeSkillPath || isMainSkillFile(activeSkillPath); const modalTitle = activeSkillPath ? '编辑技能' : '新建技能'; const saveLabel = isMain ? '保存技能' : '保存文件'; const update = (key) => (event) => setForm((current) => ({ ...current, [key]: event.target.value }));
 const updateDisplayName = (event) => { const value = event.target.value; setForm((current) => ({ ...current, displayName: value, name: activeSkillPath ? current.name : skillNameFromDisplayName(value), })); }; const [bodyEditing, setBodyEditing] = useState(!activeSkillPath); return (

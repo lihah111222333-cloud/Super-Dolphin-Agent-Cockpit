@@ -38,6 +38,13 @@ const allowedDateFunctionsByFile = Object.freeze({
   'src/shared/api/wailsBridge.js': new Set(['createFrontendTraceTimestamp']),
 });
 
+const allowedMutableBrowserStorageFunctionsByFile = Object.freeze({
+  'src/shared/api/browser/browserStorage.js': new Set(['requiredAppStoragePort']),
+  'src/shared/i18n/appI18n.js': new Set(['initialAppLocale']),
+  'src/shared/api/wails/wailsBridgeLogRuntime.js': new Set(['isFrontendTraceDebugEnabled']),
+  'src/shared/api/wails/wailsBridgeTraceEvents.js': new Set(['isFrontendTraceDebugEnabled']),
+});
+
 const wrapperFunctionNamePattern = /^(?:empty|fallback|default|parseJsonValue$|parseJsonPayload$|now|current.*Time$|dateFrom|timestamp)/i;
 
 function walkSourceFiles(dir) {
@@ -161,9 +168,8 @@ function isAllowedDateCall(node, relFile) {
   return isAllowedFunctionCall(node, relFile, allowedDateFunctionsByFile);
 }
 
-function isAllowedMutableBrowserStorageAccess(node) {
-  const name = enclosingFunctionName(node);
-  return name === 'isFrontendTraceDebugEnabled' || name === 'initialAppLocale';
+function isAllowedMutableBrowserStorageAccess(node, relFile) {
+  return isAllowedFunctionCall(node, relFile, allowedMutableBrowserStorageFunctionsByFile);
 }
 
 function isDateNowOrParseCall(node, sourceFile) {
@@ -385,8 +391,16 @@ function isSortWithoutComparator(node) {
 }
 
 function isMutableBrowserStorageAccess(node) {
-  return ts.isPropertyAccessExpression(node)
-    && (node.name.text === 'localStorage' || node.name.text === 'sessionStorage');
+  if (ts.isPropertyAccessExpression(node)) {
+    return node.name.text === 'localStorage' || node.name.text === 'sessionStorage';
+  }
+  if (ts.isElementAccessExpression(node)) {
+    const arg = node.argumentExpression;
+    if (ts.isStringLiteral(arg) || ts.isNoSubstitutionTemplateLiteral(arg)) {
+      return arg.text === 'localStorage' || arg.text === 'sessionStorage';
+    }
+  }
+  return false;
 }
 
 function isUseClientStoreImport(node) {
@@ -416,7 +430,7 @@ export function contractStoreGuardViolationsInSource(relFile, source) {
     if (isUseClientStoreImport(node) && !allowedStoreHookImportFiles.has(relFile)) {
       addViolation(violations, sourceFile, source, relFile, node, 'store-hook-import');
     }
-    if (isMutableBrowserStorageAccess(node) && !isAllowedMutableBrowserStorageAccess(node)) {
+    if (isMutableBrowserStorageAccess(node) && !isAllowedMutableBrowserStorageAccess(node, relFile)) {
       addViolation(violations, sourceFile, source, relFile, node, 'mutable-browser-storage');
     }
     if (isDynamicCodeExecution(node, sourceFile)) {

@@ -1,60 +1,4 @@
-.skills-toolbar {
-  gap: 28px;
-}
 
-.skills-overview {
-  display: grid;
-  grid-template-columns: minmax(260px, 1fr) auto;
-  gap: 20px;
-  align-items: center;
-  padding: 18px 28px;
-  border-bottom: 1px solid var(--line);
-  background: color-mix(in srgb, var(--surface-2) 66%, var(--surface));
-}
-
-.skills-overview-copy {
-  display: grid;
-  gap: 6px;
-}
-
-.skills-overview-copy span {
-  color: var(--muted);
-  font-size: 12px;
-}
-
-.skills-overview-copy h2 {
-  margin: 0;
-  color: var(--text-pri);
-  font-size: 18px;
-  font-weight: 650;
-}
-
-.skills-overview dl {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(88px, 1fr));
-  gap: 10px;
-  margin: 0;
-}
-
-.skills-overview dl div {
-  min-width: 0;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-sm);
-  background: var(--surface);
-  padding: 10px 12px;
-}
-
-.skills-overview dt {
-  color: var(--muted);
-  font-size: 12px;
-}
-
-.skills-overview dd {
-  margin: 4px 0 0;
-  color: var(--text-pri);
-  font-size: 18px;
-  font-weight: 650;
-}
 
 .skill-tools-panel {
   display: grid;
@@ -93,6 +37,29 @@
   background: var(--surface-2);
   color: var(--text-pri);
   padding: 0 12px;
+}
+
+.skills-page {
+  padding-bottom: 32px;
+}
+
+.datasource-empty-card {
+  min-height: auto;
+  padding: 48px 24px;
+  background: var(--surface);
+  border: 1px solid color-mix(in srgb, var(--primary) 24%, var(--border));
+  border-radius: 12px;
+  box-shadow: var(--suiyuan-logo-shadow);
+}
+
+.datasource-empty-card .empty-icon {
+  color: var(--primary);
+  margin-bottom: 12px;
+}
+
+.skills-page .page-actions {
+  display: flex;
+  margin-top: 16px;
 }
 
 .skill-tools-actions button {
@@ -239,7 +206,6 @@
   margin-top: 12px;
 }
 
-.skills-toolbar label,
 .page-actions label {
   flex: 1;
   display: flex;
@@ -252,7 +218,6 @@
   min-height: 52px;
 }
 
-.skills-toolbar input,
 .page-actions input {
   flex: 1;
   min-width: 0;
@@ -261,29 +226,6 @@
   background: transparent;
   color: var(--ink);
   font-size: 17px;
-}
-
-.skill-filter {
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  margin: 18px 28px;
-  padding: 7px 14px;
-}
-
-.skill-filter span,
-.skill-filter button {
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  background: transparent;
-  color: var(--muted);
-  padding: 4px 12px;
-}
-
-.skill-filter .active {
-  border-color: var(--border-strong);
-  background: color-mix(in srgb, var(--accent-2) 16%, var(--surface-3));
-  color: var(--text-pri);
-  box-shadow: none;
 }
 
 .console-message {
@@ -297,10 +239,9 @@
 }
 
 .skill-grid {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(260px, 1fr));
-  gap: 14px;
-  padding: 0 28px 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
 }
 
 .skill-card,
@@ -417,10 +358,59 @@
 
 .skills-resolution-panel {
   margin: 18px 28px;
-  border: 1px solid color-mix(in srgb, var(--warning) 46%, var(--border));
-  border-radius: var(--radius);
-  background: color-mix(in srgb, var(--warning) 11%, var(--surface));
-  padding: 14px;
+  background: var(--surface);
+  border: 1px solid color-mix(in srgb, var(--primary) 24%, var(--border));
+  border-radius: var(--radius-xl, 16px);
+  box-shadow: var(--suiyuan-card-shadow);
+  overflow: hidden;
+}
+
+.skills-resolution-header {
+  padding: 16px 20px;
+  border-radius: 0;
+}
+
+.skills-resolution-header > strong {
+  display: block;
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.skills-resolution-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  background: color-mix(in srgb, var(--surface) 50%, var(--panel));
+}
+
+.skills-resolution-item {
+  background: var(--surface);
+  border: 1px solid color-mix(in srgb, var(--primary) 24%, var(--line));
+  border-radius: 12px;
+  padding: 16px;
+  color: var(--text-pri);
+}
+
+.skills-resolution-item > header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.skills-resolution-item > header h3 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 650;
+  color: var(--text-pri);
+}
+
+.skills-resolution-guide {
+  font-size: 13px;
+  color: var(--text-pri);
+  opacity: 0.9;
+  margin-bottom: 12px;
 }
 
 .skills-import-summary-panel {
@@ -467,9 +457,8 @@
 
 .skills-resolution-item,
 .skills-resolution-preview {
-  border-top: 1px solid var(--line);
-  margin-top: 12px;
-  padding-top: 12px;
+  margin-top: 10px;
+  padding: 14px;
 }
 
 .skills-resolution-item header,
@@ -477,11 +466,17 @@
 .modal-box header,
 .modal-box footer,
 .skills-editor-actions,
-.skills-subfiles,
-.skills-resolution-actions {
+.skills-subfiles {
   display: flex;
   align-items: center;
   gap: 10px;
+}
+
+.skills-resolution-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
 }
 
 .skills-resolution-item h3,
@@ -492,11 +487,11 @@
 
 .skills-resolution-item header span {
   margin-left: auto;
-  color: var(--muted);
+  opacity: 0.8;
 }
 
 .skills-resolution-source {
-  color: var(--muted);
+  opacity: 0.8;
   font-size: 12px;
 }
 
@@ -512,7 +507,7 @@
   display: grid;
   gap: 6px;
   min-width: min(260px, 100%);
-  color: var(--muted);
+  opacity: 0.8;
   font-size: 12px;
 }
 
@@ -525,16 +520,17 @@
   display: grid;
   grid-template-columns: 80px minmax(0, 1fr);
   gap: 10px;
-  color: var(--muted);
+  opacity: 0.8;
 }
 
 .skills-resolution-preview-item code {
+  color: inherit;
   overflow-wrap: anywhere;
 }
 
 .skills-resolution-technical {
   margin-top: 10px;
-  color: var(--muted);
+  opacity: 0.8;
 }
 
 .skills-resolution-diff {
@@ -542,16 +538,16 @@
   max-height: 260px;
   overflow: auto;
   white-space: pre-wrap;
-  border: 1px solid var(--line);
+  border: 1px solid var(--suiyuan-beta-bg);
   border-radius: var(--radius-sm);
-  background: var(--surface-2);
+  background: var(--suiyuan-beta-bg);
   padding: 10px;
-  color: var(--text-pri);
+  color: inherit;
 }
 
 .skills-resolution-manual-steps {
   margin: 10px 0 0;
-  color: var(--muted);
+  opacity: 0.8;
 }
 
 .modal-overlay {
@@ -885,4 +881,225 @@
   font: inherit;
   text-decoration: underline;
   cursor: pointer;
+}
+
+/* Skill Fusion Promo Banner */
+.skill-fusion-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  background: var(--suiyuan-fusion-bg);
+  padding: 24px;
+  border-radius: 16px;
+  margin-bottom: 24px;
+  color: var(--suiyuan-fusion-color);
+  box-shadow: var(--suiyuan-fusion-shadow);
+  border: 1px solid var(--suiyuan-fusion-border);
+}
+
+.skill-fusion-banner-content {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.beta-badge {
+  background: var(--suiyuan-beta-bg);
+  color: var(--suiyuan-beta-color);
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 999px;
+  letter-spacing: 0.5px;
+}
+
+.skill-fusion-banner h3 {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 700;
+}
+
+.skill-fusion-banner p {
+  margin: 0;
+  font-size: 14px;
+  opacity: 0.9;
+}
+
+.fusion-btn {
+  background: var(--suiyuan-fusion-btn-bg) !important;
+  color: var(--suiyuan-fusion-btn-color) !important;
+  border: 0 !important;
+  border-radius: 999px !important;
+  font-size: 14px !important;
+  font-weight: 700 !important;
+  padding: 10px 20px !important;
+  white-space: nowrap;
+  box-shadow: var(--suiyuan-fusion-btn-shadow) !important;
+  cursor: pointer;
+  transition: transform 0.2s ease;
+}
+
+.fusion-btn:hover {
+  transform: translateY(-2px);
+}
+
+/* Add New card dashed styling */
+.mcp-tool-card.add-new-card {
+  border: 2px dashed var(--suiyuan-fusion-border);
+  background: transparent;
+  display: grid;
+  align-items: center;
+  grid-template-columns: 36px minmax(0, 1fr) max-content auto;
+  gap: 16px;
+  padding: 24px;
+  border-radius: 16px;
+  cursor: pointer;
+  color: var(--text-sec);
+  transition: all var(--transition);
+  margin-bottom: 16px;
+}
+
+.mcp-tool-card.add-new-card:hover {
+  border-color: var(--primary);
+  background: var(--suiyuan-fusion-bg);
+  color: var(--suiyuan-fusion-color);
+  transform: translateY(-2px);
+  box-shadow: var(--suiyuan-send-shadow);
+}
+
+.mcp-tool-icon.add-new {
+  width: 40px;
+  height: 40px;
+  border-radius: 8px;
+  background: var(--surface-3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  transition: all var(--transition);
+  margin-bottom: 0;
+}
+
+.mcp-tool-card.add-new-card:hover .mcp-tool-icon.add-new {
+  background: color-mix(in srgb, var(--suiyuan-fusion-color) 15%, transparent);
+  color: var(--suiyuan-fusion-color);
+  border: 1px solid color-mix(in srgb, var(--suiyuan-fusion-color) 10%, transparent);
+}
+
+/* Tab header style overrides */
+.skills-subtabs-header {
+  display: flex;
+  gap: 8px;
+  border-bottom: 1px solid var(--line);
+  padding: 0 28px;
+  margin-bottom: 24px;
+}
+
+.skills-subtabs-header button {
+  background: transparent;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  color: var(--text-muted);
+  font-size: 14px;
+  font-weight: 600;
+  padding: 12px 16px;
+  cursor: pointer;
+  transition: all var(--transition);
+}
+
+.skills-subtabs-header button.active {
+  border-bottom-color: var(--primary);
+  color: var(--text-pri);
+}
+
+.plugins-square-container {
+  padding: 0 28px 28px;
+}
+
+.plugins-square-header {
+  margin-bottom: 24px;
+}
+
+.plugins-square-header h1 {
+  margin: 0 0 8px;
+  font-size: 24px;
+  font-weight: 700;
+  color: var(--text-pri);
+}
+
+.plugins-square-subtitle {
+  margin: 0;
+  font-size: 14px;
+  color: var(--text-muted);
+}
+
+.mcp-tool-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.mcp-tool-card {
+  display: grid;
+  align-items: center;
+  grid-template-columns: 36px minmax(0, 1fr) max-content auto;
+  gap: 16px;
+  padding: 24px;
+  margin-bottom: 16px;
+}
+
+.mcp-tool-card:hover {
+  transform: translateY(-2px);
+}
+
+.mcp-tool-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.mcp-tool-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.mcp-tool-card .mcp-tool-title-line h2 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+  color: inherit;
+}
+
+.mcp-tool-card .mcp-tool-notice {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: inherit;
+  opacity: 0.9;
+  line-height: 1.35;
+}
+
+.mcp-tool-card .mcp-tool-notice.is-error {
+  color: var(--error);
+  font-weight: 600;
+}
+
+.mcp-tool-card .mcp-tool-status {
+  background: color-mix(in srgb, var(--suiyuan-fusion-color) 20%, transparent);
+  color: var(--suiyuan-fusion-color);
+  border: 1px solid color-mix(in srgb, var(--suiyuan-fusion-color) 30%, transparent);
+  font-size: 11px;
+  font-weight: 700;
+  border-radius: 999px;
+  padding: 2px 8px;
+}
+
+.mcp-tool-card .mcp-tool-status.is-enabled {
+  background: var(--suiyuan-beta-bg);
+  color: var(--suiyuan-beta-color);
+  border-color: transparent;
 }

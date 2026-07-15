@@ -52,14 +52,14 @@ return ( <section className="settings-page observability-page" data-testid="obse
 expandedTraces={expandedTraces} queryCwd={queryCwd} queryLimit={queryLimit} onTraceError={setNotice} /> </section> ); }
 function ObservabilityHeader({ copy }) { return ( <div className="settings-header"> <div> <h1>{copy.title}</h1> </div> </div> ); }
 function ObservabilitySearchForm({ copy, filters, loading, onFilter, onSubmit }) { const submit = (event) => { event.preventDefault(); void onSubmit(); }; return (
-<form className="observability-search" onSubmit={submit} aria-busy={loading}> <div className="observability-filter-grid"> <ObservabilityTextFilter label="Trace ID" value={filters.traceId} placeholder="00-... 或 trace_id" onChange={(value) => onFilter('traceId', value)} />
+<form className="observability-search fusion-surface" onSubmit={submit} aria-busy={loading}> <div className="observability-filter-grid"> <ObservabilityTextFilter label="Trace ID" value={filters.traceId} placeholder="00-... 或 trace_id" onChange={(value) => onFilter('traceId', value)} />
 <ObservabilityTextFilter label="Thread ID" value={filters.threadId} placeholder="thread_..." onChange={(value) => onFilter('threadId', value)} />
 <ObservabilityTextFilter label="Agent ID" value={filters.agentId} placeholder="agent_..." onChange={(value) => onFilter('agentId', value)} />
 <ObservabilityTextFilter label={copy.component} value={filters.component} placeholder="rpc / tool / wails" onChange={(value) => onFilter('component', value)} />
 <ObservabilityStatusFilter copy={copy} value={filters.status} onChange={(value) => onFilter('status', value)} /> <ObservabilityTextFilter label="Method" value={filters.method} placeholder="thread/start" onChange={(value) => onFilter('method', value)} />
 <ObservabilityTextFilter label={copy.keyword} value={filters.keyword} placeholder={copy.statusPlaceholder} onChange={(value) => onFilter('keyword', value)} />
 <ObservabilityTextFilter label="Limit" value={filters.limit} inputMode="numeric" onChange={(value) => onFilter('limit', value)} /> </div> <div className="settings-actions">
-<button type="submit" className="btn primary" disabled={loading}>{loading ? copy.querying : copy.queryLatest}</button> </div> </form> ); }
+<button type="submit" className="suiyuan-btn-fusion" disabled={loading}>{loading ? copy.querying : copy.queryLatest}</button> </div> </form> ); }
 function ObservabilityTextFilter({ inputMode, label, placeholder = '', value, onChange }) { return ( <label> {label} <input value={value} onChange={(event) => onChange(event.target.value)} placeholder={placeholder} inputMode={inputMode} /> </label> ); }
 function ObservabilityStatusFilter({ copy, value, onChange }) { return (
 <label> {copy.status} <select value={value} onChange={(event) => onChange(event.target.value)}> <option value="">{copy.all}</option> <option value="ok">ok</option> <option value="slow">slow</option> <option value="error">error</option> <option value="panic">panic</option>
@@ -67,7 +67,7 @@ function ObservabilityStatusFilter({ copy, value, onChange }) { return (
 function ObservabilityRecentLogs(props) { const { result, onOpenTrace, onCopyTrace, copiedTraceId, expandedTraces, queryCwd, queryLimit, onTraceError } = props; if (!result) return null; let traceRows; try { traceRows = groupObservabilityTraceRows(result.events);
 } catch (error) { return ( <div className="settings-alert error" data-testid="observability-recent-logs-error" role="alert"> 最近日志数据无效：{errorMessage(error)} </div> );
 } const eventCount = traceRows.reduce((total, row) => total + row.events.length, 0); const tailDiagnostics = observabilityTailDiagnosticText(result); return (
-<div className="settings-card observability-result observability-system-log" data-testid="observability-recent-logs"> <div className="observability-result-header"> <div> <h2>最新匹配 event 分组</h2>
+<div className="settings-card observability-result observability-system-log fusion-surface" data-testid="observability-recent-logs"> <div className="observability-result-header"> <div> <h2>最新匹配 event 分组</h2>
 <p>{traceRows.length} 条匹配 event 分组 · {eventCount} 个匹配 event · source={result.source || 'memory'} · truncated={String(Boolean(result.truncated))}{tailDiagnostics ? ` · ${tailDiagnostics}` : ''}</p> </div> </div> {traceRows.length === 0 ? (
 <div className="empty-state">没有匹配的最近请求</div> ) : (
 <div className="observability-log-table" role="table" aria-label="最新匹配 event 分组"> <div className="observability-log-table-head" role="rowgroup"> <div className="observability-log-table-head-row" role="row"> <div role="columnheader">时间</div>

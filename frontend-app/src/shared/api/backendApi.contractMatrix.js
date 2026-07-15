@@ -673,7 +673,7 @@ export const RPC_CONTRACT_REGISTRY = Object.freeze({
     false,
     { responsePolicy: {
       kind: 'ignored-result',
-      consumer: { path: 'frontend-app/src/pages/skills/SkillsPage.jsx', symbol: 'importDatasourceSelection' },
+      consumer: { path: 'frontend-app/src/pages/skills/DataSourceView.jsx', symbol: 'importDatasourceSelection' },
       outcome: { kind: 'published-callback', target: ['ctx', 'setNotice'] },
       regressionTest: { path: 'frontend-app/src/pages/skills/SkillsPage.ignoredResultActions.test.jsx', symbol: 'ignores malformed datasource import body and publishes import success' },
     } },
@@ -713,7 +713,7 @@ export const RPC_CONTRACT_REGISTRY = Object.freeze({
     false,
     { responsePolicy: {
       kind: 'ignored-result',
-      consumer: { path: 'frontend-app/src/pages/skills/SkillsPage.jsx', symbol: 'handleDelete', visibility: 'module-private' },
+      consumer: { path: 'frontend-app/src/pages/skills/DataSourceView.jsx', symbol: 'handleDelete', visibility: 'module-private' },
       regressionTest: { path: 'frontend-app/src/pages/skills/SkillsPage.test.jsx', symbol: 'ignores RPC response body for datasource delete' },
     } },
   ),

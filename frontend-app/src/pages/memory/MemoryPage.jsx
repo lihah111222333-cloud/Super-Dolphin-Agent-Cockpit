@@ -152,29 +152,34 @@ applyConsolidationResult, dashboard, resolveLaunchPreferences, showNotice, simil
 }); useMemoryConsolidationPolling({ applyConsolidationResult, setConsolidationJob: similarity.setConsolidationJob,
 showNotice, similarity, }); return { activeCategory, autoDream, dashboard, deletion, derived, editor, notice, searchText, setActiveCategory, setSearchText, setSimilarExpanded, similarExpanded, similarity }; }
 function MemoryPage({ copy = APP_COPY.zh.memory, projectPath, onSimilarCountChange, resolveLaunchPreferences }) { const model = useMemoryPageModel({ projectPath, onSimilarCountChange, resolveLaunchPreferences }); return <MemoryPageView copy={copy} model={model} />; }
-function MemoryPageView({ copy, model }) { return ( <section className="memory-page"> <MemoryPageHeader copy={copy} disabled={model.dashboard.isProjectPending} editor={model.editor} searchText={model.searchText} setSearchText={model.setSearchText} />
-<MemoryStats autoDream={model.autoDream} categoryCounts={model.derived.categoryCounts} copy={copy} disabled={model.dashboard.isProjectPending} health={model.derived.health} /> <MemorySimilaritySection copy={copy} degraded={model.derived.similarityDegraded} expanded={model.similarExpanded}
+function MemoryPageView({ copy, model }) { return ( <section className="memory-page"> <MemoryPageHeader copy={copy} />
+<MemoryStats autoDream={model.autoDream} categoryCounts={model.derived.categoryCounts} copy={copy} disabled={model.dashboard.isProjectPending} health={model.derived.health} />
+<MemoryToolbar copy={copy} disabled={model.dashboard.isProjectPending} editor={model.editor} searchText={model.searchText} setSearchText={model.setSearchText} />
+<MemorySimilaritySection copy={copy} degraded={model.derived.similarityDegraded} expanded={model.similarExpanded}
 groups={model.derived.similarGroups} setExpanded={model.setSimilarExpanded} similarity={model.similarity} /> <MemoryStatusMessages copy={copy} dashboard={model.dashboard} notice={model.notice} />
 <MemoryTabs activeCategory={model.activeCategory} categoryCounts={model.derived.categoryCounts} copy={copy} setActiveCategory={model.setActiveCategory} /> <MemoryCardsSection copy={copy} dashboard={model.dashboard} deletion={model.deletion} editor={model.editor}
 searchText={model.searchText} visibleEntries={model.derived.visibleEntries} /> <MemoryModals deletion={model.deletion} editor={model.editor} similarity={model.similarity} /> </section> ); }
-function MemoryPageHeader({ copy, disabled, editor, searchText, setSearchText }) {
+function MemoryPageHeader({ copy }) {
   return (
-    <PageHeader icon={MemoryStick} title={copy.title} actions={(
-      <>
-        <label>
+    <PageHeader icon={MemoryStick} title={copy.title} />
+  );
+}
+function MemoryToolbar({ copy, disabled, editor, searchText, setSearchText }) {
+  return (
+    <div className="memory-toolbar fusion-toolbar" data-testid="memory-toolbar">
+        <label className="memory-search fusion-toolbar-input">
           <Search size={17} />
           <input aria-label={copy.search} placeholder={copy.searchPlaceholder} value={searchText} onChange={(event) => setSearchText(event.target.value)} />
         </label>
         <div className="memory-create">
-          <button type="button" className="light memory-create-button" aria-label={`+ ${copy.new} ▾`} aria-haspopup="menu" aria-expanded={editor.createMenuOpen} disabled={disabled} onClick={() => editor.setCreateMenuOpen((open) => !open)}>
+          <button type="button" className="suiyuan-btn-fusion-ghost memory-create-button" aria-label={`+ ${copy.new} ▾`} aria-haspopup="menu" aria-expanded={editor.createMenuOpen} disabled={disabled} onClick={() => editor.setCreateMenuOpen((open) => !open)}>
             <Plus size={15} aria-hidden="true" />
             <span>{copy.new}</span>
             <ChevronDown size={14} aria-hidden="true" className="memory-create-chevron" />
           </button>
           {editor.createMenuOpen ? <MemoryCreateMenu copy={copy} onCreate={editor.openCreate} /> : null}
         </div>
-      </>
-    )} />
+    </div>
   );
 }
 function MemoryCreateMenu({ copy, onCreate }) { return ( <div role="menu" aria-label="新建记忆" className="memory-create-menu memory-create-menu-list">

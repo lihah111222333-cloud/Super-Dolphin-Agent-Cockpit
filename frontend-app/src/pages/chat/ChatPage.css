@@ -282,11 +282,20 @@
   align-items: center;
   justify-content: center;
   margin-bottom: 24px;
-  border: 1px solid color-mix(in srgb, var(--suiyuan-surface-variant) 50%, transparent);
+  border: 1px solid color-mix(in srgb, var(--suiyuan-outline-variant) 50%, transparent);
   border-radius: 16px;
-  background: var(--suiyuan-surface-low);
+  background: var(--surface-2);
   color: var(--suiyuan-primary);
   box-shadow: var(--suiyuan-logo-shadow);
+}
+
+.sa-window[data-brand="suiyuan"] .chat-intro-logo-tile {
+  display: flex;
+}
+
+.sa-window[data-theme="dark"] .chat-intro-logo-tile {
+  border-color: var(--border);
+  background: var(--surface-2);
 }
 
 .chat-intro-logo-light {
@@ -297,10 +306,19 @@
   display: none;
 }
 
+.sa-window[data-theme="dark"] .chat-intro-logo-light {
+  display: none;
+}
+
+.sa-window[data-theme="dark"] .chat-intro-logo-dark {
+  display: block;
+  color: var(--primary);
+}
+
 .chat-intro-title {
   max-width: min(780px, 100%);
   margin: 0;
-  color: var(--suiyuan-on-surface);
+  color: var(--text-pri);
   font-size: 40px;
   font-weight: 650;
   line-height: 52px;
@@ -312,8 +330,12 @@
 
 .chat-intro-title em {
   color: var(--suiyuan-primary);
-  font-style: italic;
+  font-style: normal;
   font-weight: inherit;
+}
+
+.sa-window[data-theme="dark"] .chat-intro-title em {
+  color: var(--primary);
 }
 
 .chat-intro-subtitle {
@@ -322,13 +344,17 @@
   min-height: 56px;
   margin: 0;
   margin-top: 16px;
-  color: var(--suiyuan-secondary);
-  font-size: 18px;
+  color: var(--text-muted);
+  font-size: 15px;
   font-weight: 400;
-  line-height: 28px;
+  line-height: 24px;
   letter-spacing: 0;
   text-align: center;
   text-wrap: balance;
+}
+
+.sa-window[data-brand="suiyuan"] .chat-intro-subtitle {
+  display: block;
 }
 
 .chat-intro-suggestions {

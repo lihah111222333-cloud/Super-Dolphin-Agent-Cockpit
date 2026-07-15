@@ -1,8 +1,8 @@
 .personalization-overview {
   border: 1px solid var(--border);
-  border-radius: 12px !important;
-  background: color-mix(in srgb, var(--surface-2) 60%, var(--surface)) !important;
-  padding: 20px !important;
+  border-radius: 12px;
+  background: var(--surface);
+  padding: 20px;
   box-shadow: 0 4px 12px color-mix(in srgb, var(--text-pri) 2%, transparent);
   transition: all 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
 }
@@ -11,6 +11,16 @@
   transform: translateY(-1px);
   box-shadow: 0 8px 20px color-mix(in srgb, var(--text-pri) 4%, transparent);
   border-color: var(--border-strong);
+}
+
+.personalization-overview-hero .fusion-surface-glass dt {
+  color: var(--text-pri);
+  font-weight: 500;
+}
+
+.personalization-overview-hero .fusion-surface-glass dd {
+  color: var(--ink);
+  font-weight: 700;
 }
 
 .personalization-overview dl div {

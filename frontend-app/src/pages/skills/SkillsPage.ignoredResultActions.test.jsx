@@ -1,9 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   confirmDeleteSkill,
-  importDatasourceSelection,
   saveSkillEditor,
 } from './SkillsPage.jsx';
+import { importDatasourceSelection } from './DataSourceView.jsx';
 
 const skillMarkdown = [
   '---',

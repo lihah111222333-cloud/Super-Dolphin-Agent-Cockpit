@@ -45,6 +45,7 @@ import './shared/styles/MarkdownReferences.css';
 import App, { APP_PROFILER_ID } from './App.jsx';
 import { AppErrorBoundary } from './app/AppErrorBoundary.jsx';
 import { emitFrontendTraceEvent } from './shared/api/backendApi.js';
+import { getStoredTheme, syncThemeDOM } from './app/appShellModel.js';
 import {
   frontendBreadcrumbSnapshotSource,
   recordFrontendBootstrapBreadcrumb,
@@ -198,6 +199,9 @@ function cleanupFrontendDiagnostics() {
 if (import.meta.hot) {
   import.meta.hot.dispose(cleanupFrontendDiagnostics);
 }
+
+// Synchronize theme to documentElement/body before rendering to prevent visual flash
+syncThemeDOM(getStoredTheme());
 
 createRoot(document.getElementById('root')).render(
   createElement(

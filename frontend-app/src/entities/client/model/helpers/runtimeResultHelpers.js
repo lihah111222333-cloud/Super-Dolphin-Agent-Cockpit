@@ -7,6 +7,27 @@ import {
   parseRequiredJsonObject } from '../contractStoreModel.js';
 import { compactSafeDiagnosticPreview } from '../../../../shared/api/safeDiagnosticPreview.js';
 
+export class ContractError extends Error {
+  constructor(message) {
+    super(message);
+    this.name = 'ContractError';
+  }
+}
+
+function getSafeTypeTag(value) {
+  if (value === null) return 'null';
+  if (value === undefined) return 'undefined';
+  const type = typeof value;
+  if (type === 'object') {
+    try {
+      return Array.isArray(value) ? 'array' : 'object';
+    } catch {
+      return 'object';
+    }
+  }
+  return type;
+}
+
 const MAX_RUNTIME_RESULT_ENTRIES = 120;
 const RUNTIME_RESULT_DETAIL_LIMIT = 1600;
 const RUNTIME_TOOL_FAILED_STATUSES = new Set(['failed', 'error']);
@@ -164,7 +185,22 @@ function runtimeResultEntryFromRPCDoneValue(event, fields = {}, helpers) {
   if (event !== 'api.rpc.done') return null;
   const { normalizeString, normalizeThreadId, runtimeThreadIdentifier, nowISO, nowMillis, randomHex } = helpers;
   const method = normalizeString(fields.method || fields.rpcMethod || fields.rpc_method);
-  const detail = compactRuntimeDiagnosticPreviewText(fields.result_preview || fields.result);
+
+  const isPlainObject = fields !== null &&
+    typeof fields === 'object' &&
+    !Array.isArray(fields) &&
+    Object.getPrototypeOf(fields) === Object.prototype;
+
+  let detail;
+  if (isPlainObject && Object.prototype.hasOwnProperty.call(fields, 'result_preview')) {
+    const preview = fields.result_preview;
+    if (typeof preview !== 'string' || preview.trim() === '') {
+      throw new ContractError(`result_preview must be a non-empty string, but got type: ${getSafeTypeTag(preview)}`);
+    }
+    detail = compactRuntimeResultTextValue(preview, normalizeString);
+  } else {
+    detail = compactRuntimeDiagnosticPreviewText(fields?.result);
+  }
   if (!method || !detail) return null;
   const threadId = normalizeThreadId(runtimeThreadIdentifier(fields));
   const summary = detail.replace(/\s+/g, ' ').slice(0, 180);

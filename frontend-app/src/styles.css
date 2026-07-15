@@ -1,5 +1,7 @@
-:root {
-  color-scheme: dark;
+:root,
+:root[data-theme="light"],
+.sa-window[data-theme="light"] {
+  color-scheme: light;
   --suiyuan-background: #fbf9f3;
   --suiyuan-surface-bright: #fbf9f3;
   --suiyuan-surface-lowest: #ffffff;
@@ -26,72 +28,6 @@
   --suiyuan-input-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.82);
   --suiyuan-logo-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
   --suiyuan-send-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.1);
-  --bg: #131411;
-  --bg-elevated: #1b1c18;
-  --app-bg: #131411;
-  --surface: #1b1c18;
-  --surface-2: #1e1f1b;
-  --surface-3: #292a25;
-  --surface-code: #1e1f1b;
-  --overlay: rgba(0, 0, 0, 0.64);
-  --border: #504541;
-  --border-strong: #9f8d84;
-  --text-pri: #e5e2da;
-  --text-sec: #d0c4bf;
-  --text-muted: #9f8d84;
-  --text-subtle: #80736d;
-  --primary: #ffb597;
-  --primary-2: #ff8a50;
-  --primary-ink: #4b1700;
-  --primary-soft: rgba(255, 181, 151, 0.14);
-  --success: #7fd8a1;
-  --warning: #e8c177;
-  --error: #ffb4ab;
-  --info: #d0c4bf;
-  --focus-ring: rgba(255, 181, 151, 0.56);
-  --primary-action-bg: #ffb597;
-  --primary-action-bg-hover: #ffcab5;
-  --primary-action-border: rgba(255, 181, 151, 0.64);
-  --primary-action-text: #4b1700;
-  --primary-action-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12), 0 10px 28px rgba(0, 0, 0, 0.28);
-  --shadow: 0 24px 72px rgba(0, 0, 0, 0.38);
-  --radius: 8px;
-  --radius-sm: 6px;
-  --radius-md: 8px;
-  --radius-lg: 8px;
-  --ink: var(--text-pri);
-  --muted: var(--text-muted);
-  --faint: var(--text-subtle);
-  --panel: var(--surface);
-  --panel-2: var(--surface-2);
-  --panel-3: var(--surface-3);
-  --line: var(--border);
-  --line-strong: var(--border-strong);
-  --elevated: var(--border);
-  --accent: var(--primary);
-  --accent-2: var(--primary-2);
-  --accent-soft: var(--primary-soft);
-  --green: var(--success);
-  --blue: var(--info);
-  --orange: var(--warning);
-  --red: var(--error);
-  --purple: var(--primary);
-  --text: var(--text-pri);
-  --font-cjk: Inter, Outfit, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Segoe UI", sans-serif;
-  --transition: 150ms ease;
-}
-
-body, button, input, select, textarea, span, p, h1, h2, h3, h4, h5, h6, div {
-  font-family: var(--font-cjk);
-}
-
-pre, code, kbd, samp, .monospace, .syntax, pre *, code * {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace !important;
-}
-
-.sa-window[data-theme="light"],
-#overlay-root[data-theme="light"] {
-  color-scheme: light;
   --bg: #fbf9f3;
   --bg-elevated: #fbf9f3;
   --app-bg: #fbf9f3;
@@ -121,6 +57,10 @@ pre, code, kbd, samp, .monospace, .syntax, pre *, code * {
   --primary-action-text: #ffffff;
   --primary-action-shadow: none;
   --shadow: 0 22px 70px rgba(88, 66, 56, 0.14);
+  --radius: 8px;
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 8px;
   --ink: var(--text-pri);
   --muted: var(--text-muted);
   --faint: var(--text-subtle);
@@ -139,6 +79,88 @@ pre, code, kbd, samp, .monospace, .syntax, pre *, code * {
   --red: var(--error);
   --purple: var(--primary);
   --text: var(--text-pri);
+  --font-cjk: Inter, Outfit, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Segoe UI", sans-serif;
+  --suiyuan-switch-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
+  --suiyuan-fusion-bg: linear-gradient(135deg, #a03b00, #ffb597);
+  --suiyuan-fusion-border: var(--border);
+  --suiyuan-fusion-color: #ffffff;
+  --suiyuan-fusion-shadow: 0 10px 30px rgba(160, 59, 0, 0.15);
+  --suiyuan-beta-bg: rgba(255, 255, 255, 0.2);
+  --suiyuan-beta-color: #ffffff;
+  --suiyuan-fusion-btn-bg: #ffffff;
+  --suiyuan-fusion-btn-color: #a03b00;
+  --suiyuan-fusion-btn-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  --transition: 150ms ease;
+}
+
+:root[data-theme="dark"],
+.sa-window[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #131411;
+  --bg-elevated: #1b1c18;
+  --app-bg: #131411;
+  --surface: #1b1c18;
+  --surface-2: #1e1f1b;
+  --surface-3: #292a25;
+  --surface-code: #1e1f1b;
+  --overlay: rgba(0, 0, 0, 0.64);
+  --border: #504541;
+  --border-strong: #9f8d84;
+  --text-pri: #e5e2da;
+  --text-sec: #d0c4bf;
+  --text-muted: #9f8d84;
+  --text-subtle: #80736d;
+  --primary: #ffb597;
+  --primary-2: #ff8a50;
+  --primary-ink: #4b1700;
+  --primary-soft: rgba(255, 181, 151, 0.14);
+  --success: #7fd8a1;
+  --warning: #e8c177;
+  --error: #ffb4ab;
+  --info: #d0c4bf;
+  --focus-ring: rgba(255, 181, 151, 0.56);
+  --primary-action-bg: #ffb597;
+  --primary-action-bg-hover: #ffcab5;
+  --primary-action-border: rgba(255, 181, 151, 0.64);
+  --primary-action-text: #4b1700;
+  --primary-action-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12), 0 10px 28px rgba(0, 0, 0, 0.28);
+  --shadow: 0 24px 72px rgba(0, 0, 0, 0.38);
+  --ink: var(--text-pri);
+  --muted: var(--text-muted);
+  --faint: var(--text-subtle);
+  --panel: var(--surface);
+  --panel-2: var(--surface-2);
+  --panel-3: var(--surface-3);
+  --line: var(--border);
+  --line-strong: var(--border-strong);
+  --elevated: var(--border);
+  --accent: var(--primary);
+  --accent-2: var(--primary-2);
+  --accent-soft: var(--primary-soft);
+  --green: var(--success);
+  --blue: var(--info);
+  --orange: var(--warning);
+  --red: var(--error);
+  --purple: var(--primary);
+  --text: var(--text-pri);
+  --suiyuan-switch-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
+  --suiyuan-fusion-bg: linear-gradient(135deg, #1e1f1b, #2a2c27);
+  --suiyuan-fusion-border: #3d3e3a;
+  --suiyuan-fusion-color: var(--text-pri);
+  --suiyuan-fusion-shadow: none;
+  --suiyuan-beta-bg: rgba(255, 181, 151, 0.15);
+  --suiyuan-beta-color: var(--primary);
+  --suiyuan-fusion-btn-bg: var(--primary);
+  --suiyuan-fusion-btn-color: var(--primary-ink);
+  --suiyuan-fusion-btn-shadow: none;
+}
+
+body, button, input, select, textarea, span, p, h1, h2, h3, h4, h5, h6, div {
+  font-family: var(--font-cjk);
+}
+
+pre, code, kbd, samp, .monospace, .syntax, pre *, code * {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace !important;
 }
 
 * {
@@ -151,11 +173,11 @@ body,
   width: 100%;
   height: 100%;
   margin: 0;
+  background: var(--bg);
 }
 
 body {
   overflow: hidden;
-  background: var(--bg);
   color: var(--ink);
 }
 
@@ -169,4 +191,78 @@ select {
 button,
 select {
   cursor: pointer;
+}
+
+.fusion-surface {
+  background: var(--suiyuan-fusion-bg);
+  border: 1px solid var(--suiyuan-fusion-border);
+  border-radius: 16px;
+  box-shadow: var(--suiyuan-fusion-shadow);
+  color: var(--suiyuan-fusion-color);
+  padding: 24px;
+}
+
+.fusion-surface-glass {
+  background: var(--suiyuan-beta-bg);
+  color: inherit;
+  border: 1px solid var(--suiyuan-beta-bg);
+  border-radius: 12px;
+}
+
+.fusion-toolbar {
+  background: var(--suiyuan-fusion-bg);
+  border: 1px solid var(--suiyuan-fusion-border);
+  border-radius: 16px;
+  box-shadow: var(--suiyuan-fusion-shadow);
+  color: var(--suiyuan-fusion-color);
+  padding: 12px 18px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.fusion-toolbar-input {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  color: var(--ink);
+  border-radius: 16px;
+  padding: 0 12px;
+  height: 36px;
+}
+
+.suiyuan-btn-fusion {
+  background: var(--suiyuan-fusion-btn-bg);
+  color: var(--suiyuan-fusion-btn-color);
+  box-shadow: var(--suiyuan-fusion-btn-shadow);
+  border: none;
+  border-radius: 999px;
+  padding: 6px 16px;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  transition: opacity 150ms ease;
+}
+
+.suiyuan-btn-fusion:hover:not(:disabled) {
+  opacity: 0.9;
+}
+
+.suiyuan-btn-fusion-ghost {
+  background: var(--suiyuan-beta-bg);
+  color: inherit;
+  border: none;
+  border-radius: 999px;
+  padding: 6px 16px;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  transition: background 150ms ease;
+}
+
+.suiyuan-btn-fusion-ghost:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--suiyuan-beta-bg) 80%, white 20%);
 }

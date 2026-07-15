@@ -1,6 +1,7 @@
 import { optionalTextField, normalizeOptionalTextField, parseRequiredTimestamp } from './contractStoreModel.js';
 import { describe, expect, it } from 'vitest';
-import { createRuntimeResultHelpers } from './runtimeResults.js';
+import { createRuntimeResultHelpers, ContractError } from './runtimeResults.js';
+import { compactSafeDiagnosticPreview } from '../../../shared/api/safeDiagnosticPreview.js';
 
 const helpers = createRuntimeResultHelpers({
   normalizeString: (value) => normalizeOptionalTextField(value),
@@ -110,12 +111,12 @@ describe('runtime result helpers', () => {
     ]);
   });
 
-  it('redacts sensitive legacy RPC result previews before display', () => {
+  it('redacts sensitive legacy RPC results before display', () => {
     const entry = helpers.runtimeResultEntryFromRPCDone('api.rpc.done', {
       method: 'thread/messages',
       threadId: 'thread-1',
       req_id: 3,
-      result_preview: JSON.stringify({
+      result: JSON.stringify({
         messages: [{
           id: 1,
           content: 'real-message-secret',
@@ -173,5 +174,200 @@ describe('runtime result helpers', () => {
 
     expect(entry.detail).toHaveLength(1603);
     expect(entry.detail.endsWith('...')).toBe(true);
+  });
+
+  it('does not throw when result_preview exceeds 1200 characters and gets truncated, while sensitive fields remain redacted', () => {
+    const resultObj = {
+      api_key: 'sk-live-secret-key-1234567890-very-long-secret-to-exceed-limit-and-cause-truncation',
+      normal_field: Array.from({ length: 900 }, (_, index) => index),
+    };
+
+    const truncatedPreview = compactSafeDiagnosticPreview(resultObj, 1200);
+
+    expect(truncatedPreview).toHaveLength(1203);
+    expect(truncatedPreview.endsWith('...')).toBe(true);
+    expect(truncatedPreview).not.toContain('sk-live-secret-key');
+
+    const entry = helpers.runtimeResultEntryFromRPCDone('api.rpc.done', {
+      method: 'thread/messages',
+      threadId: 'thread-1',
+      req_id: 4,
+      result_preview: truncatedPreview,
+    });
+
+    expect(entry).toBeDefined();
+    expect(entry.detail).toBe(truncatedPreview);
+    expect(entry.detail).not.toContain('sk-live-secret-key');
+  });
+
+  it('throws ContractError when result_preview is present but is not a non-empty string', () => {
+    // null preview
+    expect(() => helpers.runtimeResultEntryFromRPCDone('api.rpc.done', {
+      method: 'thread/messages',
+      result_preview: null,
+    })).toThrow(ContractError);
+
+    // empty string preview
+    expect(() => helpers.runtimeResultEntryFromRPCDone('api.rpc.done', {
+      method: 'thread/messages',
+      result_preview: '   ',
+    })).toThrow(ContractError);
+
+    // object preview
+    expect(() => helpers.runtimeResultEntryFromRPCDone('api.rpc.done', {
+      method: 'thread/messages',
+      result_preview: { messages: [] },
+    })).toThrow(ContractError);
+
+    // array preview
+    expect(() => helpers.runtimeResultEntryFromRPCDone('api.rpc.done', {
+      method: 'thread/messages',
+      result_preview: [],
+    })).toThrow(ContractError);
+  });
+
+  it('does not expose a controllable constructor name in ContractError diagnostics', () => {
+    const syntheticSecret = 'synthetic-constructor-secret';
+    const preview = Object.create({ constructor: { name: syntheticSecret } });
+
+    let error;
+    try {
+      helpers.runtimeResultEntryFromRPCDone('api.rpc.done', {
+        method: 'thread/messages',
+        result_preview: preview,
+      });
+      expect.fail('should throw');
+    } catch (caught) {
+      error = caught;
+    }
+
+    expect(error).toBeInstanceOf(ContractError);
+    expect(error.message).toBe('result_preview must be a non-empty string, but got type: object');
+    expect(error.message).not.toContain(syntheticSecret);
+    expect(JSON.stringify(error)).not.toContain(syntheticSecret);
+  });
+
+  it('throws ContractError on invalid preview types without leaking secrets or crashing', () => {
+    // 1. secret object preview
+    const secretObj = { api_key: 'super-secret-password-123' };
+    try {
+      helpers.runtimeResultEntryFromRPCDone('api.rpc.done', {
+        method: 'thread/messages',
+        result_preview: secretObj,
+      });
+      expect.fail('should throw');
+    } catch (e) {
+      expect(e).toBeInstanceOf(ContractError);
+      expect(e.message).not.toContain('super-secret-password-123');
+      expect(e.message).toContain('object');
+    }
+
+    // 2. circular object preview
+    const circularSecret = 'circular-preview-secret';
+    const circular = { secret: circularSecret };
+    circular.self = circular;
+    try {
+      helpers.runtimeResultEntryFromRPCDone('api.rpc.done', {
+        method: 'thread/messages',
+        result_preview: circular,
+      });
+      expect.fail('should throw');
+    } catch (e) {
+      expect(e).toBeInstanceOf(ContractError);
+      expect(e.message).toContain('object');
+      expect(e.message).not.toContain(circularSecret);
+    }
+
+    // 3. BigInt preview
+    const bigIntPreview = 123456789n;
+    try {
+      helpers.runtimeResultEntryFromRPCDone('api.rpc.done', {
+        method: 'thread/messages',
+        result_preview: bigIntPreview,
+      });
+      expect.fail('should throw');
+    } catch (e) {
+      expect(e).toBeInstanceOf(ContractError);
+      expect(e.message).toContain('bigint');
+      expect(e.message).not.toContain(bigIntPreview.toString());
+    }
+
+    // 4. Custom toJSON preview
+    let toJSONCalled = false;
+    const customObj = {
+      toJSON() {
+        toJSONCalled = true;
+        return 'secret-json-value';
+      }
+    };
+    try {
+      helpers.runtimeResultEntryFromRPCDone('api.rpc.done', {
+        method: 'thread/messages',
+        result_preview: customObj,
+      });
+      expect.fail('should throw');
+    } catch (e) {
+      expect(e).toBeInstanceOf(ContractError);
+      expect(toJSONCalled).toBe(false);
+      expect(e.message).not.toContain('secret-json-value');
+    }
+  });
+
+  it('throws SafeDiagnosticPreviewJSONParseError when result_preview is inherited (prototype-only) and result is invalid JSON', () => {
+    const parentProto = { result_preview: 'some-inherited-preview' };
+    const fields = Object.create(parentProto);
+    fields.method = 'thread/messages';
+    fields.result = '{invalid JSON';
+
+    try {
+      helpers.runtimeResultEntryFromRPCDone('api.rpc.done', fields);
+      expect.fail('should have thrown');
+    } catch (e) {
+      expect(e.name).toBe('SafeDiagnosticPreviewJSONParseError');
+    }
+  });
+
+  it('uses only an own result_preview when Object.prototype is polluted', () => {
+    const previousDescriptor = Object.getOwnPropertyDescriptor(Object.prototype, 'result_preview');
+    Object.defineProperty(Object.prototype, 'result_preview', {
+      configurable: true,
+      value: 'inherited-preview-must-not-be-used',
+    });
+
+    try {
+      expect(helpers.runtimeResultEntryFromRPCDone('api.rpc.done', {
+        method: 'thread/messages',
+      })).toBeNull();
+
+      let error;
+      try {
+        helpers.runtimeResultEntryFromRPCDone('api.rpc.done', {
+          method: 'thread/messages',
+          result: '{invalid JSON',
+        });
+        expect.fail('should have thrown');
+      } catch (caught) {
+        error = caught;
+      }
+      expect(error.name).toBe('SafeDiagnosticPreviewJSONParseError');
+    } finally {
+      if (previousDescriptor) {
+        Object.defineProperty(Object.prototype, 'result_preview', previousDescriptor);
+      } else {
+        delete Object.prototype.result_preview;
+      }
+    }
+  });
+
+  it('throws SafeDiagnosticPreviewJSONParseError when result_preview is absent and result is invalid JSON', () => {
+    try {
+      helpers.runtimeResultEntryFromRPCDone('api.rpc.done', {
+        method: 'thread/messages',
+        result: '{invalid JSON',
+      });
+      expect.fail('should have thrown');
+    } catch (e) {
+      expect(e.name).toBe('SafeDiagnosticPreviewJSONParseError');
+    }
   });
 });

@@ -25,19 +25,13 @@
 }
 
 .observability-page .settings-card {
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  background: var(--panel);
-  padding: 14px;
+  padding: 18px;
 }
 
 .observability-search {
   width: 100%;
   min-width: 0;
-  border: 1px solid color-mix(in srgb, var(--line) 76%, transparent);
-  border-radius: var(--radius);
-  background: color-mix(in srgb, var(--panel) 72%, var(--bg));
-  padding: 14px;
+  padding: 18px;
 }
 
 .observability-filter-grid {
@@ -52,7 +46,7 @@
   display: grid;
   min-width: 0;
   gap: 7px;
-  color: var(--text-muted);
+  opacity: 0.8;
   font-size: 13px;
   font-weight: 600;
 }
@@ -63,9 +57,9 @@
   width: 100%;
   min-width: 0;
   height: 40px;
-  border: 1px solid color-mix(in srgb, var(--line) 82%, transparent);
+  border: 1px solid var(--line);
   border-radius: var(--radius-sm);
-  background: color-mix(in srgb, var(--panel-2) 82%, var(--bg));
+  background: var(--panel-2);
   color: var(--text-pri);
   padding: 0 11px;
 }

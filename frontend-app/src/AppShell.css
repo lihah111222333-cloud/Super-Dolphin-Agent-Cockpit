@@ -1484,3 +1484,108 @@
   font-style: normal;
   vertical-align: middle;
 }
+
+/* Sidebar user profile card */
+.suiyuan-sidebar-profile-card {
+  margin-top: auto;
+  padding: 10px 14px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border-radius: 12px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  transition: background var(--transition);
+}
+
+.suiyuan-profile-avatar-wrapper {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 999px;
+  background: var(--surface-3);
+  color: var(--primary);
+}
+
+.suiyuan-profile-info {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.suiyuan-profile-name {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-pri);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.suiyuan-profile-subtext {
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Make suiyuan-sidebar footer simpler since profile is at bottom */
+.suiyuan-sidebar-footer {
+  margin-top: auto;
+  padding-top: 12px;
+  display: flex;
+  gap: 8px;
+}
+
+.suiyuan-sidebar-footer .suiyuan-footer-item {
+  flex: 1;
+}
+
+/* Suiyuan general toggle switch button */
+.suiyuan-switch-btn {
+  background: transparent !important;
+  border: 0 !important;
+  padding: 0 !important;
+  box-shadow: none !important;
+  min-height: 0 !important;
+  min-width: 0 !important;
+  width: auto !important;
+  height: auto !important;
+  cursor: pointer;
+}
+
+.suiyuan-switch-track {
+  position: relative;
+  width: 44px;
+  height: 24px;
+  border-radius: 999px;
+  background: var(--surface-3);
+  border: 1px solid var(--border);
+  transition: background 160ms ease, border-color 160ms ease;
+}
+
+.suiyuan-switch-btn.active .suiyuan-switch-track {
+  background: var(--primary);
+  border-color: var(--primary);
+}
+
+.suiyuan-switch-thumb {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 16px;
+  height: 16px;
+  border-radius: 999px;
+  background: var(--text-pri);
+  box-shadow: var(--suiyuan-switch-shadow);
+  transition: transform 180ms cubic-bezier(0.2, 0.8, 0.2, 1), background 160ms ease;
+}
+
+.suiyuan-switch-btn.active .suiyuan-switch-thumb {
+  transform: translateX(20px);
+  background: var(--primary-ink);
+}

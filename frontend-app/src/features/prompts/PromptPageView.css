@@ -479,3 +479,188 @@
   font-size: 11px;
   padding: 4px 10px;
 }
+
+/* Custom Drag-and-drop look zone for memory imports */
+.suiyuan-import-memory-card {
+  display: flex;
+  flex-direction: column;
+}
+
+.suiyuan-import-memory-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 12px;
+}
+
+.suiyuan-import-memory-content h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-pri);
+}
+
+.suiyuan-import-memory-content p {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-sec);
+  line-height: 1.5;
+}
+
+.suiyuan-import-memory-content button {
+  margin-top: auto;
+}
+
+.suiyuan-import-drag-zone {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  border: 2px dashed var(--border);
+  border-radius: 12px;
+  padding: 32px 20px;
+  background: var(--surface-2);
+  transition: all var(--transition);
+  gap: 12px;
+}
+
+.suiyuan-import-drag-zone:hover {
+  border-color: var(--primary);
+  background: var(--surface-3);
+}
+
+.suiyuan-import-drag-zone svg {
+  color: var(--text-muted);
+  transition: color var(--transition);
+}
+
+.suiyuan-import-drag-zone:hover svg {
+  color: var(--primary);
+}
+
+.suiyuan-import-drag-zone p {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-muted);
+  line-height: 1.5;
+  max-width: 240px;
+}
+
+/* Redesigned Prompt/Persona Cards in Fusion style */
+.prompt-card {
+  background: var(--suiyuan-fusion-bg) !important;
+  border: 1px solid var(--suiyuan-fusion-border) !important;
+  box-shadow: var(--suiyuan-fusion-shadow) !important;
+  color: var(--suiyuan-fusion-color) !important;
+  border-radius: 16px !important;
+  padding: 20px !important;
+  display: flex !important;
+  flex-direction: column !important;
+  transition: all var(--transition) !important;
+}
+
+.prompt-card:hover {
+  border-color: var(--primary) !important;
+  transform: translateY(-2px) !important;
+  box-shadow: var(--suiyuan-send-shadow) !important;
+}
+
+.prompt-card h3 {
+  font-size: 16px !important;
+  font-weight: 700 !important;
+  color: inherit !important;
+  margin: 0 !important;
+  min-width: 0 !important;
+  overflow-wrap: anywhere !important;
+}
+
+.prompt-badges span {
+  font-size: 11px !important;
+  font-weight: 600 !important;
+  padding: 2px 6px !important;
+  border-radius: 10px !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  white-space: nowrap !important;
+  flex: 0 0 auto !important;
+  background: color-mix(in srgb, var(--suiyuan-fusion-color) 20%, transparent) !important;
+  border: 1px solid color-mix(in srgb, var(--suiyuan-fusion-color) 30%, transparent) !important;
+  color: var(--suiyuan-fusion-color) !important;
+}
+
+.prompt-badges span.active {
+  background: var(--suiyuan-beta-bg) !important;
+  border-color: transparent !important;
+  color: var(--suiyuan-beta-color) !important;
+}
+
+.prompt-card-desc {
+  font-size: 13px !important;
+  color: inherit !important;
+  opacity: 0.9 !important;
+  margin: 0 0 12px 0 !important;
+}
+
+.prompt-tag-row span {
+  font-size: 11px !important;
+  background: color-mix(in srgb, var(--suiyuan-fusion-color) 15%, transparent) !important;
+  color: var(--suiyuan-fusion-color) !important;
+  padding: 2px 8px !important;
+  border-radius: 4px !important;
+}
+
+.prompt-card-preview {
+  font-size: 13px !important;
+  line-height: 1.5 !important;
+  color: inherit !important;
+  opacity: 0.85 !important;
+  margin: 0 0 16px 0 !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  display: -webkit-box !important;
+  line-clamp: 3 !important;
+  -webkit-line-clamp: 3 !important;
+  -webkit-box-orient: vertical !important;
+}
+
+.prompt-card-actions {
+  margin-top: auto !important;
+  display: flex !important;
+  justify-content: flex-end !important;
+  gap: 8px !important;
+  padding-top: 16px !important;
+  border-top: 1px solid color-mix(in srgb, var(--suiyuan-fusion-color) 15%, transparent) !important;
+}
+
+.prompt-card-actions button {
+  background: color-mix(in srgb, var(--suiyuan-fusion-color) 10%, transparent) !important;
+  border: 1px solid color-mix(in srgb, var(--suiyuan-fusion-color) 15%, transparent) !important;
+  color: var(--suiyuan-fusion-color) !important;
+  padding: 6px 12px !important;
+  border-radius: 16px !important;
+  font-size: 13px !important;
+  font-weight: 600 !important;
+  cursor: pointer;
+  transition: all 150ms ease !important;
+  min-width: 64px !important;
+  white-space: nowrap !important;
+  flex: 0 0 auto !important;
+}
+
+.prompt-card-actions button:hover {
+  background: color-mix(in srgb, var(--suiyuan-fusion-color) 25%, transparent) !important;
+}
+
+.prompt-card-actions button.ghost {
+  background: transparent !important;
+  border-color: transparent !important;
+}
+
+.prompt-card-actions button.ghost:hover {
+  background: color-mix(in srgb, var(--suiyuan-fusion-color) 15%, transparent) !important;
+  border-color: transparent !important;
+}
