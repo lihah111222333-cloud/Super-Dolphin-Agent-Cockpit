@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -111,6 +112,29 @@ func TestBuildGatePlanIncludesChangedBackendPackages(t *testing.T) {
 		"./internal/contract",
 	)
 	assertStringSetOmits(t, plan.AffectedGoPackages, "./internal/archtest")
+}
+
+func TestBuildGatePlanRoutesCapabilityContractProducerInputs(t *testing.T) {
+	for _, path := range []string{
+		"internal/contract/provider.go",
+		"internal/provider/codexapp/support.go",
+		"cmd/mcp-orch/orchestration/registry.go",
+		"cmd/mcp-orch/tools/position.go",
+	} {
+		t.Run(path, func(t *testing.T) {
+			plan := buildGatePlan([]string{path})
+			assertStringSetContains(t, plan.RequiredGates, "capcontract:check")
+			assertStringSetContains(t, plan.GeneratedFiles, capabilityContractManifest)
+		})
+	}
+
+	for _, path := range []string{"frontend-app/src/App.jsx", "docs/README.md"} {
+		t.Run("unrelated/"+path, func(t *testing.T) {
+			plan := buildGatePlan([]string{path})
+			assertStringSetOmits(t, plan.RequiredGates, "capcontract:check")
+			assertStringSetOmits(t, plan.GeneratedFiles, capabilityContractManifest)
+		})
+	}
 }
 
 func TestBuildGatePlanRoutesGateInfrastructureToOwnedChecks(t *testing.T) {
@@ -438,14 +462,7 @@ func TestGateCommandEnvironmentIsolatesCacheIndexFromNonGitGates(t *testing.T) {
 	}
 
 	want := "GIT_INDEX_FILE=" + os.Getenv("GIT_INDEX_FILE")
-	found := false
-	for _, entry := range gateCommandEnvironment("git") {
-		if entry == want {
-			found = true
-			break
-		}
-	}
-	if !found {
+	if !slices.Contains(gateCommandEnvironment("git"), want) {
 		t.Fatalf("git whitespace gate lost staged index %q", want)
 	}
 }

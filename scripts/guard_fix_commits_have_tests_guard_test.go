@@ -249,15 +249,7 @@ func TestFixTestGuardSkipsMergeCommitSubjects(t *testing.T) {
 }
 
 func TestPreCommitRoutesDocsOnlyThroughCachedAIMaintenance(t *testing.T) {
-	root := prepareFixTestGuardRepo(t)
-	copyFixTestGuardRepoFile(t, root, ".githooks/pre-commit", 0o755)
-	copyFixTestGuardRepoFile(t, root, "scripts/configure_hook_node_runtime.sh", 0o755)
-	copyFixTestGuardRepoFile(t, root, "scripts/refresh_generated_artifacts.sh", 0o755)
-	writePreCommitFakeCodeGuardScript(t, root)
-	writeFakeAIMaintenanceGateScript(t, root)
-	writePreCommitFakeCodemapMakefile(t, root)
-	runFixTestGuardGit(t, root, "add", ".githooks/pre-commit", "scripts/configure_hook_node_runtime.sh", "scripts/refresh_generated_artifacts.sh", "scripts/test_with_guard.sh", "scripts/ai_maintenance_gates.sh", "Makefile")
-	runFixTestGuardGit(t, root, "commit", "-m", "chore: 安装 precommit fixture")
+	root := preparePreCommitGateFixture(t)
 
 	writeFixTestGuardFile(t, root, "docs/readme.md", "docs only\n")
 	runFixTestGuardGit(t, root, "add", "docs/readme.md")
@@ -280,19 +272,13 @@ func TestPreCommitRoutesDocsOnlyThroughCachedAIMaintenance(t *testing.T) {
 	)
 	stagedTree := strings.TrimSpace(runFixTestGuardGitOutput(t, root, "write-tree"))
 	assertOutputContainsAll(t, out, "gate-tree="+stagedTree)
-	assertOutputOmitsAll(t, out, "full codebase guard", "fake code guard", "go vet", "frontend-app tests")
+	assertOutputOmitsAll(t, out, "full codebase guard", "fake code guard", "go vet", "frontend-app tests", "refresh capability contract manifest")
+	cached := runFixTestGuardGitOutput(t, root, "diff", "--cached", "--name-only")
+	assertOutputOmitsAll(t, cached, "docs/doc/codemap/capability-contract/capability_manifest.json")
 }
 
 func TestPreCommitStagesRefreshedCodemapFiles(t *testing.T) {
-	root := prepareFixTestGuardRepo(t)
-	copyFixTestGuardRepoFile(t, root, ".githooks/pre-commit", 0o755)
-	copyFixTestGuardRepoFile(t, root, "scripts/configure_hook_node_runtime.sh", 0o755)
-	copyFixTestGuardRepoFile(t, root, "scripts/refresh_generated_artifacts.sh", 0o755)
-	writePreCommitFakeCodeGuardScript(t, root)
-	writeFakeAIMaintenanceGateScript(t, root)
-	writePreCommitFakeCodemapMakefile(t, root)
-	runFixTestGuardGit(t, root, "add", ".githooks/pre-commit", "scripts/configure_hook_node_runtime.sh", "scripts/refresh_generated_artifacts.sh", "scripts/test_with_guard.sh", "scripts/ai_maintenance_gates.sh", "Makefile")
-	runFixTestGuardGit(t, root, "commit", "-m", "chore: 安装 precommit fixture")
+	root := preparePreCommitGateFixture(t)
 
 	writeFixTestGuardFile(t, root, "docs/readme.md", "docs only\n")
 	runFixTestGuardGit(t, root, "add", "docs/readme.md")
@@ -319,6 +305,26 @@ func TestPreCommitStagesRefreshedCodemapFiles(t *testing.T) {
 	assertOutputContainsAll(t, stagedREADME, "root readme refreshed")
 	stagedArchtestMap := runFixTestGuardGitOutput(t, root, "show", ":docs/doc/codemap/13-archtest-boundaries.md")
 	assertOutputContainsAll(t, stagedArchtestMap, "archtest map refreshed")
+}
+
+func TestPreCommitRefreshesAndStagesCapabilityManifestForProducerInput(t *testing.T) {
+	root := preparePreCommitGateFixture(t)
+	writeFixTestGuardFile(t, root, "internal/provider/producer.go", "package provider\n\nfunc CapabilityProducer() {}\n")
+	runFixTestGuardGit(t, root, "add", "internal/provider/producer.go")
+
+	out, err := runPreCommitHook(t, root)
+	if err != nil {
+		t.Fatalf("pre-commit failed for capability producer input: %v\n%s", err, out)
+	}
+	assertOutputContainsAll(t, out, "[generated] refresh capability contract manifest", "pre-commit OK")
+
+	const manifest = "docs/doc/codemap/capability-contract/capability_manifest.json"
+	capabilityPaths := strings.TrimSpace(runFixTestGuardGitOutput(t, root, "diff", "--cached", "--name-only", "--", "docs/doc/codemap/capability-contract"))
+	if capabilityPaths != manifest {
+		t.Fatalf("pre-commit staged unexpected capability artifacts: %q", capabilityPaths)
+	}
+	stagedManifest := runFixTestGuardGitOutput(t, root, "show", ":"+manifest)
+	assertOutputContainsAll(t, stagedManifest, `{"capability":"refreshed"}`)
 }
 
 func TestPreCommitRejectsNonGoStagedWorktreeMismatch(t *testing.T) {

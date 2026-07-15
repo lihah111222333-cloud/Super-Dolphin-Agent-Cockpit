@@ -266,6 +266,13 @@ func applyFileGateRules(file string, gates, evidence, generated map[string]bool)
 		generated[file] = true
 		evidence["generated:source"] = true
 	}
+	if capabilityContractProducerInput(file) {
+		generated[capabilityContractManifest] = true
+		evidence["generated:source"] = true
+	}
+	if backendGoFile(file) || file == capabilityContractManifest {
+		gates["capcontract:check"] = true
+	}
 	return backendChanged
 }
 
@@ -688,6 +695,7 @@ func gateEvidenceCommandFragments() map[string][]string {
 	return map[string][]string{
 		"ai-maintenance:self-test": {"go test ./scripts/ai_maintenance", "go test ./scripts -run TestAIMaintenanceGate"},
 		"backend:test_with_guard":  {"./scripts/test_with_guard.sh"},
+		"capcontract:check":        {"make capcontract-check"},
 		"frontend:lint":            {"npm run lint"},
 		"frontend:test":            {"npm test"},
 		"frontend:build":           {"npm run build"},

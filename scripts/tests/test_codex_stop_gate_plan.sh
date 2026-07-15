@@ -49,6 +49,7 @@ go_plan="$(run_plan "${go_fixture}")"
 assert_contains "${go_plan}" "go_pkg ./internal/provider/codexapp" "Go package mapping includes codexapp"
 assert_contains "${go_plan}" "go_pkg ./cmd/mcp-orch/tools" "Go package mapping includes mcp-orch tools"
 assert_contains "${go_plan}" "guard go" "Go changes enable Go guard"
+assert_contains "${go_plan}" "capcontract_check make capcontract-check" "Capability producer changes enable capcontract check"
 assert_not_contains "${go_plan}" "guard frontend" "Go-only changes skip frontend guard"
 
 module_fixture="${tmp_dir}/module.txt"
@@ -71,6 +72,7 @@ frontend_plan="$(run_plan "${frontend_fixture}")"
 assert_contains "${frontend_plan}" "frontend_project frontend-app" "frontend mapping includes React frontend app"
 assert_contains "${frontend_plan}" "guard frontend" "frontend changes enable frontend guard"
 assert_not_contains "${frontend_plan}" "guard go" "frontend-only changes skip Go guard"
+assert_not_contains "${frontend_plan}" "capcontract_check make capcontract-check" "frontend-only changes skip capcontract check"
 
 ignored_frontend_fixture="${tmp_dir}/ignored-frontend.txt"
 cat >"${ignored_frontend_fixture}" <<'EOF'
@@ -94,6 +96,7 @@ README.md
 EOF
 docs_plan="$(run_plan "${docs_fixture}")"
 assert_contains "${docs_plan}" "none" "docs-only changes skip hook gates"
+assert_not_contains "${docs_plan}" "capcontract_check make capcontract-check" "docs-only changes skip capcontract check"
 
 active_fixture="${tmp_dir}/active.txt"
 cat >"${active_fixture}" <<'EOF'

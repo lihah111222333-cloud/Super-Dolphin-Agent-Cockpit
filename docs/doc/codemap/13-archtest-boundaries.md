@@ -4,7 +4,7 @@
 
 - Owners: 14
 - Canonical rules: 21
-- Specialized guards: 9
+- Specialized guards: 10
 - Governed backend surfaces: 29
 
 ## Rule owners
@@ -61,6 +61,7 @@
 | `code_size_budget` | `internal/guards/code_size_guard_test.go` | — | `TestCodeSizeBudgetBaselineIsActionable` | `internal/guards` | the repository guard keeps code size baselines non-empty and enforcing |
 | `dependency_direction` | `internal/archtest/dependency_direction_test.go` | — | `TestDependencyDirection` | `internal/mcpserver` | dependency direction tests protect typed backend layer relationships |
 | `fx_graph` | `internal/archtest/fx_graph_test.go` | — | `TestFxValidateApp` | `internal/app` | the desktop composition root must retain a valid Fx graph |
+| `ignored_go_tests` | `internal/guards/ignored_test_guard_test.go` | — | `TestTrackedGoTestsDoNotUseIgnoreBuildConstraint` | `internal/guards` | tracked Go tests must remain attached to an executable test chain instead of using the unowned ignore build tag |
 | `pkg_public_boundary` | `internal/archtest/backend_boundary_guard_coverage_test.go` | — | `TestPkgNoInternalImportsRuleRejectsRepositoryInternals` | `pkg/cronmetrics`<br>`pkg/dagmetrics`<br>`pkg/dreammetrics`<br>`pkg/logger`<br>`pkg/skillblocks`<br>`pkg/skillmetrics` | public pkg libraries must reject both repository internals and command entrypoints |
 | `rollback_skip_markers` | `internal/guards/rollback_skip_guard_test.go` | — | `TestGoTestsDoNotContainRollbackSkipMarkers` | `internal/guards` | the repository guard rejects hidden rollback skip markers in Go tests |
 | `rpc_runtime_e2e` | `internal/e2e/rpc_runtime/runtime_e2e_test.go` | `e2e` | `TestAgentRuntimeRPCBlackBox`<br>`TestRPCRuntimeE2EEnvIsIsolated` | `internal/e2e` | the tagged RPC runtime suite validates the backend process boundary end to end |
@@ -84,7 +85,7 @@
 | `internal/devtools` | `fx_assembly_scope`<br>`internal_support_narrow_import_surface` | — | backend developer tooling |
 | `internal/dto` | `fx_assembly_scope`<br>`internal_support_narrow_import_surface` | — | transport-neutral data transfer objects |
 | `internal/e2e` | — | `rpc_runtime_e2e` | backend end-to-end test surface |
-| `internal/guards` | — | `code_size_budget`<br>`rollback_skip_markers` | repository-level test guard surface |
+| `internal/guards` | — | `code_size_budget`<br>`ignored_go_tests`<br>`rollback_skip_markers` | repository-level test guard surface |
 | `internal/mcpserver` | `fx_assembly_scope` | `dependency_direction` | shared MCP server implementations |
 | `internal/module` | `fx_assembly_scope`<br>`module_horizontal_deep_import`<br>`module_no_direct_db_imports`<br>`module_no_store_imports` | — | business module ownership |
 | `internal/platform` | `fx_assembly_scope`<br>`hooks_no_mcpcontrol`<br>`hooks_no_platform_db`<br>`mcpcontrol_no_hooks`<br>`platform_no_module`<br>`platform_no_store` | — | infrastructure runtime layer |

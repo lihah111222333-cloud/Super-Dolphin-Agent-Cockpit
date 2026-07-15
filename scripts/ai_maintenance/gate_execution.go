@@ -70,6 +70,7 @@ func gateRunners(plan gatePlan, executionScope gateExecutionScope) map[string]ga
 			args = append(args, "-count=1")
 			return runCommand("", args[0], args[1:]...)
 		}},
+		"capcontract:check":     generatedCheck(false, "make", "capcontract-check"),
 		"frontend:lint":         {run: func() error { return runCommand("frontend-app", "npm", "run", "lint") }},
 		"frontend:test":         {run: func() error { return runCommand("frontend-app", "npm", "test") }},
 		"frontend:build":        {run: func() error { return runCommand("frontend-app", "npm", "run", "build") }},

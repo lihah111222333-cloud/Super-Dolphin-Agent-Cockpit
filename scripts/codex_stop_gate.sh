@@ -124,8 +124,8 @@ is_frontend_code_path() {
     ${FRONTEND_PROJECT}/playwright-report/*|\
     ${FRONTEND_PROJECT}/test-results/*|\
     ${FRONTEND_PROJECT}/review/*|\
-    ${FRONTEND_PROJECT}/full_test_output.txt|\
-    ${FRONTEND_PROJECT}/.DS_Store)
+    "${FRONTEND_PROJECT}"/full_test_output.txt|\
+    "${FRONTEND_PROJECT}"/.DS_Store)
       return 1
       ;;
     ${FRONTEND_PROJECT}/*)
@@ -170,17 +170,14 @@ is_hook_change() {
 }
 
 is_capcontract_change() {
-  case "$1" in
-    docs/doc/codemap/capability-contract/*|\
-    internal/devtools/capcontract/*|\
-    scripts/capcontract.go|\
-    scripts/capcontract/*)
-      return 0
-      ;;
-    *)
-      return 1
-      ;;
-  esac
+	case "$1" in
+		cmd/*.go|internal/*.go|pkg/*.go|scripts/*.go|docs/doc/codemap/capability-contract/capability_manifest.json)
+			return 0
+			;;
+		*)
+			return 1
+			;;
+	esac
 }
 
 changed_go_packages() {

@@ -30,7 +30,6 @@ PUSH_RANGES=$(mktemp -t pre-push-ranges.XXXXXX)
 AI_MAINTENANCE_CHANGED_FILES=()
 HAS_FRONTEND_APP_CODE_CHANGES=0
 HAS_CODEMAP_CHANGES=0
-HAS_CAPCONTRACT_CHANGES=0
 HAS_SKILL_CHANGES=0
 cleanup() {
   rm -f "$PUSH_RANGES"
@@ -130,17 +129,6 @@ add_codemap_path() {
   esac
 }
 
-add_capcontract_path() {
-  case "$1" in
-    docs/doc/codemap/capability-contract/*|\
-    internal/devtools/capcontract/*|\
-    scripts/capcontract.go|\
-    scripts/capcontract/*)
-      HAS_CAPCONTRACT_CHANGES=1
-      ;;
-  esac
-}
-
 add_skill_path() {
   case "$1" in
     .agents/skills/*|.claude/skills/*|scripts/validate_super_agent_skills.py|CLAUDE.md|AGENTS.md)
@@ -153,7 +141,6 @@ record_changed_path() {
   add_ai_maintenance_path "$1"
   add_frontend_path "$1"
   add_codemap_path "$1"
-  add_capcontract_path "$1"
   add_skill_path "$1"
 }
 
@@ -199,10 +186,6 @@ collect_changed_test_scopes() {
 }
 
 run_path_based_repository_gates() {
-  if [ "$HAS_CAPCONTRACT_CHANGES" -eq 1 ]; then
-    echo "[pre-push] capability contract check..."
-    run_without_git_env make capcontract-check
-  fi
   if [ "$HAS_SKILL_CHANGES" -eq 1 ]; then
     echo "[pre-push] skill mirror validation..."
     run_without_git_env python3 scripts/validate_super_agent_skills.py
