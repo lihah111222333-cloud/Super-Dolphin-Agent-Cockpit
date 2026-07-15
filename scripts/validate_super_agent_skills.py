@@ -24,6 +24,44 @@ FORBIDDEN = ["mcp-go-agent-orchestration", "go-agent-orchestration", "github.com
 FORBIDDEN_SKILL_TREE_TOKENS = FORBIDDEN + ["~/.claude/skills/design/scripts"]
 MIRROR_IGNORED_REL_FILES = {"references/ui-styling/scripts/.coverage"}
 PLACEHOLDER_VALUES = {"", "11", "todo", "tbd", "placeholder"}
+BACKEND_REQUIRED_TRIGGER_WORDS = {
+    "Go后端",
+    "golang",
+    "backend",
+    "fx.Module",
+    "sqlc",
+    "jrpc2",
+    "RunGroup",
+    "internal/module",
+    "internal/store",
+    "internal/platform/runner",
+    "cmd/mcp-",
+}
+BACKEND_LOW_SIGNAL_TRIGGER_WORDS = {"go", "mcp"}
+BACKEND_REQUIRED_CONTENT = {
+    "SKILL.md": ("internal/app/storeadapter", "internal/platform/runner", "./scripts/test_with_guard.sh"),
+    "project_structure.md": (
+        "internal/module/<name>/",
+        "internal/store/<name>/",
+        "internal/app/storeadapter/<name>",
+    ),
+    "concurrency_basics.md": ("internal/app.BindRuntime", 'group:"runners"'),
+    "error_handling.md": ("module/service", "internal/platform/rpc", "errors.Is", "errors.As"),
+    "code_organization.md": ("workspace creation failed", 'return "", err', "ClientConfig"),
+    "testing_pitfalls.md": ("./scripts/test_with_guard.sh", "make test"),
+    "effective_go_rules.md": ("go.mod",),
+}
+BACKEND_FORBIDDEN_CONTENT = {
+    "project_structure.md": ("├── store.go         # 数据库访问层封装",),
+    "concurrency_basics.md": (
+        "_ = platformrunner.RunGroup",
+        "context.WithCancel(context.Background())",
+    ),
+    "error_handling.md": ("**L2 业务层** | 带有自定义 Code 的 `*jrpc2.Error`",),
+    "code_organization.md": ("Client{timeout: 30 * time.Second}", "return res, err"),
+    "testing_pitfalls.md": ("go test -race ./...",),
+}
+
 
 
 def skill_dirs(base: Path) -> list[Path]:
@@ -194,6 +232,67 @@ def check_review_skill(failures: list[str], review: str) -> None:
             "gate",
         ),
     )
+def parse_json_list_field(failures: list[str], path: Path, key: str) -> list[str]:
+    fields, _ = parse(path.read_text(encoding="utf-8"))
+    raw = fields.get(key, "")
+    try:
+        value = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        failures.append(f"{path}: {key} must be a JSON string list: {exc}")
+        return []
+    if not isinstance(value, list) or not all(isinstance(item, str) and item.strip() for item in value):
+        failures.append(f"{path}: {key} must contain only non-empty strings")
+        return []
+    return [item.strip() for item in value]
+
+
+def check_backend_skill_contract(failures: list[str], root: Path | None = None) -> None:
+    repo = (root if root is not None else ROOT).resolve()
+    backend = repo / ".agents" / "skills" / "后端"
+    main = backend / "SKILL.md"
+    if not main.is_file():
+        failures.append(f"{main}: missing canonical backend skill")
+        return
+
+    triggers = parse_json_list_field(failures, main, "trigger_words")
+    normalized = {item.casefold(): item for item in triggers}
+    for word in sorted(BACKEND_REQUIRED_TRIGGER_WORDS):
+        if word.casefold() not in normalized:
+            failures.append(f"{main}: missing high-signal backend trigger {word!r}")
+    for word in sorted(BACKEND_LOW_SIGNAL_TRIGGER_WORDS):
+        if word.casefold() in normalized:
+            failures.append(f"{main}: low-signal backend trigger {word!r} is forbidden")
+
+    for relative, facts in BACKEND_REQUIRED_CONTENT.items():
+        path = backend / relative
+        if not path.is_file():
+            failures.append(f"{path}: missing backend skill contract file")
+            continue
+        text = path.read_text(encoding="utf-8")
+        for fact in facts:
+            if fact not in text:
+                failures.append(f"{path}: missing backend contract fact {fact!r}")
+        for token in BACKEND_FORBIDDEN_CONTENT.get(relative, ()):
+            if token in text:
+                failures.append(f"{path}: forbidden backend skill pattern {token!r}")
+
+    effective = backend / "effective_go_rules.md"
+    if effective.is_file() and re.search(r"\bGo\s+1\.\d+(?:\.\d+)?\+?", effective.read_text(encoding="utf-8")):
+        failures.append(f"{effective}: Go version must come from go.mod, not skill prose")
+    go_mod = repo / "go.mod"
+    if not go_mod.is_file() or not re.search(r"(?m)^go\s+\d+\.\d+(?:\.\d+)?\s*$", go_mod.read_text(encoding="utf-8")):
+        failures.append(f"{go_mod}: missing parseable Go version source")
+
+    rungroup = repo / "docs" / "契约" / "rungroup-convention.md"
+    if not rungroup.is_file():
+        failures.append(f"{rungroup}: missing RunGroup contract")
+        return
+    contract = rungroup.read_text(encoding="utf-8")
+    for fact in ("internal/platform/runner", "internal/app.BindRuntime", 'group:"runners"'):
+        if fact not in contract:
+            failures.append(f"{rungroup}: missing RunGroup contract fact {fact!r}")
+    if "github.com/oklog/run" in contract:
+        failures.append(f"{rungroup}: forbidden RunGroup contract pattern 'github.com/oklog/run'")
 
 
 def check_skills(failures: list[str], skills: dict[str, str]) -> None:
@@ -235,6 +334,7 @@ def main() -> int:
     check_skill_package_schema(failures)
     check_forbidden_skill_tree_tokens(failures)
     check_skills(failures, skills)
+    check_backend_skill_contract(failures)
     check_policy(failures)
     for path, facts in {"AGENTS.md": ["自动加载仅限四个技能", "使用 `字段守卫`"], "docs/doc/codemap/07-module-read.md": ["<cwd>/.agents/skills", "provider mirror 是生成物，不是 canonical 真值"]}.items():
         text = (ROOT / path).read_text(encoding="utf-8")

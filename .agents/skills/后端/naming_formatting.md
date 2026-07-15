@@ -13,7 +13,7 @@ gofmt -w path/to/file.go
 goimports -w path/to/file.go
 ```
 
-最大行长: **120 字符**。在逻辑点断行:
+仓库没有独立的 120 字符硬门禁。长签名、错误上下文和复合字面量在语义点断行，并以`gofmt`、复杂度守卫和可读性为准：
 
 ```go
 func ProcessOrderWithValidation(
@@ -116,8 +116,8 @@ import (
     "go.uber.org/fx"
 
     // 3. 本项目包
-    "your-project/internal/user"
-    "your-project/pkg/utils"
+    "github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/thread"
+    "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
 )
 ```
 
@@ -125,7 +125,7 @@ import (
 
 ## 文档注释
 
-所有导出符号 MUST 有注释，以符号名开头:
+导出符号的文档注释以符号名开头；生产函数还必须满足当前`make guard`的中文函数注释规则。不要复制守卫阈值或用无意义模板句凑过检查：
 
 ```go
 // Package user 用户包提供用户管理功能

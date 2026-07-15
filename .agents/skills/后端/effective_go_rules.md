@@ -1,170 +1,40 @@
-# Effective Go 核心规则
+# Go 惯用写法的仓库增量
 
-> 每条规则均链接到官方文档对应章节，需要详细说明时点击锚点。
+> **加载条件**：需要快速确认通用 Go 写法时加载。这里只记录会影响本仓库实现和门禁的增量，不复制一份可能漂移的语言教程。
 
----
+## 事实源
 
-## 格式化 (不可协商)
+- Go 语言版本、toolchain 和依赖要求始终读取根`go.mod`；技能不得硬编码未来版本。
+- 格式和注释门禁以`gofmt`、`make guard`及当前 archtest/guard 实现为准。
+- 依赖方向以 backend boundary registry、`internal/archtest`和`docs/doc/codemap/13-archtest-boundaries.md`导航结果为准。
+- 测试入口以`scripts/test_with_guard.sh`和 Makefile 为准。
 
-> 📚 [官方: Formatting](https://go.dev/doc/effective_go#formatting)
+## 格式与命名
 
-| 规则 | 说明 |
-|------|------|
-| `gofmt` | 必须使用，不可协商 |
-| `goimports` | 推荐使用，自动管理导入 |
-| 行长 | 最大 120 字符 |
-| 缩进 | Tab，非空格 |
+- Go 文件必须通过`gofmt`；导入整理可使用`goimports`，但不要对全仓无差别重写。
+- 标识符使用 MixedCaps；包名短小、小写且不使用下划线。
+- 不遮蔽`new`、`len`、`make`、`copy`、`error`等内置标识符。
+- 仓库没有独立的 120 字符硬门禁；在语义边界断行，以可读性和现有格式化/复杂度守卫为准。
 
----
+## 错误
 
-## 命名规范
+- 每个返回 error 的调用都要处理；有意忽略的 close/shutdown 错误必须走仓库明确的观测 helper，不能裸`_ = err`。
+- 同一抽象内直接返回，跨 owner 且需要定位上下文时使用`fmt.Errorf("context: %w", err)`包装一次。
+- 判断错误使用`errors.Is` / `errors.As`，不要比较完整字符串。
+- service 返回 transport-neutral 错误；协议 code 在 adapter/middleware 映射。
 
-> 📚 [官方: Names](https://go.dev/doc/effective_go#names) | [Code Review: MixedCaps](https://github.com/golang/go/wiki/CodeReviewComments#mixed-caps)
+## 接口与构造
 
-| 类型 | 规则 | 示例 |
-|------|------|------|
-| 导出名 | MixedCaps (大驼峰) | `UserService` |
-| 非导出名 | mixedCaps (小驼峰) | `userService` |
-| 包名 | 小写单词，无下划线 | `httputil` |
-| 接口名 | 单方法用 `-er` 后缀 | `Reader`, `Writer` |
-| 禁止 | 下划线命名 | ~~`user_name`~~ |
+- 接口优先由消费方定义，并保持满足真实消费者所需的最小方法集。
+- 构造函数是否返回接口或具体类型取决于调用方，不把“永远返回接口/具体类型”写成机械规则。
+- 运行时依赖、配置和可变状态显式注入并验证；缺失时返回错误，不提供静默默认值。
 
----
+## 控制流与并发
 
-## 错误处理
+- 错误分支尽早返回，让成功路径向下流动。
+- 长生命周期工作实现`platformrunner.Runner`并接入`group:"runners"`；短生命周期 goroutine 也必须有 owner、上限、取消和等待路径。
+- channel 与 mutex 按真实所有权选择；禁止持锁调用网络、RPC 或未知 callback。
 
-> 📚 [官方: Errors](https://go.dev/doc/effective_go#errors) | [Code Review: Error Strings](https://github.com/golang/go/wiki/CodeReviewComments#error-strings)
+## 零值
 
-| 规则 | 说明 |
-|------|------|
-| 必须检查 | 禁止 `_ = err` 忽略错误 |
-| 包装错误 | 使用 `fmt.Errorf("context: %w", err)` |
-| 错误字符串 | 小写开头，无标点结尾 |
-| 哨兵错误 | 使用 `errors.Is()` 检查 |
-
-```go
-// ✅ 正确
-if err != nil {
-    return fmt.Errorf("create user %s: %w", name, err)
-}
-
-// ❌ 错误
-if err != nil {
-    return err  // 无上下文
-}
-```
-
----
-
-## 接口设计
-
-> 📚 [官方: Interfaces](https://go.dev/doc/effective_go#interfaces_and_types) | [Code Review: Interfaces](https://github.com/golang/go/wiki/CodeReviewComments#interfaces)
-
-| 规则 | 说明 |
-|------|------|
-| 保持小型 | 1-3 个方法为宜 |
-| 接受接口 | 函数参数使用接口 |
-| 返回具体类型 | 函数返回值使用具体类型 |
-| 消费者定义 | 接口由使用方定义，非实现方 |
-
-```go
-// ✅ 小接口
-type Reader interface {
-    Read(p []byte) (n int, err error)
-}
-
-// ❌ 过大接口
-type UserManager interface {
-    Create, Update, Delete, Find, List... // 太多方法
-}
-```
-
----
-
-## 并发
-
-> 📚 [官方: Concurrency](https://go.dev/doc/effective_go#concurrency) | [官方: Share by communicating](https://go.dev/doc/effective_go#sharing)
-
-| 规则 | 说明 |
-|------|------|
-| 通信优先 | Channel 优先于 Mutex |
-| 共享原则 | 通过通信共享内存，非通过共享内存通信 |
-| Goroutine 安全 | 确保可退出，使用 context 取消 |
-
-```go
-// ✅ 通过 Channel 通信
-ch <- data
-
-// ⚠️ 必要时才用 Mutex
-mu.Lock()
-defer mu.Unlock()
-```
-
----
-
-## 文档注释
-
-> 📚 [官方: Commentary](https://go.dev/doc/effective_go#commentary) | [Code Review: Doc Comments](https://github.com/golang/go/wiki/CodeReviewComments#doc-comments)
-
-| 规则 | 说明 |
-|------|------|
-| 以符号名开头 | `// User represents...` |
-| 所有导出符号 | 必须有注释 |
-| 包注释 | 在 `package` 语句上方 |
-
-```go
-// User represents a registered user in the system.
-type User struct { ... }
-
-// NewUser creates a user with the given email.
-func NewUser(email string) (*User, error) { ... }
-```
-
----
-
-## 控制结构
-
-> 📚 [官方: Control structures](https://go.dev/doc/effective_go#control-structures)
-
-| 规则 | 说明 |
-|------|------|
-| Happy Path | 成功路径向下流动，错误立即返回 |
-| if 初始化 | 善用 `if err := fn(); err != nil` |
-| 避免 else | 错误分支先返回，减少嵌套 |
-
-```go
-// ✅ Happy Path
-if err != nil {
-    return err
-}
-// 继续正常逻辑
-
-// ❌ 嵌套过深
-if err == nil {
-    if valid {
-        // ...
-    }
-}
-```
-
----
-
-## 零值可用
-
-> 📚 [官方: The zero value](https://go.dev/doc/effective_go#allocation_new)
-
-| 规则 | 说明 |
-|------|------|
-| 设计零值可用 | 类型零值应能直接使用 |
-| 无需构造函数 | `var buf bytes.Buffer` 可直接使用 |
-
-```go
-// ✅ 零值可用
-var buf bytes.Buffer
-buf.Write([]byte("hello"))  // 无需 NewBuffer()
-```
-
----
-
-**文档版本**: 1.0.0
-**基于**: Go 1.27+ / Effective Go 2024
+`bytes.Buffer`、slice 等基础类型可以设计为零值可用。配置、身份、生命周期组件、持久化端口和外部资源不得把零值解释成默认配置或延迟注入；这些类型必须通过显式构造和 Fail-Fast 校验。

@@ -12,6 +12,7 @@
 |------|------|----------|
 | `cmd/` | 程序入口与 sidecar | `cmd/agent-terminal` 是桌面主进程；`cmd/mcp-orch`、`cmd/mcp-lsp`、`cmd/mcp-ida` 是 MCP peer；`cmd/agent-runtime`、updater/release-manifest 是独立工具入口。 |
 | `internal/app/` | 根 Fx 组装层 | `internal/app/modules.go` 组装 platform、store、module、provider、toolbridge；DAG 编排由独立 `mcp-orch` MCP server 承担，不嵌入桌面根图。 |
+| `internal/app/storeadapter/` | 持久化组合边界 | 把 `internal/store/<name>` 实现收窄为 `internal/module/<name>` 拥有的端口，并负责 Store DTO 与领域 DTO 映射。 |
 | `internal/contract/` | 稳定跨模块契约 | 只放窄接口、DTO、哨兵错误和 bridge 模型；不要把单一模块 owner 的胖 Service/Store 抬进 contract。 |
 | `internal/module/` | 核心业务领域 | **严禁依赖 cmd 或外部框架细节**。按领域划分（如 `thread`, `turn`, `prompt`, `memory`, `skill`, `dashboard`, `uistate`）。 |
 | `internal/platform/` | 基础设施平台 | 提供薄适配层，如 `db`, `rpc`, `bus`, `hooks`, `mcpcontrol`, `runner`, `statemachine`, `toolbridge`。 |
@@ -28,29 +29,26 @@
 
 ## 业务模块 (`internal/module/{name}/`)
 
-每个业务模块 MUST 完全封装自身逻辑，只对外暴露 Interface 和 `fx.Module`。
+业务模块拥有领域逻辑、领域 DTO 和自己消费的窄端口。它不得导入 `internal/store`、`internal/store/sqlc` 或 `database/sql`；需要持久化时由 `internal/app/storeadapter` 注入实现。
 
 ```text
-internal/module/workspace/
-├── module.go        # 模块声明 (暴露 fx.Module)
-├── interface.go     # 对外公开的 Service 接口定义
-├── dto.go           # 数据传输对象 (输入/输出结构体)
-├── service.go       # 接口的私有具体实现 (type workspaceService struct)
-├── store.go         # 数据库访问层封装 (封装 sqlc 生成的代码)
-└── internal/        # (可选) 模块专属的私有子包
+internal/module/<name>/
+├── module.go        # 模块 Fx 声明
+├── contract.go      # Service 与 module-owned Reader/Writer 等窄端口
+├── dto.go           # 领域/RPC DTO
+├── service.go       # 私有业务实现
+├── rpc.go           # 可选：jrpc2 adapter/handler 接线
+└── runner.go        # 可选：长跑组件，只提供 Runner
 ```
 
 ### 模块导出契约
-- **Interface 公开**：`type Service interface { ... }`
+- **消费端拥有端口**：单模块持久化接口留在模块内，例如 `Writer`；稳定跨模块契约才进入 `internal/contract`。
 - **Implementation 私有**：`type service struct { ... }`
 - **跨模块端口收窄**：如果只有一个上游需要，优先在使用方定义窄接口或 adapter；只有稳定跨模块能力才进入 `internal/contract`。
-- **Module 注册**：
+- **Module 注册**：只注册领域 service、handler 和 runner，不注册 store 实现。
 ```go
 var Module = fx.Module("workspace",
-    fx.Provide(
-        newService, // 返回 Service 接口
-        newStore,   // 返回 Store 接口
-    ),
+    fx.Provide(newService),
 )
 ```
 
@@ -83,13 +81,25 @@ internal/platform/
 - `fx.Provide(func(q *sqlc.Queries) sqlc.Querier { return q })`
 - 聚合各 `internal/store/<name>.Module`
 
-其它 root 包不要复制这种聚合模式。业务模块应依赖自己的 Store 接口或使用方窄端口，不要直接把 `sqlc.Queries` 泄露到 Service 实现。
+其它 root 包不要复制这种聚合模式。业务模块只依赖自己拥有的 Reader/Writer 等窄端口，不要直接依赖 store 接口，也不要把`sqlc.Queries`泄露到 Service 实现。
+
+典型持久化纵切面：
+
+```text
+internal/module/<name>/contract.go          # 定义 module-owned Writer/Reader
+internal/store/<name>/contract.go           # 定义 store 自己的 DTO/接口
+internal/store/<name>/store.go              # 封装 sqlc 查询与事务
+internal/app/storeadapter/<name>/adapter.go # 双向映射并实现 module 端口
+internal/app/storeadapter/<name>/module.go  # Fx 绑定
+```
+
+可复用当前范式：`internal/module/feedback`、`internal/store/feedback`与`internal/app/storeadapter/feedback`。adapter 必须逐字段映射；slice、map、pointer、`json.RawMessage`等可变数据按需深拷贝，不能跨 owner 共享可变底层存储。
 
 ---
 
 ## 添加新功能（API 或 Service）的 SOP
 
-遵循 **确认契约 → DTO / Port → 私有实现 → Store 防腐层 → 暴露 fx.Provide → 根图装配 → 验证** 顺序：
+遵循 **确认契约 → 领域 DTO / module-owned Port → 私有实现 → Store 实现 → App adapter → 各层 Fx module → 根图装配 → 验证** 顺序：
 
 ### 1. 确认契约和代码地图
 
@@ -97,7 +107,7 @@ internal/platform/
 
 ### 2. 定义 DTO (`dto.go`)
 
-使用具体的 Struct，禁止使用 `map[string]any` 乱传数据。涉及外部 RPC / MCP 暴露时添加 `json` tag，并实现显式校验；缺字段、空配置或非法状态必须 fail-fast。
+稳定跨层数据使用具体 Struct，不以 `map[string]any` 代替已知契约。动态协议对象可以保留动态形态，但必须在 owner 边界验证。涉及外部 RPC / MCP 暴露时添加 `json` tag，并实现显式校验；缺字段、空配置或非法状态必须 fail-fast。
 
 ```go
 type CreateThreadRequest struct {
@@ -113,6 +123,10 @@ type CreateThreadRequest struct {
 type Service interface {
     CreateThread(ctx context.Context, req CreateThreadRequest) (string, error)
 }
+
+type Writer interface {
+    Insert(ctx context.Context, thread Thread) (Thread, error)
+}
 ```
 
 ### 4. 实现 Service (`service.go`)
@@ -121,12 +135,12 @@ type Service interface {
 
 ```go
 type service struct {
-    store Store
+    writer Writer
     bus   *event.Dispatcher
 }
 
-func newService(store Store, bus *event.Dispatcher) Service {
-    return &service{store: store, bus: bus}
+func newService(writer Writer, bus *event.Dispatcher) Service {
+    return &service{writer: writer, bus: bus}
 }
 
 func (s *service) CreateThread(ctx context.Context, req CreateThreadRequest) (string, error) {
@@ -134,35 +148,42 @@ func (s *service) CreateThread(ctx context.Context, req CreateThreadRequest) (st
 }
 ```
 
-### 5. 数据访问层 (`store.go`)
+### 5. Store 实现 (`internal/store/<name>`)
 
-产品持久化默认走 SQLite + sqlc。`store.go` 负责将 `sqlc` 的 row / nullable / `Column1` 等生成形状封装为领域友好的防腐层，禁止将 `sqlc.Queries` 直接泄露给 Service。`hookstore` / `dbquery` 这类手写 SQL 是源码已存在的显式例外，新增例外必须有契约和测试理由。
+产品持久化默认走 SQLite + sqlc。store 包把 sqlc row、nullable、`Column1`等生成形状封装为 store-owned DTO，禁止把`sqlc.Queries`或生成类型泄露到 module。`hookstore` / `dbquery`等手写 SQL 是已审计例外；新增例外必须有契约、owner 和测试理由。
 
-### 6. 依赖注入 (`module.go`)
+### 6. App Store adapter
 
-确保构造函数被加入 `fx.Provide`：
+在`internal/app/storeadapter/<name>`实现 module-owned port，并显式完成 Store DTO 与领域 DTO 转换。module 不导入 store，store 也不反向导入 module。
+
+### 7. 各层依赖注入
+
+各 owner 只注册自己拥有的实现：
 
 ```go
-var Module = fx.Module("thread",
-    fx.Provide(
-        newService,
-        newStore,
-    ),
-)
+// internal/module/thread/module.go
+var Module = fx.Module("thread", fx.Provide(newService))
+
+// internal/store/thread/module.go
+var Module = fx.Module("thread-store", fx.Provide(newStore))
+
+// internal/app/storeadapter/thread/module.go
+var Module = fx.Module("thread-store-adapter", fx.Provide(provideThreadWriter))
 ```
 
-### 7. 入口装配
+### 8. 入口装配
 
 普通产品模块优先接入 `internal/app/modules.go` 的根 `app.Module`。只有新的独立 binary / MCP peer 才在 `cmd/*` 入口构造自己的 Fx 图。
 
 ```go
 var Module = fx.Options(
     store.Module,
+    storeadapter.Module,
     thread.Module,
     // ...
 )
 ```
 
-### 8. 验证
+### 9. 验证
 
 文档/技能改动至少运行 `python3 scripts/validate_super_agent_skills.py` 和 `git diff --check`。Go 后端改动按影响面运行 `./scripts/test_with_guard.sh <packages> -count=1`；跨模块边界、guard 或架构契约改动追加 `./scripts/test_with_guard.sh ./internal/archtest -count=1` 和 `make guard`。
