@@ -31,7 +31,7 @@ export async function installAgenticE2EMockWails(page, options = {}) {
       'settings.provider.codex.codexHome',
       'settings.provider.codex.codexInstanceKey',
     ]);
-    const allowedPreferencePayloadFields = new Set(['cwd', 'key', 'value']);
+    const allowedPreferencePayloadFields = new Set(['cwd', 'key', 'value', '_aoTraceparent', '_aoTraceId', '_aoSpanId']);
     const allowedSandboxAccessFields = new Set(['readableRoots', 'writableRoots']);
     const allowedSandboxPolicies = new Set(['workspaceWrite', 'readOnly', 'dangerFullAccess']);
     const allowedReadOnlyModes = new Set(['', 'fullAccess', 'restricted']);

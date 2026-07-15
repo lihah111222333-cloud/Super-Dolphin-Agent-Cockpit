@@ -1186,6 +1186,50 @@ describe('agentic e2e strict Wails mock', () => {
     }
   });
 
+  it('accepts runtime trace metadata on provider preference writes without recording trace values', async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage();
+      const sandbox = sandboxFixture('/tmp/agentic-e2e-preference-trace');
+      const traceID = '4bf92f3577b34da6a3ce929d0e0e4736';
+      const spanID = '00f067aa0ba902b7';
+      await installAgenticE2EMockWails(page, { sandbox });
+      await page.goto('data:text/html,<main>mock</main>');
+
+      await expect(callMockWailsRPC(page, 'ui/preferences/set', {
+        cwd: sandbox.projectDir,
+        key: 'settings.provider.codex.model',
+        value: 'gpt-5',
+        _aoTraceparent: `00-${traceID}-${spanID}-01`,
+        _aoTraceId: traceID,
+        _aoSpanId: spanID,
+      })).resolves.toEqual(expect.objectContaining({ result: { ok: true } }));
+
+      const state = await readAgenticE2EMockWailsState(page);
+      expect(state.failures).toEqual([]);
+      expect(state.settingsWrites).toEqual([
+        expect.objectContaining({
+          method: 'ui/preferences/set',
+          key: 'settings.provider.codex.model',
+          cwd: 'sandbox',
+          valueType: 'string',
+          value: 'gpt-5',
+        }),
+      ]);
+      expect(state.calls.at(-1)?.params).toEqual({
+        cwd: 'sandbox',
+        key: 'settings.provider.codex.model',
+        valueType: 'string',
+      });
+      expect(JSON.stringify(state)).not.toContain(traceID);
+      expect(JSON.stringify(state)).not.toContain(spanID);
+      expect(() => assertAgenticE2EMockWailsClean(state)).not.toThrow();
+    }
+    finally {
+      await browser.close();
+    }
+  });
+
   it('fails provider preference writes for non-whitelisted keys and out-of-sandbox paths', async () => {
     const browser = await chromium.launch({ headless: true });
     try {
