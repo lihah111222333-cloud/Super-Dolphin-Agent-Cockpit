@@ -288,7 +288,7 @@ internal/archtest/ui_wails_guard_test.go	internal	other	go-test	2351	架构守�
 internal/archtest/video_skill_contract_test.go	internal	other	go-test	839	架构守卫、baseline ratchet 与冻结规则	internal,archtest,video,skill,contract,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/wire_dto_field_registry_test.go	internal	other	go-test	9667	架构守卫、baseline ratchet 与冻结规则	internal,archtest,wire,dto,field,registry,test,架构守卫,baseline,ratchet,与冻结规则
 internal/contract/agent_state_test.go	internal	other	go-test	916	跨模块稳定接口、事件和 DTO 边界	internal,contract,agent,state,test,跨模块稳定接口,事件和,DTO,边界
-internal/contract/agent_state.go	internal	other	go-source	14354	跨模块稳定接口、事件和 DTO 边界	internal,contract,agent,state,跨模块稳定接口,事件和,DTO,边界
+internal/contract/agent_state.go	internal	other	go-source	14353	跨模块稳定接口、事件和 DTO 边界	internal,contract,agent,state,跨模块稳定接口,事件和,DTO,边界
 internal/contract/agent_workflow_test.go	internal	other	go-test	5083	跨模块稳定接口、事件和 DTO 边界	internal,contract,agent,workflow,test,跨模块稳定接口,事件和,DTO,边界
 internal/contract/approval.go	internal	other	go-source	2002	跨模块稳定接口、事件和 DTO 边界	internal,contract,approval,跨模块稳定接口,事件和,DTO,边界
 internal/contract/bootstrap_hook.go	internal	other	go-source	441	跨模块稳定接口、事件和 DTO 边界	internal,contract,bootstrap,hook,跨模块稳定接口,事件和,DTO,边界
@@ -303,7 +303,7 @@ internal/contract/dag_events_test.go	internal	other	go-test	3611	跨模块稳定
 internal/contract/dag_final_output_test.go	internal	other	go-test	2532	跨模块稳定接口、事件和 DTO 边界	internal,contract,dag,final,output,test,跨模块稳定接口,事件和,DTO,边界
 internal/contract/dag_start_response_test.go	internal	other	go-test	1228	跨模块稳定接口、事件和 DTO 边界	internal,contract,dag,start,response,test,跨模块稳定接口,事件和,DTO,边界
 internal/contract/dependency_policy_test.go	internal	other	go-test	6276	跨模块稳定接口、事件和 DTO 边界	internal,contract,dependency,policy,test,跨模块稳定接口,事件和,DTO,边界
-internal/contract/dream.go	internal	other	go-source	2468	跨模块稳定接口、事件和 DTO 边界	internal,contract,dream,跨模块稳定接口,事件和,DTO,边界
+internal/contract/dream.go	internal	other	go-source	2467	跨模块稳定接口、事件和 DTO 边界	internal,contract,dream,跨模块稳定接口,事件和,DTO,边界
 internal/contract/errors.go	internal	other	go-source	3504	跨模块稳定接口、事件和 DTO 边界	internal,contract,errors,跨模块稳定接口,事件和,DTO,边界
 internal/contract/frc.go	internal	other	go-source	2223	跨模块稳定接口、事件和 DTO 边界	internal,contract,frc,跨模块稳定接口,事件和,DTO,边界
 internal/contract/hooks.go	internal	other	go-source	3874	跨模块稳定接口、事件和 DTO 边界	internal,contract,hooks,跨模块稳定接口,事件和,DTO,边界
@@ -326,7 +326,7 @@ internal/contract/rpc_dispatch.go	internal	other	go-source	327	跨模块稳定�
 internal/contract/rpc_handler.go	internal	other	go-source	1778	跨模块稳定接口、事件和 DTO 边界	internal,contract,rpc,handler,跨模块稳定接口,事件和,DTO,边界
 internal/contract/runner.go	internal	other	go-source	1953	跨模块稳定接口、事件和 DTO 边界	internal,contract,runner,跨模块稳定接口,事件和,DTO,边界
 internal/contract/runtime_config_keys_test.go	internal	other	go-test	3634	跨模块稳定接口、事件和 DTO 边界	internal,contract,runtime,config,keys,test,跨模块稳定接口,事件和,DTO,边界
-internal/contract/runtime_reporter.go	internal	other	go-source	4518	跨模块稳定接口、事件和 DTO 边界	internal,contract,runtime,reporter,跨模块稳定接口,事件和,DTO,边界
+internal/contract/runtime_reporter.go	internal	other	go-source	4514	跨模块稳定接口、事件和 DTO 边界	internal,contract,runtime,reporter,跨模块稳定接口,事件和,DTO,边界
 internal/contract/session_ports_test.go	internal	other	go-test	426	跨模块稳定接口、事件和 DTO 边界	internal,contract,session,ports,test,跨模块稳定接口,事件和,DTO,边界
 internal/contract/session_resume_snapshot_test.go	internal	other	go-test	794	跨模块稳定接口、事件和 DTO 边界	internal,contract,session,resume,snapshot,test,跨模块稳定接口,事件和,DTO,边界
 internal/contract/session.go	internal	other	go-source	9681	跨模块稳定接口、事件和 DTO 边界	internal,contract,session,跨模块稳定接口,事件和,DTO,边界
@@ -334,6 +334,7 @@ internal/contract/skill.go	internal	other	go-source	8325	跨模块稳定接口�
 internal/contract/thread.go	internal	other	go-source	3778	跨模块稳定接口、事件和 DTO 边界	internal,contract,thread,跨模块稳定接口,事件和,DTO,边界
 internal/contract/toolbridge.go	internal	other	go-source	4928	跨模块稳定接口、事件和 DTO 边界	internal,contract,toolbridge,跨模块稳定接口,事件和,DTO,边界
 internal/contract/ui_project_state.go	internal	other	go-source	623	跨模块稳定接口、事件和 DTO 边界	internal,contract,ui,project,state,跨模块稳定接口,事件和,DTO,边界
+internal/contract/wire_omitzero_test.go	internal	other	go-test	1832	跨模块稳定接口、事件和 DTO 边界	internal,contract,wire,omitzero,test,跨模块稳定接口,事件和,DTO,边界
 internal/devtools/capcontract/manifest_test.go	internal	other	go-test	3914	开发工具与生成器辅助包	internal,devtools,capcontract,manifest,test,开发工具与生成器辅助包
 internal/devtools/capcontract/manifest.go	internal	other	go-source	9607	开发工具与生成器辅助包	internal,devtools,capcontract,manifest,开发工具与生成器辅助包
 internal/devtools/capcontract/scanner_test.go	internal	other	go-test	7081	开发工具与生成器辅助包	internal,devtools,capcontract,scanner,test,开发工具与生成器辅助包
@@ -359,7 +360,8 @@ internal/dto/agent/diagnostic.go	internal	other	go-source	1231	provider/shared D
 internal/dto/agent/event.go	internal	other	go-source	1888	provider/shared DTO 与事件协议	internal,dto,agent,event,provider,shared,DTO,与事件协议
 internal/dto/agent/runtime.go	internal	other	go-source	733	provider/shared DTO 与事件协议	internal,dto,agent,runtime,provider,shared,DTO,与事件协议
 internal/dto/agent/state.go	internal	other	go-source	7405	provider/shared DTO 与事件协议	internal,dto,agent,state,provider,shared,DTO,与事件协议
-internal/dto/cron/event.go	internal	other	go-source	935	provider/shared DTO 与事件协议	internal,dto,cron,event,provider,shared,DTO,与事件协议
+internal/dto/cron/event_wire_test.go	internal	other	go-test	919	provider/shared DTO 与事件协议	internal,dto,cron,event,wire,test,provider,shared,DTO,与事件协议
+internal/dto/cron/event.go	internal	other	go-source	925	provider/shared DTO 与事件协议	internal,dto,cron,event,provider,shared,DTO,与事件协议
 internal/dto/mcp/approval_response.go	internal	other	go-source	663	provider/shared DTO 与事件协议	internal,dto,mcp,approval,response,provider,shared,DTO,与事件协议
 internal/dto/mcp/constants.go	internal	other	go-source	2945	provider/shared DTO 与事件协议	internal,dto,mcp,constants,provider,shared,DTO,与事件协议
 internal/dto/mcp/errors.go	internal	other	go-source	1047	provider/shared DTO 与事件协议	internal,dto,mcp,errors,provider,shared,DTO,与事件协议
@@ -374,7 +376,8 @@ internal/dto/provider/event.go	internal	other	go-source	6063	provider/shared DTO
 internal/dto/provider/manifest.go	internal	other	go-source	2589	provider/shared DTO 与事件协议	internal,dto,provider,manifest,shared,DTO,与事件协议
 internal/dto/provider/message_test.go	internal	other	go-test	1205	provider/shared DTO 与事件协议	internal,dto,provider,message,test,shared,DTO,与事件协议
 internal/dto/provider/message.go	internal	other	go-source	1211	provider/shared DTO 与事件协议	internal,dto,provider,message,shared,DTO,与事件协议
-internal/dto/provider/session.go	internal	other	go-source	7217	provider/shared DTO 与事件协议	internal,dto,provider,session,shared,DTO,与事件协议
+internal/dto/provider/session_wire_test.go	internal	other	go-test	792	provider/shared DTO 与事件协议	internal,dto,provider,session,wire,test,shared,DTO,与事件协议
+internal/dto/provider/session.go	internal	other	go-source	7216	provider/shared DTO 与事件协议	internal,dto,provider,session,shared,DTO,与事件协议
 internal/dto/provider/thread_config.go	internal	other	go-source	1727	provider/shared DTO 与事件协议	internal,dto,provider,thread,config,shared,DTO,与事件协议
 internal/dto/provider/thread.go	internal	other	go-source	256	provider/shared DTO 与事件协议	internal,dto,provider,thread,shared,DTO,与事件协议
 internal/dto/provider/turn_test.go	internal	other	go-test	6783	provider/shared DTO 与事件协议	internal,dto,provider,turn,test,shared,DTO,与事件协议
@@ -473,11 +476,12 @@ pkg/dagmetrics/dagmetrics_test.go	pkg	other	go-test	993	DAG 指标公共库	pkg,
 pkg/dagmetrics/dagmetrics.go	pkg	other	go-source	5884	DAG 指标公共库	pkg,dagmetrics,DAG,指标公共库
 pkg/dreammetrics/dreammetrics_test.go	pkg	other	go-test	3359	dream pipeline 指标公共库	pkg,dreammetrics,test,dream,pipeline,指标公共库
 pkg/dreammetrics/dreammetrics.go	pkg	other	go-source	4446	dream pipeline 指标公共库	pkg,dreammetrics,dream,pipeline,指标公共库
-pkg/logger/agent_logger.go	pkg	other	go-source	2784	统一日志、采样、relay、watchdog 与 trace context	pkg,logger,agent,统一日志,采样,relay,watchdog,与,trace,context
+pkg/logger/agent_logger.go	pkg	other	go-source	3083	统一日志、采样、relay、watchdog 与 trace context	pkg,logger,agent,统一日志,采样,relay,watchdog,与,trace,context
 pkg/logger/error_enricher.go	pkg	other	go-source	2370	统一日志、采样、relay、watchdog 与 trace context	pkg,logger,error,enricher,统一日志,采样,relay,watchdog,与,trace,context
 pkg/logger/fields.go	pkg	other	go-source	11790	统一日志、采样、relay、watchdog 与 trace context	pkg,logger,fields,统一日志,采样,relay,watchdog,与,trace,context
-pkg/logger/logger.go	pkg	other	go-source	13803	统一日志、采样、relay、watchdog 与 trace context	pkg,logger,统一日志,采样,relay,watchdog,与,trace,context
+pkg/logger/logger.go	pkg	other	go-source	15030	统一日志、采样、relay、watchdog 与 trace context	pkg,logger,统一日志,采样,relay,watchdog,与,trace,context
 pkg/logger/metadata.go	pkg	other	go-source	3478	统一日志、采样、relay、watchdog 与 trace context	pkg,logger,metadata,统一日志,采样,relay,watchdog,与,trace,context
+pkg/logger/private_file_test.go	pkg	other	go-test	4273	统一日志、采样、relay、watchdog 与 trace context	pkg,logger,private,file,test,统一日志,采样,relay,watchdog,与,trace,context
 pkg/logger/redact_test.go	pkg	other	go-test	1095	统一日志、采样、relay、watchdog 与 trace context	pkg,logger,redact,test,统一日志,采样,relay,watchdog,与,trace,context
 pkg/logger/redact.go	pkg	other	go-source	2795	统一日志、采样、relay、watchdog 与 trace context	pkg,logger,redact,统一日志,采样,relay,watchdog,与,trace,context
 pkg/logger/relay_test.go	pkg	other	go-test	2106	统一日志、采样、relay、watchdog 与 trace context	pkg,logger,relay,test,统一日志,采样,watchdog,与,trace,context
@@ -491,7 +495,7 @@ pkg/logger/trace_carrier.go	pkg	other	go-source	7288	统一日志、采样、rel
 pkg/logger/trace_context_test.go	pkg	other	go-test	10008	统一日志、采样、relay、watchdog 与 trace context	pkg,logger,trace,context,test,统一日志,采样,relay,watchdog,与
 pkg/logger/trace_context.go	pkg	other	go-source	751	统一日志、采样、relay、watchdog 与 trace context	pkg,logger,trace,context,统一日志,采样,relay,watchdog,与
 pkg/logger/truncate.go	pkg	other	go-source	581	统一日志、采样、relay、watchdog 与 trace context	pkg,logger,truncate,统一日志,采样,relay,watchdog,与,trace,context
-pkg/logger/watchdog.go	pkg	other	go-source	1702	统一日志、采样、relay、watchdog 与 trace context	pkg,logger,watchdog,统一日志,采样,relay,与,trace,context
+pkg/logger/watchdog.go	pkg	other	go-source	2150	统一日志、采样、relay、watchdog 与 trace context	pkg,logger,watchdog,统一日志,采样,relay,与,trace,context
 pkg/skillblocks/skillblocks_test.go	pkg	other	go-test	16763	可复用公共库	pkg,skillblocks,test,可复用公共库
 pkg/skillblocks/skillblocks.go	pkg	other	go-source	9983	可复用公共库	pkg,skillblocks,可复用公共库
 pkg/skillmetrics/skillmetrics_test.go	pkg	other	go-test	2042	skill 指标公共库	pkg,skillmetrics,test,skill,指标公共库

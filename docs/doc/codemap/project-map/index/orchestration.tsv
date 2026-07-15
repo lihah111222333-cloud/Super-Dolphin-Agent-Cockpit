@@ -404,7 +404,8 @@ cmd/mcp-orch/tools/workspace_tool_compat.go	cmd	orchestration	go-source	5440	mcp
 cmd/mcp-orch/tools/workspace_tools_compat_test.go	cmd	orchestration	go-test	3272	mcp-orch MCP tool schema、registry 与 handler	cmd,mcp,orch,tools,workspace,compat,test,mcp-orch,MCP,tool,schema,registry,与,handler
 cmd/mcp-orch/tools/workspace_tools.go	cmd	orchestration	go-source	13887	mcp-orch MCP tool schema、registry 与 handler	cmd,mcp,orch,tools,workspace,mcp-orch,MCP,tool,schema,registry,与,handler
 cmd/mcp-orch/workspace/contract.go	cmd	orchestration	go-source	5936	workspace run 生命周期、merge、dry-run 与文件回写	cmd,mcp,orch,workspace,contract,run,生命周期,merge,dry-run,与文件回写
-cmd/mcp-orch/workspace/event.go	cmd	orchestration	go-source	4350	workspace run 生命周期、merge、dry-run 与文件回写	cmd,mcp,orch,workspace,event,run,生命周期,merge,dry-run,与文件回写
+cmd/mcp-orch/workspace/event_wire_test.go	cmd	orchestration	go-test	1094	workspace run 生命周期、merge、dry-run 与文件回写	cmd,mcp,orch,workspace,event,wire,test,run,生命周期,merge,dry-run,与文件回写
+cmd/mcp-orch/workspace/event.go	cmd	orchestration	go-source	4330	workspace run 生命周期、merge、dry-run 与文件回写	cmd,mcp,orch,workspace,event,run,生命周期,merge,dry-run,与文件回写
 cmd/mcp-orch/workspace/factory.go	cmd	orchestration	go-source	15356	workspace run 生命周期、merge、dry-run 与文件回写	cmd,mcp,orch,workspace,factory,run,生命周期,merge,dry-run,与文件回写
 cmd/mcp-orch/workspace/module.go	cmd	orchestration	go-source	442	workspace run 生命周期、merge、dry-run 与文件回写	cmd,mcp,orch,workspace,module,run,生命周期,merge,dry-run,与文件回写
 cmd/mcp-orch/workspace/rpc_test.go	cmd	orchestration	go-test	16261	workspace run 生命周期、merge、dry-run 与文件回写	cmd,mcp,orch,workspace,rpc,test,run,生命周期,merge,dry-run,与文件回写

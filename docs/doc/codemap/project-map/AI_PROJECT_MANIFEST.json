@@ -5,14 +5,14 @@
   "rules_sources": [
     ".ai-project-map.overrides.json"
   ],
-  "files": 4585,
+  "files": 4591,
   "domains": {
     "docs-agent": 928,
-    "other": 638,
+    "other": 642,
     "app-ui": 524,
     "platform-provider": 1030,
-    "orchestration": 418,
-    "modules": 730,
+    "orchestration": 419,
+    "modules": 731,
     "store-sql": 317
   },
   "index_files": {
@@ -29,15 +29,15 @@
       {
         "key": "orchestration",
         "file": "docs/doc/codemap/project-map/index/orchestration.tsv",
-        "file_count": 418,
-        "size_kb": 93.8,
+        "file_count": 419,
+        "size_kb": 94.1,
         "desc": "mcp-orch 编排 peer、DAG、workspace、prompt、command、shared-file 工具"
       },
       {
         "key": "modules",
         "file": "docs/doc/codemap/project-map/index/modules.tsv",
-        "file_count": 730,
-        "size_kb": 142.1,
+        "file_count": 731,
+        "size_kb": 142.3,
         "desc": "业务模块层：dashboard、memory、prompt、skill、thread、turn、uistate 等"
       },
       {
@@ -64,20 +64,20 @@
       {
         "key": "other",
         "file": "docs/doc/codemap/project-map/index/other.tsv",
-        "file_count": 638,
-        "size_kb": 124.5,
+        "file_count": 642,
+        "size_kb": 125.2,
         "desc": "公共库、脚本、测试、配置与其他根级资源"
       }
     ]
   },
   "module_counts": {
     "(root)": 12,
-    "cmd": 669,
+    "cmd": 670,
     "docs": 920,
     "frontend-app": 522,
-    "internal": 2152,
+    "internal": 2156,
     "migrations": 112,
-    "pkg": 29,
+    "pkg": 30,
     "scripts": 120,
     "sql": 30,
     "test": 9,

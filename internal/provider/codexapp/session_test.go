@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"sync"
@@ -19,6 +21,7 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/rpc"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/toolbridge"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/unified"
+	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
 )
 
 type recordedResponse struct {
@@ -45,6 +48,45 @@ func TestNewSessionWithOptionsRejectsNilApprovalManagerAndReleasesPoolSlot(t *te
 	}
 	if err != errApprovalManagerRequired {
 		t.Fatalf("newSessionWithOptions() error = %v, want %v", err, errApprovalManagerRequired)
+	}
+	if releases != 1 {
+		t.Fatalf("pool releases = %d, want 1", releases)
+	}
+}
+
+func TestNewSessionWithOptionsPropagatesAgentLogFailureAndReleasesPoolSlot(t *testing.T) {
+	logDir := t.TempDir()
+	runtime := pkglogger.NewRuntime(pkglogger.RuntimeConfig{Mode: pkglogger.Production, Level: slog.LevelInfo})
+	if err := runtime.InitWithFile(logDir); err != nil {
+		t.Fatalf("init file logger: %v", err)
+	}
+	previous := pkglogger.InstallRuntime(runtime)
+	t.Cleanup(func() {
+		pkglogger.InstallRuntime(previous)
+		runtime.ShutdownFileHandler()
+	})
+	if err := os.Mkdir(filepath.Join(logDir, "agent-blocked.log"), 0o700); err != nil {
+		t.Fatalf("create blocking agent log directory: %v", err)
+	}
+	serverURL := startCodexRPCServer(t, func(string) json.RawMessage {
+		return mustJSON(map[string]any{"ok": true})
+	})
+	releases := 0
+	s, err := newSessionWithOptions(
+		context.Background(),
+		slog.Default(),
+		serverURL,
+		"blocked",
+		nil,
+		testApprovalManager(),
+		nil,
+		withPoolServer(serverURL, func() { releases++ }),
+	)
+	if err == nil || !strings.Contains(err.Error(), "create agent logger") {
+		t.Fatalf("newSessionWithOptions() error = %v, want agent logger failure", err)
+	}
+	if s != nil {
+		t.Fatalf("newSessionWithOptions() session = %#v, want nil", s)
 	}
 	if releases != 1 {
 		t.Fatalf("pool releases = %d, want 1", releases)

@@ -19,6 +19,29 @@ function validate(method, response) {
 }
 
 describe('backend response validators', () => {
+  it('keeps model provider optional objects strict when present', () => {
+    const vendor = {
+      id: 'codex',
+      label: 'Codex',
+      enabled: true,
+      baseURL: 'https://example.test',
+      envKey: 'OPENAI_API_KEY',
+      codexModelProvider: 'openai',
+      defaultModel: 'gpt-5',
+    };
+
+    expect(validate(RPC_METHODS.MODEL_PROVIDERS_LIST, { vendors: [vendor] })).toEqual({ vendors: [vendor] });
+    expect(validate(RPC_METHODS.MODEL_PROVIDERS_LIST, {
+      vendors: [{ ...vendor, budget: { dailyUsd: 1, monthlyUsd: 2 }, tokenPool: { priority: 3, fallbackVendorId: 'fallback' } }],
+    })).toBeTruthy();
+    expect(() => validate(RPC_METHODS.MODEL_PROVIDERS_LIST, {
+      vendors: [{ ...vendor, budget: { dailyUsd: 1, surprise: true } }],
+    })).toThrow('body.vendors[0].budget must not include surprise');
+    expect(() => validate(RPC_METHODS.MODEL_PROVIDERS_LIST, {
+      vendors: [{ ...vendor, tokenPool: { priority: 1, surprise: true } }],
+    })).toThrow('body.vendors[0].tokenPool must not include surprise');
+  });
+
   it('accepts only the canonical thread recovery envelope', () => {
     const response = {
       thread: { id: 'thread-1', status: 'recovering' },
