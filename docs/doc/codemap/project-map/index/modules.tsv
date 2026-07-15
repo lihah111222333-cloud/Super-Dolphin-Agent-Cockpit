@@ -45,9 +45,9 @@ internal/module/dashboard/contract.go	internal	modules	go-source	3210	dashboard 
 internal/module/dashboard/dag_create_and_start_test.go	internal	modules	go-test	3779	dashboard 读模型与 UI RPC 服务	internal,module,dashboard,dag,create,and,start,test,读模型与,UI,RPC,服务
 internal/module/dashboard/dag_runtime_test.go	internal	modules	go-test	4237	dashboard 读模型与 UI RPC 服务	internal,module,dashboard,dag,runtime,test,读模型与,UI,RPC,服务
 internal/module/dashboard/dag_snapshot_schedule_test.go	internal	modules	go-test	1266	dashboard 读模型与 UI RPC 服务	internal,module,dashboard,dag,snapshot,schedule,test,读模型与,UI,RPC,服务
-internal/module/dashboard/dag_snapshot_test.go	internal	modules	go-test	25972	dashboard 读模型与 UI RPC 服务	internal,module,dashboard,dag,snapshot,test,读模型与,UI,RPC,服务
+internal/module/dashboard/dag_snapshot_test.go	internal	modules	go-test	26471	dashboard 读模型与 UI RPC 服务	internal,module,dashboard,dag,snapshot,test,读模型与,UI,RPC,服务
 internal/module/dashboard/dag_snapshot_time.go	internal	modules	go-source	8507	dashboard 读模型与 UI RPC 服务	internal,module,dashboard,dag,snapshot,time,读模型与,UI,RPC,服务
-internal/module/dashboard/dag_snapshot.go	internal	modules	go-source	18755	dashboard 读模型与 UI RPC 服务	internal,module,dashboard,dag,snapshot,读模型与,UI,RPC,服务
+internal/module/dashboard/dag_snapshot.go	internal	modules	go-source	18687	dashboard 读模型与 UI RPC 服务	internal,module,dashboard,dag,snapshot,读模型与,UI,RPC,服务
 internal/module/dashboard/detail_test.go	internal	modules	go-test	16363	dashboard 读模型与 UI RPC 服务	internal,module,dashboard,detail,test,读模型与,UI,RPC,服务
 internal/module/dashboard/detail.go	internal	modules	go-source	11917	dashboard 读模型与 UI RPC 服务	internal,module,dashboard,detail,读模型与,UI,RPC,服务
 internal/module/dashboard/factory_test.go	internal	modules	go-test	1814	dashboard 读模型与 UI RPC 服务	internal,module,dashboard,factory,test,读模型与,UI,RPC,服务
@@ -58,7 +58,7 @@ internal/module/dashboard/log_detail_rpc_test.go	internal	modules	go-test	3362	d
 internal/module/dashboard/log_detail_rpc.go	internal	modules	go-source	5471	dashboard 读模型与 UI RPC 服务	internal,module,dashboard,log,detail,rpc,读模型与,UI,RPC,服务
 internal/module/dashboard/logs.go	internal	modules	go-source	4494	dashboard 读模型与 UI RPC 服务	internal,module,dashboard,logs,读模型与,UI,RPC,服务
 internal/module/dashboard/module.go	internal	modules	go-source	1888	dashboard 读模型与 UI RPC 服务	internal,module,dashboard,读模型与,UI,RPC,服务
-internal/module/dashboard/query_test.go	internal	modules	go-test	24983	dashboard 读模型与 UI RPC 服务	internal,module,dashboard,query,test,读模型与,UI,RPC,服务
+internal/module/dashboard/query_test.go	internal	modules	go-test	24980	dashboard 读模型与 UI RPC 服务	internal,module,dashboard,query,test,读模型与,UI,RPC,服务
 internal/module/dashboard/rpc.go	internal	modules	go-source	25448	dashboard 读模型与 UI RPC 服务	internal,module,dashboard,rpc,读模型与,UI,RPC,服务
 internal/module/dashboard/service_dag_console_test.go	internal	modules	go-test	7223	dashboard 读模型与 UI RPC 服务	internal,module,dashboard,service,dag,console,test,读模型与,UI,RPC,服务
 internal/module/dashboard/service_test.go	internal	modules	go-test	25525	dashboard 读模型与 UI RPC 服务	internal,module,dashboard,service,test,读模型与,UI,RPC,服务

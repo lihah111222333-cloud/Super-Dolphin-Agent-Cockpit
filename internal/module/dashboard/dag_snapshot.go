@@ -17,69 +17,69 @@ SELECT id, dag_key, version, title, description, status, created_by, metadata,
        trigger, cron_expr, next_run_at, started_at, finished_at, created_at, updated_at
 FROM task_dags
 ORDER BY updated_at DESC, id DESC
-LIMIT $1`
+LIMIT ?`
 	dashboardListDAGsSnapshotStatusQuery = `
 SELECT id, dag_key, version, title, description, status, created_by, metadata,
        trigger, cron_expr, next_run_at, started_at, finished_at, created_at, updated_at
 FROM task_dags
-WHERE status = $1
+WHERE status = ?
 ORDER BY updated_at DESC, id DESC
-LIMIT $2`
+LIMIT ?`
 	dashboardListDAGsSnapshotKeywordQuery = `
 SELECT id, dag_key, version, title, description, status, created_by, metadata,
        trigger, cron_expr, next_run_at, started_at, finished_at, created_at, updated_at
 FROM task_dags
-WHERE LOWER(dag_key) LIKE '%' || LOWER($1) || '%'
-   OR LOWER(title) LIKE '%' || LOWER($1) || '%'
-   OR LOWER(description) LIKE '%' || LOWER($1) || '%'
+WHERE LOWER(dag_key) LIKE '%' || LOWER(?) || '%'
+   OR LOWER(title) LIKE '%' || LOWER(?) || '%'
+   OR LOWER(description) LIKE '%' || LOWER(?) || '%'
 ORDER BY updated_at DESC, id DESC
-LIMIT $2`
+LIMIT ?`
 	dashboardListDAGsSnapshotStatusKeywordQuery = `
 SELECT id, dag_key, version, title, description, status, created_by, metadata,
        trigger, cron_expr, next_run_at, started_at, finished_at, created_at, updated_at
 FROM task_dags
-WHERE status = $1
-  AND (LOWER(dag_key) LIKE '%' || LOWER($2) || '%'
-    OR LOWER(title) LIKE '%' || LOWER($2) || '%'
-    OR LOWER(description) LIKE '%' || LOWER($2) || '%')
+WHERE status = ?
+  AND (LOWER(dag_key) LIKE '%' || LOWER(?) || '%'
+    OR LOWER(title) LIKE '%' || LOWER(?) || '%'
+    OR LOWER(description) LIKE '%' || LOWER(?) || '%')
 ORDER BY updated_at DESC, id DESC
-LIMIT $3`
+LIMIT ?`
 	dashboardGetDAGSnapshotQuery = `
 SELECT id, dag_key, version, title, description, status, created_by, metadata,
        trigger, cron_expr, next_run_at, started_at, finished_at, created_at, updated_at
 FROM task_dags
-WHERE dag_key = $1
+WHERE dag_key = ?
 LIMIT 1`
 	dashboardListTemplateNodesSnapshotQuery = `
 SELECT id, dag_key, node_key, title, node_type, assigned_to, depends_on, status,
        command_ref, config, result, run_id, started_at, finished_at, created_at,
        updated_at, active_turn_id, active_wakeup_id, last_event_at, spawning_thread_id
 FROM task_dag_nodes
-WHERE dag_key = $1 AND run_id IS NULL
+WHERE dag_key = ? AND run_id IS NULL
 ORDER BY id ASC`
 	dashboardListRunNodesSnapshotQuery = `
 SELECT id, dag_key, node_key, title, node_type, assigned_to, depends_on, status,
        command_ref, config, result, run_id, started_at, finished_at, created_at,
        updated_at, active_turn_id, active_wakeup_id, last_event_at, spawning_thread_id
 FROM task_dag_nodes
-WHERE dag_key = $1 AND run_id = $2
+WHERE dag_key = ? AND run_id = ?
 ORDER BY id ASC`
 	dashboardListRunsSnapshotAllQuery = `
 SELECT id, run_key, dag_key, dag_version_snapshot, trigger_source, status,
        started_at, finished_at, budget_used, budget_limit, metadata,
        created_at, updated_at
 FROM task_dag_runs
-WHERE dag_key = $1
+WHERE dag_key = ?
 ORDER BY started_at DESC, id DESC
-LIMIT $2`
+LIMIT ?`
 	dashboardListRunsSnapshotStatusQuery = `
 SELECT id, run_key, dag_key, dag_version_snapshot, trigger_source, status,
        started_at, finished_at, budget_used, budget_limit, metadata,
        created_at, updated_at
 FROM task_dag_runs
-WHERE dag_key = $1 AND status = $2
+WHERE dag_key = ? AND status = ?
 ORDER BY started_at DESC, id DESC
-LIMIT $3`
+LIMIT ?`
 	dashboardListLatestRunsByDAGSnapshotQueryTemplate = `
 SELECT id, run_key, dag_key, dag_version_snapshot, trigger_source, status,
        started_at, finished_at, budget_used, budget_limit, metadata,
@@ -93,13 +93,13 @@ FROM (
     WHERE dag_key IN (%s)
 ) latest_runs
 WHERE run_rank = 1
-LIMIT $%d`
+LIMIT ?`
 	dashboardGetRunSnapshotQuery = `
 SELECT id, run_key, dag_key, dag_version_snapshot, trigger_source, status,
        started_at, finished_at, events, budget_used, budget_limit, metadata,
        created_at, updated_at
 FROM task_dag_runs
-WHERE run_key = $1
+WHERE run_key = ?
 LIMIT 1`
 )
 
@@ -120,13 +120,13 @@ func dashboardListDAGsSnapshotQuery(filter contract.ListDAGsFilter) (string, []a
 	status := strings.TrimSpace(filter.Status)
 	keyword := strings.TrimSpace(filter.Keyword)
 	if status != "" && keyword != "" {
-		return dashboardListDAGsSnapshotStatusKeywordQuery, []any{status, keyword, filter.Limit}
+		return dashboardListDAGsSnapshotStatusKeywordQuery, []any{status, keyword, keyword, keyword, filter.Limit}
 	}
 	if status != "" {
 		return dashboardListDAGsSnapshotStatusQuery, []any{status, filter.Limit}
 	}
 	if keyword != "" {
-		return dashboardListDAGsSnapshotKeywordQuery, []any{keyword, filter.Limit}
+		return dashboardListDAGsSnapshotKeywordQuery, []any{keyword, keyword, keyword, filter.Limit}
 	}
 	return dashboardListDAGsSnapshotAllQuery, []any{filter.Limit}
 }
@@ -201,12 +201,11 @@ func dashboardLatestRunsByDAGQuery(dagKeys []string) (string, []any) {
 	placeholders := make([]string, len(dagKeys))
 	args := make([]any, 0, len(dagKeys)+1)
 	for index, dagKey := range dagKeys {
-		placeholders[index] = fmt.Sprintf("$%d", index+1)
+		placeholders[index] = "?"
 		args = append(args, dagKey)
 	}
-	limitPlaceholder := len(dagKeys) + 1
 	args = append(args, int32(len(dagKeys)))
-	return fmt.Sprintf(dashboardListLatestRunsByDAGSnapshotQueryTemplate, strings.Join(placeholders, ", "), limitPlaceholder), args
+	return fmt.Sprintf(dashboardListLatestRunsByDAGSnapshotQueryTemplate, strings.Join(placeholders, ", ")), args
 }
 
 // getDAGRunFromSnapshot 从 run 快照读取一次运行及其节点状态。

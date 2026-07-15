@@ -23,7 +23,7 @@ func TestServiceQueryPassesThroughAndNormalizesArgs(t *testing.T) {
 	db := newDashboardQuerySQLiteDB(t)
 	svc := NewService(nil, nil, nil, nil, nil, nil, nil, dbquerystore.NewQueryStore(db, time.Second), nil, nil, nil, nil)
 
-	rows, err := svc.Query(context.Background(), "SELECT * FROM agent_threads WHERE score = $1", float64(7))
+	rows, err := svc.Query(context.Background(), "SELECT * FROM agent_threads WHERE score = ?", float64(7))
 	if err != nil {
 		t.Fatalf("Query() error = %v", err)
 	}
@@ -122,7 +122,7 @@ func TestDashboardQueryHandlerNormalArgs(t *testing.T) {
 	db := newDashboardQuerySQLiteDB(t)
 	server := newDashboardQueryTestServer(t, db)
 
-	rows, err := dispatchDashboardQuery(server, `{"query":"SELECT * FROM agent_threads WHERE thread_id = $1","args":["thread-1"]}`)
+	rows, err := dispatchDashboardQuery(server, `{"query":"SELECT * FROM agent_threads WHERE thread_id = ?","args":["thread-1"]}`)
 	if err != nil {
 		t.Fatalf("Dispatch() error = %v", err)
 	}
@@ -137,7 +137,7 @@ func TestDashboardQueryHandlerFloat64Normalization(t *testing.T) {
 	db := newDashboardQuerySQLiteDB(t)
 	server := newDashboardQueryTestServer(t, db)
 
-	rows, err := dispatchDashboardQuery(server, `{"query":"SELECT * FROM agent_threads WHERE score = $1","args":[7]}`)
+	rows, err := dispatchDashboardQuery(server, `{"query":"SELECT * FROM agent_threads WHERE score = ?","args":[7]}`)
 	if err != nil {
 		t.Fatalf("Dispatch() error = %v", err)
 	}
