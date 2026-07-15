@@ -1,6 +1,7 @@
 package main
 
 import (
+	"io"
 	"os"
 	"path/filepath"
 	"slices"
@@ -23,8 +24,10 @@ func TestBuildGatePlanRoutesFrontendBackendAndGeneratedFiles(t *testing.T) {
 		"frontend:embed-verify",
 		"frontend:lint",
 		"frontend:test",
+		"lsp:changed-diagnostics",
 		"project-map:check",
 	)
+	assertStringSetContains(t, plan.DiagnosticFiles, "frontend-app/src/App.jsx", "internal/app/modules.go")
 	assertStringSetContains(t, plan.RequiredEvidence,
 		"generated:source",
 		"lsp:diagnostics",
@@ -80,6 +83,50 @@ func TestExecuteGatePlanRejectsRequiredGateWithoutRunner(t *testing.T) {
 	if !strings.Contains(err.Error(), "missing:runner") {
 		t.Fatalf("error should name the missing runner, got %v", err)
 	}
+}
+
+func TestLSPDiagnosticsRunnerAuditsAllDeleted(t *testing.T) {
+	root := t.TempDir()
+	plan := gatePlan{DiagnosticFiles: []string{
+		filepath.Join(root, "deleted-a.go"),
+		filepath.Join(root, "deleted-b.go"),
+	}}
+	runner := gateRunners(plan, gateExecutionScope{})["lsp:changed-diagnostics"]
+	stderr := captureStderr(t, runner.run)
+	want := "[ai-maintenance] lsp diagnostics skip: planned=2 existing=0 reason=all-deleted\n"
+	if stderr != want {
+		t.Fatalf("stderr = %q, want %q", stderr, want)
+	}
+}
+
+func TestExistingDiagnosticFilesRejectsNonRegularTarget(t *testing.T) {
+	_, _, err := existingDiagnosticFiles([]string{t.TempDir()})
+	if err == nil || !strings.Contains(err.Error(), "is not a regular file") {
+		t.Fatalf("non-regular target error = %v", err)
+	}
+}
+
+func captureStderr(t *testing.T, run func() error) string {
+	t.Helper()
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	original := os.Stderr
+	os.Stderr = writer
+	defer func() { os.Stderr = original }()
+	runErr := run()
+	if closeErr := writer.Close(); closeErr != nil {
+		t.Fatal(closeErr)
+	}
+	data, readErr := io.ReadAll(reader)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if runErr != nil {
+		t.Fatalf("run error = %v", runErr)
+	}
+	return string(data)
 }
 
 func TestBuildGatePlanRequiresFullLSPEvidenceForGoScripts(t *testing.T) {
@@ -383,6 +430,8 @@ LSP_EVIDENCE:
   read_file: PASS
   diagnostics: PASS
 COMMANDS_RUN:
+  - cmd: go run ./scripts/lsp_diagnostics_gate --file frontend-app/src/App.jsx
+    exit: 0
   - cmd: cd frontend-app && npm run lint
     exit: 0
   - cmd: cd frontend-app && npm test

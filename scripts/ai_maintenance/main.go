@@ -50,6 +50,7 @@ type gatePlan struct {
 	RequiredEvidence    []string `json:"required_evidence"`
 	GeneratedFiles      []string `json:"generated_files"`
 	AffectedGoPackages  []string `json:"affected_go_packages,omitempty"`
+	DiagnosticFiles     []string `json:"diagnostic_files,omitempty"`
 	RequiresEvidenceDoc bool     `json:"requires_evidence_doc"`
 }
 
@@ -232,6 +233,10 @@ func buildGatePlan(files []string) gatePlan {
 	if backendChanged {
 		gates["backend:test_with_guard"] = true
 		delete(gates, "ai-maintenance:self-test")
+	}
+	plan.DiagnosticFiles = changedDiagnosticFiles(normalized)
+	if len(plan.DiagnosticFiles) > 0 {
+		gates["lsp:changed-diagnostics"] = true
 	}
 	plan.RequiredGates = orderedGates(gates)
 	plan.RequiredEvidence = sortedKeys(evidence)
@@ -695,6 +700,7 @@ func gateEvidenceCommandFragments() map[string][]string {
 	return map[string][]string{
 		"ai-maintenance:self-test": {"go test ./scripts/ai_maintenance", "go test ./scripts -run TestAIMaintenanceGate"},
 		"backend:test_with_guard":  {"./scripts/test_with_guard.sh"},
+		"lsp:changed-diagnostics":  {"go run ./scripts/lsp_diagnostics_gate"},
 		"capcontract:check":        {"make capcontract-check"},
 		"frontend:lint":            {"npm run lint"},
 		"frontend:test":            {"npm test"},
@@ -792,15 +798,6 @@ func normalizeFiles(files []string) []string {
 	return out
 }
 
-func sourceLike(file string) bool {
-	for _, suffix := range []string{".go", ".js", ".jsx", ".ts", ".tsx", ".css", ".sql"} {
-		if strings.HasSuffix(file, suffix) {
-			return true
-		}
-	}
-	return false
-}
-
 // codemapRelevant 判断变更是否可能影响代码地图或 AI 项目地图。
 func codemapRelevant(file string) bool {
 	return strings.HasPrefix(file, "cmd/") ||
@@ -836,6 +833,7 @@ func orderedGates(values map[string]bool) []string {
 		"frontend:build",
 		"frontend:embed-verify",
 		"backend:test_with_guard",
+		"lsp:changed-diagnostics",
 		"sqlc:verify",
 		"codemap:check",
 		"project-map:check",

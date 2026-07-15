@@ -11,6 +11,7 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"sync"
@@ -373,9 +374,9 @@ func (a goLanguageAdapter) resolvedDirectoryFilters() []string {
 }
 
 // EnvPolicy 为 gopls 进程生成与当前 Go scope 匹配的环境覆盖。
-// 只覆盖 GOWORK/PATH/GOTOOLCHAIN/GOFLAGS，避免把请求外的环境策略混入 adapter。
+// GOOS/GOARCH 固定为当前 peer 的宿主平台，避免父进程的交叉编译环境污染诊断。
 func (goLanguageAdapter) EnvPolicy(scope ResolvedLanguageScope) []string {
-	env := make([]string, 0, 4)
+	env := []string{"GOOS=" + runtime.GOOS, "GOARCH=" + runtime.GOARCH}
 	mode := scope.LanguageSpecific["goworkMode"]
 	switch mode {
 	case goworkModeOff:
@@ -390,9 +391,6 @@ func (goLanguageAdapter) EnvPolicy(scope ResolvedLanguageScope) []string {
 	}
 	if buildFlags := goBuildFlagsForScope(scope); len(buildFlags) > 0 {
 		env = append(env, "GOFLAGS="+goGOFlagsEnvValue(buildFlags))
-	}
-	if len(env) == 0 {
-		return nil
 	}
 	return env
 }

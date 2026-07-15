@@ -70,6 +70,24 @@ func gateRunners(plan gatePlan, executionScope gateExecutionScope) map[string]ga
 			args = append(args, "-count=1")
 			return runCommand("", args[0], args[1:]...)
 		}},
+		"lsp:changed-diagnostics": {run: func() error {
+			files, deleted, err := existingDiagnosticFiles(plan.DiagnosticFiles)
+			if err != nil {
+				return err
+			}
+			if len(files) == 0 {
+				if deleted > 0 && deleted == len(plan.DiagnosticFiles) {
+					fmt.Fprintf(os.Stderr, "[ai-maintenance] lsp diagnostics skip: planned=%d existing=0 reason=all-deleted\n", len(plan.DiagnosticFiles))
+					return nil
+				}
+				return errors.New("lsp diagnostics gate has no planned files")
+			}
+			args := []string{"run", "./scripts/lsp_diagnostics_gate"}
+			for _, file := range files {
+				args = append(args, "--file", file)
+			}
+			return runCommand("", "go", args...)
+		}},
 		"capcontract:check":     generatedCheck(false, "make", "capcontract-check"),
 		"frontend:lint":         {run: func() error { return runCommand("frontend-app", "npm", "run", "lint") }},
 		"frontend:test":         {run: func() error { return runCommand("frontend-app", "npm", "test") }},
@@ -80,6 +98,27 @@ func gateRunners(plan gatePlan, executionScope gateExecutionScope) map[string]ga
 		"sqlc:verify":           {run: func() error { return runCommand("", "make", "sqlc-verify-worktree") }},
 		"diff:whitespace":       {run: func() error { return runWhitespaceCheck(executionScope) }},
 	}
+}
+
+// existingDiagnosticFiles keeps deleted paths out of the live diagnostics request while
+// preserving every currently existing file selected from the Git truth source.
+func existingDiagnosticFiles(files []string) (existing []string, deleted int, err error) {
+	existing = make([]string, 0, len(files))
+	for _, file := range files {
+		info, err := os.Stat(file)
+		if errors.Is(err, os.ErrNotExist) {
+			deleted++
+			continue
+		}
+		if err != nil {
+			return nil, deleted, fmt.Errorf("stat diagnostics target %q: %w", file, err)
+		}
+		if !info.Mode().IsRegular() {
+			return nil, deleted, fmt.Errorf("diagnostics target %q is not a regular file", file)
+		}
+		existing = append(existing, file)
+	}
+	return existing, deleted, nil
 }
 
 // runWhitespaceCheck 根据 hook 显式传入的 staged 或 push-range 真值源检查空白错误。

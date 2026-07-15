@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"slices"
 	"strings"
 	"sync"
@@ -14,6 +15,32 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-lsp/protocol"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/mcpserver/common"
 )
+
+func TestGoLanguageAdapterEnvPolicyOverridesForeignBuildContext(t *testing.T) {
+	t.Setenv("GOOS", "aix")
+	t.Setenv("GOARCH", "ppc64")
+
+	env := envMap(goLanguageAdapter{}.EnvPolicy(ResolvedLanguageScope{}))
+	if got := env["GOOS"]; got != runtime.GOOS {
+		t.Fatalf("GOOS = %q, want host %q", got, runtime.GOOS)
+	}
+	if got := env["GOARCH"]; got != runtime.GOARCH {
+		t.Fatalf("GOARCH = %q, want host %q", got, runtime.GOARCH)
+	}
+}
+
+func envMap(entries []string) map[string]string {
+	out := make(map[string]string, len(entries))
+	for _, entry := range entries {
+		key, value, _ := strings.Cut(entry, "=")
+		out[key] = value
+	}
+	return out
+}
+
+func hostGoEnv(extra ...string) []string {
+	return append([]string{"GOOS=" + runtime.GOOS, "GOARCH=" + runtime.GOARCH}, extra...)
+}
 
 func TestGenericLanguageServicesMatrixCoversDefaultLSPClients(t *testing.T) {
 	registry := NewDefaultLanguageAdapterRegistry()
@@ -120,7 +147,7 @@ func assertGoAdapterPolicies(t *testing.T, ctx context.Context, registry *Langua
 	if goScope.RootKind != goRootKindGoWork || goScope.WorkspaceRoot != root || goScope.LanguageWorkspaceRoot != goDir {
 		t.Fatalf("go resolved scope = %#v, want go.work root %q and module root %q", goScope, root, goDir)
 	}
-	if got, want := goAdapter.EnvPolicy(goScope), []string{"GOWORK=" + goWorkPath}; !reflect.DeepEqual(got, want) {
+	if got, want := goAdapter.EnvPolicy(goScope), hostGoEnv("GOWORK="+goWorkPath); !reflect.DeepEqual(got, want) {
 		t.Fatalf("go EnvPolicy = %#v, want %#v", got, want)
 	}
 	if policy := goAdapter.BootstrapPolicy(goScope); policy.OpenSiblingDocuments || len(policy.SiblingExtensions) != 0 {
@@ -164,7 +191,7 @@ func TestGoAdapterUsesTargetBuildTagsInEnvAndInitOptions(t *testing.T) {
 	if got := scope.LanguageSpecific[goBuildTagsLanguageSpecificKey]; got != "e2e" {
 		t.Fatalf("go build tags = %q, want e2e", got)
 	}
-	if got, want := goAdapter.EnvPolicy(scope), []string{"GOFLAGS=-mod=mod -tags=e2e"}; !reflect.DeepEqual(got, want) {
+	if got, want := goAdapter.EnvPolicy(scope), hostGoEnv("GOFLAGS=-mod=mod -tags=e2e"); !reflect.DeepEqual(got, want) {
 		t.Fatalf("go EnvPolicy = %#v, want %#v", got, want)
 	}
 	initOptions := goAdapter.InitOptions(scope)
@@ -204,7 +231,7 @@ func TestGoAdapterLeavesStandaloneIgnoreTagToGopls(t *testing.T) {
 	if got := scope.LanguageSpecific[goBuildTagsLanguageSpecificKey]; got != "" {
 		t.Fatalf("standalone go build tags = %q, want empty", got)
 	}
-	if got, want := goAdapter.EnvPolicy(scope), []string(nil); !reflect.DeepEqual(got, want) {
+	if got, want := goAdapter.EnvPolicy(scope), hostGoEnv(); !reflect.DeepEqual(got, want) {
 		t.Fatalf("standalone go EnvPolicy = %#v, want %#v", got, want)
 	}
 	if _, ok := goAdapter.InitOptions(scope)["buildFlags"]; ok {
