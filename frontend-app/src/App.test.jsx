@@ -3325,6 +3325,22 @@ async function toggleInlineTraceFromRecentLogs(table) {
     expect(screen.getAllByText('请真正调用后端聊天').length).toBeGreaterThanOrEqual(1);
   });
 
+  it('renders the inherited timeline used by fork drafts', async () => {
+    backend.getThreadState.mockResolvedValue({
+      activeThreadId: 'thread-1',
+      timelinesByThread: {
+        'thread-1': [
+          { id: 'user-1', kind: 'user', text: '原始需求：补齐工作台能力' },
+          { id: 'assistant-1', kind: 'assistant', text: '阶段结论：先迁移 fork draft 链路' },
+        ],
+      },
+    });
+
+    render(<App />);
+
+    expect(await screen.findByText('阶段结论：先迁移 fork draft 链路')).toBeInTheDocument();
+  });
+
   it('opens a fork draft card from the chat composer and submits an inherited thread', async () => {
     backend.getThreadState.mockResolvedValue({
       activeThreadId: 'thread-1',
@@ -3348,7 +3364,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
 
     render(<App />);
 
-    await screen.findByText('阶段结论：先迁移 fork draft 链路');
+    await waitForBackendThreadHeading();
     fireEvent.click(screen.getByRole('button', { name: '聊天操作' }));
     fireEvent.click(await screen.findByRole('menuitem', { name: '继承当前对话' }));
 

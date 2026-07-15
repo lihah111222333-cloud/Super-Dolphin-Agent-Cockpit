@@ -155,6 +155,38 @@ func TestResolveFilePositionRequestSuggestsNearbyIdentifierForBlankLine(t *testi
 	}
 }
 
+func TestEnrichIdentifierNotFoundErrorSuggestsImplementationMethodColumn(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "adapter.go")
+	writePositionFixture(t, dir, "adapter.go", "func (a projectLanguageAdapter) ResolveRoot() {}\n")
+
+	err := enrichIdentifierNotFoundError(
+		target,
+		protocol.Position{Line: 0, Character: 31},
+		errors.New("textDocument/references: no identifier found"),
+	)
+	var coded *common.CodedToolError
+	if !errors.As(err, &coded) {
+		t.Fatalf("error type = %T, want *common.CodedToolError", err)
+	}
+	if coded.Code != "identifier_not_found" {
+		t.Fatalf("code = %q, want identifier_not_found", coded.Code)
+	}
+	if got := coded.Meta["requested_column"]; got != 32 {
+		t.Fatalf("requested_column = %#v, want 32", got)
+	}
+	suggestions, ok := coded.Meta["suggested_columns"].([]map[string]any)
+	if !ok {
+		t.Fatalf("suggested_columns = %#v, want []map[string]any", coded.Meta["suggested_columns"])
+	}
+	for _, suggestion := range suggestions {
+		if suggestion["identifier"] == "ResolveRoot" && suggestion["column"] == 33 {
+			return
+		}
+	}
+	t.Fatalf("suggested_columns = %#v, want ResolveRoot at column 33", suggestions)
+}
+
 func TestResolveFilePositionRequestRejectsLineBeyondFileWithLLMHint(t *testing.T) {
 	dir := t.TempDir()
 	writePositionFixture(t, dir, "sample.go", "package sample\n")

@@ -67,7 +67,7 @@ func runReferences(
 	limit := format.ReferencesLimit(req.MaxResults, format.VerbosityCompact)
 	results, err := manager.References(ctx, filePath, position, includeDeclaration)
 	if err != nil {
-		return nil, err
+		return nil, enrichIdentifierNotFoundError(filePath, position, err)
 	}
 	format.EnrichLocationResultsWithFuncRange(results, enricher)
 	total := len(results)

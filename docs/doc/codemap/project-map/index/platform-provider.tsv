@@ -41,7 +41,7 @@ cmd/mcp-lsp/lsp_binary_multilang_diagnostics_e2e_test.go	cmd	platform-provider	g
 cmd/mcp-lsp/lsp_binary_python_red_e2e_test.go	cmd	platform-provider	go-test	19982	代码智能/LSP MCP peer	cmd,mcp,lsp,binary,python,red,e2e,test,代码智能,LSP,MCP,peer
 cmd/mcp-lsp/lsp_binary_real_autoinstall_e2e_test.go	cmd	platform-provider	go-test	10525	代码智能/LSP MCP peer	cmd,mcp,lsp,binary,real,autoinstall,e2e,test,代码智能,LSP,MCP,peer
 cmd/mcp-lsp/lsp_binary_real_tools_e2e_test.go	cmd	platform-provider	go-test	6157	代码智能/LSP MCP peer	cmd,mcp,lsp,binary,real,tools,e2e,test,代码智能,LSP,MCP,peer
-cmd/mcp-lsp/lsp_binary_residual_test.go	cmd	platform-provider	go-test	19806	代码智能/LSP MCP peer	cmd,mcp,lsp,binary,residual,test,代码智能,LSP,MCP,peer
+cmd/mcp-lsp/lsp_binary_residual_test.go	cmd	platform-provider	go-test	21660	代码智能/LSP MCP peer	cmd,mcp,lsp,binary,residual,test,代码智能,LSP,MCP,peer
 cmd/mcp-lsp/lsp_binary_shell_e2e_test.go	cmd	platform-provider	go-test	7455	代码智能/LSP MCP peer	cmd,mcp,lsp,binary,shell,e2e,test,代码智能,LSP,MCP,peer
 cmd/mcp-lsp/lsp_binary_sql_auto_install_e2e_test.go	cmd	platform-provider	go-test	8842	代码智能/LSP MCP peer	cmd,mcp,lsp,binary,sql,auto,install,e2e,test,代码智能,LSP,MCP,peer
 cmd/mcp-lsp/main.go	cmd	platform-provider	go-source	1720	代码智能/LSP MCP peer	cmd,mcp,lsp,main,代码智能,LSP,MCP,peer
@@ -177,7 +177,7 @@ cmd/mcp-lsp/tools/factory_test.go	cmd	platform-provider	go-test	13623	LSP MCP to
 cmd/mcp-lsp/tools/factory.go	cmd	platform-provider	go-source	3707	LSP MCP tools 实现	cmd,mcp,lsp,tools,factory,LSP,MCP,实现
 cmd/mcp-lsp/tools/formatter_test.go	cmd	platform-provider	go-test	1174	LSP MCP tools 实现	cmd,mcp,lsp,tools,formatter,test,LSP,MCP,实现
 cmd/mcp-lsp/tools/formatter.go	cmd	platform-provider	go-source	16372	LSP MCP tools 实现	cmd,mcp,lsp,tools,formatter,LSP,MCP,实现
-cmd/mcp-lsp/tools/position.go	cmd	platform-provider	go-source	12221	LSP MCP tools 实现	cmd,mcp,lsp,tools,position,LSP,MCP,实现
+cmd/mcp-lsp/tools/position.go	cmd	platform-provider	go-source	13319	LSP MCP tools 实现	cmd,mcp,lsp,tools,position,LSP,MCP,实现
 cmd/mcp-lsp/tools/test_scope_test.go	cmd	platform-provider	go-test	330	LSP MCP tools 实现	cmd,mcp,lsp,tools,test,scope,LSP,MCP,实现
 cmd/mcp-lsp/tools/tool_capability.go	cmd	platform-provider	go-source	3395	LSP MCP tools 实现	cmd,mcp,lsp,tools,tool,capability,LSP,MCP,实现
 cmd/mcp-lsp/tools/tool_compact_locations.go	cmd	platform-provider	go-source	4868	LSP MCP tools 实现	cmd,mcp,lsp,tools,tool,compact,locations,LSP,MCP,实现
@@ -223,13 +223,13 @@ cmd/mcp-lsp/tools/tool_lsp_target_test.go	cmd	platform-provider	go-test	6888	LSP
 cmd/mcp-lsp/tools/tool_meta_fields_test.go	cmd	platform-provider	go-test	1926	LSP MCP tools 实现	cmd,mcp,lsp,tools,tool,meta,fields,test,LSP,MCP,实现
 cmd/mcp-lsp/tools/tool_middleware_test.go	cmd	platform-provider	go-test	1331	LSP MCP tools 实现	cmd,mcp,lsp,tools,tool,middleware,test,LSP,MCP,实现
 cmd/mcp-lsp/tools/tool_multi_agent_scope_test.go	cmd	platform-provider	go-test	11896	LSP MCP tools 实现	cmd,mcp,lsp,tools,tool,multi,agent,scope,test,LSP,MCP,实现
-cmd/mcp-lsp/tools/tool_position_test.go	cmd	platform-provider	go-test	7122	LSP MCP tools 实现	cmd,mcp,lsp,tools,tool,position,test,LSP,MCP,实现
+cmd/mcp-lsp/tools/tool_position_test.go	cmd	platform-provider	go-test	8282	LSP MCP tools 实现	cmd,mcp,lsp,tools,tool,position,test,LSP,MCP,实现
 cmd/mcp-lsp/tools/tool_rust_workspace.go	cmd	platform-provider	go-source	2225	LSP MCP tools 实现	cmd,mcp,lsp,tools,tool,rust,workspace,LSP,MCP,实现
 cmd/mcp-lsp/tools/tool_size_budget_test.go	cmd	platform-provider	go-test	10620	LSP MCP tools 实现	cmd,mcp,lsp,tools,tool,size,budget,test,LSP,MCP,实现
 cmd/mcp-lsp/tools/tool_structure_test.go	cmd	platform-provider	go-test	25196	LSP MCP tools 实现	cmd,mcp,lsp,tools,tool,structure,test,LSP,MCP,实现
 cmd/mcp-lsp/tools/tool_structure.go	cmd	platform-provider	go-source	11802	LSP MCP tools 实现	cmd,mcp,lsp,tools,tool,structure,LSP,MCP,实现
 cmd/mcp-lsp/tools/tool_xref_test.go	cmd	platform-provider	go-test	3562	LSP MCP tools 实现	cmd,mcp,lsp,tools,tool,xref,test,LSP,MCP,实现
-cmd/mcp-lsp/tools/tool_xref.go	cmd	platform-provider	go-source	6902	LSP MCP tools 实现	cmd,mcp,lsp,tools,tool,xref,LSP,MCP,实现
+cmd/mcp-lsp/tools/tool_xref.go	cmd	platform-provider	go-source	6953	LSP MCP tools 实现	cmd,mcp,lsp,tools,tool,xref,LSP,MCP,实现
 internal/mcpserver/common/bootstrap/callback_drain_test.go	internal	platform-provider	go-test	2906	MCP server 公共框架、bootstrap 与 transport	internal,mcpserver,common,bootstrap,callback,drain,test,MCP,server,公共框架,与,transport
 internal/mcpserver/common/bootstrap/client.go	internal	platform-provider	go-source	10410	MCP server 公共框架、bootstrap 与 transport	internal,mcpserver,common,bootstrap,client,MCP,server,公共框架,与,transport
 internal/mcpserver/common/bootstrap/env_test.go	internal	platform-provider	go-test	3822	MCP server 公共框架、bootstrap 与 transport	internal,mcpserver,common,bootstrap,env,test,MCP,server,公共框架,与,transport

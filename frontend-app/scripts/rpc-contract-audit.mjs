@@ -4230,6 +4230,11 @@ function astReferencesFacade(ast, filePath, entry, backendFacadeRpcKeys, facadeM
     facadeModulePaths,
   )
   const namespaceMemberPaths = bindings.namespaceMemberPaths ?? new Map()
+  if (
+    bindings.identifierAliases.size === 0
+    && bindings.namespaceAliases.size === 0
+    && namespaceMemberPaths.size === 0
+  ) return false
   const addNamespaceAliasPaths = (name, paths) => {
     const existing = namespaceMemberPaths.get(name) ?? new Set()
     const previousSize = existing.size
