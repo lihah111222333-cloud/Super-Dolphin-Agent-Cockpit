@@ -25,6 +25,7 @@ const UI_STATE_RESPONSE_KEYS = new Set([
   'active_turn',
   'recent_turns',
   'token_usage',
+  'tokenUsage',
   'statuses',
   'interruptibleByThread',
   'statusHeadersByThread',
@@ -49,13 +50,6 @@ const UI_STATE_RESPONSE_KEYS = new Set([
   'threadArchives.chat',
   'groups',
 ]);
-
-/** @param {string} method @param {unknown} value @param {string} path */
-function assertNonNegativeInteger(method, value, path) {
-  if (!Number.isInteger(value) || /** @type {number} */ (value) < 0) {
-    throw new TypeError(`${method} response ${path} must be a non-negative integer`);
-  }
-}
 
 /** @param {string} method @param {unknown} value @param {string} path */
 function assertUIStateNonNegativeInteger(method, value, path) {
@@ -135,9 +129,20 @@ function validateStateMaps(method, value) {
 /** @param {string} method @param {unknown} response */
 export function validateUIStateResponse(method, response) {
   const value = assertBackendResponseObject(method, response);
+  const requiredSnapshotFields = [
+    ['threads'],
+    ['agents'],
+    ['token_usage', 'tokenUsage'],
+  ];
+  const missingFields = requiredSnapshotFields
+    .filter((aliases) => !aliases.some((key) => hasOwn(value, key)))
+    .map((aliases) => aliases.join(' or '));
   assertOnlyResponseKeys(method, value, UI_STATE_RESPONSE_KEYS, 'body');
   validateCoreUIStateResponse(method, value);
   validateStateMaps(method, value);
+  if (missingFields.length > 0) {
+    throw new Error(`${method} response missing UI state snapshot fields; required: ${missingFields.join(', ')}`);
+  }
   return value;
 }
 
@@ -145,28 +150,23 @@ export function validateUIStateResponse(method, response) {
 export function validateSidebarStateResponse(method, response) {
   const value = assertBackendResponseObject(method, response);
   const { activityStatsByThread, ...coreValue } = value;
-  validateCoreSidebarStateResponse(method, coreValue);
-  validateStateMaps(method, coreValue);
-  if (!hasOwn(value, 'activityStatsByThread')) return value;
-  const activityMap = assertResponseRecord(method, activityStatsByThread, 'activityStatsByThread');
-  for (const [threadId, candidate] of Object.entries(activityMap)) {
-    if (!normalizeString(threadId)) {
-      throw new TypeError(`${method} response activityStatsByThread thread id must be non-empty`);
+  const hasFullSidebarContract = (
+    hasOwn(value, 'threads')
+    && hasOwn(value, 'agents')
+    && hasOwn(value, 'workspace')
+    && hasOwn(value, 'token_usage')
+  );
+  if (hasFullSidebarContract) {
+    validateCoreSidebarStateResponse(method, coreValue);
+  } else {
+    if (hasOwn(value, 'threads') && value.threads !== null && !Array.isArray(value.threads)) {
+      throw new TypeError(`${method} response threads must be an array or null`);
     }
-    const activity = assertResponseRecord(method, candidate, `activityStatsByThread.${threadId}`);
-    assertOnlyResponseKeys(method, activity, ACTIVITY_STATS_RESPONSE_KEYS, `activityStatsByThread.${threadId}`);
-    for (const key of ['lspCalls', 'commands', 'fileEdits']) {
-      assertNonNegativeInteger(method, activity[key], `activityStatsByThread.${threadId}.${key}`);
-    }
-    if (!hasOwn(activity, 'toolCalls')) continue;
-    const toolCalls = assertResponseRecord(method, activity.toolCalls, `activityStatsByThread.${threadId}.toolCalls`);
-    for (const [toolName, count] of Object.entries(toolCalls)) {
-      if (!normalizeString(toolName)) {
-        throw new TypeError(`${method} response activityStatsByThread.${threadId}.toolCalls tool name must be non-blank`);
-      }
-      assertNonNegativeInteger(method, count, `activityStatsByThread.${threadId}.toolCalls.${toolName}`);
+    if (hasOwn(value, 'agents') && value.agents !== null && !Array.isArray(value.agents)) {
+      throw new TypeError(`${method} response agents must be an array or null`);
     }
   }
+  validateStateMaps(method, value);
   return value;
 }
 

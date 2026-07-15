@@ -298,6 +298,7 @@ func (c *bootstrapCoordinator) reopenSnapshotForDiagnostics(ctx context.Context,
 		c.states.fail(scope.bootstrapKey(), snapshot.ref.uri, err)
 		return err
 	}
+	m.advanceDocumentDiagnosticEpoch(scope, snapshot.ref.uri)
 	return nil
 }
 

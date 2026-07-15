@@ -19,8 +19,6 @@ import (
 const maxReactiveBootstrap = 30
 const maxDiagnosticSummaryRunes = 300
 const typeScriptDeprecatedDiagnosticCode = "6385"
-const appManagedDiagnosticsNoBootstrapSource = "app_managed_no_bootstrap"
-const appManagedDiagnosticsNoBootstrapMessage = "diagnostics target is app-managed data outside workspace roots; skipped workspace LSP bootstrap and returned an empty diagnostics cache"
 const diagnosticsStartupRetryCount = 5
 const diagnosticsStartupRetryBaseDelay = 300 * time.Millisecond
 
@@ -45,10 +43,9 @@ type diagnosticsResponse struct {
 }
 
 type diagnosticsWaitResult struct {
-	recovered                  bool
-	partial                    bool
-	appManagedOutsideWorkspace bool
-	message                    string
+	recovered bool
+	partial   bool
+	message   string
 }
 
 type diagnosticTarget struct {
@@ -58,19 +55,18 @@ type diagnosticTarget struct {
 }
 
 // fetchDiagnosticsWithRetry 获取诊断并在启动未就绪时执行一次恢复流程。
-// app-managed 且位于 workspace roots 外的目标不会触发 LSP bootstrap，只返回带说明的空诊断。
 func (h handlerBase) fetchDiagnosticsWithRetry(ctx context.Context, input fileToolInput, targets []diagnosticTarget) ([]protocol.PublishDiagnosticsParams, string, string, error) {
+	uris := diagnosticTargetURIs(targets)
+	if err := rejectExplicitAppManagedDiagnosticTargets(ctx, input, uris); err != nil {
+		return nil, "", "", err
+	}
 	if shouldUseSingleFileLanguageOverrideDiagnostics(input, targets) {
 		return h.fetchSingleFileLanguageOverrideDiagnostics(ctx, input, targets[0])
 	}
-	uris := diagnosticTargetURIs(targets)
 	existingURIs := existingDiagnosticURIs(uris)
 	source, err := h.bootstrapDiagnostics(ctx, existingURIs)
 	if err != nil {
 		return nil, "", "", err
-	}
-	if source == appManagedDiagnosticsNoBootstrapSource {
-		return emptyDiagnosticsForURIs(uris), source, appManagedDiagnosticsNoBootstrapMessage, nil
 	}
 	if err := h.reopenExplicitDiagnosticTargets(ctx, input, uris); err != nil {
 		return nil, "", "", err
@@ -78,9 +74,6 @@ func (h handlerBase) fetchDiagnosticsWithRetry(ctx context.Context, input fileTo
 	waitResult, err := h.waitDiagnosticsWithStartupRecovery(ctx, uris, existingURIs)
 	if err != nil {
 		return nil, "", "", err
-	}
-	if waitResult.appManagedOutsideWorkspace {
-		return emptyDiagnosticsForURIs(uris), source, waitResult.message, nil
 	}
 	if waitResult.partial {
 		source = "startup_recovery_partial"
@@ -94,6 +87,22 @@ func (h handlerBase) fetchDiagnosticsWithRetry(ctx context.Context, input fileTo
 	message := waitResult.message
 	message = diagnosticsMessageAfterFetch(message, uris, items)
 	return items, source, message, nil
+}
+
+// rejectExplicitAppManagedDiagnosticTargets 在调用任何 LSP 能力前拒绝 app-managed 外部显式目标。
+// 无显式目标时保留只读 manager 诊断缓存的原有语义。
+func rejectExplicitAppManagedDiagnosticTargets(ctx context.Context, input fileToolInput, uris []string) error {
+	if len(collectDiagnosticTargetPaths(input)) == 0 {
+		return nil
+	}
+	appManaged, message, err := appManagedDiagnosticsOutsideWorkspace(ctx, uris)
+	if err != nil {
+		return err
+	}
+	if appManaged {
+		return errors.New(message)
+	}
+	return nil
 }
 
 func (h handlerBase) reopenExplicitDiagnosticTargets(ctx context.Context, input fileToolInput, uris []string) error {
@@ -180,17 +189,10 @@ func (h handlerBase) waitSingleFileOverrideDiagnosticsStableWithStartupRetries(c
 }
 
 // bootstrapDiagnostics 为已有文件触发诊断前置 bootstrap。
-// 文件列表为空时只读 manager 缓存；所有目标都在 app-managed 外部区时跳过 LSP 启动。
+// 文件列表为空时只读 manager 缓存。
 func (h handlerBase) bootstrapDiagnostics(ctx context.Context, existingURIs []string) (string, error) {
 	if len(existingURIs) == 0 {
 		return "manager", nil
-	}
-	appManaged, _, err := appManagedDiagnosticsOutsideWorkspace(ctx, existingURIs)
-	if err != nil {
-		return "", err
-	}
-	if appManaged {
-		return appManagedDiagnosticsNoBootstrapSource, nil
 	}
 	bootstrapped, err := h.reactiveBootstrap(ctx, existingURIs)
 	if err != nil {
@@ -217,13 +219,6 @@ func (h handlerBase) waitDiagnosticsWithStartupRecovery(ctx context.Context, uri
 func (h handlerBase) recoverDiagnosticsStartupWait(ctx context.Context, uris, existingURIs []string, waitErr error) (diagnosticsWaitResult, error) {
 	if !errors.Is(waitErr, lspmanager.ErrDiagnosticsNotReady) || len(existingURIs) == 0 {
 		return diagnosticsWaitResult{}, waitErr
-	}
-	appManaged, message, err := appManagedDiagnosticsOutsideWorkspace(ctx, existingURIs)
-	if err != nil {
-		return diagnosticsWaitResult{}, err
-	}
-	if appManaged {
-		return diagnosticsWaitResult{appManagedOutsideWorkspace: true, message: message}, nil
 	}
 	bootstrapped, bootstrapErr := h.bootstrapDiagnosticDocuments(ctx, existingURIs)
 	if bootstrapErr != nil {
@@ -564,7 +559,7 @@ func (h handlerBase) bootstrapDiagnosticDocument(ctx context.Context, uri string
 	return h.registry.BootstrapDocument(ctx, uri)
 }
 
-// appManagedDiagnosticsOutsideWorkspace 判断诊断目标是否全部位于 app-managed 外部数据区。
+// appManagedDiagnosticsOutsideWorkspace 判断诊断目标是否包含 app-managed 外部数据区文件。
 // 这种路径可被读取但不应启动 workspace LSP，以免把应用托管缓存误当用户项目。
 func appManagedDiagnosticsOutsideWorkspace(ctx context.Context, uris []string) (bool, string, error) {
 	root, workspaceRootsOnly, err := toolWorkspaceRoots(ctx)
@@ -579,7 +574,6 @@ func appManagedDiagnosticsOutsideWorkspace(ctx context.Context, uris []string) (
 	if err != nil {
 		return false, "", err
 	}
-	allAppManaged := len(uris) > 0
 	for _, uri := range uris {
 		path := format.URIToPath(uri)
 		if strings.TrimSpace(path) == "" {
@@ -589,23 +583,14 @@ func appManagedDiagnosticsOutsideWorkspace(ctx context.Context, uris []string) (
 		if err != nil {
 			return false, "", err
 		}
-		if pathWithinAnyRoot(workspaceRoots, pathInfo.AbsPath) {
-			allAppManaged = false
-			break
+		if !pathWithinAnyRoot(workspaceRoots, pathInfo.AbsPath) {
+			return true, fmt.Sprintf(
+				"diagnostics target %q is app-managed data outside workspace roots",
+				pathInfo.AbsPath,
+			), nil
 		}
 	}
-	if !allAppManaged {
-		return false, "", nil
-	}
-	return true, appManagedDiagnosticsNoBootstrapMessage, nil
-}
-
-func emptyDiagnosticsForURIs(uris []string) []protocol.PublishDiagnosticsParams {
-	items := make([]protocol.PublishDiagnosticsParams, 0, len(uris))
-	for _, uri := range uris {
-		items = append(items, protocol.PublishDiagnosticsParams{URI: uri})
-	}
-	return items
+	return false, "", nil
 }
 
 // reactiveBootstrap 对最多 maxReactiveBootstrap 个 URI 触发按需文档 bootstrap。

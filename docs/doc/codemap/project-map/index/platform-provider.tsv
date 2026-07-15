@@ -50,12 +50,12 @@ cmd/mcp-lsp/manager/go_work_fake_test.go	cmd	platform-provider	go-test	7317	代�
 cmd/mcp-lsp/manager/language_id_test.go	cmd	platform-provider	go-test	1903	代码智能/LSP MCP peer	cmd,mcp,lsp,manager,language,id,test,代码智能,LSP,MCP,peer
 cmd/mcp-lsp/manager/manager.go	cmd	platform-provider	go-source	4805	代码智能/LSP MCP peer	cmd,mcp,lsp,manager,代码智能,LSP,MCP,peer
 cmd/mcp-lsp/manager/multi_language_gate_test.go	cmd	platform-provider	go-test	1678	代码智能/LSP MCP peer	cmd,mcp,lsp,manager,multi,language,gate,test,代码智能,LSP,MCP,peer
-cmd/mcp-lsp/manager/registry_diagnostics_test.go	cmd	platform-provider	go-test	6373	代码智能/LSP MCP peer	cmd,mcp,lsp,manager,registry,diagnostics,test,代码智能,LSP,MCP,peer
+cmd/mcp-lsp/manager/registry_diagnostics_test.go	cmd	platform-provider	go-test	7101	代码智能/LSP MCP peer	cmd,mcp,lsp,manager,registry,diagnostics,test,代码智能,LSP,MCP,peer
 cmd/mcp-lsp/manager/registry_e2e_test.go	cmd	platform-provider	go-test	3304	代码智能/LSP MCP peer	cmd,mcp,lsp,manager,registry,e2e,test,代码智能,LSP,MCP,peer
 cmd/mcp-lsp/manager/registry_installer_test.go	cmd	platform-provider	go-test	2270	代码智能/LSP MCP peer	cmd,mcp,lsp,manager,registry,installer,test,代码智能,LSP,MCP,peer
 cmd/mcp-lsp/manager/registry_multilang_e2e_test.go	cmd	platform-provider	go-test	15333	代码智能/LSP MCP peer	cmd,mcp,lsp,manager,registry,multilang,e2e,test,代码智能,LSP,MCP,peer
 cmd/mcp-lsp/manager/registry_scoped_test.go	cmd	platform-provider	go-test	10486	代码智能/LSP MCP peer	cmd,mcp,lsp,manager,registry,scoped,test,代码智能,LSP,MCP,peer
-cmd/mcp-lsp/manager/registry.go	cmd	platform-provider	go-source	20356	代码智能/LSP MCP peer	cmd,mcp,lsp,manager,registry,代码智能,LSP,MCP,peer
+cmd/mcp-lsp/manager/registry.go	cmd	platform-provider	go-source	20417	代码智能/LSP MCP peer	cmd,mcp,lsp,manager,registry,代码智能,LSP,MCP,peer
 cmd/mcp-lsp/manager/scope.go	cmd	platform-provider	go-source	10865	代码智能/LSP MCP peer	cmd,mcp,lsp,manager,scope,代码智能,LSP,MCP,peer
 cmd/mcp-lsp/middleware/budget_hints.go	cmd	platform-provider	go-source	2879	代码智能/LSP MCP peer	cmd,mcp,lsp,middleware,budget,hints,代码智能,LSP,MCP,peer
 cmd/mcp-lsp/middleware/budget_test.go	cmd	platform-provider	go-test	2489	代码智能/LSP MCP peer	cmd,mcp,lsp,middleware,budget,test,代码智能,LSP,MCP,peer
@@ -68,7 +68,7 @@ cmd/mcp-lsp/middleware/timeout_test.go	cmd	platform-provider	go-test	2948	代码
 cmd/mcp-lsp/middleware/timeout.go	cmd	platform-provider	go-source	4674	代码智能/LSP MCP peer	cmd,mcp,lsp,middleware,timeout,代码智能,LSP,MCP,peer
 cmd/mcp-lsp/multilsp/adapter_walk_test.go	cmd	platform-provider	go-test	824	多语言 LSP manager、transport 与缓存	cmd,mcp,lsp,multilsp,adapter,walk,test,多语言,LSP,manager,transport,与缓存
 cmd/mcp-lsp/multilsp/adapter.go	cmd	platform-provider	go-source	27636	多语言 LSP manager、transport 与缓存	cmd,mcp,lsp,multilsp,adapter,多语言,LSP,manager,transport,与缓存
-cmd/mcp-lsp/multilsp/bootstrap_doc.go	cmd	platform-provider	go-source	16195	多语言 LSP manager、transport 与缓存	cmd,mcp,lsp,multilsp,bootstrap,doc,多语言,LSP,manager,transport,与缓存
+cmd/mcp-lsp/multilsp/bootstrap_doc.go	cmd	platform-provider	go-source	16254	多语言 LSP manager、transport 与缓存	cmd,mcp,lsp,multilsp,bootstrap,doc,多语言,LSP,manager,transport,与缓存
 cmd/mcp-lsp/multilsp/bootstrap_state_test.go	cmd	platform-provider	go-test	2023	多语言 LSP manager、transport 与缓存	cmd,mcp,lsp,multilsp,bootstrap,state,test,多语言,LSP,manager,transport,与缓存
 cmd/mcp-lsp/multilsp/cache_failfast_test.go	cmd	platform-provider	go-test	4201	多语言 LSP manager、transport 与缓存	cmd,mcp,lsp,multilsp,cache,failfast,test,多语言,LSP,manager,transport,与缓存
 cmd/mcp-lsp/multilsp/cache_no_loop_test.go	cmd	platform-provider	go-test	4161	多语言 LSP manager、transport 与缓存	cmd,mcp,lsp,multilsp,cache,no,loop,test,多语言,LSP,manager,transport,与缓存
@@ -98,7 +98,7 @@ cmd/mcp-lsp/multilsp/manager_cold_start_test.go	cmd	platform-provider	go-test	21
 cmd/mcp-lsp/multilsp/manager_diagnostics_deadline_test.go	cmd	platform-provider	go-test	10610	多语言 LSP manager、transport 与缓存	cmd,mcp,lsp,multilsp,manager,diagnostics,deadline,test,多语言,LSP,transport,与缓存
 cmd/mcp-lsp/multilsp/manager_diagnostics_readiness.go	cmd	platform-provider	go-source	10837	多语言 LSP manager、transport 与缓存	cmd,mcp,lsp,multilsp,manager,diagnostics,readiness,多语言,LSP,transport,与缓存
 cmd/mcp-lsp/multilsp/manager_diagnostics_refresh.go	cmd	platform-provider	go-source	2695	多语言 LSP manager、transport 与缓存	cmd,mcp,lsp,multilsp,manager,diagnostics,refresh,多语言,LSP,transport,与缓存
-cmd/mcp-lsp/multilsp/manager_diagnostics_scoped_test.go	cmd	platform-provider	go-test	30515	多语言 LSP manager、transport 与缓存	cmd,mcp,lsp,multilsp,manager,diagnostics,scoped,test,多语言,LSP,transport,与缓存
+cmd/mcp-lsp/multilsp/manager_diagnostics_scoped_test.go	cmd	platform-provider	go-test	33651	多语言 LSP manager、transport 与缓存	cmd,mcp,lsp,multilsp,manager,diagnostics,scoped,test,多语言,LSP,transport,与缓存
 cmd/mcp-lsp/multilsp/manager_diagnostics.go	cmd	platform-provider	go-source	26503	多语言 LSP manager、transport 与缓存	cmd,mcp,lsp,multilsp,manager,diagnostics,多语言,LSP,transport,与缓存
 cmd/mcp-lsp/multilsp/manager_lifecycle_test.go	cmd	platform-provider	go-test	2239	多语言 LSP manager、transport 与缓存	cmd,mcp,lsp,multilsp,manager,lifecycle,test,多语言,LSP,transport,与缓存
 cmd/mcp-lsp/multilsp/manager_lifecycle.go	cmd	platform-provider	go-source	23250	多语言 LSP manager、transport 与缓存	cmd,mcp,lsp,multilsp,manager,lifecycle,多语言,LSP,transport,与缓存
@@ -131,7 +131,7 @@ cmd/mcp-lsp/multilsp/test_permissions_unix_test.go	cmd	platform-provider	go-test
 cmd/mcp-lsp/multilsp/test_permissions_windows_test.go	cmd	platform-provider	go-test	887	多语言 LSP manager、transport 与缓存	cmd,mcp,lsp,multilsp,test,permissions,windows,多语言,LSP,manager,transport,与缓存
 cmd/mcp-lsp/multilsp/transport_compat.go	cmd	platform-provider	go-source	2827	多语言 LSP manager、transport 与缓存	cmd,mcp,lsp,multilsp,transport,compat,多语言,LSP,manager,与缓存
 cmd/mcp-lsp/multilsp/transport_conn.go	cmd	platform-provider	go-source	7617	多语言 LSP manager、transport 与缓存	cmd,mcp,lsp,multilsp,transport,conn,多语言,LSP,manager,与缓存
-cmd/mcp-lsp/multilsp/transport_request_context_test.go	cmd	platform-provider	go-test	3225	多语言 LSP manager、transport 与缓存	cmd,mcp,lsp,multilsp,transport,request,context,test,多语言,LSP,manager,与缓存
+cmd/mcp-lsp/multilsp/transport_request_context_test.go	cmd	platform-provider	go-test	6698	多语言 LSP manager、transport 与缓存	cmd,mcp,lsp,multilsp,transport,request,context,test,多语言,LSP,manager,与缓存
 cmd/mcp-lsp/multilsp/transport_responder_drain_test.go	cmd	platform-provider	go-test	3978	多语言 LSP manager、transport 与缓存	cmd,mcp,lsp,multilsp,transport,responder,drain,test,多语言,LSP,manager,与缓存
 cmd/mcp-lsp/multilsp/transport.go	cmd	platform-provider	go-source	9660	多语言 LSP manager、transport 与缓存	cmd,mcp,lsp,multilsp,transport,多语言,LSP,manager,与缓存
 cmd/mcp-lsp/multilsp/typescript_fallback_test.go	cmd	platform-provider	go-test	7537	多语言 LSP manager、transport 与缓存	cmd,mcp,lsp,multilsp,typescript,fallback,test,多语言,LSP,manager,transport,与缓存
@@ -182,8 +182,8 @@ cmd/mcp-lsp/tools/test_scope_test.go	cmd	platform-provider	go-test	330	LSP MCP t
 cmd/mcp-lsp/tools/tool_capability.go	cmd	platform-provider	go-source	3395	LSP MCP tools 实现	cmd,mcp,lsp,tools,tool,capability,LSP,MCP,实现
 cmd/mcp-lsp/tools/tool_compact_locations.go	cmd	platform-provider	go-source	4868	LSP MCP tools 实现	cmd,mcp,lsp,tools,tool,compact,locations,LSP,MCP,实现
 cmd/mcp-lsp/tools/tool_completion.go	cmd	platform-provider	go-source	5742	LSP MCP tools 实现	cmd,mcp,lsp,tools,tool,completion,LSP,MCP,实现
-cmd/mcp-lsp/tools/tool_diagnostics_test.go	cmd	platform-provider	go-test	25912	LSP MCP tools 实现	cmd,mcp,lsp,tools,tool,diagnostics,test,LSP,MCP,实现
-cmd/mcp-lsp/tools/tool_diagnostics.go	cmd	platform-provider	go-source	26660	LSP MCP tools 实现	cmd,mcp,lsp,tools,tool,diagnostics,LSP,MCP,实现
+cmd/mcp-lsp/tools/tool_diagnostics_test.go	cmd	platform-provider	go-test	30742	LSP MCP tools 实现	cmd,mcp,lsp,tools,tool,diagnostics,test,LSP,MCP,实现
+cmd/mcp-lsp/tools/tool_diagnostics.go	cmd	platform-provider	go-source	25802	LSP MCP tools 实现	cmd,mcp,lsp,tools,tool,diagnostics,LSP,MCP,实现
 cmd/mcp-lsp/tools/tool_edit_atomic_write_test.go	cmd	platform-provider	go-test	3795	LSP MCP tools 实现	cmd,mcp,lsp,tools,tool,edit,atomic,write,test,LSP,MCP,实现
 cmd/mcp-lsp/tools/tool_edit_function_context.go	cmd	platform-provider	go-source	1851	LSP MCP tools 实现	cmd,mcp,lsp,tools,tool,edit,function,context,LSP,MCP,实现
 cmd/mcp-lsp/tools/tool_edit_lock.go	cmd	platform-provider	go-source	1187	LSP MCP tools 实现	cmd,mcp,lsp,tools,tool,edit,lock,LSP,MCP,实现

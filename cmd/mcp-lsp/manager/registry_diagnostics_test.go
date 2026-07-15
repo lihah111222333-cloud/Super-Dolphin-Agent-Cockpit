@@ -66,6 +66,32 @@ func TestRegistryDiagnosticsExplicitUnsupportedLanguageReturnsFileError(t *testi
 	}
 }
 
+func TestRegistryCloseIncludesLanguageIdentity(t *testing.T) {
+	shutdownErr := errors.New("shutdown failed")
+	registry := NewRegistry(nil)
+	registry.Register("typescript", &registryCloseErrorManager{
+		registryDiagnosticsManager: &registryDiagnosticsManager{},
+		closeErr:                   shutdownErr,
+	})
+
+	err := registry.Close()
+	if !errors.Is(err, shutdownErr) {
+		t.Fatalf("Close() error = %v, want wrapped shutdown error", err)
+	}
+	if !strings.Contains(err.Error(), "typescript") {
+		t.Fatalf("Close() error = %q, want language identity", err.Error())
+	}
+}
+
+type registryCloseErrorManager struct {
+	*registryDiagnosticsManager
+	closeErr error
+}
+
+func (m *registryCloseErrorManager) Close() error {
+	return m.closeErr
+}
+
 type registryDiagnosticsManager struct {
 	registryDiagnosticsNavigation
 	registryDiagnosticsStructure

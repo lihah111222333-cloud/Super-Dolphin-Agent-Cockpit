@@ -360,9 +360,9 @@ func (r *dynamicRegistry) Close() error {
 	defer r.mu.Unlock()
 
 	var errs []error
-	for _, cfg := range r.managers {
+	for languageID, cfg := range r.managers {
 		if err := cfg.manager.Close(); err != nil {
-			errs = append(errs, err)
+			errs = append(errs, fmt.Errorf("close %s LSP manager: %w", languageID, err))
 		}
 	}
 	r.managers = make(map[string]*languageConfig)
