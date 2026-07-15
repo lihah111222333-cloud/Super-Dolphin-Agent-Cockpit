@@ -353,6 +353,83 @@ func TestRuntimeAdapterInitOptionsPackagedPythonDisablesSystemInterpreterProbe(t
 	}
 }
 
+func TestRuntimeJSTSInitOptionsResolveInstalledTSServerPath(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("test uses a POSIX npm binary symlink")
+	}
+	binDir, typeScriptRoot := writeTypeScriptNPMFixture(t)
+	t.Setenv("PATH", binDir)
+	registry := multilsp.NewDefaultLanguageAdapterRegistry()
+	adapter, ok := registry.AdapterForLanguage("typescript")
+	if !ok {
+		t.Fatal("missing typescript adapter")
+	}
+
+	serverBinary := filepath.Join(binDir, "typescript-language-server")
+	initOptions := runtimeAdapterInitOptionsWithBinary(adapter, false, serverBinary)
+	tsserver, ok := initOptions["tsserver"].(map[string]any)
+	if !ok {
+		t.Fatalf("typescript init options = %#v, want tsserver map", initOptions)
+	}
+	if got := runtimeStringOption(tsserver["fallbackPath"]); got != typeScriptRoot {
+		t.Fatalf("tsserver fallbackPath = %q, want %q", got, typeScriptRoot)
+	}
+}
+
+func TestRuntimeJSTSInitOptionsResolvePackagedWrapperTSServerPath(t *testing.T) {
+	binDir, typeScriptRoot := writeTypeScriptNPMFixture(t)
+	serverBinary := filepath.Join(binDir, "typescript-language-server")
+	if err := os.Remove(serverBinary); err != nil {
+		t.Fatalf("remove npm symlink: %v", err)
+	}
+	if err := os.WriteFile(serverBinary, []byte("#!/bin/sh\nexit 0\n"), 0o700); err != nil {
+		t.Fatalf("write packaged wrapper: %v", err)
+	}
+	registry := multilsp.NewDefaultLanguageAdapterRegistry()
+	adapter, ok := registry.AdapterForLanguage("typescript")
+	if !ok {
+		t.Fatal("missing typescript adapter")
+	}
+
+	initOptions := runtimeAdapterInitOptionsWithBinary(adapter, true, serverBinary)
+	tsserver := initOptions["tsserver"].(map[string]any)
+	if got := runtimeStringOption(tsserver["fallbackPath"]); got != typeScriptRoot {
+		t.Fatalf("packaged tsserver fallbackPath = %q, want %q", got, typeScriptRoot)
+	}
+}
+
+func writeTypeScriptNPMFixture(t *testing.T) (string, string) {
+	t.Helper()
+	prefix := t.TempDir()
+	binDir := filepath.Join(prefix, "bin")
+	if err := os.MkdirAll(binDir, 0o755); err != nil {
+		t.Fatalf("mkdir npm bin: %v", err)
+	}
+	nodeModules := filepath.Join(prefix, "lib", "node_modules")
+	languageServerCLI := filepath.Join(nodeModules, "typescript-language-server", "lib", "cli.mjs")
+	typeScriptRoot := filepath.Join(nodeModules, "typescript")
+	for _, path := range []string{languageServerCLI, filepath.Join(typeScriptRoot, "lib", "tsserver.js")} {
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatalf("mkdir npm fixture: %v", err)
+		}
+		mode := os.FileMode(0o600)
+		if path == languageServerCLI {
+			mode = 0o700
+		}
+		if err := os.WriteFile(path, []byte("fixture\n"), mode); err != nil {
+			t.Fatalf("write npm fixture: %v", err)
+		}
+	}
+	if err := os.Symlink(languageServerCLI, filepath.Join(binDir, "typescript-language-server")); err != nil {
+		t.Fatalf("symlink typescript-language-server: %v", err)
+	}
+	canonicalTypeScriptRoot, err := filepath.EvalSymlinks(typeScriptRoot)
+	if err != nil {
+		t.Fatalf("canonicalize TypeScript fixture root: %v", err)
+	}
+	return binDir, canonicalTypeScriptRoot
+}
+
 func TestRuntimePrimaryLanguageIDsIncludeShellscriptAndSQL(t *testing.T) {
 	for _, languageID := range []string{"shellscript", "sql"} {
 		if !slices.Contains(runtimePrimaryLanguageIDs(), languageID) {
@@ -361,95 +438,78 @@ func TestRuntimePrimaryLanguageIDsIncludeShellscriptAndSQL(t *testing.T) {
 	}
 }
 
-func TestSetupInstallerRegistersSQLLanguageServer(t *testing.T) {
+func TestSetupInstallerRegistersSQLiteSQLLanguageServer(t *testing.T) {
 	binDir := t.TempDir()
-	writeMcpLSPExecutable(t, binDir, "sql-language-server")
-	fakeServer := filepath.Join(binDir, mcpLSPExecutableFileName("sql-language-server"))
+	writeMcpLSPExecutable(t, binDir, "sqruff")
+	fakeServer := filepath.Join(binDir, mcpLSPExecutableFileName("sqruff"))
 	t.Setenv("PATH", binDir)
 
 	result, err := setupInstaller().EnsureInstalledDetailed(lspinstaller.WithInstallCommandCapability(context.Background()), "sql")
 	if err != nil {
 		t.Fatalf("EnsureInstalledDetailed(sql) error = %v", err)
 	}
-	if result.Binary != "sql-language-server" {
-		t.Fatalf("sql installer binary = %q, want sql-language-server", result.Binary)
+	if result.Binary != "sqruff" || result.Path != fakeServer {
+		t.Fatalf("sql installer result = %#v, want sqruff at %q", result, fakeServer)
+	}
+}
+
+func TestSetupInstallerInstallsPinnedSQLiteSQLLanguageServer(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("test uses a POSIX fake cargo script")
+	}
+	binDir := t.TempDir()
+	cargoHome := filepath.Join(t.TempDir(), "cargo-home")
+	fakeCargo := filepath.Join(binDir, "cargo")
+	marker := filepath.Join(t.TempDir(), "cargo-args")
+	script := `#!/bin/sh
+set -eu
+printf '%s\n' "$*" > "$CARGO_ARGS_MARKER"
+/bin/mkdir -p "$CARGO_HOME/bin"
+/bin/cat > "$CARGO_HOME/bin/sqruff" <<'EOF'
+#!/bin/sh
+if [ "${1:-}" = "--version" ]; then
+  echo "sqruff 0.38.0"
+fi
+exit 0
+EOF
+/bin/chmod +x "$CARGO_HOME/bin/sqruff"
+`
+	if err := os.WriteFile(fakeCargo, []byte(script), 0o755); err != nil {
+		t.Fatalf("write fake cargo: %v", err)
+	}
+	t.Setenv("PATH", binDir)
+	t.Setenv("CARGO_HOME", cargoHome)
+	t.Setenv("CARGO_ARGS_MARKER", marker)
+
+	if _, err := setupInstaller().EnsureInstalledDetailed(lspinstaller.WithInstallCommandCapability(context.Background()), "sql"); err != nil {
+		t.Fatalf("EnsureInstalledDetailed(sql) error = %v", err)
+	}
+	raw, err := os.ReadFile(marker)
+	if err != nil {
+		t.Fatalf("read cargo args: %v", err)
+	}
+	want := "install sqruff --version " + sqruffInstallVersion + " --locked"
+	if strings.TrimSpace(string(raw)) != want {
+		t.Fatalf("cargo args = %q, want %q", strings.TrimSpace(string(raw)), want)
+	}
+}
+
+func TestSetupInstallerRegistersSQLLanguageServer(t *testing.T) {
+	binDir := t.TempDir()
+	writeMcpLSPExecutable(t, binDir, "sqruff")
+	fakeServer := filepath.Join(binDir, mcpLSPExecutableFileName("sqruff"))
+	t.Setenv("PATH", binDir)
+
+	result, err := setupInstaller().EnsureInstalledDetailed(lspinstaller.WithInstallCommandCapability(context.Background()), "sql")
+	if err != nil {
+		t.Fatalf("EnsureInstalledDetailed(sql) error = %v", err)
+	}
+	if result.Binary != "sqruff" {
+		t.Fatalf("sql installer binary = %q, want sqruff", result.Binary)
 	}
 	if result.Path != fakeServer {
 		t.Fatalf("sql installer path = %q, want %q", result.Path, fakeServer)
 	}
-}
-
-func TestSetupInstallerInstallsSQLLanguageServerWithPinnedNodeDependencies(t *testing.T) {
-	binDir := t.TempDir()
-	fakeNPM := filepath.Join(binDir, mcpLSPExecutableFileName("npm"))
-	marker := filepath.Join(binDir, "npm-called")
-	script := `#!/bin/sh
-set -eu
-case " $* " in
-  *" sql-language-server "*) ;;
-  *) echo "missing sql-language-server install arg: $*" >&2; exit 1 ;;
-esac
-case " $* " in
-  *" vscode-languageserver-protocol@3.17.5 "*) ;;
-  *) echo "missing pinned vscode-languageserver-protocol install arg: $*" >&2; exit 1 ;;
-esac
-case " $* " in
-  *" vscode-jsonrpc@8.2.0 "*) ;;
-  *) echo "missing pinned vscode-jsonrpc install arg: $*" >&2; exit 1 ;;
-esac
-printf '%s\n' "$*" > "$FAKE_NPM_MARKER"
-/bin/cat > "$FAKE_INSTALL_BIN/sql-language-server" <<'EOF'
-#!/bin/sh
-if [ "$1" = "--version" ]; then
-  echo "1.7.1"
-  exit 0
-fi
-exit 0
-EOF
-/bin/chmod +x "$FAKE_INSTALL_BIN/sql-language-server"
-`
-	if runtime.GOOS == "windows" {
-		script = "@echo off\r\n" +
-			"set \"ARGS=%*\"\r\n" +
-			"if \"%ARGS:sql-language-server=%\"==\"%ARGS%\" (\r\n" +
-			"  echo missing sql-language-server install arg: %* 1>&2\r\n" +
-			"  exit /b 1\r\n" +
-			")\r\n" +
-			"if \"%ARGS:vscode-languageserver-protocol@3.17.5=%\"==\"%ARGS%\" (\r\n" +
-			"  echo missing pinned vscode-languageserver-protocol install arg: %* 1>&2\r\n" +
-			"  exit /b 1\r\n" +
-			")\r\n" +
-			"if \"%ARGS:vscode-jsonrpc@8.2.0=%\"==\"%ARGS%\" (\r\n" +
-			"  echo missing pinned vscode-jsonrpc install arg: %* 1>&2\r\n" +
-			"  exit /b 1\r\n" +
-			")\r\n" +
-			"echo %*>\"%FAKE_NPM_MARKER%\"\r\n" +
-			"(\r\n" +
-			"  echo @echo off\r\n" +
-			"  echo if \"%%1\"==\"--version\" echo 1.7.1\r\n" +
-			"  echo exit /b 0\r\n" +
-			") > \"%FAKE_INSTALL_BIN%\\sql-language-server.cmd\"\r\n" +
-			"exit /b 0\r\n"
-	}
-	if err := os.WriteFile(fakeNPM, []byte(script), 0o755); err != nil {
-		t.Fatalf("write fake npm: %v", err)
-	}
-	t.Setenv("PATH", binDir)
-	t.Setenv("FAKE_INSTALL_BIN", binDir)
-	t.Setenv("FAKE_NPM_MARKER", marker)
-
-	result, err := setupInstaller().EnsureInstalledDetailed(lspinstaller.WithInstallCommandCapability(context.Background()), "sql")
-	if err != nil {
-		t.Fatalf("EnsureInstalledDetailed(sql) error = %v", err)
-	}
-	want := filepath.Join(binDir, mcpLSPExecutableFileName("sql-language-server"))
-	if result.Path != want {
-		t.Fatalf("sql installer path = %q, want %q", result.Path, want)
-	}
-	if _, err := os.Stat(marker); err != nil {
-		t.Fatalf("sql installer did not invoke npm: %v", err)
-	}
-	requireRuntimeTestFileContains(t, marker, "vscode-jsonrpc@8.2.0")
 }
 
 func TestSetupInstallerRegistersShellLanguageServer(t *testing.T) {
@@ -580,7 +640,7 @@ func TestNewManagerPackagedStandardBundleRegistersNonJDTLSLanguages(t *testing.T
     "pyright": {"path": "bin/pyright-langserver", "languages": ["python"]},
     "rust-analyzer": {"path": "bin/rust-analyzer", "languages": ["rust"]},
     "bash-language-server": {"path": "bin/bash-language-server", "languages": ["shellscript"]},
-    "sql-language-server": {"path": "bin/sql-language-server", "languages": ["sql"]}
+    "sqruff": {"path": "bin/sqruff", "languages": ["sql"]}
   }
 }
 `)
@@ -591,7 +651,7 @@ func TestNewManagerPackagedStandardBundleRegistersNonJDTLSLanguages(t *testing.T
 		"pyright-langserver",
 		"rust-analyzer",
 		"bash-language-server",
-		"sql-language-server",
+		"sqruff",
 	} {
 		writeMcpLSPExecutable(t, filepath.Join(bundle, "bin"), name)
 	}
@@ -687,17 +747,6 @@ func writeMcpLSPExecutable(t *testing.T, dir, name string) {
 	}
 }
 
-func requireRuntimeTestFileContains(t *testing.T, path, want string) {
-	t.Helper()
-	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("ReadFile(%q) error = %v", path, err)
-	}
-	if !strings.Contains(string(data), want) {
-		t.Fatalf("ReadFile(%q) = %q, missing %q", path, data, want)
-	}
-}
-
 func mcpLSPExecutableFileName(name string) string {
 	if runtime.GOOS == "windows" && filepath.Ext(name) == "" {
 		return name + ".cmd"
@@ -717,7 +766,7 @@ func normalizeMcpLSPBundleManifestForTest(body string) string {
 		"bin/pyright-langserver",
 		"bin/rust-analyzer",
 		"bin/bash-language-server",
-		"bin/sql-language-server",
+		"bin/sqruff",
 	} {
 		body = strings.ReplaceAll(body, `"`+path+`"`, `"`+path+`.cmd"`)
 	}

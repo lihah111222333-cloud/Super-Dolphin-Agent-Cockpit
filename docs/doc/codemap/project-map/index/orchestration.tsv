@@ -1,4 +1,5 @@
 path	module	domain	type	size_bytes	purpose	search_keys
+cmd/mcp-orch/.sqruff	cmd	orchestration	file	34	orchestration MCP peer、bootstrap、registry、store 与 sidecar 入口	cmd,mcp,orch,orchestration,MCP,peer,bootstrap,registry,store,与,sidecar,入口
 cmd/mcp-orch/dag_cron_runner_test.go	cmd	orchestration	go-test	4226	orchestration MCP peer、bootstrap、registry、store 与 sidecar 入口	cmd,mcp,orch,dag,cron,runner,test,orchestration,MCP,peer,bootstrap,registry,store,与,sidecar,入口
 cmd/mcp-orch/dag_cron_runner.go	cmd	orchestration	go-source	3834	orchestration MCP peer、bootstrap、registry、store 与 sidecar 入口	cmd,mcp,orch,dag,cron,runner,orchestration,MCP,peer,bootstrap,registry,store,与,sidecar,入口
 cmd/mcp-orch/fx_orchestration_dag.go	cmd	orchestration	go-source	1098	orchestration MCP peer、bootstrap、registry、store 与 sidecar 入口	cmd,mcp,orch,fx,orchestration,dag,MCP,peer,bootstrap,registry,store,与,sidecar,入口

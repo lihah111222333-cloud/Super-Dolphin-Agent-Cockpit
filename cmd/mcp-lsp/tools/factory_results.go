@@ -66,7 +66,7 @@ func (p *funcRangeEnricher) Symbols(absPath string) ([]protocol.DocumentSymbol, 
 	if cached, ok := p.cache[absPath]; ok {
 		return cached, nil
 	}
-	mgr, err := p.registry.GetManagerForFile(p.ctx, absPath)
+	mgr, err := managerForFile(p.ctx, p.registry, absPath, "")
 	if err != nil {
 		return nil, err
 	}

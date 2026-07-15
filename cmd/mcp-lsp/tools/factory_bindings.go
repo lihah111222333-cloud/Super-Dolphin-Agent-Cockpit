@@ -333,7 +333,11 @@ func managerForFile(ctx context.Context, registry lspmanager.Registry, filePath 
 	if registry == nil {
 		return nil, errManagerUnavailable
 	}
-	return registry.GetManagerForFileWithLanguage(ctx, filePath, normalizeLanguageIDOverride(languageID))
+	resolvedLanguageID, err := resolveLanguageIDForFile(ctx, filePath, languageID)
+	if err != nil {
+		return nil, err
+	}
+	return registry.GetManagerForFileWithLanguage(ctx, filePath, resolvedLanguageID)
 }
 
 func normalizeLanguageIDOverride(languageID string) string {

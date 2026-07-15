@@ -413,7 +413,7 @@ func TestApplyPackagedEnvAcceptsStandardLSPBundleWithoutJDTLS(t *testing.T) {
 		"vscode-css-language-server",
 		"rust-analyzer",
 		"bash-language-server",
-		"sql-language-server",
+		"sqruff",
 	} {
 		writeExecutable(t, filepath.Join(resources, "lsp", "bin"), name)
 	}
@@ -444,7 +444,7 @@ func TestApplyPackagedEnvAcceptsStandardLSPBundleWithoutJDTLS(t *testing.T) {
 func TestDefaultLSPLanguagesMapsBundledLanguageServers(t *testing.T) {
 	for serverID, want := range map[string][]string{
 		"bash-language-server": {"shellscript"},
-		"sql-language-server":  {"sql"},
+		"sqruff":               {"sql"},
 	} {
 		got := defaultLSPLanguages(serverID)
 		if !slices.Equal(got, want) {
@@ -507,10 +507,10 @@ func writeStandardBundledLSPManifest(t *testing.T, resources string) {
     "vscode-langservers-extracted": {"path": "lsp/bin/%s", "version": "test", "sha256": "0000000000000000000000000000000000000000000000000000000000000000"},
     "rust-analyzer": {"path": "lsp/bin/%s", "version": "test", "sha256": "0000000000000000000000000000000000000000000000000000000000000000"},
     "bash-language-server": {"path": "lsp/bin/%s", "version": "test", "sha256": "0000000000000000000000000000000000000000000000000000000000000000"},
-    "sql-language-server": {"path": "lsp/bin/%s", "version": "test", "sha256": "0000000000000000000000000000000000000000000000000000000000000000"}
+    "sqruff": {"path": "lsp/bin/%s", "version": "test", "sha256": "0000000000000000000000000000000000000000000000000000000000000000"}
   }
 }
-`, executableNameForOS(runtimeGOOS(), "gopls"), executableNameForOS(runtimeGOOS(), "typescript-language-server"), executableNameForOS(runtimeGOOS(), "pyright-langserver"), executableNameForOS(runtimeGOOS(), "vscode-css-language-server"), executableNameForOS(runtimeGOOS(), "rust-analyzer"), executableNameForOS(runtimeGOOS(), "bash-language-server"), executableNameForOS(runtimeGOOS(), "sql-language-server"))
+`, executableNameForOS(runtimeGOOS(), "gopls"), executableNameForOS(runtimeGOOS(), "typescript-language-server"), executableNameForOS(runtimeGOOS(), "pyright-langserver"), executableNameForOS(runtimeGOOS(), "vscode-css-language-server"), executableNameForOS(runtimeGOOS(), "rust-analyzer"), executableNameForOS(runtimeGOOS(), "bash-language-server"), executableNameForOS(runtimeGOOS(), "sqruff"))
 	path := filepath.Join(resources, "lsp", "lsp-manifest.json")
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatalf("MkdirAll(%q) error = %v", filepath.Dir(path), err)

@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -66,6 +67,173 @@ exit 1
 	}
 }
 
+func TestEnsureInstalledFindsCargoInstallTargetOutsidePATH(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("test uses a POSIX shell script as the fake cargo binary")
+	}
+	fakeBin := t.TempDir()
+	cargoHome := filepath.Join(t.TempDir(), "cargo-home")
+	fakeCargo := filepath.Join(fakeBin, "cargo")
+	script := `#!/bin/sh
+set -eu
+if [ "$1" != "install" ] || [ "$2" != "sqruff" ]; then
+  echo "unexpected fake cargo args: $*" >&2
+  exit 1
+fi
+/bin/mkdir -p "$CARGO_HOME/bin"
+/bin/cat > "$CARGO_HOME/bin/sqruff" <<'EOF'
+#!/bin/sh
+if [ "${1:-}" = "--version" ]; then
+  echo "sqruff 0.29.3"
+  exit 0
+fi
+exit 0
+EOF
+/bin/chmod +x "$CARGO_HOME/bin/sqruff"
+`
+	if err := os.WriteFile(fakeCargo, []byte(script), 0o755); err != nil {
+		t.Fatalf("WriteFile(fake cargo): %v", err)
+	}
+	t.Setenv("PATH", fakeBin)
+	t.Setenv("CARGO_HOME", cargoHome)
+
+	p := NewProvider()
+	p.Register("sql", InstallerConfig{
+		BinaryName:          "sqruff",
+		BinaryCheckArgs:     []string{"--version"},
+		InstallCmd:          "cargo",
+		InstallArgs:         []string{"install", "sqruff"},
+		AllowInstallCommand: true,
+	})
+
+	result, err := p.EnsureInstalledDetailed(WithInstallCommandCapability(context.Background()), "sql")
+	if err != nil {
+		t.Fatalf("EnsureInstalledDetailed(sql) error = %v", err)
+	}
+	want := filepath.Join(cargoHome, "bin", "sqruff")
+	if result.Path != want {
+		t.Fatalf("EnsureInstalledDetailed(sql).Path = %q, want %q", result.Path, want)
+	}
+	if result.Status != InstallStatusInstalledFallback {
+		t.Fatalf("EnsureInstalledDetailed(sql).Status = %q, want %q", result.Status, InstallStatusInstalledFallback)
+	}
+}
+
+func TestEnsureInstalledSerializesConcurrentFirstInstall(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("test uses a POSIX shell script as the fake installer")
+	}
+	binDir := t.TempDir()
+	installerPath := filepath.Join(binDir, "install-sqruff")
+	script := `#!/bin/sh
+set -eu
+if ! /bin/mkdir "$INSTALL_LOCK" 2>/dev/null; then
+  echo "concurrent installer invocation" >&2
+  exit 42
+fi
+printf 'install\n' >> "$INSTALL_MARKER"
+/bin/sleep 1
+/bin/cat > "$FAKE_BIN_DIR/sqruff" <<'EOF'
+#!/bin/sh
+if [ "${1:-}" = "--version" ]; then
+  echo "sqruff 0.38.0"
+fi
+exit 0
+EOF
+/bin/chmod +x "$FAKE_BIN_DIR/sqruff"
+/bin/rmdir "$INSTALL_LOCK"
+`
+	if err := os.WriteFile(installerPath, []byte(script), 0o755); err != nil {
+		t.Fatalf("write fake installer: %v", err)
+	}
+	marker := filepath.Join(t.TempDir(), "install-count")
+	lockDir := filepath.Join(t.TempDir(), "active-install")
+	t.Setenv("PATH", binDir)
+	t.Setenv("FAKE_BIN_DIR", binDir)
+	t.Setenv("INSTALL_MARKER", marker)
+	t.Setenv("INSTALL_LOCK", lockDir)
+
+	p := NewProvider()
+	p.Register("sql", InstallerConfig{
+		BinaryName:          "sqruff",
+		BinaryCheckArgs:     []string{"--version"},
+		InstallCmd:          installerPath,
+		InstallArgs:         []string{"install", "sqruff"},
+		AllowInstallCommand: true,
+	})
+
+	start := make(chan struct{})
+	errs := make(chan error, 2)
+	var wg sync.WaitGroup
+	for range 2 {
+		wg.Go(func() {
+			<-start
+			_, err := p.EnsureInstalledDetailed(WithInstallCommandCapability(context.Background()), "sql")
+			errs <- err
+		})
+	}
+	close(start)
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		if err != nil {
+			t.Fatalf("concurrent EnsureInstalledDetailed: %v", err)
+		}
+	}
+	raw, err := os.ReadFile(marker)
+	if err != nil {
+		t.Fatalf("read install marker: %v", err)
+	}
+	if got := strings.Count(string(raw), "install\n"); got != 1 {
+		t.Fatalf("installer invocation count = %d, want 1", got)
+	}
+}
+
+func TestEnsureInstalledReusesCargoFallbackOutsidePATH(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("test uses a POSIX fake cargo script")
+	}
+	binDir := t.TempDir()
+	cargoHome := filepath.Join(t.TempDir(), "cargo-home")
+	marker := filepath.Join(t.TempDir(), "install-count")
+	fakeCargo := filepath.Join(binDir, "cargo")
+	script := `#!/bin/sh
+set -eu
+printf 'install\n' >> "$INSTALL_MARKER"
+/bin/mkdir -p "$CARGO_HOME/bin"
+/bin/cat > "$CARGO_HOME/bin/sqruff" <<'EOF'
+#!/bin/sh
+echo "sqruff 0.38.0"
+EOF
+/bin/chmod +x "$CARGO_HOME/bin/sqruff"
+`
+	if err := os.WriteFile(fakeCargo, []byte(script), 0o755); err != nil {
+		t.Fatalf("write fake cargo: %v", err)
+	}
+	t.Setenv("PATH", binDir)
+	t.Setenv("CARGO_HOME", cargoHome)
+	t.Setenv("INSTALL_MARKER", marker)
+
+	p := NewProvider()
+	p.Register("sql", InstallerConfig{
+		BinaryName: "sqruff", BinaryCheckArgs: []string{"--version"},
+		InstallCmd: fakeCargo, InstallArgs: []string{"install", "sqruff"}, AllowInstallCommand: true,
+	})
+	ctx := WithInstallCommandCapability(context.Background())
+	for range 2 {
+		if _, err := p.EnsureInstalledDetailed(ctx, "sql"); err != nil {
+			t.Fatalf("EnsureInstalledDetailed: %v", err)
+		}
+	}
+	raw, err := os.ReadFile(marker)
+	if err != nil {
+		t.Fatalf("read install marker: %v", err)
+	}
+	if got := strings.Count(string(raw), "install\n"); got != 1 {
+		t.Fatalf("cargo invocation count = %d, want 1", got)
+	}
+}
+
 func TestExecutableInDirPrefersWindowsExeSuffix(t *testing.T) {
 	if runtime.GOOS != "windows" {
 		t.Skip("windows-only path resolution behavior")
@@ -122,15 +290,15 @@ func TestEnsureInstalledRejectsBrokenPathBinaryAndRunsInstaller(t *testing.T) {
 		t.Skip("test uses POSIX shell scripts as fake binaries")
 	}
 	binDir := t.TempDir()
-	broken := filepath.Join(binDir, "sql-language-server")
+	broken := filepath.Join(binDir, "fake-language-server")
 	if err := os.WriteFile(broken, []byte("#!/bin/sh\necho broken sql language server >&2\nexit 42\n"), 0o755); err != nil {
-		t.Fatalf("write broken sql-language-server: %v", err)
+		t.Fatalf("write broken fake-language-server: %v", err)
 	}
 	installerPath := filepath.Join(binDir, "install-sql-lsp")
 	script := `#!/bin/sh
 set -eu
 printf '%s\n' "$*" > "$INSTALL_MARKER"
-/bin/cat > "$FAKE_BIN_DIR/sql-language-server" <<'EOF'
+/bin/cat > "$FAKE_BIN_DIR/fake-language-server" <<'EOF'
 #!/bin/sh
 if [ "$1" = "--version" ]; then
   echo "1.7.1"
@@ -138,7 +306,7 @@ if [ "$1" = "--version" ]; then
 fi
 exit 0
 EOF
-/bin/chmod +x "$FAKE_BIN_DIR/sql-language-server"
+/bin/chmod +x "$FAKE_BIN_DIR/fake-language-server"
 `
 	if err := os.WriteFile(installerPath, []byte(script), 0o755); err != nil {
 		t.Fatalf("write fake sql installer: %v", err)
@@ -150,10 +318,10 @@ EOF
 
 	p := NewProvider()
 	p.Register("sql", InstallerConfig{
-		BinaryName:          "sql-language-server",
+		BinaryName:          "fake-language-server",
 		BinaryCheckArgs:     []string{"--version"},
 		InstallCmd:          installerPath,
-		InstallArgs:         []string{"sql-language-server"},
+		InstallArgs:         []string{"fake-language-server"},
 		AllowInstallCommand: true,
 	})
 

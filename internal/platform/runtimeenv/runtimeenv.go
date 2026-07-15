@@ -187,11 +187,6 @@ func packagedAppDataDir(userHome string) string {
 	return packagedAppDataDirForOS(runtimeGOOS(), userHome)
 }
 
-// packagedResourcesDir 从当前系统平台的可执行路径推断包资源根；不支持的平台返回错误。
-func packagedResourcesDir(executablePath string) (string, error) {
-	return packagedResourcesDirForOS(runtimeGOOS(), executablePath)
-}
-
 // applyPackagedEnv 根据资源根和用户目录注入 packaged owner 环境。
 func applyPackagedEnv(resources, userHome string) error {
 	return applyPackagedRuntimeEnv(packagedRuntimeFromResources(resources, userHome))
@@ -311,7 +306,7 @@ var defaultLSPLanguageSets = map[string][]string{
 	"rust-analyzer":                {"rust"},
 	"solargraph":                   {"ruby"},
 	"sourcekit-lsp":                {"swift"},
-	"sql-language-server":          {"sql"},
+	"sqruff":                       {"sql"},
 	"svelteserver":                 {"svelte"},
 	"terraform-ls":                 {"terraform"},
 	"typescript-language-server":   {"javascript", "javascriptreact", "typescript", "typescriptreact"},

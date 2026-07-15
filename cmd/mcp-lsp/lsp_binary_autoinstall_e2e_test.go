@@ -54,6 +54,13 @@ func TestMcpLSPBinaryDiagnosticsAutoInstallsMissingLanguageServers_E2E(t *testin
 			})
 			requireMCPToolSuccess(t, client, diagnostics, tc.languageID+" diagnostics after auto-install")
 			requireAutoInstallMarker(t, marker, tc)
+			if tc.languageID == "sql" {
+				payload := decodeDiagnosticsStructuredContent(t, diagnostics.Result.StructuredContent)
+				if payload.Total != 0 || payload.HasFile(target) {
+					t.Fatalf("valid SQLite diagnostics after fake Cargo auto-install = %#v, want no diagnostics", payload)
+				}
+				return
+			}
 			requireAutoInstallDiagnostic(t, client, diagnostics, target, tc.languageID)
 		})
 	}
@@ -75,8 +82,8 @@ func binaryAutoInstallLanguageCases(t *testing.T) []binaryAutoInstallLanguageCas
 		{languageID: "graphql", installCommand: "npm", installedBinary: "graphql-lsp", requiredSnippets: []string{"install", "-g", "graphql-language-service-cli"}, write: writeBinaryColdStartGraphQLFixture},
 		{languageID: "html", installCommand: "npm", installedBinary: "vscode-html-language-server", requiredSnippets: []string{"install", "-g", "vscode-langservers-extracted", "vscode-markdown-languageservice@0.5.0-alpha.11"}, write: writeBinaryColdStartHTMLFixture},
 		{languageID: "java", installCommand: "brew", installedBinary: "jdtls", requiredSnippets: []string{"install", "jdtls"}, write: writeBinaryColdStartJavaFixture},
-		{languageID: "javascript", installCommand: "npm", installedBinary: "typescript-language-server", requiredSnippets: []string{"install", "-g", "typescript-language-server", "typescript"}, write: writeBinaryColdStartJavaScriptFixture},
-		{languageID: "javascriptreact", installCommand: "npm", installedBinary: "typescript-language-server", requiredSnippets: []string{"install", "-g", "typescript-language-server", "typescript"}, write: writeBinaryColdStartJavaScriptReactFixture},
+		{languageID: "javascript", installCommand: "npm", installedBinary: "typescript-language-server", requiredSnippets: []string{"install", "-g", "typescript-language-server@" + typeScriptLanguageServerInstallVersion, "typescript@" + typeScriptInstallVersion}, write: writeBinaryColdStartJavaScriptFixture},
+		{languageID: "javascriptreact", installCommand: "npm", installedBinary: "typescript-language-server", requiredSnippets: []string{"install", "-g", "typescript-language-server@" + typeScriptLanguageServerInstallVersion, "typescript@" + typeScriptInstallVersion}, write: writeBinaryColdStartJavaScriptReactFixture},
 		{languageID: "json", installCommand: "npm", installedBinary: "vscode-json-language-server", requiredSnippets: []string{"install", "-g", "vscode-langservers-extracted", "vscode-markdown-languageservice@0.5.0-alpha.11"}, write: writeBinaryColdStartJSONFixture},
 		{languageID: "kotlin", installCommand: "brew", installedBinary: "kotlin-language-server", requiredSnippets: []string{"install", "kotlin-language-server"}, write: writeBinaryColdStartKotlinFixture},
 		{languageID: "lua", installCommand: "brew", installedBinary: "lua-language-server", requiredSnippets: []string{"install", "lua-language-server"}, write: writeBinaryColdStartLuaFixture},
@@ -89,12 +96,12 @@ func binaryAutoInstallLanguageCases(t *testing.T) []binaryAutoInstallLanguageCas
 		{languageID: "ruby", installCommand: "brew", installedBinary: "solargraph", requiredSnippets: []string{"install", "solargraph"}, write: writeBinaryColdStartRubyFixture},
 		{languageID: "rust", installCommand: "rustup", installedBinary: "rust-analyzer", requiredSnippets: []string{"component", "add", "rust-analyzer"}, write: writeBinaryColdStartRustFixture},
 		{languageID: "shellscript", installCommand: "npm", installedBinary: "bash-language-server", requiredSnippets: []string{"install", "-g", "bash-language-server", "shellcheck"}, write: writeBinaryColdStartShellFixture},
-		{languageID: "sql", installCommand: "npm", installedBinary: "sql-language-server", requiredSnippets: []string{"install", "-g", "sql-language-server", "vscode-languageserver-protocol@3.17.5", "vscode-jsonrpc@8.2.0"}, write: writeBinaryColdStartSQLFixture},
+		{languageID: "sql", installCommand: "cargo", installedBinary: "sqruff", requiredSnippets: []string{"install", "sqruff", "--version", sqruffInstallVersion, "--locked"}, write: writeBinaryColdStartSQLFixture},
 		{languageID: "svelte", installCommand: "npm", installedBinary: "svelteserver", requiredSnippets: []string{"install", "-g", "svelte-language-server"}, write: writeBinaryColdStartSvelteFixture},
 		{languageID: "swift", installCommand: "brew", installedBinary: "sourcekit-lsp", requiredSnippets: []string{"install", "swift"}, write: writeBinaryColdStartSwiftFixture},
 		{languageID: "terraform", installCommand: "brew", installedBinary: "terraform-ls", requiredSnippets: []string{"install", "hashicorp/tap/terraform-ls"}, write: writeBinaryColdStartTerraformFixture},
-		{languageID: "typescript", installCommand: "npm", installedBinary: "typescript-language-server", requiredSnippets: []string{"install", "-g", "typescript-language-server", "typescript"}, write: writeBinaryColdStartTypeScriptFixture},
-		{languageID: "typescriptreact", installCommand: "npm", installedBinary: "typescript-language-server", requiredSnippets: []string{"install", "-g", "typescript-language-server", "typescript"}, write: writeBinaryColdStartTypeScriptReactFixture},
+		{languageID: "typescript", installCommand: "npm", installedBinary: "typescript-language-server", requiredSnippets: []string{"install", "-g", "typescript-language-server@" + typeScriptLanguageServerInstallVersion, "typescript@" + typeScriptInstallVersion}, write: writeBinaryColdStartTypeScriptFixture},
+		{languageID: "typescriptreact", installCommand: "npm", installedBinary: "typescript-language-server", requiredSnippets: []string{"install", "-g", "typescript-language-server@" + typeScriptLanguageServerInstallVersion, "typescript@" + typeScriptInstallVersion}, write: writeBinaryColdStartTypeScriptReactFixture},
 		{languageID: "vue", installCommand: "npm", installedBinary: "vue-language-server", requiredSnippets: []string{"install", "-g", "@vue/language-server"}, write: writeBinaryColdStartVueFixture},
 		{languageID: "yaml", installCommand: "npm", installedBinary: "yaml-language-server", requiredSnippets: []string{"install", "-g", "yaml-language-server"}, write: writeBinaryColdStartYAMLFixture},
 	}

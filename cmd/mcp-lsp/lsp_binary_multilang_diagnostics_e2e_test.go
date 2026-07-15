@@ -55,6 +55,13 @@ func TestMcpLSPBinaryFakeServerDiagnosticsColdStartCoversAllLSPClientLanguages_E
 			})
 			elapsed := time.Since(startedAt)
 			requireMCPToolSuccess(t, client, diagnostics, tc.languageID+" diagnostics")
+			if tc.languageID == "sql" {
+				payload := decodeDiagnosticsStructuredContent(t, diagnostics.Result.StructuredContent)
+				if payload.Total != 0 || payload.HasFile(target) {
+					t.Fatalf("valid SQLite fake-server diagnostics = %#v, want no diagnostics before real parser tests", payload)
+				}
+				return
+			}
 			if elapsed < binaryColdStartDiagnosticsDelay-binaryColdStartDiagnosticsSlack {
 				t.Fatalf("%s diagnostics returned in %s, want it to wait for delayed cold-start diagnostics >= %s; structured=%s stderr=%s",
 					tc.languageID, elapsed, binaryColdStartDiagnosticsDelay-binaryColdStartDiagnosticsSlack,
@@ -225,7 +232,7 @@ func writeFakeMultilangDiagnosticsLangservers(t *testing.T) string {
 		"pyright-langserver",
 		"prisma-language-server",
 		"rust-analyzer",
-		"sql-language-server",
+		"sqruff",
 		"sourcekit-lsp",
 		"solargraph",
 		"svelteserver",

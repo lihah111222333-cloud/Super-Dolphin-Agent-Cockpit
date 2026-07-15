@@ -45,7 +45,8 @@ func TestMcpLSPBinaryRealTypeScriptLanguageServerUsesSixReadOnlyTools_E2E(t *tes
 		"file_path": mathTarget,
 	})
 	requireMCPToolSuccess(t, client, fileDiagnostics, "real typescript file diagnostics")
-	requireRealToolsInstalledBinaries(t, npmBin, []string{"typescript-language-server", "tsserver"})
+	requireRealToolsInstalledBinaries(t, npmBin, []string{"typescript-language-server"})
+	requireRealTypeScriptModule(t, npmPrefix)
 
 	grep := client.callTool(t, "grep", map[string]any{
 		"action":      "text_search",
@@ -95,6 +96,14 @@ func TestMcpLSPBinaryRealTypeScriptLanguageServerUsesSixReadOnlyTools_E2E(t *tes
 	if !stringSliceContains(completionLabelsFromStructuredContent(t, completion.Result.StructuredContent), "inc") {
 		t.Fatalf("real typescript completion missing inc; structured=%s text=%q stderr=%s",
 			completion.Result.StructuredContent, completion.Result.ContentText(), client.stderrString())
+	}
+}
+
+func requireRealTypeScriptModule(t *testing.T, npmPrefix string) {
+	t.Helper()
+	tsserverPath := filepath.Join(npmPrefix, "lib", "node_modules", "typescript", "lib", "tsserver.js")
+	if info, err := os.Stat(tsserverPath); err != nil || !info.Mode().IsRegular() {
+		t.Fatalf("real TypeScript module missing tsserver entry %s: %v", tsserverPath, err)
 	}
 }
 

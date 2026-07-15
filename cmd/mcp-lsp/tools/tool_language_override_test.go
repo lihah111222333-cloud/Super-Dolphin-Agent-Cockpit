@@ -118,6 +118,34 @@ func TestLanguageOverrideParticipatesInCacheKey(t *testing.T) {
 	}
 }
 
+func TestManagerForFileAutomaticallyRoutesSQLiteSQL(t *testing.T) {
+	root := t.TempDir()
+	writeSQLDialectTestFile(t, root, "sqlc.yaml", "version: \"2\"\nsql:\n  - engine: sqlite\n    queries: queries\n")
+	target := writeSQLDialectTestFile(t, root, "queries/query.sql", "SELECT ?;\n")
+	registry := &languageOverrideRegistry{manager: &languageOverrideManager{}}
+
+	if _, err := managerForFile(sqlDialectTestContext(root), registry, target, ""); err != nil {
+		t.Fatalf("managerForFile SQLite SQL: %v", err)
+	}
+	if registry.gotLanguageID != sqliteSQLLanguageID {
+		t.Fatalf("registry language = %q, want %q", registry.gotLanguageID, sqliteSQLLanguageID)
+	}
+}
+
+func TestFuncRangeEnricherRoutesSQLToSQLite(t *testing.T) {
+	root := t.TempDir()
+	target := writeSQLDialectTestFile(t, root, "query.sql", "SELECT ?;\n")
+	registry := &languageOverrideRegistry{manager: &languageOverrideManager{}}
+	enricher := newFuncRangeEnricher(sqlDialectTestContext(root), registry)
+
+	if _, err := enricher.Symbols(target); err != nil {
+		t.Fatalf("enrich SQLite SQL symbols: %v", err)
+	}
+	if registry.gotLanguageID != sqliteSQLLanguageID {
+		t.Fatalf("enricher registry language = %q, want %q", registry.gotLanguageID, sqliteSQLLanguageID)
+	}
+}
+
 func TestOpenFileReturnsErrorWhenDidOpenFails(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "main.go")

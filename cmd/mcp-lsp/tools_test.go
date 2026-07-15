@@ -124,7 +124,7 @@ func TestRuntimeSemanticLSPBinariesDerivedFromAdapters(t *testing.T) {
 		"rust-analyzer",
 		"jdtls",
 		"bash-language-server",
-		"sql-language-server",
+		"sqruff",
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("runtimeSemanticLSPServerBinaries() = %#v, want adapter-derived %#v", got, want)
@@ -159,7 +159,7 @@ func TestToolsListPackagedStandardBundleExposesSemanticToolsWithoutJDTLS(t *test
     "pyright": {"path": "bin/pyright-langserver", "languages": ["python"]},
     "rust-analyzer": {"path": "bin/rust-analyzer", "languages": ["rust"]},
     "bash-language-server": {"path": "bin/bash-language-server", "languages": ["shellscript"]},
-    "sql-language-server": {"path": "bin/sql-language-server", "languages": ["sql"]}
+    "sqruff": {"path": "bin/sqruff", "languages": ["sql"]}
   }
 }
 `)
@@ -170,7 +170,7 @@ func TestToolsListPackagedStandardBundleExposesSemanticToolsWithoutJDTLS(t *test
 		"pyright-langserver",
 		"rust-analyzer",
 		"bash-language-server",
-		"sql-language-server",
+		"sqruff",
 	} {
 		writeMcpLSPExecutable(t, filepath.Join(bundle, "bin"), name)
 	}

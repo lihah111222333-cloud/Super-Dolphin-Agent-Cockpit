@@ -95,6 +95,9 @@ func resolveWorkspaceSymbolManager(ctx context.Context, registry lspmanager.Regi
 		return nil, "", errors.New("exactly one of file_path or language is required")
 	}
 	if language != "" {
+		if language == sqliteSQLLanguageID {
+			return nil, "", errors.New("SQL workspace_symbol requires file_path so the SQLite sqlc owner can be validated")
+		}
 		if limitedDocumentFallbackLanguage(language) != "" {
 			return nil, language, nil
 		}
