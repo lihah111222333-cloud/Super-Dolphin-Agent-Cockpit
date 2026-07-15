@@ -50,12 +50,12 @@ cmd/mcp-lsp/manager/go_work_fake_test.go	cmd	platform-provider	go-test	7400	代�
 cmd/mcp-lsp/manager/language_id_test.go	cmd	platform-provider	go-test	1903	代码智能/LSP MCP peer	cmd,mcp,lsp,manager,language,id,test,代码智能,LSP,MCP,peer
 cmd/mcp-lsp/manager/manager.go	cmd	platform-provider	go-source	4805	代码智能/LSP MCP peer	cmd,mcp,lsp,manager,代码智能,LSP,MCP,peer
 cmd/mcp-lsp/manager/multi_language_gate_test.go	cmd	platform-provider	go-test	1678	代码智能/LSP MCP peer	cmd,mcp,lsp,manager,multi,language,gate,test,代码智能,LSP,MCP,peer
-cmd/mcp-lsp/manager/registry_diagnostics_test.go	cmd	platform-provider	go-test	6373	代码智能/LSP MCP peer	cmd,mcp,lsp,manager,registry,diagnostics,test,代码智能,LSP,MCP,peer
+cmd/mcp-lsp/manager/registry_diagnostics_test.go	cmd	platform-provider	go-test	7101	代码智能/LSP MCP peer	cmd,mcp,lsp,manager,registry,diagnostics,test,代码智能,LSP,MCP,peer
 cmd/mcp-lsp/manager/registry_e2e_test.go	cmd	platform-provider	go-test	3304	代码智能/LSP MCP peer	cmd,mcp,lsp,manager,registry,e2e,test,代码智能,LSP,MCP,peer
 cmd/mcp-lsp/manager/registry_installer_test.go	cmd	platform-provider	go-test	2270	代码智能/LSP MCP peer	cmd,mcp,lsp,manager,registry,installer,test,代码智能,LSP,MCP,peer
 cmd/mcp-lsp/manager/registry_multilang_e2e_test.go	cmd	platform-provider	go-test	15333	代码智能/LSP MCP peer	cmd,mcp,lsp,manager,registry,multilang,e2e,test,代码智能,LSP,MCP,peer
 cmd/mcp-lsp/manager/registry_scoped_test.go	cmd	platform-provider	go-test	10486	代码智能/LSP MCP peer	cmd,mcp,lsp,manager,registry,scoped,test,代码智能,LSP,MCP,peer
-cmd/mcp-lsp/manager/registry.go	cmd	platform-provider	go-source	20356	代码智能/LSP MCP peer	cmd,mcp,lsp,manager,registry,代码智能,LSP,MCP,peer
+cmd/mcp-lsp/manager/registry.go	cmd	platform-provider	go-source	20417	代码智能/LSP MCP peer	cmd,mcp,lsp,manager,registry,代码智能,LSP,MCP,peer
 cmd/mcp-lsp/manager/scope.go	cmd	platform-provider	go-source	10865	代码智能/LSP MCP peer	cmd,mcp,lsp,manager,scope,代码智能,LSP,MCP,peer
 cmd/mcp-lsp/middleware/budget_hints.go	cmd	platform-provider	go-source	2879	代码智能/LSP MCP peer	cmd,mcp,lsp,middleware,budget,hints,代码智能,LSP,MCP,peer
 cmd/mcp-lsp/middleware/budget_test.go	cmd	platform-provider	go-test	2489	代码智能/LSP MCP peer	cmd,mcp,lsp,middleware,budget,test,代码智能,LSP,MCP,peer

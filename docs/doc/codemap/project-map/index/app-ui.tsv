@@ -34,8 +34,8 @@ frontend-app/scripts/no-critical-skip.mjs	frontend-app	app-ui	js-source	4897	Rea
 frontend-app/scripts/no-critical-skip.test.mjs	frontend-app	app-ui	js-test	3886	React 前端构建与校验脚本	frontend,app,scripts,no,critical,skip,test,React,前端构建与校验脚本
 frontend-app/scripts/no-silent-async-failure.mjs	frontend-app	app-ui	js-source	6280	React 前端构建与校验脚本	frontend,app,scripts,no,silent,async,failure,React,前端构建与校验脚本
 frontend-app/scripts/no-silent-async-failure.test.mjs	frontend-app	app-ui	js-test	4473	React 前端构建与校验脚本	frontend,app,scripts,no,silent,async,failure,test,React,前端构建与校验脚本
-frontend-app/scripts/rpc-contract-audit.mjs	frontend-app	app-ui	js-source	207723	React 前端构建与校验脚本	frontend,app,scripts,rpc,contract,audit,React,前端构建与校验脚本
-frontend-app/scripts/rpc-contract-audit.test.mjs	frontend-app	app-ui	js-test	140759	React 前端构建与校验脚本	frontend,app,scripts,rpc,contract,audit,test,React,前端构建与校验脚本
+frontend-app/scripts/rpc-contract-audit.mjs	frontend-app	app-ui	js-source	207795	React 前端构建与校验脚本	frontend,app,scripts,rpc,contract,audit,React,前端构建与校验脚本
+frontend-app/scripts/rpc-contract-audit.test.mjs	frontend-app	app-ui	js-test	141400	React 前端构建与校验脚本	frontend,app,scripts,rpc,contract,audit,test,React,前端构建与校验脚本
 frontend-app/scripts/sync-frontend-dist.mjs	frontend-app	app-ui	js-source	1433	React 前端构建与校验脚本	frontend,app,scripts,sync,dist,React,前端构建与校验脚本
 frontend-app/scripts/sync-frontend-dist.test.mjs	frontend-app	app-ui	js-test	1637	React 前端构建与校验脚本	frontend,app,scripts,sync,dist,test,React,前端构建与校验脚本
 frontend-app/scripts/ui-test-mcp-acceptance.mjs	frontend-app	app-ui	js-source	20806	React 前端构建与校验脚本	frontend,app,scripts,ui,test,mcp,acceptance,React,前端构建与校验脚本
@@ -455,13 +455,13 @@ frontend-app/src/shared/api/backendApi.contractMatrix.js	frontend-app	app-ui	js-
 frontend-app/src/shared/api/backendApi.contractMatrix.test.js	frontend-app	app-ui	js-test	23443	React 前端 API facade 与 Wails bridge	frontend,app,src,shared,api,backendApi,contractMatrix,test,React,前端,API,facade,与,Wails,bridge
 frontend-app/src/shared/api/backendApi.js	frontend-app	app-ui	js-source	6390	React 前端 API facade 与 Wails bridge	frontend,app,src,shared,api,backendApi,React,前端,API,facade,与,Wails,bridge
 frontend-app/src/shared/api/backendApi.surface.test.js	frontend-app	app-ui	js-test	6707	React 前端 API facade 与 Wails bridge	frontend,app,src,shared,api,backendApi,surface,test,React,前端,API,facade,与,Wails,bridge
-frontend-app/src/shared/api/backendApi.test.js	frontend-app	app-ui	js-test	144201	React 前端 API facade 与 Wails bridge	frontend,app,src,shared,api,backendApi,test,React,前端,API,facade,与,Wails,bridge
+frontend-app/src/shared/api/backendApi.test.js	frontend-app	app-ui	js-test	144177	React 前端 API facade 与 Wails bridge	frontend,app,src,shared,api,backendApi,test,React,前端,API,facade,与,Wails,bridge
 frontend-app/src/shared/api/backendCronListContract.test.js	frontend-app	app-ui	js-test	2254	React 前端 API facade 与 Wails bridge	frontend,app,src,shared,api,backendCronListContract,test,React,前端,API,facade,与,Wails,bridge
 frontend-app/src/shared/api/backendResponseValidators.js	frontend-app	app-ui	js-source	55560	React 前端 API facade 与 Wails bridge	frontend,app,src,shared,api,backendResponseValidators,React,前端,API,facade,与,Wails,bridge
 frontend-app/src/shared/api/backendResponseValidators.test.js	frontend-app	app-ui	js-test	17509	React 前端 API facade 与 Wails bridge	frontend,app,src,shared,api,backendResponseValidators,test,React,前端,API,facade,与,Wails,bridge
 frontend-app/src/shared/api/backendResponseValidatorsCore.js	frontend-app	app-ui	js-source	32747	React 前端 API facade 与 Wails bridge	frontend,app,src,shared,api,backendResponseValidatorsCore,React,前端,API,facade,与,Wails,bridge
 frontend-app/src/shared/api/backendResponseValidatorShared.js	frontend-app	app-ui	js-source	2040	React 前端 API facade 与 Wails bridge	frontend,app,src,shared,api,backendResponseValidatorShared,React,前端,API,facade,与,Wails,bridge
-frontend-app/src/shared/api/backendResponseValidatorsRuntime.js	frontend-app	app-ui	js-source	12447	React 前端 API facade 与 Wails bridge	frontend,app,src,shared,api,backendResponseValidatorsRuntime,React,前端,API,facade,与,Wails,bridge
+frontend-app/src/shared/api/backendResponseValidatorsRuntime.js	frontend-app	app-ui	js-source	11620	React 前端 API facade 与 Wails bridge	frontend,app,src,shared,api,backendResponseValidatorsRuntime,React,前端,API,facade,与,Wails,bridge
 frontend-app/src/shared/api/backendSchemas.js	frontend-app	app-ui	js-source	27090	React 前端 API facade 与 Wails bridge	frontend,app,src,shared,api,backendSchemas,React,前端,API,facade,与,Wails,bridge
 frontend-app/src/shared/api/bridgeSafeLogFields.js	frontend-app	app-ui	js-source	1100	React 前端 API facade 与 Wails bridge	frontend,app,src,shared,api,bridgeSafeLogFields,React,前端,API,facade,与,Wails,bridge
 frontend-app/src/shared/api/eventWire.js	frontend-app	app-ui	js-source	1026	React 前端 API facade 与 Wails bridge	frontend,app,src,shared,api,eventWire,React,前端,API,facade,与,Wails,bridge
