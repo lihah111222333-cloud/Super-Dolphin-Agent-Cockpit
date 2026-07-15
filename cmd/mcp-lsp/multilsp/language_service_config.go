@@ -1,6 +1,7 @@
 package multilsp
 
 import (
+	"context"
 	"slices"
 	"strings"
 
@@ -18,7 +19,7 @@ func NewLanguageAdapterRegistryFromConfig(cfg contract.LSPConfig) *LanguageAdapt
 	return NewLanguageAdapterRegistry(
 		goLanguageAdapter{directoryFilters: cfg.GoDirectoryFilters, noiseDirNames: cfg.NoiseDirNames},
 		projectAdapterFromConfig(jstsAdapterDefaults(), cfg, contract.LSPServiceJSTS),
-		projectAdapterFromConfig(pythonAdapterDefaults(), cfg, contract.LSPServicePython),
+		pythonAdapterFromConfig(cfg),
 		projectAdapterFromConfig(rustAdapterDefaults(), cfg, contract.LSPServiceRust),
 		projectAdapterFromConfig(javaAdapterDefaults(), cfg, contract.LSPServiceJava),
 		projectAdapterFromConfig(cssAdapterDefaults(), cfg, contract.LSPServiceCSS),
@@ -41,7 +42,7 @@ func NewLanguageAdapterRegistryFromConfig(cfg contract.LSPConfig) *LanguageAdapt
 		projectAdapterFromConfig(graphqlAdapterDefaults(), cfg, contract.LSPServiceGraphQL),
 		projectAdapterFromConfig(prismaAdapterDefaults(), cfg, contract.LSPServicePrisma),
 		projectAdapterFromConfig(shellAdapterDefaults(), cfg, contract.LSPServiceShell),
-		projectAdapterFromConfig(sqlAdapterDefaults(), cfg, contract.LSPServiceSQL),
+		sqliteSQLAdapterFromConfig(cfg),
 		documentFallbackAdapter{languageIDs: slices.Clone(cfg.DocumentFallbackLanguageIDs)},
 	)
 }
@@ -106,6 +107,23 @@ func pythonAdapterDefaults() projectLanguageAdapter {
 		command:     ServerCommand{Executable: "pyright-langserver", Args: []string{"--stdio"}},
 		rootKind:    "python_project",
 	}
+}
+
+type pythonLanguageAdapter struct {
+	projectLanguageAdapter
+}
+
+func pythonAdapterFromConfig(cfg contract.LSPConfig) pythonLanguageAdapter {
+	return pythonLanguageAdapter{
+		projectLanguageAdapter: projectAdapterFromConfig(pythonAdapterDefaults(), cfg, contract.LSPServicePython),
+	}
+}
+
+// BootstrapPolicy 要求 Pyright 明确发布诊断快照，避免把尚未到达的慢诊断提前判为空。
+func (a pythonLanguageAdapter) BootstrapPolicy(scope ResolvedLanguageScope) BootstrapPolicy {
+	policy := a.projectLanguageAdapter.BootstrapPolicy(scope)
+	policy.TreatMissingDiagnosticsAsEmpty = false
+	return policy
 }
 
 func rustAdapterDefaults() projectLanguageAdapter {
@@ -286,12 +304,27 @@ func shellAdapterDefaults() projectLanguageAdapter {
 	}
 }
 
-func sqlAdapterDefaults() projectLanguageAdapter {
-	return projectLanguageAdapter{
+type sqliteSQLLanguageAdapter struct {
+	projectLanguageAdapter
+}
+
+func sqliteSQLAdapterFromConfig(cfg contract.LSPConfig) sqliteSQLLanguageAdapter {
+	adapter := projectAdapterFromConfig(projectLanguageAdapter{
 		languageIDs: []string{"sql"},
-		command:     ServerCommand{Executable: "sql-language-server", Args: []string{"up", "--method", "stdio"}},
-		rootKind:    "sql_project",
+		command:     ServerCommand{Executable: "sqruff", Args: []string{"lsp"}},
+		rootKind:    "sqlite_sql_project",
+	}, cfg, contract.LSPServiceSQL)
+	return sqliteSQLLanguageAdapter{projectLanguageAdapter: adapter}
+}
+
+// ResolveRoot 复用 SQL 项目根解析，但把内部路由 ID 规范化为 LSP 文档语言 sql。
+func (a sqliteSQLLanguageAdapter) ResolveRoot(ctx context.Context, scope LSPToolScope, target string) (ResolvedLanguageScope, error) {
+	resolved, err := a.projectLanguageAdapter.ResolveRoot(ctx, scope, target)
+	if err != nil {
+		return ResolvedLanguageScope{}, err
 	}
+	resolved.LanguageID = "sql"
+	return resolved, nil
 }
 
 func cloneLSPConfig(cfg contract.LSPConfig) contract.LSPConfig {

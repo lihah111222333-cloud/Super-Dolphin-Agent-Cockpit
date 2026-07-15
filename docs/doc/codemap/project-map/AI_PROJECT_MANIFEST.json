@@ -5,13 +5,13 @@
   "rules_sources": [
     ".ai-project-map.overrides.json"
   ],
-  "files": 4430,
+  "files": 4440,
   "domains": {
     "docs-agent": 928,
-    "other": 635,
+    "other": 642,
     "app-ui": 524,
-    "platform-provider": 1021,
-    "orchestration": 390,
+    "platform-provider": 1023,
+    "orchestration": 391,
     "modules": 728,
     "store-sql": 204
   },
@@ -29,8 +29,8 @@
       {
         "key": "orchestration",
         "file": "docs/doc/codemap/project-map/index/orchestration.tsv",
-        "file_count": 390,
-        "size_kb": 87.8,
+        "file_count": 391,
+        "size_kb": 88,
         "desc": "mcp-orch 编排 peer、DAG、workspace、prompt、command、shared-file 工具"
       },
       {
@@ -43,8 +43,8 @@
       {
         "key": "platform-provider",
         "file": "docs/doc/codemap/project-map/index/platform-provider.tsv",
-        "file_count": 1021,
-        "size_kb": 187.9,
+        "file_count": 1023,
+        "size_kb": 188.2,
         "desc": "基础设施与 provider 集成：RPC、hooks、toolbridge、Claude/Codex/统一 provider"
       },
       {
@@ -64,20 +64,20 @@
       {
         "key": "other",
         "file": "docs/doc/codemap/project-map/index/other.tsv",
-        "file_count": 635,
-        "size_kb": 123.8,
+        "file_count": 642,
+        "size_kb": 125.2,
         "desc": "公共库、脚本、测试、配置与其他根级资源"
       }
     ]
   },
   "module_counts": {
     "(root)": 12,
-    "cmd": 645,
+    "cmd": 648,
     "docs": 920,
     "frontend-app": 522,
-    "internal": 2133,
+    "internal": 2136,
     "pkg": 30,
-    "scripts": 120,
+    "scripts": 124,
     "sql": 29,
     "test": 9,
     "tests": 1,

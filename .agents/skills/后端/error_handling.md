@@ -1,117 +1,80 @@
-# Go 错误处理规范 (V3 契约合规版)
+# Go 错误处理与日志边界
 
-> **加载条件**: 错误包装、哨兵错误、自定义业务错误代码、RPC 错误响应时加载。
+> **加载条件**：修改领域错误、错误包装、RPC code 映射或结构化日志时加载。
 
----
+## 三层责任
 
-## 核心原则: 三层错误体系 + 日志系统统一处理
+| 层级 | 错误形态 | 责任 |
+|---|---|---|
+| `module/service` | 领域错误、哨兵错误、带根因的普通 Go error | 表达业务失败，不依赖 jrpc2 或传输协议。 |
+| RPC adapter / middleware | `*jrpc2.Error`、稳定应用 code | 严格解码、Validate，并把已知领域错误映射为客户端契约。当前公共入口在 `internal/platform/rpc`。 |
+| transport/runtime | 解析、路由、取消和连接错误 | 保持 JSON-RPC 2.0 语义，统一处理协议级失败。 |
 
-> [!IMPORTANT]
-> 项目禁止在每个调用点用 `fmt.Errorf("xxx: %w", err)` 滥用包装。
-> 错误上下文应由日志系统 (`pkg/logger`) 在边界层/中间件层统一记录。
+`module/service`禁止直接构造 jrpc2 错误。当前范式是 service 返回领域错误，`rpc.go`通过`platformrpc.StrictHandler`、`ThreadHandler`或相应 middleware 接线，`internal/platform/rpc`集中完成能力错误和参数错误映射。
 
-| 层级 | 概念与类型 | 用途 |
-|------|------|------|
-| **L1 协议层** | `*jrpc2.Error` / 框架内置 Code | 描述请求解析、路由找不到、参数非法的底层 RPC 错误。 |
-| **L2 业务层** | 带有自定义 Code 的 `*jrpc2.Error` | `CodeUnauthorized (1001)`, `CodeCapabilityDenied (1002)` 等应用级业务错误。 |
-| **L3 哨兵层** | `errors.ErrNotFound` 等内置哨兵 | 内部逻辑流转与判断。不要把这些错误赤裸裸地通过 RPC 抛出，需映射为 L2 或 L1 错误。 |
-
-### 禁止 ❌
+## 领域错误与包装
 
 ```go
-// ❌ 禁止: 滥用跨层 fmt.Errorf 嵌套，导致日志中看到 "a: b: c: actual error"
-return fmt.Errorf("step3: %w", fmt.Errorf("step2: %w", fmt.Errorf("step1: %w", err)))
+var ErrInvalidState = errors.New("turn is not idle")
 
-// ❌ 禁止: 将底层 sql.ErrNoRows 或原生 panic 报错直接透传给客户端，暴露技术细节。
-```
-
-### 正确 ✅
-
-```go
-// ✅ 同包内部或私有函数: 直接返回
-if err != nil {
-    return err
-}
-
-// ✅ 业务边界 (返回给 RPC 客户端时): 转化为明确业务 Code 的 jrpc2.Error
-if !hasBudget {
-    return jrpc2.Errorf(CodeRateLimited, "agent computation budget exceeded").WithData(map[string]any{
-        "agentId": agentID,
-    })
-}
-
-// ✅ 日志记录 (Handler / Middleware 层): 使用预留字段常量
-logger.FromContext(ctx).Error("task processing failed",
-    logger.String(logger.FieldAgentID, agentID),
-    logger.Any(logger.FieldError, err),
-)
-```
-
----
-
-## jrpc2 错误映射契约
-
-根据 `jrpc2-convention.md` 契约，V3 规定所有的 RPC Handler 必须返回能被框架转换为 JSON-RPC 的错误。
-
-- 协议错误：如入参验证失败 `req.Validate()`，应返回 `jrpc2.Errorf(jrpc2.InvalidParams, "%s", err.Error())`
-- `context.Canceled` 会被底层框架自动映射，无需人工干预
-- 业务错误：使用自定义业务 code，并且**必须避开 jrpc2 的保留区间 `-32768` 到 `-32000`**。
-
-### 示例
-
-```go
-const CodeCapabilityDenied jrpc2.Code = 1002
-const CodeInvalidState jrpc2.Code = 1003
-
-func (s *agentService) StartTurn(ctx context.Context, req TurnRequest) (TurnResponse, error) {
+func (s *service) StartTurn(ctx context.Context, req TurnRequest) (TurnResponse, error) {
     if err := req.Validate(); err != nil {
-        // 参数错误：使用标准库定义的 InvalidParams
-        return TurnResponse{}, jrpc2.Errorf(jrpc2.InvalidParams, "validation failed: %v", err)
+        return TurnResponse{}, err
     }
-
     if s.state != StateIdle {
-        // 业务冲突：使用自定义 Code
-        return TurnResponse{}, jrpc2.Errorf(CodeInvalidState, "agent is not idle").WithData(map[string]any{
-            "current_state": s.state,
+        return TurnResponse{}, ErrInvalidState
+    }
+    return s.start(ctx, req)
+}
+```
+
+规则：
+
+- 同一抽象内直接返回已经足够清楚的错误，不机械叠加`fmt.Errorf`。
+- 跨 owner 后调用方需要定位上下文时包装一次：`fmt.Errorf("load thread %s: %w", id, err)`。
+- 所有包装必须保留`%w`；调用方使用`errors.Is` / `errors.As`，禁止依赖完整字符串判断。
+- store 的`sql.ErrNoRows`、SQLite 文本、panic 细节不得直接暴露给客户端。
+- 不得通过日志后返回 nil、空 DTO 或默认状态掩盖失败。
+
+## RPC 映射
+
+协议映射只放在 handler、adapter 或 middleware：
+
+```go
+func InvalidStateMapper() platformrpc.Middleware {
+    return func(next handler.Func) handler.Func {
+        return handler.Func(func(ctx context.Context, req *jrpc2.Request) (any, error) {
+            resp, err := next(ctx, req)
+            if errors.Is(err, ErrInvalidState) {
+                return nil, jrpc2.Errorf(jrpc2.Code(CodeInvalidState), "turn is not idle")
+            }
+            return resp, err
         })
     }
-
-    // ...
 }
 ```
 
----
+- 参数绑定和`Validate()`失败使用平台统一的 InvalidParams 路径。
+- 能力错误复用`internal/platform/rpc.MapCapabilityError` / `CapabilityErrorMapper`。
+- 自定义 code 必须稳定、避开 jrpc2 保留区间，并由测试锁定。
+- 客户端消息只包含安全、可行动的信息；根因保留在内部 error chain 和结构化日志中。
 
-## 日志系统关键能力
+## 结构化日志
 
-> [!NOTE]
-> `logger.FromContext(ctx)` 是 V3 获取结构化日志的基础，它能够自动串联 `trace_id`。
-
-| 能力 | 说明 | 使用方式 |
-|------|------|---------|
-| Context 感知 | 自动注入 `trace_id`/`span_id` | `logger.FromContext(ctx)` |
-| 预留字段常量 | MUST 使用常量，避免键名错乱 | `logger.FieldAgentID`, `logger.FieldTaskID` 等 |
-| 自动 Stacktrace | Error+ 级别自动附加调用栈 | 无需手动处理 |
-
-### 预留字段常量
-
-**Attr 风格 (推荐)**: Handler/入口层 MUST 使用常量键名
+- 请求/RPC 边界使用`logger.FromContext(ctx)`获取 trace-aware logger。
+- 长生命周期 runner、actor 和后台 worker 使用构造函数注入的 logger；不要为获得 logger 人工创建 Background context。
+- 现有`logger.FieldXxx`常量覆盖的字段必须复用；新增跨模块稳定字段时先确认 owner 和消费端。
+- 失败日志与成功日志互斥。不要在`err != nil`时写“created”“completed”“persisted”等成功事件。
+- 同一错误只在拥有恢复/响应责任的边界记录，避免每层重复打印同一根因。
 
 ```go
-// ✅ MUST 使用 FieldXxx 常量
-log.Error("turn failed",
-    logger.String(logger.FieldAgentID, agentID),
-    logger.String(logger.FieldTaskID, taskID),
-    logger.Any(logger.FieldError, err),
-)
-```
-
-### 常量建议 (按需扩展 pkg/logger)
-
-```go
-logger.FieldTraceID    // "trace_id"
-logger.FieldAgentID    // "agent_id"
-logger.FieldTaskID     // "task_id"
-logger.FieldModule     // "module"
-logger.FieldError      // "error"
+result, err := service.StartTurn(ctx, req)
+if err != nil {
+    logger.FromContext(ctx).Error("start turn failed",
+        logger.String(logger.FieldTaskID, req.TurnID),
+        logger.Any(logger.FieldError, err),
+    )
+    return TurnResponse{}, err
+}
+return result, nil
 ```

@@ -72,6 +72,10 @@ $RustAnalyzerBin = if ($env:SUPER_DOLPHIN_RUST_ANALYZER_BIN) { $env:SUPER_DOLPHI
     $cmd = Get-Command rust-analyzer.exe -ErrorAction SilentlyContinue | Select-Object -First 1
     if ($cmd) { $cmd.Source } else { '' }
 }
+$SqruffBin = if ($env:SUPER_DOLPHIN_SQRUFF_BIN) { $env:SUPER_DOLPHIN_SQRUFF_BIN } else {
+    $cmd = Get-Command sqruff.exe -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($cmd) { $cmd.Source } else { '' }
+}
 $MSVCRuntimeDir = if ($env:SUPER_DOLPHIN_MSVC_RUNTIME_DIR) { $env:SUPER_DOLPHIN_MSVC_RUNTIME_DIR } else { Join-Path $env:WINDIR 'System32' }
 $ShellcheckBin = if ($env:SUPER_DOLPHIN_SHELLCHECK_BIN) { $env:SUPER_DOLPHIN_SHELLCHECK_BIN } else { '' }
 $OmitShellcheck = [Environment]::GetEnvironmentVariable('SUPER_DOLPHIN_WINDOWS_OMIT_SHELLCHECK', 'Process') -eq '1'
@@ -79,11 +83,10 @@ $JDTLSHome = if ($env:SUPER_DOLPHIN_JDTLS_HOME) { $env:SUPER_DOLPHIN_JDTLS_HOME 
 $JDKHome = if ($env:SUPER_DOLPHIN_JDK_HOME) { $env:SUPER_DOLPHIN_JDK_HOME } elseif ($env:JAVA_HOME) { $env:JAVA_HOME } else { '' }
 $LSPNpmPackages = @(
     'typescript-language-server@5.3.0',
-    'typescript@6.0.3',
+    'typescript@5.9.3',
     'vscode-langservers-extracted@4.10.0',
     'pyright@1.1.410',
     'bash-language-server@5.6.0',
-    'sql-language-server@1.7.1',
     '@ast-grep/cli@0.43.0'
 )
 if (-not $OmitShellcheck -and $ShellcheckBin.Trim() -eq '' -and $WindowsPackageArch -ne 'arm64') {
@@ -321,7 +324,7 @@ function Write-LSPManifestAndChecksums() {
         'pyright|bin/pyright-langserver.cmd|["python"]',
         'rust-analyzer|bin/rust-analyzer.exe|["rust"]',
         'bash-language-server|bin/bash-language-server.cmd|["shellscript"]',
-        'sql-language-server|bin/sql-language-server.cmd|["sql"]',
+        'sqruff|bin/sqruff.exe|["sql"]',
         'sg|bin/sg.exe|["ast-grep"]',
         'go|bin/go.cmd|["go-toolchain"]'
     )
@@ -421,7 +424,6 @@ Write-NodeCmdWrapper -Name 'typescript-language-server.cmd' -Target 'typescript-
 Write-NodeCmdWrapper -Name 'vscode-css-language-server.cmd' -Target 'vscode-langservers-extracted\bin\vscode-css-language-server'
 Write-NodeCmdWrapper -Name 'pyright-langserver.cmd' -Target 'pyright\langserver.index.js'
 Write-NodeCmdWrapper -Name 'bash-language-server.cmd' -Target 'bash-language-server\out\cli.js'
-Write-NodeCmdWrapper -Name 'sql-language-server.cmd' -Target 'sql-language-server\npm_bin\cli.js'
 
 $shellcheck = Resolve-ShellcheckExecutable
 if ($shellcheck.Trim() -ne '') {
@@ -445,10 +447,13 @@ if ($LASTEXITCODE -ne 0) { throw 'bundled ast-grep smoke failed; verify sg.exe, 
 Write-Host '==> copying native LSP servers'
 Require-File -Path $GoplsBin -Message 'missing gopls; set SUPER_DOLPHIN_GOPLS_BIN'
 Require-File -Path $RustAnalyzerBin -Message 'missing rust-analyzer; set SUPER_DOLPHIN_RUST_ANALYZER_BIN'
+Require-File -Path $SqruffBin -Message 'missing sqruff; set SUPER_DOLPHIN_SQRUFF_BIN'
 Assert-WindowsNativeArchitecture -Path $GoplsBin -ExpectedArch $WindowsPackageArch -Label 'gopls'
 Assert-WindowsNativeArchitecture -Path $RustAnalyzerBin -ExpectedArch $WindowsPackageArch -Label 'rust-analyzer'
+Assert-WindowsNativeArchitecture -Path $SqruffBin -ExpectedArch $WindowsPackageArch -Label 'sqruff'
 Copy-Item -LiteralPath $GoplsBin -Destination (Join-Path $LspDir 'bin/gopls.exe') -Force
 Copy-Item -LiteralPath $RustAnalyzerBin -Destination (Join-Path $LspDir 'bin/rust-analyzer.exe') -Force
+Copy-Item -LiteralPath $SqruffBin -Destination (Join-Path $LspDir 'bin/sqruff.exe') -Force
 
 Require-File -Path (Join-Path $GoToolchainSrc 'bin/go.exe') -Message "missing Go toolchain: $(Join-Path $GoToolchainSrc 'bin/go.exe')"
 Assert-WindowsNativeArchitecture -Path (Join-Path $GoToolchainSrc 'bin/go.exe') -ExpectedArch $WindowsPackageArch -Label 'Go toolchain'

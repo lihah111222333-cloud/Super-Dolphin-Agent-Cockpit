@@ -64,7 +64,6 @@ GOFMT_FILES=()
 PKG_CANDIDATES=()
 MISSING_FILES=()
 DIRTY_FILES=()
-HAS_EXECUTABLE_GATE_CHANGES=0
 CODEMAP_GENERATED_PATHS=(
   README.md
   docs/doc/codemap/13-archtest-boundaries.md
@@ -72,14 +71,6 @@ CODEMAP_GENERATED_PATHS=(
   docs/doc/codemap/ai-index.json
   docs/doc/codemap/project-map
 )
-
-add_executable_gate_path() {
-  case "$1" in
-    *.go|frontend-app/*|scripts/*|.githooks/*|Makefile|go.mod|go.sum|sql/*|internal/*|cmd/*|pkg/*|*.yaml|*.yml|*.json)
-      HAS_EXECUTABLE_GATE_CHANGES=1
-      ;;
-  esac
-}
 
 ensure_codemap_generated_paths_clean() {
   local untracked
@@ -440,8 +431,6 @@ while IFS= read -r -d '' status; do
       add_staged_changed_file "$new_path"
       add_pkg_for_path "$old_path"
       add_pkg_for_path "$new_path"
-      add_executable_gate_path "$old_path"
-      add_executable_gate_path "$new_path"
       add_gofmt_file "$new_path"
       check_worktree_matches_index "$new_path"
       ;;
@@ -449,13 +438,11 @@ while IFS= read -r -d '' status; do
       IFS= read -r -d '' path || { echo "❌ 解析 staged delete path 失败" >&2; exit 1; }
       add_staged_changed_file "$path"
       add_pkg_for_path "$path"
-      add_executable_gate_path "$path"
       ;;
     A|M)
       IFS= read -r -d '' path || { echo "❌ 解析 staged path 失败" >&2; exit 1; }
       add_staged_changed_file "$path"
       add_pkg_for_path "$path"
-      add_executable_gate_path "$path"
       add_gofmt_file "$path"
       check_worktree_matches_index "$path"
       ;;
@@ -463,7 +450,6 @@ while IFS= read -r -d '' status; do
       IFS= read -r -d '' path || { echo "❌ 解析 staged path 失败" >&2; exit 1; }
       add_staged_changed_file "$path"
       add_pkg_for_path "$path"
-      add_executable_gate_path "$path"
       add_gofmt_file "$path"
       check_worktree_matches_index "$path"
       ;;
@@ -472,37 +458,7 @@ done < <(git diff --cached --name-status -z --diff-filter=ACMRD)
 
 refresh_codemap_generated_files
 
-# go vet / AI maintenance tests 以 worktree 包为输入；为避免测试到未提交内容，
-# staged Go 影响到的包内若还有未暂存或未跟踪 .go，也必须先处理。
-for p in "${PKG_CANDIDATES[@]}"; do
-  pkg_dir=${p#./}
-  if [ "$p" = "." ]; then
-    pkg_dir="."
-  fi
-  if [ ! -d "$pkg_dir" ]; then
-    continue
-  fi
-  while IFS= read -r -d '' dirty_path; do
-    if is_go_path "$dirty_path"; then
-      add_dirty_file "$dirty_path"
-    fi
-  done < <(git diff --name-only -z -- "$pkg_dir")
-  while IFS= read -r -d '' other_path; do
-    if is_go_path "$other_path"; then
-      add_dirty_file "$other_path"
-    fi
-  done < <(git ls-files --others --exclude-standard -z -- "$pkg_dir")
-done
-
-# 代码/门禁提交会在真实 worktree 上执行检查；任何额外 tracked/untracked 输入都必须阻断。
-if [ "$HAS_EXECUTABLE_GATE_CHANGES" -eq 1 ]; then
-  while IFS= read -r -d '' dirty_path; do
-    add_dirty_file "$dirty_path"
-  done < <(git diff --name-only -z)
-  while IFS= read -r -d '' other_path; do
-    add_dirty_file "$other_path"
-  done < <(git ls-files --others --exclude-standard -z)
-fi
+# 长耗时检查只读取 staged tree 展开的临时 worktree；原 worktree 的其他改动不属于本次提交输入。
 
 if [ ${#MISSING_FILES[@]} -gt 0 ]; then
   echo "❌ 以下 staged 文件在 worktree 中不存在（常见 AD：git add 后又 rm）：" >&2

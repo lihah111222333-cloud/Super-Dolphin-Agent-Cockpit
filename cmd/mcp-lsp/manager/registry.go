@@ -137,7 +137,6 @@ type languageConfig struct {
 	manager       Manager
 	scoped        ScopedManagerResolver
 	skipInstaller bool
-	binaryPath    string
 }
 
 // Installer 是注册表依赖的最小语言服务安装接口。
@@ -316,7 +315,6 @@ func (r *dynamicRegistry) ensureInstalled(ctx context.Context, lang string, conf
 	if err != nil {
 		return err
 	}
-	config.binaryPath = path
 	if setter, ok := config.manager.(BinaryPathSetter); ok {
 		setter.SetBinaryPath(path)
 	}

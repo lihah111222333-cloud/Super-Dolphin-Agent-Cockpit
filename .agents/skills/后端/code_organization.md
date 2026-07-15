@@ -4,14 +4,14 @@
 
 ---
 
-## 文件组织强制规则
+## 文件与 owner 边界
 
 | 规则 | 阈值 | 违反时行动 |
 |------|------|-----------|
-| 禁止 `_chains.go` 后缀 | 0 容忍 | 合并到父文件 |
-| 文件名下划线层数 | ≤3 层 | 重新归类 |
-| 文件边界 | 不设机械行数下限 | 仅合并无独立 owner、契约或测试价值的碎片包装 |
-| 接口隔离原则 | 服务实现必须私有化 | `type service struct`，不可导出 |
+| 文件边界 | 不设机械行数下限 | 仅合并无独立 owner、契约或测试价值的碎片包装；上限与复杂度以当前`make guard`为准。 |
+| owner | 一个事实只允许一个可写 owner | adapter、mirror、生成物和展示模型不得反向成为事实源。 |
+| 接口隔离 | 默认保持实现私有 | 只有真实调用方需要具体类型时才扩大公开面。 |
+| 运行时状态 | 构造函数/Fx 注入 | 禁止用包级 map、service locator 或可变注册表逃避依赖关系。 |
 
 ---
 
@@ -27,14 +27,18 @@ type WorkspaceService interface {
     Create(ctx context.Context, req CreateReq) (string, error)
 }
 
+type WorkspaceWriter interface {
+    Insert(ctx context.Context, workspace Workspace) (Workspace, error)
+}
+
 // ✅ 内部私有实现
 type workspaceService struct {
-    store Store
+    writer WorkspaceWriter
 }
 
 // ✅ 构造函数返回接口，加入 fx.Provide
-func newWorkspaceService(store Store) WorkspaceService {
-    return &workspaceService{store: store}
+func newWorkspaceService(writer WorkspaceWriter) WorkspaceService {
+    return &workspaceService{writer: writer}
 }
 ```
 
@@ -66,8 +70,12 @@ type auditDecorator struct {
 func (d *auditDecorator) Create(ctx context.Context, req CreateReq) (string, error) {
     d.log.Info("Creating workspace...")
     res, err := d.next.Create(ctx, req)
+    if err != nil {
+        d.log.Error("workspace creation failed", logger.Any(logger.FieldError, err))
+        return "", err
+    }
     d.log.Info("Workspace created", logger.String("id", res))
-    return res, err
+    return res, nil
 }
 
 // 在 fx 中使用 fx.Decorate 替换实现
@@ -86,7 +94,7 @@ var Module = fx.Module("workspace",
 ```go
 type ServiceDeps struct {
     fx.In
-    Store  Store
+    Writer WorkspaceWriter
     Bus    *event.Dispatcher
     Config *config.Config
     Logger *logger.Logger
@@ -94,7 +102,7 @@ type ServiceDeps struct {
 
 func newService(deps ServiceDeps) Service {
     return &service{
-        store:  deps.Store,
+        writer: deps.Writer,
         bus:    deps.Bus,
         config: deps.Config,
         logger: deps.Logger,
@@ -104,21 +112,39 @@ func newService(deps ServiceDeps) Service {
 
 ### Options 模式
 
-对于基础组件或无需 DI 容器管理的类型，依然推荐 Options 模式。
+Options 只能调整已经显式提供并验证的配置，不能用静默默认值补齐必填配置。
 
 ```go
-type ClientOption func(*Client)
-
-func WithTimeout(d time.Duration) ClientOption {
-    return func(s *Client) { s.timeout = d }
+type ClientConfig struct {
+    Timeout time.Duration
 }
 
-func NewClient(opts ...ClientOption) *Client {
-    c := &Client{timeout: 30 * time.Second}
-    for _, opt := range opts {
-        opt(c)
+type ClientOption func(*Client) error
+
+func WithTimeout(d time.Duration) ClientOption {
+    return func(c *Client) error {
+        if d <= 0 {
+            return errors.New("client timeout must be positive")
+        }
+        c.timeout = d
+        return nil
     }
-    return c
+}
+
+func NewClient(cfg ClientConfig, opts ...ClientOption) (*Client, error) {
+    if cfg.Timeout <= 0 {
+        return nil, errors.New("client timeout is required")
+    }
+    c := &Client{timeout: cfg.Timeout}
+    for _, opt := range opts {
+        if opt == nil {
+            return nil, errors.New("client option is nil")
+        }
+        if err := opt(c); err != nil {
+            return nil, err
+        }
+    }
+    return c, nil
 }
 ```
 
@@ -126,7 +152,7 @@ func NewClient(opts ...ClientOption) *Client {
 
 ## 零值可用
 
-设计基础类型使其零值可直接使用，无需构造函数:
+只有零值语义明确且安全的基础类型才设计为零值可用。配置、身份、owner、持久化依赖和生命周期组件不得用零值代表“采用默认值”或“稍后补齐”。
 
 ```go
 type Buffer struct {

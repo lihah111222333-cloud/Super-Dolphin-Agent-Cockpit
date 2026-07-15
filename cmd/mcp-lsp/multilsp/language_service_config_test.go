@@ -136,6 +136,10 @@ func TestLanguageAdapterRegistryFromConfigRegistersSQLAdapter(t *testing.T) {
 	}
 	assertSQLResolvedScope(t, resolved, root)
 	assertSQLBootstrapPolicy(t, adapter.BootstrapPolicy(resolved))
+
+	if resolved.LanguageID != "sql" {
+		t.Fatalf("SQLite SQL resolved language = %q, want sql", resolved.LanguageID)
+	}
 }
 
 func mustShellAdapter(t *testing.T, registry *LanguageAdapterRegistry) LanguageAdapter {
@@ -173,8 +177,8 @@ func assertSQLCommand(t *testing.T, adapter LanguageAdapter) {
 	if err != nil {
 		t.Fatalf("sql ServerCommand() error = %v", err)
 	}
-	if command.Executable != "sql-language-server" || !reflect.DeepEqual(command.Args, []string{"up", "--method", "stdio"}) {
-		t.Fatalf("sql ServerCommand() = %#v, want sql-language-server up --method stdio", command)
+	if command.Executable != "sqruff" || !reflect.DeepEqual(command.Args, []string{"lsp"}) {
+		t.Fatalf("sql ServerCommand() = %#v, want sqruff lsp", command)
 	}
 }
 
@@ -187,8 +191,8 @@ func assertShellResolvedScope(t *testing.T, resolved ResolvedLanguageScope, root
 
 func assertSQLResolvedScope(t *testing.T, resolved ResolvedLanguageScope, root string) {
 	t.Helper()
-	if resolved.WorkspaceRoot != root || resolved.RootKind != "sql_project" {
-		t.Fatalf("sql resolved scope = %#v, want sql project at %q", resolved, root)
+	if resolved.WorkspaceRoot != root || resolved.RootKind != "sqlite_sql_project" {
+		t.Fatalf("sql resolved scope = %#v, want SQLite SQL project at %q", resolved, root)
 	}
 }
 
@@ -221,5 +225,17 @@ func assertSQLBootstrapPolicy(t *testing.T, policy BootstrapPolicy) {
 	}
 	if !policy.TreatMissingDiagnosticsAsEmpty {
 		t.Fatalf("sql BootstrapPolicy.TreatMissingDiagnosticsAsEmpty = false, want true")
+	}
+}
+
+func TestPythonAdapterRequiresExplicitDiagnosticsPublish(t *testing.T) {
+	registry := NewDefaultLanguageAdapterRegistry()
+	adapter, ok := registry.AdapterForLanguage("python")
+	if !ok {
+		t.Fatal("missing python adapter")
+	}
+	policy := adapter.BootstrapPolicy(ResolvedLanguageScope{LanguageID: "python"})
+	if policy.TreatMissingDiagnosticsAsEmpty {
+		t.Fatal("python TreatMissingDiagnosticsAsEmpty = true, want delayed publish to remain pending")
 	}
 }

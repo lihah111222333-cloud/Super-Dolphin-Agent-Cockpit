@@ -3,7 +3,7 @@
 # Bypass: git push --no-verify
 set -e
 
-# Push hooks must not run gosec; keep security scans out of the local push path.
+# Gosec remains outside Git hooks; race and nilness are owned by the push-only AI-maintenance scope.
 export SUPER_DOLPHIN_GITHOOK_SKIP_GOSEC=1
 export SUPER_DOLPHIN_GUARD_FAIL_ON_DRIFT=1
 
@@ -202,6 +202,7 @@ run_ai_maintenance_push_gate() {
   for path in "${AI_MAINTENANCE_CHANGED_FILES[@]}"; do
     args+=(--changed-file "$path")
   done
+  args+=(--push-gates)
   while IFS= read -r range; do
     [ -n "$range" ] || continue
     args+=(--diff-range "$range")

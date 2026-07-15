@@ -38,7 +38,7 @@ lsp_server_specs=(
   "pyright|bin/pyright-langserver"
   "rust-analyzer|bin/rust-analyzer"
   "bash-language-server|bin/bash-language-server"
-  "sql-language-server|bin/sql-language-server"
+  "sqruff|bin/sqruff"
   "shellcheck|bin/shellcheck"
   "sg|bin/sg"
   "go|bin/go"
@@ -381,7 +381,7 @@ lsp_manifest_json_value() {
 lsp_server_version_args() {
   local server_id="$1"
   case "$server_id" in
-    typescript-language-server|vscode-langservers-extracted|pyright|sql-language-server)
+    typescript-language-server|vscode-langservers-extracted|pyright)
       printf '\n'
       ;;
     gopls)
@@ -771,7 +771,7 @@ required_execs=(
   "$resources/bin/pyright-langserver"
   "$resources/bin/rust-analyzer"
   "$resources/bin/bash-language-server"
-  "$resources/bin/sql-language-server"
+  "$resources/bin/sqruff"
   "$resources/bin/shellcheck"
   "$resources/lsp/bin/sg"
   "$resources/lsp/bin/python"

@@ -68,12 +68,21 @@ func TestSQLCVerifyWorktreeScriptRejectsRegenerationDrift(t *testing.T) {
 func TestSQLCVerificationModesStaySeparatedByWorkflow(t *testing.T) {
 	aiMaintenance := readRepoFile(t, "ai_maintenance/main.go") + readRepoFile(t, "ai_maintenance/gate_execution.go")
 	assertScriptContains(t, aiMaintenance, `"sqlc:verify":           {run: func() error { return runCommand("", "make", "sqlc-verify-worktree") }}`)
-	assertScriptContains(t, aiMaintenance, `"sqlc:verify":              {"make sqlc-verify-worktree", "make sqlc-verify"}`)
+	assertScriptContainsIgnoringWhitespace(t, aiMaintenance, `"sqlc:verify": {"make sqlc-verify-worktree", "make sqlc-verify"}`)
 
 	prePush := readRepoFile(t, "../.githooks/pre-push")
 	assertScriptContains(t, prePush, "run_ai_maintenance_push_gate")
 	assertScriptDoesNotContain(t, prePush, "run_without_git_env make sqlc-verify")
 	assertScriptDoesNotContain(t, prePush, "make sqlc-verify-worktree")
+}
+
+func assertScriptContainsIgnoringWhitespace(t *testing.T, content, want string) {
+	t.Helper()
+	normalizedContent := strings.Join(strings.Fields(content), " ")
+	normalizedWant := strings.Join(strings.Fields(want), " ")
+	if !strings.Contains(normalizedContent, normalizedWant) {
+		t.Fatalf("script missing %q", want)
+	}
 }
 
 func newSQLCWorktreeVerifyFixture(t *testing.T, mode string) string {

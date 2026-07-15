@@ -265,6 +265,9 @@ func (h handlerBase) openFile(ctx context.Context, rawPath string, languageID st
 	if openLanguageID == "" {
 		openLanguageID = lspmanager.DetectLanguageID(file.Path.AbsPath)
 	}
+	if openLanguageID == sqliteSQLLanguageID {
+		openLanguageID = "sql"
+	}
 	if err := manager.DidOpen(ctx, uri, openLanguageID, 1, file.Content); err != nil {
 		return openFileResult{}, fmt.Errorf("open_file DidOpen %s: %w", file.Path.DisplayPath, err)
 	}

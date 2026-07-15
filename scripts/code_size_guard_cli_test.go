@@ -9,6 +9,11 @@ import (
 	"testing"
 )
 
+func TestGuardRaceModeUsesShortTestScope(t *testing.T) {
+	body := readScript(t, "test_with_guard.sh")
+	assertScriptContains(t, body, `run_go_test "$real_go" "${race_packages[@]}" -race -short -count=1`)
+}
+
 func TestCodeSizeGuardSingleGoFileIsQuietWhenClean(t *testing.T) {
 	path := writeGuardFixture(t, `package sample
 

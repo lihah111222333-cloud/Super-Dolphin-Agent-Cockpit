@@ -423,7 +423,7 @@ func TestNewGateResultCacheRejectsInvalidScope(t *testing.T) {
 }
 
 func TestNewGateResultCacheRejectsRealOrMismatchedIndex(t *testing.T) {
-	scope := runGateCacheGit(t, ".", "write-tree")
+	scope := runGateCacheGit(t, ".", "rev-parse", "HEAD^{tree}")
 	realGitDir := runGateCacheGit(t, ".", "rev-parse", "--absolute-git-dir")
 	t.Setenv("GIT_INDEX_FILE", filepath.Join(realGitDir, "index"))
 	if _, err := newGateResultCache(t.TempDir(), time.Minute, scope); err == nil || !strings.Contains(err.Error(), "isolated") {

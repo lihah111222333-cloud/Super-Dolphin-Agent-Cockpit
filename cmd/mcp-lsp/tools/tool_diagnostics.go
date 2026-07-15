@@ -345,11 +345,10 @@ func (h handlerBase) handleDiagnostics(ctx context.Context, input fileToolInput)
 	}
 	uris := diagnosticTargetURIs(targets)
 
-	items, _, message, err := h.fetchDiagnosticsWithRetry(ctx, input, targets)
+	items, message, err := h.fetchDiagnosticsBySQLDialect(ctx, input, targets)
 	if err != nil {
 		return nil, rustDetachedWorkspaceError(uris, "diagnostics", err)
 	}
-
 	tables := buildDiagnosticsTables(items, displayPaths)
 	total := countDiagnosticRows(tables)
 	if len(tables) == 0 {
@@ -373,6 +372,29 @@ func (h handlerBase) handleDiagnostics(ctx context.Context, input fileToolInput)
 		Hint:    "next: patch_edit action=replace_range file_path=<file> patch=\"...\" or file action=read_file pos=<file>:<line>",
 		Meta:    diagnosticsMeta{Message: message},
 	}, nil
+}
+
+// fetchDiagnosticsBySQLDialect 在批量请求含 SQLite 查询时逐文件路由，避免不同 SQL 后端共享一次诊断生命周期。
+func (h handlerBase) fetchDiagnosticsBySQLDialect(ctx context.Context, input fileToolInput, targets []diagnosticTarget) ([]protocol.PublishDiagnosticsParams, string, error) {
+	inputs, split, err := diagnosticsInputsBySQLDialect(ctx, input, targets)
+	if err != nil {
+		return nil, "", err
+	}
+	if !split {
+		items, _, message, err := h.fetchDiagnosticsWithRetry(ctx, inputs[0], targets)
+		return items, message, err
+	}
+	var items []protocol.PublishDiagnosticsParams
+	var message string
+	for index, routedInput := range inputs {
+		fetched, _, fetchedMessage, err := h.fetchDiagnosticsWithRetry(ctx, routedInput, targets[index:index+1])
+		if err != nil {
+			return nil, "", err
+		}
+		items = append(items, fetched...)
+		message = appendMessage(message, fetchedMessage)
+	}
+	return items, message, nil
 }
 
 // collectDiagnosticTargets 将 file_path/file_paths 解析为可诊断的 file URI。

@@ -110,9 +110,10 @@ type InstallResult struct {
 
 // Provider 管理语言服务安装配置，并按需执行自动安装和复验。
 type Provider struct {
-	mu      sync.Mutex
-	configs map[string]InstallerConfig
-	logger  *slog.Logger
+	mu           sync.Mutex
+	configs      map[string]InstallerConfig
+	installLocks map[string]*sync.Mutex
+	logger       *slog.Logger
 }
 
 // NewProvider 初始化语言服务安装器注册表。
@@ -120,8 +121,9 @@ type Provider struct {
 func NewProvider() *Provider {
 	log := pkglogger.Get()
 	return &Provider{
-		configs: make(map[string]InstallerConfig),
-		logger:  log,
+		configs:      make(map[string]InstallerConfig),
+		installLocks: make(map[string]*sync.Mutex),
+		logger:       log,
 	}
 }
 
@@ -149,6 +151,10 @@ func (p *Provider) EnsureInstalled(ctx context.Context, lang string) (string, er
 // EnsureInstalledDetailed 解析语言服务安装路径和来源状态。
 // 它先校验 PATH，再执行自动安装并复验伴随工具，任何一步失败都会带原因返回。
 func (p *Provider) EnsureInstalledDetailed(ctx context.Context, lang string) (InstallResult, error) {
+	installLock := p.installLock(lang)
+	installLock.Lock()
+	defer installLock.Unlock()
+
 	p.mu.Lock()
 	cfg, ok := p.configs[lang]
 	p.mu.Unlock()
@@ -173,6 +179,15 @@ func (p *Provider) EnsureInstalledDetailed(ctx context.Context, lang string) (In
 	} else {
 		pathErr = err
 	}
+	if path, ok := postInstallBinaryPath(ctx, cfg); ok {
+		if err := validateBinaryReadiness(ctx, path, cfg); err == nil {
+			result.Path = path
+			result.Status = InstallStatusPathFound
+			return result, nil
+		} else {
+			readinessErr = err
+		}
+	}
 
 	if !canRunInstallCommand(ctx, cfg) {
 		return InstallResult{}, missingBinaryError(lang, cfg, firstNonNilError(readinessErr, pathErr))
@@ -191,6 +206,18 @@ func (p *Provider) EnsureInstalledDetailed(ctx context.Context, lang string) (In
 	defer cancel()
 
 	return p.resolveInstalledBinary(ctx, installCtx, cfg, result)
+}
+
+// installLock 返回单个语言的首次安装互斥锁，不阻塞其他语言并行安装。
+func (p *Provider) installLock(lang string) *sync.Mutex {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	lock, ok := p.installLocks[lang]
+	if !ok {
+		lock = &sync.Mutex{}
+		p.installLocks[lang] = lock
+	}
+	return lock
 }
 
 func missingBinaryError(lang string, cfg InstallerConfig, reason error) *MissingBinaryError {
@@ -369,14 +396,33 @@ func (p *Provider) logResolvedBinary(result InstallResult) {
 }
 
 func postInstallBinaryPath(ctx context.Context, cfg InstallerConfig) (string, bool) {
-	if filepath.Base(strings.TrimSpace(cfg.InstallCmd)) != "go" {
+	switch filepath.Base(strings.TrimSpace(cfg.InstallCmd)) {
+	case "go", "go.exe":
+		dir := goInstallBinDir(ctx, cfg.InstallCmd)
+		if dir == "" {
+			return "", false
+		}
+		return executableInDir(dir, cfg.BinaryName)
+	case "cargo", "cargo.exe":
+		dir := cargoInstallBinDir()
+		if dir == "" {
+			return "", false
+		}
+		return executableInDir(dir, cfg.BinaryName)
+	default:
 		return "", false
 	}
-	dir := goInstallBinDir(ctx, cfg.InstallCmd)
-	if dir == "" {
-		return "", false
+}
+
+func cargoInstallBinDir() string {
+	if cargoHome := strings.TrimSpace(os.Getenv("CARGO_HOME")); cargoHome != "" {
+		return filepath.Join(cargoHome, "bin")
 	}
-	return executableInDir(dir, cfg.BinaryName)
+	home, err := os.UserHomeDir()
+	if err != nil || strings.TrimSpace(home) == "" {
+		return ""
+	}
+	return filepath.Join(home, ".cargo", "bin")
 }
 
 func goInstallBinDir(ctx context.Context, goCmd string) string {

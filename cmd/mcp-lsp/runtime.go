@@ -7,6 +7,7 @@ import (
 	"errors"
 	"log/slog"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -26,8 +27,11 @@ import (
 )
 
 const (
-	lspDiagnosticsColdStartMaxWait = 8 * time.Second
-	jstsTSServerFallbackPath       = "tsserver"
+	lspDiagnosticsColdStartMaxWait         = 8 * time.Second
+	jstsTSServerFallbackPath               = "tsserver"
+	sqruffInstallVersion                   = "0.38.0"
+	typeScriptLanguageServerInstallVersion = "5.3.0"
+	typeScriptInstallVersion               = "5.9.3"
 )
 
 // Manager 汇总 mcp-lsp 进程内的语言 registry、后台 runner 和 scope 释放器。
@@ -413,7 +417,11 @@ func registerNPMInstallers(inst *installer.Provider) {
 		"vscode-markdown-languageservice@0.5.0-alpha.11",
 	}
 	registerInstallerSpecs(inst, []runtimeInstallerSpec{
-		{[]string{"javascript", "javascriptreact", "typescript", "typescriptreact"}, "typescript-language-server", "npm", []string{"install", "-g", "typescript-language-server", "typescript"}},
+		{[]string{"javascript", "javascriptreact", "typescript", "typescriptreact"}, "typescript-language-server", "npm", []string{
+			"install", "-g",
+			"typescript-language-server@" + typeScriptLanguageServerInstallVersion,
+			"typescript@" + typeScriptInstallVersion,
+		}},
 		{[]string{"python"}, "pyright-langserver", "npm", []string{"install", "-g", "pyright"}},
 		{[]string{"css"}, "vscode-css-language-server", "npm", extractedArgs},
 		{[]string{"html"}, "vscode-html-language-server", "npm", extractedArgs},
@@ -467,10 +475,10 @@ func registerShellAndSQLInstallers(inst *installer.Provider) {
 		},
 	})
 	inst.Register("sql", installer.InstallerConfig{
-		BinaryName:          "sql-language-server",
+		BinaryName:          "sqruff",
 		BinaryCheckArgs:     []string{"--version"},
-		InstallCmd:          "npm",
-		InstallArgs:         []string{"install", "-g", "sql-language-server", "vscode-languageserver-protocol@3.17.5", "vscode-jsonrpc@8.2.0"},
+		InstallCmd:          "cargo",
+		InstallArgs:         []string{"install", "sqruff", "--version", sqruffInstallVersion, "--locked"},
 		AllowInstallCommand: true,
 	})
 }
@@ -525,7 +533,7 @@ func createGenericManagerWithBinary(adapter multilsp.LanguageAdapter, adapters *
 				Args:                command.Args,
 				Dir:                 dir,
 				Env:                 env,
-				InitOptions:         runtimeAdapterInitOptions(adapter, packagedLSP),
+				InitOptions:         runtimeAdapterInitOptionsWithBinary(adapter, packagedLSP, binary.Get()),
 				NotificationHandler: notificationHandler,
 			})
 			if err != nil || !sqliteWorkspace {
@@ -550,8 +558,13 @@ const packagedPyrightNoSystemPythonPath = "/__super_dolphin_no_system_python__/p
 // runtimeAdapterInitOptions 复制适配器 init options 并补充打包 LSP 的运行约束。
 // 打包 Pyright 使用哨兵 pythonPath，防止它隐式探测系统 Python 造成跨环境差异。
 func runtimeAdapterInitOptions(adapter multilsp.LanguageAdapter, packagedLSP bool) map[string]any {
+	return runtimeAdapterInitOptionsWithBinary(adapter, packagedLSP, "")
+}
+
+// runtimeAdapterInitOptionsWithBinary 在客户端创建时使用安装器最终解析出的服务路径补齐运行选项。
+func runtimeAdapterInitOptionsWithBinary(adapter multilsp.LanguageAdapter, packagedLSP bool, serverBinary string) map[string]any {
 	initOptions := adapter.InitOptions(multilsp.ResolvedLanguageScope{})
-	initOptions = runtimeJSTSInitOptions(adapter, initOptions)
+	initOptions = runtimeJSTSInitOptions(adapter, initOptions, serverBinary)
 	if !packagedLSP || !adapterSupportsLanguage(adapter, "python") {
 		return initOptions
 	}
@@ -574,7 +587,7 @@ func runtimeAdapterInitOptions(adapter multilsp.LanguageAdapter, packagedLSP boo
 
 // runtimeJSTSInitOptions 为 JS/TS language server 注入 tsserver 后备路径。
 // typescript-language-server 只有在工作区 TypeScript 查找失败后才会使用该后备路径。
-func runtimeJSTSInitOptions(adapter multilsp.LanguageAdapter, initOptions map[string]any) map[string]any {
+func runtimeJSTSInitOptions(adapter multilsp.LanguageAdapter, initOptions map[string]any, serverBinary string) map[string]any {
 	if !runtimeAdapterUsesJSTS(adapter) {
 		return initOptions
 	}
@@ -586,10 +599,71 @@ func runtimeJSTSInitOptions(adapter multilsp.LanguageAdapter, initOptions map[st
 		tsserver = map[string]any{}
 		initOptions["tsserver"] = tsserver
 	}
-	if runtimeStringOption(tsserver["path"]) == "" && runtimeStringOption(tsserver["fallbackPath"]) == "" {
-		tsserver["fallbackPath"] = jstsTSServerFallbackPath
+	configuredPath := runtimeStringOption(tsserver["path"])
+	fallbackPath := runtimeStringOption(tsserver["fallbackPath"])
+	if configuredPath == "" && (fallbackPath == "" || fallbackPath == jstsTSServerFallbackPath) {
+		fallbackPath = jstsTSServerFallbackPath
+		if resolved := runtimeTypeScriptModuleRoot(serverBinary); resolved != "" {
+			fallbackPath = resolved
+		}
+		tsserver["fallbackPath"] = fallbackPath
 	}
 	return initOptions
+}
+
+// runtimeTypeScriptModuleRoot 从 npm 安装的语言服务器或 tsserver 入口定位 TypeScript 包根。
+// typescript-language-server 的 fallbackPath 需要包含 lib/tsserver.js 的包目录，而不是可执行文件。
+func runtimeTypeScriptModuleRoot(serverBinary string) string {
+	binaryPaths := []string{strings.TrimSpace(serverBinary)}
+	for _, binaryName := range []string{"typescript-language-server", jstsTSServerFallbackPath} {
+		if binaryPath, err := exec.LookPath(binaryName); err == nil {
+			binaryPaths = append(binaryPaths, binaryPath)
+		}
+	}
+	for _, binaryPath := range binaryPaths {
+		if binaryPath == "" {
+			continue
+		}
+		resolved, err := filepath.EvalSymlinks(binaryPath)
+		if err != nil {
+			resolved = binaryPath
+		}
+		if root := typeScriptModuleRootFromBinary(resolved); root != "" {
+			return root
+		}
+	}
+	return ""
+}
+
+// typeScriptModuleRootFromBinary 沿 npm 包路径向上寻找 node_modules/typescript。
+func typeScriptModuleRootFromBinary(binaryPath string) string {
+	prefix := filepath.Dir(filepath.Dir(filepath.Clean(binaryPath)))
+	for _, candidate := range []string{
+		filepath.Join(prefix, "node_modules", "typescript"),
+		filepath.Join(prefix, "lib", "node_modules", "typescript"),
+	} {
+		if isTypeScriptModuleRoot(candidate) {
+			return candidate
+		}
+	}
+	for dir := filepath.Dir(filepath.Clean(binaryPath)); ; dir = filepath.Dir(dir) {
+		if filepath.Base(dir) == "node_modules" {
+			candidate := filepath.Join(dir, "typescript")
+			if isTypeScriptModuleRoot(candidate) {
+				return candidate
+			}
+			return ""
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return ""
+		}
+	}
+}
+
+func isTypeScriptModuleRoot(candidate string) bool {
+	info, err := os.Stat(filepath.Join(candidate, "lib", "tsserver.js"))
+	return err == nil && info.Mode().IsRegular()
 }
 
 func runtimeAdapterUsesJSTS(adapter multilsp.LanguageAdapter) bool {
