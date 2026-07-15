@@ -213,7 +213,10 @@ func loadRunFinalOutputNodeTx(ctx context.Context, txStore *store, dagKey string
 // 大文件结果优先保留 sharedfile path，避免把完整节点结果复制进 run metadata。
 func finalOutputMetadataFromNode(node runFinalOutputNode) (map[string]any, bool, error) {
 	out := baseRunFinalOutput(node)
-	configuredPath := configuredRunFinalSharedfilePath(node.Config)
+	configuredPath, err := configuredRunFinalSharedfilePath(node.Config)
+	if err != nil {
+		return nil, false, fmt.Errorf("read configured final output path for node %s: %w", node.NodeKey, err)
+	}
 	if len(node.Result) == 0 {
 		return finalOutputFromConfiguredRunPath(out, configuredPath)
 	}
@@ -306,9 +309,9 @@ func runSharedfilePathFromResultMap(typed map[string]any) string {
 }
 
 // configuredRunFinalSharedfilePath 从节点 config.outputs.to_sharedfile.path 读取 sharedfile 路径。
-func configuredRunFinalSharedfilePath(raw json.RawMessage) string {
+func configuredRunFinalSharedfilePath(raw json.RawMessage) (string, error) {
 	if len(raw) == 0 {
-		return ""
+		return "", nil
 	}
 	var cfg struct {
 		Outputs struct {
@@ -317,10 +320,13 @@ func configuredRunFinalSharedfilePath(raw json.RawMessage) string {
 			} `json:"to_sharedfile"`
 		} `json:"outputs"`
 	}
-	if err := json.Unmarshal(raw, &cfg); err != nil || cfg.Outputs.ToSharedfile == nil {
-		return ""
+	if err := json.Unmarshal(raw, &cfg); err != nil {
+		return "", fmt.Errorf("decode final node config outputs: %w", err)
 	}
-	return strings.TrimSpace(cfg.Outputs.ToSharedfile.Path)
+	if cfg.Outputs.ToSharedfile == nil {
+		return "", nil
+	}
+	return strings.TrimSpace(cfg.Outputs.ToSharedfile.Path), nil
 }
 
 const selectTaskDagFinalNodeKeySQL = `

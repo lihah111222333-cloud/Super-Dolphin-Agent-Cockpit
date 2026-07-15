@@ -612,7 +612,7 @@ func (s *session) ForkThread(ctx context.Context, req dto.ForkRequest) (dto.Fork
 	if err != nil {
 		return dto.ForkResult{}, err
 	}
-	id, err := decodeThreadID(raw, "")
+	id, err := decodeThreadID(raw)
 	if err != nil {
 		return dto.ForkResult{}, err
 	}

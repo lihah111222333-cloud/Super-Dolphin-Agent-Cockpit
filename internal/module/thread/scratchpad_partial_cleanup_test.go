@@ -28,7 +28,7 @@ func TestLifecycleReturnsPrivatePartialScratchpadCleanupErrorAfterFinalization(t
 			svc.emitStopped = func(threaddto.Stopped) { events++ }
 
 			err := tc.operation(svc)
-			var partial *scratchpadPartialCleanupError
+			var partial *lifecyclePartialCleanupError
 			if !errors.As(err, &partial) || !errors.Is(err, cleanupErr) {
 				t.Fatalf("operation error = %v, want typed partial cleanup error", err)
 			}
@@ -37,6 +37,52 @@ func TestLifecycleReturnsPrivatePartialScratchpadCleanupErrorAfterFinalization(t
 			}
 			if events != 1 {
 				t.Fatalf("stopped events = %d, want finalization event", events)
+			}
+			if tc.wantStatus != "" {
+				store := svc.threadStore.(*stubThreadStore)
+				if store.status.Status != tc.wantStatus {
+					t.Fatalf("durable status = %q, want %q", store.status.Status, tc.wantStatus)
+				}
+			}
+		})
+	}
+}
+
+func TestLifecycleAggregatesTurnCleanupErrorsAfterFinalization(t *testing.T) {
+	firstErr := errors.New("provider turn cleanup failed")
+	secondErr := errors.New("agent turn cleanup failed")
+	for _, tc := range []struct {
+		name       string
+		operation  func(*service) error
+		wantStatus string
+		wantReason string
+	}{
+		{name: "stop", operation: func(s *service) error { return s.Stop(context.Background(), "thread-1") }, wantStatus: statusStopped, wantReason: "thread_stopped"},
+		{name: "archive", operation: func(s *service) error { return s.Archive(context.Background(), "thread-1") }, wantStatus: statusArchived, wantReason: "thread_archived"},
+		{name: "delete", operation: func(s *service) error { return s.Delete(context.Background(), "thread-1") }, wantReason: "thread_deleted"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			svc, _ := newScratchpadCleanupService(t)
+			turns := &stubTurnService{cleanupErrors: map[string]error{
+				"provider-thread-1": firstErr,
+				"agent-1":           secondErr,
+			}}
+			svc.turns = turns
+			events := 0
+			svc.emitStopped = func(threaddto.Stopped) { events++ }
+
+			err := tc.operation(svc)
+			var partial *lifecyclePartialCleanupError
+			if !errors.As(err, &partial) || !errors.Is(err, firstErr) || !errors.Is(err, secondErr) {
+				t.Fatalf("operation error = %v, want typed joined turn cleanup errors", err)
+			}
+			assertCleanupCalls(t, turns.cleanupCalls, map[string]struct{}{
+				"thread-1:" + tc.wantReason:          {},
+				"provider-thread-1:" + tc.wantReason: {},
+				"agent-1:" + tc.wantReason:           {},
+			})
+			if events != 1 {
+				t.Fatalf("stopped events = %d, want 1 after durable finalization", events)
 			}
 			if tc.wantStatus != "" {
 				store := svc.threadStore.(*stubThreadStore)

@@ -275,7 +275,7 @@ cmd/mcp-orch/store/taskdag/store_compile_assertions_test.go	cmd	orchestration	go
 cmd/mcp-orch/store/taskdag/store_complete_downstream_dispatch_guard_test.go	cmd	orchestration	go-test	1302	DAG/node/wakeup/worker lease 持久化 store	cmd,mcp,orch,store,taskdag,complete,downstream,dispatch,guard,test,DAG,node,wakeup,worker,lease,持久化
 cmd/mcp-orch/store/taskdag/store_complete_downstream_lock_test.go	cmd	orchestration	go-test	1619	DAG/node/wakeup/worker lease 持久化 store	cmd,mcp,orch,store,taskdag,complete,downstream,lock,test,DAG,node,wakeup,worker,lease,持久化
 cmd/mcp-orch/store/taskdag/store_complete_downstream_test.go	cmd	orchestration	go-test	23428	DAG/node/wakeup/worker lease 持久化 store	cmd,mcp,orch,store,taskdag,complete,downstream,test,DAG,node,wakeup,worker,lease,持久化
-cmd/mcp-orch/store/taskdag/store_complete_downstream.go	cmd	orchestration	go-source	20667	DAG/node/wakeup/worker lease 持久化 store	cmd,mcp,orch,store,taskdag,complete,downstream,DAG,node,wakeup,worker,lease,持久化
+cmd/mcp-orch/store/taskdag/store_complete_downstream.go	cmd	orchestration	go-source	20895	DAG/node/wakeup/worker lease 持久化 store	cmd,mcp,orch,store,taskdag,complete,downstream,DAG,node,wakeup,worker,lease,持久化
 cmd/mcp-orch/store/taskdag/store_complete_ready_fence_test.go	cmd	orchestration	go-test	2581	DAG/node/wakeup/worker lease 持久化 store	cmd,mcp,orch,store,taskdag,complete,ready,fence,test,DAG,node,wakeup,worker,lease,持久化
 cmd/mcp-orch/store/taskdag/store_dag_ops.go	cmd	orchestration	go-source	4937	DAG/node/wakeup/worker lease 持久化 store	cmd,mcp,orch,store,taskdag,dag,ops,DAG,node,wakeup,worker,lease,持久化
 cmd/mcp-orch/store/taskdag/store_delete_dag_test.go	cmd	orchestration	go-test	2975	DAG/node/wakeup/worker lease 持久化 store	cmd,mcp,orch,store,taskdag,delete,dag,test,DAG,node,wakeup,worker,lease,持久化
@@ -300,7 +300,7 @@ cmd/mcp-orch/store/taskdag/store_root_wakeup.go	cmd	orchestration	go-source	3429
 cmd/mcp-orch/store/taskdag/store_run_events.go	cmd	orchestration	go-source	3059	DAG/node/wakeup/worker lease 持久化 store	cmd,mcp,orch,store,taskdag,run,events,DAG,node,wakeup,worker,lease,持久化
 cmd/mcp-orch/store/taskdag/store_run_isolation_test.go	cmd	orchestration	go-test	10052	DAG/node/wakeup/worker lease 持久化 store	cmd,mcp,orch,store,taskdag,run,isolation,test,DAG,node,wakeup,worker,lease,持久化
 cmd/mcp-orch/store/taskdag/store_run.go	cmd	orchestration	go-source	16905	DAG/node/wakeup/worker lease 持久化 store	cmd,mcp,orch,store,taskdag,run,DAG,node,wakeup,worker,lease,持久化
-cmd/mcp-orch/store/taskdag/store_sqlite_task11_test.go	cmd	orchestration	go-test	28379	DAG/node/wakeup/worker lease 持久化 store	cmd,mcp,orch,store,taskdag,sqlite,task11,test,DAG,node,wakeup,worker,lease,持久化
+cmd/mcp-orch/store/taskdag/store_sqlite_task11_test.go	cmd	orchestration	go-test	32173	DAG/node/wakeup/worker lease 持久化 store	cmd,mcp,orch,store,taskdag,sqlite,task11,test,DAG,node,wakeup,worker,lease,持久化
 cmd/mcp-orch/store/taskdag/store_terminate_run_test.go	cmd	orchestration	go-test	6963	DAG/node/wakeup/worker lease 持久化 store	cmd,mcp,orch,store,taskdag,terminate,run,test,DAG,node,wakeup,worker,lease,持久化
 cmd/mcp-orch/store/taskdag/store_update_dag_patch_test.go	cmd	orchestration	go-test	6567	DAG/node/wakeup/worker lease 持久化 store	cmd,mcp,orch,store,taskdag,update,dag,patch,test,DAG,node,wakeup,worker,lease,持久化
 cmd/mcp-orch/store/taskdag/store_update_node_cas_sqlite_test.go	cmd	orchestration	go-test	2086	DAG/node/wakeup/worker lease 持久化 store	cmd,mcp,orch,store,taskdag,update,node,cas,sqlite,test,DAG,wakeup,worker,lease,持久化
@@ -324,7 +324,7 @@ cmd/mcp-orch/store/workspace/module.go	cmd	orchestration	go-source	265	workspace
 cmd/mcp-orch/store/workspace/row_mappers.go	cmd	orchestration	go-source	1778	workspace run/file 持久化 store	cmd,mcp,orch,store,workspace,row,mappers,run,file,持久化
 cmd/mcp-orch/store/workspace/store_sqlite_task11_test.go	cmd	orchestration	go-test	6824	workspace run/file 持久化 store	cmd,mcp,orch,store,workspace,sqlite,task11,test,run,file,持久化
 cmd/mcp-orch/store/workspace/store_test.go	cmd	orchestration	go-test	5334	workspace run/file 持久化 store	cmd,mcp,orch,store,workspace,test,run,file,持久化
-cmd/mcp-orch/store/workspace/store.go	cmd	orchestration	go-source	7638	workspace run/file 持久化 store	cmd,mcp,orch,store,workspace,run,file,持久化
+cmd/mcp-orch/store/workspace/store.go	cmd	orchestration	go-source	7388	workspace run/file 持久化 store	cmd,mcp,orch,store,workspace,run,file,持久化
 cmd/mcp-orch/store/workspace/test_helpers_test.go	cmd	orchestration	go-test	3732	workspace run/file 持久化 store	cmd,mcp,orch,store,workspace,test,helpers,run,file,持久化
 cmd/mcp-orch/test_goroutine_group_test.go	cmd	orchestration	go-test	361	orchestration MCP peer、bootstrap、registry、store 与 sidecar 入口	cmd,mcp,orch,test,goroutine,group,orchestration,MCP,peer,bootstrap,registry,store,与,sidecar,入口
 cmd/mcp-orch/tools/av_merge_tools_test.go	cmd	orchestration	go-test	1937	mcp-orch MCP tool schema、registry 与 handler	cmd,mcp,orch,tools,av,merge,test,mcp-orch,MCP,tool,schema,registry,与,handler

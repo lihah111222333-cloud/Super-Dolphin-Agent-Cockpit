@@ -181,10 +181,6 @@ func (s *store) ListFiles(ctx context.Context, filter ListFilesFilter) ([]Worksp
 	return files, nil
 }
 
-func fromSQLCRun(row sqlc.WorkspaceRun) WorkspaceRun {
-	return fromSQLCRunRaw(row.ID, row.RunKey, row.DagKey, row.SourceRoot, row.WorkspacePath, row.Status, row.CreatedBy, row.UpdatedBy, row.Metadata, row.CreatedAt, row.UpdatedAt, row.FinishedAt)
-}
-
 func fromSQLCListRun(row sqlc.ListWorkspaceRunsRow) WorkspaceRun {
 	return fromSQLCRunRaw(row.ID, row.RunKey, row.DagKey, row.SourceRoot, row.WorkspacePath, row.Status, row.CreatedBy, row.UpdatedBy, row.Metadata, row.CreatedAt, row.UpdatedAt, row.FinishedAt)
 }

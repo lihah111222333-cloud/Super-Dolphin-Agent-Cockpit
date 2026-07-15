@@ -42,6 +42,53 @@ func TestSessionReadHistoryFallsBackToResolvedThreadID(t *testing.T) {
 	}
 }
 
+func TestSessionReadHistoryReturnsResolvedFallbackError(t *testing.T) {
+	dir := t.TempDir()
+	resolved := "resolved-error"
+	writeClaudeHistoryMessages(t, dir, resolved, []string{"blocked"})
+	path := filepath.Join(dir, "projects", "test-project", resolved+".jsonl")
+	if err := os.Chmod(path, 0); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(path, 0o644) })
+	s := &session{threadID: resolved, history: &historyBackend{sessionDir: dir}}
+
+	if messages, err := s.ReadHistory(context.Background(), "target-empty", 0); err == nil {
+		t.Fatalf("ReadHistory() = %v, nil; want resolved fallback read error", messages)
+	}
+}
+
+func TestSessionReadHistorySkipsResolvedFallbackWhenTargetNonEmpty(t *testing.T) {
+	dir := t.TempDir()
+	writeClaudeHistoryMessages(t, dir, "target", []string{"target message"})
+	writeClaudeHistoryMessages(t, dir, "resolved-error", []string{"blocked"})
+	path := filepath.Join(dir, "projects", "test-project", "resolved-error.jsonl")
+	if err := os.Chmod(path, 0); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(path, 0o644) })
+	s := &session{threadID: "resolved-error", history: &historyBackend{sessionDir: dir}}
+
+	messages, err := s.ReadHistory(context.Background(), "target", 0)
+	if err != nil {
+		t.Fatalf("ReadHistory() error = %v", err)
+	}
+	if len(messages) != 1 || messages[0].Content != "target message" {
+		t.Fatalf("ReadHistory() = %#v, want target source only", messages)
+	}
+}
+
+func TestSessionReadHistoryPreservesSuccessfulEmptyFallback(t *testing.T) {
+	s := &session{threadID: "resolved-empty", history: &historyBackend{sessionDir: t.TempDir()}}
+	messages, err := s.ReadHistory(context.Background(), "target-empty", 0)
+	if err != nil {
+		t.Fatalf("ReadHistory() error = %v", err)
+	}
+	if len(messages) != 0 {
+		t.Fatalf("ReadHistory() = %#v, want legal empty history", messages)
+	}
+}
+
 func TestReadHistoryReturnsEmptyForNewSession(t *testing.T) {
 	t.Parallel()
 

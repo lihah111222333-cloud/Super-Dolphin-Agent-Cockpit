@@ -64339,10 +64339,6 @@
             {
               "name": "raw",
               "type": "json.RawMessage"
-            },
-            {
-              "name": "fallback",
-              "type": "string"
             }
           ],
           "returns": [

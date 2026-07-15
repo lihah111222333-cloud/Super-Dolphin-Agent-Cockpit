@@ -27,6 +27,9 @@ func TestRestoreApprovalPolicyRejectsUnverifiedRemoteConfig(t *testing.T) {
 				if method == "thread/config/get" {
 					return tt.result
 				}
+				if method == "thread/resume" {
+					return mustJSON(map[string]any{"thread": map[string]any{"id": "provider-thread-1"}})
+				}
 				return mustJSON(map[string]any{"ok": true})
 			})
 			d := approvalRestoreDriverForTest(t, serverURL)
@@ -60,6 +63,9 @@ func TestRestoreApprovalPolicyMarksKnownPolicyVerified(t *testing.T) {
 	serverURL := startCodexRPCServer(t, func(method string) json.RawMessage {
 		if method == "thread/config/get" {
 			return mustJSON(map[string]any{"effective": map[string]any{"approvals": "on-request"}})
+		}
+		if method == "thread/resume" {
+			return mustJSON(map[string]any{"thread": map[string]any{"id": "provider-thread-1"}})
 		}
 		return mustJSON(map[string]any{"ok": true})
 	})

@@ -181,6 +181,71 @@ func assertResumeApprovalConfigError(t *testing.T, got contract.Session, err err
 	}
 }
 
+func TestDriverResumeSessionRejectsInvalidThreadResult(t *testing.T) {
+	tests := []struct {
+		name   string
+		result json.RawMessage
+	}{
+		{name: "invalid result JSON", result: json.RawMessage(`"invalid"`)},
+		{name: "missing thread id", result: mustJSON(map[string]any{"thread": map[string]any{}})},
+		{name: "empty thread id", result: mustJSON(map[string]any{"thread": map[string]any{"id": "  "}})},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			serverURL := startCodexRPCServer(t, func(method string) json.RawMessage {
+				switch method {
+				case "initialize":
+					return mustJSON(map[string]any{"ok": true})
+				case "thread/resume":
+					return tt.result
+				case "thread/config/get":
+					return mustJSON(map[string]any{"effective": map[string]any{"approvals": "never"}})
+				default:
+					return mustJSON(map[string]any{"ok": true})
+				}
+			})
+			d := &driver{approvals: testApprovalManager(), pool: newSingleURLPoolForTest(t, serverURL), mirror: &recordingSkillMirrorReconciler{}}
+			got, err := d.ResumeSession(context.Background(), dto.ResumeSessionRequest{
+				Provider:           "codex",
+				AgentID:            "agent-1",
+				ThreadID:           "thread-public",
+				ProviderThreadID:   "provider-thread-old",
+				CWD:                t.TempDir(),
+				PromptSnapshot:     validResumePromptSnapshotForTest(),
+				CodexHome:          t.TempDir(),
+				CodexInstanceKey:   "default",
+				CodexModelProvider: "openai",
+			})
+			if err == nil {
+				if got != nil {
+					_ = got.Close(context.Background())
+				}
+				t.Fatal("ResumeSession() error = nil, want invalid thread result error")
+			}
+			if got != nil {
+				t.Fatalf("ResumeSession() session = %T, want nil", got)
+			}
+		})
+	}
+}
+
+func TestDecodeThreadIDRejectsFallbackForInvalidResult(t *testing.T) {
+	for _, tt := range []struct {
+		name string
+		raw  json.RawMessage
+	}{
+		{name: "invalid JSON", raw: json.RawMessage(`{"thread":`)},
+		{name: "missing thread id", raw: mustJSON(map[string]any{"thread": map[string]any{}})},
+		{name: "empty thread id", raw: mustJSON(map[string]any{"thread": map[string]any{"id": "  "}})},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			if got, err := decodeThreadID(tt.raw); err == nil {
+				t.Fatalf("decodeThreadID() = %q, nil; want error", got)
+			}
+		})
+	}
+}
+
 func TestDriverResumeSessionRejectsMissingProviderThreadID(t *testing.T) {
 	t.Parallel()
 

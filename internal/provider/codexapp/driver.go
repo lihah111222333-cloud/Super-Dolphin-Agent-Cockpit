@@ -369,7 +369,7 @@ func resumeRemoteThread(ctx context.Context, t *transport, req dto.ResumeSession
 	if err != nil {
 		return "", err
 	}
-	return decodeThreadID(raw, resumeID)
+	return decodeThreadID(raw)
 }
 
 func requireProviderResumeThreadID(component, providerThreadID string) (string, error) {
@@ -469,14 +469,14 @@ func decodeStartResult(raw json.RawMessage) (startResult, error) {
 	}, nil
 }
 
-func decodeThreadID(raw json.RawMessage, fallback string) (string, error) {
-	if resp, err := decodeThreadRPCResult(raw); err == nil {
-		if id := strings.TrimSpace(resp.Thread.ID); id != "" {
-			return id, nil
-		}
+func decodeThreadID(raw json.RawMessage) (string, error) {
+	resp, err := decodeThreadRPCResult(raw)
+	if err != nil {
+		return "", err
 	}
-	if fallback = strings.TrimSpace(fallback); fallback != "" {
-		return fallback, nil
+	id := strings.TrimSpace(resp.Thread.ID)
+	if id == "" {
+		return "", errors.New("codexapp: empty thread id")
 	}
-	return "", errors.New("codexapp: empty thread id")
+	return id, nil
 }

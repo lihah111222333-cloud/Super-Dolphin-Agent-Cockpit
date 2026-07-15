@@ -2,6 +2,7 @@ package thread
 
 import (
 	"context"
+	"errors"
 	"runtime"
 	"strings"
 
@@ -41,10 +42,10 @@ func (s *service) Archive(ctx context.Context, threadID string) error {
 		return err
 	}
 	cleanupErr := s.cleanupThreadScratchpad(ctx, stopState.stoppedID, stopState.binding)
-	s.cleanupThreadTurns(ctx, "thread_archived", stopState.targets...)
+	turnCleanupErr := s.cleanupThreadTurns(ctx, "thread_archived", stopState.targets...)
 	s.publishThreadStopped(stopState.stoppedID, stopState.agentID, statusArchived, "archived")
 	pkglogger.Info("thread: Archive() COMPLETED", "thread_id", threadID, "stopped_id", stopState.stoppedID, "caller", caller)
-	return newScratchpadPartialCleanupError("archive", cleanupErr)
+	return newLifecyclePartialCleanupError("archive", errors.Join(cleanupErr, turnCleanupErr))
 }
 
 // archivePendingLaunchThread 归档待处理启动线程。

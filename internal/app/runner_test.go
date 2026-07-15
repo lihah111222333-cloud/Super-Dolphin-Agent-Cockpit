@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"io"
 	"log/slog"
 	"testing"
@@ -28,12 +29,17 @@ func (runtimeTestShutdowner) Shutdown(...fx.ShutdownOption) error {
 type runtimeDrainStub struct {
 	started chan struct{}
 	release chan struct{}
+	err     error
 }
 
 func (d runtimeDrainStub) DrainPendingExtraction(context.Context) error {
-	close(d.started)
-	<-d.release
-	return nil
+	if d.started != nil {
+		close(d.started)
+	}
+	if d.release != nil {
+		<-d.release
+	}
+	return d.err
 }
 
 type runtimeBlockRunner struct {
@@ -155,6 +161,29 @@ func TestBindRuntimeWaitsRunGroupBeforeDrain(t *testing.T) {
 
 	close(drainer.release)
 	waitRuntimeStop(t, stopDone)
+}
+
+func TestBindRuntimePropagatesExtractionDrainError(t *testing.T) {
+	lifecycle := &runtimeTestLifecycle{}
+	owner := newAppOwnerContext(context.Background())
+	sentinel := errors.New("memory extraction drain failed")
+	runner := runtimeBlockRunner{canceled: make(chan struct{})}
+
+	requireRuntimeNoError(t, "BindRuntime()", BindRuntime(lifecycle, runtimeParams{
+		Logger:            slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Runners:           []platformrunner.Runner{runner},
+		Shutdowner:        runtimeTestShutdowner{},
+		RootCtx:           owner,
+		ExtractionDrainer: runtimeDrainStub{err: sentinel},
+	}))
+	hook := singleRuntimeHook(t, lifecycle)
+	requireRuntimeNoError(t, "OnStart()", hook.OnStart(context.Background()))
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	if err := hook.OnStop(ctx); !errors.Is(err, sentinel) {
+		t.Fatalf("OnStop() error = %v, want errors.Is sentinel", err)
+	}
 }
 
 func singleRuntimeHook(t *testing.T, lifecycle *runtimeTestLifecycle) fx.Hook {

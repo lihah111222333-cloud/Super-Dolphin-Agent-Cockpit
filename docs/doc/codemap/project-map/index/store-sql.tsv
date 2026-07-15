@@ -13,6 +13,7 @@ internal/store/auditlog/contract_test.go	internal	store-sql	go-test	1112	应用�
 internal/store/auditlog/contract.go	internal	store-sql	go-source	1427	应用级持久化 store	internal,store,auditlog,contract,应用级持久化
 internal/store/auditlog/module.go	internal	store-sql	go-source	201	应用级持久化 store	internal,store,auditlog,module,应用级持久化
 internal/store/auditlog/sqlite_integration_test.go	internal	store-sql	go-test	1851	应用级持久化 store	internal,store,auditlog,sqlite,integration,test,应用级持久化
+internal/store/auditlog/store_field_guard_test.go	internal	store-sql	go-test	3429	应用级持久化 store	internal,store,auditlog,field,guard,test,应用级持久化
 internal/store/auditlog/store_test.go	internal	store-sql	go-test	3749	应用级持久化 store	internal,store,auditlog,test,应用级持久化
 internal/store/auditlog/store.go	internal	store-sql	go-source	2919	应用级持久化 store	internal,store,auditlog,应用级持久化
 internal/store/binding/codex_identity_test.go	internal	store-sql	go-test	7292	应用级持久化 store	internal,store,binding,codex,identity,test,应用级持久化
@@ -27,6 +28,7 @@ internal/store/buslog/contract_test.go	internal	store-sql	go-test	1107	应用级
 internal/store/buslog/contract.go	internal	store-sql	go-source	1220	应用级持久化 store	internal,store,buslog,contract,应用级持久化
 internal/store/buslog/module.go	internal	store-sql	go-source	192	应用级持久化 store	internal,store,buslog,module,应用级持久化
 internal/store/buslog/sqlite_integration_test.go	internal	store-sql	go-test	3382	应用级持久化 store	internal,store,buslog,sqlite,integration,test,应用级持久化
+internal/store/buslog/store_field_guard_test.go	internal	store-sql	go-test	4589	应用级持久化 store	internal,store,buslog,field,guard,test,应用级持久化
 internal/store/buslog/store_test.go	internal	store-sql	go-test	4522	应用级持久化 store	internal,store,buslog,test,应用级持久化
 internal/store/buslog/store.go	internal	store-sql	go-source	3274	应用级持久化 store	internal,store,buslog,应用级持久化
 internal/store/commandcard/contract.go	internal	store-sql	go-source	1377	应用级持久化 store	internal,store,commandcard,contract,应用级持久化

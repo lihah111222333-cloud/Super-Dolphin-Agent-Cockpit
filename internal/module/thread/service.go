@@ -380,9 +380,9 @@ func (s *service) deleteThreadState(
 	if err := s.threadStore.DeleteByThreadID(ctx, stopState.stoppedID); err != nil {
 		return joinScratchpadPartialCleanupError("delete", err, cleanupErr)
 	}
-	s.cleanupThreadTurns(ctx, "thread_deleted", stopState.targets...)
+	turnCleanupErr := s.cleanupThreadTurns(ctx, "thread_deleted", stopState.targets...)
 	s.publishThreadStopped(stopState.stoppedID, agentIDFromBinding(binding, stopState.stoppedID), "deleted", "deleted")
-	return newScratchpadPartialCleanupError("delete", cleanupErr)
+	return newLifecyclePartialCleanupError("delete", errors.Join(cleanupErr, turnCleanupErr))
 }
 
 // forgetThreadAgents 批量移除进程内 threadID→agentID 映射缓存。

@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"testing"
@@ -18,6 +19,52 @@ import (
 	tooldto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/tool"
 	turndto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/turn"
 )
+
+func TestWaitForExtractionRunner(t *testing.T) {
+	t.Parallel()
+	sentinel := errors.New("runner failed")
+	tests := []struct {
+		name    string
+		ctx     func() (context.Context, context.CancelFunc)
+		run     func() error
+		wantErr error
+		want    string
+	}{
+		{name: "normal", ctx: backgroundTestContext, run: func() error { return nil }},
+		{name: "runner error", ctx: backgroundTestContext, run: func() error { return sentinel }, wantErr: sentinel},
+		{name: "panic", ctx: backgroundTestContext, run: extractionRunnerPanic, want: "panicked"},
+		{name: "timeout", ctx: timeoutTestContext, run: func() error { select {} }, wantErr: context.DeadlineExceeded},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			ctx, cancel := test.ctx()
+			defer cancel()
+			err := waitForExtractionRunner(ctx, nil, test.run)
+			if test.wantErr != nil && !errors.Is(err, test.wantErr) {
+				t.Fatalf("waitForExtractionRunner() error = %v, want errors.Is %v", err, test.wantErr)
+			}
+			if test.wantErr == nil && test.want == "" && err != nil {
+				t.Fatalf("waitForExtractionRunner() error = %v, want nil", err)
+			}
+			if test.want != "" && !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("waitForExtractionRunner() error = %v, want containing %q", err, test.want)
+			}
+		})
+	}
+}
+
+func extractionRunnerPanic() error {
+	regexp.MustCompile("[")
+	return nil
+}
+
+func backgroundTestContext() (context.Context, context.CancelFunc) {
+	return context.WithCancel(context.Background())
+}
+
+func timeoutTestContext() (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.Background(), 20*time.Millisecond)
+}
 
 func TestMemoryLifecycleHooksSkipHandledAutoMemoryWrites(t *testing.T) {
 	root := newTestMemoryRoot(t)
