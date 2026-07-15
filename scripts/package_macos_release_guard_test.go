@@ -207,5 +207,7 @@ func TestMacOSReleaseSmokeScriptFailFastContracts(t *testing.T) {
 	assertScriptContains(t, script, "app-server --help")
 	assertScriptContains(t, script, "SUPER_DOLPHIN_CODEX_RELEASE_API_URL")
 	assertScriptContains(t, script, "startup")
+	assertScriptDoesNotContain(t, script, "embedded_postgres_resource_path")
+	assertScriptDoesNotContain(t, script, "$resources/postgres/")
 	assertScriptDoesNotContain(t, script, " RETURN")
 }
