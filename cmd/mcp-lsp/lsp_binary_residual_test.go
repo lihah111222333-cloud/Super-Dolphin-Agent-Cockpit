@@ -194,6 +194,51 @@ func TestLSPBinaryXrefIdentifierMissClassifiesCursorError(t *testing.T) {
 	}
 }
 
+func TestLSPBinaryXrefIdentifierMissSuggestsImplementationMethodColumn(t *testing.T) {
+	skipLSPBinaryResidualE2EInShortMode(t)
+	root := canonicalToolTestRoot(t, t.TempDir())
+	writeLSPBinaryFixture(t, filepath.Join(root, "go.mod"), "module example.com/lspbinary\n\ngo 1.25\n")
+	target := filepath.Join(root, "adapter.go")
+	writeLSPBinaryFixture(t, target, strings.Join([]string{
+		"package lspbinary",
+		"",
+		"type projectLanguageAdapter struct{}",
+		"",
+		"func (a projectLanguageAdapter) ResolveRoot() {}",
+		"",
+		"func resolveRoot() {",
+		"\tprojectLanguageAdapter{}.ResolveRoot()",
+		"}",
+		"",
+	}, "\n"))
+	client := startLSPBinaryClient(t, root)
+
+	result := client.callTool(t, "xref", map[string]any{
+		"action":      "references",
+		"pos":         target + ":5:32",
+		"max_results": 8,
+	})
+	if !result.IsError {
+		t.Fatalf("xref at declaration whitespace returned success, want identifier_not_found; structuredContent=%s", string(result.StructuredContent))
+	}
+	var envelope lspBinaryToolErrorEnvelope
+	decodeLSPBinaryStructuredContent(t, result, &envelope)
+	if envelope.Code != "identifier_not_found" {
+		t.Fatalf("xref declaration whitespace code = %q, want identifier_not_found; envelope=%s", envelope.Code, string(result.StructuredContent))
+	}
+	suggestions, ok := envelope.Meta["suggested_columns"].([]any)
+	if !ok {
+		t.Fatalf("xref declaration whitespace suggested_columns = %#v, want array; envelope=%s", envelope.Meta["suggested_columns"], string(result.StructuredContent))
+	}
+	for _, raw := range suggestions {
+		suggestion, ok := raw.(map[string]any)
+		if ok && suggestion["identifier"] == "ResolveRoot" && suggestion["column"] == float64(33) {
+			return
+		}
+	}
+	t.Fatalf("xref declaration whitespace suggestions = %#v, want ResolveRoot at column 33", suggestions)
+}
+
 func TestLSPBinaryRustDetachedFileExplainsLimitedWorkspace(t *testing.T) {
 	skipLSPBinaryResidualE2EInShortMode(t)
 	requireRealRustAnalyzerToolchain(t)
@@ -320,10 +365,11 @@ type lspBinaryGrepResponse struct {
 }
 
 type lspBinaryToolErrorEnvelope struct {
-	Success bool   `json:"success"`
-	Error   string `json:"error"`
-	Code    string `json:"code"`
-	Hint    string `json:"hint"`
+	Success bool           `json:"success"`
+	Error   string         `json:"error"`
+	Code    string         `json:"code"`
+	Hint    string         `json:"hint"`
+	Meta    map[string]any `json:"meta"`
 }
 
 func startLSPBinaryClient(t *testing.T, root string) *lspBinaryClient {

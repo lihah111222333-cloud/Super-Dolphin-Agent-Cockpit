@@ -3359,6 +3359,8 @@
         "internal/provider/codexapp.*recoveryManager.CheckHealth",
         "internal/provider/codexapp.*recoveryManager.Reconnect",
         "internal/provider/codexapp.*rolloutReader.ReadHistory",
+        "internal/provider/codexapp.*sanitizedThreadConfigGetError.Error",
+        "internal/provider/codexapp.*sanitizedThreadConfigGetError.Unwrap",
         "internal/provider/codexapp.*session.AllowedModels",
         "internal/provider/codexapp.*session.Capabilities",
         "internal/provider/codexapp.*session.Close",
@@ -3413,6 +3415,7 @@
         "internal/provider/codexapp.*session.dropTurnOutputAccumulator",
         "internal/provider/codexapp.*session.ensureRuntimeCodexHomeFromInitialize",
         "internal/provider/codexapp.*session.ensureToolSurfaceID",
+        "internal/provider/codexapp.*session.failMalformedTerminalNotification",
         "internal/provider/codexapp.*session.failNonRecoverableConnection",
         "internal/provider/codexapp.*session.failRecovery",
         "internal/provider/codexapp.*session.failTurns",
@@ -3830,6 +3833,7 @@
         "internal/provider/codexapp.looksLikeToolCall",
         "internal/provider/codexapp.lookupEnvValue",
         "internal/provider/codexapp.lookupTrimmedEnvValue",
+        "internal/provider/codexapp.malformedTerminalNotification",
         "internal/provider/codexapp.managedCodexInstallTarget",
         "internal/provider/codexapp.mapTurnInput",
         "internal/provider/codexapp.marshalRolloutMetadata",
@@ -3990,6 +3994,7 @@
         "internal/provider/codexapp.sandboxStringSliceField",
         "internal/provider/codexapp.sanitizeCodexReleaseTag",
         "internal/provider/codexapp.sanitizeProviderPayload",
+        "internal/provider/codexapp.sanitizedThreadConfigGetError",
         "internal/provider/codexapp.selectCodexModel",
         "internal/provider/codexapp.selectCodexProviderHome",
         "internal/provider/codexapp.selectCodexReleaseAsset",
@@ -4021,6 +4026,7 @@
         "internal/provider/codexapp.stripOneLeadingSystemNoise",
         "internal/provider/codexapp.stripTagBlock",
         "internal/provider/codexapp.textTurnInput",
+        "internal/provider/codexapp.threadConfigGetResponse",
         "internal/provider/codexapp.threadRPCResult",
         "internal/provider/codexapp.threadResumeParams",
         "internal/provider/codexapp.threadStartModelResolutionSource",
@@ -7929,6 +7935,8 @@
         "internal/provider/codexapp.*recoveryManager.CheckHealth",
         "internal/provider/codexapp.*recoveryManager.Reconnect",
         "internal/provider/codexapp.*rolloutReader.ReadHistory",
+        "internal/provider/codexapp.*sanitizedThreadConfigGetError.Error",
+        "internal/provider/codexapp.*sanitizedThreadConfigGetError.Unwrap",
         "internal/provider/codexapp.*session.AllowedModels",
         "internal/provider/codexapp.*session.Capabilities",
         "internal/provider/codexapp.*session.Close",
@@ -7983,6 +7991,7 @@
         "internal/provider/codexapp.*session.dropTurnOutputAccumulator",
         "internal/provider/codexapp.*session.ensureRuntimeCodexHomeFromInitialize",
         "internal/provider/codexapp.*session.ensureToolSurfaceID",
+        "internal/provider/codexapp.*session.failMalformedTerminalNotification",
         "internal/provider/codexapp.*session.failNonRecoverableConnection",
         "internal/provider/codexapp.*session.failRecovery",
         "internal/provider/codexapp.*session.failTurns",
@@ -8400,6 +8409,7 @@
         "internal/provider/codexapp.looksLikeToolCall",
         "internal/provider/codexapp.lookupEnvValue",
         "internal/provider/codexapp.lookupTrimmedEnvValue",
+        "internal/provider/codexapp.malformedTerminalNotification",
         "internal/provider/codexapp.managedCodexInstallTarget",
         "internal/provider/codexapp.mapTurnInput",
         "internal/provider/codexapp.marshalRolloutMetadata",
@@ -8560,6 +8570,7 @@
         "internal/provider/codexapp.sandboxStringSliceField",
         "internal/provider/codexapp.sanitizeCodexReleaseTag",
         "internal/provider/codexapp.sanitizeProviderPayload",
+        "internal/provider/codexapp.sanitizedThreadConfigGetError",
         "internal/provider/codexapp.selectCodexModel",
         "internal/provider/codexapp.selectCodexProviderHome",
         "internal/provider/codexapp.selectCodexReleaseAsset",
@@ -8591,6 +8602,7 @@
         "internal/provider/codexapp.stripOneLeadingSystemNoise",
         "internal/provider/codexapp.stripTagBlock",
         "internal/provider/codexapp.textTurnInput",
+        "internal/provider/codexapp.threadConfigGetResponse",
         "internal/provider/codexapp.threadRPCResult",
         "internal/provider/codexapp.threadResumeParams",
         "internal/provider/codexapp.threadStartModelResolutionSource",
@@ -12499,6 +12511,8 @@
         "internal/provider/codexapp.*recoveryManager.CheckHealth",
         "internal/provider/codexapp.*recoveryManager.Reconnect",
         "internal/provider/codexapp.*rolloutReader.ReadHistory",
+        "internal/provider/codexapp.*sanitizedThreadConfigGetError.Error",
+        "internal/provider/codexapp.*sanitizedThreadConfigGetError.Unwrap",
         "internal/provider/codexapp.*session.AllowedModels",
         "internal/provider/codexapp.*session.Capabilities",
         "internal/provider/codexapp.*session.Close",
@@ -12553,6 +12567,7 @@
         "internal/provider/codexapp.*session.dropTurnOutputAccumulator",
         "internal/provider/codexapp.*session.ensureRuntimeCodexHomeFromInitialize",
         "internal/provider/codexapp.*session.ensureToolSurfaceID",
+        "internal/provider/codexapp.*session.failMalformedTerminalNotification",
         "internal/provider/codexapp.*session.failNonRecoverableConnection",
         "internal/provider/codexapp.*session.failRecovery",
         "internal/provider/codexapp.*session.failTurns",
@@ -12970,6 +12985,7 @@
         "internal/provider/codexapp.looksLikeToolCall",
         "internal/provider/codexapp.lookupEnvValue",
         "internal/provider/codexapp.lookupTrimmedEnvValue",
+        "internal/provider/codexapp.malformedTerminalNotification",
         "internal/provider/codexapp.managedCodexInstallTarget",
         "internal/provider/codexapp.mapTurnInput",
         "internal/provider/codexapp.marshalRolloutMetadata",
@@ -13130,6 +13146,7 @@
         "internal/provider/codexapp.sandboxStringSliceField",
         "internal/provider/codexapp.sanitizeCodexReleaseTag",
         "internal/provider/codexapp.sanitizeProviderPayload",
+        "internal/provider/codexapp.sanitizedThreadConfigGetError",
         "internal/provider/codexapp.selectCodexModel",
         "internal/provider/codexapp.selectCodexProviderHome",
         "internal/provider/codexapp.selectCodexReleaseAsset",
@@ -13161,6 +13178,7 @@
         "internal/provider/codexapp.stripOneLeadingSystemNoise",
         "internal/provider/codexapp.stripTagBlock",
         "internal/provider/codexapp.textTurnInput",
+        "internal/provider/codexapp.threadConfigGetResponse",
         "internal/provider/codexapp.threadRPCResult",
         "internal/provider/codexapp.threadResumeParams",
         "internal/provider/codexapp.threadStartModelResolutionSource",
@@ -17074,6 +17092,8 @@
         "internal/provider/codexapp.*recoveryManager.CheckHealth",
         "internal/provider/codexapp.*recoveryManager.Reconnect",
         "internal/provider/codexapp.*rolloutReader.ReadHistory",
+        "internal/provider/codexapp.*sanitizedThreadConfigGetError.Error",
+        "internal/provider/codexapp.*sanitizedThreadConfigGetError.Unwrap",
         "internal/provider/codexapp.*session.AllowedModels",
         "internal/provider/codexapp.*session.Capabilities",
         "internal/provider/codexapp.*session.Close",
@@ -17128,6 +17148,7 @@
         "internal/provider/codexapp.*session.dropTurnOutputAccumulator",
         "internal/provider/codexapp.*session.ensureRuntimeCodexHomeFromInitialize",
         "internal/provider/codexapp.*session.ensureToolSurfaceID",
+        "internal/provider/codexapp.*session.failMalformedTerminalNotification",
         "internal/provider/codexapp.*session.failNonRecoverableConnection",
         "internal/provider/codexapp.*session.failRecovery",
         "internal/provider/codexapp.*session.failTurns",
@@ -17547,6 +17568,7 @@
         "internal/provider/codexapp.looksLikeToolCall",
         "internal/provider/codexapp.lookupEnvValue",
         "internal/provider/codexapp.lookupTrimmedEnvValue",
+        "internal/provider/codexapp.malformedTerminalNotification",
         "internal/provider/codexapp.managedCodexInstallTarget",
         "internal/provider/codexapp.mapTurnInput",
         "internal/provider/codexapp.marshalRolloutMetadata",
@@ -17709,6 +17731,7 @@
         "internal/provider/codexapp.sandboxStringSliceField",
         "internal/provider/codexapp.sanitizeCodexReleaseTag",
         "internal/provider/codexapp.sanitizeProviderPayload",
+        "internal/provider/codexapp.sanitizedThreadConfigGetError",
         "internal/provider/codexapp.selectCodexModel",
         "internal/provider/codexapp.selectCodexProviderHome",
         "internal/provider/codexapp.selectCodexReleaseAsset",
@@ -17739,6 +17762,7 @@
         "internal/provider/codexapp.stripTagBlock",
         "internal/provider/codexapp.terminatePID",
         "internal/provider/codexapp.textTurnInput",
+        "internal/provider/codexapp.threadConfigGetResponse",
         "internal/provider/codexapp.threadRPCResult",
         "internal/provider/codexapp.threadResumeParams",
         "internal/provider/codexapp.threadStartModelResolutionSource",
@@ -18305,13 +18329,13 @@
   ],
   "summary": {
     "total_packages": 41,
-    "total_functions": 2240,
-    "total_methods": 1142,
+    "total_functions": 2241,
+    "total_methods": 1145,
     "total_interfaces": 184,
     "total_interface_methods": 365,
-    "total_exported": 1252,
-    "total_unexported": 2908,
-    "total_structs": 594
+    "total_exported": 1254,
+    "total_unexported": 2912,
+    "total_structs": 596
   },
   "packages": [
     {
@@ -65906,6 +65930,23 @@
           ]
         },
         {
+          "name": "malformedTerminalNotification",
+          "exported": false,
+          "params": [
+            {
+              "name": "method",
+              "type": "string"
+            },
+            {
+              "name": "params",
+              "type": "json.RawMessage"
+            }
+          ],
+          "returns": [
+            "bool"
+          ]
+        },
+        {
           "name": "managedCodexInstallTarget",
           "exported": false,
           "params": [
@@ -71673,6 +71714,22 @@
           ]
         },
         {
+          "receiver": "*sanitizedThreadConfigGetError",
+          "name": "Error",
+          "exported": true,
+          "returns": [
+            "string"
+          ]
+        },
+        {
+          "receiver": "*sanitizedThreadConfigGetError",
+          "name": "Unwrap",
+          "exported": true,
+          "returns": [
+            "error"
+          ]
+        },
+        {
           "receiver": "*session",
           "name": "AllowedModels",
           "exported": true,
@@ -72492,6 +72549,17 @@
           "exported": false,
           "returns": [
             "string"
+          ]
+        },
+        {
+          "receiver": "*session",
+          "name": "failMalformedTerminalNotification",
+          "exported": false,
+          "params": [
+            {
+              "name": "method",
+              "type": "string"
+            }
           ]
         },
         {
@@ -74969,6 +75037,10 @@
           "exported": false
         },
         {
+          "name": "sanitizedThreadConfigGetError",
+          "exported": false
+        },
+        {
           "name": "session",
           "exported": false
         },
@@ -74978,6 +75050,10 @@
         },
         {
           "name": "startResult",
+          "exported": false
+        },
+        {
+          "name": "threadConfigGetResponse",
           "exported": false
         },
         {

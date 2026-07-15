@@ -247,6 +247,38 @@ func newPositionOutOfRangeError(line int, column int, lineText string, lineLengt
 	return err
 }
 
+// enrichIdentifierNotFoundError 为语言服务器的光标未命中错误补充可直接重试的一基列候选。
+func enrichIdentifierNotFoundError(filePath string, position protocol.Position, cause error) error {
+	message := strings.ToLower(cause.Error())
+	if !strings.Contains(message, "identifier not found") && !strings.Contains(message, "no identifier found") {
+		return cause
+	}
+	mapping, err := loadLinePositionMapping(filePath, position.Line+1)
+	if err != nil {
+		return cause
+	}
+	runeIndex, err := mapping.runeIndexFromUTF16Character(position.Character)
+	if err != nil {
+		return cause
+	}
+	coded := common.NewCodedToolError(
+		"identifier_not_found",
+		cause,
+		false,
+		"next: retry with pos=<file>:<line>:<col> using a 1-based column from meta.suggested_columns",
+	)
+	var typed *common.CodedToolError
+	if errors.As(coded, &typed) {
+		typed.Meta = map[string]any{
+			"line":              mapping.lineNumber,
+			"line_text":         mapping.lineText,
+			"requested_column":  runeIndex + 1,
+			"suggested_columns": suggestedIdentifierColumns(mapping.lineText),
+		}
+	}
+	return coded
+}
+
 // suggestedIdentifierColumns 扫描行文本，返回标识符起始列位置建议列表。
 func suggestedIdentifierColumns(lineText string) []map[string]any {
 	matches := positionIdentifierRE.FindAllStringIndex(lineText, -1)
