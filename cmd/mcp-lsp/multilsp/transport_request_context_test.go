@@ -50,6 +50,61 @@ func TestTransportRequestWriteHonorsContext(t *testing.T) {
 		t.Fatalf("newTransport() error = %v", err)
 	}
 	cleanupLeakedTransportAfterFailure(t, tr)
+	blockedWriter := newBlockingTransportWriteCloser(tr.stdin)
+	tr.stdinMu.Lock()
+	tr.stdin = blockedWriter
+	tr.stdinMu.Unlock()
+
+	errCh := make(chan error, 1)
+	goroutines := newTestGoroutineGroup(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	goroutines.Go(func() {
+		_, err := tr.request(ctx, "workspace/executeCommand", map[string]string{
+			"payload": "blocked-write",
+		})
+		errCh <- err
+	})
+	select {
+	case <-blockedWriter.started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("request did not enter the blocking stdin Write before cancellation")
+	}
+	cancel()
+
+	select {
+	case err := <-errCh:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("request() error = %v, want context canceled", err)
+		}
+	case <-time.After(2 * time.Second):
+		_ = tr.killProcess()
+		select {
+		case err := <-errCh:
+			t.Fatalf("request() returned only after forced process kill with error %v; want ctx cancellation to cancel the blocked write", err)
+		case <-time.After(2 * time.Second):
+			t.Fatalf("request() stayed blocked after context cancellation and forced transport close")
+		}
+	}
+
+	assertRequestContextTerminatedTransport(t, tr)
+}
+
+func TestTransportRequestWriteHonorsDeadline(t *testing.T) {
+	if os.Getenv("MCP_LSP_BLOCK_STDIN_HELPER") == "1" {
+		time.Sleep(30 * time.Second)
+		return
+	}
+
+	tr, err := newTransport(transportOptions{
+		Binary: os.Args[0],
+		Args:   []string{"-test.run=^TestTransportRequestWriteHonorsDeadline$"},
+		Env:    []string{"MCP_LSP_BLOCK_STDIN_HELPER=1"},
+	})
+	if err != nil {
+		t.Fatalf("newTransport() error = %v", err)
+	}
+	cleanupLeakedTransportAfterFailure(t, tr)
 
 	gate := newGatedWriteCloser()
 	tr.stdinMu.Lock()
@@ -65,25 +120,22 @@ func TestTransportRequestWriteHonorsContext(t *testing.T) {
 		})
 	}
 	t.Cleanup(closeOriginalStdin)
-
-	errCh := make(chan error, 1)
-	goroutines := newTestGoroutineGroup(t)
 	t.Cleanup(func() {
 		if err := gate.Close(); err != nil {
 			t.Errorf("close gated transport stdin: %v", err)
 		}
 	})
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+
+	errCh := make(chan error, 1)
+	goroutines := newTestGoroutineGroup(t)
 	goroutines.Go(func() {
-		_, err := tr.request(ctx, "workspace/executeCommand", map[string]string{
-			"payload": "blocked-write",
-		})
+		ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+		defer cancel()
+		_, err := tr.request(ctx, "workspace/executeCommand", map[string]string{"command": "test"})
 		errCh <- err
 	})
 
 	waitForGatedWrite(t, tr, gate)
-	cancel()
 	waitForRequestDeadline(t, tr, gate, errCh)
 	assertRequestContextTerminatedTransport(t, tr)
 	closeOriginalStdin()
@@ -103,8 +155,8 @@ func waitForRequestDeadline(t *testing.T, tr *transport, gate *gatedWriteCloser,
 	t.Helper()
 	select {
 	case err := <-errCh:
-		if !errors.Is(err, context.Canceled) {
-			t.Fatalf("request() error = %v, want context canceled", err)
+		if !errors.Is(err, context.DeadlineExceeded) {
+			t.Fatalf("request() error = %v, want context deadline exceeded", err)
 		}
 	case <-time.After(2 * time.Second):
 		_ = tr.killProcess()
@@ -113,9 +165,9 @@ func waitForRequestDeadline(t *testing.T, tr *transport, gate *gatedWriteCloser,
 		}
 		select {
 		case err := <-errCh:
-			t.Fatalf("request() returned only after forced process kill with error %v; want ctx cancellation to cancel the blocked write", err)
+			t.Fatalf("request() returned only after forced process kill with error %v; want ctx deadline to cancel the blocked write", err)
 		case <-time.After(2 * time.Second):
-			t.Fatalf("request() stayed blocked after context cancellation and forced transport close")
+			t.Fatalf("request() stayed blocked after context deadline and forced process kill")
 		}
 	}
 }
@@ -123,12 +175,12 @@ func waitForRequestDeadline(t *testing.T, tr *transport, gate *gatedWriteCloser,
 func assertRequestContextTerminatedTransport(t *testing.T, tr *transport) {
 	t.Helper()
 	if !tr.closed.Load() {
-		t.Fatalf("request() returned context cancellation without closing transport; want request context cancellation path to close it")
+		t.Fatalf("request() returned context termination without closing transport; want request context termination path to close it")
 	}
 	select {
 	case <-tr.done:
 	case <-time.After(5 * time.Second):
-		t.Fatalf("request() returned on context cancellation but LSP process stayed alive; want request context cancellation path to terminate the process before cleanup")
+		t.Fatalf("request() returned on context termination but LSP process stayed alive; want request context termination path to terminate the process before cleanup")
 	}
 }
 
@@ -145,4 +197,35 @@ func cleanupLeakedTransportAfterFailure(t *testing.T, tr *transport) {
 		}
 		_ = tr.Close()
 	})
+}
+
+type blockingTransportWriteCloser struct {
+	delegate  io.WriteCloser
+	started   chan struct{}
+	release   chan struct{}
+	startOnce sync.Once
+	closeOnce sync.Once
+}
+
+func newBlockingTransportWriteCloser(delegate io.WriteCloser) *blockingTransportWriteCloser {
+	return &blockingTransportWriteCloser{
+		delegate: delegate,
+		started:  make(chan struct{}),
+		release:  make(chan struct{}),
+	}
+}
+
+func (w *blockingTransportWriteCloser) Write([]byte) (int, error) {
+	w.startOnce.Do(func() { close(w.started) })
+	<-w.release
+	return 0, io.ErrClosedPipe
+}
+
+func (w *blockingTransportWriteCloser) Close() error {
+	var err error
+	w.closeOnce.Do(func() {
+		close(w.release)
+		err = w.delegate.Close()
+	})
+	return err
 }

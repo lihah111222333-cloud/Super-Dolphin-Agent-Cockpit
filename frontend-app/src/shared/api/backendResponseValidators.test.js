@@ -146,6 +146,10 @@ describe('backend response validators', () => {
 
     expect(validate(RPC_METHODS.UI_SIDEBAR_GET, response)).toBe(response);
     expect(() => validate(RPC_METHODS.UI_SIDEBAR_GET, {
+      ...response,
+      surprise: true,
+    })).toThrow('body must not include surprise');
+    expect(() => validate(RPC_METHODS.UI_SIDEBAR_GET, {
       interruptibleByThread: { 'thread-1': 'true' },
     })).toThrow(
       'ui/sidebar/get response interruptibleByThread.thread-1 must be a boolean',

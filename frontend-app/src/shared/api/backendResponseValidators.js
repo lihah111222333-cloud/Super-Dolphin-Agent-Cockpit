@@ -52,11 +52,11 @@ import {
 } from './backendResponseValidatorsCore.js';
 import {
   validateCronListResponse,
-  validateSidebarStateResponse,
+  validateSidebarStateResponse as validateRuntimeSidebarStateResponse,
   validateThreadPromptHistoryResponse,
   validateThreadRecoverResponse,
   validateToolbridgeToolsListResponse,
-  validateUIStateResponse,
+  validateUIStateResponse as validateRuntimeUIStateResponse,
 } from './backendResponseValidatorsRuntime.js';
 import {
   assertBackendResponseObject,
@@ -387,6 +387,40 @@ function validateWorkflowTemplatesListResponse(method, response) {
   assertOnlyResponseKeys(method, value, WORKFLOW_TEMPLATES_LIST_RESPONSE_KEYS, 'body');
   if (!Array.isArray(value.templates)) throw new TypeError(`${method} response body.templates must be an array`);
   /** @type {unknown[]} */ (value.templates).forEach((template, index) => validateWorkflowTemplateSummary(method, template, `body.templates[${index}]`));
+  return value;
+}
+
+/**
+ * @param {string} method
+ * @param {any} response
+ */
+function validateSidebarStateResponse(method, response) {
+  return validateRuntimeSidebarStateResponse(method, response);
+}
+
+/**
+ * @param {string} method
+ * @param {any} response
+ */
+function validateUIStateResponse(method, response) {
+  const value = assertBackendResponseObject(method, response);
+  let runtimeValue = value;
+  if (!hasOwn(value, 'token_usage') && hasOwn(value, 'tokenUsage')) {
+    const { tokenUsage, ...rest } = value;
+    runtimeValue = { ...rest, token_usage: tokenUsage };
+  }
+  validateRuntimeUIStateResponse(method, runtimeValue);
+  const requiredSnapshotFields = [
+    ['threads'],
+    ['agents'],
+    ['token_usage', 'tokenUsage'],
+  ];
+  const missingFields = requiredSnapshotFields
+    .filter((aliases) => !aliases.some((key) => hasOwn(value, key)))
+    .map((aliases) => aliases.join(' or '));
+  if (missingFields.length > 0) {
+    throw new Error(`${method} response missing UI state snapshot fields; required: ${missingFields.join(', ')}`);
+  }
   return value;
 }
 

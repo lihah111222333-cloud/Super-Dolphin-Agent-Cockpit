@@ -430,7 +430,9 @@ function consumerValidatedRegression() {
 
 describe('rpc contract audit', () => {
   it('accepts the production matrix after response policy migration', async () => {
-    await expect(auditRpcContracts({ repoRoot: REPO_ROOT })).resolves.toEqual(expect.objectContaining({
+    const report = await auditRpcContracts({ repoRoot: REPO_ROOT })
+
+    expect(report).toEqual(expect.objectContaining({
       missingResponsePolicies: [],
       missingFrontendResponseValidators: [],
       invalidResponsePolicyEvidence: [],
@@ -447,6 +449,43 @@ describe('rpc contract audit', () => {
         }),
       ]),
     }))
+    expect(report.missingRegistryKeys).toEqual([])
+    expect(report.registryWithoutRpcMethods).toEqual([])
+    expect(report.mismatchedRegistryMethods).toEqual([])
+    expect(report.p0MissingBackendHandlers).toEqual([])
+    expect(report.allowedPayloadRegistryDrift).toEqual([])
+    expect(report.hardcodedPayloadGuardFindings).toEqual([])
+    expect(report.responseContractStrategies).toEqual(expect.arrayContaining([
+      {
+        key: 'UI_SIDEBAR_GET',
+        method: 'ui/sidebar/get',
+        matrixPolicy: 'sidebarStateResponse',
+        frontendValidator: true,
+      },
+      {
+        key: 'THREAD_FORK',
+        method: 'thread/fork',
+        matrixPolicy: 'threadForkResponse',
+        frontendValidator: true,
+      },
+    ]))
+    expect(report.frontendPayloadKeysByMethod.get('thread/start')).toEqual(expect.arrayContaining([
+      'manualSkillSelection',
+      'manual_skill_selection',
+      'provider',
+    ]))
+    expect(report.frontendPayloadKeysByMethod.get('turn/start')).toEqual(expect.arrayContaining([
+      'isWorktree',
+      'is_worktree',
+      'manualSkillSelection',
+      'manual_skill_selection',
+    ]))
+    expect(report.goPayloadKeysByMethod.get('turn/start')).toEqual(expect.arrayContaining([
+      'thread_id',
+      'threadId',
+      'selected_skill_refs',
+      'selectedSkillRefs',
+    ]))
   }, 15000)
 
   it('detects frontend and Go hardcoded payload guard sources', () => {
@@ -515,29 +554,17 @@ describe('rpc contract audit', () => {
   })
 
   it('scans the runtime payload builder source for hardcoded payload guards', async () => {
-    const repoRoot = await createRuntimeDriftFixture()
-    try {
-      const builderPath = 'frontend-app/src/shared/api/backend/backendApiFactoryThread.js'
-      await writeFile(join(repoRoot, builderPath), [
-        "const THREAD_START_ALLOWED_KEYS = new Set(['cwd'])",
-        'function threadStartPayload(params) {',
-        '  const unused = { ...params }',
-        "  return takePayloadFields(unused, ['cwd'])",
-        '}',
-        'function turnStartPayload(params) {',
-        '  const unused = { ...params }',
-        "  return takePayloadFields(unused, ['cwd', 'input', 'threadId'])",
-        '}',
-      ].join('\n'), 'utf8')
+    const builderPath = 'frontend-app/src/shared/api/backend/backendApiFactoryThread.js'
+    const builderSource = await readFile(join(REPO_ROOT, builderPath), 'utf8')
+    const repoRoot = await createShadowRepo({
+      [builderPath]: `const THREAD_START_ALLOWED_KEYS = new Set(['cwd'])\n${builderSource}`,
+    })
 
-      const report = await auditRpcContracts({ repoRoot })
+    const report = await auditRpcContracts({ repoRoot })
 
-      expect(report.hardcodedPayloadGuardFindings).toEqual([
-        `${builderPath}:THREAD_START_ALLOWED_KEYS`,
-      ])
-    } finally {
-      await rm(repoRoot, { recursive: true, force: true })
-    }
+    expect(report.hardcodedPayloadGuardFindings).toEqual([
+      `${builderPath}:THREAD_START_ALLOWED_KEYS`,
+    ])
   })
 
   it('does not duplicate missing registry keys as missing response policies', async () => {

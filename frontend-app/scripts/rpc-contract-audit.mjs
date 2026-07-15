@@ -234,6 +234,7 @@ export function formatRpcAuditReport(report) {
     `P0 methods missing Go handlers: ${report.p0MissingBackendHandlers.length}`,
     `Allowed payload registry drift: ${report.allowedPayloadRegistryDrift.length}`,
     `Hardcoded payload guards: ${report.hardcodedPayloadGuardFindings.length}`,
+    `Missing response policies: ${report.missingResponsePolicies.length}`,
     `Missing frontend response validators: ${report.missingFrontendResponseValidators.length}`,
     `Invalid facade locators: ${report.invalidFacadeLocators.length}`,
     `Invalid response policy evidence: ${report.invalidResponsePolicyEvidence.length}`,
@@ -4868,17 +4869,17 @@ export function collectHardcodedPayloadGuardFindingsFromSources({
     if (declaration?.type !== 'VariableDeclaration') continue
     for (const declarator of declaration.declarations) {
       const name = declarator.id.type === 'Identifier' ? declarator.id.name : ''
+      const isPayloadGuardName = (
+        name === 'RPC_ALLOWED_PAYLOAD_KEYS'
+        || /^[A-Z0-9_]+_ALLOWED_KEYS$/.test(name)
+      )
       const isSetOfArray = (
         declarator.init?.type === 'NewExpression'
         && declarator.init.callee.type === 'Identifier'
         && declarator.init.callee.name === 'Set'
         && declarator.init.arguments[0]?.type === 'ArrayExpression'
       )
-      const isPayloadGuard = (
-        name === 'RPC_ALLOWED_PAYLOAD_KEYS'
-        || (/^[A-Z0-9_]+_ALLOWED_KEYS$/.test(name) && isSetOfArray)
-      )
-      if (isPayloadGuard) {
+      if (isPayloadGuardName && isSetOfArray) {
         findings.push(`${frontendPath}:${name}`)
       }
     }
@@ -5122,6 +5123,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     ['P0 methods missing Go handlers', report.p0MissingBackendHandlers],
     ['Allowed payload registry drift', report.allowedPayloadRegistryDrift],
     ['Hardcoded payload guards', report.hardcodedPayloadGuardFindings],
+    ['Missing response policies', report.missingResponsePolicies],
     ['Missing frontend response validators', report.missingFrontendResponseValidators],
     ['Invalid facade locators', report.invalidFacadeLocators],
     ['Invalid response policy evidence', report.invalidResponsePolicyEvidence],
