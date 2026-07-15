@@ -102,6 +102,15 @@ func TestCreateDAGRequestRejectsFlatScheduleConflictWithStableCode(t *testing.T)
 	assertCreateDAGInvalidInputCode(t, err)
 }
 
+func TestCreateDAGEffectiveInputsRejectNegativeRetry(t *testing.T) {
+	if _, err := createDAGEffectiveSchedule(CreateDAGInput{DefaultRetry: -1}); err == nil {
+		t.Fatal("createDAGEffectiveSchedule() error = nil, want negative default_retry rejection")
+	}
+	if _, err := createDAGEffectiveExecution(CreateDAGNodeInput{Retry: -1}); err == nil {
+		t.Fatal("createDAGEffectiveExecution() error = nil, want negative retry rejection")
+	}
+}
+
 func TestTaskCreateDAGEnvelopeClassifiesDuplicateDagKeyAsInvalidInput(t *testing.T) {
 	env := mcpcommon.NewToolErrorEnvelopeWithClassifier("task_create_dag", "", platformdb.ErrConflict, nil, ToolErrorClassifier)
 	if env.Code != "invalid_input" {
@@ -136,11 +145,7 @@ func TestTaskCreateDAGSchemaExposesFlatShortcuts(t *testing.T) {
 	nodes := props["nodes"].(map[string]any)
 	items := nodes["items"].(map[string]any)
 	nodeProps := items["properties"].(map[string]any)
-	for _, want := range []string{"retry", "timeout_sec", "on_failure"} {
-		if _, ok := nodeProps[want].(map[string]any); !ok {
-			t.Fatalf("task_create_dag node properties missing flat %s: %#v", want, nodeProps)
-		}
-	}
+	assertTaskCreateDAGExecutionSchema(t, nodeProps)
 	required := createDAG.InputSchema["required"].([]string)
 	if slices.Contains(required, "schedule") {
 		t.Fatalf("task_create_dag required = %#v, want flat schedule path to make schedule optional", required)
@@ -148,6 +153,46 @@ func TestTaskCreateDAGSchemaExposesFlatShortcuts(t *testing.T) {
 	if slices.Contains(required, "agent_id") {
 		t.Fatalf("task_create_dag required = %#v, want trusted _agentId to supply creator identity", required)
 	}
+}
+
+func assertTaskCreateDAGExecutionSchema(t *testing.T, nodeProps map[string]any) {
+	t.Helper()
+	execution := nodeProps["execution"].(map[string]any)
+	executionProps := execution["properties"].(map[string]any)
+	wantExecutionFields := executionInputJSONFields(t)
+	gotExecutionFields := make([]string, 0, len(executionProps))
+	for field := range executionProps {
+		gotExecutionFields = append(gotExecutionFields, field)
+	}
+	slices.Sort(gotExecutionFields)
+	if !slices.Equal(gotExecutionFields, wantExecutionFields) {
+		t.Fatalf("execution schema fields = %#v, want DTO json fields %#v", gotExecutionFields, wantExecutionFields)
+	}
+	for _, want := range wantExecutionFields {
+		if _, ok := nodeProps[want].(map[string]any); !ok {
+			t.Fatalf("task_create_dag node properties missing flat %s: %#v", want, nodeProps)
+		}
+	}
+	for _, unsupported := range []string{"on_failure", "pool", "priority"} {
+		if _, ok := nodeProps[unsupported]; ok {
+			t.Fatalf("task_create_dag node properties expose unsupported %s: %#v", unsupported, nodeProps)
+		}
+	}
+}
+
+func executionInputJSONFields(t *testing.T) []string {
+	t.Helper()
+	typ := reflect.TypeFor[DAGExecutionInput]()
+	fields := make([]string, 0, typ.NumField())
+	for i := 0; i < typ.NumField(); i++ {
+		name, _, _ := strings.Cut(typ.Field(i).Tag.Get("json"), ",")
+		if name == "" || name == "-" {
+			t.Fatalf("DAGExecutionInput.%s has invalid json tag %q", typ.Field(i).Name, name)
+		}
+		fields = append(fields, name)
+	}
+	slices.Sort(fields)
+	return fields
 }
 
 func setStructStringSliceField(t *testing.T, target any, field string, values []string) {

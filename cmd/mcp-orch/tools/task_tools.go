@@ -67,21 +67,15 @@ type CreateDAGNodeInput struct {
 	CommandRef string             `json:"command_ref,omitempty"`
 	Config     json.RawMessage    `json:"config,omitempty"`
 	Execution  *DAGExecutionInput `json:"execution,omitempty"`
-	OnFailure  string             `json:"on_failure,omitempty"`
-	Pool       string             `json:"pool,omitempty"`
-	Priority   int                `json:"priority,omitempty"`
 	Retry      int                `json:"retry,omitempty"`
 	TimeoutSec int                `json:"timeout_sec,omitempty"`
 }
 
-// DAGExecutionInput 描述节点启动子 agent 时需要的执行身份和超时策略。
-// 空结构不会写入 metadata，缺少必填身份会在创建校验阶段直接报错。
+// DAGExecutionInput 描述 task_create_dag 当前支持的节点重试和超时策略。
+// 字段必须同时存在真实运行时消费端，并由 schema 动态守卫保持一致。
 type DAGExecutionInput struct {
-	OnFailure  string `json:"on_failure,omitempty"`
-	Pool       string `json:"pool,omitempty"`
-	Priority   int    `json:"priority,omitempty"`
-	Retry      int    `json:"retry,omitempty"`
-	TimeoutSec int    `json:"timeout_sec,omitempty"`
+	Retry      int `json:"retry,omitempty"`
+	TimeoutSec int `json:"timeout_sec,omitempty"`
 }
 
 // DAGKeyInput 是只读/写 DAG 工具的兼容定位符。

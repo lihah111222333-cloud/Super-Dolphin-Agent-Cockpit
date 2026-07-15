@@ -38,9 +38,9 @@ func TestResolveRetryPolicy_DAGMetadata(t *testing.T) {
 			want:     retrypolicy.RetryPolicy{MaxAttempts: 2, FailFast: true},
 		},
 		{
-			name:     "negative default_retry clamped to single attempt",
+			name:     "negative default_retry fails fast",
 			metadata: `{"schedule":{"default_retry":-5}}`,
-			want:     retrypolicy.RetryPolicy{MaxAttempts: 1, FailFast: false},
+			wantErr:  true,
 		},
 		{
 			name:     "malformed json fails fast",
@@ -49,7 +49,6 @@ func TestResolveRetryPolicy_DAGMetadata(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			got, err := retrypolicy.ResolveRetryPolicy(json.RawMessage(tt.metadata), nil)
@@ -101,7 +100,6 @@ func TestResolveRetryPolicy_NodeConfigOverridesDAGRetry(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			got, err := retrypolicy.ResolveRetryPolicy(dagMetadata, json.RawMessage(tt.config))
@@ -124,6 +122,15 @@ func TestResolveRetryPolicy_NodeConfigMalformedFailsFast(t *testing.T) {
 	}
 }
 
+func TestResolveRetryPolicy_NegativeNodeRetryFailsFast(t *testing.T) {
+	t.Parallel()
+
+	_, err := retrypolicy.ResolveRetryPolicy(nil, json.RawMessage(`{"execution":{"retry":-1}}`))
+	if err == nil {
+		t.Fatal("ResolveRetryPolicy() error = nil, want negative retry error")
+	}
+}
+
 func TestFailureClassPermanent_F14BasicRetryClasses(t *testing.T) {
 	t.Parallel()
 
@@ -133,7 +140,6 @@ func TestFailureClassPermanent_F14BasicRetryClasses(t *testing.T) {
 		nodeexec.FailureClassValidation,
 	}
 	for _, class := range retryable {
-		class := class
 		t.Run(string(class)+"_uses_bounded_retry", func(t *testing.T) {
 			t.Parallel()
 			if failureClassPermanent(class) {
@@ -147,7 +153,6 @@ func TestFailureClassPermanent_F14BasicRetryClasses(t *testing.T) {
 		nodeexec.FailureClassNeedsHuman,
 	}
 	for _, class := range permanent {
-		class := class
 		t.Run(string(class)+"_bypasses_retry", func(t *testing.T) {
 			t.Parallel()
 			if !failureClassPermanent(class) {
@@ -185,7 +190,6 @@ func TestFailureOutcomePermanent_ValidationLaunchOnlyRetries(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			if got := failureOutcomePermanent(tt.outcome); got != tt.want {

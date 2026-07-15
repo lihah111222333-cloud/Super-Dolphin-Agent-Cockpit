@@ -75,9 +75,6 @@ func createDAGSchema() Schema {
 			"reads":       ArraySchema(StringSchema("Readable artifact or node output reference."), "Node read dependencies persisted for workflow inspection."),
 			"writes":      ArraySchema(StringSchema("Writable artifact or node output reference."), "Node write targets persisted for workflow inspection."),
 			"command_ref": StringSchema("Optional command card key."),
-			"on_failure":  StringSchema("Flat execution shortcut; same as execution.on_failure."),
-			"pool":        StringSchema("Flat execution shortcut; same as execution.pool."),
-			"priority":    IntegerSchema("Flat execution shortcut; same as execution.priority."),
 			"retry":       IntegerSchema("Flat execution shortcut; same as execution.retry."),
 			"timeout_sec": IntegerSchema("Flat execution shortcut; same as execution.timeout_sec."),
 			"config": RawObjectSchema(
@@ -88,9 +85,6 @@ func createDAGSchema() Schema {
 					"config.provider, config.model, or config.cwd.",
 			),
 			"execution": ObjectSchema(map[string]Schema{
-				"on_failure":  StringSchema("Failure policy override."),
-				"pool":        StringSchema("Execution pool name."),
-				"priority":    IntegerSchema("Queue priority."),
 				"retry":       IntegerSchema("Retry override."),
 				"timeout_sec": IntegerSchema("Timeout override in seconds."),
 			}),
@@ -191,7 +185,20 @@ func validateCreateDAGNodesForCreate(nodes []contract.CreateDAGNodeRequest) erro
 	if err := validateRootAgentAssignees(nodes); err != nil {
 		return err
 	}
-	return validateAgentNodeLaunchConfigs(nodes)
+	if err := validateAgentNodeLaunchConfigs(nodes); err != nil {
+		return err
+	}
+	return nodeexec.ValidateNodeSpecsConfig(createDAGNodeSpecs(nodes))
+}
+
+func createDAGNodeSpecs(nodes []contract.CreateDAGNodeRequest) []nodeexec.NodeSpec {
+	specs := make([]nodeexec.NodeSpec, 0, len(nodes))
+	for _, node := range nodes {
+		specs = append(specs, nodeexec.NodeSpec{
+			NodeKey: node.NodeKey, NodeType: node.NodeType, Config: node.Config,
+		})
+	}
+	return specs
 }
 
 // validateRootAgentAssignees 要求可直接启动的 root agent 已绑定 assigned_to。
@@ -564,6 +571,9 @@ func createDAGEffectiveSchedule(in CreateDAGInput) (DAGScheduleInput, error) {
 	if err := mergeScheduleString(&schedule.QueuePolicy, in.QueuePolicy, "queue_policy"); err != nil {
 		return DAGScheduleInput{}, err
 	}
+	if schedule.DefaultRetry < 0 {
+		return DAGScheduleInput{}, fmt.Errorf("default_retry must be non-negative, got %d", schedule.DefaultRetry)
+	}
 	return schedule, nil
 }
 
@@ -574,40 +584,30 @@ func createDAGEffectiveExecution(node CreateDAGNodeInput) (*DAGExecutionInput, e
 		if !hasFlatExecutionFields(node) {
 			return nil, nil
 		}
+		if node.Retry < 0 {
+			return nil, fmt.Errorf("retry must be non-negative, got %d", node.Retry)
+		}
 		return &DAGExecutionInput{
-			OnFailure:  strings.TrimSpace(node.OnFailure),
-			Pool:       strings.TrimSpace(node.Pool),
-			Priority:   node.Priority,
 			Retry:      node.Retry,
 			TimeoutSec: node.TimeoutSec,
 		}, nil
 	}
 	execution := *node.Execution
-	if err := mergeExecutionString(&execution.OnFailure, node.OnFailure, "on_failure"); err != nil {
-		return nil, err
-	}
-	if err := mergeExecutionString(&execution.Pool, node.Pool, "pool"); err != nil {
-		return nil, err
-	}
-	if err := mergeScheduleInt(&execution.Priority, node.Priority, "priority"); err != nil {
-		return nil, err
-	}
 	if err := mergeScheduleInt(&execution.Retry, node.Retry, "retry"); err != nil {
 		return nil, err
 	}
 	if err := mergeScheduleInt(&execution.TimeoutSec, node.TimeoutSec, "timeout_sec"); err != nil {
 		return nil, err
 	}
+	if execution.Retry < 0 {
+		return nil, fmt.Errorf("retry must be non-negative, got %d", execution.Retry)
+	}
 	return &execution, nil
 }
 
 // hasFlatExecutionFields 判断节点是否使用了任一扁平 execution 字段。
 func hasFlatExecutionFields(node CreateDAGNodeInput) bool {
-	return strings.TrimSpace(node.OnFailure) != "" ||
-		strings.TrimSpace(node.Pool) != "" ||
-		node.Priority != 0 ||
-		node.Retry != 0 ||
-		node.TimeoutSec != 0
+	return node.Retry != 0 || node.TimeoutSec != 0
 }
 
 // mergeScheduleString 合并扁平字符串 schedule 字段。
@@ -620,20 +620,6 @@ func mergeScheduleString(dst *string, flatValue, field string) error {
 	nested := strings.TrimSpace(*dst)
 	if nested != "" && nested != flat {
 		return fmt.Errorf("%s conflicts with schedule.%s", field, field)
-	}
-	*dst = flat
-	return nil
-}
-
-// mergeExecutionString 合并扁平字符串 execution 字段。
-func mergeExecutionString(dst *string, flatValue, field string) error {
-	flat := strings.TrimSpace(flatValue)
-	if flat == "" {
-		return nil
-	}
-	nested := strings.TrimSpace(*dst)
-	if nested != "" && nested != flat {
-		return fmt.Errorf("%s conflicts with execution.%s", field, field)
 	}
 	*dst = flat
 	return nil
@@ -687,15 +673,6 @@ func scheduleMap(in DAGScheduleInput) map[string]any {
 // executionMap 将 execution 输入压缩成 config 中的非零字段。
 func executionMap(in DAGExecutionInput) map[string]any {
 	payload := make(map[string]any)
-	if in.OnFailure != "" {
-		payload["on_failure"] = strings.TrimSpace(in.OnFailure)
-	}
-	if in.Pool != "" {
-		payload["pool"] = strings.TrimSpace(in.Pool)
-	}
-	if in.Priority != 0 {
-		payload["priority"] = in.Priority
-	}
 	if in.Retry != 0 {
 		payload["retry"] = in.Retry
 	}

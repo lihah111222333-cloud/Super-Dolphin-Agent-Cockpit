@@ -367,6 +367,7 @@ type OnFailureConfig struct {
 type ExecutionConfig struct {
 	Timeout    string `json:"timeout,omitempty"`
 	TimeoutSec int    `json:"timeout_sec,omitempty"`
+	Retry      int    `json:"retry,omitempty"`
 }
 
 // AgentExecConfig 是 node_type=agent 节点的 exec 块。
@@ -522,7 +523,7 @@ func ValidatePersistableNodeConfig(nodeType string, raw json.RawMessage) error {
 		return fmt.Errorf("nodeexec: invalid node config: %w", err)
 	}
 	switch {
-	case parsed.Agent != nil:
+	case parsed.Agent != nil && hasExplicitExecConfig(raw):
 		if _, err := ValidateLaunchCWDForNodeConfig(nodeType, raw); err != nil {
 			return fmt.Errorf("agent launch cwd: %w", err)
 		}
@@ -534,6 +535,18 @@ func ValidatePersistableNodeConfig(nodeType string, raw json.RawMessage) error {
 		}
 	}
 	return nil
+}
+
+func hasExplicitExecConfig(raw json.RawMessage) bool {
+	if len(raw) == 0 {
+		return false
+	}
+	var config map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &config); err != nil {
+		return false
+	}
+	exec, ok := config["exec"]
+	return ok && len(exec) != 0 && !bytes.Equal(bytes.TrimSpace(exec), []byte("null"))
 }
 
 func validatePersistableAutomationExec(exec AutomationExecConfig) error {
@@ -733,6 +746,9 @@ func decodeStrictNodeConfig(raw json.RawMessage, target any) error {
 }
 
 func validateExecutionConfig(cfg ExecutionConfig) error {
+	if cfg.Retry < 0 {
+		return fmt.Errorf("execution.retry must be non-negative, got %d", cfg.Retry)
+	}
 	if _, _, err := cfg.ExecutionTimeout(); err != nil {
 		return err
 	}

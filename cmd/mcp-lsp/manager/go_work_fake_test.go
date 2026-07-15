@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -50,7 +51,8 @@ func TestGoWorkEnvPropagatedToGopls(t *testing.T) {
 	if call.rootDir != repo {
 		t.Fatalf("gopls rootDir = %q, want go.work root %q", call.rootDir, repo)
 	}
-	if !reflect.DeepEqual(call.env, []string{"GOWORK=" + goWorkPath}) {
+	wantEnv := []string{"GOOS=" + runtime.GOOS, "GOARCH=" + runtime.GOARCH, "GOWORK=" + goWorkPath}
+	if !reflect.DeepEqual(call.env, wantEnv) {
 		t.Fatalf("gopls env = %#v, want explicit go.work", call.env)
 	}
 	client := factory.clientAt(t, 0)

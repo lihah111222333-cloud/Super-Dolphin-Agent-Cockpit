@@ -50,11 +50,10 @@ func ResolveRetryPolicy(dagMetadata, nodeConfig json.RawMessage) (RetryPolicy, e
 	if nodePolicy.HasRetry {
 		retryCount = nodePolicy.Retry
 	}
-	maxAttempts := retryCount + 1
-	if maxAttempts < 1 {
-		maxAttempts = 1
+	if retryCount < 0 {
+		return RetryPolicy{}, fmt.Errorf("retry must be non-negative, got %d", retryCount)
 	}
-	return RetryPolicy{MaxAttempts: maxAttempts, FailFast: dagPolicy.FailFast}, nil
+	return RetryPolicy{MaxAttempts: retryCount + 1, FailFast: dagPolicy.FailFast}, nil
 }
 
 // decodeDAGSchedulePolicy 解析 DAG metadata.schedule，空 metadata 使用零值策略。

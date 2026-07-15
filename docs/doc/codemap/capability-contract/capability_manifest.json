@@ -1401,6 +1401,7 @@
         "cmd/mcp-orch/orchestration/nodeexec.finalizeAutomationOutcome",
         "cmd/mcp-orch/orchestration/nodeexec.firstDependentOn",
         "cmd/mcp-orch/orchestration/nodeexec.flattenComponents",
+        "cmd/mcp-orch/orchestration/nodeexec.hasExplicitExecConfig",
         "cmd/mcp-orch/orchestration/nodeexec.inChain",
         "cmd/mcp-orch/orchestration/nodeexec.indexExistingFull",
         "cmd/mcp-orch/orchestration/nodeexec.initialZeroIndegQueue",
@@ -1436,6 +1437,7 @@
         "cmd/mcp-orch/orchestration/nodeexec.parseExecutionTimeoutString",
         "cmd/mcp-orch/orchestration/nodeexec.pathWithinRoot",
         "cmd/mcp-orch/orchestration/nodeexec.persistedNodeStatuses",
+        "cmd/mcp-orch/orchestration/nodeexec.planAddNodeTopology",
         "cmd/mcp-orch/orchestration/nodeexec.prepareAutomationCommand",
         "cmd/mcp-orch/orchestration/nodeexec.preparedAutomationCommand",
         "cmd/mcp-orch/orchestration/nodeexec.redactSensitiveText",
@@ -1749,6 +1751,7 @@
         "cmd/mcp-orch/tools.createDAGInvalidInputError",
         "cmd/mcp-orch/tools.createDAGMetadata",
         "cmd/mcp-orch/tools.createDAGNodeConfig",
+        "cmd/mcp-orch/tools.createDAGNodeSpecs",
         "cmd/mcp-orch/tools.createDAGNodeType",
         "cmd/mcp-orch/tools.createDAGNodesFromInput",
         "cmd/mcp-orch/tools.createDAGRequestFromInput",
@@ -1864,7 +1867,6 @@
         "cmd/mcp-orch/tools.mediaToolMetadata",
         "cmd/mcp-orch/tools.mergeAV",
         "cmd/mcp-orch/tools.mergeAutomationCommandRef",
-        "cmd/mcp-orch/tools.mergeExecutionString",
         "cmd/mcp-orch/tools.mergeLaunchDisabledTools",
         "cmd/mcp-orch/tools.mergeScheduleInt",
         "cmd/mcp-orch/tools.mergeScheduleString",
@@ -5978,6 +5980,7 @@
         "cmd/mcp-orch/orchestration/nodeexec.finalizeAutomationOutcome",
         "cmd/mcp-orch/orchestration/nodeexec.firstDependentOn",
         "cmd/mcp-orch/orchestration/nodeexec.flattenComponents",
+        "cmd/mcp-orch/orchestration/nodeexec.hasExplicitExecConfig",
         "cmd/mcp-orch/orchestration/nodeexec.inChain",
         "cmd/mcp-orch/orchestration/nodeexec.indexExistingFull",
         "cmd/mcp-orch/orchestration/nodeexec.initialZeroIndegQueue",
@@ -6013,6 +6016,7 @@
         "cmd/mcp-orch/orchestration/nodeexec.parseExecutionTimeoutString",
         "cmd/mcp-orch/orchestration/nodeexec.pathWithinRoot",
         "cmd/mcp-orch/orchestration/nodeexec.persistedNodeStatuses",
+        "cmd/mcp-orch/orchestration/nodeexec.planAddNodeTopology",
         "cmd/mcp-orch/orchestration/nodeexec.prepareAutomationCommand",
         "cmd/mcp-orch/orchestration/nodeexec.preparedAutomationCommand",
         "cmd/mcp-orch/orchestration/nodeexec.redactSensitiveText",
@@ -6326,6 +6330,7 @@
         "cmd/mcp-orch/tools.createDAGInvalidInputError",
         "cmd/mcp-orch/tools.createDAGMetadata",
         "cmd/mcp-orch/tools.createDAGNodeConfig",
+        "cmd/mcp-orch/tools.createDAGNodeSpecs",
         "cmd/mcp-orch/tools.createDAGNodeType",
         "cmd/mcp-orch/tools.createDAGNodesFromInput",
         "cmd/mcp-orch/tools.createDAGRequestFromInput",
@@ -6441,7 +6446,6 @@
         "cmd/mcp-orch/tools.mediaToolMetadata",
         "cmd/mcp-orch/tools.mergeAV",
         "cmd/mcp-orch/tools.mergeAutomationCommandRef",
-        "cmd/mcp-orch/tools.mergeExecutionString",
         "cmd/mcp-orch/tools.mergeLaunchDisabledTools",
         "cmd/mcp-orch/tools.mergeScheduleInt",
         "cmd/mcp-orch/tools.mergeScheduleString",
@@ -10555,6 +10559,7 @@
         "cmd/mcp-orch/orchestration/nodeexec.finalizeAutomationOutcome",
         "cmd/mcp-orch/orchestration/nodeexec.firstDependentOn",
         "cmd/mcp-orch/orchestration/nodeexec.flattenComponents",
+        "cmd/mcp-orch/orchestration/nodeexec.hasExplicitExecConfig",
         "cmd/mcp-orch/orchestration/nodeexec.inChain",
         "cmd/mcp-orch/orchestration/nodeexec.indexExistingFull",
         "cmd/mcp-orch/orchestration/nodeexec.initialZeroIndegQueue",
@@ -10590,6 +10595,7 @@
         "cmd/mcp-orch/orchestration/nodeexec.parseExecutionTimeoutString",
         "cmd/mcp-orch/orchestration/nodeexec.pathWithinRoot",
         "cmd/mcp-orch/orchestration/nodeexec.persistedNodeStatuses",
+        "cmd/mcp-orch/orchestration/nodeexec.planAddNodeTopology",
         "cmd/mcp-orch/orchestration/nodeexec.prepareAutomationCommand",
         "cmd/mcp-orch/orchestration/nodeexec.preparedAutomationCommand",
         "cmd/mcp-orch/orchestration/nodeexec.redactSensitiveText",
@@ -10903,6 +10909,7 @@
         "cmd/mcp-orch/tools.createDAGInvalidInputError",
         "cmd/mcp-orch/tools.createDAGMetadata",
         "cmd/mcp-orch/tools.createDAGNodeConfig",
+        "cmd/mcp-orch/tools.createDAGNodeSpecs",
         "cmd/mcp-orch/tools.createDAGNodeType",
         "cmd/mcp-orch/tools.createDAGNodesFromInput",
         "cmd/mcp-orch/tools.createDAGRequestFromInput",
@@ -11018,7 +11025,6 @@
         "cmd/mcp-orch/tools.mediaToolMetadata",
         "cmd/mcp-orch/tools.mergeAV",
         "cmd/mcp-orch/tools.mergeAutomationCommandRef",
-        "cmd/mcp-orch/tools.mergeExecutionString",
         "cmd/mcp-orch/tools.mergeLaunchDisabledTools",
         "cmd/mcp-orch/tools.mergeScheduleInt",
         "cmd/mcp-orch/tools.mergeScheduleString",
@@ -15132,6 +15138,7 @@
         "cmd/mcp-orch/orchestration/nodeexec.finalizeAutomationOutcome",
         "cmd/mcp-orch/orchestration/nodeexec.firstDependentOn",
         "cmd/mcp-orch/orchestration/nodeexec.flattenComponents",
+        "cmd/mcp-orch/orchestration/nodeexec.hasExplicitExecConfig",
         "cmd/mcp-orch/orchestration/nodeexec.inChain",
         "cmd/mcp-orch/orchestration/nodeexec.indexExistingFull",
         "cmd/mcp-orch/orchestration/nodeexec.initialZeroIndegQueue",
@@ -15167,6 +15174,7 @@
         "cmd/mcp-orch/orchestration/nodeexec.parseExecutionTimeoutString",
         "cmd/mcp-orch/orchestration/nodeexec.pathWithinRoot",
         "cmd/mcp-orch/orchestration/nodeexec.persistedNodeStatuses",
+        "cmd/mcp-orch/orchestration/nodeexec.planAddNodeTopology",
         "cmd/mcp-orch/orchestration/nodeexec.prepareAutomationCommand",
         "cmd/mcp-orch/orchestration/nodeexec.preparedAutomationCommand",
         "cmd/mcp-orch/orchestration/nodeexec.redactSensitiveText",
@@ -15483,6 +15491,7 @@
         "cmd/mcp-orch/tools.createDAGInvalidInputError",
         "cmd/mcp-orch/tools.createDAGMetadata",
         "cmd/mcp-orch/tools.createDAGNodeConfig",
+        "cmd/mcp-orch/tools.createDAGNodeSpecs",
         "cmd/mcp-orch/tools.createDAGNodeType",
         "cmd/mcp-orch/tools.createDAGNodesFromInput",
         "cmd/mcp-orch/tools.createDAGRequestFromInput",
@@ -15598,7 +15607,6 @@
         "cmd/mcp-orch/tools.mediaToolMetadata",
         "cmd/mcp-orch/tools.mergeAV",
         "cmd/mcp-orch/tools.mergeAutomationCommandRef",
-        "cmd/mcp-orch/tools.mergeExecutionString",
         "cmd/mcp-orch/tools.mergeLaunchDisabledTools",
         "cmd/mcp-orch/tools.mergeScheduleInt",
         "cmd/mcp-orch/tools.mergeScheduleString",
@@ -18333,12 +18341,12 @@
   ],
   "summary": {
     "total_packages": 41,
-    "total_functions": 2242,
+    "total_functions": 2244,
     "total_methods": 1145,
     "total_interfaces": 184,
     "total_interface_methods": 365,
     "total_exported": 1254,
-    "total_unexported": 2913,
+    "total_unexported": 2915,
     "total_structs": 596
   },
   "packages": [
@@ -37807,6 +37815,19 @@
           ]
         },
         {
+          "name": "hasExplicitExecConfig",
+          "exported": false,
+          "params": [
+            {
+              "name": "raw",
+              "type": "json.RawMessage"
+            }
+          ],
+          "returns": [
+            "bool"
+          ]
+        },
+        {
           "name": "inChain",
           "exported": false,
           "params": [
@@ -38282,6 +38303,25 @@
           "exported": false,
           "returns": [
             "[]NodeStatus"
+          ]
+        },
+        {
+          "name": "planAddNodeTopology",
+          "exported": false,
+          "params": [
+            {
+              "name": "ops",
+              "type": "Ops"
+            },
+            {
+              "name": "existing",
+              "type": "[]ExistingNode"
+            }
+          ],
+          "returns": [
+            "map[string][]string",
+            "[]NodeSpec",
+            "error"
           ]
         },
         {
@@ -43207,6 +43247,19 @@
           ]
         },
         {
+          "name": "createDAGNodeSpecs",
+          "exported": false,
+          "params": [
+            {
+              "name": "nodes",
+              "type": "[]contract.CreateDAGNodeRequest"
+            }
+          ],
+          "returns": [
+            "[]nodeexec.NodeSpec"
+          ]
+        },
+        {
           "name": "createDAGNodeType",
           "exported": false,
           "params": [
@@ -45004,27 +45057,6 @@
           ],
           "returns": [
             "json.RawMessage",
-            "error"
-          ]
-        },
-        {
-          "name": "mergeExecutionString",
-          "exported": false,
-          "params": [
-            {
-              "name": "dst",
-              "type": "*string"
-            },
-            {
-              "name": "flatValue",
-              "type": "string"
-            },
-            {
-              "name": "field",
-              "type": "string"
-            }
-          ],
-          "returns": [
             "error"
           ]
         },

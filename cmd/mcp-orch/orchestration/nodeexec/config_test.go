@@ -111,6 +111,8 @@ func TestParseNodeConfigsRejectUnknownFieldsAndTrailingJSON(t *testing.T) {
 	}{
 		{name: "agent unknown cwd typo", parse: func(raw json.RawMessage) error { _, err := ParseAgentConfig(raw); return err }, raw: `{"exec":{"cwd":"/tmp/ok","cwdd":"/tmp/typo"}}`},
 		{name: "automation unknown timeout typo", parse: func(raw json.RawMessage) error { _, err := ParseAutomationConfig(raw); return err }, raw: `{"exec":{"command_ref":"build"},"execution":{"timeout_secc":30}}`},
+		{name: "agent negative retry", parse: func(raw json.RawMessage) error { _, err := ParseAgentConfig(raw); return err }, raw: `{"execution":{"retry":-1}}`},
+		{name: "automation negative retry", parse: func(raw json.RawMessage) error { _, err := ParseAutomationConfig(raw); return err }, raw: `{"execution":{"retry":-1}}`},
 		{name: "hybrid unknown verifier cwd typo", parse: func(raw json.RawMessage) error { _, err := ParseHybridConfig(raw); return err }, raw: `{"exec":{"verifier":{"cwd":"/tmp/ok","cwdd":"/tmp/typo"}}}`},
 		{name: "agent trailing document", parse: func(raw json.RawMessage) error { _, err := ParseAgentConfig(raw); return err }, raw: `{} {}`},
 		{name: "automation trailing document", parse: func(raw json.RawMessage) error { _, err := ParseAutomationConfig(raw); return err }, raw: `{} {}`},

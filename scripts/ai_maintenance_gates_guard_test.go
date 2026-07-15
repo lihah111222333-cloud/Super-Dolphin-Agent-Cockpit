@@ -40,3 +40,8 @@ func TestAIMaintenanceGateImplementationContracts(t *testing.T) {
 	assertScriptContains(t, testSource, "TestBuildGatePlanRoutesFrontendBackendAndGeneratedFiles")
 	assertScriptContains(t, testSource, "TestValidateEvidenceBlocksMissingAgentIDDiagnosticsAndCommands")
 }
+
+func TestGeneratedArtifactRefreshOrdersProducersBeforeConsumers(t *testing.T) {
+	refresh := readScript(t, "refresh_generated_artifacts.sh")
+	assertScriptContains(t, refresh, "refresh_codemap\n    refresh_capcontract\n    refresh_project_map")
+}
