@@ -10,6 +10,7 @@ Usage:
   scripts/test_with_guard.sh [go test args...]
   scripts/test_with_guard.sh <file.go> [more.go...]
   scripts/test_with_guard.sh --guard-only
+  scripts/test_with_guard.sh --with-race <race-package...> -- <go-test-args...>
   scripts/test_with_guard.sh --help
 
 Examples:
@@ -17,6 +18,7 @@ Examples:
   scripts/test_with_guard.sh ./internal/provider/claudecli/... -count=1
   scripts/test_with_guard.sh -run TestFoo ./internal/module/thread/...
   scripts/test_with_guard.sh --guard-only
+  scripts/test_with_guard.sh --with-race ./internal/platform/db/sqlite -- ./internal/app -count=1
 USAGE
 }
 
@@ -45,6 +47,29 @@ run_copylocks_guard() {
     cd "$ROOT_DIR"
     "$real_go" vet -copylocks ./internal/provider/... ./internal/platform/... ./internal/module/thread/...
   )
+}
+
+run_with_race() {
+  local real_go="$1"
+  shift
+  local -a race_packages=()
+  while [ "$#" -gt 0 ] && [ "$1" != "--" ]; do
+    race_packages+=("$1")
+    shift
+  done
+  if [ ${#race_packages[@]} -eq 0 ] || [ "$#" -eq 0 ] || [ "$1" != "--" ]; then
+    usage
+    return 1
+  fi
+  shift
+  if [ "$#" -eq 0 ]; then
+    usage
+    return 1
+  fi
+  run_guard "$real_go"
+  run_copylocks_guard "$real_go"
+  run_go_test "$real_go" "$@"
+  run_go_test "$real_go" "${race_packages[@]}" -race -short -count=1
 }
 
 all_args_are_go_files() {
@@ -100,6 +125,14 @@ main() {
         exit 1
       fi
       run_guard "$real_go"
+      ;;
+    --with-race)
+      local real_go
+      if ! real_go="$(resolve_real_go)"; then
+        exit 1
+      fi
+      shift
+      run_with_race "$real_go" "$@"
       ;;
     --)
       local real_go

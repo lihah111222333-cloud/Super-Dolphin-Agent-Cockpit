@@ -24,13 +24,13 @@ make install-hooks
 |---|---|---|---|
 | `pre-commit` | `git commit` | 从 staged index 快照刷新并 stage 代码地图生成物；拒绝 partial index、staged/worktree 不一致和代码提交夹带的额外 worktree 输入；再由 AI maintenance 按变更面执行唯一一轮后端守卫/包测试或前端 lint/test/build。只有 project-map 检查可按严格输入指纹缓存 10 分钟 | 相同 project-map 输入可命中缓存；codemap、代码测试和前端检查每次真实执行；空白检查绑定 staged index |
 | `commit-msg` | `git commit` | 要求提交标题包含中文；提交正文如果存在也必须包含中文；提交主题属于 `fix` / `hotfix` / `bugfix` / `修复` 时，要求同一提交修改锁定 bug 的测试、fixture、golden 或 snapshot | <1 秒 |
-| `pre-push` | `git push` | 只允许推送当前 `HEAD`；检查本次 push 范围内每个 commit 标题和非空正文都包含中文，fix commits 都带锁定 bug 的测试；由 AI maintenance 作为 Go/前端/SQL/codemap/project-map 的唯一执行 owner，capcontract 和 skill 保留独立路径门禁；生成物漂移只警告不阻断 | 视变更面而定 |
+| `pre-push` | `git push` | 只允许推送当前 `HEAD`；检查中文提交与 fix 测试；AI maintenance 运行受影响包、nilness，并对登记的并发面运行 `-race`；capcontract 和 skill 保留独立路径门禁；不运行 `gosec` | 视变更面而定 |
 
 `pre-commit` 每次提交都会先从 staged index 导出临时快照，运行 `make codemap-refresh` 和 `make project-map-refresh PROJECT_MAP_ARGS=--filesystem-scan`，再将根 `README.md`、`docs/doc/codemap/13-archtest-boundaries.md`、`docs/doc/codemap/README.md`、`docs/doc/codemap/ai-index.json` 和整个 `docs/doc/codemap/project-map/` 精确 `git add -A` 回当前提交。随后 hook 拒绝 partial commit 临时 index 与真实 index 不一致、任意 staged 非删除文件与 worktree 不一致，以及代码/门禁提交存在额外未暂存或未跟踪输入；Go 格式和受影响包预检完成后，AI maintenance 会在由最终 staged tree 展开的临时 linked worktree 中运行，原工作区在长门禁期间的编辑不会进入本轮验证输入。
 
 pre-commit 的绿色 gate 缓存位于 `.build-cache/ai-maintenance-gates/`，有效期 10 分钟，并采用显式白名单：当前只有 `project-map:check` 可以缓存；会遍历 ignored 源码的 `codemap:check` 每次真实执行。hook 先从 staged tree 创建与真实 index 隔离的私有 index，再把同一 tree 展开到临时 linked worktree；缓存构造器会校验该 index 不是实时 index 且 `write-tree` 与 cache-scope 完全一致。project-map 指纹只包含其真实输入闭包：staged tree、隔离 index 的 `git ls-files -s -z`、UTC 日期、临时 staged worktree 的 tracked 差异、gate plan、工具版本和稳定环境变量；不再无界读取与 project-map 无关的 untracked 文件。规则 override 必须是仓库内普通文件，symlink 会 fail-fast。命中返回前与绿色 marker 发布前都会重新计算指纹。行为测试、前端 lint/test/build、ignored embed 产物验证和 SQLC 再生成检查每次真实执行。缓存只用于 pre-commit；pre-push 不传缓存参数，并对每个实际 push range 执行空白检查；无共同祖先的新分支按 empty tree 到 HEAD 的完整文件面路由 gate。
 
-`commit-msg` 要求标题包含中文，正文如果存在也必须包含中文，并用提交主题识别 fix 类提交。`pre-push` 从本次 push range 计算变更路径：先校验中文要求和 fix-test 规则，再只调用一次 `scripts/ai_maintenance_gates.sh` 执行 Go、前端、SQLC、codemap/project-map 所需门禁；不再在 hook 尾部重复执行相同测试。capcontract 和 skill mirror 仍是独立路径门禁。`pre-commit` / `pre-push` 会设置 `SUPER_DOLPHIN_GITHOOK_SKIP_GOSEC=1`，本地提交和推送路径不自动执行 `gosec`，也不执行前端 e2e。
+`commit-msg` 要求标题包含中文，正文如果存在也必须包含中文，并用提交主题识别 fix 类提交。`pre-push` 从本次 push range 计算变更路径：先校验中文要求和 fix-test 规则，再以显式 `--push-gates` 调用一次 `scripts/ai_maintenance_gates.sh`；受影响 Go 包增加 nilness，登记并发面增加 `-race`，普通 pre-commit 计划不含这两项。capcontract 和 skill mirror 仍是独立路径门禁。`pre-commit` / `pre-push` 都设置 `SUPER_DOLPHIN_GITHOOK_SKIP_GOSEC=1`，两个 hook 都不执行 `gosec`，也不执行前端 e2e；安全扫描保持在 hook 之外按需显式执行。
 
 CI 也会在 `.github/workflows/ci.yml` 的 `commit-guard` job 中运行 `scripts/ci_commit_guard.sh`：它按 GitHub `pull_request` / `push` 事件解析提交范围，先复用 `scripts/guard_commit_titles.sh --range` 要求范围内每个 commit 的标题包含中文，且非空正文也包含中文，再复用 `scripts/guard_fix_commits_have_tests.sh --range` 拦截未安装 hook 或绕过 hook 后进入 PR / main 的 fix 类提交。正文为空允许；正文一旦存在，纯英文正文会失败。
 

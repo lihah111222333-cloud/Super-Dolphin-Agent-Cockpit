@@ -261,7 +261,7 @@ internal/mcpserver/common/tool_error_envelope_test.go	internal	platform-provider
 internal/mcpserver/common/tool_error_envelope.go	internal	platform-provider	go-source	21636	MCP server 公共框架、bootstrap 与 transport	internal,mcpserver,common,tool,error,envelope,MCP,server,公共框架,bootstrap,与,transport
 internal/mcpserver/common/tool_payload_log_test.go	internal	platform-provider	go-test	10370	MCP server 公共框架、bootstrap 与 transport	internal,mcpserver,common,tool,payload,log,test,MCP,server,公共框架,bootstrap,与,transport
 internal/mcpserver/common/tool_payload_log.go	internal	platform-provider	go-source	12673	MCP server 公共框架、bootstrap 与 transport	internal,mcpserver,common,tool,payload,log,MCP,server,公共框架,bootstrap,与,transport
-internal/mcpserver/common/tool_result.go	internal	platform-provider	go-source	3260	MCP server 公共框架、bootstrap 与 transport	internal,mcpserver,common,tool,result,MCP,server,公共框架,bootstrap,与,transport
+internal/mcpserver/common/tool_result.go	internal	platform-provider	go-source	3299	MCP server 公共框架、bootstrap 与 transport	internal,mcpserver,common,tool,result,MCP,server,公共框架,bootstrap,与,transport
 internal/platform/bus/bus_test.go	internal	platform-provider	go-test	4493	事件总线	internal,platform,bus,test,事件总线
 internal/platform/bus/bus.go	internal	platform-provider	go-source	916	事件总线	internal,platform,bus,事件总线
 internal/platform/bus/emitters.go	internal	platform-provider	go-source	1563	事件总线	internal,platform,bus,emitters,事件总线
@@ -333,9 +333,9 @@ internal/platform/db/sqlite/migrations/115_agent_thread_paging_indexes.sql	inter
 internal/platform/db/sqlite/migrations/116_datasource_documents.sql	internal	platform-provider	sql	733	基础设施层	internal,platform,db,sqlite,migrations,116,datasource,documents,基础设施层
 internal/platform/db/sqlite/migrations/117_cron_jobs_list_paging_index.sql	internal	platform-provider	sql	92	基础设施层	internal,platform,db,sqlite,migrations,117,cron,jobs,list,paging,index,基础设施层
 internal/platform/db/sqlite/mixed_write_pressure_test.go	internal	platform-provider	go-test	22194	基础设施层	internal,platform,db,sqlite,mixed,write,pressure,test,基础设施层
-internal/platform/db/sqlite/open.go	internal	platform-provider	go-source	9804	基础设施层	internal,platform,db,sqlite,open,基础设施层
+internal/platform/db/sqlite/open.go	internal	platform-provider	go-source	9790	基础设施层	internal,platform,db,sqlite,open,基础设施层
 internal/platform/db/sqlite/query_plan_test.go	internal	platform-provider	go-test	6039	基础设施层	internal,platform,db,sqlite,query,plan,test,基础设施层
-internal/platform/db/sqlite/release_smoke_fixture_test.go	internal	platform-provider	go-test	18449	基础设施层	internal,platform,db,sqlite,release,smoke,fixture,test,基础设施层
+internal/platform/db/sqlite/release_smoke_fixture_test.go	internal	platform-provider	go-test	18533	基础设施层	internal,platform,db,sqlite,release,smoke,fixture,test,基础设施层
 internal/platform/db/sqlite/release_smoke_large_fixture_stress_test.go	internal	platform-provider	go-test	2769	基础设施层	internal,platform,db,sqlite,release,smoke,large,fixture,stress,test,基础设施层
 internal/platform/db/sqlite/schema_baseline_test.go	internal	platform-provider	go-test	15233	基础设施层	internal,platform,db,sqlite,schema,baseline,test,基础设施层
 internal/platform/db/sqlite/schema_contract_test.go	internal	platform-provider	go-test	30064	基础设施层	internal,platform,db,sqlite,schema,contract,test,基础设施层

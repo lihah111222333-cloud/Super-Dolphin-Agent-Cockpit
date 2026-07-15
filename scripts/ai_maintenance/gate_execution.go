@@ -70,6 +70,18 @@ func gateRunners(plan gatePlan, executionScope gateExecutionScope) map[string]ga
 			args = append(args, "-count=1")
 			return runCommand("", args[0], args[1:]...)
 		}},
+		"backend:test_with_guard_and_race": {run: func() error {
+			args, err := backendTestWithGuardAndRaceArgs(plan)
+			if err != nil {
+				return err
+			}
+			return runCommand("", args[0], args[1:]...)
+		}},
+		"backend:nilness": {run: func() error {
+			packages := affectedNilnessPackages(plan)
+			args := append([]string{"go", "run", "./scripts/nilness_guard.go", "-test=false", "--"}, packages...)
+			return runCommand("", args[0], args[1:]...)
+		}},
 		"frontend:lint":         {run: func() error { return runCommand("frontend-app", "npm", "run", "lint") }},
 		"frontend:test":         {run: func() error { return runCommand("frontend-app", "npm", "test") }},
 		"frontend:build":        {run: func() error { return runCommand("frontend-app", "npm", "run", "build") }},
@@ -79,6 +91,18 @@ func gateRunners(plan gatePlan, executionScope gateExecutionScope) map[string]ga
 		"sqlc:verify":           {run: func() error { return runCommand("", "make", "sqlc-verify-worktree") }},
 		"diff:whitespace":       {run: func() error { return runWhitespaceCheck(executionScope) }},
 	}
+}
+
+// backendTestWithGuardAndRaceArgs 构造一次 guard 后依次运行普通与 race 测试的参数。
+func backendTestWithGuardAndRaceArgs(plan gatePlan) ([]string, error) {
+	racePackages := affectedRacePackagesForPlan(plan)
+	if len(racePackages) == 0 || len(plan.AffectedGoPackages) == 0 {
+		return nil, errors.New("combined backend race gate requires normal and race packages")
+	}
+	args := append([]string{"./scripts/test_with_guard.sh", "--with-race"}, racePackages...)
+	args = append(args, "--")
+	args = append(args, plan.AffectedGoPackages...)
+	return append(args, "-count=1"), nil
 }
 
 // runWhitespaceCheck 根据 hook 显式传入的 staged 或 push-range 真值源检查空白错误。

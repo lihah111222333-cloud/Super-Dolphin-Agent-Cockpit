@@ -103,6 +103,7 @@ func runMain(args []string) error {
 func runPlan(args []string, stdout *os.File) error {
 	fs := flag.NewFlagSet("plan", flag.ContinueOnError)
 	base := fs.String("base", "HEAD~1", "git base revision used when --changed-file is omitted")
+	pushGates := fs.Bool("push-gates", false, "include push-only risk gates")
 	changed := multiFlag{}
 	if stdout == nil {
 		stdout = os.Stdout
@@ -119,7 +120,7 @@ func runPlan(args []string, stdout *os.File) error {
 			return err
 		}
 	}
-	plan := buildGatePlan(files)
+	plan := gatePlanForScope(files, *pushGates)
 	enc := json.NewEncoder(stdout)
 	enc.SetIndent("", "  ")
 	return enc.Encode(plan)
@@ -136,6 +137,7 @@ func runGates(args []string) error {
 	cacheMaxAge := fs.Duration("cache-max-age", defaultGateCacheMaxAge, "maximum age for a cached green gate result")
 	cacheScope := fs.String("cache-scope", "", "staged Git tree used as the cache truth source")
 	diffCached := fs.Bool("diff-cached", false, "run whitespace checks against the staged index")
+	pushGates := fs.Bool("push-gates", false, "include push-only risk gates")
 	changed := multiFlag{}
 	diffRanges := multiFlag{}
 	fs.Var(&changed, "changed-file", "changed file path; may be repeated")
@@ -151,7 +153,7 @@ func runGates(args []string) error {
 			return err
 		}
 	}
-	plan := buildGatePlan(files)
+	plan := gatePlanForScope(files, *pushGates)
 	if *skipDeferredE2E {
 		var err error
 		plan.AffectedGoPackages, err = excludeDeferredE2EGoPackages(
@@ -686,15 +688,17 @@ func commandForGatePresent(commands []evidenceCommand, gate string) bool {
 
 func gateEvidenceCommandFragments() map[string][]string {
 	return map[string][]string{
-		"ai-maintenance:self-test": {"go test ./scripts/ai_maintenance", "go test ./scripts -run TestAIMaintenanceGate"},
-		"backend:test_with_guard":  {"./scripts/test_with_guard.sh"},
-		"frontend:lint":            {"npm run lint"},
-		"frontend:test":            {"npm test"},
-		"frontend:build":           {"npm run build"},
-		"frontend:embed-verify":    {"make frontend-embed-verify"},
-		"codemap:check":            {"make codemap-check"},
-		"project-map:check":        {"make project-map-check"},
-		"sqlc:verify":              {"make sqlc-verify-worktree", "make sqlc-verify"},
+		"ai-maintenance:self-test":         {"go test ./scripts/ai_maintenance", "go test ./scripts -run TestAIMaintenanceGate"},
+		"backend:test_with_guard":          {"./scripts/test_with_guard.sh"},
+		"backend:test_with_guard_and_race": {"./scripts/test_with_guard.sh", "--with-race", "-race"},
+		"backend:nilness":                  {"go run ./scripts/nilness_guard.go"},
+		"frontend:lint":                    {"npm run lint"},
+		"frontend:test":                    {"npm test"},
+		"frontend:build":                   {"npm run build"},
+		"frontend:embed-verify":            {"make frontend-embed-verify"},
+		"codemap:check":                    {"make codemap-check"},
+		"project-map:check":                {"make project-map-check"},
+		"sqlc:verify":                      {"make sqlc-verify-worktree", "make sqlc-verify"},
 	}
 }
 
@@ -828,6 +832,8 @@ func orderedGates(values map[string]bool) []string {
 		"frontend:build",
 		"frontend:embed-verify",
 		"backend:test_with_guard",
+		"backend:test_with_guard_and_race",
+		"backend:nilness",
 		"sqlc:verify",
 		"codemap:check",
 		"project-map:check",
