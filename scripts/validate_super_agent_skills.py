@@ -111,19 +111,97 @@ def check_forbidden_skill_tree_tokens(failures: list[str], base: Path | None = N
                 failures.append(f"{path}: forbidden stale skill token {token!r}")
 
 
+def require_review_facts(failures: list[str], label: str, text: str, facts: tuple[str, ...]) -> None:
+    missing = [fact for fact in facts if fact not in text]
+    if missing:
+        failures.append(f"代码审查维度: {label} missing {missing}")
+
+
+def check_review_skill(failures: list[str], review: str) -> None:
+    rows = [
+        (match.group(1), line)
+        for line in review.splitlines()
+        if (match := re.match(r"^\|\s*D(\d{2})\s+[^|]*\|[^|]*\|[^|]*\|\s*$", line))
+    ]
+    expected = [f"{index:02d}" for index in range(1, 20)]
+    row_ids = [row_id for row_id, _ in rows]
+    if row_ids != expected:
+        failures.append(f"代码审查维度: expected one ordered D01-D19 matrix, got {row_ids}")
+
+    row_by_id = dict(rows)
+    require_review_facts(
+        failures,
+        "D01 canonical boundary routing",
+        row_by_id.get("01", ""),
+        ("DefaultBackendBoundaryRegistry()", "codemap 13"),
+    )
+    require_review_facts(
+        failures,
+        "D08 repository navigation",
+        row_by_id.get("08", ""),
+        ("codemap 07A", "codemap 07B", "codemap 09", "codemap 11", "codemap 12", "Dream", "命中"),
+    )
+    require_review_facts(
+        failures,
+        "D17-D19 boundaries",
+        review,
+        ("D17 的生产字段", "D18 回答", "D19 回答", "canonical", ".agents/skills"),
+    )
+    require_review_facts(
+        failures,
+        "D01-D19 coverage ledger",
+        review,
+        ("D01-D19", "coverage ledger", "Applied", "N/A + reason"),
+    )
+    require_review_facts(
+        failures,
+        "multi-lane evidence ledger",
+        review,
+        ("lane", "review object", "lane PASS", "repo PASS"),
+    )
+    require_review_facts(
+        failures,
+        "fix workflow",
+        review,
+        (
+            "docs/契约/fix-workflow-convention.md",
+            "Repro -> Root Cause -> RED -> Fix -> GREEN -> Guard -> Residual Retest -> Report",
+        ),
+    )
+    require_review_facts(
+        failures,
+        "authoritative gate routing",
+        review,
+        (".githooks/pre-commit", ".githooks/pre-push", ".githooks/README.md", "scripts/ai_maintenance_gates.sh"),
+    )
+    if "静态命令清单" not in review and "static command list" not in review:
+        failures.append("代码审查维度: authoritative gate routing missing static command list prohibition")
+    require_review_facts(
+        failures,
+        "review object binding",
+        review,
+        ("worktree", "staged tree", "commit", "push range"),
+    )
+    require_review_facts(
+        failures,
+        "output schema",
+        review,
+        (
+            "priority | dimension | coverage | reachability",
+            "file:line_start-line_end",
+            "violated_contract",
+            "bug_locking_test",
+            "gate",
+        ),
+    )
+
+
 def check_skills(failures: list[str], skills: dict[str, str]) -> None:
     for name, facts in FACTS.items():
         for fact in facts:
             if fact not in skills.get(name, ""):
                 failures.append(f".agents/skills/{name}/SKILL.md: missing contract fact {fact!r}")
-    review = skills.get("代码审查维度", "")
-    rows = re.findall(r"^\| D(\d{2})\s", review, flags=re.MULTILINE)
-    expected = [f"{i:02d}" for i in range(1, 20)]
-    if rows != expected:
-        failures.append(f"代码审查维度: expected one ordered D01-D19 matrix, got {rows}")
-    for fact in ("D17 的生产字段", "D18 回答", "D19 回答", "canonical `.agents/skills`"):
-        if fact not in review:
-            failures.append(f"代码审查维度: missing boundary fact {fact!r}")
+    check_review_skill(failures, skills.get("代码审查维度", ""))
     compat = skills.get("MCP服务器构建", "")
     for duplicate in ("internal/mcpserver/common", "cmd/mcp-orch", "legacy HTTP", "task_create_dag"):
         if duplicate in compat:
