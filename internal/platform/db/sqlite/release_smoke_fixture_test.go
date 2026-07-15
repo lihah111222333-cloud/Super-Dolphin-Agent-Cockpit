@@ -60,6 +60,9 @@ func TestSQLiteRuntimeIgnoresPostgresEnvironment(t *testing.T) {
 }
 
 func TestSQLiteMediumFixtureDistribution(t *testing.T) {
+	if testing.Short() {
+		t.Skip("medium fixture distribution is a capacity test")
+	}
 	db, _ := openMigratedSQLiteDB(t, "medium-fixture")
 	defer db.Close()
 	seedSQLiteReleaseFixture(t, db, sqliteMediumFixtureConfig())

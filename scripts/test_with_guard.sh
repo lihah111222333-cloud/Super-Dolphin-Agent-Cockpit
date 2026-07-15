@@ -69,7 +69,7 @@ run_with_race() {
   run_guard "$real_go"
   run_copylocks_guard "$real_go"
   run_go_test "$real_go" "$@"
-  run_go_test "$real_go" "${race_packages[@]}" -race -count=1
+  run_go_test "$real_go" "${race_packages[@]}" -race -short -count=1
 }
 
 all_args_are_go_files() {
