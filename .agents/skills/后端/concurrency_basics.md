@@ -15,13 +15,12 @@
 每一个需要后台运行的组件，都必须实现阻塞式 `Run(ctx context.Context) error`；`ctx` 取消后应尽快退出并返回真实错误。进程入口负责聚合 runner 并调用 `platformrunner.RunGroup`。
 
 ```go
-package rpc
+package worker
 
 import (
     "context"
 
     platformrunner "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/runner"
-    "github.com/lihah111222333-cloud/super-dolphin-agent/internal/util/safego"
     "go.uber.org/fx"
 )
 
@@ -33,144 +32,74 @@ type Worker struct{}
 
 func (w *Worker) Run(ctx context.Context) error {
     <-ctx.Done()
-    return nil
+    return ctx.Err()
 }
 
-func ProvideWorker() fx.Option {
-    return fx.Provide(
+var Module = fx.Module("worker",
+    fx.Provide(
         fx.Annotate(
-            func() platformrunner.Runner { return &Worker{} },
+            func() *Worker { return &Worker{} },
+            fx.As(new(platformrunner.Runner)),
             fx.ResultTags(`group:"runners"`),
         ),
-    )
-}
+    ),
+)
 ```
 
-### 2. 桥接 fx 与 RunGroup
+### 2. 根生命周期归入口所有
 
-在 V3 架构中，`fx` 负责构造对象，根入口聚合 `group:"runners"` 并启动 `platformrunner.RunGroup`。业务模块只提供 runner，不直接持有全局 group。
+业务模块只提供 runner，不复制根桥接代码，也不自行聚合全局 group：
 
-```go
-type RuntimeParams struct {
-    fx.In
-    Runners []platformrunner.Runner `group:"runners"`
-}
+- 桌面/后台共享根入口使用`internal/app.BindRuntime`。它从 RootCtx 派生运行 context，在`OnStop`取消后等待 RunGroup，最后执行 drain，并用`errors.Join`保留 runner 与收尾错误。
+- `cmd/mcp-lsp`、`cmd/mcp-orch`和`cmd/mcp-ida`使用各自入口内的`bindRuntime`，但同样必须等待退出并保留 RunGroup 错误。
+- `RunGroup`返回意味着根 runtime 已结束；入口必须把结果交给 shutdown/退出路径，禁止丢弃返回错误。
+- 不得把`context.Background()`作为模块长跑任务的正常父 context；使用入口传入的根 context。
 
-fx.Invoke(func(lc fx.Lifecycle, params RuntimeParams) {
-    runCtx, cancel := context.WithCancel(context.Background())
-    lc.Append(fx.Hook{
-        OnStart: func(context.Context) error {
-            safego.Go(runCtx, nil, "app.runtime.rungroup", func(context.Context) {
-                _ = platformrunner.RunGroup(runCtx, params.Runners, platformrunner.GroupOptions{})
-            })
-            return nil
-        },
-        OnStop: func(context.Context) error {
-            cancel()
-            return nil
-        },
-    })
-})
-```
+当前精确实现和测试入口：`internal/app/runner.go`、`internal/app/runner_test.go`、`docs/架构/skeleton-rungroup.md`。
 
 ---
 
-## 内部并发原语 (Goroutine, Channel, Mutex)
+## 组件内部并发
 
-在组件内部或短生命周期请求中，依然使用标准并发原语。
+短生命周期并发可以使用 channel、`sync.WaitGroup`或 mutex，但必须有明确 owner、上限、取消和等待路径。生产 goroutine 如需 panic 保护和统一观测，使用仓库当前的`internal/platform/runtimesafe.SafeGo`模式；不得通过匿名 goroutine 逃逸 RunGroup 托管。
 
-### Goroutine 与 Channel
-
-```go
-ch := make(chan int)       // 无缓冲 - 同步
-ch := make(chan int, 100)  // 有缓冲 - 异步 (直到满)
-
-func computeAndSend(ch chan int, x, y int) {
-    ch <- x + y
-}
-
-func main() {
-    ch := make(chan int)
-    go computeAndSend(ch, 1, 2)
-    v1 := <-ch  // 阻塞直到结果可用
-}
-```
-
-### Select 多路复用与超时控制
-
-**MUST 将 Context 作为多路复用的第一防线。**
+### Context 与超时
 
 ```go
 func DoSomething(ctx context.Context) error {
+    timer := time.NewTimer(5 * time.Second)
+    defer timer.Stop()
+
     select {
     case result := <-resultCh:
         return result
-    case <-ctx.Done(): // 父级取消
+    case <-ctx.Done():
         return ctx.Err()
-    case <-time.After(5 * time.Second): // 超时控制
+    case <-timer.C:
         return errors.New("timeout")
     }
 }
 ```
 
-### WaitGroup 任务屏障
+### 有界扇出
 
-适用于 `Fan-Out` (扇出) 短期任务等待。
+启动数量必须有上限；所有分支都要`Done`，调用方必须等待或在取消路径回收。
 
 ```go
 var wg sync.WaitGroup
-for i := 0; i < 10; i++ {
+for i := range min(len(items), maxWorkers) {
     wg.Add(1)
     go func(id int) {
-        defer wg.Done() // 必须保证执行
-        // 执行工作
+        defer wg.Done()
+        process(ctx, items[id])
     }(i)
 }
 wg.Wait()
 ```
 
-### Mutex 保护内部状态
+### 共享状态
 
-适用于高频同步的内存状态保护，避免 channel 带来的性能损耗。
-
-```go
-var (
-    cache   map[string]interface{}
-    cacheMu sync.RWMutex
-)
-
-func Get(key string) interface{} {
-    cacheMu.RLock()
-    defer cacheMu.RUnlock()
-    return cache[key]
-}
-
-func Set(key string, value interface{}) {
-    cacheMu.Lock()
-    defer cacheMu.Unlock()
-    cache[key] = value
-}
-```
-
----
-
-## 经典并发模式参考
-
-### Worker Pool
-
-对于高频次请求处理，避免无限创建 goroutine。
-
-```go
-func handle(queue <-chan *Request) {
-    for r := range queue {
-        process(r)
-    }
-}
-
-func Serve(clientRequests <-chan *Request, quit <-chan bool) {
-    for i := 0; i < MaxOutstanding; i++ {
-        go handle(clientRequests)
-    }
-    <-quit
-}
-```
+- mutex 适合单 owner 的小型内存状态；锁范围必须有上限，禁止持锁调用网络、RPC 或未知 callback。
+- channel 必须明确发送方、关闭方和缓冲容量；接收方不得假设其他组件会关闭自己不拥有的 channel。
+- runner 内创建的 ticker、listener、subscription 和子 goroutine必须在`ctx.Done()`路径停止并等待。
+- 并发面使用仓库登记的 race 计划验证，不以一次无`-race`测试替代并发证据。

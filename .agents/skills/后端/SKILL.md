@@ -1,7 +1,7 @@
 ---
 name: "后端"
 description: "在 super-agent-v3 中编写、审查或重构 Go 后端代码时使用。"
-trigger_words: ["Go后端", "golang", "go", "backend", "fx", "sqlc", "jrpc2", "rungroup", "stateless", "mcp", "V3架构"]
+trigger_words: ["Go后端", "golang", "backend", "fx.Module", "sqlc", "jrpc2", "RunGroup", "stateless", "internal/module", "internal/store", "internal/platform/runner", "cmd/mcp-", "V3架构"]
 ---
 
 # Go 后端开发规范 (V3 契约合规版)
@@ -14,11 +14,11 @@ trigger_words: ["Go后端", "golang", "go", "backend", "fx", "sqlc", "jrpc2", "r
 
 | 加载场景 | 内容摘要 | 子文件 |
 |---------|---------|-------|
-| 命名变量/函数/包、格式化代码、写注释 | 命名 (MixedCaps/包名/接口名)、格式化 (gofmt/行宽120)、导入分组 (3组)、文档注释规范、Happy Path 编码 | `./naming_formatting.md` |
-| 快速查阅 Go 惯用写法、原则确认 | Effective Go 官方规则精选: 格式化/命名/错误处理/接口设计/并发/文档注释/控制结构/零值可用 | `./effective_go_rules.md` |
-| V3 目录结构、分层设计、fx 模块化 | 目录结构 (`cmd/mcp-*`, `internal/module/*`, `internal/platform/*`)、依赖注入 (`fx.Module`, `fx.Provide`)、边界隔离 | `./project_structure.md` |
-| 重构文件、消除重复、代码审查 | 文件组织红线、DRY、工厂模式、接口隔离 (实现私有化，接口公开)、Options 模式 | `./code_organization.md` |
-| 错误处理、错误映射、日志上下文 | jrpc2 标准错误映射 (`jrpc2.Errorf`)、应用级业务 code、日志预留字段常量、上下文透传 | `./error_handling.md` |
+| 命名变量/函数/包、格式化代码、写注释 | MixedCaps、gofmt、导入分组、仓库注释守卫、Happy Path | `./naming_formatting.md` |
+| 快速查阅 Go 惯用写法、原则确认 | 只记录本仓库相对 Go 惯例的增量；版本以 `go.mod` 为准 | `./effective_go_rules.md` |
+| V3 目录结构、分层设计、fx 模块化 | `internal/module`、`internal/store`、`internal/app/storeadapter` 三层边界与 Fx 装配 | `./project_structure.md` |
+| 重构文件、消除重复、代码审查 | owner 边界、DRY、接口隔离、Fail-Fast 构造器 | `./code_organization.md` |
+| 错误处理、错误映射、日志上下文 | transport-neutral 领域错误、RPC adapter 映射、错误根因和日志上下文 | `./error_handling.md` |
 | 后台任务托管、并发模型、生命周期管理 | `internal/platform/runner` 契约、Runner 接口、受控 goroutine 规则 | `./concurrency_basics.md` |
 | 写测试、排查 bug、依赖注入测试 | 表驱动测试、测试辅助函数、`fx` Graph 依赖方向测试坑、状态机全矩阵测试 (State Matrix Test) | `./testing_pitfalls.md` |
 
@@ -34,6 +34,7 @@ trigger_words: ["Go后端", "golang", "go", "backend", "fx", "sqlc", "jrpc2", "r
 | Orchestration | DAG 编排由独立 `mcp-orch` MCP server 承担；桌面进程通过 contract/adapters 连接，不内嵌 orchestration module。 |
 | 数据库 | `internal/platform/db/module.go` 打开 SQLite，启动期执行 migration / SQLite schema 校验；路径来自 `SUPER_DOLPHIN_SQLITE_PATH` / `SUPER_DOLPHIN_HOME`。 |
 | Store | `internal/store/module.go` 中的 store.Module 是明确的聚合例外：只负责共享 `sqlc.Queries` 与子 store Fx module，不放业务逻辑。 |
+| Store adapter | 单模块持久化端口由 `internal/module/<name>` 拥有，`internal/app/storeadapter/<name>` 负责 DTO 映射和 Fx 绑定，`internal/store/<name>` 负责 sqlc 实现。 |
 | 契约层 | `internal/contract` 放跨模块窄端口、DTO 和哨兵错误；单模块 owner-local port 优先留在模块内。 |
 | Provider | `internal/provider` 适配 Codex / Claude / unified session；provider-native mirror 在 provider 启动/acquire 前由 skill 模块刷新。 |
 | Sidecar | `cmd/mcp-*` 是 MCP peer / sidecar 壳；通用 MCP 协议优先放 `internal/mcpserver/common`。 |
@@ -52,66 +53,44 @@ trigger_words: ["Go后端", "golang", "go", "backend", "fx", "sqlc", "jrpc2", "r
 
 | 规则 | 要求 |
 |------|------|
-| **DI 容器** | 运行时装配 MUST 统一由 `go.uber.org/fx` 完成，禁止使用包级全局变量。 |
-| **持久化** | 数据库操作 MUST 使用 `sqlc` 生成 `Querier` 接口，严禁引入 ORM 或手写增删改查。 |
+| **DI 容器** | 运行时依赖和可变业务状态 MUST 通过构造函数/Fx 注入；禁止可变 service locator、进程级业务注册表和隐式全局状态。常量、哨兵错误及守卫明确允许的受控运行时设施不在此限。 |
+| **持久化** | 产品 Store 查询默认由根 `sql/queries` 生成到 `internal/store/sqlc`；业务 module 只拥有窄端口，app storeadapter 完成映射，store 封装 sqlc。`cmd/mcp-orch` 使用自己的 SQL 树；新增手写 SQL 例外必须有契约、owner 和测试。 |
 | **RPC 通信** | RPC 通信 MUST 基于 `github.com/creachadair/jrpc2` 实现 JSON-RPC 2.0，禁止直接使用 Gin 暴露 HTTP 接口。 |
 | **生命周期** | 长跑任务 MUST 注入 `group:"runners"` 并由 `internal/platform/runner.RunGroup` 托管；禁止在构造器、handler 或 singleton 初始化中启动未受控 goroutine。 |
-| **状态机** | 复杂实体生命周期 MUST 使用 `qmuntal/stateless` 进行全矩阵映射，禁止零散的 `switch/case` 和二次副作用推导。 |
-| **事件总线** | 进程内事件解耦 MUST 使用 `kelindar/event`，必须使用强类型结构体传递，禁止使用 `map[string]any`。 |
+| **状态机** | 权威领域生命周期存在多状态、多触发器和非法迁移时使用 `qmuntal/stateless` 并做全矩阵验证；普通局部控制流不因此禁止 `switch`。 |
+| **事件总线** | 需要多消费者解耦的领域事件使用 `kelindar/event`和强类型 payload；禁止以 `map[string]any`替代稳定跨层 DTO，但动态协议数据和局部控制结构按真实语义处理。 |
 
 ### 错误处理与日志
 
 | 规则 | 要求 |
 |------|------|
 | ALWAYS 检查 | 每个返回 error 的调用 MUST 检查，NEVER `val, _ := fn()` |
-| jrpc2 错误映射 | 返回给客户端的错误 MUST 遵循 JSON-RPC 标准，使用 `jrpc2.Errorf(Code, msg)` 并映射应用 Code。 |
-| 跨层边界 | 内部跨层调用应适当包装错误，保留原始原因。 |
-| 结构化日志 | MUST 从 Context 获取日志实例 (`logger.FromContext(ctx)`)，并使用预留的 `FieldXxx` 常量。 |
+| 领域错误 | `module/service` 返回 transport-neutral 的领域错误或哨兵错误，不直接构造 jrpc2 协议错误。 |
+| jrpc2 映射 | `rpc.go` / `internal/platform/rpc` adapter 或 middleware 将领域错误映射为稳定 JSON-RPC code，禁止把底层错误细节直接暴露给客户端。 |
+| 跨层边界 | 仅在跨 owner 且调用方需要上下文时包装一次并保留 `%w`，同一抽象内不要机械叠加包装；判断使用 `errors.Is/As`。 |
+| 结构化日志 | 请求/RPC 边界优先从 Context 取得 trace-aware logger；长生命周期 actor 使用构造函数注入的 logger。字段键使用现有稳定常量，成功日志只能在操作确认成功后记录。 |
 
 ### 代码组织与接口
 
 | 规则 | 要求 |
 |------|------|
-| 禁止 chains | NEVER `_chains.go` 文件，0 容忍。 |
 | 单文件下限 | \<50 行文件不自动判错；只有当它只是无边界价值的碎片化包装时才合并，测试、契约、窄端口和清晰 owner 边界可以保留。 |
-| 隐藏实现 | 模块只暴露 Interface 和 `fx.Module`，具体的结构体实现应当保持包私有。 |
+| 隐藏实现 | 调用方不需要具体类型时保持实现私有；公开面由真实消费者决定，不机械要求模块只暴露 Interface。 |
 | 接口定义 | 接口在使用方定义，而非实现方。 |
 
 ---
 
-## 提交与推送门禁（证据主导）
+## 交付证据
 
-门禁结论必须由**本次实际提交或推送对象的可复查证据**支持，不能只根据计划、历史结果、代理口述、空日志、单个 `PASS` / `DONE` 或工作区曾经全绿作出判断。命令退出码为 0 只是必要条件；还必须确认检查对象、输出中的实际 gate、Git 对象和远端状态彼此一致。
+提交和推送行为只以 `AGENTS.md`、`.githooks/pre-commit`、`.githooks/commit-msg`、`.githooks/pre-push`及`.githooks/README.md`为事实源；本技能不复制静态 gate 命令清单。技能改动至少运行`python3 scripts/validate_super_agent_skills.py`与`git diff --check`，Go 或架构门禁改动再通过`./scripts/test_with_guard.sh`运行受影响包。
 
-### 提交门禁
-
-| 判定项 | 必须保留的证据 | 判定规则 |
-|------|----------------|---------|
-| Hook 已启用 | `git config --get core.hooksPath` 指向 `.githooks`；首次接入使用 `make install-hooks` | 未启用 hook 时，不得把普通 `git commit` 描述为已经过仓库提交门禁。 |
-| pre-commit | 本次 `git commit` 输出中出现实际执行的 `pre-commit` gate 及最终 `pre-commit OK`，且命令退出码为 0 | 以 staged index 为检查对象；必须处理生成物刷新、全量 guard，以及变更语言对应的格式化、vet、测试或前端检查。 |
-| commit-msg | 本次提交输出或复跑证据显示中文提交信息 guard 与 fix-test guard 通过 | `fix` / `hotfix` / `bugfix` / `修复` 类提交必须在同一提交包含锁定缺陷的测试、fixture、golden 或 snapshot。 |
-| 提交对象 | `git rev-parse HEAD`、`git show --stat --oneline --decorate HEAD`，必要时核对 `git diff HEAD^ HEAD -- <scope>` | 必须证明门禁通过后生成的 commit 就是声称已提交的变更；只有工作区 diff 或暂存状态不算已提交。 |
-
-提交门禁失败、被跳过或证据缺失时，只能报告“未通过/未证实”。禁止使用 `--no-verify` 常态绕过；若用户明确授权紧急绕过，必须披露跳过了哪些 gate、补跑结果和仍缺失的证据，不得声称正常门禁已通过。
-
-### 推送门禁
-
-| 判定项 | 必须保留的证据 | 判定规则 |
-|------|----------------|---------|
-| 推送对象 | push 前记录 `git rev-parse HEAD`、当前分支与目标 remote/ref | `.githooks/pre-push` 只允许推送当前 `HEAD`；检查对象不一致即阻断。 |
-| pre-push | 本次 `git push` 输出中出现实际执行的提交信息、fix-test、AI maintenance 和变更影响面 gate，最终 `pre-push OK`，且 push 退出码为 0 | Go 变更按 push range 跑受影响包；前端变更跑 lint、非 e2e test、build；相关 sqlc、capability contract、技能镜像检查必须按 hook 条件执行。 |
-| 生成物门禁 | codemap / project-map check 的命令与退出码 | pre-commit 和 pre-push 都必须 fail-fast；任一 drift 或生成命令失败均为 blocker，不得降级成 warning。 |
-| 远端落点 | push 成功输出，并用 `git ls-remote <remote> <ref>` 或等价远端查询确认目标 ref SHA 等于推送前记录的 `HEAD` | `pre-push OK` 只证明推送前检查通过，不证明远端已接收；远端 SHA 未对齐时不得声称“已推送”。 |
-
-### 结论口径
+结论口径保持严格：
 
 - “可提交”：与变更面匹配的验证已通过，但尚未生成 commit。
 - “已提交”：提交门禁通过，且已核对 commit SHA 与提交内容；同时报告未提交/未跟踪的同范围改动。
 - “可推送”：提交对象和 pre-push 所需检查具备通过证据，但尚未确认远端更新。
 - “已推送”：`git push` 成功，且远端目标 ref SHA 与本地目标 commit 一致。
-- 任一强制 gate 失败均为 blocker；未覆盖的 deferred E2E / CI 检查和脏工作区必须单独披露，不能被汇总成全绿。
-
-提交/推送 hook 的当前行为以 `.githooks/pre-commit`、`.githooks/commit-msg`、`.githooks/pre-push` 和 `.githooks/README.md` 为事实来源；技能不得复制一份与 hook 漂移的静态命令清单。
+- 任一强制 gate 失败均为 blocker；未覆盖检查和脏工作区必须单独披露，不能汇总成全绿。
 
 ---
 
@@ -126,7 +105,7 @@ trigger_words: ["Go后端", "golang", "go", "backend", "fx", "sqlc", "jrpc2", "r
 | 契约与骨架索引 | `docs/契约/README.md`, `docs/架构/README.md` |
 | 模块化与 fx DI 契约 | `docs/契约/modularity-convention.md`, `docs/契约/fx-convention.md` |
 | sqlc 数据库契约 | `docs/契约/sqlc-convention.md` |
-| 生命周期与 RunGroup 契约 | `docs/契约/rungroup-convention.md` |
+| 生命周期与 RunGroup 契约 | `docs/契约/rungroup-convention.md`, `docs/架构/skeleton-rungroup.md`, `internal/app/runner.go` |
 | RPC 与 MCP 契约 | `docs/契约/jrpc2-convention.md`, `docs/契约/mcp-service-convention.md` |
 | 状态机与事件总线契约 | `docs/契约/statemachine-event-convention.md` |
 | 架构骨架 | `docs/架构/skeleton-fx.md`, `docs/架构/skeleton-rungroup.md`, `docs/架构/skeleton-jrpc2.md`, `docs/架构/skeleton-event.md`, `docs/架构/skeleton-stateless.md` |

@@ -58,9 +58,9 @@ func TestStateMachine_Matrix(t *testing.T) {
 
 ## 标准 Go 测试规范
 
-### 表驱动测试
+### 按语义选择测试形态
 
-MUST 使用表驱动测试:
+当多个 case 共享同一执行逻辑、断言结构和失败语义时使用表驱动测试；单一生命周期序列、并发协调或强时序场景可以使用命名清晰的独立测试，不机械改写成表格。
 
 ```go
 func TestValidateEmail(t *testing.T) {
@@ -103,10 +103,22 @@ func setupTestDB(t *testing.T) *sql.DB {
     if err != nil {
         t.Fatalf("open test sqlite db: %v", err)
     }
-    t.Cleanup(func() { db.Close() }) // 自动在测试结束时执行
+    t.Cleanup(func() {
+        if err := db.Close(); err != nil {
+            t.Errorf("close test sqlite db: %v", err)
+        }
+    })
     return db
 }
 ```
+
+### 仓库测试入口
+
+- 聚焦包：`./scripts/test_with_guard.sh <affected-packages> -count=1`
+- 架构边界：`./scripts/test_with_guard.sh ./internal/archtest -count=1`，必要时追加`make guard`
+- 全仓回归：`make test`，由 Makefile 维护显式源码包根和 deferred E2E 串行策略
+- 不把裸`go test ./...`或空的`[no test files]`输出作为本仓库完成证据
+- 修复守卫时先注入一个真实违规取得 RED，再恢复并取得 GREEN；不得只证明正常输入通过
 
 ---
 
@@ -114,7 +126,7 @@ func setupTestDB(t *testing.T) *sql.DB {
 
 ### 竞态条件
 
-MUST 使用 `go test -race ./...` 检测竞态:
+并发相关改动必须覆盖仓库登记的并发面。聚焦验证可通过`./scripts/test_with_guard.sh <packages> -race -count=1`运行；提交/推送范围的 race 计划以当前 AI maintenance gate 和`.githooks/README.md`为准，不手写一个会扫描生成物或绕过 deferred E2E 策略的全仓命令。
 
 ```go
 // ❌ 竞态

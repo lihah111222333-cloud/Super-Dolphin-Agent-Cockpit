@@ -319,6 +319,76 @@ if not any("~/.claude/skills/design/scripts" in item for item in failures):
 	}
 }
 
+func TestValidateSuperAgentSkillsRejectsBackendSemanticDrift(t *testing.T) {
+	code := `
+import importlib.util
+import pathlib
+import shutil
+import sys
+import tempfile
+
+script = pathlib.Path("validate_super_agent_skills.py")
+spec = importlib.util.spec_from_file_location("validate_super_agent_skills", script)
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+
+repo = pathlib.Path("..").resolve()
+root = pathlib.Path(tempfile.mkdtemp())
+shutil.copytree(repo / ".agents" / "skills" / "后端", root / ".agents" / "skills" / "后端")
+(root / "docs" / "契约").mkdir(parents=True)
+shutil.copy2(repo / "docs" / "契约" / "rungroup-convention.md", root / "docs" / "契约" / "rungroup-convention.md")
+shutil.copy2(repo / "go.mod", root / "go.mod")
+
+def validate():
+    failures = []
+    module.check_backend_skill_contract(failures, root)
+    return failures
+
+baseline = validate()
+if baseline:
+    sys.exit("current backend skill contract is invalid: " + repr(baseline))
+
+main_path = root / ".agents" / "skills" / "后端" / "SKILL.md"
+main_text = main_path.read_text(encoding="utf-8")
+main_path.write_text(main_text.replace('["Go后端"', '["go", "Go后端"', 1), encoding="utf-8")
+failures = validate()
+if not any("low-signal backend trigger" in item for item in failures):
+    sys.exit("bare go trigger was accepted: " + repr(failures))
+main_path.write_text(main_text, encoding="utf-8")
+
+stale_cases = [
+    ("project_structure.md", "\n├── store.go         # 数据库访问层封装\n", "forbidden backend skill pattern"),
+    ("concurrency_basics.md", "\n_ = platformrunner.RunGroup(runCtx, runners, platformrunner.GroupOptions{})\n", "forbidden backend skill pattern"),
+    ("error_handling.md", "\n**L2 业务层** | 带有自定义 Code 的 " + chr(96) + "*jrpc2.Error" + chr(96) + "\n", "forbidden backend skill pattern"),
+    ("code_organization.md", "\nc := &Client{timeout: 30 * time.Second}\n", "forbidden backend skill pattern"),
+    ("testing_pitfalls.md", "\ngo test -race ./...\n", "forbidden backend skill pattern"),
+    ("effective_go_rules.md", "\nGo 1.27+\n", "Go version must come from go.mod"),
+]
+backend = root / ".agents" / "skills" / "后端"
+for relative, stale, marker in stale_cases:
+    path = backend / relative
+    original = path.read_text(encoding="utf-8")
+    path.write_text(original + stale, encoding="utf-8")
+    failures = validate()
+    if not any(marker in item for item in failures):
+        sys.exit(relative + " semantic drift was accepted: " + repr(failures))
+    path.write_text(original, encoding="utf-8")
+
+contract = root / "docs" / "契约" / "rungroup-convention.md"
+contract_text = contract.read_text(encoding="utf-8")
+contract.write_text(contract_text + "\ngithub.com/oklog/run\n", encoding="utf-8")
+failures = validate()
+if not any("forbidden RunGroup contract pattern" in item for item in failures):
+    sys.exit("stale RunGroup owner was accepted: " + repr(failures))
+`
+	cmd := exec.Command("python3", "-c", code)
+	cmd.Dir = "."
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("backend skill semantic guard rejected expected contract: %v\n%s", err, out)
+	}
+}
+
 func TestCICommitGuardFallsBackToOriginMainForLocalRun(t *testing.T) {
 	root := prepareFixTestGuardRepo(t)
 	copyFixTestGuardRepoFile(t, root, "scripts/ci_commit_guard.sh", 0o755)
