@@ -269,4 +269,12 @@ cd frontend-app && npm run lint && npm test && npm run build
 - SQL diagnostics 保留现有 SQL peer 的语义能力，只在当前产品仓库布局内用生产 SQLite 迁移器和 modernc SQLite 替换诊断；覆盖隔离 worktree、未落盘新迁移、特殊迁移正文、sqlc 查询、schema patch、fixture、文档版本和增量变更拒绝。
 - SQL xref 两次拒绝已稳定复现为 `sql-language-server 1.7.1` 未声明 references capability 且请求返回 `-32601 Unhandled method`，不是位置选择错误；当前组合层不伪造 references 能力。
 
-阶段性验证已取得 focused race/test、`make guard`、codemap/project-map/capcontract/sqlc checks、`make build-plain`、后端全包验证及前端 lint/test/build 绿色。全量 `make lsp-diagnostics-check` 在修正非法 JSON 故障夹具后于 7 分 11 秒完成，覆盖 3506 个 tracked candidates、检查 3443 个文件、按主机构建约束跳过 63 个文件、diagnostics=0；该结果早于新文件暂存和最新主线回放，只作为性能与故障定位检查点。最终交付仍须在 stage、官方生成物刷新并吸收最新 `main` 后重跑全部门禁，通过正常中文提交 hooks；提交 SHA 在实际提交成功后记录，不预填。
+最终集成已吸收 `main@5482a52cfc256e1ee386dd3ce4e125b01e7dbc85`，merge commit 为 `77746ffaf`。SQLite 主修提交为 `a48438157`；合并后继续闭环 PostgreSQL 发布烟测残留 `db8877805`、DAG dogfood Pyright 类型边界 `4eccf81b7`、dashboard PostgreSQL 占位符残留 `3aacc474a` 和 SQLite query-plan 参数数量 `90eebd725`。在 `90eebd725` 上，`main` 是当前分支祖先，`HEAD...main` 为 ahead 13 / behind 0。
+
+最终门禁证据：
+
+- `make lsp-diagnostics-check` 完整通过：3521 个 tracked candidates，检查 3457 个文件，按主机构建约束跳过 64 个文件，diagnostics=0；后续 dashboard/query-plan 修改由正常 pre-commit 的 changed-files diagnostics 复核为 0。
+- `./scripts/test_with_guard.sh ./cmd/... ./internal/... ./pkg/... ./scripts/... -count=1` 全包通过；此前暴露的 dashboard `$n` 和 query-plan 参数不足均已修复后复跑通过。
+- `python3 scripts/validate_super_agent_skills.py`、`make build-plain`、`make guard`、codemap/project-map/capcontract checks、`make sqlc-verify-worktree` 均通过。
+- `frontend-app` 的 lint、contract typecheck、RPC audit、157 个 test files / 2324 tests 及 Vite build 全部通过。
+- 所有提交均经过正常中文 commit hooks，未使用 `--no-verify`。集成分支尚未 push；本地绿色与远端发布状态不混淆。
