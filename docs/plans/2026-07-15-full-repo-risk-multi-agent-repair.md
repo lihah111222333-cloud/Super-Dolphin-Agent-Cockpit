@@ -255,3 +255,18 @@ cd frontend-app && npm run lint && npm test && npm run build
 - 不手改 sqlc、codemap、project-map、capability manifest 或 embed 产物。
 - 不把 mapper 字段完整性做成运行时零值 panic；正确防线是动态字段守卫。
 - 不让多个 agent 在各自 worktree 刷新共享生成物后互相覆盖。
+
+## 11. 2026-07-15 集成执行结果
+
+执行工作树：`.worktrees/risk-wave3-integration-20260715`；集成分支：`codex/risk-wave3-integration-20260715`。本计划最终修复统一收敛到该工作树；主工作区存在此前遗留的同路径脏文件，因此最终以集成分支提交和 staged-tree 门禁为交付真值，不以主工作区状态作隔离证明。
+
+本轮按最新产品范围收敛为 SQLite-only：
+
+- 删除内置 PostgreSQL MCP 启动、安装、RPC、契约与顶层 PostgreSQL migrations；移除 pgx/pgpass/pgservice/puddle 模块依赖。
+- 保留 PostgreSQL 环境变量清洗、发布包禁带 PostgreSQL runtime、旧 RPC/命令拒绝和 pgx deny-import，作为防止兼容面回流的上层防御。
+- `dbquery` 只接受 SQLite `?` 占位符；`$n` 立即报错。
+- `command_card.sql` 采用 SQLite 事务内 update -> conditional insert -> get 的等价实现，保持不可变字段并更新可变字段。
+- SQL diagnostics 保留现有 SQL peer 的语义能力，只在当前产品仓库布局内用生产 SQLite 迁移器和 modernc SQLite 替换诊断；覆盖隔离 worktree、未落盘新迁移、特殊迁移正文、sqlc 查询、schema patch、fixture、文档版本和增量变更拒绝。
+- SQL xref 两次拒绝已稳定复现为 `sql-language-server 1.7.1` 未声明 references capability 且请求返回 `-32601 Unhandled method`，不是位置选择错误；当前组合层不伪造 references 能力。
+
+阶段性验证已取得 focused race/test、`make guard`、codemap/project-map/capcontract/sqlc checks、`make build-plain`、后端全包验证及前端 lint/test/build 绿色。全量 `make lsp-diagnostics-check` 在修正非法 JSON 故障夹具后于 7 分 11 秒完成，覆盖 3506 个 tracked candidates、检查 3443 个文件、按主机构建约束跳过 63 个文件、diagnostics=0；该结果早于新文件暂存和最新主线回放，只作为性能与故障定位检查点。最终交付仍须在 stage、官方生成物刷新并吸收最新 `main` 后重跑全部门禁，通过正常中文提交 hooks；提交 SHA 在实际提交成功后记录，不预填。

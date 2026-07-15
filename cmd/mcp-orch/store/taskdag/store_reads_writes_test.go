@@ -28,6 +28,15 @@ func TestSQLiteTaskDAGNodeReadsWritesRoundTrip(t *testing.T) {
 	}
 	assertStringSliceField(t, *upserted, "Reads", reads)
 	assertStringSliceField(t, *upserted, "Writes", writes)
+	originalID := upserted.ID
+	node.Title = "Worker updated"
+	updated, err := store.UpsertNode(ctx, node)
+	if err != nil {
+		t.Fatalf("UpsertNode(update) error = %v", err)
+	}
+	if updated.ID != originalID || updated.Title != node.Title {
+		t.Fatalf("UpsertNode(update) = {ID:%d Title:%q}, want {ID:%d Title:%q}", updated.ID, updated.Title, originalID, node.Title)
+	}
 
 	nodes, err := store.ListNodes(ctx, "dag-rw")
 	if err != nil {
@@ -59,26 +68,13 @@ func TestTaskDAGNodeFieldGuardSQLCFieldsMustMapToDomainNode(t *testing.T) {
 		typ        reflect.Type
 		exemptions map[string]string
 	}{
-		{name: "UpsertTaskDagNodeRow", typ: reflect.TypeFor[sqlc.UpsertTaskDagNodeRow]()},
-		{name: "PatchTaskDagNodeConfigIfUnchangedRow", typ: reflect.TypeFor[sqlc.PatchTaskDagNodeConfigIfUnchangedRow]()},
-		{name: "UpdateTaskDagNodeStatusIfCurrentRow", typ: reflect.TypeFor[sqlc.UpdateTaskDagNodeStatusIfCurrentRow]()},
+		{name: "GetTaskDagNodeRow", typ: reflect.TypeFor[sqlc.GetTaskDagNodeRow]()},
 		{name: "ListTaskDagNodesRow", typ: reflect.TypeFor[sqlc.ListTaskDagNodesRow]()},
-		{name: "AssignTaskDagNodeRow", typ: reflect.TypeFor[sqlc.AssignTaskDagNodeRow]()},
 		{name: "ListTaskDagRunNodesRow", typ: reflect.TypeFor[sqlc.ListTaskDagRunNodesRow]()},
 		{name: "GetTaskDagRunNodeForUpdateRow", typ: reflect.TypeFor[sqlc.GetTaskDagRunNodeForUpdateRow]()},
 		{name: "LookupNodesBySpawningThreadRow", typ: reflect.TypeFor[sqlc.LookupNodesBySpawningThreadRow]()},
 		{name: "ListRunningTaskDagNodesByAssigneeRow", typ: reflect.TypeFor[sqlc.ListRunningTaskDagNodesByAssigneeRow]()},
 		{name: "GetTaskDagNodesForUpdateRow", typ: reflect.TypeFor[sqlc.GetTaskDagNodesForUpdateRow]()},
-		{name: "BindRunningTaskDagNodeTurnRow", typ: reflect.TypeFor[sqlc.BindRunningTaskDagNodeTurnRow]()},
-		{name: "TouchRunningTaskDagNodeEventRow", typ: reflect.TypeFor[sqlc.TouchRunningTaskDagNodeEventRow]()},
-		{name: "UpdateRunningTaskDagNodeStatusRow", typ: reflect.TypeFor[sqlc.UpdateRunningTaskDagNodeStatusRow]()},
-		{name: "CompleteTaskDagNodeRow", typ: reflect.TypeFor[sqlc.CompleteTaskDagNodeRow]()},
-		{name: "ClaimTaskDagNodeOutputMaterializationRow", typ: reflect.TypeFor[sqlc.ClaimTaskDagNodeOutputMaterializationRow]()},
-		{name: "FailTaskDagNodeIfNonTerminalRow", typ: reflect.TypeFor[sqlc.FailTaskDagNodeIfNonTerminalRow]()},
-		{name: "MarkDispatchIncompleteNodesWithoutActiveWakeupRow", typ: reflect.TypeFor[sqlc.MarkDispatchIncompleteNodesWithoutActiveWakeupRow]()},
-		{name: "UpdateTaskDagNodeSpawningThreadRow", typ: reflect.TypeFor[sqlc.UpdateTaskDagNodeSpawningThreadRow](), exemptions: map[string]string{
-			"Column23": "sqlc generates this name for previous_spawning_thread_id, an auxiliary CTE value not part of taskdag.Node",
-		}},
 	}
 
 	for _, row := range rows {

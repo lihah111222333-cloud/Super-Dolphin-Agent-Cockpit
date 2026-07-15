@@ -13,7 +13,8 @@ import (
 const getWorkspaceRun = `-- name: GetWorkspaceRun :one
 SELECT id, run_key, dag_key, source_root, workspace_path, status, created_by, updated_by, CAST(metadata AS BLOB) AS metadata, created_at, updated_at, finished_at
 FROM workspace_runs
-WHERE run_key = ?
+WHERE
+    run_key = ?1
 `
 
 type GetWorkspaceRunParams struct {
@@ -58,7 +59,7 @@ func (q *Queries) GetWorkspaceRun(ctx context.Context, arg GetWorkspaceRunParams
 const getWorkspaceRunFile = `-- name: GetWorkspaceRunFile :one
 SELECT id, run_key, relative_path, baseline_sha256, workspace_sha256, source_sha256_before, source_sha256_after, state, last_error, created_at, updated_at
 FROM workspace_run_files
-WHERE run_key = ? AND relative_path = ?
+WHERE run_key = ?1 AND relative_path = ?2
 `
 
 type GetWorkspaceRunFileParams struct {
@@ -83,6 +84,88 @@ func (q *Queries) GetWorkspaceRunFile(ctx context.Context, arg GetWorkspaceRunFi
 		&i.UpdatedAt,
 	)
 	return i, err
+}
+
+const insertWorkspaceRun = `-- name: InsertWorkspaceRun :execrows
+INSERT INTO workspace_runs (
+    run_key, dag_key, source_root, workspace_path, status,
+    created_by, updated_by, metadata, created_at, updated_at, finished_at
+) VALUES (
+    ?1, ?2, ?3, ?4, ?5,
+    ?6, ?7, ?8,
+    (CAST(strftime('%s','now') AS INTEGER) * 1000),
+    (CAST(strftime('%s','now') AS INTEGER) * 1000), ?9
+)
+`
+
+type InsertWorkspaceRunParams struct {
+	RunKey        string          `db:"run_key" json:"run_key"`
+	DagKey        string          `db:"dag_key" json:"dag_key"`
+	SourceRoot    string          `db:"source_root" json:"source_root"`
+	WorkspacePath string          `db:"workspace_path" json:"workspace_path"`
+	Status        string          `db:"status" json:"status"`
+	CreatedBy     string          `db:"created_by" json:"created_by"`
+	UpdatedBy     string          `db:"updated_by" json:"updated_by"`
+	Metadata      json.RawMessage `db:"metadata" json:"metadata"`
+	FinishedAt    *int64          `db:"finished_at" json:"finished_at"`
+}
+
+func (q *Queries) InsertWorkspaceRun(ctx context.Context, arg InsertWorkspaceRunParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, insertWorkspaceRun,
+		arg.RunKey,
+		arg.DagKey,
+		arg.SourceRoot,
+		arg.WorkspacePath,
+		arg.Status,
+		arg.CreatedBy,
+		arg.UpdatedBy,
+		arg.Metadata,
+		arg.FinishedAt,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const insertWorkspaceRunFile = `-- name: InsertWorkspaceRunFile :execrows
+INSERT INTO workspace_run_files (
+    run_key, relative_path, baseline_sha256, workspace_sha256,
+    source_sha256_before, source_sha256_after, state, last_error, created_at, updated_at
+) VALUES (
+    ?1, ?2, ?3, ?4,
+    ?5, ?6, ?7, ?8,
+    (CAST(strftime('%s','now') AS INTEGER) * 1000),
+    (CAST(strftime('%s','now') AS INTEGER) * 1000)
+)
+`
+
+type InsertWorkspaceRunFileParams struct {
+	RunKey             string `db:"run_key" json:"run_key"`
+	RelativePath       string `db:"relative_path" json:"relative_path"`
+	BaselineSha256     string `db:"baseline_sha256" json:"baseline_sha256"`
+	WorkspaceSha256    string `db:"workspace_sha256" json:"workspace_sha256"`
+	SourceSha256Before string `db:"source_sha256_before" json:"source_sha256_before"`
+	SourceSha256After  string `db:"source_sha256_after" json:"source_sha256_after"`
+	State              string `db:"state" json:"state"`
+	LastError          string `db:"last_error" json:"last_error"`
+}
+
+func (q *Queries) InsertWorkspaceRunFile(ctx context.Context, arg InsertWorkspaceRunFileParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, insertWorkspaceRunFile,
+		arg.RunKey,
+		arg.RelativePath,
+		arg.BaselineSha256,
+		arg.WorkspaceSha256,
+		arg.SourceSha256Before,
+		arg.SourceSha256After,
+		arg.State,
+		arg.LastError,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const listWorkspaceRunFiles = `-- name: ListWorkspaceRunFiles :many
@@ -201,261 +284,152 @@ func (q *Queries) ListWorkspaceRuns(ctx context.Context, arg ListWorkspaceRunsPa
 	return items, nil
 }
 
-const transitionWorkspaceRunStatus = `-- name: TransitionWorkspaceRunStatus :one
+const transitionWorkspaceRunStatus = `-- name: TransitionWorkspaceRunStatus :execrows
 UPDATE workspace_runs
 SET status = ?1,
     updated_by = ?2,
     metadata = ?3,
     updated_at = (CAST(strftime('%s','now') AS INTEGER) * 1000),
-    finished_at = CASE
-        WHEN ?1 = 'merged'
-          OR ?1 = 'aborted'
-          OR ?1 = 'failed' THEN (CAST(strftime('%s','now') AS INTEGER) * 1000)
-        WHEN ?1 = 'active' THEN NULL
-        ELSE finished_at
-    END
-WHERE run_key = ?4 AND status = ?5
-RETURNING id, run_key, dag_key, source_root, workspace_path, status, created_by, updated_by, CAST(metadata AS BLOB) AS metadata, created_at, updated_at, finished_at
+    finished_at = ?4
+WHERE
+    run_key = ?5 AND status = ?6
 `
 
 type TransitionWorkspaceRunStatusParams struct {
 	NewStatus      string          `db:"new_status" json:"new_status"`
 	UpdatedBy      string          `db:"updated_by" json:"updated_by"`
 	Metadata       json.RawMessage `db:"metadata" json:"metadata"`
+	FinishedAt     *int64          `db:"finished_at" json:"finished_at"`
 	RunKey         string          `db:"run_key" json:"run_key"`
 	ExpectedStatus string          `db:"expected_status" json:"expected_status"`
 }
 
-type TransitionWorkspaceRunStatusRow struct {
-	ID            int64  `db:"id" json:"id"`
-	RunKey        string `db:"run_key" json:"run_key"`
-	DagKey        string `db:"dag_key" json:"dag_key"`
-	SourceRoot    string `db:"source_root" json:"source_root"`
-	WorkspacePath string `db:"workspace_path" json:"workspace_path"`
-	Status        string `db:"status" json:"status"`
-	CreatedBy     string `db:"created_by" json:"created_by"`
-	UpdatedBy     string `db:"updated_by" json:"updated_by"`
-	Metadata      []byte `db:"metadata" json:"metadata"`
-	CreatedAt     int64  `db:"created_at" json:"created_at"`
-	UpdatedAt     int64  `db:"updated_at" json:"updated_at"`
-	FinishedAt    *int64 `db:"finished_at" json:"finished_at"`
-}
-
-func (q *Queries) TransitionWorkspaceRunStatus(ctx context.Context, arg TransitionWorkspaceRunStatusParams) (TransitionWorkspaceRunStatusRow, error) {
-	row := q.db.QueryRowContext(ctx, transitionWorkspaceRunStatus,
+func (q *Queries) TransitionWorkspaceRunStatus(ctx context.Context, arg TransitionWorkspaceRunStatusParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, transitionWorkspaceRunStatus,
 		arg.NewStatus,
 		arg.UpdatedBy,
 		arg.Metadata,
+		arg.FinishedAt,
 		arg.RunKey,
 		arg.ExpectedStatus,
 	)
-	var i TransitionWorkspaceRunStatusRow
-	err := row.Scan(
-		&i.ID,
-		&i.RunKey,
-		&i.DagKey,
-		&i.SourceRoot,
-		&i.WorkspacePath,
-		&i.Status,
-		&i.CreatedBy,
-		&i.UpdatedBy,
-		&i.Metadata,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-		&i.FinishedAt,
-	)
-	return i, err
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
-const updateWorkspaceRunStatus = `-- name: UpdateWorkspaceRunStatus :one
+const updateWorkspaceRun = `-- name: UpdateWorkspaceRun :execrows
 UPDATE workspace_runs
-SET status = ?1,
-    updated_by = ?2,
-    metadata = ?3,
+SET dag_key = ?1,
+    source_root = ?2,
+    workspace_path = ?3,
+    status = ?4,
+    updated_by = ?5,
+    metadata = ?6,
     updated_at = (CAST(strftime('%s','now') AS INTEGER) * 1000),
-    finished_at = CASE
-        WHEN ?1 = 'merged'
-          OR ?1 = 'aborted'
-          OR ?1 = 'failed' THEN (CAST(strftime('%s','now') AS INTEGER) * 1000)
-        WHEN ?1 = 'active' THEN NULL
-        ELSE finished_at
-    END
-WHERE run_key = ?4
-RETURNING id, run_key, dag_key, source_root, workspace_path, status, created_by, updated_by, CAST(metadata AS BLOB) AS metadata, created_at, updated_at, finished_at
+    finished_at = ?7
+WHERE
+    run_key = ?8
 `
 
-type UpdateWorkspaceRunStatusParams struct {
-	NewStatus string          `db:"new_status" json:"new_status"`
-	UpdatedBy string          `db:"updated_by" json:"updated_by"`
-	Metadata  json.RawMessage `db:"metadata" json:"metadata"`
-	RunKey    string          `db:"run_key" json:"run_key"`
-}
-
-type UpdateWorkspaceRunStatusRow struct {
-	ID            int64  `db:"id" json:"id"`
-	RunKey        string `db:"run_key" json:"run_key"`
-	DagKey        string `db:"dag_key" json:"dag_key"`
-	SourceRoot    string `db:"source_root" json:"source_root"`
-	WorkspacePath string `db:"workspace_path" json:"workspace_path"`
-	Status        string `db:"status" json:"status"`
-	CreatedBy     string `db:"created_by" json:"created_by"`
-	UpdatedBy     string `db:"updated_by" json:"updated_by"`
-	Metadata      []byte `db:"metadata" json:"metadata"`
-	CreatedAt     int64  `db:"created_at" json:"created_at"`
-	UpdatedAt     int64  `db:"updated_at" json:"updated_at"`
-	FinishedAt    *int64 `db:"finished_at" json:"finished_at"`
-}
-
-func (q *Queries) UpdateWorkspaceRunStatus(ctx context.Context, arg UpdateWorkspaceRunStatusParams) (UpdateWorkspaceRunStatusRow, error) {
-	row := q.db.QueryRowContext(ctx, updateWorkspaceRunStatus,
-		arg.NewStatus,
-		arg.UpdatedBy,
-		arg.Metadata,
-		arg.RunKey,
-	)
-	var i UpdateWorkspaceRunStatusRow
-	err := row.Scan(
-		&i.ID,
-		&i.RunKey,
-		&i.DagKey,
-		&i.SourceRoot,
-		&i.WorkspacePath,
-		&i.Status,
-		&i.CreatedBy,
-		&i.UpdatedBy,
-		&i.Metadata,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-		&i.FinishedAt,
-	)
-	return i, err
-}
-
-const upsertWorkspaceRun = `-- name: UpsertWorkspaceRun :one
-INSERT INTO workspace_runs (
-    run_key, dag_key, source_root, workspace_path, status,
-    created_by, updated_by, metadata, created_at, updated_at, finished_at
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, (CAST(strftime('%s','now') AS INTEGER) * 1000), (CAST(strftime('%s','now') AS INTEGER) * 1000), ?)
-ON CONFLICT (run_key) DO UPDATE
-SET dag_key = EXCLUDED.dag_key,
-    source_root = EXCLUDED.source_root,
-    workspace_path = EXCLUDED.workspace_path,
-    status = EXCLUDED.status,
-    updated_by = EXCLUDED.updated_by,
-    metadata = EXCLUDED.metadata,
-    updated_at = (CAST(strftime('%s','now') AS INTEGER) * 1000),
-    finished_at = EXCLUDED.finished_at
-RETURNING id, run_key, dag_key, source_root, workspace_path, status, created_by, updated_by, CAST(metadata AS BLOB) AS metadata, created_at, updated_at, finished_at
-`
-
-type UpsertWorkspaceRunParams struct {
-	RunKey        string          `db:"run_key" json:"run_key"`
+type UpdateWorkspaceRunParams struct {
 	DagKey        string          `db:"dag_key" json:"dag_key"`
 	SourceRoot    string          `db:"source_root" json:"source_root"`
 	WorkspacePath string          `db:"workspace_path" json:"workspace_path"`
 	Status        string          `db:"status" json:"status"`
-	CreatedBy     string          `db:"created_by" json:"created_by"`
 	UpdatedBy     string          `db:"updated_by" json:"updated_by"`
 	Metadata      json.RawMessage `db:"metadata" json:"metadata"`
 	FinishedAt    *int64          `db:"finished_at" json:"finished_at"`
+	RunKey        string          `db:"run_key" json:"run_key"`
 }
 
-type UpsertWorkspaceRunRow struct {
-	ID            int64  `db:"id" json:"id"`
-	RunKey        string `db:"run_key" json:"run_key"`
-	DagKey        string `db:"dag_key" json:"dag_key"`
-	SourceRoot    string `db:"source_root" json:"source_root"`
-	WorkspacePath string `db:"workspace_path" json:"workspace_path"`
-	Status        string `db:"status" json:"status"`
-	CreatedBy     string `db:"created_by" json:"created_by"`
-	UpdatedBy     string `db:"updated_by" json:"updated_by"`
-	Metadata      []byte `db:"metadata" json:"metadata"`
-	CreatedAt     int64  `db:"created_at" json:"created_at"`
-	UpdatedAt     int64  `db:"updated_at" json:"updated_at"`
-	FinishedAt    *int64 `db:"finished_at" json:"finished_at"`
-}
-
-func (q *Queries) UpsertWorkspaceRun(ctx context.Context, arg UpsertWorkspaceRunParams) (UpsertWorkspaceRunRow, error) {
-	row := q.db.QueryRowContext(ctx, upsertWorkspaceRun,
-		arg.RunKey,
+func (q *Queries) UpdateWorkspaceRun(ctx context.Context, arg UpdateWorkspaceRunParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, updateWorkspaceRun,
 		arg.DagKey,
 		arg.SourceRoot,
 		arg.WorkspacePath,
 		arg.Status,
-		arg.CreatedBy,
 		arg.UpdatedBy,
 		arg.Metadata,
 		arg.FinishedAt,
+		arg.RunKey,
 	)
-	var i UpsertWorkspaceRunRow
-	err := row.Scan(
-		&i.ID,
-		&i.RunKey,
-		&i.DagKey,
-		&i.SourceRoot,
-		&i.WorkspacePath,
-		&i.Status,
-		&i.CreatedBy,
-		&i.UpdatedBy,
-		&i.Metadata,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-		&i.FinishedAt,
-	)
-	return i, err
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
-const upsertWorkspaceRunFile = `-- name: UpsertWorkspaceRunFile :one
-INSERT INTO workspace_run_files (
-    run_key, relative_path, baseline_sha256, workspace_sha256,
-    source_sha256_before, source_sha256_after, state, last_error, created_at, updated_at
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, (CAST(strftime('%s','now') AS INTEGER) * 1000), (CAST(strftime('%s','now') AS INTEGER) * 1000))
-ON CONFLICT (run_key, relative_path) DO UPDATE
-SET baseline_sha256 = EXCLUDED.baseline_sha256,
-    workspace_sha256 = EXCLUDED.workspace_sha256,
-    source_sha256_before = EXCLUDED.source_sha256_before,
-    source_sha256_after = EXCLUDED.source_sha256_after,
-    state = EXCLUDED.state,
-    last_error = EXCLUDED.last_error,
+const updateWorkspaceRunFile = `-- name: UpdateWorkspaceRunFile :execrows
+UPDATE workspace_run_files
+SET baseline_sha256 = ?1,
+    workspace_sha256 = ?2,
+    source_sha256_before = ?3,
+    source_sha256_after = ?4,
+    state = ?5,
+    last_error = ?6,
     updated_at = (CAST(strftime('%s','now') AS INTEGER) * 1000)
-RETURNING id, run_key, relative_path, baseline_sha256, workspace_sha256, source_sha256_before, source_sha256_after, state, last_error, created_at, updated_at
+WHERE
+    run_key = ?7 AND relative_path = ?8
 `
 
-type UpsertWorkspaceRunFileParams struct {
-	RunKey             string `db:"run_key" json:"run_key"`
-	RelativePath       string `db:"relative_path" json:"relative_path"`
+type UpdateWorkspaceRunFileParams struct {
 	BaselineSha256     string `db:"baseline_sha256" json:"baseline_sha256"`
 	WorkspaceSha256    string `db:"workspace_sha256" json:"workspace_sha256"`
 	SourceSha256Before string `db:"source_sha256_before" json:"source_sha256_before"`
 	SourceSha256After  string `db:"source_sha256_after" json:"source_sha256_after"`
 	State              string `db:"state" json:"state"`
 	LastError          string `db:"last_error" json:"last_error"`
+	RunKey             string `db:"run_key" json:"run_key"`
+	RelativePath       string `db:"relative_path" json:"relative_path"`
 }
 
-func (q *Queries) UpsertWorkspaceRunFile(ctx context.Context, arg UpsertWorkspaceRunFileParams) (WorkspaceRunFile, error) {
-	row := q.db.QueryRowContext(ctx, upsertWorkspaceRunFile,
-		arg.RunKey,
-		arg.RelativePath,
+func (q *Queries) UpdateWorkspaceRunFile(ctx context.Context, arg UpdateWorkspaceRunFileParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, updateWorkspaceRunFile,
 		arg.BaselineSha256,
 		arg.WorkspaceSha256,
 		arg.SourceSha256Before,
 		arg.SourceSha256After,
 		arg.State,
 		arg.LastError,
+		arg.RunKey,
+		arg.RelativePath,
 	)
-	var i WorkspaceRunFile
-	err := row.Scan(
-		&i.ID,
-		&i.RunKey,
-		&i.RelativePath,
-		&i.BaselineSha256,
-		&i.WorkspaceSha256,
-		&i.SourceSha256Before,
-		&i.SourceSha256After,
-		&i.State,
-		&i.LastError,
-		&i.CreatedAt,
-		&i.UpdatedAt,
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const updateWorkspaceRunStatus = `-- name: UpdateWorkspaceRunStatus :execrows
+UPDATE workspace_runs
+SET status = ?1,
+    updated_by = ?2,
+    metadata = ?3,
+    updated_at = (CAST(strftime('%s','now') AS INTEGER) * 1000),
+    finished_at = ?4
+WHERE run_key = ?5
+`
+
+type UpdateWorkspaceRunStatusParams struct {
+	NewStatus  string          `db:"new_status" json:"new_status"`
+	UpdatedBy  string          `db:"updated_by" json:"updated_by"`
+	Metadata   json.RawMessage `db:"metadata" json:"metadata"`
+	FinishedAt *int64          `db:"finished_at" json:"finished_at"`
+	RunKey     string          `db:"run_key" json:"run_key"`
+}
+
+func (q *Queries) UpdateWorkspaceRunStatus(ctx context.Context, arg UpdateWorkspaceRunStatusParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, updateWorkspaceRunStatus,
+		arg.NewStatus,
+		arg.UpdatedBy,
+		arg.Metadata,
+		arg.FinishedAt,
+		arg.RunKey,
 	)
-	return i, err
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }

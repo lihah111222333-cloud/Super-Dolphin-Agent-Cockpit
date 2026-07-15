@@ -74,7 +74,7 @@ func WithTxOrReuse(ctx context.Context, db sqlc.DBTX, q *sqlc.Queries, fn func(t
 }
 
 // WithImmediateTx 在共享有界重试策略下开启 SQLite BEGIN IMMEDIATE 写事务。
-// 读改写路径需要串行化时，用它替代旧 PostgreSQL 行锁。
+// 读改写路径需要串行化时，用它建立 SQLite 写锁边界。
 func WithImmediateTx(ctx context.Context, db sqlc.DBTX, q *sqlc.Queries, fn func(txq *sqlc.Queries, txdb sqlc.DBTX) error) error {
 	if db == nil || q == nil {
 		return errors.New("sqlc queries are not initialized")

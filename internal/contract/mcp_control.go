@@ -27,9 +27,6 @@ type MCPServerConfig struct {
 const RuntimeMCPTrustedServerIDKey = "trustedServerId"
 
 const (
-	runtimeMCPPostgresCommand     = "mcp-server-postgres"
-	runtimeMCPPostgresDatabaseURL = "postgresql://super_dolphin@127.0.0.1:55433/super_dolphin?sslmode=disable"
-	runtimeMCPPostgresPackage     = "@modelcontextprotocol/server-postgres"
 	runtimeMCPSQLitePackage       = "@bytebase/dbhub"
 	runtimeMCPLegacySQLitePackage = "@modelcontextprotocol/server-sqlite"
 	runtimeMCPBrokenSQLitePackage = "mcp-server-sqlite"
@@ -160,8 +157,6 @@ func runtimeStdioCommandAllowed(command string, args []string, sqliteProductDBPa
 	}
 	args = normalizeRuntimeStdioArgs(args)
 	switch command {
-	case runtimeMCPPostgresCommand:
-		return slices.Equal(args, []string{runtimeMCPPostgresDatabaseURL})
 	case "npx":
 		return runtimeNPXArgsAllowed(args, sqliteProductDBPath)
 	default:
@@ -172,8 +167,6 @@ func runtimeStdioCommandAllowed(command string, args []string, sqliteProductDBPa
 func runtimeNPXArgsAllowed(args []string, sqliteProductDBPath string) bool {
 	switch {
 	case slices.Equal(args, []string{runtimeMCPPlaywrightPackage}):
-		return true
-	case slices.Equal(args, []string{"-y", runtimeMCPPostgresPackage, runtimeMCPPostgresDatabaseURL}):
 		return true
 	case runtimeDefaultSQLiteArgsAllowed(args, sqliteProductDBPath):
 		return true
@@ -329,22 +322,6 @@ type MCPServerAddResult struct {
 type MCPServerListResult struct {
 	ConfigPath string                     `json:"configPath"`
 	MCPServers map[string]MCPServerConfig `json:"mcpServers"`
-}
-
-// MCPPostgresServerStartRequest 是默认 Postgres MCP server 显式启动入口的空请求。
-type MCPPostgresServerStartRequest struct{}
-
-// MCPPostgresServerStartResult 返回默认 Postgres MCP server 配置写入后的状态。
-type MCPPostgresServerStartResult struct {
-	ConfigPath string          `json:"configPath"`
-	ServerName string          `json:"serverName"`
-	Added      bool            `json:"added"`
-	Config     MCPServerConfig `json:"config"`
-}
-
-// MCPPostgresServerStarter 暴露默认 Postgres MCP server 的启动能力，避免 module 之间直接依赖。
-type MCPPostgresServerStarter interface {
-	StartPostgresServer(context.Context, MCPPostgresServerStartRequest) (MCPPostgresServerStartResult, error)
 }
 
 // MCPSQLiteServerStartRequest 是默认 SQLite MCP server 显式启动入口的跨模块请求。

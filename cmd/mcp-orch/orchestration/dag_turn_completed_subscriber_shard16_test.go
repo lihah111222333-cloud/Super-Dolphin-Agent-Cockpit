@@ -2,11 +2,11 @@ package orchestration
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"strings"
 	"testing"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-orch/store/taskdag"
 )
 
@@ -240,7 +240,7 @@ func TestDAGSubscriber_A2_SharedfileSkippedWhenCompleteFenceRejects(t *testing.T
 			"outputs":{"to_sharedfile":{"path":"reports/agent-fence.json","lock_mode":"exclusive"}}
 		}`),
 	}}}
-	flow := &dagSubscriberFlowSpy{claimErr: pgx.ErrNoRows}
+	flow := &dagSubscriberFlowSpy{claimErr: sql.ErrNoRows}
 	writer := &dagSubscriberSharedFileWriterSpy{}
 	deps := setupDAGSubscriberDeps(
 		lookup,

@@ -2,7 +2,6 @@ package sharedfile
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"io/fs"
 	"os"
@@ -10,7 +9,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-orch/store/sqlc"
 	sharedfilefs "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/sharedfilefs"
 	sharedfilegitignore "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/sharedfilegitignore"
 )
@@ -18,7 +16,7 @@ import (
 func TestSharedFileListPrefixIsPrefixOnly(t *testing.T) {
 	t.Parallel()
 	db := newFakeImportDB(t)
-	store := NewStore(sqlc.New(db))
+	store := NewStore(db.DB)
 	seedSharedFileRows(t, db,
 		"reports/alpha.md",
 		"reports/nested/beta.md",
@@ -39,7 +37,7 @@ func TestSharedFileListPrefixIsPrefixOnly(t *testing.T) {
 func TestSharedFileListPrefixEscapesLikeWildcards(t *testing.T) {
 	t.Parallel()
 	db := newFakeImportDB(t)
-	store := NewStore(sqlc.New(db))
+	store := NewStore(db.DB)
 	seedSharedFileRows(t, db,
 		"reports/%literal.md",
 		"reports/_literal.md",
@@ -76,7 +74,7 @@ func sharedFilePaths(files []SharedFile) []string {
 func TestSharedFileDiskOnlyMissingFileFails(t *testing.T) {
 	t.Parallel()
 
-	store := newStoreWithConfig(sqlc.New(newFakeImportDB(t)), sharedfilefs.Config{
+	store := newStoreWithConfig(newFakeImportDB(t).DB, sharedfilefs.Config{
 		CWD:                  t.TempDir(),
 		InlineThresholdBytes: 1,
 	})
@@ -107,7 +105,7 @@ func TestSharedFileDiskOnlyMissingFileFails(t *testing.T) {
 func TestSharedFileEmptyInlineMissingDiskFallsBackToInline(t *testing.T) {
 	t.Parallel()
 
-	store := newStoreWithConfig(sqlc.New(newFakeImportDB(t)), sharedfilefs.Config{
+	store := newStoreWithConfig(newFakeImportDB(t).DB, sharedfilefs.Config{
 		CWD:                  t.TempDir(),
 		InlineThresholdBytes: 1,
 	})
@@ -136,7 +134,7 @@ func TestSharedFilePersistsContentLocation(t *testing.T) {
 	t.Parallel()
 
 	db := newFakeImportDB(t)
-	store := newStoreWithConfig(sqlc.New(db), sharedfilefs.Config{
+	store := newStoreWithConfig(db.DB, sharedfilefs.Config{
 		CWD:                  t.TempDir(),
 		InlineThresholdBytes: 1,
 	})
@@ -179,7 +177,7 @@ func TestSharedFileUpsertFailsBeforeWriteWhenGitignoreEnsureFails(t *testing.T) 
 	sharedfilegitignore.ResetForTests()
 	t.Cleanup(sharedfilegitignore.ResetForTests)
 	db := newFakeImportDB(t)
-	store := newStoreWithConfig(sqlc.New(db), sharedfilefs.Config{
+	store := newStoreWithConfig(db.DB, sharedfilefs.Config{
 		CWD:                  cwd,
 		InlineThresholdBytes: 1,
 	})
@@ -208,7 +206,7 @@ func TestSharedFileUpsertDoesNotOverwriteDiskOnDBFailure(t *testing.T) {
 	t.Parallel()
 
 	db := newFakeImportDB(t)
-	store := newStoreWithConfig(sqlc.New(db), sharedfilefs.Config{
+	store := newStoreWithConfig(db.DB, sharedfilefs.Config{
 		CWD:                  t.TempDir(),
 		InlineThresholdBytes: 1,
 	})
@@ -245,7 +243,7 @@ func TestSharedFileUpsertDoesNotOverwriteDiskOnDBFailure(t *testing.T) {
 func TestSharedFileUpsertRollsBackDBOnPublishFailure(t *testing.T) {
 	db := newFakeImportDB(t)
 	cfg := sharedfilefs.Config{CWD: t.TempDir(), InlineThresholdBytes: 1}
-	seedStore := newStoreWithConfig(sqlc.New(db), cfg)
+	seedStore := newStoreWithConfig(db.DB, cfg)
 	const path = "reports/run-1/publish-failure.md"
 	if _, err := seedStore.Upsert(context.Background(), UpsertParams{
 		Path:      path,
@@ -255,10 +253,13 @@ func TestSharedFileUpsertRollsBackDBOnPublishFailure(t *testing.T) {
 		t.Fatalf("seed Upsert() error = %v", err)
 	}
 	abs := filepath.Join(seedStore.cfg.SandboxRoot(), path)
-	dir := filepath.Dir(abs)
-	hooked := makeReadOnlyAfterAgentUpsert(t, db, path, dir)
-	store := newStoreWithConfig(sqlc.New(hooked), cfg)
-	t.Cleanup(func() { _ = os.Chmod(dir, 0o755) })
+	if err := os.Remove(abs); err != nil {
+		t.Fatalf("remove seeded body: %v", err)
+	}
+	if err := os.Mkdir(abs, 0o755); err != nil {
+		t.Fatalf("replace body with directory: %v", err)
+	}
+	store := newStoreWithConfig(db.DB, cfg)
 
 	_, err := store.Upsert(context.Background(), UpsertParams{
 		Path:      path,
@@ -268,22 +269,16 @@ func TestSharedFileUpsertRollsBackDBOnPublishFailure(t *testing.T) {
 	if err == nil {
 		t.Fatal("Upsert() error = nil, want publish failure")
 	}
-	if restoreErr := os.Chmod(dir, 0o755); restoreErr != nil {
-		t.Fatalf("restore dir permissions: %v", restoreErr)
-	}
 	assertSharedFileMetadata(t, db, path, "", "seed")
-	got, readErr := os.ReadFile(abs)
-	if readErr != nil {
-		t.Fatalf("read disk body after failed publish: %v", readErr)
-	}
-	if string(got) != "old" {
-		t.Fatalf("disk body after failed publish = %q, want old", string(got))
+	info, statErr := os.Stat(abs)
+	if statErr != nil || !info.IsDir() {
+		t.Fatalf("publish failure target = %#v, error = %v, want directory unchanged", info, statErr)
 	}
 }
 
 func TestSharedFileDeleteDiskFailureKeepsDBIndex(t *testing.T) {
 	db := newFakeImportDB(t)
-	store := newStoreWithConfig(sqlc.New(db), sharedfilefs.Config{
+	store := newStoreWithConfig(db.DB, sharedfilefs.Config{
 		CWD:                  t.TempDir(),
 		InlineThresholdBytes: 1,
 	})
@@ -317,38 +312,4 @@ func TestSharedFileDeleteDiskFailureKeepsDBIndex(t *testing.T) {
 	if string(got) != "body" {
 		t.Fatalf("disk body after failed delete = %q, want body", string(got))
 	}
-}
-
-func makeReadOnlyAfterAgentUpsert(t *testing.T, db *fakeImportDB, path, dir string) *queryRowHookDB {
-	t.Helper()
-	return &queryRowHookDB{
-		DB: db.DB,
-		afterQueryRow: func(query string, args ...any) {
-			if isAgentUpsertQuery(query, args, path) {
-				if err := os.Chmod(dir, 0o500); err != nil {
-					t.Fatalf("chmod dir read-only: %v", err)
-				}
-			}
-		},
-	}
-}
-
-func isAgentUpsertQuery(query string, args []any, path string) bool {
-	return strings.Contains(query, "INSERT INTO shared_files") &&
-		len(args) >= 4 &&
-		args[0] == path &&
-		args[3] == "agent"
-}
-
-type queryRowHookDB struct {
-	*sql.DB
-	afterQueryRow func(query string, args ...any)
-}
-
-func (db *queryRowHookDB) QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row {
-	row := db.DB.QueryRowContext(ctx, query, args...)
-	if db.afterQueryRow != nil {
-		db.afterQueryRow(query, args...)
-	}
-	return row
 }

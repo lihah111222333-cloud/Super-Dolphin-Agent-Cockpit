@@ -3,13 +3,13 @@ package tools
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"log/slog"
 	"strings"
 	"testing"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/mcpserver/common"
 	platformdb "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/db"
 	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
@@ -79,7 +79,7 @@ func TestHandlePromptRecallHitSerializesEmptyBodyAndZeroLength(t *testing.T) {
 
 func TestHandlePromptRecallNotFoundReturnsSoftResult(t *testing.T) {
 	store := &stubRecallPromptStore{
-		err: platformdb.WrapStoreError(pgx.ErrNoRows, "get_section", "prompt_template_section"),
+		err: platformdb.WrapStoreError(sql.ErrNoRows, "get_section", "prompt_template_section"),
 	}
 	handler := HandlePromptRecall(store)
 
@@ -137,7 +137,7 @@ func TestHandlePromptRecallLogsHitAndMissShape(t *testing.T) {
 
 	logs.Reset()
 	missHandler := HandlePromptRecall(&stubRecallPromptStore{
-		err: platformdb.WrapStoreError(pgx.ErrNoRows, "get_section", "prompt_template_section"),
+		err: platformdb.WrapStoreError(sql.ErrNoRows, "get_section", "prompt_template_section"),
 	})
 	if _, err := missHandler(ctx, mustRawInput(t, promptRecallInput{Topic: "missing-topic"})); err != nil {
 		t.Fatalf("HandlePromptRecall(miss) error = %v", err)

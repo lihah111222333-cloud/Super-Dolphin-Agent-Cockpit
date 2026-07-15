@@ -296,7 +296,6 @@ func sqlcRelevant(file string) bool {
 		file == "cmd/mcp-orch/sqlc.yaml" ||
 		goModuleFile(file) ||
 		strings.HasPrefix(file, "sql/") ||
-		strings.HasPrefix(file, "migrations/") ||
 		strings.HasPrefix(file, "cmd/mcp-orch/sql/") ||
 		strings.HasPrefix(file, "internal/platform/db/sqlite/migrations/") ||
 		strings.HasPrefix(file, "internal/store/")

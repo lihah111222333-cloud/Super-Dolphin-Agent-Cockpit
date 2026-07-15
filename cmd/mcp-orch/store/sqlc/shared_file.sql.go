@@ -11,7 +11,7 @@ import (
 
 const deleteSharedFile = `-- name: DeleteSharedFile :execrows
 DELETE FROM shared_files
-WHERE path = ?
+WHERE path = ?1
 `
 
 type DeleteSharedFileParams struct {
@@ -29,7 +29,7 @@ func (q *Queries) DeleteSharedFile(ctx context.Context, arg DeleteSharedFilePara
 const getSharedFile = `-- name: GetSharedFile :one
 SELECT path, content, content_location, updated_by, created_at, updated_at
 FROM shared_files
-WHERE path = ?
+WHERE path = ?1
 `
 
 type GetSharedFileParams struct {
@@ -50,21 +50,47 @@ func (q *Queries) GetSharedFile(ctx context.Context, arg GetSharedFileParams) (S
 	return i, err
 }
 
+const insertSharedFile = `-- name: InsertSharedFile :execrows
+INSERT INTO shared_files (path, content, content_location, updated_by, created_at, updated_at)
+VALUES (?1, ?2, ?3, ?4, (CAST(strftime('%s','now') AS INTEGER) * 1000), (CAST(strftime('%s','now') AS INTEGER) * 1000))
+`
+
+type InsertSharedFileParams struct {
+	Path            string `db:"path" json:"path"`
+	Content         string `db:"content" json:"content"`
+	ContentLocation string `db:"content_location" json:"content_location"`
+	UpdatedBy       string `db:"updated_by" json:"updated_by"`
+}
+
+func (q *Queries) InsertSharedFile(ctx context.Context, arg InsertSharedFileParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, insertSharedFile,
+		arg.Path,
+		arg.Content,
+		arg.ContentLocation,
+		arg.UpdatedBy,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const listSharedFiles = `-- name: ListSharedFiles :many
 SELECT path, content, content_location, updated_by, created_at, updated_at
 FROM shared_files
-WHERE (?1 = '' OR like(?1 || '%', path, '\'))
+WHERE (?1 = '' OR substr(path, 1, ?2) = ?1)
 ORDER BY updated_at DESC, path ASC
-LIMIT ?2
+LIMIT ?3
 `
 
 type ListSharedFilesParams struct {
-	Prefix     interface{} `db:"prefix" json:"prefix"`
-	LimitCount int64       `db:"limit_count" json:"limit_count"`
+	Prefix       interface{} `db:"prefix" json:"prefix"`
+	PrefixLength int64       `db:"prefix_length" json:"prefix_length"`
+	LimitCount   int64       `db:"limit_count" json:"limit_count"`
 }
 
 func (q *Queries) ListSharedFiles(ctx context.Context, arg ListSharedFilesParams) ([]SharedFile, error) {
-	rows, err := q.db.QueryContext(ctx, listSharedFiles, arg.Prefix, arg.LimitCount)
+	rows, err := q.db.QueryContext(ctx, listSharedFiles, arg.Prefix, arg.PrefixLength, arg.LimitCount)
 	if err != nil {
 		return nil, err
 	}
@@ -93,39 +119,32 @@ func (q *Queries) ListSharedFiles(ctx context.Context, arg ListSharedFilesParams
 	return items, nil
 }
 
-const upsertSharedFile = `-- name: UpsertSharedFile :one
-INSERT INTO shared_files (path, content, content_location, updated_by, created_at, updated_at)
-VALUES (?, ?, ?, ?, (CAST(strftime('%s','now') AS INTEGER) * 1000), (CAST(strftime('%s','now') AS INTEGER) * 1000))
-ON CONFLICT (path) DO UPDATE
-SET content = EXCLUDED.content,
-    content_location = EXCLUDED.content_location,
-    updated_by = EXCLUDED.updated_by,
+const updateSharedFile = `-- name: UpdateSharedFile :execrows
+UPDATE shared_files
+SET content = ?1,
+    content_location = ?2,
+    updated_by = ?3,
     updated_at = (CAST(strftime('%s','now') AS INTEGER) * 1000)
-RETURNING path, content, content_location, updated_by, created_at, updated_at
+WHERE
+    path = ?4
 `
 
-type UpsertSharedFileParams struct {
-	Path            string `db:"path" json:"path"`
+type UpdateSharedFileParams struct {
 	Content         string `db:"content" json:"content"`
 	ContentLocation string `db:"content_location" json:"content_location"`
 	UpdatedBy       string `db:"updated_by" json:"updated_by"`
+	Path            string `db:"path" json:"path"`
 }
 
-func (q *Queries) UpsertSharedFile(ctx context.Context, arg UpsertSharedFileParams) (SharedFile, error) {
-	row := q.db.QueryRowContext(ctx, upsertSharedFile,
-		arg.Path,
+func (q *Queries) UpdateSharedFile(ctx context.Context, arg UpdateSharedFileParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, updateSharedFile,
 		arg.Content,
 		arg.ContentLocation,
 		arg.UpdatedBy,
+		arg.Path,
 	)
-	var i SharedFile
-	err := row.Scan(
-		&i.Path,
-		&i.Content,
-		&i.ContentLocation,
-		&i.UpdatedBy,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-	)
-	return i, err
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }

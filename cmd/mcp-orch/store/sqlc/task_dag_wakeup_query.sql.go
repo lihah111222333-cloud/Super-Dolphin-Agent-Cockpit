@@ -10,13 +10,33 @@ import (
 	"encoding/json"
 )
 
+const getLatestTaskDagWakeupClaimedAtForWorker = `-- name: GetLatestTaskDagWakeupClaimedAtForWorker :one
+SELECT claimed_at
+FROM task_dag_wakeups
+WHERE claimed_by = ?1
+  AND claimed_at IS NOT NULL
+ORDER BY claimed_at DESC
+LIMIT 1
+`
+
+type GetLatestTaskDagWakeupClaimedAtForWorkerParams struct {
+	WorkerID string `db:"worker_id" json:"worker_id"`
+}
+
+func (q *Queries) GetLatestTaskDagWakeupClaimedAtForWorker(ctx context.Context, arg GetLatestTaskDagWakeupClaimedAtForWorkerParams) (*int64, error) {
+	row := q.db.QueryRowContext(ctx, getLatestTaskDagWakeupClaimedAtForWorker, arg.WorkerID)
+	var claimed_at *int64
+	err := row.Scan(&claimed_at)
+	return claimed_at, err
+}
+
 const getTaskDagWakeup = `-- name: GetTaskDagWakeup :one
 SELECT id, dag_key, node_key, wakeup_kind, target_agent_id, prompt_payload,
        idempotency_key, status, attempt_count, next_retry_at, claimed_at,
        claimed_by, lease_expires_at, sent_at, bound_turn_id, turn_bound_at,
        last_error, created_at, updated_at, run_id
 FROM task_dag_wakeups
-WHERE id = ?
+WHERE id = ?1
 `
 
 type GetTaskDagWakeupParams struct {
@@ -74,18 +94,80 @@ func (q *Queries) GetTaskDagWakeup(ctx context.Context, arg GetTaskDagWakeupPara
 	return i, err
 }
 
+const getTaskDagWakeupByIdempotencyKey = `-- name: GetTaskDagWakeupByIdempotencyKey :one
+SELECT id, dag_key, node_key, wakeup_kind, target_agent_id, prompt_payload,
+       idempotency_key, status, attempt_count, next_retry_at, claimed_at,
+       claimed_by, lease_expires_at, sent_at, bound_turn_id, turn_bound_at,
+       last_error, created_at, updated_at, run_id
+FROM task_dag_wakeups
+WHERE idempotency_key = ?1
+`
+
+type GetTaskDagWakeupByIdempotencyKeyParams struct {
+	IdempotencyKey string `db:"idempotency_key" json:"idempotency_key"`
+}
+
+type GetTaskDagWakeupByIdempotencyKeyRow struct {
+	ID             int64           `db:"id" json:"id"`
+	DagKey         string          `db:"dag_key" json:"dag_key"`
+	NodeKey        string          `db:"node_key" json:"node_key"`
+	WakeupKind     string          `db:"wakeup_kind" json:"wakeup_kind"`
+	TargetAgentID  string          `db:"target_agent_id" json:"target_agent_id"`
+	PromptPayload  json.RawMessage `db:"prompt_payload" json:"prompt_payload"`
+	IdempotencyKey string          `db:"idempotency_key" json:"idempotency_key"`
+	Status         string          `db:"status" json:"status"`
+	AttemptCount   int64           `db:"attempt_count" json:"attempt_count"`
+	NextRetryAt    int64           `db:"next_retry_at" json:"next_retry_at"`
+	ClaimedAt      *int64          `db:"claimed_at" json:"claimed_at"`
+	ClaimedBy      string          `db:"claimed_by" json:"claimed_by"`
+	LeaseExpiresAt *int64          `db:"lease_expires_at" json:"lease_expires_at"`
+	SentAt         *int64          `db:"sent_at" json:"sent_at"`
+	BoundTurnID    *string         `db:"bound_turn_id" json:"bound_turn_id"`
+	TurnBoundAt    *int64          `db:"turn_bound_at" json:"turn_bound_at"`
+	LastError      string          `db:"last_error" json:"last_error"`
+	CreatedAt      int64           `db:"created_at" json:"created_at"`
+	UpdatedAt      int64           `db:"updated_at" json:"updated_at"`
+	RunID          *int64          `db:"run_id" json:"run_id"`
+}
+
+func (q *Queries) GetTaskDagWakeupByIdempotencyKey(ctx context.Context, arg GetTaskDagWakeupByIdempotencyKeyParams) (GetTaskDagWakeupByIdempotencyKeyRow, error) {
+	row := q.db.QueryRowContext(ctx, getTaskDagWakeupByIdempotencyKey, arg.IdempotencyKey)
+	var i GetTaskDagWakeupByIdempotencyKeyRow
+	err := row.Scan(
+		&i.ID,
+		&i.DagKey,
+		&i.NodeKey,
+		&i.WakeupKind,
+		&i.TargetAgentID,
+		&i.PromptPayload,
+		&i.IdempotencyKey,
+		&i.Status,
+		&i.AttemptCount,
+		&i.NextRetryAt,
+		&i.ClaimedAt,
+		&i.ClaimedBy,
+		&i.LeaseExpiresAt,
+		&i.SentAt,
+		&i.BoundTurnID,
+		&i.TurnBoundAt,
+		&i.LastError,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.RunID,
+	)
+	return i, err
+}
+
 const hasPendingOrDispatchingTaskDagWakeupForNode = `-- name: HasPendingOrDispatchingTaskDagWakeupForNode :one
-SELECT EXISTS(
-    SELECT 1
-    FROM task_dag_wakeups
-    WHERE run_id = ?1
-      AND dag_key = ?2
-      AND node_key = ?3
-      AND (
-        status IN ('pending', 'dispatching')
-        OR (status = 'sent' AND sent_at IS NOT NULL AND bound_turn_id IS NULL)
-      )
-)
+SELECT CAST(COUNT(*) AS BOOLEAN)
+FROM task_dag_wakeups
+WHERE run_id = ?1
+  AND dag_key = ?2
+  AND node_key = ?3
+  AND (
+    status IN ('pending', 'dispatching')
+    OR (status = 'sent' AND sent_at IS NOT NULL AND bound_turn_id IS NULL)
+  )
 `
 
 type HasPendingOrDispatchingTaskDagWakeupForNodeParams struct {
@@ -94,9 +176,9 @@ type HasPendingOrDispatchingTaskDagWakeupForNodeParams struct {
 	NodeKey string `db:"node_key" json:"node_key"`
 }
 
-func (q *Queries) HasPendingOrDispatchingTaskDagWakeupForNode(ctx context.Context, arg HasPendingOrDispatchingTaskDagWakeupForNodeParams) (int64, error) {
+func (q *Queries) HasPendingOrDispatchingTaskDagWakeupForNode(ctx context.Context, arg HasPendingOrDispatchingTaskDagWakeupForNodeParams) (bool, error) {
 	row := q.db.QueryRowContext(ctx, hasPendingOrDispatchingTaskDagWakeupForNode, arg.RunID, arg.DagKey, arg.NodeKey)
-	var column_1 int64
+	var column_1 bool
 	err := row.Scan(&column_1)
 	return column_1, err
 }
@@ -182,7 +264,7 @@ SELECT id, dag_key, node_key, wakeup_kind, target_agent_id,
        claimed_by, lease_expires_at, sent_at, bound_turn_id, turn_bound_at,
        last_error, created_at, updated_at, run_id
 FROM task_dag_wakeups
-WHERE target_agent_id = ? AND status = 'sent' AND sent_at IS NOT NULL AND bound_turn_id IS NULL
+WHERE target_agent_id = ?1 AND status = 'sent' AND sent_at IS NOT NULL AND bound_turn_id IS NULL
 ORDER BY sent_at DESC, id DESC
 `
 
@@ -260,14 +342,14 @@ UPDATE task_dag_wakeups
 SET status = 'pending', claimed_at = NULL, claimed_by = '', lease_expires_at = NULL, updated_at = (CAST(strftime('%s','now') AS INTEGER) * 1000)
 WHERE status = 'dispatching'
   AND lease_expires_at < (CAST(strftime('%s','now') AS INTEGER) * 1000)
-  AND NOT EXISTS (
-    SELECT 1
+  AND id NOT IN (
+    SELECT n.active_wakeup_id
     FROM task_dag_nodes n
     WHERE n.run_id = task_dag_wakeups.run_id
       AND n.dag_key = task_dag_wakeups.dag_key
       AND n.node_key = task_dag_wakeups.node_key
       AND n.status = 'running'
-      AND n.active_wakeup_id = task_dag_wakeups.id
+      AND n.active_wakeup_id IS NOT NULL
   )
 `
 

@@ -3,8 +3,10 @@ package taskdag
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-orch/store/sqlc"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-orch/store/sqlctx"
 )
 
 // AcquireWorkerLease 抢占 target_agent_id 的 worker lease。返回 1 表示本 owner
@@ -15,13 +17,41 @@ func (s *store) AcquireWorkerLease(ctx context.Context, input AcquireWorkerLease
 	if err != nil {
 		return 0, err
 	}
-	return queryValueWrite(ctx, func() (int64, error) {
-		return s.q.AcquireTaskDagWorkerLease(ctx, sqlc.AcquireTaskDagWorkerLeaseParams{
-			TargetAgentID: input.TargetAgentID,
-			OwnerID:       input.OwnerID,
-			LeaseMs:       leaseInterval,
+	var acquired int64
+	err = sqlctx.WithImmediateTxOrReuse(ctx, s.db, s.q, func(txq *sqlc.Queries, _ sqlc.DBTX) error {
+		rows, updateErr := txq.UpdateAcquirableTaskDagWorkerLease(ctx, sqlc.UpdateAcquirableTaskDagWorkerLeaseParams{
+			OwnerID: input.OwnerID, LeaseMs: leaseInterval, TargetAgentID: input.TargetAgentID,
 		})
-	}, "acquire", "task_dag_worker_lease")
+		if updateErr != nil {
+			return updateErr
+		}
+		if rows > 1 {
+			return fmt.Errorf("acquire task_dag_worker_lease: updated %d rows, want at most 1", rows)
+		}
+		if rows == 1 {
+			acquired = 1
+			return nil
+		}
+		exists, existsErr := txq.HasTaskDagWorkerLease(ctx, sqlc.HasTaskDagWorkerLeaseParams{TargetAgentID: input.TargetAgentID})
+		if existsErr != nil {
+			return existsErr
+		}
+		if exists {
+			return nil
+		}
+		rows, insertErr := txq.InsertTaskDagWorkerLease(ctx, sqlc.InsertTaskDagWorkerLeaseParams{
+			TargetAgentID: input.TargetAgentID, OwnerID: input.OwnerID, LeaseMs: leaseInterval,
+		})
+		if insertErr != nil {
+			return insertErr
+		}
+		if rows != 1 {
+			return fmt.Errorf("acquire task_dag_worker_lease: inserted %d rows, want 1", rows)
+		}
+		acquired = 1
+		return nil
+	})
+	return acquired, wrapTaskDAGError(err, "acquire", "task_dag_worker_lease")
 }
 
 // RenewWorkerLease 只允许当前 owner 续约。rows=0 是 fencing 信号：lease 已被

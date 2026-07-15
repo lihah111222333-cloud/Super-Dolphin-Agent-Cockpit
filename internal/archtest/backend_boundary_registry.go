@@ -525,16 +525,13 @@ func defaultStoreDependencyRule(patterns backendBoundaryPatterns) BackendBoundar
 		"internal/store/sqlc",
 		"internal/contract",
 		"internal/dto",
-		"github.com/jackc/pgx/v5/pgtype",
 	}, "store packages may consume only registered persistence contracts and shared path adapters")
 	allow = append(allow, boundaryPolicies(owner, patterns.storeMod, []string{
 		"go.uber.org/fx",
-		"github.com/jackc/pgx/v5/pgxpool",
 	}, "store package module files may declare their Fx and pool constructors")...)
 	allow = append(allow, boundaryPolicies(owner, patterns.storeRoot, []string{
 		"internal/store",
 		"go.uber.org/fx",
-		"github.com/jackc/pgx/v5/pgxpool",
 	}, "the store root module is the canonical store submodule aggregator")...)
 	return BackendBoundaryRule{
 		ID:            "store_dependency_surface",
@@ -673,9 +670,10 @@ func mcpSidecarAllowPolicies() []BoundaryImportPolicy {
 		"internal/platform/statemachine",
 	}, "orchestration sidecar runtime primitive")...)
 	policies = append(policies, boundaryPolicies(owner, []string{"cmd/mcp-lsp/**/*.go"}, []string{
+		"internal/platform/db/sqlite",
 		"internal/platform/discovery",
 		"internal/platform/metrics",
-	}, "LSP sidecar runtime primitive")...)
+	}, "LSP sidecar runtime or SQLite diagnostics primitive")...)
 	policies = append(policies, boundaryPolicies(owner, []string{"cmd/mcp-ida/**/*.go"}, []string{
 		"internal/platform/metrics",
 	}, "IDA sidecar runtime primitive")...)

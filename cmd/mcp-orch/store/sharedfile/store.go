@@ -7,8 +7,10 @@ import (
 	"fmt"
 	"io/fs"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-orch/store/sqlc"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-orch/store/sqlctx"
 	platformdb "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/db"
 	sharedfilefs "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/sharedfilefs"
 	sharedfilegitignore "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/sharedfilegitignore"
@@ -25,22 +27,23 @@ const (
 )
 
 type store struct {
+	db        sqlc.DBTX
 	q         *sqlc.Queries
 	cfg       sharedfilefs.Config
 	pathLocks sharedfilefs.PathLocks
 }
 
 // NewStore 创建 DB-only sharedfile 存储，供未注入磁盘配置的旧路径使用。
-func NewStore(q *sqlc.Queries) Store { return newStoreWithConfig(q, sharedfilefs.Config{}) }
+func NewStore(db sqlc.DBTX) Store { return newStoreWithConfig(db, sharedfilefs.Config{}) }
 
 // NewStoreWithConfig 创建带磁盘正文配置的 sharedfile 存储。
-func NewStoreWithConfig(q *sqlc.Queries, cfg sharedfilefs.Config) Store {
-	return newStoreWithConfig(q, cfg)
+func NewStoreWithConfig(db sqlc.DBTX, cfg sharedfilefs.Config) Store {
+	return newStoreWithConfig(db, cfg)
 }
 
 // newStoreWithConfig 创建具体 store，保留给 provider wiring 和测试复用。
-func newStoreWithConfig(q *sqlc.Queries, cfg sharedfilefs.Config) *store {
-	return &store{q: q, cfg: cfg}
+func newStoreWithConfig(db sqlc.DBTX, cfg sharedfilefs.Config) *store {
+	return &store{db: db, q: sqlc.New(db), cfg: cfg}
 }
 
 // Upsert 写入 sharedfile；磁盘启用时先 staging，DB 成功后才发布正文。
@@ -56,7 +59,7 @@ func (s *store) Upsert(ctx context.Context, params UpsertParams) (*SharedFile, e
 }
 
 func (s *store) upsertInline(ctx context.Context, cleaned string, params UpsertParams) (*SharedFile, error) {
-	row, err := s.q.UpsertSharedFile(ctx, sqlc.UpsertSharedFileParams{
+	row, err := s.upsertSharedFileIndex(ctx, sqlc.InsertSharedFileParams{
 		Path:            cleaned,
 		Content:         params.Content,
 		ContentLocation: contentLocationInline,
@@ -88,7 +91,7 @@ func (s *store) upsertDiskBacked(ctx context.Context, cleaned string, params Ups
 		if stageErr != nil {
 			return stageErr
 		}
-		row, upsertErr := s.q.UpsertSharedFile(ctx, sqlc.UpsertSharedFileParams{
+		row, upsertErr := s.upsertSharedFileIndex(ctx, sqlc.InsertSharedFileParams{
 			Path:            cleaned,
 			Content:         dbContentFor(params.Content, s.cfg),
 			ContentLocation: contentLocationFor(params.Content, s.cfg),
@@ -173,8 +176,9 @@ func (s *store) List(ctx context.Context, filter ListFilter) ([]SharedFile, erro
 		return nil, wrapSharedFileError(err, "list")
 	}
 	rows, err := s.q.ListSharedFiles(ctx, sqlc.ListSharedFilesParams{
-		Prefix:     prefix,
-		LimitCount: int64(limit),
+		Prefix:       prefix,
+		PrefixLength: int64(utf8.RuneCountInString(prefix)),
+		LimitCount:   int64(limit),
 	})
 	if err != nil {
 		return nil, wrapSharedFileError(err, "list")
@@ -197,12 +201,7 @@ func normalizeListFilter(filter ListFilter) (string, int32, error) {
 	if limit > 200 {
 		limit = 200
 	}
-	return escapeSQLLikePrefix(strings.TrimSpace(filter.Prefix)), limit, nil
-}
-
-func escapeSQLLikePrefix(prefix string) string {
-	replacer := strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`)
-	return replacer.Replace(prefix)
+	return strings.TrimSpace(filter.Prefix), limit, nil
 }
 
 // Delete 删除 sharedfile；磁盘模式先 stage 正文，DB 删除成功后才最终删除 tombstone。
@@ -282,13 +281,43 @@ func (s *store) rollbackSharedFileIndex(ctx context.Context, cleaned string, pre
 	if path == "" {
 		path = cleaned
 	}
-	_, err := s.q.UpsertSharedFile(ctx, sqlc.UpsertSharedFileParams{
+	_, err := s.upsertSharedFileIndex(ctx, sqlc.InsertSharedFileParams{
 		Path:            path,
 		Content:         previous.Content,
 		ContentLocation: previous.ContentLocation,
 		UpdatedBy:       previous.UpdatedBy,
 	})
 	return err
+}
+
+// upsertSharedFileIndex 在即时事务内保持共享文件索引写入的原子 upsert 语义。
+func (s *store) upsertSharedFileIndex(ctx context.Context, params sqlc.InsertSharedFileParams) (sqlc.SharedFile, error) {
+	var row sqlc.SharedFile
+	err := sqlctx.WithImmediateTxOrReuse(ctx, s.db, s.q, func(txq *sqlc.Queries, _ sqlc.DBTX) error {
+		current, getErr := txq.GetSharedFile(ctx, sqlc.GetSharedFileParams{Path: params.Path})
+		if getErr != nil && !errors.Is(getErr, sql.ErrNoRows) && !errors.Is(getErr, platformdb.ErrNotFound) {
+			return getErr
+		}
+		var affected int64
+		var writeErr error
+		if getErr == nil {
+			affected, writeErr = txq.UpdateSharedFile(ctx, sqlc.UpdateSharedFileParams{
+				Content: params.Content, ContentLocation: params.ContentLocation,
+				UpdatedBy: params.UpdatedBy, Path: current.Path,
+			})
+		} else {
+			affected, writeErr = txq.InsertSharedFile(ctx, params)
+		}
+		if writeErr != nil {
+			return writeErr
+		}
+		if affected != 1 {
+			return fmt.Errorf("upsert shared file %q affected %d rows, want 1", params.Path, affected)
+		}
+		row, getErr = txq.GetSharedFile(ctx, sqlc.GetSharedFileParams{Path: params.Path})
+		return getErr
+	})
+	return row, err
 }
 
 func (s *store) deleteSharedFileIndex(ctx context.Context, cleaned string) (int64, error) {

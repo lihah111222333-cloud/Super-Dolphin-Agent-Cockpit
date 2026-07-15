@@ -59,7 +59,7 @@
 | --- | --- | --- |
 | Fail-fast | 配置缺失、数据缺失、异常状态应显式失败 | 启动脚本和后端不使用静默兜底 |
 | 可审计 | 线程、DAG、日志、审批、工具调用有记录 | 数据库表和 observability RPC 可查询 |
-| 本地优先 | 开发环境可在本机启动必要服务 | `run-new-ui-desktop.sh` 自动处理本地 Postgres 和 peer binaries |
+| 本地优先 | 开发环境可在本机启动必要服务 | `run-new-ui-desktop.sh` 自动初始化本地 SQLite 和 peer binaries |
 | 最小变更 | 修复或功能开发只改必要文件 | diff review 和 guard 检查 |
 | 跨平台发布 | Windows/macOS/Linux 有对应打包脚本 | package 脚本 dry-run 或验证脚本通过 |
 
@@ -92,4 +92,4 @@
 3. Verify：运行对应 `scripts/verify_packaged_app_*`，检查 manifest、bundled tools、LSP 和 Codex runtime。
 4. Publish：使用 `scripts/publish_github_release.sh --dry-run` 后再执行真实发布。
 5. Observe：发布后检查 issue、日志、崩溃报告、用户反馈和版本升级路径。
-6. Rollback：应用级回滚走旧版本包；数据库回滚只能按 `migrations/ROLLBACK.md` 人工 SQL 执行。
+6. Rollback：应用级回滚走旧版本包；数据库回滚需停止应用并恢复已验证的同版本 SQLite 文件备份。

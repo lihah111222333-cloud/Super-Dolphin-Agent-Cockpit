@@ -18,7 +18,7 @@
 | `internal/platform` | db、rpc、config、bus、runtime safety、toolbridge 等平台能力 |
 | `internal/provider` | Codex、Claude CLI、DreamExec、unified provider |
 | `internal/store` | sqlc store 和各业务 store |
-| `migrations` | PostgreSQL schema migration |
+| `internal/platform/db/sqlite/migrations` | SQLite schema migration |
 | `sql` | sqlc queries 和补充 schema |
 | `scripts` | 构建、打包、发布、校验脚本 |
 

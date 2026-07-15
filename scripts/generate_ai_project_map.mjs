@@ -202,7 +202,6 @@ const PURPOSE_RULES = [
   ['internal/store/', '应用级持久化 store'],
 
   ['sql/queries/', '仓库级 SQL query 源文件'],
-  ['migrations/', '数据库 migration'],
   ['pkg/logger/', '统一日志、采样、relay、watchdog 与 trace context'],
   ['pkg/dagmetrics/', 'DAG 指标公共库'],
   ['pkg/dreammetrics/', 'dream pipeline 指标公共库'],
@@ -542,7 +541,7 @@ function classifyDomain(file) {
   if (file.startsWith('cmd/mcp-orch/')) return 'orchestration';
   if (file.startsWith('internal/module/')) return 'modules';
   if (file.startsWith('internal/platform/') || file.startsWith('internal/provider/') || file.startsWith('internal/mcpserver/') || file.startsWith('cmd/mcp-lsp/') || file.startsWith('cmd/mcp-ida/')) return 'platform-provider';
-  if (file.startsWith('internal/store/') || file.startsWith('sql/') || file.startsWith('migrations/') || file.startsWith('cmd/mcp-orch/store/') || file.startsWith('cmd/mcp-orch/sql/')) return 'store-sql';
+  if (file.startsWith('internal/store/') || file.startsWith('sql/') || file.startsWith('cmd/mcp-orch/store/') || file.startsWith('cmd/mcp-orch/sql/')) return 'store-sql';
   if (file.startsWith('docs/') || file === 'CLAUDE.md' || file === 'AGENTS.md' || file === 'README.md' || (file.startsWith('README.') && file.endsWith('.md'))) return 'docs-agent';
   return 'other';
 }

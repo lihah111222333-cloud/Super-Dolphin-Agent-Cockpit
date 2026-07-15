@@ -2,7 +2,6 @@ package taskdag
 
 import (
 	"context"
-	"time"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-orch/store/sqlc"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-orch/store/sqlctx"
@@ -55,52 +54,71 @@ func (s *store) GetDAGSchedule(ctx context.Context, dagKey string) (DAGSchedule,
 // UpdateDAGPatch 在调用方 DAGOps 事务内更新允许变更的模板字段。
 // nil 指针表示保留原列值，空字符串是显式写入值，不能被当成未提供。
 func (s *store) UpdateDAGPatch(ctx context.Context, input UpdateDAGPatchInput) (int64, error) {
-	return queryValueWrite(ctx, func() (int64, error) {
-		return s.q.UpdateTaskDagPatch(ctx, sqlc.UpdateTaskDagPatchParams{
-			DagKey:          input.DagKey,
-			Title:           nullableTextArg(input.Title),
-			Description:     nullableTextArg(input.Description),
-			Trigger:         nullableTextArg(input.Trigger),
-			CronExpr:        nullableTextArg(input.CronExpr),
-			OwnerID:         nullableTextArg(input.OwnerID),
-			ScheduleEnabled: nullableBoolArg(input.ScheduleEnabled),
-			NextRunAt:       nullableTimeArg(input.NextRunAt),
-		})
-	}, "update_patch", "task_dag")
+	var rows int64
+	err := sqlctx.WithImmediateTxOrReuse(ctx, s.db, s.q, func(txq *sqlc.Queries, _ sqlc.DBTX) error {
+		current, err := txq.GetTaskDag(ctx, sqlc.GetTaskDagParams{DagKey: input.DagKey})
+		if err != nil {
+			return err
+		}
+		rows, err = txq.UpdateTaskDagPatch(ctx, resolveDAGPatch(current, input))
+		return requireSingleAffectedRow("update task_dag patch", rows, err)
+	})
+	return rows, wrapTaskDAGError(err, "update_patch", "task_dag")
 }
 
-func nullableBoolArg(value *bool) interface{} {
-	if value == nil {
+// resolveDAGPatch 把 nil 保留语义解析成一组可直接写入的完整列值。
+func resolveDAGPatch(current sqlc.GetTaskDagRow, input UpdateDAGPatchInput) sqlc.UpdateTaskDagPatchParams {
+	trigger := valueOrCurrent(input.Trigger, current.Trigger)
+	cronExpr := valueOrCurrent(input.CronExpr, current.CronExpr)
+	return sqlc.UpdateTaskDagPatchParams{
+		Title:             valueOrCurrent(input.Title, current.Title),
+		Description:       valueOrCurrent(input.Description, current.Description),
+		Trigger:           trigger,
+		CronExpr:          cronExpr,
+		OwnerID:           valueOrCurrent(input.OwnerID, current.OwnerID),
+		ResolvedNextRunAt: resolveNextRunAt(current.NextRunAt, input, trigger, cronExpr),
+		DagKey:            input.DagKey,
+	}
+}
+
+// valueOrCurrent 在补丁字段缺失时保留数据库当前值。
+func valueOrCurrent(value *string, current string) string {
+	if value != nil {
+		return *value
+	}
+	return current
+}
+
+// resolveNextRunAt 在 Go 层等价复现旧 SQL CASE：禁用或非有效计划时清空，
+// 有新计划时间时覆盖，否则保留当前计划时间。
+func resolveNextRunAt(current *int64, input UpdateDAGPatchInput, trigger, cronExpr string) *int64 {
+	if input.ScheduleEnabled != nil && !*input.ScheduleEnabled {
 		return nil
 	}
-	if *value {
-		return int64(1)
+	if trigger != "scheduled" || cronExpr == "" {
+		return nil
 	}
-	return int64(0)
-}
-
-func nullableTextArg(value *string) *string {
-	return value
-}
-
-func nullableTimeArg(value *time.Time) *int64 {
-	return sqlc.TimeValuePtr(value)
+	if input.NextRunAt != nil {
+		return sqlc.TimeValuePtr(input.NextRunAt)
+	}
+	return current
 }
 
 // BumpDAGVersion 把 task_dags.version 从 expectedVersion 推到 expectedVersion+1。
-// 受影响行数 0 → expected 与 actual 不匹配（OCC 冲突），返回 nil error +
-// version=0 由上层用「row not found」语义判断（注：用 RETURNING 的 :one
-// 在 0 行时返 ErrNoRows，上层解读成 OCC 失配）。
-//
-// expected/actual 不匹配 → sql ErrNoRows 包成 IsNotFound；service 层把
-// 它翻成 ErrVersionConflict。
+// 受影响行数 0 被翻成 IsNotFound，service 层据此返回 ErrVersionConflict；
+// 单行更新成功后直接返回确定的 expectedVersion+1。
 func (s *store) BumpDAGVersion(ctx context.Context, dagKey string, expectedVersion int64) (int64, error) {
-	return queryValueWrite(ctx, func() (int64, error) {
-		return s.q.BumpTaskDagVersion(ctx, sqlc.BumpTaskDagVersionParams{
+	_, err := queryValueWrite(ctx, func() (int64, error) {
+		rows, err := s.q.BumpTaskDagVersion(ctx, sqlc.BumpTaskDagVersionParams{
 			DagKey:          dagKey,
 			ExpectedVersion: expectedVersion,
 		})
+		return rows, requireSingleAffectedRow("bump task_dag version", rows, err)
 	}, "bump_version", "task_dag")
+	if err != nil {
+		return 0, err
+	}
+	return expectedVersion + 1, nil
 }
 
 // WithDAGOpsTx 是 DAGOpsTxRunner 接口的 *store 实现。

@@ -2,11 +2,11 @@ package orchestration
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"strings"
 	"testing"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-orch/store/taskdag"
 )
 
@@ -176,7 +176,7 @@ func TestDAGSubscriber_CompleteErrorRetryEnqueueFailureFailsNode(t *testing.T) {
 func TestDAGSubscriber_CompleteNodeReturnsNoRows_FenceRace(t *testing.T) {
 	before := DAGSubscriberCounters()
 	lookup := &dagSubscriberLookupSpy{nodes: []taskdag.Node{{DagKey: "dag-1", NodeKey: "n1", Status: "running"}}}
-	flow := &dagSubscriberFlowSpy{completeErr: pgx.ErrNoRows}
+	flow := &dagSubscriberFlowSpy{completeErr: sql.ErrNoRows}
 	threads := &dagSubscriberThreadSpy{thread: &PersistedThread{ThreadID: "thr-fence", AgentID: "agent-fence"}}
 	stop := &dagSubscriberStopSpy{}
 	deps := setupDAGSubscriberDeps(lookup, flow, threads, stop)

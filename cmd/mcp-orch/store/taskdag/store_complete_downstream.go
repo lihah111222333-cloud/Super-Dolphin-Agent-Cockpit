@@ -80,40 +80,87 @@ func lockRunForCompletionTx(ctx context.Context, txStore *store, dagKey string, 
 	}
 	if _, err := txStore.q.LockTaskDagRunForCompletionForUpdate(ctx, sqlc.LockTaskDagRunForCompletionForUpdateParams{
 		DagKey: dagKey,
-		ID:     runID,
+		RunID:  runID,
 	}); err != nil {
 		return fmt.Errorf("lock run %s/%d for completion: %w", dagKey, runID, err)
 	}
 	return nil
 }
 
-// maybeFinalizeRunTx 调 sqlc 生成的 FinalizeTaskDagRunIfAllNodesTerminal，把
-// “节点全终态时按优先级推进 run.status” 一句 SQL 完成。最多返 1 行
-// (run_key, status)；返 0 行表示节点未全部终态、或 dag_key 下无 running run。
-// WHERE 只匹配 running run，重复调用在首次成功后会返回 0 行，保持幂等。
+// maybeFinalizeRunTx 在锁定事务内读取节点状态，按 failed > cancelled > succeeded
+// 计算终态并更新 run。没有节点、仍有非终态节点或 run 已完成时返回 nil。
 func maybeFinalizeRunTx(ctx context.Context, txStore *store, dagKey string, runID int64) (*FinalizedRunInfo, error) {
 	if err := requireRuntimeRunID("finalize_run", runID); err != nil {
 		return nil, err
 	}
-	rows, err := txStore.q.FinalizeTaskDagRunIfAllNodesTerminal(ctx, sqlc.FinalizeTaskDagRunIfAllNodesTerminalParams{
+	statuses, err := txStore.q.ListTaskDagRunNodeStatuses(ctx, sqlc.ListTaskDagRunNodeStatusesParams{
 		DagKey: dagKey,
 		RunID:  int64Ptr(runID),
 	})
 	if err != nil {
-		return nil, fmt.Errorf("finalize run for dag %s: %w", dagKey, err)
+		return nil, fmt.Errorf("list node statuses for dag %s: %w", dagKey, err)
 	}
-	if len(rows) == 0 {
+	status, ready := finalizedRunStatus(statuses)
+	if !ready {
 		return nil, nil
 	}
-	// SQL 的 running run 唯一约束保证同一 dag_key 至多命中 1 行；
-	// 如果数据库约束漂移导致多行，后续唯一约束/测试应暴露问题，这里不做静默合并。
-	first := rows[0]
-	if first.Status == "succeeded" {
+	identity, updated, err := finalizeRunRowTx(ctx, txStore.q, dagKey, runID, status)
+	if err != nil {
+		return nil, err
+	}
+	if !updated {
+		return nil, nil
+	}
+	if status == "succeeded" {
 		if err := writeRunFinalOutputMetadataTx(ctx, txStore, dagKey, runID); err != nil {
 			return nil, err
 		}
 	}
-	return &FinalizedRunInfo{RunKey: first.RunKey, Status: first.Status}, nil
+	return &FinalizedRunInfo{RunKey: identity.RunKey, Status: status}, nil
+}
+
+// finalizeRunRowTx 更新单个 running run 并回读身份；0 行表示已由其它幂等路径完成。
+func finalizeRunRowTx(ctx context.Context, q *sqlc.Queries, dagKey string, runID int64, status string) (sqlc.GetTaskDagRunIdentityByIDRow, bool, error) {
+	rows, err := q.FinalizeTaskDagRun(ctx, sqlc.FinalizeTaskDagRunParams{Status: status, RunID: runID, DagKey: dagKey})
+	if err != nil {
+		return sqlc.GetTaskDagRunIdentityByIDRow{}, false, fmt.Errorf("finalize run for dag %s: %w", dagKey, err)
+	}
+	if rows == 0 {
+		return sqlc.GetTaskDagRunIdentityByIDRow{}, false, nil
+	}
+	if rows != 1 {
+		return sqlc.GetTaskDagRunIdentityByIDRow{}, false, fmt.Errorf("finalize run for dag %s/%d affected %d rows, want 1", dagKey, runID, rows)
+	}
+	identity, err := q.GetTaskDagRunIdentityByID(ctx, sqlc.GetTaskDagRunIdentityByIDParams{DagKey: dagKey, RunID: runID})
+	if err != nil {
+		return sqlc.GetTaskDagRunIdentityByIDRow{}, false, fmt.Errorf("read finalized run for dag %s/%d: %w", dagKey, runID, err)
+	}
+	if identity.Status != status {
+		return sqlc.GetTaskDagRunIdentityByIDRow{}, false, fmt.Errorf("finalized run for dag %s/%d has status %s, want %s", dagKey, runID, identity.Status, status)
+	}
+	return identity, true, nil
+}
+
+// finalizedRunStatus 按 failed > cancelled > succeeded 计算节点集合终态；非终态或空集合返回 false。
+func finalizedRunStatus(statuses []string) (string, bool) {
+	if len(statuses) == 0 {
+		return "", false
+	}
+	status := "succeeded"
+	for _, nodeStatus := range statuses {
+		switch nodeStatus {
+		case "failed":
+			status = "failed"
+		case "cancelled":
+			if status != "failed" {
+				status = "cancelled"
+			}
+		case "done", "skipped":
+		default:
+			return "", false
+		}
+	}
+	return status, true
 }
 
 // runFinalOutputNode 是 final node 的最小投影，仅载入 UI 展示所需字段。

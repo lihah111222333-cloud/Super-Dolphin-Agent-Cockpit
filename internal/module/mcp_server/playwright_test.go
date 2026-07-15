@@ -10,7 +10,7 @@ func TestStartPlaywrightServerAddsDefaultNPXConfigAndEnablesIt(t *testing.T) {
 	store := newMemoryMCPServerStore()
 	project := t.TempDir()
 	t.Chdir(project)
-	svc := newServiceWithStoreInstallerAndSQLitePath(store, &recordingPostgresInstaller{}, "")
+	svc := newServiceWithStoreAndSQLitePath(store, "")
 
 	got, err := svc.StartPlaywrightServer(context.Background(), StartPlaywrightServerRequest{})
 	if err != nil {
@@ -32,7 +32,7 @@ func TestStartPlaywrightServerReenablesExistingConfigWithoutDeletingIt(t *testin
 		Args:      []string{"@playwright/mcp@latest"},
 		Enabled:   boolPtr(false),
 	})
-	svc := newServiceWithStoreInstallerAndSQLitePath(store, &recordingPostgresInstaller{}, "")
+	svc := newServiceWithStoreAndSQLitePath(store, "")
 
 	got, err := svc.StartPlaywrightServer(context.Background(), StartPlaywrightServerRequest{})
 	if err != nil {
@@ -54,7 +54,7 @@ func TestStopPlaywrightServerDisablesDefaultConfigWithoutDeletingIt(t *testing.T
 		Args:      []string{"@playwright/mcp@latest"},
 		Enabled:   boolPtr(true),
 	})
-	svc := newServiceWithStoreInstallerAndSQLitePath(store, &recordingPostgresInstaller{}, "")
+	svc := newServiceWithStoreAndSQLitePath(store, "")
 
 	got, err := svc.StopPlaywrightServer(context.Background(), StopPlaywrightServerRequest{})
 	if err != nil {

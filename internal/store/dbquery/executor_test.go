@@ -25,7 +25,7 @@ func TestValidateQueryAllowsWhitelistedSelects(t *testing.T) {
 	cases := []validateQueryCase{
 		{
 			name:     "allows whitelisted cte query",
-			query:    "WITH running AS (SELECT thread_id FROM agent_threads WHERE status = $1) SELECT thread_id FROM running",
+			query:    "WITH running AS (SELECT thread_id FROM agent_threads WHERE status = ?) SELECT thread_id FROM running",
 			argCount: 1,
 		},
 		{
@@ -111,14 +111,14 @@ func TestValidateQueryRejectsInvalidStatementsAndPlaceholders(t *testing.T) {
 
 	cases := []validateQueryCase{
 		{
-			name:        "mixed placeholder styles",
+			name:        "postgres placeholder style",
 			query:       "SELECT * FROM agent_threads WHERE thread_id = $1 AND score > ?",
 			argCount:    2,
-			wantErrText: "mixes placeholder styles",
+			wantErrText: "only supports SQLite ? placeholders",
 		},
 		{
 			name:        "mutation statement",
-			query:       "UPDATE agent_threads SET status = $1 WHERE thread_id = $2",
+			query:       "UPDATE agent_threads SET status = ? WHERE thread_id = ?",
 			argCount:    2,
 			wantErrText: "only supports SELECT",
 		},
@@ -134,7 +134,7 @@ func TestValidateQueryRejectsInvalidStatementsAndPlaceholders(t *testing.T) {
 		},
 		{
 			name:        "placeholder mismatch",
-			query:       "SELECT * FROM agent_threads WHERE status = $2",
+			query:       "SELECT * FROM agent_threads WHERE status = ? AND score > ?",
 			argCount:    1,
 			wantErrText: "expected 2 args",
 		},
@@ -211,14 +211,14 @@ func TestValidateQueryAllowsDAGSnapshotTables(t *testing.T) {
 	queries := []string{
 		"SELECT * FROM task_dags",
 		"SELECT version FROM task_dags",
-		"SELECT * FROM task_dag_runs WHERE dag_key = $1",
-		"SELECT * FROM task_dag_nodes WHERE dag_key = $1",
+		"SELECT * FROM task_dag_runs WHERE dag_key = ?",
+		"SELECT * FROM task_dag_nodes WHERE dag_key = ?",
 	}
 	for _, query := range queries {
 		query := query
 		t.Run(query, func(t *testing.T) {
 			t.Parallel()
-			argCount := strings.Count(query, "$")
+			argCount := strings.Count(query, "?")
 			if err := validateQuery(query, argCount); err != nil {
 				t.Fatalf("validateQuery(%q) error = %v", query, err)
 			}
@@ -272,7 +272,7 @@ func TestExecuteQueryReturnsRowsFromSQLiteReadOnlyConnection(t *testing.T) {
 	t.Parallel()
 
 	db := newDBQuerySQLiteDB(t)
-	rows, err := executeQuery(context.Background(), db, defaultQueryTimeout, "SELECT thread_id, status FROM agent_threads WHERE thread_id = $1", "thread-1")
+	rows, err := executeQuery(context.Background(), db, defaultQueryTimeout, "SELECT thread_id, status FROM agent_threads WHERE thread_id = ?", "thread-1")
 	if err != nil {
 		t.Fatalf("executeQuery() error = %v", err)
 	}
@@ -387,7 +387,7 @@ func TestExecuteQueryUsesInjectedLimitForExecution(t *testing.T) {
 func TestInjectLimitIfMissingDetectsExistingLimitAfterNewline(t *testing.T) {
 	t.Parallel()
 
-	query := "SELECT thread_id FROM agent_threads\nLIMIT $1"
+	query := "SELECT thread_id FROM agent_threads\nLIMIT ?"
 	got := injectLimitIfMissing(query, maxQueryRows)
 	if got != query {
 		t.Fatalf("injectLimitIfMissing() = %q, want existing LIMIT unchanged", got)

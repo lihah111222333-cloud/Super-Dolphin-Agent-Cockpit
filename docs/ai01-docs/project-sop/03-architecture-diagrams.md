@@ -12,7 +12,7 @@ flowchart LR
   LSP["mcp-lsp\n代码导航与编辑工具"]
   IDA["mcp-ida\nIDA 集成"]
   Providers["Provider 后端\nCodex / Claude CLI / DreamExec"]
-  DB["PostgreSQL\nmigrations + sqlc"]
+  DB["SQLite\ninternal migrations + sqlc"]
   Logs["日志与指标\n/metrics + Observability + ELK"]
   GitHub["GitHub\nCI / Release"]
   FS["本地文件系统\nworkspace / shared files / skills"]
@@ -40,7 +40,7 @@ flowchart LR
 - 桌面宿主 `cmd/agent-terminal` 提供 Wails 桥、HTTP asset server、JSON-RPC dispatch、模块装配和 provider 适配。
 - `mcp-orch` 是独立 peer，用于 agent lifecycle、DAG、cron、toolbridge 和资源工具。
 - `mcp-lsp` 是独立 peer，用于代码级工具调用。
-- PostgreSQL 是状态源，schema 由 migrations 管理，查询由 sqlc 生成。
+- SQLite 是本地状态源，schema 由 `internal/platform/db/sqlite/migrations` 管理，查询由 sqlc 生成。
 - 观测由 `/metrics`、Observability RPC、本地日志和可选 ELK 组成。
 
 ## Step 6：容器图
@@ -67,7 +67,7 @@ flowchart TB
     MCPIDA["cmd/mcp-ida"]
   end
 
-  PG["PostgreSQL"]
+  DB["SQLite"]
   LocalFS["Workspace / Skills / Shared files"]
   Logs["Logs / Metrics / ELK"]
 
@@ -78,10 +78,10 @@ flowchart TB
   App --> RPC
   RPC --> Modules
   Modules --> Store
-  Store --> PG
+  Store --> DB
   Modules --> Provider
   Provider --> Peers
-  MCPOrch --> PG
+  MCPOrch --> DB
   MCPOrch --> LocalFS
   MCPLSP --> LocalFS
   HTTP --> Logs

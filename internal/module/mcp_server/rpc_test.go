@@ -147,26 +147,10 @@ func TestToolsRPCReturnsMCPServerTools(t *testing.T) {
 	}
 }
 
-func TestStartPostgresRPCCreatesDefaultStdioConfig(t *testing.T) {
-	project := t.TempDir()
-	t.Chdir(project)
-	store := newMemoryMCPServerStore()
-	server := newMCPServerTestServer(store)
-
-	raw, err := server.Dispatch(context.Background(), "mcpServer/postgres/start", json.RawMessage(`{}`))
-	if err != nil {
-		t.Fatalf("Dispatch mcpServer/postgres/start: %v", err)
-	}
-	assertJSONOmitsMCPConfigDetails(t, raw, `"config":`, "mcp-server-postgres")
-	var got startServerRPCResponse
-	if err := json.Unmarshal(raw, &got); err != nil {
-		t.Fatalf("unmarshal response: %v", err)
-	}
-	if !got.Added || got.ServerName != DefaultPostgresServerName {
-		t.Fatalf("StartPostgresServerResult = %#v, want added postgres", got)
-	}
-	if store.servers[project][DefaultPostgresServerName].Command != "mcp-server-postgres" {
-		t.Fatalf("stored servers = %#v, want postgres mcp-server-postgres config", store.servers[project])
+func TestPostgresStartRPCIsNotRegistered(t *testing.T) {
+	handlers := NewHandlers(NewServiceWithStore(newMemoryMCPServerStore())).Handlers
+	if _, ok := handlers["mcpServer/postgres/start"]; ok {
+		t.Fatal("mcpServer/postgres/start is registered, want removed built-in RPC")
 	}
 }
 
@@ -496,12 +480,12 @@ func newMCPServerTestServer(store MCPServerConfigStore) *platformrpc.Server {
 
 func newMCPServerTestServerWithSQLitePath(store MCPServerConfigStore, sqlitePath string) *platformrpc.Server {
 	server := platformrpc.NewServer(platformrpc.Params{Config: &platformconfig.Config{RPCAddr: "127.0.0.1:0"}})
-	server.Register(NewHandlers(newServiceWithStoreInstallerAndSQLitePath(store, &recordingPostgresInstaller{}, sqlitePath)).Handlers)
+	server.Register(NewHandlers(newServiceWithStoreAndSQLitePath(store, sqlitePath)).Handlers)
 	return server
 }
 
 func newMCPServerTestServerWithHTTPClient(store MCPServerConfigStore, client mcpHTTPDoer) *platformrpc.Server {
-	svc := newServiceWithStoreInstallerAndSQLitePath(store, &recordingPostgresInstaller{}, "")
+	svc := newServiceWithStoreAndSQLitePath(store, "")
 	svc.httpClient = client
 	server := platformrpc.NewServer(platformrpc.Params{Config: &platformconfig.Config{RPCAddr: "127.0.0.1:0"}})
 	server.Register(NewHandlers(svc).Handlers)

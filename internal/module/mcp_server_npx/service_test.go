@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"path/filepath"
-	"reflect"
 	"strings"
 	"testing"
 
@@ -20,79 +19,11 @@ type startServerRPCResponse struct {
 	Enabled    bool   `json:"enabled"`
 }
 
-func TestStartPostgresServerAddsDefaultServerOnExplicitCall(t *testing.T) {
-	base := &recordingMCPServerService{
-		startResult: contract.MCPPostgresServerStartResult{
-			ConfigPath: "/repo/.agent/mcp_server/config.json",
-			ServerName: DefaultPostgresServerName,
-			Added:      true,
-			Config:     defaultPostgresServerConfigForNPXTest(),
-		},
-	}
-	svc := NewService(base)
-
-	got, err := svc.StartPostgresServer(context.Background(), StartPostgresServerRequest{})
-	if err != nil {
-		t.Fatalf("StartPostgresServer() error = %v", err)
-	}
-	if !got.Added || got.ServerName != DefaultPostgresServerName {
-		t.Fatalf("StartPostgresServer() = %#v, want added postgres", got)
-	}
-	if base.startCalls != 1 {
-		t.Fatalf("StartPostgresServer calls = %d, want 1", base.startCalls)
-	}
-}
-
-func TestStartPostgresServerDoesNotAutoOverrideExistingServer(t *testing.T) {
-	existing := contract.MCPServerConfig{Transport: "stdio", Command: "custom-postgres-mcp"}
-	base := &recordingMCPServerService{
-		startResult: contract.MCPPostgresServerStartResult{
-			ConfigPath: "/repo/.agent/mcp_server/config.json",
-			ServerName: DefaultPostgresServerName,
-			Added:      false,
-			Config:     existing,
-		},
-	}
-	svc := NewService(base)
-
-	got, err := svc.StartPostgresServer(context.Background(), StartPostgresServerRequest{})
-	if err != nil {
-		t.Fatalf("StartPostgresServer() error = %v", err)
-	}
-	if got.Added {
-		t.Fatalf("StartPostgresServer() Added = true, want false for existing server")
-	}
-	if base.startCalls != 1 {
-		t.Fatalf("StartPostgresServer calls = %d, want 1", base.startCalls)
-	}
-	if !reflect.DeepEqual(got.Config, existing) {
-		t.Fatalf("Config = %#v, want existing %#v", got.Config, existing)
-	}
-}
-
-func TestStartPostgresServerRPCAddsDefaultServer(t *testing.T) {
-	base := &recordingMCPServerService{
-		startResult: contract.MCPPostgresServerStartResult{
-			ConfigPath: "/repo/.agent/mcp_server/config.json",
-			ServerName: DefaultPostgresServerName,
-			Added:      true,
-			Config:     defaultPostgresServerConfigForNPXTest(),
-		},
-	}
-	server := platformrpc.NewServer(platformrpc.Params{Config: &platformconfig.Config{RPCAddr: "127.0.0.1:0"}})
-	server.Register(NewHandlers(NewService(base)).Handlers)
-
-	raw, err := server.Dispatch(context.Background(), "mcpServer/postgres/start", json.RawMessage(`{}`))
-	if err != nil {
-		t.Fatalf("Dispatch(mcpServer/postgres/start) error = %v", err)
-	}
-	assertNoMCPConfigInRPCResponse(t, raw, `"config":`, "mcp-server-postgres")
-	var got startServerRPCResponse
-	if err := json.Unmarshal(raw, &got); err != nil {
-		t.Fatalf("unmarshal response: %v", err)
-	}
-	if !got.Added || got.ServerName != DefaultPostgresServerName {
-		t.Fatalf("StartPostgresServerResult = %#v, want added postgres", got)
+func TestPostgresStartRPCIsNotRegistered(t *testing.T) {
+	base := &recordingMCPServerService{}
+	handlers := NewHandlers(NewService(base)).Handlers
+	if _, ok := handlers["mcpServer/postgres/start"]; ok {
+		t.Fatal("mcpServer/postgres/start is registered, want removed compatibility RPC")
 	}
 }
 
@@ -279,29 +210,18 @@ func TestStopPlaywrightServerRPCDelegatesToBaseService(t *testing.T) {
 }
 
 type recordingMCPServerService struct {
-	startResult           contract.MCPPostgresServerStartResult
 	startSQLiteResult     contract.MCPSQLiteServerStartResult
 	stopSQLiteResult      contract.MCPSQLiteServerStopResult
 	startPlaywrightResult contract.MCPPlaywrightServerStartResult
 	stopPlaywrightResult  contract.MCPPlaywrightServerStopResult
-	startErr              error
 	startSQLiteErr        error
 	stopSQLiteErr         error
 	startPlaywrightErr    error
 	stopPlaywrightErr     error
-	startCalls            int
 	startSQLiteCalls      int
 	stopSQLiteCalls       int
 	startPlaywrightCalls  int
 	stopPlaywrightCalls   int
-}
-
-func (s *recordingMCPServerService) StartPostgresServer(context.Context, contract.MCPPostgresServerStartRequest) (contract.MCPPostgresServerStartResult, error) {
-	s.startCalls++
-	if s.startErr != nil {
-		return contract.MCPPostgresServerStartResult{}, s.startErr
-	}
-	return s.startResult, nil
 }
 
 func (s *recordingMCPServerService) StartSQLiteServer(context.Context, contract.MCPSQLiteServerStartRequest) (contract.MCPSQLiteServerStartResult, error) {
@@ -348,15 +268,5 @@ func assertNoMCPConfigInRPCResponse(t *testing.T, raw json.RawMessage, forbidden
 		if strings.Contains(payload, marker) {
 			t.Fatalf("response leaked MCP config marker %q: %s", marker, payload)
 		}
-	}
-}
-
-func defaultPostgresServerConfigForNPXTest() contract.MCPServerConfig {
-	return contract.MCPServerConfig{
-		Transport: "stdio",
-		Command:   "mcp-server-postgres",
-		Args: []string{
-			"postgresql://super_dolphin@127.0.0.1:55433/super_dolphin?sslmode=disable",
-		},
 	}
 }

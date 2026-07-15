@@ -34,8 +34,8 @@ func TestLogManifestLaunchRedactsArgsAndURLSecrets(t *testing.T) {
 
 	logManifestLaunch("claude", "/work/project", "sonnet", "/tmp/mcp.json", dto.MCPManifest{Binaries: []dto.MCPBinary{
 		{
-			Name:    "postgres",
-			Command: []string{"mcp-server-postgres", "postgresql://user:secret-pass@127.0.0.1:5432/app?sslmode=disable"},
+			Name:    "playwright",
+			Command: []string{"npx", "@playwright/mcp@latest", "--token=secret-pass"},
 		},
 		{
 			Name: "proxy",
@@ -45,12 +45,12 @@ func TestLogManifestLaunchRedactsArgsAndURLSecrets(t *testing.T) {
 	}})
 
 	output := buf.String()
-	for _, forbidden := range []string{"secret-pass", "sk-l05-url-secret", "postgresql://user:secret-pass", "token="} {
+	for _, forbidden := range []string{"secret-pass", "sk-l05-url-secret", "token="} {
 		if strings.Contains(output, forbidden) {
 			t.Fatalf("launch manifest log leaked %q: %s", forbidden, output)
 		}
 	}
-	for _, required := range []string{"postgres", "proxy", "server_count"} {
+	for _, required := range []string{"playwright", "proxy", "server_count"} {
 		if !strings.Contains(output, required) {
 			t.Fatalf("launch manifest log missing safe summary %q: %s", required, output)
 		}
@@ -232,7 +232,7 @@ func TestWriteManifestConfigIncludesHTTPHeaders(t *testing.T) {
 	}
 }
 
-func TestWriteManifestConfigIncludesAllowedGlobalPostgresStdioServer(t *testing.T) {
+func TestWriteManifestConfigRejectsRemovedPostgresStdioServer(t *testing.T) {
 	t.Parallel()
 
 	manifest := dto.MCPManifest{Binaries: []dto.MCPBinary{{
@@ -244,28 +244,11 @@ func TestWriteManifestConfigIncludesAllowedGlobalPostgresStdioServer(t *testing.
 	}}}
 
 	path, cleanup, err := writeManifestConfig(manifest, "/tmp/work")
-	if err != nil {
-		t.Fatalf("writeManifestConfig() error = %v", err)
+	if cleanup != nil {
+		defer cleanup()
 	}
-	defer cleanup()
-
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("ReadFile(%q) error = %v", path, err)
-	}
-
-	var doc map[string]any
-	if err := json.Unmarshal(raw, &doc); err != nil {
-		t.Fatalf("json.Unmarshal() error = %v", err)
-	}
-	servers, _ := doc["mcpServers"].(map[string]any)
-	server, _ := servers["postgres"].(map[string]any)
-	if server["command"] != "mcp-server-postgres" {
-		t.Fatalf("postgres server = %#v, want mcp-server-postgres command", server)
-	}
-	args, _ := server["args"].([]any)
-	if len(args) != 1 || args[0] != "postgresql://super_dolphin@127.0.0.1:55433/super_dolphin?sslmode=disable" {
-		t.Fatalf("postgres args = %#v, want postgres database url", args)
+	if path != "" || err == nil || !strings.Contains(err.Error(), "not allowed") {
+		t.Fatalf("writeManifestConfig() = (%q, %v), want removed postgres command rejection", path, err)
 	}
 }
 

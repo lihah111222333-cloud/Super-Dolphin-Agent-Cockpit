@@ -7,12 +7,13 @@ package sqlc
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 )
 
 const deletePromptTemplate = `-- name: DeletePromptTemplate :execrows
 DELETE FROM prompt_templates
-WHERE prompt_key = ?
+WHERE prompt_key = ?1
 `
 
 type DeletePromptTemplateParams struct {
@@ -28,44 +29,34 @@ func (q *Queries) DeletePromptTemplate(ctx context.Context, arg DeletePromptTemp
 }
 
 const getPromptRecallSectionBody = `-- name: GetPromptRecallSectionBody :one
-SELECT s.body
-FROM prompt_template_sections s
-JOIN prompt_templates t ON t.id = s.template_id
-WHERE s.recall_topic = ?
-  AND s.trigger_type = 'recall'
-  AND s.enabled = 1
-  AND t.enabled = 1
-  AND EXISTS (
-    SELECT 1
-    FROM json_each(t.tags)
-    WHERE value = 'scope.global'
-       OR value = 'scope.cwd:' || ?2
-  )
-ORDER BY CASE
-    WHEN EXISTS (
-      SELECT 1
-      FROM json_each(t.tags)
-      WHERE value = 'scope.cwd:' || ?2
-    ) THEN 0
-    WHEN EXISTS (
-      SELECT 1
-      FROM json_each(t.tags)
-      WHERE value = 'scope.global'
-    ) THEN 1
-    ELSE 2
-  END,
-  s.ordinal,
-  s.id
+WITH ranked_prompt_sections AS (
+  SELECT s.body, s.ordinal, s.id,
+         instr(CAST(t.tags AS TEXT), json_quote(?1)) AS cwd_rank
+  FROM prompt_template_sections s
+  JOIN prompt_templates t ON t.id = s.template_id
+  WHERE s.recall_topic = ?2
+    AND s.trigger_type = 'recall'
+    AND s.enabled = 1
+    AND t.enabled = 1
+    AND (
+      instr(CAST(t.tags AS TEXT), json_quote('scope.global')) > 0
+      OR instr(CAST(t.tags AS TEXT), json_quote(?3)) > 0
+    )
+)
+SELECT body
+FROM ranked_prompt_sections
+ORDER BY cwd_rank DESC, ordinal, id
 LIMIT 1
 `
 
 type GetPromptRecallSectionBodyParams struct {
-	RecallTopic string  `db:"recall_topic" json:"recall_topic"`
-	CWD         *string `db:"cwd" json:"cwd"`
+	ScopeRank   interface{} `db:"scope_rank" json:"scope_rank"`
+	RecallTopic string      `db:"recall_topic" json:"recall_topic"`
+	ScopeCWD    interface{} `db:"scope_cwd" json:"scope_cwd"`
 }
 
 func (q *Queries) GetPromptRecallSectionBody(ctx context.Context, arg GetPromptRecallSectionBodyParams) (string, error) {
-	row := q.db.QueryRowContext(ctx, getPromptRecallSectionBody, arg.RecallTopic, arg.CWD)
+	row := q.db.QueryRowContext(ctx, getPromptRecallSectionBody, arg.ScopeRank, arg.RecallTopic, arg.ScopeCWD)
 	var body string
 	err := row.Scan(&body)
 	return body, err
@@ -77,7 +68,7 @@ SELECT id, prompt_key, title, agent_key, tool_name, prompt_text,
        description, when_to_use, enabled, manually_edited,
        CAST(match_when AS BLOB) AS match_when, priority, created_by, updated_by, created_at, updated_at
 FROM prompt_templates
-WHERE prompt_key = ?
+WHERE prompt_key = ?1
 `
 
 type GetPromptTemplateParams struct {
@@ -131,12 +122,70 @@ func (q *Queries) GetPromptTemplate(ctx context.Context, arg GetPromptTemplatePa
 	return i, err
 }
 
-const insertPromptVersion = `-- name: InsertPromptVersion :one
+const insertPromptTemplate = `-- name: InsertPromptTemplate :execrows
+INSERT INTO prompt_templates (
+    prompt_key, title, agent_key, tool_name, prompt_text,
+    variables, tags, description, when_to_use, enabled, manually_edited, match_when, priority,
+    created_by, updated_by, created_at, updated_at
+) VALUES (
+    ?1, ?2, ?3, ?4, ?5,
+    ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13,
+    ?14, ?15, (CAST(strftime('%s','now') AS INTEGER) * 1000),
+    (CAST(strftime('%s','now') AS INTEGER) * 1000)
+)
+`
+
+type InsertPromptTemplateParams struct {
+	PromptKey      string          `db:"prompt_key" json:"prompt_key"`
+	Title          string          `db:"title" json:"title"`
+	AgentKey       string          `db:"agent_key" json:"agent_key"`
+	ToolName       string          `db:"tool_name" json:"tool_name"`
+	PromptText     string          `db:"prompt_text" json:"prompt_text"`
+	Variables      json.RawMessage `db:"variables" json:"variables"`
+	Tags           json.RawMessage `db:"tags" json:"tags"`
+	Description    string          `db:"description" json:"description"`
+	WhenToUse      string          `db:"when_to_use" json:"when_to_use"`
+	Enabled        int64           `db:"enabled" json:"enabled"`
+	ManuallyEdited int64           `db:"manually_edited" json:"manually_edited"`
+	MatchWhen      json.RawMessage `db:"match_when" json:"match_when"`
+	Priority       int64           `db:"priority" json:"priority"`
+	CreatedBy      string          `db:"created_by" json:"created_by"`
+	UpdatedBy      string          `db:"updated_by" json:"updated_by"`
+}
+
+func (q *Queries) InsertPromptTemplate(ctx context.Context, arg InsertPromptTemplateParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, insertPromptTemplate,
+		arg.PromptKey,
+		arg.Title,
+		arg.AgentKey,
+		arg.ToolName,
+		arg.PromptText,
+		arg.Variables,
+		arg.Tags,
+		arg.Description,
+		arg.WhenToUse,
+		arg.Enabled,
+		arg.ManuallyEdited,
+		arg.MatchWhen,
+		arg.Priority,
+		arg.CreatedBy,
+		arg.UpdatedBy,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const insertPromptVersion = `-- name: InsertPromptVersion :execresult
 INSERT INTO prompt_versions (
     prompt_key, title, agent_key, tool_name, prompt_text,
     variables, tags, description, enabled, created_by, updated_by, source_updated_at, created_at, archived_at
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, (CAST(strftime('%s','now') AS INTEGER) * 1000), (CAST(strftime('%s','now') AS INTEGER) * 1000))
-RETURNING id
+) VALUES (
+    ?1, ?2, ?3, ?4, ?5,
+    ?6, ?7, ?8, ?9, ?10, ?11, ?12,
+    (CAST(strftime('%s','now') AS INTEGER) * 1000), (CAST(strftime('%s','now') AS INTEGER) * 1000)
+)
 `
 
 type InsertPromptVersionParams struct {
@@ -154,8 +203,8 @@ type InsertPromptVersionParams struct {
 	SourceUpdatedAt *int64          `db:"source_updated_at" json:"source_updated_at"`
 }
 
-func (q *Queries) InsertPromptVersion(ctx context.Context, arg InsertPromptVersionParams) (int64, error) {
-	row := q.db.QueryRowContext(ctx, insertPromptVersion,
+func (q *Queries) InsertPromptVersion(ctx context.Context, arg InsertPromptVersionParams) (sql.Result, error) {
+	return q.db.ExecContext(ctx, insertPromptVersion,
 		arg.PromptKey,
 		arg.Title,
 		arg.AgentKey,
@@ -169,19 +218,16 @@ func (q *Queries) InsertPromptVersion(ctx context.Context, arg InsertPromptVersi
 		arg.UpdatedBy,
 		arg.SourceUpdatedAt,
 	)
-	var id int64
-	err := row.Scan(&id)
-	return id, err
 }
 
 const listPromptTemplateSectionsByTemplate = `-- name: ListPromptTemplateSectionsByTemplate :many
 SELECT s.id, s.template_id, s.section_key, s.region, s.ordinal, s.body,
        s.trigger_type, s.recall_topic, s.enabled
 FROM prompt_template_sections s
-WHERE s.template_id = ?
+WHERE s.template_id = ?1
   AND s.enabled = 1
   AND s.trigger_type <> 'recall'
-ORDER BY CASE s.region WHEN 'static' THEN 0 ELSE 1 END, s.ordinal, s.id
+ORDER BY (s.region = 'static') DESC, s.ordinal, s.id
 `
 
 type ListPromptTemplateSectionsByTemplateParams struct {
@@ -241,18 +287,16 @@ SELECT id, prompt_key, title, agent_key, tool_name, prompt_text,
 FROM prompt_templates
 WHERE (?1 = '' OR agent_key = ?1)
   AND (?2 = ''
-    OR prompt_key LIKE '%' || ?2 || '%'
-    OR title LIKE '%' || ?2 || '%'
-    OR prompt_text LIKE '%' || ?2 || '%')
+    OR prompt_key LIKE ?2
+    OR title LIKE ?2
+    OR prompt_text LIKE ?2)
   AND (
     ?3 = 0
     OR (
       enabled = 1
-      AND EXISTS (
-        SELECT 1
-        FROM json_each(tags)
-        WHERE value = 'scope.global'
-           OR value = 'scope.cwd:' || ?4
+      AND (
+        instr(CAST(tags AS TEXT), json_quote('scope.global')) > 0
+        OR instr(CAST(tags AS TEXT), json_quote(?4)) > 0
       )
     )
   )
@@ -264,7 +308,7 @@ type ListPromptTemplatesParams struct {
 	AgentKey       interface{} `db:"agent_key" json:"agent_key"`
 	Keyword        interface{} `db:"keyword" json:"keyword"`
 	RuntimeVisible interface{} `db:"runtime_visible" json:"runtime_visible"`
-	CWD            *string     `db:"cwd" json:"cwd"`
+	ScopeCWD       interface{} `db:"scope_cwd" json:"scope_cwd"`
 	LimitCount     int64       `db:"limit_count" json:"limit_count"`
 }
 
@@ -294,7 +338,7 @@ func (q *Queries) ListPromptTemplates(ctx context.Context, arg ListPromptTemplat
 		arg.AgentKey,
 		arg.Keyword,
 		arg.RuntimeVisible,
-		arg.CWD,
+		arg.ScopeCWD,
 		arg.LimitCount,
 	)
 	if err != nil {
@@ -337,35 +381,26 @@ func (q *Queries) ListPromptTemplates(ctx context.Context, arg ListPromptTemplat
 	return items, nil
 }
 
-const upsertPromptTemplate = `-- name: UpsertPromptTemplate :one
-INSERT INTO prompt_templates (
-    prompt_key, title, agent_key, tool_name, prompt_text,
-    variables, tags, description, when_to_use, enabled, manually_edited, match_when, priority,
-    created_by, updated_by, created_at, updated_at
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, (CAST(strftime('%s','now') AS INTEGER) * 1000), (CAST(strftime('%s','now') AS INTEGER) * 1000))
-ON CONFLICT (prompt_key) DO UPDATE
-SET title = EXCLUDED.title,
-    agent_key = EXCLUDED.agent_key,
-    tool_name = EXCLUDED.tool_name,
-    prompt_text = EXCLUDED.prompt_text,
-    variables = EXCLUDED.variables,
-    tags = EXCLUDED.tags,
-    description = EXCLUDED.description,
-    when_to_use = EXCLUDED.when_to_use,
-    enabled = EXCLUDED.enabled,
-    manually_edited = EXCLUDED.manually_edited,
-    match_when = EXCLUDED.match_when,
-    priority = EXCLUDED.priority,
-    updated_by = EXCLUDED.updated_by,
+const updatePromptTemplate = `-- name: UpdatePromptTemplate :execrows
+UPDATE prompt_templates
+SET title = ?1,
+    agent_key = ?2,
+    tool_name = ?3,
+    prompt_text = ?4,
+    variables = ?5,
+    tags = ?6,
+    description = ?7,
+    when_to_use = ?8,
+    enabled = ?9,
+    manually_edited = ?10,
+    match_when = ?11,
+    priority = ?12,
+    updated_by = ?13,
     updated_at = (CAST(strftime('%s','now') AS INTEGER) * 1000)
-RETURNING id, prompt_key, title, agent_key, tool_name, prompt_text,
-          CAST(variables AS BLOB) AS variables, CAST(tags AS BLOB) AS tags,
-          description, when_to_use, enabled, manually_edited,
-          CAST(match_when AS BLOB) AS match_when, priority, created_by, updated_by, created_at, updated_at
+WHERE prompt_key = ?14
 `
 
-type UpsertPromptTemplateParams struct {
-	PromptKey      string          `db:"prompt_key" json:"prompt_key"`
+type UpdatePromptTemplateParams struct {
 	Title          string          `db:"title" json:"title"`
 	AgentKey       string          `db:"agent_key" json:"agent_key"`
 	ToolName       string          `db:"tool_name" json:"tool_name"`
@@ -378,34 +413,12 @@ type UpsertPromptTemplateParams struct {
 	ManuallyEdited int64           `db:"manually_edited" json:"manually_edited"`
 	MatchWhen      json.RawMessage `db:"match_when" json:"match_when"`
 	Priority       int64           `db:"priority" json:"priority"`
-	CreatedBy      string          `db:"created_by" json:"created_by"`
 	UpdatedBy      string          `db:"updated_by" json:"updated_by"`
+	PromptKey      string          `db:"prompt_key" json:"prompt_key"`
 }
 
-type UpsertPromptTemplateRow struct {
-	ID             int64  `db:"id" json:"id"`
-	PromptKey      string `db:"prompt_key" json:"prompt_key"`
-	Title          string `db:"title" json:"title"`
-	AgentKey       string `db:"agent_key" json:"agent_key"`
-	ToolName       string `db:"tool_name" json:"tool_name"`
-	PromptText     string `db:"prompt_text" json:"prompt_text"`
-	Variables      []byte `db:"variables" json:"variables"`
-	Tags           []byte `db:"tags" json:"tags"`
-	Description    string `db:"description" json:"description"`
-	WhenToUse      string `db:"when_to_use" json:"when_to_use"`
-	Enabled        int64  `db:"enabled" json:"enabled"`
-	ManuallyEdited int64  `db:"manually_edited" json:"manually_edited"`
-	MatchWhen      []byte `db:"match_when" json:"match_when"`
-	Priority       int64  `db:"priority" json:"priority"`
-	CreatedBy      string `db:"created_by" json:"created_by"`
-	UpdatedBy      string `db:"updated_by" json:"updated_by"`
-	CreatedAt      int64  `db:"created_at" json:"created_at"`
-	UpdatedAt      int64  `db:"updated_at" json:"updated_at"`
-}
-
-func (q *Queries) UpsertPromptTemplate(ctx context.Context, arg UpsertPromptTemplateParams) (UpsertPromptTemplateRow, error) {
-	row := q.db.QueryRowContext(ctx, upsertPromptTemplate,
-		arg.PromptKey,
+func (q *Queries) UpdatePromptTemplate(ctx context.Context, arg UpdatePromptTemplateParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, updatePromptTemplate,
 		arg.Title,
 		arg.AgentKey,
 		arg.ToolName,
@@ -418,29 +431,11 @@ func (q *Queries) UpsertPromptTemplate(ctx context.Context, arg UpsertPromptTemp
 		arg.ManuallyEdited,
 		arg.MatchWhen,
 		arg.Priority,
-		arg.CreatedBy,
 		arg.UpdatedBy,
+		arg.PromptKey,
 	)
-	var i UpsertPromptTemplateRow
-	err := row.Scan(
-		&i.ID,
-		&i.PromptKey,
-		&i.Title,
-		&i.AgentKey,
-		&i.ToolName,
-		&i.PromptText,
-		&i.Variables,
-		&i.Tags,
-		&i.Description,
-		&i.WhenToUse,
-		&i.Enabled,
-		&i.ManuallyEdited,
-		&i.MatchWhen,
-		&i.Priority,
-		&i.CreatedBy,
-		&i.UpdatedBy,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-	)
-	return i, err
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }

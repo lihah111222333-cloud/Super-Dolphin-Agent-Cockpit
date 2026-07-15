@@ -9,13 +9,84 @@ import (
 	"context"
 )
 
+const getTaskDagNode = `-- name: GetTaskDagNode :one
+SELECT id, dag_key, node_key, title, node_type, assigned_to, CAST(depends_on AS BLOB) AS depends_on,
+       status, command_ref, CAST(config AS BLOB) AS config, CAST(result AS BLOB) AS result, started_at, finished_at,
+       created_at, updated_at, active_turn_id, active_wakeup_id,
+       last_event_at, run_id, CAST(reads AS BLOB) AS reads, CAST(writes AS BLOB) AS writes, spawning_thread_id
+FROM task_dag_nodes
+WHERE dag_key = ?1
+  AND node_key = ?2
+  AND run_id IS NULL
+`
+
+type GetTaskDagNodeParams struct {
+	DagKey  string `db:"dag_key" json:"dag_key"`
+	NodeKey string `db:"node_key" json:"node_key"`
+}
+
+type GetTaskDagNodeRow struct {
+	ID               int64   `db:"id" json:"id"`
+	DagKey           string  `db:"dag_key" json:"dag_key"`
+	NodeKey          string  `db:"node_key" json:"node_key"`
+	Title            string  `db:"title" json:"title"`
+	NodeType         string  `db:"node_type" json:"node_type"`
+	AssignedTo       string  `db:"assigned_to" json:"assigned_to"`
+	DependsOn        []byte  `db:"depends_on" json:"depends_on"`
+	Status           string  `db:"status" json:"status"`
+	CommandRef       string  `db:"command_ref" json:"command_ref"`
+	Config           []byte  `db:"config" json:"config"`
+	Result           []byte  `db:"result" json:"result"`
+	StartedAt        *int64  `db:"started_at" json:"started_at"`
+	FinishedAt       *int64  `db:"finished_at" json:"finished_at"`
+	CreatedAt        int64   `db:"created_at" json:"created_at"`
+	UpdatedAt        int64   `db:"updated_at" json:"updated_at"`
+	ActiveTurnID     *string `db:"active_turn_id" json:"active_turn_id"`
+	ActiveWakeupID   *int64  `db:"active_wakeup_id" json:"active_wakeup_id"`
+	LastEventAt      *int64  `db:"last_event_at" json:"last_event_at"`
+	RunID            *int64  `db:"run_id" json:"run_id"`
+	Reads            []byte  `db:"reads" json:"reads"`
+	Writes           []byte  `db:"writes" json:"writes"`
+	SpawningThreadID *string `db:"spawning_thread_id" json:"spawning_thread_id"`
+}
+
+func (q *Queries) GetTaskDagNode(ctx context.Context, arg GetTaskDagNodeParams) (GetTaskDagNodeRow, error) {
+	row := q.db.QueryRowContext(ctx, getTaskDagNode, arg.DagKey, arg.NodeKey)
+	var i GetTaskDagNodeRow
+	err := row.Scan(
+		&i.ID,
+		&i.DagKey,
+		&i.NodeKey,
+		&i.Title,
+		&i.NodeType,
+		&i.AssignedTo,
+		&i.DependsOn,
+		&i.Status,
+		&i.CommandRef,
+		&i.Config,
+		&i.Result,
+		&i.StartedAt,
+		&i.FinishedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.ActiveTurnID,
+		&i.ActiveWakeupID,
+		&i.LastEventAt,
+		&i.RunID,
+		&i.Reads,
+		&i.Writes,
+		&i.SpawningThreadID,
+	)
+	return i, err
+}
+
 const getTaskDagNodesForUpdate = `-- name: GetTaskDagNodesForUpdate :many
 SELECT id, dag_key, node_key, title, node_type, assigned_to, CAST(depends_on AS BLOB) AS depends_on,
        status, command_ref, CAST(config AS BLOB) AS config, CAST(result AS BLOB) AS result, started_at, finished_at,
        created_at, updated_at, active_turn_id, active_wakeup_id,
        last_event_at, run_id, CAST(reads AS BLOB) AS reads, CAST(writes AS BLOB) AS writes, spawning_thread_id
 FROM task_dag_nodes
-WHERE dag_key = ?
+WHERE dag_key = ?1
   AND run_id IS NULL
 ORDER BY created_at, id
 `
@@ -174,7 +245,7 @@ SELECT id, dag_key, node_key, title, node_type, assigned_to, CAST(depends_on AS 
        created_at, updated_at, active_turn_id, active_wakeup_id,
        last_event_at, run_id, CAST(reads AS BLOB) AS reads, CAST(writes AS BLOB) AS writes, spawning_thread_id
 FROM task_dag_nodes
-WHERE assigned_to = ? AND status = 'running'
+WHERE assigned_to = ?1 AND status = 'running'
 ORDER BY created_at
 `
 
@@ -259,7 +330,7 @@ SELECT id, dag_key, node_key, title, node_type, assigned_to, CAST(depends_on AS 
        created_at, updated_at, active_turn_id, active_wakeup_id,
        last_event_at, run_id, CAST(reads AS BLOB) AS reads, CAST(writes AS BLOB) AS writes, spawning_thread_id
 FROM task_dag_nodes
-WHERE dag_key = ?
+WHERE dag_key = ?1
   AND run_id IS NULL
 ORDER BY created_at
 `
@@ -345,8 +416,8 @@ SELECT id, dag_key, node_key, title, node_type, assigned_to, CAST(depends_on AS 
        created_at, updated_at, active_turn_id, active_wakeup_id,
        last_event_at, run_id, CAST(reads AS BLOB) AS reads, CAST(writes AS BLOB) AS writes, spawning_thread_id
 FROM task_dag_nodes
-WHERE dag_key = ?
-  AND run_id = ?
+WHERE dag_key = ?1
+  AND run_id = ?2
 ORDER BY created_at
 `
 
@@ -432,7 +503,7 @@ SELECT id, dag_key, node_key, title, node_type, assigned_to, CAST(depends_on AS 
        created_at, updated_at, active_turn_id, active_wakeup_id,
        last_event_at, run_id, CAST(reads AS BLOB) AS reads, CAST(writes AS BLOB) AS writes, spawning_thread_id
 FROM task_dag_nodes
-WHERE spawning_thread_id = ?
+WHERE spawning_thread_id = ?1
   AND spawning_thread_id IS NOT NULL
   AND run_id IS NOT NULL
 ORDER BY updated_at DESC, id DESC

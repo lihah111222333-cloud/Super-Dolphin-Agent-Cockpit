@@ -6,25 +6,20 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
 )
 
-func TestMCPServerConfigBinariesCarriesGlobalPostgresServer(t *testing.T) {
+func TestMCPServerConfigBinariesCarriesPlaywrightServer(t *testing.T) {
 	got := mcpServerConfigBinaries(map[string]contract.MCPServerConfig{
-		"postgres": {
+		"playwright": {
 			Transport: "stdio",
-			Command:   "mcp-server-postgres",
-			Args: []string{
-				"postgresql://super_dolphin@127.0.0.1:55433/super_dolphin?sslmode=disable",
-			},
+			Command:   "npx",
+			Args:      []string{"@playwright/mcp@latest"},
 		},
 	})
 
 	if len(got) != 1 {
-		t.Fatalf("binaries = %#v, want one postgres binary", got)
+		t.Fatalf("binaries = %#v, want one playwright binary", got)
 	}
-	want := []string{
-		"mcp-server-postgres",
-		"postgresql://super_dolphin@127.0.0.1:55433/super_dolphin?sslmode=disable",
-	}
-	if got[0].Name != "postgres" || got[0].Type != "" || !equalStrings(got[0].Command, want) {
+	want := []string{"npx", "@playwright/mcp@latest"}
+	if got[0].Name != "playwright" || got[0].Type != "" || !equalStrings(got[0].Command, want) {
 		t.Fatalf("binary = %#v, want stdio command %#v", got[0], want)
 	}
 }

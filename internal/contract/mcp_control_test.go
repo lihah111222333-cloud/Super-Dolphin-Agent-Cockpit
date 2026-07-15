@@ -36,3 +36,17 @@ func TestValidateManifestBinaryAllowsManagedSidecarCommand(t *testing.T) {
 		t.Fatalf("ValidateManifestBinary() error = %v", err)
 	}
 }
+
+// TestValidateRuntimeStdioCommandRejectsRemovedPostgresCommand prevents the retired built-in database peer from returning.
+func TestValidateRuntimeStdioCommandRejectsRemovedPostgresCommand(t *testing.T) {
+	t.Parallel()
+
+	err := DefaultRuntimeMCPPolicy().ValidateRuntimeStdioCommand(
+		"mcp-server-postgres",
+		[]string{"postgresql://localhost/removed"},
+		"",
+	)
+	if err == nil || !strings.Contains(err.Error(), "unsupported stdio command") {
+		t.Fatalf("ValidateRuntimeStdioCommand() error = %v, want removed postgres command rejection", err)
+	}
+}

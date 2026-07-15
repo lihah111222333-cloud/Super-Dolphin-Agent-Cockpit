@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
-	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -23,7 +22,6 @@ func TestPromptTemplateMappingsIncludeManuallyEdited(t *testing.T) {
 	}{
 		{name: "get", got: mappedGetPromptTemplate(ts)},
 		{name: "list", got: mappedListPromptTemplate(ts)},
-		{name: "upsert", got: mappedUpsertPromptTemplate(ts)},
 	}
 
 	for _, tt := range tests {
@@ -49,16 +47,6 @@ func mappedListPromptTemplate(ts int64) PromptTemplate {
 		PromptText: "Summarize a paper.", Variables: []byte(`{}`), Tags: []byte(`["research"]`),
 		Description: "Research summary prompt.", WhenToUse: "Use for paper summaries.", Enabled: 1,
 		ManuallyEdited: 1, MatchWhen: []byte(`{"language":"en"}`), Priority: 20,
-		CreatedBy: "system.seed", UpdatedBy: "user", CreatedAt: ts, UpdatedAt: ts,
-	})
-}
-
-func mappedUpsertPromptTemplate(ts int64) PromptTemplate {
-	return fromUpsertTemplate(sqlc.UpsertPromptTemplateRow{
-		ID: 3, PromptKey: "main/email_drafter", Title: "Email Drafter", AgentKey: "email_drafter",
-		PromptText: "Draft an email.", Variables: []byte(`{}`), Tags: []byte(`["writing"]`),
-		Description: "Email drafting prompt.", WhenToUse: "Use for email drafts.", Enabled: 1,
-		ManuallyEdited: 1, MatchWhen: []byte(`{}`), Priority: 10,
 		CreatedBy: "system.seed", UpdatedBy: "user", CreatedAt: ts, UpdatedAt: ts,
 	})
 }
@@ -121,6 +109,36 @@ func TestUpsertPromptTemplatePersistsRoutingMetadata(t *testing.T) {
 	}
 	if !got.Enabled || !got.ManuallyEdited {
 		t.Fatalf("enabled/manually_edited = %v/%v, want true/true", got.Enabled, got.ManuallyEdited)
+	}
+	assertPromptUpdatePreservesIdentity(t, store, got)
+}
+
+func assertPromptUpdatePreservesIdentity(t *testing.T, store Store, got *PromptTemplate) {
+	t.Helper()
+	updated, err := store.Upsert(context.Background(), PromptTemplate{
+		PromptKey:      got.PromptKey,
+		Title:          "SQL Expert Updated",
+		AgentKey:       "main",
+		PromptText:     "Updated SQL body",
+		Variables:      json.RawMessage(`{"dialect":"sqlite"}`),
+		Tags:           json.RawMessage(`["sql","scope.global"]`),
+		Description:    "Updated SQL description",
+		WhenToUse:      "Use for SQLite workflow guidance.",
+		Enabled:        true,
+		ManuallyEdited: true,
+		MatchWhen:      json.RawMessage(`{"cwd_prefix":"/repo/sql"}`),
+		Priority:       80,
+		CreatedBy:      "replacement-must-not-win",
+		UpdatedBy:      "reviewer",
+	})
+	if err != nil {
+		t.Fatalf("second Upsert() error = %v", err)
+	}
+	if updated.ID != got.ID || !updated.CreatedAt.Equal(got.CreatedAt) || updated.CreatedBy != got.CreatedBy {
+		t.Fatalf("update replaced identity fields: before=%+v after=%+v", got, updated)
+	}
+	if updated.Title != "SQL Expert Updated" || updated.UpdatedBy != "reviewer" || updated.Priority != 80 {
+		t.Fatalf("update fields = %+v, want updated values", updated)
 	}
 }
 
@@ -354,16 +372,4 @@ func mustExecPromptSQL(t *testing.T, db *sql.DB, body string) {
 	if _, err := db.ExecContext(context.Background(), body); err != nil {
 		t.Fatalf("exec sqlite schema: %v", err)
 	}
-}
-
-func promptArgsEqual(left, right []any) bool {
-	if len(left) != len(right) {
-		return false
-	}
-	for i := range left {
-		if fmt.Sprint(left[i]) != fmt.Sprint(right[i]) {
-			return false
-		}
-	}
-	return true
 }

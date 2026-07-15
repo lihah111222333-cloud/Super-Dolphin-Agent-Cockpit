@@ -6,7 +6,6 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-orch/store/sqlc"
 	platformconfig "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/config"
 	sharedfilefs "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/sharedfilefs"
 )
@@ -33,7 +32,7 @@ func TestPackagedSharedfileStoreWritesReportsUnderWritableHome(t *testing.T) {
 	t.Setenv("SUPER_DOLPHIN_RUNTIME_MODE", "packaged")
 	t.Setenv("SUPER_DOLPHIN_HOME", appData)
 
-	store, err := provideConcreteStore(sqlc.New(newFakeImportDB(t)), &platformconfig.Config{ProjectRoot: resources})
+	store, err := provideConcreteStore(newFakeImportDB(t).DB, &platformconfig.Config{ProjectRoot: resources})
 	if err != nil {
 		t.Fatalf("provideConcreteStore() error = %v", err)
 	}
@@ -60,7 +59,7 @@ func TestPackagedSharedfileImporterWritesArtifactsUnderWritableHome(t *testing.T
 		t.Fatalf("write source: %v", err)
 	}
 
-	store, err := provideConcreteStore(sqlc.New(newFakeImportDB(t)), &platformconfig.Config{ProjectRoot: resources})
+	store, err := provideConcreteStore(newFakeImportDB(t).DB, &platformconfig.Config{ProjectRoot: resources})
 	if err != nil {
 		t.Fatalf("provideConcreteStore() error = %v", err)
 	}

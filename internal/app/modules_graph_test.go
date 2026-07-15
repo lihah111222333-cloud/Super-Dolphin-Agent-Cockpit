@@ -32,7 +32,7 @@ import (
 )
 
 // TestAppModuleGraphIsClosed 验证核心 app Module 的 fx.Provide 都能满足声明的 fx.In 依赖。
-// fx.ValidateApp 只做 DAG dry-run，不执行构造函数，因此不会触发 db、pgxpool 或 toolbridge 副作用。
+// fx.ValidateApp 只做 DAG dry-run，不执行构造函数，因此不会触发 SQLite 或 toolbridge 副作用。
 //
 // 失败时 fx 会报告缺失类型和消费方，便于定位新增模块漏 provide 的问题。
 func TestAppModuleGraphIsClosed(t *testing.T) {

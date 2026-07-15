@@ -2,10 +2,14 @@ package taskdag
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"fmt"
+	"time"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-orch/store/sqlc"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-orch/store/sqlctx"
+	platformdb "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/db"
 )
 
 const defaultRetryWakeupMaxAttempts = 8
@@ -16,7 +20,8 @@ type wakeupCommandStore struct {
 }
 
 type wakeupLeaseStore struct {
-	q *sqlc.Queries
+	db sqlc.DBTX
+	q  *sqlc.Queries
 }
 
 type wakeupQueryStore struct {
@@ -27,8 +32,8 @@ func newWakeupCommandStore(db sqlc.DBTX, q *sqlc.Queries) *wakeupCommandStore {
 	return &wakeupCommandStore{db: db, q: q}
 }
 
-func newWakeupLeaseStore(q *sqlc.Queries) *wakeupLeaseStore {
-	return &wakeupLeaseStore{q: q}
+func newWakeupLeaseStore(db sqlc.DBTX, q *sqlc.Queries) *wakeupLeaseStore {
+	return &wakeupLeaseStore{db: db, q: q}
 }
 
 func newWakeupQueryStore(q *sqlc.Queries) *wakeupQueryStore {
@@ -37,22 +42,39 @@ func newWakeupQueryStore(q *sqlc.Queries) *wakeupQueryStore {
 
 // EnqueueWakeup 只接受 run-scoped wakeup。run_id 是 dispatcher 之后定位
 // runtime node 的硬要求，不能为了兼容模板节点而放空；幂等由调用方传入的
-// idempotency_key 和 SQL ON CONFLICT 共同保证。
+// idempotency_key 唯一约束共同保证。
 func (s *store) EnqueueWakeup(ctx context.Context, input EnqueueWakeupInput) (int64, error) {
 	if input.RunID <= 0 {
 		return 0, fmt.Errorf("enqueue task dag wakeup: run_id required")
 	}
 	return queryValueWrite(ctx, func() (int64, error) {
-		return s.q.EnqueueTaskDagWakeup(ctx, sqlc.EnqueueTaskDagWakeupParams{
-			DagKey:         input.DagKey,
-			NodeKey:        input.NodeKey,
-			RunID:          int64Ptr(input.RunID),
-			WakeupKind:     input.WakeupKind,
-			TargetAgentID:  input.TargetAgentID,
-			PromptPayload:  input.PromptPayload,
-			IdempotencyKey: input.IdempotencyKey,
-		})
+		_, inserted, err := enqueueWakeupTx(ctx, s.q, input)
+		return inserted, err
 	}, "enqueue", "task_dag_wakeup")
+}
+
+// enqueueWakeupTx 插入 wakeup，并按唯一 idempotency_key 回读权威 ID。
+// 唯一冲突保持旧 ON CONFLICT DO NOTHING 语义，inserted=0 且返回已有行 ID。
+func enqueueWakeupTx(ctx context.Context, q *sqlc.Queries, input EnqueueWakeupInput) (id, inserted int64, err error) {
+	inserted, err = q.InsertTaskDagWakeup(ctx, sqlc.InsertTaskDagWakeupParams{
+		DagKey: input.DagKey, NodeKey: input.NodeKey, RunID: int64Ptr(input.RunID),
+		WakeupKind: input.WakeupKind, TargetAgentID: input.TargetAgentID,
+		PromptPayload: input.PromptPayload, IdempotencyKey: input.IdempotencyKey,
+	})
+	if err != nil && !platformdb.IsUniqueViolation(err) {
+		return 0, 0, err
+	}
+	if err == nil && inserted != 1 {
+		return 0, 0, fmt.Errorf("insert task_dag_wakeup: affected %d rows, want 1", inserted)
+	}
+	if platformdb.IsUniqueViolation(err) {
+		inserted = 0
+	}
+	row, err := q.GetTaskDagWakeupByIdempotencyKey(ctx, sqlc.GetTaskDagWakeupByIdempotencyKeyParams{IdempotencyKey: input.IdempotencyKey})
+	if err != nil {
+		return 0, 0, err
+	}
+	return row.ID, inserted, nil
 }
 
 // ClaimDueWakeups 把 due pending wakeup 抢成 dispatching，并写入 claimed_by /
@@ -63,13 +85,52 @@ func (s *wakeupCommandStore) ClaimDueWakeups(ctx context.Context, input ClaimDue
 	if err != nil {
 		return nil, err
 	}
-	return queryManyWrite(ctx, func() ([]sqlc.ClaimDueTaskDagWakeupsRow, error) {
-		return s.q.ClaimDueTaskDagWakeups(ctx, sqlc.ClaimDueTaskDagWakeupsParams{
-			WorkerID:   input.ClaimedBy,
-			LeaseMs:    leaseInterval,
-			LimitCount: int64(input.Limit),
+	var claimed []Wakeup
+	err = sqlctx.WithImmediateTxOrReuse(ctx, s.db, s.q, func(txq *sqlc.Queries, _ sqlc.DBTX) error {
+		claimedAtValue, leaseExpiresAtValue, fenceErr := nextWakeupClaimFence(ctx, txq, input.ClaimedBy, leaseInterval)
+		if fenceErr != nil {
+			return fenceErr
+		}
+		rows, claimErr := txq.ClaimDueTaskDagWakeups(ctx, sqlc.ClaimDueTaskDagWakeupsParams{
+			ClaimedAt:      claimedAtValue,
+			WorkerID:       input.ClaimedBy,
+			LeaseExpiresAt: leaseExpiresAtValue,
+			LimitCount:     int64(input.Limit),
 		})
-	}, "claim_due", "task_dag_wakeup", fromClaimedWakeup)
+		if claimErr != nil || rows == 0 {
+			return claimErr
+		}
+		fencedRows, queryErr := txq.ListTaskDagWakeupsByClaimFence(ctx, sqlc.ListTaskDagWakeupsByClaimFenceParams{
+			WorkerID:       input.ClaimedBy,
+			ClaimedAt:      claimedAtValue,
+			LeaseExpiresAt: leaseExpiresAtValue,
+		})
+		if queryErr != nil {
+			return queryErr
+		}
+		if int64(len(fencedRows)) != rows {
+			return fmt.Errorf("claim task_dag_wakeup: read back %d rows after affecting %d", len(fencedRows), rows)
+		}
+		claimed = make([]Wakeup, len(fencedRows))
+		for i, row := range fencedRows {
+			claimed[i] = fromClaimedWakeup(row)
+		}
+		return nil
+	})
+	return claimed, wrapTaskDAGError(err, "claim_due", "task_dag_wakeup")
+}
+
+func nextWakeupClaimFence(ctx context.Context, q *sqlc.Queries, workerID string, leaseInterval sqlc.Interval) (*int64, *int64, error) {
+	claimedAtMillis := time.Now().UTC().UnixMilli()
+	latestClaimedAt, err := q.GetLatestTaskDagWakeupClaimedAtForWorker(ctx, sqlc.GetLatestTaskDagWakeupClaimedAtForWorkerParams{WorkerID: workerID})
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return nil, nil, err
+	}
+	if latestClaimedAt != nil && *latestClaimedAt >= claimedAtMillis {
+		claimedAtMillis = *latestClaimedAt + 1
+	}
+	leaseExpiresAtMillis := claimedAtMillis + int64(leaseInterval)
+	return &claimedAtMillis, &leaseExpiresAtMillis, nil
 }
 
 // RenewClaimedWakeupLease 用 ClaimDueWakeups 返回行组装 CAS 续约请求。
@@ -105,19 +166,35 @@ func (s *wakeupLeaseStore) RenewWakeupLease(ctx context.Context, input RenewWake
 	if err != nil {
 		return nil, 0, err
 	}
-	rows, err := queryManyWrite(ctx, func() ([]sqlc.RenewTaskDagWakeupLeaseRow, error) {
-		return s.q.RenewTaskDagWakeupLease(ctx, sqlc.RenewTaskDagWakeupLeaseParams{
+	var renewed *Wakeup
+	var rows int64
+	err = sqlctx.WithImmediateTxOrReuse(ctx, s.db, s.q, func(txq *sqlc.Queries, _ sqlc.DBTX) error {
+		var renewErr error
+		rows, renewErr = txq.RenewTaskDagWakeupLease(ctx, sqlc.RenewTaskDagWakeupLeaseParams{
 			LeaseMs:        leaseInterval,
 			ID:             input.ID,
 			ClaimedAt:      timestampValue(input.ClaimedAt),
 			ClaimedBy:      input.ClaimedBy,
 			LeaseExpiresAt: timestampValue(input.LeaseExpiresAt),
 		})
-	}, "renew", "task_dag_wakeup", fromRenewedWakeup)
-	if err != nil || len(rows) == 0 {
-		return nil, int64(len(rows)), err
+		if renewErr != nil || rows == 0 {
+			return renewErr
+		}
+		if rows != 1 {
+			return fmt.Errorf("renew task_dag_wakeup: affected %d rows, want at most 1", rows)
+		}
+		row, getErr := txq.GetTaskDagWakeup(ctx, sqlc.GetTaskDagWakeupParams{ID: input.ID})
+		if getErr != nil {
+			return getErr
+		}
+		mapped := fromGetWakeup(row)
+		renewed = &mapped
+		return nil
+	})
+	if err != nil {
+		return nil, 0, wrapTaskDAGError(err, "renew", "task_dag_wakeup")
 	}
-	return &rows[0], 1, nil
+	return renewed, rows, nil
 }
 
 // MarkWakeupSent 标记 wakeup 已发送给目标线程。
@@ -188,7 +265,7 @@ func (s *wakeupCommandStore) RetryWakeupWithNodeConfigPatch(ctx context.Context,
 		if retryRows == 0 {
 			return nil
 		}
-		_, patchErr := txq.PatchTaskDagNodeConfigIfUnchanged(ctx, sqlc.PatchTaskDagNodeConfigIfUnchangedParams{
+		patchRows, patchErr := txq.PatchTaskDagNodeConfigIfUnchanged(ctx, sqlc.PatchTaskDagNodeConfigIfUnchangedParams{
 			DagKey:         input.NodeConfig.DagKey,
 			NodeKey:        input.NodeConfig.NodeKey,
 			Config:         input.NodeConfig.Config,
@@ -197,6 +274,9 @@ func (s *wakeupCommandStore) RetryWakeupWithNodeConfigPatch(ctx context.Context,
 		})
 		if patchErr != nil {
 			return wrapTaskDAGError(patchErr, "patch_config", "task_dag_node")
+		}
+		if err := requireSingleNodeWrite(patchRows); err != nil {
+			return wrapTaskDAGError(err, "patch_config", "task_dag_node")
 		}
 		return nil
 	})
@@ -280,9 +360,27 @@ func (s *wakeupCommandStore) ReclaimStaleDispatchingWakeups(ctx context.Context)
 // pending/ready 且 assigned_to 已存在的节点如果没有 pending、dispatching 或 sent-unbound wakeup，
 // 会被推进到 dispatch_incomplete，让启动/周期恢复主动暴露缺失派发。
 func (s *wakeupCommandStore) MarkDispatchIncompleteNodesWithoutActiveWakeup(ctx context.Context) ([]Node, error) {
-	return queryManyWrite(ctx, func() ([]sqlc.MarkDispatchIncompleteNodesWithoutActiveWakeupRow, error) {
-		return s.q.MarkDispatchIncompleteNodesWithoutActiveWakeup(ctx)
-	}, "mark_dispatch_incomplete", "task_dag_node", fromDispatchIncompleteRecoveryRow)
+	updatedAt := time.Now().UTC().UnixMilli()
+	var marked []Node
+	err := sqlctx.WithImmediateTxOrReuse(ctx, s.db, s.q, func(txq *sqlc.Queries, _ sqlc.DBTX) error {
+		rows, updateErr := txq.MarkDispatchIncompleteNodesWithoutActiveWakeup(ctx, sqlc.MarkDispatchIncompleteNodesWithoutActiveWakeupParams{UpdatedAt: updatedAt})
+		if updateErr != nil || rows == 0 {
+			return updateErr
+		}
+		updatedRows, queryErr := txq.ListDispatchIncompleteNodesByUpdatedAt(ctx, sqlc.ListDispatchIncompleteNodesByUpdatedAtParams{UpdatedAt: updatedAt})
+		if queryErr != nil {
+			return queryErr
+		}
+		if int64(len(updatedRows)) != rows {
+			return fmt.Errorf("mark dispatch incomplete nodes: read back %d rows after affecting %d", len(updatedRows), rows)
+		}
+		marked = make([]Node, len(updatedRows))
+		for i, row := range updatedRows {
+			marked[i] = fromDispatchIncompleteRecoveryRow(row)
+		}
+		return nil
+	})
+	return marked, wrapTaskDAGError(err, "mark_dispatch_incomplete", "task_dag_node")
 }
 
 // ListSentUnboundWakeups 列出已发送但还没绑定 turn 的 wakeup。
@@ -306,32 +404,7 @@ func (s *wakeupQueryStore) GetWakeup(ctx context.Context, id int64) (*Wakeup, er
 	}, "get", "task_dag_wakeup", fromGetWakeup)
 }
 
-func fromClaimedWakeup(row sqlc.ClaimDueTaskDagWakeupsRow) Wakeup {
-	return Wakeup{
-		ID:             row.ID,
-		DagKey:         row.DagKey,
-		NodeKey:        row.NodeKey,
-		RunID:          sqlc.Int8Ptr(row.RunID),
-		WakeupKind:     row.WakeupKind,
-		TargetAgentID:  row.TargetAgentID,
-		PromptPayload:  row.PromptPayload,
-		IdempotencyKey: row.IdempotencyKey,
-		Status:         row.Status,
-		AttemptCount:   int32(row.AttemptCount),
-		NextRetryAt:    timeValue(row.NextRetryAt),
-		ClaimedAt:      timestampPtr(row.ClaimedAt),
-		ClaimedBy:      row.ClaimedBy,
-		LeaseExpiresAt: timestampPtr(row.LeaseExpiresAt),
-		SentAt:         timestampPtr(row.SentAt),
-		BoundTurnID:    sqlc.TextPtr(row.BoundTurnID),
-		TurnBoundAt:    timestampPtr(row.TurnBoundAt),
-		LastError:      row.LastError,
-		CreatedAt:      timeValue(row.CreatedAt),
-		UpdatedAt:      timeValue(row.UpdatedAt),
-	}
-}
-
-func fromRenewedWakeup(row sqlc.RenewTaskDagWakeupLeaseRow) Wakeup {
+func fromClaimedWakeup(row sqlc.ListTaskDagWakeupsByClaimFenceRow) Wakeup {
 	return Wakeup{
 		ID:             row.ID,
 		DagKey:         row.DagKey,
@@ -429,6 +502,6 @@ func fromPendingOrDispatchingWakeup(row sqlc.ListPendingOrDispatchingTaskDagWake
 	}
 }
 
-func fromDispatchIncompleteRecoveryRow(row sqlc.MarkDispatchIncompleteNodesWithoutActiveWakeupRow) Node {
+func fromDispatchIncompleteRecoveryRow(row sqlc.ListDispatchIncompleteNodesByUpdatedAtRow) Node {
 	return fromNodeRaw(row.ID, row.DagKey, row.NodeKey, row.RunID, row.Title, row.NodeType, row.AssignedTo, row.DependsOn, row.Status, row.CommandRef, row.Config, row.Result, row.StartedAt, row.FinishedAt, row.CreatedAt, row.UpdatedAt, row.ActiveTurnID, row.ActiveWakeupID, row.LastEventAt, row.Reads, row.Writes, row.SpawningThreadID)
 }

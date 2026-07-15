@@ -5,15 +5,15 @@
   "rules_sources": [
     ".ai-project-map.overrides.json"
   ],
-  "files": 4594,
+  "files": 4430,
   "domains": {
     "docs-agent": 928,
-    "other": 645,
+    "other": 635,
     "app-ui": 524,
-    "platform-provider": 1030,
-    "orchestration": 419,
-    "modules": 731,
-    "store-sql": 317
+    "platform-provider": 1021,
+    "orchestration": 390,
+    "modules": 728,
+    "store-sql": 204
   },
   "index_files": {
     "map_markdown": "docs/doc/codemap/project-map/AI_PROJECT_MAP.md",
@@ -29,29 +29,29 @@
       {
         "key": "orchestration",
         "file": "docs/doc/codemap/project-map/index/orchestration.tsv",
-        "file_count": 419,
-        "size_kb": 94.1,
+        "file_count": 390,
+        "size_kb": 87.8,
         "desc": "mcp-orch 编排 peer、DAG、workspace、prompt、command、shared-file 工具"
       },
       {
         "key": "modules",
         "file": "docs/doc/codemap/project-map/index/modules.tsv",
-        "file_count": 731,
-        "size_kb": 142.3,
+        "file_count": 728,
+        "size_kb": 141.9,
         "desc": "业务模块层：dashboard、memory、prompt、skill、thread、turn、uistate 等"
       },
       {
         "key": "platform-provider",
         "file": "docs/doc/codemap/project-map/index/platform-provider.tsv",
-        "file_count": 1030,
-        "size_kb": 189.8,
+        "file_count": 1021,
+        "size_kb": 187.9,
         "desc": "基础设施与 provider 集成：RPC、hooks、toolbridge、Claude/Codex/统一 provider"
       },
       {
         "key": "store-sql",
         "file": "docs/doc/codemap/project-map/index/store-sql.tsv",
-        "file_count": 317,
-        "size_kb": 47.2,
+        "file_count": 204,
+        "size_kb": 29.8,
         "desc": "持久化层：store、sqlc、SQL queries、migrations"
       },
       {
@@ -64,22 +64,21 @@
       {
         "key": "other",
         "file": "docs/doc/codemap/project-map/index/other.tsv",
-        "file_count": 645,
-        "size_kb": 125.9,
+        "file_count": 635,
+        "size_kb": 123.8,
         "desc": "公共库、脚本、测试、配置与其他根级资源"
       }
     ]
   },
   "module_counts": {
     "(root)": 12,
-    "cmd": 670,
+    "cmd": 645,
     "docs": 920,
     "frontend-app": 522,
-    "internal": 2156,
-    "migrations": 112,
+    "internal": 2133,
     "pkg": 30,
-    "scripts": 123,
-    "sql": 30,
+    "scripts": 120,
+    "sql": 29,
     "test": 9,
     "tests": 1,
     "third_party": 9
@@ -234,16 +233,15 @@
   ],
   "drift": {
     "status": "OK",
-    "unknown_ratio": 0.0026,
-    "unknown_files": 12,
+    "unknown_ratio": 0.0025,
+    "unknown_files": 11,
     "thresholds": {
       "max_unknown_ratio": 0.05
     },
     "warnings": [],
     "top_unknown_modules": {
       "cmd": 9,
-      "internal": 2,
-      "sql": 1
+      "internal": 2
     }
   }
 }

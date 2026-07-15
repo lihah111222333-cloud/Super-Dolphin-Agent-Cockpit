@@ -10,7 +10,7 @@ import (
 	"encoding/json"
 )
 
-const cancelTaskDagRun = `-- name: CancelTaskDagRun :one
+const cancelTaskDagRun = `-- name: CancelTaskDagRun :execrows
 UPDATE task_dag_runs
 SET status = 'cancelled',
     finished_at = (CAST(strftime('%s','now') AS INTEGER) * 1000),
@@ -20,7 +20,6 @@ WHERE dag_key = ?2
   AND id = ?3
   AND run_key = ?4
   AND status = 'running'
-RETURNING id, run_key, dag_key, dag_version_snapshot, trigger_source, status, started_at, finished_at, events, budget_used, budget_limit, metadata, created_at, updated_at
 `
 
 type CancelTaskDagRunParams struct {
@@ -30,34 +29,20 @@ type CancelTaskDagRunParams struct {
 	RunKey string          `db:"run_key" json:"run_key"`
 }
 
-func (q *Queries) CancelTaskDagRun(ctx context.Context, arg CancelTaskDagRunParams) (TaskDagRun, error) {
-	row := q.db.QueryRowContext(ctx, cancelTaskDagRun,
+func (q *Queries) CancelTaskDagRun(ctx context.Context, arg CancelTaskDagRunParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, cancelTaskDagRun,
 		arg.Events,
 		arg.DagKey,
 		arg.RunID,
 		arg.RunKey,
 	)
-	var i TaskDagRun
-	err := row.Scan(
-		&i.ID,
-		&i.RunKey,
-		&i.DagKey,
-		&i.DagVersionSnapshot,
-		&i.TriggerSource,
-		&i.Status,
-		&i.StartedAt,
-		&i.FinishedAt,
-		&i.Events,
-		&i.BudgetUsed,
-		&i.BudgetLimit,
-		&i.Metadata,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-	)
-	return i, err
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
-const cancelTaskDagRunNodes = `-- name: CancelTaskDagRunNodes :many
+const cancelTaskDagRunNodes = `-- name: CancelTaskDagRunNodes :execrows
 UPDATE task_dag_nodes
 SET status = 'cancelled',
     result = json_object('kind', 'run_cancelled', 'reason', ?1),
@@ -69,7 +54,6 @@ SET status = 'cancelled',
 WHERE dag_key = ?2
   AND run_id = ?3
   AND status NOT IN ('done','failed','cancelled','skipped')
-RETURNING spawning_thread_id
 `
 
 type CancelTaskDagRunNodesParams struct {
@@ -78,27 +62,12 @@ type CancelTaskDagRunNodesParams struct {
 	RunID  *int64      `db:"run_id" json:"run_id"`
 }
 
-func (q *Queries) CancelTaskDagRunNodes(ctx context.Context, arg CancelTaskDagRunNodesParams) ([]*string, error) {
-	rows, err := q.db.QueryContext(ctx, cancelTaskDagRunNodes, arg.Reason, arg.DagKey, arg.RunID)
+func (q *Queries) CancelTaskDagRunNodes(ctx context.Context, arg CancelTaskDagRunNodesParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, cancelTaskDagRunNodes, arg.Reason, arg.DagKey, arg.RunID)
 	if err != nil {
-		return nil, err
+		return 0, err
 	}
-	defer rows.Close()
-	items := []*string{}
-	for rows.Next() {
-		var spawning_thread_id *string
-		if err := rows.Scan(&spawning_thread_id); err != nil {
-			return nil, err
-		}
-		items = append(items, spawning_thread_id)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
+	return result.RowsAffected()
 }
 
 const cancelTaskDagRunWakeups = `-- name: CancelTaskDagRunWakeups :execrows
@@ -128,40 +97,10 @@ func (q *Queries) CancelTaskDagRunWakeups(ctx context.Context, arg CancelTaskDag
 	return result.RowsAffected()
 }
 
-const cloneTaskDagNodesForRun = `-- name: CloneTaskDagNodesForRun :execrows
-INSERT INTO task_dag_nodes (
-  dag_key, node_key, title, node_type, assigned_to, depends_on,
-  status, command_ref, config, result, run_id, reads, writes,
-  created_at, updated_at
-)
-SELECT
-  n.dag_key, n.node_key, n.title, n.node_type, n.assigned_to, n.depends_on,
-  'pending', n.command_ref, n.config, '{}', ?1, n.reads, n.writes,
-  (CAST(strftime('%s','now') AS INTEGER) * 1000),
-  (CAST(strftime('%s','now') AS INTEGER) * 1000)
-FROM task_dag_nodes n
-WHERE n.dag_key = ?2
-  AND n.run_id IS NULL
-ON CONFLICT (dag_key, run_id, node_key) WHERE run_id IS NOT NULL DO NOTHING
-`
-
-type CloneTaskDagNodesForRunParams struct {
-	RunID  *int64 `db:"run_id" json:"run_id"`
-	DagKey string `db:"dag_key" json:"dag_key"`
-}
-
-func (q *Queries) CloneTaskDagNodesForRun(ctx context.Context, arg CloneTaskDagNodesForRunParams) (int64, error) {
-	result, err := q.db.ExecContext(ctx, cloneTaskDagNodesForRun, arg.RunID, arg.DagKey)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected()
-}
-
 const countActiveTaskDagRunsByKey = `-- name: CountActiveTaskDagRunsByKey :one
 SELECT COUNT(*) AS active
 FROM task_dag_runs
-WHERE dag_key = ? AND status = 'running'
+WHERE dag_key = ?1 AND status = 'running'
 `
 
 type CountActiveTaskDagRunsByKeyParams struct {
@@ -175,19 +114,18 @@ func (q *Queries) CountActiveTaskDagRunsByKey(ctx context.Context, arg CountActi
 	return active, err
 }
 
-const createTaskDagRun = `-- name: CreateTaskDagRun :one
+const createTaskDagRun = `-- name: CreateTaskDagRun :execrows
 INSERT INTO task_dag_runs (
     run_key, dag_key, dag_version_snapshot, trigger_source, status,
     started_at, metadata, budget_limit, created_at, updated_at
 )
 VALUES (
-    ?, ?, ?, ?, 'running',
+    ?1, ?2, ?3, ?4, 'running',
     (CAST(strftime('%s','now') AS INTEGER) * 1000),
-    ?, ?,
+    ?5, ?6,
     (CAST(strftime('%s','now') AS INTEGER) * 1000),
     (CAST(strftime('%s','now') AS INTEGER) * 1000)
 )
-RETURNING id, run_key, dag_key, dag_version_snapshot, trigger_source, status, started_at, finished_at, events, budget_used, budget_limit, metadata, created_at, updated_at
 `
 
 type CreateTaskDagRunParams struct {
@@ -199,8 +137,8 @@ type CreateTaskDagRunParams struct {
 	BudgetLimit        *int64          `db:"budget_limit" json:"budget_limit"`
 }
 
-func (q *Queries) CreateTaskDagRun(ctx context.Context, arg CreateTaskDagRunParams) (TaskDagRun, error) {
-	row := q.db.QueryRowContext(ctx, createTaskDagRun,
+func (q *Queries) CreateTaskDagRun(ctx context.Context, arg CreateTaskDagRunParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, createTaskDagRun,
 		arg.RunKey,
 		arg.DagKey,
 		arg.DagVersionSnapshot,
@@ -208,99 +146,56 @@ func (q *Queries) CreateTaskDagRun(ctx context.Context, arg CreateTaskDagRunPara
 		arg.Metadata,
 		arg.BudgetLimit,
 	)
-	var i TaskDagRun
-	err := row.Scan(
-		&i.ID,
-		&i.RunKey,
-		&i.DagKey,
-		&i.DagVersionSnapshot,
-		&i.TriggerSource,
-		&i.Status,
-		&i.StartedAt,
-		&i.FinishedAt,
-		&i.Events,
-		&i.BudgetUsed,
-		&i.BudgetLimit,
-		&i.Metadata,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-	)
-	return i, err
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
-const finalizeTaskDagRunIfAllNodesTerminal = `-- name: FinalizeTaskDagRunIfAllNodesTerminal :many
+const finalizeTaskDagRun = `-- name: FinalizeTaskDagRun :execrows
 UPDATE task_dag_runs
-SET status = CASE
-      WHEN EXISTS (
-        SELECT 1 FROM task_dag_nodes
-        WHERE task_dag_nodes.dag_key = ?1
-          AND task_dag_nodes.run_id = ?2
-          AND task_dag_nodes.status = 'failed'
-      ) THEN 'failed'
-      WHEN EXISTS (
-        SELECT 1 FROM task_dag_nodes
-        WHERE task_dag_nodes.dag_key = ?1
-          AND task_dag_nodes.run_id = ?2
-          AND task_dag_nodes.status = 'cancelled'
-      ) THEN 'cancelled'
-      ELSE 'succeeded'
-    END,
+SET status = ?1,
     finished_at = (CAST(strftime('%s','now') AS INTEGER) * 1000),
     updated_at = (CAST(strftime('%s','now') AS INTEGER) * 1000)
 WHERE task_dag_runs.id = ?2
-  AND task_dag_runs.dag_key = ?1
+  AND task_dag_runs.dag_key = ?3
   AND task_dag_runs.status = 'running'
-  AND EXISTS (
-    SELECT 1 FROM task_dag_nodes
-    WHERE task_dag_nodes.dag_key = ?1
-      AND task_dag_nodes.run_id = ?2
-  )
-  AND NOT EXISTS (
-    SELECT 1 FROM task_dag_nodes
-    WHERE task_dag_nodes.dag_key = ?1
-      AND task_dag_nodes.run_id = ?2
-      AND task_dag_nodes.status NOT IN ('done','failed','cancelled','skipped')
-  )
-RETURNING run_key, status
 `
 
-type FinalizeTaskDagRunIfAllNodesTerminalParams struct {
-	DagKey string `db:"dag_key" json:"dag_key"`
-	RunID  *int64 `db:"run_id" json:"run_id"`
-}
-
-type FinalizeTaskDagRunIfAllNodesTerminalRow struct {
-	RunKey string `db:"run_key" json:"run_key"`
+type FinalizeTaskDagRunParams struct {
 	Status string `db:"status" json:"status"`
+	RunID  int64  `db:"run_id" json:"run_id"`
+	DagKey string `db:"dag_key" json:"dag_key"`
 }
 
-func (q *Queries) FinalizeTaskDagRunIfAllNodesTerminal(ctx context.Context, arg FinalizeTaskDagRunIfAllNodesTerminalParams) ([]FinalizeTaskDagRunIfAllNodesTerminalRow, error) {
-	rows, err := q.db.QueryContext(ctx, finalizeTaskDagRunIfAllNodesTerminal, arg.DagKey, arg.RunID)
+func (q *Queries) FinalizeTaskDagRun(ctx context.Context, arg FinalizeTaskDagRunParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, finalizeTaskDagRun, arg.Status, arg.RunID, arg.DagKey)
 	if err != nil {
-		return nil, err
+		return 0, err
 	}
-	defer rows.Close()
-	items := []FinalizeTaskDagRunIfAllNodesTerminalRow{}
-	for rows.Next() {
-		var i FinalizeTaskDagRunIfAllNodesTerminalRow
-		if err := rows.Scan(&i.RunKey, &i.Status); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
+	return result.RowsAffected()
 }
 
 const getTaskDagRun = `-- name: GetTaskDagRun :one
-SELECT id, run_key, dag_key, dag_version_snapshot, trigger_source, status, started_at, finished_at, events, budget_used, budget_limit, metadata, created_at, updated_at
-FROM task_dag_runs
-WHERE run_key = ?
+SELECT
+  id,
+  run_key,
+  dag_key,
+  dag_version_snapshot,
+  trigger_source,
+  status,
+  started_at,
+  finished_at,
+  events,
+  budget_used,
+  budget_limit,
+  metadata,
+  created_at,
+  updated_at
+FROM
+  task_dag_runs
+WHERE
+  run_key = ?1
 `
 
 type GetTaskDagRunParams struct {
@@ -329,10 +224,155 @@ func (q *Queries) GetTaskDagRun(ctx context.Context, arg GetTaskDagRunParams) (T
 	return i, err
 }
 
+const getTaskDagRunIdentityByID = `-- name: GetTaskDagRunIdentityByID :one
+SELECT run_key, status
+FROM task_dag_runs
+WHERE dag_key = ?1
+  AND id = ?2
+`
+
+type GetTaskDagRunIdentityByIDParams struct {
+	DagKey string `db:"dag_key" json:"dag_key"`
+	RunID  int64  `db:"run_id" json:"run_id"`
+}
+
+type GetTaskDagRunIdentityByIDRow struct {
+	RunKey string `db:"run_key" json:"run_key"`
+	Status string `db:"status" json:"status"`
+}
+
+func (q *Queries) GetTaskDagRunIdentityByID(ctx context.Context, arg GetTaskDagRunIdentityByIDParams) (GetTaskDagRunIdentityByIDRow, error) {
+	row := q.db.QueryRowContext(ctx, getTaskDagRunIdentityByID, arg.DagKey, arg.RunID)
+	var i GetTaskDagRunIdentityByIDRow
+	err := row.Scan(&i.RunKey, &i.Status)
+	return i, err
+}
+
+const insertTaskDagRunNode = `-- name: InsertTaskDagRunNode :execrows
+INSERT INTO task_dag_nodes (
+  dag_key, node_key, title, node_type, assigned_to, depends_on,
+  status, command_ref, config, result, run_id, reads, writes,
+  created_at, updated_at
+)
+VALUES (
+  ?1, ?2, ?3, ?4, ?5, ?6,
+  'pending', ?7, ?8, '{}', ?9, ?10, ?11,
+  (CAST(strftime('%s','now') AS INTEGER) * 1000),
+  (CAST(strftime('%s','now') AS INTEGER) * 1000)
+)
+`
+
+type InsertTaskDagRunNodeParams struct {
+	DagKey     string          `db:"dag_key" json:"dag_key"`
+	NodeKey    string          `db:"node_key" json:"node_key"`
+	Title      string          `db:"title" json:"title"`
+	NodeType   string          `db:"node_type" json:"node_type"`
+	AssignedTo string          `db:"assigned_to" json:"assigned_to"`
+	DependsOn  json.RawMessage `db:"depends_on" json:"depends_on"`
+	CommandRef string          `db:"command_ref" json:"command_ref"`
+	Config     json.RawMessage `db:"config" json:"config"`
+	RunID      *int64          `db:"run_id" json:"run_id"`
+	Reads      json.RawMessage `db:"reads" json:"reads"`
+	Writes     json.RawMessage `db:"writes" json:"writes"`
+}
+
+func (q *Queries) InsertTaskDagRunNode(ctx context.Context, arg InsertTaskDagRunNodeParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, insertTaskDagRunNode,
+		arg.DagKey,
+		arg.NodeKey,
+		arg.Title,
+		arg.NodeType,
+		arg.AssignedTo,
+		arg.DependsOn,
+		arg.CommandRef,
+		arg.Config,
+		arg.RunID,
+		arg.Reads,
+		arg.Writes,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const listCancelableTaskDagRunSpawningThreads = `-- name: ListCancelableTaskDagRunSpawningThreads :many
+SELECT spawning_thread_id
+FROM task_dag_nodes
+WHERE dag_key = ?1
+  AND run_id = ?2
+  AND status NOT IN ('done','failed','cancelled','skipped')
+ORDER BY id
+`
+
+type ListCancelableTaskDagRunSpawningThreadsParams struct {
+	DagKey string `db:"dag_key" json:"dag_key"`
+	RunID  *int64 `db:"run_id" json:"run_id"`
+}
+
+func (q *Queries) ListCancelableTaskDagRunSpawningThreads(ctx context.Context, arg ListCancelableTaskDagRunSpawningThreadsParams) ([]*string, error) {
+	rows, err := q.db.QueryContext(ctx, listCancelableTaskDagRunSpawningThreads, arg.DagKey, arg.RunID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []*string{}
+	for rows.Next() {
+		var spawning_thread_id *string
+		if err := rows.Scan(&spawning_thread_id); err != nil {
+			return nil, err
+		}
+		items = append(items, spawning_thread_id)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listTaskDagRunNodeStatuses = `-- name: ListTaskDagRunNodeStatuses :many
+SELECT status
+FROM task_dag_nodes
+WHERE dag_key = ?1
+  AND run_id = ?2
+ORDER BY id
+`
+
+type ListTaskDagRunNodeStatusesParams struct {
+	DagKey string `db:"dag_key" json:"dag_key"`
+	RunID  *int64 `db:"run_id" json:"run_id"`
+}
+
+func (q *Queries) ListTaskDagRunNodeStatuses(ctx context.Context, arg ListTaskDagRunNodeStatusesParams) ([]string, error) {
+	rows, err := q.db.QueryContext(ctx, listTaskDagRunNodeStatuses, arg.DagKey, arg.RunID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []string{}
+	for rows.Next() {
+		var status string
+		if err := rows.Scan(&status); err != nil {
+			return nil, err
+		}
+		items = append(items, status)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listTaskDagRunsByKey = `-- name: ListTaskDagRunsByKey :many
 SELECT id, run_key, dag_key, dag_version_snapshot, trigger_source, status, started_at, finished_at, budget_used, budget_limit, created_at, updated_at
 FROM task_dag_runs
-WHERE dag_key = ?
+WHERE dag_key = ?1
   AND (?2 = '' OR status = ?2)
 ORDER BY started_at DESC, id DESC
 LIMIT ?3
@@ -423,18 +463,18 @@ func (q *Queries) LoadTaskDagRunEventsForAppend(ctx context.Context, arg LoadTas
 const lockTaskDagRunForCompletionForUpdate = `-- name: LockTaskDagRunForCompletionForUpdate :one
 SELECT id
 FROM task_dag_runs
-WHERE dag_key = ?
-  AND id = ?
+WHERE dag_key = ?1
+  AND id = ?2
   AND status = 'running'
 `
 
 type LockTaskDagRunForCompletionForUpdateParams struct {
 	DagKey string `db:"dag_key" json:"dag_key"`
-	ID     int64  `db:"id" json:"id"`
+	RunID  int64  `db:"run_id" json:"run_id"`
 }
 
 func (q *Queries) LockTaskDagRunForCompletionForUpdate(ctx context.Context, arg LockTaskDagRunForCompletionForUpdateParams) (int64, error) {
-	row := q.db.QueryRowContext(ctx, lockTaskDagRunForCompletionForUpdate, arg.DagKey, arg.ID)
+	row := q.db.QueryRowContext(ctx, lockTaskDagRunForCompletionForUpdate, arg.DagKey, arg.RunID)
 	var id int64
 	err := row.Scan(&id)
 	return id, err
@@ -444,8 +484,8 @@ const promoteRootNodesToReady = `-- name: PromoteRootNodesToReady :execrows
 UPDATE task_dag_nodes
 SET status = 'ready',
     updated_at = (CAST(strftime('%s','now') AS INTEGER) * 1000)
-WHERE dag_key = ?
-  AND run_id = ?
+WHERE dag_key = ?1
+  AND run_id = ?2
   AND status = 'pending'
   AND json_array_length(depends_on) = 0
 `

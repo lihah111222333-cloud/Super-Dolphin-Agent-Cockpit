@@ -116,7 +116,7 @@ func TestStartTurnAdvertisesDynamicToolsFromTurnMCPManifest(t *testing.T) {
 		gotScope = scope
 		return []codexprotocol.DynamicToolSchema{{
 			Name:        "query",
-			Description: "readonly postgres query",
+			Description: "readonly sqlite query",
 			InputSchema: json.RawMessage(`{"type":"object","properties":{"sql":{"type":"string"}}}`),
 		}}, nil
 	}
@@ -126,15 +126,15 @@ func TestStartTurnAdvertisesDynamicToolsFromTurnMCPManifest(t *testing.T) {
 		CWD:      workDir,
 		Inputs:   []dto.InputItem{{Type: "text", Content: "select now()"}},
 		MCP: dto.MCPManifest{Binaries: []dto.MCPBinary{{
-			Name:    "postgres",
-			Command: []string{"mcp-server-postgres", "postgres://readonly@example.test/app"},
+			Name:    "sqlite",
+			Command: []string{"npx", "-y", "@bytebase/dbhub", "--dsn=sqlite:///tmp/test.db"},
 		}}},
 	})
 	if err != nil {
 		t.Fatalf("StartTurn() error = %v", err)
 	}
-	if handle.ProviderID() != "turn-pg" {
-		t.Fatalf("ProviderID() = %q, want turn-pg", handle.ProviderID())
+	if handle.ProviderID() != "turn-sqlite" {
+		t.Fatalf("ProviderID() = %q, want turn-sqlite", handle.ProviderID())
 	}
 	if prepareCalls != 1 {
 		t.Fatalf("prepareTools calls = %d, want 1", prepareCalls)
@@ -152,7 +152,7 @@ func startTurnDynamicToolsRPCServer(t *testing.T, turnParams chan<- map[string]a
 		var params map[string]any
 		_ = json.Unmarshal(msg.Params, &params)
 		turnParams <- params
-		return mustJSON(map[string]any{"turn": map[string]any{"id": "turn-pg"}})
+		return mustJSON(map[string]any{"turn": map[string]any{"id": "turn-sqlite"}})
 	})
 }
 
@@ -161,8 +161,8 @@ func assertTurnMCPToolScope(t *testing.T, got contract.CodexToolSurfaceScope, wo
 	if got.AgentID != "agent-1" || got.ProviderThreadID != "provider-thread-1" || got.CWD != workDir {
 		t.Fatalf("turn tool scope = %#v, want agent/provider thread/cwd", got)
 	}
-	if len(got.Manifest.Binaries) != 1 || got.Manifest.Binaries[0].Name != "postgres" || got.Manifest.Binaries[0].Command[0] != "mcp-server-postgres" {
-		t.Fatalf("turn manifest binaries = %#v, want postgres mcp-server-postgres", got.Manifest.Binaries)
+	if len(got.Manifest.Binaries) != 1 || got.Manifest.Binaries[0].Name != "sqlite" || got.Manifest.Binaries[0].Command[0] != "npx" {
+		t.Fatalf("turn manifest binaries = %#v, want sqlite dbhub", got.Manifest.Binaries)
 	}
 }
 

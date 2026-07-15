@@ -7,4 +7,4 @@
 -- migration.
 
 ALTER TABLE task_dag_nodes
-  ADD COLUMN spawning_thread_id TEXT NULL;
+  ADD spawning_thread_id TEXT;

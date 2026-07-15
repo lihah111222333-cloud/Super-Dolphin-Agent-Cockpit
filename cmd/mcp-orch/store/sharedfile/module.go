@@ -1,9 +1,10 @@
 package sharedfile
 
 import (
+	"database/sql"
+
 	"go.uber.org/fx"
 
-	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-orch/store/sqlc"
 	platformconfig "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/config"
 	sharedfilefs "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/sharedfilefs"
 )
@@ -24,12 +25,12 @@ var Module = fx.Module("store.sharedfile",
 )
 
 // provideConcreteStore 从平台配置解析 sharedfile 根目录后创建具体 store。
-func provideConcreteStore(q *sqlc.Queries, cfg *platformconfig.Config) (*store, error) {
+func provideConcreteStore(db *sql.DB, cfg *platformconfig.Config) (*store, error) {
 	fsCfg, err := sharedfileFSConfigFrom(cfg)
 	if err != nil {
 		return nil, err
 	}
-	return newStoreWithConfig(q, fsCfg), nil
+	return newStoreWithConfig(db, fsCfg), nil
 }
 
 // ProvideStore 将具体 sharedfile store 暴露为 Store 接口。

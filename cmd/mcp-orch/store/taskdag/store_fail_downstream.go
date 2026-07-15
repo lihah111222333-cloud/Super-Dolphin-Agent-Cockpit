@@ -2,7 +2,9 @@ package taskdag
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-orch/store/sqlc"
@@ -91,17 +93,51 @@ func failNodeTx(ctx context.Context, txStore *store, dagKey, nodeKey string, run
 	if err != nil {
 		return nil, fmt.Errorf("marshal fail reason for %s/%s: %w", dagKey, nodeKey, err)
 	}
-	return updateNodeStatus(func() (sqlc.FailTaskDagNodeIfNonTerminalRow, error) {
-		return txStore.q.FailTaskDagNodeIfNonTerminal(ctx, sqlc.FailTaskDagNodeIfNonTerminalParams{
-			Status:        "failed",
-			Result:        encoded,
-			DagKey:        dagKey,
-			NodeKey:       nodeKey,
-			RunID:         int64Ptr(runID),
-			WakeupID:      wakeupID,
-			WakeupAttempt: int64(wakeupAttempt),
-		})
-	}, "fail_non_terminal", fromNodeFailNonTerminalRow)
+	fenceMatched, err := wakeupFenceMatches(ctx, txStore.q, dagKey, nodeKey, runID, wakeupID, wakeupAttempt)
+	if err != nil {
+		return nil, err
+	}
+	fenceValue := int64(0)
+	if fenceMatched {
+		fenceValue = 1
+	}
+	rows, err := txStore.q.FailTaskDagNodeIfNonTerminal(ctx, sqlc.FailTaskDagNodeIfNonTerminalParams{
+		Status: "failed", Result: encoded, DagKey: dagKey, NodeKey: nodeKey,
+		RunID: int64Ptr(runID), WakeupID: wakeupID, WakeupFenceMatched: fenceValue,
+	})
+	if err != nil {
+		return nil, wrapTaskDAGError(err, "fail_non_terminal", "task_dag_node")
+	}
+	if rows == 0 {
+		return nil, wrapTaskDAGError(sql.ErrNoRows, "fail_non_terminal", "task_dag_node")
+	}
+	if rows != 1 {
+		return nil, wrapTaskDAGError(fmt.Errorf("affected %d rows, want 1", rows), "fail_non_terminal", "task_dag_node")
+	}
+	row, err := txStore.q.GetTaskDagRunNodeForUpdate(ctx, sqlc.GetTaskDagRunNodeForUpdateParams{
+		DagKey: dagKey, NodeKey: nodeKey, RunID: int64Ptr(runID),
+	})
+	if err != nil {
+		return nil, wrapTaskDAGError(err, "fail_non_terminal_readback", "task_dag_node")
+	}
+	mapped := fromNodeRunForUpdateRow(row)
+	return &mapped, nil
+}
+
+// wakeupFenceMatches 校验失败写入携带的 wakeup 是否属于同一 dag/node/run/attempt。
+func wakeupFenceMatches(ctx context.Context, q *sqlc.Queries, dagKey, nodeKey string, runID, wakeupID int64, attempt int32) (bool, error) {
+	if wakeupID == 0 {
+		return true, nil
+	}
+	wakeup, err := q.GetTaskDagWakeup(ctx, sqlc.GetTaskDagWakeupParams{ID: wakeupID})
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return wakeup.DagKey == dagKey && wakeup.NodeKey == nodeKey &&
+		wakeup.RunID != nil && *wakeup.RunID == runID && wakeup.AttemptCount == int64(attempt), nil
 }
 
 // cancelDownstreamTx 从失败节点出发遍历反向依赖图，级联失败所有仍为 pending 的下游节点。

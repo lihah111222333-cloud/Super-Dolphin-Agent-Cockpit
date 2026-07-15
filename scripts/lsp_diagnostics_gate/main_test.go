@@ -79,6 +79,41 @@ func TestCollectDiagnosticsSuccessWritesNonEmptyCoverageWithOnePeer(t *testing.T
 	}
 }
 
+func TestDiagnosticShardsKeepSmallSetsSingleAndSplitLargeSetsCompletely(t *testing.T) {
+	small := []string{"a.go", "b.go"}
+	if shards := diagnosticShards(small); len(shards) != 1 || strings.Join(shards[0], ",") != "a.go,b.go" {
+		t.Fatalf("small shards = %#v, want one unchanged shard", shards)
+	}
+	large := make([]string, parallelDiagnosticsFileThreshold+1)
+	for i := range large {
+		large[i] = fmt.Sprintf("%04d.go", i)
+	}
+	shards := diagnosticShards(large)
+	if len(shards) != 2 {
+		t.Fatalf("large shards = %d, want 2", len(shards))
+	}
+	joined := append(append([]string(nil), shards[0]...), shards[1]...)
+	if strings.Join(joined, ",") != strings.Join(large, ",") {
+		t.Fatal("large shards lost or reordered diagnostics targets")
+	}
+}
+
+func TestDiagnosticShardErrorPreservesRealFailureAndNormalizesSiblingExit(t *testing.T) {
+	realFailure := fmt.Errorf("diagnostics broken.go: invalid syntax")
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if got := diagnosticShardError(ctx, fmt.Errorf("peer exited: signal killed")); got != context.Canceled {
+		t.Fatalf("sibling exit = %v, want context canceled", got)
+	}
+	results := make(chan error, 2)
+	results <- realFailure
+	results <- context.Canceled
+	close(results)
+	if got := preferredShardError(results); got != realFailure {
+		t.Fatalf("preferred error = %v, want %v", got, realFailure)
+	}
+}
+
 func TestDiagnosticTargetsAllUsesTrackedFilesActualAdaptersAndNoisePolicy(t *testing.T) {
 	root := t.TempDir()
 	writeTestFile(t, filepath.Join(root, "a.go"), "package a\n")

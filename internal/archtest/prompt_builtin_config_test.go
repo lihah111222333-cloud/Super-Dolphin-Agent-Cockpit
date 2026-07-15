@@ -17,28 +17,20 @@ const (
 	rosterRepairCardMaxRunes          = 600
 )
 
-func TestBuiltinPromptBodiesDoNotReturnToNewMigrations(t *testing.T) {
-	root := repoRoot(t)
-	paths, err := filepath.Glob(filepath.Join(root, "migrations", "*.sql"))
+func TestPostgreSQLMigrationAssetsDoNotReturn(t *testing.T) {
+	root := filepath.Join(repoRoot(t), "migrations")
+	paths, err := filepath.Glob(filepath.Join(root, "*.sql"))
 	if err != nil {
-		t.Fatalf("glob migrations: %v", err)
+		t.Fatalf("glob legacy PostgreSQL migration assets: %v", err)
 	}
-
-	var violations []string
-	for _, path := range paths {
-		name := filepath.Base(path)
-		if !isNewPromptBuiltinMigration(name) {
-			continue
-		}
-		data, err := os.ReadFile(path)
-		if err != nil {
-			t.Fatalf("read %s: %v", path, err)
-		}
-		if migrationAddsBuiltinPromptBodyForFile(name, string(data)) {
-			violations = append(violations, fmt.Sprintf("%s: %s", name, builtinPromptBodyMigrationMessage))
-		}
+	if len(paths) != 0 {
+		t.Fatalf("legacy PostgreSQL migration assets must not exist: %v", paths)
 	}
-	failIfViolations(t, violations)
+	if _, err := os.Stat(filepath.Join(root, "ROLLBACK.md")); err == nil {
+		t.Fatal("legacy PostgreSQL rollback runbook must not exist")
+	} else if !os.IsNotExist(err) {
+		t.Fatalf("inspect legacy PostgreSQL rollback runbook: %v", err)
+	}
 }
 
 func TestPromptBuiltinMigrationBodyDetectorAllowsMetadataDisableAndRename(t *testing.T) {
@@ -52,40 +44,6 @@ func TestPromptBuiltinMigrationBodyDetectorAllowsMetadataDisableAndRename(t *tes
 	for _, sql := range allowed {
 		if migrationAddsBuiltinPromptBody(sql) {
 			t.Fatalf("metadata/disable/rename migration was rejected: %s", sql)
-		}
-	}
-}
-
-func TestRegistryBackedSystemSeedRowsAreDisabledAfterCutover(t *testing.T) {
-	content := readPromptMigration(t, "0104_disable_registry_backed_system_seed_prompts.sql")
-	for _, marker := range []string{
-		"('main/default')",
-		"('main/general-zh')",
-		"SET enabled = FALSE",
-		"updated_by = 'system.registry-migration'",
-		"t.created_by IN ('system.seed', 'seed')",
-		"(t.updated_by IN ('system.seed', 'seed', 'migration') OR t.updated_by LIKE 'system.%')",
-		"t.manually_edited = FALSE",
-	} {
-		if !strings.Contains(content, marker) {
-			t.Fatalf("0104 missing registry-backed disable marker %q", marker)
-		}
-	}
-}
-
-func TestDAGDesignerSystemSeedRowsAreDisabledForRegistryShortToolNames(t *testing.T) {
-	content := readPromptMigration(t, "0111_refresh_orchestration_short_tool_names.sql")
-	for _, marker := range []string{
-		"('main/dag_designer_zh')",
-		"('main/dag_designer_en')",
-		"SET enabled = FALSE",
-		"updated_by = 'migration:0111'",
-		"t.created_by IN ('system.seed', 'seed')",
-		"OR t.updated_by LIKE 'migration:%'",
-		"t.manually_edited = FALSE",
-	} {
-		if !strings.Contains(content, marker) {
-			t.Fatalf("0111 missing registry-backed DAG designer disable marker %q", marker)
 		}
 	}
 }
@@ -338,7 +296,6 @@ func migrationAddsBuiltinPromptBodyForFile(name, sql string) bool {
 	sql = strings.ReplaceAll(sql, "\r\n", "\n")
 	if name == rosterRepairMigrationName {
 		sql = stripAllowedRosterRepairCardInserts(sql)
-		sql = strip0106DAGDesignerPromptTextReplacementLiterals(sql)
 	}
 	if name == "0108_refresh_dag_designer_prompt_final_node_key.sql" {
 		sql = strip0108DAGDesignerPromptTextReplacementLiterals(sql)

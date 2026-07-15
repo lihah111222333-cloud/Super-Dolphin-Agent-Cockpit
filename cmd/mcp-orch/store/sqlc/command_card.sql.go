@@ -12,7 +12,7 @@ import (
 
 const deleteCommandCard = `-- name: DeleteCommandCard :execrows
 DELETE FROM command_cards
-WHERE card_key = ?
+WHERE card_key = ?1
 `
 
 type DeleteCommandCardParams struct {
@@ -30,7 +30,7 @@ func (q *Queries) DeleteCommandCard(ctx context.Context, arg DeleteCommandCardPa
 const getCommandCard = `-- name: GetCommandCard :one
 SELECT id, card_key, title, description, command_template, CAST(args_schema AS BLOB) AS args_schema, risk_level, enabled, created_by, updated_by, created_at, updated_at
 FROM command_cards
-WHERE card_key = ?
+WHERE card_key = ?1
 `
 
 type GetCommandCardParams struct {
@@ -72,11 +72,57 @@ func (q *Queries) GetCommandCard(ctx context.Context, arg GetCommandCardParams) 
 	return i, err
 }
 
+const insertCommandCard = `-- name: InsertCommandCard :execrows
+INSERT INTO command_cards (
+    card_key, title, description, command_template, args_schema,
+    risk_level, enabled, created_by, updated_by, created_at, updated_at
+) VALUES (
+    ?1, ?2, ?3, ?4, ?5,
+    ?6, ?7, ?8, ?9,
+    (CAST(strftime('%s','now') AS INTEGER) * 1000),
+    (CAST(strftime('%s','now') AS INTEGER) * 1000)
+)
+`
+
+type InsertCommandCardParams struct {
+	CardKey         string          `db:"card_key" json:"card_key"`
+	Title           string          `db:"title" json:"title"`
+	Description     string          `db:"description" json:"description"`
+	CommandTemplate string          `db:"command_template" json:"command_template"`
+	ArgsSchema      json.RawMessage `db:"args_schema" json:"args_schema"`
+	RiskLevel       string          `db:"risk_level" json:"risk_level"`
+	Enabled         int64           `db:"enabled" json:"enabled"`
+	CreatedBy       string          `db:"created_by" json:"created_by"`
+	UpdatedBy       string          `db:"updated_by" json:"updated_by"`
+}
+
+func (q *Queries) InsertCommandCard(ctx context.Context, arg InsertCommandCardParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, insertCommandCard,
+		arg.CardKey,
+		arg.Title,
+		arg.Description,
+		arg.CommandTemplate,
+		arg.ArgsSchema,
+		arg.RiskLevel,
+		arg.Enabled,
+		arg.CreatedBy,
+		arg.UpdatedBy,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const insertCommandCardVersion = `-- name: InsertCommandCardVersion :exec
 INSERT INTO command_card_versions (
     card_key, title, description, command_template, args_schema,
     risk_level, enabled, created_by, updated_by, source_updated_at, created_at, archived_at
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, (CAST(strftime('%s','now') AS INTEGER) * 1000), (CAST(strftime('%s','now') AS INTEGER) * 1000))
+) VALUES (
+    ?1, ?2, ?3, ?4, ?5,
+    ?6, ?7, ?8, ?9, ?10,
+    (CAST(strftime('%s','now') AS INTEGER) * 1000), (CAST(strftime('%s','now') AS INTEGER) * 1000)
+)
 `
 
 type InsertCommandCardVersionParams struct {
@@ -112,7 +158,7 @@ const listCommandCardVersions = `-- name: ListCommandCardVersions :many
 SELECT id, card_key, title, description, command_template, CAST(args_schema AS BLOB) AS args_schema, risk_level, enabled,
        created_by, updated_by, source_updated_at, created_at, archived_at
 FROM command_card_versions
-WHERE card_key = ?
+WHERE card_key = ?1
 ORDER BY id DESC
 `
 
@@ -183,10 +229,10 @@ LEFT JOIN (
     GROUP BY card_key
 ) AS stats ON stats.card_key = c.card_key
 WHERE (?1 = ''
-    OR c.card_key LIKE '%' || ?1 || '%'
-    OR c.title LIKE '%' || ?1 || '%'
-    OR c.description LIKE '%' || ?1 || '%'
-    OR c.command_template LIKE '%' || ?1 || '%')
+    OR c.card_key LIKE ?1
+    OR c.title LIKE ?1
+    OR c.description LIKE ?1
+    OR c.command_template LIKE ?1)
 ORDER BY c.updated_at DESC, c.id DESC
 LIMIT ?2
 `
@@ -251,76 +297,43 @@ func (q *Queries) ListCommandCards(ctx context.Context, arg ListCommandCardsPara
 	return items, nil
 }
 
-const upsertCommandCard = `-- name: UpsertCommandCard :one
-INSERT INTO command_cards (
-    card_key, title, description, command_template, args_schema,
-    risk_level, enabled, created_by, updated_by, created_at, updated_at
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, (CAST(strftime('%s','now') AS INTEGER) * 1000), (CAST(strftime('%s','now') AS INTEGER) * 1000))
-ON CONFLICT (card_key) DO UPDATE
-SET title = EXCLUDED.title,
-    description = EXCLUDED.description,
-    command_template = EXCLUDED.command_template,
-    args_schema = EXCLUDED.args_schema,
-    risk_level = EXCLUDED.risk_level,
-    enabled = EXCLUDED.enabled,
-    updated_by = EXCLUDED.updated_by,
+const updateCommandCard = `-- name: UpdateCommandCard :execrows
+UPDATE command_cards
+SET title = ?1,
+    description = ?2,
+    command_template = ?3,
+    args_schema = ?4,
+    risk_level = ?5,
+    enabled = ?6,
+    updated_by = ?7,
     updated_at = (CAST(strftime('%s','now') AS INTEGER) * 1000)
-RETURNING id, card_key, title, description, command_template, CAST(args_schema AS BLOB) AS args_schema, risk_level, enabled, created_by, updated_by, created_at, updated_at
+WHERE card_key = ?8
 `
 
-type UpsertCommandCardParams struct {
-	CardKey         string          `db:"card_key" json:"card_key"`
+type UpdateCommandCardParams struct {
 	Title           string          `db:"title" json:"title"`
 	Description     string          `db:"description" json:"description"`
 	CommandTemplate string          `db:"command_template" json:"command_template"`
 	ArgsSchema      json.RawMessage `db:"args_schema" json:"args_schema"`
 	RiskLevel       string          `db:"risk_level" json:"risk_level"`
 	Enabled         int64           `db:"enabled" json:"enabled"`
-	CreatedBy       string          `db:"created_by" json:"created_by"`
 	UpdatedBy       string          `db:"updated_by" json:"updated_by"`
+	CardKey         string          `db:"card_key" json:"card_key"`
 }
 
-type UpsertCommandCardRow struct {
-	ID              int64  `db:"id" json:"id"`
-	CardKey         string `db:"card_key" json:"card_key"`
-	Title           string `db:"title" json:"title"`
-	Description     string `db:"description" json:"description"`
-	CommandTemplate string `db:"command_template" json:"command_template"`
-	ArgsSchema      []byte `db:"args_schema" json:"args_schema"`
-	RiskLevel       string `db:"risk_level" json:"risk_level"`
-	Enabled         int64  `db:"enabled" json:"enabled"`
-	CreatedBy       string `db:"created_by" json:"created_by"`
-	UpdatedBy       string `db:"updated_by" json:"updated_by"`
-	CreatedAt       int64  `db:"created_at" json:"created_at"`
-	UpdatedAt       int64  `db:"updated_at" json:"updated_at"`
-}
-
-func (q *Queries) UpsertCommandCard(ctx context.Context, arg UpsertCommandCardParams) (UpsertCommandCardRow, error) {
-	row := q.db.QueryRowContext(ctx, upsertCommandCard,
-		arg.CardKey,
+func (q *Queries) UpdateCommandCard(ctx context.Context, arg UpdateCommandCardParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, updateCommandCard,
 		arg.Title,
 		arg.Description,
 		arg.CommandTemplate,
 		arg.ArgsSchema,
 		arg.RiskLevel,
 		arg.Enabled,
-		arg.CreatedBy,
 		arg.UpdatedBy,
+		arg.CardKey,
 	)
-	var i UpsertCommandCardRow
-	err := row.Scan(
-		&i.ID,
-		&i.CardKey,
-		&i.Title,
-		&i.Description,
-		&i.CommandTemplate,
-		&i.ArgsSchema,
-		&i.RiskLevel,
-		&i.Enabled,
-		&i.CreatedBy,
-		&i.UpdatedBy,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-	)
-	return i, err
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }

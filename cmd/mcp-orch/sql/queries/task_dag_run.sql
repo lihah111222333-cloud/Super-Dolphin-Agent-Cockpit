@@ -1,151 +1,156 @@
--- name: CreateTaskDagRun :one
+-- name: CreateTaskDagRun :execrows
 INSERT INTO task_dag_runs (
     run_key, dag_key, dag_version_snapshot, trigger_source, status,
     started_at, metadata, budget_limit, created_at, updated_at
 )
 VALUES (
-    ?, ?, ?, ?, 'running',
+    :run_key, :dag_key, :dag_version_snapshot, :trigger_source, 'running',
     (CAST(strftime('%s','now') AS INTEGER) * 1000),
-    ?, ?,
+    :metadata, :budget_limit,
     (CAST(strftime('%s','now') AS INTEGER) * 1000),
     (CAST(strftime('%s','now') AS INTEGER) * 1000)
-)
-RETURNING id, run_key, dag_key, dag_version_snapshot, trigger_source, status, started_at, finished_at, events, budget_used, budget_limit, metadata, created_at, updated_at;
+);
 
 -- name: GetTaskDagRun :one
-SELECT id, run_key, dag_key, dag_version_snapshot, trigger_source, status, started_at, finished_at, events, budget_used, budget_limit, metadata, created_at, updated_at
-FROM task_dag_runs
-WHERE run_key = ?;
+SELECT
+  id,
+  run_key,
+  dag_key,
+  dag_version_snapshot,
+  trigger_source,
+  status,
+  started_at,
+  finished_at,
+  events,
+  budget_used,
+  budget_limit,
+  metadata,
+  created_at,
+  updated_at
+FROM
+  task_dag_runs
+WHERE
+  run_key = :run_key;
 
 -- name: ListTaskDagRunsByKey :many
 SELECT id, run_key, dag_key, dag_version_snapshot, trigger_source, status, started_at, finished_at, budget_used, budget_limit, created_at, updated_at
 FROM task_dag_runs
-WHERE dag_key = ?
-  AND (sqlc.arg(status_filter) = '' OR status = sqlc.arg(status_filter))
+WHERE dag_key = :dag_key
+  AND (:status_filter = '' OR status = :status_filter)
 ORDER BY started_at DESC, id DESC
-LIMIT sqlc.arg(limit_count);
+LIMIT :limit_count;
 
 -- name: LockTaskDagRunForCompletionForUpdate :one
 SELECT id
 FROM task_dag_runs
-WHERE dag_key = ?
-  AND id = ?
+WHERE dag_key = :dag_key
+  AND id = :run_id
   AND status = 'running';
 
 -- name: CountActiveTaskDagRunsByKey :one
 SELECT COUNT(*) AS active
 FROM task_dag_runs
-WHERE dag_key = ? AND status = 'running';
+WHERE dag_key = :dag_key AND status = 'running';
 
--- name: CloneTaskDagNodesForRun :execrows
+-- name: InsertTaskDagRunNode :execrows
 INSERT INTO task_dag_nodes (
   dag_key, node_key, title, node_type, assigned_to, depends_on,
   status, command_ref, config, result, run_id, reads, writes,
   created_at, updated_at
 )
-SELECT
-  n.dag_key, n.node_key, n.title, n.node_type, n.assigned_to, n.depends_on,
-  'pending', n.command_ref, n.config, '{}', sqlc.arg(run_id), n.reads, n.writes,
+VALUES (
+  :dag_key, :node_key, :title, :node_type, :assigned_to, :depends_on,
+  'pending', :command_ref, :config, '{}', :run_id, :reads, :writes,
   (CAST(strftime('%s','now') AS INTEGER) * 1000),
   (CAST(strftime('%s','now') AS INTEGER) * 1000)
-FROM task_dag_nodes n
-WHERE n.dag_key = sqlc.arg(dag_key)
-  AND n.run_id IS NULL
-ON CONFLICT (dag_key, run_id, node_key) WHERE run_id IS NOT NULL DO NOTHING;
+);
 
 -- name: PromoteRootNodesToReady :execrows
 UPDATE task_dag_nodes
 SET status = 'ready',
     updated_at = (CAST(strftime('%s','now') AS INTEGER) * 1000)
-WHERE dag_key = ?
-  AND run_id = ?
+WHERE dag_key = :dag_key
+  AND run_id = :run_id
   AND status = 'pending'
   AND json_array_length(depends_on) = 0;
 
--- name: FinalizeTaskDagRunIfAllNodesTerminal :many
+-- name: FinalizeTaskDagRun :execrows
 UPDATE task_dag_runs
-SET status = CASE
-      WHEN EXISTS (
-        SELECT 1 FROM task_dag_nodes
-        WHERE task_dag_nodes.dag_key = ?1
-          AND task_dag_nodes.run_id = ?2
-          AND task_dag_nodes.status = 'failed'
-      ) THEN 'failed'
-      WHEN EXISTS (
-        SELECT 1 FROM task_dag_nodes
-        WHERE task_dag_nodes.dag_key = ?1
-          AND task_dag_nodes.run_id = ?2
-          AND task_dag_nodes.status = 'cancelled'
-      ) THEN 'cancelled'
-      ELSE 'succeeded'
-    END,
+SET status = :status,
     finished_at = (CAST(strftime('%s','now') AS INTEGER) * 1000),
     updated_at = (CAST(strftime('%s','now') AS INTEGER) * 1000)
-WHERE task_dag_runs.id = ?2
-  AND task_dag_runs.dag_key = ?1
-  AND task_dag_runs.status = 'running'
-  AND EXISTS (
-    SELECT 1 FROM task_dag_nodes
-    WHERE task_dag_nodes.dag_key = ?1
-      AND task_dag_nodes.run_id = ?2
-  )
-  AND NOT EXISTS (
-    SELECT 1 FROM task_dag_nodes
-    WHERE task_dag_nodes.dag_key = ?1
-      AND task_dag_nodes.run_id = ?2
-      AND task_dag_nodes.status NOT IN ('done','failed','cancelled','skipped')
-  )
-RETURNING run_key, status;
+WHERE task_dag_runs.id = :run_id
+  AND task_dag_runs.dag_key = :dag_key
+  AND task_dag_runs.status = 'running';
 
--- name: CancelTaskDagRunNodes :many
+-- name: ListTaskDagRunNodeStatuses :many
+SELECT status
+FROM task_dag_nodes
+WHERE dag_key = :dag_key
+  AND run_id = :run_id
+ORDER BY id;
+
+-- name: GetTaskDagRunIdentityByID :one
+SELECT run_key, status
+FROM task_dag_runs
+WHERE dag_key = :dag_key
+  AND id = :run_id;
+
+-- name: ListCancelableTaskDagRunSpawningThreads :many
+SELECT spawning_thread_id
+FROM task_dag_nodes
+WHERE dag_key = :dag_key
+  AND run_id = :run_id
+  AND status NOT IN ('done','failed','cancelled','skipped')
+ORDER BY id;
+
+-- name: CancelTaskDagRunNodes :execrows
 UPDATE task_dag_nodes
 SET status = 'cancelled',
-    result = json_object('kind', 'run_cancelled', 'reason', sqlc.arg(reason)),
+    result = json_object('kind', 'run_cancelled', 'reason', :reason),
     active_turn_id = NULL,
     active_wakeup_id = NULL,
     finished_at = COALESCE(finished_at, (CAST(strftime('%s','now') AS INTEGER) * 1000)),
     last_event_at = (CAST(strftime('%s','now') AS INTEGER) * 1000),
     updated_at = (CAST(strftime('%s','now') AS INTEGER) * 1000)
-WHERE dag_key = sqlc.arg(dag_key)
-  AND run_id = sqlc.arg(run_id)
-  AND status NOT IN ('done','failed','cancelled','skipped')
-RETURNING spawning_thread_id;
+WHERE dag_key = :dag_key
+  AND run_id = :run_id
+  AND status NOT IN ('done','failed','cancelled','skipped');
 
 -- name: CancelTaskDagRunWakeups :execrows
 UPDATE task_dag_wakeups
 SET status = 'failed',
-    last_error = sqlc.arg(reason),
+    last_error = :reason,
     claimed_at = NULL,
     claimed_by = '',
     lease_expires_at = NULL,
     updated_at = (CAST(strftime('%s','now') AS INTEGER) * 1000)
-WHERE dag_key = sqlc.arg(dag_key)
-  AND run_id = sqlc.arg(run_id)
+WHERE dag_key = :dag_key
+  AND run_id = :run_id
   AND status IN ('pending','dispatching','sent');
 
--- name: CancelTaskDagRun :one
+-- name: CancelTaskDagRun :execrows
 UPDATE task_dag_runs
 SET status = 'cancelled',
     finished_at = (CAST(strftime('%s','now') AS INTEGER) * 1000),
     updated_at = (CAST(strftime('%s','now') AS INTEGER) * 1000),
-    events = sqlc.arg(events)
-WHERE dag_key = sqlc.arg(dag_key)
-  AND id = sqlc.arg(run_id)
-  AND run_key = sqlc.arg(run_key)
-  AND status = 'running'
-RETURNING id, run_key, dag_key, dag_version_snapshot, trigger_source, status, started_at, finished_at, events, budget_used, budget_limit, metadata, created_at, updated_at;
+    events = :events
+WHERE dag_key = :dag_key
+  AND id = :run_id
+  AND run_key = :run_key
+  AND status = 'running';
 
 -- name: LoadTaskDagRunEventsForAppend :one
 SELECT run_key, CAST(events AS BLOB) AS events
 FROM task_dag_runs
-WHERE dag_key = sqlc.arg(dag_key)
+WHERE dag_key = :dag_key
   AND status = 'running'
-  AND id = sqlc.arg(run_id);
+  AND id = :run_id;
 
 -- name: UpdateTaskDagRunEventsAfterAppend :execrows
 UPDATE task_dag_runs
-SET events = sqlc.arg(events),
+SET events = :events,
     updated_at = (CAST(strftime('%s','now') AS INTEGER) * 1000)
-WHERE dag_key = sqlc.arg(dag_key)
+WHERE dag_key = :dag_key
   AND status = 'running'
-  AND id = sqlc.arg(run_id);
+  AND id = :run_id;

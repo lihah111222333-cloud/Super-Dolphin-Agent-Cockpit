@@ -2,13 +2,12 @@ package orchestration
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/jackc/pgx/v5"
 
 	taskdag "github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-orch/store/taskdag"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
@@ -320,7 +319,7 @@ func TestGetRun_NilService_ReturnsErrRunStoreUnset(t *testing.T) {
 // pgx.ErrNoRows is IsNotFound-matched; service must wrap it into
 // ErrRunNotFound so the tool layer can translate to bilingual MCP error.
 func TestGetRun_NotFound_WrapsErrRunNotFound(t *testing.T) {
-	stub := &stubRunStore{getRunErr: pgx.ErrNoRows}
+	stub := &stubRunStore{getRunErr: sql.ErrNoRows}
 	svc := makeGetRunService(stub)
 
 	_, err := svc.GetRun(context.Background(), contract.GetRunRequest{RunKey: "dag-1#run-missing"})

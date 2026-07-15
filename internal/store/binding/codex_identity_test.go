@@ -4,7 +4,6 @@ import (
 	"context"
 	"os"
 	"path/filepath"
-	"regexp"
 	"runtime"
 	"strings"
 	"testing"
@@ -158,27 +157,6 @@ func TestUpsertSQLPreservesCodexIdentityOnEmpty(t *testing.T) {
 			" ELSE EXCLUDED." + col + " END"
 		if !strings.Contains(sql, want) {
 			t.Fatalf("UPSERT must guard %q with empty-preserves-existing CASE; got:\n%s", col, sql)
-		}
-	}
-}
-
-// 校验数据库迁移声明 identity 一经设置不可改写。
-// 这是数据库层对 upsert CASE 保护的补充，防止非空值被另一个非空值替换。
-func TestMigration0048ExtendsImmutableTrigger(t *testing.T) {
-	t.Parallel()
-
-	sql := readRepoFile(t, filepath.Join("migrations", "0048_binding_codex_identity.sql"))
-	for _, col := range []string{"codex_home", "codex_instance_key", "codex_model_provider"} {
-		// 匹配迁移 SQL 中“旧值非空且新旧不同”的不可变触发条件。
-		pattern := regexp.MustCompile(
-			`OLD\.` + regexp.QuoteMeta(col) + `\s*<>\s*''\s+AND\s+NEW\.` +
-				regexp.QuoteMeta(col) + `\s+IS\s+DISTINCT\s+FROM\s+OLD\.` + regexp.QuoteMeta(col))
-		if !pattern.MatchString(sql) {
-			t.Fatalf("migration 0048 must guard %q with once-set-immutable clause", col)
-		}
-		if !strings.Contains(sql, "ALTER TABLE agent_provider_binding") ||
-			!strings.Contains(sql, "ADD COLUMN IF NOT EXISTS "+col) {
-			t.Fatalf("migration 0048 must add column %q", col)
 		}
 	}
 }

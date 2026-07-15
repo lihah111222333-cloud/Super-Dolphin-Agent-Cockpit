@@ -90,6 +90,100 @@ func TestSQLiteWakeupClaimConcurrentGoroutinesAndProcesses(t *testing.T) {
 	assertSQLiteWakeupClaimedRows(t, ctx, db, runID, 100)
 }
 
+func TestSQLiteWakeupReclaimInvalidatesStaleClaimFence(t *testing.T) {
+	ctx := context.Background()
+	fixture := newSQLiteReclaimedWakeupFixture(t, ctx, "reclaim-fence")
+
+	rows, err := fixture.store.MarkWakeupSent(ctx, markWakeupSentInput(fixture.stale))
+	if err != nil {
+		t.Fatalf("MarkWakeupSent(stale claim) error = %v", err)
+	}
+	if rows != 0 {
+		t.Fatalf("MarkWakeupSent(stale claim) rows = %d, want 0", rows)
+	}
+	got, err := fixture.store.GetWakeup(ctx, fixture.current.ID)
+	if err != nil {
+		t.Fatalf("GetWakeup() error = %v", err)
+	}
+	if got.Status != "dispatching" || got.ClaimedBy != fixture.current.ClaimedBy || got.AttemptCount != fixture.current.AttemptCount {
+		t.Fatalf("wakeup after stale mark = %+v, want current claim unchanged", got)
+	}
+}
+
+func TestSQLiteWakeupTurnBindingRejectsSecondWorker(t *testing.T) {
+	ctx := context.Background()
+	fixture := newSQLiteReclaimedWakeupFixture(t, ctx, "turn-binding")
+	setSQLiteWakeupNodeRunning(t, ctx, fixture)
+
+	rows, err := fixture.store.MarkWakeupSent(ctx, markWakeupSentInput(fixture.current))
+	if err != nil || rows != 1 {
+		t.Fatalf("MarkWakeupSent(current claim) rows=%d error=%v, want 1/nil", rows, err)
+	}
+	first, err := fixture.store.BindRunningNodeTurn(ctx, BindRunningNodeTurnInput{
+		TurnID: "turn-worker-a", DagKey: "dag-multi", NodeKey: "root",
+		RunID: fixture.runID, WakeupID: fixture.current.ID,
+	})
+	if err != nil {
+		t.Fatalf("BindRunningNodeTurn(first worker) error = %v", err)
+	}
+	if first.ActiveTurnID == nil || *first.ActiveTurnID != "turn-worker-a" {
+		t.Fatalf("first binding active_turn_id = %v, want turn-worker-a", first.ActiveTurnID)
+	}
+	if _, err := fixture.store.BindRunningNodeTurn(ctx, BindRunningNodeTurnInput{
+		TurnID: "turn-worker-b", DagKey: "dag-multi", NodeKey: "root",
+		RunID: fixture.runID, WakeupID: fixture.current.ID,
+	}); err == nil {
+		t.Fatal("BindRunningNodeTurn(second worker) error = nil, want binding conflict")
+	}
+	assertSQLiteWakeupTurnBinding(t, ctx, fixture.store, fixture.current.ID, "turn-worker-a")
+}
+
+func TestSQLiteWakeupStaleAttemptCannotFinishNode(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func(context.Context, *sqliteReclaimedWakeupFixture) error
+	}{
+		{
+			name: "complete",
+			mutate: func(ctx context.Context, fixture *sqliteReclaimedWakeupFixture) error {
+				_, err := fixture.store.CompleteNode(ctx, CompleteNodeInput{
+					Status: "done", Result: json.RawMessage(`{"stale":true}`),
+					DagKey: "dag-multi", NodeKey: "root", RunID: fixture.runID,
+					WakeupID: fixture.current.ID, WakeupAttempt: fixture.stale.AttemptCount,
+				})
+				return err
+			},
+		},
+		{
+			name: "fail",
+			mutate: func(ctx context.Context, fixture *sqliteReclaimedWakeupFixture) error {
+				_, err := fixture.store.FailNodeAndCancelDownstream(ctx, FailNodeInput{
+					DagKey: "dag-multi", NodeKey: "root", RunID: fixture.runID,
+					Reason: "stale worker failure", WakeupID: fixture.current.ID,
+					WakeupAttempt: fixture.stale.AttemptCount,
+				})
+				return err
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := context.Background()
+			fixture := newSQLiteReclaimedWakeupFixture(t, ctx, "stale-attempt-"+tt.name)
+			setSQLiteWakeupNodeRunning(t, ctx, fixture)
+
+			err := tt.mutate(ctx, fixture)
+			if !platformdb.IsNotFound(err) {
+				t.Fatalf("stale %s error = %v, want not found fence miss", tt.name, err)
+			}
+			if got := sqliteRunNodeStatus(t, ctx, fixture.store, "dag-multi", fixture.runID, "root"); got != "running" {
+				t.Fatalf("node status after stale %s = %q, want running", tt.name, got)
+			}
+		})
+	}
+}
+
 func TestSQLiteWorkerLeaseCASAndOwnerFencing(t *testing.T) {
 	ctx := context.Background()
 	db := openTaskDAGSQLiteDB(t)
@@ -208,6 +302,90 @@ type wakeupClaimResult struct {
 type claimedWakeupID struct {
 	ID     int64  `json:"id"`
 	Worker string `json:"worker"`
+}
+
+type sqliteReclaimedWakeupFixture struct {
+	store   *store
+	runID   int64
+	stale   Wakeup
+	current Wakeup
+}
+
+func newSQLiteReclaimedWakeupFixture(t *testing.T, ctx context.Context, label string) *sqliteReclaimedWakeupFixture {
+	t.Helper()
+	db := openTaskDAGSQLiteDB(t)
+	store := NewStore(db).(*store)
+	seedSQLiteTaskDAGTemplate(t, ctx, store)
+	run := createSQLiteTaskDAGRun(t, ctx, store, "run-"+label, "dag-multi")
+	cloneAndPromoteSQLiteRun(t, ctx, store, "dag-multi", run.ID)
+	wakeupID, err := store.EnqueueWakeup(ctx, EnqueueWakeupInput{
+		DagKey: "dag-multi", NodeKey: "root", RunID: run.ID, WakeupKind: "node_start",
+		TargetAgentID: "agent-" + label, PromptPayload: json.RawMessage(`{}`), IdempotencyKey: "wakeup-" + label,
+	})
+	if err != nil {
+		t.Fatalf("EnqueueWakeup() error = %v", err)
+	}
+	stale := claimSingleSQLiteWakeup(t, ctx, store, "worker-stale")
+	if stale.ID != wakeupID {
+		t.Fatalf("first claim wakeup id = %d, want %d", stale.ID, wakeupID)
+	}
+	if _, err := db.ExecContext(ctx, `UPDATE task_dag_wakeups SET lease_expires_at = 0 WHERE id = ?`, wakeupID); err != nil {
+		t.Fatalf("expire first wakeup lease: %v", err)
+	}
+	if rows, err := store.ReclaimStaleDispatchingWakeups(ctx); err != nil || rows != 1 {
+		t.Fatalf("ReclaimStaleDispatchingWakeups() rows=%d error=%v, want 1/nil", rows, err)
+	}
+	current := claimSingleSQLiteWakeup(t, ctx, store, "worker-current")
+	if current.ID != stale.ID || current.AttemptCount != stale.AttemptCount+1 {
+		t.Fatalf("reclaimed wakeup = %+v, want id=%d attempt=%d", current, stale.ID, stale.AttemptCount+1)
+	}
+	return &sqliteReclaimedWakeupFixture{store: store, runID: run.ID, stale: stale, current: current}
+}
+
+func claimSingleSQLiteWakeup(t *testing.T, ctx context.Context, store *store, workerID string) Wakeup {
+	t.Helper()
+	claimed, err := store.ClaimDueWakeups(ctx, ClaimDueWakeupsInput{ClaimedBy: workerID, LeaseInterval: "1m", Limit: 1})
+	if err != nil || len(claimed) != 1 {
+		t.Fatalf("ClaimDueWakeups(%s) rows=%d error=%v, want 1/nil", workerID, len(claimed), err)
+	}
+	if claimed[0].ClaimedAt == nil || claimed[0].LeaseExpiresAt == nil {
+		t.Fatalf("ClaimDueWakeups(%s) returned incomplete fence: %+v", workerID, claimed[0])
+	}
+	return claimed[0]
+}
+
+func markWakeupSentInput(wakeup Wakeup) MarkWakeupSentInput {
+	return MarkWakeupSentInput{
+		ID: wakeup.ID, ClaimedAt: *wakeup.ClaimedAt,
+		ClaimedBy: wakeup.ClaimedBy, LeaseExpiresAt: *wakeup.LeaseExpiresAt,
+	}
+}
+
+func setSQLiteWakeupNodeRunning(t *testing.T, ctx context.Context, fixture *sqliteReclaimedWakeupFixture) {
+	t.Helper()
+	wakeup := fixture.current
+	_, err := fixture.store.UpdateRunningNodeStatus(ctx, RunningNodeStatusUpdate{
+		Status: "running", Result: json.RawMessage(`{}`), WakeupID: wakeup.ID,
+		WakeupFence: WakeupFence{
+			WakeupID: wakeup.ID, WakeupAttempt: wakeup.AttemptCount, ClaimedBy: wakeup.ClaimedBy,
+			ClaimedAt: *wakeup.ClaimedAt, LeaseExpiresAt: *wakeup.LeaseExpiresAt,
+		},
+		DagKey: "dag-multi", NodeKey: "root", RunID: fixture.runID,
+	})
+	if err != nil {
+		t.Fatalf("UpdateRunningNodeStatus() error = %v", err)
+	}
+}
+
+func assertSQLiteWakeupTurnBinding(t *testing.T, ctx context.Context, store *store, wakeupID int64, wantTurnID string) {
+	t.Helper()
+	wakeup, err := store.GetWakeup(ctx, wakeupID)
+	if err != nil {
+		t.Fatalf("GetWakeup(%d) error = %v", wakeupID, err)
+	}
+	if wakeup.BoundTurnID == nil || *wakeup.BoundTurnID != wantTurnID {
+		t.Fatalf("wakeup bound_turn_id = %v, want %q", wakeup.BoundTurnID, wantTurnID)
+	}
 }
 
 func assertWorkerLeaseRows(t *testing.T, label string, rows int64, err error, want int64) {

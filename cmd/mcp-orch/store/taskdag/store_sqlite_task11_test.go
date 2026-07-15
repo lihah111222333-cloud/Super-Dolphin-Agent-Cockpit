@@ -27,6 +27,53 @@ func TestSQLiteTaskDAGCoreCRUDListUpdateDelete(t *testing.T) {
 	assertSQLiteCoreDAGDelete(t, ctx, store)
 }
 
+func TestSQLiteUpsertDAGUpdatesExistingRowAndPreservesIdentity(t *testing.T) {
+	ctx := context.Background()
+	db := openTaskDAGSQLiteDB(t)
+	store := NewStore(db).(*store)
+
+	created, err := store.UpsertDAG(ctx, DAG{
+		DagKey: "dag-upsert", Title: "before", Description: "old", Status: "draft",
+		CreatedBy: "creator", Metadata: json.RawMessage(`{"revision":1}`),
+	})
+	if err != nil {
+		t.Fatalf("initial UpsertDAG() error = %v", err)
+	}
+	updated, err := store.UpsertDAG(ctx, DAG{
+		DagKey: "dag-upsert", Title: "after", Description: "new", Status: "ready",
+		CreatedBy: "editor", Metadata: json.RawMessage(`{"revision":2}`),
+	})
+	if err != nil {
+		t.Fatalf("update UpsertDAG() error = %v", err)
+	}
+	assertSQLiteUpsertDAGResult(t, created, updated)
+	assertSQLiteDAGKeyCount(t, ctx, db, "dag-upsert", 1)
+}
+
+func assertSQLiteUpsertDAGResult(t *testing.T, created, updated *DAG) {
+	t.Helper()
+	if updated.ID != created.ID || !updated.CreatedAt.Equal(created.CreatedAt) {
+		t.Fatalf("identity changed: created=%+v updated=%+v", created, updated)
+	}
+	if updated.Title != "after" || updated.Description != "new" || updated.Status != "ready" || updated.CreatedBy != "editor" {
+		t.Fatalf("updated DAG = %+v, want replacement fields", updated)
+	}
+	if string(updated.Metadata) != `{"revision":2}` {
+		t.Fatalf("updated metadata = %s, want revision 2", updated.Metadata)
+	}
+}
+
+func assertSQLiteDAGKeyCount(t *testing.T, ctx context.Context, db *sql.DB, dagKey string, want int) {
+	t.Helper()
+	var count int
+	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM task_dags WHERE dag_key = ?`, dagKey).Scan(&count); err != nil {
+		t.Fatalf("count task_dags: %v", err)
+	}
+	if count != want {
+		t.Fatalf("task_dags count = %d, want %d", count, want)
+	}
+}
+
 func TestAssignNodeAndEnqueueWakeupRollsBackAssignmentWhenWakeupEnqueueFails(t *testing.T) {
 	ctx := context.Background()
 	db := openTaskDAGSQLiteDB(t)

@@ -2,16 +2,16 @@
 
 ## 数据库来源
 
-- 数据库类型：PostgreSQL。
-- 迁移目录：`migrations`。
-- 基线迁移：`migrations/001_baseline.sql`。
+- 数据库类型：SQLite。
+- 迁移目录：`internal/platform/db/sqlite/migrations`。
+- 基线迁移：`internal/platform/db/sqlite/migrations/001_baseline.sql`。
 - sqlc 配置：`sqlc.yaml`。
 - 查询目录：`sql/queries`。
 - 生成目录：`internal/store/sqlc`。
 - 数据库模块：`internal/platform/db/module.go`。
-- 最低 schema version：代码中读取到 `MinRequiredSchemaVersion=103`。
+- 最低 schema version：代码中读取到 `MinRequiredSchemaVersion=113`。
 
-数据库迁移 runner 只执行向上迁移。`migrations/ROLLBACK.md` 明确说明没有 down migration 机制，回滚必须人工执行 SQL，并同步处理 `schema_migrations` 记录。
+数据库迁移 runner 只执行向上迁移，没有自动 down migration。回滚必须先停止应用，恢复同版本 SQLite 数据库备份并验证 `schema_migrations`；禁止只修改版本记录或在生产库上逆向猜测 SQL。
 
 ## 核心 ER 图
 
@@ -93,7 +93,7 @@ erDiagram
 
 | 表 | 用途 | 关键字段或约束 | 主要代码入口 |
 | --- | --- | --- | --- |
-| `schema_migrations` | 记录已应用迁移版本 | version、dirty 状态 | `internal/platform/db/module.go` |
+| `schema_migrations` | 记录已应用迁移版本 | version、name、filename、applied_at | `internal/platform/db/module.go` |
 | `agent_threads` | 会话线程主表 | thread id、cwd、provider、归档状态 | `internal/module/thread`、`internal/store` |
 | `agent_interactions` | 线程消息和交互记录 | thread_id、role、content、时间 | `internal/module/thread` |
 | `agent_provider_binding` | thread 与 provider 的绑定 | `uq_agent_provider_binding_provider_thread` | `internal/provider`、`internal/store` |
@@ -136,6 +136,6 @@ erDiagram
 
 1. 修改 schema 时优先新增 migration，不直接编辑已发布 migration。
 2. 修改 SQL query 后运行 `make sqlc-verify`。
-3. 任何数据修复或删除都必须先备份目标数据，并在变更单中写明回滚 SQL。
+3. 任何数据修复或删除都必须先生成一致的 SQLite 文件备份，并在变更单中写明恢复路径和版本校验步骤。
 4. 不要创建 `.down.sql` 文件；当前 runner 会把 `*.sql` 都视为向上迁移。
-5. 回滚时遵循 `migrations/ROLLBACK.md`，手工执行 SQL 后再处理对应 `schema_migrations` 版本记录。
+5. 回滚时停止应用并恢复已验证的同版本 SQLite 文件备份；恢复后由启动 preflight 校验 `schema_migrations`，不得手工伪造版本记录。

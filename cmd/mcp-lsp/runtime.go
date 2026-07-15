@@ -508,14 +508,30 @@ func createGenericManagerWithBinary(adapter multilsp.LanguageAdapter, adapters *
 			if strings.TrimSpace(dir) == "" {
 				dir = root
 			}
-			return multilsp.NewClientWithOptions(multilsp.Options{
+			sqliteWorkspace := false
+			if adapterSupportsLanguage(adapter, "sql") {
+				var workspaceErr error
+				sqliteWorkspace, workspaceErr = isSQLiteDiagnosticsWorkspace(dir)
+				if workspaceErr != nil {
+					return nil, workspaceErr
+				}
+			}
+			notificationHandler := h
+			if sqliteWorkspace {
+				notificationHandler = &sqlDiagnosticNotificationHandler{root: dir, next: h}
+			}
+			client, err := multilsp.NewClientWithOptions(multilsp.Options{
 				Binary:              binary.Get(),
 				Args:                command.Args,
 				Dir:                 dir,
 				Env:                 env,
 				InitOptions:         runtimeAdapterInitOptions(adapter, packagedLSP),
-				NotificationHandler: h,
+				NotificationHandler: notificationHandler,
 			})
+			if err != nil || !sqliteWorkspace {
+				return client, err
+			}
+			return newSQLDiagnosticClient(client, dir, h)
 		}),
 		Logger: log,
 	})

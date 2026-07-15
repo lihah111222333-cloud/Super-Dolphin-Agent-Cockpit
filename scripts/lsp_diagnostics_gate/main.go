@@ -24,7 +24,10 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util/safego"
 )
 
-const protocolVersion = "2024-11-05"
+const (
+	protocolVersion                  = "2024-11-05"
+	parallelDiagnosticsFileThreshold = 512
+)
 
 type stringFlags []string
 
@@ -176,20 +179,77 @@ func validateTargetSelection(selection targetSelection) (bool, error) {
 func collectDiagnostics(parent context.Context, root string, opts options, files []string) error {
 	ctx, cancel := platformconfig.WithTimeout(parent, opts.timeout)
 	defer cancel()
-	client, err := startPeer(ctx, root, opts.peer)
+	shards := diagnosticShards(files)
+	if len(shards) == 1 {
+		return collectDiagnosticShard(ctx, root, opts.peer, shards[0])
+	}
+	errorsByShard := make(chan error, len(shards))
+	var workers sync.WaitGroup
+	for _, shard := range shards {
+		shard := shard
+		workers.Go(func() {
+			err := collectDiagnosticShard(ctx, root, opts.peer, shard)
+			if err != nil {
+				cancel()
+			}
+			errorsByShard <- err
+		})
+	}
+	workers.Wait()
+	close(errorsByShard)
+	return preferredShardError(errorsByShard)
+}
+
+// diagnosticShards 对全仓大集合启用两个完整 peer，会话内仍按稳定路径串行诊断。
+func diagnosticShards(files []string) [][]string {
+	if len(files) < parallelDiagnosticsFileThreshold {
+		return [][]string{files}
+	}
+	middle := (len(files) + 1) / 2
+	return [][]string{files[:middle], files[middle:]}
+}
+
+func collectDiagnosticShard(ctx context.Context, root string, peer, files []string) error {
+	client, err := startPeer(ctx, root, peer)
 	if err != nil {
-		return err
+		return diagnosticShardError(ctx, err)
 	}
 	defer client.close()
 	if err := client.initialize(ctx); err != nil {
-		return err
+		return diagnosticShardError(ctx, err)
 	}
 	for _, file := range files {
 		if err := client.diagnostics(ctx, root, file); err != nil {
-			return fmt.Errorf("diagnostics %s: %w", file, err)
+			return diagnosticShardError(ctx, fmt.Errorf("diagnostics %s: %w", file, err))
 		}
 	}
 	return nil
+}
+
+// diagnosticShardError 将兄弟分片触发的进程退出归一为取消，避免遮蔽首个真实失败。
+func diagnosticShardError(ctx context.Context, err error) error {
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return ctxErr
+	}
+	return err
+}
+
+// preferredShardError 优先返回真实分片失败，避免并发取消错误遮蔽根因。
+func preferredShardError(results <-chan error) error {
+	var selected error
+	for err := range results {
+		if err == nil {
+			continue
+		}
+		if selected == nil || (isContextError(selected) && !isContextError(err)) {
+			selected = err
+		}
+	}
+	return selected
+}
+
+func isContextError(err error) bool {
+	return errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)
 }
 
 func emitCoverage(output string, selection targetSelection) error {

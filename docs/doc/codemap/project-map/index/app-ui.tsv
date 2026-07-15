@@ -163,7 +163,7 @@ frontend-app/src/features/prompt-history/hooks/usePromptHistory.test.jsx	fronten
 frontend-app/src/features/prompt-history/model/promptHistoryController.js	frontend-app	app-ui	js-source	4842	当前 React/Vite 前端包	frontend,app,src,features,prompt,history,model,promptHistoryController,当前,React,Vite,前端包
 frontend-app/src/features/prompt-history/model/promptHistoryController.test.js	frontend-app	app-ui	js-test	8286	当前 React/Vite 前端包	frontend,app,src,features,prompt,history,model,promptHistoryController,test,当前,React,Vite,前端包
 frontend-app/src/features/prompts/Personalization.css	frontend-app	app-ui	css	2531	当前 React/Vite 前端包	frontend,app,src,features,prompts,Personalization,当前,React,Vite,前端包
-frontend-app/src/features/prompts/PromptPagePolish.css	frontend-app	app-ui	css	4875	当前 React/Vite 前端包	frontend,app,src,features,prompts,PromptPagePolish,当前,React,Vite,前端包
+frontend-app/src/features/prompts/PromptPagePolish.css	frontend-app	app-ui	css	4892	当前 React/Vite 前端包	frontend,app,src,features,prompts,PromptPagePolish,当前,React,Vite,前端包
 frontend-app/src/features/prompts/PromptPageView.css	frontend-app	app-ui	css	8230	当前 React/Vite 前端包	frontend,app,src,features,prompts,PromptPageView,当前,React,Vite,前端包
 frontend-app/src/features/prompts/PromptPageView.jsx	frontend-app	app-ui	jsx	55742	当前 React/Vite 前端包	frontend,app,src,features,prompts,PromptPageView,当前,React,Vite,前端包
 frontend-app/src/features/prompts/PromptPageView.test.jsx	frontend-app	app-ui	jsx	34272	当前 React/Vite 前端包	frontend,app,src,features,prompts,PromptPageView,test,当前,React,Vite,前端包
@@ -491,9 +491,9 @@ frontend-app/src/shared/diagnostics/safeLogFields.js	frontend-app	app-ui	js-sour
 frontend-app/src/shared/diagnostics/safeLogFields.test.js	frontend-app	app-ui	js-test	5503	当前 React/Vite 前端包	frontend,app,src,shared,diagnostics,safeLogFields,test,当前,React,Vite,前端包
 frontend-app/src/shared/i18n/appI18n.constants.js	frontend-app	app-ui	js-source	218	当前 React/Vite 前端包	frontend,app,src,shared,i18n,appI18n,constants,当前,React,Vite,前端包
 frontend-app/src/shared/i18n/appI18n.copy.js	frontend-app	app-ui	js-source	139	当前 React/Vite 前端包	frontend,app,src,shared,i18n,appI18n,copy,当前,React,Vite,前端包
-frontend-app/src/shared/i18n/appI18n.en.json	frontend-app	app-ui	json	27019	当前 React/Vite 前端包	frontend,app,src,shared,i18n,appI18n,en,当前,React,Vite,前端包
+frontend-app/src/shared/i18n/appI18n.en.json	frontend-app	app-ui	json	26741	当前 React/Vite 前端包	frontend,app,src,shared,i18n,appI18n,en,当前,React,Vite,前端包
 frontend-app/src/shared/i18n/appI18n.js	frontend-app	app-ui	js-source	1152	当前 React/Vite 前端包	frontend,app,src,shared,i18n,appI18n,当前,React,Vite,前端包
-frontend-app/src/shared/i18n/appI18n.zh.json	frontend-app	app-ui	json	26606	当前 React/Vite 前端包	frontend,app,src,shared,i18n,appI18n,zh,当前,React,Vite,前端包
+frontend-app/src/shared/i18n/appI18n.zh.json	frontend-app	app-ui	json	26330	当前 React/Vite 前端包	frontend,app,src,shared,i18n,appI18n,zh,当前,React,Vite,前端包
 frontend-app/src/shared/keyboard/shortcutModel.js	frontend-app	app-ui	js-source	4538	当前 React/Vite 前端包	frontend,app,src,shared,keyboard,shortcutModel,当前,React,Vite,前端包
 frontend-app/src/shared/keyboard/shortcutModel.test.js	frontend-app	app-ui	js-test	4244	当前 React/Vite 前端包	frontend,app,src,shared,keyboard,shortcutModel,test,当前,React,Vite,前端包
 frontend-app/src/shared/styles/LayerTokens.css	frontend-app	app-ui	css	239	当前 React/Vite 前端包	frontend,app,src,shared,styles,LayerTokens,当前,React,Vite,前端包

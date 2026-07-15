@@ -6,27 +6,25 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
 )
 
-func TestRenderMCPServerConfigMapCarriesGlobalPostgresServer(t *testing.T) {
+func TestRenderMCPServerConfigMapCarriesPlaywrightServer(t *testing.T) {
 	got := renderMCPServerConfigMap(map[string]contract.MCPServerConfig{
-		"postgres": {
+		"playwright": {
 			Transport: "stdio",
-			Command:   "mcp-server-postgres",
-			Args: []string{
-				"postgresql://super_dolphin@127.0.0.1:55433/super_dolphin?sslmode=disable",
-			},
+			Command:   "npx",
+			Args:      []string{"@playwright/mcp@latest"},
 		},
 	})
 
-	server, ok := got["postgres"].(map[string]any)
+	server, ok := got["playwright"].(map[string]any)
 	if !ok {
-		t.Fatalf("postgres server = %#v, want object", got["postgres"])
+		t.Fatalf("playwright server = %#v, want object", got["playwright"])
 	}
-	if server["transport"] != "stdio" || server["command"] != "mcp-server-postgres" {
-		t.Fatalf("server = %#v, want stdio mcp-server-postgres config", server)
+	if server["transport"] != "stdio" || server["command"] != "npx" {
+		t.Fatalf("server = %#v, want stdio npx config", server)
 	}
 	args, ok := server["args"].([]string)
-	if !ok || len(args) != 1 || args[0] != "postgresql://super_dolphin@127.0.0.1:55433/super_dolphin?sslmode=disable" {
-		t.Fatalf("server args = %#v, want postgres database url", server["args"])
+	if !ok || len(args) != 1 || args[0] != "@playwright/mcp@latest" {
+		t.Fatalf("server args = %#v, want playwright package", server["args"])
 	}
 }
 

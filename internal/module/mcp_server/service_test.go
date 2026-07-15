@@ -230,58 +230,6 @@ func TestListServerToolsReturnsRPCErrorFromHTTPMCPServer(t *testing.T) {
 	}
 }
 
-func TestStartPostgresServerAddsDefaultStdioConfigOnExplicitCall(t *testing.T) {
-	store := newMemoryMCPServerStore()
-	installer := &recordingPostgresInstaller{}
-	svc := newServiceWithStoreAndInstaller(store, installer)
-	project := t.TempDir()
-	t.Chdir(project)
-
-	got, err := svc.StartPostgresServer(context.Background(), StartPostgresServerRequest{})
-	if err != nil {
-		t.Fatalf("StartPostgresServer() error = %v", err)
-	}
-	if !got.Added || got.ServerName != DefaultPostgresServerName {
-		t.Fatalf("StartPostgresServer() = %#v, want added postgres", got)
-	}
-	if installer.calls != 1 {
-		t.Fatalf("postgres installer calls = %d, want 1", installer.calls)
-	}
-	server := store.servers[project][DefaultPostgresServerName]
-	if server.Transport != "stdio" || server.Command != "mcp-server-postgres" {
-		t.Fatalf("stored postgres server = %#v, want stdio mcp-server-postgres", server)
-	}
-	if len(server.Args) != 1 || server.Args[0] != "postgresql://super_dolphin@127.0.0.1:55433/super_dolphin?sslmode=disable" {
-		t.Fatalf("stored postgres args = %#v, want postgres database url", server.Args)
-	}
-}
-
-func TestStartPostgresServerDoesNotOverrideExistingConfig(t *testing.T) {
-	store := newMemoryMCPServerStore()
-	installer := &recordingPostgresInstaller{}
-	svc := newServiceWithStoreAndInstaller(store, installer)
-	project := t.TempDir()
-	t.Chdir(project)
-	store.seed(project, DefaultPostgresServerName, ServerConfig{
-		Transport: "stdio",
-		Command:   "custom-postgres-mcp",
-	})
-
-	got, err := svc.StartPostgresServer(context.Background(), StartPostgresServerRequest{})
-	if err != nil {
-		t.Fatalf("StartPostgresServer() error = %v", err)
-	}
-	if got.Added {
-		t.Fatalf("StartPostgresServer() Added = true, want false for existing config")
-	}
-	if got.Config.Command != "custom-postgres-mcp" {
-		t.Fatalf("Config = %#v, want existing custom command", got.Config)
-	}
-	if installer.calls != 0 {
-		t.Fatalf("postgres installer calls = %d, want 0 for existing config", installer.calls)
-	}
-}
-
 func TestAddServersRejectsUnsafeStdioCommand(t *testing.T) {
 	store := newMemoryMCPServerStore()
 	svc := NewServiceWithStore(store)
@@ -305,8 +253,8 @@ func TestAddServersRejectsUnsafeStdioCommand(t *testing.T) {
 	}
 }
 
-// TestAddServersRejectsPathQualifiedPostgresCommand 锁定写入边界，禁止路径伪装的 mcp-server-postgres 被保存。
-func TestAddServersRejectsPathQualifiedPostgresCommand(t *testing.T) {
+// TestAddServersRejectsRemovedPostgresCommand 锁定 SQLite-only 边界，禁止已删除的内置命令被重新保存。
+func TestAddServersRejectsRemovedPostgresCommand(t *testing.T) {
 	store := newMemoryMCPServerStore()
 	svc := NewServiceWithStore(store)
 	project := t.TempDir()
@@ -314,10 +262,10 @@ func TestAddServersRejectsPathQualifiedPostgresCommand(t *testing.T) {
 
 	_, err := svc.AddServers(context.Background(), AddServersRequest{
 		MCPServers: map[string]ServerConfig{
-			"postgres": {
+			"removed-postgres": {
 				Transport: "stdio",
-				Command:   filepath.Join(t.TempDir(), defaultPostgresCommand),
-				Args:      []string{defaultPostgresDatabaseURL},
+				Command:   "mcp-server-postgres",
+				Args:      []string{"postgresql://localhost/removed"},
 			},
 		},
 	})
@@ -325,7 +273,7 @@ func TestAddServersRejectsPathQualifiedPostgresCommand(t *testing.T) {
 		t.Fatalf("AddServers() error = %v, want unsupported stdio command", err)
 	}
 	if len(store.servers[project]) != 0 {
-		t.Fatalf("stored servers = %#v, want none after rejected path-qualified postgres", store.servers[project])
+		t.Fatalf("stored servers = %#v, want none after rejected removed postgres command", store.servers[project])
 	}
 }
 
@@ -357,7 +305,7 @@ func TestAddServersRejectsSQLiteDBHubArbitraryDSN(t *testing.T) {
 	project := t.TempDir()
 	productDB := filepath.Join(project, ".super-dolphin", "super-dolphin.db")
 	attackerDB := filepath.Join(t.TempDir(), "attacker.db")
-	svc := newServiceWithStoreInstallerAndSQLitePath(store, &recordingPostgresInstaller{}, productDB)
+	svc := newServiceWithStoreAndSQLitePath(store, productDB)
 	t.Chdir(project)
 
 	_, err := svc.AddServers(context.Background(), AddServersRequest{
@@ -374,57 +322,6 @@ func TestAddServersRejectsSQLiteDBHubArbitraryDSN(t *testing.T) {
 	}
 	if len(store.servers[project]) != 0 {
 		t.Fatalf("stored servers = %#v, want none after rejected sqlite dbhub dsn", store.servers[project])
-	}
-}
-
-func TestStartPostgresServerMigratesLegacyDefaultNPXConfig(t *testing.T) {
-	store := newMemoryMCPServerStore()
-	installer := &recordingPostgresInstaller{}
-	svc := newServiceWithStoreAndInstaller(store, installer)
-	project := t.TempDir()
-	t.Chdir(project)
-	store.seed(project, DefaultPostgresServerName, ServerConfig{
-		Transport: "stdio",
-		Command:   "npx",
-		Args: []string{
-			"-y",
-			"@modelcontextprotocol/server-postgres",
-			"postgresql://super_dolphin@127.0.0.1:55433/super_dolphin?sslmode=disable",
-		},
-	})
-
-	got, err := svc.StartPostgresServer(context.Background(), StartPostgresServerRequest{})
-	if err != nil {
-		t.Fatalf("StartPostgresServer() error = %v", err)
-	}
-	if got.Added {
-		t.Fatalf("StartPostgresServer() Added = true, want false for migrated config")
-	}
-	if installer.calls != 1 {
-		t.Fatalf("postgres installer calls = %d, want 1", installer.calls)
-	}
-	server := store.servers[project][DefaultPostgresServerName]
-	if server.Command != "mcp-server-postgres" || len(server.Args) != 1 {
-		t.Fatalf("migrated postgres server = %#v, want direct command", server)
-	}
-}
-
-func TestStartPostgresServerReturnsInstallerErrorBeforeWritingConfig(t *testing.T) {
-	store := newMemoryMCPServerStore()
-	installer := &recordingPostgresInstaller{err: errors.New("npm unavailable")}
-	svc := newServiceWithStoreAndInstaller(store, installer)
-	project := t.TempDir()
-	t.Chdir(project)
-
-	_, err := svc.StartPostgresServer(context.Background(), StartPostgresServerRequest{})
-	if err == nil || err.Error() != "npm unavailable" {
-		t.Fatalf("StartPostgresServer() error = %v, want installer error", err)
-	}
-	if installer.calls != 1 {
-		t.Fatalf("postgres installer calls = %d, want 1", installer.calls)
-	}
-	if len(store.servers[project]) != 0 {
-		t.Fatalf("stored servers = %#v, want none after installer failure", store.servers[project])
 	}
 }
 
@@ -672,16 +569,6 @@ type memoryMCPToolLifecycleKey struct {
 	workspaceRoot string
 	serverName    string
 	toolName      string
-}
-
-type recordingPostgresInstaller struct {
-	calls int
-	err   error
-}
-
-func (i *recordingPostgresInstaller) EnsureInstalled(context.Context) error {
-	i.calls++
-	return i.err
 }
 
 func newMemoryMCPServerStore() *memoryMCPServerStore {

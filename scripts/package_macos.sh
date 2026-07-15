@@ -1476,25 +1476,6 @@ copy_sqlite_migrations() {
   cp -R "$src" "$dest"
 }
 
-check_loader_path_deps() {
-  local pg_bundle="$1"
-  local missing=0
-  while IFS= read -r -d '' file; do
-    [[ -f "$file" ]] || continue
-    is_macho "$file" || continue
-    while IFS= read -r ref; do
-      [[ "$ref" == @loader_path/*.dylib ]] || continue
-      local resolved
-      resolved="$(dirname "$file")/${ref#@loader_path/}"
-      if [[ ! -f "$resolved" ]]; then
-        echo "missing @loader_path dependency: $ref referenced by $file" >&2
-        missing=1
-      fi
-    done < <(dylib_refs_for "$file")
-  done < <(find "$pg_bundle/bin" "$pg_bundle/lib" -type f -print0)
-  return "$missing"
-}
-
 bundle_macho_dylibs() {
   local lib_dir="$1"
   local rpath_kind="$2"

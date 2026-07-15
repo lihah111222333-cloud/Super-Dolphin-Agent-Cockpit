@@ -11,14 +11,13 @@ import (
 
 	commandcardstore "github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-orch/store/commandcard"
 	promptstore "github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-orch/store/prompt"
-	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-orch/store/sqlc"
 	sqliteruntime "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/db/sqlite"
 	_ "modernc.org/sqlite"
 )
 
 func TestSQLiteCommandToolListSearchKeepsPayloadShape(t *testing.T) {
 	db := openToolsSQLiteDB(t)
-	store := commandcardstore.NewStore(sqlc.New(db))
+	store := commandcardstore.NewStore(db)
 	seedSQLiteCommandCard(t, store)
 
 	result, err := HandleCommandList(store)(context.Background(), mustRawInput(t, commandListInput{Keyword: "task11:needle"}))

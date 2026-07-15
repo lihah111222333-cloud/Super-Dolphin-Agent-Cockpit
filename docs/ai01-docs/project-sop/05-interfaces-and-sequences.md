@@ -34,18 +34,18 @@ sequenceDiagram
   actor User as 用户
   participant Script as run-new-ui-desktop.sh
   participant Vite as frontend-app Vite
-  participant PG as PostgreSQL
+  participant DB as SQLite
   participant Peers as mcp-orch / mcp-lsp
   participant Host as cmd/agent-terminal
   participant Metrics as /metrics
 
   User->>Script: 执行启动脚本
   Script->>Script: 加载 .env 并设置 dev 环境变量
-  Script->>PG: 检查或启动本地 Postgres
+  Script->>DB: 检查本地数据目录可写
   Script->>Peers: 构建或确认 peer binaries
   Script->>Vite: 启动 127.0.0.1:5175
   Script->>Host: 启动后端宿主 127.0.0.1:4512
-  Host->>PG: 初始化连接并运行迁移
+  Host->>DB: 打开数据库文件并运行迁移
   Script->>Metrics: 轮询 /metrics
   Metrics-->>Script: 返回成功
   Script-->>User: 输出可访问地址和日志路径
@@ -62,7 +62,7 @@ sequenceDiagram
   participant Thread as module/thread + turn
   participant Provider as provider unified
   participant Store as internal/store
-  participant DB as PostgreSQL
+  participant DB as SQLite
   participant Events as event bridge
 
   User->>UI: 输入任务并提交
@@ -85,7 +85,7 @@ sequenceDiagram
   participant UI as Workflow 页面 / MCP tool
   participant Orch as mcp-orch
   participant Store as DAG store
-  participant DB as PostgreSQL
+  participant DB as SQLite
   participant Agent as Provider agent
   participant Node as DAG node state
 

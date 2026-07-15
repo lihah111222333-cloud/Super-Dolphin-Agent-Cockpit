@@ -260,7 +260,7 @@ These commands validate architecture rules, guard behavior, generated navigation
 
 | Metric | Value |
 |--------|-------|
-| Architecture Tests | <!-- BEGIN GENERATED ARCHTEST STATS -->Source AST: 346 runnable `Test*` functions across 129 `_test.go` files in `internal/archtest`<!-- END GENERATED ARCHTEST STATS --> |
+| Architecture Tests | <!-- BEGIN GENERATED ARCHTEST STATS -->Source AST: 324 runnable `Test*` functions across 122 `_test.go` files in `internal/archtest`<!-- END GENERATED ARCHTEST STATS --> |
 | Architecture rules | [Generated backend boundary map](docs/doc/codemap/13-archtest-boundaries.md) |
 | Test coverage | Recompute from a current test run; no static percentage is claimed |
 | CI | [GitHub Actions](.github/workflows/ci.yml) |

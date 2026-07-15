@@ -70,10 +70,8 @@ func TestStoreDependencyRulePreservesAuditedImports(t *testing.T) {
 	}{
 		{name: "root aggregates store packages", relPath: "internal/store/module.go", imp: "github.com/lihah111222333-cloud/super-dolphin-agent/internal/store/thread"},
 		{name: "package module imports fx", relPath: "internal/store/thread/module.go", imp: "go.uber.org/fx"},
-		{name: "package module imports pool", relPath: "internal/store/thread/module.go", imp: "github.com/jackc/pgx/v5/pgxpool"},
 		{name: "same package subtree", relPath: "internal/store/thread/store.go", imp: "github.com/lihah111222333-cloud/super-dolphin-agent/internal/store/thread/internal/model"},
 		{name: "registered platform port", relPath: "internal/store/thread/store.go", imp: "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/db"},
-		{name: "registered pgtype", relPath: "internal/store/thread/store.go", imp: "github.com/jackc/pgx/v5/pgtype"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -100,6 +98,7 @@ func TestStoreDependencyRuleKeepsExternalAllowancesExact(t *testing.T) {
 		imp     string
 	}{
 		{relPath: "internal/store/thread/module.go", imp: "go.uber.org/fx/internal"},
+		{relPath: "internal/store/thread/module.go", imp: "github.com/jackc/pgx/v5/pgxpool"},
 		{relPath: "internal/store/thread/store.go", imp: "github.com/jackc/pgx/v5/pgtype/extra"},
 		{relPath: "internal/store/thread/store.go", imp: "corp/persistence"},
 	}

@@ -2429,10 +2429,6 @@
         "internal/contract.MCPPlaywrightServerStartResult",
         "internal/contract.MCPPlaywrightServerStopRequest",
         "internal/contract.MCPPlaywrightServerStopResult",
-        "internal/contract.MCPPostgresServerStartRequest",
-        "internal/contract.MCPPostgresServerStartResult",
-        "internal/contract.MCPPostgresServerStarter",
-        "internal/contract.MCPPostgresServerStarter.StartPostgresServer",
         "internal/contract.MCPSQLiteServerController",
         "internal/contract.MCPSQLiteServerController.StartSQLiteServer",
         "internal/contract.MCPSQLiteServerController.StopSQLiteServer",
@@ -7008,10 +7004,6 @@
         "internal/contract.MCPPlaywrightServerStartResult",
         "internal/contract.MCPPlaywrightServerStopRequest",
         "internal/contract.MCPPlaywrightServerStopResult",
-        "internal/contract.MCPPostgresServerStartRequest",
-        "internal/contract.MCPPostgresServerStartResult",
-        "internal/contract.MCPPostgresServerStarter",
-        "internal/contract.MCPPostgresServerStarter.StartPostgresServer",
         "internal/contract.MCPSQLiteServerController",
         "internal/contract.MCPSQLiteServerController.StartSQLiteServer",
         "internal/contract.MCPSQLiteServerController.StopSQLiteServer",
@@ -11587,10 +11579,6 @@
         "internal/contract.MCPPlaywrightServerStartResult",
         "internal/contract.MCPPlaywrightServerStopRequest",
         "internal/contract.MCPPlaywrightServerStopResult",
-        "internal/contract.MCPPostgresServerStartRequest",
-        "internal/contract.MCPPostgresServerStartResult",
-        "internal/contract.MCPPostgresServerStarter",
-        "internal/contract.MCPPostgresServerStarter.StartPostgresServer",
         "internal/contract.MCPSQLiteServerController",
         "internal/contract.MCPSQLiteServerController.StartSQLiteServer",
         "internal/contract.MCPSQLiteServerController.StopSQLiteServer",
@@ -16169,10 +16157,6 @@
         "internal/contract.MCPPlaywrightServerStartResult",
         "internal/contract.MCPPlaywrightServerStopRequest",
         "internal/contract.MCPPlaywrightServerStopResult",
-        "internal/contract.MCPPostgresServerStartRequest",
-        "internal/contract.MCPPostgresServerStartResult",
-        "internal/contract.MCPPostgresServerStarter",
-        "internal/contract.MCPPostgresServerStarter.StartPostgresServer",
         "internal/contract.MCPSQLiteServerController",
         "internal/contract.MCPSQLiteServerController.StartSQLiteServer",
         "internal/contract.MCPSQLiteServerController.StopSQLiteServer",
@@ -18343,11 +18327,11 @@
     "total_packages": 41,
     "total_functions": 2244,
     "total_methods": 1145,
-    "total_interfaces": 184,
-    "total_interface_methods": 365,
-    "total_exported": 1254,
+    "total_interfaces": 183,
+    "total_interface_methods": 364,
+    "total_exported": 1251,
     "total_unexported": 2915,
-    "total_structs": 596
+    "total_structs": 594
   },
   "packages": [
     {
@@ -53816,27 +53800,6 @@
           ]
         },
         {
-          "name": "MCPPostgresServerStarter",
-          "exported": true,
-          "methods": [
-            {
-              "name": "StartPostgresServer",
-              "params": [
-                {
-                  "type": "context.Context"
-                },
-                {
-                  "type": "MCPPostgresServerStartRequest"
-                }
-              ],
-              "returns": [
-                "MCPPostgresServerStartResult",
-                "error"
-              ]
-            }
-          ]
-        },
-        {
           "name": "MCPSQLiteServerController",
           "exported": true,
           "methods": [
@@ -56166,14 +56129,6 @@
         },
         {
           "name": "MCPPlaywrightServerStopResult",
-          "exported": true
-        },
-        {
-          "name": "MCPPostgresServerStartRequest",
-          "exported": true
-        },
-        {
-          "name": "MCPPostgresServerStartResult",
           "exported": true
         },
         {

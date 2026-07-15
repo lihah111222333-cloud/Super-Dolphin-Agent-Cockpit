@@ -216,7 +216,6 @@ func TestBuildGatePlanRoutesSQLCAndGoModuleInputs(t *testing.T) {
 		{"sqlc.yaml", false},
 		{"cmd/mcp-orch/sqlc.yaml", true},
 		{"sql/queries.sql", false},
-		{"migrations/001.sql", false},
 		{"cmd/mcp-orch/sql/queries.sql", true},
 		{"internal/platform/db/sqlite/migrations/001.sql", true},
 		{"internal/store/thread/store.go", true},

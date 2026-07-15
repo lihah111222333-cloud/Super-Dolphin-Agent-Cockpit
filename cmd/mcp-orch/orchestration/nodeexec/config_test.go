@@ -454,7 +454,7 @@ func TestClassifyAutomationError(t *testing.T) {
 		{"not_found_hard", errors.New("command missing not found"), FailureClassHard},
 		{"timeout_transient", errors.New("i/o timeout"), FailureClassTransient},
 		{"network_transient", errors.New("connection refused"), FailureClassTransient},
-		{"infra", errors.New("postgres service unavailable"), FailureClassInfrastructure},
+		{"infra", errors.New("sqlite database unavailable"), FailureClassInfrastructure},
 		{"parse_validation", errors.New("parse command args: invalid json"), FailureClassValidation},
 		{"nonzero_hard", CommandExitError{ExitCode: 2, Err: errors.New("exit status 2")}, FailureClassHard},
 	}

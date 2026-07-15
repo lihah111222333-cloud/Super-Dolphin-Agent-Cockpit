@@ -290,9 +290,9 @@ func TestListObservedApprovalRequestsForwardsThreadID(t *testing.T) {
 
 // ----- migration + query lint (schema-level guarantees) -----
 
-func TestMigration0046HasPartialUniqueIndexes(t *testing.T) {
+func TestSQLiteBaselineHasSessionInsightPartialUniqueIndexes(t *testing.T) {
 	t.Parallel()
-	sql := readRepoFile(t, filepath.Join("migrations", "0046_session_insights.sql"))
+	sql := readRepoFile(t, filepath.Join("internal", "platform", "db", "sqlite", "migrations", "001_baseline.sql"))
 	for _, want := range []string{
 		"uq_session_insights_local_turn",
 		"uq_session_insights_provider_turn",
@@ -300,7 +300,7 @@ func TestMigration0046HasPartialUniqueIndexes(t *testing.T) {
 		"WHERE provider <> '' AND agent_id <> '' AND provider_turn_id <> ''",
 	} {
 		if !strings.Contains(sql, want) {
-			t.Fatalf("migration 0046 missing %q", want)
+			t.Fatalf("SQLite baseline missing %q", want)
 		}
 	}
 }

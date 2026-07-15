@@ -37,7 +37,8 @@ type dagCommandStore struct {
 }
 
 type dagOutputStore struct {
-	q *sqlc.Queries
+	db sqlc.DBTX
+	q  *sqlc.Queries
 }
 
 type dagQueryStore struct {
@@ -52,10 +53,10 @@ func newStoreWithQueries(db sqlc.DBTX, q *sqlc.Queries) *store {
 		db:                 db,
 		q:                  q,
 		dagCommandStore:    &dagCommandStore{db: db, q: q},
-		dagOutputStore:     &dagOutputStore{q: q},
+		dagOutputStore:     &dagOutputStore{db: db, q: q},
 		dagQueryStore:      &dagQueryStore{q: q},
 		wakeupCommandStore: newWakeupCommandStore(db, q),
-		wakeupLeaseStore:   newWakeupLeaseStore(q),
+		wakeupLeaseStore:   newWakeupLeaseStore(db, q),
 		wakeupQueryStore:   newWakeupQueryStore(q),
 	}
 }
@@ -69,7 +70,7 @@ func requireRuntimeRunID(op string, runID int64) error {
 }
 
 // WithTx 在 SQLite IMMEDIATE 写事务中重新绑定 sqlc 查询集。
-// 旧 PostgreSQL 行锁读路径由 BEGIN IMMEDIATE 加显式 CAS 写谓词串行化。
+// SQLite 读改写路径由 BEGIN IMMEDIATE 加显式 CAS 写谓词串行化。
 func (s *store) WithTx(ctx context.Context, fn func(txStore DAGMutationStore) error) error {
 	return wrapTaskDAGError(sqlctx.WithImmediateTx(ctx, s.db, s.q, func(txq *sqlc.Queries, tx sqlc.DBTX) error {
 		return fn(newStoreWithQueries(tx, txq))
@@ -78,25 +79,74 @@ func (s *store) WithTx(ctx context.Context, fn func(txStore DAGMutationStore) er
 
 // UpsertDAG 创建或更新 DAG 模板行，只影响模板元数据，不触碰已展开的 runtime run。
 func (s *dagCommandStore) UpsertDAG(ctx context.Context, dag DAG) (*DAG, error) {
-	return queryOneWrite(ctx, func() (sqlc.UpsertTaskDagRow, error) {
-		return s.q.UpsertTaskDag(ctx, sqlc.UpsertTaskDagParams{
-			DagKey:      dag.DagKey,
-			Title:       dag.Title,
-			Description: dag.Description,
-			Status:      dag.Status,
-			CreatedBy:   dag.CreatedBy,
-			Metadata:    dag.Metadata,
-		})
-	}, "upsert", "task_dag", fromDAGUpsertRow)
+	var mapped *DAG
+	err := sqlctx.WithImmediateTxOrReuse(ctx, s.db, s.q, func(txq *sqlc.Queries, _ sqlc.DBTX) error {
+		if err := persistDAG(ctx, txq, dag); err != nil {
+			return err
+		}
+		row, err := txq.GetTaskDag(ctx, sqlc.GetTaskDagParams{DagKey: dag.DagKey})
+		if err != nil {
+			return err
+		}
+		value := fromDAGGetRow(row)
+		mapped = &value
+		return nil
+	})
+	return mapped, wrapTaskDAGError(err, "upsert", "task_dag")
+}
+
+// persistDAG 在当前 IMMEDIATE 事务中按 dag_key 选择插入或更新，并强制单行生效。
+func persistDAG(ctx context.Context, q *sqlc.Queries, dag DAG) error {
+	_, err := q.GetTaskDag(ctx, sqlc.GetTaskDagParams{DagKey: dag.DagKey})
+	if errors.Is(err, sql.ErrNoRows) {
+		rows, insertErr := q.InsertTaskDag(ctx, insertTaskDAGParams(dag))
+		return requireSingleAffectedRow("insert task_dag", rows, insertErr)
+	}
+	if err != nil {
+		return err
+	}
+	rows, updateErr := q.UpdateTaskDag(ctx, updateTaskDAGParams(dag))
+	return requireSingleAffectedRow("update task_dag", rows, updateErr)
+}
+
+// insertTaskDAGParams 把领域 DAG 映射为新增模板参数。
+func insertTaskDAGParams(dag DAG) sqlc.InsertTaskDagParams {
+	return sqlc.InsertTaskDagParams{
+		DagKey: dag.DagKey, Title: dag.Title, Description: dag.Description,
+		Status: dag.Status, CreatedBy: dag.CreatedBy, Metadata: dag.Metadata,
+	}
+}
+
+// updateTaskDAGParams 把领域 DAG 映射为全量更新模板参数。
+func updateTaskDAGParams(dag DAG) sqlc.UpdateTaskDagParams {
+	return sqlc.UpdateTaskDagParams{
+		Title: dag.Title, Description: dag.Description, Status: dag.Status,
+		CreatedBy: dag.CreatedBy, Metadata: dag.Metadata, DagKey: dag.DagKey,
+	}
+}
+
+// requireSingleAffectedRow 将零行写入保持为 not-found，并拒绝异常的多行写入。
+func requireSingleAffectedRow(operation string, rows int64, err error) error {
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return sql.ErrNoRows
+	}
+	if rows != 1 {
+		return fmt.Errorf("%s: affected %d rows, want 1", operation, rows)
+	}
+	return nil
 }
 
 // ListDAGs 按状态、关键字和 limit 下推过滤；空过滤由 SQL 返回默认可见模板集合。
 func (s *dagQueryStore) ListDAGs(ctx context.Context, filter ListDAGsFilter) ([]DAG, error) {
 	return queryMany(func() ([]sqlc.ListTaskDagsRow, error) {
 		return s.q.ListTaskDags(ctx, sqlc.ListTaskDagsParams{
-			StatusFilter: filter.Status,
-			Keyword:      filter.Keyword,
-			LimitCount:   int64(filter.Limit),
+			StatusFilter:   filter.Status,
+			Keyword:        filter.Keyword,
+			KeywordPattern: "%" + filter.Keyword + "%",
+			LimitCount:     int64(filter.Limit),
 		})
 	}, "list", "task_dag", fromDAGListRow)
 }
@@ -143,20 +193,104 @@ func (s *dagCommandStore) DeleteDAG(ctx context.Context, dagKey string) (int64, 
 
 // UpsertNode 创建或更新 DAG 节点模板；runtime 节点副本只能由 StartRun 展开后再改。
 func (s *store) UpsertNode(ctx context.Context, node Node) (*Node, error) {
-	return queryOneWrite(ctx, func() (sqlc.UpsertTaskDagNodeRow, error) {
-		return s.q.UpsertTaskDagNode(ctx, sqlc.UpsertTaskDagNodeParams{
-			DagKey:     node.DagKey,
-			NodeKey:    node.NodeKey,
-			Title:      node.Title,
-			NodeType:   node.NodeType,
-			AssignedTo: node.AssignedTo,
-			DependsOn:  node.DependsOn,
-			Reads:      stringSliceJSON(node.Reads),
-			Writes:     stringSliceJSON(node.Writes),
-			CommandRef: node.CommandRef,
-			Config:     node.Config,
+	var mapped Node
+	err := sqlctx.WithImmediateTxOrReuse(ctx, s.db, s.q, func(txq *sqlc.Queries, _ sqlc.DBTX) error {
+		var err error
+		mapped, err = upsertNodeTx(ctx, txq, node)
+		return err
+	})
+	if err != nil {
+		return nil, wrapTaskDAGError(err, "upsert", "task_dag_node")
+	}
+	return &mapped, nil
+}
+
+func upsertNodeTx(ctx context.Context, q *sqlc.Queries, node Node) (Node, error) {
+	rows, err := q.UpdateTaskDagNode(ctx, updateTaskDagNodeParams(node))
+	if err != nil {
+		return Node{}, err
+	}
+	if rows == 0 {
+		rows, err = q.InsertTaskDagNode(ctx, insertTaskDagNodeParams(node))
+		if err != nil {
+			return Node{}, err
+		}
+	}
+	if err := requireSingleNodeWrite(rows); err != nil {
+		return Node{}, err
+	}
+	return readNodeAfterWrite(ctx, q, node.DagKey, node.NodeKey, 0)
+}
+
+func insertTaskDagNodeParams(node Node) sqlc.InsertTaskDagNodeParams {
+	return sqlc.InsertTaskDagNodeParams{
+		DagKey: node.DagKey, NodeKey: node.NodeKey, Title: node.Title, NodeType: node.NodeType,
+		AssignedTo: node.AssignedTo, DependsOn: node.DependsOn, Reads: stringSliceJSON(node.Reads),
+		Writes: stringSliceJSON(node.Writes), CommandRef: node.CommandRef, Config: node.Config,
+	}
+}
+
+func updateTaskDagNodeParams(node Node) sqlc.UpdateTaskDagNodeParams {
+	return sqlc.UpdateTaskDagNodeParams{
+		DagKey: node.DagKey, NodeKey: node.NodeKey, Title: node.Title, NodeType: node.NodeType,
+		AssignedTo: node.AssignedTo, DependsOn: node.DependsOn, Reads: stringSliceJSON(node.Reads),
+		Writes: stringSliceJSON(node.Writes), CommandRef: node.CommandRef, Config: node.Config,
+	}
+}
+
+func writeNodeAndRead(
+	ctx context.Context,
+	db sqlc.DBTX,
+	q *sqlc.Queries,
+	dagKey, nodeKey string,
+	runID int64,
+	operation string,
+	write func(*sqlc.Queries) (int64, error),
+) (*Node, error) {
+	var mapped Node
+	err := sqlctx.WithImmediateTxOrReuse(ctx, db, q, func(txq *sqlc.Queries, _ sqlc.DBTX) error {
+		rows, err := write(txq)
+		if err != nil {
+			return err
+		}
+		if err := requireSingleNodeWrite(rows); err != nil {
+			return err
+		}
+		mapped, err = readNodeAfterWrite(ctx, txq, dagKey, nodeKey, runID)
+		return err
+	})
+	if err != nil {
+		return nil, wrapTaskDAGError(err, operation, "task_dag_node")
+	}
+	return &mapped, nil
+}
+
+func requireSingleNodeWrite(rows int64) error {
+	switch rows {
+	case 0:
+		return sql.ErrNoRows
+	case 1:
+		return nil
+	default:
+		return fmt.Errorf("task_dag_node write affected %d rows, want 1", rows)
+	}
+}
+
+func readNodeAfterWrite(ctx context.Context, q *sqlc.Queries, dagKey, nodeKey string, runID int64) (Node, error) {
+	if runID > 0 {
+		row, err := q.GetTaskDagRunNodeForUpdate(ctx, sqlc.GetTaskDagRunNodeForUpdateParams{
+			DagKey: dagKey, NodeKey: nodeKey, RunID: int64Ptr(runID),
 		})
-	}, "upsert", "task_dag_node", fromNodeUpsertRow)
+		if err != nil {
+			return Node{}, err
+		}
+		return fromNodeRunForUpdateRow(row), nil
+	}
+	row, err := q.GetTaskDagNode(ctx, sqlc.GetTaskDagNodeParams{DagKey: dagKey, NodeKey: nodeKey})
+	if err != nil {
+		return Node{}, err
+	}
+	return fromNodeGetRow(row), nil
 }
 
 func stringSliceJSON(values []string) json.RawMessage {
@@ -179,15 +313,15 @@ func (s *dagCommandStore) PatchNodeConfigIfUnchanged(ctx context.Context, input 
 	if err := requireRuntimeRunID("patch_config", input.RunID); err != nil {
 		return nil, err
 	}
-	return queryOneWrite(ctx, func() (sqlc.PatchTaskDagNodeConfigIfUnchangedRow, error) {
-		return s.q.PatchTaskDagNodeConfigIfUnchanged(ctx, sqlc.PatchTaskDagNodeConfigIfUnchangedParams{
+	return writeNodeAndRead(ctx, s.db, s.q, input.DagKey, input.NodeKey, input.RunID, "patch_config", func(q *sqlc.Queries) (int64, error) {
+		return q.PatchTaskDagNodeConfigIfUnchanged(ctx, sqlc.PatchTaskDagNodeConfigIfUnchangedParams{
 			DagKey:         input.DagKey,
 			NodeKey:        input.NodeKey,
 			Config:         input.Config,
 			PreviousConfig: input.PreviousConfig,
 			RunID:          int64Ptr(input.RunID),
 		})
-	}, "patch_config", "task_dag_node", fromNodePatchConfigRow)
+	})
 }
 
 // DeleteNode 删除模板节点并返回受影响行数；runtime run 副本不走这个模板删除入口。
@@ -208,8 +342,8 @@ func (s *dagCommandStore) UpdateNodeStatus(ctx context.Context, input NodeStatus
 	if strings.TrimSpace(input.ExpectedStatus) == "" {
 		return nil, errors.New("update_status expected status is required")
 	}
-	return updateNodeStatusWrite(ctx, func() (sqlc.UpdateTaskDagNodeStatusIfCurrentRow, error) {
-		return s.q.UpdateTaskDagNodeStatusIfCurrent(ctx, sqlc.UpdateTaskDagNodeStatusIfCurrentParams{
+	return writeNodeAndRead(ctx, s.db, s.q, input.DagKey, input.NodeKey, input.RunID, "update_status", func(q *sqlc.Queries) (int64, error) {
+		return q.UpdateTaskDagNodeStatusIfCurrent(ctx, sqlc.UpdateTaskDagNodeStatusIfCurrentParams{
 			Status:         input.Status,
 			Result:         input.Result,
 			DagKey:         input.DagKey,
@@ -217,7 +351,7 @@ func (s *dagCommandStore) UpdateNodeStatus(ctx context.Context, input NodeStatus
 			RunID:          int64Ptr(input.RunID),
 			ExpectedStatus: input.ExpectedStatus,
 		})
-	}, "update_status", fromNodeStatusIfCurrentRow)
+	})
 }
 
 // ListNodes 列出 dag_key 下的模板节点，用于编辑/展示 DAG 结构，不包含 runtime 副本状态。
@@ -232,14 +366,14 @@ func (s *dagCommandStore) AssignNode(ctx context.Context, input AssignNodeInput)
 	if err := requireRuntimeRunID("assign", input.RunID); err != nil {
 		return nil, err
 	}
-	return queryOneWrite(ctx, func() (sqlc.AssignTaskDagNodeRow, error) {
-		return s.q.AssignTaskDagNode(ctx, sqlc.AssignTaskDagNodeParams{
+	return writeNodeAndRead(ctx, s.db, s.q, input.DagKey, input.NodeKey, input.RunID, "assign", func(q *sqlc.Queries) (int64, error) {
+		return q.AssignTaskDagNode(ctx, sqlc.AssignTaskDagNodeParams{
 			AssignedTo: input.AssignedTo,
 			DagKey:     input.DagKey,
 			NodeKey:    input.NodeKey,
 			RunID:      int64Ptr(input.RunID),
 		})
-	}, "assign", "task_dag_node", fromNodeAssignRow)
+	})
 }
 
 // AssignNodeAndEnqueueWakeup 在同一 SQLite 写事务内完成节点指派和 wakeup 入队。
@@ -250,7 +384,7 @@ func (s *dagCommandStore) AssignNodeAndEnqueueWakeup(ctx context.Context, input 
 	}
 	var result AssignNodeAndEnqueueWakeupResult
 	err := sqlctx.WithImmediateTxOrReuse(ctx, s.db, s.q, func(txq *sqlc.Queries, _ sqlc.DBTX) error {
-		row, err := txq.AssignTaskDagNode(ctx, sqlc.AssignTaskDagNodeParams{
+		rows, err := txq.AssignTaskDagNode(ctx, sqlc.AssignTaskDagNodeParams{
 			AssignedTo: input.Assign.AssignedTo,
 			DagKey:     input.Assign.DagKey,
 			NodeKey:    input.Assign.NodeKey,
@@ -259,16 +393,14 @@ func (s *dagCommandStore) AssignNodeAndEnqueueWakeup(ctx context.Context, input 
 		if err != nil {
 			return wrapTaskDAGError(err, "assign", "task_dag_node")
 		}
-		node := fromNodeAssignRow(row)
-		wakeupID, err := txq.EnqueueTaskDagWakeup(ctx, sqlc.EnqueueTaskDagWakeupParams{
-			DagKey:         input.Wakeup.DagKey,
-			NodeKey:        input.Wakeup.NodeKey,
-			RunID:          int64Ptr(input.Wakeup.RunID),
-			WakeupKind:     input.Wakeup.WakeupKind,
-			TargetAgentID:  input.Wakeup.TargetAgentID,
-			PromptPayload:  input.Wakeup.PromptPayload,
-			IdempotencyKey: input.Wakeup.IdempotencyKey,
-		})
+		if err := requireSingleNodeWrite(rows); err != nil {
+			return wrapTaskDAGError(err, "assign", "task_dag_node")
+		}
+		node, err := readNodeAfterWrite(ctx, txq, input.Assign.DagKey, input.Assign.NodeKey, input.Assign.RunID)
+		if err != nil {
+			return wrapTaskDAGError(err, "assign", "task_dag_node")
+		}
+		wakeupID, _, err := enqueueWakeupTx(ctx, txq, input.Wakeup)
 		if err != nil {
 			return wrapTaskDAGError(err, "enqueue", "task_dag_wakeup")
 		}
@@ -382,7 +514,7 @@ func (s *store) hasPendingOrDispatchingWakeup(ctx context.Context, input MarkDis
 	if err != nil {
 		return false, wrapTaskDAGError(err, "has_pending_or_dispatching", "task_dag_wakeup")
 	}
-	return exists != 0, nil
+	return exists, nil
 }
 
 // ListRunNodes 列出指定 run_id 下的 runtime 节点副本，供调度器按运行态状态图推进。
@@ -440,7 +572,7 @@ func (s *dagCommandStore) BindRunningNodeTurn(ctx context.Context, input BindRun
 		if err != nil {
 			return err
 		}
-		row, err := txq.BindRunningTaskDagNodeTurn(ctx, sqlc.BindRunningTaskDagNodeTurnParams{
+		rows, err := txq.BindRunningTaskDagNodeTurn(ctx, sqlc.BindRunningTaskDagNodeTurnParams{
 			ActiveTurnID:   stringPtr(input.TurnID),
 			DagKey:         input.DagKey,
 			NodeKey:        input.NodeKey,
@@ -450,7 +582,13 @@ func (s *dagCommandStore) BindRunningNodeTurn(ctx context.Context, input BindRun
 		if err != nil {
 			return wrapTaskDAGError(err, "bind_running_turn", "task_dag_node")
 		}
-		mapped = fromNodeBindTurnRow(row)
+		if err := requireSingleNodeWrite(rows); err != nil {
+			return wrapTaskDAGError(err, "bind_running_turn", "task_dag_node")
+		}
+		mapped, err = readNodeAfterWrite(ctx, txq, input.DagKey, input.NodeKey, input.RunID)
+		if err != nil {
+			return wrapTaskDAGError(err, "bind_running_turn", "task_dag_node")
+		}
 		return nil
 	})
 	if err != nil {
@@ -464,15 +602,15 @@ func (s *dagCommandStore) TouchRunningNodeEvent(ctx context.Context, input Touch
 	if err := requireRuntimeRunID("touch_running_event", input.RunID); err != nil {
 		return nil, err
 	}
-	return queryOneWrite(ctx, func() (sqlc.TouchRunningTaskDagNodeEventRow, error) {
-		return s.q.TouchRunningTaskDagNodeEvent(ctx, sqlc.TouchRunningTaskDagNodeEventParams{
+	return writeNodeAndRead(ctx, s.db, s.q, input.DagKey, input.NodeKey, input.RunID, "touch_running_event", func(q *sqlc.Queries) (int64, error) {
+		return q.TouchRunningTaskDagNodeEvent(ctx, sqlc.TouchRunningTaskDagNodeEventParams{
 			LastEventAt:  timestampValue(input.ObservedAt),
 			DagKey:       input.DagKey,
 			NodeKey:      input.NodeKey,
 			ActiveTurnID: stringPtr(input.TurnID),
 			RunID:        int64Ptr(input.RunID),
 		})
-	}, "touch_running_event", "task_dag_node", fromNodeTouchEventRow)
+	})
 }
 
 // UpdateRunningNodeStatus 更新 running 节点状态，WakeupID fence 防止旧 dispatch 副本覆盖新轮次。
@@ -490,7 +628,7 @@ func (s *dagCommandStore) UpdateRunningNodeStatus(ctx context.Context, input Run
 			if err := validateWakeupFenceTx(ctx, txq, fence, input.DagKey, input.NodeKey, input.RunID); err != nil {
 				return err
 			}
-			row, updateErr := txq.UpdateRunningTaskDagNodeStatus(ctx, sqlc.UpdateRunningTaskDagNodeStatusParams{
+			rows, updateErr := txq.UpdateRunningTaskDagNodeStatus(ctx, sqlc.UpdateRunningTaskDagNodeStatusParams{
 				Status:         input.Status,
 				Result:         input.Result,
 				ActiveWakeupID: int64Ptr(fence.WakeupID),
@@ -501,7 +639,13 @@ func (s *dagCommandStore) UpdateRunningNodeStatus(ctx context.Context, input Run
 			if updateErr != nil {
 				return wrapTaskDAGError(updateErr, "update_running_status", "task_dag_node")
 			}
-			mapped = fromNodeUpdateRunningRow(row)
+			if err := requireSingleNodeWrite(rows); err != nil {
+				return wrapTaskDAGError(err, "update_running_status", "task_dag_node")
+			}
+			mapped, updateErr = readNodeAfterWrite(ctx, txq, input.DagKey, input.NodeKey, input.RunID)
+			if updateErr != nil {
+				return wrapTaskDAGError(updateErr, "update_running_status", "task_dag_node")
+			}
 			return nil
 		})
 		if err != nil {
@@ -509,8 +653,8 @@ func (s *dagCommandStore) UpdateRunningNodeStatus(ctx context.Context, input Run
 		}
 		return &mapped, nil
 	}
-	return updateNodeStatusWrite(ctx, func() (sqlc.UpdateRunningTaskDagNodeStatusRow, error) {
-		return s.q.UpdateRunningTaskDagNodeStatus(ctx, sqlc.UpdateRunningTaskDagNodeStatusParams{
+	return writeNodeAndRead(ctx, s.db, s.q, input.DagKey, input.NodeKey, input.RunID, "update_running_status", func(q *sqlc.Queries) (int64, error) {
+		return q.UpdateRunningTaskDagNodeStatus(ctx, sqlc.UpdateRunningTaskDagNodeStatusParams{
 			Status:         input.Status,
 			Result:         input.Result,
 			ActiveWakeupID: int64Ptr(input.WakeupID),
@@ -518,7 +662,7 @@ func (s *dagCommandStore) UpdateRunningNodeStatus(ctx context.Context, input Run
 			NodeKey:        input.NodeKey,
 			RunID:          int64Ptr(input.RunID),
 		})
-	}, "update_running_status", fromNodeUpdateRunningRow)
+	})
 }
 
 // CompleteNode 写入 runtime 节点终态和 result，run_id fence 防止模板节点或旧运行被误完成。
@@ -529,8 +673,8 @@ func (s *store) CompleteNode(ctx context.Context, input CompleteNodeInput) (*Nod
 	if err := requireWakeupAttemptFence("complete", input.WakeupID, input.WakeupAttempt); err != nil {
 		return nil, err
 	}
-	return updateNodeStatusWrite(ctx, func() (sqlc.CompleteTaskDagNodeRow, error) {
-		return s.q.CompleteTaskDagNode(ctx, sqlc.CompleteTaskDagNodeParams{
+	return writeNodeAndRead(ctx, s.db, s.q, input.DagKey, input.NodeKey, input.RunID, "complete", func(q *sqlc.Queries) (int64, error) {
+		return q.CompleteTaskDagNode(ctx, sqlc.CompleteTaskDagNodeParams{
 			Status:        input.Status,
 			Result:        input.Result,
 			DagKey:        input.DagKey,
@@ -539,7 +683,7 @@ func (s *store) CompleteNode(ctx context.Context, input CompleteNodeInput) (*Nod
 			WakeupID:      input.WakeupID,
 			WakeupAttempt: int64(input.WakeupAttempt),
 		})
-	}, "complete", fromNodeCompleteRow)
+	})
 }
 
 func requireWakeupAttemptFence(op string, wakeupID int64, wakeupAttempt int32) error {
@@ -561,14 +705,14 @@ func (s *dagOutputStore) ClaimNodeOutputMaterialization(ctx context.Context, inp
 	if err := requireRuntimeRunID("claim_output_materialization", input.RunID); err != nil {
 		return nil, err
 	}
-	return updateNodeStatusWrite(ctx, func() (sqlc.ClaimTaskDagNodeOutputMaterializationRow, error) {
-		return s.q.ClaimTaskDagNodeOutputMaterialization(ctx, sqlc.ClaimTaskDagNodeOutputMaterializationParams{
+	return writeNodeAndRead(ctx, s.db, s.q, input.DagKey, input.NodeKey, input.RunID, "claim_output_materialization", func(q *sqlc.Queries) (int64, error) {
+		return q.ClaimTaskDagNodeOutputMaterialization(ctx, sqlc.ClaimTaskDagNodeOutputMaterializationParams{
 			Result:  input.Result,
 			DagKey:  input.DagKey,
 			NodeKey: input.NodeKey,
 			RunID:   int64Ptr(input.RunID),
 		})
-	}, "claim_output_materialization", fromNodeClaimOutputRow)
+	})
 }
 
 // int64Ptr 把 int64 值包装成 sqlc.Int8（SQLite nullable integer）。

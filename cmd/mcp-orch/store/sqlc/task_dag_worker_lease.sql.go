@@ -9,25 +9,36 @@ import (
 	"context"
 )
 
-const acquireTaskDagWorkerLease = `-- name: AcquireTaskDagWorkerLease :execrows
-INSERT INTO task_dag_worker_leases (target_agent_id, owner_id, lease_expires_at, updated_at)
-VALUES (?, ?, (CAST(strftime('%s','now') AS INTEGER) * 1000) + ?3, (CAST(strftime('%s','now') AS INTEGER) * 1000))
-ON CONFLICT (target_agent_id) DO UPDATE
-SET owner_id = EXCLUDED.owner_id,
-    lease_expires_at = EXCLUDED.lease_expires_at,
-    updated_at = (CAST(strftime('%s','now') AS INTEGER) * 1000)
-WHERE task_dag_worker_leases.lease_expires_at < (CAST(strftime('%s','now') AS INTEGER) * 1000)
-   OR task_dag_worker_leases.owner_id = EXCLUDED.owner_id
+const hasTaskDagWorkerLease = `-- name: HasTaskDagWorkerLease :one
+SELECT CAST(COUNT(*) AS BOOLEAN)
+FROM task_dag_worker_leases
+WHERE target_agent_id = ?1
 `
 
-type AcquireTaskDagWorkerLeaseParams struct {
-	TargetAgentID string      `db:"target_agent_id" json:"target_agent_id"`
-	OwnerID       string      `db:"owner_id" json:"owner_id"`
-	LeaseMs       interface{} `db:"lease_ms" json:"lease_ms"`
+type HasTaskDagWorkerLeaseParams struct {
+	TargetAgentID string `db:"target_agent_id" json:"target_agent_id"`
 }
 
-func (q *Queries) AcquireTaskDagWorkerLease(ctx context.Context, arg AcquireTaskDagWorkerLeaseParams) (int64, error) {
-	result, err := q.db.ExecContext(ctx, acquireTaskDagWorkerLease, arg.TargetAgentID, arg.OwnerID, arg.LeaseMs)
+func (q *Queries) HasTaskDagWorkerLease(ctx context.Context, arg HasTaskDagWorkerLeaseParams) (bool, error) {
+	row := q.db.QueryRowContext(ctx, hasTaskDagWorkerLease, arg.TargetAgentID)
+	var column_1 bool
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
+const insertTaskDagWorkerLease = `-- name: InsertTaskDagWorkerLease :execrows
+INSERT INTO task_dag_worker_leases (target_agent_id, owner_id, lease_expires_at, updated_at)
+VALUES (?1, ?2, (CAST(strftime('%s','now') AS INTEGER) * 1000) + CAST(?3 AS INTEGER), (CAST(strftime('%s','now') AS INTEGER) * 1000))
+`
+
+type InsertTaskDagWorkerLeaseParams struct {
+	TargetAgentID string `db:"target_agent_id" json:"target_agent_id"`
+	OwnerID       string `db:"owner_id" json:"owner_id"`
+	LeaseMs       int64  `db:"lease_ms" json:"lease_ms"`
+}
+
+func (q *Queries) InsertTaskDagWorkerLease(ctx context.Context, arg InsertTaskDagWorkerLeaseParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, insertTaskDagWorkerLease, arg.TargetAgentID, arg.OwnerID, arg.LeaseMs)
 	if err != nil {
 		return 0, err
 	}
@@ -36,7 +47,7 @@ func (q *Queries) AcquireTaskDagWorkerLease(ctx context.Context, arg AcquireTask
 
 const releaseTaskDagWorkerLease = `-- name: ReleaseTaskDagWorkerLease :execrows
 DELETE FROM task_dag_worker_leases
-WHERE target_agent_id = ? AND owner_id = ?
+WHERE target_agent_id = ?1 AND owner_id = ?2
 `
 
 type ReleaseTaskDagWorkerLeaseParams struct {
@@ -54,7 +65,7 @@ func (q *Queries) ReleaseTaskDagWorkerLease(ctx context.Context, arg ReleaseTask
 
 const renewTaskDagWorkerLease = `-- name: RenewTaskDagWorkerLease :execrows
 UPDATE task_dag_worker_leases
-SET lease_expires_at = (CAST(strftime('%s','now') AS INTEGER) * 1000) + ?1,
+SET lease_expires_at = (CAST(strftime('%s','now') AS INTEGER) * 1000) + CAST(?1 AS INTEGER),
     updated_at = (CAST(strftime('%s','now') AS INTEGER) * 1000)
 WHERE target_agent_id = ?2
   AND owner_id = ?3
@@ -62,13 +73,37 @@ WHERE target_agent_id = ?2
 `
 
 type RenewTaskDagWorkerLeaseParams struct {
-	LeaseMs       interface{} `db:"lease_ms" json:"lease_ms"`
-	TargetAgentID string      `db:"target_agent_id" json:"target_agent_id"`
-	OwnerID       string      `db:"owner_id" json:"owner_id"`
+	LeaseMs       int64  `db:"lease_ms" json:"lease_ms"`
+	TargetAgentID string `db:"target_agent_id" json:"target_agent_id"`
+	OwnerID       string `db:"owner_id" json:"owner_id"`
 }
 
 func (q *Queries) RenewTaskDagWorkerLease(ctx context.Context, arg RenewTaskDagWorkerLeaseParams) (int64, error) {
 	result, err := q.db.ExecContext(ctx, renewTaskDagWorkerLease, arg.LeaseMs, arg.TargetAgentID, arg.OwnerID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const updateAcquirableTaskDagWorkerLease = `-- name: UpdateAcquirableTaskDagWorkerLease :execrows
+UPDATE task_dag_worker_leases
+SET owner_id = ?1,
+    lease_expires_at = (CAST(strftime('%s','now') AS INTEGER) * 1000) + CAST(?2 AS INTEGER),
+    updated_at = (CAST(strftime('%s','now') AS INTEGER) * 1000)
+WHERE target_agent_id = ?3
+  AND (lease_expires_at < (CAST(strftime('%s','now') AS INTEGER) * 1000)
+       OR owner_id = ?1)
+`
+
+type UpdateAcquirableTaskDagWorkerLeaseParams struct {
+	OwnerID       string `db:"owner_id" json:"owner_id"`
+	LeaseMs       int64  `db:"lease_ms" json:"lease_ms"`
+	TargetAgentID string `db:"target_agent_id" json:"target_agent_id"`
+}
+
+func (q *Queries) UpdateAcquirableTaskDagWorkerLease(ctx context.Context, arg UpdateAcquirableTaskDagWorkerLeaseParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, updateAcquirableTaskDagWorkerLease, arg.OwnerID, arg.LeaseMs, arg.TargetAgentID)
 	if err != nil {
 		return 0, err
 	}
