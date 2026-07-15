@@ -68,8 +68,8 @@ type ChangeRequest struct {
 	Branch        string                   `json:"branch"`
 	Commits       []ChangeRequestCommit    `json:"commits,omitempty"`
 	Checks        []ChangeRequestCheck     `json:"checks,omitempty"`
-	ReviewGate    ChangeRequestReviewGate  `json:"review_gate,omitempty"`
-	External      ChangeRequestExternalRef `json:"external,omitempty"`
+	ReviewGate    ChangeRequestReviewGate  `json:"review_gate,omitzero"`
+	External      ChangeRequestExternalRef `json:"external,omitzero"`
 	Status        ChangeRequestStatus      `json:"status"`
 	CreatedAt     time.Time                `json:"created_at"`
 	UpdatedAt     time.Time                `json:"updated_at"`
@@ -80,7 +80,7 @@ type ChangeRequestCommit struct {
 	SHA       string    `json:"sha"`
 	Title     string    `json:"title,omitempty"`
 	Author    string    `json:"author,omitempty"`
-	CreatedAt time.Time `json:"created_at,omitempty"`
+	CreatedAt time.Time `json:"created_at,omitzero"`
 }
 
 // ChangeRequestCheck 记录 CI/check 的最新状态，URL 只作为外部引用。
@@ -88,7 +88,7 @@ type ChangeRequestCheck struct {
 	Name      string                   `json:"name"`
 	Status    ChangeRequestCheckStatus `json:"status"`
 	URL       string                   `json:"url,omitempty"`
-	UpdatedAt time.Time                `json:"updated_at,omitempty"`
+	UpdatedAt time.Time                `json:"updated_at,omitzero"`
 }
 
 // ChangeRequestReviewGate 将代码审查阻塞状态连接到 workflow 工作台。

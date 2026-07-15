@@ -1,6 +1,7 @@
 package multilsp
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -13,7 +14,7 @@ func TestFindJSTSProjectRootWithinFindsFirstValidProject(t *testing.T) {
 	want := filepath.Join(root, "apps", "web")
 	writeProjectMarker(t, want, "tsconfig.json")
 
-	got, err := findJSTSProjectRootWithin(root)
+	got, err := findJSTSProjectRootWithin(context.Background(), root)
 	if err != nil {
 		t.Fatalf("findJSTSProjectRootWithin(%q) error = %v", root, err)
 	}
@@ -29,7 +30,7 @@ func TestFindJSTSProjectRootWithinSkipsIgnoredDirectories(t *testing.T) {
 	writeProjectMarker(t, filepath.Join(root, ".cache", "hidden"), "package.json")
 	writeProjectMarker(t, filepath.Join(root, "dist", "site"), "jsconfig.json")
 
-	got, err := findJSTSProjectRootWithin(root)
+	got, err := findJSTSProjectRootWithin(context.Background(), root)
 	if err != nil {
 		t.Fatalf("findJSTSProjectRootWithin(%q) error = %v", root, err)
 	}
@@ -41,7 +42,7 @@ func TestFindJSTSProjectRootWithinSkipsIgnoredDirectories(t *testing.T) {
 func TestFindJSTSProjectRootWithinReturnsWalkError(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "missing")
 
-	got, err := findJSTSProjectRootWithin(root)
+	got, err := findJSTSProjectRootWithin(context.Background(), root)
 	if err == nil {
 		t.Fatalf("findJSTSProjectRootWithin(%q) error = nil, want walk error", root)
 	}
@@ -57,7 +58,7 @@ func TestFindJSTSBootstrapFileWithinFindsFirstValidFile(t *testing.T) {
 	want := filepath.Join(root, "apps", "web", "main.ts")
 	writeProjectMarker(t, filepath.Join(root, "apps", "web"), "main.ts")
 
-	got, err := findJSTSBootstrapFileWithin(root)
+	got, err := findJSTSBootstrapFileWithin(context.Background(), root)
 	if err != nil {
 		t.Fatalf("findJSTSBootstrapFileWithin(%q) error = %v", root, err)
 	}
@@ -73,7 +74,7 @@ func TestFindJSTSBootstrapFileWithinSkipsIgnoredDirectories(t *testing.T) {
 	writeProjectMarker(t, filepath.Join(root, ".cache", "hidden"), "main.js")
 	writeProjectMarker(t, filepath.Join(root, "dist", "site"), "app.tsx")
 
-	got, err := findJSTSBootstrapFileWithin(root)
+	got, err := findJSTSBootstrapFileWithin(context.Background(), root)
 	if err != nil {
 		t.Fatalf("findJSTSBootstrapFileWithin(%q) error = %v", root, err)
 	}
@@ -121,7 +122,7 @@ func TestFindJavaProjectRootWithinFindsFirstProject(t *testing.T) {
 	want := filepath.Join(root, "services", "api")
 	writeProjectMarker(t, want, "pom.xml")
 
-	got, err := findJavaProjectRootWithin(root)
+	got, err := findJavaProjectRootWithin(context.Background(), root)
 	if err != nil {
 		t.Fatalf("findJavaProjectRootWithin(%q) error = %v", root, err)
 	}
@@ -137,7 +138,7 @@ func TestFindJavaProjectRootWithinSkipsIgnoredDirs(t *testing.T) {
 	writeProjectMarker(t, filepath.Join(root, ".gradle", "wrapper"), "build.gradle")
 	writeProjectMarker(t, filepath.Join(root, "build", "output"), "pom.xml")
 
-	got, err := findJavaProjectRootWithin(root)
+	got, err := findJavaProjectRootWithin(context.Background(), root)
 	if err != nil {
 		t.Fatalf("findJavaProjectRootWithin(%q) error = %v", root, err)
 	}
@@ -149,7 +150,7 @@ func TestFindJavaProjectRootWithinSkipsIgnoredDirs(t *testing.T) {
 func TestFindJavaProjectRootWithinReturnsWalkError(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "missing")
 
-	got, err := findJavaProjectRootWithin(root)
+	got, err := findJavaProjectRootWithin(context.Background(), root)
 	if err == nil {
 		t.Fatalf("findJavaProjectRootWithin(%q) error = nil, want walk error", root)
 	}
@@ -165,7 +166,7 @@ func TestFindJavaBootstrapFileWithinFindsJavaFile(t *testing.T) {
 	want := filepath.Join(root, "src", "main", "java", "App.java")
 	writeProjectMarker(t, filepath.Join(root, "src", "main", "java"), "App.java")
 
-	got, err := findJavaBootstrapFileWithin(root)
+	got, err := findJavaBootstrapFileWithin(context.Background(), root)
 	if err != nil {
 		t.Fatalf("findJavaBootstrapFileWithin(%q) error = %v", root, err)
 	}

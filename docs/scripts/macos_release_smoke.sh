@@ -256,10 +256,8 @@ verify_runtime_manifest_contract() {
   require_file "$manifest"
   grep -q '"bundled_codex_path"' "$manifest" || fail "runtime manifest missing bundled_codex_path"
   grep -q '"model_registry_path"' "$manifest" || fail "runtime manifest missing model_registry_path"
-  grep -q '"embedded_postgres_resource_path"' "$manifest" || fail "runtime manifest missing embedded_postgres_resource_path"
   require_exec "$resources/bin/codex"
   require_file "$resources/models.yaml"
-  require_dir "$resources/postgres/$(go env GOOS)-$(go env GOARCH)"
   echo "runtime manifest contract present: $manifest"
 }
 

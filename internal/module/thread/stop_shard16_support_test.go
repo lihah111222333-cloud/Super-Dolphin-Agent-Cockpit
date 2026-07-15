@@ -175,6 +175,7 @@ func (stubThreadSessionUnusedMethods) ForceStop() error { return nil }
 type stubTurnService struct {
 	interruptCalls []string
 	cleanupCalls   []string
+	cleanupErrors  map[string]error
 	calls          *[]string
 }
 
@@ -186,7 +187,7 @@ func (s *stubTurnService) InterruptActiveTurn(_ context.Context, session contrac
 func (s *stubTurnService) CleanupThread(_ context.Context, threadID, reason string) error {
 	s.cleanupCalls = append(s.cleanupCalls, threadID+":"+reason)
 	recordCall(s.calls, "turn_cleanup:"+threadID+":"+reason)
-	return nil
+	return s.cleanupErrors[threadID]
 }
 
 type stubThreadOrchestration struct {

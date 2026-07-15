@@ -2,9 +2,6 @@ package archtest_test
 
 import (
 	"fmt"
-	"os"
-	"path/filepath"
-	"sort"
 	"strings"
 	"testing"
 
@@ -19,25 +16,8 @@ func TestActiveSystemOwnedPromptSurfacesAvoidExternalIdentityToolAndHostLeaks(t 
 	}
 
 	surfaces := builtinRegistryPromptSurfaces(t, reg)
-	surfaces = append(surfaces, dbSystemOwnedPromptSurfacesAfterCleanup(t)...)
-	surfaces = append(surfaces, postRegistryCutoverMigrationPromptSurfaces(t)...)
 
 	failIfViolations(t, promptExternalReferenceViolations(surfaces))
-}
-
-func TestPrompt0105RollbackLegacyProviderPlaceholdersStayDisabledAndHidden(t *testing.T) {
-	t.Parallel()
-
-	rollback := readRollback0105Blocks(t)
-	for _, key := range []string{"main/claude-style", "main/claude-style-zh", "main/general-en"} {
-		tuple := requireSQLTupleForPromptKey(t, rollback, key)
-		if !strings.Contains(tuple, "FALSE, FALSE") {
-			t.Fatalf("%s rollback tuple must restore a disabled, non-manual placeholder:\n%s", key, tuple)
-		}
-		if strings.Contains(tuple, "scope.global") || strings.Contains(tuple, "scope.cwd:") {
-			t.Fatalf("%s rollback tuple must not restore runtime scope:\n%s", key, tuple)
-		}
-	}
 }
 
 func TestPromptExternalReferenceGuardRejectsIdentityClaims(t *testing.T) {
@@ -87,7 +67,7 @@ func TestPromptExternalReferenceGuardAllowsNegativeProviderContextAndCleanup(t *
 			Text:   "不要假设 WebFetch、run_command、read_files、IDE sidebar 或浏览器扩展可用。",
 		},
 		{
-			Source:         "migrations/ROLLBACK.md:0105 data restore",
+			Source:         "fixture:disabled legacy cleanup",
 			Text:           "('main/claude-style', 'Legacy Claude-style Prompt (disabled)', 'main')",
 			CleanupContext: true,
 		},
@@ -98,7 +78,7 @@ func TestPromptExternalReferenceGuardAllowsNegativeProviderContextAndCleanup(t *
 
 	if got := promptExternalReferenceViolations([]promptSurface{
 		{
-			Source:         "migrations/ROLLBACK.md:0105 data restore",
+			Source:         "fixture:unsafe legacy cleanup",
 			Text:           "('main/claude-style', 'You are Claude Code.', 'main')",
 			CleanupContext: true,
 		},
@@ -258,126 +238,6 @@ func builtinRegistryPromptSurfaces(t *testing.T, reg contract.BuiltinPromptRegis
 	return surfaces
 }
 
-func dbSystemOwnedPromptSurfacesAfterCleanup(t *testing.T) []promptSurface {
-	t.Helper()
-
-	seedFiles := map[string][]string{
-		"0040_prompt_templates_production_v3.sql": {
-			"main/code-review",
-			"main/code-debug",
-			"main/code-task",
-			"main/sql",
-			"main/planning",
-			"main/orchestrator",
-		},
-		"0084_seed_dag_designer_prompt_zh.sql": {
-			"main/dag_designer_zh",
-		},
-		"0085_seed_dag_designer_prompt_en.sql": {
-			"main/dag_designer_en",
-		},
-		"0087_seed_prompt_template_skill_cards.sql": {
-			"main/morning_briefer",
-			"main/pr_summarizer",
-			"main/weekly_reviewer",
-			"main/data_inspector",
-			"main/email_drafter",
-			"main/health_reporter",
-			"main/source_monitor",
-			"main/note_organizer",
-			"main/todo_prioritizer",
-		},
-		"0100_seed_recall_packs_and_when_to_use.sql": {
-			"main/code-review",
-			"main/code-debug",
-			"main/code-task",
-			"main/sql",
-			"main/planning",
-			"main/morning_briefer",
-			"main/pr_summarizer",
-			"main/weekly_reviewer",
-			"main/data_inspector",
-			"main/email_drafter",
-			"main/health_reporter",
-			"main/source_monitor",
-			"main/note_organizer",
-			"main/todo_prioritizer",
-		},
-	}
-
-	var surfaces []promptSurface
-	for _, name := range sortedMapKeys(seedFiles) {
-		sql := readPromptMigration(t, name)
-		for _, promptKey := range seedFiles[name] {
-			text := requireSQLTupleForPromptKey(t, sql, promptKey)
-			surfaces = appendPromptSurface(surfaces, promptSurface{
-				Source:         "db-seed:" + name + ":" + promptKey,
-				Text:           text,
-				AllowedToolUse: strings.Contains(promptKey, "dag_designer"),
-				InternalTools:  internalToolsIn(text),
-			})
-		}
-	}
-	surfaces = append(surfaces, dbPromptRuntimeUpdateSurfaces(t)...)
-	return surfaces
-}
-
-func dbPromptRuntimeUpdateSurfaces(t *testing.T) []promptSurface {
-	t.Helper()
-
-	var surfaces []promptSurface
-	for _, name := range []string{
-		"0090_refresh_dag_designer_prompt_run_id_signature.sql",
-		"0108_refresh_dag_designer_prompt_final_node_key.sql",
-	} {
-		sql := readPromptMigration(t, name)
-		for i, literal := range sqlStringLiterals(sql) {
-			surfaces = appendPromptSurface(surfaces, promptSurface{
-				Source:         fmt.Sprintf("db-update:%s.literal[%d]", name, i),
-				Text:           literal,
-				AllowedToolUse: allowedInternalToolUseInMigrationLiteral(name, literal),
-				InternalTools:  internalToolsIn(literal),
-			})
-		}
-	}
-	return surfaces
-}
-
-func postRegistryCutoverMigrationPromptSurfaces(t *testing.T) []promptSurface {
-	t.Helper()
-
-	root := repoRoot(t)
-	paths, err := filepath.Glob(filepath.Join(root, "migrations", "*.sql"))
-	if err != nil {
-		t.Fatalf("glob migrations: %v", err)
-	}
-	sort.Strings(paths)
-
-	var surfaces []promptSurface
-	for _, path := range paths {
-		name := filepath.Base(path)
-		if migrationNumber(name) < builtinRegistryCutoverMigration {
-			continue
-		}
-		data, err := os.ReadFile(path)
-		if err != nil {
-			t.Fatalf("read %s: %v", path, err)
-		}
-		sql := string(data)
-		surfaces = append(surfaces, postRegistryMigrationPromptSurfaces(name, sql)...)
-	}
-
-	rollback := readRollback0105Blocks(t)
-	if rollback != "" {
-		surfaces = appendPromptSurface(surfaces, promptSurface{
-			Source:         "migrations/ROLLBACK.md:0105",
-			Text:           rollback,
-			CleanupContext: true,
-		})
-	}
-	return surfaces
-}
-
 func postRegistryMigrationPromptSurfaces(name, sql string) []promptSurface {
 	var surfaces []promptSurface
 	if isPromptCleanupMigration(name, sql) {
@@ -402,13 +262,4 @@ func postRegistryMigrationPromptSurfaces(name, sql string) []promptSurface {
 		})
 	}
 	return surfaces
-}
-
-func sortedMapKeys[V any](values map[string]V) []string {
-	keys := make([]string, 0, len(values))
-	for key := range values {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
-	return keys
 }

@@ -45,7 +45,7 @@
 | 代码地图 | `docs/doc/codemap/README.md` | 大型子系统阅读入口和分卷索引 |
 | 当前 UI | `frontend-app` | React/Vite 新 UI，`run-new-ui-desktop.sh` 会代理到该 Vite 服务 |
 | 旧 UI | `cmd/agent-terminal/frontend` | 旧 Vue/Vite 嵌入式前端，仅在明确目标为旧前端时修改 |
-| 数据库迁移 | `migrations`、`sql`、`sqlc.yaml` | PostgreSQL schema、sqlc query 和生成配置 |
+| 数据库迁移 | `internal/platform/db/sqlite/migrations`、`sql`、`sqlc.yaml` | SQLite schema、sqlc query 和生成配置 |
 | 发布脚本 | `scripts/package_*`、`scripts/publish_github_release.sh` | Windows/macOS/Linux 打包和 GitHub Release 发布 |
 | 本地日志栈 | `deploy/elk`、`scripts/elk-local.ps1` | 本地 Elasticsearch/Kibana/Logstash 日志查看 |
 
@@ -71,7 +71,7 @@
 | --- | --- | --- |
 | Git 仓库读写 | 拉取、提交、推送、PR | `git remote -v`、`git fetch`、推送前确认分支策略 |
 | GitHub Actions/Release | CI、发布资产、Release 管理 | `gh auth status`、Release dry-run |
-| PostgreSQL 本地或嵌入式运行权限 | 本地启动、迁移、测试 | `DATABASE_URL` 或脚本自动嵌入式 Postgres |
+| SQLite 数据目录读写权限 | 本地启动、迁移、测试和备份 | 检查 `SUPER_DOLPHIN_HOME` 及 `super-dolphin.db` 的读写权限 |
 | Claude CLI 登录态 | Claude provider 运行 | `claude` 相关 provider smoke，不在本次验证范围 |
 | Codex CLI 登录态 | Codex provider 运行 | `codex` provider smoke，不在本次验证范围 |
 | 代码签名或 notarization 权限 | macOS/Windows 发布 | 打包脚本和密钥配置检查 |

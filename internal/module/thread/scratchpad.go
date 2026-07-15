@@ -19,6 +19,28 @@ type scratchpadPartialCleanupError struct {
 	cause     error
 }
 
+type lifecyclePartialCleanupError struct {
+	operation string
+	cause     error
+}
+
+// Error 返回不暴露底层资源标识的稳定生命周期部分清理失败描述。
+func (e *lifecyclePartialCleanupError) Error() string {
+	return "thread " + e.operation + " completed with partial cleanup failure"
+}
+
+// Unwrap 保留 scratchpad 与 turn 清理错误的 errors.Is 链。
+func (e *lifecyclePartialCleanupError) Unwrap() error {
+	return e.cause
+}
+
+func newLifecyclePartialCleanupError(operation string, err error) error {
+	if err == nil {
+		return nil
+	}
+	return &lifecyclePartialCleanupError{operation: operation, cause: err}
+}
+
 // Error 返回不包含本地路径的稳定部分清理失败描述。
 func (e *scratchpadPartialCleanupError) Error() string {
 	return "thread " + e.operation + " completed with scratchpad cleanup failure"

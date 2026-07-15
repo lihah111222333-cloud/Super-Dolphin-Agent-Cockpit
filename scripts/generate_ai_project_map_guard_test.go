@@ -86,6 +86,117 @@ func TestProjectMapGeneratorIndexesOnlyTrackedCodeAndDocs(t *testing.T) {
 	}
 }
 
+func TestProjectMapGeneratorReusesExistingGenerationDate(t *testing.T) {
+	requireNodeForProjectMap(t)
+	root := prepareProjectMapFixture(t, true)
+	initialDate := generateProjectMapAndReadGenerationDate(t, root)
+	const stableDate = "2000-02-29"
+	want := seedProjectMapGenerationDate(t, root, initialDate, stableDate)
+	if out, err := runProjectMapGenerator(t, root); err != nil {
+		t.Fatalf("repeat project map generation failed: %v\n%s", err, out)
+	}
+	got := readProjectMapDatedOutputs(t, root)
+	if !slices.Equal(got.joined(), want.joined()) {
+		t.Fatalf("generation date changed across repeated generation\nwant date: %s\ngot manifest:\n%s", stableDate, got.manifest)
+	}
+	if out, err := runProjectMapGenerator(t, root, "--check", "--strict-drift"); err != nil {
+		t.Fatalf("stable project map check failed: %v\n%s", err, out)
+	}
+}
+
+type projectMapDatedOutputs struct {
+	manifest []byte
+	project  []byte
+}
+
+func generateProjectMapAndReadGenerationDate(t *testing.T, root string) string {
+	t.Helper()
+	if out, err := runProjectMapGenerator(t, root); err != nil {
+		t.Fatalf("initial project map generation failed: %v\n%s", err, out)
+	}
+	outputs := readProjectMapDatedOutputs(t, root)
+	var manifest map[string]any
+	if err := json.Unmarshal(outputs.manifest, &manifest); err != nil {
+		t.Fatalf("decode initial manifest: %v", err)
+	}
+	generationDate, ok := manifest["generated_at"].(string)
+	if !ok || generationDate == "" {
+		t.Fatalf("initial manifest has invalid generated_at: %#v", manifest["generated_at"])
+	}
+	return generationDate
+}
+
+func seedProjectMapGenerationDate(t *testing.T, root, initialDate, stableDate string) projectMapDatedOutputs {
+	t.Helper()
+	outputs := readProjectMapDatedOutputs(t, root)
+	outputs.manifest = []byte(strings.Replace(
+		string(outputs.manifest),
+		`"generated_at": "`+initialDate+`"`,
+		`"generated_at": "`+stableDate+`"`,
+		1,
+	))
+	outputs.project = []byte(strings.Replace(
+		string(outputs.project),
+		"> 生成时间："+initialDate,
+		"> 生成时间："+stableDate,
+		1,
+	))
+	outputDir := filepath.Join(root, "docs", "doc", "codemap", "project-map")
+	if err := os.WriteFile(filepath.Join(outputDir, "AI_PROJECT_MANIFEST.json"), outputs.manifest, 0o600); err != nil {
+		t.Fatalf("write seeded manifest: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(outputDir, "AI_PROJECT_MAP.md"), outputs.project, 0o600); err != nil {
+		t.Fatalf("write seeded map: %v", err)
+	}
+	return outputs
+}
+
+func readProjectMapDatedOutputs(t *testing.T, root string) projectMapDatedOutputs {
+	t.Helper()
+	outputDir := filepath.Join(root, "docs", "doc", "codemap", "project-map")
+	manifest, err := os.ReadFile(filepath.Join(outputDir, "AI_PROJECT_MANIFEST.json"))
+	if err != nil {
+		t.Fatalf("read project map manifest: %v", err)
+	}
+	project, err := os.ReadFile(filepath.Join(outputDir, "AI_PROJECT_MAP.md"))
+	if err != nil {
+		t.Fatalf("read project map markdown: %v", err)
+	}
+	return projectMapDatedOutputs{manifest: manifest, project: project}
+}
+
+func (o projectMapDatedOutputs) joined() []byte {
+	return append(append([]byte(nil), o.manifest...), o.project...)
+}
+
+func TestProjectMapGeneratorRejectsInvalidExistingGenerationDate(t *testing.T) {
+	requireNodeForProjectMap(t)
+	tests := []struct {
+		name     string
+		manifest string
+	}{
+		{name: "malformed json", manifest: "{"},
+		{name: "missing date", manifest: "{\"version\":\"1.0\"}\n"},
+		{name: "wrong type", manifest: "{\"generated_at\":7}\n"},
+		{name: "invalid calendar date", manifest: "{\"generated_at\":\"2026-02-30\"}\n"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			root := prepareProjectMapFixture(t, true)
+			manifestPath := filepath.Join(root, "docs", "doc", "codemap", "project-map", "AI_PROJECT_MANIFEST.json")
+			relManifest := filepath.ToSlash(strings.TrimPrefix(manifestPath, root+string(filepath.Separator)))
+			writeFixTestGuardFile(t, root, relManifest, tt.manifest)
+			out, err := runProjectMapGenerator(t, root)
+			if err == nil {
+				t.Fatalf("generator accepted invalid manifest:\n%s", out)
+			}
+			if !strings.Contains(out, "generated_at") {
+				t.Fatalf("error does not identify generated_at: %s", out)
+			}
+		})
+	}
+}
+
 // TestProjectMapGeneratorIndexesLocalizedRootReadmes 锁定 GitHub 语言导航对应的根 README 都进入项目地图。
 func TestProjectMapGeneratorIndexesLocalizedRootReadmes(t *testing.T) {
 	requireNodeForProjectMap(t)

@@ -44,7 +44,11 @@ func (s *session) ReadHistory(ctx context.Context, threadID string, limit int) (
 	if len(messages) == 0 {
 		resolved := strings.TrimSpace(s.ThreadID())
 		if resolved != "" && resolved != target {
-			if fallback, err := s.history.ReadHistory(ctx, resolved); err == nil && len(fallback) > 0 {
+			fallback, err := s.history.ReadHistory(ctx, resolved)
+			if err != nil {
+				return nil, err
+			}
+			if len(fallback) > 0 {
 				messages = fallback
 			}
 		}

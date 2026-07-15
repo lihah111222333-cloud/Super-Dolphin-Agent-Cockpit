@@ -609,13 +609,6 @@
         "status": "Connected",
         "size": "1.2 GB"
       },
-      "postgres": {
-        "title": "PostgreSQL Structured Data",
-        "description": "Local PostgreSQL data storing system metadata and analytical table structures.",
-        "type": "Relational database",
-        "status": "Running",
-        "size": "124 tables"
-      },
       "shared_files": {
         "title": "Shared File Storage",
         "description": "Final outputs and work files shared by projects, with isolated project management.",

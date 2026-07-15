@@ -88,9 +88,12 @@ type Config struct {
 	OnToolsCall          func(ctx context.Context, params json.RawMessage) (any, error) // tools/call 回调入口
 }
 
-// New 创建控制平面 Client，并在构造阶段完成配置归一化。
-func New(cfg Config) *Client {
-	cfg, boot := normalizeConfig(cfg)
+// New 创建控制平面 Client，并在构造阶段严格校验和归一化配置。
+func New(cfg Config) (*Client, error) {
+	cfg, boot, err := normalizeConfig(cfg)
+	if err != nil {
+		return nil, err
+	}
 	return &Client{
 		instanceID:        cfg.InstanceID,
 		cfg:               cfg,
@@ -99,7 +102,7 @@ func New(cfg Config) *Client {
 		sendTimeout:       defaultRPCTimeout,
 		reportQueueLimit:  shared.ClampLimit(cfg.ReportQueueLimit, 1, 0, defaultReportQueueLimit),
 		boot:              boot,
-	}
+	}, nil
 }
 
 // Start 连接控制平面、完成 register，并启动心跳和离线报告 flush 流程。

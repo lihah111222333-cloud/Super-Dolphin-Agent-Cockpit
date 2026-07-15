@@ -2,16 +2,16 @@
 
 > 状态：**OK**
 >
-> 已索引文件：4588
+> 已索引文件：4449
 >
-> 未细分职责文件：12
+> 未细分职责文件：11
 
 ## 1. 漂移指标
 
 | 指标 | 当前值 |
 |---|---:|
-| 未细分职责文件数 | 12 |
-| 未细分职责占比 | 0.26% |
+| 未细分职责文件数 | 11 |
+| 未细分职责占比 | 0.25% |
 | 最大未细分职责占比阈值 | 5.00% |
 
 ## 2. 漂移告警
@@ -24,7 +24,6 @@
 |---|---:|
 | `cmd` | 9 |
 | `internal` | 2 |
-| `sql` | 1 |
 
 ## 4. 样例文件
 
@@ -39,7 +38,6 @@
 - `cmd/codex-worktree-setup/worktree_integration_test.go`
 - `internal/e2e/rpc_runtime/doc_test.go`
 - `internal/e2e/rpc_runtime/runtime_e2e_test.go`
-- `sql/schema/prompt_intent_drafts.sql`
 
 ## 5. 修复方式
 

@@ -81,7 +81,7 @@ const (
 	FailureClassCapability     FailureClass = "capability"     // 模型能力不够（升级 model 可救）
 	FailureClassHard           FailureClass = "hard"           // 业务层认定不可恢复
 	FailureClassNeedsHuman     FailureClass = "needs_human"    // 需要人决策
-	FailureClassInfrastructure FailureClass = "infrastructure" // 外部服务挂了（Postgres 抽风等）
+	FailureClassInfrastructure FailureClass = "infrastructure" // 数据库或外部服务不可用。
 )
 
 // OnFailureStrategy 是节点失败时的策略选择。

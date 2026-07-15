@@ -10,7 +10,6 @@ $LocalCodexBinDir = Join-Path $env:LOCALAPPDATA 'OpenAI\Codex\bin'
 
 $script:ViteProcess = $null
 $script:DesktopProcess = $null
-$script:LocalPostgresStarted = $false
 $script:RunLogDir = Join-Path $ProjectDir '.tmp\run-new-ui-desktop'
 $script:DefaultSuperDolphinHome = Join-Path $script:RunLogDir 'super-dolphin-home'
 $script:CleanupDone = $false

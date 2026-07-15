@@ -1,6 +1,8 @@
 package logger
 
 import (
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"time"
@@ -18,23 +20,38 @@ func (r *Runtime) watchLogFile(path string, stop chan struct{}) {
 		case <-stop:
 			return
 		case <-ticker.C:
-			if _, err := os.Stat(path); err == nil {
+			_, err := os.Stat(path)
+			if err == nil {
 				continue
 			}
-			_ = os.MkdirAll(filepath.Dir(path), 0o755)
-			f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
-			if err != nil {
-				Warn("log file watchdog: reopen failed", "path", path, "error", err)
-				continue
+			if !errors.Is(err, os.ErrNotExist) {
+				Error("log file watchdog: stat failed", "path", path, "error", err)
+				return
 			}
-			r.mu.Lock()
-			r.closeLogFileLocked()
-			r.logFile = f
-			r.mu.Unlock()
-			r.rebuildLoggerWithFile(f)
+			if err := r.reopenLogFile(path); err != nil {
+				Error("log file watchdog: reopen failed", "path", path, "error", err)
+				return
+			}
 			Info("log file watchdog: reopened deleted log file", "path", path)
 		}
 	}
+}
+
+// reopenLogFile 同步重建被删除的日志文件，并在成功后替换 runtime 当前文件。
+func (r *Runtime) reopenLogFile(path string) error {
+	if err := ensurePrivateLogDir(filepath.Dir(path)); err != nil {
+		return fmt.Errorf("reopen log file directory: %w", err)
+	}
+	f, err := openPrivateAppendFile(path)
+	if err != nil {
+		return fmt.Errorf("reopen log file: %w", err)
+	}
+	r.mu.Lock()
+	r.closeLogFileLocked()
+	r.logFile = f
+	r.mu.Unlock()
+	r.rebuildLoggerWithFile(f)
+	return nil
 }
 
 func (r *Runtime) stopFileWatcherLocked() {

@@ -17,7 +17,7 @@ type JobRunStateChanged struct {
 	Status      string    `json:"status"`
 	TurnID      string    `json:"turn_id,omitempty"`
 	Error       string    `json:"error,omitempty"`
-	ScheduledAt time.Time `json:"scheduled_at,omitempty"`
+	ScheduledAt time.Time `json:"scheduled_at"`
 }
 
 // Type 返回 cron job run 状态变更事件分发用的类型编号。

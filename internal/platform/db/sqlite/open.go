@@ -240,7 +240,7 @@ func ensureDatabaseFile(path string) error {
 	clean := filepath.Clean(path)
 	if _, err := os.Stat(clean); err == nil {
 		return nil
-	} else if err != nil && !os.IsNotExist(err) {
+	} else if !os.IsNotExist(err) {
 		return fmt.Errorf("inspect SQLite database path %s: %s", redactPath(clean), securefs.SafeErrorForPath(err, clean))
 	}
 	file, err := os.OpenFile(clean, os.O_RDWR|os.O_CREATE|os.O_EXCL, 0o600)

@@ -315,11 +315,15 @@ func referencedSQLCTables(t *testing.T) map[string]bool {
 func extractTableReferences(sqlText string) map[string]bool {
 	cleaned := stripSQLComments(sqlText)
 	re := regexp.MustCompile(`(?i)\b(?:FROM|JOIN|INTO|UPDATE)\s+([a-z_][a-z0-9_]*(?:\.[a-z_][a-z0-9_]*)?)|\bDELETE\s+FROM\s+([a-z_][a-z0-9_]*(?:\.[a-z_][a-z0-9_]*)?)`)
+	ctePattern := regexp.MustCompile(`(?i)(?:\bWITH\b|,)\s*(?:RECURSIVE\s+)?([a-z_][a-z0-9_]*)\s+AS\s*\(`)
 	ignored := map[string]bool{
 		"dag_meta": true, "deleted": true, "derived_logs": true, "derived_statuses": true,
 		"due": true, "final": true, "final_node": true, "final_output": true,
 		"node_counts": true, "old": true, "picked": true, "scoped": true, "updated": true,
 		"set": true, "skip": true,
+	}
+	for _, match := range ctePattern.FindAllStringSubmatch(cleaned, -1) {
+		ignored[strings.ToLower(match[1])] = true
 	}
 	out := make(map[string]bool)
 	for _, match := range re.FindAllStringSubmatchIndex(cleaned, -1) {
@@ -338,6 +342,23 @@ func extractTableReferences(sqlText string) map[string]bool {
 		out[name] = true
 	}
 	return out
+}
+
+func TestExtractTableReferencesIgnoresDeclaredCTEs(t *testing.T) {
+	got := extractTableReferences(`
+		WITH ranked_prompt_sections AS (
+			SELECT template_id FROM prompt_template_sections
+		), selected AS (
+			SELECT template_id FROM ranked_prompt_sections
+		)
+		SELECT template_id FROM selected
+	`)
+	if got["ranked_prompt_sections"] || got["selected"] {
+		t.Fatalf("CTE names treated as persistent tables: %v", got)
+	}
+	if !got["prompt_template_sections"] {
+		t.Fatalf("persistent table missing from extracted references: %v", got)
+	}
 }
 
 func stripSQLComments(sqlText string) string {

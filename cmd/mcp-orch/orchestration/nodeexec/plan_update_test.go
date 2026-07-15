@@ -3,10 +3,45 @@ package nodeexec
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
 )
+
+func validPlanAgentConfig(t *testing.T, name string) json.RawMessage {
+	t.Helper()
+	return json.RawMessage(fmt.Sprintf(`{"exec":{"agent_key":"worker","cwd":%q}}`, testCWD(t, name)))
+}
+
+func TestWriteBoundariesRejectAgentConfigWithoutAbsoluteCWD(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name string
+		raw  json.RawMessage
+	}{
+		{name: "missing", raw: json.RawMessage(`{"exec":{"agent_key":"worker"}}`)},
+		{name: "relative", raw: json.RawMessage(`{"exec":{"agent_key":"worker","cwd":"relative/path"}}`)},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			spec := NodeSpec{NodeKey: "new-agent", NodeType: "agent", Config: test.raw}
+			if _, _, err := PlanAddNodes(Ops{OpAddNode{Node: spec}}, nil); err == nil {
+				t.Fatal("PlanAddNodes error = nil, want cwd rejection")
+			}
+			if err := ValidateCreateDAGNodes([]contract.CreateDAGNodeRequest{{NodeKey: spec.NodeKey, NodeType: spec.NodeType, Config: spec.Config}}); err == nil {
+				t.Fatal("ValidateCreateDAGNodes error = nil, want cwd rejection")
+			}
+			change := UpdateNodeChange{NodeKey: "existing-agent", Patch: NodePatch{Config: test.raw}}
+			existing := ExistingNodeFull{NodeKey: change.NodeKey, NodeType: "agent", Status: "pending", Config: json.RawMessage(`{"exec":{"agent_key":"worker","cwd":"/tmp/original"}}`)}
+			if err := validateUpdateNodeConfig(change, existing); err == nil {
+				t.Fatal("validateUpdateNodeConfig error = nil, want cwd rejection")
+			}
+		})
+	}
+}
 
 // PlanUpdateNodes 纯函数单测覆盖 ops 与 existing 的投影结果，
 // 确保 adjacency、变更列表和错误边界保持一致。
@@ -17,8 +52,8 @@ import (
 func TestPlanUpdateNodes_TitleOnly_Happy(t *testing.T) {
 	t.Parallel()
 	existing := []ExistingNodeFull{
-		{NodeKey: "n1", DependsOn: nil, Status: "pending"},
-		{NodeKey: "n2", DependsOn: []string{"n1"}, Status: "pending"},
+		{NodeKey: "n1", NodeType: "agent", DependsOn: nil, Status: "pending", Config: validPlanAgentConfig(t, "title-n1")},
+		{NodeKey: "n2", NodeType: "agent", DependsOn: []string{"n1"}, Status: "pending", Config: validPlanAgentConfig(t, "title-n2")},
 	}
 	newTitle := "new title"
 	ops := Ops{OpUpdateNode{NodeKey: "n1", Patch: NodePatch{Title: &newTitle}}}
@@ -46,8 +81,8 @@ func TestPlanUpdateNodes_TitleOnly_Happy(t *testing.T) {
 func TestPlanUpdateNodes_DependsOnRewire_Happy(t *testing.T) {
 	t.Parallel()
 	existing := []ExistingNodeFull{
-		{NodeKey: "n1", DependsOn: nil, Status: "ready"},
-		{NodeKey: "n2", DependsOn: []string{"n1"}, Status: "ready"},
+		{NodeKey: "n1", NodeType: "agent", DependsOn: nil, Status: "ready", Config: validPlanAgentConfig(t, "rewire-n1")},
+		{NodeKey: "n2", NodeType: "agent", DependsOn: []string{"n1"}, Status: "ready", Config: validPlanAgentConfig(t, "rewire-n2")},
 	}
 	empty := []string{}
 	ops := Ops{OpUpdateNode{NodeKey: "n2", Patch: NodePatch{DependsOn: &empty}}}
@@ -73,10 +108,10 @@ func TestPlanUpdateNodes_DependsOnRewire_Happy(t *testing.T) {
 func TestPlanUpdateNodes_AssignedToAndConfig_Happy(t *testing.T) {
 	t.Parallel()
 	existing := []ExistingNodeFull{
-		{NodeKey: "n1", DependsOn: nil, Status: "pending"},
+		{NodeKey: "n1", NodeType: "agent", DependsOn: nil, Status: "pending", Config: validPlanAgentConfig(t, "config-n1")},
 	}
 	assigned := "writer"
-	cfg := json.RawMessage(`{"x":1}`)
+	cfg := json.RawMessage(fmt.Sprintf(`{"exec":{"agent_key":"worker","cwd":%q},"first_turn":"updated"}`, testCWD(t, "updated-config")))
 	ops := Ops{OpUpdateNode{NodeKey: "n1", Patch: NodePatch{AssignedTo: &assigned, Config: cfg}}}
 
 	_, changes, err := PlanUpdateNodes(ops, existing)
@@ -86,7 +121,7 @@ func TestPlanUpdateNodes_AssignedToAndConfig_Happy(t *testing.T) {
 	if changes[0].Patch.AssignedTo == nil || *changes[0].Patch.AssignedTo != "writer" {
 		t.Errorf("assigned_to patch lost: %+v", changes[0].Patch.AssignedTo)
 	}
-	if string(changes[0].Patch.Config) != `{"x":1}` {
+	if string(changes[0].Patch.Config) != string(cfg) {
 		t.Errorf("config patch lost: %s", changes[0].Patch.Config)
 	}
 }

@@ -2,20 +2,24 @@ package commandcard
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
+	"fmt"
 	"time"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-orch/store/sqlc"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-orch/store/sqlctx"
 	platformdb "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/db"
 )
 
 // store 用 sqlc 查询实现 command card Store 接口。
 type store struct {
-	q *sqlc.Queries
+	db sqlc.DBTX
+	q  *sqlc.Queries
 }
 
 // NewStore 创建 command card 存储。
-func NewStore(q *sqlc.Queries) Store { return &store{q: q} }
+func NewStore(db *sql.DB) Store { return &store{db: db, q: sqlc.New(db)} }
 
 // Get 按 card key 读取单张 command card。
 func (s *store) Get(ctx context.Context, cardKey string) (*CommandCard, error) {
@@ -29,28 +33,42 @@ func (s *store) Get(ctx context.Context, cardKey string) (*CommandCard, error) {
 
 // Upsert 新增或更新 command card 当前版本。
 func (s *store) Upsert(ctx context.Context, card CommandCard) (*CommandCard, error) {
-	row, err := s.q.UpsertCommandCard(ctx, sqlc.UpsertCommandCardParams{
-		CardKey:         card.CardKey,
-		Title:           card.Title,
-		Description:     card.Description,
-		CommandTemplate: card.CommandTemplate,
-		ArgsSchema:      card.ArgsSchema,
-		RiskLevel:       card.RiskLevel,
-		Enabled:         boolInt64(card.Enabled),
-		CreatedBy:       card.CreatedBy,
-		UpdatedBy:       card.UpdatedBy,
+	var mapped CommandCard
+	err := sqlctx.WithImmediateTx(ctx, s.db, s.q, func(txq *sqlc.Queries, _ sqlc.DBTX) error {
+		rows, err := txq.UpdateCommandCard(ctx, updateCommandCardParams(card))
+		if err != nil {
+			return err
+		}
+		if rows == 0 {
+			rows, err = txq.InsertCommandCard(ctx, insertCommandCardParams(card))
+			if err != nil {
+				return err
+			}
+		}
+		if rows != 1 {
+			return fmt.Errorf("upsert command card affected %d rows, want 1", rows)
+		}
+		row, err := txq.GetCommandCard(ctx, sqlc.GetCommandCardParams{CardKey: card.CardKey})
+		if err != nil {
+			return err
+		}
+		mapped = fromCard(row)
+		return nil
 	})
 	if err != nil {
 		return nil, wrapCommandCardError(err, "upsert", "command_card")
 	}
-	mapped := fromUpsertCard(row)
 	return &mapped, nil
 }
 
 // List 按关键词和上限列出 command card。
 func (s *store) List(ctx context.Context, filter ListFilter) ([]CommandCard, error) {
+	keyword := filter.Keyword
+	if keyword != "" {
+		keyword = "%" + keyword + "%"
+	}
 	rows, err := s.q.ListCommandCards(ctx, sqlc.ListCommandCardsParams{
-		Keyword:    filter.Keyword,
+		Keyword:    keyword,
 		LimitCount: int64(filter.Limit),
 	})
 	if err != nil {
@@ -173,21 +191,20 @@ func timePtr(value any) *time.Time {
 	}
 }
 
-// fromUpsertCard 将 upsert 返回行映射为业务 DTO。
-func fromUpsertCard(row sqlc.UpsertCommandCardRow) CommandCard {
-	return CommandCard{
-		ID:              row.ID,
-		CardKey:         row.CardKey,
-		Title:           row.Title,
-		Description:     row.Description,
-		CommandTemplate: row.CommandTemplate,
-		ArgsSchema:      json.RawMessage(row.ArgsSchema),
-		RiskLevel:       row.RiskLevel,
-		Enabled:         int64Bool(row.Enabled),
-		CreatedBy:       row.CreatedBy,
-		UpdatedBy:       row.UpdatedBy,
-		CreatedAt:       sqlc.TimeValue(row.CreatedAt),
-		UpdatedAt:       sqlc.TimeValue(row.UpdatedAt),
+func insertCommandCardParams(card CommandCard) sqlc.InsertCommandCardParams {
+	return sqlc.InsertCommandCardParams{
+		CardKey: card.CardKey, Title: card.Title, Description: card.Description,
+		CommandTemplate: card.CommandTemplate, ArgsSchema: card.ArgsSchema,
+		RiskLevel: card.RiskLevel, Enabled: boolInt64(card.Enabled),
+		CreatedBy: card.CreatedBy, UpdatedBy: card.UpdatedBy,
+	}
+}
+
+func updateCommandCardParams(card CommandCard) sqlc.UpdateCommandCardParams {
+	return sqlc.UpdateCommandCardParams{
+		CardKey: card.CardKey, Title: card.Title, Description: card.Description,
+		CommandTemplate: card.CommandTemplate, ArgsSchema: card.ArgsSchema,
+		RiskLevel: card.RiskLevel, Enabled: boolInt64(card.Enabled), UpdatedBy: card.UpdatedBy,
 	}
 }
 

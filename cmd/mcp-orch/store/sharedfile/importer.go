@@ -131,7 +131,7 @@ func (s *store) importLocked(ctx context.Context, params ImportLocalFileParams, 
 	if err != nil {
 		return sqlc.SharedFile{}, err
 	}
-	row, err := s.q.UpsertSharedFile(ctx, sqlc.UpsertSharedFileParams{
+	row, err := s.upsertSharedFileIndex(ctx, sqlc.InsertSharedFileParams{
 		Path: cleanedTarget, Content: "", ContentLocation: contentLocationDisk,
 		UpdatedBy: importUpdatedBy(params.UpdatedBy),
 	})

@@ -10,18 +10,14 @@ import (
 	"encoding/json"
 )
 
-const assignTaskDagNode = `-- name: AssignTaskDagNode :one
+const assignTaskDagNode = `-- name: AssignTaskDagNode :execrows
 UPDATE task_dag_nodes
-SET assigned_to = ?,
+SET assigned_to = ?1,
     updated_at = (CAST(strftime('%s','now') AS INTEGER) * 1000)
-WHERE dag_key = ?
-  AND node_key = ?
-  AND run_id = ?
+WHERE dag_key = ?2
+  AND node_key = ?3
+  AND run_id = ?4
   AND status IN ('pending', 'ready')
-RETURNING id, dag_key, node_key, title, node_type, assigned_to, CAST(depends_on AS BLOB) AS depends_on,
-          status, command_ref, CAST(config AS BLOB) AS config, CAST(result AS BLOB) AS result, started_at, finished_at,
-          created_at, updated_at, active_turn_id, active_wakeup_id,
-          last_event_at, run_id, CAST(reads AS BLOB) AS reads, CAST(writes AS BLOB) AS writes, spawning_thread_id
 `
 
 type AssignTaskDagNodeParams struct {
@@ -31,64 +27,17 @@ type AssignTaskDagNodeParams struct {
 	RunID      *int64 `db:"run_id" json:"run_id"`
 }
 
-type AssignTaskDagNodeRow struct {
-	ID               int64   `db:"id" json:"id"`
-	DagKey           string  `db:"dag_key" json:"dag_key"`
-	NodeKey          string  `db:"node_key" json:"node_key"`
-	Title            string  `db:"title" json:"title"`
-	NodeType         string  `db:"node_type" json:"node_type"`
-	AssignedTo       string  `db:"assigned_to" json:"assigned_to"`
-	DependsOn        []byte  `db:"depends_on" json:"depends_on"`
-	Status           string  `db:"status" json:"status"`
-	CommandRef       string  `db:"command_ref" json:"command_ref"`
-	Config           []byte  `db:"config" json:"config"`
-	Result           []byte  `db:"result" json:"result"`
-	StartedAt        *int64  `db:"started_at" json:"started_at"`
-	FinishedAt       *int64  `db:"finished_at" json:"finished_at"`
-	CreatedAt        int64   `db:"created_at" json:"created_at"`
-	UpdatedAt        int64   `db:"updated_at" json:"updated_at"`
-	ActiveTurnID     *string `db:"active_turn_id" json:"active_turn_id"`
-	ActiveWakeupID   *int64  `db:"active_wakeup_id" json:"active_wakeup_id"`
-	LastEventAt      *int64  `db:"last_event_at" json:"last_event_at"`
-	RunID            *int64  `db:"run_id" json:"run_id"`
-	Reads            []byte  `db:"reads" json:"reads"`
-	Writes           []byte  `db:"writes" json:"writes"`
-	SpawningThreadID *string `db:"spawning_thread_id" json:"spawning_thread_id"`
-}
-
-func (q *Queries) AssignTaskDagNode(ctx context.Context, arg AssignTaskDagNodeParams) (AssignTaskDagNodeRow, error) {
-	row := q.db.QueryRowContext(ctx, assignTaskDagNode,
+func (q *Queries) AssignTaskDagNode(ctx context.Context, arg AssignTaskDagNodeParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, assignTaskDagNode,
 		arg.AssignedTo,
 		arg.DagKey,
 		arg.NodeKey,
 		arg.RunID,
 	)
-	var i AssignTaskDagNodeRow
-	err := row.Scan(
-		&i.ID,
-		&i.DagKey,
-		&i.NodeKey,
-		&i.Title,
-		&i.NodeType,
-		&i.AssignedTo,
-		&i.DependsOn,
-		&i.Status,
-		&i.CommandRef,
-		&i.Config,
-		&i.Result,
-		&i.StartedAt,
-		&i.FinishedAt,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-		&i.ActiveTurnID,
-		&i.ActiveWakeupID,
-		&i.LastEventAt,
-		&i.RunID,
-		&i.Reads,
-		&i.Writes,
-		&i.SpawningThreadID,
-	)
-	return i, err
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const cascadeFailPendingTaskDagNode = `-- name: CascadeFailPendingTaskDagNode :execrows
@@ -121,7 +70,7 @@ func (q *Queries) CascadeFailPendingTaskDagNode(ctx context.Context, arg Cascade
 	return result.RowsAffected()
 }
 
-const claimTaskDagNodeOutputMaterialization = `-- name: ClaimTaskDagNodeOutputMaterialization :one
+const claimTaskDagNodeOutputMaterialization = `-- name: ClaimTaskDagNodeOutputMaterialization :execrows
 UPDATE task_dag_nodes
 SET result = ?1, updated_at = (CAST(strftime('%s','now') AS INTEGER) * 1000)
 WHERE dag_key = ?2
@@ -129,10 +78,6 @@ WHERE dag_key = ?2
   AND run_id = ?4
   AND ?4 > 0
   AND status IN ('ready', 'running')
-RETURNING id, dag_key, node_key, title, node_type, assigned_to, CAST(depends_on AS BLOB) AS depends_on,
-          status, command_ref, CAST(config AS BLOB) AS config, CAST(result AS BLOB) AS result, started_at, finished_at,
-          created_at, updated_at, active_turn_id, active_wakeup_id,
-          last_event_at, run_id, CAST(reads AS BLOB) AS reads, CAST(writes AS BLOB) AS writes, spawning_thread_id
 `
 
 type ClaimTaskDagNodeOutputMaterializationParams struct {
@@ -142,70 +87,23 @@ type ClaimTaskDagNodeOutputMaterializationParams struct {
 	RunID   *int64          `db:"run_id" json:"run_id"`
 }
 
-type ClaimTaskDagNodeOutputMaterializationRow struct {
-	ID               int64   `db:"id" json:"id"`
-	DagKey           string  `db:"dag_key" json:"dag_key"`
-	NodeKey          string  `db:"node_key" json:"node_key"`
-	Title            string  `db:"title" json:"title"`
-	NodeType         string  `db:"node_type" json:"node_type"`
-	AssignedTo       string  `db:"assigned_to" json:"assigned_to"`
-	DependsOn        []byte  `db:"depends_on" json:"depends_on"`
-	Status           string  `db:"status" json:"status"`
-	CommandRef       string  `db:"command_ref" json:"command_ref"`
-	Config           []byte  `db:"config" json:"config"`
-	Result           []byte  `db:"result" json:"result"`
-	StartedAt        *int64  `db:"started_at" json:"started_at"`
-	FinishedAt       *int64  `db:"finished_at" json:"finished_at"`
-	CreatedAt        int64   `db:"created_at" json:"created_at"`
-	UpdatedAt        int64   `db:"updated_at" json:"updated_at"`
-	ActiveTurnID     *string `db:"active_turn_id" json:"active_turn_id"`
-	ActiveWakeupID   *int64  `db:"active_wakeup_id" json:"active_wakeup_id"`
-	LastEventAt      *int64  `db:"last_event_at" json:"last_event_at"`
-	RunID            *int64  `db:"run_id" json:"run_id"`
-	Reads            []byte  `db:"reads" json:"reads"`
-	Writes           []byte  `db:"writes" json:"writes"`
-	SpawningThreadID *string `db:"spawning_thread_id" json:"spawning_thread_id"`
-}
-
-func (q *Queries) ClaimTaskDagNodeOutputMaterialization(ctx context.Context, arg ClaimTaskDagNodeOutputMaterializationParams) (ClaimTaskDagNodeOutputMaterializationRow, error) {
-	row := q.db.QueryRowContext(ctx, claimTaskDagNodeOutputMaterialization,
+func (q *Queries) ClaimTaskDagNodeOutputMaterialization(ctx context.Context, arg ClaimTaskDagNodeOutputMaterializationParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, claimTaskDagNodeOutputMaterialization,
 		arg.Result,
 		arg.DagKey,
 		arg.NodeKey,
 		arg.RunID,
 	)
-	var i ClaimTaskDagNodeOutputMaterializationRow
-	err := row.Scan(
-		&i.ID,
-		&i.DagKey,
-		&i.NodeKey,
-		&i.Title,
-		&i.NodeType,
-		&i.AssignedTo,
-		&i.DependsOn,
-		&i.Status,
-		&i.CommandRef,
-		&i.Config,
-		&i.Result,
-		&i.StartedAt,
-		&i.FinishedAt,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-		&i.ActiveTurnID,
-		&i.ActiveWakeupID,
-		&i.LastEventAt,
-		&i.RunID,
-		&i.Reads,
-		&i.Writes,
-		&i.SpawningThreadID,
-	)
-	return i, err
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const deleteTaskDagNode = `-- name: DeleteTaskDagNode :execrows
 DELETE FROM task_dag_nodes
-WHERE dag_key = ?
-  AND node_key = ?
+WHERE dag_key = ?1
+  AND node_key = ?2
   AND run_id IS NULL
   AND status IN ('pending', 'ready')
 `
@@ -223,7 +121,7 @@ func (q *Queries) DeleteTaskDagNode(ctx context.Context, arg DeleteTaskDagNodePa
 	return result.RowsAffected()
 }
 
-const failTaskDagNodeIfNonTerminal = `-- name: FailTaskDagNodeIfNonTerminal :one
+const failTaskDagNodeIfNonTerminal = `-- name: FailTaskDagNodeIfNonTerminal :execrows
 UPDATE task_dag_nodes
 SET status = ?1, result = ?2, updated_at = (CAST(strftime('%s','now') AS INTEGER) * 1000)
 WHERE task_dag_nodes.dag_key = ?3
@@ -231,101 +129,73 @@ WHERE task_dag_nodes.dag_key = ?3
   AND task_dag_nodes.run_id = ?5
   AND ?5 > 0
   AND status NOT IN ('done', 'failed', 'cancelled', 'skipped')
-  AND (
-    CAST(?6 AS INTEGER) = 0
-    OR (
-      task_dag_nodes.active_wakeup_id = CAST(?6 AS INTEGER)
-      AND EXISTS (
-        SELECT 1
-        FROM task_dag_wakeups w
-        WHERE w.id = CAST(?6 AS INTEGER)
-          AND w.run_id = task_dag_nodes.run_id
-          AND w.dag_key = task_dag_nodes.dag_key
-          AND w.node_key = task_dag_nodes.node_key
-          AND w.attempt_count = ?7
-      )
-    )
-  )
-RETURNING id, dag_key, node_key, title, node_type, assigned_to, CAST(depends_on AS BLOB) AS depends_on,
-          status, command_ref, CAST(config AS BLOB) AS config, CAST(result AS BLOB) AS result, started_at, finished_at,
-          created_at, updated_at, active_turn_id, active_wakeup_id,
-          last_event_at, run_id, CAST(reads AS BLOB) AS reads, CAST(writes AS BLOB) AS writes, spawning_thread_id
+  AND (?6 = 0 OR ?7 = 1)
 `
 
 type FailTaskDagNodeIfNonTerminalParams struct {
-	Status        string          `db:"status" json:"status"`
-	Result        json.RawMessage `db:"result" json:"result"`
-	DagKey        string          `db:"dag_key" json:"dag_key"`
-	NodeKey       string          `db:"node_key" json:"node_key"`
-	RunID         *int64          `db:"run_id" json:"run_id"`
-	WakeupID      int64           `db:"wakeup_id" json:"wakeup_id"`
-	WakeupAttempt int64           `db:"wakeup_attempt" json:"wakeup_attempt"`
+	Status             string          `db:"status" json:"status"`
+	Result             json.RawMessage `db:"result" json:"result"`
+	DagKey             string          `db:"dag_key" json:"dag_key"`
+	NodeKey            string          `db:"node_key" json:"node_key"`
+	RunID              *int64          `db:"run_id" json:"run_id"`
+	WakeupID           interface{}     `db:"wakeup_id" json:"wakeup_id"`
+	WakeupFenceMatched interface{}     `db:"wakeup_fence_matched" json:"wakeup_fence_matched"`
 }
 
-type FailTaskDagNodeIfNonTerminalRow struct {
-	ID               int64   `db:"id" json:"id"`
-	DagKey           string  `db:"dag_key" json:"dag_key"`
-	NodeKey          string  `db:"node_key" json:"node_key"`
-	Title            string  `db:"title" json:"title"`
-	NodeType         string  `db:"node_type" json:"node_type"`
-	AssignedTo       string  `db:"assigned_to" json:"assigned_to"`
-	DependsOn        []byte  `db:"depends_on" json:"depends_on"`
-	Status           string  `db:"status" json:"status"`
-	CommandRef       string  `db:"command_ref" json:"command_ref"`
-	Config           []byte  `db:"config" json:"config"`
-	Result           []byte  `db:"result" json:"result"`
-	StartedAt        *int64  `db:"started_at" json:"started_at"`
-	FinishedAt       *int64  `db:"finished_at" json:"finished_at"`
-	CreatedAt        int64   `db:"created_at" json:"created_at"`
-	UpdatedAt        int64   `db:"updated_at" json:"updated_at"`
-	ActiveTurnID     *string `db:"active_turn_id" json:"active_turn_id"`
-	ActiveWakeupID   *int64  `db:"active_wakeup_id" json:"active_wakeup_id"`
-	LastEventAt      *int64  `db:"last_event_at" json:"last_event_at"`
-	RunID            *int64  `db:"run_id" json:"run_id"`
-	Reads            []byte  `db:"reads" json:"reads"`
-	Writes           []byte  `db:"writes" json:"writes"`
-	SpawningThreadID *string `db:"spawning_thread_id" json:"spawning_thread_id"`
-}
-
-func (q *Queries) FailTaskDagNodeIfNonTerminal(ctx context.Context, arg FailTaskDagNodeIfNonTerminalParams) (FailTaskDagNodeIfNonTerminalRow, error) {
-	row := q.db.QueryRowContext(ctx, failTaskDagNodeIfNonTerminal,
+func (q *Queries) FailTaskDagNodeIfNonTerminal(ctx context.Context, arg FailTaskDagNodeIfNonTerminalParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, failTaskDagNodeIfNonTerminal,
 		arg.Status,
 		arg.Result,
 		arg.DagKey,
 		arg.NodeKey,
 		arg.RunID,
 		arg.WakeupID,
-		arg.WakeupAttempt,
+		arg.WakeupFenceMatched,
 	)
-	var i FailTaskDagNodeIfNonTerminalRow
-	err := row.Scan(
-		&i.ID,
-		&i.DagKey,
-		&i.NodeKey,
-		&i.Title,
-		&i.NodeType,
-		&i.AssignedTo,
-		&i.DependsOn,
-		&i.Status,
-		&i.CommandRef,
-		&i.Config,
-		&i.Result,
-		&i.StartedAt,
-		&i.FinishedAt,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-		&i.ActiveTurnID,
-		&i.ActiveWakeupID,
-		&i.LastEventAt,
-		&i.RunID,
-		&i.Reads,
-		&i.Writes,
-		&i.SpawningThreadID,
-	)
-	return i, err
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
-const patchTaskDagNodeConfigIfUnchanged = `-- name: PatchTaskDagNodeConfigIfUnchanged :one
+const insertTaskDagNode = `-- name: InsertTaskDagNode :execrows
+INSERT INTO task_dag_nodes (dag_key, node_key, title, node_type, assigned_to, depends_on, reads, writes, command_ref, config, created_at, updated_at)
+VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, (CAST(strftime('%s','now') AS INTEGER) * 1000), (CAST(strftime('%s','now') AS INTEGER) * 1000))
+`
+
+type InsertTaskDagNodeParams struct {
+	DagKey     string          `db:"dag_key" json:"dag_key"`
+	NodeKey    string          `db:"node_key" json:"node_key"`
+	Title      string          `db:"title" json:"title"`
+	NodeType   string          `db:"node_type" json:"node_type"`
+	AssignedTo string          `db:"assigned_to" json:"assigned_to"`
+	DependsOn  json.RawMessage `db:"depends_on" json:"depends_on"`
+	Reads      json.RawMessage `db:"reads" json:"reads"`
+	Writes     json.RawMessage `db:"writes" json:"writes"`
+	CommandRef string          `db:"command_ref" json:"command_ref"`
+	Config     json.RawMessage `db:"config" json:"config"`
+}
+
+func (q *Queries) InsertTaskDagNode(ctx context.Context, arg InsertTaskDagNodeParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, insertTaskDagNode,
+		arg.DagKey,
+		arg.NodeKey,
+		arg.Title,
+		arg.NodeType,
+		arg.AssignedTo,
+		arg.DependsOn,
+		arg.Reads,
+		arg.Writes,
+		arg.CommandRef,
+		arg.Config,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const patchTaskDagNodeConfigIfUnchanged = `-- name: PatchTaskDagNodeConfigIfUnchanged :execrows
 UPDATE task_dag_nodes
 SET config = ?1, updated_at = (CAST(strftime('%s','now') AS INTEGER) * 1000)
 WHERE dag_key = ?2
@@ -334,10 +204,6 @@ WHERE dag_key = ?2
   AND ?4 > 0
   AND config = ?5
   AND status NOT IN ('done', 'failed', 'cancelled', 'skipped')
-RETURNING id, dag_key, node_key, title, node_type, assigned_to, CAST(depends_on AS BLOB) AS depends_on,
-          status, command_ref, CAST(config AS BLOB) AS config, CAST(result AS BLOB) AS result, started_at, finished_at,
-          created_at, updated_at, active_turn_id, active_wakeup_id,
-          last_event_at, run_id, CAST(reads AS BLOB) AS reads, CAST(writes AS BLOB) AS writes, spawning_thread_id
 `
 
 type PatchTaskDagNodeConfigIfUnchangedParams struct {
@@ -348,73 +214,26 @@ type PatchTaskDagNodeConfigIfUnchangedParams struct {
 	PreviousConfig json.RawMessage `db:"previous_config" json:"previous_config"`
 }
 
-type PatchTaskDagNodeConfigIfUnchangedRow struct {
-	ID               int64   `db:"id" json:"id"`
-	DagKey           string  `db:"dag_key" json:"dag_key"`
-	NodeKey          string  `db:"node_key" json:"node_key"`
-	Title            string  `db:"title" json:"title"`
-	NodeType         string  `db:"node_type" json:"node_type"`
-	AssignedTo       string  `db:"assigned_to" json:"assigned_to"`
-	DependsOn        []byte  `db:"depends_on" json:"depends_on"`
-	Status           string  `db:"status" json:"status"`
-	CommandRef       string  `db:"command_ref" json:"command_ref"`
-	Config           []byte  `db:"config" json:"config"`
-	Result           []byte  `db:"result" json:"result"`
-	StartedAt        *int64  `db:"started_at" json:"started_at"`
-	FinishedAt       *int64  `db:"finished_at" json:"finished_at"`
-	CreatedAt        int64   `db:"created_at" json:"created_at"`
-	UpdatedAt        int64   `db:"updated_at" json:"updated_at"`
-	ActiveTurnID     *string `db:"active_turn_id" json:"active_turn_id"`
-	ActiveWakeupID   *int64  `db:"active_wakeup_id" json:"active_wakeup_id"`
-	LastEventAt      *int64  `db:"last_event_at" json:"last_event_at"`
-	RunID            *int64  `db:"run_id" json:"run_id"`
-	Reads            []byte  `db:"reads" json:"reads"`
-	Writes           []byte  `db:"writes" json:"writes"`
-	SpawningThreadID *string `db:"spawning_thread_id" json:"spawning_thread_id"`
-}
-
-func (q *Queries) PatchTaskDagNodeConfigIfUnchanged(ctx context.Context, arg PatchTaskDagNodeConfigIfUnchangedParams) (PatchTaskDagNodeConfigIfUnchangedRow, error) {
-	row := q.db.QueryRowContext(ctx, patchTaskDagNodeConfigIfUnchanged,
+func (q *Queries) PatchTaskDagNodeConfigIfUnchanged(ctx context.Context, arg PatchTaskDagNodeConfigIfUnchangedParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, patchTaskDagNodeConfigIfUnchanged,
 		arg.Config,
 		arg.DagKey,
 		arg.NodeKey,
 		arg.RunID,
 		arg.PreviousConfig,
 	)
-	var i PatchTaskDagNodeConfigIfUnchangedRow
-	err := row.Scan(
-		&i.ID,
-		&i.DagKey,
-		&i.NodeKey,
-		&i.Title,
-		&i.NodeType,
-		&i.AssignedTo,
-		&i.DependsOn,
-		&i.Status,
-		&i.CommandRef,
-		&i.Config,
-		&i.Result,
-		&i.StartedAt,
-		&i.FinishedAt,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-		&i.ActiveTurnID,
-		&i.ActiveWakeupID,
-		&i.LastEventAt,
-		&i.RunID,
-		&i.Reads,
-		&i.Writes,
-		&i.SpawningThreadID,
-	)
-	return i, err
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const promoteSingleNodePendingToReady = `-- name: PromoteSingleNodePendingToReady :execrows
 UPDATE task_dag_nodes
 SET status = 'ready',
     updated_at = (CAST(strftime('%s','now') AS INTEGER) * 1000)
-WHERE dag_key = ?
-  AND node_key = ?
+WHERE dag_key = ?1
+  AND node_key = ?2
   AND run_id = ?3
   AND ?3 > 0
   AND status = 'pending'
@@ -434,17 +253,62 @@ func (q *Queries) PromoteSingleNodePendingToReady(ctx context.Context, arg Promo
 	return result.RowsAffected()
 }
 
-const updateTaskDagNodeStatusIfCurrent = `-- name: UpdateTaskDagNodeStatusIfCurrent :one
+const updateTaskDagNode = `-- name: UpdateTaskDagNode :execrows
+UPDATE task_dag_nodes
+SET title = ?1,
+    node_type = ?2,
+    assigned_to = ?3,
+    depends_on = ?4,
+    reads = ?5,
+    writes = ?6,
+    command_ref = ?7,
+    config = ?8,
+    updated_at = (CAST(strftime('%s','now') AS INTEGER) * 1000)
+WHERE
+  dag_key = ?9
+  AND node_key = ?10
+  AND run_id IS NULL
+`
+
+type UpdateTaskDagNodeParams struct {
+	Title      string          `db:"title" json:"title"`
+	NodeType   string          `db:"node_type" json:"node_type"`
+	AssignedTo string          `db:"assigned_to" json:"assigned_to"`
+	DependsOn  json.RawMessage `db:"depends_on" json:"depends_on"`
+	Reads      json.RawMessage `db:"reads" json:"reads"`
+	Writes     json.RawMessage `db:"writes" json:"writes"`
+	CommandRef string          `db:"command_ref" json:"command_ref"`
+	Config     json.RawMessage `db:"config" json:"config"`
+	DagKey     string          `db:"dag_key" json:"dag_key"`
+	NodeKey    string          `db:"node_key" json:"node_key"`
+}
+
+func (q *Queries) UpdateTaskDagNode(ctx context.Context, arg UpdateTaskDagNodeParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, updateTaskDagNode,
+		arg.Title,
+		arg.NodeType,
+		arg.AssignedTo,
+		arg.DependsOn,
+		arg.Reads,
+		arg.Writes,
+		arg.CommandRef,
+		arg.Config,
+		arg.DagKey,
+		arg.NodeKey,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const updateTaskDagNodeStatusIfCurrent = `-- name: UpdateTaskDagNodeStatusIfCurrent :execrows
 UPDATE task_dag_nodes
 SET status = ?1, result = ?2, updated_at = (CAST(strftime('%s','now') AS INTEGER) * 1000)
 WHERE dag_key = ?3 AND node_key = ?4
   AND run_id = ?5
   AND ?5 > 0
   AND status = ?6
-RETURNING id, dag_key, node_key, title, node_type, assigned_to, CAST(depends_on AS BLOB) AS depends_on,
-          status, command_ref, CAST(config AS BLOB) AS config, CAST(result AS BLOB) AS result, started_at, finished_at,
-          created_at, updated_at, active_turn_id, active_wakeup_id,
-          last_event_at, run_id, CAST(reads AS BLOB) AS reads, CAST(writes AS BLOB) AS writes, spawning_thread_id
 `
 
 type UpdateTaskDagNodeStatusIfCurrentParams struct {
@@ -456,33 +320,8 @@ type UpdateTaskDagNodeStatusIfCurrentParams struct {
 	ExpectedStatus string          `db:"expected_status" json:"expected_status"`
 }
 
-type UpdateTaskDagNodeStatusIfCurrentRow struct {
-	ID               int64   `db:"id" json:"id"`
-	DagKey           string  `db:"dag_key" json:"dag_key"`
-	NodeKey          string  `db:"node_key" json:"node_key"`
-	Title            string  `db:"title" json:"title"`
-	NodeType         string  `db:"node_type" json:"node_type"`
-	AssignedTo       string  `db:"assigned_to" json:"assigned_to"`
-	DependsOn        []byte  `db:"depends_on" json:"depends_on"`
-	Status           string  `db:"status" json:"status"`
-	CommandRef       string  `db:"command_ref" json:"command_ref"`
-	Config           []byte  `db:"config" json:"config"`
-	Result           []byte  `db:"result" json:"result"`
-	StartedAt        *int64  `db:"started_at" json:"started_at"`
-	FinishedAt       *int64  `db:"finished_at" json:"finished_at"`
-	CreatedAt        int64   `db:"created_at" json:"created_at"`
-	UpdatedAt        int64   `db:"updated_at" json:"updated_at"`
-	ActiveTurnID     *string `db:"active_turn_id" json:"active_turn_id"`
-	ActiveWakeupID   *int64  `db:"active_wakeup_id" json:"active_wakeup_id"`
-	LastEventAt      *int64  `db:"last_event_at" json:"last_event_at"`
-	RunID            *int64  `db:"run_id" json:"run_id"`
-	Reads            []byte  `db:"reads" json:"reads"`
-	Writes           []byte  `db:"writes" json:"writes"`
-	SpawningThreadID *string `db:"spawning_thread_id" json:"spawning_thread_id"`
-}
-
-func (q *Queries) UpdateTaskDagNodeStatusIfCurrent(ctx context.Context, arg UpdateTaskDagNodeStatusIfCurrentParams) (UpdateTaskDagNodeStatusIfCurrentRow, error) {
-	row := q.db.QueryRowContext(ctx, updateTaskDagNodeStatusIfCurrent,
+func (q *Queries) UpdateTaskDagNodeStatusIfCurrent(ctx context.Context, arg UpdateTaskDagNodeStatusIfCurrentParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, updateTaskDagNodeStatusIfCurrent,
 		arg.Status,
 		arg.Result,
 		arg.DagKey,
@@ -490,128 +329,8 @@ func (q *Queries) UpdateTaskDagNodeStatusIfCurrent(ctx context.Context, arg Upda
 		arg.RunID,
 		arg.ExpectedStatus,
 	)
-	var i UpdateTaskDagNodeStatusIfCurrentRow
-	err := row.Scan(
-		&i.ID,
-		&i.DagKey,
-		&i.NodeKey,
-		&i.Title,
-		&i.NodeType,
-		&i.AssignedTo,
-		&i.DependsOn,
-		&i.Status,
-		&i.CommandRef,
-		&i.Config,
-		&i.Result,
-		&i.StartedAt,
-		&i.FinishedAt,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-		&i.ActiveTurnID,
-		&i.ActiveWakeupID,
-		&i.LastEventAt,
-		&i.RunID,
-		&i.Reads,
-		&i.Writes,
-		&i.SpawningThreadID,
-	)
-	return i, err
-}
-
-const upsertTaskDagNode = `-- name: UpsertTaskDagNode :one
-INSERT INTO task_dag_nodes (dag_key, node_key, title, node_type, assigned_to, depends_on, reads, writes, command_ref, config, created_at, updated_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, (CAST(strftime('%s','now') AS INTEGER) * 1000), (CAST(strftime('%s','now') AS INTEGER) * 1000))
-ON CONFLICT (dag_key, node_key) WHERE run_id IS NULL DO UPDATE
-SET title = EXCLUDED.title,
-    node_type = EXCLUDED.node_type,
-    assigned_to = EXCLUDED.assigned_to,
-    depends_on = EXCLUDED.depends_on,
-    reads = EXCLUDED.reads,
-    writes = EXCLUDED.writes,
-    command_ref = EXCLUDED.command_ref,
-    config = EXCLUDED.config,
-    updated_at = (CAST(strftime('%s','now') AS INTEGER) * 1000)
-RETURNING id, dag_key, node_key, title, node_type, assigned_to, CAST(depends_on AS BLOB) AS depends_on,
-          status, command_ref, CAST(config AS BLOB) AS config, CAST(result AS BLOB) AS result, started_at, finished_at,
-          created_at, updated_at, active_turn_id, active_wakeup_id,
-          last_event_at, run_id, CAST(reads AS BLOB) AS reads, CAST(writes AS BLOB) AS writes, spawning_thread_id
-`
-
-type UpsertTaskDagNodeParams struct {
-	DagKey     string          `db:"dag_key" json:"dag_key"`
-	NodeKey    string          `db:"node_key" json:"node_key"`
-	Title      string          `db:"title" json:"title"`
-	NodeType   string          `db:"node_type" json:"node_type"`
-	AssignedTo string          `db:"assigned_to" json:"assigned_to"`
-	DependsOn  json.RawMessage `db:"depends_on" json:"depends_on"`
-	Reads      json.RawMessage `db:"reads" json:"reads"`
-	Writes     json.RawMessage `db:"writes" json:"writes"`
-	CommandRef string          `db:"command_ref" json:"command_ref"`
-	Config     json.RawMessage `db:"config" json:"config"`
-}
-
-type UpsertTaskDagNodeRow struct {
-	ID               int64   `db:"id" json:"id"`
-	DagKey           string  `db:"dag_key" json:"dag_key"`
-	NodeKey          string  `db:"node_key" json:"node_key"`
-	Title            string  `db:"title" json:"title"`
-	NodeType         string  `db:"node_type" json:"node_type"`
-	AssignedTo       string  `db:"assigned_to" json:"assigned_to"`
-	DependsOn        []byte  `db:"depends_on" json:"depends_on"`
-	Status           string  `db:"status" json:"status"`
-	CommandRef       string  `db:"command_ref" json:"command_ref"`
-	Config           []byte  `db:"config" json:"config"`
-	Result           []byte  `db:"result" json:"result"`
-	StartedAt        *int64  `db:"started_at" json:"started_at"`
-	FinishedAt       *int64  `db:"finished_at" json:"finished_at"`
-	CreatedAt        int64   `db:"created_at" json:"created_at"`
-	UpdatedAt        int64   `db:"updated_at" json:"updated_at"`
-	ActiveTurnID     *string `db:"active_turn_id" json:"active_turn_id"`
-	ActiveWakeupID   *int64  `db:"active_wakeup_id" json:"active_wakeup_id"`
-	LastEventAt      *int64  `db:"last_event_at" json:"last_event_at"`
-	RunID            *int64  `db:"run_id" json:"run_id"`
-	Reads            []byte  `db:"reads" json:"reads"`
-	Writes           []byte  `db:"writes" json:"writes"`
-	SpawningThreadID *string `db:"spawning_thread_id" json:"spawning_thread_id"`
-}
-
-func (q *Queries) UpsertTaskDagNode(ctx context.Context, arg UpsertTaskDagNodeParams) (UpsertTaskDagNodeRow, error) {
-	row := q.db.QueryRowContext(ctx, upsertTaskDagNode,
-		arg.DagKey,
-		arg.NodeKey,
-		arg.Title,
-		arg.NodeType,
-		arg.AssignedTo,
-		arg.DependsOn,
-		arg.Reads,
-		arg.Writes,
-		arg.CommandRef,
-		arg.Config,
-	)
-	var i UpsertTaskDagNodeRow
-	err := row.Scan(
-		&i.ID,
-		&i.DagKey,
-		&i.NodeKey,
-		&i.Title,
-		&i.NodeType,
-		&i.AssignedTo,
-		&i.DependsOn,
-		&i.Status,
-		&i.CommandRef,
-		&i.Config,
-		&i.Result,
-		&i.StartedAt,
-		&i.FinishedAt,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-		&i.ActiveTurnID,
-		&i.ActiveWakeupID,
-		&i.LastEventAt,
-		&i.RunID,
-		&i.Reads,
-		&i.Writes,
-		&i.SpawningThreadID,
-	)
-	return i, err
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }

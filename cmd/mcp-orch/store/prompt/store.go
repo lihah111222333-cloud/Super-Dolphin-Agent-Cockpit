@@ -41,7 +41,12 @@ func (s *store) GetSectionByRecallTopic(ctx context.Context, cwd, topic string) 
 	if topic == "" {
 		return "", fmt.Errorf("topic is required for prompt recall")
 	}
-	body, err := s.q.GetPromptRecallSectionBody(ctx, sqlc.GetPromptRecallSectionBodyParams{RecallTopic: topic, CWD: &cwd})
+	scopeCWD := "scope.cwd:" + cwd
+	body, err := s.q.GetPromptRecallSectionBody(ctx, sqlc.GetPromptRecallSectionBodyParams{
+		ScopeRank:   scopeCWD,
+		RecallTopic: topic,
+		ScopeCWD:    scopeCWD,
+	})
 	if err == nil {
 		return body, nil
 	}
@@ -106,11 +111,15 @@ func (s *store) List(ctx context.Context, filter ListFilter) ([]PromptTemplate, 
 	if filter.RuntimeVisible && cwd == "" {
 		return nil, fmt.Errorf("cwd is required for runtime-visible prompt list")
 	}
+	keyword := filter.Keyword
+	if keyword != "" {
+		keyword = "%" + keyword + "%"
+	}
 	rows, err := s.q.ListPromptTemplates(ctx, sqlc.ListPromptTemplatesParams{
 		AgentKey:       filter.AgentKey,
-		Keyword:        filter.Keyword,
+		Keyword:        keyword,
 		RuntimeVisible: boolInt64(filter.RuntimeVisible),
-		CWD:            &cwd,
+		ScopeCWD:       "scope.cwd:" + cwd,
 		LimitCount:     int64(filter.Limit),
 	})
 	if err != nil {
@@ -138,7 +147,7 @@ func (s *store) Delete(ctx context.Context, promptKey string) error {
 
 // InsertVersion 插入 prompt template 历史版本快照并返回版本 id。
 func (s *store) InsertVersion(ctx context.Context, version PromptTemplateVersion) (int64, error) {
-	id, err := s.q.InsertPromptVersion(ctx, sqlc.InsertPromptVersionParams{
+	result, err := s.q.InsertPromptVersion(ctx, sqlc.InsertPromptVersionParams{
 		PromptKey:       version.PromptKey,
 		Title:           version.Title,
 		AgentKey:        version.AgentKey,
@@ -155,32 +164,40 @@ func (s *store) InsertVersion(ctx context.Context, version PromptTemplateVersion
 	if err != nil {
 		return 0, wrapPromptError(err, "insert_version", "prompt_template_version")
 	}
+	id, err := result.LastInsertId()
+	if err != nil {
+		return 0, wrapPromptError(err, "insert_version_id", "prompt_template_version")
+	}
 	return id, nil
 }
 
 // Upsert 新增或更新 prompt template 当前版本。
 func (s *store) Upsert(ctx context.Context, template PromptTemplate) (*PromptTemplate, error) {
-	row, err := s.q.UpsertPromptTemplate(ctx, sqlc.UpsertPromptTemplateParams{
-		PromptKey:      template.PromptKey,
-		Title:          template.Title,
-		AgentKey:       template.AgentKey,
-		ToolName:       template.ToolName,
-		PromptText:     template.PromptText,
-		Variables:      template.Variables,
-		Tags:           template.Tags,
-		Description:    template.Description,
-		WhenToUse:      template.WhenToUse,
-		Enabled:        boolInt64(template.Enabled),
-		ManuallyEdited: boolInt64(template.ManuallyEdited),
-		MatchWhen:      template.MatchWhen,
-		Priority:       int64(template.Priority),
-		CreatedBy:      template.CreatedBy,
-		UpdatedBy:      template.UpdatedBy,
+	var mapped PromptTemplate
+	err := sqlctx.WithImmediateTxOrReuse(ctx, s.db, s.q, func(txq *sqlc.Queries, _ sqlc.DBTX) error {
+		rows, err := txq.UpdatePromptTemplate(ctx, updatePromptTemplateParams(template))
+		if err != nil {
+			return err
+		}
+		if rows == 0 {
+			rows, err = txq.InsertPromptTemplate(ctx, insertPromptTemplateParams(template))
+			if err != nil {
+				return err
+			}
+		}
+		if rows != 1 {
+			return fmt.Errorf("upsert prompt template affected %d rows, want 1", rows)
+		}
+		row, err := txq.GetPromptTemplate(ctx, sqlc.GetPromptTemplateParams{PromptKey: template.PromptKey})
+		if err != nil {
+			return err
+		}
+		mapped = fromGetTemplate(row)
+		return nil
 	})
 	if err != nil {
 		return nil, wrapPromptError(err, "upsert", "prompt_template")
 	}
-	mapped := fromUpsertTemplate(row)
 	return &mapped, nil
 }
 
@@ -232,30 +249,6 @@ func fromListTemplate(row sqlc.ListPromptTemplatesRow) PromptTemplate {
 	}
 }
 
-// fromUpsertTemplate 将 upsert 返回行映射为 PromptTemplate。
-func fromUpsertTemplate(row sqlc.UpsertPromptTemplateRow) PromptTemplate {
-	return PromptTemplate{
-		ID:             row.ID,
-		PromptKey:      row.PromptKey,
-		Title:          row.Title,
-		AgentKey:       row.AgentKey,
-		ToolName:       row.ToolName,
-		PromptText:     row.PromptText,
-		Variables:      json.RawMessage(row.Variables),
-		Tags:           json.RawMessage(row.Tags),
-		Enabled:        int64Bool(row.Enabled),
-		ManuallyEdited: int64Bool(row.ManuallyEdited),
-		CreatedBy:      row.CreatedBy,
-		UpdatedBy:      row.UpdatedBy,
-		CreatedAt:      sqlc.TimeValue(row.CreatedAt),
-		UpdatedAt:      sqlc.TimeValue(row.UpdatedAt),
-		Description:    row.Description,
-		WhenToUse:      row.WhenToUse,
-		MatchWhen:      json.RawMessage(row.MatchWhen),
-		Priority:       int32(row.Priority),
-	}
-}
-
 // fromSectionRow 将 section 查询行映射为 PromptTemplateSection。
 func fromSectionRow(row sqlc.ListPromptTemplateSectionsByTemplateRow) PromptTemplateSection {
 	return PromptTemplateSection{
@@ -282,6 +275,27 @@ func boolInt64(value bool) int64 {
 // int64Bool 将 SQLite 0/1 转为 bool。
 func int64Bool(value int64) bool {
 	return value != 0
+}
+
+func insertPromptTemplateParams(template PromptTemplate) sqlc.InsertPromptTemplateParams {
+	return sqlc.InsertPromptTemplateParams{
+		PromptKey: template.PromptKey, Title: template.Title, AgentKey: template.AgentKey,
+		ToolName: template.ToolName, PromptText: template.PromptText, Variables: template.Variables,
+		Tags: template.Tags, Description: template.Description, WhenToUse: template.WhenToUse,
+		Enabled: boolInt64(template.Enabled), ManuallyEdited: boolInt64(template.ManuallyEdited),
+		MatchWhen: template.MatchWhen, Priority: int64(template.Priority),
+		CreatedBy: template.CreatedBy, UpdatedBy: template.UpdatedBy,
+	}
+}
+
+func updatePromptTemplateParams(template PromptTemplate) sqlc.UpdatePromptTemplateParams {
+	return sqlc.UpdatePromptTemplateParams{
+		PromptKey: template.PromptKey, Title: template.Title, AgentKey: template.AgentKey,
+		ToolName: template.ToolName, PromptText: template.PromptText, Variables: template.Variables,
+		Tags: template.Tags, Description: template.Description, WhenToUse: template.WhenToUse,
+		Enabled: boolInt64(template.Enabled), ManuallyEdited: boolInt64(template.ManuallyEdited),
+		MatchWhen: template.MatchWhen, Priority: int64(template.Priority), UpdatedBy: template.UpdatedBy,
+	}
 }
 
 // wrapPromptError 统一 prompt store 错误域。

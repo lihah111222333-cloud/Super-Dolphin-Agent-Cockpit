@@ -48,7 +48,7 @@ func ScanSourceFiles(root string) ([]string, error) {
 // indexedSourceDirs 返回项目根目录下需要扫描的源码子目录列表。
 func indexedSourceDirs(root string) []string {
 	var dirs []string
-	for _, name := range []string{"cmd", "internal", "pkg", "sql", "migrations", "scripts"} {
+	for _, name := range []string{"cmd", "internal", "pkg", "sql", "scripts"} {
 		dir := filepath.Join(root, name)
 		if dirExists(dir) {
 			dirs = append(dirs, dir)

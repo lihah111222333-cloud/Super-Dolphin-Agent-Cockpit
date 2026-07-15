@@ -36,6 +36,19 @@ type ExistingNode struct {
 // 返回：adjacency（含 existing + new，传给 DetectCycle）/ 通过校验的 NodeSpec
 // 列表（保留 ops 原顺序，供 service 顺序 UpsertNode）/ 错误。
 func PlanAddNodes(ops Ops, existing []ExistingNode) (map[string][]string, []NodeSpec, error) {
+	adjacency, accepted, err := planAddNodeTopology(ops, existing)
+	if err != nil {
+		return nil, nil, err
+	}
+	if err := ValidateNodeSpecsConfig(accepted); err != nil {
+		return nil, nil, err
+	}
+	return adjacency, accepted, nil
+}
+
+// planAddNodeTopology 只校验节点形状和依赖图，不解析可执行配置。
+// 创建入口需要先返回拓扑错误，再由自己的配置守卫给出精确 wire 字段路径。
+func planAddNodeTopology(ops Ops, existing []ExistingNode) (map[string][]string, []NodeSpec, error) {
 	adjacency, known := seedAdjacency(existing)
 	accepted := make([]NodeSpec, 0, len(ops))
 	for i, op := range ops {
@@ -49,9 +62,6 @@ func PlanAddNodes(ops Ops, existing []ExistingNode) (map[string][]string, []Node
 		accepted = append(accepted, spec)
 	}
 	if err := verifyDependsOnIntegrity(accepted, known); err != nil {
-		return nil, nil, err
-	}
-	if err := ValidateNodeSpecsConfig(accepted); err != nil {
 		return nil, nil, err
 	}
 	return adjacency, accepted, nil
@@ -87,7 +97,7 @@ func ValidateAddNodeTopology(specs []NodeSpec) error {
 	for _, spec := range specs {
 		ops = append(ops, OpAddNode{Node: spec})
 	}
-	adjacency, _, err := PlanAddNodes(ops, nil)
+	adjacency, _, err := planAddNodeTopology(ops, nil)
 	if err == nil {
 		err = DetectCycle(adjacency)
 	}

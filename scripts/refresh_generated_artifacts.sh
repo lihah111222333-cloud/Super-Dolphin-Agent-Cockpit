@@ -117,8 +117,8 @@ refresh_capcontract() {
 case "$mode" in
   all)
     refresh_codemap
-    refresh_project_map
     refresh_capcontract
+    refresh_project_map
     ;;
   codemap)
     refresh_codemap

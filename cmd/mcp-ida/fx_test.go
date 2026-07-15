@@ -21,6 +21,7 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/mcpserver/common/bootstrap"
 	platformrpc "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/rpc"
 	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
+	"go.uber.org/fx"
 )
 
 func TestEmptyToolProviderListToolsReturnsEmptyArray(t *testing.T) {
@@ -62,18 +63,40 @@ func TestNewStdioServerFailsFastWhenMcpStdoutNil(t *testing.T) {
 	}
 }
 
+func TestBootstrapProviderRejectsInvalidSnapshotDuringGraphConstruction(t *testing.T) {
+	app := fx.New(
+		fx.NopLogger,
+		fx.Provide(
+			func() bootstrap.Config {
+				return bootstrap.Config{BootSnapshot: []byte(`{"unknown":true}`)}
+			},
+			bootstrap.New,
+		),
+		fx.Invoke(func(*bootstrap.Client) {}),
+	)
+	if err := app.Err(); err == nil {
+		t.Fatal("app.Err() = nil, want invalid bootstrap snapshot error")
+	} else if !strings.Contains(err.Error(), "unknown field") {
+		t.Fatalf("app.Err() = %v, want unknown field error", err)
+	}
+}
+
 func TestBootstrapRunnerRequiresRPCAddr(t *testing.T) {
 	ready := make(chan struct{})
 	close(ready)
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 
+	client, err := bootstrap.New(bootstrap.Config{BinaryName: "mcp-ida"})
+	if err != nil {
+		t.Fatalf("bootstrap.New() error = %v", err)
+	}
 	runner := bootstrapRunner{
 		cfg:        bootstrap.Config{BinaryName: "mcp-ida"},
-		client:     bootstrap.New(bootstrap.Config{BinaryName: "mcp-ida"}),
+		client:     client,
 		stdioReady: ready,
 	}
-	err := runner.Run(ctx)
+	err = runner.Run(ctx)
 	if err == nil {
 		t.Fatalf("Run() error = nil, want missing RPC address error")
 	}
@@ -131,7 +154,10 @@ func TestBootstrapConfigDoesNotOfferBootSnapshotIDACapability(t *testing.T) {
 	if err != nil {
 		t.Fatalf("buildBootstrapConfig() error = %v", err)
 	}
-	client := bootstrap.New(cfg)
+	client, err := bootstrap.New(cfg)
+	if err != nil {
+		t.Fatalf("bootstrap.New() error = %v", err)
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 	if err := client.Start(ctx); err != nil {

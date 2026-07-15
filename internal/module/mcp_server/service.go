@@ -35,7 +35,6 @@ var (
 	errMCPServerStoreNotConfigured = errors.New("mcp_server: config store is not configured")
 	errMCPServerToolsRequestFailed = errors.New("mcp_server: tools request failed")
 	errInvalidToolsResponse        = errors.New("mcp_server: invalid tools response")
-	errPostgresInstallerMissing    = errors.New("mcp_server: postgres installer is not configured")
 	errMissingToolName             = errors.New("mcp_server: tool name is required")
 	errInvalidToolLifecycleState   = errors.New("mcp_server: invalid tool lifecycle state")
 	errToolLifecycleNotFound       = errors.New("mcp_server: tool lifecycle not found")
@@ -48,7 +47,6 @@ type Service interface {
 	ListServers(context.Context) (ListServersResult, error)
 	ListServersForCWD(context.Context, string) (ListServersResult, error)
 	ListServerTools(context.Context, ListServerToolsRequest) (ListServerToolsResult, error)
-	StartPostgresServer(context.Context, StartPostgresServerRequest) (StartPostgresServerResult, error)
 	StartSQLiteServer(context.Context, StartSQLiteServerRequest) (StartSQLiteServerResult, error)
 	StopSQLiteServer(context.Context, StopSQLiteServerRequest) (StopSQLiteServerResult, error)
 	StartPlaywrightServer(context.Context, StartPlaywrightServerRequest) (StartPlaywrightServerResult, error)
@@ -105,12 +103,11 @@ type DeleteServerResult struct {
 }
 
 // service 是 MCP server 配置管理的实现。
-// store 负责持久化，httpClient 只用于 HTTP transport 的 tools/list 探测，installer 只服务默认 postgres 写入。
+// store 负责持久化，httpClient 只用于 HTTP transport 的 tools/list 探测。
 type service struct {
-	store             MCPServerConfigStore
-	httpClient        mcpHTTPDoer
-	postgresInstaller postgresInstaller
-	sqlitePath        string
+	store      MCPServerConfigStore
+	httpClient mcpHTTPDoer
+	sqlitePath string
 }
 
 // NewService 创建未绑定持久化 store 的 MCP server 服务。
@@ -120,9 +117,8 @@ func NewService() Service {
 }
 
 // NewServiceWithStore 创建带配置 store 的 MCP server 服务。
-// 默认 postgres installer 会被注入，SQLite 路径仍从请求或环境变量解析。
 func NewServiceWithStore(store MCPServerConfigStore) Service {
-	return newServiceWithStoreInstallerAndSQLitePath(store, newNPMPostgresInstaller(), "")
+	return newServiceWithStoreAndSQLitePath(store, "")
 }
 
 // NewServiceWithStoreAndConfig 创建带运行时配置的 MCP server 服务，用于解析默认 SQLite MCP server 路径。
@@ -131,19 +127,13 @@ func NewServiceWithStoreAndConfig(store MCPServerConfigStore, cfg *platformconfi
 	if cfg != nil {
 		sqlitePath = cfg.SQLitePath
 	}
-	return newServiceWithStoreInstallerAndSQLitePath(store, newNPMPostgresInstaller(), sqlitePath)
+	return newServiceWithStoreAndSQLitePath(store, sqlitePath)
 }
 
-// newServiceWithStoreAndInstaller 创建带测试 installer 的服务实例。
-// 该入口只给同包测试注入 installer，生产代码应使用公开构造函数。
-func newServiceWithStoreAndInstaller(store MCPServerConfigStore, installer postgresInstaller) *service {
-	return newServiceWithStoreInstallerAndSQLitePath(store, installer, "")
-}
-
-// newServiceWithStoreInstallerAndSQLitePath 汇总所有可注入依赖。
+// newServiceWithStoreAndSQLitePath 汇总所有可注入依赖。
 // sqlitePath 会在构造时 trim，后续 StartSQLiteServer 按请求、构造路径和环境变量顺序解析。
-func newServiceWithStoreInstallerAndSQLitePath(store MCPServerConfigStore, installer postgresInstaller, sqlitePath string) *service {
-	return &service{store: store, httpClient: defaultMCPHTTPClient, postgresInstaller: installer, sqlitePath: strings.TrimSpace(sqlitePath)}
+func newServiceWithStoreAndSQLitePath(store MCPServerConfigStore, sqlitePath string) *service {
+	return &service{store: store, httpClient: defaultMCPHTTPClient, sqlitePath: strings.TrimSpace(sqlitePath)}
 }
 
 // AddServers 校验并写入当前 workspace 的 MCP server 配置。
@@ -186,7 +176,7 @@ func (s *service) AddServers(ctx context.Context, req AddServersRequest) (AddSer
 }
 
 // sqliteProductDBPathForMCPServers 仅在新增配置包含 sqlite npx 包时解析产品数据库路径。
-// 这样普通 HTTP/Playwright/Postgres 配置不依赖 sqlite 环境，但 dbhub argv 不能指向任意文件。
+// 这样普通 HTTP/Playwright 配置不依赖 SQLite 环境，但 dbhub argv 不能指向任意文件。
 func (s *service) sqliteProductDBPathForMCPServers(input map[string]ServerConfig) (string, error) {
 	if !mcpServersContainSQLiteNPXPackage(input) {
 		return "", nil

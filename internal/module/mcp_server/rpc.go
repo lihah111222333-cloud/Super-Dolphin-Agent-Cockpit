@@ -19,12 +19,6 @@ type mcpServerPublicStatus struct {
 	Enabled bool `json:"enabled"`
 }
 
-type startPostgresServerPublicResult struct {
-	ConfigPath string `json:"configPath"`
-	ServerName string `json:"serverName"`
-	Added      bool   `json:"added"`
-}
-
 type startSQLiteServerPublicResult struct {
 	ConfigPath string `json:"configPath"`
 	ServerName string `json:"serverName"`
@@ -47,14 +41,6 @@ func toListServersPublicResult(result ListServersResult) listServersPublicResult
 	return listServersPublicResult{
 		ConfigPath: result.ConfigPath,
 		MCPServers: servers,
-	}
-}
-
-func toStartPostgresServerPublicResult(result StartPostgresServerResult) startPostgresServerPublicResult {
-	return startPostgresServerPublicResult{
-		ConfigPath: result.ConfigPath,
-		ServerName: result.ServerName,
-		Added:      result.Added,
 	}
 }
 
@@ -82,7 +68,6 @@ func NewHandlers(svc Service) platformrpc.HandlerMapResult {
 		"mcpServer/add":                  platformrpc.StrictHandler(addServersHandler(svc)),
 		"mcpServer/list":                 platformrpc.StrictHandler(listServersHandler(svc)),
 		"mcpServer/tools":                platformrpc.StrictHandler(listServerToolsHandler(svc)),
-		"mcpServer/postgres/start":       platformrpc.StrictHandler(startPostgresServerHandler(svc)),
 		"mcpServer/sqlite/start":         platformrpc.StrictHandler(startSQLiteServerHandler(svc)),
 		"mcpServer/sqlite/stop":          platformrpc.StrictHandler(stopSQLiteServerHandler(svc)),
 		"mcpServer/playwright/start":     platformrpc.StrictHandler(startPlaywrightServerHandler(svc)),
@@ -130,19 +115,6 @@ func listServerToolsHandler(svc Service) func(context.Context, ListServerToolsRe
 			return ListServerToolsResult{}, mcpServerRPCError(err)
 		}
 		return result, nil
-	}
-}
-
-func startPostgresServerHandler(svc Service) func(context.Context, StartPostgresServerRequest) (startPostgresServerPublicResult, error) {
-	return func(ctx context.Context, req StartPostgresServerRequest) (startPostgresServerPublicResult, error) {
-		if svc == nil {
-			return startPostgresServerPublicResult{}, platformrpc.ErrInvalidState("mcp server service is not configured")
-		}
-		result, err := svc.StartPostgresServer(ctx, req)
-		if err != nil {
-			return startPostgresServerPublicResult{}, mcpServerRPCError(err)
-		}
-		return toStartPostgresServerPublicResult(result), nil
 	}
 }
 
@@ -286,8 +258,7 @@ func mcpServerRPCError(err error) error {
 	case errors.Is(err, errMCPServerStoreNotConfigured):
 		return platformrpc.ErrInvalidState(err.Error())
 	case errors.Is(err, errMCPServerToolsRequestFailed),
-		errors.Is(err, errInvalidToolsResponse),
-		errors.Is(err, errPostgresInstallerMissing):
+		errors.Is(err, errInvalidToolsResponse):
 		return platformrpc.ErrInvalidState(err.Error())
 	case errors.Is(err, errServerNotFound),
 		errors.Is(err, errToolLifecycleNotFound):

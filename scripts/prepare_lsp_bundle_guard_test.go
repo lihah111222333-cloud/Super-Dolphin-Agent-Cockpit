@@ -31,14 +31,14 @@ func TestPrepareLSPBundleScriptsInstallBashLanguageServer(t *testing.T) {
 	}
 }
 
-func TestPrepareLSPBundleScriptsInstallSQLLanguageServer(t *testing.T) {
+func TestPrepareLSPBundleScriptsBundleSqruff(t *testing.T) {
 	for _, scriptPath := range []string{"prepare_lsp_bundle_macos.sh", "prepare_lsp_bundle_linux.sh"} {
 		t.Run(scriptPath, func(t *testing.T) {
 			script := readScript(t, scriptPath)
 
-			assertScriptContains(t, script, "sql-language-server")
-			assertScriptContains(t, script, "write_node_wrapper sql-language-server sql-language-server/npm_bin/cli.js")
-			assertScriptOrder(t, script, "sql-language-server", "write_node_wrapper sql-language-server sql-language-server/npm_bin/cli.js")
+			assertScriptContains(t, script, "sqruff_bin=")
+			assertScriptContains(t, script, "cp \"$sqruff_bin\" \"$lsp_dir/bin/sqruff\"")
+			assertScriptContains(t, script, "missing sqruff")
 		})
 	}
 }
@@ -86,7 +86,7 @@ func TestPrepareLSPBundleScriptsIncludeSQLLanguageServerInManifestAndChecksums(t
 		t.Run(scriptPath, func(t *testing.T) {
 			script := readScript(t, scriptPath)
 
-			assertScriptContains(t, script, "'sql-language-server|bin/sql-language-server|[\"sql\"]'")
+			assertScriptContains(t, script, "'sqruff|bin/sqruff|[\"sql\"]'")
 			assertScriptContains(t, script, "> \"$lsp_dir/lsp-manifest.json\"")
 			assertScriptContains(t, script, "> \"$lsp_dir/lsp-checksums.sha256\"")
 		})
@@ -248,14 +248,14 @@ func TestPrepareLSPBundleWindowsScriptContracts(t *testing.T) {
 	assertScriptContains(t, script, "vscode-langservers-extracted")
 	assertScriptContains(t, script, "pyright")
 	assertScriptContains(t, script, "bash-language-server")
-	assertScriptContains(t, script, "sql-language-server")
+	assertScriptContains(t, script, "sqruff")
 	assertScriptContains(t, script, "shellcheck")
 	assertScriptContains(t, script, "@ast-grep/cli")
 	assertScriptContains(t, script, "Write-NodeCmdWrapper -Name 'typescript-language-server.cmd'")
 	assertScriptContains(t, script, "Write-NodeCmdWrapper -Name 'vscode-css-language-server.cmd'")
 	assertScriptContains(t, script, "Write-NodeCmdWrapper -Name 'pyright-langserver.cmd'")
 	assertScriptContains(t, script, "Write-NodeCmdWrapper -Name 'bash-language-server.cmd'")
-	assertScriptContains(t, script, "Write-NodeCmdWrapper -Name 'sql-language-server.cmd'")
+	assertScriptContains(t, script, "Copy-Item -LiteralPath $SqruffBin -Destination (Join-Path $LspDir 'bin/sqruff.exe')")
 	assertScriptContains(t, script, "node_modules/shellcheck/bin/shellcheck.js")
 	assertScriptContains(t, script, "shellcheck npm launcher failed to prepare bundled executable")
 	assertScriptContains(t, script, "SUPER_DOLPHIN_SHELLCHECK_BIN")
@@ -275,7 +275,7 @@ func TestPrepareLSPBundleWindowsScriptContracts(t *testing.T) {
 	assertScriptContains(t, script, "go|bin/go.cmd|[\"go-toolchain\"]")
 	assertScriptContains(t, script, "gopls|bin/gopls.exe|[\"go\",\"gomod\",\"gosum\",\"gowork\"]")
 	assertScriptContains(t, script, "sg|bin/sg.exe|[\"ast-grep\"]")
-	assertScriptContains(t, script, "sql-language-server|bin/sql-language-server.cmd|[\"sql\"]")
+	assertScriptContains(t, script, "sqruff|bin/sqruff.exe|[\"sql\"]")
 	assertScriptContains(t, script, "'bin/ast-grep.exe'")
 	assertScriptContains(t, script, "'bin/vcruntime140.dll'")
 	assertScriptContains(t, script, "'amd64' { 'win32-x64' }")
@@ -294,11 +294,10 @@ func TestPrepareLSPBundleWindowsPinsNpmDependencyVersions(t *testing.T) {
 	assertScriptContains(t, script, "$LSPNpmPackages = @(")
 	for _, want := range []string{
 		"typescript-language-server@5.3.0",
-		"typescript@6.0.3",
+		"typescript@5.9.3",
 		"vscode-langservers-extracted@4.10.0",
 		"pyright@1.1.410",
 		"bash-language-server@5.6.0",
-		"sql-language-server@1.7.1",
 		"shellcheck@4.1.0",
 		"@ast-grep/cli@0.43.0",
 	} {

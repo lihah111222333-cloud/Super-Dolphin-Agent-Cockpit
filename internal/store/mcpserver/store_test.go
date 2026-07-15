@@ -22,7 +22,7 @@ func TestConfigStorePersistsHTTPAndStdioServers(t *testing.T) {
 	workspaceRoot := filepath.Join(t.TempDir(), "project")
 
 	insertHTTPServer(t, store, ctx, workspaceRoot)
-	insertPostgresServer(t, store, ctx, workspaceRoot)
+	insertPlaywrightServer(t, store, ctx, workspaceRoot)
 
 	servers, err := store.ListServers(ctx, workspaceRoot)
 	if err != nil {
@@ -31,7 +31,7 @@ func TestConfigStorePersistsHTTPAndStdioServers(t *testing.T) {
 	if servers["my-search"].URL != "https://your-domain.com/mcp" {
 		t.Fatalf("http server = %#v", servers["my-search"])
 	}
-	assertPostgresServer(t, servers["postgres"], true)
+	assertPlaywrightServer(t, servers["playwright"], true)
 }
 
 // TestConfigStoreRejectsUnsafePersistedStdioCommand 锁定持久化层读取边界：
@@ -60,8 +60,8 @@ func TestConfigStoreRejectsUnsafePersistedStdioCommand(t *testing.T) {
 	}
 }
 
-// TestConfigStoreRejectsPathQualifiedPostgresCommand 确认历史行不能用同名可执行文件路径伪装默认 Postgres MCP。
-func TestConfigStoreRejectsPathQualifiedPostgresCommand(t *testing.T) {
+// TestConfigStoreRejectsRemovedPostgresCommand 确认历史行不能恢复已删除的 Postgres MCP 命令。
+func TestConfigStoreRejectsRemovedPostgresCommand(t *testing.T) {
 	store, closeDB := newSQLiteConfigStore(t)
 	defer closeDB()
 	ctx := context.Background()
@@ -72,8 +72,8 @@ func TestConfigStoreRejectsPathQualifiedPostgresCommand(t *testing.T) {
 	if _, err := store.db.ExecContext(ctx, `
 		INSERT INTO mcp_server_configs (workspace_root, name, transport, command, args, env, enabled)
 		VALUES (?, 'postgres', 'stdio', ?, '["postgresql://super_dolphin@127.0.0.1:55433/super_dolphin?sslmode=disable"]', '{}', 1)
-	`, workspaceRoot, filepath.Join(t.TempDir(), "mcp-server-postgres")); err != nil {
-		t.Fatalf("seed path-qualified postgres row: %v", err)
+	`, workspaceRoot, "mcp-server-postgres"); err != nil {
+		t.Fatalf("seed removed postgres row: %v", err)
 	}
 
 	_, err := store.ListServers(ctx, workspaceRoot)
@@ -107,11 +107,11 @@ func TestConfigStoreMigratesLegacyHTTPOnlyTableBeforeWritingStdio(t *testing.T) 
 	store := &configStore{db: db}
 	inserted, err := store.InsertServer(ctx, contract.StoreMCPServerConfigParams{
 		WorkspaceRoot: workspaceRoot,
-		Name:          "postgres",
+		Name:          "playwright",
 		Config: contract.MCPServerConfig{
 			Transport: "stdio",
-			Command:   "mcp-server-postgres",
-			Args:      []string{"postgresql://super_dolphin@127.0.0.1:55433/super_dolphin?sslmode=disable"},
+			Command:   "npx",
+			Args:      []string{"@playwright/mcp@latest"},
 		},
 	})
 	if err != nil {
@@ -128,7 +128,7 @@ func TestConfigStoreMigratesLegacyHTTPOnlyTableBeforeWritingStdio(t *testing.T) 
 	if servers["my-search"].URL != "https://legacy.example/mcp" {
 		t.Fatalf("legacy http server = %#v", servers["my-search"])
 	}
-	assertPostgresServer(t, servers["postgres"], false)
+	assertPlaywrightServer(t, servers["playwright"], false)
 }
 
 func TestConfigStoreLegacyMigrationRollbackKeepsOriginalTableOnRenameFailure(t *testing.T) {
@@ -157,11 +157,11 @@ func TestConfigStoreLegacyMigrationRollbackKeepsOriginalTableOnRenameFailure(t *
 	}}
 	_, err = store.InsertServer(ctx, contract.StoreMCPServerConfigParams{
 		WorkspaceRoot: workspaceRoot,
-		Name:          "postgres",
+		Name:          "playwright",
 		Config: contract.MCPServerConfig{
 			Transport: "stdio",
-			Command:   "mcp-server-postgres",
-			Args:      []string{"postgresql://super_dolphin@127.0.0.1:55433/super_dolphin?sslmode=disable"},
+			Command:   "npx",
+			Args:      []string{"@playwright/mcp@latest"},
 		},
 	})
 	if err == nil || !strings.Contains(err.Error(), "injected rename failure") {
@@ -605,16 +605,16 @@ func insertHTTPServer(t *testing.T, store *configStore, ctx context.Context, wor
 	}
 }
 
-func insertPostgresServer(t *testing.T, store *configStore, ctx context.Context, workspaceRoot string) {
+func insertPlaywrightServer(t *testing.T, store *configStore, ctx context.Context, workspaceRoot string) {
 	t.Helper()
 	inserted, err := store.InsertServer(ctx, contract.StoreMCPServerConfigParams{
 		WorkspaceRoot: workspaceRoot,
-		Name:          "postgres",
+		Name:          "playwright",
 		Config: contract.MCPServerConfig{
 			Transport: "stdio",
-			Command:   "mcp-server-postgres",
-			Args:      []string{"postgresql://super_dolphin@127.0.0.1:55433/super_dolphin?sslmode=disable"},
-			Env:       map[string]string{"PGAPPNAME": "super-dolphin"},
+			Command:   "npx",
+			Args:      []string{"@playwright/mcp@latest"},
+			Env:       map[string]string{"PLAYWRIGHT_BROWSERS_PATH": "/tmp/browsers"},
 		},
 	})
 	if err != nil {
@@ -625,16 +625,16 @@ func insertPostgresServer(t *testing.T, store *configStore, ctx context.Context,
 	}
 }
 
-func assertPostgresServer(t *testing.T, postgres contract.MCPServerConfig, wantEnv bool) {
+func assertPlaywrightServer(t *testing.T, playwright contract.MCPServerConfig, wantEnv bool) {
 	t.Helper()
-	if postgres.Transport != "stdio" || postgres.Command != "mcp-server-postgres" {
-		t.Fatalf("postgres server = %#v, want stdio command", postgres)
+	if playwright.Transport != "stdio" || playwright.Command != "npx" {
+		t.Fatalf("playwright server = %#v, want stdio npx command", playwright)
 	}
-	if len(postgres.Args) != 1 || postgres.Args[0] != "postgresql://super_dolphin@127.0.0.1:55433/super_dolphin?sslmode=disable" {
-		t.Fatalf("postgres args = %#v", postgres.Args)
+	if len(playwright.Args) != 1 || playwright.Args[0] != "@playwright/mcp@latest" {
+		t.Fatalf("playwright args = %#v", playwright.Args)
 	}
-	if wantEnv && postgres.Env["PGAPPNAME"] != "super-dolphin" {
-		t.Fatalf("postgres env = %#v", postgres.Env)
+	if wantEnv && playwright.Env["PLAYWRIGHT_BROWSERS_PATH"] != "/tmp/browsers" {
+		t.Fatalf("playwright env = %#v", playwright.Env)
 	}
 }
 

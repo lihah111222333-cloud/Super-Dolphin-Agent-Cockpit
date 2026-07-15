@@ -246,9 +246,9 @@ func (s *service) Stop(ctx context.Context, threadID string) error {
 	for _, id := range stopState.targets {
 		s.forgetThreadAgent(id)
 	}
-	s.cleanupThreadTurns(ctx, "thread_stopped", stopState.targets...)
+	turnCleanupErr := s.cleanupThreadTurns(ctx, "thread_stopped", stopState.targets...)
 	s.publishThreadStopped(stopState.stoppedID, stopState.agentID, statusStopped, "stopped")
-	return newScratchpadPartialCleanupError("stop", cleanupErr)
+	return newLifecyclePartialCleanupError("stop", errors.Join(cleanupErr, turnCleanupErr))
 }
 
 // stopPendingLaunchThread 停止待处理启动线程。
@@ -388,13 +388,17 @@ func (s *service) stopManagedAgent(ctx context.Context, agentID string, allowMis
 	return err
 }
 
-func (s *service) cleanupThreadTurns(ctx context.Context, reason string, threadIDs ...string) {
+func (s *service) cleanupThreadTurns(ctx context.Context, reason string, threadIDs ...string) error {
 	if s.turns == nil {
-		return
+		return nil
 	}
+	var cleanupErrors []error
 	for _, threadID := range uniqueThreadIDs(threadIDs...) {
-		util.LogIgnoredError(s.logger, "cleanup thread turns failed", s.turns.CleanupThread(ctx, threadID, reason))
+		if err := s.turns.CleanupThread(ctx, threadID, reason); err != nil {
+			cleanupErrors = append(cleanupErrors, fmt.Errorf("cleanup thread turns %q: %w", threadID, err))
+		}
 	}
+	return errors.Join(cleanupErrors...)
 }
 
 func stopThreadTargets(binding *threadBindingStoreRecord, threadID string) []string {

@@ -26,7 +26,7 @@ func TestImportLocalFile_CopiesBinaryToSharedfileAndKeepsDBContentEmpty(t *testi
 		t.Fatalf("write source: %v", err)
 	}
 	db := newFakeImportDB(t)
-	sfStore := newStoreWithConfig(sqlc.New(db), sharedfilefs.Config{CWD: t.TempDir(), InlineThresholdBytes: 1})
+	sfStore := newStoreWithConfig(db.DB, sharedfilefs.Config{CWD: t.TempDir(), InlineThresholdBytes: 1})
 
 	got, err := sfStore.ImportLocalFile(context.Background(), ImportLocalFileParams{
 		SourcePath:         sourcePath,
@@ -76,7 +76,7 @@ func TestImportLocalFile_RejectsUnsafeInputs(t *testing.T) {
 			if tc.name == "source_symlink" && !symlinkSupported {
 				t.Skip("symlink unsupported by current Windows privilege")
 			}
-			sfStore := newStoreWithConfig(sqlc.New(newFakeImportDB(t)), sharedfilefs.Config{CWD: t.TempDir(), InlineThresholdBytes: 1})
+			sfStore := newStoreWithConfig(newFakeImportDB(t).DB, sharedfilefs.Config{CWD: t.TempDir(), InlineThresholdBytes: 1})
 			_, err := sfStore.ImportLocalFile(context.Background(), tc.params)
 			if err == nil {
 				t.Fatalf("ImportLocalFile() error = nil, want rejection")
@@ -105,7 +105,7 @@ func TestImportLocalFile_RejectsAllowedRootSymlinkedParentEscape(t *testing.T) {
 		t.Skipf("symlink unsupported: %v", err)
 	}
 
-	sfStore := newStoreWithConfig(sqlc.New(newFakeImportDB(t)), sharedfilefs.Config{CWD: t.TempDir(), InlineThresholdBytes: 1})
+	sfStore := newStoreWithConfig(newFakeImportDB(t).DB, sharedfilefs.Config{CWD: t.TempDir(), InlineThresholdBytes: 1})
 	_, err := sfStore.ImportLocalFile(context.Background(), ImportLocalFileParams{
 		SourcePath:         filepath.Join(symlinkedParent, "final.mp4"),
 		TargetPath:         "dag/run-1/final.mp4",
@@ -136,7 +136,7 @@ func TestImportLocalFile_FailsBeforeCopyWhenGitignoreEnsureFails(t *testing.T) {
 	sharedfilegitignore.ResetForTests()
 	t.Cleanup(sharedfilegitignore.ResetForTests)
 	db := newFakeImportDB(t)
-	sfStore := newStoreWithConfig(sqlc.New(db), sharedfilefs.Config{CWD: cwd, InlineThresholdBytes: 1})
+	sfStore := newStoreWithConfig(db.DB, sharedfilefs.Config{CWD: cwd, InlineThresholdBytes: 1})
 
 	_, err := sfStore.ImportLocalFile(context.Background(), ImportLocalFileParams{
 		SourcePath:         sourcePath,
@@ -186,7 +186,7 @@ func TestImportLocalFile_OverwriteFailRejectsExistingTarget(t *testing.T) {
 	if err := os.WriteFile(sourcePath, []byte("new"), 0o644); err != nil {
 		t.Fatalf("write source: %v", err)
 	}
-	sfStore := newStoreWithConfig(sqlc.New(newFakeImportDB(t)), sharedfilefs.Config{CWD: t.TempDir(), InlineThresholdBytes: 1})
+	sfStore := newStoreWithConfig(newFakeImportDB(t).DB, sharedfilefs.Config{CWD: t.TempDir(), InlineThresholdBytes: 1})
 	targetRel := "dag/run-1/final.mp4"
 	targetAbs, err := sfStore.cfg.ResolveAbs(targetRel)
 	if err != nil {
@@ -234,7 +234,7 @@ func TestImportLocalFile_RejectsAllowedRootParentSymlinkEscape(t *testing.T) {
 		t.Skipf("symlink unsupported: %v", err)
 	}
 
-	sfStore := newStoreWithConfig(sqlc.New(newFakeImportDB(t)), sharedfilefs.Config{CWD: t.TempDir(), InlineThresholdBytes: 1})
+	sfStore := newStoreWithConfig(newFakeImportDB(t).DB, sharedfilefs.Config{CWD: t.TempDir(), InlineThresholdBytes: 1})
 	_, err := sfStore.ImportLocalFile(context.Background(), ImportLocalFileParams{
 		SourcePath:         filepath.Join(linkDir, "final.mp4"),
 		TargetPath:         "dag/run-1/final.mp4",
@@ -313,7 +313,7 @@ func TestImportLocalFile_SQLiteUpsertAndRollbackDeleteFailuresAreJoined(t *testi
 	t.Parallel()
 	sfStore, db, sourceRoot, sourcePath := newDurableImportFixture(t)
 	targetRel := "dag/run-1/final.mp4"
-	if _, err := sqlc.New(db).UpsertSharedFile(context.Background(), sqlc.UpsertSharedFileParams{Path: targetRel, Content: "", ContentLocation: contentLocationDisk, UpdatedBy: "old-writer"}); err != nil {
+	if _, err := sfStore.upsertSharedFileIndex(context.Background(), sqlc.InsertSharedFileParams{Path: targetRel, Content: "", ContentLocation: contentLocationDisk, UpdatedBy: "old-writer"}); err != nil {
 		t.Fatalf("seed previous index: %v", err)
 	}
 	if _, err := db.Exec(`CREATE TRIGGER fail_import_upsert BEFORE UPDATE ON shared_files WHEN NEW.updated_by = 'new-writer' BEGIN SELECT RAISE(FAIL, 'upsert failed'); END;`); err != nil {
@@ -342,8 +342,7 @@ func TestImportLocalFile_RestoresPreviousFileAndIndexAfterDirectoryFailure(t *te
 	if err := os.WriteFile(targetAbs, []byte("old-body"), 0o640); err != nil {
 		t.Fatalf("write old target: %v", err)
 	}
-	q := sqlc.New(db)
-	if _, err := q.UpsertSharedFile(context.Background(), sqlc.UpsertSharedFileParams{Path: targetRel, Content: "", ContentLocation: contentLocationDisk, UpdatedBy: "old-writer"}); err != nil {
+	if _, err := sfStore.upsertSharedFileIndex(context.Background(), sqlc.InsertSharedFileParams{Path: targetRel, Content: "", ContentLocation: contentLocationDisk, UpdatedBy: "old-writer"}); err != nil {
 		t.Fatalf("seed shared file: %v", err)
 	}
 	faultErr := errors.New("directory fsync failed")
@@ -361,10 +360,10 @@ func TestImportLocalFile_RestoresPreviousFileAndIndexAfterDirectoryFailure(t *te
 
 func TestDetectImportDriftFindsTempsMissingAndUnindexedFiles(t *testing.T) {
 	t.Parallel()
-	sfStore, db, _, _ := newDurableImportFixture(t)
+	sfStore, _, _, _ := newDurableImportFixture(t)
 	root := sfStore.cfg.SandboxRoot()
 	missingRel := "dag/missing.mp4"
-	if _, err := sqlc.New(db).UpsertSharedFile(context.Background(), sqlc.UpsertSharedFileParams{Path: missingRel, Content: "", ContentLocation: contentLocationDisk, UpdatedBy: "seed"}); err != nil {
+	if _, err := sfStore.upsertSharedFileIndex(context.Background(), sqlc.InsertSharedFileParams{Path: missingRel, Content: "", ContentLocation: contentLocationDisk, UpdatedBy: "seed"}); err != nil {
 		t.Fatalf("seed missing index: %v", err)
 	}
 	for rel, body := range map[string]string{
@@ -396,7 +395,7 @@ func newDurableImportFixture(t *testing.T) (*store, *fakeImportDB, string, strin
 		t.Fatalf("write source: %v", err)
 	}
 	db := newFakeImportDB(t)
-	return newStoreWithConfig(sqlc.New(db), sharedfilefs.Config{CWD: t.TempDir(), InlineThresholdBytes: 1}), db, sourceRoot, sourcePath
+	return newStoreWithConfig(db.DB, sharedfilefs.Config{CWD: t.TempDir(), InlineThresholdBytes: 1}), db, sourceRoot, sourcePath
 }
 
 func durableImportParams(sourceRoot, sourcePath, targetRel string) ImportLocalFileParams {

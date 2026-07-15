@@ -11,16 +11,16 @@ import (
 )
 
 // NewAgentLogger 创建绑定 agent_id 的日志器，并在文件日志已开启时额外写入 agent 专属文件。
-// 主日志未打开或 agent 文件创建失败时回退到全局日志器，不能影响主日志链路。
-func NewAgentLogger(agentID string) *slog.Logger {
+// 主日志未打开时返回仅绑定 agent_id 的日志器；专属文件创建或权限收紧失败时返回错误。
+func NewAgentLogger(agentID string) (*slog.Logger, error) {
 	return currentRuntime().NewAgentLogger(agentID)
 }
 
 // NewAgentLogger 创建绑定 agent_id 的 runtime 日志器，并在文件日志已开启时额外写入 agent 专属文件。
-func (r *Runtime) NewAgentLogger(agentID string) *slog.Logger {
+func (r *Runtime) NewAgentLogger(agentID string) (*slog.Logger, error) {
 	agentID = strings.TrimSpace(agentID)
 	if agentID == "" {
-		return r.getLogger()
+		return r.getLogger(), nil
 	}
 
 	r.mu.Lock()
@@ -33,15 +33,15 @@ func (r *Runtime) NewAgentLogger(agentID string) *slog.Logger {
 	r.mu.Unlock()
 
 	if mainFile == nil || mainPath == "" {
-		return withTraceAttrs(context.Background(), r.getLogger().With("agent_id", agentID))
+		return withTraceAttrs(context.Background(), r.getLogger().With("agent_id", agentID)), nil
 	}
 
 	dir := filepath.Dir(mainPath)
 	agentPath := filepath.Join(dir, fmt.Sprintf("agent-%s.log", agentID))
 
-	agentFile := r.openOrReuseAgentFile(agentID, agentPath)
-	if agentFile == nil {
-		return r.getLogger().With("agent_id", agentID)
+	agentFile, err := r.openOrReuseAgentFile(agentID, agentPath)
+	if err != nil {
+		return nil, fmt.Errorf("new agent logger %q: %w", agentID, err)
 	}
 
 	// agent logger 必须和主日志共享控制台/主文件，同时追加 agent 专属文件。
@@ -56,21 +56,25 @@ func (r *Runtime) NewAgentLogger(agentID string) *slog.Logger {
 	if project != "" {
 		l = l.With("project", project)
 	}
-	return l.With("agent_id", agentID)
+	return l.With("agent_id", agentID), nil
 }
 
-func (r *Runtime) openOrReuseAgentFile(agentID, path string) *os.File {
+// openOrReuseAgentFile 打开或复用 agent 专属日志文件，并在每次复用时重新收紧权限。
+func (r *Runtime) openOrReuseAgentFile(agentID, path string) (*os.File, error) {
 	r.agentFilesMu.Lock()
 	defer r.agentFilesMu.Unlock()
 	if f, ok := r.agentFiles[agentID]; ok {
-		return f
+		if err := f.Chmod(privateLogFileMode); err != nil {
+			return nil, fmt.Errorf("tighten reused agent log file permissions: %w", err)
+		}
+		return f, nil
 	}
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	f, err := openPrivateAppendFile(path)
 	if err != nil {
-		return nil
+		return nil, err
 	}
 	r.agentFiles[agentID] = f
-	return f
+	return f, nil
 }
 
 // CloseAgentLogger 关闭指定 agent 的专属日志文件。

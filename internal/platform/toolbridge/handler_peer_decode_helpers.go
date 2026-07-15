@@ -202,8 +202,8 @@ func wrappedMCPToolName(family, name string) string {
 	return WrapMCPToolName(family, name)
 }
 
-// addMCPToolAlias 给工具补短别名；第三方 server 的短别名冲突时跳过。
-// 这样 sqlite.query 和 postgres.query 能同时存在，模型仍可用命名空间名调用后者。
+// addMCPToolAlias 给工具补短别名；第三方 server 的短别名冲突时跳过，
+// 冲突工具仍可通过完整命名空间名调用。
 func addMCPToolAlias(surface *codexToolSurface, family, alias, canonical string) error {
 	if isExternalMCPFamily(family) && surfaceAliasConflicts(surface, alias, canonical) {
 		return nil

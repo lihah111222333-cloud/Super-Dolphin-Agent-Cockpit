@@ -70,16 +70,79 @@ func gateRunners(plan gatePlan, executionScope gateExecutionScope) map[string]ga
 			args = append(args, "-count=1")
 			return runCommand("", args[0], args[1:]...)
 		}},
+		"lsp:changed-diagnostics": {run: func() error {
+			files, deleted, err := existingDiagnosticFiles(plan.DiagnosticFiles)
+			if err != nil {
+				return err
+			}
+			if len(files) == 0 {
+				if deleted > 0 && deleted == len(plan.DiagnosticFiles) {
+					fmt.Fprintf(os.Stderr, "[ai-maintenance] lsp diagnostics skip: planned=%d existing=0 reason=all-deleted\n", len(plan.DiagnosticFiles))
+					return nil
+				}
+				return errors.New("lsp diagnostics gate has no planned files")
+			}
+			args := []string{"run", "./scripts/lsp_diagnostics_gate"}
+			for _, file := range files {
+				args = append(args, "--file", file)
+			}
+			return runCommand("", "go", args...)
+		}},
+		"backend:test_with_guard_and_race": {run: func() error {
+			args, err := backendTestWithGuardAndRaceArgs(plan)
+			if err != nil {
+				return err
+			}
+			return runCommand("", args[0], args[1:]...)
+		}},
+		"backend:nilness": {run: func() error {
+			packages := affectedNilnessPackages(plan)
+			args := append([]string{"go", "run", "./scripts/nilness_guard.go", "-test=false", "--"}, packages...)
+			return runCommand("", args[0], args[1:]...)
+		}},
+		"capcontract:check":     generatedCheck(false, "make", "capcontract-check"),
 		"frontend:lint":         {run: func() error { return runCommand("frontend-app", "npm", "run", "lint") }},
 		"frontend:test":         {run: func() error { return runCommand("frontend-app", "npm", "test") }},
 		"frontend:build":        {run: func() error { return runCommand("frontend-app", "npm", "run", "build") }},
 		"frontend:embed-verify": {run: func() error { return runCommand("", "make", "frontend-embed-verify") }},
 		"codemap:check":         generatedCheck(false, "make", "codemap-check"),
 		"project-map:check":     generatedCheck(true, "make", "project-map-check", "PROJECT_MAP_ARGS="),
-		"capcontract:check":     {run: func() error { return runCommand("", "make", "capcontract-check") }},
 		"sqlc:verify":           {run: func() error { return runCommand("", "make", "sqlc-verify-worktree") }},
 		"diff:whitespace":       {run: func() error { return runWhitespaceCheck(executionScope) }},
 	}
+}
+
+// existingDiagnosticFiles keeps deleted paths out of the live diagnostics request while
+// preserving every currently existing file selected from the Git truth source.
+func existingDiagnosticFiles(files []string) (existing []string, deleted int, err error) {
+	existing = make([]string, 0, len(files))
+	for _, file := range files {
+		info, err := os.Stat(file)
+		if errors.Is(err, os.ErrNotExist) {
+			deleted++
+			continue
+		}
+		if err != nil {
+			return nil, deleted, fmt.Errorf("stat diagnostics target %q: %w", file, err)
+		}
+		if !info.Mode().IsRegular() {
+			return nil, deleted, fmt.Errorf("diagnostics target %q is not a regular file", file)
+		}
+		existing = append(existing, file)
+	}
+	return existing, deleted, nil
+}
+
+// backendTestWithGuardAndRaceArgs 构造一次 guard 后依次运行普通与 race 测试的参数。
+func backendTestWithGuardAndRaceArgs(plan gatePlan) ([]string, error) {
+	racePackages := affectedRacePackagesForPlan(plan)
+	if len(racePackages) == 0 || len(plan.AffectedGoPackages) == 0 {
+		return nil, errors.New("combined backend race gate requires normal and race packages")
+	}
+	args := append([]string{"./scripts/test_with_guard.sh", "--with-race"}, racePackages...)
+	args = append(args, "--")
+	args = append(args, plan.AffectedGoPackages...)
+	return append(args, "-count=1"), nil
 }
 
 // runWhitespaceCheck 根据 hook 显式传入的 staged 或 push-range 真值源检查空白错误。

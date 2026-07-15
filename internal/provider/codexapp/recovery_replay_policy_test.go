@@ -124,6 +124,69 @@ func TestRecoveryDoesNotReplayWhenProviderTurnStillActive(t *testing.T) {
 	recorder.assertNoReplayWhileActive(t)
 }
 
+type invalidThreadResultRecoveryRecorder struct {
+	activeTurnRecoveryRecorder
+	result json.RawMessage
+}
+
+func (r *invalidThreadResultRecoveryRecorder) handle(msg jsonRPCMessage) (json.RawMessage, bool) {
+	if len(msg.ID) == 0 {
+		return nil, false
+	}
+	switch msg.Method {
+	case "initialize":
+		r.incrementInitialize()
+		return mustJSON(map[string]any{"ok": true}), true
+	case "thread/resume":
+		r.incrementThreadResume()
+		return r.result, true
+	case "turn/status":
+		r.incrementTurnStatus()
+		return mustJSON(map[string]any{"turn": map[string]any{"active": false}}), true
+	case "turn/start":
+		return r.nextTurnStartResponse(), true
+	default:
+		return mustJSON(map[string]any{"ok": true}), true
+	}
+}
+
+func TestRecoveryInvalidThreadResultDoesNotUpdateOrReplay(t *testing.T) {
+	tests := []struct {
+		name   string
+		result json.RawMessage
+	}{
+		{name: "invalid result JSON", result: json.RawMessage(`"invalid"`)},
+		{name: "missing thread id", result: mustJSON(map[string]any{"thread": map[string]any{}})},
+		{name: "empty thread id", result: mustJSON(map[string]any{"thread": map[string]any{"id": "  "}})},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			recorder := &invalidThreadResultRecoveryRecorder{result: tt.result}
+			server := newCodexTestRPCServer(t, recorder.handle)
+			defer server.Close()
+			s := newRecoveryTestSession(t, server)
+			defer closeCodexTestSession(t, s)
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			defer cancel()
+			startRecoveryTestTurn(t, ctx, s)
+			prepareRecoveryReplayState(s)
+
+			if err := s.attemptRecovery("invalid resume result"); err == nil {
+				t.Fatal("attemptRecovery() error = nil, want invalid thread result error")
+			}
+			if got := s.ThreadID(); got != "thread-1" {
+				t.Fatalf("ThreadID() = %q, want unchanged thread-1", got)
+			}
+			recorder.mu.Lock()
+			turnStarts, turnStatusCalls := recorder.turnStarts, recorder.turnStatusCalls
+			recorder.mu.Unlock()
+			if turnStarts != 1 || turnStatusCalls != 0 {
+				t.Fatalf("recovery replay calls = turn/start:%d turn/status:%d, want 1 initial start and no replay", turnStarts, turnStatusCalls)
+			}
+		})
+	}
+}
+
 type completedTurnRecoveryRecorder struct {
 	activeTurnRecoveryRecorder
 }

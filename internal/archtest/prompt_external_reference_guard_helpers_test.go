@@ -2,8 +2,6 @@ package archtest_test
 
 import (
 	"fmt"
-	"os"
-	"path/filepath"
 	"regexp"
 	"slices"
 	"sort"
@@ -236,9 +234,6 @@ func internalToolsIn(text string) []string {
 }
 
 func allowedInternalToolUseInMigrationLiteral(name, literal string) bool {
-	if is0106DAGDesignerPromptTextReplacementLiteral(name, literal) {
-		return true
-	}
 	if is0108DAGDesignerPromptTextReplacementLiteral(name, literal) {
 		return true
 	}
@@ -479,25 +474,6 @@ func stripDollarQuote(raw string) string {
 		return raw
 	}
 	return raw[firstEnd:lastStart]
-}
-
-func readRollback0105Blocks(t *testing.T) string {
-	t.Helper()
-	data, err := os.ReadFile(filepath.Join(repoRoot(t), "migrations", "ROLLBACK.md"))
-	if err != nil {
-		t.Fatalf("read migrations/ROLLBACK.md: %v", err)
-	}
-	content := string(data)
-	const marker = "## 0105 — delete unused builtin prompt seeds"
-	_, rest, ok := strings.Cut(content, marker)
-	if !ok {
-		return ""
-	}
-	block, _, ok := strings.Cut(rest, "\n## ")
-	if ok {
-		return block
-	}
-	return rest
 }
 
 func containsString(values []string, target string) bool {

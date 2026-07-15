@@ -18,46 +18,48 @@ import (
 	"time"
 )
 
-func TestSQLLanguageServerNPMInstallRecipeStarts_E2E(t *testing.T) {
+func TestSqruffLSPStarts_E2E(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping mcp-lsp binary e2e test in short mode")
 	}
 
-	prefix := installSQLLanguageServerRecipeForE2E(t)
+	binDir := installSqruffForE2E(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
-	binary := filepath.Join(prefix, "node_modules", ".bin", mcpLSPExecutableFileName("sql-language-server"))
+	binary := filepath.Join(binDir, mcpLSPExecutableFileName("sqruff"))
 	version := exec.CommandContext(ctx, binary, "--version")
 	if out, err := version.CombinedOutput(); err != nil {
-		t.Fatalf("sql-language-server --version after recipe install: %v\n%s", err, out)
-	} else if !strings.Contains(string(out), "1.7.1") {
-		t.Fatalf("sql-language-server --version = %q, want 1.7.1", out)
+		t.Fatalf("sqruff --version after recipe install: %v\n%s", err, out)
+	} else if !strings.Contains(strings.ToLower(string(out)), "sqruff") {
+		t.Fatalf("sqruff --version = %q, want sqruff version output", out)
 	}
 
-	requireSQLLanguageServerInitialize(t, ctx, binary)
+	requireSqruffInitialize(t, ctx, binary)
 }
 
-func TestMcpLSPBinarySQLDiagnosticsAutoInstallsMissingLanguageServer_E2E(t *testing.T) {
+func TestMcpLSPBinarySQLiteDiagnosticsAutoInstallsMissingLanguageServer_E2E(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping mcp-lsp binary e2e test in short mode")
 	}
 	if runtime.GOOS == "windows" {
-		t.Skip("test uses POSIX shell scripts as fake npm and installed LSP binary")
+		t.Skip("test uses POSIX shell scripts as fake cargo and installed LSP binary")
 	}
 
 	binary := buildMcpLSPBinaryForTest(t)
 	root := t.TempDir()
 	target := writeBinaryColdStartSQLFixture(t, root)
+	writeBinaryColdStartFile(t, root, "sqlc.yaml", "version: \"2\"\nsql:\n  - engine: sqlite\n    queries: .\n")
+	writeBinaryColdStartFile(t, root, ".sqruff", "[sqruff]\ndialect = sqlite\nrules =\n")
 	binDir := t.TempDir()
-	marker := filepath.Join(t.TempDir(), "npm-args")
-	writeFakeSQLAutoInstallNPM(t, binDir)
+	marker := filepath.Join(t.TempDir(), "cargo-args")
+	writeFakeSQLAutoInstallCargo(t, binDir)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	defer cancel()
 	client := startMcpLSPBinaryForTestWithEnv(t, ctx, binary, root, binDir, []string{
 		"PATH=" + binDir,
 		"FAKE_SQL_INSTALL_BIN=" + binDir,
-		"FAKE_SQL_NPM_MARKER=" + marker,
+		"FAKE_SQL_CARGO_MARKER=" + marker,
 	})
 	defer client.close(t)
 
@@ -67,31 +69,26 @@ func TestMcpLSPBinarySQLDiagnosticsAutoInstallsMissingLanguageServer_E2E(t *test
 		"file_path": target,
 	})
 	requireMCPToolSuccess(t, client, diagnostics, "sql diagnostics after auto-install")
-	requireFakeSQLNPMArgs(t, marker)
+	requireFakeSQLCargoArgs(t, marker)
 
 	payload := decodeDiagnosticsStructuredContent(t, diagnostics.Result.StructuredContent)
-	if !payload.HasFile(target) {
-		t.Fatalf("sql diagnostics missing target %s: payload=%#v raw=%s text=%q stderr=%s",
-			target, payload, diagnostics.Result.StructuredContent,
-			diagnostics.Result.ContentText(), client.stderrString())
-	}
-	message := payload.FirstMessageForFile(t, target)
-	if !strings.Contains(message, "fake cold-start diagnostic for sql") {
-		t.Fatalf("sql diagnostics message = %q, want fake SQL diagnostic; raw=%s stderr=%s",
-			message, diagnostics.Result.StructuredContent, client.stderrString())
+	if payload.Total != 0 || payload.HasFile(target) {
+		t.Fatalf("valid SQLite diagnostics after auto-install = %#v, want no diagnostics; raw=%s stderr=%s",
+			payload, diagnostics.Result.StructuredContent, client.stderrString())
 	}
 }
 
-func TestMcpLSPBinarySQLDiagnosticsWithRealLanguageServer_E2E(t *testing.T) {
+func TestMcpLSPBinarySQLiteDiagnosticsWithRealLanguageServer_E2E(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping mcp-lsp binary e2e test in short mode")
 	}
 
-	prefix := installSQLLanguageServerRecipeForE2E(t)
+	sqlBinDir := installSqruffForE2E(t)
 	binary := buildMcpLSPBinaryForTest(t)
 	root := t.TempDir()
 	target := writeBinaryColdStartSQLFixture(t, root)
-	sqlBinDir := filepath.Join(prefix, "node_modules", ".bin")
+	writeBinaryColdStartFile(t, root, "sqlc.yaml", "version: \"2\"\nsql:\n  - engine: sqlite\n    queries: .\n")
+	writeBinaryColdStartFile(t, root, ".sqruff", "[sqruff]\ndialect = sqlite\nrules =\n")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	defer cancel()
@@ -108,9 +105,110 @@ func TestMcpLSPBinarySQLDiagnosticsWithRealLanguageServer_E2E(t *testing.T) {
 	requireMCPToolSuccess(t, client, diagnostics, "real sql diagnostics")
 }
 
-func requireSQLLanguageServerInitialize(t *testing.T, ctx context.Context, binary string) {
+func TestMcpLSPBinarySQLiteInvalidSQLProducesRealDiagnostic_E2E(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping mcp-lsp binary e2e test in short mode")
+	}
+
+	sqlBinDir := installSqruffForE2E(t)
+	binary := buildMcpLSPBinaryForTest(t)
+	root := t.TempDir()
+	target := writeBinaryColdStartFile(t, root, "queries/invalid.sql", "SELECT (\n")
+	writeBinaryColdStartFile(t, root, "sqlc.yaml", "version: \"2\"\nsql:\n  - engine: sqlite\n    queries: queries\n")
+	writeBinaryColdStartFile(t, root, ".sqruff", "[sqruff]\ndialect = sqlite\nrules =\n")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	defer cancel()
+	client := startMcpLSPBinaryForTestWithEnv(t, ctx, binary, root, sqlBinDir, []string{
+		"PATH=" + sqlBinDir + string(os.PathListSeparator) + os.Getenv("PATH"),
+	})
+	defer client.close(t)
+	client.call(t, "initialize", map[string]any{"protocolVersion": "2024-11-05"})
+	diagnostics := client.callTool(t, "file", map[string]any{
+		"action":    "diagnostics",
+		"file_path": target,
+	})
+	requireMCPToolSuccess(t, client, diagnostics, "invalid SQLite diagnostics")
+	payload := decodeDiagnosticsStructuredContent(t, diagnostics.Result.StructuredContent)
+	if payload.Total == 0 || !payload.HasFile(target) {
+		t.Fatalf("invalid SQLite SQL produced no parser diagnostic: payload=%#v raw=%s stderr=%s", payload, diagnostics.Result.StructuredContent, client.stderrString())
+	}
+}
+
+func TestMcpLSPBinarySQLiteDiagnosticsAutoInstallsWithRealCargo_E2E(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping mcp-lsp binary e2e test in short mode")
+	}
+	if runtime.GOOS == "windows" {
+		t.Skip("test uses POSIX PATH isolation")
+	}
+
+	binary := buildMcpLSPBinaryForTest(t)
+	root := t.TempDir()
+	target := writeBinaryColdStartSQLFixture(t, root)
+	writeBinaryColdStartFile(t, root, "sqlc.yaml", "version: \"2\"\nsql:\n  - engine: sqlite\n    queries: .\n")
+	writeBinaryColdStartFile(t, root, ".sqruff", "[sqruff]\ndialect = sqlite\nrules =\n")
+	cargoHome := filepath.Join(t.TempDir(), "cargo-home")
+	toolBin := symlinkHostToolsForE2E(t, "cargo", "rustc", "rustup")
+	path := filepath.Join(cargoHome, "bin") + string(os.PathListSeparator) + toolBin + string(os.PathListSeparator) + "/usr/bin:/bin"
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
+	defer cancel()
+	client := startMcpLSPBinaryForTestWithEnv(t, ctx, binary, root, t.TempDir(), []string{
+		"PATH=" + path,
+		"CARGO_HOME=" + cargoHome,
+	})
+	defer client.close(t)
+	client.call(t, "initialize", map[string]any{"protocolVersion": "2024-11-05"})
+	diagnostics := client.callTool(t, "file", map[string]any{
+		"action":    "diagnostics",
+		"file_path": target,
+	})
+	requireMCPToolSuccess(t, client, diagnostics, "SQLite diagnostics after real Cargo auto-install")
+	installed := filepath.Join(cargoHome, "bin", "sqruff")
+	if out, err := exec.CommandContext(ctx, installed, "--version").CombinedOutput(); err != nil {
+		t.Fatalf("real Cargo-installed sqruff --version: %v\n%s", err, out)
+	} else if !strings.Contains(string(out), sqruffInstallVersion) {
+		t.Fatalf("real Cargo-installed sqruff version = %q, want %s", out, sqruffInstallVersion)
+	}
+}
+
+func TestMcpLSPBinarySQLDiagnosticsAcceptsSQLiteQuestionMarkPlaceholder_E2E(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping mcp-lsp binary e2e test in short mode")
+	}
+
+	sqlBinDir := installSqruffForE2E(t)
+	binary := buildMcpLSPBinaryForTest(t)
+	root := t.TempDir()
+	writeBinaryColdStartFile(t, root, "sqlc.yaml", "version: \"2\"\nsql:\n  - engine: \"sqlite\"\n    queries: \"cmd/mcp-orch/sql/queries\"\n")
+	writeBinaryColdStartFile(t, root, ".sqruff", "[sqruff]\ndialect = sqlite\nrules =\n")
+	target := writeBinaryColdStartFile(t, root, "cmd/mcp-orch/sql/queries/command_card.sql", "-- name: GetCommandCard :one\nSELECT id\nFROM command_cards\nWHERE card_key = ?;\n")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	defer cancel()
+	client := startMcpLSPBinaryForTestWithEnv(t, ctx, binary, root, sqlBinDir, []string{
+		"PATH=" + sqlBinDir + string(os.PathListSeparator) + os.Getenv("PATH"),
+	})
+	defer client.close(t)
+
+	client.call(t, "initialize", map[string]any{"protocolVersion": "2024-11-05"})
+	diagnostics := client.callTool(t, "file", map[string]any{
+		"action":    "diagnostics",
+		"file_path": target,
+	})
+	requireMCPToolSuccess(t, client, diagnostics, "SQLite question-mark placeholder diagnostics")
+
+	payload := decodeDiagnosticsStructuredContent(t, diagnostics.Result.StructuredContent)
+	if payload.Total != 0 || payload.HasFile(target) {
+		t.Fatalf("valid SQLite question-mark placeholder produced diagnostics: payload=%#v raw=%s text=%q stderr=%s",
+			payload, diagnostics.Result.StructuredContent, diagnostics.Result.ContentText(), client.stderrString())
+	}
+}
+
+func requireSqruffInitialize(t *testing.T, ctx context.Context, binary string) {
 	t.Helper()
-	proc := startSQLLanguageServerProcessForE2E(t, ctx, binary)
+	proc := startSqruffProcessForE2E(t, ctx, binary)
 	defer proc.close(t)
 	writeSQLInitializeRequest(t, proc)
 	response := readSQLInitializeResponse(t, proc)
@@ -125,24 +223,24 @@ type sqlLanguageServerProcess struct {
 	waiters *sync.WaitGroup
 }
 
-func startSQLLanguageServerProcessForE2E(t *testing.T, ctx context.Context, binary string) *sqlLanguageServerProcess {
+func startSqruffProcessForE2E(t *testing.T, ctx context.Context, binary string) *sqlLanguageServerProcess {
 	t.Helper()
-	cmd := exec.CommandContext(ctx, binary, "up", "--method", "stdio")
+	cmd := exec.CommandContext(ctx, binary, "lsp")
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
-		t.Fatalf("sql-language-server stdin pipe: %v", err)
+		t.Fatalf("sqruff stdin pipe: %v", err)
 	}
 	stdoutPipe, err := cmd.StdoutPipe()
 	if err != nil {
-		t.Fatalf("sql-language-server stdout pipe: %v", err)
+		t.Fatalf("sqruff stdout pipe: %v", err)
 	}
 	stderrPipe, err := cmd.StderrPipe()
 	if err != nil {
-		t.Fatalf("sql-language-server stderr pipe: %v", err)
+		t.Fatalf("sqruff stderr pipe: %v", err)
 	}
 	var stderr lockedStringBuilder
 	if err := cmd.Start(); err != nil {
-		t.Fatalf("start sql-language-server: %v", err)
+		t.Fatalf("start sqruff: %v", err)
 	}
 	var waiters sync.WaitGroup
 	waiters.Go(func() {
@@ -218,61 +316,61 @@ func (p *sqlLanguageServerProcess) close(t *testing.T) {
 	p.waiters.Wait()
 }
 
-func installSQLLanguageServerRecipeForE2E(t *testing.T) string {
+func installSqruffForE2E(t *testing.T) string {
 	t.Helper()
-	prefix := t.TempDir()
+	venv := filepath.Join(t.TempDir(), "venv")
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
-	install := exec.CommandContext(ctx, "npm", "install", "--prefix", prefix, "sql-language-server", "vscode-languageserver-protocol@3.17.5", "vscode-jsonrpc@8.2.0")
-	if out, err := install.CombinedOutput(); err != nil {
-		t.Fatalf("install SQL language server recipe: %v\n%s", err, out)
+	create := exec.CommandContext(ctx, "python3", "-m", "venv", venv)
+	if out, err := create.CombinedOutput(); err != nil {
+		t.Fatalf("create sqruff test venv: %v\n%s", err, out)
 	}
-	return prefix
+	binDir := filepath.Join(venv, "bin")
+	if runtime.GOOS == "windows" {
+		binDir = filepath.Join(venv, "Scripts")
+	}
+	install := exec.CommandContext(ctx, filepath.Join(binDir, mcpLSPExecutableFileName("pip")), "install", "sqruff=="+sqruffInstallVersion)
+	if out, err := install.CombinedOutput(); err != nil {
+		t.Fatalf("install sqruff test backend: %v\n%s", err, out)
+	}
+	return binDir
 }
 
-func writeFakeSQLAutoInstallNPM(t *testing.T, binDir string) {
+func writeFakeSQLAutoInstallCargo(t *testing.T, binDir string) {
 	t.Helper()
-	path := filepath.Join(binDir, "npm")
+	path := filepath.Join(binDir, "cargo")
 	script := `#!/bin/sh
 set -eu
 case " $* " in
-  *" sql-language-server "*) ;;
-  *) echo "missing sql-language-server install arg: $*" >&2; exit 1 ;;
+  *" sqruff "*) ;;
+  *) echo "missing sqruff install arg: $*" >&2; exit 1 ;;
 esac
-case " $* " in
-  *" vscode-languageserver-protocol@3.17.5 "*) ;;
-  *) echo "missing pinned vscode-languageserver-protocol install arg: $*" >&2; exit 1 ;;
-esac
-case " $* " in
-  *" vscode-jsonrpc@8.2.0 "*) ;;
-  *) echo "missing pinned vscode-jsonrpc install arg: $*" >&2; exit 1 ;;
-esac
-printf '%s\n' "$*" > "$FAKE_SQL_NPM_MARKER"
-/bin/cat > "$FAKE_SQL_INSTALL_BIN/sql-language-server" <<'EOF'
+printf '%s\n' "$*" > "$FAKE_SQL_CARGO_MARKER"
+/bin/cat > "$FAKE_SQL_INSTALL_BIN/sqruff" <<'EOF'
 #!/bin/sh
 if [ "${1:-}" = "--version" ]; then
-  echo "1.7.1"
+  echo "sqruff 0.38.0"
   exit 0
 fi
 MCP_LSP_FAKE_MULTILANG_DIAGNOSTICS=1 exec ` + shellQuote(os.Args[0]) + ` -test.run=TestFakeMultilangDiagnosticsLangserverHelper -- "$@"
 EOF
-/bin/chmod +x "$FAKE_SQL_INSTALL_BIN/sql-language-server"
+/bin/chmod +x "$FAKE_SQL_INSTALL_BIN/sqruff"
 `
 	if err := os.WriteFile(path, []byte(script), 0o700); err != nil {
-		t.Fatalf("write fake npm: %v", err)
+		t.Fatalf("write fake cargo: %v", err)
 	}
 }
 
-func requireFakeSQLNPMArgs(t *testing.T, marker string) {
+func requireFakeSQLCargoArgs(t *testing.T, marker string) {
 	t.Helper()
 	raw, err := os.ReadFile(marker)
 	if err != nil {
-		t.Fatalf("read fake npm marker: %v", err)
+		t.Fatalf("read fake cargo marker: %v", err)
 	}
 	args := string(raw)
-	for _, want := range []string{"install", "-g", "sql-language-server", "vscode-languageserver-protocol@3.17.5", "vscode-jsonrpc@8.2.0"} {
+	for _, want := range []string{"install", "sqruff", "--version", sqruffInstallVersion, "--locked"} {
 		if !strings.Contains(args, want) {
-			t.Fatalf("fake npm args = %q, missing %q", args, want)
+			t.Fatalf("fake cargo args = %q, missing %q", args, want)
 		}
 	}
 }

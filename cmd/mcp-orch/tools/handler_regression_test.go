@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"reflect"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
@@ -276,6 +277,31 @@ func TestHandleCreateDAGAcceptsFlatScheduleAndNodeExecution(t *testing.T) {
 	}
 	assertJSONEqual(t, got.Metadata, `{"schedule":{"trigger":"manual","default_retry":2,"max_concurrency":3}}`)
 	assertJSONEqual(t, got.Nodes[0].Config, `{"execution":{"retry":1,"timeout_sec":30}}`)
+}
+
+func TestHandleCreateDAGRejectsUnsupportedExecutionFields(t *testing.T) {
+	handler := HandleCreateDAG(&golden.OrchestrationStub{})
+	tests := []struct {
+		name  string
+		field string
+		node  string
+	}{
+		{name: "flat on_failure", field: "on_failure", node: `"on_failure":"fail_fast"`},
+		{name: "flat pool", field: "pool", node: `"pool":"default"`},
+		{name: "flat priority", field: "priority", node: `"priority":1`},
+		{name: "nested on_failure", field: "on_failure", node: `"execution":{"on_failure":"fail_fast"}`},
+		{name: "nested pool", field: "pool", node: `"execution":{"pool":"default"}`},
+		{name: "nested priority", field: "priority", node: `"execution":{"priority":1}`},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			input := `{"agent_id":"designer-1","dag_key":"dag-unsupported","title":"Unsupported","nodes":[{"node_key":"n","title":"N",` + test.node + `}]}`
+			_, err := handler(context.Background(), json.RawMessage(input))
+			if err == nil || !strings.Contains(err.Error(), `unknown field "`+test.field+`"`) {
+				t.Fatalf("HandleCreateDAG() error = %v, want unknown field %q", err, test.field)
+			}
+		})
+	}
 }
 
 func TestHandleCreateDAGRejectsFlatScheduleConflict(t *testing.T) {

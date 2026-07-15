@@ -7,7 +7,7 @@
 > [!IMPORTANT]
 > **メンテナー宣言：オリジナルコードとプロジェクト固有ドキュメントは 100% AI が記述し、人間が方向を定め、リポジトリが守ります。** Product code、test code、プロジェクト固有ドキュメントは、すべて AI エージェントが記述またはリファクタリングしています。Product intent、architecture decision、credential、release の責任は人間が負います。AI が作者であることは無謬性を意味しません。受け入れられるすべての変更には、リポジトリが所有する evidence と gate が引き続き必要です。上流由来の法的文書およびコミュニティ文書は、元の帰属表示を維持します。
 
-**Local-first な delivery enforcement。** 日常の commit と push の受け入れは、version 管理された [Git hooks](.githooks/README.md) が強制し、有料の GitHub-hosted CI には依存しません。`pre-commit` は staged snapshot、AI maintenance rule、repository 全体の guard、影響を受ける code を検査します。`commit-msg` は fix commit に regression evidence を要求し、`pre-push` は現在の `HEAD` の push range を検証して、影響を受ける package と contract の check を実行します。Race test、deferred Provider E2E、security scan、release check は、日常の hook path に含まれると誇張せず、明示的な別 gate として扱います。
+**Local-first な delivery enforcement。** 日常の commit と push の受け入れは、version 管理された [Git hooks](.githooks/README.md) が強制し、有料の GitHub-hosted CI には依存しません。`pre-commit` は staged snapshot、AI maintenance rule、repository 全体の guard、影響を受ける code を検査します。`commit-msg` は fix commit に regression evidence を要求し、`pre-push` は現在の `HEAD` の push range を検証し、影響を受ける package と contract、Go package の nilness、登録済み concurrent surface の Race test を検査します。Deferred Provider E2E、`gosec`/security scan、release check は明示的な別 gate のままです。
 
 Super Dolphin Agent は、**production-grade で AI-native な vibe-coding engineering system と multi-agent development control plane**です。ローカルデスクトップ runtime、MCP orchestration、多言語 LSP navigation、Provider integration、永続 workflow、機械的に強制される engineering boundary を、一つの動作する参照実装に統合します。
 

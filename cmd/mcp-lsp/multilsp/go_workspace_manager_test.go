@@ -39,7 +39,7 @@ func TestGoWorkWorkspaceFolderInitializeAndEnv(t *testing.T) {
 	if call.rootDir != repo {
 		t.Fatalf("gopls rootDir = %q, want %q", call.rootDir, repo)
 	}
-	if !reflect.DeepEqual(call.env, []string{"GOWORK=" + filepath.Join(repo, "go.work")}) {
+	if !reflect.DeepEqual(call.env, hostGoEnv("GOWORK="+filepath.Join(repo, "go.work"))) {
 		t.Fatalf("gopls env = %#v", call.env)
 	}
 	client := factory.clientAt(t, 0)
@@ -145,7 +145,7 @@ func TestGOWORKOffManagerEnvIgnoresGoWork(t *testing.T) {
 	if call.rootDir != backend {
 		t.Fatalf("GOWORK=off should initialize at module root %q, got %q", backend, call.rootDir)
 	}
-	if !reflect.DeepEqual(call.env, []string{"GOWORK=off"}) {
+	if !reflect.DeepEqual(call.env, hostGoEnv("GOWORK=off")) {
 		t.Fatalf("GOWORK=off client env = %#v", call.env)
 	}
 	assertFolderURIs(t, factory.clientAt(t, 0).initializedFolders, []string{backend})
@@ -365,7 +365,7 @@ func assertRecycledGoWorkspaceReplacement(t *testing.T, factory *goWorkspaceClie
 	if call.rootDir != repo {
 		t.Fatalf("recycled gopls rootDir = %q, want %q", call.rootDir, repo)
 	}
-	if !reflect.DeepEqual(call.env, []string{"GOWORK=" + goWorkPath}) {
+	if !reflect.DeepEqual(call.env, hostGoEnv("GOWORK="+goWorkPath)) {
 		t.Fatalf("recycled gopls env = %#v", call.env)
 	}
 	recycledClient := factory.clientAt(t, 1)

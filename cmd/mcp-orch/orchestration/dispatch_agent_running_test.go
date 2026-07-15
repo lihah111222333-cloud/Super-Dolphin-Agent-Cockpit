@@ -2,11 +2,11 @@ package orchestration
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"strings"
 	"testing"
 
-	"github.com/jackc/pgx/v5"
 	orchmetrics "github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-orch/orchestration/metrics"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-orch/orchestration/nodeexec"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-orch/store/taskdag"
@@ -71,7 +71,7 @@ func TestDispatchAgent_RaceWindowD_NoRowsIsSilent(t *testing.T) {
 			Config:   testRawConfig(t, `{"exec":{"agent_key":"alpha","cwd":"/tmp/node-cwd"},"first_turn":"hi"}`),
 			Status:   "ready",
 		}},
-		runningStatusErr: pgx.ErrNoRows,
+		runningStatusErr: sql.ErrNoRows,
 	}
 	router := NewNodeExecutorRouter(store, agentExec, nil, nil, nil, nil)
 

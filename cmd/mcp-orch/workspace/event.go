@@ -32,8 +32,8 @@ type WorkspaceRunCreated struct {
 	CreatedBy     string          `json:"created_by,omitempty"`
 	UpdatedBy     string          `json:"updated_by,omitempty"`
 	Metadata      json.RawMessage `json:"metadata,omitempty"`
-	CreatedAt     time.Time       `json:"created_at,omitempty"`
-	UpdatedAt     time.Time       `json:"updated_at,omitempty"`
+	CreatedAt     time.Time       `json:"created_at"`
+	UpdatedAt     time.Time       `json:"updated_at"`
 	FinishedAt    *time.Time      `json:"finished_at,omitempty"`
 }
 

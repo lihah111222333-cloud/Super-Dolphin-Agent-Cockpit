@@ -26,6 +26,7 @@ lsp_dir="${SUPER_DOLPHIN_LSP_BUNDLE_DIR:-$root/.build-cache/lsp/$lsp_profile/$pl
 default_node_dist="$(node -p 'require("path").dirname(require("path").dirname(process.execPath))' 2>/dev/null || true)"
 node_src="${SUPER_DOLPHIN_NODE_DIST:-$default_node_dist}"
 gopls_bin="${SUPER_DOLPHIN_GOPLS_BIN:-$(command -v gopls || true)}"
+sqruff_bin="${SUPER_DOLPHIN_SQRUFF_BIN:-$(command -v sqruff || true)}"
 go_toolchain_src="${SUPER_DOLPHIN_GO_TOOLCHAIN_DIR:-$(go env GOROOT)}"
 jdtls_home="${SUPER_DOLPHIN_JDTLS_HOME:-/opt/homebrew/Cellar/jdtls/1.58.0/libexec}"
 jdk_home="${SUPER_DOLPHIN_JDK_HOME:-/opt/homebrew/opt/openjdk/libexec/openjdk.jdk/Contents/Home}"
@@ -76,12 +77,11 @@ chmod +x "$lsp_dir/node/bin/node"
 test -x "$npm_bin" || { echo "missing npm; set SUPER_DOLPHIN_NPM_BIN" >&2; exit 1; }
 echo "==> installing Node-based LSP packages with host npm: $npm_bin"
 "$npm_bin" install --prefix "$lsp_dir" \
-  typescript-language-server \
-  typescript \
+  typescript-language-server@5.3.0 \
+  typescript@5.9.3 \
   vscode-langservers-extracted \
   pyright \
   bash-language-server \
-  sql-language-server \
   shellcheck \
   @ast-grep/cli
 
@@ -112,7 +112,6 @@ WRAP
 write_node_wrapper typescript-language-server typescript-language-server/lib/cli.mjs
 write_node_wrapper vscode-css-language-server vscode-langservers-extracted/bin/vscode-css-language-server
 write_node_wrapper pyright-langserver pyright/langserver.index.js
-write_node_wrapper sql-language-server sql-language-server/npm_bin/cli.js
 
 write_path_wrapper() {
   local name="$1"
@@ -135,9 +134,11 @@ write_path_wrapper shellcheck node_modules/shellcheck/bin/shellcheck
 echo "==> copying native LSP servers"
 test -x "$gopls_bin" || { echo "missing gopls: $gopls_bin" >&2; exit 1; }
 test -x "$rust_analyzer_bin" || { echo "missing rust-analyzer: $rust_analyzer_bin" >&2; exit 1; }
+test -x "$sqruff_bin" || { echo "missing sqruff; set SUPER_DOLPHIN_SQRUFF_BIN" >&2; exit 1; }
 cp "$gopls_bin" "$lsp_dir/bin/gopls"
 cp "$rust_analyzer_bin" "$lsp_dir/bin/rust-analyzer"
-chmod +x "$lsp_dir/bin/gopls" "$lsp_dir/bin/rust-analyzer"
+cp "$sqruff_bin" "$lsp_dir/bin/sqruff"
+chmod +x "$lsp_dir/bin/gopls" "$lsp_dir/bin/rust-analyzer" "$lsp_dir/bin/sqruff"
 
 copy_go_toolchain() {
   test -x "$go_toolchain_src/bin/go" || { echo "missing Go toolchain: $go_toolchain_src/bin/go" >&2; exit 1; }
@@ -257,7 +258,7 @@ lsp_specs=(
   'pyright|bin/pyright-langserver|["python"]'
   'rust-analyzer|bin/rust-analyzer|["rust"]'
   'bash-language-server|bin/bash-language-server|["shellscript"]'
-  'sql-language-server|bin/sql-language-server|["sql"]'
+  'sqruff|bin/sqruff|["sql"]'
   'shellcheck|bin/shellcheck|["shellcheck"]'
   'sg|bin/sg|["ast-grep"]'
   'go|bin/go|["go-toolchain"]'

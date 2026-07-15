@@ -393,7 +393,7 @@ func TestProjectMapFingerprintIncludesActiveIndex(t *testing.T) {
 	}
 }
 
-func TestProjectMapFingerprintIncludesUTCDay(t *testing.T) {
+func TestProjectMapFingerprintIsStableAcrossUTCDay(t *testing.T) {
 	scope := runGateCacheGit(t, ".", "write-tree")
 	dayOne := time.Date(2026, 7, 15, 23, 59, 0, 0, time.UTC)
 	first, err := fingerprintGateInputsAt(scope, "project-map:check", gatePlan{}, dayOne)
@@ -404,8 +404,8 @@ func TestProjectMapFingerprintIncludesUTCDay(t *testing.T) {
 	if err != nil {
 		t.Fatalf("next-day project-map fingerprint: %v", err)
 	}
-	if first == second {
-		t.Fatal("UTC day change did not invalidate project-map fingerprint")
+	if first != second {
+		t.Fatal("UTC day change invalidated deterministic project-map fingerprint")
 	}
 }
 
@@ -423,7 +423,7 @@ func TestNewGateResultCacheRejectsInvalidScope(t *testing.T) {
 }
 
 func TestNewGateResultCacheRejectsRealOrMismatchedIndex(t *testing.T) {
-	scope := runGateCacheGit(t, ".", "write-tree")
+	scope := runGateCacheGit(t, ".", "rev-parse", "HEAD^{tree}")
 	realGitDir := runGateCacheGit(t, ".", "rev-parse", "--absolute-git-dir")
 	t.Setenv("GIT_INDEX_FILE", filepath.Join(realGitDir, "index"))
 	if _, err := newGateResultCache(t.TempDir(), time.Minute, scope); err == nil || !strings.Contains(err.Error(), "isolated") {

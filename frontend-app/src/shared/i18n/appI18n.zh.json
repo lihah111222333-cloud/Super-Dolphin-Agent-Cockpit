@@ -609,13 +609,6 @@
         "status": "已连接",
         "size": "1.2 GB"
       },
-      "postgres": {
-        "title": "PostgreSQL 结构化数据",
-        "description": "本地 PostgreSQL 数据库，存储系统核心元数据与分析表结构。",
-        "type": "关系型数据库",
-        "status": "运行中",
-        "size": "124 表"
-      },
       "shared_files": {
         "title": "共享文件存储",
         "description": "保存项目共享的最终产物和工作文件目录，支持多项目隔离管理。",

@@ -1,1 +1,0 @@
- D:; cd D:\Super-Dolphin; $env:PATH='C:\Program Files\nodejs;C:\Program Files\Go\bin;' + $env:PATH; Remove-Item Env:\DATABASE_URL -ErrorAction SilentlyContinue; Remove-Item Env:\POSTGRES_CONNECTION_STRING -ErrorAction SilentlyContinue; powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\run-new-ui-desktop.ps1

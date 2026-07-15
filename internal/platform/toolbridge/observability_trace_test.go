@@ -5,6 +5,8 @@ import (
 	"context"
 	"encoding/json"
 	"log/slog"
+	"os"
+	"os/exec"
 	"strings"
 	"testing"
 
@@ -13,6 +15,8 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/mcpcontrol"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/observability"
 )
+
+const toolTraceRecordErrorChildEnv = "TOOLBRIDGE_TRACE_RECORD_ERROR_CHILD"
 
 func TestHandleToolCallRecordsSummaryOnlyTraceEvents(t *testing.T) {
 	tracer := newToolbridgeTraceService(t)
@@ -46,6 +50,19 @@ func TestHandleToolCallRecordsSummaryOnlyTraceEvents(t *testing.T) {
 }
 
 func TestRecordToolTraceLogsRecordErrors(t *testing.T) {
+	if os.Getenv(toolTraceRecordErrorChildEnv) == "1" {
+		assertRecordToolTraceLogsRecordError(t)
+		return
+	}
+	cmd := exec.Command(os.Args[0], "-test.run=^TestRecordToolTraceLogsRecordErrors$")
+	cmd.Env = append(os.Environ(), toolTraceRecordErrorChildEnv+"=1")
+	if output, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("record tool trace child test failed: %v\n%s", err, output)
+	}
+}
+
+func assertRecordToolTraceLogsRecordError(t *testing.T) {
+	t.Helper()
 	cfg, err := observability.ParseConfig(observability.EnvMap{"OBS_TRACING_ENABLED": "1", "OBS_INDEX_MAX_EVENTS": "10", "OBS_INDEX_MAX_TRACE_EVENTS": "10", "OBS_INDEX_MAX_THREAD_EVENTS": "10"})
 	if err != nil {
 		t.Fatalf("ParseConfig: %v", err)

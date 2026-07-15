@@ -5,15 +5,15 @@
   "rules_sources": [
     ".ai-project-map.overrides.json"
   ],
-  "files": 4588,
+  "files": 4449,
   "domains": {
-    "docs-agent": 927,
-    "other": 643,
+    "docs-agent": 930,
+    "other": 647,
     "app-ui": 525,
-    "platform-provider": 1030,
-    "orchestration": 418,
-    "modules": 730,
-    "store-sql": 315
+    "platform-provider": 1023,
+    "orchestration": 391,
+    "modules": 729,
+    "store-sql": 204
   },
   "index_files": {
     "map_markdown": "docs/doc/codemap/project-map/AI_PROJECT_MAP.md",
@@ -29,57 +29,56 @@
       {
         "key": "orchestration",
         "file": "docs/doc/codemap/project-map/index/orchestration.tsv",
-        "file_count": 418,
-        "size_kb": 93.8,
+        "file_count": 391,
+        "size_kb": 88,
         "desc": "mcp-orch 编排 peer、DAG、workspace、prompt、command、shared-file 工具"
       },
       {
         "key": "modules",
         "file": "docs/doc/codemap/project-map/index/modules.tsv",
-        "file_count": 730,
-        "size_kb": 142.2,
+        "file_count": 729,
+        "size_kb": 142.1,
         "desc": "业务模块层：dashboard、memory、prompt、skill、thread、turn、uistate 等"
       },
       {
         "key": "platform-provider",
         "file": "docs/doc/codemap/project-map/index/platform-provider.tsv",
-        "file_count": 1030,
-        "size_kb": 189.8,
+        "file_count": 1023,
+        "size_kb": 188.2,
         "desc": "基础设施与 provider 集成：RPC、hooks、toolbridge、Claude/Codex/统一 provider"
       },
       {
         "key": "store-sql",
         "file": "docs/doc/codemap/project-map/index/store-sql.tsv",
-        "file_count": 315,
-        "size_kb": 46.8,
+        "file_count": 204,
+        "size_kb": 29.8,
         "desc": "持久化层：store、sqlc、SQL queries、migrations"
       },
       {
         "key": "docs-agent",
         "file": "docs/doc/codemap/project-map/index/docs-agent.tsv",
-        "file_count": 927,
-        "size_kb": 165.6,
+        "file_count": 930,
+        "size_kb": 166.3,
         "desc": "代码地图、ADR/决策、计划与 docs 项目知识"
       },
       {
         "key": "other",
         "file": "docs/doc/codemap/project-map/index/other.tsv",
-        "file_count": 643,
-        "size_kb": 125.6,
+        "file_count": 647,
+        "size_kb": 126.2,
         "desc": "公共库、脚本、测试、配置与其他根级资源"
       }
     ]
   },
   "module_counts": {
     "(root)": 12,
-    "cmd": 669,
-    "docs": 919,
+    "cmd": 648,
+    "docs": 922,
     "frontend-app": 523,
-    "internal": 2151,
-    "migrations": 112,
-    "pkg": 29,
-    "scripts": 124,
-    "sql": 30,
+    "internal": 2139,
+    "pkg": 30,
+    "scripts": 127,
+    "sql": 29,
     "test": 9,
     "tests": 1,
     "third_party": 9
@@ -234,16 +233,15 @@
   ],
   "drift": {
     "status": "OK",
-    "unknown_ratio": 0.0026,
-    "unknown_files": 12,
+    "unknown_ratio": 0.0025,
+    "unknown_files": 11,
     "thresholds": {
       "max_unknown_ratio": 0.05
     },
     "warnings": [],
     "top_unknown_modules": {
       "cmd": 9,
-      "internal": 2,
-      "sql": 1
+      "internal": 2
     }
   }
 }

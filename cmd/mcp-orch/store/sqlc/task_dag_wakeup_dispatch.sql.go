@@ -12,8 +12,8 @@ import (
 
 const bindTaskDagWakeupTurn = `-- name: BindTaskDagWakeupTurn :execrows
 UPDATE task_dag_wakeups
-SET bound_turn_id = ?, turn_bound_at = (CAST(strftime('%s','now') AS INTEGER) * 1000), updated_at = (CAST(strftime('%s','now') AS INTEGER) * 1000)
-WHERE id = ? AND status = 'sent' AND sent_at IS NOT NULL AND bound_turn_id IS NULL
+SET bound_turn_id = ?1, turn_bound_at = (CAST(strftime('%s','now') AS INTEGER) * 1000), updated_at = (CAST(strftime('%s','now') AS INTEGER) * 1000)
+WHERE id = ?2 AND status = 'sent' AND sent_at IS NOT NULL AND bound_turn_id IS NULL
 `
 
 type BindTaskDagWakeupTurnParams struct {
@@ -29,15 +29,16 @@ func (q *Queries) BindTaskDagWakeupTurn(ctx context.Context, arg BindTaskDagWake
 	return result.RowsAffected()
 }
 
-const claimDueTaskDagWakeups = `-- name: ClaimDueTaskDagWakeups :many
+const claimDueTaskDagWakeups = `-- name: ClaimDueTaskDagWakeups :execrows
 UPDATE task_dag_wakeups
 SET status = 'dispatching',
-    claimed_at = (CAST(strftime('%s','now') AS INTEGER) * 1000),
-    claimed_by = ?1,
-    lease_expires_at = (CAST(strftime('%s','now') AS INTEGER) * 1000) + ?2,
+    claimed_at = ?1,
+    claimed_by = ?2,
+    lease_expires_at = ?3,
     attempt_count = attempt_count + 1,
     updated_at = (CAST(strftime('%s','now') AS INTEGER) * 1000)
-WHERE id IN (
+WHERE
+  id IN (
     SELECT w.id
     FROM task_dag_wakeups w
     WHERE w.status = 'pending'
@@ -45,8 +46,8 @@ WHERE id IN (
       AND (
         trim(w.dag_key) = ''
         OR trim(w.node_key) = ''
-        OR EXISTS (
-          SELECT 1
+        OR w.run_id IN (
+          SELECT r.id
           FROM task_dag_runs r
           WHERE r.id = w.run_id
             AND r.dag_key = w.dag_key
@@ -54,112 +55,23 @@ WHERE id IN (
         )
       )
     ORDER BY next_retry_at, id
-    LIMIT ?3
+    LIMIT ?4
 )
-RETURNING id, dag_key, node_key, wakeup_kind, target_agent_id, prompt_payload,
-          idempotency_key, status, attempt_count, next_retry_at, claimed_at,
-          claimed_by, lease_expires_at, sent_at, bound_turn_id, turn_bound_at,
-          last_error, created_at, updated_at, run_id
 `
 
 type ClaimDueTaskDagWakeupsParams struct {
-	WorkerID   string      `db:"worker_id" json:"worker_id"`
-	LeaseMs    interface{} `db:"lease_ms" json:"lease_ms"`
-	LimitCount int64       `db:"limit_count" json:"limit_count"`
+	ClaimedAt      *int64 `db:"claimed_at" json:"claimed_at"`
+	WorkerID       string `db:"worker_id" json:"worker_id"`
+	LeaseExpiresAt *int64 `db:"lease_expires_at" json:"lease_expires_at"`
+	LimitCount     int64  `db:"limit_count" json:"limit_count"`
 }
 
-type ClaimDueTaskDagWakeupsRow struct {
-	ID             int64           `db:"id" json:"id"`
-	DagKey         string          `db:"dag_key" json:"dag_key"`
-	NodeKey        string          `db:"node_key" json:"node_key"`
-	WakeupKind     string          `db:"wakeup_kind" json:"wakeup_kind"`
-	TargetAgentID  string          `db:"target_agent_id" json:"target_agent_id"`
-	PromptPayload  json.RawMessage `db:"prompt_payload" json:"prompt_payload"`
-	IdempotencyKey string          `db:"idempotency_key" json:"idempotency_key"`
-	Status         string          `db:"status" json:"status"`
-	AttemptCount   int64           `db:"attempt_count" json:"attempt_count"`
-	NextRetryAt    int64           `db:"next_retry_at" json:"next_retry_at"`
-	ClaimedAt      *int64          `db:"claimed_at" json:"claimed_at"`
-	ClaimedBy      string          `db:"claimed_by" json:"claimed_by"`
-	LeaseExpiresAt *int64          `db:"lease_expires_at" json:"lease_expires_at"`
-	SentAt         *int64          `db:"sent_at" json:"sent_at"`
-	BoundTurnID    *string         `db:"bound_turn_id" json:"bound_turn_id"`
-	TurnBoundAt    *int64          `db:"turn_bound_at" json:"turn_bound_at"`
-	LastError      string          `db:"last_error" json:"last_error"`
-	CreatedAt      int64           `db:"created_at" json:"created_at"`
-	UpdatedAt      int64           `db:"updated_at" json:"updated_at"`
-	RunID          *int64          `db:"run_id" json:"run_id"`
-}
-
-func (q *Queries) ClaimDueTaskDagWakeups(ctx context.Context, arg ClaimDueTaskDagWakeupsParams) ([]ClaimDueTaskDagWakeupsRow, error) {
-	rows, err := q.db.QueryContext(ctx, claimDueTaskDagWakeups, arg.WorkerID, arg.LeaseMs, arg.LimitCount)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []ClaimDueTaskDagWakeupsRow{}
-	for rows.Next() {
-		var i ClaimDueTaskDagWakeupsRow
-		if err := rows.Scan(
-			&i.ID,
-			&i.DagKey,
-			&i.NodeKey,
-			&i.WakeupKind,
-			&i.TargetAgentID,
-			&i.PromptPayload,
-			&i.IdempotencyKey,
-			&i.Status,
-			&i.AttemptCount,
-			&i.NextRetryAt,
-			&i.ClaimedAt,
-			&i.ClaimedBy,
-			&i.LeaseExpiresAt,
-			&i.SentAt,
-			&i.BoundTurnID,
-			&i.TurnBoundAt,
-			&i.LastError,
-			&i.CreatedAt,
-			&i.UpdatedAt,
-			&i.RunID,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const enqueueTaskDagWakeup = `-- name: EnqueueTaskDagWakeup :execrows
-INSERT INTO task_dag_wakeups (dag_key, node_key, run_id, wakeup_kind, target_agent_id, prompt_payload, idempotency_key, next_retry_at, created_at, updated_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, (CAST(strftime('%s','now') AS INTEGER) * 1000), (CAST(strftime('%s','now') AS INTEGER) * 1000), (CAST(strftime('%s','now') AS INTEGER) * 1000))
-ON CONFLICT (idempotency_key) DO NOTHING
-`
-
-type EnqueueTaskDagWakeupParams struct {
-	DagKey         string          `db:"dag_key" json:"dag_key"`
-	NodeKey        string          `db:"node_key" json:"node_key"`
-	RunID          *int64          `db:"run_id" json:"run_id"`
-	WakeupKind     string          `db:"wakeup_kind" json:"wakeup_kind"`
-	TargetAgentID  string          `db:"target_agent_id" json:"target_agent_id"`
-	PromptPayload  json.RawMessage `db:"prompt_payload" json:"prompt_payload"`
-	IdempotencyKey string          `db:"idempotency_key" json:"idempotency_key"`
-}
-
-func (q *Queries) EnqueueTaskDagWakeup(ctx context.Context, arg EnqueueTaskDagWakeupParams) (int64, error) {
-	result, err := q.db.ExecContext(ctx, enqueueTaskDagWakeup,
-		arg.DagKey,
-		arg.NodeKey,
-		arg.RunID,
-		arg.WakeupKind,
-		arg.TargetAgentID,
-		arg.PromptPayload,
-		arg.IdempotencyKey,
+func (q *Queries) ClaimDueTaskDagWakeups(ctx context.Context, arg ClaimDueTaskDagWakeupsParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, claimDueTaskDagWakeups,
+		arg.ClaimedAt,
+		arg.WorkerID,
+		arg.LeaseExpiresAt,
+		arg.LimitCount,
 	)
 	if err != nil {
 		return 0, err
@@ -200,30 +112,30 @@ func (q *Queries) FailTaskDagWakeup(ctx context.Context, arg FailTaskDagWakeupPa
 	return result.RowsAffected()
 }
 
-const markTaskDagWakeupSent = `-- name: MarkTaskDagWakeupSent :execrows
-UPDATE task_dag_wakeups
-SET status = 'sent', sent_at = (CAST(strftime('%s','now') AS INTEGER) * 1000), updated_at = (CAST(strftime('%s','now') AS INTEGER) * 1000)
-WHERE id = ?1
-  AND status = 'dispatching'
-  AND claimed_at = ?2
-  AND claimed_by = ?3
-  AND lease_expires_at = ?4
-  AND lease_expires_at >= (CAST(strftime('%s','now') AS INTEGER) * 1000)
+const insertTaskDagWakeup = `-- name: InsertTaskDagWakeup :execrows
+INSERT INTO task_dag_wakeups (dag_key, node_key, run_id, wakeup_kind, target_agent_id, prompt_payload, idempotency_key, next_retry_at, created_at, updated_at)
+VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, (CAST(strftime('%s','now') AS INTEGER) * 1000), (CAST(strftime('%s','now') AS INTEGER) * 1000), (CAST(strftime('%s','now') AS INTEGER) * 1000))
 `
 
-type MarkTaskDagWakeupSentParams struct {
-	ID             int64  `db:"id" json:"id"`
-	ClaimedAt      *int64 `db:"claimed_at" json:"claimed_at"`
-	ClaimedBy      string `db:"claimed_by" json:"claimed_by"`
-	LeaseExpiresAt *int64 `db:"lease_expires_at" json:"lease_expires_at"`
+type InsertTaskDagWakeupParams struct {
+	DagKey         string          `db:"dag_key" json:"dag_key"`
+	NodeKey        string          `db:"node_key" json:"node_key"`
+	RunID          *int64          `db:"run_id" json:"run_id"`
+	WakeupKind     string          `db:"wakeup_kind" json:"wakeup_kind"`
+	TargetAgentID  string          `db:"target_agent_id" json:"target_agent_id"`
+	PromptPayload  json.RawMessage `db:"prompt_payload" json:"prompt_payload"`
+	IdempotencyKey string          `db:"idempotency_key" json:"idempotency_key"`
 }
 
-func (q *Queries) MarkTaskDagWakeupSent(ctx context.Context, arg MarkTaskDagWakeupSentParams) (int64, error) {
-	result, err := q.db.ExecContext(ctx, markTaskDagWakeupSent,
-		arg.ID,
-		arg.ClaimedAt,
-		arg.ClaimedBy,
-		arg.LeaseExpiresAt,
+func (q *Queries) InsertTaskDagWakeup(ctx context.Context, arg InsertTaskDagWakeupParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, insertTaskDagWakeup,
+		arg.DagKey,
+		arg.NodeKey,
+		arg.RunID,
+		arg.WakeupKind,
+		arg.TargetAgentID,
+		arg.PromptPayload,
+		arg.IdempotencyKey,
 	)
 	if err != nil {
 		return 0, err
@@ -231,31 +143,26 @@ func (q *Queries) MarkTaskDagWakeupSent(ctx context.Context, arg MarkTaskDagWake
 	return result.RowsAffected()
 }
 
-const renewTaskDagWakeupLease = `-- name: RenewTaskDagWakeupLease :many
-UPDATE task_dag_wakeups
-SET lease_expires_at = (CAST(strftime('%s','now') AS INTEGER) * 1000) + ?1,
-    updated_at = (CAST(strftime('%s','now') AS INTEGER) * 1000)
-WHERE id = ?2
-  AND status = 'dispatching'
-  AND claimed_at = ?3
-  AND claimed_by = ?4
-  AND lease_expires_at = ?5
-  AND lease_expires_at >= (CAST(strftime('%s','now') AS INTEGER) * 1000)
-RETURNING id, dag_key, node_key, wakeup_kind, target_agent_id, prompt_payload,
-          idempotency_key, status, attempt_count, next_retry_at, claimed_at,
-          claimed_by, lease_expires_at, sent_at, bound_turn_id, turn_bound_at,
-          last_error, created_at, updated_at, run_id
+const listTaskDagWakeupsByClaimFence = `-- name: ListTaskDagWakeupsByClaimFence :many
+SELECT id, dag_key, node_key, wakeup_kind, target_agent_id, prompt_payload,
+       idempotency_key, status, attempt_count, next_retry_at, claimed_at,
+       claimed_by, lease_expires_at, sent_at, bound_turn_id, turn_bound_at,
+       last_error, created_at, updated_at, run_id
+FROM task_dag_wakeups
+WHERE status = 'dispatching'
+  AND claimed_by = ?1
+  AND claimed_at = ?2
+  AND lease_expires_at = ?3
+ORDER BY next_retry_at, id
 `
 
-type RenewTaskDagWakeupLeaseParams struct {
-	LeaseMs        interface{} `db:"lease_ms" json:"lease_ms"`
-	ID             int64       `db:"id" json:"id"`
-	ClaimedAt      *int64      `db:"claimed_at" json:"claimed_at"`
-	ClaimedBy      string      `db:"claimed_by" json:"claimed_by"`
-	LeaseExpiresAt *int64      `db:"lease_expires_at" json:"lease_expires_at"`
+type ListTaskDagWakeupsByClaimFenceParams struct {
+	WorkerID       string `db:"worker_id" json:"worker_id"`
+	ClaimedAt      *int64 `db:"claimed_at" json:"claimed_at"`
+	LeaseExpiresAt *int64 `db:"lease_expires_at" json:"lease_expires_at"`
 }
 
-type RenewTaskDagWakeupLeaseRow struct {
+type ListTaskDagWakeupsByClaimFenceRow struct {
 	ID             int64           `db:"id" json:"id"`
 	DagKey         string          `db:"dag_key" json:"dag_key"`
 	NodeKey        string          `db:"node_key" json:"node_key"`
@@ -278,21 +185,15 @@ type RenewTaskDagWakeupLeaseRow struct {
 	RunID          *int64          `db:"run_id" json:"run_id"`
 }
 
-func (q *Queries) RenewTaskDagWakeupLease(ctx context.Context, arg RenewTaskDagWakeupLeaseParams) ([]RenewTaskDagWakeupLeaseRow, error) {
-	rows, err := q.db.QueryContext(ctx, renewTaskDagWakeupLease,
-		arg.LeaseMs,
-		arg.ID,
-		arg.ClaimedAt,
-		arg.ClaimedBy,
-		arg.LeaseExpiresAt,
-	)
+func (q *Queries) ListTaskDagWakeupsByClaimFence(ctx context.Context, arg ListTaskDagWakeupsByClaimFenceParams) ([]ListTaskDagWakeupsByClaimFenceRow, error) {
+	rows, err := q.db.QueryContext(ctx, listTaskDagWakeupsByClaimFence, arg.WorkerID, arg.ClaimedAt, arg.LeaseExpiresAt)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []RenewTaskDagWakeupLeaseRow{}
+	items := []ListTaskDagWakeupsByClaimFenceRow{}
 	for rows.Next() {
-		var i RenewTaskDagWakeupLeaseRow
+		var i ListTaskDagWakeupsByClaimFenceRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.DagKey,
@@ -328,10 +229,75 @@ func (q *Queries) RenewTaskDagWakeupLease(ctx context.Context, arg RenewTaskDagW
 	return items, nil
 }
 
+const markTaskDagWakeupSent = `-- name: MarkTaskDagWakeupSent :execrows
+UPDATE task_dag_wakeups
+SET status = 'sent', sent_at = (CAST(strftime('%s','now') AS INTEGER) * 1000), updated_at = (CAST(strftime('%s','now') AS INTEGER) * 1000)
+WHERE id = ?1
+  AND status = 'dispatching'
+  AND claimed_at = ?2
+  AND claimed_by = ?3
+  AND lease_expires_at = ?4
+  AND lease_expires_at >= (CAST(strftime('%s','now') AS INTEGER) * 1000)
+`
+
+type MarkTaskDagWakeupSentParams struct {
+	ID             int64  `db:"id" json:"id"`
+	ClaimedAt      *int64 `db:"claimed_at" json:"claimed_at"`
+	ClaimedBy      string `db:"claimed_by" json:"claimed_by"`
+	LeaseExpiresAt *int64 `db:"lease_expires_at" json:"lease_expires_at"`
+}
+
+func (q *Queries) MarkTaskDagWakeupSent(ctx context.Context, arg MarkTaskDagWakeupSentParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, markTaskDagWakeupSent,
+		arg.ID,
+		arg.ClaimedAt,
+		arg.ClaimedBy,
+		arg.LeaseExpiresAt,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const renewTaskDagWakeupLease = `-- name: RenewTaskDagWakeupLease :execrows
+UPDATE task_dag_wakeups
+SET lease_expires_at = (CAST(strftime('%s','now') AS INTEGER) * 1000) + CAST(?1 AS INTEGER),
+    updated_at = (CAST(strftime('%s','now') AS INTEGER) * 1000)
+WHERE id = ?2
+  AND status = 'dispatching'
+  AND claimed_at = ?3
+  AND claimed_by = ?4
+  AND lease_expires_at = ?5
+  AND lease_expires_at >= (CAST(strftime('%s','now') AS INTEGER) * 1000)
+`
+
+type RenewTaskDagWakeupLeaseParams struct {
+	LeaseMs        int64  `db:"lease_ms" json:"lease_ms"`
+	ID             int64  `db:"id" json:"id"`
+	ClaimedAt      *int64 `db:"claimed_at" json:"claimed_at"`
+	ClaimedBy      string `db:"claimed_by" json:"claimed_by"`
+	LeaseExpiresAt *int64 `db:"lease_expires_at" json:"lease_expires_at"`
+}
+
+func (q *Queries) RenewTaskDagWakeupLease(ctx context.Context, arg RenewTaskDagWakeupLeaseParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, renewTaskDagWakeupLease,
+		arg.LeaseMs,
+		arg.ID,
+		arg.ClaimedAt,
+		arg.ClaimedBy,
+		arg.LeaseExpiresAt,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const retryTaskDagWakeup = `-- name: RetryTaskDagWakeup :execrows
 UPDATE task_dag_wakeups
 SET status = 'pending',
-    next_retry_at = (CAST(strftime('%s','now') AS INTEGER) * 1000) + ?1,
+    next_retry_at = (CAST(strftime('%s','now') AS INTEGER) * 1000) + CAST(?1 AS INTEGER),
     last_error = ?2,
     claimed_at = NULL,
     claimed_by = '',
@@ -347,13 +313,13 @@ WHERE id = ?3
 `
 
 type RetryTaskDagWakeupParams struct {
-	DelayMs        interface{} `db:"delay_ms" json:"delay_ms"`
-	LastError      string      `db:"last_error" json:"last_error"`
-	ID             int64       `db:"id" json:"id"`
-	ClaimedAt      *int64      `db:"claimed_at" json:"claimed_at"`
-	ClaimedBy      string      `db:"claimed_by" json:"claimed_by"`
-	LeaseExpiresAt *int64      `db:"lease_expires_at" json:"lease_expires_at"`
-	MaxAttempts    int64       `db:"max_attempts" json:"max_attempts"`
+	DelayMs        int64  `db:"delay_ms" json:"delay_ms"`
+	LastError      string `db:"last_error" json:"last_error"`
+	ID             int64  `db:"id" json:"id"`
+	ClaimedAt      *int64 `db:"claimed_at" json:"claimed_at"`
+	ClaimedBy      string `db:"claimed_by" json:"claimed_by"`
+	LeaseExpiresAt *int64 `db:"lease_expires_at" json:"lease_expires_at"`
+	MaxAttempts    int64  `db:"max_attempts" json:"max_attempts"`
 }
 
 func (q *Queries) RetryTaskDagWakeup(ctx context.Context, arg RetryTaskDagWakeupParams) (int64, error) {

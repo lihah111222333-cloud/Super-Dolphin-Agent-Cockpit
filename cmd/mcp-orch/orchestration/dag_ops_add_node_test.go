@@ -189,8 +189,8 @@ func TestApplyOps_AddSingleNode_Happy(t *testing.T) {
 	req := contract.ApplyOpsRequest{
 		DagKey:      "dag-a",
 		BaseVersion: 1,
-		Ops: json.RawMessage(`[
-			{"op":"add_node","node":{"node_key":"n1","title":"hello","node_type":"agent"}}
+		Ops: testRawConfig(t, `[
+			{"op":"add_node","node":{"node_key":"n1","title":"hello","node_type":"agent","config":{"exec":{"agent_key":"worker","cwd":"/tmp/node-cwd"}}}}
 		]`),
 	}
 	resp, err := s.ApplyOps(context.Background(), req)
@@ -218,8 +218,8 @@ func TestApplyOps_AddNode_PersistsAssignedTo(t *testing.T) {
 	req := contract.ApplyOpsRequest{
 		DagKey:      "dag-a",
 		BaseVersion: 1,
-		Ops: json.RawMessage(`[
-			{"op":"add_node","node":{"node_key":"n1","title":"hello","node_type":"agent","assigned_to":"agent-root"}}
+		Ops: testRawConfig(t, `[
+			{"op":"add_node","node":{"node_key":"n1","title":"hello","node_type":"agent","assigned_to":"agent-root","config":{"exec":{"agent_key":"worker","cwd":"/tmp/node-cwd"}}}}
 		]`),
 	}
 
@@ -247,8 +247,8 @@ func TestApplyOps_AddNodeWithDeps_Happy(t *testing.T) {
 	req := contract.ApplyOpsRequest{
 		DagKey:      "dag-a",
 		BaseVersion: 3,
-		Ops: json.RawMessage(`[
-			{"op":"add_node","node":{"node_key":"n1","title":"t","node_type":"agent","depends_on":["n0"]}}
+		Ops: testRawConfig(t, `[
+			{"op":"add_node","node":{"node_key":"n1","title":"t","node_type":"agent","depends_on":["n0"],"config":{"exec":{"agent_key":"worker","cwd":"/tmp/node-cwd"}}}}
 		]`),
 	}
 	resp, err := s.ApplyOps(context.Background(), req)
@@ -297,8 +297,8 @@ func TestApplyOps_RawOpsPassthrough_PT4(t *testing.T) {
 	stub := &stubDAGOpsStore{currentVersion: 0}
 	s := makeApplyOpsService(stub)
 	// 模拟 MCP handler 接收的 raw payload（"ops" 是数组，内含 typed payload）。
-	raw := json.RawMessage(`[
-		{"op":"add_node","node":{"node_key":"a","title":"A","node_type":"agent"}},
+	raw := testRawConfig(t, `[
+		{"op":"add_node","node":{"node_key":"a","title":"A","node_type":"agent","config":{"exec":{"agent_key":"worker","cwd":"/tmp/node-cwd"}}}},
 		{"op":"add_node","node":{"node_key":"b","title":"B","node_type":"automation","depends_on":["a"],"config":{"exec":{"kind":"command_card","command_ref":"build"}}}}
 	]`)
 	req := contract.ApplyOpsRequest{DagKey: "dag-pt4", BaseVersion: 0, Ops: raw}
@@ -355,9 +355,9 @@ func TestApplyOps_AddNode_CycleTwoNodes(t *testing.T) {
 	req := contract.ApplyOpsRequest{
 		DagKey:      "dag-a",
 		BaseVersion: 0,
-		Ops: json.RawMessage(`[
-			{"op":"add_node","node":{"node_key":"a","title":"A","node_type":"agent","depends_on":["b"]}},
-			{"op":"add_node","node":{"node_key":"b","title":"B","node_type":"agent","depends_on":["a"]}}
+		Ops: testRawConfig(t, `[
+			{"op":"add_node","node":{"node_key":"a","title":"A","node_type":"agent","depends_on":["b"],"config":{"exec":{"agent_key":"worker","cwd":"/tmp/node-cwd"}}}},
+			{"op":"add_node","node":{"node_key":"b","title":"B","node_type":"agent","depends_on":["a"],"config":{"exec":{"agent_key":"worker","cwd":"/tmp/node-cwd"}}}}
 		]`),
 	}
 	_, err := s.ApplyOps(context.Background(), req)
@@ -380,10 +380,10 @@ func TestApplyOps_AddNode_CycleThreeNodes(t *testing.T) {
 	req := contract.ApplyOpsRequest{
 		DagKey:      "dag-a",
 		BaseVersion: 0,
-		Ops: json.RawMessage(`[
-			{"op":"add_node","node":{"node_key":"a","title":"A","node_type":"agent","depends_on":["c"]}},
-			{"op":"add_node","node":{"node_key":"b","title":"B","node_type":"agent","depends_on":["a"]}},
-			{"op":"add_node","node":{"node_key":"c","title":"C","node_type":"agent","depends_on":["b"]}}
+		Ops: testRawConfig(t, `[
+			{"op":"add_node","node":{"node_key":"a","title":"A","node_type":"agent","depends_on":["c"],"config":{"exec":{"agent_key":"worker","cwd":"/tmp/node-cwd"}}}},
+			{"op":"add_node","node":{"node_key":"b","title":"B","node_type":"agent","depends_on":["a"],"config":{"exec":{"agent_key":"worker","cwd":"/tmp/node-cwd"}}}},
+			{"op":"add_node","node":{"node_key":"c","title":"C","node_type":"agent","depends_on":["b"],"config":{"exec":{"agent_key":"worker","cwd":"/tmp/node-cwd"}}}}
 		]`),
 	}
 	_, err := s.ApplyOps(context.Background(), req)
@@ -420,8 +420,8 @@ func TestApplyOps_AddNode_CycleAgainstExisting(t *testing.T) {
 	req := contract.ApplyOpsRequest{
 		DagKey:      "dag-a",
 		BaseVersion: 0,
-		Ops: json.RawMessage(`[
-			{"op":"add_node","node":{"node_key":"c","title":"C","node_type":"agent","depends_on":["b"]}}
+		Ops: testRawConfig(t, `[
+			{"op":"add_node","node":{"node_key":"c","title":"C","node_type":"agent","depends_on":["b"],"config":{"exec":{"agent_key":"worker","cwd":"/tmp/node-cwd"}}}}
 		]`),
 	}
 	_, err := s.ApplyOps(context.Background(), req)

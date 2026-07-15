@@ -1,6 +1,7 @@
 package logger
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -27,6 +28,8 @@ const (
 const (
 	logTimeFormat        = "2006-01-02 15:04:05"
 	logTimeOffsetSeconds = 8 * 60 * 60
+	privateLogDirMode    = 0o700
+	privateLogFileMode   = 0o600
 )
 
 // FileOptions 控制文件日志初始化时的文件名前缀和控制台输出。
@@ -356,6 +359,37 @@ func nextRunNumber(logDir, date, prefix string) int {
 	return maxN + 1
 }
 
+// ensurePrivateLogDir 创建日志目录并把既存目录权限收紧为仅当前用户可访问。
+func ensurePrivateLogDir(path string) error {
+	if err := os.MkdirAll(path, privateLogDirMode); err != nil {
+		return fmt.Errorf("create private log dir: %w", err)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		return fmt.Errorf("stat private log dir: %w", err)
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("private log dir path is not a directory: %s", path)
+	}
+	if err := os.Chmod(path, privateLogDirMode); err != nil {
+		return fmt.Errorf("tighten private log dir permissions: %w", err)
+	}
+	return nil
+}
+
+// openPrivateAppendFile 打开追加日志文件并把既存文件权限收紧为仅当前用户可读写。
+func openPrivateAppendFile(path string) (*os.File, error) {
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, privateLogFileMode)
+	if err != nil {
+		return nil, fmt.Errorf("open private append file: %w", err)
+	}
+	if err := f.Chmod(privateLogFileMode); err != nil {
+		closeErr := f.Close()
+		return nil, errors.Join(fmt.Errorf("tighten private log file permissions: %w", err), closeErr)
+	}
+	return f, nil
+}
+
 // InitWithFile 使用默认选项初始化文件日志输出。
 func InitWithFile(logDir string) error {
 	return currentRuntime().InitWithFile(logDir)
@@ -374,8 +408,8 @@ func InitWithFileOptions(logDir string, opts FileOptions) error {
 
 // InitWithFileOptions 创建 runtime 文件日志，并关闭旧文件 handler 和 watcher。
 func (r *Runtime) InitWithFileOptions(logDir string, opts FileOptions) error {
-	if err := os.MkdirAll(logDir, 0o755); err != nil {
-		return fmt.Errorf("logger init create log dir: %w", err)
+	if err := ensurePrivateLogDir(logDir); err != nil {
+		return fmt.Errorf("logger init private log dir: %w", err)
 	}
 
 	prefix := strings.TrimSpace(opts.Prefix)
@@ -387,10 +421,10 @@ func (r *Runtime) InitWithFileOptions(logDir string, opts FileOptions) error {
 	logPath := filepath.Join(logDir, fmt.Sprintf("%s-%s-%d.log", prefix, date, run))
 	absPath, err := filepath.Abs(logPath)
 	if err != nil {
-		absPath = logPath
+		return fmt.Errorf("logger init resolve log file path: %w", err)
 	}
 
-	f, err := os.OpenFile(absPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	f, err := openPrivateAppendFile(absPath)
 	if err != nil {
 		return fmt.Errorf("logger init open log file: %w", err)
 	}

@@ -16,7 +16,7 @@ func TestStartSQLiteServerAddsDefaultNPXConfigAndEnablesIt(t *testing.T) {
 	project := t.TempDir()
 	dbPath := filepath.Join(project, ".super-dolphin", "super-dolphin.db")
 	writeSQLiteFixture(t, dbPath)
-	svc := newServiceWithStoreInstallerAndSQLitePath(store, &recordingPostgresInstaller{}, dbPath)
+	svc := newServiceWithStoreAndSQLitePath(store, dbPath)
 	t.Chdir(project)
 
 	got, err := svc.StartSQLiteServer(context.Background(), StartSQLiteServerRequest{})
@@ -36,7 +36,7 @@ func TestStartSQLiteServerRejectsRequestDatabasePathOverride(t *testing.T) {
 	attackerDB := filepath.Join(t.TempDir(), "attacker.db")
 	writeSQLiteFixture(t, productDB)
 	writeSQLiteFixture(t, attackerDB)
-	svc := newServiceWithStoreInstallerAndSQLitePath(store, &recordingPostgresInstaller{}, productDB)
+	svc := newServiceWithStoreAndSQLitePath(store, productDB)
 	t.Chdir(project)
 
 	_, err := svc.StartSQLiteServer(context.Background(), StartSQLiteServerRequest{DatabasePath: attackerDB})
@@ -54,7 +54,7 @@ func TestStopSQLiteServerDisablesDefaultConfigWithoutDeletingIt(t *testing.T) {
 	dbPath := filepath.Join(project, "super-dolphin.db")
 	t.Chdir(project)
 	store.seed(project, DefaultSQLiteServerName, defaultSQLiteServerConfig(dbPath))
-	svc := newServiceWithStoreInstallerAndSQLitePath(store, &recordingPostgresInstaller{}, dbPath)
+	svc := newServiceWithStoreAndSQLitePath(store, dbPath)
 
 	got, err := svc.StopSQLiteServer(context.Background(), StopSQLiteServerRequest{})
 	if err != nil {
@@ -80,7 +80,7 @@ func TestStartSQLiteServerResolvesDatabasePathFromSuperDolphinHome(t *testing.T)
 	t.Setenv(contract.InternalSQLitePathEnvKey, "")
 	t.Setenv("SUPER_DOLPHIN_HOME", home)
 	t.Chdir(project)
-	svc := newServiceWithStoreInstallerAndSQLitePath(store, &recordingPostgresInstaller{}, "")
+	svc := newServiceWithStoreAndSQLitePath(store, "")
 
 	got, err := svc.StartSQLiteServer(context.Background(), StartSQLiteServerRequest{})
 	if err != nil {
@@ -117,7 +117,7 @@ func TestStartSQLiteServerMigratesLegacyNPXPackageConfig(t *testing.T) {
 				Args:      tc.args,
 				Enabled:   boolPtr(false),
 			})
-			svc := newServiceWithStoreInstallerAndSQLitePath(store, &recordingPostgresInstaller{}, newDBPath)
+			svc := newServiceWithStoreAndSQLitePath(store, newDBPath)
 
 			got, err := svc.StartSQLiteServer(context.Background(), StartSQLiteServerRequest{})
 			if err != nil {

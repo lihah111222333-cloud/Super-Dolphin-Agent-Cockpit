@@ -93,8 +93,8 @@ func (r *stubNodeSpawnRecorder) RecordNodeSpawn(_ context.Context, dagKey, nodeK
 func launchEnvValue(env []string, key string) string {
 	prefix := key + "="
 	for _, item := range env {
-		if strings.HasPrefix(item, prefix) {
-			return strings.TrimPrefix(item, prefix)
+		if value, ok := strings.CutPrefix(item, prefix); ok {
+			return value
 		}
 	}
 	return ""
@@ -249,6 +249,23 @@ func TestAgentExecutor_Execute_NilNodeConfig(t *testing.T) {
 	}
 	if launcher.called != 0 {
 		t.Fatalf("LaunchAgent should not be called when config invalid")
+	}
+}
+
+func TestAgentExecutorRejectsRelativeCWDBeforeLauncher(t *testing.T) {
+	t.Parallel()
+	launcher := &stubAgentLauncher{}
+	exec := NewAgentExecutor(launcher)
+	node := Node{NodeType: "agent", Config: json.RawMessage(`{"exec":{"agent_key":"worker","provider":"codex","cwd":"relative/path"}}`)}
+	out, err := exec.Execute(context.Background(), node, RunContext{})
+	if err != nil {
+		t.Fatalf("Execute framework error = %v", err)
+	}
+	if out.Status != NodeStatusFailed || out.FailureClass != FailureClassValidation {
+		t.Fatalf("Execute outcome = %+v, want validation failure", out)
+	}
+	if launcher.called != 0 {
+		t.Fatalf("launcher called %d times for relative cwd", launcher.called)
 	}
 }
 

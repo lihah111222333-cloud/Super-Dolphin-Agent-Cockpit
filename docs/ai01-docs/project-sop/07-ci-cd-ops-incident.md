@@ -17,7 +17,7 @@
 
 | 平台 | 脚本 | 说明 |
 | --- | --- | --- |
-| Windows | `scripts/package_windows.ps1` | 构建 zip 或 installer，打包 peer binaries、runtime manifest、Postgres、Codex、ffmpeg 等 |
+| Windows | `scripts/package_windows.ps1` | 构建 zip 或 installer，打包 peer binaries、runtime manifest、SQLite migrations、Codex、ffmpeg 等 |
 | macOS | `scripts/package_macos.sh` | 构建 app bundle 和 DMG，可签名和 notarize |
 | Linux | `scripts/package_linux.sh` | 构建 tar.gz 包，包含 runtime manifest 和工具依赖 |
 
@@ -27,7 +27,7 @@ Windows 示例：
 .\scripts\package_windows.ps1 -Artifact all
 ```
 
-发布前应运行对应 `scripts/verify_packaged_app_*`，确认 manifest、bundled executables、LSP tools、Codex runtime、Postgres runtime 和前端资源一致。
+发布前应运行对应 `scripts/verify_packaged_app_*`，确认 manifest、bundled executables、LSP tools、Codex runtime、SQLite migrations 和前端资源一致。
 
 ### GitHub Release
 
@@ -51,7 +51,7 @@ bash ./scripts/publish_github_release.sh --dry-run
 | --- | --- | --- |
 | 应用包 | 回退到上一版本 installer、zip、DMG 或 tar.gz | 确认 runtime manifest 和 bundled tools 一起回退 |
 | 前端资源 | 使用上一版本包内资源 | 新 UI 开发态不要误判为发布态 |
-| 数据库 | 按 `migrations/ROLLBACK.md` 手工 SQL | 没有自动 down migration，不得新增 `.down.sql` |
+| 数据库 | 停止应用后恢复已验证的同版本 SQLite 文件备份 | 没有自动 down migration；恢复后核对 `schema_migrations` 和启动 preflight |
 | Provider 配置 | 恢复用户目录或配置备份 | 不要覆盖用户 secrets |
 | 本地任务状态 | 备份后修复 `task_*`、thread 或 binding 表 | 保留审计和故障记录 |
 
@@ -136,7 +136,7 @@ Logstash 读取 `.tmp/**/*.log`，索引建议为 `super-dolphin-logs-*`，时�
 | --- | --- |
 | UI 白屏 | Vite 日志、浏览器控制台、`frontend-app` build/lint |
 | `/metrics` 不通 | 后端日志、端口占用、数据库连接、启动脚本前置检查 |
-| 数据库迁移失败 | `migrations`、`schema_migrations`、`migrations/ROLLBACK.md` |
+| 数据库迁移失败 | `internal/platform/db/sqlite/migrations`、`schema_migrations`、SQLite 备份版本和启动 preflight |
 | turn 无响应 | thread/turn RPC、provider binding、provider CLI 登录态 |
 | DAG 卡住 | `task_dag_runs`、`task_dag_nodes`、mcp-orch 日志、retry 指标 |
 | cron 不触发 | `cron_jobs`、timezone、enabled、next run、cron worker 日志 |

@@ -6,11 +6,6 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-orch/store/sqlc"
 )
 
-// fromDAGUpsertRow 把 UpsertTaskDagRow 投影成 contract DAG。
-func fromDAGUpsertRow(row sqlc.UpsertTaskDagRow) DAG {
-	return fromDAGRaw(row.ID, row.DagKey, row.Version, row.Title, row.Description, row.Status, row.CreatedBy, row.Metadata, row.Trigger, row.CronExpr, row.NextRunAt, row.StartedAt, row.FinishedAt, row.CreatedAt, row.UpdatedAt)
-}
-
 // fromDAGGetRow 把 GetTaskDagRow 投影成 contract DAG。
 func fromDAGGetRow(row sqlc.GetTaskDagRow) DAG {
 	return fromDAGRaw(row.ID, row.DagKey, row.Version, row.Title, row.Description, row.Status, row.CreatedBy, row.Metadata, row.Trigger, row.CronExpr, row.NextRunAt, row.StartedAt, row.FinishedAt, row.CreatedAt, row.UpdatedAt)
@@ -42,28 +37,13 @@ func fromDAGRaw(id int64, dagKey string, version int64, title, description, stat
 	}
 }
 
-// fromNodeUpsertRow 把 UpsertTaskDagNodeRow 投影成 contract Node。
-func fromNodeUpsertRow(row sqlc.UpsertTaskDagNodeRow) Node {
-	return fromNodeRaw(row.ID, row.DagKey, row.NodeKey, row.RunID, row.Title, row.NodeType, row.AssignedTo, row.DependsOn, row.Status, row.CommandRef, row.Config, row.Result, row.StartedAt, row.FinishedAt, row.CreatedAt, row.UpdatedAt, row.ActiveTurnID, row.ActiveWakeupID, row.LastEventAt, row.Reads, row.Writes, row.SpawningThreadID)
-}
-
-// fromNodePatchConfigRow 把 PatchTaskDagNodeConfigIfUnchangedRow 投影成 contract Node。
-func fromNodePatchConfigRow(row sqlc.PatchTaskDagNodeConfigIfUnchangedRow) Node {
-	return fromNodeRaw(row.ID, row.DagKey, row.NodeKey, row.RunID, row.Title, row.NodeType, row.AssignedTo, row.DependsOn, row.Status, row.CommandRef, row.Config, row.Result, row.StartedAt, row.FinishedAt, row.CreatedAt, row.UpdatedAt, row.ActiveTurnID, row.ActiveWakeupID, row.LastEventAt, row.Reads, row.Writes, row.SpawningThreadID)
-}
-
-// fromNodeStatusIfCurrentRow 把 UpdateTaskDagNodeStatusIfCurrentRow 投影成 contract Node。
-func fromNodeStatusIfCurrentRow(row sqlc.UpdateTaskDagNodeStatusIfCurrentRow) Node {
+// fromNodeGetRow 把 GetTaskDagNodeRow 投影成 contract Node。
+func fromNodeGetRow(row sqlc.GetTaskDagNodeRow) Node {
 	return fromNodeRaw(row.ID, row.DagKey, row.NodeKey, row.RunID, row.Title, row.NodeType, row.AssignedTo, row.DependsOn, row.Status, row.CommandRef, row.Config, row.Result, row.StartedAt, row.FinishedAt, row.CreatedAt, row.UpdatedAt, row.ActiveTurnID, row.ActiveWakeupID, row.LastEventAt, row.Reads, row.Writes, row.SpawningThreadID)
 }
 
 // fromNodeListRow 把 ListTaskDagNodesRow 投影成 contract Node。
 func fromNodeListRow(row sqlc.ListTaskDagNodesRow) Node {
-	return fromNodeRaw(row.ID, row.DagKey, row.NodeKey, row.RunID, row.Title, row.NodeType, row.AssignedTo, row.DependsOn, row.Status, row.CommandRef, row.Config, row.Result, row.StartedAt, row.FinishedAt, row.CreatedAt, row.UpdatedAt, row.ActiveTurnID, row.ActiveWakeupID, row.LastEventAt, row.Reads, row.Writes, row.SpawningThreadID)
-}
-
-// fromNodeAssignRow 把 AssignTaskDagNodeRow 投影成 contract Node。
-func fromNodeAssignRow(row sqlc.AssignTaskDagNodeRow) Node {
 	return fromNodeRaw(row.ID, row.DagKey, row.NodeKey, row.RunID, row.Title, row.NodeType, row.AssignedTo, row.DependsOn, row.Status, row.CommandRef, row.Config, row.Result, row.StartedAt, row.FinishedAt, row.CreatedAt, row.UpdatedAt, row.ActiveTurnID, row.ActiveWakeupID, row.LastEventAt, row.Reads, row.Writes, row.SpawningThreadID)
 }
 
@@ -89,36 +69,6 @@ func fromNodeRunningByAssigneeRow(row sqlc.ListRunningTaskDagNodesByAssigneeRow)
 
 // fromNodeForUpdateRow 把 GetTaskDagNodesForUpdateRow 投影成 contract Node。
 func fromNodeForUpdateRow(row sqlc.GetTaskDagNodesForUpdateRow) Node {
-	return fromNodeRaw(row.ID, row.DagKey, row.NodeKey, row.RunID, row.Title, row.NodeType, row.AssignedTo, row.DependsOn, row.Status, row.CommandRef, row.Config, row.Result, row.StartedAt, row.FinishedAt, row.CreatedAt, row.UpdatedAt, row.ActiveTurnID, row.ActiveWakeupID, row.LastEventAt, row.Reads, row.Writes, row.SpawningThreadID)
-}
-
-// fromNodeBindTurnRow 把 BindRunningTaskDagNodeTurnRow 投影成 contract Node。
-func fromNodeBindTurnRow(row sqlc.BindRunningTaskDagNodeTurnRow) Node {
-	return fromNodeRaw(row.ID, row.DagKey, row.NodeKey, row.RunID, row.Title, row.NodeType, row.AssignedTo, row.DependsOn, row.Status, row.CommandRef, row.Config, row.Result, row.StartedAt, row.FinishedAt, row.CreatedAt, row.UpdatedAt, row.ActiveTurnID, row.ActiveWakeupID, row.LastEventAt, row.Reads, row.Writes, row.SpawningThreadID)
-}
-
-// fromNodeTouchEventRow 把 TouchRunningTaskDagNodeEventRow 投影成 contract Node。
-func fromNodeTouchEventRow(row sqlc.TouchRunningTaskDagNodeEventRow) Node {
-	return fromNodeRaw(row.ID, row.DagKey, row.NodeKey, row.RunID, row.Title, row.NodeType, row.AssignedTo, row.DependsOn, row.Status, row.CommandRef, row.Config, row.Result, row.StartedAt, row.FinishedAt, row.CreatedAt, row.UpdatedAt, row.ActiveTurnID, row.ActiveWakeupID, row.LastEventAt, row.Reads, row.Writes, row.SpawningThreadID)
-}
-
-// fromNodeUpdateRunningRow 把 UpdateRunningTaskDagNodeStatusRow 投影成 contract Node。
-func fromNodeUpdateRunningRow(row sqlc.UpdateRunningTaskDagNodeStatusRow) Node {
-	return fromNodeRaw(row.ID, row.DagKey, row.NodeKey, row.RunID, row.Title, row.NodeType, row.AssignedTo, row.DependsOn, row.Status, row.CommandRef, row.Config, row.Result, row.StartedAt, row.FinishedAt, row.CreatedAt, row.UpdatedAt, row.ActiveTurnID, row.ActiveWakeupID, row.LastEventAt, row.Reads, row.Writes, row.SpawningThreadID)
-}
-
-// fromNodeCompleteRow 把 CompleteTaskDagNodeRow 投影成 contract Node。
-func fromNodeCompleteRow(row sqlc.CompleteTaskDagNodeRow) Node {
-	return fromNodeRaw(row.ID, row.DagKey, row.NodeKey, row.RunID, row.Title, row.NodeType, row.AssignedTo, row.DependsOn, row.Status, row.CommandRef, row.Config, row.Result, row.StartedAt, row.FinishedAt, row.CreatedAt, row.UpdatedAt, row.ActiveTurnID, row.ActiveWakeupID, row.LastEventAt, row.Reads, row.Writes, row.SpawningThreadID)
-}
-
-// fromNodeClaimOutputRow 把 ClaimTaskDagNodeOutputMaterializationRow 投影成 contract Node。
-func fromNodeClaimOutputRow(row sqlc.ClaimTaskDagNodeOutputMaterializationRow) Node {
-	return fromNodeRaw(row.ID, row.DagKey, row.NodeKey, row.RunID, row.Title, row.NodeType, row.AssignedTo, row.DependsOn, row.Status, row.CommandRef, row.Config, row.Result, row.StartedAt, row.FinishedAt, row.CreatedAt, row.UpdatedAt, row.ActiveTurnID, row.ActiveWakeupID, row.LastEventAt, row.Reads, row.Writes, row.SpawningThreadID)
-}
-
-// fromNodeFailNonTerminalRow 把 FailTaskDagNodeIfNonTerminalRow 投影成 contract Node。
-func fromNodeFailNonTerminalRow(row sqlc.FailTaskDagNodeIfNonTerminalRow) Node {
 	return fromNodeRaw(row.ID, row.DagKey, row.NodeKey, row.RunID, row.Title, row.NodeType, row.AssignedTo, row.DependsOn, row.Status, row.CommandRef, row.Config, row.Result, row.StartedAt, row.FinishedAt, row.CreatedAt, row.UpdatedAt, row.ActiveTurnID, row.ActiveWakeupID, row.LastEventAt, row.Reads, row.Writes, row.SpawningThreadID)
 }
 

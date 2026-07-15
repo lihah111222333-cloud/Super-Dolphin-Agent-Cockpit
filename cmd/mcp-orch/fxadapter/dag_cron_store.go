@@ -34,7 +34,7 @@ func NewSQLDAGScheduleStore(q *sqlc.Queries) (orchcron.DAGScheduleStore, error) 
 // DueDAGs 查询已到期的 DAG 计划并转换为编排层 DTO。
 func (s *sqlDAGScheduleStore) DueDAGs(ctx context.Context, now time.Time) ([]orchcron.DueDAG, error) {
 	nowMillis := now.UTC().UnixMilli()
-	rows, err := s.q.ListDueScheduledTaskDags(ctx, sqlc.ListDueScheduledTaskDagsParams{NextRunAt: &nowMillis})
+	rows, err := s.q.ListDueScheduledTaskDags(ctx, sqlc.ListDueScheduledTaskDagsParams{DueAt: &nowMillis})
 	if err != nil {
 		return nil, err
 	}

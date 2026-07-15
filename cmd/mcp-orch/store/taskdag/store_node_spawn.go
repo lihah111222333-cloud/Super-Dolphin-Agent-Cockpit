@@ -185,7 +185,7 @@ func recordNodeSpawnTx(ctx context.Context, txq *sqlc.Queries, dagKey, nodeKey s
 	if previousThreadID != "" && previousThreadID != threadID {
 		return fmt.Errorf("%w: spawning_thread_id for dag=%s node=%s run_id=%d already bound to %q, refusing overwrite with %q", platformdb.ErrConflict, dagKey, nodeKey, runID, previousThreadID, threadID)
 	}
-	row, err := txq.UpdateTaskDagNodeSpawningThread(ctx, sqlc.UpdateTaskDagNodeSpawningThreadParams{
+	rows, err := txq.UpdateTaskDagNodeSpawningThread(ctx, sqlc.UpdateTaskDagNodeSpawningThreadParams{
 		SpawningThreadID: sqlc.TextValuePtr(&threadID),
 		DagKey:           dagKey,
 		NodeKey:          nodeKey,
@@ -194,37 +194,19 @@ func recordNodeSpawnTx(ctx context.Context, txq *sqlc.Queries, dagKey, nodeKey s
 	if err != nil {
 		return err
 	}
-	result.Node = nodeFromSpawnRow(row)
+	if rows != 1 {
+		return fmt.Errorf("record_node_spawn: affected %d rows, want 1", rows)
+	}
+	updated, err := txq.GetTaskDagRunNodeForUpdate(ctx, sqlc.GetTaskDagRunNodeForUpdateParams{
+		DagKey:  dagKey,
+		NodeKey: nodeKey,
+		RunID:   int64Ptr(runID),
+	})
+	if err != nil {
+		return err
+	}
+	node := fromNodeRunForUpdateRow(updated)
+	result.Node = &node
 	result.PreviousThreadID = previousThreadID
 	return nil
-}
-
-// nodeFromSpawnRow 把更新 spawning_thread_id 的 CTE 返回行投影成 Node。
-// 该行包含标准节点列和额外 previous_spawning_thread_id，投影时只复制 Node 需要的列。
-func nodeFromSpawnRow(row sqlc.UpdateTaskDagNodeSpawningThreadRow) *Node {
-	n := Node{
-		ID:               row.ID,
-		DagKey:           row.DagKey,
-		NodeKey:          row.NodeKey,
-		RunID:            sqlc.Int8Ptr(row.RunID),
-		Title:            row.Title,
-		NodeType:         row.NodeType,
-		AssignedTo:       row.AssignedTo,
-		DependsOn:        row.DependsOn,
-		Reads:            nodeStringSlice(row.Reads),
-		Writes:           nodeStringSlice(row.Writes),
-		Status:           row.Status,
-		CommandRef:       row.CommandRef,
-		Config:           row.Config,
-		Result:           row.Result,
-		StartedAt:        timestampPtr(row.StartedAt),
-		FinishedAt:       timestampPtr(row.FinishedAt),
-		CreatedAt:        timeValue(row.CreatedAt),
-		UpdatedAt:        timeValue(row.UpdatedAt),
-		ActiveTurnID:     sqlc.TextPtr(row.ActiveTurnID),
-		ActiveWakeupID:   sqlc.Int8Ptr(row.ActiveWakeupID),
-		LastEventAt:      timestampPtr(row.LastEventAt),
-		SpawningThreadID: sqlc.TextPtr(row.SpawningThreadID),
-	}
-	return &n
 }

@@ -16,22 +16,22 @@ type plainTextProvider interface {
 }
 
 // registeredPlainTextRenderer 保存全局 fallback 渲染器，atomic.Value 允许测试安全重置。
-var registeredPlainTextRenderer atomic.Value // PlainTextRenderer
+var registeredPlainTextRenderer atomic.Value // plainTextRendererState
+
+type plainTextRendererState struct {
+	renderer PlainTextRenderer
+}
 
 // RegisterToolResultPlainTextRenderer 安装全局 fallback renderer。
 // stdio 直连和 scoped MCP path 共用该 renderer；传 nil 会清空注册，便于测试复位。
 func RegisterToolResultPlainTextRenderer(renderer PlainTextRenderer) {
-	if renderer == nil {
-		registeredPlainTextRenderer.Store(PlainTextRenderer(nil))
-		return
-	}
-	registeredPlainTextRenderer.Store(renderer)
+	registeredPlainTextRenderer.Store(plainTextRendererState{renderer: renderer})
 }
 
 // currentPlainTextRenderer 返回当前全局注册的渲染器，未注册时返回 nil。
 func currentPlainTextRenderer() PlainTextRenderer {
-	v, _ := registeredPlainTextRenderer.Load().(PlainTextRenderer)
-	return v
+	state, _ := registeredPlainTextRenderer.Load().(plainTextRendererState)
+	return state.renderer
 }
 
 // ResolveToolResultText 按固定优先级解析工具结果的 LLM 可读文本。
@@ -94,7 +94,7 @@ func isNilToolResult(value any) bool {
 	}
 	v := reflect.ValueOf(value)
 	switch v.Kind() {
-	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Ptr, reflect.Slice:
+	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Pointer, reflect.Slice:
 		return v.IsNil()
 	default:
 		return false

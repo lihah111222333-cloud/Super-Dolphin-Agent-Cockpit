@@ -19,7 +19,7 @@ type DreamOptions struct {
 	Provider      string             `json:"provider,omitempty"`
 	Model         string             `json:"model,omitempty"`
 	ModelProvider string             `json:"model_provider,omitempty"`
-	RuntimePolicy DreamRuntimePolicy `json:"runtime_policy,omitempty"`
+	RuntimePolicy DreamRuntimePolicy `json:"runtime_policy,omitzero"`
 }
 
 // DreamRuntimePolicy 描述 dream provider 子进程的安全边界。

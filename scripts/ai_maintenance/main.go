@@ -50,6 +50,7 @@ type gatePlan struct {
 	RequiredEvidence    []string `json:"required_evidence"`
 	GeneratedFiles      []string `json:"generated_files"`
 	AffectedGoPackages  []string `json:"affected_go_packages,omitempty"`
+	DiagnosticFiles     []string `json:"diagnostic_files,omitempty"`
 	RequiresEvidenceDoc bool     `json:"requires_evidence_doc"`
 }
 
@@ -104,6 +105,7 @@ func runMain(args []string) error {
 func runPlan(args []string, stdout *os.File) error {
 	fs := flag.NewFlagSet("plan", flag.ContinueOnError)
 	base := fs.String("base", "HEAD~1", "git base revision used when --changed-file is omitted")
+	pushGates := fs.Bool("push-gates", false, "include push-only risk gates")
 	changed := multiFlag{}
 	if stdout == nil {
 		stdout = os.Stdout
@@ -120,7 +122,7 @@ func runPlan(args []string, stdout *os.File) error {
 			return err
 		}
 	}
-	plan, err := buildGatePlan(files)
+	plan, err := gatePlanForScope(files, *pushGates)
 	if err != nil {
 		return err
 	}
@@ -140,6 +142,7 @@ func runGates(args []string) error {
 	cacheMaxAge := fs.Duration("cache-max-age", defaultGateCacheMaxAge, "maximum age for a cached green gate result")
 	cacheScope := fs.String("cache-scope", "", "staged Git tree used as the cache truth source")
 	diffCached := fs.Bool("diff-cached", false, "run whitespace checks against the staged index")
+	pushGates := fs.Bool("push-gates", false, "include push-only risk gates")
 	changed := multiFlag{}
 	diffRanges := multiFlag{}
 	fs.Var(&changed, "changed-file", "changed file path; may be repeated")
@@ -155,7 +158,11 @@ func runGates(args []string) error {
 			return err
 		}
 	}
-	plan, err := gatePlanForRun(files, *skipDeferredE2E)
+	plan, err := gatePlanForScope(files, *pushGates)
+	if err != nil {
+		return err
+	}
+	plan, err = filterDeferredE2E(plan, *skipDeferredE2E)
 	if err != nil {
 		return err
 	}
@@ -178,6 +185,22 @@ func runGates(args []string) error {
 	return executeGatePlanWithCache(plan, cache, executionScope)
 }
 
+// filterDeferredE2E 在显式要求时从计划中移除延迟 Provider E2E 包。
+func filterDeferredE2E(plan gatePlan, skip bool) (gatePlan, error) {
+	if !skip {
+		return plan, nil
+	}
+	packages, err := excludeDeferredE2EGoPackages(
+		plan.AffectedGoPackages,
+		"scripts/ai_maintenance/deferred_e2e_packages.txt",
+	)
+	if err != nil {
+		return gatePlan{}, err
+	}
+	plan.AffectedGoPackages = packages
+	return plan, nil
+}
+
 // validateOptionalEvidence 校验显式证据文件；未提供时保留控制器阻断提示但继续运行命令 gate。
 func validateOptionalEvidence(path string, plan gatePlan) error {
 	if path != "" {
@@ -187,19 +210,6 @@ func validateOptionalEvidence(path string, plan gatePlan) error {
 		fmt.Fprintln(os.Stderr, "ai-maintenance evidence file not supplied; command gates will run, but LSP evidence remains controller-blocking")
 	}
 	return nil
-}
-
-// gatePlanForRun 构造执行计划，并按显式开关移除延迟 E2E 包。
-func gatePlanForRun(files []string, skipDeferredE2E bool) (gatePlan, error) {
-	plan, err := buildGatePlan(files)
-	if err != nil || !skipDeferredE2E {
-		return plan, err
-	}
-	plan.AffectedGoPackages, err = excludeDeferredE2EGoPackages(
-		plan.AffectedGoPackages,
-		"scripts/ai_maintenance/deferred_e2e_packages.txt",
-	)
-	return plan, err
 }
 
 // runValidateEvidence 解析变更范围并校验指定 evidence 文件是否满足计划要求。
@@ -265,6 +275,10 @@ func buildGatePlanForRepo(repoRoot string, files []string) (gatePlan, error) {
 		gates["backend:test_with_guard"] = true
 		delete(gates, "ai-maintenance:self-test")
 	}
+	plan.DiagnosticFiles = changedDiagnosticFiles(normalized)
+	if len(plan.DiagnosticFiles) > 0 {
+		gates["lsp:changed-diagnostics"] = true
+	}
 	plan.RequiredGates = orderedGates(gates)
 	plan.RequiredEvidence = sortedKeys(evidence)
 	plan.GeneratedFiles = sortedKeys(generated)
@@ -278,12 +292,8 @@ func buildGatePlanForRepo(repoRoot string, files []string) (gatePlan, error) {
 // applyFileGateRules 汇总单个路径触发的命令 gate 和证据要求，并返回它是否属于 Go/后端验证面。
 func applyFileGateRules(file string, capabilityRules capcontract.PathRules, gates, evidence, generated map[string]bool) (bool, error) {
 	backendChanged := applySourceGateRules(file, gates, evidence)
-	capabilityChanged, err := capabilityRules.Match(file)
-	if err != nil {
-		return false, fmt.Errorf("match capability-contract path %q: %w", file, err)
-	}
-	if capabilityChanged {
-		gates["capcontract:check"] = true
+	if err := applyCapabilityContractGateRules(file, capabilityRules, gates, evidence, generated); err != nil {
+		return false, err
 	}
 	if aiMaintenanceRelevant(file) {
 		gates["ai-maintenance:self-test"] = true
@@ -308,6 +318,22 @@ func applyFileGateRules(file string, capabilityRules capcontract.PathRules, gate
 	return backendChanged, nil
 }
 
+// applyCapabilityContractGateRules 统一能力清单生成输入与检查路由，并在路径规则解析失败时阻断。
+func applyCapabilityContractGateRules(file string, capabilityRules capcontract.PathRules, gates, evidence, generated map[string]bool) error {
+	capabilityChanged, err := capabilityRules.Match(file)
+	if err != nil {
+		return fmt.Errorf("match capability-contract path %q: %w", file, err)
+	}
+	if capabilityChanged || backendGoFile(file) || file == capabilityContractManifest {
+		gates["capcontract:check"] = true
+	}
+	if capabilityContractProducerInput(file) {
+		generated[capabilityContractManifest] = true
+		evidence["generated:source"] = true
+	}
+	return nil
+}
+
 func goModuleFile(file string) bool {
 	switch file {
 	case "go.mod", "go.sum", "go.work", "go.work.sum":
@@ -323,7 +349,6 @@ func sqlcRelevant(file string) bool {
 		file == "cmd/mcp-orch/sqlc.yaml" ||
 		goModuleFile(file) ||
 		strings.HasPrefix(file, "sql/") ||
-		strings.HasPrefix(file, "migrations/") ||
 		strings.HasPrefix(file, "cmd/mcp-orch/sql/") ||
 		strings.HasPrefix(file, "internal/platform/db/sqlite/migrations/") ||
 		strings.HasPrefix(file, "internal/store/")
@@ -500,16 +525,19 @@ func generatedEvidenceProblems(doc evidenceDoc, plan gatePlan) []string {
 
 func gateEvidenceCommandFragments() map[string][]string {
 	return map[string][]string{
-		"ai-maintenance:self-test": {"go test ./scripts/ai_maintenance", "go test ./scripts -run TestAIMaintenanceGate"},
-		"backend:test_with_guard":  {"./scripts/test_with_guard.sh"},
-		"frontend:lint":            {"npm run lint"},
-		"frontend:test":            {"npm test"},
-		"frontend:build":           {"npm run build"},
-		"frontend:embed-verify":    {"make frontend-embed-verify"},
-		"codemap:check":            {"make codemap-check"},
-		"project-map:check":        {"make project-map-check"},
-		"capcontract:check":        {"make capcontract-check"},
-		"sqlc:verify":              {"make sqlc-verify-worktree", "make sqlc-verify"},
+		"ai-maintenance:self-test":         {"go test ./scripts/ai_maintenance", "go test ./scripts -run TestAIMaintenanceGate"},
+		"backend:test_with_guard":          {"./scripts/test_with_guard.sh"},
+		"backend:test_with_guard_and_race": {"./scripts/test_with_guard.sh", "--with-race", "-race"},
+		"backend:nilness":                  {"go run ./scripts/nilness_guard.go"},
+		"lsp:changed-diagnostics":          {"go run ./scripts/lsp_diagnostics_gate"},
+		"capcontract:check":                {"make capcontract-check"},
+		"frontend:lint":                    {"npm run lint"},
+		"frontend:test":                    {"npm test"},
+		"frontend:build":                   {"npm run build"},
+		"frontend:embed-verify":            {"make frontend-embed-verify"},
+		"codemap:check":                    {"make codemap-check"},
+		"project-map:check":                {"make project-map-check"},
+		"sqlc:verify":                      {"make sqlc-verify-worktree", "make sqlc-verify"},
 	}
 }
 
@@ -559,15 +587,6 @@ func normalizeFiles(files []string) []string {
 	return out
 }
 
-func sourceLike(file string) bool {
-	for _, suffix := range []string{".go", ".js", ".jsx", ".ts", ".tsx", ".css", ".sql"} {
-		if strings.HasSuffix(file, suffix) {
-			return true
-		}
-	}
-	return false
-}
-
 // codemapRelevant 判断变更是否可能影响代码地图或 AI 项目地图。
 func codemapRelevant(file string) bool {
 	return strings.HasPrefix(file, "cmd/") ||
@@ -604,6 +623,9 @@ func orderedGates(values map[string]bool) []string {
 		"frontend:build",
 		"frontend:embed-verify",
 		"backend:test_with_guard",
+		"lsp:changed-diagnostics",
+		"backend:test_with_guard_and_race",
+		"backend:nilness",
 		"sqlc:verify",
 		"codemap:check",
 		"project-map:check",

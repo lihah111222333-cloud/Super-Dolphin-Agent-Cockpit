@@ -63,7 +63,7 @@ lsp_server_specs=(
   "pyright|bin/pyright-langserver"
   "rust-analyzer|bin/rust-analyzer"
   "bash-language-server|bin/bash-language-server"
-  "sql-language-server|bin/sql-language-server"
+  "sqruff|bin/sqruff"
   "shellcheck|bin/shellcheck"
   "sg|bin/sg"
   "go|bin/go"
@@ -880,7 +880,7 @@ verify_lsp_checksums_file() {
 resolve_packaged_lsp_bundle() {
   packaged_lsp_bundle_dir="${SUPER_DOLPHIN_LSP_BUNDLE_DIR:-}"
   if [[ -z "$packaged_lsp_bundle_dir" ]]; then
-    echo "packaged LSP bundle is required; set $lsp_bundle_dir_env to a prepared $lsp_profile bundle containing $lsp_manifest_name, $lsp_checksums_name, gopls, typescript-language-server, vscode-langservers-extracted, pyright, rust-analyzer, bash-language-server, sql-language-server, shellcheck, sg, and jdtls only for full profile" >&2
+    echo "packaged LSP bundle is required; set $lsp_bundle_dir_env to a prepared $lsp_profile bundle containing $lsp_manifest_name, $lsp_checksums_name, gopls, typescript-language-server, vscode-langservers-extracted, pyright, rust-analyzer, bash-language-server, sqruff, shellcheck, sg, and jdtls only for full profile" >&2
     exit 1
   fi
   if [[ ! -d "$packaged_lsp_bundle_dir" ]]; then
@@ -1474,25 +1474,6 @@ copy_sqlite_migrations() {
   rm -rf "$dest"
   mkdir -p "$(dirname "$dest")"
   cp -R "$src" "$dest"
-}
-
-check_loader_path_deps() {
-  local pg_bundle="$1"
-  local missing=0
-  while IFS= read -r -d '' file; do
-    [[ -f "$file" ]] || continue
-    is_macho "$file" || continue
-    while IFS= read -r ref; do
-      [[ "$ref" == @loader_path/*.dylib ]] || continue
-      local resolved
-      resolved="$(dirname "$file")/${ref#@loader_path/}"
-      if [[ ! -f "$resolved" ]]; then
-        echo "missing @loader_path dependency: $ref referenced by $file" >&2
-        missing=1
-      fi
-    done < <(dylib_refs_for "$file")
-  done < <(find "$pg_bundle/bin" "$pg_bundle/lib" -type f -print0)
-  return "$missing"
 }
 
 bundle_macho_dylibs() {

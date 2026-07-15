@@ -164,7 +164,7 @@ frontend-app/src/features/prompt-history/hooks/usePromptHistory.test.jsx	fronten
 frontend-app/src/features/prompt-history/model/promptHistoryController.js	frontend-app	app-ui	js-source	4842	当前 React/Vite 前端包	frontend,app,src,features,prompt,history,model,promptHistoryController,当前,React,Vite,前端包
 frontend-app/src/features/prompt-history/model/promptHistoryController.test.js	frontend-app	app-ui	js-test	8286	当前 React/Vite 前端包	frontend,app,src,features,prompt,history,model,promptHistoryController,test,当前,React,Vite,前端包
 frontend-app/src/features/prompts/Personalization.css	frontend-app	app-ui	css	2531	当前 React/Vite 前端包	frontend,app,src,features,prompts,Personalization,当前,React,Vite,前端包
-frontend-app/src/features/prompts/PromptPagePolish.css	frontend-app	app-ui	css	4875	当前 React/Vite 前端包	frontend,app,src,features,prompts,PromptPagePolish,当前,React,Vite,前端包
+frontend-app/src/features/prompts/PromptPagePolish.css	frontend-app	app-ui	css	4892	当前 React/Vite 前端包	frontend,app,src,features,prompts,PromptPagePolish,当前,React,Vite,前端包
 frontend-app/src/features/prompts/PromptPageView.css	frontend-app	app-ui	css	8230	当前 React/Vite 前端包	frontend,app,src,features,prompts,PromptPageView,当前,React,Vite,前端包
 frontend-app/src/features/prompts/PromptPageView.jsx	frontend-app	app-ui	jsx	55742	当前 React/Vite 前端包	frontend,app,src,features,prompts,PromptPageView,当前,React,Vite,前端包
 frontend-app/src/features/prompts/PromptPageView.test.jsx	frontend-app	app-ui	jsx	34272	当前 React/Vite 前端包	frontend,app,src,features,prompts,PromptPageView,test,当前,React,Vite,前端包
@@ -358,7 +358,7 @@ frontend-app/src/pages/prompts/services/promptPageService.test.js	frontend-app	a
 frontend-app/src/pages/settings/components/BuiltinToolsCard.css	frontend-app	app-ui	css	0	React 页面与路由级 UI	frontend,app,src,pages,settings,components,BuiltinToolsCard,React,页面与路由级,UI
 frontend-app/src/pages/settings/components/BuiltinToolsCard.jsx	frontend-app	app-ui	jsx	3655	React 页面与路由级 UI	frontend,app,src,pages,settings,components,BuiltinToolsCard,React,页面与路由级,UI
 frontend-app/src/pages/settings/components/ModelProvidersCard.jsx	frontend-app	app-ui	jsx	9799	React 页面与路由级 UI	frontend,app,src,pages,settings,components,ModelProvidersCard,React,页面与路由级,UI
-frontend-app/src/pages/settings/components/ModelProvidersCard.test.jsx	frontend-app	app-ui	jsx	325	React 页面与路由级 UI	frontend,app,src,pages,settings,components,ModelProvidersCard,test,React,页面与路由级,UI
+frontend-app/src/pages/settings/components/ModelProvidersCard.test.jsx	frontend-app	app-ui	jsx	693	React 页面与路由级 UI	frontend,app,src,pages,settings,components,ModelProvidersCard,test,React,页面与路由级,UI
 frontend-app/src/pages/settings/components/ModelProvidersCardModel.js	frontend-app	app-ui	js-source	4614	React 页面与路由级 UI	frontend,app,src,pages,settings,components,ModelProvidersCardModel,React,页面与路由级,UI
 frontend-app/src/pages/settings/components/ModelProvidersCardParts.jsx	frontend-app	app-ui	jsx	4668	React 页面与路由级 UI	frontend,app,src,pages,settings,components,ModelProvidersCardParts,React,页面与路由级,UI
 frontend-app/src/pages/settings/components/PromptSettingsCard.css	frontend-app	app-ui	css	0	React 页面与路由级 UI	frontend,app,src,pages,settings,components,PromptSettingsCard,React,页面与路由级,UI
@@ -457,8 +457,8 @@ frontend-app/src/shared/api/backendApi.js	frontend-app	app-ui	js-source	6390	Rea
 frontend-app/src/shared/api/backendApi.surface.test.js	frontend-app	app-ui	js-test	6707	React 前端 API facade 与 Wails bridge	frontend,app,src,shared,api,backendApi,surface,test,React,前端,API,facade,与,Wails,bridge
 frontend-app/src/shared/api/backendApi.test.js	frontend-app	app-ui	js-test	144201	React 前端 API facade 与 Wails bridge	frontend,app,src,shared,api,backendApi,test,React,前端,API,facade,与,Wails,bridge
 frontend-app/src/shared/api/backendCronListContract.test.js	frontend-app	app-ui	js-test	2254	React 前端 API facade 与 Wails bridge	frontend,app,src,shared,api,backendCronListContract,test,React,前端,API,facade,与,Wails,bridge
-frontend-app/src/shared/api/backendResponseValidators.js	frontend-app	app-ui	js-source	55865	React 前端 API facade 与 Wails bridge	frontend,app,src,shared,api,backendResponseValidators,React,前端,API,facade,与,Wails,bridge
-frontend-app/src/shared/api/backendResponseValidators.test.js	frontend-app	app-ui	js-test	16469	React 前端 API facade 与 Wails bridge	frontend,app,src,shared,api,backendResponseValidators,test,React,前端,API,facade,与,Wails,bridge
+frontend-app/src/shared/api/backendResponseValidators.js	frontend-app	app-ui	js-source	55560	React 前端 API facade 与 Wails bridge	frontend,app,src,shared,api,backendResponseValidators,React,前端,API,facade,与,Wails,bridge
+frontend-app/src/shared/api/backendResponseValidators.test.js	frontend-app	app-ui	js-test	17509	React 前端 API facade 与 Wails bridge	frontend,app,src,shared,api,backendResponseValidators,test,React,前端,API,facade,与,Wails,bridge
 frontend-app/src/shared/api/backendResponseValidatorsCore.js	frontend-app	app-ui	js-source	32747	React 前端 API facade 与 Wails bridge	frontend,app,src,shared,api,backendResponseValidatorsCore,React,前端,API,facade,与,Wails,bridge
 frontend-app/src/shared/api/backendResponseValidatorShared.js	frontend-app	app-ui	js-source	2040	React 前端 API facade 与 Wails bridge	frontend,app,src,shared,api,backendResponseValidatorShared,React,前端,API,facade,与,Wails,bridge
 frontend-app/src/shared/api/backendResponseValidatorsRuntime.js	frontend-app	app-ui	js-source	12447	React 前端 API facade 与 Wails bridge	frontend,app,src,shared,api,backendResponseValidatorsRuntime,React,前端,API,facade,与,Wails,bridge
@@ -492,9 +492,9 @@ frontend-app/src/shared/diagnostics/safeLogFields.js	frontend-app	app-ui	js-sour
 frontend-app/src/shared/diagnostics/safeLogFields.test.js	frontend-app	app-ui	js-test	5503	当前 React/Vite 前端包	frontend,app,src,shared,diagnostics,safeLogFields,test,当前,React,Vite,前端包
 frontend-app/src/shared/i18n/appI18n.constants.js	frontend-app	app-ui	js-source	218	当前 React/Vite 前端包	frontend,app,src,shared,i18n,appI18n,constants,当前,React,Vite,前端包
 frontend-app/src/shared/i18n/appI18n.copy.js	frontend-app	app-ui	js-source	139	当前 React/Vite 前端包	frontend,app,src,shared,i18n,appI18n,copy,当前,React,Vite,前端包
-frontend-app/src/shared/i18n/appI18n.en.json	frontend-app	app-ui	json	27019	当前 React/Vite 前端包	frontend,app,src,shared,i18n,appI18n,en,当前,React,Vite,前端包
+frontend-app/src/shared/i18n/appI18n.en.json	frontend-app	app-ui	json	26741	当前 React/Vite 前端包	frontend,app,src,shared,i18n,appI18n,en,当前,React,Vite,前端包
 frontend-app/src/shared/i18n/appI18n.js	frontend-app	app-ui	js-source	1152	当前 React/Vite 前端包	frontend,app,src,shared,i18n,appI18n,当前,React,Vite,前端包
-frontend-app/src/shared/i18n/appI18n.zh.json	frontend-app	app-ui	json	26606	当前 React/Vite 前端包	frontend,app,src,shared,i18n,appI18n,zh,当前,React,Vite,前端包
+frontend-app/src/shared/i18n/appI18n.zh.json	frontend-app	app-ui	json	26330	当前 React/Vite 前端包	frontend,app,src,shared,i18n,appI18n,zh,当前,React,Vite,前端包
 frontend-app/src/shared/keyboard/shortcutModel.js	frontend-app	app-ui	js-source	4538	当前 React/Vite 前端包	frontend,app,src,shared,keyboard,shortcutModel,当前,React,Vite,前端包
 frontend-app/src/shared/keyboard/shortcutModel.test.js	frontend-app	app-ui	js-test	4244	当前 React/Vite 前端包	frontend,app,src,shared,keyboard,shortcutModel,test,当前,React,Vite,前端包
 frontend-app/src/shared/styles/LayerTokens.css	frontend-app	app-ui	css	239	当前 React/Vite 前端包	frontend,app,src,shared,styles,LayerTokens,当前,React,Vite,前端包

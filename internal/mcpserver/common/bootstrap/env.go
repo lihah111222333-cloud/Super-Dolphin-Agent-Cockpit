@@ -1,6 +1,7 @@
 package bootstrap
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -57,9 +58,12 @@ func SessionTokenFromEnv() string {
 	return firstEnv("GO_AGENT_CTL_SESSION_TOKEN", "GO_AGENT_MCP_SESSION_TOKEN")
 }
 
-// normalizeConfig 规范化 Config 字段，合并 bootSnapshot 缺省值并生成 instance_id/boot_id。
-func normalizeConfig(cfg Config) (Config, bootSnapshot) {
-	boot := parseBootSnapshot(cfg.BootSnapshot)
+// normalizeConfig 规范化 Config 字段，严格解析 bootSnapshot，并生成 instance_id/boot_id。
+func normalizeConfig(cfg Config) (Config, bootSnapshot, error) {
+	boot, err := parseBootSnapshot(cfg.BootSnapshot)
+	if err != nil {
+		return Config{}, bootSnapshot{}, err
+	}
 	cfg.RPCAddr = strings.TrimSpace(cfg.RPCAddr)
 	cfg.InstanceID = shared.FirstNonEmpty(strings.TrimSpace(cfg.InstanceID), strings.TrimSpace(boot.InstanceID), generateInstanceID())
 	cfg.BootID = shared.FirstNonEmpty(strings.TrimSpace(cfg.BootID), strings.TrimSpace(boot.BootID), generateID("boot"))
@@ -83,7 +87,7 @@ func normalizeConfig(cfg Config) (Config, bootSnapshot) {
 	if len(cfg.Subscriptions) == 0 {
 		cfg.Subscriptions = shared.CloneStrings(boot.Subscriptions)
 	}
-	return cfg, boot
+	return cfg, boot, nil
 }
 
 // envContext 在控制平面不可达时从 bootSnapshot 构造降级的 ContextResponse。
@@ -262,16 +266,31 @@ func logDeprecatedEnvKey(canonical, legacy string) {
 	)
 }
 
-// parseBootSnapshot 从原始 JSON 解析 bootSnapshot；解析失败返回零值快照，启动后续校验仍会兜住必填项。
-func parseBootSnapshot(raw json.RawMessage) bootSnapshot {
+// parseBootSnapshot 严格解析原始 JSON，只接受单个且字段已知的对象；空输入表示没有启动快照。
+func parseBootSnapshot(raw json.RawMessage) (bootSnapshot, error) {
 	var snap bootSnapshot
+	raw = bytes.TrimSpace(raw)
 	if len(raw) == 0 {
-		return snap
+		return snap, nil
 	}
-	_ = json.Unmarshal(raw, &snap)
+	if raw[0] != '{' {
+		return bootSnapshot{}, errors.New("bootstrap snapshot must be a JSON object")
+	}
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&snap); err != nil {
+		return bootSnapshot{}, fmt.Errorf("decode bootstrap snapshot: %w", err)
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
+		if err == nil {
+			return bootSnapshot{}, errors.New("decode bootstrap snapshot: trailing JSON value")
+		}
+		return bootSnapshot{}, fmt.Errorf("decode bootstrap snapshot trailing data: %w", err)
+	}
 	snap.Capabilities = shared.CloneStrings(snap.Capabilities)
 	snap.Subscriptions = shared.CloneStrings(snap.Subscriptions)
-	return snap
+	return snap, nil
 }
 
 // deriveClientKind 从 binary 名称推断 client_kind（lsp/orch/ida/custom）。

@@ -64,7 +64,6 @@
     {"kind": "glob", "pattern": "examples/**"},
     {"kind": "glob", "pattern": "frontend-app/**"},
     {"kind": "glob", "pattern": "internal/**"},
-    {"kind": "glob", "pattern": "migrations/**"},
     {"kind": "glob", "pattern": "pkg/**"},
     {"kind": "glob", "pattern": "release/**"},
     {"kind": "glob", "pattern": "scripts/**"},

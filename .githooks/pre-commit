@@ -58,11 +58,12 @@ trap 'cleanup; exit 130' INT
 trap 'cleanup; exit 143' TERM
 trap 'cleanup; exit 129' HUP
 
+STAGED_CHANGED_FILES=()
+CAPCONTRACT_MANIFEST=docs/doc/codemap/capability-contract/capability_manifest.json
 GOFMT_FILES=()
 PKG_CANDIDATES=()
 MISSING_FILES=()
 DIRTY_FILES=()
-HAS_EXECUTABLE_GATE_CHANGES=0
 CODEMAP_GENERATED_PATHS=(
   README.md
   docs/doc/codemap/13-archtest-boundaries.md
@@ -70,14 +71,6 @@ CODEMAP_GENERATED_PATHS=(
   docs/doc/codemap/ai-index.json
   docs/doc/codemap/project-map
 )
-
-add_executable_gate_path() {
-  case "$1" in
-    *.go|frontend-app/*|scripts/*|.githooks/*|Makefile|go.mod|go.sum|sql/*|internal/*|cmd/*|pkg/*|*.yaml|*.yml|*.json)
-      HAS_EXECUTABLE_GATE_CHANGES=1
-      ;;
-  esac
-}
 
 ensure_codemap_generated_paths_clean() {
   local untracked
@@ -105,14 +98,40 @@ ensure_codemap_generated_paths_clean() {
 }
 
 refresh_codemap_generated_files() {
+  local path plan refresh_capcontract=0
+  local plan_args=(plan)
+
   echo "[pre-commit] codemap refresh..."
   ensure_codemap_generated_paths_clean
 
   CODEMAP_TMP=$(mktemp -d -t pre-commit-codemap.XXXXXX)
   git -c core.autocrlf=false checkout-index -a --prefix="$CODEMAP_TMP/"
+  for path in "${STAGED_CHANGED_FILES[@]}"; do
+    plan_args+=(--changed-file "$path")
+  done
+  plan=
+  if [ ${#STAGED_CHANGED_FILES[@]} -gt 0 ]; then
+    if ! plan=$(
+      cd "$CODEMAP_TMP"
+      run_go_without_git_env go run ./scripts/ai_maintenance "${plan_args[@]}"
+    ); then
+      echo "❌ 无法从 staged snapshot 生成 AI maintenance plan" >&2
+      exit 1
+    fi
+  fi
+  if grep -Fq "\"$CAPCONTRACT_MANIFEST\"" <<<"$plan"; then
+    refresh_capcontract=1
+    if ! git diff --quiet -- "$CAPCONTRACT_MANIFEST"; then
+      echo "❌ capability manifest 存在未暂存改动，pre-commit 不会覆盖它：$CAPCONTRACT_MANIFEST" >&2
+      exit 1
+    fi
+  fi
   (
     cd "$CODEMAP_TMP"
     run_go_without_git_env scripts/refresh_generated_artifacts.sh codemap
+    if [ "$refresh_capcontract" -eq 1 ]; then
+      run_go_without_git_env scripts/refresh_generated_artifacts.sh capcontract
+    fi
     run_go_without_git_env scripts/refresh_generated_artifacts.sh project-map -- --filesystem-scan
   )
 
@@ -129,6 +148,11 @@ refresh_codemap_generated_files() {
     fi
   done
 
+  if [ "$refresh_capcontract" -eq 1 ] && [ ! -f "$CODEMAP_TMP/$CAPCONTRACT_MANIFEST" ]; then
+    echo "❌ capability contract 刷新未生成期望文件：$CAPCONTRACT_MANIFEST" >&2
+    exit 1
+  fi
+
   rm -rf docs/doc/codemap/project-map
   mkdir -p docs/doc/codemap
   cp "$CODEMAP_TMP/README.md" README.md
@@ -137,6 +161,11 @@ refresh_codemap_generated_files() {
   cp "$CODEMAP_TMP/docs/doc/codemap/ai-index.json" docs/doc/codemap/ai-index.json
   cp -R "$CODEMAP_TMP/docs/doc/codemap/project-map" docs/doc/codemap/project-map
   git add -A -- "${CODEMAP_GENERATED_PATHS[@]}"
+  if [ "$refresh_capcontract" -eq 1 ]; then
+    mkdir -p "$(dirname "$CAPCONTRACT_MANIFEST")"
+    cp "$CODEMAP_TMP/$CAPCONTRACT_MANIFEST" "$CAPCONTRACT_MANIFEST"
+    git add -- "$CAPCONTRACT_MANIFEST"
+  fi
 }
 
 run_ai_maintenance_staged_gate() {
@@ -355,6 +384,12 @@ add_pkg_for_path() {
   fi
 }
 
+add_staged_changed_file() {
+  if ! array_contains "$1" "${STAGED_CHANGED_FILES[@]}"; then
+    STAGED_CHANGED_FILES+=("$1")
+  fi
+}
+
 add_gofmt_file() {
   is_go_path "$1" || return 0
   if ! array_contains "$1" "${GOFMT_FILES[@]}"; then
@@ -392,29 +427,29 @@ while IFS= read -r -d '' status; do
     R*|C*)
       IFS= read -r -d '' old_path || { echo "❌ 解析 staged rename/copy old path 失败" >&2; exit 1; }
       IFS= read -r -d '' new_path || { echo "❌ 解析 staged rename/copy new path 失败" >&2; exit 1; }
+      add_staged_changed_file "$old_path"
+      add_staged_changed_file "$new_path"
       add_pkg_for_path "$old_path"
       add_pkg_for_path "$new_path"
-      add_executable_gate_path "$old_path"
-      add_executable_gate_path "$new_path"
       add_gofmt_file "$new_path"
       check_worktree_matches_index "$new_path"
       ;;
     D)
       IFS= read -r -d '' path || { echo "❌ 解析 staged delete path 失败" >&2; exit 1; }
+      add_staged_changed_file "$path"
       add_pkg_for_path "$path"
-      add_executable_gate_path "$path"
       ;;
     A|M)
       IFS= read -r -d '' path || { echo "❌ 解析 staged path 失败" >&2; exit 1; }
+      add_staged_changed_file "$path"
       add_pkg_for_path "$path"
-      add_executable_gate_path "$path"
       add_gofmt_file "$path"
       check_worktree_matches_index "$path"
       ;;
     *)
       IFS= read -r -d '' path || { echo "❌ 解析 staged path 失败" >&2; exit 1; }
+      add_staged_changed_file "$path"
       add_pkg_for_path "$path"
-      add_executable_gate_path "$path"
       add_gofmt_file "$path"
       check_worktree_matches_index "$path"
       ;;
@@ -423,37 +458,7 @@ done < <(git diff --cached --name-status -z --diff-filter=ACMRD)
 
 refresh_codemap_generated_files
 
-# go vet / AI maintenance tests 以 worktree 包为输入；为避免测试到未提交内容，
-# staged Go 影响到的包内若还有未暂存或未跟踪 .go，也必须先处理。
-for p in "${PKG_CANDIDATES[@]}"; do
-  pkg_dir=${p#./}
-  if [ "$p" = "." ]; then
-    pkg_dir="."
-  fi
-  if [ ! -d "$pkg_dir" ]; then
-    continue
-  fi
-  while IFS= read -r -d '' dirty_path; do
-    if is_go_path "$dirty_path"; then
-      add_dirty_file "$dirty_path"
-    fi
-  done < <(git diff --name-only -z -- "$pkg_dir")
-  while IFS= read -r -d '' other_path; do
-    if is_go_path "$other_path"; then
-      add_dirty_file "$other_path"
-    fi
-  done < <(git ls-files --others --exclude-standard -z -- "$pkg_dir")
-done
-
-# 代码/门禁提交会在真实 worktree 上执行检查；任何额外 tracked/untracked 输入都必须阻断。
-if [ "$HAS_EXECUTABLE_GATE_CHANGES" -eq 1 ]; then
-  while IFS= read -r -d '' dirty_path; do
-    add_dirty_file "$dirty_path"
-  done < <(git diff --name-only -z)
-  while IFS= read -r -d '' other_path; do
-    add_dirty_file "$other_path"
-  done < <(git ls-files --others --exclude-standard -z)
-fi
+# 长耗时检查只读取 staged tree 展开的临时 worktree；原 worktree 的其他改动不属于本次提交输入。
 
 if [ ${#MISSING_FILES[@]} -gt 0 ]; then
   echo "❌ 以下 staged 文件在 worktree 中不存在（常见 AD：git add 后又 rm）：" >&2

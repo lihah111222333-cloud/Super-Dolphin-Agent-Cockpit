@@ -59,7 +59,7 @@ func TestHandoff_SourceNotFound(t *testing.T) {
 
 func TestHandoff_StoreError(t *testing.T) {
 	t.Parallel()
-	sentinel := errors.New("pgx: boom")
+	sentinel := errors.New("sqlite: boom")
 	s := &service{threadStore: &stubThreadStore{getErr: sentinel}}
 	_, err := s.Handoff(context.Background(), HandoffRequest{
 		SourceThreadID: "thread-123",

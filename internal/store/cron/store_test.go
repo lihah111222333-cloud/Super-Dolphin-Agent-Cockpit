@@ -735,7 +735,7 @@ func onCommentLine(sql string, idx int) bool {
 	return indexOf(line, "--") >= 0
 }
 
-func TestMigration0045CrashRecoveryStatuses(t *testing.T) {
+func TestSQLiteBaselineCronCrashRecoveryStatuses(t *testing.T) {
 	t.Parallel()
 	sql := readMigration0045(t)
 	// The CHECK constraint must list every status the state machine
@@ -750,7 +750,7 @@ func TestMigration0045CrashRecoveryStatuses(t *testing.T) {
 	}
 }
 
-func TestMigration0045HasDueAndDedupeIndexes(t *testing.T) {
+func TestSQLiteBaselineCronHasDueAndDedupeIndexes(t *testing.T) {
 	t.Parallel()
 	sql := readMigration0045(t)
 	for _, want := range []string{
@@ -834,10 +834,10 @@ func assertSubmittedTurnState(ctx context.Context, t *testing.T, db *sql.DB, wan
 	}
 }
 
-// readMigration0045 loads the 0045 migration SQL from the repo checkout.
+// readMigration0045 loads the canonical SQLite baseline from the repo checkout.
 func readMigration0045(t *testing.T) string {
 	t.Helper()
-	return readRepoFile(t, "migrations/0045_cron_jobs.sql")
+	return readRepoFile(t, "internal/platform/db/sqlite/migrations/001_baseline.sql")
 }
 
 // readCronQuerySQL loads sql/queries/<name> from the repo checkout.

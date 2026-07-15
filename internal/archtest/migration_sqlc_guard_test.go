@@ -14,17 +14,6 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-type knownMigrationDuplicate struct {
-	Number int
-	Names  []string
-}
-
-var knownDeployedDuplicateMigrations = []knownMigrationDuplicate{
-	{Number: 1, Names: []string{"0001_initial_schema.sql", "001_baseline.sql"}},
-	{Number: 6, Names: []string{"0006_agent_status.sql", "0006_workspace_runs.sql"}},
-	{Number: 25, Names: []string{"0025_agent_thread_config_override.sql", "0025_hook_pending_reviews.sql"}},
-}
-
 type sqlcDatabaseConfig struct {
 	SQL []struct {
 		Engine string   `yaml:"engine"`
@@ -181,29 +170,6 @@ func missingHookSQLCMethodViolations(t *testing.T, root string) []string {
 	return violations
 }
 
-func TestMigrationNumberUniqueness(t *testing.T) {
-	root := repoRoot(t)
-	paths, err := filepath.Glob(filepath.Join(root, "migrations", "*.sql"))
-	if err != nil {
-		t.Fatalf("glob migrations: %v", err)
-	}
-	if len(paths) == 0 {
-		t.Fatal("no migrations/*.sql files found")
-	}
-	failIfViolations(t, duplicateMigrationNumberViolations(paths, knownDeployedDuplicateMigrations))
-}
-
-func TestKnownDeployedDuplicateMigrationsPinned(t *testing.T) {
-	want := []knownMigrationDuplicate{
-		{Number: 1, Names: []string{"0001_initial_schema.sql", "001_baseline.sql"}},
-		{Number: 6, Names: []string{"0006_agent_status.sql", "0006_workspace_runs.sql"}},
-		{Number: 25, Names: []string{"0025_agent_thread_config_override.sql", "0025_hook_pending_reviews.sql"}},
-	}
-	if !reflect.DeepEqual(knownDeployedDuplicateMigrations, want) {
-		t.Fatalf("knownDeployedDuplicateMigrations must only contain deployed duplicate numbers 1, 6, and 25; got %#v", knownDeployedDuplicateMigrations)
-	}
-}
-
 func TestSQLiteRuntimeMigrationNumberUniqueness(t *testing.T) {
 	root := repoRoot(t)
 	paths, err := filepath.Glob(filepath.Join(root, "internal", "platform", "db", "sqlite", "migrations", "*.sql"))
@@ -213,17 +179,10 @@ func TestSQLiteRuntimeMigrationNumberUniqueness(t *testing.T) {
 	if len(paths) == 0 {
 		t.Fatal("no internal/platform/db/sqlite/migrations/*.sql files found")
 	}
-	failIfViolations(t, duplicateMigrationNumberViolations(paths, nil))
+	failIfViolations(t, duplicateMigrationNumberViolations(paths))
 }
 
-func duplicateMigrationNumberViolations(paths []string, allowed []knownMigrationDuplicate) []string {
-	allowedByNumber := map[int][]string{}
-	for _, duplicate := range allowed {
-		names := append([]string(nil), duplicate.Names...)
-		sort.Strings(names)
-		allowedByNumber[duplicate.Number] = names
-	}
-
+func duplicateMigrationNumberViolations(paths []string) []string {
 	byNumber := map[int][]string{}
 	var violations []string
 	prefixRE := regexp.MustCompile(`^(\d+)_.*\.sql$`)
@@ -251,10 +210,6 @@ func duplicateMigrationNumberViolations(paths []string, allowed []knownMigration
 		names := byNumber[number]
 		sort.Strings(names)
 		if len(names) <= 1 {
-			continue
-		}
-		allowed := allowedByNumber[number]
-		if strings.Join(names, "\x00") == strings.Join(allowed, "\x00") {
 			continue
 		}
 		violations = append(violations, fmt.Sprintf(

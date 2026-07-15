@@ -68,7 +68,7 @@ WHERE turn_id = ?
 LIMIT 1`, "turn-fixture-0001")
 	assertQueryPlanUsesIndex(t, db, "idx_task_dags_updated_id", dashboardDAGQueries.all, 25)
 	assertQueryPlanUsesIndex(t, db, "idx_task_dags_status", dashboardDAGQueries.status, "active", 25)
-	assertQueryPlanUsesIndex(t, db, "idx_task_dags_status", dashboardDAGQueries.statusKeyword, "active", "fixture", 25)
+	assertQueryPlanUsesIndex(t, db, "idx_task_dags_status", dashboardDAGQueries.statusKeyword, "active", "fixture", "fixture", "fixture", 25)
 	assertQueryPlanUsesIndex(t, db, "idx_task_dag_wakeups_poll", `
 SELECT id, dag_key, run_id
 FROM task_dag_wakeups

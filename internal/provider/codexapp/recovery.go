@@ -389,9 +389,11 @@ func (s *session) resumeThreadAfterRecovery(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("codexapp: thread/resume after recovery failed: %w", err)
 	}
-	if newID, decodeErr := decodeThreadID(raw, threadID); decodeErr == nil && newID != "" {
-		s.setThreadID(newID)
+	newID, err := decodeThreadID(raw)
+	if err != nil {
+		return fmt.Errorf("codexapp: decode thread/resume recovery result: %w", err)
 	}
+	s.setThreadID(newID)
 	return nil
 }
 

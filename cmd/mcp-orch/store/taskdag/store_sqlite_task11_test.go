@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net/url"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -24,6 +25,53 @@ func TestSQLiteTaskDAGCoreCRUDListUpdateDelete(t *testing.T) {
 	assertSQLiteCoreDAGList(t, ctx, store)
 	assertSQLiteCoreDAGUpdate(t, ctx, store)
 	assertSQLiteCoreDAGDelete(t, ctx, store)
+}
+
+func TestSQLiteUpsertDAGUpdatesExistingRowAndPreservesIdentity(t *testing.T) {
+	ctx := context.Background()
+	db := openTaskDAGSQLiteDB(t)
+	store := NewStore(db).(*store)
+
+	created, err := store.UpsertDAG(ctx, DAG{
+		DagKey: "dag-upsert", Title: "before", Description: "old", Status: "draft",
+		CreatedBy: "creator", Metadata: json.RawMessage(`{"revision":1}`),
+	})
+	if err != nil {
+		t.Fatalf("initial UpsertDAG() error = %v", err)
+	}
+	updated, err := store.UpsertDAG(ctx, DAG{
+		DagKey: "dag-upsert", Title: "after", Description: "new", Status: "ready",
+		CreatedBy: "editor", Metadata: json.RawMessage(`{"revision":2}`),
+	})
+	if err != nil {
+		t.Fatalf("update UpsertDAG() error = %v", err)
+	}
+	assertSQLiteUpsertDAGResult(t, created, updated)
+	assertSQLiteDAGKeyCount(t, ctx, db, "dag-upsert", 1)
+}
+
+func assertSQLiteUpsertDAGResult(t *testing.T, created, updated *DAG) {
+	t.Helper()
+	if updated.ID != created.ID || !updated.CreatedAt.Equal(created.CreatedAt) {
+		t.Fatalf("identity changed: created=%+v updated=%+v", created, updated)
+	}
+	if updated.Title != "after" || updated.Description != "new" || updated.Status != "ready" || updated.CreatedBy != "editor" {
+		t.Fatalf("updated DAG = %+v, want replacement fields", updated)
+	}
+	if string(updated.Metadata) != `{"revision":2}` {
+		t.Fatalf("updated metadata = %s, want revision 2", updated.Metadata)
+	}
+}
+
+func assertSQLiteDAGKeyCount(t *testing.T, ctx context.Context, db *sql.DB, dagKey string, want int) {
+	t.Helper()
+	var count int
+	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM task_dags WHERE dag_key = ?`, dagKey).Scan(&count); err != nil {
+		t.Fatalf("count task_dags: %v", err)
+	}
+	if count != want {
+		t.Fatalf("task_dags count = %d, want %d", count, want)
+	}
 }
 
 func TestAssignNodeAndEnqueueWakeupRollsBackAssignmentWhenWakeupEnqueueFails(t *testing.T) {
@@ -260,6 +308,96 @@ func TestSQLiteTaskDAGFinalizeRunWritesFinalOutputMetadata(t *testing.T) {
 		t.Fatalf("GetRun() error = %v", err)
 	}
 	assertSQLiteFinalOutputMetadata(t, persisted.Metadata)
+}
+
+func TestFinalOutputMetadataFromNodeAcceptsLegalExtraConfigFields(t *testing.T) {
+	out, present, err := finalOutputMetadataFromNode(runFinalOutputNode{
+		NodeKey: "child",
+		Config: json.RawMessage(`{
+			"exec":{"agent_key":"writer"},
+			"outputs":{
+				"to_sharedfile":{"path":"reports/final.md","lock_mode":"exclusive"},
+				"to_node_result":true
+			}
+		}`),
+		Result: json.RawMessage(`{"summary":"final"}`),
+	})
+	if err != nil {
+		t.Fatalf("finalOutputMetadataFromNode() error = %v", err)
+	}
+	if !present || out["kind"] != "file" || out["path"] != "reports/final.md" {
+		t.Fatalf("final output = %v, present = %v, want configured file", out, present)
+	}
+}
+
+func TestSQLiteTaskDAGFinalizeRunRejectsInvalidFinalNodeConfigAndRollsBack(t *testing.T) {
+	if _, _, err := finalOutputMetadataFromNode(runFinalOutputNode{
+		NodeKey: "child",
+		Config:  json.RawMessage(`{"outputs":`),
+		Result:  json.RawMessage(`{"summary":"final"}`),
+	}); err == nil || !strings.Contains(err.Error(), "config") {
+		t.Fatalf("malformed final node config error = %v, want containing config", err)
+	}
+	assertSQLiteFinalNodeConfigRollback(t, json.RawMessage(`{"outputs":"invalid"}`), "outputs")
+}
+
+func assertSQLiteFinalNodeConfigRollback(t *testing.T, config json.RawMessage, wantErrPart string) {
+	t.Helper()
+	ctx := context.Background()
+	db := openTaskDAGSQLiteDB(t)
+	store := NewStore(db).(*store)
+	seedSQLiteFinalOutputTemplate(t, ctx, store, "dag-final-invalid")
+	if _, err := store.UpsertNode(ctx, Node{
+		DagKey: "dag-final-invalid", NodeKey: "child", Title: "Child", NodeType: "agent",
+		DependsOn: json.RawMessage(`["root"]`), Config: config,
+	}); err != nil {
+		t.Fatalf("UpsertNode(child) error = %v", err)
+	}
+	runID := insertSQLiteTaskDAGRun(t, ctx, db, "run-final-invalid", "dag-final-invalid", `{"request_id":"req-invalid"}`)
+	cloneAndPromoteSQLiteRun(t, ctx, store, "dag-final-invalid", runID)
+	completeSQLiteFinalNode(t, ctx, store, runID, "root", json.RawMessage(`{"root":true}`))
+
+	_, err := store.CompleteNodeAndScheduleDownstream(ctx, CompleteNodeInput{
+		DagKey: "dag-final-invalid", NodeKey: "child", RunID: runID, Status: "done",
+		Result: json.RawMessage(`{"summary":"final"}`),
+	})
+	if err == nil || !strings.Contains(err.Error(), wantErrPart) {
+		t.Fatalf("CompleteNodeAndScheduleDownstream(child) error = %v, want containing %q", err, wantErrPart)
+	}
+	assertSQLiteFinalNodeRollbackState(t, ctx, store, runID)
+}
+
+func completeSQLiteFinalNode(t *testing.T, ctx context.Context, store *store, runID int64, nodeKey string, result json.RawMessage) {
+	t.Helper()
+	if _, err := store.CompleteNodeAndScheduleDownstream(ctx, CompleteNodeInput{
+		DagKey: "dag-final-invalid", NodeKey: nodeKey, RunID: runID, Status: "done", Result: result,
+	}); err != nil {
+		t.Fatalf("CompleteNodeAndScheduleDownstream(%s) error = %v", nodeKey, err)
+	}
+}
+
+func assertSQLiteFinalNodeRollbackState(t *testing.T, ctx context.Context, store *store, runID int64) {
+	t.Helper()
+	if got := sqliteRunNodeStatus(t, ctx, store, "dag-final-invalid", runID, "child"); got != "ready" {
+		t.Fatalf("child status after rollback = %q, want ready", got)
+	}
+	persisted, err := store.GetRun(ctx, "run-final-invalid")
+	if err != nil {
+		t.Fatalf("GetRun() error = %v", err)
+	}
+	if persisted.Status != "running" {
+		t.Fatalf("run status after rollback = %q, want running", persisted.Status)
+	}
+	var metadata map[string]any
+	if err := json.Unmarshal(persisted.Metadata, &metadata); err != nil {
+		t.Fatalf("decode run metadata: %v", err)
+	}
+	if metadata["request_id"] != "req-invalid" {
+		t.Fatalf("request_id after rollback = %v, want req-invalid", metadata["request_id"])
+	}
+	if _, exists := metadata["final_output"]; exists {
+		t.Fatalf("final_output must not be written after rollback: %v", metadata["final_output"])
+	}
 }
 
 func TestSQLiteTaskDAGFailCascadeFinalizesRun(t *testing.T) {

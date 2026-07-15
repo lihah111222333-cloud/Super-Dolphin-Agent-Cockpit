@@ -7,7 +7,7 @@
 > [!IMPORTANT]
 > **Maintainer declaration: 100% AI-written original code and project-authored documentation, human-directed, repository-guarded.** Product code, test code, and project-owned documentation are written or refactored by AI agents. Humans retain ownership of product intent, architecture decisions, credentials, and releases. Authorship does not imply infallibility: every accepted change remains subject to repository-owned evidence and gates. Upstream legal and community texts retain their original attribution.
 
-**Local-first delivery enforcement.** Routine commit and push acceptance is enforced by versioned [Git hooks](.githooks/README.md), without depending on paid GitHub-hosted CI. `pre-commit` checks the staged snapshot, AI-maintenance rules, the full repository guard, and affected code; `commit-msg` requires regression evidence for fix commits; `pre-push` validates the current-`HEAD` push range and runs affected package and contract checks. Race tests, deferred Provider E2E, security scans, and release checks remain explicit separate gates rather than being overstated as part of the routine hook path.
+**Local-first delivery enforcement.** Routine commit and push acceptance is enforced by versioned [Git hooks](.githooks/README.md), without depending on paid GitHub-hosted CI. `pre-commit` checks the staged snapshot, AI-maintenance rules, the full repository guard, and affected code; `commit-msg` requires regression evidence for fix commits; `pre-push` validates the current-`HEAD` push range, runs affected package and contract checks, applies nilness analysis to affected Go packages, and runs race tests for registered concurrent surfaces. Deferred Provider E2E, `gosec`/security scans, and release checks remain explicit separate gates rather than being overstated as part of the routine hook path.
 
 Super Dolphin Agent is a **production-grade, AI-native vibe-coding engineering system and multi-agent development control plane**. It combines a local desktop runtime, MCP orchestration, multi-language LSP navigation, provider integrations, persistent workflows, and machine-enforced engineering boundaries in one working reference implementation.
 
@@ -260,7 +260,7 @@ These commands validate architecture rules, guard behavior, generated navigation
 
 | Metric | Value |
 |--------|-------|
-| Architecture Tests | <!-- BEGIN GENERATED ARCHTEST STATS -->Source AST: 346 runnable `Test*` functions across 129 `_test.go` files in `internal/archtest`<!-- END GENERATED ARCHTEST STATS --> |
+| Architecture Tests | <!-- BEGIN GENERATED ARCHTEST STATS -->Source AST: 324 runnable `Test*` functions across 122 `_test.go` files in `internal/archtest`<!-- END GENERATED ARCHTEST STATS --> |
 | Architecture rules | [Generated backend boundary map](docs/doc/codemap/13-archtest-boundaries.md) |
 | Test coverage | Recompute from a current test run; no static percentage is claimed |
 | CI | [GitHub Actions](.github/workflows/ci.yml) |

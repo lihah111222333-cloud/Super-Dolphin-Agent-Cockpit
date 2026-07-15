@@ -22,12 +22,13 @@ func TestMcpLSPBinaryExternalEnvRootAllowsWorktreeSQLDiagnostics_E2E(t *testing.
 	envRoot, worktree := writeExternalEnvWorktreeRoot(t, "20260706-openitems-p2-sql-diagnostics")
 	target := writeExternalEnvFixture(t,
 		filepath.Join(worktree, "backend", "migrations", "schema", "096_order_client_id_idempotency.sql"),
-		"ALTER TABLE orders ADD COLUMN IF NOT EXISTS client_id TEXT;\n",
+		"SELECT (\n",
 	)
-	writeLSPBinaryFixture(t, filepath.Join(worktree, "sqlc.yaml"), "version: '2'\n")
-	fakeServersBinDir := writeFakeMultilangDiagnosticsLangservers(t)
+	writeLSPBinaryFixture(t, filepath.Join(worktree, "sqlc.yaml"), "version: '2'\nsql:\n  - engine: sqlite\n    queries: backend/migrations/schema\n")
+	writeLSPBinaryFixture(t, filepath.Join(worktree, ".sqruff"), "[sqruff]\ndialect = sqlite\nrules =\n")
+	sqlBinDir := installSqruffForE2E(t)
 
-	client := startLSPBinaryClientWithExternalEnvRoot(t, buildLSPBinary(t), envRoot, worktree, fakeServersBinDir, nil)
+	client := startLSPBinaryClientWithExternalEnvRoot(t, buildLSPBinary(t), envRoot, worktree, sqlBinDir, nil)
 	result := client.callToolWithoutTrustedScope(t, "file", map[string]any{
 		"action":    "diagnostics",
 		"work_dir":  worktree,
@@ -43,7 +44,7 @@ func TestMcpLSPBinaryExternalEnvRootAllowsWorktreeSQLDiagnostics_E2E(t *testing.
 			target, string(result.StructuredContent), result.ContentText(), client.stderr.String())
 	}
 	if payload.Total == 0 {
-		t.Fatalf("SQL diagnostics returned clean payload, want fake SQL diagnostic evidence; payload=%s stderr=%s",
+		t.Fatalf("SQL diagnostics returned clean payload, want real sqruff parser diagnostic evidence; payload=%s stderr=%s",
 			string(result.StructuredContent), client.stderr.String())
 	}
 }

@@ -3,7 +3,7 @@ AGENTS.md	(root)	docs-agent	doc	8892	仓库根级配置、入口或说明文件	
 CLAUDE.md	(root)	docs-agent	doc	8456	仓库根级配置、入口或说明文件	CLAUDE,仓库根级配置,入口或说明文件
 docs/adr/0001-workflow-runtime-kernel.md	docs	docs-agent	doc	2538	架构决策记录	docs,adr,0001,workflow,runtime,kernel,架构决策记录
 docs/adr/0002-session-ports-and-prefix-stability.md	docs	docs-agent	doc	1701	架构决策记录	docs,adr,0002,session,ports,and,prefix,stability,架构决策记录
-docs/adr/0003-mcp-tool-lifecycle-owner-storage.md	docs	docs-agent	doc	11837	架构决策记录	docs,adr,0003,mcp,tool,lifecycle,owner,storage,架构决策记录
+docs/adr/0003-mcp-tool-lifecycle-owner-storage.md	docs	docs-agent	doc	11828	架构决策记录	docs,adr,0003,mcp,tool,lifecycle,owner,storage,架构决策记录
 docs/adr/2026-06-30-writer-preview-contract-spike.md	docs	docs-agent	doc	16954	架构决策记录	docs,adr,2026,06,30,writer,preview,contract,spike,架构决策记录
 docs/ai01-docs/agent-implementation-plan.md	docs	docs-agent	doc	8571	项目文档体系	docs,ai01,agent,implementation,plan,项目文档体系
 docs/ai01-docs/agent-manus-like-spec.md	docs	docs-agent	doc	23793	项目文档体系	docs,ai01,agent,manus,like,spec,项目文档体系
@@ -16,15 +16,15 @@ docs/ai01-docs/plan/frontend-react-zustand-tailwind-refactor.md	docs	docs-agent	
 docs/ai01-docs/plan/frontend-react-zustand-tailwind-test-review-plan.md	docs	docs-agent	doc	24546	项目文档体系	docs,ai01,plan,frontend,react,zustand,tailwind,test,review,项目文档体系
 docs/ai01-docs/plan/implementation_plan.md	docs	docs-agent	doc	12437	项目文档体系	docs,ai01,plan,implementation,项目文档体系
 docs/ai01-docs/plan/每人任务.md	docs	docs-agent	doc	952	项目文档体系	docs,ai01,plan,每人任务,项目文档体系
-docs/ai01-docs/project-sop/01-handoff-goal-and-intake.md	docs	docs-agent	doc	4569	项目文档体系	docs,ai01,project,sop,01,handoff,goal,and,intake,项目文档体系
-docs/ai01-docs/project-sop/02-business-requirements-agile.md	docs	docs-agent	doc	6799	项目文档体系	docs,ai01,project,sop,02,business,requirements,agile,项目文档体系
-docs/ai01-docs/project-sop/03-architecture-diagrams.md	docs	docs-agent	doc	4841	项目文档体系	docs,ai01,project,sop,03,architecture,diagrams,项目文档体系
-docs/ai01-docs/project-sop/04-data-model.md	docs	docs-agent	doc	6691	项目文档体系	docs,ai01,project,sop,04,data,model,项目文档体系
-docs/ai01-docs/project-sop/05-interfaces-and-sequences.md	docs	docs-agent	doc	5447	项目文档体系	docs,ai01,project,sop,05,interfaces,and,sequences,项目文档体系
-docs/ai01-docs/project-sop/06-codebase-startup-quality.md	docs	docs-agent	doc	5404	项目文档体系	docs,ai01,project,sop,06,codebase,startup,quality,项目文档体系
-docs/ai01-docs/project-sop/07-ci-cd-ops-incident.md	docs	docs-agent	doc	5381	项目文档体系	docs,ai01,project,sop,07,ci,cd,ops,incident,项目文档体系
+docs/ai01-docs/project-sop/01-handoff-goal-and-intake.md	docs	docs-agent	doc	4610	项目文档体系	docs,ai01,project,sop,01,handoff,goal,and,intake,项目文档体系
+docs/ai01-docs/project-sop/02-business-requirements-agile.md	docs	docs-agent	doc	6813	项目文档体系	docs,ai01,project,sop,02,business,requirements,agile,项目文档体系
+docs/ai01-docs/project-sop/03-architecture-diagrams.md	docs	docs-agent	doc	4874	项目文档体系	docs,ai01,project,sop,03,architecture,diagrams,项目文档体系
+docs/ai01-docs/project-sop/04-data-model.md	docs	docs-agent	doc	6900	项目文档体系	docs,ai01,project,sop,04,data,model,项目文档体系
+docs/ai01-docs/project-sop/05-interfaces-and-sequences.md	docs	docs-agent	doc	5441	项目文档体系	docs,ai01,project,sop,05,interfaces,and,sequences,项目文档体系
+docs/ai01-docs/project-sop/06-codebase-startup-quality.md	docs	docs-agent	doc	5428	项目文档体系	docs,ai01,project,sop,06,codebase,startup,quality,项目文档体系
+docs/ai01-docs/project-sop/07-ci-cd-ops-incident.md	docs	docs-agent	doc	5487	项目文档体系	docs,ai01,project,sop,07,ci,cd,ops,incident,项目文档体系
 docs/ai01-docs/project-sop/08-delivery-review-knowledge-base.md	docs	docs-agent	doc	5325	项目文档体系	docs,ai01,project,sop,08,delivery,review,knowledge,base,项目文档体系
-docs/ai01-docs/project-sop/README.md	docs	docs-agent	doc	3757	项目文档体系	docs,ai01,project,sop,README,项目文档体系
+docs/ai01-docs/project-sop/README.md	docs	docs-agent	doc	3767	项目文档体系	docs,ai01,project,sop,README,项目文档体系
 docs/ai01-docs/scan/deep-security-scan-feature-integration-20260618.md	docs	docs-agent	doc	15970	项目文档体系	docs,ai01,scan,deep,security,feature,integration,20260618,项目文档体系
 docs/ai01-docs/scan/remediation-status-feature-integration-20260618.md	docs	docs-agent	doc	3650	项目文档体系	docs,ai01,scan,remediation,status,feature,integration,20260618,项目文档体系
 docs/ai01-docs/security-scan-feature-integration-2026-06-17.md	docs	docs-agent	doc	8457	项目文档体系	docs,ai01,security,scan,feature,integration,2026,06,17,项目文档体系
@@ -333,8 +333,8 @@ docs/doc/codemap/11-memory-prompt-thread.md	docs	docs-agent	doc	3196	手写代�
 docs/doc/codemap/11-memory.md	docs	docs-agent	doc	27255	手写代码地图卷与自动 ai-index	docs,doc,codemap,11,memory,手写代码地图卷与自动,ai-index
 docs/doc/codemap/11-prompt-thread.md	docs	docs-agent	doc	59096	手写代码地图卷与自动 ai-index	docs,doc,codemap,11,prompt,thread,手写代码地图卷与自动,ai-index
 docs/doc/codemap/12-dream-pipeline.md	docs	docs-agent	doc	11444	手写代码地图卷与自动 ai-index	docs,doc,codemap,12,dream,pipeline,手写代码地图卷与自动,ai-index
-docs/doc/codemap/13-archtest-boundaries.md	docs	docs-agent	doc	17550	手写代码地图卷与自动 ai-index	docs,doc,codemap,13,archtest,boundaries,手写代码地图卷与自动,ai-index
-docs/doc/codemap/capability-contract/capability_manifest.json	docs	docs-agent	json	2583906	手写代码地图卷与自动 ai-index	docs,doc,codemap,capability,contract,manifest,手写代码地图卷与自动,ai-index
+docs/doc/codemap/13-archtest-boundaries.md	docs	docs-agent	doc	17835	手写代码地图卷与自动 ai-index	docs,doc,codemap,13,archtest,boundaries,手写代码地图卷与自动,ai-index
+docs/doc/codemap/capability-contract/capability_manifest.json	docs	docs-agent	json	2583845	手写代码地图卷与自动 ai-index	docs,doc,codemap,capability,contract,manifest,手写代码地图卷与自动,ai-index
 docs/doc/codemap/README.md	docs	docs-agent	doc	3133	手写代码地图卷与自动 ai-index	docs,doc,codemap,README,手写代码地图卷与自动,ai-index
 docs/git-history-analysis-2026-07-04.md	docs	docs-agent	doc	18798	项目文档体系	docs,git,history,analysis,2026,07,04,项目文档体系
 docs/git-history-v3-architecture-governance-clusters-2026-07-04.md	docs	docs-agent	doc	16065	项目文档体系	docs,git,history,v3,architecture,governance,clusters,2026,07,04,项目文档体系
@@ -459,6 +459,9 @@ docs/plans/2026-07-12-rpc-response-policy-proof.md	docs	docs-agent	doc	41954	历
 docs/plans/2026-07-12-super-dolphin-agent-open-source-release.md	docs	docs-agent	doc	25564	历史计划与迁移执行文档	docs,plans,2026,07,12,super,dolphin,agent,open,source,release,历史计划与迁移执行文档
 docs/plans/2026-07-13-full-repo-risk-eradication.md	docs	docs-agent	doc	35045	历史计划与迁移执行文档	docs,plans,2026,07,13,full,repo,risk,eradication,历史计划与迁移执行文档
 docs/plans/2026-07-14-full-repo-audit-remediation-3-agent-execution.md	docs	docs-agent	doc	28200	历史计划与迁移执行文档	docs,plans,2026,07,14,full,repo,audit,remediation,3,agent,execution,历史计划与迁移执行文档
+docs/plans/2026-07-15-frontend-maintainability-error-discoverability-90-plan.md	docs	docs-agent	doc	144876	历史计划与迁移执行文档	docs,plans,2026,07,15,frontend,maintainability,error,discoverability,90,plan,历史计划与迁移执行文档
+docs/plans/2026-07-15-full-repo-risk-multi-agent-repair.md	docs	docs-agent	doc	25289	历史计划与迁移执行文档	docs,plans,2026,07,15,full,repo,risk,multi,agent,repair,历史计划与迁移执行文档
+docs/plans/2026-07-15-reasonix-production-hardening-next-absorption.md	docs	docs-agent	doc	216439	历史计划与迁移执行文档	docs,plans,2026,07,15,reasonix,production,hardening,next,absorption,历史计划与迁移执行文档
 docs/plans/claude缓存保活计划.md	docs	docs-agent	doc	27030	历史计划与迁移执行文档	docs,plans,claude缓存保活计划,历史计划与迁移执行文档
 docs/plans/context-optimization-per-tool-budget.md	docs	docs-agent	doc	13782	历史计划与迁移执行文档	docs,plans,context,optimization,per,tool,budget,历史计划与迁移执行文档
 docs/plans/dag-lifecycle-c-a-implementation.md	docs	docs-agent	doc	49805	历史计划与迁移执行文档	docs,plans,dag,lifecycle,c,a,implementation,历史计划与迁移执行文档
@@ -806,7 +809,7 @@ docs/plans/迁移/verify-align-turn.md	docs	docs-agent	doc	3306	历史计划与�
 docs/plans/迁移/verify-align-workspace.md	docs	docs-agent	doc	5365	历史计划与迁移执行文档	docs,plans,迁移,verify,align,workspace,历史计划与迁移执行文档
 docs/plans/迁移/verify-arch-compliance.md	docs	docs-agent	doc	8054	历史计划与迁移执行文档	docs,plans,迁移,verify,arch,compliance,历史计划与迁移执行文档
 docs/README.md	docs	docs-agent	doc	1558	项目文档体系	docs,README,项目文档体系
-docs/scripts/macos_release_smoke.sh	docs	docs-agent	script	19254	项目文档体系	docs,scripts,macos,release,smoke,项目文档体系
+docs/scripts/macos_release_smoke.sh	docs	docs-agent	script	19061	项目文档体系	docs,scripts,macos,release,smoke,项目文档体系
 docs/security/internal/check_repofp_delegators.go	docs	docs-agent	go-source	2298	项目文档体系	docs,security,internal,check,repofp,delegators,项目文档体系
 docs/security/p21-redteam.sh	docs	docs-agent	script	7238	项目文档体系	docs,security,p21,redteam,项目文档体系
 docs/superpowers/plans/2026-04-29-skill-refactor-p1-foundation.md	docs	docs-agent	doc	60142	项目文档体系	docs,superpowers,plans,2026,04,29,skill,refactor,p1,foundation,项目文档体系
@@ -900,7 +903,7 @@ docs/契约/modularity-convention.md	docs	docs-agent	doc	47932	项目文档体�
 docs/契约/onion-architecture-convention.md	docs	docs-agent	doc	4227	项目文档体系	docs,契约,onion,architecture,convention,项目文档体系
 docs/契约/README.md	docs	docs-agent	doc	1866	项目文档体系	docs,契约,README,项目文档体系
 docs/契约/recall-topic-naming.md	docs	docs-agent	doc	1328	项目文档体系	docs,契约,recall,topic,naming,项目文档体系
-docs/契约/rungroup-convention.md	docs	docs-agent	doc	3639	项目文档体系	docs,契约,rungroup,convention,项目文档体系
+docs/契约/rungroup-convention.md	docs	docs-agent	doc	3717	项目文档体系	docs,契约,rungroup,convention,项目文档体系
 docs/契约/sqlc-convention.md	docs	docs-agent	doc	3949	项目文档体系	docs,契约,sqlc,convention,项目文档体系
 docs/契约/statemachine-event-convention.md	docs	docs-agent	doc	32361	项目文档体系	docs,契约,statemachine,event,convention,项目文档体系
 docs/契约/workflow-runtime-state-contract.md	docs	docs-agent	doc	4630	项目文档体系	docs,契约,workflow,runtime,state,contract,项目文档体系
@@ -920,9 +923,9 @@ docs/调研/context-window/raw-opensource-agents.md	docs	docs-agent	doc	17535	�
 docs/调研/context-window/上下文窗口去硬编码调研.md	docs	docs-agent	doc	21665	项目文档体系	docs,调研,context,window,上下文窗口去硬编码调研,项目文档体系
 docs/迁移/契约/stateless-convention.md	docs	docs-agent	doc	4071	项目文档体系	docs,迁移,契约,stateless,convention,项目文档体系
 docs/面试试题.md	docs	docs-agent	doc	7567	项目文档体系	docs,面试试题,项目文档体系
-README.de.md	(root)	docs-agent	doc	31692	仓库根级配置、入口或说明文件	README,de,仓库根级配置,入口或说明文件
-README.es.md	(root)	docs-agent	doc	32239	仓库根级配置、入口或说明文件	README,es,仓库根级配置,入口或说明文件
-README.ja.md	(root)	docs-agent	doc	33008	仓库根级配置、入口或说明文件	README,ja,仓库根级配置,入口或说明文件
-README.ko.md	(root)	docs-agent	doc	31627	仓库根级配置、入口或说明文件	README,ko,仓库根级配置,入口或说明文件
-README.md	(root)	docs-agent	doc	28436	仓库根级配置、入口或说明文件	README,仓库根级配置,入口或说明文件
-README.zh-CN.md	(root)	docs-agent	doc	25369	仓库根级配置、入口或说明文件	README,zh,CN,仓库根级配置,入口或说明文件
+README.de.md	(root)	docs-agent	doc	31682	仓库根级配置、入口或说明文件	README,de,仓库根级配置,入口或说明文件
+README.es.md	(root)	docs-agent	doc	32180	仓库根级配置、入口或说明文件	README,es,仓库根级配置,入口或说明文件
+README.ja.md	(root)	docs-agent	doc	33002	仓库根级配置、入口或说明文件	README,ja,仓库根级配置,入口或说明文件
+README.ko.md	(root)	docs-agent	doc	31602	仓库根级配置、入口或说明文件	README,ko,仓库根级配置,入口或说明文件
+README.md	(root)	docs-agent	doc	28535	仓库根级配置、入口或说明文件	README,仓库根级配置,入口或说明文件
+README.zh-CN.md	(root)	docs-agent	doc	25448	仓库根级配置、入口或说明文件	README,zh,CN,仓库根级配置,入口或说明文件

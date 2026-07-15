@@ -68,12 +68,56 @@ func (s *store) ListRuns(ctx context.Context, filter ListRunsFilter) ([]Run, err
 // task_update_node / dispatcher 写入都必须带 run_id 命中这些副本，模板节点
 // 只由 create/apply_ops 路径维护。
 func (s *store) CloneNodesForRun(ctx context.Context, dagKey string, runID int64) (int64, error) {
-	return queryValueWrite(ctx, func() (int64, error) {
-		return s.q.CloneTaskDagNodesForRun(ctx, sqlc.CloneTaskDagNodesForRunParams{
-			DagKey: dagKey,
-			RunID:  int64Ptr(runID),
-		})
-	}, "clone_nodes_for_run", "task_dag_node")
+	var inserted int64
+	err := sqlctx.WithImmediateTxOrReuse(ctx, s.db, s.q, func(txq *sqlc.Queries, _ sqlc.DBTX) error {
+		var err error
+		inserted, err = cloneNodesForRunTx(ctx, txq, dagKey, runID)
+		return err
+	})
+	if err != nil {
+		return 0, wrapTaskDAGError(err, "clone_nodes_for_run", "task_dag_node")
+	}
+	return inserted, nil
+}
+
+func cloneNodesForRunTx(ctx context.Context, q *sqlc.Queries, dagKey string, runID int64) (int64, error) {
+	templates, err := q.ListTaskDagNodes(ctx, sqlc.ListTaskDagNodesParams{DagKey: dagKey})
+	if err != nil {
+		return 0, err
+	}
+	var inserted int64
+	for _, template := range templates {
+		rows, err := insertRunNodeIfMissing(ctx, q, template, runID)
+		if err != nil {
+			return 0, err
+		}
+		inserted += rows
+	}
+	return inserted, nil
+}
+
+func insertRunNodeIfMissing(ctx context.Context, q *sqlc.Queries, node sqlc.ListTaskDagNodesRow, runID int64) (int64, error) {
+	_, err := q.GetTaskDagRunNodeForUpdate(ctx, sqlc.GetTaskDagRunNodeForUpdateParams{
+		DagKey: node.DagKey, NodeKey: node.NodeKey, RunID: int64Ptr(runID),
+	})
+	if err == nil {
+		return 0, nil
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return 0, err
+	}
+	rows, err := q.InsertTaskDagRunNode(ctx, sqlc.InsertTaskDagRunNodeParams{
+		DagKey: node.DagKey, NodeKey: node.NodeKey, Title: node.Title, NodeType: node.NodeType,
+		AssignedTo: node.AssignedTo, DependsOn: node.DependsOn, CommandRef: node.CommandRef,
+		Config: node.Config, RunID: int64Ptr(runID), Reads: node.Reads, Writes: node.Writes,
+	})
+	if err != nil {
+		return 0, err
+	}
+	if rows != 1 {
+		return 0, fmt.Errorf("clone task dag node %s/%s affected %d rows, want 1", node.DagKey, node.NodeKey, rows)
+	}
+	return rows, nil
 }
 
 // PromoteRootNodesToReady 把当前 run 下 depends_on=[] 且 status='pending'

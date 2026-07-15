@@ -280,6 +280,26 @@ func TestStructureWorkspaceSymbolUsesLanguageManager(t *testing.T) {
 	}
 }
 
+func TestStructureWorkspaceSymbolSQLLanguageRequiresFilePath(t *testing.T) {
+	root := t.TempDir()
+	writeStructureTestFile(t, root, "sqlc.yaml", "version: \"2\"\nsql:\n  - engine: postgresql\n    queries: queries\n")
+	registry := &structureTestRegistry{languageManager: &structureTestManager{}}
+	handler := NewStructureHandler(registry)
+	input := marshalStructureParams(t, structureParams{
+		Action:   "workspace_symbol",
+		Language: "sql",
+		Query:    "card",
+	})
+
+	_, err := handler(common.WithToolScope(context.Background(), common.ToolScope{CWD: root}), input)
+	if err == nil || !strings.Contains(err.Error(), "requires file_path") {
+		t.Fatalf("SQL language-only workspace_symbol error = %v, want file_path requirement", err)
+	}
+	if registry.languageCalls != 0 {
+		t.Fatalf("GetManagerForLanguage calls = %d, want fail-fast before manager lookup", registry.languageCalls)
+	}
+}
+
 func TestStructureDocumentSymbolAcceptsLegacyPathAlias(t *testing.T) {
 	root := t.TempDir()
 	target := filepath.Join(root, "sample.go")
@@ -637,10 +657,7 @@ func (emptyDocumentSymbolClient) Close() error                           { retur
 
 func fakeStructureTypeScriptNavigationTree(t *testing.T, content string) string {
 	t.Helper()
-	nameStart := strings.Index(content, "FancyWidget")
-	if nameStart < 0 {
-		nameStart = 0
-	}
+	nameStart := max(0, strings.Index(content, "FancyWidget"))
 	tree := map[string]any{
 		"text":  "<global>",
 		"kind":  "script",

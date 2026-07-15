@@ -104,6 +104,40 @@ class M3DogfoodHarnessTest(unittest.TestCase):
             "http://127.0.0.1:1234/mcp",
         )
 
+    def test_clients_initialize_empty_tool_scope(self):
+        dogfood = load_script()
+
+        http_client = dogfood.HTTPMCPClient("http://127.0.0.1:1234", 1)
+        stdio_client = dogfood.StdioMCPClient(["mcp-orch"], ".", {}, 1)
+
+        self.assertEqual(http_client.tool_scope, {})
+        self.assertEqual(stdio_client.tool_scope, {})
+
+    def test_stdio_client_rejects_missing_process_after_start(self):
+        dogfood = load_script()
+        client = dogfood.StdioMCPClient(["mcp-orch"], ".", {}, 1)
+        client.start = lambda: None
+
+        with self.assertRaisesRegex(dogfood.MCPError, "process did not start"):
+            client.request("initialize")
+
+    def test_stdio_client_rejects_missing_process_pipes(self):
+        dogfood = load_script()
+        client = dogfood.StdioMCPClient(["mcp-orch"], ".", {}, 1)
+
+        class ProcessWithoutPipes:
+            stdin = None
+            stdout = None
+
+            @staticmethod
+            def poll():
+                return None
+
+        client.proc = ProcessWithoutPipes()
+
+        with self.assertRaisesRegex(dogfood.MCPError, "process pipes are unavailable"):
+            client.request("initialize")
+
     def test_http_client_bypasses_environment_proxy_for_local_mcp(self):
         dogfood = load_script()
         server = start_test_http_server(self, FakeMCPHandler)
@@ -376,6 +410,21 @@ retry_count_per_node_overflow_total 0
                 assignee="agent_m3",
                 expect_failed=False,
                 expected_node_keys=["only-one", "missing-node"],
+            )
+
+    def test_wait_for_dag_rejects_non_object_detail(self):
+        dogfood = load_script()
+        client = FakeDAGClient([None])
+
+        with self.assertRaisesRegex(dogfood.MCPError, "unexpected payload shape"):
+            dogfood.wait_for_dag(
+                client,
+                "dag-a",
+                "run-a",
+                timeout_sec=0.01,
+                poll_sec=0,
+                assignee="agent_m3",
+                expect_failed=False,
             )
 
     def test_wait_for_dag_accepts_partial_poll_before_full_terminal_success(self):

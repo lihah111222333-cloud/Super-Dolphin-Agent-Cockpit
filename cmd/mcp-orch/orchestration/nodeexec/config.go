@@ -1,9 +1,11 @@
 package nodeexec
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"strconv"
 	"strings"
 	"time"
@@ -365,6 +367,7 @@ type OnFailureConfig struct {
 type ExecutionConfig struct {
 	Timeout    string `json:"timeout,omitempty"`
 	TimeoutSec int    `json:"timeout_sec,omitempty"`
+	Retry      int    `json:"retry,omitempty"`
 }
 
 // AgentExecConfig 是 node_type=agent 节点的 exec 块。
@@ -410,9 +413,9 @@ type HybridExecConfig struct {
 // AgentNodeConfig 是 node_type=agent 节点的完整 config。
 type AgentNodeConfig struct {
 	Exec      AgentExecConfig `json:"exec"`
-	Execution ExecutionConfig `json:"execution,omitempty"`
-	Inputs    InputsConfig    `json:"inputs,omitempty"`
-	Outputs   OutputsConfig   `json:"outputs,omitempty"`
+	Execution ExecutionConfig `json:"execution"`
+	Inputs    InputsConfig    `json:"inputs"`
+	Outputs   OutputsConfig   `json:"outputs"`
 	// FirstTurn 可选：覆盖 agent_key 的默认提示词（一次性指令）。
 	FirstTurn string `json:"first_turn,omitempty"`
 }
@@ -420,17 +423,17 @@ type AgentNodeConfig struct {
 // AutomationNodeConfig 是 node_type=automation 节点的完整 config。
 type AutomationNodeConfig struct {
 	Exec      AutomationExecConfig `json:"exec"`
-	Execution ExecutionConfig      `json:"execution,omitempty"`
-	Inputs    InputsConfig         `json:"inputs,omitempty"`
-	Outputs   OutputsConfig        `json:"outputs,omitempty"`
+	Execution ExecutionConfig      `json:"execution"`
+	Inputs    InputsConfig         `json:"inputs"`
+	Outputs   OutputsConfig        `json:"outputs"`
 }
 
 // HybridNodeConfig 是 node_type=hybrid 节点的完整 config。
 type HybridNodeConfig struct {
 	Exec      HybridExecConfig `json:"exec"`
-	Execution ExecutionConfig  `json:"execution,omitempty"`
-	Inputs    InputsConfig     `json:"inputs,omitempty"`
-	Outputs   OutputsConfig    `json:"outputs,omitempty"`
+	Execution ExecutionConfig  `json:"execution"`
+	Inputs    InputsConfig     `json:"inputs"`
+	Outputs   OutputsConfig    `json:"outputs"`
 }
 
 // ErrUnknownNodeType 在 ParseNodeConfig 收到未知 node_type 时返回；errors.Is 可用。
@@ -520,6 +523,10 @@ func ValidatePersistableNodeConfig(nodeType string, raw json.RawMessage) error {
 		return fmt.Errorf("nodeexec: invalid node config: %w", err)
 	}
 	switch {
+	case parsed.Agent != nil && hasExplicitExecConfig(raw):
+		if _, err := ValidateLaunchCWDForNodeConfig(nodeType, raw); err != nil {
+			return fmt.Errorf("agent launch cwd: %w", err)
+		}
 	case parsed.Automation != nil:
 		return validatePersistableAutomationExec(parsed.Automation.Exec)
 	case parsed.Hybrid != nil && parsed.Hybrid.Exec.Automation != nil:
@@ -528,6 +535,18 @@ func ValidatePersistableNodeConfig(nodeType string, raw json.RawMessage) error {
 		}
 	}
 	return nil
+}
+
+func hasExplicitExecConfig(raw json.RawMessage) bool {
+	if len(raw) == 0 {
+		return false
+	}
+	var config map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &config); err != nil {
+		return false
+	}
+	exec, ok := config["exec"]
+	return ok && len(exec) != 0 && !bytes.Equal(bytes.TrimSpace(exec), []byte("null"))
 }
 
 func validatePersistableAutomationExec(exec AutomationExecConfig) error {
@@ -569,10 +588,10 @@ func (cfg ExecutionConfig) ExecutionTimeout() (time.Duration, bool, error) {
 }
 
 type executionTimeoutEnvelope struct {
-	Execution ExecutionConfig `json:"execution,omitempty"`
+	Execution ExecutionConfig `json:"execution"`
 	Schedule  struct {
 		DefaultTimeoutSec int `json:"default_timeout_sec,omitempty"`
-	} `json:"schedule,omitempty"`
+	} `json:"schedule"`
 }
 
 // decodeExecutionTimeout 解析节点配置或 DAG metadata 里的执行超时。
@@ -654,7 +673,7 @@ func ParseAgentConfig(raw json.RawMessage) (*AgentNodeConfig, error) {
 	if len(raw) == 0 {
 		return &cfg, nil
 	}
-	if err := json.Unmarshal(raw, &cfg); err != nil {
+	if err := decodeStrictNodeConfig(raw, &cfg); err != nil {
 		return nil, fmt.Errorf("nodeexec: parse agent config: %w", err)
 	}
 	if err := validateExecutionConfig(cfg.Execution); err != nil {
@@ -673,7 +692,7 @@ func ParseAutomationConfig(raw json.RawMessage) (*AutomationNodeConfig, error) {
 	if len(raw) == 0 {
 		return &cfg, nil
 	}
-	if err := json.Unmarshal(raw, &cfg); err != nil {
+	if err := decodeStrictNodeConfig(raw, &cfg); err != nil {
 		return nil, fmt.Errorf("nodeexec: parse automation config: %w", err)
 	}
 	if err := validateExecutionConfig(cfg.Execution); err != nil {
@@ -698,7 +717,7 @@ func ParseHybridConfig(raw json.RawMessage) (*HybridNodeConfig, error) {
 	if len(raw) == 0 {
 		return &cfg, nil
 	}
-	if err := json.Unmarshal(raw, &cfg); err != nil {
+	if err := decodeStrictNodeConfig(raw, &cfg); err != nil {
 		return nil, fmt.Errorf("nodeexec: parse hybrid config: %w", err)
 	}
 	if err := validateExecutionConfig(cfg.Execution); err != nil {
@@ -710,7 +729,26 @@ func ParseHybridConfig(raw json.RawMessage) (*HybridNodeConfig, error) {
 	return &cfg, nil
 }
 
+func decodeStrictNodeConfig(raw json.RawMessage, target any) error {
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(target); err != nil {
+		return err
+	}
+	var trailing json.RawMessage
+	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
+		if err == nil {
+			return errors.New("multiple JSON values are not allowed")
+		}
+		return fmt.Errorf("decode trailing JSON: %w", err)
+	}
+	return nil
+}
+
 func validateExecutionConfig(cfg ExecutionConfig) error {
+	if cfg.Retry < 0 {
+		return fmt.Errorf("execution.retry must be non-negative, got %d", cfg.Retry)
+	}
 	if _, _, err := cfg.ExecutionTimeout(); err != nil {
 		return err
 	}

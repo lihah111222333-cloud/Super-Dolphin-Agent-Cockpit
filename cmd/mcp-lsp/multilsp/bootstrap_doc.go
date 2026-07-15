@@ -172,7 +172,11 @@ func closeBootstrapCoordinator(m *manager) {
 }
 
 func (m *manager) bootstrapTarget(ctx context.Context, uri string) (documentRef, workspaceConfig, error) {
-	ref, err := m.resolveDocumentRef(ctx, uri, "")
+	languageID := ""
+	if resolved, ok := resolvedLSPToolScopeFromContext(ctx); ok {
+		languageID = resolved.LanguageID
+	}
+	ref, err := m.resolveDocumentRef(ctx, uri, languageID)
 	if err != nil {
 		return documentRef{}, workspaceConfig{}, err
 	}

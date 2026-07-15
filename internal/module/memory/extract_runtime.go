@@ -3,6 +3,7 @@ package memory
 import (
 	"context"
 	"errors"
+	"fmt"
 	"runtime/debug"
 	"strings"
 	"time"
@@ -261,22 +262,35 @@ func (h *MemoryLifecycleHooks) DrainPendingExtraction(ctx context.Context) error
 	h.drainMu.Lock()
 	h.drainClosed = true
 	h.drainMu.Unlock()
-	done := make(chan struct{})
-	safego.Go(ctx, h.memoryLogger(), "memory.extraction.drain", func(context.Context) {
-		defer close(done)
-		defer func() {
-			if r := recover(); r != nil {
-				h.memoryLogger().Error("memory: recovered drain panic", "panic", r)
-			}
-		}()
+	return waitForExtractionRunner(ctx, h.memoryLogger(), func() error {
 		h.extractWG.Wait()
+		return nil
+	})
+}
+
+func waitForExtractionRunner(ctx context.Context, logger *pkglogger.Logger, run func() error) error {
+	if run == nil {
+		return errors.New("memory: extraction wait runner is required")
+	}
+	result := make(chan error, 1)
+	safego.Go(ctx, logger, "memory.extraction.drain", func(context.Context) {
+		result <- runExtractionWaitRunner(run)
 	})
 	select {
-	case <-done:
-		return nil
+	case err := <-result:
+		return err
 	case <-ctx.Done():
 		return ctx.Err()
 	}
+}
+
+func runExtractionWaitRunner(run func() error) (err error) {
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			err = fmt.Errorf("memory: extraction wait runner panicked: %v", recovered)
+		}
+	}()
+	return run()
 }
 
 // ExtractAndSave 对外暴露一次同步抽取并写入记忆的入口。

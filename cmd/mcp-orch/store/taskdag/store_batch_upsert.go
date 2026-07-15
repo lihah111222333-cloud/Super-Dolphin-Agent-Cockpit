@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-orch/store/sqlc"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-orch/store/sqlctx"
 )
 
 // BatchUpsertingNodeStore 是 *store 的窄能力扩展接口，用于 service 层
@@ -15,26 +16,21 @@ type BatchUpsertingNodeStore interface {
 	BatchUpsertNodes(ctx context.Context, nodes []Node) (int64, error)
 }
 
-// BatchUpsertNodes 在一个 store 调用内逐行复用 sqlc 生成的 UpsertTaskDagNode。
-// 这样保持 SQLC 边界，不在手写 Go 中恢复批量 raw SQL；任一行失败立即返回已写入行数和错误。
+// BatchUpsertNodes 在一个 IMMEDIATE 事务内逐行复用节点的 UPDATE/INSERT/Get 等价写路径。
+// 任一节点失败时整批回滚并返回 0，避免调用方误把已回滚的中间计数当成已持久化行数。
 func (s *store) BatchUpsertNodes(ctx context.Context, nodes []Node) (int64, error) {
 	var rows int64
-	for _, node := range nodes {
-		if _, err := s.q.UpsertTaskDagNode(ctx, sqlc.UpsertTaskDagNodeParams{
-			DagKey:     node.DagKey,
-			NodeKey:    node.NodeKey,
-			Title:      node.Title,
-			NodeType:   node.NodeType,
-			AssignedTo: node.AssignedTo,
-			DependsOn:  node.DependsOn,
-			Reads:      stringSliceJSON(node.Reads),
-			Writes:     stringSliceJSON(node.Writes),
-			CommandRef: node.CommandRef,
-			Config:     node.Config,
-		}); err != nil {
-			return rows, wrapTaskDAGError(err, "batch_upsert", "task_dag_node")
+	err := sqlctx.WithImmediateTxOrReuse(ctx, s.db, s.q, func(txq *sqlc.Queries, _ sqlc.DBTX) error {
+		for _, node := range nodes {
+			if _, err := upsertNodeTx(ctx, txq, node); err != nil {
+				return err
+			}
+			rows++
 		}
-		rows++
+		return nil
+	})
+	if err != nil {
+		return 0, wrapTaskDAGError(err, "batch_upsert", "task_dag_node")
 	}
 	return rows, nil
 }

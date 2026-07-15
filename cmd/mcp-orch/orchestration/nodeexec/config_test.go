@@ -7,6 +7,37 @@ import (
 	"testing"
 )
 
+func TestStructJSONTagsPreserveZeroValueFieldPresence(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name     string
+		value    any
+		required []string
+	}{
+		{name: "agent", value: AgentNodeConfig{}, required: []string{"execution", "inputs", "outputs"}},
+		{name: "automation", value: AutomationNodeConfig{}, required: []string{"execution", "inputs", "outputs"}},
+		{name: "hybrid", value: HybridNodeConfig{}, required: []string{"execution", "inputs", "outputs"}},
+		{name: "timeout envelope", value: executionTimeoutEnvelope{}, required: []string{"execution", "schedule"}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			raw, err := json.Marshal(test.value)
+			if err != nil {
+				t.Fatalf("json.Marshal() error = %v", err)
+			}
+			var fields map[string]json.RawMessage
+			if err := json.Unmarshal(raw, &fields); err != nil {
+				t.Fatalf("json.Unmarshal() error = %v", err)
+			}
+			for _, name := range test.required {
+				if _, ok := fields[name]; !ok {
+					t.Fatalf("json = %s, want zero-value field %q present", raw, name)
+				}
+			}
+		})
+	}
+}
+
 // agentConfigFixture 提供一份完整 agent config 用于 round-trip 测试。
 func agentConfigFixture() AgentNodeConfig {
 	return AgentNodeConfig{
@@ -68,6 +99,31 @@ func TestParseAgentConfig_RoundTrip(t *testing.T) {
 	assertAgentOutputsRoundTrip(t, got.Outputs)
 	if got.FirstTurn != "请按规范输出" {
 		t.Errorf("FirstTurn lost: %q", got.FirstTurn)
+	}
+}
+
+func TestParseNodeConfigsRejectUnknownFieldsAndTrailingJSON(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name  string
+		parse func(json.RawMessage) error
+		raw   string
+	}{
+		{name: "agent unknown cwd typo", parse: func(raw json.RawMessage) error { _, err := ParseAgentConfig(raw); return err }, raw: `{"exec":{"cwd":"/tmp/ok","cwdd":"/tmp/typo"}}`},
+		{name: "automation unknown timeout typo", parse: func(raw json.RawMessage) error { _, err := ParseAutomationConfig(raw); return err }, raw: `{"exec":{"command_ref":"build"},"execution":{"timeout_secc":30}}`},
+		{name: "agent negative retry", parse: func(raw json.RawMessage) error { _, err := ParseAgentConfig(raw); return err }, raw: `{"execution":{"retry":-1}}`},
+		{name: "automation negative retry", parse: func(raw json.RawMessage) error { _, err := ParseAutomationConfig(raw); return err }, raw: `{"execution":{"retry":-1}}`},
+		{name: "hybrid unknown verifier cwd typo", parse: func(raw json.RawMessage) error { _, err := ParseHybridConfig(raw); return err }, raw: `{"exec":{"verifier":{"cwd":"/tmp/ok","cwdd":"/tmp/typo"}}}`},
+		{name: "agent trailing document", parse: func(raw json.RawMessage) error { _, err := ParseAgentConfig(raw); return err }, raw: `{} {}`},
+		{name: "automation trailing document", parse: func(raw json.RawMessage) error { _, err := ParseAutomationConfig(raw); return err }, raw: `{} {}`},
+		{name: "hybrid trailing document", parse: func(raw json.RawMessage) error { _, err := ParseHybridConfig(raw); return err }, raw: `{} {}`},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if err := test.parse(json.RawMessage(test.raw)); err == nil {
+				t.Fatalf("parse(%s) error = nil, want strict JSON rejection", test.raw)
+			}
+		})
 	}
 }
 
@@ -398,7 +454,7 @@ func TestClassifyAutomationError(t *testing.T) {
 		{"not_found_hard", errors.New("command missing not found"), FailureClassHard},
 		{"timeout_transient", errors.New("i/o timeout"), FailureClassTransient},
 		{"network_transient", errors.New("connection refused"), FailureClassTransient},
-		{"infra", errors.New("postgres service unavailable"), FailureClassInfrastructure},
+		{"infra", errors.New("sqlite database unavailable"), FailureClassInfrastructure},
 		{"parse_validation", errors.New("parse command args: invalid json"), FailureClassValidation},
 		{"nonzero_hard", CommandExitError{ExitCode: 2, Err: errors.New("exit status 2")}, FailureClassHard},
 	}

@@ -8,12 +8,6 @@ import (
 	platformrpc "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/rpc"
 )
 
-type startPostgresServerPublicResult struct {
-	ConfigPath string `json:"configPath"`
-	ServerName string `json:"serverName"`
-	Added      bool   `json:"added"`
-}
-
 type startSQLiteServerPublicResult struct {
 	ConfigPath string `json:"configPath"`
 	ServerName string `json:"serverName"`
@@ -26,14 +20,6 @@ type startPlaywrightServerPublicResult struct {
 	ServerName string `json:"serverName"`
 	Added      bool   `json:"added"`
 	Enabled    bool   `json:"enabled"`
-}
-
-func toStartPostgresServerPublicResult(result StartPostgresServerResult) startPostgresServerPublicResult {
-	return startPostgresServerPublicResult{
-		ConfigPath: result.ConfigPath,
-		ServerName: result.ServerName,
-		Added:      result.Added,
-	}
 }
 
 func toStartSQLiteServerPublicResult(result StartSQLiteServerResult) startSQLiteServerPublicResult {
@@ -57,25 +43,11 @@ func toStartPlaywrightServerPublicResult(result StartPlaywrightServerResult) sta
 // NewHandlers 注册默认 npm MCP server 的显式启动 RPC。
 func NewHandlers(svc Service) platformrpc.HandlerMapResult {
 	return platformrpc.HandlerMapResult{Handlers: handler.Map{
-		"mcpServer/postgres/start":   platformrpc.StrictHandler(startPostgresServerHandler(svc)),
 		"mcpServer/sqlite/start":     platformrpc.StrictHandler(startSQLiteServerHandler(svc)),
 		"mcpServer/sqlite/stop":      platformrpc.StrictHandler(stopSQLiteServerHandler(svc)),
 		"mcpServer/playwright/start": platformrpc.StrictHandler(startPlaywrightServerHandler(svc)),
 		"mcpServer/playwright/stop":  platformrpc.StrictHandler(stopPlaywrightServerHandler(svc)),
 	}}
-}
-
-func startPostgresServerHandler(svc Service) func(context.Context, StartPostgresServerRequest) (startPostgresServerPublicResult, error) {
-	return func(ctx context.Context, req StartPostgresServerRequest) (startPostgresServerPublicResult, error) {
-		if svc == nil {
-			return startPostgresServerPublicResult{}, platformrpc.ErrInvalidState("mcp postgres server service is not configured")
-		}
-		result, err := svc.StartPostgresServer(ctx, req)
-		if err != nil {
-			return startPostgresServerPublicResult{}, err
-		}
-		return toStartPostgresServerPublicResult(result), nil
-	}
 }
 
 func startSQLiteServerHandler(svc Service) func(context.Context, StartSQLiteServerRequest) (startSQLiteServerPublicResult, error) {

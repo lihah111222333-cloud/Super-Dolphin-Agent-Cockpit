@@ -12,7 +12,7 @@ Reasonix 的 `mcp__server__tool` 命名方式能清楚表达工具来源。V3 �
 
 ## 当前事实
 
-- `internal/module/mcp_server` 只管理 MCP server 配置、内置 postgres/sqlite/playwright server 启停，以及 HTTP `tools/list` 探测。
+- `internal/module/mcp_server` 只管理 MCP server 配置、内置 SQLite/playwright server 启停，以及 HTTP `tools/list` 探测。
 - `internal/store/mcpserver` 当前只持久化 `mcp_server_configs`，其中 `enabled` 是 server config 级开关，不是 per-tool lifecycle。
 - `internal/contract/mcp_control.go` 目前只有 MCP server config、默认 server 启停、control-plane registry 相关 DTO 和接口，没有 per-tool lifecycle DTO。
 - `internal/platform/toolbridge` 当前负责 host-direct、Codex surface、MCP peer list/call、namespace alias 和 schema 预校验；它不是 lifecycle 状态 owner。

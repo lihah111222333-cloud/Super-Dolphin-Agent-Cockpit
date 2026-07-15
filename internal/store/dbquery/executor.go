@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"regexp"
 	"slices"
-	"strconv"
 	"strings"
 	"time"
 
@@ -45,7 +44,7 @@ var (
 	dangerousKeywordPattern      = regexp.MustCompile(`(?i)\b(insert|update|delete|drop|alter|truncate|create|grant|revoke|comment|vacuum|analyze|copy|merge|call|do|attach|detach|pragma|reindex|replace|returning)\b`)
 	dangerousFunctionCallPattern = regexp.MustCompile(`(?i)\b(load_extension|writefile|current_user|last_insert_rowid|changes|total_changes|pg_sleep|pg_terminate_backend|pg_cancel_backend|set_config|version|current_setting|inet_server_addr|inet_server_port|pg_read_file|pg_read_binary_file|pg_ls_dir|pg_stat_\w+|lo_import|lo_export)\b\s*\(`)
 	dangerousBareFunctionPattern = regexp.MustCompile(`(?i)\bcurrent_user\b`)
-	placeholderPattern           = regexp.MustCompile(`\$(\d+)`)
+	dollarPlaceholderPattern     = regexp.MustCompile(`\$\d+`)
 	sqlitePlaceholderPattern     = regexp.MustCompile(`\?`)
 	errInvalidCTESyntax          = errors.New("dbquery query has invalid CTE syntax")
 )
@@ -247,19 +246,16 @@ func validateQueryText(query string) error {
 	}
 }
 
-// validatePlaceholders 校验查询占位符与参数数量一致。
-// SQLite `?` 和 PostgreSQL `$n` 不能混用，避免同一查询在不同驱动语义下绑定错位。
+// validatePlaceholders 只接受 SQLite `?` 占位符并校验参数数量。
 func validatePlaceholders(query string, argCount int) error {
 	masked := maskQuotedStrings(query)
-	dollarMatches := placeholderPattern.FindAllStringSubmatch(masked, -1)
+	if dollarPlaceholderPattern.MatchString(masked) {
+		return errors.New("dbquery only supports SQLite ? placeholders")
+	}
 	sqliteCount := len(sqlitePlaceholderPattern.FindAllString(masked, -1))
 	switch {
-	case len(dollarMatches) > 0 && sqliteCount > 0:
-		return errors.New("dbquery query mixes placeholder styles")
 	case sqliteCount > 0:
 		return validateSQLitePlaceholders(sqliteCount, argCount)
-	case len(dollarMatches) > 0:
-		return validateDollarPlaceholders(dollarMatches, argCount)
 	default:
 		return validateNoPlaceholders(argCount)
 	}
@@ -277,32 +273,6 @@ func validateNoPlaceholders(argCount int) error {
 		return nil
 	}
 	return fmt.Errorf("dbquery query expected 0 args, got %d", argCount)
-}
-
-// validateDollarPlaceholders 校验 PostgreSQL 风格占位符必须从 $1 连续编号。
-// 缺号或最大编号与参数数量不一致都会提前失败，避免参数错位后执行非预期查询。
-func validateDollarPlaceholders(matches [][]string, argCount int) error {
-	maxIndex := 0
-	seen := make(map[int]struct{}, len(matches))
-	for _, match := range matches {
-		index, err := strconv.Atoi(match[1])
-		if err != nil || index <= 0 {
-			return fmt.Errorf("dbquery query contains invalid placeholder %q", match[0])
-		}
-		seen[index] = struct{}{}
-		if index > maxIndex {
-			maxIndex = index
-		}
-	}
-	if maxIndex != argCount {
-		return fmt.Errorf("dbquery query expected %d args, got %d", maxIndex, argCount)
-	}
-	for index := 1; index <= maxIndex; index++ {
-		if _, ok := seen[index]; !ok {
-			return fmt.Errorf("dbquery query is missing placeholder $%d", index)
-		}
-	}
-	return nil
 }
 
 // validateAllowedTables 校验查询只引用允许暴露给 dbquery 的表。

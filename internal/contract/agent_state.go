@@ -172,7 +172,7 @@ type AgentTask struct {
 	InputContext        []ContextRef    `json:"input_context,omitempty"`
 	OutputContract      string          `json:"output_contract"`
 	VerificationCommand string          `json:"verification_command,omitempty"`
-	Budget              AgentTaskBudget `json:"budget,omitempty"`
+	Budget              AgentTaskBudget `json:"budget,omitzero"`
 	DependsOn           []string        `json:"depends_on,omitempty"`
 	OutputArtifactKeys  []string        `json:"output_artifact_keys,omitempty"`
 	Status              AgentTaskStatus `json:"status"`

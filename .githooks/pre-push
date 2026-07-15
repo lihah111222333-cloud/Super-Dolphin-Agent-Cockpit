@@ -3,7 +3,7 @@
 # Bypass: git push --no-verify
 set -e
 
-# Push hooks must not run gosec; keep security scans out of the local push path.
+# Gosec remains outside Git hooks; race and nilness are owned by the push-only AI-maintenance scope.
 export SUPER_DOLPHIN_GITHOOK_SKIP_GOSEC=1
 export SUPER_DOLPHIN_GUARD_FAIL_ON_DRIFT=1
 
@@ -26,26 +26,10 @@ run_without_git_env() (
   "$@"
 )
 
-CAPCONTRACT_PATH_RULES_HELPER=scripts/capcontract/path_rules.sh
-if [ ! -r "$CAPCONTRACT_PATH_RULES_HELPER" ]; then
-  echo "❌ capcontract path rules helper missing: $CAPCONTRACT_PATH_RULES_HELPER" >&2
-  exit 1
-fi
-# shellcheck source=scripts/capcontract/path_rules.sh
-if ! source "$CAPCONTRACT_PATH_RULES_HELPER"; then
-  echo "❌ capcontract path rules helper could not be loaded" >&2
-  exit 1
-fi
-if ! load_capcontract_path_rules "${CAPCONTRACT_PATH_RULES_GO_BIN:-go}"; then
-  echo "❌ capcontract path rules could not be generated" >&2
-  exit 1
-fi
-
 PUSH_RANGES=$(mktemp -t pre-push-ranges.XXXXXX)
 AI_MAINTENANCE_CHANGED_FILES=()
 HAS_FRONTEND_APP_CODE_CHANGES=0
 HAS_CODEMAP_CHANGES=0
-HAS_CAPCONTRACT_CHANGES=0
 HAS_SKILL_CHANGES=0
 cleanup() {
   rm -f "$PUSH_RANGES"
@@ -145,20 +129,6 @@ add_codemap_path() {
   esac
 }
 
-add_capcontract_path() {
-  local status=0
-  is_capcontract_change "$1" || status=$?
-  if [ "$status" -eq 0 ]; then
-    HAS_CAPCONTRACT_CHANGES=1
-    return 0
-  fi
-  if [ "$status" -gt 1 ]; then
-    echo "❌ capcontract path rules could not classify changed path: $1" >&2
-    exit 1
-  fi
-  return 0
-}
-
 add_skill_path() {
   case "$1" in
     .agents/skills/*|.claude/skills/*|scripts/validate_super_agent_skills.py|CLAUDE.md|AGENTS.md)
@@ -171,7 +141,6 @@ record_changed_path() {
   add_ai_maintenance_path "$1"
   add_frontend_path "$1"
   add_codemap_path "$1"
-  add_capcontract_path "$1"
   add_skill_path "$1"
 }
 
@@ -217,10 +186,6 @@ collect_changed_test_scopes() {
 }
 
 run_path_based_repository_gates() {
-  if [ "$HAS_CAPCONTRACT_CHANGES" -eq 1 ]; then
-    echo "[pre-push] capability contract check..."
-    run_without_git_env make capcontract-check
-  fi
   if [ "$HAS_SKILL_CHANGES" -eq 1 ]; then
     echo "[pre-push] skill mirror validation..."
     run_without_git_env python3 scripts/validate_super_agent_skills.py
@@ -237,6 +202,7 @@ run_ai_maintenance_push_gate() {
   for path in "${AI_MAINTENANCE_CHANGED_FILES[@]}"; do
     args+=(--changed-file "$path")
   done
+  args+=(--push-gates)
   while IFS= read -r range; do
     [ -n "$range" ] || continue
     args+=(--diff-range "$range")

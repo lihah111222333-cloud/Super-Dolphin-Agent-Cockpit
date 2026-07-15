@@ -616,6 +616,127 @@ func TestRecoveryErrorIsStructured(t *testing.T) {
 	}
 }
 
+func TestValidateJSONRPCIDAcceptsProtocolTypes(t *testing.T) {
+	tests := []struct {
+		name string
+		id   json.RawMessage
+	}{
+		{name: "absent"},
+		{name: "null", id: json.RawMessage("null")},
+		{name: "string", id: json.RawMessage(`"request-1"`)},
+		{name: "number", id: json.RawMessage("1.25")},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if err := validateJSONRPCID(tt.id); err != nil {
+				t.Fatalf("validateJSONRPCID(%s) error = %v", tt.id, err)
+			}
+		})
+	}
+}
+
+func TestTransportsAcceptAbsentAndNullJSONRPCID(t *testing.T) {
+	tests := []struct {
+		name         string
+		idField      string
+		http         bool
+		wantResponse bool
+	}{
+		{name: "stdio absent"},
+		{name: "stdio null", idField: `,"id":null`, wantResponse: true},
+		{name: "http absent", http: true},
+		{name: "http null", idField: `,"id":null`, http: true, wantResponse: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			calls := 0
+			provider := captureToolProvider{call: func(context.Context, string, json.RawMessage) (any, error) {
+				calls++
+				return map[string]any{"ok": true}, nil
+			}}
+			body := `{"jsonrpc":"2.0"` + tt.idField + `,"method":"tools/call","params":{"name":"demo_tool","arguments":{}}}`
+			var raw []byte
+			if tt.http {
+				server := NewHTTPServer("test", "dev", provider)
+				rec := httptest.NewRecorder()
+				server.handleMCP(rec, httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(body)))
+				raw = rec.Body.Bytes()
+			} else {
+				var output bytes.Buffer
+				server := NewServer("test", "dev", NewStdioTransport(strings.NewReader(body), &output), provider)
+				if err := server.Run(context.Background()); err != nil {
+					t.Fatalf("Run() error = %v", err)
+				}
+				raw = output.Bytes()
+			}
+			if calls != 1 {
+				t.Fatalf("provider calls = %d, want 1", calls)
+			}
+			if tt.wantResponse != (len(bytes.TrimSpace(raw)) != 0) {
+				t.Fatalf("response = %s, wantResponse = %v", raw, tt.wantResponse)
+			}
+			if tt.wantResponse {
+				var resp jsonRPCResponse
+				decodeJSONRPCOutput(t, raw, &resp)
+				if string(resp.ID) != "null" || resp.Error != nil {
+					t.Fatalf("response = %#v, want successful id:null; raw=%s", resp, raw)
+				}
+			}
+		})
+	}
+}
+
+func TestTransportsRejectInvalidJSONRPCIDBeforeProvider(t *testing.T) {
+	tests := []struct {
+		name string
+		id   string
+		http bool
+	}{
+		{name: "stdio object", id: `{"nested":1}`},
+		{name: "stdio array", id: `[1]`},
+		{name: "stdio boolean", id: "true"},
+		{name: "http object", id: `{"nested":1}`, http: true},
+		{name: "http array", id: `[1]`, http: true},
+		{name: "http boolean", id: "true", http: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			calls := 0
+			provider := captureToolProvider{call: func(context.Context, string, json.RawMessage) (any, error) {
+				calls++
+				return map[string]any{"ok": true}, nil
+			}}
+			body := `{"jsonrpc":"2.0","id":` + tt.id + `,"method":"tools/call","params":{"name":"demo_tool","arguments":{}}}`
+			var raw []byte
+			if tt.http {
+				server := NewHTTPServer("test", "dev", provider)
+				rec := httptest.NewRecorder()
+				req := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(body))
+				server.handleMCP(rec, req)
+				raw = rec.Body.Bytes()
+			} else {
+				var output bytes.Buffer
+				server := NewServer("test", "dev", NewStdioTransport(strings.NewReader(body), &output), provider)
+				if err := server.Run(context.Background()); err != nil {
+					t.Fatalf("Run() error = %v", err)
+				}
+				raw = output.Bytes()
+			}
+			var resp jsonRPCResponse
+			decodeJSONRPCOutput(t, raw, &resp)
+			if resp.Error == nil || resp.Error.Code != codeInvalidReq {
+				t.Fatalf("response error = %#v, want invalid request; raw=%s", resp.Error, raw)
+			}
+			if string(resp.ID) != "null" {
+				t.Fatalf("response id = %s, want null; raw=%s", resp.ID, raw)
+			}
+			if calls != 0 {
+				t.Fatalf("provider calls = %d, want 0", calls)
+			}
+		})
+	}
+}
+
 func assertJSONRPCError(t *testing.T, raw []byte, wantCode int, wantMessage string) {
 	t.Helper()
 	var resp struct {

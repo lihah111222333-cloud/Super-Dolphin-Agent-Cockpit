@@ -73,9 +73,9 @@ func TestSQLiteApplyOpsAddUpdateDeleteAndEmptyShortCircuit(t *testing.T) {
 	resp, err := svc.ApplyOps(ctx, contract.ApplyOpsRequest{
 		DagKey:      "dag-ops",
 		BaseVersion: 0,
-		Ops: json.RawMessage(`[
-			{"op":"add_node","node":{"node_key":"root","title":"Root","node_type":"agent","config":{"stage":"root"}}},
-			{"op":"add_node","node":{"node_key":"child","title":"Child","node_type":"agent","depends_on":["root"],"config":{"stage":"child"}}}
+		Ops: testRawConfig(t, `[
+			{"op":"add_node","node":{"node_key":"root","title":"Root","node_type":"agent","config":{"exec":{"agent_key":"worker","cwd":"/tmp/node-cwd"},"first_turn":"root"}}},
+			{"op":"add_node","node":{"node_key":"child","title":"Child","node_type":"agent","depends_on":["root"],"config":{"exec":{"agent_key":"worker","cwd":"/tmp/node-cwd"},"first_turn":"child"}}}
 		]`),
 	})
 	if err != nil {
@@ -89,7 +89,7 @@ func TestSQLiteApplyOpsAddUpdateDeleteAndEmptyShortCircuit(t *testing.T) {
 	resp, err = svc.ApplyOps(ctx, contract.ApplyOpsRequest{
 		DagKey:      "dag-ops",
 		BaseVersion: 1,
-		Ops:         json.RawMessage(`[{"op":"update_node","node_key":"child","patch":{"config":{"stage":"updated"}}}]`),
+		Ops:         testRawConfig(t, `[{"op":"update_node","node_key":"child","patch":{"config":{"exec":{"agent_key":"worker","cwd":"/tmp/node-cwd"},"first_turn":"updated"}}}]`),
 	})
 	if err != nil {
 		t.Fatalf("ApplyOps(update) error = %v", err)
@@ -97,7 +97,7 @@ func TestSQLiteApplyOpsAddUpdateDeleteAndEmptyShortCircuit(t *testing.T) {
 	if resp.NewVersion != 2 {
 		t.Fatalf("update NewVersion = %d, want 2", resp.NewVersion)
 	}
-	assertSQLiteApplyOpsNodeConfig(t, ctx, store, "dag-ops", "child", "updated")
+	assertSQLiteApplyOpsNodeConfig(t, ctx, store, "dag-ops", "child", "first_turn", "updated")
 
 	resp, err = svc.ApplyOps(ctx, contract.ApplyOpsRequest{
 		DagKey:      "dag-ops",
@@ -149,7 +149,7 @@ func TestSQLiteApplyOpsRejectsConfigChangeForDoneTemplateNode(t *testing.T) {
 	if !errors.Is(err, ErrApplyOpsInvalid) {
 		t.Fatalf("ApplyOps(done config) error = %v, want ErrApplyOpsInvalid", err)
 	}
-	assertSQLiteApplyOpsNodeConfig(t, ctx, store, "dag-done", "done-node", "locked")
+	assertSQLiteApplyOpsNodeConfig(t, ctx, store, "dag-done", "done-node", "stage", "locked")
 }
 
 func seedSQLiteApplyOpsDAG(t *testing.T, ctx context.Context, store taskdag.Store, dagKey string) {
@@ -179,7 +179,7 @@ func assertSQLiteApplyOpsNodeKeys(t *testing.T, ctx context.Context, store taskd
 	}
 }
 
-func assertSQLiteApplyOpsNodeConfig(t *testing.T, ctx context.Context, store taskdag.Store, dagKey, nodeKey, wantStage string) {
+func assertSQLiteApplyOpsNodeConfig(t *testing.T, ctx context.Context, store taskdag.Store, dagKey, nodeKey, field, want string) {
 	t.Helper()
 	nodes, err := store.ListNodes(ctx, dagKey)
 	if err != nil {
@@ -189,14 +189,12 @@ func assertSQLiteApplyOpsNodeConfig(t *testing.T, ctx context.Context, store tas
 		if node.NodeKey != nodeKey {
 			continue
 		}
-		var cfg struct {
-			Stage string `json:"stage"`
-		}
+		var cfg map[string]any
 		if err := json.Unmarshal(node.Config, &cfg); err != nil {
 			t.Fatalf("decode config for %s: %v", nodeKey, err)
 		}
-		if cfg.Stage != wantStage {
-			t.Fatalf("%s config stage = %q, want %q", nodeKey, cfg.Stage, wantStage)
+		if got, ok := cfg[field].(string); !ok || got != want {
+			t.Fatalf("%s config %s = %q, want %q", nodeKey, field, got, want)
 		}
 		return
 	}

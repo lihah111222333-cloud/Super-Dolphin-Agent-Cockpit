@@ -28,7 +28,7 @@ func TestApplyOps_UpdateNode_TitleHappy(t *testing.T) {
 	stub := &stubDAGOpsStore{
 		currentVersion: 1,
 		nodes: []taskdag.Node{
-			{DagKey: "dag-a", NodeKey: "n1", Title: "old", NodeType: "agent", Status: "pending", DependsOn: json.RawMessage(`[]`)},
+			{DagKey: "dag-a", NodeKey: "n1", Title: "old", NodeType: "agent", Status: "pending", DependsOn: json.RawMessage(`[]`), Config: testRawConfig(t, `{"exec":{"agent_key":"worker","cwd":"/tmp/node-cwd"}}`)},
 		},
 	}
 	s := makeApplyOpsService(stub)
@@ -64,7 +64,7 @@ func TestApplyOps_UpdateNode_AssignedToHappy(t *testing.T) {
 	stub := &stubDAGOpsStore{
 		currentVersion: 0,
 		nodes: []taskdag.Node{
-			{DagKey: "dag-a", NodeKey: "n1", Title: "t", NodeType: "agent", AssignedTo: "old", Status: "ready", DependsOn: json.RawMessage(`[]`)},
+			{DagKey: "dag-a", NodeKey: "n1", Title: "t", NodeType: "agent", AssignedTo: "old", Status: "ready", DependsOn: json.RawMessage(`[]`), Config: testRawConfig(t, `{"exec":{"agent_key":"worker","cwd":"/tmp/node-cwd"}}`)},
 		},
 	}
 	s := makeApplyOpsService(stub)
@@ -97,23 +97,23 @@ func TestApplyOps_UpdateNode_ConfigHappy(t *testing.T) {
 		currentVersion: 0,
 		nodes: []taskdag.Node{
 			{DagKey: "dag-a", NodeKey: "n1", Title: "t", NodeType: "agent", Status: "pending",
-				DependsOn: json.RawMessage(`[]`), Config: json.RawMessage(`{"old":1}`)},
+				DependsOn: json.RawMessage(`[]`), Config: testRawConfig(t, `{"exec":{"agent_key":"worker","cwd":"/tmp/node-cwd"},"first_turn":"old"}`)},
 		},
 	}
 	s := makeApplyOpsService(stub)
 	req := contract.ApplyOpsRequest{
 		DagKey:      "dag-a",
 		BaseVersion: 0,
-		Ops: json.RawMessage(`[
-			{"op":"update_node","node_key":"n1","patch":{"config":{"new":2}}}
+		Ops: testRawConfig(t, `[
+			{"op":"update_node","node_key":"n1","patch":{"config":{"exec":{"agent_key":"worker","cwd":"/tmp/node-cwd"},"first_turn":"updated"}}}
 		]`),
 	}
 	if _, err := s.ApplyOps(context.Background(), req); err != nil {
 		t.Fatalf("err = %v", err)
 	}
 	gotCfg := string(stub.upsertCalls[0].Config)
-	if !strings.Contains(gotCfg, `"new":2`) {
-		t.Errorf("Config = %s, want contains new:2", gotCfg)
+	if !strings.Contains(gotCfg, `"first_turn":"updated"`) {
+		t.Errorf("Config = %s, want updated first_turn", gotCfg)
 	}
 }
 
@@ -194,9 +194,9 @@ func TestApplyOps_UpdateNode_DependsOnHappy(t *testing.T) {
 	stub := &stubDAGOpsStore{
 		currentVersion: 0,
 		nodes: []taskdag.Node{
-			{NodeKey: "n1", Status: "pending", DependsOn: json.RawMessage(`[]`)},
-			{NodeKey: "n2", Status: "pending", DependsOn: json.RawMessage(`["n1"]`)},
-			{NodeKey: "n3", Status: "pending", DependsOn: json.RawMessage(`[]`)},
+			{NodeKey: "n1", NodeType: "agent", Status: "pending", DependsOn: json.RawMessage(`[]`), Config: testRawConfig(t, `{"exec":{"agent_key":"worker","cwd":"/tmp/node-cwd"}}`)},
+			{NodeKey: "n2", NodeType: "agent", Status: "pending", DependsOn: json.RawMessage(`["n1"]`), Config: testRawConfig(t, `{"exec":{"agent_key":"worker","cwd":"/tmp/node-cwd"}}`)},
+			{NodeKey: "n3", NodeType: "agent", Status: "pending", DependsOn: json.RawMessage(`[]`), Config: testRawConfig(t, `{"exec":{"agent_key":"worker","cwd":"/tmp/node-cwd"}}`)},
 		},
 	}
 	s := makeApplyOpsService(stub)
@@ -223,16 +223,16 @@ func TestApplyOps_AddPlusUpdate_SameBatch(t *testing.T) {
 	stub := &stubDAGOpsStore{
 		currentVersion: 0,
 		nodes: []taskdag.Node{
-			{NodeKey: "n1", Status: "pending", DependsOn: json.RawMessage(`[]`)},
-			{NodeKey: "n2", Status: "pending", DependsOn: json.RawMessage(`["n1"]`)},
+			{NodeKey: "n1", NodeType: "agent", Status: "pending", DependsOn: json.RawMessage(`[]`), Config: testRawConfig(t, `{"exec":{"agent_key":"worker","cwd":"/tmp/node-cwd"}}`)},
+			{NodeKey: "n2", NodeType: "agent", Status: "pending", DependsOn: json.RawMessage(`["n1"]`), Config: testRawConfig(t, `{"exec":{"agent_key":"worker","cwd":"/tmp/node-cwd"}}`)},
 		},
 	}
 	s := makeApplyOpsService(stub)
 	req := contract.ApplyOpsRequest{
 		DagKey:      "dag-a",
 		BaseVersion: 0,
-		Ops: json.RawMessage(`[
-			{"op":"add_node","node":{"node_key":"n3","title":"N3","node_type":"agent","depends_on":["n1"]}},
+		Ops: testRawConfig(t, `[
+			{"op":"add_node","node":{"node_key":"n3","title":"N3","node_type":"agent","depends_on":["n1"],"config":{"exec":{"agent_key":"worker","cwd":"/tmp/node-cwd"}}}},
 			{"op":"update_node","node_key":"n2","patch":{"depends_on":["n3"]}}
 		]`),
 	}
@@ -256,7 +256,7 @@ func TestApplyOps_UpdateNode_CycleIntroducedRejected(t *testing.T) {
 	stub := &stubDAGOpsStore{
 		currentVersion: 0,
 		nodes: []taskdag.Node{
-			{NodeKey: "a", Status: "pending", DependsOn: json.RawMessage(`[]`)},
+			{NodeKey: "a", NodeType: "agent", Status: "pending", DependsOn: json.RawMessage(`[]`), Config: testRawConfig(t, `{"exec":{"agent_key":"worker","cwd":"/tmp/node-cwd"}}`)},
 			{NodeKey: "b", Status: "pending", DependsOn: json.RawMessage(`["a"]`)},
 		},
 	}
@@ -522,8 +522,8 @@ func TestApplyOps_UpdateNode_DistinctKeysInBatch(t *testing.T) {
 	stub := &stubDAGOpsStore{
 		currentVersion: 0,
 		nodes: []taskdag.Node{
-			{DagKey: "dag-a", NodeKey: "n1", Title: "old1", NodeType: "agent", Status: "pending", DependsOn: json.RawMessage(`[]`)},
-			{DagKey: "dag-a", NodeKey: "n2", Title: "old2", NodeType: "agent", Status: "pending", DependsOn: json.RawMessage(`[]`)},
+			{DagKey: "dag-a", NodeKey: "n1", Title: "old1", NodeType: "agent", Status: "pending", DependsOn: json.RawMessage(`[]`), Config: testRawConfig(t, `{"exec":{"agent_key":"worker","cwd":"/tmp/node-cwd"}}`)},
+			{DagKey: "dag-a", NodeKey: "n2", Title: "old2", NodeType: "agent", Status: "pending", DependsOn: json.RawMessage(`[]`), Config: testRawConfig(t, `{"exec":{"agent_key":"worker","cwd":"/tmp/node-cwd"}}`)},
 		},
 	}
 	s := makeApplyOpsService(stub)

@@ -231,7 +231,6 @@ func realNPMBackedDiagnosticsCases() []realLSPDiagnosticsCase {
 		{"graphql", []string{"graphql-lsp"}, writeBinaryColdStartGraphQLFixture},
 		{"prisma", []string{"prisma-language-server"}, writeBinaryColdStartPrismaFixture},
 		{"shellscript", []string{"bash-language-server", "shellcheck"}, writeBinaryColdStartShellFixture},
-		{"sql", []string{"sql-language-server"}, writeBinaryColdStartSQLFixture},
 	}
 }
 

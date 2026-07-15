@@ -42,6 +42,23 @@ func TestGetDashboardPageDAGsUsesSnapshotQueriesWithoutOrchPeer(t *testing.T) {
 	}
 }
 
+func TestDashboardListDAGsSnapshotQueryRepeatsSQLiteKeywordArguments(t *testing.T) {
+	t.Parallel()
+
+	query, args := dashboardListDAGsSnapshotQuery(contract.ListDAGsFilter{
+		Status:  " running ",
+		Keyword: " needle ",
+		Limit:   7,
+	})
+
+	if got := strings.Count(query, "?"); got != len(args) {
+		t.Fatalf("SQLite placeholders = %d, args = %#v", got, args)
+	}
+	if got, want := fmt.Sprint(args), "[running needle needle needle 7]"; got != want {
+		t.Fatalf("snapshot args = %s, want %s", got, want)
+	}
+}
+
 func TestGetDashboardPageDAGsBatchesLatestRunsFromSnapshot(t *testing.T) {
 	t.Parallel()
 
@@ -56,7 +73,7 @@ func TestGetDashboardPageDAGsBatchesLatestRunsFromSnapshot(t *testing.T) {
 			},
 		},
 		{
-			contains: []string{"FROM task_dag_runs", "ROW_NUMBER() OVER", "dag_key IN ($1, $2, $3)"},
+			contains: []string{"FROM task_dag_runs", "ROW_NUMBER() OVER", "dag_key IN (?, ?, ?)"},
 			rows: []map[string]any{
 				dashboardRunRowWithKey(now, "dag-b", "run-b", []byte(`{"final_output":{"kind":"file","path":"reports/b.md"}}`)),
 				dashboardRunRowWithKey(now, "dag-a", "run-a", []byte(`{}`)),
@@ -246,7 +263,7 @@ func newDashboardSnapshotServiceForTest(now time.Time) (*service, *stubDashboard
 		{contains: []string{"FROM task_dag_nodes", "run_id IS NULL"}, rows: []map[string]any{dashboardNodeRow(now, nil)}},
 		{contains: []string{"FROM task_dag_runs", "WHERE dag_key"}, rows: []map[string]any{dashboardRunRow(now)}},
 		{contains: []string{"FROM task_dag_runs", "WHERE run_key"}, rows: []map[string]any{dashboardRunRow(now)}},
-		{contains: []string{"FROM task_dag_nodes", "run_id = $2"}, rows: []map[string]any{dashboardNodeRow(now, int64PtrForDashboardTest(7))}},
+		{contains: []string{"FROM task_dag_nodes", "run_id = ?"}, rows: []map[string]any{dashboardNodeRow(now, int64PtrForDashboardTest(7))}},
 	}}
 	orchestration := &stubDashboardOrchestration{listDAGsErr: errDashboardStub, listRunsErr: errDashboardStub}
 	return &service{dbQueries: db, dagRuntime: orchestration}, orchestration
@@ -340,7 +357,7 @@ func newDashboardSnapshotSQLiteMillisService(now time.Time) *service {
 		{contains: []string{"FROM task_dag_nodes", "run_id IS NULL"}, rows: []map[string]any{dashboardNodeRowSQLiteMillis(now, nil)}},
 		{contains: []string{"FROM task_dag_runs", "WHERE dag_key"}, rows: []map[string]any{dashboardRunRowSQLiteMillis(now)}},
 		{contains: []string{"FROM task_dag_runs", "WHERE run_key"}, rows: []map[string]any{dashboardRunRowSQLiteMillis(now)}},
-		{contains: []string{"FROM task_dag_nodes", "run_id = $2"}, rows: []map[string]any{dashboardNodeRowSQLiteMillis(now, int64PtrForDashboardTest(7))}},
+		{contains: []string{"FROM task_dag_nodes", "run_id = ?"}, rows: []map[string]any{dashboardNodeRowSQLiteMillis(now, int64PtrForDashboardTest(7))}},
 	}}
 	return &service{
 		dbQueries:  db,

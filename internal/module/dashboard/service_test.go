@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
@@ -19,6 +20,21 @@ func TestGetDashboardPageReturnsStructuredPage(t *testing.T) {
 	}
 	assertDashboardPageInitialized(t, got)
 	assertEmptyDashboardCommandPage(t, got)
+}
+
+func TestGetDashboardPageRejectsUnsupportedPage(t *testing.T) {
+	t.Parallel()
+	for _, page := range []string{"", "unknown"} {
+		t.Run(page, func(t *testing.T) {
+			got, err := (&service{}).GetDashboardPage(context.Background(), page)
+			if err == nil || !strings.Contains(err.Error(), "unsupported") {
+				t.Fatalf("GetDashboardPage(%q) error = %v, want unsupported page", page, err)
+			}
+			if got != nil {
+				t.Fatalf("GetDashboardPage(%q) = %#v, want nil page", page, got)
+			}
+		})
+	}
 }
 
 func TestGetDashboardPageLoadsDAGs(t *testing.T) {

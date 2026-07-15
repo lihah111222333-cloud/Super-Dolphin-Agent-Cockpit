@@ -30,7 +30,7 @@ func TestInstallLogRelaySendsLoggerRecordsThroughControlPlane(t *testing.T) {
 	}, &jrpcserver.LocalOptions{Server: &jrpc2.ServerOptions{}})
 	defer local.Close()
 
-	client := New(Config{
+	client := mustNewClient(t, Config{
 		InstanceID: "inst-1",
 		BinaryName: "mcp-lsp",
 		ClientKind: mcpdto.ClientKindLSP,
@@ -70,7 +70,7 @@ func TestInstallLogRelayFallsBackToDedicatedFileWhenRPCUnavailable(t *testing.T)
 
 	dir := t.TempDir()
 	t.Setenv(logFallbackDirEnv, dir)
-	client := New(Config{
+	client := mustNewClient(t, Config{
 		InstanceID: "inst-offline",
 		BinaryName: "mcp-lsp",
 		ClientKind: mcpdto.ClientKindLSP,

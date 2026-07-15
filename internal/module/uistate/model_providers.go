@@ -45,8 +45,8 @@ type modelProviderVendor struct {
 	DefaultModel       string                 `json:"defaultModel"`
 	CodexHome          string                 `json:"codexHome,omitempty"`
 	CodexInstanceKey   string                 `json:"codexInstanceKey,omitempty"`
-	Budget             modelProviderBudget    `json:"budget,omitempty"`
-	TokenPool          modelProviderTokenPool `json:"tokenPool,omitempty"`
+	Budget             modelProviderBudget    `json:"budget,omitzero"`
+	TokenPool          modelProviderTokenPool `json:"tokenPool,omitzero"`
 	Configured         bool                   `json:"configured,omitempty"`
 	MaskedEnv          string                 `json:"maskedEnv,omitempty"`
 	EnvStatus          string                 `json:"envStatus,omitempty"`

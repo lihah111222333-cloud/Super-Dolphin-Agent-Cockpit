@@ -12,16 +12,16 @@ import (
 )
 
 func TestPrepareCodexToolSurfaceNamespacesExternalDuplicateToolName(t *testing.T) {
-	postgres := &fakeMCPClient{tools: []mcpdto.MCPTool{{Name: "query", Description: "postgres query", InputSchema: json.RawMessage(`{"type":"object"}`)}}}
+	playwright := &fakeMCPClient{tools: []mcpdto.MCPTool{{Name: "query", Description: "browser query", InputSchema: json.RawMessage(`{"type":"object"}`)}}}
 	sqlite := &fakeMCPClient{tools: []mcpdto.MCPTool{{Name: "query", Description: "sqlite query", InputSchema: json.RawMessage(`{"type":"object"}`)}}}
-	h := &Handler{stdioClientFactory: fakeClientFactory(map[string]mcpClient{"postgres": postgres, "sqlite": sqlite})}
+	h := &Handler{stdioClientFactory: fakeClientFactory(map[string]mcpClient{"playwright": playwright, "sqlite": sqlite})}
 
 	tools, err := h.PrepareCodexToolSurface(context.Background(), contract.CodexToolSurfaceScope{
 		AgentID:          "agent-1",
 		ProviderThreadID: "provider-thread-1",
 		CWD:              "/repo",
 		Manifest: providerdto.MCPManifest{Binaries: []providerdto.MCPBinary{
-			{Name: "postgres", Command: []string{"mcp-server-postgres"}},
+			{Name: "playwright", Command: []string{"npx", "@playwright/mcp@latest"}},
 			{Name: "sqlite", Command: []string{"npx", "-y", "@bytebase/dbhub", "--dsn=sqlite:///tmp/app.db"}},
 		}},
 	})
@@ -34,8 +34,8 @@ func TestPrepareCodexToolSurfaceNamespacesExternalDuplicateToolName(t *testing.T
 	if err != nil {
 		t.Fatalf("HandleToolCall(query) error = %v", err)
 	}
-	if !postgres.calledWith("query") {
-		t.Fatalf("postgres calls = %#v, want query", postgres.calls)
+	if !playwright.calledWith("query") {
+		t.Fatalf("playwright calls = %#v, want query", playwright.calls)
 	}
 
 	_, err = h.HandleToolCall(context.Background(), contract.ToolCallRawMessage{Params: json.RawMessage(`{"name":"mcp__sqlite__query","arguments":{"sql":"select 1"},"_agentId":"agent-1","_threadId":"provider-thread-1","_callId":"call-2","_cwd":"/repo"}`)})

@@ -115,9 +115,9 @@ func TestVerifyPackagedAppMacOSChecksBundledBashLanguageServer(t *testing.T) {
 func TestVerifyPackagedAppMacOSChecksBundledSQLLanguageServer(t *testing.T) {
 	script := readScript(t, "verify_packaged_app_macos.sh")
 
-	assertScriptContains(t, script, "\"sql-language-server|bin/sql-language-server\"")
-	assertScriptContains(t, script, "\"$resources/bin/sql-language-server\"")
-	assertScriptContains(t, script, "typescript-language-server|vscode-langservers-extracted|pyright|sql-language-server)")
+	assertScriptContains(t, script, "\"sqruff|bin/sqruff\"")
+	assertScriptContains(t, script, "\"$resources/bin/sqruff\"")
+	assertScriptContains(t, script, "printf '%s\\n' \"--version\"")
 }
 
 func TestVerifyPackagedAppMacOSChecksBundledShellcheck(t *testing.T) {
@@ -207,5 +207,7 @@ func TestMacOSReleaseSmokeScriptFailFastContracts(t *testing.T) {
 	assertScriptContains(t, script, "app-server --help")
 	assertScriptContains(t, script, "SUPER_DOLPHIN_CODEX_RELEASE_API_URL")
 	assertScriptContains(t, script, "startup")
+	assertScriptDoesNotContain(t, script, "embedded_postgres_resource_path")
+	assertScriptDoesNotContain(t, script, "$resources/postgres/")
 	assertScriptDoesNotContain(t, script, " RETURN")
 }

@@ -9,7 +9,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-orch/store/sqlc"
 	sqliteruntime "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/db/sqlite"
 	_ "modernc.org/sqlite"
 )
@@ -17,7 +16,7 @@ import (
 func TestSQLiteCommandListSearchesTemplateAndKeepsListAndDetailShape(t *testing.T) {
 	ctx := context.Background()
 	db := openCommandSQLiteDB(t)
-	store := NewStore(sqlc.New(db))
+	store := NewStore(db)
 
 	created, err := store.Upsert(ctx, CommandCard{
 		CardKey:         "cmd/template-search",
@@ -36,6 +35,7 @@ func TestSQLiteCommandListSearchesTemplateAndKeepsListAndDetailShape(t *testing.
 	if created.ID == 0 {
 		t.Fatalf("Upsert() ID = 0, want persisted row")
 	}
+	assertCommandCardUpdateEquivalence(t, ctx, store, *created)
 
 	listed, err := store.List(ctx, ListFilter{Keyword: "task11-command-needle", Limit: 10})
 	if err != nil {
@@ -53,6 +53,30 @@ func TestSQLiteCommandListSearchesTemplateAndKeepsListAndDetailShape(t *testing.
 	assertCommandCardPayload(t, "detail", *detail)
 }
 
+func assertCommandCardUpdateEquivalence(t *testing.T, ctx context.Context, store Store, created CommandCard) {
+	t.Helper()
+	updated, err := store.Upsert(ctx, CommandCard{
+		CardKey:         created.CardKey,
+		Title:           "Template Search Updated",
+		Description:     "updated description",
+		CommandTemplate: created.CommandTemplate,
+		ArgsSchema:      created.ArgsSchema,
+		RiskLevel:       "high",
+		Enabled:         false,
+		CreatedBy:       "replacement-must-not-win",
+		UpdatedBy:       "editor",
+	})
+	if err != nil {
+		t.Fatalf("second Upsert() error = %v", err)
+	}
+	if updated.ID != created.ID || updated.CreatedBy != created.CreatedBy || !updated.CreatedAt.Equal(created.CreatedAt) {
+		t.Fatalf("second Upsert() changed immutable fields: before=%+v after=%+v", created, updated)
+	}
+	if updated.Title != "Template Search Updated" || updated.RiskLevel != "high" || updated.Enabled || updated.UpdatedBy != "editor" {
+		t.Fatalf("second Upsert() did not update mutable fields: %+v", updated)
+	}
+}
+
 func assertCommandCardPayload(t *testing.T, label string, got CommandCard) {
 	t.Helper()
 	if !strings.Contains(got.CommandTemplate, "task11-command-needle") {
@@ -61,8 +85,8 @@ func assertCommandCardPayload(t *testing.T, label string, got CommandCard) {
 	if !strings.Contains(string(got.ArgsSchema), `"pkg"`) {
 		t.Fatalf("%s ArgsSchema = %s, want pkg property", label, got.ArgsSchema)
 	}
-	if got.RiskLevel != "normal" || !got.Enabled {
-		t.Fatalf("%s risk=%q enabled=%v, want normal/true", label, got.RiskLevel, got.Enabled)
+	if got.RiskLevel != "high" || got.Enabled {
+		t.Fatalf("%s risk=%q enabled=%v, want high/false", label, got.RiskLevel, got.Enabled)
 	}
 }
 

@@ -4,7 +4,7 @@
 
 - Owners: 14
 - Canonical rules: 21
-- Specialized guards: 9
+- Specialized guards: 10
 - Governed backend surfaces: 29
 
 ## Rule owners
@@ -37,7 +37,7 @@
 | `hooks_no_mcpcontrol` | `platform_control_boundary` | `deny_imports` | `internal/platform/hooks/**/*.go` | — | `internal/platform/hooks/**/*.go` → `internal/platform/mcpcontrol` | — | — | hooks publish contracts instead of importing MCP control implementations |
 | `hooks_no_platform_db` | `platform_control_boundary` | `deny_imports` | `internal/platform/hooks/**/*.go` | — | `internal/platform/hooks/**/*.go` → `internal/platform/db` | — | — | hooks must not own database lifecycle in production or test helpers |
 | `internal_support_narrow_import_surface` | `internal_support_boundary` | `allow_internal_imports` | `internal/devtools/**/*.go`<br>`internal/dto/**/*.go`<br>`internal/testutil/**/*.go`<br>`internal/util/**/*.go` | 12 policies across 4 file patterns | — | — | — | support packages may import only descendants and explicitly registered shared seams |
-| `mcp_sidecar_narrow_import_surface` | `mcp_sidecar_boundary` | `allow_internal_imports` | `cmd/mcp-ida/**/*.go`<br>`cmd/mcp-lsp/**/*.go`<br>`cmd/mcp-orch/**/*.go` | 47 policies across 3 file patterns | 21 policies across 3 file patterns | — | — | cmd/mcp-* may use local sidecar packages and explicit shared contracts/platform primitives, but not app host, provider, or module services |
+| `mcp_sidecar_narrow_import_surface` | `mcp_sidecar_boundary` | `allow_internal_imports` | `cmd/mcp-ida/**/*.go`<br>`cmd/mcp-lsp/**/*.go`<br>`cmd/mcp-orch/**/*.go` | 48 policies across 3 file patterns | 21 policies across 3 file patterns | — | — | cmd/mcp-* may use local sidecar packages and explicit shared contracts/platform primitives, but not app host, provider, or module services |
 | `mcpcontrol_no_hooks` | `platform_control_boundary` | `deny_imports` | `internal/platform/mcpcontrol/**/*.go` | — | `internal/platform/mcpcontrol/**/*.go` → `internal/platform/hooks` | — | — | MCP control consumes injected hook ports instead of hook implementations |
 | `mcpserver_ida_family` | `mcpserver_family` | `deny_imports` | `cmd/mcp-ida/**/*.go` | — | `cmd/mcp-ida/**/*.go` → `internal/tool/lsp`<br>`cmd/mcp-ida/**/*.go` → `internal/tool/orchestration` | — | — | IDA MCP servers must not depend on LSP or orchestration tool families |
 | `mcpserver_orch_family` | `mcpserver_family` | `deny_imports` | `cmd/mcp-orch/**/*.go` | — | `cmd/mcp-orch/**/*.go` → `internal/tool/ida`<br>`cmd/mcp-orch/**/*.go` → `internal/tool/lsp` | — | — | orchestration MCP servers must not depend on LSP or IDA tool families |
@@ -49,7 +49,7 @@
 | `platform_no_store` | `platform_runtime` | `deny_imports` | `internal/platform/**/*.go` | — | `internal/platform/**/*.go` → `internal/store` | — | — | platform infrastructure must not depend on product store subpackages |
 | `provider_no_platform_db` | `provider_runtime` | `deny_imports` | `internal/provider/**/*.go` | — | `internal/provider/**/*.go` → `internal/platform/db` | — | — | provider production code must not own SQLite handles or DB lifecycle |
 | `provider_no_store` | `provider_runtime` | `deny_imports` | `internal/provider/**/*.go` | — | `internal/provider/**/*.go` → `internal/store` | — | — | provider adapters consume session contracts and must not import product store packages directly |
-| `store_dependency_surface` | `store_dependency` | `store_imports` | `internal/store/**/*.go`<br>`internal/store/**/module.go`<br>`internal/store/module.go` | 14 policies across 3 file patterns | — | — | — | store packages must depend only on their own implementation package and registered persistence ports |
+| `store_dependency_surface` | `store_dependency` | `store_imports` | `internal/store/**/*.go`<br>`internal/store/**/module.go`<br>`internal/store/module.go` | 11 policies across 3 file patterns | — | — | — | store packages must depend only on their own implementation package and registered persistence ports |
 | `store_sqlc_store_platform_only` | `sqlc_boundary` | `scoped_import` | `cmd/**/*.go`<br>`internal/**/*.go` | — | `cmd/**/*.go` → `internal/store/sqlc`<br>`internal/**/*.go` → `internal/store/sqlc` | `internal/platform/db/**/*.go` (`platform_db`)<br>`internal/store/**/*.go` (`store`) | — | store/sqlc generated types must stay inside persistence implementation seams |
 
 ## Specialized guards
@@ -61,6 +61,7 @@
 | `code_size_budget` | `internal/guards/code_size_guard_test.go` | — | `TestCodeSizeBudgetBaselineIsActionable` | `internal/guards` | the repository guard keeps code size baselines non-empty and enforcing |
 | `dependency_direction` | `internal/archtest/dependency_direction_test.go` | — | `TestDependencyDirection` | `internal/mcpserver` | dependency direction tests protect typed backend layer relationships |
 | `fx_graph` | `internal/archtest/fx_graph_test.go` | — | `TestFxValidateApp` | `internal/app` | the desktop composition root must retain a valid Fx graph |
+| `ignored_go_tests` | `internal/guards/ignored_test_guard_test.go` | — | `TestTrackedGoTestsDoNotUseIgnoreBuildConstraint` | `internal/guards` | tracked Go tests must remain attached to an executable test chain instead of using the unowned ignore build tag |
 | `pkg_public_boundary` | `internal/archtest/backend_boundary_guard_coverage_test.go` | — | `TestPkgNoInternalImportsRuleRejectsRepositoryInternals` | `pkg/cronmetrics`<br>`pkg/dagmetrics`<br>`pkg/dreammetrics`<br>`pkg/logger`<br>`pkg/skillblocks`<br>`pkg/skillmetrics` | public pkg libraries must reject both repository internals and command entrypoints |
 | `rollback_skip_markers` | `internal/guards/rollback_skip_guard_test.go` | — | `TestGoTestsDoNotContainRollbackSkipMarkers` | `internal/guards` | the repository guard rejects hidden rollback skip markers in Go tests |
 | `rpc_runtime_e2e` | `internal/e2e/rpc_runtime/runtime_e2e_test.go` | `e2e` | `TestAgentRuntimeRPCBlackBox`<br>`TestRPCRuntimeE2EEnvIsIsolated` | `internal/e2e` | the tagged RPC runtime suite validates the backend process boundary end to end |
@@ -84,7 +85,7 @@
 | `internal/devtools` | `fx_assembly_scope`<br>`internal_support_narrow_import_surface` | — | backend developer tooling |
 | `internal/dto` | `fx_assembly_scope`<br>`internal_support_narrow_import_surface` | — | transport-neutral data transfer objects |
 | `internal/e2e` | — | `rpc_runtime_e2e` | backend end-to-end test surface |
-| `internal/guards` | — | `code_size_budget`<br>`rollback_skip_markers` | repository-level test guard surface |
+| `internal/guards` | — | `code_size_budget`<br>`ignored_go_tests`<br>`rollback_skip_markers` | repository-level test guard surface |
 | `internal/mcpserver` | `fx_assembly_scope` | `dependency_direction` | shared MCP server implementations |
 | `internal/module` | `fx_assembly_scope`<br>`module_horizontal_deep_import`<br>`module_no_direct_db_imports`<br>`module_no_store_imports` | — | business module ownership |
 | `internal/platform` | `fx_assembly_scope`<br>`hooks_no_mcpcontrol`<br>`hooks_no_platform_db`<br>`mcpcontrol_no_hooks`<br>`platform_no_module`<br>`platform_no_store` | — | infrastructure runtime layer |

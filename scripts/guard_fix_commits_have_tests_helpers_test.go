@@ -184,11 +184,12 @@ func preparePrePushScopeRepo(t *testing.T) string {
 	root := prepareFixTestGuardRepo(t)
 	copyFixTestGuardRepoFile(t, root, ".githooks/pre-push", 0o755)
 	copyFixTestGuardRepoFile(t, root, "scripts/configure_hook_node_runtime.sh", 0o755)
+	copyFixTestGuardRepoFile(t, root, "go.mod", 0o644)
 	copyCommitTitleGuard(t, root, "")
 	writePrePushFakeGoTestScript(t, root)
 	writeFakeAIMaintenanceGateScript(t, root)
 	copyFixTestGuardRepoFile(t, root, "scripts/ai_maintenance/deferred_e2e_packages.txt", 0o644)
-	runFixTestGuardGit(t, root, "add", ".githooks/pre-push", "scripts/configure_hook_node_runtime.sh", "go.mod", "go.sum", "CLAUDE.md", "scripts/guard_commit_titles.sh", commitTitleEnforcementBaselinePath, "scripts/guard_fix_commits_have_tests.sh", "scripts/test_with_guard.sh", "scripts/ai_maintenance_gates.sh", "scripts/ai_maintenance/deferred_e2e_packages.txt", "scripts/capcontract/main.go", "scripts/capcontract/path_rules.sh", "internal/devtools/capcontract/manifest.go", "internal/devtools/capcontract/scanner.go", "internal/devtools/capcontract/path_rules.go")
+	runFixTestGuardGit(t, root, "add", ".githooks/pre-push", "scripts/configure_hook_node_runtime.sh", "go.mod", "scripts/guard_commit_titles.sh", commitTitleEnforcementBaselinePath, "scripts/guard_fix_commits_have_tests.sh", "scripts/test_with_guard.sh", "scripts/ai_maintenance_gates.sh", "scripts/ai_maintenance/deferred_e2e_packages.txt")
 	runFixTestGuardGit(t, root, "commit", "-m", "chore: install pre-push scope fixture")
 	return root
 }
@@ -219,8 +220,9 @@ func preparePreCommitGateFixture(t *testing.T) string {
 	copyFixTestGuardRepoFile(t, root, "scripts/refresh_generated_artifacts.sh", 0o755)
 	writePreCommitFakeCodeGuardScript(t, root)
 	writeFakeAIMaintenanceGateScript(t, root)
+	writePreCommitFakeAIMaintenancePlanner(t, root)
 	writePreCommitFakeCodemapMakefile(t, root)
-	runFixTestGuardGit(t, root, "add", ".githooks/pre-commit", "scripts/configure_hook_node_runtime.sh", "scripts/refresh_generated_artifacts.sh", "scripts/test_with_guard.sh", "scripts/ai_maintenance_gates.sh", "Makefile")
+	runFixTestGuardGit(t, root, "add", ".githooks/pre-commit", "scripts/configure_hook_node_runtime.sh", "scripts/refresh_generated_artifacts.sh", "scripts/test_with_guard.sh", "scripts/guard_fix_commits_have_tests.sh", "scripts/ai_maintenance_gates.sh", "scripts/ai_maintenance/main.go", "go.mod", "Makefile")
 	runFixTestGuardGit(t, root, "commit", "-m", "chore: 安装 precommit fixture")
 	return root
 }
@@ -237,9 +239,39 @@ func writeFakeAIMaintenanceGateScript(t *testing.T, root string) {
 	}
 }
 
+func writePreCommitFakeAIMaintenancePlanner(t *testing.T, root string) {
+	t.Helper()
+	writeFixTestGuardFile(t, root, "go.mod", "module example.com/precommitfixture\n\ngo 1.24\n")
+	content := `package main
+
+import (
+	"encoding/json"
+	"os"
+)
+
+const manifest = "docs/doc/codemap/capability-contract/capability_manifest.json"
+
+func main() {
+	generated := []string{}
+	for i := 0; i+1 < len(os.Args); i++ {
+		if os.Args[i] != "--changed-file" {
+			continue
+		}
+		if os.Args[i+1] == "internal/provider/producer.go" {
+			generated = []string{manifest}
+		}
+	}
+	if err := json.NewEncoder(os.Stdout).Encode(map[string]any{"generated_files": generated}); err != nil {
+		panic(err)
+	}
+}
+`
+	writeFixTestGuardFile(t, root, "scripts/ai_maintenance/main.go", content)
+}
+
 func writePreCommitFakeCodemapMakefile(t *testing.T, root string) {
 	t.Helper()
-	content := ".PHONY: codemap-refresh project-map-refresh\n\n" +
+	content := ".PHONY: codemap-refresh project-map-refresh capcontract-refresh\n\n" +
 		"codemap-refresh:\n" +
 		"\t@mkdir -p docs/doc/codemap\n" +
 		"\t@printf 'root readme refreshed\\n' > README.md\n" +
@@ -251,7 +283,10 @@ func writePreCommitFakeCodemapMakefile(t *testing.T, root string) {
 		"\t@printf 'project map refreshed\\n' > docs/doc/codemap/project-map/AI_PROJECT_MAP.md\n" +
 		"\t@printf 'drift refreshed\\n' > docs/doc/codemap/project-map/AI_PROJECT_DRIFT.md\n" +
 		"\t@printf '{\"generated\":true}\\n' > docs/doc/codemap/project-map/AI_PROJECT_MANIFEST.json\n" +
-		"\t@printf 'path\\tmodule\\n' > docs/doc/codemap/project-map/index/other.tsv\n"
+		"\t@printf 'path\\tmodule\\n' > docs/doc/codemap/project-map/index/other.tsv\n\n" +
+		"capcontract-refresh:\n" +
+		"\t@mkdir -p docs/doc/codemap/capability-contract\n" +
+		"\t@printf '{\"capability\":\"refreshed\"}\\n' > docs/doc/codemap/capability-contract/capability_manifest.json\n"
 	if err := os.WriteFile(filepath.Join(root, "Makefile"), []byte(content), 0o644); err != nil {
 		t.Fatalf("write fake Makefile: %v", err)
 	}
@@ -381,34 +416,6 @@ func copyFixTestGuardRepoFile(t *testing.T, root, path string, mode os.FileMode)
 	}
 	if err := os.WriteFile(target, data, mode); err != nil {
 		t.Fatalf("copy %s: %v", path, err)
-	}
-	if path == ".githooks/pre-push" {
-		installPrePushCapabilityPathRulesFixture(t, root)
-	}
-}
-
-func installPrePushCapabilityPathRulesFixture(t *testing.T, root string) {
-	t.Helper()
-	for _, file := range []struct {
-		path string
-		mode os.FileMode
-	}{
-		{path: "go.mod", mode: 0o644},
-		{path: "go.sum", mode: 0o644},
-		{path: "scripts/capcontract/main.go", mode: 0o644},
-		{path: "scripts/capcontract/path_rules.sh", mode: 0o755},
-		{path: "internal/devtools/capcontract/manifest.go", mode: 0o644},
-		{path: "internal/devtools/capcontract/scanner.go", mode: 0o644},
-		{path: "internal/devtools/capcontract/path_rules.go", mode: 0o644},
-	} {
-		copyFixTestGuardRepoFile(t, root, file.path, file.mode)
-	}
-	writeFixTestGuardFile(t, root, "CLAUDE.md", "pre-push capability path-rules fixture\n")
-	_, defaultRoots := capabilityDefaultRootsForGuardTest(t)
-	for _, defaultRoot := range defaultRoots {
-		if err := os.MkdirAll(filepath.Join(root, filepath.FromSlash(defaultRoot)), 0o755); err != nil {
-			t.Fatalf("mkdir default capability root %s: %v", defaultRoot, err)
-		}
 	}
 }
 

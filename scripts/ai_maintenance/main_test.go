@@ -1,6 +1,7 @@
 package main
 
 import (
+	"io"
 	"os"
 	"path/filepath"
 	"slices"
@@ -23,8 +24,10 @@ func TestBuildGatePlanRoutesFrontendBackendAndGeneratedFiles(t *testing.T) {
 		"frontend:embed-verify",
 		"frontend:lint",
 		"frontend:test",
+		"lsp:changed-diagnostics",
 		"project-map:check",
 	)
+	assertStringSetContains(t, plan.DiagnosticFiles, "frontend-app/src/App.jsx", "internal/app/modules.go")
 	assertStringSetContains(t, plan.RequiredEvidence,
 		"generated:source",
 		"lsp:diagnostics",
@@ -43,6 +46,63 @@ func TestBuildGatePlanRoutesAIMaintenanceHooksToSelfTest(t *testing.T) {
 	plan := mustBuildGatePlan(t, []string{".githooks/pre-commit", ".githooks/pre-push"})
 
 	assertStringSetContains(t, plan.RequiredGates, "ai-maintenance:self-test", "diff:whitespace")
+}
+
+func TestPushGatePlanAddsRiskGatesWithoutChangingCommitPlan(t *testing.T) {
+	files := []string{"internal/provider/codexapp/session.go"}
+	commitPlan := mustGatePlanForScope(t, files, false)
+	pushPlan := mustGatePlanForScope(t, files, true)
+
+	assertStringSetOmits(t, commitPlan.RequiredGates, "backend:nilness", "backend:test_with_guard_and_race")
+	assertStringSetContains(t, pushPlan.RequiredGates, "backend:nilness", "backend:test_with_guard_and_race")
+	assertStringSetOmits(t, pushPlan.RequiredGates, "backend:test_with_guard")
+	if got := affectedRacePackages(pushPlan.ChangedFiles); len(got) != 1 || got[0] != "./internal/provider/codexapp" {
+		t.Fatalf("affected race packages = %v, want provider package", got)
+	}
+}
+
+func TestPushGatePlanOmitsRaceForNonConcurrentBackendSurface(t *testing.T) {
+	plan := mustGatePlanForScope(t, []string{"internal/dto/agent/state.go"}, true)
+
+	assertStringSetContains(t, plan.RequiredGates, "backend:nilness")
+	assertStringSetOmits(t, plan.RequiredGates, "backend:test_with_guard_and_race")
+}
+
+func TestPushGatePlanRoutesGoModuleRiskGates(t *testing.T) {
+	plan := mustGatePlanForScope(t, []string{"go.mod"}, true)
+
+	assertStringSetContains(t, plan.RequiredGates, "backend:nilness", "backend:test_with_guard_and_race")
+	assertStringSetOmits(t, plan.RequiredGates, "backend:test_with_guard")
+	if len(affectedNilnessPackages(plan)) == 0 || len(affectedRacePackagesForPlan(plan)) == 0 {
+		t.Fatalf("go.mod push risk packages missing: nilness=%v race=%v", affectedNilnessPackages(plan), affectedRacePackagesForPlan(plan))
+	}
+}
+
+func TestCombinedBackendRaceArgsRunsBothLanesThroughOneWrapper(t *testing.T) {
+	plan := mustGatePlanForScope(t, []string{"internal/provider/codexapp/session.go"}, true)
+	args, err := backendTestWithGuardAndRaceArgs(plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertStringSetContains(t, args, "./scripts/test_with_guard.sh", "--with-race", "--", "-count=1")
+	count := 0
+	for _, arg := range args {
+		if arg == "./scripts/test_with_guard.sh" {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Fatalf("combined backend gate must invoke one guard wrapper: %v", args)
+	}
+}
+
+func TestAffectedBackendGoPackagesExcludesAnalyzerTestdata(t *testing.T) {
+	packages := affectedBackendGoPackages([]string{
+		"internal/devtools/typednil/analyzer.go",
+		"internal/devtools/typednil/testdata/src/typednilfixture/typednil.go",
+	})
+	assertStringSetContains(t, packages, "./internal/devtools/typednil")
+	assertStringSetOmits(t, packages, "./internal/devtools/typednil/testdata/src/typednilfixture")
 }
 
 func TestBuildGatePlanRoutesProjectMapOverridesToCodemapChecks(t *testing.T) {
@@ -98,6 +158,50 @@ func TestExecuteGatePlanRejectsRequiredGateWithoutRunner(t *testing.T) {
 	}
 }
 
+func TestLSPDiagnosticsRunnerAuditsAllDeleted(t *testing.T) {
+	root := t.TempDir()
+	plan := gatePlan{DiagnosticFiles: []string{
+		filepath.Join(root, "deleted-a.go"),
+		filepath.Join(root, "deleted-b.go"),
+	}}
+	runner := gateRunners(plan, gateExecutionScope{})["lsp:changed-diagnostics"]
+	stderr := captureStderr(t, runner.run)
+	want := "[ai-maintenance] lsp diagnostics skip: planned=2 existing=0 reason=all-deleted\n"
+	if stderr != want {
+		t.Fatalf("stderr = %q, want %q", stderr, want)
+	}
+}
+
+func TestExistingDiagnosticFilesRejectsNonRegularTarget(t *testing.T) {
+	_, _, err := existingDiagnosticFiles([]string{t.TempDir()})
+	if err == nil || !strings.Contains(err.Error(), "is not a regular file") {
+		t.Fatalf("non-regular target error = %v", err)
+	}
+}
+
+func captureStderr(t *testing.T, run func() error) string {
+	t.Helper()
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	original := os.Stderr
+	os.Stderr = writer
+	defer func() { os.Stderr = original }()
+	runErr := run()
+	if closeErr := writer.Close(); closeErr != nil {
+		t.Fatal(closeErr)
+	}
+	data, readErr := io.ReadAll(reader)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if runErr != nil {
+		t.Fatalf("run error = %v", runErr)
+	}
+	return string(data)
+}
+
 func TestBuildGatePlanRequiresFullLSPEvidenceForGoScripts(t *testing.T) {
 	plan := mustBuildGatePlan(t, []string{"scripts/ai_maintenance/main.go"})
 
@@ -128,6 +232,29 @@ func TestBuildGatePlanIncludesChangedBackendPackages(t *testing.T) {
 		"./internal/contract",
 	)
 	assertStringSetOmits(t, plan.AffectedGoPackages, "./internal/archtest")
+}
+
+func TestBuildGatePlanRoutesCapabilityContractProducerInputs(t *testing.T) {
+	for _, path := range []string{
+		"internal/contract/provider.go",
+		"internal/provider/codexapp/support.go",
+		"cmd/mcp-orch/orchestration/registry.go",
+		"cmd/mcp-orch/tools/position.go",
+	} {
+		t.Run(path, func(t *testing.T) {
+			plan := mustBuildGatePlan(t, []string{path})
+			assertStringSetContains(t, plan.RequiredGates, "capcontract:check")
+			assertStringSetContains(t, plan.GeneratedFiles, capabilityContractManifest)
+		})
+	}
+
+	for _, path := range []string{"frontend-app/src/App.jsx", "docs/README.md"} {
+		t.Run("unrelated/"+path, func(t *testing.T) {
+			plan := mustBuildGatePlan(t, []string{path})
+			assertStringSetOmits(t, plan.RequiredGates, "capcontract:check")
+			assertStringSetOmits(t, plan.GeneratedFiles, capabilityContractManifest)
+		})
+	}
 }
 
 func TestBuildGatePlanRoutesGateInfrastructureToOwnedChecks(t *testing.T) {
@@ -162,7 +289,6 @@ func TestBuildGatePlanRoutesSQLCAndGoModuleInputs(t *testing.T) {
 		{"sqlc.yaml", false},
 		{"cmd/mcp-orch/sqlc.yaml", true},
 		{"sql/queries.sql", false},
-		{"migrations/001.sql", false},
 		{"cmd/mcp-orch/sql/queries.sql", true},
 		{"internal/platform/db/sqlite/migrations/001.sql", true},
 		{"internal/store/thread/store.go", true},
@@ -198,8 +324,9 @@ func TestGatePlanProducerMatchesRunnerAndEvidenceRegistries(t *testing.T) {
 		{"internal/store/thread/store.go"},
 		{"internal/contract/provider.go"},
 		{"docs/doc/codemap/ai-index.json"},
+		{"internal/provider/codexapp/session.go"},
 	} {
-		for _, gate := range mustBuildGatePlan(t, files).RequiredGates {
+		for _, gate := range mustGatePlanForScope(t, files, true).RequiredGates {
 			producerGates[gate] = true
 		}
 	}
@@ -377,6 +504,8 @@ LSP_EVIDENCE:
   read_file: PASS
   diagnostics: PASS
 COMMANDS_RUN:
+  - cmd: go run ./scripts/lsp_diagnostics_gate --file frontend-app/src/App.jsx
+    exit: 0
   - cmd: cd frontend-app && npm run lint
     exit: 0
   - cmd: cd frontend-app && npm test
@@ -511,6 +640,15 @@ func mustBuildGatePlan(t *testing.T, files []string) gatePlan {
 	plan, err := buildGatePlan(files)
 	if err != nil {
 		t.Fatalf("build gate plan: %v", err)
+	}
+	return plan
+}
+
+func mustGatePlanForScope(t *testing.T, files []string, pushGates bool) gatePlan {
+	t.Helper()
+	plan, err := gatePlanForScope(files, pushGates)
+	if err != nil {
+		t.Fatalf("build scoped gate plan: %v", err)
 	}
 	return plan
 }

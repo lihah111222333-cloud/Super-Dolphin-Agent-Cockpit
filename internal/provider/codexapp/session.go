@@ -164,7 +164,13 @@ func newSessionWithOptions(
 	}
 	// session ctx 从 transportCtx 派生，调用方取消 transport 上下文时会级联触发会话关闭。
 	ctx, cancel := context.WithCancel(transportCtx)
-	agentLog := pkglogger.NewAgentLogger(agentID)
+	agentLog, err := pkglogger.NewAgentLogger(agentID)
+	if err != nil {
+		cancel()
+		closeErr := t.Close()
+		releaseSessionPoolSlot(cfg)
+		return nil, errors.Join(fmt.Errorf("codexapp: create agent logger: %w", err), closeErr)
+	}
 	s := &session{
 		agentID:               strings.TrimSpace(agentID),
 		approvalSessionScope:  approvalSessionScope,
@@ -643,7 +649,7 @@ func (s *session) ForkThread(ctx context.Context, req dto.ForkRequest) (dto.Fork
 	if err != nil {
 		return dto.ForkResult{}, err
 	}
-	id, err := decodeThreadID(raw, "")
+	id, err := decodeThreadID(raw)
 	if err != nil {
 		return dto.ForkResult{}, err
 	}

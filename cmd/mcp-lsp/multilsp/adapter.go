@@ -2,13 +2,16 @@ package multilsp
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"go/build/constraint"
 	"go/parser"
 	"go/token"
+	"io/fs"
 	"maps"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"sync"
@@ -19,6 +22,17 @@ import (
 
 const goBuildTagsLanguageSpecificKey = "goBuildTags"
 const goDefaultStandaloneTag = "ignore"
+
+const (
+	projectWalkMaxDepth   = 32
+	projectWalkMaxEntries = 10_000
+)
+
+var (
+	errProjectWalkContextRequired = errors.New("project walk requires context")
+	errProjectWalkDepthLimit      = errors.New("project walk depth limit exceeded")
+	errProjectWalkEntryLimit      = errors.New("project walk entry limit exceeded")
+)
 
 // LanguageAdapter 封装每种语言接入 LSP manager/pool/cache 所需的差异策略。
 // manager 只消费解析后的 scope、启动命令、环境、引导缓存和能力开关，避免调用层感知具体语言。
@@ -360,9 +374,9 @@ func (a goLanguageAdapter) resolvedDirectoryFilters() []string {
 }
 
 // EnvPolicy 为 gopls 进程生成与当前 Go scope 匹配的环境覆盖。
-// 只覆盖 GOWORK/PATH/GOTOOLCHAIN/GOFLAGS，避免把请求外的环境策略混入 adapter。
+// GOOS/GOARCH 固定为当前 peer 的宿主平台，避免父进程的交叉编译环境污染诊断。
 func (goLanguageAdapter) EnvPolicy(scope ResolvedLanguageScope) []string {
-	env := make([]string, 0, 4)
+	env := []string{"GOOS=" + runtime.GOOS, "GOARCH=" + runtime.GOARCH}
 	mode := scope.LanguageSpecific["goworkMode"]
 	switch mode {
 	case goworkModeOff:
@@ -377,9 +391,6 @@ func (goLanguageAdapter) EnvPolicy(scope ResolvedLanguageScope) []string {
 	}
 	if buildFlags := goBuildFlagsForScope(scope); len(buildFlags) > 0 {
 		env = append(env, "GOFLAGS="+goGOFlagsEnvValue(buildFlags))
-	}
-	if len(env) == 0 {
-		return nil
 	}
 	return env
 }
@@ -433,7 +444,7 @@ func (a projectLanguageAdapter) LanguageIDs() []string {
 
 // ResolveRoot 为 TypeScript、Python 等项目型语言选择项目根。
 // 它优先使用 root marker，必要时在 cwd 下查找嵌套项目，最后才退回目录 scope。
-func (a projectLanguageAdapter) ResolveRoot(_ context.Context, scope LSPToolScope, target string) (ResolvedLanguageScope, error) {
+func (a projectLanguageAdapter) ResolveRoot(ctx context.Context, scope LSPToolScope, target string) (ResolvedLanguageScope, error) {
 	languageID := normalizeLanguageID(scope.LanguageID)
 	if languageID == "" {
 		return ResolvedLanguageScope{}, fmt.Errorf("adapter requires a resolved language ID")
@@ -445,7 +456,7 @@ func (a projectLanguageAdapter) ResolveRoot(_ context.Context, scope LSPToolScop
 	} else if markerRoot != "" {
 		root = markerRoot
 	} else if a.shouldSearchNestedProjectRoot(root, targetPath) {
-		nested, walkErr := findProjectRootWithin(root, a.rootMarkers, a.ignoredDirNames)
+		nested, walkErr := findProjectRootWithin(ctx, root, a.rootMarkers, a.ignoredDirNames)
 		if walkErr != nil {
 			return ResolvedLanguageScope{}, walkErr
 		}
@@ -697,12 +708,48 @@ func findProjectRoot(path string, markers []string) (string, error) {
 	return "", nil
 }
 
-func findProjectRootWithin(root string, markers []string, ignored map[string]struct{}) (string, error) {
+func findProjectRootWithin(ctx context.Context, root string, markers []string, ignored map[string]struct{}) (string, error) {
 	finder := &projectRootWithinFinder{markers: markerSet(markers), ignored: ignored}
-	if err := filepath.WalkDir(root, finder.walk); err != nil {
+	if err := boundedProjectWalk(ctx, root, projectWalkMaxDepth, projectWalkMaxEntries, finder.walk); err != nil {
 		return "", err
 	}
 	return finder.result, nil
+}
+
+// boundedProjectWalk 复用调用方上下文执行受限目录遍历，并在处理每个条目前检查取消、深度和条目预算。
+// 上下文取消或任一预算超限时会返回显式错误，禁止继续扫描或静默返回不完整结果。
+func boundedProjectWalk(
+	ctx context.Context,
+	root string,
+	maxDepth int,
+	maxEntries int,
+	walkFn fs.WalkDirFunc,
+) error {
+	if ctx == nil {
+		return errProjectWalkContextRequired
+	}
+	entries := 0
+	return filepath.WalkDir(root, func(path string, entry os.DirEntry, walkErr error) error {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		entries++
+		if entries > maxEntries {
+			return fmt.Errorf("%w: root=%q max=%d", errProjectWalkEntryLimit, root, maxEntries)
+		}
+		rel, err := filepath.Rel(root, path)
+		if err != nil {
+			return fmt.Errorf("project walk relative path %q from %q: %w", path, root, err)
+		}
+		depth := 0
+		if rel != "." {
+			depth = len(strings.Split(rel, string(filepath.Separator)))
+		}
+		if depth > maxDepth {
+			return fmt.Errorf("%w: root=%q path=%q depth=%d max=%d", errProjectWalkDepthLimit, root, path, depth, maxDepth)
+		}
+		return walkFn(path, entry, walkErr)
+	})
 }
 
 type projectRootWithinFinder struct {
@@ -742,9 +789,9 @@ func shouldSkipDotOrUnderscoreDir(name string) bool {
 	return strings.HasPrefix(name, ".") || strings.HasPrefix(name, "_")
 }
 
-func findBootstrapFileWithin(root string, extensions []string, ignored map[string]struct{}) (string, error) {
+func findBootstrapFileWithin(ctx context.Context, root string, extensions []string, ignored map[string]struct{}) (string, error) {
 	finder := &bootstrapFileWithinFinder{extensions: extensionSet(extensions), ignored: ignored}
-	if err := filepath.WalkDir(root, finder.walk); err != nil {
+	if err := boundedProjectWalk(ctx, root, projectWalkMaxDepth, projectWalkMaxEntries, finder.walk); err != nil {
 		return "", err
 	}
 	return finder.result, nil

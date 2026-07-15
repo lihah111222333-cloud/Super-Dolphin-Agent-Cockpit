@@ -186,6 +186,7 @@ class HTTPMCPClient:
         self.timeout = timeout
         self.next_id = 1
         self.opener = _opener_for_url(self.url)
+        self.tool_scope = {}
 
     def close(self):
         return None
@@ -213,6 +214,7 @@ class StdioMCPClient:
         self.next_id = 1
         self.proc = None
         self.stderr_handle = None
+        self.tool_scope = {}
         self.stderr_path = pathlib.Path(os.getenv("TMPDIR", "/tmp")) / ("dag-m3-dogfood-mcp-orch-%d.log" % os.getpid())
 
     def start(self):
@@ -243,16 +245,24 @@ class StdioMCPClient:
             self.stderr_handle = None
 
     def request(self, method, params=None):
-        if self.proc is None:
+        proc = self.proc
+        if proc is None:
             self.start()
-        if self.proc.poll() is not None:
+            proc = self.proc
+        if proc is None:
+            raise MCPError("mcp-orch process did not start")
+        if proc.poll() is not None:
             err = _tail_file(self.stderr_path)
             raise MCPError("mcp-orch exited before request: %s" % err.strip())
+        stdin = proc.stdin
+        stdout = proc.stdout
+        if stdin is None or stdout is None:
+            raise MCPError("mcp-orch process pipes are unavailable")
         payload = {"jsonrpc": "2.0", "id": self.next_id, "method": method, "params": params or {}}
         self.next_id += 1
-        self.proc.stdin.write(json.dumps(payload) + "\n")
-        self.proc.stdin.flush()
-        line = _readline_with_timeout(self.proc.stdout, self.timeout)
+        stdin.write(json.dumps(payload) + "\n")
+        stdin.flush()
+        line = _readline_with_timeout(stdout, self.timeout)
         return _decode_rpc_response(json.loads(line))
 
 
@@ -269,7 +279,7 @@ def _readline_with_timeout(pipe, timeout):
     raise MCPError("timeout waiting for mcp-orch JSON-RPC response")
 
 
-def _normalize_mcp_url(url):
+def _normalize_mcp_url(url: str) -> str:
     parsed = urllib.parse.urlparse(url)
     if parsed.path in ("", "/"):
         parsed = parsed._replace(path="/mcp")
@@ -475,6 +485,8 @@ def wait_for_dag(client, dag_key, run_key, timeout_sec, poll_sec, assignee, expe
     last_counts = {}
     while time.time() < deadline:
         detail = call_tool(client, "task_get_run", {"run_key": run_key})
+        if not isinstance(detail, dict):
+            raise MCPError("task_get_run returned unexpected payload shape")
         run_id = run_id_from_detail(detail)
         nodes = detail.get("nodes", [])
         dispatch_ready_nodes(client, dag_key, run_id, nodes, assignee)

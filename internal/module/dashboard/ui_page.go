@@ -83,13 +83,12 @@ func newDashboardPage() *DashboardPage {
 
 // populateDashboardPage 并发执行当前页面对应的所有 loader，任一失败即返回错误。
 func (s *service) populateDashboardPage(ctx context.Context, out *DashboardPage, page string) error {
-	loaders := s.dashboardPageLoaders(out, strings.ToLower(strings.TrimSpace(page)))
-	if len(loaders) == 0 {
-		return nil
+	loaders, err := s.dashboardPageLoaders(out, strings.ToLower(strings.TrimSpace(page)))
+	if err != nil {
+		return err
 	}
 	group, groupCtx := errgroup.WithContext(ctx)
 	for _, load := range loaders {
-		load := load
 		group.Go(func() error {
 			return load(groupCtx)
 		})
@@ -99,35 +98,35 @@ func (s *service) populateDashboardPage(ctx context.Context, out *DashboardPage,
 
 // dashboardPageLoaders 根据 page 名称选择需要并发执行的 loader。
 // 每个 case 只填充对应区块，避免页面局部刷新时读取全量 dashboard 数据。
-func (s *service) dashboardPageLoaders(out *DashboardPage, page string) []dashboardPageLoader {
+func (s *service) dashboardPageLoaders(out *DashboardPage, page string) ([]dashboardPageLoader, error) {
 	switch page {
 	case "agents":
 		return []dashboardPageLoader{
 			func(ctx context.Context) error { return s.populateDashboardAgents(ctx, out) },
-		}
+		}, nil
 	case "dags":
 		return []dashboardPageLoader{
 			func(ctx context.Context) error { return s.populateDashboardDAGs(ctx, out) },
-		}
+		}, nil
 	case "skills":
 		return []dashboardPageLoader{
 			func(ctx context.Context) error { return s.populateDashboardSkills(ctx, out) },
-		}
+		}, nil
 	case "commands":
 		return []dashboardPageLoader{
 			func(ctx context.Context) error { return s.populateDashboardCommandCards(ctx, out) },
 			func(ctx context.Context) error { return s.populateDashboardPrompts(ctx, out) },
-		}
+		}, nil
 	case "commandcards":
 		return []dashboardPageLoader{
 			func(ctx context.Context) error { return s.populateDashboardCommandCards(ctx, out) },
-		}
+		}, nil
 	case "memory":
 		return []dashboardPageLoader{
 			func(ctx context.Context) error { return s.populateDashboardMemory(ctx, out) },
-		}
+		}, nil
 	default:
-		return nil
+		return nil, fmt.Errorf("dashboard: unsupported page %q", page)
 	}
 }
 
@@ -196,7 +195,6 @@ func (s *service) buildDashboardDAGs(ctx context.Context, items []contract.DAGSu
 	// 误判防护：group.SetLimit 使用 dashboardDAGLatestRunLookupLimit 限制并发 run lookup。
 	group.SetLimit(dashboardDAGLatestRunLookupLimit)
 	for index, item := range items {
-		index, item := index, item
 		out[index] = DashboardDAG{DAGSummary: item}
 		group.Go(func() error {
 			runs, err := s.ListDAGRuns(groupCtx, item.DagKey, "", 1)
@@ -416,7 +414,6 @@ func (s *service) listDashboardFinalOutputRefs(ctx context.Context) ([]FinalOutp
 	group, groupCtx := errgroup.WithContext(ctx)
 	group.SetLimit(4)
 	for _, dag := range dags {
-		dag := dag
 		group.Go(func() error {
 			runs, runErr := s.ListDAGRuns(groupCtx, dag.DagKey, "", dashboardFinalOutputRunLimit)
 			if runErr != nil {

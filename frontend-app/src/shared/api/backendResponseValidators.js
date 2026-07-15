@@ -579,7 +579,8 @@ function validateSavedModelProviderVendor(method, response, index) {
 }
 
 /** @type {(method: string, response: unknown) => unknown} */
-const validateSavedModelProviderRegistryResponse = (method, response) => {
+const validateStrictModelProviderRegistryResponse = (method, response) => {
+  const parsed = validateParsedModelProviderRegistryResponse(method, response);
   const value = assertBackendResponseObject(method, response);
   assertOnlyResponseKeys(method, value, MODEL_PROVIDER_REGISTRY_RESPONSE_KEYS, 'body');
   if (!Array.isArray(value.vendors)) {
@@ -590,7 +591,7 @@ const validateSavedModelProviderRegistryResponse = (method, response) => {
   vendors.forEach((vendor, index) => {
     validateSavedModelProviderVendor(method, vendor, index);
   });
-  return validateParsedModelProviderRegistryResponse(method, value);
+  return parsed;
 };
 
 /** @param {string} method @param {any} value @param {string} label */
@@ -861,13 +862,7 @@ export function createBackendResponseValidators(methods) {
 
   /** @type {(method: string, response: unknown) => unknown} */
   const validateModelProviderRegistryResponse = (method, response) => {
-    if (method === methods.MODEL_PROVIDERS_SAVE) {
-      return validateSavedModelProviderRegistryResponse(method, response);
-    }
-    if (method === methods.MODEL_PROVIDERS_APPLY || method === methods.MODEL_PROVIDERS_LIST) {
-      return validateParsedModelProviderRegistryResponse(method, response);
-    }
-    throw new Error(`${method} response validator is not registered for model provider registry`);
+    return validateStrictModelProviderRegistryResponse(method, response);
   };
 
   return Object.freeze({

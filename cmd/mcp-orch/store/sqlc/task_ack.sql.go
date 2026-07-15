@@ -10,6 +10,93 @@ import (
 	"encoding/json"
 )
 
+const getTaskAck = `-- name: GetTaskAck :one
+SELECT id, ack_key, title, description, assigned_to, requested_by, priority, status, progress,
+       ack_message, result_summary, metadata, due_at, acked_at, started_at, finished_at,
+       created_at, updated_at
+FROM task_acks
+WHERE ack_key = ?1
+`
+
+type GetTaskAckParams struct {
+	AckKey string `db:"ack_key" json:"ack_key"`
+}
+
+func (q *Queries) GetTaskAck(ctx context.Context, arg GetTaskAckParams) (TaskAck, error) {
+	row := q.db.QueryRowContext(ctx, getTaskAck, arg.AckKey)
+	var i TaskAck
+	err := row.Scan(
+		&i.ID,
+		&i.AckKey,
+		&i.Title,
+		&i.Description,
+		&i.AssignedTo,
+		&i.RequestedBy,
+		&i.Priority,
+		&i.Status,
+		&i.Progress,
+		&i.AckMessage,
+		&i.ResultSummary,
+		&i.Metadata,
+		&i.DueAt,
+		&i.AckedAt,
+		&i.StartedAt,
+		&i.FinishedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const insertTaskAck = `-- name: InsertTaskAck :execrows
+INSERT INTO task_acks (
+    ack_key, title, description, assigned_to, requested_by,
+    priority, status, progress, ack_message, result_summary, metadata, due_at, created_at, updated_at
+) VALUES (
+    ?1, ?2, ?3, ?4, ?5,
+    ?6, ?7, max(0, min(?8, 100)), ?9,
+    ?10, ?11, ?12,
+    (CAST(strftime('%s','now') AS INTEGER) * 1000),
+    (CAST(strftime('%s','now') AS INTEGER) * 1000)
+)
+`
+
+type InsertTaskAckParams struct {
+	AckKey        string          `db:"ack_key" json:"ack_key"`
+	Title         string          `db:"title" json:"title"`
+	Description   string          `db:"description" json:"description"`
+	AssignedTo    string          `db:"assigned_to" json:"assigned_to"`
+	RequestedBy   string          `db:"requested_by" json:"requested_by"`
+	Priority      string          `db:"priority" json:"priority"`
+	Status        string          `db:"status" json:"status"`
+	Progress      interface{}     `db:"progress" json:"progress"`
+	AckMessage    string          `db:"ack_message" json:"ack_message"`
+	ResultSummary string          `db:"result_summary" json:"result_summary"`
+	Metadata      json.RawMessage `db:"metadata" json:"metadata"`
+	DueAt         *int64          `db:"due_at" json:"due_at"`
+}
+
+func (q *Queries) InsertTaskAck(ctx context.Context, arg InsertTaskAckParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, insertTaskAck,
+		arg.AckKey,
+		arg.Title,
+		arg.Description,
+		arg.AssignedTo,
+		arg.RequestedBy,
+		arg.Priority,
+		arg.Status,
+		arg.Progress,
+		arg.AckMessage,
+		arg.ResultSummary,
+		arg.Metadata,
+		arg.DueAt,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const listTaskAcks = `-- name: ListTaskAcks :many
 SELECT id, ack_key, title, description, assigned_to, requested_by, priority, status, progress, ack_message, result_summary, CAST('{}' AS BLOB) AS metadata, due_at, acked_at, started_at, finished_at, created_at, updated_at
 FROM task_acks
@@ -17,11 +104,11 @@ WHERE (?1 = '' OR status = ?1)
   AND (?2 = '' OR priority = ?2)
   AND (?3 = '' OR assigned_to = ?3)
   AND (?4 = ''
-    OR ack_key LIKE '%' || ?4 || '%'
-    OR title LIKE '%' || ?4 || '%'
-    OR description LIKE '%' || ?4 || '%')
+    OR ack_key LIKE ?5
+    OR title LIKE ?5
+    OR description LIKE ?5)
 ORDER BY updated_at DESC, id DESC
-LIMIT ?5
+LIMIT ?6
 `
 
 type ListTaskAcksParams struct {
@@ -29,6 +116,7 @@ type ListTaskAcksParams struct {
 	PriorityFilter   interface{} `db:"priority_filter" json:"priority_filter"`
 	AssignedToFilter interface{} `db:"assigned_to_filter" json:"assigned_to_filter"`
 	Keyword          interface{} `db:"keyword" json:"keyword"`
+	KeywordPattern   string      `db:"keyword_pattern" json:"keyword_pattern"`
 	LimitCount       int64       `db:"limit_count" json:"limit_count"`
 }
 
@@ -59,6 +147,7 @@ func (q *Queries) ListTaskAcks(ctx context.Context, arg ListTaskAcksParams) ([]L
 		arg.PriorityFilter,
 		arg.AssignedToFilter,
 		arg.Keyword,
+		arg.KeywordPattern,
 		arg.LimitCount,
 	)
 	if err != nil {
@@ -101,29 +190,25 @@ func (q *Queries) ListTaskAcks(ctx context.Context, arg ListTaskAcksParams) ([]L
 	return items, nil
 }
 
-const upsertTaskAck = `-- name: UpsertTaskAck :one
-INSERT INTO task_acks (
-    ack_key, title, description, assigned_to, requested_by,
-    priority, status, progress, ack_message, result_summary, metadata, due_at, created_at, updated_at
-) VALUES (?, ?, ?, ?, ?, ?, ?, max(0, min(?12, 100)), ?, ?, ?, ?, (CAST(strftime('%s','now') AS INTEGER) * 1000), (CAST(strftime('%s','now') AS INTEGER) * 1000))
-ON CONFLICT (ack_key) DO UPDATE
-SET title = EXCLUDED.title,
-    description = EXCLUDED.description,
-    assigned_to = EXCLUDED.assigned_to,
-    requested_by = EXCLUDED.requested_by,
-    priority = EXCLUDED.priority,
-    status = EXCLUDED.status,
-    progress = EXCLUDED.progress,
-    ack_message = EXCLUDED.ack_message,
-    result_summary = EXCLUDED.result_summary,
-    metadata = EXCLUDED.metadata,
-    due_at = EXCLUDED.due_at,
+const updateTaskAck = `-- name: UpdateTaskAck :execrows
+UPDATE task_acks
+SET title = ?1,
+    description = ?2,
+    assigned_to = ?3,
+    requested_by = ?4,
+    priority = ?5,
+    status = ?6,
+    progress = max(0, min(?7, 100)),
+    ack_message = ?8,
+    result_summary = ?9,
+    metadata = ?10,
+    due_at = ?11,
     updated_at = (CAST(strftime('%s','now') AS INTEGER) * 1000)
-RETURNING id, ack_key, title, description, assigned_to, requested_by, priority, status, progress, ack_message, result_summary, metadata, due_at, acked_at, started_at, finished_at, created_at, updated_at
+WHERE
+    ack_key = ?12
 `
 
-type UpsertTaskAckParams struct {
-	AckKey        string          `db:"ack_key" json:"ack_key"`
+type UpdateTaskAckParams struct {
 	Title         string          `db:"title" json:"title"`
 	Description   string          `db:"description" json:"description"`
 	AssignedTo    string          `db:"assigned_to" json:"assigned_to"`
@@ -135,11 +220,11 @@ type UpsertTaskAckParams struct {
 	ResultSummary string          `db:"result_summary" json:"result_summary"`
 	Metadata      json.RawMessage `db:"metadata" json:"metadata"`
 	DueAt         *int64          `db:"due_at" json:"due_at"`
+	AckKey        string          `db:"ack_key" json:"ack_key"`
 }
 
-func (q *Queries) UpsertTaskAck(ctx context.Context, arg UpsertTaskAckParams) (TaskAck, error) {
-	row := q.db.QueryRowContext(ctx, upsertTaskAck,
-		arg.AckKey,
+func (q *Queries) UpdateTaskAck(ctx context.Context, arg UpdateTaskAckParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, updateTaskAck,
 		arg.Title,
 		arg.Description,
 		arg.AssignedTo,
@@ -151,27 +236,10 @@ func (q *Queries) UpsertTaskAck(ctx context.Context, arg UpsertTaskAckParams) (T
 		arg.ResultSummary,
 		arg.Metadata,
 		arg.DueAt,
+		arg.AckKey,
 	)
-	var i TaskAck
-	err := row.Scan(
-		&i.ID,
-		&i.AckKey,
-		&i.Title,
-		&i.Description,
-		&i.AssignedTo,
-		&i.RequestedBy,
-		&i.Priority,
-		&i.Status,
-		&i.Progress,
-		&i.AckMessage,
-		&i.ResultSummary,
-		&i.Metadata,
-		&i.DueAt,
-		&i.AckedAt,
-		&i.StartedAt,
-		&i.FinishedAt,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-	)
-	return i, err
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }

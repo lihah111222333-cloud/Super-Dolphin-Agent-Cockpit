@@ -42,7 +42,7 @@
 - HTTP/RPC 桥：`internal/ui/wails/http_server.go`、`internal/platform/rpc/server.go`
 - MCP 和工具面：`cmd/mcp-orch/**`、`cmd/mcp-lsp/**`、`internal/mcpserver/common/http_transport.go`
 - 当前 React UI：`frontend-app/package.json`、`frontend-app/src/App.jsx`、`frontend-app/src/shared/api/backendApi.js`
-- 数据模型：`sqlc.yaml`、`migrations/001_baseline.sql`、后续迁移、`migrations/ROLLBACK.md`
+- 数据模型：`sqlc.yaml`、`internal/platform/db/sqlite/migrations/001_baseline.sql` 及后续 SQLite 迁移
 - CI/CD 和发布：`.github/workflows/ci.yml`、`scripts/package_windows.ps1`、`scripts/package_macos.sh`、`scripts/package_linux.sh`、`scripts/publish_github_release.sh`
 - 本地观测栈：`deploy/elk/README.md`、`deploy/elk/docker-compose.yml`、`scripts/elk-local.ps1`
 
