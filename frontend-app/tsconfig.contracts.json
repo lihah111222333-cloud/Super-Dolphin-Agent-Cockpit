@@ -9,6 +9,7 @@
   "include": [
     "src/shared/api/backendApi.js",
     "src/shared/api/backendApi.contractMatrix.js",
-    "src/entities/client/model/providerPreferences.js"
+    "src/entities/client/model/helpers/providerPreferences.js",
+    "src/shared/api/backend/backendApiFactoryThread.js"
   ]
 }

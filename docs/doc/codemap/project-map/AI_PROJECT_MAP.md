@@ -1,8 +1,8 @@
 # AI 项目地图（Super-Dolphin）
 
-> 生成时间：2026-07-14
+> 生成时间：2026-07-15
 >
-> 已索引文件：**4575**
+> 已索引文件：**4576**
 >
 > 扫描规则：allowlisted project files; excludes: .git/**, .idea/**, .claude/**, .workspace/**, .worktrees/**, .agent/code_exec/**, .agent/workspaces/**, .agnet/report/**, .agnet/shared/**, bin/**, reports/**, docs/archive/**, **/node_modules/**, **/dist/**, **/web-dist/**, **/coverage/**, **/.vite/**, **/.tmp/**, **/tmp/**, **/.gocache/**, **/.gomodcache/**, **/.npm-cache/**, docs/doc/codemap/project-map/**, docs/doc/codemap/ai-index.json, go.sum, test_output.txt, naked_go.txt
 >
@@ -23,7 +23,7 @@ Super-Dolphin / super-agent-v3 是一个本地多 Agent 桌面应用与 MCP peer
 
 | 索引文件 | 文件数 | 大小 | 覆盖范围 |
 |---|---:|---:|---|
-| `docs/doc/codemap/project-map/index/app-ui.tsv` | 524 | 107.4 KB | 桌面应用、Wails host、React/Vite 前端与 UI 测试 |
+| `docs/doc/codemap/project-map/index/app-ui.tsv` | 525 | 107.6 KB | 桌面应用、Wails host、React/Vite 前端与 UI 测试 |
 | `docs/doc/codemap/project-map/index/orchestration.tsv` | 418 | 93.8 KB | mcp-orch 编排 peer、DAG、workspace、prompt、command、shared-file 工具 |
 | `docs/doc/codemap/project-map/index/modules.tsv` | 729 | 142.0 KB | 业务模块层：dashboard、memory、prompt、skill、thread、turn、uistate 等 |
 | `docs/doc/codemap/project-map/index/platform-provider.tsv` | 1030 | 189.8 KB | 基础设施与 provider 集成：RPC、hooks、toolbridge、Claude/Codex/统一 provider |
@@ -51,7 +51,7 @@ rg --line-number "func .*Resume|func .*Fork" internal/module/thread -g '*.go'
 | `internal` | 2147 | 应用内部模块、平台、provider、store 与守卫 |
 | `docs` | 918 | 代码地图、ADR、计划、迁移和内部说明 |
 | `cmd` | 669 | 可执行入口与 MCP peer |
-| `frontend-app` | 522 | 当前 React/Vite 新 UI |
+| `frontend-app` | 523 | 当前 React/Vite 新 UI |
 | `scripts` | 117 | 工程自动化脚本 |
 | `migrations` | 112 | 数据库 migration |
 | `sql` | 30 | SQL query 源文件 |

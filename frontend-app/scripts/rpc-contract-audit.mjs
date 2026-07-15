@@ -140,12 +140,20 @@ export async function auditRpcContracts({ repoRoot = DEFAULT_REPO_ROOT } = {}) {
   const backendHandlers = await collectGoRpcHandlers(repoRoot)
   const goPayloadKeysByMethod = await collectGoPayloadKeys(repoRoot)
   const frontendPayloadKeysByMethod = collectFrontendPayloadKeysFromSource(payloadBuildersSource)
-  const hardcodedPayloadGuardFindings = await collectHardcodedPayloadGuardFindings(repoRoot, frontendSource)
+  const hardcodedPayloadGuardFindings = await collectHardcodedPayloadGuardFindings(repoRoot, payloadBuildersSource)
 
   const registryByKey = new Map(registryEntries.map((entry) => [entry.key, entry]))
   const handlerMethods = new Set(backendHandlers.map((entry) => entry.method))
   const responseValidatorSource = await readFile(join(repoRoot, RPC_RESPONSE_VALIDATORS_PATH), 'utf8')
   const frontendResponseValidators = collectFrontendResponseValidators(responseValidatorSource)
+  const responseContractStrategies = registryEntries
+    .concat(rpcMethods.filter((entry) => !registryByKey.has(entry.key)))
+    .map((entry) => ({
+      key: entry.key,
+      method: entry.method,
+      matrixPolicy: entry.responseValidator || '',
+      frontendValidator: frontendResponseValidators.has(entry.key),
+    }))
   const backendFacadeRpcKeys = await collectBackendFacadeRpcKeys(repoRoot)
 
   const missingRegistryKeys = rpcMethods
@@ -208,6 +216,7 @@ export async function auditRpcContracts({ repoRoot = DEFAULT_REPO_ROOT } = {}) {
     allowedPayloadRegistryDrift,
     hardcodedPayloadGuardFindings,
     missingResponsePolicies,
+    responseContractStrategies,
     missingFrontendResponseValidators,
     invalidFacadeLocators,
     invalidResponsePolicyEvidence,
@@ -4829,18 +4838,39 @@ async function collectHardcodedPayloadGuardFindings(repoRoot, frontendSource) {
   for (const filePath of inspectedFiles) {
     goSources.set(filePath, await readFile(join(repoRoot, filePath), 'utf8'))
   }
-  return collectHardcodedPayloadGuardFindingsFromSources({ frontendSource, goSources })
+  return collectHardcodedPayloadGuardFindingsFromSources({
+    frontendPath: FRONTEND_PAYLOAD_BUILDERS_PATH,
+    frontendSource,
+    goSources,
+  })
 }
 
-export function collectHardcodedPayloadGuardFindingsFromSources({ frontendSource = '', goSources = new Map() } = {}) {
+export function collectHardcodedPayloadGuardFindingsFromSources({
+  frontendPath = RPC_FACADE_PATH,
+  frontendSource = '',
+  goSources = new Map(),
+} = {}) {
   const findings = []
-  if (frontendSource.includes('RPC_ALLOWED_PAYLOAD_KEYS')) {
-    findings.push(`${RPC_FACADE_PATH}:RPC_ALLOWED_PAYLOAD_KEYS`)
-  }
-  const frontendSetPattern = /^\s*const\s+([A-Z0-9_]+_ALLOWED_KEYS)\s*=\s*new Set\(\[/gm
-  let frontendSetMatch
-  while ((frontendSetMatch = frontendSetPattern.exec(frontendSource)) !== null) {
-    findings.push(`${RPC_FACADE_PATH}:${frontendSetMatch[1]}`)
+  const frontendAst = parseFrontendAst(frontendSource)
+  for (const statement of frontendAst.program.body) {
+    const declaration = statement.type === 'ExportNamedDeclaration' ? statement.declaration : statement
+    if (declaration?.type !== 'VariableDeclaration') continue
+    for (const declarator of declaration.declarations) {
+      const name = declarator.id.type === 'Identifier' ? declarator.id.name : ''
+      const isPayloadGuardName = (
+        name === 'RPC_ALLOWED_PAYLOAD_KEYS'
+        || /^[A-Z0-9_]+_ALLOWED_KEYS$/.test(name)
+      )
+      const isSetOfArray = (
+        declarator.init?.type === 'NewExpression'
+        && declarator.init.callee.type === 'Identifier'
+        && declarator.init.callee.name === 'Set'
+        && declarator.init.arguments[0]?.type === 'ArrayExpression'
+      )
+      if (isPayloadGuardName && isSetOfArray) {
+        findings.push(`${frontendPath}:${name}`)
+      }
+    }
   }
   for (const [filePath, source] of goSources.entries()) {
     const goMapPattern = /^\s*var\s+([A-Za-z0-9_]*(?:Param|Payload)[A-Za-z0-9_]*(?:Fields|Keys))\s*=\s*map\[string\]struct\{\}/gm
