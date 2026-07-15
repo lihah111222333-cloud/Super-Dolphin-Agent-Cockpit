@@ -273,7 +273,7 @@ func (s *Scheduler) RecoverDanglingRuns(ctx context.Context) error {
 	return joined
 }
 
-// recoverDanglingRun 按 run 状态分发到对应的恢复函数，未知状态直接跳过。
+// recoverDanglingRun 按 run 状态分发到对应的恢复函数，未知状态返回带身份上下文的错误。
 func (s *Scheduler) recoverDanglingRun(ctx context.Context, run RunRecord) error {
 	job, err := s.store.GetJobByID(ctx, run.JobID)
 	if err != nil {
@@ -287,7 +287,7 @@ func (s *Scheduler) recoverDanglingRun(ctx context.Context, run RunRecord) error
 	case statusRunning:
 		return s.recoverRunningRun(ctx, job, run)
 	default:
-		return nil
+		return fmt.Errorf("cron: recover dangling run %s for job %s: unknown status %q", run.ID, run.JobID, run.Status)
 	}
 }
 

@@ -162,8 +162,8 @@ func TestCreateDAGRejectsInvalidTopologyBeforeStore(t *testing.T) {
 		{
 			name: "cycle",
 			nodes: []contract.CreateDAGNodeRequest{
-				{NodeKey: "a", Title: "A", DependsOn: []string{"b"}},
-				{NodeKey: "b", Title: "B", DependsOn: []string{"a"}},
+				{NodeKey: "a", Title: "A", NodeType: "agent", DependsOn: []string{"b"}, Config: testRawConfig(t, `{"exec":{"agent_key":"worker","cwd":"/tmp/node-cwd"}}`)},
+				{NodeKey: "b", Title: "B", NodeType: "agent", DependsOn: []string{"a"}, Config: testRawConfig(t, `{"exec":{"agent_key":"worker","cwd":"/tmp/node-cwd"}}`)},
 			},
 			want: "cycle",
 		},

@@ -1385,6 +1385,7 @@
         "cmd/mcp-orch/orchestration/nodeexec.decodeArgsForInjection",
         "cmd/mcp-orch/orchestration/nodeexec.decodeExecutionTimeout",
         "cmd/mcp-orch/orchestration/nodeexec.decodeOp",
+        "cmd/mcp-orch/orchestration/nodeexec.decodeStrictNodeConfig",
         "cmd/mcp-orch/orchestration/nodeexec.emptyPatchConfig",
         "cmd/mcp-orch/orchestration/nodeexec.enforceNodeResultSizeCap",
         "cmd/mcp-orch/orchestration/nodeexec.ensureRemovableStatus",
@@ -5961,6 +5962,7 @@
         "cmd/mcp-orch/orchestration/nodeexec.decodeArgsForInjection",
         "cmd/mcp-orch/orchestration/nodeexec.decodeExecutionTimeout",
         "cmd/mcp-orch/orchestration/nodeexec.decodeOp",
+        "cmd/mcp-orch/orchestration/nodeexec.decodeStrictNodeConfig",
         "cmd/mcp-orch/orchestration/nodeexec.emptyPatchConfig",
         "cmd/mcp-orch/orchestration/nodeexec.enforceNodeResultSizeCap",
         "cmd/mcp-orch/orchestration/nodeexec.ensureRemovableStatus",
@@ -10537,6 +10539,7 @@
         "cmd/mcp-orch/orchestration/nodeexec.decodeArgsForInjection",
         "cmd/mcp-orch/orchestration/nodeexec.decodeExecutionTimeout",
         "cmd/mcp-orch/orchestration/nodeexec.decodeOp",
+        "cmd/mcp-orch/orchestration/nodeexec.decodeStrictNodeConfig",
         "cmd/mcp-orch/orchestration/nodeexec.emptyPatchConfig",
         "cmd/mcp-orch/orchestration/nodeexec.enforceNodeResultSizeCap",
         "cmd/mcp-orch/orchestration/nodeexec.ensureRemovableStatus",
@@ -15113,6 +15116,7 @@
         "cmd/mcp-orch/orchestration/nodeexec.decodeArgsForInjection",
         "cmd/mcp-orch/orchestration/nodeexec.decodeExecutionTimeout",
         "cmd/mcp-orch/orchestration/nodeexec.decodeOp",
+        "cmd/mcp-orch/orchestration/nodeexec.decodeStrictNodeConfig",
         "cmd/mcp-orch/orchestration/nodeexec.emptyPatchConfig",
         "cmd/mcp-orch/orchestration/nodeexec.enforceNodeResultSizeCap",
         "cmd/mcp-orch/orchestration/nodeexec.ensureRemovableStatus",
@@ -18329,12 +18333,12 @@
   ],
   "summary": {
     "total_packages": 41,
-    "total_functions": 2241,
+    "total_functions": 2242,
     "total_methods": 1145,
     "total_interfaces": 184,
     "total_interface_methods": 365,
     "total_exported": 1254,
-    "total_unexported": 2912,
+    "total_unexported": 2913,
     "total_structs": 596
   },
   "packages": [
@@ -37554,6 +37558,23 @@
           ],
           "returns": [
             "Op",
+            "error"
+          ]
+        },
+        {
+          "name": "decodeStrictNodeConfig",
+          "exported": false,
+          "params": [
+            {
+              "name": "raw",
+              "type": "json.RawMessage"
+            },
+            {
+              "name": "target",
+              "type": "any"
+            }
+          ],
+          "returns": [
             "error"
           ]
         },

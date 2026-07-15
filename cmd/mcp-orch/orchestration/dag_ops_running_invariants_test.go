@@ -24,7 +24,7 @@ func TestApplyOpsF45DraftUpdateNodeHappy(t *testing.T) {
 		currentVersion: 1,
 		dagStatus:      "", // 默认 -> draft
 		nodes: []taskdag.Node{
-			{NodeKey: "n1", Title: "old", NodeType: "agent", Status: "pending", DependsOn: json.RawMessage(`[]`)},
+			{NodeKey: "n1", Title: "old", NodeType: "agent", Status: "pending", DependsOn: json.RawMessage(`[]`), Config: testRawConfig(t, `{"exec":{"agent_key":"worker","cwd":"/tmp/node-cwd"}}`)},
 		},
 	}
 	s := makeApplyOpsService(stub)

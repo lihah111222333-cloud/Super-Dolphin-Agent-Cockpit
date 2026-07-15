@@ -19,7 +19,7 @@ func TestSendHeartbeatTreatsLeaseStaleAsRefreshSignal(t *testing.T) {
 	}, &jrpcserver.LocalOptions{Server: &jrpc2.ServerOptions{}})
 	defer local.Close()
 
-	client := New(Config{InstanceID: "inst-stale", BinaryName: "mcp-lsp", ClientKind: mcpdto.ClientKindLSP})
+	client := mustNewClient(t, Config{InstanceID: "inst-stale", BinaryName: "mcp-lsp", ClientKind: mcpdto.ClientKindLSP})
 	client.conn = local.Client
 	client.lease = mcpdto.LeaseKey{InstanceID: "inst-stale", Generation: 7}
 

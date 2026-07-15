@@ -189,6 +189,9 @@ func (h *HTTPServer) authorized(r *http.Request) bool {
 
 // dispatch 派发MCP 服务。
 func (h *HTTPServer) dispatch(ctx context.Context, req jsonRPCRequest) *jsonRPCResponse {
+	if err := validateJSONRPCID(req.ID); err != nil {
+		return errorResponse(nil, codeInvalidReq, err.Error())
+	}
 	if strings.TrimSpace(req.JSONRPC) != "2.0" {
 		return errorResponse(req.ID, codeInvalidReq, "jsonrpc must be 2.0")
 	}

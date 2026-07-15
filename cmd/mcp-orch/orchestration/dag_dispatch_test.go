@@ -253,6 +253,22 @@ func TestDispatchNode_RejectsAgentNodeMissingCwdBeforeAssignAndEnqueue(t *testin
 	}
 }
 
+func TestDispatchNodeRejectsRelativeCwdBeforeAssignAndEnqueue(t *testing.T) {
+	t.Parallel()
+	stub := &stubDispatchStore{nodes: []taskdag.Node{{
+		DagKey: "dag-1", NodeKey: "n1", RunID: dispatchTestRunID(7), NodeType: "agent", Status: "ready",
+		Config: testRawConfig(t, `{"exec":{"agent_key":"alpha","cwd":"relative/path"}}`),
+	}}}
+	svc := newServiceForDispatch(stub)
+	_, err := svc.DispatchNode(context.Background(), contract.DispatchNodeRequest{DagKey: "dag-1", NodeKey: "n1", RunID: 7, AssignedTo: "agent-a"})
+	if !errors.Is(err, contract.ErrLaunchCWDInvalid) {
+		t.Fatalf("DispatchNode relative cwd error = %v, want ErrLaunchCWDInvalid", err)
+	}
+	if stub.assigned != nil || len(stub.enqueued) != 0 {
+		t.Fatalf("relative cwd reached assignment or queue: assigned=%+v enqueued=%+v", stub.assigned, stub.enqueued)
+	}
+}
+
 func TestDispatchNodeDoesNotPersistAssignmentWhenWakeupEnqueueFails(t *testing.T) {
 	t.Parallel()
 	stub := &stubDispatchStore{

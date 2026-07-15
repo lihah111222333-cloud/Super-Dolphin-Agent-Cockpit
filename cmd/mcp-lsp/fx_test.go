@@ -3,6 +3,9 @@ package main
 import (
 	"strings"
 	"testing"
+
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/mcpserver/common/bootstrap"
+	"go.uber.org/fx"
 )
 
 // TestNewStdioServerFailsFastWhenMcpStdoutNil 锁定 mcpStdout 未初始化时必须返回 error，
@@ -21,5 +24,23 @@ func TestNewStdioServerFailsFastWhenMcpStdoutNil(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "mcpStdout") {
 		t.Fatalf("newServer() error = %q, want mention of mcpStdout", err.Error())
+	}
+}
+
+func TestBootstrapProviderRejectsInvalidSnapshotDuringGraphConstruction(t *testing.T) {
+	app := fx.New(
+		fx.NopLogger,
+		fx.Provide(
+			func() bootstrap.Config {
+				return bootstrap.Config{BootSnapshot: []byte(`{"unknown":true}`)}
+			},
+			bootstrap.New,
+		),
+		fx.Invoke(func(*bootstrap.Client) {}),
+	)
+	if err := app.Err(); err == nil {
+		t.Fatal("app.Err() = nil, want invalid bootstrap snapshot error")
+	} else if !strings.Contains(err.Error(), "unknown field") {
+		t.Fatalf("app.Err() = %v, want unknown field error", err)
 	}
 }

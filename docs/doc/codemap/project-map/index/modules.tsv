@@ -23,7 +23,8 @@ internal/module/cron/scheduler_lease_safety_test.go	internal	modules	go-test	431
 internal/module/cron/scheduler_publish_test.go	internal	modules	go-test	4500	业务模块层	internal,module,cron,scheduler,publish,test,业务模块层
 internal/module/cron/scheduler_publish.go	internal	modules	go-source	1864	业务模块层	internal,module,cron,scheduler,publish,业务模块层
 internal/module/cron/scheduler_recovery_finalize_test.go	internal	modules	go-test	7562	业务模块层	internal,module,cron,scheduler,recovery,finalize,test,业务模块层
-internal/module/cron/scheduler_recovery.go	internal	modules	go-source	18864	业务模块层	internal,module,cron,scheduler,recovery,业务模块层
+internal/module/cron/scheduler_recovery_status_guard_test.go	internal	modules	go-test	6188	业务模块层	internal,module,cron,scheduler,recovery,status,guard,test,业务模块层
+internal/module/cron/scheduler_recovery.go	internal	modules	go-source	18986	业务模块层	internal,module,cron,scheduler,recovery,业务模块层
 internal/module/cron/scheduler_test.go	internal	modules	go-test	31410	业务模块层	internal,module,cron,scheduler,test,业务模块层
 internal/module/cron/scheduler.go	internal	modules	go-source	16936	业务模块层	internal,module,cron,scheduler,业务模块层
 internal/module/cron/service_test.go	internal	modules	go-test	18584	业务模块层	internal,module,cron,service,test,业务模块层

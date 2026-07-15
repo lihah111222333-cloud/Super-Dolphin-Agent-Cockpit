@@ -1,5 +1,5 @@
 path	module	domain	type	size_bytes	purpose	search_keys
-cmd/mcp-ida/fx_test.go	cmd	platform-provider	go-test	7800	IDA MCP peer 与逆向分析工具入口	cmd,mcp,ida,fx,test,IDA,MCP,peer,与逆向分析工具入口
+cmd/mcp-ida/fx_test.go	cmd	platform-provider	go-test	8513	IDA MCP peer 与逆向分析工具入口	cmd,mcp,ida,fx,test,IDA,MCP,peer,与逆向分析工具入口
 cmd/mcp-ida/fx.go	cmd	platform-provider	go-source	8224	IDA MCP peer 与逆向分析工具入口	cmd,mcp,ida,fx,IDA,MCP,peer,与逆向分析工具入口
 cmd/mcp-ida/main_test.go	cmd	platform-provider	go-test	1322	IDA MCP peer 与逆向分析工具入口	cmd,mcp,ida,main,test,IDA,MCP,peer,与逆向分析工具入口
 cmd/mcp-ida/main.go	cmd	platform-provider	go-source	1771	IDA MCP peer 与逆向分析工具入口	cmd,mcp,ida,main,IDA,MCP,peer,与逆向分析工具入口
@@ -16,10 +16,10 @@ cmd/mcp-lsp/format/compact.go	cmd	platform-provider	go-source	8539	代码智能/
 cmd/mcp-lsp/format/display.go	cmd	platform-provider	go-source	11041	代码智能/LSP MCP peer	cmd,mcp,lsp,format,display,代码智能,LSP,MCP,peer
 cmd/mcp-lsp/format/funcrange.go	cmd	platform-provider	go-source	5010	代码智能/LSP MCP peer	cmd,mcp,lsp,format,funcrange,代码智能,LSP,MCP,peer
 cmd/mcp-lsp/format/render.go	cmd	platform-provider	go-source	7915	代码智能/LSP MCP peer	cmd,mcp,lsp,format,render,代码智能,LSP,MCP,peer
-cmd/mcp-lsp/fx_test.go	cmd	platform-provider	go-test	679	代码智能/LSP MCP peer	cmd,mcp,lsp,fx,test,代码智能,LSP,MCP,peer
+cmd/mcp-lsp/fx_test.go	cmd	platform-provider	go-test	1325	代码智能/LSP MCP peer	cmd,mcp,lsp,fx,test,代码智能,LSP,MCP,peer
 cmd/mcp-lsp/fx.go	cmd	platform-provider	go-source	17194	代码智能/LSP MCP peer	cmd,mcp,lsp,fx,代码智能,LSP,MCP,peer
-cmd/mcp-lsp/http_runner_test.go	cmd	platform-provider	go-test	1586	代码智能/LSP MCP peer	cmd,mcp,lsp,http,runner,test,代码智能,LSP,MCP,peer
-cmd/mcp-lsp/http_runner.go	cmd	platform-provider	go-source	2703	代码智能/LSP MCP peer	cmd,mcp,lsp,http,runner,代码智能,LSP,MCP,peer
+cmd/mcp-lsp/http_runner_test.go	cmd	platform-provider	go-test	3596	代码智能/LSP MCP peer	cmd,mcp,lsp,http,runner,test,代码智能,LSP,MCP,peer
+cmd/mcp-lsp/http_runner.go	cmd	platform-provider	go-source	3364	代码智能/LSP MCP peer	cmd,mcp,lsp,http,runner,代码智能,LSP,MCP,peer
 cmd/mcp-lsp/installer/installer_test.go	cmd	platform-provider	go-test	5337	代码智能/LSP MCP peer	cmd,mcp,lsp,installer,test,代码智能,LSP,MCP,peer
 cmd/mcp-lsp/installer/installer.go	cmd	platform-provider	go-source	13578	代码智能/LSP MCP peer	cmd,mcp,lsp,installer,代码智能,LSP,MCP,peer
 cmd/mcp-lsp/installer/windows_hidden_process_guard_test.go	cmd	platform-provider	go-test	1026	代码智能/LSP MCP peer	cmd,mcp,lsp,installer,windows,hidden,process,guard,test,代码智能,LSP,MCP,peer
@@ -66,8 +66,8 @@ cmd/mcp-lsp/middleware/recovery.go	cmd	platform-provider	go-source	926	代码智
 cmd/mcp-lsp/middleware/test_goroutine_group_test.go	cmd	platform-provider	go-test	1182	代码智能/LSP MCP peer	cmd,mcp,lsp,middleware,test,goroutine,group,代码智能,LSP,MCP,peer
 cmd/mcp-lsp/middleware/timeout_test.go	cmd	platform-provider	go-test	2948	代码智能/LSP MCP peer	cmd,mcp,lsp,middleware,timeout,test,代码智能,LSP,MCP,peer
 cmd/mcp-lsp/middleware/timeout.go	cmd	platform-provider	go-source	4674	代码智能/LSP MCP peer	cmd,mcp,lsp,middleware,timeout,代码智能,LSP,MCP,peer
-cmd/mcp-lsp/multilsp/adapter_walk_test.go	cmd	platform-provider	go-test	824	多语言 LSP manager、transport 与缓存	cmd,mcp,lsp,multilsp,adapter,walk,test,多语言,LSP,manager,transport,与缓存
-cmd/mcp-lsp/multilsp/adapter.go	cmd	platform-provider	go-source	27636	多语言 LSP manager、transport 与缓存	cmd,mcp,lsp,multilsp,adapter,多语言,LSP,manager,transport,与缓存
+cmd/mcp-lsp/multilsp/adapter_walk_test.go	cmd	platform-provider	go-test	2252	多语言 LSP manager、transport 与缓存	cmd,mcp,lsp,multilsp,adapter,walk,test,多语言,LSP,manager,transport,与缓存
+cmd/mcp-lsp/multilsp/adapter.go	cmd	platform-provider	go-source	29289	多语言 LSP manager、transport 与缓存	cmd,mcp,lsp,multilsp,adapter,多语言,LSP,manager,transport,与缓存
 cmd/mcp-lsp/multilsp/bootstrap_doc.go	cmd	platform-provider	go-source	16068	多语言 LSP manager、transport 与缓存	cmd,mcp,lsp,multilsp,bootstrap,doc,多语言,LSP,manager,transport,与缓存
 cmd/mcp-lsp/multilsp/bootstrap_state_test.go	cmd	platform-provider	go-test	2023	多语言 LSP manager、transport 与缓存	cmd,mcp,lsp,multilsp,bootstrap,state,test,多语言,LSP,manager,transport,与缓存
 cmd/mcp-lsp/multilsp/cache_failfast_test.go	cmd	platform-provider	go-test	4201	多语言 LSP manager、transport 与缓存	cmd,mcp,lsp,multilsp,cache,failfast,test,多语言,LSP,manager,transport,与缓存
@@ -85,8 +85,8 @@ cmd/mcp-lsp/multilsp/go_root_resolver.go	cmd	platform-provider	go-source	17499	�
 cmd/mcp-lsp/multilsp/go_toolchain.go	cmd	platform-provider	go-source	8267	多语言 LSP manager、transport 与缓存	cmd,mcp,lsp,multilsp,go,toolchain,多语言,LSP,manager,transport,与缓存
 cmd/mcp-lsp/multilsp/go_workspace_manager_shard16_test.go	cmd	platform-provider	go-test	8080	多语言 LSP manager、transport 与缓存	cmd,mcp,lsp,multilsp,go,workspace,manager,shard16,test,多语言,LSP,transport,与缓存
 cmd/mcp-lsp/multilsp/go_workspace_manager_test.go	cmd	platform-provider	go-test	18143	多语言 LSP manager、transport 与缓存	cmd,mcp,lsp,multilsp,go,workspace,manager,test,多语言,LSP,transport,与缓存
-cmd/mcp-lsp/multilsp/gomod_test.go	cmd	platform-provider	go-test	6364	多语言 LSP manager、transport 与缓存	cmd,mcp,lsp,multilsp,gomod,test,多语言,LSP,manager,transport,与缓存
-cmd/mcp-lsp/multilsp/gomod.go	cmd	platform-provider	go-source	9335	多语言 LSP manager、transport 与缓存	cmd,mcp,lsp,multilsp,gomod,多语言,LSP,manager,transport,与缓存
+cmd/mcp-lsp/multilsp/gomod_test.go	cmd	platform-provider	go-test	6573	多语言 LSP manager、transport 与缓存	cmd,mcp,lsp,multilsp,gomod,test,多语言,LSP,manager,transport,与缓存
+cmd/mcp-lsp/multilsp/gomod.go	cmd	platform-provider	go-source	9450	多语言 LSP manager、transport 与缓存	cmd,mcp,lsp,multilsp,gomod,多语言,LSP,manager,transport,与缓存
 cmd/mcp-lsp/multilsp/jsts_dependency_prepare_test.go	cmd	platform-provider	go-test	4385	多语言 LSP manager、transport 与缓存	cmd,mcp,lsp,multilsp,jsts,dependency,prepare,test,多语言,LSP,manager,transport,与缓存
 cmd/mcp-lsp/multilsp/jsts_dependency_prepare.go	cmd	platform-provider	go-source	5100	多语言 LSP manager、transport 与缓存	cmd,mcp,lsp,multilsp,jsts,dependency,prepare,多语言,LSP,manager,transport,与缓存
 cmd/mcp-lsp/multilsp/language_service_config_test.go	cmd	platform-provider	go-test	7617	多语言 LSP manager、transport 与缓存	cmd,mcp,lsp,multilsp,language,service,config,test,多语言,LSP,manager,transport,与缓存
@@ -101,7 +101,7 @@ cmd/mcp-lsp/multilsp/manager_diagnostics_refresh.go	cmd	platform-provider	go-sou
 cmd/mcp-lsp/multilsp/manager_diagnostics_scoped_test.go	cmd	platform-provider	go-test	30515	多语言 LSP manager、transport 与缓存	cmd,mcp,lsp,multilsp,manager,diagnostics,scoped,test,多语言,LSP,transport,与缓存
 cmd/mcp-lsp/multilsp/manager_diagnostics.go	cmd	platform-provider	go-source	26503	多语言 LSP manager、transport 与缓存	cmd,mcp,lsp,multilsp,manager,diagnostics,多语言,LSP,transport,与缓存
 cmd/mcp-lsp/multilsp/manager_lifecycle_test.go	cmd	platform-provider	go-test	2239	多语言 LSP manager、transport 与缓存	cmd,mcp,lsp,multilsp,manager,lifecycle,test,多语言,LSP,transport,与缓存
-cmd/mcp-lsp/multilsp/manager_lifecycle.go	cmd	platform-provider	go-source	23250	多语言 LSP manager、transport 与缓存	cmd,mcp,lsp,multilsp,manager,lifecycle,多语言,LSP,transport,与缓存
+cmd/mcp-lsp/multilsp/manager_lifecycle.go	cmd	platform-provider	go-source	23255	多语言 LSP manager、transport 与缓存	cmd,mcp,lsp,multilsp,manager,lifecycle,多语言,LSP,transport,与缓存
 cmd/mcp-lsp/multilsp/manager_retry_test.go	cmd	platform-provider	go-test	2185	多语言 LSP manager、transport 与缓存	cmd,mcp,lsp,multilsp,manager,retry,test,多语言,LSP,transport,与缓存
 cmd/mcp-lsp/multilsp/manager_retry.go	cmd	platform-provider	go-source	5561	多语言 LSP manager、transport 与缓存	cmd,mcp,lsp,multilsp,manager,retry,多语言,LSP,transport,与缓存
 cmd/mcp-lsp/multilsp/manager_symbols_code_action_test.go	cmd	platform-provider	go-test	18929	多语言 LSP manager、transport 与缓存	cmd,mcp,lsp,multilsp,manager,symbols,code,action,test,多语言,LSP,transport,与缓存
@@ -230,29 +230,29 @@ cmd/mcp-lsp/tools/tool_structure_test.go	cmd	platform-provider	go-test	25196	LSP
 cmd/mcp-lsp/tools/tool_structure.go	cmd	platform-provider	go-source	11802	LSP MCP tools 实现	cmd,mcp,lsp,tools,tool,structure,LSP,MCP,实现
 cmd/mcp-lsp/tools/tool_xref_test.go	cmd	platform-provider	go-test	3562	LSP MCP tools 实现	cmd,mcp,lsp,tools,tool,xref,test,LSP,MCP,实现
 cmd/mcp-lsp/tools/tool_xref.go	cmd	platform-provider	go-source	6953	LSP MCP tools 实现	cmd,mcp,lsp,tools,tool,xref,LSP,MCP,实现
-internal/mcpserver/common/bootstrap/callback_drain_test.go	internal	platform-provider	go-test	2906	MCP server 公共框架、bootstrap 与 transport	internal,mcpserver,common,bootstrap,callback,drain,test,MCP,server,公共框架,与,transport
-internal/mcpserver/common/bootstrap/client.go	internal	platform-provider	go-source	10410	MCP server 公共框架、bootstrap 与 transport	internal,mcpserver,common,bootstrap,client,MCP,server,公共框架,与,transport
-internal/mcpserver/common/bootstrap/env_test.go	internal	platform-provider	go-test	3822	MCP server 公共框架、bootstrap 与 transport	internal,mcpserver,common,bootstrap,env,test,MCP,server,公共框架,与,transport
-internal/mcpserver/common/bootstrap/env.go	internal	platform-provider	go-source	13607	MCP server 公共框架、bootstrap 与 transport	internal,mcpserver,common,bootstrap,env,MCP,server,公共框架,与,transport
-internal/mcpserver/common/bootstrap/heartbeat_test.go	internal	platform-provider	go-test	1321	MCP server 公共框架、bootstrap 与 transport	internal,mcpserver,common,bootstrap,heartbeat,test,MCP,server,公共框架,与,transport
+internal/mcpserver/common/bootstrap/callback_drain_test.go	internal	platform-provider	go-test	2945	MCP server 公共框架、bootstrap 与 transport	internal,mcpserver,common,bootstrap,callback,drain,test,MCP,server,公共框架,与,transport
+internal/mcpserver/common/bootstrap/client.go	internal	platform-provider	go-source	10476	MCP server 公共框架、bootstrap 与 transport	internal,mcpserver,common,bootstrap,client,MCP,server,公共框架,与,transport
+internal/mcpserver/common/bootstrap/env_test.go	internal	platform-provider	go-test	5318	MCP server 公共框架、bootstrap 与 transport	internal,mcpserver,common,bootstrap,env,test,MCP,server,公共框架,与,transport
+internal/mcpserver/common/bootstrap/env.go	internal	platform-provider	go-source	14290	MCP server 公共框架、bootstrap 与 transport	internal,mcpserver,common,bootstrap,env,MCP,server,公共框架,与,transport
+internal/mcpserver/common/bootstrap/heartbeat_test.go	internal	platform-provider	go-test	1334	MCP server 公共框架、bootstrap 与 transport	internal,mcpserver,common,bootstrap,heartbeat,test,MCP,server,公共框架,与,transport
 internal/mcpserver/common/bootstrap/heartbeat.go	internal	platform-provider	go-source	5755	MCP server 公共框架、bootstrap 与 transport	internal,mcpserver,common,bootstrap,heartbeat,MCP,server,公共框架,与,transport
 internal/mcpserver/common/bootstrap/hooks_subscribe_failure_test.go	internal	platform-provider	go-test	3002	MCP server 公共框架、bootstrap 与 transport	internal,mcpserver,common,bootstrap,hooks,subscribe,failure,test,MCP,server,公共框架,与,transport
 internal/mcpserver/common/bootstrap/hooks_test.go	internal	platform-provider	go-test	7599	MCP server 公共框架、bootstrap 与 transport	internal,mcpserver,common,bootstrap,hooks,test,MCP,server,公共框架,与,transport
 internal/mcpserver/common/bootstrap/hooks.go	internal	platform-provider	go-source	13182	MCP server 公共框架、bootstrap 与 transport	internal,mcpserver,common,bootstrap,hooks,MCP,server,公共框架,与,transport
 internal/mcpserver/common/bootstrap/lifecycle.go	internal	platform-provider	go-source	11479	MCP server 公共框架、bootstrap 与 transport	internal,mcpserver,common,bootstrap,lifecycle,MCP,server,公共框架,与,transport
-internal/mcpserver/common/bootstrap/log_relay_e2e_test.go	internal	platform-provider	go-test	3700	MCP server 公共框架、bootstrap 与 transport	internal,mcpserver,common,bootstrap,log,relay,e2e,test,MCP,server,公共框架,与,transport
-internal/mcpserver/common/bootstrap/log_relay_test.go	internal	platform-provider	go-test	3118	MCP server 公共框架、bootstrap 与 transport	internal,mcpserver,common,bootstrap,log,relay,test,MCP,server,公共框架,与,transport
+internal/mcpserver/common/bootstrap/log_relay_e2e_test.go	internal	platform-provider	go-test	3771	MCP server 公共框架、bootstrap 与 transport	internal,mcpserver,common,bootstrap,log,relay,e2e,test,MCP,server,公共框架,与,transport
+internal/mcpserver/common/bootstrap/log_relay_test.go	internal	platform-provider	go-test	3144	MCP server 公共框架、bootstrap 与 transport	internal,mcpserver,common,bootstrap,log,relay,test,MCP,server,公共框架,与,transport
 internal/mcpserver/common/bootstrap/log_relay.go	internal	platform-provider	go-source	6842	MCP server 公共框架、bootstrap 与 transport	internal,mcpserver,common,bootstrap,log,relay,MCP,server,公共框架,与,transport
 internal/mcpserver/common/bootstrap/reconnect.go	internal	platform-provider	go-source	3872	MCP server 公共框架、bootstrap 与 transport	internal,mcpserver,common,bootstrap,reconnect,MCP,server,公共框架,与,transport
 internal/mcpserver/common/bootstrap/report_queue.go	internal	platform-provider	go-source	6562	MCP server 公共框架、bootstrap 与 transport	internal,mcpserver,common,bootstrap,report,queue,MCP,server,公共框架,与,transport
 internal/mcpserver/common/bootstrap/s5b_fail_closed_test.go	internal	platform-provider	go-test	3841	MCP server 公共框架、bootstrap 与 transport	internal,mcpserver,common,bootstrap,s5b,fail,closed,test,MCP,server,公共框架,与,transport
-internal/mcpserver/common/bootstrap/shared_mode_test.go	internal	platform-provider	go-test	2560	MCP server 公共框架、bootstrap 与 transport	internal,mcpserver,common,bootstrap,shared,mode,test,MCP,server,公共框架,与,transport
+internal/mcpserver/common/bootstrap/shared_mode_test.go	internal	platform-provider	go-test	2633	MCP server 公共框架、bootstrap 与 transport	internal,mcpserver,common,bootstrap,shared,mode,test,MCP,server,公共框架,与,transport
 internal/mcpserver/common/http_transport_auth_test.go	internal	platform-provider	go-test	1335	MCP server 公共框架、bootstrap 与 transport	internal,mcpserver,common,http,transport,auth,test,MCP,server,公共框架,bootstrap,与
-internal/mcpserver/common/http_transport.go	internal	platform-provider	go-source	11168	MCP server 公共框架、bootstrap 与 transport	internal,mcpserver,common,http,transport,MCP,server,公共框架,bootstrap,与
+internal/mcpserver/common/http_transport.go	internal	platform-provider	go-source	11279	MCP server 公共框架、bootstrap 与 transport	internal,mcpserver,common,http,transport,MCP,server,公共框架,bootstrap,与
 internal/mcpserver/common/scope.go	internal	platform-provider	go-source	7347	MCP server 公共框架、bootstrap 与 transport	internal,mcpserver,common,scope,MCP,server,公共框架,bootstrap,与,transport
 internal/mcpserver/common/server_scope_test.go	internal	platform-provider	go-test	18235	MCP server 公共框架、bootstrap 与 transport	internal,mcpserver,common,server,scope,test,MCP,公共框架,bootstrap,与,transport
-internal/mcpserver/common/server_test.go	internal	platform-provider	go-test	24235	MCP server 公共框架、bootstrap 与 transport	internal,mcpserver,common,server,test,MCP,公共框架,bootstrap,与,transport
-internal/mcpserver/common/server.go	internal	platform-provider	go-source	18930	MCP server 公共框架、bootstrap 与 transport	internal,mcpserver,common,server,MCP,公共框架,bootstrap,与,transport
+internal/mcpserver/common/server_test.go	internal	platform-provider	go-test	28177	MCP server 公共框架、bootstrap 与 transport	internal,mcpserver,common,server,test,MCP,公共框架,bootstrap,与,transport
+internal/mcpserver/common/server.go	internal	platform-provider	go-source	19586	MCP server 公共框架、bootstrap 与 transport	internal,mcpserver,common,server,MCP,公共框架,bootstrap,与,transport
 internal/mcpserver/common/stdio_test.go	internal	platform-provider	go-test	4343	MCP server 公共框架、bootstrap 与 transport	internal,mcpserver,common,stdio,test,MCP,server,公共框架,bootstrap,与,transport
 internal/mcpserver/common/stdio.go	internal	platform-provider	go-source	8429	MCP server 公共框架、bootstrap 与 transport	internal,mcpserver,common,stdio,MCP,server,公共框架,bootstrap,与,transport
 internal/mcpserver/common/structured_content_test.go	internal	platform-provider	go-test	4320	MCP server 公共框架、bootstrap 与 transport	internal,mcpserver,common,structured,content,test,MCP,server,公共框架,bootstrap,与,transport

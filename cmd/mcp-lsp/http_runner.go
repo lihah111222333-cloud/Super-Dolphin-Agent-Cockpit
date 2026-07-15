@@ -22,8 +22,10 @@ var errLSPHTTPSessionTokenRequired = errors.New("mcp-lsp http: GO_AGENT_CTL_SESS
 
 // httpRunner 在 peer 模式下启动 HTTP MCP 端点，允许多个 Claude CLI agent 共享同一 mcp-lsp 进程。
 type httpRunner struct {
-	tools       common.ToolProvider
-	bearerToken string
+	bearerToken          string
+	startServer          func(context.Context) (string, func(context.Context) error, error)
+	writePeerDiscovery   func(string, string) error
+	cleanupPeerDiscovery func(string) error
 }
 
 // newHTTPRunner 根据 peer 配置选择 HTTP MCP runner 或空阻塞 runner。
@@ -32,9 +34,17 @@ func newHTTPRunner(handlers ToolHandlers) platformrunner.Runner {
 	if os.Getenv("GO_AGENT_PEER_MODE") != "1" {
 		return lspBlockRunner{}
 	}
+	tools := registryToolProvider{defs: toolDefinitions(handlers)}
+	bearerToken := bootstrap.SessionTokenFromEnv()
 	return &httpRunner{
-		tools:       registryToolProvider{defs: toolDefinitions(handlers)},
-		bearerToken: bootstrap.SessionTokenFromEnv(),
+		bearerToken: bearerToken,
+		startServer: func(ctx context.Context) (string, func(context.Context) error, error) {
+			srv := common.NewHTTPServer(httpLSPBinaryName, binaryVersion, tools, common.WithBearerToken(bearerToken))
+			addr, err := srv.Start(ctx, "127.0.0.1:0")
+			return addr, srv.Stop, err
+		},
+		writePeerDiscovery:   discovery.WritePeerDiscovery,
+		cleanupPeerDiscovery: discovery.CleanupPeerDiscovery,
 	}
 }
 
@@ -52,15 +62,17 @@ func (r *httpRunner) Run(ctx context.Context) error {
 	if strings.TrimSpace(r.bearerToken) == "" {
 		return errLSPHTTPSessionTokenRequired
 	}
-	srv := common.NewHTTPServer(httpLSPBinaryName, binaryVersion, r.tools, common.WithBearerToken(r.bearerToken))
-	addr, err := srv.Start(ctx, "127.0.0.1:0")
+	addr, stopServer, err := r.startServer(ctx)
 	if err != nil {
 		pkglogger.Warn("mcp-lsp http: start failed", "error", err)
 		return err
 	}
 
-	if err := discovery.WritePeerDiscovery(httpLSPBinaryName, addr); err != nil {
-		pkglogger.Warn("mcp-lsp http: discovery write failed", "error", err)
+	if discoveryErr := r.writePeerDiscovery(httpLSPBinaryName, addr); discoveryErr != nil {
+		pkglogger.Warn("mcp-lsp http: discovery write failed", "error", discoveryErr)
+		stopCtx, cancel := platformconfig.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		return errors.Join(discoveryErr, stopServer(stopCtx))
 	}
 
 	pkglogger.Info("mcp-lsp http: listening",
@@ -68,8 +80,8 @@ func (r *httpRunner) Run(ctx context.Context) error {
 
 	<-ctx.Done()
 
-	_ = discovery.CleanupPeerDiscovery(httpLSPBinaryName)
+	cleanupErr := r.cleanupPeerDiscovery(httpLSPBinaryName)
 	stopCtx, cancel := platformconfig.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	return srv.Stop(stopCtx)
+	return errors.Join(cleanupErr, stopServer(stopCtx))
 }

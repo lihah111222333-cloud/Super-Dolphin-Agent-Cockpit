@@ -1,6 +1,7 @@
 package multilsp
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -281,14 +282,14 @@ func shouldUseJSTSWorkspace(languageID string) bool {
 	}
 }
 
-func findJSTSProjectRootWithin(root string) (string, error) {
+func findJSTSProjectRootWithin(ctx context.Context, root string) (string, error) {
 	cfg := lspProjectAdapterConfig(contract.LSPServiceJSTS)
-	return findProjectRootWithin(root, cfg.RootMarkers, lspProjectIgnoredDirSet(contract.LSPServiceJSTS))
+	return findProjectRootWithin(ctx, root, cfg.RootMarkers, lspProjectIgnoredDirSet(contract.LSPServiceJSTS))
 }
 
-func findJSTSBootstrapFileWithin(root string) (string, error) {
+func findJSTSBootstrapFileWithin(ctx context.Context, root string) (string, error) {
 	cfg := lspProjectAdapterConfig(contract.LSPServiceJSTS)
-	return findBootstrapFileWithin(root, cfg.FirstSourceExtensions, lspProjectIgnoredDirSet(contract.LSPServiceJSTS))
+	return findBootstrapFileWithin(ctx, root, cfg.FirstSourceExtensions, lspProjectIgnoredDirSet(contract.LSPServiceJSTS))
 }
 
 func shouldUseJavaWorkspace(languageID string) bool {
@@ -299,14 +300,14 @@ func findJavaProjectRoot(path string) (string, error) {
 	return findProjectRoot(path, lspProjectAdapterConfig(contract.LSPServiceJava).RootMarkers)
 }
 
-func findJavaProjectRootWithin(root string) (string, error) {
+func findJavaProjectRootWithin(ctx context.Context, root string) (string, error) {
 	cfg := lspProjectAdapterConfig(contract.LSPServiceJava)
-	return findProjectRootWithin(root, cfg.RootMarkers, lspProjectIgnoredDirSet(contract.LSPServiceJava))
+	return findProjectRootWithin(ctx, root, cfg.RootMarkers, lspProjectIgnoredDirSet(contract.LSPServiceJava))
 }
 
-func findJavaBootstrapFileWithin(root string) (string, error) {
+func findJavaBootstrapFileWithin(ctx context.Context, root string) (string, error) {
 	cfg := lspProjectAdapterConfig(contract.LSPServiceJava)
-	return findBootstrapFileWithin(root, cfg.FirstSourceExtensions, lspProjectIgnoredDirSet(contract.LSPServiceJava))
+	return findBootstrapFileWithin(ctx, root, cfg.FirstSourceExtensions, lspProjectIgnoredDirSet(contract.LSPServiceJava))
 }
 
 func lspProjectAdapterConfig(service string) contract.LSPProjectAdapterConfig {

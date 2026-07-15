@@ -102,6 +102,23 @@ func TestNewMCPOrchAppBuildsCompleteGraph(t *testing.T) {
 	}
 }
 
+func TestMCPOrchGraphRejectsInvalidBootstrapSnapshot(t *testing.T) {
+	t.Setenv("PROJECT_ROOT", t.TempDir())
+	t.Setenv("SUPER_DOLPHIN_DEPENDENCY_BOOTSTRAP", "test")
+	t.Setenv("SUPER_DOLPHIN_DEPENDENCY_PROFILE", "")
+	t.Setenv("SUPER_DOLPHIN_SQLITE_PATH", filepath.Join(t.TempDir(), "mcp-orch.db"))
+	t.Setenv("GO_AGENT_CTL_BOOTSTRAP_JSON", `{"unknown":true}`)
+	previousStdout := mcpStdout.Swap(os.Stdout)
+	t.Cleanup(func() { mcpStdout.Store(previousStdout) })
+
+	app := newMCPOrchApp("")
+	if err := app.Err(); err == nil {
+		t.Fatal("newMCPOrchApp().Err() = nil, want invalid bootstrap snapshot error")
+	} else if !strings.Contains(err.Error(), "unknown field") {
+		t.Fatalf("newMCPOrchApp().Err() = %v, want unknown field error", err)
+	}
+}
+
 func TestBuildOrchestrationOptionsIncludesScheduledDAGCronRunner(t *testing.T) {
 	file, err := parser.ParseFile(token.NewFileSet(), "fx.go", nil, 0)
 	if err != nil {

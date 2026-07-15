@@ -13,9 +13,12 @@ import (
 )
 
 func TestNormalizeConfig_DoesNotReviveAgentIDFromBootSnapshot(t *testing.T) {
-	cfg, _ := normalizeConfig(Config{
+	cfg, _, err := normalizeConfig(Config{
 		BootSnapshot: json.RawMessage(`{"agent_id":"boot-agent","thread_id":"thread-1"}`),
 	})
+	if err != nil {
+		t.Fatalf("normalizeConfig() error = %v", err)
+	}
 	if cfg.AgentID != "" {
 		t.Fatalf("AgentID = %q, want empty", cfg.AgentID)
 	}

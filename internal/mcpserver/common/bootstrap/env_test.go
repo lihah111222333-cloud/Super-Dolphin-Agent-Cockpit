@@ -2,6 +2,7 @@ package bootstrap
 
 import (
 	"bytes"
+	"encoding/json"
 	"log/slog"
 	"strings"
 	"testing"
@@ -113,5 +114,57 @@ func resetBootEnvVars(t *testing.T) {
 		"GO_AGENT_MCP_BOOT_CONTEXT",
 	} {
 		t.Setenv(key, "")
+	}
+}
+
+func mustNewClient(t *testing.T, cfg Config) *Client {
+	t.Helper()
+	client, err := New(cfg)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	return client
+}
+
+func TestParseBootSnapshotRejectsInvalidJSON(t *testing.T) {
+	tests := []struct {
+		name string
+		raw  string
+	}{
+		{name: "truncated", raw: `{"instance_id":`},
+		{name: "unknown field", raw: `{"instance_id":"instance-1","unexpected":true}`},
+		{name: "wrong field type", raw: `{"config_version":"not-a-number"}`},
+		{name: "trailing document", raw: `{"instance_id":"instance-1"} {"boot_id":"boot-1"}`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if _, err := parseBootSnapshot(json.RawMessage(tt.raw)); err == nil {
+				t.Fatalf("parseBootSnapshot(%q) error = nil", tt.raw)
+			}
+		})
+	}
+}
+
+func TestParseBootSnapshotAcceptsEmptyAndValidJSON(t *testing.T) {
+	tests := []struct {
+		name       string
+		raw        json.RawMessage
+		instanceID string
+	}{
+		{name: "nil"},
+		{name: "empty", raw: json.RawMessage{}},
+		{name: "whitespace", raw: json.RawMessage("  \n\t")},
+		{name: "valid", raw: json.RawMessage(`{"instance_id":"instance-1"}`), instanceID: "instance-1"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			snap, err := parseBootSnapshot(tt.raw)
+			if err != nil {
+				t.Fatalf("parseBootSnapshot() error = %v", err)
+			}
+			if snap.InstanceID != tt.instanceID {
+				t.Fatalf("InstanceID = %q, want %q", snap.InstanceID, tt.instanceID)
+			}
+		})
 	}
 }

@@ -13,7 +13,7 @@ import (
 func TestClientFireShutdownTracksCallbackWithWaitGroup(t *testing.T) {
 	release := make(chan struct{})
 	var fired atomic.Bool
-	c := New(Config{
+	c := mustNewClient(t, Config{
 		BinaryName: "test-binary",
 		InstanceID: "inst-1",
 		OnShutdown: func(mcp.ShutdownRequest) {
@@ -47,7 +47,7 @@ func TestClientFireShutdownTracksCallbackWithWaitGroup(t *testing.T) {
 // 这样 late callback 不能无限拉长 Close() 的 drain 窗口。
 func TestClientSpawnCallbackAfterCloseIsNoop(t *testing.T) {
 	var fired atomic.Bool
-	c := New(Config{BinaryName: "test-binary", InstanceID: "inst-2"})
+	c := mustNewClient(t, Config{BinaryName: "test-binary", InstanceID: "inst-2"})
 	c.mu.Lock()
 	c.closed = true
 	c.mu.Unlock()
@@ -67,7 +67,7 @@ func TestClientSpawnCallbackAfterCloseIsNoop(t *testing.T) {
 // TestClientDrainCallbacksTimeoutSurfaced 验证卡住的回调会让 drainCallbacks 返回超时错误。
 // Close() 可以记录后继续退出，而不是被应用回调无限阻塞。
 func TestClientDrainCallbacksTimeoutSurfaced(t *testing.T) {
-	c := New(Config{BinaryName: "test-binary", InstanceID: "inst-3"})
+	c := mustNewClient(t, Config{BinaryName: "test-binary", InstanceID: "inst-3"})
 	c.callbackWG.Add(1)
 	defer c.callbackWG.Done()
 

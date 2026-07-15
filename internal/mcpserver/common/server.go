@@ -297,6 +297,9 @@ func (s *Server) handleMessage(ctx context.Context, payload json.RawMessage) (bo
 
 // dispatch 派发MCP 服务。
 func (s *Server) dispatch(ctx context.Context, req jsonRPCRequest) (*jsonRPCResponse, bool) {
+	if err := validateJSONRPCID(req.ID); err != nil {
+		return errorResponse(nil, codeInvalidReq, err.Error()), false
+	}
 	if strings.TrimSpace(req.JSONRPC) != "2.0" {
 		return errorResponse(req.ID, codeInvalidReq, "jsonrpc must be 2.0"), false
 	}
@@ -526,6 +529,21 @@ func toolCallResultResponse(id json.RawMessage, value any) (*jsonRPCResponse, []
 		return nil, nil, err
 	}
 	return maybeResult(id, envelope), raw, nil
+}
+
+// validateJSONRPCID 校验协议 ID 类型；字段缺失与显式 null 合法，其余只允许 string 或 number。
+func validateJSONRPCID(id json.RawMessage) error {
+	trimmed := bytes.TrimSpace(id)
+	if len(trimmed) == 0 || bytes.Equal(trimmed, []byte("null")) {
+		return nil
+	}
+	if !json.Valid(trimmed) {
+		return errors.New("json-rpc id must be valid JSON")
+	}
+	if trimmed[0] == '"' || trimmed[0] == '-' || trimmed[0] >= '0' && trimmed[0] <= '9' {
+		return nil
+	}
+	return errors.New("json-rpc id must be null, string, or number")
 }
 
 // hasRequestID 判断请求是否需要响应，空白 ID 视为 notification。

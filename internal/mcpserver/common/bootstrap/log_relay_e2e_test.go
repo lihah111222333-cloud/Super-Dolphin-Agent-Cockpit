@@ -43,7 +43,7 @@ func TestLSPLogRelayE2EWritesBackendLog(t *testing.T) {
 		pkglogger.SetForTest(previousLogger)
 	})
 
-	client := bootstrap.New(bootstrap.Config{
+	client, err := bootstrap.New(bootstrap.Config{
 		RPCAddr:             addr,
 		InstanceID:          "lsp-log-e2e",
 		BinaryName:          "mcp-lsp",
@@ -51,6 +51,9 @@ func TestLSPLogRelayE2EWritesBackendLog(t *testing.T) {
 		ThreadID:            "thread-log-e2e",
 		CapabilitiesOffered: []string{"tools/lsp"},
 	})
+	if err != nil {
+		t.Fatalf("bootstrap New() error = %v", err)
+	}
 	client.InstallLogRelay()
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
