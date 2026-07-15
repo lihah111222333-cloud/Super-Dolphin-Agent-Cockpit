@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -42,6 +43,63 @@ func TestBuildGatePlanRoutesAIMaintenanceHooksToSelfTest(t *testing.T) {
 	plan := buildGatePlan([]string{".githooks/pre-commit", ".githooks/pre-push"})
 
 	assertStringSetContains(t, plan.RequiredGates, "ai-maintenance:self-test", "diff:whitespace")
+}
+
+func TestPushGatePlanAddsRiskGatesWithoutChangingCommitPlan(t *testing.T) {
+	files := []string{"internal/provider/codexapp/session.go"}
+	commitPlan := gatePlanForScope(files, false)
+	pushPlan := gatePlanForScope(files, true)
+
+	assertStringSetOmits(t, commitPlan.RequiredGates, "backend:nilness", "backend:test_with_guard_and_race")
+	assertStringSetContains(t, pushPlan.RequiredGates, "backend:nilness", "backend:test_with_guard_and_race")
+	assertStringSetOmits(t, pushPlan.RequiredGates, "backend:test_with_guard")
+	if got := affectedRacePackages(pushPlan.ChangedFiles); len(got) != 1 || got[0] != "./internal/provider/codexapp" {
+		t.Fatalf("affected race packages = %v, want provider package", got)
+	}
+}
+
+func TestPushGatePlanOmitsRaceForNonConcurrentBackendSurface(t *testing.T) {
+	plan := gatePlanForScope([]string{"internal/dto/agent/state.go"}, true)
+
+	assertStringSetContains(t, plan.RequiredGates, "backend:nilness")
+	assertStringSetOmits(t, plan.RequiredGates, "backend:test_with_guard_and_race")
+}
+
+func TestPushGatePlanRoutesGoModuleRiskGates(t *testing.T) {
+	plan := gatePlanForScope([]string{"go.mod"}, true)
+
+	assertStringSetContains(t, plan.RequiredGates, "backend:nilness", "backend:test_with_guard_and_race")
+	assertStringSetOmits(t, plan.RequiredGates, "backend:test_with_guard")
+	if len(affectedNilnessPackages(plan)) == 0 || len(affectedRacePackagesForPlan(plan)) == 0 {
+		t.Fatalf("go.mod push risk packages missing: nilness=%v race=%v", affectedNilnessPackages(plan), affectedRacePackagesForPlan(plan))
+	}
+}
+
+func TestCombinedBackendRaceArgsRunsBothLanesThroughOneWrapper(t *testing.T) {
+	plan := gatePlanForScope([]string{"internal/provider/codexapp/session.go"}, true)
+	args, err := backendTestWithGuardAndRaceArgs(plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertStringSetContains(t, args, "./scripts/test_with_guard.sh", "--with-race", "--", "-count=1")
+	count := 0
+	for _, arg := range args {
+		if arg == "./scripts/test_with_guard.sh" {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Fatalf("combined backend gate must invoke one guard wrapper: %v", args)
+	}
+}
+
+func TestAffectedBackendGoPackagesExcludesAnalyzerTestdata(t *testing.T) {
+	packages := affectedBackendGoPackages([]string{
+		"internal/devtools/typednil/analyzer.go",
+		"internal/devtools/typednil/testdata/src/typednilfixture/typednil.go",
+	})
+	assertStringSetContains(t, packages, "./internal/devtools/typednil")
+	assertStringSetOmits(t, packages, "./internal/devtools/typednil/testdata/src/typednilfixture")
 }
 
 func TestBuildGatePlanRoutesProjectMapOverridesToCodemapChecks(t *testing.T) {
@@ -180,8 +238,9 @@ func TestGatePlanProducerMatchesRunnerAndEvidenceRegistries(t *testing.T) {
 		{"frontend-app/src/App.jsx"},
 		{"internal/store/thread/store.go"},
 		{"docs/doc/codemap/ai-index.json"},
+		{"internal/provider/codexapp/session.go"},
 	} {
-		for _, gate := range buildGatePlan(files).RequiredGates {
+		for _, gate := range gatePlanForScope(files, true).RequiredGates {
 			producerGates[gate] = true
 		}
 	}
@@ -438,14 +497,7 @@ func TestGateCommandEnvironmentIsolatesCacheIndexFromNonGitGates(t *testing.T) {
 	}
 
 	want := "GIT_INDEX_FILE=" + os.Getenv("GIT_INDEX_FILE")
-	found := false
-	for _, entry := range gateCommandEnvironment("git") {
-		if entry == want {
-			found = true
-			break
-		}
-	}
-	if !found {
+	if !slices.Contains(gateCommandEnvironment("git"), want) {
 		t.Fatalf("git whitespace gate lost staged index %q", want)
 	}
 }

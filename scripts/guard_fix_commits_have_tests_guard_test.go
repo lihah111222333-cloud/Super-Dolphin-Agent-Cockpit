@@ -349,6 +349,25 @@ func TestPreCommitRejectsRenamedPathWithWorktreeMismatch(t *testing.T) {
 	assertOutputContainsAll(t, out, "当前代码/门禁提交还存在未暂存或未跟踪 worktree 输入", "docs/renamed.md", "可能制造假绿")
 }
 
+func TestPreCommitAllowsUnrelatedDirtyWorktree(t *testing.T) {
+	root := preparePreCommitGateFixture(t)
+	writeFixTestGuardFile(t, root, "docs/existing.md", "committed\n")
+	runFixTestGuardGit(t, root, "add", "docs/existing.md")
+	runFixTestGuardGit(t, root, "commit", "-m", "docs: 添加脏工作区样例")
+
+	writeFixTestGuardFile(t, root, ".githooks/snapshot-input.sh", "staged gate change\n")
+	runFixTestGuardGit(t, root, "add", ".githooks/snapshot-input.sh")
+	writeFixTestGuardFile(t, root, "docs/existing.md", "unrelated tracked change\n")
+	writeFixTestGuardFile(t, root, "docs/local.md", "unrelated untracked change\n")
+
+	out, err := runPreCommitHook(t, root)
+	if err != nil {
+		t.Fatalf("pre-commit rejected unrelated dirty worktree inputs: %v\n%s", err, out)
+	}
+	assertOutputContainsAll(t, out, "gate-worktree=", "pre-commit OK")
+	assertOutputOmitsAll(t, out, "docs/existing.md", "docs/local.md", "可能制造假绿")
+}
+
 func TestPreCommitAcceptsCleanStagedDeletion(t *testing.T) {
 	root := preparePreCommitGateFixture(t)
 	writeFixTestGuardFile(t, root, "docs/deleted.md", "delete me\n")
