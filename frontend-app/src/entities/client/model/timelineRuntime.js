@@ -1,6 +1,7 @@
 import { firstOptionalPresent, normalizeOptionalTextField, optionalTextField, systemClockMillis, currentIsoTimestamp, parseOptionalTimestamp } from './contractStoreModel.js';
 // @ts-check
 
+import { approvalIdentityFromFields } from '../../../shared/api/approvalRequestId.js';
 import { RUNTIME_TOOL_TERMINAL_STATUSES } from './runtimeResults.js';
 
 const RUNTIME_ASSISTANT_PREFIX_DUPLICATE_MIN_CHARS = 24;
@@ -135,6 +136,9 @@ export function normalizeTimelineItem(item) {
   const rawText = extractText(firstFieldValue(item, TIMELINE_TEXT_KEYS));
   const userText = normalizedRole === 'user' ? normalizeUserTimelineText(rawText) : { text: rawText, controlOnly: false };
   const status = normalizeString(item?.status);
+  const approvalIdentity = normalizedKind === 'approval'
+    ? approvalIdentityFromFields(item, 'timeline approval')
+    : null;
   return {
     id: normalizeString(firstFieldValue(item, TIMELINE_ID_KEYS)) || `${normalizedRole}-${systemClockMillis()}`,
     role: normalizedRole,
@@ -142,8 +146,9 @@ export function normalizeTimelineItem(item) {
     text: userText.text,
     controlOnly: userText.controlOnly,
     title: normalizeString(firstFieldValue(item, TIMELINE_TITLE_KEYS)),
-    callId: normalizeString(firstFieldValue(item, TIMELINE_CALL_ID_KEYS)),
-    requestId: positiveNumberFromFields(item, ['requestId', 'request_id']),
+    sessionScope: approvalIdentity === null ? '' : approvalIdentity.sessionScope,
+    callId: approvalIdentity ? approvalIdentity.callId : normalizeString(firstFieldValue(item, TIMELINE_CALL_ID_KEYS)),
+    requestId: approvalIdentity ? approvalIdentity.requestId : positiveNumberFromFields(item, ['requestId', 'request_id']),
     command: normalizeString(item?.command),
     toolName: normalizeString(firstOptionalPresent(item?.tool, item?.toolName, item?.tool_name)),
     status,
@@ -264,6 +269,7 @@ function coalesceTimelineLifecycleItems(items = []) {
 }
 
 export function sameTimelineContent(left, right) {
+  if (normalizeTimelineKind(left) === 'approval' || normalizeTimelineKind(right) === 'approval') return false;
   return left?.role === right?.role && normalizeTimelineKind(left) === normalizeTimelineKind(right) && normalizeString(left?.text) === normalizeString(right?.text);
 }
 
@@ -331,6 +337,7 @@ function sameTimelineSubstring(left, right) {
 }
 
 function sameTimelineDuplicateContent(left, right) {
+  if (normalizeTimelineKind(left) === 'approval' || normalizeTimelineKind(right) === 'approval') return false;
   return sameTimelineContent(left, right) || sameTimelineContentCompact(left, right) || sameRuntimeAssistantContentLoose(left, right) || sameTimelineSubstring(left, right);
 }
 
@@ -359,9 +366,10 @@ function isMeaningfulCommandTimelineItem(item) {
 }
 
 function isVisibleApprovalTimelineItem(item) {
-  const requestId = positiveNumberFromFields(item, ['requestId', 'request_id']);
-  const status = normalizeString(item?.status);
-  return requestId > 0 && Boolean(status);
+  const identity = approvalIdentityFromFields(item, 'timeline approval');
+  const status = normalizeString(item?.status).toLowerCase();
+  if (status === 'pending') return identity.complete;
+  return status === 'approved' || status === 'rejected';
 }
 
 export function isVisibleTimelineItem(item) {
@@ -461,6 +469,7 @@ function areTimelineItemsEquivalent(left, right) {
   if (normText(left.title) !== normText(right.title)) return false;
   if (normText(left.command) !== normText(right.command)) return false;
   if (normText(left.toolName) !== normText(right.toolName)) return false;
+  if (normText(left.sessionScope) !== normText(right.sessionScope)) return false;
   if (normText(left.callId) !== normText(right.callId)) return false;
   if (normText(left.time) !== normText(right.time)) return false;
 

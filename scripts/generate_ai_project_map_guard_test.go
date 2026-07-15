@@ -256,6 +256,43 @@ func TestProjectMapManifestIncludesRoutesAndShardStats(t *testing.T) {
 	}
 }
 
+// TestProjectMapCheckPreservesGeneratedDate 验证 check 复用已有生成日期，同时仍能识别真实内容漂移。
+func TestProjectMapCheckPreservesGeneratedDate(t *testing.T) {
+	requireNodeForProjectMap(t)
+	root := prepareProjectMapFixture(t, true)
+
+	out, err := runProjectMapGenerator(t, root)
+	if err != nil {
+		t.Fatalf("project map generator failed: %v\n%s", err, out)
+	}
+	setProjectMapGeneratedDate(t, root, "2001-02-03")
+
+	out, err = runProjectMapGenerator(t, root, "--check")
+	if err != nil {
+		t.Fatalf("project map check failed after only the UTC date changed: %v\n%s", err, out)
+	}
+	assertOutputContainsAll(t, out, "files up to date")
+	assertOutputContainsAll(t, readProjectMapOutputs(t, root), "> 生成时间：2001-02-03")
+	manifestData, err := os.ReadFile(filepath.Join(root, "docs", "doc", "codemap", "project-map", "AI_PROJECT_MANIFEST.json"))
+	if err != nil {
+		t.Fatalf("read project map manifest: %v", err)
+	}
+	assertOutputContainsAll(t, string(manifestData), `"generated_at": "2001-02-03"`)
+
+	mapPath := filepath.Join(root, "docs", "doc", "codemap", "project-map", "AI_PROJECT_MAP.md")
+	mapData, err := os.ReadFile(mapPath)
+	if err != nil {
+		t.Fatalf("read project map: %v", err)
+	}
+	writeFixTestGuardFile(t, root, "docs/doc/codemap/project-map/AI_PROJECT_MAP.md", string(mapData)+"unexpected drift\n")
+
+	out, err = runProjectMapGenerator(t, root, "--check")
+	if err == nil {
+		t.Fatalf("project map check succeeded with content drift\n%s", out)
+	}
+	assertOutputContainsAll(t, out, "AI_PROJECT_MAP.md differs from generated output")
+}
+
 func TestProjectMapGeneratorAppliesDriftThresholdOverride(t *testing.T) {
 	requireNodeForProjectMap(t)
 	root := prepareProjectMapFixture(t, true)
@@ -312,6 +349,41 @@ func runProjectMapGenerator(t *testing.T, root string, args ...string) (string, 
 	cmd.Dir = root
 	out, err := cmd.CombinedOutput()
 	return string(out), err
+}
+
+func setProjectMapGeneratedDate(t *testing.T, root, generatedDate string) {
+	t.Helper()
+	manifestPath := filepath.Join(root, "docs", "doc", "codemap", "project-map", "AI_PROJECT_MANIFEST.json")
+	manifestData, err := os.ReadFile(manifestPath)
+	if err != nil {
+		t.Fatalf("read project map manifest: %v", err)
+	}
+	var manifest struct {
+		GeneratedAt string `json:"generated_at"`
+	}
+	if err := json.Unmarshal(manifestData, &manifest); err != nil {
+		t.Fatalf("parse project map manifest: %v", err)
+	}
+	if manifest.GeneratedAt == "" || manifest.GeneratedAt == generatedDate {
+		t.Fatalf("project map generated_at = %q, cannot simulate a UTC day change", manifest.GeneratedAt)
+	}
+
+	replacements := map[string][2]string{
+		"docs/doc/codemap/project-map/AI_PROJECT_MAP.md":        {"> 生成时间：" + manifest.GeneratedAt, "> 生成时间：" + generatedDate},
+		"docs/doc/codemap/project-map/AI_PROJECT_MANIFEST.json": {`"generated_at": "` + manifest.GeneratedAt + `"`, `"generated_at": "` + generatedDate + `"`},
+	}
+	for rel, replacement := range replacements {
+		path := filepath.Join(root, filepath.FromSlash(rel))
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("read %s: %v", rel, err)
+		}
+		content := string(data)
+		if strings.Count(content, replacement[0]) != 1 {
+			t.Fatalf("%s must contain exactly one generated date %q", rel, replacement[0])
+		}
+		writeFixTestGuardFile(t, root, rel, strings.Replace(content, replacement[0], replacement[1], 1))
+	}
 }
 
 func readProjectMapOutputs(t *testing.T, root string) string {

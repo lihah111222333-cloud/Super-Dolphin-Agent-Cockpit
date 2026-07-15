@@ -290,7 +290,7 @@ internal/archtest/wire_dto_field_registry_test.go	internal	other	go-test	9667	�
 internal/contract/agent_state_test.go	internal	other	go-test	916	跨模块稳定接口、事件和 DTO 边界	internal,contract,agent,state,test,跨模块稳定接口,事件和,DTO,边界
 internal/contract/agent_state.go	internal	other	go-source	14354	跨模块稳定接口、事件和 DTO 边界	internal,contract,agent,state,跨模块稳定接口,事件和,DTO,边界
 internal/contract/agent_workflow_test.go	internal	other	go-test	5083	跨模块稳定接口、事件和 DTO 边界	internal,contract,agent,workflow,test,跨模块稳定接口,事件和,DTO,边界
-internal/contract/approval.go	internal	other	go-source	2002	跨模块稳定接口、事件和 DTO 边界	internal,contract,approval,跨模块稳定接口,事件和,DTO,边界
+internal/contract/approval.go	internal	other	go-source	2323	跨模块稳定接口、事件和 DTO 边界	internal,contract,approval,跨模块稳定接口,事件和,DTO,边界
 internal/contract/bootstrap_hook.go	internal	other	go-source	441	跨模块稳定接口、事件和 DTO 边界	internal,contract,bootstrap,hook,跨模块稳定接口,事件和,DTO,边界
 internal/contract/bus.go	internal	other	go-source	2166	跨模块稳定接口、事件和 DTO 边界	internal,contract,bus,跨模块稳定接口,事件和,DTO,边界
 internal/contract/change_request_test.go	internal	other	go-test	1381	跨模块稳定接口、事件和 DTO 边界	internal,contract,change,request,test,跨模块稳定接口,事件和,DTO,边界
@@ -336,6 +336,8 @@ internal/contract/toolbridge.go	internal	other	go-source	4928	跨模块稳定接
 internal/contract/ui_project_state.go	internal	other	go-source	623	跨模块稳定接口、事件和 DTO 边界	internal,contract,ui,project,state,跨模块稳定接口,事件和,DTO,边界
 internal/devtools/capcontract/manifest_test.go	internal	other	go-test	3914	开发工具与生成器辅助包	internal,devtools,capcontract,manifest,test,开发工具与生成器辅助包
 internal/devtools/capcontract/manifest.go	internal	other	go-source	9607	开发工具与生成器辅助包	internal,devtools,capcontract,manifest,开发工具与生成器辅助包
+internal/devtools/capcontract/path_rules_test.go	internal	other	go-test	5760	开发工具与生成器辅助包	internal,devtools,capcontract,path,rules,test,开发工具与生成器辅助包
+internal/devtools/capcontract/path_rules.go	internal	other	go-source	9115	开发工具与生成器辅助包	internal,devtools,capcontract,path,rules,开发工具与生成器辅助包
 internal/devtools/capcontract/scanner_test.go	internal	other	go-test	7081	开发工具与生成器辅助包	internal,devtools,capcontract,scanner,test,开发工具与生成器辅助包
 internal/devtools/capcontract/scanner.go	internal	other	go-source	17965	开发工具与生成器辅助包	internal,devtools,capcontract,scanner,开发工具与生成器辅助包
 internal/devtools/codemapindex/anchor_test.go	internal	other	go-test	3795	开发工具与生成器辅助包	internal,devtools,codemapindex,anchor,test,开发工具与生成器辅助包
@@ -380,7 +382,7 @@ internal/dto/provider/thread.go	internal	other	go-source	256	provider/shared DTO
 internal/dto/provider/turn_test.go	internal	other	go-test	6783	provider/shared DTO 与事件协议	internal,dto,provider,turn,test,shared,DTO,与事件协议
 internal/dto/provider/turn.go	internal	other	go-source	6436	provider/shared DTO 与事件协议	internal,dto,provider,turn,shared,DTO,与事件协议
 internal/dto/shared/errors.go	internal	other	go-source	439	provider/shared DTO 与事件协议	internal,dto,shared,errors,provider,DTO,与事件协议
-internal/dto/shared/event.go	internal	other	go-source	4569	provider/shared DTO 与事件协议	internal,dto,shared,event,provider,DTO,与事件协议
+internal/dto/shared/event.go	internal	other	go-source	4625	provider/shared DTO 与事件协议	internal,dto,shared,event,provider,DTO,与事件协议
 internal/dto/shared/input.go	internal	other	go-source	1210	provider/shared DTO 与事件协议	internal,dto,shared,input,provider,DTO,与事件协议
 internal/dto/task/event.go	internal	other	go-source	724	provider/shared DTO 与事件协议	internal,dto,task,event,provider,shared,DTO,与事件协议
 internal/dto/thread/event.go	internal	other	go-source	4374	provider/shared DTO 与事件协议	internal,dto,thread,event,provider,shared,DTO,与事件协议
@@ -502,17 +504,20 @@ scripts/ai_maintenance_gates_guard_test.go	scripts	other	go-test	1759	工程自�
 scripts/ai_maintenance_gates.sh	scripts	other	script	175	工程自动化、测试守卫、代码地图与开发脚本	scripts,ai,maintenance,gates,工程自动化,测试守卫,代码地图与开发脚本
 scripts/ai_maintenance/deferred_e2e_packages.txt	scripts	other	txt	59	工程自动化、测试守卫、代码地图与开发脚本	scripts,ai,maintenance,deferred,e2e,packages,工程自动化,测试守卫,代码地图与开发脚本
 scripts/ai_maintenance/deferred_e2e.go	scripts	other	go-source	732	工程自动化、测试守卫、代码地图与开发脚本	scripts,ai,maintenance,deferred,e2e,工程自动化,测试守卫,代码地图与开发脚本
+scripts/ai_maintenance/evidence.go	scripts	other	go-source	8255	工程自动化、测试守卫、代码地图与开发脚本	scripts,ai,maintenance,evidence,工程自动化,测试守卫,代码地图与开发脚本
 scripts/ai_maintenance/gate_cache_test.go	scripts	other	go-test	17103	工程自动化、测试守卫、代码地图与开发脚本	scripts,ai,maintenance,gate,cache,test,工程自动化,测试守卫,代码地图与开发脚本
 scripts/ai_maintenance/gate_cache.go	scripts	other	go-source	12290	工程自动化、测试守卫、代码地图与开发脚本	scripts,ai,maintenance,gate,cache,工程自动化,测试守卫,代码地图与开发脚本
-scripts/ai_maintenance/gate_execution.go	scripts	other	go-source	4658	工程自动化、测试守卫、代码地图与开发脚本	scripts,ai,maintenance,gate,execution,工程自动化,测试守卫,代码地图与开发脚本
-scripts/ai_maintenance/main_test.go	scripts	other	go-test	15236	工程自动化、测试守卫、代码地图与开发脚本	scripts,ai,maintenance,main,test,工程自动化,测试守卫,代码地图与开发脚本
-scripts/ai_maintenance/main.go	scripts	other	go-source	27180	工程自动化、测试守卫、代码地图与开发脚本	scripts,ai,maintenance,main,工程自动化,测试守卫,代码地图与开发脚本
+scripts/ai_maintenance/gate_execution.go	scripts	other	go-source	4761	工程自动化、测试守卫、代码地图与开发脚本	scripts,ai,maintenance,gate,execution,工程自动化,测试守卫,代码地图与开发脚本
+scripts/ai_maintenance/main_test.go	scripts	other	go-test	16264	工程自动化、测试守卫、代码地图与开发脚本	scripts,ai,maintenance,main,test,工程自动化,测试守卫,代码地图与开发脚本
+scripts/ai_maintenance/main.go	scripts	other	go-source	20695	工程自动化、测试守卫、代码地图与开发脚本	scripts,ai,maintenance,main,工程自动化,测试守卫,代码地图与开发脚本
 scripts/archtestmap/main_test.go	scripts	other	go-test	13277	工程自动化、测试守卫、代码地图与开发脚本	scripts,archtestmap,main,test,工程自动化,测试守卫,代码地图与开发脚本
 scripts/archtestmap/main.go	scripts	other	go-source	27208	工程自动化、测试守卫、代码地图与开发脚本	scripts,archtestmap,main,工程自动化,测试守卫,代码地图与开发脚本
 scripts/bash_test_helpers_test.go	scripts	other	go-test	8708	工程自动化、测试守卫、代码地图与开发脚本	scripts,bash,test,helpers,工程自动化,测试守卫,代码地图与开发脚本
+scripts/capcontract_gate_path_guard_test.go	scripts	other	go-test	8335	工程自动化、测试守卫、代码地图与开发脚本	scripts,capcontract,gate,path,guard,test,工程自动化,测试守卫,代码地图与开发脚本
 scripts/capcontract.go	scripts	other	go-source	579	工程自动化、测试守卫、代码地图与开发脚本	scripts,capcontract,工程自动化,测试守卫,代码地图与开发脚本
 scripts/capcontract/main_test.go	scripts	other	go-test	2455	工程自动化、测试守卫、代码地图与开发脚本	scripts,capcontract,main,test,工程自动化,测试守卫,代码地图与开发脚本
-scripts/capcontract/main.go	scripts	other	go-source	4839	工程自动化、测试守卫、代码地图与开发脚本	scripts,capcontract,main,工程自动化,测试守卫,代码地图与开发脚本
+scripts/capcontract/main.go	scripts	other	go-source	5844	工程自动化、测试守卫、代码地图与开发脚本	scripts,capcontract,main,工程自动化,测试守卫,代码地图与开发脚本
+scripts/capcontract/path_rules.sh	scripts	other	script	4125	工程自动化、测试守卫、代码地图与开发脚本	scripts,capcontract,path,rules,工程自动化,测试守卫,代码地图与开发脚本
 scripts/check_p1_turn_wrappers_guard_test.go	scripts	other	go-test	9307	工程自动化、测试守卫、代码地图与开发脚本	scripts,check,p1,turn,wrappers,guard,test,工程自动化,测试守卫,代码地图与开发脚本
 scripts/check_p1_turn_wrappers.go	scripts	other	go-source	5150	工程自动化、测试守卫、代码地图与开发脚本	scripts,check,p1,turn,wrappers,工程自动化,测试守卫,代码地图与开发脚本
 scripts/check-dag-doc-sync.sh	scripts	other	script	4698	工程自动化、测试守卫、代码地图与开发脚本	scripts,check,dag,doc,sync,工程自动化,测试守卫,代码地图与开发脚本
@@ -524,7 +529,8 @@ scripts/code_size_guard_test.go	scripts	other	go-test	2791	工程自动化、测
 scripts/code_size_guard.go	scripts	other	go-source	16240	工程自动化、测试守卫、代码地图与开发脚本	scripts,code,size,guard,工程自动化,测试守卫,代码地图与开发脚本
 scripts/codemap_index_test.go	scripts	other	go-test	709	工程自动化、测试守卫、代码地图与开发脚本	scripts,codemap,index,test,工程自动化,测试守卫,代码地图与开发脚本
 scripts/codemap_index.go	scripts	other	go-source	16462	工程自动化、测试守卫、代码地图与开发脚本	scripts,codemap,index,工程自动化,测试守卫,代码地图与开发脚本
-scripts/codex_stop_gate.sh	scripts	other	script	9559	工程自动化、测试守卫、代码地图与开发脚本	scripts,codex,stop,gate,工程自动化,测试守卫,代码地图与开发脚本
+scripts/codex_stop_gate.sh	scripts	other	script	10663	工程自动化、测试守卫、代码地图与开发脚本	scripts,codex,stop,gate,工程自动化,测试守卫,代码地图与开发脚本
+scripts/commit_title_enforcement_baseline.txt	scripts	other	txt	41	工程自动化、测试守卫、代码地图与开发脚本	scripts,commit,title,enforcement,baseline,工程自动化,测试守卫,代码地图与开发脚本
 scripts/configure_hook_node_runtime.sh	scripts	other	script	1742	工程自动化、测试守卫、代码地图与开发脚本	scripts,configure,hook,node,runtime,工程自动化,测试守卫,代码地图与开发脚本
 scripts/dag_m3_dogfood_test.py	scripts	other	py	18679	工程自动化、测试守卫、代码地图与开发脚本	scripts,dag,m3,dogfood,test,工程自动化,测试守卫,代码地图与开发脚本
 scripts/dag_m3_dogfood.py	scripts	other	py	29352	工程自动化、测试守卫、代码地图与开发脚本	scripts,dag,m3,dogfood,工程自动化,测试守卫,代码地图与开发脚本
@@ -535,10 +541,10 @@ scripts/extract_jsonrpc_methods.go	scripts	other	go-source	10788	工程自动化
 scripts/fixtures/prompt_intent_dream_fixture.json	scripts	other	json	3001	工程自动化、测试守卫、代码地图与开发脚本	scripts,fixtures,prompt,intent,dream,fixture,工程自动化,测试守卫,代码地图与开发脚本
 scripts/forbid_raw_go_test.sh	scripts	other	script	2325	工程自动化、测试守卫、代码地图与开发脚本	scripts,forbid,raw,go,test,工程自动化,测试守卫,代码地图与开发脚本
 scripts/frontend_build_guard_test.go	scripts	other	go-test	1973	工程自动化、测试守卫、代码地图与开发脚本	scripts,frontend,build,guard,test,工程自动化,测试守卫,代码地图与开发脚本
-scripts/frontend_embed_verify_guard_test.go	scripts	other	go-test	17089	工程自动化、测试守卫、代码地图与开发脚本	scripts,frontend,embed,verify,guard,test,工程自动化,测试守卫,代码地图与开发脚本
+scripts/frontend_embed_verify_guard_test.go	scripts	other	go-test	17048	工程自动化、测试守卫、代码地图与开发脚本	scripts,frontend,embed,verify,guard,test,工程自动化,测试守卫,代码地图与开发脚本
 scripts/frontend_embed_verify.sh	scripts	other	script	2368	工程自动化、测试守卫、代码地图与开发脚本	scripts,frontend,embed,verify,工程自动化,测试守卫,代码地图与开发脚本
-scripts/generate_ai_project_map_guard_test.go	scripts	other	go-test	16029	工程自动化、测试守卫、代码地图与开发脚本	scripts,generate,ai,project,map,guard,test,工程自动化,测试守卫,代码地图与开发脚本
-scripts/generate_ai_project_map.mjs	scripts	other	js-source	40423	工程自动化、测试守卫、代码地图与开发脚本	scripts,generate,ai,project,map,工程自动化,测试守卫,代码地图与开发脚本
+scripts/generate_ai_project_map_guard_test.go	scripts	other	go-test	19072	工程自动化、测试守卫、代码地图与开发脚本	scripts,generate,ai,project,map,guard,test,工程自动化,测试守卫,代码地图与开发脚本
+scripts/generate_ai_project_map.mjs	scripts	other	js-source	41420	工程自动化、测试守卫、代码地图与开发脚本	scripts,generate,ai,project,map,工程自动化,测试守卫,代码地图与开发脚本
 scripts/generated_artifacts_auto_refresh_guard_test.go	scripts	other	go-test	11192	工程自动化、测试守卫、代码地图与开发脚本	scripts,generated,artifacts,auto,refresh,guard,test,工程自动化,测试守卫,代码地图与开发脚本
 scripts/generated_artifacts_auto_refresh.sh	scripts	other	script	7331	工程自动化、测试守卫、代码地图与开发脚本	scripts,generated,artifacts,auto,refresh,工程自动化,测试守卫,代码地图与开发脚本
 scripts/github_release_updater_guard_test.go	scripts	other	go-test	26455	工程自动化、测试守卫、代码地图与开发脚本	scripts,github,release,updater,guard,test,工程自动化,测试守卫,代码地图与开发脚本
@@ -546,10 +552,10 @@ scripts/go	scripts	other	file	1043	工程自动化、测试守卫、代码地图
 scripts/go_guard_shell.sh	scripts	other	script	603	工程自动化、测试守卫、代码地图与开发脚本	scripts,go,guard,shell,工程自动化,测试守卫,代码地图与开发脚本
 scripts/go_package_roots_guard_test.go	scripts	other	go-test	1245	工程自动化、测试守卫、代码地图与开发脚本	scripts,go,package,roots,guard,test,工程自动化,测试守卫,代码地图与开发脚本
 scripts/go_with_guard.sh	scripts	other	script	969	工程自动化、测试守卫、代码地图与开发脚本	scripts,go,with,guard,工程自动化,测试守卫,代码地图与开发脚本
-scripts/guard_commit_titles.sh	scripts	other	script	3093	工程自动化、测试守卫、代码地图与开发脚本	scripts,guard,commit,titles,工程自动化,测试守卫,代码地图与开发脚本
+scripts/guard_commit_titles.sh	scripts	other	script	4381	工程自动化、测试守卫、代码地图与开发脚本	scripts,guard,commit,titles,工程自动化,测试守卫,代码地图与开发脚本
 scripts/guard_env_test.sh	scripts	other	script	5510	工程自动化、测试守卫、代码地图与开发脚本	scripts,guard,env,test,工程自动化,测试守卫,代码地图与开发脚本
-scripts/guard_fix_commits_have_tests_guard_test.go	scripts	other	go-test	34021	工程自动化、测试守卫、代码地图与开发脚本	scripts,guard,fix,commits,have,tests,test,工程自动化,测试守卫,代码地图与开发脚本
-scripts/guard_fix_commits_have_tests_helpers_test.go	scripts	other	go-test	17973	工程自动化、测试守卫、代码地图与开发脚本	scripts,guard,fix,commits,have,tests,helpers,test,工程自动化,测试守卫,代码地图与开发脚本
+scripts/guard_fix_commits_have_tests_guard_test.go	scripts	other	go-test	39049	工程自动化、测试守卫、代码地图与开发脚本	scripts,guard,fix,commits,have,tests,test,工程自动化,测试守卫,代码地图与开发脚本
+scripts/guard_fix_commits_have_tests_helpers_test.go	scripts	other	go-test	22078	工程自动化、测试守卫、代码地图与开发脚本	scripts,guard,fix,commits,have,tests,helpers,test,工程自动化,测试守卫,代码地图与开发脚本
 scripts/guard_fix_commits_have_tests.sh	scripts	other	script	9304	工程自动化、测试守卫、代码地图与开发脚本	scripts,guard,fix,commits,have,tests,工程自动化,测试守卫,代码地图与开发脚本
 scripts/hook_node_runtime_guard_test.go	scripts	other	go-test	2712	工程自动化、测试守卫、代码地图与开发脚本	scripts,hook,node,runtime,guard,test,工程自动化,测试守卫,代码地图与开发脚本
 scripts/install_hooks_guard_test.go	scripts	other	go-test	2562	工程自动化、测试守卫、代码地图与开发脚本	scripts,install,hooks,guard,test,工程自动化,测试守卫,代码地图与开发脚本
@@ -607,7 +613,7 @@ scripts/sqlite_release_gates/main.go	scripts	other	go-source	2605	工程自动�
 scripts/test_new_ui_desktop_hot.sh	scripts	other	script	1251	工程自动化、测试守卫、代码地图与开发脚本	scripts,test,new,ui,desktop,hot,工程自动化,测试守卫,代码地图与开发脚本
 scripts/test_with_guard.ps1	scripts	other	script	12071	工程自动化、测试守卫、代码地图与开发脚本	scripts,test,with,guard,工程自动化,测试守卫,代码地图与开发脚本
 scripts/test_with_guard.sh	scripts	other	script	2684	工程自动化、测试守卫、代码地图与开发脚本	scripts,test,with,guard,工程自动化,测试守卫,代码地图与开发脚本
-scripts/tests/test_codex_stop_gate_plan.sh	scripts	other	script	4208	工程自动化、测试守卫、代码地图与开发脚本	scripts,tests,test,codex,stop,gate,plan,工程自动化,测试守卫,代码地图与开发脚本
+scripts/tests/test_codex_stop_gate_plan.sh	scripts	other	script	7486	工程自动化、测试守卫、代码地图与开发脚本	scripts,tests,test,codex,stop,gate,plan,工程自动化,测试守卫,代码地图与开发脚本
 scripts/uat-p21.sh	scripts	other	script	9595	工程自动化、测试守卫、代码地图与开发脚本	scripts,uat,p21,工程自动化,测试守卫,代码地图与开发脚本
 scripts/ui-coverage.sh	scripts	other	script	8745	工程自动化、测试守卫、代码地图与开发脚本	scripts,ui,coverage,工程自动化,测试守卫,代码地图与开发脚本
 scripts/update_apiserver_guard_snapshots.js	scripts	other	js-source	1920	工程自动化、测试守卫、代码地图与开发脚本	scripts,update,apiserver,guard,snapshots,工程自动化,测试守卫,代码地图与开发脚本

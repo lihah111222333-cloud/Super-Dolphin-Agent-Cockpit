@@ -3,27 +3,27 @@ package rpc
 import (
 	"context"
 	"errors"
-	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/creachadair/jrpc2"
+	"github.com/google/uuid"
 	"github.com/kelindar/event"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
+	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
 )
 
 // ApprovalManager 管理工具调用审批、用户输入请求以及客户端回调结果。
-// pending 与 pendingByRequestID 必须在同一把锁下维护，避免 callID/requestID 查询视图分裂。
+// pending/completed 只接受完整审批身份生成的精确键，不保留 requestID-only 反向索引。
 type ApprovalManager struct {
 	mu                   sync.Mutex
 	lifecycleMu          sync.Mutex
 	pending              map[string]*pendingApproval
-	pendingByRequestID   map[int64]map[string]*pendingApproval
 	completed            map[string]completedApproval
-	completedByRequestID map[int64]map[string]completedApproval
+	internalSessionScope string
 	nextRequestID        atomic.Int64
 	logger               *pkglogger.Logger
 	dispatcher           *event.Dispatcher
@@ -35,6 +35,7 @@ var _ contract.ApprovalResponder = (*ApprovalManager)(nil)
 // done 和 once 保证等待方、恢复流程和回调 goroutine 只会共同完成一次。
 type pendingApproval struct {
 	key       string
+	identity  contract.ApprovalIdentity
 	callID    string
 	requestID *int64
 	toolName  string
@@ -52,24 +53,25 @@ type pendingApproval struct {
 }
 
 type completedApproval struct {
-	callID    string
-	requestID *int64
-	decision  contract.ApprovalDecision
-	err       error
+	identity    contract.ApprovalIdentity
+	decision    contract.ApprovalDecision
+	err         error
+	completedAt time.Time
 }
 
 // ApprovalRequest 是 RPC 层内部使用的审批请求 DTO。
 // CallbackMethod 与 ApprovalPolicy 不透出 JSON，只用于本进程内的回调路由和策略判断。
 type ApprovalRequest struct {
-	CallID         string         `json:"callId,omitempty"`     // provider 侧工具调用 ID
-	ApprovalID     string         `json:"approvalId,omitempty"` // 前端兼容的审批 ID
-	ToolName       string         `json:"toolName,omitempty"`   // 触发审批的工具名
-	AgentID        string         `json:"agentId,omitempty"`    // 发起审批的 agent
-	ThreadID       string         `json:"threadId,omitempty"`   // 所属 thread
-	TurnID         string         `json:"turnId,omitempty"`     // 所属 turn
-	Reason         string         `json:"reason,omitempty"`     // 展示给用户的审批原因
-	Kind           string         `json:"kind,omitempty"`       // tool 或 request_user_input
-	State          string         `json:"state,omitempty"`      // provider 当前等待状态
+	SessionScope   string         `json:"sessionScope,omitempty"` // 后端签发的 provider session scope
+	CallID         string         `json:"callId,omitempty"`       // provider 侧工具调用 ID
+	ApprovalID     string         `json:"approvalId,omitempty"`   // 前端兼容的审批 ID
+	ToolName       string         `json:"toolName,omitempty"`     // 触发审批的工具名
+	AgentID        string         `json:"agentId,omitempty"`      // 发起审批的 agent
+	ThreadID       string         `json:"threadId,omitempty"`     // 所属 thread
+	TurnID         string         `json:"turnId,omitempty"`       // 所属 turn
+	Reason         string         `json:"reason,omitempty"`       // 展示给用户的审批原因
+	Kind           string         `json:"kind,omitempty"`         // tool 或 request_user_input
+	State          string         `json:"state,omitempty"`        // provider 当前等待状态
 	SourceMethod   string         `json:"sourceMethod,omitempty"`
 	CallbackMethod string         `json:"-"`
 	RequestID      *int64         `json:"requestId,omitempty"` // Codex 风格请求 ID
@@ -77,16 +79,15 @@ type ApprovalRequest struct {
 	Payload        map[string]any `json:"payload,omitempty"` // 原始 provider payload 的安全副本
 }
 
-// NewApprovalManager 创建审批管理器，并初始化 callID 与 requestID 双索引。
+// NewApprovalManager 创建审批管理器，并为内部 host-tool 审批签发独立后端 scope。
 func NewApprovalManager(logger *pkglogger.Logger, dispatcher *event.Dispatcher) *ApprovalManager {
 	if logger == nil {
 		logger = pkglogger.Get()
 	}
 	return &ApprovalManager{
 		pending:              make(map[string]*pendingApproval),
-		pendingByRequestID:   make(map[int64]map[string]*pendingApproval),
 		completed:            make(map[string]completedApproval),
-		completedByRequestID: make(map[int64]map[string]completedApproval),
+		internalSessionScope: uuid.NewString(),
 		logger:               logger,
 		dispatcher:           dispatcher,
 	}
@@ -100,8 +101,8 @@ func bridgeDispatcher(bridge *PushBridge) *event.Dispatcher {
 	return bridge.dispatcher
 }
 
-// RequestApproval 注册审批请求、派发给客户端并等待用户决策。
-// 同一个 callID/requestID 的重复请求会复用 pending 状态，只有 owner 负责回调派发和超时失败。
+// RequestApproval 注册具有完整后端身份的审批请求、派发给客户端并等待用户决策。
+// 同一个 sessionScope/callID/requestID 的重复请求会复用 pending 状态，只有 owner 负责派发和超时失败。
 func (m *ApprovalManager) RequestApproval(ctx context.Context, bridge *PushBridge, server *jrpc2.Server, req ApprovalRequest) (contract.ApprovalDecision, error) {
 	ctx, cancel := WithApprovalDeadline(ctx)
 	defer cancel()
@@ -137,6 +138,23 @@ func (m *ApprovalManager) RequestApproval(ctx context.Context, bridge *PushBridg
 	return contract.ApprovalDecision{}, err
 }
 
+// RequestInternalApproval 为可信的进程内 host-tool 请求签发身份后进入统一审批流程。
+// 该入口不会读取调用方提供的 scope/requestID，避免把 provider 身份补全变成隐式兼容。
+func (m *ApprovalManager) RequestInternalApproval(ctx context.Context, bridge *PushBridge, server *jrpc2.Server, req ApprovalRequest) (contract.ApprovalDecision, error) {
+	if m == nil {
+		return contract.ApprovalDecision{}, ErrInvalidState("approval manager is nil")
+	}
+	callID := strings.TrimSpace(req.CallID)
+	if callID == "" {
+		return contract.ApprovalDecision{}, ErrInvalidState("approval call id is required")
+	}
+	requestID := m.nextRequestID.Add(1)
+	req.SessionScope = m.internalSessionScope
+	req.CallID = callID
+	req.RequestID = &requestID
+	return m.RequestApproval(ctx, bridge, server, req)
+}
+
 // RequestUserInput 把用户输入请求映射到审批等待流程，并补齐默认 kind。
 func (m *ApprovalManager) RequestUserInput(ctx context.Context, bridge *PushBridge, server *jrpc2.Server, req ApprovalRequest) (contract.ApprovalDecision, error) {
 	if strings.TrimSpace(req.Kind) == "" {
@@ -145,60 +163,74 @@ func (m *ApprovalManager) RequestUserInput(ctx context.Context, bridge *PushBrid
 	return m.RequestApproval(ctx, bridge, server, req)
 }
 
-// Respond 根据 callID/requestID 找到 pending 请求并写入用户决策。
-func (m *ApprovalManager) Respond(callID string, requestID *int64, decision contract.ApprovalDecision) error {
-	pending := m.lookupPending(callID, requestID)
+// Respond 根据完整审批身份找到 pending 请求并写入用户决策。
+func (m *ApprovalManager) Respond(identity contract.ApprovalIdentity, decision contract.ApprovalDecision) error {
+	identity, err := normalizeApprovalIdentity(identity)
+	if err != nil {
+		return err
+	}
+	pending := m.lookupPending(identity)
 	if pending == nil {
-		if approvalCallID(callID, requestID) == "" {
-			return ErrInvalidState("approval call id is required")
-		}
-		if completed, ok := m.lookupCompleted(callID, requestID); ok {
-			if !sameApprovalDecision(completed.decision, decision) {
-				return ErrInvalidState("approval already resolved with a different decision")
-			}
-			return completed.err
+		if completed, ok := m.lookupCompleted(identity); ok {
+			return approvalCompletionResult(completed, decision)
 		}
 		return ErrNotFound("approval is not pending")
 	}
-	m.finishPending(pending, decision, nil)
+	return m.respondPending(pending, decision)
+}
+
+// respondPending 完成调用方已精确定位的 pending，并按实际赢家返回幂等、冲突或失败结果。
+func (m *ApprovalManager) respondPending(pending *pendingApproval, decision contract.ApprovalDecision) error {
+	completed := m.finishPending(pending, decision, nil)
+	return approvalCompletionResult(completed, decision)
+}
+
+func approvalCompletionResult(completed completedApproval, decision contract.ApprovalDecision) error {
+	if completed.err != nil {
+		return completed.err
+	}
+	if !sameApprovalDecision(completed.decision, decision) {
+		return ErrInvalidState("approval already resolved with a different decision")
+	}
 	return nil
 }
 
-// AutoApprove 对旧式只按 callID 定位的请求写入批准决策。
-func (m *ApprovalManager) AutoApprove(callID string) error {
-	return m.Respond(callID, nil, approvedDecision())
+// AutoApprove 对完整身份定位的请求写入批准决策。
+func (m *ApprovalManager) AutoApprove(identity contract.ApprovalIdentity) error {
+	return m.Respond(identity, approvedDecision())
 }
 
 // registerPending 创建或复用 pending 请求，并返回当前调用方是否为 owner。
-// requestID 缺失时生成本地递增 ID，保证同 callID 的并发请求仍可区分。
+// 调用方必须先完成身份标准化；缺失任一身份分量时拒绝注册。
 func (m *ApprovalManager) registerPending(req ApprovalRequest, dispatcher *event.Dispatcher) (*pendingApproval, bool) {
+	identity, err := approvalIdentityFromRequest(req)
+	if err != nil {
+		return nil, false
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if dispatcher == nil {
 		dispatcher = m.dispatcher
 	}
-	requestID := cloneInt64Ptr(req.RequestID)
-	if requestID == nil || *requestID <= 0 {
-		next := m.nextRequestID.Add(1)
-		requestID = &next
-	}
-	key := pendingStorageKey(req.CallID, requestID)
+	requestID := identity.RequestID
+	requestIDRef := &requestID
+	key := pendingStorageKey(identity)
 	if pending := m.pending[key]; pending != nil {
 		return pending, false
 	}
 	pending := &pendingApproval{
 		key:        key,
-		callID:     req.CallID,
-		requestID:  requestID,
+		identity:   identity,
+		callID:     identity.CallID,
+		requestID:  requestIDRef,
 		toolName:   req.ToolName,
 		result:     make(chan contract.ApprovalDecision, 1),
 		createdAt:  time.Now(),
 		done:       make(chan struct{}),
 		dispatcher: dispatcher,
-		request:    cloneApprovalRequest(req, requestID),
+		request:    cloneApprovalRequest(req, requestIDRef),
 	}
 	m.pending[key] = pending
-	m.indexPendingLocked(pending)
 	return pending, true
 }
 
@@ -312,15 +344,14 @@ func (m *ApprovalManager) resetDispatch(pending *pendingApproval) {
 }
 
 // finishPending 原子完成审批请求，清理索引、取消派发 context 并通知等待方。
-func (m *ApprovalManager) finishPending(pending *pendingApproval, decision contract.ApprovalDecision, err error) {
+func (m *ApprovalManager) finishPending(pending *pendingApproval, decision contract.ApprovalDecision, err error) completedApproval {
 	if pending == nil {
-		return
+		return completedApproval{decision: decision, err: err}
 	}
 	pending.once.Do(func() {
 		m.mu.Lock()
 		if current := m.pending[pending.key]; current == pending {
 			delete(m.pending, pending.key)
-			m.removePendingLocked(pending)
 		}
 		cancel := pending.cancel
 		pending.cancel = nil
@@ -328,10 +359,10 @@ func (m *ApprovalManager) finishPending(pending *pendingApproval, decision contr
 		pending.decision = decision
 		pending.err = err
 		m.indexCompletedLocked(completedApproval{
-			callID:    pending.callID,
-			requestID: cloneInt64Ptr(pending.requestID),
-			decision:  decision,
-			err:       err,
+			identity:    pending.identity,
+			decision:    decision,
+			err:         err,
+			completedAt: time.Now(),
 		})
 		m.mu.Unlock()
 		if cancel != nil {
@@ -346,6 +377,11 @@ func (m *ApprovalManager) finishPending(pending *pendingApproval, decision contr
 		close(pending.done)
 		m.publishResolved(pending, decision, err)
 	})
+	return completedApproval{
+		identity: pending.identity,
+		decision: pending.decision,
+		err:      pending.err,
+	}
 }
 
 // failPending 用错误决策完成 pending 请求。
@@ -353,144 +389,27 @@ func (m *ApprovalManager) failPending(pending *pendingApproval, err error) {
 	m.finishPending(pending, errorDecision(err), err)
 }
 
-// lookupPending 按 callID/requestID 查找 pending 请求。
-// requestID 优先；仅当同 requestID 唯一时允许缺少 callID 的兼容查询。
-func (m *ApprovalManager) lookupPending(callID string, requestID *int64) *pendingApproval {
-	callID = strings.TrimSpace(callID)
-	if callID == "" && int64Value(requestID) <= 0 {
-		return nil
-	}
+// lookupPending 仅按完整身份精确查找 pending 请求。
+func (m *ApprovalManager) lookupPending(identity contract.ApprovalIdentity) *pendingApproval {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if reqID := int64Value(requestID); reqID > 0 {
-		if callID != "" {
-			if pending := m.pending[pendingStorageKey(callID, requestID)]; pending != nil {
-				return pending
-			}
-		}
-		if pending := m.lookupPendingByRequestIDLocked(reqID, callID); pending != nil {
-			return pending
-		}
-	}
-	if callID == "" {
-		return nil
-	}
-	return m.pending[pendingStorageKey(callID, nil)]
-}
-
-// lookupPendingByRequestIDLocked 在持锁状态下按 requestID 查找 pending 请求。
-// requestID 对应多个 callID 时必须提供 callID，避免把决策写入错误请求。
-func (m *ApprovalManager) lookupPendingByRequestIDLocked(requestID int64, callID string) *pendingApproval {
-	entries := m.pendingByRequestID[requestID]
-	if len(entries) == 0 {
-		return nil
-	}
-	for _, pending := range entries {
-		if callID != "" && pending.callID == callID {
-			return pending
-		}
-	}
-	if len(entries) != 1 {
-		return nil
-	}
-	for _, pending := range entries {
-		return pending
-	}
-	return nil
+	return m.pending[pendingStorageKey(identity)]
 }
 
 // lookupCompleted 返回已完成审批的决策，用于处理前端超时后的同一请求重试。
-func (m *ApprovalManager) lookupCompleted(callID string, requestID *int64) (completedApproval, bool) {
-	callID = strings.TrimSpace(callID)
-	if callID == "" && int64Value(requestID) <= 0 {
-		return completedApproval{}, false
-	}
+func (m *ApprovalManager) lookupCompleted(identity contract.ApprovalIdentity) (completedApproval, bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if reqID := int64Value(requestID); reqID > 0 {
-		if callID != "" {
-			if completed, ok := m.completed[pendingStorageKey(callID, requestID)]; ok {
-				return completed, true
-			}
-		}
-		if completed, ok := m.lookupCompletedByRequestIDLocked(reqID, callID); ok {
-			return completed, true
-		}
-	}
-	if callID == "" {
-		return completedApproval{}, false
-	}
-	completed, ok := m.completed[pendingStorageKey(callID, nil)]
+	completed, ok := m.completed[pendingStorageKey(identity)]
 	return completed, ok
 }
 
-// lookupCompletedByRequestIDLocked 在持锁状态下按 requestID 查找已完成审批。
-// 当 requestID 对应多条不同 callID 时，只允许精确 callID 命中，避免把审批结果串给其他请求。
-func (m *ApprovalManager) lookupCompletedByRequestIDLocked(requestID int64, callID string) (completedApproval, bool) {
-	entries := m.completedByRequestID[requestID]
-	if len(entries) == 0 {
-		return completedApproval{}, false
-	}
-	for _, completed := range entries {
-		if callID != "" && completed.callID == callID {
-			return completed, true
-		}
-	}
-	if len(entries) != 1 {
-		return completedApproval{}, false
-	}
-	for _, completed := range entries {
-		return completed, true
-	}
-	return completedApproval{}, false
-}
-
-// indexPendingLocked 在持锁状态下维护 requestID 到 pending 的反向索引。
-func (m *ApprovalManager) indexPendingLocked(pending *pendingApproval) {
-	requestID := int64Value(pending.requestID)
-	if requestID <= 0 {
-		return
-	}
-	entries := m.pendingByRequestID[requestID]
-	if entries == nil {
-		entries = make(map[string]*pendingApproval)
-		m.pendingByRequestID[requestID] = entries
-	}
-	entries[pending.key] = pending
-}
-
 func (m *ApprovalManager) indexCompletedLocked(completed completedApproval) {
-	key := pendingStorageKey(completed.callID, completed.requestID)
+	key := pendingStorageKey(completed.identity)
 	if key == "" {
 		return
 	}
 	m.completed[key] = completed
-	requestID := int64Value(completed.requestID)
-	if requestID <= 0 {
-		return
-	}
-	entries := m.completedByRequestID[requestID]
-	if entries == nil {
-		entries = make(map[string]completedApproval)
-		m.completedByRequestID[requestID] = entries
-	}
-	entries[key] = completed
-}
-
-// removePendingLocked 在持锁状态下从 requestID 反向索引移除 pending。
-func (m *ApprovalManager) removePendingLocked(pending *pendingApproval) {
-	requestID := int64Value(pending.requestID)
-	if requestID <= 0 {
-		return
-	}
-	entries := m.pendingByRequestID[requestID]
-	if len(entries) == 0 {
-		return
-	}
-	delete(entries, pending.key)
-	if len(entries) == 0 {
-		delete(m.pendingByRequestID, requestID)
-	}
 }
 
 // snapshotPending 返回当前 pending 切片快照，避免调用方持锁执行慢操作。

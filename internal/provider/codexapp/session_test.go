@@ -81,14 +81,15 @@ func (r *recordingResponder) callCount() int {
 
 func newInboundTestSession(ctx context.Context, approvals *rpc.ApprovalManager, manager *ServerManager) *session {
 	s := &session{
-		agentID:            "agent-1",
-		approvals:          approvals,
-		ctx:                ctx,
-		logger:             slog.Default(),
-		manager:            manager,
-		suppressed:         map[string]struct{}{},
-		suppressedToolEnds: map[string]struct{}{},
-		turns:              map[string]*turnHandle{},
+		agentID:              "agent-1",
+		approvalSessionScope: "test-session-scope",
+		approvals:            approvals,
+		ctx:                  ctx,
+		logger:               slog.Default(),
+		manager:              manager,
+		suppressed:           map[string]struct{}{},
+		suppressedToolEnds:   map[string]struct{}{},
+		turns:                map[string]*turnHandle{},
 	}
 	s.setThreadID("provider-thread-1")
 	s.setRuntimeConfig(map[string]any{"cwd": "/trusted/root"})
@@ -138,12 +139,15 @@ func TestOnInboundMessage_Approval_ViaApprovalBridge(t *testing.T) {
 	s.onInboundMessage(ctx, resp, RawMessage{
 		ID:     json.RawMessage(`1`),
 		Method: "item/commandExecution/requestApproval",
-		Params: json.RawMessage(`{"requestId":1,"command":"echo hi","toolName":"shell","turnId":"turn-1"}`),
+		Params: json.RawMessage(`{"requestId":1,"callId":"call-1","command":"echo hi","toolName":"shell","turnId":"turn-1"}`),
 	})
 
 	ev := waitApprovalRequested(t, requested)
 	if ev.RequestID != 1 {
 		t.Fatalf("RequestID = %d, want 1", ev.RequestID)
+	}
+	if ev.SessionScope != "test-session-scope" || ev.CallID != "call-1" {
+		t.Fatalf("identity = (%q, %q, %d), want (%q, %q, %d)", ev.SessionScope, ev.CallID, ev.RequestID, "test-session-scope", "call-1", 1)
 	}
 	if handlerCalls.Load() != 0 {
 		t.Fatalf("toolHandler calls = %d, want 0", handlerCalls.Load())
@@ -173,7 +177,7 @@ func TestOnInboundMessage_RequestUserInput_ViaApprovalBridge(t *testing.T) {
 	s.onInboundMessage(ctx, resp, RawMessage{
 		ID:     json.RawMessage(`2`),
 		Method: "request_user_input",
-		Params: json.RawMessage(`{"requestId":2,"message":"continue","turnId":"turn-1"}`),
+		Params: json.RawMessage(`{"requestId":2,"callId":"call-2","message":"continue","turnId":"turn-1"}`),
 	})
 
 	ev := waitApprovalRequested(t, requested)

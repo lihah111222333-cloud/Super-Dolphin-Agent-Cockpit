@@ -456,8 +456,9 @@ func assertStaleProviderSessionState(t *testing.T, s *session) {
 
 func TestRequestToolApprovalDedupeWaitReturnsOnCallerContextCancel(t *testing.T) {
 	s := &session{
-		ctx:                context.Background(),
-		processedApprovals: map[string]*processedApprovalEntry{},
+		ctx:                  context.Background(),
+		approvalSessionScope: "test-session-scope",
+		processedApprovals:   map[string]*processedApprovalEntry{},
 	}
 	s.setApprovalPolicy("on-request")
 	payload := mustJSON(map[string]any{
@@ -470,7 +471,10 @@ func TestRequestToolApprovalDedupeWaitReturnsOnCallerContextCancel(t *testing.T)
 		t.Fatal("buildApprovalRequest() ok = false, want true")
 	}
 	key := processedApprovalRequestKey(req, requestID)
-	s.processedApprovals[key] = &processedApprovalEntry{ready: make(chan struct{})}
+	s.processedApprovals[key] = &processedApprovalEntry{
+		fingerprint: approvalRequestFingerprint(req, requestID),
+		ready:       make(chan struct{}),
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
@@ -484,8 +488,9 @@ func TestRequestToolApprovalDedupeWaitReturnsOnSessionContextCancel(t *testing.T
 	sessionCtx, cancelSession := context.WithCancel(context.Background())
 	cancelSession()
 	s := &session{
-		ctx:                sessionCtx,
-		processedApprovals: map[string]*processedApprovalEntry{},
+		ctx:                  sessionCtx,
+		approvalSessionScope: "test-session-scope",
+		processedApprovals:   map[string]*processedApprovalEntry{},
 	}
 	s.setApprovalPolicy("on-request")
 	payload := mustJSON(map[string]any{
@@ -498,7 +503,10 @@ func TestRequestToolApprovalDedupeWaitReturnsOnSessionContextCancel(t *testing.T
 		t.Fatal("buildApprovalRequest() ok = false, want true")
 	}
 	key := processedApprovalRequestKey(req, requestID)
-	s.processedApprovals[key] = &processedApprovalEntry{ready: make(chan struct{})}
+	s.processedApprovals[key] = &processedApprovalEntry{
+		fingerprint: approvalRequestFingerprint(req, requestID),
+		ready:       make(chan struct{}),
+	}
 
 	err := s.requestToolApprovalWithContext(context.Background(), "item/commandExecution/requestApproval", payload)
 	if !errors.Is(err, context.Canceled) {

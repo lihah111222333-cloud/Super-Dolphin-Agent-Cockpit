@@ -69,7 +69,7 @@ func (r approvalRequester) RequestApproval(ctx context.Context, req contract.App
 	if server == nil {
 		bridge = nil
 	}
-	decision, err := r.manager.RequestApproval(ctx, bridge, server, ApprovalRequest{
+	decision, err := r.manager.RequestInternalApproval(ctx, bridge, server, ApprovalRequest{
 		CallID:       req.CallID,
 		ApprovalID:   req.ApprovalID,
 		ToolName:     req.ToolName,

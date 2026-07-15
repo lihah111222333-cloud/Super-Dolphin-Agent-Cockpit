@@ -29,7 +29,7 @@ type turnStartParams struct {
 	Language                     string               `json:"language,omitempty"`
 	EnabledTools                 []string             `json:"enabled_tools,omitempty"`
 	AdditionalWorkingDirectories []string             `json:"additional_working_directories,omitempty"`
-	MCPSnapshot                  contract.MCPSnapshot `json:"mcp_snapshot,omitempty"`
+	MCPSnapshot                  contract.MCPSnapshot `json:"mcp_snapshot,omitzero"`
 	SessionFlags                 map[string]bool      `json:"session_flags,omitempty"`
 	Effort                       string               `json:"effort,omitempty"`
 	OutputSchema                 json.RawMessage      `json:"output_schema,omitempty"`
@@ -149,7 +149,7 @@ type turnSteerParams struct {
 	Language                     string                `json:"language,omitempty"`
 	EnabledTools                 []string              `json:"enabled_tools,omitempty"`
 	AdditionalWorkingDirectories []string              `json:"additional_working_directories,omitempty"`
-	MCPSnapshot                  contract.MCPSnapshot  `json:"mcp_snapshot,omitempty"`
+	MCPSnapshot                  contract.MCPSnapshot  `json:"mcp_snapshot,omitzero"`
 	SessionFlags                 map[string]bool       `json:"session_flags,omitempty"`
 }
 
@@ -424,10 +424,11 @@ type legacyTurnThreadIDParams struct {
 
 // approvalRespondParams 是工具审批响应入参，Approved 与 Decision 至少要提供一种。
 type approvalRespondParams struct {
-	CallID    string          `json:"call_id,omitempty"`
-	RequestID *int64          `json:"request_id,omitempty"`
-	Approved  *bool           `json:"approved,omitempty"`
-	Decision  json.RawMessage `json:"decision,omitempty"`
+	SessionScope string          `json:"session_scope,omitempty"`
+	CallID       string          `json:"call_id,omitempty"`
+	RequestID    *int64          `json:"request_id,omitempty"`
+	Approved     *bool           `json:"approved,omitempty"`
+	Decision     json.RawMessage `json:"decision,omitempty"`
 }
 
 // UnmarshalJSON 兼容旧版 callId/requestId，并复制 RawMessage 防止共享底层 buffer。
@@ -437,30 +438,73 @@ func (p *approvalRespondParams) UnmarshalJSON(data []byte) error {
 	if err := rejectUnknownTurnFields(data, "approval/respond", approvalRespondParams{}, legacyApprovalRespondParams{}); err != nil {
 		return err
 	}
+	payload, err := decodeTurnCompatPayload(data)
+	if err != nil {
+		return err
+	}
 	return decodeLegacyTurnParams(data, (*raw)(p), &legacy, func(current *raw, legacy *legacyApprovalRespondParams) error {
-		if strings.TrimSpace(current.CallID) == "" {
-			current.CallID = strings.TrimSpace(legacy.CallID)
-		}
-		if current.RequestID == nil && legacy.RequestID != nil {
-			value := *legacy.RequestID
-			current.RequestID = &value
-		}
-		if current.Approved == nil && legacy.Approved != nil {
-			value := *legacy.Approved
-			current.Approved = &value
-		}
-		if len(current.Decision) == 0 {
-			current.Decision = append(json.RawMessage(nil), legacy.Decision...)
-		}
-		return nil
+		return mergeApprovalRespondLegacy(payload, (*approvalRespondParams)(current), legacy)
 	})
 }
 
+// mergeApprovalRespondLegacy 校验新旧字段别名的一致性，并把缺失的兼容字段合并到当前参数。
+func mergeApprovalRespondLegacy(payload map[string]json.RawMessage, current *approvalRespondParams, legacy *legacyApprovalRespondParams) error {
+	if err := rejectConflictingApprovalRespondAliases(payload, current, legacy); err != nil {
+		return err
+	}
+	if strings.TrimSpace(current.SessionScope) == "" {
+		current.SessionScope = strings.TrimSpace(legacy.SessionScope)
+	}
+	if strings.TrimSpace(current.CallID) == "" {
+		current.CallID = strings.TrimSpace(legacy.CallID)
+	}
+	if current.RequestID == nil && legacy.RequestID != nil {
+		value := *legacy.RequestID
+		current.RequestID = &value
+	}
+	if current.Approved == nil && legacy.Approved != nil {
+		value := *legacy.Approved
+		current.Approved = &value
+	}
+	if len(current.Decision) == 0 {
+		current.Decision = append(json.RawMessage(nil), legacy.Decision...)
+	}
+	return nil
+}
+
+// rejectConflictingApprovalRespondAliases 拒绝同一审批身份的新旧字段别名携带不同值。
+func rejectConflictingApprovalRespondAliases(payload map[string]json.RawMessage, current *approvalRespondParams, legacy *legacyApprovalRespondParams) error {
+	if _, snake := payload["session_scope"]; snake {
+		if _, camel := payload["sessionScope"]; camel && strings.TrimSpace(current.SessionScope) != strings.TrimSpace(legacy.SessionScope) {
+			return platformrpc.ErrInvalidParams(`approval/respond: conflicting sessionScope values for "session_scope" and "sessionScope"`)
+		}
+	}
+	if _, snake := payload["call_id"]; snake {
+		if _, camel := payload["callId"]; camel && strings.TrimSpace(current.CallID) != strings.TrimSpace(legacy.CallID) {
+			return platformrpc.ErrInvalidParams(`approval/respond: conflicting callId values for "call_id" and "callId"`)
+		}
+	}
+	if _, snake := payload["request_id"]; snake {
+		if _, camel := payload["requestId"]; camel && !equalOptionalInt64(current.RequestID, legacy.RequestID) {
+			return platformrpc.ErrInvalidParams(`approval/respond: conflicting requestId values for "request_id" and "requestId"`)
+		}
+	}
+	return nil
+}
+
+func equalOptionalInt64(left, right *int64) bool {
+	if left == nil || right == nil {
+		return left == nil && right == nil
+	}
+	return *left == *right
+}
+
 type legacyApprovalRespondParams struct {
-	CallID    string          `json:"callId"`
-	RequestID *int64          `json:"requestId"`
-	Approved  *bool           `json:"approved"`
-	Decision  json.RawMessage `json:"decision"`
+	SessionScope string          `json:"sessionScope"`
+	CallID       string          `json:"callId"`
+	RequestID    *int64          `json:"requestId"`
+	Approved     *bool           `json:"approved"`
+	Decision     json.RawMessage `json:"decision"`
 }
 
 // turnInterruptResult 是 turn/interrupt 返回给 UI 的状态和 settle 摘要。

@@ -3,12 +3,13 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
 
 func TestBuildGatePlanRoutesFrontendBackendAndGeneratedFiles(t *testing.T) {
-	plan := buildGatePlan([]string{
+	plan := mustBuildGatePlan(t, []string{
 		"frontend-app/src/App.jsx",
 		"internal/app/modules.go",
 		"docs/doc/codemap/project-map/AI_PROJECT_MAP.md",
@@ -39,15 +40,31 @@ func TestBuildGatePlanRoutesFrontendBackendAndGeneratedFiles(t *testing.T) {
 }
 
 func TestBuildGatePlanRoutesAIMaintenanceHooksToSelfTest(t *testing.T) {
-	plan := buildGatePlan([]string{".githooks/pre-commit", ".githooks/pre-push"})
+	plan := mustBuildGatePlan(t, []string{".githooks/pre-commit", ".githooks/pre-push"})
 
 	assertStringSetContains(t, plan.RequiredGates, "ai-maintenance:self-test", "diff:whitespace")
 }
 
 func TestBuildGatePlanRoutesProjectMapOverridesToCodemapChecks(t *testing.T) {
-	plan := buildGatePlan([]string{".ai-project-map.overrides.json"})
+	plan := mustBuildGatePlan(t, []string{".ai-project-map.overrides.json"})
 
 	assertStringSetContains(t, plan.RequiredGates, "codemap:check", "project-map:check", "diff:whitespace")
+}
+
+func TestBuildGatePlanFailsClosedWhenCapabilityRootsCannotBeParsed(t *testing.T) {
+	repoRoot := t.TempDir()
+	source := filepath.Join(repoRoot, "scripts", "capcontract", "main.go")
+	if err := os.MkdirAll(filepath.Dir(source), 0o755); err != nil {
+		t.Fatalf("mkdir capcontract source dir: %v", err)
+	}
+	if err := os.WriteFile(source, []byte("package main\nvar defaultCapabilityRoots = []string{"), 0o644); err != nil {
+		t.Fatalf("write malformed capcontract source: %v", err)
+	}
+
+	_, err := buildGatePlanForRepo(repoRoot, []string{"internal/provider/claudecli/session.go"})
+	if err == nil || !strings.Contains(err.Error(), "parse default capability roots source") {
+		t.Fatalf("buildGatePlanForRepo() error = %v, want parser failure", err)
+	}
 }
 
 func TestExecuteGatePlanKeepsGeneratedDriftFailFast(t *testing.T) {
@@ -82,7 +99,7 @@ func TestExecuteGatePlanRejectsRequiredGateWithoutRunner(t *testing.T) {
 }
 
 func TestBuildGatePlanRequiresFullLSPEvidenceForGoScripts(t *testing.T) {
-	plan := buildGatePlan([]string{"scripts/ai_maintenance/main.go"})
+	plan := mustBuildGatePlan(t, []string{"scripts/ai_maintenance/main.go"})
 
 	assertStringSetContains(t, plan.RequiredEvidence,
 		"lsp:diagnostics",
@@ -97,13 +114,13 @@ func TestBuildGatePlanRequiresFullLSPEvidenceForGoScripts(t *testing.T) {
 }
 
 func TestBuildGatePlanIncludesChangedBackendPackages(t *testing.T) {
-	plan := buildGatePlan([]string{
+	plan := mustBuildGatePlan(t, []string{
 		"internal/store/thread/store.go",
 		"internal/module/memory/service.go",
 		"internal/contract/provider.go",
 	})
 
-	assertStringSetContains(t, plan.RequiredGates, "backend:test_with_guard")
+	assertStringSetContains(t, plan.RequiredGates, "backend:test_with_guard", "capcontract:check")
 	assertStringSetOmits(t, plan.RequiredGates, "repo:guard")
 	assertStringSetContains(t, plan.AffectedGoPackages,
 		"./internal/store/thread",
@@ -126,7 +143,7 @@ func TestBuildGatePlanRoutesGateInfrastructureToOwnedChecks(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.path, func(t *testing.T) {
-			plan := buildGatePlan([]string{test.path})
+			plan := mustBuildGatePlan(t, []string{test.path})
 			assertStringSetContains(t, plan.RequiredGates, test.gates...)
 			assertStringSetContains(t, plan.RequiredGates, "diff:whitespace")
 		})
@@ -152,7 +169,7 @@ func TestBuildGatePlanRoutesSQLCAndGoModuleInputs(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.path, func(t *testing.T) {
-			plan := buildGatePlan([]string{test.path})
+			plan := mustBuildGatePlan(t, []string{test.path})
 			assertStringSetContains(t, plan.RequiredGates, "sqlc:verify", "diff:whitespace")
 			if test.wantBackend {
 				assertStringSetContains(t, plan.RequiredGates, "backend:test_with_guard")
@@ -164,11 +181,11 @@ func TestBuildGatePlanRoutesSQLCAndGoModuleInputs(t *testing.T) {
 }
 
 func TestBuildGatePlanUsesBackendAsAIMaintenanceSelfTestSuperset(t *testing.T) {
-	plan := buildGatePlan([]string{"scripts/ai_maintenance/main.go"})
+	plan := mustBuildGatePlan(t, []string{"scripts/ai_maintenance/main.go"})
 	assertStringSetContains(t, plan.RequiredGates, "backend:test_with_guard")
 	assertStringSetOmits(t, plan.RequiredGates, "ai-maintenance:self-test")
 
-	hookPlan := buildGatePlan([]string{".githooks/pre-commit"})
+	hookPlan := mustBuildGatePlan(t, []string{".githooks/pre-commit"})
 	assertStringSetContains(t, hookPlan.RequiredGates, "ai-maintenance:self-test")
 }
 
@@ -179,9 +196,10 @@ func TestGatePlanProducerMatchesRunnerAndEvidenceRegistries(t *testing.T) {
 		{".githooks/pre-commit"},
 		{"frontend-app/src/App.jsx"},
 		{"internal/store/thread/store.go"},
+		{"internal/contract/provider.go"},
 		{"docs/doc/codemap/ai-index.json"},
 	} {
-		for _, gate := range buildGatePlan(files).RequiredGates {
+		for _, gate := range mustBuildGatePlan(t, files).RequiredGates {
 			producerGates[gate] = true
 		}
 	}
@@ -261,7 +279,7 @@ func TestExcludeDeferredE2EGoPackagesKeepsFastPackages(t *testing.T) {
 }
 
 func TestValidateEvidenceBlocksMissingAgentIDDiagnosticsAndCommands(t *testing.T) {
-	plan := buildGatePlan([]string{"frontend-app/src/App.jsx"})
+	plan := mustBuildGatePlan(t, []string{"frontend-app/src/App.jsx"})
 	path := writeEvidence(t, `
 STATUS: DONE_WITH_EVIDENCE
 OWNED_FILES_CHANGED:
@@ -293,7 +311,7 @@ COMMANDS_RUN:
 }
 
 func TestValidateEvidenceAcceptsBlockedReportWithoutGreenEvidence(t *testing.T) {
-	plan := buildGatePlan([]string{"internal/app/modules.go"})
+	plan := mustBuildGatePlan(t, []string{"internal/app/modules.go"})
 	path := writeEvidence(t, `
 STATUS: BLOCKED
 AGENTID: 019f0000-0000-7000-8000-000000000000
@@ -307,7 +325,7 @@ BLOCKERS:
 }
 
 func TestValidateEvidenceBlocksDoneWithBlockersAndLooseAgentID(t *testing.T) {
-	plan := buildGatePlan([]string{"internal/app/modules.go"})
+	plan := mustBuildGatePlan(t, []string{"internal/app/modules.go"})
 	path := writeEvidence(t, `
 STATUS: DONE_WITH_EVIDENCE
 AGENTID: worker-1
@@ -339,7 +357,7 @@ BLOCKERS:
 }
 
 func TestValidateEvidenceAcceptsCompleteFrontendAndGeneratedEvidence(t *testing.T) {
-	plan := buildGatePlan([]string{
+	plan := mustBuildGatePlan(t, []string{
 		"frontend-app/src/App.jsx",
 		"docs/doc/codemap/ai-index.json",
 	})
@@ -394,7 +412,7 @@ func assertErrorContainsAll(t *testing.T, err error, wants ...string) {
 }
 
 func TestValidateEvidenceBlocksDiffScopeMismatch(t *testing.T) {
-	plan := buildGatePlan([]string{"internal/app/modules.go"})
+	plan := mustBuildGatePlan(t, []string{"internal/app/modules.go"})
 	path := writeEvidence(t, `
 STATUS: DONE_WITH_EVIDENCE
 AGENTID: 019f0000-0000-7000-8000-000000000000
@@ -438,14 +456,7 @@ func TestGateCommandEnvironmentIsolatesCacheIndexFromNonGitGates(t *testing.T) {
 	}
 
 	want := "GIT_INDEX_FILE=" + os.Getenv("GIT_INDEX_FILE")
-	found := false
-	for _, entry := range gateCommandEnvironment("git") {
-		if entry == want {
-			found = true
-			break
-		}
-	}
-	if !found {
+	if !slices.Contains(gateCommandEnvironment("git"), want) {
 		t.Fatalf("git whitespace gate lost staged index %q", want)
 	}
 }
@@ -493,4 +504,13 @@ func assertRegistryMatchesProducer[T any](t *testing.T, producer map[string]bool
 			t.Errorf("%s registry contains stale gate %q", name, gate)
 		}
 	}
+}
+
+func mustBuildGatePlan(t *testing.T, files []string) gatePlan {
+	t.Helper()
+	plan, err := buildGatePlan(files)
+	if err != nil {
+		t.Fatalf("build gate plan: %v", err)
+	}
+	return plan
 }

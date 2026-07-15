@@ -1,6 +1,7 @@
 package codexapp
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -384,6 +385,17 @@ func TestNewSessionInitializesStateAndCapabilities(t *testing.T) {
 
 	assertNewCodexSessionState(t, s)
 	assertCodexSessionCapabilities(t, s)
+}
+
+func TestGenerateApprovalSessionScopeFormatsRFC4122Version4(t *testing.T) {
+	entropy := []byte{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15}
+	scope, err := generateApprovalSessionScope(bytes.NewReader(entropy))
+	if err != nil {
+		t.Fatalf("generateApprovalSessionScope() error = %v", err)
+	}
+	if scope != "00010203-0405-4607-8809-0a0b0c0d0e0f" {
+		t.Fatalf("approval session scope = %q, want RFC 4122 version 4 UUID", scope)
+	}
 }
 
 func assertNewCodexSessionState(t *testing.T, s *session) {

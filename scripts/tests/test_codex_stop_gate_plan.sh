@@ -40,6 +40,36 @@ assert_not_contains() {
   printf '[test][PASS] %s\n' "${label}"
 }
 
+rules_case_index=0
+write_rules_go() {
+  local output="$1"
+  local path="$2"
+  printf '#!/usr/bin/env bash\nprintf %%s %q\n' "${output}" >"${path}"
+  chmod +x "${path}"
+}
+
+assert_rules_output_fails_closed() {
+  local label="$1"
+  local output="$2"
+  local fake_go result
+  rules_case_index=$((rules_case_index + 1))
+  fake_go="${tmp_dir}/malformed-rules-go-${rules_case_index}"
+  result="${tmp_dir}/malformed-rules-${rules_case_index}.out"
+  write_rules_go "${output}" "${fake_go}"
+  if CODEX_STOP_GATE_GO_BIN="${fake_go}" CODEX_STOP_GATE_CHANGED_FILES_FILE="${go_fixture}" \
+    CODEX_STOP_GATE_LOG_DIR="${tmp_dir}/malformed-rules-logs-${rules_case_index}" bash "${gate}" --print-plan >"${result}" 2>&1; then
+    printf '[test][FAIL] %s did not fail closed\n' "${label}" >&2
+    cat "${result}" >&2
+    exit 1
+  fi
+  if ! grep -Fq "capcontract path rules" "${result}"; then
+    printf '[test][FAIL] %s missing actionable error\n' "${label}" >&2
+    cat "${result}" >&2
+    exit 1
+  fi
+  printf '[test][PASS] %s fails closed\n' "${label}"
+}
+
 go_fixture="${tmp_dir}/go.txt"
 cat >"${go_fixture}" <<'EOF'
 internal/provider/codexapp/support.go
@@ -94,6 +124,44 @@ README.md
 EOF
 docs_plan="$(run_plan "${docs_fixture}")"
 assert_contains "${docs_plan}" "none" "docs-only changes skip hook gates"
+
+failed_rules_go="${tmp_dir}/failed-rules-go"
+cat >"${failed_rules_go}" <<'EOF'
+#!/usr/bin/env bash
+echo "synthetic path-rules failure" >&2
+exit 23
+EOF
+chmod +x "${failed_rules_go}"
+if CODEX_STOP_GATE_GO_BIN="${failed_rules_go}" CODEX_STOP_GATE_CHANGED_FILES_FILE="${go_fixture}" \
+  CODEX_STOP_GATE_LOG_DIR="${tmp_dir}/failed-rules-logs" bash "${gate}" --print-plan >"${tmp_dir}/failed-rules.out" 2>&1; then
+  printf '[test][FAIL] path-rules command failure did not fail closed\n' >&2
+  cat "${tmp_dir}/failed-rules.out" >&2
+  exit 1
+fi
+if ! grep -Fq "capcontract path rules" "${tmp_dir}/failed-rules.out"; then
+  printf '[test][FAIL] path-rules failure missing actionable error\n' >&2
+  cat "${tmp_dir}/failed-rules.out" >&2
+  exit 1
+fi
+printf '[test][PASS] path-rules command failure fails closed\n'
+
+canonical_rules_go="${tmp_dir}/canonical-rules-go"
+write_rules_go $'tree\tinternal/provider\n' "${canonical_rules_go}"
+canonical_rules_plan="$(CODEX_STOP_GATE_GO_BIN="${canonical_rules_go}" CODEX_STOP_GATE_CHANGED_FILES_FILE="${go_fixture}" \
+  CODEX_STOP_GATE_LOG_DIR="${tmp_dir}/canonical-rules-logs" bash "${gate}" --print-plan | sort)"
+assert_contains "${canonical_rules_plan}" "capcontract_check make capcontract-check" "canonical two-column rule remains accepted"
+
+assert_rules_output_fails_closed "empty rule kind" $'\tinternal/provider\n'
+assert_rules_output_fails_closed "empty rule path" $'tree\t\n'
+assert_rules_output_fails_closed "trailing empty third column" $'tree\tinternal/provider\t\n'
+assert_rules_output_fails_closed "non-empty third column" $'tree\tinternal/provider\textra\n'
+assert_rules_output_fails_closed "double tab separator" $'tree\t\tinternal/provider\n'
+assert_rules_output_fails_closed "additional tab field" $'tree\tinternal/provider\t\textra\n'
+assert_rules_output_fails_closed "missing tab separator" $'tree internal/provider\n'
+assert_rules_output_fails_closed "carriage return" $'tree\tinternal/provider\r\n'
+assert_rules_output_fails_closed "internal blank line" $'tree\tinternal/provider\n\nexact\tscripts/capcontract.go\n'
+assert_rules_output_fails_closed "trailing blank line" $'tree\tinternal/provider\n\n'
+assert_rules_output_fails_closed "missing final newline" $'tree\tinternal/provider'
 
 active_fixture="${tmp_dir}/active.txt"
 cat >"${active_fixture}" <<'EOF'

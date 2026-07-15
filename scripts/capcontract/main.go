@@ -28,38 +28,86 @@ func main() {
 	check := flag.Bool("check", false, "verify generated capability manifest without modifying the worktree")
 	rootsFlag := flag.String("roots", strings.Join(defaultCapabilityRoots, ","), "comma-separated roots to scan")
 	outFlag := flag.String("out", capabilityManifestPath, "manifest output path")
+	printPathRules := flag.Bool("print-path-rules", false, "print capability-contract path rules as kind<TAB>path and exit")
 	flag.Parse()
 
-	repoRoot, err := findRepoRoot(".")
+	repoRoot, pathRules, err := loadCapabilityPathRules()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "capcontract: %v\n", err)
 		os.Exit(1)
 	}
-	manifest, data, err := buildCapabilityManifest(repoRoot, parseRoots(*rootsFlag), *outFlag)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "capcontract: %v\n", err)
-		os.Exit(1)
-	}
-	outPath := filepath.Join(repoRoot, filepath.FromSlash(*outFlag))
-	if *check {
-		if err := checkCapabilityManifest(outPath, data); err != nil {
-			fmt.Fprintf(os.Stderr, "capcontract-check: %v\n", err)
+	if *printPathRules {
+		if err := printCapabilityPathRules(pathRules); err != nil {
+			fmt.Fprintf(os.Stderr, "capcontract: render path rules: %v\n", err)
 			os.Exit(1)
+		}
+		return
+	}
+	roots := selectedCapabilityRoots(pathRules, *rootsFlag)
+	errorPrefix, err := runCapabilityManifest(repoRoot, roots, *outFlag, *check)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "%s: %v\n", errorPrefix, err)
+		os.Exit(1)
+	}
+}
+
+// loadCapabilityPathRules 定位仓库并加载 generator AST 派生的路径规则。
+func loadCapabilityPathRules() (string, capcontract.PathRules, error) {
+	repoRoot, err := capcontract.FindRepoRoot(".")
+	if err != nil {
+		return "", capcontract.PathRules{}, err
+	}
+	pathRules, err := capcontract.LoadPathRules(repoRoot)
+	return repoRoot, pathRules, err
+}
+
+// printCapabilityPathRules 输出共享 shell selector 使用的稳定 TSV。
+func printCapabilityPathRules(pathRules capcontract.PathRules) error {
+	lines, err := pathRules.MachineLines()
+	if err != nil {
+		return err
+	}
+	for _, line := range lines {
+		fmt.Println(line)
+	}
+	return nil
+}
+
+// selectedCapabilityRoots 仅在调用方显式传入 --roots 时覆盖 AST 默认根目录。
+func selectedCapabilityRoots(pathRules capcontract.PathRules, rootsFlag string) []string {
+	roots := pathRules.DefaultRoots
+	flag.Visit(func(value *flag.Flag) {
+		if value.Name == "roots" {
+			roots = parseRoots(rootsFlag)
+		}
+	})
+	return roots
+}
+
+// runCapabilityManifest 执行 manifest 检查或刷新，并返回错误对应的命令前缀。
+func runCapabilityManifest(repoRoot string, roots []string, outFlag string, check bool) (string, error) {
+	manifest, data, err := buildCapabilityManifest(repoRoot, roots, outFlag)
+	if err != nil {
+		return "capcontract", err
+	}
+	outPath := filepath.Join(repoRoot, filepath.FromSlash(outFlag))
+	if check {
+		if err := checkCapabilityManifest(outPath, data); err != nil {
+			return "capcontract-check", err
 		}
 		fmt.Printf("capcontract: %d packages, %d functions, %d methods, %d interfaces (up to date)\n",
 			manifest.Summary.TotalPackages, manifest.Summary.TotalFunctions, manifest.Summary.TotalMethods, manifest.Summary.TotalInterfaces)
-		return
+		return "", nil
 	}
 	if err := os.MkdirAll(filepath.Dir(outPath), 0o755); err != nil {
-		fmt.Fprintf(os.Stderr, "capcontract: create output dir: %v\n", err)
-		os.Exit(1)
+		return "capcontract", fmt.Errorf("create output dir: %w", err)
 	}
 	if err := os.WriteFile(outPath, data, 0o644); err != nil {
-		fmt.Fprintf(os.Stderr, "capcontract: write manifest: %v\n", err)
-		os.Exit(1)
+		return "capcontract", fmt.Errorf("write manifest: %w", err)
 	}
 	fmt.Printf("capcontract: %d packages, %d functions, %d methods, %d interfaces\n",
 		manifest.Summary.TotalPackages, manifest.Summary.TotalFunctions, manifest.Summary.TotalMethods, manifest.Summary.TotalInterfaces)
+	return "", nil
 }
 
 // buildCapabilityManifest 扫描源码并返回 manifest 及其稳定 JSON 表示。
@@ -112,28 +160,4 @@ func existingCapabilityGeneratedAt(path string) (string, bool) {
 		return "", false
 	}
 	return strings.TrimSpace(manifest.GeneratedAt), true
-}
-
-// findRepoRoot 从 start 向上查找包含 go.mod 和 CLAUDE.md 的仓库根目录。
-func findRepoRoot(start string) (string, error) {
-	dir, err := filepath.Abs(start)
-	if err != nil {
-		return "", err
-	}
-	for {
-		if fileExists(filepath.Join(dir, "go.mod")) && fileExists(filepath.Join(dir, "CLAUDE.md")) {
-			return dir, nil
-		}
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			return "", fmt.Errorf("could not find repository root from %s", start)
-		}
-		dir = parent
-	}
-}
-
-// fileExists 判断路径是否存在且不是目录。
-func fileExists(path string) bool {
-	info, err := os.Stat(path)
-	return err == nil && !info.IsDir()
 }

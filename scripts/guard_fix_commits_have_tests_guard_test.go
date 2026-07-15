@@ -202,8 +202,8 @@ func TestPrePushRunsFixTestGuardForPushedRange(t *testing.T) {
 	root := prepareFixTestGuardRepo(t)
 	copyFixTestGuardRepoFile(t, root, ".githooks/pre-push", 0o755)
 	copyFixTestGuardRepoFile(t, root, "scripts/configure_hook_node_runtime.sh", 0o755)
-	copyFixTestGuardRepoFile(t, root, "scripts/guard_commit_titles.sh", 0o755)
-	runFixTestGuardGit(t, root, "add", ".githooks/pre-push", "scripts/configure_hook_node_runtime.sh", "scripts/guard_commit_titles.sh", "scripts/guard_fix_commits_have_tests.sh")
+	copyCommitTitleGuard(t, root, "")
+	runFixTestGuardGit(t, root, "add", ".githooks/pre-push", "scripts/configure_hook_node_runtime.sh", "scripts/guard_commit_titles.sh", commitTitleEnforcementBaselinePath, "scripts/guard_fix_commits_have_tests.sh")
 	runFixTestGuardGit(t, root, "commit", "-m", "chore: install pre-push fixture")
 	base := strings.TrimSpace(runFixTestGuardGitOutput(t, root, "rev-parse", "HEAD"))
 
@@ -525,12 +525,124 @@ func TestCommitMsgRunsChineseTitleGuard(t *testing.T) {
 	})
 }
 
+func TestCommitTitleEnforcementBaselineIsPinned(t *testing.T) {
+	path := locateFixTestGuardRepoFile(t, commitTitleEnforcementBaselinePath)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read commit title enforcement baseline: %v", err)
+	}
+	if got, want := string(data), "b546da773651e9bc9212b04ae183bd1c3b680d5d\n"; got != want {
+		t.Fatalf("commit title enforcement baseline = %q, want %q", got, want)
+	}
+}
+
+func TestCommitTitleGuardRejectsInvalidEnforcementBaseline(t *testing.T) {
+	tests := []struct {
+		name       string
+		baseline   string
+		wantOutput string
+	}{
+		{name: "missing", wantOutput: "enforcement baseline file does not exist"},
+		{name: "abbreviated", baseline: "b546da7\n", wantOutput: "must contain exactly one full 40-character lowercase commit SHA"},
+		{name: "unavailable", baseline: strings.Repeat("f", 40) + "\n", wantOutput: "enforcement baseline commit is not available"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			root := prepareFixTestGuardRepo(t)
+			copyFixTestGuardRepoFile(t, root, "scripts/guard_commit_titles.sh", 0o755)
+			if tt.baseline != "" {
+				writeFixTestGuardFile(t, root, commitTitleEnforcementBaselinePath, tt.baseline)
+			}
+			head := commitCommitGuardFixture(t, root, "docs/current.md", "current\n", "docs: 更新当前说明")
+
+			out, err := runCommitTitleGuard(t, root, "--range", head+"^.."+head)
+			if err == nil {
+				t.Fatalf("commit title guard accepted %s enforcement baseline\n%s", tt.name, out)
+			}
+			assertOutputContainsAll(t, out, tt.wantOutput)
+		})
+	}
+}
+
+func TestCommitTitleGuardGrandfathersOnlyBaselineAncestors(t *testing.T) {
+	t.Run("allows mixed grandfathered and enforced history", func(t *testing.T) {
+		root, eventBase := prepareCommitTitleBaselineRepo(t)
+		head := commitCommitGuardFixture(t, root, "docs/current.md", "current\n", "docs: 更新当前说明")
+
+		out, err := runCommitTitleGuard(t, root, "--range", eventBase+".."+head)
+		if err != nil {
+			t.Fatalf("commit title guard rejected grandfathered history: %v\n%s", err, out)
+		}
+		assertOutputContainsAll(t, out, "Chinese commit message guard OK")
+		assertOutputOmitsAll(t, out, "chore: legacy English title")
+	})
+
+	t.Run("rejects a new English title without blaming the baseline", func(t *testing.T) {
+		root, eventBase := prepareCommitTitleBaselineRepo(t)
+		head := commitCommitGuardFixture(t, root, "docs/current.md", "current\n", "docs: update current guide")
+		shortHead := strings.TrimSpace(runFixTestGuardGitOutput(t, root, "rev-parse", "--short=7", head))
+
+		out, err := runCommitTitleGuard(t, root, "--range", eventBase+".."+head)
+		if err == nil {
+			t.Fatalf("commit title guard accepted a new English title\n%s", out)
+		}
+		assertOutputContainsAll(t, out, "commit "+shortHead+" title must contain Chinese text", "title: docs: update current guide")
+		assertOutputOmitsAll(t, out, "chore: legacy English title")
+	})
+}
+
+func TestCICommitGuardHonorsTitleBaselineAcrossEventBoundaries(t *testing.T) {
+	for _, eventName := range []string{"pull_request", "push"} {
+		t.Run(eventName+" allows grandfathered history", func(t *testing.T) {
+			root, eventBase := prepareCommitTitleBaselineRepo(t)
+			copyFixTestGuardRepoFile(t, root, "scripts/ci_commit_guard.sh", 0o755)
+			head := commitCommitGuardFixture(t, root, "docs/current.md", "current\n", "docs: 更新当前说明")
+
+			out, err := runCICommitGuard(t, root, commitGuardEventEnv(eventName, eventBase, head))
+			if err != nil {
+				t.Fatalf("ci commit guard rejected %s grandfathered history: %v\n%s", eventName, err, out)
+			}
+			assertOutputContainsAll(t, out, "Chinese commit message guard OK", "fix-test guard OK")
+			assertOutputOmitsAll(t, out, "chore: legacy English title")
+		})
+	}
+
+	t.Run("new fix without a test still fails", func(t *testing.T) {
+		root, eventBase := prepareCommitTitleBaselineRepo(t)
+		copyFixTestGuardRepoFile(t, root, "scripts/ci_commit_guard.sh", 0o755)
+		head := commitCommitGuardFixture(t, root, "internal/app/parser.go", "package app\n\nfunc parse() {}\n", "fix: 修复 parser panic")
+
+		out, err := runCICommitGuard(t, root, commitGuardEventEnv("pull_request", eventBase, head))
+		if err == nil {
+			t.Fatalf("ci commit guard accepted a new fix without a test\n%s", out)
+		}
+		assertOutputContainsAll(t, out, "Chinese commit message guard OK", "[ci-commit-guard] fix-test guard", "fix commit 缺少锁定 bug 的测试")
+		assertOutputOmitsAll(t, out, "chore: legacy English title")
+	})
+
+	t.Run("push zero SHA remains fail fast", func(t *testing.T) {
+		root, _ := prepareCommitTitleBaselineRepo(t)
+		copyFixTestGuardRepoFile(t, root, "scripts/ci_commit_guard.sh", 0o755)
+		head := strings.TrimSpace(runFixTestGuardGitOutput(t, root, "rev-parse", "HEAD"))
+		out, err := runCICommitGuard(t, root, map[string]string{
+			"GITHUB_EVENT_NAME":   "push",
+			"GITHUB_EVENT_BEFORE": strings.Repeat("0", 40),
+			"GITHUB_SHA":          head,
+		})
+		if err == nil {
+			t.Fatalf("ci commit guard accepted a zero push base\n%s", out)
+		}
+		assertOutputContainsAll(t, out, "GITHUB_EVENT_BEFORE is the zero SHA")
+		assertOutputOmitsAll(t, out, "[ci-commit-guard] Chinese commit message guard")
+	})
+}
+
 func TestPrePushRunsChineseTitleGuardForPushedRange(t *testing.T) {
 	root := prepareFixTestGuardRepo(t)
 	copyFixTestGuardRepoFile(t, root, ".githooks/pre-push", 0o755)
 	copyFixTestGuardRepoFile(t, root, "scripts/configure_hook_node_runtime.sh", 0o755)
-	copyFixTestGuardRepoFile(t, root, "scripts/guard_commit_titles.sh", 0o755)
-	runFixTestGuardGit(t, root, "add", ".githooks/pre-push", "scripts/configure_hook_node_runtime.sh", "scripts/guard_commit_titles.sh", "scripts/guard_fix_commits_have_tests.sh")
+	copyCommitTitleGuard(t, root, "")
+	runFixTestGuardGit(t, root, "add", ".githooks/pre-push", "scripts/configure_hook_node_runtime.sh", "scripts/guard_commit_titles.sh", commitTitleEnforcementBaselinePath, "scripts/guard_fix_commits_have_tests.sh")
 	runFixTestGuardGit(t, root, "commit", "-m", "chore: install pre-push fixture")
 	base := strings.TrimSpace(runFixTestGuardGitOutput(t, root, "rev-parse", "HEAD"))
 
@@ -555,7 +667,7 @@ func TestPrePushRunsChineseTitleGuardForPushedRange(t *testing.T) {
 func TestCICommitGuardRunsFixTestGuardForPullRequestRange(t *testing.T) {
 	root := prepareFixTestGuardRepo(t)
 	copyFixTestGuardRepoFile(t, root, "scripts/ci_commit_guard.sh", 0o755)
-	copyFixTestGuardRepoFile(t, root, "scripts/guard_commit_titles.sh", 0o755)
+	copyCommitTitleGuard(t, root, "")
 	base := strings.TrimSpace(runFixTestGuardGitOutput(t, root, "rev-parse", "HEAD"))
 
 	writeFixTestGuardFile(t, root, "internal/app/parser.go", "package app\n\nfunc parse() {}\n")
@@ -577,7 +689,7 @@ func TestCICommitGuardRunsFixTestGuardForPullRequestRange(t *testing.T) {
 func TestCICommitGuardRunsFixTestGuardForPushRange(t *testing.T) {
 	root := prepareFixTestGuardRepo(t)
 	copyFixTestGuardRepoFile(t, root, "scripts/ci_commit_guard.sh", 0o755)
-	copyFixTestGuardRepoFile(t, root, "scripts/guard_commit_titles.sh", 0o755)
+	copyCommitTitleGuard(t, root, "")
 	base := strings.TrimSpace(runFixTestGuardGitOutput(t, root, "rev-parse", "HEAD"))
 
 	writeFixTestGuardFile(t, root, "internal/app/parser.go", "package app\n\nfunc parse(input string) string {\n\tif input == \"\" {\n\t\treturn \"empty\"\n\t}\n\treturn \"ok\"\n}\n")
@@ -600,7 +712,7 @@ func TestCICommitGuardRunsFixTestGuardForPushRange(t *testing.T) {
 func TestCICommitGuardRejectsTitleWithoutChinese(t *testing.T) {
 	root := prepareFixTestGuardRepo(t)
 	copyFixTestGuardRepoFile(t, root, "scripts/ci_commit_guard.sh", 0o755)
-	copyFixTestGuardRepoFile(t, root, "scripts/guard_commit_titles.sh", 0o755)
+	copyCommitTitleGuard(t, root, "")
 	base := strings.TrimSpace(runFixTestGuardGitOutput(t, root, "rev-parse", "HEAD"))
 
 	writeFixTestGuardFile(t, root, "docs/readme.md", "docs only\n")
@@ -624,7 +736,7 @@ func TestCICommitGuardRejectsTitleWithoutChinese(t *testing.T) {
 func TestCICommitGuardRejectsBodyWithoutChinese(t *testing.T) {
 	root := prepareFixTestGuardRepo(t)
 	copyFixTestGuardRepoFile(t, root, "scripts/ci_commit_guard.sh", 0o755)
-	copyFixTestGuardRepoFile(t, root, "scripts/guard_commit_titles.sh", 0o755)
+	copyCommitTitleGuard(t, root, "")
 	base := strings.TrimSpace(runFixTestGuardGitOutput(t, root, "rev-parse", "HEAD"))
 
 	writeFixTestGuardFile(t, root, "docs/readme.md", "docs only\n")
@@ -712,6 +824,7 @@ func TestPrePushAllowsDirtyLocalWorktree(t *testing.T) {
 
 func TestPrePushNewBranchRoutesAllReachableTreeChanges(t *testing.T) {
 	fixture := newPrePushScopeFixture(t)
+	writePrePushFakePython3(t, fixture.binDir)
 	writeFixTestGuardFile(t, fixture.root, "scripts/guard_commit_titles.sh", "#!/usr/bin/env bash\nexit 0\n")
 	if err := os.Chmod(filepath.Join(fixture.root, "scripts", "guard_commit_titles.sh"), 0o755); err != nil {
 		t.Fatalf("chmod fake title guard: %v", err)

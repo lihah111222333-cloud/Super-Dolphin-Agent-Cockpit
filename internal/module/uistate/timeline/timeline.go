@@ -14,30 +14,31 @@ import (
 // Item 是线程 timeline 下发给前端的单条可渲染记录。
 // 字段同时兼容 tool、plan、turn 和错误行，私有 lookupKey 只服务后端去重索引。
 type Item struct {
-	ID          string `json:"id"`
-	Kind        string `json:"kind"`
-	Status      string `json:"status"`
-	CallID      string `json:"callId,omitempty"`
-	RequestID   int64  `json:"requestId,omitempty"`
-	Command     string `json:"command,omitempty"`
-	File        string `json:"file,omitempty"`
-	Tool        string `json:"tool,omitempty"`
-	Preview     string `json:"preview,omitempty"`
-	ElapsedMS   *int   `json:"elapsedMs,omitempty"`
-	Output      string `json:"output,omitempty"`
-	ExitCode    *int   `json:"exitCode,omitempty"`
-	Done        bool   `json:"done,omitempty"`
-	Text        string `json:"text,omitempty"`
-	Internal    bool   `json:"internal,omitempty"`
-	Attachments []any  `json:"attachments,omitempty"`
-	Error       string `json:"error,omitempty"`
-	Success     *bool  `json:"success,omitempty"`
-	AgentID     string `json:"agentId,omitempty"`
-	TurnID      string `json:"turnId,omitempty"`
-	ToolName    string `json:"toolName,omitempty"`
-	ItemType    string `json:"itemType,omitempty"`
-	Ts          string `json:"ts,omitempty"`
-	lookupKey   string
+	ID           string `json:"id"`
+	Kind         string `json:"kind"`
+	Status       string `json:"status"`
+	SessionScope string `json:"sessionScope,omitempty"`
+	CallID       string `json:"callId,omitempty"`
+	RequestID    int64  `json:"requestId,omitempty"`
+	Command      string `json:"command,omitempty"`
+	File         string `json:"file,omitempty"`
+	Tool         string `json:"tool,omitempty"`
+	Preview      string `json:"preview,omitempty"`
+	ElapsedMS    *int   `json:"elapsedMs,omitempty"`
+	Output       string `json:"output,omitempty"`
+	ExitCode     *int   `json:"exitCode,omitempty"`
+	Done         bool   `json:"done,omitempty"`
+	Text         string `json:"text,omitempty"`
+	Internal     bool   `json:"internal,omitempty"`
+	Attachments  []any  `json:"attachments,omitempty"`
+	Error        string `json:"error,omitempty"`
+	Success      *bool  `json:"success,omitempty"`
+	AgentID      string `json:"agentId,omitempty"`
+	TurnID       string `json:"turnId,omitempty"`
+	ToolName     string `json:"toolName,omitempty"`
+	ItemType     string `json:"itemType,omitempty"`
+	Ts           string `json:"ts,omitempty"`
+	lookupKey    string
 }
 
 // AppendedEmitter 是 timeline 追加事件发送到 UI patch 总线的回调。
@@ -46,6 +47,9 @@ type AppendedEmitter func(uidto.UITimelineAppended)
 func itemLookupKey(item Item) string {
 	if key := strings.TrimSpace(item.lookupKey); key != "" {
 		return key
+	}
+	if strings.TrimSpace(item.Kind) == "approval" {
+		return approvalUpdateKey(item.SessionScope, item.CallID, item.RequestID)
 	}
 	if key := toolCallLookupKey(item); key != "" {
 		return key

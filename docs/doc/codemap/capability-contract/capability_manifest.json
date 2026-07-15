@@ -1,6 +1,6 @@
 {
   "version": "1.0",
-  "generated_at": "2026-07-13",
+  "generated_at": "2026-07-15",
   "roots": [
     "cmd/mcp-orch/orchestration",
     "cmd/mcp-orch/tools",
@@ -2222,6 +2222,7 @@
         "internal/contract.ApplyOpsRequest",
         "internal/contract.ApplyOpsResponse",
         "internal/contract.ApprovalDecision",
+        "internal/contract.ApprovalIdentity",
         "internal/contract.ApprovalRequest",
         "internal/contract.ApprovalRequester",
         "internal/contract.ApprovalRequester.RequestApproval",
@@ -3766,6 +3767,7 @@
         "internal/provider/codexapp.forceCompleteTargetNotFoundError.Error",
         "internal/provider/codexapp.forceCompleteTargetNotFoundError.ForceCompleteTargetNotFound",
         "internal/provider/codexapp.forceCompleteTurnIDFallbackEligible",
+        "internal/provider/codexapp.generateApprovalSessionScope",
         "internal/provider/codexapp.hasAnyConfigKey",
         "internal/provider/codexapp.hasAnyKey",
         "internal/provider/codexapp.hasMethod",
@@ -3866,6 +3868,7 @@
         "internal/provider/codexapp.newTurnHandle",
         "internal/provider/codexapp.nextConnectRetryDelay",
         "internal/provider/codexapp.nonNilContext",
+        "internal/provider/codexapp.normalizeApprovalDecisionError",
         "internal/provider/codexapp.normalizeApprovalFingerprintPayload",
         "internal/provider/codexapp.normalizeApprovalFingerprintValue",
         "internal/provider/codexapp.normalizeCodexAppEffort",
@@ -4017,6 +4020,8 @@
         "internal/provider/codexapp.splitEnv",
         "internal/provider/codexapp.startRemoteThreadWithParams",
         "internal/provider/codexapp.startResult",
+        "internal/provider/codexapp.strictApprovalCallID",
+        "internal/provider/codexapp.strictApprovalCallIDValue",
         "internal/provider/codexapp.strictApprovalRequestID",
         "internal/provider/codexapp.strictApprovalRequestIDValue",
         "internal/provider/codexapp.stringInSet",
@@ -4107,6 +4112,7 @@
         "internal/provider/codexapp.verifyBundledCodexInstall",
         "internal/provider/codexapp.verifyManagedCodexInstall",
         "internal/provider/codexapp.waitForAppServerExit",
+        "internal/provider/codexapp.withApprovalScopeReader",
         "internal/provider/codexapp.withClock",
         "internal/provider/codexapp.withDefaultCodexIdentity",
         "internal/provider/codexapp.withHealthIdleThreshold",
@@ -6798,6 +6804,7 @@
         "internal/contract.ApplyOpsRequest",
         "internal/contract.ApplyOpsResponse",
         "internal/contract.ApprovalDecision",
+        "internal/contract.ApprovalIdentity",
         "internal/contract.ApprovalRequest",
         "internal/contract.ApprovalRequester",
         "internal/contract.ApprovalRequester.RequestApproval",
@@ -8342,6 +8349,7 @@
         "internal/provider/codexapp.forceCompleteTargetNotFoundError.Error",
         "internal/provider/codexapp.forceCompleteTargetNotFoundError.ForceCompleteTargetNotFound",
         "internal/provider/codexapp.forceCompleteTurnIDFallbackEligible",
+        "internal/provider/codexapp.generateApprovalSessionScope",
         "internal/provider/codexapp.hasAnyConfigKey",
         "internal/provider/codexapp.hasAnyKey",
         "internal/provider/codexapp.hasMethod",
@@ -8442,6 +8450,7 @@
         "internal/provider/codexapp.newTurnHandle",
         "internal/provider/codexapp.nextConnectRetryDelay",
         "internal/provider/codexapp.nonNilContext",
+        "internal/provider/codexapp.normalizeApprovalDecisionError",
         "internal/provider/codexapp.normalizeApprovalFingerprintPayload",
         "internal/provider/codexapp.normalizeApprovalFingerprintValue",
         "internal/provider/codexapp.normalizeCodexAppEffort",
@@ -8593,6 +8602,8 @@
         "internal/provider/codexapp.splitEnv",
         "internal/provider/codexapp.startRemoteThreadWithParams",
         "internal/provider/codexapp.startResult",
+        "internal/provider/codexapp.strictApprovalCallID",
+        "internal/provider/codexapp.strictApprovalCallIDValue",
         "internal/provider/codexapp.strictApprovalRequestID",
         "internal/provider/codexapp.strictApprovalRequestIDValue",
         "internal/provider/codexapp.stringInSet",
@@ -8683,6 +8694,7 @@
         "internal/provider/codexapp.verifyBundledCodexInstall",
         "internal/provider/codexapp.verifyManagedCodexInstall",
         "internal/provider/codexapp.waitForAppServerExit",
+        "internal/provider/codexapp.withApprovalScopeReader",
         "internal/provider/codexapp.withClock",
         "internal/provider/codexapp.withDefaultCodexIdentity",
         "internal/provider/codexapp.withHealthIdleThreshold",
@@ -11374,6 +11386,7 @@
         "internal/contract.ApplyOpsRequest",
         "internal/contract.ApplyOpsResponse",
         "internal/contract.ApprovalDecision",
+        "internal/contract.ApprovalIdentity",
         "internal/contract.ApprovalRequest",
         "internal/contract.ApprovalRequester",
         "internal/contract.ApprovalRequester.RequestApproval",
@@ -12918,6 +12931,7 @@
         "internal/provider/codexapp.forceCompleteTargetNotFoundError.Error",
         "internal/provider/codexapp.forceCompleteTargetNotFoundError.ForceCompleteTargetNotFound",
         "internal/provider/codexapp.forceCompleteTurnIDFallbackEligible",
+        "internal/provider/codexapp.generateApprovalSessionScope",
         "internal/provider/codexapp.hasAnyConfigKey",
         "internal/provider/codexapp.hasAnyKey",
         "internal/provider/codexapp.hasMethod",
@@ -13018,6 +13032,7 @@
         "internal/provider/codexapp.newTurnHandle",
         "internal/provider/codexapp.nextConnectRetryDelay",
         "internal/provider/codexapp.nonNilContext",
+        "internal/provider/codexapp.normalizeApprovalDecisionError",
         "internal/provider/codexapp.normalizeApprovalFingerprintPayload",
         "internal/provider/codexapp.normalizeApprovalFingerprintValue",
         "internal/provider/codexapp.normalizeCodexAppEffort",
@@ -13169,6 +13184,8 @@
         "internal/provider/codexapp.splitEnv",
         "internal/provider/codexapp.startRemoteThreadWithParams",
         "internal/provider/codexapp.startResult",
+        "internal/provider/codexapp.strictApprovalCallID",
+        "internal/provider/codexapp.strictApprovalCallIDValue",
         "internal/provider/codexapp.strictApprovalRequestID",
         "internal/provider/codexapp.strictApprovalRequestIDValue",
         "internal/provider/codexapp.stringInSet",
@@ -13259,6 +13276,7 @@
         "internal/provider/codexapp.verifyBundledCodexInstall",
         "internal/provider/codexapp.verifyManagedCodexInstall",
         "internal/provider/codexapp.waitForAppServerExit",
+        "internal/provider/codexapp.withApprovalScopeReader",
         "internal/provider/codexapp.withClock",
         "internal/provider/codexapp.withDefaultCodexIdentity",
         "internal/provider/codexapp.withHealthIdleThreshold",
@@ -15953,6 +15971,7 @@
         "internal/contract.ApplyOpsRequest",
         "internal/contract.ApplyOpsResponse",
         "internal/contract.ApprovalDecision",
+        "internal/contract.ApprovalIdentity",
         "internal/contract.ApprovalRequest",
         "internal/contract.ApprovalRequester",
         "internal/contract.ApprovalRequester.RequestApproval",
@@ -17500,6 +17519,7 @@
         "internal/provider/codexapp.forceCompleteTargetNotFoundError.Error",
         "internal/provider/codexapp.forceCompleteTargetNotFoundError.ForceCompleteTargetNotFound",
         "internal/provider/codexapp.forceCompleteTurnIDFallbackEligible",
+        "internal/provider/codexapp.generateApprovalSessionScope",
         "internal/provider/codexapp.hasAnyConfigKey",
         "internal/provider/codexapp.hasAnyKey",
         "internal/provider/codexapp.hasMethod",
@@ -17602,6 +17622,7 @@
         "internal/provider/codexapp.newTurnHandle",
         "internal/provider/codexapp.nextConnectRetryDelay",
         "internal/provider/codexapp.nonNilContext",
+        "internal/provider/codexapp.normalizeApprovalDecisionError",
         "internal/provider/codexapp.normalizeApprovalFingerprintPayload",
         "internal/provider/codexapp.normalizeApprovalFingerprintValue",
         "internal/provider/codexapp.normalizeCodexAppEffort",
@@ -17752,6 +17773,8 @@
         "internal/provider/codexapp.splitEnv",
         "internal/provider/codexapp.startRemoteThreadWithParams",
         "internal/provider/codexapp.startResult",
+        "internal/provider/codexapp.strictApprovalCallID",
+        "internal/provider/codexapp.strictApprovalCallIDValue",
         "internal/provider/codexapp.strictApprovalRequestID",
         "internal/provider/codexapp.strictApprovalRequestIDValue",
         "internal/provider/codexapp.stringInSet",
@@ -17843,6 +17866,7 @@
         "internal/provider/codexapp.verifyBundledCodexInstall",
         "internal/provider/codexapp.verifyManagedCodexInstall",
         "internal/provider/codexapp.waitForAppServerExit",
+        "internal/provider/codexapp.withApprovalScopeReader",
         "internal/provider/codexapp.withClock",
         "internal/provider/codexapp.withDefaultCodexIdentity",
         "internal/provider/codexapp.withHealthIdleThreshold",
@@ -18329,13 +18353,13 @@
   ],
   "summary": {
     "total_packages": 41,
-    "total_functions": 2241,
+    "total_functions": 2246,
     "total_methods": 1145,
     "total_interfaces": 184,
     "total_interface_methods": 365,
-    "total_exported": 1254,
-    "total_unexported": 2912,
-    "total_structs": 596
+    "total_exported": 1255,
+    "total_unexported": 2917,
+    "total_structs": 597
   },
   "packages": [
     {
@@ -52496,12 +52520,8 @@
               "name": "Respond",
               "params": [
                 {
-                  "name": "callID",
-                  "type": "string"
-                },
-                {
-                  "name": "requestID",
-                  "type": "*int64"
+                  "name": "identity",
+                  "type": "ApprovalIdentity"
                 },
                 {
                   "name": "decision",
@@ -55845,6 +55865,10 @@
         },
         {
           "name": "ApprovalDecision",
+          "exported": true
+        },
+        {
+          "name": "ApprovalIdentity",
           "exported": true
         },
         {
@@ -64968,6 +64992,20 @@
           ]
         },
         {
+          "name": "generateApprovalSessionScope",
+          "exported": false,
+          "params": [
+            {
+              "name": "reader",
+              "type": "io.Reader"
+            }
+          ],
+          "returns": [
+            "string",
+            "error"
+          ]
+        },
+        {
           "name": "hasAnyConfigKey",
           "exported": false,
           "params": [
@@ -66522,6 +66560,24 @@
           ],
           "returns": [
             "context.Context"
+          ]
+        },
+        {
+          "name": "normalizeApprovalDecisionError",
+          "exported": false,
+          "params": [
+            {
+              "name": "decision",
+              "type": "contract.ApprovalDecision"
+            },
+            {
+              "name": "err",
+              "type": "error"
+            }
+          ],
+          "returns": [
+            "contract.ApprovalDecision",
+            "error"
           ]
         },
         {
@@ -68275,6 +68331,34 @@
           ]
         },
         {
+          "name": "strictApprovalCallIDValue",
+          "exported": false,
+          "params": [
+            {
+              "name": "value",
+              "type": "any"
+            }
+          ],
+          "returns": [
+            "string",
+            "bool"
+          ]
+        },
+        {
+          "name": "strictApprovalCallID",
+          "exported": false,
+          "params": [
+            {
+              "name": "payload",
+              "type": "map[string]any"
+            }
+          ],
+          "returns": [
+            "string",
+            "bool"
+          ]
+        },
+        {
           "name": "strictApprovalRequestIDValue",
           "exported": false,
           "params": [
@@ -69400,6 +69484,19 @@
               "name": "sigtermed",
               "type": "[]appServerProcessInfo"
             }
+          ]
+        },
+        {
+          "name": "withApprovalScopeReader",
+          "exported": false,
+          "params": [
+            {
+              "name": "reader",
+              "type": "io.Reader"
+            }
+          ],
+          "returns": [
+            "sessionOption"
           ]
         },
         {
@@ -72194,11 +72291,16 @@
             {
               "name": "key",
               "type": "string"
+            },
+            {
+              "name": "fingerprint",
+              "type": "string"
             }
           ],
           "returns": [
             "*processedApprovalEntry",
-            "bool"
+            "bool",
+            "error"
           ]
         },
         {

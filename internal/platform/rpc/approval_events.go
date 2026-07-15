@@ -64,6 +64,7 @@ func isRequestUserInputKind(kind string) bool {
 func callbackParams(pending *pendingApproval) map[string]any {
 	req := pending.request
 	params := shared.CloneJSONMap(req.Payload)
+	params["sessionScope"] = req.SessionScope
 	params["requestId"] = int64Value(pending.requestID)
 	params["callId"] = pending.callID
 	params["toolName"] = pending.toolName
@@ -101,7 +102,8 @@ func approvalHeader(req ApprovalRequest, timestamp time.Time) shareddto.ToolAppr
 			CallID:   req.CallID,
 			ToolName: req.ToolName,
 		},
-		ApprovalID: shared.FirstNonEmpty(req.ApprovalID, req.CallID),
+		SessionScope: req.SessionScope,
+		ApprovalID:   shared.FirstNonEmpty(req.ApprovalID, req.CallID),
 	}
 }
 

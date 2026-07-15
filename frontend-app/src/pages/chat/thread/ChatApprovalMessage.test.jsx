@@ -25,6 +25,8 @@ describe('ChatApprovalMessage', () => {
     const onApproval = vi.fn().mockResolvedValue(true);
     const message = {
       kind: 'approval',
+      sessionScope: 'session-scope-a',
+      callId: 'call-42',
       requestId: 42,
       status: 'pending',
       title: 'Run command',
@@ -47,7 +49,12 @@ describe('ChatApprovalMessage', () => {
     fireEvent.click(confirm);
 
     await waitFor(() => {
-      expect(onApproval).toHaveBeenCalledExactlyOnceWith(message, true);
+      expect(onApproval).toHaveBeenCalledExactlyOnceWith({
+        sessionScope: 'session-scope-a',
+        callId: 'call-42',
+        requestId: 42,
+        approved: true,
+      }, true);
     });
   });
 
@@ -122,7 +129,7 @@ describe('ChatApprovalMessage', () => {
     vi.spyOn(console, 'error').mockImplementation(() => {});
     expect(() => render(
       <ChatApprovalMessage
-        message={{ kind: 'approval', request_id: '7.5', status: 'pending', command: 'Malformed id' }}
+        message={{ kind: 'approval', sessionScope: 'session-scope-a', callId: 'call-malformed', request_id: '7.5', status: 'pending', command: 'Malformed id' }}
         actions={{ onApproval: vi.fn() }}
         formatTime={() => '--:--'}
       />,
@@ -134,7 +141,7 @@ describe('ChatApprovalMessage', () => {
     const onApproval = vi.fn(() => pending.promise);
     render(
       <ChatApprovalMessage
-        message={{ kind: 'approval', requestId: 9, status: 'pending', command: 'Deploy' }}
+        message={{ kind: 'approval', sessionScope: 'session-scope-a', callId: 'call-9', requestId: 9, status: 'pending', command: 'Deploy' }}
         actions={{ onApproval }}
         formatTime={() => '--:--'}
       />,
@@ -154,7 +161,7 @@ describe('ChatApprovalMessage', () => {
       .mockResolvedValueOnce(true);
     render(
       <ChatApprovalMessage
-        message={{ kind: 'approval', requestId: 10, status: 'pending', command: 'Deploy' }}
+        message={{ kind: 'approval', sessionScope: 'session-scope-a', callId: 'call-10', requestId: 10, status: 'pending', command: 'Deploy' }}
         actions={{ onApproval }}
         formatTime={() => '--:--'}
       />,
@@ -197,7 +204,16 @@ describe('ChatApprovalMessage bug-locking', () => {
     vi.restoreAllMocks();
   });
 
-  const baseMessage = { kind: 'approval', requestId: 5, status: 'pending', title: 'Test', text: 'Allow?', time: '2026-06-27T00:00:00Z' };
+  const baseMessage = {
+    kind: 'approval',
+    sessionScope: 'session-scope-a',
+    callId: 'call-5',
+    requestId: 5,
+    status: 'pending',
+    title: 'Test',
+    text: 'Allow?',
+    time: '2026-06-27T00:00:00Z',
+  };
 
   it('calls onError when onApproval rejects', async () => {
     const onApproval = vi.fn().mockRejectedValue(new Error('network error'));

@@ -92,7 +92,7 @@ function localScreenshotPath(separator) {
   it('delegates approval and reasoning message variants', () => {
     const { rerender } = render(
       <TimelineMessage
-        message={{ kind: 'approval', requestId: 8, status: 'pending', text: 'Approve action?', time: '2026-06-15T08:00:00Z' }}
+        message={{ kind: 'approval', sessionScope: 'session-scope-a', callId: 'call-8', requestId: 8, status: 'pending', text: 'Approve action?', time: '2026-06-15T08:00:00Z' }}
         actions={{ onApproval: vi.fn() }}
         formatTime={formatTime}
       />

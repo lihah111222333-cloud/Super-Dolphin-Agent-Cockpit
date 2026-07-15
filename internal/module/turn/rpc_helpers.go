@@ -442,7 +442,26 @@ func approvalRespondHandler(approver contract.ApprovalResponder) handler.Func {
 		if p.Approved == nil && len(p.Decision) == 0 {
 			return nil, platformrpc.ErrInvalidParams("turn rpc: approval decision is required")
 		}
-		return nil, approver.Respond(p.CallID, p.RequestID, contract.ApprovalDecision{
+		requestID := int64(0)
+		if p.RequestID != nil {
+			requestID = *p.RequestID
+		}
+		sessionScope := strings.TrimSpace(p.SessionScope)
+		callID := strings.TrimSpace(p.CallID)
+		if sessionScope == "" {
+			return nil, platformrpc.ErrInvalidParams("turn rpc: approval session scope is required")
+		}
+		if callID == "" {
+			return nil, platformrpc.ErrInvalidParams("turn rpc: approval call id is required")
+		}
+		if requestID <= 0 {
+			return nil, platformrpc.ErrInvalidParams("turn rpc: approval request id must be positive")
+		}
+		return nil, approver.Respond(contract.ApprovalIdentity{
+			SessionScope: sessionScope,
+			CallID:       callID,
+			RequestID:    requestID,
+		}, contract.ApprovalDecision{
 			Approved: p.Approved,
 			Detail:   append(json.RawMessage(nil), p.Decision...),
 		})

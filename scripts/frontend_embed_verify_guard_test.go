@@ -322,7 +322,7 @@ if not any("~/.claude/skills/design/scripts" in item for item in failures):
 func TestCICommitGuardFallsBackToOriginMainForLocalRun(t *testing.T) {
 	root := prepareFixTestGuardRepo(t)
 	copyFixTestGuardRepoFile(t, root, "scripts/ci_commit_guard.sh", 0o755)
-	copyFixTestGuardRepoFile(t, root, "scripts/guard_commit_titles.sh", 0o755)
+	copyCommitTitleGuard(t, root, "")
 	runFixTestGuardGit(t, root, "update-ref", "refs/remotes/origin/main", "HEAD")
 	base := strings.TrimSpace(runFixTestGuardGitOutput(t, root, "rev-parse", "refs/remotes/origin/main"))
 

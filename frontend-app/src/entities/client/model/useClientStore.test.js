@@ -6569,6 +6569,14 @@ function registerBridgeEventHandlersForTest() {
     }));
   });
 
+  const approvalItem = (requestId, overrides = {}) => ({
+    sessionScope: 'session-scope-a',
+    callId: `call-${requestId}`,
+    requestId,
+    command: 'deploy',
+    ...overrides,
+  });
+
   it('responds to timeline approval requests through the approval RPC', async () => {
     resetClientStoreForTests({
       cwd: '/repo/app',
@@ -6577,9 +6585,14 @@ function registerBridgeEventHandlersForTest() {
       threads: [{ id: 'thread-1', name: '运行线程', provider: 'codex', status: 'waiting' }],
     });
 
-    await expect(useClientStore.getState().respondApproval({ requestId: 11, command: 'deploy' }, true)).resolves.toBe(true);
+    await expect(useClientStore.getState().respondApproval(approvalItem(11), true)).resolves.toBe(true);
 
-    expect(backend.respondApproval).toHaveBeenCalledWith({ requestId: 11, approved: true });
+    expect(backend.respondApproval).toHaveBeenCalledWith({
+      sessionScope: 'session-scope-a',
+      callId: 'call-11',
+      requestId: 11,
+      approved: true,
+    });
     expect(useClientStore.getState().actionNotice).toEqual(expect.objectContaining({
       message: '审批结果已提交',
       tone: 'success',
@@ -6600,7 +6613,7 @@ function registerBridgeEventHandlersForTest() {
         threads: [{ id: 'thread-1', name: '运行线程', provider: 'codex', status: 'waiting' }],
       });
 
-      await expect(useClientStore.getState().respondApproval({ requestId: 11, command: 'deploy' }, true))
+      await expect(useClientStore.getState().respondApproval(approvalItem(11), true))
         .resolves.toBe(false);
 
       expect(useClientStore.getState().actionNotice).not.toEqual(expect.objectContaining({
@@ -6611,7 +6624,7 @@ function registerBridgeEventHandlersForTest() {
         level: 'error',
         event: 'timeline.approval.respond.failed',
       }));
-      expect(useClientStore.getState().approvalSubmitByRequestId[11]).toBeUndefined();
+      expect(useClientStore.getState().approvalSubmitByIdentity).toEqual({});
     }
   });
 
@@ -6623,12 +6636,18 @@ function registerBridgeEventHandlersForTest() {
       threads: [{ id: 'thread-1', name: '运行线程', provider: 'codex', status: 'waiting' }],
     });
 
-    await expect(useClientStore.getState().respondApproval({ requestId: '11.9', command: 'deploy' }, true)).resolves.toBe(false);
-    await expect(useClientStore.getState().respondApproval({ request_id: '11', command: 'deploy' }, false)).resolves.toBe(false);
+    for (const item of [
+      approvalItem('11.9'),
+      { sessionScope: 'session-scope-a', callId: 'call-11', request_id: '11', command: 'deploy' },
+      { sessionScope: 'session-scope-a', requestId: 11, command: 'deploy' },
+      { callId: 'call-11', requestId: 11, command: 'deploy' },
+    ]) {
+      await expect(useClientStore.getState().respondApproval(item, true)).resolves.toBe(false);
+    }
 
     expect(backend.respondApproval).not.toHaveBeenCalled();
     expect(useClientStore.getState().actionNotice).toEqual(expect.objectContaining({
-      message: '当前审批缺少请求编号，无法提交',
+      message: '当前审批缺少完整身份，无法提交',
       tone: 'error',
     }));
     expect(diagnosticBreadcrumbs()).toEqual([]);
@@ -6649,7 +6668,7 @@ function registerBridgeEventHandlersForTest() {
       threads: [{ id: 'thread-1', name: '运行线程', provider: 'codex', status: 'waiting' }],
     });
 
-    await expect(useClientStore.getState().respondApproval({ requestId: 11, command: 'deploy' }, approved))
+    await expect(useClientStore.getState().respondApproval(approvalItem(11), approved))
       .resolves.toBe(false);
 
     expect(backend.respondApproval).not.toHaveBeenCalled();
@@ -6666,10 +6685,10 @@ function registerBridgeEventHandlersForTest() {
         error: '[redacted]',
       }),
     }));
-    expect(useClientStore.getState().approvalSubmitByRequestId[11]).toBeUndefined();
+    expect(useClientStore.getState().approvalSubmitByIdentity).toEqual({});
   });
 
-  it('keeps approval RPC submission idempotent per request id while in flight', async () => {
+  it('keeps approval RPC submission idempotent per exact identity while in flight', async () => {
     const pendingApproval = deferred();
     backend.respondApproval.mockReturnValueOnce(pendingApproval.promise);
     resetClientStoreForTests({
@@ -6679,26 +6698,83 @@ function registerBridgeEventHandlersForTest() {
       threads: [{ id: 'thread-1', name: '运行线程', provider: 'codex', status: 'waiting' }],
     });
 
-    const first = useClientStore.getState().respondApproval({ requestId: 11, command: 'deploy' }, true);
+    const identity = approvalItem(11);
+    const first = useClientStore.getState().respondApproval(identity, true);
     await flushPromises();
-    await expect(useClientStore.getState().respondApproval({ requestId: 11, command: 'deploy' }, false)).resolves.toBe(false);
+    await expect(useClientStore.getState().respondApproval(identity, false)).resolves.toBe(false);
 
     expect(backend.respondApproval).toHaveBeenCalledTimes(1);
-    expect(useClientStore.getState().approvalSubmitByRequestId[11]).toEqual(expect.objectContaining({
-      approved: true,
-      inFlight: true,
-    }));
+    expect(Object.values(useClientStore.getState().approvalSubmitByIdentity)).toEqual([
+      expect.objectContaining({
+        sessionScope: 'session-scope-a',
+        callId: 'call-11',
+        requestId: 11,
+        approved: true,
+        inFlight: true,
+      }),
+    ]);
     expect(diagnosticBreadcrumbs()).toEqual([
       { actionCode: 'approval.submit', routeId: 'chat', phase: 'start' },
     ]);
 
     pendingApproval.resolve(null);
     await expect(first).resolves.toBe(true);
-    expect(useClientStore.getState().approvalSubmitByRequestId[11]).toBeUndefined();
+    expect(useClientStore.getState().approvalSubmitByIdentity).toEqual({});
     expect(diagnosticBreadcrumbs()).toEqual([
       { actionCode: 'approval.submit', routeId: 'chat', phase: 'start' },
       { actionCode: 'approval.submit', routeId: 'chat', phase: 'success' },
     ]);
+  });
+
+  it('dedupes only the exact approval identity while allowing the same request id in another session', async () => {
+    const firstPending = deferred();
+    const secondPending = deferred();
+    backend.respondApproval
+      .mockReturnValueOnce(firstPending.promise)
+      .mockReturnValueOnce(secondPending.promise);
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'thread-1',
+      threads: [{ id: 'thread-1', name: '运行线程', provider: 'codex', status: 'waiting' }],
+    });
+
+    const firstIdentity = {
+      sessionScope: 'session-scope-a',
+      callId: 'call-a',
+      requestId: 11,
+      command: 'deploy',
+    };
+    const secondIdentity = {
+      sessionScope: 'session-scope-b',
+      callId: 'call-b',
+      requestId: 11,
+      command: 'deploy',
+    };
+    const first = useClientStore.getState().respondApproval(firstIdentity, true);
+    await flushPromises();
+    await expect(useClientStore.getState().respondApproval(firstIdentity, false)).resolves.toBe(false);
+    const second = useClientStore.getState().respondApproval(secondIdentity, false);
+    await flushPromises();
+
+    expect(backend.respondApproval).toHaveBeenCalledTimes(2);
+    expect(backend.respondApproval).toHaveBeenNthCalledWith(1, {
+      sessionScope: 'session-scope-a',
+      callId: 'call-a',
+      requestId: 11,
+      approved: true,
+    });
+    expect(backend.respondApproval).toHaveBeenNthCalledWith(2, {
+      sessionScope: 'session-scope-b',
+      callId: 'call-b',
+      requestId: 11,
+      approved: false,
+    });
+
+    firstPending.resolve(null);
+    secondPending.resolve(null);
+    await expect(first).resolves.toBe(true);
+    await expect(second).resolves.toBe(true);
   });
 
   it('records malformed and ordinary approval failures as one failed terminal without private fields', async () => {
@@ -6710,7 +6786,7 @@ function registerBridgeEventHandlersForTest() {
     });
     backend.respondApproval.mockResolvedValueOnce({ ok: false });
 
-    await expect(useClientStore.getState().respondApproval({ requestId: 11 }, true)).resolves.toBe(false);
+    await expect(useClientStore.getState().respondApproval(approvalItem(11), true)).resolves.toBe(false);
     expect(diagnosticBreadcrumbs()).toEqual([
       { actionCode: 'approval.submit', routeId: 'chat', phase: 'start' },
       { actionCode: 'approval.submit', routeId: 'chat', phase: 'failure' },
@@ -6718,7 +6794,7 @@ function registerBridgeEventHandlersForTest() {
 
     frontendBreadcrumbs.resetFrontendBreadcrumbsForTests();
     backend.respondApproval.mockRejectedValueOnce(new Error('private failure /Users/alice'));
-    await expect(useClientStore.getState().respondApproval({ requestId: 12 }, false)).resolves.toBe(false);
+    await expect(useClientStore.getState().respondApproval(approvalItem(12), false)).resolves.toBe(false);
     expect(diagnosticBreadcrumbs()).toEqual([
       { actionCode: 'approval.submit', routeId: 'chat', phase: 'start' },
       { actionCode: 'approval.submit', routeId: 'chat', phase: 'failure' },
@@ -6741,7 +6817,8 @@ function registerBridgeEventHandlersForTest() {
       });
 
       let firstOutcome;
-      const first = useClientStore.getState().respondApproval({ requestId: 11, command: 'deploy' }, true);
+      const identity = approvalItem(11);
+      const first = useClientStore.getState().respondApproval(identity, true);
       const firstHandled = first.then(
         (value) => { firstOutcome = { status: 'fulfilled', value }; },
         (error) => { firstOutcome = { status: 'rejected', error }; },
@@ -6759,27 +6836,25 @@ function registerBridgeEventHandlersForTest() {
         { actionCode: 'approval.submit', routeId: 'chat', phase: 'start' },
         { actionCode: 'approval.submit', routeId: 'chat', phase: 'timeout' },
       ]);
-      expect(useClientStore.getState().approvalSubmitByRequestId[11]).toBeUndefined();
+      expect(useClientStore.getState().approvalSubmitByIdentity).toEqual({});
 
-      const second = useClientStore.getState().respondApproval({ requestId: 11, command: 'deploy' }, true);
+      const second = useClientStore.getState().respondApproval(identity, true);
       await flushPromises();
       expect(backend.respondApproval).toHaveBeenCalledTimes(2);
-      expect(useClientStore.getState().approvalSubmitByRequestId[11]).toEqual(expect.objectContaining({
-        approved: true,
-        inFlight: true,
-      }));
+      expect(Object.values(useClientStore.getState().approvalSubmitByIdentity)).toEqual([
+        expect.objectContaining({ approved: true, inFlight: true }),
+      ]);
 
       firstApproval.resolve(null);
       await flushPromises();
-      expect(useClientStore.getState().approvalSubmitByRequestId[11]).toEqual(expect.objectContaining({
-        approved: true,
-        inFlight: true,
-      }));
+      expect(Object.values(useClientStore.getState().approvalSubmitByIdentity)).toEqual([
+        expect.objectContaining({ approved: true, inFlight: true }),
+      ]);
 
       secondApproval.resolve(null);
       await expect(second).resolves.toBe(true);
       await firstHandled;
-      expect(useClientStore.getState().approvalSubmitByRequestId[11]).toBeUndefined();
+      expect(useClientStore.getState().approvalSubmitByIdentity).toEqual({});
       expect(diagnosticBreadcrumbs()).toEqual([
         { actionCode: 'approval.submit', routeId: 'chat', phase: 'start' },
         { actionCode: 'approval.submit', routeId: 'chat', phase: 'timeout' },

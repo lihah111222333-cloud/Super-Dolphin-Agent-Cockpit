@@ -1,4 +1,7 @@
-import { positiveApprovalRequestIdFromFields } from '../../../shared/api/approvalRequestId.js';
+import {
+  approvalIdentityFromFields,
+  requireApprovalIdentity,
+} from '../../../shared/api/approvalRequestId.js';
 
 const APPROVAL_STATUSES = new Set(['pending', 'approved', 'rejected']);
 
@@ -18,17 +21,17 @@ function validatedApprovalRequest(request) {
   const status = request.status;
   if (!APPROVAL_STATUSES.has(status)) throw new TypeError('审批请求状态无效');
   const terminal = status !== 'pending';
-  const hasRequestId = Object.prototype.hasOwnProperty.call(request, 'requestId')
-    || Object.prototype.hasOwnProperty.call(request, 'request_id');
-  const requestId = positiveApprovalRequestIdFromFields(request);
-  if (requestId <= 0 && (!terminal || hasRequestId)) {
-    throw new TypeError('审批请求缺少有效编号');
-  }
+  const partialIdentity = approvalIdentityFromFields(request, '审批请求');
+  const identity = terminal
+    ? partialIdentity
+    : { ...requireApprovalIdentity(request, '审批请求'), complete: true };
   return {
-    requestId: requestId > 0 ? requestId : null,
+    sessionScope: identity.sessionScope || null,
+    callId: identity.callId || null,
+    requestId: identity.requestId > 0 ? identity.requestId : null,
     status,
     terminal,
-    displayOnly: terminal && requestId <= 0,
+    displayOnly: terminal && identity.complete !== true,
   };
 }
 
@@ -40,8 +43,13 @@ function approvalRequestFromMessage(message) {
 function approvalSubmissionFor(request, choice) {
   const normalized = validatedApprovalRequest(request);
   if (normalized.terminal) throw new TypeError('审批请求已经结束');
-  if (choice === 'approve') return { requestId: normalized.requestId, approved: true };
-  if (choice === 'reject') return { requestId: normalized.requestId, approved: false };
+  const identity = {
+    sessionScope: normalized.sessionScope,
+    callId: normalized.callId,
+    requestId: normalized.requestId,
+  };
+  if (choice === 'approve') return { ...identity, approved: true };
+  if (choice === 'reject') return { ...identity, approved: false };
   throw new TypeError('审批选择无效');
 }
 

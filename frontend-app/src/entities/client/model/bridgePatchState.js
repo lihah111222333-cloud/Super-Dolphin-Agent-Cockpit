@@ -1,4 +1,5 @@
-import { optionalTextField, firstOptionalPresent, normalizeOptionalTextField, systemClockMillis, currentIsoTimestamp } from './contractStoreModel.js';
+import { strictPositiveApprovalRequestId } from '../../../shared/api/approvalRequestId.js';
+import { optionalTextField, normalizeOptionalTextField, systemClockMillis, currentIsoTimestamp } from './contractStoreModel.js';
 import {
   isVisibleTimelineItem,
   mergeTimelineItems,
@@ -27,8 +28,7 @@ function normalizeString(value) {
 }
 
 function positiveApprovalRequestId(item) {
-  const parsed = Number(firstOptionalPresent(item?.requestId, item?.request_id));
-  return Math.max(0, Number.isFinite(parsed) ? parsed : 0);
+  return strictPositiveApprovalRequestId(item?.requestId);
 }
 
 function cleanObject(payload) {

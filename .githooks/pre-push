@@ -26,6 +26,21 @@ run_without_git_env() (
   "$@"
 )
 
+CAPCONTRACT_PATH_RULES_HELPER=scripts/capcontract/path_rules.sh
+if [ ! -r "$CAPCONTRACT_PATH_RULES_HELPER" ]; then
+  echo "❌ capcontract path rules helper missing: $CAPCONTRACT_PATH_RULES_HELPER" >&2
+  exit 1
+fi
+# shellcheck source=scripts/capcontract/path_rules.sh
+if ! source "$CAPCONTRACT_PATH_RULES_HELPER"; then
+  echo "❌ capcontract path rules helper could not be loaded" >&2
+  exit 1
+fi
+if ! load_capcontract_path_rules "${CAPCONTRACT_PATH_RULES_GO_BIN:-go}"; then
+  echo "❌ capcontract path rules could not be generated" >&2
+  exit 1
+fi
+
 PUSH_RANGES=$(mktemp -t pre-push-ranges.XXXXXX)
 AI_MAINTENANCE_CHANGED_FILES=()
 HAS_FRONTEND_APP_CODE_CHANGES=0
@@ -131,14 +146,17 @@ add_codemap_path() {
 }
 
 add_capcontract_path() {
-  case "$1" in
-    docs/doc/codemap/capability-contract/*|\
-    internal/devtools/capcontract/*|\
-    scripts/capcontract.go|\
-    scripts/capcontract/*)
-      HAS_CAPCONTRACT_CHANGES=1
-      ;;
-  esac
+  local status=0
+  is_capcontract_change "$1" || status=$?
+  if [ "$status" -eq 0 ]; then
+    HAS_CAPCONTRACT_CHANGES=1
+    return 0
+  fi
+  if [ "$status" -gt 1 ]; then
+    echo "❌ capcontract path rules could not classify changed path: $1" >&2
+    exit 1
+  fi
+  return 0
 }
 
 add_skill_path() {

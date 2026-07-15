@@ -13,6 +13,8 @@ import (
 
 const fixTestGuardGitTimeout = 5 * time.Second
 
+const commitTitleEnforcementBaselinePath = "scripts/commit_title_enforcement_baseline.txt"
+
 func newPrePushScopeFixture(t *testing.T) prePushScopeFixture {
 	t.Helper()
 	root := preparePrePushScopeRepo(t)
@@ -51,9 +53,20 @@ func assertPrePushGoOnlyScope(t *testing.T) {
 	assertOutputOmitsAll(t, log, "go-test ", "node ", "npx ", "npm ")
 }
 
+// markPrePushFixtureGoModChanged 保留 canonical 依赖，只让 go.mod 出现在待推送变更范围内。
+func markPrePushFixtureGoModChanged(t *testing.T, root string) {
+	t.Helper()
+	path := filepath.Join(root, "go.mod")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read fixture go.mod: %v", err)
+	}
+	writeFixTestGuardFile(t, root, "go.mod", string(data)+"\n// pre-push scope fixture change\n")
+}
+
 func commitPrePushGoOnlyChange(t *testing.T, root string) string {
 	t.Helper()
-	writeFixTestGuardFile(t, root, "go.mod", "module example.com/prepushscope\n\ngo 1.22\n")
+	markPrePushFixtureGoModChanged(t, root)
 	writeFixTestGuardFile(t, root, "internal/app/app.go", "package app\n\nfunc App() {}\n")
 	runFixTestGuardGit(t, root, "add", "go.mod", "internal/app/app.go")
 	runFixTestGuardGit(t, root, "commit", "-m", "chore: 更新 app package")
@@ -73,7 +86,7 @@ func assertPrePushExcludesDeferredE2EScope(t *testing.T) {
 
 func commitPrePushMixedFastAndDeferredE2EChange(t *testing.T, root string) string {
 	t.Helper()
-	writeFixTestGuardFile(t, root, "go.mod", "module example.com/prepushscope\n\ngo 1.22\n")
+	markPrePushFixtureGoModChanged(t, root)
 	writeFixTestGuardFile(t, root, "internal/app/app.go", "package app\n\nfunc App() {}\n")
 	writeFixTestGuardFile(t, root, "internal/provider/claudecli/provider.go", "package claudecli\n")
 	writeFixTestGuardFile(t, root, "internal/provider/codexapp/provider.go", "package codexapp\n")
@@ -171,11 +184,11 @@ func preparePrePushScopeRepo(t *testing.T) string {
 	root := prepareFixTestGuardRepo(t)
 	copyFixTestGuardRepoFile(t, root, ".githooks/pre-push", 0o755)
 	copyFixTestGuardRepoFile(t, root, "scripts/configure_hook_node_runtime.sh", 0o755)
-	copyFixTestGuardRepoFile(t, root, "scripts/guard_commit_titles.sh", 0o755)
+	copyCommitTitleGuard(t, root, "")
 	writePrePushFakeGoTestScript(t, root)
 	writeFakeAIMaintenanceGateScript(t, root)
 	copyFixTestGuardRepoFile(t, root, "scripts/ai_maintenance/deferred_e2e_packages.txt", 0o644)
-	runFixTestGuardGit(t, root, "add", ".githooks/pre-push", "scripts/configure_hook_node_runtime.sh", "scripts/guard_commit_titles.sh", "scripts/guard_fix_commits_have_tests.sh", "scripts/test_with_guard.sh", "scripts/ai_maintenance_gates.sh", "scripts/ai_maintenance/deferred_e2e_packages.txt")
+	runFixTestGuardGit(t, root, "add", ".githooks/pre-push", "scripts/configure_hook_node_runtime.sh", "go.mod", "go.sum", "CLAUDE.md", "scripts/guard_commit_titles.sh", commitTitleEnforcementBaselinePath, "scripts/guard_fix_commits_have_tests.sh", "scripts/test_with_guard.sh", "scripts/ai_maintenance_gates.sh", "scripts/ai_maintenance/deferred_e2e_packages.txt", "scripts/capcontract/main.go", "scripts/capcontract/path_rules.sh", "internal/devtools/capcontract/manifest.go", "internal/devtools/capcontract/scanner.go", "internal/devtools/capcontract/path_rules.go")
 	runFixTestGuardGit(t, root, "commit", "-m", "chore: install pre-push scope fixture")
 	return root
 }
@@ -249,6 +262,7 @@ func writePrePushScopeFakeBins(t *testing.T, logPath string) string {
 	binDir := t.TempDir()
 	for name, content := range map[string]string{
 		"go":   "#!/usr/bin/env bash\nprintf 'go %s\\n' \"$*\" >>\"$HOOK_SCOPE_LOG\"\nif [ \"${1:-}\" = \"list\" ]; then shift; printf '%s\\n' \"$@\"; fi\n",
+		"make": "#!/usr/bin/env bash\nprintf 'make %s\\n' \"$*\" >>\"$HOOK_SCOPE_LOG\"\n",
 		"node": "#!/usr/bin/env bash\nif [ \"${1:-}\" = \"-e\" ] && [ \"${2:-}\" = \"process.exit(0)\" ]; then exit 0; fi\nprintf 'node %s\\n' \"$*\" >>\"$HOOK_SCOPE_LOG\"\n",
 		"npx":  "#!/usr/bin/env bash\nprintf 'npx %s\\n' \"$*\" >>\"$HOOK_SCOPE_LOG\"\n",
 		"npm":  "#!/usr/bin/env bash\nprintf 'npm %s\\n' \"$*\" >>\"$HOOK_SCOPE_LOG\"\n",
@@ -273,11 +287,20 @@ func runPrePushScopeHook(t *testing.T, root, stdin, binDir, logPath string) (str
 	cmd := exec.Command("bash", bashPath(".githooks", "pre-push"))
 	cmd.Dir = root
 	cmd.Stdin = strings.NewReader(stdin)
+	capcontractGoBin := os.Getenv("CAPCONTRACT_PATH_RULES_GO_BIN")
+	if capcontractGoBin == "" {
+		resolvedGo, err := exec.LookPath("go")
+		if err != nil {
+			t.Fatalf("resolve real Go executable for path-rules fixture: %v", err)
+		}
+		capcontractGoBin = bashAbsolutePath(resolvedGo)
+	}
 	env := append(os.Environ(),
 		"PATH="+bashArg("", binDir)+":/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
 		"HOOK_SCOPE_LOG="+bashArg("", logPath),
+		"CAPCONTRACT_PATH_RULES_GO_BIN="+capcontractGoBin,
 	)
-	cmd.Env = appendWSLEnvKeysWithGitPath(t, env, "PATH", "HOOK_SCOPE_LOG")
+	cmd.Env = appendWSLEnvKeysWithGitPath(t, env, "PATH", "HOOK_SCOPE_LOG", "CAPCONTRACT_PATH_RULES_GO_BIN")
 	out, err := cmd.CombinedOutput()
 	return string(out), err
 }
@@ -358,6 +381,86 @@ func copyFixTestGuardRepoFile(t *testing.T, root, path string, mode os.FileMode)
 	}
 	if err := os.WriteFile(target, data, mode); err != nil {
 		t.Fatalf("copy %s: %v", path, err)
+	}
+	if path == ".githooks/pre-push" {
+		installPrePushCapabilityPathRulesFixture(t, root)
+	}
+}
+
+func installPrePushCapabilityPathRulesFixture(t *testing.T, root string) {
+	t.Helper()
+	for _, file := range []struct {
+		path string
+		mode os.FileMode
+	}{
+		{path: "go.mod", mode: 0o644},
+		{path: "go.sum", mode: 0o644},
+		{path: "scripts/capcontract/main.go", mode: 0o644},
+		{path: "scripts/capcontract/path_rules.sh", mode: 0o755},
+		{path: "internal/devtools/capcontract/manifest.go", mode: 0o644},
+		{path: "internal/devtools/capcontract/scanner.go", mode: 0o644},
+		{path: "internal/devtools/capcontract/path_rules.go", mode: 0o644},
+	} {
+		copyFixTestGuardRepoFile(t, root, file.path, file.mode)
+	}
+	writeFixTestGuardFile(t, root, "CLAUDE.md", "pre-push capability path-rules fixture\n")
+	_, defaultRoots := capabilityDefaultRootsForGuardTest(t)
+	for _, defaultRoot := range defaultRoots {
+		if err := os.MkdirAll(filepath.Join(root, filepath.FromSlash(defaultRoot)), 0o755); err != nil {
+			t.Fatalf("mkdir default capability root %s: %v", defaultRoot, err)
+		}
+	}
+}
+
+func prepareCommitTitleBaselineRepo(t *testing.T) (string, string) {
+	t.Helper()
+	root := prepareFixTestGuardRepo(t)
+	eventBase := strings.TrimSpace(runFixTestGuardGitOutput(t, root, "rev-parse", "HEAD"))
+	baseline := commitCommitGuardFixture(t, root, "docs/legacy.md", "legacy\n", "chore: legacy English title")
+	copyCommitTitleGuard(t, root, baseline)
+	runFixTestGuardGit(t, root, "add", "scripts/guard_commit_titles.sh", commitTitleEnforcementBaselinePath)
+	runFixTestGuardGit(t, root, "commit", "-m", "chore: 安装提交标题门禁")
+	return root, eventBase
+}
+
+func copyCommitTitleGuard(t *testing.T, root, baseline string) {
+	t.Helper()
+	if baseline == "" {
+		baseline = strings.TrimSpace(runFixTestGuardGitOutput(t, root, "rev-parse", "HEAD"))
+	}
+	copyFixTestGuardRepoFile(t, root, "scripts/guard_commit_titles.sh", 0o755)
+	writeFixTestGuardFile(t, root, commitTitleEnforcementBaselinePath, baseline+"\n")
+}
+
+func commitCommitGuardFixture(t *testing.T, root, path, content, subject string) string {
+	t.Helper()
+	writeFixTestGuardFile(t, root, path, content)
+	runFixTestGuardGit(t, root, "add", path)
+	runFixTestGuardGit(t, root, "commit", "-m", subject)
+	return strings.TrimSpace(runFixTestGuardGitOutput(t, root, "rev-parse", "HEAD"))
+}
+
+func runCommitTitleGuard(t *testing.T, root string, args ...string) (string, error) {
+	t.Helper()
+	cmdArgs := append([]string{bashPath("scripts", "guard_commit_titles.sh")}, bashArgs(root, args)...)
+	cmd := exec.Command("bash", cmdArgs...)
+	cmd.Dir = root
+	out, err := cmd.CombinedOutput()
+	return string(out), err
+}
+
+func commitGuardEventEnv(eventName, base, head string) map[string]string {
+	if eventName == "pull_request" {
+		return map[string]string{
+			"GITHUB_EVENT_NAME": "pull_request",
+			"GITHUB_BASE_SHA":   base,
+			"GITHUB_HEAD_SHA":   head,
+		}
+	}
+	return map[string]string{
+		"GITHUB_EVENT_NAME":   "push",
+		"GITHUB_EVENT_BEFORE": base,
+		"GITHUB_SHA":          head,
 	}
 }
 

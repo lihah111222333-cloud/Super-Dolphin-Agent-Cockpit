@@ -4239,6 +4239,8 @@ async function toggleInlineTraceFromRecentLogs(table) {
           kind: 'approval',
           title: 'shell',
           text: '需要执行 deploy 命令',
+          sessionScope: 'session-scope-a',
+          callId: 'call-11',
           requestId: 11,
           status: 'pending',
           ts: '2026-05-30T00:00:00Z',
@@ -4254,7 +4256,12 @@ async function toggleInlineTraceFromRecentLogs(table) {
     fireEvent.click(screen.getByRole('button', { name: '确认选择' }));
 
     await waitFor(() => {
-      expect(backend.respondApproval).toHaveBeenCalledWith({ requestId: 11, approved: true });
+      expect(backend.respondApproval).toHaveBeenCalledWith({
+        sessionScope: 'session-scope-a',
+        callId: 'call-11',
+        requestId: 11,
+        approved: true,
+      });
     });
     expect(screen.getByRole('button', { name: '同意' })).toBeDisabled();
     expect(screen.getByRole('button', { name: '确认选择' })).toBeDisabled();

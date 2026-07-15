@@ -15,12 +15,18 @@ import (
 )
 
 func TestRequestApprovalDecisionAutoDeclinesWithoutFrontend(t *testing.T) {
+	requestID := int64(1)
 	s := &session{
-		approvals: rpc.NewApprovalManager(nil, nil),
-		ctx:       context.Background(),
+		approvalSessionScope: "test-session-scope",
+		approvals:            rpc.NewApprovalManager(nil, nil),
+		ctx:                  context.Background(),
 	}
 
-	decision, err := s.requestApprovalDecision(rpc.ApprovalRequest{CallID: "call-1"})
+	decision, err := s.requestApprovalDecision(rpc.ApprovalRequest{
+		SessionScope: "test-session-scope",
+		CallID:       "call-1",
+		RequestID:    &requestID,
+	})
 	if err != nil {
 		t.Fatalf("requestApprovalDecision() error = %v", err)
 	}
@@ -61,15 +67,16 @@ func TestHandleApprovalRequestWithNilManagerFailsTurnAndCancelsSession(t *testin
 
 func TestRequestApprovalDecisionAutoRespondsRequestUserInputWhenPolicyNever(t *testing.T) {
 	s := &session{
-		agentID:    "agent-1",
-		approvals:  rpc.NewApprovalManager(nil, nil),
-		ctx:        context.Background(),
-		suppressed: map[string]struct{}{},
-		turns:      map[string]*turnHandle{},
+		agentID:              "agent-1",
+		approvalSessionScope: "test-session-scope",
+		approvals:            rpc.NewApprovalManager(nil, nil),
+		ctx:                  context.Background(),
+		suppressed:           map[string]struct{}{},
+		turns:                map[string]*turnHandle{},
 	}
 	s.setApprovalPolicy("never")
 
-	req, _, ok := s.buildApprovalRequest("request_user_input", map[string]any{"requestId": int64(1), "message": "continue"})
+	req, _, ok := s.buildApprovalRequest("request_user_input", map[string]any{"requestId": int64(1), "callId": "call-1", "message": "continue"})
 	if !ok {
 		t.Fatal("buildApprovalRequest() ok = false, want true")
 	}
@@ -95,11 +102,12 @@ func TestOnNotificationApprovalRequestPublishesRequestedOnce(t *testing.T) {
 	defer cancel()
 
 	s := &session{
-		agentID:    "agent-1",
-		approvals:  rpc.NewApprovalManager(nil, bus),
-		ctx:        ctx,
-		suppressed: map[string]struct{}{},
-		turns:      map[string]*turnHandle{},
+		agentID:              "agent-1",
+		approvalSessionScope: "test-session-scope",
+		approvals:            rpc.NewApprovalManager(nil, bus),
+		ctx:                  ctx,
+		suppressed:           map[string]struct{}{},
+		turns:                map[string]*turnHandle{},
 	}
 	s.setApprovalPolicy("on-request")
 
@@ -109,7 +117,7 @@ func TestOnNotificationApprovalRequestPublishesRequestedOnce(t *testing.T) {
 	})
 	defer cancelSub()
 
-	s.onNotification("item/commandExecution/requestApproval", []byte(`{"requestId":1,"command":"echo hi","toolName":"shell","turnId":"turn-1"}`))
+	s.onNotification("item/commandExecution/requestApproval", []byte(`{"requestId":1,"callId":"call-1","command":"echo hi","toolName":"shell","turnId":"turn-1"}`))
 
 	var first tooldto.ToolApprovalRequested
 	select {
@@ -120,6 +128,9 @@ func TestOnNotificationApprovalRequestPublishesRequestedOnce(t *testing.T) {
 	if first.RequestID != 1 {
 		t.Fatalf("first requestID = %d, want 1", first.RequestID)
 	}
+	if first.SessionScope != "test-session-scope" || first.CallID != "call-1" {
+		t.Fatalf("first identity = (%q, %q, %d), want (%q, %q, %d)", first.SessionScope, first.CallID, first.RequestID, "test-session-scope", "call-1", 1)
+	}
 
 	select {
 	case extra := <-requested:
@@ -128,6 +139,59 @@ func TestOnNotificationApprovalRequestPublishesRequestedOnce(t *testing.T) {
 	}
 
 	cancel()
+}
+
+func TestBuildApprovalRequestRequiresFullBackendIdentity(t *testing.T) {
+	s := &session{
+		agentID:              "agent-1",
+		approvalSessionScope: "session-scope-a",
+	}
+	s.setApprovalPolicy("on-request")
+	req, requestID, ok := s.buildApprovalRequest("item/commandExecution/requestApproval", map[string]any{
+		"requestId": int64(17),
+		"callId":    "call-17",
+	})
+	if !ok {
+		t.Fatal("buildApprovalRequest() ok = false, want true")
+	}
+	if requestID != 17 || req.SessionScope != "session-scope-a" || req.CallID != "call-17" {
+		t.Fatalf("buildApprovalRequest() identity = (%q, %q, %d), want (%q, %q, %d)", req.SessionScope, req.CallID, requestID, "session-scope-a", "call-17", 17)
+	}
+
+	for _, payload := range []map[string]any{
+		{"requestId": int64(17)},
+		{"requestId": int64(17), "approvalId": "approval-17"},
+		{"callId": "call-17"},
+	} {
+		if _, _, ok := s.buildApprovalRequest("item/commandExecution/requestApproval", payload); ok {
+			t.Fatalf("buildApprovalRequest(%v) ok = true, want fail closed", payload)
+		}
+	}
+}
+
+func TestBuildApprovalRequestRejectsAmbiguousProviderIdentity(t *testing.T) {
+	s := &session{approvalSessionScope: "session-scope-a"}
+	s.setApprovalPolicy("on-request")
+	for _, payload := range []map[string]any{
+		{"requestId": int64(17), "request_id": int64(18), "callId": "call-17"},
+		{"requestId": int64(17), "callId": "call-17", "call_id": "call-18"},
+		{"requestId": int64(17), "callId": "call-17", "item": map[string]any{"callId": "call-18"}},
+		{"requestId": int64(17), "request_id": nil, "callId": "call-17"},
+		{"requestId": int64(17), "callId": "", "call_id": "call-17"},
+	} {
+		if _, _, ok := s.buildApprovalRequest("item/commandExecution/requestApproval", payload); ok {
+			t.Fatalf("buildApprovalRequest(%v) ok = true, want ambiguous identity rejected", payload)
+		}
+	}
+
+	for _, payload := range []map[string]any{
+		{"requestId": int64(17), "request_id": int64(17), "callId": "call-17", "call_id": "call-17"},
+		{"requestId": int64(17), "callId": "call-17", "item": map[string]any{"call_id": "call-17"}},
+	} {
+		if _, _, ok := s.buildApprovalRequest("item/commandExecution/requestApproval", payload); !ok {
+			t.Fatalf("buildApprovalRequest(%v) ok = false, want identical aliases accepted", payload)
+		}
+	}
 }
 
 func TestAlienThreadEventThreadReportsIncomingThreadID(t *testing.T) {
@@ -163,8 +227,8 @@ func TestBeginProcessedApprovalDedupesByCallIDAndRequestID(t *testing.T) {
 	s := &session{processedApprovals: map[string]*processedApprovalEntry{}}
 
 	key := processedApprovalKey("call-1", 1)
-	first, firstOwner := s.beginProcessedApproval(key)
-	second, secondOwner := s.beginProcessedApproval(key)
+	first, firstOwner := mustBeginProcessedApproval(t, s, key)
+	second, secondOwner := mustBeginProcessedApproval(t, s, key)
 
 	if !firstOwner || secondOwner {
 		t.Fatalf("owners = %v, %v; want true, false", firstOwner, secondOwner)
@@ -174,13 +238,22 @@ func TestBeginProcessedApprovalDedupesByCallIDAndRequestID(t *testing.T) {
 	}
 }
 
+func mustBeginProcessedApproval(t *testing.T, s *session, key string) (*processedApprovalEntry, bool) {
+	t.Helper()
+	entry, owner, err := s.beginProcessedApproval(key, key)
+	if err != nil {
+		t.Fatalf("beginProcessedApproval(%q) error = %v", key, err)
+	}
+	return entry, owner
+}
+
 func TestBeginProcessedApprovalClearsCacheAtCapacity(t *testing.T) {
 	s := &session{processedApprovals: map[string]*processedApprovalEntry{}}
 
 	finishProcessedApprovalRange(t, s, 0, processedApprovalLimit)
 
 	lastKey := processedApprovalKey("call-overflow", int64(processedApprovalLimit+1))
-	lastEntry, owner := s.beginProcessedApproval(lastKey)
+	lastEntry, owner := mustBeginProcessedApproval(t, s, lastKey)
 	if lastEntry == nil || !owner {
 		t.Fatalf("beginProcessedApproval(%q) = (%#v, %v), want new owner entry", lastKey, lastEntry, owner)
 	}
@@ -199,7 +272,7 @@ func TestBeginProcessedApprovalCapacityKeepsPendingEntries(t *testing.T) {
 	s := &session{processedApprovals: map[string]*processedApprovalEntry{}}
 
 	pendingKey := processedApprovalKey("call-pending", 1)
-	pendingEntry, owner := s.beginProcessedApproval(pendingKey)
+	pendingEntry, owner := mustBeginProcessedApproval(t, s, pendingKey)
 	if pendingEntry == nil || !owner {
 		t.Fatalf("beginProcessedApproval(%q) = (%#v, %v), want pending owner entry", pendingKey, pendingEntry, owner)
 	}
@@ -207,7 +280,7 @@ func TestBeginProcessedApprovalCapacityKeepsPendingEntries(t *testing.T) {
 	finishProcessedApprovalRange(t, s, 1, processedApprovalLimit)
 
 	lastKey := processedApprovalKey("call-overflow-pending", int64(processedApprovalLimit+1))
-	lastEntry, owner := s.beginProcessedApproval(lastKey)
+	lastEntry, owner := mustBeginProcessedApproval(t, s, lastKey)
 	if lastEntry == nil || !owner {
 		t.Fatalf("beginProcessedApproval(%q) = (%#v, %v), want new owner entry", lastKey, lastEntry, owner)
 	}
@@ -229,7 +302,7 @@ func finishProcessedApprovalRange(t *testing.T, s *session, start, stop int) {
 	t.Helper()
 	for i := start; i < stop; i++ {
 		key := processedApprovalKey("call-"+strconv.Itoa(i), int64(i+1))
-		entry, owner := s.beginProcessedApproval(key)
+		entry, owner := mustBeginProcessedApproval(t, s, key)
 		if entry == nil || !owner {
 			t.Fatalf("beginProcessedApproval(%q) = (%#v, %v), want new owner entry", key, entry, owner)
 		}
@@ -271,7 +344,7 @@ func (b *blockingApprovalRequester) callCount() int {
 	return b.calls
 }
 
-func TestProcessedApprovalRequestKeyPreservesNestedCallID(t *testing.T) {
+func TestProcessedApprovalRequestKeyUsesCanonicalIdentityAndSeparateFingerprint(t *testing.T) {
 	base := rpc.ApprovalRequest{
 		SourceMethod: "item/commandExecution/requestApproval",
 		CallID:       "volatile-top-level-a",
@@ -290,8 +363,8 @@ func TestProcessedApprovalRequestKeyPreservesNestedCallID(t *testing.T) {
 		"toolName":  "custom",
 		"arguments": map[string]any{"callId": "business-a"},
 	}
-	if got, want := processedApprovalRequestKey(base, 5), processedApprovalRequestKey(replayed, 5); got != want {
-		t.Fatalf("top-level volatile callId changed key: got %q want %q", got, want)
+	if got, wantDifferentFrom := processedApprovalRequestKey(base, 5), processedApprovalRequestKey(replayed, 5); got == wantDifferentFrom {
+		t.Fatalf("different canonical callIds shared key %q", got)
 	}
 
 	differentNested := base
@@ -301,8 +374,11 @@ func TestProcessedApprovalRequestKeyPreservesNestedCallID(t *testing.T) {
 		"toolName":  "custom",
 		"arguments": map[string]any{"callId": "business-b"},
 	}
-	if got, wantDifferentFrom := processedApprovalRequestKey(differentNested, 5), processedApprovalRequestKey(base, 5); got == wantDifferentFrom {
-		t.Fatalf("nested business callId was ignored in key: both %q", got)
+	if got, want := processedApprovalRequestKey(differentNested, 5), processedApprovalRequestKey(base, 5); got != want {
+		t.Fatalf("payload changed canonical identity key: got %q want %q", got, want)
+	}
+	if got, wantDifferentFrom := approvalRequestFingerprint(differentNested, 5), approvalRequestFingerprint(base, 5); got == wantDifferentFrom {
+		t.Fatalf("nested business callId was ignored in fingerprint: both %q", got)
 	}
 }
 

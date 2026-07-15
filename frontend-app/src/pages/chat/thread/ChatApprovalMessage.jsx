@@ -9,7 +9,7 @@ function ChatApprovalMessage({ message, actions, formatTime }) {
     ? async (choice) => {
         const submission = approvalSubmissionFor(request, choice);
         try {
-          return await actions.onApproval(message, submission.approved);
+          return await actions.onApproval(submission, submission.approved);
         }
         catch (error) {
           const messageText = error instanceof Error ? error.message : String(error);

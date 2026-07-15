@@ -159,7 +159,7 @@ type stubSessionProvider struct {
 
 type noopApprovalResponder struct{}
 
-func (noopApprovalResponder) Respond(string, *int64, contract.ApprovalDecision) error {
+func (noopApprovalResponder) Respond(contract.ApprovalIdentity, contract.ApprovalDecision) error {
 	return nil
 }
 
