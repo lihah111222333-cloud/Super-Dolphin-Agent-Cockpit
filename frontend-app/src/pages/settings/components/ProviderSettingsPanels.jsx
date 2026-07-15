@@ -8,8 +8,12 @@ function ProviderSettingsPanel({ copy, runtime, viewConfig }) {
   const { changeActiveProvider, form, saveProviderSettings, updateForm } = runtime;
   return (
     <Panel title="PROVIDER">
-      <ProviderSettingsForm changeActiveProvider={changeActiveProvider} copy={copy} form={form} updateForm={updateForm} viewConfig={viewConfig} />
-      <div className="settings-actions"><button className="btn btn-primary" type="button" onClick={() => void saveProviderSettings()}>{copy.provider.saveSettings}</button></div>
+      <div data-testid="settings-provider-runtime-card">
+        <ProviderSettingsForm changeActiveProvider={changeActiveProvider} copy={copy} form={form} updateForm={updateForm} viewConfig={viewConfig} />
+        <div className="settings-actions">
+          <button className="btn btn-primary" type="button" data-testid="settings-provider-save-button" onClick={() => void saveProviderSettings()}>{copy.provider.saveSettings}</button>
+        </div>
+      </div>
     </Panel>
   );
 }

@@ -8,14 +8,24 @@ frontend-app/.gitignore	frontend-app	app-ui	file	30	当前 React/Vite 前端包	
 frontend-app/eslint.config.js	frontend-app	app-ui	js-source	857	当前 React/Vite 前端包	frontend,app,eslint,config,当前,React,Vite,前端包
 frontend-app/index.html	frontend-app	app-ui	html	391	当前 React/Vite 前端包	frontend,app,index,当前,React,Vite,前端包
 frontend-app/jsconfig.json	frontend-app	app-ui	json	421	当前 React/Vite 前端包	frontend,app,jsconfig,当前,React,Vite,前端包
-frontend-app/package-lock.json	frontend-app	app-ui	json	233638	当前 React/Vite 前端包	frontend,app,package,lock,当前,React,Vite,前端包
-frontend-app/package.json	frontend-app	app-ui	json	2467	当前 React/Vite 前端包	frontend,app,package,当前,React,Vite,前端包
+frontend-app/package-lock.json	frontend-app	app-ui	json	233478	当前 React/Vite 前端包	frontend,app,package,lock,当前,React,Vite,前端包
+frontend-app/package.json	frontend-app	app-ui	json	2698	当前 React/Vite 前端包	frontend,app,package,当前,React,Vite,前端包
+frontend-app/playwright.business-flows.config.js	frontend-app	app-ui	js-source	894	当前 React/Vite 前端包	frontend,app,playwright,business,flows,config,当前,React,Vite,前端包
+frontend-app/playwright.desktop-wide.config.js	frontend-app	app-ui	js-source	1030	当前 React/Vite 前端包	frontend,app,playwright,desktop,wide,config,当前,React,Vite,前端包
 frontend-app/playwright.desktop.config.js	frontend-app	app-ui	js-source	617	当前 React/Vite 前端包	frontend,app,playwright,desktop,config,当前,React,Vite,前端包
 frontend-app/public/favicon.png	frontend-app	app-ui	png	99172	当前 React/Vite 前端包	frontend,app,public,favicon,当前,React,Vite,前端包
 frontend-app/public/favicon.svg	frontend-app	app-ui	svg	295	当前 React/Vite 前端包	frontend,app,public,favicon,当前,React,Vite,前端包
 frontend-app/public/wails/runtime.js	frontend-app	app-ui	js-source	19498	当前 React/Vite 前端包	frontend,app,public,wails,runtime,当前,React,Vite,前端包
 frontend-app/public/wails/runtime.test.js	frontend-app	app-ui	js-test	17803	当前 React/Vite 前端包	frontend,app,public,wails,runtime,test,当前,React,Vite,前端包
 frontend-app/README.md	frontend-app	app-ui	doc	1427	当前 React/Vite 前端包	frontend,app,README,当前,React,Vite,前端包
+frontend-app/scripts/agentic-e2e-discovery.mjs	frontend-app	app-ui	js-source	6036	React 前端构建与校验脚本	frontend,app,scripts,agentic,e2e,discovery,React,前端构建与校验脚本
+frontend-app/scripts/agentic-e2e-goals.mjs	frontend-app	app-ui	js-source	7632	React 前端构建与校验脚本	frontend,app,scripts,agentic,e2e,goals,React,前端构建与校验脚本
+frontend-app/scripts/agentic-e2e-planner.mjs	frontend-app	app-ui	js-source	12675	React 前端构建与校验脚本	frontend,app,scripts,agentic,e2e,planner,React,前端构建与校验脚本
+frontend-app/scripts/agentic-e2e-reporter.mjs	frontend-app	app-ui	js-source	8046	React 前端构建与校验脚本	frontend,app,scripts,agentic,e2e,reporter,React,前端构建与校验脚本
+frontend-app/scripts/agentic-e2e-sandbox.mjs	frontend-app	app-ui	js-source	3296	React 前端构建与校验脚本	frontend,app,scripts,agentic,e2e,sandbox,React,前端构建与校验脚本
+frontend-app/scripts/agentic-e2e-wails-mock.mjs	frontend-app	app-ui	js-source	23641	React 前端构建与校验脚本	frontend,app,scripts,agentic,e2e,wails,mock,React,前端构建与校验脚本
+frontend-app/scripts/agentic-e2e.mjs	frontend-app	app-ui	js-source	26608	React 前端构建与校验脚本	frontend,app,scripts,agentic,e2e,React,前端构建与校验脚本
+frontend-app/scripts/agentic-e2e.test.mjs	frontend-app	app-ui	js-test	57464	React 前端构建与校验脚本	frontend,app,scripts,agentic,e2e,test,React,前端构建与校验脚本
 frontend-app/scripts/chat-history-benchmark.mjs	frontend-app	app-ui	js-source	3595	React 前端构建与校验脚本	frontend,app,scripts,chat,history,benchmark,React,前端构建与校验脚本
 frontend-app/scripts/chat-history-benchmark.test.mjs	frontend-app	app-ui	js-test	4193	React 前端构建与校验脚本	frontend,app,scripts,chat,history,benchmark,test,React,前端构建与校验脚本
 frontend-app/scripts/contracts-typecheck-guard.test.mjs	frontend-app	app-ui	js-test	1567	React 前端构建与校验脚本	frontend,app,scripts,contracts,typecheck,guard,test,React,前端构建与校验脚本
@@ -74,7 +84,7 @@ frontend-app/src/AppRoutes.jsx	frontend-app	app-ui	jsx	4154	当前 React/Vite �
 frontend-app/src/AppShell.css	frontend-app	app-ui	css	31233	当前 React/Vite 前端包	frontend,app,src,AppShell,当前,React,Vite,前端包
 frontend-app/src/AppShellSidebarPolish.css	frontend-app	app-ui	css	468	当前 React/Vite 前端包	frontend,app,src,AppShellSidebarPolish,当前,React,Vite,前端包
 frontend-app/src/AppShellSidebarThreadActions.css	frontend-app	app-ui	css	4614	当前 React/Vite 前端包	frontend,app,src,AppShellSidebarThreadActions,当前,React,Vite,前端包
-frontend-app/src/AppShellWorkbench.css	frontend-app	app-ui	css	13748	当前 React/Vite 前端包	frontend,app,src,AppShellWorkbench,当前,React,Vite,前端包
+frontend-app/src/AppShellWorkbench.css	frontend-app	app-ui	css	13665	当前 React/Vite 前端包	frontend,app,src,AppShellWorkbench,当前,React,Vite,前端包
 frontend-app/src/AppWindowFrame.jsx	frontend-app	app-ui	jsx	4478	当前 React/Vite 前端包	frontend,app,src,AppWindowFrame,当前,React,Vite,前端包
 frontend-app/src/assets/suiyuan-brand-icon.png	frontend-app	app-ui	png	99172	当前 React/Vite 前端包	frontend,app,src,assets,suiyuan,brand,icon,当前,React,Vite,前端包
 frontend-app/src/assets/super-dolphin-logo.png	frontend-app	app-ui	png	5140	当前 React/Vite 前端包	frontend,app,src,assets,super,dolphin,logo,当前,React,Vite,前端包
@@ -364,9 +374,9 @@ frontend-app/src/pages/settings/components/ModelProvidersCardParts.jsx	frontend-
 frontend-app/src/pages/settings/components/PromptSettingsCard.css	frontend-app	app-ui	css	0	React 页面与路由级 UI	frontend,app,src,pages,settings,components,PromptSettingsCard,React,页面与路由级,UI
 frontend-app/src/pages/settings/components/PromptSettingsCard.jsx	frontend-app	app-ui	jsx	3034	React 页面与路由级 UI	frontend,app,src,pages,settings,components,PromptSettingsCard,React,页面与路由级,UI
 frontend-app/src/pages/settings/components/PromptSettingsCardTextareas.jsx	frontend-app	app-ui	jsx	1128	React 页面与路由级 UI	frontend,app,src,pages,settings,components,PromptSettingsCardTextareas,React,页面与路由级,UI
-frontend-app/src/pages/settings/components/ProviderSettingsForm.jsx	frontend-app	app-ui	jsx	3925	React 页面与路由级 UI	frontend,app,src,pages,settings,components,ProviderSettingsForm,React,页面与路由级,UI
+frontend-app/src/pages/settings/components/ProviderSettingsForm.jsx	frontend-app	app-ui	jsx	4228	React 页面与路由级 UI	frontend,app,src,pages,settings,components,ProviderSettingsForm,React,页面与路由级,UI
 frontend-app/src/pages/settings/components/ProviderSettingsPanels.css	frontend-app	app-ui	css	0	React 页面与路由级 UI	frontend,app,src,pages,settings,components,ProviderSettingsPanels,React,页面与路由级,UI
-frontend-app/src/pages/settings/components/ProviderSettingsPanels.jsx	frontend-app	app-ui	jsx	2831	React 页面与路由级 UI	frontend,app,src,pages,settings,components,ProviderSettingsPanels,React,页面与路由级,UI
+frontend-app/src/pages/settings/components/ProviderSettingsPanels.jsx	frontend-app	app-ui	jsx	2969	React 页面与路由级 UI	frontend,app,src,pages,settings,components,ProviderSettingsPanels,React,页面与路由级,UI
 frontend-app/src/pages/settings/components/SettingsPageComponents.css	frontend-app	app-ui	css	7941	React 页面与路由级 UI	frontend,app,src,pages,settings,components,SettingsPageComponents,React,页面与路由级,UI
 frontend-app/src/pages/settings/components/SettingsPromptNotice.css	frontend-app	app-ui	css	0	React 页面与路由级 UI	frontend,app,src,pages,settings,components,SettingsPromptNotice,React,页面与路由级,UI
 frontend-app/src/pages/settings/components/SettingsPromptNotice.jsx	frontend-app	app-ui	jsx	418	React 页面与路由级 UI	frontend,app,src,pages,settings,components,SettingsPromptNotice,React,页面与路由级,UI
@@ -511,7 +521,7 @@ frontend-app/src/shared/ui/OverlayPortal.test.jsx	frontend-app	app-ui	jsx	2166	R
 frontend-app/src/shared/ui/runUIAction.js	frontend-app	app-ui	js-source	520	React 共享 UI 组件	frontend,app,src,shared,ui,runUIAction,React,共享,UI,组件
 frontend-app/src/shared/ui/runUIAction.test.js	frontend-app	app-ui	js-test	811	React 共享 UI 组件	frontend,app,src,shared,ui,runUIAction,test,React,共享,UI,组件
 frontend-app/src/styles.css	frontend-app	app-ui	css	4785	当前 React/Vite 前端包	frontend,app,src,styles,当前,React,Vite,前端包
-frontend-app/src/styles.test.js	frontend-app	app-ui	js-test	115991	当前 React/Vite 前端包	frontend,app,src,styles,test,当前,React,Vite,前端包
+frontend-app/src/styles.test.js	frontend-app	app-ui	js-test	116127	当前 React/Vite 前端包	frontend,app,src,styles,test,当前,React,Vite,前端包
 frontend-app/src/test-setup.js	frontend-app	app-ui	js-source	1465	当前 React/Vite 前端包	frontend,app,src,test,setup,当前,React,Vite,前端包
 frontend-app/src/test-utils/importAst.js	frontend-app	app-ui	js-source	1384	当前 React/Vite 前端包	frontend,app,src,test,utils,importAst,当前,React,Vite,前端包
 frontend-app/src/WorkbenchSidebar.jsx	frontend-app	app-ui	jsx	7057	当前 React/Vite 前端包	frontend,app,src,WorkbenchSidebar,当前,React,Vite,前端包
@@ -520,7 +530,9 @@ frontend-app/src/WorkbenchSidebarProjectTree.jsx	frontend-app	app-ui	jsx	17011	�
 frontend-app/src/WorkbenchSidebarProjectTree.test.jsx	frontend-app	app-ui	jsx	4453	当前 React/Vite 前端包	frontend,app,src,WorkbenchSidebarProjectTree,test,当前,React,Vite,前端包
 frontend-app/src/WorkbenchSidebarThreadModel.js	frontend-app	app-ui	js-source	4258	当前 React/Vite 前端包	frontend,app,src,WorkbenchSidebarThreadModel,当前,React,Vite,前端包
 frontend-app/src/WorkbenchSidebarThreads.jsx	frontend-app	app-ui	jsx	3885	当前 React/Vite 前端包	frontend,app,src,WorkbenchSidebarThreads,当前,React,Vite,前端包
+frontend-app/tests/e2e/business-flows.spec.js	frontend-app	app-ui	js-test	20140	React 前端 Playwright E2E 与视觉回归测试	frontend,app,tests,e2e,business,flows,spec,React,前端,Playwright,E2E,与视觉回归测试
 frontend-app/tests/e2e/desktop-ux.spec.js	frontend-app	app-ui	js-test	3384	React 前端 Playwright E2E 与视觉回归测试	frontend,app,tests,e2e,desktop,ux,spec,React,前端,Playwright,E2E,与视觉回归测试
+frontend-app/tests/e2e/desktop-wide.spec.js	frontend-app	app-ui	js-test	11010	React 前端 Playwright E2E 与视觉回归测试	frontend,app,tests,e2e,desktop,wide,spec,React,前端,Playwright,E2E,与视觉回归测试
 frontend-app/tsconfig.contracts.json	frontend-app	app-ui	json	391	当前 React/Vite 前端包	frontend,app,tsconfig,contracts,当前,React,Vite,前端包
 frontend-app/vite.config.js	frontend-app	app-ui	js-source	5389	当前 React/Vite 前端包	frontend,app,vite,config,当前,React,Vite,前端包
 frontend-app/vite.config.test.js	frontend-app	app-ui	js-test	4569	当前 React/Vite 前端包	frontend,app,vite,config,test,当前,React,Vite,前端包

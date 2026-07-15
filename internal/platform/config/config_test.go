@@ -439,6 +439,8 @@ func TestNew_DefaultsLSPConfig(t *testing.T) {
 
 	jsts := cfg.LSP.ProjectAdapters[contract.LSPServiceJSTS]
 	requireStringSliceContains(t, "LSP jsts root markers", jsts.RootMarkers, "package.json")
+	markdown := requireLSPProjectAdapter(t, cfg, contract.LSPServiceMarkdown)
+	requireStringSliceContains(t, "LSP markdown root markers", markdown.RootMarkers, "readme.md")
 	requireStringSliceContains(t, "LSP noise dirs", cfg.LSP.NoiseDirNames, "docs")
 	requireStringSliceContains(t, "LSP gopls directory filters", cfg.LSP.GoDirectoryFilters, "-**/docs")
 	requireStringSliceContains(t, "LSP gopls directory filters", cfg.LSP.GoDirectoryFilters, "-docs")

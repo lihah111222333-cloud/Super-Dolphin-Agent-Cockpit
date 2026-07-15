@@ -106,6 +106,7 @@ fixture_matches_production_dir() {
   [[ "$owner" == "$prod_dir"/* ]] && return 0
   parent_package_matches_production_dir "$owner" "$prod_dir" && return 0
   repository_tooling_test_matches_production_dir "$owner" "$prod_dir" && return 0
+  frontend_app_integration_test_matches_production_dir "$owner" "$prod_dir" && return 0
   return 1
 }
 
@@ -142,6 +143,21 @@ repository_tooling_test_matches_production_dir() {
   return 1
 }
 
+frontend_app_integration_test_matches_production_dir() {
+  local owner="$1"
+  local prod_dir="$2"
+  case "$owner" in
+    frontend-app|frontend-app/scripts)
+      case "$prod_dir" in
+        frontend-app/src|frontend-app/src/*)
+          return 0
+          ;;
+      esac
+      ;;
+  esac
+  return 1
+}
+
 explicit_bug_id_from_subject() {
   local subject="$1"
   printf '%s\n' "$subject" | grep -Eoi '([A-Z][A-Z0-9]+-[0-9]+|R[0-9]+|P[0-9]+)' | head -n 1 | tr '[:lower:]' '[:upper:]' || true
@@ -156,7 +172,7 @@ path_mentions_bug_id() {
 
 diff_stream_has_bug_locking_test() {
   local subject="${1:-}"
-  local status path old_path owner prod_dir bug_id
+  local status path owner prod_dir bug_id
   local prod_dirs=()
   local direct_test_owners=()
   local direct_test_paths=()
@@ -170,7 +186,7 @@ diff_stream_has_bug_locking_test() {
         continue
         ;;
       R*|C*)
-        IFS= read -r -d '' old_path || break
+        IFS= read -r -d '' _ || break
         IFS= read -r -d '' path || break
         ;;
       *)
@@ -232,10 +248,9 @@ commit_diff_has_bug_locking_test() {
 
 commit_is_merge() {
   local commit="$1"
-  local line
-  line="$(git rev-list --parents -n 1 "$commit")"
-  set -- $line
-  [ "$#" -gt 2 ]
+  local -a commit_line=()
+  read -r -a commit_line < <(git rev-list --parents -n 1 "$commit")
+  [ "${#commit_line[@]}" -gt 2 ]
 }
 
 fail_missing_cached_test() {
@@ -244,7 +259,7 @@ fail_missing_cached_test() {
 ❌ fix 提交缺少锁定 bug 的测试
   subject: $subject
   规则: fix/hotfix/bugfix/修复 提交必须在同一提交修改测试、fixture、golden 或 snapshot。
-  常见路径: *_test.go, *.test.ts, *.spec.ts, tests/**, testdata/**, fixtures/**, golden/**, __snapshots__/**
+  常见路径: *_test.go, *.test.ts, *.test.mjs, *.spec.ts, *.spec.mjs, tests/**, testdata/**, fixtures/**, golden/**, __snapshots__/**
 EOF
 }
 

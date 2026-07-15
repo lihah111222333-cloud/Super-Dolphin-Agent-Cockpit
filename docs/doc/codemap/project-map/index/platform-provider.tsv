@@ -290,7 +290,7 @@ internal/platform/cachekeepalive/module.go	internal	platform-provider	go-source	
 internal/platform/cachekeepalive/relay.go	internal	platform-provider	go-source	2290	基础设施层	internal,platform,cachekeepalive,relay,基础设施层
 internal/platform/cachekeepalive/subscribers_test.go	internal	platform-provider	go-test	3900	基础设施层	internal,platform,cachekeepalive,subscribers,test,基础设施层
 internal/platform/cachekeepalive/subscribers.go	internal	platform-provider	go-source	1162	基础设施层	internal,platform,cachekeepalive,subscribers,基础设施层
-internal/platform/config/config_test.go	internal	platform-provider	go-test	22673	运行配置、env、provider 与超时策略	internal,platform,config,test,运行配置,env,provider,与超时策略
+internal/platform/config/config_test.go	internal	platform-provider	go-test	22843	运行配置、env、provider 与超时策略	internal,platform,config,test,运行配置,env,provider,与超时策略
 internal/platform/config/config.go	internal	platform-provider	go-source	21308	运行配置、env、provider 与超时策略	internal,platform,config,运行配置,env,provider,与超时策略
 internal/platform/config/dependency_profile_test.go	internal	platform-provider	go-test	5519	运行配置、env、provider 与超时策略	internal,platform,config,dependency,profile,test,运行配置,env,provider,与超时策略
 internal/platform/config/dev_mode_test.go	internal	platform-provider	go-test	1397	运行配置、env、provider 与超时策略	internal,platform,config,dev,mode,test,运行配置,env,provider,与超时策略
@@ -773,7 +773,7 @@ internal/provider/claudecli/provider_contract_test.go	internal	platform-provider
 internal/provider/claudecli/runtime_hooks_test.go	internal	platform-provider	go-test	1451	Claude CLI provider 集成	internal,provider,claudecli,runtime,hooks,test,Claude,CLI,集成
 internal/provider/claudecli/session_config_pending_test.go	internal	platform-provider	go-test	7071	Claude CLI provider 集成	internal,provider,claudecli,session,config,pending,test,Claude,CLI,集成
 internal/provider/claudecli/session_config.go	internal	platform-provider	go-source	7501	Claude CLI provider 集成	internal,provider,claudecli,session,config,Claude,CLI,集成
-internal/provider/claudecli/session_events_test.go	internal	platform-provider	go-test	16330	Claude CLI provider 集成	internal,provider,claudecli,session,events,test,Claude,CLI,集成
+internal/provider/claudecli/session_events_test.go	internal	platform-provider	go-test	16332	Claude CLI provider 集成	internal,provider,claudecli,session,events,test,Claude,CLI,集成
 internal/provider/claudecli/session_events.go	internal	platform-provider	go-source	15003	Claude CLI provider 集成	internal,provider,claudecli,session,events,Claude,CLI,集成
 internal/provider/claudecli/session_force_complete_test.go	internal	platform-provider	go-test	2604	Claude CLI provider 集成	internal,provider,claudecli,session,force,complete,test,Claude,CLI,集成
 internal/provider/claudecli/session_history_strict_test.go	internal	platform-provider	go-test	474	Claude CLI provider 集成	internal,provider,claudecli,session,history,strict,test,Claude,CLI,集成

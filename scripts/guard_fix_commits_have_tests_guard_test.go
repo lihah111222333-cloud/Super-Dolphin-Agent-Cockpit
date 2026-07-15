@@ -142,6 +142,7 @@ func TestGuardFixCommitsHaveTestsRange(t *testing.T) {
 			t.Fatalf("output missing success marker\n%s", out)
 		}
 	})
+
 }
 
 func TestFixCommitRejectsUnrelatedTestFile(t *testing.T) {
