@@ -138,10 +138,10 @@ refresh_codemap_generated_files() {
   (
     cd "$CODEMAP_TMP"
     run_go_without_git_env scripts/refresh_generated_artifacts.sh codemap
-    run_go_without_git_env scripts/refresh_generated_artifacts.sh project-map -- --filesystem-scan
     if [ "$refresh_capcontract" -eq 1 ]; then
       run_go_without_git_env scripts/refresh_generated_artifacts.sh capcontract
     fi
+    run_go_without_git_env scripts/refresh_generated_artifacts.sh project-map -- --filesystem-scan
   )
 
   for generated in \

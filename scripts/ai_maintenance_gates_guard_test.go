@@ -44,4 +44,10 @@ func TestAIMaintenanceGateImplementationContracts(t *testing.T) {
 func TestGeneratedArtifactRefreshOrdersProducersBeforeConsumers(t *testing.T) {
 	refresh := readScript(t, "refresh_generated_artifacts.sh")
 	assertScriptContains(t, refresh, "refresh_codemap\n    refresh_capcontract\n    refresh_project_map")
+	preCommit := readRepoFile(t, "../.githooks/pre-commit")
+	capcontract := strings.Index(preCommit, "scripts/refresh_generated_artifacts.sh capcontract")
+	projectMap := strings.Index(preCommit, "scripts/refresh_generated_artifacts.sh project-map")
+	if capcontract < 0 || projectMap < 0 || capcontract > projectMap {
+		t.Fatal("pre-commit must refresh capability contract before project map")
+	}
 }
