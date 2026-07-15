@@ -86,6 +86,45 @@ func TestProjectMapGeneratorIndexesOnlyTrackedCodeAndDocs(t *testing.T) {
 	}
 }
 
+func TestProjectMapGeneratorOutputsIgnoreWallClockAndDetectTrackedDrift(t *testing.T) {
+	requireNodeForProjectMap(t)
+	root := prepareProjectMapFixture(t, true)
+	firstInstant := "2026-07-15T23:59:59Z"
+	secondInstant := "2026-07-16T00:00:01Z"
+
+	out, err := runProjectMapGeneratorAt(t, root, firstInstant, "Pacific/Kiritimati")
+	if err != nil {
+		t.Fatalf("initial project map generation failed: %v\n%s", err, out)
+	}
+	firstMap, firstManifest := readCanonicalProjectMapOutputs(t, root)
+	assertOutputOmitsAll(t, firstMap, "生成时间")
+	assertOutputOmitsAll(t, firstManifest, "\"generated_at\"")
+
+	out, err = runProjectMapGeneratorAt(t, root, secondInstant, "America/Los_Angeles", "--check", "--strict-drift")
+	if err != nil {
+		t.Fatalf("same tree failed next-day project map check: %v\n%s", err, out)
+	}
+	out, err = runProjectMapGeneratorAt(t, root, secondInstant, "America/Los_Angeles")
+	if err != nil {
+		t.Fatalf("next-day project map generation failed: %v\n%s", err, out)
+	}
+	secondMap, secondManifest := readCanonicalProjectMapOutputs(t, root)
+	if firstMap != secondMap {
+		t.Fatal("AI_PROJECT_MAP.md changed across UTC day or timezone for the same tree")
+	}
+	if firstManifest != secondManifest {
+		t.Fatal("AI_PROJECT_MANIFEST.json changed across UTC day or timezone for the same tree")
+	}
+
+	writeFixTestGuardFile(t, root, "internal/app/app.go", "package app\n\nfunc App() { panic(\"changed\") }\n")
+	runFixTestGuardGit(t, root, "add", "internal/app/app.go")
+	out, err = runProjectMapGeneratorAt(t, root, secondInstant, "America/Los_Angeles", "--check", "--strict-drift")
+	if err == nil {
+		t.Fatalf("project map check accepted real tracked input drift\n%s", out)
+	}
+	assertOutputContainsAll(t, out, "differs from generated output")
+}
+
 // TestProjectMapGeneratorIndexesLocalizedRootReadmes 锁定 GitHub 语言导航对应的根 README 都进入项目地图。
 func TestProjectMapGeneratorIndexesLocalizedRootReadmes(t *testing.T) {
 	requireNodeForProjectMap(t)
@@ -312,6 +351,46 @@ func runProjectMapGenerator(t *testing.T, root string, args ...string) (string, 
 	cmd.Dir = root
 	out, err := cmd.CombinedOutput()
 	return string(out), err
+}
+
+func runProjectMapGeneratorAt(t *testing.T, root, instant, zone string, args ...string) (string, error) {
+	t.Helper()
+	preload := filepath.Join(t.TempDir(), "project-map-test-clock.cjs")
+	clockSource := `const fixedInstant = process.env.PROJECT_MAP_TEST_NOW;
+if (!fixedInstant) throw new Error('PROJECT_MAP_TEST_NOW is required');
+const NativeDate = global.Date;
+global.Date = class extends NativeDate {
+  constructor(...args) {
+    super(...(args.length === 0 ? [fixedInstant] : args));
+  }
+  static now() {
+    return new NativeDate(fixedInstant).getTime();
+  }
+};
+`
+	if err := os.WriteFile(preload, []byte(clockSource), 0o600); err != nil {
+		t.Fatalf("write project map test clock: %v", err)
+	}
+	script := filepath.Join(scriptRepoRoot(t), "scripts", "generate_ai_project_map.mjs")
+	cmdArgs := append([]string{"--require", preload, script}, args...)
+	cmd := exec.Command("node", cmdArgs...)
+	cmd.Dir = root
+	cmd.Env = append(os.Environ(), "PROJECT_MAP_TEST_NOW="+instant, "TZ="+zone)
+	out, err := cmd.CombinedOutput()
+	return string(out), err
+}
+
+func readCanonicalProjectMapOutputs(t *testing.T, root string) (string, string) {
+	t.Helper()
+	read := func(rel string) string {
+		data, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(rel)))
+		if err != nil {
+			t.Fatalf("read canonical project map output %s: %v", rel, err)
+		}
+		return string(data)
+	}
+	return read("docs/doc/codemap/project-map/AI_PROJECT_MAP.md"),
+		read("docs/doc/codemap/project-map/AI_PROJECT_MANIFEST.json")
 }
 
 func readProjectMapOutputs(t *testing.T, root string) string {

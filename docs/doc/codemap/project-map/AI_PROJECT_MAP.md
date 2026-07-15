@@ -1,7 +1,5 @@
 # AI 项目地图（Super-Dolphin）
 
-> 生成时间：2026-07-14
->
 > 已索引文件：**4580**
 >
 > 扫描规则：allowlisted project files; excludes: .git/**, .idea/**, .claude/**, .workspace/**, .worktrees/**, .agent/code_exec/**, .agent/workspaces/**, .agnet/report/**, .agnet/shared/**, bin/**, reports/**, docs/archive/**, **/node_modules/**, **/dist/**, **/web-dist/**, **/coverage/**, **/.vite/**, **/.tmp/**, **/tmp/**, **/.gocache/**, **/.gomodcache/**, **/.npm-cache/**, docs/doc/codemap/project-map/**, docs/doc/codemap/ai-index.json, go.sum, test_output.txt, naked_go.txt

@@ -253,8 +253,8 @@ func fingerprintGateInputs(scope, gate string, plan gatePlan) (string, error) {
 	return fingerprintGateInputsAt(scope, gate, plan, time.Now())
 }
 
-// fingerprintGateInputsAt 生成包含日期、Git 真值源、工具链和环境的稳定输入指纹。
-func fingerprintGateInputsAt(scope, gate string, plan gatePlan, now time.Time) (string, error) {
+// fingerprintGateInputsAt 生成包含 Git 真值源、工具链和环境的稳定输入指纹。
+func fingerprintGateInputsAt(scope, gate string, plan gatePlan, _ time.Time) (string, error) {
 	h := sha256.New()
 	planData, err := json.Marshal(plan)
 	if err != nil {
@@ -264,9 +264,6 @@ func fingerprintGateInputsAt(scope, gate string, plan gatePlan, now time.Time) (
 	writeFingerprintField(h, "staged-tree", []byte(scope))
 	writeFingerprintField(h, "gate", []byte(gate))
 	writeFingerprintField(h, "plan", planData)
-	if gate == "project-map:check" {
-		writeFingerprintField(h, "utc-date", []byte(now.UTC().Format(time.DateOnly)))
-	}
 	for _, command := range gateFingerprintCommands(scope, gate) {
 		out, err := exec.Command(command[0], command[1:]...).CombinedOutput()
 		if err != nil {
