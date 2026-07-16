@@ -85,19 +85,27 @@ func TestRunRejectsMissingSchedulerTokenBeforeNotWired(t *testing.T) {
 	}
 }
 
-func TestUnwiredCommandsFailFastWithStableExit(t *testing.T) {
+func TestRemainingUnwiredCommandsFailFastWithStableExit(t *testing.T) {
 	t.Parallel()
 
 	tests := [][]string{
 		{"run", "--job-token", "opaque"},
-		{"submit", "--profile", "push", "--object-format", "sha1", "--commit", cliCommitSHA, "--source-tree", cliTreeSHA},
-		{"status", "--job", "job-1"},
 		{"receipt", "verify", "--input", "receipt.json"},
 	}
 	for _, args := range tests {
 		code, _, stderr := executeCLI(args)
 		if code != int(gatecontract.ExitInfrastructure) || !strings.Contains(stderr, "scheduler client not wired") {
 			t.Fatalf("args=%v code=%d stderr=%q", args, code, stderr)
+		}
+	}
+}
+
+func TestStatusAndWaitRequireJob(t *testing.T) {
+	t.Parallel()
+	for _, command := range []string{"status", "wait"} {
+		code, _, stderr := executeCLI([]string{command})
+		if code != int(gatecontract.ExitProtocol) || !strings.Contains(stderr, "--job is required") {
+			t.Fatalf("command=%s code=%d stderr=%q", command, code, stderr)
 		}
 	}
 }

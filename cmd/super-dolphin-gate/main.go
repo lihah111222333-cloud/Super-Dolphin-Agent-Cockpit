@@ -41,26 +41,24 @@ func writeCLIError(stderr io.Writer, commandErr error) error {
 // dispatchCLI 将固定命令面分派到 plan 或未接线 scheduler 边界。
 func dispatchCLI(args []string, stdout io.Writer) error {
 	if len(args) == 0 {
-		return protocolError("subcommand is required (plan, submit, run, status, receipt verify)")
+		return protocolError("subcommand is required (plan, submit, run, status, wait, receipt verify)")
 	}
 	switch args[0] {
 	case "plan":
 		return runPlan(args[1:], stdout)
 	case "submit":
-		if _, err := parsePlan(args[1:]); err != nil {
-			return err
-		}
-		return errSchedulerNotWired
+		return runSubmit(args[1:], stdout)
 	case "run":
 		if _, err := parseRequiredFlag("run", "job-token", args[1:]); err != nil {
 			return err
 		}
 		return errSchedulerNotWired
 	case "status":
-		if _, err := parseRequiredFlag("status", "job", args[1:]); err != nil {
-			return err
-		}
-		return errSchedulerNotWired
+		return runStatus(args[1:], stdout)
+	case "wait":
+		return runWait(args[1:], stdout)
+	case "_owner":
+		return runOwnerProcess(args[1:], stdout)
 	case "receipt":
 		return runReceipt(args[1:])
 	default:

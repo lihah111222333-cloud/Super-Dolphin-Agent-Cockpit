@@ -720,7 +720,8 @@ func commandNarrowAllowPolicies(patterns backendBoundaryPatterns) []BoundaryImpo
 	}, "Codex worktree setup runtime primitive")...)
 	policies = append(policies, boundaryPolicies(owner, patterns.gateCLI, []string{
 		"internal/devtools/gate",
-	}, "gate planning contract")...)
+		"internal/devtools/localci",
+	}, "gate planning and local CI runtime assembly")...)
 	policies = append(policies, boundaryPolicies(owner, patterns.releaseManifest, []string{
 		"internal/module/appupdate",
 	}, "release manifest update contract")...)
