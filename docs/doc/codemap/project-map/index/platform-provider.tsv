@@ -50,12 +50,12 @@ cmd/mcp-lsp/manager/go_work_fake_test.go	cmd	platform-provider	go-test	7400	代�
 cmd/mcp-lsp/manager/language_id_test.go	cmd	platform-provider	go-test	1903	代码智能/LSP MCP peer	cmd,mcp,lsp,manager,language,id,test,代码智能,LSP,MCP,peer
 cmd/mcp-lsp/manager/manager.go	cmd	platform-provider	go-source	4805	代码智能/LSP MCP peer	cmd,mcp,lsp,manager,代码智能,LSP,MCP,peer
 cmd/mcp-lsp/manager/multi_language_gate_test.go	cmd	platform-provider	go-test	1678	代码智能/LSP MCP peer	cmd,mcp,lsp,manager,multi,language,gate,test,代码智能,LSP,MCP,peer
-cmd/mcp-lsp/manager/registry_diagnostics_test.go	cmd	platform-provider	go-test	6373	代码智能/LSP MCP peer	cmd,mcp,lsp,manager,registry,diagnostics,test,代码智能,LSP,MCP,peer
+cmd/mcp-lsp/manager/registry_diagnostics_test.go	cmd	platform-provider	go-test	7101	代码智能/LSP MCP peer	cmd,mcp,lsp,manager,registry,diagnostics,test,代码智能,LSP,MCP,peer
 cmd/mcp-lsp/manager/registry_e2e_test.go	cmd	platform-provider	go-test	3304	代码智能/LSP MCP peer	cmd,mcp,lsp,manager,registry,e2e,test,代码智能,LSP,MCP,peer
 cmd/mcp-lsp/manager/registry_installer_test.go	cmd	platform-provider	go-test	2270	代码智能/LSP MCP peer	cmd,mcp,lsp,manager,registry,installer,test,代码智能,LSP,MCP,peer
 cmd/mcp-lsp/manager/registry_multilang_e2e_test.go	cmd	platform-provider	go-test	15333	代码智能/LSP MCP peer	cmd,mcp,lsp,manager,registry,multilang,e2e,test,代码智能,LSP,MCP,peer
 cmd/mcp-lsp/manager/registry_scoped_test.go	cmd	platform-provider	go-test	10486	代码智能/LSP MCP peer	cmd,mcp,lsp,manager,registry,scoped,test,代码智能,LSP,MCP,peer
-cmd/mcp-lsp/manager/registry.go	cmd	platform-provider	go-source	20356	代码智能/LSP MCP peer	cmd,mcp,lsp,manager,registry,代码智能,LSP,MCP,peer
+cmd/mcp-lsp/manager/registry.go	cmd	platform-provider	go-source	20417	代码智能/LSP MCP peer	cmd,mcp,lsp,manager,registry,代码智能,LSP,MCP,peer
 cmd/mcp-lsp/manager/scope.go	cmd	platform-provider	go-source	10865	代码智能/LSP MCP peer	cmd,mcp,lsp,manager,scope,代码智能,LSP,MCP,peer
 cmd/mcp-lsp/middleware/budget_hints.go	cmd	platform-provider	go-source	2879	代码智能/LSP MCP peer	cmd,mcp,lsp,middleware,budget,hints,代码智能,LSP,MCP,peer
 cmd/mcp-lsp/middleware/budget_test.go	cmd	platform-provider	go-test	2489	代码智能/LSP MCP peer	cmd,mcp,lsp,middleware,budget,test,代码智能,LSP,MCP,peer
@@ -769,7 +769,7 @@ internal/provider/claudecli/manual_helper.go	internal	platform-provider	go-sourc
 internal/provider/claudecli/module.go	internal	platform-provider	go-source	16176	Claude CLI provider 集成	internal,provider,claudecli,module,Claude,CLI,集成
 internal/provider/claudecli/observability_trace_test.go	internal	platform-provider	go-test	955	Claude CLI provider 集成	internal,provider,claudecli,observability,trace,test,Claude,CLI,集成
 internal/provider/claudecli/observability_trace.go	internal	platform-provider	go-source	4259	Claude CLI provider 集成	internal,provider,claudecli,observability,trace,Claude,CLI,集成
-internal/provider/claudecli/provider_contract_test.go	internal	platform-provider	go-test	22731	Claude CLI provider 集成	internal,provider,claudecli,contract,test,Claude,CLI,集成
+internal/provider/claudecli/provider_contract_test.go	internal	platform-provider	go-test	24064	Claude CLI provider 集成	internal,provider,claudecli,contract,test,Claude,CLI,集成
 internal/provider/claudecli/runtime_hooks_test.go	internal	platform-provider	go-test	1451	Claude CLI provider 集成	internal,provider,claudecli,runtime,hooks,test,Claude,CLI,集成
 internal/provider/claudecli/session_config_pending_test.go	internal	platform-provider	go-test	7071	Claude CLI provider 集成	internal,provider,claudecli,session,config,pending,test,Claude,CLI,集成
 internal/provider/claudecli/session_config.go	internal	platform-provider	go-source	7501	Claude CLI provider 集成	internal,provider,claudecli,session,config,Claude,CLI,集成

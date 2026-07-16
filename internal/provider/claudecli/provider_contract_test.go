@@ -20,6 +20,54 @@ func TestClaudeCLIProviderContract(t *testing.T) {
 	contracttest.Run(t, CompleteClaudeCLIContractSpec())
 }
 
+type claudeContractSyntheticStdin struct {
+	*recordingWriteCloser
+	finish func()
+}
+
+func (s *claudeContractSyntheticStdin) Close() error {
+	s.finish()
+	return nil
+}
+
+func TestClaudeContractBufferedTransportShutdown(t *testing.T) {
+	tests := []struct {
+		name     string
+		shutdown func(*transport) error
+	}{
+		{name: "close", shutdown: (*transport).Close},
+		{name: "kill", shutdown: (*transport).Kill},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			scripted, err := newClaudeContractBufferedTransport("provider-thread-contract-shutdown")
+			if err != nil {
+				t.Fatalf("newClaudeContractBufferedTransport() error = %v", err)
+			}
+			select {
+			case <-scripted.tr.done:
+				t.Fatal("synthetic transport done closed before shutdown")
+			default:
+			}
+			if err := tc.shutdown(scripted.tr); err != nil {
+				t.Fatalf("%s synthetic transport: %v", tc.name, err)
+			}
+			select {
+			case <-scripted.tr.done:
+			default:
+				t.Fatal("synthetic transport done remained open after shutdown")
+			}
+			scripted.finish()
+			scripted.finish()
+			select {
+			case <-scripted.tr.done:
+			default:
+				t.Fatal("synthetic transport done reopened after idempotent cleanup")
+			}
+		})
+	}
+}
+
 func CompleteClaudeCLIContractSpec() contracttest.Spec {
 	return contracttest.Spec{
 		Name:       "claude",
@@ -554,15 +602,19 @@ func newClaudeContractBufferedTransport(threadID string) (*scriptedTransport, er
 	stdin := &recordingWriteCloser{writes: make(chan string, 8)}
 	scanner := bufio.NewScanner(strings.NewReader(string(payload) + "\n"))
 	scanner.Buffer(make([]byte, 64*1024), maxCLILineBytes)
-	return &scriptedTransport{
+	scripted := &scriptedTransport{
 		tr: &transport{
-			stdin:  stdin,
 			stdout: scanner,
 			stderr: newLimitedBuffer(stderrLimitBytes),
 			done:   make(chan struct{}),
 		},
 		stdin: stdin,
-	}, nil
+	}
+	scripted.tr.stdin = &claudeContractSyntheticStdin{
+		recordingWriteCloser: stdin,
+		finish:               scripted.finish,
+	}
+	return scripted, nil
 }
 
 func waitClaudeContractThreadID(ctx context.Context, session contract.Session) error {
