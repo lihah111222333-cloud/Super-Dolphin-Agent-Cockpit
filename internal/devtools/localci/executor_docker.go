@@ -9,10 +9,13 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
 	platformconfig "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/config"
 )
 
@@ -266,4 +269,388 @@ func isContainerID(value string) bool {
 		}
 	}
 	return true
+}
+
+const noContainerNetwork = "none"
+
+// FreshContainerImageTruth binds the inspected image labels to accepted build truth.
+type FreshContainerImageTruth struct {
+	PolicySHA       string
+	InputDigest     string
+	ToolchainDigest string
+	SchemaVersion   string
+}
+
+// FreshContainerRequest contains only canonical execution authority and source inputs.
+type FreshContainerRequest struct {
+	Image             gate.ImageIdentity
+	ImageTruth        FreshContainerImageTruth
+	SourceTreeSHA     string
+	SourceSnapshotDir string
+	Profile           gate.Profile
+	Plan              gate.GatePlan
+	GateID            gate.GateID
+}
+
+// FreshContainerResult is unsigned, directly observed evidence for a later coordinator.
+type FreshContainerResult struct {
+	Status             gate.ResultStatus
+	ImageReference     string
+	Container          gate.ContainerEvidence
+	Evidence           []gate.Evidence
+	GateResult         *gate.GateResult
+	ExitCode           int
+	StartedAt          time.Time
+	CompletedAt        time.Time
+	Deadline           time.Time
+	Killed             bool
+	KillProofDigest    string
+	LogDigest          string
+	RemovalProofDigest string
+}
+
+// FreshContainerRunner creates one new container for every RunFreshContainer call.
+type FreshContainerRunner struct {
+	docker *dockerExecutor
+	now    func() time.Time
+}
+
+// NewFreshContainerRunner 构造生产使用的 Docker 一次性容器执行边界。
+func NewFreshContainerRunner(seccompPath string, trustedSourceRoot string) (*FreshContainerRunner, error) {
+	return newFreshContainerRunner(execDockerRunner{}, seccompPath, trustedSourceRoot)
+}
+
+func newFreshContainerRunner(dockerRunner dockerRunner, seccompPath string, trustedSourceRoot string) (*FreshContainerRunner, error) {
+	if isTypedNil(dockerRunner) {
+		return nil, errors.New("docker runner is required")
+	}
+	executor, err := newDockerExecutor(dockerRunner, seccompPath, trustedSourceRoot)
+	if err != nil {
+		return nil, err
+	}
+	return &FreshContainerRunner{docker: executor, now: time.Now}, nil
+}
+
+// RunFreshContainer 验证镜像真值，执行一个规范 gate，并证明容器已销毁。
+func (runner *FreshContainerRunner) RunFreshContainer(ctx context.Context, request FreshContainerRequest) (FreshContainerResult, error) {
+	result := FreshContainerResult{Status: gate.ResultStatusInfraFailed, ExitCode: -1}
+	if isTypedNil(ctx) {
+		return result, errors.New("context is required")
+	}
+	if err := ctx.Err(); err != nil {
+		result.Status = statusForContext(err)
+		return result, err
+	}
+	prepared, err := runner.prepareRequest(request)
+	if err != nil {
+		return result, err
+	}
+	result.ImageReference = prepared.imageReference
+	imageDigest, err := runner.inspectAndVerifyImage(ctx, prepared)
+	if err != nil {
+		return result, err
+	}
+	result.Evidence = append(result.Evidence, gate.Evidence{Kind: gate.EvidenceKindDocker, Digest: imageDigest})
+	runContext, cancel := platformconfig.WithTimeout(ctx, profileExecutionTimeout(request.Profile))
+	defer cancel()
+	result.Deadline, _ = runContext.Deadline()
+	return runner.runPreparedContainer(runContext, ctx, request, prepared, result)
+}
+
+type preparedFreshContainerRequest struct {
+	imageReference     string
+	command            []string
+	expectedImage      expectedImageMetadata
+	expectedImageIndex string
+	expectedIdentity   gate.ImageIdentity
+}
+
+// prepareRequest 将请求收敛为不可变镜像引用和计划内固定命令。
+func (runner *FreshContainerRunner) prepareRequest(request FreshContainerRequest) (preparedFreshContainerRequest, error) {
+	var prepared preparedFreshContainerRequest
+	if runner == nil || runner.docker == nil {
+		return prepared, errors.New("fresh container runner is required")
+	}
+	command, err := validateFreshContainerRequest(request)
+	if err != nil {
+		return prepared, err
+	}
+	prepared.imageReference, err = executionImageReference(request.Image)
+	if err != nil {
+		return prepared, err
+	}
+	prepared.command = command
+	prepared.expectedImageIndex = request.Image.OCIIndexDigest
+	prepared.expectedIdentity = request.Image
+	prepared.expectedImage = expectedImageMetadata{
+		PolicySHA: request.ImageTruth.PolicySHA, SourceTreeSHA: request.SourceTreeSHA,
+		InputDigest: request.ImageTruth.InputDigest, ToolchainDigest: request.ImageTruth.ToolchainDigest,
+		SchemaVersion: request.ImageTruth.SchemaVersion, OS: request.Image.OS,
+		Architecture: request.Image.Architecture, Variant: request.Image.Variant,
+	}
+	container := containerRequest{Image: prepared.imageReference, SourceDir: request.SourceSnapshotDir, Command: command, Release: request.Profile == gate.ProfileRelease}
+	if err := runner.docker.validateContainerRequest(container); err != nil {
+		return prepared, err
+	}
+	if err := validatePrivateSnapshot(request.SourceSnapshotDir); err != nil {
+		return prepared, err
+	}
+	if err := runner.docker.verifySeccomp(); err != nil {
+		return prepared, err
+	}
+	return prepared, nil
+}
+
+// validateFreshContainerRequest 校验 profile、计划、源码树与完整镜像身份闭包。
+func validateFreshContainerRequest(request FreshContainerRequest) ([]string, error) {
+	if err := request.Profile.Validate(); err != nil {
+		return nil, err
+	}
+	if err := request.Plan.Validate(); err != nil {
+		return nil, fmt.Errorf("gate plan: %w", err)
+	}
+	if request.Plan.Profile != request.Profile {
+		return nil, errors.New("request profile does not match gate plan")
+	}
+	if !gitObjectPattern.MatchString(request.SourceTreeSHA) || request.Plan.Source.SourceTreeSHA != request.SourceTreeSHA {
+		return nil, errors.New("request source_tree_sha does not match gate plan")
+	}
+	command, err := commandFromPlan(request.Plan, request.GateID)
+	if err != nil {
+		return nil, err
+	}
+	identity := gateImageIdentityReader{ImageIdentity: request.Image}
+	expected := expectedImageMetadata{
+		PolicySHA: request.ImageTruth.PolicySHA, SourceTreeSHA: request.SourceTreeSHA,
+		InputDigest: request.ImageTruth.InputDigest, ToolchainDigest: request.ImageTruth.ToolchainDigest,
+		SchemaVersion: request.ImageTruth.SchemaVersion, OS: request.Image.OS,
+		Architecture: request.Image.Architecture, Variant: request.Image.Variant,
+	}
+	if err := validateImageIdentity(identity, expected.labels(), expected); err != nil {
+		return nil, err
+	}
+	return command, nil
+}
+
+func commandFromPlan(plan gate.GatePlan, gateID gate.GateID) ([]string, error) {
+	for _, spec := range plan.Gates {
+		if spec.ID == gateID {
+			return append([]string(nil), spec.Argv...), nil
+		}
+	}
+	return nil, fmt.Errorf("gate %q is not present in the canonical plan", gateID)
+}
+
+// executionImageReference 只从 registry 与平台 manifest digest 派生执行引用。
+func executionImageReference(identity gate.ImageIdentity) (string, error) {
+	registry := identity.Registry
+	if registry == "" || strings.TrimSpace(registry) != registry || strings.ContainsAny(registry, "@\x00\r\n\t ") {
+		return "", errors.New("image registry must be a canonical repository without tag or digest")
+	}
+	lastSlash := strings.LastIndex(registry, "/")
+	if strings.Contains(registry[lastSlash+1:], ":") || strings.HasSuffix(registry, "/") {
+		return "", errors.New("image registry must not contain a tag")
+	}
+	if err := validateDigest("platform manifest digest", identity.PlatformManifestDigest); err != nil {
+		return "", err
+	}
+	return registry + "@" + identity.PlatformManifestDigest, nil
+}
+
+func validatePrivateSnapshot(directory string) error {
+	resolved, err := trustedDirectory(directory)
+	if err != nil {
+		return fmt.Errorf("source snapshot directory: %w", err)
+	}
+	if resolved != directory {
+		return errors.New("source snapshot directory must be a canonical real path")
+	}
+	info, err := os.Stat(resolved)
+	if err != nil {
+		return fmt.Errorf("stat source snapshot directory: %w", err)
+	}
+	if info.Mode().Perm()&0o077 != 0 {
+		return errors.New("source snapshot directory must be private to its owner")
+	}
+	return nil
+}
+
+func profileExecutionTimeout(profile gate.Profile) time.Duration {
+	return executionTimeout(profile == gate.ProfileRelease)
+}
+
+func statusForContext(err error) gate.ResultStatus {
+	if errors.Is(err, context.Canceled) {
+		return gate.ResultStatusCancelled
+	}
+	return gate.ResultStatusTimeout
+}
+
+func isTypedNil(value any) bool {
+	if value == nil {
+		return true
+	}
+	kind := reflect.ValueOf(value).Kind()
+	return slices.Contains([]reflect.Kind{reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Pointer, reflect.Slice}, kind) && reflect.ValueOf(value).IsNil()
+}
+
+func (runner *FreshContainerRunner) runPreparedContainer(runContext context.Context, parentContext context.Context, request FreshContainerRequest, prepared preparedFreshContainerRequest, result FreshContainerResult) (FreshContainerResult, error) {
+	container := containerRequest{Image: prepared.imageReference, SourceDir: request.SourceSnapshotDir, Command: prepared.command, Release: request.Profile == gate.ProfileRelease}
+	containerID, err := runner.docker.create(runContext, container)
+	result.setContainerID(containerID)
+	if containerID == "" {
+		return result, err
+	}
+	if err != nil {
+		return runner.removeContainer(parentContext, result, err)
+	}
+	hostDigest, inspectDigest, err := runner.inspectCreatedContainer(runContext, containerID, prepared.imageReference, request.Image.ConfigDigest, request.SourceSnapshotDir, prepared.command)
+	if err != nil {
+		return runner.removeContainer(parentContext, result, err)
+	}
+	result.Container.HostConfigDigest = hostDigest
+	result.Container.NetworkPolicyDigest = digestBytes([]byte("network=none\n"))
+	result.Evidence = append(result.Evidence, gate.Evidence{Kind: gate.EvidenceKindDocker, Digest: inspectDigest})
+	result.StartedAt = runner.now().UTC()
+	if _, err := runner.docker.runner.Run(runContext, "start", containerID); err != nil {
+		return runner.finishContainer(parentContext, result, prepared, request, gate.ResultStatusInfraFailed, fmt.Errorf("start gate container: %w", err))
+	}
+	status, exitCode, waitErr := runner.waitForContainer(runContext, parentContext, &result)
+	result.ExitCode = exitCode
+	return runner.finishContainer(parentContext, result, prepared, request, status, waitErr)
+}
+
+func (result *FreshContainerResult) setContainerID(containerID string) {
+	result.Container.ContainerID = containerID
+	if containerID != "" {
+		result.Container.NetworkID = noContainerNetwork
+		result.Container.NetworkRemoved = true
+	}
+}
+
+func (runner *FreshContainerRunner) waitForContainer(runContext context.Context, parentContext context.Context, result *FreshContainerResult) (gate.ResultStatus, int, error) {
+	output, err := runner.docker.runner.Run(runContext, "wait", result.Container.ContainerID)
+	if err == nil {
+		exitCode, parseErr := parseContainerExitCode(output)
+		if parseErr != nil {
+			return gate.ResultStatusInfraFailed, -1, parseErr
+		}
+		if exitCode != 0 {
+			return gate.ResultStatusFailed, exitCode, fmt.Errorf("gate container exited with code %d", exitCode)
+		}
+		return gate.ResultStatusPassed, exitCode, nil
+	}
+	status := statusForContext(runContext.Err())
+	exitCode, terminateErr := runner.killAndWait(parentContext, result)
+	if terminateErr != nil {
+		return gate.ResultStatusInfraFailed, exitCode, errors.Join(fmt.Errorf("wait for gate container: %w", err), terminateErr)
+	}
+	return status, exitCode, fmt.Errorf("wait for gate container: %w", err)
+}
+
+func (runner *FreshContainerRunner) killAndWait(parentContext context.Context, result *FreshContainerResult) (int, error) {
+	cleanupContext, cancel := platformconfig.WithTimeout(context.WithoutCancel(parentContext), 30*time.Second)
+	defer cancel()
+	if _, err := runner.docker.runner.Run(cleanupContext, "kill", result.Container.ContainerID); err != nil {
+		return -1, fmt.Errorf("kill gate container: %w", err)
+	}
+	result.Killed = true
+	result.KillProofDigest = digestBytes([]byte("killed\n" + result.Container.ContainerID + "\n"))
+	output, err := runner.docker.runner.Run(cleanupContext, "wait", result.Container.ContainerID)
+	if err != nil {
+		return -1, fmt.Errorf("wait for killed gate container: %w", err)
+	}
+	return parseContainerExitCode(output)
+}
+
+// finishContainer 收集日志与终态 inspect，并在销毁证明成功后才生成 gate 结果。
+func (runner *FreshContainerRunner) finishContainer(parentContext context.Context, result FreshContainerResult, prepared preparedFreshContainerRequest, request FreshContainerRequest, status gate.ResultStatus, runErr error) (FreshContainerResult, error) {
+	result.Status = status
+	logOutput, logErr := runner.runCleanup(parentContext, "logs", "--timestamps", result.Container.ContainerID)
+	if logErr == nil {
+		result.LogDigest = digestBytes([]byte(logOutput))
+		result.Evidence = append(result.Evidence, gate.Evidence{Kind: gate.EvidenceKindLog, Digest: result.LogDigest})
+	}
+	stateDigest, inspectErr := runner.inspectFinishedContainer(parentContext, result.Container.ContainerID, prepared.imageReference, request.Image.ConfigDigest, result.ExitCode)
+	if inspectErr == nil {
+		result.Evidence = append(result.Evidence, gate.Evidence{Kind: gate.EvidenceKindDocker, Digest: stateDigest})
+	}
+	result.CompletedAt = runner.now().UTC()
+	if logErr != nil || inspectErr != nil {
+		result.Status = gate.ResultStatusInfraFailed
+		result.GateResult = nil
+		runErr = errors.Join(runErr, logErr, inspectErr)
+	}
+	result, cleanupErr := runner.removeContainer(parentContext, result, runErr)
+	if !result.Container.Removed || result.Status == gate.ResultStatusInfraFailed {
+		result.Status = gate.ResultStatusInfraFailed
+		result.GateResult = nil
+		return result, cleanupErr
+	}
+	if result.Status == gate.ResultStatusPassed || result.Status == gate.ResultStatusFailed {
+		gateResult, gateResultErr := buildGateResult(request.GateID, prepared.command, result)
+		if gateResultErr != nil {
+			result.Status = gate.ResultStatusInfraFailed
+			return result, errors.Join(runErr, gateResultErr)
+		}
+		result.GateResult = gateResult
+	}
+	return result, runErr
+}
+
+func (runner *FreshContainerRunner) removeContainer(parentContext context.Context, result FreshContainerResult, runErr error) (FreshContainerResult, error) {
+	if result.Container.ContainerID == "" {
+		return result, runErr
+	}
+	if err := runner.docker.remove(parentContext, result.Container.ContainerID); err != nil {
+		result.Status = gate.ResultStatusInfraFailed
+		return result, errors.Join(runErr, fmt.Errorf("remove gate container: %w", err))
+	}
+	output, err := runner.runCleanup(parentContext, "ps", "--all", "--no-trunc", "--filter=id="+result.Container.ContainerID, "--format={{.ID}}")
+	if err != nil {
+		result.Status = gate.ResultStatusInfraFailed
+		return result, errors.Join(runErr, fmt.Errorf("prove gate container removal: %w", err))
+	}
+	if strings.TrimSpace(output) != "" {
+		result.Status = gate.ResultStatusInfraFailed
+		return result, errors.Join(runErr, errors.New("removed gate container is still listed by Docker"))
+	}
+	result.Container.Removed = true
+	result.RemovalProofDigest = digestBytes([]byte("removed\n" + result.Container.ContainerID + "\n"))
+	result.Evidence = append(result.Evidence, gate.Evidence{Kind: gate.EvidenceKindDocker, Digest: result.RemovalProofDigest})
+	return result, runErr
+}
+
+func (runner *FreshContainerRunner) runCleanup(parentContext context.Context, args ...string) (string, error) {
+	cleanupContext, cancel := platformconfig.WithTimeout(context.WithoutCancel(parentContext), 30*time.Second)
+	defer cancel()
+	return runner.docker.runner.Run(cleanupContext, args...)
+}
+
+func parseContainerExitCode(output string) (int, error) {
+	value := strings.TrimSpace(output)
+	exitCode, err := strconv.Atoi(value)
+	if err != nil {
+		return -1, fmt.Errorf("parse gate container exit code %q: %w", value, err)
+	}
+	if exitCode < 0 || exitCode > 255 {
+		return -1, fmt.Errorf("gate container exit code %d is outside [0,255]", exitCode)
+	}
+	return exitCode, nil
+}
+
+func buildGateResult(gateID gate.GateID, command []string, result FreshContainerResult) (*gate.GateResult, error) {
+	status := gate.GateStatusFailed
+	if result.Status == gate.ResultStatusPassed {
+		status = gate.GateStatusPassed
+	}
+	argvDigest, err := digestJSON(command)
+	if err != nil {
+		return nil, fmt.Errorf("digest gate command: %w", err)
+	}
+	return &gate.GateResult{
+		GateID: string(gateID), Status: status, ExitCode: result.ExitCode,
+		StartedAt: result.StartedAt, CompletedAt: result.CompletedAt,
+		ArgvDigest: argvDigest, LogDigest: result.LogDigest,
+	}, nil
 }

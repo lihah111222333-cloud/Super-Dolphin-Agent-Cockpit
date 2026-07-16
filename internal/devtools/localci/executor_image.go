@@ -1,9 +1,20 @@
 package localci
 
 import (
+	"bytes"
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"regexp"
+	"slices"
+	"sort"
+	"strings"
+
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
 )
 
 const (
@@ -124,4 +135,369 @@ func validateDigest(name string, value string) error {
 		return fmt.Errorf("%s must be an immutable sha256 digest", name)
 	}
 	return nil
+}
+
+type gateImageIdentityReader struct{ gate.ImageIdentity }
+
+// OCIIndexDigest 返回请求绑定的 OCI index digest。
+func (identity gateImageIdentityReader) OCIIndexDigest() string {
+	return identity.ImageIdentity.OCIIndexDigest
+}
+
+// PlatformManifestDigest 返回执行平台 manifest digest。
+func (identity gateImageIdentityReader) PlatformManifestDigest() string {
+	return identity.ImageIdentity.PlatformManifestDigest
+}
+
+// ConfigDigest 返回镜像 config digest。
+func (identity gateImageIdentityReader) ConfigDigest() string {
+	return identity.ImageIdentity.ConfigDigest
+}
+
+// RootFSDiffIDs 返回完整 rootfs diff ID 链。
+func (identity gateImageIdentityReader) RootFSDiffIDs() []string {
+	return identity.ImageIdentity.RootFSDiffIDs
+}
+
+// OS 返回目标操作系统。
+func (identity gateImageIdentityReader) OS() string { return identity.ImageIdentity.OS }
+
+// Architecture 返回目标 CPU 架构。
+func (identity gateImageIdentityReader) Architecture() string {
+	return identity.ImageIdentity.Architecture
+}
+
+// Variant 返回目标平台变体。
+func (identity gateImageIdentityReader) Variant() string { return identity.ImageIdentity.Variant }
+
+type imageInspectDocument struct {
+	ID           string   `json:"Id"`
+	RepoDigests  []string `json:"RepoDigests"`
+	OS           string   `json:"Os"`
+	Architecture string   `json:"Architecture"`
+	Variant      string   `json:"Variant"`
+	Config       *struct {
+		Labels map[string]string `json:"Labels"`
+	} `json:"Config"`
+	RootFS *struct {
+		Type   string   `json:"Type"`
+		Layers []string `json:"Layers"`
+	} `json:"RootFS"`
+}
+
+// inspectAndVerifyImage 解析固定 Docker image inspect JSON 并复验全部执行身份。
+func (runner *FreshContainerRunner) inspectAndVerifyImage(ctx context.Context, prepared preparedFreshContainerRequest) (string, error) {
+	output, err := runner.docker.runner.Run(ctx, "image", "inspect", prepared.imageReference)
+	if err != nil {
+		return "", fmt.Errorf("inspect gate image: %w", err)
+	}
+	var document imageInspectDocument
+	if err := decodeSingleInspect(output, &document); err != nil {
+		return "", fmt.Errorf("decode gate image inspect: %w", err)
+	}
+	if document.Config == nil || document.RootFS == nil {
+		return "", errors.New("gate image inspect omitted config or rootfs")
+	}
+	if document.ID != prepared.expectedIdentity.ConfigDigest {
+		return "", errors.New("gate image inspect config digest drifted")
+	}
+	if !slices.Equal(document.RootFS.Layers, prepared.expectedIdentity.RootFSDiffIDs) {
+		return "", errors.New("gate image inspect rootfs diff IDs drifted")
+	}
+	identity := gateImageIdentityReader{ImageIdentity: gate.ImageIdentity{
+		OCIIndexDigest: preparedIdentityIndex(prepared), PlatformManifestDigest: manifestFromReference(prepared.imageReference),
+		ConfigDigest: document.ID, RootFSDiffIDs: document.RootFS.Layers,
+		OS: document.OS, Architecture: document.Architecture, Variant: document.Variant,
+	}}
+	if document.RootFS.Type != "layers" {
+		return "", fmt.Errorf("gate image rootfs type %q is not layers", document.RootFS.Type)
+	}
+	if !slices.Contains(document.RepoDigests, prepared.imageReference) {
+		return "", errors.New("gate image inspect does not contain the requested platform manifest reference")
+	}
+	if err := validateImageIdentity(identity, document.Config.Labels, prepared.expectedImage); err != nil {
+		return "", fmt.Errorf("verify gate image inspect: %w", err)
+	}
+	return digestJSON(document)
+}
+
+func preparedIdentityIndex(prepared preparedFreshContainerRequest) string {
+	return prepared.expectedImageIndex
+}
+
+func manifestFromReference(reference string) string {
+	return reference[strings.LastIndex(reference, "@")+1:]
+}
+
+type containerInspectDocument struct {
+	ID     string   `json:"Id"`
+	Image  string   `json:"Image"`
+	Path   string   `json:"Path"`
+	Args   []string `json:"Args"`
+	Config *struct {
+		Image string `json:"Image"`
+		User  string `json:"User"`
+	} `json:"Config"`
+	HostConfig *containerHostConfig `json:"HostConfig"`
+	Mounts     []struct {
+		Type        string `json:"Type"`
+		Source      string `json:"Source"`
+		Destination string `json:"Destination"`
+		RW          bool   `json:"RW"`
+	} `json:"Mounts"`
+	State *struct {
+		Status     string `json:"Status"`
+		Running    bool   `json:"Running"`
+		ExitCode   int    `json:"ExitCode"`
+		OOMKilled  bool   `json:"OOMKilled"`
+		Error      string `json:"Error"`
+		FinishedAt string `json:"FinishedAt"`
+	} `json:"State"`
+}
+
+type containerHostConfig struct {
+	NanoCPUs       int64             `json:"NanoCpus"`
+	Memory         int64             `json:"Memory"`
+	PidsLimit      int64             `json:"PidsLimit"`
+	ReadonlyRootfs bool              `json:"ReadonlyRootfs"`
+	CapDrop        []string          `json:"CapDrop"`
+	SecurityOpt    []string          `json:"SecurityOpt"`
+	NetworkMode    string            `json:"NetworkMode"`
+	StorageOpt     map[string]string `json:"StorageOpt"`
+	Tmpfs          map[string]string `json:"Tmpfs"`
+	LogConfig      struct {
+		Type   string            `json:"Type"`
+		Config map[string]string `json:"Config"`
+	} `json:"LogConfig"`
+}
+
+type canonicalHostConfig struct {
+	ImageReference  string
+	ConfigDigest    string
+	Command         []string
+	User            string
+	NanoCPUs        int64
+	Memory          int64
+	PidsLimit       int64
+	ReadonlyRootfs  bool
+	CapDrop         []string
+	NoNewPrivileges bool
+	SeccompDigest   string
+	NetworkMode     string
+	StorageSize     string
+	Source          string
+	TmpfsOptions    []string
+	LogDriver       string
+	LogOptions      map[string]string
+}
+
+// inspectCreatedContainer 在启动前复验容器身份、命令、资源和隔离配置。
+func (runner *FreshContainerRunner) inspectCreatedContainer(ctx context.Context, containerID string, imageReference string, configDigest string, sourceDirectory string, command []string) (string, string, error) {
+	document, err := runner.inspectContainer(ctx, containerID)
+	if err != nil {
+		return "", "", err
+	}
+	canonical, err := runner.validateContainerContract(document, containerID, imageReference, configDigest, sourceDirectory, command)
+	if err != nil {
+		return "", "", err
+	}
+	if document.State == nil || document.State.Status != "created" || document.State.Running {
+		return "", "", errors.New("new gate container is not in created state")
+	}
+	hostDigest, err := digestJSON(canonical)
+	if err != nil {
+		return "", "", fmt.Errorf("digest gate host config: %w", err)
+	}
+	inspectDigest, err := digestJSON(document)
+	if err != nil {
+		return "", "", fmt.Errorf("digest created gate container inspect: %w", err)
+	}
+	return hostDigest, inspectDigest, nil
+}
+
+// validateContainerContract 校验 inspect 观测值并生成 host config 摘要输入。
+func (runner *FreshContainerRunner) validateContainerContract(document containerInspectDocument, containerID string, imageReference string, configDigest string, sourceDirectory string, command []string) (canonicalHostConfig, error) {
+	var canonical canonicalHostConfig
+	if err := validateContainerIdentity(document, containerID, imageReference, configDigest, command); err != nil {
+		return canonical, err
+	}
+	host := document.HostConfig
+	if err := validateContainerHostIsolation(host); err != nil {
+		return canonical, err
+	}
+	if err := validateContainerMount(document, sourceDirectory); err != nil {
+		return canonical, err
+	}
+	tmpfs := splitOptionSet(host.Tmpfs["/tmp"])
+	if err := validateContainerTmpfsAndLogs(host, tmpfs); err != nil {
+		return canonical, err
+	}
+	canonical = canonicalHostConfig{
+		ImageReference: imageReference, ConfigDigest: configDigest, Command: append([]string(nil), command...), User: document.Config.User,
+		NanoCPUs: host.NanoCPUs, Memory: host.Memory, PidsLimit: host.PidsLimit, ReadonlyRootfs: host.ReadonlyRootfs,
+		CapDrop: sortedStrings(host.CapDrop), NoNewPrivileges: true, SeccompDigest: runner.docker.seccompDigest,
+		NetworkMode: host.NetworkMode, StorageSize: host.StorageOpt["size"], Source: sourceDirectory,
+		TmpfsOptions: sortedStrings(tmpfs), LogDriver: host.LogConfig.Type, LogOptions: host.LogConfig.Config,
+	}
+	return canonical, nil
+}
+
+// validateContainerIdentity 校验容器、镜像、用户与固定命令身份。
+func validateContainerIdentity(document containerInspectDocument, containerID string, imageReference string, configDigest string, command []string) error {
+	if document.ID != containerID || document.Image != configDigest || document.Config == nil || document.HostConfig == nil {
+		return errors.New("gate container inspect identity or config is incomplete")
+	}
+	if document.Config.Image != imageReference || document.Config.User != "65532:65532" {
+		return errors.New("gate container inspect image or user drifted")
+	}
+	if len(command) == 0 || document.Path != command[0] || !slices.Equal(document.Args, command[1:]) {
+		return errors.New("gate container inspect command drifted")
+	}
+	return nil
+}
+
+// validateContainerHostIsolation 校验资源、安全和 network none 合同。
+func validateContainerHostIsolation(host *containerHostConfig) error {
+	if host.NanoCPUs != 4_000_000_000 || host.Memory != 8*1024*1024*1024 || host.PidsLimit != 512 || !host.ReadonlyRootfs {
+		return errors.New("gate container resource or readonly contract drifted")
+	}
+	if !equalStringSet(host.CapDrop, []string{"ALL"}) || host.NetworkMode != noContainerNetwork || host.StorageOpt["size"] != "10G" {
+		return errors.New("gate container capability, network, or storage contract drifted")
+	}
+	if !slices.Contains(host.SecurityOpt, "no-new-privileges") || !containsSeccomp(host.SecurityOpt) {
+		return errors.New("gate container security options drifted")
+	}
+	return nil
+}
+
+// validateContainerMount 校验唯一只读源码 bind mount。
+func validateContainerMount(document containerInspectDocument, sourceDirectory string) error {
+	if len(document.Mounts) != 1 {
+		return errors.New("gate container must have exactly one source mount")
+	}
+	mount := document.Mounts[0]
+	if mount.Type != "bind" || mount.Source != sourceDirectory || mount.Destination != "/workspace/source" || mount.RW {
+		return errors.New("gate container source mount contract drifted")
+	}
+	return nil
+}
+
+func validateContainerTmpfsAndLogs(host *containerHostConfig, tmpfs []string) error {
+	if !equalStringSet(tmpfs, []string{"rw", "noexec", "nosuid", "nodev", "size=2147483648"}) {
+		return errors.New("gate container tmpfs contract drifted")
+	}
+	if host.LogConfig.Type != "local" || host.LogConfig.Config["max-size"] != "10m" || host.LogConfig.Config["max-file"] != "3" {
+		return errors.New("gate container log contract drifted")
+	}
+	return nil
+}
+
+// inspectFinishedContainer 复验终态容器身份、退出码和完成时间。
+func (runner *FreshContainerRunner) inspectFinishedContainer(parentContext context.Context, containerID string, imageReference string, configDigest string, exitCode int) (string, error) {
+	output, err := runner.runCleanup(parentContext, "inspect", "--type=container", containerID)
+	if err != nil {
+		return "", fmt.Errorf("inspect finished gate container: %w", err)
+	}
+	var document containerInspectDocument
+	if err := decodeSingleInspect(output, &document); err != nil {
+		return "", fmt.Errorf("decode finished gate container inspect: %w", err)
+	}
+	if err := validateFinishedContainerIdentity(document, containerID, imageReference, configDigest); err != nil {
+		return "", err
+	}
+	if err := validateFinishedContainerState(document, exitCode); err != nil {
+		return "", err
+	}
+	return digestJSON(document)
+}
+
+// validateFinishedContainerIdentity 校验终态容器仍绑定原始镜像身份。
+func validateFinishedContainerIdentity(document containerInspectDocument, containerID string, imageReference string, configDigest string) error {
+	if document.ID != containerID || document.Image != configDigest || document.Config == nil || document.Config.Image != imageReference || document.State == nil {
+		return errors.New("finished gate container identity drifted")
+	}
+	return nil
+}
+
+// validateFinishedContainerState 校验退出状态、退出码和完成时间。
+func validateFinishedContainerState(document containerInspectDocument, exitCode int) error {
+	state := document.State
+	if state.Status != "exited" || state.Running || state.ExitCode != exitCode {
+		return errors.New("finished gate container exit state drifted")
+	}
+	if state.OOMKilled || state.Error != "" || state.FinishedAt == "" {
+		return errors.New("finished gate container terminal evidence drifted")
+	}
+	return nil
+}
+
+func (runner *FreshContainerRunner) inspectContainer(ctx context.Context, containerID string) (containerInspectDocument, error) {
+	output, err := runner.docker.runner.Run(ctx, "inspect", "--type=container", containerID)
+	if err != nil {
+		return containerInspectDocument{}, fmt.Errorf("inspect created gate container: %w", err)
+	}
+	var document containerInspectDocument
+	if err := decodeSingleInspect(output, &document); err != nil {
+		return containerInspectDocument{}, fmt.Errorf("decode created gate container inspect: %w", err)
+	}
+	return document, nil
+}
+
+func decodeSingleInspect(output string, target any) error {
+	var documents []json.RawMessage
+	decoder := json.NewDecoder(strings.NewReader(output))
+	if err := decoder.Decode(&documents); err != nil {
+		return err
+	}
+	if len(documents) != 1 {
+		return fmt.Errorf("Docker inspect returned %d documents, want 1", len(documents))
+	}
+	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
+		if err == nil {
+			return errors.New("Docker inspect returned trailing JSON")
+		}
+		return fmt.Errorf("decode trailing Docker inspect JSON: %w", err)
+	}
+	return json.Unmarshal(documents[0], target)
+}
+
+func containsSeccomp(options []string) bool {
+	for _, option := range options {
+		if strings.HasPrefix(option, "seccomp=") && len(option) > len("seccomp=") {
+			return true
+		}
+	}
+	return false
+}
+
+func splitOptionSet(options string) []string {
+	if options == "" {
+		return nil
+	}
+	return strings.Split(options, ",")
+}
+
+func equalStringSet(left []string, right []string) bool {
+	return slices.Equal(sortedStrings(left), sortedStrings(right))
+}
+
+func sortedStrings(values []string) []string {
+	result := append([]string(nil), values...)
+	sort.Strings(result)
+	return result
+}
+
+func digestBytes(data []byte) string {
+	sum := sha256.Sum256(data)
+	return "sha256:" + hex.EncodeToString(sum[:])
+}
+
+func digestJSON(value any) (string, error) {
+	var buffer bytes.Buffer
+	encoder := json.NewEncoder(&buffer)
+	encoder.SetEscapeHTML(false)
+	if err := encoder.Encode(value); err != nil {
+		return "", err
+	}
+	return digestBytes(buffer.Bytes()), nil
 }
