@@ -18,7 +18,7 @@ func TestCodexSurfaceExposesRecoverAgentShortName(t *testing.T) {
 	}}}
 	h := &Handler{stdioClientFactory: fakeClientFactory(map[string]mcpClient{"orch": orch})}
 
-	tools, err := h.PrepareCodexToolSurface(context.Background(), contract.CodexToolSurfaceScope{
+	tools, err := prepareCodexToolSurfaceForTest(t, h, context.Background(), contract.CodexToolSurfaceScope{
 		AgentID:          "agent-1",
 		ProviderThreadID: "provider-thread-1",
 		CWD:              "/repo",

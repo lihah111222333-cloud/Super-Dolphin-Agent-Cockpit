@@ -16,7 +16,7 @@ func TestPrepareCodexToolSurfaceNamespacesExternalDuplicateToolName(t *testing.T
 	sqlite := &fakeMCPClient{tools: []mcpdto.MCPTool{{Name: "query", Description: "sqlite query", InputSchema: json.RawMessage(`{"type":"object"}`)}}}
 	h := &Handler{stdioClientFactory: fakeClientFactory(map[string]mcpClient{"playwright": playwright, "sqlite": sqlite})}
 
-	tools, err := h.PrepareCodexToolSurface(context.Background(), contract.CodexToolSurfaceScope{
+	tools, err := prepareCodexToolSurfaceForTest(t, h, context.Background(), contract.CodexToolSurfaceScope{
 		AgentID:          "agent-1",
 		ProviderThreadID: "provider-thread-1",
 		CWD:              "/repo",
@@ -54,7 +54,7 @@ func TestPrepareCodexToolSurfaceFailsOnNonReservedAliasConflict(t *testing.T) {
 	}}
 	h := &Handler{stdioClientFactory: fakeClientFactory(map[string]mcpClient{mcpdto.ClientKindOrch: orch})}
 
-	_, err := h.PrepareCodexToolSurface(context.Background(), contract.CodexToolSurfaceScope{
+	_, err := prepareCodexToolSurfaceForTest(t, h, context.Background(), contract.CodexToolSurfaceScope{
 		AgentID:  "agent-1",
 		CWD:      "/repo",
 		Manifest: providerdto.MCPManifest{Binaries: []providerdto.MCPBinary{{Name: mcpdto.ClientKindOrch, Command: []string{"mcp-orch"}}}},

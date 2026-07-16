@@ -183,6 +183,7 @@ internal/archtest/lifecycle_onstart_guard_test.go	internal	other	go-test	10243	�
 internal/archtest/lsp_tool_guard_test.go	internal	other	go-test	1985	架构守卫、baseline ratchet 与冻结规则	internal,archtest,lsp,tool,guard,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/mcp_family_isolation_test.go	internal	other	go-test	1105	架构守卫、baseline ratchet 与冻结规则	internal,archtest,mcp,family,isolation,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/mcp_tool_lifecycle_contract_guard_test.go	internal	other	go-test	1337	架构守卫、baseline ratchet 与冻结规则	internal,archtest,mcp,tool,lifecycle,contract,guard,test,架构守卫,baseline,ratchet,与冻结规则
+internal/archtest/mcp_trusted_server_id_field_guard_test.go	internal	other	go-test	23241	架构守卫、baseline ratchet 与冻结规则	internal,archtest,mcp,trusted,server,id,field,guard,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/memory_disk_store_lock_guard_test.go	internal	other	go-test	7321	架构守卫、baseline ratchet 与冻结规则	internal,archtest,memory,disk,store,lock,guard,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/memory_lifecycle_hooks_construct_guard_test.go	internal	other	go-test	4174	架构守卫、baseline ratchet 与冻结规则	internal,archtest,memory,lifecycle,hooks,construct,guard,test,架构守卫,baseline,ratchet,与冻结规则
 internal/archtest/metric_registry_test.go	internal	other	go-test	5002	架构守卫、baseline ratchet 与冻结规则	internal,archtest,metric,registry,test,架构守卫,baseline,ratchet,与冻结规则
@@ -303,9 +304,9 @@ internal/contract/frc.go	internal	other	go-source	2223	跨模块稳定接口、�
 internal/contract/hooks.go	internal	other	go-source	3874	跨模块稳定接口、事件和 DTO 边界	internal,contract,hooks,跨模块稳定接口,事件和,DTO,边界
 internal/contract/insight.go	internal	other	go-source	3160	跨模块稳定接口、事件和 DTO 边界	internal,contract,insight,跨模块稳定接口,事件和,DTO,边界
 internal/contract/manifest_test.go	internal	other	go-test	5445	跨模块稳定接口、事件和 DTO 边界	internal,contract,manifest,test,跨模块稳定接口,事件和,DTO,边界
-internal/contract/manifest.go	internal	other	go-source	12999	跨模块稳定接口、事件和 DTO 边界	internal,contract,manifest,跨模块稳定接口,事件和,DTO,边界
+internal/contract/manifest.go	internal	other	go-source	13074	跨模块稳定接口、事件和 DTO 边界	internal,contract,manifest,跨模块稳定接口,事件和,DTO,边界
 internal/contract/mcp_control_test.go	internal	other	go-test	1867	跨模块稳定接口、事件和 DTO 边界	internal,contract,mcp,control,test,跨模块稳定接口,事件和,DTO,边界
-internal/contract/mcp_control.go	internal	other	go-source	22129	跨模块稳定接口、事件和 DTO 边界	internal,contract,mcp,control,跨模块稳定接口,事件和,DTO,边界
+internal/contract/mcp_control.go	internal	other	go-source	23494	跨模块稳定接口、事件和 DTO 边界	internal,contract,mcp,control,跨模块稳定接口,事件和,DTO,边界
 internal/contract/memory.go	internal	other	go-source	8165	跨模块稳定接口、事件和 DTO 边界	internal,contract,memory,跨模块稳定接口,事件和,DTO,边界
 internal/contract/message_notifier.go	internal	other	go-source	1872	跨模块稳定接口、事件和 DTO 边界	internal,contract,message,notifier,跨模块稳定接口,事件和,DTO,边界
 internal/contract/orchestration_tools_test.go	internal	other	go-test	3997	跨模块稳定接口、事件和 DTO 边界	internal,contract,orchestration,tools,test,跨模块稳定接口,事件和,DTO,边界
@@ -366,13 +367,13 @@ internal/dto/mcp/constants.go	internal	other	go-source	2945	provider/shared DTO 
 internal/dto/mcp/errors.go	internal	other	go-source	1047	provider/shared DTO 与事件协议	internal,dto,mcp,errors,provider,shared,DTO,与事件协议
 internal/dto/mcp/hook.go	internal	other	go-source	5726	provider/shared DTO 与事件协议	internal,dto,mcp,hook,provider,shared,DTO,与事件协议
 internal/dto/mcp/protocol.go	internal	other	go-source	10001	provider/shared DTO 与事件协议	internal,dto,mcp,protocol,provider,shared,DTO,与事件协议
-internal/dto/mcp/tool.go	internal	other	go-source	627	provider/shared DTO 与事件协议	internal,dto,mcp,tool,provider,shared,DTO,与事件协议
+internal/dto/mcp/tool.go	internal	other	go-source	1586	provider/shared DTO 与事件协议	internal,dto,mcp,tool,provider,shared,DTO,与事件协议
 internal/dto/observation/types.go	internal	other	go-source	3660	provider/shared DTO 与事件协议	internal,dto,observation,types,provider,shared,DTO,与事件协议
 internal/dto/provider/attachment.go	internal	other	go-source	1059	provider/shared DTO 与事件协议	internal,dto,provider,attachment,shared,DTO,与事件协议
 internal/dto/provider/capability.go	internal	other	go-source	1232	provider/shared DTO 与事件协议	internal,dto,provider,capability,shared,DTO,与事件协议
 internal/dto/provider/event_security_test.go	internal	other	go-test	1729	provider/shared DTO 与事件协议	internal,dto,provider,event,security,test,shared,DTO,与事件协议
 internal/dto/provider/event.go	internal	other	go-source	6063	provider/shared DTO 与事件协议	internal,dto,provider,event,shared,DTO,与事件协议
-internal/dto/provider/manifest.go	internal	other	go-source	2589	provider/shared DTO 与事件协议	internal,dto,provider,manifest,shared,DTO,与事件协议
+internal/dto/provider/manifest.go	internal	other	go-source	3045	provider/shared DTO 与事件协议	internal,dto,provider,manifest,shared,DTO,与事件协议
 internal/dto/provider/message_test.go	internal	other	go-test	1205	provider/shared DTO 与事件协议	internal,dto,provider,message,test,shared,DTO,与事件协议
 internal/dto/provider/message.go	internal	other	go-source	1211	provider/shared DTO 与事件协议	internal,dto,provider,message,shared,DTO,与事件协议
 internal/dto/provider/session_wire_test.go	internal	other	go-test	792	provider/shared DTO 与事件协议	internal,dto,provider,session,wire,test,shared,DTO,与事件协议

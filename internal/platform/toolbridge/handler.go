@@ -70,6 +70,8 @@ type Handler struct {
 	peerInputSchemas   map[string]map[string]json.RawMessage
 	proxyAuthToken     string
 	stdioClientFactory func(context.Context, providerdto.MCPBinary) (mcpClient, error)
+	schemaExecutor     mcpSchemaExecutor
+	authorityOwner     contract.MCPToolAuthorityOwner
 }
 
 // activePeerRegistry 是 toolbridge 选择活跃 MCP peer 所需的最小注册表接口。
@@ -124,6 +126,14 @@ func NewHandler(in handlerIn) (*Handler, error) {
 	if logger == nil {
 		logger = pkglogger.Get()
 	}
+	var schemaExecutor mcpSchemaExecutor
+	if in.Config != nil {
+		var err error
+		schemaExecutor, err = newMCPSchemaExecutor(in.Config.ProjectRoot)
+		if err != nil {
+			return nil, err
+		}
+	}
 	handler := &Handler{
 		registry:        in.Registry,
 		emitter:         in.Emitter,
@@ -138,6 +148,8 @@ func NewHandler(in handlerIn) (*Handler, error) {
 		dispatcher:      in.Dispatcher,
 		lifecycle:       in.Lifecycle,
 		lifecyclePolicy: in.LifecyclePolicy,
+		schemaExecutor:  schemaExecutor,
+		authorityOwner:  in.AuthorityOwner,
 		hostTools:       in.HostTools,
 		skillTools:      in.SkillTools,
 		surfaces:        make(map[string]*codexToolSurface),
@@ -149,6 +161,9 @@ func NewHandler(in handlerIn) (*Handler, error) {
 
 // validateToolbridgeDependencies 在构造 Handler 前按 dependency profile 校验关键端口，防止生产图退化为空能力。
 func validateToolbridgeDependencies(in handlerIn) error {
+	if in.AuthorityOwner == nil {
+		return fmt.Errorf("toolbridge MCP authority owner is required")
+	}
 	profile := in.Dependency.Profile
 	if strings.TrimSpace(string(profile)) == "" {
 		return fmt.Errorf("toolbridge dependency profile is required")

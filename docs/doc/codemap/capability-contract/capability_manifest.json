@@ -2457,11 +2457,18 @@
         "internal/contract.MCPServerConfigWriter.ListServers",
         "internal/contract.MCPServerListResult",
         "internal/contract.MCPSnapshot",
+        "internal/contract.MCPToolAuthority",
+        "internal/contract.MCPToolAuthorityIssueRequest",
+        "internal/contract.MCPToolAuthorityOwner",
+        "internal/contract.MCPToolAuthorityOwner.CheckMCPToolAuthority",
+        "internal/contract.MCPToolAuthorityOwner.CompareAndSwapMCPToolQuarantines",
+        "internal/contract.MCPToolAuthorityOwner.IssueMCPToolAuthority",
         "internal/contract.MCPToolLifecycleDecision",
         "internal/contract.MCPToolLifecycleObservedTool",
         "internal/contract.MCPToolLifecyclePolicyReader",
         "internal/contract.MCPToolLifecyclePolicyReader.ResolveMCPToolLifecycle",
         "internal/contract.MCPToolLifecyclePolicyRequest",
+        "internal/contract.MCPToolQuarantineCommit",
         "internal/contract.MemoryEntry",
         "internal/contract.MemoryExtractionDrainer",
         "internal/contract.MemoryExtractionDrainer.DrainPendingExtraction",
@@ -7038,11 +7045,18 @@
         "internal/contract.MCPServerConfigWriter.ListServers",
         "internal/contract.MCPServerListResult",
         "internal/contract.MCPSnapshot",
+        "internal/contract.MCPToolAuthority",
+        "internal/contract.MCPToolAuthorityIssueRequest",
+        "internal/contract.MCPToolAuthorityOwner",
+        "internal/contract.MCPToolAuthorityOwner.CheckMCPToolAuthority",
+        "internal/contract.MCPToolAuthorityOwner.CompareAndSwapMCPToolQuarantines",
+        "internal/contract.MCPToolAuthorityOwner.IssueMCPToolAuthority",
         "internal/contract.MCPToolLifecycleDecision",
         "internal/contract.MCPToolLifecycleObservedTool",
         "internal/contract.MCPToolLifecyclePolicyReader",
         "internal/contract.MCPToolLifecyclePolicyReader.ResolveMCPToolLifecycle",
         "internal/contract.MCPToolLifecyclePolicyRequest",
+        "internal/contract.MCPToolQuarantineCommit",
         "internal/contract.MemoryEntry",
         "internal/contract.MemoryExtractionDrainer",
         "internal/contract.MemoryExtractionDrainer.DrainPendingExtraction",
@@ -11619,11 +11633,18 @@
         "internal/contract.MCPServerConfigWriter.ListServers",
         "internal/contract.MCPServerListResult",
         "internal/contract.MCPSnapshot",
+        "internal/contract.MCPToolAuthority",
+        "internal/contract.MCPToolAuthorityIssueRequest",
+        "internal/contract.MCPToolAuthorityOwner",
+        "internal/contract.MCPToolAuthorityOwner.CheckMCPToolAuthority",
+        "internal/contract.MCPToolAuthorityOwner.CompareAndSwapMCPToolQuarantines",
+        "internal/contract.MCPToolAuthorityOwner.IssueMCPToolAuthority",
         "internal/contract.MCPToolLifecycleDecision",
         "internal/contract.MCPToolLifecycleObservedTool",
         "internal/contract.MCPToolLifecyclePolicyReader",
         "internal/contract.MCPToolLifecyclePolicyReader.ResolveMCPToolLifecycle",
         "internal/contract.MCPToolLifecyclePolicyRequest",
+        "internal/contract.MCPToolQuarantineCommit",
         "internal/contract.MemoryEntry",
         "internal/contract.MemoryExtractionDrainer",
         "internal/contract.MemoryExtractionDrainer.DrainPendingExtraction",
@@ -16203,11 +16224,18 @@
         "internal/contract.MCPServerConfigWriter.ListServers",
         "internal/contract.MCPServerListResult",
         "internal/contract.MCPSnapshot",
+        "internal/contract.MCPToolAuthority",
+        "internal/contract.MCPToolAuthorityIssueRequest",
+        "internal/contract.MCPToolAuthorityOwner",
+        "internal/contract.MCPToolAuthorityOwner.CheckMCPToolAuthority",
+        "internal/contract.MCPToolAuthorityOwner.CompareAndSwapMCPToolQuarantines",
+        "internal/contract.MCPToolAuthorityOwner.IssueMCPToolAuthority",
         "internal/contract.MCPToolLifecycleDecision",
         "internal/contract.MCPToolLifecycleObservedTool",
         "internal/contract.MCPToolLifecyclePolicyReader",
         "internal/contract.MCPToolLifecyclePolicyReader.ResolveMCPToolLifecycle",
         "internal/contract.MCPToolLifecyclePolicyRequest",
+        "internal/contract.MCPToolQuarantineCommit",
         "internal/contract.MemoryEntry",
         "internal/contract.MemoryExtractionDrainer",
         "internal/contract.MemoryExtractionDrainer.DrainPendingExtraction",
@@ -18351,11 +18379,11 @@
     "total_packages": 41,
     "total_functions": 2249,
     "total_methods": 1145,
-    "total_interfaces": 183,
-    "total_interface_methods": 364,
-    "total_exported": 1252,
+    "total_interfaces": 184,
+    "total_interface_methods": 367,
+    "total_exported": 1256,
     "total_unexported": 2920,
-    "total_structs": 595
+    "total_structs": 598
   },
   "packages": [
     {
@@ -54071,6 +54099,58 @@
           ]
         },
         {
+          "name": "MCPToolAuthorityOwner",
+          "exported": true,
+          "methods": [
+            {
+              "name": "CheckMCPToolAuthority",
+              "params": [
+                {
+                  "type": "context.Context"
+                },
+                {
+                  "type": "MCPToolAuthority"
+                }
+              ],
+              "returns": [
+                "error"
+              ]
+            },
+            {
+              "name": "CompareAndSwapMCPToolQuarantines",
+              "params": [
+                {
+                  "type": "context.Context"
+                },
+                {
+                  "type": "[]MCPToolQuarantineCommit"
+                },
+                {
+                  "type": "func() error"
+                }
+              ],
+              "returns": [
+                "error"
+              ]
+            },
+            {
+              "name": "IssueMCPToolAuthority",
+              "params": [
+                {
+                  "type": "context.Context"
+                },
+                {
+                  "type": "MCPToolAuthorityIssueRequest"
+                }
+              ],
+              "returns": [
+                "MCPToolAuthority",
+                "error"
+              ]
+            }
+          ]
+        },
+        {
           "name": "MCPToolLifecyclePolicyReader",
           "exported": true,
           "methods": [
@@ -56192,6 +56272,14 @@
           "exported": true
         },
         {
+          "name": "MCPToolAuthority",
+          "exported": true
+        },
+        {
+          "name": "MCPToolAuthorityIssueRequest",
+          "exported": true
+        },
+        {
           "name": "MCPToolLifecycleDecision",
           "exported": true
         },
@@ -56201,6 +56289,10 @@
         },
         {
           "name": "MCPToolLifecyclePolicyRequest",
+          "exported": true
+        },
+        {
+          "name": "MCPToolQuarantineCommit",
           "exported": true
         },
         {

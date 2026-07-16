@@ -102,10 +102,11 @@ func normalizePromptHTTPMCPServerConfig(name string, config contract.MCPServerCo
 		return contract.MCPServerConfig{}, err
 	}
 	return contract.MCPServerConfig{
-		Transport: "http",
-		URL:       rawURL,
-		Headers:   headers,
-		Enabled:   config.Enabled,
+		TrustedServerID: strings.TrimSpace(config.TrustedServerID),
+		Transport:       "http",
+		URL:             rawURL,
+		Headers:         headers,
+		Enabled:         config.Enabled,
 	}, nil
 }
 
@@ -123,11 +124,12 @@ func normalizePromptStdioMCPServerConfig(name string, config contract.MCPServerC
 		return contract.MCPServerConfig{}, err
 	}
 	return contract.MCPServerConfig{
-		Transport: "stdio",
-		Command:   command,
-		Args:      args,
-		Env:       env,
-		Enabled:   config.Enabled,
+		TrustedServerID: strings.TrimSpace(config.TrustedServerID),
+		Transport:       "stdio",
+		Command:         command,
+		Args:            args,
+		Env:             env,
+		Enabled:         config.Enabled,
 	}, nil
 }
 
@@ -258,13 +260,14 @@ func copyMCPServerConfigs(out map[string]contract.MCPServerConfig, input map[str
 			continue
 		}
 		out[name] = contract.MCPServerConfig{
-			Transport: strings.TrimSpace(config.Transport),
-			URL:       strings.TrimSpace(config.URL),
-			Headers:   clonePromptMCPStringMap(config.Headers),
-			Command:   strings.TrimSpace(config.Command),
-			Args:      clonePromptMCPStringList(config.Args),
-			Env:       clonePromptMCPStringMap(config.Env),
-			Enabled:   config.Enabled,
+			TrustedServerID: strings.TrimSpace(config.TrustedServerID),
+			Transport:       strings.TrimSpace(config.Transport),
+			URL:             strings.TrimSpace(config.URL),
+			Headers:         clonePromptMCPStringMap(config.Headers),
+			Command:         strings.TrimSpace(config.Command),
+			Args:            clonePromptMCPStringList(config.Args),
+			Env:             clonePromptMCPStringMap(config.Env),
+			Enabled:         config.Enabled,
 		}
 	}
 }

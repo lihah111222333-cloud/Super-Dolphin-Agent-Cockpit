@@ -104,6 +104,18 @@ func TestToolbridgeNewHandlerRequiresDependencyContractBeforeConstruction(t *tes
 	}
 }
 
+func TestToolbridgeNewHandlerRequiresAuthorityOwnerAtConstruction(t *testing.T) {
+	in := toolbridgeDependencyFixture{profile: contract.DependencyProfileProduction}.handlerIn()
+	in.AuthorityOwner = nil
+	h, err := NewHandler(in)
+	if err == nil || !strings.Contains(err.Error(), "MCP authority owner") {
+		t.Fatalf("NewHandler() error = %v, want missing MCP authority owner", err)
+	}
+	if h != nil {
+		t.Fatalf("NewHandler() handler = %#v, want nil on authority owner failure", h)
+	}
+}
+
 func allToolbridgeDependencyNamesForTest() []string {
 	return []string{
 		"toolbridge.dispatcher",
@@ -121,7 +133,10 @@ func allToolbridgeDependencyNamesForTest() []string {
 
 func mustNewToolbridgeDependencyHandler(t *testing.T) *Handler {
 	t.Helper()
-	h, err := NewHandler(toolbridgeDependencyFixture{profile: contract.DependencyProfileProduction}.handlerIn())
+	in := toolbridgeDependencyFixture{profile: contract.DependencyProfileProduction}.handlerIn()
+	in.Config.ProjectRoot = t.TempDir()
+	in.AuthorityOwner = newTask4BAuthorityOwner()
+	h, err := NewHandler(in)
 	if err != nil {
 		t.Fatalf("NewHandler() error = %v", err)
 	}
@@ -149,6 +164,7 @@ func (f toolbridgeDependencyFixture) handlerIn() handlerIn {
 		Dispatcher:      event.NewDispatcher(),
 		Lifecycle:       lifecycle,
 		LifecyclePolicy: lifecycle,
+		AuthorityOwner:  newTask4BAuthorityOwner(),
 		HostTools: &stubHostToolRegistry{
 			hasToolName: testHostToolName,
 			tools:       []mcpdto.MCPTool{{Name: testHostToolName}},

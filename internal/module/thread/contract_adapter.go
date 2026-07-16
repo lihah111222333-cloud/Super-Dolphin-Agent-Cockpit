@@ -323,13 +323,14 @@ func cloneSessionMCPServerConfigs(in map[string]contract.MCPServerConfig) map[st
 	out := make(map[string]contract.MCPServerConfig, len(in))
 	for name, cfg := range in {
 		out[name] = contract.MCPServerConfig{
-			Transport: cfg.Transport,
-			URL:       cfg.URL,
-			Headers:   clone.StringMap(cfg.Headers),
-			Command:   cfg.Command,
-			Args:      clone.Strings(cfg.Args),
-			Env:       clone.StringMap(cfg.Env),
-			Enabled:   cloneSessionBoolPtr(cfg.Enabled),
+			TrustedServerID: cfg.TrustedServerID,
+			Transport:       cfg.Transport,
+			URL:             cfg.URL,
+			Headers:         clone.StringMap(cfg.Headers),
+			Command:         cfg.Command,
+			Args:            clone.Strings(cfg.Args),
+			Env:             clone.StringMap(cfg.Env),
+			Enabled:         cloneSessionBoolPtr(cfg.Enabled),
 		}
 	}
 	return out

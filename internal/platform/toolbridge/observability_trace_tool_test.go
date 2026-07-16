@@ -146,7 +146,7 @@ func TestObservabilityTraceHostOnlyToolFiltersPreparedCodexSurface(t *testing.T)
 				stdioClientFactory: fakeClientFactory(map[string]mcpClient{"lsp": lsp}),
 			}
 
-			tools, err := h.PrepareCodexToolSurface(context.Background(), contract.CodexToolSurfaceScope{
+			tools, err := prepareCodexToolSurfaceForTest(t, h, context.Background(), contract.CodexToolSurfaceScope{
 				AgentID: "agent-1",
 				CWD:     "/repo",
 				Manifest: providerdto.MCPManifest{Binaries: []providerdto.MCPBinary{{
@@ -178,7 +178,7 @@ func TestObservabilityTraceDisabledStaleHandleToolCallBypassesPreparedSurface(t 
 		stdioClientFactory: fakeClientFactory(map[string]mcpClient{"lsp": lsp}),
 	}
 
-	tools, err := h.PrepareCodexToolSurface(context.Background(), contract.CodexToolSurfaceScope{
+	tools, err := prepareCodexToolSurfaceForTest(t, h, context.Background(), contract.CodexToolSurfaceScope{
 		AgentID:          "agent-1",
 		ProviderThreadID: "provider-thread-1",
 		CWD:              "/repo",
@@ -222,7 +222,7 @@ func TestObservabilityTraceHostOnlyToolFiltersPreparedCodexSurfaceReservedAliase
 		stdioClientFactory: fakeClientFactory(map[string]mcpClient{"lsp": lsp}),
 	}
 
-	tools, err := h.PrepareCodexToolSurface(context.Background(), contract.CodexToolSurfaceScope{
+	tools, err := prepareCodexToolSurfaceForTest(t, h, context.Background(), contract.CodexToolSurfaceScope{
 		AgentID: "agent-1",
 		CWD:     "/repo",
 		Manifest: providerdto.MCPManifest{Binaries: []providerdto.MCPBinary{{
@@ -249,7 +249,7 @@ func TestObservabilityTraceDisabledStaleAliasHandleToolCallBypassesPreparedSurfa
 		stdioClientFactory: fakeClientFactory(map[string]mcpClient{"lsp": lsp}),
 	}
 
-	_, err := h.PrepareCodexToolSurface(context.Background(), contract.CodexToolSurfaceScope{
+	_, err := prepareCodexToolSurfaceForTest(t, h, context.Background(), contract.CodexToolSurfaceScope{
 		AgentID:          "agent-1",
 		ProviderThreadID: "provider-thread-1",
 		CWD:              "/repo",

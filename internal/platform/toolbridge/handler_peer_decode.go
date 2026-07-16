@@ -15,6 +15,7 @@ import (
 	providerdto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/provider"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/mcpserver/common"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/mcpcontrol"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/toolbridge/schema"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util/safego"
 )
 
@@ -37,18 +38,21 @@ type codexToolSurface struct {
 	disabledTools  map[string]string
 	hiddenMCPTools map[string]codexToolEntry
 	clients        []mcpClient
+	authorities    []*mcpSchemaAuthority
 	closeOnce      sync.Once
 	closeErr       error
 }
 
 // codexToolEntry 描述动态工具名到真实执行端的映射。
 type codexToolEntry struct {
-	name          string
-	realName      string
-	executionKind string
-	family        string
-	inputSchema   json.RawMessage
-	client        mcpClient
+	name           string
+	realName       string
+	executionKind  string
+	family         string
+	inputSchema    json.RawMessage
+	compiledSchema schema.CanonicalSchema
+	authority      *mcpSchemaAuthority
+	client         mcpClient
 }
 
 // PrepareCodexToolSurface 为 Codex 会话准备 host、skill 和 MCP 动态工具面。
@@ -58,6 +62,8 @@ func (h *Handler) PrepareCodexToolSurface(ctx context.Context, scope contract.Co
 		return nil, err
 	}
 	surface := &codexToolSurface{
+		cwd:            normalizeToolCallCWD(scope.CWD),
+		keys:           codexSurfaceKeys(scope),
 		tools:          map[string]codexToolEntry{},
 		aliases:        map[string]string{},
 		disabledTools:  map[string]string{},
@@ -72,13 +78,10 @@ func (h *Handler) PrepareCodexToolSurface(ctx context.Context, scope contract.Co
 		return nil, err
 	}
 	if err := h.addMCPSurfaceTools(ctx, scope, surface, &out, disabled); err != nil {
-		return nil, joinMCPSurfaceErrors(err, surface.Close())
+		return nil, joinMCPSurfaceErrors(err, errors.Join(surface.Close(), h.revokeCodexToolSurfaceKeys(surface.keys)))
 	}
-	surface.cwd = normalizeToolCallCWD(scope.CWD)
-	surface.keys = codexSurfaceKeys(scope)
-	if err := h.storeCodexToolSurface(surface); err != nil {
-		h.removeCodexToolSurface(surface)
-		return nil, joinMCPSurfaceErrors(err, surface.Close())
+	if err := h.publishMCPSurfaceCurrentCAS(ctx, surface); err != nil {
+		return nil, joinMCPSurfaceErrors(err, errors.Join(surface.Close(), h.revokeCodexToolSurfaceKeys(surface.keys)))
 	}
 	return out, nil
 }
@@ -132,17 +135,23 @@ func (h *Handler) addMCPSurfaceTools(ctx context.Context, scope contract.CodexTo
 	}
 	surface.clients = append(surface.clients, clients...)
 	for _, result := range results {
-		if err := h.backfillMCPToolLifecycle(ctx, scope.CWD, result.binary.Name, result.binary.Name, result.tools); err != nil {
-			return err
-		}
-		tools, err := h.filterMCPToolLifecycleTools(ctx, scope.CWD, result.binary.Name, result.binary.Name, result.tools)
+		admitted, authority, err := h.admitMCPServerTools(ctx, scope.CWD, result.binary, result.tools)
 		if err != nil {
 			return err
 		}
-		if err := addMCPToolsToSurface(surface, out, result.binary.Name, result.client, tools, disabled); err != nil {
+		surface.authorities = append(surface.authorities, authority)
+		allTools := admittedMCPToolValues(admitted)
+		if err := h.backfillMCPToolLifecycle(ctx, scope.CWD, result.binary.Name, result.binary.Name, allTools); err != nil {
 			return err
 		}
-		if err := addHiddenLifecycleFilteredMCPTools(surface, result.binary.Name, result.tools, tools); err != nil {
+		tools, err := h.filterMCPToolLifecycleTools(ctx, scope.CWD, result.binary.Name, result.binary.Name, allTools)
+		if err != nil {
+			return err
+		}
+		if err := addMCPToolsToSurface(surface, out, result.binary.Name, result.client, filterAdmittedMCPTools(admitted, tools), disabled); err != nil {
+			return err
+		}
+		if err := addHiddenLifecycleFilteredMCPTools(surface, result.binary.Name, allTools, tools); err != nil {
 			return err
 		}
 	}
@@ -248,7 +257,7 @@ func closeMCPClients(results []mcpSurfaceBinaryResult) error {
 }
 
 // addMCPToolsToSurface 把 MCP 工具添加到 Codex surface，并补齐 canonical 名和安全别名。
-func addMCPToolsToSurface(surface *codexToolSurface, out *[]contract.DynamicToolSchema, family string, client mcpClient, tools []mcpdto.MCPTool, disabled codexDisabledToolSet) error {
+func addMCPToolsToSurface(surface *codexToolSurface, out *[]contract.DynamicToolSchema, family string, client mcpClient, tools []admittedMCPTool, disabled codexDisabledToolSet) error {
 	for _, tool := range tools {
 		if err := addSingleMCPToolToSurface(surface, out, family, client, tool, disabled); err != nil {
 			return err
@@ -451,6 +460,9 @@ func (h *Handler) callCodexSurfaceTool(ctx context.Context, surface *codexToolSu
 		return h.denyHiddenCodexSurfaceMCPToolCall(ctx, surface, req)
 	}
 	entry := surface.tools[canonical]
+	if err := h.ensureCodexSurfaceEntryCurrent(ctx, entry); err != nil {
+		return nil, err
+	}
 	eventReq := req
 	eventReq.Name = entry.name
 	eventReq.ThreadID = codexSurfaceLifecycleThreadID(req)
@@ -474,21 +486,32 @@ func (h *Handler) callCodexSurfaceTool(ctx context.Context, surface *codexToolSu
 			return result, err
 		}
 	}
-	if err = validateToolInputSchema(entry.name, entry.inputSchema, req.Arguments); err != nil {
+	err = h.validateCodexSurfaceEntryArguments(ctx, entry, req.Arguments)
+	if err != nil {
 		return nil, err
 	}
 	req.Name = entry.realName
 	req = h.injectManagedLaunchContext(ctx, req)
+	result, err = h.executeCodexSurfaceEntry(ctx, surface, entry, req)
+	return result, err
+}
+
+func (h *Handler) executeCodexSurfaceEntry(
+	ctx context.Context,
+	surface *codexToolSurface,
+	entry codexToolEntry,
+	req ToolCallRequest,
+) (*ToolCallResult, error) {
 	if entry.executionKind == "host" {
-		result, err = h.callHostTool(ctx, req)
-		return result, err
+		return h.callHostTool(ctx, req)
 	}
 	if entry.executionKind == "skill" {
-		result, err = h.callSkillSurfaceTool(ctx, surface, req)
-		return result, err
+		return h.callSkillSurfaceTool(ctx, surface, req)
 	}
-	result, err = entry.client.CallTool(ctx, entry.realName, req.Arguments, req)
-	return result, err
+	if err := h.ensureCodexSurfaceEntryCurrent(ctx, entry); err != nil {
+		return nil, err
+	}
+	return entry.client.CallTool(ctx, entry.realName, req.Arguments, req)
 }
 
 // denyHiddenCodexSurfaceMCPToolCall 为已隐藏的 MCP 工具保留直连拒绝安全边界。
