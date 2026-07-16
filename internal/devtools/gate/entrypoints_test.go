@@ -1,0 +1,248 @@
+package gate
+
+import (
+	"encoding/json"
+	"reflect"
+	"slices"
+	"strings"
+	"testing"
+)
+
+func TestCIEntrypointRegistryCapabilities(t *testing.T) {
+	t.Parallel()
+
+	want := []CIEntrypoint{
+		newCIEntrypoint(CIEntrypointGitPreCommit, []SourceKind{SourceKindTree}, []Profile{ProfileLocalFast}, true, CIEntrypointOwnerManagedGitPreCommit, CIEntrypointAdapterGitPreCommit),
+		newCIEntrypoint(CIEntrypointGitPrePush, []SourceKind{SourceKindRange}, []Profile{ProfilePush}, true, CIEntrypointOwnerManagedGitPrePush, CIEntrypointAdapterGitPrePush),
+		newCIEntrypoint(CIEntrypointCodexStop, []SourceKind{SourceKindTree}, []Profile{ProfileLocalFast}, false, CIEntrypointOwnerCodexStop, CIEntrypointAdapterCodexStop),
+		newCIEntrypoint(CIEntrypointCodexSubagentStop, []SourceKind{SourceKindTree}, []Profile{ProfileLocalFast}, false, CIEntrypointOwnerCodexSubagentStop, CIEntrypointAdapterCodexSubagentStop),
+		newCIEntrypoint(CIEntrypointManualCLI, []SourceKind{SourceKindCommit, SourceKindTree, SourceKindRange}, []Profile{ProfileLocalFast, ProfilePush, ProfileRemoteRequired, ProfilePromotion, ProfileRelease}, false, CIEntrypointOwnerManualCLI, CIEntrypointAdapterManualCLI),
+		newCIEntrypoint(CIEntrypointWorkflowRequired, []SourceKind{SourceKindCommit, SourceKindRange}, []Profile{ProfileRemoteRequired}, true, CIEntrypointOwnerWorkflowRequired, CIEntrypointAdapterWorkflowRequired),
+		newCIEntrypoint(CIEntrypointRelease, []SourceKind{SourceKindCommit}, []Profile{ProfileRelease}, true, CIEntrypointOwnerRelease, CIEntrypointAdapterRelease),
+	}
+	got := CIEntrypointRegistry()
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("CIEntrypointRegistry() = %#v, want %#v", got, want)
+	}
+	if err := validateCIEntrypointRegistry(got); err != nil {
+		t.Fatalf("validateCIEntrypointRegistry() error = %v", err)
+	}
+	manual := got[4]
+	if manual.Authoritative || !slices.Contains(manual.AllowedProfiles, ProfileRemoteRequired) || !slices.Contains(manual.AllowedProfiles, ProfileRelease) {
+		t.Fatalf("manual CLI authority contract = %#v", manual)
+	}
+}
+
+func TestCIEntrypointStableIDsAndExternalAuthorityOwners(t *testing.T) {
+	t.Parallel()
+
+	registry := CIEntrypointRegistry()
+	gotIDs := make([]string, 0, len(registry))
+	for _, entrypoint := range registry {
+		gotIDs = append(gotIDs, string(entrypoint.ID))
+	}
+	wantIDs := []string{"git-pre-commit", "git-pre-push", "codex-stop", "codex-subagent-stop", "manual-cli", "workflow-required", "release"}
+	if !reflect.DeepEqual(gotIDs, wantIDs) {
+		t.Fatalf("CI entrypoint IDs = %v, want %v", gotIDs, wantIDs)
+	}
+	wantOwners := map[CIEntrypointID]string{
+		CIEntrypointGitPreCommit:     "managed-launcher/git-pre-commit",
+		CIEntrypointGitPrePush:       "managed-launcher/git-pre-push",
+		CIEntrypointWorkflowRequired: "protected-reusable-workflow/github-app-oidc",
+		CIEntrypointRelease:          "external-release-authority",
+	}
+	for _, entrypoint := range registry {
+		if want, ok := wantOwners[entrypoint.ID]; ok && string(entrypoint.Owner) != want {
+			t.Fatalf("CI entrypoint %q owner = %q, want %q", entrypoint.ID, entrypoint.Owner, want)
+		}
+	}
+}
+
+func TestCIEntrypointRegistryDigestAndDeepCopy(t *testing.T) {
+	t.Parallel()
+
+	digest, err := CIEntrypointRegistryDigest()
+	if err != nil || !strings.HasPrefix(digest, "sha256:") {
+		t.Fatalf("CIEntrypointRegistryDigest() = %q, %v", digest, err)
+	}
+	registry := CIEntrypointRegistry()
+	registry[0].AllowedSources[0] = SourceKindCommit
+	registry[0].AllowedProfiles[0] = ProfileRelease
+	registry[0].Owner = CIEntrypointOwnerRelease
+	registry[0].Adapter = CIEntrypointAdapterRelease
+	fresh := CIEntrypointRegistry()[0]
+	if fresh.AllowedSources[0] != SourceKindTree || fresh.AllowedProfiles[0] != ProfileLocalFast || fresh.Owner != CIEntrypointOwnerManagedGitPreCommit || fresh.Adapter != CIEntrypointAdapterGitPreCommit {
+		t.Fatalf("CIEntrypointRegistry() leaked canonical state: %#v", fresh)
+	}
+	freshDigest, err := CIEntrypointRegistryDigest()
+	if err != nil || freshDigest != digest {
+		t.Fatalf("digest after caller mutation = %q, %v, want %q", freshDigest, err, digest)
+	}
+}
+
+func TestCIEntrypointValidateRejectsInvalidContracts(t *testing.T) {
+	t.Parallel()
+
+	base := CIEntrypointRegistry()
+	tests := []struct {
+		name   string
+		mutate func(CIEntrypoint) CIEntrypoint
+	}{
+		{name: "unknown id", mutate: func(entrypoint CIEntrypoint) CIEntrypoint {
+			entrypoint.ID = CIEntrypointID("unknown")
+			return entrypoint
+		}},
+		{name: "empty sources", mutate: func(entrypoint CIEntrypoint) CIEntrypoint { entrypoint.AllowedSources = nil; return entrypoint }},
+		{name: "unknown source", mutate: func(entrypoint CIEntrypoint) CIEntrypoint {
+			entrypoint.AllowedSources = []SourceKind{"unknown"}
+			return entrypoint
+		}},
+		{name: "duplicate source", mutate: func(entrypoint CIEntrypoint) CIEntrypoint {
+			entrypoint.AllowedSources = []SourceKind{SourceKindTree, SourceKindTree}
+			return entrypoint
+		}},
+		{name: "unordered sources", mutate: func(entrypoint CIEntrypoint) CIEntrypoint {
+			entrypoint.AllowedSources = []SourceKind{SourceKindRange, SourceKindCommit}
+			return entrypoint
+		}},
+		{name: "empty profiles", mutate: func(entrypoint CIEntrypoint) CIEntrypoint { entrypoint.AllowedProfiles = nil; return entrypoint }},
+		{name: "unknown profile", mutate: func(entrypoint CIEntrypoint) CIEntrypoint {
+			entrypoint.AllowedProfiles = []Profile{"unknown"}
+			return entrypoint
+		}},
+		{name: "duplicate profile", mutate: func(entrypoint CIEntrypoint) CIEntrypoint {
+			entrypoint.AllowedProfiles = []Profile{ProfileLocalFast, ProfileLocalFast}
+			return entrypoint
+		}},
+		{name: "unordered profiles", mutate: func(entrypoint CIEntrypoint) CIEntrypoint {
+			entrypoint.AllowedProfiles = []Profile{ProfileRelease, ProfileLocalFast}
+			return entrypoint
+		}},
+		{name: "unknown owner", mutate: func(entrypoint CIEntrypoint) CIEntrypoint {
+			entrypoint.Authoritative = false
+			entrypoint.Owner = CIEntrypointOwner("unknown")
+			return entrypoint
+		}},
+		{name: "unknown adapter", mutate: func(entrypoint CIEntrypoint) CIEntrypoint {
+			entrypoint.Adapter = CIEntrypointAdapter("unknown")
+			return entrypoint
+		}},
+		{name: "authoritative without trusted owner", mutate: func(entrypoint CIEntrypoint) CIEntrypoint {
+			entrypoint.Owner = CIEntrypointOwnerManualCLI
+			return entrypoint
+		}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if err := test.mutate(base[0]).Validate(); err == nil {
+				t.Fatal("invalid CI entrypoint passed validation")
+			}
+		})
+	}
+}
+
+func TestAuthoritativeCIEntrypointRejectsUntrustedOwners(t *testing.T) {
+	t.Parallel()
+
+	untrusted := []CIEntrypointOwner{
+		CIEntrypointOwnerRepositoryGitHooks,
+		CIEntrypointOwnerManualCLI,
+		CIEntrypointOwnerCodexStop,
+	}
+	for _, owner := range untrusted {
+		t.Run(string(owner), func(t *testing.T) {
+			entrypoint := CIEntrypointRegistry()[0]
+			entrypoint.Owner = owner
+			if err := entrypoint.Validate(); err == nil {
+				t.Fatalf("authoritative entrypoint accepted untrusted owner %q", owner)
+			}
+		})
+	}
+}
+
+func TestValidateCIEntrypointRegistryRejectsMalformedCatalogs(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		build func() []CIEntrypoint
+	}{
+		{name: "empty", build: func() []CIEntrypoint { return nil }},
+		{name: "missing", build: func() []CIEntrypoint { return CIEntrypointRegistry()[:6] }},
+		{name: "duplicate id", build: func() []CIEntrypoint { registry := CIEntrypointRegistry(); registry[1] = registry[0]; return registry }},
+		{name: "unordered", build: func() []CIEntrypoint {
+			registry := CIEntrypointRegistry()
+			registry[0], registry[1] = registry[1], registry[0]
+			return registry
+		}},
+		{name: "duplicate owner", build: func() []CIEntrypoint {
+			registry := CIEntrypointRegistry()
+			registry[1].Owner = registry[0].Owner
+			return registry
+		}},
+		{name: "duplicate adapter", build: func() []CIEntrypoint {
+			registry := CIEntrypointRegistry()
+			registry[1].Adapter = registry[0].Adapter
+			return registry
+		}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if err := validateCIEntrypointRegistry(test.build()); err == nil {
+				t.Fatal("malformed CI entrypoint registry passed validation")
+			}
+		})
+	}
+}
+
+func TestCIEntrypointJSONContractIsStrictAndFieldComplete(t *testing.T) {
+	t.Parallel()
+
+	producer, err := JSONFieldNames(reflect.TypeFor[CIEntrypoint]())
+	if err != nil {
+		t.Fatalf("JSONFieldNames() error = %v", err)
+	}
+	coverage := []string{"adapter", "allowed_profiles", "allowed_sources", "authoritative", "id", "owner"}
+	missing, stale := FieldCoverageDiff(producer, coverage)
+	if len(missing) != 0 || len(stale) != 0 {
+		t.Fatalf("CIEntrypoint JSON field coverage missing=%v stale=%v", missing, stale)
+	}
+	for _, entrypoint := range CIEntrypointRegistry() {
+		encoded, err := json.Marshal(entrypoint)
+		if err != nil {
+			t.Fatalf("Marshal(%q) error = %v", entrypoint.ID, err)
+		}
+		var decoded CIEntrypoint
+		if err := DecodeStrictJSON(encoded, &decoded); err != nil {
+			t.Fatalf("DecodeStrictJSON(%q) error = %v", entrypoint.ID, err)
+		}
+		if !reflect.DeepEqual(decoded, entrypoint) {
+			t.Fatalf("decoded entrypoint = %#v, want %#v", decoded, entrypoint)
+		}
+		assertCIEntrypointMissingFieldsFail(t, encoded, producer)
+	}
+	unknown := []byte(`{"id":"manual-cli","allowed_sources":["commit"],"allowed_profiles":["local-fast"],"authoritative":false,"owner":"gate-cli/manual","adapter":"cmd/super-dolphin-gate/manual","unknown":true}`)
+	var decoded CIEntrypoint
+	if err := DecodeStrictJSON(unknown, &decoded); err == nil {
+		t.Fatal("unknown CI entrypoint JSON field passed strict decoding")
+	}
+}
+
+func assertCIEntrypointMissingFieldsFail(t *testing.T, encoded []byte, fields []string) {
+	t.Helper()
+	for _, field := range fields {
+		var document map[string]json.RawMessage
+		if err := json.Unmarshal(encoded, &document); err != nil {
+			t.Fatal(err)
+		}
+		delete(document, field)
+		missing, err := json.Marshal(document)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var decoded CIEntrypoint
+		if err := DecodeStrictJSON(missing, &decoded); err == nil {
+			t.Fatalf("missing required field %q passed validation", field)
+		}
+	}
+}
