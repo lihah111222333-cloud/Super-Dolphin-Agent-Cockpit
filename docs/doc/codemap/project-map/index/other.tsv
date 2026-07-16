@@ -313,7 +313,7 @@ internal/contract/orchestration.go	internal	other	go-source	32036	跨模块稳�
 internal/contract/pending_launch_spawner.go	internal	other	go-source	1041	跨模块稳定接口、事件和 DTO 边界	internal,contract,pending,launch,spawner,跨模块稳定接口,事件和,DTO,边界
 internal/contract/prompt_attachment.go	internal	other	go-source	3885	跨模块稳定接口、事件和 DTO 边界	internal,contract,prompt,attachment,跨模块稳定接口,事件和,DTO,边界
 internal/contract/prompt.go	internal	other	go-source	29310	跨模块稳定接口、事件和 DTO 边界	internal,contract,prompt,跨模块稳定接口,事件和,DTO,边界
-internal/contract/provider.go	internal	other	go-source	16150	跨模块稳定接口、事件和 DTO 边界	internal,contract,provider,跨模块稳定接口,事件和,DTO,边界
+internal/contract/provider.go	internal	other	go-source	16341	跨模块稳定接口、事件和 DTO 边界	internal,contract,provider,跨模块稳定接口,事件和,DTO,边界
 internal/contract/README.md	internal	other	doc	1319	跨模块稳定接口、事件和 DTO 边界	internal,contract,README,跨模块稳定接口,事件和,DTO,边界
 internal/contract/rpc_dispatch.go	internal	other	go-source	327	跨模块稳定接口、事件和 DTO 边界	internal,contract,rpc,dispatch,跨模块稳定接口,事件和,DTO,边界
 internal/contract/rpc_handler.go	internal	other	go-source	1778	跨模块稳定接口、事件和 DTO 边界	internal,contract,rpc,handler,跨模块稳定接口,事件和,DTO,边界

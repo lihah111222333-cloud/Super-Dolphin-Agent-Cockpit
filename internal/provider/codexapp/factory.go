@@ -16,6 +16,7 @@ import (
 	turndto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/turn"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/rpc"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/shared"
+	providershared "github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/shared"
 	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
 )
 
@@ -204,7 +205,7 @@ func resolveTurnTerminalOutcome(method string, payload map[string]any) turnTermi
 	case strings.Contains(normalizedMethod, "interrupted"):
 		return turnTerminalOutcome{status: "interrupted", reason: "provider"}
 	case strings.Contains(normalizedMethod, "aborted"):
-		return turnTerminalOutcome{status: "cancelled", reason: stringValue(payload, "reason")}
+		return turnTerminalOutcome{status: "cancelled", reason: "provider"}
 	case strings.Contains(normalizedMethod, "failed"), strings.Contains(normalizedMethod, "error"):
 		return turnTerminalOutcome{status: "failed", reason: stringValue(payload, "reason")}
 	}
@@ -213,29 +214,17 @@ func resolveTurnTerminalOutcome(method string, payload map[string]any) turnTermi
 
 // resolveCompletedTerminalOutcome 校验 completed 事件的 success/status 配对，避免失败默认为成功。
 func resolveCompletedTerminalOutcome(payload map[string]any) turnTerminalOutcome {
-	success, hasSuccess := payload["success"].(bool)
-	status := strings.ToLower(strings.TrimSpace(stringValue(payload, "status")))
-	if !hasSuccess || status == "" {
-		return turnTerminalOutcome{status: "failed", contractError: "missing success or status"}
+	resolved := providershared.ResolveRawTerminalOutcome(payload)
+	reason := resolved.Cause
+	if reason == "" {
+		reason = stringValue(payload, "reason")
 	}
-	reason := stringValue(payload, "reason")
-	switch status {
-	case "completed":
-		if success {
-			return turnTerminalOutcome{success: true, status: status, reason: reason}
-		}
-	case "failed":
-		if !success {
-			return turnTerminalOutcome{status: status, reason: reason}
-		}
-	case "interrupted", "cancelled":
-		if !success {
-			return turnTerminalOutcome{status: status, reason: "provider"}
-		}
-	default:
-		return turnTerminalOutcome{status: "failed", contractError: "unknown status " + status}
+	return turnTerminalOutcome{
+		success:       resolved.Success,
+		status:        resolved.Status,
+		reason:        reason,
+		contractError: resolved.ContractError,
 	}
-	return turnTerminalOutcome{status: "failed", contractError: "conflicting success and status"}
 }
 
 // turnTerminalSuccess 保留工具和旧 session 收敛路径的宽松判定；turn raw adapter 必须使用严格 mapping。

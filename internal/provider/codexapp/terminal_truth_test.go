@@ -58,3 +58,22 @@ func TestCodexProviderCancelCannotMasqueradeAsUserCancel(t *testing.T) {
 		t.Fatalf("terminal = %#v, want provider cancellation without user_request attribution", terminal)
 	}
 }
+
+func TestCodexAbortedRawCauseCannotMasqueradeAsUserCancel(t *testing.T) {
+	t.Parallel()
+
+	ev, ok := translateTurnEvent("turn/aborted", map[string]any{
+		"threadId":  "thread-1",
+		"agentId":   "agent-1",
+		"turnId":    "turn-1",
+		"reason":    "user_request",
+		"requestId": "untrusted-provider-request",
+	})
+	if !ok {
+		t.Fatal("translateTurnEvent() ok = false")
+	}
+	terminal := ev.(turndto.TurnCompleted)
+	if terminal.Status != "cancelled" || terminal.Reason != "provider" {
+		t.Fatalf("terminal = %#v, want provider cancellation without user_request attribution", terminal)
+	}
+}

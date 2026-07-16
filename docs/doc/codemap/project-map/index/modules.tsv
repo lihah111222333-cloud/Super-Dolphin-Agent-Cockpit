@@ -609,15 +609,16 @@ internal/module/turn/assembler.go	internal	modules	go-source	8840	turn 启动、
 internal/module/turn/contract.go	internal	modules	go-source	7953	turn 启动、执行、审批与 provider 调度	internal,module,turn,contract,启动,执行,审批与,provider,调度
 internal/module/turn/expanded_state_test.go	internal	modules	go-test	10133	turn 启动、执行、审批与 provider 调度	internal,module,turn,expanded,state,test,启动,执行,审批与,provider,调度
 internal/module/turn/expanded_state.go	internal	modules	go-source	9667	turn 启动、执行、审批与 provider 调度	internal,module,turn,expanded,state,启动,执行,审批与,provider,调度
-internal/module/turn/factory.go	internal	modules	go-source	24259	turn 启动、执行、审批与 provider 调度	internal,module,turn,factory,启动,执行,审批与,provider,调度
+internal/module/turn/factory.go	internal	modules	go-source	24258	turn 启动、执行、审批与 provider 调度	internal,module,turn,factory,启动,执行,审批与,provider,调度
 internal/module/turn/feedback_proposer_test.go	internal	modules	go-test	1236	turn 启动、执行、审批与 provider 调度	internal,module,turn,feedback,proposer,test,启动,执行,审批与,provider,调度
 internal/module/turn/feedback_proposer.go	internal	modules	go-source	2186	turn 启动、执行、审批与 provider 调度	internal,module,turn,feedback,proposer,启动,执行,审批与,provider,调度
 internal/module/turn/frc_config.go	internal	modules	go-source	1980	turn 启动、执行、审批与 provider 调度	internal,module,turn,frc,config,启动,执行,审批与,provider,调度
 internal/module/turn/frc_lifecycle_test.go	internal	modules	go-test	3096	turn 启动、执行、审批与 provider 调度	internal,module,turn,frc,lifecycle,test,启动,执行,审批与,provider,调度
+internal/module/turn/interrupt_atomic_test.go	internal	modules	go-test	3544	turn 启动、执行、审批与 provider 调度	internal,module,turn,interrupt,atomic,test,启动,执行,审批与,provider,调度
 internal/module/turn/interrupt_envelope.go	internal	modules	go-source	3852	turn 启动、执行、审批与 provider 调度	internal,module,turn,interrupt,envelope,启动,执行,审批与,provider,调度
 internal/module/turn/interrupt_rpc_test.go	internal	modules	go-test	13025	turn 启动、执行、审批与 provider 调度	internal,module,turn,interrupt,rpc,test,启动,执行,审批与,provider,调度
 internal/module/turn/interrupt_service_test.go	internal	modules	go-test	4173	turn 启动、执行、审批与 provider 调度	internal,module,turn,interrupt,service,test,启动,执行,审批与,provider,调度
-internal/module/turn/interrupt_service.go	internal	modules	go-source	4519	turn 启动、执行、审批与 provider 调度	internal,module,turn,interrupt,service,启动,执行,审批与,provider,调度
+internal/module/turn/interrupt_service.go	internal	modules	go-source	4231	turn 启动、执行、审批与 provider 调度	internal,module,turn,interrupt,service,启动,执行,审批与,provider,调度
 internal/module/turn/manifest_p2_transport_test.go	internal	modules	go-test	6630	turn 启动、执行、审批与 provider 调度	internal,module,turn,manifest,p2,transport,test,启动,执行,审批与,provider,调度
 internal/module/turn/manifest.go	internal	modules	go-source	5205	turn 启动、执行、审批与 provider 调度	internal,module,turn,manifest,启动,执行,审批与,provider,调度
 internal/module/turn/mcp_server_config_test.go	internal	modules	go-test	4818	turn 启动、执行、审批与 provider 调度	internal,module,turn,mcp,server,config,test,启动,执行,审批与,provider,调度
@@ -668,7 +669,7 @@ internal/module/turn/tool_result_storage.go	internal	modules	go-source	3575	turn
 internal/module/turn/tracing_lifecycle_test.go	internal	modules	go-test	5649	turn 启动、执行、审批与 provider 调度	internal,module,turn,tracing,lifecycle,test,启动,执行,审批与,provider,调度
 internal/module/turn/tracker_states.go	internal	modules	go-source	3257	turn 启动、执行、审批与 provider 调度	internal,module,turn,tracker,states,启动,执行,审批与,provider,调度
 internal/module/turn/tracker_test.go	internal	modules	go-test	8109	turn 启动、执行、审批与 provider 调度	internal,module,turn,tracker,test,启动,执行,审批与,provider,调度
-internal/module/turn/tracker.go	internal	modules	go-source	14800	turn 启动、执行、审批与 provider 调度	internal,module,turn,tracker,启动,执行,审批与,provider,调度
+internal/module/turn/tracker.go	internal	modules	go-source	17129	turn 启动、执行、审批与 provider 调度	internal,module,turn,tracker,启动,执行,审批与,provider,调度
 internal/module/turn/trajectory_collector_test.go	internal	modules	go-test	8795	turn 启动、执行、审批与 provider 调度	internal,module,turn,trajectory,collector,test,启动,执行,审批与,provider,调度
 internal/module/turn/trajectory_collector.go	internal	modules	go-source	12942	turn 启动、执行、审批与 provider 调度	internal,module,turn,trajectory,collector,启动,执行,审批与,provider,调度
 internal/module/uistate/arch_guard_test.go	internal	modules	go-test	1145	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,arch,guard,test,UI,事件投影,sidebar,timeline,状态

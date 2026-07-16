@@ -314,7 +314,7 @@ func TestFinishTurn_ModelUnsupportedErrorCompletesHandleWithNotice(t *testing.T)
 	}
 }
 
-// TestTurnCompleted_EndToEnd_AbortedTurnIsUnsuccessful 覆盖中断终态：aborted 必须翻译为 Success=false。
+// TestTurnCompleted_EndToEnd_AbortedTurnIsUnsuccessful 覆盖 provider abort 不能伪装成宿主确认的用户取消。
 func TestTurnCompleted_EndToEnd_AbortedTurnIsUnsuccessful(t *testing.T) {
 	s := newAccumulatorTestSession()
 	terminal, _ := json.Marshal(map[string]any{
@@ -328,8 +328,8 @@ func TestTurnCompleted_EndToEnd_AbortedTurnIsUnsuccessful(t *testing.T) {
 	if completed.Success {
 		t.Fatalf("expected Success=false for an aborted turn")
 	}
-	if completed.Reason != "interrupted by user" {
-		t.Fatalf("TurnCompleted.Reason = %q, want the abort reason", completed.Reason)
+	if completed.Reason != "provider" {
+		t.Fatalf("TurnCompleted.Reason = %q, want provider cause", completed.Reason)
 	}
 }
 

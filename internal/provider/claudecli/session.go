@@ -280,10 +280,15 @@ func (s *session) Interrupt(ctx context.Context, req dto.InterruptRequest) error
 		return err
 	}
 	reason := strings.TrimSpace(req.Source)
+	targetTurnID := strings.TrimSpace(req.TurnID)
 	s.mu.Lock()
+	if s.interruptTargetChangedLocked(targetTurnID) {
+		s.mu.Unlock()
+		return contract.ErrInterruptTargetChanged
+	}
 	handle := s.takeActiveTurnLocked()
 	restartCancel := s.restartCancel
-	if handle == nil && restartCancel == nil {
+	if interruptWorkAbsent(handle, restartCancel) {
 		s.mu.Unlock()
 		return nil
 	}
@@ -325,6 +330,18 @@ func (s *session) Interrupt(ctx context.Context, req dto.InterruptRequest) error
 		"reason": reason,
 	}))
 	return nil
+}
+
+// interruptTargetChangedLocked 在持有 session 锁时比较调用方目标与当前 active turn。
+func (s *session) interruptTargetChangedLocked(targetTurnID string) bool {
+	if targetTurnID == "" {
+		return false
+	}
+	return currentTurnID(s.activeTurn) != targetTurnID
+}
+
+func interruptWorkAbsent(handle *turnHandle, restartCancel context.CancelFunc) bool {
+	return handle == nil && restartCancel == nil
 }
 
 func (s *session) resolveSettleTransport() func(*transport) error {

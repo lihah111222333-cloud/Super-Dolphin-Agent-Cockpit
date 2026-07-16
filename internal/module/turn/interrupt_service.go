@@ -3,7 +3,6 @@ package turn
 import (
 	"context"
 	"errors"
-	"strings"
 	"time"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
@@ -23,40 +22,35 @@ func (s *service) InterruptTurnForTarget(ctx context.Context, session contract.S
 	if err != nil {
 		return TurnStatus{}, false, err
 	}
-	active, tracked := s.tracker.ActiveByThread(threadID)
+	claim := s.tracker.ClaimInterruptTarget(threadID, expectedTurnID)
+	active := claim.target
 	span := s.beginTurnTraceSpan(ctx, "turn.interrupt", threadID, "", active.localID, platformobs.NewCodeAnchor("internal/module/turn/interrupt_service.go", "turn.(*service).InterruptTurn", 11), map[string]any{"source": source})
 	ctx = span.ctx
 	defer func() { s.finishTurnTraceSpan(span, err) }()
-	before := s.interruptBaseStatus(active, tracked)
-	if !tracked {
+	before := claim.before
+	if !claim.found {
 		return attachInterruptEnvelope(before, buildTurnInterruptEnvelope(before.State, before.State, false, false, 0, false)), false, nil
 	}
-	if expectedTurnID = strings.TrimSpace(expectedTurnID); expectedTurnID != "" && expectedTurnID != active.localID {
+	if !claim.claimed {
 		return before, false, nil
 	}
 	start := time.Now()
-	waited, err := interruptAndWait(ctx, session, s.tracker, active, threadID, source, nil)
+	waited, err := interruptAndWait(ctx, session, nil, active, threadID, source, nil)
+	if errors.Is(err, contract.ErrInterruptTargetChanged) {
+		releaseInterruptClaim(s.tracker, active.localID)
+		return before, false, nil
+	}
 	if err != nil {
+		releaseInterruptClaim(s.tracker, active.localID)
 		return TurnStatus{}, false, err
 	}
+	if !waited {
+		releaseInterruptClaim(s.tracker, active.localID)
+		return before, false, nil
+	}
+	confirmInterruptClaim(s.tracker, active.localID)
 	status, err = s.finishInterrupt(ctx, active, before, start, waited)
 	return status, true, err
-}
-
-// interruptBaseStatus 读取中断前的 tracker 状态。
-// 若 activeTurn 已存在但 tracker 快照缺失，则用 handle 生成最小 running 状态用于 envelope。
-func (s *service) interruptBaseStatus(active activeTurn, tracked bool) TurnStatus {
-	if !tracked {
-		return TurnStatus{}
-	}
-	if status, ok := s.tracker.Get(active.localID); ok {
-		return status
-	}
-	return TurnStatus{
-		LocalID:    active.localID,
-		ProviderID: interruptProviderID(TurnStatus{}, active.handle),
-		State:      string(StateRunning),
-	}
 }
 
 // finishInterrupt 在 provider 确认收到中断后等待本地 tracker 收敛，并构造响应 envelope。

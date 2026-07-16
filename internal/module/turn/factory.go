@@ -429,8 +429,8 @@ func interruptAndWait(
 	}); err != nil {
 		return false, err
 	}
-	if tracker == nil || !tracker.MarkInterruptRequested(active.localID) {
-		return false, nil
+	if tracker != nil && !tracker.MarkInterruptRequested(active.localID) {
+		return true, nil
 	}
 	if wait == nil {
 		return true, nil

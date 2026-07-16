@@ -2862,6 +2862,7 @@
         "internal/provider/claudecli.*session.handleReceiveExit",
         "internal/provider/claudecli.*session.handleSystemInitRaw",
         "internal/provider/claudecli.*session.installLogWatcherIfCurrent",
+        "internal/provider/claudecli.*session.interruptTargetChangedLocked",
         "internal/provider/claudecli.*session.isCurrentTransport",
         "internal/provider/claudecli.*session.keepaliveLogger",
         "internal/provider/claudecli.*session.logRestartLocked",
@@ -2984,7 +2985,6 @@
         "internal/provider/claudecli.claudeResolvedCursor",
         "internal/provider/claudecli.claudeResolvedMessagePage",
         "internal/provider/claudecli.claudeSessionEvent",
-        "internal/provider/claudecli.claudeTerminalOutcome",
         "internal/provider/claudecli.claudeTimestampProviderError",
         "internal/provider/claudecli.claudeTraceErrorSummary",
         "internal/provider/claudecli.claudeTraceID",
@@ -3057,6 +3057,7 @@
         "internal/provider/claudecli.imageBlockFromPath",
         "internal/provider/claudecli.imageBlockFromURL",
         "internal/provider/claudecli.imageHashTracker",
+        "internal/provider/claudecli.interruptWorkAbsent",
         "internal/provider/claudecli.invalidClaudeResolvedCursorError",
         "internal/provider/claudecli.isClaudeSystemNoiseText",
         "internal/provider/claudecli.isImageInputType",
@@ -3176,6 +3177,7 @@
         "internal/provider/claudecli.stripSystemNoise",
         "internal/provider/claudecli.sumLogInts",
         "internal/provider/claudecli.systemPromptDumpEnabled",
+        "internal/provider/claudecli.terminalReason",
         "internal/provider/claudecli.threadConfigPatchHasUnsupportedFields",
         "internal/provider/claudecli.threadConfigPatchNoop",
         "internal/provider/claudecli.threadReadyContextErr",
@@ -4360,10 +4362,12 @@
         "internal/provider/shared.PackagedRuntimeFromEnv",
         "internal/provider/shared.ProviderMirrorTargets",
         "internal/provider/shared.ProviderStartupGateError",
+        "internal/provider/shared.RawTerminalOutcome",
         "internal/provider/shared.RecordTrace",
         "internal/provider/shared.ResetToolResultScope",
         "internal/provider/shared.ResolveBinaryDir",
         "internal/provider/shared.ResolveCodexIdentity",
+        "internal/provider/shared.ResolveRawTerminalOutcome",
         "internal/provider/shared.RuntimeHooks",
         "internal/provider/shared.RuntimeHooksReady",
         "internal/provider/shared.SafeToolArgumentsPreview",
@@ -4425,7 +4429,9 @@
         "internal/provider/shared.providerProjectSkillsRoot",
         "internal/provider/shared.providerStartupGateBaseMessage",
         "internal/provider/shared.providerStartupGateDetails",
+        "internal/provider/shared.rawTerminalContractError",
         "internal/provider/shared.requiredConfigString",
+        "internal/provider/shared.resolveRawTerminalPair",
         "internal/provider/shared.sameProviderPath",
         "internal/provider/shared.sortedMCPConfigServerNames",
         "internal/provider/shared.splitEnv",
@@ -7446,6 +7452,7 @@
         "internal/provider/claudecli.*session.handleReceiveExit",
         "internal/provider/claudecli.*session.handleSystemInitRaw",
         "internal/provider/claudecli.*session.installLogWatcherIfCurrent",
+        "internal/provider/claudecli.*session.interruptTargetChangedLocked",
         "internal/provider/claudecli.*session.isCurrentTransport",
         "internal/provider/claudecli.*session.keepaliveLogger",
         "internal/provider/claudecli.*session.logRestartLocked",
@@ -7568,7 +7575,6 @@
         "internal/provider/claudecli.claudeResolvedCursor",
         "internal/provider/claudecli.claudeResolvedMessagePage",
         "internal/provider/claudecli.claudeSessionEvent",
-        "internal/provider/claudecli.claudeTerminalOutcome",
         "internal/provider/claudecli.claudeTimestampProviderError",
         "internal/provider/claudecli.claudeTraceErrorSummary",
         "internal/provider/claudecli.claudeTraceID",
@@ -7641,6 +7647,7 @@
         "internal/provider/claudecli.imageBlockFromPath",
         "internal/provider/claudecli.imageBlockFromURL",
         "internal/provider/claudecli.imageHashTracker",
+        "internal/provider/claudecli.interruptWorkAbsent",
         "internal/provider/claudecli.invalidClaudeResolvedCursorError",
         "internal/provider/claudecli.isClaudeSystemNoiseText",
         "internal/provider/claudecli.isImageInputType",
@@ -7760,6 +7767,7 @@
         "internal/provider/claudecli.stripSystemNoise",
         "internal/provider/claudecli.sumLogInts",
         "internal/provider/claudecli.systemPromptDumpEnabled",
+        "internal/provider/claudecli.terminalReason",
         "internal/provider/claudecli.threadConfigPatchHasUnsupportedFields",
         "internal/provider/claudecli.threadConfigPatchNoop",
         "internal/provider/claudecli.threadReadyContextErr",
@@ -8944,10 +8952,12 @@
         "internal/provider/shared.PackagedRuntimeFromEnv",
         "internal/provider/shared.ProviderMirrorTargets",
         "internal/provider/shared.ProviderStartupGateError",
+        "internal/provider/shared.RawTerminalOutcome",
         "internal/provider/shared.RecordTrace",
         "internal/provider/shared.ResetToolResultScope",
         "internal/provider/shared.ResolveBinaryDir",
         "internal/provider/shared.ResolveCodexIdentity",
+        "internal/provider/shared.ResolveRawTerminalOutcome",
         "internal/provider/shared.RuntimeHooks",
         "internal/provider/shared.RuntimeHooksReady",
         "internal/provider/shared.SafeToolArgumentsPreview",
@@ -9009,7 +9019,9 @@
         "internal/provider/shared.providerProjectSkillsRoot",
         "internal/provider/shared.providerStartupGateBaseMessage",
         "internal/provider/shared.providerStartupGateDetails",
+        "internal/provider/shared.rawTerminalContractError",
         "internal/provider/shared.requiredConfigString",
+        "internal/provider/shared.resolveRawTerminalPair",
         "internal/provider/shared.sameProviderPath",
         "internal/provider/shared.sortedMCPConfigServerNames",
         "internal/provider/shared.splitEnv",
@@ -12030,6 +12042,7 @@
         "internal/provider/claudecli.*session.handleReceiveExit",
         "internal/provider/claudecli.*session.handleSystemInitRaw",
         "internal/provider/claudecli.*session.installLogWatcherIfCurrent",
+        "internal/provider/claudecli.*session.interruptTargetChangedLocked",
         "internal/provider/claudecli.*session.isCurrentTransport",
         "internal/provider/claudecli.*session.keepaliveLogger",
         "internal/provider/claudecli.*session.logRestartLocked",
@@ -12152,7 +12165,6 @@
         "internal/provider/claudecli.claudeResolvedCursor",
         "internal/provider/claudecli.claudeResolvedMessagePage",
         "internal/provider/claudecli.claudeSessionEvent",
-        "internal/provider/claudecli.claudeTerminalOutcome",
         "internal/provider/claudecli.claudeTimestampProviderError",
         "internal/provider/claudecli.claudeTraceErrorSummary",
         "internal/provider/claudecli.claudeTraceID",
@@ -12225,6 +12237,7 @@
         "internal/provider/claudecli.imageBlockFromPath",
         "internal/provider/claudecli.imageBlockFromURL",
         "internal/provider/claudecli.imageHashTracker",
+        "internal/provider/claudecli.interruptWorkAbsent",
         "internal/provider/claudecli.invalidClaudeResolvedCursorError",
         "internal/provider/claudecli.isClaudeSystemNoiseText",
         "internal/provider/claudecli.isImageInputType",
@@ -12344,6 +12357,7 @@
         "internal/provider/claudecli.stripSystemNoise",
         "internal/provider/claudecli.sumLogInts",
         "internal/provider/claudecli.systemPromptDumpEnabled",
+        "internal/provider/claudecli.terminalReason",
         "internal/provider/claudecli.threadConfigPatchHasUnsupportedFields",
         "internal/provider/claudecli.threadConfigPatchNoop",
         "internal/provider/claudecli.threadReadyContextErr",
@@ -13528,10 +13542,12 @@
         "internal/provider/shared.PackagedRuntimeFromEnv",
         "internal/provider/shared.ProviderMirrorTargets",
         "internal/provider/shared.ProviderStartupGateError",
+        "internal/provider/shared.RawTerminalOutcome",
         "internal/provider/shared.RecordTrace",
         "internal/provider/shared.ResetToolResultScope",
         "internal/provider/shared.ResolveBinaryDir",
         "internal/provider/shared.ResolveCodexIdentity",
+        "internal/provider/shared.ResolveRawTerminalOutcome",
         "internal/provider/shared.RuntimeHooks",
         "internal/provider/shared.RuntimeHooksReady",
         "internal/provider/shared.SafeToolArgumentsPreview",
@@ -13593,7 +13609,9 @@
         "internal/provider/shared.providerProjectSkillsRoot",
         "internal/provider/shared.providerStartupGateBaseMessage",
         "internal/provider/shared.providerStartupGateDetails",
+        "internal/provider/shared.rawTerminalContractError",
         "internal/provider/shared.requiredConfigString",
+        "internal/provider/shared.resolveRawTerminalPair",
         "internal/provider/shared.sameProviderPath",
         "internal/provider/shared.sortedMCPConfigServerNames",
         "internal/provider/shared.splitEnv",
@@ -16617,6 +16635,7 @@
         "internal/provider/claudecli.*session.handleReceiveExit",
         "internal/provider/claudecli.*session.handleSystemInitRaw",
         "internal/provider/claudecli.*session.installLogWatcherIfCurrent",
+        "internal/provider/claudecli.*session.interruptTargetChangedLocked",
         "internal/provider/claudecli.*session.isCurrentTransport",
         "internal/provider/claudecli.*session.keepaliveLogger",
         "internal/provider/claudecli.*session.logRestartLocked",
@@ -16739,7 +16758,6 @@
         "internal/provider/claudecli.claudeResolvedCursor",
         "internal/provider/claudecli.claudeResolvedMessagePage",
         "internal/provider/claudecli.claudeSessionEvent",
-        "internal/provider/claudecli.claudeTerminalOutcome",
         "internal/provider/claudecli.claudeTimestampProviderError",
         "internal/provider/claudecli.claudeTraceErrorSummary",
         "internal/provider/claudecli.claudeTraceID",
@@ -16813,6 +16831,7 @@
         "internal/provider/claudecli.imageBlockFromPath",
         "internal/provider/claudecli.imageBlockFromURL",
         "internal/provider/claudecli.imageHashTracker",
+        "internal/provider/claudecli.interruptWorkAbsent",
         "internal/provider/claudecli.invalidClaudeResolvedCursorError",
         "internal/provider/claudecli.isClaudeSystemNoiseText",
         "internal/provider/claudecli.isImageInputType",
@@ -16932,6 +16951,7 @@
         "internal/provider/claudecli.stripSystemNoise",
         "internal/provider/claudecli.sumLogInts",
         "internal/provider/claudecli.systemPromptDumpEnabled",
+        "internal/provider/claudecli.terminalReason",
         "internal/provider/claudecli.terminateByPid",
         "internal/provider/claudecli.threadConfigPatchHasUnsupportedFields",
         "internal/provider/claudecli.threadConfigPatchNoop",
@@ -18120,10 +18140,12 @@
         "internal/provider/shared.PackagedRuntimeFromEnv",
         "internal/provider/shared.ProviderMirrorTargets",
         "internal/provider/shared.ProviderStartupGateError",
+        "internal/provider/shared.RawTerminalOutcome",
         "internal/provider/shared.RecordTrace",
         "internal/provider/shared.ResetToolResultScope",
         "internal/provider/shared.ResolveBinaryDir",
         "internal/provider/shared.ResolveCodexIdentity",
+        "internal/provider/shared.ResolveRawTerminalOutcome",
         "internal/provider/shared.RuntimeHooks",
         "internal/provider/shared.RuntimeHooksReady",
         "internal/provider/shared.SafeToolArgumentsPreview",
@@ -18185,7 +18207,9 @@
         "internal/provider/shared.providerProjectSkillsRoot",
         "internal/provider/shared.providerStartupGateBaseMessage",
         "internal/provider/shared.providerStartupGateDetails",
+        "internal/provider/shared.rawTerminalContractError",
         "internal/provider/shared.requiredConfigString",
+        "internal/provider/shared.resolveRawTerminalPair",
         "internal/provider/shared.sameProviderPath",
         "internal/provider/shared.sortedMCPConfigServerNames",
         "internal/provider/shared.splitEnv",
@@ -18361,13 +18385,13 @@
   ],
   "summary": {
     "total_packages": 41,
-    "total_functions": 2251,
-    "total_methods": 1145,
+    "total_functions": 2255,
+    "total_methods": 1146,
     "total_interfaces": 183,
     "total_interface_methods": 364,
-    "total_exported": 1252,
-    "total_unexported": 2923,
-    "total_structs": 596
+    "total_exported": 1254,
+    "total_unexported": 2927,
+    "total_structs": 597
   },
   "packages": [
     {
@@ -57087,21 +57111,6 @@
           ]
         },
         {
-          "name": "claudeTerminalOutcome",
-          "exported": false,
-          "params": [
-            {
-              "name": "data",
-              "type": "any"
-            }
-          ],
-          "returns": [
-            "bool",
-            "string",
-            "string"
-          ]
-        },
-        {
           "name": "claudeTimestampProviderError",
           "exported": false,
           "params": [
@@ -57984,6 +57993,23 @@
           "returns": [
             "map[string]any",
             "error"
+          ]
+        },
+        {
+          "name": "interruptWorkAbsent",
+          "exported": false,
+          "params": [
+            {
+              "name": "handle",
+              "type": "*turnHandle"
+            },
+            {
+              "name": "restartCancel",
+              "type": "context.CancelFunc"
+            }
+          ],
+          "returns": [
+            "bool"
           ]
         },
         {
@@ -59547,6 +59573,23 @@
           "exported": false,
           "returns": [
             "bool"
+          ]
+        },
+        {
+          "name": "terminalReason",
+          "exported": false,
+          "params": [
+            {
+              "name": "cause",
+              "type": "string"
+            },
+            {
+              "name": "rawReason",
+              "type": "string"
+            }
+          ],
+          "returns": [
+            "string"
           ]
         },
         {
@@ -61481,6 +61524,20 @@
             {
               "name": "watcher",
               "type": "*sessionLogWatcher"
+            }
+          ],
+          "returns": [
+            "bool"
+          ]
+        },
+        {
+          "receiver": "*session",
+          "name": "interruptTargetChangedLocked",
+          "exported": false,
+          "params": [
+            {
+              "name": "targetTurnID",
+              "type": "string"
             }
           ],
           "returns": [
@@ -78674,6 +78731,19 @@
           ]
         },
         {
+          "name": "ResolveRawTerminalOutcome",
+          "exported": true,
+          "params": [
+            {
+              "name": "data",
+              "type": "any"
+            }
+          ],
+          "returns": [
+            "RawTerminalOutcome"
+          ]
+        },
+        {
           "name": "SafeToolArgumentsPreviewString",
           "exported": true,
           "params": [
@@ -79442,6 +79512,19 @@
           ]
         },
         {
+          "name": "rawTerminalContractError",
+          "exported": false,
+          "params": [
+            {
+              "name": "message",
+              "type": "string"
+            }
+          ],
+          "returns": [
+            "RawTerminalOutcome"
+          ]
+        },
+        {
           "name": "requiredConfigString",
           "exported": false,
           "params": [
@@ -79461,6 +79544,23 @@
           "returns": [
             "string",
             "error"
+          ]
+        },
+        {
+          "name": "resolveRawTerminalPair",
+          "exported": false,
+          "params": [
+            {
+              "name": "success",
+              "type": "bool"
+            },
+            {
+              "name": "status",
+              "type": "string"
+            }
+          ],
+          "returns": [
+            "RawTerminalOutcome"
           ]
         },
         {
@@ -79616,6 +79716,10 @@
       "structs": [
         {
           "name": "ProviderStartupGateError",
+          "exported": true
+        },
+        {
+          "name": "RawTerminalOutcome",
           "exported": true
         },
         {

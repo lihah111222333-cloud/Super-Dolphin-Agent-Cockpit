@@ -534,8 +534,14 @@ func (s *session) Interrupt(ctx context.Context, req dto.InterruptRequest) error
 	if err != nil {
 		return err
 	}
+	requestedTurnID := strings.TrimSpace(req.TurnID)
 	s.mu.Lock()
-	turnID := shared.FirstNonEmpty(req.TurnID, s.activeTurnID)
+	activeTurnID := strings.TrimSpace(s.activeTurnID)
+	if requestedTurnID != "" && requestedTurnID != activeTurnID {
+		s.mu.Unlock()
+		return contract.ErrInterruptTargetChanged
+	}
+	turnID := shared.FirstNonEmpty(requestedTurnID, activeTurnID)
 	s.mu.Unlock()
 	if turnID == "" {
 		return errors.New("codexapp: active turn id is required for interrupt")
