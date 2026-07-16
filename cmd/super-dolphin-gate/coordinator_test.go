@@ -259,6 +259,7 @@ func TestCoordinatorTwoCLIProcessesShareOwnerAndFourthJobQueues(t *testing.T) {
 	if fourth.State != jobStateQueued || fourth.Terminal {
 		t.Fatalf("fourth status = %#v, want observable queued", fourth)
 	}
+	assertQueuePosition(t, fourth, 1)
 
 	for range 3 {
 		runner.release <- struct{}{}
@@ -292,6 +293,44 @@ func TestCoordinatorStatusAndWaitCLIEmitStructuredState(t *testing.T) {
 		if err := json.Unmarshal(output.Bytes(), &status); err != nil || status.JobID != "job-1" || !status.Terminal {
 			t.Fatalf("structured status=%#v error=%v output=%s", status, err, output.String())
 		}
+	}
+}
+
+func TestCoordinatorHookInvocationIsIdempotentAndSourceBound(t *testing.T) {
+	checkpoint := coordinatorTestCheckpoint(t)
+	runner := &blockingFreshRunner{
+		seen: make(map[string]bool), started: make(chan freshContainerRequest, 1), release: make(chan struct{}),
+	}
+	startTestCoordinatorOwner(t, checkpoint, runner)
+	client := dialTestCoordinator(t, checkpoint)
+	request := submitRequest{
+		RepositoryRoot: mustWorkingDirectory(t),
+		InvocationID:   "hook-" + strings.Repeat("1", 64),
+		Plan:           mustTestGatePlan(t, "7"),
+	}
+
+	first, err := client.Submit(context.Background(), request)
+	if err != nil {
+		t.Fatalf("first Submit() error = %v", err)
+	}
+	waitForStartedJobs(t, runner.started, 1)
+	second, err := client.Submit(context.Background(), request)
+	if err != nil {
+		t.Fatalf("idempotent Submit() error = %v", err)
+	}
+	if first.JobID != second.JobID || second.InvocationID != request.InvocationID {
+		t.Fatalf("idempotent submit first=%#v second=%#v", first, second)
+	}
+
+	changed := request
+	changed.Plan = mustTestGatePlan(t, "8")
+	if _, err := client.Submit(context.Background(), changed); !errors.Is(err, errCoordinatorState) {
+		t.Fatalf("changed-source Submit() error = %v, want coordinator state rejection", err)
+	}
+	close(runner.release)
+	terminal, err := client.Wait(context.Background(), first.JobID)
+	if err != nil || terminal.State != jobStatePassed {
+		t.Fatalf("Wait() status=%#v error=%v", terminal, err)
 	}
 }
 
@@ -488,6 +527,13 @@ func waitForStartedJobs(t *testing.T, started <-chan freshContainerRequest, coun
 		case <-time.After(5 * time.Second):
 			t.Fatal("timed out waiting for scheduled job")
 		}
+	}
+}
+
+func assertQueuePosition(t *testing.T, status jobStatus, want int) {
+	t.Helper()
+	if status.QueuePosition != want {
+		t.Fatalf("queue position = %d, want authoritative FIFO position %d", status.QueuePosition, want)
 	}
 }
 

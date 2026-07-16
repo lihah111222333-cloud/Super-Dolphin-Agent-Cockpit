@@ -46,6 +46,16 @@ func dispatchCLI(args []string, stdout io.Writer) error {
 	switch args[0] {
 	case "plan":
 		return runPlan(args[1:], stdout)
+	case "hook":
+		return runHook(args[1:], os.Stdin, stdout)
+	default:
+		return dispatchCoordinatorCLI(args, stdout)
+	}
+}
+
+// dispatchCoordinatorCLI 分派既有 coordinator 与 receipt 命令。
+func dispatchCoordinatorCLI(args []string, stdout io.Writer) error {
+	switch args[0] {
 	case "submit":
 		return runSubmit(args[1:], stdout)
 	case "run":

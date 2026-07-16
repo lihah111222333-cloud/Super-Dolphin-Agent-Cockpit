@@ -38,7 +38,7 @@ func NormalizePreCommit(ctx context.Context, cwd, hookInvocationID string) (Requ
 		gatecontract.CIEntrypointGitPreCommit,
 		repository.identity,
 		hookInvocationID,
-		"index",
+		fmt.Sprintf("index:%s:%s", treeSHA, parentSHA),
 	)
 	if err != nil {
 		return Request{}, err
@@ -120,7 +120,15 @@ func normalizePrePushLine(
 		gatecontract.CIEntrypointGitPrePush,
 		repository.identity,
 		hookInvocationID,
-		fmt.Sprintf("line:%d:%s:%s", lineNumber, update.localRef, update.remoteRef),
+		fmt.Sprintf(
+			"line:%d:%s:%s:%s:%s:%s",
+			lineNumber,
+			update.localRef,
+			update.localSHA,
+			update.remoteRef,
+			update.remoteSHA,
+			treeSHA,
+		),
 	)
 	if err != nil {
 		return Request{}, err

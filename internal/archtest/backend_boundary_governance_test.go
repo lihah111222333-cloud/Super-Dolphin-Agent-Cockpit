@@ -297,7 +297,7 @@ func assertSemanticRuleDescriptors(t *testing.T, registry archtest.BackendBounda
 			"cmd/agent-terminal/**/*.go":                 {"internal/app", "internal/platform/appupdaterecovery", "internal/platform/pidregistry", "internal/platform/rlimit", "internal/platform/runner", "internal/platform/runtimeenv"},
 			"cmd/codex-worktree-setup/**/*.go":           {"internal/platform/config", "internal/util/pathutil"},
 			"cmd/mcp-schema-compiler-helper/**/*.go":     {"internal/platform/toolbridge/schema"},
-			"cmd/super-dolphin-gate/**/*.go":             {"internal/devtools/gate", "internal/devtools/localci"},
+			"cmd/super-dolphin-gate/**/*.go":             {"internal/devtools/gate", "internal/devtools/gatehook", "internal/devtools/localci"},
 			"cmd/super-dolphin-release-manifest/**/*.go": {"internal/module/appupdate"},
 			"cmd/super-dolphin-guard/**/*.go":            {"internal/platform/appupdaterecovery", "internal/platform/pidregistry", "internal/platform/runtimeenv"},
 			"cmd/super-dolphin-updater/**/*.go":          {"internal/platform/appupdatefailure", "internal/platform/appupdaterecovery", "internal/platform/pidregistry", "internal/platform/runtimeenv", "internal/util/ctxutil", "internal/util/safego"},

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"time"
 
 	gatecontract "github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
@@ -47,12 +48,14 @@ func (state jobState) terminal() bool {
 type submitRequest struct {
 	RepositoryRoot string
 	Plan           gatecontract.GatePlan
+	InvocationID   string
 }
 
 type jobStatus struct {
 	InvocationID                 string                    `json:"invocation_id"`
 	JobID                        string                    `json:"job_id"`
 	EnqueueSequence              uint64                    `json:"enqueue_sequence"`
+	QueuePosition                int                       `json:"queue_position"`
 	State                        jobState                  `json:"state"`
 	Profile                      gatecontract.Profile      `json:"profile"`
 	JobSourceTreeSHA             string                    `json:"job_source_tree_sha"`
@@ -205,25 +208,101 @@ func (client *coordinatorTransportClient) Submit(ctx context.Context, request su
 	if client == nil || client.scheduler == nil || client.store == nil || ctx == nil {
 		return jobStatus{}, fmt.Errorf("%w: connected client and context are required", errCoordinatorDependency)
 	}
+	normalized, invocationID, jobID, err := normalizeSubmitRequest(request)
+	if err != nil {
+		return jobStatus{}, err
+	}
+	status, reused, err := client.reusedSubmitStatus(ctx, normalized, invocationID)
+	if err != nil || reused {
+		return status, err
+	}
+	return client.createAndEnqueueSubmit(ctx, normalized, invocationID, jobID)
+}
+
+// normalizeSubmitRequest 校验 plan、规范化 repository root 并分配提交身份。
+func normalizeSubmitRequest(request submitRequest) (submitRequest, string, string, error) {
 	if err := request.Plan.Validate(); err != nil {
-		return jobStatus{}, fmt.Errorf("validate submit plan: %w", err)
+		return submitRequest{}, "", "", fmt.Errorf("validate submit plan: %w", err)
 	}
 	root, err := canonicalAbsolutePath("repository root", request.RepositoryRoot)
 	if err != nil {
-		return jobStatus{}, err
+		return submitRequest{}, "", "", err
 	}
-	invocationID, jobID, err := newInvocationAndJobIDs()
+	invocationID, jobID, err := submitCoordinatorIDs(request.InvocationID)
 	if err != nil {
-		return jobStatus{}, err
+		return submitRequest{}, "", "", err
 	}
-	record, err := client.store.createJob(ctx, invocationID, jobID, root, request.Plan)
+	request.RepositoryRoot = root
+	return request, invocationID, jobID, nil
+}
+
+// reusedSubmitStatus 只复用与同一 repository 和 plan 完全一致的 hook invocation。
+func (client *coordinatorTransportClient) reusedSubmitStatus(
+	ctx context.Context,
+	request submitRequest,
+	invocationID string,
+) (jobStatus, bool, error) {
+	if request.InvocationID == "" {
+		return jobStatus{}, false, nil
+	}
+	existing, err := client.store.jobByInvocation(ctx, invocationID)
+	if errors.Is(err, errCoordinatorNotFound) {
+		return jobStatus{}, false, nil
+	}
 	if err != nil {
-		return jobStatus{}, err
+		return jobStatus{}, false, err
+	}
+	if err := validateReusedSubmit(existing, request); err != nil {
+		return jobStatus{}, false, err
+	}
+	status, err := client.Status(ctx, existing.JobID)
+	return status, true, err
+}
+
+// createAndEnqueueSubmit 持久化新 job 后将同一 workload 交给 owner scheduler。
+func (client *coordinatorTransportClient) createAndEnqueueSubmit(
+	ctx context.Context,
+	request submitRequest,
+	invocationID string,
+	jobID string,
+) (jobStatus, error) {
+	record, err := client.store.createJob(ctx, invocationID, jobID, request.RepositoryRoot, request.Plan)
+	if err != nil {
+		return client.recoverConcurrentSubmit(ctx, invocationID, request, err)
 	}
 	if err := client.enqueuePersistedJob(ctx, record); err != nil {
 		return jobStatus{}, err
 	}
 	return client.Status(ctx, jobID)
+}
+
+// recoverConcurrentSubmit 在唯一键竞争后只恢复已验证为同源的 invocation。
+func (client *coordinatorTransportClient) recoverConcurrentSubmit(
+	ctx context.Context,
+	invocationID string,
+	request submitRequest,
+	createErr error,
+) (jobStatus, error) {
+	if request.InvocationID == "" {
+		return jobStatus{}, createErr
+	}
+	existing, lookupErr := client.store.jobByInvocation(ctx, invocationID)
+	if lookupErr != nil {
+		return jobStatus{}, errors.Join(createErr, lookupErr)
+	}
+	if err := validateReusedSubmit(existing, request); err != nil {
+		return jobStatus{}, errors.Join(createErr, err)
+	}
+	return client.Status(ctx, existing.JobID)
+}
+
+func validateReusedSubmit(record coordinatorJobRecord, request submitRequest) error {
+	if record.InvocationID != request.InvocationID || record.RepositoryRoot != request.RepositoryRoot ||
+		!reflect.DeepEqual(record.Plan, request.Plan) {
+		return fmt.Errorf("%w: invocation %q was already bound to different repository or plan input",
+			errCoordinatorState, request.InvocationID)
+	}
+	return nil
 }
 
 func (client *coordinatorTransportClient) enqueuePersistedJob(ctx context.Context, record coordinatorJobRecord) error {
@@ -243,8 +322,52 @@ func (client *coordinatorTransportClient) Status(ctx context.Context, jobID stri
 	if client == nil || client.scheduler == nil || client.store == nil || ctx == nil {
 		return jobStatus{}, fmt.Errorf("%w: connected client and context are required", errCoordinatorDependency)
 	}
+	return client.readStatusWithRetry(ctx, func() (coordinatorJobRecord, error) {
+		return client.store.job(ctx, jobID)
+	})
+}
+
+// StatusInvocation 按 hook invocation 与活动 worktree 查询同一个 durable job。
+func (client *coordinatorTransportClient) StatusInvocation(
+	ctx context.Context,
+	invocationID string,
+	repositoryRoot string,
+) (jobStatus, error) {
+	if client == nil || client.scheduler == nil || client.store == nil || ctx == nil {
+		return jobStatus{}, fmt.Errorf("%w: connected client and context are required", errCoordinatorDependency)
+	}
+	root, err := canonicalAbsolutePath("repository root", repositoryRoot)
+	if err != nil {
+		return jobStatus{}, err
+	}
+	if err := validateHookInvocationID(invocationID); err != nil {
+		return jobStatus{}, err
+	}
+	return client.readStatusWithRetry(ctx, func() (coordinatorJobRecord, error) {
+		record, lookupErr := client.store.jobByInvocation(ctx, invocationID)
+		if lookupErr != nil {
+			return coordinatorJobRecord{}, lookupErr
+		}
+		if record.RepositoryRoot != root {
+			return coordinatorJobRecord{}, fmt.Errorf(
+				"%w: invocation repository does not match active worktree", errCoordinatorState,
+			)
+		}
+		return record, nil
+	})
+}
+
+// readStatusWithRetry 收敛 store 与 scheduler 之间的短暂状态过渡。
+func (client *coordinatorTransportClient) readStatusWithRetry(
+	ctx context.Context,
+	load func() (coordinatorJobRecord, error),
+) (jobStatus, error) {
 	for attempt := range 10 {
-		status, err := client.readCoordinatorStatus(ctx, jobID)
+		record, err := load()
+		if err != nil {
+			return jobStatus{}, err
+		}
+		status, err := client.readCoordinatorStatus(ctx, record)
 		if err == nil || attempt == 9 {
 			return status, err
 		}
@@ -267,19 +390,50 @@ func waitCoordinatorStatusRetry(ctx context.Context) error {
 	}
 }
 
-func (client *coordinatorTransportClient) readCoordinatorStatus(ctx context.Context, jobID string) (jobStatus, error) {
-	record, err := client.store.job(ctx, jobID)
+// readCoordinatorStatus 从同一 scheduler 快照计算状态与真实 FIFO 位置。
+func (client *coordinatorTransportClient) readCoordinatorStatus(
+	ctx context.Context,
+	record coordinatorJobRecord,
+) (jobStatus, error) {
+	snapshot, err := client.scheduler.Snapshot(ctx)
+	if err != nil {
+		return jobStatus{}, fmt.Errorf("read scheduler snapshot for %q: %w", record.JobID, err)
+	}
+	schedulerState, queuePosition, err := schedulerJobObservation(snapshot, record.JobID)
 	if err != nil {
 		return jobStatus{}, err
-	}
-	schedulerState, err := client.scheduler.State(ctx, jobID)
-	if err != nil {
-		return jobStatus{}, fmt.Errorf("read scheduler state for %q: %w", jobID, err)
 	}
 	if err := reconcileCoordinatorState(record.State, schedulerState); err != nil {
 		return jobStatus{}, err
 	}
-	return record.status(), nil
+	status := record.status()
+	if record.State == jobStateQueued {
+		if queuePosition <= 0 {
+			return jobStatus{}, fmt.Errorf(
+				"%w: queued job %q has no positive scheduler queue position", errCoordinatorState, record.JobID,
+			)
+		}
+		status.QueuePosition = queuePosition
+	}
+	return status, nil
+}
+
+// schedulerJobObservation 在权威排序快照中定位 workload 及其 1-based queued 位置。
+func schedulerJobObservation(snapshot localci.SchedulerSnapshot, jobID string) (localci.WorkloadStatus, int, error) {
+	queuePosition := 0
+	for _, workload := range snapshot.Workloads {
+		if workload.Status == localci.WorkloadStatusQueued {
+			queuePosition++
+		}
+		if workload.Request.ID != jobID {
+			continue
+		}
+		if workload.Status == localci.WorkloadStatusQueued {
+			return workload.Status, queuePosition, nil
+		}
+		return workload.Status, 0, nil
+	}
+	return "", 0, fmt.Errorf("%w: scheduler workload %q is missing", errCoordinatorState, jobID)
 }
 
 // Wait 轮询 owner transport，只有 durable 结构化终态才返回。
@@ -316,6 +470,31 @@ func newInvocationAndJobIDs() (string, string, error) {
 	return invocationID, jobID, err
 }
 
+func submitCoordinatorIDs(invocationID string) (string, string, error) {
+	if invocationID == "" {
+		return newInvocationAndJobIDs()
+	}
+	if err := validateHookInvocationID(invocationID); err != nil {
+		return "", "", err
+	}
+	jobID, err := newCoordinatorID("job")
+	return invocationID, jobID, err
+}
+
+// validateHookInvocationID 拒绝非 canonical SHA-256 hook invocation。
+func validateHookInvocationID(invocationID string) error {
+	const prefix = "hook-"
+	if len(invocationID) != len(prefix)+64 || !strings.HasPrefix(invocationID, prefix) {
+		return errors.New("hook invocation id must be hook- followed by a SHA-256 digest")
+	}
+	for _, character := range invocationID[len(prefix):] {
+		if character < '0' || character > '9' && (character < 'a' || character > 'f') {
+			return errors.New("hook invocation id digest must be lowercase hexadecimal")
+		}
+	}
+	return nil
+}
+
 func newCoordinatorID(prefix string) (string, error) {
 	var value [16]byte
 	if _, err := rand.Read(value[:]); err != nil {
@@ -331,7 +510,14 @@ func canonicalAbsolutePath(name, value string) (string, error) {
 	return value, nil
 }
 
+// reconcileCoordinatorState 拒绝 durable store 与 scheduler 的状态漂移。
 func reconcileCoordinatorState(state jobState, schedulerState localci.WorkloadStatus) error {
+	if state == jobStateQueued && schedulerState != localci.WorkloadStatusQueued {
+		return fmt.Errorf("%w: durable queued job and scheduler %q disagree", errCoordinatorState, schedulerState)
+	}
+	if state == jobStateStarted && schedulerState != localci.WorkloadStatusStarted {
+		return fmt.Errorf("%w: durable started job and scheduler %q disagree", errCoordinatorState, schedulerState)
+	}
 	schedulerTerminal := schedulerState == localci.WorkloadStatusPassed ||
 		schedulerState == localci.WorkloadStatusFailed || schedulerState == localci.WorkloadStatusInfraFailed
 	if state.terminal() != schedulerTerminal {

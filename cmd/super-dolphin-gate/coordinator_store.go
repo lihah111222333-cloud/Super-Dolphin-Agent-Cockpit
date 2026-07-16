@@ -131,6 +131,16 @@ started_at, completed_at, gate_results_json, error_text FROM coordinator_jobs WH
 	return scanCoordinatorJob(row, jobID)
 }
 
+func (store *coordinatorStore) jobByInvocation(
+	ctx context.Context,
+	invocationID string,
+) (coordinatorJobRecord, error) {
+	row := store.db.QueryRowContext(ctx, `SELECT invocation_id, job_id, enqueue_sequence, repository_root,
+plan_json, profile, job_source_tree_sha, image_provenance_source_tree_sha, state, submitted_at,
+started_at, completed_at, gate_results_json, error_text FROM coordinator_jobs WHERE invocation_id = ?`, invocationID)
+	return scanCoordinatorJob(row, invocationID)
+}
+
 func (store *coordinatorStore) startJob(ctx context.Context, jobID string) error {
 	result, err := store.db.ExecContext(ctx, `UPDATE coordinator_jobs SET state = ?, started_at = ?
 WHERE job_id = ? AND state = ?`, jobStateStarted, time.Now().UTC().Format(time.RFC3339Nano), jobID, jobStateQueued)

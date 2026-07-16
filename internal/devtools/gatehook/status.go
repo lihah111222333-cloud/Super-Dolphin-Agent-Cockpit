@@ -108,10 +108,11 @@ func WaitRequestForStatus(repository RepositoryIdentity, invocation InvocationId
 
 func blockDecision(status JobStatus, state JobState, detail string) CodexDecision {
 	reason := fmt.Sprintf(
-		"gate status=%s job=%s queue_position=%d; wait: super-dolphin-gate wait --job %s",
+		"gate status=%s job=%s queue_position=%d; status: super-dolphin-gate status --job %s; wait: super-dolphin-gate wait --job %s",
 		state,
 		status.JobID,
 		status.QueuePosition,
+		status.JobID,
 		status.JobID,
 	)
 	if strings.TrimSpace(detail) != "" {
