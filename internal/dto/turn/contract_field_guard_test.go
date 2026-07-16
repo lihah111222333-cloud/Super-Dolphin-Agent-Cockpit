@@ -101,6 +101,12 @@ func TestTurnContractFieldGuardFailsFirst(t *testing.T) {
 		}
 		assertGuardFailure(t, validateConsumerRegistry(root, registry, map[string]string{path: mutated}), "missing call ValidateTurnTerminalV2")
 	})
+	t.Run("unregistered production validator consumer", func(t *testing.T) {
+		path := "internal/dto/turn/terminal.go"
+		source := readRepositorySource(t, root, path)
+		mutated := source + "\nfunc unregisteredTurnRefConsumer(value TurnRefV1) error { return ValidateTurnRefV1(value) }\n"
+		assertGuardFailure(t, validateConsumerRegistry(root, registry, map[string]string{path: mutated}), "TurnRefV1 Go production consumers")
+	})
 	t.Run("stale Go JSON field", func(t *testing.T) {
 		path := "internal/dto/turn/terminal.go"
 		source := readRepositorySource(t, root, path)
@@ -151,6 +157,13 @@ func validateConsumerRegistry(root string, registry consumerRegistry, overrides 
 		if _, ok := producers[name]; !ok {
 			return fmt.Errorf("consumer registry has stale schema %s", name)
 		}
+	}
+	return validateRegistryChains(root, registry, overrides)
+}
+
+func validateRegistryChains(root string, registry consumerRegistry, overrides map[string]string) error {
+	if err := validateExactGoConsumerCoverage(root, registry.Schemas, overrides); err != nil {
+		return err
 	}
 	if err := validateGoChains(root, registry.GoChains, overrides); err != nil {
 		return err

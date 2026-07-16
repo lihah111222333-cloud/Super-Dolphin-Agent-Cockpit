@@ -36,6 +36,15 @@ describe('turn contract production field guard', () => {
     })).toThrow('missing call validateTurnTerminalV2');
   });
 
+  it('fails when production adds an unregistered validator consumer', () => {
+    const source = read(runtimePath);
+    const mutated = `${source}\nexport function unregisteredTerminalConsumer(payload) { return validateTurnTerminalV2(payload); }\n`;
+    expect(() => validateTurnContractFieldGuard({
+      repoRoot,
+      sourceOverrides: new Map([[runtimePath, mutated]]),
+    })).toThrow('TurnTerminalV2 JS production consumers');
+  });
+
   it('fails when a registry locator becomes stale', () => {
     const source = read(registryPath);
     const mutated = source.replace('"symbol": "parseRuntimeTurnTerminal"', '"symbol": "missingRuntimeTurnTerminal"');

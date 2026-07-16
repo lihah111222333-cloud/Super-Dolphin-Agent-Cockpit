@@ -10,6 +10,7 @@ import { generatedSchemas } from '../src/shared/contracts/turnContracts.generate
 const appRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const defaultRepoRoot = path.resolve(appRoot, '..');
 const registryRelativePath = 'internal/dto/turn/schema/field_consumers.json';
+const validatorRelativePath = 'frontend-app/src/shared/contracts/turnContractValidators.js';
 
 export function validateTurnContractFieldGuard({ repoRoot = defaultRepoRoot, sourceOverrides = new Map() } = {}) {
   const schemas = canonicalSchemas(repoRoot, sourceOverrides);
@@ -20,8 +21,12 @@ export function validateTurnContractFieldGuard({ repoRoot = defaultRepoRoot, sou
   const registeredSchemas = Object.keys(registry.schemas).sort();
   const schemaNames = [...schemas.keys()].sort();
   assertExactSet('consumer registry schemas', schemaNames, registeredSchemas);
+  const discoveredConsumers = discoverJSValidatorConsumers(repoRoot, sourceOverrides, registry.schemas);
   for (const [schemaName, schema] of schemas) {
-    validateSchemaRegistryEntry(repoRoot, sourceOverrides, schemaName, registry.schemas[schemaName]);
+    const entry = registry.schemas[schemaName];
+    validateSchemaRegistryEntry(repoRoot, sourceOverrides, schemaName, entry);
+    const registeredConsumers = entry.jsConsumers.map((consumer) => consumerKey(consumer)).sort();
+    assertExactSet(`${schemaName} JS production consumers`, discoveredConsumers.get(schemaName) ?? [], registeredConsumers);
     if (stableJSON(schema) !== stableJSON(generatedSchemas[schemaName])) {
       throw new Error(`generated JS schema drift: ${schemaName}`);
     }
@@ -37,6 +42,75 @@ export function validateTurnContractFieldGuard({ repoRoot = defaultRepoRoot, sou
     validateMapperSource(source, mapper);
   }
   return { schemaCount: schemas.size, mapperCount: registry.jsMappers.length };
+}
+
+function discoverJSValidatorConsumers(repoRoot, sourceOverrides, schemaEntries) {
+  const targetSchemas = new Map(Object.entries(schemaEntries).map(([schemaName, entry]) => [entry.jsValidator.symbol, schemaName]));
+  const discovered = new Map([...targetSchemas.values()].map((schemaName) => [schemaName, []]));
+  const sourceRoot = path.join(repoRoot, 'frontend-app/src');
+  for (const absolutePath of productionJavaScriptFiles(sourceRoot)) {
+    const relativePath = path.relative(repoRoot, absolutePath).split(path.sep).join('/');
+    const ast = parseModule(readRepositorySource(repoRoot, relativePath, sourceOverrides), relativePath);
+    const bindings = validatorBindings(ast, relativePath, targetSchemas);
+    if (bindings.size === 0) continue;
+    for (const fn of topLevelFunctions(ast)) {
+      walkFunctionBody(fn, (node) => {
+        if (node.type !== 'CallExpression' || node.callee?.type !== 'Identifier') return;
+        const target = bindings.get(node.callee.name);
+        if (!target) return;
+        discovered.get(target.schemaName).push(consumerKey({ path: relativePath, symbol: fn.id.name, calls: target.symbol }));
+      });
+    }
+  }
+  for (const [schemaName, consumers] of discovered) discovered.set(schemaName, [...new Set(consumers)].sort());
+  return discovered;
+}
+
+function productionJavaScriptFiles(root) {
+  const files = [];
+  for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
+    const absolutePath = path.join(root, entry.name);
+    if (entry.isDirectory()) {
+      files.push(...productionJavaScriptFiles(absolutePath));
+      continue;
+    }
+    if (!/\.(?:js|jsx)$/.test(entry.name) || /\.(?:test|spec)\.(?:js|jsx)$/.test(entry.name)) continue;
+    files.push(absolutePath);
+  }
+  return files;
+}
+
+function validatorBindings(ast, relativePath, targetSchemas) {
+  const bindings = new Map();
+  if (relativePath === validatorRelativePath) {
+    for (const [symbol, schemaName] of targetSchemas) bindings.set(symbol, { schemaName, symbol });
+  }
+  for (const statement of ast.program.body) {
+    if (statement.type !== 'ImportDeclaration' || typeof statement.source?.value !== 'string') continue;
+    let sourcePath = path.posix.normalize(path.posix.join(path.posix.dirname(relativePath), statement.source.value));
+    if (!path.posix.extname(sourcePath)) sourcePath += '.js';
+    if (sourcePath !== validatorRelativePath) continue;
+    for (const specifier of statement.specifiers) {
+      if (specifier.type !== 'ImportSpecifier') continue;
+      const imported = specifier.imported.type === 'Identifier' ? specifier.imported.name : specifier.imported.value;
+      const schemaName = targetSchemas.get(imported);
+      if (schemaName) bindings.set(specifier.local.name, { schemaName, symbol: imported });
+    }
+  }
+  return bindings;
+}
+
+function topLevelFunctions(ast) {
+  const functions = [];
+  for (const statement of ast.program.body) {
+    const declaration = statement.type === 'ExportNamedDeclaration' ? statement.declaration : statement;
+    if (declaration?.type === 'FunctionDeclaration' && declaration.id?.name) functions.push(declaration);
+  }
+  return functions;
+}
+
+function consumerKey(consumer) {
+  return `${consumer.path}:${consumer.symbol}:${consumer.calls}`;
 }
 
 export function validateMapperSource(source, mapper) {

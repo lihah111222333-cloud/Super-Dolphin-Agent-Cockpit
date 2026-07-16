@@ -388,7 +388,8 @@ internal/dto/thread/event.go	internal	other	go-source	4374	provider/shared DTO �
 internal/dto/thread/prompt_history_test.go	internal	other	go-test	807	provider/shared DTO 与事件协议	internal,dto,thread,prompt,history,test,provider,shared,DTO,与事件协议
 internal/dto/thread/prompt_history.go	internal	other	go-source	603	provider/shared DTO 与事件协议	internal,dto,thread,prompt,history,provider,shared,DTO,与事件协议
 internal/dto/tool/event.go	internal	other	go-source	2987	provider/shared DTO 与事件协议	internal,dto,tool,event,provider,shared,DTO,与事件协议
-internal/dto/turn/contract_field_guard_test.go	internal	other	go-test	21900	provider/shared DTO 与事件协议	internal,dto,turn,contract,field,guard,test,provider,shared,DTO,与事件协议
+internal/dto/turn/contract_field_guard_discovery_test.go	internal	other	go-test	4225	provider/shared DTO 与事件协议	internal,dto,turn,contract,field,guard,discovery,test,provider,shared,DTO,与事件协议
+internal/dto/turn/contract_field_guard_test.go	internal	other	go-test	22599	provider/shared DTO 与事件协议	internal,dto,turn,contract,field,guard,test,provider,shared,DTO,与事件协议
 internal/dto/turn/contract_generate.go	internal	other	go-source	159	provider/shared DTO 与事件协议	internal,dto,turn,contract,generate,provider,shared,DTO,与事件协议
 internal/dto/turn/contract_validator_test.go	internal	other	go-test	3194	provider/shared DTO 与事件协议	internal,dto,turn,contract,validator,test,provider,shared,DTO,与事件协议
 internal/dto/turn/contract_validator.go	internal	other	go-source	8705	provider/shared DTO 与事件协议	internal,dto,turn,contract,validator,provider,shared,DTO,与事件协议
