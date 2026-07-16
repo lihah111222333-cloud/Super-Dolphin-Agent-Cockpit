@@ -281,14 +281,14 @@ The dependency is approved for Task 4 only after those tests are observed RED an
 
 ## 8. Remaining Review Blocker
 
-The seven design domains above are frozen for review. The current exact review object remains uncommitted, so no external reviewer result can yet bind immutable path/line/bytes/SHA.
+The seven design domains above are frozen and committed for review. The remaining blocker is external: two fresh reviewer lanes must bind the same immutable path/line/bytes/SHA and return `0 P0 / 0 P1`.
 
 Required final Task 0 sequence:
 
-1. Commit only the Task 0 plan/evidence and D0 changes with Chinese commit title.
-2. Record immutable commit SHA and `origin/main` base in both evidence files.
-3. Run two independent fresh reviewer lanes over that exact SHA using D01-D19; each reports coverage, findings and residual risk.
-4. Apply findings, create a new immutable SHA, and repeat both lanes until `0 P0 / 0 P1` on the same final object.
-5. Only then set `implementation_design_complete=true` and `p0_executable=true`.
+1. At reviewer invocation, resolve `git rev-parse HEAD` and pass that exact SHA plus `origin/main@b40867229af8e17916c00393639ccb0fcb4bf6fc` to both reviewer lanes.
+2. Run two independent fresh reviewer lanes over that exact SHA using D01-D19; each output records the reviewed SHA, coverage, findings and residual risk.
+3. Do not modify the reviewed commit merely to embed its own SHA; that would create a different, unreviewed object.
+4. Apply substantive findings, create a new immutable SHA, and repeat both lanes until `0 P0 / 0 P1` on the same final object.
+5. Only then set `implementation_design_complete=true` and `p0_executable=true` through the plan's external review closure rule.
 
 Current verdict: `REVIEW_BLOCKED`; Task 1 and Task 4 remain closed.

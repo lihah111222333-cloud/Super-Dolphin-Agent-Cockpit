@@ -18,7 +18,7 @@ VERDICT: `BLOCKED_PLAN_REVISION`
 
 BLOCKERS:
 
-- The design freeze is not committed to an immutable SHA and has not received two fresh reviewer lanes with `0 P0 / 0 P1`.
+- The committed design freeze has not received two fresh reviewer lanes with `0 P0 / 0 P1` on the same externally supplied immutable SHA.
 
 OWNED_FILES_CHANGED:
 
@@ -174,7 +174,7 @@ Current owners:
 - `cmd/agent-terminal/main.go`, `internal/app/app.go`, `internal/platform/runtimeenv`: pre-Fx and desktop preflight order.
 - `scripts/package_macos.sh`, Linux/Windows package scripts, release guards, `cmd/super-dolphin-release-manifest`: package and release generation.
 
-Exact landing paths for `ComponentRegistry`, release inventory/graph/digest/attribution, package trust/keyring, transaction state, Recovery graph, Guard worker, provider executable identity, and compatibility evidence are frozen in `01-task0-design-freeze.md`; they remain pending immutable-SHA review.
+Exact landing paths for `ComponentRegistry`, release inventory/graph/digest/attribution, package trust/keyring, transaction state, Recovery graph, Guard worker, provider executable identity, and compatibility evidence are frozen in `01-task0-design-freeze.md`; they remain pending fresh dual review on one externally supplied immutable SHA.
 
 ### P0-B MCP schema, authority, quarantine
 
@@ -187,7 +187,7 @@ Current owners:
 - `internal/module/thread/start_session_helpers.go`: runtime MCP config rendering.
 - `internal/app/runtimeadapter/toolbridge/adapter.go`: app-side adapter boundary.
 
-Exact owners and landing files for raw per-tool envelopes, compiled schema, quarantine diagnostics, manifest authority snapshot, durable refresh journal, aggregate workspace snapshot, single-use admission grant, RPC principal, and provider readiness/status are frozen in `01-task0-design-freeze.md`; they remain pending immutable-SHA review.
+Exact owners and landing files for raw per-tool envelopes, compiled schema, quarantine diagnostics, manifest authority snapshot, durable refresh journal, aggregate workspace snapshot, single-use admission grant, RPC principal, and provider readiness/status are frozen in `01-task0-design-freeze.md`; they remain pending fresh dual review on one externally supplied immutable SHA.
 
 ## Field Chain Starter Ledger
 
@@ -232,11 +232,11 @@ No exemptions are approved. These rows preserve current-production discovery fac
 5. `MCP_AUTHORITY_FROZEN_PENDING_REVIEW`: authority snapshot, refresh journal/SQLC, aggregate snapshot, exact admission, authenticated RPC proof/principal/token and tests are frozen.
 6. `FIELD_GUARD_FROZEN_PENDING_REVIEW`: every §4.3 producer has an independent `FIELD_CHAIN_ID`, package-local dynamic guard owner and canonical command.
 7. `SCHEMA_COMPILER_FROZEN_PENDING_REVIEW`: exact module/tag/sums/license, loader policy, Draft, budgets, cancellation rule and pre-dependency fail-first gate are frozen.
-8. `REVIEW_BLOCKED`: the current object is uncommitted and has not received two fresh reviewer lanes with `0 P0 / 0 P1` on one immutable SHA.
+8. `REVIEW_BLOCKED`: the committed object has not received two fresh reviewer lanes with `0 P0 / 0 P1` on the same SHA resolved by the review controller at invocation time.
 
 ## Current Decision
 
-Task 0-D0 is complete and Task 0-Design is `DESIGN_FROZEN_PENDING_REVIEW`. Task 0 as a whole is not complete because immutable-SHA publication and the fresh dual review are still absent.
+Task 0-D0 is complete and Task 0-Design is `DESIGN_FROZEN_PENDING_REVIEW`. Task 0 as a whole is not complete because the fresh dual review is still absent.
 
 `implementation_design_complete=false`
 
@@ -244,6 +244,8 @@ Task 0-D0 is complete and Task 0-Design is `DESIGN_FROZEN_PENDING_REVIEW`. Task 
 
 Production Task 1 and Task 4 must not start while any blocker above remains.
 
-COMMIT_SHA: `NONE`
+INITIAL_DESIGN_FREEZE_COMMIT: `785dd9e6b4e480b4b89d7f750c4ebd02a6612a93`
+
+REVIEW_OBJECT_SHA: `RESOLVE_EXTERNALLY_WITH_GIT_REV_PARSE_HEAD`
 
 REMOTE_SHA: `NONE`
