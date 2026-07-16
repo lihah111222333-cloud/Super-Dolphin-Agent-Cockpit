@@ -35,28 +35,60 @@ run_go_without_git_env() (
   "$@"
 )
 
-FMT_OUT=$(mktemp -t pre-commit-fmt.XXXXXX)
-GO_LIST_ERR=$(mktemp -t pre-commit-golist.XXXXXX)
+HOOK_TMPDIR="${TMPDIR:-/tmp}"
+if [ ! -d "$HOOK_TMPDIR" ] || [ ! -w "$HOOK_TMPDIR" ]; then
+	echo "❌ pre-commit TMPDIR must be an existing writable directory: $HOOK_TMPDIR" >&2
+	exit 1
+fi
+FMT_OUT=$(mktemp "$HOOK_TMPDIR/pre-commit-fmt.XXXXXX")
+GO_LIST_ERR=$(mktemp "$HOOK_TMPDIR/pre-commit-golist.XXXXXX")
 CODEMAP_TMP=
 CACHE_INDEX=
 CACHE_INDEX_DIR=
 GATE_WORKTREE=
 cleanup() {
-  rm -f "$FMT_OUT" "$GO_LIST_ERR"
-  if [ -n "${CODEMAP_TMP:-}" ]; then
-    rm -rf "$CODEMAP_TMP"
-  fi
-  if [ -n "${CACHE_INDEX_DIR:-}" ]; then
-    rm -rf "$CACHE_INDEX_DIR"
-  fi
-  if [ -n "${GATE_WORKTREE:-}" ]; then
-    run_go_without_git_env git worktree remove --force "$GATE_WORKTREE" >/dev/null 2>&1 || rm -rf "$GATE_WORKTREE"
-  fi
+	local original_status="${1:-0}"
+	local cleanup_status=0
+	if ! rm -f "$FMT_OUT" "$GO_LIST_ERR"; then
+		echo "❌ pre-commit cleanup failed: formatter temporary files" >&2
+		cleanup_status=1
+	fi
+	if [ -n "${CODEMAP_TMP:-}" ]; then
+		if ! rm -rf "$CODEMAP_TMP"; then
+			echo "❌ pre-commit cleanup failed: codemap temp $CODEMAP_TMP" >&2
+			cleanup_status=1
+		fi
+	fi
+	if [ -n "${CACHE_INDEX_DIR:-}" ]; then
+		if ! rm -rf "$CACHE_INDEX_DIR"; then
+			echo "❌ pre-commit cleanup failed: index temp $CACHE_INDEX_DIR" >&2
+			cleanup_status=1
+		fi
+	fi
+	if [ -n "${GATE_WORKTREE:-}" ]; then
+		if ! run_go_without_git_env git worktree remove --force "$GATE_WORKTREE"; then
+			echo "❌ pre-commit cleanup failed: git worktree remove $GATE_WORKTREE" >&2
+			cleanup_status=1
+		fi
+		if [ -e "$GATE_WORKTREE" ] || run_go_without_git_env git worktree list --porcelain | grep -Fqx "worktree $GATE_WORKTREE"; then
+			echo "❌ pre-commit cleanup verification failed: staged worktree remains $GATE_WORKTREE" >&2
+			cleanup_status=1
+		fi
+	fi
+	if [ "$original_status" -ne 0 ]; then
+		return "$original_status"
+	fi
+	return "$cleanup_status"
 }
-trap 'cleanup' EXIT
-trap 'cleanup; exit 130' INT
-trap 'cleanup; exit 143' TERM
-trap 'cleanup; exit 129' HUP
+finish_cleanup() {
+	local status="$1"
+	trap - EXIT INT TERM HUP
+	cleanup "$status"
+}
+trap 'status=$?; finish_cleanup "$status"; exit $?' EXIT
+trap 'finish_cleanup 130; exit $?' INT
+trap 'finish_cleanup 143; exit $?' TERM
+trap 'finish_cleanup 129; exit $?' HUP
 
 STAGED_CHANGED_FILES=()
 CAPCONTRACT_MANIFEST=docs/doc/codemap/capability-contract/capability_manifest.json
@@ -104,7 +136,7 @@ refresh_codemap_generated_files() {
   echo "[pre-commit] codemap refresh..."
   ensure_codemap_generated_paths_clean
 
-  CODEMAP_TMP=$(mktemp -d -t pre-commit-codemap.XXXXXX)
+  CODEMAP_TMP=$(mktemp -d "$HOOK_TMPDIR/pre-commit-codemap.XXXXXX")
   git -c core.autocrlf=false checkout-index -a --prefix="$CODEMAP_TMP/"
   for path in "${STAGED_CHANGED_FILES[@]}"; do
     plan_args+=(--changed-file "$path")
@@ -290,7 +322,7 @@ create_staged_gate_worktree() {
     fi
   fi
 
-  GATE_WORKTREE=$(mktemp -d -t pre-commit-worktree.XXXXXX)
+  GATE_WORKTREE=$(mktemp -d "$HOOK_TMPDIR/pre-commit-worktree.XXXXXX")
   rmdir "$GATE_WORKTREE"
   if ! run_go_without_git_env git worktree add --quiet --detach --no-checkout "$GATE_WORKTREE" "$base_commit"; then
     echo "❌ 无法创建 staged gate 临时 worktree" >&2
@@ -327,7 +359,7 @@ create_staged_gate_worktree() {
 
 create_immutable_cache_index() {
   local cache_scope=$1
-  CACHE_INDEX_DIR=$(mktemp -d -t pre-commit-index.XXXXXX)
+  CACHE_INDEX_DIR=$(mktemp -d "$HOOK_TMPDIR/pre-commit-index.XXXXXX")
   CACHE_INDEX="$CACHE_INDEX_DIR/index"
   case "$CACHE_INDEX_DIR" in
     /*) ;;

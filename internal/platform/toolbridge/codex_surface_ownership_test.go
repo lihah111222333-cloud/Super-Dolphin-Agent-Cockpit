@@ -6,7 +6,9 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
 	mcpdto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/mcp"
@@ -54,7 +56,22 @@ func TestPrepareMCPSurfaceBinariesJoinsPrimaryAndEveryCloseError(t *testing.T) {
 	closeErrs := []error{errors.New("close one failed"), errors.New("close two failed"), errors.New("close three failed")}
 	clients := ownershipClients(closeErrs)
 	clients[1].listErr = primaryErr
-	results, err := prepareMCPSurfaceBinaries(context.Background(), ownershipClientFactory(clients, nil), ownershipBinaries(len(clients)))
+	started := make(chan struct{})
+	var startedCount atomic.Int32
+	baseFactory := ownershipClientFactory(clients, nil)
+	factory := func(ctx context.Context, binary providerdto.MCPBinary) (mcpClient, error) {
+		client, err := baseFactory(ctx, binary)
+		if startedCount.Add(1) == int32(len(clients)) {
+			close(started)
+		}
+		select {
+		case <-started:
+			return client, err
+		case <-ctx.Done():
+			return client, ctx.Err()
+		}
+	}
+	results, err := prepareMCPSurfaceBinaries(context.Background(), factory, ownershipBinaries(len(clients)))
 	if results != nil || !errors.Is(err, primaryErr) {
 		t.Fatalf("prepare result = %#v, error = %v, want list failure", results, err)
 	}
@@ -79,6 +96,37 @@ func TestPrepareMCPSurfaceBinariesClosesClientReturnedWithFactoryError(t *testin
 	}
 	if client.closeCall != 1 {
 		t.Fatalf("client close count = %d, want 1", client.closeCall)
+	}
+}
+
+func TestPrepareMCPSurfaceBinariesRejectsOverLimitBeforeFactory(t *testing.T) {
+	var calls atomic.Int32
+	results, err := prepareMCPSurfaceBinaries(context.Background(), func(context.Context, providerdto.MCPBinary) (mcpClient, error) {
+		calls.Add(1)
+		return &ownershipMCPClient{}, nil
+	}, ownershipBinaries(maxMCPSurfaceBinaries+1))
+	if err == nil || results != nil || calls.Load() != 0 {
+		t.Fatalf("over-limit result=%v error=%v factory calls=%d, want fail before factory", results, err, calls.Load())
+	}
+}
+
+func TestPrepareMCPSurfaceBinariesBoundsActiveFactories(t *testing.T) {
+	var active atomic.Int32
+	var peak atomic.Int32
+	factory := func(context.Context, providerdto.MCPBinary) (mcpClient, error) {
+		current := active.Add(1)
+		for previous := peak.Load(); current > previous && !peak.CompareAndSwap(previous, current); previous = peak.Load() {
+		}
+		time.Sleep(20 * time.Millisecond)
+		active.Add(-1)
+		return &ownershipMCPClient{}, nil
+	}
+	results, err := prepareMCPSurfaceBinaries(context.Background(), factory, ownershipBinaries(12))
+	if err != nil || len(results) != 12 {
+		t.Fatalf("bounded prepare result=%d error=%v", len(results), err)
+	}
+	if got := peak.Load(); got < 2 || got > maxConcurrentMCPInitializers {
+		t.Fatalf("peak active factories=%d, want 2..%d", got, maxConcurrentMCPInitializers)
 	}
 }
 

@@ -321,6 +321,7 @@ type MCPToolAuthority struct {
 	ConfigDigest     string
 	MembershipDigest string
 	Generation       uint64
+	ConfigRevision   uint64
 	Managed          bool
 }
 
@@ -336,6 +337,7 @@ type MCPToolQuarantineCommit struct {
 type MCPToolAuthorityOwner interface {
 	IssueMCPToolAuthority(context.Context, MCPToolAuthorityIssueRequest) (MCPToolAuthority, error)
 	CheckMCPToolAuthority(context.Context, MCPToolAuthority) error
+	WithMCPToolAuthority(context.Context, MCPToolAuthority, func() error) error
 	CompareAndSwapMCPToolQuarantines(
 		context.Context,
 		[]MCPToolQuarantineCommit,

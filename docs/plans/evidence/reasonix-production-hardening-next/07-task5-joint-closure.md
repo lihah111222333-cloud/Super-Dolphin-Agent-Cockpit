@@ -9,6 +9,14 @@
 > wall clock 选择；package trust 未完整拒绝 symlink/alias tree。修复与替代证据统一登记在
 > `08-final-review-release-fixes.md`，以下历史命令只说明当时测试通过，不证明这些缺口不存在。
 
+> **MCP / integration 最终总审更正（2026-07-17）**：本文件的 MCP closure、Recovery
+> 字段守卫和 staged hook 无泄漏结论又被 7 个已接受 finding 推翻。旧实现未把 schema
+> helper 纳入三平台 package identity；生产 helper 路径仍受 `ProjectRoot` 影响；authority
+> 未与配置 revision 共事务；MCP binary 初始化无数量/并发上限；Windows Job 在进程启动后
+> 才绑定；Recovery 仅锁定 projection；hook cleanup 失败和临时目录泄漏未被测试锁定。
+> 最终实现与替代证据统一登记在 `09-final-review-mcp-integration-fixes.md`。下列相关 PASS
+> 主张均为历史结果，不再证明最终性质。
+
 ## 1. Review object 与结论边界
 
 - exact integration base / 审查 HEAD：`af51558b4a625764afa1dbd5f92191ef6ce01ddb`。
@@ -58,9 +66,9 @@ state 与 package trust generation 保持单 owner。
 | D12 Testing | Applied | focused、race、Guard process、independent artifact、scripts/archtest 与 staged hook 均纳入门禁。 |
 | D13 Release/Install | Applied | manifest/package/publish guards、backup/rollback、artifact reopen、六目标 capability 与 frontend embed 均验证。 |
 | D14 Performance | Applied | probation poll/timeout 有界；supervisor/Guard race PASS；无未回收测试进程。 |
-| D15 UX/Product | Applied | recovery UI 投影和终端 consumer 由动态字段 guard 锁定；不宣称人工视觉 QA。 |
+| D15 UX/Product | Superseded | 旧 guard 只锁定 projection/terminal，遗漏顶层 state 与 actions；09 改为三层真实 producer 与前端 exact-field fail-fast。 |
 | D16 Git/Workflow | Applied | exact integration HEAD、clean 起点、staged snapshot hook、generated refresh/check、最终 clean/leak 检查。 |
-| D17 字段守卫 | Applied | journal producer 由 reflection 递归枚举；projection producer/mapper/terminal 由 AST/reflection 动态验证并含 mutation RED。 |
+| D17 字段守卫 | Superseded | 旧 Recovery guard 未覆盖 `recoverySurfaceState` 与 `recoveryActionAvailability`；09 补齐 state/actions/projection 三层 producer、consumer 与 mutation RED。 |
 | D18 DRY | Applied | transaction、trust、recovery owner 各自唯一；命令层不复制 backup/rollback 控制流。 |
 | D19 SSOT | Superseded | 旧终态选择仍依赖 wall clock；08 增加每 target 单调 generation，并以 durable journal 为选择 SSOT。 |
 
@@ -75,14 +83,14 @@ E2E。该限制是计划边界，不伪装为已完成的跨平台现场验证�
 | trusted external mixed good/bad 只隔离坏项 | PASS | raw identity 后逐 tool canonicalize/compile；schema 类错误只写坏项 quarantine，good tool 保持 catalog/proxy/call surface。 |
 | managed fail-fast | PASS | managed schema 任一失败撤销旧 surface 并使整代失败；managed provenance 只能由 `BuildManifest` 直接构造。 |
 | compiled digest 在 catalog/provider/proxy/call 一致 | PASS | canonical schema SHA-256 是唯一 digest；surface entry、dynamic schema、validator 与 call fence 使用同一 canonical bytes/digest。 |
-| stale authority / 丢 `TrustedServerID` 零 surface 零 client call | PASS | issue/CAS/call 均检查 generation、membership/config digest 与 current config；compile 前后、publish 前、validate 前、client call 前均有 fence。 |
-| compiler 预算/取消无泄漏 | PASS | one-shot helper 有全局并发 2、250ms capacity wait、2s deadline、1s reap；kill/wait 后释放 slot，reap 失败永久占用 slot并 fail-closed。 |
+| stale authority / 丢 `TrustedServerID` 零 surface 零 client call | SUPERSEDED | 旧 generation/config 重查不与配置写入共事务，仍有 stale publish/call TOCTOU；09 用配置 revision lease 关闭窗口。 |
+| compiler 预算/取消无泄漏 | SUPERSEDED | 旧预算只覆盖 helper process，不覆盖 MCP binary 数量和 factory/ListTools 初始化并发；09 增加 32 hard cap 与 factory 前 4-slot semaphore。 |
 | 严格限 Codex toolbridge | PASS | landing path 为 v3 Codex toolbridge；未扩展 Claude readiness、通用 provider admission、常驻 worker/cache。 |
 
 Task 4 authority/current-CAS 与 thread/turn 配置链在 integration 上没有冲突：
 `MCPServerConfig.TrustedServerID -> mcpServerConfigBinary -> dto.MCPBinary` 在 start、
-resume、turn manifest 与 provider shared copy 中保留；external authority 同时要求 exact
-server name、trusted ID 与 HTTP/stdio config parity。旧 generation 在 publish/call 前失效。
+resume、turn manifest 与 provider shared copy 中保留；但旧 authority generation 未绑定配置
+owner 的单调 revision，不能证明在 publish/call 前失效。09 的 revision lease 取代该主张。
 
 ## 5. MCP lane D01-D19 coverage
 
@@ -97,20 +105,21 @@ server name、trusted ID 与 HTTP/stdio config parity。旧 generation 在 publi
 | D07 Store/sqlc | N/A | 无 schema/sqlc 变更；quarantine 按冻结决策为 process-local，restart 零 surface 后重新编译。 |
 | D08 Skill/Memory/Prompt/Thread | Applied | thread start/resume 与 turn assembly 的 TrustedServerID producer chain 动态守卫通过。 |
 | D09 Frontend | N/A | MCP lane 没有前端 surface 变更；repo 级 frontend gates 仍独立通过。 |
-| D10 Security | Applied | managed constructor provenance、external exact config/ID、absolute helper path、generation/digest fence 与 no PATH fallback。 |
+| D10 Security | Superseded | 旧 absolute path 仍从可控 `ProjectRoot` 推导且 verify 后按路径执行；09 改为 `os.Executable` canonical package layout、manifest identity 与 verified snapshot execution。 |
 | D11 Observability | Applied | 稳定 schema error code 与 server/tool/generation 上下文保留；不输出 secret config。 |
-| D12 Testing | Applied | mixed/managed/stale/repair/parity/budget/cancel/concurrency/race/六目标 build 与 staged hook 全部 PASS。 |
-| D13 Release/Install | Applied | helper artifact 以 `<ProjectRoot>/bin` exact absolute path 使用；六目标受影响包 cross-build PASS。 |
-| D14 Performance | Applied | 输入输出/deadline/capacity/concurrency/reap 均有上限；取消与 stale-success 测试、race PASS。 |
+| D12 Testing | Superseded | 旧测试未覆盖配置写入与 publish/call 的可控并发、package helper 混装/篡改、factory 峰值、Windows suspended bind 和 hook cleanup failure；09 补齐。 |
+| D13 Release/Install | Superseded | `<ProjectRoot>/bin` 不是生产 package trust root，且 helper 未进入三平台 package/publish/verify；09 以 package-owned helper+manifest 取代。 |
+| D14 Performance | Superseded | 旧上限只约束 schema helper；09 另对 MCP binary 配置数量与 factory/ListTools 初始化并发施加硬预算。 |
 | D15 UX/Product | N/A | 未改变 UI；坏 external tool 不进入可见 surface，managed 失败撤销整代。 |
-| D16 Git/Workflow | Applied | integration exact HEAD、generated checks、normal staged hook 与最终 leak/clean 检查。 |
+| D16 Git/Workflow | Superseded | 旧 staged-hook 测试未控制 `TMPDIR`，也未证明 cleanup failure 会使 hook 失败；09 增加确定性泄漏与失败注入测试。 |
 | D17 字段守卫 | Applied | TrustedServerID、authority/quarantine/canonical schema producer 均由 reflection/AST 动态枚举，mutation 报 chain/producer/field。 |
 | D18 DRY | Applied | Task 4A canonicalizer/helper 是唯一 compiler；无 in-process fallback、resident worker 或 cache。 |
 | D19 SSOT | Applied | mcp_server owner 产生 generation/current authority；canonical SHA-256 是 schema identity；thread/turn 仅传递 owner 配置。 |
 
 MCP lane 残余风险：quarantine history 按冻结决策不跨进程持久化；restart 时 owner
-与 surface 同时清空，必须重新 fetch/identity/compile/CAS 后才能发布。Linux/Windows
-只证明 cross-build；原生 kill/reap 行为仍属于后续平台发布验证，不宣称现场 E2E。
+与 surface 同时清空，必须重新 fetch/identity/compile/CAS 后才能发布。09 已加入 Windows
+suspended process -> Job -> resume 顺序，但 Linux/Windows 仍只证明 cross-build/guard，
+不宣称原生 kill/reap 现场 E2E。
 
 ## 6. 命令、门禁与结果
 
@@ -133,7 +142,7 @@ MCP lane 残余风险：quarantine history 按冻结决策不跨进程持久化�
 | `make codemap-check project-map-check capcontract-check` | 0 | 三项 generated check 全部 PASS。 |
 | `git diff --check` | 0 | pre-commit 前 PASS；staged hook 的 `git diff --cached --check` 也 PASS。 |
 | `.githooks/pre-commit`（正常 staged snapshot） | 0 | 自动刷新/暂存 project-map，AI maintenance command gates 与 whitespace gate PASS；未使用 `--no-verify`。hook 提示未注入 LSP evidence file，本次 LSP controller 证据由第 7 节的全量人工链独立提供。 |
-| 测试进程/临时 worktree/stash 泄漏检查 | 0 | 无 `go test`/Vitest/hook 临时进程，stash 为空，pre-commit 临时 worktree 已清理；6 个 Task 0-4 既有 `.worktrees` 保留，非 Task 5 泄漏且未擅自删除。 |
+| 测试进程/临时 worktree/stash 泄漏检查 | SUPERSEDED | 旧测试未使用受控 `TMPDIR`，现场遗留过 `pre-commit-worktree`、codemap/index 临时目录；09 在测试证明 cleanup 后按 exact path 清理并复核。 |
 
 `frontend-app/node_modules` 的 vite、package.json 与 package-lock 时间戳均新鲜，故本次
 无需重复 `npm ci`；Makefile 和 pre-commit staged worktree 也只复用 exact matching 且
@@ -177,5 +186,6 @@ patch_edit(format) -> file(diagnostics)`：
 - 明确 follow-up，不伪装完成：Task 0 延后的 Claude readiness、provider-wide
   executable hardening、通用 RPC/admission、SBOM provenance/component graph、跨平台
   原生 install/kill/reap E2E，以及计划要求的三条 fresh final review。
-- 本轮没有新增/修改生产结构化字段；复核的 Release/MCP 字段链继续使用真实 producer
-  的 reflection/AST 动态 guard，没有建立全仓手写字段清单。
+- 本段“没有新增/修改生产结构化字段”只描述旧 Task 5。09 为 authority 增加
+  `ConfigRevision`，并按字段守卫要求锁定 Recovery state/actions/projection 三层真实
+  producer；不得沿用本文件的旧字段覆盖结论。

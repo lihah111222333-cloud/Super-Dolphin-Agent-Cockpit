@@ -107,6 +107,15 @@ func (o *task4BAuthorityOwner) CheckMCPToolAuthority(_ context.Context, token co
 	return nil
 }
 
+func (o *task4BAuthorityOwner) WithMCPToolAuthority(_ context.Context, token contract.MCPToolAuthority, call func() error) error {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	if current, ok := o.current[token.ServerID]; !ok || current != token {
+		return errors.New("test authority stale before call")
+	}
+	return call()
+}
+
 func (o *task4BAuthorityOwner) CompareAndSwapMCPToolQuarantines(
 	_ context.Context,
 	commits []contract.MCPToolQuarantineCommit,

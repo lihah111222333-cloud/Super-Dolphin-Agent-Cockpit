@@ -21,6 +21,8 @@ import (
 
 const peerReadyTimeout = 10 * time.Second
 const peerPollInterval = 300 * time.Millisecond
+const maxMCPSurfaceBinaries = 32
+const maxConcurrentMCPInitializers = 4
 
 // mcpClient 是 toolbridge 对 stdio/http MCP client 的统一最小接口。
 type mcpClient interface {
@@ -194,10 +196,14 @@ func prepareMCPSurfaceBinaries(
 	if len(binaries) == 0 {
 		return nil, nil
 	}
+	if len(binaries) > maxMCPSurfaceBinaries {
+		return nil, fmt.Errorf("toolbridge: MCP binary count %d exceeds hard limit %d", len(binaries), maxMCPSurfaceBinaries)
+	}
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
 	results := make([]mcpSurfaceBinaryResult, len(binaries))
+	initializers := make(chan struct{}, maxConcurrentMCPInitializers)
 	var wg sync.WaitGroup
 	var errMu sync.Mutex
 	var firstErr error
@@ -217,25 +223,11 @@ func prepareMCPSurfaceBinaries(
 		wg.Add(1)
 		safego.Go(ctx, nil, "toolbridge.prepareMCPSurfaceBinary", func(workerCtx context.Context) {
 			defer wg.Done()
-			result := mcpSurfaceBinaryResult{binary: binary}
-			client, err := factory(workerCtx, binary)
-			result.client = client
+			result, err := prepareMCPSurfaceBinary(workerCtx, factory, initializers, binary)
 			results[i] = result
 			if err != nil {
 				recordErr(wrapMCPSurfaceBinaryError(binary, err))
-				return
 			}
-			if client == nil {
-				recordErr(wrapMCPSurfaceBinaryError(binary, errMCPSurfaceClientNotConfigured))
-				return
-			}
-			tools, err := client.ListTools(workerCtx)
-			if err != nil {
-				recordErr(wrapMCPSurfaceBinaryError(binary, err))
-				return
-			}
-			result.tools = tools
-			results[i] = result
 		})
 	}
 	wg.Wait()
@@ -243,6 +235,31 @@ func prepareMCPSurfaceBinaries(
 		return nil, joinMCPSurfaceErrors(firstErr, closeMCPClients(results))
 	}
 	return results, nil
+}
+
+func prepareMCPSurfaceBinary(
+	ctx context.Context,
+	factory func(context.Context, providerdto.MCPBinary) (mcpClient, error),
+	initializers chan struct{},
+	binary providerdto.MCPBinary,
+) (mcpSurfaceBinaryResult, error) {
+	result := mcpSurfaceBinaryResult{binary: binary}
+	select {
+	case initializers <- struct{}{}:
+		defer func() { <-initializers }()
+	case <-ctx.Done():
+		return result, ctx.Err()
+	}
+	client, err := factory(ctx, binary)
+	result.client = client
+	if err != nil {
+		return result, err
+	}
+	if client == nil {
+		return result, errMCPSurfaceClientNotConfigured
+	}
+	result.tools, err = client.ListTools(ctx)
+	return result, err
 }
 
 // closeMCPClients 关闭已创建的全部 MCP client，并聚合每个关闭错误。
@@ -496,6 +513,7 @@ func (h *Handler) callCodexSurfaceTool(ctx context.Context, surface *codexToolSu
 	return result, err
 }
 
+// executeCodexSurfaceEntry 在 authority revision lease 内执行外部 MCP 调用。
 func (h *Handler) executeCodexSurfaceEntry(
 	ctx context.Context,
 	surface *codexToolSurface,
@@ -511,7 +529,16 @@ func (h *Handler) executeCodexSurfaceEntry(
 	if err := h.ensureCodexSurfaceEntryCurrent(ctx, entry); err != nil {
 		return nil, err
 	}
-	return entry.client.CallTool(ctx, entry.realName, req.Arguments, req)
+	if entry.authority == nil || h.authorityOwner == nil {
+		return nil, fmt.Errorf("toolbridge: MCP authority lease is required")
+	}
+	var result *ToolCallResult
+	err := h.authorityOwner.WithMCPToolAuthority(ctx, entry.authority.token, func() error {
+		var callErr error
+		result, callErr = entry.client.CallTool(ctx, entry.realName, req.Arguments, req)
+		return callErr
+	})
+	return result, err
 }
 
 // denyHiddenCodexSurfaceMCPToolCall 为已隐藏的 MCP 工具保留直连拒绝安全边界。

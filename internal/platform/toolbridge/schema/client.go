@@ -35,13 +35,17 @@ var globalHelperLimiter = newHelperLimiter(maxLiveHelpers)
 
 // ClientConfig 指定与桌面产物同版本的本地 helper 路径。
 type ClientConfig struct {
-	HelperPath string
+	HelperPath   string
+	ManifestPath string
+	Identity     HelperIdentity
 }
 
 // Client 每次 Execute 都启动一个新 helper 进程。
 type Client struct {
-	helperPath string
-	command    func(string) *exec.Cmd
+	helperImage      []byte
+	helperGOOS       string
+	operationTimeout time.Duration
+	command          func(string) *exec.Cmd
 }
 
 // NewClient 创建 one-shot schema helper client。
@@ -52,8 +56,18 @@ func NewClient(config ClientConfig) (*Client, error) {
 	if !filepath.IsAbs(config.HelperPath) || filepath.Clean(config.HelperPath) != config.HelperPath {
 		return nil, newDiagnostic(CodeProcessStartFailed, "helper path must be absolute and clean", nil)
 	}
+	if strings.TrimSpace(config.ManifestPath) == "" || !filepath.IsAbs(config.ManifestPath) ||
+		filepath.Clean(config.ManifestPath) != config.ManifestPath {
+		return nil, newDiagnostic(CodeProcessStartFailed, "helper manifest path must be absolute and clean", nil)
+	}
+	image, err := verifyHelperPackage(config.HelperPath, config.ManifestPath, config.Identity)
+	if err != nil {
+		return nil, newDiagnostic(CodeProcessStartFailed, "verify package-owned schema helper", err)
+	}
 	return &Client{
-		helperPath: config.HelperPath,
+		helperImage:      image,
+		helperGOOS:       config.Identity.GOOS,
+		operationTimeout: operationDeadline,
 		command: func(path string) *exec.Cmd {
 			return exec.Command(path)
 		},
@@ -68,7 +82,7 @@ func (client *Client) Execute(ctx context.Context, invocation Invocation, fence 
 	if fence == nil {
 		return Result{}, newDiagnostic(CodeGenerationStale, "authority fence hook is required", nil)
 	}
-	operationCtx, cancel := context.WithTimeout(ctx, operationDeadline)
+	operationCtx, cancel := context.WithTimeout(ctx, client.operationTimeout)
 	defer cancel()
 	request, err := newProtocolRequest(invocation)
 	if err != nil {
@@ -98,7 +112,7 @@ func (client *Client) executeProcess(
 	request protocolRequest,
 	identity FenceIdentity,
 	fence FenceHook,
-) (Result, error) {
+) (result Result, resultErr error) {
 	encodedRequest, err := json.Marshal(request)
 	if err != nil {
 		return Result{}, newDiagnostic(CodeInvalidEnvelope, "marshal helper request", err)
@@ -109,7 +123,17 @@ func (client *Client) executeProcess(
 	if err := operationContextError(parentCtx, operationCtx); err != nil {
 		return Result{}, err
 	}
-	cmd := client.command(client.helperPath)
+	snapshotPath, cleanupSnapshot, err := writeExecutableSnapshot(client.helperImage, client.helperGOOS)
+	if err != nil {
+		return Result{}, newDiagnostic(CodeProcessStartFailed, "materialize verified schema helper snapshot", err)
+	}
+	defer func() {
+		if err := cleanupSnapshot(); err != nil {
+			result = Result{}
+			resultErr = newDiagnostic(CodeProcessExited, "remove verified schema helper snapshot", errors.Join(resultErr, err))
+		}
+	}()
+	cmd := client.command(snapshotPath)
 	if cmd == nil {
 		return Result{}, newDiagnostic(CodeProcessStartFailed, "helper command is nil", nil)
 	}
@@ -119,7 +143,9 @@ func (client *Client) executeProcess(
 	stderr := &boundedBuffer{limit: maxStderrBytes}
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
-	configureProcess(cmd)
+	if err := configureProcess(cmd); err != nil {
+		return Result{}, newDiagnostic(CodeProcessStartFailed, "configure schema helper process", err)
+	}
 	if err := cmd.Start(); err != nil {
 		return Result{}, newDiagnostic(CodeProcessStartFailed, "start schema helper", err)
 	}

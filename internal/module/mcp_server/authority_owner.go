@@ -23,14 +23,15 @@ type mcpToolAuthorityState struct {
 }
 
 type mcpToolAuthorityOwner struct {
-	svc     Service
+	svc     *service
 	mu      sync.Mutex
 	current map[string]mcpToolAuthorityState
 }
 
 // AsMCPToolAuthorityOwner 创建由 config owner 持有的 generation/quarantine 状态端口。
 func AsMCPToolAuthorityOwner(svc Service) contract.MCPToolAuthorityOwner {
-	return &mcpToolAuthorityOwner{svc: svc, current: make(map[string]mcpToolAuthorityState)}
+	owner, _ := svc.(*service)
+	return &mcpToolAuthorityOwner{svc: owner, current: make(map[string]mcpToolAuthorityState)}
 }
 
 // IssueMCPToolAuthority 复核当前 config 后签发新的单调 generation。
@@ -44,6 +45,8 @@ func (o *mcpToolAuthorityOwner) IssueMCPToolAuthority(
 	if strings.TrimSpace(req.CWD) == "" || strings.TrimSpace(req.MembershipDigest) == "" {
 		return contract.MCPToolAuthority{}, errors.New("mcp_server: authority cwd and membership digest are required")
 	}
+	o.svc.configMu.Lock()
+	defer o.svc.configMu.Unlock()
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	token, err := o.resolveMCPToolAuthority(ctx, req.CWD, req.Binary)
@@ -65,9 +68,33 @@ func (o *mcpToolAuthorityOwner) CheckMCPToolAuthority(
 	if o == nil || o.svc == nil {
 		return errors.New("mcp_server: authority owner is not configured")
 	}
+	o.svc.configMu.Lock()
+	defer o.svc.configMu.Unlock()
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	return o.checkMCPToolAuthorityLocked(ctx, token)
+}
+
+// WithMCPToolAuthority 在受保护副作用完成前持续持有配置 revision lease。
+func (o *mcpToolAuthorityOwner) WithMCPToolAuthority(
+	ctx context.Context,
+	token contract.MCPToolAuthority,
+	call func() error,
+) error {
+	if o == nil || o.svc == nil {
+		return errors.New("mcp_server: authority owner is not configured")
+	}
+	if call == nil {
+		return errors.New("mcp_server: authority call callback is required")
+	}
+	o.svc.configMu.Lock()
+	defer o.svc.configMu.Unlock()
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	if err := o.checkMCPToolAuthorityLocked(ctx, token); err != nil {
+		return err
+	}
+	return call()
 }
 
 // CompareAndSwapMCPToolQuarantines 在同一 current-CAS 内提交全部 quarantine 与 surface publish。
@@ -79,6 +106,11 @@ func (o *mcpToolAuthorityOwner) CompareAndSwapMCPToolQuarantines(
 	if publish == nil {
 		return errors.New("mcp_server: authority publish callback is required")
 	}
+	if o == nil || o.svc == nil {
+		return errors.New("mcp_server: authority owner is not configured")
+	}
+	o.svc.configMu.Lock()
+	defer o.svc.configMu.Unlock()
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	for _, commit := range commits {
@@ -109,6 +141,9 @@ func (o *mcpToolAuthorityOwner) checkMCPToolAuthorityLocked(
 	}
 	if token.Managed {
 		return nil
+	}
+	if token.ConfigRevision != o.svc.configRevision {
+		return errors.New("mcp_server: MCP tool authority config revision is stale")
 	}
 	result, err := o.svc.ListServersForCWD(ctx, token.CWD)
 	if err != nil {
@@ -190,9 +225,10 @@ func (o *mcpToolAuthorityOwner) resolveExternalMCPToolAuthority(
 	}
 	digest, err := digestMCPToolAuthority(config)
 	return contract.MCPToolAuthority{
-		CWD:          filepath.Clean(cwd),
-		ServerID:     binary.Name,
-		ConfigDigest: digest,
+		CWD:            filepath.Clean(cwd),
+		ServerID:       binary.Name,
+		ConfigDigest:   digest,
+		ConfigRevision: o.svc.configRevision,
 	}, err
 }
 

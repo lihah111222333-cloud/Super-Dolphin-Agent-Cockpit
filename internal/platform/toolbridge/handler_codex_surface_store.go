@@ -9,10 +9,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"path/filepath"
 	"runtime"
 	"sort"
 	"strings"
+	"sync"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
 	mcpdto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/mcp"
@@ -294,16 +296,82 @@ type admittedMCPTool struct {
 	authority *mcpSchemaAuthority
 }
 
-func newMCPSchemaExecutor(cfgProjectRoot string) (mcpSchemaExecutor, error) {
+type lazyMCPSchemaExecutor struct {
+	config schema.ClientConfig
+	once   sync.Once
+	client *schema.Client
+	err    error
+}
+
+// Execute 延迟绑定当前应用 identity，并只执行已校验后固定的 helper 镜像。
+func (executor *lazyMCPSchemaExecutor) Execute(ctx context.Context, invocation schema.Invocation, fence schema.FenceHook) (schema.Result, error) {
+	executor.once.Do(func() {
+		executor.config.Identity, executor.err = runningSchemaHelperIdentity()
+		if executor.err != nil {
+			return
+		}
+		executor.client, executor.err = schema.NewClient(executor.config)
+	})
+	if executor.err != nil {
+		return schema.Result{}, executor.err
+	}
+	return executor.client.Execute(ctx, invocation, fence)
+}
+
+func newMCPSchemaExecutor(cfgProjectRoot string, profile contract.DependencyProfile) (mcpSchemaExecutor, error) {
+	helperDir, err := schemaHelperDirectory(cfgProjectRoot, profile)
+	if err != nil {
+		return nil, err
+	}
+	helperName := schema.HelperFileName(runtime.GOOS)
+	return &lazyMCPSchemaExecutor{config: schema.ClientConfig{
+		HelperPath:   filepath.Join(helperDir, helperName),
+		ManifestPath: filepath.Join(helperDir, schema.HelperManifestFileName(runtime.GOOS)),
+	}}, nil
+}
+
+func schemaHelperDirectory(cfgProjectRoot string, profile contract.DependencyProfile) (string, error) {
+	switch profile {
+	case contract.DependencyProfileProduction:
+		return packagedSchemaHelperDirectory()
+	case contract.DependencyProfileDesktopHost, contract.DependencyProfileTest:
+		return developmentSchemaHelperDirectory(cfgProjectRoot)
+	default:
+		return "", fmt.Errorf("toolbridge: explicit dependency profile is required for schema helper")
+	}
+}
+
+// packagedSchemaHelperDirectory 仅从当前可执行文件推导 canonical package 目录。
+func packagedSchemaHelperDirectory() (string, error) {
+	executable, err := os.Executable()
+	if err != nil {
+		return "", fmt.Errorf("toolbridge: resolve executable for schema helper: %w", err)
+	}
+	executable, err = filepath.EvalSymlinks(executable)
+	if err != nil {
+		return "", fmt.Errorf("toolbridge: canonicalize executable for schema helper: %w", err)
+	}
+	dir := filepath.Dir(executable)
+	if runtime.GOOS == "darwin" && filepath.Base(dir) == "MacOS" && filepath.Base(filepath.Dir(dir)) == "Contents" {
+		return filepath.Join(filepath.Dir(dir), "Resources", "bin"), nil
+	}
+	return dir, nil
+}
+
+func developmentSchemaHelperDirectory(cfgProjectRoot string) (string, error) {
 	root := filepath.Clean(strings.TrimSpace(cfgProjectRoot))
 	if root == "." || !filepath.IsAbs(root) {
-		return nil, fmt.Errorf("toolbridge: absolute project root is required for schema helper")
+		return "", fmt.Errorf("toolbridge: absolute project root is required in schema helper development mode")
 	}
-	helperName := "mcp-schema-compiler-helper"
-	if runtime.GOOS == "windows" {
-		helperName += ".exe"
+	return filepath.Join(root, "bin"), nil
+}
+
+func runningSchemaHelperIdentity() (schema.HelperIdentity, error) {
+	identity, err := schema.CurrentBuildIdentity()
+	if err != nil {
+		return schema.HelperIdentity{}, fmt.Errorf("toolbridge: %w", err)
 	}
-	return schema.NewClient(schema.ClientConfig{HelperPath: filepath.Join(root, "bin", helperName)})
+	return identity, nil
 }
 
 // admitMCPServerTools 为一个 current server generation 执行逐工具 schema admission。

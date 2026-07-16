@@ -237,11 +237,12 @@ func TestPackageMacOSScriptEmbedsNewFrontendApp(t *testing.T) {
 
 	assertScriptContains(t, script, "cd \"$root/frontend-app\"")
 	assertScriptContains(t, script, "rsync -a --delete --exclude .gitkeep \"$root/frontend-app/dist\"/ \"$root/cmd/agent-terminal/web-dist\"/")
-	assertScriptContains(t, script, "go build -o bin/agent-terminal ./cmd/agent-terminal")
+	assertScriptContains(t, script, "make APP_COMMIT=\"$app_commit\" build-peer-binaries")
+	assertScriptContains(t, script, "go build -ldflags \"$schema_build_identity_ldflag\" -o bin/agent-terminal ./cmd/agent-terminal")
 	assertScriptDoesNotContain(t, script, "cd \"$root/cmd/agent-terminal/frontend\"")
 	assertScriptDoesNotContain(t, script, "make build-agent-terminal-plain")
 	assertScriptOrder(t, script, "npm run build", "rsync -a --delete --exclude .gitkeep \"$root/frontend-app/dist\"/ \"$root/cmd/agent-terminal/web-dist\"/")
-	assertScriptOrder(t, script, "rsync -a --delete --exclude .gitkeep \"$root/frontend-app/dist\"/ \"$root/cmd/agent-terminal/web-dist\"/", "go build -o bin/agent-terminal ./cmd/agent-terminal")
+	assertScriptOrder(t, script, "rsync -a --delete --exclude .gitkeep \"$root/frontend-app/dist\"/ \"$root/cmd/agent-terminal/web-dist\"/", "go build -ldflags \"$schema_build_identity_ldflag\" -o bin/agent-terminal ./cmd/agent-terminal")
 }
 
 // macOSInstallerGenerationBlock 提取 DMG 安装脚本生成区块，避免测试只盯单个 heredoc 形态而漏掉分段生成后的安装边界。

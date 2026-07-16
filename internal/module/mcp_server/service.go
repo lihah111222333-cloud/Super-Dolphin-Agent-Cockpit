@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
 	mcpdto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/mcp"
@@ -105,9 +106,11 @@ type DeleteServerResult struct {
 // service 是 MCP server 配置管理的实现。
 // store 负责持久化，httpClient 只用于 HTTP transport 的 tools/list 探测。
 type service struct {
-	store      MCPServerConfigStore
-	httpClient mcpHTTPDoer
-	sqlitePath string
+	store          MCPServerConfigStore
+	httpClient     mcpHTTPDoer
+	sqlitePath     string
+	configMu       sync.Mutex
+	configRevision uint64
 }
 
 // NewService 创建未绑定持久化 store 的 MCP server 服务。
@@ -161,6 +164,8 @@ func (s *service) AddServers(ctx context.Context, req AddServersRequest) (AddSer
 		return AddServersResult{}, err
 	}
 	configPath := mcpServerConfigPath(workspaceRoot)
+	s.configMu.Lock()
+	defer s.configMu.Unlock()
 	existing, err := store.ListServers(ctx, workspaceRoot)
 	if err != nil {
 		return AddServersResult{}, err
@@ -168,7 +173,11 @@ func (s *service) AddServers(ctx context.Context, req AddServersRequest) (AddSer
 	if err := rejectExistingMCPServers(existing, names); err != nil {
 		return AddServersResult{}, err
 	}
-	if err := insertMCPServerConfigs(ctx, store, workspaceRoot, additions, names); err != nil {
+	changed, err := insertMCPServerConfigs(ctx, store, workspaceRoot, additions, names)
+	if changed {
+		s.configRevision++
+	}
+	if err != nil {
 		return AddServersResult{}, err
 	}
 
@@ -275,6 +284,8 @@ func (s *service) DeleteServer(ctx context.Context, req DeleteServerRequest) (De
 	if err != nil {
 		return DeleteServerResult{}, err
 	}
+	s.configMu.Lock()
+	defer s.configMu.Unlock()
 	workspaceRoot, servers, err := s.resolveWorkspaceServers(ctx, "")
 	if err != nil {
 		return DeleteServerResult{}, err
@@ -293,6 +304,7 @@ func (s *service) DeleteServer(ctx context.Context, req DeleteServerRequest) (De
 	if !deleted {
 		return DeleteServerResult{}, fmt.Errorf("%w: %s", errServerNotFound, name)
 	}
+	s.configRevision++
 	return DeleteServerResult{
 		ConfigPath: mcpServerConfigPath(workspaceRoot),
 		ServerName: name,
@@ -365,7 +377,8 @@ func insertMCPServerConfigs(
 	workspaceRoot string,
 	additions map[string]ServerConfig,
 	names []string,
-) error {
+) (bool, error) {
+	changed := false
 	for _, name := range names {
 		inserted, err := store.InsertServer(ctx, StoreMCPServerConfigParams{
 			WorkspaceRoot: workspaceRoot,
@@ -373,13 +386,14 @@ func insertMCPServerConfigs(
 			Config:        additions[name],
 		})
 		if err != nil {
-			return err
+			return changed, err
 		}
 		if !inserted {
-			return fmt.Errorf("%w: %s", errServerAlreadyExists, name)
+			return changed, fmt.Errorf("%w: %s", errServerAlreadyExists, name)
 		}
+		changed = true
 	}
-	return nil
+	return changed, nil
 }
 
 // mcpHTTPClient 返回用于 HTTP MCP tools/list 的客户端。

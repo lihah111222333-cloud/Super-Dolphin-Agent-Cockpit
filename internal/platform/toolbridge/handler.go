@@ -129,7 +129,7 @@ func NewHandler(in handlerIn) (*Handler, error) {
 	var schemaExecutor mcpSchemaExecutor
 	if in.Config != nil {
 		var err error
-		schemaExecutor, err = newMCPSchemaExecutor(in.Config.ProjectRoot)
+		schemaExecutor, err = newMCPSchemaExecutor(in.Config.ProjectRoot, in.Dependency.Profile)
 		if err != nil {
 			return nil, err
 		}

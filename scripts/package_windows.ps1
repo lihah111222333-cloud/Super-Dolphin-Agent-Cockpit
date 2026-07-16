@@ -1056,7 +1056,10 @@ function Package-WindowsMain() {
     Push-Location -LiteralPath $Root
     try {
         $windowsGuiLdFlags = '-H=windowsgui'
-        $goInputs = @('GOOS=windows', "GOARCH=$WindowsPackageArch", "GOVERSION=$((& go env GOVERSION).Trim())", "WINDOWS_GUI_LDFLAGS=$windowsGuiLdFlags")
+        $appCommit = (& git rev-parse HEAD).Trim()
+        $schemaBuildIdentityLdFlag = "-X github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/toolbridge/schema.buildAppCommit=$appCommit"
+        $windowsSchemaLdFlags = "$windowsGuiLdFlags $schemaBuildIdentityLdFlag"
+        $goInputs = @('GOOS=windows', "GOARCH=$WindowsPackageArch", "GOVERSION=$((& go env GOVERSION).Trim())", "WINDOWS_GUI_LDFLAGS=$windowsGuiLdFlags", "APP_COMMIT=$appCommit")
         $goBinaryCachePaths = @(
             (Join-Path $Root 'cmd'),
             (Join-Path $Root 'internal'),
@@ -1067,7 +1070,10 @@ function Package-WindowsMain() {
         if (-not (Test-BuildPhaseCache -Name 'go-binaries' -Paths $goBinaryCachePaths -Inputs $goInputs)) {
             Invoke-WindowsGoBuild -Output (Join-Path $Root 'bin/mcp-orch.exe') -Package './cmd/mcp-orch' -LdFlags $windowsGuiLdFlags
             Invoke-WindowsGoBuild -Output (Join-Path $Root 'bin/mcp-lsp.exe') -Package './cmd/mcp-lsp' -LdFlags $windowsGuiLdFlags
-            Invoke-WindowsGoBuild -Output (Join-Path $Root 'bin/agent-terminal.exe') -Package './cmd/agent-terminal' -LdFlags $windowsGuiLdFlags
+            Invoke-WindowsGoBuild -Output (Join-Path $Root 'bin/mcp-schema-compiler-helper.exe') -Package './cmd/mcp-schema-compiler-helper' -LdFlags $windowsSchemaLdFlags
+            & go run ./cmd/mcp-schema-compiler-helper --write-package-manifest -helper (Join-Path $Root 'bin/mcp-schema-compiler-helper.exe') -output (Join-Path $Root 'bin/mcp-schema-compiler-helper.exe.manifest.json') -app-commit $appCommit -go-version ((& go env GOVERSION).Trim()) -goos windows -goarch $WindowsPackageArch
+            if ($LASTEXITCODE -ne 0) { throw 'schema helper manifest generation failed' }
+            Invoke-WindowsGoBuild -Output (Join-Path $Root 'bin/agent-terminal.exe') -Package './cmd/agent-terminal' -LdFlags $windowsSchemaLdFlags
             Invoke-WindowsGoBuild -Output (Join-Path $Root 'bin/mcp-ida.exe') -Package './cmd/mcp-ida' -LdFlags $windowsGuiLdFlags
             Save-BuildPhaseCache
         }
@@ -1077,11 +1083,14 @@ function Package-WindowsMain() {
     Assert-WindowsNativeArchitecture -Path (Join-Path $Root 'bin/agent-terminal.exe') -ExpectedArch $WindowsPackageArch -Label 'agent-terminal'
     Assert-WindowsNativeArchitecture -Path (Join-Path $Root 'bin/mcp-orch.exe') -ExpectedArch $WindowsPackageArch -Label 'mcp-orch'
     Assert-WindowsNativeArchitecture -Path (Join-Path $Root 'bin/mcp-lsp.exe') -ExpectedArch $WindowsPackageArch -Label 'mcp-lsp'
+    Assert-WindowsNativeArchitecture -Path (Join-Path $Root 'bin/mcp-schema-compiler-helper.exe') -ExpectedArch $WindowsPackageArch -Label 'mcp-schema-compiler-helper'
     Assert-WindowsNativeArchitecture -Path (Join-Path $Root 'bin/mcp-ida.exe') -ExpectedArch $WindowsPackageArch -Label 'mcp-ida'
 
     Copy-Item -LiteralPath (Join-Path $Root 'bin/agent-terminal.exe') -Destination (Join-Path $Stage 'bin/agent-terminal.exe') -Force
     Copy-Item -LiteralPath (Join-Path $Root 'bin/mcp-orch.exe') -Destination (Join-Path $Stage 'bin/mcp-orch.exe') -Force
     Copy-Item -LiteralPath (Join-Path $Root 'bin/mcp-lsp.exe') -Destination (Join-Path $Stage 'bin/mcp-lsp.exe') -Force
+    Copy-Item -LiteralPath (Join-Path $Root 'bin/mcp-schema-compiler-helper.exe') -Destination (Join-Path $Stage 'bin/mcp-schema-compiler-helper.exe') -Force
+    Copy-Item -LiteralPath (Join-Path $Root 'bin/mcp-schema-compiler-helper.exe.manifest.json') -Destination (Join-Path $Stage 'bin/mcp-schema-compiler-helper.exe.manifest.json') -Force
     Copy-Item -LiteralPath (Join-Path $Root 'bin/mcp-ida.exe') -Destination (Join-Path $Stage 'bin/mcp-ida.exe') -Force
     Copy-SQLiteMigrations -BundleRoot $Stage
     Copy-PackagedLSPBundle -BundleRoot $Stage

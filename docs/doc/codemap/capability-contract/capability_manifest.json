@@ -2463,6 +2463,7 @@
         "internal/contract.MCPToolAuthorityOwner.CheckMCPToolAuthority",
         "internal/contract.MCPToolAuthorityOwner.CompareAndSwapMCPToolQuarantines",
         "internal/contract.MCPToolAuthorityOwner.IssueMCPToolAuthority",
+        "internal/contract.MCPToolAuthorityOwner.WithMCPToolAuthority",
         "internal/contract.MCPToolLifecycleDecision",
         "internal/contract.MCPToolLifecycleObservedTool",
         "internal/contract.MCPToolLifecyclePolicyReader",
@@ -7051,6 +7052,7 @@
         "internal/contract.MCPToolAuthorityOwner.CheckMCPToolAuthority",
         "internal/contract.MCPToolAuthorityOwner.CompareAndSwapMCPToolQuarantines",
         "internal/contract.MCPToolAuthorityOwner.IssueMCPToolAuthority",
+        "internal/contract.MCPToolAuthorityOwner.WithMCPToolAuthority",
         "internal/contract.MCPToolLifecycleDecision",
         "internal/contract.MCPToolLifecycleObservedTool",
         "internal/contract.MCPToolLifecyclePolicyReader",
@@ -11639,6 +11641,7 @@
         "internal/contract.MCPToolAuthorityOwner.CheckMCPToolAuthority",
         "internal/contract.MCPToolAuthorityOwner.CompareAndSwapMCPToolQuarantines",
         "internal/contract.MCPToolAuthorityOwner.IssueMCPToolAuthority",
+        "internal/contract.MCPToolAuthorityOwner.WithMCPToolAuthority",
         "internal/contract.MCPToolLifecycleDecision",
         "internal/contract.MCPToolLifecycleObservedTool",
         "internal/contract.MCPToolLifecyclePolicyReader",
@@ -16230,6 +16233,7 @@
         "internal/contract.MCPToolAuthorityOwner.CheckMCPToolAuthority",
         "internal/contract.MCPToolAuthorityOwner.CompareAndSwapMCPToolQuarantines",
         "internal/contract.MCPToolAuthorityOwner.IssueMCPToolAuthority",
+        "internal/contract.MCPToolAuthorityOwner.WithMCPToolAuthority",
         "internal/contract.MCPToolLifecycleDecision",
         "internal/contract.MCPToolLifecycleObservedTool",
         "internal/contract.MCPToolLifecyclePolicyReader",
@@ -18380,7 +18384,7 @@
     "total_functions": 2249,
     "total_methods": 1145,
     "total_interfaces": 184,
-    "total_interface_methods": 367,
+    "total_interface_methods": 368,
     "total_exported": 1256,
     "total_unexported": 2920,
     "total_structs": 598
@@ -54145,6 +54149,23 @@
               ],
               "returns": [
                 "MCPToolAuthority",
+                "error"
+              ]
+            },
+            {
+              "name": "WithMCPToolAuthority",
+              "params": [
+                {
+                  "type": "context.Context"
+                },
+                {
+                  "type": "MCPToolAuthority"
+                },
+                {
+                  "type": "func() error"
+                }
+              ],
+              "returns": [
                 "error"
               ]
             }

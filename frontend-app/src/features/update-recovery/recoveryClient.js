@@ -7,6 +7,19 @@ const RECOVERY_METHOD_IDS = Object.freeze({
   restore: 91896983,
 });
 
+const RECOVERY_STATE_FIELDS = Object.freeze([
+  'mode',
+  'projection',
+  'last_action',
+  'actions',
+]);
+
+const RECOVERY_ACTION_FIELDS = Object.freeze([
+  'check',
+  'retry',
+  'restore',
+]);
+
 const RECOVERY_PROJECTION_FIELDS = Object.freeze([
   'transaction_id',
   'attempt_id',
@@ -41,6 +54,7 @@ function normalizeRecoveryState(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw new TypeError('Recovery state must be an object');
   }
+  requireExactFields(value, RECOVERY_STATE_FIELDS, 'state');
   if (value.mode !== RECOVERY_MODE) {
     throw new Error(`Recovery mode is required; received ${String(value.mode)}`);
   }
@@ -57,6 +71,7 @@ function normalizeRecoveryState(value) {
   if (!actions || typeof actions !== 'object' || Array.isArray(actions)) {
     throw new TypeError('Recovery actions must be an object');
   }
+  requireExactFields(actions, RECOVERY_ACTION_FIELDS, 'actions');
   return Object.freeze({
     mode: RECOVERY_MODE,
     lastAction: requireString(value.last_action, 'last_action'),
@@ -99,4 +114,12 @@ function createRecoveryClient(runtimeLoader = loadWailsRuntime) {
   });
 }
 
-export { RECOVERY_METHOD_IDS, RECOVERY_MODE, createRecoveryClient, normalizeRecoveryState };
+export {
+  RECOVERY_ACTION_FIELDS,
+  RECOVERY_METHOD_IDS,
+  RECOVERY_MODE,
+  RECOVERY_PROJECTION_FIELDS,
+  RECOVERY_STATE_FIELDS,
+  createRecoveryClient,
+  normalizeRecoveryState,
+};

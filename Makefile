@@ -6,6 +6,8 @@ MIN_MACOS_VERSION ?= $(shell sw_vers -productVersion 2>/dev/null | cut -d. -f1-2
 FRIDA_VERSION_FILE ?= build/frida-version.txt
 FRIDA_DEVKIT_VERSION ?= $(shell cat $(FRIDA_VERSION_FILE) 2>/dev/null)
 FRIDA_LDFLAGS ?= -X github.com/multi-agent/go-agent-v2/pkg/idamcp.defaultFridaVersion=$(FRIDA_DEVKIT_VERSION)
+APP_COMMIT ?= $(shell git rev-parse HEAD)
+SCHEMA_BUILD_IDENTITY_LDFLAG := -X github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/toolbridge/schema.buildAppCommit=$(APP_COMMIT)
 AGENT_TERMINAL_DEBUG_PORT ?= 4501
 FRONTEND_APP_DIR := frontend-app
 EMBEDDED_FRONTEND_DIR := cmd/agent-terminal/web-dist
@@ -38,12 +40,12 @@ build: guard frontend-build
 build-plain: guard frontend-build
 	go build $(GO_PACKAGE_PATTERNS)
 
-build-agent-terminal: frontend-build
+build-agent-terminal: frontend-build build-peer-binaries
 	go run ./cmd/frida-bootstrap --frida-version "$(FRIDA_DEVKIT_VERSION)" -- \
-		go build -tags frida -ldflags "$(FRIDA_LDFLAGS)" -o bin/agent-terminal ./cmd/agent-terminal
+		go build -tags frida -ldflags "$(FRIDA_LDFLAGS) $(SCHEMA_BUILD_IDENTITY_LDFLAG)" -o bin/agent-terminal ./cmd/agent-terminal
 
-build-agent-terminal-plain: frontend-build
-	go build -o bin/agent-terminal ./cmd/agent-terminal
+build-agent-terminal-plain: frontend-build build-peer-binaries
+	go build -ldflags "$(SCHEMA_BUILD_IDENTITY_LDFLAG)" -o bin/agent-terminal ./cmd/agent-terminal
 
 frontend-deps: frontend-app-deps
 
@@ -68,12 +70,12 @@ frontend-embed-verify: frontend-app-build
 
 # The root desktop scripts are the preferred dev launchers. These make targets
 # keep the minimal packaged-asset run path for CI and local checks.
-run: frontend-build
+run: frontend-build build-peer-binaries
 	go run ./cmd/frida-bootstrap --frida-version "$(FRIDA_DEVKIT_VERSION)" -- \
-		go run -tags frida -ldflags "$(FRIDA_LDFLAGS)" ./cmd/agent-terminal
+		go run -tags frida -ldflags "$(FRIDA_LDFLAGS) $(SCHEMA_BUILD_IDENTITY_LDFLAG)" ./cmd/agent-terminal
 
-run-plain: frontend-build
-	go run ./cmd/agent-terminal
+run-plain: frontend-build build-peer-binaries
+	go run -ldflags "$(SCHEMA_BUILD_IDENTITY_LDFLAG)" ./cmd/agent-terminal
 
 dev-hot:
 	SUPER_DOLPHIN_BACKEND_HOT_RELOAD=1 ./run-new-ui-desktop.sh
@@ -100,6 +102,18 @@ run-agent-terminal-debug run-agent-terminal-debug-plain: export SUPER_DOLPHIN_DE
 # so dev runs get the same toolbridge wiring as packaged builds.
 build-peer-binaries:
 	@mkdir -p bin
+	@target_goos="$$(go env GOOS)"; target_goarch="$$(go env GOARCH)"; \
+		helper="bin/mcp-schema-compiler-helper"; \
+		[ "$$target_goos" = windows ] && helper="$$helper.exe"; \
+		tmp="$$(mktemp "bin/.mcp-schema-compiler-helper.XXXXXX")"; \
+		trap 'rm -f "$$tmp"' EXIT; \
+		go build -ldflags "$(SCHEMA_BUILD_IDENTITY_LDFLAG)" -o "$$tmp" ./cmd/mcp-schema-compiler-helper; \
+		chmod +x "$$tmp"; \
+		mv -f "$$tmp" "$$helper"; \
+		env -u GOOS -u GOARCH -u CGO_ENABLED go run ./cmd/mcp-schema-compiler-helper --write-package-manifest \
+			-helper "$$helper" -output "$$helper.manifest.json" \
+			-app-commit "$(APP_COMMIT)" -go-version "$$(go env GOVERSION)" \
+			-goos "$$target_goos" -goarch "$$target_goarch"
 	@tmp="$$(mktemp "bin/.mcp-orch.XXXXXX")"; \
 		trap 'rm -f "$$tmp"' EXIT; \
 		go build -o "$$tmp" ./cmd/mcp-orch; \
@@ -126,12 +140,12 @@ run-agent-terminal-debug: frontend-build build-peer-binaries
 	GO_AGENT_CTL_SESSION_TOKEN=$(DEV_CONTROL_SESSION_TOKEN) \
 		GO_AGENT_PEER_BIN_DIR=$(CURDIR)/bin \
 		go run ./cmd/frida-bootstrap --frida-version "$(FRIDA_DEVKIT_VERSION)" -- \
-		go run -tags frida -ldflags "$(FRIDA_LDFLAGS)" ./cmd/agent-terminal --debug --debug-port $(AGENT_TERMINAL_DEBUG_PORT)
+		go run -tags frida -ldflags "$(FRIDA_LDFLAGS) $(SCHEMA_BUILD_IDENTITY_LDFLAG)" ./cmd/agent-terminal --debug --debug-port $(AGENT_TERMINAL_DEBUG_PORT)
 
 run-agent-terminal-debug-plain: frontend-build build-peer-binaries
 	GO_AGENT_CTL_SESSION_TOKEN=$(DEV_CONTROL_SESSION_TOKEN) \
 		GO_AGENT_PEER_BIN_DIR=$(CURDIR)/bin \
-		go run ./cmd/agent-terminal --debug --debug-port $(AGENT_TERMINAL_DEBUG_PORT)
+		go run -ldflags "$(SCHEMA_BUILD_IDENTITY_LDFLAG)" ./cmd/agent-terminal --debug --debug-port $(AGENT_TERMINAL_DEBUG_PORT)
 
 mcp:
 	go run ./cmd/mcp-server/main.go

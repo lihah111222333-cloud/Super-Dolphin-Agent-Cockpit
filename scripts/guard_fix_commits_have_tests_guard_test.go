@@ -432,6 +432,7 @@ func TestPreCommitRejectsPartialIndexMismatch(t *testing.T) {
 
 func TestPreCommitRunsLongGatesFromStagedSnapshot(t *testing.T) {
 	root := preparePreCommitGateFixture(t)
+	tmpRoot := t.TempDir()
 	writeFixTestGuardFile(t, root, ".gitignore", "frontend-app/node_modules/\n")
 	writeFixTestGuardFile(t, root, "frontend-app/package.json", "{}\n")
 	writeFixTestGuardFile(t, root, "frontend-app/package-lock.json", "{}\n")
@@ -449,6 +450,7 @@ func TestPreCommitRunsLongGatesFromStagedSnapshot(t *testing.T) {
 	runFixTestGuardGit(t, root, "add", path)
 
 	out, err := runPreCommitHookWithEnv(t, root, map[string]string{
+		"TMPDIR":                        tmpRoot,
 		"GATE_MUTATE_ORIGINAL_PATH":     filepath.Join(root, path),
 		"GATE_ASSERT_RELATIVE_PATH":     path,
 		"GATE_ASSERT_CONTENT":           "staged snapshot",
@@ -471,6 +473,7 @@ func TestPreCommitRunsLongGatesFromStagedSnapshot(t *testing.T) {
 	}
 	staged := runFixTestGuardGitOutput(t, root, "show", ":"+path)
 	assertOutputContainsAll(t, staged, "staged snapshot")
+	assertPreCommitFixtureClean(t, root, tmpRoot)
 }
 
 func TestPreCommitChecksGoFormattingInsideStagedSnapshot(t *testing.T) {
