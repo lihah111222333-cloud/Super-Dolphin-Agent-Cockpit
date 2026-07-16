@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "TurnRefV1",
+  "title": "TurnRefV1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["threadId", "turnId"],
+  "properties": {
+    "threadId": { "type": "string", "minLength": 1 },
+    "turnId": { "type": "string", "minLength": 1 }
+  }
+}

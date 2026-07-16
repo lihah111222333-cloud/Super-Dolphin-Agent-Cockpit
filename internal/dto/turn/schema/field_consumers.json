@@ -1,0 +1,38 @@
+{
+  "TurnRefV1": {
+    "goValidator": "ValidateTurnRefV1",
+    "jsValidator": "validateTurnRefV1",
+    "fields": {
+      "threadId": { "go": "ValidateTurnRefV1", "js": "validateTurnRefV1" },
+      "turnId": { "go": "ValidateTurnRefV1", "js": "validateTurnRefV1" }
+    }
+  },
+  "PublicErrorV1": {
+    "goValidator": "ValidatePublicErrorV1",
+    "jsValidator": "validatePublicErrorV1",
+    "fields": {
+      "code": { "go": "ValidatePublicErrorV1", "js": "validatePublicErrorV1" },
+      "title": { "go": "ValidatePublicErrorV1", "js": "validatePublicErrorV1" },
+      "message": { "go": "ValidatePublicErrorV1", "js": "validatePublicErrorV1" },
+      "diagnosticId": { "go": "ValidatePublicErrorV1", "js": "validatePublicErrorV1" },
+      "retryable": { "go": "ValidatePublicErrorV1", "js": "validatePublicErrorV1" },
+      "recoveryActions": { "go": "ValidatePublicErrorV1", "js": "validatePublicErrorV1" }
+    }
+  },
+  "TurnTerminalV2": {
+    "goValidator": "ValidateTurnTerminalV2",
+    "jsValidator": "validateTurnTerminalV2",
+    "fields": {
+      "schemaVersion": { "go": "ValidateTurnTerminalV2", "js": "validateTurnTerminalV2" },
+      "eventId": { "go": "ValidateTurnTerminalV2", "js": "validateTurnTerminalV2" },
+      "threadId": { "go": "ValidateTurnTerminalV2", "js": "validateTurnTerminalV2" },
+      "turnId": { "go": "ValidateTurnTerminalV2", "js": "validateTurnTerminalV2" },
+      "outcome": { "go": "ValidateTurnTerminalV2", "js": "validateTurnTerminalV2" },
+      "terminationCause": { "go": "ValidateTurnTerminalV2", "js": "validateTurnTerminalV2" },
+      "terminationRequestId": { "go": "ValidateTurnTerminalV2", "js": "validateTurnTerminalV2" },
+      "publicError": { "go": "ValidateTurnTerminalV2", "js": "validateTurnTerminalV2" },
+      "partialItemIds": { "go": "ValidateTurnTerminalV2", "js": "validateTurnTerminalV2" },
+      "occurredAt": { "go": "ValidateTurnTerminalV2", "js": "validateTurnTerminalV2" }
+    }
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "PublicErrorV1",
+  "title": "PublicErrorV1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["code", "title", "message", "diagnosticId", "retryable", "recoveryActions"],
+  "properties": {
+    "code": { "type": "string", "minLength": 1 },
+    "title": { "type": "string", "minLength": 1 },
+    "message": { "type": "string", "minLength": 1 },
+    "diagnosticId": { "type": "string", "minLength": 1 },
+    "retryable": { "type": "boolean" },
+    "recoveryActions": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "enum": ["retry", "reconnect", "restart_provider", "reopen_thread", "copy_diagnostics"]
+      }
+    }
+  }
+}
