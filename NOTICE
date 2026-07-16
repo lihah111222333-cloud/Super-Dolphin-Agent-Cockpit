@@ -3,3 +3,7 @@ Copyright 2026 Super Dolphin Agent contributors
 
 This product includes software developed by Super Dolphin Agent contributors.
 Third-party license and attribution notices remain in their respective source directories.
+
+This product includes github.com/santhosh-tekuri/jsonschema/v6 v6.0.2,
+licensed under the Apache License 2.0.
+Upstream source: https://github.com/santhosh-tekuri/jsonschema
