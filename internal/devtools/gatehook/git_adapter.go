@@ -145,20 +145,39 @@ func parsePrePushUpdate(ctx context.Context, repository gitRepository, line stri
 		)
 	}
 	update := prePushUpdate{localRef: fields[0], localSHA: fields[1], remoteRef: fields[2], remoteSHA: fields[3]}
+	zeroOID, err := gatecontract.ZeroOID(repository.identity.ObjectFormat)
+	if err != nil {
+		return prePushUpdate{}, "", err
+	}
+	if err := validateCanonicalOID("local_sha", update.localSHA, zeroOID); err != nil {
+		return prePushUpdate{}, "", err
+	}
+	if err := validateCanonicalOID("remote_sha", update.remoteSHA, zeroOID); err != nil {
+		return prePushUpdate{}, "", err
+	}
+	if update.localSHA == zeroOID {
+		return prePushUpdate{}, "", errors.New("delete updates require a separate Git policy and are not accepted")
+	}
 	if err := validateFullRef(ctx, repository, "local_ref", update.localRef); err != nil {
 		return prePushUpdate{}, "", err
 	}
 	if err := validateFullRef(ctx, repository, "remote_ref", update.remoteRef); err != nil {
 		return prePushUpdate{}, "", err
 	}
-	zeroOID, err := gatecontract.ZeroOID(repository.identity.ObjectFormat)
-	if err != nil {
-		return prePushUpdate{}, "", err
-	}
-	if update.localSHA == zeroOID {
-		return prePushUpdate{}, "", errors.New("delete updates require a separate Git policy and are not accepted")
-	}
 	return update, zeroOID, nil
+}
+
+// validateCanonicalOID 拒绝参数样式、大小写漂移与 object-format 长度错配。
+func validateCanonicalOID(name, oid, zeroOID string) error {
+	if len(oid) != len(zeroOID) {
+		return fmt.Errorf("%s must be a %d-character canonical Git OID", name, len(zeroOID))
+	}
+	for _, character := range oid {
+		if !isLowerHex(character) {
+			return fmt.Errorf("%s must contain only lowercase hexadecimal characters", name)
+		}
+	}
+	return nil
 }
 
 // validateLocalPushHead 证明 stdin local ref、SHA 与活动 worktree HEAD 完全一致。

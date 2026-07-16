@@ -10,11 +10,16 @@ import (
 
 func newTestRepository(t *testing.T) string {
 	t.Helper()
+	return newTestRepositoryWithObjectFormat(t, "sha1")
+}
+
+func newTestRepositoryWithObjectFormat(t *testing.T, objectFormat string) string {
+	t.Helper()
 	repository := filepath.Join(t.TempDir(), "repo")
 	if err := os.Mkdir(repository, 0o755); err != nil {
 		t.Fatalf("mkdir test repository: %v", err)
 	}
-	runTestGit(t, repository, "init", "-b", "main")
+	runTestGit(t, repository, "init", "--object-format="+objectFormat, "-b", "main")
 	runTestGit(t, repository, "config", "user.name", "Gate Hook Test")
 	runTestGit(t, repository, "config", "user.email", "gatehook@example.invalid")
 	writeTestFile(t, repository, "tracked.txt", "initial\n")

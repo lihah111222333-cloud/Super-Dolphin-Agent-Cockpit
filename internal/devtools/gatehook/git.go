@@ -121,30 +121,47 @@ func gitAbsolutePath(ctx context.Context, cwd, selector string) (string, error) 
 
 // verifyActiveWorktree 要求 canonical root 在 Git worktree inventory 中恰好出现一次。
 func verifyActiveWorktree(ctx context.Context, identity RepositoryIdentity) error {
-	output, err := runGit(ctx, identity.WorktreeRoot, nil, "worktree", "list", "--porcelain")
+	output, err := runGit(ctx, identity.WorktreeRoot, nil, "worktree", "list", "--porcelain", "-z")
 	if err != nil {
 		return err
 	}
-	found := false
-	for line := range strings.SplitSeq(output, "\n") {
-		if !strings.HasPrefix(line, "worktree ") {
-			continue
-		}
-		candidate, candidateErr := canonicalDirectory(strings.TrimPrefix(line, "worktree "))
-		if candidateErr != nil {
-			return fmt.Errorf("canonicalize listed worktree: %w", candidateErr)
-		}
-		if candidate == identity.WorktreeRoot {
-			if found {
-				return errors.New("active worktree appears more than once in Git worktree list")
-			}
-			found = true
-		}
+	count, err := countTargetWorktree(output, identity.WorktreeRoot)
+	if err != nil {
+		return err
 	}
-	if !found {
-		return fmt.Errorf("resolved worktree %q is not active", identity.WorktreeRoot)
+	return validateTargetWorktreeCount(count, identity.WorktreeRoot)
+}
+
+// validateTargetWorktreeCount 拒绝目标 worktree 缺失或重复。
+func validateTargetWorktreeCount(count int, targetRoot string) error {
+	if count == 0 {
+		return fmt.Errorf("resolved worktree %q is not active", targetRoot)
+	}
+	if count > 1 {
+		return errors.New("active worktree appears more than once in Git worktree list")
 	}
 	return nil
+}
+
+// countTargetWorktree 解析 NUL porcelain，只比较目标 canonical root 的原始绝对路径。
+func countTargetWorktree(output, targetRoot string) (int, error) {
+	if output == "" || output[len(output)-1] != 0 {
+		return 0, errors.New("Git worktree porcelain output is not NUL terminated")
+	}
+	count := 0
+	for field := range strings.SplitSeq(output, "\x00") {
+		if !strings.HasPrefix(field, "worktree ") {
+			continue
+		}
+		candidate := strings.TrimPrefix(field, "worktree ")
+		if candidate == "" || !filepath.IsAbs(candidate) {
+			return 0, errors.New("Git worktree porcelain contains an invalid worktree path")
+		}
+		if filepath.Clean(candidate) == targetRoot {
+			count++
+		}
+	}
+	return count, nil
 }
 
 func (r gitRepository) headCommit(ctx context.Context) (string, error) {
