@@ -23,6 +23,7 @@ const (
 	sourceBundleName        = "source.bundle"
 	sourceManifestName      = "source-manifest.json"
 	sourceBundleRef         = "refs/source/materialized"
+	sourceBundleBaseRef     = "refs/source/base"
 	sourceManifestVersion   = 1
 	privateSourceFileMode   = 0o400
 	privateSourceDirMode    = 0o700
@@ -57,6 +58,7 @@ type sourcePlan struct {
 	roots              []string
 	tree               string
 	commit             string
+	baseCommit         string
 	syntheticParentSHA string
 }
 
@@ -68,14 +70,8 @@ type sourceBundleImporter interface {
 
 // importSource 只编排 sourceexport owner 的 bundle 导入与对象复验。
 func importSource(ctx context.Context, importer sourceBundleImporter, bundlePath string, expectedObject string, expectedTree string) (string, error) {
-	if importer == nil {
-		return "", errors.New("source bundle importer is required")
-	}
-	if !filepath.IsAbs(bundlePath) {
-		return "", errors.New("source bundle path must be absolute")
-	}
-	if expectedObject == "" || expectedTree == "" {
-		return "", errors.New("expected Git object and tree are required")
+	if importer == nil || !filepath.IsAbs(bundlePath) || expectedObject == "" || expectedTree == "" {
+		return "", errors.New("source importer and absolute bundle/object/tree inputs are required")
 	}
 	repository, err := importer.ImportAndVerify(ctx, bundlePath, expectedObject, expectedTree)
 	if err != nil {
@@ -128,11 +124,11 @@ func materializeInStage(ctx context.Context, repoRoot string, outputRoot string,
 		}
 		plan.commit = commit
 	}
-	if err := prepareBundleRef(ctx, bareRoot, plan.commit, plan.tree, plan.syntheticParentSHA); err != nil {
+	if err := prepareBundleRefs(ctx, bareRoot, plan.commit, plan.baseCommit, plan.tree, plan.syntheticParentSHA); err != nil {
 		return SourceMaterialization{}, err
 	}
 	bundlePath := filepath.Join(stageRoot, sourceBundleName)
-	if err := createSourceBundle(ctx, bareRoot, bundlePath); err != nil {
+	if err := createSourceBundle(ctx, bareRoot, bundlePath, plan.baseCommit != ""); err != nil {
 		return SourceMaterialization{}, err
 	}
 	manifest, err := buildSourceManifest(bundlePath, spec, plan)
@@ -184,14 +180,8 @@ func validateMaterializationInput(ctx context.Context, repoRoot string, spec gat
 	if err := validateContext(ctx); err != nil {
 		return err
 	}
-	if err := spec.Validate(); err != nil {
-		return fmt.Errorf("validate source spec: %w", err)
-	}
-	if err := validateCanonicalDirectory(repoRoot, false); err != nil {
-		return fmt.Errorf("validate source repository root: %w", err)
-	}
-	if err := validateCanonicalDirectory(outputRoot, true); err != nil {
-		return fmt.Errorf("validate source output root: %w", err)
+	if err := errors.Join(spec.Validate(), validateCanonicalDirectory(repoRoot, false), validateCanonicalDirectory(outputRoot, true)); err != nil {
+		return fmt.Errorf("validate source materialization input: %w", err)
 	}
 	entries, err := os.ReadDir(outputRoot)
 	if err != nil {
@@ -207,26 +197,22 @@ func validateContext(ctx context.Context) error {
 	if ctx == nil {
 		return errors.New("source materialization context is required")
 	}
-	if err := ctx.Err(); err != nil {
-		return fmt.Errorf("source materialization context: %w", err)
-	}
-	return nil
+	return ctx.Err()
 }
 
 func cloneSourceSpec(spec gate.SourceSpec) gate.SourceSpec {
-	if spec.Commit != nil {
-		value := *spec.Commit
-		spec.Commit = &value
-	}
-	if spec.Tree != nil {
-		value := *spec.Tree
-		spec.Tree = &value
-	}
-	if spec.Range != nil {
-		value := *spec.Range
-		spec.Range = &value
-	}
+	spec.Commit = cloneSourceValue(spec.Commit)
+	spec.Tree = cloneSourceValue(spec.Tree)
+	spec.Range = cloneSourceValue(spec.Range)
 	return spec
+}
+
+func cloneSourceValue[T any](source *T) *T {
+	if source == nil {
+		return nil
+	}
+	clone := *source
+	return &clone
 }
 
 // verifyRepositoryIdentity 确认输入是 canonical Git 顶层且对象格式与 SourceSpec 相等。
@@ -317,6 +303,8 @@ func inspectRangePlan(ctx context.Context, repoRoot string, source *gate.RangeSo
 	if err != nil {
 		return sourcePlan{}, fmt.Errorf("validate range head: %w", err)
 	}
+	roots := []string{source.HeadSHA}
+	baseCommit := ""
 	if source.BaseKind == gate.BaseKindCommit {
 		base, err := readSourceObject(ctx, repoRoot, source.BaseSHA)
 		if err != nil {
@@ -325,8 +313,10 @@ func inspectRangePlan(ctx context.Context, repoRoot string, source *gate.RangeSo
 		if base.kind != "commit" {
 			return sourcePlan{}, fmt.Errorf("range base object %s has type %s, want commit", source.BaseSHA, base.kind)
 		}
+		baseCommit = source.BaseSHA
+		roots = append(roots, baseCommit)
 	}
-	return sourcePlan{roots: []string{source.HeadSHA}, tree: tree, commit: source.HeadSHA}, nil
+	return sourcePlan{roots: roots, tree: tree, commit: source.HeadSHA, baseCommit: baseCommit}, nil
 }
 
 // readSourceObject 通过 cat-file batch 读取单个显式 OID 并严格拒绝尾随输出。
@@ -404,13 +394,7 @@ func parseCommitObject(object sourceObject, expectedTree string) (string, []stri
 
 func initBareRepository(ctx context.Context, commandRoot string, bareRoot string, format gate.GitObjectFormat) error {
 	output, err := runGitOutput(ctx, commandRoot, nil, "init", "-q", "--bare", "--object-format="+string(format), "--", bareRoot)
-	if err != nil {
-		return fmt.Errorf("initialize temporary bare repository: %w", err)
-	}
-	if len(output) != 0 {
-		return errors.New("git init returned unexpected trailing output")
-	}
-	return nil
+	return rejectGitOutput(output, err, "initialize temporary bare repository")
 }
 
 // transferObjectClosure 使用 pack-objects 将显式根的完整闭包送入临时 bare repo。
@@ -458,15 +442,17 @@ func createSyntheticCommit(ctx context.Context, bareRoot string, tree string, pa
 	return commit, nil
 }
 
-// prepareBundleRef 只在临时 bare repo 创建固定 ref 并复核 commit/tree/parent 闭包。
-func prepareBundleRef(ctx context.Context, bareRoot string, commit string, tree string, parent string) error {
+// prepareBundleRefs 只在临时 bare repo 创建固定 refs 并复核全部 commit 闭包。
+func prepareBundleRefs(ctx context.Context, bareRoot string, commit string, base string, tree string, parent string) error {
 	input := fmt.Sprintf("create %s %s\n", sourceBundleRef, commit)
-	output, err := runGitOutput(ctx, bareRoot, strings.NewReader(input), "update-ref", "--stdin")
-	if err != nil {
-		return fmt.Errorf("create temporary bundle ref: %w", err)
+	commits := []string{commit}
+	if base != "" {
+		input += fmt.Sprintf("create %s %s\n", sourceBundleBaseRef, base)
+		commits = append(commits, base)
 	}
-	if len(output) != 0 {
-		return errors.New("git update-ref returned unexpected trailing output")
+	output, err := runGitOutput(ctx, bareRoot, strings.NewReader(input), "update-ref", "--stdin")
+	if err := rejectGitOutput(output, err, "create temporary bundle refs"); err != nil {
+		return err
 	}
 	object, err := readSourceObject(ctx, bareRoot, commit)
 	if err != nil {
@@ -479,30 +465,36 @@ func prepareBundleRef(ctx context.Context, bareRoot string, commit string, tree 
 	if parent != "" && (len(parents) != 1 || parents[0] != parent) {
 		return errors.New("synthetic commit parent verification failed")
 	}
-	return verifyObjectClosure(ctx, bareRoot, commit)
+	return verifyObjectClosure(ctx, bareRoot, commits...)
 }
 
-func verifyObjectClosure(ctx context.Context, bareRoot string, commit string) error {
-	output, err := runGitOutput(ctx, bareRoot, nil, "fsck", "--full", "--strict", "--no-reflogs", "--", commit)
-	if err != nil {
-		return fmt.Errorf("verify source object closure: %w", err)
+func verifyObjectClosure(ctx context.Context, bareRoot string, commits ...string) error {
+	args := []string{"fsck", "--full", "--strict", "--no-reflogs", "--"}
+	output, err := runGitOutput(ctx, bareRoot, nil, append(args, commits...)...)
+	return rejectGitOutput(output, err, "verify source object closure")
+}
+
+func createSourceBundle(ctx context.Context, bareRoot string, bundlePath string, includeBase bool) error {
+	args := []string{"bundle", "create", bundlePath, "--end-of-options", sourceBundleRef}
+	if includeBase {
+		args = append(args, sourceBundleBaseRef)
 	}
-	if len(output) != 0 {
-		return fmt.Errorf("git fsck returned unexpected output: %s", strings.TrimSpace(string(output)))
+	output, err := runGitOutput(ctx, bareRoot, nil, args...)
+	if err := rejectGitOutput(output, err, "create source bundle"); err != nil {
+		return err
+	}
+	if err := os.Chmod(bundlePath, privateSourceFileMode); err != nil {
+		return fmt.Errorf("protect source bundle: %w", err)
 	}
 	return nil
 }
 
-func createSourceBundle(ctx context.Context, bareRoot string, bundlePath string) error {
-	output, err := runGitOutput(ctx, bareRoot, nil, "bundle", "create", bundlePath, "--end-of-options", sourceBundleRef)
+func rejectGitOutput(output []byte, err error, action string) error {
 	if err != nil {
-		return fmt.Errorf("create source bundle: %w", err)
+		return fmt.Errorf("%s: %w", action, err)
 	}
 	if len(output) != 0 {
-		return errors.New("git bundle create returned unexpected trailing output")
-	}
-	if err := os.Chmod(bundlePath, privateSourceFileMode); err != nil {
-		return fmt.Errorf("protect source bundle: %w", err)
+		return fmt.Errorf("%s returned unexpected output: %s", action, strings.TrimSpace(string(output)))
 	}
 	return nil
 }
@@ -531,25 +523,15 @@ func buildSourceManifest(bundlePath string, spec gate.SourceSpec, plan sourcePla
 
 // Validate 校验 source manifest 与原 SourceSpec 的逐字段身份关系。
 func (manifest SourceMaterializationManifest) Validate() error {
-	if manifest.SchemaVersion != sourceManifestVersion {
-		return fmt.Errorf("unsupported source manifest version %d", manifest.SchemaVersion)
-	}
 	if err := manifest.Source.Validate(); err != nil {
 		return fmt.Errorf("validate manifest source: %w", err)
 	}
-	if manifest.ObjectFormat != manifest.Source.ObjectFormat || manifest.SourceTreeSHA != manifest.Source.SourceTreeSHA {
-		return errors.New("manifest source identity does not match SourceSpec")
+	if manifest.SchemaVersion != sourceManifestVersion || manifest.ObjectFormat != manifest.Source.ObjectFormat ||
+		manifest.SourceTreeSHA != manifest.Source.SourceTreeSHA || !validOID(manifest.MaterializedCommitSHA, manifest.ObjectFormat) ||
+		!validDigest(manifest.BundleDigest) {
+		return errors.New("source manifest identity or digest is invalid")
 	}
-	if !validOID(manifest.MaterializedCommitSHA, manifest.ObjectFormat) {
-		return errors.New("manifest materialized commit is invalid")
-	}
-	if err := validateManifestCommitIdentity(manifest); err != nil {
-		return err
-	}
-	if !validDigest(manifest.BundleDigest) {
-		return errors.New("manifest bundle digest is invalid")
-	}
-	return nil
+	return validateManifestCommitIdentity(manifest)
 }
 
 // validateManifestCommitIdentity 约束真实 commit/head 与 synthetic commit 的互斥身份。
@@ -665,14 +647,21 @@ func importAndVerifyBundle(ctx context.Context, bundlePath string, tempParent st
 	if err != nil {
 		return fmt.Errorf("import source bundle: %w", err)
 	}
-	want := manifest.MaterializedCommitSHA + " " + sourceBundleRef
-	line, err := strictGitLine(output)
-	if err != nil || line != want {
+	if string(output) != expectedBundleRefs(manifest) {
 		return errors.New("source bundle advertised unexpected or trailing refs")
 	}
 	return verifyImportedSource(ctx, bareRoot, manifest)
 }
 
+func expectedBundleRefs(manifest SourceMaterializationManifest) string {
+	head := fmt.Sprintf("%s %s\n", manifest.MaterializedCommitSHA, sourceBundleRef)
+	if base := rangeBaseCommit(manifest); base != "" {
+		return head + fmt.Sprintf("%s %s\n", base, sourceBundleBaseRef)
+	}
+	return head
+}
+
+// verifyImportedSource 复核 bundle 中 head、可选 range base 及其完整对象闭包。
 func verifyImportedSource(ctx context.Context, bareRoot string, manifest SourceMaterializationManifest) error {
 	object, err := readSourceObject(ctx, bareRoot, manifest.MaterializedCommitSHA)
 	if err != nil {
@@ -685,7 +674,22 @@ func verifyImportedSource(ctx context.Context, bareRoot string, manifest SourceM
 	if err := verifyImportedSyntheticParent(manifest, parents); err != nil {
 		return err
 	}
-	return verifyObjectClosure(ctx, bareRoot, manifest.MaterializedCommitSHA)
+	commits := []string{manifest.MaterializedCommitSHA}
+	if base := rangeBaseCommit(manifest); base != "" {
+		object, err := readSourceObject(ctx, bareRoot, base)
+		if err != nil || object.kind != "commit" {
+			return errors.Join(errors.New("imported range base is not a commit"), err)
+		}
+		commits = append(commits, base)
+	}
+	return verifyObjectClosure(ctx, bareRoot, commits...)
+}
+
+func rangeBaseCommit(manifest SourceMaterializationManifest) string {
+	if manifest.Source.Kind == gate.SourceKindRange && manifest.Source.Range.BaseKind == gate.BaseKindCommit {
+		return manifest.Source.Range.BaseSHA
+	}
+	return ""
 }
 
 func verifyImportedSyntheticParent(manifest SourceMaterializationManifest, parents []string) error {
@@ -700,39 +704,28 @@ func verifyImportedSyntheticParent(manifest SourceMaterializationManifest, paren
 
 // validateCanonicalDirectory 拒绝非绝对、非 canonical、链接或公开输出目录。
 func validateCanonicalDirectory(path string, private bool) error {
-	if err := validateCanonicalPathSyntax(path); err != nil {
-		return err
+	if !validCanonicalPath(path) {
+		return errors.New("path must be canonical, absolute, and free of control characters")
 	}
 	resolved, err := filepath.EvalSymlinks(path)
 	if err != nil {
 		return fmt.Errorf("canonicalize path: %w", err)
 	}
-	if resolved != path {
-		return errors.New("path must not contain symlinks")
-	}
-	return validateSourceDirectoryInfo(path, private)
-}
-
-func validateCanonicalPathSyntax(path string) error {
-	if path == "" || !filepath.IsAbs(path) || filepath.Clean(path) != path || containsControl(path) {
-		return errors.New("path must be canonical, absolute, and free of control characters")
-	}
-	return nil
-}
-
-// validateSourceDirectoryInfo 拒绝链接/非目录以及对 group/world 开放的输出根。
-func validateSourceDirectoryInfo(path string, private bool) error {
 	info, err := os.Lstat(path)
 	if err != nil {
 		return fmt.Errorf("lstat path: %w", err)
 	}
-	if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
-		return errors.New("path must be a real directory")
+	if resolved != path || info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+		return errors.New("path must be a real non-symlink directory")
 	}
 	if private && info.Mode().Perm()&0o077 != 0 {
 		return fmt.Errorf("private output root mode %04o exposes group or world access", info.Mode().Perm())
 	}
 	return nil
+}
+
+func validCanonicalPath(path string) bool {
+	return path != "" && filepath.IsAbs(path) && filepath.Clean(path) == path && !containsControl(path)
 }
 
 // validatePublishedArtifacts 要求输出根只含两个 0400 regular artifacts。
@@ -825,7 +818,25 @@ func runGit(ctx context.Context, repoRoot string, stdin io.Reader, stdout io.Wri
 	command.Stdout = stdout
 	var stderr bytes.Buffer
 	command.Stderr = &stderr
-	command.Env = append(os.Environ(),
+	command.Env = sourceGitEnvironment()
+	if err := command.Run(); err != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return fmt.Errorf("git %s: %w", args[0], ctxErr)
+		}
+		return fmt.Errorf("git %s: %w: %s", args[0], err, strings.TrimSpace(stderr.String()))
+	}
+	return nil
+}
+
+// sourceGitEnvironment 仅继承进程定位变量，清除全部 Git repository-local 重定向环境。
+func sourceGitEnvironment() []string {
+	environment := make([]string, 0, 16)
+	for _, key := range []string{"HOME", "PATH", "TMPDIR", "SystemRoot"} {
+		if value, present := os.LookupEnv(key); present {
+			environment = append(environment, key+"="+value)
+		}
+	}
+	return append(environment,
 		"GIT_CONFIG_NOSYSTEM=1",
 		"GIT_CONFIG_GLOBAL=/dev/null",
 		"GIT_TERMINAL_PROMPT=0",
@@ -838,13 +849,6 @@ func runGit(ctx context.Context, repoRoot string, stdin io.Reader, stdout io.Wri
 		"GIT_COMMITTER_DATE=2000-01-01T00:00:00Z",
 		"LC_ALL=C",
 	)
-	if err := command.Run(); err != nil {
-		if ctxErr := ctx.Err(); ctxErr != nil {
-			return fmt.Errorf("git %s: %w", args[0], ctxErr)
-		}
-		return fmt.Errorf("git %s: %w: %s", args[0], err, strings.TrimSpace(stderr.String()))
-	}
-	return nil
 }
 
 // interfaceValueIsNil 识别接口本身为空以及接口内承载的 typed nil。

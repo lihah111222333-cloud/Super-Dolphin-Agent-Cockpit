@@ -67,6 +67,34 @@ func TestMaterializeSourceRangeRoundTrip(t *testing.T) {
 	}
 }
 
+func TestMaterializeSourceForceRangeIncludesUnrelatedBase(t *testing.T) {
+	repo := newSourceTestRepository(t)
+	baseTree := repo.writeTree(t, "unrelated base")
+	base := repo.commitTree(t, baseTree, "")
+	headTree := repo.writeTree(t, "forced head")
+	head := repo.commitTree(t, headTree, "")
+	spec := gate.SourceSpec{
+		Kind:         gate.SourceKindRange,
+		ObjectFormat: gate.GitObjectFormatSHA1,
+		Range: &gate.RangeSource{
+			BaseKind:          gate.BaseKindCommit,
+			BaseSHA:           base,
+			HeadSHA:           head,
+			LocalRef:          "refs/heads/main",
+			RemoteRef:         "refs/heads/main",
+			ObservedRemoteSHA: base,
+			UpdateKind:        gate.UpdateKindForce,
+		},
+		SourceTreeSHA: headTree,
+	}
+	result := materializeAndVerify(t, repo.root, spec)
+	imported := newSourceTestRepository(t)
+	imported.run(t, nil, "bundle", "unbundle", result.BundlePath)
+	if kind := imported.outputLine(t, nil, "cat-file", "-t", base); kind != "commit" {
+		t.Fatalf("imported range base type = %q, want commit", kind)
+	}
+}
+
 func TestMaterializeSourceNewBranchEmptyTreeDoesNotForgeBase(t *testing.T) {
 	repo := newSourceTestRepository(t)
 	tree := repo.writeTree(t, "new branch")
@@ -209,6 +237,42 @@ func TestMaterializeSourceFailFastBoundaries(t *testing.T) {
 		if err == nil || !strings.Contains(err.Error(), "typed nil") {
 			t.Fatalf("runGit error = %v, want typed nil rejection", err)
 		}
+	})
+}
+
+func TestSourceGitEnvironmentRejectsRepositoryRedirects(t *testing.T) {
+	victim := newSourceTestRepository(t)
+	victimTree := victim.writeTree(t, "victim")
+	victimCommit := victim.commitTree(t, victimTree, "")
+	attacker := newSourceTestRepository(t)
+	attackerTree := attacker.writeTree(t, "attacker")
+	attackerCommit := attacker.commitTree(t, attackerTree, "")
+
+	t.Run("object directory injection", func(t *testing.T) {
+		t.Setenv("GIT_OBJECT_DIRECTORY", filepath.Join(attacker.root, ".git", "objects"))
+		t.Setenv("GIT_ALTERNATE_OBJECT_DIRECTORIES", filepath.Join(attacker.root, ".git", "objects"))
+		spec := gate.SourceSpec{
+			Kind:          gate.SourceKindCommit,
+			ObjectFormat:  gate.GitObjectFormatSHA1,
+			Commit:        &gate.CommitSource{SHA: attackerCommit},
+			SourceTreeSHA: attackerTree,
+		}
+		if _, err := MaterializeSource(context.Background(), victim.root, spec, newPrivateSourceOutput(t)); err == nil {
+			t.Fatal("MaterializeSource read objects redirected from another repository")
+		}
+	})
+
+	t.Run("Git directory injection", func(t *testing.T) {
+		t.Setenv("GIT_DIR", filepath.Join(attacker.root, ".git"))
+		t.Setenv("GIT_WORK_TREE", attacker.root)
+		t.Setenv("GIT_COMMON_DIR", filepath.Join(attacker.root, ".git"))
+		spec := gate.SourceSpec{
+			Kind:          gate.SourceKindCommit,
+			ObjectFormat:  gate.GitObjectFormatSHA1,
+			Commit:        &gate.CommitSource{SHA: victimCommit},
+			SourceTreeSHA: victimTree,
+		}
+		materializeAndVerify(t, victim.root, spec)
 	})
 }
 
