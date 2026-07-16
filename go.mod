@@ -13,6 +13,7 @@ require (
 	github.com/prometheus/client_golang v1.20.5
 	github.com/qmuntal/stateless v1.8.0
 	github.com/robfig/cron/v3 v3.0.1
+	github.com/santhosh-tekuri/jsonschema/v6 v6.0.2
 	github.com/stretchr/testify v1.11.1
 	github.com/wailsapp/wails/v3 v3.0.0-alpha.74
 	go.uber.org/fx v1.24.0

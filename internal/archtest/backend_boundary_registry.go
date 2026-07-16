@@ -249,6 +249,7 @@ func defaultBackendBoundarySurfaces() []BackendBoundarySurface {
 		backendBoundarySurface("cmd/mcp-ida", "IDA MCP sidecar boundary", []BoundaryRuleID{"mcp_sidecar_narrow_import_surface", "fx_assembly_scope", "mcpserver_ida_family"}, nil),
 		backendBoundarySurface("cmd/mcp-lsp", "LSP MCP sidecar boundary", []BoundaryRuleID{"mcp_sidecar_narrow_import_surface", "fx_assembly_scope"}, nil),
 		backendBoundarySurface("cmd/mcp-orch", "orchestration MCP sidecar boundary", []BoundaryRuleID{"mcp_sidecar_narrow_import_surface", "fx_assembly_scope", "mcpserver_orch_family"}, nil),
+		backendBoundarySurface("cmd/mcp-schema-compiler-helper", "one-shot MCP schema compiler helper", []BoundaryRuleID{"command_narrow_import_surface", "fx_assembly_scope"}, nil),
 		backendBoundarySurface("cmd/super-dolphin-release-manifest", "release manifest command assembly", []BoundaryRuleID{"command_narrow_import_surface", "fx_assembly_scope"}, nil),
 		backendBoundarySurface("cmd/super-dolphin-updater", "updater command assembly", []BoundaryRuleID{"command_narrow_import_surface", "fx_assembly_scope"}, nil),
 		backendBoundarySurface("internal/app", "desktop composition root", []BoundaryRuleID{"app_adapter_narrow_import_surface", "fx_assembly_scope"}, []BoundaryGuardID{"fx_graph"}),
@@ -301,6 +302,7 @@ type backendBoundaryPatterns struct {
 	fx              []string
 	mcpOrch         []string
 	mcpIDA          []string
+	schemaHelper    []string
 	hooks           []string
 	mcpctrl         []string
 	pkg             []string
@@ -329,6 +331,7 @@ func defaultBackendBoundaryPatterns() backendBoundaryPatterns {
 		fx:              []string{"internal/**/*.go", "cmd/**/*.go"},
 		mcpOrch:         []string{"cmd/mcp-orch/**/*.go"},
 		mcpIDA:          []string{"cmd/mcp-ida/**/*.go"},
+		schemaHelper:    []string{"cmd/mcp-schema-compiler-helper/**/*.go"},
 		hooks:           []string{"internal/platform/hooks/**/*.go"},
 		mcpctrl:         []string{"internal/platform/mcpcontrol/**/*.go"},
 		pkg:             []string{"pkg/**/*.go"},
@@ -681,7 +684,7 @@ func mcpSidecarAllowPolicies() []BoundaryImportPolicy {
 }
 
 func commandBoundaryPatterns(patterns backendBoundaryPatterns) []string {
-	return combineBoundaryPatterns(patterns.agentRuntime, patterns.agentTerminal, patterns.codexWorktree, patterns.releaseManifest, patterns.updater)
+	return combineBoundaryPatterns(patterns.agentRuntime, patterns.agentTerminal, patterns.codexWorktree, patterns.releaseManifest, patterns.updater, patterns.schemaHelper)
 }
 
 func internalSupportBoundaryPatterns(patterns backendBoundaryPatterns) []string {
@@ -711,6 +714,9 @@ func commandNarrowAllowPolicies(patterns backendBoundaryPatterns) []BoundaryImpo
 		"internal/platform/appupdaterecovery",
 		"internal/util/ctxutil",
 	}, "updater release transaction or context runtime primitive")...)
+	policies = append(policies, boundaryPolicies(owner, patterns.schemaHelper, []string{
+		"internal/platform/toolbridge/schema",
+	}, "one-shot schema compiler execution boundary")...)
 	return policies
 }
 

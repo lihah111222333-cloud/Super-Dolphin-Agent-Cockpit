@@ -2,16 +2,16 @@
 
 > 状态：**OK**
 >
-> 已索引文件：4492
+> 已索引文件：4503
 >
-> 未细分职责文件：11
+> 未细分职责文件：12
 
 ## 1. 漂移指标
 
 | 指标 | 当前值 |
 |---|---:|
-| 未细分职责文件数 | 11 |
-| 未细分职责占比 | 0.24% |
+| 未细分职责文件数 | 12 |
+| 未细分职责占比 | 0.27% |
 | 最大未细分职责占比阈值 | 5.00% |
 
 ## 2. 漂移告警
@@ -22,7 +22,7 @@
 
 | 模块 | 文件数 |
 |---|---:|
-| `cmd` | 9 |
+| `cmd` | 10 |
 | `internal` | 2 |
 
 ## 4. 样例文件
@@ -36,6 +36,7 @@
 - `cmd/codex-worktree-setup/setup_probe.go`
 - `cmd/codex-worktree-setup/setup_test.go`
 - `cmd/codex-worktree-setup/worktree_integration_test.go`
+- `cmd/mcp-schema-compiler-helper/main.go`
 - `internal/e2e/rpc_runtime/doc_test.go`
 - `internal/e2e/rpc_runtime/runtime_e2e_test.go`
 
