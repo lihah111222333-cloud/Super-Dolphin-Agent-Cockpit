@@ -125,7 +125,15 @@ type service struct {
 }
 
 // ProvideConfig 提供配置。
-func ProvideConfig(_ *platformconfig.Config) (Config, error) {
+func ProvideConfig(platformCfg *platformconfig.Config) (Config, error) {
+	if cfg, handled, err := providePackageOwnedConfig(platformCfg); handled {
+		return cfg, err
+	}
+	return provideEnvironmentConfig()
+}
+
+// provideEnvironmentConfig 保留非生产开发环境的显式 update 配置入口。
+func provideEnvironmentConfig() (Config, error) {
 	enabled := envTruthy(os.Getenv(envUpdateEnabled))
 	if !enabled {
 		return Config{}, nil

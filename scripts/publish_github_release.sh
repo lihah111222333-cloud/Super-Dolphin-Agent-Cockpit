@@ -18,7 +18,9 @@ previous_dmg_mount=""
 asset_paths=()
 release_asset_specs=(
   "darwin-arm64|Super-Dolphin-darwin-arm64.dmg|Super-Dolphin-darwin-arm64.update.json"
-  "windows-arm64|Super-Dolphin-windows-arm64.exe|Super-Dolphin-windows-arm64.update.json"
+)
+distribution_asset_names=(
+  "Super-Dolphin-windows-arm64.exe"
 )
 
 cleanup() {
@@ -136,39 +138,12 @@ file_size() {
   wc -c < "$1" | tr -d '[:space:]'
 }
 
-dotenv_value() {
-  local env_file="$1"
-  local key="$2"
-  awk -v key="$key" '
-    index($0, "=") {
-      k = substr($0, 1, index($0, "=") - 1)
-      if (k == key) {
-        print substr($0, index($0, "=") + 1)
-        found = 1
-        exit
-      }
-    }
-    END { if (!found) exit 1 }
-  ' "$env_file"
-}
-
-previous_public_key_from_env_file() {
-  local env_file="$1"
-  if [[ ! -f "$env_file" ]]; then
-    echo "previous update .env does not exist: $env_file" >&2
-    exit 1
-  fi
-  dotenv_value "$env_file" SUPER_DOLPHIN_UPDATE_PUBLIC_KEY
-}
-
 previous_public_key_from_app() {
   local app="$1"
-  local env_file="$app/Contents/Resources/.env"
-  if [[ ! -f "$env_file" ]]; then
-    echo "previous app update .env does not exist: $env_file" >&2
-    exit 1
-  fi
-  previous_public_key_from_env_file "$env_file"
+  local resources="$app/Contents/Resources"
+  go run ./cmd/super-dolphin-release-manifest \
+    -print-package-trust-public-key "$resources" \
+    -platform darwin-arm64
 }
 
 previous_public_key_from_dmg() {
@@ -194,18 +169,16 @@ previous_public_key_from_dmg() {
 
 read_previous_update_public_key() {
   local previous_public_key=""
-  if [[ -n "${SUPER_DOLPHIN_UPDATE_PREVIOUS_ENV_FILE:-}" ]]; then
-    previous_public_key="$(previous_public_key_from_env_file "$SUPER_DOLPHIN_UPDATE_PREVIOUS_ENV_FILE")"
-  elif [[ -n "${SUPER_DOLPHIN_UPDATE_PREVIOUS_APP:-}" ]]; then
+  if [[ -n "${SUPER_DOLPHIN_UPDATE_PREVIOUS_APP:-}" ]]; then
     previous_public_key="$(previous_public_key_from_app "$SUPER_DOLPHIN_UPDATE_PREVIOUS_APP")"
   elif [[ -n "${SUPER_DOLPHIN_UPDATE_PREVIOUS_DMG:-}" ]]; then
     previous_public_key="$(previous_public_key_from_dmg "$SUPER_DOLPHIN_UPDATE_PREVIOUS_DMG")"
   else
-    echo "SUPER_DOLPHIN_UPDATE_PREVIOUS_DMG, SUPER_DOLPHIN_UPDATE_PREVIOUS_APP, or SUPER_DOLPHIN_UPDATE_PREVIOUS_ENV_FILE is required to prove old clients trust this update key" >&2
+    echo "SUPER_DOLPHIN_UPDATE_PREVIOUS_DMG or SUPER_DOLPHIN_UPDATE_PREVIOUS_APP is required to prove old clients trust this update key" >&2
     exit 1
   fi
   if [[ -z "$previous_public_key" ]]; then
-    echo "previous package is missing SUPER_DOLPHIN_UPDATE_PUBLIC_KEY" >&2
+    echo "previous package is missing a verified manifest_public_key" >&2
     exit 1
   fi
   printf '%s\n' "$previous_public_key"
@@ -323,6 +296,15 @@ validate_release_assets() {
     validate_manifest_for_asset "$platform" "$artifact" "$manifest" "$artifact_name"
     asset_paths+=("$artifact" "$manifest")
   done
+  local name
+  for name in "${distribution_asset_names[@]}"; do
+    artifact="$stage_dir/$name"
+    if [[ ! -s "$artifact" ]]; then
+      echo "missing or empty release asset: $artifact" >&2
+      exit 1
+    fi
+    asset_paths+=("$artifact")
+  done
 }
 
 inspect_latest_release_assets() {
@@ -357,10 +339,30 @@ inspect_latest_release_assets() {
       fi
     done
   done
+  for name in "${distribution_asset_names[@]}"; do
+    digest="$(gh api "repos/$github_repo/releases/latest" --jq ".assets[] | select(.name == \"$name\") | .digest")"
+    size="$(gh api "repos/$github_repo/releases/latest" --jq ".assets[] | select(.name == \"$name\") | .size")"
+    if [[ -z "$digest" ]]; then
+      echo "GitHub latest release $latest_tag missing asset: $name" >&2
+      missing=1
+      continue
+    fi
+    if [[ ! "$digest" =~ ^sha256:[0-9a-fA-F]{64}$ ]]; then
+      echo "GitHub latest release asset $name digest must be sha256:<hex>" >&2
+      missing=1
+    fi
+    if [[ ! "$size" =~ ^[0-9]+$ ]]; then
+      echo "GitHub latest release asset $name size must be a positive integer" >&2
+      missing=1
+    elif (( size <= 0 )); then
+      echo "GitHub latest release asset $name size must be > 0" >&2
+      missing=1
+    fi
+  done
   if [[ "$missing" != "0" ]]; then
     exit 1
   fi
-  echo "GitHub latest release has canonical update assets: https://github.com/$github_repo/releases/tag/$latest_tag"
+  echo "GitHub latest release has canonical release assets: https://github.com/$github_repo/releases/tag/$latest_tag"
 }
 
 env_path_status() {
@@ -427,6 +429,15 @@ print_release_context() {
       fi
     done
   done
+  for name in "${distribution_asset_names[@]}"; do
+    digest="$(gh api "repos/$github_repo/releases/latest" --jq ".assets[] | select(.name == \"$name\") | .digest")"
+    size="$(gh api "repos/$github_repo/releases/latest" --jq ".assets[] | select(.name == \"$name\") | .size")"
+    if [[ -z "$digest" ]]; then
+      echo "remote asset: $name missing"
+    else
+      echo "remote asset: $name present size=$size digest=$digest"
+    fi
+  done
   echo
   if [[ -z "$tag" && -z "$stage_dir" ]]; then
     echo "stage dir: set VERSION or SUPER_DOLPHIN_RELEASE_STAGE_DIR to check local staged assets"
@@ -448,16 +459,23 @@ print_release_context() {
         fi
       done
     done
+    for name in "${distribution_asset_names[@]}"; do
+      local_path="$stage_dir/$name"
+      if [[ -s "$local_path" ]]; then
+        echo "local staged: $name present size=$(file_size "$local_path")"
+      else
+        echo "local staged: $name missing"
+      fi
+    done
   fi
   echo
   if [[ -n "${SUPER_DOLPHIN_UPDATE_PUBLIC_KEY:-}" ]]; then
     echo "public key source: SUPER_DOLPHIN_UPDATE_PUBLIC_KEY configured"
-  elif [[ -n "${SUPER_DOLPHIN_UPDATE_PREVIOUS_ENV_FILE:-}${SUPER_DOLPHIN_UPDATE_PREVIOUS_APP:-}${SUPER_DOLPHIN_UPDATE_PREVIOUS_DMG:-}" ]]; then
+  elif [[ -n "${SUPER_DOLPHIN_UPDATE_PREVIOUS_APP:-}${SUPER_DOLPHIN_UPDATE_PREVIOUS_DMG:-}" ]]; then
     echo "public key source: derive from previous package proof"
   else
     echo "public key source: missing"
   fi
-  env_path_status SUPER_DOLPHIN_UPDATE_PREVIOUS_ENV_FILE file
   env_path_status SUPER_DOLPHIN_UPDATE_PREVIOUS_APP dir
   env_path_status SUPER_DOLPHIN_UPDATE_PREVIOUS_DMG file
   env_path_status SUPER_DOLPHIN_UPDATE_SIGNING_KEY file
@@ -514,7 +532,7 @@ verify_asset_digests_impl() {
 }
 
 verify_uploaded_asset_digests() {
-  verify_asset_digests_impl "$@"
+  verify_asset_digests_impl
 }
 
 if [[ "$inspect_latest" == "1" ]]; then

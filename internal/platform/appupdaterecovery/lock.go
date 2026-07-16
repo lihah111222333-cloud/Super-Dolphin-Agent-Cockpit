@@ -41,7 +41,9 @@ func (lock *transactionLock) releaseInto(target *error) {
 	if lock == nil || lock.file == nil {
 		return
 	}
-	unlockErr := releaseTransactionFileLock(lock.file)
-	closeErr := lock.file.Close()
+	file := lock.file
+	lock.file = nil
+	unlockErr := releaseTransactionFileLock(file)
+	closeErr := file.Close()
 	*target = errors.Join(*target, unlockErr, closeErr)
 }

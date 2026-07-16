@@ -594,7 +594,7 @@ func TestCandidateHandleReapsCrashedProcess(t *testing.T) {
 	if alive || !errors.As(probeErr, &exitErr) {
 		t.Fatalf("ProcessAlive() = %v, %v, want false with Wait error", alive, probeErr)
 	}
-	if _, err := pidregistry.CaptureStableProcessIdentity(identity.PID); !errors.Is(err, pidregistry.ErrStableProcessIdentityRead) {
+	if _, err := pidregistry.CaptureStableProcessIdentity(identity.PID); !errors.Is(err, pidregistry.ErrStableProcessNotFound) {
 		t.Fatalf("candidate PID remains observable after Wait: %v", err)
 	}
 }
@@ -606,7 +606,7 @@ func TestCandidateHandleTerminatesAndReapsExactProcess(t *testing.T) {
 	if err := handle.Stop(stopCtx, identity); err != nil {
 		t.Fatalf("candidate Stop() error = %v", err)
 	}
-	if _, err := pidregistry.CaptureStableProcessIdentity(identity.PID); !errors.Is(err, pidregistry.ErrStableProcessIdentityRead) {
+	if _, err := pidregistry.CaptureStableProcessIdentity(identity.PID); !errors.Is(err, pidregistry.ErrStableProcessNotFound) {
 		t.Fatalf("candidate PID remains observable after Stop: %v", err)
 	}
 }

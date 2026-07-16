@@ -8,7 +8,18 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	recovery "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/appupdaterecovery"
 )
+
+func TestPackageLinuxRejectsUnsupportedPackageUpdates(t *testing.T) {
+	script := readScript(t, "package_linux.sh")
+	assertScriptContains(t, script, "reject_unsupported_package_updates")
+	assertScriptContains(t, script, "package-owned updates are unsupported for $platform")
+	for _, name := range recovery.PackageTrustOverrideNames() {
+		assertScriptContains(t, script, name)
+	}
+}
 
 func TestPackageLinuxScriptBundlesVerifiedCodexArtifact(t *testing.T) {
 	script := readScript(t, "package_linux.sh")

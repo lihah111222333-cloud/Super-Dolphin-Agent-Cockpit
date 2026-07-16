@@ -1,9 +1,11 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -22,6 +24,8 @@ const (
 	probationLeaseTTL          = 30 * time.Second
 	probationObservationPeriod = 2 * time.Second
 	probationPollInterval      = 100 * time.Millisecond
+	guardReadinessTimeout      = 5 * time.Second
+	guardReadinessMaxBytes     = 16 << 10
 )
 
 // runProbationSupervisor 启动候选与 detached Guard，并阻塞监督 exact ACK。
@@ -45,8 +49,12 @@ func (app updaterApp) runProbationSupervisor(ctx context.Context, transaction re
 	if err != nil {
 		return app.rollbackStartedCandidate(ctx, store, transaction, candidate, err)
 	}
-	if err := startDetachedGuard(filepath.Join(filepath.Dir(transaction.Paths.Target), updateTransactionDirName)); err != nil {
-		return app.rollbackClaimedCandidate(ctx, store, transaction, lease, candidate, err)
+	if _, statErr := os.Stat(transaction.Paths.RecoveryDir); errors.Is(statErr, os.ErrNotExist) {
+		if err := startDetachedGuard(transaction, false, nil); err != nil {
+			return app.rollbackClaimedCandidate(ctx, store, transaction, lease, candidate, err)
+		}
+	} else if statErr != nil {
+		return app.rollbackClaimedCandidate(ctx, store, transaction, lease, candidate, statErr)
 	}
 	supervisor, err := recovery.NewProbationSupervisor(recovery.ProbationSupervisorConfig{
 		Store: store, Identity: transaction.Identity, Lease: lease,
@@ -227,31 +235,156 @@ func killStartedCandidate(cmd *exec.Cmd) error {
 	return nil
 }
 
-// startDetachedGuard 从 updater 同目录启动独立 Guard 并立即释放进程句柄。
-func startDetachedGuard(transactionRoot string) error {
-	updaterExecutable, err := os.Executable()
+// startDetachedGuard 在有界时间内验证 exact Guard 凭据，成功后才释放进程句柄。
+func startDetachedGuard(transaction recovery.Transaction, capsule bool, readyAction func() error) error {
+	cmd, executable, digest, err := buildDetachedGuardCommand(transaction, capsule)
 	if err != nil {
 		return err
 	}
-	guardExecutable := filepath.Join(filepath.Dir(updaterExecutable), "super-dolphin-guard")
-	if info, err := os.Stat(guardExecutable); err != nil {
-		return fmt.Errorf("inspect detached Guard: %w", err)
-	} else if info.IsDir() {
-		return errors.New("detached Guard path is a directory")
+	stdout, expected, err := startDetachedGuardProcess(cmd, executable, digest)
+	if err != nil {
+		return err
+	}
+	if err := awaitDetachedGuardArmed(stdout, transaction, expected, readyAction); err != nil {
+		return errors.Join(err, stopStartedGuard(cmd))
+	}
+	if err := cmd.Process.Release(); err != nil {
+		return errors.Join(fmt.Errorf("release detached Guard process: %w", err), stopStartedGuard(cmd))
+	}
+	return nil
+}
+
+// buildDetachedGuardCommand 绑定 exact helper 路径、SHA、generation 与清洗后的环境。
+func buildDetachedGuardCommand(transaction recovery.Transaction, capsule bool) (*exec.Cmd, string, string, error) {
+	executable, err := detachedGuardPath(transaction, capsule)
+	if err != nil {
+		return nil, "", "", err
+	}
+	executable, err = recovery.CanonicalExistingPath(executable)
+	if err != nil {
+		return nil, "", "", err
+	}
+	generation, expectedSHA := guardGenerationIdentity(transaction, capsule)
+	digest, err := recovery.ComputeReleaseDigest(executable)
+	if err != nil {
+		return nil, "", "", fmt.Errorf("digest detached Guard: %w", err)
+	}
+	if digest != expectedSHA {
+		return nil, "", "", errors.New("detached Guard digest does not match exact transaction helper identity")
 	}
 	env, err := runtimeenv.DetachedCommandEnvironment(os.Environ())
 	if err != nil {
+		return nil, "", "", err
+	}
+	transactionRoot := filepath.Join(filepath.Dir(transaction.Paths.Target), updateTransactionDirName)
+	cmd := exec.Command(executable, transactionRoot, string(transaction.Identity.TransactionID), generation)
+	cmd.Env = env
+	return cmd, executable, digest, nil
+}
+
+// startDetachedGuardProcess 启动子进程并重新读取其内核 process identity。
+func startDetachedGuardProcess(cmd *exec.Cmd, executable, digest string) (io.ReadCloser, recovery.ProcessIdentity, error) {
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return nil, recovery.ProcessIdentity{}, fmt.Errorf("open detached Guard readiness pipe: %w", err)
+	}
+	if err := cmd.Start(); err != nil {
+		return nil, recovery.ProcessIdentity{}, fmt.Errorf("start detached Guard: %w", err)
+	}
+	expected, err := captureStartedGuardIdentity(cmd, executable, digest)
+	if err != nil {
+		return nil, recovery.ProcessIdentity{}, errors.Join(err, stopStartedGuard(cmd))
+	}
+	return stdout, expected, nil
+}
+
+// awaitDetachedGuardArmed 验证 armed receipt、关闭 parent pipe，再执行 destructive action。
+func awaitDetachedGuardArmed(stdout io.ReadCloser, transaction recovery.Transaction, expected recovery.ProcessIdentity, readyAction func() error) error {
+	receipt, err := waitGuardReadyReceipt(stdout, guardReadinessTimeout)
+	if err != nil {
 		return err
 	}
-	cmd := exec.Command(guardExecutable, transactionRoot)
-	cmd.Env = env
-	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("start detached Guard: %w", err)
+	if err := recovery.ValidateGuardReadyReceipt(receipt, transaction, expected); err != nil {
+		return err
 	}
-	if err := cmd.Process.Release(); err != nil {
-		return fmt.Errorf("release detached Guard process: %w", err)
+	if err := stdout.Close(); err != nil {
+		return fmt.Errorf("close detached Guard readiness pipe: %w", err)
+	}
+	if readyAction != nil {
+		return readyAction()
 	}
 	return nil
+}
+
+func guardGenerationIdentity(transaction recovery.Transaction, capsule bool) (string, string) {
+	if capsule {
+		return "old", transaction.Identity.OldHelpers.GuardSHA256
+	}
+	return "candidate", transaction.Identity.CandidateHelpers.GuardSHA256
+}
+
+func captureStartedGuardIdentity(cmd *exec.Cmd, executable, digest string) (recovery.ProcessIdentity, error) {
+	stable, err := pidregistry.CaptureStableProcessIdentity(cmd.Process.Pid)
+	if err != nil {
+		return recovery.ProcessIdentity{}, fmt.Errorf("capture detached Guard identity: %w", err)
+	}
+	stablePath, err := recovery.CanonicalExistingPath(stable.ExecutableIdentity)
+	if err != nil {
+		return recovery.ProcessIdentity{}, err
+	}
+	if stablePath != executable {
+		return recovery.ProcessIdentity{}, errors.New("detached Guard kernel executable identity mismatch")
+	}
+	return recovery.ProcessIdentity{
+		PID: stable.PID, StartToken: stable.ProcessStartToken,
+		ExecutableIdentity: executable, ExecutableSHA256: digest,
+	}, nil
+}
+
+// waitGuardReadyReceipt 通过 OS pipe deadline 有界读取单个 exact receipt，不创建游离 goroutine。
+func waitGuardReadyReceipt(reader io.Reader, timeout time.Duration) (recovery.GuardReadyReceipt, error) {
+	deadlineReader, ok := reader.(interface{ SetReadDeadline(time.Time) error })
+	if !ok {
+		return recovery.GuardReadyReceipt{}, errors.New("Guard readiness pipe does not support bounded reads")
+	}
+	if err := deadlineReader.SetReadDeadline(time.Now().Add(timeout)); err != nil {
+		return recovery.GuardReadyReceipt{}, fmt.Errorf("set Guard readiness deadline: %w", err)
+	}
+	line, err := bufio.NewReader(io.LimitReader(reader, guardReadinessMaxBytes+1)).ReadBytes('\n')
+	if errors.Is(err, os.ErrDeadlineExceeded) {
+		return recovery.GuardReadyReceipt{}, errors.New("timed out waiting for exact Guard readiness")
+	}
+	if err != nil {
+		return recovery.GuardReadyReceipt{}, fmt.Errorf("read Guard readiness receipt: %w", err)
+	}
+	if len(line) > guardReadinessMaxBytes {
+		return recovery.GuardReadyReceipt{}, errors.New("Guard readiness receipt exceeds size limit")
+	}
+	return recovery.DecodeGuardReadyReceipt(line)
+}
+
+func stopStartedGuard(cmd *exec.Cmd) error {
+	killErr := cmd.Process.Kill()
+	if errors.Is(killErr, os.ErrProcessDone) {
+		killErr = nil
+	}
+	waitErr := cmd.Wait()
+	var exitErr *exec.ExitError
+	if errors.As(waitErr, &exitErr) {
+		waitErr = nil
+	}
+	return errors.Join(killErr, waitErr)
+}
+
+func detachedGuardPath(transaction recovery.Transaction, capsule bool) (string, error) {
+	if capsule {
+		return filepath.Join(transaction.Paths.RecoveryDir, "super-dolphin-guard"), nil
+	}
+	updaterExecutable, err := os.Executable()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(filepath.Dir(updaterExecutable), "super-dolphin-guard"), nil
 }
 
 // processAlive 读取内核 stable identity，PID reuse 或读取失败都作为监督错误返回。

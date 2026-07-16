@@ -530,7 +530,7 @@ func (app updaterApp) replaceTargetAppTransaction(stagedApp string, targetApp st
 	if !targetExists {
 		return recovery.Transaction{}, false, app.installFirstRelease(stagedApp, targetApp, expectedTeamID, allowUnsigned)
 	}
-	request, err := app.prepareReleaseTransaction(stagedApp, targetApp, expectedTeamID, allowUnsigned)
+	request, packageOwned, err := app.prepareReleaseTransaction(stagedApp, targetApp, expectedTeamID, allowUnsigned)
 	if err != nil {
 		return recovery.Transaction{}, false, err
 	}
@@ -539,20 +539,84 @@ func (app updaterApp) replaceTargetAppTransaction(stagedApp string, targetApp st
 		return recovery.Transaction{}, false, removePreparedCandidate(request.Paths.Staging, err)
 	}
 	ctx := context.Background()
-	if _, err := store.Create(ctx, request); err != nil {
+	created, err := store.Create(ctx, request)
+	if err != nil {
 		return recovery.Transaction{}, false, fmt.Errorf("create release transaction: %w", err)
 	}
-	if _, err := store.RetainBackup(ctx, request.Identity); err != nil {
-		return recovery.Transaction{}, false, fmt.Errorf("retain release backup: %w", err)
+	return app.completePreparedReleaseTransaction(ctx, store, created, packageOwned)
+}
+
+// completePreparedReleaseTransaction 发布 capsule、建立 Guard fence 并安装 candidate。
+func (app updaterApp) completePreparedReleaseTransaction(ctx context.Context, store *recovery.Store, created recovery.Transaction, packageOwned bool) (recovery.Transaction, bool, error) {
+	if packageOwned {
+		if err := publishPackageRecoveryCapsule(created); err != nil {
+			_, rollbackErr := store.Rollback(ctx, created.Identity)
+			cleanupErr := cleanupPackageRecoveryCapsule(created.Paths.RecoveryDir)
+			return recovery.Transaction{}, false, errors.Join(fmt.Errorf("publish package recovery capsule: %w", err), rollbackErr, cleanupErr)
+		}
 	}
-	transaction, err := store.InstallCandidate(ctx, request.Identity)
+	if err := app.retainBackupWithRecoveryGuard(ctx, store, created); err != nil {
+		return recovery.Transaction{}, false, err
+	}
+	transaction, err := store.InstallCandidate(ctx, created.Identity)
 	if err != nil {
 		return recovery.Transaction{}, false, fmt.Errorf("install release candidate: %w", err)
 	}
-	if transaction.State != recovery.StateProbation || transaction.Trust.State != recovery.TrustPending {
-		return recovery.Transaction{}, false, fmt.Errorf("installed release transaction has unexpected state=%q trust=%q", transaction.State, transaction.Trust.State)
+	if err := validateInstalledTransaction(transaction); err != nil {
+		return recovery.Transaction{}, false, err
 	}
 	return transaction, true, nil
+}
+
+func validateInstalledTransaction(transaction recovery.Transaction) error {
+	if transaction.State != recovery.StateProbation || transaction.Trust.State != recovery.TrustPending {
+		return fmt.Errorf("installed release transaction has unexpected state=%q trust=%q", transaction.State, transaction.Trust.State)
+	}
+	return nil
+}
+
+func (app updaterApp) retainBackupWithRecoveryGuard(ctx context.Context, store *recovery.Store, transaction recovery.Transaction) error {
+	_, err := os.Stat(transaction.Paths.RecoveryDir)
+	if errors.Is(err, os.ErrNotExist) {
+		_, err := store.RetainBackup(ctx, transaction.Identity)
+		return err
+	}
+	if err != nil {
+		return fmt.Errorf("inspect recovery capsule: %w", err)
+	}
+	readyAction := func() error {
+		return retainBackupAfterGuardArmed(ctx, store, transaction.Identity)
+	}
+	if err := startDetachedGuard(transaction, true, readyAction); err == nil {
+		return nil
+	} else {
+		_, rollbackErr := store.Rollback(ctx, transaction.Identity)
+		return errors.Join(fmt.Errorf("fence package recovery Guard: %w", err), rollbackErr)
+	}
+}
+
+// retainBackupAfterGuardArmed 仅在 Guard 已 armed 时有界等待事务锁并执行 destructive rename。
+func retainBackupAfterGuardArmed(ctx context.Context, store *recovery.Store, identity recovery.Identity) error {
+	deadline := time.Now().Add(guardReadinessTimeout)
+	for {
+		_, err := store.RetainBackup(ctx, identity)
+		if !errors.Is(err, recovery.ErrTransactionBusy) {
+			if err != nil {
+				return fmt.Errorf("retain release backup after Guard armed: %w", err)
+			}
+			return nil
+		}
+		if time.Now().After(deadline) {
+			return errors.New("timed out retaining release backup after Guard armed")
+		}
+		timer := time.NewTimer(10 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return context.Cause(ctx)
+		case <-timer.C:
+		}
+	}
 }
 
 // installFirstRelease 保留首次安装兼容性：原子替换并显式不创建 rollback transaction。
@@ -591,12 +655,17 @@ func inspectReplacementTarget(targetApp string, superviseReplacement bool) (bool
 }
 
 // prepareReleaseTransaction 生成 exact paths，复制并验证 candidate，再计算 release identity。
-func (app updaterApp) prepareReleaseTransaction(stagedApp string, targetApp string, expectedTeamID string, allowUnsigned bool) (recovery.CreateRequest, error) {
+func (app updaterApp) prepareReleaseTransaction(stagedApp string, targetApp string, expectedTeamID string, allowUnsigned bool) (recovery.CreateRequest, bool, error) {
 	id, paths, err := app.prepareReleaseCandidate(stagedApp, targetApp, expectedTeamID, allowUnsigned)
 	if err != nil {
-		return recovery.CreateRequest{}, err
+		return recovery.CreateRequest{}, false, err
 	}
-	return buildReleaseTransactionRequest(targetApp, paths, id, expectedTeamID, allowUnsigned)
+	request, err := buildReleaseTransactionRequest(targetApp, paths, id, expectedTeamID, allowUnsigned)
+	if err != nil {
+		return recovery.CreateRequest{}, false, err
+	}
+	request, packageOwned, err := bindPackageOwnedTrust(request, installRequest{AllowUnsigned: allowUnsigned}, expectedTeamID)
+	return request, packageOwned, err
 }
 
 // prepareReleaseCandidate 生成同目录 exact staging，并完成 candidate 验证。
@@ -648,11 +717,19 @@ func buildReleaseTransactionRequest(targetApp string, paths recovery.Paths, id r
 			SHA256: candidateDigest, SignerIdentity: signer,
 		},
 	}
+	updaterProcess, helpers, err := captureUpdaterProcessIdentity()
+	if err != nil {
+		return recovery.CreateRequest{}, removePreparedCandidate(paths.Staging, err)
+	}
+	identity.OldHelpers = helpers
+	identity.CandidateHelpers = helpers
+	identity.UpdaterProcess = updaterProcess
 	return recovery.CreateRequest{
 		Identity: identity,
 		Paths:    paths,
 		Trust: recovery.TrustGeneration{
-			Generation: candidateDigest, PackageSigner: signer, State: recovery.TrustPending,
+			PreviousGeneration: oldDigest,
+			Generation:         candidateDigest, PackageSigner: signer, State: recovery.TrustPending,
 		},
 	}, nil
 }

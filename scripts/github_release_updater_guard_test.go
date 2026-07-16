@@ -2,6 +2,7 @@ package main
 
 import (
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"fmt"
 	"os"
@@ -9,12 +10,16 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/appupdate"
 )
 
-func TestWindowsPackagingEmbedsAppUpdateConfig(t *testing.T) {
+func TestWindowsPackagingFailsClosedWithoutUpdateRoutes(t *testing.T) {
 	script := readScript(t, "package_windows.ps1")
 	verify := readScript(t, "verify_packaged_app_windows.ps1")
 	local := readScript(t, "package_windows_local.ps1")
+	wrapper := readScript(t, "package_windows_github_release.ps1")
+	publisher := readScript(t, "publish_github_release.sh")
 
 	for _, want := range []string{
 		"SUPER_DOLPHIN_UPDATE_ENABLED",
@@ -22,35 +27,28 @@ func TestWindowsPackagingEmbedsAppUpdateConfig(t *testing.T) {
 		"SUPER_DOLPHIN_UPDATE_GITHUB_REPO",
 		"SUPER_DOLPHIN_UPDATE_PUBLIC_KEY",
 		"SUPER_DOLPHIN_UPDATE_CHANNEL",
+		"SUPER_DOLPHIN_UPDATE_STAGE_DIR",
+		"SUPER_DOLPHIN_UPDATE_HELPER_PATH",
+		"SUPER_DOLPHIN_UPDATE_TARGET_APP_PATH",
+		"SUPER_DOLPHIN_UPDATE_PLATFORM",
 		"SUPER_DOLPHIN_UPDATE_VERSION",
+		"SUPER_DOLPHIN_UPDATE_ALLOW_UNSIGNED",
 		"SUPER_DOLPHIN_UPDATE_WINDOWS_PUBLISHER",
 		"SUPER_DOLPHIN_UPDATE_WINDOWS_THUMBPRINT",
-		"Resolve-UpdateConfig",
-		"Write-PackagedUpdateEnv -BundleRoot $Stage",
 	} {
 		assertScriptContains(t, script, want)
 	}
-	assertScriptOrder(t, script, "Resolve-UpdateConfig", "New-Item -ItemType Directory -Force -Path (Join-Path $Stage 'bin')")
-	assertScriptOrder(t, script, "Write-PackagedRelayEnv -BundleRoot $Stage", "Write-PackagedUpdateEnv -BundleRoot $Stage")
-	assertScriptOrder(t, script, "Write-PackagedUpdateEnv -BundleRoot $Stage", "verify_packaged_app_windows.ps1') $Stage")
-
-	for _, want := range []string{
-		"Verify-UpdateEnv",
-		"SUPER_DOLPHIN_UPDATE_MANIFEST_URL or SUPER_DOLPHIN_UPDATE_GITHUB_REPO is required when app update is enabled",
-		"SUPER_DOLPHIN_UPDATE_MANIFEST_URL and SUPER_DOLPHIN_UPDATE_GITHUB_REPO are mutually exclusive",
-		"SUPER_DOLPHIN_UPDATE_GITHUB_REPO must be owner/repo without whitespace",
-		"known placeholder update repo is not allowed",
-		"decoded SUPER_DOLPHIN_UPDATE_PUBLIC_KEY must be 32 bytes",
-		"SUPER_DOLPHIN_UPDATE_WINDOWS_THUMBPRINT must be a 40-character certificate thumbprint",
-		"packaged app update env verified",
-	} {
-		assertScriptContains(t, verify, want)
-	}
-	assertScriptContains(t, local, "$env:SUPER_DOLPHIN_UPDATE_GITHUB_REPO")
-	assertScriptContains(t, local, "$env:SUPER_DOLPHIN_UPDATE_PUBLIC_KEY")
-	assertScriptContains(t, local, "$env:SUPER_DOLPHIN_UPDATE_CHANNEL")
-	assertScriptContains(t, local, "$env:SUPER_DOLPHIN_UPDATE_WINDOWS_PUBLISHER")
-	assertScriptContains(t, local, "$env:SUPER_DOLPHIN_UPDATE_WINDOWS_THUMBPRINT")
+	assertScriptContains(t, script, "package-owned updates are unsupported for $Platform; reject $name")
+	assertScriptContains(t, verify, "packaged .env contains update override")
+	assertScriptDoesNotContain(t, script, "Write-PackagedUpdateEnv")
+	assertScriptContains(t, verify, "function Verify-UpdateEnv()")
+	assertScriptDoesNotContain(t, local, "Forward-UpdateEnv")
+	assertScriptDoesNotContain(t, local, "SUPER_DOLPHIN_UPDATE_")
+	assertScriptContains(t, wrapper, "check/install/publish capabilities are all disabled")
+	assertScriptDoesNotContain(t, publisher, "windows-arm64|")
+	assertScriptContains(t, publisher, "distribution_asset_names=(")
+	assertScriptContains(t, publisher, "Super-Dolphin-windows-arm64.exe")
+	assertScriptDoesNotContain(t, publisher, "Super-Dolphin-windows-arm64.update.json")
 }
 
 func TestPackageEnvExampleDocumentsGitHubReleaseUpdateInputsWithoutSecrets(t *testing.T) {
@@ -60,11 +58,8 @@ func TestPackageEnvExampleDocumentsGitHubReleaseUpdateInputsWithoutSecrets(t *te
 		"SUPER_DOLPHIN_UPDATE_PUBLIC_KEY=",
 		"SUPER_DOLPHIN_UPDATE_CHANNEL=gray",
 		"SUPER_DOLPHIN_UPDATE_MINIMUM_VERSION=0.0.0",
-		"SUPER_DOLPHIN_UPDATE_WINDOWS_PUBLISHER=",
-		"SUPER_DOLPHIN_UPDATE_WINDOWS_THUMBPRINT=",
 		"SUPER_DOLPHIN_UPDATE_PREVIOUS_DMG=",
 		"SUPER_DOLPHIN_UPDATE_PREVIOUS_APP=",
-		"SUPER_DOLPHIN_UPDATE_PREVIOUS_ENV_FILE=",
 		"SUPER_DOLPHIN_UPDATE_SIGNING_KEY=",
 	} {
 		assertScriptContains(t, example, want)
@@ -72,6 +67,9 @@ func TestPackageEnvExampleDocumentsGitHubReleaseUpdateInputsWithoutSecrets(t *te
 	assertScriptDoesNotContain(t, example, "xiaoxiaotest9527-bit/-")
 	assertScriptDoesNotContain(t, example, "BEGIN PRIVATE KEY")
 	assertScriptDoesNotContain(t, example, "sk-")
+	assertScriptDoesNotContain(t, example, "SUPER_DOLPHIN_UPDATE_PREVIOUS_ENV_FILE")
+	assertScriptDoesNotContain(t, example, "SUPER_DOLPHIN_UPDATE_WINDOWS_PUBLISHER")
+	assertScriptDoesNotContain(t, example, "SUPER_DOLPHIN_UPDATE_WINDOWS_THUMBPRINT")
 }
 
 func TestGitHubReleasePackagingWrappersProduceCanonicalAssets(t *testing.T) {
@@ -87,9 +85,9 @@ func TestGitHubReleasePackagingWrappersProduceCanonicalAssets(t *testing.T) {
 		"SUPER_DOLPHIN_UPDATE_GITHUB_REPO=\"$github_release_repo\"",
 		"SUPER_DOLPHIN_UPDATE_PREVIOUS_DMG",
 		"SUPER_DOLPHIN_UPDATE_PREVIOUS_APP",
-		"SUPER_DOLPHIN_UPDATE_PREVIOUS_ENV_FILE",
 		"resolve_update_public_key",
 		"previous_public_key_from_dmg",
+		"-print-package-trust-public-key",
 		"go run ./cmd/super-dolphin-release-manifest",
 		"-public-key \"$SUPER_DOLPHIN_UPDATE_PUBLIC_KEY\"",
 		"-artifact-url \"$artifact_url\"",
@@ -98,40 +96,21 @@ func TestGitHubReleasePackagingWrappersProduceCanonicalAssets(t *testing.T) {
 	}
 	assertScriptDoesNotContain(t, macos, "SUPER_DOLPHIN_UPDATE_GITHUB_REPO:-xiaoxiaotest9527-bit/-")
 	assertScriptContains(t, macos, "known placeholder update repo is not allowed")
-	assertScriptOrder(t, macos, "resolve_update_public_key", "go run \"$root/cmd/super-dolphin-release-manifest\"")
+	assertScriptDoesNotContain(t, macos, "Contents/Resources/.env")
+	assertScriptDoesNotContain(t, macos, "SUPER_DOLPHIN_UPDATE_PREVIOUS_ENV_FILE")
+	assertScriptContains(t, macos, "resolve_update_public_key\n\nrequire_clean_release_tree\n\ngo run \"$root/cmd/super-dolphin-release-manifest\"")
 	assertScriptOrder(t, macos, "./scripts/package_macos.sh", "go run ./cmd/super-dolphin-release-manifest")
 
-	for _, want := range []string{
-		"Resolve-GitHubReleaseRepo",
-		"$GitHubReleaseRepo = Resolve-GitHubReleaseRepo",
-		"$PackageVersion = Get-EnvOrDefault -Name 'SUPER_DOLPHIN_PACKAGE_VERSION'",
-		"Super-Dolphin-windows-arm64.exe",
-		"Super-Dolphin-windows-arm64.update.json",
-		"$env:SUPER_DOLPHIN_UPDATE_GITHUB_REPO = $GitHubReleaseRepo",
-		"SUPER_DOLPHIN_UPDATE_PREVIOUS_PUBLIC_KEY",
-		"Assert-UpdatePublicKeyContinuity",
-		"cmd/super-dolphin-release-manifest",
-		"-public-key",
-		"-artifact-url",
-	} {
-		assertScriptContains(t, windows, want)
-	}
-	assertScriptDoesNotContain(t, windows, "Default 'xiaoxiaotest9527-bit/-'")
-	assertScriptContains(t, windows, "known placeholder update repo is not allowed")
-	assertScriptOrder(t, windows, "scripts\\package_windows_local.ps1", "cmd/super-dolphin-release-manifest")
+	assertScriptContains(t, windows, "check/install/publish capabilities are all disabled")
+	assertScriptDoesNotContain(t, windows, "super-dolphin-release-manifest")
+	assertScriptDoesNotContain(t, windows, ".update.json")
 }
 
 func TestPackageScriptsEnforceExactlyOneUpdateSourceAndRepoDenylist(t *testing.T) {
 	macosPackage := readScript(t, "package_macos.sh")
-	macosVerify := readScript(t, "verify_packaged_app_macos.sh")
-	windowsPackage := readScript(t, "package_windows.ps1")
-	windowsVerify := readScript(t, "verify_packaged_app_windows.ps1")
 
 	for scriptName, script := range map[string]string{
-		"package_macos.sh":                macosPackage,
-		"verify_packaged_app_macos.sh":    macosVerify,
-		"package_windows.ps1":             windowsPackage,
-		"verify_packaged_app_windows.ps1": windowsVerify,
+		"package_macos.sh": macosPackage,
 	} {
 		t.Run(scriptName, func(t *testing.T) {
 			assertScriptContains(t, script, "SUPER_DOLPHIN_UPDATE_MANIFEST_URL and SUPER_DOLPHIN_UPDATE_GITHUB_REPO are mutually exclusive")
@@ -159,19 +138,8 @@ func TestGitHubReleaseWrappersRequireCleanTreeAndRecordBuildCommit(t *testing.T)
 	assertScriptOrder(t, macos, "require_clean_release_tree", "./scripts/package_macos.sh")
 	assertScriptOrder(t, macos, "build_commit=\"$(git rev-parse HEAD)\"", "go run ./cmd/super-dolphin-release-manifest")
 
-	for _, want := range []string{
-		"Require-CleanReleaseTree",
-		"SUPER_DOLPHIN_RELEASE_DIRTY_WHITELIST",
-		"git status --porcelain=v1 --untracked-files=all",
-		"release worktree has uncommitted changes",
-		"$BuildCommit = (& git rev-parse HEAD).Trim()",
-		"$env:SUPER_DOLPHIN_RELEASE_BUILD_COMMIT = $BuildCommit",
-		"release-build-commit.txt",
-	} {
-		assertScriptContains(t, windows, want)
-	}
-	assertScriptOrder(t, windows, "Require-CleanReleaseTree", "scripts\\package_windows_local.ps1")
-	assertScriptOrder(t, windows, "$BuildCommit = (& git rev-parse HEAD).Trim()", "cmd/super-dolphin-release-manifest")
+	assertScriptContains(t, windows, "check/install/publish capabilities are all disabled")
+	assertScriptDoesNotContain(t, windows, "Require-CleanReleaseTree")
 }
 
 func TestGitHubReleasePublisherGuardsDraftPublish(t *testing.T) {
@@ -181,13 +149,11 @@ func TestGitHubReleasePublisherGuardsDraftPublish(t *testing.T) {
 		"github_repo=\"$(require_github_release_repo)\"",
 		"Super-Dolphin-darwin-arm64.dmg",
 		"Super-Dolphin-darwin-arm64.update.json",
-		"Super-Dolphin-windows-arm64.exe",
-		"Super-Dolphin-windows-arm64.update.json",
 		"SUPER_DOLPHIN_UPDATE_SIGNING_KEY",
 		"SUPER_DOLPHIN_UPDATE_PUBLIC_KEY",
 		"SUPER_DOLPHIN_UPDATE_PREVIOUS_DMG",
 		"SUPER_DOLPHIN_UPDATE_PREVIOUS_APP",
-		"SUPER_DOLPHIN_UPDATE_PREVIOUS_ENV_FILE",
+		"-print-package-trust-public-key",
 		"go run ./cmd/super-dolphin-release-manifest -check-key",
 		"go run ./cmd/super-dolphin-release-manifest -verify-manifest",
 		"gh auth status",
@@ -200,7 +166,12 @@ func TestGitHubReleasePublisherGuardsDraftPublish(t *testing.T) {
 		assertScriptContains(t, script, want)
 	}
 	assertScriptContains(t, script, "release_asset_specs=(")
-	assertScriptContains(t, script, "\"windows-arm64|Super-Dolphin-windows-arm64.exe|Super-Dolphin-windows-arm64.update.json\"")
+	assertScriptContains(t, script, "distribution_asset_names=(")
+	assertScriptContains(t, script, "Super-Dolphin-windows-arm64.exe")
+	assertScriptDoesNotContain(t, script, "windows-arm64|")
+	assertScriptDoesNotContain(t, script, "Super-Dolphin-windows-arm64.update.json")
+	assertScriptDoesNotContain(t, script, "Contents/Resources/.env")
+	assertScriptDoesNotContain(t, script, "SUPER_DOLPHIN_UPDATE_PREVIOUS_ENV_FILE")
 	assertScriptOrder(t, script, "require_previous_update_public_key", "validate_release_assets")
 	assertScriptOrderAfter(t, script, "gh release create \"$tag\"", "gh release create \"$tag\"", "verify_uploaded_asset_digests")
 	assertScriptOrderAfter(t, script, "gh release create \"$tag\"", "verify_uploaded_asset_digests", "gh release edit \"$tag\"")
@@ -255,7 +226,7 @@ func TestGitHubReleasePublisherCanInspectLatestAssets(t *testing.T) {
 		"--inspect-latest",
 		"inspect_latest=1",
 		"inspect_latest_release_assets",
-		"GitHub latest release has canonical update assets",
+		"GitHub latest release has canonical release assets",
 		"GitHub latest release $latest_tag missing asset",
 	} {
 		assertScriptContains(t, script, want)
@@ -290,11 +261,9 @@ func TestGitHubReleasePublisherCanPrintReleaseContext(t *testing.T) {
 	}{
 		"Super-Dolphin-darwin-arm64.dmg":         {digest: strings.Repeat("a", 64), size: 10},
 		"Super-Dolphin-darwin-arm64.update.json": {digest: strings.Repeat("b", 64), size: 10},
+		"Super-Dolphin-windows-arm64.exe":        {digest: strings.Repeat("c", 64), size: 10},
 	})
-	previousEnv := filepath.Join(t.TempDir(), "previous.env")
-	if err := os.WriteFile(previousEnv, []byte("SUPER_DOLPHIN_UPDATE_PUBLIC_KEY=hidden\n"), 0o600); err != nil {
-		t.Fatalf("write previous env: %v", err)
-	}
+	previousApp := writePreviousPackageTrustFixture(t, base64.StdEncoding.EncodeToString(make([]byte, 32)))
 	signingKey := filepath.Join(t.TempDir(), "ed25519.key")
 	if err := os.WriteFile(signingKey, []byte("hidden signing key"), 0o600); err != nil {
 		t.Fatalf("write signing key marker: %v", err)
@@ -305,7 +274,7 @@ func TestGitHubReleasePublisherCanPrintReleaseContext(t *testing.T) {
 		"PATH=" + bashArg("", binDir) + ":/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
 		"SUPER_DOLPHIN_UPDATE_GITHUB_REPO=super-dolphin/releases",
 		"SUPER_DOLPHIN_UPDATE_PUBLIC_KEY=super-secret-public-key",
-		"SUPER_DOLPHIN_UPDATE_PREVIOUS_ENV_FILE=" + bashArg("", previousEnv),
+		"SUPER_DOLPHIN_UPDATE_PREVIOUS_APP=" + bashArg("", previousApp),
 		"SUPER_DOLPHIN_UPDATE_SIGNING_KEY=" + bashArg("", signingKey),
 	}, "PATH")
 	output, err := cmd.CombinedOutput()
@@ -319,14 +288,14 @@ func TestGitHubReleasePublisherCanPrintReleaseContext(t *testing.T) {
 		"remote asset: Super-Dolphin-darwin-arm64.dmg present",
 		"stage dir: set VERSION or SUPER_DOLPHIN_RELEASE_STAGE_DIR to check local staged assets",
 		"public key source: SUPER_DOLPHIN_UPDATE_PUBLIC_KEY configured",
-		"SUPER_DOLPHIN_UPDATE_PREVIOUS_ENV_FILE: configured (file exists)",
+		"SUPER_DOLPHIN_UPDATE_PREVIOUS_APP: configured (directory exists)",
 		"SUPER_DOLPHIN_UPDATE_SIGNING_KEY: configured (file exists)",
 	} {
 		if !strings.Contains(string(output), want) {
 			t.Fatalf("print-context output missing %q:\n%s", want, output)
 		}
 	}
-	for _, secret := range []string{"super-secret-public-key", previousEnv, signingKey, "hidden signing key"} {
+	for _, secret := range []string{"super-secret-public-key", previousApp, signingKey, "hidden signing key"} {
 		if strings.Contains(string(output), secret) {
 			t.Fatalf("print-context leaked secret/path %q:\n%s", secret, output)
 		}
@@ -410,10 +379,9 @@ func TestGitHubReleasePublisherVerifyExistingExecutesDigestCheck(t *testing.T) {
 		size   int
 	}{}
 	for name, content := range map[string]string{
-		"Super-Dolphin-darwin-arm64.dmg":          "darwin artifact",
-		"Super-Dolphin-darwin-arm64.update.json":  `{"darwin":"manifest"}`,
-		"Super-Dolphin-windows-arm64.exe":         "windows arm64 artifact",
-		"Super-Dolphin-windows-arm64.update.json": `{"windows-arm64":"manifest"}`,
+		"Super-Dolphin-darwin-arm64.dmg":         "darwin artifact",
+		"Super-Dolphin-darwin-arm64.update.json": `{"darwin":"manifest"}`,
+		"Super-Dolphin-windows-arm64.exe":        "windows arm64 artifact",
 	} {
 		raw := []byte(content)
 		if err := os.WriteFile(filepath.Join(stageDir, name), raw, 0o600); err != nil {
@@ -427,19 +395,17 @@ func TestGitHubReleasePublisherVerifyExistingExecutesDigestCheck(t *testing.T) {
 	}
 
 	binDir := t.TempDir()
-	writeGitHubReleaseFakeGo(t, binDir)
+	publicKey := base64.StdEncoding.EncodeToString(make([]byte, 32))
+	writeGitHubReleaseFakeGo(t, binDir, publicKey)
 	writeGitHubReleaseFakeGH(t, binDir, "v9.9.9", assetDigests)
-	previousEnv := filepath.Join(t.TempDir(), "previous.env")
-	if err := os.WriteFile(previousEnv, []byte("SUPER_DOLPHIN_UPDATE_PUBLIC_KEY=dGVzdC1wdWJsaWMta2V5\n"), 0o600); err != nil {
-		t.Fatalf("write previous env: %v", err)
-	}
+	previousApp := writePreviousPackageTrustFixture(t, publicKey)
 
 	cmd := exec.Command("bash", "publish_github_release.sh", "--verify-existing", "--stage-dir", bashArg("", stageDir))
 	cmd.Env = appendWSLEnvKeysWithGitWorktree(t, []string{
 		"PATH=" + bashArg("", binDir) + ":/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
 		"VERSION=v9.9.9",
 		"SUPER_DOLPHIN_UPDATE_GITHUB_REPO=super-dolphin/releases",
-		"SUPER_DOLPHIN_UPDATE_PREVIOUS_ENV_FILE=" + bashArg("", previousEnv),
+		"SUPER_DOLPHIN_UPDATE_PREVIOUS_APP=" + bashArg("", previousApp),
 	}, "PATH")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
@@ -456,10 +422,9 @@ func TestGitHubReleasePublisherInspectLatestAcceptsMacOSAssets(t *testing.T) {
 		digest string
 		size   int
 	}{
-		"Super-Dolphin-darwin-arm64.dmg":          {digest: strings.Repeat("a", 64), size: 10},
-		"Super-Dolphin-darwin-arm64.update.json":  {digest: strings.Repeat("b", 64), size: 10},
-		"Super-Dolphin-windows-arm64.exe":         {digest: strings.Repeat("c", 64), size: 10},
-		"Super-Dolphin-windows-arm64.update.json": {digest: strings.Repeat("d", 64), size: 10},
+		"Super-Dolphin-darwin-arm64.dmg":         {digest: strings.Repeat("a", 64), size: 10},
+		"Super-Dolphin-darwin-arm64.update.json": {digest: strings.Repeat("b", 64), size: 10},
+		"Super-Dolphin-windows-arm64.exe":        {digest: strings.Repeat("c", 64), size: 10},
 	})
 
 	cmd := exec.Command("bash", "publish_github_release.sh", "--inspect-latest")
@@ -471,7 +436,7 @@ func TestGitHubReleasePublisherInspectLatestAcceptsMacOSAssets(t *testing.T) {
 	if err != nil {
 		t.Fatalf("inspect-latest failed: %v\n%s", err, output)
 	}
-	if !strings.Contains(string(output), "GitHub latest release has canonical update assets: https://github.com/super-dolphin/releases/releases/tag/v1.0.3") {
+	if !strings.Contains(string(output), "GitHub latest release has canonical release assets: https://github.com/super-dolphin/releases/releases/tag/v1.0.3") {
 		t.Fatalf("inspect-latest output missing success line:\n%s", output)
 	}
 }
@@ -497,11 +462,14 @@ func TestGitHubReleasePublisherRequiresVersionBeforeGitHubAccess(t *testing.T) {
 	}
 }
 
-func writeGitHubReleaseFakeGo(t *testing.T, binDir string) {
+func writeGitHubReleaseFakeGo(t *testing.T, binDir, publicKey string) {
 	t.Helper()
 	content := `#!/usr/bin/env bash
 set -euo pipefail
 if [[ "${1:-}" == "run" && "${2:-}" == "./cmd/super-dolphin-release-manifest" ]]; then
+  if [[ " $* " == *" -print-package-trust-public-key "* ]]; then
+    printf '%s\n' ` + bashQuote(publicKey) + `
+  fi
   exit 0
 fi
 echo "unexpected go invocation: $*" >&2
@@ -510,6 +478,34 @@ exit 1
 	if err := os.WriteFile(filepath.Join(binDir, "go"), []byte(content), 0o700); err != nil {
 		t.Fatalf("write fake go: %v", err)
 	}
+}
+
+func writePreviousPackageTrustFixture(t *testing.T, publicKey string) string {
+	t.Helper()
+	appPath := filepath.Join(t.TempDir(), "Super Dolphin.app")
+	resources := filepath.Join(appPath, "Contents", "Resources")
+	binDir := filepath.Join(resources, "bin")
+	if err := os.MkdirAll(binDir, 0o700); err != nil {
+		t.Fatalf("create previous package Resources: %v", err)
+	}
+	updater := filepath.Join(binDir, "super-dolphin-updater")
+	guard := filepath.Join(binDir, "super-dolphin-guard")
+	if err := os.WriteFile(updater, []byte("previous updater"), 0o700); err != nil {
+		t.Fatalf("write previous updater: %v", err)
+	}
+	if err := os.WriteFile(guard, []byte("previous guard"), 0o700); err != nil {
+		t.Fatalf("write previous Guard: %v", err)
+	}
+	if err := appupdate.WritePackageTrust(appupdate.PackageTrustWriteRequest{
+		OutputPath: filepath.Join(resources, "update-trust.json"),
+		Platform:   "darwin-arm64", Enabled: true,
+		SourceKind: "github", SourceValue: "super-dolphin/releases",
+		ManifestKey: publicKey, Channel: "gray", SignerIdentity: "TEAM-EXACT",
+		UpdaterPath: updater, GuardPath: guard,
+	}); err != nil {
+		t.Fatalf("write previous package trust: %v", err)
+	}
+	return appPath
 }
 
 func writeFailingGitHubReleaseFakeGH(t *testing.T, binDir string) {
@@ -533,9 +529,9 @@ func writeGitHubReleaseFakeGH(t *testing.T, binDir, latestTag string, assets map
 	for name, asset := range assets {
 		fmt.Fprintf(&queryChecks, "    if [[ \"$query\" == *%s* ]]; then\n", bashQuote(name))
 		queryChecks.WriteString("      if [[ \"$query\" == *'.digest' ]]; then\n")
-		queryChecks.WriteString(fmt.Sprintf("        printf 'sha256:%s\\n'\n", asset.digest))
+		fmt.Fprintf(&queryChecks, "        printf 'sha256:%s\\n'\n", asset.digest)
 		queryChecks.WriteString("      elif [[ \"$query\" == *'.size' ]]; then\n")
-		queryChecks.WriteString(fmt.Sprintf("        printf '%d\\n'\n", asset.size))
+		fmt.Fprintf(&queryChecks, "        printf '%d\\n'\n", asset.size)
 		queryChecks.WriteString("      elif [[ \"$query\" == *'.browser_download_url' ]]; then\n")
 		fmt.Fprintf(&queryChecks, "        printf 'https://downloads.example.test/%s\\n'\n", name)
 		queryChecks.WriteString("      fi\n")
@@ -632,10 +628,12 @@ func TestReleaseManifestCommandCanVerifyKeyAndManifest(t *testing.T) {
 	for _, want := range []string{
 		"checkKey",
 		"verifyManifest",
+		"printPackageTrustKey",
 		"publicKey",
 		"currentVersion",
 		"verifySigningKeyMatchesPublicKey",
 		"verifyExistingManifest",
+		"appupdate.VerifiedPackageTrustPublicKey",
 		"appupdate.VerifySignedManifest",
 	} {
 		assertScriptContains(t, source, want)
