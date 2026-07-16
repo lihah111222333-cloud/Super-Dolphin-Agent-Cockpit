@@ -200,24 +200,35 @@ func translateTurnEvent(raw dto.RawProviderEvent) (any, bool) {
 			Delta:      delta,
 		}, true
 	case "turn:interrupted":
-		return turndto.TurnInterrupted{
+		return turndto.TurnCompleted{
 			TurnHeader: turnHeader(raw.Data),
-			Reason:     dataString(raw.Data, "reason"),
+			Success:    false,
+			Status:     "interrupted",
+			Reason:     "provider",
+			Error:      dataString(raw.Data, "reason"),
 		}, true
 	case "turn:complete":
 		header := turnHeader(raw.Data)
-		success := dataBool(raw.Data, "success")
+		outcome := providershared.ResolveRawTerminalOutcome(raw.Data)
 		errorText := dataString(raw.Data, "error")
+		if outcome.ContractError != "" {
+			if errorText != "" {
+				errorText += "; "
+			}
+			errorText += "terminal contract: " + outcome.ContractError
+		}
 		if err := providershared.ResetToolResultScope(header.ThreadID, header.TurnID); err != nil {
-			success = false
+			outcome.Success = false
+			outcome.Status = "failed"
+			outcome.Cause = ""
 			errorText = appendProviderRuntimeError(errorText, err)
 		}
 		return turndto.TurnCompleted{
 			TurnHeader: header,
-			Success:    success,
+			Success:    outcome.Success,
 			Error:      errorText,
-			Status:     dataString(raw.Data, "status"),
-			Reason:     dataString(raw.Data, "reason"),
+			Status:     outcome.Status,
+			Reason:     terminalReason(outcome.Cause, dataString(raw.Data, "reason")),
 			Result:     dataString(raw.Data, "result"),
 			Summary:    dataString(raw.Data, "summary"),
 			Message:    dataString(raw.Data, "message"),
@@ -226,6 +237,13 @@ func translateTurnEvent(raw dto.RawProviderEvent) (any, bool) {
 	default:
 		return nil, false
 	}
+}
+
+func terminalReason(cause, rawReason string) string {
+	if strings.TrimSpace(cause) != "" {
+		return cause
+	}
+	return strings.TrimSpace(rawReason)
 }
 
 // translateToolEvent 翻译工具开始/结束事件，并把大结果交给共享结果捕获器。

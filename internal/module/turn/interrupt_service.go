@@ -12,40 +12,45 @@ import (
 // InterruptTurn 向当前线程的 active turn 发送中断，并返回带 envelope 的最终判定状态。
 // 没有 active turn 时不报错，而是返回 no_active_turn envelope，方便 UI 幂等收口。
 func (s *service) InterruptTurn(ctx context.Context, session contract.Session, source string) (status TurnStatus, err error) {
+	status, _, err = s.InterruptTurnForTarget(ctx, session, source, "")
+	return status, err
+}
+
+// InterruptTurnForTarget 仅在 expectedTurnID 仍匹配时捕获当前 handle；不匹配时绝不调用 provider。
+func (s *service) InterruptTurnForTarget(ctx context.Context, session contract.Session, source, expectedTurnID string) (status TurnStatus, accepted bool, err error) {
 	ctx, threadID, err := requireTurnContext(ctx, session)
 	if err != nil {
-		return TurnStatus{}, err
+		return TurnStatus{}, false, err
 	}
-	active, tracked := s.tracker.ActiveByThread(threadID)
+	claim := s.tracker.ClaimInterruptTarget(threadID, expectedTurnID)
+	active := claim.target
 	span := s.beginTurnTraceSpan(ctx, "turn.interrupt", threadID, "", active.localID, platformobs.NewCodeAnchor("internal/module/turn/interrupt_service.go", "turn.(*service).InterruptTurn", 11), map[string]any{"source": source})
 	ctx = span.ctx
 	defer func() { s.finishTurnTraceSpan(span, err) }()
-	before := s.interruptBaseStatus(active, tracked)
-	if !tracked {
-		return attachInterruptEnvelope(before, buildTurnInterruptEnvelope(before.State, before.State, false, false, 0, false)), nil
+	before := claim.before
+	if !claim.found {
+		return attachInterruptEnvelope(before, buildTurnInterruptEnvelope(before.State, before.State, false, false, 0, false)), false, nil
+	}
+	if !claim.claimed {
+		return before, false, nil
 	}
 	start := time.Now()
-	waited, err := interruptAndWait(ctx, session, s.tracker, active, threadID, source, nil)
+	waited, err := interruptAndWait(ctx, session, nil, active, threadID, source, nil)
+	if errors.Is(err, contract.ErrInterruptTargetChanged) {
+		releaseInterruptClaim(s.tracker, active.localID)
+		return before, false, nil
+	}
 	if err != nil {
-		return TurnStatus{}, err
+		releaseInterruptClaim(s.tracker, active.localID)
+		return TurnStatus{}, false, err
 	}
-	return s.finishInterrupt(ctx, active, before, start, waited)
-}
-
-// interruptBaseStatus 读取中断前的 tracker 状态。
-// 若 activeTurn 已存在但 tracker 快照缺失，则用 handle 生成最小 running 状态用于 envelope。
-func (s *service) interruptBaseStatus(active activeTurn, tracked bool) TurnStatus {
-	if !tracked {
-		return TurnStatus{}
+	if !waited {
+		releaseInterruptClaim(s.tracker, active.localID)
+		return before, false, nil
 	}
-	if status, ok := s.tracker.Get(active.localID); ok {
-		return status
-	}
-	return TurnStatus{
-		LocalID:    active.localID,
-		ProviderID: interruptProviderID(TurnStatus{}, active.handle),
-		State:      string(StateRunning),
-	}
+	confirmInterruptClaim(s.tracker, active.localID)
+	status, err = s.finishInterrupt(ctx, active, before, start, waited)
+	return status, true, err
 }
 
 // finishInterrupt 在 provider 确认收到中断后等待本地 tracker 收敛，并构造响应 envelope。

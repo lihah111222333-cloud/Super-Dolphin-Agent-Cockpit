@@ -2,6 +2,7 @@ package contract
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"sort"
@@ -9,6 +10,9 @@ import (
 
 	dto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/provider"
 )
+
+// ErrInterruptTargetChanged 表示 provider active turn 已不再匹配调用方捕获的目标。
+var ErrInterruptTargetChanged = errors.New("provider interrupt target changed")
 
 // Driver 是 provider 适配器的统一入口，负责启动或恢复一个会话。
 // 上层只依赖该契约，不直接感知 Claude/Codex 等具体实现。

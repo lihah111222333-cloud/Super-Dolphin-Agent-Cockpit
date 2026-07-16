@@ -160,7 +160,7 @@ func (s *session) forceCompleteTurn(turnID string) {
 }
 
 // completeSyntheticTurn 在 Codex 只给出 assistant message 时合成 turn 终态。
-// 若同一 active turn 已记录工具失败，终态必须标为 completed_with_errors，避免 UI 误显示干净完成。
+// 若同一 active turn 已记录工具失败，终态必须标为 failed，避免 UI 误显示干净完成。
 func (s *session) completeSyntheticTurn(turnID, reason, result string) {
 	turnID = strings.TrimSpace(turnID)
 	if turnID == "" {
@@ -171,7 +171,7 @@ func (s *session) completeSyntheticTurn(turnID, reason, result string) {
 	success := len(failures) == 0
 	status := "completed"
 	if !success {
-		status = "completed_with_errors"
+		status = "failed"
 	}
 	payload := map[string]any{"turnId": turnID, "success": success, "status": status, "reason": strings.TrimSpace(reason)}
 	if !success {

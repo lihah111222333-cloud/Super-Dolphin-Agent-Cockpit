@@ -43,7 +43,7 @@ func TestTurnInterruptHandlerReturnsEnvelope(t *testing.T) {
 
 	server := platformrpc.NewServer(platformrpc.Params{Config: &contract.Config{RPCAddr: "127.0.0.1:0"}})
 	server.Register(handler.Map{"turn/interrupt": turnInterruptHandler(svc, rpcHelperResolver{session: session})})
-	raw, err := server.Dispatch(context.Background(), "turn/interrupt", json.RawMessage(`{"threadId":"thread-1","source":"user"}`))
+	raw, err := server.Dispatch(context.Background(), "turn/interrupt", json.RawMessage(`{"threadId":"thread-1","expectedTurnId":"local-1","requestId":"stop-1"}`))
 	if err != nil {
 		t.Fatalf("Dispatch() error = %v", err)
 	}
@@ -53,8 +53,48 @@ func TestTurnInterruptHandlerReturnsEnvelope(t *testing.T) {
 		t.Fatalf("json.Unmarshal() error = %v", err)
 	}
 	assertInterruptEnvelope(t, result)
+	if !result.Accepted || result.RequestID != "stop-1" || result.ExpectedTurnID != "local-1" {
+		t.Fatalf("interrupt result = %#v, want accepted stop identity", result)
+	}
 	if session.lastInterrupt.TurnID != "provider-1" {
 		t.Fatalf("interrupt request turn id = %q, want provider-1", session.lastInterrupt.TurnID)
+	}
+}
+
+func TestTurnInterruptTargetChangedHasZeroProviderSideEffects(t *testing.T) {
+	t.Parallel()
+
+	handle := newStubTurnHandle("local-2", "provider-2")
+	interruptCalls := 0
+	session := &stubSession{
+		threadID: "thread-target-changed",
+		startTurn: func(context.Context, dto.TurnRequest) (contract.TurnHandle, error) {
+			return handle, nil
+		},
+		interrupt: func(context.Context, dto.InterruptRequest) error {
+			interruptCalls++
+			return nil
+		},
+	}
+	svc := NewServiceWithPromptAssembly(silentLogger(), &stubPromptAssemblyService{})
+	if _, err := svc.StartTurn(context.Background(), session, dto.TurnRequest{
+		LocalID: "local-2", ThreadID: "thread-target-changed", Inputs: []dto.InputItem{{Type: "text", Content: "hello"}},
+	}); err != nil {
+		t.Fatalf("StartTurn() error = %v", err)
+	}
+
+	server := platformrpc.NewServer(platformrpc.Params{Config: &contract.Config{RPCAddr: "127.0.0.1:0"}})
+	server.Register(handler.Map{"turn/interrupt": turnInterruptHandler(svc, rpcHelperResolver{session: session})})
+	raw, err := server.Dispatch(context.Background(), "turn/interrupt", json.RawMessage(`{"threadId":"thread-target-changed","expectedTurnId":"local-1","requestId":"stop-stale"}`))
+	if err != nil {
+		t.Fatalf("Dispatch() error = %v, want TARGET_CHANGED result", err)
+	}
+	var result turnInterruptResult
+	if err := json.Unmarshal(raw, &result); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+	if result.Accepted || result.ErrorCode != "TARGET_CHANGED" || interruptCalls != 0 {
+		t.Fatalf("result=%#v interruptCalls=%d, want TARGET_CHANGED with zero side effects", result, interruptCalls)
 	}
 }
 
@@ -84,7 +124,7 @@ func TestTurnInterruptHandlerAcceptsSnakeThreadID(t *testing.T) {
 
 	server := platformrpc.NewServer(platformrpc.Params{Config: &contract.Config{RPCAddr: "127.0.0.1:0"}})
 	server.Register(handler.Map{"turn/interrupt": turnInterruptHandler(svc, rpcHelperResolver{session: session})})
-	raw, err := server.Dispatch(context.Background(), "turn/interrupt", json.RawMessage(`{"thread_id":"thread-snake","source":"user"}`))
+	raw, err := server.Dispatch(context.Background(), "turn/interrupt", json.RawMessage(`{"thread_id":"thread-snake","expectedTurnId":"local-snake","requestId":"stop-snake","source":"user"}`))
 	if err != nil {
 		t.Fatalf("Dispatch() error = %v", err)
 	}
@@ -103,7 +143,7 @@ func TestTurnInterruptHandlerRequiresThreadID(t *testing.T) {
 
 	server := platformrpc.NewServer(platformrpc.Params{Config: &contract.Config{RPCAddr: "127.0.0.1:0"}})
 	server.Register(handler.Map{"turn/interrupt": turnInterruptHandler(NewServiceWithPromptAssembly(silentLogger(), &stubPromptAssemblyService{}), rpcHelperResolver{})})
-	_, err := server.Dispatch(context.Background(), "turn/interrupt", json.RawMessage(`{"source":"user"}`))
+	_, err := server.Dispatch(context.Background(), "turn/interrupt", json.RawMessage(`{"expectedTurnId":"local-required","requestId":"stop-required","source":"user"}`))
 	if err == nil || !strings.Contains(err.Error(), "threadId is required") {
 		t.Fatalf("Dispatch() error = %v, want threadId required", err)
 	}
@@ -135,7 +175,7 @@ func TestTurnInterruptHandlerRejectsUnknownField(t *testing.T) {
 
 	server := platformrpc.NewServer(platformrpc.Params{Config: &contract.Config{RPCAddr: "127.0.0.1:0"}})
 	server.Register(handler.Map{"turn/interrupt": turnInterruptHandler(svc, rpcHelperResolver{session: session})})
-	_, err = server.Dispatch(context.Background(), "turn/interrupt", json.RawMessage(`{"thread_id":"thread-unknown","source":"user","unexpectedUiOnlyField":"leak"}`))
+	_, err = server.Dispatch(context.Background(), "turn/interrupt", json.RawMessage(`{"thread_id":"thread-unknown","expectedTurnId":"local-unknown","requestId":"stop-unknown","source":"user","unexpectedUiOnlyField":"leak"}`))
 	if err == nil || !strings.Contains(err.Error(), "invalid parameters") {
 		t.Fatalf("Dispatch() error = %v, want unknown field rejection", err)
 	}
@@ -168,7 +208,7 @@ func TestTurnInterruptHandlerReturnsTimeoutEnvelope(t *testing.T) {
 
 	server := platformrpc.NewServer(platformrpc.Params{Config: &contract.Config{RPCAddr: "127.0.0.1:0"}})
 	server.Register(handler.Map{"turn/interrupt": turnInterruptHandler(svc, rpcHelperResolver{session: session})})
-	raw, err := server.Dispatch(context.Background(), "turn/interrupt", json.RawMessage(`{"threadId":"thread-timeout","source":"user"}`))
+	raw, err := server.Dispatch(context.Background(), "turn/interrupt", json.RawMessage(`{"threadId":"thread-timeout","expectedTurnId":"local-timeout","requestId":"stop-timeout","source":"user"}`))
 	if err != nil {
 		t.Fatalf("Dispatch() error = %v, want timeout envelope result", err)
 	}

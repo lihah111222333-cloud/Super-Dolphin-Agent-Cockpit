@@ -24,6 +24,7 @@ const trackerTTL = 30 * time.Minute
 type turnTrackerStore interface {
 	Put(localID string, turn *trackedTurn)
 	Mutate(localID string, fn func(*trackedTurn)) bool
+	MutateLatest(match func(*trackedTurn) bool, mutate func(*trackedTurn)) bool
 	RangeMut(fn func(localID string, turn *trackedTurn))
 	DeleteMatching(fn func(localID string, turn *trackedTurn) bool)
 	View(localID string, fn func(*trackedTurn)) bool
@@ -63,6 +64,23 @@ func (s *inMemoryTurnTrackerStore) Mutate(localID string, fn func(*trackedTurn))
 		return false
 	}
 	fn(turn)
+	return true
+}
+
+// MutateLatest 在同一写锁内选择最新匹配 turn 并执行一次修改。
+func (s *inMemoryTurnTrackerStore) MutateLatest(match func(*trackedTurn) bool, mutate func(*trackedTurn)) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var latest *trackedTurn
+	for _, turn := range s.turns {
+		if match(turn) && (latest == nil || turn.updatedAt.After(latest.updatedAt)) {
+			latest = turn
+		}
+	}
+	if latest == nil {
+		return false
+	}
+	mutate(latest)
 	return true
 }
 
@@ -148,6 +166,7 @@ type trackedTurn struct {
 	startedAt, updatedAt          time.Time
 	lastError                     string
 	interruptRequested            bool
+	interruptClaimed              bool
 	handle                        contract.TurnHandle
 	sm                            *stateless.StateMachine
 }
@@ -157,6 +176,13 @@ type activeTurn struct {
 	localID    string
 	providerID string
 	handle     contract.TurnHandle
+}
+
+type interruptClaim struct {
+	target  activeTurn
+	before  TurnStatus
+	found   bool
+	claimed bool
 }
 
 // newTurnTracker 创建默认进程内 tracker，终态记录按 trackerTTL 延迟清理。
@@ -288,8 +314,8 @@ func (t *turnTracker) MarkInterruptRequested(localID string) bool {
 	}
 	var interrupted bool
 	if !t.store.Mutate(localID, func(turn *trackedTurn) {
-		turn.interruptRequested = true
 		if err := turn.sm.Fire(string(TriggerInterrupt)); err == nil {
+			turn.interruptRequested = true
 			turn.updatedAt = t.store.Tick()
 			interrupted = true
 		}
@@ -297,6 +323,59 @@ func (t *turnTracker) MarkInterruptRequested(localID string) bool {
 		return false
 	}
 	return interrupted
+}
+
+// ClaimInterruptTarget 在 tracker 写锁内完成 active 选择、expectedTurnID 比较和 handle 捕获。
+func (t *turnTracker) ClaimInterruptTarget(threadID, expectedTurnID string) interruptClaim {
+	threadID = strings.TrimSpace(threadID)
+	expectedTurnID = strings.TrimSpace(expectedTurnID)
+	claim := interruptClaim{}
+	if threadID == "" {
+		return claim
+	}
+	claim.found = t.store.MutateLatest(func(turn *trackedTurn) bool {
+		return turn.threadID == threadID && !turn.isTerminal()
+	}, func(turn *trackedTurn) {
+		claim.target = activeTurnFromTracked(turn)
+		claim.before = turn.status()
+		if expectedTurnID != "" && turn.localID != expectedTurnID {
+			return
+		}
+		if turn.interruptClaimed {
+			return
+		}
+		turn.interruptClaimed = true
+		claim.claimed = true
+	})
+	return claim
+}
+
+// releaseInterruptClaim 释放尚未被 provider 接受的中断 claim。
+func releaseInterruptClaim(t *turnTracker, localID string) {
+	t.store.Mutate(strings.TrimSpace(localID), func(turn *trackedTurn) {
+		turn.interruptClaimed = false
+	})
+}
+
+// confirmInterruptClaim 在 provider 接受后把 claim 推进为 interrupting 状态。
+func confirmInterruptClaim(t *turnTracker, localID string) bool {
+	confirmed := false
+	t.store.Mutate(strings.TrimSpace(localID), func(turn *trackedTurn) {
+		if !turn.interruptClaimed {
+			return
+		}
+		turn.interruptClaimed = false
+		if turn.isTerminal() {
+			return
+		}
+		if err := turn.sm.Fire(string(TriggerInterrupt)); err != nil {
+			return
+		}
+		turn.interruptRequested = true
+		turn.updatedAt = t.store.Tick()
+		confirmed = true
+	})
+	return confirmed
 }
 
 // Stall 将 turn 标为 stalled 并保存错误原因，用于 watcher 超时和服务关闭路径。
@@ -338,17 +417,17 @@ func (r *turnTrackerQueryOps) ActiveByThread(threadID string) (activeTurn, bool)
 			return true
 		}
 		if !found || turn.updatedAt.After(latestUpdate) {
-			result = activeTurn{
-				localID:    turn.localID,
-				providerID: turn.providerID,
-				handle:     turn.handle,
-			}
+			result = activeTurnFromTracked(turn)
 			latestUpdate = turn.updatedAt
 			found = true
 		}
 		return true
 	})
 	return result, found
+}
+
+func activeTurnFromTracked(turn *trackedTurn) activeTurn {
+	return activeTurn{localID: turn.localID, providerID: turn.providerID, handle: turn.handle}
 }
 
 // AbortThread 将线程下所有非终态 turn 标记为 interrupted/aborted 路径。

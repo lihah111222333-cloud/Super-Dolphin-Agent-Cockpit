@@ -340,10 +340,7 @@ func translateTurnEvent(eventType string, payload map[string]any) (any, bool) {
 	case "turn/started", "turn.started":
 		return turndto.TurnStarted{TurnHeader: buildTurnHeader(payload)}, true
 	case "turn/interrupted", "turn.interrupted":
-		return turndto.TurnInterrupted{
-			TurnHeader: buildTurnHeader(payload),
-			Reason:     stringValue(payload, "reason", "message"),
-		}, true
+		return translateTurnTerminalEvent(eventType, payload), true
 	case "item/agentMessage/delta", "message.delta", "agent_message_delta":
 		if outputDeltaTranslateLogSampler.ShouldLog("message") {
 			pkglogger.Get().Debug("codexapp: translateTurnEvent: outputDelta",
@@ -388,18 +385,25 @@ func translateTurnEvent(eventType string, payload map[string]any) (any, bool) {
 // translateTurnTerminalEvent 构造终态事件，并把作用域清理失败提升为 turn 失败。
 func translateTurnTerminalEvent(eventType string, payload map[string]any) turndto.TurnCompleted {
 	header := buildTurnHeader(payload)
-	success := turnTerminalSuccess(eventType, payload)
-	errorText := turnTerminalError(success, payload)
+	outcome := resolveTurnTerminalOutcome(eventType, payload)
+	errorText := turnTerminalError(outcome.success, payload)
+	if outcome.contractError != "" {
+		if errorText != "" {
+			errorText += "; "
+		}
+		errorText += "terminal contract: " + outcome.contractError
+	}
 	if err := providershared.ResetToolResultScope(header.ThreadID, header.TurnID); err != nil {
-		success = false
+		outcome.success = false
+		outcome.status = "failed"
 		errorText = appendProviderRuntimeError(errorText, err)
 	}
 	return turndto.TurnCompleted{
 		TurnHeader: header,
-		Success:    success,
+		Success:    outcome.success,
 		Error:      errorText,
-		Status:     stringValue(payload, "status"),
-		Reason:     stringValue(payload, "reason"),
+		Status:     outcome.status,
+		Reason:     outcome.reason,
 		// result 由 session 的 per-turn 输出累积器在分发前合并进 payload。
 		// 其他字段保留兼容读取，覆盖未来 Codex 直接携带 terminal 文本的 wire 形态。
 		Result:     stringValue(payload, "result"),

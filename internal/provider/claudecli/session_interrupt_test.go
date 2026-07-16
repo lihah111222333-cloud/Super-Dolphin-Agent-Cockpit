@@ -200,6 +200,32 @@ func TestInterruptHungCLIKillsAndAllowsNextTurn(t *testing.T) {
 	runInterruptRestartScenario(t, "trap '' INT; while :; do sleep 1; done")
 }
 
+func TestInterruptTargetChangedLeavesActiveTurnUntouched(t *testing.T) {
+	t.Parallel()
+
+	active := newTurnHandle("local-2", "turn-2")
+	cleanupCalls := 0
+	s := &session{
+		activeTurn:      active,
+		activeToolCalls: map[string]string{"call-2": "lsp_read"},
+		suppressedTurns: map[string]struct{}{},
+		cleanup:         func() { cleanupCalls++ },
+	}
+	err := s.Interrupt(context.Background(), dto.InterruptRequest{TurnID: "turn-1", Source: "ui_stop"})
+	if !errors.Is(err, contract.ErrInterruptTargetChanged) {
+		t.Fatalf("Interrupt() error = %v, want target changed", err)
+	}
+	_, gotActive := sessionStateForInterruptTest(s)
+	if gotActive != active || cleanupCalls != 0 || len(s.suppressedTurns) != 0 || len(s.activeToolCalls) != 1 {
+		t.Fatalf("target-changed side effects: active=%p cleanup=%d suppressed=%v tools=%v", gotActive, cleanupCalls, s.suppressedTurns, s.activeToolCalls)
+	}
+	select {
+	case <-active.Done():
+		t.Fatal("target-changed interrupt finished the replacement turn")
+	default:
+	}
+}
+
 func TestInterruptDispatchesSyntheticToolEnd(t *testing.T) {
 	bus := event.NewDispatcher()
 	defer func() { _ = bus.Close() }()
@@ -207,10 +233,10 @@ func TestInterruptDispatchesSyntheticToolEnd(t *testing.T) {
 	RegisterTranslators(dispatcher)
 
 	toolEnds := make(chan tooldto.ToolCallEnd, 1)
-	turnInterrupted := make(chan turndto.TurnInterrupted, 1)
+	turnInterrupted := make(chan turndto.TurnCompleted, 1)
 	cancelTool := event.Subscribe(bus, func(ev tooldto.ToolCallEnd) { toolEnds <- ev })
 	defer cancelTool()
-	cancelTurn := event.Subscribe(bus, func(ev turndto.TurnInterrupted) { turnInterrupted <- ev })
+	cancelTurn := event.Subscribe(bus, func(ev turndto.TurnCompleted) { turnInterrupted <- ev })
 	defer cancelTurn()
 
 	s := &session{
@@ -249,15 +275,15 @@ func assertSyntheticToolEnd(t *testing.T, toolEnds <-chan tooldto.ToolCallEnd) {
 	}
 }
 
-func assertTurnInterrupted(t *testing.T, turnInterrupted <-chan turndto.TurnInterrupted) {
+func assertTurnInterrupted(t *testing.T, turnInterrupted <-chan turndto.TurnCompleted) {
 	t.Helper()
 	select {
 	case ev := <-turnInterrupted:
-		if ev.TurnID != "turn-1" {
-			t.Fatalf("TurnInterrupted.TurnID = %q, want turn-1", ev.TurnID)
+		if ev.TurnID != "turn-1" || ev.Success || ev.Status != "interrupted" || ev.Reason != "provider" {
+			t.Fatalf("TurnCompleted = %#v, want provider interrupted terminal", ev)
 		}
 	case <-time.After(time.Second):
-		t.Fatal("Interrupt() did not dispatch TurnInterrupted")
+		t.Fatal("Interrupt() did not dispatch terminal interruption")
 	}
 }
 

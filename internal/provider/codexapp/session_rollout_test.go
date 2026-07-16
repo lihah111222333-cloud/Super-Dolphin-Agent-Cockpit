@@ -173,8 +173,8 @@ func TestSyntheticAssistantCompletionPreservesToolFailure(t *testing.T) {
 	s.completeSyntheticTurn("turn-1", "rollout_assistant_message", "assistant text")
 
 	completed := waitRolloutTurnCompleted(t, completedCh)
-	if completed.Success || completed.Status != "completed_with_errors" {
-		t.Fatalf("TurnCompleted = %+v, want completed_with_errors", completed)
+	if completed.Success || completed.Status != "failed" {
+		t.Fatalf("TurnCompleted = %+v, want failed", completed)
 	}
 	for _, want := range []string{"call-file", "file", "file read failed"} {
 		if !strings.Contains(completed.Error, want) {

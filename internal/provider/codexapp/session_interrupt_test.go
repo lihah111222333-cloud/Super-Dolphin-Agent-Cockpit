@@ -3,10 +3,12 @@ package codexapp
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
 	dto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/provider"
 	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
 )
@@ -24,6 +26,9 @@ func TestSessionInterruptRequiresActiveTurnIDBeforeTransport(t *testing.T) {
 func TestSessionInterruptSendsRequestTurnID(t *testing.T) {
 	paramsCh := make(chan map[string]any, 1)
 	s := newInterruptTestSession(t, paramsCh)
+	s.mu.Lock()
+	s.activeTurnID = "turn-req"
+	s.mu.Unlock()
 
 	err := s.Interrupt(context.Background(), dto.InterruptRequest{
 		ThreadID: " thread-1 ",
@@ -37,6 +42,28 @@ func TestSessionInterruptSendsRequestTurnID(t *testing.T) {
 	params := receiveInterruptParams(t, paramsCh)
 	if params["turnId"] != "turn-req" {
 		t.Fatalf("interrupt turnId = %#v, want turn-req; params=%#v", params["turnId"], params)
+	}
+}
+
+func TestSessionInterruptTargetChangedSkipsTransport(t *testing.T) {
+	paramsCh := make(chan map[string]any, 1)
+	s := newInterruptTestSession(t, paramsCh)
+	s.mu.Lock()
+	s.activeTurnID = "turn-2"
+	s.mu.Unlock()
+
+	err := s.Interrupt(context.Background(), dto.InterruptRequest{
+		ThreadID: "thread-1",
+		TurnID:   "turn-1",
+		Source:   "ui_stop",
+	})
+	if !errors.Is(err, contract.ErrInterruptTargetChanged) {
+		t.Fatalf("Interrupt() error = %v, want interrupt target changed", err)
+	}
+	select {
+	case params := <-paramsCh:
+		t.Fatalf("target-changed interrupt reached transport with params %#v", params)
+	default:
 	}
 }
 
