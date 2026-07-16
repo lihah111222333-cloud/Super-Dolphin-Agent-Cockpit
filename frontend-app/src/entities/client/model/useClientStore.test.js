@@ -6260,6 +6260,64 @@ function registerBridgeEventHandlersForTest() {
     }
   });
 
+  it.each([
+    ['assistant delta', { type: 'turn/output/delta', payload: { threadId: 'thread-1', turnId: 'turn-1', itemId: 'late-turn-1', delta: 'late answer' } }],
+    ['item completion', { type: 'item/completed', payload: { threadId: 'thread-1', turnId: 'turn-1', item: { id: 'late-turn-1', type: 'assistant', text: 'late final' } } }],
+  ])('rejects stale %s when the active turn is authoritative', async (_label, event) => {
+    vi.useFakeTimers();
+    try {
+      const activeTurn = { id: 'turn-2', status: 'running' };
+      const actionNotice = { message: 'T2 正在运行', tone: 'info' };
+      const activityEntries = [{ id: 'existing-activity', method: 'turn/started', threadId: 'thread-1' }];
+      const warningEntries = [];
+      const timeline = [{ id: 'turn-2-open', role: 'assistant', kind: 'assistant', text: 'current', done: false, turnId: 'turn-2' }];
+      resetClientStoreForTests({
+        cwd: '/repo/app',
+        activeProject: '/repo/app',
+        activeThreadId: 'thread-1',
+        activeTurnByThread: { 'thread-1': activeTurn },
+        actionNotice,
+        activityEntries,
+        warningEntries,
+        timelinesByThread: { 'thread-1': timeline },
+      });
+      registerBridgeEventHandlersForTest();
+
+      bridgeCallback(event);
+      await flushAssistantDeltaBatch();
+
+      const state = useClientStore.getState();
+      expect(state.timelinesByThread['thread-1']).toBe(timeline);
+      expect(state.actionNotice).toBe(actionNotice);
+      expect(state.activityEntries).toBe(activityEntries);
+      expect(state.warningEntries).toBe(warningEntries);
+      expect(state.activeTurnByThread['thread-1']).toBe(activeTurn);
+      expect(backend.emitFrontendTraceEvent).toHaveBeenCalledWith(expect.objectContaining({
+        phase: 'frontend.turn_event.rejected',
+        method: 'turn.event.stale',
+        thread_id: 'thread-1',
+        turn_id: 'turn-1',
+      }));
+
+      bridgeCallback({
+        type: 'turn/terminal',
+        payload: {
+          schemaVersion: 2,
+          eventId: `terminal-turn-2-after-${event.type}`,
+          threadId: 'thread-1',
+          turnId: 'turn-2',
+          outcome: 'success',
+          occurredAt: '2026-07-16T01:00:00Z',
+        },
+      });
+      expect(useClientStore.getState().timelinesByThread['thread-1']).toEqual(expect.arrayContaining([
+        expect.objectContaining({ kind: 'turn_terminal', turnId: 'turn-2', terminalOutcome: 'success' }),
+      ]));
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('does not flush or finalize a newer buffered turn when an older terminal arrives before the active-turn patch', async () => {
     vi.useFakeTimers();
     try {
@@ -6270,7 +6328,6 @@ function registerBridgeEventHandlersForTest() {
         cwd: '/repo/app',
         activeProject: '/repo/app',
         activeThreadId: 'thread-1',
-        activeTurnByThread: { 'thread-1': { id: 'turn-1', status: 'running' } },
         actionNotice,
         activityEntries,
         timelinesByThread: { 'thread-1': timeline },

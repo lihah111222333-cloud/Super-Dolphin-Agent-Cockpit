@@ -162,7 +162,11 @@ function turnEventRejected(runtime, method, turnRef, deps) {
     return true;
   }
   const activeTurnId = deps.activeTurnIdForThread(runtime.get(), turnRef.threadId);
-  const observedTurnId = runtime.observedTurnByThread.get(turnRef.threadId) || activeTurnId;
+  if (activeTurnId && activeTurnId !== turnRef.turnId) {
+    emitRejectedTurnEvent(deps, 'turn.event.stale', method, turnRef);
+    return true;
+  }
+  const observedTurnId = runtime.observedTurnByThread.get(turnRef.threadId);
   if (observedTurnId && observedTurnId !== turnRef.turnId) {
     runtime.retiredTurnRefs.add(runtimeTurnRefKey(turnRef.threadId, observedTurnId));
   }
