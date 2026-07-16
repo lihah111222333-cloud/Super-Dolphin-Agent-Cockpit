@@ -9,7 +9,7 @@ frontend-app/eslint.config.js	frontend-app	app-ui	js-source	857	当前 React/Vit
 frontend-app/index.html	frontend-app	app-ui	html	391	当前 React/Vite 前端包	frontend,app,index,当前,React,Vite,前端包
 frontend-app/jsconfig.json	frontend-app	app-ui	json	421	当前 React/Vite 前端包	frontend,app,jsconfig,当前,React,Vite,前端包
 frontend-app/package-lock.json	frontend-app	app-ui	json	233478	当前 React/Vite 前端包	frontend,app,package,lock,当前,React,Vite,前端包
-frontend-app/package.json	frontend-app	app-ui	json	2892	当前 React/Vite 前端包	frontend,app,package,当前,React,Vite,前端包
+frontend-app/package.json	frontend-app	app-ui	json	3011	当前 React/Vite 前端包	frontend,app,package,当前,React,Vite,前端包
 frontend-app/playwright.business-flows.config.js	frontend-app	app-ui	js-source	894	当前 React/Vite 前端包	frontend,app,playwright,business,flows,config,当前,React,Vite,前端包
 frontend-app/playwright.desktop-wide.config.js	frontend-app	app-ui	js-source	1030	当前 React/Vite 前端包	frontend,app,playwright,desktop,wide,config,当前,React,Vite,前端包
 frontend-app/playwright.desktop.config.js	frontend-app	app-ui	js-source	617	当前 React/Vite 前端包	frontend,app,playwright,desktop,config,当前,React,Vite,前端包
@@ -53,6 +53,7 @@ frontend-app/scripts/rpc-contract-audit.mjs	frontend-app	app-ui	js-source	207723
 frontend-app/scripts/rpc-contract-audit.test.mjs	frontend-app	app-ui	js-test	140759	React 前端构建与校验脚本	frontend,app,scripts,rpc,contract,audit,test,React,前端构建与校验脚本
 frontend-app/scripts/sync-frontend-dist.mjs	frontend-app	app-ui	js-source	1433	React 前端构建与校验脚本	frontend,app,scripts,sync,dist,React,前端构建与校验脚本
 frontend-app/scripts/sync-frontend-dist.test.mjs	frontend-app	app-ui	js-test	1637	React 前端构建与校验脚本	frontend,app,scripts,sync,dist,test,React,前端构建与校验脚本
+frontend-app/scripts/turn-contract-field-guard.mjs	frontend-app	app-ui	js-source	3989	React 前端构建与校验脚本	frontend,app,scripts,turn,contract,field,guard,React,前端构建与校验脚本
 frontend-app/scripts/ui-test-mcp-acceptance.mjs	frontend-app	app-ui	js-source	20806	React 前端构建与校验脚本	frontend,app,scripts,ui,test,mcp,acceptance,React,前端构建与校验脚本
 frontend-app/scripts/ui-test-mcp-framing.mjs	frontend-app	app-ui	js-source	6075	React 前端构建与校验脚本	frontend,app,scripts,ui,test,mcp,framing,React,前端构建与校验脚本
 frontend-app/scripts/ui-test-mcp-scenario.mjs	frontend-app	app-ui	js-source	3101	React 前端构建与校验脚本	frontend,app,scripts,ui,test,mcp,scenario,React,前端构建与校验脚本
@@ -499,6 +500,9 @@ frontend-app/src/shared/api/wails/wailsBridgeTraceEvents.js	frontend-app	app-ui	
 frontend-app/src/shared/api/wails/wailsBridgeTraceEvents.test.js	frontend-app	app-ui	js-test	6216	React 前端 API facade 与 Wails bridge	frontend,app,src,shared,api,wails,wailsBridgeTraceEvents,test,React,前端,API,facade,与,Wails,bridge
 frontend-app/src/shared/api/wailsBridge.js	frontend-app	app-ui	js-source	1091	React 前端 API facade 与 Wails bridge	frontend,app,src,shared,api,wailsBridge,React,前端,API,facade,与,Wails,bridge
 frontend-app/src/shared/api/wailsBridge.test.js	frontend-app	app-ui	js-test	69155	React 前端 API facade 与 Wails bridge	frontend,app,src,shared,api,wailsBridge,test,React,前端,API,facade,与,Wails,bridge
+frontend-app/src/shared/contracts/turnContracts.generated.js	frontend-app	app-ui	js-source	11384	当前 React/Vite 前端包	frontend,app,src,shared,contracts,turnContracts,generated,当前,React,Vite,前端包
+frontend-app/src/shared/contracts/turnContractValidators.js	frontend-app	app-ui	js-source	4535	当前 React/Vite 前端包	frontend,app,src,shared,contracts,turnContractValidators,当前,React,Vite,前端包
+frontend-app/src/shared/contracts/turnContractValidators.test.js	frontend-app	app-ui	js-test	2111	当前 React/Vite 前端包	frontend,app,src,shared,contracts,turnContractValidators,test,当前,React,Vite,前端包
 frontend-app/src/shared/diagnostics/frontendBreadcrumbs.js	frontend-app	app-ui	js-source	5472	当前 React/Vite 前端包	frontend,app,src,shared,diagnostics,frontendBreadcrumbs,当前,React,Vite,前端包
 frontend-app/src/shared/diagnostics/frontendBreadcrumbs.test.js	frontend-app	app-ui	js-test	5492	当前 React/Vite 前端包	frontend,app,src,shared,diagnostics,frontendBreadcrumbs,test,当前,React,Vite,前端包
 frontend-app/src/shared/diagnostics/frontendCrashReport.js	frontend-app	app-ui	js-source	6196	当前 React/Vite 前端包	frontend,app,src,shared,diagnostics,frontendCrashReport,当前,React,Vite,前端包

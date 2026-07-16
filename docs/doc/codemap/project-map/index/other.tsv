@@ -388,9 +388,18 @@ internal/dto/thread/event.go	internal	other	go-source	4374	provider/shared DTO �
 internal/dto/thread/prompt_history_test.go	internal	other	go-test	807	provider/shared DTO 与事件协议	internal,dto,thread,prompt,history,test,provider,shared,DTO,与事件协议
 internal/dto/thread/prompt_history.go	internal	other	go-source	603	provider/shared DTO 与事件协议	internal,dto,thread,prompt,history,provider,shared,DTO,与事件协议
 internal/dto/tool/event.go	internal	other	go-source	2987	provider/shared DTO 与事件协议	internal,dto,tool,event,provider,shared,DTO,与事件协议
+internal/dto/turn/contract_field_guard_test.go	internal	other	go-test	5586	provider/shared DTO 与事件协议	internal,dto,turn,contract,field,guard,test,provider,shared,DTO,与事件协议
+internal/dto/turn/contract_generate.go	internal	other	go-source	159	provider/shared DTO 与事件协议	internal,dto,turn,contract,generate,provider,shared,DTO,与事件协议
+internal/dto/turn/contract_validator_test.go	internal	other	go-test	3194	provider/shared DTO 与事件协议	internal,dto,turn,contract,validator,test,provider,shared,DTO,与事件协议
+internal/dto/turn/contract_validator.go	internal	other	go-source	8705	provider/shared DTO 与事件协议	internal,dto,turn,contract,validator,provider,shared,DTO,与事件协议
 internal/dto/turn/event.go	internal	other	go-source	2912	provider/shared DTO 与事件协议	internal,dto,turn,event,provider,shared,DTO,与事件协议
 internal/dto/turn/model.go	internal	other	go-source	883	provider/shared DTO 与事件协议	internal,dto,turn,model,provider,shared,DTO,与事件协议
 internal/dto/turn/progress.go	internal	other	go-source	2537	provider/shared DTO 与事件协议	internal,dto,turn,progress,provider,shared,DTO,与事件协议
+internal/dto/turn/schema/field_consumers.json	internal	other	json	1949	provider/shared DTO 与事件协议	internal,dto,turn,schema,field,consumers,provider,shared,DTO,与事件协议
+internal/dto/turn/schema/public_error.v1.json	internal	other	json	766	provider/shared DTO 与事件协议	internal,dto,turn,schema,public,error,v1,provider,shared,DTO,与事件协议
+internal/dto/turn/schema/turn_ref.v1.json	internal	other	json	329	provider/shared DTO 与事件协议	internal,dto,turn,schema,ref,v1,provider,shared,DTO,与事件协议
+internal/dto/turn/schema/turn_terminal.v2.json	internal	other	json	2244	provider/shared DTO 与事件协议	internal,dto,turn,schema,terminal,v2,provider,shared,DTO,与事件协议
+internal/dto/turn/turn_contract_schemas_generated.go	internal	other	go-source	5340	provider/shared DTO 与事件协议	internal,dto,turn,contract,schemas,generated,provider,shared,DTO,与事件协议
 internal/dto/ui/event_test.go	internal	other	go-test	642	provider/shared DTO 与事件协议	internal,dto,ui,event,test,provider,shared,DTO,与事件协议
 internal/dto/ui/event.go	internal	other	go-source	7844	provider/shared DTO 与事件协议	internal,dto,ui,event,provider,shared,DTO,与事件协议
 internal/dto/ui/patch_types.go	internal	other	go-source	1405	provider/shared DTO 与事件协议	internal,dto,ui,patch,types,provider,shared,DTO,与事件协议
@@ -618,6 +627,7 @@ scripts/test_new_ui_desktop_hot.sh	scripts	other	script	1251	工程自动化、�
 scripts/test_with_guard.ps1	scripts	other	script	12071	工程自动化、测试守卫、代码地图与开发脚本	scripts,test,with,guard,工程自动化,测试守卫,代码地图与开发脚本
 scripts/test_with_guard.sh	scripts	other	script	3519	工程自动化、测试守卫、代码地图与开发脚本	scripts,test,with,guard,工程自动化,测试守卫,代码地图与开发脚本
 scripts/tests/test_codex_stop_gate_plan.sh	scripts	other	script	7863	工程自动化、测试守卫、代码地图与开发脚本	scripts,tests,test,codex,stop,gate,plan,工程自动化,测试守卫,代码地图与开发脚本
+scripts/turncontract/main.go	scripts	other	go-source	6393	工程自动化、测试守卫、代码地图与开发脚本	scripts,turncontract,main,工程自动化,测试守卫,代码地图与开发脚本
 scripts/uat-p21.sh	scripts	other	script	9595	工程自动化、测试守卫、代码地图与开发脚本	scripts,uat,p21,工程自动化,测试守卫,代码地图与开发脚本
 scripts/ui-coverage.sh	scripts	other	script	8745	工程自动化、测试守卫、代码地图与开发脚本	scripts,ui,coverage,工程自动化,测试守卫,代码地图与开发脚本
 scripts/update_apiserver_guard_snapshots.js	scripts	other	js-source	1920	工程自动化、测试守卫、代码地图与开发脚本	scripts,update,apiserver,guard,snapshots,工程自动化,测试守卫,代码地图与开发脚本
