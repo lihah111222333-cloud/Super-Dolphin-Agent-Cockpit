@@ -275,10 +275,11 @@ const noContainerNetwork = "none"
 
 // FreshContainerImageTruth binds the inspected image labels to accepted build truth.
 type FreshContainerImageTruth struct {
-	PolicyDigest    string
-	InputDigest     string
-	ToolchainDigest string
-	SchemaVersion   string
+	PolicyDigest       string
+	BuildSourceTreeSHA string
+	InputDigest        string
+	ToolchainDigest    string
+	SchemaVersion      string
 }
 
 // FreshContainerRequest contains only canonical execution authority and source inputs.
@@ -383,7 +384,7 @@ func (runner *FreshContainerRunner) prepareRequest(request FreshContainerRequest
 	prepared.expectedImageIndex = request.Image.OCIIndexDigest
 	prepared.expectedIdentity = request.Image
 	prepared.expectedImage = expectedImageMetadata{
-		PolicyDigest: request.ImageTruth.PolicyDigest, SourceTreeSHA: request.SourceTreeSHA,
+		PolicyDigest: request.ImageTruth.PolicyDigest, SourceTreeSHA: request.ImageTruth.BuildSourceTreeSHA,
 		InputDigest: request.ImageTruth.InputDigest, ToolchainDigest: request.ImageTruth.ToolchainDigest,
 		SchemaVersion: request.ImageTruth.SchemaVersion, OS: request.Image.OS,
 		Architecture: request.Image.Architecture, Variant: request.Image.Variant,
@@ -421,7 +422,7 @@ func validateFreshContainerRequest(request FreshContainerRequest) ([]string, err
 	}
 	identity := gateImageIdentityReader{ImageIdentity: request.Image}
 	expected := expectedImageMetadata{
-		PolicyDigest: request.ImageTruth.PolicyDigest, SourceTreeSHA: request.SourceTreeSHA,
+		PolicyDigest: request.ImageTruth.PolicyDigest, SourceTreeSHA: request.ImageTruth.BuildSourceTreeSHA,
 		InputDigest: request.ImageTruth.InputDigest, ToolchainDigest: request.ImageTruth.ToolchainDigest,
 		SchemaVersion: request.ImageTruth.SchemaVersion, OS: request.Image.OS,
 		Architecture: request.Image.Architecture, Variant: request.Image.Variant,

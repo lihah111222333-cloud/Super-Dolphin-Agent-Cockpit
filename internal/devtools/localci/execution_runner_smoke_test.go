@@ -50,7 +50,7 @@ func TestRunFreshContainerDockerSmokeCreatesDistinctContainers(t *testing.T) {
 	if first.Container.ContainerID == second.Container.ContainerID {
 		t.Fatalf("Docker reused container ID %s", first.Container.ContainerID)
 	}
-	t.Logf("container_ids=%s,%s removed=%t,%t removal_proofs=%s,%s", first.Container.ContainerID, second.Container.ContainerID, first.Container.Removed, second.Container.Removed, first.RemovalProofDigest, second.RemovalProofDigest)
+	t.Logf("build_tree=%s job_tree=%s container_ids=%s,%s removed=%t,%t removal_proofs=%s,%s", request.ImageTruth.BuildSourceTreeSHA, request.SourceTreeSHA, first.Container.ContainerID, second.Container.ContainerID, first.Container.Removed, second.Container.Removed, first.RemovalProofDigest, second.RemovalProofDigest)
 }
 
 func buildFreshContainerSmokeFixture(t *testing.T) freshContainerSmokeConfiguration {
@@ -99,10 +99,11 @@ func inspectFreshContainerSmokeFixture(t *testing.T, fixtureDirectory string, re
 	return freshContainerSmokeConfiguration{
 		Image: identity,
 		ImageTruth: FreshContainerImageTruth{
-			PolicyDigest: request.PolicyDigest, InputDigest: request.InputDigest,
+			PolicyDigest: request.PolicyDigest, BuildSourceTreeSHA: request.SourceTreeSHA,
+			InputDigest:     request.InputDigest,
 			ToolchainDigest: request.ToolchainDigest, SchemaVersion: request.ImageSchemaVersion,
 		},
-		SourceTreeSHA: request.SourceTreeSHA, SourceSnapshotDir: source,
+		SourceTreeSHA: strings.Repeat("b", 40), SourceSnapshotDir: source,
 		SeccompPath: canonicalSmokePath(t, filepath.Join(fixtureDirectory, "seccomp.json")), TrustedSourceRoot: root,
 	}
 }

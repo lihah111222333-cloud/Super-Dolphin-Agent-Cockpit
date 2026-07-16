@@ -93,7 +93,7 @@ func (stub *freshDockerRunnerStub) runWait(ctx context.Context) (string, error) 
 func (stub *freshDockerRunnerStub) imageInspectJSON() string {
 	identity := stub.request.Image
 	labels := map[string]string{
-		labelPolicySHA: stub.request.ImageTruth.PolicyDigest, labelSourceTreeSHA: stub.request.SourceTreeSHA,
+		labelPolicySHA: stub.request.ImageTruth.PolicyDigest, labelSourceTreeSHA: stub.request.ImageTruth.BuildSourceTreeSHA,
 		labelInputDigest: stub.request.ImageTruth.InputDigest, labelToolchainDigest: stub.request.ImageTruth.ToolchainDigest,
 		labelSchemaVersion: stub.request.ImageTruth.SchemaVersion,
 	}
@@ -224,6 +224,40 @@ func TestRunFreshContainerRejectsImageInspectDriftBeforeCreate(t *testing.T) {
 	}
 }
 
+func TestRunFreshContainerAcceptsDifferentBuildAndJobSourceTrees(t *testing.T) {
+	runner, stub, request := freshContainerFixture(t)
+	if request.ImageTruth.BuildSourceTreeSHA == request.SourceTreeSHA {
+		t.Fatal("fixture did not separate accepted image build tree from submitted job tree")
+	}
+	result, err := runner.RunFreshContainer(context.Background(), request)
+	if err != nil || result.Status != gate.ResultStatusPassed || !calledDockerCommand(stub.calls, "create") {
+		t.Fatalf("result = %#v, err = %v, calls = %#v", result, err, stub.calls)
+	}
+}
+
+func TestRunFreshContainerRejectsBuildSourceTreeLabelDrift(t *testing.T) {
+	runner, stub, request := freshContainerFixture(t)
+	stub.imageMutation = "label"
+	result, err := runner.RunFreshContainer(context.Background(), request)
+	if err == nil || result.Status == gate.ResultStatusPassed || calledDockerCommand(stub.calls, "create") {
+		t.Fatalf("result = %#v, err = %v, calls = %#v", result, err, stub.calls)
+	}
+}
+
+func TestRunFreshContainerRequiresCanonicalJobAndBuildSourceTrees(t *testing.T) {
+	for _, mutate := range []func(*FreshContainerRequest){
+		func(request *FreshContainerRequest) { request.SourceTreeSHA = "not-a-git-oid" },
+		func(request *FreshContainerRequest) { request.ImageTruth.BuildSourceTreeSHA = "" },
+	} {
+		runner, stub, request := freshContainerFixture(t)
+		mutate(&request)
+		result, err := runner.RunFreshContainer(context.Background(), request)
+		if err == nil || result.Status == gate.ResultStatusPassed || len(stub.calls) != 0 {
+			t.Fatalf("result = %#v, err = %v, calls = %#v", result, err, stub.calls)
+		}
+	}
+}
+
 func TestRunFreshContainerRejectsTagInjectionAndSourceTreeMismatch(t *testing.T) {
 	for _, mutate := range []func(*FreshContainerRequest){
 		func(request *FreshContainerRequest) { request.Image.Registry += ":latest" },
@@ -308,8 +342,10 @@ func TestFreshContainerRequestFieldRegistryIsComplete(t *testing.T) {
 		"Profile": "plan binding and timeout", "Plan": "canonical command closure", "GateID": "plan command selection",
 	})
 	assertRegisteredFields(t, reflect.TypeFor[FreshContainerImageTruth](), map[string]string{
-		"PolicyDigest": "policy label", "InputDigest": "input label",
-		"ToolchainDigest": "toolchain label", "SchemaVersion": "schema label",
+		"PolicyDigest":       "policy label",
+		"BuildSourceTreeSHA": "accepted image build provenance label",
+		"InputDigest":        "input label",
+		"ToolchainDigest":    "toolchain label", "SchemaVersion": "schema label",
 	})
 }
 
@@ -368,10 +404,11 @@ func canonicalDockerFixture(t *testing.T) (string, string, string) {
 
 func validFreshContainerRequest(t *testing.T, source string) FreshContainerRequest {
 	t.Helper()
-	sourceTree := strings.Repeat("b", 40)
+	jobSourceTree := strings.Repeat("b", 40)
+	buildSourceTree := strings.Repeat("a", 40)
 	plan, err := gate.BuildGatePlan(gate.ProfileLocalFast, gate.SourceSpec{
 		Kind: gate.SourceKindTree, ObjectFormat: gate.GitObjectFormatSHA1,
-		Tree: &gate.TreeSource{SHA: sourceTree}, SourceTreeSHA: sourceTree,
+		Tree: &gate.TreeSource{SHA: jobSourceTree}, SourceTreeSHA: jobSourceTree,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -381,8 +418,11 @@ func validFreshContainerRequest(t *testing.T, source string) FreshContainerReque
 			Registry: "registry.local/gate", OCIIndexDigest: digest("1"), PlatformManifestDigest: digest("2"),
 			ConfigDigest: digest("3"), RootFSDiffIDs: []string{digest("4"), digest("5")}, OS: "linux", Architecture: "arm64",
 		},
-		ImageTruth:    FreshContainerImageTruth{PolicyDigest: digest("8"), InputDigest: digest("6"), ToolchainDigest: digest("7"), SchemaVersion: imageInputSchemaVersion},
-		SourceTreeSHA: sourceTree, SourceSnapshotDir: source, Profile: gate.ProfileLocalFast, Plan: plan, GateID: gate.GateIDWhitespaceCheck,
+		ImageTruth: FreshContainerImageTruth{
+			PolicyDigest: digest("8"), BuildSourceTreeSHA: buildSourceTree,
+			InputDigest: digest("6"), ToolchainDigest: digest("7"), SchemaVersion: imageInputSchemaVersion,
+		},
+		SourceTreeSHA: jobSourceTree, SourceSnapshotDir: source, Profile: gate.ProfileLocalFast, Plan: plan, GateID: gate.GateIDWhitespaceCheck,
 	}
 }
 
