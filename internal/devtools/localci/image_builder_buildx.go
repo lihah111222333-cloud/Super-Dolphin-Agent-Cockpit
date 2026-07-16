@@ -16,8 +16,10 @@ import (
 )
 
 const (
-	buildxMetadataLimit = 16 << 20
-	buildxManifestMedia = "application/vnd.docker.distribution.manifest.v2+json"
+	buildxMetadataLimit      = 16 << 20
+	buildxManifestMedia      = "application/vnd.docker.distribution.manifest.v2+json"
+	candidateImageRepository = "docker.io/library/super-dolphin-gate-local"
+	candidateImageTagPrefix  = "candidate-"
 )
 
 var forbiddenBuildArgumentNames = map[string]struct{}{
@@ -41,6 +43,14 @@ type execBuildxCommandExecutor struct{}
 // NewDockerBuildxRunner 固定私有工作根和隔离 cache 根。
 func NewDockerBuildxRunner(trustedRoot string) (*DockerBuildxRunner, error) {
 	return newDockerBuildxRunner(execBuildxCommandExecutor{}, trustedRoot)
+}
+
+// CandidateImageReference 将受信 manifest digest 绑定到固定本地 repository。
+func CandidateImageReference(manifestDigest string) (string, error) {
+	if err := validateDigest("candidate platform manifest digest", manifestDigest); err != nil {
+		return "", err
+	}
+	return candidateImageRepository + "@" + manifestDigest, nil
 }
 
 func newDockerBuildxRunner(executor buildxCommandExecutor, trustedRoot string) (*DockerBuildxRunner, error) {
@@ -88,6 +98,10 @@ func (runner *DockerBuildxRunner) Build(ctx context.Context, request BuildKitBui
 	if err := runner.validateBuild(ctx, request); err != nil {
 		return "", err
 	}
+	candidateTag, useCache, err := runner.prepareBuildxExecution(request)
+	if err != nil {
+		return "", err
+	}
 	workspace, err := os.MkdirTemp(runner.workRoot, "candidate-")
 	if err != nil {
 		return "", fmt.Errorf("create private buildx workspace: %w", err)
@@ -102,7 +116,7 @@ func (runner *DockerBuildxRunner) Build(ctx context.Context, request BuildKitBui
 		return "", fmt.Errorf("protect buildx workspace: %w", err)
 	}
 	metadataPath := filepath.Join(workspace, "metadata.json")
-	output, err := runner.executor.Run(ctx, bytes.NewReader(request.ContextTar), runner.commandArgs(request, metadataPath)...)
+	output, err := runner.executor.Run(ctx, bytes.NewReader(request.ContextTar), runner.commandArgs(request, metadataPath, candidateTag, useCache)...)
 	if err != nil {
 		return "", fmt.Errorf("run candidate buildx command: %w", err)
 	}
@@ -120,6 +134,19 @@ func (runner *DockerBuildxRunner) Build(ctx context.Context, request BuildKitBui
 	return validateBuildxMetadata(metadataData, request, configDigest)
 }
 
+// prepareBuildxExecution 固定 candidate tag 并校验可选 cache source。
+func (runner *DockerBuildxRunner) prepareBuildxExecution(request BuildKitBuildRequest) (string, bool, error) {
+	useCache, err := runner.cacheAvailable(request.CacheNamespace)
+	if err != nil {
+		return "", false, err
+	}
+	candidateTag, err := candidateImageTag(request.InputDigest)
+	if err != nil {
+		return "", false, err
+	}
+	return candidateTag, useCache, nil
+}
+
 // validateBuild 在创建临时目录或调用 Docker 前完成全部入口校验。
 func (runner *DockerBuildxRunner) validateBuild(ctx context.Context, request BuildKitBuildRequest) error {
 	if runner == nil {
@@ -134,22 +161,23 @@ func (runner *DockerBuildxRunner) validateBuild(ctx context.Context, request Bui
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if err := validateBuildxRequest(request); err != nil {
-		return err
-	}
-	return runner.validateCachePath(request.CacheNamespace)
+	return validateBuildxRequest(request)
 }
 
-func (runner *DockerBuildxRunner) commandArgs(request BuildKitBuildRequest, metadataPath string) []string {
+func (runner *DockerBuildxRunner) commandArgs(request BuildKitBuildRequest, metadataPath string, candidateTag string, useCache bool) []string {
 	cachePath := filepath.Join(runner.cacheRoot, strings.TrimPrefix(request.CacheNamespace, "sha256:"))
 	args := []string{
 		"buildx", "build", "--load", "--progress=quiet", "--provenance=false",
 		"--platform=" + request.Platform,
 		"--file=" + request.DockerfilePath,
 		"--network=none",
+		"--tag=" + candidateTag,
 		"--metadata-file=" + metadataPath,
-		"--cache-to=type=local,dest=" + cachePath + ",mode=max",
 	}
+	if useCache {
+		args = append(args, "--cache-from=type=local,src="+cachePath)
+	}
+	args = append(args, "--cache-to=type=local,dest="+cachePath+",mode=max")
 	for _, argument := range request.BuildArguments {
 		args = append(args, "--build-arg="+argument.Name+"="+argument.Value)
 	}
@@ -159,27 +187,54 @@ func (runner *DockerBuildxRunner) commandArgs(request BuildKitBuildRequest, meta
 	return append(args, "-")
 }
 
-// validateCachePath 阻止已有 cache namespace 通过符号链接逃逸。
-func (runner *DockerBuildxRunner) validateCachePath(namespace string) error {
+// cacheAvailable 校验已有 namespace 不逃逸，并报告是否可作为 cache source。
+func (runner *DockerBuildxRunner) cacheAvailable(namespace string) (bool, error) {
 	cachePath := filepath.Join(runner.cacheRoot, strings.TrimPrefix(namespace, "sha256:"))
 	info, err := os.Lstat(cachePath)
 	if errors.Is(err, os.ErrNotExist) {
-		return nil
+		return false, nil
 	}
 	if err != nil {
-		return fmt.Errorf("inspect buildx cache namespace: %w", err)
+		return false, fmt.Errorf("inspect buildx cache namespace: %w", err)
 	}
 	if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
-		return errors.New("buildx cache namespace must be a real directory")
+		return false, errors.New("buildx cache namespace must be a real directory")
 	}
 	resolved, err := filepath.EvalSymlinks(cachePath)
 	if err != nil {
-		return fmt.Errorf("resolve buildx cache namespace: %w", err)
+		return false, fmt.Errorf("resolve buildx cache namespace: %w", err)
 	}
 	if resolved != cachePath {
-		return errors.New("buildx cache namespace escapes the private cache root")
+		return false, errors.New("buildx cache namespace escapes the private cache root")
+	}
+	if err := validateBuildxCacheLayout(cachePath); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+// validateBuildxCacheLayout 只把完整 local OCI cache 作为 cache source。
+func validateBuildxCacheLayout(cachePath string) error {
+	files := []string{filepath.Join(cachePath, "index.json"), filepath.Join(cachePath, "oci-layout")}
+	for _, filePath := range files {
+		info, err := os.Lstat(filePath)
+		if err != nil || !info.Mode().IsRegular() {
+			return errors.New("buildx cache namespace is missing a regular OCI metadata file")
+		}
+	}
+	blobsPath := filepath.Join(cachePath, "blobs", "sha256")
+	info, err := os.Lstat(blobsPath)
+	if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+		return errors.New("buildx cache namespace is missing a real sha256 blobs directory")
 	}
 	return nil
+}
+
+func candidateImageTag(inputDigest string) (string, error) {
+	if err := validateDigest("candidate image input digest", inputDigest); err != nil {
+		return "", err
+	}
+	return candidateImageRepository + ":" + candidateImageTagPrefix + strings.TrimPrefix(inputDigest, "sha256:"), nil
 }
 
 // validateBuildxRequest 复验 BuildKit 请求的摘要、路径、平台和锁定参数。

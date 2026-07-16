@@ -71,6 +71,34 @@ func TestDockerBuildxRunnerUsesFixedCommandAndCanonicalStdin(t *testing.T) {
 	}
 }
 
+func TestDockerBuildxRunnerUsesExistingIsolatedCache(t *testing.T) {
+	request := validBuildxRequest(t)
+	executor := validBuildxExecutor(t, request)
+	runner, root := newTestDockerBuildxRunner(t, executor)
+	cachePath := filepath.Join(root, "cache", strings.TrimPrefix(request.CacheNamespace, "sha256:"))
+	writeBuildxCacheLayout(t, cachePath)
+	if _, err := runner.Build(context.Background(), request); err != nil {
+		t.Fatal(err)
+	}
+	cacheFrom := "--cache-from=type=local,src=" + cachePath
+	if !slices.Contains(executor.calls[0].args, cacheFrom) {
+		t.Fatalf("existing isolated cache was not imported: %v", executor.calls[0].args)
+	}
+}
+
+func writeBuildxCacheLayout(t *testing.T, cachePath string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Join(cachePath, "blobs", "sha256"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cachePath, "index.json"), []byte("{}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cachePath, "oci-layout"), []byte("{\"imageLayoutVersion\":\"1.0.0\"}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestNewDockerBuildxRunnerRejectsTypedNilExecutor(t *testing.T) {
 	var executor *recordingBuildxCommandExecutor
 	runner, err := newDockerBuildxRunner(executor, privateTempRoot(t))
@@ -104,6 +132,37 @@ func TestDockerBuildxRunnerLocalSmoke(t *testing.T) {
 	}
 	if err := validateDigest("smoke platform manifest digest", imageDigest); err != nil {
 		t.Fatal(err)
+	}
+	imageReference, err := CandidateImageReference(imageDigest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	createOutput, err := (execDockerRunner{}).Run(context.Background(), "create", imageReference, "true")
+	if err != nil {
+		t.Fatal(err)
+	}
+	containerID := strings.TrimSpace(createOutput)
+	if !isContainerID(containerID) {
+		t.Fatalf("docker create returned invalid container ID %q", containerID)
+	}
+	t.Cleanup(func() {
+		if _, err := (execDockerRunner{}).Run(context.Background(), "rm", "--force", containerID); err != nil {
+			t.Errorf("remove smoke container: %v", err)
+		}
+	})
+}
+
+func TestCandidateImageReferenceUsesFixedRepository(t *testing.T) {
+	reference, err := CandidateImageReference(digest("5"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	wanted := "docker.io/library/super-dolphin-gate-local@" + digest("5")
+	if reference != wanted {
+		t.Fatalf("candidate image reference = %q, want %q", reference, wanted)
+	}
+	if _, err := CandidateImageReference("attacker.invalid/image:latest"); err == nil {
+		t.Fatal("mutable repository and tag input was accepted as a manifest digest")
 	}
 }
 
@@ -373,6 +432,7 @@ func assertFixedBuildxArgs(t *testing.T, args []string, request BuildKitBuildReq
 			t.Fatalf("buildx command missing %q: %v", argument, args)
 		}
 	}
+	assertFixedBuildxTagAndCache(t, args, request)
 	assertBuildxArgumentOrder(t, args, request)
 	cacheArgument := "--cache-to=type=local,dest=" + filepath.Join(root, "cache", strings.TrimPrefix(request.CacheNamespace, "sha256:")) + ",mode=max"
 	if !slices.Contains(args, cacheArgument) {
@@ -384,6 +444,17 @@ func assertFixedBuildxArgs(t *testing.T, args []string, request BuildKitBuildReq
 		if strings.Contains(joined, fragment) {
 			t.Fatalf("buildx command contains forbidden fragment %q: %v", fragment, args)
 		}
+	}
+}
+
+func assertFixedBuildxTagAndCache(t *testing.T, args []string, request BuildKitBuildRequest) {
+	t.Helper()
+	wantedTag := "--tag=" + expectedCandidateImageTag(request)
+	if actualTags := prefixedArguments(args, "--tag="); !slices.Equal(actualTags, []string{wantedTag}) {
+		t.Fatalf("buildx candidate tags = %v, want %q", actualTags, wantedTag)
+	}
+	if cacheFrom := prefixedArguments(args, "--cache-from="); len(cacheFrom) != 0 {
+		t.Fatalf("first build imported unexpected cache: %v", cacheFrom)
 	}
 }
 
@@ -465,8 +536,12 @@ func validBuildxMetadataDocument(request BuildKitBuildRequest) map[string]any {
 			"platform":  map[string]any{"architecture": "arm64", "os": "linux"},
 		},
 		"containerimage.digest": digest("5"),
-		"image.name":            "moby-dangling@" + digest("5"),
+		"image.name":            expectedCandidateImageTag(request),
 	}
+}
+
+func expectedCandidateImageTag(request BuildKitBuildRequest) string {
+	return "docker.io/library/super-dolphin-gate-local:candidate-" + strings.TrimPrefix(request.InputDigest, "sha256:")
 }
 
 func expectedProvenanceArgs(request BuildKitBuildRequest) map[string]any {

@@ -86,8 +86,12 @@ func validateBuildxMetadata(data []byte, request BuildKitBuildRequest, configOut
 	if metadata.ImageDigest != metadata.Descriptor.Digest {
 		return "", errors.New("buildx image digest does not match the platform manifest descriptor")
 	}
-	if !immutableBuildxImageName(metadata.ImageName, metadata.ImageDigest) {
-		return "", errors.New("buildx image name is not bound to the immutable manifest digest")
+	expectedTag, err := candidateImageTag(request.InputDigest)
+	if err != nil {
+		return "", err
+	}
+	if metadata.ImageName != expectedTag {
+		return "", fmt.Errorf("buildx image name %q does not match fixed candidate tag %q", metadata.ImageName, expectedTag)
 	}
 	return metadata.ImageDigest, nil
 }
@@ -194,11 +198,6 @@ func validateBuildxDescriptor(descriptor buildxDescriptor, platformValue string)
 		return errors.New("buildx platform manifest descriptor does not match the request")
 	}
 	return nil
-}
-
-func immutableBuildxImageName(imageName string, imageDigest string) bool {
-	separator := strings.LastIndex(imageName, "@")
-	return separator > 0 && imageName[separator+1:] == imageDigest
 }
 
 func rawJSONPresent(value json.RawMessage) bool {
