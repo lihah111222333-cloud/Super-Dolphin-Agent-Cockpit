@@ -110,7 +110,13 @@ func disabledUpdateCapability(platform, reason string) UpdateCapability {
 
 // LoadPackageTrust 严格读取 package-owned trust，并返回 exact bytes digest。
 func LoadPackageTrust(resources, platform string) (PackageTrust, string, error) {
+	if err := RequireCanonicalExistingPath(resources); err != nil {
+		return PackageTrust{}, "", fmt.Errorf("reject package trust resources alias: %w", err)
+	}
 	path := filepath.Join(resources, PackageTrustFilename)
+	if err := RequireCanonicalExistingPath(path); err != nil {
+		return PackageTrust{}, "", fmt.Errorf("reject package trust file alias: %w", err)
+	}
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		return PackageTrust{}, "", fmt.Errorf("read package-owned update trust: %w", err)
@@ -152,6 +158,41 @@ func CanonicalExistingPath(path string) (string, error) {
 		return "", fmt.Errorf("resolve canonical executable path: %w", err)
 	}
 	return filepath.Clean(canonical), nil
+}
+
+// RequireCanonicalExistingPath 拒绝相对、非 clean、symlink 或 alias 的现存路径。
+func RequireCanonicalExistingPath(path string) error {
+	if !filepath.IsAbs(path) || filepath.Clean(path) != path {
+		return fmt.Errorf("path is not clean absolute: %q", path)
+	}
+	canonical, err := CanonicalExistingPath(path)
+	if err != nil {
+		return err
+	}
+	if canonical != path {
+		return fmt.Errorf("path is an alias: got %q canonical %q", path, canonical)
+	}
+	return nil
+}
+
+// RequireCanonicalPath 仅在最深现存祖先 canonical 时允许末端路径尚不存在。
+func RequireCanonicalPath(path string) error {
+	if !filepath.IsAbs(path) || filepath.Clean(path) != path {
+		return fmt.Errorf("path is not clean absolute: %q", path)
+	}
+	current := path
+	for {
+		if _, err := os.Lstat(current); err == nil {
+			return RequireCanonicalExistingPath(current)
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("inspect path %q: %w", current, err)
+		}
+		parent := filepath.Dir(current)
+		if parent == current {
+			return fmt.Errorf("path has no existing canonical ancestor: %q", path)
+		}
+		current = parent
+	}
 }
 
 // BuildGuardReadyReceipt 生成绑定 exact transaction 与 Guard 进程的就绪凭据。
@@ -338,6 +379,9 @@ func TransactionRootForTarget(target string) string {
 
 // ResolveTransactionBoundPackageTrust 在 active transaction 中只返回旧包信任。
 func ResolveTransactionBoundPackageTrust(ctx context.Context, target, platform string) (PackageTrust, string, error) {
+	if err := RequireCanonicalPath(target); err != nil {
+		return PackageTrust{}, "", fmt.Errorf("reject package target alias: %w", err)
+	}
 	root := TransactionRootForTarget(target)
 	if _, err := os.Stat(root); errors.Is(err, os.ErrNotExist) {
 		return LoadPackageTrust(filepath.Join(target, "Contents", "Resources"), platform)
@@ -495,6 +539,9 @@ func verifyCandidateForState(platform string, transaction Transaction) error {
 
 // loadExactTransactionTrust 联合校验 release、helper、generation 和 signer。
 func loadExactTransactionTrust(path, platform string, release ReleaseIdentity, helpers HelperIdentity, generation, signer string) (PackageTrust, string, error) {
+	if err := RequireCanonicalExistingPath(path); err != nil {
+		return PackageTrust{}, "", fmt.Errorf("reject transaction release alias: %w", err)
+	}
 	if err := verifyRelease(path, release); err != nil {
 		return PackageTrust{}, "", fmt.Errorf("verify transaction release at %s: %w", path, err)
 	}
@@ -516,11 +563,19 @@ func loadExactTransactionTrust(path, platform string, release ReleaseIdentity, h
 
 // verifyReleaseHelpers 校验包内 helper 同时匹配 trust 与 journal identity。
 func verifyReleaseHelpers(release string, trust PackageTrust, helpers HelperIdentity) error {
-	updater, err := ComputeReleaseDigest(filepath.Join(release, "Contents", "Resources", "bin", "super-dolphin-updater"))
+	updaterPath := filepath.Join(release, "Contents", "Resources", "bin", "super-dolphin-updater")
+	if err := RequireCanonicalExistingPath(updaterPath); err != nil {
+		return fmt.Errorf("reject transaction updater alias: %w", err)
+	}
+	updater, err := ComputeReleaseDigest(updaterPath)
 	if err != nil {
 		return fmt.Errorf("digest transaction updater helper: %w", err)
 	}
-	guard, err := ComputeReleaseDigest(filepath.Join(release, "Contents", "Resources", "bin", "super-dolphin-guard"))
+	guardPath := filepath.Join(release, "Contents", "Resources", "bin", "super-dolphin-guard")
+	if err := RequireCanonicalExistingPath(guardPath); err != nil {
+		return fmt.Errorf("reject transaction Guard alias: %w", err)
+	}
+	guard, err := ComputeReleaseDigest(guardPath)
 	if err != nil {
 		return fmt.Errorf("digest transaction Guard helper: %w", err)
 	}

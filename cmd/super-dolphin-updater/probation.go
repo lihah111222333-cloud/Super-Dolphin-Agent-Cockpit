@@ -3,6 +3,8 @@ package main
 import (
 	"bufio"
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -89,9 +91,14 @@ func startProbationCandidate(transaction recovery.Transaction) (*candidateHandle
 		return nil, fmt.Errorf("digest probation executable: %w", err)
 	}
 	root := filepath.Join(filepath.Dir(transaction.Paths.Target), updateTransactionDirName)
+	terminationEndpoint, terminationToken, err := newCandidateTerminationContract(transaction.Identity.TransactionID)
+	if err != nil {
+		return nil, err
+	}
 	env, err := runtimeenv.AppendRecoveryLaunchEnvironment(sanitizedRestartEnv(os.Environ()), runtimeenv.RecoveryLaunch{
 		TransactionRoot: root, TransactionID: string(transaction.Identity.TransactionID),
 		ExecutableIdentity: filepath.Clean(executable), ExecutableSHA256: digest, ContractPresent: true,
+		TerminationEndpoint: terminationEndpoint, TerminationToken: terminationToken,
 	})
 	if err != nil {
 		return nil, err
@@ -108,6 +115,7 @@ func startProbationCandidate(transaction recovery.Transaction) (*candidateHandle
 	identity := recovery.ProcessIdentity{
 		PID: stable.PID, StartToken: stable.ProcessStartToken,
 		ExecutableIdentity: stable.ExecutableIdentity, ExecutableSHA256: digest,
+		TerminationEndpoint: terminationEndpoint, TerminationToken: terminationToken,
 	}
 	handle := newCandidateHandle(cmd, identity)
 	if stable.ExecutableIdentity != filepath.Clean(executable) {
@@ -424,5 +432,19 @@ func (app updaterApp) rollbackClaimedCandidate(ctx context.Context, store *recov
 func terminateCandidate(ctx context.Context, process recovery.ProcessIdentity) error {
 	return pidregistry.TerminateExactProcess(ctx, pidregistry.StableProcessIdentity{
 		PID: process.PID, ProcessStartToken: process.StartToken, ExecutableIdentity: process.ExecutableIdentity,
+		TerminationEndpoint: process.TerminationEndpoint, TerminationToken: process.TerminationToken,
 	})
+}
+
+func newCandidateTerminationContract(transactionID recovery.TransactionID) (string, string, error) {
+	raw := make([]byte, 32)
+	if _, err := rand.Read(raw); err != nil {
+		return "", "", fmt.Errorf("generate candidate termination token: %w", err)
+	}
+	token := hex.EncodeToString(raw)
+	endpoint := filepath.Join(os.TempDir(), "sd-term-"+string(transactionID)[:16]+"-"+token[:8]+".sock")
+	if len(endpoint) >= 100 {
+		endpoint = filepath.Join("/tmp", "sd-term-"+token[:24]+".sock")
+	}
+	return endpoint, token, nil
 }

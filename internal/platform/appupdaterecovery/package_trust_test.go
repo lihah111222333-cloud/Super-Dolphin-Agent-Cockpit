@@ -15,7 +15,7 @@ import (
 
 func TestPackageTrustRejectsRuntimeOverrideAndWrongKey(t *testing.T) {
 	trust := testPackageTrust(t, "darwin-arm64")
-	resources := t.TempDir()
+	resources := canonicalTestTempDir(t)
 	writePackageTrustFixture(t, resources, trust)
 
 	loaded, digest, err := LoadPackageTrust(resources, "darwin-arm64")
@@ -40,6 +40,45 @@ func TestPackageTrustRejectsRuntimeOverrideAndWrongKey(t *testing.T) {
 	}
 	if _, _, err := LoadPackageTrust(resources, "darwin-arm64"); err == nil || !strings.Contains(err.Error(), "manifest_public_key") {
 		t.Fatalf("LoadPackageTrust(wrong key) error = %v, want key rejection", err)
+	}
+}
+
+func TestPackageTrustRejectsTrustFileAlias(t *testing.T) {
+	root := canonicalTestTempDir(t)
+	resources := filepath.Join(root, "Resources")
+	if err := os.MkdirAll(resources, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := EncodePackageTrust(testPackageTrust(t, "darwin-arm64"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	realTrust := filepath.Join(root, "attacker-trust.json")
+	if err := os.WriteFile(realTrust, raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(realTrust, filepath.Join(resources, PackageTrustFilename)); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := LoadPackageTrust(resources, "darwin-arm64"); err == nil || !strings.Contains(err.Error(), "trust file alias") {
+		t.Fatalf("LoadPackageTrust(trust alias) error = %v", err)
+	}
+}
+
+func TestPackageTrustRejectsTransactionTargetAlias(t *testing.T) {
+	root := canonicalTestTempDir(t)
+	realTarget := filepath.Join(root, "Real.app")
+	resources := filepath.Join(realTarget, "Contents", "Resources")
+	if err := os.MkdirAll(resources, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	writePackageTrustFixture(t, resources, testPackageTrust(t, "darwin-arm64"))
+	aliasTarget := filepath.Join(root, "Super Dolphin.app")
+	if err := os.Symlink(realTarget, aliasTarget); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := ResolveTransactionBoundPackageTrust(context.Background(), aliasTarget, "darwin-arm64"); err == nil || !strings.Contains(err.Error(), "target alias") {
+		t.Fatalf("ResolveTransactionBoundPackageTrust(target alias) error = %v", err)
 	}
 }
 
@@ -81,7 +120,7 @@ func assertPackageTrustRawRejected(t *testing.T, value map[string]any, evidence 
 	if err != nil {
 		t.Fatal(err)
 	}
-	resources := t.TempDir()
+	resources := canonicalTestTempDir(t)
 	if err := os.WriteFile(filepath.Join(resources, PackageTrustFilename), raw, 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -155,7 +194,7 @@ type pendingTrustFixture struct {
 func newPendingTrustFixture(t *testing.T) pendingTrustFixture {
 	t.Helper()
 	ctx := context.Background()
-	root := t.TempDir()
+	root := canonicalTestTempDir(t)
 	target := filepath.Join(root, "Super Dolphin.app")
 	id := TransactionID("00112233445566778899aabbccddeeff")
 	paths, err := PathsFor(target, id)
@@ -242,6 +281,15 @@ func writePackageTrustFixture(t *testing.T, resources string, trust PackageTrust
 	if err := os.WriteFile(filepath.Join(resources, PackageTrustFilename), raw, 0o600); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func canonicalTestTempDir(t *testing.T) string {
+	t.Helper()
+	path, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return path
 }
 
 func releaseIdentityForTest(t *testing.T, path, signer string) ReleaseIdentity {

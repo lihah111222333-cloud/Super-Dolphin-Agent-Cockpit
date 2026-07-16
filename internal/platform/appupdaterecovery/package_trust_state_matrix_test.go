@@ -106,7 +106,7 @@ type trustStateFixture struct {
 
 func newTrustStateFixture(t *testing.T) trustStateFixture {
 	t.Helper()
-	root := t.TempDir()
+	root := canonicalTestTempDir(t)
 	target := filepath.Join(root, "Super Dolphin.app")
 	id := TransactionID("11223344556677889900aabbccddeeff")
 	paths, err := PathsFor(target, id)

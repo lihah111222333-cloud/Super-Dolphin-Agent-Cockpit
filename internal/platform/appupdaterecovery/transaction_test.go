@@ -185,6 +185,13 @@ func TestCrashReplayCompletesRollbackIntent(t *testing.T) {
 	if _, err := store.RollbackUnclaimedProbation(context.Background(), identity); !errors.Is(err, errSimulatedCrash) {
 		t.Fatalf("RollbackUnclaimedProbation() error = %v, want simulated crash", err)
 	}
+	pending := loadTransaction(t, store, identity)
+	if pending.State != StateRollbackPending || !pending.RollbackRestart.IntentPresent || pending.RollbackRestart.ACKPresent {
+		t.Fatalf("rollback crash record = state %q restart %+v", pending.State, pending.RollbackRestart)
+	}
+	if pending.RollbackRestart.LaunchToken == "" {
+		t.Fatal("rollback crash lost durable launch token")
+	}
 	transaction := replayTransaction(t, store, identity)
 	if transaction.State != StateRolledBack || transaction.Trust.State != TrustRolledBack {
 		t.Fatalf("replayed rollback transaction = %#v", transaction)

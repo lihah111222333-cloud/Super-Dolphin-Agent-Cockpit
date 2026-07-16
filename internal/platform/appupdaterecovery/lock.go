@@ -23,7 +23,16 @@ func (store *Store) acquire(id TransactionID) (*transactionLock, error) {
 	if err := syncDirectory(store.root); err != nil {
 		return nil, err
 	}
-	file, err := os.OpenFile(filepath.Join(dir, "transaction.lock"), os.O_CREATE|os.O_RDWR, 0o600)
+	return acquireTransactionLockFile(filepath.Join(dir, "transaction.lock"))
+}
+
+// acquireGeneration 获取 store 级 generation 锁，串行分配每个 target 的单调代际。
+func (store *Store) acquireGeneration() (*transactionLock, error) {
+	return acquireTransactionLockFile(store.root + ".generation.lock")
+}
+
+func acquireTransactionLockFile(path string) (*transactionLock, error) {
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600)
 	if err != nil {
 		return nil, fmt.Errorf("open update transaction lock: %w", err)
 	}

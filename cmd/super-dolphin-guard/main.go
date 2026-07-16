@@ -32,7 +32,8 @@ type guardConfig struct {
 	Now               func() time.Time
 	UpdaterAlive      func(recovery.ProcessIdentity) (bool, error)
 	StopCandidate     func(context.Context, recovery.ProcessIdentity) error
-	RestartOldRelease func(context.Context, string) error
+	ResolveOldRelease recovery.RollbackRestartResolver
+	RestartOldRelease recovery.RollbackRestartLauncher
 }
 
 type probationGuard struct {
@@ -73,10 +74,19 @@ func (guard *probationGuard) Run(ctx context.Context) error {
 	}
 }
 
+// superviseState 按持久化状态重放 pending intent，并收敛终态或 probation 监控。
 func (guard *probationGuard) superviseState(ctx context.Context, transaction recovery.Transaction) (bool, error) {
 	switch transaction.State {
-	case recovery.StateCommitted, recovery.StateRolledBack:
+	case recovery.StateCommitted:
 		return true, nil
+	case recovery.StateCommitPending, recovery.StateRollbackPending:
+		replayed, err := guard.config.Store.Replay(ctx, transaction.Identity)
+		if err != nil {
+			return false, fmt.Errorf("replay terminal transaction intent: %w", err)
+		}
+		return guard.superviseState(ctx, replayed)
+	case recovery.StateRolledBack:
+		return true, guard.restartRolledBackRelease(ctx, transaction)
 	case recovery.StatePrepared, recovery.StateBackupPending, recovery.StateBackupRetained, recovery.StateInstallPending:
 		return guard.monitorUpdater(ctx, transaction)
 	case recovery.StateProbation:
@@ -160,7 +170,12 @@ func (guard *probationGuard) recoverAfterUpdaterDeath(ctx context.Context, trans
 
 // restartRolledBackRelease 只在 exact rollback 已完成后重启旧 target。
 func (guard *probationGuard) restartRolledBackRelease(ctx context.Context, transaction recovery.Transaction) error {
-	if err := guard.config.RestartOldRelease(ctx, transaction.Paths.Target); err != nil {
+	if _, err := guard.config.Store.ConvergeRollbackRestart(
+		ctx,
+		transaction.Identity,
+		guard.config.ResolveOldRelease,
+		guard.config.RestartOldRelease,
+	); err != nil {
 		return fmt.Errorf("restart rolled back release: %w", err)
 	}
 	return nil
@@ -175,10 +190,7 @@ func (guard *probationGuard) rollbackAndRestart(
 	if err != nil {
 		return err
 	}
-	if err := guard.config.RestartOldRelease(ctx, rolledBack.Paths.Target); err != nil {
-		return fmt.Errorf("restart rolled back release: %w", err)
-	}
-	return nil
+	return guard.restartRolledBackRelease(ctx, rolledBack)
 }
 
 func (guard *probationGuard) stopTakenOverCandidate(
@@ -218,7 +230,8 @@ func (guard *probationGuard) waitUntilLeaseExpires(ctx context.Context, lease re
 // validate 校验 Guard 运行所需的全部显式依赖。
 func (guard *probationGuard) validate() error {
 	if guard == nil || guard.config.Store == nil || guard.config.Now == nil ||
-		guard.config.UpdaterAlive == nil || guard.config.StopCandidate == nil || guard.config.RestartOldRelease == nil {
+		guard.config.UpdaterAlive == nil || guard.config.StopCandidate == nil ||
+		guard.config.ResolveOldRelease == nil || guard.config.RestartOldRelease == nil {
 		return errors.New("guard requires store, clock, exact candidate stopper, and restart callback")
 	}
 	if guard.config.OwnerID == "" {
@@ -286,11 +299,13 @@ func runGuardCommandWithWriter(ctx context.Context, args []string, readyWriter i
 	if err != nil {
 		return err
 	}
+	resolveOldRelease, restartOldRelease := rollbackRestartCallbacks(transaction)
 	guard := newGuard(guardConfig{
 		Store: store, Identity: transaction.Identity, OwnerID: string(owner), Now: time.Now,
 		UpdaterAlive:      updaterAliveForTransaction(transaction),
 		StopCandidate:     stopCandidateExact,
-		RestartOldRelease: restartApplication,
+		ResolveOldRelease: resolveOldRelease,
+		RestartOldRelease: restartOldRelease,
 	})
 	if err := guard.validate(); err != nil {
 		return err
@@ -409,22 +424,98 @@ func trustedUpdaterArtifactExists(paths []string, expectedSHA string) (bool, err
 	return false, nil
 }
 
-// stopCandidateExact 复用 pidregistry 内核身份，在每次信号前复核并确认 exact candidate 已退出。
+// stopCandidateExact 通过 transaction-bound 认证端点请求 exact candidate 自行退出。
 func stopCandidateExact(ctx context.Context, process recovery.ProcessIdentity) error {
 	return pidregistry.TerminateExactProcess(ctx, pidregistry.StableProcessIdentity{
 		PID: process.PID, ProcessStartToken: process.StartToken, ExecutableIdentity: process.ExecutableIdentity,
+		TerminationEndpoint: process.TerminationEndpoint, TerminationToken: process.TerminationToken,
 	})
 }
 
-func restartApplication(ctx context.Context, target string) error {
-	if target == "" {
-		return errors.New("restart target is required")
+// rollbackRestartCallbacks 构造按 launch token 重发现或启动旧版本的回调。
+func rollbackRestartCallbacks(transaction recovery.Transaction) (
+	recovery.RollbackRestartResolver,
+	recovery.RollbackRestartLauncher,
+) {
+	executable := filepath.Join(transaction.Paths.Target, "Contents", "MacOS", "agent-terminal")
+	argument := func(token string) string { return "--super-dolphin-rollback-launch-token=" + token }
+	resolve := func(token string) (recovery.RollbackRestartProcess, bool, error) {
+		if err := verifyRolledBackRelease(transaction); err != nil {
+			return recovery.RollbackRestartProcess{}, false, err
+		}
+		stable, found, err := pidregistry.FindStableProcessByArgument(argument(token), executable)
+		if err != nil || !found {
+			return recovery.RollbackRestartProcess{}, found, err
+		}
+		process, err := rollbackRestartProcess(stable, executable)
+		return process, err == nil, err
 	}
-	env, err := runtimeenv.DetachedCommandEnvironment(os.Environ())
+	launch := func(token string) (recovery.RollbackRestartProcess, error) {
+		if err := verifyRolledBackRelease(transaction); err != nil {
+			return recovery.RollbackRestartProcess{}, err
+		}
+		env, err := runtimeenv.DetachedCommandEnvironment(os.Environ())
+		if err != nil {
+			return recovery.RollbackRestartProcess{}, err
+		}
+		cmd := exec.Command(executable, argument(token))
+		cmd.Env = env
+		if err := cmd.Start(); err != nil {
+			return recovery.RollbackRestartProcess{}, err
+		}
+		stable, err := pidregistry.CaptureStableProcessIdentity(cmd.Process.Pid)
+		if err != nil {
+			_ = cmd.Process.Kill()
+			return recovery.RollbackRestartProcess{}, err
+		}
+		process, err := rollbackRestartProcess(stable, executable)
+		if err != nil {
+			_ = cmd.Process.Kill()
+			return recovery.RollbackRestartProcess{}, err
+		}
+		if err := cmd.Process.Release(); err != nil {
+			return recovery.RollbackRestartProcess{}, err
+		}
+		return process, nil
+	}
+	return resolve, launch
+}
+
+func verifyRolledBackRelease(transaction recovery.Transaction) error {
+	canonical, err := recovery.CanonicalExistingPath(transaction.Paths.Target)
 	if err != nil {
 		return err
 	}
-	cmd := exec.CommandContext(ctx, "open", "-n", target)
-	cmd.Env = env
-	return cmd.Run()
+	if canonical != transaction.Paths.Target {
+		return errors.New("rolled back target is not canonical")
+	}
+	digest, err := recovery.ComputeReleaseDigest(transaction.Paths.Target)
+	if err != nil {
+		return err
+	}
+	if digest != transaction.Identity.OldRelease.SHA256 {
+		return errors.New("rolled back target digest does not match old release")
+	}
+	return nil
+}
+
+func rollbackRestartProcess(stable pidregistry.StableProcessIdentity, expectedExecutable string) (
+	recovery.RollbackRestartProcess,
+	error,
+) {
+	canonical, err := recovery.CanonicalExistingPath(stable.ExecutableIdentity)
+	if err != nil {
+		return recovery.RollbackRestartProcess{}, err
+	}
+	if canonical != expectedExecutable {
+		return recovery.RollbackRestartProcess{}, pidregistry.ErrStableProcessIdentityMismatch
+	}
+	digest, err := recovery.ComputeReleaseDigest(canonical)
+	if err != nil {
+		return recovery.RollbackRestartProcess{}, err
+	}
+	return recovery.RollbackRestartProcess{
+		PID: stable.PID, StartToken: stable.ProcessStartToken,
+		ExecutableIdentity: canonical, ExecutableSHA256: digest,
+	}, nil
 }

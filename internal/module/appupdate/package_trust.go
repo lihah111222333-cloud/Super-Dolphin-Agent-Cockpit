@@ -69,6 +69,11 @@ func packageUpdateSupported(platform string) (bool, error) {
 // validateConfiguredResources 允许未设置或与 executable-derived Resources 完全一致的 runtime contract。
 func validateConfiguredResources(resources string) error {
 	configured := strings.TrimSpace(os.Getenv(envRuntimeResources))
+	if configured != "" {
+		if err := recovery.RequireCanonicalExistingPath(configured); err != nil {
+			return fmt.Errorf("%s must be canonical: %w", envRuntimeResources, err)
+		}
+	}
 	if configured != "" && configured != resources {
 		return fmt.Errorf("%s = %q, want executable-derived Resources %q", envRuntimeResources, configured, resources)
 	}
@@ -77,11 +82,16 @@ func validateConfiguredResources(resources string) error {
 
 // packageLayoutFromExecutable 只接受 exact .app/Contents/MacOS 可执行布局。
 func packageLayoutFromExecutable(executable string) (string, string, error) {
-	executable = filepath.Clean(executable)
+	if !filepath.IsAbs(executable) || filepath.Clean(executable) != executable {
+		return "", "", fmt.Errorf("package executable must be clean absolute: %q", executable)
+	}
+	if err := recovery.RequireCanonicalExistingPath(executable); err != nil {
+		return "", "", fmt.Errorf("package executable must be canonical: %w", err)
+	}
 	macOSDir := filepath.Dir(executable)
 	contents := filepath.Dir(macOSDir)
 	target := filepath.Dir(contents)
-	if !filepath.IsAbs(executable) || filepath.Base(macOSDir) != "MacOS" || filepath.Base(contents) != "Contents" || !strings.EqualFold(filepath.Ext(target), ".app") {
+	if filepath.Base(macOSDir) != "MacOS" || filepath.Base(contents) != "Contents" || !strings.EqualFold(filepath.Ext(target), ".app") {
 		return "", "", fmt.Errorf("package executable is outside a macOS app layout: %q", executable)
 	}
 	info, err := os.Stat(executable)
@@ -91,7 +101,20 @@ func packageLayoutFromExecutable(executable string) (string, string, error) {
 	if info.IsDir() {
 		return "", "", fmt.Errorf("package executable path is a directory: %q", executable)
 	}
-	return filepath.Join(contents, "Resources"), target, nil
+	resources := filepath.Join(contents, "Resources")
+	if err := validateCanonicalPackageLayout(macOSDir, contents, target, resources); err != nil {
+		return "", "", err
+	}
+	return resources, target, nil
+}
+
+func validateCanonicalPackageLayout(paths ...string) error {
+	for _, path := range paths {
+		if err := recovery.RequireCanonicalExistingPath(path); err != nil {
+			return fmt.Errorf("package layout contains alias %q: %w", path, err)
+		}
+	}
+	return nil
 }
 
 // mapPackageTrustConfig 将已验证 trust 映射为 appupdate Config。

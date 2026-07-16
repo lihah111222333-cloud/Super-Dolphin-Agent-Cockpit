@@ -14,7 +14,13 @@ inspect_latest=0
 print_context=0
 download_previous_dmg=0
 download_previous_dmg_dir=""
+verify_previous_dmg_test=0
+verify_previous_dmg_test_path=""
+verify_previous_dmg_test_tag=""
 previous_dmg_mount=""
+previous_download_dir=""
+formal_previous_dmg=""
+formal_previous_tag=""
 asset_paths=()
 release_asset_specs=(
   "darwin-arm64|Super-Dolphin-darwin-arm64.dmg|Super-Dolphin-darwin-arm64.update.json"
@@ -28,6 +34,9 @@ cleanup() {
     hdiutil detach "$previous_dmg_mount" >/dev/null 2>&1 || true
     rmdir "$previous_dmg_mount" >/dev/null 2>&1 || true
   fi
+  if [[ -n "$previous_download_dir" && -d "$previous_download_dir" ]]; then
+    rm -rf "$previous_download_dir"
+  fi
 }
 trap cleanup EXIT
 
@@ -38,7 +47,7 @@ usage: scripts/publish_github_release.sh [--inspect-latest|--print-context|--dow
        VERSION=v1.0.4 SUPER_DOLPHIN_UPDATE_PUBLIC_KEY=... scripts/publish_github_release.sh [--dry-run] [--verify-existing] [--stage-dir DIR]
 
 publish mode also requires SUPER_DOLPHIN_UPDATE_SIGNING_KEY.
-publish, dry-run, and verify-existing modes require previous package proof env.
+publish and verify-existing always prove key continuity from the real GitHub latest release DMG.
 EOF
   exit "$status"
 }
@@ -87,6 +96,13 @@ while [[ $# -gt 0 ]]; do
       download_previous_dmg_dir="$2"
       shift 2
       ;;
+    --verify-previous-dmg-test)
+      [[ $# -ge 3 ]] || usage
+      verify_previous_dmg_test=1
+      verify_previous_dmg_test_path="$2"
+      verify_previous_dmg_test_tag="$3"
+      shift 3
+      ;;
     --stage-dir)
       [[ $# -ge 2 ]] || usage
       stage_dir="$2"
@@ -98,8 +114,8 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-if (( dry_run + verify_existing + inspect_latest + print_context + download_previous_dmg > 1 )); then
-  echo "--dry-run, --verify-existing, --inspect-latest, --print-context, and --download-latest-previous-dmg are mutually exclusive" >&2
+if (( dry_run + verify_existing + inspect_latest + print_context + download_previous_dmg + verify_previous_dmg_test > 1 )); then
+  echo "release script modes are mutually exclusive" >&2
   exit 2
 fi
 
@@ -140,14 +156,31 @@ file_size() {
 
 previous_public_key_from_app() {
   local app="$1"
+  local expected_tag="$2"
   local resources="$app/Contents/Resources"
+  local bundle_version expected_version signer
+  bundle_version="$(plutil -extract CFBundleShortVersionString raw -o - "$app/Contents/Info.plist")"
+  expected_version="${expected_tag#v}"
+  expected_version="${expected_version#V}"
+  if [[ "$bundle_version" != "$expected_version" ]]; then
+    echo "previous app version $bundle_version does not match GitHub latest release $expected_tag" >&2
+    exit 1
+  fi
+  signer="$(codesign -dv --verbose=4 "$app" 2>&1 | awk -F= '/^TeamIdentifier=/{print $2; exit}')"
+  if [[ -z "$signer" || "$signer" == "not set" ]]; then
+    echo "previous app codesign details missing exact TeamIdentifier" >&2
+    exit 1
+  fi
   go run ./cmd/super-dolphin-release-manifest \
     -print-package-trust-public-key "$resources" \
-    -platform darwin-arm64
+    -platform darwin-arm64 \
+    -expected-package-source "$github_repo" \
+    -expected-package-signer "$signer"
 }
 
 previous_public_key_from_dmg() {
   local dmg="$1"
+  local expected_tag="$2"
   if [[ "$(uname -s)" != "Darwin" ]]; then
     echo "SUPER_DOLPHIN_UPDATE_PREVIOUS_DMG can only be inspected on macOS" >&2
     exit 1
@@ -158,24 +191,71 @@ previous_public_key_from_dmg() {
   fi
   previous_dmg_mount="$(mktemp -d "${TMPDIR:-/tmp}/super-dolphin-previous-dmg.XXXXXX")"
   hdiutil attach "$dmg" -nobrowse -readonly -mountpoint "$previous_dmg_mount" >/dev/null
-  local app
-  app="$(find "$previous_dmg_mount" -maxdepth 1 -name '*.app' -type d -print | sort | head -n 1)"
-  if [[ -z "$app" ]]; then
-    echo "previous DMG does not contain an app bundle" >&2
+  local app="" candidate app_count=0
+  while IFS= read -r candidate; do
+    app="$candidate"
+    app_count=$((app_count + 1))
+  done < <(find "$previous_dmg_mount" -maxdepth 1 -name '*.app' -type d -print | sort)
+  if [[ "$app_count" != "1" ]]; then
+    echo "previous DMG must contain exactly one top-level app bundle; found $app_count" >&2
     exit 1
   fi
-  previous_public_key_from_app "$app"
+  local previous_public_key
+  previous_public_key="$(previous_public_key_from_app "$app" "$expected_tag")"
+  hdiutil detach "$previous_dmg_mount" >/dev/null
+  rmdir "$previous_dmg_mount" >/dev/null 2>&1 || true
+  previous_dmg_mount=""
+  printf '%s\n' "$previous_public_key"
+}
+
+download_formal_previous_dmg() {
+	command -v curl >/dev/null 2>&1 || { echo "curl is required" >&2; exit 1; }
+	local asset_name="Super-Dolphin-darwin-arm64.dmg" url digest size tmp actual_digest actual_size
+	if [[ "$verify_existing" == "1" ]]; then
+		formal_previous_tag="$(gh api "repos/$github_repo/releases?per_page=100" --jq "map(select(.draft == false and .prerelease == false and .tag_name != \"$tag\")) | first | .tag_name")"
+	else
+		formal_previous_tag="$(gh api "repos/$github_repo/releases/latest" --jq '.tag_name')"
+	fi
+	[[ -n "$formal_previous_tag" ]] || { echo "previous formal GitHub release tag is required" >&2; exit 1; }
+  url="$(gh api "repos/$github_repo/releases/latest" --jq ".assets[] | select(.name == \"$asset_name\") | .browser_download_url")"
+  digest="$(gh api "repos/$github_repo/releases/latest" --jq ".assets[] | select(.name == \"$asset_name\") | .digest")"
+  size="$(gh api "repos/$github_repo/releases/latest" --jq ".assets[] | select(.name == \"$asset_name\") | .size")"
+  [[ "$url" =~ ^https://[^[:space:]]+$ ]] || { echo "GitHub latest release missing canonical HTTPS asset: $asset_name" >&2; exit 1; }
+  [[ "$digest" =~ ^sha256:[0-9a-fA-F]{64}$ ]] || { echo "GitHub release asset $asset_name digest must be sha256:<hex>" >&2; exit 1; }
+  [[ "$size" =~ ^[0-9]+$ && "$size" -gt 0 ]] || { echo "GitHub release asset $asset_name size must be > 0" >&2; exit 1; }
+  previous_download_dir="$(mktemp -d "${TMPDIR:-/tmp}/super-dolphin-formal-previous.XXXXXX")"
+  formal_previous_dmg="$previous_download_dir/$asset_name"
+  tmp="$formal_previous_dmg.tmp"
+  curl -L --fail -o "$tmp" "$url"
+  actual_digest="sha256:$(sha256_file "$tmp")"
+  actual_size="$(file_size "$tmp")"
+  [[ "$actual_digest" == "$digest" ]] || { echo "downloaded previous DMG digest mismatch: expected $digest actual $actual_digest" >&2; exit 1; }
+  [[ "$actual_size" == "$size" ]] || { echo "downloaded previous DMG size mismatch: expected $size actual $actual_size" >&2; exit 1; }
+  mv "$tmp" "$formal_previous_dmg"
 }
 
 read_previous_update_public_key() {
   local previous_public_key=""
-  if [[ -n "${SUPER_DOLPHIN_UPDATE_PREVIOUS_APP:-}" ]]; then
-    previous_public_key="$(previous_public_key_from_app "$SUPER_DOLPHIN_UPDATE_PREVIOUS_APP")"
-  elif [[ -n "${SUPER_DOLPHIN_UPDATE_PREVIOUS_DMG:-}" ]]; then
-    previous_public_key="$(previous_public_key_from_dmg "$SUPER_DOLPHIN_UPDATE_PREVIOUS_DMG")"
+  if [[ -n "${SUPER_DOLPHIN_UPDATE_PREVIOUS_APP:-}${SUPER_DOLPHIN_UPDATE_PREVIOUS_DMG:-}" ]]; then
+    if [[ "$dry_run" != "1" || "${SUPER_DOLPHIN_ALLOW_LOCAL_PREVIOUS_RELEASE_TEST:-}" != "1" ]]; then
+      echo "local previous APP/DMG overrides are allowed only for explicit non-release dry-run tests" >&2
+      exit 1
+    fi
+    if [[ -n "${SUPER_DOLPHIN_UPDATE_PREVIOUS_APP:-}" && -n "${SUPER_DOLPHIN_UPDATE_PREVIOUS_DMG:-}" ]]; then
+      echo "local previous APP and DMG overrides are mutually exclusive" >&2
+      exit 1
+    fi
+    if [[ -n "${SUPER_DOLPHIN_UPDATE_PREVIOUS_APP:-}" ]]; then
+      previous_public_key="$(previous_public_key_from_app "$SUPER_DOLPHIN_UPDATE_PREVIOUS_APP" "$tag")"
+    else
+      previous_public_key="$(previous_public_key_from_dmg "$SUPER_DOLPHIN_UPDATE_PREVIOUS_DMG" "$tag")"
+    fi
   else
-    echo "SUPER_DOLPHIN_UPDATE_PREVIOUS_DMG or SUPER_DOLPHIN_UPDATE_PREVIOUS_APP is required to prove old clients trust this update key" >&2
-    exit 1
+    require_gh_access
+    download_formal_previous_dmg
+    previous_public_key="$(previous_public_key_from_dmg "$formal_previous_dmg" "$formal_previous_tag")"
+    rm -rf "$previous_download_dir"
+    previous_download_dir=""
   fi
   if [[ -z "$previous_public_key" ]]; then
     echo "previous package is missing a verified manifest_public_key" >&2
@@ -185,22 +265,15 @@ read_previous_update_public_key() {
 }
 
 resolve_update_public_key() {
-  if [[ -n "${SUPER_DOLPHIN_UPDATE_PUBLIC_KEY:-}" ]]; then
-    return
-  fi
-  local previous_public_key
-  previous_public_key="$(read_previous_update_public_key)"
-  SUPER_DOLPHIN_UPDATE_PUBLIC_KEY="$previous_public_key"
-  export SUPER_DOLPHIN_UPDATE_PUBLIC_KEY
-}
-
-require_previous_update_public_key() {
-  local previous_public_key
-  previous_public_key="$(read_previous_update_public_key)"
-  if [[ "$previous_public_key" != "$SUPER_DOLPHIN_UPDATE_PUBLIC_KEY" ]]; then
-    echo "previous package update public key does not match SUPER_DOLPHIN_UPDATE_PUBLIC_KEY" >&2
-    exit 1
-  fi
+	local previous_public_key
+	previous_public_key="$(read_previous_update_public_key)"
+	if [[ -z "${SUPER_DOLPHIN_UPDATE_PUBLIC_KEY:-}" ]]; then
+		SUPER_DOLPHIN_UPDATE_PUBLIC_KEY="$previous_public_key"
+		export SUPER_DOLPHIN_UPDATE_PUBLIC_KEY
+	elif [[ "$previous_public_key" != "$SUPER_DOLPHIN_UPDATE_PUBLIC_KEY" ]]; then
+		echo "previous package update public key does not match SUPER_DOLPHIN_UPDATE_PUBLIC_KEY" >&2
+		exit 1
+	fi
 }
 
 normalize_version_parts() {
@@ -486,9 +559,10 @@ download_latest_previous_dmg() {
   local latest_tag asset_name url digest size dir target tmp actual_digest actual_size
   latest_tag="$(gh api "repos/$github_repo/releases/latest" --jq '.tag_name')"
   asset_name="Super-Dolphin-darwin-arm64.dmg"
-  url="$(gh api "repos/$github_repo/releases/latest" --jq ".assets[] | select(.name == \"$asset_name\") | .browser_download_url")"
-  digest="$(gh api "repos/$github_repo/releases/latest" --jq ".assets[] | select(.name == \"$asset_name\") | .digest")"
-  size="$(gh api "repos/$github_repo/releases/latest" --jq ".assets[] | select(.name == \"$asset_name\") | .size")"
+	local release_endpoint="repos/$github_repo/releases/tags/$formal_previous_tag"
+	url="$(gh api "$release_endpoint" --jq ".assets[] | select(.name == \"$asset_name\") | .browser_download_url")"
+	digest="$(gh api "$release_endpoint" --jq ".assets[] | select(.name == \"$asset_name\") | .digest")"
+	size="$(gh api "$release_endpoint" --jq ".assets[] | select(.name == \"$asset_name\") | .size")"
   [[ -n "$url" ]] || { echo "GitHub latest release $latest_tag missing asset: $asset_name" >&2; exit 1; }
   [[ "$url" =~ ^https://[^[:space:]]+$ ]] || { echo "GitHub release asset URL must be HTTPS: $url" >&2; exit 1; }
   [[ "$digest" =~ ^sha256:[0-9a-fA-F]{64}$ ]] || { echo "GitHub release asset $asset_name digest must be sha256:<hex>" >&2; exit 1; }
@@ -553,6 +627,15 @@ if [[ "$download_previous_dmg" == "1" ]]; then
   exit 0
 fi
 
+if [[ "$verify_previous_dmg_test" == "1" ]]; then
+  if [[ "${SUPER_DOLPHIN_ALLOW_LOCAL_PREVIOUS_RELEASE_TEST:-}" != "1" ]]; then
+    echo "--verify-previous-dmg-test requires SUPER_DOLPHIN_ALLOW_LOCAL_PREVIOUS_RELEASE_TEST=1" >&2
+    exit 1
+  fi
+  previous_public_key_from_dmg "$verify_previous_dmg_test_path" "$verify_previous_dmg_test_tag"
+  exit 0
+fi
+
 require_tag
 if [[ -z "$stage_dir" ]]; then
   stage_dir="$root/dist/release/github/$tag"
@@ -563,13 +646,11 @@ fi
 if [[ "$verify_existing" != "1" ]]; then
   require_env SUPER_DOLPHIN_UPDATE_SIGNING_KEY
   resolve_update_public_key
-  require_previous_update_public_key
   go run ./cmd/super-dolphin-release-manifest -check-key \
     -signing-key "$SUPER_DOLPHIN_UPDATE_SIGNING_KEY" \
     -public-key "$SUPER_DOLPHIN_UPDATE_PUBLIC_KEY"
 else
   resolve_update_public_key
-  require_previous_update_public_key
 fi
 validate_release_assets
 require_gh_access

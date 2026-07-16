@@ -27,6 +27,14 @@ type terminalDeps struct {
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	terminationServer, err := startCooperativeTermination(stop)
+	if err != nil {
+		pkglogger.Get().Error("agent-terminal termination endpoint failed", "error", err)
+		os.Exit(1)
+	}
+	if terminationServer != nil {
+		defer terminationServer.Close()
+	}
 	if err := runAgentTerminal(ctx, productionTerminalDeps()); err != nil && !errors.Is(err, context.Canceled) {
 		pkglogger.Get().Error("agent-terminal failed", "error", err)
 		os.Exit(1)
@@ -68,6 +76,25 @@ func productionTerminalDeps() terminalDeps {
 	}
 }
 
+func startCooperativeTermination(cancel context.CancelFunc) (*pidregistry.CooperativeTerminationServer, error) {
+	executable, err := os.Executable()
+	if err != nil {
+		return nil, err
+	}
+	launch, err := runtimeenv.ResolveRecoveryLaunch(executable, os.Environ())
+	if err != nil {
+		return nil, err
+	}
+	if !launch.ContractPresent {
+		return nil, nil
+	}
+	return pidregistry.StartCooperativeTerminationServer(
+		launch.TerminationEndpoint,
+		launch.TerminationToken,
+		cancel,
+	)
+}
+
 // selectStartup 只读取 frozen launch contract 与 Task 1 transaction journal。
 func selectStartup(ctx context.Context) (app.StartupSelection, error) {
 	executable, err := os.Executable()
@@ -98,6 +125,7 @@ func selectStartup(ctx context.Context) (app.StartupSelection, error) {
 		Process: recovery.ProcessIdentity{
 			PID: stable.PID, StartToken: stable.ProcessStartToken,
 			ExecutableIdentity: stable.ExecutableIdentity, ExecutableSHA256: launch.ExecutableSHA256,
+			TerminationEndpoint: launch.TerminationEndpoint, TerminationToken: launch.TerminationToken,
 		},
 		ExpectedTransactionID: recovery.TransactionID(launch.TransactionID),
 		LeaseWait:             2 * time.Second,

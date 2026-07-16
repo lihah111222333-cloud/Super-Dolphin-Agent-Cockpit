@@ -7,7 +7,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 )
 
 const abortedTransactionPrefix = ".aborted-"
@@ -67,10 +66,10 @@ func (store *Store) SelectForTarget(ctx context.Context, target string) (Transac
 }
 
 type targetTransactionSelection struct {
-	target   string
-	active   Transaction
-	latest   Transaction
-	latestAt time.Time
+	target           string
+	active           Transaction
+	latest           Transaction
+	latestGeneration uint64
 }
 
 // add 将 exact target 的 active 或最新终态事务加入选择器。
@@ -85,15 +84,54 @@ func (selection *targetTransactionSelection) add(transaction Transaction) error 
 		selection.active = transaction
 		return nil
 	}
-	updatedAt, err := time.Parse(time.RFC3339Nano, transaction.UpdatedAt)
-	if err != nil {
-		return fmt.Errorf("parse transaction update time: %w", err)
+	if transaction.TargetGeneration == 0 {
+		return errors.New("transaction target generation must be positive")
 	}
-	if selection.latest.Identity.TransactionID == "" || updatedAt.After(selection.latestAt) {
+	if transaction.TargetGeneration == selection.latestGeneration && selection.latest.Identity.TransactionID != "" {
+		return errors.New("duplicate transaction target generation")
+	}
+	if transaction.TargetGeneration > selection.latestGeneration {
 		selection.latest = transaction
-		selection.latestAt = updatedAt
+		selection.latestGeneration = transaction.TargetGeneration
 	}
 	return nil
+}
+
+// nextTargetGeneration 在 store generation 锁内从 durable journal SSOT 分配下一代。
+func (store *Store) nextTargetGeneration(ctx context.Context, target string, creatingID TransactionID) (uint64, error) {
+	entries, err := os.ReadDir(store.root)
+	if err != nil {
+		return 0, fmt.Errorf("read update transaction root for generation: %w", err)
+	}
+	var latest uint64
+	for _, entry := range entries {
+		generation, found, err := store.targetGenerationFromEntry(ctx, entry, target, creatingID)
+		if err != nil {
+			return 0, err
+		}
+		if found && generation > latest {
+			latest = generation
+		}
+	}
+	if latest == ^uint64(0) {
+		return 0, errors.New("transaction target generation exhausted")
+	}
+	return latest + 1, nil
+}
+
+// targetGenerationFromEntry 读取同一 target 的 durable generation，并拒绝并发 active transaction。
+func (store *Store) targetGenerationFromEntry(ctx context.Context, entry os.DirEntry, target string, creatingID TransactionID) (uint64, bool, error) {
+	if entry.Name() == string(creatingID) {
+		return 0, false, nil
+	}
+	transaction, found, err := store.loadTransactionEntry(ctx, entry)
+	if err != nil || !found || transaction.Paths.Target != target {
+		return 0, false, err
+	}
+	if transaction.State != StateCommitted && transaction.State != StateRolledBack {
+		return 0, false, ErrMultipleActiveTransactions
+	}
+	return transaction.TargetGeneration, true, nil
 }
 
 // loadTransactionEntry 只加载 exact journal 目录，并显式治理已知崩溃半成品。
