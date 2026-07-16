@@ -15,14 +15,16 @@ import (
 )
 
 type coordinatorOwner struct {
-	schedulerOwner  *localci.SchedulerOwner
-	schedulerClient *localci.SchedulerClient
-	store           *coordinatorStore
-	dependencies    coordinatorDependencies
-	fatal           chan error
-	workers         errgroup.Group
-	closeOnce       sync.Once
-	closeErr        error
+	schedulerOwner    *localci.SchedulerOwner
+	schedulerClient   *localci.SchedulerClient
+	store             *coordinatorStore
+	dependencies      coordinatorDependencies
+	daemonIdentityKey string
+	recovered         []coordinatorJobRecord
+	fatal             chan error
+	workers           errgroup.Group
+	closeOnce         sync.Once
+	closeErr          error
 }
 
 // openCoordinatorOwner 先验证全部执行依赖，再竞争 scheduler owner singleton。
@@ -38,18 +40,23 @@ func openCoordinatorOwner(
 	if err != nil {
 		return nil, err
 	}
-	schedulerClient, err := localci.DialScheduler(ctx, checkpoint.SchedulerConfig)
+	store, err := openCoordinatorStore(ctx, checkpoint)
 	if err != nil {
 		return nil, errors.Join(err, schedulerOwner.Close())
 	}
-	store, err := openCoordinatorStore(ctx, checkpoint)
-	if err != nil {
-		return nil, errors.Join(err, schedulerClient.Close(), schedulerOwner.Close())
+	owner := &coordinatorOwner{
+		schedulerOwner: schedulerOwner, store: store, dependencies: dependencies,
+		daemonIdentityKey: checkpoint.IdentityKey, fatal: make(chan error, 1),
 	}
-	return &coordinatorOwner{
-		schedulerOwner: schedulerOwner, schedulerClient: schedulerClient, store: store,
-		dependencies: dependencies, fatal: make(chan error, 1),
-	}, nil
+	owner.recovered, err = owner.reconcileRecovery(ctx)
+	if err != nil {
+		return nil, errors.Join(err, store.close(), schedulerOwner.Close())
+	}
+	owner.schedulerClient, err = localci.DialScheduler(ctx, checkpoint.SchedulerConfig)
+	if err != nil {
+		return nil, errors.Join(err, store.close(), schedulerOwner.Close())
+	}
+	return owner, nil
 }
 
 // Serve 同时运行 transport 与 scheduler dispatch，并在任一基础设施失败时收口。
@@ -59,6 +66,7 @@ func (owner *coordinatorOwner) Serve(ctx context.Context) error {
 	}
 	group, runCtx := errgroup.WithContext(ctx)
 	group.Go(func() error { return owner.schedulerOwner.Serve(runCtx) })
+	owner.startRecovered(runCtx)
 	group.Go(func() error { return owner.dispatch(runCtx) })
 	runErr := group.Wait()
 	workerErr := owner.workers.Wait()
@@ -111,9 +119,7 @@ func (owner *coordinatorOwner) executeJob(parent context.Context, jobID string) 
 	if err != nil {
 		return owner.completeExecution(parent, jobID, jobStateInfraFailed, nil, err)
 	}
-	jobCtx, cancel := context.WithDeadline(parent, time.Now().Add(coordinatorTimeout(record.Profile)))
-	defer cancel()
-	results, state, runErr := owner.runJob(jobCtx, record)
+	results, state, runErr := owner.runJob(parent, record)
 	return owner.completeExecution(parent, jobID, state, results, runErr)
 }
 
@@ -174,6 +180,7 @@ func (owner *coordinatorOwner) materializeJobSource(
 	return result, nil
 }
 
+// runPlanGates 为同一 job 的所有 gate 复用首次容器启动所确定的 deadline。
 func (owner *coordinatorOwner) runPlanGates(
 	ctx context.Context,
 	record coordinatorJobRecord,
@@ -181,13 +188,23 @@ func (owner *coordinatorOwner) runPlanGates(
 	source materializedJobSource,
 ) ([]gatecontract.GateResult, jobState, error) {
 	results := make([]gatecontract.GateResult, 0, len(record.Plan.Gates))
+	deadline := time.Time{}
+	if record.Deadline != nil {
+		deadline = record.Deadline.UTC()
+	}
 	for _, gateSpec := range record.Plan.Gates {
+		labels := coordinatorContainerLabels(owner.daemonIdentityKey, record, gateSpec.ID, image.Identity)
 		result, err := owner.dependencies.FreshRunner.RunFreshContainer(ctx, freshContainerRequest{
 			Image: image.Identity, ImageTruth: image.Truth,
 			ImageProvenanceSourceTreeSHA: image.ImageProvenanceSourceTreeSHA,
 			JobSourceTreeSHA:             record.JobSourceTreeSHA, SourceSnapshotDir: source.SnapshotDir,
 			Profile: record.Profile, Plan: record.Plan, GateID: gateSpec.ID,
+			ContainerLabels: labels, Deadline: deadline,
+			LifecycleHook: owner.lifecycleHook(record, gateSpec.ID, labels),
 		})
+		if deadline.IsZero() && !result.Deadline.IsZero() {
+			deadline = result.Deadline.UTC()
+		}
 		if result.GateResult != nil {
 			results = append(results, *result.GateResult)
 		}

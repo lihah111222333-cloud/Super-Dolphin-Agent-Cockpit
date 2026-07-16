@@ -266,8 +266,9 @@ type containerInspectDocument struct {
 	Path   string   `json:"Path"`
 	Args   []string `json:"Args"`
 	Config *struct {
-		Image string `json:"Image"`
-		User  string `json:"User"`
+		Image  string            `json:"Image"`
+		User   string            `json:"User"`
+		Labels map[string]string `json:"Labels"`
 	} `json:"Config"`
 	HostConfig *containerHostConfig `json:"HostConfig"`
 	Mounts     []struct {
@@ -323,13 +324,16 @@ type canonicalHostConfig struct {
 }
 
 // inspectCreatedContainer 在启动前复验容器身份、命令、资源和隔离配置。
-func (runner *FreshContainerRunner) inspectCreatedContainer(ctx context.Context, containerID string, imageReference string, configDigest string, sourceDirectory string, command []string) (string, string, error) {
+func (runner *FreshContainerRunner) inspectCreatedContainer(ctx context.Context, containerID string, imageReference string, configDigest string, sourceDirectory string, command []string, labels map[string]string) (string, string, error) {
 	document, err := runner.inspectContainer(ctx, containerID)
 	if err != nil {
 		return "", "", err
 	}
 	canonical, err := runner.validateContainerContract(document, containerID, imageReference, configDigest, sourceDirectory, command)
 	if err != nil {
+		return "", "", err
+	}
+	if err := validateExpectedContainerLabels(document, labels); err != nil {
 		return "", "", err
 	}
 	if document.State == nil || document.State.Status != "created" || document.State.Running {
@@ -386,6 +390,18 @@ func validateContainerIdentity(document containerInspectDocument, containerID st
 	}
 	if len(command) == 0 || document.Path != command[0] || !slices.Equal(document.Args, command[1:]) {
 		return errors.New("gate container inspect command drifted")
+	}
+	return nil
+}
+
+func validateExpectedContainerLabels(document containerInspectDocument, labels map[string]string) error {
+	if document.Config == nil {
+		return errors.New("gate container config is missing")
+	}
+	for key, expected := range labels {
+		if document.Config.Labels[key] != expected {
+			return fmt.Errorf("gate container label %q drifted", key)
+		}
 	}
 	return nil
 }

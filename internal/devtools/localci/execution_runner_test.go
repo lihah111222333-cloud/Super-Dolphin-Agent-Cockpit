@@ -340,6 +340,8 @@ func TestFreshContainerRequestFieldRegistryIsComplete(t *testing.T) {
 		"Image": "identity and derived digest reference", "ImageTruth": "truth label verification",
 		"SourceTreeSHA": "plan and image source binding", "SourceSnapshotDir": "private readonly mount",
 		"Profile": "plan binding and timeout", "Plan": "canonical command closure", "GateID": "plan command selection",
+		"ContainerLabels": "durable coordinator and Docker identity binding",
+		"Deadline":        "original first-start deadline", "LifecycleHook": "durable crash-point transitions",
 	})
 	assertRegisteredFields(t, reflect.TypeFor[FreshContainerImageTruth](), map[string]string{
 		"PolicyDigest":       "policy label",

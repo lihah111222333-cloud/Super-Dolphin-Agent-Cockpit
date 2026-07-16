@@ -46,6 +46,10 @@ func (runner *blockingFreshRunner) RunFreshContainer(
 		}
 	}
 	now := time.Now().UTC()
+	deadline, removalProof, err := emitFakeContainerLifecycle(ctx, request, now)
+	if err != nil {
+		return localci.FreshContainerResult{}, err
+	}
 	gateResult := gatecontract.GateResult{
 		GateID: string(request.GateID), Status: gatecontract.GateStatusPassed,
 		ExitCode: 0, StartedAt: now, CompletedAt: now,
@@ -53,7 +57,46 @@ func (runner *blockingFreshRunner) RunFreshContainer(
 	}
 	return localci.FreshContainerResult{
 		Status: gatecontract.ResultStatusPassed, ExitCode: 0, GateResult: &gateResult,
+		StartedAt: now, CompletedAt: now, Deadline: deadline, RemovalProofDigest: removalProof,
 	}, nil
+}
+
+func emitFakeContainerLifecycle(
+	ctx context.Context,
+	request freshContainerRequest,
+	startedAt time.Time,
+) (time.Time, string, error) {
+	deadline := request.Deadline.UTC()
+	if deadline.IsZero() {
+		deadline = startedAt.Add(coordinatorTimeout(request.Profile))
+	}
+	removalProof := "sha256:" + strings.Repeat("9", 64)
+	containerID := strings.Repeat("a", 64)
+	phases := []localci.FreshContainerLifecyclePhase{
+		localci.FreshContainerPhasePrepared, localci.FreshContainerPhaseCreated,
+		localci.FreshContainerPhaseStarting, localci.FreshContainerPhaseStarted,
+		localci.FreshContainerPhaseExited, localci.FreshContainerPhaseRemoved,
+	}
+	for _, phase := range phases {
+		event := localci.FreshContainerLifecycleEvent{
+			Phase: phase, ContainerID: containerID,
+			ImageReference: "test@sha256:" + strings.Repeat("7", 64),
+			ConfigDigest:   "sha256:" + strings.Repeat("8", 64), SourceSnapshotDir: request.SourceSnapshotDir,
+			StartedAt: startedAt, Deadline: deadline, CompletedAt: startedAt, ExitCode: 0,
+		}
+		if phase == localci.FreshContainerPhasePrepared {
+			event.ContainerID = ""
+		}
+		if phase == localci.FreshContainerPhaseRemoved {
+			event.RemovalProofDigest = removalProof
+		}
+		if request.LifecycleHook != nil {
+			if err := request.LifecycleHook(ctx, event); err != nil {
+				return time.Time{}, "", err
+			}
+		}
+	}
+	return deadline, removalProof, nil
 }
 
 type fakeImageEnsurer struct{}
@@ -86,12 +129,17 @@ func (fakeSourceMaterializer) Materialize(
 type immediateFreshRunner struct{}
 
 func (immediateFreshRunner) RunFreshContainer(
-	_ context.Context,
+	ctx context.Context,
 	request freshContainerRequest,
 ) (localci.FreshContainerResult, error) {
 	now := time.Now().UTC()
+	deadline, removalProof, err := emitFakeContainerLifecycle(ctx, request, now)
+	if err != nil {
+		return localci.FreshContainerResult{}, err
+	}
 	return localci.FreshContainerResult{
 		Status: gatecontract.ResultStatusPassed, ExitCode: 0,
+		StartedAt: now, CompletedAt: now, Deadline: deadline, RemovalProofDigest: removalProof,
 		GateResult: &gatecontract.GateResult{
 			GateID: string(request.GateID), Status: gatecontract.GateStatusPassed,
 			StartedAt: now, CompletedAt: now,
@@ -153,6 +201,7 @@ func TestConnectCoordinatorCompetingStartersConverge(t *testing.T) {
 	checkpoint := coordinatorTestCheckpoint(t)
 	dependencies := coordinatorDependencies{
 		ImageEnsurer: fakeImageEnsurer{}, SourceMaterializer: fakeSourceMaterializer{}, FreshRunner: immediateFreshRunner{},
+		RecoveryRunner: &capturingFreshContainerRunner{},
 	}
 	starters := []*competingOwnerStarter{
 		{checkpoint: checkpoint, dependencies: dependencies},
@@ -222,6 +271,8 @@ func TestFreshContainerRequestFieldRegistryIsComplete(t *testing.T) {
 		"ImageProvenanceSourceTreeSHA": "accepted image provenance", "JobSourceTreeSHA": "submitted job source",
 		"SourceSnapshotDir": "materialized source", "Profile": "timeout contract",
 		"Plan": "canonical execution plan", "GateID": "single fresh-container gate",
+		"ContainerLabels": "durable container identity", "Deadline": "first-start deadline",
+		"LifecycleHook": "durable lifecycle transition",
 	}
 	for index := range producer.NumField() {
 		field := producer.Field(index).Name
@@ -458,6 +509,7 @@ func startTestCoordinatorOwner(
 	t.Helper()
 	owner, err := openCoordinatorOwner(context.Background(), checkpoint, coordinatorDependencies{
 		ImageEnsurer: fakeImageEnsurer{}, SourceMaterializer: fakeSourceMaterializer{}, FreshRunner: runner,
+		RecoveryRunner: &capturingFreshContainerRunner{},
 	})
 	if err != nil {
 		t.Fatalf("openCoordinatorOwner() error = %v", err)

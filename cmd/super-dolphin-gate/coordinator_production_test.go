@@ -5,6 +5,7 @@ import (
 	"crypto/ed25519"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -50,6 +51,27 @@ func (runner *capturingFreshContainerRunner) RunFreshContainer(
 ) (localci.FreshContainerResult, error) {
 	runner.request = request
 	return localci.FreshContainerResult{Status: gatecontract.ResultStatusPassed}, nil
+}
+
+func (*capturingFreshContainerRunner) RecoverFreshContainer(
+	context.Context,
+	localci.FreshContainerRecoveryRequest,
+) (localci.FreshContainerResult, error) {
+	return localci.FreshContainerResult{}, errors.New("unexpected container recovery")
+}
+
+func (*capturingFreshContainerRunner) ProbeFreshContainerRecovery(
+	context.Context,
+	localci.FreshContainerRecoveryRequest,
+) (localci.FreshContainerRecoveryObservation, error) {
+	return localci.FreshContainerRecoveryObservation{}, errors.New("unexpected container recovery probe")
+}
+
+func (*capturingFreshContainerRunner) CleanupUnprovedFreshContainer(
+	context.Context,
+	localci.FreshContainerCleanupRequest,
+) (localci.FreshContainerResult, error) {
+	return localci.FreshContainerResult{}, errors.New("unexpected container recovery cleanup")
 }
 
 func TestProductionCoordinatorDependenciesAssembleRealAdapters(t *testing.T) {

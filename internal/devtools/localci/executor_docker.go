@@ -2,13 +2,9 @@ package localci
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
-	"path/filepath"
 	"reflect"
 	"slices"
 	"strconv"
@@ -18,260 +14,6 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
 	platformconfig "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/config"
 )
-
-const (
-	normalExecutionTimeout  = 10 * time.Minute
-	releaseExecutionTimeout = 30 * time.Minute
-)
-
-type dockerRunner interface {
-	Run(ctx context.Context, args ...string) (string, error)
-}
-
-type execDockerRunner struct{}
-
-// Run 执行单个 Docker CLI 操作并保留标准错误上下文。
-func (execDockerRunner) Run(ctx context.Context, args ...string) (string, error) {
-	command := exec.CommandContext(ctx, "docker", args...)
-	output, err := command.CombinedOutput()
-	if err != nil {
-		return "", fmt.Errorf("docker %s: %w: %s", args[0], err, strings.TrimSpace(string(output)))
-	}
-	return string(output), nil
-}
-
-type dockerExecutor struct {
-	runner            dockerRunner
-	seccompPath       string
-	seccompDigest     string
-	trustedSourceRoot string
-}
-
-type containerRequest struct {
-	Image     string
-	SourceDir string
-	Command   []string
-	Release   bool
-}
-
-type containerLifecycleEvidence struct {
-	ContainerID   string
-	ExitCode      int
-	Removed       bool
-	Killed        bool
-	Deadline      time.Time
-	SeccompDigest string
-}
-
-// newDockerExecutor 固定 seccomp 摘要和受信源码临时根。
-func newDockerExecutor(runner dockerRunner, seccompPath string, trustedSourceRoot string) (*dockerExecutor, error) {
-	if runner == nil {
-		return nil, errors.New("docker runner is required")
-	}
-	if !filepath.IsAbs(seccompPath) || filepath.Clean(seccompPath) != seccompPath {
-		return nil, errors.New("seccomp profile path must be canonical and absolute")
-	}
-	if info, err := os.Stat(seccompPath); err != nil || !info.Mode().IsRegular() {
-		return nil, errors.New("seccomp profile must be an existing regular file")
-	}
-	seccompDigest, err := fileDigest(seccompPath)
-	if err != nil {
-		return nil, fmt.Errorf("digest seccomp profile: %w", err)
-	}
-	root, err := trustedDirectory(trustedSourceRoot)
-	if err != nil {
-		return nil, fmt.Errorf("trusted source root: %w", err)
-	}
-	if root == string(filepath.Separator) {
-		return nil, errors.New("trusted source root cannot be the filesystem root")
-	}
-	return &dockerExecutor{runner: runner, seccompPath: seccompPath, seccompDigest: seccompDigest, trustedSourceRoot: root}, nil
-}
-
-// Run 创建一次性容器，执行 gate，并返回清理结果证据。
-func (executor *dockerExecutor) Run(ctx context.Context, request containerRequest) (containerLifecycleEvidence, error) {
-	var evidence containerLifecycleEvidence
-	if err := executor.validateContainerRequest(request); err != nil {
-		return evidence, err
-	}
-	if err := executor.verifySeccomp(); err != nil {
-		return evidence, err
-	}
-	runContext, cancel := platformconfig.WithTimeout(ctx, executionTimeout(request.Release))
-	defer cancel()
-	evidence.SeccompDigest = executor.seccompDigest
-	evidence.Deadline, _ = runContext.Deadline()
-	containerID, err := executor.create(runContext, request)
-	evidence.ContainerID = containerID
-	if evidence.ContainerID == "" {
-		return evidence, err
-	}
-	if err != nil {
-		return executor.removeAndJoin(ctx, evidence, err)
-	}
-	if _, err := executor.runner.Run(runContext, "start", evidence.ContainerID); err != nil {
-		return executor.removeAndJoin(ctx, evidence, fmt.Errorf("start gate container: %w", err))
-	}
-	evidence, err = executor.wait(runContext, ctx, evidence)
-	return executor.removeAndJoin(ctx, evidence, err)
-}
-
-func (executor *dockerExecutor) wait(runContext context.Context, parentContext context.Context, evidence containerLifecycleEvidence) (containerLifecycleEvidence, error) {
-	exitCode, err := executor.runner.Run(runContext, "wait", evidence.ContainerID)
-	if err != nil {
-		killContext, killCancel := platformconfig.WithTimeout(context.WithoutCancel(parentContext), 30*time.Second)
-		defer killCancel()
-		if _, killErr := executor.runner.Run(killContext, "kill", evidence.ContainerID); killErr != nil {
-			return evidence, errors.Join(fmt.Errorf("wait for gate container: %w", err), fmt.Errorf("kill gate container: %w", killErr))
-		}
-		evidence.Killed = true
-		return evidence, fmt.Errorf("wait for gate container: %w", err)
-	}
-	parsedExitCode, err := strconv.Atoi(strings.TrimSpace(exitCode))
-	if err != nil {
-		return evidence, fmt.Errorf("parse gate container exit code %q: %w", strings.TrimSpace(exitCode), err)
-	}
-	evidence.ExitCode = parsedExitCode
-	if parsedExitCode != 0 {
-		return evidence, fmt.Errorf("gate container exited with code %d", parsedExitCode)
-	}
-	return evidence, nil
-}
-
-func (executor *dockerExecutor) create(ctx context.Context, request containerRequest) (string, error) {
-	createOutput, err := executor.runner.Run(ctx, executor.createArgs(request)...)
-	if err != nil {
-		return "", fmt.Errorf("create gate container: %w", err)
-	}
-	fields := strings.Fields(createOutput)
-	if len(fields) == 0 || !isContainerID(fields[0]) {
-		return "", errors.New("docker create returned no verifiable container ID")
-	}
-	if len(fields) != 1 {
-		return fields[0], errors.New("docker create returned trailing output after container ID")
-	}
-	return fields[0], nil
-}
-
-func (executor *dockerExecutor) remove(parentContext context.Context, containerID string) error {
-	cleanupContext, cleanupCancel := platformconfig.WithTimeout(context.WithoutCancel(parentContext), 30*time.Second)
-	defer cleanupCancel()
-	_, err := executor.runner.Run(cleanupContext, "rm", "--force", containerID)
-	return err
-}
-
-func (executor *dockerExecutor) removeAndJoin(ctx context.Context, evidence containerLifecycleEvidence, runErr error) (containerLifecycleEvidence, error) {
-	if cleanupErr := executor.remove(ctx, evidence.ContainerID); cleanupErr != nil {
-		return evidence, errors.Join(runErr, fmt.Errorf("remove gate container: %w", cleanupErr))
-	}
-	evidence.Removed = true
-	return evidence, runErr
-}
-
-func (executor *dockerExecutor) verifySeccomp() error {
-	currentDigest, err := fileDigest(executor.seccompPath)
-	if err != nil {
-		return fmt.Errorf("verify seccomp profile: %w", err)
-	}
-	if currentDigest != executor.seccompDigest {
-		return errors.New("seccomp profile changed after executor construction")
-	}
-	return nil
-}
-
-func (executor *dockerExecutor) createArgs(request containerRequest) []string {
-	args := []string{
-		"create",
-		"--cpus=" + strconv.FormatInt(workloadLogicalCPUs, 10),
-		"--memory=" + strconv.FormatInt(workloadMemoryGiB, 10) + "g",
-		"--pids-limit=512", "--storage-opt=size=10G", "--read-only", "--user=65532:65532",
-		"--cap-drop=ALL", "--security-opt=no-new-privileges", "--security-opt=seccomp=" + executor.seccompPath,
-		"--network=none", "--mount=type=bind,src=" + request.SourceDir + ",dst=/workspace/source,readonly",
-		"--tmpfs=/tmp:rw,noexec,nosuid,nodev,size=2147483648", "--log-driver=local", "--log-opt=max-size=10m", "--log-opt=max-file=3",
-		request.Image,
-	}
-	return append(args, request.Command...)
-}
-
-// validateContainerRequest 校验不可变镜像、受信源码挂载和 gate 命令。
-func (executor *dockerExecutor) validateContainerRequest(request containerRequest) error {
-	if !strings.Contains(request.Image, "@sha256:") || !sha256DigestPattern.MatchString(request.Image[strings.LastIndex(request.Image, "@")+1:]) {
-		return errors.New("container image must use an immutable platform manifest digest")
-	}
-	if err := executor.validateSourceDirectory(request.SourceDir); err != nil {
-		return err
-	}
-	if len(request.Command) == 0 || request.Command[0] == "" {
-		return errors.New("gate command is required")
-	}
-	return nil
-}
-
-// validateSourceDirectory 将源码限制在受信临时根的真实子目录中。
-func (executor *dockerExecutor) validateSourceDirectory(sourceDirectory string) error {
-	if strings.ContainsAny(sourceDirectory, ",\x00\r\n") {
-		return errors.New("source directory contains Docker mount CSV control characters")
-	}
-	sourceDir, err := trustedDirectory(sourceDirectory)
-	if err != nil {
-		return fmt.Errorf("source directory: %w", err)
-	}
-	relative, err := filepath.Rel(executor.trustedSourceRoot, sourceDir)
-	if err != nil || relative == "." || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
-		return errors.New("source directory must be a child of the trusted temporary root")
-	}
-	return nil
-}
-
-// trustedDirectory 解析真实目录，阻止符号链接逃逸。
-func trustedDirectory(directory string) (string, error) {
-	if !filepath.IsAbs(directory) || filepath.Clean(directory) != directory {
-		return "", errors.New("path must be canonical and absolute")
-	}
-	resolved, err := filepath.EvalSymlinks(directory)
-	if err != nil {
-		return "", err
-	}
-	info, err := os.Stat(resolved)
-	if err != nil {
-		return "", err
-	}
-	if !info.IsDir() {
-		return "", errors.New("path must be a directory")
-	}
-	return resolved, nil
-}
-
-func executionTimeout(release bool) time.Duration {
-	if release {
-		return releaseExecutionTimeout
-	}
-	return normalExecutionTimeout
-}
-
-func fileDigest(filePath string) (string, error) {
-	data, err := os.ReadFile(filePath)
-	if err != nil {
-		return "", err
-	}
-	sum := sha256.Sum256(data)
-	return "sha256:" + hex.EncodeToString(sum[:]), nil
-}
-
-// isContainerID 只接受 Docker 返回的十六进制容器标识。
-func isContainerID(value string) bool {
-	if len(value) < 12 || len(value) > 64 {
-		return false
-	}
-	for _, character := range value {
-		if (character < '0' || character > '9') && (character < 'a' || character > 'f') {
-			return false
-		}
-	}
-	return true
-}
-
-const noContainerNetwork = "none"
 
 // FreshContainerImageTruth binds the inspected image labels to accepted build truth.
 type FreshContainerImageTruth struct {
@@ -291,7 +33,39 @@ type FreshContainerRequest struct {
 	Profile           gate.Profile
 	Plan              gate.GatePlan
 	GateID            gate.GateID
+	ContainerLabels   map[string]string
+	Deadline          time.Time
+	LifecycleHook     FreshContainerLifecycleHook
 }
+
+// FreshContainerLifecyclePhase 标识可持久化且可幂等重放的 Docker 边界。
+type FreshContainerLifecyclePhase string
+
+const (
+	FreshContainerPhasePrepared FreshContainerLifecyclePhase = "prepared"
+	FreshContainerPhaseCreated  FreshContainerLifecyclePhase = "created"
+	FreshContainerPhaseStarting FreshContainerLifecyclePhase = "starting"
+	FreshContainerPhaseStarted  FreshContainerLifecyclePhase = "started"
+	FreshContainerPhaseExited   FreshContainerLifecyclePhase = "exited"
+	FreshContainerPhaseRemoved  FreshContainerLifecyclePhase = "removed"
+)
+
+// FreshContainerLifecycleEvent 在不可逆 Docker 边界后同步提交 durable owner hook。
+type FreshContainerLifecycleEvent struct {
+	Phase              FreshContainerLifecyclePhase
+	ContainerID        string
+	ImageReference     string
+	ConfigDigest       string
+	SourceSnapshotDir  string
+	StartedAt          time.Time
+	Deadline           time.Time
+	CompletedAt        time.Time
+	ExitCode           int
+	RemovalProofDigest string
+}
+
+// FreshContainerLifecycleHook 在继续下一不可逆动作前持久化 lifecycle 事件。
+type FreshContainerLifecycleHook func(context.Context, FreshContainerLifecycleEvent) error
 
 // FreshContainerResult is unsigned, directly observed evidence for a later coordinator.
 type FreshContainerResult struct {
@@ -352,10 +126,7 @@ func (runner *FreshContainerRunner) RunFreshContainer(ctx context.Context, reque
 		return result, err
 	}
 	result.Evidence = append(result.Evidence, gate.Evidence{Kind: gate.EvidenceKindDocker, Digest: imageDigest})
-	runContext, cancel := platformconfig.WithTimeout(ctx, profileExecutionTimeout(request.Profile))
-	defer cancel()
-	result.Deadline, _ = runContext.Deadline()
-	return runner.runPreparedContainer(runContext, ctx, request, prepared, result)
+	return runner.runPreparedContainer(ctx, request, prepared, result)
 }
 
 type preparedFreshContainerRequest struct {
@@ -389,7 +160,10 @@ func (runner *FreshContainerRunner) prepareRequest(request FreshContainerRequest
 		SchemaVersion: request.ImageTruth.SchemaVersion, OS: request.Image.OS,
 		Architecture: request.Image.Architecture, Variant: request.Image.Variant,
 	}
-	container := containerRequest{Image: prepared.imageReference, SourceDir: request.SourceSnapshotDir, Command: command, Release: request.Profile == gate.ProfileRelease}
+	container := containerRequest{
+		Image: prepared.imageReference, SourceDir: request.SourceSnapshotDir, Command: command,
+		Release: request.Profile == gate.ProfileRelease, Labels: request.ContainerLabels,
+	}
 	if err := runner.docker.validateContainerRequest(container); err != nil {
 		return prepared, err
 	}
@@ -498,26 +272,53 @@ func isTypedNil(value any) bool {
 	return slices.Contains([]reflect.Kind{reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Pointer, reflect.Slice}, kind) && reflect.ValueOf(value).IsNil()
 }
 
-func (runner *FreshContainerRunner) runPreparedContainer(runContext context.Context, parentContext context.Context, request FreshContainerRequest, prepared preparedFreshContainerRequest, result FreshContainerResult) (FreshContainerResult, error) {
-	container := containerRequest{Image: prepared.imageReference, SourceDir: request.SourceSnapshotDir, Command: prepared.command, Release: request.Profile == gate.ProfileRelease}
-	containerID, err := runner.docker.create(runContext, container)
+// runPreparedContainer 按 prepared、create、start、exit、remove 顺序持久化单次执行。
+func (runner *FreshContainerRunner) runPreparedContainer(parentContext context.Context, request FreshContainerRequest, prepared preparedFreshContainerRequest, result FreshContainerResult) (FreshContainerResult, error) {
+	container := containerRequest{
+		Image: prepared.imageReference, SourceDir: request.SourceSnapshotDir, Command: prepared.command,
+		Release: request.Profile == gate.ProfileRelease, Labels: request.ContainerLabels,
+	}
+	if err := runner.emitLifecycle(parentContext, request, result, FreshContainerPhasePrepared); err != nil {
+		return result, err
+	}
+	containerID, err := runner.docker.create(parentContext, container)
 	result.setContainerID(containerID)
 	if containerID == "" {
 		return result, err
 	}
 	if err != nil {
-		return runner.removeContainer(parentContext, result, err)
+		return runner.removeContainer(parentContext, result, request, err)
 	}
-	hostDigest, inspectDigest, err := runner.inspectCreatedContainer(runContext, containerID, prepared.imageReference, request.Image.ConfigDigest, request.SourceSnapshotDir, prepared.command)
+	if hookErr := runner.emitLifecycle(parentContext, request, result, FreshContainerPhaseCreated); hookErr != nil {
+		return runner.removeContainer(parentContext, result, request, hookErr)
+	}
+	hostDigest, inspectDigest, err := runner.inspectCreatedContainer(
+		parentContext, containerID, prepared.imageReference, request.Image.ConfigDigest,
+		request.SourceSnapshotDir, prepared.command, request.ContainerLabels,
+	)
 	if err != nil {
-		return runner.removeContainer(parentContext, result, err)
+		return runner.removeContainer(parentContext, result, request, err)
 	}
 	result.Container.HostConfigDigest = hostDigest
 	result.Container.NetworkPolicyDigest = digestBytes([]byte("network=none\n"))
 	result.Evidence = append(result.Evidence, gate.Evidence{Kind: gate.EvidenceKindDocker, Digest: inspectDigest})
 	result.StartedAt = runner.now().UTC()
+	result.Deadline = request.Deadline.UTC()
+	if result.Deadline.IsZero() {
+		result.Deadline = result.StartedAt.Add(profileExecutionTimeout(request.Profile))
+	}
+	if hookErr := runner.emitLifecycle(parentContext, request, result, FreshContainerPhaseStarting); hookErr != nil {
+		return runner.removeContainer(parentContext, result, request, hookErr)
+	}
+	runContext, cancel := context.WithDeadline(parentContext, result.Deadline)
+	defer cancel()
 	if _, err := runner.docker.runner.Run(runContext, "start", containerID); err != nil {
 		return runner.finishContainer(parentContext, result, prepared, request, gate.ResultStatusInfraFailed, fmt.Errorf("start gate container: %w", err))
+	}
+	if hookErr := runner.emitLifecycle(parentContext, request, result, FreshContainerPhaseStarted); hookErr != nil {
+		exitCode, terminateErr := runner.killAndWait(parentContext, &result)
+		result.ExitCode = exitCode
+		return runner.finishContainer(parentContext, result, prepared, request, gate.ResultStatusInfraFailed, errors.Join(hookErr, terminateErr))
 	}
 	status, exitCode, waitErr := runner.waitForContainer(runContext, parentContext, &result)
 	result.ExitCode = exitCode
@@ -580,12 +381,17 @@ func (runner *FreshContainerRunner) finishContainer(parentContext context.Contex
 		result.Evidence = append(result.Evidence, gate.Evidence{Kind: gate.EvidenceKindDocker, Digest: stateDigest})
 	}
 	result.CompletedAt = runner.now().UTC()
-	if logErr != nil || inspectErr != nil {
+	if hookErr := runner.emitLifecycle(parentContext, request, result, FreshContainerPhaseExited); hookErr != nil {
 		result.Status = gate.ResultStatusInfraFailed
 		result.GateResult = nil
-		runErr = errors.Join(runErr, logErr, inspectErr)
+		runErr = errors.Join(runErr, hookErr)
 	}
-	result, cleanupErr := runner.removeContainer(parentContext, result, runErr)
+	if evidenceErr := errors.Join(logErr, inspectErr); evidenceErr != nil {
+		result.Status = gate.ResultStatusInfraFailed
+		result.GateResult = nil
+		runErr = errors.Join(runErr, evidenceErr)
+	}
+	result, cleanupErr := runner.removeContainer(parentContext, result, request, runErr)
 	if !result.Container.Removed || result.Status == gate.ResultStatusInfraFailed {
 		result.Status = gate.ResultStatusInfraFailed
 		result.GateResult = nil
@@ -602,7 +408,8 @@ func (runner *FreshContainerRunner) finishContainer(parentContext context.Contex
 	return result, runErr
 }
 
-func (runner *FreshContainerRunner) removeContainer(parentContext context.Context, result FreshContainerResult, runErr error) (FreshContainerResult, error) {
+// removeContainer 只有在 Docker 列表证明容器消失后才写入 removal proof。
+func (runner *FreshContainerRunner) removeContainer(parentContext context.Context, result FreshContainerResult, request FreshContainerRequest, runErr error) (FreshContainerResult, error) {
 	if result.Container.ContainerID == "" {
 		return result, runErr
 	}
@@ -622,7 +429,33 @@ func (runner *FreshContainerRunner) removeContainer(parentContext context.Contex
 	result.Container.Removed = true
 	result.RemovalProofDigest = digestBytes([]byte("removed\n" + result.Container.ContainerID + "\n"))
 	result.Evidence = append(result.Evidence, gate.Evidence{Kind: gate.EvidenceKindDocker, Digest: result.RemovalProofDigest})
+	if hookErr := runner.emitLifecycle(context.WithoutCancel(parentContext), request, result, FreshContainerPhaseRemoved); hookErr != nil {
+		result.Status = gate.ResultStatusInfraFailed
+		return result, errors.Join(runErr, hookErr)
+	}
 	return result, runErr
+}
+
+func (runner *FreshContainerRunner) emitLifecycle(
+	ctx context.Context,
+	request FreshContainerRequest,
+	result FreshContainerResult,
+	phase FreshContainerLifecyclePhase,
+) error {
+	if request.LifecycleHook == nil {
+		return nil
+	}
+	event := FreshContainerLifecycleEvent{
+		Phase: phase, ContainerID: result.Container.ContainerID,
+		ImageReference: result.ImageReference, ConfigDigest: request.Image.ConfigDigest,
+		SourceSnapshotDir: request.SourceSnapshotDir, StartedAt: result.StartedAt,
+		Deadline: result.Deadline, CompletedAt: result.CompletedAt, ExitCode: result.ExitCode,
+		RemovalProofDigest: result.RemovalProofDigest,
+	}
+	if err := request.LifecycleHook(ctx, event); err != nil {
+		return fmt.Errorf("persist container lifecycle phase %q: %w", phase, err)
+	}
+	return nil
 }
 
 func (runner *FreshContainerRunner) runCleanup(parentContext context.Context, args ...string) (string, error) {
@@ -657,4 +490,306 @@ func buildGateResult(gateID gate.GateID, command []string, result FreshContainer
 		StartedAt: result.StartedAt, CompletedAt: result.CompletedAt,
 		ArgvDigest: argvDigest, LogDigest: result.LogDigest,
 	}, nil
+}
+
+// FreshContainerRecoveryRequest 是重启后观察既有容器所需的完整 immutable identity。
+type FreshContainerRecoveryRequest struct {
+	ContainerID       string
+	ContainerLabels   map[string]string
+	ImageReference    string
+	ConfigDigest      string
+	SourceSnapshotDir string
+	Command           []string
+	Profile           gate.Profile
+	GateID            gate.GateID
+	StartedAt         time.Time
+	Deadline          time.Time
+	LifecycleHook     FreshContainerLifecycleHook
+}
+
+// FreshContainerRecoveryObservation 是已验证身份容器的只读状态。
+type FreshContainerRecoveryObservation struct {
+	ContainerID string
+	Status      string
+}
+
+// FreshContainerCleanupRequest 提供定位和销毁未证明容器所需的最小身份闭包。
+type FreshContainerCleanupRequest struct {
+	ContainerID       string
+	ContainerLabels   map[string]string
+	ImageReference    string
+	ConfigDigest      string
+	SourceSnapshotDir string
+	Command           []string
+	Profile           gate.Profile
+	GateID            gate.GateID
+	LifecycleHook     FreshContainerLifecycleHook
+}
+
+// ProbeFreshContainerRecovery 只探测并验证原容器，不推进执行或终态。
+func (runner *FreshContainerRunner) ProbeFreshContainerRecovery(
+	ctx context.Context,
+	request FreshContainerRecoveryRequest,
+) (FreshContainerRecoveryObservation, error) {
+	if ctx == nil || runner == nil || runner.docker == nil {
+		return FreshContainerRecoveryObservation{}, errors.New("recovery runner and context are required")
+	}
+	if err := runner.validateRecoveryRequest(request); err != nil {
+		return FreshContainerRecoveryObservation{}, err
+	}
+	containerID, err := runner.resolveRecoveryContainer(ctx, request)
+	if err != nil {
+		return FreshContainerRecoveryObservation{}, err
+	}
+	document, err := runner.inspectContainer(ctx, containerID)
+	if err != nil {
+		return FreshContainerRecoveryObservation{}, err
+	}
+	if err := runner.validateRecoveryContainer(document, request); err != nil {
+		return FreshContainerRecoveryObservation{}, err
+	}
+	return FreshContainerRecoveryObservation{ContainerID: containerID, Status: document.State.Status}, nil
+}
+
+// CleanupUnprovedFreshContainer 对无法接管的旧容器执行 kill、wait、remove。
+func (runner *FreshContainerRunner) CleanupUnprovedFreshContainer(
+	ctx context.Context,
+	request FreshContainerCleanupRequest,
+) (FreshContainerResult, error) {
+	recovery := FreshContainerRecoveryRequest{
+		ContainerID: request.ContainerID, ContainerLabels: request.ContainerLabels,
+		ImageReference: request.ImageReference, ConfigDigest: request.ConfigDigest,
+		SourceSnapshotDir: request.SourceSnapshotDir, Command: request.Command,
+		Profile: request.Profile, GateID: request.GateID, LifecycleHook: request.LifecycleHook,
+	}
+	result := FreshContainerResult{Status: gate.ResultStatusInfraFailed, ImageReference: request.ImageReference, ExitCode: -1}
+	container := containerRequest{
+		Image: request.ImageReference, SourceDir: request.SourceSnapshotDir, Command: request.Command,
+		Release: request.Profile == gate.ProfileRelease, Labels: request.ContainerLabels,
+	}
+	if ctx == nil || runner == nil || runner.docker == nil {
+		return result, errors.New("cleanup runner and context are required")
+	}
+	if err := runner.docker.validateContainerRequest(container); err != nil {
+		return result, err
+	}
+	containerID, err := runner.resolveRecoveryContainer(ctx, recovery)
+	if err != nil {
+		return result, err
+	}
+	result.setContainerID(containerID)
+	document, err := runner.inspectContainer(ctx, containerID)
+	if err == nil {
+		err = runner.validateRecoveryContainerIdentity(document, recovery)
+	}
+	return runner.terminateUnprovedRecovery(ctx, recovery, result, err)
+}
+
+// RecoverFreshContainer 只接管仍由完整身份闭包证明的容器，不创建替代执行。
+func (runner *FreshContainerRunner) RecoverFreshContainer(
+	ctx context.Context,
+	request FreshContainerRecoveryRequest,
+) (FreshContainerResult, error) {
+	result := FreshContainerResult{
+		Status: gate.ResultStatusInfraFailed, ImageReference: request.ImageReference,
+		ExitCode: -1, StartedAt: request.StartedAt.UTC(), Deadline: request.Deadline.UTC(),
+	}
+	if err := requireRecoveryRunner(ctx, runner); err != nil {
+		return result, err
+	}
+	if err := runner.validateRecoveryRequest(request); err != nil {
+		return result, err
+	}
+	containerID, err := runner.resolveRecoveryContainer(ctx, request)
+	if err != nil {
+		return result, err
+	}
+	result.setContainerID(containerID)
+	document, err := runner.inspectContainer(ctx, containerID)
+	if err != nil {
+		return result, err
+	}
+	if err := runner.validateRecoveryContainer(document, request); err != nil {
+		return runner.terminateUnprovedRecovery(ctx, request, result, err)
+	}
+	freshRequest := FreshContainerRequest{
+		Image:             gate.ImageIdentity{ConfigDigest: request.ConfigDigest},
+		SourceSnapshotDir: request.SourceSnapshotDir, Profile: request.Profile,
+		GateID: request.GateID, ContainerLabels: request.ContainerLabels,
+		Deadline: request.Deadline, LifecycleHook: request.LifecycleHook,
+	}
+	prepared := preparedFreshContainerRequest{
+		imageReference: request.ImageReference, command: append([]string(nil), request.Command...),
+	}
+	switch document.State.Status {
+	case "running":
+		waitContext, cancel := context.WithDeadline(ctx, request.Deadline)
+		defer cancel()
+		status, exitCode, waitErr := runner.waitForContainer(waitContext, ctx, &result)
+		result.ExitCode = exitCode
+		return runner.finishContainer(ctx, result, prepared, freshRequest, status, waitErr)
+	case "exited":
+		output, waitErr := runner.runCleanup(ctx, "wait", containerID)
+		if waitErr != nil {
+			return runner.terminateUnprovedRecovery(ctx, request, result, waitErr)
+		}
+		exitCode, status, runErr, parseErr := parseRecoveredExit(output)
+		if parseErr != nil {
+			return runner.terminateUnprovedRecovery(ctx, request, result, parseErr)
+		}
+		result.ExitCode = exitCode
+		return runner.finishContainer(ctx, result, prepared, freshRequest, status, runErr)
+	default:
+		return runner.terminateUnprovedRecovery(
+			ctx, request, result, fmt.Errorf("recovered container state %q is not observable", document.State.Status),
+		)
+	}
+}
+
+func parseRecoveredExit(output string) (int, gate.ResultStatus, error, error) {
+	exitCode, err := parseContainerExitCode(output)
+	if err != nil {
+		return -1, gate.ResultStatusInfraFailed, nil, err
+	}
+	if exitCode != 0 {
+		return exitCode, gate.ResultStatusFailed, fmt.Errorf("recovered gate container exited with code %d", exitCode), nil
+	}
+	return exitCode, gate.ResultStatusPassed, nil, nil
+}
+
+// validateRecoveryRequest 校验恢复时钟与不可变 Docker 请求，不接受重算 deadline。
+func (runner *FreshContainerRunner) validateRecoveryRequest(request FreshContainerRecoveryRequest) error {
+	if err := request.Profile.Validate(); err != nil {
+		return err
+	}
+	if err := validateRecoveryClock(request); err != nil {
+		return err
+	}
+	if request.ContainerID != "" && !isContainerID(request.ContainerID) {
+		return errors.New("recovery container ID is invalid")
+	}
+	container := containerRequest{
+		Image: request.ImageReference, SourceDir: request.SourceSnapshotDir,
+		Command: request.Command, Release: request.Profile == gate.ProfileRelease,
+		Labels: request.ContainerLabels,
+	}
+	if err := runner.docker.validateContainerRequest(container); err != nil {
+		return err
+	}
+	if err := validateDigest("recovery config digest", request.ConfigDigest); err != nil {
+		return err
+	}
+	if len(request.ContainerLabels) == 0 {
+		return errors.New("recovery container labels are required")
+	}
+	return nil
+}
+
+// validateRecoveryClock 强制沿用首次启动时按 profile 计算的 UTC deadline。
+func validateRecoveryClock(request FreshContainerRecoveryRequest) error {
+	utc := request.StartedAt.Equal(request.StartedAt.UTC()) && request.Deadline.Equal(request.Deadline.UTC())
+	if !utc || request.StartedAt.IsZero() || request.Deadline.IsZero() {
+		return errors.New("recovery started_at and deadline must be non-zero UTC timestamps")
+	}
+	if !request.Deadline.Equal(request.StartedAt.Add(profileExecutionTimeout(request.Profile))) {
+		return errors.New("recovery deadline does not match the original profile timeout")
+	}
+	return nil
+}
+
+// resolveRecoveryContainer 使用持久 ID 或全部 labels 唯一定位原容器。
+func (runner *FreshContainerRunner) resolveRecoveryContainer(
+	ctx context.Context,
+	request FreshContainerRecoveryRequest,
+) (string, error) {
+	if request.ContainerID != "" {
+		return request.ContainerID, nil
+	}
+	keys := make([]string, 0, len(request.ContainerLabels))
+	for key := range request.ContainerLabels {
+		keys = append(keys, key)
+	}
+	slices.Sort(keys)
+	args := []string{"ps", "--all", "--no-trunc"}
+	for _, key := range keys {
+		args = append(args, "--filter=label="+key+"="+request.ContainerLabels[key])
+	}
+	args = append(args, "--format={{.ID}}")
+	output, err := runner.docker.runner.Run(ctx, args...)
+	if err != nil {
+		return "", fmt.Errorf("discover recovery container: %w", err)
+	}
+	lines := strings.Fields(output)
+	if len(lines) != 1 || !isContainerID(lines[0]) {
+		return "", fmt.Errorf("recovery labels resolved %d canonical containers, want 1", len(lines))
+	}
+	return lines[0], nil
+}
+
+func (runner *FreshContainerRunner) validateRecoveryContainer(
+	document containerInspectDocument,
+	request FreshContainerRecoveryRequest,
+) error {
+	if err := runner.validateRecoveryContainerIdentity(document, request); err != nil {
+		return err
+	}
+	if document.State == nil || (!document.State.Running && document.State.Status != "exited") {
+		return errors.New("recovery container is not alive or exited")
+	}
+	return nil
+}
+
+// validateRecoveryContainerIdentity 验证镜像、命令、挂载、隔离与 labels 的闭包。
+func (runner *FreshContainerRunner) validateRecoveryContainerIdentity(
+	document containerInspectDocument,
+	request FreshContainerRecoveryRequest,
+) error {
+	expectedContainerID := document.ID
+	if request.ContainerID != "" {
+		expectedContainerID = request.ContainerID
+	}
+	if err := validateContainerIdentity(
+		document, expectedContainerID, request.ImageReference, request.ConfigDigest, request.Command,
+	); err != nil {
+		return err
+	}
+	if err := validateContainerHostIsolation(document.HostConfig); err != nil {
+		return err
+	}
+	if err := validateContainerMount(document, request.SourceSnapshotDir); err != nil {
+		return err
+	}
+	if document.Config == nil {
+		return errors.New("recovery container config is missing")
+	}
+	for key, expected := range request.ContainerLabels {
+		if document.Config.Labels[key] != expected {
+			return fmt.Errorf("recovery container label %q drifted", key)
+		}
+	}
+	return nil
+}
+
+func (runner *FreshContainerRunner) terminateUnprovedRecovery(
+	ctx context.Context,
+	request FreshContainerRecoveryRequest,
+	result FreshContainerResult,
+	cause error,
+) (FreshContainerResult, error) {
+	cleanupContext, cancel := platformconfig.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+	defer cancel()
+	_, killErr := runner.docker.runner.Run(cleanupContext, "kill", result.Container.ContainerID)
+	if killErr == nil {
+		result.Killed = true
+		result.KillProofDigest = digestBytes([]byte("killed\n" + result.Container.ContainerID + "\n"))
+	}
+	_, waitErr := runner.docker.runner.Run(cleanupContext, "wait", result.Container.ContainerID)
+	freshRequest := FreshContainerRequest{
+		Image:             gate.ImageIdentity{ConfigDigest: request.ConfigDigest},
+		SourceSnapshotDir: request.SourceSnapshotDir, Profile: request.Profile,
+		GateID: request.GateID, ContainerLabels: request.ContainerLabels,
+		Deadline: request.Deadline, LifecycleHook: request.LifecycleHook,
+	}
+	result, removeErr := runner.removeContainer(cleanupContext, result, freshRequest, nil)
+	return result, errors.Join(cause, killErr, waitErr, removeErr)
 }

@@ -18,6 +18,9 @@ type truthImageEnsureService interface {
 
 type dockerFreshContainerService interface {
 	RunFreshContainer(context.Context, localci.FreshContainerRequest) (localci.FreshContainerResult, error)
+	RecoverFreshContainer(context.Context, localci.FreshContainerRecoveryRequest) (localci.FreshContainerResult, error)
+	ProbeFreshContainerRecovery(context.Context, localci.FreshContainerRecoveryRequest) (localci.FreshContainerRecoveryObservation, error)
+	CleanupUnprovedFreshContainer(context.Context, localci.FreshContainerCleanupRequest) (localci.FreshContainerResult, error)
 }
 
 type productionImageEnsurer struct {
@@ -207,5 +210,40 @@ func (runner *productionFreshContainerRunner) RunFreshContainer(
 		Image: request.Image, ImageTruth: request.ImageTruth,
 		SourceTreeSHA: request.JobSourceTreeSHA, SourceSnapshotDir: request.SourceSnapshotDir,
 		Profile: request.Profile, Plan: request.Plan, GateID: request.GateID,
+		ContainerLabels: request.ContainerLabels, Deadline: request.Deadline,
+		LifecycleHook: request.LifecycleHook,
 	})
+}
+
+// RecoverFreshContainer 将已证明身份的容器交给 Docker runner 接续观察。
+func (runner *productionFreshContainerRunner) RecoverFreshContainer(
+	ctx context.Context,
+	request localci.FreshContainerRecoveryRequest,
+) (localci.FreshContainerResult, error) {
+	if runner == nil || runner.runner == nil {
+		return localci.FreshContainerResult{}, errors.New("production fresh container runner is not configured")
+	}
+	return runner.runner.RecoverFreshContainer(ctx, request)
+}
+
+// ProbeFreshContainerRecovery 在 owner reconcile 阶段只读取原容器状态。
+func (runner *productionFreshContainerRunner) ProbeFreshContainerRecovery(
+	ctx context.Context,
+	request localci.FreshContainerRecoveryRequest,
+) (localci.FreshContainerRecoveryObservation, error) {
+	if runner == nil || runner.runner == nil {
+		return localci.FreshContainerRecoveryObservation{}, errors.New("production fresh container runner is not configured")
+	}
+	return runner.runner.ProbeFreshContainerRecovery(ctx, request)
+}
+
+// CleanupUnprovedFreshContainer 清理无法证明同一执行的旧容器。
+func (runner *productionFreshContainerRunner) CleanupUnprovedFreshContainer(
+	ctx context.Context,
+	request localci.FreshContainerCleanupRequest,
+) (localci.FreshContainerResult, error) {
+	if runner == nil || runner.runner == nil {
+		return localci.FreshContainerResult{}, errors.New("production fresh container runner is not configured")
+	}
+	return runner.runner.CleanupUnprovedFreshContainer(ctx, request)
 }

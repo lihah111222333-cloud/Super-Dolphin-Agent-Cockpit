@@ -7,6 +7,7 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -89,6 +90,12 @@ type WorkloadSnapshot struct {
 type SchedulerSnapshot struct {
 	Workloads []WorkloadSnapshot `json:"workloads"`
 	Leases    []Lease            `json:"leases"`
+}
+
+// RecoveryWorkload 是 owner 启动屏障内用于收敛双存储状态的完整期望。
+type RecoveryWorkload struct {
+	Request WorkloadRequest
+	Status  WorkloadStatus
 }
 
 // Scheduler 串行化一个 daemon identity 下的全部 kernel 与持久化操作。
@@ -369,6 +376,155 @@ func (s *Scheduler) Snapshot() (SchedulerSnapshot, error) {
 		return SchedulerSnapshot{}, err
 	}
 	return exportSnapshot(s.kernel)
+}
+
+// ReconcileRecovery 在 owner 对外服务前，以一次 durable commit 收敛全部 job workload。
+func (s *Scheduler) ReconcileRecovery(ctx context.Context, workloads []RecoveryWorkload) error {
+	if ctx == nil {
+		return fmt.Errorf("%w: context is required", ErrInvalidSchedulerInput)
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.ensureOpen(); err != nil {
+		return err
+	}
+	candidate := cloneSchedulerKernel(s.kernel)
+	changed, seen, err := reconcileRecoveryWorkloads(candidate, workloads)
+	if err != nil {
+		return err
+	}
+	if err := rejectOrphanRecoveryJobs(candidate, seen); err != nil {
+		return err
+	}
+	if err := validateRecoveredKernel(candidate); err != nil {
+		return fmt.Errorf("%w: validate recovery candidate: %w", ErrSchedulerState, err)
+	}
+	if !changed {
+		return nil
+	}
+	return s.commitCandidate(ctx, candidate)
+}
+
+func reconcileRecoveryWorkloads(
+	candidate *schedulerKernel,
+	workloads []RecoveryWorkload,
+) (bool, map[workloadID]struct{}, error) {
+	seen := make(map[workloadID]struct{}, len(workloads))
+	changed := false
+	for _, expected := range workloads {
+		workloadChanged, err := reconcileRecoveryWorkload(candidate, expected, seen)
+		if err != nil {
+			return false, nil, err
+		}
+		changed = changed || workloadChanged
+	}
+	return changed, seen, nil
+}
+
+func reconcileRecoveryWorkload(
+	candidate *schedulerKernel,
+	expected RecoveryWorkload,
+	seen map[workloadID]struct{},
+) (bool, error) {
+	spec, desired, err := validateRecoveryWorkload(expected, seen)
+	if err != nil {
+		return false, err
+	}
+	node, created, err := recoveryNode(candidate, spec)
+	if err != nil {
+		return false, err
+	}
+	stateChanged, err := applyRecoveryState(candidate, node, desired)
+	return created || stateChanged, err
+}
+
+func validateRecoveryWorkload(
+	expected RecoveryWorkload,
+	seen map[workloadID]struct{},
+) (workloadSpec, workloadState, error) {
+	spec, err := expected.Request.toSpec()
+	if err != nil {
+		return workloadSpec{}, "", err
+	}
+	if spec.kind != workloadJob {
+		return workloadSpec{}, "", fmt.Errorf("%w: recovery workload %q is not a job", ErrInvalidSchedulerInput, spec.id)
+	}
+	if _, duplicate := seen[spec.id]; duplicate {
+		return workloadSpec{}, "", fmt.Errorf("%w: duplicate recovery workload %q", ErrInvalidSchedulerInput, spec.id)
+	}
+	seen[spec.id] = struct{}{}
+	desired, err := importRecoveryStatus(expected.Status)
+	return spec, desired, err
+}
+
+func recoveryNode(candidate *schedulerKernel, spec workloadSpec) (*workloadNode, bool, error) {
+	node, exists := candidate.nodes[spec.id]
+	if !exists {
+		if err := candidate.enqueue(spec); err != nil {
+			return nil, false, fmt.Errorf("%w: recover workload %q: %w", ErrSchedulerState, spec.id, err)
+		}
+		return candidate.nodes[spec.id], true, nil
+	}
+	if !equalWorkloadSpec(node.spec, spec) {
+		return nil, false, fmt.Errorf("%w: recovery workload %q metadata drifted", ErrSchedulerState, spec.id)
+	}
+	return node, false, nil
+}
+
+// applyRecoveryState 收敛状态时同步释放不再属于 started workload 的 lease。
+func applyRecoveryState(candidate *schedulerKernel, node *workloadNode, desired workloadState) (bool, error) {
+	if desired == stateStarted {
+		if node.state != stateStarted {
+			return false, fmt.Errorf("%w: recovery workload %q is %q, want started", ErrSchedulerState, node.spec.id, node.state)
+		}
+		return false, nil
+	}
+	if desired == stateQueued && node.state != stateStarted && node.state != stateQueued {
+		return false, fmt.Errorf("%w: recovery workload %q is %q, want queued", ErrSchedulerState, node.spec.id, node.state)
+	}
+	if node.state == desired {
+		return false, nil
+	}
+	releaseRecoveryLeases(candidate, node.spec.id)
+	node.state = desired
+	return true, nil
+}
+
+func releaseRecoveryLeases(candidate *schedulerKernel, id workloadID) {
+	for leaseID, lease := range candidate.leases {
+		if lease.workloadID == id {
+			delete(candidate.leases, leaseID)
+		}
+	}
+}
+
+func rejectOrphanRecoveryJobs(candidate *schedulerKernel, seen map[workloadID]struct{}) error {
+	for id, node := range candidate.nodes {
+		_, expected := seen[id]
+		if node.spec.kind == workloadJob && !expected {
+			return fmt.Errorf("%w: scheduler contains orphan recovery job %q", ErrSchedulerState, id)
+		}
+	}
+	return nil
+}
+
+func importRecoveryStatus(status WorkloadStatus) (workloadState, error) {
+	switch status {
+	case WorkloadStatusQueued:
+		return stateQueued, nil
+	case WorkloadStatusStarted:
+		return stateStarted, nil
+	default:
+		return importTerminalStatus(status)
+	}
+}
+
+// equalWorkloadSpec 要求恢复 workload 的全部 immutable 调度元数据一致。
+func equalWorkloadSpec(left, right workloadSpec) bool {
+	return left.id == right.id && left.invocationID == right.invocationID &&
+		left.enqueueSeq == right.enqueueSeq && left.subSeq == right.subSeq &&
+		left.kind == right.kind && left.serviceCount == right.serviceCount &&
+		slices.Equal(left.dependencies, right.dependencies)
 }
 
 // ensureOpen 在持锁状态下验证 facade 的全部运行时资源仍可用。

@@ -29,7 +29,16 @@ CREATE TABLE IF NOT EXISTS coordinator_jobs (
  state TEXT NOT NULL,
  submitted_at TEXT NOT NULL,
  started_at TEXT,
+ deadline_at TEXT,
  completed_at TEXT,
+ active_gate_id TEXT NOT NULL DEFAULT '',
+ container_phase TEXT NOT NULL DEFAULT '',
+ container_id TEXT NOT NULL DEFAULT '',
+ container_labels_json BLOB,
+ container_image_reference TEXT NOT NULL DEFAULT '',
+ container_config_digest TEXT NOT NULL DEFAULT '',
+ source_snapshot_dir TEXT NOT NULL DEFAULT '',
+ removal_proof_digest TEXT NOT NULL DEFAULT '',
  gate_results_json BLOB,
  error_text TEXT NOT NULL DEFAULT ''
 );`
@@ -50,11 +59,21 @@ type coordinatorJobRecord struct {
 	State                        jobState
 	SubmittedAt                  time.Time
 	StartedAt                    *time.Time
+	Deadline                     *time.Time
 	CompletedAt                  *time.Time
+	ActiveGateID                 gatecontract.GateID
+	ContainerPhase               localci.FreshContainerLifecyclePhase
+	ContainerID                  string
+	ContainerLabels              map[string]string
+	ContainerImageReference      string
+	ContainerConfigDigest        string
+	SourceSnapshotDir            string
+	RemovalProofDigest           string
 	GateResults                  []gatecontract.GateResult
 	Error                        string
 }
 
+// openCoordinatorStore 打开 daemon identity 专属 SQLite，并在返回前完成恢复字段迁移。
 func openCoordinatorStore(
 	ctx context.Context,
 	checkpoint localci.DockerDaemonIdentityCheckpoint,
@@ -74,6 +93,10 @@ func openCoordinatorStore(
 	if _, err := db.ExecContext(ctx, coordinatorStoreSchema); err != nil {
 		return nil, errors.Join(fmt.Errorf("initialize coordinator SQLite: %w", err), db.Close())
 	}
+	if err := ensureCoordinatorRecoverySchema(ctx, db); err != nil {
+		return nil, errors.Join(err, db.Close())
+	}
+	db.SetMaxOpenConns(1)
 	return &coordinatorStore{db: db}, nil
 }
 
@@ -127,7 +150,9 @@ invocation_id, job_id, repository_root, plan_json, profile, job_source_tree_sha,
 func (store *coordinatorStore) job(ctx context.Context, jobID string) (coordinatorJobRecord, error) {
 	row := store.db.QueryRowContext(ctx, `SELECT invocation_id, job_id, enqueue_sequence, repository_root,
 plan_json, profile, job_source_tree_sha, image_provenance_source_tree_sha, state, submitted_at,
-started_at, completed_at, gate_results_json, error_text FROM coordinator_jobs WHERE job_id = ?`, jobID)
+started_at, deadline_at, completed_at, active_gate_id, container_phase, container_id,
+container_labels_json, container_image_reference, container_config_digest, source_snapshot_dir,
+removal_proof_digest, gate_results_json, error_text FROM coordinator_jobs WHERE job_id = ?`, jobID)
 	return scanCoordinatorJob(row, jobID)
 }
 
@@ -137,13 +162,15 @@ func (store *coordinatorStore) jobByInvocation(
 ) (coordinatorJobRecord, error) {
 	row := store.db.QueryRowContext(ctx, `SELECT invocation_id, job_id, enqueue_sequence, repository_root,
 plan_json, profile, job_source_tree_sha, image_provenance_source_tree_sha, state, submitted_at,
-started_at, completed_at, gate_results_json, error_text FROM coordinator_jobs WHERE invocation_id = ?`, invocationID)
+started_at, deadline_at, completed_at, active_gate_id, container_phase, container_id,
+container_labels_json, container_image_reference, container_config_digest, source_snapshot_dir,
+removal_proof_digest, gate_results_json, error_text FROM coordinator_jobs WHERE invocation_id = ?`, invocationID)
 	return scanCoordinatorJob(row, invocationID)
 }
 
 func (store *coordinatorStore) startJob(ctx context.Context, jobID string) error {
-	result, err := store.db.ExecContext(ctx, `UPDATE coordinator_jobs SET state = ?, started_at = ?
-WHERE job_id = ? AND state = ?`, jobStateStarted, time.Now().UTC().Format(time.RFC3339Nano), jobID, jobStateQueued)
+	result, err := store.db.ExecContext(ctx, `UPDATE coordinator_jobs SET state = ?
+WHERE job_id = ? AND state = ?`, jobStateStarted, jobID, jobStateQueued)
 	if err != nil {
 		return fmt.Errorf("persist coordinator job start: %w", err)
 	}
@@ -186,14 +213,22 @@ gate_results_json = ?, error_text = ? WHERE job_id = ? AND state IN (?, ?)`, sta
 }
 
 // scanCoordinatorJob 严格恢复 plan、时间和结果字段，不接受持久化漂移。
-func scanCoordinatorJob(row *sql.Row, jobID string) (coordinatorJobRecord, error) {
+type coordinatorRowScanner interface {
+	Scan(...any) error
+}
+
+// scanCoordinatorJob 严格解码数据库行并执行完整持久字段守卫。
+func scanCoordinatorJob(row coordinatorRowScanner, jobID string) (coordinatorJobRecord, error) {
 	var record coordinatorJobRecord
-	var planJSON, resultsJSON []byte
-	var profile, state, submitted string
-	var started, completed sql.NullString
+	var planJSON, resultsJSON, containerLabelsJSON []byte
+	var profile, state, submitted, activeGateID, containerPhase string
+	var started, deadline, completed sql.NullString
 	err := row.Scan(&record.InvocationID, &record.JobID, &record.EnqueueSequence, &record.RepositoryRoot,
 		&planJSON, &profile, &record.JobSourceTreeSHA, &record.ImageProvenanceSourceTreeSHA,
-		&state, &submitted, &started, &completed, &resultsJSON, &record.Error)
+		&state, &submitted, &started, &deadline, &completed, &activeGateID, &containerPhase,
+		&record.ContainerID, &containerLabelsJSON, &record.ContainerImageReference,
+		&record.ContainerConfigDigest, &record.SourceSnapshotDir, &record.RemovalProofDigest,
+		&resultsJSON, &record.Error)
 	if errors.Is(err, sql.ErrNoRows) {
 		return coordinatorJobRecord{}, fmt.Errorf("%w: %q", errCoordinatorNotFound, jobID)
 	}
@@ -204,8 +239,15 @@ func scanCoordinatorJob(row *sql.Row, jobID string) (coordinatorJobRecord, error
 		return coordinatorJobRecord{}, fmt.Errorf("decode persisted coordinator plan: %w", err)
 	}
 	record.Profile, record.State = gatecontract.Profile(profile), jobState(state)
-	if err := decodeCoordinatorTimes(&record, submitted, started, completed); err != nil {
+	record.ActiveGateID = gatecontract.GateID(activeGateID)
+	record.ContainerPhase = localci.FreshContainerLifecyclePhase(containerPhase)
+	if err := decodeCoordinatorTimes(&record, submitted, started, deadline, completed); err != nil {
 		return coordinatorJobRecord{}, err
+	}
+	if len(containerLabelsJSON) > 0 {
+		if err := decodeCoordinatorJSON(containerLabelsJSON, &record.ContainerLabels); err != nil {
+			return coordinatorJobRecord{}, fmt.Errorf("decode persisted container labels: %w", err)
+		}
 	}
 	if len(resultsJSON) > 0 {
 		if err := decodeCoordinatorJSON(resultsJSON, &record.GateResults); err != nil {
@@ -230,7 +272,7 @@ func decodeCoordinatorJSON(payload []byte, target any) error {
 	return nil
 }
 
-func decodeCoordinatorTimes(record *coordinatorJobRecord, submitted string, started, completed sql.NullString) error {
+func decodeCoordinatorTimes(record *coordinatorJobRecord, submitted string, started, deadline, completed sql.NullString) error {
 	var err error
 	record.SubmittedAt, err = time.Parse(time.RFC3339Nano, submitted)
 	if err != nil {
@@ -239,15 +281,38 @@ func decodeCoordinatorTimes(record *coordinatorJobRecord, submitted string, star
 	if record.StartedAt, err = parseCoordinatorTime(started); err != nil {
 		return err
 	}
+	if record.Deadline, err = parseCoordinatorTime(deadline); err != nil {
+		return err
+	}
 	record.CompletedAt, err = parseCoordinatorTime(completed)
 	return err
 }
 
 // validateCoordinatorRecord 拒绝 plan、profile、tree 或状态字段的任何持久化漂移。
 func validateCoordinatorRecord(record coordinatorJobRecord) error {
+	validators := []func(coordinatorJobRecord) error{
+		validateCoordinatorIdentity,
+		validateCoordinatorPlanState,
+		validateCoordinatorClock,
+		validateCoordinatorContainer,
+	}
+	for _, validate := range validators {
+		if err := validate(record); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateCoordinatorIdentity(record coordinatorJobRecord) error {
 	if record.InvocationID == "" || record.JobID == "" || record.EnqueueSequence == 0 {
 		return fmt.Errorf("%w: persisted invocation/job identity is incomplete", errCoordinatorState)
 	}
+	return nil
+}
+
+// validateCoordinatorPlanState 校验 plan 派生字段及可识别的 job 状态。
+func validateCoordinatorPlanState(record coordinatorJobRecord) error {
 	if err := record.Plan.Validate(); err != nil {
 		return fmt.Errorf("%w: persisted plan is invalid: %v", errCoordinatorState, err)
 	}
@@ -258,6 +323,54 @@ func validateCoordinatorRecord(record coordinatorJobRecord) error {
 		return fmt.Errorf("%w: unknown persisted job state %q", errCoordinatorState, record.State)
 	}
 	return nil
+}
+
+// validateCoordinatorClock 校验首次启动时钟成对存在且未被重算。
+func validateCoordinatorClock(record coordinatorJobRecord) error {
+	if (record.StartedAt == nil) != (record.Deadline == nil) {
+		return fmt.Errorf("%w: persisted started_at and deadline_at are incomplete", errCoordinatorState)
+	}
+	if record.StartedAt != nil && !record.Deadline.Equal(record.StartedAt.Add(coordinatorTimeout(record.Profile))) {
+		return fmt.Errorf("%w: persisted deadline drifted from first start", errCoordinatorState)
+	}
+	if record.State == jobStateQueued && (record.ContainerPhase != "" || record.StartedAt != nil) {
+		return fmt.Errorf("%w: queued job contains execution lifecycle state", errCoordinatorState)
+	}
+	return nil
+}
+
+// validateCoordinatorContainer 校验生命周期身份、阶段与销毁证明。
+func validateCoordinatorContainer(record coordinatorJobRecord) error {
+	if record.ContainerPhase != "" {
+		if !completeCoordinatorContainerIdentity(record) {
+			return fmt.Errorf("%w: persisted container identity is incomplete", errCoordinatorState)
+		}
+		if !knownCoordinatorContainerPhase(record.ContainerPhase) {
+			return fmt.Errorf("%w: unknown persisted container phase %q", errCoordinatorState, record.ContainerPhase)
+		}
+	}
+	if record.ContainerPhase == localci.FreshContainerPhaseRemoved && record.RemovalProofDigest == "" {
+		return fmt.Errorf("%w: removed container lacks removal proof", errCoordinatorState)
+	}
+	if record.State == jobStatePassed && record.RemovalProofDigest == "" {
+		return fmt.Errorf("%w: passed job lacks removal proof", errCoordinatorState)
+	}
+	return nil
+}
+
+func completeCoordinatorContainerIdentity(record coordinatorJobRecord) bool {
+	return record.ActiveGateID != "" && len(record.ContainerLabels) > 0 &&
+		record.ContainerImageReference != "" && record.ContainerConfigDigest != "" &&
+		record.SourceSnapshotDir != ""
+}
+
+func knownCoordinatorContainerPhase(phase localci.FreshContainerLifecyclePhase) bool {
+	_, exists := map[localci.FreshContainerLifecyclePhase]struct{}{
+		localci.FreshContainerPhasePrepared: {}, localci.FreshContainerPhaseCreated: {},
+		localci.FreshContainerPhaseStarting: {}, localci.FreshContainerPhaseStarted: {},
+		localci.FreshContainerPhaseExited: {}, localci.FreshContainerPhaseRemoved: {},
+	}[phase]
+	return exists
 }
 
 func parseCoordinatorTime(value sql.NullString) (*time.Time, error) {

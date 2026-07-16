@@ -64,6 +64,32 @@ func OpenSchedulerOwner(ctx context.Context, config SchedulerConfig) (*Scheduler
 	return openSchedulerOwnerAtRuntimeRoot(ctx, identity, runtimeRoot)
 }
 
+// ReconcileRecovery 只能在 Serve 前调用，用作 coordinator 的启动恢复屏障。
+func (o *SchedulerOwner) ReconcileRecovery(ctx context.Context, workloads []RecoveryWorkload) error {
+	if o == nil || o.scheduler == nil {
+		return ErrSchedulerClosed
+	}
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	if o.serveStarted || o.closed {
+		return fmt.Errorf("%w: recovery must finish before owner serve", ErrSchedulerState)
+	}
+	return o.scheduler.ReconcileRecovery(ctx, workloads)
+}
+
+// RecoverySnapshot 只在启动屏障内暴露 owner 的稳定快照。
+func (o *SchedulerOwner) RecoverySnapshot() (SchedulerSnapshot, error) {
+	if o == nil || o.scheduler == nil {
+		return SchedulerSnapshot{}, ErrSchedulerClosed
+	}
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	if o.serveStarted || o.closed {
+		return SchedulerSnapshot{}, fmt.Errorf("%w: recovery snapshot must precede owner serve", ErrSchedulerState)
+	}
+	return o.scheduler.Snapshot()
+}
+
 // DialScheduler 连接 owner-global 路径上的唯一 Scheduler owner。
 func DialScheduler(ctx context.Context, config SchedulerConfig) (*SchedulerClient, error) {
 	identity, err := schedulerTransportIdentity(ctx, config)

@@ -111,6 +111,9 @@ type freshContainerRequest struct {
 	Profile                      gatecontract.Profile
 	Plan                         gatecontract.GatePlan
 	GateID                       gatecontract.GateID
+	ContainerLabels              map[string]string
+	Deadline                     time.Time
+	LifecycleHook                localci.FreshContainerLifecycleHook
 }
 
 // FreshContainerRunner 为每个 gate 创建独立容器，不允许宿主直接执行 gate。
@@ -118,10 +121,18 @@ type FreshContainerRunner interface {
 	RunFreshContainer(context.Context, freshContainerRequest) (localci.FreshContainerResult, error)
 }
 
+// FreshContainerRecoveryRunner 验证、观察或清理重启前已存在的 Docker 容器。
+type FreshContainerRecoveryRunner interface {
+	RecoverFreshContainer(context.Context, localci.FreshContainerRecoveryRequest) (localci.FreshContainerResult, error)
+	ProbeFreshContainerRecovery(context.Context, localci.FreshContainerRecoveryRequest) (localci.FreshContainerRecoveryObservation, error)
+	CleanupUnprovedFreshContainer(context.Context, localci.FreshContainerCleanupRequest) (localci.FreshContainerResult, error)
+}
+
 type coordinatorDependencies struct {
 	ImageEnsurer       ImageEnsurer
 	SourceMaterializer SourceMaterializer
 	FreshRunner        FreshContainerRunner
+	RecoveryRunner     FreshContainerRecoveryRunner
 }
 
 func (dependencies coordinatorDependencies) validate() error {
@@ -133,6 +144,9 @@ func (dependencies coordinatorDependencies) validate() error {
 	}
 	if interfaceIsNil(dependencies.FreshRunner) {
 		return fmt.Errorf("%w: FreshContainerRunner is required", errCoordinatorDependency)
+	}
+	if interfaceIsNil(dependencies.RecoveryRunner) {
+		return fmt.Errorf("%w: FreshContainerRecoveryRunner is required", errCoordinatorDependency)
 	}
 	return nil
 }

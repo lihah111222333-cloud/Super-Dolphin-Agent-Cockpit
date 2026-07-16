@@ -36,7 +36,8 @@ func productionCoordinatorDependencies(ctx context.Context) (coordinatorDependen
 		return coordinatorDependencies{}, err
 	}
 	dependencies := coordinatorDependencies{
-		ImageEnsurer: imageEnsurer, SourceMaterializer: sourceMaterializer, FreshRunner: freshRunner,
+		ImageEnsurer: imageEnsurer, SourceMaterializer: sourceMaterializer,
+		FreshRunner: freshRunner, RecoveryRunner: freshRunner,
 	}
 	return dependencies, dependencies.validate()
 }
