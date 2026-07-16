@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"strings"
 
 	dto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/provider"
@@ -82,6 +83,7 @@ func (s *session) finishTurnWithError(handle *turnHandle, err error) {
 	handle.finish(err)
 	s.dispatch(s.turnRawEvent("turn:complete", turnID, map[string]any{
 		"success": false,
+		"status":  "failed",
 		"error":   err.Error(),
 	}))
 }
@@ -259,9 +261,7 @@ func buildEventData(base rawBase, sessionID, timestamp string, extras map[string
 	if timestamp = strings.TrimSpace(timestamp); timestamp != "" {
 		data["timestamp"] = timestamp
 	}
-	for key, value := range extras {
-		data[key] = value
-	}
+	maps.Copy(data, extras)
 	return data
 }
 

@@ -207,10 +207,10 @@ func TestInterruptDispatchesSyntheticToolEnd(t *testing.T) {
 	RegisterTranslators(dispatcher)
 
 	toolEnds := make(chan tooldto.ToolCallEnd, 1)
-	turnInterrupted := make(chan turndto.TurnInterrupted, 1)
+	turnInterrupted := make(chan turndto.TurnCompleted, 1)
 	cancelTool := event.Subscribe(bus, func(ev tooldto.ToolCallEnd) { toolEnds <- ev })
 	defer cancelTool()
-	cancelTurn := event.Subscribe(bus, func(ev turndto.TurnInterrupted) { turnInterrupted <- ev })
+	cancelTurn := event.Subscribe(bus, func(ev turndto.TurnCompleted) { turnInterrupted <- ev })
 	defer cancelTurn()
 
 	s := &session{
@@ -249,15 +249,15 @@ func assertSyntheticToolEnd(t *testing.T, toolEnds <-chan tooldto.ToolCallEnd) {
 	}
 }
 
-func assertTurnInterrupted(t *testing.T, turnInterrupted <-chan turndto.TurnInterrupted) {
+func assertTurnInterrupted(t *testing.T, turnInterrupted <-chan turndto.TurnCompleted) {
 	t.Helper()
 	select {
 	case ev := <-turnInterrupted:
-		if ev.TurnID != "turn-1" {
-			t.Fatalf("TurnInterrupted.TurnID = %q, want turn-1", ev.TurnID)
+		if ev.TurnID != "turn-1" || ev.Success || ev.Status != "interrupted" || ev.Reason != "provider" {
+			t.Fatalf("TurnCompleted = %#v, want provider interrupted terminal", ev)
 		}
 	case <-time.After(time.Second):
-		t.Fatal("Interrupt() did not dispatch TurnInterrupted")
+		t.Fatal("Interrupt() did not dispatch terminal interruption")
 	}
 }
 

@@ -200,23 +200,33 @@ func translateTurnEvent(raw dto.RawProviderEvent) (any, bool) {
 			Delta:      delta,
 		}, true
 	case "turn:interrupted":
-		return turndto.TurnInterrupted{
+		return turndto.TurnCompleted{
 			TurnHeader: turnHeader(raw.Data),
-			Reason:     dataString(raw.Data, "reason"),
+			Success:    false,
+			Status:     "interrupted",
+			Reason:     "provider",
+			Error:      dataString(raw.Data, "reason"),
 		}, true
 	case "turn:complete":
 		header := turnHeader(raw.Data)
-		success := dataBool(raw.Data, "success")
+		success, status, contractError := claudeTerminalOutcome(raw.Data)
 		errorText := dataString(raw.Data, "error")
+		if contractError != "" {
+			if errorText != "" {
+				errorText += "; "
+			}
+			errorText += "terminal contract: " + contractError
+		}
 		if err := providershared.ResetToolResultScope(header.ThreadID, header.TurnID); err != nil {
 			success = false
+			status = "failed"
 			errorText = appendProviderRuntimeError(errorText, err)
 		}
 		return turndto.TurnCompleted{
 			TurnHeader: header,
 			Success:    success,
 			Error:      errorText,
-			Status:     dataString(raw.Data, "status"),
+			Status:     status,
 			Reason:     dataString(raw.Data, "reason"),
 			Result:     dataString(raw.Data, "result"),
 			Summary:    dataString(raw.Data, "summary"),
@@ -226,6 +236,36 @@ func translateTurnEvent(raw dto.RawProviderEvent) (any, bool) {
 	default:
 		return nil, false
 	}
+}
+
+// claudeTerminalOutcome 校验 Claude raw terminal 的 success/status 配对，缺失或矛盾立即转换为失败。
+func claudeTerminalOutcome(data any) (bool, string, string) {
+	payload, ok := data.(map[string]any)
+	if !ok {
+		return false, "failed", "terminal payload is not an object"
+	}
+	success, hasSuccess := payload["success"].(bool)
+	status := strings.ToLower(strings.TrimSpace(dataString(payload, "status")))
+	if !hasSuccess || status == "" {
+		return false, "failed", "missing success or status"
+	}
+	switch status {
+	case "completed":
+		if success {
+			return true, status, ""
+		}
+	case "failed":
+		if !success {
+			return false, status, ""
+		}
+	case "interrupted", "cancelled":
+		if !success {
+			return false, status, ""
+		}
+	default:
+		return false, "failed", "unknown status " + status
+	}
+	return false, "failed", "conflicting success and status"
 }
 
 // translateToolEvent 翻译工具开始/结束事件，并把大结果交给共享结果捕获器。

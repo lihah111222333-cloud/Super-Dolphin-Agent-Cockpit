@@ -117,6 +117,7 @@ func TestTranslateTurnEventCompleteMapsCompletionFields(t *testing.T) {
 			"session_id":  "thread-1",
 			"turn_id":     "turn-1",
 			"success":     true,
+			"status":      "completed",
 			"result":      "done",
 			"summary":     "done",
 			"message":     "done",

@@ -202,6 +202,7 @@ func TestTurnCompleted_EndToEnd_NoDeltaNoResult(t *testing.T) {
 	terminal, _ := json.Marshal(map[string]any{
 		"turnId":  "T-quiet",
 		"success": true,
+		"status":  "completed",
 	})
 	completed, ok := sniffAndTranslate(t, s, "turn/completed", terminal)
 	if !ok {

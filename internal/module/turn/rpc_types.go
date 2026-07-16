@@ -367,10 +367,13 @@ func turnMCPSnapshotEmpty(snapshot contract.MCPSnapshot) bool {
 		len(snapshot.InstructionAttachments) == 0
 }
 
-// turnInterruptParams 是 turn/interrupt 入参，只允许线程标识和中断来源。
+// turnInterruptParams 是 turn/interrupt 入参。Stop identity is mandatory so a
+// delayed request cannot be applied to a replacement turn.
 type turnInterruptParams struct {
-	ThreadID string `json:"thread_id"`
-	Source   string `json:"source,omitempty"`
+	ThreadID       string `json:"thread_id"`
+	ExpectedTurnID string `json:"expected_turn_id"`
+	RequestID      string `json:"request_id"`
+	Source         string `json:"source,omitempty"`
 }
 
 // UnmarshalJSON 对 turn/interrupt 启用字段白名单，避免拼错字段被静默忽略。
@@ -384,13 +387,27 @@ func (p *turnInterruptParams) UnmarshalJSON(data []byte) error {
 		if strings.TrimSpace(current.ThreadID) == "" {
 			current.ThreadID = firstTrimmed(legacy.ThreadID, legacy.ThreadIDUpper)
 		}
+		if strings.TrimSpace(current.ExpectedTurnID) == "" {
+			current.ExpectedTurnID = strings.TrimSpace(legacy.ExpectedTurnID)
+		}
+		if strings.TrimSpace(current.RequestID) == "" {
+			current.RequestID = strings.TrimSpace(legacy.RequestID)
+		}
+		if strings.TrimSpace(current.ExpectedTurnID) == "" {
+			return platformrpc.ErrInvalidParams("turn/interrupt: expectedTurnId is required")
+		}
+		if strings.TrimSpace(current.RequestID) == "" {
+			return platformrpc.ErrInvalidParams("turn/interrupt: requestId is required")
+		}
 		return nil
 	})
 }
 
 type legacyTurnInterruptParams struct {
-	ThreadID      string `json:"threadId"`
-	ThreadIDUpper string `json:"threadID"`
+	ThreadID       string `json:"threadId"`
+	ThreadIDUpper  string `json:"threadID"`
+	ExpectedTurnID string `json:"expectedTurnId"`
+	RequestID      string `json:"requestId"`
 }
 
 // rejectUnknownTurnFields 在轻量 RPC 参数上做 fail-fast 字段检查，防止客户端误以为字段生效。
@@ -510,6 +527,10 @@ type legacyApprovalRespondParams struct {
 // turnInterruptResult 是 turn/interrupt 返回给 UI 的状态和 settle 摘要。
 type turnInterruptResult struct {
 	OK             bool   `json:"ok"`
+	Accepted       bool   `json:"accepted"`
+	RequestID      string `json:"requestId,omitempty"`
+	ExpectedTurnID string `json:"expectedTurnId,omitempty"`
+	ErrorCode      string `json:"errorCode,omitempty"`
 	TurnID         string `json:"turnId,omitempty"`
 	Status         string `json:"status,omitempty"`
 	Confirmed      bool   `json:"confirmed"`

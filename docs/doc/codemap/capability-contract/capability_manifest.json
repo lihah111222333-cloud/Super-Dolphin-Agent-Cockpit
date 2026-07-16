@@ -2984,6 +2984,7 @@
         "internal/provider/claudecli.claudeResolvedCursor",
         "internal/provider/claudecli.claudeResolvedMessagePage",
         "internal/provider/claudecli.claudeSessionEvent",
+        "internal/provider/claudecli.claudeTerminalOutcome",
         "internal/provider/claudecli.claudeTimestampProviderError",
         "internal/provider/claudecli.claudeTraceErrorSummary",
         "internal/provider/claudecli.claudeTraceID",
@@ -3711,7 +3712,6 @@
         "internal/provider/codexapp.decodeAnyPayload",
         "internal/provider/codexapp.decodeCodexRolloutFrame",
         "internal/provider/codexapp.decodeEventPayload",
-        "internal/provider/codexapp.decodeJSONMap",
         "internal/provider/codexapp.decodeRawEventPayload",
         "internal/provider/codexapp.decodeRawEventPayloadBytes",
         "internal/provider/codexapp.decodeStartResult",
@@ -3969,12 +3969,14 @@
         "internal/provider/codexapp.requireThreadID",
         "internal/provider/codexapp.reserveServerURL",
         "internal/provider/codexapp.resolveCodexLocalMCPBinaryDir",
+        "internal/provider/codexapp.resolveCompletedTerminalOutcome",
         "internal/provider/codexapp.resolveDreamBinary",
         "internal/provider/codexapp.resolveLocalTurnID",
         "internal/provider/codexapp.resolvePeerBinDirs",
         "internal/provider/codexapp.resolveRolloutRoot",
         "internal/provider/codexapp.resolveSessionTransportURL",
         "internal/provider/codexapp.resolveSupportedCodexModel",
+        "internal/provider/codexapp.resolveTurnTerminalOutcome",
         "internal/provider/codexapp.resolvedInputPath",
         "internal/provider/codexapp.restrictedReadOnlyAccessValue",
         "internal/provider/codexapp.resumeCodexIdentityConfig",
@@ -4080,6 +4082,7 @@
         "internal/provider/codexapp.turnStartParams",
         "internal/provider/codexapp.turnStartResult",
         "internal/provider/codexapp.turnTerminalError",
+        "internal/provider/codexapp.turnTerminalOutcome",
         "internal/provider/codexapp.turnTerminalSuccess",
         "internal/provider/codexapp.turnToolFailure",
         "internal/provider/codexapp.validCodexCLI",
@@ -7565,6 +7568,7 @@
         "internal/provider/claudecli.claudeResolvedCursor",
         "internal/provider/claudecli.claudeResolvedMessagePage",
         "internal/provider/claudecli.claudeSessionEvent",
+        "internal/provider/claudecli.claudeTerminalOutcome",
         "internal/provider/claudecli.claudeTimestampProviderError",
         "internal/provider/claudecli.claudeTraceErrorSummary",
         "internal/provider/claudecli.claudeTraceID",
@@ -8292,7 +8296,6 @@
         "internal/provider/codexapp.decodeAnyPayload",
         "internal/provider/codexapp.decodeCodexRolloutFrame",
         "internal/provider/codexapp.decodeEventPayload",
-        "internal/provider/codexapp.decodeJSONMap",
         "internal/provider/codexapp.decodeRawEventPayload",
         "internal/provider/codexapp.decodeRawEventPayloadBytes",
         "internal/provider/codexapp.decodeStartResult",
@@ -8550,12 +8553,14 @@
         "internal/provider/codexapp.requireThreadID",
         "internal/provider/codexapp.reserveServerURL",
         "internal/provider/codexapp.resolveCodexLocalMCPBinaryDir",
+        "internal/provider/codexapp.resolveCompletedTerminalOutcome",
         "internal/provider/codexapp.resolveDreamBinary",
         "internal/provider/codexapp.resolveLocalTurnID",
         "internal/provider/codexapp.resolvePeerBinDirs",
         "internal/provider/codexapp.resolveRolloutRoot",
         "internal/provider/codexapp.resolveSessionTransportURL",
         "internal/provider/codexapp.resolveSupportedCodexModel",
+        "internal/provider/codexapp.resolveTurnTerminalOutcome",
         "internal/provider/codexapp.resolvedInputPath",
         "internal/provider/codexapp.restrictedReadOnlyAccessValue",
         "internal/provider/codexapp.resumeCodexIdentityConfig",
@@ -8661,6 +8666,7 @@
         "internal/provider/codexapp.turnStartParams",
         "internal/provider/codexapp.turnStartResult",
         "internal/provider/codexapp.turnTerminalError",
+        "internal/provider/codexapp.turnTerminalOutcome",
         "internal/provider/codexapp.turnTerminalSuccess",
         "internal/provider/codexapp.turnToolFailure",
         "internal/provider/codexapp.validCodexCLI",
@@ -12146,6 +12152,7 @@
         "internal/provider/claudecli.claudeResolvedCursor",
         "internal/provider/claudecli.claudeResolvedMessagePage",
         "internal/provider/claudecli.claudeSessionEvent",
+        "internal/provider/claudecli.claudeTerminalOutcome",
         "internal/provider/claudecli.claudeTimestampProviderError",
         "internal/provider/claudecli.claudeTraceErrorSummary",
         "internal/provider/claudecli.claudeTraceID",
@@ -12873,7 +12880,6 @@
         "internal/provider/codexapp.decodeAnyPayload",
         "internal/provider/codexapp.decodeCodexRolloutFrame",
         "internal/provider/codexapp.decodeEventPayload",
-        "internal/provider/codexapp.decodeJSONMap",
         "internal/provider/codexapp.decodeRawEventPayload",
         "internal/provider/codexapp.decodeRawEventPayloadBytes",
         "internal/provider/codexapp.decodeStartResult",
@@ -13131,12 +13137,14 @@
         "internal/provider/codexapp.requireThreadID",
         "internal/provider/codexapp.reserveServerURL",
         "internal/provider/codexapp.resolveCodexLocalMCPBinaryDir",
+        "internal/provider/codexapp.resolveCompletedTerminalOutcome",
         "internal/provider/codexapp.resolveDreamBinary",
         "internal/provider/codexapp.resolveLocalTurnID",
         "internal/provider/codexapp.resolvePeerBinDirs",
         "internal/provider/codexapp.resolveRolloutRoot",
         "internal/provider/codexapp.resolveSessionTransportURL",
         "internal/provider/codexapp.resolveSupportedCodexModel",
+        "internal/provider/codexapp.resolveTurnTerminalOutcome",
         "internal/provider/codexapp.resolvedInputPath",
         "internal/provider/codexapp.restrictedReadOnlyAccessValue",
         "internal/provider/codexapp.resumeCodexIdentityConfig",
@@ -13242,6 +13250,7 @@
         "internal/provider/codexapp.turnStartParams",
         "internal/provider/codexapp.turnStartResult",
         "internal/provider/codexapp.turnTerminalError",
+        "internal/provider/codexapp.turnTerminalOutcome",
         "internal/provider/codexapp.turnTerminalSuccess",
         "internal/provider/codexapp.turnToolFailure",
         "internal/provider/codexapp.validCodexCLI",
@@ -16730,6 +16739,7 @@
         "internal/provider/claudecli.claudeResolvedCursor",
         "internal/provider/claudecli.claudeResolvedMessagePage",
         "internal/provider/claudecli.claudeSessionEvent",
+        "internal/provider/claudecli.claudeTerminalOutcome",
         "internal/provider/claudecli.claudeTimestampProviderError",
         "internal/provider/claudecli.claudeTraceErrorSummary",
         "internal/provider/claudecli.claudeTraceID",
@@ -17460,7 +17470,6 @@
         "internal/provider/codexapp.decodeAnyPayload",
         "internal/provider/codexapp.decodeCodexRolloutFrame",
         "internal/provider/codexapp.decodeEventPayload",
-        "internal/provider/codexapp.decodeJSONMap",
         "internal/provider/codexapp.decodeRawEventPayload",
         "internal/provider/codexapp.decodeRawEventPayloadBytes",
         "internal/provider/codexapp.decodeStartResult",
@@ -17721,12 +17730,14 @@
         "internal/provider/codexapp.reserveServerURL",
         "internal/provider/codexapp.resolveCodexBinary",
         "internal/provider/codexapp.resolveCodexLocalMCPBinaryDir",
+        "internal/provider/codexapp.resolveCompletedTerminalOutcome",
         "internal/provider/codexapp.resolveDreamBinary",
         "internal/provider/codexapp.resolveLocalTurnID",
         "internal/provider/codexapp.resolvePeerBinDirs",
         "internal/provider/codexapp.resolveRolloutRoot",
         "internal/provider/codexapp.resolveSessionTransportURL",
         "internal/provider/codexapp.resolveSupportedCodexModel",
+        "internal/provider/codexapp.resolveTurnTerminalOutcome",
         "internal/provider/codexapp.resolvedInputPath",
         "internal/provider/codexapp.restrictedReadOnlyAccessValue",
         "internal/provider/codexapp.resumeCodexIdentityConfig",
@@ -17830,6 +17841,7 @@
         "internal/provider/codexapp.turnStartParams",
         "internal/provider/codexapp.turnStartResult",
         "internal/provider/codexapp.turnTerminalError",
+        "internal/provider/codexapp.turnTerminalOutcome",
         "internal/provider/codexapp.turnTerminalSuccess",
         "internal/provider/codexapp.turnToolFailure",
         "internal/provider/codexapp.unwrapCodexNpmShim",
@@ -18349,13 +18361,13 @@
   ],
   "summary": {
     "total_packages": 41,
-    "total_functions": 2249,
+    "total_functions": 2251,
     "total_methods": 1145,
     "total_interfaces": 183,
     "total_interface_methods": 364,
     "total_exported": 1252,
-    "total_unexported": 2920,
-    "total_structs": 595
+    "total_unexported": 2923,
+    "total_structs": 596
   },
   "packages": [
     {
@@ -57075,6 +57087,21 @@
           ]
         },
         {
+          "name": "claudeTerminalOutcome",
+          "exported": false,
+          "params": [
+            {
+              "name": "data",
+              "type": "any"
+            }
+          ],
+          "returns": [
+            "bool",
+            "string",
+            "string"
+          ]
+        },
+        {
           "name": "claudeTimestampProviderError",
           "exported": false,
           "params": [
@@ -64289,19 +64316,6 @@
           ]
         },
         {
-          "name": "decodeJSONMap",
-          "exported": false,
-          "params": [
-            {
-              "name": "raw",
-              "type": "[]byte"
-            }
-          ],
-          "returns": [
-            "map[string]any"
-          ]
-        },
-        {
           "name": "decodeRawEventPayloadBytes",
           "exported": false,
           "params": [
@@ -67697,6 +67711,19 @@
           ]
         },
         {
+          "name": "resolveCompletedTerminalOutcome",
+          "exported": false,
+          "params": [
+            {
+              "name": "payload",
+              "type": "map[string]any"
+            }
+          ],
+          "returns": [
+            "turnTerminalOutcome"
+          ]
+        },
+        {
           "name": "resolveDreamBinary",
           "exported": false,
           "returns": [
@@ -67788,6 +67815,23 @@
           "returns": [
             "codexModelResolution",
             "error"
+          ]
+        },
+        {
+          "name": "resolveTurnTerminalOutcome",
+          "exported": false,
+          "params": [
+            {
+              "name": "method",
+              "type": "string"
+            },
+            {
+              "name": "payload",
+              "type": "map[string]any"
+            }
+          ],
+          "returns": [
+            "turnTerminalOutcome"
           ]
         },
         {
@@ -75216,6 +75260,10 @@
         },
         {
           "name": "turnStartResult",
+          "exported": false
+        },
+        {
+          "name": "turnTerminalOutcome",
           "exported": false
         },
         {

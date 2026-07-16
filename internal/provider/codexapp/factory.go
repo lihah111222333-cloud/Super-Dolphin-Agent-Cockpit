@@ -96,14 +96,6 @@ func hasAnyKey(payload map[string]any, keys ...string) bool {
 	return false
 }
 
-func decodeJSONMap(raw []byte) map[string]any {
-	var payload map[string]any
-	if len(raw) == 0 || json.Unmarshal(raw, &payload) != nil || len(payload) == 0 {
-		return nil
-	}
-	return payload
-}
-
 func requireThreadID(s *session, explicit ...string) (string, error) {
 	values := make([]string, 0, len(explicit)+1)
 	values = append(values, explicit...)
@@ -198,8 +190,55 @@ func isMessageStreamDeltaEvent(method string) bool {
 	}
 }
 
-// turnTerminalSuccess 从 terminal method 和 payload 中判断本轮是否成功结束。
-// method 中的 aborted/failed/error 优先于 payload success，缺省状态按成功兼容旧 Codex 事件。
+type turnTerminalOutcome struct {
+	success       bool
+	status        string
+	reason        string
+	contractError string
+}
+
+// resolveTurnTerminalOutcome 在 adapter 边界唯一映射 Codex 原始终态，并对缺失或矛盾字段 fail-fast。
+func resolveTurnTerminalOutcome(method string, payload map[string]any) turnTerminalOutcome {
+	normalizedMethod := strings.ToLower(strings.TrimSpace(method))
+	switch {
+	case strings.Contains(normalizedMethod, "interrupted"):
+		return turnTerminalOutcome{status: "interrupted", reason: "provider"}
+	case strings.Contains(normalizedMethod, "aborted"):
+		return turnTerminalOutcome{status: "cancelled", reason: stringValue(payload, "reason")}
+	case strings.Contains(normalizedMethod, "failed"), strings.Contains(normalizedMethod, "error"):
+		return turnTerminalOutcome{status: "failed", reason: stringValue(payload, "reason")}
+	}
+	return resolveCompletedTerminalOutcome(payload)
+}
+
+// resolveCompletedTerminalOutcome 校验 completed 事件的 success/status 配对，避免失败默认为成功。
+func resolveCompletedTerminalOutcome(payload map[string]any) turnTerminalOutcome {
+	success, hasSuccess := payload["success"].(bool)
+	status := strings.ToLower(strings.TrimSpace(stringValue(payload, "status")))
+	if !hasSuccess || status == "" {
+		return turnTerminalOutcome{status: "failed", contractError: "missing success or status"}
+	}
+	reason := stringValue(payload, "reason")
+	switch status {
+	case "completed":
+		if success {
+			return turnTerminalOutcome{success: true, status: status, reason: reason}
+		}
+	case "failed":
+		if !success {
+			return turnTerminalOutcome{status: status, reason: reason}
+		}
+	case "interrupted", "cancelled":
+		if !success {
+			return turnTerminalOutcome{status: status, reason: "provider"}
+		}
+	default:
+		return turnTerminalOutcome{status: "failed", contractError: "unknown status " + status}
+	}
+	return turnTerminalOutcome{status: "failed", contractError: "conflicting success and status"}
+}
+
+// turnTerminalSuccess 保留工具和旧 session 收敛路径的宽松判定；turn raw adapter 必须使用严格 mapping。
 func turnTerminalSuccess(method string, payload map[string]any) bool {
 	normalizedMethod := strings.ToLower(strings.TrimSpace(method))
 	if strings.Contains(normalizedMethod, "aborted") ||

@@ -395,14 +395,23 @@ func turnSteerHandler(svc Service, resolver contract.SessionResolver, capResolve
 func turnInterruptHandler(svc Service, resolver contract.SessionResolver) handler.Func {
 	return platformrpc.ThreadHandler(func(ctx context.Context, p turnInterruptParams) (any, error) {
 		return withTurnSession(ctx, resolver, func(ctx context.Context, session contract.Session) (any, error) {
-			status, err := svc.InterruptTurn(ctx, session, p.Source)
+			targeted, ok := svc.(interface {
+				InterruptTurnForTarget(context.Context, contract.Session, string, string) (TurnStatus, bool, error)
+			})
+			if !ok {
+				return nil, errors.New("turn/interrupt: target-aware interrupt service is required")
+			}
+			status, accepted, err := targeted.InterruptTurnForTarget(ctx, session, p.Source, p.ExpectedTurnID)
 			if err != nil {
 				if errors.Is(err, context.DeadlineExceeded) {
-					return buildInterruptFailureResult(status, status.interruptEnvelope()), nil
+					return buildInterruptFailureResult(status, status.interruptEnvelope(), p.ExpectedTurnID, p.RequestID, accepted), nil
 				}
 				return nil, err
 			}
-			return buildInterruptResult(status, status.interruptEnvelope()), nil
+			if !accepted {
+				return buildInterruptTargetChangedResult(status, p.ExpectedTurnID, p.RequestID), nil
+			}
+			return buildInterruptResult(status, status.interruptEnvelope(), p.ExpectedTurnID, p.RequestID, true), nil
 		})
 	})
 }
