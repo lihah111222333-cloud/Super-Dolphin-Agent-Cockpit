@@ -95,6 +95,7 @@ var raceSensitivePathPrefixes = []string{
 	"cmd/",
 	"internal/app/",
 	"internal/contract/",
+	"internal/devtools/localci/",
 	"internal/mcpserver/",
 	"internal/module/",
 	"internal/platform/",
