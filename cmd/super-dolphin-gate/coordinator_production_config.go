@@ -59,6 +59,9 @@ func loadProductionCoordinatorConfigFile(path string) (productionCoordinatorConf
 	if err := gatecontract.DecodeStrictJSON(data, &config); err != nil {
 		return productionCoordinatorConfig{}, fmt.Errorf("decode production coordinator config: %w", err)
 	}
+	if err := config.Validate(); err != nil {
+		return productionCoordinatorConfig{}, fmt.Errorf("validate production coordinator config: %w", err)
+	}
 	return config, nil
 }
 

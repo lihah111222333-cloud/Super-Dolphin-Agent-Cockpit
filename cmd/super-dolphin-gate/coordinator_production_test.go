@@ -232,6 +232,39 @@ func TestProductionCoordinatorConfigRejectsUnknownFieldsAndWorktreeRoots(t *test
 	}
 }
 
+func TestLoadProductionCoordinatorConfigFileValidatesDecodedConfig(t *testing.T) {
+	fixture := newProductionTestFixture(t)
+	tests := []struct {
+		name   string
+		want   string
+		mutate func(*productionCoordinatorConfig)
+	}{
+		{name: "repo_id", want: "repo_id is required", mutate: func(config *productionCoordinatorConfig) {
+			config.RepoID = ""
+		}},
+		{name: "trusted_ref", want: "trusted_ref must be a canonical full ref", mutate: func(config *productionCoordinatorConfig) {
+			config.TrustedRef = "main"
+		}},
+		{name: "platform", want: "platform must be explicit", mutate: func(config *productionCoordinatorConfig) {
+			config.Platform = "linux"
+		}},
+		{name: "root_overlap", want: "roots must not overlap", mutate: func(config *productionCoordinatorConfig) {
+			config.CandidateBuildRoot = config.AcceptedImageRoot
+		}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			config := fixture.config
+			test.mutate(&config)
+			path := filepath.Join(filepath.Dir(fixture.configPath), test.name+".json")
+			writePrivateJSON(t, path, config)
+			if _, err := loadProductionCoordinatorConfigFile(path); err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("loadProductionCoordinatorConfigFile() error = %v, want containing %q", err, test.want)
+			}
+		})
+	}
+}
+
 func TestProductionCoordinatorRejectsGitObjectEnvironmentOverrides(t *testing.T) {
 	t.Setenv("GIT_OBJECT_DIRECTORY", "/candidate/objects")
 	if _, err := productionCoordinatorDependencies(context.Background()); err == nil ||
