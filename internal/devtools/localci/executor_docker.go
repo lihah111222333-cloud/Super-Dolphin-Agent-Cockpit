@@ -483,7 +483,10 @@ func statusForContext(err error) gate.ResultStatus {
 	if errors.Is(err, context.Canceled) {
 		return gate.ResultStatusCancelled
 	}
-	return gate.ResultStatusTimeout
+	if errors.Is(err, context.DeadlineExceeded) {
+		return gate.ResultStatusTimeout
+	}
+	return gate.ResultStatusInfraFailed
 }
 
 func isTypedNil(value any) bool {

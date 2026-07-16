@@ -23,6 +23,7 @@ type freshDockerRunnerStub struct {
 	calls         [][]string
 	imageMutation string
 	waitForCancel bool
+	waitErr       error
 	waitCalls     int
 	removeErr     error
 	containerID   string
@@ -82,7 +83,10 @@ func (stub *freshDockerRunnerStub) runWait(ctx context.Context) (string, error) 
 		<-ctx.Done()
 		return "", ctx.Err()
 	}
-	if stub.waitForCancel {
+	if stub.waitErr != nil && stub.waitCalls == 1 {
+		return "", stub.waitErr
+	}
+	if stub.waitForCancel || stub.waitErr != nil {
 		return "137\n", nil
 	}
 	return "0\n", nil
@@ -127,7 +131,7 @@ func (stub *freshDockerRunnerStub) containerInspectJSON(finished bool) string {
 	if finished {
 		status = "exited"
 		finishedAt = "2026-07-16T00:00:01Z"
-		if stub.waitForCancel {
+		if stub.waitForCancel || stub.waitErr != nil {
 			exitCode = 137
 		}
 	}
@@ -242,6 +246,24 @@ func TestRunFreshContainerTimeoutKillsAndRemoves(t *testing.T) {
 	}
 	if !calledDockerCommand(stub.calls, "kill", testContainerID) || !calledDockerCommand(stub.calls, "rm", "--force", testContainerID) {
 		t.Fatalf("Docker calls = %#v", stub.calls)
+	}
+}
+
+func TestRunFreshContainerWaitTransportErrorIsInfrastructureFailure(t *testing.T) {
+	runner, stub, request := freshContainerFixture(t)
+	stub.waitErr = errors.New("Docker daemon transport failed")
+	result, err := runner.RunFreshContainer(context.Background(), request)
+	if err == nil || !strings.Contains(err.Error(), "Docker daemon transport failed") {
+		t.Fatalf("RunFreshContainer() error = %v", err)
+	}
+	if result.Status != gate.ResultStatusInfraFailed || result.GateResult != nil {
+		t.Fatalf("wait transport result = %#v", result)
+	}
+	if !result.Killed || !result.Container.Removed {
+		t.Fatalf("wait transport cleanup result = %#v", result)
+	}
+	if result.Status == gate.ResultStatusTimeout {
+		t.Fatal("ordinary Docker wait error was misclassified as timeout")
 	}
 }
 
