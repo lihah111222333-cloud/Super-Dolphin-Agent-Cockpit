@@ -119,6 +119,24 @@ func TestReceiptVerifyRequiresInput(t *testing.T) {
 	}
 }
 
+func TestGrantCLIExposesNoIssueOrConsumeCommand(t *testing.T) {
+	t.Parallel()
+	for _, command := range []string{"issue", "consume"} {
+		code, _, stderr := executeCLI([]string{"grant", command})
+		if code != int(gatecontract.ExitProtocol) || !strings.Contains(stderr, "unknown grant subcommand") {
+			t.Fatalf("command=%s code=%d stderr=%q", command, code, stderr)
+		}
+	}
+}
+
+func TestGrantVerifyRequiresInput(t *testing.T) {
+	t.Parallel()
+	code, _, _ := executeCLI([]string{"grant", "verify"})
+	if code != int(gatecontract.ExitProtocol) {
+		t.Fatalf("code = %d, want %d", code, gatecontract.ExitProtocol)
+	}
+}
+
 func TestCLIErrorWriterFailureReturnsInfrastructureExit(t *testing.T) {
 	t.Parallel()
 

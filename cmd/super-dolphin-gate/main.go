@@ -41,7 +41,7 @@ func writeCLIError(stderr io.Writer, commandErr error) error {
 // dispatchCLI 将固定命令面分派到 plan 或未接线 scheduler 边界。
 func dispatchCLI(args []string, stdout io.Writer) error {
 	if len(args) == 0 {
-		return protocolError("subcommand is required (plan, submit, run, status, wait, receipt verify)")
+		return protocolError("subcommand is required (plan, submit, run, status, wait, receipt verify, grant)")
 	}
 	switch args[0] {
 	case "plan":
@@ -71,6 +71,8 @@ func dispatchCoordinatorCLI(args []string, stdout io.Writer) error {
 		return runOwnerProcess(args[1:], stdout)
 	case "receipt":
 		return runReceipt(args[1:])
+	case "grant":
+		return runGrant(args[1:], stdout)
 	default:
 		return protocolError("unknown subcommand %q", args[0])
 	}

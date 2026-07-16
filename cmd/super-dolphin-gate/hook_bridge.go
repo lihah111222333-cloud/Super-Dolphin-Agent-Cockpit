@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
+	"strings"
 
 	gatecontract "github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gatehook"
@@ -14,6 +15,7 @@ var errHookReceiptInvalid = errors.New("coordinator result receipt is not author
 
 type hookCoordinator interface {
 	gatehook.Coordinator
+	AuthorizeGitPush(context.Context, gitPushGrantRequest) error
 	Close() error
 }
 
@@ -28,10 +30,18 @@ type hookCoordinatorClient interface {
 type hookCoordinatorBridge struct {
 	client    hookCoordinatorClient
 	authority hookResultReceiptAuthority
+	grants    *actionGrantService
+}
+
+type gitPushGrantRequest struct {
+	Status    gatehook.JobStatus
+	Submit    gatehook.SubmitRequest
+	RemoteURL string
 }
 
 var _ hookCoordinator = (*hookCoordinatorBridge)(nil)
 
+// connectProductionHookCoordinator 装配回执复验与独立 ActionGrant authority。
 func connectProductionHookCoordinator(ctx context.Context) (hookCoordinator, error) {
 	client, err := connectProductionCoordinator(ctx)
 	if err != nil {
@@ -49,7 +59,102 @@ func connectProductionHookCoordinator(ctx context.Context) (hookCoordinator, err
 	if err != nil {
 		return nil, errors.Join(err, client.Close())
 	}
-	return &hookCoordinatorBridge{client: typed, authority: authority}, nil
+	transport, ok := client.(*coordinatorTransportClient)
+	if !ok {
+		return nil, errors.Join(errors.New("production coordinator lacks action grant store"), client.Close())
+	}
+	grants, err := newProductionActionGrantService(config, transport.store, authority)
+	if err != nil {
+		return nil, errors.Join(err, client.Close())
+	}
+	return &hookCoordinatorBridge{client: typed, authority: authority, grants: grants}, nil
+}
+
+// AuthorizeGitPush 签发并消费一个绑定精确 typed ref update 的单次授权。
+func (bridge *hookCoordinatorBridge) AuthorizeGitPush(
+	ctx context.Context,
+	request gitPushGrantRequest,
+) error {
+	if bridge == nil || bridge.client == nil || bridge.grants == nil {
+		return errors.New("action grant service is not configured")
+	}
+	rangeSource, err := validateGitPushGrantRequest(request)
+	if err != nil {
+		return err
+	}
+	receipt, err := bridge.loadGitPushGrantReceipt(ctx, request)
+	if err != nil {
+		return err
+	}
+	nonce := gitPushGrantNonce(receipt, request)
+	grant, err := bridge.grants.Issue(ctx, actionGrantIntent{
+		Receipt: receipt, InvocationOwner: request.Submit.Invocation.Owner,
+		Audience: gatecontract.ActionAudienceGitPush, ActionPolicy: string(rangeSource.UpdateKind),
+		RemoteURL: request.RemoteURL, Ref: rangeSource.RemoteRef,
+		OldSHA: rangeSource.ObservedRemoteSHA, NewSHA: rangeSource.HeadSHA, RequestNonce: nonce,
+	})
+	if err != nil {
+		return fmt.Errorf("issue git.push action grant: %w", err)
+	}
+	_, err = bridge.grants.Consume(ctx, grant, actionGrantExpectation{
+		Audience: gatecontract.ActionAudienceGitPush, RepoID: receipt.RepoID,
+		InvocationID: receipt.InvocationID, SourceTreeSHA: receipt.Source.SourceTreeSHA,
+		Generation: receipt.Generation, RemoteURL: request.RemoteURL, Ref: rangeSource.RemoteRef,
+		OldSHA: rangeSource.ObservedRemoteSHA, NewSHA: rangeSource.HeadSHA,
+	})
+	if err != nil {
+		return fmt.Errorf("consume git.push action grant: %w", err)
+	}
+	return nil
+}
+
+// validateGitPushGrantRequest 校验 passed 状态及 pre-push range 输入完整绑定。
+func validateGitPushGrantRequest(request gitPushGrantRequest) (*gatecontract.RangeSource, error) {
+	if request.Status.State != gatehook.JobStatePassed || request.Status.ReceiptID == "" {
+		return nil, errors.New("git.push action grant requires a passed receipt status")
+	}
+	if err := request.Submit.Validate(); err != nil {
+		return nil, fmt.Errorf("validate git.push grant submit: %w", err)
+	}
+	rangeSource := request.Submit.Source.Range
+	if request.Submit.Entrypoint != gatecontract.CIEntrypointGitPrePush || rangeSource == nil {
+		return nil, errors.New("git.push action grant requires an exact pre-push range source")
+	}
+	if strings.TrimSpace(request.RemoteURL) == "" {
+		return nil, errors.New("git.push action grant requires the exact remote URL")
+	}
+	return rangeSource, nil
+}
+
+// loadGitPushGrantReceipt 重载并比较 hook status、invocation 与 source tree。
+func (bridge *hookCoordinatorBridge) loadGitPushGrantReceipt(
+	ctx context.Context,
+	request gitPushGrantRequest,
+) (gatecontract.ResultReceipt, error) {
+	receipt, err := bridge.client.ResultReceipt(ctx, request.Status.JobID)
+	if err != nil {
+		return gatecontract.ResultReceipt{}, fmt.Errorf("load git.push grant receipt: %w", err)
+	}
+	status := jobStatus{
+		JobID: request.Status.JobID, ReceiptID: request.Status.ReceiptID,
+		InvocationID:     coordinatorHookInvocationID(request.Submit.Invocation),
+		JobSourceTreeSHA: request.Status.SourceTreeSHA,
+	}
+	if !resultReceiptMatchesHookStatus(receipt, status, request.Submit.Source.SourceTreeSHA) {
+		return gatecontract.ResultReceipt{}, errors.New("git.push grant receipt does not match typed hook status")
+	}
+	return receipt, nil
+}
+
+func gitPushGrantNonce(receipt gatecontract.ResultReceipt, request gitPushGrantRequest) string {
+	rangeSource := request.Submit.Source.Range
+	payload := strings.Join([]string{
+		receipt.ReceiptID, request.Submit.Invocation.Owner, request.Submit.Invocation.Key,
+		request.RemoteURL, rangeSource.RemoteRef, rangeSource.ObservedRemoteSHA,
+		rangeSource.HeadSHA, request.Submit.Source.SourceTreeSHA,
+	}, "\x00")
+	digest := sha256.Sum256([]byte(payload))
+	return fmt.Sprintf("sha256:%x", digest)
 }
 
 // Submit 将 typed hook 请求接到 canonical plan 与 durable coordinator submit。

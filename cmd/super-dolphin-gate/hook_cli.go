@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 
 	gatecontract "github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gatehook"
@@ -22,6 +23,7 @@ func runHook(args []string, input io.Reader, stdout io.Writer) error {
 	return runHookWithConnector(args, input, stdout, cwd, connectProductionHookCoordinator)
 }
 
+// runHookWithConnector 严格解析 typed adapter 参数并在单一 coordinator 生命周期内执行。
 func runHookWithConnector(
 	args []string,
 	input io.Reader,
@@ -29,18 +31,27 @@ func runHookWithConnector(
 	cwd string,
 	connector hookCoordinatorConnector,
 ) error {
-	if len(args) != 1 {
-		return protocolError("hook requires exactly one adapter (pre-commit, pre-push, codex)")
+	if len(args) == 0 {
+		return protocolError("hook requires an adapter (pre-commit, pre-push, codex)")
 	}
 	if args[0] == "codex" {
+		if len(args) != 1 {
+			return protocolError("codex hook accepts no adapter arguments")
+		}
 		return runCodexHook(input, stdout, connector)
 	}
 	return withHookCoordinator(context.Background(), connector, func(ctx context.Context, coordinator hookCoordinator) error {
 		switch args[0] {
 		case "pre-commit":
+			if len(args) != 1 {
+				return protocolError("pre-commit hook accepts no adapter arguments")
+			}
 			return runPreCommitHook(ctx, cwd, coordinator)
 		case "pre-push":
-			return runPrePushHook(ctx, cwd, input, coordinator)
+			if len(args) != 3 || strings.TrimSpace(args[1]) == "" || strings.TrimSpace(args[2]) == "" {
+				return protocolError("pre-push hook requires exact remote name and URL arguments")
+			}
+			return runPrePushHook(ctx, cwd, input, coordinator, args[2])
 		default:
 			return protocolError("unsupported hook adapter %q", args[0])
 		}
@@ -56,11 +67,13 @@ func runPreCommitHook(ctx context.Context, cwd string, coordinator gatehook.Coor
 	return gitHookDecision(status, request.Submit.Source.SourceTreeSHA, executeErr)
 }
 
+// runPrePushHook 为每条已验收 ref update 取得并消费独立 git.push grant。
 func runPrePushHook(
 	ctx context.Context,
 	cwd string,
 	input io.Reader,
 	coordinator gatehook.Coordinator,
+	remoteURL string,
 ) error {
 	requests, err := gatehook.NormalizePrePush(ctx, cwd, managedGitHookInvocationID, input)
 	if err != nil {
@@ -69,6 +82,17 @@ func runPrePushHook(
 	for index, request := range requests {
 		status, executeErr := executeHookRequest(ctx, coordinator, request)
 		if err := gitHookDecision(status, request.Submit.Source.SourceTreeSHA, executeErr); err != nil {
+			return fmt.Errorf("pre-push ref update %d: %w", index+1, err)
+		}
+		authorizer, ok := coordinator.(interface {
+			AuthorizeGitPush(context.Context, gitPushGrantRequest) error
+		})
+		if !ok {
+			return fmt.Errorf("pre-push ref update %d: action grant authority is unavailable", index+1)
+		}
+		if err := authorizer.AuthorizeGitPush(ctx, gitPushGrantRequest{
+			Status: status, Submit: *request.Submit, RemoteURL: remoteURL,
+		}); err != nil {
 			return fmt.Errorf("pre-push ref update %d: %w", index+1, err)
 		}
 	}

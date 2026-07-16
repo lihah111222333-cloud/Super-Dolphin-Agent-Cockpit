@@ -119,11 +119,14 @@ const (
 type GrantRequest struct {
 	ReceiptID            string                 `json:"receipt_id"`
 	ReceiptDigest        string                 `json:"receipt_digest"`
+	RepoID               string                 `json:"repo_id"`
 	InvocationID         string                 `json:"invocation_id"`
 	InvocationOwner      string                 `json:"invocation_owner"`
 	SubscriberCapability string                 `json:"subscriber_capability"`
 	Adapter              TrustedAdapterIdentity `json:"adapter"`
 	ProcessChallenge     string                 `json:"process_challenge"`
+	SourceTreeSHA        string                 `json:"source_tree_sha"`
+	Generation           uint64                 `json:"generation"`
 	Audience             ActionAudience         `json:"audience"`
 	ActionPolicy         string                 `json:"action_policy"`
 	RemoteURL            string                 `json:"remote_url,omitempty"`
@@ -132,6 +135,7 @@ type GrantRequest struct {
 	NewSHA               string                 `json:"new_sha,omitempty"`
 	RequestNonce         string                 `json:"request_nonce"`
 	RequestedAt          time.Time              `json:"requested_at"`
+	ExpiresAt            time.Time              `json:"expires_at"`
 }
 
 // GateStatus identifies an individual gate outcome.

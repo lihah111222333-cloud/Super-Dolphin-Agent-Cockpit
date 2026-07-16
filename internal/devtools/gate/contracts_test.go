@@ -197,7 +197,9 @@ func TestContractFieldCoverageDetectsMissingAndStale(t *testing.T) {
 		registration fieldConsumerRegistration
 	}{
 		{producer: reflect.TypeFor[SourceSpec](), registration: sourceSpecConsumerRegistration()},
+		{producer: reflect.TypeFor[GrantRequest](), registration: grantRequestConsumerRegistration()},
 		{producer: reflect.TypeFor[ResultReceipt](), registration: resultReceiptConsumerRegistration()},
+		{producer: reflect.TypeFor[ActionGrant](), registration: actionGrantConsumerRegistration()},
 		{producer: reflect.TypeFor[AcceptedImageRecord](), registration: acceptedImageRecordConsumerRegistration()},
 		{producer: reflect.TypeFor[PromotionRecord](), registration: promotionRecordConsumerRegistration()},
 	}
@@ -207,11 +209,11 @@ func TestContractFieldCoverageDetectsMissingAndStale(t *testing.T) {
 
 	// Fail-first proof: removing one real mapping and adding one stale mapping
 	// must report both sides of the contract drift.
-	producer, err := JSONFieldNames(reflect.TypeFor[AcceptedImageRecord]())
+	producer, err := JSONFieldNames(reflect.TypeFor[ActionGrant]())
 	if err != nil {
 		t.Fatalf("JSONFieldNames() error = %v", err)
 	}
-	coverage := acceptedImageRecordConsumerRegistration().Fields
+	coverage := actionGrantConsumerRegistration().Fields
 	missing, stale := FieldCoverageDiff(producer, append(coverage[1:], "stale_field"))
 	if len(missing) != 1 || missing[0] != coverage[0] {
 		t.Fatalf("missing = %v, want %q", missing, coverage[0])
@@ -276,6 +278,59 @@ func TestResultReceiptCanonicalEd25519VerificationRejectsTampering(t *testing.T)
 	}
 }
 
+func TestActionGrantCanonicalEd25519VerificationRejectsTampering(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, 7, 17, 12, 0, 0, 0, time.UTC)
+	grant := validActionGrant(now)
+	publicKey, privateKey, err := ed25519.GenerateKey(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload, err := ActionGrantSigningPayload(grant)
+	if err != nil {
+		t.Fatal(err)
+	}
+	again, err := ActionGrantSigningPayload(grant)
+	if err != nil || !reflect.DeepEqual(payload, again) {
+		t.Fatalf("canonical payload drifted: error=%v", err)
+	}
+	grant.Signature = base64.StdEncoding.EncodeToString(ed25519.Sign(privateKey, payload))
+	if err := VerifyActionGrant(grant, publicKey); err != nil {
+		t.Fatalf("VerifyActionGrant() error = %v", err)
+	}
+	digest, err := ActionGrantDigest(grant)
+	if err != nil || !strings.HasPrefix(digest, "sha256:") {
+		t.Fatalf("ActionGrantDigest() digest=%q error=%v", digest, err)
+	}
+
+	tests := []struct {
+		name   string
+		mutate func(*ActionGrant)
+	}{
+		{name: "audience", mutate: func(value *ActionGrant) { value.Request.Audience = ActionAudienceRelease }},
+		{name: "ref", mutate: func(value *ActionGrant) { value.Request.Ref = "refs/heads/other" }},
+		{name: "tree", mutate: func(value *ActionGrant) { value.Request.SourceTreeSHA = strings.Repeat("9", 40) }},
+		{name: "generation", mutate: func(value *ActionGrant) { value.Request.Generation++ }},
+		{name: "state", mutate: func(value *ActionGrant) {
+			consumedAt := now.Add(30 * time.Second)
+			value.State = ActionGrantStateConsumed
+			value.ConsumedAt = &consumedAt
+		}},
+		{name: "signature", mutate: func(value *ActionGrant) {
+			value.Signature = base64.StdEncoding.EncodeToString(make([]byte, ed25519.SignatureSize))
+		}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			tampered := grant
+			test.mutate(&tampered)
+			if err := VerifyActionGrant(tampered, publicKey); err == nil {
+				t.Fatal("VerifyActionGrant() accepted tampered grant")
+			}
+		})
+	}
+}
+
 func assertFieldConsumerRegistration(t *testing.T, producer reflect.Type, registration fieldConsumerRegistration) {
 	t.Helper()
 	if registration.Owner == "" || registration.Evidence == "" {
@@ -304,6 +359,19 @@ func sourceSpecConsumerRegistration() fieldConsumerRegistration {
 	}
 }
 
+func grantRequestConsumerRegistration() fieldConsumerRegistration {
+	return fieldConsumerRegistration{
+		Fields: []string{
+			"action_policy", "adapter", "audience", "expires_at", "generation", "invocation_id",
+			"invocation_owner", "new_sha", "old_sha", "process_challenge", "receipt_digest",
+			"receipt_id", "ref", "remote_url", "repo_id", "request_nonce", "requested_at",
+			"source_tree_sha", "subscriber_capability",
+		},
+		Owner:    "cmd/super-dolphin-gate ActionGrant issuance and consumption boundary",
+		Evidence: "canonical signing plus receipt, generation, tree, audience, ref, nonce, and expiry verification",
+	}
+}
+
 func resultReceiptConsumerRegistration() fieldConsumerRegistration {
 	return fieldConsumerRegistration{
 		Fields: []string{
@@ -329,6 +397,17 @@ func resultReceiptConsumerRegistration() fieldConsumerRegistration {
 		},
 		Owner:    "internal/devtools/gate ResultReceipt signing boundary",
 		Evidence: "strict JSON roundtrip and Validate before signing or verification",
+	}
+}
+
+func actionGrantConsumerRegistration() fieldConsumerRegistration {
+	return fieldConsumerRegistration{
+		Fields: []string{
+			"consumed_at", "expires_at", "grant_id", "issued_at", "request", "revoked_at",
+			"schema_version", "signature", "signer", "state",
+		},
+		Owner:    "cmd/super-dolphin-gate ActionGrant authority and durable CAS store",
+		Evidence: "strict canonical signature verification and issued-to-terminal SQLite compare-and-swap",
 	}
 }
 
@@ -434,11 +513,14 @@ func validGrantRequest(now time.Time) GrantRequest {
 	return GrantRequest{
 		ReceiptID:            "receipt-1",
 		ReceiptDigest:        testDigest,
+		RepoID:               "repo-1",
 		InvocationID:         "invocation-1",
 		InvocationOwner:      "owner-1",
 		SubscriberCapability: "subscriber-capability",
 		Adapter:              TrustedAdapterIdentity{Name: "git-pre-push", BinaryDigest: testDigest, Signer: validTrustedRunnerIdentity().Signer},
 		ProcessChallenge:     "process-challenge",
+		SourceTreeSHA:        testTreeSHA,
+		Generation:           1,
 		Audience:             ActionAudienceGitPush,
 		ActionPolicy:         "fast-forward-only",
 		RemoteURL:            "ssh://git@example.invalid/repo.git",
@@ -447,6 +529,7 @@ func validGrantRequest(now time.Time) GrantRequest {
 		NewSHA:               testCommitSHA,
 		RequestNonce:         "request-nonce",
 		RequestedAt:          now,
+		ExpiresAt:            now.Add(time.Minute),
 	}
 }
 

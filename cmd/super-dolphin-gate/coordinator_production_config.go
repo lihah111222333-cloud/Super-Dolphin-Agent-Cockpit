@@ -6,7 +6,9 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
+	"time"
 
 	gatecontract "github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
 )
@@ -18,6 +20,7 @@ const (
 
 type productionCoordinatorConfig struct {
 	AcceptedImageRoot      string                                 `json:"accepted_image_root"`
+	CandidateStateRoot     string                                 `json:"candidate_state_root"`
 	CandidateBuildRoot     string                                 `json:"candidate_build_root"`
 	TrustedSourceRoot      string                                 `json:"trusted_source_root"`
 	SeccompProfile         string                                 `json:"seccomp_profile"`
@@ -26,12 +29,21 @@ type productionCoordinatorConfig struct {
 	TrustedRef             string                                 `json:"trusted_ref"`
 	TrustedRepository      string                                 `json:"trusted_repository"`
 	AcceptedImageSigners   []productionTrustedKey                 `json:"accepted_image_signers"`
+	PromotionSigner        productionPromotionKey                 `json:"promotion_signer"`
 	ResultReceiptAuthority productionResultReceiptAuthorityConfig `json:"result_receipt_authority"`
+	ActionGrantAuthority   productionActionGrantAuthorityConfig   `json:"action_grant_authority"`
+	CandidateTTLSeconds    int64                                  `json:"candidate_ttl_seconds"`
+	PromotionPollMillis    int64                                  `json:"promotion_poll_millis"`
 }
 
 type productionTrustedKey struct {
 	Signer    gatecontract.SignerIdentity `json:"signer"`
 	PublicKey string                      `json:"public_key"`
+}
+
+type productionPromotionKey struct {
+	Signer         gatecontract.SignerIdentity `json:"signer"`
+	PrivateKeyFile string                      `json:"private_key_file"`
 }
 
 type productionResultReceiptAuthorityConfig struct {
@@ -42,6 +54,25 @@ type productionResultReceiptAuthorityConfig struct {
 
 type productionResultReceiptPrivateKey struct {
 	PrivateKey string `json:"private_key"`
+}
+
+type productionActionGrantAuthorityConfig struct {
+	Signer         gatecontract.SignerIdentity `json:"signer"`
+	PublicKey      string                      `json:"public_key"`
+	PrivateKeyFile string                      `json:"private_key_file"`
+	TTLSeconds     int64                       `json:"ttl_seconds"`
+}
+
+type productionActionGrantPrivateKey struct {
+	PrivateKey string `json:"private_key"`
+}
+
+// Validate 校验 ActionGrant 私钥配置只携带规范的非空编码。
+func (key productionActionGrantPrivateKey) Validate() error {
+	if strings.TrimSpace(key.PrivateKey) == "" || strings.TrimSpace(key.PrivateKey) != key.PrivateKey {
+		return errors.New("production action grant private key is required and canonical")
+	}
+	return nil
 }
 
 // Validate 校验 owner 私钥配置只携带规范的非空编码。
@@ -93,7 +124,7 @@ func readProductionCoordinatorConfig(canonical string) ([]byte, error) {
 	opened, statErr := file.Stat()
 	pathInfo, lstatErr := os.Lstat(canonical)
 	if statErr != nil || lstatErr != nil || !os.SameFile(opened, pathInfo) ||
-		!opened.Mode().IsRegular() || opened.Mode().Perm() != 0o600 {
+		!opened.Mode().IsRegular() || opened.Mode().Perm()&0o077 != 0 {
 		return nil, errors.Join(
 			errors.New("production coordinator config changed while opening"), statErr, lstatErr, file.Close(),
 		)
@@ -125,10 +156,16 @@ func (config productionCoordinatorConfig) validateIdentity() error {
 	if err := config.validateRepositoryIdentity(); err != nil {
 		return err
 	}
-	return config.validateReceiptAuthorityIdentity()
+	if err := config.validatePromotionIdentity(); err != nil {
+		return err
+	}
+	if err := config.validateReceiptAuthorityIdentity(); err != nil {
+		return err
+	}
+	return config.validateActionGrantAuthorityIdentity()
 }
 
-// validateRepositoryIdentity 校验仓库、ref、平台与 accepted signer 集合。
+// validateRepositoryIdentity 校验 repository、ref、platform 与验签根显式且规范。
 func (config productionCoordinatorConfig) validateRepositoryIdentity() error {
 	if strings.TrimSpace(config.RepoID) == "" || strings.TrimSpace(config.RepoID) != config.RepoID {
 		return errors.New("production coordinator repo_id is required and canonical")
@@ -145,6 +182,20 @@ func (config productionCoordinatorConfig) validateRepositoryIdentity() error {
 	return nil
 }
 
+// validatePromotionIdentity 校验 signer、candidate TTL 与 watcher cadence。
+func (config productionCoordinatorConfig) validatePromotionIdentity() error {
+	if err := config.PromotionSigner.Signer.Validate(); err != nil {
+		return fmt.Errorf("production coordinator promotion_signer: %w", err)
+	}
+	if config.CandidateTTLSeconds <= 0 || config.CandidateTTLSeconds > int64((7*24*time.Hour)/time.Second) {
+		return errors.New("production coordinator candidate_ttl_seconds must be within 1..604800")
+	}
+	if config.PromotionPollMillis < 10 || config.PromotionPollMillis > 60_000 {
+		return errors.New("production coordinator promotion_poll_millis must be within 10..60000")
+	}
+	return nil
+}
+
 // validateReceiptAuthorityIdentity 校验 receipt signer 及其密钥位置均已显式配置。
 func (config productionCoordinatorConfig) validateReceiptAuthorityIdentity() error {
 	if err := config.ResultReceiptAuthority.Signer.Validate(); err != nil {
@@ -157,9 +208,30 @@ func (config productionCoordinatorConfig) validateReceiptAuthorityIdentity() err
 	return nil
 }
 
+// validateActionGrantAuthorityIdentity 校验 grant authority 独立身份、密钥与期限。
+func (config productionCoordinatorConfig) validateActionGrantAuthorityIdentity() error {
+	if err := config.ActionGrantAuthority.Signer.Validate(); err != nil {
+		return fmt.Errorf("production action grant signer: %w", err)
+	}
+	if reflect.DeepEqual(config.ActionGrantAuthority.Signer, config.ResultReceiptAuthority.Signer) ||
+		reflect.DeepEqual(config.ActionGrantAuthority.Signer, config.PromotionSigner.Signer) {
+		return errors.New("production action grant signer must be distinct from receipt and promotion authorities")
+	}
+	if strings.TrimSpace(config.ActionGrantAuthority.PublicKey) == "" ||
+		strings.TrimSpace(config.ActionGrantAuthority.PrivateKeyFile) == "" {
+		return errors.New("production action grant public key and private key file are required")
+	}
+	if config.ActionGrantAuthority.TTLSeconds <= 0 || config.ActionGrantAuthority.TTLSeconds > 900 {
+		return errors.New("production action grant ttl_seconds must be within 1..900")
+	}
+	return nil
+}
+
+// validatePaths 校验所有 production roots 与私钥文件均为仓库外私有规范路径。
 func (config productionCoordinatorConfig) validatePaths() error {
 	for _, path := range []string{
-		config.AcceptedImageRoot, config.CandidateBuildRoot, config.TrustedSourceRoot, config.TrustedRepository,
+		config.AcceptedImageRoot, config.CandidateStateRoot, config.CandidateBuildRoot,
+		config.TrustedSourceRoot, config.TrustedRepository,
 	} {
 		if _, err := canonicalProductionDirectory(path); err != nil {
 			return err
@@ -168,8 +240,42 @@ func (config productionCoordinatorConfig) validatePaths() error {
 	if _, err := canonicalProductionFile("seccomp profile", config.SeccompProfile); err != nil {
 		return err
 	}
+	return config.validateAuthorityKeyPaths()
+}
+
+// validateAuthorityKeyPaths 校验三类 authority 私钥均为独立的仓库外私有文件。
+func (config productionCoordinatorConfig) validateAuthorityKeyPaths() error {
+	if _, err := canonicalProductionFile("promotion private key", config.PromotionSigner.PrivateKeyFile); err != nil {
+		return err
+	}
 	if _, err := canonicalProductionFile("result receipt private key", config.ResultReceiptAuthority.PrivateKeyFile); err != nil {
 		return err
+	}
+	if _, err := canonicalProductionFile("action grant private key", config.ActionGrantAuthority.PrivateKeyFile); err != nil {
+		return err
+	}
+	if config.ActionGrantAuthority.PrivateKeyFile == config.ResultReceiptAuthority.PrivateKeyFile ||
+		config.ActionGrantAuthority.PrivateKeyFile == config.PromotionSigner.PrivateKeyFile {
+		return errors.New("action grant private key file must be distinct from receipt and promotion keys")
+	}
+	return config.validateAuthorityKeyRootSeparation()
+}
+
+// validateAuthorityKeyRootSeparation 阻止 authority 私钥落入任一生产数据根。
+func (config productionCoordinatorConfig) validateAuthorityKeyRootSeparation() error {
+	for _, root := range []string{
+		config.AcceptedImageRoot, config.CandidateStateRoot, config.CandidateBuildRoot,
+		config.TrustedSourceRoot, config.TrustedRepository,
+	} {
+		if productionPathContains(root, config.PromotionSigner.PrivateKeyFile) {
+			return errors.New("promotion private key must be outside all production data, build, source, and Git roots")
+		}
+		if productionPathContains(root, config.ResultReceiptAuthority.PrivateKeyFile) {
+			return errors.New("result receipt private key must be outside all production data, build, source, and Git roots")
+		}
+		if productionPathContains(root, config.ActionGrantAuthority.PrivateKeyFile) {
+			return errors.New("action grant private key must be outside all production data, build, source, and Git roots")
+		}
 	}
 	return nil
 }
@@ -177,18 +283,14 @@ func (config productionCoordinatorConfig) validatePaths() error {
 // validateProductionRootSeparation 阻断信任状态、候选构建、源码快照和 bare mirror 互相嵌套。
 func validateProductionRootSeparation(config productionCoordinatorConfig) error {
 	roots := []string{
-		config.AcceptedImageRoot, config.CandidateBuildRoot, config.TrustedSourceRoot, config.TrustedRepository,
+		config.AcceptedImageRoot, config.CandidateStateRoot, config.CandidateBuildRoot,
+		config.TrustedSourceRoot, config.TrustedRepository,
 	}
 	for left := range roots {
 		for right := left + 1; right < len(roots); right++ {
 			if productionPathsOverlap(roots[left], roots[right]) {
 				return fmt.Errorf("production coordinator roots must not overlap: %q and %q", roots[left], roots[right])
 			}
-		}
-	}
-	for _, root := range roots {
-		if productionPathsOverlap(root, config.ResultReceiptAuthority.PrivateKeyFile) {
-			return fmt.Errorf("result receipt private key must be isolated from production root %q", root)
 		}
 	}
 	return nil
@@ -225,8 +327,8 @@ func canonicalProductionFile(name string, path string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("inspect %s: %w", name, err)
 	}
-	if !info.Mode().IsRegular() || info.Mode().Perm() != 0o600 {
-		return "", fmt.Errorf("%s must be a 0600 regular file", name)
+	if !info.Mode().IsRegular() || info.Mode().Perm()&0o077 != 0 {
+		return "", fmt.Errorf("%s must be a private regular file", name)
 	}
 	resolved, err := filepath.EvalSymlinks(path)
 	if err != nil || resolved != path {

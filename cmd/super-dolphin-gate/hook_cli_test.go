@@ -33,6 +33,9 @@ func TestPreCommitHookBindsStagedIndexAndReturnsActionableQueuedStatus(t *testin
 	if coordinator.lastSubmit.Source.SourceTreeSHA != wantTree {
 		t.Fatalf("submitted tree = %q, want staged tree %q", coordinator.lastSubmit.Source.SourceTreeSHA, wantTree)
 	}
+	if coordinator.grantCount != 0 {
+		t.Fatalf("pre-commit issued %d action grants", coordinator.grantCount)
+	}
 }
 
 func TestPrePushHookRejectsForgedOIDBeforeCoordinatorSubmit(t *testing.T) {
@@ -42,7 +45,7 @@ func TestPrePushHookRejectsForgedOIDBeforeCoordinatorSubmit(t *testing.T) {
 	coordinator := &recordingHookCoordinator{queuePosition: 1}
 
 	err := runHookWithConnector(
-		[]string{"pre-push"}, strings.NewReader(input), &bytes.Buffer{}, repository, hookTestConnector(coordinator),
+		[]string{"pre-push", "origin", "file://" + repository}, strings.NewReader(input), &bytes.Buffer{}, repository, hookTestConnector(coordinator),
 	)
 	if err == nil || !strings.Contains(err.Error(), "stdin supplied") {
 		t.Fatalf("pre-push error = %v", err)
@@ -64,13 +67,16 @@ func TestPrePushHookSubmitsEveryVerifiedRef(t *testing.T) {
 	coordinator := &recordingHookCoordinator{passWithReceipt: true}
 
 	err := runHookWithConnector(
-		[]string{"pre-push"}, strings.NewReader(input), &bytes.Buffer{}, repository, hookTestConnector(coordinator),
+		[]string{"pre-push", "origin", "file://" + repository}, strings.NewReader(input), &bytes.Buffer{}, repository, hookTestConnector(coordinator),
 	)
 	if err != nil {
 		t.Fatalf("pre-push error = %v", err)
 	}
 	if coordinator.submitCount != 2 {
 		t.Fatalf("coordinator submit count = %d, want 2", coordinator.submitCount)
+	}
+	if coordinator.grantCount != 2 {
+		t.Fatalf("action grant count = %d, want 2", coordinator.grantCount)
 	}
 }
 
@@ -85,6 +91,9 @@ func TestCodexHookQueuedAndMaliciousInputAlwaysEmitJSON(t *testing.T) {
 		t.Fatalf("runHookWithConnector() error = %v", err)
 	}
 	assertBlockedCodexJSON(t, stdout.Bytes(), "queue_position=3")
+	if coordinator.grantCount != 0 {
+		t.Fatalf("Codex hook issued %d action grants", coordinator.grantCount)
+	}
 
 	stdout.Reset()
 	malicious := strings.TrimSuffix(payload, "}\n") + `,"unknown":"\"}\nnot-json"}` + "\n"
@@ -132,6 +141,7 @@ type recordingHookCoordinator struct {
 	statusCount     int
 	queuePosition   int
 	passWithReceipt bool
+	grantCount      int
 }
 
 func (coordinator *recordingHookCoordinator) Submit(
@@ -159,6 +169,17 @@ func (coordinator *recordingHookCoordinator) Wait(
 }
 
 func (*recordingHookCoordinator) Close() error { return nil }
+
+func (coordinator *recordingHookCoordinator) AuthorizeGitPush(
+	_ context.Context,
+	request gitPushGrantRequest,
+) error {
+	if request.Status.State != gatehook.JobStatePassed || request.Submit.Source.Range == nil || request.RemoteURL == "" {
+		return fmt.Errorf("invalid git.push grant request")
+	}
+	coordinator.grantCount++
+	return nil
+}
 
 func (coordinator *recordingHookCoordinator) status(tree string) gatehook.JobStatus {
 	if coordinator.passWithReceipt {
