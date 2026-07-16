@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -24,6 +25,14 @@ type recordingBuildKitRunner struct {
 func (runner *recordingBuildKitRunner) Build(_ context.Context, request BuildKitBuildRequest) (string, error) {
 	runner.requests = append(runner.requests, request)
 	return runner.digest, runner.err
+}
+
+func TestNewImageBuilderRejectsTypedNilRunner(t *testing.T) {
+	var runner *recordingBuildKitRunner
+	builder, err := NewImageBuilder(runner)
+	if err == nil || builder != nil {
+		t.Fatal("typed-nil BuildKit runner was accepted")
+	}
 }
 
 func TestEnsureCandidateUsesDeterministicInputClosure(t *testing.T) {
@@ -123,6 +132,26 @@ func TestEnsureCandidateReusesMatchingInputDigest(t *testing.T) {
 	}
 	if len(runner.requests) != 1 {
 		t.Fatalf("matching input digest did not reuse immutable accepted image: %+v", reused)
+	}
+}
+
+func TestEnsureCandidateRejectsCanceledContextBeforeCacheReuse(t *testing.T) {
+	entries := candidateEntries(validCandidateDockerfile())
+	runner := &recordingBuildKitRunner{digest: digest("8")}
+	built := mustEnsureCandidate(t, runner, candidateRequest(entries, digest("f"), digest("e")))
+	runner.requests = nil
+	builder, err := NewImageBuilder(runner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err = builder.EnsureCandidate(ctx, candidateRequest(entries, built.InputDigest, digest("9")))
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("canceled candidate context error = %v", err)
+	}
+	if len(runner.requests) != 0 {
+		t.Fatal("canceled candidate request reached BuildKit")
 	}
 }
 

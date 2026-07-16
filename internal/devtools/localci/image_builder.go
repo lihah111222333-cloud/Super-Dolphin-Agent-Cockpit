@@ -110,7 +110,7 @@ type dockerfileStageTracker struct {
 
 // NewImageBuilder 创建 fail-fast 的候选镜像构建器。
 func NewImageBuilder(runner BuildKitRunner) (*ImageBuilder, error) {
-	if runner == nil {
+	if buildKitRunnerIsNil(runner) {
 		return nil, errors.New("BuildKit runner is required")
 	}
 	return &ImageBuilder{runner: runner}, nil
@@ -118,11 +118,8 @@ func NewImageBuilder(runner BuildKitRunner) (*ImageBuilder, error) {
 
 // EnsureCandidate 在输入摘要变化时构建候选镜像，否则复用不可变 accepted digest。
 func (builder *ImageBuilder) EnsureCandidate(ctx context.Context, request CandidateRequest) (CandidateResult, error) {
-	if builder == nil || builder.runner == nil {
-		return CandidateResult{}, errors.New("image builder is not initialized")
-	}
-	if ctx == nil {
-		return CandidateResult{}, errors.New("candidate build context is required")
+	if err := validateImageBuilderEntry(builder, ctx); err != nil {
+		return CandidateResult{}, err
 	}
 	if err := validateDigest("accepted input digest", request.AcceptedInputDigest); err != nil {
 		return CandidateResult{}, err
