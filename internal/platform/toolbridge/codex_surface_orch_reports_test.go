@@ -19,7 +19,7 @@ func TestPrepareCodexToolSurfaceAdvertisesBatchReportShortName(t *testing.T) {
 	}}}
 	h := &Handler{stdioClientFactory: fakeClientFactory(map[string]mcpClient{"orch": orch})}
 
-	tools, err := h.PrepareCodexToolSurface(context.Background(), contract.CodexToolSurfaceScope{
+	tools, err := prepareCodexToolSurfaceForTest(t, h, context.Background(), contract.CodexToolSurfaceScope{
 		AgentID:          "agent-1",
 		ProviderThreadID: "provider-thread-1",
 		CWD:              "/repo",
@@ -69,7 +69,7 @@ func TestPrepareCodexToolSurfaceAdvertisesThirdVersionOrchestrationShortNames(t 
 		"orch": &fakeMCPClient{tools: orchTools},
 	})}
 
-	tools, err := h.PrepareCodexToolSurface(context.Background(), contract.CodexToolSurfaceScope{
+	tools, err := prepareCodexToolSurfaceForTest(t, h, context.Background(), contract.CodexToolSurfaceScope{
 		AgentID:          "agent-1",
 		ProviderThreadID: "provider-thread-1",
 		CWD:              "/repo",
@@ -105,7 +105,7 @@ func prepareOrchReportSurfaceFromShortNames(t *testing.T) (*Handler, *fakeMCPCli
 	t.Helper()
 	orch := &fakeMCPClient{tools: orchestrationToolsForTest(t)}
 	h := &Handler{stdioClientFactory: fakeClientFactory(map[string]mcpClient{mcpdto.ClientKindOrch: orch})}
-	tools, err := h.PrepareCodexToolSurface(context.Background(), contract.CodexToolSurfaceScope{
+	tools, err := prepareCodexToolSurfaceForTest(t, h, context.Background(), contract.CodexToolSurfaceScope{
 		AgentID:          "agent-1",
 		ProviderThreadID: "provider-thread-1",
 		CWD:              "/repo",

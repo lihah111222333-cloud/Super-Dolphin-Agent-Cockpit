@@ -9,9 +9,10 @@ import (
 func TestRenderMCPServerConfigMapCarriesPlaywrightServer(t *testing.T) {
 	got := renderMCPServerConfigMap(map[string]contract.MCPServerConfig{
 		"playwright": {
-			Transport: "stdio",
-			Command:   "npx",
-			Args:      []string{"@playwright/mcp@latest"},
+			TrustedServerID: "playwright",
+			Transport:       "stdio",
+			Command:         "npx",
+			Args:            []string{"@playwright/mcp@latest"},
 		},
 	})
 
@@ -21,6 +22,9 @@ func TestRenderMCPServerConfigMapCarriesPlaywrightServer(t *testing.T) {
 	}
 	if server["transport"] != "stdio" || server["command"] != "npx" {
 		t.Fatalf("server = %#v, want stdio npx config", server)
+	}
+	if server[contract.RuntimeMCPTrustedServerIDKey] != "playwright" {
+		t.Fatalf("server = %#v, want owner trusted server id", server)
 	}
 	args, ok := server["args"].([]string)
 	if !ok || len(args) != 1 || args[0] != "@playwright/mcp@latest" {

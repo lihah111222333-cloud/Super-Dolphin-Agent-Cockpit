@@ -15,13 +15,14 @@ import (
 // MCPServerConfig 是工作区 MCP server 配置的跨模块 wire 形状。
 // Enabled 为指针用于区分“未写入该字段”和“显式关闭”。
 type MCPServerConfig struct {
-	Transport string            `json:"transport,omitempty"`
-	URL       string            `json:"url,omitempty"`
-	Headers   map[string]string `json:"headers,omitempty"`
-	Command   string            `json:"command,omitempty"`
-	Args      []string          `json:"args,omitempty"`
-	Env       map[string]string `json:"env,omitempty"`
-	Enabled   *bool             `json:"enabled,omitempty"`
+	TrustedServerID string            `json:"trustedServerId,omitempty"`
+	Transport       string            `json:"transport,omitempty"`
+	URL             string            `json:"url,omitempty"`
+	Headers         map[string]string `json:"headers,omitempty"`
+	Command         string            `json:"command,omitempty"`
+	Args            []string          `json:"args,omitempty"`
+	Env             map[string]string `json:"env,omitempty"`
+	Enabled         *bool             `json:"enabled,omitempty"`
 }
 
 const RuntimeMCPTrustedServerIDKey = "trustedServerId"
@@ -304,6 +305,42 @@ func IsManagedRuntimeMCPServerName(name string) bool {
 // MCPServerConfigProvider 读取指定工作区解析后的 MCP server 配置集合。
 type MCPServerConfigProvider interface {
 	ListMCPServerConfigs(ctx context.Context, cwd string) (map[string]MCPServerConfig, error)
+}
+
+// MCPToolAuthorityIssueRequest 请求 config owner 为一次 tools/list membership 签发 generation。
+type MCPToolAuthorityIssueRequest struct {
+	CWD              string
+	Binary           providerdto.MCPBinary
+	MembershipDigest string
+}
+
+// MCPToolAuthority 是 config owner 签发的 current generation 不可变令牌。
+type MCPToolAuthority struct {
+	CWD              string
+	ServerID         string
+	ConfigDigest     string
+	MembershipDigest string
+	Generation       uint64
+	Managed          bool
+}
+
+// MCPToolQuarantineCommit 绑定一次 current authority 与该 generation 的隔离集合。
+type MCPToolQuarantineCommit struct {
+	Authority MCPToolAuthority
+	Tools     map[string]string
+}
+
+// MCPToolAuthorityOwner 持有 server current generation 与逐工具 quarantine。
+// CompareAndSwapMCPToolQuarantines 在 owner 锁内复核 current 后执行 publish，
+// 使 quarantine 写入和 surface 替换共享一个 CAS 边界。
+type MCPToolAuthorityOwner interface {
+	IssueMCPToolAuthority(context.Context, MCPToolAuthorityIssueRequest) (MCPToolAuthority, error)
+	CheckMCPToolAuthority(context.Context, MCPToolAuthority) error
+	CompareAndSwapMCPToolQuarantines(
+		context.Context,
+		[]MCPToolQuarantineCommit,
+		func() error,
+	) error
 }
 
 // MCPServerAddRequest 是跨模块写入 MCP server 配置的输入。

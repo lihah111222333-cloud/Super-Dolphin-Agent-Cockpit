@@ -144,11 +144,14 @@ func (r *peerToolsListResult) UnmarshalJSON(raw []byte) error {
 	if !ok || bytes.Equal(bytes.TrimSpace(toolsRaw), []byte("null")) {
 		return fmt.Errorf("tools array is required")
 	}
-	var tools []dto.MCPTool
-	if err := json.Unmarshal(toolsRaw, &tools); err != nil {
+	var rawTools []json.RawMessage
+	if err := json.Unmarshal(toolsRaw, &rawTools); err != nil {
 		return fmt.Errorf("tools array is required: %w", err)
 	}
-	r.Tools = tools
+	r.Tools = make([]dto.MCPTool, 0, len(rawTools))
+	for _, rawTool := range rawTools {
+		r.Tools = append(r.Tools, dto.NewRawTool(rawTool))
+	}
 	r.toolsPresent = true
 	return nil
 }
@@ -168,35 +171,6 @@ func decodePeerToolsListResult(raw json.RawMessage, source string) ([]dto.MCPToo
 func validatePeerToolsListResult(result peerToolsListResult, source string) error {
 	if !result.toolsPresent {
 		return fmt.Errorf("%s: tools array is required", source)
-	}
-	return validateMCPTools(result.Tools, source)
-}
-
-func validateMCPTools(tools []dto.MCPTool, source string) error {
-	for i, tool := range tools {
-		if strings.TrimSpace(tool.Name) == "" {
-			return fmt.Errorf("%s: tools[%d] tool name is required", source, i)
-		}
-		if err := validateMCPToolSchema(tool.InputSchema, source, i, "inputSchema"); err != nil {
-			return err
-		}
-		if err := validateMCPToolSchema(tool.OutputSchema, source, i, "outputSchema"); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func validateMCPToolSchema(schema json.RawMessage, source string, index int, field string) error {
-	trimmed := bytes.TrimSpace(schema)
-	if len(trimmed) == 0 {
-		return nil
-	}
-	if !json.Valid(trimmed) {
-		return fmt.Errorf("%s: tools[%d].%s must be valid JSON", source, index, field)
-	}
-	if !bytes.HasPrefix(trimmed, []byte("{")) {
-		return fmt.Errorf("%s: tools[%d].%s must be a JSON object", source, index, field)
 	}
 	return nil
 }

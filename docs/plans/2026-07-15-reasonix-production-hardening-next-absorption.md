@@ -79,6 +79,7 @@ P0 只实现以下闭环：
 6. 修复 start/resume/turn 配置链：trusted server reference 必须从 config owner 一路传到 `mcpServerConfigBinary` 并赋给 `dto.MCPBinary.TrustedServerID`；当前缺失必须由动态 changed-field guard 和 parity test 锁定。
 7. schema compiler 的隔离方式保持 decision gate：只有所选库能证明 cancellation 与 hard resource bound 时才可进程内执行；否则必须采用有界进程隔离并阻断 MCP lane。证据不足时不得预先指定或新增某个 helper binary。
 8. P0 quarantine 只承诺 Codex 通过 v3-owned toolbridge 的路径；Claude raw `--mcp-config` 不在本 lane 的兼容声明中。
+9. Task 4B 的 current/quarantine 采用 config-owner 对齐的进程内最小状态，不声明跨进程 durable：进程重启同时清空 surface 与 owner state，新 owner 拒绝旧 generation；只有重新 fetch、compile 并通过 exact current-CAS publish 后才恢复 surface/call，因此重启路径 fail-closed。
 
 ### 2.3 安全保留项
 
@@ -125,7 +126,7 @@ F3 若新增 provider MCP 状态投影，真实事件投影 owner 是 `internal/
 | `internal/platform/toolbridge/schema/` | canonicalize、budget、one-shot helper client、diagnostic、quarantine plan |
 | `cmd/mcp-schema-compiler-helper/` | 单请求 compile/validate；严格 stdin/stdout 协议；无网络、文件、cache 或后台任务 |
 | `internal/platform/toolbridge/{handler.go,proxy.go,module.go,schema_quarantine.go}` | class policy、surface/filter/call 一致性、current-CAS 和 quarantine 应用 |
-| `internal/module/mcp_server/` 及现有 store/sqlc owner | config-owner generation/current membership、durable quarantine/refresh 最小状态 |
+| `internal/module/mcp_server/` | config-owner generation/current membership、owner-aligned 进程内 quarantine/current-CAS；重启时 surface/state 同时清空并重新 fetch/compile |
 | `internal/contract/mcp_control.go` 或预算允许的窄子包 | current authority read/CAS port；不扩张通用 RPC principal/admission |
 | `internal/module/thread/{mcp_server_config.go,start_session_helpers.go}` | config-owner trusted reference 的 start/resume 生产链 |
 | `internal/module/turn/{service_helpers.go,manifest.go}` | turn 链与 `mcpServerConfigBinary` 的 `TrustedServerID` 透传 |

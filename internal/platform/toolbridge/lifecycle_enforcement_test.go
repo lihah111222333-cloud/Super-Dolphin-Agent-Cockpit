@@ -25,7 +25,7 @@ func TestPrepareCodexToolSurfaceFiltersDisabledMCPTools(t *testing.T) {
 		lifecyclePolicy:    owner,
 	}
 
-	tools, err := h.PrepareCodexToolSurface(context.Background(), contract.CodexToolSurfaceScope{
+	tools, err := prepareCodexToolSurfaceForTest(t, h, context.Background(), contract.CodexToolSurfaceScope{
 		AgentID: "agent-1",
 		CWD:     root,
 		Manifest: providerdto.MCPManifest{Binaries: []providerdto.MCPBinary{
@@ -150,7 +150,7 @@ func TestCodexSurfaceToolCallDeniesNonEnabledLifecycleStates(t *testing.T) {
 		lifecycle:          owner,
 		lifecyclePolicy:    owner,
 	}
-	_, err := h.PrepareCodexToolSurface(context.Background(), contract.CodexToolSurfaceScope{
+	_, err := prepareCodexToolSurfaceForTest(t, h, context.Background(), contract.CodexToolSurfaceScope{
 		AgentID: "agent-1",
 		CWD:     root,
 		Manifest: providerdto.MCPManifest{Binaries: []providerdto.MCPBinary{
@@ -210,7 +210,7 @@ func TestCodexSurfaceToolCallDeniesHiddenDisabledLifecycleAliases(t *testing.T) 
 		lifecyclePolicy:    owner,
 	}
 
-	tools, err := h.PrepareCodexToolSurface(context.Background(), contract.CodexToolSurfaceScope{
+	tools, err := prepareCodexToolSurfaceForTest(t, h, context.Background(), contract.CodexToolSurfaceScope{
 		AgentID: "agent-1",
 		CWD:     root,
 		Manifest: providerdto.MCPManifest{Binaries: []providerdto.MCPBinary{
@@ -260,7 +260,7 @@ func TestCodexSurfaceToolCallDeniesDisabledOrchShortNames(t *testing.T) {
 		lifecyclePolicy:    owner,
 	}
 
-	tools, err := h.PrepareCodexToolSurface(context.Background(), contract.CodexToolSurfaceScope{
+	tools, err := prepareCodexToolSurfaceForTest(t, h, context.Background(), contract.CodexToolSurfaceScope{
 		AgentID: "agent-1",
 		CWD:     root,
 		Manifest: providerdto.MCPManifest{Binaries: []providerdto.MCPBinary{

@@ -91,7 +91,7 @@ func TestPrepareCodexToolSurfaceTransfersAllClientOwnershipBeforePostProcessing(
 	}{
 		{name: "backfill", lifecycle: &ownershipLifecycle{backfillErr: errors.New("backfill failed")}, wantErr: errors.New("backfill failed")},
 		{name: "filter", lifecycle: &ownershipLifecycle{resolveErr: errors.New("filter failed")}, wantErr: errors.New("filter failed")},
-		{name: "schema", tools: [][]mcpdto.MCPTool{{{Name: "duplicate"}, {Name: "duplicate"}}}, wantErr: errors.New("codex surface alias")},
+		{name: "schema", tools: [][]mcpdto.MCPTool{{{Name: "duplicate"}, {Name: "duplicate"}}}, wantErr: errors.New("duplicate tool name")},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			closeErrs := []error{errors.New("close one failed"), errors.New("close two failed"), errors.New("close three failed")}
@@ -102,7 +102,7 @@ func TestPrepareCodexToolSurfaceTransfersAllClientOwnershipBeforePostProcessing(
 				h.lifecycle = tc.lifecycle
 				h.lifecyclePolicy = tc.lifecycle
 			}
-			_, err := h.PrepareCodexToolSurface(context.Background(), ownershipScope(len(clients)))
+			_, err := prepareCodexToolSurfaceForTest(t, h, context.Background(), ownershipScope(len(clients)))
 			if err == nil || !containsOwnershipError(err, tc.wantErr) {
 				t.Fatalf("PrepareCodexToolSurface() error = %v, want %v", err, tc.wantErr)
 			}
@@ -145,10 +145,10 @@ func TestPrepareCodexToolSurfaceJoinsReplacementAndNewSurfaceCloseErrors(t *test
 		return client, nil
 	}}
 	scope := ownershipScope(1)
-	if _, err := h.PrepareCodexToolSurface(context.Background(), scope); err != nil {
+	if _, err := prepareCodexToolSurfaceForTest(t, h, context.Background(), scope); err != nil {
 		t.Fatalf("PrepareCodexToolSurface(old) error = %v", err)
 	}
-	_, err := h.PrepareCodexToolSurface(context.Background(), scope)
+	_, err := prepareCodexToolSurfaceForTest(t, h, context.Background(), scope)
 	if !errors.Is(err, oldCloseErr) || !errors.Is(err, newCloseErr) {
 		t.Fatalf("PrepareCodexToolSurface(new) error = %v, want replaced and new close failures", err)
 	}

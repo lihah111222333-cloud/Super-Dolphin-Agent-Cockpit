@@ -21,6 +21,19 @@ type MCPBinary struct {
 	Command         []string          `json:"command,omitempty"` // stdio 模式的启动命令。
 	Env             map[string]string `json:"env,omitempty"`
 	AutoApprove     []string          `json:"autoApprove,omitempty"`
+	managed         bool
+}
+
+// NewManagedMCPBinary 仅供 built-in manifest owner 标记进程内生成的 managed binary。
+// 该 provenance 不参与 JSON，反序列化或外部配置无法自提权。
+func NewManagedMCPBinary(binary MCPBinary) MCPBinary {
+	binary.managed = true
+	return binary
+}
+
+// IsManagedMCPBinary 判断 binary 是否由 built-in manifest owner 在进程内签发。
+func (b MCPBinary) IsManagedMCPBinary() bool {
+	return b.managed
 }
 
 // MCPManifest 是一次 provider 会话所需的所有 MCP binary 列表。

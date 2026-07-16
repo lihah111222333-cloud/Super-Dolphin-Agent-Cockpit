@@ -88,6 +88,67 @@ func fakeClientFactory(clients map[string]mcpClient) func(context.Context, provi
 	}
 }
 
+type rawToolsMCPClientForTest struct {
+	mcpClient
+}
+
+func (c rawToolsMCPClientForTest) ListTools(ctx context.Context) ([]mcpdto.MCPTool, error) {
+	tools, err := c.mcpClient.ListTools(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for i, tool := range tools {
+		if len(tool.RawJSON()) != 0 {
+			continue
+		}
+		if len(tool.InputSchema) == 0 {
+			tool.InputSchema = strictEmptyObjectSchema()
+		}
+		raw, marshalErr := json.Marshal(tool)
+		if marshalErr != nil {
+			return nil, marshalErr
+		}
+		tools[i] = mcpdto.NewRawTool(raw)
+	}
+	return tools, nil
+}
+
+func prepareCodexToolSurfaceForTest(
+	t *testing.T,
+	h *Handler,
+	ctx context.Context,
+	scope contract.CodexToolSurfaceScope,
+) ([]contract.DynamicToolSchema, error) {
+	t.Helper()
+	if h.authorityOwner == nil {
+		h.authorityOwner = newTask4BAuthorityOwner()
+	}
+	if h.schemaExecutor == nil {
+		h.schemaExecutor = &task4BSchemaExecutor{}
+	}
+	for i, binary := range scope.Manifest.Binaries {
+		if contract.IsManagedRuntimeMCPServerName(binary.Name) {
+			scope.Manifest.Binaries[i] = providerdto.NewManagedMCPBinary(binary)
+			continue
+		}
+		if binary.TrustedServerID == "" {
+			binary.TrustedServerID = binary.Name
+			scope.Manifest.Binaries[i] = binary
+		}
+	}
+	if h.stdioClientFactory != nil {
+		factory := h.stdioClientFactory
+		h.stdioClientFactory = func(ctx context.Context, binary providerdto.MCPBinary) (mcpClient, error) {
+			client, err := factory(ctx, binary)
+			if err != nil || client == nil {
+				return client, err
+			}
+			return rawToolsMCPClientForTest{mcpClient: client}, nil
+		}
+	}
+	return h.PrepareCodexToolSurface(ctx, scope)
+}
+
 func jsonEscape(value string) string {
 	data, _ := json.Marshal(value)
 	return string(data[1 : len(data)-1])

@@ -183,9 +183,10 @@ func TestBuildStartSessionConfigCarriesConfiguredMCPServers(t *testing.T) {
 			Servers: []string{"my-search"},
 			ServerConfigs: map[string]contract.MCPServerConfig{
 				"my-search": {
-					Transport: "http",
-					URL:       "https://your-domain.com/mcp",
-					Headers:   map[string]string{"Authorization": "Bearer YOUR_API_KEY"},
+					Transport:       "http",
+					URL:             "https://your-domain.com/mcp",
+					Headers:         map[string]string{"Authorization": "Bearer YOUR_API_KEY"},
+					TrustedServerID: "my-search",
 				},
 			},
 		},

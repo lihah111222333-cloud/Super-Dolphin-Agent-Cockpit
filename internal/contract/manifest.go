@@ -32,13 +32,13 @@ func BuildManifest(ctx dto.ManifestContext) dto.MCPManifest {
 				if token := strings.TrimSpace(ctx.ProxyHTTPToken); token != "" {
 					headers = map[string]string{"Authorization": "Bearer " + token}
 				}
-				bins = append(bins, dto.MCPBinary{
+				bins = append(bins, dto.NewManagedMCPBinary(dto.MCPBinary{
 					Name:        serverName,
 					Type:        "http",
 					URL:         "http://" + proxyAddr + "/mcp/" + string(fam) + "/" + ctx.AgentID,
 					Headers:     headers,
 					AutoApprove: append([]string(nil), autoApprove...),
-				})
+				}))
 				continue
 			}
 			if addr := strings.TrimSpace(ctx.PeerHTTPAddrs[fam]); addr != "" {
@@ -46,13 +46,13 @@ func BuildManifest(ctx dto.ManifestContext) dto.MCPManifest {
 				if token := strings.TrimSpace(ctx.PeerHTTPTokens[fam]); token != "" {
 					headers = map[string]string{"Authorization": "Bearer " + token}
 				}
-				bins = append(bins, dto.MCPBinary{
+				bins = append(bins, dto.NewManagedMCPBinary(dto.MCPBinary{
 					Name:        serverName,
 					Type:        "http",
 					URL:         "http://" + addr + "/mcp",
 					Headers:     headers,
 					AutoApprove: append([]string(nil), autoApprove...),
-				})
+				}))
 				continue
 			}
 		}
@@ -63,12 +63,12 @@ func BuildManifest(ctx dto.ManifestContext) dto.MCPManifest {
 		if fam == dto.FamilyLSP {
 			addLSPWorkspaceRootEnv(binEnv, ctx)
 		}
-		bins = append(bins, dto.MCPBinary{
+		bins = append(bins, dto.NewManagedMCPBinary(dto.MCPBinary{
 			Name:        serverName,
 			Command:     []string{filepath.Join(ctx.BinaryDir, binaryName)},
 			Env:         binEnv,
 			AutoApprove: append([]string(nil), autoApprove...),
-		})
+		}))
 	}
 	return dto.MCPManifest{Binaries: appendExtraManifestBinaries(bins, ctx.ExtraBinaries)}
 }
