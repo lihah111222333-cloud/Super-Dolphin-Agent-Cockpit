@@ -455,6 +455,9 @@ describe('rpc contract audit', () => {
     expect(report.p0MissingBackendHandlers).toEqual([])
     expect(report.allowedPayloadRegistryDrift).toEqual([])
     expect(report.hardcodedPayloadGuardFindings).toEqual([])
+    expect(report.auditStats).toEqual(expect.objectContaining({
+      productionFacadeReferenceIndexBuilds: 1,
+    }))
     expect(report.responseContractStrategies).toEqual(expect.arrayContaining([
       {
         key: 'UI_SIDEBAR_GET',
@@ -498,6 +501,26 @@ describe('rpc contract audit', () => {
       'requestId',
       'thread_id',
       'threadId',
+    ]))
+  }, 15000)
+
+  it('fails payload drift when the Stop mapper drops expectedTurnId', async () => {
+    const mapperPath = 'frontend-app/src/shared/api/backend/backendApiFactoryThread.js'
+    const mapperSource = await readFile(join(REPO_ROOT, mapperPath), 'utf8')
+    const mutatedSource = mapperSource.replace(
+      "    { key: 'expectedTurnId', value: takePayloadField(unused, 'expectedTurnId') },\n",
+      '',
+    )
+    expect(mutatedSource).not.toBe(mapperSource)
+    const repoRoot = await createShadowRepo({ [mapperPath]: mutatedSource })
+
+    const report = await auditRpcContracts({ repoRoot })
+
+    expect(report.allowedPayloadRegistryDrift).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        method: 'turn/interrupt',
+        missingFrontendKeys: expect.arrayContaining(['expectedTurnId']),
+      }),
     ]))
   }, 15000)
 
