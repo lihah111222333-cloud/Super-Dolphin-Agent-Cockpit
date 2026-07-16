@@ -4,6 +4,7 @@ import {
   buildFrontendFailureEvent,
   buildJSONRPCRequest,
   buildThreadStartParams,
+  buildTurnInterruptParams,
   buildWebSocketURL,
   packageScriptIncludesSmoke,
   smokeConfig,
@@ -28,6 +29,22 @@ describe('desktop smoke command', () => {
   it('keeps provider-spawning turn smoke opt-in', () => {
     expect(smokeConfig({}, '/repo/app').runTurnPath).toBe(false);
     expect(smokeConfig({ SUPER_DOLPHIN_DESKTOP_SMOKE_TURN: '1' }, '/repo/app').runTurnPath).toBe(true);
+  });
+
+  it('carries the accepted turn identity and a unique request id into interrupt', () => {
+    expect(buildTurnInterruptParams(
+      'thread-1',
+      { turn_id: 'turn-1' },
+      () => 'request-1',
+    )).toEqual({
+      thread_id: 'thread-1',
+      expected_turn_id: 'turn-1',
+      request_id: 'request-1',
+      source: 'desktop_smoke',
+    });
+    expect(() => buildTurnInterruptParams('thread-1', {}, () => 'request-1')).toThrow(/turn_id/);
+    expect(() => buildTurnInterruptParams('thread-1', { turn_id: 'turn-1' }, () => '')).toThrow(/request_id/);
+    expect(() => buildTurnInterruptParams('', { turn_id: 'turn-1' }, () => 'request-1')).toThrow(/thread_id/);
   });
 
   it('prepares the Go embed frontend by default', () => {

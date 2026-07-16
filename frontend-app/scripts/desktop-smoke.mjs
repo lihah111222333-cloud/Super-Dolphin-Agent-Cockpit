@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
@@ -220,12 +221,17 @@ function parseWSMessage(data) {
   return JSON.parse(String(data));
 }
 
-function withTimeout(promise, timeoutMs, message) {
+async function withTimeout(promise, timeoutMs, message) {
   let timer;
   const timeout = new Promise((_, reject) => {
     timer = setTimeout(() => reject(new Error(message)), timeoutMs);
   });
-  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+  try {
+    return await Promise.race([promise, timeout]);
+  }
+  finally {
+    clearTimeout(timer);
+  }
 }
 
 async function runReadPathSmoke(client, config) {
@@ -249,8 +255,25 @@ async function runFrontendIngestSmoke(client) {
 }
 
 async function runTurnSmoke(client, config, threadID) {
-  await assertObject(client.request('turn/start', { thread_id: threadID, cwd: config.cwd, prompt: 'desktop smoke turn' }), 'turn/start');
-  await assertObject(client.request('turn/interrupt', { thread_id: threadID, source: 'desktop_smoke' }), 'turn/interrupt');
+  const turn = await assertObject(client.request('turn/start', { thread_id: threadID, cwd: config.cwd, prompt: 'desktop smoke turn' }), 'turn/start');
+  await assertObject(client.request('turn/interrupt', buildTurnInterruptParams(threadID, turn)), 'turn/interrupt');
+}
+
+export function buildTurnInterruptParams(threadID, turn, createRequestId = randomUUID) {
+  const canonicalThreadID = typeof threadID === 'string' ? threadID.trim() : '';
+  if (!canonicalThreadID) throw new Error('turn/interrupt requires thread_id');
+  const expectedTurnID = typeof turn?.turn_id === 'string' ? turn.turn_id.trim() : '';
+  if (!expectedTurnID) throw new Error('turn/start response requires turn_id before interrupt');
+  const requestID = createRequestId();
+  if (typeof requestID !== 'string' || !requestID.trim()) {
+    throw new Error('turn/interrupt requires a generated request_id');
+  }
+  return {
+    thread_id: canonicalThreadID,
+    expected_turn_id: expectedTurnID,
+    request_id: requestID.trim(),
+    source: 'desktop_smoke',
+  };
 }
 
 async function assertObject(promise, method) {

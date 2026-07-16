@@ -54,13 +54,20 @@ test('sessionApi delegates only to guarded backendApi exports', async () => {
   });
   await expect(sessionApi.start({ cwd: '/repo', name: 'draft' })).resolves.toEqual({ id: 'thread-1' });
   await expect(sessionApi.startTurn({ threadId: 'thread-1', text: 'hello' })).resolves.toEqual({ ok: true });
-  await expect(sessionApi.interrupt('thread-1', '/repo', 'ui_stop')).resolves.toEqual({ interrupted: true });
+  const interruptParams = {
+    threadId: 'thread-1',
+    cwd: '/repo',
+    expectedTurnId: 'turn-1',
+    requestId: 'request-1',
+    source: 'ui_stop',
+  };
+  await expect(sessionApi.interrupt(interruptParams)).resolves.toEqual({ interrupted: true });
   await expect(sessionApi.messages('thread-1', 25, 'cursor-1')).resolves.toEqual({ messages: [] });
 
   expect(forkThread).toHaveBeenCalledWith({ threadId: 'thread-1' });
   expect(startThread).toHaveBeenCalledWith({ cwd: '/repo', name: 'draft' });
   expect(startTurn).toHaveBeenCalledWith({ threadId: 'thread-1', text: 'hello' });
-  expect(interruptTurn).toHaveBeenCalledWith({ threadId: 'thread-1', cwd: '/repo', source: 'ui_stop' });
+  expect(interruptTurn).toHaveBeenCalledWith(interruptParams);
   expect(getThreadMessages).toHaveBeenCalledWith({ threadId: 'thread-1', limit: 25, before: 'cursor-1' });
   expect(callBackend).not.toHaveBeenCalled();
 });

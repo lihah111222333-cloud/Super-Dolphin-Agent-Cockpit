@@ -4,6 +4,14 @@ const THREAD_ACTION_LABELS = Object.freeze({ 'thread.interrupt': '中断当前�
 const THREAD_ACTION_SUCCESS_MESSAGES = Object.freeze({ 'thread.interrupt': '已发送中断请求', 'thread.force_complete': '已发送强制完成请求', 'thread.compact': '已发送压缩请求', 'thread.recover': '已发送恢复请求' });
 function threadActionRequiresActiveTurn(action) { return action === 'thread.interrupt' || action === 'thread.force_complete'; }
 
+export function createStopRequestId() {
+  const randomUUID = globalThis.crypto?.randomUUID;
+  if (typeof randomUUID !== 'function') throw new Error('thread.interrupt: secure request id generator is required');
+  const requestId = normalizeOptionalTextField(randomUUID.call(globalThis.crypto));
+  if (!requestId) throw new Error('thread.interrupt: request id generator returned an empty value');
+  return requestId;
+}
+
 function interruptFailureMessage(result) {
   for (const value of [result?.error, result?.message, result?.reason, result?.status, result?.mode]) {
     const message = normalizeOptionalTextField(value); if (message) return message;
@@ -18,7 +26,7 @@ function forceCompleteFailureMessage(result) {
 }
 
 function threadActionPayload(params) {
-  const { action, activeThreadInterruptTarget, activeTurnTarget, cleanObject, currentState, cwd, notifyAction, threadId } = params;
+  const { action, activeThreadInterruptTarget, activeTurnTarget, cleanObject, createRequestId, currentState, cwd, notifyAction, threadId } = params;
   if (!threadActionRequiresActiveTurn(action)) return { cwd, threadId };
 
   const target = activeTurnTarget || activeThreadInterruptTarget(currentState);
@@ -26,7 +34,13 @@ function threadActionPayload(params) {
     notifyAction(action === 'thread.interrupt' ? '当前没有可中断任务' : '当前没有可强制完成任务', 'warning', { threadId });
     return null;
   }
-  if (action === 'thread.interrupt') return cleanObject({ cwd, threadId: target.threadId, source: 'ui_stop' });
+  if (action === 'thread.interrupt') {
+    const expectedTurnId = normalizeOptionalTextField(target.turnId);
+    if (!expectedTurnId) throw new Error('thread.interrupt: expectedTurnId is required');
+    const requestId = normalizeOptionalTextField(createRequestId());
+    if (!requestId) throw new Error('thread.interrupt: requestId is required');
+    return cleanObject({ cwd, threadId: target.threadId, expectedTurnId, requestId, source: 'ui_stop' });
+  }
   return cleanObject({ cwd, threadId: target.threadId });
 }
 
@@ -76,7 +90,7 @@ function notifyThreadTransportFailure(params) {
 }
 
 export function attachActiveThreadRpcRuntime(runtime, deps) {
-  const { activeThreadInterruptTarget, backendThreadIdForState, cleanObject } = deps;
+  const { activeThreadInterruptTarget, backendThreadIdForState, cleanObject, createRequestId } = deps;
   const { get, set, requireCwd, notifyAction, addWarning } = runtime;
 
   const runActiveThreadRPC = async (action, rpc, options = {}) => {
@@ -92,7 +106,7 @@ export function attachActiveThreadRpcRuntime(runtime, deps) {
     }
     try {
       const cwd = requireCwd(action);
-      const payload = threadActionPayload({ action, activeThreadInterruptTarget, activeTurnTarget, cleanObject, currentState, cwd, notifyAction, threadId });
+      const payload = threadActionPayload({ action, activeThreadInterruptTarget, activeTurnTarget, cleanObject, createRequestId, currentState, cwd, notifyAction, threadId });
       if (!payload) return { ok: false, threadId, result: null };
       const result = await rpc(cleanObject(payload));
       if (notifyThreadActionFailure({ action, addWarning, notifyAction, result, threadId })) return { ok: false, threadId, result };

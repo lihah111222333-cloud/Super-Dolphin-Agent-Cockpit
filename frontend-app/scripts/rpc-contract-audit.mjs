@@ -50,11 +50,16 @@ const GO_PAYLOAD_STRUCTS = new Map([
     'internal/module/turn/rpc_types.go:turnSteerParams',
     'internal/module/turn/rpc_types.go:legacyTurnSteerParams',
   ]],
+  ['turn/interrupt', [
+    'internal/module/turn/rpc_types.go:turnInterruptParams',
+    'internal/module/turn/rpc_types.go:legacyTurnInterruptParams',
+  ]],
 ])
 
 const FRONTEND_PAYLOAD_BUILDERS = new Map([
   ['thread/start', 'threadStartPayload'],
   ['turn/start', 'turnStartPayload'],
+  ['turn/interrupt', 'turnInterruptPayload'],
 ])
 
 const RESPONSE_VALIDATOR_POLICY_EXCEPTIONS = new Map([
@@ -104,6 +109,9 @@ const FRONTEND_FACADE_ONLY_PAYLOAD_KEYS = new Map([
   ]],
   ['turn/start', [
     'attachments',
+  ]],
+  ['turn/interrupt', [
+    'cwd',
   ]],
 ])
 
@@ -3466,6 +3474,7 @@ function isExactRuntimePayloadDeclaration(statement) {
     'activeThreadInterruptTarget',
     'activeTurnTarget',
     'cleanObject',
+    'createRequestId',
     'currentState',
     'cwd',
     'notifyAction',

@@ -1,5 +1,5 @@
 import { firstOptionalPresent, normalizeOptionalTextField, optionalTextField, systemClockMillis, currentIsoTimestamp } from './contractStoreModel.js';
-import { validateTurnTerminalV2 } from '../../../shared/contracts/turnContractValidators.js';
+import { validateTurnRefV1, validateTurnTerminalV2 } from '../../../shared/contracts/turnContractValidators.js';
 // @ts-check
 
 export { mergeRuntimeAssistantCompletionImpl as mergeRuntimeAssistantCompletion } from './helpers/runtimeAssistantTimelineMerge.js';
@@ -23,7 +23,15 @@ function extractText(value) {
 }
 
 export function runtimeTurnId(payload = {}) {
-  return normalizeString(payload.turnId || payload.turn_id || payload.turn?.id);
+  return normalizeString(payload.turnId);
+}
+
+export function parseRuntimeTurnRef(payload) {
+  try {
+    return { value: validateTurnRefV1({ threadId: payload?.threadId, turnId: payload?.turnId }) };
+  } catch {
+    return { error: 'canonical_turn_ref_contract' };
+  }
 }
 
 export function parseRuntimeTurnTerminal(payload) {
@@ -98,6 +106,7 @@ export function runtimeAssistantCompletion(payload = {}, deps = {}) {
       done: true,
       optimistic: false,
       runtime: true,
+      turnId: runtimeTurnId(payload),
     },
     explicitId: Boolean(explicitId),
     streamId: runtimeAssistantStreamId(payload),

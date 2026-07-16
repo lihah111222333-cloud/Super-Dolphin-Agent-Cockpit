@@ -25,11 +25,12 @@ function createStatefulRuntime(initialState) {
 
 function createDeps(overrides = {}) {
   return {
-    activeThreadInterruptTarget: vi.fn(() => ({ threadId: 'thread-1', interruptible: true })),
+    activeThreadInterruptTarget: vi.fn(() => ({ threadId: 'thread-1', turnId: 'turn-1', interruptible: true })),
     backendThreadIdForState: vi.fn((_state, threadId) => threadId),
     cleanObject: (payload) => Object.fromEntries(
       Object.entries(payload).filter(([, value]) => value !== undefined && value !== ''),
     ),
+    createRequestId: vi.fn(() => 'stop-request-1'),
     ...overrides,
   };
 }
@@ -44,7 +45,13 @@ describe('thread lifecycle runtime', () => {
     await expect(runtime.activeThreadRPC('thread.interrupt', rpc)).resolves.toBe(true);
 
     expect(rpc).toHaveBeenCalledTimes(1);
-    expect(rpc).toHaveBeenCalledWith({ cwd: '/repo/app', threadId: 'thread-1', source: 'ui_stop' });
+    expect(rpc).toHaveBeenCalledWith({
+      cwd: '/repo/app',
+      threadId: 'thread-1',
+      expectedTurnId: 'turn-1',
+      requestId: 'stop-request-1',
+      source: 'ui_stop',
+    });
     expect(runtime.notifyAction).toHaveBeenCalledWith('已发送中断请求', 'success', { threadId: 'thread-1' });
   });
 
@@ -57,7 +64,13 @@ describe('thread lifecycle runtime', () => {
     await expect(runtime.activeThreadRPC('thread.interrupt', rpc)).resolves.toBe(false);
 
     expect(rpc).toHaveBeenCalledTimes(1);
-    expect(rpc).toHaveBeenCalledWith({ cwd: '/repo/app', threadId: 'thread-1', source: 'ui_stop' });
+    expect(rpc).toHaveBeenCalledWith({
+      cwd: '/repo/app',
+      threadId: 'thread-1',
+      expectedTurnId: 'turn-1',
+      requestId: 'stop-request-1',
+      source: 'ui_stop',
+    });
     expect(runtime.notifyAction).toHaveBeenCalledWith('中断当前执行失败：turn already completed', 'warning', { threadId: 'thread-1' });
     expect(runtime.notifyAction).not.toHaveBeenCalledWith('已发送中断请求', 'success', { threadId: 'thread-1' });
     expect(runtime.addWarning).toHaveBeenCalledWith('warn', 'thread.interrupt.failed', {
@@ -78,6 +91,31 @@ describe('thread lifecycle runtime', () => {
 
     expect(rpc).not.toHaveBeenCalled();
     expect(runtime.notifyAction).toHaveBeenCalledWith('当前没有可中断任务', 'warning', { threadId: 'thread-1' });
+    expect(deps.createRequestId).not.toHaveBeenCalled();
+  });
+
+  it('generates one unique request id at each accepted user stop boundary', async () => {
+    const runtime = createRuntime();
+    const deps = createDeps({
+      createRequestId: vi.fn()
+        .mockReturnValueOnce('stop-request-1')
+        .mockReturnValueOnce('stop-request-2'),
+    });
+    const rpc = vi.fn().mockResolvedValue({ ok: true });
+    attachActiveThreadRpcRuntime(runtime, deps);
+
+    await expect(runtime.activeThreadRPC('thread.interrupt', rpc)).resolves.toBe(true);
+    await expect(runtime.activeThreadRPC('thread.interrupt', rpc)).resolves.toBe(true);
+
+    expect(deps.createRequestId).toHaveBeenCalledTimes(2);
+    expect(rpc).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      expectedTurnId: 'turn-1',
+      requestId: 'stop-request-1',
+    }));
+    expect(rpc).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      expectedTurnId: 'turn-1',
+      requestId: 'stop-request-2',
+    }));
   });
 
   it('records warning when backend lifecycle rpc fails', async () => {
