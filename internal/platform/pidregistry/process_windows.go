@@ -33,8 +33,31 @@ func isProcessAlive(pid int) bool {
 	return code == stillActive
 }
 
+func exactProcessExists(pid int) (bool, error) {
+	if pid <= 1 {
+		return false, fmt.Errorf("refusing to inspect PID <= 1")
+	}
+	h, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION, false, uint32(pid))
+	if err != nil {
+		if isNoSuchProcessErr(err) {
+			return false, nil
+		}
+		return false, fmt.Errorf("open process %d for existence check: %w", pid, err)
+	}
+	defer windows.CloseHandle(h)
+	var code uint32
+	if err := windows.GetExitCodeProcess(h, &code); err != nil {
+		return false, fmt.Errorf("read process %d exit code: %w", pid, err)
+	}
+	return code == stillActive, nil
+}
+
 // sendSIGTERM 在 Windows 上退化为 TerminateProcess。
 func sendSIGTERM(pid int) error {
+	return terminateByPID(pid)
+}
+
+func sendExactSIGKILL(pid int) error {
 	return terminateByPID(pid)
 }
 

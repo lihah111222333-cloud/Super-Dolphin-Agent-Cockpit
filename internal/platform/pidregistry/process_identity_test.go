@@ -1,6 +1,7 @@
 package pidregistry
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"os"
@@ -8,6 +9,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestRegisterCheckedIdentityReadFailureDoesNotRegister(t *testing.T) {
@@ -252,5 +254,110 @@ func TestFinalizeStaleRegistryFilesRetainsUnresolvedCleanup(t *testing.T) {
 	finalizeStaleRegistryFiles(files, CleanupResult{})
 	if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("resolved stale registry still exists: %v", err)
+	}
+}
+
+func TestTerminateExactProcessRevalidatesBeforeKill(t *testing.T) {
+	want := StableProcessIdentity{PID: 4242, ProcessStartToken: "start-1", ExecutableIdentity: "/bin/tool"}
+	current := processIdentity{startToken: want.ProcessStartToken, executable: want.ExecutableIdentity}
+	reused := processIdentity{startToken: "start-reused", executable: "/bin/other"}
+	now := time.Unix(100, 0)
+	reads := 0
+	termCalls := 0
+	killCalls := 0
+	err := terminateExactProcess(context.Background(), want, time.Second, time.Second, exactProcessOps{
+		readIdentity: func(int) (processIdentity, error) {
+			reads++
+			if reads < 3 {
+				return current, nil
+			}
+			return reused, nil
+		},
+		sendTerm:      func(int) error { termCalls++; return nil },
+		sendKill:      func(int) error { killCalls++; return nil },
+		processExists: func(int) (bool, error) { return true, nil },
+		now:           func() time.Time { return now },
+		wait: func(context.Context, time.Duration) error {
+			now = now.Add(time.Second)
+			return nil
+		},
+	})
+	if !errors.Is(err, ErrStableProcessIdentityMismatch) {
+		t.Fatalf("terminateExactProcess() error = %v, want identity mismatch", err)
+	}
+	if termCalls != 1 || killCalls != 0 {
+		t.Fatalf("TERM/KILL calls = %d/%d, want 1/0 after PID reuse", termCalls, killCalls)
+	}
+}
+
+func TestTerminateExactProcessConfirmsExitAfterKill(t *testing.T) {
+	want := StableProcessIdentity{PID: 4242, ProcessStartToken: "start-1", ExecutableIdentity: "/bin/tool"}
+	current := processIdentity{startToken: want.ProcessStartToken, executable: want.ExecutableIdentity}
+	now := time.Unix(100, 0)
+	killed := false
+	termCalls := 0
+	killCalls := 0
+	err := terminateExactProcess(context.Background(), want, time.Second, time.Second, exactProcessOps{
+		readIdentity: func(int) (processIdentity, error) {
+			if killed {
+				return processIdentity{}, os.ErrNotExist
+			}
+			return current, nil
+		},
+		sendTerm:      func(int) error { termCalls++; return nil },
+		sendKill:      func(int) error { killCalls++; killed = true; return nil },
+		processExists: func(int) (bool, error) { return !killed, nil },
+		now:           func() time.Time { return now },
+		wait: func(context.Context, time.Duration) error {
+			now = now.Add(time.Second)
+			return nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("terminateExactProcess() error = %v", err)
+	}
+	if termCalls != 1 || killCalls != 1 {
+		t.Fatalf("TERM/KILL calls = %d/%d, want 1/1", termCalls, killCalls)
+	}
+}
+
+func TestTerminateExactProcessReadFailureSendsNoSignal(t *testing.T) {
+	want := StableProcessIdentity{PID: 4242, ProcessStartToken: "start-1", ExecutableIdentity: "/bin/tool"}
+	readErr := errors.New("kernel identity unavailable")
+	signals := 0
+	err := terminateExactProcess(context.Background(), want, time.Second, time.Millisecond, exactProcessOps{
+		readIdentity:  func(int) (processIdentity, error) { return processIdentity{}, readErr },
+		sendTerm:      func(int) error { signals++; return nil },
+		sendKill:      func(int) error { signals++; return nil },
+		processExists: func(int) (bool, error) { return true, nil },
+		now:           time.Now,
+		wait:          func(context.Context, time.Duration) error { return nil },
+	})
+	if !errors.Is(err, readErr) {
+		t.Fatalf("terminateExactProcess() error = %v, want read failure", err)
+	}
+	if signals != 0 {
+		t.Fatalf("signals = %d, want 0", signals)
+	}
+}
+
+func TestTerminateExactProcessExistenceReadFailureSendsNoSignal(t *testing.T) {
+	want := StableProcessIdentity{PID: 4242, ProcessStartToken: "start-1", ExecutableIdentity: "/bin/tool"}
+	probeErr := errors.New("kernel process table unavailable")
+	reads := 0
+	signals := 0
+	err := terminateExactProcess(context.Background(), want, time.Second, time.Millisecond, exactProcessOps{
+		readIdentity:  func(int) (processIdentity, error) { reads++; return processIdentity{}, nil },
+		sendTerm:      func(int) error { signals++; return nil },
+		sendKill:      func(int) error { signals++; return nil },
+		processExists: func(int) (bool, error) { return false, probeErr },
+		now:           time.Now,
+		wait:          func(context.Context, time.Duration) error { return nil },
+	})
+	if !errors.Is(err, probeErr) {
+		t.Fatalf("terminateExactProcess() error = %v, want existence read failure", err)
+	}
+	if reads != 0 || signals != 0 {
+		t.Fatalf("identity reads/signals = %d/%d, want 0/0", reads, signals)
 	}
 }

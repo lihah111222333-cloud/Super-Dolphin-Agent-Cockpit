@@ -16,9 +16,28 @@ func isProcessAlive(pid int) bool {
 	return syscall.Kill(pid, 0) == nil
 }
 
+func exactProcessExists(pid int) (bool, error) {
+	if pid <= 1 {
+		return false, fmt.Errorf("refusing to inspect PID <= 1")
+	}
+	err := syscall.Kill(pid, 0)
+	switch {
+	case err == nil, errors.Is(err, syscall.EPERM):
+		return true, nil
+	case errors.Is(err, syscall.ESRCH):
+		return false, nil
+	default:
+		return false, fmt.Errorf("inspect process %d existence: %w", pid, err)
+	}
+}
+
 // sendSIGTERM 向目标进程发送温和终止信号。
 func sendSIGTERM(pid int) error {
 	return syscall.Kill(pid, syscall.SIGTERM)
+}
+
+func sendExactSIGKILL(pid int) error {
+	return syscall.Kill(pid, syscall.SIGKILL)
 }
 
 // isNoSuchProcessErr 判断系统错误是否表示进程已经不存在。

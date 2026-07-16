@@ -130,10 +130,19 @@ func (app updaterApp) installFromMount(req installRequest, mountPoint string) er
 	if err := app.verifyAppSignature(stagedApp, teamID, req.AllowUnsigned); err != nil {
 		return fmt.Errorf("verify staged app: %w", err)
 	}
-	if err := app.replaceTargetApp(stagedApp, req.TargetAppPath, teamID, req.AllowUnsigned); err != nil {
+	transaction, transactional, err := app.replaceTargetAppTransaction(stagedApp, req.TargetAppPath, teamID, req.AllowUnsigned, req.Restart)
+	if err != nil {
 		return err
 	}
+	return app.completeInstalledRelease(req, transaction, transactional)
+}
+
+// completeInstalledRelease 将首次安装重启与 transaction probation 监督分流。
+func (app updaterApp) completeInstalledRelease(req installRequest, transaction recovery.Transaction, transactional bool) error {
 	if req.Restart {
+		if transactional {
+			return app.runProbationSupervisor(context.Background(), transaction)
+		}
 		return app.restartTargetApp(req.TargetAppPath)
 	}
 	return nil
@@ -512,38 +521,38 @@ func parseSigningValue(details string, key string) string {
 	return ""
 }
 
-// replaceTargetApp 建立 durable transaction，并在 probation 保留 exact backup。
-func (app updaterApp) replaceTargetApp(stagedApp string, targetApp string, expectedTeamID string, allowUnsigned bool) error {
-	targetExists, err := targetReleaseExists(targetApp)
+// replaceTargetAppTransaction 返回 Task 1 journal 快照，首次安装不伪造 transaction。
+func (app updaterApp) replaceTargetAppTransaction(stagedApp string, targetApp string, expectedTeamID string, allowUnsigned bool, superviseReplacement bool) (recovery.Transaction, bool, error) {
+	targetExists, err := inspectReplacementTarget(targetApp, superviseReplacement)
 	if err != nil {
-		return err
+		return recovery.Transaction{}, false, err
 	}
 	if !targetExists {
-		return app.installFirstRelease(stagedApp, targetApp, expectedTeamID, allowUnsigned)
+		return recovery.Transaction{}, false, app.installFirstRelease(stagedApp, targetApp, expectedTeamID, allowUnsigned)
 	}
 	request, err := app.prepareReleaseTransaction(stagedApp, targetApp, expectedTeamID, allowUnsigned)
 	if err != nil {
-		return err
+		return recovery.Transaction{}, false, err
 	}
 	store, err := recovery.NewStore(filepath.Join(filepath.Dir(targetApp), updateTransactionDirName))
 	if err != nil {
-		return removePreparedCandidate(request.Paths.Staging, err)
+		return recovery.Transaction{}, false, removePreparedCandidate(request.Paths.Staging, err)
 	}
 	ctx := context.Background()
 	if _, err := store.Create(ctx, request); err != nil {
-		return fmt.Errorf("create release transaction: %w", err)
+		return recovery.Transaction{}, false, fmt.Errorf("create release transaction: %w", err)
 	}
 	if _, err := store.RetainBackup(ctx, request.Identity); err != nil {
-		return fmt.Errorf("retain release backup: %w", err)
+		return recovery.Transaction{}, false, fmt.Errorf("retain release backup: %w", err)
 	}
 	transaction, err := store.InstallCandidate(ctx, request.Identity)
 	if err != nil {
-		return fmt.Errorf("install release candidate: %w", err)
+		return recovery.Transaction{}, false, fmt.Errorf("install release candidate: %w", err)
 	}
 	if transaction.State != recovery.StateProbation || transaction.Trust.State != recovery.TrustPending {
-		return fmt.Errorf("installed release transaction has unexpected state=%q trust=%q", transaction.State, transaction.Trust.State)
+		return recovery.Transaction{}, false, fmt.Errorf("installed release transaction has unexpected state=%q trust=%q", transaction.State, transaction.Trust.State)
 	}
-	return nil
+	return transaction, true, nil
 }
 
 // installFirstRelease 保留首次安装兼容性：原子替换并显式不创建 rollback transaction。
@@ -567,6 +576,18 @@ func targetReleaseExists(targetApp string) (bool, error) {
 		return false, nil
 	}
 	return false, fmt.Errorf("inspect target app: %w", err)
+}
+
+// inspectReplacementTarget 在任何 staging 或 journal 副作用前验证已有 release 必须受监督。
+func inspectReplacementTarget(targetApp string, superviseReplacement bool) (bool, error) {
+	targetExists, err := targetReleaseExists(targetApp)
+	if err != nil {
+		return false, err
+	}
+	if targetExists && !superviseReplacement {
+		return false, errors.New("transactional replacement requires restart supervision")
+	}
+	return targetExists, nil
 }
 
 // prepareReleaseTransaction 生成 exact paths，复制并验证 candidate，再计算 release identity。

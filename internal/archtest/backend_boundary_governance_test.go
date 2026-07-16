@@ -265,6 +265,7 @@ func assertSemanticSurfaceMappings(t *testing.T, registry archtest.BackendBounda
 		"cmd/codex-worktree-setup":           "command_narrow_import_surface",
 		"cmd/mcp-schema-compiler-helper":     "command_narrow_import_surface",
 		"cmd/super-dolphin-release-manifest": "command_narrow_import_surface",
+		"cmd/super-dolphin-guard":            "command_narrow_import_surface",
 		"cmd/super-dolphin-updater":          "command_narrow_import_surface",
 		"internal/devtools":                  "internal_support_narrow_import_surface",
 		"internal/dto":                       "internal_support_narrow_import_surface",
@@ -292,11 +293,12 @@ func assertSemanticRuleDescriptors(t *testing.T, registry archtest.BackendBounda
 	wantPolicies := map[archtest.BoundaryRuleID]map[string][]string{
 		"command_narrow_import_surface": {
 			"cmd/agent-runtime/**/*.go":                  {"internal/app", "internal/platform/rlimit", "internal/platform/runtimeenv"},
-			"cmd/agent-terminal/**/*.go":                 {"internal/app", "internal/platform/rlimit", "internal/platform/runtimeenv"},
+			"cmd/agent-terminal/**/*.go":                 {"internal/app", "internal/platform/appupdaterecovery", "internal/platform/pidregistry", "internal/platform/rlimit", "internal/platform/runner", "internal/platform/runtimeenv"},
 			"cmd/codex-worktree-setup/**/*.go":           {"internal/platform/config", "internal/util/pathutil"},
 			"cmd/mcp-schema-compiler-helper/**/*.go":     {"internal/platform/toolbridge/schema"},
 			"cmd/super-dolphin-release-manifest/**/*.go": {"internal/module/appupdate"},
-			"cmd/super-dolphin-updater/**/*.go":          {"internal/platform/appupdaterecovery", "internal/util/ctxutil"},
+			"cmd/super-dolphin-guard/**/*.go":            {"internal/platform/appupdaterecovery", "internal/platform/pidregistry", "internal/platform/runtimeenv"},
+			"cmd/super-dolphin-updater/**/*.go":          {"internal/platform/appupdaterecovery", "internal/platform/pidregistry", "internal/platform/runtimeenv", "internal/util/ctxutil", "internal/util/safego"},
 		},
 		"internal_support_narrow_import_surface": {
 			"internal/devtools/**/*.go": {"internal/devtools", "internal/platform/config", "internal/platform/db"},

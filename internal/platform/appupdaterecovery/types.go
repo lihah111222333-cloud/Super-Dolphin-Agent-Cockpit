@@ -84,6 +84,40 @@ type TrustGeneration struct {
 	State         TrustState `json:"state"`
 }
 
+// ProcessIdentity 绑定候选进程的 PID、内核启动令牌、可执行身份和文件摘要。
+type ProcessIdentity struct {
+	PID                int    `json:"pid"`
+	StartToken         string `json:"start_token"`
+	ExecutableIdentity string `json:"executable_identity"`
+	ExecutableSHA256   string `json:"executable_sha256"`
+}
+
+// ProbationLease 是 updater 或 Guard 对 exact probation 的有界所有权。
+type ProbationLease struct {
+	OwnerID    string          `json:"owner_id"`
+	Generation uint64          `json:"generation"`
+	Process    ProcessIdentity `json:"process"`
+	AcquiredAt string          `json:"acquired_at"`
+	ExpiresAt  string          `json:"expires_at"`
+}
+
+// HealthyACK 将健康确认绑定到 transaction、release 和候选进程身份。
+type HealthyACK struct {
+	TransactionID    TransactionID   `json:"transaction_id"`
+	AttemptID        string          `json:"attempt_id"`
+	CandidateRelease ReleaseIdentity `json:"candidate_release"`
+	Process          ProcessIdentity `json:"process"`
+	AcknowledgedAt   string          `json:"acknowledged_at"`
+}
+
+// ProbationRecord 保存 lease 和 ACK；presence 位避免 null/omitempty 绕过字段守卫。
+type ProbationRecord struct {
+	LeasePresent bool           `json:"lease_present"`
+	Lease        ProbationLease `json:"lease"`
+	ACKPresent   bool           `json:"ack_present"`
+	ACK          HealthyACK     `json:"ack"`
+}
+
 // CreateRequest 是建立持久 release 事务的完整输入。
 type CreateRequest struct {
 	Identity Identity        `json:"identity"`
@@ -97,6 +131,7 @@ type Transaction struct {
 	Paths     Paths           `json:"paths"`
 	State     State           `json:"state"`
 	Trust     TrustGeneration `json:"trust"`
+	Probation ProbationRecord `json:"probation"`
 	Revision  uint64          `json:"revision"`
 	CreatedAt string          `json:"created_at"`
 	UpdatedAt string          `json:"updated_at"`

@@ -28,6 +28,7 @@ type journalPayload struct {
 	Identity      Identity        `json:"identity"`
 	Paths         Paths           `json:"paths"`
 	Trust         TrustGeneration `json:"trust"`
+	Probation     ProbationRecord `json:"probation"`
 	Entries       []journalEntry  `json:"entries"`
 	CreatedAt     string          `json:"created_at"`
 	UpdatedAt     string          `json:"updated_at"`
@@ -62,6 +63,7 @@ func (journal journalPayload) transaction() Transaction {
 		Paths:     journal.Paths,
 		State:     last.State,
 		Trust:     journal.Trust,
+		Probation: journal.Probation,
 		Revision:  last.Sequence,
 		CreatedAt: journal.CreatedAt,
 		UpdatedAt: journal.UpdatedAt,
@@ -143,6 +145,9 @@ func validateJournal(journal journalPayload) error {
 	last := journal.Entries[len(journal.Entries)-1]
 	if journal.Trust.State != trustStateFor(last.State) {
 		return fmt.Errorf("trust state = %q, want %q for transaction state %q", journal.Trust.State, trustStateFor(last.State), last.State)
+	}
+	if err := validateProbationRecord(journal); err != nil {
+		return err
 	}
 	if journal.CreatedAt != journal.Entries[0].At || journal.UpdatedAt != last.At {
 		return errors.New("update transaction journal timestamps do not match transition history")

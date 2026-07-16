@@ -1,6 +1,6 @@
 # AI 项目地图（Super-Dolphin）
 
-> 已索引文件：**4507**
+> 已索引文件：**4530**
 >
 > 扫描规则：allowlisted project files; excludes: .git/**, .idea/**, .claude/**, .workspace/**, .worktrees/**, .agent/code_exec/**, .agent/workspaces/**, .agnet/report/**, .agnet/shared/**, bin/**, reports/**, docs/archive/**, **/node_modules/**, **/dist/**, **/web-dist/**, **/coverage/**, **/.vite/**, **/.tmp/**, **/tmp/**, **/.gocache/**, **/.gomodcache/**, **/.npm-cache/**, docs/doc/codemap/project-map/**, docs/doc/codemap/ai-index.json, go.sum, test_output.txt, naked_go.txt
 >
@@ -21,13 +21,13 @@ Super-Dolphin / super-agent-v3 是一个本地多 Agent 桌面应用与 MCP peer
 
 | 索引文件 | 文件数 | 大小 | 覆盖范围 |
 |---|---:|---:|---|
-| `docs/doc/codemap/project-map/index/app-ui.tsv` | 539 | 110.2 KB | 桌面应用、Wails host、React/Vite 前端与 UI 测试 |
+| `docs/doc/codemap/project-map/index/app-ui.tsv` | 549 | 112.1 KB | 桌面应用、Wails host、React/Vite 前端与 UI 测试 |
 | `docs/doc/codemap/project-map/index/orchestration.tsv` | 391 | 88.0 KB | mcp-orch 编排 peer、DAG、workspace、prompt、command、shared-file 工具 |
 | `docs/doc/codemap/project-map/index/modules.tsv` | 730 | 142.2 KB | 业务模块层：dashboard、memory、prompt、skill、thread、turn、uistate 等 |
-| `docs/doc/codemap/project-map/index/platform-provider.tsv` | 1045 | 192.1 KB | 基础设施与 provider 集成：RPC、hooks、toolbridge、Claude/Codex/统一 provider |
+| `docs/doc/codemap/project-map/index/platform-provider.tsv` | 1051 | 193.1 KB | 基础设施与 provider 集成：RPC、hooks、toolbridge、Claude/Codex/统一 provider |
 | `docs/doc/codemap/project-map/index/store-sql.tsv` | 204 | 29.8 KB | 持久化层：store、sqlc、SQL queries、migrations |
-| `docs/doc/codemap/project-map/index/docs-agent.tsv` | 948 | 170.3 KB | 代码地图、ADR/决策、计划与 docs 项目知识 |
-| `docs/doc/codemap/project-map/index/other.tsv` | 650 | 126.9 KB | 公共库、脚本、测试、配置与其他根级资源 |
+| `docs/doc/codemap/project-map/index/docs-agent.tsv` | 949 | 170.5 KB | 代码地图、ADR/决策、计划与 docs 项目知识 |
+| `docs/doc/codemap/project-map/index/other.tsv` | 656 | 128.0 KB | 公共库、脚本、测试、配置与其他根级资源 |
 
 **检索示例：**
 
@@ -46,10 +46,10 @@ rg --line-number "func .*Resume|func .*Fork" internal/module/thread -g '*.go'
 
 | 模块 | 文件数 | 职责 |
 |---|---:|---|
-| `internal` | 2163 | 应用内部模块、平台、provider、store 与守卫 |
-| `docs` | 940 | 代码地图、ADR、计划、迁移和内部说明 |
-| `cmd` | 649 | 可执行入口与 MCP peer |
-| `frontend-app` | 537 | 当前 React/Vite 新 UI |
+| `internal` | 2172 | 应用内部模块、平台、provider、store 与守卫 |
+| `docs` | 941 | 代码地图、ADR、计划、迁移和内部说明 |
+| `cmd` | 655 | 可执行入口与 MCP peer |
+| `frontend-app` | 544 | 当前 React/Vite 新 UI |
 | `scripts` | 128 | 工程自动化脚本 |
 | `pkg` | 30 | 可复用公共库 |
 | `sql` | 29 | SQL query 源文件 |
@@ -117,7 +117,7 @@ rg --line-number "func .*Resume|func .*Fork" internal/module/thread -g '*.go'
 | `internal/app/storeadapter` | 50 | 业务 Store 到 module 窄端口的适配器 |
 | `internal/app/runtimeadapter` | 9 | runtime consumer 的 Store/module 窄端口适配器 |
 | `internal/app/internal/storeguard` | 2 | adapter 共享的 typed-nil fail-fast 检查 helper |
-| `internal/app` | 91 | 全域汇总（root + adapter packages） |
+| `internal/app` | 94 | 全域汇总（root + adapter packages） |
 
 ### internal/module
 

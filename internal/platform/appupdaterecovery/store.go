@@ -158,58 +158,79 @@ func (store *Store) InstallCandidate(ctx context.Context, identity Identity) (Tr
 	})
 }
 
-// CommitHealthy 仅从 probation 提交 trust，并在提交意图落盘后删除 backup。
-func (store *Store) CommitHealthy(ctx context.Context, identity Identity) (Transaction, error) {
+// CommitHealthy 拒绝没有 supervisor observation 的旧调用。
+func (store *Store) CommitHealthy(context.Context, Identity) (Transaction, error) {
+	return Transaction{}, ErrHealthyCommitRequiresClaimed
+}
+
+// Rollback 只处理 pre-probation exact transaction；probation 必须走显式 lease API。
+func (store *Store) Rollback(ctx context.Context, identity Identity) (Transaction, error) {
 	return store.withExact(ctx, identity, func(journal *journalPayload) error {
-		state := journal.transaction().State
-		if state == StateCommitted {
-			return nil
-		}
-		if state == StateProbation {
-			if err := requirePath(journal.Paths.Backup); err != nil {
-				return fmt.Errorf("healthy commit requires retained backup: %w", err)
+		if journal.transaction().State == StateProbation {
+			if journal.Probation.LeasePresent {
+				return ErrProbationLeaseMismatch
 			}
-			if err := store.advanceLocked(journal, TriggerHealthy); err != nil {
-				return err
-			}
-			state = StateCommitPending
+			return ErrProbationRollbackRequiresUnclaimed
 		}
-		if state != StateCommitPending {
-			return fmt.Errorf("healthy commit from state %q: illegal transition", state)
-		}
-		if err := completeCommitEffect(*journal); err != nil {
-			return err
-		}
-		if err := store.runAfterEffect(StateCommitPending); err != nil {
-			return err
-		}
-		return store.advanceLocked(journal, TriggerCommitCompleted)
+		return store.rollbackLocked(journal)
 	})
 }
 
-// Rollback 按 exact transaction 恢复旧 release，并丢弃 pending trust。
-func (store *Store) Rollback(ctx context.Context, identity Identity) (Transaction, error) {
-	return store.withExact(ctx, identity, func(journal *journalPayload) error {
-		state := journal.transaction().State
-		if state == StateRolledBack {
-			return nil
+// commitHealthyLocked 在已持有 transaction lock 时完成 commit 意图和文件效果。
+func (store *Store) commitHealthyLocked(journal *journalPayload) error {
+	state := journal.transaction().State
+	if state == StateCommitted {
+		return nil
+	}
+	if state == StateProbation {
+		if !journal.Probation.LeasePresent || !journal.Probation.ACKPresent {
+			return errors.New("healthy commit requires current probation lease and exact ACK")
 		}
-		if state != StateRollbackPending {
-			if err := requirePath(journal.Paths.Backup); err != nil {
-				return fmt.Errorf("rollback requires retained backup: %w", err)
-			}
-			if err := store.advanceLocked(journal, TriggerRollbackRequested); err != nil {
+		if err := requirePath(journal.Paths.Backup); err != nil {
+			return fmt.Errorf("healthy commit requires retained backup: %w", err)
+		}
+		if err := store.advanceLocked(journal, TriggerHealthy); err != nil {
+			return err
+		}
+		state = StateCommitPending
+	}
+	if state != StateCommitPending {
+		return fmt.Errorf("healthy commit from state %q: illegal transition", state)
+	}
+	if err := completeCommitEffect(*journal); err != nil {
+		return err
+	}
+	if err := store.runAfterEffect(StateCommitPending); err != nil {
+		return err
+	}
+	return store.advanceLocked(journal, TriggerCommitCompleted)
+}
+
+// rollbackLocked 在已持有 transaction lock 时完成 rollback 意图和文件效果。
+func (store *Store) rollbackLocked(journal *journalPayload) error {
+	state := journal.transaction().State
+	if state == StateRolledBack {
+		return nil
+	}
+	if state != StateRollbackPending {
+		if state == StatePrepared {
+			if err := validatePreparedRollback(*journal); err != nil {
 				return err
 			}
+		} else if err := requirePath(journal.Paths.Backup); err != nil {
+			return fmt.Errorf("rollback requires retained backup: %w", err)
 		}
-		if err := completeRollbackEffect(*journal); err != nil {
+		if err := store.advanceLocked(journal, TriggerRollbackRequested); err != nil {
 			return err
 		}
-		if err := store.runAfterEffect(StateRollbackPending); err != nil {
-			return err
-		}
-		return store.advanceLocked(journal, TriggerRollbackCompleted)
-	})
+	}
+	if err := completeRollbackEffect(*journal); err != nil {
+		return err
+	}
+	if err := store.runAfterEffect(StateRollbackPending); err != nil {
+		return err
+	}
+	return store.advanceLocked(journal, TriggerRollbackCompleted)
 }
 
 // Replay 只补完 journal 已持久化的文件系统意图，不推断新事务。

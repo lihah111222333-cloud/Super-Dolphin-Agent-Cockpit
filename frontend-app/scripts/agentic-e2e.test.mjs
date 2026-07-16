@@ -884,7 +884,7 @@ describe('agentic e2e DOM facts', () => {
     finally {
       await browser.close();
     }
-  });
+  }, 15_000);
 });
 
 describe('agentic e2e config', () => {

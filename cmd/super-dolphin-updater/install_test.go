@@ -4,16 +4,20 @@ import (
 	"context"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
+
+	recovery "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/appupdaterecovery"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/pidregistry"
 )
 
 func TestValidateInstallRequestRejectsMissingDMG(t *testing.T) {
-	target := createAppBundle(t, filepath.Join(t.TempDir(), "Super Dolphin.app"))
+	target := filepath.Join(t.TempDir(), "Super Dolphin.app")
 
 	err := validateInstallRequest(installRequest{
 		TargetAppPath: target,
@@ -275,7 +279,7 @@ func TestInstallFromMountWaitsForAppExitBeforeReplacing(t *testing.T) {
 	}
 	mountPoint := t.TempDir()
 	createAppBundle(t, filepath.Join(mountPoint, "Super Dolphin.app"))
-	target := createAppBundle(t, filepath.Join(t.TempDir(), "Super Dolphin.app"))
+	target := filepath.Join(t.TempDir(), "Super Dolphin.app")
 
 	err := installFromMount(installRequest{
 		TargetAppPath: target,
@@ -317,7 +321,64 @@ func TestFirstInstallUsesAtomicPathWithoutRollbackTransaction(t *testing.T) {
 	}
 }
 
-func TestSuccessfulInstallRetainsTransactionBackup(t *testing.T) {
+func TestReplacementWithoutRestartHasNoSideEffects(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows filesystems do not preserve macOS launcher execute bits in this fixture")
+	}
+	oldRunCommand := runCommand
+	t.Cleanup(func() { runCommand = oldRunCommand })
+	commandCalls := 0
+	runCommand = func(context.Context, time.Duration, string, ...string) (commandResult, error) {
+		commandCalls++
+		return commandResult{}, errors.New("unexpected updater command")
+	}
+	mountPoint := t.TempDir()
+	staged := createAppBundle(t, filepath.Join(mountPoint, "Super Dolphin.app"))
+	parent := t.TempDir()
+	target := createAppBundle(t, filepath.Join(parent, "Super Dolphin.app"))
+	originalMarker := filepath.Join(target, "Contents", "Resources", "old-release.txt")
+	if err := os.WriteFile(originalMarker, []byte("old"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, _, err := defaultUpdaterApp().replaceTargetAppTransaction(staged, target, "", true, false)
+	if err == nil || !strings.Contains(err.Error(), "requires restart supervision") {
+		t.Fatalf("replaceTargetAppTransaction(no restart replacement) error = %v", err)
+	}
+	if commandCalls != 0 {
+		t.Fatalf("no-restart replacement command calls = %d, want zero", commandCalls)
+	}
+	assertPathsExist(t, staged, originalMarker)
+	assertNoPathMatches(t,
+		filepath.Join(parent, updateTransactionDirName),
+		filepath.Join(parent, ".Super Dolphin.backup-*.app"),
+		filepath.Join(parent, ".Super Dolphin.staging-*.app"),
+	)
+}
+
+func assertPathsExist(t *testing.T, paths ...string) {
+	t.Helper()
+	for _, path := range paths {
+		if _, err := os.Stat(path); err != nil {
+			t.Fatalf("expected path %s: %v", path, err)
+		}
+	}
+}
+
+func assertNoPathMatches(t *testing.T, patterns ...string) {
+	t.Helper()
+	for _, pattern := range patterns {
+		matches, err := filepath.Glob(pattern)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(matches) != 0 {
+			t.Fatalf("no-restart replacement created %s: %v", pattern, matches)
+		}
+	}
+}
+
+func TestSupervisedReplacementRetainsTransactionBackup(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("Windows filesystems do not preserve macOS launcher execute bits in this fixture")
 	}
@@ -330,9 +391,7 @@ func TestSuccessfulInstallRetainsTransactionBackup(t *testing.T) {
 	if err := os.WriteFile(oldMarker, []byte("old"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := installFromMount(installRequest{TargetAppPath: target, AllowUnsigned: true}, mountPoint); err != nil {
-		t.Fatalf("installFromMount() error = %v", err)
-	}
+	assertSupervisedReplacementStartsProbation(t, filepath.Join(mountPoint, "Super Dolphin.app"), target)
 	backups, err := filepath.Glob(filepath.Join(parent, ".Super Dolphin.backup-*.app"))
 	if err != nil {
 		t.Fatal(err)
@@ -349,6 +408,17 @@ func TestSuccessfulInstallRetainsTransactionBackup(t *testing.T) {
 	}
 	if len(journals) != 1 {
 		t.Fatalf("durable transaction journals = %v, want exactly one", journals)
+	}
+}
+
+func assertSupervisedReplacementStartsProbation(t *testing.T, staged string, target string) {
+	t.Helper()
+	transaction, transactional, err := defaultUpdaterApp().replaceTargetAppTransaction(staged, target, "", true, true)
+	if err != nil {
+		t.Fatalf("replaceTargetAppTransaction() error = %v", err)
+	}
+	if !transactional || transaction.State != recovery.StateProbation {
+		t.Fatalf("replacement result = transactional %v state %q", transactional, transaction.State)
 	}
 }
 
@@ -369,6 +439,7 @@ func TestInstallKeepsTargetWhenDittoTimesOutBeforeTransaction(t *testing.T) {
 	err := installFromMount(installRequest{
 		TargetAppPath: target,
 		AllowUnsigned: true,
+		Restart:       true,
 	}, mountPoint)
 	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("installFromMount() error = %v, want ditto timeout", err)
@@ -508,4 +579,70 @@ func recordPartialDittoCopy(t *testing.T, args []string, dittoDest *string) {
 	if err := os.WriteFile(filepath.Join(partialDir, "partial-copy.txt"), []byte("partial"), 0o644); err != nil {
 		t.Fatalf("write partial copy marker: %v", err)
 	}
+}
+
+func TestCandidateHandleReapsCrashedProcess(t *testing.T) {
+	handle, identity := startCandidateHandleTestProcess(t, "exit")
+	waitCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	err := handle.Wait(waitCtx)
+	var exitErr *exec.ExitError
+	if !errors.As(err, &exitErr) {
+		t.Fatalf("candidate Wait() error = %v, want ExitError", err)
+	}
+	alive, probeErr := handle.ProcessAlive(identity)
+	if alive || !errors.As(probeErr, &exitErr) {
+		t.Fatalf("ProcessAlive() = %v, %v, want false with Wait error", alive, probeErr)
+	}
+	if _, err := pidregistry.CaptureStableProcessIdentity(identity.PID); !errors.Is(err, pidregistry.ErrStableProcessIdentityRead) {
+		t.Fatalf("candidate PID remains observable after Wait: %v", err)
+	}
+}
+
+func TestCandidateHandleTerminatesAndReapsExactProcess(t *testing.T) {
+	handle, identity := startCandidateHandleTestProcess(t, "block")
+	stopCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := handle.Stop(stopCtx, identity); err != nil {
+		t.Fatalf("candidate Stop() error = %v", err)
+	}
+	if _, err := pidregistry.CaptureStableProcessIdentity(identity.PID); !errors.Is(err, pidregistry.ErrStableProcessIdentityRead) {
+		t.Fatalf("candidate PID remains observable after Stop: %v", err)
+	}
+}
+
+func TestProbationCandidateProcess(t *testing.T) {
+	mode := os.Getenv("SUPER_DOLPHIN_TEST_PROBATION_CANDIDATE")
+	if mode == "" {
+		return
+	}
+	switch mode {
+	case "exit":
+		time.Sleep(200 * time.Millisecond)
+		os.Exit(17)
+	case "block":
+		select {}
+	default:
+		os.Exit(19)
+	}
+}
+
+func startCandidateHandleTestProcess(t *testing.T, mode string) (*candidateHandle, recovery.ProcessIdentity) {
+	t.Helper()
+	cmd := exec.Command(os.Args[0], "-test.run=TestProbationCandidateProcess")
+	cmd.Env = append(os.Environ(), "SUPER_DOLPHIN_TEST_PROBATION_CANDIDATE="+mode)
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("start candidate fixture: %v", err)
+	}
+	stable, err := pidregistry.CaptureStableProcessIdentity(cmd.Process.Pid)
+	if err != nil {
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
+		t.Fatalf("CaptureStableProcessIdentity() error = %v", err)
+	}
+	identity := recovery.ProcessIdentity{
+		PID: stable.PID, StartToken: stable.ProcessStartToken,
+		ExecutableIdentity: stable.ExecutableIdentity, ExecutableSHA256: "test-digest",
+	}
+	return newCandidateHandle(cmd, identity), identity
 }
