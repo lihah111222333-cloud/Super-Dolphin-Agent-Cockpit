@@ -217,9 +217,6 @@ func dispatchToolAction[T any](
 	handlers map[string]actionHandler[T],
 ) (any, error) {
 	normalized := normalizeAction(action)
-	if alias := legacyActionAlias(label, normalized); alias != "" {
-		normalized = alias
-	}
 	handler, ok := handlers[normalized]
 	if !ok {
 		return nil, unsupportedActionError(label, action, handlers)
@@ -248,29 +245,15 @@ func validActionNames[T any](handlers map[string]actionHandler[T]) []string {
 	return names
 }
 
-func legacyActionAlias(label string, action string) string {
-	switch label {
-	case "file":
-		switch action {
-		case "read":
-			return "read_file"
-		case "open":
-			return "open_file"
-		}
-	}
-	return ""
-}
-
-// legacyActionHint 为历史 action 名称返回兼容提示。
-// 只提示仍被接受或有明确替代的旧名称，避免把任意拼写错误误导成兼容行为。
+// legacyActionHint 为已移除的历史 action 名称返回迁移提示。
 func legacyActionHint(label string, action string) string {
 	switch label {
 	case "file":
 		switch action {
 		case "read":
-			return `legacy action "read" is accepted as "read_file"`
+			return `legacy action "read" is no longer accepted; use "read_file"`
 		case "open":
-			return `legacy action "open" is accepted as "open_file"`
+			return `legacy action "open" is no longer accepted; use "open_file"`
 		}
 	case "xref":
 		if action == "references" {

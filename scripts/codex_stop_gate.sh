@@ -194,10 +194,42 @@ changed_go_packages() {
 filter_active_go_packages() {
   local packages="$1"
   local filtered=""
+  local pkg
+  local output
+  local status
+  local has_active
+  local line
 
   while IFS= read -r pkg; do
     [[ -z "${pkg}" ]] && continue
-    if "${GO_BIN}" list -e -f '{{if or .GoFiles .TestGoFiles}}{{.ImportPath}}{{end}}' "${pkg}" 2>>"${LOG_FILE}" | grep -q .; then
+    output="$("${GO_BIN}" list -e -f '{{if .Error}}__CODEX_STOP_GATE_GO_LIST_ERROR__ {{.Error}}{{else if or .GoFiles .TestGoFiles}}{{.ImportPath}}{{else}}__CODEX_STOP_GATE_GO_LIST_EMPTY__{{end}}' "${pkg}" 2>>"${LOG_FILE}")"
+    status=$?
+    if ((status != 0)); then
+      log "go list failed for ${pkg} (exit ${status}); blocking instead of skipping changed Go package tests"
+      return 1
+    fi
+    if [[ -z "${output}" ]]; then
+      log "go list produced empty output for ${pkg}; blocking instead of skipping changed Go package tests"
+      return 1
+    fi
+
+    has_active=false
+    while IFS= read -r line; do
+      [[ -z "${line}" ]] && continue
+      case "${line}" in
+        __CODEX_STOP_GATE_GO_LIST_ERROR__*)
+          log "go list could not resolve ${pkg}: ${line#__CODEX_STOP_GATE_GO_LIST_ERROR__ }"
+          return 1
+          ;;
+        __CODEX_STOP_GATE_GO_LIST_EMPTY__)
+          ;;
+        *)
+          has_active=true
+          ;;
+      esac
+    done <<< "${output}"
+
+    if ${has_active}; then
       filtered="${filtered}${pkg}"$'\n'
     else
       log "skip ${pkg} (no active Go files for current build tags)"
@@ -358,8 +390,13 @@ printf '%s\n' "${CHANGED_FILES}" >>"${LOG_FILE}" 2>/dev/null || true
 
 FAILURES=()
 
+go_package_filter_failed=false
 if [[ -n "${GO_PKGS}" ]]; then
-  GO_PKGS="$(filter_active_go_packages "${GO_PKGS}")"
+  if ! GO_PKGS="$(filter_active_go_packages "${GO_PKGS}")"; then
+    go_package_filter_failed=true
+    GO_PKGS=""
+    FAILURES+=("changed Go package tests")
+  fi
 fi
 if [[ -n "${GO_PKGS}" ]]; then
   go_args=()
@@ -370,7 +407,7 @@ if [[ -n "${GO_PKGS}" ]]; then
   if ! run_cmd "changed Go package tests" ./scripts/test_with_guard.sh "${go_args[@]}" -count=1; then
     FAILURES+=("changed Go package tests")
   fi
-elif ${HAS_GO_GUARD}; then
+elif ${HAS_GO_GUARD} && ! ${go_package_filter_failed}; then
   if ! run_cmd "Go code guard" ./scripts/test_with_guard.sh --guard-only; then
     FAILURES+=("Go code guard")
   fi

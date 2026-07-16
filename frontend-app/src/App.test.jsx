@@ -216,7 +216,7 @@ function defaultSkillFixtures() {
     {
       name: 'backend',
       display_name: '后端',
-      dir: '/repo/app/.agent/skills/backend',
+      dir: '/repo/app/.agents/skills/backend',
       description: '当你需要 Go 后端开发时使用。',
       summary: 'Go 后端开发指南',
       trigger_words: ['Go', 'backend', 'service'],
@@ -506,11 +506,11 @@ function mockSkillDefaults() {
   }));
   backend.listSkillFiles.mockResolvedValue({
     files: [
-      { name: 'SKILL.md', path: '/repo/app/.agent/skills/backend/SKILL.md', is_main: true },
-      { name: 'guide.md', path: '/repo/app/.agent/skills/backend/references/guide.md', is_main: false },
+      { name: 'SKILL.md', path: '/repo/app/.agents/skills/backend/SKILL.md', is_main: true },
+      { name: 'guide.md', path: '/repo/app/.agents/skills/backend/references/guide.md', is_main: false },
     ],
   });
-  backend.writeSkill.mockResolvedValue({ path: '/repo/app/.agent/skills/backend/SKILL.md' });
+  backend.writeSkill.mockResolvedValue({ path: '/repo/app/.agents/skills/backend/SKILL.md' });
   backend.importSkillDirectories.mockResolvedValue({
     imported: [{ name: 'ImportedSkill', skill_file: '/imports/ImportedSkill/SKILL.md' }],
     failures: [],
@@ -529,7 +529,7 @@ function mockSkillDefaults() {
       provider: 'codex',
       preview_id: 'preview-1',
       preview_hash: 'hash-1',
-      source_path: '/repo/app/.agent/skills/backend/SKILL.md',
+      source_path: '/repo/app/.agents/skills/backend/SKILL.md',
       target_path: '/Users/test/.codex/skills/backend/SKILL.md',
     }],
   });

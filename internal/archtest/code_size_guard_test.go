@@ -22,7 +22,7 @@ func TestCodeSizeGuard(t *testing.T) {
 	failIfGuardViolations(t, "code size guard violations", prodViolations, "")
 
 	freezePath := filepath.Join(root, "internal/archtest/freeze_baseline.json")
-	runUnifiedFreezeRatchetAndShrink(t, freezePath, opts, root, len(testFilesWithViolations) > 0, violations)
+	runUnifiedFreezeCheck(t, freezePath, opts, root, len(testFilesWithViolations) > 0, violations)
 }
 
 func TestModularityConventionMatchesCodeSizeGuard(t *testing.T) {
@@ -54,7 +54,7 @@ func TestModularityConventionMatchesCodeSizeGuard(t *testing.T) {
 	}
 }
 
-func runUnifiedFreezeRatchetAndShrink(
+func runUnifiedFreezeCheck(
 	t *testing.T,
 	path string,
 	opts archtest.CheckOptions,
@@ -68,8 +68,7 @@ func runUnifiedFreezeRatchetAndShrink(
 		t.Fatalf("load unified freeze failed: %v", err)
 	}
 	freeze := info.Data
-	changed := false
-	freeze.Metrics.Production, changed = runBaselineRatchetAndShrink(t, "prod", freeze.Metrics.Production, opts, root, false, changed)
+	checkBaselineRatchetAndFreshness(t, "prod", freeze.Metrics.Production, opts, root, false)
 	if checkTests {
 		loadRequiredTestBaseline(t, freeze.Metrics.Tests, violations)
 
@@ -78,16 +77,10 @@ func runUnifiedFreezeRatchetAndShrink(
 		failIfGuardViolations(t, "new test file violations not in baseline", newTestViolations,
 			"\nFix the test or follow the reviewed freeze command in docs/架构/skeleton-code-guard.md")
 
-		// 已冻结测试文件：棘轮检查 + 自动收缩
-		freeze.Metrics.Tests, changed = runBaselineRatchetAndShrink(t, "test", freeze.Metrics.Tests, opts, root, true, changed)
+		// 已冻结测试文件：普通测试只校验棘轮与 freshness；更新必须显式 --freeze。
+		checkBaselineRatchetAndFreshness(t, "test", freeze.Metrics.Tests, opts, root, true)
 	}
-	priorityChanged := runPrioritySSABaselineRatchetAndShrink(t, &freeze, opts)
-	if !changed && !priorityChanged {
-		return
-	}
-	if err := archtest.SaveGuardFreeze(path, freeze); err != nil {
-		t.Fatalf("save shrunk unified freeze failed: %v", err)
-	}
+	checkPrioritySSABaselineFreshness(t, freeze.PrioritySSA, opts)
 }
 
 func codeSizeGuardOptions(root string) archtest.CheckOptions {
@@ -176,19 +169,18 @@ func collectNewTestViolations(violations []archtest.Violation, baseline map[stri
 	return out
 }
 
-// runBaselineRatchetAndShrink 对指定 baseline 做棘轮检查 + 自动收缩。
-func runBaselineRatchetAndShrink(
+// checkBaselineRatchetAndFreshness 对指定 baseline 做棘轮检查，并在 baseline 可收缩时失败。
+func checkBaselineRatchetAndFreshness(
 	t *testing.T,
 	label string,
 	baseline archtest.Baseline,
 	opts archtest.CheckOptions,
 	root string,
 	testsOnly bool,
-	changed bool,
-) (archtest.Baseline, bool) {
+) {
 	t.Helper()
 	if len(baseline) == 0 {
-		return baseline, changed
+		return
 	}
 	phaseOpts := opts
 	phaseOpts.BaselineTestsOnly = testsOnly
@@ -208,15 +200,14 @@ func runBaselineRatchetAndShrink(
 		return archtest.MeasureBaselineFileMetrics(filepath.Join(root, filepath.FromSlash(relPath)))
 	})
 	if stats.Changed() {
-		changed = true
-		t.Logf("🧹 %s baseline auto-shrunk: shrunk=%d graduated=%d removed=%d", label, stats.Shrunk, stats.Graduated, stats.Removed)
+		t.Fatalf("%s baseline is stale: shrunk=%d graduated=%d removed=%d current_entries=%d\nRun: go run ./scripts/code_size_guard.go --freeze",
+			label, stats.Shrunk, stats.Graduated, stats.Removed, len(newBL))
 	}
-	return newBL, changed
 }
 
-func runPrioritySSABaselineRatchetAndShrink(t *testing.T, freeze *archtest.GuardFreeze, opts archtest.CheckOptions) bool {
+func checkPrioritySSABaselineFreshness(t *testing.T, baseline archtest.PrioritySSABaseline, opts archtest.CheckOptions) {
 	t.Helper()
-	result, err := archtest.CheckPrioritySSAWithBaseline(opts, freeze.PrioritySSA)
+	result, err := archtest.CheckPrioritySSAWithBaseline(opts, baseline)
 	if err != nil {
 		t.Fatalf("check priority SSA baseline failed: %v", err)
 	}
@@ -225,11 +216,10 @@ func runPrioritySSABaselineRatchetAndShrink(t *testing.T, freeze *archtest.Guard
 			len(result.New), strings.Join(archtest.PrioritySSAViolationStrings(result.New), "\n"))
 	}
 	if len(result.Stale) == 0 {
-		return false
+		return
 	}
-	freeze.PrioritySSA = archtest.PrioritySSABaselineFromCurrent(result)
-	t.Logf("🧹 priority SSA baseline auto-shrunk: stale=%d", len(result.Stale))
-	return true
+	t.Fatalf("priority SSA baseline is stale (%d):\n%s\nRun: go run ./scripts/code_size_guard.go --freeze",
+		len(result.Stale), strings.Join(archtest.PrioritySSAViolationStrings(result.Stale), "\n"))
 }
 
 func buildFileSetFiltered(t *testing.T, opts archtest.CheckOptions, root string, testsOnly bool) map[string]bool {

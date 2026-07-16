@@ -76,8 +76,8 @@ beforeEach(() => {
     skills: [{
       name: 'backend',
       display_name: '后端',
-      dir: '/repo/app/.agent/skills/backend',
-      skill_file: '/repo/app/.agent/skills/backend/SKILL.md',
+      dir: '/repo/app/.agents/skills/backend',
+      skill_file: '/repo/app/.agents/skills/backend/SKILL.md',
       description: '当你需要 Go 后端开发时使用。',
       trigger_words: ['go', 'service'],
       scope: 'project',
@@ -101,12 +101,12 @@ beforeEach(() => {
   });
   backend.listSkillFiles.mockResolvedValue({
     files: [
-      { name: 'SKILL.md', path: '/repo/app/.agent/skills/backend/SKILL.md', is_main: true },
-      { name: 'guide.md', path: '/repo/app/.agent/skills/backend/references/guide.md', is_main: false },
+      { name: 'SKILL.md', path: '/repo/app/.agents/skills/backend/SKILL.md', is_main: true },
+      { name: 'guide.md', path: '/repo/app/.agents/skills/backend/references/guide.md', is_main: false },
     ],
   });
-  backend.createSkill.mockResolvedValue({ path: '/repo/app/.agent/skills/deploy/SKILL.md' });
-  backend.writeSkill.mockResolvedValue({ path: '/repo/app/.agent/skills/backend/SKILL.md' });
+  backend.createSkill.mockResolvedValue({ path: '/repo/app/.agents/skills/deploy/SKILL.md' });
+  backend.writeSkill.mockResolvedValue({ path: '/repo/app/.agents/skills/backend/SKILL.md' });
   backend.listMCPServers.mockResolvedValue({ mcpServers: { sqlite: { enabled: false }, playwright: { enabled: false } } });
   backend.startSQLiteMCPServer.mockResolvedValue({ serverName: 'sqlite', enabled: true });
   backend.stopSQLiteMCPServer.mockResolvedValue({ serverName: 'sqlite', enabled: false });
@@ -457,8 +457,8 @@ describe('SkillsPage backend migration', () => {
       field: 'name',
       skill: {
         display_name: '后端',
-        dir: '/repo/app/.agent/skills/backend',
-        skill_file: '/repo/app/.agent/skills/backend/SKILL.md',
+        dir: '/repo/app/.agents/skills/backend',
+        skill_file: '/repo/app/.agents/skills/backend/SKILL.md',
         description: '当你需要 Go 后端开发时使用。',
         trigger_words: ['go'],
         scope: 'project',
@@ -469,7 +469,7 @@ describe('SkillsPage backend migration', () => {
       skill: {
         name: 'backend',
         display_name: '后端',
-        skill_file: '/repo/app/.agent/skills/backend/SKILL.md',
+        skill_file: '/repo/app/.agents/skills/backend/SKILL.md',
         description: '当你需要 Go 后端开发时使用。',
         trigger_words: ['go'],
         scope: 'project',
@@ -480,7 +480,7 @@ describe('SkillsPage backend migration', () => {
       skill: {
         name: 'backend',
         display_name: '后端',
-        dir: '/repo/app/.agent/skills/backend',
+        dir: '/repo/app/.agents/skills/backend',
         description: '当你需要 Go 后端开发时使用。',
         trigger_words: ['go'],
         scope: 'project',
@@ -567,11 +567,11 @@ describe('SkillsPage backend migration', () => {
     expect(within(dialog).getByRole('button', { name: '取消' })).toBeInTheDocument();
     expect(backend.readSkill).toHaveBeenCalledWith({
       cwd: '/repo/app',
-      path: '/repo/app/.agent/skills/backend/SKILL.md',
+      path: '/repo/app/.agents/skills/backend/SKILL.md',
     });
     expect(backend.listSkillFiles).toHaveBeenCalledWith({
       cwd: '/repo/app',
-      dir: '/repo/app/.agent/skills/backend',
+      dir: '/repo/app/.agents/skills/backend',
     });
     expect(within(dialog).getByText('guide.md')).toBeInTheDocument();
 
@@ -581,7 +581,7 @@ describe('SkillsPage backend migration', () => {
     await waitFor(() => {
       expect(backend.writeSkill).toHaveBeenCalledWith(expect.objectContaining({
         cwd: '/repo/app',
-        path: '/repo/app/.agent/skills/backend/SKILL.md',
+        path: '/repo/app/.agents/skills/backend/SKILL.md',
         scope: 'project',
         personal_type: '',
       }));
@@ -707,8 +707,8 @@ describe('SkillsPage backend migration', () => {
         {
           name: 'backend',
           display_name: '后端',
-          dir: '/repo/app/.agent/skills/backend',
-          skill_file: '/repo/app/.agent/skills/backend/SKILL.md',
+          dir: '/repo/app/.agents/skills/backend',
+          skill_file: '/repo/app/.agents/skills/backend/SKILL.md',
           description: '当你需要 Go 后端开发时使用。',
           trigger_words: ['go'],
           scope: 'project',
@@ -716,8 +716,8 @@ describe('SkillsPage backend migration', () => {
         {
           name: 'docs',
           display_name: 'Docs Skill',
-          dir: '/repo/app/.agent/skills/docs',
-          skill_file: '/repo/app/.agent/skills/docs/SKILL.md',
+          dir: '/repo/app/.agents/skills/docs',
+          skill_file: '/repo/app/.agents/skills/docs/SKILL.md',
           description: '当你需要整理文档时使用。',
           trigger_words: ['docs'],
           scope: 'project',
@@ -743,7 +743,7 @@ describe('SkillsPage backend migration', () => {
             'description: "当你需要 Go 后端开发时使用。"',
             '---',
             '',
-            '参考 [Docs Skill](/repo/app/.agent/skills/docs/SKILL.md) 或 [agent://thread-active](agent://thread-active)。',
+            '参考 [Docs Skill](/repo/app/.agents/skills/docs/SKILL.md) 或 [agent://thread-active](agent://thread-active)。',
             '入口 [SKILL.md](SKILL.md) 与 [app://backend](app://backend)。',
             '拒绝 ![unsafe-image](javascript:alert(1))、![unsafe-html](data:text/html,%3Cscript%3E) 和 [unsafe-link](javascript:alert(1))。',
           ].join('\n'),
@@ -773,11 +773,11 @@ describe('SkillsPage backend migration', () => {
     await waitFor(() => {
       expect(backend.readSkill).toHaveBeenCalledWith({
         cwd: '/repo/app',
-        path: '/repo/app/.agent/skills/docs/SKILL.md',
+        path: '/repo/app/.agents/skills/docs/SKILL.md',
       });
       expect(backend.listSkillFiles).toHaveBeenCalledWith({
         cwd: '/repo/app',
-        dir: '/repo/app/.agent/skills/docs',
+        dir: '/repo/app/.agents/skills/docs',
       });
     });
     expect(screen.getByLabelText('技能名称')).toHaveValue('Docs Skill');

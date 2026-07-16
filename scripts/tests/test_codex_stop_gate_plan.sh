@@ -18,6 +18,48 @@ run_gate_with_input() {
     bash -c "printf '%s\n' \"\$1\" | bash \"\$2\"" _ "${input}" "${gate}"
 }
 
+run_go_gate_with_fake_go() {
+  local fixture="$1"
+  local lock_dir="$2"
+  local scenario="$3"
+  local fake_bin="${tmp_dir}/fake-go-bin"
+  mkdir -p "${fake_bin}"
+  cat >"${fake_bin}/go" <<'EOF'
+#!/usr/bin/env bash
+if [[ "${1:-}" == "run" && "${2:-}" == "./scripts/capcontract" && "${3:-}" == "--print-path-rules" ]]; then
+  printf 'tree\tinternal/contract\n'
+  exit 0
+fi
+if [[ "${1:-}" != "list" ]]; then
+  printf 'unexpected fake go command: %s\n' "$*" >&2
+  exit 99
+fi
+
+case "${FAKE_GO_LIST_SCENARIO}" in
+  nonzero)
+    printf 'go list exploded\n' >&2
+    exit 23
+    ;;
+  empty)
+    exit 0
+    ;;
+  partial)
+    printf '%s\n' "example.com/super/internal/provider/codexapp"
+    printf '%s\n' "__CODEX_STOP_GATE_GO_LIST_ERROR__ ./cmd/mcp-orch/tools: no required module provides package"
+    exit 0
+    ;;
+  *)
+    printf 'unknown fake go list scenario: %s\n' "${FAKE_GO_LIST_SCENARIO}" >&2
+    exit 98
+    ;;
+esac
+EOF
+  chmod +x "${fake_bin}/go"
+  FAKE_GO_LIST_SCENARIO="${scenario}" CODEX_STOP_GATE_GO_BIN="${fake_bin}/go" \
+    CODEX_STOP_GATE_CHANGED_FILES_FILE="${fixture}" CODEX_STOP_GATE_LOG_DIR="${tmp_dir}/logs" \
+    CODEX_STOP_GATE_LOCK_DIR="${lock_dir}" bash "${gate}"
+}
+
 assert_contains() {
   local haystack="$1"
   local needle="$2"
@@ -35,6 +77,17 @@ assert_not_contains() {
   local label="$3"
   if grep -Fxq "${needle}" <<< "${haystack}"; then
     printf '[test][FAIL] %s: unexpected "%s"\n%s\n' "${label}" "${needle}" "${haystack}" >&2
+    exit 1
+  fi
+  printf '[test][PASS] %s\n' "${label}"
+}
+
+assert_has_text() {
+  local haystack="$1"
+  local needle="$2"
+  local label="$3"
+  if ! grep -Fq "${needle}" <<< "${haystack}"; then
+    printf '[test][FAIL] %s: missing text "%s"\n%s\n' "${label}" "${needle}" "${haystack}" >&2
     exit 1
   fi
   printf '[test][PASS] %s\n' "${label}"
@@ -103,6 +156,24 @@ assert_contains "${frontend_plan}" "frontend_project frontend-app" "frontend map
 assert_contains "${frontend_plan}" "guard frontend" "frontend changes enable frontend guard"
 assert_not_contains "${frontend_plan}" "guard go" "frontend-only changes skip Go guard"
 assert_not_contains "${frontend_plan}" "capcontract_check make capcontract-check" "frontend-only changes skip capcontract check"
+
+go_list_nonzero_lock="${tmp_dir}/go-list-nonzero.lock"
+go_list_nonzero_output="$(run_go_gate_with_fake_go "${go_fixture}" "${go_list_nonzero_lock}" nonzero)"
+assert_has_text "${go_list_nonzero_output}" '"decision":"block"' "go list nonzero blocks stop gate"
+assert_has_text "${go_list_nonzero_output}" 'Super-Dolphin Codex Stop gate failed: changed Go package tests.' "go list nonzero reports Go stage failure"
+assert_not_contains "${go_list_nonzero_output}" '{"continue":true}' "go list nonzero does not continue"
+
+go_list_empty_lock="${tmp_dir}/go-list-empty.lock"
+go_list_empty_output="$(run_go_gate_with_fake_go "${go_fixture}" "${go_list_empty_lock}" empty)"
+assert_has_text "${go_list_empty_output}" '"decision":"block"' "go list empty output blocks stop gate"
+assert_has_text "${go_list_empty_output}" 'Super-Dolphin Codex Stop gate failed: changed Go package tests.' "go list empty output reports Go stage failure"
+assert_not_contains "${go_list_empty_output}" '{"continue":true}' "go list empty output does not continue"
+
+go_list_partial_lock="${tmp_dir}/go-list-partial.lock"
+go_list_partial_output="$(run_go_gate_with_fake_go "${module_fixture}" "${go_list_partial_lock}" partial)"
+assert_has_text "${go_list_partial_output}" '"decision":"block"' "partial go list resolution blocks stop gate"
+assert_has_text "${go_list_partial_output}" 'Super-Dolphin Codex Stop gate failed: changed Go package tests.' "partial go list resolution reports Go stage failure"
+assert_not_contains "${go_list_partial_output}" '{"continue":true}' "partial go list resolution does not continue"
 
 ignored_frontend_fixture="${tmp_dir}/ignored-frontend.txt"
 cat >"${ignored_frontend_fixture}" <<'EOF'
