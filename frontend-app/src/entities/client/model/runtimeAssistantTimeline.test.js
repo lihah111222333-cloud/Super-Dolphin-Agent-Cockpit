@@ -8,6 +8,9 @@ import {
   runtimeAssistantCompletion,
   runtimeAssistantFallbackId,
   runtimeAssistantStreamId,
+  parseRuntimeTurnTerminal,
+  runtimeTerminalFingerprint,
+  runtimeTurnRefKey,
   runtimeTurnId } from './runtimeAssistantTimeline.js';
 
 describe('runtimeAssistantTimeline', () => {
@@ -77,7 +80,39 @@ describe('runtimeAssistantTimeline', () => {
     expect(appendAssistantDeltaText('hello world', 'world')).toBe('hello world');
     expect(appendAssistantDeltaText('hello', 'hello world')).toBe('hello world');
     expect(appendAssistantDeltaText('hello wor', 'world')).toBe('hello world');
-    expect(assistantDeltaBufferKey('thread', 'item')).toBe('thread\u0000item');
+    expect(assistantDeltaBufferKey('thread', 'item', 'turn')).toBe('thread\u0000turn\u0000item');
+  });
+
+  it('uses the canonical terminal validator and produces stable turn keys', () => {
+    const terminal = {
+      schemaVersion: 2,
+      eventId: 'terminal-1',
+      threadId: 'thread-1',
+      turnId: 'turn-1',
+      outcome: 'failed',
+      occurredAt: '2026-07-16T01:00:00Z',
+      publicError: { code: 'FAILED', title: '运行失败', message: '本轮执行失败', diagnosticId: 'diag-1', retryable: true, recoveryActions: ['retry'] },
+    };
+    const parsed = parseRuntimeTurnTerminal(terminal);
+    expect(parsed.value).toBeDefined();
+    expect(runtimeTurnRefKey('thread-1', 'turn-1')).toBe('thread-1\u0000turn-1');
+    expect(runtimeTerminalFingerprint(parsed.value)).toContain('failed');
+    expect(runtimeTerminalFingerprint(parsed.value)).toBe(runtimeTerminalFingerprint({
+      ...parsed.value,
+      eventId: 'terminal-duplicate',
+      publicError: {
+        recoveryActions: ['retry'],
+        retryable: true,
+        diagnosticId: 'diag-1',
+        message: '本轮执行失败',
+        title: '运行失败',
+        code: 'FAILED',
+      },
+    }));
+    expect(parseRuntimeTurnTerminal({ ...terminal, outcome: 'unknown' })).toEqual({ error: 'canonical_terminal_contract' });
+    const { eventId: _missingEventId, ...missingEventId } = terminal;
+    expect(parseRuntimeTurnTerminal(missingEventId)).toEqual({ error: 'canonical_terminal_contract' });
+    expect(parseRuntimeTurnTerminal({ ...terminal, outcome: 'success', publicError: undefined, success: true })).toEqual({ error: 'canonical_terminal_contract' });
   });
 
   it('merges final completion into a matching stream item', () => {

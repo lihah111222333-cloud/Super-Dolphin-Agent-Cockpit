@@ -12,6 +12,10 @@ import { resolveAttachmentImageSrc } from './timelineMessageModel.js';
 const IMAGE_ATTACHMENT_LABEL = '\u56fe\u7247\u9644\u4ef6';
 const SYNC_HISTORY_LABEL = '\u6b63\u5728\u540c\u6b65\u4f1a\u8bdd\u5386\u53f2';
 const ASSISTANT_THINKING_LABEL = '\u601d\u8003\u4e2d';
+const TERMINAL_STATUS_LABELS = {
+  interrupted: '\u5df2\u4e2d\u65ad',
+  cancelled: '\u5df2\u53d6\u6d88',
+};
 
 function attachmentFilePath(att) {
   return firstText(att?.path, att?.url, att?.previewUrl).trim();
@@ -113,6 +117,25 @@ const TimelineMessage = memo(function TimelineMessage({
 
   if (isApprovalMessage(message)) return <ChatApprovalMessage message={message} actions={actions} formatTime={formatTime} />;
   if (isReasoningMessage(message)) return <ReasoningTrace message={message} active={message.done === false} />;
+  if (message.kind === 'turn_terminal') {
+    const error = message.publicError;
+    const isFailure = message.terminalOutcome === 'failed' || (message.terminalOutcome !== 'success' && error);
+    return (
+      <article className="message assistant no-avatar turn-terminal-message">
+        <div className="bubble">
+          {isFailure ? (
+            <div role="alert" className="turn-terminal-error">
+              <strong>{error.title}</strong>
+              <span>{error.message}</span>
+            </div>
+          ) : (
+            <output role="status" className="turn-terminal-status">{TERMINAL_STATUS_LABELS[message.terminalOutcome] || '\u5df2\u5b8c\u6210'}</output>
+          )}
+          <div className="assistant-footer"><time>{formatTime(message.time)}</time></div>
+        </div>
+      </article>
+    );
+  }
 
   const isUser = message.role === 'user';
   return (

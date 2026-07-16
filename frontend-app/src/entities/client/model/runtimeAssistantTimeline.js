@@ -1,4 +1,5 @@
 import { firstOptionalPresent, normalizeOptionalTextField, optionalTextField, systemClockMillis, currentIsoTimestamp } from './contractStoreModel.js';
+import { validateTurnTerminalV2 } from '../../../shared/contracts/turnContractValidators.js';
 // @ts-check
 
 export { mergeRuntimeAssistantCompletionImpl as mergeRuntimeAssistantCompletion } from './helpers/runtimeAssistantTimelineMerge.js';
@@ -23,6 +24,32 @@ function extractText(value) {
 
 export function runtimeTurnId(payload = {}) {
   return normalizeString(payload.turnId || payload.turn_id || payload.turn?.id);
+}
+
+export function parseRuntimeTurnTerminal(payload) {
+  try {
+    return { value: validateTurnTerminalV2(payload) };
+  } catch {
+    return { error: 'canonical_terminal_contract' };
+  }
+}
+
+export function runtimeTurnRefKey(threadId, turnId) {
+  return `${threadId}\u0000${turnId}`;
+}
+
+function stableJSONValue(value) {
+  if (Array.isArray(value)) return value.map(stableJSONValue);
+  if (!value || typeof value !== 'object') return value;
+  return Object.fromEntries(Object.keys(value)
+    .sort((left, right) => (left < right ? -1 : left > right ? 1 : 0))
+    .map((key) => [key, stableJSONValue(value[key])]));
+}
+
+export function runtimeTerminalFingerprint(terminal) {
+  const content = { ...terminal };
+  delete content.eventId;
+  return JSON.stringify(stableJSONValue(content));
 }
 
 export function runtimeAssistantStreamId(payload = {}) {
@@ -101,6 +128,6 @@ export function appendAssistantDeltaText(existingText, deltaText) {
   return base + incoming;
 }
 
-export function assistantDeltaBufferKey(threadId, itemId) {
-  return `${threadId}\u0000${itemId}`;
+export function assistantDeltaBufferKey(threadId, itemId, turnId = '') {
+  return `${threadId}\u0000${turnId}\u0000${itemId}`;
 }

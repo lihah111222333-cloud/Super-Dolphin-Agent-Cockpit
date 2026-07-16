@@ -21,6 +21,7 @@ import {
   optionalUiArray,
 } from './clientStoreUtils.js';
 import {
+  activeTurnIdForThread,
   activeThreadInterruptTarget,
   backendThreadIdForState,
   extractDeltaText,
@@ -87,6 +88,7 @@ function createClientStoreRuntime(set, get, { getPreference }) {
     threadMessageGenerations: new Map(),
     threadSyncGenerations: new Map(),
     assistantDeltaBuffers: new Map(),
+    sealedTurnTerminals: new Map(),
     assistantDeltaFlushTimer: null,
     sidebarRefreshSeq: 0,
     bootstrapRetryAfterReconnect: false,
@@ -112,6 +114,7 @@ function createClientStoreRuntime(set, get, { getPreference }) {
   attachBridgeIdentityRuntime(runtime);
   attachAssistantEventRuntime(runtime, {
     ASSISTANT_DELTA_FLUSH_MS,
+    activeTurnIdForThread,
     actionNotice,
     clockNowISO,
     clockNowMillis,
