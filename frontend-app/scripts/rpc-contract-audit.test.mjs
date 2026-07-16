@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import {
   auditRpcContracts,
+  astReferencesFacadeForTest,
   collectFrontendPayloadKeysFromSource,
   collectHardcodedPayloadGuardFindingsFromSources,
   collectPayloadRegistryDrift,
@@ -429,6 +430,30 @@ function consumerValidatedRegression() {
 }
 
 describe('rpc contract audit', () => {
+  it('skips deep AST traversal when a file has no relevant facade bindings', () => {
+    const unrelatedStatement = {
+      type: 'ExpressionStatement',
+      get expression() {
+        throw new Error('unrelated AST was traversed')
+      },
+    }
+    const ast = {
+      type: 'File',
+      program: {
+        type: 'Program',
+        body: [unrelatedStatement],
+      },
+    }
+
+    expect(astReferencesFacadeForTest(
+      ast,
+      'frontend-app/src/unrelated.js',
+      { key: 'CONFIG_READ', facade: 'readConfig' },
+      new Map([['readConfig', 'CONFIG_READ']]),
+      new Map(),
+    )).toBe(false)
+  })
+
   it('accepts the production matrix after response policy migration', async () => {
     const report = await auditRpcContracts({ repoRoot: REPO_ROOT })
 
