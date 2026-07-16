@@ -124,7 +124,7 @@ func TestSkillMirrorPublisherDoesNotPublishManualOnlySkills(t *testing.T) {
 	if err := os.MkdirAll(manualDir, 0o755); err != nil {
 		t.Fatalf("MkdirAll manual skill: %v", err)
 	}
-	content := "---\nname: manual-only\ndisable_model_invocation: true\n---\n# manual only\n"
+	content := "---\nname: manual-only\n\"disable_model_invocation\": true # manual only\n---\n# manual only\n"
 	if err := os.WriteFile(filepath.Join(manualDir, skillMainFile), []byte(content), 0o644); err != nil {
 		t.Fatalf("WriteFile manual skill: %v", err)
 	}
@@ -711,4 +711,51 @@ func TestReconcileProviderMirrorsUsesProjectMirrorRootWhenCWDIsSubdir(t *testing
 		t.Fatalf("conflicts = %+v", report.Conflicts)
 	}
 	assertMirrorFile(t, filepath.Join(codexProjectRoot, "build", skillMainFile), false)
+}
+
+func TestProjectMirrorTrustCapUsesYAMLSemantics(t *testing.T) {
+	tests := []struct {
+		name        string
+		frontmatter string
+	}{
+		{name: "quoted key", frontmatter: "name: foo\n\"trust\": user # project cap"},
+		{name: "alias with inline comment", frontmatter: "name: foo\ntrust_scope: signed # project cap"},
+	}
+	want := "---\nname: foo\ntrust: project\n---\nbody"
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := copyProjectMirrorSkillForTest(t, tt.frontmatter)
+			if err != nil {
+				t.Fatalf("copy project mirror: %v", err)
+			}
+			if got != want {
+				t.Fatalf("project mirror content = %q, want %q", got, want)
+			}
+		})
+	}
+}
+
+func TestProjectMirrorTrustCapRejectsUnsupportedYAMLShapes(t *testing.T) {
+	for _, tt := range invalidSecurityYAMLCases() {
+		t.Run(tt.name, func(t *testing.T) {
+			if _, err := copyProjectMirrorSkillForTest(t, tt.frontmatter); err == nil {
+				t.Fatalf("expected invalid frontmatter to block project mirror: %q", tt.frontmatter)
+			}
+		})
+	}
+}
+
+func copyProjectMirrorSkillForTest(t *testing.T, frontmatter string) (string, error) {
+	t.Helper()
+	sourceRoot := t.TempDir()
+	content := "---\n" + frontmatter + "\n---\nbody"
+	if err := os.WriteFile(filepath.Join(sourceRoot, skillMainFile), []byte(content), 0o644); err != nil {
+		t.Fatalf("write canonical skill: %v", err)
+	}
+	targetRoot := filepath.Join(t.TempDir(), "mirror")
+	if err := copyCanonicalSkillDir(sourceRoot, targetRoot, skillScopeProject); err != nil {
+		return "", err
+	}
+	data, err := os.ReadFile(filepath.Join(targetRoot, skillMainFile))
+	return string(data), err
 }

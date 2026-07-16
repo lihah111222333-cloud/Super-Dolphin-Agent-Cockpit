@@ -200,12 +200,135 @@ func TestParseSkillInfo_DisableModelInvocationTrue(t *testing.T) {
 }
 
 func TestParseSkillInfo_DisableModelInvocationFalse(t *testing.T) {
-	for _, falsy := range []string{"false", "no", "0", "off", "", "random"} {
+	for _, falsy := range []string{"false", "no", "n", "0", "off"} {
 		content := "---\nname: foo\ndisable-model-invocation: " + falsy + "\n---\n\nbody"
 		info := helperParse(t, content, TrustProject)
 		if info.DisableModelInvocation {
 			t.Fatalf("%q should parse as false", falsy)
 		}
+	}
+}
+
+type yamlSecurityMetadataCase struct {
+	name           string
+	frontmatter    string
+	defaultTrust   TrustScope
+	wantTrust      TrustScope
+	wantDisable    bool
+	wantErrContain string
+}
+
+func TestParseSkillInfo_YAMLSecurityMetadataSemantics(t *testing.T) {
+	tests := []yamlSecurityMetadataCase{
+		{
+			name:         "quoted disable key with inline comment",
+			frontmatter:  "\"disable_model_invocation\": true # manual only",
+			defaultTrust: TrustProject,
+			wantTrust:    TrustProject,
+			wantDisable:  true,
+		},
+		{
+			name:         "quoted trust key overrides personal root default",
+			frontmatter:  "\"trust\": project",
+			defaultTrust: TrustUser,
+			wantTrust:    TrustProject,
+		},
+		{
+			name:         "trust accepts inline comment",
+			frontmatter:  "trust: project # least privilege",
+			defaultTrust: TrustUser,
+			wantTrust:    TrustProject,
+		},
+		{
+			name:         "security aliases remain supported",
+			frontmatter:  "trust_scope: project\ndisablemodelinvocation: yes",
+			defaultTrust: TrustUser,
+			wantTrust:    TrustProject,
+			wantDisable:  true,
+		},
+		{
+			name:           "invalid trust fails closed",
+			frontmatter:    "\"trust\": banana",
+			defaultTrust:   TrustUser,
+			wantErrContain: "trust must be user, project, or signed",
+		},
+		{
+			name:           "invalid disable value fails closed",
+			frontmatter:    "disable_model_invocation: random",
+			defaultTrust:   TrustProject,
+			wantErrContain: "disable_model_invocation must be a boolean",
+		},
+		{
+			name:           "empty disable value fails closed",
+			frontmatter:    "disable_model_invocation:",
+			defaultTrust:   TrustProject,
+			wantErrContain: "disable_model_invocation must be a boolean",
+		},
+		{
+			name:           "malformed yaml fails closed",
+			frontmatter:    "disable_model_invocation: [true",
+			defaultTrust:   TrustProject,
+			wantErrContain: "parse skill frontmatter YAML",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assertYAMLSecurityMetadata(t, tt)
+		})
+	}
+}
+
+func assertYAMLSecurityMetadata(t *testing.T, tt yamlSecurityMetadataCase) {
+	t.Helper()
+	content := "---\nname: foo\n" + tt.frontmatter + "\n---\nbody"
+	info, err := parseSkillInfo("foo", "/tmp/foo", content, tt.defaultTrust)
+	if tt.wantErrContain != "" {
+		if err == nil || !strings.Contains(err.Error(), tt.wantErrContain) {
+			t.Fatalf("parse error = %v, want substring %q", err, tt.wantErrContain)
+		}
+		return
+	}
+	if err != nil {
+		t.Fatalf("parse skill info: %v", err)
+	}
+	if info.Trust != tt.wantTrust {
+		t.Fatalf("trust = %q, want %q", info.Trust, tt.wantTrust)
+	}
+	if info.DisableModelInvocation != tt.wantDisable {
+		t.Fatalf("disable_model_invocation = %v, want %v", info.DisableModelInvocation, tt.wantDisable)
+	}
+}
+
+type invalidSecurityYAMLCase struct {
+	name        string
+	frontmatter string
+}
+
+func invalidSecurityYAMLCases() []invalidSecurityYAMLCase {
+	return []invalidSecurityYAMLCase{
+		{name: "null root", frontmatter: "null"},
+		{name: "list root", frontmatter: "- name: foo\n- trust: project"},
+		{name: "alias at root", frontmatter: "name: &skill-name foo\ndescription: *skill-name"},
+		{name: "merge at root", frontmatter: "defaults: &defaults\n  trust: user\n<<: *defaults\nname: foo"},
+		{name: "non scalar trust", frontmatter: "name: foo\ntrust: [project]"},
+		{name: "non scalar disable", frontmatter: "name: foo\ndisable_model_invocation: {enabled: true}"},
+		{name: "exact duplicate", frontmatter: "name: foo\ntrust: user\ntrust: project"},
+		{
+			name:        "alias duplicate",
+			frontmatter: "name: foo\ndisable_model_invocation: true\ndisablemodelinvocation: false",
+		},
+	}
+}
+
+func TestParseSkillInfoRejectsUnsupportedYAMLShapes(t *testing.T) {
+	for _, tt := range invalidSecurityYAMLCases() {
+		t.Run(tt.name, func(t *testing.T) {
+			content := "---\n" + tt.frontmatter + "\n---\nbody"
+			if _, err := parseSkillInfo("foo", "/tmp/foo", content, TrustProject); err == nil {
+				t.Fatalf("expected invalid frontmatter to fail: %q", tt.frontmatter)
+			}
+		})
 	}
 }
 
@@ -329,26 +452,14 @@ func TestApplyMetaLine_ListAliasesConsumeTail(t *testing.T) {
 	}
 }
 
-func TestApplyMetaLine_TrustAliases(t *testing.T) {
+func TestApplyMetaLineIgnoresSecurityMetadata(t *testing.T) {
 	info := SkillInfo{Trust: TrustUser}
-	if used := applyMetaLine(&info, "trustscope", "banana", nil); used != 0 {
-		t.Fatalf("used = %d, want 0", used)
+	for _, key := range []string{"trust", "trust_scope", "disable_model_invocation", "disablemodelinvocation"} {
+		if used := applyMetaLine(&info, key, "signed", nil); used != 0 {
+			t.Fatalf("%s used = %d, want 0", key, used)
+		}
 	}
-	if info.Trust != TrustUser {
-		t.Fatalf("invalid trust should preserve existing value: %q", info.Trust)
-	}
-	applyMetaLine(&info, "trust_scope", "signed", nil)
-	if info.Trust != TrustSigned {
-		t.Fatalf("trust alias should set signed, got %q", info.Trust)
-	}
-}
-
-func TestApplyMetaLine_DisableModelInvocationAliases(t *testing.T) {
-	var info SkillInfo
-	if used := applyMetaLine(&info, "disable_model_invocation", "yes", nil); used != 0 {
-		t.Fatalf("used = %d, want 0", used)
-	}
-	if !info.DisableModelInvocation {
-		t.Fatalf("disable model invocation should be true")
+	if info.Trust != TrustUser || info.DisableModelInvocation {
+		t.Fatalf("line parser mutated security metadata: %+v", info)
 	}
 }
