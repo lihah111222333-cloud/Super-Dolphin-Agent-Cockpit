@@ -108,10 +108,6 @@ if ($FastMode) {
 }
 $RelayUrl = [Environment]::GetEnvironmentVariable('SUPER_DOLPHIN_CODEX_RELAY_BASE_URL', 'Process')
 $BootstrapToken = [Environment]::GetEnvironmentVariable('SUPER_DOLPHIN_CODEX_RELAY_BOOTSTRAP_TOKEN', 'Process')
-$UpdateManifestURL = [Environment]::GetEnvironmentVariable('SUPER_DOLPHIN_UPDATE_MANIFEST_URL', 'Process')
-$UpdateGitHubRepo = [Environment]::GetEnvironmentVariable('SUPER_DOLPHIN_UPDATE_GITHUB_REPO', 'Process')
-$UpdateWindowsPublisher = [Environment]::GetEnvironmentVariable('SUPER_DOLPHIN_UPDATE_WINDOWS_PUBLISHER', 'Process')
-$UpdateWindowsThumbprint = [Environment]::GetEnvironmentVariable('SUPER_DOLPHIN_UPDATE_WINDOWS_THUMBPRINT', 'Process')
 $CodexBin = if ($env:SUPER_DOLPHIN_CODEX_ARTIFACT) { $env:SUPER_DOLPHIN_CODEX_ARTIFACT } else { Get-CommandSource 'codex.exe' }
 $FFmpegBin = if ($env:SUPER_DOLPHIN_FFMPEG_BIN) { $env:SUPER_DOLPHIN_FFMPEG_BIN } else { Get-CommandSource 'ffmpeg.exe' }
 
@@ -138,34 +134,6 @@ if ($LASTEXITCODE -ne 0) {
     throw "ffmpeg smoke failed: $FFmpegBin -version"
 }
 $env:SUPER_DOLPHIN_FFMPEG_BIN = $FFmpegBin
-
-function Forward-UpdateEnv() {
-    if (($null -ne $script:UpdateManifestURL -and $script:UpdateManifestURL.Trim() -ne '') -or
-        ($null -ne $script:UpdateGitHubRepo -and $script:UpdateGitHubRepo.Trim() -ne '')) {
-        $env:SUPER_DOLPHIN_UPDATE_ENABLED = '1'
-    }
-    if ($null -ne $script:UpdateManifestURL) {
-        $env:SUPER_DOLPHIN_UPDATE_MANIFEST_URL = $script:UpdateManifestURL
-    }
-    if ($null -ne $script:UpdateGitHubRepo) {
-        $env:SUPER_DOLPHIN_UPDATE_GITHUB_REPO = $script:UpdateGitHubRepo
-    }
-    if (-not $env:SUPER_DOLPHIN_UPDATE_CHANNEL) {
-        $env:SUPER_DOLPHIN_UPDATE_CHANNEL = 'gray'
-    }
-    if (-not $env:SUPER_DOLPHIN_UPDATE_VERSION -and $env:VERSION) {
-        $env:SUPER_DOLPHIN_UPDATE_VERSION = $env:VERSION
-    }
-    if ($null -ne $script:UpdateWindowsPublisher) {
-        $env:SUPER_DOLPHIN_UPDATE_WINDOWS_PUBLISHER = $script:UpdateWindowsPublisher
-    }
-    if ($null -ne $script:UpdateWindowsThumbprint) {
-        $env:SUPER_DOLPHIN_UPDATE_WINDOWS_THUMBPRINT = $script:UpdateWindowsThumbprint
-    }
-    if ($env:SUPER_DOLPHIN_UPDATE_PUBLIC_KEY) {
-        $env:SUPER_DOLPHIN_UPDATE_PUBLIC_KEY = $env:SUPER_DOLPHIN_UPDATE_PUBLIC_KEY
-    }
-}
 
 function Resolve-LSPBundleDir() {
     param([Parameter(Mandatory)][string]$Profile)
@@ -241,7 +209,6 @@ function Package-One() {
     $env:SUPER_DOLPHIN_CODEX_RELAY_BOOTSTRAP_TOKEN = $BootstrapToken
     $env:SUPER_DOLPHIN_CODEX_RELAY_BOOTSTRAP_PROOF = if ($env:SUPER_DOLPHIN_CODEX_RELAY_BOOTSTRAP_PROOF) { $env:SUPER_DOLPHIN_CODEX_RELAY_BOOTSTRAP_PROOF } else { 'local-private-package' }
     Remove-Item Env:SUPER_DOLPHIN_CODEX_RELAY_API_KEY -ErrorAction SilentlyContinue
-    Forward-UpdateEnv
 
     $packageArgs = @{ Artifact = $RequestedWindowsOutput }
     if ($RequestedKeepStage) {

@@ -18,20 +18,29 @@ import (
 
 // manifestFlags 保存发布 manifest 命令行参数。
 type manifestFlags struct {
-	artifact       string
-	artifactURL    string
-	appID          string
-	channel        string
-	version        string
-	minimumVersion string
-	platform       string
-	signingKey     string
-	publicKey      string
-	checkKey       bool
-	verifyManifest string
-	currentVersion string
-	out            string
-	notes          string
+	artifact                string
+	artifactURL             string
+	appID                   string
+	channel                 string
+	version                 string
+	minimumVersion          string
+	platform                string
+	signingKey              string
+	publicKey               string
+	checkKey                bool
+	verifyManifest          string
+	currentVersion          string
+	out                     string
+	notes                   string
+	packageTrustOut         string
+	packageTrustEnabled     bool
+	packageTrustSourceKind  string
+	packageTrustSourceValue string
+	packageTrustSigner      string
+	packageTrustUpdater     string
+	packageTrustGuard       string
+	verifyPackageTrust      string
+	printPackageTrustKey    string
 }
 
 // main 是 release manifest CLI 入口。
@@ -53,9 +62,43 @@ func run(args []string) error {
 	if cfg.checkKey {
 		return verifySigningKeyMatchesPublicKeyPath(cfg.signingKey, cfg.publicKey)
 	}
+	if cfg.packageTrustOut != "" {
+		return writePackageTrust(cfg)
+	}
+	if cfg.verifyPackageTrust != "" {
+		return appupdate.VerifyPackageTrustBundle(cfg.verifyPackageTrust, cfg.platform)
+	}
+	if cfg.printPackageTrustKey != "" {
+		return printVerifiedPackageTrustKey(cfg)
+	}
 	if cfg.verifyManifest != "" {
 		return verifyExistingManifest(cfg)
 	}
+	return generateSignedManifest(cfg)
+}
+
+// writePackageTrust 将 CLI 参数映射为 package-owned trust 写入请求。
+func writePackageTrust(cfg manifestFlags) error {
+	return appupdate.WritePackageTrust(appupdate.PackageTrustWriteRequest{
+		OutputPath: cfg.packageTrustOut, Platform: cfg.platform, Enabled: cfg.packageTrustEnabled,
+		SourceKind: cfg.packageTrustSourceKind, SourceValue: cfg.packageTrustSourceValue,
+		ManifestKey: cfg.publicKey, Channel: cfg.channel, SignerIdentity: cfg.packageTrustSigner,
+		UpdaterPath: cfg.packageTrustUpdater, GuardPath: cfg.packageTrustGuard,
+	})
+}
+
+// printVerifiedPackageTrustKey 只输出严格验证后的 previous package manifest key。
+func printVerifiedPackageTrustKey(cfg manifestFlags) error {
+	publicKey, err := appupdate.VerifiedPackageTrustPublicKey(cfg.printPackageTrustKey, cfg.platform)
+	if err != nil {
+		return err
+	}
+	_, err = fmt.Fprintln(os.Stdout, publicKey)
+	return err
+}
+
+// generateSignedManifest 检查 artifact 与 signing key 后写出签名 manifest。
+func generateSignedManifest(cfg manifestFlags) error {
 	artifact, err := inspectArtifact(cfg.artifact)
 	if err != nil {
 		return err
@@ -103,6 +146,15 @@ func parseFlags(args []string) (manifestFlags, error) {
 	flags.StringVar(&cfg.currentVersion, "current-version", "", "current version used for update-window verification")
 	flags.StringVar(&cfg.out, "out", "", "output latest.json path")
 	flags.StringVar(&cfg.notes, "notes", "", "release notes accepted for release tooling compatibility")
+	flags.StringVar(&cfg.packageTrustOut, "package-trust-out", "", "write package-owned update trust")
+	flags.BoolVar(&cfg.packageTrustEnabled, "package-trust-enabled", false, "enable package-owned updates")
+	flags.StringVar(&cfg.packageTrustSourceKind, "package-trust-source-kind", "", "package update source kind")
+	flags.StringVar(&cfg.packageTrustSourceValue, "package-trust-source-value", "", "package update source value")
+	flags.StringVar(&cfg.packageTrustSigner, "package-trust-signer", "", "exact package signer identity")
+	flags.StringVar(&cfg.packageTrustUpdater, "package-trust-updater", "", "packaged updater path")
+	flags.StringVar(&cfg.packageTrustGuard, "package-trust-guard", "", "packaged Guard path")
+	flags.StringVar(&cfg.verifyPackageTrust, "verify-package-trust", "", "verify package trust under Resources")
+	flags.StringVar(&cfg.printPackageTrustKey, "print-package-trust-public-key", "", "verify production package trust and print its manifest public key")
 	if err := flags.Parse(args); err != nil {
 		return manifestFlags{}, err
 	}
@@ -117,6 +169,9 @@ func parseFlags(args []string) (manifestFlags, error) {
 
 // requireFlagValues 按当前运行模式校验必填参数。
 func requireFlagValues(cfg manifestFlags) error {
+	if cfg.packageTrustOut != "" || cfg.verifyPackageTrust != "" || cfg.printPackageTrustKey != "" {
+		return requirePackageTrustFlags(cfg)
+	}
 	if cfg.checkKey {
 		return requireNamedValues(map[string]string{
 			"signing-key": cfg.signingKey,
@@ -145,6 +200,24 @@ func requireFlagValues(cfg manifestFlags) error {
 		"platform":        cfg.platform,
 		"signing-key":     cfg.signingKey,
 		"out":             cfg.out,
+	}
+	return requireNamedValues(required)
+}
+
+func requirePackageTrustFlags(cfg manifestFlags) error {
+	if cfg.verifyPackageTrust != "" || cfg.printPackageTrustKey != "" {
+		return requireNamedValues(map[string]string{"platform": cfg.platform})
+	}
+	required := map[string]string{
+		"package-trust-out": cfg.packageTrustOut, "platform": cfg.platform,
+		"package-trust-updater": cfg.packageTrustUpdater, "package-trust-guard": cfg.packageTrustGuard,
+	}
+	if cfg.packageTrustEnabled {
+		required["package-trust-source-kind"] = cfg.packageTrustSourceKind
+		required["package-trust-source-value"] = cfg.packageTrustSourceValue
+		required["public-key"] = cfg.publicKey
+		required["channel"] = cfg.channel
+		required["package-trust-signer"] = cfg.packageTrustSigner
 	}
 	return requireNamedValues(required)
 }

@@ -16,6 +16,7 @@ const (
 var (
 	ErrStableProcessIdentityMismatch  = errors.New("stable process identity mismatch")
 	ErrStableProcessIdentityRead      = errors.New("stable process identity read failed")
+	ErrStableProcessNotFound          = errors.New("stable process no longer exists")
 	ErrExactProcessTerminationTimeout = errors.New("exact process termination timed out")
 )
 
@@ -39,6 +40,13 @@ type exactProcessOps struct {
 func CaptureStableProcessIdentity(pid int) (StableProcessIdentity, error) {
 	identity, err := readProcessIdentity(pid)
 	if err != nil {
+		exists, existsErr := exactProcessExists(pid)
+		if existsErr == nil && !exists {
+			return StableProcessIdentity{}, errors.Join(ErrStableProcessNotFound, err)
+		}
+		if existsErr != nil {
+			return StableProcessIdentity{}, errors.Join(ErrStableProcessIdentityRead, err, existsErr)
+		}
 		return StableProcessIdentity{}, errors.Join(ErrStableProcessIdentityRead, err)
 	}
 	return StableProcessIdentity{

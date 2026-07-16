@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -43,6 +44,79 @@ func TestTrustGenerationCommitsOnlyAfterHealthy(t *testing.T) {
 	}
 	if transaction.Trust.State != TrustCommitted {
 		t.Fatalf("trust state after healthy = %q, want %q", transaction.Trust.State, TrustCommitted)
+	}
+}
+
+func TestTerminalCommitCleansRecoveryCapsule(t *testing.T) {
+	store, identity, paths := createProbationTransaction(t)
+	if err := os.MkdirAll(paths.RecoveryDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	writeFixture(t, filepath.Join(paths.RecoveryDir, "super-dolphin-guard"), "old Guard")
+	lease := ackProbationTransaction(t, store, identity)
+	if _, err := store.commitHealthyClaimed(context.Background(), identity, lease); err != nil {
+		t.Fatal(err)
+	}
+	assertPathMissing(t, paths.RecoveryDir)
+}
+
+func TestCapsuleBeforeJournalCrashConvergesWithoutUnknownDirectory(t *testing.T) {
+	parent := t.TempDir()
+	target := filepath.Join(parent, "Super Dolphin.app")
+	id := TransactionID("11223344556677889900aabbccddeeff")
+	paths, err := PathsFor(target, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store, err := NewStore(TransactionRootForTarget(target))
+	if err != nil {
+		t.Fatal(err)
+	}
+	pending := paths.RecoveryDir + ".pending"
+	if err := os.MkdirAll(pending, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	writeFixture(t, filepath.Join(pending, "super-dolphin-guard"), "partial Guard")
+	writeFixture(t, paths.Staging, "orphan candidate")
+	if _, found, err := store.SelectActive(context.Background()); err != nil || found {
+		t.Fatalf("SelectActive() = (_, %t, %v), want clean empty scanner", found, err)
+	}
+	assertPathMissing(t, filepath.Join(store.root, string(id)))
+	assertPathMissing(t, paths.Staging)
+}
+
+func TestJournalBeforeCapsuleCrashRemainsRecoverable(t *testing.T) {
+	store, identity, paths := createPreparedTransaction(t)
+	assertPathMissing(t, paths.RecoveryDir)
+	selected, found, err := store.SelectForTarget(context.Background(), paths.Target)
+	if err != nil || !found || selected.Identity != identity {
+		t.Fatalf("SelectForTarget() = (%+v, %t, %v), want prepared exact transaction", selected.Identity, found, err)
+	}
+	rolledBack, err := store.Rollback(context.Background(), identity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rolledBack.State != StateRolledBack {
+		t.Fatalf("Rollback() state = %q, want %q", rolledBack.State, StateRolledBack)
+	}
+	assertPathExists(t, paths.Target)
+	assertPathMissing(t, paths.Staging)
+}
+
+func TestScannerRejectsUnknownIncompleteTransactionContent(t *testing.T) {
+	parent := t.TempDir()
+	target := filepath.Join(parent, "Super Dolphin.app")
+	id := TransactionID("ffeeddccbbaa00998877665544332211")
+	store, err := NewStore(TransactionRootForTarget(target))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(store.root, string(id)), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	writeFixture(t, filepath.Join(store.root, string(id), "unknown"), "unowned")
+	if _, _, err := store.SelectActive(context.Background()); err == nil || !strings.Contains(err.Error(), "unexpected incomplete transaction entry") {
+		t.Fatalf("SelectActive() error = %v, want unknown-content rejection", err)
 	}
 }
 
@@ -319,18 +393,33 @@ func createPreparedTransaction(t *testing.T) (*Store, Identity, Paths) {
 		CandidateRelease: ReleaseIdentity{
 			SHA256: digestText("candidate release"), SignerIdentity: "TEAM-NEW",
 		},
+		OldHelpers:       fixtureHelperIdentity("old"),
+		CandidateHelpers: fixtureHelperIdentity("candidate"),
+		UpdaterProcess:   fixtureUpdaterProcess(),
 	}
 	_, err = store.Create(context.Background(), CreateRequest{
 		Identity: identity,
 		Paths:    paths,
 		Trust: TrustGeneration{
-			Generation: "trust-generation-2", PackageSigner: "TEAM-NEW", State: TrustPending,
+			PreviousGeneration: "trust-generation-1",
+			Generation:         "trust-generation-2", PackageSigner: "TEAM-NEW", State: TrustPending,
 		},
 	})
 	if err != nil {
 		t.Fatalf("Create() error = %v", err)
 	}
 	return store, identity, paths
+}
+
+func fixtureHelperIdentity(label string) HelperIdentity {
+	return HelperIdentity{UpdaterSHA256: digestText(label + " updater"), GuardSHA256: digestText(label + " guard")}
+}
+
+func fixtureUpdaterProcess() ProcessIdentity {
+	return ProcessIdentity{
+		PID: 77, StartToken: "updater-start", ExecutableIdentity: "/test/updater",
+		ExecutableSHA256: digestText("updater executable"),
+	}
 }
 
 func loadTransaction(t *testing.T, store *Store, identity Identity) Transaction {

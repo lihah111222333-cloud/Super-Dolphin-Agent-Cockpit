@@ -16,6 +16,7 @@ func TestJournalFieldGuardEnumeratesProducerFields(t *testing.T) {
 		reflect.TypeFor[journalEntry](),
 		reflect.TypeFor[Identity](),
 		reflect.TypeFor[ReleaseIdentity](),
+		reflect.TypeFor[HelperIdentity](),
 		reflect.TypeFor[Paths](),
 		reflect.TypeFor[TrustGeneration](),
 		reflect.TypeFor[ProcessIdentity](),
@@ -106,12 +107,16 @@ func fieldGuardJournal(t *testing.T) journalPayload {
 				SHA256:         digestText("candidate"),
 				SignerIdentity: "signer-candidate",
 			},
+			OldHelpers:       fixtureHelperIdentity("old"),
+			CandidateHelpers: fixtureHelperIdentity("candidate"),
+			UpdaterProcess:   fixtureUpdaterProcess(),
 		},
 		Paths: paths,
 		Trust: TrustGeneration{
-			Generation:    "generation-1",
-			PackageSigner: "signer-candidate",
-			State:         TrustPending,
+			PreviousGeneration: "generation-0",
+			Generation:         "generation-1",
+			PackageSigner:      "signer-candidate",
+			State:              TrustPending,
 		},
 	}, time.Unix(1, 0))
 }

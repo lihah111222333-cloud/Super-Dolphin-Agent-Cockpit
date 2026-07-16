@@ -62,26 +62,37 @@ type ReleaseIdentity struct {
 	SignerIdentity string `json:"signer_identity"`
 }
 
+// HelperIdentity 绑定事务使用的 updater 和 Guard 内容摘要。
+type HelperIdentity struct {
+	UpdaterSHA256 string `json:"updater_sha256"`
+	GuardSHA256   string `json:"guard_sha256"`
+}
+
 // Identity 绑定事务、尝试和新旧 release，不允许部分匹配。
 type Identity struct {
 	TransactionID    TransactionID   `json:"transaction_id"`
 	AttemptID        string          `json:"attempt_id"`
 	OldRelease       ReleaseIdentity `json:"old_release"`
 	CandidateRelease ReleaseIdentity `json:"candidate_release"`
+	OldHelpers       HelperIdentity  `json:"old_helpers"`
+	CandidateHelpers HelperIdentity  `json:"candidate_helpers"`
+	UpdaterProcess   ProcessIdentity `json:"updater_process"`
 }
 
 // Paths 绑定同一事务的 target、backup 和 staging。
 type Paths struct {
-	Target  string `json:"target"`
-	Backup  string `json:"backup"`
-	Staging string `json:"staging"`
+	Target      string `json:"target"`
+	Backup      string `json:"backup"`
+	Staging     string `json:"staging"`
+	RecoveryDir string `json:"recovery_dir"`
 }
 
 // TrustGeneration 描述候选包携带且待健康确认的信任代际。
 type TrustGeneration struct {
-	Generation    string     `json:"generation"`
-	PackageSigner string     `json:"package_signer"`
-	State         TrustState `json:"state"`
+	PreviousGeneration string     `json:"previous_generation"`
+	Generation         string     `json:"generation"`
+	PackageSigner      string     `json:"package_signer"`
+	State              TrustState `json:"state"`
 }
 
 // ProcessIdentity 绑定候选进程的 PID、内核启动令牌、可执行身份和文件摘要。
@@ -90,6 +101,15 @@ type ProcessIdentity struct {
 	StartToken         string `json:"start_token"`
 	ExecutableIdentity string `json:"executable_identity"`
 	ExecutableSHA256   string `json:"executable_sha256"`
+}
+
+// GuardReadyReceipt 证明 exact Guard 已加载事务并完成进程、路径与摘要绑定。
+type GuardReadyReceipt struct {
+	TransactionID TransactionID   `json:"transaction_id"`
+	AttemptID     string          `json:"attempt_id"`
+	Phase         string          `json:"phase"`
+	Process       ProcessIdentity `json:"process"`
+	ReadyAt       string          `json:"ready_at"`
 }
 
 // ProbationLease 是 updater 或 Guard 对 exact probation 的有界所有权。
@@ -157,9 +177,10 @@ func PathsFor(target string, id TransactionID) (Paths, error) {
 	parent := filepath.Dir(target)
 	base := strings.TrimSuffix(filepath.Base(target), filepath.Ext(target))
 	return Paths{
-		Target:  target,
-		Backup:  filepath.Join(parent, fmt.Sprintf(".%s.backup-%s.app", base, id)),
-		Staging: filepath.Join(parent, fmt.Sprintf(".%s.staging-%s.app", base, id)),
+		Target:      target,
+		Backup:      filepath.Join(parent, fmt.Sprintf(".%s.backup-%s.app", base, id)),
+		Staging:     filepath.Join(parent, fmt.Sprintf(".%s.staging-%s.app", base, id)),
+		RecoveryDir: filepath.Join(parent, TransactionRootDirName, string(id), "recovery"),
 	}, nil
 }
 
@@ -175,8 +196,8 @@ func validateCreateRequest(req CreateRequest) error {
 	if req.Paths != expected {
 		return fmt.Errorf("update transaction paths do not match exact transaction identity")
 	}
-	if req.Trust.Generation == "" || req.Trust.PackageSigner == "" {
-		return errors.New("pending trust generation and package signer are required")
+	if req.Trust.PreviousGeneration == "" || req.Trust.Generation == "" || req.Trust.PackageSigner == "" {
+		return errors.New("previous and pending trust generations plus package signer are required")
 	}
 	if req.Trust.State != TrustPending {
 		return fmt.Errorf("new trust generation state = %q, want %q", req.Trust.State, TrustPending)
@@ -184,6 +205,7 @@ func validateCreateRequest(req CreateRequest) error {
 	return nil
 }
 
+// validateIdentity 校验事务绑定的 release、helper 和 updater 进程身份。
 func validateIdentity(identity Identity) error {
 	if err := validateTransactionID(identity.TransactionID); err != nil {
 		return err
@@ -194,7 +216,16 @@ func validateIdentity(identity Identity) error {
 	if err := validateReleaseIdentity("old", identity.OldRelease); err != nil {
 		return err
 	}
-	return validateReleaseIdentity("candidate", identity.CandidateRelease)
+	if err := validateReleaseIdentity("candidate", identity.CandidateRelease); err != nil {
+		return err
+	}
+	if err := validateHelperIdentity("old", identity.OldHelpers); err != nil {
+		return err
+	}
+	if err := validateHelperIdentity("candidate", identity.CandidateHelpers); err != nil {
+		return err
+	}
+	return validateUpdaterProcessIdentity(identity.UpdaterProcess)
 }
 
 func validateTransactionID(id TransactionID) error {
@@ -212,6 +243,29 @@ func validateReleaseIdentity(name string, identity ReleaseIdentity) error {
 	}
 	if strings.TrimSpace(identity.SignerIdentity) == "" {
 		return fmt.Errorf("%s release signer identity is required", name)
+	}
+	return nil
+}
+
+func validateHelperIdentity(name string, identity HelperIdentity) error {
+	if err := validateDigest(name+" updater", identity.UpdaterSHA256); err != nil {
+		return err
+	}
+	return validateDigest(name+" guard", identity.GuardSHA256)
+}
+
+func validateUpdaterProcessIdentity(identity ProcessIdentity) error {
+	if identity.PID <= 0 || strings.TrimSpace(identity.StartToken) == "" ||
+		strings.TrimSpace(identity.ExecutableIdentity) == "" {
+		return errors.New("updater process identity is incomplete")
+	}
+	return validateDigest("updater executable", identity.ExecutableSHA256)
+}
+
+func validateDigest(name, value string) error {
+	raw, err := hex.DecodeString(value)
+	if err != nil || len(raw) != sha256.Size {
+		return fmt.Errorf("%s sha256 is invalid", name)
 	}
 	return nil
 }

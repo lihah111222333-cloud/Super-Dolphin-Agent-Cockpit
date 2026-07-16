@@ -134,7 +134,8 @@ func validateJournal(journal journalPayload) error {
 		Identity: journal.Identity,
 		Paths:    journal.Paths,
 		Trust: TrustGeneration{
-			Generation: journal.Trust.Generation, PackageSigner: journal.Trust.PackageSigner, State: TrustPending,
+			PreviousGeneration: journal.Trust.PreviousGeneration,
+			Generation:         journal.Trust.Generation, PackageSigner: journal.Trust.PackageSigner, State: TrustPending,
 		},
 	}); err != nil {
 		return fmt.Errorf("validate update transaction journal identity: %w", err)

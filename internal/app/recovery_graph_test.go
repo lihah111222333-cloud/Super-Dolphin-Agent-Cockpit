@@ -2,6 +2,8 @@ package app
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -153,11 +155,13 @@ func createStableRecoveryTransaction(t *testing.T, retainBackup bool) (*recovery
 		TransactionID: id, AttemptID: "stable-recovery",
 		OldRelease:       recovery.ReleaseIdentity{SHA256: oldDigest, SignerIdentity: "TEAM-OLD"},
 		CandidateRelease: recovery.ReleaseIdentity{SHA256: candidateDigest, SignerIdentity: "TEAM-NEW"},
+		OldHelpers:       recoveryGraphHelpers("old"), CandidateHelpers: recoveryGraphHelpers("candidate"),
+		UpdaterProcess: recoveryGraphUpdaterProcess(),
 	}
 	transaction := mustStartupValue(t, func() (recovery.Transaction, error) {
 		return store.Create(context.Background(), recovery.CreateRequest{
 			Identity: identity, Paths: paths,
-			Trust: recovery.TrustGeneration{Generation: "trust-stable", PackageSigner: "TEAM-NEW", State: recovery.TrustPending},
+			Trust: recovery.TrustGeneration{PreviousGeneration: "trust-old", Generation: "trust-stable", PackageSigner: "TEAM-NEW", State: recovery.TrustPending},
 		})
 	})
 	if retainBackup {
@@ -195,13 +199,16 @@ func createStartupProbation(t *testing.T) (*recovery.Store, recovery.Transaction
 		CandidateRelease: recovery.ReleaseIdentity{
 			SHA256: candidateDigest, SignerIdentity: "TEAM-NEW",
 		},
+		OldHelpers: recoveryGraphHelpers("old"), CandidateHelpers: recoveryGraphHelpers("candidate"),
+		UpdaterProcess: recoveryGraphUpdaterProcess(),
 	}
 	mustStartupValue(t, func() (recovery.Transaction, error) {
 		return store.Create(context.Background(), recovery.CreateRequest{
 			Identity: identity,
 			Paths:    paths,
 			Trust: recovery.TrustGeneration{
-				Generation: "trust-ready", PackageSigner: "TEAM-NEW", State: recovery.TrustPending,
+				PreviousGeneration: "trust-old",
+				Generation:         "trust-ready", PackageSigner: "TEAM-NEW", State: recovery.TrustPending,
 			},
 		})
 	})
@@ -224,6 +231,22 @@ func createStartupProbation(t *testing.T) (*recovery.Store, recovery.Transaction
 		return store.Load(context.Background(), identity)
 	})
 	return store, transaction, process
+}
+
+func recoveryGraphHelpers(label string) recovery.HelperIdentity {
+	digest := func(value string) string {
+		sum := sha256.Sum256([]byte(value))
+		return hex.EncodeToString(sum[:])
+	}
+	return recovery.HelperIdentity{UpdaterSHA256: digest(label + " updater"), GuardSHA256: digest(label + " guard")}
+}
+
+func recoveryGraphUpdaterProcess() recovery.ProcessIdentity {
+	sum := sha256.Sum256([]byte("updater"))
+	return recovery.ProcessIdentity{
+		PID: 99, StartToken: "recovery-updater", ExecutableIdentity: "/test/updater",
+		ExecutableSHA256: hex.EncodeToString(sum[:]),
+	}
 }
 
 func mustStartupValue[T any](t *testing.T, load func() (T, error)) T {

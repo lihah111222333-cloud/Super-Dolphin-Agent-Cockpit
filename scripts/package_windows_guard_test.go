@@ -5,7 +5,22 @@ import (
 	"os/exec"
 	"strings"
 	"testing"
+
+	recovery "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/appupdaterecovery"
 )
+
+func TestPackageWindowsRejectsUnsupportedPackageUpdates(t *testing.T) {
+	script := readScript(t, "package_windows.ps1")
+	verify := readScript(t, "verify_packaged_app_windows.ps1")
+	assertScriptContains(t, script, "package-owned updates are unsupported for $Platform")
+	assertScriptContains(t, verify, "package-owned updates are unsupported for windows-amd64/windows-arm64")
+	for _, name := range recovery.PackageTrustOverrideNames() {
+		assertScriptContains(t, script, name)
+	}
+	assertScriptDoesNotContain(t, verify, "SUPER_DOLPHIN_RUNTIME_RESOURCES_DIR")
+	assertScriptDoesNotContain(t, script, "Write-PackagedUpdateEnv")
+	assertScriptDoesNotContain(t, script, "PackagedUpdateEnabled")
+}
 
 func TestPackageWindowsScriptBuildsNativeWindowsPackage(t *testing.T) {
 	script := readScript(t, "package_windows.ps1")

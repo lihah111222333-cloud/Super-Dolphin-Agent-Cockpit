@@ -4,10 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"os/exec"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
@@ -16,7 +18,10 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/runtimeenv"
 )
 
-const guardLeaseTTL = 30 * time.Second
+const (
+	guardLeaseTTL     = 30 * time.Second
+	guardPollInterval = 100 * time.Millisecond
+)
 
 var ErrCandidateProcessIdentityMismatch = pidregistry.ErrStableProcessIdentityMismatch
 
@@ -25,6 +30,7 @@ type guardConfig struct {
 	Identity          recovery.Identity
 	OwnerID           string
 	Now               func() time.Time
+	UpdaterAlive      func(recovery.ProcessIdentity) (bool, error)
 	StopCandidate     func(context.Context, recovery.ProcessIdentity) error
 	RestartOldRelease func(context.Context, string) error
 }
@@ -38,19 +44,52 @@ func newGuard(config guardConfig) *probationGuard {
 	return &probationGuard{config: config}
 }
 
-// Run 阻塞到 stale probation 完成一次 CAS 接管、回滚和旧版本重启。
+// Run 从 prepared 开始监督 exact updater，随后接管 stale probation。
 func (guard *probationGuard) Run(ctx context.Context) error {
 	if err := guard.validate(); err != nil {
 		return err
 	}
-	transaction, err := guard.config.Store.Load(ctx, guard.config.Identity)
-	if err != nil {
-		return err
+	for {
+		transaction, err := guard.config.Store.Load(ctx, guard.config.Identity)
+		if errors.Is(err, recovery.ErrTransactionBusy) {
+			if err := guard.waitForNextPoll(ctx); err != nil {
+				return err
+			}
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		finished, err := guard.superviseState(ctx, transaction)
+		if errors.Is(err, recovery.ErrTransactionBusy) {
+			if err := guard.waitForNextPoll(ctx); err != nil {
+				return err
+			}
+			continue
+		}
+		if err != nil || finished {
+			return err
+		}
 	}
-	ready, err := guard.takeoverReady(transaction)
-	if err != nil || !ready {
-		return err
+}
+
+func (guard *probationGuard) superviseState(ctx context.Context, transaction recovery.Transaction) (bool, error) {
+	switch transaction.State {
+	case recovery.StateCommitted, recovery.StateRolledBack:
+		return true, nil
+	case recovery.StatePrepared, recovery.StateBackupPending, recovery.StateBackupRetained, recovery.StateInstallPending:
+		return guard.monitorUpdater(ctx, transaction)
+	case recovery.StateProbation:
+		if !transaction.Probation.LeasePresent {
+			return guard.monitorUpdater(ctx, transaction)
+		}
+		return true, guard.takeOverProbation(ctx, transaction)
+	default:
+		return false, fmt.Errorf("guard cannot supervise transaction state %q", transaction.State)
 	}
+}
+
+func (guard *probationGuard) takeOverProbation(ctx context.Context, transaction recovery.Transaction) error {
 	if err := guard.waitUntilLeaseExpires(ctx, transaction.Probation.Lease); err != nil {
 		return err
 	}
@@ -62,6 +101,69 @@ func (guard *probationGuard) Run(ctx context.Context) error {
 		return err
 	}
 	return guard.rollbackAndRestart(ctx, transaction, lease)
+}
+
+// monitorUpdater 在 probation 前只依据 exact updater process 决定等待或回滚。
+func (guard *probationGuard) monitorUpdater(ctx context.Context, transaction recovery.Transaction) (bool, error) {
+	if transaction.State == recovery.StateBackupPending || transaction.State == recovery.StateInstallPending {
+		replayed, err := guard.config.Store.Replay(ctx, transaction.Identity)
+		if errors.Is(err, recovery.ErrTransactionBusy) {
+			return false, guard.waitForNextPoll(ctx)
+		}
+		if err != nil {
+			return false, fmt.Errorf("replay pending updater intent: %w", err)
+		}
+		transaction = replayed
+	}
+	alive, err := guard.config.UpdaterAlive(transaction.Identity.UpdaterProcess)
+	if err != nil {
+		return false, fmt.Errorf("inspect exact updater process: %w", err)
+	}
+	if !alive {
+		return guard.recoverAfterUpdaterDeath(ctx, transaction)
+	}
+	return false, guard.waitForNextPoll(ctx)
+}
+
+func (guard *probationGuard) waitForNextPoll(ctx context.Context) error {
+	timer := time.NewTimer(guardPollInterval)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return context.Cause(ctx)
+	case <-timer.C:
+		return nil
+	}
+}
+
+// recoverAfterUpdaterDeath 先补完崩溃前已持久化的文件意图，再选择 exact rollback 路径。
+func (guard *probationGuard) recoverAfterUpdaterDeath(ctx context.Context, transaction recovery.Transaction) (bool, error) {
+	replayed, err := guard.config.Store.Replay(ctx, transaction.Identity)
+	if err != nil {
+		return false, fmt.Errorf("replay exact updater transaction: %w", err)
+	}
+	switch replayed.State {
+	case recovery.StateCommitted:
+		return true, nil
+	case recovery.StateRolledBack:
+		return true, guard.restartRolledBackRelease(ctx, replayed)
+	case recovery.StateProbation:
+		replayed, err = guard.config.Store.RollbackUnclaimedProbation(ctx, replayed.Identity)
+	default:
+		replayed, err = guard.config.Store.Rollback(ctx, replayed.Identity)
+	}
+	if err != nil {
+		return false, err
+	}
+	return true, guard.restartRolledBackRelease(ctx, replayed)
+}
+
+// restartRolledBackRelease 只在 exact rollback 已完成后重启旧 target。
+func (guard *probationGuard) restartRolledBackRelease(ctx context.Context, transaction recovery.Transaction) error {
+	if err := guard.config.RestartOldRelease(ctx, transaction.Paths.Target); err != nil {
+		return fmt.Errorf("restart rolled back release: %w", err)
+	}
+	return nil
 }
 
 func (guard *probationGuard) rollbackAndRestart(
@@ -113,25 +215,10 @@ func (guard *probationGuard) waitUntilLeaseExpires(ctx context.Context, lease re
 	}
 }
 
-// takeoverReady 只允许带 current lease 的 probation 进入接管路径。
-func (guard *probationGuard) takeoverReady(transaction recovery.Transaction) (bool, error) {
-	switch transaction.State {
-	case recovery.StateCommitted, recovery.StateRolledBack:
-		return false, nil
-	case recovery.StateProbation:
-		if !transaction.Probation.LeasePresent {
-			return false, errors.New("guard requires a leased probation transaction")
-		}
-		return true, nil
-	default:
-		return false, errors.New("guard requires a probation transaction")
-	}
-}
-
 // validate 校验 Guard 运行所需的全部显式依赖。
 func (guard *probationGuard) validate() error {
 	if guard == nil || guard.config.Store == nil || guard.config.Now == nil ||
-		guard.config.StopCandidate == nil || guard.config.RestartOldRelease == nil {
+		guard.config.UpdaterAlive == nil || guard.config.StopCandidate == nil || guard.config.RestartOldRelease == nil {
 		return errors.New("guard requires store, clock, exact candidate stopper, and restart callback")
 	}
 	if guard.config.OwnerID == "" {
@@ -170,28 +257,156 @@ func main() {
 	}
 }
 
-// runGuardCommand 发现唯一 active transaction 并阻塞运行 detached Guard。
+// runGuardCommand 加载调用方指定的 exact transaction，发布就绪凭据后运行 Guard。
 func runGuardCommand(ctx context.Context, args []string) error {
-	if len(args) != 1 {
-		return errors.New("usage: super-dolphin-guard <absolute-transaction-root>")
+	return runGuardCommandWithWriter(ctx, args, os.Stdout)
+}
+
+// runGuardCommandWithWriter 在所有初始化成功后发布 armed receipt，并立即进入监督。
+func runGuardCommandWithWriter(ctx context.Context, args []string, readyWriter io.Writer) error {
+	if len(args) != 3 {
+		return errors.New("usage: super-dolphin-guard <absolute-transaction-root> <transaction-id> <old|candidate>")
+	}
+	if readyWriter == nil {
+		return errors.New("Guard readiness writer is required")
 	}
 	store, err := recovery.NewStore(args[0])
 	if err != nil {
 		return err
 	}
-	transaction, found, err := store.SelectActive(ctx)
-	if err != nil || !found {
+	transaction, err := store.LoadByID(ctx, recovery.TransactionID(args[1]))
+	if err != nil {
+		return err
+	}
+	process, err := captureGuardProcess(transaction, args[2])
+	if err != nil {
 		return err
 	}
 	owner, err := recovery.NewTransactionID()
 	if err != nil {
 		return err
 	}
-	return newGuard(guardConfig{
+	guard := newGuard(guardConfig{
 		Store: store, Identity: transaction.Identity, OwnerID: string(owner), Now: time.Now,
+		UpdaterAlive:      updaterAliveForTransaction(transaction),
 		StopCandidate:     stopCandidateExact,
 		RestartOldRelease: restartApplication,
-	}).Run(ctx)
+	})
+	if err := guard.validate(); err != nil {
+		return err
+	}
+	receipt, err := recovery.EncodeGuardReadyReceipt(recovery.BuildGuardReadyReceipt(transaction, process, time.Now()))
+	if err != nil {
+		return err
+	}
+	if _, err := readyWriter.Write(receipt); err != nil {
+		return fmt.Errorf("publish Guard readiness receipt: %w", err)
+	}
+	return guard.Run(ctx)
+}
+
+// captureGuardProcess 将当前 Guard 的 canonical path、SHA 和内核进程身份绑定到事务 helper。
+func captureGuardProcess(transaction recovery.Transaction, generation string) (recovery.ProcessIdentity, error) {
+	executable, err := os.Executable()
+	if err != nil {
+		return recovery.ProcessIdentity{}, fmt.Errorf("resolve Guard executable: %w", err)
+	}
+	canonical, err := recovery.CanonicalExistingPath(executable)
+	if err != nil {
+		return recovery.ProcessIdentity{}, err
+	}
+	expectedPath, expectedSHA, err := expectedGuardIdentity(transaction, generation)
+	if err != nil {
+		return recovery.ProcessIdentity{}, err
+	}
+	if canonical != expectedPath {
+		return recovery.ProcessIdentity{}, fmt.Errorf("running Guard executable = %q, want %q", canonical, expectedPath)
+	}
+	digest, err := recovery.ComputeReleaseDigest(canonical)
+	if err != nil {
+		return recovery.ProcessIdentity{}, fmt.Errorf("digest running Guard: %w", err)
+	}
+	if digest != expectedSHA {
+		return recovery.ProcessIdentity{}, errors.New("running Guard digest does not match transaction helper identity")
+	}
+	stable, err := pidregistry.CaptureStableProcessIdentity(os.Getpid())
+	if err != nil {
+		return recovery.ProcessIdentity{}, fmt.Errorf("capture Guard process identity: %w", err)
+	}
+	stablePath, err := recovery.CanonicalExistingPath(stable.ExecutableIdentity)
+	if err != nil {
+		return recovery.ProcessIdentity{}, err
+	}
+	if stablePath != canonical {
+		return recovery.ProcessIdentity{}, errors.New("Guard kernel executable identity does not match canonical helper path")
+	}
+	return recovery.ProcessIdentity{
+		PID: stable.PID, StartToken: stable.ProcessStartToken,
+		ExecutableIdentity: canonical, ExecutableSHA256: digest,
+	}, nil
+}
+
+func expectedGuardIdentity(transaction recovery.Transaction, generation string) (string, string, error) {
+	var path, digest string
+	switch generation {
+	case "old":
+		path = filepath.Join(transaction.Paths.RecoveryDir, "super-dolphin-guard")
+		digest = transaction.Identity.OldHelpers.GuardSHA256
+	case "candidate":
+		path = filepath.Join(transaction.Paths.Target, "Contents", "Resources", "bin", "super-dolphin-guard")
+		digest = transaction.Identity.CandidateHelpers.GuardSHA256
+	default:
+		return "", "", fmt.Errorf("unsupported Guard generation %q", generation)
+	}
+	canonical, err := recovery.CanonicalExistingPath(path)
+	return canonical, digest, err
+}
+
+func updaterAliveForTransaction(transaction recovery.Transaction) func(recovery.ProcessIdentity) (bool, error) {
+	return func(process recovery.ProcessIdentity) (bool, error) {
+		return updaterAliveExact(process, transaction)
+	}
+}
+
+// updaterAliveExact 只接受事务 target/backup 内同一 PID、启动令牌和旧 updater 摘要。
+func updaterAliveExact(process recovery.ProcessIdentity, transaction recovery.Transaction) (bool, error) {
+	stable, err := pidregistry.CaptureStableProcessIdentity(process.PID)
+	if errors.Is(err, pidregistry.ErrStableProcessNotFound) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	if stable.ProcessStartToken != process.StartToken {
+		return false, nil
+	}
+	targetUpdater := filepath.Join(transaction.Paths.Target, "Contents", "Resources", "bin", "super-dolphin-updater")
+	backupUpdater := filepath.Join(transaction.Paths.Backup, "Contents", "Resources", "bin", "super-dolphin-updater")
+	if process.ExecutableIdentity != targetUpdater ||
+		process.ExecutableSHA256 != transaction.Identity.OldHelpers.UpdaterSHA256 {
+		return false, nil
+	}
+	stablePath := filepath.Clean(stable.ExecutableIdentity)
+	if stablePath != targetUpdater && stablePath != backupUpdater {
+		return false, nil
+	}
+	return trustedUpdaterArtifactExists([]string{targetUpdater, backupUpdater}, process.ExecutableSHA256)
+}
+
+func trustedUpdaterArtifactExists(paths []string, expectedSHA string) (bool, error) {
+	for _, path := range paths {
+		digest, err := recovery.ComputeReleaseDigest(path)
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return false, err
+		}
+		if digest == expectedSHA {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 // stopCandidateExact 复用 pidregistry 内核身份，在每次信号前复核并确认 exact candidate 已退出。

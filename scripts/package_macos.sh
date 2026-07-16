@@ -33,7 +33,6 @@ update_manifest_url=""
 update_github_repo=""
 update_public_key=""
 update_channel=""
-update_allow_unsigned="0"
 codex_artifact_env="SUPER_DOLPHIN_CODEX_ARTIFACT"
 codex_sha256_env="SUPER_DOLPHIN_CODEX_SHA256"
 codex_version_env="SUPER_DOLPHIN_CODEX_VERSION"
@@ -271,8 +270,9 @@ resolve_update_config() {
   update_github_repo="${SUPER_DOLPHIN_UPDATE_GITHUB_REPO:-}"
   update_public_key="${SUPER_DOLPHIN_UPDATE_PUBLIC_KEY:-}"
   update_channel="${SUPER_DOLPHIN_UPDATE_CHANNEL:-gray}"
-  if [[ "$release_profile" == "gray-unsigned" ]]; then
-    update_allow_unsigned="1"
+  if [[ "$platform" != "darwin-arm64" ]]; then
+    echo "package-owned updates are unsupported for $platform" >&2
+    exit 1
   fi
   if [[ -z "${update_manifest_url//[[:space:]]/}" && -z "${update_github_repo//[[:space:]]/}" ]]; then
     echo "SUPER_DOLPHIN_UPDATE_MANIFEST_URL or SUPER_DOLPHIN_UPDATE_GITHUB_REPO is required when app update is enabled" >&2
@@ -471,28 +471,28 @@ write_packaged_video_env() {
   chmod 600 "$env_path"
 }
 
-write_packaged_update_env() {
+write_packaged_update_trust() {
   local resources="$1"
-  if ! updates_enabled_for_profile; then
-    return
-  fi
-  local env_path="$resources/.env"
-  {
-    printf 'SUPER_DOLPHIN_UPDATE_ENABLED=1\n'
-    if [[ -n "$update_manifest_url" ]]; then
-      printf 'SUPER_DOLPHIN_UPDATE_MANIFEST_URL=%s\n' "$update_manifest_url"
+  local updater="$resources/bin/super-dolphin-updater"
+  local guard="$resources/bin/super-dolphin-guard"
+  local output="$resources/update-trust.json"
+  local args=(-package-trust-out "$output" -platform "$platform" -package-trust-updater "$updater" -package-trust-guard "$guard")
+  if updates_enabled_for_profile; then
+    local signer source_kind source_value
+    signer="$(codesign -dv --verbose=4 "$updater" 2>&1 | awk -F= '/^TeamIdentifier=/{print $2; exit}')"
+    if [[ -z "$signer" ]]; then
+      echo "package-owned updates require an exact TeamIdentifier" >&2
+      exit 1
     fi
+    source_kind="manifest"
+    source_value="$update_manifest_url"
     if [[ -n "$update_github_repo" ]]; then
-      printf 'SUPER_DOLPHIN_UPDATE_GITHUB_REPO=%s\n' "$update_github_repo"
+      source_kind="github"
+      source_value="$update_github_repo"
     fi
-    printf 'SUPER_DOLPHIN_UPDATE_PUBLIC_KEY=%s\n' "$update_public_key"
-    printf 'SUPER_DOLPHIN_UPDATE_CHANNEL=%s\n' "$update_channel"
-    printf 'SUPER_DOLPHIN_UPDATE_VERSION=%s\n' "$version"
-    if [[ "$update_allow_unsigned" == "1" ]]; then
-      printf 'SUPER_DOLPHIN_UPDATE_ALLOW_UNSIGNED=1\n'
-    fi
-  } >> "$env_path"
-  chmod 600 "$env_path"
+    args+=(-package-trust-enabled -package-trust-source-kind "$source_kind" -package-trust-source-value "$source_value" -public-key "$update_public_key" -channel "$update_channel" -package-trust-signer "$signer")
+  fi
+  (cd "$root" && go run ./cmd/super-dolphin-release-manifest "${args[@]}")
 }
 
 json_escape() {
@@ -1725,6 +1725,7 @@ if ! phase_cache_check "go-binaries" "${go_binary_cache_inputs[@]}" "${go_binary
     go build -o bin/agent-terminal ./cmd/agent-terminal
     go build -o bin/mcp-ida ./cmd/mcp-ida
     go build -o bin/super-dolphin-updater ./cmd/super-dolphin-updater
+    go build -o bin/super-dolphin-guard ./cmd/super-dolphin-guard
   )
   phase_cache_save
 fi
@@ -1739,12 +1740,12 @@ copy_sqlite_migrations "$resources"
 copy_model_registry "$resources"
 write_packaged_relay_env "$resources"
 write_packaged_video_env "$resources"
-write_packaged_update_env "$resources"
 copy_packaged_git "$resources"
 copy_packaged_lsp_bundle "$resources"
 copy_packaged_codex "$resources" "$resources/bin/codex"
 copy_packaged_ffmpeg "$resources"
 cp "$root/bin/super-dolphin-updater" "$resources/bin/super-dolphin-updater"
+cp "$root/bin/super-dolphin-guard" "$resources/bin/super-dolphin-guard"
 phase_end
 
 phase_start "bundle git dylibs"
@@ -1794,6 +1795,10 @@ phase_end
 phase_start "codesign macho tree"
 sign_macho_tree "$codesign_identity" "$macos" "$resources/bin" "$resources/lib" "$resources/libexec" "$resources/lsp"
 restore_git_core_hardlinks "$resources"
+phase_end
+
+phase_start "write package update trust"
+write_packaged_update_trust "$resources"
 phase_end
 
 phase_start "runtime smoke checks"

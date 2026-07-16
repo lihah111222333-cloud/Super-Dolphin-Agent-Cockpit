@@ -69,14 +69,21 @@ $CodexSHA256Env = 'SUPER_DOLPHIN_CODEX_SHA256'
 $CodexVersionEnv = 'SUPER_DOLPHIN_CODEX_VERSION'
 $VideoAPIKeyEnv = 'SILICONFLOW_API_KEY'
 $FFmpegBinEnv = 'SUPER_DOLPHIN_FFMPEG_BIN'
-$UpdateEnabledEnv = 'SUPER_DOLPHIN_UPDATE_ENABLED'
-$UpdateManifestURLEnv = 'SUPER_DOLPHIN_UPDATE_MANIFEST_URL'
-$UpdateGitHubRepoEnv = 'SUPER_DOLPHIN_UPDATE_GITHUB_REPO'
-$UpdatePublicKeyEnv = 'SUPER_DOLPHIN_UPDATE_PUBLIC_KEY'
-$UpdateChannelEnv = 'SUPER_DOLPHIN_UPDATE_CHANNEL'
-$UpdateVersionEnv = 'SUPER_DOLPHIN_UPDATE_VERSION'
-$UpdateWindowsPublisherEnv = 'SUPER_DOLPHIN_UPDATE_WINDOWS_PUBLISHER'
-$UpdateWindowsThumbprintEnv = 'SUPER_DOLPHIN_UPDATE_WINDOWS_THUMBPRINT'
+$UpdateOverrideNames = @(
+    'SUPER_DOLPHIN_UPDATE_ENABLED',
+    'SUPER_DOLPHIN_UPDATE_MANIFEST_URL',
+    'SUPER_DOLPHIN_UPDATE_GITHUB_REPO',
+    'SUPER_DOLPHIN_UPDATE_PUBLIC_KEY',
+    'SUPER_DOLPHIN_UPDATE_CHANNEL',
+    'SUPER_DOLPHIN_UPDATE_STAGE_DIR',
+    'SUPER_DOLPHIN_UPDATE_HELPER_PATH',
+    'SUPER_DOLPHIN_UPDATE_TARGET_APP_PATH',
+    'SUPER_DOLPHIN_UPDATE_PLATFORM',
+    'SUPER_DOLPHIN_UPDATE_VERSION',
+    'SUPER_DOLPHIN_UPDATE_ALLOW_UNSIGNED',
+    'SUPER_DOLPHIN_UPDATE_WINDOWS_PUBLISHER',
+    'SUPER_DOLPHIN_UPDATE_WINDOWS_THUMBPRINT'
+)
 $LSPBundleDirEnv = 'SUPER_DOLPHIN_LSP_BUNDLE_DIR'
 $LSPManifestName = 'lsp-manifest.json'
 $LSPChecksumsName = 'lsp-checksums.sha256'
@@ -90,12 +97,6 @@ $PackagedCodexSHA256 = ''
 $PackagedCodexVersion = ''
 $PackagedFFmpegBin = ''
 $PackagedFFmpegRuntimeDir = ''
-$PackagedUpdateEnabled = $false
-$PackagedUpdateManifestURL = ''
-$PackagedUpdateGitHubRepo = ''
-$PackagedUpdatePublicKey = ''
-$PackagedUpdateChannel = ''
-$PackagedUpdateVersion = ''
 $PackagedLSPBundleDir = ''
 $LSPProfile = if ($env:SUPER_DOLPHIN_LSP_PROFILE) { $env:SUPER_DOLPHIN_LSP_PROFILE } else { 'standard' }
 
@@ -472,6 +473,7 @@ function Assert-PackagedEnvHasNoSensitiveKeys() {
 }
 
 function Invoke-WindowsPackageWhatIf() {
+    Resolve-UpdateConfig
     Resolve-PackagedVideoEnv
     $requiredFiles = @(
         (Join-Path $Root 'go.mod'),
@@ -501,111 +503,12 @@ function Invoke-WindowsPackageWhatIf() {
     Write-Host "Windows package WhatIf validation complete"
 }
 
-function Assert-UpdatePublicKey() {
-    param([Parameter(Mandatory)][string]$PublicKey)
-    try {
-        $decoded = [Convert]::FromBase64String($PublicKey)
-    } catch {
-        throw "$UpdatePublicKeyEnv must be valid base64"
-    }
-    if ($decoded.Length -ne 32) {
-        throw "decoded SUPER_DOLPHIN_UPDATE_PUBLIC_KEY must be 32 bytes"
-    }
-}
-
-function Test-PlaceholderUpdateRepo() {
-    param([Parameter(Mandatory)][string]$Repo)
-    return $Repo.Trim() -eq 'xiaoxiaotest9527-bit/-'
-}
-
-function Assert-UpdateWindowsThumbprint() {
-    param([Parameter(Mandatory)][string]$Thumbprint)
-    $normalized = ($Thumbprint.Trim() -replace '[ :]', '').ToUpperInvariant()
-    if ($normalized -notmatch '^[0-9A-F]{40}$') {
-        throw "$UpdateWindowsThumbprintEnv must be a 40-character certificate thumbprint"
-    }
-}
-
 function Resolve-UpdateConfig() {
-    $script:PackagedUpdateManifestURL = Get-EnvValue $UpdateManifestURLEnv
-    $script:PackagedUpdateGitHubRepo = Get-EnvValue $UpdateGitHubRepoEnv
-    $script:PackagedUpdatePublicKey = Get-EnvValue $UpdatePublicKeyEnv
-    $script:PackagedUpdateChannel = Get-EnvValue $UpdateChannelEnv
-    $script:PackagedUpdateVersion = Get-EnvValue $UpdateVersionEnv
-    $script:PackagedUpdateWindowsPublisher = Get-EnvValue $UpdateWindowsPublisherEnv
-    $script:PackagedUpdateWindowsThumbprint = Get-EnvValue $UpdateWindowsThumbprintEnv
-    $enabledValue = Get-EnvValue $UpdateEnabledEnv
-    $script:PackagedUpdateEnabled = (Test-Truthy -Value $enabledValue) -or
-        ($script:PackagedUpdateManifestURL.Trim() -ne '') -or
-        ($script:PackagedUpdateGitHubRepo.Trim() -ne '')
-    if (-not $script:PackagedUpdateEnabled) {
-        return
-    }
-    if ($script:PackagedUpdateManifestURL.Trim() -eq '' -and $script:PackagedUpdateGitHubRepo.Trim() -eq '') {
-        throw "SUPER_DOLPHIN_UPDATE_MANIFEST_URL or SUPER_DOLPHIN_UPDATE_GITHUB_REPO is required when app update is enabled"
-    }
-    if ($script:PackagedUpdateManifestURL.Trim() -ne '' -and $script:PackagedUpdateGitHubRepo.Trim() -ne '') {
-        throw "SUPER_DOLPHIN_UPDATE_MANIFEST_URL and SUPER_DOLPHIN_UPDATE_GITHUB_REPO are mutually exclusive"
-    }
-    if ($script:PackagedUpdateManifestURL.Trim() -ne '') {
-        Validate-EnvFileValue -Label $UpdateManifestURLEnv -Value $script:PackagedUpdateManifestURL
-        if ($script:PackagedUpdateManifestURL -notmatch '^https://[^/?#]+($|[/?#])') {
-            throw "$UpdateManifestURLEnv must be an HTTPS URL with a host"
+    foreach ($name in $UpdateOverrideNames) {
+        if ($null -ne [Environment]::GetEnvironmentVariable($name, 'Process')) {
+            throw "package-owned updates are unsupported for $Platform; reject $name"
         }
     }
-    if ($script:PackagedUpdateGitHubRepo.Trim() -ne '') {
-        Validate-EnvFileValue -Label $UpdateGitHubRepoEnv -Value $script:PackagedUpdateGitHubRepo
-        if ($script:PackagedUpdateGitHubRepo -notmatch '^[^/\s]+/[^/\s]+$') {
-            throw "SUPER_DOLPHIN_UPDATE_GITHUB_REPO must be owner/repo without whitespace"
-        }
-        if (Test-PlaceholderUpdateRepo -Repo $script:PackagedUpdateGitHubRepo) {
-            throw "known placeholder update repo is not allowed"
-        }
-    }
-    if ($script:PackagedUpdateChannel.Trim() -eq '') {
-        $script:PackagedUpdateChannel = 'gray'
-    }
-    if ($script:PackagedUpdateVersion.Trim() -eq '') {
-        $script:PackagedUpdateVersion = $Version
-    }
-    Validate-EnvFileValue -Label $UpdatePublicKeyEnv -Value $script:PackagedUpdatePublicKey
-    Validate-EnvFileValue -Label $UpdateChannelEnv -Value $script:PackagedUpdateChannel
-    Validate-EnvFileValue -Label $UpdateVersionEnv -Value $script:PackagedUpdateVersion
-    Validate-EnvFileValue -Label $UpdateWindowsPublisherEnv -Value $script:PackagedUpdateWindowsPublisher
-    Validate-EnvFileValue -Label $UpdateWindowsThumbprintEnv -Value $script:PackagedUpdateWindowsThumbprint
-    Assert-UpdatePublicKey -PublicKey $script:PackagedUpdatePublicKey
-    Assert-UpdateWindowsThumbprint -Thumbprint $script:PackagedUpdateWindowsThumbprint
-}
-
-function Write-PackagedUpdateEnv() {
-    param([Parameter(Mandatory)][string]$BundleRoot)
-    if (-not $script:PackagedUpdateEnabled) {
-        return
-    }
-    $envPath = Join-Path $BundleRoot '.env'
-    $lines = [Collections.Generic.List[string]]::new()
-    $lines.Add("$UpdateEnabledEnv=1")
-    if ($script:PackagedUpdateManifestURL.Trim() -ne '') {
-        $lines.Add("$UpdateManifestURLEnv=$script:PackagedUpdateManifestURL")
-    }
-    if ($script:PackagedUpdateGitHubRepo.Trim() -ne '') {
-        $lines.Add("$UpdateGitHubRepoEnv=$script:PackagedUpdateGitHubRepo")
-    }
-    $lines.Add("$UpdatePublicKeyEnv=$script:PackagedUpdatePublicKey")
-    $lines.Add("$UpdateChannelEnv=$script:PackagedUpdateChannel")
-    $lines.Add("$UpdateVersionEnv=$script:PackagedUpdateVersion")
-    $lines.Add("$UpdateWindowsPublisherEnv=$script:PackagedUpdateWindowsPublisher")
-    $lines.Add("$UpdateWindowsThumbprintEnv=$script:PackagedUpdateWindowsThumbprint")
-
-    $content = ''
-    if (Test-Path -LiteralPath $envPath -PathType Leaf) {
-        $content = [IO.File]::ReadAllText($envPath)
-    }
-    if ($content -ne '' -and -not $content.EndsWith("`n")) {
-        $content += "`n"
-    }
-    $content += (($lines.ToArray() -join "`n") + "`n")
-    Write-Utf8NoBom -Path $envPath -Content $content
 }
 
 function Resolve-PackagedCodexArtifact() {
@@ -1188,7 +1091,6 @@ function Package-WindowsMain() {
     Write-LSPManifest -BundleRoot $Stage
     Copy-ModelRegistry -BundleRoot $Stage
     Write-PackagedRelayEnv -BundleRoot $Stage
-    Write-PackagedUpdateEnv -BundleRoot $Stage
     Assert-PackagedEnvHasNoSensitiveKeys -BundleRoot $Stage
     Write-RuntimeManifest -BundleRoot $Stage
     Write-RunScripts -BundleRoot $Stage
