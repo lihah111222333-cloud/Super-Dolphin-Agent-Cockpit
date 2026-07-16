@@ -1,30 +1,72 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+
+import { parse } from '@babel/parser';
 
 import { generatedSchemas } from '../src/shared/contracts/turnContracts.generated.js';
 
 const appRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const repoRoot = path.resolve(appRoot, '..');
-const schemaDir = path.join(repoRoot, 'internal/dto/turn/schema');
-const registryPath = path.join(schemaDir, 'field_consumers.json');
-const validatorPath = path.join(appRoot, 'src/shared/contracts/turnContractValidators.js');
+const defaultRepoRoot = path.resolve(appRoot, '..');
+const registryRelativePath = 'internal/dto/turn/schema/field_consumers.json';
 
-function canonicalSchemas() {
+export function validateTurnContractFieldGuard({ repoRoot = defaultRepoRoot, sourceOverrides = new Map() } = {}) {
+  const schemas = canonicalSchemas(repoRoot, sourceOverrides);
+  const registry = loadRegistry(repoRoot, sourceOverrides);
+  if (registry.version !== 2 || !isRecord(registry.schemas)) {
+    throw new Error('consumer registry must be version 2 with a schemas object');
+  }
+  const registeredSchemas = Object.keys(registry.schemas).sort();
+  const schemaNames = [...schemas.keys()].sort();
+  assertExactSet('consumer registry schemas', schemaNames, registeredSchemas);
+  for (const [schemaName, schema] of schemas) {
+    validateSchemaRegistryEntry(repoRoot, sourceOverrides, schemaName, registry.schemas[schemaName]);
+    if (stableJSON(schema) !== stableJSON(generatedSchemas[schemaName])) {
+      throw new Error(`generated JS schema drift: ${schemaName}`);
+    }
+  }
+  if (!Array.isArray(registry.jsMappers) || registry.jsMappers.length === 0) {
+    throw new Error('consumer registry must contain JS mapper chains');
+  }
+  const mapperNames = new Set();
+  for (const mapper of registry.jsMappers) {
+    if (!mapper?.name || mapperNames.has(mapper.name)) throw new Error(`JS mapper has blank or duplicate name ${mapper?.name ?? ''}`);
+    mapperNames.add(mapper.name);
+    const source = readRepositorySource(repoRoot, mapper.path, sourceOverrides);
+    validateMapperSource(source, mapper);
+  }
+  return { schemaCount: schemas.size, mapperCount: registry.jsMappers.length };
+}
+
+export function validateMapperSource(source, mapper) {
+  if (!isRecord(mapper.fields) || Object.keys(mapper.fields).length === 0) {
+    throw new Error(`JS mapper ${mapper.name} has no registered fields`);
+  }
+  const fn = findFunction(parseModule(source, mapper.path), mapper.symbol, mapper.path);
+  const derived = deriveRequiredAliasMappings(fn);
+  assertExactSet(`JS mapper ${mapper.name} fields`, Object.keys(mapper.fields).sort(), [...derived.keys()].sort());
+  const returned = deriveReturnedProperties(fn);
+  for (const [field, mapping] of Object.entries(mapper.fields)) {
+    if (!isRecord(mapping) || !Array.isArray(mapping.aliases) || typeof mapping.wire !== 'string') {
+      throw new Error(`JS mapper ${mapper.name}.${field} registration is incomplete`);
+    }
+    const actual = derived.get(field);
+    assertExactSet(`JS mapper ${mapper.name}.${field} aliases`, [...mapping.aliases].sort(), [...actual].sort());
+    if (returned.get(mapping.wire) !== field) {
+      throw new Error(`JS mapper ${mapper.name}.${field} does not map to wire field ${mapping.wire}`);
+    }
+  }
+}
+
+function canonicalSchemas(repoRoot, sourceOverrides) {
+  const schemaDir = path.join(repoRoot, 'internal/dto/turn/schema');
   const schemas = new Map();
   for (const entry of fs.readdirSync(schemaDir, { withFileTypes: true })) {
     if (entry.isDirectory() || !entry.name.endsWith('.json') || entry.name === 'field_consumers.json') continue;
-    const sourcePath = path.join(schemaDir, entry.name);
-    let schema;
-    try {
-      schema = JSON.parse(fs.readFileSync(sourcePath, 'utf8'));
-    } catch (error) {
-      throw new Error(`parse canonical schema ${entry.name}: ${error.message}`);
-    }
-    if (!schema.title || !schema.properties || typeof schema.properties !== 'object') {
-      throw new Error(`canonical schema ${entry.name} must have title and properties`);
-    }
+    const relativePath = `internal/dto/turn/schema/${entry.name}`;
+    const schema = parseJSON(readRepositorySource(repoRoot, relativePath, sourceOverrides), `canonical schema ${entry.name}`);
+    if (!schema.title || !isRecord(schema.properties)) throw new Error(`canonical schema ${entry.name} must have title and properties`);
     if (schemas.has(schema.title)) throw new Error(`duplicate canonical schema ${schema.title}`);
     schemas.set(schema.title, schema);
   }
@@ -32,46 +74,166 @@ function canonicalSchemas() {
   return schemas;
 }
 
-function assertExactFields(schemaName, schema, entry) {
-  if (!entry || typeof entry !== 'object') throw new Error(`consumer registry missing schema ${schemaName}`);
-  if (!entry.goValidator || !entry.jsValidator || !entry.fields || typeof entry.fields !== 'object') {
-    throw new Error(`consumer registry ${schemaName} is incomplete`);
+function loadRegistry(repoRoot, sourceOverrides) {
+  return parseJSON(readRepositorySource(repoRoot, registryRelativePath, sourceOverrides), 'consumer registry');
+}
+
+function validateSchemaRegistryEntry(repoRoot, sourceOverrides, schemaName, entry) {
+  if (!isRecord(entry)) throw new Error(`consumer registry missing schema ${schemaName}`);
+  validateLocatorShape(repoRoot, entry.goType, '.go');
+  validateLocatorShape(repoRoot, entry.goValidator, '.go');
+  validateCallLocators(repoRoot, entry.goConsumers, '.go', `${schemaName} Go consumers`);
+  const validator = resolveJSFunction(repoRoot, sourceOverrides, entry.jsValidator);
+  if (!functionHasCall(validator, 'validateNamedSchema', schemaName)) {
+    throw new Error(`${schemaName} JS validator does not call validateNamedSchema for its schema`);
   }
-  const producerFields = new Set(Object.keys(schema.properties));
-  const registeredFields = new Set(Object.keys(entry.fields));
-  const missing = [...producerFields].filter((field) => !registeredFields.has(field)).sort();
-  const stale = [...registeredFields].filter((field) => !producerFields.has(field)).sort();
-  if (missing.length || stale.length) {
-    throw new Error(`${schemaName} field coverage missing=${missing.join(',')} stale=${stale.join(',')}`);
+  if (!Array.isArray(entry.jsConsumers) || entry.jsConsumers.length === 0) {
+    throw new Error(`${schemaName} has no JS production consumers`);
   }
-  for (const [field, coverage] of Object.entries(entry.fields)) {
-    if (!coverage?.go || !coverage?.js) throw new Error(`${schemaName}.${field} has blank consumer coverage`);
+  for (const consumer of entry.jsConsumers) {
+    const fn = resolveJSFunction(repoRoot, sourceOverrides, consumer);
+    if (!functionHasCall(fn, consumer.calls)) {
+      throw new Error(`${consumer.path}:${consumer.symbol} missing call ${consumer.calls}`);
+    }
   }
 }
 
-function main() {
-  const schemas = canonicalSchemas();
-  let registry;
+function validateCallLocators(repoRoot, locators, extension, label) {
+  if (!Array.isArray(locators) || locators.length === 0) throw new Error(`${label} must not be empty`);
+  for (const locator of locators) {
+    validateLocatorShape(repoRoot, locator, extension);
+    if (!locator.calls) throw new Error(`${label} contains a blank call target`);
+  }
+}
+
+function resolveJSFunction(repoRoot, sourceOverrides, locator) {
+  validateLocatorShape(repoRoot, locator, '.js');
+  const source = readRepositorySource(repoRoot, locator.path, sourceOverrides);
+  return findFunction(parseModule(source, locator.path), locator.symbol, locator.path);
+}
+
+function validateLocatorShape(repoRoot, locator, extension) {
+  if (!isRecord(locator) || typeof locator.path !== 'string' || typeof locator.symbol !== 'string' || !locator.symbol.trim()) {
+    throw new Error('source locator is incomplete');
+  }
+  const normalized = path.posix.normalize(locator.path);
+  if (!locator.path || path.isAbsolute(locator.path) || normalized !== locator.path || normalized.startsWith('../')) {
+    throw new Error(`locator path ${locator.path} must be normalized and repository-confined`);
+  }
+  if (path.posix.extname(locator.path) !== extension) throw new Error(`locator path ${locator.path} must end with ${extension}`);
+  const absolutePath = path.join(repoRoot, locator.path);
+  const info = fs.lstatSync(absolutePath);
+  if (!info.isFile() || info.isSymbolicLink()) throw new Error(`locator path ${locator.path} is not a regular file`);
+}
+
+function parseModule(source, filePath) {
   try {
-    registry = JSON.parse(fs.readFileSync(registryPath, 'utf8'));
+    return parse(source, { sourceType: 'module', plugins: ['jsx'] });
   } catch (error) {
-    throw new Error(`parse consumer registry: ${error.message}`);
+    throw new Error(`parse ${filePath}: ${error.message}`);
   }
-  const validatorSource = fs.readFileSync(validatorPath, 'utf8');
-  for (const [schemaName, schema] of schemas) {
-    const entry = registry[schemaName];
-    assertExactFields(schemaName, schema, entry);
-    if (!new RegExp(`export function ${entry.jsValidator}\\(`).test(validatorSource)) {
-      throw new Error(`${schemaName} references missing JS validator ${entry.jsValidator}`);
+}
+
+function findFunction(ast, symbol, filePath) {
+  const matches = [];
+  for (const statement of ast.program.body) {
+    const declaration = statement.type === 'ExportNamedDeclaration' ? statement.declaration : statement;
+    if (declaration?.type === 'FunctionDeclaration' && declaration.id?.name === symbol) matches.push(declaration);
+  }
+  if (matches.length !== 1) throw new Error(`${filePath}:${symbol} resolved ${matches.length} production functions`);
+  return matches[0];
+}
+
+function functionHasCall(fn, target, firstStringArgument = '') {
+  let found = false;
+  walkFunctionBody(fn, (node) => {
+    if (node.type !== 'CallExpression' || calleeName(node.callee) !== target) return;
+    if (firstStringArgument && stringLiteralValue(node.arguments[0]) !== firstStringArgument) return;
+    found = true;
+  });
+  return found;
+}
+
+function deriveRequiredAliasMappings(fn) {
+  const mappings = new Map();
+  walkFunctionBody(fn, (node) => {
+    if (node.type !== 'VariableDeclarator' || node.id?.type !== 'Identifier') return;
+    if (node.init?.type !== 'CallExpression' || calleeName(node.init.callee) !== 'requiredStringAliasValue') return;
+    const aliases = new Set();
+    walkNode(node.init, (child) => {
+      if (child.type !== 'CallExpression' || calleeName(child.callee) !== 'takePayloadField') return;
+      const alias = stringLiteralValue(child.arguments[1]);
+      if (alias) aliases.add(alias);
+    });
+    if (aliases.size === 0 || mappings.has(node.id.name)) throw new Error(`mapper variable ${node.id.name} has missing or duplicate aliases`);
+    mappings.set(node.id.name, aliases);
+  });
+  return mappings;
+}
+
+function deriveReturnedProperties(fn) {
+  const mappings = new Map();
+  walkFunctionBody(fn, (node) => {
+    if (node.type !== 'ReturnStatement' || node.argument?.type !== 'ObjectExpression') return;
+    for (const property of node.argument.properties) {
+      if (property.type !== 'ObjectProperty' || property.computed || property.value?.type !== 'Identifier') continue;
+      const key = property.key.type === 'Identifier' ? property.key.name : stringLiteralValue(property.key);
+      if (key) mappings.set(key, property.value.name);
     }
-    if (stableJSON(schema) !== stableJSON(generatedSchemas[schemaName])) {
-      throw new Error(`generated JS schema drift: ${schemaName}`);
-    }
+  });
+  return mappings;
+}
+
+function walkFunctionBody(fn, visitor) {
+  walkNode(fn.body, visitor, true);
+}
+
+function walkNode(node, visitor, skipNestedFunctions = false, root = true) {
+  if (!node || typeof node !== 'object') return;
+  visitor(node);
+  if (!root && skipNestedFunctions && isFunctionNode(node)) return;
+  for (const [key, value] of Object.entries(node)) {
+    if (key === 'loc' || key === 'start' || key === 'end') continue;
+    if (Array.isArray(value)) value.forEach((item) => walkNode(item, visitor, skipNestedFunctions, false));
+    else if (value && typeof value === 'object' && typeof value.type === 'string') walkNode(value, visitor, skipNestedFunctions, false);
   }
-  for (const schemaName of Object.keys(registry)) {
-    if (!schemas.has(schemaName)) throw new Error(`consumer registry has stale schema ${schemaName}`);
+}
+
+function isFunctionNode(node) {
+  return node.type === 'FunctionDeclaration' || node.type === 'FunctionExpression' || node.type === 'ArrowFunctionExpression';
+}
+
+function calleeName(callee) {
+  if (callee?.type === 'Identifier') return callee.name;
+  if (callee?.type === 'MemberExpression' && !callee.computed && callee.property?.type === 'Identifier') return callee.property.name;
+  return '';
+}
+
+function stringLiteralValue(node) {
+  return node?.type === 'StringLiteral' ? node.value : '';
+}
+
+function readRepositorySource(repoRoot, relativePath, sourceOverrides) {
+  if (sourceOverrides.has(relativePath)) return sourceOverrides.get(relativePath);
+  const absolutePath = path.join(repoRoot, relativePath);
+  return fs.readFileSync(absolutePath, 'utf8');
+}
+
+function parseJSON(source, label) {
+  try {
+    return JSON.parse(source);
+  } catch (error) {
+    throw new Error(`parse ${label}: ${error.message}`);
   }
-  console.log(`turn contract field guard passed: ${schemas.size} schemas`);
+}
+
+function assertExactSet(label, expected, actual) {
+  if (expected.length === actual.length && expected.every((value, index) => value === actual[index])) return;
+  const expectedSet = new Set(expected);
+  const actualSet = new Set(actual);
+  const missing = expected.filter((value) => !actualSet.has(value));
+  const stale = actual.filter((value) => !expectedSet.has(value));
+  throw new Error(`${label} missing=${missing.join(',')} stale=${stale.join(',')}`);
 }
 
 function stableJSON(value) {
@@ -82,9 +244,17 @@ function stableJSON(value) {
   return JSON.stringify(value);
 }
 
-try {
-  main();
-} catch (error) {
-  console.error(`turn contract field guard failed: ${error.message}`);
-  process.exitCode = 1;
+function isRecord(value) {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+const invokedDirectly = process.argv[1] && pathToFileURL(path.resolve(process.argv[1])).href === import.meta.url;
+if (invokedDirectly) {
+  try {
+    const report = validateTurnContractFieldGuard();
+    console.log(`turn contract field guard passed: schemas=${report.schemaCount} mappers=${report.mapperCount}`);
+  } catch (error) {
+    console.error(`turn contract field guard failed: ${error.message}`);
+    process.exitCode = 1;
+  }
 }

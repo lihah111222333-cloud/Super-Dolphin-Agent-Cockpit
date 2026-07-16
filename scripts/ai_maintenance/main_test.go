@@ -315,6 +315,19 @@ func TestBuildGatePlanUsesBackendAsAIMaintenanceSelfTestSuperset(t *testing.T) {
 	assertStringSetContains(t, hookPlan.RequiredGates, "ai-maintenance:self-test")
 }
 
+func TestBuildGatePlanRoutesTurnContractProductionChain(t *testing.T) {
+	for _, file := range []string{
+		"internal/dto/turn/schema/turn_terminal.v2.json",
+		"internal/provider/shared/terminal_outcome.go",
+		"frontend-app/package.json",
+		"frontend-app/src/shared/api/backend/backendApiFactoryThread.js",
+		"scripts/turncontract/main.go",
+	} {
+		plan := mustBuildGatePlan(t, []string{file})
+		assertStringSetContains(t, plan.RequiredGates, "turncontract:verify")
+	}
+}
+
 func TestGatePlanProducerMatchesRunnerAndEvidenceRegistries(t *testing.T) {
 	producerGates := map[string]bool{}
 	for _, files := range [][]string{
@@ -325,6 +338,7 @@ func TestGatePlanProducerMatchesRunnerAndEvidenceRegistries(t *testing.T) {
 		{"internal/contract/provider.go"},
 		{"docs/doc/codemap/ai-index.json"},
 		{"internal/provider/codexapp/session.go"},
+		{"internal/dto/turn/terminal.go"},
 	} {
 		for _, gate := range mustGatePlanForScope(t, files, true).RequiredGates {
 			producerGates[gate] = true

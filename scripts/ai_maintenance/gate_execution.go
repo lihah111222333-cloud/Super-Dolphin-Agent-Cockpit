@@ -100,7 +100,16 @@ func gateRunners(plan gatePlan, executionScope gateExecutionScope) map[string]ga
 			args := append([]string{"go", "run", "./scripts/nilness_guard.go", "-test=false", "--"}, packages...)
 			return runCommand("", args[0], args[1:]...)
 		}},
-		"capcontract:check":     generatedCheck(false, "make", "capcontract-check"),
+		"capcontract:check": generatedCheck(false, "make", "capcontract-check"),
+		"turncontract:verify": {run: func() error {
+			if err := runCommand("", "go", "run", "./scripts/turncontract", "--verify"); err != nil {
+				return err
+			}
+			if err := runCommand("", "go", "test", "./internal/dto/turn", "-run", "^TestTurnContractFieldGuard", "-count=1"); err != nil {
+				return err
+			}
+			return runCommand("", "node", "frontend-app/scripts/turn-contract-field-guard.mjs")
+		}},
 		"frontend:lint":         {run: func() error { return runCommand("frontend-app", "npm", "run", "lint") }},
 		"frontend:test":         {run: func() error { return runCommand("frontend-app", "npm", "test") }},
 		"frontend:build":        {run: func() error { return runCommand("frontend-app", "npm", "run", "build") }},

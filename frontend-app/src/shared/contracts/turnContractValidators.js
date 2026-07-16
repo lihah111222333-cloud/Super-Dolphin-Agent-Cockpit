@@ -9,6 +9,7 @@ export function validatePublicErrorV1(value) {
 }
 
 export function validateTurnTerminalV2(value) {
+  if (isRecord(value) && value.publicError !== undefined) validatePublicErrorV1(value.publicError);
   return validateNamedSchema('TurnTerminalV2', value);
 }
 

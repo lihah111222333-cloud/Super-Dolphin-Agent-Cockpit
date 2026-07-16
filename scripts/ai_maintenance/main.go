@@ -28,6 +28,22 @@ var aiMaintenanceFiles = map[string]bool{
 	"scripts/test_with_guard.sh":                 true,
 }
 
+var turnContractFiles = map[string]bool{
+	"scripts/turncontract/main.go":                                       true,
+	"frontend-app/package.json":                                          true,
+	"frontend-app/scripts/turn-contract-field-guard.mjs":                 true,
+	"frontend-app/scripts/turn-contract-field-guard.test.mjs":            true,
+	"frontend-app/src/shared/contracts/turnContractValidators.js":        true,
+	"frontend-app/src/shared/contracts/turnContracts.generated.js":       true,
+	"frontend-app/src/entities/client/model/runtimeAssistantTimeline.js": true,
+	"frontend-app/src/shared/api/backend/backendApiFactoryThread.js":     true,
+	"internal/provider/shared/terminal_outcome.go":                       true,
+	"internal/provider/claudecli/event_map.go":                           true,
+	"internal/provider/codexapp/factory.go":                              true,
+	"internal/platform/eventsurface/bind.go":                             true,
+	"internal/platform/eventsurface/remote_decode.go":                    true,
+}
+
 var coreBackendGatePackages = []string{
 	"./cmd/mcp-lsp",
 	"./cmd/mcp-orch",
@@ -307,6 +323,9 @@ func applyFileGateRules(file string, capabilityRules capcontract.PathRules, gate
 	if sqlcRelevant(file) {
 		gates["sqlc:verify"] = true
 	}
+	if turnContractRelevant(file) {
+		gates["turncontract:verify"] = true
+	}
 	if codemapRelevant(file) {
 		gates["codemap:check"] = true
 		gates["project-map:check"] = true
@@ -352,6 +371,11 @@ func sqlcRelevant(file string) bool {
 		strings.HasPrefix(file, "cmd/mcp-orch/sql/") ||
 		strings.HasPrefix(file, "internal/platform/db/sqlite/migrations/") ||
 		strings.HasPrefix(file, "internal/store/")
+}
+
+// turnContractRelevant 覆盖 canonical schema、生成器以及终态字段生产消费链的显式边界。
+func turnContractRelevant(file string) bool {
+	return strings.HasPrefix(file, "internal/dto/turn/") || turnContractFiles[file]
 }
 
 // aiMaintenanceRelevant 识别会改变本 gate 自身行为的文件，触发自测避免 workflow/script 空绿。
@@ -531,6 +555,7 @@ func gateEvidenceCommandFragments() map[string][]string {
 		"backend:nilness":                  {"go run ./scripts/nilness_guard.go"},
 		"lsp:changed-diagnostics":          {"go run ./scripts/lsp_diagnostics_gate"},
 		"capcontract:check":                {"make capcontract-check"},
+		"turncontract:verify":              {"go run ./scripts/turncontract --verify", "go test ./internal/dto/turn -run ^TestTurnContractFieldGuard", "node frontend-app/scripts/turn-contract-field-guard.mjs"},
 		"frontend:lint":                    {"npm run lint"},
 		"frontend:test":                    {"npm test"},
 		"frontend:build":                   {"npm run build"},
@@ -618,6 +643,7 @@ func sortedKeys(values map[string]bool) []string {
 func orderedGates(values map[string]bool) []string {
 	order := []string{
 		"ai-maintenance:self-test",
+		"turncontract:verify",
 		"frontend:lint",
 		"frontend:test",
 		"frontend:build",
