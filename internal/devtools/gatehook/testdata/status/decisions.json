@@ -1,0 +1,32 @@
+[
+  {
+    "name": "queued",
+    "status": {"job_id":"job-queued","state":"queued","queue_position":4,"source_tree_sha":"tree-a"},
+    "current_tree_sha": "tree-a",
+    "want_block": "queue_position=4"
+  },
+  {
+    "name": "running",
+    "status": {"job_id":"job-running","state":"running","queue_position":0,"source_tree_sha":"tree-a"},
+    "current_tree_sha": "tree-a",
+    "want_block": "super-dolphin-gate wait --job job-running"
+  },
+  {
+    "name": "failed",
+    "status": {"job_id":"job-failed","state":"failed","queue_position":0,"source_tree_sha":"tree-a","summary":"fix failing gate","log_ref":"logs/job-failed"},
+    "current_tree_sha": "tree-a",
+    "want_block": "fix failing gate"
+  },
+  {
+    "name": "tree-changed",
+    "status": {"job_id":"job-passed","state":"passed","queue_position":0,"source_tree_sha":"tree-a","receipt_id":"receipt-1"},
+    "current_tree_sha": "tree-b",
+    "want_block": "tree changed"
+  },
+  {
+    "name": "passed",
+    "status": {"job_id":"job-passed","state":"passed","queue_position":0,"source_tree_sha":"tree-a","receipt_id":"receipt-1"},
+    "current_tree_sha": "tree-a",
+    "want_continue": true
+  }
+]

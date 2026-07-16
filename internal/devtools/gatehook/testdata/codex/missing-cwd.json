@@ -1,0 +1,7 @@
+{
+  "session_id": "session-root",
+  "hook_event_name": "Stop",
+  "permission_mode": "default",
+  "turn_id": "turn-root",
+  "stop_hook_active": false
+}

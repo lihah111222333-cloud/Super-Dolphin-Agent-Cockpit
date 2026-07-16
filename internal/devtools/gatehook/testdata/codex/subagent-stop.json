@@ -1,0 +1,14 @@
+{
+  "session_id": "session-parent",
+  "transcript_path": "/tmp/parent-transcript.jsonl",
+  "cwd": "__CWD__",
+  "hook_event_name": "SubagentStop",
+  "model": "gpt-5.6",
+  "permission_mode": "plan",
+  "turn_id": "turn-parent",
+  "agent_id": "agent-explicit",
+  "agent_type": "worker",
+  "agent_transcript_path": "/tmp/fake-agent-id/fake-cwd/subagent.jsonl",
+  "stop_hook_active": false,
+  "last_assistant_message": null
+}

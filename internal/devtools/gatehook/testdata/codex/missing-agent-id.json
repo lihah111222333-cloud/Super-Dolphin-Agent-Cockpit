@@ -1,0 +1,8 @@
+{
+  "session_id": "session-parent",
+  "cwd": "__CWD__",
+  "hook_event_name": "SubagentStop",
+  "permission_mode": "default",
+  "turn_id": "turn-parent",
+  "stop_hook_active": false
+}
