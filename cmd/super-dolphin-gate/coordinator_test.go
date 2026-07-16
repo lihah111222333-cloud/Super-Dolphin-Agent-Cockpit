@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/ed25519"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -12,7 +13,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
-	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -46,118 +46,22 @@ func (runner *blockingFreshRunner) RunFreshContainer(
 		case <-runner.release:
 		}
 	}
-	now := time.Now().UTC()
-	deadline, removalProof, err := emitFakeContainerLifecycle(ctx, request, now)
-	if err != nil {
-		return localci.FreshContainerResult{}, err
-	}
-	gateResult := gatecontract.GateResult{
-		GateID: string(request.GateID), Status: gatecontract.GateStatusPassed,
-		ExitCode: 0, StartedAt: now, CompletedAt: now,
-		ArgvDigest: "sha256:" + strings.Repeat("1", 64), LogDigest: "sha256:" + strings.Repeat("2", 64),
-	}
-	return localci.FreshContainerResult{
-		Status: gatecontract.ResultStatusPassed, ExitCode: 0, GateResult: &gateResult,
-		StartedAt: now, CompletedAt: now, Deadline: deadline, RemovalProofDigest: removalProof,
-	}, nil
-}
-
-func emitFakeContainerLifecycle(
-	ctx context.Context,
-	request freshContainerRequest,
-	startedAt time.Time,
-) (time.Time, string, error) {
-	deadline := request.Deadline.UTC()
-	if deadline.IsZero() {
-		deadline = startedAt.Add(coordinatorTimeout(request.Profile))
-	}
-	removalProof := "sha256:" + strings.Repeat("9", 64)
-	containerID := strings.Repeat("a", 64)
-	phases := []localci.FreshContainerLifecyclePhase{
-		localci.FreshContainerPhasePrepared, localci.FreshContainerPhaseCreated,
-		localci.FreshContainerPhaseStarting, localci.FreshContainerPhaseStarted,
-		localci.FreshContainerPhaseExited, localci.FreshContainerPhaseRemoved,
-	}
-	for _, phase := range phases {
-		event := localci.FreshContainerLifecycleEvent{
-			Phase: phase, ContainerID: containerID,
-			ImageReference: "test@sha256:" + strings.Repeat("7", 64),
-			ConfigDigest:   "sha256:" + strings.Repeat("8", 64), SourceSnapshotDir: request.SourceSnapshotDir,
-			StartedAt: startedAt, Deadline: deadline, CompletedAt: startedAt, ExitCode: 0,
-		}
-		if phase == localci.FreshContainerPhasePrepared {
-			event.ContainerID = ""
-		}
-		if phase == localci.FreshContainerPhaseRemoved {
-			event.RemovalProofDigest = removalProof
-		}
-		if request.LifecycleHook != nil {
-			if err := request.LifecycleHook(ctx, event); err != nil {
-				return time.Time{}, "", err
-			}
-		}
-	}
-	return deadline, removalProof, nil
+	return successfulFreshContainerResult(request), nil
 }
 
 type fakeImageEnsurer struct{}
 
 func (fakeImageEnsurer) EnsureImage(_ context.Context, request imageEnsureRequest) (ensuredImage, error) {
+	accepted := testAcceptedImageRecord(request.Plan)
 	return ensuredImage{
-		ImageProvenanceSourceTreeSHA: strings.Repeat("f", len(request.JobSourceTreeSHA)),
+		Identity: accepted.Image, AcceptedRecord: accepted,
+		ImageProvenanceSourceTreeSHA: accepted.SourceTree,
 		Truth: localci.FreshContainerImageTruth{
 			PolicyDigest: request.Plan.PolicyDigest, InputDigest: "sha256:" + strings.Repeat("3", 64),
 			ToolchainDigest: "sha256:" + strings.Repeat("4", 64), SchemaVersion: "1",
+			BuildSourceTreeSHA: accepted.SourceTree,
 		},
 	}, nil
-}
-
-type fakeCandidateBuildService struct{}
-
-func (fakeCandidateBuildService) ExecuteBuild(context.Context, string) error { return nil }
-
-type fakePromotionWatcher struct{}
-
-func (fakePromotionWatcher) Run(ctx context.Context) error {
-	<-ctx.Done()
-	return ctx.Err()
-}
-
-type oneShotCandidatePlanner struct {
-	mu   sync.Mutex
-	plan localci.PromotionCandidatePlan
-}
-
-func (planner *oneShotCandidatePlanner) PlanCandidate(
-	context.Context,
-	imageEnsureRequest,
-) (localci.PromotionCandidatePlan, error) {
-	planner.mu.Lock()
-	defer planner.mu.Unlock()
-	plan := planner.plan
-	planner.plan = localci.PromotionCandidatePlan{}
-	return plan, nil
-}
-
-type blockingCandidateBuildService struct {
-	started chan string
-	release chan struct{}
-}
-
-type coordinatorSlotTestFixture struct {
-	buildService *blockingCandidateBuildService
-	runner       *blockingFreshRunner
-	client       *coordinatorTransportClient
-}
-
-func (service *blockingCandidateBuildService) ExecuteBuild(ctx context.Context, workloadID string) error {
-	service.started <- workloadID
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	case <-service.release:
-		return nil
-	}
 }
 
 type fakeSourceMaterializer struct{}
@@ -177,23 +81,110 @@ func (fakeSourceMaterializer) Materialize(
 
 type immediateFreshRunner struct{}
 
+type failingResultReceiptSigner struct{}
+
+func (failingResultReceiptSigner) SignResultReceipt(
+	gatecontract.ResultReceipt,
+) (gatecontract.ResultReceipt, error) {
+	return gatecontract.ResultReceipt{}, errors.New("injected receipt signing failure")
+}
+
 func (immediateFreshRunner) RunFreshContainer(
-	ctx context.Context,
+	_ context.Context,
 	request freshContainerRequest,
 ) (localci.FreshContainerResult, error) {
-	now := time.Now().UTC()
-	deadline, removalProof, err := emitFakeContainerLifecycle(ctx, request, now)
-	if err != nil {
-		return localci.FreshContainerResult{}, err
+	return successfulFreshContainerResult(request), nil
+}
+
+func successfulFreshContainerResult(request freshContainerRequest) localci.FreshContainerResult {
+	startedAt := time.Now().UTC()
+	completedAt := startedAt.Add(time.Millisecond)
+	logDigest := coordinatorDigest("2")
+	container := gatecontract.ContainerEvidence{
+		ContainerID: "container-" + string(request.GateID), NetworkID: "network-" + string(request.GateID),
+		HostConfigDigest: coordinatorDigest("5"), NetworkPolicyDigest: coordinatorDigest("6"),
+		Removed: true, NetworkRemoved: true,
+	}
+	removalProof := containerRemovalProofDigest(container.ContainerID)
+	gateResult := gatecontract.GateResult{
+		GateID: string(request.GateID), Status: gatecontract.GateStatusPassed, ExitCode: 0,
+		StartedAt: startedAt, CompletedAt: completedAt,
+		ArgvDigest: coordinatorDigest("1"), LogDigest: logDigest,
 	}
 	return localci.FreshContainerResult{
-		Status: gatecontract.ResultStatusPassed, ExitCode: 0,
-		StartedAt: now, CompletedAt: now, Deadline: deadline, RemovalProofDigest: removalProof,
-		GateResult: &gatecontract.GateResult{
-			GateID: string(request.GateID), Status: gatecontract.GateStatusPassed,
-			StartedAt: now, CompletedAt: now,
+		Status: gatecontract.ResultStatusPassed, ExitCode: 0, GateResult: &gateResult,
+		Container: container, StartedAt: startedAt, CompletedAt: completedAt,
+		Deadline: startedAt.Add(time.Minute), LogDigest: logDigest, RemovalProofDigest: removalProof,
+		Evidence: []gatecontract.Evidence{
+			{Kind: gatecontract.EvidenceKindLog, Digest: logDigest},
+			{Kind: gatecontract.EvidenceKindDocker, Digest: removalProof},
 		},
-	}, nil
+	}
+}
+
+func testAcceptedImageRecord(plan gatecontract.GatePlan) gatecontract.AcceptedImageRecord {
+	signer := gatecontract.SignerIdentity{
+		KeyID: "coordinator-test", KeyEpoch: 1, Algorithm: gatecontract.SignatureAlgorithmEd25519,
+	}
+	return gatecontract.AcceptedImageRecord{
+		SchemaVersion: gatecontract.AcceptedImageRecordSchemaVersion,
+		RepoID:        "example/repository", TrustedRef: "refs/heads/main",
+		TrustedCommit: strings.Repeat("e", 40), SourceTree: strings.Repeat("f", len(plan.Source.SourceTreeSHA)),
+		PolicyDigest: plan.PolicyDigest, ImageInputDigest: coordinatorDigest("3"),
+		Image: gatecontract.ImageIdentity{
+			Registry: "registry.invalid/super-dolphin/gate", OCIIndexDigest: coordinatorDigest("7"),
+			PlatformManifestDigest: coordinatorDigest("8"), ConfigDigest: coordinatorDigest("9"),
+			RootFSDiffIDs: []string{coordinatorDigest("a")}, OS: "linux", Architecture: "arm64",
+		},
+		Runner: gatecontract.TrustedRunnerIdentity{
+			BinaryDigest: coordinatorDigest("b"), Signer: signer, PolicyDigest: plan.PolicyDigest,
+		},
+		Generation: 1, AcceptedAt: time.Date(2026, time.July, 17, 0, 0, 0, 0, time.UTC),
+		Signer: signer, Signature: "signed-accepted-image-test-record",
+	}
+}
+
+func mustTestResultReceiptSigner(t *testing.T) resultReceiptSigner {
+	t.Helper()
+	publicKey, privateKey, err := ed25519.GenerateKey(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	signer, err := newEd25519ResultReceiptSigner(gatecontract.SignerIdentity{
+		KeyID: "result-receipt-test", KeyEpoch: 1, Algorithm: gatecontract.SignatureAlgorithmEd25519,
+	}, privateKey, publicKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return signer
+}
+
+func mustTestPassedReceipt(
+	t *testing.T,
+	record coordinatorJobRecord,
+	signer resultReceiptSigner,
+) gatecontract.ResultReceipt {
+	t.Helper()
+	execution := receiptExecution{
+		Accepted: testAcceptedImageRecord(record.Plan),
+		Deadline: time.Now().UTC().Add(2 * time.Minute),
+	}
+	for _, gateSpec := range record.Plan.Gates {
+		if err := execution.appendResult(successfulFreshContainerResult(freshContainerRequest{
+			GateID: gateSpec.ID,
+		})); err != nil {
+			t.Fatal(err)
+		}
+	}
+	receipt, err := buildPassedResultReceipt(record, execution, signer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return receipt
+}
+
+func coordinatorDigest(character string) string {
+	return "sha256:" + strings.Repeat(character, 64)
 }
 
 type competingOwnerStarter struct {
@@ -249,9 +240,8 @@ func (starter *competingOwnerStarter) stop(t *testing.T) {
 func TestConnectCoordinatorCompetingStartersConverge(t *testing.T) {
 	checkpoint := coordinatorTestCheckpoint(t)
 	dependencies := coordinatorDependencies{
-		ImageEnsurer: fakeImageEnsurer{}, CandidateBuilder: fakeCandidateBuildService{},
-		PromotionWatcher: fakePromotionWatcher{}, SourceMaterializer: fakeSourceMaterializer{},
-		FreshRunner: immediateFreshRunner{}, RecoveryRunner: &capturingFreshContainerRunner{},
+		ImageEnsurer: fakeImageEnsurer{}, SourceMaterializer: fakeSourceMaterializer{}, FreshRunner: immediateFreshRunner{},
+		ReceiptSigner: mustTestResultReceiptSigner(t),
 	}
 	starters := []*competingOwnerStarter{
 		{checkpoint: checkpoint, dependencies: dependencies},
@@ -280,112 +270,6 @@ func TestConnectCoordinatorCompetingStartersConverge(t *testing.T) {
 	for _, starter := range starters {
 		starter.stop(t)
 	}
-}
-
-func TestCoordinatorCandidateBuildUsesOneOfThreeFIFOSharedSlots(t *testing.T) {
-	fixture := startCoordinatorSlotTestFixture(t)
-	client := fixture.client
-	client.candidatePlanner = &oneShotCandidatePlanner{plan: localci.PromotionCandidatePlan{
-		BuildRequired: true, WorkloadID: "build-candidate-slot-proof",
-	}}
-	statuses := []jobStatus{
-		submitTestPlan(t, client, "1"), submitTestPlan(t, client, "2"),
-		submitTestPlan(t, client, "3"), submitTestPlan(t, client, "4"),
-	}
-	waitCoordinatorSharedSlots(t, fixture)
-	snapshot, err := client.scheduler.Snapshot(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	assertCoordinatorSharedSlotSnapshot(t, snapshot, statuses)
-}
-
-func startCoordinatorSlotTestFixture(t *testing.T) coordinatorSlotTestFixture {
-	t.Helper()
-	checkpoint := coordinatorTestCheckpoint(t)
-	buildService := &blockingCandidateBuildService{started: make(chan string, 1), release: make(chan struct{})}
-	runner := &blockingFreshRunner{
-		seen: make(map[string]bool), started: make(chan freshContainerRequest, 3), release: make(chan struct{}),
-	}
-	owner, err := openCoordinatorOwner(context.Background(), checkpoint, coordinatorDependencies{
-		ImageEnsurer: fakeImageEnsurer{}, CandidateBuilder: buildService,
-		PromotionWatcher: fakePromotionWatcher{}, SourceMaterializer: fakeSourceMaterializer{}, FreshRunner: runner,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	serveCtx, cancel := context.WithCancel(context.Background())
-	group := errgroup.Group{}
-	group.Go(func() error { return owner.Serve(serveCtx) })
-	t.Cleanup(func() {
-		cancel()
-		close(buildService.release)
-		close(runner.release)
-		if err := group.Wait(); err != nil {
-			t.Errorf("owner Serve() error = %v", err)
-		}
-	})
-	client := dialTestCoordinator(t, checkpoint)
-	return coordinatorSlotTestFixture{buildService: buildService, runner: runner, client: client}
-}
-
-func waitCoordinatorSharedSlots(t *testing.T, fixture coordinatorSlotTestFixture) {
-	t.Helper()
-	select {
-	case workloadID := <-fixture.buildService.started:
-		if workloadID != "build-candidate-slot-proof" {
-			t.Fatalf("build workload = %q", workloadID)
-		}
-	case <-time.After(time.Second):
-		t.Fatal("candidate build did not start")
-	}
-	for range 2 {
-		select {
-		case <-fixture.runner.started:
-		case <-time.After(time.Second):
-			t.Fatal("ordinary job did not share capacity with candidate build")
-		}
-	}
-}
-
-func assertCoordinatorSharedSlotSnapshot(t *testing.T, snapshot localci.SchedulerSnapshot, statuses []jobStatus) {
-	t.Helper()
-	if len(snapshot.Leases) != 3 {
-		t.Fatalf("active shared leases = %d, want 3", len(snapshot.Leases))
-	}
-	builds := 0
-	for _, lease := range snapshot.Leases {
-		if lease.Kind == localci.WorkloadKindBuild {
-			builds++
-		}
-	}
-	if builds != 1 {
-		t.Fatalf("active builds = %d, want 1", builds)
-	}
-	assertCoordinatorWorkload(t, snapshot, statuses[0].JobID, localci.WorkloadStatusQueued, "build-candidate-slot-proof")
-	assertCoordinatorWorkload(t, snapshot, statuses[1].JobID, localci.WorkloadStatusStarted)
-	assertCoordinatorWorkload(t, snapshot, statuses[2].JobID, localci.WorkloadStatusStarted)
-	assertCoordinatorWorkload(t, snapshot, statuses[3].JobID, localci.WorkloadStatusQueued)
-}
-
-func assertCoordinatorWorkload(
-	t *testing.T,
-	snapshot localci.SchedulerSnapshot,
-	workloadID string,
-	status localci.WorkloadStatus,
-	dependencies ...string,
-) {
-	t.Helper()
-	for _, workload := range snapshot.Workloads {
-		if workload.Request.ID != workloadID {
-			continue
-		}
-		if workload.Status != status || !slices.Equal(workload.Request.Dependencies, dependencies) {
-			t.Fatalf("workload %q = %+v", workloadID, workload)
-		}
-		return
-	}
-	t.Fatalf("workload %q is missing", workloadID)
 }
 
 func TestConnectCoordinatorDeadlineCoversOwnerStarter(t *testing.T) {
@@ -427,8 +311,6 @@ func TestFreshContainerRequestFieldRegistryIsComplete(t *testing.T) {
 		"ImageProvenanceSourceTreeSHA": "accepted image provenance", "JobSourceTreeSHA": "submitted job source",
 		"SourceSnapshotDir": "materialized source", "Profile": "timeout contract",
 		"Plan": "canonical execution plan", "GateID": "single fresh-container gate",
-		"ContainerLabels": "durable container identity", "Deadline": "first-start deadline",
-		"LifecycleHook": "durable lifecycle transition",
 	}
 	for index := range producer.NumField() {
 		field := producer.Field(index).Name
@@ -439,6 +321,176 @@ func TestFreshContainerRequestFieldRegistryIsComplete(t *testing.T) {
 	}
 	if len(registry) != 0 {
 		t.Fatalf("freshContainerRequest field registry has stale entries: %v", registry)
+	}
+}
+
+func TestCoordinatorStorePersistsReceiptCrashSafely(t *testing.T) {
+	checkpoint := coordinatorTestCheckpoint(t)
+	ctx := context.Background()
+	store := mustOpenCoordinatorStore(t, ctx, checkpoint)
+	t.Cleanup(func() {
+		_ = store.close()
+	})
+
+	record, receipt := persistCoordinatorReceipt(t, ctx, store)
+	assertCoordinatorReceiptIdempotency(t, ctx, store, record, receipt)
+	assertCoordinatorReceiptlessPassRejected(t, ctx, store)
+
+	mustCloseCoordinatorStore(t, store)
+	store = mustOpenCoordinatorStore(t, ctx, checkpoint)
+	assertCoordinatorReceiptReloaded(t, ctx, store, record, receipt)
+	deleteCoordinatorReceiptColumns(t, ctx, store, record.JobID)
+
+	mustCloseCoordinatorStore(t, store)
+	store = mustOpenCoordinatorStore(t, ctx, checkpoint)
+	if _, err := store.job(ctx, record.JobID); err == nil {
+		t.Fatal("restart restored a passed row whose receipt was lost")
+	}
+}
+
+// mustOpenCoordinatorStore 打开测试 store，失败时立即终止测试。
+func mustOpenCoordinatorStore(
+	t *testing.T,
+	ctx context.Context,
+	checkpoint localci.DockerDaemonIdentityCheckpoint,
+) *coordinatorStore {
+	t.Helper()
+	store, err := openCoordinatorStore(ctx, checkpoint)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return store
+}
+
+// mustCloseCoordinatorStore 关闭测试 store，失败时立即终止测试。
+func mustCloseCoordinatorStore(t *testing.T, store *coordinatorStore) {
+	t.Helper()
+	if err := store.close(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// persistCoordinatorReceipt 创建、启动并持久化一个带权威回执的 passed job。
+func persistCoordinatorReceipt(
+	t *testing.T,
+	ctx context.Context,
+	store *coordinatorStore,
+) (coordinatorJobRecord, gatecontract.ResultReceipt) {
+	t.Helper()
+	plan := mustTestGatePlan(t, "d")
+	record, err := store.createJob(ctx, "receipt-store-invocation", "receipt-store-job", mustWorkingDirectory(t), plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.startJob(ctx, record.JobID); err != nil {
+		t.Fatal(err)
+	}
+	signer := mustTestResultReceiptSigner(t)
+	receipt := mustTestPassedReceipt(t, record, signer)
+	if err := store.finishJob(ctx, record.JobID, jobStatePassed, receipt.GateResults, "", &receipt); err != nil {
+		t.Fatal(err)
+	}
+	return record, receipt
+}
+
+// assertCoordinatorReceiptIdempotency 校验同 job 仅接受唯一且内容一致的 receipt。
+func assertCoordinatorReceiptIdempotency(
+	t *testing.T,
+	ctx context.Context,
+	store *coordinatorStore,
+	record coordinatorJobRecord,
+	receipt gatecontract.ResultReceipt,
+) {
+	t.Helper()
+	if err := store.finishJob(ctx, record.JobID, jobStatePassed, receipt.GateResults, "", &receipt); err != nil {
+		t.Fatalf("idempotent finishJob() error = %v", err)
+	}
+	different := receipt
+	different.Signature = "different-signature"
+	if err := store.finishJob(ctx, record.JobID, jobStatePassed, receipt.GateResults, "", &different); err == nil {
+		t.Fatal("finishJob() accepted a second receipt for the same job")
+	}
+}
+
+// assertCoordinatorReceiptlessPassRejected 校验 passed 与 receipt 缺失不会写入 durable store。
+func assertCoordinatorReceiptlessPassRejected(
+	t *testing.T,
+	ctx context.Context,
+	store *coordinatorStore,
+) {
+	t.Helper()
+	secondPlan := mustTestGatePlan(t, "b")
+	second, err := store.createJob(ctx, "receipt-store-invocation-2", "receipt-store-job-2", mustWorkingDirectory(t), secondPlan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.startJob(ctx, second.JobID); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.finishJob(ctx, second.JobID, jobStatePassed, nil, "", nil); err == nil {
+		t.Fatal("finishJob() persisted passed without a receipt")
+	}
+	second, err = store.job(ctx, second.JobID)
+	if err != nil || second.State != jobStateStarted {
+		t.Fatalf("receipt-less pass changed durable state: state=%q error=%v", second.State, err)
+	}
+}
+
+// assertCoordinatorReceiptReloaded 校验重启后 receipt 与 passed 终态保持一致。
+func assertCoordinatorReceiptReloaded(
+	t *testing.T,
+	ctx context.Context,
+	store *coordinatorStore,
+	record coordinatorJobRecord,
+	receipt gatecontract.ResultReceipt,
+) {
+	t.Helper()
+	reloaded, err := store.job(ctx, record.JobID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reloaded.State != jobStatePassed || reloaded.Receipt == nil ||
+		reloaded.ReceiptID != receipt.ReceiptID || !receiptsEqual(reloaded.Receipt, &receipt) {
+		t.Fatalf("reloaded receipt drifted: %#v", reloaded)
+	}
+}
+
+// deleteCoordinatorReceiptColumns 模拟 passed 行持久化后 receipt 列丢失。
+func deleteCoordinatorReceiptColumns(
+	t *testing.T,
+	ctx context.Context,
+	store *coordinatorStore,
+	jobID string,
+) {
+	t.Helper()
+	if _, err := store.db.ExecContext(ctx, `
+		UPDATE coordinator_jobs SET receipt_id = NULL, receipt_json = NULL WHERE job_id = ?
+	`, jobID); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestCoordinatorReceiptSigningFailurePersistsInfraFailed(t *testing.T) {
+	checkpoint := coordinatorTestCheckpoint(t)
+	owner := startTestCoordinatorOwnerWithSigner(
+		t, checkpoint, immediateFreshRunner{}, failingResultReceiptSigner{},
+	)
+	client := dialTestCoordinator(t, checkpoint)
+	submitted := submitTestPlan(t, client, "c")
+	status, err := client.Wait(context.Background(), submitted.JobID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status.State != jobStateInfraFailed || !status.Terminal || status.ReceiptID != "" {
+		t.Fatalf("signing failure status = %#v", status)
+	}
+	record, err := owner.store.job(context.Background(), submitted.JobID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if record.State != jobStateInfraFailed || record.Receipt != nil ||
+		!strings.Contains(record.Error, "sign canonical result receipt") {
+		t.Fatalf("signing failure durable record = %#v", record)
 	}
 }
 
@@ -662,11 +714,19 @@ func startTestCoordinatorOwner(
 	checkpoint localci.DockerDaemonIdentityCheckpoint,
 	runner FreshContainerRunner,
 ) *coordinatorOwner {
+	return startTestCoordinatorOwnerWithSigner(t, checkpoint, runner, mustTestResultReceiptSigner(t))
+}
+
+func startTestCoordinatorOwnerWithSigner(
+	t *testing.T,
+	checkpoint localci.DockerDaemonIdentityCheckpoint,
+	runner FreshContainerRunner,
+	signer resultReceiptSigner,
+) *coordinatorOwner {
 	t.Helper()
 	owner, err := openCoordinatorOwner(context.Background(), checkpoint, coordinatorDependencies{
-		ImageEnsurer: fakeImageEnsurer{}, CandidateBuilder: fakeCandidateBuildService{},
-		PromotionWatcher: fakePromotionWatcher{}, SourceMaterializer: fakeSourceMaterializer{}, FreshRunner: runner,
-		RecoveryRunner: &capturingFreshContainerRunner{},
+		ImageEnsurer: fakeImageEnsurer{}, SourceMaterializer: fakeSourceMaterializer{}, FreshRunner: runner,
+		ReceiptSigner: signer,
 	})
 	if err != nil {
 		t.Fatalf("openCoordinatorOwner() error = %v", err)

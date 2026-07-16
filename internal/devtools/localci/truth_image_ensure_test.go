@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"reflect"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
 )
@@ -141,6 +143,7 @@ func TestTruthImageEnsureFieldRegistriesAreComplete(t *testing.T) {
 	})
 	assertRegisteredFields(t, reflect.TypeFor[TruthImageEnsureResult](), map[string]string{
 		"Status": "coordinator decision", "SubmittedJobSourceTree": "job provenance",
+		"AcceptedRecord":                "accepted authority state",
 		"AcceptedImageBuildSourceTree":  "accepted build provenance",
 		"CandidateImageBuildSourceTree": "candidate build provenance",
 		"PolicyDigest":                  "policy binding", "ImageSchemaVersion": "image schema binding",
@@ -156,13 +159,22 @@ func truthImageRequest(tree ReadOnlyGitTree) TruthImageEnsureRequest {
 }
 
 func acceptedImageRecordForEnsure(sourceTree string, inputDigest string) gate.AcceptedImageRecord {
+	now := time.Date(2026, time.July, 17, 0, 0, 0, 0, time.UTC)
+	signer := gate.SignerIdentity{KeyID: "truth-image-test", KeyEpoch: 1, Algorithm: gate.SignatureAlgorithmEd25519}
 	return gate.AcceptedImageRecord{
-		SourceTree: sourceTree, PolicyDigest: digest("d"), ImageInputDigest: inputDigest,
+		SchemaVersion: gate.AcceptedImageRecordSchemaVersion,
+		RepoID:        "example/repository", TrustedRef: "refs/heads/main",
+		TrustedCommit: strings.Repeat("b", 40), SourceTree: sourceTree,
+		PolicyDigest: digest("d"), ImageInputDigest: inputDigest,
 		Image: gate.ImageIdentity{
 			Registry: "registry.invalid/super-dolphin/gate", OCIIndexDigest: digest("1"),
 			PlatformManifestDigest: digest("2"), ConfigDigest: digest("3"),
 			RootFSDiffIDs: []string{digest("4")}, OS: "linux", Architecture: "arm64",
 		},
+		Runner: gate.TrustedRunnerIdentity{
+			BinaryDigest: digest("5"), Signer: signer, PolicyDigest: digest("d"),
+		},
+		Generation: 1, AcceptedAt: now, Signer: signer, Signature: "signed-test-record",
 	}
 }
 

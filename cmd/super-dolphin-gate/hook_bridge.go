@@ -10,7 +10,7 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gatehook"
 )
 
-var errHookReceiptUnavailable = errors.New("coordinator does not expose a signed gate receipt")
+var errHookReceiptInvalid = errors.New("coordinator result receipt is not authoritative")
 
 type hookCoordinator interface {
 	gatehook.Coordinator
@@ -22,10 +22,12 @@ type hookCoordinatorConnector func(context.Context) (hookCoordinator, error)
 type hookCoordinatorClient interface {
 	coordinatorClient
 	StatusInvocation(context.Context, string, string) (jobStatus, error)
+	ResultReceipt(context.Context, string) (gatecontract.ResultReceipt, error)
 }
 
 type hookCoordinatorBridge struct {
-	client hookCoordinatorClient
+	client    hookCoordinatorClient
+	authority hookResultReceiptAuthority
 }
 
 var _ hookCoordinator = (*hookCoordinatorBridge)(nil)
@@ -39,7 +41,15 @@ func connectProductionHookCoordinator(ctx context.Context) (hookCoordinator, err
 	if !ok {
 		return nil, errors.Join(errors.New("production coordinator lacks hook invocation lookup"), client.Close())
 	}
-	return &hookCoordinatorBridge{client: typed}, nil
+	config, err := loadProductionCoordinatorConfig()
+	if err != nil {
+		return nil, errors.Join(err, client.Close())
+	}
+	authority, err := newProductionHookResultReceiptAuthority(ctx, config)
+	if err != nil {
+		return nil, errors.Join(err, client.Close())
+	}
+	return &hookCoordinatorBridge{client: typed, authority: authority}, nil
 }
 
 // Submit 将 typed hook 请求接到 canonical plan 与 durable coordinator submit。
@@ -63,7 +73,7 @@ func (bridge *hookCoordinatorBridge) Submit(
 		Plan:           plan,
 		InvocationID:   invocationID,
 	})
-	return adaptCoordinatorHookStatus(status, submitErr)
+	return bridge.adaptCoordinatorHookStatus(ctx, status, submitErr, request.Source.SourceTreeSHA)
 }
 
 // Status 按 invocation 和活动 worktree 查询 coordinator 状态。
@@ -82,7 +92,7 @@ func (bridge *hookCoordinatorBridge) Status(
 		coordinatorHookInvocationID(request.Invocation),
 		request.Repository.WorktreeRoot,
 	)
-	return adaptCoordinatorHookStatus(status, statusErr)
+	return bridge.adaptCoordinatorHookStatus(ctx, status, statusErr, request.ExpectedSourceTreeSHA)
 }
 
 // Wait 先证明 job 属于 invocation，再等待同一个 durable job。
@@ -105,7 +115,15 @@ func (bridge *hookCoordinatorBridge) Wait(
 		return gatehook.JobStatus{}, fmt.Errorf("%w: wait job is not bound to hook invocation", errCoordinatorState)
 	}
 	status, waitErr := bridge.client.Wait(ctx, request.JobID)
-	return adaptCoordinatorHookStatus(status, waitErr)
+	expectedTree := observed.JobSourceTreeSHA
+	if waitErr == nil && status.State == jobStatePassed {
+		_, source, sourceErr := gatehook.CurrentWorktreeSource(ctx, request.Repository.WorktreeRoot)
+		if sourceErr != nil {
+			return gatehook.JobStatus{}, fmt.Errorf("read current wait source: %w", sourceErr)
+		}
+		expectedTree = source.SourceTreeSHA
+	}
+	return bridge.adaptCoordinatorHookStatus(ctx, status, waitErr, expectedTree)
 }
 
 // Close 关闭 bridge 持有的 coordinator transport。
@@ -122,7 +140,12 @@ func coordinatorHookInvocationID(identity gatehook.InvocationIdentity) string {
 }
 
 // adaptCoordinatorHookStatus 将内部状态收敛到 gatehook 的严格 decision DTO。
-func adaptCoordinatorHookStatus(status jobStatus, statusErr error) (gatehook.JobStatus, error) {
+func (bridge *hookCoordinatorBridge) adaptCoordinatorHookStatus(
+	ctx context.Context,
+	status jobStatus,
+	statusErr error,
+	expectedTree string,
+) (gatehook.JobStatus, error) {
 	if statusErr != nil {
 		return gatehook.JobStatus{}, statusErr
 	}
@@ -141,17 +164,52 @@ func adaptCoordinatorHookStatus(status jobStatus, statusErr error) (gatehook.Job
 		Summary:       hookJobSummary(status.State),
 	}
 	if status.State == jobStatePassed {
-		return adapted, fmt.Errorf(
-			"%w: passed job %s is not acceptable for source tree %s",
-			errHookReceiptUnavailable,
-			status.JobID,
-			status.JobSourceTreeSHA,
-		)
+		if err := bridge.attachPassedResultReceipt(ctx, status, expectedTree, &adapted); err != nil {
+			return adapted, err
+		}
 	}
 	if err := adapted.Validate(); err != nil {
 		return adapted, fmt.Errorf("validate coordinator hook status: %w", err)
 	}
 	return adapted, nil
+}
+
+// attachPassedResultReceipt 从 coordinator 拉取、验签并绑定 passed receipt。
+func (bridge *hookCoordinatorBridge) attachPassedResultReceipt(
+	ctx context.Context,
+	status jobStatus,
+	expectedTree string,
+	adapted *gatehook.JobStatus,
+) error {
+	if bridge == nil || bridge.client == nil || bridge.authority == nil {
+		return fmt.Errorf("%w: receipt verification dependency is missing", errHookReceiptInvalid)
+	}
+	receipt, err := bridge.client.ResultReceipt(ctx, status.JobID)
+	if err != nil {
+		return fmt.Errorf("%w: read receipt: %v", errHookReceiptInvalid, err)
+	}
+	if err := bridge.authority.VerifyCurrentResultReceipt(ctx, receipt); err != nil {
+		return fmt.Errorf("%w: %v", errHookReceiptInvalid, err)
+	}
+	if !resultReceiptMatchesHookStatus(receipt, status, expectedTree) {
+		return fmt.Errorf("%w: receipt identity does not match current job and source", errHookReceiptInvalid)
+	}
+	adapted.ReceiptID = receipt.ReceiptID
+	return nil
+}
+
+// resultReceiptMatchesHookStatus 比较 receipt 与当前 job、invocation 和 tree 绑定。
+func resultReceiptMatchesHookStatus(
+	receipt gatecontract.ResultReceipt,
+	status jobStatus,
+	expectedTree string,
+) bool {
+	return status.ReceiptID == receipt.ReceiptID &&
+		receipt.ReceiptID == resultReceiptID(status.JobID) &&
+		receipt.InvocationID == status.InvocationID &&
+		receipt.Source.SourceTreeSHA == status.JobSourceTreeSHA &&
+		receipt.Source.SourceTreeSHA == expectedTree &&
+		receipt.Status == gatecontract.ResultStatusPassed
 }
 
 // hookJobState 将 coordinator 状态映射到公开 hook 状态集合。

@@ -5,7 +5,6 @@ import (
 	"crypto/ed25519"
 	"encoding/base64"
 	"encoding/json"
-	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -19,23 +18,14 @@ import (
 )
 
 type productionTestFixture struct {
-	config              productionCoordinatorConfig
-	configPath          string
-	signer              gatecontract.SignerIdentity
-	privateKey          ed25519.PrivateKey
-	commit              string
-	tree                string
-	acceptedInputDigest string
-	sourceRepo          string
-}
-
-type productionCandidatePromotionFixture struct {
-	production      *productionTestFixture
-	authority       *productionPromotionAuthority
-	controller      *localci.PromotionController
-	tree            localci.ReadOnlyGitTree
-	accepted        gatecontract.AcceptedImageRecord
-	candidateCommit string
+	config     productionCoordinatorConfig
+	configPath string
+	signer     gatecontract.SignerIdentity
+	privateKey ed25519.PrivateKey
+	receiptKey ed25519.PrivateKey
+	commit     string
+	tree       string
+	sourceRepo string
 }
 
 type capturingTruthImageEnsurer struct {
@@ -55,58 +45,12 @@ type capturingFreshContainerRunner struct {
 	request localci.FreshContainerRequest
 }
 
-type productionBuildKitRunnerStub struct {
-	digest string
-}
-
-func (runner productionBuildKitRunnerStub) Build(
-	context.Context,
-	localci.BuildKitBuildRequest,
-) (string, error) {
-	return runner.digest, nil
-}
-
-type productionCandidateIdentityResolverStub struct{}
-
-func (productionCandidateIdentityResolverStub) ResolveCandidateIdentity(
-	_ context.Context,
-	_ localci.PromotionCandidate,
-	result localci.CandidateResult,
-) (gatecontract.ImageIdentity, error) {
-	return gatecontract.ImageIdentity{
-		Registry: "docker.io/library/super-dolphin-gate-local", OCIIndexDigest: result.ImageDigest,
-		PlatformManifestDigest: result.ImageDigest, ConfigDigest: productionDigest("9"),
-		RootFSDiffIDs: []string{productionDigest("a")}, OS: "linux", Architecture: "arm64",
-	}, nil
-}
-
 func (runner *capturingFreshContainerRunner) RunFreshContainer(
 	_ context.Context,
 	request localci.FreshContainerRequest,
 ) (localci.FreshContainerResult, error) {
 	runner.request = request
 	return localci.FreshContainerResult{Status: gatecontract.ResultStatusPassed}, nil
-}
-
-func (*capturingFreshContainerRunner) RecoverFreshContainer(
-	context.Context,
-	localci.FreshContainerRecoveryRequest,
-) (localci.FreshContainerResult, error) {
-	return localci.FreshContainerResult{}, errors.New("unexpected container recovery")
-}
-
-func (*capturingFreshContainerRunner) ProbeFreshContainerRecovery(
-	context.Context,
-	localci.FreshContainerRecoveryRequest,
-) (localci.FreshContainerRecoveryObservation, error) {
-	return localci.FreshContainerRecoveryObservation{}, errors.New("unexpected container recovery probe")
-}
-
-func (*capturingFreshContainerRunner) CleanupUnprovedFreshContainer(
-	context.Context,
-	localci.FreshContainerCleanupRequest,
-) (localci.FreshContainerResult, error) {
-	return localci.FreshContainerResult{}, errors.New("unexpected container recovery cleanup")
 }
 
 func TestProductionCoordinatorDependenciesAssembleRealAdapters(t *testing.T) {
@@ -120,17 +64,14 @@ func TestProductionCoordinatorDependenciesAssembleRealAdapters(t *testing.T) {
 	if _, ok := dependencies.ImageEnsurer.(*productionImageEnsurer); !ok {
 		t.Fatalf("ImageEnsurer = %T", dependencies.ImageEnsurer)
 	}
-	if _, ok := dependencies.CandidateBuilder.(*productionCandidateBuildService); !ok {
-		t.Fatalf("CandidateBuilder = %T", dependencies.CandidateBuilder)
-	}
-	if _, ok := dependencies.PromotionWatcher.(*localci.PromotionController); !ok {
-		t.Fatalf("PromotionWatcher = %T", dependencies.PromotionWatcher)
-	}
 	if _, ok := dependencies.SourceMaterializer.(*productionSourceMaterializer); !ok {
 		t.Fatalf("SourceMaterializer = %T", dependencies.SourceMaterializer)
 	}
 	if _, ok := dependencies.FreshRunner.(*productionFreshContainerRunner); !ok {
 		t.Fatalf("FreshRunner = %T", dependencies.FreshRunner)
+	}
+	if _, ok := dependencies.ReceiptSigner.(*ed25519ResultReceiptSigner); !ok {
+		t.Fatalf("ReceiptSigner = %T", dependencies.ReceiptSigner)
 	}
 }
 
@@ -150,6 +91,65 @@ func TestProductionSignatureVerifierChecksRealEd25519Signature(t *testing.T) {
 	}
 }
 
+func TestProductionResultReceiptPrivateKeyIsOwnerOnly(t *testing.T) {
+	fixture := newProductionTestFixture(t)
+	signer, err := newProductionResultReceiptSigner(fixture.config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := testHookSubmitRequest(t)
+	receiptFixture := newHookReceiptFixture(t, request, "production-key-job")
+	signed, err := signer.SignResultReceipt(receiptFixture.receipt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	verifier, err := newProductionResultReceiptVerifier(fixture.config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := verifier.VerifyResultReceipt(signed); err != nil {
+		t.Fatalf("VerifyResultReceipt() error = %v", err)
+	}
+
+	privatePath := fixture.config.ResultReceiptAuthority.PrivateKeyFile
+	if err := os.Remove(privatePath); err != nil {
+		t.Fatal(err)
+	}
+	publicOnly, err := newProductionResultReceiptVerifier(fixture.config)
+	if err != nil {
+		t.Fatalf("public verifier tried to read private key: %v", err)
+	}
+	if err := publicOnly.VerifyResultReceipt(signed); err != nil {
+		t.Fatalf("public verifier failed after private key removal: %v", err)
+	}
+	if _, err := newProductionResultReceiptSigner(fixture.config); err == nil {
+		t.Fatal("production signer loaded without the owner private key file")
+	}
+}
+
+func TestProductionResultReceiptPrivateKeyRequiresExactModeAndMatchingPublicKey(t *testing.T) {
+	fixture := newProductionTestFixture(t)
+	privatePath := fixture.config.ResultReceiptAuthority.PrivateKeyFile
+	if err := os.Chmod(privatePath, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := loadProductionCoordinatorConfigFile(fixture.configPath); err == nil {
+		t.Fatal("production config accepted a non-0600 receipt private key")
+	}
+	if err := os.Chmod(privatePath, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	publicKey, _, err := ed25519.GenerateKey(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mismatched := fixture.config
+	mismatched.ResultReceiptAuthority.PublicKey = base64.StdEncoding.EncodeToString(publicKey)
+	if _, err := newProductionResultReceiptSigner(mismatched); err == nil {
+		t.Fatal("production signer accepted mismatched Ed25519 key material")
+	}
+}
+
 func TestProductionGitAuthorityRequiresExactTrustedRefTip(t *testing.T) {
 	fixture := newProductionTestFixture(t)
 	authority, err := newProductionGitAuthority(context.Background(), fixture.config)
@@ -163,117 +163,6 @@ func TestProductionGitAuthorityRequiresExactTrustedRefTip(t *testing.T) {
 	record.TrustedCommit = strings.Repeat("f", len(record.TrustedCommit))
 	if err := authority.verifyRecord(context.Background(), record); err == nil {
 		t.Fatal("verifyRecord() accepted a non-tip trusted commit")
-	}
-}
-
-func TestProductionBareTrustedRefPromotesBuiltCandidateWithRealEd25519(t *testing.T) {
-	fixture := newProductionTestFixture(t)
-	candidateCommit, tree := commitProductionCandidate(t, fixture)
-	promotion := prepareProductionCandidatePromotion(t, &fixture, candidateCommit, tree)
-	advanceAndPromoteProductionCandidate(t, promotion)
-	assertProductionCandidatePromoted(t, promotion)
-}
-
-func commitProductionCandidate(t *testing.T, fixture productionTestFixture) (string, localci.ReadOnlyGitTree) {
-	t.Helper()
-	if err := os.WriteFile(filepath.Join(fixture.sourceRepo, "go.mod"), []byte("module example.invalid/promoted\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	runProductionGit(t, fixture.sourceRepo, "add", "--", "go.mod")
-	runProductionGit(t, fixture.sourceRepo, "-c", "user.name=Test", "-c", "user.email=test@example.invalid", "commit", "-qm", "candidate")
-	candidateCommit := productionGitLine(t, fixture.sourceRepo, "rev-parse", "HEAD^{commit}")
-	candidateTree := productionGitLine(t, fixture.sourceRepo, "rev-parse", "HEAD^{tree}")
-	source := gatecontract.SourceSpec{
-		Kind: gatecontract.SourceKindCommit, ObjectFormat: gatecontract.GitObjectFormatSHA1,
-		Commit: &gatecontract.CommitSource{SHA: candidateCommit}, SourceTreeSHA: candidateTree,
-	}
-	tree, err := localci.LoadReadOnlyGitTree(context.Background(), fixture.sourceRepo, source)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return candidateCommit, tree
-}
-
-func prepareProductionCandidatePromotion(
-	t *testing.T,
-	fixture *productionTestFixture,
-	candidateCommit string,
-	tree localci.ReadOnlyGitTree,
-) productionCandidatePromotionFixture {
-	t.Helper()
-	promotion, err := newProductionPromotionAuthority(context.Background(), fixture.config)
-	if err != nil {
-		t.Fatal(err)
-	}
-	accepted, err := promotion.state.Load(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	createdAt := time.Now().UTC().Truncate(time.Second)
-	plan, err := promotion.candidates.Plan(context.Background(), accepted, localci.PromotionCandidatePlanRequest{
-		Tree: tree, PolicyDigest: accepted.PolicyDigest, Platform: fixture.config.Platform,
-		RepoID: fixture.config.RepoID, TrustedRef: fixture.config.TrustedRef, TrustedCommit: candidateCommit,
-		CreatedAt: createdAt, ExpiresAt: createdAt.Add(time.Hour),
-	})
-	if err != nil || !plan.BuildRequired {
-		t.Fatalf("Plan() = %+v, err=%v", plan, err)
-	}
-	builder, err := localci.NewImageBuilder(productionBuildKitRunnerStub{digest: productionDigest("8")})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := promotion.candidates.ExecuteBuild(
-		context.Background(), plan.WorkloadID, builder, productionCandidateIdentityResolverStub{},
-	); err != nil {
-		t.Fatal(err)
-	}
-	controller, err := localci.NewPromotionController(
-		promotion.candidates, promotion.state, promotion.authority, promotion.signer, 20*time.Millisecond,
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return productionCandidatePromotionFixture{
-		production: fixture, authority: promotion, controller: controller,
-		tree: tree, accepted: accepted, candidateCommit: candidateCommit,
-	}
-}
-
-func advanceAndPromoteProductionCandidate(t *testing.T, fixture productionCandidatePromotionFixture) {
-	t.Helper()
-	controller := fixture.controller
-	if err := controller.PromoteReady(context.Background()); err != nil {
-		t.Fatalf("PromoteReady(old trusted tip) error = %v", err)
-	}
-	config := fixture.production.config
-	runProductionGit(t, "", "--git-dir="+config.TrustedRepository, "fetch", "-q", "--no-tags", "--", fixture.production.sourceRepo, fixture.candidateCommit)
-	runProductionGit(t, "", "--git-dir="+config.TrustedRepository, "update-ref", config.TrustedRef, fixture.candidateCommit, fixture.production.commit)
-	if err := controller.PromoteReady(context.Background()); err != nil {
-		t.Fatalf("PromoteReady(candidate trusted tip) error = %v", err)
-	}
-}
-
-func assertProductionCandidatePromoted(t *testing.T, fixture productionCandidatePromotionFixture) {
-	t.Helper()
-	promotion := fixture.authority
-	promoted, err := promotion.accepted.Load(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if promoted.Generation != 2 || promoted.TrustedCommit != fixture.candidateCommit ||
-		promoted.Image.PlatformManifestDigest != productionDigest("8") {
-		t.Fatalf("promoted accepted record = %+v", promoted)
-	}
-	truth, err := localci.NewTruthImageEnsurer(promotion.accepted, promotion.candidates)
-	if err != nil {
-		t.Fatal(err)
-	}
-	result, err := truth.EnsureImage(context.Background(), localci.TruthImageEnsureRequest{
-		Tree: fixture.tree, PolicyDigest: fixture.accepted.PolicyDigest, Platform: fixture.production.config.Platform,
-	})
-	if err != nil || result.Status != localci.TruthImageEnsureAccepted ||
-		result.Image.PlatformManifestDigest != productionDigest("8") {
-		t.Fatalf("EnsureImage(after promotion) = %+v, err=%v", result, err)
 	}
 }
 
@@ -323,10 +212,15 @@ func TestProductionImageEnsurerKeepsJobAndAcceptedBuildTreesSeparate(t *testing.
 		t.Fatal(err)
 	}
 	acceptedTree := strings.Repeat("f", len(fixture.tree))
+	accepted := productionAcceptedRecord(t, fixture)
+	accepted.SourceTree = acceptedTree
+	accepted.PolicyDigest = plan.PolicyDigest
+	accepted.Runner.PolicyDigest = plan.PolicyDigest
 	truth := &capturingTruthImageEnsurer{result: localci.TruthImageEnsureResult{
 		Status: localci.TruthImageEnsureAccepted, SubmittedJobSourceTree: fixture.tree,
 		AcceptedImageBuildSourceTree: acceptedTree, PolicyDigest: plan.PolicyDigest, ImageSchemaVersion: "1",
-		ImageInputDigest: productionDigest("8"), ToolchainDigest: productionDigest("9"),
+		ImageInputDigest: accepted.ImageInputDigest, ToolchainDigest: productionDigest("9"),
+		AcceptedRecord: accepted, Image: accepted.Image,
 	}}
 	ensurer := &productionImageEnsurer{truth: truth, platform: "linux/arm64"}
 	result, err := ensurer.EnsureImage(context.Background(), imageEnsureRequest{
@@ -369,44 +263,22 @@ func TestProductionFreshRunnerForwardsOnlyMatchingAcceptedProvenance(t *testing.
 }
 
 func TestProductionCoordinatorConfigFieldRegistryIsComplete(t *testing.T) {
-	assertProductionCoordinatorConfigFields(t)
-	assertProductionBootstrapFields(t)
-}
-
-func assertProductionCoordinatorConfigFields(t *testing.T) {
-	t.Helper()
 	assertProductionFields(t, reflect.TypeFor[productionCoordinatorConfig](), map[string]string{
-		"AcceptedImageRoot": "signed state", "BootstrapRootFile": "signed generation-one authority",
-		"BootstrapControllerFile": "signed external execution closure",
-		"CandidateStateRoot":      "durable candidate authority",
-		"CandidateBuildRoot":      "candidate isolation",
-		"TrustedSourceRoot":       "snapshot mount boundary", "SeccompProfile": "container policy",
+		"AcceptedImageRoot": "signed state", "CandidateBuildRoot": "candidate isolation",
+		"TrustedSourceRoot": "snapshot mount boundary", "SeccompProfile": "container policy",
 		"Platform": "image platform", "RepoID": "repository identity", "TrustedRef": "admission ref",
 		"TrustedRepository": "external bare mirror", "AcceptedImageSigners": "signature trust root",
-		"PromotionSigner": "host signing authority", "CandidateTTLSeconds": "candidate expiry",
-		"PromotionPollMillis": "watcher cadence",
+		"ResultReceiptAuthority": "result receipt authority",
 	})
 	assertProductionFields(t, reflect.TypeFor[productionTrustedKey](), map[string]string{
 		"Signer": "key identity", "PublicKey": "Ed25519 verification material",
 	})
-	assertProductionFields(t, reflect.TypeFor[productionPromotionKey](), map[string]string{
-		"Signer": "host key identity", "PrivateKeyFile": "repository-external signing key",
+	assertProductionFields(t, reflect.TypeFor[productionResultReceiptAuthorityConfig](), map[string]string{
+		"Signer": "receipt signer identity", "PublicKey": "receipt verification material",
+		"PrivateKeyFile": "owner-only receipt signing material",
 	})
-}
-
-func assertProductionBootstrapFields(t *testing.T) {
-	t.Helper()
-	assertProductionFields(t, reflect.TypeFor[productionBootstrapRoot](), map[string]string{
-		"SchemaVersion": "strict root schema", "RepoID": "repository identity", "RemoteURL": "canonical remote", "TrustedRef": "admission ref",
-		"BaselineCommit": "fixed bootstrap commit", "BaselineTree": "fixed bootstrap tree",
-		"PolicyDigest": "fixed baseline policy", "ImageInputDigest": "fixed baseline input closure",
-		"Runner": "immutable OCI runner", "Controller": "external execution authority",
-		"Signer": "installation signer", "Ed25519PublicKey": "verification material",
-		"VerifierVersion": "host verifier contract", "Signature": "root authenticity",
-	})
-	assertProductionFields(t, reflect.TypeFor[productionBootstrapControllerIdentity](), map[string]string{
-		"BinaryDigest": "controller executable identity", "DesignatedRequirement": "macOS code-signing identity",
-		"Signer": "controller attestation identity",
+	assertProductionFields(t, reflect.TypeFor[productionResultReceiptPrivateKey](), map[string]string{
+		"PrivateKey": "owner-only Ed25519 private key",
 	})
 }
 
@@ -452,12 +324,6 @@ func TestLoadProductionCoordinatorConfigFileValidatesDecodedConfig(t *testing.T)
 		{name: "platform", want: "platform must be explicit", mutate: func(config *productionCoordinatorConfig) {
 			config.Platform = "linux"
 		}},
-		{name: "bootstrap_root", want: "bootstrap trust root", mutate: func(config *productionCoordinatorConfig) {
-			config.BootstrapRootFile = ""
-		}},
-		{name: "bootstrap_controller", want: "bootstrap controller", mutate: func(config *productionCoordinatorConfig) {
-			config.BootstrapControllerFile = ""
-		}},
 		{name: "root_overlap", want: "roots must not overlap", mutate: func(config *productionCoordinatorConfig) {
 			config.CandidateBuildRoot = config.AcceptedImageRoot
 		}},
@@ -485,52 +351,6 @@ func TestProductionCoordinatorRejectsGitObjectEnvironmentOverrides(t *testing.T)
 
 func newProductionTestFixture(t *testing.T) productionTestFixture {
 	t.Helper()
-	root, sourceRepo, trustedRepository, commit, tree := newProductionTestGitFixture(t)
-	acceptedRoot := makePrivateDirectory(t, root, "accepted")
-	candidateStateRoot := makePrivateDirectory(t, root, "candidate-state")
-	buildRoot := makePrivateDirectory(t, root, "build")
-	trustedSourceRoot := productionTestTrustedSourceRoot(t)
-	seccomp := filepath.Join(root, "seccomp.json")
-	if err := os.WriteFile(seccomp, []byte("{}\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	publicKey, privateKey, signer, privateKeyFile := newProductionTestSignerFixture(t, root)
-	bootstrapRootFile := filepath.Join(root, "bootstrap-root.json")
-	bootstrapControllerFile := writeProductionTestBootstrapController(t, root)
-	config := productionCoordinatorConfig{
-		AcceptedImageRoot: acceptedRoot, CandidateStateRoot: candidateStateRoot,
-		BootstrapRootFile: bootstrapRootFile, BootstrapControllerFile: bootstrapControllerFile,
-		CandidateBuildRoot: buildRoot, TrustedSourceRoot: trustedSourceRoot,
-		SeccompProfile: seccomp, Platform: "linux/arm64", RepoID: "example/repository",
-		TrustedRef: "refs/heads/main", TrustedRepository: trustedRepository,
-		AcceptedImageSigners: []productionTrustedKey{{
-			Signer: signer, PublicKey: base64.StdEncoding.EncodeToString(publicKey),
-		}},
-		PromotionSigner:     productionPromotionKey{Signer: signer, PrivateKeyFile: privateKeyFile},
-		CandidateTTLSeconds: 3600, PromotionPollMillis: 20,
-	}
-	bootstrapRoot := productionBootstrapRootForFixture(t, config, commit, tree, signer, publicKey)
-	writeProductionBootstrapRootFixture(t, bootstrapRootFile, bootstrapRoot, privateKey)
-	fixture := productionTestFixture{
-		config: config, signer: signer, privateKey: privateKey, commit: commit, tree: tree, sourceRepo: sourceRepo,
-	}
-	baseTree, err := localci.LoadReadOnlyGitTree(context.Background(), sourceRepo, productionSourceSpec(fixture))
-	if err != nil {
-		t.Fatal(err)
-	}
-	baseInputs, err := localci.ResolveGateImageInputs(baseTree, productionDigest("1"), config.Platform)
-	if err != nil {
-		t.Fatal(err)
-	}
-	fixture.acceptedInputDigest = baseInputs.ImageInputDigest
-	bootstrapAcceptedState(t, fixture)
-	fixture.configPath = filepath.Join(root, "production.json")
-	writePrivateJSON(t, fixture.configPath, config)
-	return fixture
-}
-
-func newProductionTestGitFixture(t *testing.T) (string, string, string, string, string) {
-	t.Helper()
 	root, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -541,8 +361,7 @@ func newProductionTestGitFixture(t *testing.T) (string, string, string, string, 
 	if err := os.WriteFile(filepath.Join(sourceRepo, "trusted.txt"), []byte("trusted object content\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	writeProductionBuildInputs(t, sourceRepo)
-	runProductionGit(t, sourceRepo, "add", "--", ".")
+	runProductionGit(t, sourceRepo, "add", "--", "trusted.txt")
 	runProductionGit(t, sourceRepo, "-c", "user.name=Test", "-c", "user.email=test@example.invalid", "commit", "-qm", "trusted")
 	commit := productionGitLine(t, sourceRepo, "rev-parse", "HEAD^{commit}")
 	tree := productionGitLine(t, sourceRepo, "rev-parse", "HEAD^{tree}")
@@ -550,11 +369,8 @@ func newProductionTestGitFixture(t *testing.T) (string, string, string, string, 
 	trustedRepository := filepath.Join(root, "trusted.git")
 	runProductionGit(t, "", "clone", "-q", "--bare", "--", sourceRepo, trustedRepository)
 	chmodPrivate(t, trustedRepository)
-	return root, sourceRepo, trustedRepository, commit, tree
-}
-
-func productionTestTrustedSourceRoot(t *testing.T) string {
-	t.Helper()
+	acceptedRoot := makePrivateDirectory(t, root, "accepted")
+	buildRoot := makePrivateDirectory(t, root, "build")
 	cacheRoot, err := os.UserCacheDir()
 	if err != nil {
 		t.Fatal(err)
@@ -564,14 +380,10 @@ func productionTestTrustedSourceRoot(t *testing.T) string {
 		t.Fatal(err)
 	}
 	chmodPrivate(t, trustedSourceRoot)
-	return trustedSourceRoot
-}
-
-func newProductionTestSignerFixture(
-	t *testing.T,
-	root string,
-) (ed25519.PublicKey, ed25519.PrivateKey, gatecontract.SignerIdentity, string) {
-	t.Helper()
+	seccomp := filepath.Join(root, "seccomp.json")
+	if err := os.WriteFile(seccomp, []byte("{}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	publicKey, privateKey, err := ed25519.GenerateKey(nil)
 	if err != nil {
 		t.Fatal(err)
@@ -579,21 +391,37 @@ func newProductionTestSignerFixture(
 	signer := gatecontract.SignerIdentity{
 		KeyID: "production-test", KeyEpoch: 1, Algorithm: gatecontract.SignatureAlgorithmEd25519,
 	}
-	privateKeyFile := filepath.Join(root, "promotion-private.key")
-	privateKeyData := base64.StdEncoding.EncodeToString(privateKey) + "\n"
-	if err := os.WriteFile(privateKeyFile, []byte(privateKeyData), 0o600); err != nil {
+	receiptPublicKey, receiptPrivateKey, err := ed25519.GenerateKey(nil)
+	if err != nil {
 		t.Fatal(err)
 	}
-	return publicKey, privateKey, signer, privateKeyFile
-}
-
-func writeProductionTestBootstrapController(t *testing.T, root string) string {
-	t.Helper()
-	bootstrapControllerFile := filepath.Join(root, "bootstrap-controller")
-	if err := os.WriteFile(bootstrapControllerFile, []byte("#!/bin/sh\nexit 97\n"), 0o700); err != nil {
-		t.Fatal(err)
+	receiptSigner := gatecontract.SignerIdentity{
+		KeyID: "receipt-production-test", KeyEpoch: 1, Algorithm: gatecontract.SignatureAlgorithmEd25519,
 	}
-	return bootstrapControllerFile
+	receiptKeyPath := filepath.Join(root, "receipt-key.json")
+	writePrivateJSON(t, receiptKeyPath, productionResultReceiptPrivateKey{
+		PrivateKey: base64.StdEncoding.EncodeToString(receiptPrivateKey),
+	})
+	config := productionCoordinatorConfig{
+		AcceptedImageRoot: acceptedRoot, CandidateBuildRoot: buildRoot, TrustedSourceRoot: trustedSourceRoot,
+		SeccompProfile: seccomp, Platform: "linux/arm64", RepoID: "example/repository",
+		TrustedRef: "refs/heads/main", TrustedRepository: trustedRepository,
+		AcceptedImageSigners: []productionTrustedKey{{
+			Signer: signer, PublicKey: base64.StdEncoding.EncodeToString(publicKey),
+		}},
+		ResultReceiptAuthority: productionResultReceiptAuthorityConfig{
+			Signer: receiptSigner, PublicKey: base64.StdEncoding.EncodeToString(receiptPublicKey),
+			PrivateKeyFile: receiptKeyPath,
+		},
+	}
+	fixture := productionTestFixture{
+		config: config, signer: signer, privateKey: privateKey, receiptKey: receiptPrivateKey,
+		commit: commit, tree: tree, sourceRepo: sourceRepo,
+	}
+	bootstrapAcceptedState(t, fixture)
+	fixture.configPath = filepath.Join(root, "production.json")
+	writePrivateJSON(t, fixture.configPath, config)
+	return fixture
 }
 
 func bootstrapAcceptedState(t *testing.T, fixture productionTestFixture) {
@@ -623,7 +451,7 @@ func productionAcceptedRecord(t *testing.T, fixture productionTestFixture) gatec
 		SchemaVersion: gatecontract.AcceptedImageRecordSchemaVersion,
 		RepoID:        fixture.config.RepoID, TrustedRef: fixture.config.TrustedRef,
 		TrustedCommit: fixture.commit, SourceTree: fixture.tree,
-		PolicyDigest: policyDigest, ImageInputDigest: fixture.acceptedInputDigest,
+		PolicyDigest: policyDigest, ImageInputDigest: productionDigest("2"),
 		Image: gatecontract.ImageIdentity{
 			Registry:       "registry.example.invalid/super-dolphin/gate",
 			OCIIndexDigest: productionDigest("3"), PlatformManifestDigest: productionDigest("4"),
@@ -647,36 +475,6 @@ func productionSourceSpec(fixture productionTestFixture) gatecontract.SourceSpec
 	return gatecontract.SourceSpec{
 		Kind: gatecontract.SourceKindCommit, ObjectFormat: gatecontract.GitObjectFormatSHA1,
 		Commit: &gatecontract.CommitSource{SHA: fixture.commit}, SourceTreeSHA: fixture.tree,
-	}
-}
-
-func writeProductionBuildInputs(t *testing.T, repository string) {
-	t.Helper()
-	files := map[string]string{
-		"go.mod":                         "module example.invalid/gate\n",
-		"go.sum":                         "sum\n",
-		"cmd/super-dolphin-gate/main.go": "package main\n",
-		"build/gate/Dockerfile": "ARG GO_IMAGE=golang@sha256:" + strings.Repeat("b", 64) + "\n" +
-			"FROM ${GO_IMAGE} AS build\nCOPY go.mod go.sum ./\n" +
-			"COPY cmd/super-dolphin-gate/main.go ./cmd/super-dolphin-gate/main.go\n" +
-			"RUN --network=none go build -o /out/gate ./cmd/super-dolphin-gate\n" +
-			"FROM scratch\nCOPY --from=build /out/gate /gate\nENTRYPOINT [\"/gate\"]\n",
-		"build/gate/inputs.json": "{\n  \"schema_version\": \"1\",\n  \"dockerfile\": \"build/gate/Dockerfile\",\n" +
-			"  \"inputs\": [\"build/gate/Dockerfile\", \"build/gate/inputs.json\", \"build/gate/toolchain.lock\", " +
-			"\"cmd/super-dolphin-gate/main.go\", \"go.mod\", \"go.sum\"]\n}\n",
-		"build/gate/toolchain.lock": "{\n  \"schema_version\": \"1\",\n  \"buildkit_version\": \"v0.26.2\",\n" +
-			"  \"dockerfile_frontend\": \"builtin:dockerfile.v1\",\n  \"target_platforms\": [\"linux/arm64\"],\n" +
-			"  \"base_images\": [{\"name\":\"GO_IMAGE\",\"reference\":\"golang@sha256:" + strings.Repeat("b", 64) + "\"}],\n" +
-			"  \"dependency_sources\": [\"go.sum\"],\n  \"network_policy\": \"locked-dependencies\"\n}\n",
-	}
-	for path, data := range files {
-		absolute := filepath.Join(repository, filepath.FromSlash(path))
-		if err := os.MkdirAll(filepath.Dir(absolute), 0o700); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(absolute, []byte(data), 0o600); err != nil {
-			t.Fatal(err)
-		}
 	}
 }
 

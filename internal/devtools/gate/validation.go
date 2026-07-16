@@ -2,7 +2,9 @@ package gate
 
 import (
 	"bytes"
+	"crypto/ed25519"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -522,7 +524,12 @@ func (e ContainerEvidence) Validate() error {
 
 // Validate 校验签名 ResultReceipt 及其完整执行证据闭包。
 func (r ResultReceipt) Validate() error {
-	if err := r.validateIdentity(); err != nil {
+	return r.validate(true)
+}
+
+// validate 按签名要求校验 ResultReceipt 的完整字段和执行证据闭包。
+func (r ResultReceipt) validate(requireSignature bool) error {
+	if err := r.validateIdentity(requireSignature); err != nil {
 		return err
 	}
 	if err := r.validateExecutionIdentity(); err != nil {
@@ -540,11 +547,16 @@ func (r ResultReceipt) Validate() error {
 	return r.Signer.Validate()
 }
 
-func (r ResultReceipt) validateIdentity() error {
+// validateIdentity 校验 receipt schema、主身份、source 与可选签名字段。
+func (r ResultReceipt) validateIdentity(requireSignature bool) error {
 	if r.SchemaVersion != 1 {
 		return fmt.Errorf("unsupported result receipt schema_version %d", r.SchemaVersion)
 	}
-	for name, value := range map[string]string{"receipt_id": r.ReceiptID, "repo_id": r.RepoID, "invocation_id": r.InvocationID, "signature": r.Signature} {
+	values := map[string]string{"receipt_id": r.ReceiptID, "repo_id": r.RepoID, "invocation_id": r.InvocationID}
+	if requireSignature {
+		values["signature"] = r.Signature
+	}
+	for name, value := range values {
 		if strings.TrimSpace(value) == "" {
 			return fmt.Errorf("%s is required", name)
 		}
@@ -599,6 +611,55 @@ func (r ResultReceipt) validateResults() error {
 		}
 	}
 	return nil
+}
+
+// ResultReceiptSigningPayload 返回排除 signature 值后的规范 JSON 签名载荷。
+func ResultReceiptSigningPayload(receipt ResultReceipt) ([]byte, error) {
+	unsigned := receipt
+	unsigned.Signature = ""
+	if err := unsigned.validate(false); err != nil {
+		return nil, err
+	}
+	payload, err := json.Marshal(unsigned)
+	if err != nil {
+		return nil, fmt.Errorf("marshal result receipt signing payload: %w", err)
+	}
+	return payload, nil
+}
+
+// VerifyResultReceipt 使用真实 Ed25519 公钥校验完整规范回执。
+func VerifyResultReceipt(receipt ResultReceipt, publicKey ed25519.PublicKey) error {
+	if len(publicKey) != ed25519.PublicKeySize {
+		return errors.New("result receipt public key must be Ed25519")
+	}
+	if err := receipt.Validate(); err != nil {
+		return err
+	}
+	payload, err := ResultReceiptSigningPayload(receipt)
+	if err != nil {
+		return err
+	}
+	signature, err := base64.StdEncoding.Strict().DecodeString(receipt.Signature)
+	if err != nil || len(signature) != ed25519.SignatureSize {
+		return errors.New("result receipt signature must be canonical base64 Ed25519")
+	}
+	if !ed25519.Verify(publicKey, payload, signature) {
+		return errors.New("result receipt Ed25519 signature verification failed")
+	}
+	return nil
+}
+
+// ResultReceiptDigest 返回完整校验后签名回执的规范摘要。
+func ResultReceiptDigest(receipt ResultReceipt) (string, error) {
+	if err := receipt.Validate(); err != nil {
+		return "", err
+	}
+	encoded, err := json.Marshal(receipt)
+	if err != nil {
+		return "", fmt.Errorf("marshal result receipt: %w", err)
+	}
+	sum := sha256.Sum256(encoded)
+	return fmt.Sprintf("sha256:%x", sum), nil
 }
 
 // Validate 校验签名 ActionGrant 及其唯一终态时间字段。

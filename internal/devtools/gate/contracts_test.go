@@ -1,6 +1,8 @@
 package gate
 
 import (
+	"crypto/ed25519"
+	"encoding/base64"
 	"encoding/json"
 	"reflect"
 	"strings"
@@ -216,6 +218,61 @@ func TestContractFieldCoverageDetectsMissingAndStale(t *testing.T) {
 	}
 	if len(stale) != 1 || stale[0] != "stale_field" {
 		t.Fatalf("stale = %v, want stale_field", stale)
+	}
+}
+
+func TestResultReceiptCanonicalEd25519VerificationRejectsTampering(t *testing.T) {
+	t.Parallel()
+	receipt := validResultReceipt(time.Date(2026, 7, 16, 12, 0, 0, 0, time.UTC))
+	publicKey, privateKey, err := ed25519.GenerateKey(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload, err := ResultReceiptSigningPayload(receipt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	again, err := ResultReceiptSigningPayload(receipt)
+	if err != nil || !reflect.DeepEqual(payload, again) {
+		t.Fatalf("canonical payload drifted: error=%v", err)
+	}
+	receipt.Signature = base64.StdEncoding.EncodeToString(ed25519.Sign(privateKey, payload))
+	if err := VerifyResultReceipt(receipt, publicKey); err != nil {
+		t.Fatalf("VerifyResultReceipt() error = %v", err)
+	}
+	digest, err := ResultReceiptDigest(receipt)
+	if err != nil || !strings.HasPrefix(digest, "sha256:") {
+		t.Fatalf("ResultReceiptDigest() digest=%q error=%v", digest, err)
+	}
+
+	tests := []struct {
+		name   string
+		mutate func(*ResultReceipt)
+	}{
+		{name: "source", mutate: func(value *ResultReceipt) {
+			value.Source.SourceTreeSHA = strings.Repeat("9", 40)
+		}},
+		{name: "generation", mutate: func(value *ResultReceipt) { value.Generation++ }},
+		{name: "gate_result", mutate: func(value *ResultReceipt) {
+			value.GateResults[0].ExitCode = 1
+		}},
+		{name: "evidence", mutate: func(value *ResultReceipt) {
+			value.Evidence[0].Digest = "sha256:" + strings.Repeat("b", 64)
+		}},
+		{name: "container", mutate: func(value *ResultReceipt) {
+			value.Container.HostConfigDigest = "sha256:" + strings.Repeat("c", 64)
+		}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			tampered := receipt
+			tampered.GateResults = append([]GateResult(nil), receipt.GateResults...)
+			tampered.Evidence = append([]Evidence(nil), receipt.Evidence...)
+			test.mutate(&tampered)
+			if err := VerifyResultReceipt(tampered, publicKey); err == nil {
+				t.Fatal("VerifyResultReceipt() accepted tampered receipt")
+			}
+		})
 	}
 }
 

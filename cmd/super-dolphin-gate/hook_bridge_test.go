@@ -2,10 +2,12 @@ package main
 
 import (
 	"context"
+	"crypto/ed25519"
 	"errors"
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	gatecontract "github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gatehook"
@@ -54,21 +56,84 @@ func TestSchedulerJobObservationUsesAuthoritativeFIFOOrder(t *testing.T) {
 
 func TestHookBridgePassedWithoutSignedReceiptFailsClosed(t *testing.T) {
 	request := testHookSubmitRequest(t)
+	fixture := newHookReceiptFixture(t, request, "job-passed")
 	client := &recordingCoordinatorClient{status: jobStatus{
 		InvocationID:     coordinatorHookInvocationID(request.Invocation),
 		JobID:            "job-passed",
+		ReceiptID:        resultReceiptID("job-passed"),
 		State:            jobStatePassed,
 		JobSourceTreeSHA: request.Source.SourceTreeSHA,
 		Terminal:         true,
-	}}
-	bridge := &hookCoordinatorBridge{client: client}
+	}, receiptErr: errors.New("receipt missing")}
+	bridge := &hookCoordinatorBridge{client: client, authority: fixture.authority}
 
 	status, err := bridge.Submit(context.Background(), request)
-	if !errors.Is(err, errHookReceiptUnavailable) {
+	if !errors.Is(err, errHookReceiptInvalid) {
 		t.Fatalf("Submit() error = %v", err)
 	}
 	if status.JobID != "job-passed" || status.SourceTreeSHA != request.Source.SourceTreeSHA || status.ReceiptID != "" {
 		t.Fatalf("Submit() status = %#v", status)
+	}
+}
+
+func TestHookBridgePassedWithCurrentSignedReceiptContinues(t *testing.T) {
+	request := testHookSubmitRequest(t)
+	fixture := newHookReceiptFixture(t, request, "job-passed")
+	client := &recordingCoordinatorClient{
+		status: hookPassedJobStatus(request, fixture), receipt: fixture.receipt,
+	}
+	bridge := &hookCoordinatorBridge{client: client, authority: fixture.authority}
+
+	status, err := bridge.Submit(context.Background(), request)
+	if err != nil {
+		t.Fatalf("Submit() error = %v", err)
+	}
+	if status.State != gatehook.JobStatePassed || status.ReceiptID != fixture.receipt.ReceiptID {
+		t.Fatalf("Submit() status = %#v", status)
+	}
+}
+
+func TestHookBridgeBlocksTamperedOrStaleReceipt(t *testing.T) {
+	request := testHookSubmitRequest(t)
+	fixture := newHookReceiptFixture(t, request, "job-passed")
+	tests := []struct {
+		name   string
+		mutate func(gatecontract.ResultReceipt) gatecontract.ResultReceipt
+	}{
+		{name: "forged_signature", mutate: func(receipt gatecontract.ResultReceipt) gatecontract.ResultReceipt {
+			receipt.Signature = "forged"
+			return receipt
+		}},
+		{name: "old_generation", mutate: func(receipt gatecontract.ResultReceipt) gatecontract.ResultReceipt {
+			receipt.Generation++
+			return fixture.resign(t, receipt)
+		}},
+		{name: "missing_evidence", mutate: func(receipt gatecontract.ResultReceipt) gatecontract.ResultReceipt {
+			receipt.Evidence = nil
+			return receipt
+		}},
+		{name: "missing_removal", mutate: func(receipt gatecontract.ResultReceipt) gatecontract.ResultReceipt {
+			receipt.Container.Removed = false
+			return receipt
+		}},
+		{name: "changed_tree", mutate: func(receipt gatecontract.ResultReceipt) gatecontract.ResultReceipt {
+			receipt.Source.SourceTreeSHA = strings.Repeat("c", 40)
+			receipt.Source.Tree.SHA = receipt.Source.SourceTreeSHA
+			return fixture.resign(t, receipt)
+		}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			receipt := test.mutate(cloneResultReceipt(fixture.receipt))
+			client := &recordingCoordinatorClient{
+				status: hookPassedJobStatus(request, fixture), receipt: receipt,
+			}
+			bridge := &hookCoordinatorBridge{client: client, authority: fixture.authority}
+			status, err := bridge.Submit(context.Background(), request)
+			if !errors.Is(err, errHookReceiptInvalid) || status.ReceiptID != "" {
+				t.Fatalf("Submit() status=%#v error=%v", status, err)
+			}
+		})
 	}
 }
 
@@ -106,7 +171,8 @@ func TestCoordinatorJobStatusFieldRegistryTracksQueuePosition(t *testing.T) {
 		"Profile": "timeout contract", "JobSourceTreeSHA": "submitted source binding",
 		"ImageProvenanceSourceTreeSHA": "image provenance", "SubmittedAt": "submit timestamp",
 		"StartedAt": "start timestamp", "CompletedAt": "completion timestamp",
-		"GateResults": "structured gate evidence", "Error": "terminal failure detail", "Terminal": "terminal marker",
+		"GateResults": "structured gate evidence", "ReceiptID": "authoritative signed receipt",
+		"Error": "terminal failure detail", "Terminal": "terminal marker",
 	}
 	producer := reflect.TypeFor[jobStatus]()
 	for index := range producer.NumField() {
@@ -123,9 +189,109 @@ func TestCoordinatorJobStatusFieldRegistryTracksQueuePosition(t *testing.T) {
 
 type recordingCoordinatorClient struct {
 	status               jobStatus
+	receipt              gatecontract.ResultReceipt
+	receiptErr           error
 	submitted            submitRequest
 	statusInvocationID   string
 	statusRepositoryRoot string
+}
+
+type hookReceiptFixture struct {
+	jobID     string
+	receipt   gatecontract.ResultReceipt
+	signer    resultReceiptSigner
+	authority *staticHookResultReceiptAuthority
+}
+
+type staticHookResultReceiptAuthority struct {
+	verifier resultReceiptVerifier
+	accepted gatecontract.AcceptedImageRecord
+}
+
+func (authority *staticHookResultReceiptAuthority) VerifyCurrentResultReceipt(
+	_ context.Context,
+	receipt gatecontract.ResultReceipt,
+) error {
+	if authority == nil || authority.verifier == nil {
+		return errors.New("test receipt authority is missing")
+	}
+	if err := authority.verifier.VerifyResultReceipt(receipt); err != nil {
+		return err
+	}
+	if receipt.RepoID != authority.accepted.RepoID ||
+		receipt.PolicyDigest != authority.accepted.PolicyDigest ||
+		receipt.Generation != authority.accepted.Generation ||
+		!reflect.DeepEqual(receipt.Image, authority.accepted.Image) ||
+		!reflect.DeepEqual(receipt.Runner, authority.accepted.Runner) {
+		return errors.New("receipt does not match current accepted generation")
+	}
+	return nil
+}
+
+func newHookReceiptFixture(
+	t *testing.T,
+	request gatehook.SubmitRequest,
+	jobID string,
+) hookReceiptFixture {
+	t.Helper()
+	plan, err := gatecontract.BuildGatePlan(request.Profile, request.Source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	accepted := testAcceptedImageRecord(plan)
+	execution := receiptExecution{Accepted: accepted, Deadline: time.Now().UTC().Add(2 * time.Minute)}
+	for _, gateSpec := range plan.Gates {
+		if err := execution.appendResult(successfulFreshContainerResult(freshContainerRequest{
+			GateID: gateSpec.ID,
+		})); err != nil {
+			t.Fatal(err)
+		}
+	}
+	publicKey, privateKey, err := ed25519.GenerateKey(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	identity := gatecontract.SignerIdentity{
+		KeyID: "hook-receipt-test", KeyEpoch: 1, Algorithm: gatecontract.SignatureAlgorithmEd25519,
+	}
+	signer, err := newEd25519ResultReceiptSigner(identity, privateKey, publicKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	verifier, err := newEd25519ResultReceiptVerifier(identity, publicKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	receipt, err := buildPassedResultReceipt(coordinatorJobRecord{
+		JobID: jobID, InvocationID: coordinatorHookInvocationID(request.Invocation), Plan: plan,
+	}, execution, signer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return hookReceiptFixture{
+		jobID: jobID, receipt: receipt, signer: signer,
+		authority: &staticHookResultReceiptAuthority{verifier: verifier, accepted: accepted},
+	}
+}
+
+func (fixture hookReceiptFixture) resign(
+	t *testing.T,
+	receipt gatecontract.ResultReceipt,
+) gatecontract.ResultReceipt {
+	t.Helper()
+	signed, err := fixture.signer.SignResultReceipt(receipt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return signed
+}
+
+func hookPassedJobStatus(request gatehook.SubmitRequest, fixture hookReceiptFixture) jobStatus {
+	return jobStatus{
+		InvocationID: coordinatorHookInvocationID(request.Invocation),
+		JobID:        fixture.jobID, ReceiptID: fixture.receipt.ReceiptID,
+		State: jobStatePassed, JobSourceTreeSHA: request.Source.SourceTreeSHA, Terminal: true,
+	}
 }
 
 func (client *recordingCoordinatorClient) Submit(_ context.Context, request submitRequest) (jobStatus, error) {
@@ -149,6 +315,13 @@ func (client *recordingCoordinatorClient) StatusInvocation(
 
 func (client *recordingCoordinatorClient) Wait(context.Context, string) (jobStatus, error) {
 	return client.status, nil
+}
+
+func (client *recordingCoordinatorClient) ResultReceipt(
+	context.Context,
+	string,
+) (gatecontract.ResultReceipt, error) {
+	return cloneResultReceipt(client.receipt), client.receiptErr
 }
 
 func (*recordingCoordinatorClient) Close() error { return nil }

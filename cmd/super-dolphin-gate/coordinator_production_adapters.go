@@ -49,11 +49,14 @@ func (ensurer *productionImageEnsurer) EnsureImage(
 	if err != nil {
 		return ensuredImage{}, err
 	}
+	if err := result.Validate(); err != nil {
+		return ensuredImage{}, fmt.Errorf("validate truth image result: %w", err)
+	}
 	if result.Status != localci.TruthImageEnsureAccepted || result.SubmittedJobSourceTree != request.JobSourceTreeSHA {
 		return ensuredImage{}, errors.New("truth image ensurer did not return an accepted image for the submitted tree")
 	}
 	return ensuredImage{
-		Identity: result.Image,
+		Identity: result.Image, AcceptedRecord: result.AcceptedRecord,
 		Truth: localci.FreshContainerImageTruth{
 			PolicyDigest: result.PolicyDigest, BuildSourceTreeSHA: result.AcceptedImageBuildSourceTree,
 			InputDigest: result.ImageInputDigest, ToolchainDigest: result.ToolchainDigest,

@@ -64,6 +64,7 @@ type jobStatus struct {
 	StartedAt                    *time.Time                `json:"started_at,omitempty"`
 	CompletedAt                  *time.Time                `json:"completed_at,omitempty"`
 	GateResults                  []gatecontract.GateResult `json:"gate_results,omitempty"`
+	ReceiptID                    string                    `json:"receipt_id,omitempty"`
 	Error                        string                    `json:"error,omitempty"`
 	Terminal                     bool                      `json:"terminal"`
 }
@@ -76,6 +77,7 @@ type imageEnsureRequest struct {
 
 type ensuredImage struct {
 	Identity                     gatecontract.ImageIdentity
+	AcceptedRecord               gatecontract.AcceptedImageRecord
 	Truth                        localci.FreshContainerImageTruth
 	ImageProvenanceSourceTreeSHA string
 }
@@ -83,18 +85,6 @@ type ensuredImage struct {
 // ImageEnsurer 只负责解析或构建 accepted image，并返回独立 provenance tree。
 type ImageEnsurer interface {
 	EnsureImage(context.Context, imageEnsureRequest) (ensuredImage, error)
-}
-
-type candidateSubmissionPlanner interface {
-	PlanCandidate(context.Context, imageEnsureRequest) (localci.PromotionCandidatePlan, error)
-}
-
-type candidateBuildService interface {
-	ExecuteBuild(context.Context, string) error
-}
-
-type promotionWatcher interface {
-	Run(context.Context) error
 }
 
 type sourceMaterializeRequest struct {
@@ -123,9 +113,6 @@ type freshContainerRequest struct {
 	Profile                      gatecontract.Profile
 	Plan                         gatecontract.GatePlan
 	GateID                       gatecontract.GateID
-	ContainerLabels              map[string]string
-	Deadline                     time.Time
-	LifecycleHook                localci.FreshContainerLifecycleHook
 }
 
 // FreshContainerRunner 为每个 gate 创建独立容器，不允许宿主直接执行 gate。
@@ -133,32 +120,16 @@ type FreshContainerRunner interface {
 	RunFreshContainer(context.Context, freshContainerRequest) (localci.FreshContainerResult, error)
 }
 
-// FreshContainerRecoveryRunner 验证、观察或清理重启前已存在的 Docker 容器。
-type FreshContainerRecoveryRunner interface {
-	RecoverFreshContainer(context.Context, localci.FreshContainerRecoveryRequest) (localci.FreshContainerResult, error)
-	ProbeFreshContainerRecovery(context.Context, localci.FreshContainerRecoveryRequest) (localci.FreshContainerRecoveryObservation, error)
-	CleanupUnprovedFreshContainer(context.Context, localci.FreshContainerCleanupRequest) (localci.FreshContainerResult, error)
-}
-
 type coordinatorDependencies struct {
 	ImageEnsurer       ImageEnsurer
-	CandidateBuilder   candidateBuildService
-	PromotionWatcher   promotionWatcher
 	SourceMaterializer SourceMaterializer
 	FreshRunner        FreshContainerRunner
-	RecoveryRunner     FreshContainerRecoveryRunner
+	ReceiptSigner      resultReceiptSigner
 }
 
-// validate 要求 owner 执行、构建、晋升与物化依赖全部显式接线。
 func (dependencies coordinatorDependencies) validate() error {
 	if interfaceIsNil(dependencies.ImageEnsurer) {
 		return fmt.Errorf("%w: ImageEnsurer is required", errCoordinatorDependency)
-	}
-	if interfaceIsNil(dependencies.CandidateBuilder) {
-		return fmt.Errorf("%w: CandidateBuilder is required", errCoordinatorDependency)
-	}
-	if interfaceIsNil(dependencies.PromotionWatcher) {
-		return fmt.Errorf("%w: PromotionWatcher is required", errCoordinatorDependency)
 	}
 	if interfaceIsNil(dependencies.SourceMaterializer) {
 		return fmt.Errorf("%w: SourceMaterializer is required", errCoordinatorDependency)
@@ -166,8 +137,8 @@ func (dependencies coordinatorDependencies) validate() error {
 	if interfaceIsNil(dependencies.FreshRunner) {
 		return fmt.Errorf("%w: FreshContainerRunner is required", errCoordinatorDependency)
 	}
-	if interfaceIsNil(dependencies.RecoveryRunner) {
-		return fmt.Errorf("%w: FreshContainerRecoveryRunner is required", errCoordinatorDependency)
+	if interfaceIsNil(dependencies.ReceiptSigner) {
+		return fmt.Errorf("%w: ResultReceiptSigner is required", errCoordinatorDependency)
 	}
 	return nil
 }
@@ -177,9 +148,8 @@ type coordinatorOwnerStarter interface {
 }
 
 type coordinatorTransportClient struct {
-	scheduler        *localci.SchedulerClient
-	store            *coordinatorStore
-	candidatePlanner candidateSubmissionPlanner
+	scheduler *localci.SchedulerClient
+	store     *coordinatorStore
 }
 
 // connectCoordinator 自动发现 owner；发现失败时只允许经严格 starter 竞争启动。
@@ -306,17 +276,7 @@ func (client *coordinatorTransportClient) createAndEnqueueSubmit(
 	if err != nil {
 		return client.recoverConcurrentSubmit(ctx, invocationID, request, err)
 	}
-	plan := localci.PromotionCandidatePlan{}
-	if client.candidatePlanner != nil {
-		plan, err = client.candidatePlanner.PlanCandidate(ctx, imageEnsureRequest{
-			RepositoryRoot: record.RepositoryRoot, Plan: record.Plan, JobSourceTreeSHA: record.JobSourceTreeSHA,
-		})
-		if err != nil {
-			markErr := client.store.finishJob(ctx, record.JobID, jobStateInfraFailed, nil, "candidate planning failed: "+err.Error())
-			return jobStatus{}, errors.Join(err, markErr)
-		}
-	}
-	if err := client.enqueuePersistedJob(ctx, record, plan); err != nil {
+	if err := client.enqueuePersistedJob(ctx, record); err != nil {
 		return jobStatus{}, err
 	}
 	return client.Status(ctx, jobID)
@@ -351,69 +311,16 @@ func validateReusedSubmit(record coordinatorJobRecord, request submitRequest) er
 	return nil
 }
 
-func (client *coordinatorTransportClient) enqueuePersistedJob(
-	ctx context.Context,
-	record coordinatorJobRecord,
-	plan localci.PromotionCandidatePlan,
-) error {
-	dependencies := []string{}
-	subsequence := uint32(0)
-	if plan.BuildRequired {
-		if err := client.ensureCandidateBuildEnqueued(ctx, record, plan.WorkloadID); err != nil {
-			markErr := client.store.finishJob(ctx, record.JobID, jobStateInfraFailed, nil, "durable build enqueue failed: "+err.Error())
-			return errors.Join(err, markErr)
-		}
-		dependencies = []string{plan.WorkloadID}
-		subsequence = 1
-	}
+func (client *coordinatorTransportClient) enqueuePersistedJob(ctx context.Context, record coordinatorJobRecord) error {
 	request := localci.WorkloadRequest{
 		ID: record.JobID, InvocationID: record.InvocationID, EnqueueSequence: record.EnqueueSequence,
-		Subsequence: subsequence, Kind: localci.WorkloadKindJob, Dependencies: dependencies,
+		Kind: localci.WorkloadKindJob, Dependencies: []string{},
 	}
 	if err := client.scheduler.Enqueue(ctx, request); err != nil {
-		markErr := client.store.finishJob(ctx, record.JobID, jobStateInfraFailed, nil, "durable scheduler enqueue failed: "+err.Error())
+		markErr := client.store.finishJob(ctx, record.JobID, jobStateInfraFailed, nil, "durable scheduler enqueue failed: "+err.Error(), nil)
 		return errors.Join(fmt.Errorf("enqueue persisted job %q: %w", record.JobID, err), markErr)
 	}
 	return nil
-}
-
-// ensureCandidateBuildEnqueued 幂等确认共享 build workload 已先于依赖 job 入队。
-func (client *coordinatorTransportClient) ensureCandidateBuildEnqueued(
-	ctx context.Context,
-	record coordinatorJobRecord,
-	workloadID string,
-) error {
-	if workloadID == "" {
-		return errors.New("candidate build workload ID is required")
-	}
-	exists, err := client.schedulerWorkloadExists(ctx, workloadID)
-	if err != nil || exists {
-		return err
-	}
-	request := localci.WorkloadRequest{
-		ID: workloadID, InvocationID: record.InvocationID, EnqueueSequence: record.EnqueueSequence,
-		Subsequence: 0, Kind: localci.WorkloadKindBuild, Dependencies: []string{},
-	}
-	if err := client.scheduler.Enqueue(ctx, request); err == nil {
-		return nil
-	} else if exists, lookupErr := client.schedulerWorkloadExists(ctx, workloadID); lookupErr == nil && exists {
-		return nil
-	} else {
-		return errors.Join(fmt.Errorf("enqueue candidate build %q: %w", workloadID, err), lookupErr)
-	}
-}
-
-func (client *coordinatorTransportClient) schedulerWorkloadExists(ctx context.Context, workloadID string) (bool, error) {
-	snapshot, err := client.scheduler.Snapshot(ctx)
-	if err != nil {
-		return false, err
-	}
-	for _, workload := range snapshot.Workloads {
-		if workload.Request.ID == workloadID {
-			return true, nil
-		}
-	}
-	return false, nil
 }
 
 // Status 同时读取 scheduler 与 invocation store，并拒绝跨存储终态漂移。
@@ -424,6 +331,24 @@ func (client *coordinatorTransportClient) Status(ctx context.Context, jobID stri
 	return client.readStatusWithRetry(ctx, func() (coordinatorJobRecord, error) {
 		return client.store.job(ctx, jobID)
 	})
+}
+
+// ResultReceipt 从 durable store 返回指定 passed job 的权威回执副本。
+func (client *coordinatorTransportClient) ResultReceipt(
+	ctx context.Context,
+	jobID string,
+) (gatecontract.ResultReceipt, error) {
+	if client == nil || client.store == nil || ctx == nil {
+		return gatecontract.ResultReceipt{}, fmt.Errorf("%w: connected client and context are required", errCoordinatorDependency)
+	}
+	record, err := client.store.job(ctx, jobID)
+	if err != nil {
+		return gatecontract.ResultReceipt{}, err
+	}
+	if record.State != jobStatePassed || record.Receipt == nil {
+		return gatecontract.ResultReceipt{}, fmt.Errorf("%w: job %q has no authoritative passed receipt", errCoordinatorState, jobID)
+	}
+	return cloneResultReceipt(*record.Receipt), nil
 }
 
 // StatusInvocation 按 hook invocation 与活动 worktree 查询同一个 durable job。

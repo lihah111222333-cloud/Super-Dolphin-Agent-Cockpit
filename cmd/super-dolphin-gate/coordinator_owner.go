@@ -15,16 +15,14 @@ import (
 )
 
 type coordinatorOwner struct {
-	schedulerOwner    *localci.SchedulerOwner
-	schedulerClient   *localci.SchedulerClient
-	store             *coordinatorStore
-	dependencies      coordinatorDependencies
-	daemonIdentityKey string
-	recovered         []coordinatorJobRecord
-	fatal             chan error
-	workers           errgroup.Group
-	closeOnce         sync.Once
-	closeErr          error
+	schedulerOwner  *localci.SchedulerOwner
+	schedulerClient *localci.SchedulerClient
+	store           *coordinatorStore
+	dependencies    coordinatorDependencies
+	fatal           chan error
+	workers         errgroup.Group
+	closeOnce       sync.Once
+	closeErr        error
 }
 
 // openCoordinatorOwner 先验证全部执行依赖，再竞争 scheduler owner singleton。
@@ -40,23 +38,18 @@ func openCoordinatorOwner(
 	if err != nil {
 		return nil, err
 	}
-	store, err := openCoordinatorStore(ctx, checkpoint)
+	schedulerClient, err := localci.DialScheduler(ctx, checkpoint.SchedulerConfig)
 	if err != nil {
 		return nil, errors.Join(err, schedulerOwner.Close())
 	}
-	owner := &coordinatorOwner{
-		schedulerOwner: schedulerOwner, store: store, dependencies: dependencies,
-		daemonIdentityKey: checkpoint.IdentityKey, fatal: make(chan error, 1),
-	}
-	owner.recovered, err = owner.reconcileRecovery(ctx)
+	store, err := openCoordinatorStore(ctx, checkpoint)
 	if err != nil {
-		return nil, errors.Join(err, store.close(), schedulerOwner.Close())
+		return nil, errors.Join(err, schedulerClient.Close(), schedulerOwner.Close())
 	}
-	owner.schedulerClient, err = localci.DialScheduler(ctx, checkpoint.SchedulerConfig)
-	if err != nil {
-		return nil, errors.Join(err, store.close(), schedulerOwner.Close())
-	}
-	return owner, nil
+	return &coordinatorOwner{
+		schedulerOwner: schedulerOwner, schedulerClient: schedulerClient, store: store,
+		dependencies: dependencies, fatal: make(chan error, 1),
+	}, nil
 }
 
 // Serve 同时运行 transport 与 scheduler dispatch，并在任一基础设施失败时收口。
@@ -66,9 +59,7 @@ func (owner *coordinatorOwner) Serve(ctx context.Context) error {
 	}
 	group, runCtx := errgroup.WithContext(ctx)
 	group.Go(func() error { return owner.schedulerOwner.Serve(runCtx) })
-	owner.startRecovered(runCtx)
 	group.Go(func() error { return owner.dispatch(runCtx) })
-	group.Go(func() error { return owner.dependencies.PromotionWatcher.Run(runCtx) })
 	runErr := group.Wait()
 	workerErr := owner.workers.Wait()
 	closeErr := owner.Close()
@@ -95,11 +86,12 @@ func (owner *coordinatorOwner) dispatch(ctx context.Context) error {
 	}
 }
 
-// startReservations 在 lease 持久化后按 workload 类型分派执行器。
+// startReservations 只启动已取得 lease 的 job，slot 上限由 scheduler 统一裁决。
 func (owner *coordinatorOwner) startReservations(ctx context.Context, reservations []localci.WorkloadReservation) {
 	for _, reservation := range reservations {
+		jobID := reservation.WorkloadID
 		owner.workers.Go(func() error {
-			if err := owner.executeReservation(ctx, reservation); err != nil {
+			if err := owner.executeJob(ctx, jobID); err != nil {
 				select {
 				case owner.fatal <- err:
 				default:
@@ -111,83 +103,38 @@ func (owner *coordinatorOwner) startReservations(ctx context.Context, reservatio
 	}
 }
 
-func (owner *coordinatorOwner) executeReservation(
-	ctx context.Context,
-	reservation localci.WorkloadReservation,
-) error {
-	kind, err := reservationWorkloadKind(reservation)
-	if err != nil {
-		return err
-	}
-	switch kind {
-	case localci.WorkloadKindBuild:
-		return owner.executeCandidateBuild(ctx, reservation.WorkloadID)
-	case localci.WorkloadKindJob:
-		return owner.executeJob(ctx, reservation.WorkloadID)
-	default:
-		return fmt.Errorf("unsupported coordinator reservation kind %q", kind)
-	}
-}
-
-// reservationWorkloadKind 确认同一 reservation 的全部 lease 身份与类型一致。
-func reservationWorkloadKind(reservation localci.WorkloadReservation) (localci.WorkloadKind, error) {
-	if reservation.WorkloadID == "" || len(reservation.Leases) == 0 {
-		return "", errors.New("coordinator reservation is incomplete")
-	}
-	kind := reservation.Leases[0].Kind
-	for _, lease := range reservation.Leases {
-		if lease.WorkloadID != reservation.WorkloadID || lease.Kind != kind {
-			return "", errors.New("coordinator reservation lease identity drifted")
-		}
-	}
-	return kind, nil
-}
-
-func (owner *coordinatorOwner) executeCandidateBuild(ctx context.Context, workloadID string) error {
-	err := owner.dependencies.CandidateBuilder.ExecuteBuild(ctx, workloadID)
-	status := localci.WorkloadStatusPassed
-	if err != nil {
-		status = localci.WorkloadStatusInfraFailed
-	}
-	if completeErr := owner.schedulerClient.Complete(ctx, workloadID, status); completeErr != nil {
-		return errors.Join(err, fmt.Errorf("complete candidate build workload %q: %w", workloadID, completeErr))
-	}
-	if err != nil {
-		return fmt.Errorf("execute candidate build workload %q: %w", workloadID, err)
-	}
-	return nil
-}
-
 func (owner *coordinatorOwner) executeJob(parent context.Context, jobID string) error {
 	if err := owner.store.startJob(parent, jobID); err != nil {
-		return owner.completeExecution(parent, jobID, jobStateInfraFailed, nil, err)
+		return owner.completeExecution(parent, coordinatorJobRecord{JobID: jobID}, receiptExecution{}, jobStateInfraFailed, err)
 	}
 	record, err := owner.store.job(parent, jobID)
 	if err != nil {
-		return owner.completeExecution(parent, jobID, jobStateInfraFailed, nil, err)
+		return owner.completeExecution(parent, coordinatorJobRecord{JobID: jobID}, receiptExecution{}, jobStateInfraFailed, err)
 	}
-	results, state, runErr := owner.runJob(parent, record)
-	return owner.completeExecution(parent, jobID, state, results, runErr)
+	jobCtx, cancel := context.WithDeadline(parent, time.Now().Add(coordinatorTimeout(record.Profile)))
+	defer cancel()
+	execution, state, runErr := owner.runJob(jobCtx, record)
+	return owner.completeExecution(parent, record, execution, state, runErr)
 }
 
 func (owner *coordinatorOwner) runJob(
 	ctx context.Context,
 	record coordinatorJobRecord,
-) ([]gatecontract.GateResult, jobState, error) {
+) (receiptExecution, jobState, error) {
 	image, err := owner.ensureJobImage(ctx, record)
 	if err != nil {
-		return nil, failureState(ctx, err), err
+		return receiptExecution{}, failureState(ctx, err), err
 	}
 	materialized, err := owner.materializeJobSource(ctx, record)
 	if err != nil {
-		return nil, failureState(ctx, err), err
+		return receiptExecution{}, failureState(ctx, err), err
 	}
-	results, state, runErr := owner.runPlanGates(ctx, record, image, materialized)
+	execution, state, runErr := owner.runPlanGates(ctx, record, image, materialized)
 	cleanupErr := materialized.Cleanup()
 	if cleanupErr != nil {
-		return results, jobStateInfraFailed, errors.Join(runErr, fmt.Errorf("cleanup source snapshot: %w", cleanupErr))
+		return execution, jobStateInfraFailed, errors.Join(runErr, fmt.Errorf("cleanup source snapshot: %w", cleanupErr))
 	}
-	return results, state, runErr
+	return execution, state, runErr
 }
 
 func (owner *coordinatorOwner) ensureJobImage(ctx context.Context, record coordinatorJobRecord) (ensuredImage, error) {
@@ -227,61 +174,79 @@ func (owner *coordinatorOwner) materializeJobSource(
 	return result, nil
 }
 
-// runPlanGates 为同一 job 的所有 gate 复用首次容器启动所确定的 deadline。
+// runPlanGates 按计划顺序执行 fresh container 并累计 receipt 证据。
 func (owner *coordinatorOwner) runPlanGates(
 	ctx context.Context,
 	record coordinatorJobRecord,
 	image ensuredImage,
 	source materializedJobSource,
-) ([]gatecontract.GateResult, jobState, error) {
-	results := make([]gatecontract.GateResult, 0, len(record.Plan.Gates))
-	deadline := time.Time{}
-	if record.Deadline != nil {
-		deadline = record.Deadline.UTC()
+) (receiptExecution, jobState, error) {
+	deadline, ok := ctx.Deadline()
+	if !ok {
+		return receiptExecution{}, jobStateInfraFailed, errors.New("coordinator job deadline is required")
 	}
+	execution := receiptExecution{Accepted: image.AcceptedRecord, Deadline: deadline}
 	for _, gateSpec := range record.Plan.Gates {
-		labels := coordinatorContainerLabels(owner.daemonIdentityKey, record, gateSpec.ID, image.Identity)
 		result, err := owner.dependencies.FreshRunner.RunFreshContainer(ctx, freshContainerRequest{
 			Image: image.Identity, ImageTruth: image.Truth,
 			ImageProvenanceSourceTreeSHA: image.ImageProvenanceSourceTreeSHA,
 			JobSourceTreeSHA:             record.JobSourceTreeSHA, SourceSnapshotDir: source.SnapshotDir,
 			Profile: record.Profile, Plan: record.Plan, GateID: gateSpec.ID,
-			ContainerLabels: labels, Deadline: deadline,
-			LifecycleHook: owner.lifecycleHook(record, gateSpec.ID, labels),
 		})
-		if deadline.IsZero() && !result.Deadline.IsZero() {
-			deadline = result.Deadline.UTC()
-		}
 		if result.GateResult != nil {
-			results = append(results, *result.GateResult)
+			if evidenceErr := execution.appendResult(result); evidenceErr != nil {
+				return execution, jobStateInfraFailed, fmt.Errorf("collect gate %q evidence: %w", gateSpec.ID, evidenceErr)
+			}
 		}
 		if err != nil {
-			return results, failureState(ctx, err), fmt.Errorf("run gate %q: %w", gateSpec.ID, err)
+			state := stateForContainerResult(result)
+			if state == jobStateInfraFailed {
+				state = failureState(ctx, err)
+			}
+			return execution, state, fmt.Errorf("run gate %q: %w", gateSpec.ID, err)
 		}
 		state := stateForContainerResult(result)
 		if state != jobStatePassed {
-			return results, state, nil
+			return execution, state, nil
 		}
 	}
-	return results, jobStatePassed, nil
+	return execution, jobStatePassed, nil
 }
 
+// completeExecution 将签名失败收敛为 infra_failed 并持久化 terminal 状态。
 func (owner *coordinatorOwner) completeExecution(
 	ctx context.Context,
-	jobID string,
+	record coordinatorJobRecord,
+	execution receiptExecution,
 	state jobState,
-	results []gatecontract.GateResult,
 	executionErr error,
 ) error {
 	message := ""
 	if executionErr != nil {
 		message = executionErr.Error()
 	}
-	if err := owner.store.finishJob(ctx, jobID, state, results, message); err != nil {
+	var receipt *gatecontract.ResultReceipt
+	if state == jobStatePassed {
+		signed, err := buildPassedResultReceipt(record, execution, owner.dependencies.ReceiptSigner)
+		if err != nil {
+			state = jobStateInfraFailed
+			message = "sign canonical result receipt: " + err.Error()
+		} else {
+			receipt = &signed
+		}
+	}
+	if err := owner.store.finishJob(ctx, record.JobID, state, execution.Results, message, receipt); err != nil {
+		if state == jobStatePassed {
+			fallbackErr := owner.store.finishJob(
+				ctx, record.JobID, jobStateInfraFailed, execution.Results,
+				"persist canonical result receipt: "+err.Error(), nil,
+			)
+			return errors.Join(err, fallbackErr)
+		}
 		return err
 	}
-	if err := owner.schedulerClient.Complete(ctx, jobID, schedulerTerminalState(state)); err != nil {
-		return fmt.Errorf("complete scheduler workload %q: %w", jobID, err)
+	if err := owner.schedulerClient.Complete(ctx, record.JobID, schedulerTerminalState(state)); err != nil {
+		return fmt.Errorf("complete scheduler workload %q: %w", record.JobID, err)
 	}
 	return nil
 }
