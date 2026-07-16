@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/sourceexport"
 )
 
@@ -128,4 +129,217 @@ func gitBlobHash(objectID string, data []byte) (string, error) {
 func appendManifestField(manifest []byte, value string) []byte {
 	manifest = append(manifest, value...)
 	return append(manifest, 0)
+}
+
+// ReadOnlyGitTree 携带从 SourceSpec 对应 Git tree 取得的只读源码，不读取进程工作目录。
+type ReadOnlyGitTree struct {
+	Source  gate.SourceSpec
+	Entries []sourceexport.TreeEntry
+}
+
+// GateImageInputs 是一个 job tree 经校验后的确定性镜像输入视图。
+type GateImageInputs struct {
+	SubmittedSourceTree string
+	PolicyDigest        string
+	ImageSchemaVersion  string
+	Platform            string
+	SourceEntries       []sourceexport.TreeEntry
+	ImageInputDigest    string
+	ContextDigest       string
+	InputManifestDigest string
+	ToolchainDigest     string
+	DockerfileDigest    string
+}
+
+type gitTreeNode struct {
+	files map[string]sourceexport.TreeEntry
+	dirs  map[string]*gitTreeNode
+}
+
+type gitTreeItem struct {
+	name      string
+	mode      string
+	oid       []byte
+	directory bool
+}
+
+// ResolveGateImageInputs 校验传入的 Git tree，并推导不依赖活动工作区的规范构建闭包。
+func ResolveGateImageInputs(tree ReadOnlyGitTree, policyDigest string, platform string) (GateImageInputs, error) {
+	if err := verifyReadOnlyGitTree(tree); err != nil {
+		return GateImageInputs{}, err
+	}
+	request := CandidateRequest{
+		SourceTreeSHA: tree.Source.SourceTreeSHA, PolicyDigest: policyDigest,
+		ImageSchemaVersion: imageInputSchemaVersion, SourceEntries: cloneTreeEntries(tree.Entries), Platform: platform,
+	}
+	prepared, err := prepareCandidate(request)
+	if err != nil {
+		return GateImageInputs{}, fmt.Errorf("resolve gate image input closure: %w", err)
+	}
+	result := prepared.result
+	return GateImageInputs{
+		SubmittedSourceTree: result.SourceTreeSHA, PolicyDigest: policyDigest,
+		ImageSchemaVersion: imageInputSchemaVersion, Platform: platform, SourceEntries: cloneTreeEntries(tree.Entries),
+		ImageInputDigest: result.InputDigest, ContextDigest: result.ContextDigest,
+		InputManifestDigest: result.InputManifestDigest, ToolchainDigest: result.ToolchainDigest,
+		DockerfileDigest: result.DockerfileDigest,
+	}, nil
+}
+
+func verifyReadOnlyGitTree(tree ReadOnlyGitTree) error {
+	if err := tree.Source.Validate(); err != nil {
+		return fmt.Errorf("validate image source spec: %w", err)
+	}
+	if len(tree.Entries) == 0 {
+		return errors.New("read-only Git tree entries are required")
+	}
+	calculated, err := calculateGitTreeOID(tree.Source.ObjectFormat, tree.Entries)
+	if err != nil {
+		return fmt.Errorf("verify read-only Git tree: %w", err)
+	}
+	if calculated != tree.Source.SourceTreeSHA {
+		return fmt.Errorf("read-only Git tree drift: calculated %s, expected %s", calculated, tree.Source.SourceTreeSHA)
+	}
+	return nil
+}
+
+// calculateGitTreeOID 从扁平 blob 条目重建 Git tree 对象并计算根 OID。
+func calculateGitTreeOID(format gate.GitObjectFormat, entries []sourceexport.TreeEntry) (string, error) {
+	root := newGitTreeNode()
+	seenPaths := make(map[string]string, len(entries))
+	expectedLength, err := gitOIDHexLength(format)
+	if err != nil {
+		return "", err
+	}
+	for _, entry := range entries {
+		if err := validateGitTreeEntry(entry, expectedLength, seenPaths); err != nil {
+			return "", err
+		}
+		if err := root.insert(entry); err != nil {
+			return "", err
+		}
+	}
+	oid, err := hashGitTreeNode(format, root)
+	if err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(oid), nil
+}
+
+func validateGitTreeEntry(entry sourceexport.TreeEntry, expectedLength int, seenPaths map[string]string) error {
+	if err := validateContextEntry(entry, seenPaths); err != nil {
+		return err
+	}
+	if len(entry.Hash) != expectedLength || strings.ToLower(entry.Hash) != entry.Hash {
+		return fmt.Errorf("source entry %q has an object ID incompatible with the SourceSpec object format", entry.Path)
+	}
+	if _, err := hex.DecodeString(entry.Hash); err != nil {
+		return fmt.Errorf("source entry %q has an invalid Git object ID: %w", entry.Path, err)
+	}
+	return nil
+}
+
+func newGitTreeNode() *gitTreeNode {
+	return &gitTreeNode{files: make(map[string]sourceexport.TreeEntry), dirs: make(map[string]*gitTreeNode)}
+}
+
+// insert 将规范文件路径插入 tree，不允许文件与目录互相遮蔽。
+func (node *gitTreeNode) insert(entry sourceexport.TreeEntry) error {
+	parts := strings.Split(entry.Path, "/")
+	current := node
+	for _, directory := range parts[:len(parts)-1] {
+		if _, exists := current.files[directory]; exists {
+			return fmt.Errorf("source path %q crosses file %q", entry.Path, directory)
+		}
+		next, exists := current.dirs[directory]
+		if !exists {
+			next = newGitTreeNode()
+			current.dirs[directory] = next
+		}
+		current = next
+	}
+	name := parts[len(parts)-1]
+	if _, exists := current.dirs[name]; exists {
+		return fmt.Errorf("source path %q conflicts with a directory", entry.Path)
+	}
+	if _, exists := current.files[name]; exists {
+		return fmt.Errorf("source path %q is duplicated", entry.Path)
+	}
+	current.files[name] = entry
+	return nil
+}
+
+// hashGitTreeNode 按 Git tree 排序和二进制编码递归计算节点 OID。
+func hashGitTreeNode(format gate.GitObjectFormat, node *gitTreeNode) ([]byte, error) {
+	items := make([]gitTreeItem, 0, len(node.files)+len(node.dirs))
+	for name, entry := range node.files {
+		oid, err := hex.DecodeString(entry.Hash)
+		if err != nil {
+			return nil, fmt.Errorf("decode blob object %q: %w", entry.Path, err)
+		}
+		items = append(items, gitTreeItem{name: name, mode: entry.Mode, oid: oid})
+	}
+	for name, child := range node.dirs {
+		oid, err := hashGitTreeNode(format, child)
+		if err != nil {
+			return nil, err
+		}
+		items = append(items, gitTreeItem{name: name, mode: "40000", oid: oid, directory: true})
+	}
+	sort.Slice(items, func(left int, right int) bool { return gitTreeItemLess(items[left], items[right]) })
+	var body bytes.Buffer
+	for _, item := range items {
+		fmt.Fprintf(&body, "%s %s", item.mode, item.name)
+		body.WriteByte(0)
+		body.Write(item.oid)
+	}
+	return hashGitObject(format, "tree", body.Bytes())
+}
+
+func gitTreeItemLess(left gitTreeItem, right gitTreeItem) bool {
+	leftSuffix := byte(0)
+	if left.directory {
+		leftSuffix = '/'
+	}
+	rightSuffix := byte(0)
+	if right.directory {
+		rightSuffix = '/'
+	}
+	return bytes.Compare(append([]byte(left.name), leftSuffix), append([]byte(right.name), rightSuffix)) < 0
+}
+
+func hashGitObject(format gate.GitObjectFormat, objectType string, body []byte) ([]byte, error) {
+	payload := fmt.Appendf(nil, "%s %d\x00", objectType, len(body))
+	payload = append(payload, body...)
+	switch format {
+	case gate.GitObjectFormatSHA1:
+		sum := sha1.Sum(payload) // #nosec G401 -- this verifies Git's object format, not a security signature.
+		return sum[:], nil
+	case gate.GitObjectFormatSHA256:
+		sum := sha256.Sum256(payload)
+		return sum[:], nil
+	default:
+		return nil, fmt.Errorf("unsupported Git object format %q", format)
+	}
+}
+
+func gitOIDHexLength(format gate.GitObjectFormat) (int, error) {
+	switch format {
+	case gate.GitObjectFormatSHA1:
+		return sha1.Size * 2, nil
+	case gate.GitObjectFormatSHA256:
+		return sha256.Size * 2, nil
+	default:
+		return 0, fmt.Errorf("unsupported Git object format %q", format)
+	}
+}
+
+func cloneTreeEntries(entries []sourceexport.TreeEntry) []sourceexport.TreeEntry {
+	cloned := make([]sourceexport.TreeEntry, len(entries))
+	for index, entry := range entries {
+		cloned[index] = entry
+		cloned[index].Data = append([]byte(nil), entry.Data...)
+		cloned[index].Path = path.Clean(entry.Path)
+	}
+	return cloned
 }

@@ -508,3 +508,191 @@ func buildKitRunnerIsNil(runner BuildKitRunner) bool {
 		return false
 	}
 }
+
+var (
+	// ErrTruthImageBootstrapTrustRoot reports that no signed accepted image exists.
+	ErrTruthImageBootstrapTrustRoot = errors.New("truth image bootstrap trust root is not installed")
+	// ErrTruthImageAwaitingTrustedRef keeps a built candidate non-runnable until trusted promotion.
+	ErrTruthImageAwaitingTrustedRef = errors.New("truth image candidate is awaiting trusted ref promotion")
+)
+
+// TruthImageEnsureStatus 表示受信不可变镜像是否可以执行本次 job。
+type TruthImageEnsureStatus string
+
+const (
+	TruthImageEnsureAccepted           TruthImageEnsureStatus = "accepted"
+	TruthImageEnsureAwaitingTrustedRef TruthImageEnsureStatus = "awaiting_trusted_ref"
+)
+
+// AcceptedImageLoader 只暴露已验签 accepted image 的读取能力。
+type AcceptedImageLoader interface {
+	Load(context.Context) (gate.AcceptedImageRecord, error)
+}
+
+// CandidateImageBuilder 是现有候选镜像构建器的窄接口。
+type CandidateImageBuilder interface {
+	EnsureCandidate(context.Context, CandidateRequest) (CandidateResult, error)
+}
+
+// TruthImageEnsureRequest 将提交 job tree 绑定到规范镜像输入。
+type TruthImageEnsureRequest struct {
+	Tree         ReadOnlyGitTree
+	PolicyDigest string
+	Platform     string
+}
+
+// TruthImageEnsureResult 分离 job provenance 与镜像 build provenance；仅 accepted 状态携带 Image。
+type TruthImageEnsureResult struct {
+	Status                          TruthImageEnsureStatus
+	SubmittedJobSourceTree          string
+	AcceptedImageBuildSourceTree    string
+	CandidateImageBuildSourceTree   string
+	ImageInputDigest                string
+	ContextDigest                   string
+	InputManifestDigest             string
+	ToolchainDigest                 string
+	DockerfileDigest                string
+	CandidatePlatformManifestDigest string
+	Image                           gate.ImageIdentity
+}
+
+// TruthImageEnsurer 复用 accepted 镜像，或构建不可运行且不晋升状态的候选镜像。
+type TruthImageEnsurer struct {
+	accepted AcceptedImageLoader
+	builder  CandidateImageBuilder
+}
+
+// NewTruthImageEnsurer 创建不持有签名能力且 fail-fast 的镜像 authority adapter。
+func NewTruthImageEnsurer(accepted AcceptedImageLoader, builder CandidateImageBuilder) (*TruthImageEnsurer, error) {
+	if interfaceValueIsNil(accepted) {
+		return nil, errors.New("accepted image loader is required")
+	}
+	if interfaceValueIsNil(builder) {
+		return nil, errors.New("candidate image builder is required")
+	}
+	return &TruthImageEnsurer{accepted: accepted, builder: builder}, nil
+}
+
+// EnsureImage 仅为已受信 accepted record 返回可运行镜像身份。
+func (ensurer *TruthImageEnsurer) EnsureImage(ctx context.Context, request TruthImageEnsureRequest) (TruthImageEnsureResult, error) {
+	if err := validateTruthImageEnsureCall(ensurer, ctx); err != nil {
+		return TruthImageEnsureResult{}, err
+	}
+	accepted, err := loadAcceptedTruthImage(ctx, ensurer.accepted)
+	if err != nil {
+		return TruthImageEnsureResult{}, err
+	}
+	inputs, err := ResolveGateImageInputs(request.Tree, request.PolicyDigest, request.Platform)
+	if err != nil {
+		return TruthImageEnsureResult{}, err
+	}
+	candidate, err := ensurer.builder.EnsureCandidate(ctx, candidateRequestFromInputs(inputs, accepted))
+	if err != nil {
+		return TruthImageEnsureResult{}, fmt.Errorf("ensure truth image candidate: %w", err)
+	}
+	if err := validateCandidateInputs(inputs, accepted, candidate); err != nil {
+		return TruthImageEnsureResult{}, err
+	}
+	result := truthImageResult(inputs, accepted, candidate)
+	if candidate.Built {
+		result.Status = TruthImageEnsureAwaitingTrustedRef
+		result.CandidateImageBuildSourceTree = candidate.SourceTreeSHA
+		result.CandidatePlatformManifestDigest = candidate.ImageDigest
+		if err := result.Validate(); err != nil {
+			return TruthImageEnsureResult{}, err
+		}
+		return result, ErrTruthImageAwaitingTrustedRef
+	}
+	result.Status = TruthImageEnsureAccepted
+	result.Image = cloneImageIdentity(accepted.Image)
+	if err := result.Validate(); err != nil {
+		return TruthImageEnsureResult{}, err
+	}
+	return result, nil
+}
+
+func validateTruthImageEnsureCall(ensurer *TruthImageEnsurer, ctx context.Context) error {
+	if ensurer == nil || interfaceValueIsNil(ensurer.accepted) || interfaceValueIsNil(ensurer.builder) {
+		return errors.New("truth image ensurer is not configured")
+	}
+	if ctx == nil {
+		return errors.New("truth image ensure context is required")
+	}
+	return ctx.Err()
+}
+
+func loadAcceptedTruthImage(ctx context.Context, loader AcceptedImageLoader) (gate.AcceptedImageRecord, error) {
+	accepted, err := loader.Load(ctx)
+	if errors.Is(err, ErrAcceptedImageStateNotFound) {
+		return gate.AcceptedImageRecord{}, ErrTruthImageBootstrapTrustRoot
+	}
+	if err != nil {
+		return gate.AcceptedImageRecord{}, fmt.Errorf("load accepted truth image: %w", err)
+	}
+	return accepted, nil
+}
+
+// validateCandidateInputs 阻断 resolver 与 builder 之间的任何摘要或复用身份漂移。
+func validateCandidateInputs(inputs GateImageInputs, accepted gate.AcceptedImageRecord, candidate CandidateResult) error {
+	if candidate.SourceTreeSHA != inputs.SubmittedSourceTree || candidate.InputDigest != inputs.ImageInputDigest {
+		return errors.New("candidate image source or input digest drifted from resolved Git inputs")
+	}
+	if candidate.ContextDigest != inputs.ContextDigest || candidate.InputManifestDigest != inputs.InputManifestDigest {
+		return errors.New("candidate image context or manifest digest drifted from resolved Git inputs")
+	}
+	if candidate.ToolchainDigest != inputs.ToolchainDigest || candidate.DockerfileDigest != inputs.DockerfileDigest {
+		return errors.New("candidate image toolchain or Dockerfile digest drifted from resolved Git inputs")
+	}
+	if !candidate.Built && candidate.ImageDigest != accepted.Image.PlatformManifestDigest {
+		return errors.New("reused candidate image digest does not match accepted immutable identity")
+	}
+	return nil
+}
+
+func candidateRequestFromInputs(inputs GateImageInputs, accepted gate.AcceptedImageRecord) CandidateRequest {
+	return CandidateRequest{
+		SourceTreeSHA: inputs.SubmittedSourceTree, PolicyDigest: inputs.PolicyDigest,
+		ImageSchemaVersion: inputs.ImageSchemaVersion, SourceEntries: cloneTreeEntries(inputs.SourceEntries),
+		Platform: inputs.Platform, AcceptedInputDigest: accepted.ImageInputDigest,
+		AcceptedImageDigest: accepted.Image.PlatformManifestDigest,
+	}
+}
+
+func truthImageResult(inputs GateImageInputs, accepted gate.AcceptedImageRecord, candidate CandidateResult) TruthImageEnsureResult {
+	return TruthImageEnsureResult{
+		SubmittedJobSourceTree:       inputs.SubmittedSourceTree,
+		AcceptedImageBuildSourceTree: accepted.SourceTree,
+		ImageInputDigest:             candidate.InputDigest, ContextDigest: candidate.ContextDigest,
+		InputManifestDigest: candidate.InputManifestDigest, ToolchainDigest: candidate.ToolchainDigest,
+		DockerfileDigest: candidate.DockerfileDigest,
+	}
+}
+
+// Validate 在 coordinator 边界拒绝含糊的 runnable/awaiting 状态。
+func (result TruthImageEnsureResult) Validate() error {
+	if result.SubmittedJobSourceTree == "" || result.AcceptedImageBuildSourceTree == "" {
+		return errors.New("truth image result is missing job or accepted build provenance")
+	}
+	switch result.Status {
+	case TruthImageEnsureAccepted:
+		if result.CandidateImageBuildSourceTree != "" || result.CandidatePlatformManifestDigest != "" {
+			return errors.New("accepted truth image result contains candidate authority")
+		}
+		return result.Image.Validate()
+	case TruthImageEnsureAwaitingTrustedRef:
+		if result.CandidateImageBuildSourceTree == "" || result.CandidatePlatformManifestDigest == "" {
+			return errors.New("awaiting truth image result is missing candidate provenance")
+		}
+		if result.Image.Registry != "" {
+			return errors.New("awaiting truth image result must not expose a runnable image")
+		}
+		return nil
+	default:
+		return fmt.Errorf("unsupported truth image ensure status %q", result.Status)
+	}
+}
+
+func cloneImageIdentity(identity gate.ImageIdentity) gate.ImageIdentity {
+	identity.RootFSDiffIDs = append([]string(nil), identity.RootFSDiffIDs...)
+	return identity
+}
