@@ -2,10 +2,29 @@ ARG GO_IMAGE=golang@sha256:1ecb7edf62a0408027bd5729dfd6b1b8766e578e8df93995b225d
 FROM ${GO_IMAGE} AS build
 
 WORKDIR /src
-COPY go.mod go.sum ./
-COPY cmd/super-dolphin-gate/ ./cmd/super-dolphin-gate/
-COPY internal/devtools/gate/ ./internal/devtools/gate/
-RUN --network=none CGO_ENABLED=0 go build -trimpath -buildvcs=false -o /out/super-dolphin-gate ./cmd/super-dolphin-gate
+ENV GOTOOLCHAIN=local GOPROXY=off GOSUMDB=off
+COPY ["go.mod", "go.sum", "./"]
+ADD build/gate/vendor.tar.gz ./vendor/
+COPY ["cmd/super-dolphin-gate/coordinator_cli.go","cmd/super-dolphin-gate/coordinator_owner.go","cmd/super-dolphin-gate/coordinator_runtime.go","cmd/super-dolphin-gate/coordinator_store.go","cmd/super-dolphin-gate/main.go","cmd/super-dolphin-gate/owner_process.go","./cmd/super-dolphin-gate/"]
+COPY ["internal/contract/agent_state.go","internal/contract/approval.go","internal/contract/bootstrap_hook.go","internal/contract/bus.go","internal/contract/codex_identity.go","internal/contract/config.go","internal/contract/cron.go","internal/contract/dream.go","internal/contract/errors.go","internal/contract/frc.go","internal/contract/hooks.go","internal/contract/insight.go","internal/contract/manifest.go","internal/contract/mcp_control.go","internal/contract/memory.go","internal/contract/message_notifier.go","internal/contract/orchestration.go","internal/contract/pending_launch_spawner.go","internal/contract/prompt.go","internal/contract/prompt_attachment.go","internal/contract/provider.go","internal/contract/rpc_dispatch.go","internal/contract/rpc_handler.go","internal/contract/runner.go","internal/contract/runtime_reporter.go","internal/contract/session.go","internal/contract/skill.go","internal/contract/thread.go","internal/contract/toolbridge.go","internal/contract/ui_project_state.go","./internal/contract/"]
+COPY ["internal/devtools/gate/contracts.go","internal/devtools/gate/entrypoints.go","internal/devtools/gate/registry.go","internal/devtools/gate/validation.go","./internal/devtools/gate/"]
+COPY ["internal/devtools/gatehook/codex.go","internal/devtools/gatehook/doc.go","internal/devtools/gatehook/git.go","internal/devtools/gatehook/git_adapter.go","internal/devtools/gatehook/status.go","internal/devtools/gatehook/types.go","./internal/devtools/gatehook/"]
+COPY ["internal/devtools/localci/daemon_capacity.go","internal/devtools/localci/daemon_capacity_docker.go","internal/devtools/localci/daemon_identity_docker.go","internal/devtools/localci/executor_context.go","internal/devtools/localci/executor_docker.go","internal/devtools/localci/executor_image.go","internal/devtools/localci/executor_source.go","internal/devtools/localci/image_builder.go","internal/devtools/localci/image_builder_buildx.go","internal/devtools/localci/image_builder_buildx_metadata.go","internal/devtools/localci/image_builder_dockerfile.go","internal/devtools/localci/image_state.go","internal/devtools/localci/scheduler.go","internal/devtools/localci/scheduler_lock.go","internal/devtools/localci/scheduler_lock_unix.go","internal/devtools/localci/scheduler_path.go","internal/devtools/localci/scheduler_path_unix.go","internal/devtools/localci/scheduler_service.go","internal/devtools/localci/scheduler_sql.go","internal/devtools/localci/scheduler_state.go","internal/devtools/localci/scheduler_token.go","internal/devtools/localci/scheduler_transport.go","internal/devtools/localci/scheduler_transport_peercred_linux.go","internal/devtools/localci/scheduler_transport_protocol.go","internal/devtools/localci/scheduler_transport_unix.go","./internal/devtools/localci/"]
+COPY ["internal/devtools/sourceexport/errors.go","internal/devtools/sourceexport/git_tree.go","internal/devtools/sourceexport/identity.go","internal/devtools/sourceexport/path_matcher.go","internal/devtools/sourceexport/policy.go","./internal/devtools/sourceexport/"]
+COPY ["internal/dto/agent/diagnostic.go","internal/dto/agent/event.go","internal/dto/agent/runtime.go","internal/dto/agent/state.go","./internal/dto/agent/"]
+COPY ["internal/dto/mcp/approval_response.go","internal/dto/mcp/constants.go","internal/dto/mcp/errors.go","internal/dto/mcp/hook.go","internal/dto/mcp/protocol.go","internal/dto/mcp/tool.go","./internal/dto/mcp/"]
+COPY ["internal/dto/provider/attachment.go","internal/dto/provider/capability.go","internal/dto/provider/event.go","internal/dto/provider/manifest.go","internal/dto/provider/message.go","internal/dto/provider/session.go","internal/dto/provider/thread.go","internal/dto/provider/thread_config.go","internal/dto/provider/turn.go","./internal/dto/provider/"]
+COPY ["internal/dto/shared/errors.go","internal/dto/shared/event.go","internal/dto/shared/input.go","./internal/dto/shared/"]
+COPY ["internal/dto/thread/event.go","internal/dto/thread/prompt_history.go","./internal/dto/thread/"]
+COPY ["internal/dto/turn/event.go","internal/dto/turn/model.go","internal/dto/turn/progress.go","./internal/dto/turn/"]
+COPY ["internal/dto/ui/event.go","internal/dto/ui/patch_types.go","./internal/dto/ui/"]
+COPY ["internal/platform/config/config.go","internal/platform/config/lsp.go","internal/platform/config/module.go","internal/platform/config/timeouts.go","./internal/platform/config/"]
+COPY ["internal/platform/securefs/owner_only_unix.go","internal/platform/securefs/securefs.go","./internal/platform/securefs/"]
+COPY ["internal/util/configutil/configutil.go","./internal/util/configutil/"]
+COPY ["internal/util/ctxutil/ctxutil.go","./internal/util/ctxutil/"]
+COPY ["pkg/logger/agent_logger.go","pkg/logger/error_enricher.go","pkg/logger/fields.go","pkg/logger/logger.go","pkg/logger/metadata.go","pkg/logger/redact.go","pkg/logger/relay.go","pkg/logger/relay_throttle.go","pkg/logger/safego.go","pkg/logger/sampler.go","pkg/logger/stderr_collector.go","pkg/logger/trace_carrier.go","pkg/logger/trace_context.go","pkg/logger/truncate.go","pkg/logger/watchdog.go","./pkg/logger/"]
+RUN --network=none CGO_ENABLED=0 go test -mod=vendor -run '^$' ./internal/devtools/gatehook
+RUN --network=none CGO_ENABLED=0 go build -mod=vendor -trimpath -buildvcs=false -o /out/super-dolphin-gate ./cmd/super-dolphin-gate
 
 FROM scratch
 COPY --from=build /out/super-dolphin-gate /super-dolphin-gate
