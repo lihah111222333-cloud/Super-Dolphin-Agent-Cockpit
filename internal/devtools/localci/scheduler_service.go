@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"sort"
@@ -509,9 +510,7 @@ func cloneSchedulerKernel(source *schedulerKernel) *schedulerKernel {
 		spec.dependencies = append([]workloadID(nil), node.spec.dependencies...)
 		clone.nodes[id] = &workloadNode{spec: spec, state: node.state, gangBypasses: node.gangBypasses}
 	}
-	for id, lease := range source.leases {
-		clone.leases[id] = lease
-	}
+	maps.Copy(clone.leases, source.leases)
 	return clone
 }
 
