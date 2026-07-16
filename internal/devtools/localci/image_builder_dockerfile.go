@@ -34,10 +34,13 @@ func validateLockedImageArgumentDefaults(lines []string, locked map[string]strin
 
 // lockedImageArgumentDefault 解析首个 FROM 之前受锁约束的镜像参数默认值。
 func lockedImageArgumentDefault(line string, locked map[string]string) (string, bool, error) {
-	instruction, body, found := strings.Cut(line, " ")
-	if !found {
+	trimmed := strings.TrimSpace(line)
+	fields := strings.Fields(trimmed)
+	if len(fields) == 0 {
 		return "", false, nil
 	}
+	instruction := fields[0]
+	body := strings.TrimSpace(trimmed[len(instruction):])
 	if strings.EqualFold(instruction, "FROM") {
 		return "", true, nil
 	}

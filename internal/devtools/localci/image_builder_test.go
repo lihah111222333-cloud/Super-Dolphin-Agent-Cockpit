@@ -207,6 +207,17 @@ func TestEnsureCandidateRejectsMissingOrDriftedBaseImageArgDefault(t *testing.T)
 	assertRejectedDockerfile(t, driftedDefault)
 }
 
+func TestLockedImageArgumentDefaultsRejectsArgAfterTabSeparatedFrom(t *testing.T) {
+	lines := []string{
+		"FROM\t${GO_IMAGE} AS build",
+		"ARG GO_IMAGE=" + lockedGoImageReference(),
+	}
+	err := validateLockedImageArgumentDefaults(lines, map[string]string{"GO_IMAGE": lockedGoImageReference()})
+	if err == nil {
+		t.Fatal("locked image ARG declared after tab-separated FROM was accepted")
+	}
+}
+
 func TestTrackedBuildConfigurationMatchesProducerFields(t *testing.T) {
 	manifestData := readRepoFile(t, buildInputManifestPath)
 	assertJSONFieldsMatchProducer(t, manifestData, buildInputManifest{})
