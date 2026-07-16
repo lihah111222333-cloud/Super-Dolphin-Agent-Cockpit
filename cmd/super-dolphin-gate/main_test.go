@@ -59,6 +59,23 @@ func TestPlanRejectsMultipleSourceVariants(t *testing.T) {
 	}
 }
 
+func TestPlanRejectsTreeParentOutsideCompleteTreeVariant(t *testing.T) {
+	t.Parallel()
+
+	tests := [][]string{
+		{"--commit", cliCommitSHA, "--parent", cliCommitSHA},
+		{"--parent", cliCommitSHA},
+	}
+	for _, sourceFlags := range tests {
+		args := []string{"plan", "--profile", "push", "--object-format", "sha1", "--source-tree", cliTreeSHA}
+		args = append(args, sourceFlags...)
+		code, _, stderr := executeCLI(args)
+		if code != int(gatecontract.ExitSourceMismatch) {
+			t.Fatalf("source flags=%v code=%d stderr=%q", sourceFlags, code, stderr)
+		}
+	}
+}
+
 func TestRunRejectsMissingSchedulerTokenBeforeNotWired(t *testing.T) {
 	t.Parallel()
 
@@ -94,19 +111,31 @@ func TestReceiptVerifyRequiresInput(t *testing.T) {
 	}
 }
 
-func TestCLIErrorWriterFailurePreservesOriginalExitCode(t *testing.T) {
+func TestCLIErrorWriterFailureReturnsInfrastructureExit(t *testing.T) {
 	t.Parallel()
 
-	code := runCLI([]string{"run"}, &bytes.Buffer{}, failingWriter{})
-	if code != int(gatecontract.ExitProtocol) {
-		t.Fatalf("code = %d, want original protocol exit %d", code, gatecontract.ExitProtocol)
+	code := runCLI([]string{"run"}, &bytes.Buffer{}, failingWriter{err: errors.New("write failed")})
+	if code != int(gatecontract.ExitInfrastructure) {
+		t.Fatalf("code = %d, want infrastructure exit %d", code, gatecontract.ExitInfrastructure)
 	}
 }
 
-type failingWriter struct{}
+func TestWriteCLIErrorPreservesWriterErrorChain(t *testing.T) {
+	t.Parallel()
 
-func (failingWriter) Write([]byte) (int, error) {
-	return 0, errors.New("write failed")
+	writeErr := errors.New("write failed")
+	err := writeCLIError(failingWriter{err: writeErr}, errors.New("command failed"))
+	if !errors.Is(err, writeErr) {
+		t.Fatalf("writeCLIError() error = %v, want writer error chain", err)
+	}
+}
+
+type failingWriter struct {
+	err error
+}
+
+func (w failingWriter) Write([]byte) (int, error) {
+	return 0, w.err
 }
 
 func executeCLI(args []string) (int, string, string) {

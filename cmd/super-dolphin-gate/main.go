@@ -26,7 +26,7 @@ func runCLI(args []string, stdout, stderr io.Writer) int {
 	}
 	exitCode := gatecontract.ExitCodeOf(err)
 	if writeErr := writeCLIError(stderr, err); writeErr != nil {
-		return int(exitCode)
+		return int(gatecontract.ExitInfrastructure)
 	}
 	return int(exitCode)
 }
@@ -153,7 +153,7 @@ func registerPlanFlags(flags *flag.FlagSet, options *planFlags) {
 // sourceSpec 将互斥 CLI flags 转为严格 SourceSpec。
 func (o planFlags) sourceSpec() (gatecontract.SourceSpec, error) {
 	commitSet := o.commit != ""
-	treeSet := o.tree != ""
+	treeSet := o.tree != "" || o.parent != ""
 	rangeSet := o.rangeRequested()
 	if boolCount(commitSet, treeSet, rangeSet) != 1 {
 		return gatecontract.SourceSpec{}, sourceError("exactly one commit, tree, or range source is required")
