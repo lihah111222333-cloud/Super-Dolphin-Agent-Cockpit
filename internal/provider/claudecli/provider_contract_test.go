@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"slices"
 	"strings"
 	"testing"
@@ -18,6 +19,25 @@ import (
 
 func TestClaudeCLIProviderContract(t *testing.T) {
 	contracttest.Run(t, CompleteClaudeCLIContractSpec())
+}
+
+func TestClaudeContractBufferedTransportFinishesOnInputCloseAfterEOF(t *testing.T) {
+	scripted, err := newClaudeContractBufferedTransport("provider-thread-contract-eof")
+	if err != nil {
+		t.Fatalf("new contract buffered transport: %v", err)
+	}
+	if _, err := scripted.tr.Receive(); err != nil {
+		t.Fatalf("receive system:init: %v", err)
+	}
+	if _, err := scripted.tr.Receive(); !errors.Is(err, io.EOF) {
+		t.Fatalf("receive after buffered output error = %v, want EOF", err)
+	}
+	scripted.tr.closeInput()
+	select {
+	case <-scripted.tr.done:
+	default:
+		t.Fatal("contract buffered transport remained running after stdin close")
+	}
 }
 
 func CompleteClaudeCLIContractSpec() contracttest.Spec {
@@ -541,6 +561,16 @@ func canonicalJSONForContract(t *testing.T, value any) string {
 	return string(raw)
 }
 
+type contractBufferedInput struct {
+	io.WriteCloser
+	finish func()
+}
+
+func (i *contractBufferedInput) Close() error {
+	defer i.finish()
+	return i.WriteCloser.Close()
+}
+
 func newClaudeContractBufferedTransport(threadID string) (*scriptedTransport, error) {
 	payload, err := json.Marshal(streamEvent{
 		Type:      "system",
@@ -554,15 +584,19 @@ func newClaudeContractBufferedTransport(threadID string) (*scriptedTransport, er
 	stdin := &recordingWriteCloser{writes: make(chan string, 8)}
 	scanner := bufio.NewScanner(strings.NewReader(string(payload) + "\n"))
 	scanner.Buffer(make([]byte, 64*1024), maxCLILineBytes)
-	return &scriptedTransport{
+	scripted := &scriptedTransport{
 		tr: &transport{
-			stdin:  stdin,
 			stdout: scanner,
 			stderr: newLimitedBuffer(stderrLimitBytes),
 			done:   make(chan struct{}),
 		},
 		stdin: stdin,
-	}, nil
+	}
+	scripted.tr.stdin = &contractBufferedInput{
+		WriteCloser: stdin,
+		finish:      scripted.finish,
+	}
+	return scripted, nil
 }
 
 func waitClaudeContractThreadID(ctx context.Context, session contract.Session) error {
