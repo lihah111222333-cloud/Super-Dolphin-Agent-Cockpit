@@ -200,6 +200,13 @@ func TestEnsureCandidateRejectsUnknownManifestField(t *testing.T) {
 	assertCandidateRejectedBeforeBuild(t, entries)
 }
 
+func TestEnsureCandidateRejectsMissingOrDriftedBaseImageArgDefault(t *testing.T) {
+	missingDefault := strings.Replace(validCandidateDockerfile(), "ARG GO_IMAGE="+lockedGoImageReference(), "ARG GO_IMAGE", 1)
+	assertRejectedDockerfile(t, missingDefault)
+	driftedDefault := strings.Replace(validCandidateDockerfile(), lockedGoImageReference(), "golang@"+digest("c"), 1)
+	assertRejectedDockerfile(t, driftedDefault)
+}
+
 func TestTrackedBuildConfigurationMatchesProducerFields(t *testing.T) {
 	manifestData := readRepoFile(t, buildInputManifestPath)
 	assertJSONFieldsMatchProducer(t, manifestData, buildInputManifest{})
@@ -263,11 +270,15 @@ func candidateEntries(dockerfile string) []sourceexport.TreeEntry {
 }
 
 func validCandidateDockerfile() string {
-	return "ARG GO_IMAGE\nFROM ${GO_IMAGE} AS build\nCOPY go.mod go.sum ./\nCOPY cmd/super-dolphin-gate/main.go ./cmd/super-dolphin-gate/main.go\nRUN --network=none go build -o /out/gate ./cmd/super-dolphin-gate\nFROM scratch\nCOPY --from=build /out/gate /gate\nENTRYPOINT [\"/gate\"]\n"
+	return "ARG GO_IMAGE=" + lockedGoImageReference() + "\nFROM ${GO_IMAGE} AS build\nCOPY go.mod go.sum ./\nCOPY cmd/super-dolphin-gate/main.go ./cmd/super-dolphin-gate/main.go\nRUN --network=none go build -o /out/gate ./cmd/super-dolphin-gate\nFROM scratch\nCOPY --from=build /out/gate /gate\nENTRYPOINT [\"/gate\"]\n"
 }
 
 func forwardStageDockerfile() string {
-	return "ARG GO_IMAGE\nFROM ${GO_IMAGE} AS build\nCOPY --from=later /tool /tool\nFROM scratch AS later\nCOPY --from=build /out/gate /gate\nENTRYPOINT [\"/gate\"]\n"
+	return "ARG GO_IMAGE=" + lockedGoImageReference() + "\nFROM ${GO_IMAGE} AS build\nCOPY --from=later /tool /tool\nFROM scratch AS later\nCOPY --from=build /out/gate /gate\nENTRYPOINT [\"/gate\"]\n"
+}
+
+func lockedGoImageReference() string {
+	return "golang@" + digest("b")
 }
 
 func assertForbiddenBuildCapability(t *testing.T, instruction string) {

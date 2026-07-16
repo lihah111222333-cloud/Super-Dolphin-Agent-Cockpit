@@ -467,13 +467,16 @@ func rejectForbiddenDockerfileCapabilities(lines []string) error {
 	return nil
 }
 
-// validateDockerfileFrom 要求每个非 scratch 基础镜像来自工具链锁。
+// validateDockerfileFrom 要求基础镜像参数默认值和 FROM 引用都来自工具链锁。
 func validateDockerfileFrom(lines []string, arguments []BuildArgument) error {
 	locked := make(map[string]string, len(arguments))
 	allowed := make(map[string]struct{}, len(arguments))
 	for _, argument := range arguments {
 		locked[argument.Name] = argument.Value
 		allowed[argument.Value] = struct{}{}
+	}
+	if err := validateLockedImageArgumentDefaults(lines, locked); err != nil {
+		return err
 	}
 	fromCount := 0
 	for _, line := range lines {
