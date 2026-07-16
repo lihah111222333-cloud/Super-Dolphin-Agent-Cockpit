@@ -188,16 +188,13 @@ function WorkflowHeader({ copy, model }) {
 
 function WorkflowSubpageHeader({ onBack, title }) {
   return (
-    <PageHeader
-      icon={Workflow}
-      title={title}
-      actions={(
-        <button type="button" className="btn-outline workflow-return-button" onClick={onBack}>
-          <ArrowLeft size={16} />
-          <span>返回自动化</span>
-        </button>
-      )}
-    />
+    <div className="workflow-subpage-header">
+      <button type="button" className="btn-outline workflow-return-button" onClick={onBack}>
+        <ArrowLeft size={16} />
+        <span>返回自动化</span>
+      </button>
+      {title ? <h1 className="page-header-title">{title}</h1> : null}
+    </div>
   );
 }
 

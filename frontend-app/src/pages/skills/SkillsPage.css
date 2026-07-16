@@ -44,16 +44,17 @@
 }
 
 .datasource-empty-card {
-  min-height: auto;
-  padding: 48px 24px;
+  min-height: auto !important; /* Override 42vh from global empty-state */
+  text-align: center;
+  padding: 40px 20px;
   background: var(--surface);
-  border: 1px solid color-mix(in srgb, var(--primary) 24%, var(--border));
-  border-radius: 12px;
-  box-shadow: var(--suiyuan-logo-shadow);
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-md);
+  margin-top: 16px;
 }
 
 .datasource-empty-card .empty-icon {
-  color: var(--primary);
+  color: var(--text-sec);
   margin-bottom: 12px;
 }
 

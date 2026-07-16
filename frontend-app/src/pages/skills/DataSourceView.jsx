@@ -559,7 +559,7 @@ export function DataSourceView({ copy }) {
   });
 
   return (
-    <div className="datasource-container">
+    <div className="plugins-square-container datasource-container">
       <div className="plugins-square-header">
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
           <h1>{copy.datasourceTitle}</h1>
