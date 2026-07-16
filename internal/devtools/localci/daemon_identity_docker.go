@@ -16,8 +16,9 @@ import (
 )
 
 const (
-	dockerContextJSONFormat = "{{json .}}"
-	maxTLSMaterialBytes     = 1 << 20
+	dockerContextJSONFormat     = "{{json .}}"
+	dockerContextNameCharacters = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._+-"
+	maxTLSMaterialBytes         = 1 << 20
 )
 
 // DockerDaemonIdentityCheckpoint 绑定 active context 观测和规范化 daemon identity。
@@ -102,23 +103,33 @@ func (probe *dockerDaemonIdentityProbe) Probe(ctx context.Context) (DockerDaemon
 	if err := validateDockerCLIEnvironment(environment); err != nil {
 		return DockerDaemonIdentityCheckpoint{}, err
 	}
-	firstContext, err := probe.observeContext(ctx, environment)
+	firstContext, err := probe.observeActiveContext(ctx, environment)
 	if err != nil {
 		return DockerDaemonIdentityCheckpoint{}, err
 	}
-	firstDaemonID, err := probe.observeDaemonID(ctx, environment)
+	if err := validateSelectedDockerContext(environment, firstContext); err != nil {
+		return DockerDaemonIdentityCheckpoint{}, err
+	}
+	firstDaemonID, err := probe.observeDaemonID(ctx, environment, firstContext.name)
 	if err != nil {
 		return DockerDaemonIdentityCheckpoint{}, err
 	}
-	secondContext, err := probe.observeContext(ctx, environment)
+	namedContext, err := probe.observeNamedContext(ctx, environment, firstContext.name)
 	if err != nil {
 		return DockerDaemonIdentityCheckpoint{}, err
 	}
-	secondDaemonID, err := probe.observeDaemonID(ctx, environment)
+	activeContext, err := probe.observeActiveContext(ctx, environment)
 	if err != nil {
 		return DockerDaemonIdentityCheckpoint{}, err
 	}
-	return probe.buildCheckpoint(environment, firstContext, secondContext, firstDaemonID, secondDaemonID)
+	if err := validateDockerContextRecheck(firstContext, namedContext, activeContext); err != nil {
+		return DockerDaemonIdentityCheckpoint{}, err
+	}
+	secondDaemonID, err := probe.observeDaemonID(ctx, environment, firstContext.name)
+	if err != nil {
+		return DockerDaemonIdentityCheckpoint{}, err
+	}
+	return probe.buildCheckpoint(firstContext, firstDaemonID, secondDaemonID)
 }
 
 // validateInputs 在执行 Docker CLI 前校验 probe 依赖和上下文。
@@ -141,7 +152,7 @@ func (probe *dockerDaemonIdentityProbe) validateInputs(ctx context.Context) erro
 	return nil
 }
 
-func (probe *dockerDaemonIdentityProbe) observeContext(
+func (probe *dockerDaemonIdentityProbe) observeActiveContext(
 	ctx context.Context,
 	environment dockerCLIEnvironment,
 ) (dockerContextObservation, error) {
@@ -156,11 +167,28 @@ func (probe *dockerDaemonIdentityProbe) observeContext(
 	return probe.normalizeContext(payload)
 }
 
+func (probe *dockerDaemonIdentityProbe) observeNamedContext(
+	ctx context.Context,
+	environment dockerCLIEnvironment,
+	contextName string,
+) (dockerContextObservation, error) {
+	output, err := probe.runDocker(ctx, environment, "context", "inspect", "--format", dockerContextJSONFormat, contextName)
+	if err != nil {
+		return dockerContextObservation{}, fmt.Errorf("inspect named docker context: %w", err)
+	}
+	payload, err := decodeDockerContext(output)
+	if err != nil {
+		return dockerContextObservation{}, err
+	}
+	return probe.normalizeContext(payload)
+}
+
 func (probe *dockerDaemonIdentityProbe) observeDaemonID(
 	ctx context.Context,
 	environment dockerCLIEnvironment,
+	contextName string,
 ) (string, error) {
-	output, err := probe.runDocker(ctx, environment, "info", "--format", dockerInfoJSONFormat)
+	output, err := probe.runDocker(ctx, environment, "--context", contextName, "info", "--format", dockerInfoJSONFormat)
 	if err != nil {
 		return "", fmt.Errorf("inspect active docker daemon: %w", err)
 	}
@@ -197,8 +225,8 @@ func (probe *dockerDaemonIdentityProbe) runDocker(
 
 // normalizeContext 将 context DTO 收敛为可比较的规范化 identity 观测。
 func (probe *dockerDaemonIdentityProbe) normalizeContext(payload dockerContextPayload) (dockerContextObservation, error) {
-	if strings.TrimSpace(payload.Name) == "" || strings.TrimSpace(payload.Name) != payload.Name {
-		return dockerContextObservation{}, errors.New("active docker context name is required and canonical")
+	if err := validateDockerContextName(payload.Name); err != nil {
+		return dockerContextObservation{}, err
 	}
 	parsed, err := url.Parse(payload.Endpoints.Docker.Host)
 	if err != nil {
@@ -213,6 +241,19 @@ func (probe *dockerDaemonIdentityProbe) normalizeContext(payload dockerContextPa
 		return dockerContextObservation{}, err
 	}
 	return dockerContextObservation{name: payload.Name, endpoint: endpoint, tlsFingerprint: fingerprint}, nil
+}
+
+// validateDockerContextName 将动态 context 参数限制为 Docker 的 ASCII canonical 名称。
+func validateDockerContextName(name string) error {
+	if name == "" || len(name) > 255 {
+		return errors.New("docker context name is required and canonical")
+	}
+	for index := range len(name) {
+		if strings.IndexByte(dockerContextNameCharacters, name[index]) < 0 {
+			return errors.New("docker context name contains unsupported characters")
+		}
+	}
+	return nil
 }
 
 // contextTLSFingerprint 按 endpoint scheme 强制 Unix 无 TLS、TCP 有可信 TLS 指纹。
@@ -340,31 +381,23 @@ func decodeDockerContext(output string) (dockerContextPayload, error) {
 
 // buildCheckpoint 复核双读结果并映射为 SchedulerConfig 与稳定 key。
 func (probe *dockerDaemonIdentityProbe) buildCheckpoint(
-	environment dockerCLIEnvironment,
-	firstContext dockerContextObservation,
-	secondContext dockerContextObservation,
+	contextObservation dockerContextObservation,
 	firstDaemonID string,
 	secondDaemonID string,
 ) (DockerDaemonIdentityCheckpoint, error) {
-	if firstContext != secondContext {
-		return DockerDaemonIdentityCheckpoint{}, errors.New("active docker context drifted during daemon identity probe")
-	}
 	if firstDaemonID != secondDaemonID {
 		return DockerDaemonIdentityCheckpoint{}, errors.New("docker daemon identity mismatch during probe")
-	}
-	if environment.context.set && environment.context.value != firstContext.name {
-		return DockerDaemonIdentityCheckpoint{}, errors.New("DOCKER_CONTEXT does not match the inspected active context")
 	}
 	ownerUID, err := probe.currentUID()
 	if err != nil {
 		return DockerDaemonIdentityCheckpoint{}, fmt.Errorf("read current UID for docker daemon identity: %w", err)
 	}
-	identity, err := newDaemonIdentity(firstContext.endpoint, firstContext.tlsFingerprint, firstDaemonID, ownerUID)
+	identity, err := newDaemonIdentity(contextObservation.endpoint, contextObservation.tlsFingerprint, firstDaemonID, ownerUID)
 	if err != nil {
 		return DockerDaemonIdentityCheckpoint{}, fmt.Errorf("construct docker daemon identity: %w", err)
 	}
 	return DockerDaemonIdentityCheckpoint{
-		ContextName: firstContext.name,
+		ContextName: contextObservation.name,
 		SchedulerConfig: SchedulerConfig{
 			Endpoint:       identity.endpoint,
 			TLSFingerprint: identity.tlsFingerprint,
@@ -373,6 +406,29 @@ func (probe *dockerDaemonIdentityProbe) buildCheckpoint(
 		},
 		IdentityKey: identity.key,
 	}, nil
+}
+
+// validateSelectedDockerContext 复核显式 DOCKER_CONTEXT 与首次 active 观测一致。
+func validateSelectedDockerContext(environment dockerCLIEnvironment, observation dockerContextObservation) error {
+	if environment.context.set && environment.context.value != observation.name {
+		return errors.New("DOCKER_CONTEXT does not match the inspected active context")
+	}
+	return nil
+}
+
+// validateDockerContextRecheck 同时复核命名 context 元数据和最终 active context。
+func validateDockerContextRecheck(
+	first dockerContextObservation,
+	named dockerContextObservation,
+	active dockerContextObservation,
+) error {
+	if first != named {
+		return errors.New("named docker context metadata drifted during daemon identity probe")
+	}
+	if first != active {
+		return errors.New("active docker context drifted during daemon identity probe")
+	}
+	return nil
 }
 
 func (probe *dockerDaemonIdentityProbe) environment() dockerCLIEnvironment {

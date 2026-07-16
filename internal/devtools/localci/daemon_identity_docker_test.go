@@ -9,6 +9,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 )
 
 const testDockerOwnerUID = 501
@@ -67,9 +68,10 @@ func TestDockerDaemonIdentityProbeBuildsCanonicalCheckpoint(t *testing.T) {
 	}
 	wantArgs := [][]string{
 		{"context", "inspect", "--format", "{{json .}}"},
-		{"info", "--format", "{{json .}}"},
+		{"--context", "desktop-linux", "info", "--format", "{{json .}}"},
+		{"context", "inspect", "--format", "{{json .}}", "desktop-linux"},
 		{"context", "inspect", "--format", "{{json .}}"},
-		{"info", "--format", "{{json .}}"},
+		{"--context", "desktop-linux", "info", "--format", "{{json .}}"},
 	}
 	if !reflect.DeepEqual(runner.args, wantArgs) {
 		t.Fatalf("docker args = %#v, want %#v", runner.args, wantArgs)
@@ -173,15 +175,15 @@ func TestDockerDaemonIdentityProbeRejectsDriftAndOverrides(t *testing.T) {
 				return "different-context", name == "DOCKER_CONTEXT"
 			},
 			wantSubstring: "DOCKER_CONTEXT",
-			wantCalls:     4,
+			wantCalls:     1,
 		},
 		{
 			name: "context drift",
 			runner: &daemonIdentityDockerRunnerStub{results: []daemonIdentityDockerRunnerResult{
 				{output: dockerContextOutput(t, "first", "unix:///var/run/docker.sock", false, "", nil)},
 				{output: dockerInfoOutput(testDaemonID, 18, 25*bytesPerGiB)},
+				{output: dockerContextOutput(t, "first", "unix:///var/run/docker.sock", false, "", nil)},
 				{output: dockerContextOutput(t, "second", "unix:///var/run/docker.sock", false, "", nil)},
-				{output: dockerInfoOutput(testDaemonID, 18, 25*bytesPerGiB)},
 			}},
 			wantSubstring: "context drift",
 			wantCalls:     4,
@@ -192,10 +194,11 @@ func TestDockerDaemonIdentityProbeRejectsDriftAndOverrides(t *testing.T) {
 				{output: dockerContextOutput(t, "desktop-linux", "unix:///var/run/docker.sock", false, "", nil)},
 				{output: dockerInfoOutput(testDaemonID, 18, 25*bytesPerGiB)},
 				{output: dockerContextOutput(t, "desktop-linux", "unix:///var/run/docker.sock", false, "", nil)},
+				{output: dockerContextOutput(t, "desktop-linux", "unix:///var/run/docker.sock", false, "", nil)},
 				{output: dockerInfoOutput("different-daemon", 18, 25*bytesPerGiB)},
 			}},
 			wantSubstring: "identity mismatch",
-			wantCalls:     4,
+			wantCalls:     5,
 		},
 	}
 
@@ -212,6 +215,31 @@ func TestDockerDaemonIdentityProbeRejectsDriftAndOverrides(t *testing.T) {
 				t.Fatalf("docker calls = %d, want %d", len(test.runner.args), test.wantCalls)
 			}
 		})
+	}
+}
+
+func TestDockerDaemonIdentityProbePinsInfoToFirstContextBeforeRejectingActiveDrift(t *testing.T) {
+	firstContext := dockerContextOutput(t, "context-a", "unix:///var/run/docker-a.sock", false, "", nil)
+	driftedActiveContext := dockerContextOutput(t, "context-b", "unix:///var/run/docker-b.sock", false, "", nil)
+	runner := &daemonIdentityDockerRunnerStub{results: []daemonIdentityDockerRunnerResult{
+		{output: firstContext},
+		{output: dockerInfoOutput("daemon-a", 18, 25*bytesPerGiB)},
+		{output: firstContext},
+		{output: driftedActiveContext},
+	}}
+	probe := newTestDockerDaemonIdentityProbe(t, runner)
+
+	if _, err := probe.Probe(context.Background()); err == nil || !strings.Contains(err.Error(), "context drift") {
+		t.Fatalf("Probe() error = %v, want active context drift", err)
+	}
+	wantArgs := [][]string{
+		{"context", "inspect", "--format", "{{json .}}"},
+		{"--context", "context-a", "info", "--format", "{{json .}}"},
+		{"context", "inspect", "--format", "{{json .}}", "context-a"},
+		{"context", "inspect", "--format", "{{json .}}"},
+	}
+	if !reflect.DeepEqual(runner.args, wantArgs) {
+		t.Fatalf("docker args = %#v, want %#v", runner.args, wantArgs)
 	}
 }
 
@@ -290,6 +318,68 @@ func TestNewDockerDaemonIdentityProbeRejectsTypedNil(t *testing.T) {
 	}
 }
 
+func TestDockerDaemonIdentityProbeLiveDocker(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	runner := execDockerRunner{}
+	probe, err := newDockerDaemonIdentityProbe(runner)
+	if err != nil {
+		t.Fatalf("newDockerDaemonIdentityProbe() error = %v", err)
+	}
+	observation := requireLiveDockerContext(t, ctx, runner, probe)
+	info := requireLiveDockerInfo(t, ctx, runner, observation.name)
+	checkpoint, err := probe.Probe(ctx)
+	if err != nil {
+		t.Fatalf("Probe() live Docker error = %v", err)
+	}
+	if checkpoint.ContextName != observation.name || checkpoint.SchedulerConfig.DaemonID != info.ID {
+		t.Fatalf("live checkpoint = %#v, context=%q daemon=%q", checkpoint, observation.name, info.ID)
+	}
+}
+
+func requireLiveDockerContext(
+	t *testing.T,
+	ctx context.Context,
+	runner execDockerRunner,
+	probe *dockerDaemonIdentityProbe,
+) dockerContextObservation {
+	t.Helper()
+	contextOutput, err := runner.Run(ctx, "context", "inspect", "--format", dockerContextJSONFormat)
+	if err != nil {
+		t.Skipf("Docker is unavailable: %v", err)
+	}
+	payload, err := decodeDockerContext(contextOutput)
+	if err != nil {
+		t.Fatalf("decode live Docker context: %v", err)
+	}
+	observation, err := probe.normalizeContext(payload)
+	if err != nil {
+		t.Fatalf("normalize live Docker context: %v", err)
+	}
+	return observation
+}
+
+func requireLiveDockerInfo(
+	t *testing.T,
+	ctx context.Context,
+	runner execDockerRunner,
+	contextName string,
+) dockerInfoPayload {
+	t.Helper()
+	infoOutput, err := runner.Run(ctx, "--context", contextName, "info", "--format", dockerInfoJSONFormat)
+	if err != nil {
+		t.Skipf("Docker daemon is unavailable: %v", err)
+	}
+	info, err := decodeDockerInfo(infoOutput)
+	if err != nil {
+		t.Fatalf("decode live Docker info: %v", err)
+	}
+	if err := validateDaemonID(info.ID); err != nil {
+		t.Fatalf("validate live Docker daemon ID: %v", err)
+	}
+	return info
+}
+
 func newTestDockerDaemonIdentityProbe(t *testing.T, runner dockerRunner) *dockerDaemonIdentityProbe {
 	t.Helper()
 	probe, err := newDockerDaemonIdentityProbe(runner)
@@ -305,6 +395,7 @@ func identityProbeRunner(contextOutput, daemonID string) *daemonIdentityDockerRu
 	return &daemonIdentityDockerRunnerStub{results: []daemonIdentityDockerRunnerResult{
 		{output: contextOutput},
 		{output: dockerInfoOutput(daemonID, 18, 25*bytesPerGiB)},
+		{output: contextOutput},
 		{output: contextOutput},
 		{output: dockerInfoOutput(daemonID, 18, 25*bytesPerGiB)},
 	}}
