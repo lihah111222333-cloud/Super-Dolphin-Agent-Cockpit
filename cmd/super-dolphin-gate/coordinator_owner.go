@@ -52,14 +52,6 @@ func openCoordinatorOwner(
 	}, nil
 }
 
-// productionCoordinatorDependencies 明确阻断尚未由 B lane 装配的镜像权威适配器。
-func productionCoordinatorDependencies() (coordinatorDependencies, error) {
-	return coordinatorDependencies{}, fmt.Errorf(
-		"%w: production ImageEnsurer adapter is unavailable; host gate execution is forbidden",
-		errCoordinatorDependency,
-	)
-}
-
 // Serve 同时运行 transport 与 scheduler dispatch，并在任一基础设施失败时收口。
 func (owner *coordinatorOwner) Serve(ctx context.Context) error {
 	if owner == nil || ctx == nil {

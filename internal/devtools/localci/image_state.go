@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"time"
 
@@ -547,6 +548,8 @@ type TruthImageEnsureResult struct {
 	SubmittedJobSourceTree          string
 	AcceptedImageBuildSourceTree    string
 	CandidateImageBuildSourceTree   string
+	PolicyDigest                    string
+	ImageSchemaVersion              string
 	ImageInputDigest                string
 	ContextDigest                   string
 	InputManifestDigest             string
@@ -662,6 +665,8 @@ func truthImageResult(inputs GateImageInputs, accepted gate.AcceptedImageRecord,
 	return TruthImageEnsureResult{
 		SubmittedJobSourceTree:       inputs.SubmittedSourceTree,
 		AcceptedImageBuildSourceTree: accepted.SourceTree,
+		PolicyDigest:                 inputs.PolicyDigest,
+		ImageSchemaVersion:           inputs.ImageSchemaVersion,
 		ImageInputDigest:             candidate.InputDigest, ContextDigest: candidate.ContextDigest,
 		InputManifestDigest: candidate.InputManifestDigest, ToolchainDigest: candidate.ToolchainDigest,
 		DockerfileDigest: candidate.DockerfileDigest,
@@ -670,8 +675,8 @@ func truthImageResult(inputs GateImageInputs, accepted gate.AcceptedImageRecord,
 
 // Validate 在 coordinator 边界拒绝含糊的 runnable/awaiting 状态。
 func (result TruthImageEnsureResult) Validate() error {
-	if result.SubmittedJobSourceTree == "" || result.AcceptedImageBuildSourceTree == "" {
-		return errors.New("truth image result is missing job or accepted build provenance")
+	if err := validateTruthImageResultIdentity(result); err != nil {
+		return err
 	}
 	switch result.Status {
 	case TruthImageEnsureAccepted:
@@ -690,6 +695,17 @@ func (result TruthImageEnsureResult) Validate() error {
 	default:
 		return fmt.Errorf("unsupported truth image ensure status %q", result.Status)
 	}
+}
+
+func validateTruthImageResultIdentity(result TruthImageEnsureResult) error {
+	values := []string{
+		result.SubmittedJobSourceTree, result.AcceptedImageBuildSourceTree,
+		result.PolicyDigest, result.ImageSchemaVersion,
+	}
+	if slices.Contains(values, "") {
+		return errors.New("truth image result is missing job or accepted build provenance")
+	}
+	return nil
 }
 
 func cloneImageIdentity(identity gate.ImageIdentity) gate.ImageIdentity {

@@ -115,12 +115,12 @@ func runOwnerProcess(args []string, stdout io.Writer) error {
 	if checkpoint.IdentityKey != expectedIdentityKey {
 		return writeOwnerFailure(stdout, errors.New("coordinator owner Docker identity changed during startup"))
 	}
-	dependencies, err := productionCoordinatorDependencies()
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	dependencies, err := productionCoordinatorDependencies(ctx)
 	if err != nil {
 		return writeOwnerFailure(stdout, err)
 	}
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
 	owner, err := openCoordinatorOwner(ctx, checkpoint, dependencies)
 	if err != nil {
 		return writeOwnerFailure(stdout, err)

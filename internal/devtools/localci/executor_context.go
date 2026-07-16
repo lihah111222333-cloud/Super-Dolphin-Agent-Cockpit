@@ -3,6 +3,7 @@ package localci
 import (
 	"archive/tar"
 	"bytes"
+	"context"
 	"crypto/sha1" // #nosec G505 -- Git SHA-1 object IDs require SHA-1 compatibility verification.
 	"crypto/sha256"
 	"encoding/hex"
@@ -342,4 +343,70 @@ func cloneTreeEntries(entries []sourceexport.TreeEntry) []sourceexport.TreeEntry
 		cloned[index].Path = path.Clean(entry.Path)
 	}
 	return cloned
+}
+
+// LoadReadOnlyGitTree 从已验证 SourceSpec 的 Git object tree 读取镜像输入，不读取工作区文件。
+func LoadReadOnlyGitTree(ctx context.Context, repoRoot string, spec gate.SourceSpec) (ReadOnlyGitTree, error) {
+	if err := errors.Join(validateContext(ctx), spec.Validate(), validateCanonicalDirectory(repoRoot, false)); err != nil {
+		return ReadOnlyGitTree{}, fmt.Errorf("validate read-only Git tree input: %w", err)
+	}
+	if err := verifyRepositoryIdentity(ctx, repoRoot, spec.ObjectFormat); err != nil {
+		return ReadOnlyGitTree{}, err
+	}
+	plan, err := inspectSourcePlan(ctx, repoRoot, spec)
+	if err != nil {
+		return ReadOnlyGitTree{}, err
+	}
+	entries, err := loadReadOnlyTreeEntries(ctx, repoRoot, plan.tree)
+	if err != nil {
+		return ReadOnlyGitTree{}, err
+	}
+	tree := ReadOnlyGitTree{Source: cloneSourceSpec(spec), Entries: entries}
+	if err := verifyReadOnlyGitTree(tree); err != nil {
+		return ReadOnlyGitTree{}, fmt.Errorf("verify read-only Git tree: %w", err)
+	}
+	return tree, nil
+}
+
+// loadReadOnlyTreeEntries 读取稳定排序的 blob 记录并从 Git object database 取得内容。
+func loadReadOnlyTreeEntries(ctx context.Context, repoRoot string, treeOID string) ([]sourceexport.TreeEntry, error) {
+	output, err := runGitOutput(ctx, repoRoot, nil, "ls-tree", "-rz", "--full-tree", treeOID)
+	if err != nil {
+		return nil, fmt.Errorf("list read-only Git tree: %w", err)
+	}
+	records := bytes.Split(output, []byte{0})
+	entries := make([]sourceexport.TreeEntry, 0, len(records))
+	for _, record := range records {
+		if len(record) == 0 {
+			continue
+		}
+		entry, parseErr := parseReadOnlyTreeEntry(record)
+		if parseErr != nil {
+			return nil, parseErr
+		}
+		object, readErr := readSourceObject(ctx, repoRoot, entry.Hash)
+		if readErr != nil {
+			return nil, readErr
+		}
+		if object.kind != "blob" {
+			return nil, fmt.Errorf("read-only Git tree entry %q is %q, want blob", entry.Path, object.kind)
+		}
+		entry.Data = append([]byte(nil), object.data...)
+		entries = append(entries, entry)
+	}
+	return entries, nil
+}
+
+func parseReadOnlyTreeEntry(record []byte) (sourceexport.TreeEntry, error) {
+	metadata, path, found := bytes.Cut(record, []byte{'\t'})
+	if !found || len(path) == 0 {
+		return sourceexport.TreeEntry{}, errors.New("read-only Git tree record is missing its path")
+	}
+	fields := bytes.Fields(metadata)
+	if len(fields) != 3 || string(fields[1]) != "blob" {
+		return sourceexport.TreeEntry{}, fmt.Errorf("read-only Git tree entry %q is not a blob", path)
+	}
+	return sourceexport.TreeEntry{
+		Path: string(path), Mode: string(fields[0]), Hash: string(fields[2]),
+	}, nil
 }

@@ -335,7 +335,9 @@ func TestCoordinatorHookInvocationIsIdempotentAndSourceBound(t *testing.T) {
 }
 
 func TestProductionCoordinatorDependenciesFailFast(t *testing.T) {
-	if _, err := productionCoordinatorDependencies(); err == nil || !strings.Contains(err.Error(), "ImageEnsurer") {
+	t.Setenv(productionCoordinatorConfigEnv, "")
+	if _, err := productionCoordinatorDependencies(context.Background()); err == nil ||
+		!strings.Contains(err.Error(), productionCoordinatorConfigEnv) {
 		t.Fatalf("productionCoordinatorDependencies() error = %v", err)
 	}
 }
