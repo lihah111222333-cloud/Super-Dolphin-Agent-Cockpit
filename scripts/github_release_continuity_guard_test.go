@@ -102,7 +102,7 @@ func (fixture releaseContinuityFixture) run(t *testing.T, previousSigner, trustS
 }
 
 func apiLogContains(log, endpointPrefix, queryFragment string) bool {
-	for _, line := range strings.Split(log, "\n") {
+	for line := range strings.SplitSeq(log, "\n") {
 		if strings.HasPrefix(line, endpointPrefix) && strings.Contains(line, queryFragment) {
 			return true
 		}
