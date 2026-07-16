@@ -26,7 +26,7 @@ func (stub imageIdentityStub) Variant() string                { return stub.vari
 func TestValidateImageIdentityRequiresCompleteImmutableIdentity(t *testing.T) {
 	identity := validImageIdentityStub()
 	expected := expectedImageMetadata{
-		PolicySHA:       strings.Repeat("a", 40),
+		PolicyDigest:    digest("8"),
 		SourceTreeSHA:   strings.Repeat("b", 40),
 		InputDigest:     digest("6"),
 		ToolchainDigest: digest("7"),
@@ -49,7 +49,7 @@ func TestValidateImageIdentityRequiresCompleteImmutableIdentity(t *testing.T) {
 func TestValidateImageIdentityRejectsLabelAndPlatformDrift(t *testing.T) {
 	identity := validImageIdentityStub()
 	expected := expectedImageMetadata{
-		PolicySHA:       strings.Repeat("a", 40),
+		PolicyDigest:    digest("8"),
 		SourceTreeSHA:   strings.Repeat("b", 40),
 		InputDigest:     digest("6"),
 		ToolchainDigest: digest("7"),
@@ -58,7 +58,7 @@ func TestValidateImageIdentityRejectsLabelAndPlatformDrift(t *testing.T) {
 		Architecture:    "amd64",
 	}
 	labels := expected.labels()
-	labels[labelPolicySHA] = strings.Repeat("c", 40)
+	labels[labelPolicySHA] = digest("9")
 	if err := validateImageIdentity(identity, labels, expected); err == nil {
 		t.Fatal("validateImageIdentity() accepted policy label drift")
 	}

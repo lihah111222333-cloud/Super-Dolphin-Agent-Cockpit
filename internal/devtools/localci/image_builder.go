@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"path"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -18,8 +19,9 @@ import (
 )
 
 const (
-	buildInputManifestPath = "build/gate/inputs.json"
-	toolchainLockPath      = "build/gate/toolchain.lock"
+	buildInputManifestPath  = "build/gate/inputs.json"
+	toolchainLockPath       = "build/gate/toolchain.lock"
+	imageInputSchemaVersion = "1"
 )
 
 // BuildKitRunner 只接收经过安全收敛的候选镜像构建请求。
@@ -36,6 +38,8 @@ type BuildArgument struct {
 // BuildKitBuildRequest 是不暴露 secret、SSH、entitlement 或宿主网络开关的构建合同。
 type BuildKitBuildRequest struct {
 	SourceTreeSHA       string
+	PolicyDigest        string
+	ImageSchemaVersion  string
 	ContextTar          []byte
 	ContextDigest       string
 	InputManifestDigest string
@@ -54,6 +58,8 @@ type BuildKitBuildRequest struct {
 // CandidateRequest 绑定单一 Git tree、已验证输入条目和当前 accepted 镜像。
 type CandidateRequest struct {
 	SourceTreeSHA       string
+	PolicyDigest        string
+	ImageSchemaVersion  string
 	SourceEntries       []sourceexport.TreeEntry
 	Platform            string
 	AcceptedInputDigest string
@@ -149,11 +155,8 @@ func (builder *ImageBuilder) EnsureCandidate(ctx context.Context, request Candid
 
 // prepareCandidate 从单一 Git tree 构造闭包、策略摘要和安全 BuildKit 请求。
 func prepareCandidate(request CandidateRequest) (preparedCandidate, error) {
-	if !gitObjectPattern.MatchString(request.SourceTreeSHA) {
-		return preparedCandidate{}, errors.New("candidate source tree must be a canonical Git object ID")
-	}
-	if request.Platform == "" {
-		return preparedCandidate{}, errors.New("candidate target platform is required")
+	if err := validateCandidateRequestIdentity(request); err != nil {
+		return preparedCandidate{}, err
 	}
 	entriesByPath, err := indexCandidateEntries(request.SourceEntries)
 	if err != nil {
@@ -181,6 +184,22 @@ func prepareCandidate(request CandidateRequest) (preparedCandidate, error) {
 		return preparedCandidate{}, fmt.Errorf("build canonical candidate context: %w", err)
 	}
 	return assemblePreparedCandidate(request, manifest, lock, manifestData, lockData, dockerfile, arguments, canonicalContext), nil
+}
+
+func validateCandidateRequestIdentity(request CandidateRequest) error {
+	if !gitObjectPattern.MatchString(request.SourceTreeSHA) {
+		return errors.New("candidate source tree must be a canonical Git object ID")
+	}
+	if err := validateDigest("candidate policy digest", request.PolicyDigest); err != nil {
+		return err
+	}
+	if request.ImageSchemaVersion != imageInputSchemaVersion {
+		return fmt.Errorf("candidate image schema version %q is unsupported", request.ImageSchemaVersion)
+	}
+	if request.Platform == "" {
+		return errors.New("candidate target platform is required")
+	}
+	return nil
 }
 
 func indexCandidateEntries(entries []sourceexport.TreeEntry) (map[string]sourceexport.TreeEntry, error) {
@@ -388,7 +407,7 @@ func assemblePreparedCandidate(request CandidateRequest, manifest buildInputMani
 	manifestDigest := bytesDigest(manifestData)
 	toolchainDigest := bytesDigest(lockData)
 	dockerfileDigest := bytesDigest(dockerfile)
-	fields := []string{canonical.ContextDigest, canonical.InputDigest, manifestDigest, toolchainDigest, dockerfileDigest, request.Platform, lock.BuildKitVersion, lock.DockerfileFrontend, lock.NetworkPolicy}
+	fields := []string{canonical.ContextDigest, canonical.InputDigest, manifestDigest, toolchainDigest, dockerfileDigest, request.PolicyDigest, request.ImageSchemaVersion, request.Platform, lock.BuildKitVersion, lock.DockerfileFrontend, lock.NetworkPolicy}
 	for _, argument := range arguments {
 		fields = append(fields, argument.Name, argument.Value)
 	}
@@ -398,7 +417,8 @@ func assemblePreparedCandidate(request CandidateRequest, manifest buildInputMani
 	inputDigest := fieldsDigest(fields...)
 	result := CandidateResult{SourceTreeSHA: request.SourceTreeSHA, InputDigest: inputDigest, ContextDigest: canonical.ContextDigest, InputManifestDigest: manifestDigest, ToolchainDigest: toolchainDigest, DockerfileDigest: dockerfileDigest}
 	buildRequest := BuildKitBuildRequest{
-		SourceTreeSHA: request.SourceTreeSHA, ContextTar: append([]byte(nil), canonical.Tar...), ContextDigest: canonical.ContextDigest,
+		SourceTreeSHA: request.SourceTreeSHA, PolicyDigest: request.PolicyDigest, ImageSchemaVersion: request.ImageSchemaVersion,
+		ContextTar: append([]byte(nil), canonical.Tar...), ContextDigest: canonical.ContextDigest,
 		InputManifestDigest: manifestDigest, InputDigest: inputDigest, ToolchainDigest: toolchainDigest,
 		DockerfilePath: manifest.Dockerfile, DockerfileDigest: dockerfileDigest, Platform: request.Platform,
 		BuildKitVersion: lock.BuildKitVersion, DockerfileFrontend: lock.DockerfileFrontend,
@@ -428,7 +448,7 @@ func logicalDockerfileLines(data []byte) ([]string, error) {
 	}
 	var lines []string
 	pending := ""
-	for _, rawLine := range strings.Split(string(data), "\n") {
+	for rawLine := range strings.SplitSeq(string(data), "\n") {
 		line := strings.TrimSpace(rawLine)
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
@@ -751,12 +771,7 @@ func validateSortedUnique(name string, values []string) error {
 }
 
 func containsString(values []string, wanted string) bool {
-	for _, value := range values {
-		if value == wanted {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(values, wanted)
 }
 
 func decodeStrictJSON(data []byte, target any) error {

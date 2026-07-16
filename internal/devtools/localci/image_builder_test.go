@@ -93,6 +93,51 @@ func TestEnsureCandidateSeparatesSourceTreeProvenanceFromInputDigest(t *testing.
 	}
 }
 
+func TestCandidatePolicyAndSchemaBindImageInput(t *testing.T) {
+	entries := candidateEntries(validCandidateDockerfile())
+	firstRequest := candidateRequest(entries, digest("f"), digest("e"))
+	first, err := prepareCandidate(firstRequest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondRequest := candidateRequest(entries, digest("f"), digest("e"))
+	secondRequest.PolicyDigest = digest("c")
+	second, err := prepareCandidate(secondRequest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.result.InputDigest == second.result.InputDigest {
+		t.Fatal("policy digest did not change the candidate image input digest")
+	}
+	if first.buildRequest.PolicyDigest != firstRequest.PolicyDigest || first.buildRequest.ImageSchemaVersion != imageInputSchemaVersion {
+		t.Fatalf("BuildKit request lost policy/schema binding: %#v", first.buildRequest)
+	}
+	firstRequest.ImageSchemaVersion = ""
+	if _, err := prepareCandidate(firstRequest); err == nil {
+		t.Fatal("candidate accepted a missing image schema version")
+	}
+}
+
+func TestCandidateAndBuildKitFieldRegistriesAreComplete(t *testing.T) {
+	assertRegisteredFields(t, reflect.TypeFor[CandidateRequest](), map[string]string{
+		"SourceTreeSHA":      "source provenance",
+		"PolicyDigest":       "input digest and image label",
+		"ImageSchemaVersion": "input digest and image label", "SourceEntries": "canonical context",
+		"Platform": "input digest and platform", "AcceptedInputDigest": "reuse decision",
+		"AcceptedImageDigest": "reuse result",
+	})
+	assertRegisteredFields(t, reflect.TypeFor[BuildKitBuildRequest](), map[string]string{
+		"SourceTreeSHA": "source label", "PolicyDigest": "policy label", "ImageSchemaVersion": "schema label",
+		"ContextTar": "build stdin", "ContextDigest": "context validation and label",
+		"InputManifestDigest": "provenance digest", "InputDigest": "tag cache and label",
+		"ToolchainDigest": "toolchain label", "DockerfilePath": "build file",
+		"DockerfileDigest": "Dockerfile label", "Platform": "build platform and label",
+		"BuildKitVersion": "builder binding", "DockerfileFrontend": "frontend binding",
+		"BuildArguments": "locked base images", "NetworkPolicy": "network contract",
+		"CacheNamespace": "isolated cache",
+	})
+}
+
 func TestEnsureCandidateBuildsOnlyWhenInputDigestChanges(t *testing.T) {
 	runner := &recordingBuildKitRunner{digest: digest("8")}
 	builder, err := NewImageBuilder(runner)
@@ -270,6 +315,8 @@ func TestTrackedBuildConfigurationMatchesProducerFields(t *testing.T) {
 func candidateRequest(entries []sourceexport.TreeEntry, acceptedInput string, acceptedImage string) CandidateRequest {
 	return CandidateRequest{
 		SourceTreeSHA:       strings.Repeat("a", 40),
+		PolicyDigest:        digest("d"),
+		ImageSchemaVersion:  imageInputSchemaVersion,
 		SourceEntries:       entries,
 		Platform:            "linux/arm64",
 		AcceptedInputDigest: acceptedInput,
@@ -426,7 +473,7 @@ func assertJSONFieldsMatchProducer(t *testing.T, data []byte, producer any) {
 	producerType := reflect.TypeOf(producer)
 	wanted := make([]string, 0, producerType.NumField())
 	for index := 0; index < producerType.NumField(); index++ {
-		name := strings.Split(producerType.Field(index).Tag.Get("json"), ",")[0]
+		name, _, _ := strings.Cut(producerType.Field(index).Tag.Get("json"), ",")
 		if name != "" && name != "-" {
 			wanted = append(wanted, name)
 		}

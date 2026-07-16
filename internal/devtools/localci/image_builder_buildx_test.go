@@ -227,6 +227,12 @@ func TestDockerBuildxRunnerRejectsUnsafeRequestBeforeCommand(t *testing.T) {
 		{name: "host network", mutate: func(request *BuildKitBuildRequest) {
 			request.NetworkPolicy = "host"
 		}},
+		{name: "missing policy digest", mutate: func(request *BuildKitBuildRequest) {
+			request.PolicyDigest = ""
+		}},
+		{name: "unknown image schema", mutate: func(request *BuildKitBuildRequest) {
+			request.ImageSchemaVersion = "2"
+		}},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -269,7 +275,7 @@ func TestDockerBuildxRunnerRejectsCommandFailureAndTrailingOutput(t *testing.T) 
 
 func TestDockerBuildxRunnerRejectsMissingMetadataFields(t *testing.T) {
 	request := validBuildxRequest(t)
-	for _, field := range jsonFieldNames(reflect.TypeOf(buildxMetadata{})) {
+	for _, field := range jsonFieldNames(reflect.TypeFor[buildxMetadata]()) {
 		t.Run(field, func(t *testing.T) {
 			document := validBuildxMetadataDocument(request)
 			delete(document, field)
@@ -322,6 +328,8 @@ func TestDockerBuildxRunnerRejectsEachDriftedBindingLabel(t *testing.T) {
 		"label:org.super-dolphin.dockerfile-digest",
 		"label:org.super-dolphin.image-input-digest",
 		"label:org.super-dolphin.platform",
+		"label:org.super-dolphin.policy-sha",
+		"label:org.super-dolphin.schema-version",
 		"label:org.super-dolphin.source-tree-sha",
 		"label:org.super-dolphin.toolchain-digest",
 	}
@@ -491,6 +499,8 @@ func buildxBindingLabels(request BuildKitBuildRequest) []string {
 		"--label=org.super-dolphin.dockerfile-digest=" + request.DockerfileDigest,
 		"--label=org.super-dolphin.image-input-digest=" + request.InputDigest,
 		"--label=org.super-dolphin.platform=" + request.Platform,
+		"--label=org.super-dolphin.policy-sha=" + request.PolicyDigest,
+		"--label=org.super-dolphin.schema-version=" + request.ImageSchemaVersion,
 		"--label=org.super-dolphin.source-tree-sha=" + request.SourceTreeSHA,
 		"--label=org.super-dolphin.toolchain-digest=" + request.ToolchainDigest,
 	}
@@ -501,8 +511,8 @@ func buildxBindingLabels(request BuildKitBuildRequest) []string {
 func buildxMetadataPath(args []string) string {
 	const prefix = "--metadata-file="
 	for _, argument := range args {
-		if strings.HasPrefix(argument, prefix) {
-			return strings.TrimPrefix(argument, prefix)
+		if path, found := strings.CutPrefix(argument, prefix); found {
+			return path
 		}
 	}
 	return ""
@@ -588,7 +598,7 @@ func assertBuildxMetadataRejected(t *testing.T, request BuildKitBuildRequest, me
 func jsonFieldNames(documentType reflect.Type) []string {
 	fields := make([]string, 0, documentType.NumField())
 	for index := 0; index < documentType.NumField(); index++ {
-		name := strings.Split(documentType.Field(index).Tag.Get("json"), ",")[0]
+		name, _, _ := strings.Cut(documentType.Field(index).Tag.Get("json"), ",")
 		if name != "" && name != "-" {
 			fields = append(fields, name)
 		}

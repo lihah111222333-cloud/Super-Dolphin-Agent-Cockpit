@@ -41,7 +41,7 @@ type imageIdentityReader interface {
 }
 
 type expectedImageMetadata struct {
-	PolicySHA       string
+	PolicyDigest    string
 	SourceTreeSHA   string
 	InputDigest     string
 	ToolchainDigest string
@@ -53,7 +53,7 @@ type expectedImageMetadata struct {
 
 func (expected expectedImageMetadata) labels() map[string]string {
 	return map[string]string{
-		labelPolicySHA:       expected.PolicySHA,
+		labelPolicySHA:       expected.PolicyDigest,
 		labelSourceTreeSHA:   expected.SourceTreeSHA,
 		labelInputDigest:     expected.InputDigest,
 		labelToolchainDigest: expected.ToolchainDigest,
@@ -103,8 +103,11 @@ func validateImageDescriptorDigests(identity imageIdentityReader) error {
 
 // validateExpectedImageMetadata 校验调用方提供的 Git 与输入真值。
 func validateExpectedImageMetadata(expected expectedImageMetadata) error {
-	if !gitObjectPattern.MatchString(expected.PolicySHA) || !gitObjectPattern.MatchString(expected.SourceTreeSHA) {
-		return errors.New("expected policy and source tree must be canonical Git object IDs")
+	if err := validateDigest("expected policy digest", expected.PolicyDigest); err != nil {
+		return err
+	}
+	if !gitObjectPattern.MatchString(expected.SourceTreeSHA) {
+		return errors.New("expected source tree must be a canonical Git object ID")
 	}
 	if err := validateDigest("expected image input digest", expected.InputDigest); err != nil {
 		return err
@@ -176,7 +179,13 @@ type imageInspectDocument struct {
 	OS           string   `json:"Os"`
 	Architecture string   `json:"Architecture"`
 	Variant      string   `json:"Variant"`
-	Config       *struct {
+	Descriptor   *struct {
+		Digest      string            `json:"digest"`
+		MediaType   string            `json:"mediaType"`
+		Size        int64             `json:"size"`
+		Annotations map[string]string `json:"annotations"`
+	} `json:"Descriptor"`
+	Config *struct {
 		Labels map[string]string `json:"Labels"`
 	} `json:"Config"`
 	RootFS *struct {
@@ -198,15 +207,16 @@ func (runner *FreshContainerRunner) inspectAndVerifyImage(ctx context.Context, p
 	if document.Config == nil || document.RootFS == nil {
 		return "", errors.New("gate image inspect omitted config or rootfs")
 	}
-	if document.ID != prepared.expectedIdentity.ConfigDigest {
-		return "", errors.New("gate image inspect config digest drifted")
+	manifestDigest, configDigest, err := validateImageInspectDescriptor(document, prepared.expectedIdentity)
+	if err != nil {
+		return "", err
 	}
 	if !slices.Equal(document.RootFS.Layers, prepared.expectedIdentity.RootFSDiffIDs) {
 		return "", errors.New("gate image inspect rootfs diff IDs drifted")
 	}
 	identity := gateImageIdentityReader{ImageIdentity: gate.ImageIdentity{
-		OCIIndexDigest: preparedIdentityIndex(prepared), PlatformManifestDigest: manifestFromReference(prepared.imageReference),
-		ConfigDigest: document.ID, RootFSDiffIDs: document.RootFS.Layers,
+		OCIIndexDigest: preparedIdentityIndex(prepared), PlatformManifestDigest: manifestDigest,
+		ConfigDigest: configDigest, RootFSDiffIDs: document.RootFS.Layers,
 		OS: document.OS, Architecture: document.Architecture, Variant: document.Variant,
 	}}
 	if document.RootFS.Type != "layers" {
@@ -221,12 +231,33 @@ func (runner *FreshContainerRunner) inspectAndVerifyImage(ctx context.Context, p
 	return digestJSON(document)
 }
 
-func preparedIdentityIndex(prepared preparedFreshContainerRequest) string {
-	return prepared.expectedImageIndex
+// validateImageInspectDescriptor 从 Docker descriptor 读取 manifest/config 身份，绝不把展示 ID 当作 config。
+func validateImageInspectDescriptor(document imageInspectDocument, expected gate.ImageIdentity) (string, string, error) {
+	if document.Descriptor == nil || document.Descriptor.MediaType == "" || document.Descriptor.Size <= 0 {
+		return "", "", errors.New("gate image inspect omitted a complete descriptor")
+	}
+	manifestDigest := document.Descriptor.Digest
+	configDigest := document.Descriptor.Annotations["config.digest"]
+	if err := validateDigest("inspected platform manifest digest", manifestDigest); err != nil {
+		return "", "", err
+	}
+	if err := validateDigest("inspected config digest", configDigest); err != nil {
+		return "", "", err
+	}
+	if manifestDigest != expected.PlatformManifestDigest {
+		return "", "", errors.New("gate image inspect platform manifest digest drifted")
+	}
+	if configDigest != expected.ConfigDigest {
+		return "", "", errors.New("gate image inspect config digest drifted")
+	}
+	if document.ID != manifestDigest && document.ID != configDigest {
+		return "", "", errors.New("gate image inspect ID matches neither manifest nor config identity")
+	}
+	return manifestDigest, configDigest, nil
 }
 
-func manifestFromReference(reference string) string {
-	return reference[strings.LastIndex(reference, "@")+1:]
+func preparedIdentityIndex(prepared preparedFreshContainerRequest) string {
+	return prepared.expectedImageIndex
 }
 
 type containerInspectDocument struct {
@@ -344,8 +375,11 @@ func (runner *FreshContainerRunner) validateContainerContract(document container
 
 // validateContainerIdentity 校验容器、镜像、用户与固定命令身份。
 func validateContainerIdentity(document containerInspectDocument, containerID string, imageReference string, configDigest string, command []string) error {
-	if document.ID != containerID || document.Image != configDigest || document.Config == nil || document.HostConfig == nil {
+	if document.ID != containerID || document.Config == nil || document.HostConfig == nil {
 		return errors.New("gate container inspect identity or config is incomplete")
+	}
+	if !containerImageIdentityMatches(document.Image, imageReference, configDigest) {
+		return errors.New("gate container inspect image matches neither manifest nor config identity")
 	}
 	if document.Config.Image != imageReference || document.Config.User != "65532:65532" {
 		return errors.New("gate container inspect image or user drifted")
@@ -413,10 +447,23 @@ func (runner *FreshContainerRunner) inspectFinishedContainer(parentContext conte
 
 // validateFinishedContainerIdentity 校验终态容器仍绑定原始镜像身份。
 func validateFinishedContainerIdentity(document containerInspectDocument, containerID string, imageReference string, configDigest string) error {
-	if document.ID != containerID || document.Image != configDigest || document.Config == nil || document.Config.Image != imageReference || document.State == nil {
+	if document.ID != containerID || document.Config == nil || document.Config.Image != imageReference || document.State == nil {
 		return errors.New("finished gate container identity drifted")
 	}
+	if !containerImageIdentityMatches(document.Image, imageReference, configDigest) {
+		return errors.New("finished gate container image matches neither manifest nor config identity")
+	}
 	return nil
+}
+
+// containerImageIdentityMatches 兼容 Docker inspect 展示 manifest 或 config，但不混淆二者语义。
+func containerImageIdentityMatches(observed string, imageReference string, configDigest string) bool {
+	separator := strings.LastIndex(imageReference, "@")
+	if separator <= 0 || separator == len(imageReference)-1 {
+		return false
+	}
+	manifestDigest := imageReference[separator+1:]
+	return observed == manifestDigest || observed == configDigest
 }
 
 // validateFinishedContainerState 校验退出状态、退出码和完成时间。

@@ -15,8 +15,6 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
 )
 
-const secondTestContainerID = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
-
 type freshDockerRunnerStub struct {
 	t             *testing.T
 	request       FreshContainerRequest
@@ -95,21 +93,29 @@ func (stub *freshDockerRunnerStub) runWait(ctx context.Context) (string, error) 
 func (stub *freshDockerRunnerStub) imageInspectJSON() string {
 	identity := stub.request.Image
 	labels := map[string]string{
-		labelPolicySHA: stub.request.ImageTruth.PolicySHA, labelSourceTreeSHA: stub.request.SourceTreeSHA,
+		labelPolicySHA: stub.request.ImageTruth.PolicyDigest, labelSourceTreeSHA: stub.request.SourceTreeSHA,
 		labelInputDigest: stub.request.ImageTruth.InputDigest, labelToolchainDigest: stub.request.ImageTruth.ToolchainDigest,
 		labelSchemaVersion: stub.request.ImageTruth.SchemaVersion,
 	}
 	reference := identity.Registry + "@" + identity.PlatformManifestDigest
+	descriptor := map[string]any{
+		"digest": identity.PlatformManifestDigest, "mediaType": "application/vnd.docker.distribution.manifest.v2+json", "size": 512,
+		"annotations": map[string]string{"config.digest": identity.ConfigDigest},
+	}
 	document := map[string]any{
-		"Id": identity.ConfigDigest, "RepoDigests": []string{reference}, "Os": identity.OS,
+		"Id": identity.PlatformManifestDigest, "RepoDigests": []string{reference}, "Os": identity.OS,
 		"Architecture": identity.Architecture, "Variant": identity.Variant,
-		"Config": map[string]any{"Labels": labels}, "RootFS": map[string]any{"Type": "layers", "Layers": identity.RootFSDiffIDs},
+		"Descriptor": descriptor, "Config": map[string]any{"Labels": labels},
+		"RootFS": map[string]any{"Type": "layers", "Layers": identity.RootFSDiffIDs},
 	}
 	switch stub.imageMutation {
 	case "manifest":
+		descriptor["digest"] = digest("9")
 		document["RepoDigests"] = []string{identity.Registry + "@" + digest("9")}
 	case "config":
-		document["Id"] = digest("9")
+		descriptor["annotations"] = map[string]string{"config.digest": digest("9")}
+	case "missing descriptor config":
+		descriptor["annotations"] = map[string]string{}
 	case "rootfs":
 		document["RootFS"] = map[string]any{"Type": "layers", "Layers": []string{digest("9")}}
 	case "platform":
@@ -136,7 +142,7 @@ func (stub *freshDockerRunnerStub) containerInspectJSON(finished bool) string {
 		}
 	}
 	document := map[string]any{
-		"Id": stub.containerID, "Image": stub.request.Image.ConfigDigest, "Path": command[0], "Args": command[1:],
+		"Id": stub.containerID, "Image": stub.request.Image.PlatformManifestDigest, "Path": command[0], "Args": command[1:],
 		"Config": map[string]any{"Image": stub.request.Image.Registry + "@" + stub.request.Image.PlatformManifestDigest, "User": "65532:65532"},
 		"HostConfig": map[string]any{
 			"NanoCpus": int64(4_000_000_000), "Memory": int64(8 * 1024 * 1024 * 1024), "PidsLimit": int64(512),
@@ -169,7 +175,7 @@ func marshalInspect(t *testing.T, document json.RawMessage) string {
 	return string(data)
 }
 
-func TestRunFreshContainerReturnsMappableRemovalEvidence(t *testing.T) {
+func TestRunFreshContainerAcceptsDocker29DescriptorConfigAndReturnsEvidence(t *testing.T) {
 	runner, stub, request := freshContainerFixture(t)
 	result, err := runner.RunFreshContainer(context.Background(), request)
 	if err != nil {
@@ -206,7 +212,7 @@ func assertFreshContainerEvidence(t *testing.T, result FreshContainerResult) {
 }
 
 func TestRunFreshContainerRejectsImageInspectDriftBeforeCreate(t *testing.T) {
-	for _, mutation := range []string{"manifest", "config", "rootfs", "platform", "label"} {
+	for _, mutation := range []string{"manifest", "config", "missing descriptor config", "rootfs", "platform", "label"} {
 		t.Run(mutation, func(t *testing.T) {
 			runner, stub, request := freshContainerFixture(t)
 			stub.imageMutation = mutation
@@ -296,13 +302,13 @@ func TestFreshContainerRunnerRejectsTypedNilAndCancelledContext(t *testing.T) {
 }
 
 func TestFreshContainerRequestFieldRegistryIsComplete(t *testing.T) {
-	assertRegisteredFields(t, reflect.TypeOf(FreshContainerRequest{}), map[string]string{
+	assertRegisteredFields(t, reflect.TypeFor[FreshContainerRequest](), map[string]string{
 		"Image": "identity and derived digest reference", "ImageTruth": "truth label verification",
 		"SourceTreeSHA": "plan and image source binding", "SourceSnapshotDir": "private readonly mount",
 		"Profile": "plan binding and timeout", "Plan": "canonical command closure", "GateID": "plan command selection",
 	})
-	assertRegisteredFields(t, reflect.TypeOf(FreshContainerImageTruth{}), map[string]string{
-		"PolicySHA": "policy label", "InputDigest": "input label",
+	assertRegisteredFields(t, reflect.TypeFor[FreshContainerImageTruth](), map[string]string{
+		"PolicyDigest": "policy label", "InputDigest": "input label",
 		"ToolchainDigest": "toolchain label", "SchemaVersion": "schema label",
 	})
 }
@@ -315,12 +321,12 @@ func assertRegisteredFields(t *testing.T, producer reflect.Type, consumerRegistr
 	}
 	for _, field := range producerFields {
 		if strings.TrimSpace(consumerRegistry[field]) == "" {
-			t.Fatalf("missing FreshContainerRequest consumer registration for %s", field)
+			t.Fatalf("missing %s consumer registration for %s", producer.Name(), field)
 		}
 	}
 	for field := range consumerRegistry {
 		if !slices.Contains(producerFields, field) {
-			t.Fatalf("stale FreshContainerRequest consumer registration for %s", field)
+			t.Fatalf("stale %s consumer registration for %s", producer.Name(), field)
 		}
 	}
 }
@@ -375,7 +381,7 @@ func validFreshContainerRequest(t *testing.T, source string) FreshContainerReque
 			Registry: "registry.local/gate", OCIIndexDigest: digest("1"), PlatformManifestDigest: digest("2"),
 			ConfigDigest: digest("3"), RootFSDiffIDs: []string{digest("4"), digest("5")}, OS: "linux", Architecture: "arm64",
 		},
-		ImageTruth:    FreshContainerImageTruth{PolicySHA: strings.Repeat("a", 40), InputDigest: digest("6"), ToolchainDigest: digest("7"), SchemaVersion: "1"},
+		ImageTruth:    FreshContainerImageTruth{PolicyDigest: digest("8"), InputDigest: digest("6"), ToolchainDigest: digest("7"), SchemaVersion: imageInputSchemaVersion},
 		SourceTreeSHA: sourceTree, SourceSnapshotDir: source, Profile: gate.ProfileLocalFast, Plan: plan, GateID: gate.GateIDWhitespaceCheck,
 	}
 }

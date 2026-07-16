@@ -275,7 +275,7 @@ const noContainerNetwork = "none"
 
 // FreshContainerImageTruth binds the inspected image labels to accepted build truth.
 type FreshContainerImageTruth struct {
-	PolicySHA       string
+	PolicyDigest    string
 	InputDigest     string
 	ToolchainDigest string
 	SchemaVersion   string
@@ -383,7 +383,7 @@ func (runner *FreshContainerRunner) prepareRequest(request FreshContainerRequest
 	prepared.expectedImageIndex = request.Image.OCIIndexDigest
 	prepared.expectedIdentity = request.Image
 	prepared.expectedImage = expectedImageMetadata{
-		PolicySHA: request.ImageTruth.PolicySHA, SourceTreeSHA: request.SourceTreeSHA,
+		PolicyDigest: request.ImageTruth.PolicyDigest, SourceTreeSHA: request.SourceTreeSHA,
 		InputDigest: request.ImageTruth.InputDigest, ToolchainDigest: request.ImageTruth.ToolchainDigest,
 		SchemaVersion: request.ImageTruth.SchemaVersion, OS: request.Image.OS,
 		Architecture: request.Image.Architecture, Variant: request.Image.Variant,
@@ -421,7 +421,7 @@ func validateFreshContainerRequest(request FreshContainerRequest) ([]string, err
 	}
 	identity := gateImageIdentityReader{ImageIdentity: request.Image}
 	expected := expectedImageMetadata{
-		PolicySHA: request.ImageTruth.PolicySHA, SourceTreeSHA: request.SourceTreeSHA,
+		PolicyDigest: request.ImageTruth.PolicyDigest, SourceTreeSHA: request.SourceTreeSHA,
 		InputDigest: request.ImageTruth.InputDigest, ToolchainDigest: request.ImageTruth.ToolchainDigest,
 		SchemaVersion: request.ImageTruth.SchemaVersion, OS: request.Image.OS,
 		Architecture: request.Image.Architecture, Variant: request.Image.Variant,

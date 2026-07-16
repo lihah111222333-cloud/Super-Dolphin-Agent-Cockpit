@@ -259,6 +259,9 @@ func validateBuildxRequestIdentity(request BuildKitBuildRequest) error {
 	if !gitObjectPattern.MatchString(request.SourceTreeSHA) {
 		return errors.New("buildx source tree must be a canonical Git object ID")
 	}
+	if err := validateBuildxPolicyBinding(request); err != nil {
+		return err
+	}
 	if len(request.ContextTar) == 0 {
 		return errors.New("buildx context tar is required")
 	}
@@ -276,6 +279,16 @@ func validateBuildxRequestIdentity(request BuildKitBuildRequest) error {
 	}
 	if request.DockerfileFrontend != "builtin:dockerfile.v1" {
 		return errors.New("buildx Dockerfile frontend must be builtin:dockerfile.v1")
+	}
+	return nil
+}
+
+func validateBuildxPolicyBinding(request BuildKitBuildRequest) error {
+	if err := validateDigest("buildx policy digest", request.PolicyDigest); err != nil {
+		return err
+	}
+	if request.ImageSchemaVersion != imageInputSchemaVersion {
+		return fmt.Errorf("buildx image schema version %q is unsupported", request.ImageSchemaVersion)
 	}
 	return nil
 }
@@ -399,6 +412,8 @@ func sortedBuildxBindingLabels(request BuildKitBuildRequest) []string {
 		"org.super-dolphin.dockerfile-digest=" + request.DockerfileDigest,
 		"org.super-dolphin.image-input-digest=" + request.InputDigest,
 		"org.super-dolphin.platform=" + request.Platform,
+		"org.super-dolphin.policy-sha=" + request.PolicyDigest,
+		"org.super-dolphin.schema-version=" + request.ImageSchemaVersion,
 		"org.super-dolphin.source-tree-sha=" + request.SourceTreeSHA,
 		"org.super-dolphin.toolchain-digest=" + request.ToolchainDigest,
 	}
