@@ -47,10 +47,11 @@
 | Repository | Review object | 状态 | 用途 |
 | --- | --- | --- | --- |
 | `deepseek-reasonix` | `main-v2@ad9c3fc138b3e7b953405d94b96027b3275c4a50` | 与 `origin/main-v2` 一致、clean | 行为和测试参考 |
-| `super-agent-v3` | `origin/main@5482a52cfc256e1ee386dd3ce4e125b01e7dbc85` | 与远端 `refs/heads/main` 一致 | v3 生产事实基线；相对第七轮审查起点只在 package script 更新 SQL LSP bundle 项，第三方 CLI 证据路径未变 |
-| docs authoring checkout | `codex/go-ai-gap-push-guards-20260715@8cd4509994f316834a2f974a912cac855566f96a` | 有用户 dirty 文件 | 只新增本文档，不作为实现基线 |
+| `super-agent-v3` | `origin/main@b40867229af8e17916c00393639ccb0fcb4bf6fc` | 2026-07-16 以 `git ls-remote` 验证与远端 `refs/heads/main` 一致 | 当前 Task 0 的 v3 生产事实基线 |
+| Task 0 execution checkout | `codex/reasonix-p0-task0-20260716@REVIEW_OBJECT_SHA` | isolated、clean；SHA 由 reviewer 调用时的 `git rev-parse HEAD` 决定 | 唯一 Task 0 review object |
+| main checkout | `main@b40867229af8e17916c00393639ccb0fcb4bf6fc` | 有用户 dirty 文件 | 不作为实现或复核对象 |
 
-本文不审、不回退、不改写 docs authoring checkout 中既有 dirty 文件。实现者不得把当前分支、当前 index 或用户未提交文件混入未来 P0 worktree。
+本文不审、不回退、不改写 main checkout 中既有 dirty 文件。实现者不得把 main checkout、当前 index 或用户未提交文件混入未来 P0 worktree。
 
 ### 1.2 Reasonix 只作为 clean-room 行为参考
 
@@ -801,11 +802,11 @@ F5-R2 的 probation/no-pending文字分支本身闭合；F5-R1/R3与F5-M1/M2/M3�
 
 ### 9.11 Review blocker 与 residual
 
-- 历次 Reviewer、Root 与本次返修会话都没有 `mcp__lsp.*` namespace；locate/inspect/xref/read/diagnostics 五类证据无法取得。shell/git-object 阅读不是 LSP PASS。
+- 历次 Reviewer 与返修会话没有 `mcp__lsp.*` namespace；Task 0 execution 已在 `origin/main@b40867229af8e17916c00393639ccb0fcb4bf6fc` 补齐 locate、inspect、xref、read、diagnostics 五类证据，并把详情记录在 `00-task0-baseline.md`。历史 shell/git-object 阅读仍不计作 LSP PASS。
 - 历史九轮对象和 findings 只证明审查沿革，不能证明当前文件。当前判定必须引用冻结后的 exact path/line/bytes/SHA、两条 fresh lane 的 start/end identity 与 `0 P0 / 0 P1`；非正确性 P2/P3 只登记后续处置。
-- Reviewers 没有在用户脏 checkout 上把源码测试结果绑定成 `origin/main` GREEN；本轮实际门禁只证明 docs authoring checkout 的现有 gate plan，不替代未来隔离 P0 worktree。
-- final artifact inventory与actual dependency/SBOM graph、含release-unit节点的release digest DAG与attribution trust、third-party CLI launch plan/prepared exec/process identity、strict capability union/matrix及package-anchored matrix trust、bundled-only static preflight、公开attestation/failure redaction、Claude generation-bound readiness/typed状态、最早ingress gate/`ValidatedProviderEvent`成功链/host drift、provider-peer runtime authority、§4.3全部真实producer字段链、legacy/transactional endpoint、package signer/source/keyring/trust-generation schema与激活顺序、updater数值、supervisor identity/deadline、StartupAttempt、normal process re-exec env、pre-healthy writer registry/journal、Recovery capability、MCP authority snapshot/current CAS、journal terminal/takeover、server vector/aggregate digest、exact `AdmissionGrant`、authenticated proof/Wails owner、workspace token、compiler budget、dependency gate与跨平台lock/fsync仍由Task 0以LSP/RED冻结。
-- macOS 签名产物、Finder/open、Windows installer 和 Linux unsupported 尚无本轮真实外部边界证据。
+- Task 0 execution 使用 isolated clean worktree，D0 测试和门禁绑定当前候选对象；main checkout 的用户 dirty 文件未被混入。该结论不替代未来 P0 实现 worktree 的真实 RED/GREEN 与外部边界验证。
+- final artifact、release/update/recovery、provider execution/ingress、MCP authority/admission、字段守卫和 schema compiler 的 owner/path/schema/test/fixture/budget 已冻结在 `01-task0-design-freeze.md`，当前只等待同一 immutable SHA 上的两路 fresh review。
+- macOS 签名产物、Finder/open、Windows installer 和 Linux unsupported 的真实外部边界证据属于对应 P0 实现任务；Task 0 只冻结其具名验证入口和失败条件。
 
 ## 10. 验收证据格式
 

@@ -4,13 +4,13 @@ TASK_ID: `TASK_0`
 
 PACKAGE: reasonix-production-hardening-task0
 
-STATUS: PLAN_BLOCKER
+STATUS: DESIGN_FROZEN_PENDING_REVIEW
 
 AGENTID: 019f6938-f750-7ab1-ae8c-7d3f1f0f6ade
 
 BASE_HEAD: b40867229af8e17916c00393639ccb0fcb4bf6fc
 
-VERDICT: `BLOCKED_PLAN_REVISION`
+VERDICT: `REVIEW_BLOCKED`
 
 `implementation_design_complete=false`
 
@@ -193,9 +193,9 @@ Exact owners and landing files for raw per-tool envelopes, compiled schema, quar
 
 | FIELD_CHAIN_ID | Producer | Current consumers | Dynamic diff / roundtrip / mutation RED | Verdict |
 | --- | --- | --- | --- | --- |
-| `APPUPDATE_CONFIG_CURRENT` | Process environment in `ProvideConfig` | appupdate service, manifest verification, helper launch | no dynamic producer enumeration; no package-authority roundtrip; no mutation RED | `BLOCKED_PLAN_REVISION` |
-| `MCP_TOOLS_LIST_CURRENT` | peer JSON `tools` array | shared decoder -> HTTP/stdio clients -> surface preparation -> Codex dynamic projection | whole-list typed decode; no per-tool raw identity, compiler result, quarantine or mutation RED | `BLOCKED_PLAN_REVISION` |
-| `MCP_TRUSTED_SERVER_ID_CURRENT` | runtime policy validation returns `serverID` | provider `MCPBinary.TrustedServerID`; thread renderer also writes map-key `name` | equality/generation/membership not dynamically proven; no missing/stale/roundtrip/mutation RED | `BLOCKED_PLAN_REVISION` |
+| `APPUPDATE_CONFIG_CURRENT` | Process environment in `ProvideConfig` | appupdate service, manifest verification, helper launch | no dynamic producer enumeration; no package-authority roundtrip; no mutation RED | `TARGET_FROZEN_PENDING_REVIEW` |
+| `MCP_TOOLS_LIST_CURRENT` | peer JSON `tools` array | shared decoder -> HTTP/stdio clients -> surface preparation -> Codex dynamic projection | whole-list typed decode; no per-tool raw identity, compiler result, quarantine or mutation RED | `TARGET_FROZEN_PENDING_REVIEW` |
+| `MCP_TRUSTED_SERVER_ID_CURRENT` | runtime policy validation returns `serverID` | provider `MCPBinary.TrustedServerID`; thread renderer also writes map-key `name` | equality/generation/membership not dynamically proven; no missing/stale/roundtrip/mutation RED | `TARGET_FROZEN_PENDING_REVIEW` |
 
 No exemptions are approved. These rows preserve current-production discovery facts; the target independent `FIELD_CHAIN_ID` registry, package-local dynamic guards and mutation test identities are frozen in the design evidence.
 
