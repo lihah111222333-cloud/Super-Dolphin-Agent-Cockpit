@@ -17,6 +17,7 @@ download_previous_dmg_dir=""
 verify_previous_dmg_test=0
 verify_previous_dmg_test_path=""
 verify_previous_dmg_test_tag=""
+verify_previous_dmg_test_signer=""
 previous_dmg_mount=""
 previous_download_dir=""
 formal_previous_dmg=""
@@ -97,11 +98,12 @@ while [[ $# -gt 0 ]]; do
       shift 2
       ;;
     --verify-previous-dmg-test)
-      [[ $# -ge 3 ]] || usage
+      [[ $# -ge 4 ]] || usage
       verify_previous_dmg_test=1
       verify_previous_dmg_test_path="$2"
       verify_previous_dmg_test_tag="$3"
-      shift 3
+      verify_previous_dmg_test_signer="$4"
+      shift 4
       ;;
     --stage-dir)
       [[ $# -ge 2 ]] || usage
@@ -157,30 +159,37 @@ file_size() {
 previous_public_key_from_app() {
   local app="$1"
   local expected_tag="$2"
+  local expected_signer="$3"
   local resources="$app/Contents/Resources"
-  local bundle_version expected_version signer
+  local bundle_version expected_version actual_signer
   bundle_version="$(plutil -extract CFBundleShortVersionString raw -o - "$app/Contents/Info.plist")"
   expected_version="${expected_tag#v}"
   expected_version="${expected_version#V}"
   if [[ "$bundle_version" != "$expected_version" ]]; then
-    echo "previous app version $bundle_version does not match GitHub latest release $expected_tag" >&2
+    echo "previous app version $bundle_version does not match exact GitHub release $expected_tag" >&2
     exit 1
   fi
-  signer="$(codesign -dv --verbose=4 "$app" 2>&1 | awk -F= '/^TeamIdentifier=/{print $2; exit}')"
-  if [[ -z "$signer" || "$signer" == "not set" ]]; then
+  codesign --verify --deep --strict "$app"
+  actual_signer="$(codesign -dv --verbose=4 "$app" 2>&1 | awk -F= '/^TeamIdentifier=/{print $2; exit}')"
+  if [[ -z "$actual_signer" || "$actual_signer" == "not set" ]]; then
     echo "previous app codesign details missing exact TeamIdentifier" >&2
+    exit 1
+  fi
+  if [[ "$actual_signer" != "$expected_signer" ]]; then
+    echo "previous app codesign signer $actual_signer does not match trusted current package signer $expected_signer" >&2
     exit 1
   fi
   go run ./cmd/super-dolphin-release-manifest \
     -print-package-trust-public-key "$resources" \
     -platform darwin-arm64 \
     -expected-package-source "$github_repo" \
-    -expected-package-signer "$signer"
+    -expected-package-signer "$expected_signer"
 }
 
 previous_public_key_from_dmg() {
   local dmg="$1"
   local expected_tag="$2"
+  local expected_signer="$3"
   if [[ "$(uname -s)" != "Darwin" ]]; then
     echo "SUPER_DOLPHIN_UPDATE_PREVIOUS_DMG can only be inspected on macOS" >&2
     exit 1
@@ -201,26 +210,66 @@ previous_public_key_from_dmg() {
     exit 1
   fi
   local previous_public_key
-  previous_public_key="$(previous_public_key_from_app "$app" "$expected_tag")"
+  previous_public_key="$(previous_public_key_from_app "$app" "$expected_tag" "$expected_signer")"
   hdiutil detach "$previous_dmg_mount" >/dev/null
   rmdir "$previous_dmg_mount" >/dev/null 2>&1 || true
   previous_dmg_mount=""
   printf '%s\n' "$previous_public_key"
 }
 
+trusted_current_package_signer() {
+  local dmg="$stage_dir/Super-Dolphin-darwin-arm64.dmg"
+  local canonical_parent canonical_dmg app="" candidate app_count=0 signer
+  if [[ "$(uname -s)" != "Darwin" ]]; then
+    echo "trusted current package signer can only be inspected on macOS" >&2
+    exit 1
+  fi
+  if [[ ! -f "$dmg" ]]; then
+    echo "current staged Darwin DMG does not exist: $dmg" >&2
+    exit 1
+  fi
+  canonical_parent="$(cd -P "$(dirname "$dmg")" && pwd)"
+  canonical_dmg="$canonical_parent/$(basename "$dmg")"
+  if [[ "$dmg" != "$canonical_dmg" || -L "$dmg" ]]; then
+    echo "current staged Darwin DMG must be a canonical non-symlink path: $dmg" >&2
+    exit 1
+  fi
+  previous_dmg_mount="$(mktemp -d "${TMPDIR:-/tmp}/super-dolphin-current-dmg.XXXXXX")"
+  hdiutil attach "$canonical_dmg" -nobrowse -readonly -mountpoint "$previous_dmg_mount" >/dev/null
+  while IFS= read -r candidate; do
+    app="$candidate"
+    app_count=$((app_count + 1))
+  done < <(find "$previous_dmg_mount" -maxdepth 1 -name '*.app' -type d -print | sort)
+  if [[ "$app_count" != "1" ]]; then
+    echo "current staged DMG must contain exactly one top-level app bundle; found $app_count" >&2
+    exit 1
+  fi
+  codesign --verify --deep --strict "$app"
+  signer="$(codesign -dv --verbose=4 "$app" 2>&1 | awk -F= '/^TeamIdentifier=/{print $2; exit}')"
+  if [[ -z "$signer" || "$signer" == "not set" ]]; then
+    echo "current staged app codesign details missing exact TeamIdentifier" >&2
+    exit 1
+  fi
+  hdiutil detach "$previous_dmg_mount" >/dev/null
+  rmdir "$previous_dmg_mount" >/dev/null 2>&1 || true
+  previous_dmg_mount=""
+  printf '%s\n' "$signer"
+}
+
 download_formal_previous_dmg() {
 	command -v curl >/dev/null 2>&1 || { echo "curl is required" >&2; exit 1; }
-	local asset_name="Super-Dolphin-darwin-arm64.dmg" url digest size tmp actual_digest actual_size
+	local asset_name="Super-Dolphin-darwin-arm64.dmg" release_endpoint url digest size tmp actual_digest actual_size
 	if [[ "$verify_existing" == "1" ]]; then
 		formal_previous_tag="$(gh api "repos/$github_repo/releases?per_page=100" --jq "map(select(.draft == false and .prerelease == false and .tag_name != \"$tag\")) | first | .tag_name")"
 	else
 		formal_previous_tag="$(gh api "repos/$github_repo/releases/latest" --jq '.tag_name')"
 	fi
 	[[ -n "$formal_previous_tag" ]] || { echo "previous formal GitHub release tag is required" >&2; exit 1; }
-  url="$(gh api "repos/$github_repo/releases/latest" --jq ".assets[] | select(.name == \"$asset_name\") | .browser_download_url")"
-  digest="$(gh api "repos/$github_repo/releases/latest" --jq ".assets[] | select(.name == \"$asset_name\") | .digest")"
-  size="$(gh api "repos/$github_repo/releases/latest" --jq ".assets[] | select(.name == \"$asset_name\") | .size")"
-  [[ "$url" =~ ^https://[^[:space:]]+$ ]] || { echo "GitHub latest release missing canonical HTTPS asset: $asset_name" >&2; exit 1; }
+  release_endpoint="repos/$github_repo/releases/tags/$formal_previous_tag"
+  url="$(gh api "$release_endpoint" --jq ".assets[] | select(.name == \"$asset_name\") | .browser_download_url")"
+  digest="$(gh api "$release_endpoint" --jq ".assets[] | select(.name == \"$asset_name\") | .digest")"
+  size="$(gh api "$release_endpoint" --jq ".assets[] | select(.name == \"$asset_name\") | .size")"
+  [[ "$url" =~ ^https://[^[:space:]]+$ ]] || { echo "exact GitHub release $formal_previous_tag missing canonical HTTPS asset: $asset_name" >&2; exit 1; }
   [[ "$digest" =~ ^sha256:[0-9a-fA-F]{64}$ ]] || { echo "GitHub release asset $asset_name digest must be sha256:<hex>" >&2; exit 1; }
   [[ "$size" =~ ^[0-9]+$ && "$size" -gt 0 ]] || { echo "GitHub release asset $asset_name size must be > 0" >&2; exit 1; }
   previous_download_dir="$(mktemp -d "${TMPDIR:-/tmp}/super-dolphin-formal-previous.XXXXXX")"
@@ -236,6 +285,7 @@ download_formal_previous_dmg() {
 
 read_previous_update_public_key() {
   local previous_public_key=""
+  local trusted_signer=""
   if [[ -n "${SUPER_DOLPHIN_UPDATE_PREVIOUS_APP:-}${SUPER_DOLPHIN_UPDATE_PREVIOUS_DMG:-}" ]]; then
     if [[ "$dry_run" != "1" || "${SUPER_DOLPHIN_ALLOW_LOCAL_PREVIOUS_RELEASE_TEST:-}" != "1" ]]; then
       echo "local previous APP/DMG overrides are allowed only for explicit non-release dry-run tests" >&2
@@ -245,15 +295,17 @@ read_previous_update_public_key() {
       echo "local previous APP and DMG overrides are mutually exclusive" >&2
       exit 1
     fi
+    trusted_signer="$(trusted_current_package_signer)"
     if [[ -n "${SUPER_DOLPHIN_UPDATE_PREVIOUS_APP:-}" ]]; then
-      previous_public_key="$(previous_public_key_from_app "$SUPER_DOLPHIN_UPDATE_PREVIOUS_APP" "$tag")"
+      previous_public_key="$(previous_public_key_from_app "$SUPER_DOLPHIN_UPDATE_PREVIOUS_APP" "$tag" "$trusted_signer")"
     else
-      previous_public_key="$(previous_public_key_from_dmg "$SUPER_DOLPHIN_UPDATE_PREVIOUS_DMG" "$tag")"
+      previous_public_key="$(previous_public_key_from_dmg "$SUPER_DOLPHIN_UPDATE_PREVIOUS_DMG" "$tag" "$trusted_signer")"
     fi
   else
     require_gh_access
+    trusted_signer="$(trusted_current_package_signer)"
     download_formal_previous_dmg
-    previous_public_key="$(previous_public_key_from_dmg "$formal_previous_dmg" "$formal_previous_tag")"
+    previous_public_key="$(previous_public_key_from_dmg "$formal_previous_dmg" "$formal_previous_tag" "$trusted_signer")"
     rm -rf "$previous_download_dir"
     previous_download_dir=""
   fi
@@ -381,19 +433,20 @@ validate_release_assets() {
 }
 
 inspect_latest_release_assets() {
-  local latest_tag
+  local latest_tag release_endpoint
   latest_tag="$(gh api "repos/$github_repo/releases/latest" --jq '.tag_name')"
   if [[ -z "$latest_tag" ]]; then
     echo "GitHub latest release tag_name is required" >&2
     exit 1
   fi
+  release_endpoint="repos/$github_repo/releases/tags/$latest_tag"
   local missing=0
   local spec platform artifact_name manifest_name name digest size
   for spec in "${release_asset_specs[@]}"; do
     IFS='|' read -r platform artifact_name manifest_name <<< "$spec"
     for name in "$artifact_name" "$manifest_name"; do
-      digest="$(gh api "repos/$github_repo/releases/latest" --jq ".assets[] | select(.name == \"$name\") | .digest")"
-      size="$(gh api "repos/$github_repo/releases/latest" --jq ".assets[] | select(.name == \"$name\") | .size")"
+      digest="$(gh api "$release_endpoint" --jq ".assets[] | select(.name == \"$name\") | .digest")"
+      size="$(gh api "$release_endpoint" --jq ".assets[] | select(.name == \"$name\") | .size")"
       if [[ -z "$digest" ]]; then
         echo "GitHub latest release $latest_tag missing asset: $name" >&2
         missing=1
@@ -413,8 +466,8 @@ inspect_latest_release_assets() {
     done
   done
   for name in "${distribution_asset_names[@]}"; do
-    digest="$(gh api "repos/$github_repo/releases/latest" --jq ".assets[] | select(.name == \"$name\") | .digest")"
-    size="$(gh api "repos/$github_repo/releases/latest" --jq ".assets[] | select(.name == \"$name\") | .size")"
+    digest="$(gh api "$release_endpoint" --jq ".assets[] | select(.name == \"$name\") | .digest")"
+    size="$(gh api "$release_endpoint" --jq ".assets[] | select(.name == \"$name\") | .size")"
     if [[ -z "$digest" ]]; then
       echo "GitHub latest release $latest_tag missing asset: $name" >&2
       missing=1
@@ -468,9 +521,10 @@ env_path_status() {
 }
 
 print_release_context() {
-  local latest_tag latest_url spec platform artifact_name manifest_name name digest size local_path
+  local latest_tag latest_url release_endpoint spec platform artifact_name manifest_name name digest size local_path
   latest_tag="$(gh api "repos/$github_repo/releases/latest" --jq '.tag_name')"
-  latest_url="$(gh api "repos/$github_repo/releases/latest" --jq '.html_url')"
+  release_endpoint="repos/$github_repo/releases/tags/$latest_tag"
+  latest_url="$(gh api "$release_endpoint" --jq '.html_url')"
   echo "GitHub release context"
   echo "repo: $github_repo"
   echo "latest: $latest_tag $latest_url"
@@ -493,8 +547,8 @@ print_release_context() {
   for spec in "${release_asset_specs[@]}"; do
     IFS='|' read -r platform artifact_name manifest_name <<< "$spec"
     for name in "$artifact_name" "$manifest_name"; do
-      digest="$(gh api "repos/$github_repo/releases/latest" --jq ".assets[] | select(.name == \"$name\") | .digest")"
-      size="$(gh api "repos/$github_repo/releases/latest" --jq ".assets[] | select(.name == \"$name\") | .size")"
+      digest="$(gh api "$release_endpoint" --jq ".assets[] | select(.name == \"$name\") | .digest")"
+      size="$(gh api "$release_endpoint" --jq ".assets[] | select(.name == \"$name\") | .size")"
       if [[ -z "$digest" ]]; then
         echo "remote asset: $name missing"
       else
@@ -503,8 +557,8 @@ print_release_context() {
     done
   done
   for name in "${distribution_asset_names[@]}"; do
-    digest="$(gh api "repos/$github_repo/releases/latest" --jq ".assets[] | select(.name == \"$name\") | .digest")"
-    size="$(gh api "repos/$github_repo/releases/latest" --jq ".assets[] | select(.name == \"$name\") | .size")"
+    digest="$(gh api "$release_endpoint" --jq ".assets[] | select(.name == \"$name\") | .digest")"
+    size="$(gh api "$release_endpoint" --jq ".assets[] | select(.name == \"$name\") | .size")"
     if [[ -z "$digest" ]]; then
       echo "remote asset: $name missing"
     else
@@ -559,7 +613,7 @@ download_latest_previous_dmg() {
   local latest_tag asset_name url digest size dir target tmp actual_digest actual_size
   latest_tag="$(gh api "repos/$github_repo/releases/latest" --jq '.tag_name')"
   asset_name="Super-Dolphin-darwin-arm64.dmg"
-	local release_endpoint="repos/$github_repo/releases/tags/$formal_previous_tag"
+	local release_endpoint="repos/$github_repo/releases/tags/$latest_tag"
 	url="$(gh api "$release_endpoint" --jq ".assets[] | select(.name == \"$asset_name\") | .browser_download_url")"
 	digest="$(gh api "$release_endpoint" --jq ".assets[] | select(.name == \"$asset_name\") | .digest")"
 	size="$(gh api "$release_endpoint" --jq ".assets[] | select(.name == \"$asset_name\") | .size")"
@@ -632,7 +686,7 @@ if [[ "$verify_previous_dmg_test" == "1" ]]; then
     echo "--verify-previous-dmg-test requires SUPER_DOLPHIN_ALLOW_LOCAL_PREVIOUS_RELEASE_TEST=1" >&2
     exit 1
   fi
-  previous_public_key_from_dmg "$verify_previous_dmg_test_path" "$verify_previous_dmg_test_tag"
+  previous_public_key_from_dmg "$verify_previous_dmg_test_path" "$verify_previous_dmg_test_tag" "$verify_previous_dmg_test_signer"
   exit 0
 fi
 

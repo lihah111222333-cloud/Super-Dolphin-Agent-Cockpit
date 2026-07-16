@@ -157,7 +157,8 @@ func TestGitHubReleasePublisherGuardsDraftPublish(t *testing.T) {
 		"SUPER_DOLPHIN_UPDATE_PREVIOUS_APP",
 		"download_formal_previous_dmg",
 		"-expected-package-source \"$github_repo\"",
-		"-expected-package-signer \"$signer\"",
+		"-expected-package-signer \"$expected_signer\"",
+		"trusted_current_package_signer",
 		"previous DMG must contain exactly one top-level app bundle",
 		"-print-package-trust-public-key",
 		"go run ./cmd/super-dolphin-release-manifest -check-key",
@@ -397,8 +398,9 @@ func TestGitHubReleasePreviousDMGProofRejectsForgedOrAmbiguousBundles(t *testing
 		{name: "valid", appCount: 1, bundleVersion: "1.0.3", codesign: "TEAM-EXACT", trustSigner: "TEAM-EXACT", trustValid: true},
 		{name: "forged app", appCount: 1, bundleVersion: "1.0.3", codesign: "TEAM-EXACT", trustSigner: "TEAM-EXACT", want: "forged package trust"},
 		{name: "multiple apps", appCount: 2, bundleVersion: "1.0.3", codesign: "TEAM-EXACT", trustSigner: "TEAM-EXACT", trustValid: true, want: "exactly one top-level app bundle; found 2"},
-		{name: "version mismatch", appCount: 1, bundleVersion: "1.0.2", codesign: "TEAM-EXACT", trustSigner: "TEAM-EXACT", trustValid: true, want: "does not match GitHub latest release v1.0.3"},
-		{name: "signer mismatch", appCount: 1, bundleVersion: "1.0.3", codesign: "TEAM-OTHER", trustSigner: "TEAM-EXACT", trustValid: true, want: "trust signer mismatch"},
+		{name: "version mismatch", appCount: 1, bundleVersion: "1.0.2", codesign: "TEAM-EXACT", trustSigner: "TEAM-EXACT", trustValid: true, want: "does not match exact GitHub release v1.0.3"},
+		{name: "signer mismatch", appCount: 1, bundleVersion: "1.0.3", codesign: "TEAM-OTHER", trustSigner: "TEAM-EXACT", trustValid: true, want: "does not match trusted current package signer TEAM-EXACT"},
+		{name: "self signed attacker", appCount: 1, bundleVersion: "1.0.3", codesign: "TEAM-ATTACKER", trustSigner: "TEAM-ATTACKER", trustValid: true, want: "does not match trusted current package signer TEAM-EXACT"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -411,12 +413,12 @@ func runPreviousDMGProofCase(t *testing.T, test previousDMGProofCase) {
 	t.Helper()
 	binDir := t.TempDir()
 	writePreviousDMGInspectionTools(t, binDir)
-	mountSource := writePreviousDMGApps(t, test.appCount)
+	mountSource := writePreviousDMGApps(t, test.appCount, test.codesign)
 	dmg := filepath.Join(t.TempDir(), "previous.dmg")
 	if err := os.WriteFile(dmg, []byte("dmg"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	cmd := exec.Command("bash", "publish_github_release.sh", "--verify-previous-dmg-test", dmg, "v1.0.3")
+	cmd := exec.Command("bash", "publish_github_release.sh", "--verify-previous-dmg-test", dmg, "v1.0.3", "TEAM-EXACT")
 	valid := "0"
 	if test.trustValid {
 		valid = "1"
@@ -436,9 +438,12 @@ func runPreviousDMGProofCase(t *testing.T, test previousDMGProofCase) {
 	}
 }
 
-func writePreviousDMGApps(t *testing.T, count int) string {
+func writePreviousDMGApps(t *testing.T, count int, signers ...string) string {
 	t.Helper()
 	mountSource := t.TempDir()
+	if len(signers) > 1 {
+		t.Fatal("at most one fake signer is allowed")
+	}
 	for i := range count {
 		app := filepath.Join(mountSource, fmt.Sprintf("Super Dolphin %d.app", i+1))
 		if err := os.MkdirAll(filepath.Join(app, "Contents", "Resources"), 0o700); err != nil {
@@ -446,6 +451,9 @@ func writePreviousDMGApps(t *testing.T, count int) string {
 		}
 		if err := os.WriteFile(filepath.Join(app, "Contents", "Info.plist"), []byte("fixture"), 0o600); err != nil {
 			t.Fatal(err)
+		}
+		if len(signers) == 1 {
+			writeFakeCodesignSigner(t, app, signers[0])
 		}
 	}
 	return mountSource
@@ -457,13 +465,18 @@ func writePreviousDMGInspectionTools(t *testing.T, binDir string) {
 		"hdiutil": `#!/usr/bin/env bash
 set -euo pipefail
 if [[ "${1:-}" == "attach" ]]; then
+  source="${2:-}"
   mount=""
   while [[ $# -gt 0 ]]; do
     if [[ "${1:-}" == "-mountpoint" ]]; then mount="${2:-}"; break; fi
     shift
   done
   [[ -n "$mount" ]]
-  cp -R "$FAKE_DMG_MOUNT_SOURCE"/. "$mount"/
+  mount_source="$FAKE_DMG_MOUNT_SOURCE"
+  if [[ -n "${FAKE_CURRENT_DMG:-}" && "$source" == "$FAKE_CURRENT_DMG" ]]; then
+    mount_source="$FAKE_CURRENT_DMG_MOUNT_SOURCE"
+  fi
+  cp -R "$mount_source"/. "$mount"/
   exit 0
 fi
 [[ "${1:-}" == "detach" ]]
@@ -474,7 +487,12 @@ printf '%s\n' "$FAKE_BUNDLE_VERSION"
 `,
 		"codesign": `#!/usr/bin/env bash
 set -euo pipefail
-printf 'TeamIdentifier=%s\n' "$FAKE_CODESIGN_SIGNER" >&2
+app=""
+for arg in "$@"; do app="$arg"; done
+marker="$app/Contents/Resources/.fake-codesign-signer"
+signer="${FAKE_CODESIGN_SIGNER:-}"
+if [[ -f "$marker" ]]; then signer="$(cat "$marker")"; fi
+printf 'TeamIdentifier=%s\n' "$signer" >&2
 `,
 		"go": `#!/usr/bin/env bash
 set -euo pipefail
@@ -505,7 +523,7 @@ printf 'dGVzdC1wdWJsaWMta2V5\n'
 }
 
 func TestGitHubReleasePublisherVerifyExistingExecutesDigestCheck(t *testing.T) {
-	stageDir := t.TempDir()
+	stageDir := canonicalTempDir(t)
 	assetDigests := map[string]struct {
 		digest string
 		size   int
@@ -532,6 +550,8 @@ func TestGitHubReleasePublisherVerifyExistingExecutesDigestCheck(t *testing.T) {
 	writeGitHubReleaseFakeGH(t, binDir, "v9.9.9", assetDigests)
 	writeGitHubReleaseFakeCurl(t, binDir, []byte("darwin artifact"))
 	previousApp := writePreviousPackageTrustFixture(t, publicKey)
+	writeFakeCodesignSigner(t, previousApp, "TEAM-EXACT")
+	currentMount := writePreviousDMGApps(t, 1, "TEAM-EXACT")
 	writePreviousDMGInspectionTools(t, binDir)
 
 	cmd := exec.Command("bash", "publish_github_release.sh", "--verify-existing", "--stage-dir", bashArg("", stageDir))
@@ -540,6 +560,8 @@ func TestGitHubReleasePublisherVerifyExistingExecutesDigestCheck(t *testing.T) {
 		"VERSION=v9.9.9",
 		"SUPER_DOLPHIN_UPDATE_GITHUB_REPO=super-dolphin/releases",
 		"FAKE_DMG_MOUNT_SOURCE=" + bashArg("", filepath.Dir(previousApp)),
+		"FAKE_CURRENT_DMG=" + bashArg("", filepath.Join(stageDir, "Super-Dolphin-darwin-arm64.dmg")),
+		"FAKE_CURRENT_DMG_MOUNT_SOURCE=" + bashArg("", currentMount),
 		"FAKE_GH_PREVIOUS_TAG=v9.9.8",
 		"FAKE_BUNDLE_VERSION=9.9.8",
 		"FAKE_CODESIGN_SIGNER=TEAM-EXACT",
@@ -695,6 +717,9 @@ if [[ "${1:-}" == "api" ]]; then
     fi
     shift
   done
+  if [[ -n "${FAKE_GH_API_LOG:-}" ]]; then
+    printf '%s|%s\n' "$endpoint" "$query" >>"$FAKE_GH_API_LOG"
+  fi
   if [[ "$endpoint" == "repos/super-dolphin/releases" ]]; then
     exit 0
   fi
@@ -704,6 +729,10 @@ if [[ "${1:-}" == "api" ]]; then
   fi
   if [[ "$endpoint" == "repos/super-dolphin/releases/releases/latest" && "$query" == ".html_url" ]]; then
     printf 'https://github.com/super-dolphin/releases/releases/tag/%s\n' ` + bashQuote(latestTag) + `
+    exit 0
+  fi
+  if [[ "$endpoint" == "repos/super-dolphin/releases/releases/tags/"* && "$query" == ".html_url" ]]; then
+    printf 'https://github.com/super-dolphin/releases/releases/tag/%s\n' "${endpoint##*/}"
     exit 0
   fi
   if [[ "$endpoint" == "repos/super-dolphin/releases/releases?per_page=100" ]]; then
@@ -720,31 +749,6 @@ exit 1
 `
 	if err := os.WriteFile(filepath.Join(binDir, "gh"), []byte(content), 0o700); err != nil {
 		t.Fatalf("write fake gh: %v", err)
-	}
-}
-
-func writeGitHubReleaseFakeCurl(t *testing.T, binDir string, content []byte) {
-	t.Helper()
-	contentPath := filepath.Join(binDir, "curl-content")
-	if err := os.WriteFile(contentPath, content, 0o600); err != nil {
-		t.Fatalf("write fake curl content: %v", err)
-	}
-	script := `#!/usr/bin/env bash
-set -euo pipefail
-out=""
-while [[ $# -gt 0 ]]; do
-  if [[ "${1:-}" == "-o" ]]; then
-    out="${2:-}"
-    shift 2
-    continue
-  fi
-  shift
-done
-[[ -n "$out" ]] || { echo "missing -o" >&2; exit 1; }
-cp ` + bashQuote(bashArg("", contentPath)) + ` "$out"
-`
-	if err := os.WriteFile(filepath.Join(binDir, "curl"), []byte(script), 0o700); err != nil {
-		t.Fatalf("write fake curl: %v", err)
 	}
 }
 
