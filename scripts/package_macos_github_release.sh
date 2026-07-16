@@ -105,6 +105,10 @@ resolve_update_public_key() {
   if [[ -n "${SUPER_DOLPHIN_UPDATE_PUBLIC_KEY:-}" ]]; then
     return
   fi
+  if [[ -n "${SUPER_DOLPHIN_UPDATE_PREVIOUS_APP:-}${SUPER_DOLPHIN_UPDATE_PREVIOUS_DMG:-}" && "${SUPER_DOLPHIN_ALLOW_LOCAL_PREVIOUS_RELEASE_TEST:-}" != "1" ]]; then
+    echo "local previous APP/DMG overrides require SUPER_DOLPHIN_ALLOW_LOCAL_PREVIOUS_RELEASE_TEST=1 and are not formal release proof" >&2
+    exit 1
+  fi
   if [[ -n "${SUPER_DOLPHIN_UPDATE_PREVIOUS_APP:-}" ]]; then
     SUPER_DOLPHIN_UPDATE_PUBLIC_KEY="$(previous_public_key_from_app "$SUPER_DOLPHIN_UPDATE_PREVIOUS_APP")"
   elif [[ -n "${SUPER_DOLPHIN_UPDATE_PREVIOUS_DMG:-}" ]]; then

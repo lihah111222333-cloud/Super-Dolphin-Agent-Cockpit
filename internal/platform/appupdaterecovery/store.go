@@ -55,6 +55,20 @@ func (store *Store) Create(ctx context.Context, req CreateRequest) (transaction 
 	if filepath.Dir(store.root) != filepath.Dir(req.Paths.Target) {
 		return Transaction{}, errors.New("transaction journal, target, backup, and staging must share a parent volume")
 	}
+	generationLock, err := store.acquireGeneration()
+	if err != nil {
+		return Transaction{}, err
+	}
+	defer generationLock.releaseInto(&err)
+	return store.createLocked(ctx, req)
+}
+
+// createLocked 在 generation 锁内分配单调序号并持久化新 transaction。
+func (store *Store) createLocked(ctx context.Context, req CreateRequest) (Transaction, error) {
+	targetGeneration, err := store.nextTargetGeneration(ctx, req.Paths.Target, req.Identity.TransactionID)
+	if err != nil {
+		return Transaction{}, err
+	}
 	if err := persistCreateReleases(req); err != nil {
 		return Transaction{}, err
 	}
@@ -68,7 +82,7 @@ func (store *Store) Create(ctx context.Context, req CreateRequest) (transaction 
 	} else if !errors.Is(statErr, os.ErrNotExist) {
 		return Transaction{}, fmt.Errorf("inspect update transaction journal: %w", statErr)
 	}
-	journal := newJournal(req, store.now())
+	journal := newJournal(req, targetGeneration, store.now())
 	if err := store.writeLocked(journal); err != nil {
 		return Transaction{}, err
 	}
@@ -221,14 +235,7 @@ func (store *Store) rollbackLocked(journal *journalPayload) error {
 		return cleanupTransactionCapsule(journal.Paths)
 	}
 	if state != StateRollbackPending {
-		if state == StatePrepared {
-			if err := validatePreparedRollback(*journal); err != nil {
-				return err
-			}
-		} else if err := requirePath(journal.Paths.Backup); err != nil {
-			return fmt.Errorf("rollback requires retained backup: %w", err)
-		}
-		if err := store.advanceLocked(journal, TriggerRollbackRequested); err != nil {
+		if err := store.beginRollbackLocked(journal, state); err != nil {
 			return err
 		}
 	}
@@ -242,6 +249,20 @@ func (store *Store) rollbackLocked(journal *journalPayload) error {
 		return err
 	}
 	return cleanupTransactionCapsule(journal.Paths)
+}
+
+func (store *Store) beginRollbackLocked(journal *journalPayload, state State) error {
+	if state == StatePrepared {
+		if err := validatePreparedRollback(*journal); err != nil {
+			return err
+		}
+	} else if err := requirePath(journal.Paths.Backup); err != nil {
+		return fmt.Errorf("rollback requires retained backup: %w", err)
+	}
+	if err := store.beginRollbackRestartIntentLocked(journal); err != nil {
+		return err
+	}
+	return store.advanceLocked(journal, TriggerRollbackRequested)
 }
 
 // Replay 只补完 journal 已持久化的文件系统意图，不推断新事务。
@@ -315,6 +336,11 @@ func (store *Store) advanceLocked(journal *journalPayload, trigger Trigger) erro
 	next, err := nextState(current, trigger)
 	if err != nil {
 		return err
+	}
+	if trigger == TriggerRollbackRequested {
+		if err := store.beginRollbackRestartIntentLocked(journal); err != nil {
+			return err
+		}
 	}
 	timestamp := store.now().UTC().Format(time.RFC3339Nano)
 	journal.Entries = append(journal.Entries, journalEntry{

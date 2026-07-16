@@ -2,6 +2,13 @@
 
 日期：2026-07-17
 
+> **最终总审更正（2026-07-17）**：本文件的 Release closure 结论已被最终总审发现的
+> 5 个缺口推翻，不能再单独作为 Release gate PASS 证据。原实现没有为 rollback 文件恢复
+> 与旧版本 restart 建立 durable intent/token/ACK 协议；正式发布公钥连续性可由本地包
+> override 满足；exact termination 仍存在 verify 后按 PID signal 的复用窗口；终态事务按
+> wall clock 选择；package trust 未完整拒绝 symlink/alias tree。修复与替代证据统一登记在
+> `08-final-review-release-fixes.md`，以下历史命令只说明当时测试通过，不证明这些缺口不存在。
+
 ## 1. Review object 与结论边界
 
 - exact integration base / 审查 HEAD：`af51558b4a625764afa1dbd5f92191ef6ce01ddb`。
@@ -22,10 +29,10 @@
 | P0 要求 | 结论 | integration 证据 |
 | --- | --- | --- |
 | probation 期间 backup 存在 | PASS | transaction journal 在 `backup_retained`/probation 保留 exact backup；focused test 与独立 Guard E2E 通过。 |
-| crash/timeout/interruption 自动 exact rollback/restart | PASS | Guard armed receipt 后独立监督；candidate crash、probation timeout、父进程中断均落到 exact old target restore/restart；PID/start-token/digest/path 共同绑定进程身份。 |
+| crash/timeout/interruption 自动 exact rollback/restart | SUPERSEDED | 旧结论遗漏 restart durable receipt 与 launch-before-ACK 窗口；08 以 intent/token/process/ACK 收敛协议替代。 |
 | healthy 后才 commit trust/delete backup | PASS | exact ACK 验证后先持久化 `commit_pending`，再执行 exact backup 删除，最后以 `committed` 暴露 committed trust；healthy 前始终 pending。旧 Task 1 证据已按该 crash-safe 顺序做最小事实修正。 |
 | Recovery graph 无 normal 高风险依赖 | PASS | `SelectRecoveryServices` 仅组装 recovery store/handler/runtime/lifecycle；命令级测试证明 recovery 选择先于 normal preflight，normal factory 调用数为 0。 |
-| production trust 无 env/CLI downgrade | PASS | package trust 从 `os.Executable()` exact app layout 推导；source/key/signer/helper digest 由 package-owned trust 固定，production env/CLI override fail-closed。 |
+| production trust 无 env/CLI downgrade | SUPERSEDED | 旧结论遗漏 canonical alias tree 与正式 GitHub 上一 release 资产 provenance；08 补齐并锁定。 |
 | 六目标 capability 诚实 | PASS | `darwin-arm64` 才开放 check/install/publish；darwin-amd64、linux-amd64/arm64、windows-amd64/arm64 全部显式关闭，不存在半开路由。 |
 
 Task 3 的 package trust、Guard readiness/receipt、artifact E2E 与 Task 2 recovery
@@ -46,7 +53,7 @@ state 与 package trust generation 保持单 owner。
 | D07 Store/sqlc | N/A | 无 SQL/sqlc 变更；journal/capsule 为 platform recovery owner。 |
 | D08 Skill/Memory/Prompt/Thread | N/A | Release lane 未改变这些链路。 |
 | D09 Frontend | Applied | recovery projection terminal 字段 guard、全量 frontend lint/test/build 与 embed verify PASS。 |
-| D10 Security | Applied | exact executable/layout/path/digest/signer/key/receipt/process tuple；伪造 override 与 PID reuse fail-closed。 |
+| D10 Security | Superseded | 旧 PID tuple 在 signal 前仍有 TOCTOU，且 package path 未全量 canonical；08 改为认证协作终止和 alias-tree 拒绝。 |
 | D11 Observability | Applied | journal state、chain/producer/field guard 错误和 recovery failure 保留可定位上下文。 |
 | D12 Testing | Applied | focused、race、Guard process、independent artifact、scripts/archtest 与 staged hook 均纳入门禁。 |
 | D13 Release/Install | Applied | manifest/package/publish guards、backup/rollback、artifact reopen、六目标 capability 与 frontend embed 均验证。 |
@@ -55,7 +62,7 @@ state 与 package trust generation 保持单 owner。
 | D16 Git/Workflow | Applied | exact integration HEAD、clean 起点、staged snapshot hook、generated refresh/check、最终 clean/leak 检查。 |
 | D17 字段守卫 | Applied | journal producer 由 reflection 递归枚举；projection producer/mapper/terminal 由 AST/reflection 动态验证并含 mutation RED。 |
 | D18 DRY | Applied | transaction、trust、recovery owner 各自唯一；命令层不复制 backup/rollback 控制流。 |
-| D19 SSOT | Applied | journal 是 transaction/trust state owner；package trust 是 production policy owner；生成物只由 generator 单向刷新。 |
+| D19 SSOT | Superseded | 旧终态选择仍依赖 wall clock；08 增加每 target 单调 generation，并以 durable journal 为选择 SSOT。 |
 
 Release lane 残余风险：真实 rename/process/artifact E2E 只能在当前 Darwin arm64
 内核执行；其他五目标证明的是 fail-closed capability 与 cross-build，不宣称原生安装

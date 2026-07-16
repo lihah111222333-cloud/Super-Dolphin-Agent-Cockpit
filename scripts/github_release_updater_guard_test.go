@@ -60,6 +60,7 @@ func TestPackageEnvExampleDocumentsGitHubReleaseUpdateInputsWithoutSecrets(t *te
 		"SUPER_DOLPHIN_UPDATE_MINIMUM_VERSION=0.0.0",
 		"SUPER_DOLPHIN_UPDATE_PREVIOUS_DMG=",
 		"SUPER_DOLPHIN_UPDATE_PREVIOUS_APP=",
+		"SUPER_DOLPHIN_ALLOW_LOCAL_PREVIOUS_RELEASE_TEST=",
 		"SUPER_DOLPHIN_UPDATE_SIGNING_KEY=",
 	} {
 		assertScriptContains(t, example, want)
@@ -85,6 +86,7 @@ func TestGitHubReleasePackagingWrappersProduceCanonicalAssets(t *testing.T) {
 		"SUPER_DOLPHIN_UPDATE_GITHUB_REPO=\"$github_release_repo\"",
 		"SUPER_DOLPHIN_UPDATE_PREVIOUS_DMG",
 		"SUPER_DOLPHIN_UPDATE_PREVIOUS_APP",
+		"SUPER_DOLPHIN_ALLOW_LOCAL_PREVIOUS_RELEASE_TEST",
 		"resolve_update_public_key",
 		"previous_public_key_from_dmg",
 		"-print-package-trust-public-key",
@@ -153,6 +155,11 @@ func TestGitHubReleasePublisherGuardsDraftPublish(t *testing.T) {
 		"SUPER_DOLPHIN_UPDATE_PUBLIC_KEY",
 		"SUPER_DOLPHIN_UPDATE_PREVIOUS_DMG",
 		"SUPER_DOLPHIN_UPDATE_PREVIOUS_APP",
+		"download_formal_previous_dmg",
+		"-expected-package-source \"$github_repo\"",
+		"-expected-package-signer \"$expected_signer\"",
+		"trusted_current_package_signer",
+		"previous DMG must contain exactly one top-level app bundle",
 		"-print-package-trust-public-key",
 		"go run ./cmd/super-dolphin-release-manifest -check-key",
 		"go run ./cmd/super-dolphin-release-manifest -verify-manifest",
@@ -172,7 +179,7 @@ func TestGitHubReleasePublisherGuardsDraftPublish(t *testing.T) {
 	assertScriptDoesNotContain(t, script, "Super-Dolphin-windows-arm64.update.json")
 	assertScriptDoesNotContain(t, script, "Contents/Resources/.env")
 	assertScriptDoesNotContain(t, script, "SUPER_DOLPHIN_UPDATE_PREVIOUS_ENV_FILE")
-	assertScriptOrder(t, script, "require_previous_update_public_key", "validate_release_assets")
+	assertScriptOrder(t, script, "resolve_update_public_key", "validate_release_assets")
 	assertScriptOrderAfter(t, script, "gh release create \"$tag\"", "gh release create \"$tag\"", "verify_uploaded_asset_digests")
 	assertScriptOrderAfter(t, script, "gh release create \"$tag\"", "verify_uploaded_asset_digests", "gh release edit \"$tag\"")
 }
@@ -185,34 +192,38 @@ func TestGitHubReleasePublisherCanVerifyManualUploads(t *testing.T) {
 		"verify_existing=1",
 		"require_existing_release",
 		"require_existing_release_marked_latest",
+		"releases?per_page=100",
+		".tag_name != \\\"$tag\\\"",
 		"verify_uploaded_asset_digests",
 		"existing GitHub release verified",
 	} {
 		assertScriptContains(t, script, want)
 	}
 	assertScriptOrderAfter(t, script, "if [[ \"$verify_existing\" != \"1\" ]]", "else\n  resolve_update_public_key", "validate_release_assets")
-	assertScriptOrderAfter(t, script, "else\n  resolve_update_public_key", "resolve_update_public_key", "require_previous_update_public_key")
-	assertScriptOrderAfter(t, script, "else\n  resolve_update_public_key", "require_previous_update_public_key", "validate_release_assets")
-	assertScriptOrder(t, script, "validate_release_assets", "if [[ \"$verify_existing\" == \"1\" ]]")
-	assertScriptOrderAfter(t, script, "if [[ \"$verify_existing\" == \"1\" ]]", "require_existing_release", "verify_uploaded_asset_digests")
-	assertScriptOrderAfter(t, script, "if [[ \"$verify_existing\" == \"1\" ]]", "verify_uploaded_asset_digests", "require_existing_release_marked_latest")
-	assertScriptOrder(t, script, "if [[ \"$verify_existing\" == \"1\" ]]", "if [[ \"$dry_run\" == \"1\" ]]")
+	assertScriptOrderAfter(t, script, "else\n  resolve_update_public_key", "resolve_update_public_key", "validate_release_assets")
+	mainAnchor := "validate_release_assets\nrequire_gh_access\n\nif [[ \"$verify_existing\" == \"1\" ]]"
+	assertScriptContains(t, script, mainAnchor)
+	assertScriptOrderAfter(t, script, mainAnchor, "require_existing_release", "verify_uploaded_asset_digests")
+	assertScriptOrderAfter(t, script, mainAnchor, "verify_uploaded_asset_digests", "require_existing_release_marked_latest")
+	assertScriptOrderAfter(t, script, mainAnchor, "if [[ \"$verify_existing\" == \"1\" ]]", "if [[ \"$dry_run\" == \"1\" ]]")
 }
 
-func TestGitHubReleasePublisherVerifyExistingRequiresPreviousPackageProof(t *testing.T) {
+func TestGitHubReleasePublisherVerifyExistingRejectsLocalPreviousPackageProof(t *testing.T) {
+	previousApp := writePreviousPackageTrustFixture(t, base64.StdEncoding.EncodeToString(make([]byte, 32)))
 	cmd := exec.Command("bash", "publish_github_release.sh", "--verify-existing")
 	cmd.Env = appendWSLEnvKeysWithGitWorktree(t, []string{
 		"PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
 		"VERSION=v9.9.9",
 		"SUPER_DOLPHIN_UPDATE_GITHUB_REPO=super-dolphin/releases",
 		"SUPER_DOLPHIN_UPDATE_PUBLIC_KEY=dGVzdC1wdWJsaWMta2V5",
+		"SUPER_DOLPHIN_UPDATE_PREVIOUS_APP=" + bashArg("", previousApp),
 	}, "PATH")
 	output, err := cmd.CombinedOutput()
 	if err == nil {
 		t.Fatalf("expected verify-existing without previous proof to fail, got:\n%s", output)
 	}
-	if !strings.Contains(string(output), "required to prove old clients trust this update key") {
-		t.Fatalf("expected previous package proof error, got:\n%s", output)
+	if !strings.Contains(string(output), "local previous APP/DMG overrides are allowed only for explicit non-release dry-run tests") {
+		t.Fatalf("expected formal gate to reject local previous proof, got:\n%s", output)
 	}
 	if strings.Contains(string(output), "missing or empty release asset") {
 		t.Fatalf("verify-existing continued to asset validation without previous proof:\n%s", output)
@@ -372,8 +383,147 @@ func TestGitHubReleasePublisherDownloadsLatestPreviousDMG(t *testing.T) {
 	}
 }
 
+type previousDMGProofCase struct {
+	name          string
+	appCount      int
+	bundleVersion string
+	codesign      string
+	trustSigner   string
+	trustValid    bool
+	want          string
+}
+
+func TestGitHubReleasePreviousDMGProofRejectsForgedOrAmbiguousBundles(t *testing.T) {
+	tests := []previousDMGProofCase{
+		{name: "valid", appCount: 1, bundleVersion: "1.0.3", codesign: "TEAM-EXACT", trustSigner: "TEAM-EXACT", trustValid: true},
+		{name: "forged app", appCount: 1, bundleVersion: "1.0.3", codesign: "TEAM-EXACT", trustSigner: "TEAM-EXACT", want: "forged package trust"},
+		{name: "multiple apps", appCount: 2, bundleVersion: "1.0.3", codesign: "TEAM-EXACT", trustSigner: "TEAM-EXACT", trustValid: true, want: "exactly one top-level app bundle; found 2"},
+		{name: "version mismatch", appCount: 1, bundleVersion: "1.0.2", codesign: "TEAM-EXACT", trustSigner: "TEAM-EXACT", trustValid: true, want: "does not match exact GitHub release v1.0.3"},
+		{name: "signer mismatch", appCount: 1, bundleVersion: "1.0.3", codesign: "TEAM-OTHER", trustSigner: "TEAM-EXACT", trustValid: true, want: "does not match trusted current package signer TEAM-EXACT"},
+		{name: "self signed attacker", appCount: 1, bundleVersion: "1.0.3", codesign: "TEAM-ATTACKER", trustSigner: "TEAM-ATTACKER", trustValid: true, want: "does not match trusted current package signer TEAM-EXACT"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			runPreviousDMGProofCase(t, test)
+		})
+	}
+}
+
+func runPreviousDMGProofCase(t *testing.T, test previousDMGProofCase) {
+	t.Helper()
+	binDir := t.TempDir()
+	writePreviousDMGInspectionTools(t, binDir)
+	mountSource := writePreviousDMGApps(t, test.appCount, test.codesign)
+	dmg := filepath.Join(t.TempDir(), "previous.dmg")
+	if err := os.WriteFile(dmg, []byte("dmg"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command("bash", "publish_github_release.sh", "--verify-previous-dmg-test", dmg, "v1.0.3", "TEAM-EXACT")
+	valid := "0"
+	if test.trustValid {
+		valid = "1"
+	}
+	cmd.Env = appendWSLEnvKeysWithGitWorktree(t, []string{
+		"PATH=" + bashArg("", binDir) + ":/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+		"SUPER_DOLPHIN_UPDATE_GITHUB_REPO=super-dolphin/releases", "SUPER_DOLPHIN_ALLOW_LOCAL_PREVIOUS_RELEASE_TEST=1",
+		"FAKE_DMG_MOUNT_SOURCE=" + bashArg("", mountSource), "FAKE_BUNDLE_VERSION=" + test.bundleVersion,
+		"FAKE_CODESIGN_SIGNER=" + test.codesign, "FAKE_TRUST_SIGNER=" + test.trustSigner, "FAKE_TRUST_VALID=" + valid,
+	}, "PATH")
+	output, err := cmd.CombinedOutput()
+	if test.want == "" && err != nil {
+		t.Fatalf("valid previous DMG proof failed: %v\n%s", err, output)
+	}
+	if test.want != "" && (err == nil || !strings.Contains(string(output), test.want)) {
+		t.Fatalf("previous DMG proof error = %v, output:\n%s\nwant %q", err, output, test.want)
+	}
+}
+
+func writePreviousDMGApps(t *testing.T, count int, signers ...string) string {
+	t.Helper()
+	mountSource := t.TempDir()
+	if len(signers) > 1 {
+		t.Fatal("at most one fake signer is allowed")
+	}
+	for i := range count {
+		app := filepath.Join(mountSource, fmt.Sprintf("Super Dolphin %d.app", i+1))
+		if err := os.MkdirAll(filepath.Join(app, "Contents", "Resources"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(app, "Contents", "Info.plist"), []byte("fixture"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if len(signers) == 1 {
+			writeFakeCodesignSigner(t, app, signers[0])
+		}
+	}
+	return mountSource
+}
+
+func writePreviousDMGInspectionTools(t *testing.T, binDir string) {
+	t.Helper()
+	scripts := map[string]string{
+		"hdiutil": `#!/usr/bin/env bash
+set -euo pipefail
+if [[ "${1:-}" == "attach" ]]; then
+  source="${2:-}"
+  mount=""
+  while [[ $# -gt 0 ]]; do
+    if [[ "${1:-}" == "-mountpoint" ]]; then mount="${2:-}"; break; fi
+    shift
+  done
+  [[ -n "$mount" ]]
+  mount_source="$FAKE_DMG_MOUNT_SOURCE"
+  if [[ -n "${FAKE_CURRENT_DMG:-}" && "$source" == "$FAKE_CURRENT_DMG" ]]; then
+    mount_source="$FAKE_CURRENT_DMG_MOUNT_SOURCE"
+  fi
+  cp -R "$mount_source"/. "$mount"/
+  exit 0
+fi
+[[ "${1:-}" == "detach" ]]
+`,
+		"plutil": `#!/usr/bin/env bash
+set -euo pipefail
+printf '%s\n' "$FAKE_BUNDLE_VERSION"
+`,
+		"codesign": `#!/usr/bin/env bash
+set -euo pipefail
+app=""
+for arg in "$@"; do app="$arg"; done
+marker="$app/Contents/Resources/.fake-codesign-signer"
+signer="${FAKE_CODESIGN_SIGNER:-}"
+if [[ -f "$marker" ]]; then signer="$(cat "$marker")"; fi
+printf 'TeamIdentifier=%s\n' "$signer" >&2
+`,
+		"go": `#!/usr/bin/env bash
+set -euo pipefail
+[[ "${1:-}" == "run" && "${2:-}" == "./cmd/super-dolphin-release-manifest" ]]
+if [[ " $* " != *" -print-package-trust-public-key "* ]]; then
+  exit 0
+fi
+[[ "${FAKE_TRUST_VALID:-0}" == "1" ]] || { echo "forged package trust" >&2; exit 1; }
+expected_source=""
+expected_signer=""
+while [[ $# -gt 0 ]]; do
+  case "${1:-}" in
+    -expected-package-source) expected_source="${2:-}"; shift 2 ;;
+    -expected-package-signer) expected_signer="${2:-}"; shift 2 ;;
+    *) shift ;;
+  esac
+done
+[[ "$expected_source" == "super-dolphin/releases" ]] || { echo "trust source mismatch" >&2; exit 1; }
+[[ "$expected_signer" == "$FAKE_TRUST_SIGNER" ]] || { echo "trust signer mismatch" >&2; exit 1; }
+printf 'dGVzdC1wdWJsaWMta2V5\n'
+`,
+	}
+	for name, content := range scripts {
+		if err := os.WriteFile(filepath.Join(binDir, name), []byte(content), 0o700); err != nil {
+			t.Fatalf("write fake %s: %v", name, err)
+		}
+	}
+}
+
 func TestGitHubReleasePublisherVerifyExistingExecutesDigestCheck(t *testing.T) {
-	stageDir := t.TempDir()
+	stageDir := canonicalTempDir(t)
 	assetDigests := map[string]struct {
 		digest string
 		size   int
@@ -398,14 +548,25 @@ func TestGitHubReleasePublisherVerifyExistingExecutesDigestCheck(t *testing.T) {
 	publicKey := base64.StdEncoding.EncodeToString(make([]byte, 32))
 	writeGitHubReleaseFakeGo(t, binDir, publicKey)
 	writeGitHubReleaseFakeGH(t, binDir, "v9.9.9", assetDigests)
+	writeGitHubReleaseFakeCurl(t, binDir, []byte("darwin artifact"))
 	previousApp := writePreviousPackageTrustFixture(t, publicKey)
+	writeFakeCodesignSigner(t, previousApp, "TEAM-EXACT")
+	currentMount := writePreviousDMGApps(t, 1, "TEAM-EXACT")
+	writePreviousDMGInspectionTools(t, binDir)
 
 	cmd := exec.Command("bash", "publish_github_release.sh", "--verify-existing", "--stage-dir", bashArg("", stageDir))
 	cmd.Env = appendWSLEnvKeysWithGitWorktree(t, []string{
 		"PATH=" + bashArg("", binDir) + ":/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
 		"VERSION=v9.9.9",
 		"SUPER_DOLPHIN_UPDATE_GITHUB_REPO=super-dolphin/releases",
-		"SUPER_DOLPHIN_UPDATE_PREVIOUS_APP=" + bashArg("", previousApp),
+		"FAKE_DMG_MOUNT_SOURCE=" + bashArg("", filepath.Dir(previousApp)),
+		"FAKE_CURRENT_DMG=" + bashArg("", filepath.Join(stageDir, "Super-Dolphin-darwin-arm64.dmg")),
+		"FAKE_CURRENT_DMG_MOUNT_SOURCE=" + bashArg("", currentMount),
+		"FAKE_GH_PREVIOUS_TAG=v9.9.8",
+		"FAKE_BUNDLE_VERSION=9.9.8",
+		"FAKE_CODESIGN_SIGNER=TEAM-EXACT",
+		"FAKE_TRUST_SIGNER=TEAM-EXACT",
+		"FAKE_TRUST_VALID=1",
 	}, "PATH")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
@@ -556,6 +717,9 @@ if [[ "${1:-}" == "api" ]]; then
     fi
     shift
   done
+  if [[ -n "${FAKE_GH_API_LOG:-}" ]]; then
+    printf '%s|%s\n' "$endpoint" "$query" >>"$FAKE_GH_API_LOG"
+  fi
   if [[ "$endpoint" == "repos/super-dolphin/releases" ]]; then
     exit 0
   fi
@@ -565,6 +729,14 @@ if [[ "${1:-}" == "api" ]]; then
   fi
   if [[ "$endpoint" == "repos/super-dolphin/releases/releases/latest" && "$query" == ".html_url" ]]; then
     printf 'https://github.com/super-dolphin/releases/releases/tag/%s\n' ` + bashQuote(latestTag) + `
+    exit 0
+  fi
+  if [[ "$endpoint" == "repos/super-dolphin/releases/releases/tags/"* && "$query" == ".html_url" ]]; then
+    printf 'https://github.com/super-dolphin/releases/releases/tag/%s\n' "${endpoint##*/}"
+    exit 0
+  fi
+  if [[ "$endpoint" == "repos/super-dolphin/releases/releases?per_page=100" ]]; then
+    printf '%s\n' "${FAKE_GH_PREVIOUS_TAG:-v0.0.1}"
     exit 0
   fi
   if [[ "$endpoint" == "repos/super-dolphin/releases/releases/latest" || "$endpoint" == "repos/super-dolphin/releases/releases/tags/"* ]]; then
@@ -580,31 +752,6 @@ exit 1
 	}
 }
 
-func writeGitHubReleaseFakeCurl(t *testing.T, binDir string, content []byte) {
-	t.Helper()
-	contentPath := filepath.Join(binDir, "curl-content")
-	if err := os.WriteFile(contentPath, content, 0o600); err != nil {
-		t.Fatalf("write fake curl content: %v", err)
-	}
-	script := `#!/usr/bin/env bash
-set -euo pipefail
-out=""
-while [[ $# -gt 0 ]]; do
-  if [[ "${1:-}" == "-o" ]]; then
-    out="${2:-}"
-    shift 2
-    continue
-  fi
-  shift
-done
-[[ -n "$out" ]] || { echo "missing -o" >&2; exit 1; }
-cp ` + bashQuote(bashArg("", contentPath)) + ` "$out"
-`
-	if err := os.WriteFile(filepath.Join(binDir, "curl"), []byte(script), 0o700); err != nil {
-		t.Fatalf("write fake curl: %v", err)
-	}
-}
-
 func TestGitHubReleasePublisherCanDerivePublicKeyFromPreviousPackage(t *testing.T) {
 	script := readScript(t, "publish_github_release.sh")
 
@@ -616,7 +763,7 @@ func TestGitHubReleasePublisherCanDerivePublicKeyFromPreviousPackage(t *testing.
 	} {
 		assertScriptContains(t, script, want)
 	}
-	assertScriptOrder(t, script, "resolve_update_public_key", "require_previous_update_public_key")
+	assertScriptOrder(t, script, "read_previous_update_public_key", "resolve_update_public_key")
 	assertScriptOrderAfter(t, script, "if [[ \"$verify_existing\" != \"1\" ]]", "resolve_update_public_key", "go run ./cmd/super-dolphin-release-manifest -check-key")
 	assertScriptOrderAfter(t, script, "if [[ \"$verify_existing\" != \"1\" ]]", "go run ./cmd/super-dolphin-release-manifest -check-key", "validate_release_assets")
 	assertScriptOrderAfter(t, script, "else\n  resolve_update_public_key", "resolve_update_public_key", "validate_release_assets")
@@ -633,7 +780,7 @@ func TestReleaseManifestCommandCanVerifyKeyAndManifest(t *testing.T) {
 		"currentVersion",
 		"verifySigningKeyMatchesPublicKey",
 		"verifyExistingManifest",
-		"appupdate.VerifiedPackageTrustPublicKey",
+		"appupdate.VerifiedPackageTrustIdentity",
 		"appupdate.VerifySignedManifest",
 	} {
 		assertScriptContains(t, source, want)

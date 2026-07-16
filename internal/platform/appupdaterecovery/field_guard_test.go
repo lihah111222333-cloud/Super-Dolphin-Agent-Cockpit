@@ -118,7 +118,7 @@ func fieldGuardJournal(t *testing.T) journalPayload {
 			PackageSigner:      "signer-candidate",
 			State:              TrustPending,
 		},
-	}, time.Unix(1, 0))
+	}, 1, time.Unix(1, 0))
 }
 
 func fieldNameForType(t *testing.T, owner reflect.Type, wanted reflect.Type) string {

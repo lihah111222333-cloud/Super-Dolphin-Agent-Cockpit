@@ -64,14 +64,23 @@ func VerifyPackageTrustBundle(resources, platform string) error {
 
 // VerifiedPackageTrustPublicKey 返回严格验证后的 production package-owned manifest key。
 func VerifiedPackageTrustPublicKey(resources, platform string) (string, error) {
-	trust, err := verifiedPackageTrustBundle(resources, platform)
+	trust, err := VerifiedPackageTrustIdentity(resources, platform)
 	if err != nil {
 		return "", err
 	}
-	if !trust.Enabled || !trust.Production || trust.SignerPolicy != recovery.PackageSignerPolicyExact {
-		return "", fmt.Errorf("previous package trust must be enabled production trust with exact signer policy")
-	}
 	return trust.ManifestPublicKey, nil
+}
+
+// VerifiedPackageTrustIdentity 返回完成签名与来源校验的生产 package trust 身份。
+func VerifiedPackageTrustIdentity(resources, platform string) (recovery.PackageTrust, error) {
+	trust, err := verifiedPackageTrustBundle(resources, platform)
+	if err != nil {
+		return recovery.PackageTrust{}, err
+	}
+	if !trust.Enabled || !trust.Production || trust.SignerPolicy != recovery.PackageSignerPolicyExact {
+		return recovery.PackageTrust{}, fmt.Errorf("previous package trust must be enabled production trust with exact signer policy")
+	}
+	return trust, nil
 }
 
 // verifiedPackageTrustBundle 同时校验 trust schema 与 package 内两个 exact helper 摘要。
@@ -80,11 +89,19 @@ func verifiedPackageTrustBundle(resources, platform string) (recovery.PackageTru
 	if err != nil {
 		return recovery.PackageTrust{}, err
 	}
-	updaterDigest, err := recovery.ComputeReleaseDigest(filepath.Join(resources, "bin", updaterHelperName))
+	updaterPath := filepath.Join(resources, "bin", updaterHelperName)
+	if err := recovery.RequireCanonicalExistingPath(updaterPath); err != nil {
+		return recovery.PackageTrust{}, err
+	}
+	updaterDigest, err := recovery.ComputeReleaseDigest(updaterPath)
 	if err != nil {
 		return recovery.PackageTrust{}, err
 	}
-	guardDigest, err := recovery.ComputeReleaseDigest(filepath.Join(resources, "bin", "super-dolphin-guard"))
+	guardPath := filepath.Join(resources, "bin", "super-dolphin-guard")
+	if err := recovery.RequireCanonicalExistingPath(guardPath); err != nil {
+		return recovery.PackageTrust{}, err
+	}
+	guardDigest, err := recovery.ComputeReleaseDigest(guardPath)
 	if err != nil {
 		return recovery.PackageTrust{}, err
 	}

@@ -97,10 +97,36 @@ type TrustGeneration struct {
 
 // ProcessIdentity 绑定候选进程的 PID、内核启动令牌、可执行身份和文件摘要。
 type ProcessIdentity struct {
+	PID                 int    `json:"pid"`
+	StartToken          string `json:"start_token"`
+	ExecutableIdentity  string `json:"executable_identity"`
+	ExecutableSHA256    string `json:"executable_sha256"`
+	TerminationEndpoint string `json:"termination_endpoint"`
+	TerminationToken    string `json:"termination_token"`
+}
+
+// RollbackRestartProcess 绑定 rollback 后由 launch token 重发现的旧版本进程。
+type RollbackRestartProcess struct {
 	PID                int    `json:"pid"`
 	StartToken         string `json:"start_token"`
 	ExecutableIdentity string `json:"executable_identity"`
 	ExecutableSHA256   string `json:"executable_sha256"`
+}
+
+// RollbackRestartACK 证明 exact launch token 已对应到已验证的旧版本进程。
+type RollbackRestartACK struct {
+	LaunchToken    string                 `json:"launch_token"`
+	Process        RollbackRestartProcess `json:"process"`
+	AcknowledgedAt string                 `json:"acknowledged_at"`
+}
+
+// RollbackRestartRecord 在文件恢复前持久化重启意图，并在重发现或启动后记录 ACK。
+type RollbackRestartRecord struct {
+	IntentPresent bool               `json:"intent_present"`
+	LaunchToken   string             `json:"launch_token"`
+	IntentAt      string             `json:"intent_at"`
+	ACKPresent    bool               `json:"ack_present"`
+	ACK           RollbackRestartACK `json:"ack"`
 }
 
 // GuardReadyReceipt 证明 exact Guard 已加载事务并完成进程、路径与摘要绑定。
@@ -147,14 +173,16 @@ type CreateRequest struct {
 
 // Transaction 是 journal 验证后暴露的事务快照。
 type Transaction struct {
-	Identity  Identity        `json:"identity"`
-	Paths     Paths           `json:"paths"`
-	State     State           `json:"state"`
-	Trust     TrustGeneration `json:"trust"`
-	Probation ProbationRecord `json:"probation"`
-	Revision  uint64          `json:"revision"`
-	CreatedAt string          `json:"created_at"`
-	UpdatedAt string          `json:"updated_at"`
+	Identity         Identity              `json:"identity"`
+	Paths            Paths                 `json:"paths"`
+	State            State                 `json:"state"`
+	Trust            TrustGeneration       `json:"trust"`
+	Probation        ProbationRecord       `json:"probation"`
+	RollbackRestart  RollbackRestartRecord `json:"rollback_restart"`
+	TargetGeneration uint64                `json:"target_generation"`
+	Revision         uint64                `json:"revision"`
+	CreatedAt        string                `json:"created_at"`
+	UpdatedAt        string                `json:"updated_at"`
 }
 
 // NewTransactionID 生成不可预测的 128-bit 事务标识。

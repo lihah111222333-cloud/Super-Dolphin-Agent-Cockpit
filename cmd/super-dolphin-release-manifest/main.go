@@ -41,6 +41,8 @@ type manifestFlags struct {
 	packageTrustGuard       string
 	verifyPackageTrust      string
 	printPackageTrustKey    string
+	expectedPackageSource   string
+	expectedPackageSigner   string
 }
 
 // main 是 release manifest CLI 入口。
@@ -89,11 +91,17 @@ func writePackageTrust(cfg manifestFlags) error {
 
 // printVerifiedPackageTrustKey 只输出严格验证后的 previous package manifest key。
 func printVerifiedPackageTrustKey(cfg manifestFlags) error {
-	publicKey, err := appupdate.VerifiedPackageTrustPublicKey(cfg.printPackageTrustKey, cfg.platform)
+	trust, err := appupdate.VerifiedPackageTrustIdentity(cfg.printPackageTrustKey, cfg.platform)
 	if err != nil {
 		return err
 	}
-	_, err = fmt.Fprintln(os.Stdout, publicKey)
+	if cfg.expectedPackageSource != "" && trust.Source.Value != cfg.expectedPackageSource {
+		return fmt.Errorf("previous package trust source = %q, want %q", trust.Source.Value, cfg.expectedPackageSource)
+	}
+	if cfg.expectedPackageSigner != "" && trust.SignerIdentity != cfg.expectedPackageSigner {
+		return fmt.Errorf("previous package trust signer = %q, want %q", trust.SignerIdentity, cfg.expectedPackageSigner)
+	}
+	_, err = fmt.Fprintln(os.Stdout, trust.ManifestPublicKey)
 	return err
 }
 
@@ -155,6 +163,8 @@ func parseFlags(args []string) (manifestFlags, error) {
 	flags.StringVar(&cfg.packageTrustGuard, "package-trust-guard", "", "packaged Guard path")
 	flags.StringVar(&cfg.verifyPackageTrust, "verify-package-trust", "", "verify package trust under Resources")
 	flags.StringVar(&cfg.printPackageTrustKey, "print-package-trust-public-key", "", "verify production package trust and print its manifest public key")
+	flags.StringVar(&cfg.expectedPackageSource, "expected-package-source", "", "require exact package trust source")
+	flags.StringVar(&cfg.expectedPackageSigner, "expected-package-signer", "", "require exact package trust signer")
 	if err := flags.Parse(args); err != nil {
 		return manifestFlags{}, err
 	}

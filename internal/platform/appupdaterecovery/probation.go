@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"time"
@@ -192,6 +193,7 @@ func validateLeaseTTL(ttl time.Duration) error {
 	return nil
 }
 
+// validateProcessIdentity 校验 candidate 的稳定进程身份与完整协作终止契约。
 func validateProcessIdentity(process ProcessIdentity) error {
 	if process.PID <= 0 {
 		return errors.New("candidate process PID must be positive")
@@ -201,6 +203,20 @@ func validateProcessIdentity(process ProcessIdentity) error {
 	}
 	if strings.TrimSpace(process.ExecutableIdentity) == "" {
 		return errors.New("candidate process executable identity is required")
+	}
+	hasEndpoint := strings.TrimSpace(process.TerminationEndpoint) != ""
+	hasToken := strings.TrimSpace(process.TerminationToken) != ""
+	if hasEndpoint != hasToken {
+		return errors.New("candidate cooperative termination contract is partial")
+	}
+	if hasEndpoint {
+		if !filepath.IsAbs(process.TerminationEndpoint) ||
+			filepath.Clean(process.TerminationEndpoint) != process.TerminationEndpoint {
+			return errors.New("candidate process termination endpoint must be absolute and clean")
+		}
+		if !validLowerHex(process.TerminationToken, 64) {
+			return errors.New("candidate process termination token must be 64 lowercase hex characters")
+		}
 	}
 	if err := validateReleaseIdentity("candidate executable", ReleaseIdentity{
 		SHA256: process.ExecutableSHA256, SignerIdentity: "process",

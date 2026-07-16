@@ -383,9 +383,15 @@ func TestSupervisedReplacementRetainsTransactionBackup(t *testing.T) {
 		t.Skip("Windows filesystems do not preserve macOS launcher execute bits in this fixture")
 	}
 	stubSuccessfulDitto(t)
-	mountPoint := t.TempDir()
+	mountPoint, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
 	createAppBundle(t, filepath.Join(mountPoint, "Super Dolphin.app"))
-	parent := t.TempDir()
+	parent, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
 	target := createAppBundle(t, filepath.Join(parent, "Super Dolphin.app"))
 	oldMarker := filepath.Join(target, "Contents", "Resources", "old-release.txt")
 	if err := os.WriteFile(oldMarker, []byte("old"), 0o644); err != nil {

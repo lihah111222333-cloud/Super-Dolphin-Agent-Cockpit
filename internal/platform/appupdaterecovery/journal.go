@@ -14,7 +14,7 @@ import (
 	"time"
 )
 
-const journalSchemaVersion = 1
+const journalSchemaVersion = 2
 
 type journalEntry struct {
 	Sequence uint64  `json:"sequence"`
@@ -24,14 +24,16 @@ type journalEntry struct {
 }
 
 type journalPayload struct {
-	SchemaVersion int             `json:"schema_version"`
-	Identity      Identity        `json:"identity"`
-	Paths         Paths           `json:"paths"`
-	Trust         TrustGeneration `json:"trust"`
-	Probation     ProbationRecord `json:"probation"`
-	Entries       []journalEntry  `json:"entries"`
-	CreatedAt     string          `json:"created_at"`
-	UpdatedAt     string          `json:"updated_at"`
+	SchemaVersion    int                   `json:"schema_version"`
+	Identity         Identity              `json:"identity"`
+	Paths            Paths                 `json:"paths"`
+	Trust            TrustGeneration       `json:"trust"`
+	Probation        ProbationRecord       `json:"probation"`
+	RollbackRestart  RollbackRestartRecord `json:"rollback_restart"`
+	TargetGeneration uint64                `json:"target_generation"`
+	Entries          []journalEntry        `json:"entries"`
+	CreatedAt        string                `json:"created_at"`
+	UpdatedAt        string                `json:"updated_at"`
 }
 
 type journalEnvelope struct {
@@ -39,13 +41,14 @@ type journalEnvelope struct {
 	Checksum string `json:"checksum"`
 }
 
-func newJournal(req CreateRequest, now time.Time) journalPayload {
+func newJournal(req CreateRequest, targetGeneration uint64, now time.Time) journalPayload {
 	timestamp := now.UTC().Format(time.RFC3339Nano)
 	return journalPayload{
-		SchemaVersion: journalSchemaVersion,
-		Identity:      req.Identity,
-		Paths:         req.Paths,
-		Trust:         req.Trust,
+		SchemaVersion:    journalSchemaVersion,
+		Identity:         req.Identity,
+		Paths:            req.Paths,
+		Trust:            req.Trust,
+		TargetGeneration: targetGeneration,
 		Entries: []journalEntry{{
 			Sequence: 1,
 			State:    StatePrepared,
@@ -59,14 +62,16 @@ func newJournal(req CreateRequest, now time.Time) journalPayload {
 func (journal journalPayload) transaction() Transaction {
 	last := journal.Entries[len(journal.Entries)-1]
 	return Transaction{
-		Identity:  journal.Identity,
-		Paths:     journal.Paths,
-		State:     last.State,
-		Trust:     journal.Trust,
-		Probation: journal.Probation,
-		Revision:  last.Sequence,
-		CreatedAt: journal.CreatedAt,
-		UpdatedAt: journal.UpdatedAt,
+		Identity:         journal.Identity,
+		Paths:            journal.Paths,
+		State:            last.State,
+		Trust:            journal.Trust,
+		Probation:        journal.Probation,
+		RollbackRestart:  journal.RollbackRestart,
+		TargetGeneration: journal.TargetGeneration,
+		Revision:         last.Sequence,
+		CreatedAt:        journal.CreatedAt,
+		UpdatedAt:        journal.UpdatedAt,
 	}
 }
 
@@ -143,11 +148,17 @@ func validateJournal(journal journalPayload) error {
 	if err := validateEntryHistory(journal.Entries); err != nil {
 		return err
 	}
+	if journal.TargetGeneration == 0 {
+		return errors.New("update transaction target generation must be positive")
+	}
 	last := journal.Entries[len(journal.Entries)-1]
 	if journal.Trust.State != trustStateFor(last.State) {
 		return fmt.Errorf("trust state = %q, want %q for transaction state %q", journal.Trust.State, trustStateFor(last.State), last.State)
 	}
 	if err := validateProbationRecord(journal); err != nil {
+		return err
+	}
+	if err := validateRollbackRestartRecord(journal.transaction()); err != nil {
 		return err
 	}
 	if journal.CreatedAt != journal.Entries[0].At || journal.UpdatedAt != last.At {

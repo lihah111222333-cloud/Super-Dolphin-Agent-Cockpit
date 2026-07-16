@@ -8,10 +8,12 @@ import (
 )
 
 const (
-	updateTransactionRootEnv = "SUPER_DOLPHIN_UPDATE_TRANSACTION_ROOT"
-	updateTransactionIDEnv   = "SUPER_DOLPHIN_UPDATE_TRANSACTION_ID"
-	updateExecutableIDEnv    = "SUPER_DOLPHIN_UPDATE_EXECUTABLE_IDENTITY"
-	updateExecutableSHAEnv   = "SUPER_DOLPHIN_UPDATE_EXECUTABLE_SHA256"
+	updateTransactionRootEnv     = "SUPER_DOLPHIN_UPDATE_TRANSACTION_ROOT"
+	updateTransactionIDEnv       = "SUPER_DOLPHIN_UPDATE_TRANSACTION_ID"
+	updateExecutableIDEnv        = "SUPER_DOLPHIN_UPDATE_EXECUTABLE_IDENTITY"
+	updateExecutableSHAEnv       = "SUPER_DOLPHIN_UPDATE_EXECUTABLE_SHA256"
+	updateTerminationEndpointEnv = "SUPER_DOLPHIN_UPDATE_TERMINATION_ENDPOINT"
+	updateTerminationTokenEnv    = "SUPER_DOLPHIN_UPDATE_TERMINATION_TOKEN"
 )
 
 var detachedEnvironmentAllowlist = map[string]struct{}{
@@ -20,11 +22,13 @@ var detachedEnvironmentAllowlist = map[string]struct{}{
 
 // RecoveryLaunch 是 early selector 可读取的 frozen probation 启动契约。
 type RecoveryLaunch struct {
-	TransactionRoot    string
-	TransactionID      string
-	ExecutableIdentity string
-	ExecutableSHA256   string
-	ContractPresent    bool
+	TransactionRoot     string
+	TransactionID       string
+	ExecutableIdentity  string
+	ExecutableSHA256    string
+	TerminationEndpoint string
+	TerminationToken    string
+	ContractPresent     bool
 }
 
 // ResolveRecoveryLaunch 在任何 normal runtime 解析前读取 frozen probation contract。
@@ -49,10 +53,12 @@ func AppendRecoveryLaunchEnvironment(base []string, launch RecoveryLaunch) ([]st
 		return nil, errors.New("probation launch contract must be present")
 	}
 	if _, err := parseRecoveryContract(map[string]string{
-		updateTransactionRootEnv: launch.TransactionRoot,
-		updateTransactionIDEnv:   launch.TransactionID,
-		updateExecutableIDEnv:    launch.ExecutableIdentity,
-		updateExecutableSHAEnv:   launch.ExecutableSHA256,
+		updateTransactionRootEnv:     launch.TransactionRoot,
+		updateTransactionIDEnv:       launch.TransactionID,
+		updateExecutableIDEnv:        launch.ExecutableIdentity,
+		updateExecutableSHAEnv:       launch.ExecutableSHA256,
+		updateTerminationEndpointEnv: launch.TerminationEndpoint,
+		updateTerminationTokenEnv:    launch.TerminationToken,
 	}); err != nil {
 		return nil, err
 	}
@@ -62,7 +68,8 @@ func AppendRecoveryLaunchEnvironment(base []string, launch RecoveryLaunch) ([]st
 			return nil, fmt.Errorf("invalid environment entry %q", entry)
 		}
 		switch name {
-		case updateTransactionRootEnv, updateTransactionIDEnv, updateExecutableIDEnv, updateExecutableSHAEnv:
+		case updateTransactionRootEnv, updateTransactionIDEnv, updateExecutableIDEnv, updateExecutableSHAEnv,
+			updateTerminationEndpointEnv, updateTerminationTokenEnv:
 			return nil, fmt.Errorf("duplicate probation launch field %s", name)
 		}
 	}
@@ -71,28 +78,61 @@ func AppendRecoveryLaunchEnvironment(base []string, launch RecoveryLaunch) ([]st
 		updateTransactionIDEnv+"="+launch.TransactionID,
 		updateExecutableIDEnv+"="+launch.ExecutableIdentity,
 		updateExecutableSHAEnv+"="+launch.ExecutableSHA256,
+		updateTerminationEndpointEnv+"="+launch.TerminationEndpoint,
+		updateTerminationTokenEnv+"="+launch.TerminationToken,
 	), nil
 }
 
 func parseRecoveryContract(env map[string]string) (RecoveryLaunch, error) {
 	launch := RecoveryLaunch{
-		TransactionRoot:    strings.TrimSpace(env[updateTransactionRootEnv]),
-		TransactionID:      strings.TrimSpace(env[updateTransactionIDEnv]),
-		ExecutableIdentity: strings.TrimSpace(env[updateExecutableIDEnv]),
-		ExecutableSHA256:   strings.TrimSpace(env[updateExecutableSHAEnv]),
+		TransactionRoot:     strings.TrimSpace(env[updateTransactionRootEnv]),
+		TransactionID:       strings.TrimSpace(env[updateTransactionIDEnv]),
+		ExecutableIdentity:  strings.TrimSpace(env[updateExecutableIDEnv]),
+		ExecutableSHA256:    strings.TrimSpace(env[updateExecutableSHAEnv]),
+		TerminationEndpoint: strings.TrimSpace(env[updateTerminationEndpointEnv]),
+		TerminationToken:    strings.TrimSpace(env[updateTerminationTokenEnv]),
 	}
-	values := []string{launch.TransactionRoot, launch.TransactionID, launch.ExecutableIdentity, launch.ExecutableSHA256}
-	present := 0
-	for _, value := range values {
-		if value != "" {
-			present++
-		}
+	values := []string{
+		launch.TransactionRoot, launch.TransactionID, launch.ExecutableIdentity,
+		launch.ExecutableSHA256, launch.TerminationEndpoint, launch.TerminationToken,
 	}
+	present := nonEmptyCount(values)
 	launch.ContractPresent = present > 0
 	if present > 0 && present != len(values) {
 		return RecoveryLaunch{}, errors.New("probation launch contract is partial")
 	}
+	if launch.ContractPresent {
+		if err := validateTerminationContract(launch); err != nil {
+			return RecoveryLaunch{}, err
+		}
+	}
 	return launch, nil
+}
+
+func nonEmptyCount(values []string) int {
+	count := 0
+	for _, value := range values {
+		if value != "" {
+			count++
+		}
+	}
+	return count
+}
+
+// validateTerminationContract 校验协作终止 endpoint 与随机 token 的完整格式。
+func validateTerminationContract(launch RecoveryLaunch) error {
+	if !filepath.IsAbs(launch.TerminationEndpoint) || filepath.Clean(launch.TerminationEndpoint) != launch.TerminationEndpoint {
+		return errors.New("probation termination endpoint must be absolute and clean")
+	}
+	if len(launch.TerminationToken) != 64 {
+		return errors.New("probation termination token must be 64 lowercase hex characters")
+	}
+	for _, value := range launch.TerminationToken {
+		if value < '0' || value > '9' && value < 'a' || value > 'f' {
+			return errors.New("probation termination token must be 64 lowercase hex characters")
+		}
+	}
+	return nil
 }
 
 func validateTransactionRoot(root string) error {

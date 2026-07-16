@@ -126,7 +126,7 @@ type recoveryGuardCrashFixture struct {
 
 func newRecoveryGuardCrashFixture(t *testing.T) *recoveryGuardCrashFixture {
 	t.Helper()
-	root := t.TempDir()
+	root := canonicalTestTempDir(t)
 	source := filepath.Join(root, "artifact_main.go")
 	if err := os.WriteFile(source, []byte(artifactProgramSource), 0o600); err != nil {
 		t.Fatal(err)
@@ -308,7 +308,7 @@ type artifactE2EFixture struct {
 
 func newArtifactE2EFixture(t *testing.T) artifactE2EFixture {
 	t.Helper()
-	root := t.TempDir()
+	root := canonicalTestTempDir(t)
 	source := filepath.Join(root, "artifact_main.go")
 	if err := os.WriteFile(source, []byte(artifactProgramSource), 0o600); err != nil {
 		t.Fatal(err)

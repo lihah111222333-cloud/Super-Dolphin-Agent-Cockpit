@@ -4,9 +4,11 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -107,9 +109,20 @@ func fixtureRelease(t *testing.T, path string, signer string) recovery.ReleaseId
 	return recovery.ReleaseIdentity{SHA256: digest, SignerIdentity: signer}
 }
 
-func (fixture *guardFixture) restart(context.Context, string) error {
+func (fixture *guardFixture) resolve(string) (recovery.RollbackRestartProcess, bool, error) {
+	return recovery.RollbackRestartProcess{}, false, nil
+}
+
+func (fixture *guardFixture) restart(string) (recovery.RollbackRestartProcess, error) {
 	fixture.restarts++
-	return nil
+	return fixtureRestartProcess(), nil
+}
+
+func fixtureRestartProcess() recovery.RollbackRestartProcess {
+	return recovery.RollbackRestartProcess{
+		PID: 202, StartToken: "old-release-start", ExecutableIdentity: "/test/old-release",
+		ExecutableSHA256: fixtureDigest("old executable"),
+	}
 }
 
 func TestGuardTakesOverStaleProbationOnce(t *testing.T) {
@@ -119,6 +132,7 @@ func TestGuardTakesOverStaleProbationOnce(t *testing.T) {
 		OwnerID: "guard-1", Now: func() time.Time { return fixture.expiredAt },
 		UpdaterAlive:      func(recovery.ProcessIdentity) (bool, error) { return true, nil },
 		StopCandidate:     func(context.Context, recovery.ProcessIdentity) error { return nil },
+		ResolveOldRelease: fixture.resolve,
 		RestartOldRelease: fixture.restart,
 	})
 	if err := first.Run(context.Background()); err != nil {
@@ -129,6 +143,7 @@ func TestGuardTakesOverStaleProbationOnce(t *testing.T) {
 		OwnerID: "guard-2", Now: func() time.Time { return fixture.expiredAt.Add(time.Minute) },
 		UpdaterAlive:      func(recovery.ProcessIdentity) (bool, error) { return true, nil },
 		StopCandidate:     func(context.Context, recovery.ProcessIdentity) error { return nil },
+		ResolveOldRelease: fixture.resolve,
 		RestartOldRelease: fixture.restart,
 	})
 	if err := second.Run(context.Background()); err != nil {
@@ -146,6 +161,99 @@ func TestGuardTakesOverStaleProbationOnce(t *testing.T) {
 	}
 }
 
+func TestGuardReplaysCommitPendingToCommitted(t *testing.T) {
+	fixture := newGuardFixture(t)
+	transaction, err := fixture.store.Load(context.Background(), fixture.transaction.Identity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ack := recovery.BuildHealthyACK(transaction, transaction.Probation.Lease.Process, time.Now())
+	if _, err := fixture.store.RecordHealthyACK(context.Background(), transaction.Identity, transaction.Probation.Lease, ack); err != nil {
+		t.Fatal(err)
+	}
+	forceGuardPendingState(t, transaction, recovery.TriggerHealthy, recovery.StateCommitPending, false)
+	guard := newPendingReplayGuard(fixture, func(string) (recovery.RollbackRestartProcess, error) {
+		t.Fatal("committed replay attempted old release restart")
+		return recovery.RollbackRestartProcess{}, nil
+	})
+	if err := guard.Run(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	assertGuardTransactionState(t, fixture, recovery.StateCommitted)
+}
+
+func TestGuardReplaysRollbackPendingAndConvergesRestart(t *testing.T) {
+	fixture := newGuardFixture(t)
+	forceGuardPendingState(t, fixture.transaction, recovery.TriggerRollbackRequested, recovery.StateRollbackPending, true)
+	guard := newPendingReplayGuard(fixture, fixture.restart)
+	if err := guard.Run(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if fixture.restarts != 1 {
+		t.Fatalf("restart count = %d, want 1", fixture.restarts)
+	}
+	assertGuardTransactionState(t, fixture, recovery.StateRolledBack)
+}
+
+func newPendingReplayGuard(fixture *guardFixture, restart recovery.RollbackRestartLauncher) *probationGuard {
+	return newGuard(guardConfig{
+		Store: fixture.store, Identity: fixture.transaction.Identity, OwnerID: "pending-replay", Now: time.Now,
+		UpdaterAlive:      func(recovery.ProcessIdentity) (bool, error) { return false, nil },
+		StopCandidate:     func(context.Context, recovery.ProcessIdentity) error { return nil },
+		ResolveOldRelease: fixture.resolve, RestartOldRelease: restart,
+	})
+}
+
+func forceGuardPendingState(t *testing.T, transaction recovery.Transaction, trigger recovery.Trigger, state recovery.State, restartIntent bool) {
+	t.Helper()
+	journalPath := filepath.Join(
+		recovery.TransactionRootForTarget(transaction.Paths.Target),
+		string(transaction.Identity.TransactionID),
+		"journal.json",
+	)
+	raw, err := os.ReadFile(journalPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var envelope struct {
+		Payload  []byte `json:"payload"`
+		Checksum string `json:"checksum"`
+	}
+	if err := json.Unmarshal(raw, &envelope); err != nil {
+		t.Fatal(err)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(envelope.Payload, &payload); err != nil {
+		t.Fatal(err)
+	}
+	entries := payload["entries"].([]any)
+	sequence := uint64(entries[len(entries)-1].(map[string]any)["sequence"].(float64)) + 1
+	timestamp := time.Now().UTC().Format(time.RFC3339Nano)
+	payload["entries"] = append(entries, map[string]any{
+		"sequence": sequence, "trigger": trigger, "state": state, "at": timestamp,
+	})
+	payload["updated_at"] = timestamp
+	if restartIntent {
+		record := payload["rollback_restart"].(map[string]any)
+		record["intent_present"] = true
+		record["launch_token"] = strings.Repeat("a", 64)
+		record["intent_at"] = timestamp
+	}
+	envelope.Payload, err = json.Marshal(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sum := sha256.Sum256(envelope.Payload)
+	envelope.Checksum = hex.EncodeToString(sum[:])
+	raw, err = json.MarshalIndent(envelope, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(journalPath, append(raw, '\n'), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestGuardStopsAliveExactCandidateBeforeRollback(t *testing.T) {
 	fixture := newGuardFixture(t)
 	stopCalls := 0
@@ -160,6 +268,7 @@ func TestGuardStopsAliveExactCandidateBeforeRollback(t *testing.T) {
 			}
 			return nil
 		},
+		ResolveOldRelease: fixture.resolve,
 		RestartOldRelease: fixture.restart,
 	})
 	if err := guard.Run(context.Background()); err != nil {
@@ -212,7 +321,12 @@ func TestGuardTreatsReusedUpdaterPIDAsDeadAndRollsBack(t *testing.T) {
 			stopCalls++
 			return nil
 		},
-		RestartOldRelease: func(context.Context, string) error { return nil },
+		ResolveOldRelease: func(string) (recovery.RollbackRestartProcess, bool, error) {
+			return recovery.RollbackRestartProcess{}, false, nil
+		},
+		RestartOldRelease: func(string) (recovery.RollbackRestartProcess, error) {
+			return fixtureRestartProcess(), nil
+		},
 	})
 	if err := guard.Run(context.Background()); err != nil {
 		t.Fatal(err)
@@ -239,9 +353,10 @@ func TestGuardPIDReuseIdentityMismatchLeavesRecoveryActive(t *testing.T) {
 		StopCandidate: func(context.Context, recovery.ProcessIdentity) error {
 			return ErrCandidateProcessIdentityMismatch
 		},
-		RestartOldRelease: func(context.Context, string) error {
+		ResolveOldRelease: fixture.resolve,
+		RestartOldRelease: func(string) (recovery.RollbackRestartProcess, error) {
 			restarts++
-			return nil
+			return fixtureRestartProcess(), nil
 		},
 	})
 	if err := guard.Run(context.Background()); !errors.Is(err, ErrCandidateProcessIdentityMismatch) {
@@ -264,9 +379,10 @@ func TestGuardTerminationFailureHasNoRollbackOrRestart(t *testing.T) {
 		StopCandidate: func(context.Context, recovery.ProcessIdentity) error {
 			return terminationErr
 		},
-		RestartOldRelease: func(context.Context, string) error {
+		ResolveOldRelease: fixture.resolve,
+		RestartOldRelease: func(string) (recovery.RollbackRestartProcess, error) {
 			restarts++
-			return nil
+			return fixtureRestartProcess(), nil
 		},
 	})
 	if err := guard.Run(context.Background()); !errors.Is(err, terminationErr) {

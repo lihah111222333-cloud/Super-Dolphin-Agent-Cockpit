@@ -67,7 +67,7 @@ func TestProvideConfigRejectsForgedRuntimeResources(t *testing.T) {
 
 func productionPackageConfigFixture(t *testing.T) (*platformconfig.Config, string, string, string, string) {
 	t.Helper()
-	target := filepath.Join(t.TempDir(), "Super Dolphin.app")
+	target := filepath.Join(canonicalTempDir(t), "Super Dolphin.app")
 	resources := filepath.Join(target, "Contents", "Resources")
 	executable := filepath.Join(target, "Contents", "MacOS", "agent-terminal")
 	bin := filepath.Join(resources, "bin")
@@ -138,7 +138,7 @@ func clearUpdateOverrideEnvironment(t *testing.T) {
 }
 
 func TestVerifiedPackageTrustPublicKeyRequiresProductionExactTrustAndHelpers(t *testing.T) {
-	resources := t.TempDir()
+	resources := canonicalTempDir(t)
 	binDir := filepath.Join(resources, "bin")
 	if err := os.MkdirAll(binDir, 0o700); err != nil {
 		t.Fatal(err)
@@ -178,7 +178,7 @@ func TestVerifiedPackageTrustPublicKeyRequiresProductionExactTrustAndHelpers(t *
 }
 
 func TestVerifiedPackageTrustPublicKeyRejectsDisabledTrust(t *testing.T) {
-	resources := t.TempDir()
+	resources := canonicalTempDir(t)
 	binDir := filepath.Join(resources, "bin")
 	if err := os.MkdirAll(binDir, 0o700); err != nil {
 		t.Fatal(err)
@@ -199,4 +199,93 @@ func TestVerifiedPackageTrustPublicKeyRejectsDisabledTrust(t *testing.T) {
 	if _, err := VerifiedPackageTrustPublicKey(resources, "darwin-arm64"); err == nil || !strings.Contains(err.Error(), "enabled production trust") {
 		t.Fatalf("disabled trust error = %v", err)
 	}
+}
+
+func TestPackageLayoutRejectsExecutableAlias(t *testing.T) {
+	root := canonicalTempDir(t)
+	target := filepath.Join(root, "Super Dolphin.app")
+	macOSDir := filepath.Join(target, "Contents", "MacOS")
+	if err := os.MkdirAll(filepath.Join(target, "Contents", "Resources"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(macOSDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	realExecutable := filepath.Join(root, "real-agent-terminal")
+	if err := os.WriteFile(realExecutable, []byte("real"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	executable := filepath.Join(macOSDir, "agent-terminal")
+	if err := os.Symlink(realExecutable, executable); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := packageLayoutFromExecutable(executable); err == nil || !strings.Contains(err.Error(), "canonical") {
+		t.Fatalf("packageLayoutFromExecutable(executable alias) error = %v", err)
+	}
+}
+
+func TestPackageLayoutRejectsResourcesAlias(t *testing.T) {
+	root := canonicalTempDir(t)
+	target := filepath.Join(root, "Super Dolphin.app")
+	macOSDir := filepath.Join(target, "Contents", "MacOS")
+	if err := os.MkdirAll(macOSDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	executable := filepath.Join(macOSDir, "agent-terminal")
+	if err := os.WriteFile(executable, []byte("real"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	realResources := filepath.Join(root, "attacker-resources")
+	if err := os.MkdirAll(realResources, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(realResources, filepath.Join(target, "Contents", "Resources")); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := packageLayoutFromExecutable(executable); err == nil || !strings.Contains(err.Error(), "alias") {
+		t.Fatalf("packageLayoutFromExecutable(Resources alias) error = %v", err)
+	}
+}
+
+func TestVerifiedPackageTrustRejectsHelperAlias(t *testing.T) {
+	resources := canonicalTempDir(t)
+	binDir := filepath.Join(resources, "bin")
+	if err := os.MkdirAll(binDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	updater := filepath.Join(binDir, updaterHelperName)
+	guard := filepath.Join(binDir, "super-dolphin-guard")
+	if err := os.WriteFile(updater, []byte("updater"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(guard, []byte("guard"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	publicKey := base64.StdEncoding.EncodeToString(make([]byte, 32))
+	if err := WritePackageTrust(PackageTrustWriteRequest{
+		OutputPath: filepath.Join(resources, recovery.PackageTrustFilename), Platform: "darwin-arm64", Enabled: true,
+		SourceKind: recovery.UpdateSourceGitHub, SourceValue: "owner/repo", ManifestKey: publicKey,
+		Channel: "gray", SignerIdentity: "TEAM-EXACT", UpdaterPath: updater, GuardPath: guard,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	realUpdater := filepath.Join(resources, "real-updater")
+	if err := os.Rename(updater, realUpdater); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(realUpdater, updater); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := VerifiedPackageTrustPublicKey(resources, "darwin-arm64"); err == nil || !strings.Contains(err.Error(), "alias") {
+		t.Fatalf("VerifiedPackageTrustPublicKey(helper alias) error = %v", err)
+	}
+}
+
+func canonicalTempDir(t *testing.T) string {
+	t.Helper()
+	path, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return path
 }
