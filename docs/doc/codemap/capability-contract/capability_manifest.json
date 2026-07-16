@@ -136,6 +136,7 @@
         "cmd/mcp-orch/orchestration.*agentRegistry.lookupAgentByIDLocked",
         "cmd/mcp-orch/orchestration.*agentRegistry.lookupAgentByIdentityLocked",
         "cmd/mcp-orch/orchestration.*agentRegistry.lookupAgentBySeqLocked",
+        "cmd/mcp-orch/orchestration.*agentRegistry.ownerAgentIDForThreadID",
         "cmd/mcp-orch/orchestration.*agentRegistry.rLock",
         "cmd/mcp-orch/orchestration.*agentRegistry.rUnlock",
         "cmd/mcp-orch/orchestration.*agentRegistry.rekeyLaunchedAgentLocked",
@@ -365,6 +366,7 @@
         "cmd/mcp-orch/orchestration.*service.handleProcessExit",
         "cmd/mcp-orch/orchestration.*service.handleRemoteTurnCompleted",
         "cmd/mcp-orch/orchestration.*service.handleRemoteTurnInterrupted",
+        "cmd/mcp-orch/orchestration.*service.handleRemoteTurnTerminal",
         "cmd/mcp-orch/orchestration.*service.hasRuntimeAgent",
         "cmd/mcp-orch/orchestration.*service.hookSyncFireLocked",
         "cmd/mcp-orch/orchestration.*service.hookSyncForceStoppedLocked",
@@ -933,8 +935,7 @@
         "cmd/mcp-orch/orchestration.remoteAgentBusy",
         "cmd/mcp-orch/orchestration.remoteLauncher",
         "cmd/mcp-orch/orchestration.remoteLauncherEventSink",
-        "cmd/mcp-orch/orchestration.remoteLauncherEventSink.handleRemoteTurnCompleted",
-        "cmd/mcp-orch/orchestration.remoteLauncherEventSink.handleRemoteTurnInterrupted",
+        "cmd/mcp-orch/orchestration.remoteLauncherEventSink.handleRemoteTurnTerminal",
         "cmd/mcp-orch/orchestration.remoteLauncherHeartbeat",
         "cmd/mcp-orch/orchestration.remoteLauncherSessionToken",
         "cmd/mcp-orch/orchestration.remoteTurnSubmitAttempt",
@@ -3057,6 +3058,7 @@
         "internal/provider/claudecli.imageBlockFromPath",
         "internal/provider/claudecli.imageBlockFromURL",
         "internal/provider/claudecli.imageHashTracker",
+        "internal/provider/claudecli.interruptTerminalFields",
         "internal/provider/claudecli.interruptWorkAbsent",
         "internal/provider/claudecli.invalidClaudeResolvedCursorError",
         "internal/provider/claudecli.isClaudeSystemNoiseText",
@@ -3178,6 +3180,7 @@
         "internal/provider/claudecli.sumLogInts",
         "internal/provider/claudecli.systemPromptDumpEnabled",
         "internal/provider/claudecli.terminalReason",
+        "internal/provider/claudecli.terminalStatus",
         "internal/provider/claudecli.threadConfigPatchHasUnsupportedFields",
         "internal/provider/claudecli.threadConfigPatchNoop",
         "internal/provider/claudecli.threadReadyContextErr",
@@ -3386,6 +3389,7 @@
         "internal/provider/codexapp.*session.activeTurnSnapshot",
         "internal/provider/codexapp.*session.alienThreadEventThread",
         "internal/provider/codexapp.*session.appendTurnOutputDelta",
+        "internal/provider/codexapp.*session.applyAcceptedInterruptRequest",
         "internal/provider/codexapp.*session.applyConfigSet",
         "internal/provider/codexapp.*session.applyConfigSlashCommands",
         "internal/provider/codexapp.*session.applyReplayedTurn",
@@ -3398,6 +3402,8 @@
         "internal/provider/codexapp.*session.buildApprovalRequest",
         "internal/provider/codexapp.*session.callForceComplete",
         "internal/provider/codexapp.*session.callTransport",
+        "internal/provider/codexapp.*session.callTransportWithGuard",
+        "internal/provider/codexapp.*session.claimInterruptTarget",
         "internal/provider/codexapp.*session.clearProcessedApprovals",
         "internal/provider/codexapp.*session.codexToolSurfaceReleaseScope",
         "internal/provider/codexapp.*session.completeAssistantMessageCompleted",
@@ -3448,6 +3454,7 @@
         "internal/provider/codexapp.*session.publishToolCallEnd",
         "internal/provider/codexapp.*session.purgeCompletedProcessedApprovalsLocked",
         "internal/provider/codexapp.*session.readHistoryFallback",
+        "internal/provider/codexapp.*session.recordAcceptedInterruptRequest",
         "internal/provider/codexapp.*session.recordDirectToolFailure",
         "internal/provider/codexapp.*session.recordToolFailureFromRaw",
         "internal/provider/codexapp.*session.recordTranslatedToolFailure",
@@ -3471,6 +3478,7 @@
         "internal/provider/codexapp.*session.runtimeConfigString",
         "internal/provider/codexapp.*session.runtimeConfigStringSlice",
         "internal/provider/codexapp.*session.sendApprovalDecision",
+        "internal/provider/codexapp.*session.setActiveTurnLocked",
         "internal/provider/codexapp.*session.setApprovalPolicy",
         "internal/provider/codexapp.*session.setRuntimeConfig",
         "internal/provider/codexapp.*session.setRuntimeConfigValue",
@@ -3487,6 +3495,7 @@
         "internal/provider/codexapp.*session.toolEndSuppressionPayload",
         "internal/provider/codexapp.*session.trackCodexRolloutToolName",
         "internal/provider/codexapp.*session.updateRuntimeConfigFromPatch",
+        "internal/provider/codexapp.*session.validateInterruptClaim",
         "internal/provider/codexapp.*session.waitProcessedApproval",
         "internal/provider/codexapp.*transport.Call",
         "internal/provider/codexapp.*transport.CheckHealth",
@@ -3498,6 +3507,7 @@
         "internal/provider/codexapp.*transport.RespondWithID",
         "internal/provider/codexapp.*transport.Running",
         "internal/provider/codexapp.*transport.awaitInitialize",
+        "internal/provider/codexapp.*transport.callGuarded",
         "internal/provider/codexapp.*transport.captureInitializeCodexHome",
         "internal/provider/codexapp.*transport.clearProcess",
         "internal/provider/codexapp.*transport.closeSocket",
@@ -3539,6 +3549,7 @@
         "internal/provider/codexapp.*transport.waitForConnectRetry",
         "internal/provider/codexapp.*transport.watchLocalProcess",
         "internal/provider/codexapp.*transport.writeJSON",
+        "internal/provider/codexapp.*transport.writeJSONGuarded",
         "internal/provider/codexapp.*transportCallError.Error",
         "internal/provider/codexapp.*transportCallError.Unwrap",
         "internal/provider/codexapp.*transportServer.Alive",
@@ -3787,6 +3798,7 @@
         "internal/provider/codexapp.installCodexWrapper",
         "internal/provider/codexapp.installManagedCodexCLI",
         "internal/provider/codexapp.int64Value",
+        "internal/provider/codexapp.interruptTargetClaim",
         "internal/provider/codexapp.invokeReadHandler",
         "internal/provider/codexapp.isAppServerArgs",
         "internal/provider/codexapp.isApprovalBridgeMethod",
@@ -3973,6 +3985,7 @@
         "internal/provider/codexapp.resolveCodexLocalMCPBinaryDir",
         "internal/provider/codexapp.resolveCompletedTerminalOutcome",
         "internal/provider/codexapp.resolveDreamBinary",
+        "internal/provider/codexapp.resolveExplicitTerminationOutcome",
         "internal/provider/codexapp.resolveLocalTurnID",
         "internal/provider/codexapp.resolvePeerBinDirs",
         "internal/provider/codexapp.resolveRolloutRoot",
@@ -4363,11 +4376,13 @@
         "internal/provider/shared.ProviderMirrorTargets",
         "internal/provider/shared.ProviderStartupGateError",
         "internal/provider/shared.RawTerminalOutcome",
+        "internal/provider/shared.RawTermination",
         "internal/provider/shared.RecordTrace",
         "internal/provider/shared.ResetToolResultScope",
         "internal/provider/shared.ResolveBinaryDir",
         "internal/provider/shared.ResolveCodexIdentity",
         "internal/provider/shared.ResolveRawTerminalOutcome",
+        "internal/provider/shared.ResolveRawTermination",
         "internal/provider/shared.RuntimeHooks",
         "internal/provider/shared.RuntimeHooksReady",
         "internal/provider/shared.SafeToolArgumentsPreview",
@@ -4430,14 +4445,18 @@
         "internal/provider/shared.providerStartupGateBaseMessage",
         "internal/provider/shared.providerStartupGateDetails",
         "internal/provider/shared.rawTerminalContractError",
+        "internal/provider/shared.rawTerminationContractError",
         "internal/provider/shared.requiredConfigString",
+        "internal/provider/shared.resolveRawTerminalDependencies",
         "internal/provider/shared.resolveRawTerminalPair",
         "internal/provider/shared.sameProviderPath",
         "internal/provider/shared.sortedMCPConfigServerNames",
         "internal/provider/shared.splitEnv",
         "internal/provider/shared.stdioMCPBinaryFromServerObject",
+        "internal/provider/shared.terminalStringAlias",
         "internal/provider/shared.traceID",
         "internal/provider/shared.traceStackConfig",
+        "internal/provider/shared.validateRawTermination",
         "internal/provider/toolfilter.FullAccessDecision",
         "internal/provider/toolfilter.ReviewerDecision",
         "internal/provider/toolfilter.WorkerDecision",
@@ -4726,6 +4745,7 @@
         "cmd/mcp-orch/orchestration.*agentRegistry.lookupAgentByIDLocked",
         "cmd/mcp-orch/orchestration.*agentRegistry.lookupAgentByIdentityLocked",
         "cmd/mcp-orch/orchestration.*agentRegistry.lookupAgentBySeqLocked",
+        "cmd/mcp-orch/orchestration.*agentRegistry.ownerAgentIDForThreadID",
         "cmd/mcp-orch/orchestration.*agentRegistry.rLock",
         "cmd/mcp-orch/orchestration.*agentRegistry.rUnlock",
         "cmd/mcp-orch/orchestration.*agentRegistry.rekeyLaunchedAgentLocked",
@@ -4955,6 +4975,7 @@
         "cmd/mcp-orch/orchestration.*service.handleProcessExit",
         "cmd/mcp-orch/orchestration.*service.handleRemoteTurnCompleted",
         "cmd/mcp-orch/orchestration.*service.handleRemoteTurnInterrupted",
+        "cmd/mcp-orch/orchestration.*service.handleRemoteTurnTerminal",
         "cmd/mcp-orch/orchestration.*service.hasRuntimeAgent",
         "cmd/mcp-orch/orchestration.*service.hookSyncFireLocked",
         "cmd/mcp-orch/orchestration.*service.hookSyncForceStoppedLocked",
@@ -5523,8 +5544,7 @@
         "cmd/mcp-orch/orchestration.remoteAgentBusy",
         "cmd/mcp-orch/orchestration.remoteLauncher",
         "cmd/mcp-orch/orchestration.remoteLauncherEventSink",
-        "cmd/mcp-orch/orchestration.remoteLauncherEventSink.handleRemoteTurnCompleted",
-        "cmd/mcp-orch/orchestration.remoteLauncherEventSink.handleRemoteTurnInterrupted",
+        "cmd/mcp-orch/orchestration.remoteLauncherEventSink.handleRemoteTurnTerminal",
         "cmd/mcp-orch/orchestration.remoteLauncherHeartbeat",
         "cmd/mcp-orch/orchestration.remoteLauncherSessionToken",
         "cmd/mcp-orch/orchestration.remoteTurnSubmitAttempt",
@@ -7647,6 +7667,7 @@
         "internal/provider/claudecli.imageBlockFromPath",
         "internal/provider/claudecli.imageBlockFromURL",
         "internal/provider/claudecli.imageHashTracker",
+        "internal/provider/claudecli.interruptTerminalFields",
         "internal/provider/claudecli.interruptWorkAbsent",
         "internal/provider/claudecli.invalidClaudeResolvedCursorError",
         "internal/provider/claudecli.isClaudeSystemNoiseText",
@@ -7768,6 +7789,7 @@
         "internal/provider/claudecli.sumLogInts",
         "internal/provider/claudecli.systemPromptDumpEnabled",
         "internal/provider/claudecli.terminalReason",
+        "internal/provider/claudecli.terminalStatus",
         "internal/provider/claudecli.threadConfigPatchHasUnsupportedFields",
         "internal/provider/claudecli.threadConfigPatchNoop",
         "internal/provider/claudecli.threadReadyContextErr",
@@ -7976,6 +7998,7 @@
         "internal/provider/codexapp.*session.activeTurnSnapshot",
         "internal/provider/codexapp.*session.alienThreadEventThread",
         "internal/provider/codexapp.*session.appendTurnOutputDelta",
+        "internal/provider/codexapp.*session.applyAcceptedInterruptRequest",
         "internal/provider/codexapp.*session.applyConfigSet",
         "internal/provider/codexapp.*session.applyConfigSlashCommands",
         "internal/provider/codexapp.*session.applyReplayedTurn",
@@ -7988,6 +8011,8 @@
         "internal/provider/codexapp.*session.buildApprovalRequest",
         "internal/provider/codexapp.*session.callForceComplete",
         "internal/provider/codexapp.*session.callTransport",
+        "internal/provider/codexapp.*session.callTransportWithGuard",
+        "internal/provider/codexapp.*session.claimInterruptTarget",
         "internal/provider/codexapp.*session.clearProcessedApprovals",
         "internal/provider/codexapp.*session.codexToolSurfaceReleaseScope",
         "internal/provider/codexapp.*session.completeAssistantMessageCompleted",
@@ -8038,6 +8063,7 @@
         "internal/provider/codexapp.*session.publishToolCallEnd",
         "internal/provider/codexapp.*session.purgeCompletedProcessedApprovalsLocked",
         "internal/provider/codexapp.*session.readHistoryFallback",
+        "internal/provider/codexapp.*session.recordAcceptedInterruptRequest",
         "internal/provider/codexapp.*session.recordDirectToolFailure",
         "internal/provider/codexapp.*session.recordToolFailureFromRaw",
         "internal/provider/codexapp.*session.recordTranslatedToolFailure",
@@ -8061,6 +8087,7 @@
         "internal/provider/codexapp.*session.runtimeConfigString",
         "internal/provider/codexapp.*session.runtimeConfigStringSlice",
         "internal/provider/codexapp.*session.sendApprovalDecision",
+        "internal/provider/codexapp.*session.setActiveTurnLocked",
         "internal/provider/codexapp.*session.setApprovalPolicy",
         "internal/provider/codexapp.*session.setRuntimeConfig",
         "internal/provider/codexapp.*session.setRuntimeConfigValue",
@@ -8077,6 +8104,7 @@
         "internal/provider/codexapp.*session.toolEndSuppressionPayload",
         "internal/provider/codexapp.*session.trackCodexRolloutToolName",
         "internal/provider/codexapp.*session.updateRuntimeConfigFromPatch",
+        "internal/provider/codexapp.*session.validateInterruptClaim",
         "internal/provider/codexapp.*session.waitProcessedApproval",
         "internal/provider/codexapp.*transport.Call",
         "internal/provider/codexapp.*transport.CheckHealth",
@@ -8088,6 +8116,7 @@
         "internal/provider/codexapp.*transport.RespondWithID",
         "internal/provider/codexapp.*transport.Running",
         "internal/provider/codexapp.*transport.awaitInitialize",
+        "internal/provider/codexapp.*transport.callGuarded",
         "internal/provider/codexapp.*transport.captureInitializeCodexHome",
         "internal/provider/codexapp.*transport.clearProcess",
         "internal/provider/codexapp.*transport.closeSocket",
@@ -8129,6 +8158,7 @@
         "internal/provider/codexapp.*transport.waitForConnectRetry",
         "internal/provider/codexapp.*transport.watchLocalProcess",
         "internal/provider/codexapp.*transport.writeJSON",
+        "internal/provider/codexapp.*transport.writeJSONGuarded",
         "internal/provider/codexapp.*transportCallError.Error",
         "internal/provider/codexapp.*transportCallError.Unwrap",
         "internal/provider/codexapp.*transportServer.Alive",
@@ -8377,6 +8407,7 @@
         "internal/provider/codexapp.installCodexWrapper",
         "internal/provider/codexapp.installManagedCodexCLI",
         "internal/provider/codexapp.int64Value",
+        "internal/provider/codexapp.interruptTargetClaim",
         "internal/provider/codexapp.invokeReadHandler",
         "internal/provider/codexapp.isAppServerArgs",
         "internal/provider/codexapp.isApprovalBridgeMethod",
@@ -8563,6 +8594,7 @@
         "internal/provider/codexapp.resolveCodexLocalMCPBinaryDir",
         "internal/provider/codexapp.resolveCompletedTerminalOutcome",
         "internal/provider/codexapp.resolveDreamBinary",
+        "internal/provider/codexapp.resolveExplicitTerminationOutcome",
         "internal/provider/codexapp.resolveLocalTurnID",
         "internal/provider/codexapp.resolvePeerBinDirs",
         "internal/provider/codexapp.resolveRolloutRoot",
@@ -8953,11 +8985,13 @@
         "internal/provider/shared.ProviderMirrorTargets",
         "internal/provider/shared.ProviderStartupGateError",
         "internal/provider/shared.RawTerminalOutcome",
+        "internal/provider/shared.RawTermination",
         "internal/provider/shared.RecordTrace",
         "internal/provider/shared.ResetToolResultScope",
         "internal/provider/shared.ResolveBinaryDir",
         "internal/provider/shared.ResolveCodexIdentity",
         "internal/provider/shared.ResolveRawTerminalOutcome",
+        "internal/provider/shared.ResolveRawTermination",
         "internal/provider/shared.RuntimeHooks",
         "internal/provider/shared.RuntimeHooksReady",
         "internal/provider/shared.SafeToolArgumentsPreview",
@@ -9020,14 +9054,18 @@
         "internal/provider/shared.providerStartupGateBaseMessage",
         "internal/provider/shared.providerStartupGateDetails",
         "internal/provider/shared.rawTerminalContractError",
+        "internal/provider/shared.rawTerminationContractError",
         "internal/provider/shared.requiredConfigString",
+        "internal/provider/shared.resolveRawTerminalDependencies",
         "internal/provider/shared.resolveRawTerminalPair",
         "internal/provider/shared.sameProviderPath",
         "internal/provider/shared.sortedMCPConfigServerNames",
         "internal/provider/shared.splitEnv",
         "internal/provider/shared.stdioMCPBinaryFromServerObject",
+        "internal/provider/shared.terminalStringAlias",
         "internal/provider/shared.traceID",
         "internal/provider/shared.traceStackConfig",
+        "internal/provider/shared.validateRawTermination",
         "internal/provider/toolfilter.FullAccessDecision",
         "internal/provider/toolfilter.ReviewerDecision",
         "internal/provider/toolfilter.WorkerDecision",
@@ -9316,6 +9354,7 @@
         "cmd/mcp-orch/orchestration.*agentRegistry.lookupAgentByIDLocked",
         "cmd/mcp-orch/orchestration.*agentRegistry.lookupAgentByIdentityLocked",
         "cmd/mcp-orch/orchestration.*agentRegistry.lookupAgentBySeqLocked",
+        "cmd/mcp-orch/orchestration.*agentRegistry.ownerAgentIDForThreadID",
         "cmd/mcp-orch/orchestration.*agentRegistry.rLock",
         "cmd/mcp-orch/orchestration.*agentRegistry.rUnlock",
         "cmd/mcp-orch/orchestration.*agentRegistry.rekeyLaunchedAgentLocked",
@@ -9545,6 +9584,7 @@
         "cmd/mcp-orch/orchestration.*service.handleProcessExit",
         "cmd/mcp-orch/orchestration.*service.handleRemoteTurnCompleted",
         "cmd/mcp-orch/orchestration.*service.handleRemoteTurnInterrupted",
+        "cmd/mcp-orch/orchestration.*service.handleRemoteTurnTerminal",
         "cmd/mcp-orch/orchestration.*service.hasRuntimeAgent",
         "cmd/mcp-orch/orchestration.*service.hookSyncFireLocked",
         "cmd/mcp-orch/orchestration.*service.hookSyncForceStoppedLocked",
@@ -10113,8 +10153,7 @@
         "cmd/mcp-orch/orchestration.remoteAgentBusy",
         "cmd/mcp-orch/orchestration.remoteLauncher",
         "cmd/mcp-orch/orchestration.remoteLauncherEventSink",
-        "cmd/mcp-orch/orchestration.remoteLauncherEventSink.handleRemoteTurnCompleted",
-        "cmd/mcp-orch/orchestration.remoteLauncherEventSink.handleRemoteTurnInterrupted",
+        "cmd/mcp-orch/orchestration.remoteLauncherEventSink.handleRemoteTurnTerminal",
         "cmd/mcp-orch/orchestration.remoteLauncherHeartbeat",
         "cmd/mcp-orch/orchestration.remoteLauncherSessionToken",
         "cmd/mcp-orch/orchestration.remoteTurnSubmitAttempt",
@@ -12237,6 +12276,7 @@
         "internal/provider/claudecli.imageBlockFromPath",
         "internal/provider/claudecli.imageBlockFromURL",
         "internal/provider/claudecli.imageHashTracker",
+        "internal/provider/claudecli.interruptTerminalFields",
         "internal/provider/claudecli.interruptWorkAbsent",
         "internal/provider/claudecli.invalidClaudeResolvedCursorError",
         "internal/provider/claudecli.isClaudeSystemNoiseText",
@@ -12358,6 +12398,7 @@
         "internal/provider/claudecli.sumLogInts",
         "internal/provider/claudecli.systemPromptDumpEnabled",
         "internal/provider/claudecli.terminalReason",
+        "internal/provider/claudecli.terminalStatus",
         "internal/provider/claudecli.threadConfigPatchHasUnsupportedFields",
         "internal/provider/claudecli.threadConfigPatchNoop",
         "internal/provider/claudecli.threadReadyContextErr",
@@ -12566,6 +12607,7 @@
         "internal/provider/codexapp.*session.activeTurnSnapshot",
         "internal/provider/codexapp.*session.alienThreadEventThread",
         "internal/provider/codexapp.*session.appendTurnOutputDelta",
+        "internal/provider/codexapp.*session.applyAcceptedInterruptRequest",
         "internal/provider/codexapp.*session.applyConfigSet",
         "internal/provider/codexapp.*session.applyConfigSlashCommands",
         "internal/provider/codexapp.*session.applyReplayedTurn",
@@ -12578,6 +12620,8 @@
         "internal/provider/codexapp.*session.buildApprovalRequest",
         "internal/provider/codexapp.*session.callForceComplete",
         "internal/provider/codexapp.*session.callTransport",
+        "internal/provider/codexapp.*session.callTransportWithGuard",
+        "internal/provider/codexapp.*session.claimInterruptTarget",
         "internal/provider/codexapp.*session.clearProcessedApprovals",
         "internal/provider/codexapp.*session.codexToolSurfaceReleaseScope",
         "internal/provider/codexapp.*session.completeAssistantMessageCompleted",
@@ -12628,6 +12672,7 @@
         "internal/provider/codexapp.*session.publishToolCallEnd",
         "internal/provider/codexapp.*session.purgeCompletedProcessedApprovalsLocked",
         "internal/provider/codexapp.*session.readHistoryFallback",
+        "internal/provider/codexapp.*session.recordAcceptedInterruptRequest",
         "internal/provider/codexapp.*session.recordDirectToolFailure",
         "internal/provider/codexapp.*session.recordToolFailureFromRaw",
         "internal/provider/codexapp.*session.recordTranslatedToolFailure",
@@ -12651,6 +12696,7 @@
         "internal/provider/codexapp.*session.runtimeConfigString",
         "internal/provider/codexapp.*session.runtimeConfigStringSlice",
         "internal/provider/codexapp.*session.sendApprovalDecision",
+        "internal/provider/codexapp.*session.setActiveTurnLocked",
         "internal/provider/codexapp.*session.setApprovalPolicy",
         "internal/provider/codexapp.*session.setRuntimeConfig",
         "internal/provider/codexapp.*session.setRuntimeConfigValue",
@@ -12667,6 +12713,7 @@
         "internal/provider/codexapp.*session.toolEndSuppressionPayload",
         "internal/provider/codexapp.*session.trackCodexRolloutToolName",
         "internal/provider/codexapp.*session.updateRuntimeConfigFromPatch",
+        "internal/provider/codexapp.*session.validateInterruptClaim",
         "internal/provider/codexapp.*session.waitProcessedApproval",
         "internal/provider/codexapp.*transport.Call",
         "internal/provider/codexapp.*transport.CheckHealth",
@@ -12678,6 +12725,7 @@
         "internal/provider/codexapp.*transport.RespondWithID",
         "internal/provider/codexapp.*transport.Running",
         "internal/provider/codexapp.*transport.awaitInitialize",
+        "internal/provider/codexapp.*transport.callGuarded",
         "internal/provider/codexapp.*transport.captureInitializeCodexHome",
         "internal/provider/codexapp.*transport.clearProcess",
         "internal/provider/codexapp.*transport.closeSocket",
@@ -12719,6 +12767,7 @@
         "internal/provider/codexapp.*transport.waitForConnectRetry",
         "internal/provider/codexapp.*transport.watchLocalProcess",
         "internal/provider/codexapp.*transport.writeJSON",
+        "internal/provider/codexapp.*transport.writeJSONGuarded",
         "internal/provider/codexapp.*transportCallError.Error",
         "internal/provider/codexapp.*transportCallError.Unwrap",
         "internal/provider/codexapp.*transportServer.Alive",
@@ -12967,6 +13016,7 @@
         "internal/provider/codexapp.installCodexWrapper",
         "internal/provider/codexapp.installManagedCodexCLI",
         "internal/provider/codexapp.int64Value",
+        "internal/provider/codexapp.interruptTargetClaim",
         "internal/provider/codexapp.invokeReadHandler",
         "internal/provider/codexapp.isAppServerArgs",
         "internal/provider/codexapp.isApprovalBridgeMethod",
@@ -13153,6 +13203,7 @@
         "internal/provider/codexapp.resolveCodexLocalMCPBinaryDir",
         "internal/provider/codexapp.resolveCompletedTerminalOutcome",
         "internal/provider/codexapp.resolveDreamBinary",
+        "internal/provider/codexapp.resolveExplicitTerminationOutcome",
         "internal/provider/codexapp.resolveLocalTurnID",
         "internal/provider/codexapp.resolvePeerBinDirs",
         "internal/provider/codexapp.resolveRolloutRoot",
@@ -13543,11 +13594,13 @@
         "internal/provider/shared.ProviderMirrorTargets",
         "internal/provider/shared.ProviderStartupGateError",
         "internal/provider/shared.RawTerminalOutcome",
+        "internal/provider/shared.RawTermination",
         "internal/provider/shared.RecordTrace",
         "internal/provider/shared.ResetToolResultScope",
         "internal/provider/shared.ResolveBinaryDir",
         "internal/provider/shared.ResolveCodexIdentity",
         "internal/provider/shared.ResolveRawTerminalOutcome",
+        "internal/provider/shared.ResolveRawTermination",
         "internal/provider/shared.RuntimeHooks",
         "internal/provider/shared.RuntimeHooksReady",
         "internal/provider/shared.SafeToolArgumentsPreview",
@@ -13610,14 +13663,18 @@
         "internal/provider/shared.providerStartupGateBaseMessage",
         "internal/provider/shared.providerStartupGateDetails",
         "internal/provider/shared.rawTerminalContractError",
+        "internal/provider/shared.rawTerminationContractError",
         "internal/provider/shared.requiredConfigString",
+        "internal/provider/shared.resolveRawTerminalDependencies",
         "internal/provider/shared.resolveRawTerminalPair",
         "internal/provider/shared.sameProviderPath",
         "internal/provider/shared.sortedMCPConfigServerNames",
         "internal/provider/shared.splitEnv",
         "internal/provider/shared.stdioMCPBinaryFromServerObject",
+        "internal/provider/shared.terminalStringAlias",
         "internal/provider/shared.traceID",
         "internal/provider/shared.traceStackConfig",
+        "internal/provider/shared.validateRawTermination",
         "internal/provider/toolfilter.FullAccessDecision",
         "internal/provider/toolfilter.ReviewerDecision",
         "internal/provider/toolfilter.WorkerDecision",
@@ -13906,6 +13963,7 @@
         "cmd/mcp-orch/orchestration.*agentRegistry.lookupAgentByIDLocked",
         "cmd/mcp-orch/orchestration.*agentRegistry.lookupAgentByIdentityLocked",
         "cmd/mcp-orch/orchestration.*agentRegistry.lookupAgentBySeqLocked",
+        "cmd/mcp-orch/orchestration.*agentRegistry.ownerAgentIDForThreadID",
         "cmd/mcp-orch/orchestration.*agentRegistry.rLock",
         "cmd/mcp-orch/orchestration.*agentRegistry.rUnlock",
         "cmd/mcp-orch/orchestration.*agentRegistry.rekeyLaunchedAgentLocked",
@@ -14135,6 +14193,7 @@
         "cmd/mcp-orch/orchestration.*service.handleProcessExit",
         "cmd/mcp-orch/orchestration.*service.handleRemoteTurnCompleted",
         "cmd/mcp-orch/orchestration.*service.handleRemoteTurnInterrupted",
+        "cmd/mcp-orch/orchestration.*service.handleRemoteTurnTerminal",
         "cmd/mcp-orch/orchestration.*service.hasRuntimeAgent",
         "cmd/mcp-orch/orchestration.*service.hookSyncFireLocked",
         "cmd/mcp-orch/orchestration.*service.hookSyncForceStoppedLocked",
@@ -14703,8 +14762,7 @@
         "cmd/mcp-orch/orchestration.remoteAgentBusy",
         "cmd/mcp-orch/orchestration.remoteLauncher",
         "cmd/mcp-orch/orchestration.remoteLauncherEventSink",
-        "cmd/mcp-orch/orchestration.remoteLauncherEventSink.handleRemoteTurnCompleted",
-        "cmd/mcp-orch/orchestration.remoteLauncherEventSink.handleRemoteTurnInterrupted",
+        "cmd/mcp-orch/orchestration.remoteLauncherEventSink.handleRemoteTurnTerminal",
         "cmd/mcp-orch/orchestration.remoteLauncherHeartbeat",
         "cmd/mcp-orch/orchestration.remoteLauncherSessionToken",
         "cmd/mcp-orch/orchestration.remoteTurnSubmitAttempt",
@@ -16831,6 +16889,7 @@
         "internal/provider/claudecli.imageBlockFromPath",
         "internal/provider/claudecli.imageBlockFromURL",
         "internal/provider/claudecli.imageHashTracker",
+        "internal/provider/claudecli.interruptTerminalFields",
         "internal/provider/claudecli.interruptWorkAbsent",
         "internal/provider/claudecli.invalidClaudeResolvedCursorError",
         "internal/provider/claudecli.isClaudeSystemNoiseText",
@@ -16952,6 +17011,7 @@
         "internal/provider/claudecli.sumLogInts",
         "internal/provider/claudecli.systemPromptDumpEnabled",
         "internal/provider/claudecli.terminalReason",
+        "internal/provider/claudecli.terminalStatus",
         "internal/provider/claudecli.terminateByPid",
         "internal/provider/claudecli.threadConfigPatchHasUnsupportedFields",
         "internal/provider/claudecli.threadConfigPatchNoop",
@@ -17161,6 +17221,7 @@
         "internal/provider/codexapp.*session.activeTurnSnapshot",
         "internal/provider/codexapp.*session.alienThreadEventThread",
         "internal/provider/codexapp.*session.appendTurnOutputDelta",
+        "internal/provider/codexapp.*session.applyAcceptedInterruptRequest",
         "internal/provider/codexapp.*session.applyConfigSet",
         "internal/provider/codexapp.*session.applyConfigSlashCommands",
         "internal/provider/codexapp.*session.applyReplayedTurn",
@@ -17173,6 +17234,8 @@
         "internal/provider/codexapp.*session.buildApprovalRequest",
         "internal/provider/codexapp.*session.callForceComplete",
         "internal/provider/codexapp.*session.callTransport",
+        "internal/provider/codexapp.*session.callTransportWithGuard",
+        "internal/provider/codexapp.*session.claimInterruptTarget",
         "internal/provider/codexapp.*session.clearProcessedApprovals",
         "internal/provider/codexapp.*session.codexToolSurfaceReleaseScope",
         "internal/provider/codexapp.*session.completeAssistantMessageCompleted",
@@ -17223,6 +17286,7 @@
         "internal/provider/codexapp.*session.publishToolCallEnd",
         "internal/provider/codexapp.*session.purgeCompletedProcessedApprovalsLocked",
         "internal/provider/codexapp.*session.readHistoryFallback",
+        "internal/provider/codexapp.*session.recordAcceptedInterruptRequest",
         "internal/provider/codexapp.*session.recordDirectToolFailure",
         "internal/provider/codexapp.*session.recordToolFailureFromRaw",
         "internal/provider/codexapp.*session.recordTranslatedToolFailure",
@@ -17246,6 +17310,7 @@
         "internal/provider/codexapp.*session.runtimeConfigString",
         "internal/provider/codexapp.*session.runtimeConfigStringSlice",
         "internal/provider/codexapp.*session.sendApprovalDecision",
+        "internal/provider/codexapp.*session.setActiveTurnLocked",
         "internal/provider/codexapp.*session.setApprovalPolicy",
         "internal/provider/codexapp.*session.setRuntimeConfig",
         "internal/provider/codexapp.*session.setRuntimeConfigValue",
@@ -17262,6 +17327,7 @@
         "internal/provider/codexapp.*session.toolEndSuppressionPayload",
         "internal/provider/codexapp.*session.trackCodexRolloutToolName",
         "internal/provider/codexapp.*session.updateRuntimeConfigFromPatch",
+        "internal/provider/codexapp.*session.validateInterruptClaim",
         "internal/provider/codexapp.*session.waitProcessedApproval",
         "internal/provider/codexapp.*transport.Call",
         "internal/provider/codexapp.*transport.CheckHealth",
@@ -17273,6 +17339,7 @@
         "internal/provider/codexapp.*transport.RespondWithID",
         "internal/provider/codexapp.*transport.Running",
         "internal/provider/codexapp.*transport.awaitInitialize",
+        "internal/provider/codexapp.*transport.callGuarded",
         "internal/provider/codexapp.*transport.captureInitializeCodexHome",
         "internal/provider/codexapp.*transport.clearProcess",
         "internal/provider/codexapp.*transport.closeSocket",
@@ -17314,6 +17381,7 @@
         "internal/provider/codexapp.*transport.waitForConnectRetry",
         "internal/provider/codexapp.*transport.watchLocalProcess",
         "internal/provider/codexapp.*transport.writeJSON",
+        "internal/provider/codexapp.*transport.writeJSONGuarded",
         "internal/provider/codexapp.*transportCallError.Error",
         "internal/provider/codexapp.*transportCallError.Unwrap",
         "internal/provider/codexapp.*transportServer.Alive",
@@ -17563,6 +17631,7 @@
         "internal/provider/codexapp.installCodexWrapper",
         "internal/provider/codexapp.installManagedCodexCLI",
         "internal/provider/codexapp.int64Value",
+        "internal/provider/codexapp.interruptTargetClaim",
         "internal/provider/codexapp.invokeReadHandler",
         "internal/provider/codexapp.isApprovalBridgeMethod",
         "internal/provider/codexapp.isAssistantMessageCompletedMethod",
@@ -17752,6 +17821,7 @@
         "internal/provider/codexapp.resolveCodexLocalMCPBinaryDir",
         "internal/provider/codexapp.resolveCompletedTerminalOutcome",
         "internal/provider/codexapp.resolveDreamBinary",
+        "internal/provider/codexapp.resolveExplicitTerminationOutcome",
         "internal/provider/codexapp.resolveLocalTurnID",
         "internal/provider/codexapp.resolvePeerBinDirs",
         "internal/provider/codexapp.resolveRolloutRoot",
@@ -18141,11 +18211,13 @@
         "internal/provider/shared.ProviderMirrorTargets",
         "internal/provider/shared.ProviderStartupGateError",
         "internal/provider/shared.RawTerminalOutcome",
+        "internal/provider/shared.RawTermination",
         "internal/provider/shared.RecordTrace",
         "internal/provider/shared.ResetToolResultScope",
         "internal/provider/shared.ResolveBinaryDir",
         "internal/provider/shared.ResolveCodexIdentity",
         "internal/provider/shared.ResolveRawTerminalOutcome",
+        "internal/provider/shared.ResolveRawTermination",
         "internal/provider/shared.RuntimeHooks",
         "internal/provider/shared.RuntimeHooksReady",
         "internal/provider/shared.SafeToolArgumentsPreview",
@@ -18208,14 +18280,18 @@
         "internal/provider/shared.providerStartupGateBaseMessage",
         "internal/provider/shared.providerStartupGateDetails",
         "internal/provider/shared.rawTerminalContractError",
+        "internal/provider/shared.rawTerminationContractError",
         "internal/provider/shared.requiredConfigString",
+        "internal/provider/shared.resolveRawTerminalDependencies",
         "internal/provider/shared.resolveRawTerminalPair",
         "internal/provider/shared.sameProviderPath",
         "internal/provider/shared.sortedMCPConfigServerNames",
         "internal/provider/shared.splitEnv",
         "internal/provider/shared.stdioMCPBinaryFromServerObject",
+        "internal/provider/shared.terminalStringAlias",
         "internal/provider/shared.traceID",
         "internal/provider/shared.traceStackConfig",
+        "internal/provider/shared.validateRawTermination",
         "internal/provider/toolfilter.FullAccessDecision",
         "internal/provider/toolfilter.ReviewerDecision",
         "internal/provider/toolfilter.WorkerDecision",
@@ -18385,13 +18461,13 @@
   ],
   "summary": {
     "total_packages": 41,
-    "total_functions": 2255,
-    "total_methods": 1146,
+    "total_functions": 2263,
+    "total_methods": 1156,
     "total_interfaces": 183,
-    "total_interface_methods": 364,
-    "total_exported": 1254,
-    "total_unexported": 2927,
-    "total_structs": 597
+    "total_interface_methods": 363,
+    "total_exported": 1256,
+    "total_unexported": 2945,
+    "total_structs": 599
   },
   "packages": [
     {
@@ -26505,6 +26581,21 @@
         },
         {
           "receiver": "*agentRegistry",
+          "name": "ownerAgentIDForThreadID",
+          "exported": false,
+          "params": [
+            {
+              "name": "threadID",
+              "type": "string"
+            }
+          ],
+          "returns": [
+            "string",
+            "error"
+          ]
+        },
+        {
+          "receiver": "*agentRegistry",
           "name": "rLock",
           "exported": false
         },
@@ -30774,6 +30865,21 @@
         },
         {
           "receiver": "*service",
+          "name": "handleRemoteTurnTerminal",
+          "exported": false,
+          "params": [
+            {
+              "name": "ctx",
+              "type": "context.Context"
+            },
+            {
+              "name": "terminal",
+              "type": "turndto.TurnTerminalV2"
+            }
+          ]
+        },
+        {
+          "receiver": "*service",
           "name": "hasRuntimeAgent",
           "exported": false,
           "params": [
@@ -34086,24 +34192,13 @@
           "exported": false,
           "methods": [
             {
-              "name": "handleRemoteTurnCompleted",
+              "name": "handleRemoteTurnTerminal",
               "params": [
                 {
                   "type": "context.Context"
                 },
                 {
-                  "type": "turndto.TurnCompleted"
-                }
-              ]
-            },
-            {
-              "name": "handleRemoteTurnInterrupted",
-              "params": [
-                {
-                  "type": "context.Context"
-                },
-                {
-                  "type": "turndto.TurnInterrupted"
+                  "type": "turndto.TurnTerminalV2"
                 }
               ]
             }
@@ -57996,6 +58091,23 @@
           ]
         },
         {
+          "name": "interruptTerminalFields",
+          "exported": false,
+          "params": [
+            {
+              "name": "req",
+              "type": "dto.InterruptRequest"
+            },
+            {
+              "name": "reason",
+              "type": "string"
+            }
+          ],
+          "returns": [
+            "map[string]any"
+          ]
+        },
+        {
           "name": "interruptWorkAbsent",
           "exported": false,
           "params": [
@@ -59586,6 +59698,19 @@
             {
               "name": "rawReason",
               "type": "string"
+            }
+          ],
+          "returns": [
+            "string"
+          ]
+        },
+        {
+          "name": "terminalStatus",
+          "exported": false,
+          "params": [
+            {
+              "name": "success",
+              "type": "bool"
             }
           ],
           "returns": [
@@ -67788,6 +67913,23 @@
           ]
         },
         {
+          "name": "resolveExplicitTerminationOutcome",
+          "exported": false,
+          "params": [
+            {
+              "name": "status",
+              "type": "string"
+            },
+            {
+              "name": "payload",
+              "type": "map[string]any"
+            }
+          ],
+          "returns": [
+            "turnTerminalOutcome"
+          ]
+        },
+        {
           "name": "resolveLocalTurnID",
           "exported": false,
           "params": [
@@ -72247,6 +72389,24 @@
         },
         {
           "receiver": "*session",
+          "name": "applyAcceptedInterruptRequest",
+          "exported": false,
+          "params": [
+            {
+              "name": "method",
+              "type": "string"
+            },
+            {
+              "name": "payload",
+              "type": "map[string]any"
+            }
+          ],
+          "returns": [
+            "bool"
+          ]
+        },
+        {
+          "receiver": "*session",
           "name": "applyConfigSet",
           "exported": false,
           "params": [
@@ -72452,6 +72612,33 @@
         },
         {
           "receiver": "*session",
+          "name": "callTransportWithGuard",
+          "exported": false,
+          "params": [
+            {
+              "name": "ctx",
+              "type": "context.Context"
+            },
+            {
+              "name": "method",
+              "type": "string"
+            },
+            {
+              "name": "params",
+              "type": "any"
+            },
+            {
+              "name": "guard",
+              "type": "func() error"
+            }
+          ],
+          "returns": [
+            "json.RawMessage",
+            "error"
+          ]
+        },
+        {
+          "receiver": "*session",
           "name": "callTransport",
           "exported": false,
           "params": [
@@ -72470,6 +72657,21 @@
           ],
           "returns": [
             "json.RawMessage",
+            "error"
+          ]
+        },
+        {
+          "receiver": "*session",
+          "name": "claimInterruptTarget",
+          "exported": false,
+          "params": [
+            {
+              "name": "requestedTurnID",
+              "type": "string"
+            }
+          ],
+          "returns": [
+            "interruptTargetClaim",
             "error"
           ]
         },
@@ -73197,6 +73399,21 @@
         },
         {
           "receiver": "*session",
+          "name": "recordAcceptedInterruptRequest",
+          "exported": false,
+          "params": [
+            {
+              "name": "claim",
+              "type": "interruptTargetClaim"
+            },
+            {
+              "name": "requestID",
+              "type": "string"
+            }
+          ]
+        },
+        {
+          "receiver": "*session",
           "name": "recordDirectToolFailure",
           "exported": false,
           "params": [
@@ -73560,6 +73777,17 @@
         },
         {
           "receiver": "*session",
+          "name": "setActiveTurnLocked",
+          "exported": false,
+          "params": [
+            {
+              "name": "turnID",
+              "type": "string"
+            }
+          ]
+        },
+        {
+          "receiver": "*session",
           "name": "setApprovalPolicy",
           "exported": false,
           "params": [
@@ -73792,6 +74020,20 @@
         },
         {
           "receiver": "*session",
+          "name": "validateInterruptClaim",
+          "exported": false,
+          "params": [
+            {
+              "name": "claim",
+              "type": "interruptTargetClaim"
+            }
+          ],
+          "returns": [
+            "error"
+          ]
+        },
+        {
+          "receiver": "*session",
           "name": "waitProcessedApproval",
           "exported": false,
           "params": [
@@ -74007,6 +74249,33 @@
             }
           ],
           "returns": [
+            "error"
+          ]
+        },
+        {
+          "receiver": "*transport",
+          "name": "callGuarded",
+          "exported": false,
+          "params": [
+            {
+              "name": "ctx",
+              "type": "context.Context"
+            },
+            {
+              "name": "method",
+              "type": "string"
+            },
+            {
+              "name": "params",
+              "type": "any"
+            },
+            {
+              "name": "guard",
+              "type": "func() error"
+            }
+          ],
+          "returns": [
+            "json.RawMessage",
             "error"
           ]
         },
@@ -74550,6 +74819,25 @@
               "name": "proc",
               "type": "*localProcess"
             }
+          ]
+        },
+        {
+          "receiver": "*transport",
+          "name": "writeJSONGuarded",
+          "exported": false,
+          "params": [
+            {
+              "name": "v",
+              "type": "any"
+            },
+            {
+              "name": "guard",
+              "type": "func() error"
+            }
+          ],
+          "returns": [
+            "bool",
+            "error"
           ]
         },
         {
@@ -75125,6 +75413,10 @@
         },
         {
           "name": "initializeRPCResult",
+          "exported": false
+        },
+        {
+          "name": "interruptTargetClaim",
           "exported": false
         },
         {
@@ -78744,6 +79036,23 @@
           ]
         },
         {
+          "name": "ResolveRawTermination",
+          "exported": true,
+          "params": [
+            {
+              "name": "data",
+              "type": "any"
+            },
+            {
+              "name": "fallbackCause",
+              "type": "string"
+            }
+          ],
+          "returns": [
+            "RawTermination"
+          ]
+        },
+        {
           "name": "SafeToolArgumentsPreviewString",
           "exported": true,
           "params": [
@@ -79525,6 +79834,19 @@
           ]
         },
         {
+          "name": "rawTerminationContractError",
+          "exported": false,
+          "params": [
+            {
+              "name": "message",
+              "type": "string"
+            }
+          ],
+          "returns": [
+            "RawTermination"
+          ]
+        },
+        {
           "name": "requiredConfigString",
           "exported": false,
           "params": [
@@ -79544,6 +79866,23 @@
           "returns": [
             "string",
             "error"
+          ]
+        },
+        {
+          "name": "resolveRawTerminalDependencies",
+          "exported": false,
+          "params": [
+            {
+              "name": "payload",
+              "type": "map[string]any"
+            },
+            {
+              "name": "outcome",
+              "type": "RawTerminalOutcome"
+            }
+          ],
+          "returns": [
+            "RawTerminalOutcome"
           ]
         },
         {
@@ -79633,6 +79972,24 @@
           ]
         },
         {
+          "name": "terminalStringAlias",
+          "exported": false,
+          "params": [
+            {
+              "name": "payload",
+              "type": "map[string]any"
+            },
+            {
+              "name": "keys",
+              "type": "...string"
+            }
+          ],
+          "returns": [
+            "string",
+            "error"
+          ]
+        },
+        {
           "name": "traceID",
           "exported": false,
           "params": [
@@ -79650,6 +80007,23 @@
           "exported": false,
           "returns": [
             "observability.Config"
+          ]
+        },
+        {
+          "name": "validateRawTermination",
+          "exported": false,
+          "params": [
+            {
+              "name": "cause",
+              "type": "string"
+            },
+            {
+              "name": "requestID",
+              "type": "string"
+            }
+          ],
+          "returns": [
+            "RawTermination"
           ]
         }
       ],
@@ -79720,6 +80094,10 @@
         },
         {
           "name": "RawTerminalOutcome",
+          "exported": true
+        },
+        {
+          "name": "RawTermination",
           "exported": true
         },
         {

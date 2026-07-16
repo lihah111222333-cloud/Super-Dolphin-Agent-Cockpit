@@ -354,6 +354,7 @@ func decodeResultEvent(raw streamEvent, base rawBase) []dto.RawProviderEvent {
 	success := !raw.IsError && !strings.EqualFold(strings.TrimSpace(raw.Subtype), "error")
 	terminalReason := strings.TrimSpace(raw.TerminalReason)
 	data["success"] = success
+	data["status"] = terminalStatus(success)
 	if terminalReason != "" {
 		data["terminal_reason"] = terminalReason
 	}
@@ -394,6 +395,13 @@ func decodeResultEvent(raw streamEvent, base rawBase) []dto.RawProviderEvent {
 		data["error"] = errStr
 	}
 	return []dto.RawProviderEvent{{EventType: "turn:complete", Data: data}}
+}
+
+func terminalStatus(success bool) string {
+	if success {
+		return "completed"
+	}
+	return "failed"
 }
 func baseData(base rawBase, sessionID, timestamp string) map[string]any {
 	return buildEventData(base, sessionID, timestamp, nil)

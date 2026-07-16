@@ -179,10 +179,11 @@ type activeTurn struct {
 }
 
 type interruptClaim struct {
-	target  activeTurn
-	before  TurnStatus
-	found   bool
-	claimed bool
+	target   activeTurn
+	before   TurnStatus
+	found    bool
+	claimed  bool
+	accepted bool
 }
 
 // newTurnTracker 创建默认进程内 tracker，终态记录按 trackerTTL 延迟清理。
@@ -339,6 +340,10 @@ func (t *turnTracker) ClaimInterruptTarget(threadID, expectedTurnID string) inte
 		claim.target = activeTurnFromTracked(turn)
 		claim.before = turn.status()
 		if expectedTurnID != "" && turn.localID != expectedTurnID {
+			return
+		}
+		if turn.interruptRequested {
+			claim.accepted = true
 			return
 		}
 		if turn.interruptClaimed {

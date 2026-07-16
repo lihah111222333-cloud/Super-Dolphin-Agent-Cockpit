@@ -195,6 +195,7 @@ type turnTerminalOutcome struct {
 	success       bool
 	status        string
 	reason        string
+	requestID     string
 	contractError string
 }
 
@@ -203,13 +204,21 @@ func resolveTurnTerminalOutcome(method string, payload map[string]any) turnTermi
 	normalizedMethod := strings.ToLower(strings.TrimSpace(method))
 	switch {
 	case strings.Contains(normalizedMethod, "interrupted"):
-		return turnTerminalOutcome{status: "interrupted", reason: "provider"}
+		return resolveExplicitTerminationOutcome("interrupted", payload)
 	case strings.Contains(normalizedMethod, "aborted"):
-		return turnTerminalOutcome{status: "cancelled", reason: "provider"}
+		return resolveExplicitTerminationOutcome("cancelled", payload)
 	case strings.Contains(normalizedMethod, "failed"), strings.Contains(normalizedMethod, "error"):
 		return turnTerminalOutcome{status: "failed", reason: stringValue(payload, "reason")}
 	}
 	return resolveCompletedTerminalOutcome(payload)
+}
+
+func resolveExplicitTerminationOutcome(status string, payload map[string]any) turnTerminalOutcome {
+	termination := providershared.ResolveRawTermination(payload, "provider")
+	if termination.ContractError != "" {
+		return turnTerminalOutcome{status: "failed", contractError: termination.ContractError}
+	}
+	return turnTerminalOutcome{status: status, reason: termination.Cause, requestID: termination.RequestID}
 }
 
 // resolveCompletedTerminalOutcome 校验 completed 事件的 success/status 配对，避免失败默认为成功。
@@ -223,6 +232,7 @@ func resolveCompletedTerminalOutcome(payload map[string]any) turnTerminalOutcome
 		success:       resolved.Success,
 		status:        resolved.Status,
 		reason:        reason,
+		requestID:     resolved.RequestID,
 		contractError: resolved.ContractError,
 	}
 }

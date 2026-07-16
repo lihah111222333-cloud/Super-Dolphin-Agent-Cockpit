@@ -396,12 +396,12 @@ func turnInterruptHandler(svc Service, resolver contract.SessionResolver) handle
 	return platformrpc.ThreadHandler(func(ctx context.Context, p turnInterruptParams) (any, error) {
 		return withTurnSession(ctx, resolver, func(ctx context.Context, session contract.Session) (any, error) {
 			targeted, ok := svc.(interface {
-				InterruptTurnForTarget(context.Context, contract.Session, string, string) (TurnStatus, bool, error)
+				InterruptTurnForTarget(context.Context, contract.Session, string, string, string) (TurnStatus, bool, error)
 			})
 			if !ok {
 				return nil, errors.New("turn/interrupt: target-aware interrupt service is required")
 			}
-			status, accepted, err := targeted.InterruptTurnForTarget(ctx, session, p.Source, p.ExpectedTurnID)
+			status, accepted, err := targeted.InterruptTurnForTarget(ctx, session, p.Source, p.ExpectedTurnID, p.RequestID)
 			if err != nil {
 				if errors.Is(err, context.DeadlineExceeded) {
 					return buildInterruptFailureResult(status, status.interruptEnvelope(), p.ExpectedTurnID, p.RequestID, accepted), nil

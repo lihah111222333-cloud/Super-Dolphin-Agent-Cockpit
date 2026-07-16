@@ -420,12 +420,14 @@ func interruptAndWait(
 	active activeTurn,
 	threadID string,
 	source string,
+	requestID string,
 	wait func() error,
 ) (bool, error) {
 	if err := session.Interrupt(ctx, dto.InterruptRequest{
-		ThreadID: threadID,
-		TurnID:   activeProviderID(active),
-		Source:   strings.TrimSpace(source),
+		ThreadID:  threadID,
+		TurnID:    activeProviderID(active),
+		Source:    strings.TrimSpace(source),
+		RequestID: strings.TrimSpace(requestID),
 	}); err != nil {
 		return false, err
 	}

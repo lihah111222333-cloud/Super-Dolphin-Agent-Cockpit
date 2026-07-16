@@ -17,7 +17,7 @@ func (s *service) InterruptActiveTurn(ctx context.Context, session contract.Sess
 	if !tracked {
 		return nil
 	}
-	_, err = interruptAndWait(ctx, session, s.tracker, active, threadID, source, func() error {
+	_, err = interruptAndWait(ctx, session, s.tracker, active, threadID, source, "", func() error {
 		return s.waitForTurnSettle(ctx, active.localID, active.handle)
 	})
 	return err

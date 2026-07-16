@@ -10,14 +10,15 @@ type TurnStarted struct {
 // TurnCompleted 报告 turn 已到达终态，Success/Status/Reason 描述最终结果。
 type TurnCompleted struct {
 	shared.TurnHeader
-	Success    bool   `json:"success"`
-	Error      string `json:"error,omitempty"`
-	Status     string `json:"status,omitempty"`
-	Reason     string `json:"reason,omitempty"`
-	Result     string `json:"result,omitempty"`
-	Summary    string `json:"summary,omitempty"`
-	Message    string `json:"message,omitempty"`
-	StopReason string `json:"stop_reason,omitempty"`
+	Success              bool   `json:"success"`
+	Error                string `json:"error,omitempty"`
+	Status               string `json:"status,omitempty"`
+	Reason               string `json:"reason,omitempty"`
+	Result               string `json:"result,omitempty"`
+	Summary              string `json:"summary,omitempty"`
+	Message              string `json:"message,omitempty"`
+	StopReason           string `json:"stop_reason,omitempty"`
+	TerminationRequestID string `json:"termination_request_id,omitempty"`
 }
 
 // TurnInterrupted 报告运行中的 turn 已收到中断请求。

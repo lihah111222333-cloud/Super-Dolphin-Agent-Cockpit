@@ -106,6 +106,46 @@ func TestDecodeResultEventFailureFallsBackToDefaultError(t *testing.T) {
 	}
 }
 
+func TestDecodeResultEventTerminalTruthReachesTranslatorAndHandle(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct {
+		name       string
+		raw        streamEvent
+		wantStatus string
+		wantErr    bool
+	}{
+		{name: "success", raw: streamEvent{Type: "result", Subtype: "success", Result: "done"}, wantStatus: "completed"},
+		{name: "failure", raw: streamEvent{Type: "result", Subtype: "error", Result: "provider failed"}, wantStatus: "failed", wantErr: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			events := decodeResultEvent(test.raw, rawBase{AgentID: "agent-1", ThreadID: "thread-1", TurnID: "turn-1"})
+			if len(events) != 1 {
+				t.Fatalf("len(events) = %d, want 1", len(events))
+			}
+			payload, ok := events[0].Data.(map[string]any)
+			if !ok || payload["status"] != test.wantStatus {
+				t.Fatalf("decoded terminal payload = %#v, want status %q", events[0].Data, test.wantStatus)
+			}
+			translated, ok := translateTurnEvent(events[0])
+			if !ok {
+				t.Fatal("translateTurnEvent() rejected decoded result")
+			}
+			completed, ok := translated.(turndto.TurnCompleted)
+			if !ok || completed.Status != test.wantStatus || completed.Success == test.wantErr {
+				t.Fatalf("translated terminal = %#v, want status=%q wantErr=%v", translated, test.wantStatus, test.wantErr)
+			}
+
+			handle := newTurnHandle("local-1", "turn-1")
+			s := &session{activeTurn: handle}
+			s.finishTurnFromRaw(events[0])
+			<-handle.Done()
+			if (handle.Err() != nil) != test.wantErr {
+				t.Fatalf("handle error = %v, wantErr %v", handle.Err(), test.wantErr)
+			}
+		})
+	}
+}
+
 func TestTranslateTurnEventCompleteMapsCompletionFields(t *testing.T) {
 	t.Parallel()
 

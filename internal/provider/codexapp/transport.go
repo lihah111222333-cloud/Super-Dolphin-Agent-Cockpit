@@ -97,6 +97,11 @@ func newTransport(ctx context.Context, serverURL string) (*transport, error) {
 // Call 通过 JSON-RPC 向 Codex app 发送请求并等待同 ID 响应。
 // pending 表必须在返回前清理；写入前会剥离内部字段，避免 provider 侧 strict schema 拒绝。
 func (t *transport) Call(ctx context.Context, method string, params any) (json.RawMessage, error) {
+	return t.callGuarded(ctx, method, params, nil)
+}
+
+// callGuarded 在持有 transport write 锁、尚未写入 websocket 时执行一次无 I/O guard。
+func (t *transport) callGuarded(ctx context.Context, method string, params any, guard func() error) (json.RawMessage, error) {
 	if err := t.ensureOpen(); err != nil {
 		return nil, err
 	}
@@ -107,7 +112,11 @@ func (t *transport) Call(ctx context.Context, method string, params any) (json.R
 	pc := &pendingCall{done: make(chan struct{})}
 	t.pending.Store(key, pc)
 	defer t.pending.Delete(key)
-	if err := t.writeJSON(jsonRPCRequest{JSONRPC: "2.0", ID: id, Method: method, Params: sanitizeProviderPayload(method, params)}); err != nil {
+	writeAttempted, err := t.writeJSONGuarded(jsonRPCRequest{JSONRPC: "2.0", ID: id, Method: method, Params: sanitizeProviderPayload(method, params)}, guard)
+	if err != nil {
+		if !writeAttempted {
+			return nil, err
+		}
 		return nil, newTransportCallError(method, true, err)
 	}
 	select {

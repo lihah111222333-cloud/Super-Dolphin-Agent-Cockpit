@@ -222,6 +222,34 @@ func (r *agentRegistry) hasRuntimeAgent(agentID string) bool {
 	return err == nil
 }
 
+// ownerAgentIDForThreadID 通过当前 runtime 的本地或远端 thread 绑定反查唯一 owner。
+func (r *agentRegistry) ownerAgentIDForThreadID(threadID string) (string, error) {
+	threadID = strings.TrimSpace(threadID)
+	if threadID == "" {
+		return "", errors.New("remote terminal thread id is required")
+	}
+	r.rLock()
+	defer r.rUnlock()
+	ownerID := ""
+	for _, candidate := range r.agents {
+		if candidate == nil || (strings.TrimSpace(candidate.threadID) != threadID && strings.TrimSpace(candidate.remoteThreadID) != threadID) {
+			continue
+		}
+		candidateID := strings.TrimSpace(candidate.id)
+		if candidateID == "" {
+			return "", errors.New("remote terminal thread owner has empty agent id")
+		}
+		if ownerID != "" && ownerID != candidateID {
+			return "", fmt.Errorf("remote terminal thread %q has multiple owners", threadID)
+		}
+		ownerID = candidateID
+	}
+	if ownerID == "" {
+		return "", fmt.Errorf("%w: remote thread %s", errAgentNotFound, threadID)
+	}
+	return ownerID, nil
+}
+
 func (r *agentRegistry) turnIDFor(sub TurnSubmission) string {
 	if turnID := strings.TrimSpace(sub.ExpectedTurnID); turnID != "" {
 		return turnID

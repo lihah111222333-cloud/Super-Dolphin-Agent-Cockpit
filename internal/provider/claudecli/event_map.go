@@ -200,12 +200,20 @@ func translateTurnEvent(raw dto.RawProviderEvent) (any, bool) {
 			Delta:      delta,
 		}, true
 	case "turn:interrupted":
+		termination := providershared.ResolveRawTermination(raw.Data, "provider")
+		if termination.ContractError != "" {
+			return turndto.TurnCompleted{
+				TurnHeader: turnHeader(raw.Data), Status: "failed",
+				Error: "terminal contract: " + termination.ContractError,
+			}, true
+		}
 		return turndto.TurnCompleted{
-			TurnHeader: turnHeader(raw.Data),
-			Success:    false,
-			Status:     "interrupted",
-			Reason:     "provider",
-			Error:      dataString(raw.Data, "reason"),
+			TurnHeader:           turnHeader(raw.Data),
+			Success:              false,
+			Status:               "interrupted",
+			Reason:               termination.Cause,
+			Error:                dataString(raw.Data, "reason"),
+			TerminationRequestID: termination.RequestID,
 		}, true
 	case "turn:complete":
 		header := turnHeader(raw.Data)
@@ -224,15 +232,16 @@ func translateTurnEvent(raw dto.RawProviderEvent) (any, bool) {
 			errorText = appendProviderRuntimeError(errorText, err)
 		}
 		return turndto.TurnCompleted{
-			TurnHeader: header,
-			Success:    outcome.Success,
-			Error:      errorText,
-			Status:     outcome.Status,
-			Reason:     terminalReason(outcome.Cause, dataString(raw.Data, "reason")),
-			Result:     dataString(raw.Data, "result"),
-			Summary:    dataString(raw.Data, "summary"),
-			Message:    dataString(raw.Data, "message"),
-			StopReason: dataString(raw.Data, "stop_reason"),
+			TurnHeader:           header,
+			Success:              outcome.Success,
+			Error:                errorText,
+			Status:               outcome.Status,
+			Reason:               terminalReason(outcome.Cause, dataString(raw.Data, "reason")),
+			TerminationRequestID: outcome.RequestID,
+			Result:               dataString(raw.Data, "result"),
+			Summary:              dataString(raw.Data, "summary"),
+			Message:              dataString(raw.Data, "message"),
+			StopReason:           dataString(raw.Data, "stop_reason"),
 		}, true
 	default:
 		return nil, false

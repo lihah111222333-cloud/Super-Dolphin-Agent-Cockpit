@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"maps"
-	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -19,6 +18,7 @@ import (
 	mcpdto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/mcp"
 	shareddto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/shared"
 	turndto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/turn"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/eventsurface"
 )
 
 func TestRemoteLauncher_RegistersBeforeThreadStart(t *testing.T) {
@@ -107,6 +107,11 @@ func TestRemoteLauncher_TurnCompletedNotificationClearsRemoteBusyState(t *testin
 	agent.state = agentdto.StateIdle
 	agent.remoteThreadID = "thread-1"
 	svc.registry.agents[agent.id] = agent
+	decoy := svc.newAgentLocked("thread-1")
+	decoy.state = agentdto.StateTurnRunning
+	decoy.remoteThreadID = "decoy-thread"
+	decoy.activeTurnID = "decoy-turn"
+	svc.registry.agents[decoy.id] = decoy
 	svc.registry.mu.Unlock()
 
 	err := svc.SubmitTurn(context.Background(), TurnSubmission{
@@ -123,24 +128,25 @@ func TestRemoteLauncher_TurnCompletedNotificationClearsRemoteBusyState(t *testin
 	case <-time.After(time.Second):
 		t.Fatal("turn/start handler did not capture server")
 	}
-	require.NoError(t, server.Notify(context.Background(), "turn/completed", turndto.TurnCompleted{
-		TurnHeader: shareddto.TurnHeader{
-			AgentHeader: shareddto.AgentHeader{
-				ThreadHeader: shareddto.ThreadHeader{ThreadID: "thread-1"},
-				AgentID:      "agent-1",
-			},
-			TurnIDHeader: shareddto.TurnIDHeader{TurnID: "provider-turn-uuid"},
-		},
-		Success: true,
-		Result:  "done from provider turn",
+	require.NoError(t, server.Notify(context.Background(), eventsurface.MethodTurnTerminal, turndto.TurnTerminalV2{
+		SchemaVersion: 2,
+		EventID:       "11111111-2222-4333-8444-555555555555",
+		ThreadID:      "thread-1",
+		TurnID:        "remote-turn-1",
+		Outcome:       "success",
+		OccurredAt:    "2026-07-16T10:11:12.123Z",
 	}))
 
 	require.Eventually(t, func() bool {
 		snapshot, err := svc.Snapshot(context.Background(), "agent-1")
 		return err == nil &&
 			snapshot.State == string(agentdto.StateIdle) &&
-			strings.Contains(snapshot.LastReport, "done from provider turn")
+			snapshot.ActiveTurnID == ""
 	}, time.Second, 10*time.Millisecond)
+	decoySnapshot, err := svc.Snapshot(context.Background(), "thread-1")
+	require.NoError(t, err)
+	require.Equal(t, string(agentdto.StateTurnRunning), decoySnapshot.State)
+	require.Equal(t, "decoy-turn", decoySnapshot.ActiveTurnID)
 }
 
 func TestRemoteTerminalRequiresTurnID(t *testing.T) {

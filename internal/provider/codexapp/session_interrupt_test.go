@@ -10,6 +10,7 @@ import (
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
 	dto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/provider"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/runtimesafe"
 	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
 )
 
@@ -85,6 +86,58 @@ func TestSessionInterruptFallsBackToActiveTurnID(t *testing.T) {
 	params := receiveInterruptParams(t, paramsCh)
 	if params["turnId"] != "active-turn" {
 		t.Fatalf("interrupt fallback turnId = %#v, want active-turn; params=%#v", params["turnId"], params)
+	}
+}
+
+func TestSessionInterruptTargetChangesBeforeWireWrite(t *testing.T) {
+	paramsCh := make(chan map[string]any, 1)
+	s := newInterruptTestSession(t, paramsCh)
+	s.recovery = nil
+	s.mu.Lock()
+	s.activeTurnID = "turn-1"
+	s.mu.Unlock()
+
+	s.transport.writeMu.Lock()
+	writeLocked := true
+	t.Cleanup(func() {
+		if writeLocked {
+			s.transport.writeMu.Unlock()
+		}
+	})
+	baseline := s.transport.nextID.Load()
+	errCh := make(chan error, 1)
+	runtimesafe.SafeGo(context.Background(), pkglogger.Get(), "codexapp.test.interrupt-target-change", func(context.Context) {
+		errCh <- s.Interrupt(context.Background(), dto.InterruptRequest{ThreadID: "thread-1", TurnID: "turn-1", Source: "ui_stop"})
+	})
+	waitForInterruptCallRegistration(t, s.transport, baseline)
+
+	s.mu.Lock()
+	s.activeTurnID = "turn-2"
+	s.mu.Unlock()
+	s.transport.writeMu.Unlock()
+	writeLocked = false
+
+	if err := <-errCh; !errors.Is(err, contract.ErrInterruptTargetChanged) {
+		t.Fatalf("Interrupt() error = %v, want interrupt target changed", err)
+	}
+	select {
+	case params := <-paramsCh:
+		t.Fatalf("target-changed interrupt reached transport with params %#v", params)
+	default:
+	}
+	if got := s.recoveryCount.Load(); got != 0 {
+		t.Fatalf("target-changed interrupt recoveryCount = %d, want 0", got)
+	}
+}
+
+func waitForInterruptCallRegistration(t *testing.T, tr *transport, baseline int64) {
+	t.Helper()
+	deadline := time.Now().Add(time.Second)
+	for tr.nextID.Load() == baseline {
+		if time.Now().After(deadline) {
+			t.Fatal("timed out waiting for interrupt call registration")
+		}
+		time.Sleep(time.Millisecond)
 	}
 }
 

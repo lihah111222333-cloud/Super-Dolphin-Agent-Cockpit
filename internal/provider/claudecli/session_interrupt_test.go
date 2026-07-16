@@ -249,7 +249,7 @@ func TestInterruptDispatchesSyntheticToolEnd(t *testing.T) {
 		suppressedTurns: map[string]struct{}{},
 		eventDispatcher: dispatcher,
 	}
-	if err := s.Interrupt(context.Background(), dto.InterruptRequest{Source: "ui_stop"}); err != nil {
+	if err := s.Interrupt(context.Background(), dto.InterruptRequest{Source: "ui_stop", RequestID: "stop-1"}); err != nil {
 		t.Fatalf("Interrupt() error = %v", err)
 	}
 
@@ -279,8 +279,8 @@ func assertTurnInterrupted(t *testing.T, turnInterrupted <-chan turndto.TurnComp
 	t.Helper()
 	select {
 	case ev := <-turnInterrupted:
-		if ev.TurnID != "turn-1" || ev.Success || ev.Status != "interrupted" || ev.Reason != "provider" {
-			t.Fatalf("TurnCompleted = %#v, want provider interrupted terminal", ev)
+		if ev.TurnID != "turn-1" || ev.Success || ev.Status != "interrupted" || ev.Reason != "user_request" || ev.TerminationRequestID != "stop-1" {
+			t.Fatalf("TurnCompleted = %#v, want accepted user interruption", ev)
 		}
 	case <-time.After(time.Second):
 		t.Fatal("Interrupt() did not dispatch terminal interruption")
