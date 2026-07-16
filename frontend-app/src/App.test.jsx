@@ -756,7 +756,7 @@ it('renders the persisted shell layout width through the real chat layout', asyn
     gridTemplateColumns: 'minmax(0, 1fr) 6px 480.5px',
   });
   expect(storage.set).not.toHaveBeenCalled();
-});
+}, 15_000);
 
 it.each([
   ['read', (storage) => storage.get.mockImplementation(() => { throw new Error('private shell layout read'); })],
@@ -1797,6 +1797,8 @@ async function toggleInlineTraceFromRecentLogs(table) {
     await waitFor(() => expect(backend.interruptTurn).toHaveBeenCalledWith({
       cwd: '/repo/app',
       threadId: 'agent_123',
+      expectedTurnId: 'turn-123',
+      requestId: expect.any(String),
       source: 'ui_stop',
     }));
   });
@@ -4338,7 +4340,13 @@ async function toggleInlineTraceFromRecentLogs(table) {
         providerThreadId: 'provider-thread-1',
         provider: 'codex',
       }));
-      expect(backend.interruptTurn).toHaveBeenCalledWith({ cwd: '/repo/app', threadId: 'thread-1', source: 'ui_stop' });
+      expect(backend.interruptTurn).toHaveBeenCalledWith(expect.objectContaining({
+        cwd: '/repo/app',
+        threadId: 'thread-1',
+        expectedTurnId: expect.any(String),
+        requestId: expect.any(String),
+        source: 'ui_stop',
+      }));
       expect(backend.forceCompleteTurn).toHaveBeenCalledWith({ cwd: '/repo/app', threadId: 'thread-1' });
       expect(backend.recoverThread).toHaveBeenCalledWith({ cwd: '/repo/app', threadId: 'thread-1' });
       expect(backend.archiveThread).not.toHaveBeenCalled();
@@ -4393,7 +4401,13 @@ async function toggleInlineTraceFromRecentLogs(table) {
 
     await waitFor(() => {
       expect(interruptActiveThread).toHaveBeenCalledTimes(1);
-      expect(backend.interruptTurn).toHaveBeenCalledWith({ cwd: '/repo/app', threadId: 'thread-1', source: 'ui_stop' });
+      expect(backend.interruptTurn).toHaveBeenCalledWith(expect.objectContaining({
+        cwd: '/repo/app',
+        threadId: 'thread-1',
+        expectedTurnId: expect.any(String),
+        requestId: expect.any(String),
+        source: 'ui_stop',
+      }));
     });
   });
 

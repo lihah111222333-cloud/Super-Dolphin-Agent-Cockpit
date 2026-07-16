@@ -3816,7 +3816,7 @@ function registerBridgeEventHandlersForTest() {
       threads: [{ id: 'agent-douyin', name: 'Douyin agent', provider: 'codex', status: 'running' }],
       timelinesByThread: {
         'agent-douyin': [
-          { id: 'assistant-stream-turn1', role: 'assistant', text: '正在流式输出...', done: false }
+          { id: 'assistant-stream-turn1', role: 'assistant', text: '正在流式输出...', done: false, turnId: 'turn1' }
         ]
       }
     });
@@ -5124,6 +5124,7 @@ function registerBridgeEventHandlersForTest() {
           text: 'ok',
           done: false,
           runtime: true,
+          turnId: 'turn-1',
           time: '2026-05-30T00:01:00Z',
         }],
       },
@@ -5248,6 +5249,7 @@ function registerBridgeEventHandlersForTest() {
           id: 'assistant-from-patch',
           kind: 'assistant',
           text: '你是指：\n\n1. 页面/应用里没有内容了？\n2. 某个文件被清空了？',
+          turnId: 'turn-1',
           createdAt: '2026-05-30T00:01:00Z',
         }],
       },
@@ -5296,6 +5298,7 @@ function registerBridgeEventHandlersForTest() {
           id: 'assistant-part-1',
           kind: 'assistant',
           text: 'hello',
+          turnId: 'turn-1',
           createdAt: '2026-05-30T00:01:00Z',
         }],
       },
@@ -5326,6 +5329,7 @@ function registerBridgeEventHandlersForTest() {
           id: 'assistant-part-2',
           kind: 'assistant',
           text: 'world',
+          turnId: 'turn-1',
           createdAt: '2026-05-30T00:01:02Z',
         }],
       },
@@ -5718,7 +5722,7 @@ function registerBridgeEventHandlersForTest() {
         sequence: '2',
         timelineItems: [
           { id: 'user-1', role: 'user', text: 'say ok', done: true },
-          { id: 'msg-final', role: 'assistant', text: 'ok', done: true },
+          { id: 'msg-final', role: 'assistant', text: 'ok', done: true, turnId: 'turn-1' },
         ],
       },
     });
@@ -5929,7 +5933,7 @@ function registerBridgeEventHandlersForTest() {
       activeProject: '/repo/app',
       activeThreadId: 'thread-1',
       timelinesByThread: {
-        'thread-1': [{ id: 'assistant-open', role: 'assistant', text: 'partial', status: 'running' }],
+        'thread-1': [{ id: 'assistant-open', role: 'assistant', text: 'partial', status: 'running', turnId: 'turn-1' }],
       },
     });
     registerBridgeEventHandlersForTest();
@@ -6056,13 +6060,21 @@ function registerBridgeEventHandlersForTest() {
       expect(state.timelinesByThread['thread-1']).not.toEqual(expect.arrayContaining([
         expect.objectContaining({ text: expect.stringContaining('late mutation') }),
       ]));
-      expect(state.warningEntries).toEqual(expect.arrayContaining([
-        expect.objectContaining({ event: 'turn.terminal.conflict' }),
-        expect.objectContaining({ event: 'turn.event.late' }),
-      ]));
-      expect(state.warningEntries).not.toEqual(expect.arrayContaining([
-        expect.objectContaining({ event: 'turn.terminal.duplicate' }),
-      ]));
+      expect(state.warningEntries).toEqual([
+        expect.objectContaining({ event: 'turn.terminal.failed' }),
+      ]);
+      expect(backend.emitFrontendTraceEvent).toHaveBeenCalledWith(expect.objectContaining({
+        phase: 'frontend.turn_event.rejected',
+        method: 'turn.terminal.conflict',
+        thread_id: 'thread-1',
+        turn_id: 'turn-1',
+      }));
+      expect(backend.emitFrontendTraceEvent).toHaveBeenCalledWith(expect.objectContaining({
+        phase: 'frontend.turn_event.rejected',
+        method: 'turn.event.late',
+        thread_id: 'thread-1',
+        turn_id: 'turn-1',
+      }));
     } finally {
       vi.useRealTimers();
     }
@@ -6100,17 +6112,14 @@ function registerBridgeEventHandlersForTest() {
     expect(state.timelinesByThread['thread-1']).toBe(timeline);
     expect(state.actionNotice).toBe(actionNotice);
     expect(state.timelinesByThread['thread-1'][1]).toEqual(expect.objectContaining({ done: false, turnId: 'turn-2' }));
-    expect(state.warningEntries).toEqual([
-      expect.objectContaining({
-        level: 'warn',
-        event: 'turn.terminal.stale',
-        threadId: 'thread-1',
-        fields: expect.objectContaining({
-          turn_id: 'turn-1',
-          activeTurnId: '[redacted]',
-        }),
-      }),
-    ]);
+    expect(state.warningEntries).toEqual([]);
+    expect(state.activityEntries).toEqual([]);
+    expect(backend.emitFrontendTraceEvent).toHaveBeenCalledWith(expect.objectContaining({
+      phase: 'frontend.turn_event.rejected',
+      method: 'turn.terminal.stale',
+      thread_id: 'thread-1',
+      turn_id: 'turn-1',
+    }));
   });
 
   it('rejects item completion after the same turn is sealed', () => {
@@ -6150,14 +6159,266 @@ function registerBridgeEventHandlersForTest() {
     const state = useClientStore.getState();
     expect(state.timelinesByThread['thread-1']).toBe(sealedTimeline);
     expect(state.actionNotice).toBe(sealedNotice);
-    expect(state.warningEntries).toEqual([
-      expect.objectContaining({
-        level: 'warn',
-        event: 'turn.event.late',
+    expect(state.warningEntries).toEqual([]);
+    expect(backend.emitFrontendTraceEvent).toHaveBeenCalledWith(expect.objectContaining({
+      phase: 'frontend.turn_event.rejected',
+      method: 'turn.event.late',
+      thread_id: 'thread-1',
+      turn_id: 'turn-1',
+    }));
+  });
+
+  it.each([
+    ['assistant delta', { type: 'turn/output/delta', payload: { threadId: 'thread-1', itemId: 'assistant-open', delta: 'late text' } }],
+    ['reasoning delta', { type: 'item/reasoning/textDelta', payload: { threadId: 'thread-1', delta: 'late thought' } }],
+    ['command output', { type: 'item/commandExecution/outputDelta', payload: { threadId: 'thread-1', delta: 'late output' } }],
+    ['item completion', { type: 'item/completed', payload: { threadId: 'thread-1', item: { id: 'assistant-open', type: 'assistant', text: 'late final' } } }],
+  ])('rejects %s without a canonical TurnRef before mutating UI state', async (_label, event) => {
+    vi.useFakeTimers();
+    try {
+      const actionNotice = { message: '保持原状态', tone: 'info' };
+      const timeline = [{ id: 'assistant-open', role: 'assistant', kind: 'command', text: 'existing', done: false, turnId: 'turn-1' }];
+      const activityEntries = [{ id: 'existing-activity', method: 'existing', threadId: 'thread-1' }];
+      resetClientStoreForTests({
+        cwd: '/repo/app',
+        activeProject: '/repo/app',
+        activeThreadId: 'thread-1',
+        actionNotice,
+        activityEntries,
+        timelinesByThread: { 'thread-1': timeline },
+      });
+      registerBridgeEventHandlersForTest();
+
+      bridgeCallback(event);
+      await flushAssistantDeltaBatch();
+
+      const state = useClientStore.getState();
+      expect(state.timelinesByThread['thread-1']).toBe(timeline);
+      expect(state.actionNotice).toBe(actionNotice);
+      expect(state.activityEntries).toBe(activityEntries);
+      expect(state.warningEntries).toEqual([
+        expect.objectContaining({ level: 'error', event: 'turn.event.contract_invalid' }),
+      ]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('rejects every sealed turn event through telemetry without mutating UI state', async () => {
+    vi.useFakeTimers();
+    try {
+      resetClientStoreForTests({
+        cwd: '/repo/app',
+        activeProject: '/repo/app',
+        activeThreadId: 'thread-1',
+        timelinesByThread: {
+          'thread-1': [
+            { id: 'assistant-turn-1', role: 'assistant', kind: 'assistant', text: 'answer', done: false, turnId: 'turn-1' },
+            { id: 'command-turn-1', role: 'assistant', kind: 'command', text: 'command', done: false, turnId: 'turn-1' },
+          ],
+        },
+      });
+      registerBridgeEventHandlersForTest();
+      bridgeCallback({
+        type: 'turn/terminal',
+        payload: {
+          schemaVersion: 2,
+          eventId: 'terminal-sealed-turn-1',
+          threadId: 'thread-1',
+          turnId: 'turn-1',
+          outcome: 'success',
+          occurredAt: '2026-07-16T01:00:00Z',
+        },
+      });
+      const sealedState = useClientStore.getState();
+      const timeline = sealedState.timelinesByThread['thread-1'];
+      const actionNotice = sealedState.actionNotice;
+      const activityEntries = sealedState.activityEntries;
+      const warningEntries = sealedState.warningEntries;
+      backend.emitFrontendTraceEvent.mockClear();
+
+      bridgeCallback({ type: 'turn/output/delta', payload: { threadId: 'thread-1', turnId: 'turn-1', itemId: 'assistant-turn-1', delta: 'late assistant' } });
+      bridgeCallback({ type: 'item/reasoning/textDelta', payload: { threadId: 'thread-1', turnId: 'turn-1', delta: 'late thought' } });
+      bridgeCallback({ type: 'item/commandExecution/outputDelta', payload: { threadId: 'thread-1', turnId: 'turn-1', delta: 'late output' } });
+      bridgeCallback({ type: 'item/completed', payload: { threadId: 'thread-1', turnId: 'turn-1', item: { id: 'assistant-turn-1', type: 'assistant', text: 'late final' } } });
+      await flushAssistantDeltaBatch();
+
+      const state = useClientStore.getState();
+      expect(state.timelinesByThread['thread-1']).toBe(timeline);
+      expect(state.actionNotice).toBe(actionNotice);
+      expect(state.activityEntries).toBe(activityEntries);
+      expect(state.warningEntries).toBe(warningEntries);
+      expect(backend.emitFrontendTraceEvent).toHaveBeenCalledTimes(4);
+      expect(backend.emitFrontendTraceEvent).toHaveBeenCalledWith(expect.objectContaining({
+        phase: 'frontend.turn_event.rejected',
+        method: 'turn.event.late',
+        thread_id: 'thread-1',
+        turn_id: 'turn-1',
+      }));
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it.each([
+    ['assistant delta', { type: 'turn/output/delta', payload: { threadId: 'thread-1', turnId: 'turn-1', itemId: 'late-turn-1', delta: 'late answer' } }],
+    ['item completion', { type: 'item/completed', payload: { threadId: 'thread-1', turnId: 'turn-1', item: { id: 'late-turn-1', type: 'assistant', text: 'late final' } } }],
+  ])('rejects stale %s when the active turn is authoritative', async (_label, event) => {
+    vi.useFakeTimers();
+    try {
+      const activeTurn = { id: 'turn-2', status: 'running' };
+      const actionNotice = { message: 'T2 正在运行', tone: 'info' };
+      const activityEntries = [{ id: 'existing-activity', method: 'turn/started', threadId: 'thread-1' }];
+      const warningEntries = [];
+      const timeline = [{ id: 'turn-2-open', role: 'assistant', kind: 'assistant', text: 'current', done: false, turnId: 'turn-2' }];
+      resetClientStoreForTests({
+        cwd: '/repo/app',
+        activeProject: '/repo/app',
+        activeThreadId: 'thread-1',
+        activeTurnByThread: { 'thread-1': activeTurn },
+        actionNotice,
+        activityEntries,
+        warningEntries,
+        timelinesByThread: { 'thread-1': timeline },
+      });
+      registerBridgeEventHandlersForTest();
+
+      bridgeCallback(event);
+      await flushAssistantDeltaBatch();
+
+      const state = useClientStore.getState();
+      expect(state.timelinesByThread['thread-1']).toBe(timeline);
+      expect(state.actionNotice).toBe(actionNotice);
+      expect(state.activityEntries).toBe(activityEntries);
+      expect(state.warningEntries).toBe(warningEntries);
+      expect(state.activeTurnByThread['thread-1']).toBe(activeTurn);
+      expect(backend.emitFrontendTraceEvent).toHaveBeenCalledWith(expect.objectContaining({
+        phase: 'frontend.turn_event.rejected',
+        method: 'turn.event.stale',
+        thread_id: 'thread-1',
+        turn_id: 'turn-1',
+      }));
+
+      bridgeCallback({
+        type: 'turn/terminal',
+        payload: {
+          schemaVersion: 2,
+          eventId: `terminal-turn-2-after-${event.type}`,
+          threadId: 'thread-1',
+          turnId: 'turn-2',
+          outcome: 'success',
+          occurredAt: '2026-07-16T01:00:00Z',
+        },
+      });
+      expect(useClientStore.getState().timelinesByThread['thread-1']).toEqual(expect.arrayContaining([
+        expect.objectContaining({ kind: 'turn_terminal', turnId: 'turn-2', terminalOutcome: 'success' }),
+      ]));
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('does not flush or finalize a newer buffered turn when an older terminal arrives before the active-turn patch', async () => {
+    vi.useFakeTimers();
+    try {
+      const actionNotice = { message: '旧轮仍显示运行中', tone: 'info' };
+      const timeline = [{ id: 'turn-1-open', role: 'assistant', kind: 'assistant', text: 'old', done: false, turnId: 'turn-1' }];
+      const activityEntries = [];
+      resetClientStoreForTests({
+        cwd: '/repo/app',
+        activeProject: '/repo/app',
+        activeThreadId: 'thread-1',
+        actionNotice,
+        activityEntries,
+        timelinesByThread: { 'thread-1': timeline },
+      });
+      registerBridgeEventHandlersForTest();
+
+      bridgeCallback({
+        type: 'turn/output/delta',
+        payload: { threadId: 'thread-1', turnId: 'turn-2', itemId: 'turn-2-open', delta: 'new turn' },
+      });
+      bridgeCallback({
+        type: 'turn/terminal',
+        payload: {
+          schemaVersion: 2,
+          eventId: 'terminal-late-turn-1',
+          threadId: 'thread-1',
+          turnId: 'turn-1',
+          outcome: 'success',
+          occurredAt: '2026-07-16T01:00:00Z',
+        },
+      });
+
+      const beforeFlush = useClientStore.getState();
+      expect(beforeFlush.timelinesByThread['thread-1']).toBe(timeline);
+      expect(beforeFlush.actionNotice).toBe(actionNotice);
+      expect(beforeFlush.activityEntries).toBe(activityEntries);
+      expect(beforeFlush.warningEntries).toEqual([]);
+      expect(backend.emitFrontendTraceEvent).toHaveBeenCalledWith(expect.objectContaining({
+        phase: 'frontend.turn_event.rejected',
+        method: 'turn.terminal.stale',
+        turn_id: 'turn-1',
+      }));
+
+      await flushAssistantDeltaBatch();
+      expect(useClientStore.getState().timelinesByThread['thread-1']).toEqual([
+        expect.objectContaining({ id: 'turn-1-open', done: false, turnId: 'turn-1' }),
+        expect.objectContaining({ id: 'turn-2-open', done: false, turnId: 'turn-2' }),
+      ]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('evicts sealed terminal state when a thread lifecycle ends', async () => {
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'thread-1',
+      threads: [{ id: 'thread-1', name: 'Thread 1', provider: 'codex', status: 'running' }],
+      timelinesByThread: { 'thread-1': [] },
+    });
+    registerBridgeEventHandlersForTest();
+    const terminal = {
+      type: 'turn/terminal',
+      payload: {
+        schemaVersion: 2,
+        eventId: 'terminal-before-delete',
         threadId: 'thread-1',
-        fields: expect.objectContaining({ turn_id: 'turn-1' }),
-      }),
-    ]);
+        turnId: 'turn-1',
+        outcome: 'success',
+        occurredAt: '2026-07-16T01:00:00Z',
+      },
+    };
+    bridgeCallback(terminal);
+
+    await useClientStore.getState().deleteStaleThreads(['thread-1']);
+    useClientStore.setState({
+      activeThreadId: 'thread-1',
+      activeTurnByThread: { 'thread-1': { id: 'turn-2', status: 'running' } },
+      threads: [{ id: 'thread-1', name: 'Recreated', provider: 'codex', status: 'running' }],
+      timelinesByThread: { 'thread-1': [] },
+      actionNotice: null,
+      activityEntries: [],
+      warningEntries: [],
+    });
+    backend.emitFrontendTraceEvent.mockClear();
+
+    bridgeCallback(terminal);
+
+    expect(useClientStore.getState()).toMatchObject({
+      actionNotice: null,
+      activityEntries: [],
+      warningEntries: [],
+      timelinesByThread: { 'thread-1': [] },
+    });
+    expect(backend.emitFrontendTraceEvent).toHaveBeenCalledWith(expect.objectContaining({
+      phase: 'frontend.turn_event.rejected',
+      method: 'turn.terminal.stale',
+      thread_id: 'thread-1',
+      turn_id: 'turn-1',
+    }));
   });
 
   it('rejects legacy or malformed terminal payloads into a visible contract error sink', () => {
@@ -6823,7 +7084,13 @@ function registerBridgeEventHandlersForTest() {
     await useClientStore.getState().renameThread('thread-1', 'Renamed');
     await useClientStore.getState().archiveThread('thread-1', true);
 
-    expect(backend.interruptTurn).toHaveBeenCalledWith({ cwd: '/repo/app', threadId: 'thread-1', source: 'ui_stop' });
+    expect(backend.interruptTurn).toHaveBeenCalledWith({
+      cwd: '/repo/app',
+      threadId: 'thread-1',
+      expectedTurnId: 'turn-1',
+      requestId: expect.any(String),
+      source: 'ui_stop',
+    });
     expect(backend.forceCompleteTurn).toHaveBeenCalledWith({ cwd: '/repo/app', threadId: 'thread-1' });
     expect(backend.compactThread).toHaveBeenCalledWith({ cwd: '/repo/app', threadId: 'thread-1' });
     expect(backend.recoverThread).toHaveBeenCalledWith({ cwd: '/repo/app', threadId: 'thread-1' });
@@ -7297,7 +7564,13 @@ function registerBridgeEventHandlersForTest() {
 
     await expect(useClientStore.getState().interruptActiveThread()).resolves.toBe(true);
 
-    expect(backend.interruptTurn).toHaveBeenCalledWith({ cwd: '/repo/app', threadId: 'agent_123', source: 'ui_stop' });
+    expect(backend.interruptTurn).toHaveBeenCalledWith({
+      cwd: '/repo/app',
+      threadId: 'agent_123',
+      expectedTurnId: 'turn-123',
+      requestId: expect.any(String),
+      source: 'ui_stop',
+    });
   });
 
   it('surfaces recover RPC failures without throwing an unhandled action error', async () => {

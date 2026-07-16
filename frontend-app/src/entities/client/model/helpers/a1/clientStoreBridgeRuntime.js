@@ -214,7 +214,6 @@ function attachBridgeEventRuntime(runtime) {
       return;
     }
     if (eventName === 'item/completed') {
-      flushAssistantDeltasNow();
       applyAssistantCompletion(method, payload);
       return;
     }

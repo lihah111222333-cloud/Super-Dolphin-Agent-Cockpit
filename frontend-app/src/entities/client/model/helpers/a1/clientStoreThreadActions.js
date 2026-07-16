@@ -539,6 +539,7 @@ async function deleteStaleThreadsAction(runtime, threadIds) {
   const cwd = runtime.requireCwd('thread.delete');
   const { deletedIds, failedIds } = await deleteThreadsById(runtime, ids);
   if (deletedIds.length > 0) {
+    deletedIds.forEach((id) => runtime.clearTurnRuntimeForThread(id));
     await Promise.all(deletedIds.map((id) => clearArchivedPreference(cwd, id)));
     runtime.set((state) => deletedThreadsPatch(state, deletedIds, failedIds));
   } else {

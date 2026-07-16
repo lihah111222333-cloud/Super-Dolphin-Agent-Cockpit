@@ -1,4 +1,5 @@
 import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
@@ -34,11 +35,78 @@ function source(relativePath) {
   return fs.readFileSync(path.join(appRoot, relativePath), 'utf8');
 }
 
-function sourceHasTerminalFalseSuccess() {
-  const body = source('src/entities/client/model/helpers/assistantEventRuntime.js');
-  const completion = source('src/entities/client/model/runtimeAssistantTimeline.js');
-  return body.includes("actionNotice: deps.actionNotice('已收到回复', 'success')")
-    && !completion.includes('outcome');
+function terminalTruthCheck() {
+  return controls.controls.find(({ id }) => id === 'E01-terminal-truth')?.allOf?.[0];
+}
+
+function terminalTruthFingerprint() {
+  const paths = [
+    'src/entities/client/model/helpers/assistantEventRuntime.js',
+    'src/entities/client/model/helpers/runtimeAssistantTimelineMerge.js',
+    'src/entities/client/model/runtimeAssistantTimeline.js',
+    'src/entities/client/model/useClientStore.test.js',
+  ];
+  const hash = createHash('sha256');
+  for (const relativePath of paths) {
+    hash.update(relativePath);
+    hash.update('\0');
+    hash.update(source(relativePath));
+    hash.update('\0');
+  }
+  return hash.digest('hex');
+}
+
+function terminalTruthTestResults(report) {
+  if (!report || !Array.isArray(report.testResults)) return [];
+  return report.testResults.flatMap((fileResult) => (
+    Array.isArray(fileResult.assertionResults) ? fileResult.assertionResults : []
+  )).map((result) => ({
+    name: result.title,
+    status: result.status,
+  }));
+}
+
+export function terminalTruthEvidenceStatus(evidence, expected) {
+  if (!evidence || evidence.failed === true || evidence.fingerprint !== expected?.fingerprint) return 'FAIL';
+  if (!Array.isArray(evidence.testResults) || evidence.testResults.length === 0) return 'FAIL';
+  if (!Array.isArray(expected?.testNames) || expected.testNames.length === 0) return 'FAIL';
+  const byName = new Map(evidence.testResults.map((result) => [result.name, result.status]));
+  if (byName.size !== expected.testNames.length) return 'FAIL';
+  return expected.testNames.every((name) => byName.get(name) === 'passed') ? 'PASS' : 'FAIL';
+}
+
+function collectTerminalTruthEvidence() {
+  const check = terminalTruthCheck();
+  const fingerprint = terminalTruthFingerprint();
+  const vitestPath = path.join(appRoot, 'node_modules', 'vitest', 'vitest.mjs');
+  try {
+    const output = execFileSync(process.execPath, [
+      vitestPath,
+      'run',
+      'src/entities/client/model/useClientStore.test.js',
+      '--reporter=json',
+      '--no-file-parallelism',
+      '--maxWorkers=1',
+    ], {
+      cwd: appRoot,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+      timeout: check.timeoutMs,
+    });
+    const expectedNames = new Set(check.testNames);
+    return {
+      fingerprint,
+      testResults: terminalTruthTestResults(JSON.parse(output)).filter(({ name }) => expectedNames.has(name)),
+    };
+  } catch (error) {
+    return { fingerprint, failed: true, testResults: [], summary: error.message };
+  }
+}
+
+function terminalTruthProbeResult() {
+  const check = terminalTruthCheck();
+  const expected = { fingerprint: terminalTruthFingerprint(), testNames: check.testNames };
+  return terminalTruthEvidenceStatus(collectTerminalTruthEvidence(), expected);
 }
 
 function sourceHasPromptHistoryConsoleOnly() {
@@ -84,6 +152,11 @@ export function validateConfiguration(config = controls, fixtureDocument = fixtu
         fail(`zero-test runner evidence: ${control.id}`);
       }
       if (new Set(check.caseIds).size !== check.caseIds.length) fail(`duplicate fixture case: ${control.id}`);
+      if (control.id === 'E01-terminal-truth') {
+        if (!Array.isArray(check.testNames) || check.testNames.length !== check.testCount || new Set(check.testNames).size !== check.testNames.length) {
+          fail('terminal truth named test evidence mismatch');
+        }
+      }
       for (const caseID of check.caseIds) {
         if (caseID.includes('frontend-')) continue;
         if (!fixtureIDs.includes(caseID)) fail(`missing fixture case: ${caseID}`);
@@ -104,7 +177,7 @@ export function validateConfiguration(config = controls, fixtureDocument = fixtu
 }
 
 function probeResult(probe) {
-  if (probe === 'terminalTruth') return sourceHasTerminalFalseSuccess() ? 'FAIL' : 'PASS';
+  if (probe === 'terminalTruth') return terminalTruthProbeResult();
   if (probe === 'promptHistoryVisibleError') return sourceHasPromptHistoryConsoleOnly() ? 'FAIL' : 'PASS';
   if (probe === 'criticalTypecheck') return sourceHasCriticalTypecheckGap() ? 'FAIL' : 'PASS';
   if (probe === 'redMatrix') return 'FAIL';
@@ -201,4 +274,4 @@ if (process.argv[1] && path.resolve(process.argv[1]) === scriptPath) {
   }
 }
 
-export { controlStatus, probeResult, sourceHasPromptHistoryConsoleOnly, sourceHasTerminalFalseSuccess };
+export { controlStatus, probeResult, sourceHasPromptHistoryConsoleOnly };

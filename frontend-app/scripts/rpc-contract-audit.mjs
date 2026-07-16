@@ -50,11 +50,16 @@ const GO_PAYLOAD_STRUCTS = new Map([
     'internal/module/turn/rpc_types.go:turnSteerParams',
     'internal/module/turn/rpc_types.go:legacyTurnSteerParams',
   ]],
+  ['turn/interrupt', [
+    'internal/module/turn/rpc_types.go:turnInterruptParams',
+    'internal/module/turn/rpc_types.go:legacyTurnInterruptParams',
+  ]],
 ])
 
 const FRONTEND_PAYLOAD_BUILDERS = new Map([
   ['thread/start', 'threadStartPayload'],
   ['turn/start', 'turnStartPayload'],
+  ['turn/interrupt', 'turnInterruptPayload'],
 ])
 
 const RESPONSE_VALIDATOR_POLICY_EXCEPTIONS = new Map([
@@ -105,6 +110,9 @@ const FRONTEND_FACADE_ONLY_PAYLOAD_KEYS = new Map([
   ['turn/start', [
     'attachments',
   ]],
+  ['turn/interrupt', [
+    'cwd',
+  ]],
 ])
 
 const GO_HANDLER_CALLS = [
@@ -119,34 +127,47 @@ export async function auditRpcContracts({ repoRoot = DEFAULT_REPO_ROOT } = {}) {
   const auditContext = {
     repoRoot,
     sourceByPath: new Map(),
+    sourcePromiseByPath: new Map(),
     astByPath: new Map(),
+    astPromiseByPath: new Map(),
     productionFacadeReferenceIndex: null,
+    auditStats: {
+      sourceReads: 0,
+      astParses: 0,
+      productionFacadeReferenceIndexBuilds: 0,
+      productionSourceFilesIndexed: 0,
+    },
   }
-  const rpcMethodsSource = await readFile(join(repoRoot, RPC_METHODS_PATH), 'utf8')
-  const frontendSource = await readFile(join(repoRoot, RPC_FACADE_PATH), 'utf8')
-  const payloadBuildersSource = await readFile(join(repoRoot, FRONTEND_PAYLOAD_BUILDERS_PATH), 'utf8')
+  const [rpcMethodsSource, frontendSource, payloadBuildersSource, matrixSource, responseValidatorSource] = await Promise.all([
+    readAuditSource(auditContext, RPC_METHODS_PATH),
+    readAuditSource(auditContext, RPC_FACADE_PATH),
+    readAuditSource(auditContext, FRONTEND_PAYLOAD_BUILDERS_PATH),
+    readAuditSource(auditContext, RPC_MATRIX_PATH),
+    readAuditSource(auditContext, RPC_RESPONSE_VALIDATORS_PATH),
+  ])
   assertRpcMethodsFacadeReExport(frontendSource)
   const rpcMethods = parseRpcMethods(
     rpcMethodsSource,
   )
   const methodsByKey = new Map(rpcMethods.map((entry) => [entry.key, entry]))
   const parsedRegistryEntries = parseContractMatrix(
-    await readFile(join(repoRoot, RPC_MATRIX_PATH), 'utf8'),
+    matrixSource,
   )
   const registryEntries = parsedRegistryEntries.map((entry) => ({
     ...entry,
     method: entry.methodReferenceKey ? methodsByKey.get(entry.methodReferenceKey)?.method ?? '' : entry.method,
   }))
-  const backendHandlers = await collectGoRpcHandlers(repoRoot)
-  const goPayloadKeysByMethod = await collectGoPayloadKeys(repoRoot)
+  const [backendHandlers, goPayloadKeysByMethod, hardcodedPayloadGuardFindings, backendFacadeRpcKeys] = await Promise.all([
+    collectGoRpcHandlers(auditContext),
+    collectGoPayloadKeys(auditContext),
+    collectHardcodedPayloadGuardFindings(auditContext, payloadBuildersSource),
+    collectBackendFacadeRpcKeys(auditContext),
+  ])
   const frontendPayloadKeysByMethod = collectFrontendPayloadKeysFromSource(payloadBuildersSource)
-  const hardcodedPayloadGuardFindings = await collectHardcodedPayloadGuardFindings(repoRoot, payloadBuildersSource)
 
   const registryByKey = new Map(registryEntries.map((entry) => [entry.key, entry]))
   const handlerMethods = new Set(backendHandlers.map((entry) => entry.method))
-  const responseValidatorSource = await readFile(join(repoRoot, RPC_RESPONSE_VALIDATORS_PATH), 'utf8')
   const frontendResponseValidators = collectFrontendResponseValidators(responseValidatorSource)
-  const backendFacadeRpcKeys = await collectBackendFacadeRpcKeys(repoRoot)
   const responseContractStrategies = registryEntries
     .concat(rpcMethods.filter((entry) => !registryByKey.has(entry.key)))
     .map((entry) => ({
@@ -220,6 +241,7 @@ export async function auditRpcContracts({ repoRoot = DEFAULT_REPO_ROOT } = {}) {
     missingFrontendResponseValidators,
     invalidFacadeLocators,
     invalidResponsePolicyEvidence,
+    auditStats: { ...auditContext.auditStats },
   }
 }
 
@@ -809,20 +831,34 @@ async function pathContainsSymbolicLink(repoRoot, filePath) {
 }
 
 async function readAuditSource(auditContext, filePath) {
-  let source = auditContext.sourceByPath.get(filePath)
-  if (source === undefined) {
-    source = await readFile(join(auditContext.repoRoot, filePath), 'utf8')
-    auditContext.sourceByPath.set(filePath, source)
+  const cached = auditContext.sourceByPath.get(filePath)
+  if (cached !== undefined) return cached
+  let pending = auditContext.sourcePromiseByPath.get(filePath)
+  if (!pending) {
+    auditContext.auditStats.sourceReads += 1
+    pending = readFile(join(auditContext.repoRoot, filePath), 'utf8')
+    auditContext.sourcePromiseByPath.set(filePath, pending)
   }
+  const source = await pending
+  auditContext.sourceByPath.set(filePath, source)
+  auditContext.sourcePromiseByPath.delete(filePath)
   return source
 }
 
 async function readAuditAst(auditContext, filePath) {
-  let ast = auditContext.astByPath.get(filePath)
-  if (!ast) {
-    ast = parseFrontendAst(await readAuditSource(auditContext, filePath))
-    auditContext.astByPath.set(filePath, ast)
+  const cached = auditContext.astByPath.get(filePath)
+  if (cached) return cached
+  let pending = auditContext.astPromiseByPath.get(filePath)
+  if (!pending) {
+    pending = readAuditSource(auditContext, filePath).then((source) => {
+      auditContext.auditStats.astParses += 1
+      return parseFrontendAst(source)
+    })
+    auditContext.astPromiseByPath.set(filePath, pending)
   }
+  const ast = await pending
+  auditContext.astByPath.set(filePath, ast)
+  auditContext.astPromiseByPath.delete(filePath)
   return ast
 }
 
@@ -3466,6 +3502,7 @@ function isExactRuntimePayloadDeclaration(statement) {
     'activeThreadInterruptTarget',
     'activeTurnTarget',
     'cleanObject',
+    'createRequestId',
     'currentState',
     'cwd',
     'notifyAction',
@@ -4086,6 +4123,7 @@ function collectUnusedPolicyFindings(auditContext, entry) {
 }
 
 async function buildProductionFacadeReferenceIndex(auditContext, entries, backendFacadeRpcKeys) {
+  auditContext.auditStats.productionFacadeReferenceIndexBuilds += 1
   const files = await listJavaScriptSourceFiles(join(auditContext.repoRoot, 'frontend-app/src'))
   const excludedPaths = new Set([
     RPC_MATRIX_PATH,
@@ -4097,11 +4135,16 @@ async function buildProductionFacadeReferenceIndex(auditContext, entries, backen
       locator.methodPath,
     ]),
   ])
+  const productionFilePaths = files
+    .map((absolutePath) => relative(auditContext.repoRoot, absolutePath).replaceAll('\\', '/'))
+    .filter((filePath) => !isExcludedProductionScanPath(filePath))
+  const astByFilePath = new Map(await Promise.all(productionFilePaths.map(async (filePath) => (
+    [filePath, await readAuditAst(auditContext, filePath)]
+  ))))
+  auditContext.auditStats.productionSourceFilesIndexed = astByFilePath.size
   const index = new Map()
   const reExportStatementsByPath = new Map()
-  for (const absolutePath of files) {
-    const filePath = relative(auditContext.repoRoot, absolutePath).replaceAll(String.fromCharCode(92), '/')
-    const ast = await readAuditAst(auditContext, filePath)
+  for (const [filePath, ast] of astByFilePath) {
     const statements = ast.program.body.filter((statement) => (
       statement.source
       && (statement.type === 'ExportAllDeclaration' || statement.type === 'ExportNamedDeclaration')
@@ -4115,10 +4158,8 @@ async function buildProductionFacadeReferenceIndex(auditContext, entries, backen
       collectFacadeReExportPaths(reExportStatementsByPath, entry),
     )
   }
-  for (const absolutePath of files) {
-    const filePath = relative(auditContext.repoRoot, absolutePath).replaceAll('\\', '/')
-    if (excludedPaths.has(filePath) || isExcludedProductionScanPath(filePath)) continue
-    const ast = await readAuditAst(auditContext, filePath)
+  for (const [filePath, ast] of astByFilePath) {
+    if (excludedPaths.has(filePath)) continue
     for (const entry of entries) {
       if (
         !index.has(entry.key)
@@ -4187,20 +4228,19 @@ function collectFacadeReExportPaths(reExportStatementsByPath, entry) {
 }
 
 async function listJavaScriptSourceFiles(directory) {
-  const files = []
-  for (const entry of await readdir(directory, { withFileTypes: true })) {
+  const entries = await readdir(directory, { withFileTypes: true })
+  const groups = await Promise.all(entries.map(async (entry) => {
     const filePath = join(directory, entry.name)
     if (entry.isSymbolicLink()) {
       throw new Error(`production scan tree must not contain symbolic links: ${filePath}`)
     }
     if (entry.isDirectory()) {
-      if (entry.name === 'dist' || entry.name === 'generated' || entry.name === 'node_modules') continue
-      files.push(...await listJavaScriptSourceFiles(filePath))
-      continue
+      if (entry.name === 'dist' || entry.name === 'generated' || entry.name === 'node_modules') return []
+      return listJavaScriptSourceFiles(filePath)
     }
-    if (entry.isFile() && /\.(?:js|jsx|mjs)$/.test(entry.name)) files.push(filePath)
-  }
-  return files.sort()
+    return entry.isFile() && /\.(?:js|jsx|mjs)$/.test(entry.name) ? [filePath] : []
+  }))
+  return groups.flat().sort()
 }
 
 function isExcludedProductionScanPath(filePath) {
@@ -4444,11 +4484,10 @@ function collectBindingNames(pattern, names) {
   }
 }
 
-async function collectBackendFacadeRpcKeys(repoRoot) {
+async function collectBackendFacadeRpcKeys(auditContext) {
   const facadeRpcKeys = new Map()
   for (const filePath of BACKEND_API_FACTORY_PATHS) {
-    const source = await readFile(join(repoRoot, filePath), 'utf8')
-    const ast = parseFrontendAst(source)
+    const ast = await readAuditAst(auditContext, filePath)
     traverseAst(ast, (node) => {
       if (
         node.type !== 'FunctionDeclaration'
@@ -4475,10 +4514,10 @@ async function collectBackendFacadeRpcKeys(repoRoot) {
     })
   }
   for (const [rpcKey, locator] of DIRECT_FACADE_RPC_LOCATORS.entries()) {
-    const implementationSource = await readFile(join(repoRoot, locator.implementationPath), 'utf8')
+    const implementationSource = await readAuditSource(auditContext, locator.implementationPath)
     const methodSource = locator.methodPath === locator.implementationPath
       ? implementationSource
-      : await readFile(join(repoRoot, locator.methodPath), 'utf8')
+      : await readAuditSource(auditContext, locator.methodPath)
     if (
       !collectNamedExports(implementationSource).has(locator.facade)
       || !sourceDeclaresFunction(implementationSource, locator.facade)
@@ -4810,13 +4849,13 @@ function collectFrontendResponseValidators(source) {
   return validators
 }
 
-async function collectGoPayloadKeys(repoRoot) {
+async function collectGoPayloadKeys(auditContext) {
   const out = new Map()
   for (const [method, locators] of GO_PAYLOAD_STRUCTS.entries()) {
     const keys = []
     for (const locator of locators) {
       const [filePath, symbol] = locator.split(':')
-      const source = await readFile(join(repoRoot, filePath), 'utf8')
+      const source = await readAuditSource(auditContext, filePath)
       keys.push(...parseGoStructJSONTags(source, symbol))
     }
     out.set(method, uniqueSorted(keys))
@@ -4842,14 +4881,14 @@ function parseGoStructJSONTags(source, symbol) {
   return keys
 }
 
-async function collectHardcodedPayloadGuardFindings(repoRoot, frontendSource) {
+async function collectHardcodedPayloadGuardFindings(auditContext, frontendSource) {
   const inspectedFiles = uniqueSorted([
     ...new Set([...GO_PAYLOAD_STRUCTS.values()].flat().map((locator) => locator.split(':')[0])),
   ])
   const goSources = new Map()
-  for (const filePath of inspectedFiles) {
-    goSources.set(filePath, await readFile(join(repoRoot, filePath), 'utf8'))
-  }
+  await Promise.all(inspectedFiles.map(async (filePath) => {
+    goSources.set(filePath, await readAuditSource(auditContext, filePath))
+  }))
   return collectHardcodedPayloadGuardFindingsFromSources({
     frontendPath: FRONTEND_PAYLOAD_BUILDERS_PATH,
     frontendSource,
@@ -5007,8 +5046,9 @@ function uniqueSorted(values) {
   return [...new Set(values)].sort((a, b) => a.localeCompare(b))
 }
 
-async function collectGoRpcHandlers(repoRoot) {
-  const constants = await collectGoRpcConstants(repoRoot)
+async function collectGoRpcHandlers(auditContext) {
+  const { repoRoot } = auditContext
+  const constants = await collectGoRpcConstants(auditContext)
   const goFiles = []
   for (const root of GO_HANDLER_ROOTS) {
     goFiles.push(...await collectGoFiles(join(repoRoot, root)))
@@ -5016,7 +5056,7 @@ async function collectGoRpcHandlers(repoRoot) {
 
   const sources = await Promise.all(goFiles.map(async (filePath) => ({
     filePath,
-    source: await readFile(filePath, 'utf8'),
+    source: await readAuditSource(auditContext, relative(repoRoot, filePath).replaceAll('\\', '/')),
   })))
 
   const handlers = []
@@ -5030,8 +5070,8 @@ async function collectGoRpcHandlers(repoRoot) {
   return uniqueHandlers(handlers)
 }
 
-async function collectGoRpcConstants(repoRoot) {
-  const source = await readFile(join(repoRoot, GO_RPC_CONSTANTS_PATH), 'utf8')
+async function collectGoRpcConstants(auditContext) {
+  const source = await readAuditSource(auditContext, GO_RPC_CONSTANTS_PATH)
   const constants = new Map()
   const constPattern = /^\s*([A-Za-z0-9_]+)\s*=\s*"([^"]+\/[^"]+)"/gm
   let match

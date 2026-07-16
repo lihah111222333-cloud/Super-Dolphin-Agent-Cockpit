@@ -245,7 +245,7 @@ function realResultHandledSources({
           }
           try {
             const cwd = requireCwd(action)
-            const payload = threadActionPayload({ action, activeThreadInterruptTarget, activeTurnTarget, cleanObject, currentState, cwd, notifyAction, threadId })
+            const payload = threadActionPayload({ action, activeThreadInterruptTarget, activeTurnTarget, cleanObject, createRequestId, currentState, cwd, notifyAction, threadId })
             if (!payload) return { ok: false, threadId, result: null }
             const result = await rpc({})
             if (notifyThreadActionFailure({ action, addWarning, notifyAction, ${resultProperty}: result, threadId })) return { ok: false, threadId, result }
@@ -455,6 +455,9 @@ describe('rpc contract audit', () => {
     expect(report.p0MissingBackendHandlers).toEqual([])
     expect(report.allowedPayloadRegistryDrift).toEqual([])
     expect(report.hardcodedPayloadGuardFindings).toEqual([])
+    expect(report.auditStats).toEqual(expect.objectContaining({
+      productionFacadeReferenceIndexBuilds: 1,
+    }))
     expect(report.responseContractStrategies).toEqual(expect.arrayContaining([
       {
         key: 'UI_SIDEBAR_GET',
@@ -485,6 +488,39 @@ describe('rpc contract audit', () => {
       'threadId',
       'selected_skill_refs',
       'selectedSkillRefs',
+    ]))
+    expect(report.frontendPayloadKeysByMethod.get('turn/interrupt')).toEqual(expect.arrayContaining([
+      'expectedTurnId',
+      'requestId',
+      'threadId',
+    ]))
+    expect(report.goPayloadKeysByMethod.get('turn/interrupt')).toEqual(expect.arrayContaining([
+      'expected_turn_id',
+      'expectedTurnId',
+      'request_id',
+      'requestId',
+      'thread_id',
+      'threadId',
+    ]))
+  }, 15000)
+
+  it('fails payload drift when the Stop mapper drops expectedTurnId', async () => {
+    const mapperPath = 'frontend-app/src/shared/api/backend/backendApiFactoryThread.js'
+    const mapperSource = await readFile(join(REPO_ROOT, mapperPath), 'utf8')
+    const mutatedSource = mapperSource.replace(
+      "    { key: 'expectedTurnId', value: takePayloadField(unused, 'expectedTurnId') },\n",
+      '',
+    )
+    expect(mutatedSource).not.toBe(mapperSource)
+    const repoRoot = await createShadowRepo({ [mapperPath]: mutatedSource })
+
+    const report = await auditRpcContracts({ repoRoot })
+
+    expect(report.allowedPayloadRegistryDrift).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        method: 'turn/interrupt',
+        missingFrontendKeys: expect.arrayContaining(['expectedTurnId']),
+      }),
     ]))
   }, 15000)
 
@@ -834,10 +870,19 @@ describe('rpc contract audit', () => {
           'thread_id',
         ])
       }
+      function turnInterruptPayload(params) {
+        const unused = { ...params }
+        return takePayloadFields(unused, [
+          'expectedTurnId',
+          'requestId',
+          'threadId',
+        ])
+      }
     `
 
     expect(collectFrontendPayloadKeysFromSource(source).get('thread/start')).toEqual(['cwd', 'provider'])
     expect(collectFrontendPayloadKeysFromSource(source).get('turn/start')).toEqual(['input', 'thread_id', 'threadId'])
+    expect(collectFrontendPayloadKeysFromSource(source).get('turn/interrupt')).toEqual(['expectedTurnId', 'requestId', 'threadId'])
   })
 
   it('rejects generated response passthrough prose', () => {
@@ -1415,8 +1460,8 @@ describe('rpc contract audit', () => {
           "import { attachActiveThreadRpcRuntime } from './threadLifecycleRuntime.js';\nfunction seedWarning(runtime) { runtime.notifyAction('seeded', 'warning'); }",
         )
         .replaceAll(
-          "expect(rpc).toHaveBeenCalledWith({ cwd: '/repo/app', threadId: 'thread-1', source: 'ui_stop' });\n    expect(runtime.notifyAction)",
-          "expect(rpc).toHaveBeenCalledWith({ cwd: '/repo/app', threadId: 'thread-1', source: 'ui_stop' });\n    seedWarning(runtime);\n    expect(runtime.notifyAction)",
+          "      source: 'ui_stop',\n    });\n    expect(runtime.notifyAction)",
+          "      source: 'ui_stop',\n    });\n    seedWarning(runtime);\n    expect(runtime.notifyAction)",
         ),
     })
     const report = await auditRpcContracts({ repoRoot })
@@ -3038,7 +3083,7 @@ describe('rpc contract audit', () => {
 
   it('audits runtime RPC methods when facade shadows stay unchanged', async function methodsCb(){const methodsPath='frontend-app/src/shared/api/backend/backendRpcMethods.js';const methodsSource=await readFile(join(REPO_ROOT,methodsPath),'utf8');const mutatedSource=methodsSource.replace("  THREAD_PROMPT_HISTORY: 'thread/promptHistory',\n",'');expect(mutatedSource).not.toBe(methodsSource);const repoRoot=await createShadowRepo({[methodsPath]:mutatedSource});const report=await auditRpcContracts({repoRoot});expect(report.registryWithoutRpcMethods).toContain('THREAD_PROMPT_HISTORY')})
 
-  it('ignores payload calls inside nested functions and instance fields', function decoyCb(){const source=`function threadStartPayload(params) { const unused = { ...params }; const nested = () => takePayloadField(unused, 'provider'); class Decoy { read = takePayloadField(unused, 'provider') }; void nested; void Decoy; return takePayloadFields(unused, ['cwd']) }\nfunction turnStartPayload(params) { const unused = { ...params }; return takePayloadFields(unused, ['cwd', 'threadId']) }`;expect(collectFrontendPayloadKeysFromSource(source).get('thread/start')).toEqual(['cwd'])})
+  it('ignores payload calls inside nested functions and instance fields', function decoyCb(){const source=`function threadStartPayload(params) { const unused = { ...params }; const nested = () => takePayloadField(unused, 'provider'); class Decoy { read = takePayloadField(unused, 'provider') }; void nested; void Decoy; return takePayloadFields(unused, ['cwd']) }\nfunction turnStartPayload(params) { const unused = { ...params }; return takePayloadFields(unused, ['cwd', 'threadId']) }\nfunction turnInterruptPayload(params) { const unused = { ...params }; return takePayloadFields(unused, ['expectedTurnId', 'requestId', 'threadId']) }`;expect(collectFrontendPayloadKeysFromSource(source).get('thread/start')).toEqual(['cwd'])})
 
   it('fails fast when a required builder has no top-level declaration', () => {
     const source = [

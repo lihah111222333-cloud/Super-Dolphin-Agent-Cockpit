@@ -16,8 +16,8 @@ export const sessionApi = Object.freeze({
   startTurn(params) {
     return startTurn(params);
   },
-  interrupt(threadId, cwd, source = 'frontend') {
-    return interruptTurn({ threadId, cwd, source });
+  interrupt(params) {
+    return interruptTurn(params);
   },
   messages(threadId, limit = 100, before = '') {
     return getThreadMessages({ threadId, limit, before });

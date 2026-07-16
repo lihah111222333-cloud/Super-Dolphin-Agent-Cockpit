@@ -1,7 +1,7 @@
 
 import { firstOptionalPresent, optionalTextField } from '../../contractStoreModel.js';
 import { getThreadMessages, emitFrontendTraceEvent } from '../../../../../shared/api/backendApi.js';
-import { attachActiveThreadRpcRuntime } from '../../threadLifecycleRuntime.js';
+import { attachActiveThreadRpcRuntime, createStopRequestId } from '../../threadLifecycleRuntime.js';
 import { attachThreadMessagesRuntime } from '../../threadMessagesRuntime.js';
 import { attachAssistantEventRuntime } from '../assistantEventRuntime.js';
 import { attachWarningRuntime } from '../warningRuntime.js';
@@ -89,6 +89,8 @@ function createClientStoreRuntime(set, get, { getPreference }) {
     threadSyncGenerations: new Map(),
     assistantDeltaBuffers: new Map(),
     sealedTurnTerminals: new Map(),
+    observedTurnByThread: new Map(),
+    retiredTurnRefs: new Set(),
     assistantDeltaFlushTimer: null,
     sidebarRefreshSeq: 0,
     bootstrapRetryAfterReconnect: false,
@@ -118,6 +120,7 @@ function createClientStoreRuntime(set, get, { getPreference }) {
     actionNotice,
     clockNowISO,
     clockNowMillis,
+    emitFrontendTraceEvent,
     extractDeltaText,
     hasOwn,
     normalizeString,
@@ -131,6 +134,7 @@ function createClientStoreRuntime(set, get, { getPreference }) {
     activeThreadInterruptTarget,
     backendThreadIdForState,
     cleanObject,
+    createRequestId: createStopRequestId,
   });
   return runtime;
 }

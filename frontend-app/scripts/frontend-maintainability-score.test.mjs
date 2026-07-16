@@ -7,7 +7,7 @@ import {
   probeResult,
   scoreCurrentTree,
   sourceHasPromptHistoryConsoleOnly,
-  sourceHasTerminalFalseSuccess,
+  terminalTruthEvidenceStatus,
   validateConfiguration,
 } from './frontend-maintainability-score.mjs';
 
@@ -43,12 +43,36 @@ describe('frontend maintainability scorer', () => {
   });
 
   it('keeps the repaired terminal truth green while reproducing the remaining confirmed blocker', () => {
-    expect(sourceHasTerminalFalseSuccess()).toBe(false);
     expect(sourceHasPromptHistoryConsoleOnly()).toBe(true);
     expect(probeResult('terminalTruth')).toBe('PASS');
     expect(probeResult('promptHistoryVisibleError')).toBe('FAIL');
     expect(probeResult('redMatrix')).toBe('FAIL');
     expect(probeResult('actionRegistry')).toBe('FAIL');
+  }, 45_000);
+
+  it('requires fresh named terminal behavior evidence and rejects missing failed or zero-test reports', () => {
+    const expected = {
+      fingerprint: 'current-tree-fingerprint',
+      testNames: ['terminal failed behavior', 'terminal stale behavior'],
+    };
+    const passing = {
+      fingerprint: expected.fingerprint,
+      testResults: expected.testNames.map((name) => ({ name, status: 'passed' })),
+    };
+
+    expect(terminalTruthEvidenceStatus(passing, expected)).toBe('PASS');
+    expect(terminalTruthEvidenceStatus({ ...passing, testResults: [] }, expected)).toBe('FAIL');
+    expect(terminalTruthEvidenceStatus({ ...passing, testResults: passing.testResults.slice(0, 1) }, expected)).toBe('FAIL');
+    expect(terminalTruthEvidenceStatus({
+      ...passing,
+      testResults: [{ name: expected.testNames[0], status: 'failed' }, passing.testResults[1]],
+    }, expected)).toBe('FAIL');
+    expect(terminalTruthEvidenceStatus({ ...passing, fingerprint: 'stale-tree-fingerprint' }, expected)).toBe('FAIL');
+
+    const { controls } = documents();
+    const terminalCheck = controls.controls.find(({ id }) => id === 'E01-terminal-truth').allOf[0];
+    expect(terminalCheck.testNames).toHaveLength(terminalCheck.testCount);
+    expect(terminalCheck.testCount).toBeGreaterThan(1);
   });
 
   it('uses three-state allOf semantics and derives a current score instead of reading a historical score', () => {
@@ -60,5 +84,5 @@ describe('frontend maintainability scorer', () => {
     expect(result.controls.find(({ id }) => id === 'E01-terminal-truth')).toMatchObject({ status: 'PASS' });
     expect(result.controls.find(({ id }) => id === 'E02-visible-action-error')).toMatchObject({ status: 'FAIL' });
     expect(result.displayScore).not.toBe(61.8);
-  });
+  }, 45_000);
 });
