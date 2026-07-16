@@ -73,6 +73,44 @@ function localScreenshotPath(separator) {
     expect(screen.queryByText('\u601d\u8003\u4e2d')).not.toBeInTheDocument();
   });
 
+  it('renders failed terminals as alerts and user cancellation as neutral status', () => {
+    const { rerender } = render(
+      <TimelineMessage
+        message={{
+          id: 'terminal-failed',
+          role: 'assistant',
+          kind: 'turn_terminal',
+          terminalOutcome: 'failed',
+          publicError: { title: '运行失败', message: '本轮执行失败' },
+          time: '2026-07-16T01:00:00Z',
+          done: true,
+        }}
+        formatTime={formatTime}
+      />
+    );
+
+    expect(screen.getByRole('alert')).toHaveTextContent('运行失败');
+    expect(screen.getByRole('alert')).toHaveTextContent('本轮执行失败');
+
+    rerender(
+      <TimelineMessage
+        message={{
+          id: 'terminal-cancelled',
+          role: 'assistant',
+          kind: 'turn_terminal',
+          terminalOutcome: 'cancelled',
+          terminationCause: 'user_request',
+          time: '2026-07-16T01:00:00Z',
+          done: true,
+        }}
+        formatTime={formatTime}
+      />
+    );
+
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(screen.getByRole('status')).toHaveTextContent('已取消');
+  });
+
   it('opens generated image previews rendered inside assistant markdown', () => {
     const imagePath = '/Users/ai/.codex/generated_images/019e8195-2f77-7aa1-96bd-63f784e87ac4/ig_lightbox.png';
 

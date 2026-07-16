@@ -168,28 +168,12 @@ function attachBridgeEventRuntime(runtime) {
     enqueueAssistantDelta,
     enqueueReasoningDelta,
     enqueueCommandOutputDelta,
-    finalizeActiveAssistantMessages,
     flushAssistantDeltasNow,
     applyAssistantCompletion,
+    applyTurnTerminal,
     bridgeThreadIdForPayload,
     notifyAction,
   } = runtime;
-
-  const handleFailedBridgeEvent = (eventName, method, payload) => {
-    flushAssistantDeltasNow();
-    const threadId = bridgeThreadIdForPayload(payload);
-    if (threadId) {
-      finalizeActiveAssistantMessages(threadId);
-    }
-    addWarning('error', method, { ...payload, eventName });
-    const message = normalizeString(firstOptionalPresent(payload?.error, payload?.message, payload?.reason)) || 'provider reported failure';
-    notifyAction(`运行失败：${message}`, 'error', {
-      ...payload,
-      threadId,
-      error: message,
-      recoverable: payload?.recoverable,
-    });
-  };
 
   const handleBridgeEvent = (evt) => {
     const method = normalizeString(firstOptionalPresent(evt?.method, evt?.type));
@@ -234,25 +218,13 @@ function attachBridgeEventRuntime(runtime) {
       applyAssistantCompletion(method, payload);
       return;
     }
-    if (eventName === 'agent/failed') {
-      handleFailedBridgeEvent(eventName, method, payload);
+    if (eventName === 'turn/terminal') {
+      applyTurnTerminal(method, payload);
       return;
     }
-    if (
-      eventName === 'turn/completed' ||
-      eventName === 'turn/interrupted' ||
-      eventName === 'agent/stopped' ||
-      eventName === 'thread/stopped'
-    ) {
-      flushAssistantDeltasNow();
-      const threadId = bridgeThreadIdForPayload(payload);
-      if (threadId) {
-        finalizeActiveAssistantMessages(threadId);
-      }
-      if (eventName === 'turn/completed') {
-        if (payload._threadPatch) applyBridgePatch('ui/thread/patch', payload._threadPatch);
-        applyAssistantCompletion(method, payload);
-      }
+    if (eventName === 'agent/failed' || eventName === 'turn/completed' || eventName === 'turn/interrupted' || eventName === 'agent/stopped' || eventName === 'thread/stopped') {
+      addWarning('error', 'turn.terminal.contract_invalid', { eventName: method, reason: 'legacy_terminal_event' });
+      notifyAction('响应契约错误', 'error', { category: 'turn_terminal_contract' });
       return;
     }
     if (eventName === 'thread/tokenusage/updated') {

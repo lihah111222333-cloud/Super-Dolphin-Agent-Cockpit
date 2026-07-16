@@ -116,6 +116,7 @@ function createLifecycleActions(runtime, deps) {
     runtime.threadSyncGenerations.clear();
     runtime.clearAssistantDeltaFlushTimer?.();
     runtime.assistantDeltaBuffers.clear();
+    runtime.sealedTurnTerminals?.clear();
     runtime.sidebarRefreshSeq += 1;
   };
 
