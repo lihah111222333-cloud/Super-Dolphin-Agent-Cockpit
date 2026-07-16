@@ -333,7 +333,7 @@ docs/doc/codemap/11-memory-prompt-thread.md	docs	docs-agent	doc	3196	手写代�
 docs/doc/codemap/11-memory.md	docs	docs-agent	doc	27255	手写代码地图卷与自动 ai-index	docs,doc,codemap,11,memory,手写代码地图卷与自动,ai-index
 docs/doc/codemap/11-prompt-thread.md	docs	docs-agent	doc	59096	手写代码地图卷与自动 ai-index	docs,doc,codemap,11,prompt,thread,手写代码地图卷与自动,ai-index
 docs/doc/codemap/12-dream-pipeline.md	docs	docs-agent	doc	11444	手写代码地图卷与自动 ai-index	docs,doc,codemap,12,dream,pipeline,手写代码地图卷与自动,ai-index
-docs/doc/codemap/13-archtest-boundaries.md	docs	docs-agent	doc	17835	手写代码地图卷与自动 ai-index	docs,doc,codemap,13,archtest,boundaries,手写代码地图卷与自动,ai-index
+docs/doc/codemap/13-archtest-boundaries.md	docs	docs-agent	doc	18037	手写代码地图卷与自动 ai-index	docs,doc,codemap,13,archtest,boundaries,手写代码地图卷与自动,ai-index
 docs/doc/codemap/capability-contract/capability_manifest.json	docs	docs-agent	json	2583845	手写代码地图卷与自动 ai-index	docs,doc,codemap,capability,contract,manifest,手写代码地图卷与自动,ai-index
 docs/doc/codemap/README.md	docs	docs-agent	doc	3133	手写代码地图卷与自动 ai-index	docs,doc,codemap,README,手写代码地图卷与自动,ai-index
 docs/git-history-analysis-2026-07-04.md	docs	docs-agent	doc	18798	项目文档体系	docs,git,history,analysis,2026,07,04,项目文档体系
@@ -487,6 +487,7 @@ docs/plans/evidence/reasonix-production-hardening-next/01-task0-design-freeze.md
 docs/plans/evidence/reasonix-production-hardening-next/02-current-main-recheck.md	docs	docs-agent	doc	6529	历史计划与迁移执行文档	docs,plans,evidence,reasonix,production,hardening,next,02,current,main,recheck,历史计划与迁移执行文档
 docs/plans/evidence/reasonix-production-hardening-next/03-mcp-compiler-decision.md	docs	docs-agent	doc	15123	历史计划与迁移执行文档	docs,plans,evidence,reasonix,production,hardening,next,03,mcp,compiler,decision,历史计划与迁移执行文档
 docs/plans/evidence/reasonix-production-hardening-next/03-task1-release-transaction-core.md	docs	docs-agent	doc	8934	历史计划与迁移执行文档	docs,plans,evidence,reasonix,production,hardening,next,03,task1,release,transaction,core,历史计划与迁移执行文档
+docs/plans/evidence/reasonix-production-hardening-next/04-task2-supervisor-guard-recovery.md	docs	docs-agent	doc	10967	历史计划与迁移执行文档	docs,plans,evidence,reasonix,production,hardening,next,04,task2,supervisor,guard,recovery,历史计划与迁移执行文档
 docs/plans/framework_audit.md	docs	docs-agent	doc	20509	历史计划与迁移执行文档	docs,plans,framework,audit,历史计划与迁移执行文档
 docs/plans/lsp-tool-result-optimization.md	docs	docs-agent	doc	7184	历史计划与迁移执行文档	docs,plans,lsp,tool,result,optimization,历史计划与迁移执行文档
 docs/plans/orch-pos-feedback-loop/2026-06-01-phase1/adjudication.md	docs	docs-agent	doc	980	历史计划与迁移执行文档	docs,plans,orch,pos,feedback,loop,2026,06,01,phase1,adjudication,历史计划与迁移执行文档

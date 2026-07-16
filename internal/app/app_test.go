@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -167,5 +168,55 @@ func TestRunShutdownWatcherStopsBackendBeforeAllowingQuit(t *testing.T) {
 
 	if len(events) != 2 || events[0] != "stop" || events[1] != "quit" {
 		t.Fatalf("events = %#v, want stop before quit", events)
+	}
+}
+
+func TestPrepareDesktopRuntimeRecordsReadyAfterStartAndValidation(t *testing.T) {
+	events := make([]string, 0, 4)
+	err := prepareDesktopRuntime(
+		context.Background(),
+		func(context.Context) error {
+			events = append(events, "start")
+			return nil
+		},
+		func() error {
+			events = append(events, "validate")
+			return nil
+		},
+		func(context.Context) error {
+			events = append(events, "ready")
+			return nil
+		},
+		func() error {
+			events = append(events, "stop")
+			return nil
+		},
+	)
+	if err != nil {
+		t.Fatalf("prepareDesktopRuntime() error = %v", err)
+	}
+	if got := strings.Join(events, ","); got != "start,validate,ready" {
+		t.Fatalf("events = %q, want start,validate,ready", got)
+	}
+}
+
+func TestPrepareDesktopRuntimeReadyFailureStopsFXOnce(t *testing.T) {
+	readyErr := errors.New("record exact ready ACK")
+	stopCalls := 0
+	err := prepareDesktopRuntime(
+		context.Background(),
+		func(context.Context) error { return nil },
+		func() error { return nil },
+		func(context.Context) error { return readyErr },
+		func() error {
+			stopCalls++
+			return nil
+		},
+	)
+	if !errors.Is(err, readyErr) {
+		t.Fatalf("prepareDesktopRuntime() error = %v, want %v", err, readyErr)
+	}
+	if stopCalls != 1 {
+		t.Fatalf("stop calls = %d, want 1", stopCalls)
 	}
 }

@@ -18,6 +18,10 @@ func TestJournalFieldGuardEnumeratesProducerFields(t *testing.T) {
 		reflect.TypeFor[ReleaseIdentity](),
 		reflect.TypeFor[Paths](),
 		reflect.TypeFor[TrustGeneration](),
+		reflect.TypeFor[ProcessIdentity](),
+		reflect.TypeFor[ProbationLease](),
+		reflect.TypeFor[HealthyACK](),
+		reflect.TypeFor[ProbationRecord](),
 	}
 	for _, producer := range producers {
 		seen := make(map[string]struct{}, producer.NumField())

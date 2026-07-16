@@ -204,10 +204,25 @@ run_ai_maintenance_staged_gate() {
   fi
 }
 
+create_staged_embed_placeholders() {
+	local package_dir="cmd/agent-terminal"
+	local embedded_dir="cmd/agent-terminal/web-dist"
+	if ! grep -qs 'go:embed all:web-dist' "$package_dir"/*.go 2>/dev/null || [ -f "$embedded_dir/index.html" ]; then
+    return 0
+  fi
+  mkdir -p "$embedded_dir"
+  printf '<!doctype html><title>staged snapshot</title>\n' >"$embedded_dir/index.html"
+	if [ ! -f "$embedded_dir/index.html" ]; then
+		echo "❌ 无法创建 staged embed 占位：$embedded_dir/index.html" >&2
+		exit 1
+	fi
+}
+
 verify_staged_go_inputs() (
-  local f p pkg_dir
-  local pkgs=()
-  cd "$GATE_WORKTREE"
+	local f p pkg_dir
+	local pkgs=()
+	cd "$GATE_WORKTREE"
+	create_staged_embed_placeholders
 
   if [ ${#GOFMT_FILES[@]} -gt 0 ]; then
     echo "[pre-commit] gofmt (staged snapshot)..."
@@ -246,6 +261,10 @@ verify_staged_go_inputs() (
     fi
     echo "❌ staged snapshot go list 失败：$p" >&2
     cat "$GO_LIST_ERR" >&2
+	if [ "$p" = "./cmd/agent-terminal" ]; then
+		printf '  snapshot cwd: %s\n' "$PWD" >&2
+		find cmd/agent-terminal/web-dist -maxdepth 2 -print >&2 || true
+	fi
     exit 1
   done
 
@@ -281,7 +300,7 @@ create_staged_gate_worktree() {
     echo "❌ 无法将 staged tree 展开到临时门禁 worktree" >&2
     exit 1
   fi
-  if ! run_go_without_git_env git -C "$GATE_WORKTREE" read-tree "$cache_scope"; then
+	if ! run_go_without_git_env git -C "$GATE_WORKTREE" read-tree "$cache_scope"; then
     echo "❌ 无法将 staged tree 写入临时门禁 worktree index" >&2
     exit 1
   fi

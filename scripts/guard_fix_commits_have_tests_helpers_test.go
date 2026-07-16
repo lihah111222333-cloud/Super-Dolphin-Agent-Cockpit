@@ -313,6 +313,34 @@ func writePrePushScopeFakeBins(t *testing.T, logPath string) string {
 	return binDir
 }
 
+func TestPreCommitCreatesDeterministicEmbedPlaceholderFromStagedSnapshot(t *testing.T) {
+	for _, mutableIgnoredArtifact := range []bool{false, true} {
+		name := "without ignored artifact"
+		if mutableIgnoredArtifact {
+			name = "with mutable ignored artifact"
+		}
+		t.Run(name, func(t *testing.T) {
+			root := preparePreCommitGateFixture(t)
+			writeFixTestGuardFile(t, root, ".gitignore", "cmd/agent-terminal/web-dist/\n")
+			runFixTestGuardGit(t, root, "add", ".gitignore", "scripts/guard_fix_commits_have_tests.sh")
+			runFixTestGuardGit(t, root, "commit", "-m", "chore: 安装 embed fixture")
+			writeFixTestGuardFile(t, root, "cmd/agent-terminal/main.go", "package main\n\nimport \"embed\"\n\n//go:embed all:web-dist\nvar frontend embed.FS\n\nfunc main() { _ = frontend }\n")
+			if mutableIgnoredArtifact {
+				writeFixTestGuardFile(t, root, "cmd/agent-terminal/web-dist/index.html", "mutable ignored artifact\n")
+			}
+			runFixTestGuardGit(t, root, "add", "cmd/agent-terminal/main.go")
+			out, err := runPreCommitHookWithEnv(t, root, map[string]string{
+				"GATE_ASSERT_RELATIVE_PATH": "cmd/agent-terminal/web-dist/index.html",
+				"GATE_ASSERT_CONTENT":       "staged snapshot",
+			})
+			if err != nil {
+				t.Fatalf("pre-commit embed placeholder failed: %v\n%s", err, out)
+			}
+			assertOutputContainsAll(t, out, "go vet (staged snapshot)", "pre-commit OK")
+		})
+	}
+}
+
 func prePushStdin(base, head string) string {
 	return "refs/heads/main " + head + " refs/heads/main " + base + "\n"
 }

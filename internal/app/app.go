@@ -138,10 +138,13 @@ func Run() error {
 	return runApp(owner, newFXApp(fx.Supply(fx.Annotate(owner, fx.As(new(RootCtxProvider))))))
 }
 
-// RunDesktop 启动桌面 Wails 应用。
+// RunDesktop 启动桌面 Wails 应用，并在 backend 与 Wails lifecycle 就绪后调用 ready。
 // 前端 filesystem 为空时由 wails 模块降级到内置占位页；运行结束前会先 drain runtime。
-func RunDesktop(frontendFS fs.FS) error {
-	owner := newAppOwnerContext(context.Background())
+func RunDesktop(parent context.Context, frontendFS fs.FS, ready func(context.Context) error) error {
+	if parent == nil || ready == nil {
+		return errors.New("desktop parent context and ready callback are required")
+	}
+	owner := newAppOwnerContext(parent)
 	defer owner.Cancel()
 	ctx := owner.RootContext()
 	if err := runDesktopPreflight(ctx); err != nil {
@@ -157,17 +160,19 @@ func RunDesktop(frontendFS fs.FS) error {
 	)
 	startCtx, cancelStart := platformconfig.WithTimeout(ctx, platformconfig.StartupTimeout)
 	defer cancelStart()
-	if err := app.Start(startCtx); err != nil {
+	stopper := newDesktopFXStopper(ctx, app)
+	if err := prepareDesktopRuntime(startCtx, app.Start, func() error {
+		if wailsApp == nil {
+			return errors.New("wails application not available")
+		}
+		if lifecycle == nil {
+			return errors.New("wails lifecycle not available")
+		}
+		return nil
+	}, ready, stopper.Stop); err != nil {
 		return err
 	}
-	if wailsApp == nil {
-		return errors.New("wails application not available")
-	}
-	if lifecycle == nil {
-		return errors.New("wails lifecycle not available")
-	}
 
-	stopper := newDesktopFXStopper(ctx, app)
 	watcher := watchFXShutdown(ctx, app, lifecycle, stopper.Stop)
 	runErr := wailsApp.Run()
 	owner.Cancel()
@@ -176,6 +181,29 @@ func RunDesktop(frontendFS fs.FS) error {
 
 	stopErr := stopper.Stop()
 	return errors.Join(runErr, preDrainErr, stopErr)
+}
+
+// prepareDesktopRuntime 串行执行 Fx Start、Wails 校验与 ready，后两步失败时停止 Fx。
+func prepareDesktopRuntime(
+	ctx context.Context,
+	start func(context.Context) error,
+	validate func() error,
+	ready func(context.Context) error,
+	stop func() error,
+) error {
+	if ctx == nil || start == nil || validate == nil || ready == nil || stop == nil {
+		return errors.New("desktop startup lifecycle dependencies are required")
+	}
+	if err := start(ctx); err != nil {
+		return err
+	}
+	if err := validate(); err != nil {
+		return errors.Join(err, stop())
+	}
+	if err := ready(ctx); err != nil {
+		return errors.Join(err, stop())
+	}
+	return nil
 }
 
 // runDesktopPreflight 在 Fx 启动前准备桌面运行环境。

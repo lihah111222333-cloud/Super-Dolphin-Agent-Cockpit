@@ -269,17 +269,21 @@ internal/mcpserver/common/tool_payload_log_test.go	internal	platform-provider	go
 internal/mcpserver/common/tool_payload_log.go	internal	platform-provider	go-source	12673	MCP server 公共框架、bootstrap 与 transport	internal,mcpserver,common,tool,payload,log,MCP,server,公共框架,bootstrap,与,transport
 internal/mcpserver/common/tool_result.go	internal	platform-provider	go-source	3299	MCP server 公共框架、bootstrap 与 transport	internal,mcpserver,common,tool,result,MCP,server,公共框架,bootstrap,与,transport
 internal/platform/appupdaterecovery/digest.go	internal	platform-provider	go-source	4504	基础设施层	internal,platform,appupdaterecovery,digest,基础设施层
-internal/platform/appupdaterecovery/effects.go	internal	platform-provider	go-source	6456	基础设施层	internal,platform,appupdaterecovery,effects,基础设施层
-internal/platform/appupdaterecovery/field_guard_test.go	internal	platform-provider	go-test	4061	基础设施层	internal,platform,appupdaterecovery,field,guard,test,基础设施层
+internal/platform/appupdaterecovery/discovery.go	internal	platform-provider	go-source	2040	基础设施层	internal,platform,appupdaterecovery,discovery,基础设施层
+internal/platform/appupdaterecovery/effects.go	internal	platform-provider	go-source	7188	基础设施层	internal,platform,appupdaterecovery,effects,基础设施层
+internal/platform/appupdaterecovery/field_guard_test.go	internal	platform-provider	go-test	4207	基础设施层	internal,platform,appupdaterecovery,field,guard,test,基础设施层
 internal/platform/appupdaterecovery/field_guard.go	internal	platform-provider	go-source	2789	基础设施层	internal,platform,appupdaterecovery,field,guard,基础设施层
-internal/platform/appupdaterecovery/journal.go	internal	platform-provider	go-source	8151	基础设施层	internal,platform,appupdaterecovery,journal,基础设施层
+internal/platform/appupdaterecovery/journal.go	internal	platform-provider	go-source	8307	基础设施层	internal,platform,appupdaterecovery,journal,基础设施层
 internal/platform/appupdaterecovery/lock_unix.go	internal	platform-provider	go-source	461	基础设施层	internal,platform,appupdaterecovery,lock,unix,基础设施层
 internal/platform/appupdaterecovery/lock_windows.go	internal	platform-provider	go-source	711	基础设施层	internal,platform,appupdaterecovery,lock,windows,基础设施层
 internal/platform/appupdaterecovery/lock.go	internal	platform-provider	go-source	1339	基础设施层	internal,platform,appupdaterecovery,lock,基础设施层
-internal/platform/appupdaterecovery/machine.go	internal	platform-provider	go-source	2747	基础设施层	internal,platform,appupdaterecovery,machine,基础设施层
-internal/platform/appupdaterecovery/store.go	internal	platform-provider	go-source	10789	基础设施层	internal,platform,appupdaterecovery,store,基础设施层
-internal/platform/appupdaterecovery/transaction_test.go	internal	platform-provider	go-test	10679	基础设施层	internal,platform,appupdaterecovery,transaction,test,基础设施层
-internal/platform/appupdaterecovery/types.go	internal	platform-provider	go-source	6132	基础设施层	internal,platform,appupdaterecovery,types,基础设施层
+internal/platform/appupdaterecovery/machine.go	internal	platform-provider	go-source	2832	基础设施层	internal,platform,appupdaterecovery,machine,基础设施层
+internal/platform/appupdaterecovery/probation.go	internal	platform-provider	go-source	9955	基础设施层	internal,platform,appupdaterecovery,probation,基础设施层
+internal/platform/appupdaterecovery/store.go	internal	platform-provider	go-source	11538	基础设施层	internal,platform,appupdaterecovery,store,基础设施层
+internal/platform/appupdaterecovery/supervisor_test.go	internal	platform-provider	go-test	16201	基础设施层	internal,platform,appupdaterecovery,supervisor,test,基础设施层
+internal/platform/appupdaterecovery/supervisor.go	internal	platform-provider	go-source	5400	基础设施层	internal,platform,appupdaterecovery,supervisor,基础设施层
+internal/platform/appupdaterecovery/transaction_test.go	internal	platform-provider	go-test	14131	基础设施层	internal,platform,appupdaterecovery,transaction,test,基础设施层
+internal/platform/appupdaterecovery/types.go	internal	platform-provider	go-source	7577	基础设施层	internal,platform,appupdaterecovery,types,基础设施层
 internal/platform/bus/bus_test.go	internal	platform-provider	go-test	4493	事件总线	internal,platform,bus,test,事件总线
 internal/platform/bus/bus.go	internal	platform-provider	go-source	916	事件总线	internal,platform,bus,事件总线
 internal/platform/bus/emitters.go	internal	platform-provider	go-source	1563	事件总线	internal,platform,bus,emitters,事件总线
@@ -494,6 +498,7 @@ internal/platform/observability/service.go	internal	platform-provider	go-source	
 internal/platform/observability/sink.go	internal	platform-provider	go-source	354	基础设施层	internal,platform,observability,sink,基础设施层
 internal/platform/observability/stack_test.go	internal	platform-provider	go-test	1982	基础设施层	internal,platform,observability,stack,test,基础设施层
 internal/platform/observability/stack.go	internal	platform-provider	go-source	1821	基础设施层	internal,platform,observability,stack,基础设施层
+internal/platform/pidregistry/exact_process.go	internal	platform-provider	go-source	6174	基础设施层	internal,platform,pidregistry,exact,process,基础设施层
 internal/platform/pidregistry/file_owner_unix.go	internal	platform-provider	go-source	251	基础设施层	internal,platform,pidregistry,file,owner,unix,基础设施层
 internal/platform/pidregistry/file_owner_windows.go	internal	platform-provider	go-source	511	基础设施层	internal,platform,pidregistry,file,owner,windows,基础设施层
 internal/platform/pidregistry/pidregistry_provenance_unix_test.go	internal	platform-provider	go-test	2845	基础设施层	internal,platform,pidregistry,provenance,unix,test,基础设施层
@@ -502,11 +507,11 @@ internal/platform/pidregistry/pidregistry.go	internal	platform-provider	go-sourc
 internal/platform/pidregistry/process_identity_darwin.go	internal	platform-provider	go-source	1370	基础设施层	internal,platform,pidregistry,process,identity,darwin,基础设施层
 internal/platform/pidregistry/process_identity_linux.go	internal	platform-provider	go-source	1209	基础设施层	internal,platform,pidregistry,process,identity,linux,基础设施层
 internal/platform/pidregistry/process_identity_other.go	internal	platform-provider	go-source	256	基础设施层	internal,platform,pidregistry,process,identity,other,基础设施层
-internal/platform/pidregistry/process_identity_test.go	internal	platform-provider	go-test	8971	基础设施层	internal,platform,pidregistry,process,identity,test,基础设施层
+internal/platform/pidregistry/process_identity_test.go	internal	platform-provider	go-test	13315	基础设施层	internal,platform,pidregistry,process,identity,test,基础设施层
 internal/platform/pidregistry/process_identity_windows.go	internal	platform-provider	go-source	1525	基础设施层	internal,platform,pidregistry,process,identity,windows,基础设施层
 internal/platform/pidregistry/process_identity.go	internal	platform-provider	go-source	557	基础设施层	internal,platform,pidregistry,process,identity,基础设施层
-internal/platform/pidregistry/process_unix.go	internal	platform-provider	go-source	948	基础设施层	internal,platform,pidregistry,process,unix,基础设施层
-internal/platform/pidregistry/process_windows.go	internal	platform-provider	go-source	3435	基础设施层	internal,platform,pidregistry,process,windows,基础设施层
+internal/platform/pidregistry/process_unix.go	internal	platform-provider	go-source	1412	基础设施层	internal,platform,pidregistry,process,unix,基础设施层
+internal/platform/pidregistry/process_windows.go	internal	platform-provider	go-source	4099	基础设施层	internal,platform,pidregistry,process,windows,基础设施层
 internal/platform/rlimit/rlimit_unix.go	internal	platform-provider	go-source	1658	基础设施层	internal,platform,rlimit,unix,基础设施层
 internal/platform/rlimit/rlimit_windows.go	internal	platform-provider	go-source	151	基础设施层	internal,platform,rlimit,windows,基础设施层
 internal/platform/rpc/approval_cleanup_runner_test.go	internal	platform-provider	go-test	6407	JSON-RPC transport、dispatch、push 与审批框架	internal,platform,rpc,approval,cleanup,runner,test,JSON-RPC,transport,dispatch,push,与审批框架
@@ -557,6 +562,7 @@ internal/platform/runner/contract.go	internal	platform-provider	go-source	2119	�
 internal/platform/runner/group_test.go	internal	platform-provider	go-test	999	基础设施层	internal,platform,runner,group,test,基础设施层
 internal/platform/runner/group.go	internal	platform-provider	go-source	3313	基础设施层	internal,platform,runner,group,基础设施层
 internal/platform/runner/module.go	internal	platform-provider	go-source	166	基础设施层	internal,platform,runner,module,基础设施层
+internal/platform/runtimeenv/recovery_launch.go	internal	platform-provider	go-source	4731	基础设施层	internal,platform,runtimeenv,recovery,launch,基础设施层
 internal/platform/runtimeenv/runtime_paths.go	internal	platform-provider	go-source	5849	基础设施层	internal,platform,runtimeenv,runtime,paths,基础设施层
 internal/platform/runtimeenv/runtime_resolution_test.go	internal	platform-provider	go-test	12625	基础设施层	internal,platform,runtimeenv,runtime,resolution,test,基础设施层
 internal/platform/runtimeenv/runtime_resolution.go	internal	platform-provider	go-source	14706	基础设施层	internal,platform,runtimeenv,runtime,resolution,基础设施层

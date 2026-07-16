@@ -126,6 +126,10 @@ export function createFrontendViteConfig(env = process.env, viteEnv = {}) {
       emptyOutDir: true,
       chunkSizeWarningLimit: 650,
       rolldownOptions: {
+        input: {
+          main: join(process.cwd(), 'index.html'),
+          recovery: join(process.cwd(), 'recovery.html'),
+        },
         external: ['/wails/runtime.js'],
         output: {
           manualChunks(id) {

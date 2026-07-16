@@ -135,6 +135,24 @@ func completeRollbackEffect(journal journalPayload) error {
 	return finalizeRollback(journal)
 }
 
+// validatePreparedRollback 在持久化终止意图前确认旧版本和 staging 仍与 exact transaction 一致。
+func validatePreparedRollback(journal journalPayload) error {
+	backupExists, err := pathExists(journal.Paths.Backup)
+	if err != nil {
+		return err
+	}
+	if backupExists {
+		return errors.New("prepared rollback cannot start with a retained backup")
+	}
+	if err := verifyRelease(journal.Paths.Target, journal.Identity.OldRelease); err != nil {
+		return fmt.Errorf("verify old release before prepared rollback: %w", err)
+	}
+	if err := verifyRelease(journal.Paths.Staging, journal.Identity.CandidateRelease); err != nil {
+		return fmt.Errorf("verify candidate staging before prepared rollback: %w", err)
+	}
+	return nil
+}
+
 // restoreRetainedBackup 以 exact backup 替换 candidate target。
 func restoreRetainedBackup(journal journalPayload) error {
 	if err := verifyRelease(journal.Paths.Backup, journal.Identity.OldRelease); err != nil {

@@ -16,6 +16,7 @@ type transitionSpec struct {
 
 var transactionTransitions = []transitionSpec{
 	{from: StatePrepared, trigger: TriggerRetainBackup, to: StateBackupPending},
+	{from: StatePrepared, trigger: TriggerRollbackRequested, to: StateRollbackPending},
 	{from: StateBackupPending, trigger: TriggerBackupRetained, to: StateBackupRetained},
 	{from: StateBackupRetained, trigger: TriggerInstallCandidate, to: StateInstallPending},
 	{from: StateBackupRetained, trigger: TriggerRollbackRequested, to: StateRollbackPending},

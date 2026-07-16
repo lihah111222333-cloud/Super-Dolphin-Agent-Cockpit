@@ -1,6 +1,9 @@
 path	module	domain	type	size_bytes	purpose	search_keys
 cmd/agent-terminal/frontend.go	cmd	app-ui	go-source	824	Wails 桌面 UI、HTTP server、app host 与前端嵌入入口	cmd,agent,terminal,frontend,Wails,桌面,UI,HTTP,server,app,host,与前端嵌入入口
-cmd/agent-terminal/main.go	cmd	app-ui	go-source	1321	Wails 桌面 UI、HTTP server、app host 与前端嵌入入口	cmd,agent,terminal,main,Wails,桌面,UI,HTTP,server,app,host,与前端嵌入入口
+cmd/agent-terminal/main_recovery_test.go	cmd	app-ui	go-test	3069	Wails 桌面 UI、HTTP server、app host 与前端嵌入入口	cmd,agent,terminal,main,recovery,test,Wails,桌面,UI,HTTP,server,app,host,与前端嵌入入口
+cmd/agent-terminal/main.go	cmd	app-ui	go-source	5607	Wails 桌面 UI、HTTP server、app host 与前端嵌入入口	cmd,agent,terminal,main,Wails,桌面,UI,HTTP,server,app,host,与前端嵌入入口
+cmd/agent-terminal/recovery_ui_test.go	cmd	app-ui	go-test	17417	Wails 桌面 UI、HTTP server、app host 与前端嵌入入口	cmd,agent,terminal,recovery,ui,test,Wails,桌面,UI,HTTP,server,app,host,与前端嵌入入口
+cmd/agent-terminal/recovery_ui.go	cmd	app-ui	go-source	9563	Wails 桌面 UI、HTTP server、app host 与前端嵌入入口	cmd,agent,terminal,recovery,ui,Wails,桌面,UI,HTTP,server,app,host,与前端嵌入入口
 frontend-app/.env.example	frontend-app	app-ui	example	652	当前 React/Vite 前端包	frontend,app,env,当前,React,Vite,前端包
 frontend-app/.frontend_code_size_guard_baseline_test.json	frontend-app	app-ui	json	76	当前 React/Vite 前端包	frontend,app,code,size,guard,baseline,test,当前,React,Vite,前端包
 frontend-app/.frontend_code_size_guard_baseline.json	frontend-app	app-ui	json	76	当前 React/Vite 前端包	frontend,app,code,size,guard,baseline,当前,React,Vite,前端包
@@ -18,6 +21,7 @@ frontend-app/public/favicon.svg	frontend-app	app-ui	svg	295	当前 React/Vite �
 frontend-app/public/wails/runtime.js	frontend-app	app-ui	js-source	19498	当前 React/Vite 前端包	frontend,app,public,wails,runtime,当前,React,Vite,前端包
 frontend-app/public/wails/runtime.test.js	frontend-app	app-ui	js-test	17803	当前 React/Vite 前端包	frontend,app,public,wails,runtime,test,当前,React,Vite,前端包
 frontend-app/README.md	frontend-app	app-ui	doc	1427	当前 React/Vite 前端包	frontend,app,README,当前,React,Vite,前端包
+frontend-app/recovery.html	frontend-app	app-ui	html	367	当前 React/Vite 前端包	frontend,app,recovery,当前,React,Vite,前端包
 frontend-app/scripts/agentic-e2e-discovery.mjs	frontend-app	app-ui	js-source	6036	React 前端构建与校验脚本	frontend,app,scripts,agentic,e2e,discovery,React,前端构建与校验脚本
 frontend-app/scripts/agentic-e2e-goals.mjs	frontend-app	app-ui	js-source	7632	React 前端构建与校验脚本	frontend,app,scripts,agentic,e2e,goals,React,前端构建与校验脚本
 frontend-app/scripts/agentic-e2e-planner.mjs	frontend-app	app-ui	js-source	12675	React 前端构建与校验脚本	frontend,app,scripts,agentic,e2e,planner,React,前端构建与校验脚本
@@ -204,6 +208,11 @@ frontend-app/src/features/slash-commands/model/slashCommandModel.js	frontend-app
 frontend-app/src/features/slash-commands/model/slashCommandModel.test.js	frontend-app	app-ui	js-test	4393	当前 React/Vite 前端包	frontend,app,src,features,slash,commands,model,slashCommandModel,test,当前,React,Vite,前端包
 frontend-app/src/features/slash-commands/services/slashCommandCatalogService.js	frontend-app	app-ui	js-source	1401	当前 React/Vite 前端包	frontend,app,src,features,slash,commands,services,slashCommandCatalogService,当前,React,Vite,前端包
 frontend-app/src/features/slash-commands/services/slashCommandCatalogService.test.js	frontend-app	app-ui	js-test	7764	当前 React/Vite 前端包	frontend,app,src,features,slash,commands,services,slashCommandCatalogService,test,当前,React,Vite,前端包
+frontend-app/src/features/update-recovery/RecoveryApp.css	frontend-app	app-ui	css	4667	当前 React/Vite 前端包	frontend,app,src,features,update,recovery,RecoveryApp,当前,React,Vite,前端包
+frontend-app/src/features/update-recovery/RecoveryApp.jsx	frontend-app	app-ui	jsx	3664	当前 React/Vite 前端包	frontend,app,src,features,update,recovery,RecoveryApp,当前,React,Vite,前端包
+frontend-app/src/features/update-recovery/RecoveryApp.test.jsx	frontend-app	app-ui	jsx	4136	当前 React/Vite 前端包	frontend,app,src,features,update,recovery,RecoveryApp,test,当前,React,Vite,前端包
+frontend-app/src/features/update-recovery/recoveryClient.js	frontend-app	app-ui	js-source	3920	当前 React/Vite 前端包	frontend,app,src,features,update,recovery,recoveryClient,当前,React,Vite,前端包
+frontend-app/src/features/update-recovery/recoveryClient.test.js	frontend-app	app-ui	js-test	2411	当前 React/Vite 前端包	frontend,app,src,features,update,recovery,recoveryClient,test,当前,React,Vite,前端包
 frontend-app/src/main.jsx	frontend-app	app-ui	jsx	7158	当前 React/Vite 前端包	frontend,app,src,main,当前,React,Vite,前端包
 frontend-app/src/pages/backendApiConsumer.surface.test.js	frontend-app	app-ui	js-test	16816	React 页面与路由级 UI	frontend,app,src,pages,backendApiConsumer,surface,test,React,页面与路由级,UI
 frontend-app/src/pages/chat/__tests__/chatPageTestSupport.js	frontend-app	app-ui	js-source	6694	React 页面与路由级 UI	frontend,app,src,pages,chat,tests,chatPageTestSupport,React,页面与路由级,UI
@@ -444,6 +453,7 @@ frontend-app/src/pages/workflows/WorkflowPage.runtime.test.jsx	frontend-app	app-
 frontend-app/src/pages/workflows/WorkflowPage.test.jsx	frontend-app	app-ui	jsx	22589	React 页面与路由级 UI	frontend,app,src,pages,workflows,WorkflowPage,test,React,页面与路由级,UI
 frontend-app/src/pages/workflows/WorkflowPage.testSupport.jsx	frontend-app	app-ui	jsx	12832	React 页面与路由级 UI	frontend,app,src,pages,workflows,WorkflowPage,testSupport,React,页面与路由级,UI
 frontend-app/src/pages/workflows/WorkflowPolish.css	frontend-app	app-ui	css	912	React 页面与路由级 UI	frontend,app,src,pages,workflows,WorkflowPolish,React,页面与路由级,UI
+frontend-app/src/recovery-main.jsx	frontend-app	app-ui	jsx	521	当前 React/Vite 前端包	frontend,app,src,recovery,main,当前,React,Vite,前端包
 frontend-app/src/services/apiClient.js	frontend-app	app-ui	js-source	1709	当前 React/Vite 前端包	frontend,app,src,services,apiClient,当前,React,Vite,前端包
 frontend-app/src/services/modules/fileService.js	frontend-app	app-ui	js-source	1710	当前 React/Vite 前端包	frontend,app,src,services,modules,fileService,当前,React,Vite,前端包
 frontend-app/src/services/modules/fileService.test.js	frontend-app	app-ui	js-test	2147	当前 React/Vite 前端包	frontend,app,src,services,modules,fileService,test,当前,React,Vite,前端包
@@ -536,5 +546,5 @@ frontend-app/tests/e2e/business-flows.spec.js	frontend-app	app-ui	js-test	20140	
 frontend-app/tests/e2e/desktop-ux.spec.js	frontend-app	app-ui	js-test	3384	React 前端 Playwright E2E 与视觉回归测试	frontend,app,tests,e2e,desktop,ux,spec,React,前端,Playwright,E2E,与视觉回归测试
 frontend-app/tests/e2e/desktop-wide.spec.js	frontend-app	app-ui	js-test	11010	React 前端 Playwright E2E 与视觉回归测试	frontend,app,tests,e2e,desktop,wide,spec,React,前端,Playwright,E2E,与视觉回归测试
 frontend-app/tsconfig.contracts.json	frontend-app	app-ui	json	391	当前 React/Vite 前端包	frontend,app,tsconfig,contracts,当前,React,Vite,前端包
-frontend-app/vite.config.js	frontend-app	app-ui	js-source	5389	当前 React/Vite 前端包	frontend,app,vite,config,当前,React,Vite,前端包
-frontend-app/vite.config.test.js	frontend-app	app-ui	js-test	4569	当前 React/Vite 前端包	frontend,app,vite,config,test,当前,React,Vite,前端包
+frontend-app/vite.config.js	frontend-app	app-ui	js-source	5526	当前 React/Vite 前端包	frontend,app,vite,config,当前,React,Vite,前端包
+frontend-app/vite.config.test.js	frontend-app	app-ui	js-test	4820	当前 React/Vite 前端包	frontend,app,vite,config,test,当前,React,Vite,前端包

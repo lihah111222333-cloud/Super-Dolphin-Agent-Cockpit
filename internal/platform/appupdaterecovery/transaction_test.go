@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 var errSimulatedCrash = errors.New("simulated crash")
@@ -16,9 +17,10 @@ func TestUpdateTransactionRetainsBackupUntilHealthy(t *testing.T) {
 	if got := loadTransaction(t, store, identity).Trust.State; got != TrustPending {
 		t.Fatalf("trust state = %q, want %q", got, TrustPending)
 	}
-	transaction, err := store.CommitHealthy(context.Background(), identity)
+	lease := ackProbationTransaction(t, store, identity)
+	transaction, err := store.commitHealthyClaimed(context.Background(), identity, lease)
 	if err != nil {
-		t.Fatalf("CommitHealthy() error = %v", err)
+		t.Fatalf("commitHealthyClaimed() error = %v", err)
 	}
 	if transaction.State != StateCommitted || transaction.Trust.State != TrustCommitted {
 		t.Fatalf("committed transaction = %#v", transaction)
@@ -34,9 +36,10 @@ func TestTrustGenerationCommitsOnlyAfterHealthy(t *testing.T) {
 	if got := loadTransaction(t, store, identity).Trust.State; got != TrustPending {
 		t.Fatalf("trust state after illegal commit = %q, want %q", got, TrustPending)
 	}
-	transaction, err := store.CommitHealthy(context.Background(), identity)
+	lease := ackProbationTransaction(t, store, identity)
+	transaction, err := store.commitHealthyClaimed(context.Background(), identity, lease)
 	if err != nil {
-		t.Fatalf("CommitHealthy() error = %v", err)
+		t.Fatalf("commitHealthyClaimed() error = %v", err)
 	}
 	if transaction.Trust.State != TrustCommitted {
 		t.Fatalf("trust state after healthy = %q, want %q", transaction.Trust.State, TrustCommitted)
@@ -89,9 +92,10 @@ func TestCrashReplayCompletesInstallIntent(t *testing.T) {
 
 func TestCrashReplayCompletesCommitIntent(t *testing.T) {
 	store, identity, paths := createProbationTransaction(t)
+	lease := ackProbationTransaction(t, store, identity)
 	crashAfterEffect(store, StateCommitPending)
-	if _, err := store.CommitHealthy(context.Background(), identity); !errors.Is(err, errSimulatedCrash) {
-		t.Fatalf("CommitHealthy() error = %v, want simulated crash", err)
+	if _, err := store.commitHealthyClaimed(context.Background(), identity, lease); !errors.Is(err, errSimulatedCrash) {
+		t.Fatalf("commitHealthyClaimed() error = %v, want simulated crash", err)
 	}
 	transaction := replayTransaction(t, store, identity)
 	if transaction.State != StateCommitted || transaction.Trust.State != TrustCommitted {
@@ -104,8 +108,8 @@ func TestCrashReplayCompletesCommitIntent(t *testing.T) {
 func TestCrashReplayCompletesRollbackIntent(t *testing.T) {
 	store, identity, paths := createProbationTransaction(t)
 	crashAfterEffect(store, StateRollbackPending)
-	if _, err := store.Rollback(context.Background(), identity); !errors.Is(err, errSimulatedCrash) {
-		t.Fatalf("Rollback() error = %v, want simulated crash", err)
+	if _, err := store.RollbackUnclaimedProbation(context.Background(), identity); !errors.Is(err, errSimulatedCrash) {
+		t.Fatalf("RollbackUnclaimedProbation() error = %v, want simulated crash", err)
 	}
 	transaction := replayTransaction(t, store, identity)
 	if transaction.State != StateRolledBack || transaction.Trust.State != TrustRolledBack {
@@ -114,6 +118,71 @@ func TestCrashReplayCompletesRollbackIntent(t *testing.T) {
 	assertPathExists(t, paths.Target)
 	assertPathMissing(t, paths.Backup)
 	assertPathMissing(t, paths.Staging)
+}
+
+func TestPreparedRollbackTerminatesTransactionWithoutReplacingOldTarget(t *testing.T) {
+	store, identity, paths := createPreparedTransaction(t)
+	before, err := os.ReadFile(paths.Target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	transaction, err := store.Rollback(context.Background(), identity)
+	if err != nil {
+		t.Fatalf("Rollback(prepared) error = %v", err)
+	}
+	if transaction.State != StateRolledBack || transaction.Trust.State != TrustRolledBack {
+		t.Fatalf("prepared rollback transaction = %#v", transaction)
+	}
+	after, err := os.ReadFile(paths.Target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(after) != string(before) {
+		t.Fatalf("prepared rollback changed old target: before=%q after=%q", before, after)
+	}
+	assertPathMissing(t, paths.Backup)
+	assertPathMissing(t, paths.Staging)
+}
+
+func TestPreparedRollbackCrashReplaysPersistedTerminationIntent(t *testing.T) {
+	store, identity, paths := createPreparedTransaction(t)
+	crashAfterEffect(store, StateRollbackPending)
+	if _, err := store.Rollback(context.Background(), identity); !errors.Is(err, errSimulatedCrash) {
+		t.Fatalf("Rollback(prepared crash) error = %v", err)
+	}
+	if got := loadTransaction(t, store, identity).State; got != StateRollbackPending {
+		t.Fatalf("prepared crash state = %q, want rollback_pending", got)
+	}
+	assertPathExists(t, paths.Target)
+	assertPathMissing(t, paths.Staging)
+	transaction := replayTransaction(t, store, identity)
+	if transaction.State != StateRolledBack {
+		t.Fatalf("replayed prepared rollback state = %q", transaction.State)
+	}
+}
+
+func TestPreparedRollbackValidationFailureHasZeroSideEffects(t *testing.T) {
+	store, identity, paths := createPreparedTransaction(t)
+	beforeJournal, err := os.ReadFile(store.journalPath(identity.TransactionID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(paths.Target, []byte("corrupt old release"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Rollback(context.Background(), identity); err == nil {
+		t.Fatal("Rollback(corrupt prepared) error = nil")
+	}
+	afterJournal, err := os.ReadFile(store.journalPath(identity.TransactionID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(afterJournal) != string(beforeJournal) {
+		t.Fatal("failed prepared rollback changed journal")
+	}
+	assertPathExists(t, paths.Target)
+	assertPathExists(t, paths.Staging)
+	assertPathMissing(t, paths.Backup)
 }
 
 func TestInstallFailureAfterBackupRollsBackExactTransaction(t *testing.T) {
@@ -148,7 +217,7 @@ func TestInstallFailureAfterBackupRollsBackExactTransaction(t *testing.T) {
 
 func TestTransactionStateMatrixRejectsIllegalTransitions(t *testing.T) {
 	allowed := map[State]map[Trigger]State{
-		StatePrepared:        {TriggerRetainBackup: StateBackupPending},
+		StatePrepared:        {TriggerRetainBackup: StateBackupPending, TriggerRollbackRequested: StateRollbackPending},
 		StateBackupPending:   {TriggerBackupRetained: StateBackupRetained},
 		StateBackupRetained:  {TriggerInstallCandidate: StateInstallPending, TriggerRollbackRequested: StateRollbackPending},
 		StateInstallPending:  {TriggerCandidateInstalled: StateProbation, TriggerRollbackRequested: StateRollbackPending},
@@ -204,6 +273,26 @@ func createProbationTransaction(t *testing.T) (*Store, Identity, Paths) {
 		t.Fatalf("InstallCandidate() error = %v", err)
 	}
 	return store, identity, paths
+}
+
+func ackProbationTransaction(t *testing.T, store *Store, identity Identity) ProbationLease {
+	t.Helper()
+	process := ProcessIdentity{
+		PID: 42, StartToken: "test-candidate", ExecutableIdentity: "/test/candidate",
+		ExecutableSHA256: identity.CandidateRelease.SHA256,
+	}
+	lease, err := store.AcquireProbationLease(context.Background(), identity, ProbationLeaseRequest{
+		OwnerID: "test-supervisor", Process: process, TTL: time.Minute,
+	})
+	if err != nil {
+		t.Fatalf("AcquireProbationLease() error = %v", err)
+	}
+	transaction := loadTransaction(t, store, identity)
+	ack := BuildHealthyACK(transaction, process, time.Now())
+	if _, err := store.RecordHealthyACK(context.Background(), identity, lease, ack); err != nil {
+		t.Fatalf("RecordHealthyACK() error = %v", err)
+	}
+	return lease
 }
 
 func createPreparedTransaction(t *testing.T) (*Store, Identity, Paths) {
