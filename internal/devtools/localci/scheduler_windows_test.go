@@ -17,6 +17,11 @@ func TestSchedulerCurrentUIDExclusiveStorageFailsFastOnWindows(t *testing.T) {
 	privateDir := t.TempDir()
 	lockPath := filepath.Join(privateDir, "scheduler.lock")
 	statePath := filepath.Join(privateDir, "state.db")
+	config := SchedulerConfig{
+		Endpoint: "unix:///var/run/docker.sock",
+		DaemonID: "windows-unsupported",
+		OwnerUID: 0,
+	}
 
 	if _, err := acquireSchedulerLock(lockPath, identity); !errors.Is(err, errSchedulerPlatformUnsupported) {
 		t.Fatalf("lock error=%v want=%v", err, errSchedulerPlatformUnsupported)
@@ -24,12 +29,14 @@ func TestSchedulerCurrentUIDExclusiveStorageFailsFastOnWindows(t *testing.T) {
 	if _, err := openSchedulerState(context.Background(), statePath, identity); !errors.Is(err, errSchedulerPlatformUnsupported) {
 		t.Fatalf("state error=%v want=%v", err, errSchedulerPlatformUnsupported)
 	}
-	if _, err := OpenScheduler(context.Background(), SchedulerConfig{
-		Endpoint: "unix:///var/run/docker.sock",
-		DaemonID: "windows-unsupported",
-		OwnerUID: 0,
-	}); !errors.Is(err, errSchedulerPlatformUnsupported) {
+	if _, err := OpenScheduler(context.Background(), config); !errors.Is(err, errSchedulerPlatformUnsupported) {
 		t.Fatalf("facade error=%v want=%v", err, errSchedulerPlatformUnsupported)
+	}
+	if _, err := OpenSchedulerOwner(context.Background(), config); !errors.Is(err, errSchedulerPlatformUnsupported) {
+		t.Fatalf("transport owner error=%v want=%v", err, errSchedulerPlatformUnsupported)
+	}
+	if _, err := DialScheduler(context.Background(), config); !errors.Is(err, errSchedulerPlatformUnsupported) {
+		t.Fatalf("transport client error=%v want=%v", err, errSchedulerPlatformUnsupported)
 	}
 	for _, path := range []string{lockPath, statePath} {
 		if _, err := os.Lstat(path); !errors.Is(err, os.ErrNotExist) {

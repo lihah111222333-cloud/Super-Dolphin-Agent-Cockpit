@@ -57,38 +57,38 @@ const (
 
 // WorkloadRequest 是加入 owner-local queue 所需的最小调度输入。
 type WorkloadRequest struct {
-	ID              string
-	InvocationID    string
-	EnqueueSequence uint64
-	Subsequence     uint32
-	Kind            WorkloadKind
-	ServiceCount    int
-	Dependencies    []string
+	ID              string       `json:"id"`
+	InvocationID    string       `json:"invocation_id"`
+	EnqueueSequence uint64       `json:"enqueue_sequence"`
+	Subsequence     uint32       `json:"subsequence"`
+	Kind            WorkloadKind `json:"kind"`
+	ServiceCount    int          `json:"service_count"`
+	Dependencies    []string     `json:"dependencies"`
 }
 
 // Lease 描述一次进程内 slot 占用。
 type Lease struct {
-	ID         string
-	WorkloadID string
-	Kind       WorkloadKind
+	ID         string       `json:"id"`
+	WorkloadID string       `json:"workload_id"`
+	Kind       WorkloadKind `json:"kind"`
 }
 
 // WorkloadReservation 描述一个 workload 原子取得的全部 slot。
 type WorkloadReservation struct {
-	WorkloadID string
-	Leases     []Lease
+	WorkloadID string  `json:"workload_id"`
+	Leases     []Lease `json:"leases"`
 }
 
 // WorkloadSnapshot 是 workload 输入与当前状态的深拷贝视图。
 type WorkloadSnapshot struct {
-	Request WorkloadRequest
-	Status  WorkloadStatus
+	Request WorkloadRequest `json:"request"`
+	Status  WorkloadStatus  `json:"status"`
 }
 
 // SchedulerSnapshot 是 queue、DAG 与 lease 的稳定深拷贝视图。
 type SchedulerSnapshot struct {
-	Workloads []WorkloadSnapshot
-	Leases    []Lease
+	Workloads []WorkloadSnapshot `json:"workloads"`
+	Leases    []Lease            `json:"leases"`
 }
 
 // Scheduler 串行化一个 daemon identity 下的全部 kernel 与持久化操作。
