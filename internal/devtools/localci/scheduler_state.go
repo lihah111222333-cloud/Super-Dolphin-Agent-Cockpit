@@ -787,41 +787,27 @@ func (s *schedulerState) ackOutbox(
 	subscriberID string,
 	invocationID invocationID,
 	sequence uint64,
-) error {
+) (retErr error) {
 	if sequence == 0 {
 		return errors.New("outbox ack sequence must be positive")
 	}
-	var maximum uint64
-	if err := s.db.QueryRowContext(
-		ctx,
-		`SELECT COALESCE(MAX(event_seq), 0) FROM scheduler_outbox
-		WHERE subscriber_id = ? AND invocation_id = ?`,
-		subscriberID,
-		invocationID,
-	).Scan(&maximum); err != nil {
-		return fmt.Errorf("read scheduler outbox maximum: %w", err)
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin scheduler outbox ack: %w", err)
+	}
+	defer rollbackTransaction(tx, &retErr, "scheduler outbox ack")
+	maximum, err := schedulerOutboxMaximum(ctx, tx, subscriberID, invocationID)
+	if err != nil {
+		return err
 	}
 	if sequence > maximum {
 		return fmt.Errorf("outbox ack sequence %d exceeds emitted maximum %d", sequence, maximum)
 	}
-	cursor, err := s.outboxCursor(ctx, subscriberID, invocationID)
-	if err != nil {
+	if err := advanceOutboxCursor(ctx, tx, subscriberID, invocationID, sequence); err != nil {
 		return err
 	}
-	if sequence < cursor {
-		return fmt.Errorf("outbox ack sequence %d regresses cursor %d", sequence, cursor)
-	}
-	_, err = s.db.ExecContext(
-		ctx,
-		`INSERT INTO scheduler_outbox_cursors (subscriber_id, invocation_id, ack_seq)
-		VALUES (?, ?, ?)
-		ON CONFLICT(subscriber_id, invocation_id) DO UPDATE SET ack_seq = excluded.ack_seq`,
-		subscriberID,
-		invocationID,
-		sequence,
-	)
-	if err != nil {
-		return fmt.Errorf("persist scheduler outbox cursor: %w", err)
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit scheduler outbox ack: %w", err)
 	}
 	return nil
 }

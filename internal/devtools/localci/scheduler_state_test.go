@@ -6,11 +6,14 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
+	"golang.org/x/sync/errgroup"
 	_ "modernc.org/sqlite"
 )
 
@@ -207,6 +210,101 @@ func TestSchedulerOutboxTransitionReplayAndAckAreDurable(t *testing.T) {
 	assertOutboxSequences(t, events)
 	if err := reopened.ackOutbox(ctx, "subscriber-1", "inv-1", 4); err == nil {
 		t.Fatal("expected ack beyond emitted sequence to fail")
+	}
+}
+
+func TestSchedulerOutboxAckRejectsRegressionWithoutMutation(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	path := filepath.Join(canonicalPrivateTempDir(t), "state.db")
+	state := mustOpenSchedulerState(t, ctx, path, mustDaemonIdentity(t, "daemon-regressing-ack"))
+	cleanupSchedulerState(t, state)
+	seedOutboxEvents(t, ctx, state)
+	if err := state.ackOutbox(ctx, "subscriber-1", "inv-1", 3); err != nil {
+		t.Fatalf("persist high ack: %v", err)
+	}
+	if err := state.ackOutbox(ctx, "subscriber-1", "inv-1", 2); err == nil {
+		t.Fatal("expected regressing ack to fail")
+	}
+	assertOutboxCursor(t, ctx, state, 3, "rejected ack")
+}
+
+func TestSchedulerOutboxConcurrentAckKeepsMaximumCursor(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	path := filepath.Join(canonicalPrivateTempDir(t), "state.db")
+	state := mustOpenSchedulerState(t, ctx, path, mustDaemonIdentity(t, "daemon-concurrent-ack"))
+	cleanupSchedulerState(t, state)
+	seedOutboxEvents(t, ctx, state)
+
+	for round := 0; round < 32; round++ {
+		resetOutboxCursor(t, ctx, state, round)
+		assertConcurrentOutboxAckRound(t, ctx, state, round)
+	}
+}
+
+func seedOutboxEvents(t *testing.T, ctx context.Context, state *schedulerState) {
+	t.Helper()
+	if _, err := state.db.ExecContext(ctx, `
+		INSERT INTO scheduler_outbox (subscriber_id, invocation_id, event_seq, status, payload)
+		VALUES ('subscriber-1', 'inv-1', 1, 'queued', X'01'),
+		       ('subscriber-1', 'inv-1', 2, 'started', X'02'),
+		       ('subscriber-1', 'inv-1', 3, 'passed', X'03')
+	`); err != nil {
+		t.Fatalf("seed concurrent ack outbox: %v", err)
+	}
+}
+
+func resetOutboxCursor(t *testing.T, ctx context.Context, state *schedulerState, round int) {
+	t.Helper()
+	if _, err := state.db.ExecContext(ctx, "DELETE FROM scheduler_outbox_cursors"); err != nil {
+		t.Fatalf("reset cursor round %d: %v", round, err)
+	}
+}
+
+func assertConcurrentOutboxAckRound(
+	t *testing.T,
+	ctx context.Context,
+	state *schedulerState,
+	round int,
+) {
+	t.Helper()
+	start := make(chan struct{})
+	var group errgroup.Group
+	for _, sequence := range []uint64{2, 3} {
+		sequence := sequence
+		group.Go(func() error {
+			<-start
+			err := state.ackOutbox(ctx, "subscriber-1", "inv-1", sequence)
+			if err == nil || sequence == 2 && strings.Contains(err.Error(), "regresses persisted cursor") {
+				return nil
+			}
+			return fmt.Errorf("ack sequence %d: %w", sequence, err)
+		})
+	}
+	close(start)
+	if err := group.Wait(); err != nil {
+		t.Fatalf("concurrent ack round %d: %v", round, err)
+	}
+	assertOutboxCursor(t, ctx, state, 3, fmt.Sprintf("concurrent round %d", round))
+}
+
+func assertOutboxCursor(
+	t *testing.T,
+	ctx context.Context,
+	state *schedulerState,
+	want uint64,
+	action string,
+) {
+	t.Helper()
+	cursor, err := state.outboxCursor(ctx, "subscriber-1", "inv-1")
+	if err != nil {
+		t.Fatalf("read cursor after %s: %v", action, err)
+	}
+	if cursor != want {
+		t.Fatalf("cursor after %s=%d want=%d", action, cursor, want)
 	}
 }
 
