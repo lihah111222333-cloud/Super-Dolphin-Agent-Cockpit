@@ -393,20 +393,53 @@ func TestProjectMapFingerprintIncludesActiveIndex(t *testing.T) {
 	}
 }
 
-func TestProjectMapFingerprintIsStableAcrossUTCDay(t *testing.T) {
-	scope := runGateCacheGit(t, ".", "write-tree")
+func TestProjectMapFingerprintIgnoresUTCDayButIncludesTrackedInputs(t *testing.T) {
+	repo := t.TempDir()
+	runGateCacheGit(t, repo, "init")
+	path := filepath.Join(repo, "tracked.txt")
+	if err := os.WriteFile(path, []byte("initial project map input\n"), 0o600); err != nil {
+		t.Fatalf("write initial project map input: %v", err)
+	}
+	runGateCacheGit(t, repo, "add", "tracked.txt")
+	scope := runGateCacheGit(t, repo, "write-tree")
+
+	previous, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("get current directory: %v", err)
+	}
+	if err := os.Chdir(repo); err != nil {
+		t.Fatalf("enter fixture repo: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := os.Chdir(previous); err != nil {
+			t.Errorf("restore current directory: %v", err)
+		}
+	})
 	dayOne := time.Date(2026, 7, 15, 23, 59, 0, 0, time.UTC)
-	first, err := fingerprintGateInputsAt(scope, "project-map:check", gatePlan{}, dayOne)
-	if err != nil {
-		t.Fatalf("initial project-map fingerprint: %v", err)
-	}
-	second, err := fingerprintGateInputsAt(scope, "project-map:check", gatePlan{}, dayOne.Add(time.Minute))
-	if err != nil {
-		t.Fatalf("next-day project-map fingerprint: %v", err)
-	}
+	first := projectMapFingerprintAt(t, scope, dayOne, "initial")
+	dayTwo := dayOne.Add(2 * time.Minute)
+	second := projectMapFingerprintAt(t, scope, dayTwo, "next-day")
 	if first != second {
-		t.Fatal("UTC day change invalidated deterministic project-map fingerprint")
+		t.Fatal("UTC day change invalidated project-map fingerprint for identical inputs")
 	}
+
+	if err := os.WriteFile(path, []byte("changed project map input\n"), 0o600); err != nil {
+		t.Fatalf("change project map input: %v", err)
+	}
+	runGateCacheGit(t, repo, "add", "tracked.txt")
+	third := projectMapFingerprintAt(t, scope, dayTwo, "changed-input")
+	if first == third {
+		t.Fatal("real project-map input change did not invalidate fingerprint")
+	}
+}
+
+func projectMapFingerprintAt(t *testing.T, scope string, at time.Time, description string) string {
+	t.Helper()
+	fingerprint, err := fingerprintGateInputsAt(scope, "project-map:check", gatePlan{}, at)
+	if err != nil {
+		t.Fatalf("%s project-map fingerprint: %v", description, err)
+	}
+	return fingerprint
 }
 
 func TestNewGateResultCacheRejectsInvalidScope(t *testing.T) {

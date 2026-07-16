@@ -202,6 +202,7 @@ const PURPOSE_RULES = [
   ['internal/store/', '应用级持久化 store'],
 
   ['sql/queries/', '仓库级 SQL query 源文件'],
+  ['migrations/', '数据库 migration'],
   ['pkg/logger/', '统一日志、采样、relay、watchdog 与 trace context'],
   ['pkg/dagmetrics/', 'DAG 指标公共库'],
   ['pkg/dreammetrics/', 'dream pipeline 指标公共库'],
@@ -304,13 +305,12 @@ const SUBSYSTEM_PREFIX_GROUPS = [
 
 function main() {
   loadRuleOverrides(OPTIONS);
-  const generationDate = resolveGenerationDate();
   GIT_BLOB_SIZES = FILESYSTEM_SCAN ? null : loadGitTrackedBlobSizes();
   const files = scanFiles();
   const entries = files.map(buildEntry);
   const grouped = groupByDomain(entries);
   const drift = buildDrift(entries);
-  const outputs = renderAll(entries, grouped, drift, generationDate);
+  const outputs = renderAll(entries, grouped, drift);
 
   if (STRICT_DRIFT && drift.status !== 'OK') {
     console.error(`project-map-check: drift status ${drift.status}`);
@@ -541,7 +541,7 @@ function classifyDomain(file) {
   if (file.startsWith('cmd/mcp-orch/')) return 'orchestration';
   if (file.startsWith('internal/module/')) return 'modules';
   if (file.startsWith('internal/platform/') || file.startsWith('internal/provider/') || file.startsWith('internal/mcpserver/') || file.startsWith('cmd/mcp-lsp/') || file.startsWith('cmd/mcp-ida/')) return 'platform-provider';
-  if (file.startsWith('internal/store/') || file.startsWith('sql/') || file.startsWith('cmd/mcp-orch/store/') || file.startsWith('cmd/mcp-orch/sql/')) return 'store-sql';
+  if (file.startsWith('internal/store/') || file.startsWith('sql/') || file.startsWith('migrations/') || file.startsWith('cmd/mcp-orch/store/') || file.startsWith('cmd/mcp-orch/sql/')) return 'store-sql';
   if (file.startsWith('docs/') || file === 'CLAUDE.md' || file === 'AGENTS.md' || file === 'README.md' || (file.startsWith('README.') && file.endsWith('.md'))) return 'docs-agent';
   return 'other';
 }
@@ -632,23 +632,22 @@ function buildDrift(entries) {
   return { status, unknown, topUnknown, unknownRatio, warnings, thresholds: { max_unknown_ratio: maxUnknownRatio } };
 }
 
-function renderAll(entries, grouped, drift, generationDate) {
+function renderAll(entries, grouped, drift) {
   const outputs = {};
   const stats = shardStats(grouped);
-  outputs[MAP_MD] = renderMap(entries, drift, stats, generationDate);
+  outputs[MAP_MD] = renderMap(entries, drift, stats);
   outputs[DRIFT_MD] = renderDrift(entries, drift);
-  outputs[MANIFEST_JSON] = `${JSON.stringify(renderManifest(entries, grouped, drift, stats, generationDate), null, 2)}\n`;
+  outputs[MANIFEST_JSON] = `${JSON.stringify(renderManifest(entries, grouped, drift, stats), null, 2)}\n`;
   for (const [domain, items] of Object.entries(grouped)) {
     outputs[path.join(INDEX_DIR, DOMAIN_FILES[domain])] = renderTSV(items);
   }
   return outputs;
 }
 
-function renderManifest(entries, grouped, drift, stats, generationDate) {
+function renderManifest(entries, grouped, drift, stats) {
   return {
     version: '1.0',
     generator: 'node:scripts/generate_ai_project_map.mjs',
-    generated_at: generationDate,
     rules_sources: runtime.rulesSources,
     files: entries.length,
     domains: Object.fromEntries(Object.entries(grouped).map(([domain, items]) => [domain, items.length])),
@@ -724,7 +723,7 @@ function renderAppAssemblyRows() {
     .join('\n');
 }
 
-function renderMap(entries, drift, stats, generationDate) {
+function renderMap(entries, drift, stats) {
   const topCounts = countBy(entries.map((entry) => entry.module));
   const domainRows = stats
     .map((item) => `| \`${item.file}\` | ${item.count} | ${item.size_kb.toFixed(1)} KB | ${item.description} |`)
@@ -740,7 +739,7 @@ function renderMap(entries, drift, stats, generationDate) {
   const appAssemblyRows = renderAppAssemblyRows();
   const subsystemSections = renderSubsystemSections(entries);
 
-  return `# AI 项目地图（Super-Dolphin）\n\n> 生成时间：${generationDate}\n>\n> 已索引文件：**${entries.length}**\n>\n> 扫描规则：${scanPolicySummary()}\n>\n> 漂移状态：**${drift.status}**（详见 \`docs/doc/codemap/project-map/AI_PROJECT_DRIFT.md\`）\n\n## 1. 项目功能总览\n\nSuper-Dolphin / super-agent-v3 是一个本地多 Agent 桌面应用与 MCP peer 体系，核心由以下能力构成：\n\n- **桌面控制台**：\`cmd/agent-terminal\` 提供 Wails/Go host、HTTP/RPC 桥，\`frontend-app\` 提供 React/Vite 前端。\n- **编排 peer**：\`cmd/mcp-orch\` 管理 agent 生命周期、DAG、wakeup、workspace、prompt、command card 与 shared file tools。\n- **代码智能 peer**：\`cmd/mcp-lsp\` 提供多语言 LSP、文件搜索、结构和诊断工具。\n- **业务模块层**：\`internal/module\` 承载 dashboard、memory、prompt、skill、thread、turn、uistate 等运行语义。\n- **基础设施与 provider**：\`internal/platform\`、\`internal/provider\` 负责 RPC、hooks、toolbridge、控制面、Claude/Codex provider 集成。\n- **持久化与治理**：\`internal/store\`、\`sql\`、\`migrations\`、\`internal/archtest\`、\`docs/doc/codemap\` 提供数据访问、schema、架构守卫和代码地图。\n\n## 2. 索引路由表\n\n| 索引文件 | 文件数 | 大小 | 覆盖范围 |\n|---|---:|---:|---|\n${domainRows}\n\n**检索示例：**\n\n\`\`\`bash\n# 1) 先读此 MAP.md 确定目标域\n# 2) 搜索对应 TSV 分片\nrg "thread.*resume|fork" docs/doc/codemap/project-map/index/modules.tsv\nrg "provider.*manifest|toolbridge" docs/doc/codemap/project-map/index/platform-provider.tsv\nrg "lsp.*diagnostics|grep" docs/doc/codemap/project-map/index/platform-provider.tsv\nrg "ChatPage|composer|timeline" docs/doc/codemap/project-map/index/app-ui.tsv\n# 3) 打开目标源码和同包测试\nrg --line-number "func .*Resume|func .*Fork" internal/module/thread -g '*.go'\n\`\`\`\n\n## 3. 顶层结构\n\n| 模块 | 文件数 | 职责 |\n|---|---:|---|\n${topRows}\n\n## 4. 运行入口地图\n\n| 运行单元 | 入口文件 | 默认端口/端点 | 说明 |\n|---|---|---|---|\n${runtimeEntryRows}\n\n## 5. Root Fx 装配阅读顺序\n\n\`internal/app/modules.go\` 是根装配清单，不是严格的业务执行时序。阅读时先按下面的依赖层理解，再用 Fx graph tests 确认供给点是否闭合。\n\n| 步骤 | 层 | 锚点 | AI 阅读提示 |\n|---:|---|---|---|\n${appAssemblyRows}\n\n## 6. 快速定位路由\n\n| 目标 | 首选路径 | 次选路径 | 检索关键词 |\n|---|---|---|---|\n${routeRows}\n\n## 7. 重点子系统地图\n\n${subsystemSections}\n\n## 8. 文档与知识地图\n\n- 主线文档（L1）：\`README.md\`、\`docs/doc/codemap/README.md\`、\`docs/adr/*\`、\`docs/decisions/*\`\n- 工作文档（L2）：\`docs/plans/*\`、\`docs/internal-notes/*\`\n- 历史归档（L3）：\`${runtime.archivePrefixes.join('`、`')}\`（默认不递归索引）\n- Agent 体系：\`.agents/skills/*/SKILL.md\` 是 repo-local skill 指令入口；不要把 \`.agents\` 当作普通项目源码递归扫描。\n\n## 9. 索引字段说明\n\n| 字段 | 含义 |\n|---|---|\n| \`path\` | 相对路径 |\n| \`module\` | 顶层模块 |\n| \`domain\` | project-map 分片域 |\n| \`type\` | 文件类型 |\n| \`size_bytes\` | 文件大小（字节） |\n| \`purpose\` | 文件职责说明 |\n| \`search_keys\` | 建议检索关键词 |\n\n## 10. 维护命令\n\n\`\`\`bash\nnode scripts/generate_ai_project_map.mjs\nnode scripts/generate_ai_project_map.mjs --check\nnode scripts/generate_ai_project_map.mjs --strict-drift\nnode scripts/generate_ai_project_map.mjs --rules path/to/overrides.json\n\`\`\`\n\n现有手写代码地图仍以 \`docs/doc/codemap/README.md\` 和 \`make codemap-check\` / \`make codemap-refresh\` 为准；本目录提供低 token 的全仓文件级索引补充。\n`;
+  return `# AI 项目地图（Super-Dolphin）\n\n> 已索引文件：**${entries.length}**\n>\n> 扫描规则：${scanPolicySummary()}\n>\n> 漂移状态：**${drift.status}**（详见 \`docs/doc/codemap/project-map/AI_PROJECT_DRIFT.md\`）\n\n## 1. 项目功能总览\n\nSuper-Dolphin / super-agent-v3 是一个本地多 Agent 桌面应用与 MCP peer 体系，核心由以下能力构成：\n\n- **桌面控制台**：\`cmd/agent-terminal\` 提供 Wails/Go host、HTTP/RPC 桥，\`frontend-app\` 提供 React/Vite 前端。\n- **编排 peer**：\`cmd/mcp-orch\` 管理 agent 生命周期、DAG、wakeup、workspace、prompt、command card 与 shared file tools。\n- **代码智能 peer**：\`cmd/mcp-lsp\` 提供多语言 LSP、文件搜索、结构和诊断工具。\n- **业务模块层**：\`internal/module\` 承载 dashboard、memory、prompt、skill、thread、turn、uistate 等运行语义。\n- **基础设施与 provider**：\`internal/platform\`、\`internal/provider\` 负责 RPC、hooks、toolbridge、控制面、Claude/Codex provider 集成。\n- **持久化与治理**：\`internal/store\`、\`sql\`、\`migrations\`、\`internal/archtest\`、\`docs/doc/codemap\` 提供数据访问、schema、架构守卫和代码地图。\n\n## 2. 索引路由表\n\n| 索引文件 | 文件数 | 大小 | 覆盖范围 |\n|---|---:|---:|---|\n${domainRows}\n\n**检索示例：**\n\n\`\`\`bash\n# 1) 先读此 MAP.md 确定目标域\n# 2) 搜索对应 TSV 分片\nrg "thread.*resume|fork" docs/doc/codemap/project-map/index/modules.tsv\nrg "provider.*manifest|toolbridge" docs/doc/codemap/project-map/index/platform-provider.tsv\nrg "lsp.*diagnostics|grep" docs/doc/codemap/project-map/index/platform-provider.tsv\nrg "ChatPage|composer|timeline" docs/doc/codemap/project-map/index/app-ui.tsv\n# 3) 打开目标源码和同包测试\nrg --line-number "func .*Resume|func .*Fork" internal/module/thread -g '*.go'\n\`\`\`\n\n## 3. 顶层结构\n\n| 模块 | 文件数 | 职责 |\n|---|---:|---|\n${topRows}\n\n## 4. 运行入口地图\n\n| 运行单元 | 入口文件 | 默认端口/端点 | 说明 |\n|---|---|---|---|\n${runtimeEntryRows}\n\n## 5. Root Fx 装配阅读顺序\n\n\`internal/app/modules.go\` 是根装配清单，不是严格的业务执行时序。阅读时先按下面的依赖层理解，再用 Fx graph tests 确认供给点是否闭合。\n\n| 步骤 | 层 | 锚点 | AI 阅读提示 |\n|---:|---|---|---|\n${appAssemblyRows}\n\n## 6. 快速定位路由\n\n| 目标 | 首选路径 | 次选路径 | 检索关键词 |\n|---|---|---|---|\n${routeRows}\n\n## 7. 重点子系统地图\n\n${subsystemSections}\n\n## 8. 文档与知识地图\n\n- 主线文档（L1）：\`README.md\`、\`docs/doc/codemap/README.md\`、\`docs/adr/*\`、\`docs/decisions/*\`\n- 工作文档（L2）：\`docs/plans/*\`、\`docs/internal-notes/*\`\n- 历史归档（L3）：\`${runtime.archivePrefixes.join('`、`')}\`（默认不递归索引）\n- Agent 体系：\`.agents/skills/*/SKILL.md\` 是 repo-local skill 指令入口；不要把 \`.agents\` 当作普通项目源码递归扫描。\n\n## 9. 索引字段说明\n\n| 字段 | 含义 |\n|---|---|\n| \`path\` | 相对路径 |\n| \`module\` | 顶层模块 |\n| \`domain\` | project-map 分片域 |\n| \`type\` | 文件类型 |\n| \`size_bytes\` | 文件大小（字节） |\n| \`purpose\` | 文件职责说明 |\n| \`search_keys\` | 建议检索关键词 |\n\n## 10. 维护命令\n\n\`\`\`bash\nnode scripts/generate_ai_project_map.mjs\nnode scripts/generate_ai_project_map.mjs --check\nnode scripts/generate_ai_project_map.mjs --strict-drift\nnode scripts/generate_ai_project_map.mjs --rules path/to/overrides.json\n\`\`\`\n\n现有手写代码地图仍以 \`docs/doc/codemap/README.md\` 和 \`make codemap-check\` / \`make codemap-refresh\` 为准；本目录提供低 token 的全仓文件级索引补充。\n`;
 }
 
 function renderDrift(entries, drift) {
@@ -832,37 +831,6 @@ function tsvCell(value) {
 
 function normalize(file) {
   return file.replace(/\\/g, '/');
-}
-
-function today() {
-  return new Date().toISOString().slice(0, 10);
-}
-
-function resolveGenerationDate() {
-  if (!fs.existsSync(MANIFEST_JSON)) {
-    if (CHECK) {
-      throw new Error('project-map: existing manifest generated_at is required in --check mode');
-    }
-    return today();
-  }
-
-  let manifest;
-  try {
-    manifest = JSON.parse(fs.readFileSync(MANIFEST_JSON, 'utf8'));
-  } catch (error) {
-    throw new Error(`project-map: cannot read existing manifest generated_at: ${error.message}`);
-  }
-  const generationDate = manifest?.generated_at;
-  if (!isValidUTCDate(generationDate)) {
-    throw new Error(`project-map: existing manifest generated_at must be a valid YYYY-MM-DD date, got ${JSON.stringify(generationDate)}`);
-  }
-  return generationDate;
-}
-
-function isValidUTCDate(value) {
-  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
-  const date = new Date(`${value}T00:00:00.000Z`);
-  return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value;
 }
 
 main();
