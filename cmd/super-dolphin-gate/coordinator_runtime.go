@@ -3,17 +3,11 @@ package main
 import (
 	"context"
 	"crypto/rand"
-	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"net/url"
-	"os"
-	"os/exec"
 	"path/filepath"
 	"reflect"
-	"strings"
 	"time"
 
 	gatecontract "github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
@@ -155,17 +149,20 @@ func connectCoordinator(
 	checkpoint localci.DockerDaemonIdentityCheckpoint,
 	starter coordinatorOwnerStarter,
 ) (*coordinatorTransportClient, error) {
-	client, dialErr := dialCoordinator(ctx, checkpoint)
+	if ctx == nil {
+		return nil, fmt.Errorf("%w: connect context is required", errCoordinatorDependency)
+	}
+	connectCtx, cancel := context.WithDeadline(ctx, time.Now().Add(coordinatorConnectTimeout))
+	defer cancel()
+	client, dialErr := dialCoordinator(connectCtx, checkpoint)
 	if dialErr == nil {
 		return client, nil
 	}
 	if interfaceIsNil(starter) {
 		return nil, fmt.Errorf("%w: owner starter is required: %v", errCoordinatorDependency, dialErr)
 	}
-	startErr := starter.StartCoordinatorOwner(ctx, checkpoint)
-	waitCtx, cancel := context.WithDeadline(ctx, time.Now().Add(coordinatorConnectTimeout))
-	defer cancel()
-	return waitForCoordinator(waitCtx, checkpoint, startErr)
+	startErr := starter.StartCoordinatorOwner(connectCtx, checkpoint)
+	return waitForCoordinator(connectCtx, checkpoint, startErr)
 }
 
 func waitForCoordinator(
@@ -356,56 +353,4 @@ func interfaceIsNil(value any) bool {
 	}
 	reflected := reflect.ValueOf(value)
 	return reflected.Kind() == reflect.Pointer && reflected.IsNil()
-}
-
-// probeDockerDaemonIdentity 从 Docker CLI 取得跨 worktree 稳定的 daemon identity。
-func probeDockerDaemonIdentity(ctx context.Context) (localci.DockerDaemonIdentityCheckpoint, error) {
-	contextName, err := runDockerIdentityCommand(ctx, "context", "show")
-	if err != nil {
-		return localci.DockerDaemonIdentityCheckpoint{}, err
-	}
-	hostJSON, err := runDockerIdentityCommand(ctx, "context", "inspect", contextName, "--format", "{{json .Endpoints.docker.Host}}")
-	if err != nil {
-		return localci.DockerDaemonIdentityCheckpoint{}, err
-	}
-	var endpoint string
-	if err := json.Unmarshal([]byte(hostJSON), &endpoint); err != nil {
-		return localci.DockerDaemonIdentityCheckpoint{}, fmt.Errorf("decode Docker context endpoint: %w", err)
-	}
-	normalizedEndpoint, err := normalizeCoordinatorDockerEndpoint(endpoint)
-	if err != nil {
-		return localci.DockerDaemonIdentityCheckpoint{}, err
-	}
-	daemonID, err := runDockerIdentityCommand(ctx, "info", "--format", "{{.ID}}")
-	if err != nil {
-		return localci.DockerDaemonIdentityCheckpoint{}, err
-	}
-	config := localci.SchedulerConfig{Endpoint: normalizedEndpoint, DaemonID: daemonID, OwnerUID: os.Getuid()}
-	digest := sha256.Sum256([]byte(normalizedEndpoint + "\x00\x00" + daemonID))
-	return localci.DockerDaemonIdentityCheckpoint{
-		ContextName: contextName, SchedulerConfig: config, IdentityKey: hex.EncodeToString(digest[:]),
-	}, nil
-}
-
-func runDockerIdentityCommand(ctx context.Context, args ...string) (string, error) {
-	output, err := exec.CommandContext(ctx, "docker", args...).Output()
-	if err != nil {
-		return "", fmt.Errorf("run docker %s: %w", strings.Join(args, " "), err)
-	}
-	value := strings.TrimSpace(string(output))
-	if value == "" {
-		return "", fmt.Errorf("docker %s returned empty output", strings.Join(args, " "))
-	}
-	return value, nil
-}
-
-func normalizeCoordinatorDockerEndpoint(endpoint string) (string, error) {
-	parsed, err := url.Parse(strings.TrimSpace(endpoint))
-	if err != nil {
-		return "", fmt.Errorf("parse Docker endpoint: %w", err)
-	}
-	if strings.ToLower(parsed.Scheme) != "unix" || parsed.Host != "" || !filepath.IsAbs(parsed.Path) {
-		return "", errors.New("coordinator currently requires a canonical unix Docker endpoint")
-	}
-	return "unix://" + filepath.Clean(parsed.Path), nil
 }

@@ -79,7 +79,7 @@ func TestDockerDaemonIdentityProbeBuildsCanonicalCheckpoint(t *testing.T) {
 }
 
 func TestDockerDaemonIdentityCheckpointFieldRegistry(t *testing.T) {
-	assertSchedulerStructFields(t, reflect.TypeOf(DockerDaemonIdentityCheckpoint{}), []string{
+	assertSchedulerStructFields(t, reflect.TypeFor[DockerDaemonIdentityCheckpoint](), []string{
 		"ContextName", "SchedulerConfig", "IdentityKey",
 	})
 }
@@ -107,6 +107,92 @@ func TestDockerDaemonIdentityProbeContextAliasesShareIdentityKey(t *testing.T) {
 	}
 	if firstCheckpoint.IdentityKey != aliasCheckpoint.IdentityKey {
 		t.Fatalf("alias identity keys differ: %q != %q", firstCheckpoint.IdentityKey, aliasCheckpoint.IdentityKey)
+	}
+}
+
+func TestProbeDockerSchedulerAuthorityContextAliasesShareIdentity(t *testing.T) {
+	clearDockerAuthorityEnvironment(t)
+	first, err := probeDockerSchedulerAuthority(context.Background(), authorityProbeRunner(
+		dockerContextOutput(t, "desktop-linux", "unix:///var/run/docker.sock", false, "", nil),
+		testDaemonID, testDaemonID, 12, 24*bytesPerGiB,
+	))
+	if err != nil {
+		t.Fatalf("first probeDockerSchedulerAuthority() error = %v", err)
+	}
+	alias, err := probeDockerSchedulerAuthority(context.Background(), authorityProbeRunner(
+		dockerContextOutput(t, "desktop-alias", "unix:///var/run/../run/docker.sock", false, "", nil),
+		testDaemonID, testDaemonID, 12, 24*bytesPerGiB,
+	))
+	if err != nil {
+		t.Fatalf("alias probeDockerSchedulerAuthority() error = %v", err)
+	}
+	if first.ContextName == alias.ContextName || first.IdentityKey != alias.IdentityKey {
+		t.Fatalf("authority aliases do not converge: first=%#v alias=%#v", first, alias)
+	}
+}
+
+func TestProbeDockerSchedulerAuthorityRejectsContextABA(t *testing.T) {
+	clearDockerAuthorityEnvironment(t)
+	firstContext := dockerContextOutput(t, "context-a", "unix:///var/run/docker-a.sock", false, "", nil)
+	runner := &daemonIdentityDockerRunnerStub{results: []daemonIdentityDockerRunnerResult{
+		{output: firstContext},
+		{output: dockerInfoOutput(testDaemonID, 12, 24*bytesPerGiB)},
+		{output: firstContext},
+		{output: dockerContextOutput(t, "context-b", "unix:///var/run/docker-b.sock", false, "", nil)},
+	}}
+	if _, err := probeDockerSchedulerAuthority(context.Background(), runner); err == nil || !strings.Contains(err.Error(), "context drift") {
+		t.Fatalf("probeDockerSchedulerAuthority() error = %v, want context drift", err)
+	}
+	if len(runner.args) != 4 {
+		t.Fatalf("Docker calls = %d, want fail-fast before capacity inspection", len(runner.args))
+	}
+}
+
+func TestProbeDockerSchedulerAuthorityRejectsInsufficientCapacity(t *testing.T) {
+	clearDockerAuthorityEnvironment(t)
+	contextOutput := dockerContextOutput(t, "desktop-linux", "unix:///var/run/docker.sock", false, "", nil)
+	tests := []struct {
+		name          string
+		logicalCPUs   int64
+		memoryBytes   int64
+		wantSubstring string
+	}{
+		{name: "CPU", logicalCPUs: 11, memoryBytes: 24 * bytesPerGiB, wantSubstring: "logical CPU capacity insufficient"},
+		{name: "memory", logicalCPUs: 12, memoryBytes: 23 * bytesPerGiB, wantSubstring: "memory capacity insufficient"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			runner := authorityProbeRunner(contextOutput, testDaemonID, testDaemonID, test.logicalCPUs, test.memoryBytes)
+			if _, err := probeDockerSchedulerAuthority(context.Background(), runner); err == nil || !strings.Contains(err.Error(), test.wantSubstring) {
+				t.Fatalf("probeDockerSchedulerAuthority() error = %v, want %q", err, test.wantSubstring)
+			}
+		})
+	}
+}
+
+func TestProbeDockerSchedulerAuthorityRejectsCapacityDaemonMismatch(t *testing.T) {
+	clearDockerAuthorityEnvironment(t)
+	runner := authorityProbeRunner(
+		dockerContextOutput(t, "desktop-linux", "unix:///var/run/docker.sock", false, "", nil),
+		testDaemonID, "different-daemon", 12, 24*bytesPerGiB,
+	)
+	if _, err := probeDockerSchedulerAuthority(context.Background(), runner); err == nil || !strings.Contains(err.Error(), "identity mismatch") {
+		t.Fatalf("probeDockerSchedulerAuthority() error = %v, want capacity identity mismatch", err)
+	}
+}
+
+func TestProbeDockerSchedulerAuthorityLive(t *testing.T) {
+	if os.Getenv(freshContainerSmokeSwitch) != "1" {
+		t.Skipf("set %s=1 to run the current Docker authority smoke", freshContainerSmokeSwitch)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	checkpoint, err := ProbeDockerSchedulerAuthority(ctx)
+	if err != nil {
+		t.Fatalf("ProbeDockerSchedulerAuthority() live Docker error = %v", err)
+	}
+	if checkpoint.IdentityKey == "" || checkpoint.SchedulerConfig.DaemonID == "" {
+		t.Fatalf("live Docker authority checkpoint is incomplete: %#v", checkpoint)
 	}
 }
 
@@ -399,6 +485,41 @@ func identityProbeRunner(contextOutput, daemonID string) *daemonIdentityDockerRu
 		{output: contextOutput},
 		{output: dockerInfoOutput(daemonID, 18, 25*bytesPerGiB)},
 	}}
+}
+
+func authorityProbeRunner(
+	contextOutput string,
+	identityDaemonID string,
+	capacityDaemonID string,
+	logicalCPUs int64,
+	memoryBytes int64,
+) *daemonIdentityDockerRunnerStub {
+	runner := identityProbeRunner(contextOutput, identityDaemonID)
+	runner.results = append(runner.results, daemonIdentityDockerRunnerResult{
+		output: dockerInfoOutput(capacityDaemonID, logicalCPUs, memoryBytes),
+	})
+	return runner
+}
+
+func clearDockerAuthorityEnvironment(t *testing.T) {
+	t.Helper()
+	for _, name := range []string{"DOCKER_HOST", "DOCKER_CONTEXT", "DOCKER_TLS", "DOCKER_TLS_VERIFY", "DOCKER_CERT_PATH"} {
+		value, exists := os.LookupEnv(name)
+		if err := os.Unsetenv(name); err != nil {
+			t.Fatalf("unset %s: %v", name, err)
+		}
+		t.Cleanup(func() {
+			var err error
+			if exists {
+				err = os.Setenv(name, value)
+			} else {
+				err = os.Unsetenv(name)
+			}
+			if err != nil {
+				t.Errorf("restore %s: %v", name, err)
+			}
+		})
+	}
 }
 
 func dockerContextOutput(

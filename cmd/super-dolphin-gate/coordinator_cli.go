@@ -9,6 +9,7 @@ import (
 	"os"
 
 	gatecontract "github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/localci"
 )
 
 type coordinatorClient interface {
@@ -22,9 +23,9 @@ type coordinatorConnector func(context.Context) (coordinatorClient, error)
 
 // connectProductionCoordinator 以真实 Docker daemon identity 发现唯一 owner。
 func connectProductionCoordinator(ctx context.Context) (coordinatorClient, error) {
-	checkpoint, err := probeDockerDaemonIdentity(ctx)
+	checkpoint, err := localci.ProbeDockerSchedulerAuthority(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("probe Docker daemon identity: %w", err)
+		return nil, fmt.Errorf("establish Docker scheduler authority: %w", err)
 	}
 	return connectCoordinator(ctx, checkpoint, executableOwnerStarter{})
 }

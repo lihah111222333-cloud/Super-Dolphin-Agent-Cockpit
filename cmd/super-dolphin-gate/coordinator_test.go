@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -106,6 +107,16 @@ type competingOwnerStarter struct {
 	group        *errgroup.Group
 }
 
+type blockingOwnerStarter struct{}
+
+func (blockingOwnerStarter) StartCoordinatorOwner(
+	ctx context.Context,
+	_ localci.DockerDaemonIdentityCheckpoint,
+) error {
+	<-ctx.Done()
+	return ctx.Err()
+}
+
 func (starter *competingOwnerStarter) StartCoordinatorOwner(
 	_ context.Context,
 	checkpoint localci.DockerDaemonIdentityCheckpoint,
@@ -169,6 +180,38 @@ func TestConnectCoordinatorCompetingStartersConverge(t *testing.T) {
 	}
 	for _, starter := range starters {
 		starter.stop(t)
+	}
+}
+
+func TestConnectCoordinatorDeadlineCoversOwnerStarter(t *testing.T) {
+	checkpoint := coordinatorTestCheckpoint(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	startedAt := time.Now()
+	_, err := connectCoordinator(ctx, checkpoint, blockingOwnerStarter{})
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("connectCoordinator() error = %v, want deadline exceeded", err)
+	}
+	if elapsed := time.Since(startedAt); elapsed > time.Second {
+		t.Fatalf("connectCoordinator() elapsed = %v, starter escaped deadline", elapsed)
+	}
+}
+
+func TestOwnerHandshakeDeadlineKillsAndReapsChild(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	command := exec.CommandContext(ctx, os.Args[0], "-test.run=^TestCoordinatorProcessHelper$", "-test.count=1")
+	command.Env = append(os.Environ(), "SD_COORDINATOR_HELPER=hang-handshake")
+	startedAt := time.Now()
+	err := startCoordinatorOwnerCommand(ctx, command)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("startCoordinatorOwnerCommand() error = %v, want deadline exceeded", err)
+	}
+	if command.ProcessState == nil {
+		t.Fatal("timed-out owner child was not waited and reaped")
+	}
+	if elapsed := time.Since(startedAt); elapsed > time.Second {
+		t.Fatalf("owner handshake cancellation elapsed = %v", elapsed)
 	}
 }
 
@@ -277,8 +320,16 @@ func (client *scriptedCoordinatorClient) Wait(context.Context, string) (jobStatu
 func (*scriptedCoordinatorClient) Close() error { return nil }
 
 func TestCoordinatorProcessHelper(t *testing.T) {
-	if os.Getenv("SD_COORDINATOR_HELPER") != "submit" {
+	switch os.Getenv("SD_COORDINATOR_HELPER") {
+	case "":
 		t.Skip("process helper")
+	case "hang-handshake":
+		_, _ = fmt.Fprint(os.Stdout, `{"ready":true}`)
+		time.Sleep(time.Minute)
+		return
+	case "submit":
+	default:
+		t.Fatal("unknown coordinator process helper mode")
 	}
 	checkpoint := checkpointFromHelperEnvironment(t)
 	character := os.Getenv("SD_COORDINATOR_TREE_CHARACTER")

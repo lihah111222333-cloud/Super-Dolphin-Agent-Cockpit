@@ -35,29 +35,56 @@ func (executableOwnerStarter) StartCoordinatorOwner(ctx context.Context, checkpo
 	args := []string{
 		"_owner", "--identity-key", checkpoint.IdentityKey,
 	}
-	command := exec.Command(executable, args...)
+	command := exec.CommandContext(ctx, executable, args...)
+	command.Stderr = os.Stderr
+	return startCoordinatorOwnerCommand(ctx, command)
+}
+
+// startCoordinatorOwnerCommand 在调用方 deadline 内启动、校验握手并移交 owner 子进程。
+func startCoordinatorOwnerCommand(ctx context.Context, command *exec.Cmd) error {
+	if ctx == nil || command == nil {
+		return errors.New("coordinator owner command and context are required")
+	}
 	stdout, err := command.StdoutPipe()
 	if err != nil {
 		return fmt.Errorf("open owner handshake pipe: %w", err)
 	}
-	command.Stderr = os.Stderr
 	if err := command.Start(); err != nil {
 		return fmt.Errorf("start coordinator owner: %w", err)
 	}
-	if err := readOwnerHandshake(stdout); err != nil {
-		_ = command.Process.Kill()
-		_ = command.Wait()
-		return err
+	if err := readOwnerHandshake(ctx, stdout); err != nil {
+		return errors.Join(err, terminateOwnerCommand(command))
 	}
 	if err := command.Process.Release(); err != nil {
-		return fmt.Errorf("release coordinator owner process: %w", err)
+		return errors.Join(fmt.Errorf("release coordinator owner process: %w", err), terminateOwnerCommand(command))
 	}
 	return nil
 }
 
-func readOwnerHandshake(reader io.Reader) error {
+func terminateOwnerCommand(command *exec.Cmd) error {
+	killErr := command.Process.Kill()
+	if errors.Is(killErr, os.ErrProcessDone) {
+		killErr = nil
+	}
+	return errors.Join(killErr, command.Wait())
+}
+
+// readOwnerHandshake 通过可关闭 pipe 读取严格单行握手，使 context 取消能解除阻塞。
+func readOwnerHandshake(ctx context.Context, reader io.ReadCloser) error {
+	if ctx == nil || reader == nil {
+		return errors.New("coordinator owner handshake context and reader are required")
+	}
+	stopCancel := context.AfterFunc(ctx, func() { _ = reader.Close() })
+	defer stopCancel()
+	defer reader.Close()
 	line, err := bufio.NewReader(io.LimitReader(reader, ownerHandshakeMaximumBytes)).ReadBytes('\n')
 	if err != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return fmt.Errorf("read coordinator owner handshake: %w", ctxErr)
+		}
+		return fmt.Errorf("read coordinator owner handshake: %w", err)
+	}
+	if err := ctx.Err(); err != nil {
 		return fmt.Errorf("read coordinator owner handshake: %w", err)
 	}
 	var handshake ownerHandshake
@@ -81,7 +108,7 @@ func runOwnerProcess(args []string, stdout io.Writer) error {
 	if err != nil {
 		return writeOwnerFailure(stdout, err)
 	}
-	checkpoint, err := probeDockerDaemonIdentity(context.Background())
+	checkpoint, err := localci.ProbeDockerSchedulerAuthority(context.Background())
 	if err != nil {
 		return writeOwnerFailure(stdout, err)
 	}

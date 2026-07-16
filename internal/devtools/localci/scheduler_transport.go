@@ -77,6 +77,38 @@ func DialScheduler(ctx context.Context, config SchedulerConfig) (*SchedulerClien
 	return dialSchedulerAtRuntimeRoot(ctx, identity, runtimeRoot)
 }
 
+// ProbeDockerSchedulerAuthority 以同一 Docker runner 绑定 daemon identity 与三槽位容量证据。
+func ProbeDockerSchedulerAuthority(ctx context.Context) (DockerDaemonIdentityCheckpoint, error) {
+	return probeDockerSchedulerAuthority(ctx, execDockerRunner{})
+}
+
+// probeDockerSchedulerAuthority 复用同一 runner 依次固定 identity 与容量证据。
+func probeDockerSchedulerAuthority(
+	ctx context.Context,
+	runner dockerRunner,
+) (DockerDaemonIdentityCheckpoint, error) {
+	identityProbe, err := newDockerDaemonIdentityProbe(runner)
+	if err != nil {
+		return DockerDaemonIdentityCheckpoint{}, err
+	}
+	checkpoint, err := identityProbe.Probe(ctx)
+	if err != nil {
+		return DockerDaemonIdentityCheckpoint{}, fmt.Errorf("probe Docker scheduler identity: %w", err)
+	}
+	capacityInspector, err := newDockerDaemonCapacityInspector(runner)
+	if err != nil {
+		return DockerDaemonIdentityCheckpoint{}, err
+	}
+	evidence, err := ValidateDaemonCapacity(ctx, checkpoint.SchedulerConfig.DaemonID, capacityInspector)
+	if err != nil {
+		return DockerDaemonIdentityCheckpoint{}, fmt.Errorf("validate Docker scheduler capacity: %w", err)
+	}
+	if evidence.Available.DaemonID != checkpoint.SchedulerConfig.DaemonID {
+		return DockerDaemonIdentityCheckpoint{}, errors.New("Docker scheduler capacity identity does not match checkpoint")
+	}
+	return checkpoint, nil
+}
+
 func schedulerTransportIdentity(ctx context.Context, config SchedulerConfig) (daemonIdentity, error) {
 	if ctx == nil {
 		return daemonIdentity{}, fmt.Errorf("%w: context is required", ErrInvalidSchedulerInput)
