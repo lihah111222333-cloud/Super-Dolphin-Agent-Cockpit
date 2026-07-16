@@ -764,6 +764,7 @@ required_execs=(
   "$macos/agent-terminal"
   "$resources/bin/mcp-orch"
   "$resources/bin/mcp-lsp"
+  "$resources/bin/mcp-schema-compiler-helper"
   "$resources/bin/mcp-ida"
   "$resources/bin/super-dolphin-updater"
   "$resources/bin/super-dolphin-guard"
@@ -783,6 +784,12 @@ required_execs=(
   "$resources/lsp/bin/go"
   "$resources/bin/git"
 )
+
+if [[ ! -f "$resources/bin/mcp-schema-compiler-helper.manifest.json" ]]; then
+  echo "missing schema helper manifest" >&2
+  exit 1
+fi
+"$resources/bin/mcp-schema-compiler-helper" --verify-package "$resources/bin/mcp-schema-compiler-helper.manifest.json"
 
 verify_runtime_manifest
 if [[ -f "$resources/lsp/lsp-manifest.json" ]] && lsp_manifest_value "$resources/lsp/lsp-manifest.json" "jdtls" path >/dev/null 2>&1; then

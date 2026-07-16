@@ -27,6 +27,23 @@ describe('Recovery client', () => {
       .toThrow('Recovery mode is required');
   });
 
+  it('fails fast on missing or unknown state fields', () => {
+    const missing = recoveryPayload();
+    delete missing.last_action;
+    expect(() => normalizeRecoveryState(missing)).toThrow('Recovery state fields must exactly match');
+    expect(() => normalizeRecoveryState(recoveryPayload({ future_field: true })))
+      .toThrow('Recovery state fields must exactly match');
+  });
+
+  it('fails fast on missing or unknown action fields', () => {
+    const missing = recoveryPayload();
+    delete missing.actions.retry;
+    expect(() => normalizeRecoveryState(missing)).toThrow('Recovery actions fields must exactly match');
+    const unknown = recoveryPayload();
+    unknown.actions.future_action = true;
+    expect(() => normalizeRecoveryState(unknown)).toThrow('Recovery actions fields must exactly match');
+  });
+
   it('fails fast on missing, unknown, or non-boolean projection fields', () => {
     const missing = recoveryPayload();
     delete missing.projection.lease_present;

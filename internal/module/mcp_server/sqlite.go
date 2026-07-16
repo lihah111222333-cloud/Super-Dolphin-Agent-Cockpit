@@ -179,6 +179,8 @@ func sqliteDBHubDSN(databasePath string) string {
 // replaceDefaultSQLiteServer 用当前 dbhub 配置替换可自动转换的默认 sqlite server。
 // 它先删除再插入同名配置，任一步失败都返回错误，避免留下半更新状态。
 func (s *service) replaceDefaultSQLiteServer(ctx context.Context, config ServerConfig) (string, error) {
+	s.configMu.Lock()
+	defer s.configMu.Unlock()
 	workspaceRoot, servers, err := s.resolveWorkspaceServers(ctx, "")
 	if err != nil {
 		return "", err
@@ -197,6 +199,7 @@ func (s *service) replaceDefaultSQLiteServer(ctx context.Context, config ServerC
 	if !deleted {
 		return "", fmt.Errorf("%w: %s", errServerNotFound, DefaultSQLiteServerName)
 	}
+	s.configRevision++
 	inserted, err := store.InsertServer(ctx, StoreMCPServerConfigParams{
 		WorkspaceRoot: workspaceRoot,
 		Name:          DefaultSQLiteServerName,
@@ -214,6 +217,8 @@ func (s *service) replaceDefaultSQLiteServer(ctx context.Context, config ServerC
 // setDefaultSQLiteServerEnabled 只切换默认 sqlite server 的 enabled 状态。
 // 配置行和 store 都必须存在，否则返回错误，避免 start/stop 静默失效。
 func (s *service) setDefaultSQLiteServerEnabled(ctx context.Context, enabled bool) error {
+	s.configMu.Lock()
+	defer s.configMu.Unlock()
 	workspaceRoot, servers, err := s.resolveWorkspaceServers(ctx, "")
 	if err != nil {
 		return err
@@ -232,6 +237,7 @@ func (s *service) setDefaultSQLiteServerEnabled(ctx context.Context, enabled boo
 	if !updated {
 		return fmt.Errorf("%w: %s", errServerNotFound, DefaultSQLiteServerName)
 	}
+	s.configRevision++
 	return nil
 }
 

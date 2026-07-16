@@ -804,6 +804,8 @@ package_linux_main() {
   cp "$root/bin/agent-terminal" "$stage/bin/agent-terminal"
   cp "$root/bin/mcp-orch" "$stage/bin/mcp-orch"
   cp "$root/bin/mcp-lsp" "$stage/bin/mcp-lsp"
+  cp "$root/bin/mcp-schema-compiler-helper" "$stage/bin/mcp-schema-compiler-helper"
+  cp "$root/bin/mcp-schema-compiler-helper.manifest.json" "$stage/bin/mcp-schema-compiler-helper.manifest.json"
   cp "$root/bin/mcp-ida" "$stage/bin/mcp-ida"
   copy_sqlite_migrations "$stage"
   copy_packaged_lsp_bundle "$stage"
@@ -833,7 +835,7 @@ export GO_AGENT_PEER_BIN_DIR="$here/bin"
 export SUPER_DOLPHIN_REQUIRE_BUNDLED_CODEX=1
 export SUPER_DOLPHIN_LSP_BUNDLE_DIR="$here/lsp"
 export SUPER_DOLPHIN_LSP_MANIFEST="$here/lsp/lsp-manifest.json"
-bundled_execs=(mcp-orch mcp-lsp mcp-ida gopls go typescript-language-server vscode-css-language-server pyright-langserver rust-analyzer bash-language-server sqruff shellcheck sg)
+bundled_execs=(mcp-orch mcp-lsp mcp-schema-compiler-helper mcp-ida gopls go typescript-language-server vscode-css-language-server pyright-langserver rust-analyzer bash-language-server sqruff shellcheck sg)
 if grep -q '"jdtls"' "$SUPER_DOLPHIN_LSP_MANIFEST"; then
   bundled_execs+=(jdtls)
 fi

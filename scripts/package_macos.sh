@@ -428,7 +428,8 @@ verify_startup_macos_compatibility() {
   verify_macho_macos_compatibility "startup binary" "$max_version" \
     "$macos/agent-terminal" \
     "$resources/bin/mcp-orch" \
-    "$resources/bin/mcp-lsp"
+    "$resources/bin/mcp-lsp" \
+    "$resources/bin/mcp-schema-compiler-helper"
 }
 
 validate_release_relay_url() {
@@ -1735,6 +1736,8 @@ phase_start "copy app resources"
 cp "$root/bin/agent-terminal" "$macos/agent-terminal"
 cp "$root/bin/mcp-orch" "$resources/bin/mcp-orch"
 cp "$root/bin/mcp-lsp" "$resources/bin/mcp-lsp"
+cp "$root/bin/mcp-schema-compiler-helper" "$resources/bin/mcp-schema-compiler-helper"
+cp "$root/bin/mcp-schema-compiler-helper.manifest.json" "$resources/bin/mcp-schema-compiler-helper.manifest.json"
 cp "$root/bin/mcp-ida" "$resources/bin/mcp-ida"
 copy_sqlite_migrations "$resources"
 copy_model_registry "$resources"

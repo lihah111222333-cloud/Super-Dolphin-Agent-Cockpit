@@ -4,7 +4,9 @@ package schema
 
 import (
 	"errors"
+	"fmt"
 	"os/exec"
+	"reflect"
 	"syscall"
 	"unsafe"
 
@@ -19,11 +21,17 @@ type processGuard struct {
 	handle windows.Handle
 }
 
-func configureProcess(cmd *exec.Cmd) {
+func configureProcess(cmd *exec.Cmd) error {
 	cmd.SysProcAttr = &syscall.SysProcAttr{}
+	creationFlags := reflect.ValueOf(cmd.SysProcAttr).Elem().FieldByName("CreationFlags")
+	if !creationFlags.IsValid() || !creationFlags.CanSet() || creationFlags.Kind() != reflect.Uint32 {
+		return errors.New("Windows SysProcAttr.CreationFlags is unavailable")
+	}
+	creationFlags.SetUint(windows.CREATE_SUSPENDED)
+	return nil
 }
 
-// attachProcessGuard 将 helper 绑定到关闭即终止的 Windows Job Object。
+// attachProcessGuard 在恢复 suspended helper 前绑定关闭即终止的 Windows Job Object。
 func attachProcessGuard(cmd *exec.Cmd) (*processGuard, error) {
 	if cmd == nil || cmd.Process == nil {
 		return nil, errors.New("process is not started")
@@ -33,7 +41,7 @@ func attachProcessGuard(cmd *exec.Cmd) (*processGuard, error) {
 		return nil, err
 	}
 	processHandle, err := windows.OpenProcess(
-		windows.PROCESS_SET_QUOTA|windows.PROCESS_TERMINATE,
+		windows.PROCESS_SET_QUOTA|windows.PROCESS_TERMINATE|windows.PROCESS_SUSPEND_RESUME,
 		false,
 		uint32(cmd.Process.Pid),
 	)
@@ -45,6 +53,12 @@ func attachProcessGuard(cmd *exec.Cmd) (*processGuard, error) {
 	if err := windows.AssignProcessToJobObject(handle, processHandle); err != nil {
 		_ = windows.CloseHandle(handle)
 		return nil, err
+	}
+	resume := windows.NewLazySystemDLL("ntdll.dll").NewProc("NtResumeProcess")
+	status, _, _ := resume.Call(uintptr(processHandle))
+	if status != 0 {
+		_ = windows.CloseHandle(handle)
+		return nil, fmt.Errorf("NtResumeProcess failed with NTSTATUS 0x%x", status)
 	}
 	return &processGuard{handle: handle}, nil
 }

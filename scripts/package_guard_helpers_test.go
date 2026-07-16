@@ -416,6 +416,7 @@ func writeMinimalPackagedMacOSApp(t *testing.T) string {
 		filepath.Join(macos, "agent-terminal"),
 		filepath.Join(resources, "bin", "mcp-orch"),
 		filepath.Join(resources, "bin", "mcp-lsp"),
+		filepath.Join(resources, "bin", "mcp-schema-compiler-helper"),
 		filepath.Join(resources, "bin", "mcp-ida"),
 		filepath.Join(resources, "bin", "super-dolphin-updater"),
 		filepath.Join(resources, "bin", "super-dolphin-guard"),
@@ -447,6 +448,7 @@ func writeMinimalPackagedMacOSApp(t *testing.T) string {
 	} {
 		writeExecutable(t, path)
 	}
+	writeFile(t, filepath.Join(resources, "bin", "mcp-schema-compiler-helper.manifest.json"), "{}\n", 0o644)
 	pythonShadow := "#!/bin/sh\necho Packaged Super Dolphin does not bundle a Python interpreter e62\nexit 1\n"
 	writeFile(t, filepath.Join(resources, "lsp", "bin", "python"), pythonShadow, 0o755)
 	writeFile(t, filepath.Join(resources, "lsp", "bin", "python3"), pythonShadow, 0o755)
@@ -642,6 +644,7 @@ func writeMinimalPackagedLinuxStage(t *testing.T) string {
 		filepath.Join(stage, "bin", "agent-terminal"),
 		filepath.Join(stage, "bin", "mcp-orch"),
 		filepath.Join(stage, "bin", "mcp-lsp"),
+		filepath.Join(stage, "bin", "mcp-schema-compiler-helper"),
 		filepath.Join(stage, "bin", "mcp-ida"),
 		filepath.Join(stage, "bin", "codex"),
 		filepath.Join(stage, "bin", "gopls"),
@@ -670,6 +673,7 @@ func writeMinimalPackagedLinuxStage(t *testing.T) string {
 	} {
 		writeExecutable(t, path)
 	}
+	writeFile(t, filepath.Join(stage, "bin", "mcp-schema-compiler-helper.manifest.json"), "{}\n", 0o644)
 	pythonShadow := "#!/bin/sh\necho Packaged Super Dolphin does not bundle a Python interpreter >&2\nexit 1\n"
 	writeFile(t, filepath.Join(stage, "lsp", "bin", "python"), pythonShadow, 0o755)
 	writeFile(t, filepath.Join(stage, "lsp", "bin", "python3"), pythonShadow, 0o755)

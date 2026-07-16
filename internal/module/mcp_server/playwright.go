@@ -106,6 +106,8 @@ func defaultPlaywrightServerConfig() ServerConfig {
 // setDefaultPlaywrightServerEnabled 只切换默认 playwright server 的 enabled 状态。
 // 如果配置行或 store 缺失会立即报错，避免 start/stop 看似成功但实际未落库。
 func (s *service) setDefaultPlaywrightServerEnabled(ctx context.Context, enabled bool) error {
+	s.configMu.Lock()
+	defer s.configMu.Unlock()
 	workspaceRoot, servers, err := s.resolveWorkspaceServers(ctx, "")
 	if err != nil {
 		return err
@@ -124,5 +126,6 @@ func (s *service) setDefaultPlaywrightServerEnabled(ctx context.Context, enabled
 	if !updated {
 		return fmt.Errorf("%w: %s", errServerNotFound, DefaultPlaywrightServerName)
 	}
+	s.configRevision++
 	return nil
 }

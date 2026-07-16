@@ -152,6 +152,53 @@ func TestTask4BExternalAuthorityGenerationConfigAndMembershipCAS(t *testing.T) {
 	assertTask4BExternalAuthorityCAS(t, owner, second, third)
 }
 
+func TestAuthorityDeleteAfterReadPreventsPublish(t *testing.T) {
+	store := newMemoryMCPServerStore()
+	cwd := t.TempDir()
+	t.Chdir(cwd)
+	binary := providerdto.MCPBinary{Name: "external", TrustedServerID: "external", Type: "http", URL: "https://example.test/v1"}
+	store.seed(cwd, binary.Name, ServerConfig{Transport: "http", URL: binary.URL})
+	svc := NewServiceWithStore(store)
+	owner := AsMCPToolAuthorityOwner(svc)
+	token := issueTask4BExternalAuthority(t, owner, cwd, binary, "membership")
+	if _, err := svc.DeleteServer(context.Background(), DeleteServerRequest{ServerName: binary.Name}); err != nil {
+		t.Fatalf("DeleteServer() error = %v", err)
+	}
+	published := 0
+	err := owner.CompareAndSwapMCPToolQuarantines(context.Background(), []contract.MCPToolQuarantineCommit{{Authority: token}}, func() error {
+		published++
+		return nil
+	})
+	if err == nil || published != 0 {
+		t.Fatalf("stale publish error=%v count=%d, want rejection/0", err, published)
+	}
+}
+
+func TestAuthorityDeleteAfterFinalCheckPreventsClientCall(t *testing.T) {
+	store := newMemoryMCPServerStore()
+	cwd := t.TempDir()
+	t.Chdir(cwd)
+	binary := providerdto.MCPBinary{Name: "external", TrustedServerID: "external", Type: "http", URL: "https://example.test/v1"}
+	store.seed(cwd, binary.Name, ServerConfig{Transport: "http", URL: binary.URL})
+	svc := NewServiceWithStore(store)
+	owner := AsMCPToolAuthorityOwner(svc)
+	token := issueTask4BExternalAuthority(t, owner, cwd, binary, "membership")
+	if err := owner.CheckMCPToolAuthority(context.Background(), token); err != nil {
+		t.Fatalf("final CheckMCPToolAuthority() error = %v", err)
+	}
+	if _, err := svc.DeleteServer(context.Background(), DeleteServerRequest{ServerName: binary.Name}); err != nil {
+		t.Fatalf("DeleteServer() error = %v", err)
+	}
+	clientCalls := 0
+	err := owner.WithMCPToolAuthority(context.Background(), token, func() error {
+		clientCalls++
+		return nil
+	})
+	if err == nil || clientCalls != 0 {
+		t.Fatalf("stale call error=%v client calls=%d, want rejection/0", err, clientCalls)
+	}
+}
+
 func assertTask4BExternalAuthorityGenerations(
 	t *testing.T,
 	store *memoryMCPServerStore,

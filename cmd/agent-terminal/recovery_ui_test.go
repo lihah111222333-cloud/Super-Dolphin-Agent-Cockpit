@@ -150,64 +150,74 @@ func TestCompleteRecoveryRestoreFailureKeepsSurfaceOpen(t *testing.T) {
 
 func TestRecoverySurfaceFieldGuard(t *testing.T) {
 	frontend := readRecoveryClientSource(t)
-	producerType := reflect.TypeFor[app.RecoveryProjection]()
-	producerFields, err := jsonProducerFields(producerType)
-	if err != nil {
-		t.Fatal(err)
-	}
 	projection := app.RecoveryProjection{
 		TransactionID: "transaction-1", AttemptID: "attempt-1", State: recovery.StateProbation,
 		LeasePresent: true, LeaseOwner: "owner-1", LeaseGeneration: 2,
 		CandidateSHA256: "candidate-sha", Reason: "failure",
 	}
-	mapperFields, err := projectionMapperFields(newRecoverySurfaceState(projection, "state"))
-	if err != nil {
-		t.Fatal(err)
+	state := newRecoverySurfaceState(projection, "state")
+	guards := []struct {
+		chain, terminal string
+		producer        reflect.Type
+		value           any
+	}{
+		{"recovery_state_to_wails_frontend", "RECOVERY_STATE_FIELDS", reflect.TypeFor[recoverySurfaceState](), state},
+		{"recovery_actions_to_wails_frontend", "RECOVERY_ACTION_FIELDS", reflect.TypeFor[recoveryActionAvailability](), state.Actions},
+		{"recovery_projection_to_wails_frontend", "RECOVERY_PROJECTION_FIELDS", reflect.TypeFor[app.RecoveryProjection](), state.Projection},
 	}
-	terminalFields, err := parseRecoveryProjectionFields(frontend)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := validateRecoveryProjectionChain(producerType.String(), producerFields, mapperFields, terminalFields); err != nil {
-		t.Fatal(err)
+	for _, guard := range guards {
+		producerFields, err := jsonProducerFields(guard.producer)
+		if err != nil {
+			t.Fatal(err)
+		}
+		mapperFields, err := jsonMapperFields(guard.value)
+		if err != nil {
+			t.Fatal(err)
+		}
+		terminalFields, err := parseRecoveryFields(frontend, guard.terminal)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := validateRecoveryFieldChain(guard.chain, guard.producer.String(), producerFields, mapperFields, terminalFields); err != nil {
+			t.Fatal(err)
+		}
 	}
 }
 
-func TestRecoveryProjectionFieldGuardRejectsProducerMutation(t *testing.T) {
-	producer := reflect.TypeFor[app.RecoveryProjection]()
-	fields := make([]reflect.StructField, producer.NumField(), producer.NumField()+1)
-	for index := 0; index < producer.NumField(); index++ {
-		fields[index] = producer.Field(index)
+func TestRecoveryFieldGuardsRejectProducerMutations(t *testing.T) {
+	tests := []struct {
+		chain, terminal, producer string
+		typeOf                    reflect.Type
+	}{
+		{"recovery_state_to_wails_frontend", "RECOVERY_STATE_FIELDS", "main.recoverySurfaceState", reflect.TypeFor[recoverySurfaceState]()},
+		{"recovery_actions_to_wails_frontend", "RECOVERY_ACTION_FIELDS", "main.recoveryActionAvailability", reflect.TypeFor[recoveryActionAvailability]()},
+		{"recovery_projection_to_wails_frontend", "RECOVERY_PROJECTION_FIELDS", "app.RecoveryProjection", reflect.TypeFor[app.RecoveryProjection]()},
 	}
-	fields = append(fields, reflect.StructField{
-		Name: "FutureActionPolicy", Type: reflect.TypeFor[string](), Tag: `json:"future_action_policy"`,
-	})
-	mutated := reflect.StructOf(fields)
-	producerFields, err := jsonProducerFields(mutated)
-	if err != nil {
-		t.Fatal(err)
-	}
-	mapperFields, err := projectionMapperFields(map[string]any{"projection": reflect.New(mutated).Elem().Interface()})
-	if err != nil {
-		t.Fatal(err)
-	}
-	terminalFields, err := parseRecoveryProjectionFields(readRecoveryClientSource(t))
-	if err != nil {
-		t.Fatal(err)
-	}
-	err = validateRecoveryProjectionChain("app.RecoveryProjection", producerFields, mapperFields, terminalFields)
-	for _, evidence := range []string{
-		"chain=recovery_projection_to_wails_frontend",
-		"producer=app.RecoveryProjection",
-		"stage=terminal",
-		"field=future_action_policy",
-	} {
-		if err == nil || !strings.Contains(err.Error(), evidence) {
-			t.Fatalf("mutated RecoveryProjection guard error = %v, missing evidence %q", err, evidence)
+	for _, test := range tests {
+		fields := make([]reflect.StructField, test.typeOf.NumField(), test.typeOf.NumField()+1)
+		for index := 0; index < test.typeOf.NumField(); index++ {
+			fields[index] = test.typeOf.Field(index)
 		}
-	}
-	if err == nil {
-		t.Fatalf("mutated RecoveryProjection guard error = %v, want missing terminal future_action_policy", err)
+		fields = append(fields, reflect.StructField{Name: "FutureField", Type: reflect.TypeFor[string](), Tag: `json:"future_field"`})
+		mutated := reflect.StructOf(fields)
+		producerFields, err := jsonProducerFields(mutated)
+		if err != nil {
+			t.Fatal(err)
+		}
+		mapperFields, err := jsonMapperFields(reflect.New(mutated).Elem().Interface())
+		if err != nil {
+			t.Fatal(err)
+		}
+		terminalFields, err := parseRecoveryFields(readRecoveryClientSource(t), test.terminal)
+		if err != nil {
+			t.Fatal(err)
+		}
+		err = validateRecoveryFieldChain(test.chain, test.producer, producerFields, mapperFields, terminalFields)
+		for _, evidence := range []string{"chain=" + test.chain, "producer=" + test.producer, "stage=terminal", "field=future_field"} {
+			if err == nil || !strings.Contains(err.Error(), evidence) {
+				t.Fatalf("mutated field guard error = %v, missing evidence %q", err, evidence)
+			}
+		}
 	}
 }
 
@@ -385,40 +395,38 @@ func jsonProducerFields(producer reflect.Type) ([]string, error) {
 	return fields, nil
 }
 
-func projectionMapperFields(value any) ([]string, error) {
+func jsonMapperFields(value any) ([]string, error) {
 	raw, err := json.Marshal(value)
 	if err != nil {
-		return nil, fmt.Errorf("marshal Recovery projection mapper: %w", err)
+		return nil, fmt.Errorf("marshal Recovery mapper: %w", err)
 	}
-	var wire struct {
-		Projection map[string]json.RawMessage `json:"projection"`
-	}
+	var wire map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &wire); err != nil {
-		return nil, fmt.Errorf("decode Recovery projection mapper: %w", err)
+		return nil, fmt.Errorf("decode Recovery mapper: %w", err)
 	}
-	fields := make([]string, 0, len(wire.Projection))
-	for field := range wire.Projection {
+	fields := make([]string, 0, len(wire))
+	for field := range wire {
 		fields = append(fields, field)
 	}
 	slices.Sort(fields)
 	return fields, nil
 }
 
-func parseRecoveryProjectionFields(source string) ([]string, error) {
-	const declaration = "const RECOVERY_PROJECTION_FIELDS = Object.freeze(["
+func parseRecoveryFields(source, constant string) ([]string, error) {
+	declaration := "const " + constant + " = Object.freeze(["
 	if strings.Count(source, declaration) != 1 {
-		return nil, errors.New("expected one RECOVERY_PROJECTION_FIELDS declaration")
+		return nil, fmt.Errorf("expected one %s declaration", constant)
 	}
 	start := strings.Index(source, declaration) + len(declaration)
 	end := strings.Index(source[start:], "]);")
 	if end < 0 {
-		return nil, errors.New("RECOVERY_PROJECTION_FIELDS declaration is not closed")
+		return nil, fmt.Errorf("%s declaration is not closed", constant)
 	}
 	fields := make([]string, 0)
 	for rawLine := range strings.SplitSeq(strings.TrimSpace(source[start:start+end]), "\n") {
 		field := strings.Trim(strings.TrimSpace(strings.TrimSuffix(rawLine, ",")), "'")
 		if field == "" {
-			return nil, fmt.Errorf("malformed RECOVERY_PROJECTION_FIELDS entry %q", rawLine)
+			return nil, fmt.Errorf("malformed %s entry %q", constant, rawLine)
 		}
 		fields = append(fields, field)
 	}
@@ -426,8 +434,7 @@ func parseRecoveryProjectionFields(source string) ([]string, error) {
 	return fields, nil
 }
 
-func validateRecoveryProjectionChain(producer string, producerFields []string, mapperFields []string, terminalFields []string) error {
-	const chainID = "recovery_projection_to_wails_frontend"
+func validateRecoveryFieldChain(chainID, producer string, producerFields []string, mapperFields []string, terminalFields []string) error {
 	if missing, stale := fieldDifference(producerFields, mapperFields); len(missing) > 0 {
 		return fmt.Errorf("chain=%s producer=%s stage=mapper field=%s status=missing", chainID, producer, missing[0])
 	} else if len(stale) > 0 {

@@ -391,6 +391,8 @@ function Verify-RequiredFiles() {
         'bin/agent-terminal.exe',
         'bin/mcp-orch.exe',
         'bin/mcp-lsp.exe',
+        'bin/mcp-schema-compiler-helper.exe',
+        'bin/mcp-schema-compiler-helper.exe.manifest.json',
         'bin/mcp-ida.exe',
         'bin/codex.exe',
         'bin/ffmpeg.exe',
@@ -407,6 +409,10 @@ function Verify-RequiredFiles() {
         if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
             throw "missing packaged file: $path"
         }
+    }
+    & (Join-Path $PackageRoot 'bin/mcp-schema-compiler-helper.exe') --verify-package (Join-Path $PackageRoot 'bin/mcp-schema-compiler-helper.exe.manifest.json')
+    if ($LASTEXITCODE -ne 0) {
+        throw 'packaged schema helper manifest verification failed'
     }
     $sqliteMigrationsDir = Join-Path $PackageRoot 'internal/platform/db/sqlite/migrations'
     if (-not (Test-Path -LiteralPath $sqliteMigrationsDir -PathType Container)) {

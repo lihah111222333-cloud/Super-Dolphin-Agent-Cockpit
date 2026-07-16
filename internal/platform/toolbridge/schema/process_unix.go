@@ -11,8 +11,9 @@ import (
 
 type processGuard struct{}
 
-func configureProcess(cmd *exec.Cmd) {
+func configureProcess(cmd *exec.Cmd) error {
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	return nil
 }
 
 func attachProcessGuard(cmd *exec.Cmd) (*processGuard, error) {

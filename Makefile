@@ -100,6 +100,18 @@ run-agent-terminal-debug run-agent-terminal-debug-plain: export SUPER_DOLPHIN_DE
 # so dev runs get the same toolbridge wiring as packaged builds.
 build-peer-binaries:
 	@mkdir -p bin
+	@target_goos="$$(go env GOOS)"; target_goarch="$$(go env GOARCH)"; \
+		helper="bin/mcp-schema-compiler-helper"; \
+		[ "$$target_goos" = windows ] && helper="$$helper.exe"; \
+		tmp="$$(mktemp "bin/.mcp-schema-compiler-helper.XXXXXX")"; \
+		trap 'rm -f "$$tmp"' EXIT; \
+		go build -o "$$tmp" ./cmd/mcp-schema-compiler-helper; \
+		chmod +x "$$tmp"; \
+		mv -f "$$tmp" "$$helper"; \
+		env -u GOOS -u GOARCH -u CGO_ENABLED go run ./cmd/mcp-schema-compiler-helper --write-package-manifest \
+			-helper "$$helper" -output "$$helper.manifest.json" \
+			-app-commit "$$(git rev-parse HEAD)" -go-version "$$(go env GOVERSION)" \
+			-goos "$$target_goos" -goarch "$$target_goarch"
 	@tmp="$$(mktemp "bin/.mcp-orch.XXXXXX")"; \
 		trap 'rm -f "$$tmp"' EXIT; \
 		go build -o "$$tmp" ./cmd/mcp-orch; \
