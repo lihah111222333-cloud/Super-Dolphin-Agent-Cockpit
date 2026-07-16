@@ -236,3 +236,34 @@ type ActionGrant struct {
 	Signer        SignerIdentity   `json:"signer"`
 	Signature     string           `json:"signature"`
 }
+
+const (
+	AcceptedImageRecordSchemaVersion uint32 = 1
+	PromotionRecordSchemaVersion     uint32 = 1
+)
+
+// AcceptedImageRecord 是 accepted image authority 的完整签名状态。
+type AcceptedImageRecord struct {
+	SchemaVersion        uint32                `json:"schema_version"`
+	RepoID               string                `json:"repo_id"`
+	TrustedRef           string                `json:"trusted_ref"`
+	TrustedCommit        string                `json:"trusted_commit"`
+	SourceTree           string                `json:"source_tree"`
+	PolicyDigest         string                `json:"policy_digest"`
+	ImageInputDigest     string                `json:"image_input_digest"`
+	Image                ImageIdentity         `json:"image"`
+	Runner               TrustedRunnerIdentity `json:"runner"`
+	Generation           uint64                `json:"generation"`
+	PreviousRecordDigest string                `json:"previous_record_digest,omitempty"`
+	AcceptedAt           time.Time             `json:"accepted_at"`
+	Signer               SignerIdentity        `json:"signer"`
+	Signature            string                `json:"signature"`
+}
+
+// PromotionRecord 携带调用方观察到的 CAS 状态和下一份已签 authority 记录。
+type PromotionRecord struct {
+	SchemaVersion        uint32              `json:"schema_version"`
+	ExpectedRecordDigest string              `json:"expected_record_digest"`
+	ExpectedGeneration   uint64              `json:"expected_generation"`
+	Next                 AcceptedImageRecord `json:"next"`
+}

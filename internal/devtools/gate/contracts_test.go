@@ -163,6 +163,8 @@ func TestCanonicalContractsStrictRoundTrip(t *testing.T) {
 		validGrantRequest(now),
 		validResultReceipt(now),
 		validActionGrant(now),
+		validAcceptedImageRecord(now),
+		validPromotionRecord(now),
 	}
 	for _, contract := range contracts {
 		t.Run(reflect.TypeOf(contract).Name(), func(t *testing.T) {
@@ -194,6 +196,8 @@ func TestContractFieldCoverageDetectsMissingAndStale(t *testing.T) {
 	}{
 		{producer: reflect.TypeFor[SourceSpec](), registration: sourceSpecConsumerRegistration()},
 		{producer: reflect.TypeFor[ResultReceipt](), registration: resultReceiptConsumerRegistration()},
+		{producer: reflect.TypeFor[AcceptedImageRecord](), registration: acceptedImageRecordConsumerRegistration()},
+		{producer: reflect.TypeFor[PromotionRecord](), registration: promotionRecordConsumerRegistration()},
 	}
 	for _, item := range registrations {
 		assertFieldConsumerRegistration(t, item.producer, item.registration)
@@ -201,11 +205,11 @@ func TestContractFieldCoverageDetectsMissingAndStale(t *testing.T) {
 
 	// Fail-first proof: removing one real mapping and adding one stale mapping
 	// must report both sides of the contract drift.
-	producer, err := JSONFieldNames(reflect.TypeFor[ResultReceipt]())
+	producer, err := JSONFieldNames(reflect.TypeFor[AcceptedImageRecord]())
 	if err != nil {
 		t.Fatalf("JSONFieldNames() error = %v", err)
 	}
-	coverage := resultReceiptConsumerRegistration().Fields
+	coverage := acceptedImageRecordConsumerRegistration().Fields
 	missing, stale := FieldCoverageDiff(producer, append(coverage[1:], "stale_field"))
 	if len(missing) != 1 || missing[0] != coverage[0] {
 		t.Fatalf("missing = %v, want %q", missing, coverage[0])
@@ -268,6 +272,67 @@ func resultReceiptConsumerRegistration() fieldConsumerRegistration {
 		},
 		Owner:    "internal/devtools/gate ResultReceipt signing boundary",
 		Evidence: "strict JSON roundtrip and Validate before signing or verification",
+	}
+}
+
+func acceptedImageRecordConsumerRegistration() fieldConsumerRegistration {
+	return fieldConsumerRegistration{
+		Fields: []string{
+			"accepted_at",
+			"generation",
+			"image",
+			"image_input_digest",
+			"policy_digest",
+			"previous_record_digest",
+			"repo_id",
+			"runner",
+			"schema_version",
+			"signature",
+			"signer",
+			"source_tree",
+			"trusted_commit",
+			"trusted_ref",
+		},
+		Owner:    "internal/devtools/localci accepted image authority",
+		Evidence: "strict load, signature verification, canonical digest, bootstrap, and promotion CAS validation",
+	}
+}
+
+func promotionRecordConsumerRegistration() fieldConsumerRegistration {
+	return fieldConsumerRegistration{
+		Fields:   []string{"expected_generation", "expected_record_digest", "next", "schema_version"},
+		Owner:    "internal/devtools/localci accepted image promotion CAS boundary",
+		Evidence: "strict promotion validation before lock-scoped generation and predecessor comparison",
+	}
+}
+
+func TestAcceptedImageCanonicalPayloadAndDigest(t *testing.T) {
+	t.Parallel()
+
+	record := validAcceptedImageRecord(time.Date(2026, 7, 16, 12, 0, 0, 0, time.UTC))
+	payload, err := AcceptedImageSigningPayload(record)
+	if err != nil {
+		t.Fatalf("AcceptedImageSigningPayload() error = %v", err)
+	}
+	record.Signature = "different-signature"
+	samePayload, err := AcceptedImageSigningPayload(record)
+	if err != nil {
+		t.Fatalf("AcceptedImageSigningPayload(changed signature) error = %v", err)
+	}
+	if string(payload) != string(samePayload) {
+		t.Fatal("signature value changed accepted image signing payload")
+	}
+	firstDigest, err := AcceptedImageRecordDigest(record)
+	if err != nil {
+		t.Fatalf("AcceptedImageRecordDigest() error = %v", err)
+	}
+	record.Signature = "third-signature"
+	secondDigest, err := AcceptedImageRecordDigest(record)
+	if err != nil {
+		t.Fatalf("AcceptedImageRecordDigest(changed signature) error = %v", err)
+	}
+	if firstDigest == secondDigest {
+		t.Fatal("record digest did not bind signature")
 	}
 }
 
@@ -362,5 +427,35 @@ func validActionGrant(now time.Time) ActionGrant {
 		ExpiresAt:     now.Add(time.Minute),
 		Signer:        validTrustedRunnerIdentity().Signer,
 		Signature:     "signature",
+	}
+}
+
+func validAcceptedImageRecord(now time.Time) AcceptedImageRecord {
+	return AcceptedImageRecord{
+		SchemaVersion:    AcceptedImageRecordSchemaVersion,
+		RepoID:           "repo-1",
+		TrustedRef:       "refs/heads/main",
+		TrustedCommit:    testCommitSHA,
+		SourceTree:       testTreeSHA,
+		PolicyDigest:     testDigest,
+		ImageInputDigest: testDigest,
+		Image:            validImageIdentity(),
+		Runner:           validTrustedRunnerIdentity(),
+		Generation:       1,
+		AcceptedAt:       now,
+		Signer:           validTrustedRunnerIdentity().Signer,
+		Signature:        "signature",
+	}
+}
+
+func validPromotionRecord(now time.Time) PromotionRecord {
+	next := validAcceptedImageRecord(now)
+	next.Generation = 2
+	next.PreviousRecordDigest = testDigest
+	return PromotionRecord{
+		SchemaVersion:        PromotionRecordSchemaVersion,
+		ExpectedRecordDigest: testDigest,
+		ExpectedGeneration:   1,
+		Next:                 next,
 	}
 }

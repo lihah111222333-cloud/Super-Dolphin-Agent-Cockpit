@@ -2,6 +2,7 @@ package gate
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -10,6 +11,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"time"
 )
 
 var (
@@ -287,6 +289,134 @@ func (a TrustedAdapterIdentity) Validate() error {
 		return fmt.Errorf("adapter signer: %w", err)
 	}
 	return nil
+}
+
+// Validate 校验 accepted image authority 记录的完整身份和签名字段。
+func (r AcceptedImageRecord) Validate() error {
+	return r.validate(true)
+}
+
+// validate 按固定子边界校验 accepted image authority 记录。
+func (r AcceptedImageRecord) validate(requireSignature bool) error {
+	if r.SchemaVersion != AcceptedImageRecordSchemaVersion {
+		return fmt.Errorf("accepted image schema_version %d does not match required %d", r.SchemaVersion, AcceptedImageRecordSchemaVersion)
+	}
+	if err := r.validateSourceIdentity(); err != nil {
+		return err
+	}
+	if err := r.validateArtifactIdentity(); err != nil {
+		return err
+	}
+	if err := r.validateStateIdentity(); err != nil {
+		return err
+	}
+	if err := r.Signer.Validate(); err != nil {
+		return fmt.Errorf("accepted image signer: %w", err)
+	}
+	if requireSignature && strings.TrimSpace(r.Signature) == "" {
+		return errors.New("accepted image signature is required")
+	}
+	return nil
+}
+
+// validateSourceIdentity 校验仓库、ref、commit 与 source tree 身份。
+func (r AcceptedImageRecord) validateSourceIdentity() error {
+	if strings.TrimSpace(r.RepoID) == "" || strings.TrimSpace(r.RepoID) != r.RepoID {
+		return errors.New("accepted image repo_id is required and canonical")
+	}
+	if !strings.HasPrefix(r.TrustedRef, "refs/") || strings.TrimSpace(r.TrustedRef) != r.TrustedRef {
+		return errors.New("accepted image trusted_ref must be a canonical full ref")
+	}
+	if err := validateNonZeroActionOID("accepted image trusted_commit", r.TrustedCommit); err != nil {
+		return err
+	}
+	if err := validateNonZeroActionOID("accepted image source_tree", r.SourceTree); err != nil {
+		return err
+	}
+	return nil
+}
+
+// validateArtifactIdentity 校验策略、输入、OCI 镜像与 runner 闭包。
+func (r AcceptedImageRecord) validateArtifactIdentity() error {
+	if err := validateDigest("accepted image policy_digest", r.PolicyDigest); err != nil {
+		return err
+	}
+	if err := validateDigest("accepted image image_input_digest", r.ImageInputDigest); err != nil {
+		return err
+	}
+	if err := r.Image.Validate(); err != nil {
+		return fmt.Errorf("accepted image identity: %w", err)
+	}
+	if err := r.Runner.Validate(); err != nil {
+		return fmt.Errorf("accepted image runner: %w", err)
+	}
+	if r.Runner.PolicyDigest != r.PolicyDigest {
+		return errors.New("accepted image runner policy_digest does not match record policy_digest")
+	}
+	return nil
+}
+
+// validateStateIdentity 校验 generation、前驱摘要和接受时间。
+func (r AcceptedImageRecord) validateStateIdentity() error {
+	if r.Generation == 0 {
+		return errors.New("accepted image generation must be positive")
+	}
+	if r.PreviousRecordDigest != "" {
+		if err := validateDigest("accepted image previous_record_digest", r.PreviousRecordDigest); err != nil {
+			return err
+		}
+	}
+	if r.AcceptedAt.IsZero() || r.AcceptedAt.Location() != time.UTC {
+		return errors.New("accepted image accepted_at must be a non-zero UTC timestamp")
+	}
+	return nil
+}
+
+// Validate 校验 promotion CAS 包装及其下一份已签记录。
+func (r PromotionRecord) Validate() error {
+	if r.SchemaVersion != PromotionRecordSchemaVersion {
+		return fmt.Errorf("promotion schema_version %d does not match required %d", r.SchemaVersion, PromotionRecordSchemaVersion)
+	}
+	if err := validateDigest("promotion expected_record_digest", r.ExpectedRecordDigest); err != nil {
+		return err
+	}
+	if r.ExpectedGeneration == 0 {
+		return errors.New("promotion expected_generation must be positive")
+	}
+	if err := r.Next.Validate(); err != nil {
+		return fmt.Errorf("promotion next record: %w", err)
+	}
+	if r.Next.PreviousRecordDigest != r.ExpectedRecordDigest {
+		return errors.New("promotion next previous_record_digest does not match expected_record_digest")
+	}
+	return nil
+}
+
+// AcceptedImageSigningPayload 返回排除 signature 值的 canonical 签名输入。
+func AcceptedImageSigningPayload(record AcceptedImageRecord) ([]byte, error) {
+	unsigned := record
+	unsigned.Signature = ""
+	if err := unsigned.validate(false); err != nil {
+		return nil, err
+	}
+	payload, err := json.Marshal(unsigned)
+	if err != nil {
+		return nil, fmt.Errorf("marshal accepted image signing payload: %w", err)
+	}
+	return payload, nil
+}
+
+// AcceptedImageRecordDigest 返回覆盖完整已签记录的 canonical sha256 digest。
+func AcceptedImageRecordDigest(record AcceptedImageRecord) (string, error) {
+	if err := record.Validate(); err != nil {
+		return "", err
+	}
+	encoded, err := json.Marshal(record)
+	if err != nil {
+		return "", fmt.Errorf("marshal accepted image record: %w", err)
+	}
+	sum := sha256.Sum256(encoded)
+	return fmt.Sprintf("sha256:%x", sum), nil
 }
 
 // Validate 校验 GrantRequest 的身份闭包和 audience 专属绑定。
@@ -581,6 +711,15 @@ func validateActionOID(name, value string) error {
 		}
 	}
 	return fmt.Errorf("%s must be a lowercase SHA-1 or SHA-256 Git OID", name)
+}
+
+func validateNonZeroActionOID(name, value string) error {
+	for _, objectFormat := range []GitObjectFormat{GitObjectFormatSHA1, GitObjectFormatSHA256} {
+		if validateOID(name, value, objectFormat, false) == nil {
+			return nil
+		}
+	}
+	return fmt.Errorf("%s must be a non-zero lowercase SHA-1 or SHA-256 Git OID", name)
 }
 
 func validateDigest(name, value string) error {
