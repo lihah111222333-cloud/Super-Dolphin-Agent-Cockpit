@@ -1,0 +1,13 @@
+{
+  "schema_version": "1",
+  "dockerfile": "build/gate/Dockerfile",
+  "inputs": [
+    "build/gate/Dockerfile",
+    "build/gate/inputs.json",
+    "build/gate/toolchain.lock",
+    "cmd/super-dolphin-gate/**",
+    "go.mod",
+    "go.sum",
+    "internal/devtools/gate/**"
+  ]
+}

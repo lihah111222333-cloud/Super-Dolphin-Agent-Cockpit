@@ -1,0 +1,18 @@
+{
+  "schema_version": "1",
+  "buildkit_version": "v0.26.2",
+  "dockerfile_frontend": "builtin:dockerfile.v1",
+  "target_platforms": [
+    "linux/arm64"
+  ],
+  "base_images": [
+    {
+      "name": "GO_IMAGE",
+      "reference": "golang@sha256:1ecb7edf62a0408027bd5729dfd6b1b8766e578e8df93995b225dfd0944eb651"
+    }
+  ],
+  "dependency_sources": [
+    "go.sum"
+  ],
+  "network_policy": "none"
+}
