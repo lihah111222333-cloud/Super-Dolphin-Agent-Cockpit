@@ -359,6 +359,9 @@ internal/devtools/codemapindex/anchor_test.go	internal	other	go-test	3795	开发
 internal/devtools/codemapindex/anchor.go	internal	other	go-source	261	开发工具与生成器辅助包	internal,devtools,codemapindex,anchor,开发工具与生成器辅助包
 internal/devtools/codemapindex/readme_sync.go	internal	other	go-source	3732	开发工具与生成器辅助包	internal,devtools,codemapindex,readme,sync,开发工具与生成器辅助包
 internal/devtools/codemapindex/source_scan.go	internal	other	go-source	3518	开发工具与生成器辅助包	internal,devtools,codemapindex,source,scan,开发工具与生成器辅助包
+internal/devtools/gate/contracts_test.go	internal	other	go-test	12276	开发工具与生成器辅助包	internal,devtools,gate,contracts,test,开发工具与生成器辅助包
+internal/devtools/gate/contracts.go	internal	other	go-source	9065	开发工具与生成器辅助包	internal,devtools,gate,contracts,开发工具与生成器辅助包
+internal/devtools/gate/validation.go	internal	other	go-source	18371	开发工具与生成器辅助包	internal,devtools,gate,validation,开发工具与生成器辅助包
 internal/devtools/sourceexport/errors.go	internal	other	go-source	1294	开发工具与生成器辅助包	internal,devtools,sourceexport,errors,开发工具与生成器辅助包
 internal/devtools/sourceexport/git_tree_test.go	internal	other	go-test	3327	开发工具与生成器辅助包	internal,devtools,sourceexport,git,tree,test,开发工具与生成器辅助包
 internal/devtools/sourceexport/git_tree.go	internal	other	go-source	5450	开发工具与生成器辅助包	internal,devtools,sourceexport,git,tree,开发工具与生成器辅助包
