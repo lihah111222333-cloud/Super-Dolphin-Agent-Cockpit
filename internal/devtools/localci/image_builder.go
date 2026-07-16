@@ -57,13 +57,14 @@ type BuildKitBuildRequest struct {
 
 // CandidateRequest 绑定单一 Git tree、已验证输入条目和当前 accepted 镜像。
 type CandidateRequest struct {
-	SourceTreeSHA       string
-	PolicyDigest        string
-	ImageSchemaVersion  string
-	SourceEntries       []sourceexport.TreeEntry
-	Platform            string
-	AcceptedInputDigest string
-	AcceptedImageDigest string
+	SourceTreeSHA        string                   `json:"source_tree_sha"`
+	PolicyDigest         string                   `json:"policy_digest"`
+	ImageSchemaVersion   string                   `json:"image_schema_version"`
+	SourceEntries        []sourceexport.TreeEntry `json:"source_entries"`
+	Platform             string                   `json:"platform"`
+	AcceptedInputDigest  string                   `json:"accepted_input_digest"`
+	AcceptedPolicyDigest string                   `json:"accepted_policy_digest"`
+	AcceptedImageDigest  string                   `json:"accepted_image_digest"`
 }
 
 // CandidateResult 返回候选输入闭包和唯一不可变镜像产物。
@@ -130,6 +131,9 @@ func (builder *ImageBuilder) EnsureCandidate(ctx context.Context, request Candid
 	if err := validateDigest("accepted input digest", request.AcceptedInputDigest); err != nil {
 		return CandidateResult{}, err
 	}
+	if err := validateDigest("accepted policy digest", request.AcceptedPolicyDigest); err != nil {
+		return CandidateResult{}, err
+	}
 	if err := validateDigest("accepted image digest", request.AcceptedImageDigest); err != nil {
 		return CandidateResult{}, err
 	}
@@ -137,7 +141,7 @@ func (builder *ImageBuilder) EnsureCandidate(ctx context.Context, request Candid
 	if err != nil {
 		return CandidateResult{}, err
 	}
-	if prepared.result.InputDigest == request.AcceptedInputDigest {
+	if prepared.result.InputDigest == request.AcceptedInputDigest && request.PolicyDigest == request.AcceptedPolicyDigest {
 		prepared.result.ImageDigest = request.AcceptedImageDigest
 		return prepared.result, nil
 	}

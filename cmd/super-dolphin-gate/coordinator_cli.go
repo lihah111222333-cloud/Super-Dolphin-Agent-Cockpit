@@ -23,11 +23,24 @@ type coordinatorConnector func(context.Context) (coordinatorClient, error)
 
 // connectProductionCoordinator 以真实 Docker daemon identity 发现唯一 owner。
 func connectProductionCoordinator(ctx context.Context) (coordinatorClient, error) {
+	config, err := loadProductionCoordinatorConfig()
+	if err != nil {
+		return nil, err
+	}
 	checkpoint, err := localci.ProbeDockerSchedulerAuthority(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("establish Docker scheduler authority: %w", err)
 	}
-	return connectCoordinator(ctx, checkpoint, executableOwnerStarter{})
+	client, err := connectCoordinator(ctx, checkpoint, executableOwnerStarter{})
+	if err != nil {
+		return nil, err
+	}
+	planner, err := newProductionCandidateSubmissionPlanner(ctx, config)
+	if err != nil {
+		return nil, errors.Join(err, client.Close())
+	}
+	client.candidatePlanner = planner
+	return client, nil
 }
 
 // runSubmit 先生成 canonical plan，再持久化独立 invocation/job 并提交 scheduler。

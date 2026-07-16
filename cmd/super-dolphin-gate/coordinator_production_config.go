@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	gatecontract "github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
 )
@@ -18,6 +19,7 @@ const (
 
 type productionCoordinatorConfig struct {
 	AcceptedImageRoot    string                 `json:"accepted_image_root"`
+	CandidateStateRoot   string                 `json:"candidate_state_root"`
 	CandidateBuildRoot   string                 `json:"candidate_build_root"`
 	TrustedSourceRoot    string                 `json:"trusted_source_root"`
 	SeccompProfile       string                 `json:"seccomp_profile"`
@@ -26,11 +28,19 @@ type productionCoordinatorConfig struct {
 	TrustedRef           string                 `json:"trusted_ref"`
 	TrustedRepository    string                 `json:"trusted_repository"`
 	AcceptedImageSigners []productionTrustedKey `json:"accepted_image_signers"`
+	PromotionSigner      productionPromotionKey `json:"promotion_signer"`
+	CandidateTTLSeconds  int64                  `json:"candidate_ttl_seconds"`
+	PromotionPollMillis  int64                  `json:"promotion_poll_millis"`
 }
 
 type productionTrustedKey struct {
 	Signer    gatecontract.SignerIdentity `json:"signer"`
 	PublicKey string                      `json:"public_key"`
+}
+
+type productionPromotionKey struct {
+	Signer         gatecontract.SignerIdentity `json:"signer"`
+	PrivateKeyFile string                      `json:"private_key_file"`
 }
 
 func loadProductionCoordinatorConfig() (productionCoordinatorConfig, error) {
@@ -103,6 +113,14 @@ func (config productionCoordinatorConfig) Validate() error {
 
 // validateIdentity 校验 repository、ref、platform 与 signer 集合均显式且规范。
 func (config productionCoordinatorConfig) validateIdentity() error {
+	if err := config.validateRepositoryIdentity(); err != nil {
+		return err
+	}
+	return config.validatePromotionIdentity()
+}
+
+// validateRepositoryIdentity 校验 repository、ref、platform 与验签根显式且规范。
+func (config productionCoordinatorConfig) validateRepositoryIdentity() error {
 	if strings.TrimSpace(config.RepoID) == "" || strings.TrimSpace(config.RepoID) != config.RepoID {
 		return errors.New("production coordinator repo_id is required and canonical")
 	}
@@ -118,9 +136,25 @@ func (config productionCoordinatorConfig) validateIdentity() error {
 	return nil
 }
 
+// validatePromotionIdentity 校验 signer、candidate TTL 与 watcher cadence。
+func (config productionCoordinatorConfig) validatePromotionIdentity() error {
+	if err := config.PromotionSigner.Signer.Validate(); err != nil {
+		return fmt.Errorf("production coordinator promotion_signer: %w", err)
+	}
+	if config.CandidateTTLSeconds <= 0 || config.CandidateTTLSeconds > int64((7*24*time.Hour)/time.Second) {
+		return errors.New("production coordinator candidate_ttl_seconds must be within 1..604800")
+	}
+	if config.PromotionPollMillis < 10 || config.PromotionPollMillis > 60_000 {
+		return errors.New("production coordinator promotion_poll_millis must be within 10..60000")
+	}
+	return nil
+}
+
+// validatePaths 校验所有 production roots 与私钥文件均为仓库外私有规范路径。
 func (config productionCoordinatorConfig) validatePaths() error {
 	for _, path := range []string{
-		config.AcceptedImageRoot, config.CandidateBuildRoot, config.TrustedSourceRoot, config.TrustedRepository,
+		config.AcceptedImageRoot, config.CandidateStateRoot, config.CandidateBuildRoot,
+		config.TrustedSourceRoot, config.TrustedRepository,
 	} {
 		if _, err := canonicalProductionDirectory(path); err != nil {
 			return err
@@ -129,13 +163,25 @@ func (config productionCoordinatorConfig) validatePaths() error {
 	if _, err := canonicalProductionFile("seccomp profile", config.SeccompProfile); err != nil {
 		return err
 	}
+	if _, err := canonicalProductionFile("promotion private key", config.PromotionSigner.PrivateKeyFile); err != nil {
+		return err
+	}
+	for _, root := range []string{
+		config.AcceptedImageRoot, config.CandidateStateRoot, config.CandidateBuildRoot,
+		config.TrustedSourceRoot, config.TrustedRepository,
+	} {
+		if productionPathContains(root, config.PromotionSigner.PrivateKeyFile) {
+			return errors.New("promotion private key must be outside all production data, build, source, and Git roots")
+		}
+	}
 	return nil
 }
 
 // validateProductionRootSeparation 阻断信任状态、候选构建、源码快照和 bare mirror 互相嵌套。
 func validateProductionRootSeparation(config productionCoordinatorConfig) error {
 	roots := []string{
-		config.AcceptedImageRoot, config.CandidateBuildRoot, config.TrustedSourceRoot, config.TrustedRepository,
+		config.AcceptedImageRoot, config.CandidateStateRoot, config.CandidateBuildRoot,
+		config.TrustedSourceRoot, config.TrustedRepository,
 	}
 	for left := range roots {
 		for right := left + 1; right < len(roots); right++ {

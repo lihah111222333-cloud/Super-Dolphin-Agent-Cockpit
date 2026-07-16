@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"time"
 
 	gatecontract "github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/localci"
@@ -27,7 +28,7 @@ func productionCoordinatorDependencies(ctx context.Context) (coordinatorDependen
 	if err := validateProductionRuntimeRoot(config.TrustedSourceRoot); err != nil {
 		return coordinatorDependencies{}, err
 	}
-	imageEnsurer, err := newProductionImageEnsurer(ctx, config)
+	imageEnsurer, candidateBuilder, watcher, err := newProductionImageServices(ctx, config)
 	if err != nil {
 		return coordinatorDependencies{}, err
 	}
@@ -36,50 +37,51 @@ func productionCoordinatorDependencies(ctx context.Context) (coordinatorDependen
 		return coordinatorDependencies{}, err
 	}
 	dependencies := coordinatorDependencies{
-		ImageEnsurer: imageEnsurer, SourceMaterializer: sourceMaterializer,
-		FreshRunner: freshRunner, RecoveryRunner: freshRunner,
+		ImageEnsurer: imageEnsurer, CandidateBuilder: candidateBuilder, PromotionWatcher: watcher,
+		SourceMaterializer: sourceMaterializer, FreshRunner: freshRunner, RecoveryRunner: freshRunner,
 	}
 	return dependencies, dependencies.validate()
 }
 
-// newProductionImageEnsurer 组装验签 accepted state 与只会产出候选的 BuildKit builder。
-func newProductionImageEnsurer(
+// newProductionImageServices 组装 accepted 读取、调度构建与宿主晋升控制器。
+func newProductionImageServices(
 	ctx context.Context,
 	config productionCoordinatorConfig,
-) (*productionImageEnsurer, error) {
-	verifier, err := newProductionSignatureVerifier(config.AcceptedImageSigners)
+) (*productionImageEnsurer, *productionCandidateBuildService, *localci.PromotionController, error) {
+	promotion, err := newProductionPromotionAuthority(ctx, config)
 	if err != nil {
-		return nil, err
+		return nil, nil, nil, err
 	}
-	authority, err := newProductionGitAuthority(ctx, config)
+	record, err := promotion.state.Load(ctx)
 	if err != nil {
-		return nil, err
-	}
-	state, err := localci.NewAcceptedImageState(config.AcceptedImageRoot, verifier, authority)
-	if err != nil {
-		return nil, fmt.Errorf("open accepted image state: %w", err)
-	}
-	accepted := &productionAcceptedImageLoader{state: state, authority: authority}
-	record, err := accepted.Load(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("load production accepted image: %w", err)
+		return nil, nil, nil, fmt.Errorf("load production accepted image: %w", err)
 	}
 	if err := validateAcceptedPlatform(record.Image, config.Platform); err != nil {
-		return nil, err
+		return nil, nil, nil, err
 	}
 	buildx, err := localci.NewDockerBuildxRunner(config.CandidateBuildRoot)
 	if err != nil {
-		return nil, err
+		return nil, nil, nil, err
 	}
 	builder, err := localci.NewImageBuilder(buildx)
 	if err != nil {
-		return nil, err
+		return nil, nil, nil, err
 	}
-	truth, err := localci.NewTruthImageEnsurer(accepted, builder)
+	truth, err := localci.NewTruthImageEnsurer(promotion.accepted, promotion.candidates)
 	if err != nil {
-		return nil, err
+		return nil, nil, nil, err
 	}
-	return &productionImageEnsurer{truth: truth, platform: config.Platform}, nil
+	buildService := &productionCandidateBuildService{
+		store: promotion.candidates, builder: builder, resolver: localci.NewDockerCandidateIdentityResolver(),
+	}
+	watcher, err := localci.NewPromotionController(
+		promotion.candidates, promotion.state, promotion.authority, promotion.signer,
+		time.Duration(config.PromotionPollMillis)*time.Millisecond,
+	)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	return &productionImageEnsurer{truth: truth, platform: config.Platform}, buildService, watcher, nil
 }
 
 // newProductionExecutionAdapters 组装 Git bundle 快照与 Docker 一次性容器边界。

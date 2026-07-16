@@ -68,6 +68,7 @@ func (owner *coordinatorOwner) Serve(ctx context.Context) error {
 	group.Go(func() error { return owner.schedulerOwner.Serve(runCtx) })
 	owner.startRecovered(runCtx)
 	group.Go(func() error { return owner.dispatch(runCtx) })
+	group.Go(func() error { return owner.dependencies.PromotionWatcher.Run(runCtx) })
 	runErr := group.Wait()
 	workerErr := owner.workers.Wait()
 	closeErr := owner.Close()
@@ -94,12 +95,11 @@ func (owner *coordinatorOwner) dispatch(ctx context.Context) error {
 	}
 }
 
-// startReservations 只启动已取得 lease 的 job，slot 上限由 scheduler 统一裁决。
+// startReservations 在 lease 持久化后按 workload 类型分派执行器。
 func (owner *coordinatorOwner) startReservations(ctx context.Context, reservations []localci.WorkloadReservation) {
 	for _, reservation := range reservations {
-		jobID := reservation.WorkloadID
 		owner.workers.Go(func() error {
-			if err := owner.executeJob(ctx, jobID); err != nil {
+			if err := owner.executeReservation(ctx, reservation); err != nil {
 				select {
 				case owner.fatal <- err:
 				default:
@@ -109,6 +109,53 @@ func (owner *coordinatorOwner) startReservations(ctx context.Context, reservatio
 			return nil
 		})
 	}
+}
+
+func (owner *coordinatorOwner) executeReservation(
+	ctx context.Context,
+	reservation localci.WorkloadReservation,
+) error {
+	kind, err := reservationWorkloadKind(reservation)
+	if err != nil {
+		return err
+	}
+	switch kind {
+	case localci.WorkloadKindBuild:
+		return owner.executeCandidateBuild(ctx, reservation.WorkloadID)
+	case localci.WorkloadKindJob:
+		return owner.executeJob(ctx, reservation.WorkloadID)
+	default:
+		return fmt.Errorf("unsupported coordinator reservation kind %q", kind)
+	}
+}
+
+// reservationWorkloadKind 确认同一 reservation 的全部 lease 身份与类型一致。
+func reservationWorkloadKind(reservation localci.WorkloadReservation) (localci.WorkloadKind, error) {
+	if reservation.WorkloadID == "" || len(reservation.Leases) == 0 {
+		return "", errors.New("coordinator reservation is incomplete")
+	}
+	kind := reservation.Leases[0].Kind
+	for _, lease := range reservation.Leases {
+		if lease.WorkloadID != reservation.WorkloadID || lease.Kind != kind {
+			return "", errors.New("coordinator reservation lease identity drifted")
+		}
+	}
+	return kind, nil
+}
+
+func (owner *coordinatorOwner) executeCandidateBuild(ctx context.Context, workloadID string) error {
+	err := owner.dependencies.CandidateBuilder.ExecuteBuild(ctx, workloadID)
+	status := localci.WorkloadStatusPassed
+	if err != nil {
+		status = localci.WorkloadStatusInfraFailed
+	}
+	if completeErr := owner.schedulerClient.Complete(ctx, workloadID, status); completeErr != nil {
+		return errors.Join(err, fmt.Errorf("complete candidate build workload %q: %w", workloadID, completeErr))
+	}
+	if err != nil {
+		return fmt.Errorf("execute candidate build workload %q: %w", workloadID, err)
+	}
+	return nil
 }
 
 func (owner *coordinatorOwner) executeJob(parent context.Context, jobID string) error {

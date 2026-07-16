@@ -85,6 +85,18 @@ type ImageEnsurer interface {
 	EnsureImage(context.Context, imageEnsureRequest) (ensuredImage, error)
 }
 
+type candidateSubmissionPlanner interface {
+	PlanCandidate(context.Context, imageEnsureRequest) (localci.PromotionCandidatePlan, error)
+}
+
+type candidateBuildService interface {
+	ExecuteBuild(context.Context, string) error
+}
+
+type promotionWatcher interface {
+	Run(context.Context) error
+}
+
 type sourceMaterializeRequest struct {
 	RepositoryRoot string
 	OutputRoot     string
@@ -130,14 +142,23 @@ type FreshContainerRecoveryRunner interface {
 
 type coordinatorDependencies struct {
 	ImageEnsurer       ImageEnsurer
+	CandidateBuilder   candidateBuildService
+	PromotionWatcher   promotionWatcher
 	SourceMaterializer SourceMaterializer
 	FreshRunner        FreshContainerRunner
 	RecoveryRunner     FreshContainerRecoveryRunner
 }
 
+// validate 要求 owner 执行、构建、晋升与物化依赖全部显式接线。
 func (dependencies coordinatorDependencies) validate() error {
 	if interfaceIsNil(dependencies.ImageEnsurer) {
 		return fmt.Errorf("%w: ImageEnsurer is required", errCoordinatorDependency)
+	}
+	if interfaceIsNil(dependencies.CandidateBuilder) {
+		return fmt.Errorf("%w: CandidateBuilder is required", errCoordinatorDependency)
+	}
+	if interfaceIsNil(dependencies.PromotionWatcher) {
+		return fmt.Errorf("%w: PromotionWatcher is required", errCoordinatorDependency)
 	}
 	if interfaceIsNil(dependencies.SourceMaterializer) {
 		return fmt.Errorf("%w: SourceMaterializer is required", errCoordinatorDependency)
@@ -156,8 +177,9 @@ type coordinatorOwnerStarter interface {
 }
 
 type coordinatorTransportClient struct {
-	scheduler *localci.SchedulerClient
-	store     *coordinatorStore
+	scheduler        *localci.SchedulerClient
+	store            *coordinatorStore
+	candidatePlanner candidateSubmissionPlanner
 }
 
 // connectCoordinator 自动发现 owner；发现失败时只允许经严格 starter 竞争启动。
@@ -284,7 +306,17 @@ func (client *coordinatorTransportClient) createAndEnqueueSubmit(
 	if err != nil {
 		return client.recoverConcurrentSubmit(ctx, invocationID, request, err)
 	}
-	if err := client.enqueuePersistedJob(ctx, record); err != nil {
+	plan := localci.PromotionCandidatePlan{}
+	if client.candidatePlanner != nil {
+		plan, err = client.candidatePlanner.PlanCandidate(ctx, imageEnsureRequest{
+			RepositoryRoot: record.RepositoryRoot, Plan: record.Plan, JobSourceTreeSHA: record.JobSourceTreeSHA,
+		})
+		if err != nil {
+			markErr := client.store.finishJob(ctx, record.JobID, jobStateInfraFailed, nil, "candidate planning failed: "+err.Error())
+			return jobStatus{}, errors.Join(err, markErr)
+		}
+	}
+	if err := client.enqueuePersistedJob(ctx, record, plan); err != nil {
 		return jobStatus{}, err
 	}
 	return client.Status(ctx, jobID)
@@ -319,16 +351,69 @@ func validateReusedSubmit(record coordinatorJobRecord, request submitRequest) er
 	return nil
 }
 
-func (client *coordinatorTransportClient) enqueuePersistedJob(ctx context.Context, record coordinatorJobRecord) error {
+func (client *coordinatorTransportClient) enqueuePersistedJob(
+	ctx context.Context,
+	record coordinatorJobRecord,
+	plan localci.PromotionCandidatePlan,
+) error {
+	dependencies := []string{}
+	subsequence := uint32(0)
+	if plan.BuildRequired {
+		if err := client.ensureCandidateBuildEnqueued(ctx, record, plan.WorkloadID); err != nil {
+			markErr := client.store.finishJob(ctx, record.JobID, jobStateInfraFailed, nil, "durable build enqueue failed: "+err.Error())
+			return errors.Join(err, markErr)
+		}
+		dependencies = []string{plan.WorkloadID}
+		subsequence = 1
+	}
 	request := localci.WorkloadRequest{
 		ID: record.JobID, InvocationID: record.InvocationID, EnqueueSequence: record.EnqueueSequence,
-		Kind: localci.WorkloadKindJob, Dependencies: []string{},
+		Subsequence: subsequence, Kind: localci.WorkloadKindJob, Dependencies: dependencies,
 	}
 	if err := client.scheduler.Enqueue(ctx, request); err != nil {
 		markErr := client.store.finishJob(ctx, record.JobID, jobStateInfraFailed, nil, "durable scheduler enqueue failed: "+err.Error())
 		return errors.Join(fmt.Errorf("enqueue persisted job %q: %w", record.JobID, err), markErr)
 	}
 	return nil
+}
+
+// ensureCandidateBuildEnqueued 幂等确认共享 build workload 已先于依赖 job 入队。
+func (client *coordinatorTransportClient) ensureCandidateBuildEnqueued(
+	ctx context.Context,
+	record coordinatorJobRecord,
+	workloadID string,
+) error {
+	if workloadID == "" {
+		return errors.New("candidate build workload ID is required")
+	}
+	exists, err := client.schedulerWorkloadExists(ctx, workloadID)
+	if err != nil || exists {
+		return err
+	}
+	request := localci.WorkloadRequest{
+		ID: workloadID, InvocationID: record.InvocationID, EnqueueSequence: record.EnqueueSequence,
+		Subsequence: 0, Kind: localci.WorkloadKindBuild, Dependencies: []string{},
+	}
+	if err := client.scheduler.Enqueue(ctx, request); err == nil {
+		return nil
+	} else if exists, lookupErr := client.schedulerWorkloadExists(ctx, workloadID); lookupErr == nil && exists {
+		return nil
+	} else {
+		return errors.Join(fmt.Errorf("enqueue candidate build %q: %w", workloadID, err), lookupErr)
+	}
+}
+
+func (client *coordinatorTransportClient) schedulerWorkloadExists(ctx context.Context, workloadID string) (bool, error) {
+	snapshot, err := client.scheduler.Snapshot(ctx)
+	if err != nil {
+		return false, err
+	}
+	for _, workload := range snapshot.Workloads {
+		if workload.Request.ID == workloadID {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 // Status 同时读取 scheduler 与 invocation store，并拒绝跨存储终态漂移。

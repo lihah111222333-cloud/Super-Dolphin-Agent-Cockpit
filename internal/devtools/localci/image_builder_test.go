@@ -124,7 +124,8 @@ func TestCandidateAndBuildKitFieldRegistriesAreComplete(t *testing.T) {
 		"PolicyDigest":       "input digest and image label",
 		"ImageSchemaVersion": "input digest and image label", "SourceEntries": "canonical context",
 		"Platform": "input digest and platform", "AcceptedInputDigest": "reuse decision",
-		"AcceptedImageDigest": "reuse result",
+		"AcceptedPolicyDigest": "policy reuse decision",
+		"AcceptedImageDigest":  "reuse result",
 	})
 	assertRegisteredFields(t, reflect.TypeFor[BuildKitBuildRequest](), map[string]string{
 		"SourceTreeSHA": "source label", "PolicyDigest": "policy label", "ImageSchemaVersion": "schema label",
@@ -177,6 +178,28 @@ func TestEnsureCandidateReusesMatchingInputDigest(t *testing.T) {
 	}
 	if len(runner.requests) != 1 {
 		t.Fatalf("matching input digest did not reuse immutable accepted image: %+v", reused)
+	}
+}
+
+func TestEnsureCandidateBuildsWhenOnlyPolicyDigestChanges(t *testing.T) {
+	runner := &recordingBuildKitRunner{digest: digest("8")}
+	builder, err := NewImageBuilder(runner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := candidateRequest(candidateEntries(validCandidateDockerfile()), digest("f"), digest("e"))
+	prepared, err := prepareCandidate(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request.AcceptedInputDigest = prepared.result.InputDigest
+	request.AcceptedPolicyDigest = digest("c")
+	result, err := builder.EnsureCandidate(context.Background(), request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Built || len(runner.requests) != 1 {
+		t.Fatalf("policy-only change did not build candidate: result=%+v builds=%d", result, len(runner.requests))
 	}
 }
 
@@ -314,13 +337,14 @@ func TestTrackedBuildConfigurationMatchesProducerFields(t *testing.T) {
 
 func candidateRequest(entries []sourceexport.TreeEntry, acceptedInput string, acceptedImage string) CandidateRequest {
 	return CandidateRequest{
-		SourceTreeSHA:       strings.Repeat("a", 40),
-		PolicyDigest:        digest("d"),
-		ImageSchemaVersion:  imageInputSchemaVersion,
-		SourceEntries:       entries,
-		Platform:            "linux/arm64",
-		AcceptedInputDigest: acceptedInput,
-		AcceptedImageDigest: acceptedImage,
+		SourceTreeSHA:        strings.Repeat("a", 40),
+		PolicyDigest:         digest("d"),
+		ImageSchemaVersion:   imageInputSchemaVersion,
+		SourceEntries:        entries,
+		Platform:             "linux/arm64",
+		AcceptedInputDigest:  acceptedInput,
+		AcceptedPolicyDigest: digest("d"),
+		AcceptedImageDigest:  acceptedImage,
 	}
 }
 

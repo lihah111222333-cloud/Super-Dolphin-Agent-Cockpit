@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -111,6 +112,54 @@ func (fakeImageEnsurer) EnsureImage(_ context.Context, request imageEnsureReques
 	}, nil
 }
 
+type fakeCandidateBuildService struct{}
+
+func (fakeCandidateBuildService) ExecuteBuild(context.Context, string) error { return nil }
+
+type fakePromotionWatcher struct{}
+
+func (fakePromotionWatcher) Run(ctx context.Context) error {
+	<-ctx.Done()
+	return ctx.Err()
+}
+
+type oneShotCandidatePlanner struct {
+	mu   sync.Mutex
+	plan localci.PromotionCandidatePlan
+}
+
+func (planner *oneShotCandidatePlanner) PlanCandidate(
+	context.Context,
+	imageEnsureRequest,
+) (localci.PromotionCandidatePlan, error) {
+	planner.mu.Lock()
+	defer planner.mu.Unlock()
+	plan := planner.plan
+	planner.plan = localci.PromotionCandidatePlan{}
+	return plan, nil
+}
+
+type blockingCandidateBuildService struct {
+	started chan string
+	release chan struct{}
+}
+
+type coordinatorSlotTestFixture struct {
+	buildService *blockingCandidateBuildService
+	runner       *blockingFreshRunner
+	client       *coordinatorTransportClient
+}
+
+func (service *blockingCandidateBuildService) ExecuteBuild(ctx context.Context, workloadID string) error {
+	service.started <- workloadID
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-service.release:
+		return nil
+	}
+}
+
 type fakeSourceMaterializer struct{}
 
 func (fakeSourceMaterializer) Materialize(
@@ -200,8 +249,9 @@ func (starter *competingOwnerStarter) stop(t *testing.T) {
 func TestConnectCoordinatorCompetingStartersConverge(t *testing.T) {
 	checkpoint := coordinatorTestCheckpoint(t)
 	dependencies := coordinatorDependencies{
-		ImageEnsurer: fakeImageEnsurer{}, SourceMaterializer: fakeSourceMaterializer{}, FreshRunner: immediateFreshRunner{},
-		RecoveryRunner: &capturingFreshContainerRunner{},
+		ImageEnsurer: fakeImageEnsurer{}, CandidateBuilder: fakeCandidateBuildService{},
+		PromotionWatcher: fakePromotionWatcher{}, SourceMaterializer: fakeSourceMaterializer{},
+		FreshRunner: immediateFreshRunner{}, RecoveryRunner: &capturingFreshContainerRunner{},
 	}
 	starters := []*competingOwnerStarter{
 		{checkpoint: checkpoint, dependencies: dependencies},
@@ -230,6 +280,112 @@ func TestConnectCoordinatorCompetingStartersConverge(t *testing.T) {
 	for _, starter := range starters {
 		starter.stop(t)
 	}
+}
+
+func TestCoordinatorCandidateBuildUsesOneOfThreeFIFOSharedSlots(t *testing.T) {
+	fixture := startCoordinatorSlotTestFixture(t)
+	client := fixture.client
+	client.candidatePlanner = &oneShotCandidatePlanner{plan: localci.PromotionCandidatePlan{
+		BuildRequired: true, WorkloadID: "build-candidate-slot-proof",
+	}}
+	statuses := []jobStatus{
+		submitTestPlan(t, client, "1"), submitTestPlan(t, client, "2"),
+		submitTestPlan(t, client, "3"), submitTestPlan(t, client, "4"),
+	}
+	waitCoordinatorSharedSlots(t, fixture)
+	snapshot, err := client.scheduler.Snapshot(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertCoordinatorSharedSlotSnapshot(t, snapshot, statuses)
+}
+
+func startCoordinatorSlotTestFixture(t *testing.T) coordinatorSlotTestFixture {
+	t.Helper()
+	checkpoint := coordinatorTestCheckpoint(t)
+	buildService := &blockingCandidateBuildService{started: make(chan string, 1), release: make(chan struct{})}
+	runner := &blockingFreshRunner{
+		seen: make(map[string]bool), started: make(chan freshContainerRequest, 3), release: make(chan struct{}),
+	}
+	owner, err := openCoordinatorOwner(context.Background(), checkpoint, coordinatorDependencies{
+		ImageEnsurer: fakeImageEnsurer{}, CandidateBuilder: buildService,
+		PromotionWatcher: fakePromotionWatcher{}, SourceMaterializer: fakeSourceMaterializer{}, FreshRunner: runner,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	serveCtx, cancel := context.WithCancel(context.Background())
+	group := errgroup.Group{}
+	group.Go(func() error { return owner.Serve(serveCtx) })
+	t.Cleanup(func() {
+		cancel()
+		close(buildService.release)
+		close(runner.release)
+		if err := group.Wait(); err != nil {
+			t.Errorf("owner Serve() error = %v", err)
+		}
+	})
+	client := dialTestCoordinator(t, checkpoint)
+	return coordinatorSlotTestFixture{buildService: buildService, runner: runner, client: client}
+}
+
+func waitCoordinatorSharedSlots(t *testing.T, fixture coordinatorSlotTestFixture) {
+	t.Helper()
+	select {
+	case workloadID := <-fixture.buildService.started:
+		if workloadID != "build-candidate-slot-proof" {
+			t.Fatalf("build workload = %q", workloadID)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("candidate build did not start")
+	}
+	for range 2 {
+		select {
+		case <-fixture.runner.started:
+		case <-time.After(time.Second):
+			t.Fatal("ordinary job did not share capacity with candidate build")
+		}
+	}
+}
+
+func assertCoordinatorSharedSlotSnapshot(t *testing.T, snapshot localci.SchedulerSnapshot, statuses []jobStatus) {
+	t.Helper()
+	if len(snapshot.Leases) != 3 {
+		t.Fatalf("active shared leases = %d, want 3", len(snapshot.Leases))
+	}
+	builds := 0
+	for _, lease := range snapshot.Leases {
+		if lease.Kind == localci.WorkloadKindBuild {
+			builds++
+		}
+	}
+	if builds != 1 {
+		t.Fatalf("active builds = %d, want 1", builds)
+	}
+	assertCoordinatorWorkload(t, snapshot, statuses[0].JobID, localci.WorkloadStatusQueued, "build-candidate-slot-proof")
+	assertCoordinatorWorkload(t, snapshot, statuses[1].JobID, localci.WorkloadStatusStarted)
+	assertCoordinatorWorkload(t, snapshot, statuses[2].JobID, localci.WorkloadStatusStarted)
+	assertCoordinatorWorkload(t, snapshot, statuses[3].JobID, localci.WorkloadStatusQueued)
+}
+
+func assertCoordinatorWorkload(
+	t *testing.T,
+	snapshot localci.SchedulerSnapshot,
+	workloadID string,
+	status localci.WorkloadStatus,
+	dependencies ...string,
+) {
+	t.Helper()
+	for _, workload := range snapshot.Workloads {
+		if workload.Request.ID != workloadID {
+			continue
+		}
+		if workload.Status != status || !slices.Equal(workload.Request.Dependencies, dependencies) {
+			t.Fatalf("workload %q = %+v", workloadID, workload)
+		}
+		return
+	}
+	t.Fatalf("workload %q is missing", workloadID)
 }
 
 func TestConnectCoordinatorDeadlineCoversOwnerStarter(t *testing.T) {
@@ -508,7 +664,8 @@ func startTestCoordinatorOwner(
 ) *coordinatorOwner {
 	t.Helper()
 	owner, err := openCoordinatorOwner(context.Background(), checkpoint, coordinatorDependencies{
-		ImageEnsurer: fakeImageEnsurer{}, SourceMaterializer: fakeSourceMaterializer{}, FreshRunner: runner,
+		ImageEnsurer: fakeImageEnsurer{}, CandidateBuilder: fakeCandidateBuildService{},
+		PromotionWatcher: fakePromotionWatcher{}, SourceMaterializer: fakeSourceMaterializer{}, FreshRunner: runner,
 		RecoveryRunner: &capturingFreshContainerRunner{},
 	})
 	if err != nil {
