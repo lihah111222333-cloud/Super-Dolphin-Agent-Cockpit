@@ -203,7 +203,7 @@ func TestSchemaCompilerStaleFencePreventsExecution(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Canonicalize() error = %v", err)
 	}
-	client, err := NewClient(ClientConfig{HelperPath: "must-not-start"})
+	client, err := NewClient(ClientConfig{HelperPath: filepath.Join(t.TempDir(), "must-not-start")})
 	if err != nil {
 		t.Fatalf("NewClient() error = %v", err)
 	}
@@ -414,20 +414,51 @@ func assertProducerFieldsAcceptedByConsumer(t *testing.T, producer, consumer any
 	}
 }
 
+func TestSchemaCompilerRejectsNonAbsoluteOrUncleanHelperPaths(t *testing.T) {
+	directory := t.TempDir()
+	helper := filepath.Join(directory, "mcp-schema-compiler-helper")
+	marker := filepath.Join(directory, "started")
+	script := "#!/bin/sh\nprintf started >" + marker + "\n"
+	if err := os.WriteFile(helper, []byte(script), 0o700); err != nil {
+		t.Fatalf("write helper fixture: %v", err)
+	}
+	t.Setenv("PATH", directory+string(os.PathListSeparator)+os.Getenv("PATH"))
+	paths := []string{
+		"mcp-schema-compiler-helper",
+		"./mcp-schema-compiler-helper",
+		filepath.Join("relative", "mcp-schema-compiler-helper"),
+		directory + string(os.PathSeparator) + ".." + string(os.PathSeparator) +
+			filepath.Base(directory) + string(os.PathSeparator) + "mcp-schema-compiler-helper",
+	}
+	for _, helperPath := range paths {
+		client, err := NewClient(ClientConfig{HelperPath: helperPath})
+		if err == nil || client != nil {
+			t.Errorf("NewClient(%q) = (%v, %v), want rejection", helperPath, client, err)
+		}
+	}
+	if _, err := os.Stat(marker); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("non-pinned helper was started: stat error = %v", err)
+	}
+	client, err := NewClient(ClientConfig{HelperPath: helper})
+	if err != nil || client == nil {
+		t.Fatalf("NewClient(absolute clean) = (%v, %v)", client, err)
+	}
+}
+
 func TestSchemaCompilerCapacityWaitIsBounded(t *testing.T) {
 	canonical, err := Canonicalize([]byte(`{"type":"object"}`))
 	if err != nil {
 		t.Fatalf("Canonicalize() error = %v", err)
 	}
 	for range maxLiveHelpers {
-		globalHelperSlots <- struct{}{}
+		globalHelperLimiter.slots <- struct{}{}
 	}
 	defer func() {
 		for range maxLiveHelpers {
-			<-globalHelperSlots
+			<-globalHelperLimiter.slots
 		}
 	}()
-	client, err := NewClient(ClientConfig{HelperPath: "must-not-start"})
+	client, err := NewClient(ClientConfig{HelperPath: filepath.Join(t.TempDir(), "must-not-start")})
 	if err != nil {
 		t.Fatalf("NewClient() error = %v", err)
 	}
@@ -438,6 +469,33 @@ func TestSchemaCompilerCapacityWaitIsBounded(t *testing.T) {
 	}
 	if elapsed := time.Since(started); elapsed > capacityWait+250*time.Millisecond {
 		t.Fatalf("capacity wait took %v", elapsed)
+	}
+}
+
+func TestSchemaCompilerReapFailurePermanentlyConsumesCapacity(t *testing.T) {
+	limiter := newHelperLimiter(maxLiveHelpers)
+	reapFailed := func() (Result, error) {
+		return Result{}, newDiagnostic(CodeReapFailed, "fixture did not reap", nil)
+	}
+	for range maxLiveHelpers {
+		if _, err := limiter.run(context.Background(), reapFailed); ErrorCode(err) != CodeReapFailed {
+			t.Fatalf("limiter.run() code = %q, want %q; error=%v", ErrorCode(err), CodeReapFailed, err)
+		}
+	}
+	started := false
+	startedAt := time.Now()
+	_, err := limiter.run(context.Background(), func() (Result, error) {
+		started = true
+		return Result{}, nil
+	})
+	if started {
+		t.Fatal("operation started after unreaped helpers consumed all capacity")
+	}
+	if ErrorCode(err) != CodeCapacityExhausted {
+		t.Fatalf("capacity code = %q, want %q; error=%v", ErrorCode(err), CodeCapacityExhausted, err)
+	}
+	if elapsed := time.Since(startedAt); elapsed > capacityWait+250*time.Millisecond {
+		t.Fatalf("fail-closed capacity wait took %v", elapsed)
 	}
 }
 

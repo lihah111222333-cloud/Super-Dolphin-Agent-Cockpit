@@ -21,8 +21,14 @@ Base: `77d823c37`. Branch: `codex/reasonix-p0-task4a-schema-helper`.
 - Parent limits live helpers to 2, semaphore wait to 250 ms, total operation to
   2 seconds, stdout to 64 KiB, stderr to 16 KiB and helper soft memory to
   `GOMEMLIMIT=96MiB`.
+- `NewClient` accepts only an absolute, syntactically clean helper path.
+  PATH-resolved names, relative paths and unclean absolute paths fail before
+  command construction; a later packaging owner can supply the deterministic
+  installed path without changing this boundary.
 - Cancellation and timeout terminate the Unix process group or Windows Job
-  Object and always join `Wait`; reap is bounded to 1 second.
+  Object and join `Wait`; reap is bounded to 1 second. A failed reap
+  permanently consumes that helper's global slot, so an unconfirmed live
+  process can never be replaced while claiming the global live-helper cap.
 - The parent verifies protocol identity, authority generation, schema and
   compiled digests, and invokes the caller-owned fence before launch and after
   success. The hook does not invent an authority source.
@@ -45,11 +51,20 @@ passed. Allowed and required JSON fields are derived from the actual request and
 response struct tags and emitted producer objects, not from handwritten field
 lists.
 
+The P1 review repair was also fail-first. The focused test initially failed to
+compile with `undefined: newHelperLimiter`. After implementing the limiter,
+the first path test exposed that its unclean fixture had been normalized by
+`filepath.Join`; preserving the literal `..` made the test exercise the
+constructor boundary. The final focused path, capacity and reap-failure tests
+all pass.
+
 ## Verification
 
 | Gate | Result |
 | --- | --- |
 | `go test ./internal/platform/toolbridge/schema -count=1` | PASS |
+| Absolute/clean helper identity and PATH/relative rejection tests | PASS |
+| Two reap failures consume both slots; a third operation never starts and returns capacity exhausted | PASS |
 | Named budget/reference and cancellation/isolation tests | PASS |
 | Strict unknown/duplicate/trailing protocol tests | PASS |
 | Identity, digest, stdout/stderr cap, non-zero exit, total deadline and stale callback tests | PASS |

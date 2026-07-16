@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -21,8 +22,16 @@ const (
 	reapDeadline      = time.Second
 )
 
-// archguard:ignore global_vars -- 冻结的双槽信号量必须约束整个桌面进程，而不是单个 Client。
-var globalHelperSlots = make(chan struct{}, maxLiveHelpers)
+type helperLimiter struct {
+	slots chan struct{}
+}
+
+func newHelperLimiter(limit int) *helperLimiter {
+	return &helperLimiter{slots: make(chan struct{}, limit)}
+}
+
+// archguard:ignore global_vars -- 冻结的双槽 limiter 必须约束整个桌面进程，而不是单个 Client。
+var globalHelperLimiter = newHelperLimiter(maxLiveHelpers)
 
 // ClientConfig 指定与桌面产物同版本的本地 helper 路径。
 type ClientConfig struct {
@@ -39,6 +48,9 @@ type Client struct {
 func NewClient(config ClientConfig) (*Client, error) {
 	if strings.TrimSpace(config.HelperPath) == "" {
 		return nil, newDiagnostic(CodeProcessStartFailed, "helper path is required", nil)
+	}
+	if !filepath.IsAbs(config.HelperPath) || filepath.Clean(config.HelperPath) != config.HelperPath {
+		return nil, newDiagnostic(CodeProcessStartFailed, "helper path must be absolute and clean", nil)
 	}
 	return &Client{
 		helperPath: config.HelperPath,
@@ -74,11 +86,9 @@ func (client *Client) Execute(ctx context.Context, invocation Invocation, fence 
 	if err := fence(operationCtx, FenceBeforeLaunch, identity); err != nil {
 		return Result{}, newDiagnostic(CodeGenerationStale, "authority changed before helper launch", err)
 	}
-	if err := acquireHelperSlot(operationCtx); err != nil {
-		return Result{}, err
-	}
-	defer func() { <-globalHelperSlots }()
-	return client.executeProcess(ctx, operationCtx, request, identity, fence)
+	return globalHelperLimiter.run(operationCtx, func() (Result, error) {
+		return client.executeProcess(ctx, operationCtx, request, identity, fence)
+	})
 }
 
 // executeProcess 启动单次 helper，绑定进程边界并收集有界输出。
@@ -161,11 +171,23 @@ func operationStopReason(parentCtx context.Context) (Code, string, error) {
 	return CodeTimeout, "schema helper deadline exceeded", nil
 }
 
-func acquireHelperSlot(ctx context.Context) error {
+// run 获取一个全局 helper 槽，并仅在已确认没有未回收进程时归还。
+func (limiter *helperLimiter) run(ctx context.Context, operation func() (Result, error)) (Result, error) {
+	if err := limiter.acquire(ctx); err != nil {
+		return Result{}, err
+	}
+	result, err := operation()
+	if ErrorCode(err) != CodeReapFailed {
+		<-limiter.slots
+	}
+	return result, err
+}
+
+func (limiter *helperLimiter) acquire(ctx context.Context) error {
 	timer := time.NewTimer(capacityWait)
 	defer timer.Stop()
 	select {
-	case globalHelperSlots <- struct{}{}:
+	case limiter.slots <- struct{}{}:
 		return nil
 	case <-ctx.Done():
 		return newDiagnostic(CodeCancelled, "schema helper capacity wait cancelled", ctx.Err())
