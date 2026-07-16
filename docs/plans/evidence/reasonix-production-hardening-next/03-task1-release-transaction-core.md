@@ -22,9 +22,11 @@ only this exact platform package and keeps the existing narrow import boundary.
   persists completion after it. Replay only reconciles a persisted pending intent.
 - Identity binds transaction ID, attempt ID, old digest/signer, and candidate
   digest/signer. A mismatched identity cannot mutate journal or filesystem state.
-- Backup remains present while the candidate is in probation. Healthy commit first
-  commits trust and then removes the exact backup; rollback restores the exact old
-  release and marks trust rolled back.
+- Backup remains present while the candidate is in probation. After exact healthy
+  ACK validation, the journal first persists `commit_pending`; the commit effect
+  then removes the exact backup, and only the terminal `committed` journal state
+  exposes committed trust. Rollback restores the exact old release and marks trust
+  rolled back.
 - The updater success path creates the transaction, retains the backup, installs the
   candidate, and returns only in probation with pending trust.
 - A missing target keeps first-install compatibility through a same-parent durable

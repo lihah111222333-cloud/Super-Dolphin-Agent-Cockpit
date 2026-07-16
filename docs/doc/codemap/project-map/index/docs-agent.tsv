@@ -486,11 +486,12 @@ docs/plans/evidence/reasonix-production-hardening-next/00-task0-baseline.md	docs
 docs/plans/evidence/reasonix-production-hardening-next/01-task0-design-freeze.md	docs	docs-agent	doc	16990	历史计划与迁移执行文档	docs,plans,evidence,reasonix,production,hardening,next,01,task0,design,freeze,历史计划与迁移执行文档
 docs/plans/evidence/reasonix-production-hardening-next/02-current-main-recheck.md	docs	docs-agent	doc	6529	历史计划与迁移执行文档	docs,plans,evidence,reasonix,production,hardening,next,02,current,main,recheck,历史计划与迁移执行文档
 docs/plans/evidence/reasonix-production-hardening-next/03-mcp-compiler-decision.md	docs	docs-agent	doc	15123	历史计划与迁移执行文档	docs,plans,evidence,reasonix,production,hardening,next,03,mcp,compiler,decision,历史计划与迁移执行文档
-docs/plans/evidence/reasonix-production-hardening-next/03-task1-release-transaction-core.md	docs	docs-agent	doc	8934	历史计划与迁移执行文档	docs,plans,evidence,reasonix,production,hardening,next,03,task1,release,transaction,core,历史计划与迁移执行文档
+docs/plans/evidence/reasonix-production-hardening-next/03-task1-release-transaction-core.md	docs	docs-agent	doc	9071	历史计划与迁移执行文档	docs,plans,evidence,reasonix,production,hardening,next,03,task1,release,transaction,core,历史计划与迁移执行文档
 docs/plans/evidence/reasonix-production-hardening-next/04-task2-supervisor-guard-recovery.md	docs	docs-agent	doc	10967	历史计划与迁移执行文档	docs,plans,evidence,reasonix,production,hardening,next,04,task2,supervisor,guard,recovery,历史计划与迁移执行文档
 docs/plans/evidence/reasonix-production-hardening-next/04-task4a-schema-helper.md	docs	docs-agent	doc	5965	历史计划与迁移执行文档	docs,plans,evidence,reasonix,production,hardening,next,04,task4a,schema,helper,历史计划与迁移执行文档
 docs/plans/evidence/reasonix-production-hardening-next/05-task4b-mcp-quarantine-authority.md	docs	docs-agent	doc	10360	历史计划与迁移执行文档	docs,plans,evidence,reasonix,production,hardening,next,05,task4b,mcp,quarantine,authority,历史计划与迁移执行文档
 docs/plans/evidence/reasonix-production-hardening-next/06-task3-update-trust-artifact-e2e.md	docs	docs-agent	doc	6712	历史计划与迁移执行文档	docs,plans,evidence,reasonix,production,hardening,next,06,task3,update,trust,artifact,e2e,历史计划与迁移执行文档
+docs/plans/evidence/reasonix-production-hardening-next/07-task5-joint-closure.md	docs	docs-agent	doc	16022	历史计划与迁移执行文档	docs,plans,evidence,reasonix,production,hardening,next,07,task5,joint,closure,历史计划与迁移执行文档
 docs/plans/framework_audit.md	docs	docs-agent	doc	20509	历史计划与迁移执行文档	docs,plans,framework,audit,历史计划与迁移执行文档
 docs/plans/lsp-tool-result-optimization.md	docs	docs-agent	doc	7184	历史计划与迁移执行文档	docs,plans,lsp,tool,result,optimization,历史计划与迁移执行文档
 docs/plans/orch-pos-feedback-loop/2026-06-01-phase1/adjudication.md	docs	docs-agent	doc	980	历史计划与迁移执行文档	docs,plans,orch,pos,feedback,loop,2026,06,01,phase1,adjudication,历史计划与迁移执行文档
