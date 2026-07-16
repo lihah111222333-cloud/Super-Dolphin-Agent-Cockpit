@@ -149,7 +149,6 @@ func TestRequestUserInputApprovalKeepsTerminalWaitOverlayUntilLastResolve(t *tes
 			ThreadHeader: sharedto.ThreadHeader{ThreadID: "thread-1"},
 			AgentID:      "agent-1",
 		},
-		SessionID: "session-1",
 	}
 	turnHeader := sharedto.TurnHeader{
 		AgentHeader:  header.AgentHeader,
@@ -211,7 +210,6 @@ func TestGenericApprovalDoesNotSetTerminalWaitOverlay(t *testing.T) {
 			ThreadHeader: sharedto.ThreadHeader{ThreadID: "thread-2"},
 			AgentID:      "agent-2",
 		},
-		SessionID: "session-2",
 	}
 	turnHeader := sharedto.TurnHeader{
 		AgentHeader:  header.AgentHeader,
