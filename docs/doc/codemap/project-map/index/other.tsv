@@ -379,7 +379,7 @@ internal/dto/provider/session.go	internal	other	go-source	7216	provider/shared D
 internal/dto/provider/thread_config.go	internal	other	go-source	1727	provider/shared DTO 与事件协议	internal,dto,provider,thread,config,shared,DTO,与事件协议
 internal/dto/provider/thread.go	internal	other	go-source	256	provider/shared DTO 与事件协议	internal,dto,provider,thread,shared,DTO,与事件协议
 internal/dto/provider/turn_test.go	internal	other	go-test	6783	provider/shared DTO 与事件协议	internal,dto,provider,turn,test,shared,DTO,与事件协议
-internal/dto/provider/turn.go	internal	other	go-source	6436	provider/shared DTO 与事件协议	internal,dto,provider,turn,shared,DTO,与事件协议
+internal/dto/provider/turn.go	internal	other	go-source	6486	provider/shared DTO 与事件协议	internal,dto,provider,turn,shared,DTO,与事件协议
 internal/dto/shared/errors.go	internal	other	go-source	439	provider/shared DTO 与事件协议	internal,dto,shared,errors,provider,DTO,与事件协议
 internal/dto/shared/event.go	internal	other	go-source	4625	provider/shared DTO 与事件协议	internal,dto,shared,event,provider,DTO,与事件协议
 internal/dto/shared/input.go	internal	other	go-source	1210	provider/shared DTO 与事件协议	internal,dto,shared,input,provider,DTO,与事件协议
@@ -392,13 +392,14 @@ internal/dto/turn/contract_field_guard_test.go	internal	other	go-test	5586	provi
 internal/dto/turn/contract_generate.go	internal	other	go-source	159	provider/shared DTO 与事件协议	internal,dto,turn,contract,generate,provider,shared,DTO,与事件协议
 internal/dto/turn/contract_validator_test.go	internal	other	go-test	3194	provider/shared DTO 与事件协议	internal,dto,turn,contract,validator,test,provider,shared,DTO,与事件协议
 internal/dto/turn/contract_validator.go	internal	other	go-source	8705	provider/shared DTO 与事件协议	internal,dto,turn,contract,validator,provider,shared,DTO,与事件协议
-internal/dto/turn/event.go	internal	other	go-source	2912	provider/shared DTO 与事件协议	internal,dto,turn,event,provider,shared,DTO,与事件协议
+internal/dto/turn/event.go	internal	other	go-source	3063	provider/shared DTO 与事件协议	internal,dto,turn,event,provider,shared,DTO,与事件协议
 internal/dto/turn/model.go	internal	other	go-source	883	provider/shared DTO 与事件协议	internal,dto,turn,model,provider,shared,DTO,与事件协议
 internal/dto/turn/progress.go	internal	other	go-source	2537	provider/shared DTO 与事件协议	internal,dto,turn,progress,provider,shared,DTO,与事件协议
 internal/dto/turn/schema/field_consumers.json	internal	other	json	1949	provider/shared DTO 与事件协议	internal,dto,turn,schema,field,consumers,provider,shared,DTO,与事件协议
 internal/dto/turn/schema/public_error.v1.json	internal	other	json	766	provider/shared DTO 与事件协议	internal,dto,turn,schema,public,error,v1,provider,shared,DTO,与事件协议
 internal/dto/turn/schema/turn_ref.v1.json	internal	other	json	329	provider/shared DTO 与事件协议	internal,dto,turn,schema,ref,v1,provider,shared,DTO,与事件协议
 internal/dto/turn/schema/turn_terminal.v2.json	internal	other	json	2244	provider/shared DTO 与事件协议	internal,dto,turn,schema,terminal,v2,provider,shared,DTO,与事件协议
+internal/dto/turn/terminal.go	internal	other	go-source	3540	provider/shared DTO 与事件协议	internal,dto,turn,terminal,provider,shared,DTO,与事件协议
 internal/dto/turn/turn_contract_schemas_generated.go	internal	other	go-source	5340	provider/shared DTO 与事件协议	internal,dto,turn,contract,schemas,generated,provider,shared,DTO,与事件协议
 internal/dto/ui/event_test.go	internal	other	go-test	642	provider/shared DTO 与事件协议	internal,dto,ui,event,test,provider,shared,DTO,与事件协议
 internal/dto/ui/event.go	internal	other	go-source	7844	provider/shared DTO 与事件协议	internal,dto,ui,event,provider,shared,DTO,与事件协议

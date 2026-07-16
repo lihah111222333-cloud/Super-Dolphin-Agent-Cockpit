@@ -445,8 +445,7 @@ func (r *remoteLauncher) Close() error {
 }
 
 type remoteLauncherEventSink interface {
-	handleRemoteTurnCompleted(context.Context, turndto.TurnCompleted)
-	handleRemoteTurnInterrupted(context.Context, turndto.TurnInterrupted)
+	handleRemoteTurnTerminal(context.Context, turndto.TurnTerminalV2)
 }
 
 func bindRemoteLauncherEventSink(launcher AgentLauncher, sink remoteLauncherEventSink) {
@@ -481,18 +480,12 @@ func (r *remoteLauncher) handleNotify(req *jrpc2.Request) {
 		return
 	}
 	switch method := strings.TrimSpace(req.Method()); method {
-	case eventsurface.MethodTurnCompleted:
-		ev, err := eventsurface.DecodeRemoteTurnCompleted(req.UnmarshalParams)
+	case eventsurface.MethodTurnTerminal:
+		ev, err := eventsurface.DecodeRemoteTurnTerminal(req.UnmarshalParams)
 		if logRemoteLauncherNotifyDecodeError(method, err) {
 			return
 		}
-		sink.handleRemoteTurnCompleted(context.Background(), ev)
-	case eventsurface.MethodTurnInterrupted:
-		ev, err := eventsurface.DecodeRemoteTurnInterrupted(req.UnmarshalParams)
-		if logRemoteLauncherNotifyDecodeError(method, err) {
-			return
-		}
-		sink.handleRemoteTurnInterrupted(context.Background(), ev)
+		sink.handleRemoteTurnTerminal(context.Background(), ev)
 	}
 }
 func logRemoteLauncherNotifyDecodeError(method string, err error) bool {
@@ -503,6 +496,24 @@ func logRemoteLauncherNotifyDecodeError(method string, err error) bool {
 		"method", strings.TrimSpace(method),
 		"error", err)
 	return true
+}
+
+// handleRemoteTurnTerminal 通过 canonical threadId 的 runtime 绑定解析 owner，再推进内部 turn 生命周期。
+func (s *service) handleRemoteTurnTerminal(ctx context.Context, terminal turndto.TurnTerminalV2) {
+	if s == nil || s.registry == nil {
+		return
+	}
+	ownerAgentID, err := s.registry.ownerAgentIDForThreadID(terminal.ThreadID)
+	if err != nil {
+		pkglogger.Warn("orchestration: remote terminal owner lookup failed", "thread_id", terminal.ThreadID, "turn_id", terminal.TurnID, "error", err)
+		return
+	}
+	ev, err := eventsurface.ProjectRemoteTurnTerminal(terminal, ownerAgentID)
+	if err != nil {
+		pkglogger.Warn("orchestration: remote terminal projection failed", "agent_id", ownerAgentID, "thread_id", terminal.ThreadID, "turn_id", terminal.TurnID, "error", err)
+		return
+	}
+	s.handleRemoteTurnCompleted(ctx, ev)
 }
 
 // handleRemoteTurnCompleted 处理来自 remote launcher 的 turn 完成通知，写入 report 并推进状态机。
@@ -521,7 +532,7 @@ func (s *service) handleRemoteTurnCompleted(ctx context.Context, ev turndto.Turn
 	_, err := s.reports.HandleReportEvent(eventCtx, ReportEvent{
 		AgentID:   strings.TrimSpace(ev.AgentID),
 		Report:    turnCompletedReportText(ev),
-		EventType: eventsurface.MethodTurnCompleted,
+		EventType: eventsurface.MethodTurnTerminal,
 		EventData: mustMarshalHookReportEvent(ev),
 	})
 	if err != nil && !errors.Is(err, errAgentNotFound) {

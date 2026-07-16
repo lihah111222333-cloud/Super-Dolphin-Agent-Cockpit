@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
 	dto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/provider"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/observability"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/shared"
@@ -151,9 +152,17 @@ func (s *session) rememberPendingTurn(handle *turnHandle, params turnStartParams
 // callTransport 为同步 RPC 提供一次恢复重试，但尊重每个 method 的写后重试策略。
 // turn/start 没有 idempotency key，写入已尝试后必须返回 recoverable error，不能自动再发一次。
 func (s *session) callTransport(ctx context.Context, method string, params any) (json.RawMessage, error) {
-	raw, err := s.transport.Call(ctx, method, params)
+	return s.callTransportWithGuard(ctx, method, params, nil)
+}
+
+// callTransportWithGuard 在每次真实 wire write 前重验调用方 claim，恢复重试也使用同一 guard。
+func (s *session) callTransportWithGuard(ctx context.Context, method string, params any, guard func() error) (json.RawMessage, error) {
+	raw, err := s.transport.callGuarded(ctx, method, params, guard)
 	if err == nil {
 		return raw, err
+	}
+	if errors.Is(err, contract.ErrInterruptTargetChanged) {
+		return nil, err
 	}
 	policy := retryPolicyForTransportMethod(method)
 	if transportWriteAttempted(err) && !policy.retryAfterWrite {
@@ -168,7 +177,7 @@ func (s *session) callTransport(ctx context.Context, method string, params any) 
 	if recoverErr := s.attemptRecovery("transport-call: " + err.Error()); recoverErr != nil {
 		return nil, errors.Join(err, recoverErr)
 	}
-	return s.transport.Call(ctx, method, params)
+	return s.transport.callGuarded(ctx, method, params, guard)
 }
 
 // notifyWriteOutcomeUnknown 在非幂等写入结果未知时只触发恢复，不自动重放请求。
@@ -540,7 +549,7 @@ func (s *session) applyReplayedTurn(snapshot *turnReplayState, newProviderID str
 		staleProviderID = snapshot.providerID
 	}
 	s.turns[newProviderID] = snapshot.handle
-	s.activeTurnID = newProviderID
+	s.setActiveTurnLocked(newProviderID)
 	if s.pendingTurn != nil && s.pendingTurn.handle == snapshot.handle {
 		s.pendingTurn.providerID = newProviderID
 		s.pendingTurn.params = cloneTurnStartParams(snapshot.params)

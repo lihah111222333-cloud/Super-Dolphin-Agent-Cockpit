@@ -77,3 +77,35 @@ func TestCodexAbortedRawCauseCannotMasqueradeAsUserCancel(t *testing.T) {
 		t.Fatalf("terminal = %#v, want provider cancellation without user_request attribution", terminal)
 	}
 }
+
+func TestCodexAcceptedInterruptOnlyAttributesCancellationTerminal(t *testing.T) {
+	t.Parallel()
+
+	t.Run("completed remains success", func(t *testing.T) {
+		s := &session{interruptRequests: map[string]string{"turn-1": "stop-1"}}
+		payload := map[string]any{"turnId": "turn-1", "success": true, "status": "completed"}
+		if s.applyAcceptedInterruptRequest("turn/completed", payload) {
+			t.Fatalf("completed payload was attributed to user cancellation: %#v", payload)
+		}
+		ev, ok := translateTurnEvent("turn/completed", payload)
+		if !ok || !ev.(turndto.TurnCompleted).Success {
+			t.Fatalf("completed terminal = %#v, ok=%v, want success", ev, ok)
+		}
+	})
+
+	t.Run("aborted owns accepted request", func(t *testing.T) {
+		s := &session{interruptRequests: map[string]string{"turn-1": "stop-1"}}
+		payload := map[string]any{"turnId": "turn-1"}
+		if !s.applyAcceptedInterruptRequest("turn/aborted", payload) {
+			t.Fatal("accepted cancellation was not attributed")
+		}
+		ev, ok := translateTurnEvent("turn/aborted", payload)
+		if !ok {
+			t.Fatal("translateTurnEvent() ok = false")
+		}
+		terminal := ev.(turndto.TurnCompleted)
+		if terminal.Reason != "user_request" || terminal.TerminationRequestID != "stop-1" {
+			t.Fatalf("terminal = %#v, want accepted user cancellation", terminal)
+		}
+	})
+}

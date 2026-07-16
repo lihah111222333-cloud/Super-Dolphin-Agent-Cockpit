@@ -39,6 +39,9 @@ func (s *session) dispatch(raw dto.RawProviderEvent) {
 		if s.trackCodexRolloutToolName(raw.EventType, payload) {
 			payloadChanged = true
 		}
+		if isTurnTerminalEvent(raw.EventType) && s.applyAcceptedInterruptRequest(raw.EventType, payload) {
+			payloadChanged = true
+		}
 		s.recordToolFailureFromRaw(raw.EventType, payload)
 		if payloadChanged {
 			raw.Data = payload
@@ -129,7 +132,7 @@ func (s *session) takeTurn(turnID string) *turnHandle {
 	h := s.turns[turnID]
 	delete(s.turns, turnID)
 	if turnID == s.activeTurnID {
-		s.activeTurnID = ""
+		s.setActiveTurnLocked("")
 	}
 	if s.pendingTurn != nil && s.pendingTurn.handle == h {
 		s.pendingTurn = nil
@@ -139,6 +142,28 @@ func (s *session) takeTurn(turnID string) *turnHandle {
 	s.dropTurnOutputAccumulator(turnID)
 	s.discardTurnToolFailures(turnID)
 	return h
+}
+
+// applyAcceptedInterruptRequest 消费已接受的 Stop claim，仅把真实取消或中断终态归因给该请求。
+func (s *session) applyAcceptedInterruptRequest(method string, payload map[string]any) bool {
+	turnID := strings.TrimSpace(payloadTurnID(payload))
+	if turnID == "" {
+		return false
+	}
+	s.mu.Lock()
+	requestID := strings.TrimSpace(s.interruptRequests[turnID])
+	delete(s.interruptRequests, turnID)
+	s.mu.Unlock()
+	if requestID == "" {
+		return false
+	}
+	outcome := resolveTurnTerminalOutcome(method, payload)
+	if outcome.contractError != "" || (outcome.status != "interrupted" && outcome.status != "cancelled") {
+		return false
+	}
+	payload["termination_cause"] = "user_request"
+	payload["termination_request_id"] = requestID
+	return true
 }
 
 func (s *session) forceCompleteTargetTurnID(providerID string) (string, bool) {
@@ -663,7 +688,8 @@ func (s *session) failTurns(err error) {
 	s.mu.Lock()
 	turns := s.turns
 	s.turns = map[string]*turnHandle{}
-	s.activeTurnID = ""
+	s.setActiveTurnLocked("")
+	s.interruptRequests = nil
 	s.pendingTurn = nil
 	s.mu.Unlock()
 	// 失败所有 turn 时同步丢弃 providerID 对应的输出累积器，避免关闭后残留大文本缓冲。

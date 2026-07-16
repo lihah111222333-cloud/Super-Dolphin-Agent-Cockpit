@@ -12,12 +12,12 @@ import (
 // InterruptTurn 向当前线程的 active turn 发送中断，并返回带 envelope 的最终判定状态。
 // 没有 active turn 时不报错，而是返回 no_active_turn envelope，方便 UI 幂等收口。
 func (s *service) InterruptTurn(ctx context.Context, session contract.Session, source string) (status TurnStatus, err error) {
-	status, _, err = s.InterruptTurnForTarget(ctx, session, source, "")
+	status, _, err = s.InterruptTurnForTarget(ctx, session, source, "", "")
 	return status, err
 }
 
 // InterruptTurnForTarget 仅在 expectedTurnID 仍匹配时捕获当前 handle；不匹配时绝不调用 provider。
-func (s *service) InterruptTurnForTarget(ctx context.Context, session contract.Session, source, expectedTurnID string) (status TurnStatus, accepted bool, err error) {
+func (s *service) InterruptTurnForTarget(ctx context.Context, session contract.Session, source, expectedTurnID, requestID string) (status TurnStatus, accepted bool, err error) {
 	ctx, threadID, err := requireTurnContext(ctx, session)
 	if err != nil {
 		return TurnStatus{}, false, err
@@ -31,11 +31,14 @@ func (s *service) InterruptTurnForTarget(ctx context.Context, session contract.S
 	if !claim.found {
 		return attachInterruptEnvelope(before, buildTurnInterruptEnvelope(before.State, before.State, false, false, 0, false)), false, nil
 	}
+	if claim.accepted {
+		return before, true, nil
+	}
 	if !claim.claimed {
 		return before, false, nil
 	}
 	start := time.Now()
-	waited, err := interruptAndWait(ctx, session, nil, active, threadID, source, nil)
+	waited, err := interruptAndWait(ctx, session, nil, active, threadID, source, requestID, nil)
 	if errors.Is(err, contract.ErrInterruptTargetChanged) {
 		releaseInterruptClaim(s.tracker, active.localID)
 		return before, false, nil

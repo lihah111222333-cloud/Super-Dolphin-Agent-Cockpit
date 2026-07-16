@@ -326,10 +326,17 @@ func (s *session) Interrupt(ctx context.Context, req dto.InterruptRequest) error
 		s.dispatch(event)
 	}
 	handle.finish(context.Canceled)
-	s.dispatch(s.turnRawEvent("turn:interrupted", turnID, map[string]any{
-		"reason": reason,
-	}))
+	s.dispatch(s.turnRawEvent("turn:interrupted", turnID, interruptTerminalFields(req, reason)))
 	return nil
+}
+
+func interruptTerminalFields(req dto.InterruptRequest, reason string) map[string]any {
+	fields := map[string]any{"reason": strings.TrimSpace(reason), "termination_cause": "system"}
+	if requestID := strings.TrimSpace(req.RequestID); requestID != "" {
+		fields["termination_cause"] = "user_request"
+		fields["termination_request_id"] = requestID
+	}
+	return fields
 }
 
 // interruptTargetChangedLocked 在持有 session 锁时比较调用方目标与当前 active turn。

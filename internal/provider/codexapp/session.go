@@ -50,6 +50,8 @@ type session struct {
 	recoveryCount          atomic.Int32
 	turns                  map[string]*turnHandle
 	activeTurnID           string
+	activeTurnGeneration   uint64
+	interruptRequests      map[string]string
 	pendingTurn            *turnReplayState
 	suppressed             map[string]struct{}
 	suppressedToolEnds     map[string]struct{}
@@ -412,7 +414,7 @@ func (s *session) StartTurn(ctx context.Context, req dto.TurnRequest) (contract.
 	h.trace, _ = observability.TraceFromContext(ctx)
 	s.mu.Lock()
 	s.turns[providerID] = h
-	s.activeTurnID = providerID
+	s.setActiveTurnLocked(providerID)
 	s.mu.Unlock()
 	s.rememberPendingTurn(h, params)
 	return h, nil
@@ -535,20 +537,76 @@ func (s *session) Interrupt(ctx context.Context, req dto.InterruptRequest) error
 		return err
 	}
 	requestedTurnID := strings.TrimSpace(req.TurnID)
-	s.mu.Lock()
-	activeTurnID := strings.TrimSpace(s.activeTurnID)
-	if requestedTurnID != "" && requestedTurnID != activeTurnID {
-		s.mu.Unlock()
-		return contract.ErrInterruptTargetChanged
+	claim, err := s.claimInterruptTarget(requestedTurnID)
+	if err != nil {
+		return err
 	}
-	turnID := shared.FirstNonEmpty(requestedTurnID, activeTurnID)
-	s.mu.Unlock()
+	turnID := claim.turnID
 	if turnID == "" {
 		return errors.New("codexapp: active turn id is required for interrupt")
 	}
 	params := buildTurnInterruptParams(threadID, turnID, req.Source)
-	_, err = callWithTimeout(ctx, callTargetFunc(s.callTransport), 10*time.Second, "turn/interrupt", params)
+	target := callTargetFunc(func(callCtx context.Context, method string, callParams any) (json.RawMessage, error) {
+		return s.callTransportWithGuard(callCtx, method, callParams, func() error {
+			return s.validateInterruptClaim(claim)
+		})
+	})
+	_, err = callWithTimeout(ctx, target, 10*time.Second, "turn/interrupt", params)
+	if err == nil {
+		s.recordAcceptedInterruptRequest(claim, req.RequestID)
+	}
 	return err
+}
+
+type interruptTargetClaim struct {
+	turnID     string
+	generation uint64
+}
+
+func (s *session) claimInterruptTarget(requestedTurnID string) (interruptTargetClaim, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	activeTurnID := strings.TrimSpace(s.activeTurnID)
+	if requestedTurnID != "" && requestedTurnID != activeTurnID {
+		return interruptTargetClaim{}, contract.ErrInterruptTargetChanged
+	}
+	turnID := shared.FirstNonEmpty(requestedTurnID, activeTurnID)
+	return interruptTargetClaim{turnID: turnID, generation: s.activeTurnGeneration}, nil
+}
+
+func (s *session) validateInterruptClaim(claim interruptTargetClaim) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if claim.turnID == "" || claim.turnID != strings.TrimSpace(s.activeTurnID) || claim.generation != s.activeTurnGeneration {
+		return contract.ErrInterruptTargetChanged
+	}
+	return nil
+}
+
+func (s *session) recordAcceptedInterruptRequest(claim interruptTargetClaim, requestID string) {
+	requestID = strings.TrimSpace(requestID)
+	if requestID == "" {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if claim.turnID != strings.TrimSpace(s.activeTurnID) || claim.generation != s.activeTurnGeneration {
+		return
+	}
+	if s.interruptRequests == nil {
+		s.interruptRequests = map[string]string{}
+	}
+	s.interruptRequests[claim.turnID] = requestID
+
+}
+
+func (s *session) setActiveTurnLocked(turnID string) {
+	turnID = strings.TrimSpace(turnID)
+	if s.activeTurnID == turnID {
+		return
+	}
+	s.activeTurnID = turnID
+	s.activeTurnGeneration++
 }
 
 // ForceComplete 强制完成当前或指定 provider turn，并在远端确认后关闭本地 turn handle。

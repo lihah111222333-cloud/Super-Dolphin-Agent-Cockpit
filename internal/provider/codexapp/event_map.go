@@ -399,11 +399,12 @@ func translateTurnTerminalEvent(eventType string, payload map[string]any) turndt
 		errorText = appendProviderRuntimeError(errorText, err)
 	}
 	return turndto.TurnCompleted{
-		TurnHeader: header,
-		Success:    outcome.success,
-		Error:      errorText,
-		Status:     outcome.status,
-		Reason:     outcome.reason,
+		TurnHeader:           header,
+		Success:              outcome.success,
+		Error:                errorText,
+		Status:               outcome.status,
+		Reason:               outcome.reason,
+		TerminationRequestID: outcome.requestID,
 		// result 由 session 的 per-turn 输出累积器在分发前合并进 payload。
 		// 其他字段保留兼容读取，覆盖未来 Codex 直接携带 terminal 文本的 wire 形态。
 		Result:     stringValue(payload, "result"),

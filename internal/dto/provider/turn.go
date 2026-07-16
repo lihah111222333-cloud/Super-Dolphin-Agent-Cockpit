@@ -106,9 +106,10 @@ type TurnResult struct {
 
 // InterruptRequest 是中断当前 turn 的请求 DTO。
 type InterruptRequest struct {
-	ThreadID string `json:"threadId"`
-	TurnID   string `json:"turnId,omitempty"`
-	Source   string `json:"source,omitempty"`
+	ThreadID  string `json:"threadId"`
+	TurnID    string `json:"turnId,omitempty"`
+	Source    string `json:"source,omitempty"`
+	RequestID string `json:"requestId,omitempty"`
 }
 
 // SteerRequest 是向当前 turn 注入新输入（steer）的请求 DTO。
