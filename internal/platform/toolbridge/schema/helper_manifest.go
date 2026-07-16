@@ -15,6 +15,10 @@ import (
 	"strings"
 )
 
+// buildAppCommit 由桌面应用与 schema helper 的构建命令以同一 Git commit 注入。
+// archguard:ignore global_vars -- 该值仅允许 go link -X 在构建期设置，运行期只读。
+var buildAppCommit string
+
 const (
 	HelperBaseName       = "mcp-schema-compiler-helper"
 	HelperManifestSuffix = ".manifest.json"
@@ -231,11 +235,13 @@ func CurrentBuildIdentity() (HelperIdentity, error) {
 	if !ok || strings.TrimSpace(info.GoVersion) == "" {
 		return HelperIdentity{}, errors.New("running Go build identity is unavailable")
 	}
-	commit := ""
-	for _, setting := range info.Settings {
-		if setting.Key == "vcs.revision" {
-			commit = strings.TrimSpace(setting.Value)
-			break
+	commit := strings.TrimSpace(buildAppCommit)
+	if commit == "" {
+		for _, setting := range info.Settings {
+			if setting.Key == "vcs.revision" {
+				commit = strings.TrimSpace(setting.Value)
+				break
+			}
 		}
 	}
 	if commit == "" {

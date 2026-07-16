@@ -1693,6 +1693,8 @@ fi
 phase_end
 
 phase_start "go binaries"
+app_commit="$(git -C "$root" rev-parse HEAD)"
+schema_build_identity_ldflag="-X github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/toolbridge/schema.buildAppCommit=$app_commit"
 macos_cgo_enabled="${CGO_ENABLED:-$(go env CGO_ENABLED)}"
 macos_cgo_cflags="${CGO_CFLAGS:+$CGO_CFLAGS }-mmacosx-version-min=$macos_min_version"
 macos_cgo_cxxflags="${CGO_CXXFLAGS:+$CGO_CXXFLAGS }-mmacosx-version-min=$macos_min_version"
@@ -1708,6 +1710,7 @@ go_binary_cache_inputs=(
   "input:GOVERSION=$(go env GOVERSION)"
   "input:GOOS=$goos"
   "input:GOARCH=$goarch"
+  "input:APP_COMMIT=$app_commit"
   "input:CGO_ENABLED=$macos_cgo_enabled"
   "input:MACOSX_DEPLOYMENT_TARGET=$macos_min_version"
   "input:CGO_CFLAGS=$macos_cgo_cflags"
@@ -1722,8 +1725,8 @@ if ! phase_cache_check "go-binaries" "${go_binary_cache_inputs[@]}" "${go_binary
     export CGO_CFLAGS="$macos_cgo_cflags"
     export CGO_CXXFLAGS="$macos_cgo_cxxflags"
     export CGO_LDFLAGS="$macos_cgo_ldflags"
-    make build-peer-binaries
-    go build -o bin/agent-terminal ./cmd/agent-terminal
+    make APP_COMMIT="$app_commit" build-peer-binaries
+    go build -ldflags "$schema_build_identity_ldflag" -o bin/agent-terminal ./cmd/agent-terminal
     go build -o bin/mcp-ida ./cmd/mcp-ida
     go build -o bin/super-dolphin-updater ./cmd/super-dolphin-updater
     go build -o bin/super-dolphin-guard ./cmd/super-dolphin-guard

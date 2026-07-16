@@ -773,6 +773,8 @@ package_linux_main() {
 
   build_current_frontend_app
 
+  app_commit="$(git -C "$root" rev-parse HEAD)"
+  schema_build_identity_ldflag="-X github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/toolbridge/schema.buildAppCommit=$app_commit"
   linux_cgo_enabled="${CGO_ENABLED:-$(go env CGO_ENABLED)}"
   go_binary_cache_paths=(
     "$root/cmd"
@@ -785,6 +787,7 @@ package_linux_main() {
     "input:GOVERSION=$(go env GOVERSION)"
     "input:GOOS=$goos"
     "input:GOARCH=$goarch"
+    "input:APP_COMMIT=$app_commit"
     "input:CGO_ENABLED=$linux_cgo_enabled"
     "input:CGO_CFLAGS=${CGO_CFLAGS:-}"
     "input:CGO_CXXFLAGS=${CGO_CXXFLAGS:-}"
@@ -794,8 +797,8 @@ package_linux_main() {
     (
       cd "$root"
       export CGO_ENABLED="$linux_cgo_enabled"
-      make build-peer-binaries
-      go build -o bin/agent-terminal ./cmd/agent-terminal
+      make APP_COMMIT="$app_commit" build-peer-binaries
+      go build -ldflags "$schema_build_identity_ldflag" -o bin/agent-terminal ./cmd/agent-terminal
       go build -o bin/mcp-ida ./cmd/mcp-ida
     )
     phase_cache_save

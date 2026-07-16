@@ -7,6 +7,7 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
 	mcpdto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/mcp"
 	providerdto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/provider"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util/safego"
 )
 
 func TestExportMCPToolLifecyclePreservesRollbackStates(t *testing.T) {
@@ -174,7 +175,46 @@ func TestAuthorityDeleteAfterReadPreventsPublish(t *testing.T) {
 	}
 }
 
-func TestAuthorityDeleteAfterFinalCheckPreventsClientCall(t *testing.T) {
+func TestAuthorityCallLeaseBlocksDeleteUntilCallbackReturns(t *testing.T) {
+	fixture := newAuthorityLeaseFixture(t)
+	assertAuthorityLeaseBlocksDelete(t, fixture, func(callback func() error) error {
+		return fixture.owner.WithMCPToolAuthority(context.Background(), fixture.token, callback)
+	})
+}
+
+func TestAuthorityPublishCASLeaseBlocksDeleteUntilCallbackReturns(t *testing.T) {
+	fixture := newAuthorityLeaseFixture(t)
+	assertAuthorityLeaseBlocksDelete(t, fixture, func(callback func() error) error {
+		return fixture.owner.CompareAndSwapMCPToolQuarantines(
+			context.Background(),
+			[]contract.MCPToolQuarantineCommit{{Authority: fixture.token}},
+			callback,
+		)
+	})
+}
+
+type authorityLeaseFixture struct {
+	store    *memoryMCPServerStore
+	cwd      string
+	binary   providerdto.MCPBinary
+	svc      Service
+	concrete *service
+	owner    contract.MCPToolAuthorityOwner
+	token    contract.MCPToolAuthority
+}
+
+type authorityLeaseObservation struct {
+	lockHeld                  bool
+	deleteCompletedWhileLease bool
+	revisionBefore            uint64
+	revisionWhileLease        uint64
+	serverPresentWhileLease   bool
+	leaseErr                  error
+	deleteErr                 error
+}
+
+func newAuthorityLeaseFixture(t *testing.T) authorityLeaseFixture {
+	t.Helper()
 	store := newMemoryMCPServerStore()
 	cwd := t.TempDir()
 	t.Chdir(cwd)
@@ -182,20 +222,85 @@ func TestAuthorityDeleteAfterFinalCheckPreventsClientCall(t *testing.T) {
 	store.seed(cwd, binary.Name, ServerConfig{Transport: "http", URL: binary.URL})
 	svc := NewServiceWithStore(store)
 	owner := AsMCPToolAuthorityOwner(svc)
-	token := issueTask4BExternalAuthority(t, owner, cwd, binary, "membership")
-	if err := owner.CheckMCPToolAuthority(context.Background(), token); err != nil {
-		t.Fatalf("final CheckMCPToolAuthority() error = %v", err)
+	return authorityLeaseFixture{
+		store: store, cwd: cwd, binary: binary, svc: svc, concrete: svc.(*service), owner: owner,
+		token: issueTask4BExternalAuthority(t, owner, cwd, binary, "membership"),
 	}
-	if _, err := svc.DeleteServer(context.Background(), DeleteServerRequest{ServerName: binary.Name}); err != nil {
-		t.Fatalf("DeleteServer() error = %v", err)
-	}
-	clientCalls := 0
-	err := owner.WithMCPToolAuthority(context.Background(), token, func() error {
-		clientCalls++
-		return nil
+}
+
+// assertAuthorityLeaseBlocksDelete 用 channel barrier 锁定 callback、配置写入和 stale token 的先后关系。
+func assertAuthorityLeaseBlocksDelete(
+	t *testing.T,
+	fixture authorityLeaseFixture,
+	runLease func(func() error) error,
+) {
+	t.Helper()
+	callbackEntered := make(chan struct{})
+	releaseCallback := make(chan struct{})
+	leaseDone := make(chan error, 1)
+	safego.Go(context.Background(), nil, "mcp-server.authority-lease", func(context.Context) {
+		leaseDone <- runLease(func() error {
+			close(callbackEntered)
+			<-releaseCallback
+			return nil
+		})
 	})
-	if err == nil || clientCalls != 0 {
-		t.Fatalf("stale call error=%v client calls=%d, want rejection/0", err, clientCalls)
+	<-callbackEntered
+
+	lockHeld := !fixture.concrete.configMu.TryLock()
+	if !lockHeld {
+		fixture.concrete.configMu.Unlock()
+	}
+	revisionBefore := fixture.concrete.configRevision
+	deleteStarted := make(chan struct{})
+	deleteDone := make(chan error, 1)
+	safego.Go(context.Background(), nil, "mcp-server.authority-delete", func(context.Context) {
+		close(deleteStarted)
+		_, err := fixture.svc.DeleteServer(context.Background(), DeleteServerRequest{ServerName: fixture.binary.Name})
+		deleteDone <- err
+	})
+	<-deleteStarted
+
+	var deleteErr error
+	deleteCompletedWhileLeased := false
+	select {
+	case deleteErr = <-deleteDone:
+		deleteCompletedWhileLeased = true
+	default:
+	}
+	revisionWhileLeased := fixture.concrete.configRevision
+	_, serverPresentWhileLeased := fixture.store.servers[fixture.cwd][fixture.binary.Name]
+	close(releaseCallback)
+	leaseErr := <-leaseDone
+	if !deleteCompletedWhileLeased {
+		deleteErr = <-deleteDone
+	}
+
+	assertAuthorityLeaseObservation(t, fixture, authorityLeaseObservation{
+		lockHeld: lockHeld, deleteCompletedWhileLease: deleteCompletedWhileLeased,
+		revisionBefore: revisionBefore, revisionWhileLease: revisionWhileLeased,
+		serverPresentWhileLease: serverPresentWhileLeased, leaseErr: leaseErr, deleteErr: deleteErr,
+	})
+}
+
+func assertAuthorityLeaseObservation(t *testing.T, fixture authorityLeaseFixture, observation authorityLeaseObservation) {
+	t.Helper()
+	if !observation.lockHeld || observation.deleteCompletedWhileLease ||
+		observation.revisionWhileLease != observation.revisionBefore || !observation.serverPresentWhileLease {
+		t.Fatalf(
+			"lease boundary lock=%v delete_completed=%v revision=%d/%d server_present=%v",
+			observation.lockHeld, observation.deleteCompletedWhileLease,
+			observation.revisionWhileLease, observation.revisionBefore, observation.serverPresentWhileLease,
+		)
+	}
+	if observation.leaseErr != nil || observation.deleteErr != nil {
+		t.Fatalf("lease/delete errors = %v / %v", observation.leaseErr, observation.deleteErr)
+	}
+	if fixture.concrete.configRevision != observation.revisionBefore+1 {
+		t.Fatalf("config revision after delete = %d, want %d", fixture.concrete.configRevision, observation.revisionBefore+1)
+	}
+	if err := fixture.owner.CheckMCPToolAuthority(context.Background(), fixture.token); err == nil {
+		t.Fatal("old authority remained current after blocked delete committed")
 	}
 }
 

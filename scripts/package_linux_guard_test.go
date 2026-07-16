@@ -214,11 +214,12 @@ func TestPackageLinuxScriptEmbedsNewFrontendApp(t *testing.T) {
 	assertScriptContains(t, script, "build_current_frontend_app")
 	assertScriptContains(t, script, "cd \"$root/frontend-app\"")
 	assertScriptContains(t, script, "rsync -a --delete --exclude .gitkeep \"$root/frontend-app/dist\"/ \"$root/cmd/agent-terminal/web-dist\"/")
-	assertScriptContains(t, script, "go build -o bin/agent-terminal ./cmd/agent-terminal")
+	assertScriptContains(t, script, "make APP_COMMIT=\"$app_commit\" build-peer-binaries")
+	assertScriptContains(t, script, "go build -ldflags \"$schema_build_identity_ldflag\" -o bin/agent-terminal ./cmd/agent-terminal")
 	assertScriptDoesNotContain(t, script, "cd \"$root/cmd/agent-terminal/frontend\"")
 	assertScriptDoesNotContain(t, script, "make build-agent-terminal-plain")
 	assertScriptOrder(t, script, "npm run build", "rsync -a --delete --exclude .gitkeep \"$root/frontend-app/dist\"/ \"$root/cmd/agent-terminal/web-dist\"/")
-	assertScriptOrder(t, script, "rsync -a --delete --exclude .gitkeep \"$root/frontend-app/dist\"/ \"$root/cmd/agent-terminal/web-dist\"/", "go build -o bin/agent-terminal ./cmd/agent-terminal")
+	assertScriptOrder(t, script, "rsync -a --delete --exclude .gitkeep \"$root/frontend-app/dist\"/ \"$root/cmd/agent-terminal/web-dist\"/", "go build -ldflags \"$schema_build_identity_ldflag\" -o bin/agent-terminal ./cmd/agent-terminal")
 }
 
 func TestPackageLinuxScriptRequiresFrontendAppDistWhenSkippingBuild(t *testing.T) {

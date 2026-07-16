@@ -119,7 +119,7 @@ internal/module/mcp_server/authority_owner.go	internal	modules	go-source	9038	�
 internal/module/mcp_server/config_helpers.go	internal	modules	go-source	5666	业务模块层	internal,module,mcp,server,config,helpers,业务模块层
 internal/module/mcp_server/http_tools_security_test.go	internal	modules	go-test	8051	业务模块层	internal,module,mcp,server,http,tools,security,test,业务模块层
 internal/module/mcp_server/http_tools.go	internal	modules	go-source	8466	业务模块层	internal,module,mcp,server,http,tools,业务模块层
-internal/module/mcp_server/lifecycle_export_test.go	internal	modules	go-test	10554	业务模块层	internal,module,mcp,server,lifecycle,export,test,业务模块层
+internal/module/mcp_server/lifecycle_export_test.go	internal	modules	go-test	14313	业务模块层	internal,module,mcp,server,lifecycle,export,test,业务模块层
 internal/module/mcp_server/lifecycle.go	internal	modules	go-source	11245	业务模块层	internal,module,mcp,server,lifecycle,业务模块层
 internal/module/mcp_server/module.go	internal	modules	go-source	615	业务模块层	internal,module,mcp,server,业务模块层
 internal/module/mcp_server/playwright_test.go	internal	modules	go-test	3044	业务模块层	internal,module,mcp,server,playwright,test,业务模块层
