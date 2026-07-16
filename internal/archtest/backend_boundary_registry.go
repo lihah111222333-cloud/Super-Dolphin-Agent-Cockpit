@@ -708,8 +708,9 @@ func commandNarrowAllowPolicies(patterns backendBoundaryPatterns) []BoundaryImpo
 		"internal/module/appupdate",
 	}, "release manifest update contract")...)
 	policies = append(policies, boundaryPolicies(owner, patterns.updater, []string{
+		"internal/platform/appupdaterecovery",
 		"internal/util/ctxutil",
-	}, "updater context primitive")...)
+	}, "updater release transaction or context runtime primitive")...)
 	return policies
 }
 
