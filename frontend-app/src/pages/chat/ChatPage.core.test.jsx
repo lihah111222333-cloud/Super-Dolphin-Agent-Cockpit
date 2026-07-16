@@ -396,6 +396,26 @@ function approvalMessage(requestId, status = 'pending', overrides = {}) {
     expect(screen.getByRole('button', { name: '添加文件' })).toBeDisabled();
   });
 
+  it('renders a persisted shell layout width without rewriting storage', () => {
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1980 });
+    const shellLayout = createShellLayoutTestHarness('480.5');
+    const store = createActiveThreadStore([]);
+
+    render(
+      <TestChatPageWrapper
+        rightPanelOpen
+        shellLayoutStore={shellLayout.store}
+        store={store}
+        projectPath="/repo/app"
+      />,
+    );
+
+    expect(screen.getByTestId('chat-layout')).toHaveStyle({
+      gridTemplateColumns: 'minmax(0, 1fr) 6px 480.5px',
+    });
+    expect(shellLayout.storage.set).not.toHaveBeenCalled();
+  });
+
   it('renders an active thread timeline, sends through the store, and opens the runtime panel', async () => {
     const activityStats = { commands: 2, fileEdits: 1, toolCalls: { grep: 3 } };
     const shellLayout = createShellLayoutTestHarness();

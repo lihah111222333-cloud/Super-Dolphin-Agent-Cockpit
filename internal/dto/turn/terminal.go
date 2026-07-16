@@ -7,6 +7,12 @@ import (
 	"time"
 )
 
+// TurnRefV1 是 canonical turn 身份在 Go 生产链中的序列化类型。
+type TurnRefV1 struct {
+	ThreadID string `json:"threadId"`
+	TurnID   string `json:"turnId"`
+}
+
 // PublicErrorV1 是可安全发布到外部事件面的错误描述。
 type PublicErrorV1 struct {
 	Code            string   `json:"code"`
@@ -27,11 +33,16 @@ type TurnTerminalV2 struct {
 	TerminationCause     string         `json:"terminationCause,omitempty"`
 	TerminationRequestID string         `json:"terminationRequestId,omitempty"`
 	PublicError          *PublicErrorV1 `json:"publicError,omitempty"`
+	PartialItemIDs       []string       `json:"partialItemIds,omitempty"`
 	OccurredAt           string         `json:"occurredAt"`
 }
 
 // NewTurnTerminalV2 把 provider-neutral TurnCompleted 映射成 canonical 终态并调用生成 validator。
 func NewTurnTerminalV2(ev TurnCompleted, eventID string) (TurnTerminalV2, error) {
+	turnRef := TurnRefV1{ThreadID: strings.TrimSpace(ev.ThreadID), TurnID: strings.TrimSpace(ev.TurnID)}
+	if err := ValidateTurnRefV1(turnRef); err != nil {
+		return TurnTerminalV2{}, fmt.Errorf("turn ref contract: %w", err)
+	}
 	outcome, err := canonicalTerminalOutcome(ev)
 	if err != nil {
 		return TurnTerminalV2{}, err
@@ -39,8 +50,8 @@ func NewTurnTerminalV2(ev TurnCompleted, eventID string) (TurnTerminalV2, error)
 	terminal := TurnTerminalV2{
 		SchemaVersion: 2,
 		EventID:       strings.TrimSpace(eventID),
-		ThreadID:      strings.TrimSpace(ev.ThreadID),
-		TurnID:        strings.TrimSpace(ev.TurnID),
+		ThreadID:      turnRef.ThreadID,
+		TurnID:        turnRef.TurnID,
 		Outcome:       outcome,
 	}
 	if ev.Timestamp.IsZero() {
@@ -48,6 +59,11 @@ func NewTurnTerminalV2(ev TurnCompleted, eventID string) (TurnTerminalV2, error)
 	}
 	terminal.OccurredAt = ev.Timestamp.UTC().Format(time.RFC3339Nano)
 	applyTerminalDependencies(&terminal, ev)
+	if terminal.PublicError != nil {
+		if err := ValidatePublicErrorV1(*terminal.PublicError); err != nil {
+			return TurnTerminalV2{}, fmt.Errorf("public error contract: %w", err)
+		}
+	}
 	if err := ValidateTurnTerminalV2(terminal); err != nil {
 		return TurnTerminalV2{}, fmt.Errorf("turn terminal contract: %w", err)
 	}

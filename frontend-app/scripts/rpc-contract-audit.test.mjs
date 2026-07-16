@@ -13,6 +13,9 @@ import {
 
 const REPO_ROOT = resolve(import.meta.dirname, '../..')
 const SHADOW_FILES = [
+  'internal/contract/rpc_handler.go',
+  'internal/module/thread/rpc_types.go',
+  'internal/module/turn/rpc_types.go',
   'frontend-app/src/shared/api/backendApi.js',
   'frontend-app/src/shared/api/backend/backendRpcMethods.js',
   'frontend-app/src/shared/api/backendApi.contractMatrix.js',
@@ -32,8 +35,7 @@ const SHADOW_FILES = [
 async function createShadowRepo(overrides) {
   const repoRoot = await mkdtemp(join(tmpdir(), 'rpc-contract-audit-'))
   onTestFinished(() => rm(repoRoot, { recursive: true, force: true }))
-  await symlink(join(REPO_ROOT, 'internal'), join(repoRoot, 'internal'))
-  await symlink(join(REPO_ROOT, 'cmd'), join(repoRoot, 'cmd'))
+  await mkdir(join(repoRoot, 'cmd'), { recursive: true })
   for (const filePath of new Set([...SHADOW_FILES, ...Object.keys(overrides)])) {
     const target = join(repoRoot, filePath)
     await mkdir(dirname(target), { recursive: true })
@@ -503,6 +505,42 @@ describe('rpc contract audit', () => {
       'threadId',
     ]))
   }, 15000)
+
+  it('audits runtime payload builders when facade shadows stay unchanged', async () => {
+    const runtimePath = 'frontend-app/src/shared/api/backend/backendApiFactoryThread.js'
+    const runtimeSource = await readFile(join(REPO_ROOT, runtimePath), 'utf8')
+    const mutatedSource = runtimeSource.replace(
+      "takePayloadField(unused, 'provider')",
+      "takePayloadField(unused, 'provider_shadow')",
+    )
+    expect(mutatedSource).not.toBe(runtimeSource)
+    const repoRoot = await createShadowRepo({ [runtimePath]: mutatedSource })
+
+    const report = await auditRpcContracts({ repoRoot })
+
+    expect(report.allowedPayloadRegistryDrift).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        method: 'thread/start',
+        missingFrontendKeys: expect.arrayContaining(['provider']),
+        extraFrontendKeys: expect.arrayContaining(['provider_shadow']),
+      }),
+    ]))
+  })
+
+  it('audits runtime RPC methods when facade shadows stay unchanged', async () => {
+    const methodsPath = 'frontend-app/src/shared/api/backend/backendRpcMethods.js'
+    const methodsSource = await readFile(join(REPO_ROOT, methodsPath), 'utf8')
+    const mutatedSource = methodsSource.replace(
+      "  THREAD_PROMPT_HISTORY: 'thread/promptHistory',\n",
+      '',
+    )
+    expect(mutatedSource).not.toBe(methodsSource)
+    const repoRoot = await createShadowRepo({ [methodsPath]: mutatedSource })
+
+    const report = await auditRpcContracts({ repoRoot })
+
+    expect(report.registryWithoutRpcMethods).toContain('THREAD_PROMPT_HISTORY')
+  })
 
   it('fails payload drift when the Stop mapper drops expectedTurnId', async () => {
     const mapperPath = 'frontend-app/src/shared/api/backend/backendApiFactoryThread.js'
@@ -3078,10 +3116,6 @@ describe('rpc contract audit', () => {
     const report = await auditRpcContracts({ repoRoot })
     expect(report.invalidResponsePolicyEvidence).toContainEqual(expect.objectContaining({ field: 'shape', reason: 'shape symbol lacks executable narrowing' }))
   }, 15000)
-
-  it('audits runtime payload builders when facade shadows stay unchanged', async function payloadCb(){const runtimePath='frontend-app/src/shared/api/backend/backendApiFactoryThread.js';const runtimeSource=await readFile(join(REPO_ROOT,runtimePath),'utf8');const mutatedSource=runtimeSource.replace("takePayloadField(unused, 'provider')","takePayloadField(unused, 'provider_shadow')");expect(mutatedSource).not.toBe(runtimeSource);const repoRoot=await createShadowRepo({[runtimePath]:mutatedSource});const report=await auditRpcContracts({repoRoot});expect(report.allowedPayloadRegistryDrift).toEqual(expect.arrayContaining([expect.objectContaining({method:'thread/start',missingFrontendKeys:expect.arrayContaining(['provider']),extraFrontendKeys:expect.arrayContaining(['provider_shadow'])})]))})
-
-  it('audits runtime RPC methods when facade shadows stay unchanged', async function methodsCb(){const methodsPath='frontend-app/src/shared/api/backend/backendRpcMethods.js';const methodsSource=await readFile(join(REPO_ROOT,methodsPath),'utf8');const mutatedSource=methodsSource.replace("  THREAD_PROMPT_HISTORY: 'thread/promptHistory',\n",'');expect(mutatedSource).not.toBe(methodsSource);const repoRoot=await createShadowRepo({[methodsPath]:mutatedSource});const report=await auditRpcContracts({repoRoot});expect(report.registryWithoutRpcMethods).toContain('THREAD_PROMPT_HISTORY')})
 
   it('ignores payload calls inside nested functions and instance fields', function decoyCb(){const source=`function threadStartPayload(params) { const unused = { ...params }; const nested = () => takePayloadField(unused, 'provider'); class Decoy { read = takePayloadField(unused, 'provider') }; void nested; void Decoy; return takePayloadFields(unused, ['cwd']) }\nfunction turnStartPayload(params) { const unused = { ...params }; return takePayloadFields(unused, ['cwd', 'threadId']) }\nfunction turnInterruptPayload(params) { const unused = { ...params }; return takePayloadFields(unused, ['expectedTurnId', 'requestId', 'threadId']) }`;expect(collectFrontendPayloadKeysFromSource(source).get('thread/start')).toEqual(['cwd'])})
 

@@ -1,4 +1,5 @@
 import { lstat, readFile, readdir, realpath } from 'node:fs/promises'
+import { readFileSync } from 'node:fs'
 import { dirname, isAbsolute, join, normalize, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parse as parseJavaScriptSource } from '@babel/parser'
@@ -845,6 +846,15 @@ async function readAuditSource(auditContext, filePath) {
   return source
 }
 
+function readAuditSourceSync(auditContext, filePath) {
+  const cached = auditContext.sourceByPath.get(filePath)
+  if (cached !== undefined) return cached
+  auditContext.auditStats.sourceReads += 1
+  const source = readFileSync(join(auditContext.repoRoot, filePath), 'utf8')
+  auditContext.sourceByPath.set(filePath, source)
+  return source
+}
+
 async function readAuditAst(auditContext, filePath) {
   const cached = auditContext.astByPath.get(filePath)
   if (cached) return cached
@@ -1606,6 +1616,7 @@ function findExactStateSetterBindings(sources, dismissal, consumerSource) {
   }
   const bindings = []
   for (const source of sources) {
+    if (source.path !== consumerSource.path) continue
     walkAstWithAncestors(source.ast, (candidate, ancestors) => {
       if (
         candidate.type !== 'VariableDeclarator'
@@ -1617,7 +1628,6 @@ function findExactStateSetterBindings(sources, dismissal, consumerSource) {
         || candidate.init.callee.type !== 'Identifier'
         || candidate.init.callee.name !== 'useState'
       ) return
-      if (source.path !== consumerSource.path) return
       const owner = ancestors.findLast((ancestor) => isFunctionNode(ancestor))
       if (!owner) return
       const stateName = candidate.id.elements[0].name
@@ -1765,41 +1775,47 @@ function collectStateControlledUiDescriptors(sources, stateAccess) {
   const descriptors = []
   const returnedObjectNames = returnedStateObjectNamesByPath(sources, stateAccess)
   const aliasesByPath = new Map()
+  const controlledCandidates = []
   for (const source of sources) {
     walkAstWithAncestors(source.ast, (candidate, ancestors) => {
-      if (candidate.type !== 'JSXAttribute' || candidate.name.type !== 'JSXIdentifier') return
-      const expression = candidate.value?.type === 'JSXExpressionContainer' ? candidate.value.expression : null
-      if (!expression || !nodeContainsStateAccess(expression, stateAccess, source.path, returnedObjectNames)) return
-      const opening = ancestors.findLast((ancestor) => ancestor.type === 'JSXOpeningElement')
-      const componentName = opening?.name?.type === 'JSXIdentifier' ? opening.name.name : ''
-      if (!/^[A-Z]/.test(componentName)) return
-      const definition = findUniqueFunctionDefinition(sources, componentName)
-      if (!definition || !functionAcceptsProperty(definition.node, candidate.name.name)) return
-      const aliases = aliasesByPath.get(definition.source.path) ?? new Set()
-      aliases.add(candidate.name.name)
-      aliasesByPath.set(definition.source.path, aliases)
-    })
-  }
-  for (const source of sources) {
-    walkAstWithAncestors(source.ast, (candidate, ancestors) => {
+      if (candidate.type === 'JSXAttribute' && candidate.name.type === 'JSXIdentifier') {
+        const expression = candidate.value?.type === 'JSXExpressionContainer' ? candidate.value.expression : null
+        if (expression && nodeContainsStateAccess(expression, stateAccess, source.path, returnedObjectNames)) {
+          const opening = ancestors.findLast((ancestor) => ancestor.type === 'JSXOpeningElement')
+          const componentName = opening?.name?.type === 'JSXIdentifier' ? opening.name.name : ''
+          const definition = /^[A-Z]/.test(componentName)
+            ? findUniqueFunctionDefinition(sources, componentName)
+            : null
+          if (definition && functionAcceptsProperty(definition.node, candidate.name.name)) {
+            const aliases = aliasesByPath.get(definition.source.path) ?? new Set()
+            aliases.add(candidate.name.name)
+            aliasesByPath.set(definition.source.path, aliases)
+          }
+        }
+      }
       const test = candidate.type === 'ConditionalExpression'
         ? candidate.test
         : candidate.type === 'LogicalExpression' && candidate.operator === '&&'
           ? candidate.left
           : null
-      if (
-        !test
-        || (
-          !nodeContainsStateAccess(test, stateAccess, source.path, returnedObjectNames)
-          && !nodeContainsAlias(test, aliasesByPath.get(source.path) ?? new Set())
-        )
-      ) return
-      const enclosingElement = ancestors.findLast((ancestor) => ancestor.type === 'JSXElement')
-      const branch = candidate.type === 'ConditionalExpression' ? candidate.consequent : candidate.right
-      const controlled = nodeContainsJsxElement(branch) ? branch : enclosingElement
-      if (!controlled) return
-      descriptors.push(...uiDescriptorsFromControlledNode(controlled, source.ast, sources, new Set()))
+      if (!test) return
+      controlledCandidates.push({
+        candidate,
+        enclosingElement: ancestors.findLast((ancestor) => ancestor.type === 'JSXElement'),
+        source,
+        test,
+      })
     })
+  }
+  for (const { candidate, enclosingElement, source, test } of controlledCandidates) {
+    if (
+      !nodeContainsStateAccess(test, stateAccess, source.path, returnedObjectNames)
+      && !nodeContainsAlias(test, aliasesByPath.get(source.path) ?? new Set())
+    ) continue
+    const branch = candidate.type === 'ConditionalExpression' ? candidate.consequent : candidate.right
+    const controlled = nodeContainsJsxElement(branch) ? branch : enclosingElement
+    if (!controlled) continue
+    descriptors.push(...uiDescriptorsFromControlledNode(controlled, source.ast, sources, new Set()))
   }
   return descriptors
 }
@@ -1972,15 +1988,24 @@ function intrinsicJsxRole(name) {
   return ''
 }
 
+const functionDefinitionsBySources = new WeakMap()
+
 function findUniqueFunctionDefinition(sources, name) {
-  const definitions = []
-  for (const source of sources) {
-    traverseAst(source.ast, (candidate) => {
-      if (candidate.type === 'FunctionDeclaration' && candidate.id?.name === name) {
+  let definitionsByName = functionDefinitionsBySources.get(sources)
+  if (!definitionsByName) {
+    definitionsByName = new Map()
+    for (const source of sources) {
+      traverseAst(source.ast, (candidate) => {
+        const candidateName = candidate.type === 'FunctionDeclaration' ? candidate.id?.name : ''
+        if (!candidateName) return
+        const definitions = definitionsByName.get(candidateName) ?? []
         definitions.push({ node: candidate, source })
-      }
-    })
+        definitionsByName.set(candidateName, definitions)
+      })
+    }
+    functionDefinitionsBySources.set(sources, definitionsByName)
   }
+  const definitions = definitionsByName.get(name) ?? []
   return definitions.length === 1 ? definitions[0] : null
 }
 
@@ -4138,9 +4163,16 @@ async function buildProductionFacadeReferenceIndex(auditContext, entries, backen
   const productionFilePaths = files
     .map((absolutePath) => relative(auditContext.repoRoot, absolutePath).replaceAll('\\', '/'))
     .filter((filePath) => !isExcludedProductionScanPath(filePath))
-  const astByFilePath = new Map(await Promise.all(productionFilePaths.map(async (filePath) => (
-    [filePath, await readAuditAst(auditContext, filePath)]
-  ))))
+  const astEntries = []
+  const readBatchSize = 64
+  for (let start = 0; start < productionFilePaths.length; start += readBatchSize) {
+    astEntries.push(...await Promise.all(
+      productionFilePaths.slice(start, start + readBatchSize).map(async (filePath) => (
+        [filePath, await readAuditAst(auditContext, filePath)]
+      )),
+    ))
+  }
+  const astByFilePath = new Map(astEntries)
   auditContext.auditStats.productionSourceFilesIndexed = astByFilePath.size
   const index = new Map()
   const reExportStatementsByPath = new Map()
@@ -5054,10 +5086,14 @@ async function collectGoRpcHandlers(auditContext) {
     goFiles.push(...await collectGoFiles(join(repoRoot, root)))
   }
 
-  const sources = await Promise.all(goFiles.map(async (filePath) => ({
-    filePath,
-    source: await readAuditSource(auditContext, relative(repoRoot, filePath).replaceAll('\\', '/')),
-  })))
+  const sources = []
+  for (const filePath of goFiles) {
+    const auditPath = relative(repoRoot, filePath).replaceAll('\\', '/')
+    const source = auditContext.sourcePromiseByPath.has(auditPath)
+      ? await readAuditSource(auditContext, auditPath)
+      : readAuditSourceSync(auditContext, auditPath)
+    sources.push({ filePath, source })
+  }
 
   const handlers = []
   for (const { filePath, source } of sources) {
@@ -5083,18 +5119,12 @@ async function collectGoRpcConstants(auditContext) {
 
 async function collectGoFiles(root) {
   const entries = await readdir(root, { withFileTypes: true })
-  const files = []
-  for (const entry of entries) {
+  const groups = await Promise.all(entries.map(async (entry) => {
     const fullPath = join(root, entry.name)
-    if (entry.isDirectory()) {
-      files.push(...await collectGoFiles(fullPath))
-      continue
-    }
-    if (entry.name.endsWith('.go') && !entry.name.endsWith('_test.go')) {
-      files.push(fullPath)
-    }
-  }
-  return files
+    if (entry.isDirectory()) return collectGoFiles(fullPath)
+    return entry.name.endsWith('.go') && !entry.name.endsWith('_test.go') ? [fullPath] : []
+  }))
+  return groups.flat()
 }
 
 function parseLiteralHandlerRegistrations(source, filePath, repoRoot) {

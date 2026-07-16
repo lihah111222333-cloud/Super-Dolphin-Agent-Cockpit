@@ -1,38 +1,143 @@
 {
-  "TurnRefV1": {
-    "goValidator": "ValidateTurnRefV1",
-    "jsValidator": "validateTurnRefV1",
-    "fields": {
-      "threadId": { "go": "ValidateTurnRefV1", "js": "validateTurnRefV1" },
-      "turnId": { "go": "ValidateTurnRefV1", "js": "validateTurnRefV1" }
+  "version": 2,
+  "schemas": {
+    "TurnRefV1": {
+      "goType": { "path": "internal/dto/turn/terminal.go", "symbol": "TurnRefV1" },
+      "goValidator": { "path": "internal/dto/turn/contract_validator.go", "symbol": "ValidateTurnRefV1" },
+      "goConsumers": [
+        { "path": "internal/dto/turn/terminal.go", "symbol": "NewTurnTerminalV2", "calls": "ValidateTurnRefV1" }
+      ],
+      "jsValidator": { "path": "frontend-app/src/shared/contracts/turnContractValidators.js", "symbol": "validateTurnRefV1" },
+      "jsConsumers": [
+        { "path": "frontend-app/src/entities/client/model/runtimeAssistantTimeline.js", "symbol": "parseRuntimeTurnRef", "calls": "validateTurnRefV1" }
+      ]
+    },
+    "PublicErrorV1": {
+      "goType": { "path": "internal/dto/turn/terminal.go", "symbol": "PublicErrorV1" },
+      "goValidator": { "path": "internal/dto/turn/contract_validator.go", "symbol": "ValidatePublicErrorV1" },
+      "goConsumers": [
+        { "path": "internal/dto/turn/terminal.go", "symbol": "NewTurnTerminalV2", "calls": "ValidatePublicErrorV1" }
+      ],
+      "jsValidator": { "path": "frontend-app/src/shared/contracts/turnContractValidators.js", "symbol": "validatePublicErrorV1" },
+      "jsConsumers": [
+        { "path": "frontend-app/src/shared/contracts/turnContractValidators.js", "symbol": "validateTurnTerminalV2", "calls": "validatePublicErrorV1" }
+      ]
+    },
+    "TurnTerminalV2": {
+      "goType": { "path": "internal/dto/turn/terminal.go", "symbol": "TurnTerminalV2" },
+      "goValidator": { "path": "internal/dto/turn/contract_validator.go", "symbol": "ValidateTurnTerminalV2" },
+      "goConsumers": [
+        { "path": "internal/dto/turn/terminal.go", "symbol": "NewTurnTerminalV2", "calls": "ValidateTurnTerminalV2" },
+        { "path": "internal/platform/eventsurface/remote_decode.go", "symbol": "DecodeRemoteTurnTerminal", "calls": "ValidateTurnTerminalV2" },
+        { "path": "internal/platform/eventsurface/remote_decode.go", "symbol": "ProjectRemoteTurnTerminal", "calls": "ValidateTurnTerminalV2" }
+      ],
+      "jsValidator": { "path": "frontend-app/src/shared/contracts/turnContractValidators.js", "symbol": "validateTurnTerminalV2" },
+      "jsConsumers": [
+        { "path": "frontend-app/src/entities/client/model/runtimeAssistantTimeline.js", "symbol": "parseRuntimeTurnTerminal", "calls": "validateTurnTerminalV2" }
+      ]
     }
   },
-  "PublicErrorV1": {
-    "goValidator": "ValidatePublicErrorV1",
-    "jsValidator": "validatePublicErrorV1",
-    "fields": {
-      "code": { "go": "ValidatePublicErrorV1", "js": "validatePublicErrorV1" },
-      "title": { "go": "ValidatePublicErrorV1", "js": "validatePublicErrorV1" },
-      "message": { "go": "ValidatePublicErrorV1", "js": "validatePublicErrorV1" },
-      "diagnosticId": { "go": "ValidatePublicErrorV1", "js": "validatePublicErrorV1" },
-      "retryable": { "go": "ValidatePublicErrorV1", "js": "validatePublicErrorV1" },
-      "recoveryActions": { "go": "ValidatePublicErrorV1", "js": "validatePublicErrorV1" }
+  "goChains": [
+    {
+      "name": "claude-result-terminal-producer",
+      "path": "internal/provider/claudecli/session_events.go",
+      "symbol": "decodeResultEvent",
+      "strings": ["turn:complete", "success", "status"]
+    },
+    {
+      "name": "claude-failure-terminal-producer",
+      "path": "internal/provider/claudecli/factory.go",
+      "symbol": "finishTurnWithError",
+      "strings": ["turn:complete", "success", "status"]
+    },
+    {
+      "name": "claude-interrupt-terminal-producer",
+      "path": "internal/provider/claudecli/session.go",
+      "symbol": "interruptTerminalFields",
+      "strings": ["termination_cause", "termination_request_id"]
+    },
+    {
+      "name": "codex-synthetic-terminal-producer",
+      "path": "internal/provider/codexapp/session_dispatch.go",
+      "symbol": "completeSyntheticTurn",
+      "strings": ["turn/completed", "success", "status"]
+    },
+    {
+      "name": "codex-interrupt-terminal-producer",
+      "path": "internal/provider/codexapp/session_dispatch.go",
+      "symbol": "applyAcceptedInterruptRequest",
+      "strings": ["termination_cause", "termination_request_id"]
+    },
+    {
+      "name": "raw-terminal-parser",
+      "path": "internal/provider/shared/terminal_outcome.go",
+      "symbol": "ResolveRawTerminalOutcome",
+      "calls": ["resolveRawTerminalDependencies"],
+      "strings": ["success", "status"]
+    },
+    {
+      "name": "raw-terminal-dependencies",
+      "path": "internal/provider/shared/terminal_outcome.go",
+      "symbol": "resolveRawTerminalDependencies",
+      "calls": ["ResolveRawTermination"]
+    },
+    {
+      "name": "raw-termination-parser",
+      "path": "internal/provider/shared/terminal_outcome.go",
+      "symbol": "ResolveRawTermination",
+      "calls": ["terminalStringAlias"],
+      "strings": ["termination_cause", "terminationCause", "termination_request_id", "terminationRequestId"]
+    },
+    {
+      "name": "claude-terminal-consumer",
+      "path": "internal/provider/claudecli/event_map.go",
+      "symbol": "translateTurnEvent",
+      "calls": ["ResolveRawTerminalOutcome", "ResolveRawTermination"]
+    },
+    {
+      "name": "codex-terminal-consumer",
+      "path": "internal/provider/codexapp/factory.go",
+      "symbol": "resolveTurnTerminalOutcome",
+      "calls": ["resolveCompletedTerminalOutcome", "resolveExplicitTerminationOutcome"]
+    },
+    {
+      "name": "codex-completed-terminal-consumer",
+      "path": "internal/provider/codexapp/factory.go",
+      "symbol": "resolveCompletedTerminalOutcome",
+      "calls": ["ResolveRawTerminalOutcome"]
+    },
+    {
+      "name": "codex-explicit-terminal-consumer",
+      "path": "internal/provider/codexapp/factory.go",
+      "symbol": "resolveExplicitTerminationOutcome",
+      "calls": ["ResolveRawTermination"]
+    },
+    {
+      "name": "terminal-wire-producer",
+      "path": "internal/platform/eventsurface/bind.go",
+      "symbol": "publishTurnTerminal",
+      "calls": ["NewTurnTerminalV2", "publish"],
+      "identifiers": ["MethodTurnTerminal"]
     }
-  },
-  "TurnTerminalV2": {
-    "goValidator": "ValidateTurnTerminalV2",
-    "jsValidator": "validateTurnTerminalV2",
-    "fields": {
-      "schemaVersion": { "go": "ValidateTurnTerminalV2", "js": "validateTurnTerminalV2" },
-      "eventId": { "go": "ValidateTurnTerminalV2", "js": "validateTurnTerminalV2" },
-      "threadId": { "go": "ValidateTurnTerminalV2", "js": "validateTurnTerminalV2" },
-      "turnId": { "go": "ValidateTurnTerminalV2", "js": "validateTurnTerminalV2" },
-      "outcome": { "go": "ValidateTurnTerminalV2", "js": "validateTurnTerminalV2" },
-      "terminationCause": { "go": "ValidateTurnTerminalV2", "js": "validateTurnTerminalV2" },
-      "terminationRequestId": { "go": "ValidateTurnTerminalV2", "js": "validateTurnTerminalV2" },
-      "publicError": { "go": "ValidateTurnTerminalV2", "js": "validateTurnTerminalV2" },
-      "partialItemIds": { "go": "ValidateTurnTerminalV2", "js": "validateTurnTerminalV2" },
-      "occurredAt": { "go": "ValidateTurnTerminalV2", "js": "validateTurnTerminalV2" }
+  ],
+  "goConstants": [
+    {
+      "name": "terminal-wire-method",
+      "path": "internal/platform/eventsurface/bind.go",
+      "symbol": "MethodTurnTerminal",
+      "value": "turn/terminal"
     }
-  }
+  ],
+  "jsMappers": [
+    {
+      "name": "turn-interrupt-identity",
+      "path": "frontend-app/src/shared/api/backend/backendApiFactoryThread.js",
+      "symbol": "turnInterruptPayload",
+      "fields": {
+        "threadId": { "aliases": ["threadId", "thread_id", "threadID"], "wire": "thread_id" },
+        "expectedTurnId": { "aliases": ["expectedTurnId", "expected_turn_id"], "wire": "expected_turn_id" },
+        "requestId": { "aliases": ["requestId", "request_id"], "wire": "request_id" }
+      }
+    }
+  ]
 }
