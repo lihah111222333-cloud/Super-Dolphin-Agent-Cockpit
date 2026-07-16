@@ -178,7 +178,10 @@ func (executor *dockerExecutor) verifySeccomp() error {
 
 func (executor *dockerExecutor) createArgs(request containerRequest) []string {
 	args := []string{
-		"create", "--cpus=4", "--memory=8g", "--pids-limit=512", "--storage-opt=size=10G", "--read-only", "--user=65532:65532",
+		"create",
+		"--cpus=" + strconv.FormatInt(workloadLogicalCPUs, 10),
+		"--memory=" + strconv.FormatInt(workloadMemoryGiB, 10) + "g",
+		"--pids-limit=512", "--storage-opt=size=10G", "--read-only", "--user=65532:65532",
 		"--cap-drop=ALL", "--security-opt=no-new-privileges", "--security-opt=seccomp=" + executor.seccompPath,
 		"--network=none", "--mount=type=bind,src=" + request.SourceDir + ",dst=/workspace/source,readonly",
 		"--tmpfs=/tmp:rw,noexec,nosuid,nodev,size=2147483648", "--log-driver=local", "--log-opt=max-size=10m", "--log-opt=max-file=3",

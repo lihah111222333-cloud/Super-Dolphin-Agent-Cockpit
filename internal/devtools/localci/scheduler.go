@@ -12,9 +12,8 @@ import (
 )
 
 const (
-	maxActiveWorkloads = 3
-	maxImageBuilds     = 1
-	maxGangBypasses    = 1
+	maxImageBuilds  = 1
+	maxGangBypasses = 1
 )
 
 type daemonIdentity struct {
