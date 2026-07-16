@@ -2,23 +2,23 @@
 
 TASK_ID: `TASK_0_DESIGN`
 
-STATUS: `RELEASE_OPEN_MCP_DECISION_PENDING`
+STATUS: `P0_IMPLEMENTATION_OPEN`
 
-SOURCE_HEAD: `1ea371f4e39279703dd2023a94add2dccafbcfa8`
+SOURCE_HEAD: `3d6fccfc58b904e2c9a6f358285cdee6d6ea7753`
 
 HISTORICAL_BASE_HEAD: `b40867229af8e17916c00393639ccb0fcb4bf6fc`
 
 `release_design_complete=true`
 
-`mcp_design_complete=false`
+`mcp_design_complete=true`
 
-`implementation_design_complete=derived(release_design_complete && mcp_design_complete)=false`
+`implementation_design_complete=derived(release_design_complete && mcp_design_complete)=true`
 
 `p0_release_executable=true`
 
-`p0_mcp_executable=false`
+`p0_mcp_executable=true`
 
-`p0_executable=derived(p0_release_executable && p0_mcp_executable)=false`
+`p0_executable=derived(p0_release_executable && p0_mcp_executable)=true`
 
 本文件冻结两个独立 P0 lane 的最小设计、源码 owner、landing package、fail-first 测试和开门 blocker。它不实现 P0，不把预计 RED 写成已运行 RED，也不要求 Task 0 手写所有未来字段。
 
@@ -33,7 +33,10 @@ HISTORICAL_BASE_HEAD: `b40867229af8e17916c00393639ccb0fcb4bf6fc`
 
 ## 2. 当前源码 owner 冻结
 
-本次在 `main@1ea371f4...` 上取得 `grep/structure`、`inspect`、`xref`、`file(read_file)`、`file(diagnostics)` 五类 LSP 证据。
+原 owner 重检在 `main@1ea371f4...` 上完成；MCP decision 又在
+`3d6fccfc58b904e2c9a6f358285cdee6d6ea7753` 上以限定于
+`internal/platform/toolbridge` 的五类 LSP 证据确认 raw decode、surface
+publish 和现有 call validator owner。
 
 | 事实 | LSP 结果 | Design Freeze 裁决 |
 | --- | --- | --- |
@@ -113,7 +116,8 @@ Claude provider-wide readiness、provider executable/compatibility/ingress、通
 | Path | Frozen responsibility |
 | --- | --- |
 | `internal/platform/toolbridge/{http_mcp_client.go,stdio_mcp_client.go,types.go}` | envelope decode、raw tool items、server-level identity errors |
-| `internal/platform/toolbridge/schema/` | canonicalization、prewalk budgets、compile、digest、diagnostic、quarantine plan |
+| `internal/platform/toolbridge/schema/` | canonicalization、prewalk budgets、one-shot helper client、digest、diagnostic、quarantine plan |
+| `cmd/mcp-schema-compiler-helper/` | 单请求 compile/validate、严格协议、deny loader、无 cache/后台任务 |
 | `internal/platform/toolbridge/{handler.go,proxy.go,module.go,schema_quarantine.go}` | class policy、current-CAS、surface/catalog/proxy/call result consistency |
 | `internal/module/mcp_server/` 与现有 store/sqlc owner | config-owner current generation/membership 与 durable quarantine/refresh 最小状态 |
 | `internal/contract/mcp_control.go` 或审查后确认的窄子包 | authority snapshot/current read/CAS ports；不得顺带引入 generic RPC/admission |
@@ -122,18 +126,24 @@ Claude provider-wide readiness、provider executable/compatibility/ingress、通
 | `internal/dto/provider/manifest.go`、`internal/provider/shared/config_helpers.go` | existing `TrustedServerID` 字段与 provider conversion validation |
 | `go.mod`、`go.sum` 与现有 dependency/NOTICE owner | 仅在 compiler decision gate 通过后修改 |
 
-### 4.4 Compiler isolation decision gate
+### 4.4 Compiler isolation decision
 
-Task 0 不再预选 `github.com/santhosh-tekuri/jsonschema/v6`，也不预建 `cmd/mcp-schema-compiler-worker` 或 `process_pool.go`。候选库必须先形成可复核 evidence：
+Decision: `ONE_SHOT_LOCAL_HELPER_PROCESS`。
 
-1. 版本、license、module sums、已知漏洞与 Draft 支持；
-2. deny external loader/reference 的可执行 proof；
-3. adversarial schema 下的预解析 bytes/node/depth/ref/regex bounds；
-4. compile 阶段能被 `context` 或库自身机制安全取消，并证明超时后无后台 goroutine/heap/cache 写入；
-5. 若第 4 项不能证明，则冻结有界进程协议、输入/输出上限、kill/reap deadline、并发上限、平台支持矩阵和 stale-result fencing 后才能实现；
-6. 若进程内 hard bound 与进程隔离两者都没有可执行证据，`p0_mcp_executable` 保持 false。
+`github.com/santhosh-tekuri/jsonschema/v6@v6.0.2` 的
+`Compile(string)` 与 `URLLoader.Load(string)` 不接受 context，且没有公开
+per-compile time/heap hard limit；进程内 cancellation/hard-bound 能力
+**不可证明**。Task 4 因此必须实现
+`cmd/mcp-schema-compiler-helper`，一条 `compile` 或 `validate` 请求一个
+新进程，2 秒 deadline，超时/取消后 kill 并在 1 秒内 `Wait` 回收。
 
-只有 decision 选择进程隔离后，才允许给 helper binary 和 package 命名；不得用“可能需要隔离”提前扩大写集。
+冻结值包括：schema 256 KiB、完整 stdin 384 KiB、arguments 64 KiB、stdout
+64 KiB、stderr 16 KiB、8,192 nodes、depth 64、256 refs、128 regex、
+全局并发 2、semaphore wait 250 ms、`GOMEMLIMIT=96MiB` soft limit，以及
+darwin/linux/windows x amd64/arm64 构建矩阵。parent 在 helper 前后复核
+config-owner generation/membership 和 canonical SHA-256；stale 或 digest
+mismatch 零 publish、零 quarantine write、零 client call。完整协议、错误码、
+本地验证和残余风险见 `03-mcp-compiler-decision.md`。
 
 ### 4.5 Frozen fail-first tests
 
@@ -189,15 +199,16 @@ MCP focused GREEN command 由 staged gate plan 生成；最低覆盖上述 packa
 
 ### MCP blockers
 
-- `MCP_COMPILER_CANCELLATION_OR_ISOLATION_DECISION_REQUIRED`
+- none; `MCP_COMPILER_CANCELLATION_OR_ISOLATION_DECISION_REQUIRED` cleared by
+  `03-mcp-compiler-decision.md`.
 
 Required sequence:
 
 1. 每个实现任务由独立实现 Agent 完成，主 Agent 初审后立即合并 `codex/integration-reasonix-p0`；逐任务不增加 reviewer Agent。
 2. Release Task 1-3 已开放，按顺序落地并保持 task branch/worktree 与 integration 串行合并。
-3. MCP compiler decision evidence 先作为独立小任务落地；主 Agent 初审通过后设置 `mcp_design_complete=true`、`p0_mcp_executable=true` 并开放 Task 4。
+3. MCP compiler decision evidence 已落地并设置 `mcp_design_complete=true`、`p0_mcp_executable=true`；Task 4 开放。
 4. Task 1-4 和 Task 5 全部完成后，冻结 integration exact commit，启动三个全新、无继承上下文的总审 Agent。
 5. 最终总审按受影响 lane 登记 finding；任何 P0/P1 返修后重跑受影响门禁与三 Agent 总审。
 6. 总状态始终重新派生，不得手工单独翻转。
 
-Current verdict: `RELEASE_EXECUTABLE`。Task 1-3 开放；Task 4 仅由 compiler decision blocker 关闭。
+Current verdict: `P0_IMPLEMENTATION_OPEN`。Task 1-4 均按各自 lane 顺序开放。
