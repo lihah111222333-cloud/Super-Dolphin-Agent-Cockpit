@@ -727,11 +727,10 @@ func currentVersionFromInfoPlist(targetAppPath string) (string, error) {
 // plistStringValue 从简单 Info.plist 文本中读取指定 string key，缺失或空值直接报错。
 func plistStringValue(raw, key string) (string, error) {
 	keyToken := "<key>" + key + "</key>"
-	keyIndex := strings.Index(raw, keyToken)
-	if keyIndex < 0 {
+	_, afterKey, ok := strings.Cut(raw, keyToken)
+	if !ok {
 		return "", fmt.Errorf("missing %s", key)
 	}
-	afterKey := raw[keyIndex+len(keyToken):]
 	start := strings.Index(afterKey, "<string>")
 	end := strings.Index(afterKey, "</string>")
 	if start < 0 || end < 0 || end <= start {

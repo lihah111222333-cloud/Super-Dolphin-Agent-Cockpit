@@ -75,10 +75,6 @@ func (app updaterApp) validate() error {
 
 // install 挂载 DMG、执行安装并尽力卸载临时挂载点。
 // 安装和清理错误会合并返回，避免清理失败被静默吞掉。
-func install(req installRequest) error {
-	return defaultUpdaterApp().install(req)
-}
-
 func (app updaterApp) install(req installRequest) error {
 	if err := app.validate(); err != nil {
 		return err
@@ -382,10 +378,6 @@ func nextPlistString(decoder *xml.Decoder) (string, error) {
 }
 
 // mountDMG 只读挂载 DMG 到临时目录。
-func mountDMG(dmgPath string) (string, error) {
-	return defaultUpdaterApp().mountDMG(dmgPath)
-}
-
 func (app updaterApp) mountDMG(dmgPath string) (string, error) {
 	mountPoint, err := os.MkdirTemp("", "super-dolphin-updater-mount-*")
 	if err != nil {
@@ -399,10 +391,6 @@ func (app updaterApp) mountDMG(dmgPath string) (string, error) {
 }
 
 // detachDMG 卸载 DMG，普通卸载失败后再尝试 force。
-func detachDMG(mountPoint string) error {
-	return defaultUpdaterApp().detachDMG(mountPoint)
-}
-
 func (app updaterApp) detachDMG(mountPoint string) error {
 	if _, err := app.runUpdaterCommand("hdiutil", "detach", mountPoint); err == nil {
 		return nil
@@ -430,10 +418,6 @@ func findMountedApp(mountPoint string) (string, error) {
 
 // expectedTeamID 解析安装时应匹配的 Developer Team ID。
 // 目标 app 不存在时必须通过环境显式提供，避免首次安装信任未知签名。
-func expectedTeamID(targetApp string) (string, error) {
-	return defaultUpdaterApp().expectedTeamID(targetApp)
-}
-
 func (app updaterApp) expectedTeamID(targetApp string) (string, error) {
 	if teamID := strings.TrimSpace(os.Getenv("SUPER_DOLPHIN_EXPECTED_TEAM_ID")); teamID != "" {
 		return teamID, nil
@@ -490,10 +474,6 @@ func (app updaterApp) verifyAppSignature(appPath string, expectedTeamID string, 
 }
 
 // appTeamID 从已安装 app 的签名详情读取 Team ID。
-func appTeamID(appPath string) (string, error) {
-	return defaultUpdaterApp().appTeamID(appPath)
-}
-
 func (app updaterApp) appTeamID(appPath string) (string, error) {
 	details, err := app.signingDetails(appPath)
 	if err != nil {
@@ -507,10 +487,6 @@ func (app updaterApp) appTeamID(appPath string) (string, error) {
 }
 
 // signingDetails 调用 codesign 读取签名详情。
-func signingDetails(appPath string) (string, error) {
-	return defaultUpdaterApp().signingDetails(appPath)
-}
-
 func (app updaterApp) signingDetails(appPath string) (string, error) {
 	result, err := app.runUpdaterCommand("codesign", "-dv", "--verbose=4", appPath)
 	if err != nil {
@@ -522,19 +498,13 @@ func (app updaterApp) signingDetails(appPath string) (string, error) {
 // parseSigningValue 从 codesign 输出中提取指定 key。
 func parseSigningValue(details string, key string) string {
 	prefix := key + "="
-	for _, line := range strings.Split(details, "\n") {
+	for line := range strings.SplitSeq(details, "\n") {
 		line = strings.TrimSpace(line)
-		if strings.HasPrefix(line, prefix) {
-			return strings.TrimSpace(strings.TrimPrefix(line, prefix))
+		if value, ok := strings.CutPrefix(line, prefix); ok {
+			return strings.TrimSpace(value)
 		}
 	}
 	return ""
-}
-
-// replaceTargetApp 用已校验的 staged app 替换目标 app。
-// 复制后再次验证结构和签名；失败会尽力恢复原 app。
-func replaceTargetApp(stagedApp string, targetApp string, expectedTeamID string, allowUnsigned bool) error {
-	return defaultUpdaterApp().replaceTargetApp(stagedApp, targetApp, expectedTeamID, allowUnsigned)
 }
 
 // replaceTargetApp 先备份目标 app，再复制、复验并原子替换目标路径。
@@ -603,10 +573,6 @@ func stagedCopyPath(targetApp string) string {
 }
 
 // copyApp 使用 ditto 复制 app bundle，保留 macOS bundle 元数据。
-func copyApp(stagedApp string, targetApp string) error {
-	return defaultUpdaterApp().copyApp(stagedApp, targetApp)
-}
-
 func (app updaterApp) copyApp(stagedApp string, targetApp string) error {
 	if _, err := app.runUpdaterCommand("ditto", stagedApp, targetApp); err != nil {
 		return commandError(err)
@@ -644,10 +610,6 @@ func (app updaterApp) clearQuarantine(appPath string) error {
 }
 
 // quarantineAttributeRemains 检查 quarantine 属性是否仍存在。
-func quarantineAttributeRemains(appPath string) (bool, error) {
-	return defaultUpdaterApp().quarantineAttributeRemains(appPath)
-}
-
 func (app updaterApp) quarantineAttributeRemains(appPath string) (bool, error) {
 	result, err := app.runUpdaterCommand("xattr", "-lr", appPath)
 	output := result.stdout + result.stderr
