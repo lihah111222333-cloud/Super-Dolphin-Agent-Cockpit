@@ -227,11 +227,11 @@ Stop 不需要分布式 watchdog 或跨服务事务。本计划只要求：
 1. 记录 BASE_SHA、Node/npm/Go 版本和工作树状态。
 2. 用 LSP 定位两条已确认 blocker 的定义、引用、调用链和 diagnostics。
 3. 运行 frontend lint/test/build、相关 Go 测试和 embed verify。
-4. Task-0 独立提交冻结 controls/runner/baseline，记 SCORE_BASE_SHA（父为 BASE_SHA）。P01：预热后 20 次无关 store 更新，主页面与无关 subtree update commit 各 ≤1 且不高于基线；P02/P03 为同机预热后 5 次中位数 +15%；P04 ≤基线 105%。修复不得改三文件。
+4. Task-0 独立提交先冻结 controls/scorer/baseline schema，记 SCORE_BASE_SHA；当 P01-P04 runner 尚不存在时，metric 必须保持 `NOT_VERIFIED`，不得手填数值。Task 4 的 runner 经主 Agent 初审后、候选评分前，必须在隔离 worktree 中以不可变 BASE_SHA 为 subject，使用同一审计 runner 版本回测并冻结 baseline artifact；artifact 记录 BASE_SHA、runner SHA/tree、Node/npm/Go 与 OS/CPU、raw samples 和中位数。候选版本必须用同一 runner 与环境比较，禁止候选自比候选。P01：预热后 20 次无关 store 更新，主页面与无关 subtree update commit 各 ≤1 且不高于基线；P02/P03 为同机预热后 5 次中位数 +15%；P04 ≤基线 105%。修复不得放宽 controls/scorer/baseline schema 或阈值公式。
 5. 增加 RED：failed+partial 假成功；Stop accepted 后继续 failed；Claude interrupted 无 completed；Codex completed 的 cancelled/interrupted/failed/unknown 与 success 缺失/false；T1→T2 late event；冲突 terminal；Stop target-changed；provider cancel 伪装 user cancel；Prompt History console-only；action/scorer missing/stale/零测试。
 6. scorer 输出当前 control 状态和分数；不手填 61.8 或其他历史值。
 
-**出口：** RED/scorer fixtures 稳定失败；两名全新 reviewer 认可 SCORE_BASE_SHA 的 allOf 映射与预算后，才开始产品修复。
+**出口：** RED/scorer fixtures 稳定失败；SCORE_BASE_SHA 的 allOf 映射保持冻结。P01-P04 可在 runner 尚未审计时维持 `NOT_VERIFIED`，但其 BASE_SHA baseline artifact 必须在 Task 4 候选评分前补齐并经主 Agent 初审；最终三名全新 reviewer 同时审查 scorer、baseline provenance 与预算公式。
 
 ### Task 1：修复 terminal truth
 
