@@ -63,8 +63,10 @@ function normalizeRecoveryState(value) {
     throw new TypeError('Recovery projection must be an object');
   }
   requireExactFields(projection, RECOVERY_PROJECTION_FIELDS, 'projection');
-  const leaseGeneration = Number(projection.lease_generation);
-  if (!Number.isSafeInteger(leaseGeneration) || leaseGeneration < 0) {
+  const leaseGeneration = projection.lease_generation;
+  if (typeof leaseGeneration !== 'number'
+    || !Number.isSafeInteger(leaseGeneration)
+    || leaseGeneration < 0) {
     throw new TypeError('Recovery field projection.lease_generation must be a non-negative integer');
   }
   const actions = value.actions;

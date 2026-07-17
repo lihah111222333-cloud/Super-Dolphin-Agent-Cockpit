@@ -21,6 +21,14 @@ function recoveryPayload(overrides = {}) {
   };
 }
 
+const INVALID_LEASE_GENERATIONS = [
+  ['string', '2'],
+  ['null', null],
+  ['boolean', true],
+  ['float', 2.5],
+  ['unsafe integer', Number.MAX_SAFE_INTEGER + 1],
+];
+
 describe('Recovery client', () => {
   it('rejects normal mode instead of reusing normal ready', () => {
     expect(() => normalizeRecoveryState(recoveryPayload({ mode: 'normal' })))
@@ -55,6 +63,31 @@ describe('Recovery client', () => {
       projection: { ...recoveryPayload().projection, lease_present: 'true' },
     }))).toThrow('projection.lease_present must be a boolean');
   });
+
+  it.each(INVALID_LEASE_GENERATIONS)(
+    'fails fast on a %s projection lease generation',
+    (_label, leaseGeneration) => {
+      const payload = recoveryPayload();
+      payload.projection.lease_generation = leaseGeneration;
+
+      expect(() => normalizeRecoveryState(payload))
+        .toThrow('projection.lease_generation must be a non-negative integer');
+    },
+  );
+
+  it.each(INVALID_LEASE_GENERATIONS)(
+    'normalizes the runtime Call.ByID result and rejects a %s lease generation',
+    async (_label, leaseGeneration) => {
+      const payload = recoveryPayload();
+      payload.projection.lease_generation = leaseGeneration;
+      const byID = vi.fn().mockResolvedValue(payload);
+      const client = createRecoveryClient(async () => ({ Call: { ByID: byID } }));
+
+      await expect(client.state()).rejects
+        .toThrow('projection.lease_generation must be a non-negative integer');
+      expect(byID).toHaveBeenCalledWith(RECOVERY_METHOD_IDS.state);
+    },
+  );
 
   it('calls only the four exact Recovery action IDs', async () => {
     const byID = vi.fn().mockImplementation((methodID) => Promise.resolve(recoveryPayload({
