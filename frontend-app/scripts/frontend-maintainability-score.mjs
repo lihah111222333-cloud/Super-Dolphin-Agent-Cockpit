@@ -857,18 +857,19 @@ function executeActualRunner(context, check) {
   const cacheKey = JSON.stringify([check.evidenceProtocol, check.cwd, argv, check.reportPath || '']);
   if (context.evidenceCache.has(cacheKey)) return context.evidenceCache.get(cacheKey);
   const [command, runnerPath, ...args] = argv;
-  const cwd = path.resolve(context.repoRoot, check.cwd);
-  const absoluteRunnerPath = path.resolve(cwd, runnerPath);
-  if (!fs.existsSync(absoluteRunnerPath)) {
+  const cwd = fs.realpathSync(path.resolve(context.repoRoot, check.cwd));
+  const requestedRunnerPath = path.resolve(cwd, runnerPath);
+  if (!fs.existsSync(requestedRunnerPath)) {
     const missing = { missing: true, runnerPath: path.join(check.cwd, runnerPath) };
     context.evidenceCache.set(cacheKey, missing);
     return missing;
   }
-  if (!fs.lstatSync(absoluteRunnerPath).isFile()) {
+  if (!fs.lstatSync(requestedRunnerPath).isFile()) {
     const invalid = { invalid: true, runnerPath: path.join(check.cwd, runnerPath) };
     context.evidenceCache.set(cacheKey, invalid);
     return invalid;
   }
+  const absoluteRunnerPath = fs.realpathSync(requestedRunnerPath);
   const reportPath = check.reportPath ? path.resolve(context.repoRoot, check.reportPath) : undefined;
   if (reportPath) fs.rmSync(reportPath, { force: true });
   const startedAt = Date.now();
@@ -1310,13 +1311,13 @@ function dependencySource(context) {
 
 function withDetachedSubject(context, callback) {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'frontend-maintainability-subject-'));
-  const detachedRoot = path.join(tempRoot, 'repo');
+  const detachedRoot = path.join(fs.realpathSync(tempRoot), 'repo');
   execFileSync('git', ['worktree', 'add', '--detach', detachedRoot, context.subjectSha], {
     cwd: context.repoRoot,
     stdio: 'ignore',
   });
   try {
-    const executionContext = contextForExecution(context, detachedRoot);
+    const executionContext = contextForExecution(context, fs.realpathSync(detachedRoot));
     const dependencies = dependencySource(context);
     const detachedNodeModules = path.join(executionContext.appRoot, 'node_modules');
     if (dependencies && !fs.existsSync(detachedNodeModules)) {
