@@ -884,109 +884,42 @@
   cursor: pointer;
 }
 
-/* Skill Fusion Promo Banner */
-.skill-fusion-banner {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 20px;
-  background: var(--suiyuan-fusion-bg);
-  padding: 24px;
-  border-radius: 16px;
-  margin-bottom: 24px;
-  color: var(--suiyuan-fusion-color);
-  box-shadow: var(--suiyuan-fusion-shadow);
-  border: 1px solid var(--suiyuan-fusion-border);
-}
-
-.skill-fusion-banner-content {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 8px;
-}
-
-.beta-badge {
-  background: var(--suiyuan-beta-bg);
-  color: var(--suiyuan-beta-color);
-  font-size: 10px;
-  font-weight: 700;
-  padding: 2px 6px;
-  border-radius: 999px;
-  letter-spacing: 0.5px;
-}
-
-.skill-fusion-banner h3 {
-  margin: 0;
-  font-size: 20px;
-  font-weight: 700;
-}
-
-.skill-fusion-banner p {
-  margin: 0;
-  font-size: 14px;
-  opacity: 0.9;
-}
-
-.fusion-btn {
-  background: var(--suiyuan-fusion-btn-bg) !important;
-  color: var(--suiyuan-fusion-btn-color) !important;
-  border: 0 !important;
-  border-radius: 999px !important;
-  font-size: 14px !important;
-  font-weight: 700 !important;
-  padding: 10px 20px !important;
-  white-space: nowrap;
-  box-shadow: var(--suiyuan-fusion-btn-shadow) !important;
-  cursor: pointer;
-  transition: transform 0.2s ease;
-}
-
-.fusion-btn:hover {
-  transform: translateY(-2px);
-}
-
-/* Add New card dashed styling */
+/* Add New card dashed styling（整卡为 <button>，重置 UA 按钮样式并接入暗色卡片体系） */
 .mcp-tool-card.add-new-card {
-  border: 2px dashed var(--suiyuan-fusion-border);
-  background: transparent;
-  display: grid;
-  align-items: center;
-  grid-template-columns: 36px minmax(0, 1fr) max-content auto;
-  gap: 16px;
-  padding: 24px;
-  border-radius: 16px;
+  border: 2px dashed var(--mcp-card-badge-border);
+  background: var(--mcp-card-bg);
   cursor: pointer;
-  color: var(--text-sec);
+  color: var(--mcp-card-text-muted);
+  font: inherit;
+  text-align: left;
+  width: 100%;
   transition: all var(--transition);
-  margin-bottom: 16px;
 }
 
 .mcp-tool-card.add-new-card:hover {
-  border-color: var(--primary);
-  background: var(--suiyuan-fusion-bg);
-  color: var(--suiyuan-fusion-color);
+  border-color: var(--mcp-card-ok);
+  background: var(--mcp-card-bg-hover);
+  color: var(--mcp-card-text);
   transform: translateY(-2px);
-  box-shadow: var(--suiyuan-send-shadow);
+}
+
+.mcp-tool-card.add-new-card:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.mcp-tool-card.add-new-card:active {
+  transform: translateY(0);
 }
 
 .mcp-tool-icon.add-new {
-  width: 40px;
-  height: 40px;
-  border-radius: 8px;
-  background: var(--surface-3);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--text-muted);
+  background: var(--mcp-card-icon-bg);
+  color: var(--mcp-card-text-muted);
   transition: all var(--transition);
-  margin-bottom: 0;
 }
 
 .mcp-tool-card.add-new-card:hover .mcp-tool-icon.add-new {
-  background: color-mix(in srgb, var(--suiyuan-fusion-color) 15%, transparent);
-  color: var(--suiyuan-fusion-color);
-  border: 1px solid color-mix(in srgb, var(--suiyuan-fusion-color) 10%, transparent);
+  color: var(--mcp-card-text);
 }
 
 /* Tab header style overrides */
@@ -1036,71 +969,24 @@
   color: var(--text-muted);
 }
 
-.mcp-tool-panel {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
-
-.mcp-tool-card {
-  display: grid;
-  align-items: center;
-  grid-template-columns: 36px minmax(0, 1fr) max-content auto;
-  gap: 16px;
-  padding: 24px;
-  margin-bottom: 16px;
+.plugins-square-panel-notice {
+  margin: 0 0 12px;
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-2);
+  color: var(--text-sec);
+  font-size: 13px;
 }
 
 .mcp-tool-card:hover {
   transform: translateY(-2px);
 }
 
-.mcp-tool-icon {
-  width: 40px;
-  height: 40px;
-  border-radius: 8px;
+.skill-tool-enabled-field {
   display: flex;
   align-items: center;
-  justify-content: center;
-}
-
-.mcp-tool-main {
-  flex: 1;
-  min-width: 0;
-}
-
-.mcp-tool-card .mcp-tool-title-line h2 {
-  margin: 0;
-  font-size: 18px;
-  font-weight: 700;
-  color: inherit;
-}
-
-.mcp-tool-card .mcp-tool-notice {
-  margin: 4px 0 0;
-  font-size: 12px;
-  color: inherit;
-  opacity: 0.9;
-  line-height: 1.35;
-}
-
-.mcp-tool-card .mcp-tool-notice.is-error {
-  color: var(--error);
-  font-weight: 600;
-}
-
-.mcp-tool-card .mcp-tool-status {
-  background: color-mix(in srgb, var(--suiyuan-fusion-color) 20%, transparent);
-  color: var(--suiyuan-fusion-color);
-  border: 1px solid color-mix(in srgb, var(--suiyuan-fusion-color) 30%, transparent);
-  font-size: 11px;
-  font-weight: 700;
-  border-radius: 999px;
-  padding: 2px 8px;
-}
-
-.mcp-tool-card .mcp-tool-status.is-enabled {
-  background: var(--suiyuan-beta-bg);
-  color: var(--suiyuan-beta-color);
-  border-color: transparent;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text-sec);
 }

@@ -520,6 +520,15 @@ function guardedBackendResponse(method) {
     await expect(api.getObservabilityTrace({ traceId: 'trace-1' })).rejects.toThrow(/observability response must be an object/);
   });
 
+  it('rejects memory snapshot responses whose section entries are null at the facade boundary', async () => {
+    // 生产端（internal/module/memory/ui_rpc.go loadUIMemoryScope）始终输出数组；
+    // null entries 属于非法 wire 形状，facade 必须 fail-fast，不得归一为空列表。
+    const callAPI = vi.fn().mockResolvedValue({ overview: {}, private: { entries: null }, team: { entries: [] } });
+    const api = createBackendApi({ callAPI });
+
+    await expect(api.getMemorySnapshot({ cwd: '/repo/app' })).rejects.toThrow(/memory private entries must be an array/);
+  });
+
   it('fails fast without extra backend calls for representative invalid facade inputs', () => {
     const callAPI = vi.fn().mockResolvedValue({ ok: true });
     const api = createBackendApi({ callAPI });
@@ -1594,6 +1603,31 @@ function guardedBackendResponse(method) {
     }
   });
 
+  it('rejects null sidebar list fields instead of accepting Go nil slice drift', async () => {
+    // nil slice 漂移必须在 Go producer/clone 层修复（输出 []），前端契约保持严格：
+    // 字段存在时必须是数组，null 一律拒绝。
+    const call = (api) => api.getSidebarState({ cwd: '/repo/app' });
+    const cases = [
+      sidebarStateResponse({ agents: null }),
+      sidebarStateResponse({ threads: null }),
+      sidebarStateResponse({ recent_turns: null }),
+      sidebarStateResponse({ agents: {} }),
+      sidebarStateResponse({ agents: 'agents' }),
+      sidebarStateResponse({ threads: 3 }),
+    ];
+
+    for (const response of cases) {
+      const api = createBackendApi({ callAPI: vi.fn().mockResolvedValue(response) });
+      await expect(call(api)).rejects.toThrow(/must be an array/);
+    }
+  });
+
+  it('accepts empty arrays for sidebar list fields', async () => {
+    const response = sidebarStateResponse({ agents: [], threads: [], recent_turns: [] });
+    const api = createBackendApi({ callAPI: vi.fn().mockResolvedValue(response) });
+    await expect(api.getSidebarState({ cwd: '/repo/app' })).resolves.toEqual(response);
+  });
+
   it('rejects unsuccessful or malformed code save response fields', async () => {
     const call = (api) => api.saveCodeFile({
       filePath: 'src/App.jsx',
@@ -1611,6 +1645,85 @@ function guardedBackendResponse(method) {
     for (const item of cases) {
       const api = createBackendApi({ callAPI: vi.fn().mockResolvedValue(item.response) });
       await expect(call(api)).rejects.toThrow(item.message);
+    }
+  });
+
+  it('accepts a null window bootstrap snapshot after the desktop host consumed it', async () => {
+    // 一次性快照被桌面宿主消费后返回 { snapshot: null }，必须放行给 normalize 层回退，
+    // 否则浏览器直开/刷新会让 bootstrap 永久失败、控件全部禁用。
+    const api = createBackendApi({ callAPI: vi.fn().mockResolvedValue({ snapshot: null }) });
+    await expect(api.getWindowBootstrap()).resolves.toEqual({ snapshot: null });
+  });
+
+  it('validates skills/tools/create responses at the facade boundary', async () => {
+    const created = {
+      id: 9,
+      cwd: '/repo/app',
+      methodName: 'deploy_frontend',
+      description: '部署前端到本地预览',
+      enabled: true,
+      createdAt: '2026-07-17T10:00:00+08:00',
+      updatedAt: '2026-07-17T10:00:00+08:00',
+    };
+    const api = createBackendApi({ callAPI: vi.fn().mockResolvedValue(created) });
+    await expect(api.createSkillTool({
+      cwd: '/repo/app',
+      methodName: 'deploy_frontend',
+      description: '部署前端到本地预览',
+      enabled: true,
+    })).resolves.toEqual(created);
+
+    const malformed = [
+      { ...created, id: 0 },
+      { ...created, id: -3 },
+      { ...created, id: '9' },
+      { ...created, cwd: '' },
+      { ...created, cwd: '   ' },
+      { ...created, methodName: '' },
+      { ...created, methodName: 'bad name' },
+      { ...created, methodName: 'bad/name' },
+      { ...created, description: '' },
+      { ...created, enabled: 'true' },
+      { ...created, createdAt: 'not-a-time' },
+      { ...created, createdAt: '' },
+      { ...created, updatedAt: '2026-13-99' },
+      { ...created, surprise: true },
+    ];
+    for (const response of malformed) {
+      const failingApi = createBackendApi({ callAPI: vi.fn().mockResolvedValue(response) });
+      await expect(failingApi.createSkillTool({
+        cwd: '/repo/app',
+        methodName: 'deploy_frontend',
+        description: '部署前端到本地预览',
+        enabled: true,
+      })).rejects.toThrow(/skills\/tools\/create response/);
+    }
+  });
+
+  it('reuses the same SkillTool DTO contract for skills/tools/list responses', async () => {
+    const tool = {
+      id: 3,
+      cwd: '/repo/app',
+      methodName: 'backend',
+      description: '后端技能',
+      enabled: true,
+      createdAt: '2026-07-17T10:00:00Z',
+      updatedAt: '2026-07-17T10:00:00Z',
+    };
+    const api = createBackendApi({ callAPI: vi.fn().mockResolvedValue({ tools: [tool] }) });
+    await expect(api.listSkillTools({ cwd: '/repo/app', keyword: '', limit: 10 })).resolves.toEqual({ tools: [tool] });
+
+    const malformed = [
+      { ...tool, id: 0 },
+      { ...tool, cwd: '' },
+      { ...tool, methodName: 'bad name' },
+      { ...tool, description: '' },
+      { ...tool, createdAt: 'not-a-time' },
+      { ...tool, extra: 'field' },
+    ];
+    for (const badTool of malformed) {
+      const failingApi = createBackendApi({ callAPI: vi.fn().mockResolvedValue({ tools: [badTool] }) });
+      await expect(failingApi.listSkillTools({ cwd: '/repo/app', keyword: '', limit: 10 })).rejects.toThrow(/skills\/tools\/list response/);
     }
   });
 

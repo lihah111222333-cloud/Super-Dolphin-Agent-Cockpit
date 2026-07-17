@@ -116,8 +116,14 @@ function ComposerDock({
     && !sending
     && !canInterrupt
     && hasComposerInput;
-  const projectActionBlocked = !effectiveCanUseProjectActions;
   const projectActionBlockedTitle = copy.projectActionBlocked;
+  // composer 工具控件（项目选择器、附件、图片、模型）只要求后端就绪：
+  // 1. 项目选择器是“未选择项目”的恢复入口，不能因缺项目自我禁用（死锁）；
+  // 2. 附件/图片走原生文件对话框，不依赖项目 cwd；
+  // 3. 模型菜单可以打开查看，保存失败时由 store action 给出可见通知。
+  // 发送/打断仍走 effectiveCanUseProjectActions（必须有可用 cwd），业务契约不变。
+  const controlsReady = store?.bootstrapStatus === 'ready';
+  const composerControlsBlocked = !controlsReady || approvalPending;
   const dockRef = useRef(null);
   const textareaRef = useComposerTextareaRef(inputRef);
   const slashCopy = useMemo(() => ({
@@ -200,8 +206,8 @@ function ComposerDock({
           canUseProjectActions={effectiveCanUseProjectActions}
           modelThreadId={modelThreadId}
           projectPath={projectPath}
-          projectActionBlocked={projectActionBlocked}
           projectActionBlockedTitle={projectActionBlockedTitle}
+          composerControlsBlocked={composerControlsBlocked}
           selectFiles={selectFiles}
           sendMessage={promptHistory.send}
           showProviderToggle={showProviderToggle}

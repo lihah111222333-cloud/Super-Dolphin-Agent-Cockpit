@@ -645,7 +645,7 @@ export const RPC_CONTRACT_REGISTRY = Object.freeze({
     false,
     { responseValidator: 'skillResolutionApplyResponse' },
   ),
-  SKILL_TOOLS_CREATE: contract('SKILL_TOOLS_CREATE', RPC_METHODS.SKILL_TOOLS_CREATE, 'createSkillTool', 'P0', 'skill', [TESTS.API, TESTS.SKILLS], ['skill tool mutation'], false, { responsePolicy: { kind: 'unused', productionScanRoots: ['frontend-app/src'], excludedGlobs: [] } }),
+  SKILL_TOOLS_CREATE: contract('SKILL_TOOLS_CREATE', RPC_METHODS.SKILL_TOOLS_CREATE, 'createSkillTool', 'P0', 'skill', [TESTS.API, TESTS.SKILLS], ['skill tool mutation'], false, { responseValidator: 'skillToolMutationResponse' }),
   SKILL_TOOLS_LIST: contract('SKILL_TOOLS_LIST', RPC_METHODS.SKILL_TOOLS_LIST, 'listSkillTools', 'P1', 'skill', [TESTS.API, TESTS.SKILLS], ['skill tool read'], false, { responseValidator: 'skillToolsListResponse' }),
   SKILL_TOOLS_GET: contract('SKILL_TOOLS_GET', RPC_METHODS.SKILL_TOOLS_GET, 'getSkillTool', 'P1', 'skill', [TESTS.API, TESTS.SKILLS], ['skill tool read'], false, { responsePolicy: { kind: 'unused', productionScanRoots: ['frontend-app/src'], excludedGlobs: [] } }),
   SKILL_TOOLS_UPDATE: contract('SKILL_TOOLS_UPDATE', RPC_METHODS.SKILL_TOOLS_UPDATE, 'updateSkillTool', 'P0', 'skill', [TESTS.API, TESTS.SKILLS], ['skill tool mutation'], false, { responsePolicy: { kind: 'unused', productionScanRoots: ['frontend-app/src'], excludedGlobs: [] } }),

@@ -9,7 +9,6 @@ import {
   startConsolidateMemorySimilarities as startConsolidateMemorySimilaritiesBackend,
   upsertMemoryEntry as upsertMemoryEntryBackend,
 } from '../../shared/api/backendApi.js';
-import { normalizeMemorySnapshot } from '../../adapters/memoryAdapter.js';
 import { ApiError, DEFAULT_REQUEST_TIMEOUT_MS, runServiceRequest, withRequestTimeout } from '../apiClient.js';
 
 /*
@@ -51,13 +50,16 @@ function withMemoryScanAbort(promise, signal) {
 async function fetchMemoryDashboard(cwd, { signal } = {}) {
   return runServiceRequest(async () => {
     throwIfMemoryScanCanceled(signal);
-    const response = await withRequestTimeout(
+    // facade getMemorySnapshot 已经过 validateMemorySnapshotResponse（parseMemorySnapshotResponse）
+    // 完成 schema 校验与归一化（{ overview, entries }），这里不能再次 normalize，
+    // 否则扁平结果缺少 private/team 会被二次 parse 判为非法（双重 parse）。
+    const snapshot = await withRequestTimeout(
       withMemoryScanAbort(getMemorySnapshotBackend({ cwd }), signal),
       DEFAULT_REQUEST_TIMEOUT_MS,
       '记忆中心加载超时，请检查记忆数据或后端状态。',
     );
     throwIfMemoryScanCanceled(signal);
-    return normalizeMemorySnapshot(response);
+    return snapshot;
   }, '加载记忆中心失败');
 }
 

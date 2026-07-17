@@ -90,6 +90,17 @@
   --suiyuan-fusion-btn-bg: #ffffff;
   --suiyuan-fusion-btn-color: #a03b00;
   --suiyuan-fusion-btn-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  /* MCP 工具卡片：浅色主题下使用统一深灰底，保证白色文字对比度 */
+  --mcp-card-bg: #34362f;
+  --mcp-card-bg-hover: #3d4037;
+  --mcp-card-border: #50534a;
+  --mcp-card-text: #ffffff;
+  --mcp-card-text-muted: rgba(255, 255, 255, 0.74);
+  --mcp-card-badge-bg: rgba(255, 255, 255, 0.12);
+  --mcp-card-badge-border: rgba(255, 255, 255, 0.26);
+  --mcp-card-ok: #7fd8a1;
+  --mcp-card-danger: #ffb4ab;
+  --mcp-card-icon-bg: rgba(255, 255, 255, 0.12);
   --transition: 150ms ease;
 }
 
@@ -153,6 +164,17 @@
   --suiyuan-fusion-btn-bg: var(--primary);
   --suiyuan-fusion-btn-color: var(--primary-ink);
   --suiyuan-fusion-btn-shadow: none;
+  /* MCP 工具卡片：深色主题下使用比页面稍亮的暗灰底，文字保持近白 */
+  --mcp-card-bg: #242620;
+  --mcp-card-bg-hover: #2c2e27;
+  --mcp-card-border: #43453d;
+  --mcp-card-text: #f5f4ed;
+  --mcp-card-text-muted: rgba(245, 244, 237, 0.72);
+  --mcp-card-badge-bg: rgba(245, 244, 237, 0.1);
+  --mcp-card-badge-border: rgba(245, 244, 237, 0.24);
+  --mcp-card-ok: var(--success);
+  --mcp-card-danger: var(--error);
+  --mcp-card-icon-bg: rgba(245, 244, 237, 0.1);
 }
 
 body, button, input, select, textarea, span, p, h1, h2, h3, h4, h5, h6, div {
