@@ -5,6 +5,7 @@ package pidregistry
 import (
 	"context"
 	"errors"
+	"net"
 	"os"
 	"os/exec"
 	"sync"
@@ -96,14 +97,80 @@ func TestTerminateExactProcessUsesAuthenticatedCooperativeExit(t *testing.T) {
 	}
 }
 
+func TestRequestExactProcessTerminationRejectsPIDReuseSentinel(t *testing.T) {
+	endpoint := testTerminationSocketPath(t)
+	terminated := make(chan struct{}, 1)
+	server, err := StartCooperativeTerminationServer(endpoint, "reuse-secret", func() {
+		terminated <- struct{}{}
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer server.Close()
+	identity, err := CaptureStableProcessIdentity(os.Getpid())
+	if err != nil {
+		t.Fatal(err)
+	}
+	identity.ProcessStartToken += "-reused"
+	identity.TerminationEndpoint = endpoint
+	identity.TerminationToken = "reuse-secret"
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	if err := RequestExactProcessTermination(ctx, identity); !errors.Is(err, ErrStableProcessIdentityMismatch) {
+		t.Fatalf("RequestExactProcessTermination() error = %v, want identity mismatch", err)
+	}
+	select {
+	case <-terminated:
+		t.Fatal("PID reuse sentinel received a termination request")
+	default:
+	}
+}
+
+func TestCooperativeTerminationNoResponseHonorsDeadline(t *testing.T) {
+	endpoint := testTerminationSocketPath(t)
+	listener, err := net.Listen("unix", endpoint)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	release := make(chan struct{})
+	serverDone := make(chan error, 1)
+	var server sync.WaitGroup
+	server.Go(func() {
+		connection, acceptErr := listener.Accept()
+		if acceptErr != nil {
+			serverDone <- acceptErr
+			return
+		}
+		defer connection.Close()
+		<-release
+		serverDone <- nil
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	startedAt := time.Now()
+	if err := requestCooperativeTermination(ctx, endpoint, "no-response-token"); err == nil {
+		t.Fatal("termination request without ACK returned success")
+	}
+	if elapsed := time.Since(startedAt); elapsed > time.Second {
+		t.Fatalf("termination no-response elapsed %s", elapsed)
+	}
+	close(release)
+	server.Wait()
+	if err := <-serverDone; err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestTerminateExactProcessCooperativeChild(t *testing.T) {
 	if os.Getenv("SUPER_DOLPHIN_TEST_TERMINATION_CHILD") != "1" {
 		return
 	}
+	terminated := make(chan struct{})
 	server, err := StartCooperativeTerminationServer(
 		os.Getenv("SUPER_DOLPHIN_TEST_TERMINATION_ENDPOINT"),
 		"child-exact-secret",
-		func() { os.Exit(0) },
+		func() { close(terminated) },
 	)
 	if err != nil {
 		os.Exit(2)
@@ -112,7 +179,7 @@ func TestTerminateExactProcessCooperativeChild(t *testing.T) {
 	if err := os.WriteFile(os.Getenv("SUPER_DOLPHIN_TEST_TERMINATION_READY"), []byte("ready"), 0o600); err != nil {
 		os.Exit(3)
 	}
-	select {}
+	<-terminated
 }
 
 func testTerminationSocketPath(t *testing.T) string {
