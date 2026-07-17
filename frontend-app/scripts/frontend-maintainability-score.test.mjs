@@ -1,4 +1,5 @@
 import { execFileSync, spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import {
   copyFileSync,
   mkdtempSync,
@@ -12,10 +13,10 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
+  actionProducerGuardOutputStatus,
   commandEvidenceStatus,
   controlStatus,
   inspectTargetRepository,
-  performanceMetricStatus,
   probeResult,
   scoreCurrentTree,
   sourceHasCriticalTypecheckGap,
@@ -69,6 +70,28 @@ function createTargetRepository() {
   };
 }
 
+function createPerformanceTarget(runnerFiles) {
+  const target = createTargetRepository();
+  runnerFiles.forEach((runnerPath, index) => write(runnerPath, `runner fixture ${index}\n`, target.repoRoot));
+  git(target.repoRoot, ['add', '.']);
+  git(target.repoRoot, ['commit', '-q', '-m', '测试：加入性能评分器闭包']);
+  const runnerSha = git(target.repoRoot, ['rev-parse', 'HEAD']);
+  const runnerTree = git(target.repoRoot, ['rev-parse', 'HEAD^{tree}']);
+  write('frontend-app/candidate-product.js', 'export const candidate = true;\n', target.repoRoot);
+  git(target.repoRoot, ['add', '.']);
+  git(target.repoRoot, ['commit', '-q', '-m', '测试：建立独立候选提交']);
+  return {
+    ...inspectTargetRepository({
+      repoRoot: target.repoRoot,
+      subjectSha: git(target.repoRoot, ['rev-parse', 'HEAD']),
+    }),
+    baseSha: target.subjectSha,
+    baseTree: target.subjectTree,
+    runnerSha,
+    runnerTree,
+  };
+}
+
 function createFinalContractTarget() {
   const repoRoot = mkdtempSync(join(tmpdir(), 'frontend-maintainability-final-target-'));
   rmSync(repoRoot, { recursive: true, force: true });
@@ -80,6 +103,7 @@ function createFinalContractTarget() {
     'frontend-maintainability-controls.json',
     'frontend-maintainability-score.mjs',
     'frontend-maintainability-baseline.json',
+    'frontend-maintainability-red-fixtures.json',
   ]) {
     copyFileSync(join(scriptRoot, name), join(repoRoot, 'frontend-app', 'scripts', name));
   }
@@ -103,6 +127,7 @@ function createFinalCliFixture() {
     'frontend-maintainability-controls.json',
     'frontend-maintainability-score.mjs',
     'frontend-maintainability-baseline.json',
+    'frontend-maintainability-red-fixtures.json',
   ]) {
     copyFileSync(join(scriptRoot, name), join(baseRoot, 'frontend-app', 'scripts', name));
   }
@@ -126,17 +151,200 @@ function createFinalCliFixture() {
   return { baseRoot, scoreBaseSha, subjectRoot, subjectSha: git(subjectRoot, ['rev-parse', 'HEAD']) };
 }
 
-function structuredEvidence(context, control, check, overrides = {}) {
+function failureMatrixEvidence(context, check, overrides = {}) {
+  const layersByCase = {
+    'FM-01': ['frontend', 'go-wails'],
+    'FM-02': ['frontend'],
+    'FM-03': ['frontend'],
+    'FM-04': ['frontend'],
+    'FM-05': ['frontend'],
+    'FM-06': ['frontend'],
+    'FM-07': ['go-codex'],
+    'FM-08': ['go-claude'],
+    'FM-09': ['go-codex'],
+    'FM-10': ['go-codex'],
+    'FM-11': ['go-codex'],
+    'FM-12': ['go-codex'],
+    'FM-13': ['go-codex'],
+    'FM-14': ['go-codex'],
+    'FM-15': ['fixture-replay'],
+    'FM-16': ['go-turn'],
+    'FM-17': ['go-turn'],
+    'FM-18': ['fixture-replay'],
+    'FM-19': ['frontend', 'go-codex'],
+    'FM-20': ['frontend', 'go-codex'],
+    'FM-21': ['fixture-replay'],
+    'FM-22': ['fixture-replay'],
+    'FM-23': ['fixture-replay'],
+    'FM-24': ['fixture-replay'],
+  };
+  const evidence = Object.entries(layersByCase).flatMap(([caseId, layers]) => (
+    layers.map((layer) => ({ caseId, layer, test: `${caseId}:${layer}` }))
+  ));
   return {
     schemaVersion: 1,
+    generatedAt: new Date().toISOString(),
+    subjectSha: context.subjectSha,
+    subjectTreeSha: context.subjectTree,
+    controlIds: [
+      'E06-failure-matrix',
+      'C05-provider-rpc-parity',
+      'T01-red-green-regression',
+      'T03-wails-integration',
+    ],
+    caseIds: Object.keys(layersByCase),
+    caseCount: Object.keys(layersByCase).length,
+    testCount: evidence.length,
+    status: 'covered',
+    blockedCases: [],
+    evidence,
+    ...overrides,
+  };
+}
+
+function performanceEvidence(context, check, metricStatus = 'PASS', overrides = {}) {
+  const casesByMetric = {
+    'P01-render-isolation': ['render-main-page-update-commits', 'render-unrelated-subtree-update-commits', 'render-broad-subscription-mutation-detected'],
+    'P02-history-budget': ['turns-200-tools-1', 'turns-200-tools-3', 'turns-1000-tools-1', 'turns-1000-tools-3', 'turns-5000-tools-1', 'turns-5000-tools-3'],
+    'P03-feedback-budget': ['stop-visible-feedback'],
+    'P04-resource-budget': ['bundle-total-bytes', 'bundle-max-chunk-bytes'],
+  };
+  const caseResults = Object.entries(casesByMetric).flatMap(([metricId, caseIds]) => (
+    caseIds.map((caseId) => ({
+      caseId,
+      metricId,
+      evidenceKey: caseId,
+      status: metricId === check.metricId ? metricStatus : 'PASS',
+    }))
+  ));
+  const baseSha = context.baseSha;
+  const baseTree = context.baseTree;
+  const environment = {
+    os: { platform: 'darwin', release: 'test-release', arch: 'arm64' },
+    cpu: { model: 'test-cpu', logicalCores: 8 },
+    totalMemoryBytes: 16_000_000_000,
+    loadAverage: [0.1, 0.2, 0.3],
+    node: 'v25.6.1',
+    npm: '11.8.0',
+    go: 'go version go1.25.0 darwin/arm64',
+  };
+  const timingCase = () => ({
+    attemptsPerSample: 3,
+    durationClock: 'test-clock',
+    iterationCount: 1,
+    durationAttemptSamplesMs: Array.from({ length: 5 }, () => [10, 11, 12]),
+    durationSamplesMs: [10, 10, 10, 10, 10],
+    durationMedianMs: 10,
+  });
+  const timingMetric = (metricId, subjectSha, caseIds, frozen = false) => ({
+    ...(frozen ? { status: 'PASS', maxRegressionRatio: 1.15 } : {}),
+    metricId,
+    subjectSha,
+    warmupCount: 1,
+    sampleCount: 5,
+    cases: Object.fromEntries(caseIds.map((caseId) => [caseId, timingCase()])),
+  });
+  const metricsFor = (subjectSha, frozen = false) => ({
+    'P01-render-isolation': {
+      ...(frozen ? { status: 'PASS', absoluteUpdateLimit: 1 } : {}),
+      metricId: 'P01-render-isolation',
+      subjectSha,
+      warmupUpdates: 1,
+      updateCount: 20,
+      mainPageUpdateCommits: 1,
+      unrelatedSubtreeUpdateCommits: 1,
+      mutationDetected: true,
+    },
+    'P02-history-budget': timingMetric('P02-history-budget', subjectSha, casesByMetric['P02-history-budget'], frozen),
+    'P03-feedback-budget': timingMetric('P03-feedback-budget', subjectSha, casesByMetric['P03-feedback-budget'], frozen),
+    'P04-resource-budget': {
+      ...(frozen ? { status: 'PASS', maxRegressionRatio: 1.05 } : {}),
+      metricId: 'P04-resource-budget',
+      subjectSha,
+      fileCount: 1,
+      totalBundleBytes: 100,
+      maxChunkBytes: 100,
+      files: [{ path: 'assets/index.js', bytes: 100 }],
+    },
+  });
+  const runnerFiles = check.runnerFiles.map((runnerPath) => ({
+    path: runnerPath,
+    sha256: createHash('sha256').update(readFileSync(join(context.repoRoot, runnerPath))).digest('hex'),
+  }));
+  const runnerContentHash = createHash('sha256');
+  runnerFiles.forEach(({ path: runnerPath, sha256 }) => runnerContentHash.update(`${runnerPath}\0${sha256}\n`));
+  const sharedProvenance = {
+    runnerId: 'frontend-performance-budget',
+    runnerSha: context.runnerSha,
+    runnerTree: context.runnerTree,
+    runnerContentHash: runnerContentHash.digest('hex'),
+    runnerFiles,
+    worktreeClean: true,
+    worktreeStatus: [],
+  };
+  const candidateProvenance = { ...sharedProvenance, baselineAudit: null };
+  const baselineProvenance = {
+    ...sharedProvenance,
+    baselineAudit: {
+      baseSha,
+      baseTree,
+      changedPaths: git(context.repoRoot, ['diff', '--name-only', baseSha, context.runnerSha]).split('\n'),
+    },
+  };
+  const report = {
+    schemaVersion: 1,
+    evidence: {
+      schemaVersion: 1,
+      subjectSha: context.subjectSha,
+      subjectTree: context.subjectTree,
+      generatedAt: new Date().toISOString(),
+      environment,
+      provenance: candidateProvenance,
+      metrics: metricsFor(context.subjectSha),
+    },
+    verdict: {
+      status: metricStatus,
+      testCount: caseResults.length,
+      caseIds: caseResults.map(({ caseId }) => caseId),
+      caseResults,
+      verdicts: Object.keys(casesByMetric).map((metricId) => ({
+        metricId,
+        status: metricId === check.metricId ? metricStatus : 'PASS',
+        reason: '',
+      })),
+    },
+    ...overrides,
+  };
+  return {
+    report,
+    baselineDocument: {
+      schemaVersion: 1,
+      baseSha,
+      planSnapshotSha: 'a'.repeat(40),
+      subjectSha: baseSha,
+      subjectTree: baseTree,
+      generatedAt: new Date().toISOString(),
+      environment,
+      provenance: baselineProvenance,
+      metrics: metricsFor(baseSha, true),
+    },
+  };
+}
+
+function deliveryEvidence(context, check, overrides = {}) {
+  return {
+    schemaVersion: 1,
+    generatedAt: new Date().toISOString(),
     subjectSha: context.subjectSha,
     subjectTree: context.subjectTree,
-    controlId: control.id,
+    metricId: 'T05-build-embed-smoke',
     caseIds: [...check.caseIds],
     testCount: check.testCount,
-    tests: check.caseIds.map((caseId, index) => ({ caseId, name: `case ${index + 1}`, status: 'passed' })),
-    generatedAt: new Date().toISOString(),
-    environment: { node: process.version, platform: process.platform, arch: process.arch },
+    verdict: {
+      status: 'PASS',
+      reason: '',
+      commands: check.caseIds.map((id) => ({ id, status: 'PASS' })),
+    },
     ...overrides,
   };
 }
@@ -162,9 +370,9 @@ describe('frontend maintainability scorer configuration', () => {
     expect(() => validateConfiguration(weakCommand.controls, weakCommand.fixtures)).toThrow('weak runner command');
 
     const mutableProbe = documents();
-    mutableProbe.controls.controls[1].allOf[0].argv.push('--extra');
+    mutableProbe.controls.controls.find(({ id }) => id === 'A02-state-ownership').allOf[0].argv[1] = 'scripts/renamed-guard.mjs';
     expect(() => validateConfiguration(mutableProbe.controls, mutableProbe.fixtures))
-      .toThrow('invalid frozen artifact probe');
+      .toThrow('lane allOf argv A02-state-ownership exact set mismatch');
 
     const lowerThreshold = documents();
     lowerThreshold.controls.thresholds.dimensions.P = 0;
@@ -181,20 +389,20 @@ describe('frontend maintainability scorer configuration', () => {
 
     const mutableFutureRunner = documents();
     mutableFutureRunner.controls.controls.find(({ id }) => id === 'A04-action-registry')
-      .allOf[0].argv[1] = 'scripts/mutable-runner.mjs';
+      .allOf[1].argv[1] = 'scripts/mutable-runner.mjs';
     expect(() => validateConfiguration(mutableFutureRunner.controls, mutableFutureRunner.fixtures))
-      .toThrow('structured evidence runner differs from frozen contract');
+      .toThrow('action producer argv differs from frozen contract');
 
     const optionalDoD = documents();
     optionalDoD.controls.controls.find(({ id }) => id === 'E06-failure-matrix').required = false;
     expect(() => validateConfiguration(optionalDoD.controls, optionalDoD.fixtures))
       .toThrow('DoD control must be required');
 
-    const relaxedPerformanceFormula = documents();
-    relaxedPerformanceFormula.controls.controls.find(({ id }) => id === 'P02-history-budget')
-      .allOf[0].metrics.history200MedianMs.baselineMultiplier = 2;
-    expect(() => validateConfiguration(relaxedPerformanceFormula.controls, relaxedPerformanceFormula.fixtures))
-      .toThrow('performance formula differs from frozen contract');
+    const mutablePerformanceCLI = documents();
+    mutablePerformanceCLI.controls.controls.find(({ id }) => id === 'P02-history-budget')
+      .allOf[0].argv.push('--json');
+    expect(() => validateConfiguration(mutablePerformanceCLI.controls, mutablePerformanceCLI.fixtures))
+      .toThrow('performance budget argv differs from frozen contract');
 
     const missingFixture = documents();
     missingFixture.controls.controls[0].allOf[0].caseIds = ['does-not-exist'];
@@ -215,7 +423,22 @@ describe('frontend maintainability scorer configuration', () => {
       controls.controls.find((control) => control.id === id).required
     ))).toBe(true);
     expect(JSON.stringify(controls)).not.toContain('notImplemented');
-    expect(JSON.stringify(controls)).not.toContain('frontend-maintainability-evidence.mjs');
+    expect(JSON.stringify(controls)).not.toMatch(/frontend-[a-z-]+-evidence\.mjs/u);
+    expect(controls.controls.find(({ id }) => id === 'E06-failure-matrix').allOf[0].argv)
+      .toEqual(['node', 'frontend-app/scripts/failure-matrix-runner.mjs']);
+    expect(controls.controls.find(({ id }) => id === 'A04-action-registry').allOf[1].argv)
+      .toEqual(['node', 'scripts/action-producer-guard.mjs']);
+    expect(controls.controls.find(({ id }) => id === 'P01-render-isolation').allOf[0].argv)
+      .toEqual(['node', 'scripts/performance-budget-runner.mjs', '--verify', '--subject', '$SUBJECT_SHA', '--baseline', '$FROZEN_BASELINE']);
+    expect(controls.controls.find(({ id }) => id === 'T05-build-embed-smoke').allOf[0].argv)
+      .toEqual(['node', 'scripts/delivery-smoke-runner.mjs', '--verify', '--subject', '$SUBJECT_SHA']);
+    const backgroundHealth = controls.controls.find(({ id }) => id === 'E03-background-health');
+    expect(backgroundHealth.allOf).toHaveLength(3);
+    expect(backgroundHealth.allOf.map(({ argv }) => argv)).toEqual([
+      ['node', 'node_modules/vitest/vitest.mjs', 'run', 'src/shared/diagnostics/frontendHealthStore.test.js', '--reporter=json', '--no-file-parallelism', '--maxWorkers=1'],
+      ['node', 'node_modules/vitest/vitest.mjs', 'run', 'src/shared/ui/productionActionFailureMatrix.test.js', '--reporter=json', '--no-file-parallelism', '--maxWorkers=1'],
+      ['node', 'frontend-app/scripts/failure-matrix-runner.mjs'],
+    ]);
   });
 
   it('enforces exact CLI forms', () => {
@@ -303,35 +526,223 @@ describe('frozen scorer target binding', () => {
 });
 
 describe('executable evidence registry', () => {
-  it('derives known artifact failures from the subject and never turns their absence into PASS', () => {
+  it('keeps Task2 action exemptions NOT_VERIFIED and requires exact zero-exemption output for PASS', () => {
+    expect(actionProducerGuardOutputStatus(
+      'action producer guard passed: discovered=30 covered=2 exempted=28',
+    )).toBe('NOT_VERIFIED');
+    expect(actionProducerGuardOutputStatus(
+      'action producer guard passed: discovered=30 covered=30 exempted=0',
+    )).toBe('PASS');
+    expect(actionProducerGuardOutputStatus(
+      'action producer guard passed: discovered=30 covered=29 exempted=0',
+    )).toBe('FAIL');
+    expect(actionProducerGuardOutputStatus('action producer guard passed')).toBe('FAIL');
+  });
+
+  it('keeps legacy artifact probes read-only and unregistered once real lane runners are frozen', () => {
     expect(sourceHasPromptHistoryConsoleOnly()).toBe(true);
     expect(sourceHasCriticalTypecheckGap()).toBe(true);
-    expect(probeResult('promptHistoryVisibleError')).toBe('FAIL');
-    expect(probeResult('criticalTypecheck')).toBe('FAIL');
+    expect(probeResult('promptHistoryVisibleError')).toBe('NOT_VERIFIED');
+    expect(probeResult('criticalTypecheck')).toBe('NOT_VERIFIED');
   });
 
-  it('keeps an unregistered redMatrix and a missing exact actionRegistry runner NOT_VERIFIED', () => {
+  it('keeps an unregistered redMatrix and a missing exact action runner NOT_VERIFIED', () => {
     expect(probeResult('redMatrix')).toBe('NOT_VERIFIED');
-    expect(probeResult('actionRegistry')).toBe('NOT_VERIFIED');
+    expect(probeResult('actionProducerGuard')).toBe('NOT_VERIFIED');
   });
 
-  it('rejects stale, mismatched, zero-test, and wrong-case structured evidence', () => {
+  it('rejects stale, mismatched, zero-test, wrong-control, and wrong-case Task3 evidence', () => {
     const { controls } = documents();
-    const control = controls.controls.find(({ id }) => id === 'A04-action-registry');
+    const control = controls.controls.find(({ id }) => id === 'E06-failure-matrix');
     const check = control.allOf[0];
     const context = inspectTargetRepository();
     const now = Date.now();
     const options = { context, control, check, startedAt: now - 100, finishedAt: now + 100 };
-    const valid = structuredEvidence(context, control, check);
+    const valid = failureMatrixEvidence(context, check);
 
     expect(structuredEvidenceStatus(valid, options)).toBe('PASS');
     expect(structuredEvidenceStatus({ ...valid, subjectSha: 'f'.repeat(40) }, options)).toBe('FAIL');
     expect(structuredEvidenceStatus({ ...valid, generatedAt: '2000-01-01T00:00:00.000Z' }, options)).toBe('FAIL');
-    expect(structuredEvidenceStatus({ ...valid, testCount: 0, tests: [] }, options)).toBe('FAIL');
+    expect(structuredEvidenceStatus({ ...valid, testCount: 0, evidence: [] }, options)).toBe('FAIL');
+    expect(structuredEvidenceStatus({ ...valid, controlIds: valid.controlIds.slice(0, 3) }, options)).toBe('FAIL');
     expect(structuredEvidenceStatus({
       ...valid,
-      caseIds: ['prompt-history-console-only'],
-      tests: [{ caseId: 'prompt-history-console-only', name: 'wrong case', status: 'passed' }],
+      caseIds: valid.caseIds.slice(1),
+    }, options)).toBe('FAIL');
+  });
+
+  it('derives Task3 control status from each frozen semantic subset', () => {
+    const { controls } = documents();
+    const context = inspectTargetRepository();
+    const now = Date.now();
+    for (const [controlId, expectedCases, expectedCount] of [
+      ['E03-background-health', ['FM-18'], 1],
+      ['E05-safe-recovery', ['FM-16', 'FM-17', 'FM-18'], 3],
+      ['C05-provider-rpc-parity', ['FM-07', 'FM-08', 'FM-09', 'FM-10', 'FM-11', 'FM-12', 'FM-13', 'FM-14', 'FM-19', 'FM-20'], 12],
+      ['T03-wails-integration', ['FM-01'], 2],
+    ]) {
+      const control = controls.controls.find(({ id }) => id === controlId);
+      const check = control.allOf.find(({ evidenceProtocol }) => evidenceProtocol === 'failure-matrix-report-v1');
+      expect(check.caseIds).toEqual(expectedCases);
+      expect(check.testCount).toBe(expectedCount);
+      const options = { context, control, check, startedAt: now - 100, finishedAt: now + 100 };
+      expect(structuredEvidenceStatus(failureMatrixEvidence(context, check), options)).toBe('PASS');
+      if (['E03-background-health', 'E05-safe-recovery'].includes(controlId)) {
+        expect(structuredEvidenceStatus(failureMatrixEvidence(context, check, {
+          status: 'partial',
+          blockedCases: [{ caseId: 'FM-18', blockedBy: 'Task2A', blocker: 'reconnect recovery is absent' }],
+        }), options)).toBe('NOT_VERIFIED');
+      }
+    }
+  });
+
+  it('selects the exact Task4C metric and rejects missing provenance or conflicting case status', () => {
+    const { controls } = documents();
+    const control = controls.controls.find(({ id }) => id === 'P02-history-budget');
+    const check = control.allOf[0];
+    const context = createPerformanceTarget(check.runnerFiles);
+    const now = Date.now();
+    const options = { context, control, check, startedAt: now - 100, finishedAt: now + 100 };
+    const { report: valid, baselineDocument } = performanceEvidence(context, check);
+    options.baselineDocument = baselineDocument;
+
+    expect(structuredEvidenceStatus(valid, options)).toBe('PASS');
+    expect(structuredEvidenceStatus({
+      ...valid,
+      evidence: { ...valid.evidence, subjectTree: undefined },
+    }, options)).toBe('FAIL');
+    expect(structuredEvidenceStatus({
+      ...valid,
+      evidence: { ...valid.evidence, generatedAt: undefined },
+    }, options)).toBe('FAIL');
+    expect(structuredEvidenceStatus({
+      ...valid,
+      verdict: {
+        ...valid.verdict,
+        caseResults: valid.verdict.caseResults.map((entry) => (
+          entry.metricId === check.metricId ? { ...entry, status: 'FAIL' } : entry
+        )),
+      },
+    }, options)).toBe('FAIL');
+    expect(structuredEvidenceStatus({
+      ...valid,
+      verdict: {
+        ...valid.verdict,
+        caseResults: valid.verdict.caseResults.map((entry) => (
+          entry.caseId === 'turns-200-tools-1'
+            ? { ...entry, metricId: 'P03-feedback-budget' }
+            : entry
+        )),
+      },
+    }, options)).toBe('FAIL');
+    expect(structuredEvidenceStatus(valid, {
+      ...options,
+      baselineDocument: { ...baselineDocument, provenance: undefined },
+    })).toBe('NOT_VERIFIED');
+    expect(structuredEvidenceStatus({
+      ...valid,
+      evidence: {
+        ...valid.evidence,
+        metrics: {
+          ...valid.evidence.metrics,
+          'P02-history-budget': {
+            ...valid.evidence.metrics['P02-history-budget'],
+            cases: {
+              ...valid.evidence.metrics['P02-history-budget'].cases,
+              'turns-200-tools-1': {
+                ...valid.evidence.metrics['P02-history-budget'].cases['turns-200-tools-1'],
+                durationMedianMs: 9,
+              },
+            },
+          },
+        },
+      },
+    }, options)).toBe('FAIL');
+    expect(structuredEvidenceStatus({
+      ...valid,
+      evidence: {
+        ...valid.evidence,
+        provenance: { ...valid.evidence.provenance, runnerContentHash: 'f'.repeat(64) },
+      },
+    }, options)).toBe('FAIL');
+    expect(structuredEvidenceStatus({
+      ...valid,
+      evidence: {
+        ...valid.evidence,
+        environment: { ...valid.evidence.environment, go: '' },
+      },
+    }, options)).toBe('FAIL');
+    const candidateBaseline = {
+      ...baselineDocument,
+      baseSha: context.subjectSha,
+      subjectSha: context.subjectSha,
+      subjectTree: context.subjectTree,
+      provenance: {
+        ...baselineDocument.provenance,
+        baselineAudit: {
+          ...baselineDocument.provenance.baselineAudit,
+          baseSha: context.subjectSha,
+          baseTree: context.subjectTree,
+        },
+      },
+    };
+    expect(structuredEvidenceStatus(valid, { ...options, baselineDocument: candidateBaseline })).toBe('FAIL');
+    expect(structuredEvidenceStatus(valid, {
+      ...options,
+      baselineDocument: {
+        ...baselineDocument,
+        provenance: {
+          ...baselineDocument.provenance,
+          baselineAudit: {
+            ...baselineDocument.provenance.baselineAudit,
+            changedPaths: [...baselineDocument.provenance.baselineAudit.changedPaths, 'src/candidate-product.js'],
+          },
+        },
+      },
+    })).toBe('FAIL');
+    expect(structuredEvidenceStatus(valid, {
+      ...options,
+      baselineDocument: {
+        ...baselineDocument,
+        metrics: {
+          ...baselineDocument.metrics,
+          'P01-render-isolation': {
+            ...baselineDocument.metrics['P01-render-isolation'],
+            mainPageUpdateCommits: 2,
+          },
+        },
+      },
+    })).toBe('FAIL');
+    expect(structuredEvidenceStatus(valid, {
+      ...options,
+      baselineDocument: {
+        ...baselineDocument,
+        metrics: {
+          ...baselineDocument.metrics,
+          'P01-render-isolation': {
+            ...baselineDocument.metrics['P01-render-isolation'],
+            mutationDetected: false,
+          },
+        },
+      },
+    })).toBe('FAIL');
+  });
+
+  it('requires Task4C delivery output to bind the subject and all four exact commands', () => {
+    const { controls } = documents();
+    const control = controls.controls.find(({ id }) => id === 'T05-build-embed-smoke');
+    const check = control.allOf[0];
+    const context = inspectTargetRepository();
+    const now = Date.now();
+    const options = { context, control, check, startedAt: now - 100, finishedAt: now + 100 };
+    const valid = deliveryEvidence(context, check);
+
+    expect(structuredEvidenceStatus(valid, options)).toBe('PASS');
+    expect(structuredEvidenceStatus({ ...valid, subjectSha: 'f'.repeat(40) }, options)).toBe('FAIL');
+    expect(structuredEvidenceStatus({ ...valid, testCount: 0 }, options)).toBe('FAIL');
+    expect(structuredEvidenceStatus({
+      ...valid,
+      verdict: { ...valid.verdict, commands: valid.verdict.commands.slice(1) },
     }, options)).toBe('FAIL');
   });
 
@@ -369,53 +780,6 @@ describe('scoring semantics', () => {
     expect(controlStatus([{ status: 'PASS' }, { status: 'PASS' }])).toBe('PASS');
     expect(controlStatus([{ status: 'PASS' }, { status: 'NOT_VERIFIED' }])).toBe('NOT_VERIFIED');
     expect(controlStatus([{ status: 'PASS' }, { status: 'FAIL' }])).toBe('FAIL');
-  });
-
-  it('executes frozen performance formulas without inventing missing baseline values', () => {
-    const { controls } = documents();
-    const p01 = controls.controls.find(({ id }) => id === 'P01-render-isolation').allOf[0];
-    const p02 = controls.controls.find(({ id }) => id === 'P02-history-budget').allOf[0];
-    const metrics = [
-      { name: 'mainPageCommits', value: 1, unit: 'commits', sampleCount: 20 },
-      { name: 'unrelatedSubtreeCommits', value: 1, unit: 'commits', sampleCount: 20 },
-    ];
-    const frozenReferences = {
-      metrics: {
-        'P01-render-isolation': {
-          references: {
-            mainPageCommits: { value: 1, unit: 'commits' },
-            unrelatedSubtreeCommits: { value: 1, unit: 'commits' },
-          },
-        },
-      },
-    };
-
-    expect(performanceMetricStatus(metrics, p01)).toBe('NOT_VERIFIED');
-    expect(performanceMetricStatus(metrics, p01, frozenReferences)).toBe('PASS');
-    expect(performanceMetricStatus([
-      { ...metrics[0], value: 2 },
-      metrics[1],
-    ], p01, frozenReferences)).toBe('FAIL');
-    expect(performanceMetricStatus([
-      { ...metrics[0], sampleCount: 19 },
-      metrics[1],
-    ], p01, frozenReferences)).toBe('FAIL');
-
-    const historyReferences = {
-      metrics: {
-        'P02-history-budget': {
-          references: Object.fromEntries(Object.keys(p02.metrics).map((name) => [name, { value: 100, unit: 'ms' }])),
-        },
-      },
-    };
-    const historyMetrics = Object.keys(p02.metrics).map((name) => ({
-      name, value: 114.9, unit: 'ms', sampleCount: 5,
-    }));
-    expect(performanceMetricStatus(historyMetrics, p02, historyReferences)).toBe('PASS');
-    expect(performanceMetricStatus([
-      { ...historyMetrics[0], value: 115.1 },
-      ...historyMetrics.slice(1),
-    ], p02, historyReferences)).toBe('FAIL');
   });
 
   it('does not turn zero evidence or confirmed artifact gaps into score', () => {

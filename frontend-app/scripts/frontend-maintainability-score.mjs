@@ -20,49 +20,132 @@ const governancePaths = [
   'frontend-app/scripts/frontend-maintainability-controls.json',
   'frontend-app/scripts/frontend-maintainability-score.mjs',
   'frontend-app/scripts/frontend-maintainability-baseline.json',
+  'frontend-app/scripts/frontend-maintainability-red-fixtures.json',
 ];
-const vitestProbes = new Set(['terminalTruth', 'publicError', 'terminalSsot', 'strictRpc']);
 const artifactProbes = new Set(['promptHistoryVisibleError', 'criticalTypecheck']);
 const plannedThresholds = { overall: 90, dimensions: { E: 90, A: 85, C: 85, T: 85, P: 80 } };
 const requiredDoDControls = new Set(['E06-failure-matrix', 'C05-provider-rpc-parity', 'T05-build-embed-smoke']);
-const plannedStructuredRunners = {
-  'E03-background-health': ['backgroundHealth', ['node', 'scripts/frontend-background-health-evidence.mjs', '--json']],
-  'E05-safe-recovery': ['safeRecovery', ['node', 'scripts/frontend-safe-recovery-evidence.mjs', '--json']],
-  'E06-failure-matrix': ['failureMatrix', ['node', 'scripts/frontend-failure-matrix-evidence.mjs', '--json']],
-  'A02-state-ownership': ['stateOwnership', ['node', 'scripts/frontend-state-ownership-guard.mjs', '--evidence-json']],
-  'A03-dependency-direction': ['dependencyDirection', ['node', 'scripts/frontend-dependency-direction-guard.mjs', '--evidence-json']],
-  'A04-action-registry': ['actionRegistry', ['node', 'scripts/frontend-action-registry-guard.mjs', '--evidence-json']],
-  'A05-generated-boundary': ['generatedBoundary', ['node', 'scripts/frontend-generated-boundary-guard.mjs', '--evidence-json']],
-  'C03-public-error-contract': ['publicErrorContract', ['node', 'scripts/frontend-public-error-contract-evidence.mjs', '--json']],
-  'C05-provider-rpc-parity': ['providerRpcParity', ['node', 'scripts/provider-rpc-parity-evidence.mjs', '--json']],
-  'T01-red-green-regression': ['redGreenRegression', ['node', 'scripts/frontend-red-green-regression-evidence.mjs', '--json']],
-  'T02-critical-action-coverage': ['criticalActionCoverage', ['node', 'scripts/frontend-critical-action-coverage-evidence.mjs', '--json']],
-  'T03-wails-integration': ['wailsIntegration', ['node', 'scripts/desktop-failure-smoke.mjs', '--evidence-json', '--control', 'T03-wails-integration']],
-  'T05-build-embed-smoke': ['desktopFailureSmoke', ['node', 'scripts/desktop-failure-smoke.mjs', '--evidence-json', '--control', 'T05-build-embed-smoke']],
-  'P01-render-isolation': ['renderIsolation', ['node', 'scripts/frontend-render-isolation-benchmark.mjs', '--verify', '--json']],
-  'P02-history-budget': ['historyBudget', ['node', 'scripts/chat-history-benchmark.mjs', '--verify', '--json']],
-  'P03-feedback-budget': ['feedbackBudget', ['node', 'scripts/frontend-feedback-benchmark.mjs', '--verify', '--json']],
-  'P04-resource-budget': ['resourceBudget', ['node', 'scripts/frontend-resource-budget.mjs', '--verify', '--json']],
-};
-const plannedMetricContracts = {
-  'P01-render-isolation': {
-    mainPageCommits: { operator: 'lte', unit: 'commits', minSamples: 20, baselineMultiplier: 1, absoluteMax: 1 },
-    unrelatedSubtreeCommits: { operator: 'lte', unit: 'commits', minSamples: 20, baselineMultiplier: 1, absoluteMax: 1 },
-  },
-  'P02-history-budget': {
-    history200MedianMs: { operator: 'lte', unit: 'ms', minSamples: 5, baselineMultiplier: 1.15 },
-    history1000MedianMs: { operator: 'lte', unit: 'ms', minSamples: 5, baselineMultiplier: 1.15 },
-    history5000MedianMs: { operator: 'lte', unit: 'ms', minSamples: 5, baselineMultiplier: 1.15 },
-  },
-  'P03-feedback-budget': {
-    feedbackMedianMs: { operator: 'lte', unit: 'ms', minSamples: 5, baselineMultiplier: 1.15 },
-  },
-  'P04-resource-budget': {
-    bundleBytes: { operator: 'lte', unit: 'bytes', minSamples: 1, baselineMultiplier: 1.05 },
-    maxChunkBytes: { operator: 'lte', unit: 'bytes', minSamples: 1, baselineMultiplier: 1.05 },
-    heapBytes: { operator: 'lte', unit: 'bytes', minSamples: 1, baselineMultiplier: 1.05 },
-  },
-};
+const customEvidenceProtocols = new Set([
+  'action-producer-guard-v1',
+  'failure-matrix-report-v1',
+  'desktop-failure-report-v1',
+  'performance-budget-json-v1',
+  'delivery-smoke-json-v1',
+]);
+const failureMatrixCaseIds = Object.freeze(Array.from({ length: 24 }, (_, index) => (
+  `FM-${String(index + 1).padStart(2, '0')}`
+)));
+const failureMatrixLayers = Object.freeze({
+  'FM-01': ['frontend', 'go-wails'],
+  'FM-02': ['frontend'],
+  'FM-03': ['frontend'],
+  'FM-04': ['frontend'],
+  'FM-05': ['frontend'],
+  'FM-06': ['frontend'],
+  'FM-07': ['go-codex'],
+  'FM-08': ['go-claude'],
+  'FM-09': ['go-codex'],
+  'FM-10': ['go-codex'],
+  'FM-11': ['go-codex'],
+  'FM-12': ['go-codex'],
+  'FM-13': ['go-codex'],
+  'FM-14': ['go-codex'],
+  'FM-15': ['fixture-replay'],
+  'FM-16': ['go-turn'],
+  'FM-17': ['go-turn'],
+  'FM-18': ['fixture-replay'],
+  'FM-19': ['frontend', 'go-codex'],
+  'FM-20': ['frontend', 'go-codex'],
+  'FM-21': ['fixture-replay'],
+  'FM-22': ['fixture-replay'],
+  'FM-23': ['fixture-replay'],
+  'FM-24': ['fixture-replay'],
+});
+const failureMatrixEvidencePairs = Object.freeze(Object.entries(failureMatrixLayers)
+  .flatMap(([caseId, layers]) => layers.map((layer) => `${caseId}\0${layer}`)));
+const failureMatrixControlIds = Object.freeze([
+  'E06-failure-matrix',
+  'C05-provider-rpc-parity',
+  'T01-red-green-regression',
+  'T03-wails-integration',
+]);
+const performanceCaseIds = Object.freeze({
+  'P01-render-isolation': ['render-main-page-update-commits', 'render-unrelated-subtree-update-commits', 'render-broad-subscription-mutation-detected'],
+  'P02-history-budget': ['turns-200-tools-1', 'turns-200-tools-3', 'turns-1000-tools-1', 'turns-1000-tools-3', 'turns-5000-tools-1', 'turns-5000-tools-3'],
+  'P03-feedback-budget': ['stop-visible-feedback'],
+  'P04-resource-budget': ['bundle-total-bytes', 'bundle-max-chunk-bytes'],
+});
+const allPerformanceCaseIds = Object.freeze(Object.values(performanceCaseIds).flat());
+const performanceRunnerFiles = Object.freeze([
+  'frontend-app/package.json',
+  'frontend-app/scripts/chat-history-benchmark.mjs',
+  'frontend-app/scripts/evidence-provenance.mjs',
+  'frontend-app/scripts/frontend-performance-cases.json',
+  'frontend-app/scripts/performance-budget-config.mjs',
+  'frontend-app/scripts/performance-budget-model.mjs',
+  'frontend-app/scripts/performance-budget-runner.mjs',
+  'frontend-app/scripts/render-isolation-probe.test.jsx',
+  'frontend-app/scripts/resource-budget.mjs',
+  'frontend-app/scripts/stop-feedback-benchmark.mjs',
+]);
+const performanceEnvironmentKeys = Object.freeze([
+  'os', 'cpu', 'totalMemoryBytes', 'loadAverage', 'node', 'npm', 'go',
+]);
+const performanceAuditAllowedPaths = new Set([
+  ...performanceRunnerFiles,
+  'frontend-app/scripts/chat-history-benchmark.test.mjs',
+  'frontend-app/scripts/delivery-smoke-runner.mjs',
+  'frontend-app/scripts/delivery-smoke-runner.test.mjs',
+  'frontend-app/scripts/performance-budget-model.test.mjs',
+  'frontend-app/scripts/performance-budget-runner.test.mjs',
+  'frontend-app/scripts/resource-budget.test.mjs',
+  'frontend-app/scripts/stop-feedback-benchmark.test.mjs',
+  'scripts/ai_maintenance/gate_execution.go',
+  'scripts/ai_maintenance/main.go',
+  'scripts/ai_maintenance/main_test.go',
+  'scripts/sqlc_verify_worktree_guard_test.go',
+]);
+const performanceAuditAllowedPrefixes = Object.freeze(['docs/doc/codemap/project-map/']);
+const failureMatrixChecks = Object.freeze({
+  'E03-background-health': Object.freeze({ probe: 'backgroundProviderHealth', caseIds: ['FM-18'], testCount: 1 }),
+  'E05-safe-recovery': Object.freeze({ probe: 'safeRecovery', caseIds: ['FM-16', 'FM-17', 'FM-18'], testCount: 3 }),
+  'E06-failure-matrix': Object.freeze({ probe: 'failureMatrix', caseIds: failureMatrixCaseIds, testCount: 27 }),
+  'C05-provider-rpc-parity': Object.freeze({
+    probe: 'providerRpcParity',
+    caseIds: ['FM-07', 'FM-08', 'FM-09', 'FM-10', 'FM-11', 'FM-12', 'FM-13', 'FM-14', 'FM-19', 'FM-20'],
+    testCount: 12,
+  }),
+  'T01-red-green-regression': Object.freeze({ probe: 'redGreenRegression', caseIds: failureMatrixCaseIds, testCount: 27 }),
+  'T03-wails-integration': Object.freeze({ probe: 'wailsFailureMatrix', caseIds: ['FM-01'], testCount: 2 }),
+});
+const deliveryCaseIds = Object.freeze([
+  'frontend-build',
+  'frontend-embed-verify',
+  'desktop-start-smoke',
+  'desktop-failure-smoke',
+]);
+const plannedLaneAllOfArgv = Object.freeze({
+  'A02-state-ownership': [
+    ['node', 'scripts/frontend-state-ownership-guard.mjs'],
+    ['node', 'node_modules/vitest/vitest.mjs', 'run', 'scripts/frontend-state-ownership-guard.test.mjs', '--reporter=json', '--no-file-parallelism', '--maxWorkers=1'],
+  ],
+  'A03-dependency-direction': [
+    ['node', 'scripts/frontend-dependency-direction-guard.mjs'],
+    ['node', 'node_modules/vitest/vitest.mjs', 'run', 'scripts/frontend-dependency-direction-guard.test.mjs', '--reporter=json', '--no-file-parallelism', '--maxWorkers=1'],
+  ],
+  'A04-action-registry': [
+    ['node', 'scripts/action-producer-guard.selftest.mjs'],
+    ['node', 'scripts/action-producer-guard.mjs'],
+  ],
+  'C04-critical-typecheck': [
+    ['node', 'scripts/critical-typecheck-guard.mjs'],
+    ['node', 'node_modules/vitest/vitest.mjs', 'run', 'scripts/contracts-typecheck-guard.test.mjs', '--reporter=json', '--no-file-parallelism', '--maxWorkers=1'],
+  ],
+  'T02-critical-action-coverage': [
+    ['node', 'scripts/action-producer-guard.selftest.mjs'],
+    ['node', 'scripts/action-producer-guard.mjs'],
+  ],
+});
 
 function readFrozenJSON(name) {
   return JSON.parse(fs.readFileSync(path.join(frozenScriptRoot, name), 'utf8'));
@@ -70,6 +153,12 @@ function readFrozenJSON(name) {
 
 function fail(message) {
   throw new Error(message);
+}
+
+class NotVerifiedEvidenceError extends Error {}
+
+function notVerified(message) {
+  throw new NotVerifiedEvidenceError(message);
 }
 
 function sorted(values) {
@@ -319,115 +408,407 @@ function artifactProbe(context, control, check) {
   });
 }
 
-function validateEvidenceTests(evidence, check) {
-  if (!Array.isArray(evidence.tests) || evidence.tests.length !== check.testCount || evidence.tests.length === 0) {
-    fail('structured evidence tests exact count mismatch');
-  }
-  const names = [];
-  const coveredCases = new Set();
-  for (const test of evidence.tests) {
-    exactKeys(test, ['caseId', 'name', 'status'], 'structured evidence test');
-    if (!check.caseIds.includes(test.caseId)) fail(`structured evidence unknown caseId: ${test.caseId}`);
-    if (typeof test.name !== 'string' || test.name.length === 0) fail('structured evidence test name is empty');
-    if (!['passed', 'failed'].includes(test.status)) fail(`structured evidence invalid test status: ${test.status}`);
-    names.push(test.name);
-    coveredCases.add(test.caseId);
-  }
-  if (new Set(names).size !== names.length) fail('structured evidence test names must be unique');
-  exactSet(coveredCases, check.caseIds, 'structured evidence covered cases');
-  return evidence.tests.every(({ status }) => status === 'passed') ? 'PASS' : 'FAIL';
+function normalizedRunnerStatus(status) {
+  if (status === 'PASS' || status === 'covered') return 'PASS';
+  if (status === 'FAIL') return 'FAIL';
+  if (status === 'NOT_VERIFIED' || status === 'partial') return 'NOT_VERIFIED';
+  fail(`unsupported runner status: ${String(status)}`);
 }
 
-export function performanceMetricStatus(evidenceMetrics, check, baselineDocument = baseline) {
-  const formulas = check.metrics;
-  if (!Array.isArray(evidenceMetrics) || !formulas || typeof formulas !== 'object') return 'FAIL';
-  const expectedNames = Object.keys(formulas);
-  if (evidenceMetrics.length !== expectedNames.length) return 'FAIL';
-  const metricsByName = new Map();
-  try {
-    for (const metric of evidenceMetrics) {
-      exactKeys(metric, ['name', 'value', 'unit', 'sampleCount'], 'structured metric evidence item');
-      if (!expectedNames.includes(metric.name) || metricsByName.has(metric.name)
-        || !Number.isFinite(metric.value) || metric.value < 0
-        || typeof metric.unit !== 'string'
-        || !Number.isInteger(metric.sampleCount) || metric.sampleCount <= 0) {
-        return 'FAIL';
-      }
-      metricsByName.set(metric.name, metric);
-    }
-    exactSet(metricsByName.keys(), expectedNames, 'structured metric evidence names');
-  }
-  catch {
-    return 'FAIL';
-  }
-
-  const references = baselineDocument.metrics?.[check.baselineMetricKey]?.references;
-  if (references === undefined) return 'NOT_VERIFIED';
-  try {
-    exactSet(Object.keys(references), expectedNames, 'frozen metric references');
-    for (const name of expectedNames) {
-      const formula = formulas[name];
-      const metric = metricsByName.get(name);
-      const reference = references[name];
-      exactKeys(reference, ['value', 'unit'], `frozen metric reference ${name}`);
-      if (formula.operator !== 'lte' || !Number.isFinite(formula.baselineMultiplier)
-        || formula.baselineMultiplier <= 0 || !Number.isFinite(reference.value) || reference.value < 0
-        || reference.unit !== formula.unit || metric.unit !== formula.unit
-        || metric.sampleCount < formula.minSamples) {
-        return 'FAIL';
-      }
-      const baselineLimit = reference.value * formula.baselineMultiplier;
-      const limit = Number.isFinite(formula.absoluteMax)
-        ? Math.min(baselineLimit, formula.absoluteMax)
-        : baselineLimit;
-      if (metric.value > limit) return 'FAIL';
-    }
-  }
-  catch {
-    return 'FAIL';
-  }
-  return 'PASS';
-}
-
-function validateStructuredEvidence(evidence, { context, control, check, startedAt, finishedAt }) {
-  const expectedKeys = [
-    'schemaVersion', 'subjectSha', 'subjectTree', 'controlId', 'caseIds', 'testCount',
-    'tests', 'generatedAt', 'environment',
-  ];
-  if (check.evidenceProtocol === 'metric-json-v1') expectedKeys.push('metrics');
-  exactKeys(evidence, expectedKeys, 'structured evidence');
-  if (evidence.schemaVersion !== 1) fail('structured evidence schemaVersion must equal 1');
-  if (evidence.subjectSha !== context.subjectSha || evidence.subjectTree !== context.subjectTree) {
-    fail('structured evidence subject binding mismatch');
-  }
-  if (evidence.controlId !== control.id) fail('structured evidence controlId mismatch');
-  if (!Array.isArray(evidence.caseIds)) fail('structured evidence caseIds must be an array');
-  exactSet(evidence.caseIds, check.caseIds, 'structured evidence caseIds');
-  if (evidence.testCount !== check.testCount || !Number.isInteger(evidence.testCount) || evidence.testCount <= 0) {
-    fail('structured evidence testCount mismatch');
-  }
-  const generatedAt = Date.parse(evidence.generatedAt);
+function validateReportBinding(report, context, startedAt, finishedAt) {
+  if (report?.schemaVersion !== 1) fail('runner report schemaVersion must equal 1');
+  if (report.subjectSha !== context.subjectSha) fail('runner report subjectSha mismatch');
+  const subjectTree = report.subjectTree ?? report.subjectTreeSha;
+  if (subjectTree !== context.subjectTree) fail('runner report subject tree mismatch');
+  const generatedAt = Date.parse(report.generatedAt);
   if (!Number.isFinite(generatedAt) || generatedAt < startedAt - 5_000 || generatedAt > finishedAt + 5_000) {
-    fail('structured evidence is stale or has an invalid generatedAt');
+    fail('runner report is stale or generatedAt is missing');
   }
-  exactKeys(evidence.environment, ['node', 'platform', 'arch'], 'structured evidence environment');
-  if (![evidence.environment.node, evidence.environment.platform, evidence.environment.arch]
-    .every((value) => typeof value === 'string' && value.length > 0)) {
-    fail('structured evidence environment is incomplete');
+}
+
+function validateExactCaseResult(caseIds, testCount, check, label) {
+  if (!Array.isArray(caseIds)) fail(`${label} caseIds must be an array`);
+  exactSet(caseIds, check.caseIds, `${label} caseIds`);
+  if (testCount !== check.testCount || !Number.isInteger(testCount) || testCount <= 0) {
+    fail(`${label} testCount mismatch`);
   }
-  const testStatus = validateEvidenceTests(evidence, check);
-  if (testStatus !== 'PASS') return testStatus;
-  return check.evidenceProtocol === 'metric-json-v1'
-    ? performanceMetricStatus(evidence.metrics, check)
-    : 'PASS';
+}
+
+function validateFailureMatrixReport(report, { context, check, startedAt, finishedAt }) {
+  validateReportBinding(report, context, startedAt, finishedAt);
+  exactSet(report.controlIds || [], failureMatrixControlIds, 'failure matrix controlIds');
+  validateExactCaseResult(report.caseIds, report.testCount, {
+    caseIds: failureMatrixCaseIds,
+    testCount: 27,
+  }, 'failure matrix aggregate');
+  if (report.caseCount !== failureMatrixCaseIds.length
+    || !Array.isArray(report.evidence) || report.evidence.length !== 27) {
+    fail('failure matrix aggregate count mismatch');
+  }
+  const evidencePairs = report.evidence.map(({ caseId, layer }) => `${caseId}\0${layer}`);
+  if (evidencePairs.some((pair) => pair.endsWith('\0'))
+    || report.evidence.some(({ test }) => typeof test !== 'string' || !test.trim())
+    || new Set(evidencePairs).size !== evidencePairs.length) {
+    fail('failure matrix evidence contains empty or duplicate case/layer pairs');
+  }
+  exactSet(evidencePairs, failureMatrixEvidencePairs, 'failure matrix evidence case/layer pairs');
+  exactSet(new Set(report.evidence.map(({ caseId }) => caseId)), failureMatrixCaseIds, 'failure matrix evidence caseIds');
+  if (!Array.isArray(report.blockedCases)) fail('failure matrix blockedCases must be an array');
+  const blockedIds = report.blockedCases.map(({ caseId, blockedBy, blocker }) => {
+    if (!failureMatrixCaseIds.includes(caseId) || !String(blockedBy || '').trim() || !String(blocker || '').trim()) {
+      fail('failure matrix blocked case is malformed');
+    }
+    return caseId;
+  });
+  if (new Set(blockedIds).size !== blockedIds.length) fail('failure matrix blocked cases are duplicated');
+  const aggregateStatus = normalizedRunnerStatus(report.status);
+  if ((aggregateStatus === 'PASS') !== (blockedIds.length === 0)) {
+    fail('failure matrix aggregate status conflicts with blocked cases');
+  }
+  const selectedEvidence = report.evidence.filter(({ caseId }) => check.caseIds.includes(caseId));
+  validateExactCaseResult(
+    [...new Set(selectedEvidence.map(({ caseId }) => caseId))],
+    selectedEvidence.length,
+    check,
+    'failure matrix selected control',
+  );
+  return blockedIds.some((caseId) => check.caseIds.includes(caseId)) ? 'NOT_VERIFIED' : 'PASS';
+}
+
+function validateDesktopFailureReport(report, { context, control, check, startedAt, finishedAt }) {
+  validateReportBinding(report, context, startedAt, finishedAt);
+  if (report.controlId !== control.id) fail('desktop failure smoke controlId mismatch');
+  validateExactCaseResult(report.caseIds, report.testCount, check, 'desktop failure smoke');
+  return normalizedRunnerStatus(report.status);
+}
+
+function requireFiniteNonNegative(value, label) {
+  if (!Number.isFinite(value) || value < 0) fail(`${label} must be finite and non-negative`);
+  return value;
+}
+
+function exactMedian(values, label) {
+  if (!Array.isArray(values) || values.length !== 5) fail(`${label} must contain five raw samples`);
+  const sortedValues = values.map((value, index) => requireFiniteNonNegative(value, `${label}[${index}]`))
+    .sort((left, right) => left - right);
+  return sortedValues[2];
+}
+
+function validateTimingMetric(metric, caseIds, subjectSha, label) {
+  if (metric?.subjectSha !== subjectSha || metric.sampleCount !== 5 || metric.warmupCount !== 1) {
+    fail(`${label} subject or sample contract mismatch`);
+  }
+  exactSet(Object.keys(metric.cases || {}), caseIds, `${label} cases`);
+  for (const caseId of caseIds) {
+    const entry = metric.cases[caseId];
+    if (!Array.isArray(entry?.durationAttemptSamplesMs) || entry.durationAttemptSamplesMs.length !== 5
+      || !Array.isArray(entry.durationSamplesMs) || entry.durationSamplesMs.length !== 5) {
+      fail(`${label}.${caseId} raw samples are missing`);
+    }
+    entry.durationAttemptSamplesMs.forEach((attempts, sampleIndex) => {
+      if (!Array.isArray(attempts) || attempts.length !== 3) fail(`${label}.${caseId} must record three attempts per sample`);
+      const measured = attempts.map((value, attemptIndex) => (
+        requireFiniteNonNegative(value, `${label}.${caseId}.attempt[${sampleIndex}][${attemptIndex}]`)
+      ));
+      if (entry.durationSamplesMs[sampleIndex] !== Math.min(...measured)) {
+        fail(`${label}.${caseId} selected sample is not the fastest fixed attempt`);
+      }
+    });
+    if (entry.durationMedianMs !== exactMedian(entry.durationSamplesMs, `${label}.${caseId}.durationSamplesMs`)) {
+      fail(`${label}.${caseId} median does not match raw samples`);
+    }
+  }
+}
+
+function validateRenderMetric(metric, subjectSha, label) {
+  if (metric?.subjectSha !== subjectSha || metric.updateCount !== 20
+    || !Number.isSafeInteger(metric.warmupUpdates) || metric.warmupUpdates <= 0) {
+    fail(`${label} render subject, warmup, or update count mismatch`);
+  }
+  requireFiniteNonNegative(metric.mainPageUpdateCommits, `${label}.mainPageUpdateCommits`);
+  requireFiniteNonNegative(metric.unrelatedSubtreeUpdateCommits, `${label}.unrelatedSubtreeUpdateCommits`);
+  if (typeof metric.mutationDetected !== 'boolean') fail(`${label}.mutationDetected must be boolean`);
+}
+
+function validateResourceMetric(metric, subjectSha, label) {
+  if (metric?.subjectSha !== subjectSha || !Number.isSafeInteger(metric.fileCount) || metric.fileCount <= 0
+    || !Array.isArray(metric.files) || metric.files.length !== metric.fileCount) {
+    fail(`${label} resource raw sample set is invalid`);
+  }
+  const paths = metric.files.map(({ path: filePath, bytes }) => {
+    if (typeof filePath !== 'string' || !filePath || !Number.isSafeInteger(bytes) || bytes <= 0) {
+      fail(`${label} resource raw sample is invalid`);
+    }
+    return filePath;
+  });
+  if (new Set(paths).size !== paths.length) fail(`${label} resource paths are duplicated`);
+  const total = metric.files.reduce((sum, { bytes }) => sum + bytes, 0);
+  const maximum = Math.max(...metric.files.map(({ bytes }) => bytes));
+  if (metric.totalBundleBytes !== total || metric.maxChunkBytes !== maximum) {
+    fail(`${label} resource summary does not match raw files`);
+  }
+}
+
+function validatePerformanceEnvironment(environment, label) {
+  exactKeys(environment, performanceEnvironmentKeys, `${label} environment`);
+  exactKeys(environment.os, ['platform', 'release', 'arch'], `${label} OS`);
+  exactKeys(environment.cpu, ['model', 'logicalCores'], `${label} CPU`);
+  if ([environment.os.platform, environment.os.release, environment.os.arch, environment.cpu.model,
+    environment.node, environment.npm, environment.go]
+    .some((value) => typeof value !== 'string' || !value.trim())
+    || !Number.isSafeInteger(environment.cpu.logicalCores) || environment.cpu.logicalCores <= 0
+    || !Number.isSafeInteger(environment.totalMemoryBytes) || environment.totalMemoryBytes <= 0
+    || !Array.isArray(environment.loadAverage) || environment.loadAverage.length !== 3
+    || environment.loadAverage.some((value) => !Number.isFinite(value) || value < 0)) {
+    fail(`${label} environment metadata is incomplete`);
+  }
+}
+
+function stablePerformanceEnvironment(environment) {
+  return {
+    os: {
+      platform: environment.os.platform,
+      release: environment.os.release,
+      arch: environment.os.arch,
+    },
+    cpu: {
+      model: environment.cpu.model,
+      logicalCores: environment.cpu.logicalCores,
+    },
+    totalMemoryBytes: environment.totalMemoryBytes,
+    node: environment.node,
+    npm: environment.npm,
+    go: environment.go,
+  };
+}
+
+function runnerFileSha256(repoRoot, revision, relativePath) {
+  const content = revision
+    ? execFileSync('git', ['show', `${revision}:${relativePath}`], { cwd: repoRoot })
+    : fs.readFileSync(path.join(repoRoot, relativePath));
+  return createHash('sha256').update(content).digest('hex');
+}
+
+function validateRunnerContent(provenance, context, check, label) {
+  exactKeys(provenance, [
+    'runnerId', 'runnerSha', 'runnerTree', 'runnerContentHash', 'runnerFiles',
+    'worktreeClean', 'worktreeStatus', 'baselineAudit',
+  ], `${label} provenance`);
+  if (provenance.runnerId !== 'frontend-performance-budget'
+    || !/^[0-9a-f]{40}$/u.test(provenance.runnerSha)
+    || !/^[0-9a-f]{40}$/u.test(provenance.runnerTree)
+    || !/^[0-9a-f]{64}$/u.test(provenance.runnerContentHash)
+    || provenance.worktreeClean !== true
+    || !Array.isArray(provenance.worktreeStatus) || provenance.worktreeStatus.length !== 0) {
+    fail(`${label} runner identity or clean-worktree binding is invalid`);
+  }
+  if (!gitSucceeds(context.repoRoot, ['cat-file', '-e', `${provenance.runnerSha}^{commit}`])
+    || !gitSucceeds(context.repoRoot, ['merge-base', '--is-ancestor', provenance.runnerSha, context.subjectSha])
+    || git(context.repoRoot, ['rev-parse', `${provenance.runnerSha}^{tree}`]) !== provenance.runnerTree) {
+    fail(`${label} runner SHA/tree is not committed ancestry of the candidate`);
+  }
+  if (!Array.isArray(provenance.runnerFiles)) fail(`${label} runnerFiles must be an array`);
+  exactSet(provenance.runnerFiles.map(({ path: runnerPath }) => runnerPath), check.runnerFiles, `${label} runnerFiles`);
+  const byPath = new Map(provenance.runnerFiles.map((entry) => [entry.path, entry]));
+  const aggregate = createHash('sha256');
+  for (const runnerPath of check.runnerFiles) {
+    const entry = byPath.get(runnerPath);
+    if (!entry || !/^[0-9a-f]{64}$/u.test(entry.sha256)
+      || entry.sha256 !== runnerFileSha256(context.repoRoot, provenance.runnerSha, runnerPath)) {
+      fail(`${label} runner file hash mismatch: ${runnerPath}`);
+    }
+    aggregate.update(`${runnerPath}\0${entry.sha256}\n`);
+  }
+  if (aggregate.digest('hex') !== provenance.runnerContentHash) {
+    fail(`${label} runnerContentHash does not match runnerFiles`);
+  }
+}
+
+function validatePerformanceProvenance(evidence, context, check, baselineDocument) {
+  if (!baselineDocument.provenance || !baselineDocument.subjectSha || !baselineDocument.subjectTree) {
+    notVerified('performance baseline has not been audited against immutable BASE_SHA');
+  }
+  const baseSha = baselineDocument.baseSha;
+  if (baselineDocument.subjectSha !== baseSha || baseSha === context.subjectSha
+    || !/^[0-9a-f]{40}$/u.test(baseSha)
+    || !gitSucceeds(context.repoRoot, ['cat-file', '-e', `${baseSha}^{commit}`])
+    || !gitSucceeds(context.repoRoot, ['merge-base', '--is-ancestor', baseSha, context.subjectSha])) {
+    fail('performance baseline subject must be a distinct immutable BASE_SHA ancestor');
+  }
+  const baseTree = git(context.repoRoot, ['rev-parse', `${baseSha}^{tree}`]);
+  if (baselineDocument.subjectTree !== baseTree || !Number.isFinite(Date.parse(baselineDocument.generatedAt))) {
+    fail('performance baseline subject tree or generatedAt mismatch');
+  }
+  validatePerformanceEnvironment(baselineDocument.environment, 'baseline');
+  validatePerformanceEnvironment(evidence.environment, 'candidate');
+  if (JSON.stringify(stablePerformanceEnvironment(baselineDocument.environment))
+    !== JSON.stringify(stablePerformanceEnvironment(evidence.environment))) {
+    fail('performance baseline and candidate environments differ');
+  }
+  validateRunnerContent(baselineDocument.provenance, context, check, 'baseline');
+  validateRunnerContent(evidence.provenance, context, check, 'candidate');
+  if (baselineDocument.provenance.runnerContentHash !== evidence.provenance.runnerContentHash
+    || JSON.stringify(baselineDocument.provenance.runnerFiles) !== JSON.stringify(evidence.provenance.runnerFiles)) {
+    fail('baseline and candidate runner content differs');
+  }
+  for (const runnerPath of check.runnerFiles) {
+    const entry = evidence.provenance.runnerFiles.find(({ path: entryPath }) => entryPath === runnerPath);
+    if (runnerFileSha256(context.repoRoot, null, runnerPath) !== entry.sha256) {
+      fail(`candidate worktree runner content differs from evidence: ${runnerPath}`);
+    }
+  }
+  if (evidence.provenance.baselineAudit !== null) fail('candidate provenance must not claim a baseline audit');
+  const audit = baselineDocument.provenance.baselineAudit;
+  exactKeys(audit, ['baseSha', 'baseTree', 'changedPaths'], 'performance baseline audit');
+  if (audit.baseSha !== baseSha || audit.baseTree !== baseTree
+    || !gitSucceeds(context.repoRoot, ['merge-base', '--is-ancestor', baseSha, baselineDocument.provenance.runnerSha])) {
+    fail('performance baselineAudit does not bind BASE_SHA ancestry');
+  }
+  if (!Array.isArray(audit.changedPaths) || new Set(audit.changedPaths).size !== audit.changedPaths.length
+    || audit.changedPaths.some((changedPath) => (
+      !performanceAuditAllowedPaths.has(changedPath)
+      && !performanceAuditAllowedPrefixes.some((prefix) => changedPath.startsWith(prefix))
+    ))) {
+    fail('performance baselineAudit changedPaths violate the frozen allowlist');
+  }
+  const actualChangedPaths = git(context.repoRoot, [
+    'diff', '--name-only', baseSha, baselineDocument.provenance.runnerSha,
+  ]).split('\n').filter(Boolean);
+  if (JSON.stringify(audit.changedPaths) !== JSON.stringify(actualChangedPaths)) {
+    fail('performance baselineAudit changedPaths exact order mismatch');
+  }
+}
+
+function recomputePerformanceStatuses(evidence, baselineDocument, context) {
+  const current = evidence.metrics;
+  const frozen = baselineDocument.metrics;
+  exactSet(Object.keys(current || {}), Object.keys(performanceCaseIds), 'performance evidence metricIds');
+  exactSet(Object.keys(frozen || {}), Object.keys(performanceCaseIds), 'performance baseline metricIds');
+  for (const metricId of Object.keys(performanceCaseIds)) {
+    if (current[metricId]?.metricId !== metricId || frozen[metricId]?.metricId !== metricId) {
+      fail(`${metricId} metric identity mismatch`);
+    }
+    if (frozen[metricId]?.status !== 'PASS' || frozen[metricId].subjectSha !== baselineDocument.baseSha) {
+      fail(`${metricId} baseline is not an audited PASS bound to BASE_SHA`);
+    }
+  }
+  validateRenderMetric(current['P01-render-isolation'], context.subjectSha, 'P01 current');
+  validateRenderMetric(frozen['P01-render-isolation'], baselineDocument.baseSha, 'P01 baseline');
+  if (frozen['P01-render-isolation'].absoluteUpdateLimit !== 1) fail('P01 absolute update limit must equal 1');
+  if (frozen['P01-render-isolation'].mainPageUpdateCommits > 1
+    || frozen['P01-render-isolation'].unrelatedSubtreeUpdateCommits > 1
+    || frozen['P01-render-isolation'].mutationDetected !== true) {
+    fail('P01 baseline raw evidence does not satisfy the frozen budget');
+  }
+  validateTimingMetric(current['P02-history-budget'], performanceCaseIds['P02-history-budget'], context.subjectSha, 'P02 current');
+  validateTimingMetric(frozen['P02-history-budget'], performanceCaseIds['P02-history-budget'], baselineDocument.baseSha, 'P02 baseline');
+  validateTimingMetric(current['P03-feedback-budget'], performanceCaseIds['P03-feedback-budget'], context.subjectSha, 'P03 current');
+  validateTimingMetric(frozen['P03-feedback-budget'], performanceCaseIds['P03-feedback-budget'], baselineDocument.baseSha, 'P03 baseline');
+  if (frozen['P02-history-budget'].maxRegressionRatio !== 1.15
+    || frozen['P03-feedback-budget'].maxRegressionRatio !== 1.15) {
+    fail('P02/P03 frozen regression ratio must equal 1.15');
+  }
+  validateResourceMetric(current['P04-resource-budget'], context.subjectSha, 'P04 current');
+  validateResourceMetric(frozen['P04-resource-budget'], baselineDocument.baseSha, 'P04 baseline');
+  if (frozen['P04-resource-budget'].maxRegressionRatio !== 1.05) fail('P04 frozen regression ratio must equal 1.05');
+
+  const statuses = new Map();
+  const p01Current = current['P01-render-isolation'];
+  const p01Frozen = frozen['P01-render-isolation'];
+  statuses.set('render-main-page-update-commits', p01Current.mainPageUpdateCommits <= Math.min(1, p01Frozen.mainPageUpdateCommits));
+  statuses.set('render-unrelated-subtree-update-commits', p01Current.unrelatedSubtreeUpdateCommits <= Math.min(1, p01Frozen.unrelatedSubtreeUpdateCommits));
+  statuses.set('render-broad-subscription-mutation-detected', p01Current.mutationDetected === true);
+  for (const metricId of ['P02-history-budget', 'P03-feedback-budget']) {
+    for (const caseId of performanceCaseIds[metricId]) {
+      statuses.set(caseId, current[metricId].cases[caseId].durationMedianMs
+        <= frozen[metricId].cases[caseId].durationMedianMs * 1.15);
+    }
+  }
+  statuses.set('bundle-total-bytes', current['P04-resource-budget'].totalBundleBytes
+    <= frozen['P04-resource-budget'].totalBundleBytes * 1.05);
+  statuses.set('bundle-max-chunk-bytes', current['P04-resource-budget'].maxChunkBytes
+    <= frozen['P04-resource-budget'].maxChunkBytes * 1.05);
+  return statuses;
+}
+
+function validatePerformanceReport(report, {
+  context, check, startedAt, finishedAt, baselineDocument = baseline,
+}) {
+  if (report?.schemaVersion !== 1 || report.evidence?.schemaVersion !== 1) {
+    fail('performance report and evidence schemaVersion must equal 1');
+  }
+  validatePerformanceProvenance(report.evidence, context, check, baselineDocument);
+  validateReportBinding(report.evidence, context, startedAt, finishedAt);
+  const computedCaseStatuses = recomputePerformanceStatuses(report.evidence, baselineDocument, context);
+  const verdict = report.verdict;
+  validateExactCaseResult(verdict?.caseIds, verdict?.testCount, {
+    caseIds: allPerformanceCaseIds,
+    testCount: allPerformanceCaseIds.length,
+  }, 'performance aggregate');
+  if (!Array.isArray(verdict.caseResults) || verdict.caseResults.length !== allPerformanceCaseIds.length) {
+    fail('performance caseResults exact count mismatch');
+  }
+  exactSet(verdict.caseResults.map(({ caseId }) => caseId), allPerformanceCaseIds, 'performance caseResults');
+  for (const [metricId, caseIds] of Object.entries(performanceCaseIds)) {
+    for (const caseId of caseIds) {
+      const result = verdict.caseResults.find((entry) => entry.caseId === caseId);
+      if (result?.metricId !== metricId) fail(`performance case metric mismatch: ${caseId}`);
+    }
+  }
+  const selectedCases = verdict.caseResults.filter(({ metricId }) => metricId === check.metricId);
+  validateExactCaseResult(selectedCases.map(({ caseId }) => caseId), selectedCases.length, check, check.metricId);
+  const metricVerdicts = Array.isArray(verdict.verdicts) ? verdict.verdicts : [];
+  exactSet(metricVerdicts.map(({ metricId }) => metricId), Object.keys(performanceCaseIds), 'performance metricIds');
+  for (const entry of verdict.caseResults) {
+    const expected = computedCaseStatuses.get(entry.caseId) ? 'PASS' : 'FAIL';
+    if (entry.status !== expected) fail(`performance case status was not derived from raw evidence: ${entry.caseId}`);
+  }
+  for (const entry of metricVerdicts) {
+    const expected = performanceCaseIds[entry.metricId].every((caseId) => computedCaseStatuses.get(caseId)) ? 'PASS' : 'FAIL';
+    if (entry.status !== expected) fail(`performance metric status was not derived from raw evidence: ${entry.metricId}`);
+  }
+  const aggregateStatus = [...computedCaseStatuses.values()].every(Boolean) ? 'PASS' : 'FAIL';
+  if (verdict.status !== aggregateStatus) fail('performance aggregate status was not derived from raw evidence');
+  const metricVerdict = metricVerdicts.find(({ metricId }) => metricId === check.metricId);
+  const status = normalizedRunnerStatus(metricVerdict.status);
+  const caseStatuses = selectedCases.map((entry) => normalizedRunnerStatus(entry.status));
+  if (status === 'PASS' && caseStatuses.some((caseStatus) => caseStatus !== 'PASS')) {
+    fail(`${check.metricId} PASS conflicts with case results`);
+  }
+  if (status === 'FAIL' && !caseStatuses.includes('FAIL')) fail(`${check.metricId} FAIL has no failed case`);
+  return status;
+}
+
+function validateDeliveryReport(report, { context, control, check, startedAt, finishedAt }) {
+  validateReportBinding(report, context, startedAt, finishedAt);
+  if (report.metricId !== control.id) fail('delivery smoke metricId mismatch');
+  validateExactCaseResult(report.caseIds, report.testCount, check, 'delivery smoke');
+  const commands = report.verdict?.commands;
+  if (!Array.isArray(commands)) fail('delivery smoke commands must be an array');
+  exactSet(commands.map(({ id }) => id), check.caseIds, 'delivery smoke commands');
+  const status = normalizedRunnerStatus(report.verdict.status);
+  if (status === 'PASS' && commands.some((command) => command.status !== 'PASS')) {
+    fail('delivery smoke PASS conflicts with command results');
+  }
+  return status;
+}
+
+function validateActualRunnerEvidence(report, options) {
+  switch (options.check.evidenceProtocol) {
+    case 'failure-matrix-report-v1': return validateFailureMatrixReport(report, options);
+    case 'desktop-failure-report-v1': return validateDesktopFailureReport(report, options);
+    case 'performance-budget-json-v1': return validatePerformanceReport(report, options);
+    case 'delivery-smoke-json-v1': return validateDeliveryReport(report, options);
+    default: fail(`unsupported actual runner protocol: ${options.check.evidenceProtocol}`);
+  }
 }
 
 export function structuredEvidenceStatus(evidence, options) {
   try {
-    return validateStructuredEvidence(evidence, options);
+    return validateActualRunnerEvidence(evidence, options);
   }
-  catch {
-    return 'FAIL';
+  catch (error) {
+    return error instanceof NotVerifiedEvidenceError ? 'NOT_VERIFIED' : 'FAIL';
   }
 }
 
@@ -447,24 +828,34 @@ function commandResult(command, args, options) {
   };
 }
 
-function structuredProbe(context, control, check) {
-  const [command, runnerPath, ...args] = check.argv;
+function expandedRunnerArgv(context, check) {
+  return check.argv.map((argument) => {
+    if (argument === '$SUBJECT_SHA') return context.subjectSha;
+    if (argument === '$FROZEN_BASELINE') return path.join(frozenScriptRoot, 'frontend-maintainability-baseline.json');
+    return argument;
+  });
+}
+
+function executeActualRunner(context, check) {
+  if (!context.evidenceCache) context.evidenceCache = new Map();
+  const argv = expandedRunnerArgv(context, check);
+  const cacheKey = JSON.stringify([check.evidenceProtocol, check.cwd, argv, check.reportPath || '']);
+  if (context.evidenceCache.has(cacheKey)) return context.evidenceCache.get(cacheKey);
+  const [command, runnerPath, ...args] = argv;
   const cwd = path.resolve(context.repoRoot, check.cwd);
   const absoluteRunnerPath = path.resolve(cwd, runnerPath);
   if (!fs.existsSync(absoluteRunnerPath)) {
-    return evidenceRecord(context, control, check, {
-      status: 'NOT_VERIFIED',
-      exitCode: null,
-      summary: `target evidence runner is missing: ${path.join(check.cwd, runnerPath)}`,
-    });
+    const missing = { missing: true, runnerPath: path.join(check.cwd, runnerPath) };
+    context.evidenceCache.set(cacheKey, missing);
+    return missing;
   }
   if (!fs.lstatSync(absoluteRunnerPath).isFile()) {
-    return evidenceRecord(context, control, check, {
-      status: 'FAIL',
-      exitCode: 1,
-      summary: `target evidence runner must be a regular file: ${path.join(check.cwd, runnerPath)}`,
-    });
+    const invalid = { invalid: true, runnerPath: path.join(check.cwd, runnerPath) };
+    context.evidenceCache.set(cacheKey, invalid);
+    return invalid;
   }
+  const reportPath = check.reportPath ? path.resolve(context.repoRoot, check.reportPath) : undefined;
+  if (reportPath) fs.rmSync(reportPath, { force: true });
   const startedAt = Date.now();
   const result = commandResult(command === 'node' ? process.execPath : command, [absoluteRunnerPath, ...args], {
     cwd,
@@ -472,38 +863,108 @@ function structuredProbe(context, control, check) {
     env: process.env,
   });
   const finishedAt = Date.now();
+  let report;
+  try {
+    const raw = reportPath ? fs.readFileSync(reportPath, 'utf8') : result.stdout;
+    report = JSON.parse(raw.trim());
+  }
+  catch (error) {
+    report = { parseError: error.message };
+  }
+  const executed = { result, report, startedAt, finishedAt };
+  context.evidenceCache.set(cacheKey, executed);
+  return executed;
+}
+
+export function actionProducerGuardOutputStatus(stdout) {
+  const match = String(stdout || '').trim().match(
+    /^action producer guard passed: discovered=(\d+) covered=(\d+) exempted=(\d+)$/u,
+  );
+  if (!match) return 'FAIL';
+  const [, discoveredText, coveredText, exemptedText] = match;
+  const discovered = Number(discoveredText);
+  const covered = Number(coveredText);
+  const exempted = Number(exemptedText);
+  if (discovered > 0 && covered === discovered && exempted === 0) return 'PASS';
+  if (discovered > 0 && covered + exempted === discovered && exempted > 0) return 'NOT_VERIFIED';
+  return 'FAIL';
+}
+
+function actionProducerGuardProbe(context, control, check) {
+  const execution = executeActualRunner(context, check);
+  if (execution.missing) {
+    return evidenceRecord(context, control, check, {
+      status: 'NOT_VERIFIED', exitCode: null, summary: `target runner is missing: ${execution.runnerPath}`,
+    });
+  }
+  if (execution.invalid) {
+    return evidenceRecord(context, control, check, {
+      status: 'FAIL', exitCode: 1, summary: `target runner must be a regular file: ${execution.runnerPath}`,
+    });
+  }
+  const { result } = execution;
   const output = `${result.stdout}${result.stderr}`.trim();
   if (result.error || result.exitCode !== 0) {
     return evidenceRecord(context, control, check, {
-      status: 'FAIL',
-      exitCode: result.exitCode,
-      summary: output.slice(-1200) || result.error?.message || 'target evidence runner failed',
+      status: 'FAIL', exitCode: result.exitCode, summary: output.slice(-1200) || result.error?.message,
     });
   }
-  let structured;
-  try {
-    structured = JSON.parse(result.stdout.trim());
+  const status = actionProducerGuardOutputStatus(result.stdout);
+  return evidenceRecord(context, control, check, {
+    status,
+    exitCode: status === 'PASS' ? 0 : status === 'FAIL' ? 1 : null,
+    summary: result.stdout.trim() || 'action producer guard output format mismatch',
+  });
+}
+
+function structuredProbe(context, control, check) {
+  if (check.evidenceProtocol === 'action-producer-guard-v1') {
+    return actionProducerGuardProbe(context, control, check);
   }
-  catch (error) {
+  const execution = executeActualRunner(context, check);
+  if (execution.missing) {
     return evidenceRecord(context, control, check, {
-      status: 'FAIL',
-      exitCode: 1,
-      summary: `target evidence output is not a single JSON object: ${error.message}`,
+      status: 'NOT_VERIFIED', exitCode: null, summary: `target runner is missing: ${execution.runnerPath}`,
+    });
+  }
+  if (execution.invalid) {
+    return evidenceRecord(context, control, check, {
+      status: 'FAIL', exitCode: 1, summary: `target runner must be a regular file: ${execution.runnerPath}`,
+    });
+  }
+  const { result, report, startedAt, finishedAt } = execution;
+  const output = `${result.stdout}${result.stderr}`.trim();
+  if (result.error) {
+    return evidenceRecord(context, control, check, {
+      status: 'FAIL', exitCode: result.exitCode, summary: result.error.message,
+    });
+  }
+  if (report.parseError) {
+    return evidenceRecord(context, control, check, {
+      status: 'FAIL', exitCode: result.exitCode, summary: `runner report is not valid JSON: ${report.parseError}; ${output.slice(-600)}`,
     });
   }
   let status;
   try {
-    status = validateStructuredEvidence(structured, { context, control, check, startedAt, finishedAt });
+    status = validateActualRunnerEvidence(report, { context, control, check, startedAt, finishedAt });
   }
   catch (error) {
-    return evidenceRecord(context, control, check, { status: 'FAIL', exitCode: 1, summary: error.message });
+    const notVerifiedResult = error instanceof NotVerifiedEvidenceError;
+    return evidenceRecord(context, control, check, {
+      status: notVerifiedResult ? 'NOT_VERIFIED' : 'FAIL',
+      exitCode: notVerifiedResult ? null : 1,
+      summary: error.message,
+    });
+  }
+  if (status === 'PASS' && result.exitCode !== 0) {
+    return evidenceRecord(context, control, check, {
+      status: 'FAIL', exitCode: result.exitCode, summary: 'runner reported PASS with a non-zero exit',
+    });
   }
   return evidenceRecord(context, control, check, {
     status,
     exitCode: status === 'PASS' ? 0 : status === 'FAIL' ? 1 : null,
-    summary: status === 'NOT_VERIFIED'
-      ? 'performance evidence is valid, but frozen baseline references are absent'
-      : `${structured.testCount} exact structured tests ${status === 'PASS' ? 'passed' : 'failed'}`,
+    summary: `${check.evidenceProtocol} ${status}; cases=${check.caseIds.length} tests=${check.testCount}`,
   });
 }
 
@@ -554,7 +1015,7 @@ function evaluateProbe(context, control, check) {
   try {
     if (check.evidenceProtocol === 'vitest-json-v1') return vitestProbe(context, control, check);
     if (check.evidenceProtocol === 'artifact-v1') return artifactProbe(context, control, check);
-    if (['test-json-v1', 'metric-json-v1'].includes(check.evidenceProtocol)) {
+    if (customEvidenceProtocols.has(check.evidenceProtocol)) {
       return structuredProbe(context, control, check);
     }
     fail(`unsupported executable probe protocol: ${check.evidenceProtocol}`);
@@ -566,7 +1027,7 @@ function evaluateProbe(context, control, check) {
 
 function evaluateCheck(context, control, check, runCommands) {
   if (check.kind === 'probe') {
-    if (['test-json-v1', 'metric-json-v1'].includes(check.evidenceProtocol) && !runCommands) {
+    if (customEvidenceProtocols.has(check.evidenceProtocol) && !runCommands) {
       return evidenceRecord(context, control, check, {
         status: 'NOT_VERIFIED',
         exitCode: null,
@@ -633,19 +1094,64 @@ function validateArtifactCheck(control, check) {
 }
 
 function validateStructuredCheck(control, check) {
-  const planned = plannedStructuredRunners[control.id];
-  if (!planned) fail(`unregistered structured evidence runner: ${control.id}`);
-  const [expectedProbe, expectedArgv] = planned;
-  const expectedProtocol = control.dimension === 'P' ? 'metric-json-v1' : 'test-json-v1';
-  if (check.probe !== expectedProbe || check.evidenceProtocol !== expectedProtocol
-    || JSON.stringify(check.argv) !== JSON.stringify(expectedArgv)) {
-    fail(`structured evidence runner differs from frozen contract: ${control.id}`);
+  const exact = (actual, expected, label) => {
+    if (JSON.stringify(actual) !== JSON.stringify(expected)) fail(`${label} differs from frozen contract: ${control.id}`);
+  };
+  if (check.evidenceProtocol === 'action-producer-guard-v1') {
+    const expectedProbe = control.id === 'A04-action-registry' ? 'actionProducerGuard' : 'criticalActionCoverage';
+    if (!['A04-action-registry', 'T02-critical-action-coverage'].includes(control.id)
+      || check.probe !== expectedProbe || check.requireZeroExemptions !== true) {
+      fail(`invalid action producer guard contract: ${control.id}`);
+    }
+    exact(check.argv, ['node', 'scripts/action-producer-guard.mjs'], 'action producer argv');
+    exact(check.caseIds, ['action-scorer-missing-stale-zero-test'], 'action producer caseIds');
+    if (check.testCount !== 1) fail(`action producer testCount differs from frozen contract: ${control.id}`);
+    return;
   }
-  if (expectedProtocol !== 'metric-json-v1') return;
-  if (check.baselineMetricKey !== control.id || !Object.hasOwn(baseline.metrics || {}, control.id)
-    || JSON.stringify(check.metrics) !== JSON.stringify(plannedMetricContracts[control.id])) {
-    fail(`performance formula differs from frozen contract: ${control.id}`);
+  if (check.evidenceProtocol === 'failure-matrix-report-v1') {
+    const expected = failureMatrixChecks[control.id];
+    if (!expected || check.probe !== expected.probe) fail(`invalid failure matrix control: ${control.id}`);
+    exact(check.argv, ['node', 'frontend-app/scripts/failure-matrix-runner.mjs'], 'failure matrix argv');
+    exact(check.caseIds, expected.caseIds, 'failure matrix caseIds');
+    if (check.cwd !== '.' || check.reportPath !== '.tmp/failure-matrix/report.json'
+      || check.testCount !== expected.testCount) {
+      fail(`failure matrix report contract differs from frozen contract: ${control.id}`);
+    }
+    return;
   }
+  if (check.evidenceProtocol === 'desktop-failure-report-v1') {
+    if (control.id !== 'T03-wails-integration' || check.probe !== 'desktopFailureSmoke') {
+      fail(`invalid desktop failure smoke control: ${control.id}`);
+    }
+    exact(check.argv, ['node', 'scripts/desktop-failure-smoke.mjs'], 'desktop failure smoke argv');
+    exact(check.caseIds, ['terminal-failed', 'prompt-history-reject'], 'desktop failure smoke caseIds');
+    if (check.reportPath !== '.tmp/desktop-failure-smoke/report.json' || check.testCount !== 2) {
+      fail(`desktop failure smoke report contract differs from frozen contract: ${control.id}`);
+    }
+    return;
+  }
+  if (check.evidenceProtocol === 'performance-budget-json-v1') {
+    if (!Object.hasOwn(performanceCaseIds, control.id) || check.probe !== 'performanceBudget'
+      || check.metricId !== control.id || !Object.hasOwn(baseline.metrics || {}, control.id)) {
+      fail(`invalid performance budget control: ${control.id}`);
+    }
+    exact(check.argv, ['node', 'scripts/performance-budget-runner.mjs', '--verify', '--subject', '$SUBJECT_SHA', '--baseline', '$FROZEN_BASELINE'], 'performance budget argv');
+    exact(check.caseIds, performanceCaseIds[control.id], 'performance budget caseIds');
+    exact(check.runnerFiles, performanceRunnerFiles, 'performance audited runner files');
+    if (check.testCount !== performanceCaseIds[control.id].length) {
+      fail(`performance testCount differs from frozen contract: ${control.id}`);
+    }
+    return;
+  }
+  if (check.evidenceProtocol === 'delivery-smoke-json-v1') {
+    if (control.id !== 'T05-build-embed-smoke' || check.probe !== 'deliverySmoke'
+      || check.metricId !== control.id) fail(`invalid delivery smoke control: ${control.id}`);
+    exact(check.argv, ['node', 'scripts/delivery-smoke-runner.mjs', '--verify', '--subject', '$SUBJECT_SHA'], 'delivery smoke argv');
+    exact(check.caseIds, deliveryCaseIds, 'delivery smoke caseIds');
+    if (check.testCount !== deliveryCaseIds.length) fail(`delivery smoke testCount differs from frozen contract: ${control.id}`);
+    return;
+  }
+  fail(`unregistered structured evidence runner: ${control.id}`);
 }
 
 function validateConfiguredCheck(control, check) {
@@ -663,12 +1169,14 @@ function validateConfiguredCheck(control, check) {
     fail(`zero-test runner evidence: ${control.id}`);
   }
   if (new Set(check.caseIds).size !== check.caseIds.length) fail(`duplicate fixture case: ${control.id}`);
-  for (const caseID of check.caseIds) {
-    if (!caseID.startsWith('frontend-') && !frozenFixtureIDs.has(caseID)) fail(`missing fixture case: ${caseID}`);
+  if (!customEvidenceProtocols.has(check.evidenceProtocol)) {
+    for (const caseID of check.caseIds) {
+      if (!caseID.startsWith('frontend-') && !frozenFixtureIDs.has(caseID)) fail(`missing fixture case: ${caseID}`);
+    }
   }
   if (check.kind !== 'probe') return;
-  if (vitestProbes.has(check.probe)) validateVitestCheck(control, check);
-  else if (artifactProbes.has(check.probe)) validateArtifactCheck(control, check);
+  if (check.evidenceProtocol === 'vitest-json-v1') validateVitestCheck(control, check);
+  else if (check.evidenceProtocol === 'artifact-v1') validateArtifactCheck(control, check);
   else validateStructuredCheck(control, check);
 }
 
@@ -683,6 +1191,11 @@ function validateConfiguredControl(config, control, seen) {
   if (requiredDoDControls.has(control.id) && !control.required) fail(`DoD control must be required: ${control.id}`);
   if (!Object.hasOwn(config.weights, control.dimension)) fail(`unknown control dimension: ${control.id}`);
   for (const check of control.allOf) validateConfiguredCheck(control, check);
+  if (Object.hasOwn(plannedLaneAllOfArgv, control.id)) {
+    const actual = control.allOf.map(({ argv }) => JSON.stringify(argv));
+    const expected = plannedLaneAllOfArgv[control.id].map((argv) => JSON.stringify(argv));
+    exactSet(actual, expected, `lane allOf argv ${control.id}`);
+  }
 }
 
 export function validateConfiguration(config = controls, fixtureDocument = fixtures) {
@@ -708,8 +1221,9 @@ export function validateConfiguration(config = controls, fixtureDocument = fixtu
   return true;
 }
 function scoreContext(context, { runCommands }) {
+  const executionContext = { ...context, evidenceCache: new Map() };
   const scoredControls = controls.controls.map((control) => {
-    const evidence = control.allOf.map((check) => evaluateCheck(context, control, check, runCommands));
+    const evidence = control.allOf.map((check) => evaluateCheck(executionContext, control, check, runCommands));
     return {
       id: control.id,
       dimension: control.dimension,
