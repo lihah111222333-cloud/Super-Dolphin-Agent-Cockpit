@@ -6,7 +6,6 @@ import { resolve } from 'node:path';
 import process from 'node:process';
 
 const RUNNER_CONTENT_PATHS = Object.freeze([
-  'frontend-app/package.json',
   'frontend-app/scripts/chat-history-benchmark.mjs',
   'frontend-app/scripts/evidence-provenance.mjs',
   'frontend-app/scripts/frontend-performance-cases.json',
@@ -22,6 +21,7 @@ const BASELINE_AUDIT_ALLOWED_PATHS = Object.freeze(new Set([
   ...RUNNER_CONTENT_PATHS,
   'docs/doc/codemap/README.md',
   'docs/doc/codemap/ai-index.json',
+  'frontend-app/package.json',
   'frontend-app/scripts/chat-history-benchmark.test.mjs',
   'frontend-app/scripts/delivery-smoke-runner.mjs',
   'frontend-app/scripts/delivery-smoke-runner.test.mjs',

@@ -17,6 +17,7 @@ describe('evidence provenance', () => {
     const second = runnerContentEvidence(REPOSITORY_ROOT);
     expect(first).toEqual(second);
     expect(first.runnerFiles.map(({ path }) => path)).toEqual(RUNNER_CONTENT_PATHS);
+    expect(RUNNER_CONTENT_PATHS).not.toContain('frontend-app/package.json');
     expect(first.runnerContentHash).toMatch(/^[0-9a-f]{64}$/);
     first.runnerFiles.forEach(({ sha256 }) => expect(sha256).toMatch(/^[0-9a-f]{64}$/));
   });
