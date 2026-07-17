@@ -329,7 +329,7 @@ function performanceEvidence(context, check, metricStatus = 'PASS', overrides = 
       mutationUpdateCommits: 20,
       mutationDetected: true,
       productionBoundary: 'src/App.jsx#App',
-      productionStoreSubscriptions: ['src/App.jsx:fixture'],
+      productionStoreSubscriptions: [{ source: 'src/App.jsx', line: 1, column: 1 }],
     },
     'P02-history-budget': timingMetric('P02-history-budget', subjectSha, casesByMetric['P02-history-budget'], frozen),
     'P03-feedback-budget': timingMetric('P03-feedback-budget', subjectSha, casesByMetric['P03-feedback-budget'], frozen),
@@ -733,6 +733,43 @@ describe('executable evidence registry', () => {
       }
     }
   });
+
+  it('validates P01 production subscription locations by stable value', () => {
+    const { controls } = documents();
+    const control = controls.controls.find(({ id }) => id === 'P01-render-isolation');
+    const check = control.allOf[0];
+    const context = createPerformanceTarget(check.runnerFiles);
+    const now = Date.now();
+    const options = { context, control, check, startedAt: now - 100, finishedAt: now + 100 };
+    const { report: valid, baselineDocument } = performanceEvidence(context, check);
+    options.baselineDocument = baselineDocument;
+    const withSubscriptions = (productionStoreSubscriptions) => ({
+      ...valid,
+      evidence: {
+        ...valid.evidence,
+        metrics: {
+          ...valid.evidence.metrics,
+          'P01-render-isolation': {
+            ...valid.evidence.metrics['P01-render-isolation'],
+            productionStoreSubscriptions,
+          },
+        },
+      },
+    });
+
+    expect(structuredEvidenceStatus(valid, options)).toBe('PASS');
+    expect(structuredEvidenceStatus(withSubscriptions(['src/App.jsx:fixture']), options)).toBe('FAIL');
+    expect(structuredEvidenceStatus(withSubscriptions([
+      { source: 'src/App.jsx', line: 1, column: 1 },
+      { source: 'src/App.jsx', line: 1, column: 1 },
+    ]), options)).toBe('FAIL');
+    expect(structuredEvidenceStatus(withSubscriptions([
+      { source: 'src/App.jsx', line: 0, column: 1 },
+    ]), options)).toBe('FAIL');
+    expect(structuredEvidenceStatus(withSubscriptions([
+      { source: 'src/App.jsx', line: 1, column: 1.5 },
+    ]), options)).toBe('FAIL');
+  }, 30_000);
 
   it('selects the exact Task4C metric and rejects missing provenance or conflicting case status', () => {
     const { controls } = documents();
