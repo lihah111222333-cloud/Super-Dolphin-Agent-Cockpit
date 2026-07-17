@@ -497,11 +497,21 @@ function requireFiniteNonNegative(value, label) {
   return value;
 }
 
-function exactMedian(values, label) {
-  if (!Array.isArray(values) || values.length !== 5) fail(`${label} must contain five raw samples`);
+function requireFinitePositive(value, label) {
+  if (!Number.isFinite(value) || value <= 0) fail(`${label} must be finite and positive`);
+  return value;
+}
+
+function exactMeasurementMedian(values, label) {
+  if (!Array.isArray(values) || values.length === 0) fail(`${label} must contain raw measurements`);
   const sortedValues = values.map((value, index) => requireFiniteNonNegative(value, `${label}[${index}]`))
     .sort((left, right) => left - right);
-  return sortedValues[2];
+  return sortedValues[Math.floor(sortedValues.length / 2)];
+}
+
+function exactMedian(values, label) {
+  if (!Array.isArray(values) || values.length !== 5) fail(`${label} must contain five raw samples`);
+  return exactMeasurementMedian(values, label);
 }
 
 function validateTimingMetric(metric, caseIds, subjectSha, label) {
@@ -529,6 +539,94 @@ function validateTimingMetric(metric, caseIds, subjectSha, label) {
     });
     if (entry.durationMedianMs !== exactMedian(entry.durationSamplesMs, `${label}.${caseId}.durationSamplesMs`)) {
       fail(`${label}.${caseId} median does not match raw samples`);
+    }
+  }
+}
+
+const p02DurationClock = 'p50(production/reference process.cpuUsage(user+system),alternating,500000-iteration-blocks)';
+
+function validatePairedTimingMetric(metric, caseIds, subjectSha, label) {
+  if (metric?.subjectSha !== subjectSha || metric.sampleCount !== 5 || metric.warmupCount !== 1) {
+    fail(`${label} subject or sample contract mismatch`);
+  }
+  exactSet(Object.keys(metric.cases || {}), caseIds, `${label} cases`);
+  for (const caseId of caseIds) {
+    const entry = metric.cases[caseId];
+    if (entry?.durationClock !== p02DurationClock || entry.attemptsPerSample !== 1
+      || !Number.isSafeInteger(entry.blockCount) || entry.blockCount <= 0
+      || !Number.isSafeInteger(entry.blockIterationCount) || entry.blockIterationCount <= 0
+      || !Number.isSafeInteger(entry.iterationCount)
+      || entry.iterationCount !== entry.blockCount * entry.blockIterationCount
+      || !Number.isSafeInteger(entry.materializedCount) || entry.materializedCount <= 0
+      || entry.referenceMaterializedCount !== entry.materializedCount
+      || !Array.isArray(entry.sampleDiagnostics) || entry.sampleDiagnostics.length !== 5
+      || !Array.isArray(entry.normalizedRatioSamples) || entry.normalizedRatioSamples.length !== 5) {
+      fail(`${label}.${caseId} paired measurement shape is invalid`);
+    }
+    entry.sampleDiagnostics.forEach((sample, sampleIndex) => {
+      const pairedArrays = [
+        sample?.blockOrders,
+        sample?.productionBlockCpuDurationsMs,
+        sample?.referenceBlockCpuDurationsMs,
+        sample?.rawNormalizedBlockRatios,
+      ];
+      if (pairedArrays.some((values) => !Array.isArray(values) || values.length !== entry.blockCount)) {
+        fail(`${label}.${caseId} sample ${sampleIndex} paired block evidence is incomplete`);
+      }
+      const recomputedRatios = sample.blockOrders.map((order, blockIndex) => {
+        const expectedOrder = (sampleIndex + blockIndex) % 2 === 0
+          ? 'production-reference'
+          : 'reference-production';
+        if (order !== expectedOrder) fail(`${label}.${caseId} sample ${sampleIndex} block order is invalid`);
+        const production = requireFinitePositive(
+          sample.productionBlockCpuDurationsMs[blockIndex],
+          `${label}.${caseId}.production[${sampleIndex}][${blockIndex}]`,
+        );
+        const reference = requireFinitePositive(
+          sample.referenceBlockCpuDurationsMs[blockIndex],
+          `${label}.${caseId}.reference[${sampleIndex}][${blockIndex}]`,
+        );
+        const recordedRatio = requireFinitePositive(
+          sample.rawNormalizedBlockRatios[blockIndex],
+          `${label}.${caseId}.ratio[${sampleIndex}][${blockIndex}]`,
+        );
+        const recomputedRatio = production / reference;
+        if (recordedRatio !== recomputedRatio) fail(`${label}.${caseId} raw ratio is not reproducible`);
+        return recomputedRatio;
+      });
+      const recomputedSample = exactMeasurementMedian(
+        recomputedRatios,
+        `${label}.${caseId}.rawNormalizedBlockRatios[${sampleIndex}]`,
+      );
+      const recordedSample = requireFinitePositive(
+        entry.normalizedRatioSamples[sampleIndex],
+        `${label}.${caseId}.normalizedRatioSamples[${sampleIndex}]`,
+      );
+      const diagnosticSample = requireFinitePositive(
+        sample.normalizedRatio,
+        `${label}.${caseId}.sampleDiagnostics[${sampleIndex}].normalizedRatio`,
+      );
+      if (recordedSample !== recomputedSample || diagnosticSample !== recomputedSample) {
+        fail(`${label}.${caseId} sample ${sampleIndex} normalized ratio summary is invalid`);
+      }
+    });
+    if (entry.normalizedRatioMedian !== exactMedian(
+      entry.normalizedRatioSamples,
+      `${label}.${caseId}.normalizedRatioSamples`,
+    )) {
+      fail(`${label}.${caseId} normalized ratio median does not match samples`);
+    }
+  }
+}
+
+function validatePairedTimingCompatibility(currentMetric, frozenMetric, caseIds) {
+  for (const caseId of caseIds) {
+    for (const field of [
+      'blockCount', 'blockIterationCount', 'iterationCount', 'materializedCount', 'referenceMaterializedCount',
+    ]) {
+      if (currentMetric.cases[caseId][field] !== frozenMetric.cases[caseId][field]) {
+        fail(`P02 ${caseId} ${field} mismatch`);
+      }
     }
   }
 }
@@ -727,8 +825,13 @@ function recomputePerformanceStatuses(evidence, baselineDocument, context) {
   validateRenderMetric(current['P01-render-isolation'], context.subjectSha, 'P01 current');
   validateRenderMetric(frozen['P01-render-isolation'], baselineDocument.baseSha, 'P01 baseline');
   if (frozen['P01-render-isolation'].absoluteUpdateLimit !== 1) fail('P01 absolute update limit must equal 1');
-  validateTimingMetric(current['P02-history-budget'], performanceCaseIds['P02-history-budget'], context.subjectSha, 'P02 current');
-  validateTimingMetric(frozen['P02-history-budget'], performanceCaseIds['P02-history-budget'], baselineDocument.baseSha, 'P02 baseline');
+  validatePairedTimingMetric(current['P02-history-budget'], performanceCaseIds['P02-history-budget'], context.subjectSha, 'P02 current');
+  validatePairedTimingMetric(frozen['P02-history-budget'], performanceCaseIds['P02-history-budget'], baselineDocument.baseSha, 'P02 baseline');
+  validatePairedTimingCompatibility(
+    current['P02-history-budget'],
+    frozen['P02-history-budget'],
+    performanceCaseIds['P02-history-budget'],
+  );
   validateTimingMetric(current['P03-feedback-budget'], performanceCaseIds['P03-feedback-budget'], context.subjectSha, 'P03 current');
   validateTimingMetric(frozen['P03-feedback-budget'], performanceCaseIds['P03-feedback-budget'], baselineDocument.baseSha, 'P03 baseline');
   if (frozen['P02-history-budget'].maxRegressionRatio !== 1.15
@@ -745,11 +848,13 @@ function recomputePerformanceStatuses(evidence, baselineDocument, context) {
   statuses.set('render-main-page-update-commits', p01Current.mainPageUpdateCommits <= Math.min(1, p01Frozen.mainPageUpdateCommits));
   statuses.set('render-unrelated-subtree-update-commits', p01Current.unrelatedSubtreeUpdateCommits <= Math.min(1, p01Frozen.unrelatedSubtreeUpdateCommits));
   statuses.set('render-broad-subscription-mutation-detected', p01Current.mutationDetected === true);
-  for (const metricId of ['P02-history-budget', 'P03-feedback-budget']) {
-    for (const caseId of performanceCaseIds[metricId]) {
-      statuses.set(caseId, current[metricId].cases[caseId].durationMedianMs
-        <= frozen[metricId].cases[caseId].durationMedianMs * 1.15);
-    }
+  for (const caseId of performanceCaseIds['P02-history-budget']) {
+    statuses.set(caseId, current['P02-history-budget'].cases[caseId].normalizedRatioMedian
+      <= frozen['P02-history-budget'].cases[caseId].normalizedRatioMedian * 1.15);
+  }
+  for (const caseId of performanceCaseIds['P03-feedback-budget']) {
+    statuses.set(caseId, current['P03-feedback-budget'].cases[caseId].durationMedianMs
+      <= frozen['P03-feedback-budget'].cases[caseId].durationMedianMs * 1.15);
   }
   statuses.set('bundle-total-bytes', current['P04-resource-budget'].totalBundleBytes
     <= frozen['P04-resource-budget'].totalBundleBytes * 1.05);
