@@ -50,11 +50,28 @@ it('routes Promise rejection through the same sinks', async () => {
   expect(diagnosticCauseForTest('diagnostic-async')).toBe(error);
 });
 
+it('projects an explicit false result into visible failure and Health', async () => {
+  const visibleFailureSink = vi.fn();
+  runUIAction('fixture.false-result', () => Promise.resolve(false), {
+    diagnosticIdFactory: diagnosticIds('diagnostic-false'),
+    rejectFalse: true,
+    visibleFailureSink,
+  });
+  await Promise.resolve();
+  await Promise.resolve();
+
+  expect(visibleFailureSink).toHaveBeenCalledTimes(1);
+  expect(frontendHealthSnapshot()).toEqual(expect.arrayContaining([
+    expect.objectContaining({ actionId: 'fixture.false-result' }),
+  ]));
+});
+
 it('fails fast when actionId or the retryable action thunk is missing', () => {
   expect(() => runUIAction('', () => {})).toThrow('actionId is required');
   expect(() => runUIAction('fixture.action', Promise.resolve())).toThrow('action must be a function');
   expect(() => runUIAction('fixture.action', () => {}, { healthSink: null })).toThrow('healthSink must be a function');
   expect(() => runUIAction('fixture.action', () => {}, { retryable: 'yes' })).toThrow('retryable must be a boolean');
+  expect(() => runUIAction('fixture.action', () => {}, { rejectFalse: 'yes' })).toThrow('rejectFalse must be a boolean');
 });
 
 it('records a visible failure sink exception in Health without recursive reporting', () => {
@@ -96,11 +113,10 @@ it('records an onError callback exception in Health without exposing the raw act
   expect(diagnosticCauseForTest('diagnostic-on-error')).toBe(onErrorCause);
 });
 
-it('terminates async reporting when every diagnostic sink and the id factory throw', async () => {
+it('terminates async reporting when the id factory and all caller-owned sinks throw', async () => {
   const causes = {
     action: new Error('raw provider token=secret'),
     diagnostic: new Error('raw diagnostic factory failure'),
-    emergency: new Error('raw emergency sink failure'),
     health: new Error('raw health sink failure'),
     onError: new Error('raw onError failure'),
     visible: new Error('raw visible sink failure'),
@@ -115,7 +131,6 @@ it('terminates async reporting when every diagnostic sink and the id factory thr
 
   runUIAction('fixture.all-sinks', () => Promise.reject(causes.action), {
     diagnosticIdFactory: () => { throw causes.diagnostic; },
-    emergencyHealthSink: () => { throw causes.emergency; },
     healthSink: () => { throw causes.health; },
     onError,
     visibleFailureSink: () => { throw causes.visible; },
@@ -125,25 +140,21 @@ it('terminates async reporting when every diagnostic sink and the id factory thr
 
   const records = frontendHealthSnapshot();
   expect(records).toEqual(expect.arrayContaining([
-    expect.objectContaining({ actionId: 'fixture.all-sinks', code: 'UI_ACTION_FAILED' }),
     expect.objectContaining({ actionId: 'ui-action.diagnostic-id', code: 'DIAGNOSTIC_ID_FACTORY_FAILED' }),
     expect.objectContaining({ actionId: 'frontend-health.record', code: 'HEALTH_SINK_FAILED' }),
     expect.objectContaining({ actionId: 'visible-action-failure.publish', code: 'VISIBLE_FAILURE_SINK_FAILED' }),
     expect.objectContaining({ actionId: 'ui-action.on-error', code: 'ON_ERROR_CALLBACK_FAILED' }),
-    expect.objectContaining({ actionId: 'frontend-health.emergency', code: 'EMERGENCY_HEALTH_SINK_FAILED' }),
   ]));
   expect(JSON.stringify(records)).not.toContain('raw ');
   const recordFor = (actionId) => records.find((record) => record.actionId === actionId);
-  expect(diagnosticCauseForTest(recordFor('fixture.all-sinks').diagnosticId)).toBe(causes.action);
   expect(diagnosticCauseForTest(recordFor('ui-action.diagnostic-id').diagnosticId)).toBe(causes.diagnostic);
   expect(diagnosticCauseForTest(recordFor('frontend-health.record').diagnosticId)).toBe(causes.health);
   expect(diagnosticCauseForTest(recordFor('visible-action-failure.publish').diagnosticId)).toBe(causes.visible);
   expect(diagnosticCauseForTest(recordFor('ui-action.on-error').diagnosticId)).toBe(causes.onError);
-  expect(diagnosticCauseForTest(recordFor('frontend-health.emergency').diagnosticId)).toBe(causes.emergency);
   expect(onError).toHaveBeenCalledTimes(1);
 });
 
-it('survives throwing health and visible sinks with finite emergency Health records', () => {
+it('survives throwing health and visible sinks with finite observable Health records', () => {
   const healthSinkError = new Error('health sink raw failure');
   const visibleSinkError = new Error('visible sink raw failure');
   const healthSink = vi.fn(() => { throw healthSinkError; });
@@ -158,8 +169,39 @@ it('survives throwing health and visible sinks with finite emergency Health reco
   expect(healthSink).toHaveBeenCalledTimes(2);
   expect(visibleFailureSink).toHaveBeenCalledTimes(1);
   expect(frontendHealthSnapshot()).toEqual(expect.arrayContaining([
-    expect.objectContaining({ actionId: 'fixture.recursion' }),
     expect.objectContaining({ actionId: 'frontend-health.record', code: 'HEALTH_SINK_FAILED' }),
-    expect.objectContaining({ actionId: 'visible-action-failure.publish', code: 'VISIBLE_FAILURE_SINK_FAILED' }),
   ]));
+});
+
+it('does not create an unhandled rejection when async failure reporting uses the finite state', async () => {
+  const unhandled = vi.fn();
+  window.addEventListener('unhandledrejection', unhandled);
+  runUIAction('fixture.no-unhandled', () => Promise.reject(new Error('raw async')), {
+    diagnosticIdFactory: () => { throw new Error('raw factory'); },
+    healthSink: () => { throw new Error('raw health'); },
+    visibleFailureSink: () => { throw new Error('raw visible'); },
+    onError: () => { throw new Error('raw onError'); },
+  });
+  await Promise.resolve();
+  await Promise.resolve();
+  expect(unhandled).not.toHaveBeenCalled();
+  window.removeEventListener('unhandledrejection', unhandled);
+});
+
+it('makes each published retry intent one-shot so a successful side effect cannot repeat', async () => {
+  const action = vi.fn()
+    .mockRejectedValueOnce(new Error('raw first failure'))
+    .mockResolvedValueOnce('done');
+  const visibleFailureSink = vi.fn();
+  runUIAction('fixture.retry-once', action, {
+    diagnosticIdFactory: diagnosticIds('retry-once'),
+    retryable: true,
+    visibleFailureSink,
+  });
+  await Promise.resolve();
+  const retry = visibleFailureSink.mock.calls[0][0].retry;
+
+  await expect(retry()).resolves.toBe('done');
+  expect(retry()).toBeUndefined();
+  expect(action).toHaveBeenCalledTimes(2);
 });

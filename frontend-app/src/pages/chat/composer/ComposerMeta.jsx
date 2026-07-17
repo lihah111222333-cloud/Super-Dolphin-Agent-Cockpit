@@ -36,7 +36,7 @@ function ComposerMeta({
   const projectTitle = projectPath || projectLabel;
   const onPrimaryAction = () => {
     if (canInterrupt) {
-      runUIAction('thread.interrupt', () => store.interruptActiveThread?.());
+      runUIAction('thread.interrupt', () => store.interruptActiveThread?.(), { rejectFalse: true });
       return;
     }
     if (canSend) runUIAction('composer.send', () => sendMessage());

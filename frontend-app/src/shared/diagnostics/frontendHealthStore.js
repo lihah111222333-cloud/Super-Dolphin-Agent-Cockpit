@@ -1,3 +1,5 @@
+// @ts-check
+
 import { requiredAppStoragePort } from '../api/browser/browserStorage.js';
 import { parse as parseLosslessJSON } from 'lossless-json';
 
@@ -10,17 +12,38 @@ const HEALTH_TIME_FORMATTER = new Intl.DateTimeFormat('sv-SE', {
   day: '2-digit', hour: '2-digit', hour12: false, minute: '2-digit', month: '2-digit', second: '2-digit', year: 'numeric',
 });
 
+/**
+ * @typedef {{
+ *   actionId: string,
+ *   code: string,
+ *   diagnosticId: string,
+ *   firstOccurredAt: string,
+ *   lastOccurredAt: string,
+ *   message: string,
+ *   occurrences: number,
+ *   title: string,
+ * }} FrontendHealthRecord
+ * @typedef {{ code: string, diagnosticId: string, message: string, title: string }} SafePublicError
+ * @typedef {{ actionId: string, publicError: SafePublicError }} FrontendHealthFailure
+ * @typedef {{ status: 'available' } | ({ status: 'failed' } & SafePublicError)} FrontendHealthPersistence
+ * @typedef {{ records: readonly FrontendHealthRecord[], persistence: FrontendHealthPersistence }} FrontendHealthState
+ * @typedef {{ get: (key: string) => string | null, set: (key: string, value: string) => unknown, remove: (key: string) => unknown }} HealthStoragePort
+ */
+
+/** @returns {string} */
 function currentHealthTimestamp() {
   return HEALTH_TIME_FORMATTER.format().replace(' ', 'T');
 }
 
+/** @param {unknown} value @returns {value is Record<string, unknown>} */
 function plainObject(value) {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
 
+/** @param {unknown} record @returns {FrontendHealthRecord} */
 function assertSafeHealthRecord(record) {
   if (!plainObject(record)) throw new TypeError('frontend health record must be an object');
-  const byName = (left, right) => left.localeCompare(right);
+  const byName = (/** @type {string} */ left, /** @type {string} */ right) => left.localeCompare(right);
   const keys = Object.keys(record).sort(byName);
   if (keys.join('\n') !== [...HEALTH_RECORD_KEYS].sort(byName).join('\n')) {
     throw new TypeError('frontend health record fields are invalid');
@@ -28,12 +51,13 @@ function assertSafeHealthRecord(record) {
   for (const key of ['actionId', 'code', 'diagnosticId', 'firstOccurredAt', 'lastOccurredAt', 'message', 'title']) {
     if (typeof record[key] !== 'string' || !record[key].trim()) throw new TypeError(`frontend health ${key} is required`);
   }
-  if (!Number.isInteger(record.occurrences) || record.occurrences < 1) {
+  if (!Number.isInteger(record.occurrences) || /** @type {number} */ (record.occurrences) < 1) {
     throw new TypeError('frontend health occurrences must be a positive integer');
   }
-  return record;
+  return /** @type {FrontendHealthRecord} */ (record);
 }
 
+/** @param {string | null} raw @returns {FrontendHealthRecord[]} */
 function parseStoredRecords(raw) {
   if (raw === null) return [];
   const parsed = parseLosslessJSON(raw, null, { parseNumber: Number });
@@ -42,13 +66,15 @@ function parseStoredRecords(raw) {
   return parsed.map((record) => ({ ...assertSafeHealthRecord(record) }));
 }
 
-function healthSignature(record) {
+/** @param {FrontendHealthRecord} record @returns {string} */
+export function frontendHealthIdentity(record) {
   return `${record.actionId}\n${record.code}\n${record.message}`;
 }
 
+/** @param {FrontendHealthRecord[]} records @param {FrontendHealthRecord} incoming @returns {FrontendHealthRecord[]} */
 function mergedHealthRecords(records, incoming) {
-  const signature = healthSignature(incoming);
-  const index = records.findIndex((record) => healthSignature(record) === signature);
+  const identity = frontendHealthIdentity(incoming);
+  const index = records.findIndex((record) => frontendHealthIdentity(record) === identity);
   if (index < 0) return [incoming, ...records].slice(0, FRONTEND_HEALTH_LIMIT);
   const previous = records[index];
   const merged = {
@@ -60,101 +86,78 @@ function mergedHealthRecords(records, incoming) {
   return [merged, ...records.slice(0, index), ...records.slice(index + 1)].slice(0, FRONTEND_HEALTH_LIMIT);
 }
 
+let internalDiagnosticSequence = 0;
+/** @returns {string} */
+function internalHealthDiagnosticId() {
+  internalDiagnosticSequence += 1;
+  return `frontend-health-${internalDiagnosticSequence}`;
+}
+
+/** @param {unknown} cause @returns {SafePublicError} */
+function persistencePublicError(cause) {
+  const diagnosticId = internalHealthDiagnosticId();
+  retainDiagnosticCause(diagnosticId, cause);
+  return Object.freeze({
+    code: 'HEALTH_PERSISTENCE_FAILED',
+    title: 'Health 持久化异常',
+    message: 'Health 记录当前只能保留在本次运行中，请复制诊断 ID 后重试。',
+    diagnosticId,
+  });
+}
+
+/** @param {HealthStoragePort} storage @param {FrontendHealthRecord[]} records @returns {FrontendHealthPersistence} */
+function persistHealthRecords(storage, records) {
+  try {
+    storage.set(FRONTEND_HEALTH_STORAGE_KEY, JSON.stringify(records));
+    return { status: 'available' };
+  } catch (error) {
+    return { status: 'failed', ...persistencePublicError(error) };
+  }
+}
+
+/** @param {HealthStoragePort} storage @returns {FrontendHealthPersistence} */
+function clearPersistedHealth(storage) {
+  try {
+    storage.remove(FRONTEND_HEALTH_STORAGE_KEY);
+    return { status: 'available' };
+  } catch (error) {
+    return { status: 'failed', ...persistencePublicError(error) };
+  }
+}
+
+/** @param {unknown} error @returns {HealthStoragePort} */
+function unavailableHealthStorage(error) {
+  const fail = () => { throw error; };
+  return { get: fail, set: fail, remove: fail };
+}
+
+/**
+ * @param {{ now?: () => string, storage: HealthStoragePort }} options
+ */
 export function createFrontendHealthStore({ now = currentHealthTimestamp, storage }) {
   if (!storage || typeof storage.get !== 'function' || typeof storage.set !== 'function' || typeof storage.remove !== 'function') {
     throw new TypeError('frontend health storage port is required');
   }
-  let records = parseStoredRecords(storage.get(FRONTEND_HEALTH_STORAGE_KEY));
+  /** @type {FrontendHealthRecord[]} */
+  let records = [];
+  /** @type {FrontendHealthPersistence} */
+  let persistence = { status: 'available' };
+  /** @type {string | null} */
+  let storedRecords = null;
+  try {
+    storedRecords = storage.get(FRONTEND_HEALTH_STORAGE_KEY);
+  } catch (error) {
+    persistence = { status: 'failed', ...persistencePublicError(error) };
+  }
+  if (persistence.status === 'available') records = parseStoredRecords(storedRecords);
+  /** @type {Set<() => void>} */
   const listeners = new Set();
   const emit = () => listeners.forEach((listener) => listener());
-  const persist = () => storage.set(FRONTEND_HEALTH_STORAGE_KEY, JSON.stringify(records));
-  return Object.freeze({
-    clear() {
-      records = [];
-      storage.remove(FRONTEND_HEALTH_STORAGE_KEY);
-      emit();
-    },
-    getSnapshot: () => records,
-    record({ actionId, publicError }) {
-      const occurredAt = now();
-      const incoming = assertSafeHealthRecord({
-        actionId,
-        code: publicError.code,
-        diagnosticId: publicError.diagnosticId,
-        firstOccurredAt: occurredAt,
-        lastOccurredAt: occurredAt,
-        message: publicError.message,
-        occurrences: 1,
-        title: publicError.title,
-      });
-      records = mergedHealthRecords(records, incoming);
-      emit();
-      persist();
-      return incoming;
-    },
-    subscribe(listener) {
-      if (typeof listener !== 'function') throw new TypeError('frontend health listener is required');
-      listeners.add(listener);
-      return () => listeners.delete(listener);
-    },
-  });
-}
-
-let persistentStore;
-let persistentStoreFailureDiagnosticId = '';
-const emergencyStorage = new Map();
-const diagnosticCauses = new Map();
-let lastResortRecords = [];
-const lastResortListeners = new Set();
-const emitLastResort = () => lastResortListeners.forEach((listener) => listener());
-const emergencyStore = createFrontendHealthStore({
-  storage: {
-    get: (key) => emergencyStorage.get(key) ?? null,
-    set: (key, value) => emergencyStorage.set(key, value),
-    remove: (key) => emergencyStorage.delete(key),
-  },
-});
-
-function defaultPersistentStore() {
-  if (!persistentStore) {
-    persistentStore = createFrontendHealthStore({ storage: requiredAppStoragePort('frontend health storage') });
-  }
-  return persistentStore;
-}
-
-function recordPersistentStoreFailure(error) {
-  if (persistentStoreFailureDiagnosticId) return;
-  if (typeof globalThis.crypto?.randomUUID !== 'function') throw error;
-  const diagnosticId = globalThis.crypto.randomUUID();
-  persistentStoreFailureDiagnosticId = diagnosticId;
-  retainDiagnosticCause(diagnosticId, error);
-  emergencyStore.record({
-    actionId: 'frontend-health.persistence',
-    publicError: {
-      code: 'HEALTH_PERSISTENCE_FAILED',
-      title: 'Health 持久化异常',
-      message: 'Health 持久记录不可用，本次运行中的诊断仍可查看。',
-      diagnosticId,
-    },
-  });
-}
-
-export function recordFrontendHealth(failure) {
-  return defaultPersistentStore().record(failure);
-}
-
-export function recordEmergencyFrontendHealth(failure) {
-  return emergencyStore.record(failure);
-}
-
-export function recordLastResortFrontendHealth({ actionId, publicError }) {
-  try {
-    let occurredAt = 'time-unavailable';
-    try {
-      occurredAt = currentHealthTimestamp();
-    } catch {
-      // The explicit marker keeps the final in-memory record finite when time formatting itself is unavailable.
-    }
+  /** @returns {FrontendHealthState} */
+  const getState = () => Object.freeze({ records: Object.freeze([...records]), persistence });
+  /** @param {FrontendHealthFailure} failure @param {boolean} persist */
+  const recordInternal = ({ actionId, publicError }, persist) => {
+    const occurredAt = now();
     const incoming = assertSafeHealthRecord({
       actionId,
       code: publicError.code,
@@ -165,68 +168,103 @@ export function recordLastResortFrontendHealth({ actionId, publicError }) {
       occurrences: 1,
       title: publicError.title,
     });
-    lastResortRecords = mergedHealthRecords(lastResortRecords, incoming);
-    emitLastResort();
-    return incoming;
-  } catch {
-    return undefined;
-  }
-}
-
-export function frontendHealthSnapshot() {
-  let persisted = [];
-  try {
-    persisted = defaultPersistentStore().getSnapshot();
-  } catch (error) {
-    recordPersistentStoreFailure(error);
-  }
-  return [...lastResortRecords, ...emergencyStore.getSnapshot(), ...persisted];
-}
-
-export function subscribeFrontendHealth(listener) {
-  let unsubscribePersistent = () => undefined;
-  try {
-    unsubscribePersistent = defaultPersistentStore().subscribe(listener);
-  } catch (error) {
-    recordPersistentStoreFailure(error);
-  }
-  const unsubscribeEmergency = emergencyStore.subscribe(listener);
-  lastResortListeners.add(listener);
-  return () => {
-    unsubscribePersistent();
-    unsubscribeEmergency();
-    lastResortListeners.delete(listener);
+    records = mergedHealthRecords(records, incoming);
+    if (persist) persistence = persistHealthRecords(storage, records);
+    emit();
+    return Object.freeze({ record: incoming, persisted: persistence.status === 'available' && persist });
   };
+  return Object.freeze({
+    clear() {
+      records = [];
+      persistence = clearPersistedHealth(storage);
+      emit();
+      return Object.freeze({ persisted: persistence.status === 'available' });
+    },
+    getSnapshot: () => [...records],
+    getState,
+    /** @param {FrontendHealthFailure} failure */
+    record(failure) {
+      return recordInternal(failure, true);
+    },
+    /** @param {FrontendHealthFailure} failure */
+    recordInMemory(failure) {
+      return recordInternal(failure, false);
+    },
+    /** @param {() => void} listener */
+    subscribe(listener) {
+      if (typeof listener !== 'function') throw new TypeError('frontend health listener is required');
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+  });
+}
+
+/** @type {ReturnType<typeof createFrontendHealthStore> | undefined} */
+let persistentStore;
+/** @type {Map<string, unknown>} */
+const diagnosticCauses = new Map();
+
+function defaultPersistentStore() {
+  if (!persistentStore) {
+    let storage;
+    try {
+      storage = requiredAppStoragePort('frontend health storage');
+    } catch (error) {
+      storage = unavailableHealthStorage(error);
+    }
+    persistentStore = createFrontendHealthStore({ storage });
+  }
+  return persistentStore;
+}
+
+/** @param {FrontendHealthFailure} failure */
+export function recordFrontendHealth(failure) {
+  return defaultPersistentStore().record(failure);
+}
+
+/**
+ * This is the single finite terminal state for a reporting sink failure. It is
+ * deliberately memory-only because retrying the failed persistence path here
+ * would recurse.
+ * @param {FrontendHealthFailure} failure
+ */
+export function recordFrontendHealthFailureState(failure) {
+  return defaultPersistentStore().recordInMemory(failure);
+}
+
+/** @returns {FrontendHealthRecord[]} */
+export function frontendHealthSnapshot() {
+  return defaultPersistentStore().getSnapshot();
+}
+
+/** @returns {FrontendHealthState} */
+export function frontendHealthStateSnapshot() {
+  return defaultPersistentStore().getState();
+}
+
+/** @param {() => void} listener */
+export function subscribeFrontendHealth(listener) {
+  return defaultPersistentStore().subscribe(listener);
 }
 
 export function clearFrontendHealth() {
-  lastResortRecords = [];
-  emitLastResort();
-  emergencyStore.clear();
-  try {
-    defaultPersistentStore().clear();
-    persistentStoreFailureDiagnosticId = '';
-  } catch (error) {
-    recordPersistentStoreFailure(error);
-  }
+  return defaultPersistentStore().clear();
 }
 
+/** @param {string} diagnosticId @param {unknown} cause */
 export function retainDiagnosticCause(diagnosticId, cause) {
   diagnosticCauses.set(diagnosticId, cause);
 }
 
+/** @param {string} diagnosticId */
 export function diagnosticCauseForTest(diagnosticId) {
   return diagnosticCauses.get(diagnosticId);
 }
 
 export function resetFrontendHealthForTest() {
   persistentStore = undefined;
-  persistentStoreFailureDiagnosticId = '';
-  emergencyStore.clear();
-  emergencyStorage.clear();
   diagnosticCauses.clear();
-  lastResortRecords = [];
-  lastResortListeners.clear();
+  internalDiagnosticSequence = 0;
 }
 
 export { FRONTEND_HEALTH_STORAGE_KEY, FRONTEND_HEALTH_LIMIT };

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { runBackgroundAction, runUIAction } from '../../../shared/ui/runUIAction.js';
 
 import { projectShortcutSettings, SHORTCUT_PREFERENCE_KEY, validateShortcutOverrides } from '../model/shortcutSettingsModel.js';
 
@@ -16,8 +17,25 @@ function preferenceValue(value) {
   return value;
 }
 
-function errorMessage(error) {
-  return error instanceof Error ? error.message : String(error);
+async function loadShortcutSettings(params) {
+  const {
+    cwd, generation, generationRef, getPreference, platform, registry,
+    setDraftOverrides, setError, setStatus, setValidatedOverrides,
+  } = params;
+  try {
+    const value = await getPreference({ cwd, key: SHORTCUT_PREFERENCE_KEY });
+    const overrides = validateShortcutOverrides({ registry, overrides: preferenceValue(value), platform });
+    if (generationRef.current !== generation) return;
+    setValidatedOverrides(overrides);
+    setDraftOverrides(overrides);
+    setStatus('ready');
+  } catch (loadError) {
+    if (generationRef.current !== generation) return;
+    setValidatedOverrides(undefined);
+    setStatus('error');
+    setError('加载快捷键设置失败，请重试。');
+    throw loadError;
+  }
 }
 
 export function useShortcutSettings(options) {
@@ -40,20 +58,10 @@ export function useShortcutSettings(options) {
       return;
     }
     setStatus('loading');
-    getPreference({ cwd, key: SHORTCUT_PREFERENCE_KEY })
-      .then((value) => validateShortcutOverrides({ registry, overrides: preferenceValue(value), platform }))
-      .then((overrides) => {
-        if (generationRef.current !== generation) return;
-        setValidatedOverrides(overrides);
-        setDraftOverrides(overrides);
-        setStatus('ready');
-      })
-      .catch((loadError) => {
-        if (generationRef.current !== generation) return;
-        setValidatedOverrides(undefined);
-        setStatus('error');
-        setError(errorMessage(loadError));
-      });
+    runBackgroundAction('settings.shortcuts.bootstrap', () => loadShortcutSettings({
+      cwd, generation, generationRef, getPreference, platform, registry,
+      setDraftOverrides, setError, setStatus, setValidatedOverrides,
+    }));
   }, [cwd, getPreference, platform, registry]);
 
   const setDraftBinding = useCallback((id, shortcut) => {
@@ -81,12 +89,13 @@ export function useShortcutSettings(options) {
     } catch (saveError) {
       if (generationRef.current !== generation) return;
       setStatus('error');
-      setError(errorMessage(saveError));
+      setError('保存快捷键设置失败，请重试。');
+      throw saveError;
     }
   }, [cwd, getPreference, platform, registry, setPreference]);
 
-  const save = useCallback(() => persist(draftOverrides), [draftOverrides, persist]);
-  const reset = useCallback(() => persist({}), [persist]);
+  const save = useCallback(() => runUIAction('settings.shortcuts.save', () => persist(draftOverrides)), [draftOverrides, persist]);
+  const reset = useCallback(() => runUIAction('settings.shortcuts.reset', () => persist({})), [persist]);
   const commands = useMemo(() => projectShortcutSettings({
     registry,
     copy,

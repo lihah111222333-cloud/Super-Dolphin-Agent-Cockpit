@@ -2442,7 +2442,12 @@ function hasRuntimeResultHandledRegressionEvidence(ast, testPath, symbol, entry)
     const warningAssertion = assertionTail.some(isExactInterruptWarningAssertion)
     const noSuccessAssertion = assertionTail.some(isExactInterruptNoSuccessAssertion)
     const addWarningAssertion = assertionTail.some(isExactInterruptAddWarningAssertion)
-    if (preludeSafe && awaitedSafe && tailSafe && warningAssertion && noSuccessAssertion && addWarningAssertion) proven = true
+    const rawNoticeLeakAssertion = assertionTail.some((statement) => isExactInterruptRawLeakAssertion(statement, 'notifyAction'))
+    const rawWarningLeakAssertion = assertionTail.some((statement) => isExactInterruptRawLeakAssertion(statement, 'addWarning'))
+    if (
+      preludeSafe && awaitedSafe && tailSafe && warningAssertion && noSuccessAssertion
+      && addWarningAssertion && rawNoticeLeakAssertion && rawWarningLeakAssertion
+    ) proven = true
   })
   return proven
 }
@@ -2539,7 +2544,7 @@ function isExactInterruptWarningAssertion(statement) {
   const matcher = exactExpectMatcher(statement)
   return matcher?.matcher === 'toHaveBeenCalledWith' && matcher.modifiers.length === 0
     && isRuntimeMember(matcher.expectArgument, 'notifyAction')
-    && hasExactStringArguments(matcher.arguments, ['中断当前执行失败：turn already completed', 'warning'])
+    && hasExactStringArguments(matcher.arguments, ['中断当前执行失败，请重试。', 'warning'])
     && isExactStringObject(matcher.arguments[2], { threadId: 'thread-1' })
 }
 
@@ -2556,7 +2561,26 @@ function isExactInterruptAddWarningAssertion(statement) {
   return matcher?.matcher === 'toHaveBeenCalledWith' && matcher.modifiers.length === 0
     && isRuntimeMember(matcher.expectArgument, 'addWarning')
     && hasExactStringArguments(matcher.arguments, ['warn', 'thread.interrupt.failed'])
-    && isExactStringObject(matcher.arguments[2], { threadId: 'thread-1', error: 'turn already completed' })
+    && isExactStringObject(matcher.arguments[2], { threadId: 'thread-1', error: 'action failure; see Health diagnostic ID' })
+}
+
+function isExactInterruptRawLeakAssertion(statement, runtimeMember) {
+  const matcher = exactExpectMatcher(statement)
+  if (
+    matcher?.matcher !== 'toContain' || matcher.modifiers.length !== 1 || matcher.modifiers[0] !== 'not'
+    || matcher.arguments.length !== 1 || matcher.arguments[0].type !== 'StringLiteral'
+    || matcher.arguments[0].value !== 'turn already completed'
+  ) return false
+  const stringify = matcher.expectArgument
+  if (
+    stringify?.type !== 'CallExpression' || stringify.arguments.length !== 1
+    || !isStaticMemberNamed(stringify.callee, 'stringify')
+    || stringify.callee.object.type !== 'Identifier' || stringify.callee.object.name !== 'JSON'
+  ) return false
+  const calls = stringify.arguments[0]
+  return isStaticMemberNamed(calls, 'calls')
+    && isStaticMemberNamed(calls.object, 'mock')
+    && isRuntimeMember(calls.object.object, runtimeMember)
 }
 
 function isStaticMemberNamed(node, name) {
@@ -3718,54 +3742,42 @@ function handlerDirectlyInspectsEnvelope(handlerSymbol, rpcMethod = '', ast = nu
     return statements.some((statement) => {
       if (statement.type !== 'IfStatement' || isAlwaysFalseExpression(statement.test)) return false
       if (!isExactInterruptFailurePredicate(statement.test, rpcMethod)) return false
-      let readsError = false
-      let warningMessageName = ''
-      if (statement.consequent.type === 'BlockStatement') {
-        for (const child of statement.consequent.body) {
-          if (child.type !== 'VariableDeclaration') continue
-          for (const item of child.declarations) {
-            if (
-              item.id.type === 'Identifier'
-              && item.init?.type === 'CallExpression'
-              && item.init.callee.type === 'Identifier'
-              && item.init.arguments.length === 1
-              && item.init.arguments[0].type === 'Identifier'
-              && item.init.arguments[0].name === 'result'
-              && moduleHelperReturnsResultError(ast, item.init.callee.name)
-            ) warningMessageName = item.id.name
-          }
-        }
-      }
+      let validatesRawEnvelope = false
       let notifyWarning = false
       let addWarning = false
       let returnsTrue = false
       walkAstWithAncestors(statement.consequent, (node, ancestors) => {
         if (ancestors.some((ancestor) => isFunctionNode(ancestor))) return
         if (
-          (node.type === 'MemberExpression' || node.type === 'OptionalMemberExpression')
-          && node.object.type === 'Identifier' && node.object.name === 'result'
-          && node.property.type === 'Identifier' && node.property.name === 'error'
-        ) readsError = true
+          node.type === 'CallExpression'
+          && node.callee.type === 'Identifier'
+          && node.arguments.length === 1
+          && node.arguments[0].type === 'Identifier' && node.arguments[0].name === 'result'
+          && moduleHelperReturnsResultError(ast, node.callee.name)
+        ) validatesRawEnvelope = true
         if (node.type === 'ReturnStatement' && node.argument?.type === 'BooleanLiteral' && node.argument.value) returnsTrue = true
         if (node.type === 'CallExpression' && node.callee.type === 'Identifier' && node.callee.name === 'notifyAction') {
-          const usesMessage = node.arguments.some((argument) => (
-            (argument.type === 'Identifier' && argument.name === warningMessageName)
-            || (warningMessageName && nodeContainsIdentifier(argument, warningMessageName))
-            || (!warningMessageName && nodeContainsResultError(argument))
-          ))
+          const message = node.arguments[0]
           const severity = node.arguments[1]
-          if (usesMessage && severity?.type === 'StringLiteral' && severity.value === 'warning') notifyWarning = true
+          if (
+            message?.type === 'StringLiteral' && message.value === '中断当前执行失败，请重试。'
+            && severity?.type === 'StringLiteral' && severity.value === 'warning'
+          ) notifyWarning = true
         }
         if (node.type === 'CallExpression' && node.callee.type === 'Identifier' && node.callee.name === 'addWarning') {
           const severity = node.arguments[0]
-          const usesMessage = node.arguments.some((argument) => (
-            (warningMessageName && nodeContainsIdentifier(argument, warningMessageName))
-            || (!warningMessageName && nodeContainsResultError(argument))
-          ))
-          if (usesMessage && severity?.type === 'StringLiteral' && severity.value === 'warn') addWarning = true
+          const fields = node.arguments[2]
+          const error = fields?.type === 'ObjectExpression'
+            ? fields.properties.find((property) => property.type === 'ObjectProperty' && staticPropertyKeyName(property) === 'error')
+            : null
+          if (
+            severity?.type === 'StringLiteral' && severity.value === 'warn'
+            && error?.value.type === 'StringLiteral'
+            && error.value.value === 'action failure; see Health diagnostic ID'
+          ) addWarning = true
         }
       })
-      return (readsError || warningMessageName) && notifyWarning && addWarning && returnsTrue
+      return validatesRawEnvelope && notifyWarning && addWarning && returnsTrue
     })
   }
   return statements.some((statement) => {
@@ -3836,18 +3848,6 @@ function isExactInterruptFailurePredicate(node, rpcMethod) {
   )
   return (isActionMatch(node.left) && isFailureMatch(node.right))
     || (isFailureMatch(node.left) && isActionMatch(node.right))
-}
-
-function nodeContainsResultError(node) {
-  let found = false
-  traverseAst(node, (candidate) => {
-    if (
-      (candidate.type === 'MemberExpression' || candidate.type === 'OptionalMemberExpression')
-      && candidate.object.type === 'Identifier' && candidate.object.name === 'result'
-      && candidate.property.type === 'Identifier' && candidate.property.name === 'error'
-    ) found = true
-  })
-  return found
 }
 
 function moduleHelperReturnsResultError(ast, helperName) {

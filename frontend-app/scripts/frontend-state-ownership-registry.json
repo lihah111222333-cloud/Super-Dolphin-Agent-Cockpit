@@ -65,6 +65,14 @@
           "role": "mapper-input"
         },
         {
+          "key": "src/shared/diagnostics/frontendHealthStore.js:recordInternal:destructure-read:publicError",
+          "role": "mapper-input"
+        },
+        {
+          "key": "src/shared/ui/actionFailureSink.jsx:ActionFailureSink:destructure-read:publicError",
+          "role": "renderer"
+        },
+        {
           "key": "src/pages/chat/thread/TimelineMessage.jsx:TimelineMessage:member-read:publicError",
           "role": "renderer"
         },

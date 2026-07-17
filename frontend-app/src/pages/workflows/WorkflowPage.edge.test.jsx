@@ -205,7 +205,9 @@ it('fails fast when the workflow list response is missing the dags array', async
 
   renderWorkflowPage();
 
-  expect(await screen.findByRole('alert')).toHaveTextContent('加载自动化失败：dags dashboard response dags must be an array');
+  const alert = await screen.findByRole('alert');
+  expect(alert).toHaveTextContent('加载自动化失败，请重试。');
+  expect(alert).not.toHaveTextContent('dags dashboard response dags must be an array');
   expect(backend.getDagDetail).not.toHaveBeenCalled();
 });
 

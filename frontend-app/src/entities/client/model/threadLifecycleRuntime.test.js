@@ -71,12 +71,14 @@ describe('thread lifecycle runtime', () => {
       requestId: 'stop-request-1',
       source: 'ui_stop',
     });
-    expect(runtime.notifyAction).toHaveBeenCalledWith('中断当前执行失败：turn already completed', 'warning', { threadId: 'thread-1' });
+    expect(runtime.notifyAction).toHaveBeenCalledWith('中断当前执行失败，请重试。', 'warning', { threadId: 'thread-1' });
     expect(runtime.notifyAction).not.toHaveBeenCalledWith('已发送中断请求', 'success', { threadId: 'thread-1' });
     expect(runtime.addWarning).toHaveBeenCalledWith('warn', 'thread.interrupt.failed', {
       threadId: 'thread-1',
-      error: 'turn already completed',
+      error: 'action failure; see Health diagnostic ID',
     });
+    expect(JSON.stringify(runtime.notifyAction.mock.calls)).not.toContain('turn already completed');
+    expect(JSON.stringify(runtime.addWarning.mock.calls)).not.toContain('turn already completed');
   });
 
   it('does not interrupt when the active target is not interruptible', async () => {
@@ -124,13 +126,13 @@ describe('thread lifecycle runtime', () => {
     const rpc = vi.fn().mockRejectedValue(new Error('backend offline'));
     attachActiveThreadRpcRuntime(runtime, deps);
 
-    await expect(runtime.activeThreadRPC('thread.compact', rpc)).resolves.toBe(false);
+    await expect(runtime.activeThreadRPC('thread.compact', rpc)).rejects.toThrow('backend offline');
 
     expect(rpc).toHaveBeenCalledWith({ cwd: '/repo/app', threadId: 'thread-1' });
-    expect(runtime.notifyAction).toHaveBeenCalledWith('压缩上下文失败：backend offline', 'error', { threadId: 'thread-1' });
+    expect(runtime.notifyAction).toHaveBeenCalledWith('压缩上下文失败，请重试。', 'error', { threadId: 'thread-1' });
     expect(runtime.addWarning).toHaveBeenCalledWith('error', 'thread.compact.failed', {
       threadId: 'thread-1',
-      error: 'backend offline',
+      error: 'action failure; see Health diagnostic ID',
     });
   });
 

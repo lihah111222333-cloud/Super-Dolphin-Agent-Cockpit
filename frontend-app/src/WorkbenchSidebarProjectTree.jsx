@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Folder, Plus, SquarePlus } from 'lucide-react';
 import { getSidebarState } from './shared/api/backendApi.js';
-import { runUIAction } from './shared/ui/runUIAction.js';
+import { runBackgroundAction, runUIAction } from './shared/ui/runUIAction.js';
 import { APP_COPY } from './shared/i18n/appI18n.js';
 import { currentTimestampMillis, errorMessage, textValue } from './pages/shared/pageShared.js';
 import {
@@ -78,7 +78,7 @@ function refreshProjectThreadCacheEntry(props) {
     loading: true,
     error: '',
   }));
-  getSidebarState({ cwd: path })
+  runBackgroundAction('sidebar.project-threads.load', async () => getSidebarState({ cwd: path }))
     .then((snapshot) => {
       updateProjectThreadCache(path, {
         threads: sidebarSnapshotThreads(snapshot),
@@ -87,11 +87,11 @@ function refreshProjectThreadCacheEntry(props) {
         error: '',
       });
     })
-    .catch((error) => {
+    .catch(() => {
       updateProjectThreadCache(path, (previous) => ({
         threads: Array.isArray(previous.threads) ? previous.threads : [],
         loading: false,
-        error: error?.message || String(error),
+        error: '项目线程加载失败，请查看 Health。',
       }));
     });
 }

@@ -56,7 +56,9 @@ it.each(['detail', 'runs'])('keeps DAG detail unpublished when the %s response v
 
   renderWorkflowPage();
 
-  expect(await screen.findByRole('alert')).toHaveTextContent(`加载自动化详情失败：${message}`);
+  const alert = await screen.findByRole('alert');
+  expect(alert).toHaveTextContent('加载自动化详情失败，请重试。');
+  expect(alert).not.toHaveTextContent(message);
   expect(screen.queryByText('Draft')).not.toBeInTheDocument();
   expect(screen.queryByText('run-malformed')).not.toBeInTheDocument();
 });
@@ -72,7 +74,9 @@ it('keeps DAG run state unpublished when the run response validator rejects malf
 
   renderWorkflowPage();
 
-  expect(await screen.findByRole('alert')).toHaveTextContent('加载自动化详情失败：dashboard/dagRun response is malformed');
+  const alert = await screen.findByRole('alert');
+  expect(alert).toHaveTextContent('加载自动化详情失败，请重试。');
+  expect(alert).not.toHaveTextContent('dashboard/dagRun response is malformed');
   expect(screen.queryByText('Corrupted Runtime Node')).not.toBeInTheDocument();
 });
 
@@ -274,7 +278,9 @@ it('still reports real backend errors during DAG list refresh', async () => {
     await Promise.resolve();
   });
 
-  expect(await screen.findByRole('alert')).toHaveTextContent('同步失败，显示的是上次成功的数据：workflow backend offline');
+  const alert = await screen.findByRole('alert');
+  expect(alert).toHaveTextContent('同步自动化失败，当前显示上次成功数据。');
+  expect(alert).not.toHaveTextContent('workflow backend offline');
 });
 
 it('starts the selected DAG with the manual trigger payload', async () => {
@@ -309,7 +315,8 @@ it('shows refresh failure after a successful DAG start', async () => {
   fireEvent.click(await screen.findByRole('button', { name: '运行' }));
 
   const notice = await screen.findByText(/已启动自动化/);
-  expect(notice).toHaveTextContent('但刷新状态失败：detail refresh offline');
+  expect(notice).toHaveTextContent('但刷新状态失败，请手动刷新。');
+  expect(notice).not.toHaveTextContent('detail refresh offline');
 });
 
 it('shows blocked ready-node diagnostics and dispatches the runtime node with an assignee', async () => {
@@ -446,7 +453,7 @@ it('reuses the run intent key when an uncertain transport failure is retried exp
   renderWorkflowPage();
 
   fireEvent.click(await screen.findByRole('button', { name: '运行' }));
-  expect(await screen.findByRole('alert')).toHaveTextContent('transport disconnected after request delivery');
+  expect(await screen.findByRole('alert')).toHaveTextContent('启动自动化失败，请重试。');
 
   fireEvent.click(screen.getByRole('button', { name: '运行' }));
 
@@ -469,7 +476,7 @@ it('rotates the run intent key after the backend reports idempotency exhaustion'
   renderWorkflowPage();
 
   fireEvent.click(await screen.findByRole('button', { name: '运行' }));
-  expect(await screen.findByRole('alert')).toHaveTextContent('idempotency key exhausted:');
+  expect(await screen.findByRole('alert')).toHaveTextContent('启动自动化失败，请重试。');
   const firstKey = backend.startDag.mock.calls[0][0].idempotencyKey;
 
   fireEvent.click(screen.getByRole('button', { name: '运行' }));

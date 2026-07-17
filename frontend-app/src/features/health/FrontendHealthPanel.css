@@ -3,6 +3,16 @@
   gap: 14px;
 }
 
+.frontend-health-persistence-failure {
+  border: 1px solid var(--fusion-danger-border, #b42318);
+  border-radius: 8px;
+  padding: 12px;
+}
+
+.frontend-health-persistence-failure p {
+  margin: 6px 0;
+}
+
 .frontend-health-header,
 .frontend-health-record-title,
 .frontend-health-record-meta {

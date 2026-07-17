@@ -106,7 +106,7 @@ function ChatPageHeader({ copy = APP_COPY.zh.chat, store, projectPath, rightPane
           aria-label={canInterruptThread ? '停止' : '停止（不可用）'}
           title={canInterruptThread ? '中断当前执行' : '无运行中任务'}
           disabled={!canInterruptThread}
-          onClick={() => runUIAction('thread.interrupt', () => store.interruptActiveThread?.())}
+          onClick={() => runUIAction('thread.interrupt', () => store.interruptActiveThread?.(), { rejectFalse: true })}
         >
           <CircleStop size={14} />
         </button>
@@ -116,7 +116,7 @@ function ChatPageHeader({ copy = APP_COPY.zh.chat, store, projectPath, rightPane
           aria-label={canForceCompleteThread ? '强制完成' : '强制完成（不可用）'}
           title={canForceCompleteThread ? '强制完成当前执行' : '无运行中任务'}
           disabled={!canForceCompleteThread}
-          onClick={() => runUIAction('thread.force-complete', () => store.forceCompleteActiveThread?.())}
+          onClick={() => runUIAction('thread.force-complete', () => store.forceCompleteActiveThread?.(), { rejectFalse: true })}
         >
           <CheckCircle2 size={14} />
         </button>
@@ -174,10 +174,10 @@ function ChatActionsMenu({
         runUIAction('thread.fork.open', () => store.openForkDraft?.());
         break;
       case 'interrupt-thread':
-        runUIAction('thread.interrupt', () => store.interruptActiveThread?.());
+        runUIAction('thread.interrupt', () => store.interruptActiveThread?.(), { rejectFalse: true });
         break;
       case 'force-complete-thread':
-        runUIAction('thread.force-complete', () => store.forceCompleteActiveThread?.());
+        runUIAction('thread.force-complete', () => store.forceCompleteActiveThread?.(), { rejectFalse: true });
         break;
       case 'recover-thread':
         runUIAction('thread.recover', () => store.recoverActiveThread?.());

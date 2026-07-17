@@ -2,11 +2,11 @@ import { beforeEach, expect, it, vi } from 'vitest';
 import {
   clearFrontendHealth,
   createFrontendHealthStore,
-  frontendHealthSnapshot,
+  frontendHealthIdentity,
+  frontendHealthStateSnapshot,
   FRONTEND_HEALTH_STORAGE_KEY,
-  recordLastResortFrontendHealth,
+  recordFrontendHealth,
   resetFrontendHealthForTest,
-  subscribeFrontendHealth,
 } from './frontendHealthStore.js';
 
 function storagePort() {
@@ -58,23 +58,75 @@ it('fails fast on malformed or field-expanded persisted Health data', () => {
   expect(() => createFrontendHealthStore({ storage })).toThrow();
 });
 
-it('publishes and clears safe last-resort Health records', () => {
-  const listener = vi.fn();
-  const unsubscribe = subscribeFrontendHealth(listener);
-  recordLastResortFrontendHealth({
-    actionId: 'fixture.last-resort',
-    publicError: publicError('diagnostic-last-resort', 'raw provider token=secret'),
+it('exposes one finite observable persistence failure state without a fallback store', () => {
+  const storage = storagePort();
+  const rawPersistenceCause = new Error('raw storage path=/Users/private');
+  storage.set = vi.fn(() => { throw rawPersistenceCause; });
+  const store = createFrontendHealthStore({ storage, now: () => '2026-07-17T10:00:00.000Z' });
+
+  const result = store.record({
+    actionId: 'fixture.persistence',
+    publicError: publicError('diagnostic-persistence', 'raw provider token=secret'),
   });
 
-  expect(listener).toHaveBeenCalled();
-  expect(frontendHealthSnapshot()).toEqual([
-    expect.objectContaining({ actionId: 'fixture.last-resort', diagnosticId: 'diagnostic-last-resort' }),
-  ]);
-  expect(JSON.stringify(frontendHealthSnapshot())).not.toContain('raw provider token=secret');
+  expect(result.persisted).toBe(false);
+  expect(store.getState()).toEqual({
+    records: [expect.objectContaining({ actionId: 'fixture.persistence' })],
+    persistence: expect.objectContaining({ status: 'failed', code: 'HEALTH_PERSISTENCE_FAILED' }),
+  });
+  expect(JSON.stringify(store.getState())).not.toContain('raw storage');
+  expect(JSON.stringify(store.getState())).not.toContain('raw provider');
+});
 
-  listener.mockClear();
-  clearFrontendHealth();
-  expect(listener).toHaveBeenCalled();
-  expect(frontendHealthSnapshot()).toEqual([]);
-  unsubscribe();
+it('makes a storage read exception observable even when the storage throws TypeError', () => {
+  const rawReadCause = new TypeError('raw storage read failure');
+  const store = createFrontendHealthStore({
+    storage: {
+      get: () => { throw rawReadCause; },
+      remove: () => undefined,
+      set: () => undefined,
+    },
+  });
+  expect(store.getState()).toEqual({
+    records: [],
+    persistence: expect.objectContaining({ status: 'failed', code: 'HEALTH_PERSISTENCE_FAILED' }),
+  });
+  expect(JSON.stringify(store.getState())).not.toContain('raw storage');
+});
+
+it('uses the exact same identity for merge semantics and list keys', () => {
+  const storage = storagePort();
+  const store = createFrontendHealthStore({ storage, now: () => '2026-07-17T10:00:00.000Z' });
+  store.record({ actionId: 'same', publicError: publicError('diagnostic-1') });
+  store.record({ actionId: 'same', publicError: publicError('diagnostic-2') });
+  store.record({
+    actionId: 'same',
+    publicError: { ...publicError('diagnostic-3'), message: '不同安全消息' },
+  });
+
+  const records = store.getSnapshot();
+  expect(records).toHaveLength(2);
+  expect(new Set(records.map(frontendHealthIdentity)).size).toBe(records.length);
+});
+
+it('makes default persistence failure observable and clear does not silently report success', () => {
+  const originalStorage = window.localStorage;
+  Object.defineProperty(window, 'localStorage', {
+    configurable: true,
+    value: {
+      getItem: () => null,
+      removeItem: () => undefined,
+      setItem: () => { throw new Error('quota raw'); },
+    },
+  });
+  const result = recordFrontendHealth({
+    actionId: 'fixture.default-persistence',
+    publicError: publicError('diagnostic-default'),
+  });
+  expect(result.persisted).toBe(false);
+  expect(frontendHealthStateSnapshot().persistence).toEqual(expect.objectContaining({ status: 'failed' }));
+
+  const clearResult = clearFrontendHealth();
+  expect(clearResult.persisted).toBe(true);
+  Object.defineProperty(window, 'localStorage', { configurable: true, value: originalStorage });
 });

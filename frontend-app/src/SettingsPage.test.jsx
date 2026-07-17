@@ -19,6 +19,9 @@ const backend = vi.hoisted(() => ({
   getThreadState: vi.fn(),
   getThreadMessages: vi.fn(),
   getMemorySnapshot: vi.fn(),
+  listModelProviders: vi.fn(),
+  saveModelProviders: vi.fn(),
+  applyModelProvider: vi.fn(),
   setPreference: vi.fn(),
   setVideoApiKey: vi.fn(),
   getPreference: vi.fn(),
@@ -102,6 +105,9 @@ function mockSettingsBootstrap() {
     private: { entries: [] },
     team: { entries: [] },
   });
+  backend.listModelProviders.mockResolvedValue({ activeVendorId: '', vendors: [] });
+  backend.saveModelProviders.mockResolvedValue({ activeVendorId: '', vendors: [] });
+  backend.applyModelProvider.mockResolvedValue({ activeVendorId: '', vendors: [] });
 }
 
 function mockSettingsPreferences() {
@@ -270,7 +276,9 @@ describe('SettingsPage provider settings', () => {
 
     await renderSettingsPage();
 
-    expect(await screen.findByRole('alert')).toHaveTextContent('invalid UI preference response for settings.provider.active: value is outside the accepted enum');
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent('读取运行时偏好失败，请重试。');
+    expect(alert).not.toHaveTextContent('settings.provider.active');
     expect(screen.getByRole('combobox', { name: 'Active Provider' })).toHaveValue('codex');
     expect(backend.setPreference).not.toHaveBeenCalled();
   });
@@ -352,9 +360,8 @@ describe('SettingsPage provider settings', () => {
     fireEvent.change(writableRoots, { target: { value: '/repo/app\nrelative/path' } });
     fireEvent.click(screen.getByRole('button', { name: '保存 Provider 设置' }));
 
-    await waitFor(() => {
-      expect(screen.getByRole('alert')).toHaveTextContent('路径必须是绝对路径：relative/path');
-    });
+    expect(await screen.findByText('保存 Provider 设置失败，请重试。')).toBeInTheDocument();
+    expect(screen.getAllByRole('alert').map((item) => item.textContent).join('\n')).not.toContain('路径必须是绝对路径');
     expect(backend.setPreference).not.toHaveBeenCalled();
   });
 
@@ -436,9 +443,8 @@ describe('SettingsPage provider settings', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '保存 Provider 设置' }));
 
-    await waitFor(() => {
-      expect(screen.getByRole('alert')).toHaveTextContent('请至少填写一个绝对路径');
-    });
+    expect(await screen.findByText('保存 Provider 设置失败，请重试。')).toBeInTheDocument();
+    expect(screen.getAllByRole('alert').map((item) => item.textContent).join('\n')).not.toContain('请至少填写一个绝对路径');
     expect(backend.setPreference).not.toHaveBeenCalled();
   });
 
@@ -528,14 +534,12 @@ describe('SettingsPage project scope guard', () => {
     fireEvent.change(screen.getByLabelText('Critical 阈值'), { target: { value: '96' } });
 
     fireEvent.click(screen.getByTestId('settings-stall-threshold-save-button'));
-    await waitFor(() => {
-      expect(screen.getByRole('alert')).toHaveTextContent('当前项目路径为空');
-    });
+    expect(await screen.findByText('保存运行设置失败，请重试。')).toBeInTheDocument();
+    expect(screen.getAllByRole('alert').map((item) => item.textContent).join('\n')).not.toContain('当前项目路径为空');
 
     fireEvent.click(screen.getByRole('button', { name: '保存 Provider 设置' }));
-    await waitFor(() => {
-      expect(screen.getByRole('alert')).toHaveTextContent('当前项目路径为空');
-    });
+    expect(await screen.findByText('保存 Provider 设置失败，请重试。')).toBeInTheDocument();
+    expect(screen.getAllByRole('alert').map((item) => item.textContent).join('\n')).not.toContain('当前项目路径为空');
 
     expect(backend.setPreference).not.toHaveBeenCalled();
   });

@@ -1,3 +1,5 @@
+// @ts-check
+
 const ACTION_PUBLIC_ERRORS = Object.freeze({
   'prompt-history.previous': Object.freeze({
     code: 'PROMPT_HISTORY_UNAVAILABLE',
@@ -11,6 +13,9 @@ const ACTION_PUBLIC_ERRORS = Object.freeze({
   }),
 });
 
+/** @typedef {{ code: string, title: string, message: string }} PublicErrorCopy */
+
+/** @param {() => string} factory @returns {string} */
 function requiredDiagnosticId(factory) {
   if (typeof factory !== 'function') throw new TypeError('diagnosticIdFactory is required');
   const diagnosticId = factory();
@@ -20,6 +25,7 @@ function requiredDiagnosticId(factory) {
   return diagnosticId.trim();
 }
 
+/** @returns {string} */
 function defaultDiagnosticIdFactory() {
   if (typeof globalThis.crypto?.randomUUID !== 'function') {
     throw new Error('crypto.randomUUID is required for UI action diagnostics');
@@ -27,9 +33,10 @@ function defaultDiagnosticIdFactory() {
   return globalThis.crypto.randomUUID();
 }
 
+/** @param {string} actionId @param {{ diagnosticIdFactory?: () => string, retryable?: boolean }} [options] */
 export function publicErrorForAction(actionId, { diagnosticIdFactory = defaultDiagnosticIdFactory, retryable = false } = {}) {
   if (typeof actionId !== 'string' || !actionId.trim()) throw new TypeError('actionId is required');
-  const copy = ACTION_PUBLIC_ERRORS[actionId] || {
+  const copy = /** @type {Record<string, PublicErrorCopy>} */ (ACTION_PUBLIC_ERRORS)[actionId] || {
     code: 'UI_ACTION_FAILED',
     title: '操作未完成',
     message: '操作失败，当前页面状态已保留。',
@@ -42,13 +49,13 @@ export function publicErrorForAction(actionId, { diagnosticIdFactory = defaultDi
   });
 }
 
+/** @param {string} code @param {() => string} [diagnosticIdFactory] */
 export function publicErrorForSink(code, diagnosticIdFactory = defaultDiagnosticIdFactory) {
+  /** @type {Record<string, { title: string, message: string }>} */
   const copies = {
     DIAGNOSTIC_ID_FACTORY_FAILED: { title: '诊断标识异常', message: '操作失败已使用本次运行的诊断标识记录。' },
-    EMERGENCY_HEALTH_SINK_FAILED: { title: '应急 Health 异常', message: '操作失败已保留在本次运行的最终 Health 中。' },
     HEALTH_SINK_FAILED: { title: 'Health 记录异常', message: '操作失败已保留在本次运行的 Health 中。' },
     ON_ERROR_CALLBACK_FAILED: { title: '错误回调异常', message: '错误回调失败已记录到 Health。' },
-    UI_ACTION_REPORTING_FAILED: { title: '错误报告异常', message: '操作失败已保留在本次运行的最终 Health 中。' },
     VISIBLE_FAILURE_SINK_FAILED: { title: '错误提示异常', message: '操作失败已记录到 Health。' },
   };
   const copy = copies[code];

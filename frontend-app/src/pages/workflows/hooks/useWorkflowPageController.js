@@ -1,6 +1,7 @@
 import { isCancelledError, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { dashboardQueryKey, errorMessage, firstText, numberOrNull, objectValue, optionalSettingsCwd, queryHasSnapshot, textValue } from '../../shared/pageShared.js';
+import { runBackgroundAction } from '../../../shared/ui/runUIAction.js';
+import { dashboardQueryKey, firstText, numberOrNull, objectValue, optionalSettingsCwd, queryHasSnapshot, textValue } from '../../shared/pageShared.js';
 import { useWorkflowActions } from './useWorkflowActions.js';
 import { getDagDetail, getDagRun, getDagRuns, listWorkflowTemplates } from '../services/workflowPageService.js';
 import {
@@ -54,7 +55,7 @@ function useWorkflowPageController({ projectPath, refreshKey, store }) {
 function useWorkflowTemplatesQuery() {
   const { data, error, isPending } = useQuery({
     queryKey: ['workflow-templates', 'government-enterprise'],
-    queryFn: () => listWorkflowTemplates({ category: 'government-enterprise' }),
+    queryFn: () => runBackgroundAction('workflow.templates.load', () => listWorkflowTemplates({ category: 'government-enterprise' })),
   });
   const items = useMemo(() => {
     const templates = Array.isArray(data?.templates) ? data.templates : [];
@@ -63,7 +64,7 @@ function useWorkflowTemplatesQuery() {
   return {
     items,
     loading: isPending,
-    error: error ? errorMessage(error) : '',
+    error: error ? '加载自动化模板失败，请重试。' : '',
   };
 }
 
@@ -82,7 +83,7 @@ function useWorkflowListQuery(workflowCwd) {
     dataUpdatedAt: dagsDataUpdatedAt,
   } = useQuery({
     queryKey: dashboardQueryKey(workflowCwd, 'dags'),
-    queryFn: () => fetchDagsDashboard(workflowCwd),
+    queryFn: () => runBackgroundAction('workflow.dashboard.load', () => fetchDagsDashboard(workflowCwd)),
     enabled: Boolean(workflowCwd),
   });
   const dagsQuery = { data: dagsData, error: dagsError, isPending: dagsPending };
@@ -101,7 +102,7 @@ function useWorkflowListQuery(workflowCwd) {
     const key = dashboardQueryKey(workflowCwd, 'dags');
     setWorkflowSyncFailureState({
       dataUpdatedAt: queryClient.getQueryState(key)?.dataUpdatedAt || 0,
-      message: '同步失败，显示的是上次成功的数据：' + errorMessage(err),
+      message: '同步自动化失败，当前显示上次成功数据。',
     });
   }, [queryClient, workflowCwd]);
   const refreshDags = useCallback(async () => {
@@ -225,7 +226,7 @@ function useWorkflowDetailQuery({ items, selectedDag, selectedDagKey, workflowCw
     isPending: dagDetailPending,
   } = useQuery({
     queryKey: dashboardQueryKey(workflowCwd, 'dag-detail', selectedDagKey),
-    queryFn: () => fetchWorkflowDagDetail(selectedDagKey, items),
+    queryFn: () => runBackgroundAction('workflow.dag-detail.load', () => fetchWorkflowDagDetail(selectedDagKey, items)),
     enabled: Boolean(workflowCwd && selectedDagKey),
   });
   const dagDetailQuery = { data: dagDetailData, error: dagDetailError, isPending: dagDetailPending };
@@ -264,7 +265,7 @@ function useWorkflowRunDetail({ activeRun, runs, workflowCwd }) {
     isPending: runDetailPending,
   } = useQuery({
     queryKey: dashboardQueryKey(workflowCwd, 'dag-run', effectiveSelectedRunKey),
-    queryFn: () => fetchWorkflowRunDetail(effectiveSelectedRunKey),
+    queryFn: () => runBackgroundAction('workflow.run-detail.load', () => fetchWorkflowRunDetail(effectiveSelectedRunKey)),
     enabled: Boolean(workflowCwd && effectiveSelectedRunKey),
   });
   const runDetailQuery = { data: runDetailData, error: runDetailError, isPending: runDetailPending };
@@ -416,12 +417,14 @@ function workflowDerivedSnapshot(options) {
 
 function workflowLoadMessages(listErrorState, syncFailure, detailErrorState, runErrorState) {
   let blockingLoadError = '';
-  if (listErrorState.blockingError) blockingLoadError = '加载自动化失败：' + listErrorState.blockingError;
-  else if (detailErrorState.blockingError) blockingLoadError = '加载自动化详情失败：' + detailErrorState.blockingError;
-  else if (runErrorState.blockingError) blockingLoadError = '加载自动化详情失败：' + runErrorState.blockingError;
+  if (listErrorState.blockingError) blockingLoadError = '加载自动化失败，请重试。';
+  else if (detailErrorState.blockingError) blockingLoadError = '加载自动化详情失败，请重试。';
+  else if (runErrorState.blockingError) blockingLoadError = '加载自动化详情失败，请重试。';
   return {
     blockingLoadError,
-    syncError: syncFailure || listErrorState.cachedSyncError || detailErrorState.cachedSyncError || runErrorState.cachedSyncError,
+    syncError: syncFailure || listErrorState.cachedSyncError || detailErrorState.cachedSyncError || runErrorState.cachedSyncError
+      ? '同步自动化失败，当前显示上次成功数据。'
+      : '',
   };
 }
 

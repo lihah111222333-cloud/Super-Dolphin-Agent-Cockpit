@@ -40,13 +40,11 @@ export function createPromptHistoryController({ fetchPage, cwd, activeThreadId =
   let pendingSelection;
   let draftSentinel = '';
   let disposed = false;
-
   /** @param {string} draft */
   function captureDraft(draft) {
     if (typeof draft !== 'string') throw new TypeError('draft must be a string');
     if (index === -1) draftSentinel = draft;
   }
-
   function previous() {
     if (disposed) return Promise.resolve(undefined);
     if (pending && pendingSelection?.intent === navigationIntent) return pendingSelection.promise;
@@ -78,7 +76,7 @@ export function createPromptHistoryController({ fetchPage, cwd, activeThreadId =
     pendingSelection = { intent: requestIntent, promise: selection };
     return selection;
   }
-
+  /** @param {((selected: string) => void) | undefined} [applySelection] */
   function next(applySelection) {
     if (applySelection !== undefined && typeof applySelection !== 'function') {
       throw new TypeError('applySelection must be a function');

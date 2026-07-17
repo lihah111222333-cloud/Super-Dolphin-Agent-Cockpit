@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useSta
 import { AlertTriangle, ChevronDown, MemoryStick, Plus, Search } from 'lucide-react'; import { FocusTrapDialog } from '../../shared/ui/FocusTrapDialog.jsx'; import { APP_BRAND_NAME, APP_COPY } from '../../shared/i18n/appI18n.js';
 import { deleteMemoryEntry, fetchMemoryDashboard, getMemoryConsolidationStatus, getMemoryEntry, ignoreMemorySimilarity, mergeMemoryEntries, setMemoryAutoDreamIntent, startConsolidateMemorySimilarities, upsertMemoryEntry } from './services/memoryPageService.js';
 import { dashboardQueryErrorState, dashboardQueryKey, errorMessage, firstPresentText, firstText, memoryHealth, memoryNoticeText, optionalSettingsCwd, queryHasSnapshot, sharedFileTimestamp, textValue, optionalTimestampMillis } from '../shared/pageShared.js';
+import { runBackgroundAction, runUIAction } from '../../shared/ui/runUIAction.js';
 import { PageHeader, Panel } from '../shared/pageComponents.jsx'; import './MemoryPage.css';
 const MEMORY_CONSOLIDATION_POLL_MS = 2000;
 const MEMORY_CONSOLIDATION_MAX_POLLS = 180;
@@ -27,9 +28,8 @@ function formatMemoryScore(score) { return `${Math.round((Number(score) || 0) * 
 function memoryEntryTitle(entry) { return firstText(entry.title, entry.description, entry.name, entry.path); }
 function memoryConsolidationStats(result) { return { merged: Number(result?.merged) || 0, ignored: Number(result?.ignored) || 0, failed: Number(result?.failed) || 0, skipped: Number(result?.skipped) || 0, }; }
 function memoryConsolidationParts(stats) { return [ `已整合 ${stats.merged} 组`, stats.ignored ? `${stats.ignored} 组判定不应合` : '', stats.failed ? `${stats.failed} 组失败` : '', stats.skipped ? `${stats.skipped} 组跳过` : '', ].filter(Boolean); }
-function firstMemoryConsolidationError(result) { return Array.isArray(result?.errors) ? textValue(result.errors[0]) : ''; }
-function memoryConsolidationResultMessage(result) { const stats = memoryConsolidationStats(result); const firstError = firstMemoryConsolidationError(result); return { level: stats.failed || stats.skipped ? 'warning' : 'info',
-message: `${memoryConsolidationParts(stats).join('，')}${firstError ? `，原因：${firstError}` : ''}`, }; }
+function memoryConsolidationResultMessage(result) { const stats = memoryConsolidationStats(result); return { level: stats.failed || stats.skipped ? 'warning' : 'info',
+message: `${memoryConsolidationParts(stats).join('，')}${stats.failed || stats.skipped ? '，详细原因请查看 Health 诊断 ID' : ''}`, }; }
 function memoryConsolidationJobFailed(status) { const message = textValue(status?.error) || '智能整合暂时失败，请稍后重试'; return new Error(message); }
 function plainMemoryObject(value) { return value && typeof value === 'object' && !Array.isArray(value) ? value : null; }
 function memoryHealthHasSimilarGroups(health) { return Array.isArray(health?.similarGroups) && health.similarGroups.length > 0; }
@@ -43,9 +43,13 @@ throwIfMemoryPollingAborted(signal); const status = await getMemoryConsolidation
 if (status?.status !== 'running' && status?.status !== 'succeeded') { throw new Error('智能整合状态异常，请稍后重试'); } return status; }
 function memoryConsolidationSucceededResult(status) { if (!plainMemoryObject(status?.result)) { throw new Error('智能整合完成但没有返回结果'); } return status.result; }
 function useMemoryDashboard(projectPath) { const memoryCwd = optionalSettingsCwd(projectPath); const queryClient = useQueryClient(); const { data: memoryData, error: memoryError, isPending: memoryPending } = useQuery({ queryKey: dashboardQueryKey(memoryCwd, 'memory'),
-queryFn: ({ signal }) => fetchMemoryDashboardWithSignal(memoryCwd, signal), enabled: Boolean(memoryCwd),
+queryFn: ({ signal }) => runBackgroundAction('memory.dashboard.load', () => fetchMemoryDashboardWithSignal(memoryCwd, signal)), enabled: Boolean(memoryCwd),
 }); const memoryQuery = { data: memoryData, error: memoryError, isPending: memoryPending }; const hasSnapshot = queryHasSnapshot(memoryQuery); const snapshot = memoryQuery.data || { overview: {}, entries: [] };
-const loading = Boolean(memoryCwd) && memoryQuery.isPending && !hasSnapshot; const { cachedSyncError: syncError, blockingError: error } = dashboardQueryErrorState(memoryQuery, hasSnapshot); const refreshMemory = useCallback(async () => { if (!memoryCwd) return;
+const loading = Boolean(memoryCwd) && memoryQuery.isPending && !hasSnapshot;
+const queryErrorState = dashboardQueryErrorState(memoryQuery, hasSnapshot);
+const syncError = queryErrorState.cachedSyncError ? '同步记忆失败，当前显示上次成功数据。' : '';
+const error = queryErrorState.blockingError ? '读取记忆失败，请重试。' : '';
+const refreshMemory = useCallback(async () => { if (!memoryCwd) return;
 await queryClient.invalidateQueries({ queryKey: dashboardQueryKey(memoryCwd, 'memory') }); }, [memoryCwd, queryClient]); return { error, isProjectPending: !memoryCwd, loading, memoryCwd, queryClient, refreshMemory, snapshot, syncError }; }
 async function fetchMemoryDashboardWithSignal(memoryCwd, signal) {
 const snapshot = typeof fetchMemoryDashboard.withSignal === 'function' ? await fetchMemoryDashboard.withSignal(memoryCwd, signal) : await fetchMemoryDashboard(memoryCwd); memorySimilarityDegraded(snapshot?.overview); return snapshot;
@@ -69,7 +73,7 @@ function useMemoryAutoDream({ dashboard, showNotice }) {
 const [autoToggling, setAutoToggling] = useState(false); const runtime = dashboard.snapshot.overview?.autoDreamEnabled === true; const intent = normalizeAutoDreamIntent(dashboard.snapshot.overview?.autoDreamIntent); const enabled = intent === null ? runtime : intent;
 const pendingRestart = intent !== null && intent !== runtime; const toggleAutoDream = useCallback(async () => { if (autoToggling || dashboard.isProjectPending) return; if (!dashboard.memoryCwd) { showNotice('error', '正在连接本地项目...'); return; }
 const next = !enabled; setAutoToggling(true); try { await setMemoryAutoDreamIntent({ cwd: dashboard.memoryCwd, enabled: next }); showNotice('warning', `自动沉淀已切换为${next ? '开启' : '关闭'}，重启 ${APP_BRAND_NAME} 后生效`); await dashboard.refreshMemory(); } catch (err) {
-showNotice('error', `切换自动沉淀失败：${errorMessage(err)}`); } finally { setAutoToggling(false); } }, [autoToggling, dashboard, enabled, showNotice]); return { enabled, pendingRestart, toggleAutoDream, toggling: autoToggling }; }
+showNotice('error', '切换自动沉淀失败，请重试。'); throw err; } finally { setAutoToggling(false); } }, [autoToggling, dashboard, enabled, showNotice]); return { enabled, pendingRestart, toggleAutoDream, toggling: autoToggling }; }
 function useLatestValue(value) { const valueRef = useRef(value); useLayoutEffect(() => { valueRef.current = value; }, [value]); return valueRef; }
 function useMemoryEditor({ dashboard, showNotice }) {
 const [createMenuOpen, setCreateMenuOpen] = useState(false); const [editor, setEditor] = useState({ open: false, mode: 'create', scopeCwd: '', form: defaultMemoryForm('project') }); const [busyKey, setBusyKey] = useState(''); const [saving, setSaving] = useState(false);
@@ -80,7 +84,7 @@ if (!dashboard.memoryCwd) { showNotice('error', '正在连接本地项目...'); 
 }, [dashboard.isProjectPending, dashboard.memoryCwd, showNotice]); const openEdit = useCallback(async (entry) => { const requestCwd = dashboard.memoryCwd; if (!requestCwd) return;
 const requestID = editRequestRef.current + 1; editRequestRef.current = requestID; const key = `${entry.target}:${entry.path}`; setBusyKey(key); try {
 const detail = await getMemoryEntry({ cwd: requestCwd, target: entry.target, path: entry.path }); if (editRequestRef.current !== requestID || memoryCwdRef.current !== requestCwd) return; if (!memoryDetailHasContent(detail)) { showNotice('error', '加载失败：记忆详情缺少内容，已阻断编辑保存'); return;
-} setEditor({ open: true, mode: 'edit', scopeCwd: requestCwd, form: memoryEditorFormFromDetail(detail, entry) }); } catch (err) { if (editRequestRef.current !== requestID || memoryCwdRef.current !== requestCwd) return; showNotice('error', `加载失败：${errorMessage(err)}`); } finally {
+} setEditor({ open: true, mode: 'edit', scopeCwd: requestCwd, form: memoryEditorFormFromDetail(detail, entry) }); } catch (err) { if (editRequestRef.current !== requestID || memoryCwdRef.current !== requestCwd) return; showNotice('error', '加载记忆失败，请重试。'); throw err; } finally {
 if (editRequestRef.current === requestID) setBusyKey(''); } }, [dashboard.memoryCwd, memoryCwdRef, showNotice]); const closeEditor = useCallback(() => { if (!saving) setEditor((current) => ({ ...current, open: false }));
 }, [saving]); const saveEditor = useMemoryEditorSave({ dashboard, editor, saving, setEditor, setSaving, showNotice }); return { busyKey, closeEditor, createMenuOpen, editor, openCreate, openEdit, saveEditor, saving, setCreateMenuOpen, setEditor, updateEditorForm }; }
 function memoryDetailHasContent(detail) { return Boolean(detail && typeof detail === 'object' && Object.prototype.hasOwnProperty.call(detail, 'content')); }
@@ -90,7 +94,7 @@ function useMemoryEditorSave(options) { const { dashboard, editor, saving, setEd
 if (!editor.scopeCwd || editor.scopeCwd !== dashboard.memoryCwd) { setEditor((current) => ({ ...current, open: false })); showNotice('error', '记忆编辑所属项目已变化，请重新打开后再保存'); return;
 } const form = editor.form; const description = textValue(form.description); const content = textValue(form.content); if (!description) { showNotice('error', '请先填写描述'); return; } if (!content) { showNotice('error', '内容不能为空'); return; } setSaving(true); try {
 const type = textValue(form.type) || 'project'; await upsertMemoryEntry(memoryUpsertPayload(editor.scopeCwd, form, type, description, content)); setEditor((current) => ({ ...current, open: false })); showNotice('info', '已保存'); await dashboard.refreshMemory(); } catch (err) {
-showNotice('error', `保存失败：${errorMessage(err)}`); } finally { setSaving(false); } }, [dashboard, editor.form, editor.scopeCwd, saving, setEditor, setSaving, showNotice]); }
+showNotice('error', '保存记忆失败，请重试。'); throw err; } finally { setSaving(false); } }, [dashboard, editor.form, editor.scopeCwd, saving, setEditor, setSaving, showNotice]); }
 function memoryUpsertPayload(cwd, form, type, description, content) { return { cwd, target: form.existingPath ? form.target : memoryTargetForType(type), existingPath: form.existingPath, name: memoryAutoName({ ...form, type }), description, title: textValue(form.title), type,
 content, }; }
 function useMemoryDelete({ dashboard, showNotice }) { const [deleteTarget, setDeleteTarget] = useState(null); const [deletingKey, setDeletingKey] = useState(''); useEffect(() => { setDeletingKey(''); setDeleteTarget((current) => {
@@ -99,7 +103,7 @@ if (!current?.scopeCwd || current.scopeCwd === dashboard.memoryCwd) return curre
 }, [dashboard.memoryCwd, showNotice]); const confirmDelete = useCallback(async () => { if (!deleteTarget || deletingKey) return; if (!dashboard.memoryCwd) { showNotice('error', '正在连接本地项目...'); return; }
 if (!deleteTarget.scopeCwd || deleteTarget.scopeCwd !== dashboard.memoryCwd) { setDeleteTarget(null); showNotice('error', '记忆删除所属项目已变化，请重新打开后再删除'); return; } const key = `${deleteTarget.target}:${deleteTarget.path}`; setDeletingKey(key); try {
 await deleteMemoryEntry({ cwd: deleteTarget.scopeCwd, target: deleteTarget.target, path: deleteTarget.path }); showNotice('info', `已删除：${memoryEntryTitle(deleteTarget)}`); setDeleteTarget(null); await dashboard.refreshMemory(); } catch (err) {
-showNotice('error', `删除失败：${errorMessage(err)}`); } finally { setDeletingKey(''); } }, [dashboard, deleteTarget, deletingKey, showNotice]); return { confirmDelete, deletingKey, deleteTarget, setDeleteTarget: requestDelete }; }
+showNotice('error', '删除记忆失败，请重试。'); throw err; } finally { setDeletingKey(''); } }, [dashboard, deleteTarget, deletingKey, showNotice]); return { confirmDelete, deletingKey, deleteTarget, setDeleteTarget: requestDelete }; }
 function useMemorySimilarityActions(options) {
 const { applyConsolidationResult, dashboard, resolveLaunchPreferences, showNotice, similarGroups, similarityDegraded } = options;
 const [mergeTarget, setMergeTarget] = useState(null); const [mergingAll, setMergingAll] = useState(false); const [ignoringKey, setIgnoringKey] = useState(''); const [mergingKey, setMergingKey] = useState(''); const [consolidationJob, setConsolidationJob] = useState(null);
@@ -113,12 +117,12 @@ return { confirmMerge, consolidationJob, ignoreGroup, ignoringKey, mergeAllGroup
 function useMemoryConfirmMerge(options) { const { dashboard, mergeTarget, mergingKey, setMergeTarget, setMergingKey, showNotice, similarityDegraded } = options; return useCallback(async () => { if (!mergeTarget || mergingKey || similarityDegraded) return;
 if (!dashboard.memoryCwd) { showNotice('error', '正在连接本地项目...'); return; } if (!mergeTarget.scopeCwd || mergeTarget.scopeCwd !== dashboard.memoryCwd) { setMergeTarget(null); showNotice('error', '记忆整合所属项目已变化，请重新打开后再整合'); return;
 } const key = memoryPairKey(mergeTarget); setMergingKey(key); try { await mergeMemoryEntries({ cwd: mergeTarget.scopeCwd, targetA: mergeTarget.targetA, pathA: mergeTarget.pathA, targetB: mergeTarget.targetB, pathB: mergeTarget.pathB });
-showNotice('info', `已整合「${mergeTarget.nameA || mergeTarget.pathA}」与「${mergeTarget.nameB || mergeTarget.pathB}」`); setMergeTarget(null); await dashboard.refreshMemory(); } catch (err) { showNotice('error', `整合失败：${errorMessage(err)}`); } finally { setMergingKey(''); }
+showNotice('info', `已整合「${mergeTarget.nameA || mergeTarget.pathA}」与「${mergeTarget.nameB || mergeTarget.pathB}」`); setMergeTarget(null); await dashboard.refreshMemory(); } catch (err) { showNotice('error', '整合记忆失败，请重试。'); throw err; } finally { setMergingKey(''); }
 }, [dashboard, mergeTarget, mergingKey, setMergeTarget, setMergingKey, showNotice, similarityDegraded]); }
 function useMemoryIgnoreGroup({ dashboard, ignoringKey, setIgnoringKey, showNotice, similarityDegraded }) { return useCallback(async (group) => { const key = memoryPairKey(group); if (ignoringKey || similarityDegraded) return; if (!dashboard.memoryCwd) { showNotice('error', '正在连接本地项目...'); return; }
 setIgnoringKey(key); try {
 await ignoreMemorySimilarity({ cwd: dashboard.memoryCwd, targetA: group.targetA, pathA: group.pathA, targetB: group.targetB, pathB: group.pathB }); showNotice('info', `已忽略「${group.nameA || group.pathA}」与「${group.nameB || group.pathB}」`); await dashboard.refreshMemory();
-} catch (err) { showNotice('error', `忽略失败：${errorMessage(err)}`); } finally { setIgnoringKey(''); } }, [dashboard, ignoringKey, setIgnoringKey, showNotice, similarityDegraded]); }
+} catch (err) { showNotice('error', '忽略相似记忆失败，请重试。'); throw err; } finally { setIgnoringKey(''); } }, [dashboard, ignoringKey, setIgnoringKey, showNotice, similarityDegraded]); }
 function shouldSkipMemoryMergeAll({ consolidationJob, mergingAll, similarGroups, similarityDegraded }) { return similarityDegraded || !similarGroups.length || mergingAll || consolidationJob; }
 async function memoryLaunchPreferences(resolveLaunchPreferences, cwd) { return typeof resolveLaunchPreferences === 'function' ? resolveLaunchPreferences(cwd) : null; }
 function assertMemoryConsolidationStarted(started, jobID) { if (started?.status === 'failed') throw memoryConsolidationJobFailed(started); if (started?.status !== 'succeeded' && !jobID) throw new Error('智能整合未能启动，请稍后重试'); }
@@ -128,19 +132,21 @@ function useMemoryMergeAllGroups(options) { const { applyConsolidationResult, co
 if (shouldSkipMemoryMergeAll({ consolidationJob, mergingAll, similarGroups, similarityDegraded })) return; if (!dashboard.memoryCwd) { showNotice('error', '正在连接本地项目...'); return; } setMergingAll(true); try {
 const launchPreferences = await memoryLaunchPreferences(resolveLaunchPreferences, dashboard.memoryCwd); const started = await startConsolidateMemorySimilarities(memoryConsolidationStartPayload(dashboard.memoryCwd, launchPreferences));
 const jobID = textValue(started?.jobId); assertMemoryConsolidationStarted(started, jobID); await applyStartedMemoryConsolidation({ applyConsolidationResult, cwd: dashboard.memoryCwd, jobID, setConsolidationJob, showNotice, started }); } catch (err) {
-showNotice('error', `智能整合失败：${errorMessage(err)}`); } finally { setMergingAll(false); } }, [applyConsolidationResult, consolidationJob, dashboard, mergingAll, resolveLaunchPreferences, setConsolidationJob, setMergingAll, showNotice, similarGroups, similarityDegraded]); }
+showNotice('error', '智能整合失败，请重试。'); throw err; } finally { setMergingAll(false); } }, [applyConsolidationResult, consolidationJob, dashboard, mergingAll, resolveLaunchPreferences, setConsolidationJob, setMergingAll, showNotice, similarGroups, similarityDegraded]); }
 function memoryConsolidationStartPayload(cwd, launchPreferences) { return { cwd, provider: firstPresentText(launchPreferences?.modelProvider, launchPreferences?.provider), model: textValue(launchPreferences?.model),
 codexModelProvider: firstPresentText(launchPreferences?.codexModelProvider, launchPreferences?.config?.codexModelProvider), }; }
 function useMemoryConsolidationPolling({ applyConsolidationResult, setConsolidationJob, showNotice, similarity }) {
 const job = similarity.consolidationJob; const jobKey = job?.cwd && job?.jobId ? `${job.cwd}\u0000${job.jobId}` : ''; const pollCountRef = useRef(0); const completedJobRef = useRef(''); useEffect(() => { pollCountRef.current = 0; completedJobRef.current = ''; }, [jobKey]);
 const pollQuery = useQuery({ queryKey: ['memory', 'consolidation-job', textValue(job?.cwd), textValue(job?.jobId)], enabled: Boolean(jobKey), retry: false, refetchInterval: (query) => { if (!jobKey || query.state.error) return false;
 return query.state.data?.status === 'succeeded' ? false : MEMORY_CONSOLIDATION_POLL_MS; }, queryFn: ({ signal }) => { if (!job?.cwd || !job?.jobId) throw new Error('智能整合任务缺少必要信息'); pollCountRef.current += 1; if (pollCountRef.current > MEMORY_CONSOLIDATION_MAX_POLLS) {
-throw new Error('智能整合仍在进行，请稍后查看结果'); } return fetchMemoryConsolidationPoll(job.cwd, job.jobId, { signal }); }, });
+throw new Error('智能整合仍在进行，请稍后查看结果'); } return runBackgroundAction('memory.consolidation.poll', () => fetchMemoryConsolidationPoll(job.cwd, job.jobId, { signal })); }, });
 useEffect(() => { if (!jobKey || !pollQuery.error) return; showMemoryConsolidationError(pollQuery.error, showNotice); setConsolidationJob(null); }, [jobKey, pollQuery.error, setConsolidationJob, showNotice]);
 useEffect(() => { if (!jobKey || pollQuery.data?.status !== 'succeeded' || completedJobRef.current === jobKey) return undefined; completedJobRef.current = jobKey; let cancelled = false; (async () => { try {
-const result = memoryConsolidationSucceededResult(pollQuery.data); await applyConsolidationResult(job.cwd, result); } catch (err) { if (!cancelled) showMemoryConsolidationError(err, showNotice); } finally { if (!cancelled) setConsolidationJob(null); } })(); return () => {
+const result = memoryConsolidationSucceededResult(pollQuery.data);
+await runBackgroundAction('memory.consolidation.apply', () => applyConsolidationResult(job.cwd, result));
+} catch (err) { if (!cancelled) showMemoryConsolidationError(err, showNotice); } finally { if (!cancelled) setConsolidationJob(null); } })(); return () => {
 cancelled = true; }; }, [applyConsolidationResult, job?.cwd, jobKey, pollQuery.data, setConsolidationJob, showNotice]); }
-function showMemoryConsolidationError(err, showNotice) { const message = errorMessage(err); const level = message.includes('仍在进行') ? 'warning' : 'error'; showNotice(level, level === 'warning' ? message : `智能整合失败：${message}`); }
+function showMemoryConsolidationError(err, showNotice) { const message = errorMessage(err); const level = message.includes('仍在进行') ? 'warning' : 'error'; showNotice(level, level === 'warning' ? '智能整合仍在进行，请稍后查看结果。' : '智能整合失败，请查看 Health 诊断 ID。'); }
 function useMemoryApplyConsolidationResult(queryClient, showNotice) { return useCallback(async (cwd, result) => { const summary = memoryConsolidationResultMessage(result); if (!Number(result?.failed) && !Number(result?.skipped)) {
 queryClient.setQueryData(dashboardQueryKey(cwd, 'memory'), clearMemorySimilarGroups); } showNotice(summary.level, summary.message); await queryClient.invalidateQueries({ queryKey: dashboardQueryKey(cwd, 'memory') }); }, [queryClient, showNotice]); }
 function useMemoryPageModel({ projectPath, onSimilarCountChange, resolveLaunchPreferences }) {
@@ -150,7 +156,26 @@ const editor = useMemoryEditor({ dashboard, showNotice }); const deletion = useM
 const similarity = useMemorySimilarityActions({
 applyConsolidationResult, dashboard, resolveLaunchPreferences, showNotice, similarGroups: derived.similarGroups, similarityDegraded: derived.similarityDegraded,
 }); useMemoryConsolidationPolling({ applyConsolidationResult, setConsolidationJob: similarity.setConsolidationJob,
-showNotice, similarity, }); return { activeCategory, autoDream, dashboard, deletion, derived, editor, notice, searchText, setActiveCategory, setSearchText, setSimilarExpanded, similarExpanded, similarity }; }
+showNotice, similarity, }); return {
+activeCategory,
+autoDream: { ...autoDream, toggleAutoDream: () => runUIAction('memory.auto-dream.toggle', autoDream.toggleAutoDream) },
+dashboard,
+deletion: { ...deletion, confirmDelete: () => runUIAction('memory.entry.delete', deletion.confirmDelete) },
+derived,
+editor: { ...editor, openEdit: (entry) => runUIAction('memory.entry.open', () => editor.openEdit(entry)), saveEditor: () => runUIAction('memory.entry.save', editor.saveEditor) },
+notice,
+searchText,
+setActiveCategory,
+setSearchText,
+setSimilarExpanded,
+similarExpanded,
+similarity: {
+...similarity,
+confirmMerge: () => runUIAction('memory.similarity.merge', similarity.confirmMerge),
+ignoreGroup: (group) => runUIAction('memory.similarity.ignore', () => similarity.ignoreGroup(group)),
+mergeAllGroups: () => runUIAction('memory.similarity.consolidate', similarity.mergeAllGroups),
+},
+}; }
 function MemoryPage({ copy = APP_COPY.zh.memory, projectPath, onSimilarCountChange, resolveLaunchPreferences }) { const model = useMemoryPageModel({ projectPath, onSimilarCountChange, resolveLaunchPreferences }); return <MemoryPageView copy={copy} model={model} />; }
 function MemoryPageView({ copy, model }) { return ( <section className="memory-page"> <MemoryPageHeader copy={copy} />
 <MemoryStats autoDream={model.autoDream} categoryCounts={model.derived.categoryCounts} copy={copy} disabled={model.dashboard.isProjectPending} health={model.derived.health} />

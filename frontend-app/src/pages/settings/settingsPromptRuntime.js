@@ -3,6 +3,7 @@ import { APP_COPY } from '../../shared/i18n/appI18n.js';
 import { firstPresentText } from '../shared/pageShared.js';
 import { settingsPageService } from './services/settingsPageService.js';
 import { isCurrentPreferenceRequest, textValue } from './settingsPageRuntime.js';
+import { runBackgroundAction, runUIAction } from '../../shared/ui/runUIAction.js';
 
 const {
   copyTextToClipboard,
@@ -36,7 +37,7 @@ function usePromptSettings(cwd, copy) {
     const requestSeq = visibilityLoadSeq.current;
     return () => visibilityLoadSeq.current === requestSeq;
   }, []);
-  const loadPrompt = useCallback(() => loadLspPromptState({
+  const loadPrompt = useCallback(() => runUIAction('settings.prompt.load', () => loadLspPromptState({
     copy,
     cwd,
     isCurrent: nextPromptLoadRequest(),
@@ -46,14 +47,19 @@ function usePromptSettings(cwd, copy) {
     setLoading,
     setNotice,
     setUsingDefault,
-  }), [copy, cwd, nextPromptLoadRequest]);
+  }), { retryable: true }), [copy, cwd, nextPromptLoadRequest]);
   const loadScope = useCallback(() => loadPromptScope(setCurrentScopeCwd), []);
   const loadVisibility = useCallback(() => loadInjectedPromptVisibility({ copy, cwd, isCurrent: nextVisibilityLoadRequest(), setNotice, setShowInjected }), [copy, cwd, nextVisibilityLoadRequest]);
-  const save = useCallback(() => saveLspPromptHintState({ copy, cwd, hint, saving, setDefaultHint, setEffectiveHint, setHint, setNotice, setSaving, setUsingDefault }), [copy, cwd, hint, saving]);
-  const reset = useCallback(() => saveLspPromptHintState({ copy, cwd, hint: '', saving, setDefaultHint, setEffectiveHint, setHint, setNotice, setSaving, setUsingDefault }), [copy, cwd, saving]);
-  const copyPrompt = useCallback(() => copyEffectivePromptHint(promptDisplayHint(effectiveHint, defaultHint, copy), copy, setNotice), [copy, defaultHint, effectiveHint]);
-  const toggleVisibility = useCallback((event) => saveInjectedPromptVisibility({ copy, cwd, event, loadVisibility, saving: showInjectedSaving, setNotice, setSaving: setShowInjectedSaving, setShowInjected }), [copy, cwd, loadVisibility, showInjectedSaving]);
-  useEffect(() => { void loadPrompt(); void loadScope(); void loadVisibility(); }, [loadPrompt, loadScope, loadVisibility]);
+  const save = useCallback(() => runUIAction('settings.prompt.save', () => saveLspPromptHintState({ copy, cwd, hint, saving, setDefaultHint, setEffectiveHint, setHint, setNotice, setSaving, setUsingDefault })), [copy, cwd, hint, saving]);
+  const reset = useCallback(() => runUIAction('settings.prompt.reset', () => saveLspPromptHintState({ copy, cwd, hint: '', saving, setDefaultHint, setEffectiveHint, setHint, setNotice, setSaving, setUsingDefault })), [copy, cwd, saving]);
+  const copyPrompt = useCallback(() => runUIAction('settings.prompt.copy', () => copyEffectivePromptHint(promptDisplayHint(effectiveHint, defaultHint, copy), copy, setNotice), { retryable: true }), [copy, defaultHint, effectiveHint]);
+  const toggleVisibility = useCallback((event) => runUIAction(
+    'settings.prompt.visibility.save',
+    () => saveInjectedPromptVisibility({ copy, cwd, event, loadVisibility, saving: showInjectedSaving, setNotice, setSaving: setShowInjectedSaving, setShowInjected }),
+  ), [copy, cwd, loadVisibility, showInjectedSaving]);
+  useEffect(() => {
+    runBackgroundAction('settings.prompt.bootstrap', () => Promise.all([loadLspPromptState({ copy, cwd, isCurrent: nextPromptLoadRequest(), setDefaultHint, setEffectiveHint, setHint, setLoading, setNotice, setUsingDefault }), loadScope(), loadVisibility()]));
+  }, [copy, cwd, loadScope, loadVisibility, nextPromptLoadRequest]);
   const displayHint = promptDisplayHint(effectiveHint, defaultHint, copy);
   const empty = copy.promptCard.empty;
   const lineCount = displayHint === empty ? 0 : displayHint.split('\n').length;
@@ -123,7 +129,8 @@ async function loadLspPromptState(state) {
     state.setUsingDefault(res.usingDefault);
     state.setNotice({ level: 'info', message: '' });
   } catch (error) {
-    if (isCurrentPreferenceRequest(state.isCurrent)) state.setNotice({ level: 'error', message: state.copy.promptCard.loadFailed + (error?.message || error) });
+    if (isCurrentPreferenceRequest(state.isCurrent)) state.setNotice({ level: 'error', message: state.copy.promptCard.loadFailed });
+    throw error;
   } finally {
     if (isCurrentPreferenceRequest(state.isCurrent)) state.setLoading(false);
   }
@@ -133,8 +140,9 @@ async function loadPromptScope(setCurrentScopeCwd) {
   try {
     const cfg = await readConfig();
     setCurrentScopeCwd(textValue(cfg?.cwd).trim());
-  } catch {
+  } catch (error) {
     setCurrentScopeCwd('');
+    throw error;
   }
 }
 
@@ -147,7 +155,8 @@ async function loadInjectedPromptVisibility({ copy, cwd, isCurrent, setNotice, s
     });
     if (isCurrentPreferenceRequest(isCurrent)) setShowInjected(parseBoolPreference(value));
   } catch (error) {
-    if (isCurrentPreferenceRequest(isCurrent)) setNotice({ level: 'error', message: copy.promptCard.loadToggleFailed + (error?.message || error) });
+    if (isCurrentPreferenceRequest(isCurrent)) setNotice({ level: 'error', message: copy.promptCard.loadToggleFailed });
+    throw error;
   }
 }
 
@@ -162,7 +171,8 @@ async function saveLspPromptHintState(state) {
     state.setUsingDefault(res.usingDefault);
     state.setNotice({ level: 'info', message: res.usingDefault ? state.copy.promptCard.restored : state.copy.promptCard.saved });
   } catch (error) {
-    state.setNotice({ level: 'error', message: state.copy.promptCard.saveFailed + (error?.message || error) });
+    state.setNotice({ level: 'error', message: state.copy.promptCard.saveFailed });
+    throw error;
   } finally {
     state.setSaving(false);
   }
@@ -177,7 +187,8 @@ async function copyEffectivePromptHint(text, copy, setNotice) {
     const ok = await copyTextToClipboard(text);
     setNotice({ level: ok ? 'info' : 'error', message: ok ? copy.promptCard.copied : copy.promptCard.copyFailed });
   } catch (error) {
-    setNotice({ level: 'error', message: copy.promptCard.copyFailedPrefix + (error?.message || error) });
+    setNotice({ level: 'error', message: copy.promptCard.copyFailed });
+    throw error;
   }
 }
 
@@ -191,8 +202,9 @@ async function saveInjectedPromptVisibility(state) {
     await setPreference({ cwd, key: 'settings.showInjectedPromptInChat', value: next });
     setNotice({ level: 'info', message: next ? copy.promptCard.showInjectedSaved : copy.promptCard.hideInjectedSaved });
   } catch (error) {
-    setNotice({ level: 'error', message: copy.promptCard.saveToggleFailed + (error?.message || error) });
+    setNotice({ level: 'error', message: copy.promptCard.saveToggleFailed });
     await loadVisibility();
+    throw error;
   } finally {
     setSaving(false);
   }

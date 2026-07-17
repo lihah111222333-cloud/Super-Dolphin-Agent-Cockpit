@@ -9,6 +9,7 @@ import { resolveSkillPreviewFile, skillCitationFromLink, skillPreviewDir, stripL
 import { SkillToolsState } from './SkillToolsTable.jsx';
 import { MCPToolCard } from './MCPToolCard.jsx';
 import { DataSourceView } from './DataSourceView.jsx';
+import { runBackgroundAction, runUIAction } from '../../shared/ui/runUIAction.js';
 
 const SKILLS_DASHBOARD_TIMEOUT_MS = Math.max(1, SKILLS_REQUEST_TIMEOUT_MS - 250);
 
@@ -205,7 +206,7 @@ name: cleanScalar(raw.name) || methodName, description: cleanScalar(raw.descript
 function normalizeSkillToolsResponse(response) { if (!response || typeof response !== 'object' || Array.isArray(response)) { throw new Error('skills/tools/list response must be an object'); } if (!Array.isArray(response.tools)) {
 throw new Error('skills/tools/list response.tools must be an array'); } return response.tools.map(normalizeSkillTool); }
 function SkillToolsView({ projectPath }) { const queryClient = useQueryClient(); const cwd = useMemo(() => { try { return normalizeSettingsCwd(projectPath); } catch { return ''; } }, [projectPath]); const { data: tools = [], error, isError, isFetching, isLoading, } = useQuery({
-queryKey: skillToolsQueryKey(cwd), enabled: Boolean(cwd), queryFn: async () => normalizeSkillToolsResponse(await listSkillTools({ cwd, keyword: '', limit: SKILL_TOOLS_LIST_LIMIT })), }); const refreshTools = () => {
+queryKey: skillToolsQueryKey(cwd), enabled: Boolean(cwd), queryFn: () => runBackgroundAction('skill.tools.load', async () => normalizeSkillToolsResponse(await listSkillTools({ cwd, keyword: '', limit: SKILL_TOOLS_LIST_LIMIT }))), }); const refreshTools = () => {
 if (cwd) void queryClient.invalidateQueries({ queryKey: skillToolsQueryKey(cwd) }); };
 return ( <section className="skill-tools-panel" aria-label={SKILL_TOOLS_UI.title}> <div className="skill-tools-header"> <div> <span className="skill-tools-kicker">{SKILL_TOOLS_UI.sectionTitle}</span> <h2>{SKILL_TOOLS_UI.title}</h2> </div> <div className="skill-tools-actions">
 <button type="button">{SKILL_TOOLS_UI.create}</button> <button type="button" className="ghost" onClick={refreshTools} disabled={!cwd || isFetching}> <RefreshCw size={16} aria-hidden="true" /> <span>{SKILL_TOOLS_UI.refresh}</span> </button> </div> </div>
@@ -238,7 +239,7 @@ function PluginsSquareView({ copy, projectPath }) {
     isLoading: mcpServersIsLoading,
   } = useQuery({
     queryKey: mcpServersListQueryKey(projectPath),
-    queryFn: () => listMCPServers(),
+    queryFn: () => runBackgroundAction('mcp.servers.load', () => listMCPServers()),
     enabled: projectReady,
   });
   const mcpStatusQuery = useMemo(() => ({
@@ -248,7 +249,7 @@ function PluginsSquareView({ copy, projectPath }) {
     isLoading: mcpServersIsLoading,
   }), [mcpServersData, mcpServersIsError, mcpServersIsFetching, mcpServersIsLoading]);
 
-  const runMCPAction = useCallback(async (tool, action) => {
+  const executeMCPAction = useCallback(async (tool, action) => {
     const label = action === 'start' ? '开启' : '关闭';
     const enabled = action === 'start';
     setMCPActions((current) => ({ ...current, [tool.id]: action }));
@@ -261,11 +262,19 @@ function PluginsSquareView({ copy, projectPath }) {
       queryClient.setQueryData(queryKey, (current) => mergeMCPServerEnabled(current, result, tool.id, enabled));
       setMCPNotices((current) => ({ ...current, [tool.id]: `${tool.title} 已${label}` }));
     } catch (error) {
-      setMCPErrors((current) => ({ ...current, [tool.id]: `${tool.title} ${label}失败：${errorMessage(error)}` }));
+      setMCPErrors((current) => ({ ...current, [tool.id]: `${tool.title} ${label}失败，请重试。` }));
+      throw error;
     } finally {
       setMCPActions((current) => ({ ...current, [tool.id]: '' }));
     }
   }, [projectPath, queryClient]);
+  const runMCPAction = useCallback((tool, action) => {
+    if (tool.id === 'sqlite' && action === 'start') return runUIAction('mcp.sqlite.start', () => executeMCPAction(tool, action));
+    if (tool.id === 'sqlite' && action === 'stop') return runUIAction('mcp.sqlite.stop', () => executeMCPAction(tool, action));
+    if (tool.id === 'playwright' && action === 'start') return runUIAction('mcp.playwright.start', () => executeMCPAction(tool, action));
+    if (tool.id === 'playwright' && action === 'stop') return runUIAction('mcp.playwright.stop', () => executeMCPAction(tool, action));
+    throw new Error(`unsupported MCP action: ${tool.id}.${action}`);
+  }, [executeMCPAction]);
 
   return (
     <div className="plugins-square-container">
@@ -329,10 +338,15 @@ const editor = useSkillEditor({ projectPath, refreshSkillSurface: dashboard.refr
 const resolution = useSkillResolution({ projectPath, refreshSkillSurface: dashboard.refreshSkillSurface, resetKey: projectCwd, resolutionConflicts: dashboard.resolutionConflicts, setError, setNotice }); const error = status.projectCwd === projectCwd ? status.error : '';
 const notice = status.projectCwd === projectCwd ? status.notice : ''; return { dashboard, editor, error, filters, isProjectPending: !projectCwd, notice, query, resolution, scopeFilter, setQuery, setScopeFilter }; }
 function useSkillsDashboard(projectCwd, refreshKey) { const queryClient = useQueryClient(); const skillRefreshKey = Number(refreshKey || 0); const { data: skillsData, error: skillsError, isPending: skillsPending, refetch: refetchSkills, } = useQuery({
-queryKey: dashboardQueryKey(projectCwd, 'skills', `revision:${skillRefreshKey}`), queryFn: async () => { const data = await fetchSkillsDashboard(projectCwd); queryClient.setQueryData(dashboardQueryKey(projectCwd, 'skills'), data); return data; }, enabled: Boolean(projectCwd),
+queryKey: dashboardQueryKey(projectCwd, 'skills', `revision:${skillRefreshKey}`),
+queryFn: () => runBackgroundAction('skill.dashboard.load', async () => {
+const data = await fetchSkillsDashboard(projectCwd);
+queryClient.setQueryData(dashboardQueryKey(projectCwd, 'skills'), data);
+return data;
+}), enabled: Boolean(projectCwd),
 initialData: () => queryClient.getQueryData(dashboardQueryKey(projectCwd, 'skills')), initialDataUpdatedAt: 0, placeholderData: (previousData) => previousData, }); const { data: resolutionsData, error: resolutionsError, isPending: resolutionsPending, refetch: refetchResolutions,
-} = useQuery({ queryKey: dashboardQueryKey(projectCwd, 'skill-resolutions', `revision:${skillRefreshKey}`), queryFn: async () => {
-const data = await fetchSkillResolutionsDashboard(projectCwd); queryClient.setQueryData(dashboardQueryKey(projectCwd, 'skill-resolutions'), data); return data; }, enabled: Boolean(projectCwd),
+} = useQuery({ queryKey: dashboardQueryKey(projectCwd, 'skill-resolutions', `revision:${skillRefreshKey}`), queryFn: () => runBackgroundAction('skill.resolutions.load', async () => {
+const data = await fetchSkillResolutionsDashboard(projectCwd); queryClient.setQueryData(dashboardQueryKey(projectCwd, 'skill-resolutions'), data); return data; }), enabled: Boolean(projectCwd),
 initialData: () => queryClient.getQueryData(dashboardQueryKey(projectCwd, 'skill-resolutions')), initialDataUpdatedAt: 0, placeholderData: (previousData) => previousData,
 }); const skillsQuery = { data: skillsData, error: skillsError, isPending: skillsPending }; const resolutionsQuery = { data: resolutionsData, error: resolutionsError, isPending: resolutionsPending };
 const items = useMemo(() => (Array.isArray(skillsData) ? skillsData : []), [skillsData]); const resolutionConflicts = useMemo(() => (Array.isArray(resolutionsData) ? resolutionsData : []), [resolutionsData]); const refreshSkillSurface = useCallback(async () => {
@@ -340,10 +354,10 @@ if (!projectCwd) return; await Promise.all([ queryClient.invalidateQueries({ que
 }, [projectCwd, queryClient]); const retrySkillSurface = useCallback(async () => { if (!projectCwd) return; await Promise.all([refetchSkills(), refetchResolutions()]);
 }, [projectCwd, refetchResolutions, refetchSkills]); useSkillSurfaceRefresh(projectCwd, refreshSkillSurface); return skillsDashboardState({ items, projectCwd, resolutionConflicts, resolutionsQuery, retrySkillSurface, refreshSkillSurface, skillsQuery }); } function skillsDashboardState(options) {
 const { items, projectCwd, resolutionConflicts, resolutionsQuery, retrySkillSurface, refreshSkillSurface, skillsQuery } = options; const hasSnapshot = Array.isArray(skillsQuery.data); const hasResolutionSnapshot = Array.isArray(resolutionsQuery.data);
-const resolutionSyncErrorText = resolutionsQuery.error ? '读取技能冲突失败：' + errorMessage(resolutionsQuery.error) : ''; const syncErrorText = skillsSyncErrorText(skillsQuery, resolutionsQuery); return { items,
+const resolutionSyncErrorText = resolutionsQuery.error ? '读取技能冲突失败，请重试。' : ''; const syncErrorText = skillsSyncErrorText(skillsQuery, resolutionsQuery); return { items,
 isInitialLoading: Boolean(projectCwd) && skillsQuery.isPending && !hasSnapshot && !syncErrorText, isResolutionPending: Boolean(projectCwd) && resolutionsQuery.isPending && !hasResolutionSnapshot && !resolutionSyncErrorText, refreshSkillSurface, resolutionConflicts,
 resolutionSyncErrorText, retrySkillSurface, showBlockingSyncError: Boolean(syncErrorText && !hasSnapshot), showCachedSyncError: Boolean(syncErrorText && hasSnapshot), syncErrorText, }; }
-function skillsSyncErrorText(skillsQuery, resolutionsQuery) { if (skillsQuery.error) return errorMessage(skillsQuery.error); if (resolutionsQuery.error) return '读取技能冲突失败：' + errorMessage(resolutionsQuery.error); return ''; }
+function skillsSyncErrorText(skillsQuery, resolutionsQuery) { if (skillsQuery.error) return '读取技能失败，请重试。'; if (resolutionsQuery.error) return '读取技能冲突失败，请重试。'; return ''; }
 function useSkillSurfaceRefresh(projectCwd, refreshSkillSurface) { useEffect(() => skillSurfaceFocusHandler(projectCwd, refreshSkillSurface), [projectCwd, refreshSkillSurface]); }
 function skillSurfaceFocusHandler(projectCwd, refreshSkillSurface) { if (!projectCwd) return undefined; const refreshWhenVisible = () => { if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return; void refreshSkillSurface();
 }; const handleVisibilityChange = () => { if (typeof document === 'undefined' || document.visibilityState === 'visible') refreshWhenVisible();
@@ -365,32 +379,38 @@ const actions = useMemo(
 return { ...state, ...actions, setForm }; } function defaultSkillEditorState() {
 return { activeSkillPath: '', deleteTarget: null, deleting: false, editorForm: emptySkillForm(), editorOpen: false, importScopeOpen: false, importSummaryDrafts: [], importing: false, saving: false, skillFiles: [], summarySuggestion: '', summarySuggesting: false }; }
 function skillEditorActions(ctx) { return { applySummary: () => { ctx.setForm((form) => ({ ...form, description: ctx.state.summarySuggestion })); ctx.setPatch({ summarySuggestion: '' }); }, closeDelete: () => ctx.setPatch({ deleteTarget: null }),
-closeEditor: () => ctx.setPatch({ editorOpen: false }), closeImportScope: () => ctx.setPatch({ importScopeOpen: false }), clearImportSummaryDrafts: () => ctx.setPatch({ importSummaryDrafts: [] }), confirmDeleteSkill: () => confirmDeleteSkill(ctx),
-confirmImportScope: (scope) => confirmImportScope(ctx, scope), applyImportSummaryDraft: (draft) => applyImportSummaryDraft(ctx, draft), dismissImportSummaryDraft: (draft) => dismissImportSummaryDraft(ctx, draft),
-openImportSummaryDraft: (draft) => openImportSummaryDraft(ctx, draft), onDeleteSkill: (skill) => ctx.setPatch({ deleteTarget: skill }), openCreateEditor: () => openCreateSkillEditor(ctx), openEditSkill: (skill) => openEditSkill(ctx, skill),
-openImportScope: () => ctx.setPatch({ importScopeOpen: true }), openSkillFile: (file) => openSkillFile(ctx, file), openSkillCitation: (target, label) => openSkillCitation(ctx, target, label), saveEditor: () => saveSkillEditor(ctx), suggestSummary: () => suggestSkillSummaryForEditor(ctx), }; }
+closeEditor: () => ctx.setPatch({ editorOpen: false }), closeImportScope: () => ctx.setPatch({ importScopeOpen: false }), clearImportSummaryDrafts: () => ctx.setPatch({ importSummaryDrafts: [] }), confirmDeleteSkill: () => runUIAction('skill.delete', () => confirmDeleteSkill(ctx)),
+confirmImportScope: (scope) => runUIAction('skill.import', () => confirmImportScope(ctx, scope)), applyImportSummaryDraft: (draft) => applyImportSummaryDraft(ctx, draft), dismissImportSummaryDraft: (draft) => dismissImportSummaryDraft(ctx, draft),
+openImportSummaryDraft: (draft) => runUIAction('skill.import-summary.open', () => openImportSummaryDraft(ctx, draft), { retryable: true }),
+onDeleteSkill: (skill) => ctx.setPatch({ deleteTarget: skill }), openCreateEditor: () => openCreateSkillEditor(ctx),
+openEditSkill: (skill) => runUIAction('skill.open', () => openEditSkill(ctx, skill), { retryable: true }),
+openImportScope: () => ctx.setPatch({ importScopeOpen: true }),
+openSkillFile: (file) => runUIAction('skill.file.open', () => openSkillFile(ctx, file), { retryable: true }),
+openSkillCitation: (target, label) => openSkillCitation(ctx, target, label),
+saveEditor: () => runUIAction('skill.save', () => saveSkillEditor(ctx)),
+suggestSummary: () => runUIAction('skill.summary.suggest', () => suggestSkillSummaryForEditor(ctx), { retryable: true }), }; }
 function openCreateSkillEditor(ctx) { ctx.setPatch({ activeSkillPath: '', editorForm: emptySkillForm(), editorOpen: true, skillFiles: [], summarySuggestion: '' }); ctx.setError(''); ctx.setNotice(''); }
 async function openEditSkill(ctx, skill) { const skillPath = skillFileForItem(skill); const skillDir = (skill?.dir || skillPreviewDir(skillPath)).toString().trim(); if (!skillPath || !skillDir) { ctx.setError('skills/local/read: path is required'); return; }
 ctx.setError(''); ctx.setNotice(''); ctx.setPatch({ summarySuggestion: '' }); try { const cwd = normalizeSettingsCwd(ctx.projectPath); const [rawSkill, rawFiles] = await Promise.all([readSkill({ cwd, path: skillPath }), listSkillFiles({ cwd, dir: skillDir })]);
-ctx.setPatch({ activeSkillPath: skillPath, editorForm: skillFormFromRaw(rawSkill, skill), editorOpen: true, skillFiles: normalizeSkillFileList(rawFiles) }); } catch (err) { ctx.setError('读取技能失败：' + (err.message || String(err))); } }
+ctx.setPatch({ activeSkillPath: skillPath, editorForm: skillFormFromRaw(rawSkill, skill), editorOpen: true, skillFiles: normalizeSkillFileList(rawFiles) }); } catch (err) { ctx.setError('读取技能失败，请重试。'); throw err; } }
 function skillFormFromRaw(rawSkill, skill) { const raw = optionalObject(rawSkill?.skill); if (!raw) throw new Error('skills/local/read response.skill must be an object'); const content = textFromValue(raw.content); const parsed = parseSkillMarkdown(content, skill.name); return {
 name: parsed.name ? parsed.name : skill.name, displayName: parsed.displayName ? parsed.displayName : textFromValue(skill.title), description: parsed.description ? parsed.description : textFromValue(skill.description),
 keywords: listToText(parsed.triggerWords.length > 0 ? parsed.triggerWords : skill.tags), body: parsed.body, scope: skill.scope, personalType: skill.personalType, }; } async function openSkillFile(ctx, file) { const path = trimmedText(file?.path); if (!path) return; ctx.setError(''); try {
 const raw = await readSkill({ cwd: normalizeSettingsCwd(ctx.projectPath), path }); const skill = optionalObject(raw?.skill); if (!skill) throw new Error('skills/local/read response.skill must be an object');
-const content = textFromValue(skill.content); ctx.setForm((form) => skillFormForOpenedFile(path, content, form)); ctx.setPatch({ activeSkillPath: path }); } catch (err) { ctx.setError('读取子文件失败：' + (err.message || String(err))); } }
+const content = textFromValue(skill.content); ctx.setForm((form) => skillFormForOpenedFile(path, content, form)); ctx.setPatch({ activeSkillPath: path }); } catch (err) { ctx.setError('读取子文件失败，请重试。'); throw err; } }
 async function openSkillCitation(ctx, target, label = '') { const citation = skillCitationFromLink(target, label); if (!citation) return false; ctx.setError(''); if (citation.kind === 'conversation') {
 ctx.setNotice('暂不支持会话跳转：' + (citation.conversationId || citation.raw || '未命名会话')); return false; } const skill = findSkillForCitation(ctx.skills, citation); if (!skill) {
 ctx.setNotice('未找到引用的技能：' + (citation.skillName || citation.path || citation.skillId || citation.raw || '未命名技能')); return false; } await openEditSkill(ctx, skill); return true; } function skillFormForOpenedFile(path, content, form) { if (!isMainSkillFile(path)) return { ...form, body: content };
 const parsed = parseSkillMarkdown(content, form.name); return { ...form, name: parsed.name || form.name, displayName: parsed.displayName || parsed.name || form.displayName, description: parsed.description, keywords: listToText(parsed.triggerWords), body: parsed.body }; }
 async function suggestSkillSummaryForEditor(ctx) { ctx.setPatch({ summarySuggesting: true, summarySuggestion: '' }); ctx.setError(''); try {
 const cwd = normalizeSettingsCwd(ctx.projectPath); const launchPreferences = typeof ctx.resolveLaunchPreferences === 'function' ? await ctx.resolveLaunchPreferences(cwd) : null;
-const description = await suggestSkillSummary(skillSummaryRequest(cwd, ctx.state.editorForm, launchPreferences)); ctx.setPatch({ summarySuggestion: normalizeSummarySuggestion(description) }); } catch (err) { ctx.setError('生成简介失败：' + (err.message || String(err))); } finally {
+const description = await suggestSkillSummary(skillSummaryRequest(cwd, ctx.state.editorForm, launchPreferences)); ctx.setPatch({ summarySuggestion: normalizeSummarySuggestion(description) }); } catch (err) { ctx.setError('生成简介失败，请重试。'); throw err; } finally {
 ctx.setPatch({ summarySuggesting: false }); } } function skillSummaryRequest(cwd, form, launchPreferences) { return { cwd, name: form.displayName || form.name, description: form.description, content: form.body, scenario_words: wordListFromText(form.keywords), scope: form.scope,
 provider: firstTextField(launchPreferences, ['modelProvider', 'provider'], 'launch preferences'), model: textValue(launchPreferences?.model), codexModelProvider: textValue(launchPreferences?.config?.codexModelProvider), }; }
 // eslint-disable-next-line react-refresh/only-export-components
 export async function saveSkillEditor(ctx) { ctx.setPatch({ saving: true }); ctx.setError(''); ctx.setNotice(''); try { const payload = skillSavePayload(normalizeSettingsCwd(ctx.projectPath), ctx.state); if (shouldCreateProjectSkill(ctx.state)) {
 await ctx.facade.createSkill({ cwd: payload.cwd, name: payload.path, content: payload.content }); } else { await ctx.facade.writeSkill(payload); } ctx.setPatch({ editorOpen: false }); await ctx.refreshSkillSurface(); ctx.setNotice(skillSaveNotice(ctx.state, payload)); } catch (err) {
-ctx.setError('保存失败：' + (err.message || String(err))); } finally { ctx.setPatch({ saving: false }); } } function shouldCreateProjectSkill(state) { return !state.activeSkillPath && state.editorForm.scope === 'project'; }
+ctx.setError('保存失败，请重试。'); throw err; } finally { ctx.setPatch({ saving: false }); } } function shouldCreateProjectSkill(state) { return !state.activeSkillPath && state.editorForm.scope === 'project'; }
 function skillSaveNotice(state, payload) { if (state.activeSkillPath && !isMainSkillFile(state.activeSkillPath)) { return '文件已保存：' + (fileNameFromPath(payload.path) || payload.path); } return '已保存'; } function skillSavePayload(cwd, state) {
 const isMain = !state.activeSkillPath || isMainSkillFile(state.activeSkillPath); const displayName = state.editorForm.displayName.trim(); const name = state.editorForm.name.trim() || skillNameFromDisplayName(displayName); if (isMain && !displayName) throw new Error('请先填写技能名称');
 if (isMain && !name) throw new Error('技能名称必须包含中文、英文或数字'); const normalizedForm = isMain ? { ...state.editorForm, name, displayName } : state.editorForm; return { cwd, path: isMain ? (state.activeSkillPath || name) : state.activeSkillPath,
@@ -398,11 +418,11 @@ content: isMain ? buildSkillMarkdown(normalizedForm) : state.editorForm.body, sc
 // eslint-disable-next-line react-refresh/only-export-components
 export async function confirmDeleteSkill(ctx) { const skill = ctx.state.deleteTarget; const skillName = trimmedText(skill?.name); if (!skillName) { ctx.setError('skills/local/delete: name is required'); return; } ctx.setPatch({ deleting: true }); ctx.setError(''); ctx.setNotice(''); try {
 await ctx.facade.deleteSkill({ cwd: normalizeSettingsCwd(ctx.projectPath), name: skillName, scope: skill.scope, personal_type: skill.personalType }); ctx.setPatch({ deleteTarget: null }); await ctx.refreshSkillSurface(); ctx.setNotice('已删除 ' + skill.title); } catch (err) {
-ctx.setError(err.message || String(err)); } finally { ctx.setPatch({ deleting: false }); } } async function confirmImportScope(ctx, scope) { ctx.setPatch({ importing: true }); ctx.setError(''); ctx.setNotice(''); try {
+ctx.setError('删除技能失败，请重试。'); throw err; } finally { ctx.setPatch({ deleting: false }); } } async function confirmImportScope(ctx, scope) { ctx.setPatch({ importing: true }); ctx.setError(''); ctx.setNotice(''); try {
 const paths = await selectProjectDirs(); ctx.setPatch({ importScopeOpen: false }); if (!Array.isArray(paths) || paths.length === 0) { ctx.setNotice('未选择目录'); return; }
 const cwd = normalizeSettingsCwd(ctx.projectPath); const personalType = scope === 'personal' ? 'imported' : ''; const result = await importSkillDirectories({ cwd, paths, scope, personal_type: personalType });
 const failures = Array.isArray(result?.failures) ? result.failures.map(normalizeImportFailure) : []; const importSummaryDrafts = await createImportSummaryDrafts(ctx, result?.imported, scope, personalType); ctx.setPatch({ importSummaryDrafts });
-await ctx.refreshSkillSurface(); ctx.setNotice(importNotice(Array.isArray(result?.imported) ? result.imported.length : 0, importSummaryDrafts, failures, scope)); } catch (err) { ctx.setError('导入目录失败：' + (err.message || String(err))); } finally { ctx.setPatch({ importing: false }); } }
+await ctx.refreshSkillSurface(); ctx.setNotice(importNotice(Array.isArray(result?.imported) ? result.imported.length : 0, importSummaryDrafts, failures, scope)); } catch (err) { ctx.setError('导入目录失败，请重试。'); throw err; } finally { ctx.setPatch({ importing: false }); } }
 async function createImportSummaryDrafts(ctx, importedSkills, scope, personalType) { if (!Array.isArray(importedSkills) || importedSkills.length === 0) return []; const cwd = normalizeSettingsCwd(ctx.projectPath); const draftResults = await Promise.all(
 importedSkills.map((item, index) => createImportSummaryDraft({ ctx, cwd, item, scope, personalType, index, })), ); const drafts = []; for (const draft of draftResults) { if (draft) drafts.push(draft); } return drafts; }
 async function createImportSummaryDraft(options) { const { cwd, item, scope, personalType, index } = options; const skillFile = importedSkillFilePath(item); if (!skillFile) return null;
@@ -415,7 +435,7 @@ function importSummaryEditorPatch(raw, draft) { const skillBase = { name: draft.
 const editorForm = { ...skillFormFromRaw(raw, skillBase), scope: draft.scope, personalType: draft.personalType };
 return { activeSkillPath: draft.skillFile, editorForm, editorOpen: true, skillFiles: [{ name: 'SKILL.md', path: draft.skillFile, isMain: true }], summarySuggestion: '' }; }
 async function openImportSummaryDraft(ctx, draft) { if (!draft?.skillFile) return false; ctx.setError('');
-try { const cwd = normalizeSettingsCwd(ctx.projectPath); const raw = await readSkill({ cwd, path: draft.skillFile }); ctx.setPatch(importSummaryEditorPatch(raw, draft)); return true; } catch (err) { ctx.setError('打开技能失败：' + (err.message || String(err))); return false; } }
+try { const cwd = normalizeSettingsCwd(ctx.projectPath); const raw = await readSkill({ cwd, path: draft.skillFile }); ctx.setPatch(importSummaryEditorPatch(raw, draft)); return true; } catch (err) { ctx.setError('打开技能失败，请重试。'); throw err; } }
 async function applyImportSummaryDraft(ctx, draft) { if (!draft || draft.status !== 'ready') return; const suggestion = trimmedText(draft.suggestion); if (!suggestion) return; const opened = await openImportSummaryDraft(ctx, draft); if (!opened) return;
 ctx.setForm((form) => ({ ...form, description: suggestion })); ctx.setPatch({ importSummaryDrafts: ctx.state.importSummaryDrafts.map((item) => (item.id === draft.id ? { ...item, status: 'applied' } : item)), }); ctx.setNotice('已采用简介建议，保存技能后生效。'); }
 function dismissImportSummaryDraft(ctx, draft) { ctx.setPatch({ importSummaryDrafts: ctx.state.importSummaryDrafts.filter((item) => item.id !== draft?.id) }); } function useSkillResolution(options) {
@@ -425,10 +445,16 @@ const stateShouldReset = ( resolutionState.resetKey !== resetKey || (resolutionC
 setResolutionState((current) => ({ ...current, preview: typeof value === 'function' ? value(current.preview) : value })); }, []); const setNamePrompt = useCallback((value) => {
 setResolutionState((current) => ({ ...current, namePrompt: typeof value === 'function' ? value(current.namePrompt) : value })); }, []); const setNameInput = useCallback((value) => {
 setResolutionState((current) => ({ ...current, nameInput: typeof value === 'function' ? value(current.nameInput) : value }));
-}, []); const reset = useCallback(() => setResolutionState((current) => ({ ...current, preview: null, namePrompt: null, nameInput: '' })), []); const runAction = useCallback( (conflict, actionOrEntry, entry = null, newName = '') => runResolutionPipeline({ actionOrEntry,
-actioning, conflict, entry, newName, projectPath, refreshSkillSurface, setActioning, setError, setNameInput, setNamePrompt, setNotice, setPreview, }), [actioning, projectPath, refreshSkillSurface, setError, setNameInput, setNamePrompt, setNotice, setPreview],
+}, []); const reset = useCallback(() => setResolutionState((current) => ({ ...current, preview: null, namePrompt: null, nameInput: '' })), []); const runAction = useCallback(
+(conflict, actionOrEntry, entry = null, newName = '') => runUIAction('skill.resolution.preview', () => runResolutionPipeline({
+actionOrEntry, actioning, conflict, entry, newName, projectPath, refreshSkillSurface,
+setActioning, setError, setNameInput, setNamePrompt, setNotice, setPreview,
+}), { retryable: true }), [actioning, projectPath, refreshSkillSurface, setError, setNameInput, setNamePrompt, setNotice, setPreview],
 ); const confirmName = useCallback(() => confirmResolutionName({ nameInput, namePrompt, runAction, setError, setNameInput, setNamePrompt }), [nameInput, namePrompt, runAction, setError, setNameInput, setNamePrompt]);
-const confirmPreview = useCallback(() => confirmResolutionPreview({ preview, refreshSkillSurface, setActioning, setError, setNameInput, setNamePrompt, setNotice, setPreview }), [preview, refreshSkillSurface, setError, setNameInput, setNamePrompt, setNotice, setPreview]);
+const confirmPreview = useCallback(() => runUIAction(
+'skill.resolution.apply',
+() => confirmResolutionPreview({ preview, refreshSkillSurface, setActioning, setError, setNameInput, setNamePrompt, setNotice, setPreview }),
+), [preview, refreshSkillSurface, setError, setNameInput, setNamePrompt, setNotice, setPreview]);
 return { actioning, confirmName, confirmPreview, nameInput, namePrompt, preview, reset, runAction, setNameInput, setNamePrompt, setPreview }; }
 async function runResolutionPipeline(ctx) { const request = resolutionRequestFromAction(ctx); if (!request.ok) return request.value; if (request.prompt) { promptResolutionNewName(ctx, request.prompt); return false; }
 return previewAndMaybeApplyResolution(ctx, request.payload, request.action, request.conflict, request.applyKey); } function resolutionRequestFromAction({ actionOrEntry, conflict, entry, newName, projectPath }) {
@@ -443,9 +469,9 @@ provider: provider || fallbackProvider, source_provider: provider || trimmedText
 ...resolutionSameNamePayloadFields(conflict, action, actionEntry), }; if (trimmedNewName) payload.new_name = trimmedNewName; return payload; }
 function promptResolutionNewName(ctx, prompt) { if (resolutionActionUnsupported(prompt.action)) { ctx.setNotice('暂不支持该技能冲突操作：' + resolutionActionLabel(prompt.action)); return;
 } ctx.setPreview(null); ctx.setNamePrompt({ ...prompt, autoApply: resolutionActionAutoAppliesForConflict(prompt.action, prompt.conflict) }); ctx.setNameInput(defaultResolutionNewName(prompt.conflict, prompt.action)); ctx.setNotice('请输入新技能名称后继续。'); }
-async function previewAndMaybeApplyResolution(ctx, payload, action, conflict, applyKey) { ctx.setActioning(applyKey); ctx.setError(''); let result = false; try {
+async function previewAndMaybeApplyResolution(ctx, payload, action, conflict, applyKey) { ctx.setActioning(applyKey); ctx.setError(''); let result; try {
 const preview = await previewSkillResolution(payload); const items = Array.isArray(preview?.items) ? preview.items : []; if (resolutionActionAutoAppliesForConflict(action, conflict)) { result = await autoApplyResolutionPreview(ctx, payload, items); } else {
-ctx.setPreview({ ...preview, action, payload, items, requiresApply: resolutionRequiresApply(action) }); ctx.setNotice(isResolutionViewAction(action) ? '已生成处理预览' : '已生成处理预览，请确认应用。'); result = true; } } catch (err) { ctx.setError('处理技能冲突失败：' + (err.message || String(err)));
+ctx.setPreview({ ...preview, action, payload, items, requiresApply: resolutionRequiresApply(action) }); ctx.setNotice(isResolutionViewAction(action) ? '已生成处理预览' : '已生成处理预览，请确认应用。'); result = true; } } catch (err) { ctx.setError('处理技能冲突失败，请重试。'); throw err;
 } finally { ctx.setActioning(''); } return result; } async function autoApplyResolutionPreview(ctx, payload, items) { const proof = items[0]; if (!proof?.preview_id || !proof?.preview_hash) throw new Error('缺少处理预览凭据');
 const report = await applySkillResolution(resolutionApplyPayload(payload, proof)); ctx.setPreview(null); ctx.setNamePrompt(null); ctx.setNameInput(''); await ctx.refreshSkillSurface(); applyResolutionReportFeedback(ctx, report); return true; } function resolutionApplyPayload(payload, proof) {
 return { ...payload, provider: proof.provider || payload.provider, source_provider: proof.source_provider || payload.source_provider, source_path_id: proof.source_path_id || payload.source_path_id, preview_id: proof.preview_id, preview_hash: proof.preview_hash }; }
@@ -456,7 +482,7 @@ async function confirmResolutionName(options) { const { nameInput, namePrompt, r
 if (await runAction(namePrompt.conflict, namePrompt.action, namePrompt.entry, newName)) { setNamePrompt(null); setNameInput(''); } }
 async function confirmResolutionPreview(ctx) { const proof = Array.isArray(ctx.preview?.items) ? ctx.preview.items[0] : null; if (!ctx.preview?.requiresApply || !proof?.preview_id || !proof?.preview_hash) return; ctx.setActioning('confirm'); try {
 const report = await applySkillResolution(resolutionApplyPayload(ctx.preview.payload, proof)); ctx.setPreview(null); ctx.setNamePrompt(null); ctx.setNameInput(''); await ctx.refreshSkillSurface(); applyResolutionReportFeedback(ctx, report); } catch (err) {
-ctx.setError('应用技能冲突处理失败：' + (err.message || String(err))); } finally { ctx.setActioning(''); } }
+ctx.setError('应用技能冲突处理失败，请重试。'); throw err; } finally { ctx.setActioning(''); } }
 function SkillsPageView({ copy, model }) {
   return (
     <div className="plugins-square-container">
