@@ -214,8 +214,10 @@ func runNormalDesktop(ctx context.Context, selection app.StartupSelection) error
 	if err != nil {
 		return err
 	}
-	return app.RunDesktop(ctx, frontendFS, func(readyCtx context.Context) error {
-		return selection.RecordReadyACK(readyCtx, time.Now())
+	return app.RunDesktop(ctx, frontendFS, func(readyCtx context.Context, publish app.DesktopACKPublisher) error {
+		return publish(func() error {
+			return selection.RecordReadyACK(readyCtx, time.Now())
+		})
 	})
 }
 

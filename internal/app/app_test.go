@@ -225,7 +225,7 @@ func TestRunActivatedDesktopDoesNotACKBeforeApplicationStarted(t *testing.T) {
 	err := runActivatedDesktop(
 		context.Background(),
 		readiness,
-		func(context.Context) error { readyCalls++; return nil },
+		func(context.Context, DesktopACKPublisher) error { readyCalls++; return nil },
 		func() error { return runErr },
 		func() {},
 	)
@@ -243,7 +243,9 @@ func TestRunActivatedDesktopACKsAfterApplicationStarted(t *testing.T) {
 	err := runActivatedDesktop(
 		context.Background(),
 		readiness,
-		func(context.Context) error { close(readyCalled); return nil },
+		func(_ context.Context, publish DesktopACKPublisher) error {
+			return publish(func() error { close(readyCalled); return nil })
+		},
 		func() error {
 			readiness.MarkApplicationStarted()
 			<-readyCalled
@@ -256,6 +258,49 @@ func TestRunActivatedDesktopACKsAfterApplicationStarted(t *testing.T) {
 	}
 }
 
+func TestRunActivatedDesktopRejectsACKWhenRunReturnsDuringReadyCallback(t *testing.T) {
+	readiness := uiwails.NewActivationReadiness()
+	readyStarted := make(chan struct{})
+	readyContext := make(chan context.Context, 1)
+	releaseReady := make(chan struct{})
+	published := make(chan struct{})
+	runReturned := make(chan struct{})
+
+	errDone := startAppErrorGoroutineForTest(t, "desktop activation", func() error {
+		return runActivatedDesktop(
+			context.Background(),
+			readiness,
+			func(ctx context.Context, publish DesktopACKPublisher) error {
+				readyContext <- ctx
+				close(readyStarted)
+				<-releaseReady
+				return publish(func() error { close(published); return nil })
+			},
+			func() error {
+				readiness.MarkApplicationStarted()
+				<-readyStarted
+				close(runReturned)
+				return nil
+			},
+			func() {},
+		)
+	})
+
+	readyCtx := <-readyContext
+	<-runReturned
+	<-readyCtx.Done()
+	close(releaseReady)
+	err := <-errDone
+	if !errors.Is(err, errDesktopRunBeforeACK) {
+		t.Fatalf("runActivatedDesktop() error = %v, want %v", err, errDesktopRunBeforeACK)
+	}
+	select {
+	case <-published:
+		t.Fatal("healthy ACK published after Wails Run returned")
+	default:
+	}
+}
+
 func TestRunActivatedDesktopPropagatesACKFailureAndQuits(t *testing.T) {
 	readiness := uiwails.NewActivationReadiness()
 	readyErr := errors.New("record healthy ACK")
@@ -263,7 +308,9 @@ func TestRunActivatedDesktopPropagatesACKFailureAndQuits(t *testing.T) {
 	err := runActivatedDesktop(
 		context.Background(),
 		readiness,
-		func(context.Context) error { return readyErr },
+		func(_ context.Context, publish DesktopACKPublisher) error {
+			return publish(func() error { return readyErr })
+		},
 		func() error {
 			readiness.MarkApplicationStarted()
 			<-quit
