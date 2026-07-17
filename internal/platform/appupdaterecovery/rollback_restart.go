@@ -64,7 +64,7 @@ func (store *Store) convergeRollbackRestartLocked(
 		return fmt.Errorf("rollback restart from state %q: illegal transition", transaction.State)
 	}
 	if transaction.RollbackRestart.ACKPresent {
-		return activateACKedRollbackRestart(ctx, transaction, resolve)
+		return store.convergeACKedRollbackRestart(ctx, journal, transaction, resolve, launch)
 	}
 	control, err := acquireRollbackRestartProcess(ctx, transaction, resolve, launch)
 	if err != nil {
@@ -90,7 +90,19 @@ func acquireRollbackRestartProcess(
 	if found {
 		return control, nil
 	}
-	control, err = launch(ctx, transaction.RollbackRestart.LaunchToken)
+	return launchRollbackRestartControl(ctx, transaction.RollbackRestart.LaunchToken, launch)
+}
+
+// launchRollbackRestartControl 启动唯一 replacement，并保留 cleanup ownership 到 durable ACK。
+func launchRollbackRestartControl(
+	ctx context.Context,
+	token string,
+	launch RollbackRestartLauncher,
+) (RollbackRestartControl, error) {
+	if err := rollbackRestartContextError(ctx); err != nil {
+		return RollbackRestartControl{}, err
+	}
+	control, err := launch(ctx, token)
 	if err != nil {
 		return RollbackRestartControl{}, fmt.Errorf("launch rolled back release: %w", err)
 	}
@@ -205,19 +217,36 @@ func confirmRollbackRestartAfterPrepare(
 	return true, nil
 }
 
-// activateACKedRollbackRestart 重入 durable ACK 后仅激活其绑定的 helper generation。
-func activateACKedRollbackRestart(
+// convergeACKedRollbackRestart 激活 ACK exact helper，明确 missing 时以 replacement 重写 ACK。
+func (store *Store) convergeACKedRollbackRestart(
 	ctx context.Context,
+	journal *journalPayload,
 	transaction Transaction,
 	resolve RollbackRestartResolver,
+	launch RollbackRestartLauncher,
 ) error {
 	control, found, err := resolve(ctx, transaction.RollbackRestart.LaunchToken)
 	if err != nil {
 		return fmt.Errorf("resolve ACKed rollback restart: %w", err)
 	}
 	if !found {
-		return errors.New("ACKed rollback restart helper is missing")
+		replacement, launchErr := launchRollbackRestartControl(
+			ctx, transaction.RollbackRestart.LaunchToken, launch,
+		)
+		if launchErr != nil {
+			return launchErr
+		}
+		return store.persistRollbackRestartACK(ctx, journal, transaction, replacement, resolve)
 	}
+	return activateResolvedACKedRollbackRestart(ctx, transaction, control)
+}
+
+// activateResolvedACKedRollbackRestart 仅激活 durable ACK 绑定的同一 helper generation。
+func activateResolvedACKedRollbackRestart(
+	ctx context.Context,
+	transaction Transaction,
+	control RollbackRestartControl,
+) error {
 	if err := validateRollbackRestartControl(control); err != nil {
 		return err
 	}

@@ -139,6 +139,156 @@ func TestRollbackRestartReplaysActivationAfterDurableACK(t *testing.T) {
 	}
 }
 
+func TestRollbackRestartCrashAfterACKBeforeActivateLaunchesReplacement(t *testing.T) {
+	store, identity, _ := createProbationTransaction(t)
+	transaction, err := store.RollbackUnclaimedProbation(t.Context(), identity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixture := &rollbackHelperLifecycle{t: t, exitWindow: "activate"}
+	if _, err := store.ConvergeRollbackRestart(t.Context(), transaction.Identity, fixture.resolve, fixture.launch); err == nil {
+		t.Fatal("helper crash before ACTIVATE unexpectedly converged")
+	}
+	oldProcess := loadTransaction(t, store, identity).RollbackRestart.ACK.Process
+
+	converged, err := store.ConvergeRollbackRestart(t.Context(), transaction.Identity, fixture.resolve, fixture.launch)
+	if err != nil {
+		t.Fatalf("replace definitively missing ACKed helper: %v", err)
+	}
+	if fixture.launches != 2 || fixture.maxLive != 1 || !fixture.live {
+		t.Fatalf("replacement lifecycle=%+v", fixture)
+	}
+	if !converged.RollbackRestart.ACKPresent || converged.RollbackRestart.ACK.Process == oldProcess ||
+		converged.RollbackRestart.ACK.Process != fixture.process {
+		t.Fatalf("replacement ACK=%+v old=%+v live=%+v", converged.RollbackRestart.ACK, oldProcess, fixture.process)
+	}
+}
+
+func TestRollbackRestartActivationResponseLossThenDeathLaunchesReplacement(t *testing.T) {
+	store, identity, _ := createProbationTransaction(t)
+	transaction, err := store.RollbackUnclaimedProbation(t.Context(), identity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	responseLost := errors.New("ACTIVATE response lost")
+	fixture := &rollbackHelperLifecycle{t: t, activateErrorOnce: responseLost}
+	if _, err := store.ConvergeRollbackRestart(t.Context(), identity, fixture.resolve, fixture.launch); !errors.Is(err, responseLost) {
+		t.Fatalf("first convergence error = %v, want response loss", err)
+	}
+	oldProcess := loadTransaction(t, store, identity).RollbackRestart.ACK.Process
+	fixture.live = false
+
+	converged, err := store.ConvergeRollbackRestart(t.Context(), transaction.Identity, fixture.resolve, fixture.launch)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fixture.launches != 2 || fixture.maxLive != 1 || converged.RollbackRestart.ACK.Process == oldProcess ||
+		converged.RollbackRestart.ACK.Process != fixture.process {
+		t.Fatalf("response-loss replacement lifecycle=%+v ACK=%+v", fixture, converged.RollbackRestart.ACK)
+	}
+}
+
+func TestRollbackRestartDeadACKReplacementWriteFailureCleansNewHelper(t *testing.T) {
+	store, identity, _ := createProbationTransaction(t)
+	transaction, err := store.RollbackUnclaimedProbation(t.Context(), identity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixture := &rollbackHelperLifecycle{t: t}
+	first, err := store.ConvergeRollbackRestart(t.Context(), identity, fixture.resolve, fixture.launch)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixture.live = false
+	journalDir := filepath.Dir(store.journalPath(identity.TransactionID))
+	replacement := first.RollbackRestart.ACK.Process
+	replacement.StartToken = "replacement-write-failure"
+	replacementLive := false
+	cleanups := 0
+	control := func() RollbackRestartControl {
+		return RollbackRestartControl{
+			Process: replacement,
+			Cleanup: func() error {
+				cleanups++
+				replacementLive = false
+				return os.Chmod(journalDir, 0o700)
+			},
+			Prepare:  func(context.Context) error { return os.Chmod(journalDir, 0o500) },
+			Activate: func(context.Context) error { t.Fatal("replacement activated without durable ACK"); return nil },
+		}
+	}
+	t.Cleanup(func() { _ = os.Chmod(journalDir, 0o700) })
+	_, convergeErr := store.ConvergeRollbackRestart(
+		t.Context(), transaction.Identity,
+		func(context.Context, string) (RollbackRestartControl, bool, error) {
+			return control(), replacementLive, nil
+		},
+		func(context.Context, string) (RollbackRestartControl, error) {
+			replacementLive = true
+			return control(), nil
+		},
+	)
+	got := loadTransaction(t, store, identity)
+	if convergeErr == nil || cleanups != 1 || replacementLive || got.RollbackRestart.ACK.Process != first.RollbackRestart.ACK.Process {
+		t.Fatalf("replacement write failure error=%v cleanups=%d live=%t ACK=%+v", convergeErr, cleanups, replacementLive, got.RollbackRestart.ACK)
+	}
+}
+
+func TestRollbackRestartDeadACKResolverErrorDoesNotLaunch(t *testing.T) {
+	store, identity, _ := createProbationTransaction(t)
+	transaction, err := store.RollbackUnclaimedProbation(t.Context(), identity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixture := &rollbackHelperLifecycle{t: t}
+	if _, err := store.ConvergeRollbackRestart(t.Context(), identity, fixture.resolve, fixture.launch); err != nil {
+		t.Fatal(err)
+	}
+	fixture.live = false
+	resolveErr := errors.New("resolver identity uncertain")
+	_, convergeErr := store.ConvergeRollbackRestart(
+		t.Context(), transaction.Identity,
+		func(context.Context, string) (RollbackRestartControl, bool, error) {
+			return RollbackRestartControl{}, false, resolveErr
+		},
+		func(context.Context, string) (RollbackRestartControl, error) {
+			t.Fatal("launcher called after uncertain resolver failure")
+			return RollbackRestartControl{}, nil
+		},
+	)
+	if !errors.Is(convergeErr, resolveErr) || fixture.launches != 1 {
+		t.Fatalf("resolver error=%v lifecycle=%+v", convergeErr, fixture)
+	}
+}
+
+func TestRollbackRestartDeadACKReplacementValidationFailureCleansLaunch(t *testing.T) {
+	store, identity, _ := createProbationTransaction(t)
+	transaction, err := store.RollbackUnclaimedProbation(t.Context(), identity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixture := &rollbackHelperLifecycle{t: t}
+	first, err := store.ConvergeRollbackRestart(t.Context(), identity, fixture.resolve, fixture.launch)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixture.live = false
+	cleanups := 0
+	_, convergeErr := store.ConvergeRollbackRestart(
+		t.Context(), transaction.Identity,
+		func(context.Context, string) (RollbackRestartControl, bool, error) {
+			return RollbackRestartControl{}, false, nil
+		},
+		func(context.Context, string) (RollbackRestartControl, error) {
+			return RollbackRestartControl{Cleanup: func() error { cleanups++; return nil }}, nil
+		},
+	)
+	got := loadTransaction(t, store, identity)
+	if convergeErr == nil || cleanups != 1 || got.RollbackRestart.ACK.Process != first.RollbackRestart.ACK.Process {
+		t.Fatalf("replacement validation error=%v cleanups=%d ACK=%+v", convergeErr, cleanups, got.RollbackRestart.ACK)
+	}
+}
+
 func TestRollbackRestartACKWriteFailureCleansParkedHelper(t *testing.T) {
 	store, identity, _ := createProbationTransaction(t)
 	transaction, err := store.RollbackUnclaimedProbation(t.Context(), identity)
@@ -312,6 +462,11 @@ func (fixture *rollbackHelperLifecycle) activate(process RollbackRestartProcess)
 	if !fixture.live || fixture.process != process {
 		return errors.New("rollback helper exited before ACTIVATE")
 	}
+	if fixture.exitWindow == "activate" {
+		fixture.live = false
+		fixture.exitWindow = ""
+		return errors.New("rollback helper exited after durable ACK before ACTIVATE")
+	}
 	if fixture.activateErrorOnce != nil {
 		err := fixture.activateErrorOnce
 		fixture.activateErrorOnce = nil
@@ -320,7 +475,7 @@ func (fixture *rollbackHelperLifecycle) activate(process RollbackRestartProcess)
 	return nil
 }
 
-func TestRollbackRestartACKIgnoresExitedOrReusedHelper(t *testing.T) {
+func TestRollbackRestartACKRejectsReusedHelper(t *testing.T) {
 	store, identity, _ := createProbationTransaction(t)
 	transaction, err := store.RollbackUnclaimedProbation(t.Context(), identity)
 	if err != nil {
