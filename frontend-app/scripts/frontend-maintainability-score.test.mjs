@@ -301,10 +301,10 @@ function performanceEvidence(context, check, metricStatus = 'PASS', overrides = 
     go: 'go version go1.25.0 darwin/arm64',
   };
   const timingCase = () => ({
-    attemptsPerSample: 3,
+    attemptsPerSample: 1,
     durationClock: 'test-clock',
     iterationCount: 1,
-    durationAttemptSamplesMs: Array.from({ length: 5 }, () => [10, 11, 12]),
+    durationAttemptSamplesMs: Array.from({ length: 5 }, () => [10]),
     durationSamplesMs: [10, 10, 10, 10, 10],
     durationMedianMs: 10,
   });
@@ -783,6 +783,36 @@ describe('executable evidence registry', () => {
 
     expect(baselineDocument.metrics['P01-render-isolation'].mainPageUpdateCommits).toBe(40);
     expect(structuredEvidenceStatus(valid, options)).toBe('PASS');
+    const timingCaseId = check.caseIds[0];
+    const validTimingCase = valid.evidence.metrics['P02-history-budget'].cases[timingCaseId];
+    const withTimingCase = (timingCaseEntry) => ({
+      ...valid,
+      evidence: {
+        ...valid.evidence,
+        metrics: {
+          ...valid.evidence.metrics,
+          'P02-history-budget': {
+            ...valid.evidence.metrics['P02-history-budget'],
+            cases: {
+              ...valid.evidence.metrics['P02-history-budget'].cases,
+              [timingCaseId]: timingCaseEntry,
+            },
+          },
+        },
+      },
+    });
+    expect(structuredEvidenceStatus(withTimingCase({
+      ...validTimingCase,
+      durationAttemptSamplesMs: Array.from({ length: 5 }, () => [10, 11, 12]),
+    }), options)).toBe('FAIL');
+    expect(structuredEvidenceStatus(withTimingCase({
+      ...validTimingCase,
+      durationSamplesMs: [11, 10, 10, 10, 10],
+    }), options)).toBe('FAIL');
+    expect(structuredEvidenceStatus(withTimingCase({
+      ...validTimingCase,
+      attemptsPerSample: 3,
+    }), options)).toBe('FAIL');
     expect(structuredEvidenceStatus({
       ...valid,
       evidence: {
