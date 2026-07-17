@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -79,6 +81,10 @@ func runPrePushHook(
 	if err != nil {
 		return sourceError("normalize pre-push refs: %v", err)
 	}
+	actionAttemptID, err := newActionGrantAttemptID()
+	if err != nil {
+		return infrastructureError("create pre-push action attempt: %v", err)
+	}
 	for index, request := range requests {
 		status, executeErr := executeHookRequest(ctx, coordinator, request)
 		if err := gitHookDecision(status, request.Submit.Source.SourceTreeSHA, executeErr); err != nil {
@@ -92,11 +98,21 @@ func runPrePushHook(
 		}
 		if err := authorizer.AuthorizeGitPush(ctx, gitPushGrantRequest{
 			Status: status, Submit: *request.Submit, RemoteURL: remoteURL,
+			ActionAttemptID: actionAttemptID,
 		}); err != nil {
 			return fmt.Errorf("pre-push ref update %d: %w", index+1, err)
 		}
 	}
 	return nil
+}
+
+// newActionGrantAttemptID 为一次 pre-push invocation 创建不可预测的共同授权边界。
+func newActionGrantAttemptID() (string, error) {
+	entropy := make([]byte, 32)
+	if _, err := io.ReadFull(rand.Reader, entropy); err != nil {
+		return "", fmt.Errorf("read action attempt entropy: %w", err)
+	}
+	return "attempt:v1:" + hex.EncodeToString(entropy), nil
 }
 
 func runCodexHook(input io.Reader, stdout io.Writer, connector hookCoordinatorConnector) error {

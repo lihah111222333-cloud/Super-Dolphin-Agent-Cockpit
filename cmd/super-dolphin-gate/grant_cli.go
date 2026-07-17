@@ -198,6 +198,7 @@ func actionGrantExpectationFromRequest(request gatecontract.GrantRequest) action
 		Audience: request.Audience, RepoID: request.RepoID, InvocationID: request.InvocationID,
 		SourceTreeSHA: request.SourceTreeSHA, Generation: request.Generation, RemoteURL: request.RemoteURL,
 		Ref: request.Ref, OldSHA: request.OldSHA, NewSHA: request.NewSHA,
+		ActionAttemptID: request.ActionAttemptID,
 	}
 }
 

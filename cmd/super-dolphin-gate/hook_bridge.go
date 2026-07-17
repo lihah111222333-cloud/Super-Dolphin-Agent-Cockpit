@@ -34,9 +34,10 @@ type hookCoordinatorBridge struct {
 }
 
 type gitPushGrantRequest struct {
-	Status    gatehook.JobStatus
-	Submit    gatehook.SubmitRequest
-	RemoteURL string
+	Status          gatehook.JobStatus
+	Submit          gatehook.SubmitRequest
+	RemoteURL       string
+	ActionAttemptID string
 }
 
 var _ hookCoordinator = (*hookCoordinatorBridge)(nil)
@@ -91,7 +92,8 @@ func (bridge *hookCoordinatorBridge) AuthorizeGitPush(
 		Receipt: receipt, InvocationOwner: request.Submit.Invocation.Owner,
 		Audience: gatecontract.ActionAudienceGitPush, ActionPolicy: string(rangeSource.UpdateKind),
 		RemoteURL: request.RemoteURL, Ref: rangeSource.RemoteRef,
-		OldSHA: rangeSource.ObservedRemoteSHA, NewSHA: rangeSource.HeadSHA, RequestNonce: nonce,
+		OldSHA: rangeSource.ObservedRemoteSHA, NewSHA: rangeSource.HeadSHA,
+		ActionAttemptID: request.ActionAttemptID, RequestNonce: nonce,
 	})
 	if err != nil {
 		return fmt.Errorf("issue git.push action grant: %w", err)
@@ -101,6 +103,7 @@ func (bridge *hookCoordinatorBridge) AuthorizeGitPush(
 		InvocationID: receipt.InvocationID, SourceTreeSHA: receipt.Source.SourceTreeSHA,
 		Generation: receipt.Generation, RemoteURL: request.RemoteURL, Ref: rangeSource.RemoteRef,
 		OldSHA: rangeSource.ObservedRemoteSHA, NewSHA: rangeSource.HeadSHA,
+		ActionAttemptID: request.ActionAttemptID,
 	})
 	if err != nil {
 		return fmt.Errorf("consume git.push action grant: %w", err)
@@ -122,6 +125,9 @@ func validateGitPushGrantRequest(request gitPushGrantRequest) (*gatecontract.Ran
 	}
 	if strings.TrimSpace(request.RemoteURL) == "" {
 		return nil, errors.New("git.push action grant requires the exact remote URL")
+	}
+	if err := gatecontract.ValidateActionAttemptID(request.ActionAttemptID); err != nil {
+		return nil, fmt.Errorf("validate git.push action attempt: %w", err)
 	}
 	return rangeSource, nil
 }
@@ -151,7 +157,7 @@ func gitPushGrantNonce(receipt gatecontract.ResultReceipt, request gitPushGrantR
 	payload := strings.Join([]string{
 		receipt.ReceiptID, request.Submit.Invocation.Owner, request.Submit.Invocation.Key,
 		request.RemoteURL, rangeSource.RemoteRef, rangeSource.ObservedRemoteSHA,
-		rangeSource.HeadSHA, request.Submit.Source.SourceTreeSHA,
+		rangeSource.HeadSHA, request.Submit.Source.SourceTreeSHA, request.ActionAttemptID,
 	}, "\x00")
 	digest := sha256.Sum256([]byte(payload))
 	return fmt.Sprintf("sha256:%x", digest)

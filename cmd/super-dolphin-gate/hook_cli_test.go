@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	gatecontract "github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gatehook"
 )
 
@@ -78,6 +79,50 @@ func TestPrePushHookSubmitsEveryVerifiedRef(t *testing.T) {
 	if coordinator.grantCount != 2 {
 		t.Fatalf("action grant count = %d, want 2", coordinator.grantCount)
 	}
+	if len(coordinator.grantRequests) != 2 ||
+		coordinator.grantRequests[0].ActionAttemptID != coordinator.grantRequests[1].ActionAttemptID {
+		t.Fatalf("multi-ref hook did not share one action attempt: %#v", coordinator.grantRequests)
+	}
+	if err := gatecontract.ValidateActionAttemptID(coordinator.grantRequests[0].ActionAttemptID); err != nil {
+		t.Fatalf("pre-push action attempt is not high entropy: %v", err)
+	}
+}
+
+func TestPrePushHookNewAttemptAfterPartialGrantFailure(t *testing.T) {
+	repository := newHookTestRepository(t)
+	head := strings.TrimSpace(runHookTestGit(t, repository, "rev-parse", "HEAD"))
+	runHookTestGit(t, repository, "branch", "topic", head)
+	zero := strings.Repeat("0", len(head))
+	input := fmt.Sprintf(
+		"refs/heads/main %s refs/heads/main %s\nrefs/heads/topic %s refs/heads/topic %s\n",
+		head, zero, head, zero,
+	)
+	coordinator := &recordingHookCoordinator{passWithReceipt: true, failGrantAt: 2}
+	args := []string{"pre-push", "origin", "file://" + repository}
+	if err := runHookWithConnector(
+		args, strings.NewReader(input), &bytes.Buffer{}, repository, hookTestConnector(coordinator),
+	); err == nil || !strings.Contains(err.Error(), "injected grant failure") {
+		t.Fatalf("first pre-push error = %v", err)
+	}
+	if len(coordinator.grantRequests) != 2 ||
+		coordinator.grantRequests[0].ActionAttemptID != coordinator.grantRequests[1].ActionAttemptID {
+		t.Fatalf("partial hook attempt boundary = %#v", coordinator.grantRequests)
+	}
+	failedAttempt := coordinator.grantRequests[0].ActionAttemptID
+
+	coordinator.failGrantAt = 0
+	if err := runHookWithConnector(
+		args, strings.NewReader(input), &bytes.Buffer{}, repository, hookTestConnector(coordinator),
+	); err != nil {
+		t.Fatalf("new pre-push attempt failed: %v", err)
+	}
+	if len(coordinator.grantRequests) != 4 {
+		t.Fatalf("grant requests = %d, want 4", len(coordinator.grantRequests))
+	}
+	newAttempt := coordinator.grantRequests[2].ActionAttemptID
+	if newAttempt == failedAttempt || newAttempt != coordinator.grantRequests[3].ActionAttemptID {
+		t.Fatalf("new multi-ref attempt boundary failed=%q new=%q final=%q", failedAttempt, newAttempt, coordinator.grantRequests[3].ActionAttemptID)
+	}
 }
 
 func TestCodexHookQueuedAndMaliciousInputAlwaysEmitJSON(t *testing.T) {
@@ -142,6 +187,8 @@ type recordingHookCoordinator struct {
 	queuePosition   int
 	passWithReceipt bool
 	grantCount      int
+	failGrantAt     int
+	grantRequests   []gitPushGrantRequest
 }
 
 func (coordinator *recordingHookCoordinator) Submit(
@@ -178,6 +225,10 @@ func (coordinator *recordingHookCoordinator) AuthorizeGitPush(
 		return fmt.Errorf("invalid git.push grant request")
 	}
 	coordinator.grantCount++
+	coordinator.grantRequests = append(coordinator.grantRequests, request)
+	if coordinator.failGrantAt == coordinator.grantCount {
+		return fmt.Errorf("injected grant failure")
+	}
 	return nil
 }
 

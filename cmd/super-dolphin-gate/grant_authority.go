@@ -44,19 +44,21 @@ type actionGrantIntent struct {
 	Ref             string
 	OldSHA          string
 	NewSHA          string
+	ActionAttemptID string
 	RequestNonce    string
 }
 
 type actionGrantExpectation struct {
-	Audience      gatecontract.ActionAudience
-	RepoID        string
-	InvocationID  string
-	SourceTreeSHA string
-	Generation    uint64
-	RemoteURL     string
-	Ref           string
-	OldSHA        string
-	NewSHA        string
+	Audience        gatecontract.ActionAudience
+	RepoID          string
+	InvocationID    string
+	SourceTreeSHA   string
+	Generation      uint64
+	RemoteURL       string
+	Ref             string
+	OldSHA          string
+	NewSHA          string
+	ActionAttemptID string
 }
 
 type actionGrantService struct {
@@ -347,10 +349,11 @@ func (service *actionGrantService) Expire(ctx context.Context, grantID string) (
 	return service.store.transitionActionGrant(ctx, gatecontract.ActionGrantStateIssued, signed)
 }
 
+// validateIntent 在签发前复验 attempt、passed receipt 与当前 generation。
 func (service *actionGrantService) validateIntent(ctx context.Context, intent actionGrantIntent) error {
 	for name, value := range map[string]string{
 		"invocation_owner": intent.InvocationOwner, "action_policy": intent.ActionPolicy,
-		"request_nonce": intent.RequestNonce,
+		"action_attempt_id": intent.ActionAttemptID, "request_nonce": intent.RequestNonce,
 	} {
 		if strings.TrimSpace(value) == "" {
 			return fmt.Errorf("action grant intent %s is required", name)
@@ -358,6 +361,9 @@ func (service *actionGrantService) validateIntent(ctx context.Context, intent ac
 	}
 	if intent.Receipt.Status != gatecontract.ResultStatusPassed {
 		return errors.New("action grant requires a passed result receipt")
+	}
+	if err := gatecontract.ValidateActionAttemptID(intent.ActionAttemptID); err != nil {
+		return fmt.Errorf("validate action grant attempt: %w", err)
 	}
 	if err := service.receiptAuthority.VerifyCurrentResultReceipt(ctx, intent.Receipt); err != nil {
 		return fmt.Errorf("verify current action grant receipt: %w", err)
@@ -379,7 +385,8 @@ func (service *actionGrantService) buildRequest(
 		ProcessChallenge: fmt.Sprintf("sha256:%x", challenge), SourceTreeSHA: intent.Receipt.Source.SourceTreeSHA,
 		Generation: intent.Receipt.Generation, Audience: intent.Audience, ActionPolicy: intent.ActionPolicy,
 		RemoteURL: intent.RemoteURL, Ref: intent.Ref, OldSHA: intent.OldSHA, NewSHA: intent.NewSHA,
-		RequestNonce: intent.RequestNonce, RequestedAt: requestedAt, ExpiresAt: expiresAt,
+		ActionAttemptID: intent.ActionAttemptID, RequestNonce: intent.RequestNonce,
+		RequestedAt: requestedAt, ExpiresAt: expiresAt,
 	}
 }
 
@@ -468,7 +475,8 @@ func actionGrantMatchesExpectation(request gatecontract.GrantRequest, expected a
 	return request.Audience == expected.Audience && request.RepoID == expected.RepoID &&
 		request.InvocationID == expected.InvocationID && request.SourceTreeSHA == expected.SourceTreeSHA &&
 		request.Generation == expected.Generation && request.RemoteURL == expected.RemoteURL &&
-		request.Ref == expected.Ref && request.OldSHA == expected.OldSHA && request.NewSHA == expected.NewSHA
+		request.Ref == expected.Ref && request.OldSHA == expected.OldSHA && request.NewSHA == expected.NewSHA &&
+		request.ActionAttemptID == expected.ActionAttemptID
 }
 
 func actionGrantID(request gatecontract.GrantRequest) (string, error) {

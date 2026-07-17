@@ -128,6 +128,9 @@ func TestActionGrantRejectsBindingAndForgery(t *testing.T) {
 		{name: "ref", mutate: func(value *actionGrantExpectation) { value.Ref = "refs/heads/other" }},
 		{name: "tree", mutate: func(value *actionGrantExpectation) { value.SourceTreeSHA = strings.Repeat("9", 40) }},
 		{name: "generation", mutate: func(value *actionGrantExpectation) { value.Generation++ }},
+		{name: "attempt", mutate: func(value *actionGrantExpectation) {
+			value.ActionAttemptID = actionGrantAttemptID("9")
+		}},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -196,6 +199,7 @@ func TestTypedPrePushBridgeConsumesExactGitPushGrant(t *testing.T) {
 	}
 	request := gitPushGrantRequest{
 		Status: status, Submit: fixture.submit, RemoteURL: "ssh://git@example.invalid/repository.git",
+		ActionAttemptID: actionGrantAttemptID("a"),
 	}
 	if err := bridge.AuthorizeGitPush(context.Background(), request); err != nil {
 		t.Fatal(err)
@@ -209,8 +213,49 @@ func TestTypedPrePushBridgeConsumesExactGitPushGrant(t *testing.T) {
 	if grant.State != gatecontract.ActionGrantStateConsumed ||
 		grant.Request.Audience != gatecontract.ActionAudienceGitPush ||
 		grant.Request.RemoteURL != request.RemoteURL || grant.Request.Ref != rangeSource.RemoteRef ||
-		grant.Request.OldSHA != rangeSource.ObservedRemoteSHA || grant.Request.NewSHA != rangeSource.HeadSHA {
+		grant.Request.OldSHA != rangeSource.ObservedRemoteSHA || grant.Request.NewSHA != rangeSource.HeadSHA ||
+		grant.Request.ActionAttemptID != request.ActionAttemptID {
 		t.Fatalf("consumed grant did not bind exact push update: %#v", grant)
+	}
+}
+
+func TestTypedPrePushBridgeNewAttemptAllowsSameUpdate(t *testing.T) {
+	fixture := newActionGrantTestFixture(t)
+	status := gatehook.JobStatus{
+		JobID: "job-action-grant", State: gatehook.JobStatePassed,
+		SourceTreeSHA: fixture.submit.Source.SourceTreeSHA, ReceiptID: fixture.receipt.ReceiptID,
+	}
+	bridge := &hookCoordinatorBridge{
+		client:    &recordingCoordinatorClient{receipt: fixture.receipt},
+		authority: fixture.receiptAuthority, grants: fixture.service,
+	}
+	request := gitPushGrantRequest{
+		Status: status, Submit: fixture.submit, RemoteURL: "ssh://git@example.invalid/repository.git",
+		ActionAttemptID: actionGrantAttemptID("a"),
+	}
+	if err := bridge.AuthorizeGitPush(context.Background(), request); err != nil {
+		t.Fatal(err)
+	}
+	if err := bridge.AuthorizeGitPush(context.Background(), request); err == nil {
+		t.Fatal("same action attempt consumed the grant twice")
+	}
+	firstNonce := gitPushGrantNonce(fixture.receipt, request)
+	first, err := fixture.store.actionGrantByNonce(context.Background(), firstNonce)
+	if err != nil || first.State != gatecontract.ActionGrantStateConsumed {
+		t.Fatalf("first attempt grant=%#v error=%v", first, err)
+	}
+
+	request.ActionAttemptID = actionGrantAttemptID("b")
+	if err := bridge.AuthorizeGitPush(context.Background(), request); err != nil {
+		t.Fatalf("new action attempt was blocked by prior consumption: %v", err)
+	}
+	secondNonce := gitPushGrantNonce(fixture.receipt, request)
+	if secondNonce == firstNonce {
+		t.Fatal("new action attempt reused the prior request nonce")
+	}
+	second, err := fixture.store.actionGrantByNonce(context.Background(), secondNonce)
+	if err != nil || second.State != gatecontract.ActionGrantStateConsumed {
+		t.Fatalf("second attempt grant=%#v error=%v", second, err)
 	}
 }
 
@@ -293,7 +338,8 @@ func (fixture *actionGrantTestFixture) intent(nonce string) actionGrantIntent {
 		Receipt: fixture.receipt, InvocationOwner: fixture.submit.Invocation.Owner,
 		Audience: gatecontract.ActionAudienceGitPush, ActionPolicy: string(rangeSource.UpdateKind),
 		RemoteURL: "ssh://git@example.invalid/repository.git", Ref: rangeSource.RemoteRef,
-		OldSHA: rangeSource.ObservedRemoteSHA, NewSHA: rangeSource.HeadSHA, RequestNonce: nonce,
+		OldSHA: rangeSource.ObservedRemoteSHA, NewSHA: rangeSource.HeadSHA,
+		ActionAttemptID: actionGrantAttemptID("a"), RequestNonce: nonce,
 	}
 }
 
@@ -304,7 +350,12 @@ func (fixture *actionGrantTestFixture) expected() actionGrantExpectation {
 		InvocationID: fixture.receipt.InvocationID, SourceTreeSHA: fixture.receipt.Source.SourceTreeSHA,
 		Generation: fixture.receipt.Generation, RemoteURL: "ssh://git@example.invalid/repository.git",
 		Ref: rangeSource.RemoteRef, OldSHA: rangeSource.ObservedRemoteSHA, NewSHA: rangeSource.HeadSHA,
+		ActionAttemptID: actionGrantAttemptID("a"),
 	}
+}
+
+func actionGrantAttemptID(fill string) string {
+	return "attempt:v1:" + strings.Repeat(fill, 64)
 }
 
 func openActionGrantTestStore(t *testing.T, path string) *coordinatorStore {

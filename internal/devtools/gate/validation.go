@@ -17,8 +17,9 @@ import (
 )
 
 var (
-	gitOIDPattern = regexp.MustCompile(`^[0-9a-f]+$`)
-	digestPattern = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
+	gitOIDPattern          = regexp.MustCompile(`^[0-9a-f]+$`)
+	digestPattern          = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
+	actionAttemptIDPattern = regexp.MustCompile(`^attempt:v1:[0-9a-f]{64}$`)
 )
 
 // Validatable is implemented by every canonical contract with fail-fast validation.
@@ -434,6 +435,9 @@ func (r GrantRequest) Validate() error {
 		}
 	}
 	if err := validateDigest("receipt_digest", r.ReceiptDigest); err != nil {
+		return err
+	}
+	if err := ValidateActionAttemptID(r.ActionAttemptID); err != nil {
 		return err
 	}
 	if err := r.Adapter.Validate(); err != nil {
@@ -870,6 +874,14 @@ func validateNonZeroActionOID(name, value string) error {
 func validateDigest(name, value string) error {
 	if !digestPattern.MatchString(value) {
 		return fmt.Errorf("%s must be a canonical sha256 digest", name)
+	}
+	return nil
+}
+
+// ValidateActionAttemptID 拒绝不符合高熵 pre-push attempt 格式的身份。
+func ValidateActionAttemptID(value string) error {
+	if !actionAttemptIDPattern.MatchString(value) {
+		return errors.New("action_attempt_id must be attempt:v1 followed by 32 lowercase hex bytes")
 	}
 	return nil
 }

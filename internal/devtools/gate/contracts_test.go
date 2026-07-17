@@ -311,6 +311,9 @@ func TestActionGrantCanonicalEd25519VerificationRejectsTampering(t *testing.T) {
 		{name: "ref", mutate: func(value *ActionGrant) { value.Request.Ref = "refs/heads/other" }},
 		{name: "tree", mutate: func(value *ActionGrant) { value.Request.SourceTreeSHA = strings.Repeat("9", 40) }},
 		{name: "generation", mutate: func(value *ActionGrant) { value.Request.Generation++ }},
+		{name: "attempt", mutate: func(value *ActionGrant) {
+			value.Request.ActionAttemptID = "attempt:v1:" + strings.Repeat("9", 64)
+		}},
 		{name: "state", mutate: func(value *ActionGrant) {
 			consumedAt := now.Add(30 * time.Second)
 			value.State = ActionGrantStateConsumed
@@ -362,7 +365,7 @@ func sourceSpecConsumerRegistration() fieldConsumerRegistration {
 func grantRequestConsumerRegistration() fieldConsumerRegistration {
 	return fieldConsumerRegistration{
 		Fields: []string{
-			"action_policy", "adapter", "audience", "expires_at", "generation", "invocation_id",
+			"action_attempt_id", "action_policy", "adapter", "audience", "expires_at", "generation", "invocation_id",
 			"invocation_owner", "new_sha", "old_sha", "process_challenge", "receipt_digest",
 			"receipt_id", "ref", "remote_url", "repo_id", "request_nonce", "requested_at",
 			"source_tree_sha", "subscriber_capability",
@@ -527,6 +530,7 @@ func validGrantRequest(now time.Time) GrantRequest {
 		Ref:                  "refs/heads/topic",
 		OldSHA:               testBaseSHA,
 		NewSHA:               testCommitSHA,
+		ActionAttemptID:      "attempt:v1:" + strings.Repeat("a", 64),
 		RequestNonce:         "request-nonce",
 		RequestedAt:          now,
 		ExpiresAt:            now.Add(time.Minute),

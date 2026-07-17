@@ -115,7 +115,7 @@ const (
 	ActionAudienceImagePromote ActionAudience = "image.promote"
 )
 
-// GrantRequest binds an external action request to a receipt, owner, adapter, and nonce.
+// GrantRequest binds an external action request to a receipt, owner, adapter, attempt, and nonce.
 type GrantRequest struct {
 	ReceiptID            string                 `json:"receipt_id"`
 	ReceiptDigest        string                 `json:"receipt_digest"`
@@ -133,6 +133,7 @@ type GrantRequest struct {
 	Ref                  string                 `json:"ref,omitempty"`
 	OldSHA               string                 `json:"old_sha,omitempty"`
 	NewSHA               string                 `json:"new_sha,omitempty"`
+	ActionAttemptID      string                 `json:"action_attempt_id"`
 	RequestNonce         string                 `json:"request_nonce"`
 	RequestedAt          time.Time              `json:"requested_at"`
 	ExpiresAt            time.Time              `json:"expires_at"`
