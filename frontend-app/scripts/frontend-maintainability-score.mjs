@@ -78,7 +78,6 @@ const performanceCaseIds = Object.freeze({
 });
 const allPerformanceCaseIds = Object.freeze(Object.values(performanceCaseIds).flat());
 const performanceRunnerFiles = Object.freeze([
-  'frontend-app/package.json',
   'frontend-app/scripts/chat-history-benchmark.mjs',
   'frontend-app/scripts/evidence-provenance.mjs',
   'frontend-app/scripts/frontend-performance-cases.json',
@@ -96,6 +95,7 @@ const performanceAuditAllowedPaths = new Set([
   ...performanceRunnerFiles,
   'docs/doc/codemap/README.md',
   'docs/doc/codemap/ai-index.json',
+  'frontend-app/package.json',
   'frontend-app/scripts/chat-history-benchmark.test.mjs',
   'frontend-app/scripts/delivery-smoke-runner.mjs',
   'frontend-app/scripts/delivery-smoke-runner.test.mjs',
