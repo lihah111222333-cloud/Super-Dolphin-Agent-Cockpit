@@ -4,7 +4,7 @@
 
 ## 1. 审查对象与结论
 
-- exact baseline：`f56d9ca870f735dd5e75c8c181c4db8a79a4f446`。
+- baselines：原审 `f56d9ca870f735dd5e75c8c181c4db8a79a4f446`；P2 `cce4aff239b9dffd1e3db6a8cd12851349b97b7b`。
 - 分支：`codex/reasonix-p0-final-mcp-integration-fixes`。
 - 范围：仅处理最终总审已接受的 7 个 MCP / integration finding；不扩展 Release 设计。
 - 当前结论：7 项 finding 的实现与 focused/race/artifact/frontend/scripts/archtest 门禁均
@@ -21,6 +21,7 @@
 | 5 | Windows helper 使用 `CREATE_SUSPENDED`，先创建 kill-on-close Job、assign，再 `NtResumeProcess`；assign/resume 失败关闭 Job，由调用方 kill/reap。 | source-order guard、失败清理测试与 Windows amd64/arm64 cross-build 通过；未执行也不宣称 Windows 原生 E2E。 | GREEN |
 | 6 | Go guard 反射真实 `recoverySurfaceState`、`recoveryActionAvailability`、`app.RecoveryProjection` JSON tags；前端分别对 state/actions/projection 做 exact-field fail-fast。 | 三层 producer mutation 均 RED，错误含 chain/producer/stage/field；前端缺失/未知字段测试、161 files / 2440 tests、build/embed 全部通过。 | GREEN |
 | 7 | staged hook 所有临时对象进入显式 `${TMPDIR:-/tmp}`；cleanup 检查每次 remove 与 worktree registration，失败会覆盖成功退出码。 | 受控 TMPDIR 退出为空、fixture 仅主 worktree；注入 cleanup failure 时 hook 必须失败并输出明确错误。测试验证后仅按 exact path 删除本任务发现的 5 个遗留临时目录。 | GREEN |
+| 8 | test-only guard 反射 `HelperManifest` JSON tags 与 `HelperIdentity` 导出字段；generation、validation、identity→manifest registry 分别做 missing/stale exact 差集。 | 真实 Write 输出值、Verify one-hot rejection 与 mapping marker 均验证；synthetic `FutureField` 在三阶段 RED，错误含 producer/stage/field。 | GREEN |
 
 ## 3. Artifact identity
 
@@ -55,17 +56,12 @@ binary commit string 检查均通过；linked worktree 不再依赖 Go 错误指
 | `git diff --check`、shell syntax | PASS。 |
 | authority lease follow-up | PASS；CallTool 与 publish CAS barrier normal 50 次、race 20 次；mcp_server/schema 全包 normal/race 通过。 |
 | desktop helper closure follow-up | PASS；真实 `make build-agent-terminal-plain` + helper 自校验；`go test ./scripts` 150.816s；六目标 helper/schema/toolbridge/mcp_server strict cross-build 通过。 |
+| P2 field guard | PASS；schema normal 9.242s、race 18.309s；bridge 6.147s；gen OK。|
 
-失败处置事实：一次把 focused 与重型 scripts 并跑时，stderr overflow 超过 2s deadline；
-串行连续 5 次和最终 focused 均稳定通过，因此最终门禁固定串行执行。首次 race 又暴露测试
-未保证全部预期 client 已创建；加入 factory 启动屏障后目标 race 连续 20 次与六包 race
-全部通过。没有放宽 deadline，也没有接受多种错误码。
-
-follow-up 首轮 full scripts 唯一失败是 Windows package cache guard 仍匹配未包含
-`APP_COMMIT` 的旧 `$goInputs` 文本；实现已把 commit 加入三平台 cache identity，guard 同步
-为强制要求新字段后 focused 与第二轮 full scripts 通过。一次额外 desktop cross-build 探针
-因未启用 `set -e` 且 Wails 在 macOS/Linux `CGO_ENABLED=0` 下不可构建而作废；最终证据只采信
-启用 `set -e` 的既定 affected 边界，不把该探针写成 PASS。
+失败处置：字段守卫临时删除 `goarch` generation 登记后 RED 为
+`producer=HelperManifest stage=generation field=goarch missing coverage`；恢复后 GREEN。最终路径首轮
+schema race 的两个既有 helper case 超过 2s，未改 deadline/错误码，立即串行重跑全包 PASS。
+此前 stderr deadline、factory barrier、Windows cache guard 与无 `set -e` 探针的处置结论不变。
 
 ## 5. LSP 与平台边界
 
