@@ -1,4 +1,4 @@
-import { useQuery, useQueryClient } from '@tanstack/react-query'; import React, { useCallback, useEffect, useMemo, useReducer, useState } from 'react'; import { Dialog, Modal, ModalOverlay, Radio, RadioGroup } from 'react-aria-components'; import { z } from 'zod';
+import { useQuery, useQueryClient } from '@tanstack/react-query'; import React, { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react'; import { Dialog, Modal, ModalOverlay, Radio, RadioGroup } from 'react-aria-components'; import { z } from 'zod';
 import { CheckCircle2, File, FileText, Upload } from 'lucide-react'; import {
 commitPromptIntent, copyTextToClipboard, deletePrompt, discardPromptIntent, draftPromptIntent, dryRunPromptIntent, getDashboardPrompts, getPersonalizationProfile, getPreference, getPrompt, listPromptAssets, savePersonalizationProfile, setPreference, writePrompt,
 } from '../../pages/prompts/services/promptPageService.js'; import { APP_COPY } from '../../shared/i18n/appI18n.js';
@@ -155,9 +155,28 @@ window.removeEventListener('focus', runAutoRefresh); document.removeEventListene
  function promptWritePayload(cwd, form, name, agentType, matchWhen) { const payload = { cwd, id: form.id, name, description: form.description, agentType, when_to_use: form.whenToUse,
  content: form.content, tags: wordListFromText(form.tagsText), enabled: form.enabled, scope: form.scope === 'global' ? 'global' : 'project',
  match_when: form.hasMatchWhen || textValue(form.matchWhenText) ? matchWhen : undefined, }; if (form.hasPriority) payload.priority = Number.isFinite(Number(form.priority)) ? Number(form.priority) : 0; return payload; }
- async function savePromptForm(options) { const { cwd, form, refreshPromptSurface, setEditorOpen, setNotice, setSaving } = options; const name = textValue(form.name); if (!name) { setNotice('请填写提示词名称'); return;
- } const agentType = textValue(form.agentType); if (!agentType) { setNotice('请填写 Agent Key'); return; } const parsedMatchWhen = parseJsonObjectForEditor(form.matchWhenText, '自动匹配条件'); if (parsedMatchWhen.error) { setNotice(parsedMatchWhen.error); return; } setSaving(true); try {
- await writePrompt(promptWritePayload(cwd, form, name, agentType, parsedMatchWhen.value)); await refreshPromptSurface({ force: true }); setEditorOpen(false); setNotice(`提示词已保存：${name}`); } catch (err) { setNotice(noticeText(err, '保存失败')); } finally { setSaving(false); } }
+ async function savePromptForm(options) {
+ const { cwd, form, isCurrentRequest, refreshPromptSurface, setEditorOpen, setNotice, setSaving } = options;
+ const name = textValue(form.name);
+ if (!name) { setNotice('请填写提示词名称'); return; }
+ const agentType = textValue(form.agentType);
+ if (!agentType) { setNotice('请填写 Agent Key'); return; }
+ const parsedMatchWhen = parseJsonObjectForEditor(form.matchWhenText, '自动匹配条件');
+ if (parsedMatchWhen.error) { setNotice(parsedMatchWhen.error); return; }
+ setSaving(true);
+ try {
+ await writePrompt(promptWritePayload(cwd, form, name, agentType, parsedMatchWhen.value));
+ if (!isCurrentRequest()) return;
+ await refreshPromptSurface({ force: true });
+ if (!isCurrentRequest()) return;
+ setEditorOpen(false);
+ setNotice(`提示词已保存：${name}`);
+ } catch (err) {
+ if (isCurrentRequest()) setNotice(noticeText(err, '保存失败'));
+ } finally {
+ if (isCurrentRequest()) setSaving(false);
+ }
+ }
 async function removePromptItem({ cwd, item, refreshPromptSurface, setActioning, setNotice }) { setActioning(`delete:${item.id}`); try {
 await deletePrompt({ cwd, id: item.id, scope: item.scope === 'global' ? 'global' : 'project' }); await refreshPromptSurface({ force: true }); setNotice(`已删除：${item.name}`); } catch (err) { setNotice(noticeText(err, '删除失败')); } finally { setActioning(''); } }
 async function copyPromptItem({ cwd, item, fallbackMode, setActioning, setNotice }) { if (item.isPendingDraft) { setNotice('这条草稿还在待确认，确认保存后才能复制内容'); return; } setActioning(`copy:${item.id}`); try { let content = rawTextValue(item.content); if (!fallbackMode && item.id) {
@@ -169,8 +188,25 @@ async function clearLaunchPreference({ cwd, queryClient, setActioning, setNotice
 await setPreference({ cwd, key: ACTIVE_PROMPT_PREF_KEY, value: '' }); queryClient.setQueryData(activePromptQueryKey(cwd), ''); setNotice('已取消强制使用，新对话将使用默认路由'); } catch (err) { setNotice(noticeText(err, '取消强制使用失败')); } finally { setActioning(''); } }
 async function discardPromptDraftItem({ cwd, item, refreshPromptSurface, setActioning, setNotice }) { const draftKey = item.draftKey || item.id; setActioning(`discard:${draftKey}`); try {
 await discardPromptIntent({ cwd, draftKey }); await refreshPromptSurface({ force: true }); setNotice(`已丢弃：${item.name}`); } catch (err) { setNotice(noticeText(err, '丢弃失败')); } finally { setActioning(''); } }
-function usePromptEditorActions(params) { const { cwd, fallbackMode, actioning, form, queryClient, refreshPromptSurface, setters } = params; const { setActioning, setEditorOpen, setForm, setNotice, setSaving } = setters; return { retryPromptSync: () => {
-void refreshPromptSurface({ force: true }); }, openEdit: (item) => { setForm(promptFormFromItem(item)); setEditorOpen(true); setNotice(''); }, savePrompt: () => savePromptForm({ cwd, form, refreshPromptSurface, setEditorOpen, setNotice, setSaving }), removePrompt: (item) => {
+function usePromptEditorActions(params) {
+const { cwd, fallbackMode, actioning, form, queryClient, refreshPromptSurface, setters } = params;
+const { setActioning, setEditorOpen, setForm, setNotice, setSaving } = setters;
+const currentCwdRef = useRef(cwd);
+const saveGenerationRef = useRef(0);
+useEffect(() => {
+currentCwdRef.current = cwd;
+saveGenerationRef.current += 1;
+}, [cwd]);
+const savePrompt = () => {
+const generation = saveGenerationRef.current + 1;
+saveGenerationRef.current = generation;
+return savePromptForm({
+cwd, form, refreshPromptSurface, setEditorOpen, setNotice, setSaving,
+isCurrentRequest: () => currentCwdRef.current === cwd && saveGenerationRef.current === generation,
+});
+};
+return { retryPromptSync: () => {
+void refreshPromptSurface({ force: true }); }, openEdit: (item) => { saveGenerationRef.current += 1; setForm(promptFormFromItem(item)); setEditorOpen(true); setNotice(''); }, savePrompt, removePrompt: (item) => {
 if (fallbackMode) { setNotice('当前为只读降级，暂不支持删除'); return; } if (!item.id || actioning) return; void removePromptItem({ cwd, item, refreshPromptSurface, setActioning, setNotice }); }, copyPrompt: (item) => { if (!item.id || actioning) return;
 void copyPromptItem({ cwd, item, fallbackMode, setActioning, setNotice }); }, setLaunchPrompt: (item) => { if (!canForceLaunchPrompt(item) || actioning) return; void setLaunchPreference({ cwd, item, queryClient, setActioning, setNotice }); }, clearLaunchPrompt: () => {
 if (actioning) return; void clearLaunchPreference({ cwd, queryClient, setActioning, setNotice }); }, }; }
@@ -197,21 +233,64 @@ function PromptWizardHost({ modals, cwd, resolveLaunchPreferences, setters, draf
 function promptWizardKey(draft) { return textValue(draft?.draftKey) || textValue(draft?.id) || textValue(draft?.name) || 'new'; }
 function savedPersonalizationProfile(result) { const profile = result.profile && typeof result.profile === 'object' ? result.profile : {}; return { ...emptyPersonalizationProfile, ...profile }; }
 function usePromptPageState(cwd) { const [noticeState, setNoticeState] = useState({ cwd, notice: '' }); if (noticeState.cwd !== cwd) { setNoticeState({ cwd, notice: '' }); } const setNotice = useCallback((value) => {
-setNoticeState((current) => ({ ...current, notice: typeof value === 'function' ? value(current.notice) : value }));
-}, []); const [actioning, setActioning] = useState(''); const [editorOpen, setEditorOpen] = useState(false); const [saving, setSaving] = useState(false); const [form, setForm] = useState(emptyPromptForm); const [wizardOpen, setWizardOpen] = useState(false);
-const [wizardDraft, setWizardDraft] = useState(null); return { actioning, form, modals: { editorOpen, form, wizardDraft, wizardOpen }, notice: noticeState.cwd === cwd ? noticeState.notice : '', saving, setters: { setActioning, setEditorOpen, setForm, setNotice, setSaving,
-setWizardDraft, setWizardOpen, }, }; }
+ setNoticeState((current) => ({ ...current, notice: typeof value === 'function' ? value(current.notice) : value }));
+ }, []); const [actioning, setActioning] = useState(''); const [editorOpen, setEditorOpen] = useState(false); const [savingState, setSavingState] = useState({ cwd, value: false });
+if (savingState.cwd !== cwd) setSavingState({ cwd, value: false });
+const saving = savingState.cwd === cwd ? savingState.value : false;
+const setSaving = useCallback((value) => { setSavingState((current) => (current.cwd === cwd ? { cwd, value } : current)); }, [cwd]);
+const [form, setForm] = useState(emptyPromptForm);
+const [wizardOpen, setWizardOpen] = useState(false);
+const [wizardDraft, setWizardDraft] = useState(null);
+return {
+actioning, form, modals: { editorOpen, form, wizardDraft, wizardOpen },
+notice: noticeState.cwd === cwd ? noticeState.notice : '', saving,
+setters: { setActioning, setEditorOpen, setForm, setNotice, setSaving, setWizardDraft, setWizardOpen },
+};
+}
 export function PromptPageView({ copy = APP_COPY.zh.prompts, projectPath, refreshKey = 0, resolveLaunchPreferences }) {
 const cwd = optionalPromptCwd(projectPath); const isProjectPending = !cwd; const queryClient = useQueryClient(); const pageState = usePromptPageState(cwd); const { actioning, form, modals, notice, saving, setters } = pageState;
+const profileCwdRef = useRef(cwd);
+const profileSaveGenerationRef = useRef(0);
+const profileDraftRevisionRef = useRef(0);
+useEffect(() => {
+profileCwdRef.current = cwd;
+profileSaveGenerationRef.current += 1;
+profileDraftRevisionRef.current += 1;
+}, [cwd]);
 const queryState = usePromptQueries(cwd); const { items, fallbackMode, activePromptId, loading, syncError, error } = queryState; const { data: profileData, error: profileError, isLoading: profileLoading } = useQuery({ queryKey: ['personalizationProfile', cwd],
 queryFn: () => withTimeout(getPersonalizationProfile({ cwd }), PROMPTS_REQUEST_TIMEOUT_MS, '个人资料加载超时，请检查后端状态。'), enabled: Boolean(cwd),
 }); const loadedProfile = profileData?.profile ? { ...emptyPersonalizationProfile, ...profileData.profile } : emptyPersonalizationProfile; const [profileDraft, setProfileDraft] = useState({ cwd: '', profile: null });
-const profileForm = profileDraft.cwd === cwd && profileDraft.profile ? profileDraft.profile : loadedProfile; const setProfileForm = useCallback((nextProfile) => { setProfileDraft({ cwd, profile: nextProfile }); }, [cwd]); const refreshPromptSurface = usePromptRefreshSurface( cwd,
+const profileForm = profileDraft.cwd === cwd && profileDraft.profile ? profileDraft.profile : loadedProfile;
+const setProfileForm = useCallback((nextProfile) => {
+profileDraftRevisionRef.current += 1;
+setProfileDraft({ cwd, profile: nextProfile });
+}, [cwd]);
+const refreshPromptSurface = usePromptRefreshSurface( cwd,
 queryClient, queryState.refetchPromptAssets, queryState.refetchActivePrompt, ); usePromptRefreshEffects(Number(refreshKey || 0), refreshPromptSurface);
 const counts = useMemo(() => promptCounts(items), [items]); const visibleItems = items; const editorActions = usePromptEditorActions({ cwd, fallbackMode, actioning, form, queryClient, refreshPromptSurface, setters,
-}); const draftActions = usePromptDraftActions({ cwd, actioning, refreshPromptSurface, setters }); const handleSaveProfile = async () => { if (!cwd || saving) return; setters.setSaving(true); setters.setNotice(''); try {
-const result = await savePersonalizationProfile({ cwd, profile: profileForm }); const savedProfile = savedPersonalizationProfile(result); queryClient.setQueryData(['personalizationProfile', cwd], { profile: savedProfile }); setProfileDraft({ cwd, profile: null });
-setters.setNotice('个人资料已保存'); } catch (err) { setters.setNotice(noticeText(err, '个人资料保存失败')); } finally { setters.setSaving(false); } }; const handleImportMemory = () => { setters.setWizardDraft({ kind: 'recall', rawInput: '', scope: 'project' }); setters.setWizardOpen(true);
+}); const draftActions = usePromptDraftActions({ cwd, actioning, refreshPromptSurface, setters }); const handleSaveProfile = async () => {
+if (!cwd || saving) return;
+const generation = profileSaveGenerationRef.current + 1;
+const draftRevision = profileDraftRevisionRef.current;
+profileSaveGenerationRef.current = generation;
+const isCurrentRequest = () => profileCwdRef.current === cwd && profileSaveGenerationRef.current === generation;
+const isCurrentDraft = () => isCurrentRequest() && profileDraftRevisionRef.current === draftRevision;
+setters.setSaving(true);
+setters.setNotice('');
+try {
+const result = await savePersonalizationProfile({ cwd, profile: profileForm });
+const savedProfile = savedPersonalizationProfile(result);
+if (!isCurrentRequest()) return;
+queryClient.setQueryData(['personalizationProfile', cwd], { profile: savedProfile });
+if (!isCurrentDraft()) return;
+setProfileDraft({ cwd, profile: null });
+setters.setNotice('个人资料已保存');
+} catch (err) {
+if (isCurrentDraft()) setters.setNotice(noticeText(err, '个人资料保存失败'));
+} finally {
+if (isCurrentRequest()) setters.setSaving(false);
+}
+}; const handleImportMemory = () => { setters.setWizardDraft({ kind: 'recall', rawInput: '', scope: 'project' }); setters.setWizardOpen(true);
 }; const profileValidationErrors = useMemo(() => validatePersonalizationProfile(profileForm), [profileForm]); const handleProjectRequired = useCallback(() => { setters.setNotice('请先在聊天页选择项目，再使用个性化设置。'); }, [setters]);
 const layoutProps = { activePromptId, actioning, counts, copy, cwd, draftActions, editorActions, error, fallbackMode, isProjectPending, loading, modals, notice, personalization: { error: profileError, loading: profileLoading, onImportMemory: handleImportMemory,
 onProfileChange: setProfileForm, onProjectRequired: handleProjectRequired, onSaveProfile: handleSaveProfile, profile: profileForm, saving, validationErrors: profileValidationErrors, },
