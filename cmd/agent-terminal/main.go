@@ -4,8 +4,10 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -27,13 +29,19 @@ type terminalDeps struct {
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	terminationServer, err := startCooperativeTermination(stop)
+	terminationServer, parked, err := startCooperativeTermination(stop)
 	if err != nil {
 		pkglogger.Get().Error("agent-terminal termination endpoint failed", "error", err)
 		os.Exit(1)
 	}
 	if terminationServer != nil {
 		defer terminationServer.Close()
+	}
+	if parked {
+		if err := terminationServer.WaitForCommit(ctx); err != nil {
+			pkglogger.Get().Error("agent-terminal rollback commit failed", "error", err)
+			return
+		}
 	}
 	if err := runAgentTerminal(ctx, productionTerminalDeps()); err != nil && !errors.Is(err, context.Canceled) {
 		pkglogger.Get().Error("agent-terminal failed", "error", err)
@@ -76,23 +84,56 @@ func productionTerminalDeps() terminalDeps {
 	}
 }
 
-func startCooperativeTermination(cancel context.CancelFunc) (*pidregistry.CooperativeTerminationServer, error) {
+// startCooperativeTermination 根据 rollback token 选择普通或 parked 认证端点。
+func startCooperativeTermination(cancel context.CancelFunc) (*pidregistry.CooperativeTerminationServer, bool, error) {
 	executable, err := os.Executable()
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	launch, err := runtimeenv.ResolveRecoveryLaunch(executable, os.Environ())
 	if err != nil {
-		return nil, err
+		return nil, false, err
+	}
+	parked, err := rollbackStartupIsParked(os.Args[1:], launch)
+	if err != nil {
+		return nil, false, err
 	}
 	if !launch.ContractPresent {
-		return nil, nil
+		return nil, false, nil
 	}
-	return pidregistry.StartCooperativeTerminationServer(
+	start := pidregistry.StartCooperativeTerminationServer
+	if parked {
+		start = pidregistry.StartParkedCooperativeTerminationServer
+	}
+	server, err := start(
 		launch.TerminationEndpoint,
 		launch.TerminationToken,
 		cancel,
 	)
+	return server, parked, err
+}
+
+// rollbackStartupIsParked 要求命令行 durable token 与 frozen contract 完全一致。
+func rollbackStartupIsParked(args []string, launch runtimeenv.RecoveryLaunch) (bool, error) {
+	const prefix = "--super-dolphin-rollback-launch-token="
+	var token string
+	for _, argument := range args {
+		value, found := strings.CutPrefix(argument, prefix)
+		if !found {
+			continue
+		}
+		if token != "" || value == "" {
+			return false, errors.New("rollback startup launch token argument is invalid")
+		}
+		token = value
+	}
+	if token == "" {
+		return false, nil
+	}
+	if !launch.ContractPresent || token != launch.TerminationToken {
+		return false, fmt.Errorf("rollback startup token does not match frozen launch contract")
+	}
+	return true, nil
 }
 
 // selectStartup 只读取 frozen launch contract 与 Task 1 transaction journal。

@@ -8,8 +8,10 @@ import (
 )
 
 const (
-	exactTerminationGrace = 2 * time.Second
-	exactTerminationPoll  = 50 * time.Millisecond
+	exactTerminationGrace    = 2 * time.Second
+	exactTerminationPoll     = 50 * time.Millisecond
+	cooperativeCommandReady  = "READY"
+	cooperativeCommandCommit = "COMMIT"
 )
 
 var (
@@ -33,6 +35,9 @@ type StableProcessIdentity struct {
 func CaptureStableProcessIdentity(pid int) (StableProcessIdentity, error) {
 	identity, err := readProcessIdentity(pid)
 	if err != nil {
+		if errors.Is(err, ErrStableProcessNotFound) || errors.Is(err, ErrStableProcessIdentityMismatch) {
+			return StableProcessIdentity{}, err
+		}
 		exists, existsErr := exactProcessExists(pid)
 		if existsErr == nil && !exists {
 			return StableProcessIdentity{}, errors.Join(ErrStableProcessNotFound, err)
@@ -77,6 +82,65 @@ func RequestExactProcessTermination(ctx context.Context, identity StableProcessI
 		return err
 	}
 	return requestCooperativeTermination(ctx, identity.TerminationEndpoint, identity.TerminationToken)
+}
+
+// ProbeExactProcessEndpoint 认证 READY，并在请求前后确认 exact process generation 未变化。
+func ProbeExactProcessEndpoint(ctx context.Context, identity StableProcessIdentity) error {
+	return controlExactProcess(ctx, identity, cooperativeCommandReady, "READY\n")
+}
+
+// CommitExactProcessStartup 认证 COMMIT，并在请求前后确认 exact process generation 未变化。
+func CommitExactProcessStartup(ctx context.Context, identity StableProcessIdentity) error {
+	return controlExactProcess(ctx, identity, cooperativeCommandCommit, "COMMITTED\n")
+}
+
+// controlExactProcess 将认证控制请求绑定到请求前后的同一进程 generation。
+func controlExactProcess(ctx context.Context, identity StableProcessIdentity, command, response string) error {
+	if err := validateCooperativeControlIdentity(identity); err != nil {
+		return err
+	}
+	if err := context.Cause(ctx); err != nil {
+		return err
+	}
+	before, err := captureMatchingStableIdentity(identity)
+	if err != nil {
+		return err
+	}
+	if err := requestCooperativeControl(ctx, identity.TerminationEndpoint, identity.TerminationToken, command, response); err != nil {
+		return err
+	}
+	after, err := captureMatchingStableIdentity(identity)
+	if err != nil {
+		return err
+	}
+	if !sameStableProcessGeneration(before, after) {
+		return ErrStableProcessIdentityMismatch
+	}
+	return nil
+}
+
+func validateCooperativeControlIdentity(identity StableProcessIdentity) error {
+	if !stableProcessIdentityComplete(identity) {
+		return errors.New("cooperative control requires stable identity")
+	}
+	if strings.TrimSpace(identity.TerminationEndpoint) == "" {
+		return errors.New("cooperative control requires termination endpoint")
+	}
+	if strings.TrimSpace(identity.TerminationToken) == "" {
+		return errors.New("cooperative control requires termination token")
+	}
+	return nil
+}
+
+func captureMatchingStableIdentity(want StableProcessIdentity) (StableProcessIdentity, error) {
+	got, err := CaptureStableProcessIdentity(want.PID)
+	if err != nil {
+		return StableProcessIdentity{}, err
+	}
+	if !sameStableProcessGeneration(want, got) {
+		return StableProcessIdentity{}, ErrStableProcessIdentityMismatch
+	}
+	return got, nil
 }
 
 // waitForCooperativeProcessExit 只观察原稳定身份消失，不向可能复用的 PID 发信号。

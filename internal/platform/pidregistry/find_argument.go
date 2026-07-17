@@ -52,33 +52,99 @@ func findStableProcessInIDs(ctx context.Context, pids []int, argument, expectedE
 
 // matchProcessByArgument 将参数匹配结果绑定到同一次稳定进程身份捕获。
 func matchProcessByArgument(ctx context.Context, pid int, argument, expectedExecutable string) (StableProcessIdentity, bool, error) {
+	return matchProcessByArgumentWithOps(
+		ctx, pid, argument, expectedExecutable,
+		CaptureStableProcessIdentity,
+		processArgumentsForMatch,
+	)
+}
+
+// matchProcessByArgumentWithOps 在 argv 读取前后捕获并比较完整 generation。
+func matchProcessByArgumentWithOps(
+	ctx context.Context,
+	pid int,
+	argument, expectedExecutable string,
+	capture func(int) (StableProcessIdentity, error),
+	readArguments func(int) ([]string, bool, error),
+) (StableProcessIdentity, bool, error) {
+	if capture == nil || readArguments == nil {
+		return StableProcessIdentity{}, false, errors.New("pidregistry: process match operations are required")
+	}
+	before, found, err := captureArgumentMatchBoundary(ctx, pid, expectedExecutable, capture)
+	if err != nil || !found {
+		return StableProcessIdentity{}, false, err
+	}
+	matched, err := readExactProcessArgument(pid, argument, readArguments)
+	if err != nil || !matched {
+		return StableProcessIdentity{}, false, err
+	}
+	after, found, err := captureArgumentMatchBoundary(ctx, pid, expectedExecutable, capture)
+	if err != nil || !found {
+		return StableProcessIdentity{}, false, err
+	}
+	if !sameStableProcessGeneration(before, after) {
+		return StableProcessIdentity{}, false, nil
+	}
+	return after, true, nil
+}
+
+func captureArgumentMatchBoundary(
+	ctx context.Context,
+	pid int,
+	expectedExecutable string,
+	capture func(int) (StableProcessIdentity, error),
+) (StableProcessIdentity, bool, error) {
 	if err := context.Cause(ctx); err != nil {
 		return StableProcessIdentity{}, false, err
 	}
-	arguments, gone, err := processArgumentsForMatch(pid)
-	if err != nil {
+	return captureExpectedArgumentIdentity(pid, expectedExecutable, capture)
+}
+
+func captureExpectedArgumentIdentity(
+	pid int,
+	expectedExecutable string,
+	capture func(int) (StableProcessIdentity, error),
+) (StableProcessIdentity, bool, error) {
+	identity, found, err := captureIdentityForArgumentMatch(pid, capture)
+	if err != nil || !found {
 		return StableProcessIdentity{}, false, err
 	}
-	if gone {
-		return StableProcessIdentity{}, false, nil
-	}
-	if !containsExactArgument(arguments, argument) {
-		return StableProcessIdentity{}, false, nil
-	}
-	if err := context.Cause(ctx); err != nil {
-		return StableProcessIdentity{}, false, err
-	}
-	identity, err := CaptureStableProcessIdentity(pid)
-	if errors.Is(err, ErrStableProcessNotFound) {
-		return StableProcessIdentity{}, false, nil
-	}
-	if err != nil {
-		return StableProcessIdentity{}, false, err
-	}
-	if filepath.Clean(identity.ExecutableIdentity) != expectedExecutable {
+	if identity.PID != pid || filepath.Clean(identity.ExecutableIdentity) != expectedExecutable {
 		return StableProcessIdentity{}, false, nil
 	}
 	return identity, true, nil
+}
+
+func readExactProcessArgument(
+	pid int,
+	argument string,
+	readArguments func(int) ([]string, bool, error),
+) (bool, error) {
+	arguments, gone, err := readArguments(pid)
+	if err != nil {
+		return false, err
+	}
+	if gone {
+		return false, nil
+	}
+	return containsExactArgument(arguments, argument), nil
+}
+
+func captureIdentityForArgumentMatch(
+	pid int,
+	capture func(int) (StableProcessIdentity, error),
+) (StableProcessIdentity, bool, error) {
+	identity, err := capture(pid)
+	if errors.Is(err, ErrStableProcessNotFound) || errors.Is(err, ErrStableProcessIdentityMismatch) {
+		return StableProcessIdentity{}, false, nil
+	}
+	return identity, err == nil, err
+}
+
+func sameStableProcessGeneration(left, right StableProcessIdentity) bool {
+	return left.PID == right.PID &&
+		left.ProcessStartToken != "" && left.ProcessStartToken == right.ProcessStartToken &&
+		left.ExecutableIdentity != "" && left.ExecutableIdentity == right.ExecutableIdentity
 }
 
 func processArgumentsForMatch(pid int) ([]string, bool, error) {

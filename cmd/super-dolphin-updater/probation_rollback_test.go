@@ -51,8 +51,89 @@ func TestCandidateHandleTerminatesAndReapsExactProcess(t *testing.T) {
 	assertCandidateGone(t, identity)
 }
 
+func TestCandidateReadinessWaitsForAuthenticatedDelayedListener(t *testing.T) {
+	handle, identity, err := startCandidateHandleTestProcess("delayed_serve")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = handle.cleanupStartFailure(errors.New("test cleanup"))
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	started := time.Now()
+	if err := waitCandidateTerminationReady(ctx, identity); err != nil {
+		t.Fatal(err)
+	}
+	if elapsed := time.Since(started); elapsed < 75*time.Millisecond {
+		t.Fatalf("candidate readiness published before delayed listener: %s", elapsed)
+	}
+	if err := handle.Stop(ctx, identity); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestProbationImmediatePostStartFailuresReapCandidate(t *testing.T) {
+	for _, failure := range []string{"owner", "lease", "guard", "supervisor"} {
+		t.Run(failure, func(t *testing.T) { runProbationImmediatePostStartFailure(t, failure) })
+	}
+}
+
+func runProbationImmediatePostStartFailure(t *testing.T, failure string) {
+	h := newRollbackRaceHarness(t, "probation-"+failure)
+	h.app.rollbackRestartCallbackFactory = func(recovery.Transaction) (recovery.RollbackRestartResolver, recovery.RollbackRestartLauncher) {
+		return h.resolve, h.launch
+	}
+	var result updaterRollbackResult
+	h.app.startProbationCandidate = func(context.Context, recovery.Transaction) (*candidateHandle, error) {
+		handle, identity, err := startCandidateHandleTestProcess("serve")
+		result.candidate, result.identity = handle, identity
+		return handle, err
+	}
+	cause := errors.New("force probation " + failure + " failure")
+	configureProbationImmediateFailure(t, &h.app, &h.transaction, failure, cause)
+	result.err = h.app.runProbationSupervisor(t.Context(), h.transaction)
+	registerCandidateCleanup(t, result)
+	if !errors.Is(result.err, cause) {
+		t.Fatalf("probation %s error = %v, want cause", failure, result.err)
+	}
+	assertCandidateReaped(t, result)
+	h.tokenMu.Lock()
+	token := h.startedToken
+	h.tokenMu.Unlock()
+	assertUpdaterRollbackRestart(t, h, token)
+}
+
+func configureProbationImmediateFailure(
+	t *testing.T,
+	app *updaterApp,
+	transaction *recovery.Transaction,
+	failure string,
+	cause error,
+) {
+	t.Helper()
+	switch failure {
+	case "owner":
+		app.newProbationOwnerID = func() (string, error) { return "", cause }
+	case "lease":
+		app.acquireProbationLease = func(*recovery.Store, context.Context, recovery.Identity, recovery.ProbationLeaseRequest) (recovery.ProbationLease, error) {
+			return recovery.ProbationLease{}, cause
+		}
+	case "guard":
+		transaction.Paths.RecoveryDir = filepath.Join(t.TempDir(), "missing-recovery")
+		app.startProbationGuard = func(recovery.Transaction, bool, func() error) error { return cause }
+	case "supervisor":
+		transaction.Paths.RecoveryDir = t.TempDir()
+		app.newProbationSupervisor = func(recovery.ProbationSupervisorConfig) (*recovery.ProbationSupervisor, error) {
+			return nil, cause
+		}
+	default:
+		t.Fatalf("unknown probation failure %q", failure)
+	}
+}
+
 func TestUpdaterRollbackEntriesConvergeWithDetachedGuardOnce(t *testing.T) {
-	for _, entry := range []string{"launch_failure", "started_candidate", "claimed_candidate"} {
+	for _, entry := range []string{"pre_factory_failure", "launch_failure", "started_candidate", "claimed_candidate"} {
 		t.Run(entry, func(t *testing.T) { runUpdaterRollbackRace(t, entry) })
 	}
 }
@@ -92,17 +173,24 @@ func newRollbackRaceHarness(t *testing.T, entry string) *rollbackRaceHarness {
 		},
 		updaterReady: make(chan struct{}), guardReady: make(chan struct{}), compete: make(chan struct{}),
 	}
-	h.resolve = func(context.Context, string) (recovery.RollbackRestartProcess, recovery.RollbackRestartCleanup, bool, error) {
-		return recovery.RollbackRestartProcess{}, nil, false, nil
+	h.resolve = func(context.Context, string) (recovery.RollbackRestartControl, bool, error) {
+		if h.launches.Load() == 0 {
+			return recovery.RollbackRestartControl{}, false, nil
+		}
+		return updaterRollbackControl(h.process), true, nil
 	}
-	h.launch = func(_ context.Context, token string) (recovery.RollbackRestartProcess, recovery.RollbackRestartCleanup, error) {
+	h.launch = func(_ context.Context, token string) (recovery.RollbackRestartControl, error) {
 		h.launches.Add(1)
 		h.tokenMu.Lock()
 		h.startedToken = token
 		h.tokenMu.Unlock()
-		return h.process, func() error { return nil }, nil
+		return updaterRollbackControl(h.process), nil
 	}
 	h.app = defaultUpdaterApp()
+	if entry == "pre_factory_failure" {
+		h.app.rollbackRestartCallbackFactory = nil
+		return h
+	}
 	h.app.rollbackRestartCallbackFactory = func(recovery.Transaction) (recovery.RollbackRestartResolver, recovery.RollbackRestartLauncher) {
 		close(h.updaterReady)
 		<-h.compete
@@ -115,6 +203,14 @@ func newRollbackRaceHarness(t *testing.T, entry string) *rollbackRaceHarness {
 	return h
 }
 
+func updaterRollbackControl(process recovery.RollbackRestartProcess) recovery.RollbackRestartControl {
+	return recovery.RollbackRestartControl{
+		Process: process,
+		Cleanup: func() error { return nil },
+		Commit:  func(context.Context) error { return nil },
+	}
+}
+
 func runUpdaterRollbackRace(t *testing.T, entry string) {
 	h := newRollbackRaceHarness(t, entry)
 	updaterDone := make(chan updaterRollbackResult, 1)
@@ -124,30 +220,50 @@ func runUpdaterRollbackRace(t *testing.T, entry string) {
 		handle, identity, err := invokeUpdaterRollbackEntry(entry, h.app, h.store, h.transaction, h.cause)
 		updaterDone <- updaterRollbackResult{err: err, candidate: handle, identity: identity}
 	})
-	workers.Go(func() { guardDone <- competeDetachedGuard(h) })
-	<-h.guardReady
-	close(h.compete)
-	result := <-updaterDone
+	coordinationCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	workers.Go(func() { guardDone <- competeDetachedGuard(coordinationCtx, h) })
+	var result updaterRollbackResult
+	select {
+	case <-h.guardReady:
+		close(h.compete)
+		result = <-updaterDone
+	case result = <-updaterDone:
+		cancel()
+	case <-coordinationCtx.Done():
+		t.Fatalf("rollback race coordination: %v", context.Cause(coordinationCtx))
+	}
 	registerCandidateCleanup(t, result)
 	if !errors.Is(result.err, h.cause) {
 		t.Fatalf("rollback error = %v, want cause", result.err)
 	}
-	if err := <-guardDone; err != nil {
+	if err := <-guardDone; err != nil && !errors.Is(err, context.Canceled) {
 		t.Fatal(err)
 	}
 	workers.Wait()
 	assertCandidateReaped(t, result)
+	if entry == "pre_factory_failure" {
+		return
+	}
 	h.tokenMu.Lock()
 	token := h.startedToken
 	h.tokenMu.Unlock()
 	assertUpdaterRollbackRestart(t, h, token)
 }
 
-func competeDetachedGuard(h *rollbackRaceHarness) error {
-	<-h.updaterReady
+func competeDetachedGuard(ctx context.Context, h *rollbackRaceHarness) error {
+	select {
+	case <-ctx.Done():
+		return context.Cause(ctx)
+	case <-h.updaterReady:
+	}
 	close(h.guardReady)
-	<-h.compete
-	_, err := h.store.ConvergeRollbackRestart(context.Background(), h.transaction.Identity, h.resolve, h.launch)
+	select {
+	case <-ctx.Done():
+		return context.Cause(ctx)
+	case <-h.compete:
+	}
+	_, err := h.store.ConvergeRollbackRestart(ctx, h.transaction.Identity, h.resolve, h.launch)
 	return err
 }
 
@@ -260,6 +376,10 @@ func TestProbationCandidateProcess(t *testing.T) {
 	if mode == "exit" {
 		time.Sleep(200 * time.Millisecond)
 		os.Exit(17)
+	}
+	if mode == "delayed_serve" {
+		time.Sleep(100 * time.Millisecond)
+		mode = "serve"
 	}
 	server, err := pidregistry.StartCooperativeTerminationServer(
 		os.Getenv("SUPER_DOLPHIN_TEST_TERMINATION_ENDPOINT"),

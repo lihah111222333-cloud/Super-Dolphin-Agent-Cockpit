@@ -28,37 +28,41 @@ const (
 	probationPollInterval      = 100 * time.Millisecond
 	guardReadinessTimeout      = 5 * time.Second
 	guardReadinessMaxBytes     = 16 << 10
+	candidateReadinessTimeout  = 5 * time.Second
 )
 
 // runProbationSupervisor 启动候选与 detached Guard，并阻塞监督 exact ACK。
 func (app updaterApp) runProbationSupervisor(ctx context.Context, transaction recovery.Transaction) error {
+	if err := app.validateProbationRuntime(); err != nil {
+		return err
+	}
 	store, err := recovery.NewStore(filepath.Join(filepath.Dir(transaction.Paths.Target), updateTransactionDirName))
 	if err != nil {
 		return err
 	}
-	candidate, err := startProbationCandidate(transaction)
+	candidate, err := app.startProbationCandidate(ctx, transaction)
 	if err != nil {
 		return app.rollbackLaunchFailure(ctx, store, transaction, err)
 	}
 	process := candidate.Identity()
-	ownerID, err := newProbationOwnerID()
+	ownerID, err := app.newProbationOwnerID()
 	if err != nil {
 		return app.rollbackStartedCandidate(ctx, store, transaction, candidate, err)
 	}
-	lease, err := store.AcquireProbationLease(ctx, transaction.Identity, recovery.ProbationLeaseRequest{
+	lease, err := app.acquireProbationLease(store, ctx, transaction.Identity, recovery.ProbationLeaseRequest{
 		OwnerID: ownerID, Process: process, TTL: probationLeaseTTL,
 	})
 	if err != nil {
 		return app.rollbackStartedCandidate(ctx, store, transaction, candidate, err)
 	}
 	if _, statErr := os.Stat(transaction.Paths.RecoveryDir); errors.Is(statErr, os.ErrNotExist) {
-		if err := startDetachedGuard(transaction, false, nil); err != nil {
+		if err := app.startProbationGuard(transaction, false, nil); err != nil {
 			return app.rollbackClaimedCandidate(ctx, store, transaction, lease, candidate, err)
 		}
 	} else if statErr != nil {
 		return app.rollbackClaimedCandidate(ctx, store, transaction, lease, candidate, statErr)
 	}
-	supervisor, err := recovery.NewProbationSupervisor(recovery.ProbationSupervisorConfig{
+	supervisor, err := app.newProbationSupervisor(recovery.ProbationSupervisorConfig{
 		Store: store, Identity: transaction.Identity, Lease: lease,
 		ProcessAlive:  candidate.ProcessAlive,
 		StopCandidate: candidate.Stop,
@@ -75,6 +79,15 @@ func (app updaterApp) runProbationSupervisor(ctx context.Context, transaction re
 	return supervisor.Run(ctx)
 }
 
+// validateProbationRuntime 拒绝缺失任一 post-start cleanup 入口依赖。
+func (app updaterApp) validateProbationRuntime() error {
+	if app.startProbationCandidate == nil || app.newProbationOwnerID == nil || app.acquireProbationLease == nil ||
+		app.startProbationGuard == nil || app.newProbationSupervisor == nil {
+		return errors.New("updater probation runtime is incomplete")
+	}
+	return nil
+}
+
 func newProbationOwnerID() (string, error) {
 	id, err := recovery.NewTransactionID()
 	if err != nil {
@@ -84,9 +97,12 @@ func newProbationOwnerID() (string, error) {
 }
 
 // startProbationCandidate 使用 frozen env contract 启动 bundle executable 与唯一 Wait reaper。
-func startProbationCandidate(transaction recovery.Transaction) (*candidateHandle, error) {
+func startProbationCandidate(ctx context.Context, transaction recovery.Transaction) (*candidateHandle, error) {
+	if ctx == nil {
+		return nil, errors.New("probation candidate context is required")
+	}
 	executable := filepath.Join(transaction.Paths.Target, launcherPath)
-	digest, err := recovery.ComputeReleaseDigest(executable)
+	digest, err := recovery.ComputeReleaseDigestContext(ctx, executable)
 	if err != nil {
 		return nil, fmt.Errorf("digest probation executable: %w", err)
 	}
@@ -110,7 +126,7 @@ func startProbationCandidate(transaction recovery.Transaction) (*candidateHandle
 	}
 	stable, err := pidregistry.CaptureStableProcessIdentity(cmd.Process.Pid)
 	if err != nil {
-		return nil, errors.Join(err, killStartedCandidate(cmd))
+		return nil, errors.Join(err, killStartedCandidate(cmd), pidregistry.CleanupCooperativeTerminationEndpoint(terminationEndpoint))
 	}
 	identity := recovery.ProcessIdentity{
 		PID: stable.PID, StartToken: stable.ProcessStartToken,
@@ -119,15 +135,19 @@ func startProbationCandidate(transaction recovery.Transaction) (*candidateHandle
 	}
 	handle := newCandidateHandle(cmd, identity)
 	if stable.ExecutableIdentity != filepath.Clean(executable) {
-		stopCtx, cancel := ctxutil.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		return nil, errors.Join(pidregistry.ErrStableProcessIdentityMismatch, handle.Stop(stopCtx, identity))
+		return nil, handle.cleanupStartFailure(pidregistry.ErrStableProcessIdentityMismatch)
+	}
+	readyCtx, cancel := ctxutil.WithTimeout(ctx, candidateReadinessTimeout)
+	defer cancel()
+	if err := waitCandidateTerminationReady(readyCtx, identity); err != nil {
+		return nil, handle.cleanupStartFailure(err)
 	}
 	return handle, nil
 }
 
 type candidateHandle struct {
 	identity recovery.ProcessIdentity
+	process  *os.Process
 	done     chan struct{}
 
 	mu      sync.RWMutex
@@ -135,7 +155,7 @@ type candidateHandle struct {
 }
 
 func newCandidateHandle(cmd *exec.Cmd, identity recovery.ProcessIdentity) *candidateHandle {
-	handle := &candidateHandle{identity: identity, done: make(chan struct{})}
+	handle := &candidateHandle{identity: identity, process: cmd.Process, done: make(chan struct{})}
 	logger := pkglogger.Get()
 	safego.Go(context.Background(), logger, "updater.probationCandidate.wait", func(context.Context) {
 		waitErr := cmd.Wait()
@@ -191,7 +211,7 @@ func (handle *candidateHandle) Stop(ctx context.Context, identity recovery.Proce
 	}
 	select {
 	case <-handle.done:
-		return nil
+		return pidregistry.CleanupCooperativeTerminationEndpoint(identity.TerminationEndpoint)
 	default:
 	}
 	if err := terminateCandidate(ctx, identity); err != nil {
@@ -201,7 +221,7 @@ func (handle *candidateHandle) Stop(ctx context.Context, identity recovery.Proce
 	case <-ctx.Done():
 		return context.Cause(ctx)
 	case <-handle.done:
-		return nil
+		return pidregistry.CleanupCooperativeTerminationEndpoint(identity.TerminationEndpoint)
 	}
 }
 
@@ -216,11 +236,68 @@ func (handle *candidateHandle) resolveTerminationError(ctx context.Context, term
 			"pid", handle.identity.PID,
 			"termination_error", terminationErr,
 		)
-		return nil
+		return pidregistry.CleanupCooperativeTerminationEndpoint(handle.identity.TerminationEndpoint)
 	case <-ctx.Done():
 		return context.Cause(ctx)
 	case <-timer.C:
 		return terminationErr
+	}
+}
+
+// cleanupStartFailure 在独立时限内执行 exact stop、必要时 kill、Wait 与 endpoint 清理。
+func (handle *candidateHandle) cleanupStartFailure(primary error) error {
+	cleanupCtx, cancel := ctxutil.WithTimeout(context.Background(), candidateReadinessTimeout)
+	defer cancel()
+	stopErr := handle.Stop(cleanupCtx, handle.identity)
+	if stopErr == nil {
+		return primary
+	}
+	current, captureErr := pidregistry.CaptureStableProcessIdentity(handle.identity.PID)
+	shouldKill := false
+	if errors.Is(captureErr, pidregistry.ErrStableProcessNotFound) {
+		captureErr = nil
+	} else if captureErr == nil {
+		if current.ProcessStartToken != handle.identity.StartToken || current.ExecutableIdentity != handle.identity.ExecutableIdentity {
+			captureErr = pidregistry.ErrStableProcessIdentityMismatch
+		} else {
+			shouldKill = true
+		}
+	}
+	var killErr error
+	if shouldKill {
+		killErr = handle.process.Kill()
+		if errors.Is(killErr, os.ErrProcessDone) {
+			killErr = nil
+		}
+	}
+	waitErr := handle.Wait(cleanupCtx)
+	var exitErr *exec.ExitError
+	if errors.As(waitErr, &exitErr) {
+		waitErr = nil
+	}
+	endpointErr := pidregistry.CleanupCooperativeTerminationEndpoint(handle.identity.TerminationEndpoint)
+	return errors.Join(primary, stopErr, captureErr, killErr, waitErr, endpointErr)
+}
+
+// waitCandidateTerminationReady 在发布 handle 前完成 token-authenticated READY。
+func waitCandidateTerminationReady(ctx context.Context, identity recovery.ProcessIdentity) error {
+	exact := pidregistry.StableProcessIdentity{
+		PID: identity.PID, ProcessStartToken: identity.StartToken, ExecutableIdentity: identity.ExecutableIdentity,
+		TerminationEndpoint: identity.TerminationEndpoint, TerminationToken: identity.TerminationToken,
+	}
+	ticker := time.NewTicker(10 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		if err := pidregistry.ProbeExactProcessEndpoint(ctx, exact); err == nil {
+			return nil
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("authenticate candidate termination endpoint: %w", err)
+		}
+		select {
+		case <-ctx.Done():
+			return context.Cause(ctx)
+		case <-ticker.C:
+		}
 	}
 }
 
@@ -273,7 +350,7 @@ func buildDetachedGuardCommand(transaction recovery.Transaction, capsule bool) (
 		return nil, "", "", err
 	}
 	generation, expectedSHA := guardGenerationIdentity(transaction, capsule)
-	digest, err := recovery.ComputeReleaseDigest(executable)
+	digest, err := recovery.ComputeReleaseDigestContext(context.Background(), executable)
 	if err != nil {
 		return nil, "", "", fmt.Errorf("digest detached Guard: %w", err)
 	}
