@@ -25,6 +25,42 @@ function timingCase(durationMedianMs, durationClock = CPU_DURATION_CLOCK) {
   };
 }
 
+function pairedTimingCase(normalizedRatio) {
+  const blockCount = 3;
+  const sampleDiagnostics = Array.from({ length: 5 }, (_, sampleIndex) => {
+    const referenceBlockCpuDurationsMs = [10, 11, 12];
+    const productionBlockCpuDurationsMs = referenceBlockCpuDurationsMs
+      .map((reference) => reference * normalizedRatio);
+    const rawNormalizedBlockRatios = productionBlockCpuDurationsMs
+      .map((production, blockIndex) => production / referenceBlockCpuDurationsMs[blockIndex]);
+    return {
+      blockOrders: Array.from(
+        { length: blockCount },
+        (_, blockIndex) => ((sampleIndex + blockIndex) % 2 === 0
+          ? 'production-reference'
+          : 'reference-production'),
+      ),
+      productionBlockCpuDurationsMs,
+      referenceBlockCpuDurationsMs,
+      rawNormalizedBlockRatios,
+      normalizedRatio: [...rawNormalizedBlockRatios].sort((left, right) => left - right)[1],
+    };
+  });
+  const normalizedRatioSamples = sampleDiagnostics.map(({ normalizedRatio: sample }) => sample);
+  return {
+    attemptsPerSample: 1,
+    durationClock: CPU_DURATION_CLOCK,
+    blockCount,
+    blockIterationCount: 100,
+    iterationCount: 300,
+    materializedCount: 80,
+    referenceMaterializedCount: 80,
+    sampleDiagnostics,
+    normalizedRatioSamples,
+    normalizedRatioMedian: [...normalizedRatioSamples].sort((left, right) => left - right)[2],
+  };
+}
+
 function evidence() {
   const historyCases = Object.fromEntries([
     'turns-200-tools-1',
@@ -33,7 +69,7 @@ function evidence() {
     'turns-1000-tools-3',
     'turns-5000-tools-1',
     'turns-5000-tools-3',
-  ].map((caseId) => [caseId, timingCase(100)]));
+  ].map((caseId) => [caseId, pairedTimingCase(1)]));
   return {
     provenance: { runnerContentHash: 'runner-hash' },
     metrics: {
@@ -119,6 +155,25 @@ describe('performance budget runner registry', () => {
     expect(verifyPerformanceEvidence(evidence(), changed).status).toBe('NOT_VERIFIED');
   });
 
+  it('marks a legacy absolute-duration P02 baseline NOT_VERIFIED', () => {
+    const legacy = baseline();
+    legacy.metrics['P02-history-budget'].cases = Object.fromEntries(
+      Object.keys(legacy.metrics['P02-history-budget'].cases)
+        .map((caseId) => [
+          caseId,
+          timingCase(100, 'p50(process.cpuUsage(user+system),500000-iteration-blocks)'),
+        ]),
+    );
+
+    const verdict = verifyPerformanceEvidence(evidence(), legacy);
+    expect(verdict.status).toBe('NOT_VERIFIED');
+    expect(verdict.verdicts.find(({ metricId }) => metricId === 'P02-history-budget'))
+      .toEqual(expect.objectContaining({
+        status: 'NOT_VERIFIED',
+        reason: expect.stringMatching(/paired schema is invalid/),
+      }));
+  });
+
   it('derives twelve exact current-tree cases and rejects zero, missing, stale, and duplicate registrations', () => {
     const currentEvidence = evidence();
     const verdict = verifyPerformanceEvidence(currentEvidence, baseline());
@@ -155,7 +210,7 @@ describe('performance budget runner registry', () => {
 
   it('fails the exact history case that exceeds the frozen fifteen percent threshold', () => {
     const regressed = evidence();
-    regressed.metrics['P02-history-budget'].cases['turns-5000-tools-3'] = timingCase(116);
+    regressed.metrics['P02-history-budget'].cases['turns-5000-tools-3'] = pairedTimingCase(1.16);
     const verdict = verifyPerformanceEvidence(regressed, baseline());
 
     expect(verdict.status).toBe('FAIL');

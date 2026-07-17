@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   CPU_DURATION_CLOCK,
-  evaluateMedianCases,
+  evaluatePairedMedianCases,
   evaluateRenderIsolation,
   evaluateResourceBudget,
   median,
@@ -18,10 +18,10 @@ function frozenMetric(overrides = {}) {
   };
 }
 
-function timingCase(durationMedianMs) {
+function timingCase(durationMedianMs, durationClock = CPU_DURATION_CLOCK) {
   return {
     attemptsPerSample: 1,
-    durationClock: CPU_DURATION_CLOCK,
+    durationClock,
     iterationCount: 100,
     durationAttemptSamplesMs: Array.from(
       { length: 5 },
@@ -29,6 +29,42 @@ function timingCase(durationMedianMs) {
     ),
     durationSamplesMs: Array.from({ length: 5 }, () => durationMedianMs),
     durationMedianMs,
+  };
+}
+
+function pairedTimingCase(normalizedRatio) {
+  const blockCount = 3;
+  const sampleDiagnostics = Array.from({ length: 5 }, (_, sampleIndex) => {
+    const referenceBlockCpuDurationsMs = [10, 11, 12];
+    const productionBlockCpuDurationsMs = referenceBlockCpuDurationsMs
+      .map((reference) => reference * normalizedRatio);
+    const rawNormalizedBlockRatios = productionBlockCpuDurationsMs
+      .map((production, blockIndex) => production / referenceBlockCpuDurationsMs[blockIndex]);
+    return {
+      blockOrders: Array.from(
+        { length: blockCount },
+        (_, blockIndex) => ((sampleIndex + blockIndex) % 2 === 0
+          ? 'production-reference'
+          : 'reference-production'),
+      ),
+      productionBlockCpuDurationsMs,
+      referenceBlockCpuDurationsMs,
+      rawNormalizedBlockRatios,
+      normalizedRatio: [...rawNormalizedBlockRatios].sort((left, right) => left - right)[1],
+    };
+  });
+  const normalizedRatioSamples = sampleDiagnostics.map(({ normalizedRatio: sample }) => sample);
+  return {
+    attemptsPerSample: 1,
+    durationClock: CPU_DURATION_CLOCK,
+    blockCount,
+    blockIterationCount: 100,
+    iterationCount: 300,
+    materializedCount: 80,
+    referenceMaterializedCount: 80,
+    sampleDiagnostics,
+    normalizedRatioSamples,
+    normalizedRatioMedian: [...normalizedRatioSamples].sort((left, right) => left - right)[2],
   };
 }
 
@@ -55,40 +91,56 @@ describe('performance budget model', () => {
     ['missing threshold', frozenMetric({ cases: {} })],
     ['relaxed threshold', frozenMetric({ maxRegressionRatio: 1.25, cases: {} })],
   ])('does not verify a history baseline with %s', (_name, baselineMetric) => {
-    const verdict = evaluateMedianCases({
+    const verdict = evaluatePairedMedianCases({
       baselineMetric,
       currentMetric: { cases: {} },
       durationClock: CPU_DURATION_CLOCK,
       metricId: 'P02-history-budget',
       ratioKey: 'maxRegressionRatio',
       requiredRatio: 1.15,
-      valueKey: 'durationMedianMs',
     });
     expect(verdict.status).toBe('NOT_VERIFIED');
   });
 
-  it('fails a median that exceeds the fixed 15 percent threshold', () => {
-    const verdict = evaluateMedianCases({
+  it('fails a normalized median that exceeds the fixed 15 percent threshold', () => {
+    const verdict = evaluatePairedMedianCases({
       baselineMetric: frozenMetric({
         maxRegressionRatio: 1.15,
-        cases: { history: timingCase(100) },
+        cases: { history: pairedTimingCase(1) },
       }),
-      currentMetric: { cases: { history: timingCase(116) } },
+      currentMetric: { cases: { history: pairedTimingCase(1.16) } },
       durationClock: CPU_DURATION_CLOCK,
       metricId: 'P02-history-budget',
       ratioKey: 'maxRegressionRatio',
       requiredRatio: 1.15,
-      valueKey: 'durationMedianMs',
     });
     expect(verdict).toEqual(expect.objectContaining({ status: 'FAIL' }));
   });
 
-  it('rejects a hand-edited median or a missing deterministic attempt', () => {
-    const baselineCase = timingCase(100);
-    const editedMedian = { ...timingCase(100), durationMedianMs: 99 };
-    const missingAttempt = timingCase(100);
-    missingAttempt.durationAttemptSamplesMs[0] = [];
-    const evaluate = (currentCase) => evaluateMedianCases({
+  it('marks the legacy absolute-duration baseline schema NOT_VERIFIED', () => {
+    const verdict = evaluatePairedMedianCases({
+      baselineMetric: frozenMetric({
+        maxRegressionRatio: 1.15,
+        cases: {
+          history: timingCase(10, 'p50(process.cpuUsage(user+system),500000-iteration-blocks)'),
+        },
+      }),
+      currentMetric: { cases: { history: pairedTimingCase(1) } },
+      durationClock: CPU_DURATION_CLOCK,
+      metricId: 'P02-history-budget',
+      ratioKey: 'maxRegressionRatio',
+      requiredRatio: 1.15,
+    });
+
+    expect(verdict).toEqual(expect.objectContaining({
+      status: 'NOT_VERIFIED',
+      reason: expect.stringMatching(/paired schema is invalid/),
+    }));
+  });
+
+  it('recomputes paired ratios and rejects forged, incomplete, zero, and legacy evidence', () => {
+    const baselineCase = pairedTimingCase(1);
+    const evaluate = (currentCase) => evaluatePairedMedianCases({
       baselineMetric: frozenMetric({
         maxRegressionRatio: 1.15,
         cases: { history: baselineCase },
@@ -98,11 +150,28 @@ describe('performance budget model', () => {
       metricId: 'P02-history-budget',
       ratioKey: 'maxRegressionRatio',
       requiredRatio: 1.15,
-      valueKey: 'durationMedianMs',
     });
 
+    const editedMedian = structuredClone(pairedTimingCase(1));
+    editedMedian.normalizedRatioMedian = 0.5;
+    const editedSample = structuredClone(pairedTimingCase(1));
+    editedSample.normalizedRatioSamples[0] = 0.5;
+    const forgedRatio = structuredClone(pairedTimingCase(1));
+    forgedRatio.sampleDiagnostics[0].rawNormalizedBlockRatios[0] = 0.5;
+    const missingBlocks = structuredClone(pairedTimingCase(1));
+    delete missingBlocks.sampleDiagnostics[0].referenceBlockCpuDurationsMs;
+    const zeroReference = structuredClone(pairedTimingCase(1));
+    zeroReference.sampleDiagnostics[0].referenceBlockCpuDurationsMs[0] = 0;
+    const nonFiniteRatio = structuredClone(pairedTimingCase(1));
+    nonFiniteRatio.sampleDiagnostics[0].rawNormalizedBlockRatios[0] = Number.NaN;
+
     expect(() => evaluate(editedMedian)).toThrow(/median does not match/);
-    expect(() => evaluate(missingAttempt)).toThrow(/must contain 1 attempts/);
+    expect(() => evaluate(editedSample)).toThrow(/summary is invalid/);
+    expect(() => evaluate(forgedRatio)).toThrow(/ratio is not reproducible/);
+    expect(() => evaluate(missingBlocks)).toThrow(/evidence is incomplete/);
+    expect(() => evaluate(zeroReference)).toThrow(/finite positive/);
+    expect(() => evaluate(nonFiniteRatio)).toThrow(/finite positive/);
+    expect(() => evaluate(timingCase(1))).toThrow(/paired measurement shape is invalid/);
   });
 
   it('requires the P01 mutation counterexample and both absolute render limits', () => {

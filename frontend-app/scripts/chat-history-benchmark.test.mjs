@@ -15,6 +15,7 @@ import {
   verifyChatHistoryEvidence,
 } from './chat-history-benchmark.mjs';
 import { buildChatHistoryFixture } from '../src/pages/chat/model/chatHistoryBenchmarkFixture.js';
+import { measurementMedian, median } from './performance-budget-model.mjs';
 
 const RESULT_KEYS = [
   'case',
@@ -115,7 +116,7 @@ describe('chat history benchmark', () => {
     ]);
   });
 
-  it('warms each case and reports exactly five duration samples with a median', () => {
+  it('warms each case and reports five recomputable paired normalized samples', () => {
     expect(HISTORY_BLOCK_COUNT).toBe(9);
     expect(HISTORY_BLOCK_ITERATIONS).toBe(500_000);
     expect(MEASUREMENT_ITERATIONS).toBe(4_500_000);
@@ -133,22 +134,38 @@ describe('chat history benchmark', () => {
       expect(entry.blockCount).toBe(HISTORY_BLOCK_COUNT);
       expect(entry.blockIterationCount).toBe(HISTORY_BLOCK_ITERATIONS);
       expect(entry.iterationCount).toBe(MEASUREMENT_ITERATIONS);
-      expect(entry.durationAttemptSamplesMs).toHaveLength(5);
-      entry.durationAttemptSamplesMs.forEach((attempts, index) => {
-        expect(attempts).toHaveLength(ATTEMPTS_PER_SAMPLE);
-        expect(entry.durationSamplesMs[index]).toBe(attempts[0]);
-      });
-      expect(entry.rawSamplesMs).toEqual(entry.durationSamplesMs);
+      expect(entry.materializedCount).toBe(80);
+      expect(entry.referenceMaterializedCount).toBe(80);
+      expect(entry.durationClock).toContain('production/reference');
+      expect(entry).not.toHaveProperty('durationSamplesMs');
+      expect(entry).not.toHaveProperty('durationMedianMs');
       expect(entry.sampleDiagnostics).toHaveLength(5);
-      entry.sampleDiagnostics.forEach(({ blockDurationsMs, durationMs }) => {
-        expect(blockDurationsMs).toHaveLength(HISTORY_BLOCK_COUNT);
-        expect(Number.isFinite(durationMs)).toBe(true);
+      entry.sampleDiagnostics.forEach((sample, sampleIndex) => {
+        expect(sample.blockOrders).toEqual(Array.from(
+          { length: HISTORY_BLOCK_COUNT },
+          (_, blockIndex) => ((sampleIndex + blockIndex) % 2 === 0
+            ? 'production-reference'
+            : 'reference-production'),
+        ));
+        expect(sample.productionBlockCpuDurationsMs).toHaveLength(HISTORY_BLOCK_COUNT);
+        expect(sample.referenceBlockCpuDurationsMs).toHaveLength(HISTORY_BLOCK_COUNT);
+        expect(sample.rawNormalizedBlockRatios).toHaveLength(HISTORY_BLOCK_COUNT);
+        sample.rawNormalizedBlockRatios.forEach((ratio, blockIndex) => {
+          const production = sample.productionBlockCpuDurationsMs[blockIndex];
+          const reference = sample.referenceBlockCpuDurationsMs[blockIndex];
+          expect(Number.isFinite(production) && production > 0).toBe(true);
+          expect(Number.isFinite(reference) && reference > 0).toBe(true);
+          expect(ratio).toBe(production / reference);
+        });
+        expect(sample.normalizedRatio).toBe(measurementMedian(sample.rawNormalizedBlockRatios));
       });
-      expect(entry.durationSamplesMs).toHaveLength(5);
-      expect(Number.isFinite(entry.durationMedianMs)).toBe(true);
-      expect(entry.durationMedianMs).toBeGreaterThanOrEqual(0);
+      expect(entry.normalizedRatioSamples).toEqual(
+        entry.sampleDiagnostics.map(({ normalizedRatio }) => normalizedRatio),
+      );
+      expect(entry.normalizedRatioMedian).toBe(median(entry.normalizedRatioSamples));
+      expect(Object.keys(entry).filter((key) => key.includes('Ratio') && key.endsWith('Ms'))).toEqual([]);
     });
-  }, 20_000);
+  }, 60_000);
 
   it('keeps verify NOT_VERIFIED until an exact frozen five-sample baseline exists', () => {
     expect(verifyChatHistoryEvidence({ cases: {} }, {
