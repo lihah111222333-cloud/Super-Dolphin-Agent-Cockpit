@@ -2,7 +2,9 @@
 
 日期：2026-07-17
 
-基线：`6d6b8996b871015908bc26be8a647e950eb17f48`
+初始基线：`6d6b8996b871015908bc26be8a647e950eb17f48`
+
+本轮追加修复基线：`cce4aff239b9dffd1e3db6a8cd12851349b97b7b`
 
 分支：`codex/reasonix-p0-final-release-fixes`
 
@@ -15,6 +17,7 @@
 | 3. exact process termination PID reuse TOCTOU | 核验 stable identity 后仍按 PID 发 TERM/KILL，核验与 signal 之间可复用 PID。 | Darwin arm64 candidate 启动 0600 Unix socket，以随机 token 认证；receiver 仅在 constant-time token 匹配后返回 ACK 并自行退出。调用方 ACK 后只观察原 stable identity 消失，不再发送 PID signal。非 Darwin API 返回 unsupported，capability 不扩大。 | `TestCooperativeTerminationAuthenticatesBeforeACK`、`TestTerminateExactProcessUsesAuthenticatedCooperativeExit`；旧 signal-based exact 测试与实现已删除。 |
 | 4. wall-clock terminal selection | `SelectForTarget` 以更新时间选择终态，时钟回拨可恢复旧 transaction/trust。 | 每 target 在独立 generation lock 下扫描 durable journal 并分配严格递增 `target_generation`；journal 原子写入+目录 fsync 后才发布。active transaction 仍唯一，终态只按 generation 选择并拒绝零值/重复值。 | `TestSelectForTargetUsesGenerationAcrossClockRollback`、`TestCreateAllocatesMonotonicTargetGeneration`。 |
 | 5. package path trust | executable/bundle/resources/helper/trust/transaction path 可经 symlink 或系统外 alias tree 绕到非 canonical 内容。 | package layout 从 clean absolute executable 推导，逐层要求 canonical existing path；trust 文件/helper 也必须 canonical；暂时不存在的 rename target 要求最深现存祖先 canonical。 | `TestPackageLayoutRejectsExecutableAlias`、`TestPackageLayoutRejectsResourcesAlias`、`TestVerifiedPackageTrustRejectsHelperAlias`、`TestPackageTrustRejectsTrustFileAlias`、`TestPackageTrustRejectsTransactionTargetAlias`。 |
+| 6. probation wait 后 detached convergence 丢失 | Guard 已进入 lease wait 时 updater 可把 exact journal 推进到 `rollback_pending` 或 `rolled_back`；到期 takeover 得到 `ErrNoActiveProbation` 后旧实现仍以 `finished=true` 退出，分别留下未 replay intent 或缺失 restart ACK。 | `takeOverProbation` 只有成功接管并执行 rollback/restart 后才返回完成；`ErrNoActiveProbation` 返回未完成，外层 `Run` 按原完整 `Identity` 重新 `Load` 并重新分派。takeover 在 exact transaction lock 内证明状态已离开 probation，因此不会在未变化状态上自旋；lease mismatch 和其他错误继续 fail-fast。 | `TestGuardReloadsRollbackPendingAfterProbationWait`、`TestGuardReloadsRolledBackWithoutRestartACKAfterProbationWait` 使用 channel barrier，无 sleep；断言 pending replay、restart ACK、启动一次及重复 `Run` 不重复 side effect。 |
 
 ## 2. 验证结果
 
@@ -33,15 +36,23 @@
 
 追加初审修复聚焦门禁：exact-tag continuity、self-signed signer attack、previous DMG proof、verify-existing、latest download/inspect 均 PASS。
 
+追加 probation-wait 修复门禁：两条锁定测试 normal 与 `-race` 均 PASS；Guard/recovery artifact E2E（crash rollback、healthy ACK、两种 Guard process 恢复）PASS；macOS runtime contract 与 GitHub canonical assets scripts tests PASS；每次 `test_with_guard.sh` 均同步通过代码守卫与 `internal/archtest`。
+
+追加 artifact E2E 稳定性修复：旧顺序在 `StateRolledBack` 后临时持有 exact transaction lock 的 fail-first 明确复现 `ResolveTransactionBoundPackageTrust() error = ... update transaction is busy`。GREEN 在 trust 断言前等待 Guard 完成信号关闭并 `Wait`；10 秒 timeout 会终止并等待进程后报告 kill/Guard error/stderr，正常退出也检查 error/stderr。完成信号可重复观察，cleanup 对已退出 Guard 只做非阻塞接收和已完成 `Wait`，不会二次消费结果或阻塞。两个 Guard process E2E `-count=10` 共 20 场 PASS（62.970s）；原 probation-wait focused normal/race 均 PASS。
+
 ## 3. LSP 证据
 
 - 完整链：`grep` 定位、`structure` 大纲、`inspect(definition)` 理解、`xref(references)` 影响面、`file(read_file)` 精读、`patch_edit` 修改、`file(diagnostics)` 复核。
 - 34 个 changed Go source/test 文件分两批 diagnostics：Error/Warning/Information/Hint 均为 0。
 - 2 个 changed shell source 文件以 `language_id=shellscript` diagnostics：全部 severity 为 0。
 - `.env.packaging.example` 无语言 adapter，以 scripts guard test 锁定字段用途。
+- 本轮对 `takeOverActive`/`takeOverProbation` 完成 `grep`、`structure`、`inspect`、`xref`、`file`、`patch_edit` 全链；`main.go` 与 `main_test.go` 全 severity diagnostics 为 0。workspace symbol 初次因全仓 walk 上限失败，改以 `main.go` 文件范围收窄后成功。
+- artifact E2E 同步修复对 `runRecoveryGuardCrashE2E`、`guardDone`、状态等待和 trust 断言完成同一 LSP 全链；`artifact_e2e_test.go` 全 severity diagnostics 为 0。
 
 ## 4. 残余边界
 
 - rollback restart 是 token-bound at-least-once convergence：若进程在 ACK 前已死，重放会再次启动；不声称不可实现的跨进程 exactly-once。
+- probation takeover 的 no-active 重载只绑定原完整 transaction `Identity`，不通过 target current pointer 选择其他 generation；若 journal 仍是 probation 但 lease 已变化，返回 lease mismatch 并 fail-fast，不把竞争误判为完成或无限重试。
+- artifact E2E 只等待 Guard owner 退出后读取 trust；production 的非阻塞 transaction lock 与 `ErrTransactionBusy` fail-fast 语义未改变，也未加入 busy 重试或吞错。
 - Darwin arm64 是唯一开启 check/install/publish 的生产目标。Linux、Windows 与 Darwin amd64 仅验证 fail-closed capability 和 cross-build，不声称原生终止/安装 E2E。
 - 正式 continuity gate 依赖 exact-tag GitHub release API 提供 asset digest/size，下载后做本地复核；signer 锚来自本次 canonical staging package，旧包自身字段不能建立信任；本地 APP/DMG 不能满足 publish 或 verify-existing。
