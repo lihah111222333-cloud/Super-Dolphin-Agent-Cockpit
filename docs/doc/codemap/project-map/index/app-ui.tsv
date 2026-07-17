@@ -61,7 +61,7 @@ frontend-app/scripts/frontend-contract-store-guard.test.mjs	frontend-app	app-ui	
 frontend-app/scripts/frontend-dependency-direction-guard.mjs	frontend-app	app-ui	js-source	16702	React 前端构建与校验脚本	frontend,app,scripts,dependency,direction,guard,React,前端构建与校验脚本
 frontend-app/scripts/frontend-dependency-direction-guard.test.mjs	frontend-app	app-ui	js-test	8128	React 前端构建与校验脚本	frontend,app,scripts,dependency,direction,guard,test,React,前端构建与校验脚本
 frontend-app/scripts/frontend-dependency-direction-registry.json	frontend-app	app-ui	json	4878	React 前端构建与校验脚本	frontend,app,scripts,dependency,direction,registry,React,前端构建与校验脚本
-frontend-app/scripts/frontend-maintainability-baseline.json	frontend-app	app-ui	json	112230	React 前端构建与校验脚本	frontend,app,scripts,maintainability,baseline,React,前端构建与校验脚本
+frontend-app/scripts/frontend-maintainability-baseline.json	frontend-app	app-ui	json	216133	React 前端构建与校验脚本	frontend,app,scripts,maintainability,baseline,React,前端构建与校验脚本
 frontend-app/scripts/frontend-maintainability-controls.json	frontend-app	app-ui	json	25266	React 前端构建与校验脚本	frontend,app,scripts,maintainability,controls,React,前端构建与校验脚本
 frontend-app/scripts/frontend-maintainability-red-fixtures.json	frontend-app	app-ui	json	1445	React 前端构建与校验脚本	frontend,app,scripts,maintainability,red,fixtures,React,前端构建与校验脚本
 frontend-app/scripts/frontend-maintainability-score.mjs	frontend-app	app-ui	js-source	73307	React 前端构建与校验脚本	frontend,app,scripts,maintainability,score,React,前端构建与校验脚本
