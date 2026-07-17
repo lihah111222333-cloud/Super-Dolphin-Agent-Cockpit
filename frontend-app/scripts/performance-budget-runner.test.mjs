@@ -140,7 +140,7 @@ function evidence(subjectSha = SUBJECT_SHA) {
         maxChunkBytes: 50,
         files: [
           { path: 'assets/a.js', bytes: 50 },
-          { path: 'index.html', bytes: 50 },
+          { path: 'assets/Chat.js', bytes: 50 },
         ],
       },
     },
