@@ -487,6 +487,14 @@ func buildInterruptFailureResult(status TurnStatus, envelope turnInterruptEnvelo
 	return result
 }
 
+// buildInterruptNotAppliedResult 保留 provider 未应用 stop 的可辨识失败语义。
+func buildInterruptNotAppliedResult(status TurnStatus, envelope turnInterruptEnvelope, expectedTurnID, requestID string) turnInterruptResult {
+	result := buildInterruptResult(status, envelope, expectedTurnID, requestID, false)
+	result.OK = false
+	result.ErrorCode = "NOT_APPLIED"
+	return result
+}
+
 func buildInterruptTargetChangedResult(status TurnStatus, expectedTurnID, requestID string) turnInterruptResult {
 	return turnInterruptResult{
 		Accepted:       false,

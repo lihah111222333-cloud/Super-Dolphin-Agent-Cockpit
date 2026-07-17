@@ -88,10 +88,8 @@
     {
       "caseId": "FM-15",
       "subject": "provider NOT_APPLIED keeps the original turn active",
-      "status": "blocked",
-      "blockedBy": "Task2A",
-      "blocker": "the current stop product contract has no literal NOT_APPLIED result",
-      "requiredLayers": ["fixture-replay"]
+      "status": "covered",
+      "requiredLayers": ["go-turn"]
     },
     {
       "caseId": "FM-16",
@@ -108,10 +106,8 @@
     {
       "caseId": "FM-18",
       "subject": "provider disconnect is persisted in Health with reconnect recovery",
-      "status": "blocked",
-      "blockedBy": "Task2A",
-      "blocker": "Task2A owns the persistent provider Health and reconnect action product path",
-      "requiredLayers": ["fixture-replay"]
+      "status": "covered",
+      "requiredLayers": ["frontend"]
     },
     {
       "caseId": "FM-19",
@@ -128,34 +124,26 @@
     {
       "caseId": "FM-21",
       "subject": "prompt history RPC rejection preserves draft and exposes error",
-      "status": "blocked",
-      "blockedBy": "Task2A",
-      "blocker": "Task2A owns the prompt-history visible-error product implementation",
-      "requiredLayers": ["fixture-replay"]
+      "status": "covered",
+      "requiredLayers": ["frontend"]
     },
     {
       "caseId": "FM-22",
       "subject": "prompt history invalid response preserves cursor and fails fast",
-      "status": "blocked",
-      "blockedBy": "Task2A",
-      "blocker": "Task2A owns the prompt-history invalid-response product implementation",
-      "requiredLayers": ["fixture-replay"]
+      "status": "covered",
+      "requiredLayers": ["frontend"]
     },
     {
       "caseId": "FM-23",
       "subject": "settings save rejection preserves edited values and exposes error",
-      "status": "blocked",
-      "blockedBy": "Task2A",
-      "blocker": "Task2A owns settings action failure preservation",
-      "requiredLayers": ["fixture-replay"]
+      "status": "covered",
+      "requiredLayers": ["frontend"]
     },
     {
       "caseId": "FM-24",
       "subject": "approval rejection leaves decision pending and exposes error",
-      "status": "blocked",
-      "blockedBy": "Task2A",
-      "blocker": "Task2A owns approval action failure preservation",
-      "requiredLayers": ["fixture-replay"]
+      "status": "covered",
+      "requiredLayers": ["frontend"]
     }
   ]
 }

@@ -14,25 +14,23 @@ function validManifest() {
     ['FM-07', ['go-codex']],
     ['FM-08', ['go-claude']],
     ...Array.from({ length: 6 }, (_, index) => [`FM-${String(index + 9).padStart(2, '0')}`, ['go-codex']]),
-    ['FM-15', ['fixture-replay']],
+    ['FM-15', ['go-turn']],
     ['FM-16', ['go-turn']],
     ['FM-17', ['go-turn']],
-    ['FM-18', ['fixture-replay']],
+    ['FM-18', ['frontend']],
     ['FM-19', ['frontend', 'go-codex']],
     ['FM-20', ['frontend', 'go-codex']],
-    ...Array.from({ length: 4 }, (_, index) => [`FM-${String(index + 21).padStart(2, '0')}`, ['fixture-replay']]),
+    ...Array.from({ length: 4 }, (_, index) => [`FM-${String(index + 21).padStart(2, '0')}`, ['frontend']]),
   ]);
   return {
     schemaVersion: 1,
     cases: Array.from({ length: 24 }, (_, index) => {
       const caseId = `FM-${String(index + 1).padStart(2, '0')}`;
-      const blocked = layersByCase.get(caseId)?.[0] === 'fixture-replay';
       return {
         caseId,
         subject: `case ${index + 1}`,
-        status: blocked ? 'blocked' : 'covered',
+        status: 'covered',
         requiredLayers: layersByCase.get(caseId) || ['frontend'],
-        ...(blocked ? { blockedBy: 'Task2A', blocker: `${caseId} dependency` } : {}),
       };
     }),
   };

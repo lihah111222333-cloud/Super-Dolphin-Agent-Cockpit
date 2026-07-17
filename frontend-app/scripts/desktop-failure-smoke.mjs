@@ -19,12 +19,13 @@ export const DESKTOP_FAILURE_CASES = Object.freeze([
   }),
   Object.freeze({
     caseId: 'prompt-history-reject',
-    status: 'blocked',
-    blocker: 'Task2 prompt history rejection action is not implemented on this baseline',
+    status: 'runnable',
+    evidenceLayers: ['go-rpc-websocket', 'prompt-history-action', 'real-chromium-dom'],
     fixtureContract: Object.freeze({
-      method: 'thread/prompt-history',
+      method: 'thread/promptHistory',
       preserve: ['draft', 'cursor'],
       visibleError: true,
+      retryRecovery: true,
     }),
   }),
 ]);
@@ -39,8 +40,10 @@ export function validateDesktopFailureCases(cases = DESKTOP_FAILURE_CASES) {
     throw new Error('terminal-failed requires three executable evidence layers');
   }
   const prompt = cases[1];
-  if (prompt.status !== 'blocked' || !prompt.blocker || !prompt.fixtureContract?.visibleError) {
-    throw new Error('prompt-history-reject must remain an explicit Task2 blocker');
+  if (prompt.status !== 'runnable' || prompt.evidenceLayers?.length !== 3
+    || prompt.fixtureContract?.method !== 'thread/promptHistory'
+    || !prompt.fixtureContract?.visibleError || !prompt.fixtureContract?.retryRecovery) {
+    throw new Error('prompt-history-reject requires three executable evidence layers and retry recovery');
   }
   return cases;
 }
@@ -122,7 +125,7 @@ export async function runDesktopFailureSmoke(config = desktopFailureSmokeConfig(
       PLAYWRIGHT_CHROMIUM_EXECUTABLE: config.chromeExecutable,
       SUPER_DOLPHIN_FAILURE_SMOKE_BASE_URL: config.viteURL,
     }, spawnImpl, config.timeoutMs);
-    const report = await buildDesktopFailureReport(config, deps.git);
+    const report = validateDesktopFailureReport(await buildDesktopFailureReport(config, deps.git));
     await mkdir(path.dirname(config.reportPath), { recursive: true });
     await writeFile(config.reportPath, `${JSON.stringify(report, null, 2)}\n`, 'utf8');
     return report;
@@ -142,11 +145,27 @@ async function buildDesktopFailureReport(config, gitImpl) {
     controlId: 'T03-wails-integration',
     cwd: config.repoRoot,
     argv: process.argv.slice(2),
-    caseIds: ['terminal-failed'],
-    testCount: 1,
-    status: 'partial',
-    blockedCases: DESKTOP_FAILURE_CASES.filter((entry) => entry.status === 'blocked'),
+    caseIds: ['terminal-failed', 'prompt-history-reject'],
+    testCount: 2,
+    status: 'covered',
+    blockedCases: [],
   };
+}
+
+export function validateDesktopFailureReport(report) {
+  const expected = DESKTOP_FAILURE_CASES.map(({ caseId }) => caseId);
+  const actual = Array.isArray(report?.caseIds) ? report.caseIds : [];
+  if (actual.length !== expected.length || new Set(actual).size !== actual.length
+    || actual.some((caseId, index) => caseId !== expected[index])) {
+    throw new Error(`desktop failure report caseIds exact diff failed: ${JSON.stringify(actual)}`);
+  }
+  if (report.testCount !== expected.length || !Number.isInteger(report.testCount) || report.testCount <= 0) {
+    throw new Error(`desktop failure report testCount must equal ${expected.length}`);
+  }
+  if (report.status !== 'covered' || !Array.isArray(report.blockedCases) || report.blockedCases.length !== 0) {
+    throw new Error('desktop failure report requires covered status with zero blocked cases');
+  }
+  return report;
 }
 
 async function assertPortsFree(values) {

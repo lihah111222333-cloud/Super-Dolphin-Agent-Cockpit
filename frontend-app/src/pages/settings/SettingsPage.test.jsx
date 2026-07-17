@@ -1025,21 +1025,24 @@ describe('SettingsPage video settings', () => {
     expect(backend.callBackend).not.toHaveBeenCalled();
   });
 
-  it('shows save failures from the named video facade method', async () => {
-    backend.setVideoApiKey.mockRejectedValueOnce(new Error('credential store unavailable'));
+  describe('matrix:FM-23 layer:frontend', () => {
+    it('shows save failures from the named video facade method', async () => {
+      backend.setVideoApiKey.mockRejectedValueOnce(new Error('credential store unavailable'));
 
-    renderSettingsPage();
+      renderSettingsPage();
 
-    const card = await screen.findByTestId('settings-video-card');
-    fireEvent.change(within(card).getByLabelText('API Key'), { target: { value: 'sk-test-video-key' } });
-    fireEvent.click(within(card).getByRole('button', { name: '保存' }));
+      const card = await screen.findByTestId('settings-video-card');
+      fireEvent.change(within(card).getByLabelText('API Key'), { target: { value: 'sk-test-video-key' } });
+      fireEvent.click(within(card).getByRole('button', { name: '保存' }));
 
-    await waitFor(() => {
-      expect(screen.getByTestId('settings-video-notice')).toHaveTextContent('保存失败');
-      expect(screen.getByTestId('settings-video-notice')).not.toHaveTextContent('credential store unavailable');
-      expect(screen.getByTestId('settings-video-notice')).toHaveAttribute('role', 'alert');
+      await waitFor(() => {
+        expect(screen.getByTestId('settings-video-notice')).toHaveTextContent('保存失败');
+        expect(screen.getByTestId('settings-video-notice')).not.toHaveTextContent('credential store unavailable');
+        expect(screen.getByTestId('settings-video-notice')).toHaveAttribute('role', 'alert');
+      });
+      expect(within(card).getByLabelText('API Key')).toHaveValue('sk-test-video-key');
+      expect(backend.setVideoApiKey).toHaveBeenCalledWith({ apiKey: 'sk-test-video-key' });
+      expect(backend.callBackend).not.toHaveBeenCalled();
     });
-    expect(backend.setVideoApiKey).toHaveBeenCalledWith({ apiKey: 'sk-test-video-key' });
-    expect(backend.callBackend).not.toHaveBeenCalled();
   });
 });

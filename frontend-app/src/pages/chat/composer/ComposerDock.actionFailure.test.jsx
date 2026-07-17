@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import React, { useState } from 'react';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { frontendHealthSnapshot, resetFrontendHealthForTest } from '../../../shared/diagnostics/frontendHealthStore.js';
 import { resetVisibleActionFailureForTest } from '../../../shared/ui/actionFailureSink.js';
 import { ActionFailureSink } from '../../../shared/ui/actionFailureSink.jsx';
@@ -102,34 +102,38 @@ afterEach(() => {
   resetVisibleActionFailureForTest();
 });
 
-it('keeps draft cursor and selection stable on rejected prompt history RPC', async () => {
-  const rawCause = 'provider raw cause token=secret';
-  renderHarness({ fetchPromptHistory: vi.fn().mockRejectedValue(new Error(rawCause)) });
-  const textarea = screen.getByRole('combobox', { name: '输入给 Agent 的内容' });
-  navigatePrevious(textarea);
+describe('matrix:FM-21 layer:frontend', () => {
+  it('keeps draft cursor and selection stable on rejected prompt history RPC', async () => {
+    const rawCause = 'provider raw cause token=secret';
+    renderHarness({ fetchPromptHistory: vi.fn().mockRejectedValue(new Error(rawCause)) });
+    const textarea = screen.getByRole('combobox', { name: '输入给 Agent 的内容' });
+    navigatePrevious(textarea);
 
-  const alert = await screen.findByTestId('global-action-failure');
-  expect(textarea).toHaveValue('draft kept');
-  expect(textarea.selectionStart).toBe(3);
-  expect(textarea.selectionEnd).toBe(3);
-  expect(alert).toHaveTextContent('提示历史暂时不可用');
-  expect(alert).not.toHaveTextContent(rawCause);
-  expect(frontendHealthSnapshot()).toEqual(expect.arrayContaining([
-    expect.objectContaining({ actionId: 'prompt-history.previous', occurrences: 1 }),
-  ]));
-  expect(window.localStorage.getItem('super-dolphin.frontend-health.v1')).not.toContain(rawCause);
+    const alert = await screen.findByTestId('global-action-failure');
+    expect(textarea).toHaveValue('draft kept');
+    expect(textarea.selectionStart).toBe(3);
+    expect(textarea.selectionEnd).toBe(3);
+    expect(alert).toHaveTextContent('提示历史暂时不可用');
+    expect(alert).not.toHaveTextContent(rawCause);
+    expect(frontendHealthSnapshot()).toEqual(expect.arrayContaining([
+      expect.objectContaining({ actionId: 'prompt-history.previous', occurrences: 1 }),
+    ]));
+    expect(window.localStorage.getItem('super-dolphin.frontend-health.v1')).not.toContain(rawCause);
+  });
 });
 
-it('keeps draft cursor and selection stable on invalid prompt history response', async () => {
-  renderHarness({ fetchPromptHistory: vi.fn().mockResolvedValue({ entries: null, nonce: 'raw-invalid-response' }) });
-  const textarea = screen.getByRole('combobox', { name: '输入给 Agent 的内容' });
-  navigatePrevious(textarea);
+describe('matrix:FM-22 layer:frontend', () => {
+  it('keeps draft cursor and selection stable on invalid prompt history response', async () => {
+    renderHarness({ fetchPromptHistory: vi.fn().mockResolvedValue({ entries: null, nonce: 'raw-invalid-response' }) });
+    const textarea = screen.getByRole('combobox', { name: '输入给 Agent 的内容' });
+    navigatePrevious(textarea);
 
-  const alert = await screen.findByTestId('global-action-failure');
-  expect(textarea).toHaveValue('draft kept');
-  expect(textarea.selectionStart).toBe(3);
-  expect(textarea.selectionEnd).toBe(3);
-  expect(alert).not.toHaveTextContent('raw-invalid-response');
+    const alert = await screen.findByTestId('global-action-failure');
+    expect(textarea).toHaveValue('draft kept');
+    expect(textarea.selectionStart).toBe(3);
+    expect(textarea.selectionEnd).toBe(3);
+    expect(alert).not.toHaveTextContent('raw-invalid-response');
+  });
 });
 
 it('keeps next navigation committable and retries the same draft intent', async () => {

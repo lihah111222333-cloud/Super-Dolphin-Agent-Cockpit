@@ -41,7 +41,7 @@ func (s *service) InterruptTurnForTarget(ctx context.Context, session contract.S
 	waited, err := interruptAndWait(ctx, session, nil, active, threadID, source, requestID, nil)
 	if errors.Is(err, contract.ErrInterruptTargetChanged) {
 		releaseInterruptClaim(s.tracker, active.localID)
-		return before, false, nil
+		return attachInterruptEnvelope(before, buildTurnInterruptNotAppliedEnvelope(before.State)), false, nil
 	}
 	if err != nil {
 		releaseInterruptClaim(s.tracker, active.localID)
