@@ -211,8 +211,8 @@ frontend-app/src/features/slash-commands/services/slashCommandCatalogService.tes
 frontend-app/src/features/update-recovery/RecoveryApp.css	frontend-app	app-ui	css	4667	当前 React/Vite 前端包	frontend,app,src,features,update,recovery,RecoveryApp,当前,React,Vite,前端包
 frontend-app/src/features/update-recovery/RecoveryApp.jsx	frontend-app	app-ui	jsx	3664	当前 React/Vite 前端包	frontend,app,src,features,update,recovery,RecoveryApp,当前,React,Vite,前端包
 frontend-app/src/features/update-recovery/RecoveryApp.test.jsx	frontend-app	app-ui	jsx	4136	当前 React/Vite 前端包	frontend,app,src,features,update,recovery,RecoveryApp,test,当前,React,Vite,前端包
-frontend-app/src/features/update-recovery/recoveryClient.js	frontend-app	app-ui	js-source	4331	当前 React/Vite 前端包	frontend,app,src,features,update,recovery,recoveryClient,当前,React,Vite,前端包
-frontend-app/src/features/update-recovery/recoveryClient.test.js	frontend-app	app-ui	js-test	3230	当前 React/Vite 前端包	frontend,app,src,features,update,recovery,recoveryClient,test,当前,React,Vite,前端包
+frontend-app/src/features/update-recovery/recoveryClient.js	frontend-app	app-ui	js-source	4370	当前 React/Vite 前端包	frontend,app,src,features,update,recovery,recoveryClient,当前,React,Vite,前端包
+frontend-app/src/features/update-recovery/recoveryClient.test.js	frontend-app	app-ui	js-test	4377	当前 React/Vite 前端包	frontend,app,src,features,update,recovery,recoveryClient,test,当前,React,Vite,前端包
 frontend-app/src/main.jsx	frontend-app	app-ui	jsx	7158	当前 React/Vite 前端包	frontend,app,src,main,当前,React,Vite,前端包
 frontend-app/src/pages/backendApiConsumer.surface.test.js	frontend-app	app-ui	js-test	16816	React 页面与路由级 UI	frontend,app,src,pages,backendApiConsumer,surface,test,React,页面与路由级,UI
 frontend-app/src/pages/chat/__tests__/chatPageTestSupport.js	frontend-app	app-ui	js-source	6694	React 页面与路由级 UI	frontend,app,src,pages,chat,tests,chatPageTestSupport,React,页面与路由级,UI
