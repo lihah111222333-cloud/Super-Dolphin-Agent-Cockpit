@@ -20,8 +20,9 @@ type document struct {
 }
 
 type renderedSchema struct {
-	name string
-	raw  []byte
+	name       string
+	raw        []byte
+	references []string
 }
 
 // main 从唯一 JSON schema 真值生成 Go 与 JS 派生 manifest，或校验它们未漂移。
@@ -79,6 +80,7 @@ func repoRoot() (string, error) {
 	return root, nil
 }
 
+// loadSchemas 加载全部 canonical schema，并在生成前闭合跨 schema 引用。
 func loadSchemas(dir string) ([]renderedSchema, error) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -95,6 +97,9 @@ func loadSchemas(dir string) ([]renderedSchema, error) {
 	}
 	if len(schemas) != 3 {
 		return nil, fmt.Errorf("expected exactly three canonical turn schemas, found %d", len(schemas))
+	}
+	if err := validateSchemaReferences(schemas); err != nil {
+		return nil, err
 	}
 	sort.Slice(schemas, func(i, j int) bool { return schemas[i].name < schemas[j].name })
 	return schemas, nil
@@ -128,11 +133,15 @@ func loadSchema(path, name string, seen map[string]bool) (renderedSchema, error)
 	if err := json.Unmarshal(raw, &normalized); err != nil {
 		return renderedSchema{}, fmt.Errorf("normalize schema %s: %w", name, err)
 	}
+	references, err := validateSupportedSchemaDocument(normalized, name)
+	if err != nil {
+		return renderedSchema{}, err
+	}
 	canonical, err := json.MarshalIndent(normalized, "", "  ")
 	if err != nil {
 		return renderedSchema{}, fmt.Errorf("encode schema %s: %w", name, err)
 	}
-	return renderedSchema{name: doc.ID, raw: append(canonical, '\n')}, nil
+	return renderedSchema{name: doc.ID, raw: append(canonical, '\n'), references: references}, nil
 }
 
 func renderGo(schemas []renderedSchema) []byte {
