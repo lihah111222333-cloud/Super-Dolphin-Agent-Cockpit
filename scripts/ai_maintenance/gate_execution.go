@@ -110,6 +110,9 @@ func gateRunners(plan gatePlan, executionScope gateExecutionScope) map[string]ga
 			}
 			return runCommand("", "node", "frontend-app/scripts/turn-contract-field-guard.mjs")
 		}},
+		"frontend:static-guards": {run: func() error {
+			return runCommand("frontend-app", "npm", "run", "guard:architecture")
+		}},
 		"frontend:lint":         {run: func() error { return runCommand("frontend-app", "npm", "run", "lint") }},
 		"frontend:test":         {run: func() error { return runCommand("frontend-app", "npm", "test") }},
 		"frontend:build":        {run: func() error { return runCommand("frontend-app", "npm", "run", "build") }},

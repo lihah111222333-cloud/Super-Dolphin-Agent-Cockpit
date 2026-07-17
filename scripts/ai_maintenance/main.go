@@ -36,6 +36,16 @@ var turnContractInfrastructureFiles = map[string]bool{
 	"frontend-app/src/shared/contracts/turnContracts.generated.js": true,
 }
 
+var frontendStaticGuardFiles = map[string]bool{
+	"frontend-app/package.json":                                         true,
+	"frontend-app/scripts/frontend-state-ownership-registry.json":       true,
+	"frontend-app/scripts/frontend-state-ownership-guard.mjs":           true,
+	"frontend-app/scripts/frontend-state-ownership-guard.test.mjs":      true,
+	"frontend-app/scripts/frontend-dependency-direction-registry.json":  true,
+	"frontend-app/scripts/frontend-dependency-direction-guard.mjs":      true,
+	"frontend-app/scripts/frontend-dependency-direction-guard.test.mjs": true,
+}
+
 var coreBackendGatePackages = []string{
 	"./cmd/mcp-lsp",
 	"./cmd/mcp-orch",
@@ -322,6 +332,9 @@ func applyFileGateRules(file string, capabilityRules capcontract.PathRules, turn
 	if turnContractRelevant(file, turnContractPaths) {
 		gates["turncontract:verify"] = true
 	}
+	if frontendStaticGuardRelevant(file) {
+		gates["frontend:static-guards"] = true
+	}
 	if codemapRelevant(file) {
 		gates["codemap:check"] = true
 		gates["project-map:check"] = true
@@ -375,6 +388,11 @@ func turnContractRelevant(file string, turnContractPaths map[string]bool) bool {
 		return false
 	}
 	return strings.HasPrefix(file, "internal/dto/turn/") || turnContractPaths[file] || turnContractProductionGo(file)
+}
+
+// frontendStaticGuardRelevant 覆盖 guard 自身与全部生产前端输入，防止新增 writer 或反向依赖绕过定向门禁。
+func frontendStaticGuardRelevant(file string) bool {
+	return strings.HasPrefix(file, "frontend-app/src/") || frontendStaticGuardFiles[file]
 }
 
 func turnContractProductionGo(file string) bool {
@@ -567,6 +585,7 @@ func gateEvidenceCommandFragments() map[string][]string {
 		"lsp:changed-diagnostics":          {"go run ./scripts/lsp_diagnostics_gate"},
 		"capcontract:check":                {"make capcontract-check"},
 		"turncontract:verify":              {"go run ./scripts/turncontract --verify", "go test ./internal/dto/turn -run ^TestTurnContractFieldGuard", "node frontend-app/scripts/turn-contract-field-guard.mjs"},
+		"frontend:static-guards":           {"npm run guard:architecture"},
 		"frontend:lint":                    {"npm run lint"},
 		"frontend:test":                    {"npm test"},
 		"frontend:build":                   {"npm run build"},
@@ -655,6 +674,7 @@ func orderedGates(values map[string]bool) []string {
 	order := []string{
 		"ai-maintenance:self-test",
 		"turncontract:verify",
+		"frontend:static-guards",
 		"frontend:lint",
 		"frontend:test",
 		"frontend:build",
