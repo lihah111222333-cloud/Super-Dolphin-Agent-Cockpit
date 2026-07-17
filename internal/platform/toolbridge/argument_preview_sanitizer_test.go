@@ -1,12 +1,14 @@
 package toolbridge
 
 import (
+	"context"
 	"encoding/json"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/kelindar/event"
+	mcpdto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/mcp"
 	tooldto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/tool"
 )
 
@@ -40,5 +42,66 @@ func assertToolbridgeArgumentsPreviewSanitized(t *testing.T, preview string) {
 	}
 	if !strings.Contains(preview, "[REDACTED]") {
 		t.Fatalf("ArgumentsPreview = %q, want redaction marker", preview)
+	}
+}
+
+func TestProxyToolResultPreviewSanitizesStructuredResult(t *testing.T) {
+	result := &ToolCallResult{StructuredContent: json.RawMessage(`{
+		"ok":true,
+		"credential":"credential-result-leak",
+		"certificate":"-----BEGIN CERTIFICATE-----\ncertificate-result-leak\n-----END CERTIFICATE-----",
+		"envelope":"{\"session\":\"nested-session-leak\"}"
+	}`)}
+
+	preview := proxyToolResultPreview(result)
+	for _, fragment := range []string{"credential-result-leak", "certificate-result-leak", "nested-session-leak", "BEGIN CERTIFICATE"} {
+		if strings.Contains(preview, fragment) {
+			t.Fatalf("proxyToolResultPreview() = %q, must not contain %q", preview, fragment)
+		}
+	}
+	if !strings.Contains(preview, `"ok":true`) || !strings.Contains(preview, "[REDACTED]") {
+		t.Fatalf("proxyToolResultPreview() = %q, want safe context and redaction marker", preview)
+	}
+}
+
+func TestCodexSurfaceValidationFailureSanitizesPreValidationLifecycleEvent(t *testing.T) {
+	dispatcher := event.NewDispatcher()
+	t.Cleanup(func() { _ = dispatcher.Close() })
+	beginCh := make(chan tooldto.ToolCallBegin, 1)
+	cancelBegin := event.Subscribe(dispatcher, func(ev tooldto.ToolCallBegin) { beginCh <- ev })
+	t.Cleanup(cancelBegin)
+
+	owner := newTask4BAuthorityOwner()
+	executor := &task4BSchemaExecutor{}
+	client := &task4BMCPClient{tools: []mcpdto.MCPTool{task4BTool(
+		"strict",
+		`{"type":"object","additionalProperties":false,"properties":{"query":{"type":"string"}}}`,
+	)}}
+	h := task4BHandler(owner, executor, client)
+	h.dispatcher = dispatcher
+	tools, err := h.PrepareCodexToolSurface(context.Background(), task4BScope(task4BExternalBinary("external")))
+	if err != nil {
+		t.Fatalf("PrepareCodexToolSurface() error = %v", err)
+	}
+	if len(tools) != 1 {
+		t.Fatalf("PrepareCodexToolSurface() tools = %d, want 1", len(tools))
+	}
+
+	_, err = h.callCodexSurfaceTool(context.Background(), h.lookupCodexToolSurface(ToolCallRequest{AgentID: "task4b-agent"}), ToolCallRequest{
+		Name:      tools[0].Name,
+		Arguments: json.RawMessage(`{"privateKey":"pre-validation-private-key-leak"}`),
+		AgentID:   "task4b-agent",
+		CallID:    "pre-validation-call",
+	})
+	if err == nil {
+		t.Fatal("callCodexSurfaceTool() error = nil, want schema validation failure")
+	}
+	if client.callCount() != 0 {
+		t.Fatalf("MCP client calls = %d, want 0 after validation failure", client.callCount())
+	}
+
+	begin := waitProxyToolBegin(t, beginCh)
+	if strings.Contains(begin.ArgumentsPreview, "pre-validation-private-key-leak") || !strings.Contains(begin.ArgumentsPreview, "[REDACTED]") {
+		t.Fatalf("pre-validation ArgumentsPreview = %q, want redacted value", begin.ArgumentsPreview)
 	}
 }

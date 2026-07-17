@@ -482,7 +482,7 @@ internal/platform/notify/slack_test.go	internal	platform-provider	go-test	1020	�
 internal/platform/notify/slack.go	internal	platform-provider	go-source	1305	基础设施层	internal,platform,notify,slack,基础设施层
 internal/platform/notify/webhook_test.go	internal	platform-provider	go-test	6207	基础设施层	internal,platform,notify,webhook,test,基础设施层
 internal/platform/notify/webhook.go	internal	platform-provider	go-source	7478	基础设施层	internal,platform,notify,webhook,基础设施层
-internal/platform/observability/argument_preview.go	internal	platform-provider	go-source	5857	基础设施层	internal,platform,observability,argument,preview,基础设施层
+internal/platform/observability/argument_preview.go	internal	platform-provider	go-source	7612	基础设施层	internal,platform,observability,argument,preview,基础设施层
 internal/platform/observability/code_anchor_test.go	internal	platform-provider	go-test	1006	基础设施层	internal,platform,observability,code,anchor,test,基础设施层
 internal/platform/observability/code_anchor.go	internal	platform-provider	go-source	663	基础设施层	internal,platform,observability,code,anchor,基础设施层
 internal/platform/observability/config_test.go	internal	platform-provider	go-test	3174	基础设施层	internal,platform,observability,config,test,基础设施层
@@ -694,7 +694,7 @@ internal/platform/sharedfilepath/policy.go	internal	platform-provider	go-source	
 internal/platform/statemachine/factory_test.go	internal	platform-provider	go-test	4761	基础设施层	internal,platform,statemachine,factory,test,基础设施层
 internal/platform/statemachine/factory.go	internal	platform-provider	go-source	2559	基础设施层	internal,platform,statemachine,factory,基础设施层
 internal/platform/statemachine/module.go	internal	platform-provider	go-source	249	基础设施层	internal,platform,statemachine,module,基础设施层
-internal/platform/toolbridge/argument_preview_sanitizer_test.go	internal	platform-provider	go-test	1448	provider 与 MCP tools 桥接	internal,platform,toolbridge,argument,preview,sanitizer,test,provider,与,MCP,tools,桥接
+internal/platform/toolbridge/argument_preview_sanitizer_test.go	internal	platform-provider	go-test	4159	provider 与 MCP tools 桥接	internal,platform,toolbridge,argument,preview,sanitizer,test,provider,与,MCP,tools,桥接
 internal/platform/toolbridge/codex_surface_duplicates_test.go	internal	platform-provider	go-test	3214	provider 与 MCP tools 桥接	internal,platform,toolbridge,codex,surface,duplicates,test,provider,与,MCP,tools,桥接
 internal/platform/toolbridge/codex_surface_helpers_test.go	internal	platform-provider	go-test	8837	provider 与 MCP tools 桥接	internal,platform,toolbridge,codex,surface,helpers,test,provider,与,MCP,tools,桥接
 internal/platform/toolbridge/codex_surface_interrupt_agent_test.go	internal	platform-provider	go-test	1979	provider 与 MCP tools 桥接	internal,platform,toolbridge,codex,surface,interrupt,agent,test,provider,与,MCP,tools,桥接
@@ -1027,7 +1027,7 @@ internal/provider/manifestbuilder/manifest.go	internal	platform-provider	go-sour
 internal/provider/provider_acceptance_manifest_test.go	internal	platform-provider	go-test	4426	AI provider 集成层	internal,provider,acceptance,manifest,test,AI,集成层
 internal/provider/provider_contract_manifest_test.go	internal	platform-provider	go-test	11896	AI provider 集成层	internal,provider,contract,manifest,test,AI,集成层
 internal/provider/provider_template_compile_test.go	internal	platform-provider	go-test	17817	AI provider 集成层	internal,provider,template,compile,test,AI,集成层
-internal/provider/shared/argument_preview_test.go	internal	platform-provider	go-test	1889	provider home、配置和共享 helpers	internal,provider,shared,argument,preview,test,home,配置和共享,helpers
+internal/provider/shared/argument_preview_test.go	internal	platform-provider	go-test	4282	provider home、配置和共享 helpers	internal,provider,shared,argument,preview,test,home,配置和共享,helpers
 internal/provider/shared/argument_preview.go	internal	platform-provider	go-source	734	provider home、配置和共享 helpers	internal,provider,shared,argument,preview,home,配置和共享,helpers
 internal/provider/shared/codex_identity_contract_test.go	internal	platform-provider	go-test	1871	provider home、配置和共享 helpers	internal,provider,shared,codex,identity,contract,test,home,配置和共享,helpers
 internal/provider/shared/codex_identity_test.go	internal	platform-provider	go-test	7218	provider home、配置和共享 helpers	internal,provider,shared,codex,identity,test,home,配置和共享,helpers

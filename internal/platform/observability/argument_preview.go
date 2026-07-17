@@ -15,9 +15,9 @@ const (
 )
 
 var argumentPreviewPatterns = []*regexp.Regexp{
-	regexp.MustCompile(`(?i)--(?:api[_-]?key|token|access-token|secret|password)(?:[=\s]+[^\s,;&"'}]+)?`),
+	regexp.MustCompile(`(?i)--(?:api[_-]?key|private[_-]?key|token|access-token|secret|password|credential|cookie|session|certificate)(?:[=\s]+[^\s,;&"'}]+)?`),
 	regexp.MustCompile(`(?i)(authorization\s*[:=]\s*bearer\s+)[^\s,;&"'}]+`),
-	regexp.MustCompile(`(?i)\b((?:api[_-]?key|secret[_-]?key|access[_-]?token|token|password)\s*[:=]\s*)[^\s,;&"'}]+`),
+	regexp.MustCompile(`(?i)\b((?:api[_-]?key|private[_-]?key|secret[_-]?key|access[_-]?token|token|password|credential|cookie|session|certificate)\s*[:=]\s*)[^\s,;&"'}]+`),
 	regexp.MustCompile(`(?i)\b([A-Z_]*(?:TOKEN|KEY|SECRET|PASSWORD)[A-Z_]*=)[^\s,;&"'}]+`),
 	regexp.MustCompile(`sk-[A-Za-z0-9_-]+`),
 	regexp.MustCompile(`(?i)(?:/Users|/home|/private|/tmp|/var|/etc|/Volumes)/[^\s,;&"'}]+`),
@@ -122,11 +122,16 @@ func sanitizeArgumentPreviewStringValue(value string) string {
 }
 
 // sensitiveArgumentPreviewKey 识别参数对象中必须整值替换的敏感字段名。
-// 这里保守覆盖 token、env、path 和工作区目录字段，避免路径或环境变量从结构化参数进入 UI。
+// 明确敏感词按分隔后的完整片段匹配，避免把 key、keyboard 等普通字段误判为私钥。
 func sensitiveArgumentPreviewKey(key string) bool {
 	key = strings.ToLower(argumentPreviewCamelBoundary.ReplaceAllString(strings.TrimSpace(key), "${1}_${2}"))
 	key = strings.ReplaceAll(key, "-", "_")
 	key = strings.ReplaceAll(key, " ", "_")
+	return broadSensitiveArgumentPreviewKey(key) || explicitSensitiveArgumentPreviewKey(key)
+}
+
+// broadSensitiveArgumentPreviewKey 保留既有 token、环境和路径等宽匹配规则。
+func broadSensitiveArgumentPreviewKey(key string) bool {
 	switch {
 	case key == "env" || key == "environment" || key == "cwd":
 		return true
@@ -141,14 +146,64 @@ func sensitiveArgumentPreviewKey(key string) bool {
 	}
 }
 
+// explicitSensitiveArgumentPreviewKey 按完整字段片段识别凭据、会话、证书和私钥。
+func explicitSensitiveArgumentPreviewKey(key string) bool {
+	segments := strings.FieldsFunc(key, func(r rune) bool {
+		return r == '_' || r == '.' || r == '/'
+	})
+	for i, segment := range segments {
+		if sensitiveArgumentPreviewKeySegment(segment) {
+			return true
+		}
+		if segment == "private" && i+1 < len(segments) && segments[i+1] == "key" {
+			return true
+		}
+	}
+	return false
+}
+
 var argumentPreviewCamelBoundary = regexp.MustCompile(`([a-z0-9])([A-Z])`)
 
+func sensitiveArgumentPreviewKeySegment(segment string) bool {
+	switch segment {
+	case "credential", "credentials", "cookie", "cookies", "session", "sessions", "certificate", "certificates":
+		return true
+	default:
+		return false
+	}
+}
+
 func sanitizeArgumentPreviewText(text string) string {
+	if containsSensitivePEM(text) {
+		return redacted
+	}
 	text = strings.NewReplacer("\r", " ", "\n", " ", "\t", " ").Replace(text)
 	for _, pattern := range argumentPreviewPatterns {
 		text = pattern.ReplaceAllString(text, redacted)
 	}
 	return strings.Join(strings.Fields(text), " ")
+}
+
+// containsSensitivePEM 检测私钥或证书 PEM 起始标签，命中后调用方整段脱敏。
+func containsSensitivePEM(text string) bool {
+	const beginMarker = "-----BEGIN "
+	remaining := strings.ToUpper(text)
+	for {
+		begin := strings.Index(remaining, beginMarker)
+		if begin < 0 {
+			return false
+		}
+		remaining = remaining[begin+len(beginMarker):]
+		end := strings.Index(remaining, "-----")
+		if end < 0 {
+			return false
+		}
+		label := strings.TrimSpace(remaining[:end])
+		if strings.Contains(label, "PRIVATE KEY") || strings.Contains(label, "CERTIFICATE") {
+			return true
+		}
+		remaining = remaining[end+len("-----"):]
+	}
 }
 
 func finishArgumentPreview(text string, truncated bool) string {
