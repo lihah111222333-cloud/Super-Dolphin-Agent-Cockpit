@@ -94,6 +94,10 @@ describe('frontend vite watch config', () => {
 });
 
 describe('frontend vite build budget', () => {
+  it('uses the minifier proven against the frozen resource budget', () => {
+    expect(createFrontendViteConfig({}).build.minify).toBe('terser');
+  });
+
   it('keeps the lazy mermaid parser bundle under the configured warning limit', () => {
     expect(createFrontendViteConfig({}).build.chunkSizeWarningLimit).toBe(650);
   });

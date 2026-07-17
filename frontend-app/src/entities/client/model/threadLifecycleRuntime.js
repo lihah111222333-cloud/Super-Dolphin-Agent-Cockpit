@@ -39,7 +39,7 @@ function threadActionPayload(params) {
     if (!expectedTurnId) throw new Error('thread.interrupt: expectedTurnId is required');
     const requestId = normalizeOptionalTextField(createRequestId());
     if (!requestId) throw new Error('thread.interrupt: requestId is required');
-    return cleanObject({ cwd, threadId: target.threadId, expectedTurnId, requestId, source: 'ui_stop' });
+    return { cwd, threadId: target.threadId, expectedTurnId, requestId, source: 'ui_stop' };
   }
   return cleanObject({ cwd, threadId: target.threadId });
 }

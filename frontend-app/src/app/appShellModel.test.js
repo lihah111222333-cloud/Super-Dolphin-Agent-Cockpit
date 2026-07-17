@@ -67,6 +67,7 @@ describe('app shell model', () => {
     expect(selected.workflowRevision).toBe('workflowRevision-value');
     expect(APP_SHELL_STORE_KEYS).toContain('threadRecoveryPendingByThread');
     expect(APP_SHELL_STORE_KEYS).toContain('captureThreadSelection');
+    expect(APP_SHELL_STORE_KEYS).toContain('composerCapabilities');
     expect(APP_SHELL_STORE_KEYS).not.toContain('rightPanelWidth');
     expect(APP_SHELL_STORE_KEYS).not.toContain('setRightPanelWidth');
     expect(selected.threadRecoveryPendingByThread).toBe('threadRecoveryPendingByThread-value');

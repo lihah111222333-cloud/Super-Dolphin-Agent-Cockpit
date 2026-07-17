@@ -38,7 +38,10 @@ function createDeps(overrides = {}) {
 describe('thread lifecycle runtime', () => {
   it('sends interrupt with explicit ui_stop source', async () => {
     const runtime = createRuntime();
-    const deps = createDeps();
+    const cleanObject = vi.fn((payload) => Object.fromEntries(
+      Object.entries(payload).filter(([, value]) => value !== undefined && value !== ''),
+    ));
+    const deps = createDeps({ cleanObject });
     const rpc = vi.fn().mockResolvedValue({ ok: true });
     attachActiveThreadRpcRuntime(runtime, deps);
 
@@ -52,6 +55,7 @@ describe('thread lifecycle runtime', () => {
       requestId: 'stop-request-1',
       source: 'ui_stop',
     });
+    expect(cleanObject).toHaveBeenCalledTimes(1);
     expect(runtime.notifyAction).toHaveBeenCalledWith('已发送中断请求', 'success', { threadId: 'thread-1' });
   });
 
