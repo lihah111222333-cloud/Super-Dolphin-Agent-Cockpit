@@ -45,11 +45,12 @@ func rollbackLaunchToken(args []string) (string, bool) {
 func serveAuthenticatedTermination(token string) {
 	endpoint := os.Getenv("SUPER_DOLPHIN_UPDATE_TERMINATION_ENDPOINT")
 	terminationToken := os.Getenv("SUPER_DOLPHIN_UPDATE_TERMINATION_TOKEN")
+	transactionRoot := os.Getenv("SUPER_DOLPHIN_UPDATE_TRANSACTION_ROOT")
 	transactionID := os.Getenv("SUPER_DOLPHIN_UPDATE_TRANSACTION_ID")
-	if endpoint == "" || terminationToken == "" || terminationToken != token || transactionID == "" {
+	if endpoint == "" || terminationToken == "" || terminationToken != token || transactionRoot == "" || transactionID == "" {
 		os.Exit(30)
 	}
-	hold := filepath.Join(os.TempDir(), "sd-art-hold-"+transactionID)
+	hold := artifactMarkerPath(transactionRoot, transactionID, "hold")
 	for {
 		if _, err := os.Stat(hold); os.IsNotExist(err) {
 			break
@@ -58,7 +59,9 @@ func serveAuthenticatedTermination(token string) {
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
+	oldUmask := syscall.Umask(0177)
 	listener, err := net.Listen("unix", endpoint)
+	syscall.Umask(oldUmask)
 	if err != nil {
 		os.Exit(31)
 	}
@@ -81,7 +84,7 @@ func serveAuthenticatedTermination(token string) {
 			case "COMMIT":
 				_, _ = connection.Write([]byte("COMMITTED\n"))
 			case "TERMINATE":
-				ignoreTerminate := filepath.Join(os.TempDir(), "sd-art-ignore-terminate-"+transactionID)
+				ignoreTerminate := artifactMarkerPath(transactionRoot, transactionID, "ignore-terminate")
 				if _, err := os.Stat(ignoreTerminate); err == nil {
 					break
 				} else if !os.IsNotExist(err) {
@@ -94,6 +97,13 @@ func serveAuthenticatedTermination(token string) {
 		}
 		_ = connection.Close()
 	}
+}
+
+func artifactMarkerPath(transactionRoot, transactionID, name string) string {
+	if !filepath.IsAbs(transactionRoot) {
+		os.Exit(36)
+	}
+	return filepath.Join(filepath.Dir(transactionRoot), ".artifact-e2e-markers-"+transactionID, name)
 }
 
 func waitForTermination() {
