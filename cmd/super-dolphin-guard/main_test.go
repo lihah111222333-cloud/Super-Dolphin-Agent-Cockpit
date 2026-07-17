@@ -124,10 +124,12 @@ func (fixture *guardFixture) restart(context.Context, string) (recovery.Rollback
 
 func fixtureRestartCleanup() error { return nil }
 
+func fixtureRestartProtocolStep(context.Context) error { return nil }
+
 func fixtureRestartControl(process recovery.RollbackRestartProcess) recovery.RollbackRestartControl {
 	return recovery.RollbackRestartControl{
 		Process: process, Cleanup: fixtureRestartCleanup,
-		Commit: func(context.Context) error { return nil },
+		Prepare: fixtureRestartProtocolStep, Activate: fixtureRestartProtocolStep,
 	}
 }
 
@@ -201,6 +203,84 @@ func TestGuardTakesOverStaleProbationOnce(t *testing.T) {
 	if got.State != recovery.StateRolledBack {
 		t.Fatalf("state = %q, want rolled_back", got.State)
 	}
+}
+
+func TestGuardTakesOverAcknowledgedExpiredProbationAndRestartsOldRelease(t *testing.T) {
+	fixture := newGuardFixture(t)
+	lease := fixture.transaction.Probation.Lease
+	recordFixtureHealthyACK(t, fixture, lease)
+	stopCalls := 0
+	guard := newAcknowledgedTakeoverGuard(t, fixture, lease, &stopCalls)
+	if err := guard.Run(t.Context()); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if stopCalls != 1 || fixture.restarts != 1 {
+		t.Fatalf("stop calls = %d, restarts = %d; want 1, 1", stopCalls, fixture.restarts)
+	}
+	assertGuardTransactionState(t, fixture, recovery.StateRolledBack)
+	rolledBack, err := fixture.store.Load(t.Context(), fixture.transaction.Identity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rolledBack.Trust.State != recovery.TrustRolledBack {
+		t.Fatalf("rolled back trust state = %q", rolledBack.Trust.State)
+	}
+}
+
+func recordFixtureHealthyACK(t *testing.T, fixture *guardFixture, lease recovery.ProbationLease) {
+	t.Helper()
+	acquiredAt, err := time.Parse(time.RFC3339Nano, lease.AcquiredAt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ack := recovery.BuildHealthyACK(fixture.transaction, lease.Process, acquiredAt.Add(time.Millisecond))
+	if _, err := fixture.store.RecordHealthyACK(t.Context(), fixture.transaction.Identity, lease, ack); err != nil {
+		t.Fatalf("RecordHealthyACK() error = %v", err)
+	}
+}
+
+func newAcknowledgedTakeoverGuard(
+	t *testing.T,
+	fixture *guardFixture,
+	lease recovery.ProbationLease,
+	stopCalls *int,
+) *probationGuard {
+	t.Helper()
+	return newGuard(guardConfig{
+		Store: fixture.store, Identity: fixture.transaction.Identity,
+		OwnerID: "guard-after-updater-death", Now: func() time.Time { return fixture.expiredAt },
+		UpdaterAlive: func(recovery.ProcessIdentity) (bool, error) { return false, nil },
+		StopCandidate: func(_ context.Context, process recovery.ProcessIdentity) error {
+			return assertAcknowledgedTakeoverStop(t, fixture, lease, stopCalls, process)
+		},
+		ResolveOldRelease: fixture.resolve,
+		RestartOldRelease: fixture.restart,
+	})
+}
+
+func assertAcknowledgedTakeoverStop(
+	t *testing.T,
+	fixture *guardFixture,
+	lease recovery.ProbationLease,
+	stopCalls *int,
+	process recovery.ProcessIdentity,
+) error {
+	t.Helper()
+	(*stopCalls)++
+	if process != lease.Process {
+		t.Fatalf("stopped process = %+v, want %+v", process, lease.Process)
+	}
+	takenOver, err := fixture.store.Load(t.Context(), fixture.transaction.Identity)
+	if err != nil {
+		t.Fatalf("Load() after takeover error = %v", err)
+	}
+	if takenOver.Probation.ACKPresent || takenOver.Probation.ACK != (recovery.HealthyACK{}) {
+		t.Fatalf("takeover retained stale ACK: %+v", takenOver.Probation)
+	}
+	if takenOver.Probation.Lease.OwnerID != "guard-after-updater-death" || takenOver.Probation.Lease.Generation != lease.Generation+1 {
+		t.Fatalf("replacement lease = %+v", takenOver.Probation.Lease)
+	}
+	return nil
 }
 
 func TestGuardReloadsRollbackPendingAfterProbationWait(t *testing.T) {

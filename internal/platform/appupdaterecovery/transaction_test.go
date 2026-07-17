@@ -171,12 +171,260 @@ func TestCrashReplayCompletesCommitIntent(t *testing.T) {
 	if _, err := store.commitHealthyClaimed(context.Background(), identity, lease); !errors.Is(err, errSimulatedCrash) {
 		t.Fatalf("commitHealthyClaimed() error = %v, want simulated crash", err)
 	}
+	pending := loadTransaction(t, store, identity)
+	if pending.State != StateCommitPending || pending.Trust.State != TrustPending {
+		t.Fatalf("commit crash transaction = %#v", pending)
+	}
+	assertPathMissing(t, paths.Backup)
+	assertPathExists(t, expectedBackupDiscardPath(paths))
 	transaction := replayTransaction(t, store, identity)
 	if transaction.State != StateCommitted || transaction.Trust.State != TrustCommitted {
 		t.Fatalf("replayed commit transaction = %#v", transaction)
 	}
 	assertPathExists(t, paths.Target)
 	assertPathMissing(t, paths.Backup)
+	assertPathMissing(t, expectedBackupDiscardPath(paths))
+}
+
+func TestCommitReplayCompletesAfterDiscardIdentityPersistedBeforeRename(t *testing.T) {
+	store, identity, paths := createProbationTransaction(t)
+	ackProbationTransaction(t, store, identity)
+	beginCommitPending(t, store, identity)
+	discard := expectedBackupDiscardPath(paths)
+	root, err := captureDiscardRootIdentity(paths.Backup)
+	if err != nil {
+		t.Fatal(err)
+	}
+	journal, err := store.loadExactLocked(identity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.persistDiscardIdentityLocked(journal, root); err != nil {
+		t.Fatal(err)
+	}
+	assertPathExists(t, paths.Backup)
+	assertPathMissing(t, discard)
+	transaction := replayTransaction(t, store, identity)
+	if transaction.State != StateCommitted || transaction.Trust.State != TrustCommitted {
+		t.Fatalf("replayed commit transaction = %#v", transaction)
+	}
+	assertPathExists(t, paths.Target)
+	assertPathMissing(t, paths.Backup)
+	assertPathMissing(t, discard)
+	assertPathExists(t, store.discardIdentityPath(identity.TransactionID))
+}
+
+func TestCommitPendingReplayRejectsMatchingReplacementWithoutDiscardIdentity(t *testing.T) {
+	store, identity, paths := createDirectoryProbationTransaction(t)
+	ackProbationTransaction(t, store, identity)
+	beginCommitPending(t, store, identity)
+	discard := replaceRenamedDiscardWithMatchingRoot(t, identity, paths)
+	assertPathMissing(t, store.discardIdentityPath(identity.TransactionID))
+
+	reopened, err := NewStore(store.root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = reopened.Replay(t.Context(), identity)
+	if err == nil {
+		t.Fatal("Replay() error = nil, want missing persisted discard identity failure")
+	}
+	if !strings.Contains(err.Error(), "missing its persisted root identity") {
+		t.Fatalf("Replay() error = %v, want missing persisted root identity", err)
+	}
+	assertPathExists(t, filepath.Join(discard, "Contents", "old-a"))
+	assertPathExists(t, filepath.Join(discard, "Contents", "old-b"))
+}
+
+func replaceRenamedDiscardWithMatchingRoot(t *testing.T, identity Identity, paths Paths) string {
+	t.Helper()
+	discard := expectedBackupDiscardPath(paths)
+	original, err := captureDiscardRootIdentity(paths.Backup)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(paths.Backup, discard); err != nil {
+		t.Fatal(err)
+	}
+	if err := syncDirectory(filepath.Dir(paths.Target)); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.RemoveAll(discard); err != nil {
+		t.Fatal(err)
+	}
+	writeDirectoryFixture(t, discard, "old-a", "old a")
+	if err := os.WriteFile(filepath.Join(discard, "Contents", "old-b"), []byte("old b"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := verifyRelease(discard, identity.OldRelease); err != nil {
+		t.Fatalf("replacement must match old release digest: %v", err)
+	}
+	replacement, err := captureDiscardRootIdentity(discard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if replacement == original {
+		t.Fatalf("replacement unexpectedly reused original root identity: %+v", replacement)
+	}
+	return discard
+}
+
+func TestCommittedReplayRemovesPartiallyDeletedDiscardTree(t *testing.T) {
+	store, identity, paths := createDirectoryProbationTransaction(t)
+	lease := ackProbationTransaction(t, store, identity)
+	crashAfterEffect(store, StateCommitted)
+	if _, err := store.commitHealthyClaimed(t.Context(), identity, lease); !errors.Is(err, errSimulatedCrash) {
+		t.Fatalf("commitHealthyClaimed() error = %v, want committed crash", err)
+	}
+	assertCommittedDiscardCrash(t, store, identity)
+	discard := expectedBackupDiscardPath(paths)
+	if err := os.Remove(filepath.Join(discard, "Contents", "old-a")); err != nil {
+		t.Fatal(err)
+	}
+	transaction := replayTransaction(t, store, identity)
+	if transaction.State != StateCommitted || transaction.Trust.State != TrustCommitted {
+		t.Fatalf("replayed terminal commit transaction = %#v", transaction)
+	}
+	if err := verifyRelease(paths.Target, identity.CandidateRelease); err != nil {
+		t.Fatalf("candidate release lost trust after discard replay: %v", err)
+	}
+	assertPathMissing(t, discard)
+}
+
+func TestCommittedReplayRejectsReplacedDiscardRoot(t *testing.T) {
+	store, identity, paths := createDirectoryProbationTransaction(t)
+	lease := ackProbationTransaction(t, store, identity)
+	crashAfterEffect(store, StateCommitted)
+	if _, err := store.commitHealthyClaimed(t.Context(), identity, lease); !errors.Is(err, errSimulatedCrash) {
+		t.Fatalf("commitHealthyClaimed() error = %v, want committed crash", err)
+	}
+	assertCommittedDiscardCrash(t, store, identity)
+	discard := expectedBackupDiscardPath(paths)
+	if err := os.RemoveAll(discard); err != nil {
+		t.Fatal(err)
+	}
+	replacement := filepath.Join(discard, "Contents", "replacement-marker")
+	writeDirectoryFixture(t, discard, "replacement-marker", "unrelated")
+	reopened, err := NewStore(store.root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := reopened.Replay(t.Context(), identity); err == nil {
+		t.Fatal("Replay() error = nil, want replaced discard root rejection")
+	} else if !strings.Contains(err.Error(), "backup discard root identity changed") {
+		t.Fatalf("Replay() error = %v, want root identity mismatch", err)
+	}
+	assertPathExists(t, replacement)
+}
+
+func assertCommittedDiscardCrash(t *testing.T, store *Store, identity Identity) {
+	t.Helper()
+	transaction := loadTransaction(t, store, identity)
+	if transaction.State != StateCommitted || transaction.Trust.State != TrustCommitted {
+		t.Fatalf("committed cleanup crash transaction = %#v", transaction)
+	}
+	assertPathExists(t, store.discardIdentityPath(identity.TransactionID))
+}
+
+func TestCommittedReplaySupportsLegacyJournalWithoutDiscardIdentity(t *testing.T) {
+	store, identity, paths := createProbationTransaction(t)
+	lease := ackProbationTransaction(t, store, identity)
+	transaction, err := store.commitHealthyClaimed(t.Context(), identity, lease)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(store.discardIdentityPath(identity.TransactionID)); err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := NewStore(store.root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	replayed, err := reopened.Replay(t.Context(), identity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if replayed.State != StateCommitted || transaction.State != StateCommitted {
+		t.Fatalf("legacy committed replay = %#v, initial = %#v", replayed, transaction)
+	}
+	assertPathMissing(t, paths.Backup)
+	assertPathMissing(t, expectedBackupDiscardPath(paths))
+}
+
+func TestCommitRejectsDiscardCollision(t *testing.T) {
+	store, identity, paths := createProbationTransaction(t)
+	lease := ackProbationTransaction(t, store, identity)
+	discard := expectedBackupDiscardPath(paths)
+	writeFixture(t, discard, "replacement")
+	assertCommitRejectsDiscard(t, store, identity, paths, lease)
+}
+
+func TestCommitRejectsDiscardSymlink(t *testing.T) {
+	store, identity, paths := createProbationTransaction(t)
+	ackProbationTransaction(t, store, identity)
+	beginCommitPending(t, store, identity)
+	discard := expectedBackupDiscardPath(paths)
+	external := filepath.Join(t.TempDir(), "external-backup")
+	if err := os.Rename(paths.Backup, external); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(external, discard); err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := NewStore(store.root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := reopened.Replay(t.Context(), identity); err == nil {
+		t.Fatal("Replay() error = nil, want discard symlink rejection")
+	}
+	pending := loadTransaction(t, reopened, identity)
+	if pending.State != StateCommitPending || pending.Trust.State != TrustPending {
+		t.Fatalf("discard symlink activated candidate trust: %#v", pending)
+	}
+	assertPathMissing(t, paths.Backup)
+	assertPathExists(t, discard)
+	assertPathExists(t, external)
+}
+
+func assertCommitRejectsDiscard(t *testing.T, store *Store, identity Identity, paths Paths, lease ProbationLease) {
+	t.Helper()
+	if _, err := store.commitHealthyClaimed(t.Context(), identity, lease); err == nil {
+		t.Fatal("commitHealthyClaimed() error = nil, want discard collision rejection")
+	}
+	pending := loadTransaction(t, store, identity)
+	if pending.State != StateCommitPending || pending.Trust.State != TrustPending {
+		t.Fatalf("failed commit transaction = %#v", pending)
+	}
+	assertPathExists(t, paths.Backup)
+	assertPathExists(t, expectedBackupDiscardPath(paths))
+}
+
+func TestCommitPendingReplayRejectsPartialDiscardAsTrustedBackup(t *testing.T) {
+	store, identity, paths := createDirectoryProbationTransaction(t)
+	ackProbationTransaction(t, store, identity)
+	beginCommitPending(t, store, identity)
+	discard := expectedBackupDiscardPath(paths)
+	if err := os.Rename(paths.Backup, discard); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(discard, "Contents", "old-a")); err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := NewStore(store.root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := reopened.Replay(t.Context(), identity); err == nil {
+		t.Fatal("Replay() error = nil, want partial discard rejection")
+	}
+	pending := loadTransaction(t, reopened, identity)
+	if pending.State != StateCommitPending || pending.Trust.State != TrustPending {
+		t.Fatalf("partial discard activated candidate trust: %#v", pending)
+	}
+	assertPathExists(t, paths.Target)
+	assertPathMissing(t, paths.Backup)
+	assertPathExists(t, discard)
 }
 
 func TestCrashReplayCompletesRollbackIntent(t *testing.T) {
@@ -354,6 +602,77 @@ func createProbationTransaction(t *testing.T) (*Store, Identity, Paths) {
 		t.Fatalf("InstallCandidate() error = %v", err)
 	}
 	return store, identity, paths
+}
+
+func createDirectoryProbationTransaction(t *testing.T) (*Store, Identity, Paths) {
+	t.Helper()
+	parent := t.TempDir()
+	store, err := NewStore(filepath.Join(parent, ".update-transactions"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	id, err := NewTransactionID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	paths, err := PathsFor(filepath.Join(parent, "Super Dolphin.app"), id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeDirectoryFixture(t, paths.Target, "old-a", "old a")
+	writeDirectoryFixture(t, paths.Target, "old-b", "old b")
+	writeDirectoryFixture(t, paths.Staging, "new-a", "new a")
+	writeDirectoryFixture(t, paths.Staging, "new-b", "new b")
+	oldDigest, err := ComputeReleaseDigest(paths.Target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	candidateDigest, err := ComputeReleaseDigest(paths.Staging)
+	if err != nil {
+		t.Fatal(err)
+	}
+	identity := Identity{
+		TransactionID: id, AttemptID: "attempt-directory",
+		OldRelease:       ReleaseIdentity{SHA256: oldDigest, SignerIdentity: "TEAM-OLD"},
+		CandidateRelease: ReleaseIdentity{SHA256: candidateDigest, SignerIdentity: "TEAM-NEW"},
+		OldHelpers:       fixtureHelperIdentity("old"), CandidateHelpers: fixtureHelperIdentity("candidate"),
+		UpdaterProcess: fixtureUpdaterProcess(),
+	}
+	if _, err := store.Create(t.Context(), CreateRequest{
+		Identity: identity, Paths: paths,
+		Trust: TrustGeneration{PreviousGeneration: "trust-generation-1", Generation: "trust-generation-2", PackageSigner: "TEAM-NEW", State: TrustPending},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.RetainBackup(t.Context(), identity); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.InstallCandidate(t.Context(), identity); err != nil {
+		t.Fatal(err)
+	}
+	return store, identity, paths
+}
+
+func writeDirectoryFixture(t *testing.T, root, name, contents string) {
+	t.Helper()
+	full := filepath.Join(root, "Contents", name)
+	if err := os.MkdirAll(filepath.Dir(full), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	writeFixture(t, full, contents)
+}
+
+func expectedBackupDiscardPath(paths Paths) string {
+	return paths.Backup + ".discard"
+}
+
+func beginCommitPending(t *testing.T, store *Store, identity Identity) {
+	t.Helper()
+	if _, err := store.withExact(t.Context(), identity, func(journal *journalPayload) error {
+		return store.beginHealthyCommitLocked(journal)
+	}); err != nil {
+		t.Fatalf("beginHealthyCommitLocked() error = %v", err)
+	}
 }
 
 func ackProbationTransaction(t *testing.T, store *Store, identity Identity) ProbationLease {

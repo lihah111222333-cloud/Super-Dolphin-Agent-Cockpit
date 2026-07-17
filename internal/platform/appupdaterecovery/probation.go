@@ -87,6 +87,8 @@ func (store *Store) TakeOverProbationLease(
 		}
 		replacement = newProbationLease(ownerID, expected.Generation+1, expected.Process, now, ttl)
 		journal.Probation.Lease = replacement
+		journal.Probation.ACKPresent = false
+		journal.Probation.ACK = HealthyACK{}
 		return store.writeLocked(*journal)
 	})
 	return replacement, err
