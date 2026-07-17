@@ -12,12 +12,28 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"sync"
 )
 
 const releaseDigestChunkSize = 128 << 10
 
+type releaseDigestFile interface {
+	io.Reader
+	io.Closer
+}
+
 type releaseDigestOps struct {
-	readChunk func(context.Context, io.Reader, []byte) (int, error)
+	openFile  func(string) (releaseDigestFile, error)
+	readChunk func(io.Reader, []byte) (int, error)
+}
+
+func defaultReleaseDigestOps() releaseDigestOps {
+	return releaseDigestOps{
+		openFile: func(path string) (releaseDigestFile, error) { return os.Open(path) },
+		readChunk: func(reader io.Reader, buffer []byte) (int, error) {
+			return reader.Read(buffer)
+		},
+	}
 }
 
 // ComputeReleaseDigest 计算文件或目录 release 的确定性 SHA-256。
@@ -27,11 +43,7 @@ func ComputeReleaseDigest(path string) (string, error) {
 
 // ComputeReleaseDigestContext 在目录遍历、条目处理和文件分块边界响应取消。
 func ComputeReleaseDigestContext(ctx context.Context, path string) (string, error) {
-	return computeReleaseDigestContextWithOps(ctx, path, releaseDigestOps{
-		readChunk: func(_ context.Context, reader io.Reader, buffer []byte) (int, error) {
-			return reader.Read(buffer)
-		},
-	})
+	return computeReleaseDigestContextWithOps(ctx, path, defaultReleaseDigestOps())
 }
 
 // computeReleaseDigestContextWithOps 校验依赖后分派单文件或目录摘要。
@@ -39,8 +51,8 @@ func computeReleaseDigestContextWithOps(ctx context.Context, path string, ops re
 	if ctx == nil {
 		return "", errors.New("release digest context is required")
 	}
-	if ops.readChunk == nil {
-		return "", errors.New("release digest chunk reader is required")
+	if ops.openFile == nil || ops.readChunk == nil {
+		return "", errors.New("release digest file opener and chunk reader are required")
 	}
 	info, err := inspectReleaseDigestRoot(ctx, path)
 	if err != nil {
@@ -163,7 +175,7 @@ func hashRegularFileContext(ctx context.Context, hasher hash.Hash, path string, 
 	if err := context.Cause(ctx); err != nil {
 		return err
 	}
-	file, err := os.Open(path)
+	file, err := ops.openFile(path)
 	if err != nil {
 		return fmt.Errorf("open release file %s: %w", path, err)
 	}
@@ -178,7 +190,27 @@ func hashRegularFileContext(ctx context.Context, hasher hash.Hash, path string, 
 	return nil
 }
 
-func copyReleaseFileContext(ctx context.Context, hasher hash.Hash, file io.Reader, ops releaseDigestOps) error {
+// copyReleaseFileContext 用已 join 的关闭监视器中断真实文件描述符读取，不把同步 Read 移入 goroutine。
+func copyReleaseFileContext(ctx context.Context, hasher hash.Hash, file releaseDigestFile, ops releaseDigestOps) error {
+	stopWatching := make(chan struct{})
+	var watcher sync.WaitGroup
+	watcher.Go(func() {
+		select {
+		case <-ctx.Done():
+			_ = file.Close()
+		case <-stopWatching:
+		}
+	})
+	copyErr := copyReleaseChunksContext(ctx, hasher, file, ops)
+	close(stopWatching)
+	watcher.Wait()
+	if err := context.Cause(ctx); err != nil {
+		return err
+	}
+	return copyErr
+}
+
+func copyReleaseChunksContext(ctx context.Context, hasher hash.Hash, file io.Reader, ops releaseDigestOps) error {
 	buffer := make([]byte, releaseDigestChunkSize)
 	for {
 		done, err := hashNextReleaseChunk(ctx, hasher, file, buffer, ops)
@@ -193,7 +225,7 @@ func hashNextReleaseChunk(ctx context.Context, hasher hash.Hash, file io.Reader,
 	if err := context.Cause(ctx); err != nil {
 		return false, err
 	}
-	read, readErr := ops.readChunk(ctx, file, buffer)
+	read, readErr := ops.readChunk(file, buffer)
 	if err := context.Cause(ctx); err != nil {
 		return false, err
 	}

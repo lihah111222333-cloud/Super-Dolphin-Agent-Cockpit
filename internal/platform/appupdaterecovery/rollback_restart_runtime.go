@@ -285,14 +285,8 @@ func prepareRollbackRestartControl(
 	}
 	return RollbackRestartControl{
 		Process: process, Cleanup: cleanup,
-		Commit: func(commitCtx context.Context) error {
-			commitErr := runtime.commit(commitCtx, exact)
-			releaseErr := runtime.release(cmd.Process)
-			if releaseErr != nil {
-				releaseErr = fmt.Errorf("release ACKed rollback process handle: %w", releaseErr)
-			}
-			return errors.Join(commitErr, releaseErr)
-		},
+		Commit:  func(commitCtx context.Context) error { return runtime.commit(commitCtx, exact) },
+		release: func() error { return runtime.release(cmd.Process) },
 	}, nil
 }
 

@@ -3,13 +3,15 @@ package appupdaterecovery
 import (
 	"context"
 	"errors"
-	"io"
 	"os"
 	"testing"
 	"time"
+
+	"go.uber.org/goleak"
 )
 
 func TestComputeReleaseDigestContextCancelsBlockedChunk(t *testing.T) {
+	defer goleak.VerifyNone(t, goleak.IgnoreCurrent())
 	file, err := os.CreateTemp(t.TempDir(), "release-")
 	if err != nil {
 		t.Fatal(err)
@@ -23,18 +25,29 @@ func TestComputeReleaseDigestContextCancelsBlockedChunk(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 35*time.Millisecond)
 	defer cancel()
+	ops, release := newBlockedReleaseDigestOps(t)
+	defer release()
 	started := time.Now()
-	_, err = computeReleaseDigestContextWithOps(ctx, file.Name(), releaseDigestOps{
-		readChunk: func(ctx context.Context, _ io.Reader, _ []byte) (int, error) {
-			<-ctx.Done()
-			return 0, context.Cause(ctx)
-		},
-	})
+	_, err = computeReleaseDigestContextWithOps(ctx, file.Name(), ops)
 	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("computeReleaseDigestContextWithOps() error = %v, want deadline exceeded", err)
 	}
 	if elapsed := time.Since(started); elapsed > time.Second {
 		t.Fatalf("blocked digest cancellation elapsed %s", elapsed)
+	}
+}
+
+func newBlockedReleaseDigestOps(t *testing.T) (releaseDigestOps, func()) {
+	t.Helper()
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	ops := defaultReleaseDigestOps()
+	ops.openFile = func(string) (releaseDigestFile, error) { return reader, nil }
+	return ops, func() {
+		_ = reader.Close()
+		_ = writer.Close()
 	}
 }
 

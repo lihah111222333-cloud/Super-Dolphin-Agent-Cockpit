@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"testing"
 	"time"
@@ -24,13 +25,14 @@ func TestRollbackRestartIntentSurvivesRenameAndConvergesOnce(t *testing.T) {
 	assertPathMissing(t, paths.Backup)
 
 	launches := 0
+	live := false
 	process := fixtureRollbackRestartProcess()
 	converged, err := store.ConvergeRollbackRestart(
 		context.Background(), identity,
 		func(context.Context, string) (RollbackRestartControl, bool, error) {
-			return RollbackRestartControl{}, false, nil
+			return fixtureRollbackRestartControl(process), live, nil
 		},
-		rollbackRestartLauncher(t, transaction.RollbackRestart.LaunchToken, process, &launches),
+		rollbackRestartLauncher(t, transaction.RollbackRestart.LaunchToken, process, &launches, &live),
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -38,29 +40,36 @@ func TestRollbackRestartIntentSurvivesRenameAndConvergesOnce(t *testing.T) {
 	if launches != 1 || !converged.RollbackRestart.ACKPresent || converged.RollbackRestart.ACK.Process != process {
 		t.Fatalf("converged restart = %+v launches=%d", converged.RollbackRestart, launches)
 	}
-	assertRollbackRestartAlreadyACKed(t, store, identity, process)
+	assertRollbackRestartAlreadyACKed(t, store, identity)
 }
 
-func rollbackRestartLauncher(t *testing.T, wantToken string, process RollbackRestartProcess, launches *int) RollbackRestartLauncher {
+func rollbackRestartLauncher(
+	t *testing.T,
+	wantToken string,
+	process RollbackRestartProcess,
+	launches *int,
+	live *bool,
+) RollbackRestartLauncher {
 	t.Helper()
 	return func(_ context.Context, token string) (RollbackRestartControl, error) {
 		*launches++
 		if token != wantToken {
 			t.Fatalf("launch token = %q, want durable intent token", token)
 		}
+		*live = true
 		return fixtureRollbackRestartControl(process), nil
 	}
 }
 
-func assertRollbackRestartAlreadyACKed(t *testing.T, store *Store, identity Identity, process RollbackRestartProcess) {
+func assertRollbackRestartAlreadyACKed(t *testing.T, store *Store, identity Identity) {
 	t.Helper()
+	resolves := 0
 	commits := 0
 	if _, err := store.ConvergeRollbackRestart(
 		context.Background(), identity,
 		func(context.Context, string) (RollbackRestartControl, bool, error) {
-			control := fixtureRollbackRestartControl(process)
-			control.Commit = func(context.Context) error { commits++; return nil }
-			return control, true, nil
+			resolves++
+			return RollbackRestartControl{}, false, nil
 		},
 		func(context.Context, string) (RollbackRestartControl, error) {
 			t.Fatal("launcher called after ACK")
@@ -69,8 +78,8 @@ func assertRollbackRestartAlreadyACKed(t *testing.T, store *Store, identity Iden
 	); err != nil {
 		t.Fatal(err)
 	}
-	if commits != 1 {
-		t.Fatalf("ACKed rollback COMMIT count = %d, want 1", commits)
+	if resolves != 0 || commits != 0 {
+		t.Fatalf("ACKed rollback resolve/COMMIT count = %d/%d, want 0/0", resolves, commits)
 	}
 }
 
@@ -99,7 +108,7 @@ func TestRollbackRestartRecoversLaunchBeforeACKWindowByToken(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if resolved != 1 || !converged.RollbackRestart.ACKPresent || converged.RollbackRestart.ACK.LaunchToken != transaction.RollbackRestart.LaunchToken {
+	if resolved != 2 || !converged.RollbackRestart.ACKPresent || converged.RollbackRestart.ACK.LaunchToken != transaction.RollbackRestart.LaunchToken {
 		t.Fatalf("converged restart = %+v resolved=%d", converged.RollbackRestart, resolved)
 	}
 }
@@ -110,71 +119,138 @@ func TestRollbackRestartReplaysCommitAfterDurableACK(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	process := fixtureRollbackRestartProcess()
 	commitInterrupted := errors.New("COMMIT response lost")
-	launches := 0
-	commits := 0
-	cleanups := 0
-	control := func() RollbackRestartControl {
-		return RollbackRestartControl{
-			Process: process,
-			Cleanup: func() error { cleanups++; return nil },
-			Commit: func(context.Context) error {
-				commits++
-				if commits == 1 {
-					return commitInterrupted
-				}
-				return nil
-			},
-		}
-	}
-	resolve := func(context.Context, string) (RollbackRestartControl, bool, error) {
-		return control(), launches > 0, nil
-	}
-	launch := func(context.Context, string) (RollbackRestartControl, error) {
-		launches++
-		return control(), nil
-	}
-	if _, err := store.ConvergeRollbackRestart(t.Context(), transaction.Identity, resolve, launch); !errors.Is(err, commitInterrupted) {
+	fixture := &rollbackHelperLifecycle{t: t, commitErrorOnce: commitInterrupted}
+	if _, err := store.ConvergeRollbackRestart(t.Context(), transaction.Identity, fixture.resolve, fixture.launch); !errors.Is(err, commitInterrupted) {
 		t.Fatalf("first convergence error = %v, want COMMIT interruption", err)
 	}
-	acked := loadTransaction(t, store, identity)
-	if !acked.RollbackRestart.ACKPresent || acked.RollbackRestart.ACK.Process != process {
-		t.Fatalf("durable ACK after COMMIT interruption = %+v", acked.RollbackRestart)
+	notACKed := loadTransaction(t, store, identity)
+	if notACKed.RollbackRestart.ACKPresent || !fixture.live {
+		t.Fatalf("COMMIT interruption persisted ACK or lost replayable helper: %+v live=%t", notACKed.RollbackRestart, fixture.live)
 	}
-	if _, err := store.ConvergeRollbackRestart(t.Context(), transaction.Identity, resolve, launch); err != nil {
+	if _, err := store.ConvergeRollbackRestart(t.Context(), transaction.Identity, fixture.resolve, fixture.launch); err != nil {
 		t.Fatalf("replayed convergence: %v", err)
 	}
-	if launches != 1 || commits != 2 || cleanups != 0 {
-		t.Fatalf("launches=%d commits=%d cleanups=%d, want 1/2/0", launches, commits, cleanups)
+	if fixture.launches != 1 || fixture.commits != 2 || fixture.cleanups != 0 {
+		t.Fatalf("lifecycle=%+v, want launches/commits/cleanups 1/2/0", fixture)
 	}
 }
 
-func TestRollbackRestartACKReplayIdentityChangeDoesNotCleanup(t *testing.T) {
+func TestRollbackRestartExitedHelperWindowsConvergeWithoutDeadACK(t *testing.T) {
+	for _, window := range []string{"ready", "commit"} {
+		t.Run(window, func(t *testing.T) {
+			store, identity, _ := createProbationTransaction(t)
+			transaction, err := store.RollbackUnclaimedProbation(t.Context(), identity)
+			if err != nil {
+				t.Fatal(err)
+			}
+			fixture := &rollbackHelperLifecycle{t: t, exitWindow: window}
+			if _, err := store.ConvergeRollbackRestart(t.Context(), identity, fixture.resolve, fixture.launch); err == nil {
+				t.Fatalf("%s exit unexpectedly converged", window)
+			}
+			if got := loadTransaction(t, store, identity); got.RollbackRestart.ACKPresent {
+				t.Fatalf("%s exit persisted dead helper ACK: %+v", window, got.RollbackRestart.ACK)
+			}
+			converged, err := store.ConvergeRollbackRestart(t.Context(), transaction.Identity, fixture.resolve, fixture.launch)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if fixture.launches != 2 || fixture.maxLive != 1 || !converged.RollbackRestart.ACKPresent ||
+				converged.RollbackRestart.ACK.Process != fixture.process {
+				t.Fatalf("%s lifecycle=%+v ACK=%+v", window, fixture, converged.RollbackRestart.ACK)
+			}
+		})
+	}
+}
+
+type rollbackHelperLifecycle struct {
+	t               *testing.T
+	exitWindow      string
+	commitErrorOnce error
+	process         RollbackRestartProcess
+	live            bool
+	launches        int
+	commits         int
+	cleanups        int
+	resolves        int
+	maxLive         int
+}
+
+func (fixture *rollbackHelperLifecycle) resolve(context.Context, string) (RollbackRestartControl, bool, error) {
+	fixture.resolves++
+	if !fixture.live {
+		return RollbackRestartControl{}, false, nil
+	}
+	return fixture.control(), true, nil
+}
+
+func (fixture *rollbackHelperLifecycle) launch(context.Context, string) (RollbackRestartControl, error) {
+	if fixture.live {
+		fixture.t.Fatal("launcher created a second live rollback helper")
+	}
+	fixture.launches++
+	fixture.process = fixtureRollbackRestartProcess()
+	fixture.process.StartToken = fmt.Sprintf("helper-generation-%d", fixture.launches)
+	fixture.live = true
+	fixture.maxLive = 1
+	return fixture.control(), nil
+}
+
+func (fixture *rollbackHelperLifecycle) control() RollbackRestartControl {
+	process := fixture.process
+	return RollbackRestartControl{
+		Process: process,
+		Cleanup: func() error {
+			fixture.cleanups++
+			if fixture.process == process {
+				fixture.live = false
+			}
+			return nil
+		},
+		Commit: func(context.Context) error { return fixture.commit(process) },
+	}
+}
+
+func (fixture *rollbackHelperLifecycle) commit(process RollbackRestartProcess) error {
+	fixture.commits++
+	if !fixture.live || fixture.process != process {
+		return errors.New("rollback helper exited before COMMIT")
+	}
+	window := fixture.exitWindow
+	if window == "ready" || window == "commit" {
+		fixture.live = false
+		fixture.exitWindow = ""
+	}
+	if window == "ready" {
+		return errors.New("rollback helper exited after READY")
+	}
+	if fixture.commitErrorOnce != nil {
+		err := fixture.commitErrorOnce
+		fixture.commitErrorOnce = nil
+		return err
+	}
+	return nil
+}
+
+func TestRollbackRestartACKIgnoresExitedOrReusedHelper(t *testing.T) {
 	store, identity, _ := createProbationTransaction(t)
 	transaction, err := store.RollbackUnclaimedProbation(t.Context(), identity)
 	if err != nil {
 		t.Fatal(err)
 	}
-	process := fixtureRollbackRestartProcess()
-	if _, err := store.ConvergeRollbackRestart(
-		t.Context(), identity,
-		func(context.Context, string) (RollbackRestartControl, bool, error) {
-			return RollbackRestartControl{}, false, nil
-		},
-		func(context.Context, string) (RollbackRestartControl, error) {
-			return fixtureRollbackRestartControl(process), nil
-		},
-	); err != nil {
+	fixture := &rollbackHelperLifecycle{t: t}
+	if _, err := store.ConvergeRollbackRestart(t.Context(), identity, fixture.resolve, fixture.launch); err != nil {
 		t.Fatal(err)
 	}
 
+	resolves := 0
 	cleanups := 0
-	changed := process
+	changed := fixture.process
 	changed.StartToken = "reused-generation"
 	_, replayErr := store.ConvergeRollbackRestart(
 		t.Context(), transaction.Identity,
 		func(context.Context, string) (RollbackRestartControl, bool, error) {
+			resolves++
 			control := fixtureRollbackRestartControl(changed)
 			control.Cleanup = func() error { cleanups++; return nil }
 			return control, true, nil
@@ -184,8 +260,8 @@ func TestRollbackRestartACKReplayIdentityChangeDoesNotCleanup(t *testing.T) {
 			return RollbackRestartControl{}, nil
 		},
 	)
-	if replayErr == nil || cleanups != 0 {
-		t.Fatalf("ACK replay error=%v cleanups=%d, want identity error and no cleanup", replayErr, cleanups)
+	if replayErr != nil || resolves != 0 || cleanups != 0 {
+		t.Fatalf("ACK replay error=%v resolves=%d cleanups=%d, want converged without process contact", replayErr, resolves, cleanups)
 	}
 }
 
@@ -211,6 +287,40 @@ func TestRollbackRestartLargeDigestDeadlineReleasesLockWithoutACK(t *testing.T) 
 	_, convergeErr := store.ConvergeRollbackRestart(ctx, identity, resolve, launch)
 	if elapsed := time.Since(started); elapsed > time.Second {
 		t.Fatalf("large digest deadline elapsed %s", elapsed)
+	}
+	assertRollbackRestartDeadlineResult(t, store, identity, before, convergeErr)
+}
+
+func TestRollbackRestartBlockedDigestDeadlineReleasesLockWithoutACK(t *testing.T) {
+	defer goleak.VerifyNone(t, goleak.IgnoreCurrent())
+	store, identity, _ := createProbationTransaction(t)
+	transaction, err := store.RollbackUnclaimedProbation(t.Context(), identity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	digestFile, err := os.CreateTemp(t.TempDir(), "blocked-digest-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := digestFile.Close(); err != nil {
+		t.Fatal(err)
+	}
+	ops, release := newBlockedReleaseDigestOps(t)
+	defer release()
+	before := rollbackRestartJournalBytes(t, store, identity)
+	resolve := func(ctx context.Context, _ string) (RollbackRestartControl, bool, error) {
+		_, digestErr := computeReleaseDigestContextWithOps(ctx, digestFile.Name(), ops)
+		return RollbackRestartControl{}, false, digestErr
+	}
+	launch := func(context.Context, string) (RollbackRestartControl, error) {
+		return RollbackRestartControl{}, errors.New("launch must not run after blocked digest deadline")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 35*time.Millisecond)
+	defer cancel()
+	started := time.Now()
+	_, convergeErr := store.ConvergeRollbackRestart(ctx, transaction.Identity, resolve, launch)
+	if elapsed := time.Since(started); elapsed > time.Second {
+		t.Fatalf("blocked digest deadline elapsed %s", elapsed)
 	}
 	assertRollbackRestartDeadlineResult(t, store, identity, before, convergeErr)
 }

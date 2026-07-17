@@ -11,7 +11,7 @@ cmd/codex-worktree-setup/setup_test.go	cmd	other	go-test	6532	未细分职责：
 cmd/codex-worktree-setup/setup.go	cmd	other	go-source	9496	未细分职责：请结合路径、文件名和相邻代码判断	cmd,codex,worktree,setup,未细分职责：请结合路径,文件名和相邻代码判断
 cmd/codex-worktree-setup/worktree_integration_test.go	cmd	other	go-test	7201	未细分职责：请结合路径、文件名和相邻代码判断	cmd,codex,worktree,setup,integration,test,未细分职责：请结合路径,文件名和相邻代码判断
 cmd/mcp-schema-compiler-helper/main.go	cmd	other	go-source	2147	未细分职责：请结合路径、文件名和相邻代码判断	cmd,mcp,schema,compiler,helper,main,未细分职责：请结合路径,文件名和相邻代码判断
-cmd/super-dolphin-guard/main_test.go	cmd	other	go-test	21506	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,guard,main,test,未细分职责：请结合路径,文件名和相邻代码判断
+cmd/super-dolphin-guard/main_test.go	cmd	other	go-test	21594	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,guard,main,test,未细分职责：请结合路径,文件名和相邻代码判断
 cmd/super-dolphin-guard/main.go	cmd	other	go-source	14867	未细分职责：请结合路径、文件名和相邻代码判断	cmd,super,dolphin,guard,main,未细分职责：请结合路径,文件名和相邻代码判断
 cmd/super-dolphin-release-manifest/main_test.go	cmd	other	go-test	6957	Release manifest generation command	cmd,super,dolphin,release,manifest,main,test,Release,generation,command
 cmd/super-dolphin-release-manifest/main.go	cmd	other	go-source	14374	Release manifest generation command	cmd,super,dolphin,release,manifest,main,Release,generation,command

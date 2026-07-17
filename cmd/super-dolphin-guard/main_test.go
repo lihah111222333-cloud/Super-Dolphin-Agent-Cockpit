@@ -431,6 +431,8 @@ func TestGuardTreatsReusedUpdaterPIDAsDeadAndRollsBack(t *testing.T) {
 		t.Fatal(err)
 	}
 	stopCalls := 0
+	restartProcess := fixtureRestartProcess()
+	restartLive := false
 	guard := newGuard(guardConfig{
 		Store: store, Identity: transaction.Identity, OwnerID: "guard-updater-reuse", Now: time.Now,
 		UpdaterAlive: updaterAliveForTransaction(transaction),
@@ -439,10 +441,11 @@ func TestGuardTreatsReusedUpdaterPIDAsDeadAndRollsBack(t *testing.T) {
 			return nil
 		},
 		ResolveOldRelease: func(context.Context, string) (recovery.RollbackRestartControl, bool, error) {
-			return recovery.RollbackRestartControl{}, false, nil
+			return fixtureRestartControl(restartProcess), restartLive, nil
 		},
 		RestartOldRelease: func(context.Context, string) (recovery.RollbackRestartControl, error) {
-			return fixtureRestartControl(fixtureRestartProcess()), nil
+			restartLive = true
+			return fixtureRestartControl(restartProcess), nil
 		},
 	})
 	if err := guard.Run(context.Background()); err != nil {

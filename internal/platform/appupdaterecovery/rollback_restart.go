@@ -23,6 +23,7 @@ type RollbackRestartControl struct {
 	Process RollbackRestartProcess
 	Cleanup RollbackRestartCleanup
 	Commit  func(context.Context) error
+	release func() error
 }
 
 // RollbackRestartResolver 重发现已携带 exact launch token 的旧版本进程并移交控制权。
@@ -62,13 +63,13 @@ func (store *Store) convergeRollbackRestartLocked(
 		return fmt.Errorf("rollback restart from state %q: illegal transition", transaction.State)
 	}
 	if transaction.RollbackRestart.ACKPresent {
-		return commitACKedRollbackRestart(ctx, transaction, resolve)
+		return nil
 	}
 	control, err := acquireRollbackRestartProcess(ctx, transaction, resolve, launch)
 	if err != nil {
 		return err
 	}
-	return store.persistRollbackRestartACK(ctx, journal, transaction, control)
+	return store.persistRollbackRestartACK(ctx, journal, transaction, control, resolve)
 }
 
 // acquireRollbackRestartProcess 优先重发现 exact token 进程，仅在不存在时启动并移交 cleanup ownership。
@@ -130,12 +131,13 @@ func (store *Store) persistRollbackRestartACK(
 	journal *journalPayload,
 	transaction Transaction,
 	control RollbackRestartControl,
+	resolve RollbackRestartResolver,
 ) error {
 	if err := validateRollbackRestartControl(control); err != nil {
 		return cleanupRollbackRestartLaunch(control.Cleanup, err)
 	}
-	if err := rollbackRestartContextError(ctx); err != nil {
-		return cleanupRollbackRestartLaunch(control.Cleanup, err)
+	if err := commitRollbackRestartBeforeACK(ctx, transaction, control, resolve); err != nil {
+		return err
 	}
 	updated := *journal
 	updated.RollbackRestart.ACKPresent = true
@@ -151,31 +153,69 @@ func (store *Store) persistRollbackRestartACK(
 		return cleanupRollbackRestartLaunch(control.Cleanup, err)
 	}
 	*journal = updated
-	return control.Commit(ctx)
+	return releaseRollbackRestartOwnership(control)
 }
 
-// commitACKedRollbackRestart 只对 durable ACK 绑定的 exact process 幂等重放 COMMIT。
-func commitACKedRollbackRestart(ctx context.Context, transaction Transaction, resolve RollbackRestartResolver) error {
+// commitRollbackRestartBeforeACK 要求 COMMIT 已确认且 exact helper 仍可由 durable token 重发现。
+func commitRollbackRestartBeforeACK(
+	ctx context.Context,
+	transaction Transaction,
+	control RollbackRestartControl,
+	resolve RollbackRestartResolver,
+) error {
 	if err := rollbackRestartContextError(ctx); err != nil {
-		return err
+		return cleanupRollbackRestartLaunch(control.Cleanup, err)
 	}
+	commitErr := control.Commit(ctx)
+	confirmed, confirmErr := confirmRollbackRestartAfterCommit(ctx, transaction, control.Process, resolve)
+	if commitErr == nil && confirmErr == nil {
+		return nil
+	}
+	primary := errors.Join(commitErr, confirmErr)
+	if commitErr != nil && confirmed {
+		if err := releaseRollbackRestartOwnership(control); err == nil {
+			return primary
+		} else {
+			primary = errors.Join(primary, err)
+		}
+	}
+	return cleanupRollbackRestartLaunch(control.Cleanup, primary)
+}
+
+// confirmRollbackRestartAfterCommit 在 ACK 前按 durable token 复验同一 helper generation。
+func confirmRollbackRestartAfterCommit(
+	ctx context.Context,
+	transaction Transaction,
+	want RollbackRestartProcess,
+	resolve RollbackRestartResolver,
+) (bool, error) {
 	control, found, err := resolve(ctx, transaction.RollbackRestart.LaunchToken)
 	if err != nil {
-		return fmt.Errorf("resolve ACKed rollback restart launch token: %w", err)
+		return false, fmt.Errorf("re-resolve rollback restart after COMMIT: %w", err)
 	}
 	if !found {
-		return errors.New("ACKed rollback restart process is missing before COMMIT")
+		return false, errors.New("rollback restart helper exited before durable ACK")
 	}
 	if err := validateRollbackRestartControl(control); err != nil {
-		return err
+		return false, err
 	}
-	if control.Process != transaction.RollbackRestart.ACK.Process {
-		return errors.New("ACKed rollback restart process identity changed")
+	if control.Process != want {
+		return false, errors.New("rollback restart helper identity changed before durable ACK")
 	}
 	if err := rollbackRestartContextError(ctx); err != nil {
-		return err
+		return false, err
 	}
-	return control.Commit(ctx)
+	return true, nil
+}
+
+func releaseRollbackRestartOwnership(control RollbackRestartControl) error {
+	if control.release == nil {
+		return nil
+	}
+	if err := control.release(); err != nil {
+		return fmt.Errorf("release rollback restart process ownership: %w", err)
+	}
+	return nil
 }
 
 func validateRollbackRestartControl(control RollbackRestartControl) error {
