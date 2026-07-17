@@ -85,11 +85,40 @@ func verifyProductionBootstrapPrerequisites(
 	if err := verifyProductionBootstrapRepository(ctx, authority, root); err != nil {
 		return productionBootstrapRoot{}, "", err
 	}
+	if err := verifyProductionBootstrapBuildClosure(ctx, config, root); err != nil {
+		return productionBootstrapRoot{}, "", err
+	}
 	if err := verifier.VerifyRunner(ctx, root.Runner); err != nil {
 		return productionBootstrapRoot{}, "", err
 	}
 	digest, err := productionBootstrapRootDigest(root, config.AcceptedImageSigners)
 	return root, digest, err
+}
+
+// verifyProductionBootstrapBuildClosure 从外部 bare baseline 重算 candidate label 真值。
+func verifyProductionBootstrapBuildClosure(
+	ctx context.Context,
+	config productionCoordinatorConfig,
+	root productionBootstrapRoot,
+) error {
+	source := gatecontract.SourceSpec{
+		Kind: gatecontract.SourceKindCommit, ObjectFormat: root.ObjectFormat,
+		Commit: &gatecontract.CommitSource{SHA: root.BaselineCommit}, SourceTreeSHA: root.BaselineTree,
+	}
+	tree, err := localci.LoadReadOnlyBootstrapTree(ctx, config.TrustedRepository, source)
+	if err != nil {
+		return fmt.Errorf("load production bootstrap baseline closure: %w", err)
+	}
+	inputs, err := localci.ResolveGateImageInputs(tree, root.PolicyDigest, config.Platform)
+	if err != nil {
+		return fmt.Errorf("resolve production bootstrap baseline closure: %w", err)
+	}
+	if inputs.ImageInputDigest != root.ImageInputDigest ||
+		inputs.ToolchainDigest != root.ToolchainDigest ||
+		inputs.ImageSchemaVersion != root.ImageSchemaVersion {
+		return errors.New("production bootstrap signed build closure drifted from bare baseline")
+	}
+	return nil
 }
 
 // validateProductionBootstrapConfigIdentity 拒绝 root 与 production config 的 repo/platform 漂移。
@@ -103,13 +132,29 @@ func validateProductionBootstrapConfigIdentity(
 	if root.TrustedRef != config.TrustedRef {
 		return errors.New("production bootstrap root trusted_ref drifted from production config")
 	}
-	if root.Controller.Signer != root.Signer {
-		return errors.New("production bootstrap controller attestation signer drifted from root signer")
+	if root.Controller.Signer != root.BootstrapSigner {
+		return errors.New("production bootstrap controller attestation signer drifted from bootstrap signer")
+	}
+	if !productionBootstrapSignerIsTrusted(root.BootstrapSigner, root.BootstrapPublicKey, config.AcceptedImageSigners) {
+		return errors.New("production bootstrap execution signer is absent from accepted image trust anchors")
 	}
 	if err := validateAcceptedPlatform(root.Runner, config.Platform); err != nil {
 		return fmt.Errorf("production bootstrap runner platform: %w", err)
 	}
 	return nil
+}
+
+func productionBootstrapSignerIsTrusted(
+	signer gatecontract.SignerIdentity,
+	publicKey string,
+	trusted []productionTrustedKey,
+) bool {
+	for _, candidate := range trusted {
+		if candidate.Signer == signer && candidate.PublicKey == publicKey {
+			return true
+		}
+	}
+	return false
 }
 
 // verifyProductionBootstrapRepository 从外部 bare repository 读取 remote、commit type 和 tree。

@@ -108,11 +108,13 @@ func productionBootstrapRecordForTestProcess(
 	signer gatecontract.SignerIdentity,
 	acceptedAt time.Time,
 ) gatecontract.AcceptedImageRecord {
+	image := request.Runner
+	image.Registry = request.CandidateRegistry
 	return gatecontract.AcceptedImageRecord{
 		SchemaVersion: gatecontract.AcceptedImageRecordSchemaVersion,
 		RepoID:        request.RepoID, TrustedRef: request.TrustedRef, TrustedCommit: request.BaselineCommit,
 		SourceTree: request.BaselineTree, PolicyDigest: request.PolicyDigest, ImageInputDigest: request.ImageInputDigest,
-		Image: request.Runner, Runner: gatecontract.TrustedRunnerIdentity{
+		Image: image, Runner: gatecontract.TrustedRunnerIdentity{
 			BinaryDigest: request.Controller.BinaryDigest, Signer: request.Controller.Signer, PolicyDigest: request.PolicyDigest,
 		},
 		Generation: 1, AcceptedAt: acceptedAt.Add(time.Second), Signer: signer,
@@ -125,12 +127,13 @@ type productionBootstrapRunnerVerifierStub struct {
 }
 
 type productionBootstrapRuntimeStub struct {
-	mu           sync.Mutex
-	privateKey   ed25519.PrivateKey
-	executeErr   error
-	containerErr error
-	executeCount int
-	cleanupCount int
+	mu            sync.Mutex
+	privateKey    ed25519.PrivateKey
+	executeErr    error
+	containerErr  error
+	imageRegistry string
+	executeCount  int
+	cleanupCount  int
 }
 
 func (runtime *productionBootstrapRuntimeStub) VerifyRunner(context.Context, gatecontract.ImageIdentity) error {
@@ -151,14 +154,19 @@ func (runtime *productionBootstrapRuntimeStub) ExecuteController(
 		return productionBootstrapAttestation{}, runtime.executeErr
 	}
 	started := time.Now().UTC().Truncate(time.Millisecond)
+	image := root.Runner
+	image.Registry = root.CandidateRegistry
+	if runtime.imageRegistry != "" {
+		image.Registry = runtime.imageRegistry
+	}
 	record := gatecontract.AcceptedImageRecord{
 		SchemaVersion: gatecontract.AcceptedImageRecordSchemaVersion,
 		RepoID:        root.RepoID, TrustedRef: root.TrustedRef, TrustedCommit: root.BaselineCommit,
 		SourceTree: root.BaselineTree, PolicyDigest: root.PolicyDigest, ImageInputDigest: root.ImageInputDigest,
-		Image: root.Runner, Runner: gatecontract.TrustedRunnerIdentity{
+		Image: image, Runner: gatecontract.TrustedRunnerIdentity{
 			BinaryDigest: root.Controller.BinaryDigest, Signer: root.Controller.Signer, PolicyDigest: root.PolicyDigest,
 		},
-		Generation: 1, AcceptedAt: started.Add(time.Second), Signer: root.Signer,
+		Generation: 1, AcceptedAt: started.Add(time.Second), Signer: root.BootstrapSigner,
 	}
 	payload, err := gatecontract.AcceptedImageSigningPayload(record)
 	if err != nil {
@@ -367,6 +375,14 @@ func TestProductionBootstrapFailureLeavesNoAcceptedStateAndRetrySucceeds(t *test
 	if _, err := promotion.state.Load(context.Background()); !errors.Is(err, localci.ErrAcceptedImageStateNotFound) {
 		t.Fatalf("accepted state after failed container verification = %v", err)
 	}
+	failing.containerErr = nil
+	failing.imageRegistry = "registry.example.invalid/forged-candidate"
+	if _, err := loadOrBootstrapProductionAcceptedImage(context.Background(), fixture.config, promotion, failing); err == nil {
+		t.Fatal("bootstrap accepted candidate registry outside signed root")
+	}
+	if _, err := promotion.state.Load(context.Background()); !errors.Is(err, localci.ErrAcceptedImageStateNotFound) {
+		t.Fatalf("accepted state after candidate registry drift = %v", err)
+	}
 	successful := &productionBootstrapRuntimeStub{privateKey: fixture.privateKey}
 	record, err := loadOrBootstrapProductionAcceptedImage(context.Background(), fixture.config, promotion, successful)
 	if err != nil || record.Generation != 1 {
@@ -428,18 +444,18 @@ func TestProductionBootstrapPrerequisitesFailClosedOnBaselineAndRunnerDrift(t *t
 	}
 	runProductionGit(t, "", "--git-dir="+fixture.config.TrustedRepository, "config", "remote.origin.url", root.RemoteURL)
 	root.BaselineCommit = strings.Repeat("f", 40)
-	writeProductionBootstrapRootFixture(t, fixture.config.BootstrapRootFile, root, fixture.privateKey)
+	writeProductionBootstrapRootFixture(t, fixture.config.BootstrapRootFile, root, fixture.bootstrapRootKey)
 	if _, _, err := verifyProductionBootstrapPrerequisites(context.Background(), fixture.config, authority, &productionBootstrapRunnerVerifierStub{}); err == nil || !strings.Contains(err.Error(), "baseline commit") {
 		t.Fatalf("verifyProductionBootstrapPrerequisites(unknown baseline) error = %v", err)
 	}
 	root.BaselineCommit = fixture.commit
 	root.BaselineTree = strings.Repeat("f", 40)
-	writeProductionBootstrapRootFixture(t, fixture.config.BootstrapRootFile, root, fixture.privateKey)
+	writeProductionBootstrapRootFixture(t, fixture.config.BootstrapRootFile, root, fixture.bootstrapRootKey)
 	if _, _, err := verifyProductionBootstrapPrerequisites(context.Background(), fixture.config, authority, &productionBootstrapRunnerVerifierStub{}); err == nil || !strings.Contains(err.Error(), "tree drifted") {
 		t.Fatalf("verifyProductionBootstrapPrerequisites(tree drift) error = %v", err)
 	}
 	root.BaselineTree = fixture.tree
-	writeProductionBootstrapRootFixture(t, fixture.config.BootstrapRootFile, root, fixture.privateKey)
+	writeProductionBootstrapRootFixture(t, fixture.config.BootstrapRootFile, root, fixture.bootstrapRootKey)
 	runnerErr := errors.New("forged container identity")
 	if _, _, err := verifyProductionBootstrapPrerequisites(context.Background(), fixture.config, authority, &productionBootstrapRunnerVerifierStub{err: runnerErr}); !errors.Is(err, runnerErr) {
 		t.Fatalf("verifyProductionBootstrapPrerequisites(runner drift) error = %v", err)
@@ -508,7 +524,7 @@ func TestProductionBootstrapExternalControllerProtocolProducesVerifiableAttestat
 	t.Setenv("HOME", home)
 	root := installProductionBootstrapTestController(t, &fixture)
 	key := productionBootstrapControllerTestKey{
-		Signer: root.Signer, PrivateKey: base64.StdEncoding.EncodeToString(fixture.privateKey),
+		Signer: root.BootstrapSigner, PrivateKey: base64.StdEncoding.EncodeToString(fixture.privateKey),
 	}
 	writePrivateJSON(t, filepath.Join(home, productionBootstrapControllerTestKeyFile), key)
 	rootDigest, err := productionBootstrapRootDigest(root, fixture.config.AcceptedImageSigners)
@@ -552,10 +568,10 @@ func installProductionBootstrapTestController(t *testing.T, fixture *productionT
 	}
 	root.Controller = productionBootstrapControllerIdentity{
 		BinaryDigest:          productionBootstrapFileDigest(t, controller),
-		DesignatedRequirement: requirement, Signer: root.Signer,
+		DesignatedRequirement: requirement, Signer: root.BootstrapSigner,
 	}
 	fixture.config.BootstrapControllerFile = controller
-	writeProductionBootstrapRootFixture(t, fixture.config.BootstrapRootFile, root, fixture.privateKey)
+	writeProductionBootstrapRootFixture(t, fixture.config.BootstrapRootFile, root, fixture.bootstrapRootKey)
 	root, err = loadProductionBootstrapRoot(fixture.config.BootstrapRootFile, fixture.config.AcceptedImageSigners)
 	if err != nil {
 		t.Fatal(err)
@@ -646,13 +662,23 @@ func productionBootstrapRootForFixture(
 	tree string,
 	signer gatecontract.SignerIdentity,
 	publicKey ed25519.PublicKey,
-) productionBootstrapRoot {
+) (productionBootstrapRoot, productionTrustedKey, ed25519.PrivateKey) {
 	t.Helper()
-	return productionBootstrapRoot{
+	rootPublicKey, rootPrivateKey, err := ed25519.GenerateKey(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rootSigner := gatecontract.SignerIdentity{
+		KeyID: "bootstrap-root-test", KeyEpoch: 1, Algorithm: gatecontract.SignatureAlgorithmEd25519,
+	}
+	root := productionBootstrapRoot{
 		SchemaVersion: productionBootstrapRootSchemaVersion, RepoID: config.RepoID,
 		RemoteURL: "https://example.invalid/repository.git", TrustedRef: config.TrustedRef,
+		ObjectFormat:   gatecontract.GitObjectFormatSHA1,
 		BaselineCommit: commit, BaselineTree: tree,
 		PolicyDigest: productionDigest("c"), ImageInputDigest: productionDigest("d"),
+		ToolchainDigest: productionDigest("e"), ImageSchemaVersion: "1",
+		CandidateRegistry: "registry.example.invalid/bootstrap-candidate",
 		Runner: gatecontract.ImageIdentity{
 			Registry: "registry.example.invalid/bootstrap-runner", OCIIndexDigest: productionDigest("8"),
 			PlatformManifestDigest: productionDigest("9"), ConfigDigest: productionDigest("a"),
@@ -662,9 +688,12 @@ func productionBootstrapRootForFixture(
 			BinaryDigest:          productionBootstrapFileDigest(t, config.BootstrapControllerFile),
 			DesignatedRequirement: `identifier "super-dolphin-bootstrap-test"`, Signer: signer,
 		},
-		Signer: signer, Ed25519PublicKey: base64.StdEncoding.EncodeToString(publicKey),
+		Signer: rootSigner, Ed25519PublicKey: base64.StdEncoding.EncodeToString(rootPublicKey),
+		BootstrapSigner: signer, BootstrapPublicKey: base64.StdEncoding.EncodeToString(publicKey),
 		VerifierVersion: productionBootstrapVerifierVersion,
 	}
+	trusted := productionTrustedKey{Signer: rootSigner, PublicKey: root.Ed25519PublicKey}
+	return root, trusted, rootPrivateKey
 }
 
 func newProductionBootstrapRootCryptoFixture(
@@ -675,12 +704,20 @@ func newProductionBootstrapRootCryptoFixture(
 	if err != nil {
 		t.Fatal(err)
 	}
-	signer := gatecontract.SignerIdentity{KeyID: "bootstrap-test", KeyEpoch: 1, Algorithm: gatecontract.SignatureAlgorithmEd25519}
+	bootstrapPublicKey, _, err := ed25519.GenerateKey(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	signer := gatecontract.SignerIdentity{KeyID: "bootstrap-root-test", KeyEpoch: 1, Algorithm: gatecontract.SignatureAlgorithmEd25519}
+	bootstrapSigner := gatecontract.SignerIdentity{KeyID: "bootstrap-execution-test", KeyEpoch: 1, Algorithm: gatecontract.SignatureAlgorithmEd25519}
 	root := productionBootstrapRoot{
 		SchemaVersion: productionBootstrapRootSchemaVersion, RepoID: "example/repository",
 		RemoteURL: "https://example.invalid/repository.git", TrustedRef: "refs/heads/main",
+		ObjectFormat:   gatecontract.GitObjectFormatSHA1,
 		BaselineCommit: strings.Repeat("1", 40), BaselineTree: strings.Repeat("2", 40),
 		PolicyDigest: productionDigest("7"), ImageInputDigest: productionDigest("8"),
+		ToolchainDigest: productionDigest("a"), ImageSchemaVersion: "1",
+		CandidateRegistry: "registry.example.invalid/bootstrap-candidate",
 		Runner: gatecontract.ImageIdentity{
 			Registry: "registry.example.invalid/bootstrap-runner", OCIIndexDigest: productionDigest("3"),
 			PlatformManifestDigest: productionDigest("4"), ConfigDigest: productionDigest("5"),
@@ -688,10 +725,12 @@ func newProductionBootstrapRootCryptoFixture(
 		},
 		Controller: productionBootstrapControllerIdentity{
 			BinaryDigest:          productionDigest("9"),
-			DesignatedRequirement: `identifier "super-dolphin-bootstrap-test"`, Signer: signer,
+			DesignatedRequirement: `identifier "super-dolphin-bootstrap-test"`, Signer: bootstrapSigner,
 		},
 		Signer: signer, Ed25519PublicKey: base64.StdEncoding.EncodeToString(publicKey),
-		VerifierVersion: productionBootstrapVerifierVersion,
+		BootstrapSigner:    bootstrapSigner,
+		BootstrapPublicKey: base64.StdEncoding.EncodeToString(bootstrapPublicKey),
+		VerifierVersion:    productionBootstrapVerifierVersion,
 	}
 	payload, err := productionBootstrapRootSigningPayload(root)
 	if err != nil {

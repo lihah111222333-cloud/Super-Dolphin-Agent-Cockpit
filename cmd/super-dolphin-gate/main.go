@@ -16,6 +16,13 @@ import (
 var errSchedulerNotWired = gatecontract.WithExitCode(gatecontract.ExitInfrastructure, errors.New("scheduler client not wired"))
 
 func main() {
+	if productionBootstrapRunnerProgram(os.Args[0]) {
+		if err := runProductionBootstrapRunnerCLI(os.Args[1:], os.Stdout); err != nil {
+			_ = writeCLIError(os.Stderr, err)
+			os.Exit(int(gatecontract.ExitCodeOf(err)))
+		}
+		return
+	}
 	os.Exit(runCLI(os.Args[1:], os.Stdout, os.Stderr))
 }
 
@@ -41,13 +48,17 @@ func writeCLIError(stderr io.Writer, commandErr error) error {
 // dispatchCLI 将固定命令面分派到 plan 或未接线 scheduler 边界。
 func dispatchCLI(args []string, stdout io.Writer) error {
 	if len(args) == 0 {
-		return protocolError("subcommand is required (plan, submit, run, status, wait, receipt verify, grant)")
+		return protocolError("subcommand is required (plan, submit, run, status, wait, receipt verify, grant, provision)")
 	}
 	switch args[0] {
 	case "plan":
 		return runPlan(args[1:], stdout)
 	case "hook":
 		return runHook(args[1:], os.Stdin, stdout)
+	case "bootstrap":
+		return runProductionBootstrapControllerCLI(args[1:], os.Stdin, stdout)
+	case "provision":
+		return runProductionProvisionCLI(args[1:], stdout)
 	default:
 		return dispatchCoordinatorCLI(args, stdout)
 	}

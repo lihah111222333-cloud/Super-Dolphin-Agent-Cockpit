@@ -20,7 +20,7 @@ import (
 )
 
 const (
-	productionBootstrapRootSchemaVersion uint32 = 1
+	productionBootstrapRootSchemaVersion uint32 = 2
 	productionBootstrapVerifierVersion   uint32 = 1
 	productionBootstrapRootMaxBytes             = 1 << 20
 )
@@ -32,20 +32,26 @@ var (
 
 // productionBootstrapRoot 是安装包签名、仓库外持久化的 generation-one 信任根。
 type productionBootstrapRoot struct {
-	SchemaVersion    uint32                                `json:"schema_version"`
-	RepoID           string                                `json:"repo_id"`
-	RemoteURL        string                                `json:"remote_url"`
-	TrustedRef       string                                `json:"trusted_ref"`
-	BaselineCommit   string                                `json:"baseline_commit"`
-	BaselineTree     string                                `json:"baseline_tree"`
-	PolicyDigest     string                                `json:"policy_digest"`
-	ImageInputDigest string                                `json:"image_input_digest"`
-	Runner           gatecontract.ImageIdentity            `json:"runner"`
-	Controller       productionBootstrapControllerIdentity `json:"controller"`
-	Signer           gatecontract.SignerIdentity           `json:"signer"`
-	Ed25519PublicKey string                                `json:"ed25519_public_key"`
-	VerifierVersion  uint32                                `json:"verifier_version"`
-	Signature        string                                `json:"signature"`
+	SchemaVersion      uint32                                `json:"schema_version"`
+	RepoID             string                                `json:"repo_id"`
+	RemoteURL          string                                `json:"remote_url"`
+	TrustedRef         string                                `json:"trusted_ref"`
+	ObjectFormat       gatecontract.GitObjectFormat          `json:"object_format"`
+	BaselineCommit     string                                `json:"baseline_commit"`
+	BaselineTree       string                                `json:"baseline_tree"`
+	PolicyDigest       string                                `json:"policy_digest"`
+	ImageInputDigest   string                                `json:"image_input_digest"`
+	ToolchainDigest    string                                `json:"toolchain_digest"`
+	ImageSchemaVersion string                                `json:"image_schema_version"`
+	CandidateRegistry  string                                `json:"candidate_registry"`
+	Runner             gatecontract.ImageIdentity            `json:"runner"`
+	Controller         productionBootstrapControllerIdentity `json:"controller"`
+	Signer             gatecontract.SignerIdentity           `json:"signer"`
+	Ed25519PublicKey   string                                `json:"ed25519_public_key"`
+	BootstrapSigner    gatecontract.SignerIdentity           `json:"bootstrap_signer"`
+	BootstrapPublicKey string                                `json:"bootstrap_ed25519_public_key"`
+	VerifierVersion    uint32                                `json:"verifier_version"`
+	Signature          string                                `json:"signature"`
 }
 
 // productionBootstrapControllerIdentity binds the only host executable allowed to
@@ -180,8 +186,23 @@ func validateProductionBootstrapRootIdentity(root productionBootstrapRoot) error
 	if err := validateProductionBootstrapRemoteURL(root.RemoteURL); err != nil {
 		return err
 	}
+	if err := validateProductionBootstrapCandidateRegistry(root.CandidateRegistry); err != nil {
+		return err
+	}
 	if err := validateProductionBootstrapTrustedRef(root.TrustedRef); err != nil {
 		return err
+	}
+	if err := validateProductionBootstrapRootBaseline(root); err != nil {
+		return err
+	}
+	return validateProductionBootstrapRootBuildClosure(root)
+}
+
+// validateProductionBootstrapRootBaseline 固定 Git object format 对应的 commit 与 tree 身份。
+func validateProductionBootstrapRootBaseline(root productionBootstrapRoot) error {
+	if root.ObjectFormat != gatecontract.GitObjectFormatSHA1 &&
+		root.ObjectFormat != gatecontract.GitObjectFormatSHA256 {
+		return errors.New("production bootstrap object_format is invalid")
 	}
 	if err := validateProductionBootstrapOID("baseline_commit", root.BaselineCommit); err != nil {
 		return err
@@ -189,10 +210,38 @@ func validateProductionBootstrapRootIdentity(root productionBootstrapRoot) error
 	if err := validateProductionBootstrapOID("baseline_tree", root.BaselineTree); err != nil {
 		return err
 	}
+	expectedOIDLength := 40
+	if root.ObjectFormat == gatecontract.GitObjectFormatSHA256 {
+		expectedOIDLength = 64
+	}
+	if len(root.BaselineCommit) != expectedOIDLength || len(root.BaselineTree) != expectedOIDLength {
+		return errors.New("production bootstrap baseline OIDs drifted from object_format")
+	}
+	return nil
+}
+
+func validateProductionBootstrapRootBuildClosure(root productionBootstrapRoot) error {
 	if err := validateProductionBootstrapDigest("policy_digest", root.PolicyDigest); err != nil {
 		return err
 	}
-	return validateProductionBootstrapDigest("image_input_digest", root.ImageInputDigest)
+	if err := validateProductionBootstrapDigest("image_input_digest", root.ImageInputDigest); err != nil {
+		return err
+	}
+	if err := validateProductionBootstrapDigest("toolchain_digest", root.ToolchainDigest); err != nil {
+		return err
+	}
+	if root.ImageSchemaVersion != "1" {
+		return errors.New("production bootstrap image_schema_version must be 1")
+	}
+	return nil
+}
+
+func validateProductionBootstrapCandidateRegistry(value string) error {
+	if strings.TrimSpace(value) == "" || strings.TrimSpace(value) != value ||
+		strings.ContainsAny(value, "@#?\x00\r\n") || !strings.Contains(value, "/") {
+		return errors.New("production bootstrap candidate_registry must be a canonical repository without tag or digest")
+	}
+	return nil
 }
 
 func validateProductionBootstrapTrustedRef(value string) error {
@@ -247,22 +296,47 @@ func validateProductionBootstrapDigest(name string, value string) error {
 	return nil
 }
 
-// validateProductionBootstrapSigningRoot 校验 signer、公钥和 signature 形态。
+// validateProductionBootstrapSigningRoot 校验发布 root 与本机 bootstrap signer 相互分离。
 func validateProductionBootstrapSigningRoot(root productionBootstrapRoot, requireSignature bool) error {
+	if err := validateProductionBootstrapSignerIdentities(root); err != nil {
+		return err
+	}
+	rootKey, err := decodeProductionBootstrapPublicKey(root.Ed25519PublicKey)
+	if err != nil {
+		return err
+	}
+	bootstrapKey, err := decodeProductionBootstrapPublicKey(root.BootstrapPublicKey)
+	if err != nil {
+		return fmt.Errorf("production bootstrap execution public key: %w", err)
+	}
+	if bytes.Equal(rootKey, bootstrapKey) {
+		return errors.New("production bootstrap execution public key must differ from release root key")
+	}
+	if requireSignature && strings.TrimSpace(root.Signature) == "" {
+		return errors.New("production bootstrap signature is required")
+	}
+	return nil
+}
+
+// validateProductionBootstrapSignerIdentities 校验 release 与本机执行 signer 的分离关系。
+func validateProductionBootstrapSignerIdentities(root productionBootstrapRoot) error {
 	if err := root.Signer.Validate(); err != nil {
 		return fmt.Errorf("production bootstrap signer: %w", err)
 	}
 	if root.Signer.Algorithm != gatecontract.SignatureAlgorithmEd25519 {
 		return errors.New("production bootstrap signer must use Ed25519")
 	}
-	if root.Controller.Signer != root.Signer {
-		return errors.New("production bootstrap controller attestation signer must match root signer")
+	if err := root.BootstrapSigner.Validate(); err != nil {
+		return fmt.Errorf("production bootstrap execution signer: %w", err)
 	}
-	if _, err := decodeProductionBootstrapPublicKey(root.Ed25519PublicKey); err != nil {
-		return err
+	if root.BootstrapSigner.Algorithm != gatecontract.SignatureAlgorithmEd25519 {
+		return errors.New("production bootstrap execution signer must use Ed25519")
 	}
-	if requireSignature && strings.TrimSpace(root.Signature) == "" {
-		return errors.New("production bootstrap signature is required")
+	if root.BootstrapSigner == root.Signer {
+		return errors.New("production bootstrap execution signer must differ from release root signer")
+	}
+	if root.Controller.Signer != root.BootstrapSigner {
+		return errors.New("production bootstrap controller attestation signer must match bootstrap signer")
 	}
 	return nil
 }
@@ -326,6 +400,11 @@ func productionBootstrapPublicKey(
 		return decodeProductionBootstrapPublicKey(candidate.PublicKey)
 	}
 	return nil, errors.New("production bootstrap signer is absent from installation trust anchors")
+}
+
+// productionBootstrapExecutionPublicKey 返回由发布 root 签名绑定的本机执行公钥。
+func productionBootstrapExecutionPublicKey(root productionBootstrapRoot) (ed25519.PublicKey, error) {
+	return decodeProductionBootstrapPublicKey(root.BootstrapPublicKey)
 }
 
 // decodeProductionBootstrapPublicKey 解码固定长度 Ed25519 public key。

@@ -835,6 +835,7 @@ docs/README.md	docs	docs-agent	doc	1558	项目文档体系	docs,README,项目文
 docs/scripts/macos_release_smoke.sh	docs	docs-agent	script	19061	项目文档体系	docs,scripts,macos,release,smoke,项目文档体系
 docs/security/internal/check_repofp_delegators.go	docs	docs-agent	go-source	2298	项目文档体系	docs,security,internal,check,repofp,delegators,项目文档体系
 docs/security/p21-redteam.sh	docs	docs-agent	script	7238	项目文档体系	docs,security,p21,redteam,项目文档体系
+docs/security/production-bootstrap-provisioning.md	docs	docs-agent	doc	6481	项目文档体系	docs,security,production,bootstrap,provisioning,项目文档体系
 docs/superpowers/plans/2026-04-29-skill-refactor-p1-foundation.md	docs	docs-agent	doc	60142	项目文档体系	docs,superpowers,plans,2026,04,29,skill,refactor,p1,foundation,项目文档体系
 docs/superpowers/plans/2026-04-29-skill-refactor-p2-claude-cutover.md	docs	docs-agent	doc	34495	项目文档体系	docs,superpowers,plans,2026,04,29,skill,refactor,p2,claude,cutover,项目文档体系
 docs/superpowers/plans/2026-04-29-skill-refactor-p3-codex-cutover.md	docs	docs-agent	doc	26090	项目文档体系	docs,superpowers,plans,2026,04,29,skill,refactor,p3,codex,cutover,项目文档体系

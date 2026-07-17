@@ -41,19 +41,100 @@ const (
 )
 
 type productionBootstrapRequest struct {
-	SchemaVersion    uint32                                `json:"schema_version"`
-	Challenge        string                                `json:"challenge"`
-	RootDigest       string                                `json:"root_digest"`
-	RepoID           string                                `json:"repo_id"`
-	RemoteURL        string                                `json:"remote_url"`
-	TrustedRef       string                                `json:"trusted_ref"`
-	BaselineCommit   string                                `json:"baseline_commit"`
-	BaselineTree     string                                `json:"baseline_tree"`
-	PolicyDigest     string                                `json:"policy_digest"`
-	ImageInputDigest string                                `json:"image_input_digest"`
-	Platform         string                                `json:"platform"`
-	Runner           gatecontract.ImageIdentity            `json:"runner"`
-	Controller       productionBootstrapControllerIdentity `json:"controller"`
+	SchemaVersion      uint32                                `json:"schema_version"`
+	Challenge          string                                `json:"challenge"`
+	RootDigest         string                                `json:"root_digest"`
+	RepoID             string                                `json:"repo_id"`
+	RemoteURL          string                                `json:"remote_url"`
+	TrustedRef         string                                `json:"trusted_ref"`
+	ObjectFormat       gatecontract.GitObjectFormat          `json:"object_format"`
+	BaselineCommit     string                                `json:"baseline_commit"`
+	BaselineTree       string                                `json:"baseline_tree"`
+	PolicyDigest       string                                `json:"policy_digest"`
+	ImageInputDigest   string                                `json:"image_input_digest"`
+	ToolchainDigest    string                                `json:"toolchain_digest"`
+	ImageSchemaVersion string                                `json:"image_schema_version"`
+	CandidateRegistry  string                                `json:"candidate_registry"`
+	Platform           string                                `json:"platform"`
+	Runner             gatecontract.ImageIdentity            `json:"runner"`
+	Controller         productionBootstrapControllerIdentity `json:"controller"`
+	BootstrapSigner    gatecontract.SignerIdentity           `json:"bootstrap_signer"`
+	BootstrapPublicKey string                                `json:"bootstrap_ed25519_public_key"`
+}
+
+// Validate 为 controller 与 runner strict decoder 固定完整 request 形态。
+func (request productionBootstrapRequest) Validate() error {
+	if request.SchemaVersion != productionBootstrapProtocolVersion {
+		return errors.New("production bootstrap request schema version is invalid")
+	}
+	challenge, err := base64.RawURLEncoding.DecodeString(request.Challenge)
+	if err != nil || len(challenge) != 32 {
+		return errors.New("production bootstrap request challenge is invalid")
+	}
+	for name, digest := range map[string]string{
+		"root": request.RootDigest, "policy": request.PolicyDigest, "image input": request.ImageInputDigest,
+		"toolchain": request.ToolchainDigest,
+	} {
+		if err := validateProductionBootstrapDigest(name+" request digest", digest); err != nil {
+			return err
+		}
+	}
+	return validateProductionBootstrapRequestIdentity(request)
+}
+
+// validateProductionBootstrapRequestIdentity 固定 request 的仓库、baseline 与 registry 身份。
+func validateProductionBootstrapRequestIdentity(request productionBootstrapRequest) error {
+	if strings.TrimSpace(request.RepoID) == "" || strings.TrimSpace(request.RepoID) != request.RepoID {
+		return errors.New("production bootstrap request repo_id is invalid")
+	}
+	if err := validateProductionBootstrapRemoteURL(request.RemoteURL); err != nil {
+		return err
+	}
+	if err := validateProductionBootstrapTrustedRef(request.TrustedRef); err != nil {
+		return err
+	}
+	return validateProductionBootstrapRequestSource(request)
+}
+
+// validateProductionBootstrapRequestSource 固定请求中的 Git baseline 与候选镜像闭包。
+func validateProductionBootstrapRequestSource(request productionBootstrapRequest) error {
+	if request.ObjectFormat != gatecontract.GitObjectFormatSHA1 &&
+		request.ObjectFormat != gatecontract.GitObjectFormatSHA256 {
+		return errors.New("production bootstrap request object format is invalid")
+	}
+	if err := validateProductionBootstrapOID("request baseline_commit", request.BaselineCommit); err != nil {
+		return err
+	}
+	if err := validateProductionBootstrapOID("request baseline_tree", request.BaselineTree); err != nil {
+		return err
+	}
+	if err := validateProductionBootstrapCandidateRegistry(request.CandidateRegistry); err != nil {
+		return err
+	}
+	if request.ImageSchemaVersion != "1" {
+		return errors.New("production bootstrap request image schema version is invalid")
+	}
+	return validateProductionBootstrapRequestAuthority(request)
+}
+
+// validateProductionBootstrapRequestAuthority 固定 runner、controller 与执行签名身份。
+func validateProductionBootstrapRequestAuthority(request productionBootstrapRequest) error {
+	if err := request.Runner.Validate(); err != nil {
+		return err
+	}
+	if err := validateAcceptedPlatform(request.Runner, request.Platform); err != nil {
+		return err
+	}
+	if err := validateProductionBootstrapControllerIdentity(request.Controller); err != nil {
+		return err
+	}
+	if request.Controller.Signer != request.BootstrapSigner {
+		return errors.New("production bootstrap request controller signer drifted")
+	}
+	if _, err := decodeProductionBootstrapPublicKey(request.BootstrapPublicKey); err != nil {
+		return err
+	}
+	return nil
 }
 
 type productionBootstrapAttestation struct {
@@ -179,9 +260,13 @@ func newProductionBootstrapRequest(
 		SchemaVersion: productionBootstrapProtocolVersion,
 		Challenge:     base64.RawURLEncoding.EncodeToString(challengeBytes), RootDigest: rootDigest,
 		RepoID: root.RepoID, RemoteURL: root.RemoteURL, TrustedRef: root.TrustedRef,
+		ObjectFormat:   root.ObjectFormat,
 		BaselineCommit: root.BaselineCommit, BaselineTree: root.BaselineTree,
 		PolicyDigest: root.PolicyDigest, ImageInputDigest: root.ImageInputDigest,
-		Platform: config.Platform, Runner: root.Runner, Controller: root.Controller,
+		ToolchainDigest: root.ToolchainDigest, ImageSchemaVersion: root.ImageSchemaVersion,
+		CandidateRegistry: root.CandidateRegistry,
+		Platform:          config.Platform, Runner: root.Runner, Controller: root.Controller,
+		BootstrapSigner: root.BootstrapSigner, BootstrapPublicKey: root.BootstrapPublicKey,
 	}
 	digest, err := productionBootstrapJSONDigest(request)
 	return request, digest, err
@@ -225,7 +310,7 @@ func verifyProductionBootstrapAttestation(
 	if attestation.ContainerArgvDigest != expectedArgvDigest {
 		return errors.New("production bootstrap container argv digest drifted")
 	}
-	if err := verifyProductionBootstrapAttestationSignature(root, config.AcceptedImageSigners, attestation); err != nil {
+	if err := verifyProductionBootstrapAttestationSignature(root, attestation); err != nil {
 		return err
 	}
 	return validateProductionBootstrapAcceptedRecord(config, root, attestation)
@@ -275,10 +360,9 @@ func validateProductionBootstrapAttestationTimes(attestation productionBootstrap
 
 func verifyProductionBootstrapAttestationSignature(
 	root productionBootstrapRoot,
-	trusted []productionTrustedKey,
 	attestation productionBootstrapAttestation,
 ) error {
-	publicKey, err := productionBootstrapPublicKey(root, trusted)
+	publicKey, err := productionBootstrapExecutionPublicKey(root)
 	if err != nil {
 		return err
 	}
@@ -314,6 +398,9 @@ func validateProductionBootstrapAcceptedRecord(
 	if err := validateProductionBootstrapAcceptedAuthority(root, attestation, record); err != nil {
 		return err
 	}
+	if record.Image.Registry != root.CandidateRegistry {
+		return errors.New("production bootstrap candidate registry drifted from signed root")
+	}
 	if err := validateAcceptedPlatform(record.Image, config.Platform); err != nil {
 		return err
 	}
@@ -342,7 +429,7 @@ func validateProductionBootstrapAcceptedAuthority(
 	expectedRunner := gatecontract.TrustedRunnerIdentity{
 		BinaryDigest: root.Controller.BinaryDigest, Signer: root.Controller.Signer, PolicyDigest: root.PolicyDigest,
 	}
-	if record.Runner != expectedRunner || record.Signer != root.Signer || record.Generation != 1 || record.PreviousRecordDigest != "" {
+	if record.Runner != expectedRunner || record.Signer != root.BootstrapSigner || record.Generation != 1 || record.PreviousRecordDigest != "" {
 		return errors.New("production bootstrap accepted authority identity is invalid")
 	}
 	if record.AcceptedAt.Before(attestation.StartedAt) || record.AcceptedAt.After(attestation.CompletedAt) {
@@ -449,18 +536,22 @@ func (productionBootstrapHostRuntime) ExecuteController(
 	if err != nil {
 		return productionBootstrapAttestation{}, err
 	}
-	return runProductionBootstrapControllerCommand(ctx, executable, requestData)
+	return runProductionBootstrapControllerCommand(ctx, executable, config.BootstrapControllerKeyFile, requestData)
 }
 
 // runProductionBootstrapControllerCommand 限长收集固定协议的 stdout/stderr。
 func runProductionBootstrapControllerCommand(
 	ctx context.Context,
 	executable string,
+	privateKeyFile string,
 	requestData []byte,
 ) (productionBootstrapAttestation, error) {
 	command := exec.CommandContext(ctx, executable, "bootstrap", "--protocol-version=1")
 	command.Stdin = bytes.NewReader(append(requestData, '\n'))
-	command.Env = []string{"HOME=" + os.Getenv("HOME"), "PATH=" + os.Getenv("PATH"), "LC_ALL=C"}
+	command.Env = []string{
+		"HOME=" + os.Getenv("HOME"), "PATH=" + os.Getenv("PATH"), "LC_ALL=C",
+		productionBootstrapControllerKeyEnv + "=" + privateKeyFile,
+	}
 	stdout := &productionBootstrapLimitedBuffer{limit: productionBootstrapOutputMaxBytes}
 	stderr := &productionBootstrapLimitedBuffer{limit: productionBootstrapStderrMaxBytes}
 	command.Stdout, command.Stderr = stdout, stderr
@@ -586,78 +677,6 @@ func verifyProductionBootstrapCodeRequirement(path string, requirement string) e
 	return nil
 }
 
-type productionBootstrapContainerInspect struct {
-	ID     string   `json:"Id"`
-	Image  string   `json:"Image"`
-	Path   string   `json:"Path"`
-	Args   []string `json:"Args"`
-	Config *struct {
-		Image  string            `json:"Image"`
-		Labels map[string]string `json:"Labels"`
-	} `json:"Config"`
-	HostConfig *struct {
-		AutoRemove     bool     `json:"AutoRemove"`
-		ReadonlyRootfs bool     `json:"ReadonlyRootfs"`
-		NanoCPUs       int64    `json:"NanoCpus"`
-		Memory         int64    `json:"Memory"`
-		NetworkMode    string   `json:"NetworkMode"`
-		CapDrop        []string `json:"CapDrop"`
-		SecurityOpt    []string `json:"SecurityOpt"`
-		Binds          []string `json:"Binds"`
-	} `json:"HostConfig"`
-	State *struct {
-		Status   string `json:"Status"`
-		Running  bool   `json:"Running"`
-		ExitCode int    `json:"ExitCode"`
-	} `json:"State"`
-}
-
-// VerifyAndRemoveContainer 观察 inspect/log，验证后无条件删除一次性容器。
-func (productionBootstrapHostRuntime) VerifyAndRemoveContainer(
-	ctx context.Context,
-	config productionCoordinatorConfig,
-	root productionBootstrapRoot,
-	request productionBootstrapRequest,
-	attestation productionBootstrapAttestation,
-) (retErr error) {
-	defer func() {
-		retErr = errors.Join(retErr, removeProductionBootstrapContainer(context.WithoutCancel(ctx), attestation.ContainerID))
-	}()
-	inspectData, err := productionBootstrapDocker(ctx, "inspect", attestation.ContainerID)
-	if err != nil {
-		return err
-	}
-	document, err := decodeProductionBootstrapContainerInspect(inspectData)
-	if err != nil {
-		return err
-	}
-	canonicalInspect, err := json.Marshal(document)
-	if err != nil {
-		return err
-	}
-	inspectDigest := sha256.Sum256(canonicalInspect)
-	if "sha256:"+hex.EncodeToString(inspectDigest[:]) != attestation.ContainerInspectDigest {
-		return errors.New("production bootstrap container inspect digest drifted")
-	}
-	logs, err := productionBootstrapDocker(ctx, "logs", attestation.ContainerID)
-	if err != nil {
-		return err
-	}
-	logDigest := sha256.Sum256(logs)
-	if "sha256:"+hex.EncodeToString(logDigest[:]) != attestation.ContainerLogDigest {
-		return errors.New("production bootstrap container log digest drifted")
-	}
-	return validateProductionBootstrapContainer(config, root, request, attestation, document)
-}
-
-func decodeProductionBootstrapContainerInspect(data []byte) (productionBootstrapContainerInspect, error) {
-	var documents []productionBootstrapContainerInspect
-	if err := json.Unmarshal(data, &documents); err != nil || len(documents) != 1 {
-		return productionBootstrapContainerInspect{}, errors.Join(errors.New("production bootstrap container inspect must contain one document"), err)
-	}
-	return documents[0], nil
-}
-
 // validateProductionBootstrapContainer 首先固定 runner manifest/config identity。
 func validateProductionBootstrapContainer(
 	config productionCoordinatorConfig,
@@ -670,7 +689,9 @@ func validateProductionBootstrapContainer(
 		return errors.New("production bootstrap container identity is incomplete")
 	}
 	expectedReference := root.Runner.Registry + "@" + root.Runner.PlatformManifestDigest
-	if document.Config.Image != expectedReference || document.Image != root.Runner.ConfigDigest {
+	imageMatchesSignedDigest := document.Image == root.Runner.ConfigDigest ||
+		document.Image == root.Runner.PlatformManifestDigest
+	if document.Config.Image != expectedReference || !imageMatchesSignedDigest {
 		return errors.New("production bootstrap container image identity drifted")
 	}
 	return validateProductionBootstrapContainerPolicy(config, request, attestation, document)
@@ -692,6 +713,9 @@ func validateProductionBootstrapContainerPolicy(
 	if err := validateProductionBootstrapContainerLabels(request, attestation, document); err != nil {
 		return err
 	}
+	if err := validateProductionBootstrapContainerEnvironment(request, document.Config.Env); err != nil {
+		return err
+	}
 	if err := validateProductionBootstrapContainerHost(document.HostConfig); err != nil {
 		return err
 	}
@@ -699,6 +723,26 @@ func validateProductionBootstrapContainerPolicy(
 		return err
 	}
 	return validateProductionBootstrapContainerState(document)
+}
+
+func validateProductionBootstrapContainerEnvironment(
+	request productionBootstrapRequest,
+	environment []string,
+) error {
+	data, err := json.Marshal(request)
+	if err != nil {
+		return err
+	}
+	expected := productionBootstrapRunnerRequestEnv + "=" + base64.RawStdEncoding.EncodeToString(data)
+	for _, value := range environment {
+		if value == expected {
+			return nil
+		}
+		if strings.HasPrefix(value, "SUPER_DOLPHIN_BOOTSTRAP_") {
+			return errors.New("production bootstrap container environment drifted")
+		}
+	}
+	return errors.New("production bootstrap container request environment is missing")
 }
 
 func validateProductionBootstrapContainerArgv(
@@ -721,65 +765,6 @@ func validateProductionBootstrapContainerLabels(
 	for key, value := range productionBootstrapContainerLabels(request, attestation.RequestDigest) {
 		if document.Config.Labels[key] != value {
 			return errors.New("production bootstrap container labels drifted")
-		}
-	}
-	return nil
-}
-
-// validateProductionBootstrapContainerHost 固定资源、网络和 Linux capability 策略。
-func validateProductionBootstrapContainerHost(host *struct {
-	AutoRemove     bool     `json:"AutoRemove"`
-	ReadonlyRootfs bool     `json:"ReadonlyRootfs"`
-	NanoCPUs       int64    `json:"NanoCpus"`
-	Memory         int64    `json:"Memory"`
-	NetworkMode    string   `json:"NetworkMode"`
-	CapDrop        []string `json:"CapDrop"`
-	SecurityOpt    []string `json:"SecurityOpt"`
-	Binds          []string `json:"Binds"`
-}) error {
-	if host.AutoRemove || !host.ReadonlyRootfs || host.NanoCPUs != productionBootstrapContainerCPU ||
-		host.Memory != productionBootstrapContainerMemory || host.NetworkMode != "bridge" ||
-		!slices.Contains(host.CapDrop, "ALL") || !productionBootstrapHasNoNewPrivileges(host.SecurityOpt) {
-		return errors.New("production bootstrap container host policy drifted")
-	}
-	return nil
-}
-
-func validateProductionBootstrapContainerState(document productionBootstrapContainerInspect) error {
-	if document.State.Running || document.State.Status != "exited" || document.State.ExitCode != 0 {
-		return errors.New("production bootstrap container did not exit successfully")
-	}
-	return nil
-}
-
-func productionBootstrapHasNoNewPrivileges(options []string) bool {
-	for _, option := range options {
-		if option == "no-new-privileges" || option == "no-new-privileges:true" {
-			return true
-		}
-	}
-	return false
-}
-
-// validateProductionBootstrapContainerBinds 只允许可选 Docker socket，拒绝源码挂载。
-func validateProductionBootstrapContainerBinds(config productionCoordinatorConfig, binds []string) error {
-	if len(binds) > 1 {
-		return errors.New("production bootstrap container has unexpected bind mounts")
-	}
-	if len(binds) == 0 {
-		return nil
-	}
-	parts := strings.Split(binds[0], ":")
-	if len(parts) < 2 || parts[len(parts)-1] == "ro" {
-		return errors.New("production bootstrap Docker socket bind is invalid")
-	}
-	source, destination := parts[0], parts[1]
-	if destination != "/var/run/docker.sock" || filepath.Base(source) != "docker.sock" || !filepath.IsAbs(source) {
-		return errors.New("production bootstrap container bind is not the Docker socket")
-	}
-	for _, root := range []string{config.TrustedRepository, config.TrustedSourceRoot, config.CandidateBuildRoot} {
-		if productionPathContains(root, source) {
-			return errors.New("production bootstrap Docker socket bind traverses a production source root")
 		}
 	}
 	return nil

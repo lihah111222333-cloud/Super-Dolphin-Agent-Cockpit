@@ -23,6 +23,7 @@ type productionTestFixture struct {
 	configPath          string
 	signer              gatecontract.SignerIdentity
 	privateKey          ed25519.PrivateKey
+	bootstrapRootKey    ed25519.PrivateKey
 	receiptKey          ed25519.PrivateKey
 	grantKey            ed25519.PrivateKey
 	commit              string
@@ -460,10 +461,19 @@ func TestProductionFreshRunnerForwardsOnlyMatchingAcceptedProvenance(t *testing.
 }
 
 func TestProductionCoordinatorConfigFieldRegistryIsComplete(t *testing.T) {
+	assertProductionCoordinatorConfigFields(t)
+	assertProductionBootstrapFields(t)
+}
+
+func assertProductionCoordinatorConfigFields(t *testing.T) {
+	t.Helper()
 	assertProductionFields(t, reflect.TypeFor[productionCoordinatorConfig](), map[string]string{
-		"AcceptedImageRoot": "signed state", "CandidateStateRoot": "durable candidate authority",
-		"CandidateBuildRoot": "candidate isolation",
-		"TrustedSourceRoot":  "snapshot mount boundary", "SeccompProfile": "container policy",
+		"AcceptedImageRoot": "signed state", "BootstrapRootFile": "signed generation-one authority",
+		"BootstrapControllerFile":    "signed external execution closure",
+		"BootstrapControllerKeyFile": "owner-only generation-one signing material",
+		"CandidateStateRoot":         "durable candidate authority",
+		"CandidateBuildRoot":         "candidate isolation",
+		"TrustedSourceRoot":          "snapshot mount boundary", "SeccompProfile": "container policy",
 		"Platform": "image platform", "RepoID": "repository identity", "TrustedRef": "admission ref",
 		"TrustedRepository": "external bare mirror", "AcceptedImageSigners": "signature trust root",
 		"ResultReceiptAuthority": "result receipt authority",
@@ -483,6 +493,26 @@ func TestProductionCoordinatorConfigFieldRegistryIsComplete(t *testing.T) {
 	})
 	assertProductionFields(t, reflect.TypeFor[productionPromotionKey](), map[string]string{
 		"Signer": "host key identity", "PrivateKeyFile": "repository-external signing key",
+	})
+}
+
+func assertProductionBootstrapFields(t *testing.T) {
+	t.Helper()
+	assertProductionFields(t, reflect.TypeFor[productionBootstrapRoot](), map[string]string{
+		"SchemaVersion": "strict root schema", "RepoID": "repository identity", "RemoteURL": "canonical remote", "TrustedRef": "admission ref",
+		"ObjectFormat":   "Git object identity format",
+		"BaselineCommit": "fixed bootstrap commit", "BaselineTree": "fixed bootstrap tree",
+		"PolicyDigest": "fixed baseline policy", "ImageInputDigest": "fixed baseline input closure",
+		"ToolchainDigest": "fixed toolchain closure", "ImageSchemaVersion": "gate image label schema",
+		"CandidateRegistry": "signed immutable candidate publication target",
+		"Runner":            "immutable OCI runner", "Controller": "external execution authority",
+		"Signer": "installation signer", "Ed25519PublicKey": "verification material",
+		"BootstrapSigner": "generation-one signer", "BootstrapPublicKey": "generation-one verification material",
+		"VerifierVersion": "host verifier contract", "Signature": "root authenticity",
+	})
+	assertProductionFields(t, reflect.TypeFor[productionBootstrapControllerIdentity](), map[string]string{
+		"BinaryDigest": "controller executable identity", "DesignatedRequirement": "macOS code-signing identity",
+		"Signer": "controller attestation identity",
 	})
 }
 
@@ -528,6 +558,15 @@ func TestLoadProductionCoordinatorConfigFileValidatesDecodedConfig(t *testing.T)
 		{name: "platform", want: "platform must be explicit", mutate: func(config *productionCoordinatorConfig) {
 			config.Platform = "linux"
 		}},
+		{name: "bootstrap_root", want: "bootstrap trust root", mutate: func(config *productionCoordinatorConfig) {
+			config.BootstrapRootFile = ""
+		}},
+		{name: "bootstrap_controller", want: "bootstrap controller", mutate: func(config *productionCoordinatorConfig) {
+			config.BootstrapControllerFile = ""
+		}},
+		{name: "bootstrap_controller_key", want: "bootstrap controller private key", mutate: func(config *productionCoordinatorConfig) {
+			config.BootstrapControllerKeyFile = ""
+		}},
 		{name: "root_overlap", want: "roots must not overlap", mutate: func(config *productionCoordinatorConfig) {
 			config.CandidateBuildRoot = config.AcceptedImageRoot
 		}},
@@ -551,64 +590,6 @@ func TestProductionCoordinatorRejectsGitObjectEnvironmentOverrides(t *testing.T)
 		!strings.Contains(err.Error(), "GIT_OBJECT_DIRECTORY") {
 		t.Fatalf("productionCoordinatorDependencies() error = %v", err)
 	}
-}
-
-// newProductionTestFixture 组装 production 测试所需的仓库、密钥与权威配置。
-func newProductionTestFixture(t *testing.T) productionTestFixture {
-	t.Helper()
-	root, err := filepath.EvalSymlinks(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	chmodPrivate(t, root)
-	repository := prepareProductionRepository(t, root)
-	authority := prepareProductionAuthority(t, root)
-	config := productionCoordinatorConfig{
-		AcceptedImageRoot:  makePrivateDirectory(t, root, "accepted"),
-		CandidateStateRoot: makePrivateDirectory(t, root, "candidate-state"),
-		CandidateBuildRoot: makePrivateDirectory(t, root, "build"),
-		TrustedSourceRoot:  prepareProductionTrustedSourceRoot(t),
-		SeccompProfile:     writeProductionSeccompProfile(t, root),
-		Platform:           "linux/arm64", RepoID: "example/repository",
-		TrustedRef: "refs/heads/main", TrustedRepository: repository.trustedRepository,
-		AcceptedImageSigners: []productionTrustedKey{{
-			Signer: authority.signer, PublicKey: base64.StdEncoding.EncodeToString(authority.publicKey),
-		}},
-		ResultReceiptAuthority: productionResultReceiptAuthorityConfig{
-			Signer:         authority.receiptSigner,
-			PublicKey:      base64.StdEncoding.EncodeToString(authority.receiptPublicKey),
-			PrivateKeyFile: authority.receiptKeyPath,
-		},
-		ActionGrantAuthority: productionActionGrantAuthorityConfig{
-			Signer: authority.grantSigner, PublicKey: base64.StdEncoding.EncodeToString(authority.grantPublicKey),
-			PrivateKeyFile: authority.grantKeyPath, TTLSeconds: 60,
-		},
-		PromotionSigner: productionPromotionKey{
-			Signer: authority.signer, PrivateKeyFile: authority.promotionKeyPath,
-		},
-		CandidateTTLSeconds: 3600, PromotionPollMillis: 20,
-	}
-	fixture := productionTestFixture{
-		config: config, signer: authority.signer, privateKey: authority.privateKey,
-		receiptKey: authority.receiptPrivateKey, grantKey: authority.grantPrivateKey,
-		commit: repository.commit,
-		tree:   repository.tree, sourceRepo: repository.sourceRepo,
-	}
-	baseTree, err := localci.LoadReadOnlyGitTree(
-		context.Background(), repository.sourceRepo, productionSourceSpec(fixture),
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
-	baseInputs, err := localci.ResolveGateImageInputs(baseTree, productionDigest("1"), config.Platform)
-	if err != nil {
-		t.Fatal(err)
-	}
-	fixture.acceptedInputDigest = baseInputs.ImageInputDigest
-	bootstrapAcceptedState(t, fixture)
-	fixture.configPath = filepath.Join(root, "production.json")
-	writePrivateJSON(t, fixture.configPath, config)
-	return fixture
 }
 
 // prepareProductionRepository 创建 trusted source 与对应 bare authority repository。
@@ -765,7 +746,7 @@ func writeProductionBuildInputs(t *testing.T, repository string) {
 		"go.sum":                         "sum\n",
 		"cmd/super-dolphin-gate/main.go": "package main\n",
 		"build/gate/Dockerfile": "ARG GO_IMAGE=golang@sha256:" + strings.Repeat("b", 64) + "\n" +
-			"FROM ${GO_IMAGE} AS build\nCOPY go.mod go.sum ./\n" +
+			"ARG SOURCE_DATE_EPOCH=0\nFROM ${GO_IMAGE} AS build\nARG SOURCE_DATE_EPOCH\nCOPY go.mod go.sum ./\n" +
 			"COPY cmd/super-dolphin-gate/main.go ./cmd/super-dolphin-gate/main.go\n" +
 			"RUN --network=none go build -o /out/gate ./cmd/super-dolphin-gate\n" +
 			"FROM scratch\nCOPY --from=build /out/gate /gate\nENTRYPOINT [\"/gate\"]\n",
@@ -773,7 +754,8 @@ func writeProductionBuildInputs(t *testing.T, repository string) {
 			"  \"inputs\": [\"build/gate/Dockerfile\", \"build/gate/inputs.json\", \"build/gate/toolchain.lock\", " +
 			"\"cmd/super-dolphin-gate/main.go\", \"go.mod\", \"go.sum\"]\n}\n",
 		"build/gate/toolchain.lock": "{\n  \"schema_version\": \"1\",\n  \"buildkit_version\": \"v0.26.2\",\n" +
-			"  \"dockerfile_frontend\": \"builtin:dockerfile.v1\",\n  \"target_platforms\": [\"linux/arm64\"],\n" +
+			"  \"dockerfile_frontend\": \"builtin:dockerfile.v1\",\n  \"source_date_epoch\": \"0\",\n" +
+			"  \"target_platforms\": [\"linux/arm64\"],\n" +
 			"  \"base_images\": [{\"name\":\"GO_IMAGE\",\"reference\":\"golang@sha256:" + strings.Repeat("b", 64) + "\"}],\n" +
 			"  \"dependency_sources\": [\"go.sum\"],\n  \"network_policy\": \"locked-dependencies\"\n}\n",
 	}

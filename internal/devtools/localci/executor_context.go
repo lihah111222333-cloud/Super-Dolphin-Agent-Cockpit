@@ -368,6 +368,77 @@ func LoadReadOnlyGitTree(ctx context.Context, repoRoot string, spec gate.SourceS
 	return tree, nil
 }
 
+// LoadReadOnlyBootstrapTree 从已验证的 bare authority 读取首次自举镜像输入。
+func LoadReadOnlyBootstrapTree(
+	ctx context.Context,
+	repository string,
+	spec gate.SourceSpec,
+) (ReadOnlyGitTree, error) {
+	if err := errors.Join(validateContext(ctx), spec.Validate(), validateCanonicalDirectory(repository, false)); err != nil {
+		return ReadOnlyGitTree{}, fmt.Errorf("validate bootstrap Git tree input: %w", err)
+	}
+	if err := verifyBootstrapBareRepository(ctx, repository, spec.ObjectFormat); err != nil {
+		return ReadOnlyGitTree{}, err
+	}
+	plan, err := inspectSourcePlan(ctx, repository, spec)
+	if err != nil {
+		return ReadOnlyGitTree{}, err
+	}
+	entries, err := loadReadOnlyTreeEntries(ctx, repository, plan.tree)
+	if err != nil {
+		return ReadOnlyGitTree{}, err
+	}
+	tree := ReadOnlyGitTree{Source: cloneSourceSpec(spec), Entries: entries}
+	if err := verifyReadOnlyGitTree(tree); err != nil {
+		return ReadOnlyGitTree{}, fmt.Errorf("verify bootstrap Git tree: %w", err)
+	}
+	return tree, nil
+}
+
+// verifyBootstrapBareRepository 固定 bare Git 目录与 object format，拒绝工作树输入。
+func verifyBootstrapBareRepository(
+	ctx context.Context,
+	repository string,
+	objectFormat gate.GitObjectFormat,
+) error {
+	bareOutput, err := runGitOutput(ctx, repository, nil, "rev-parse", "--is-bare-repository")
+	if err != nil {
+		return fmt.Errorf("inspect bootstrap bare repository: %w", err)
+	}
+	bare, err := strictGitLine(bareOutput)
+	if err != nil || bare != "true" {
+		return errors.Join(errors.New("bootstrap repository must be bare"), err)
+	}
+	gitDirOutput, err := runGitOutput(ctx, repository, nil, "rev-parse", "--absolute-git-dir")
+	if err != nil {
+		return fmt.Errorf("resolve bootstrap Git directory: %w", err)
+	}
+	gitDir, err := strictGitLine(gitDirOutput)
+	if err != nil || gitDir != repository {
+		return errors.Join(errors.New("bootstrap repository Git directory drifted"), err)
+	}
+	return verifyBootstrapObjectFormat(ctx, repository, objectFormat)
+}
+
+func verifyBootstrapObjectFormat(
+	ctx context.Context,
+	repository string,
+	objectFormat gate.GitObjectFormat,
+) error {
+	output, err := runGitOutput(ctx, repository, nil, "rev-parse", "--show-object-format")
+	if err != nil {
+		return fmt.Errorf("read bootstrap repository object format: %w", err)
+	}
+	actual, err := strictGitLine(output)
+	if err != nil {
+		return fmt.Errorf("parse bootstrap repository object format: %w", err)
+	}
+	if actual != string(objectFormat) {
+		return fmt.Errorf("bootstrap repository object format is %q, want %q", actual, objectFormat)
+	}
+	return nil
+}
+
 // loadReadOnlyTreeEntries 读取稳定排序的 blob 记录并从 Git object database 取得内容。
 func loadReadOnlyTreeEntries(ctx context.Context, repoRoot string, treeOID string) ([]sourceexport.TreeEntry, error) {
 	output, err := runGitOutput(ctx, repoRoot, nil, "ls-tree", "-rz", "--full-tree", treeOID)
