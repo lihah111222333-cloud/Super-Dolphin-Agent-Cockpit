@@ -1309,6 +1309,17 @@ function dependencySource(context) {
   ));
 }
 
+function mountDetachedDependencies(sourceAppRoot, detachedAppRoot) {
+  const sourceNodeModules = path.join(sourceAppRoot, 'node_modules');
+  const detachedNodeModules = path.join(detachedAppRoot, 'node_modules');
+  fs.mkdirSync(detachedNodeModules);
+  for (const entry of fs.readdirSync(sourceNodeModules).sort()) {
+    const sourcePath = path.join(sourceNodeModules, entry);
+    const detachedPath = path.join(detachedNodeModules, entry);
+    fs.symlinkSync(sourcePath, detachedPath, fs.statSync(sourcePath).isDirectory() ? 'dir' : 'file');
+  }
+}
+
 function withDetachedSubject(context, callback) {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'frontend-maintainability-subject-'));
   const detachedRoot = path.join(fs.realpathSync(tempRoot), 'repo');
@@ -1321,7 +1332,7 @@ function withDetachedSubject(context, callback) {
     const dependencies = dependencySource(context);
     const detachedNodeModules = path.join(executionContext.appRoot, 'node_modules');
     if (dependencies && !fs.existsSync(detachedNodeModules)) {
-      fs.symlinkSync(path.join(dependencies, 'node_modules'), detachedNodeModules, 'dir');
+      mountDetachedDependencies(dependencies, executionContext.appRoot);
     }
     return callback(executionContext);
   }

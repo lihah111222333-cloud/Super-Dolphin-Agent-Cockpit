@@ -5,8 +5,11 @@ import {
   mkdtempSync,
   mkdirSync,
   readFileSync,
+  readdirSync,
   realpathSync,
   rmSync,
+  statSync,
+  symlinkSync,
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -151,6 +154,13 @@ function createFinalCliFixture() {
   ]) {
     copyFileSync(join(scriptRoot, name), join(baseRoot, 'frontend-app', 'scripts', name));
   }
+  const sourceNodeModules = join(frozenRepoRoot, 'frontend-app', 'node_modules');
+  const baseNodeModules = join(baseRoot, 'frontend-app', 'node_modules');
+  mkdirSync(baseNodeModules);
+  for (const entry of readdirSync(sourceNodeModules)) {
+    const sourcePath = join(sourceNodeModules, entry);
+    symlinkSync(sourcePath, join(baseNodeModules, entry), statSync(sourcePath).isDirectory() ? 'dir' : 'file');
+  }
   write('frontend-app/scorer-freeze-marker.txt', 'frozen scorer fixture\n', baseRoot);
   git(baseRoot, ['add', '.']);
   git(baseRoot, ['commit', '-q', '-m', '测试：冻结最终评分器']);
@@ -166,14 +176,46 @@ function createFinalCliFixture() {
   packageDocument.scripts.test = 'false';
   packageDocument.scripts.build = 'false';
   write('frontend-app/package.json', `${JSON.stringify(packageDocument, null, 2)}\n`, subjectRoot);
+  write(
+    'frontend-app/scripts/detached-mount-probe.test.mjs',
+    "import { expect, it } from 'vitest';\nit('executes through detached dependencies', () => expect(true).toBe(true));\n",
+    subjectRoot,
+  );
   write('Makefile', 'frontend-embed-verify:\n\t@false\n', subjectRoot);
   write('frontend-app/scripts/delivery-smoke-runner.mjs', [
+    "import { spawnSync } from 'node:child_process';",
+    "import { lstatSync, writeFileSync } from 'node:fs';",
     "import process from 'node:process';",
-    "import { resolve } from 'node:path';",
+    "import { dirname, resolve } from 'node:path';",
     "import { fileURLToPath } from 'node:url';",
     '',
     'const SCRIPT_PATH = fileURLToPath(import.meta.url);',
-    "if (process.argv[1] && resolve(process.argv[1]) === SCRIPT_PATH) process.stdout.write('{}\\n');",
+    "const FRONTEND_ROOT = resolve(dirname(SCRIPT_PATH), '..');",
+    "const REPO_ROOT = resolve(FRONTEND_ROOT, '..');",
+    '',
+    'if (process.argv[1] && resolve(process.argv[1]) === SCRIPT_PATH) {',
+    '  const proofPath = process.env.SCORER_DETACHED_MOUNT_PROOF;',
+    "  if (!proofPath) throw new Error('SCORER_DETACHED_MOUNT_PROOF is required');",
+    "  const gitStatus = spawnSync('git', ['status', '--porcelain', '--untracked-files=all'], { cwd: REPO_ROOT, encoding: 'utf8' });",
+    '  const vitest = spawnSync(process.execPath, [',
+    "    resolve(FRONTEND_ROOT, 'node_modules', 'vitest', 'vitest.mjs'),",
+    "    'run', 'scripts/detached-mount-probe.test.mjs', '--reporter=json', '--no-file-parallelism', '--maxWorkers=1',",
+    "  ], { cwd: FRONTEND_ROOT, encoding: 'utf8' });",
+    "  const nodeModules = lstatSync(resolve(FRONTEND_ROOT, 'node_modules'));",
+    '  const proof = {',
+    '    gitStatusExitCode: gitStatus.status,',
+    '    gitStatus: gitStatus.stdout,',
+    '    nodeModulesIsDirectory: nodeModules.isDirectory(),',
+    '    nodeModulesIsSymbolicLink: nodeModules.isSymbolicLink(),',
+    '    vitestExitCode: vitest.status,',
+    '    vitestStderr: vitest.stderr,',
+    '    vitestStdout: vitest.stdout,',
+    '  };',
+    '  writeFileSync(proofPath, JSON.stringify(proof));',
+    '  const vitestReport = JSON.parse(vitest.stdout);',
+    '  writeFileSync(proofPath, JSON.stringify({ ...proof, vitestPassedTests: vitestReport.numPassedTests }));',
+    "  process.stdout.write('{}\\n');",
+    '}',
     '',
   ].join('\n'), subjectRoot);
   git(subjectRoot, ['add', '.']);
@@ -559,10 +601,13 @@ describe('frozen scorer target binding', () => {
     })).toThrow('frozen governance drift');
   }, 30_000);
 
-  it('canonicalizes the macOS /var symlink alias before detached runner execution', () => {
+  it('keeps the canonical detached dependency mount Git-clean and Vitest-executable', () => {
     const fixture = createFinalCliFixture();
     try {
       const tmpAlias = detachedTmpAlias();
+      const proofRoot = mkdtempSync(join(tmpdir(), 'frontend-maintainability-detached-proof-'));
+      const proofPath = join(proofRoot, 'proof.json');
+      temporaryRepositories.push(proofRoot);
       if (process.platform === 'darwin') {
         expect(tmpAlias).toMatch(/^\/var(?:\/|$)/u);
         expect(realpathSync(tmpAlias)).toMatch(/^\/private\/var(?:\/|$)/u);
@@ -575,18 +620,31 @@ describe('frozen scorer target binding', () => {
       ], {
         cwd: join(fixture.baseRoot, 'frontend-app'),
         encoding: 'utf8',
-        env: { ...process.env, TMPDIR: tmpAlias },
+        env: {
+          ...process.env,
+          SCORER_DETACHED_MOUNT_PROOF: proofPath,
+          TMPDIR: tmpAlias,
+        },
       });
 
       expect(result.status).toBe(1);
       expect(result.stdout).toContain(`SCORE_BASE\t${fixture.scoreBaseSha}`);
-      expect(result.stdout).toContain(`SCORE\t0.0\t${fixture.subjectSha}`);
+      expect(result.stdout).toMatch(new RegExp(`^SCORE\\t\\d+\\.\\d\\t${fixture.subjectSha}$`, 'mu'));
       expect(result.stdout).toContain('REPORT\t');
       expect(result.stderr).toContain('FINAL_GATE\tFAIL');
       const reportPath = result.stdout.match(/^REPORT\t(.+)$/mu)?.[1];
       expect(reportPath).toBeTruthy();
       temporaryRepositories.push(dirname(reportPath));
       const report = JSON.parse(readFileSync(reportPath, 'utf8'));
+      const mountProof = JSON.parse(readFileSync(proofPath, 'utf8'));
+      expect(mountProof).toMatchObject({
+        gitStatusExitCode: 0,
+        gitStatus: '',
+        nodeModulesIsDirectory: true,
+        nodeModulesIsSymbolicLink: false,
+        vitestExitCode: 0,
+        vitestPassedTests: 1,
+      });
       const deliveryEvidence = report.controls.find(({ id }) => id === 'T05-build-embed-smoke').evidence[0];
       expect(deliveryEvidence.summary).not.toContain('runner report is not valid JSON');
       expect(deliveryEvidence.summary).toBe('runner report schemaVersion must equal 1');
@@ -594,7 +652,7 @@ describe('frozen scorer target binding', () => {
     finally {
       execFileSync('git', ['worktree', 'remove', '--force', fixture.subjectRoot], { cwd: fixture.baseRoot });
     }
-  }, 60_000);
+  }, 180_000);
 });
 
 describe('executable evidence registry', () => {
