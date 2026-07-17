@@ -409,6 +409,9 @@ func turnInterruptHandler(svc Service, resolver contract.SessionResolver) handle
 				return nil, err
 			}
 			if !accepted {
+				if status.interruptEnvelope().mode == "not_applied" {
+					return buildInterruptNotAppliedResult(status, status.interruptEnvelope(), p.ExpectedTurnID, p.RequestID), nil
+				}
 				return buildInterruptTargetChangedResult(status, p.ExpectedTurnID, p.RequestID), nil
 			}
 			return buildInterruptResult(status, status.interruptEnvelope(), p.ExpectedTurnID, p.RequestID, true), nil

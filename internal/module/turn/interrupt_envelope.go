@@ -69,6 +69,19 @@ func buildTurnInterruptTimeoutEnvelope(beforeRaw string, afterRaw string, waited
 	}
 }
 
+// buildTurnInterruptNotAppliedEnvelope 区分 provider 拒绝当前目标与本地目标已经切换。
+func buildTurnInterruptNotAppliedEnvelope(beforeRaw string) turnInterruptEnvelope {
+	state := normalizeTurnInterruptState(beforeRaw)
+	return turnInterruptEnvelope{
+		confirmed:      false,
+		mode:           "not_applied",
+		interruptSent:  false,
+		stateBefore:    state,
+		stateAfter:     state,
+		activeObserved: true,
+	}
+}
+
 // normalizeTurnInterruptState 把 provider 与 tracker 的多种终止词折叠成 UI 分支需要的少数类别。
 // 未知状态原样返回，让前端和日志仍能看到 provider 的真实字面量。
 func normalizeTurnInterruptState(raw string) string {

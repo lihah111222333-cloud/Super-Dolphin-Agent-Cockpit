@@ -152,7 +152,7 @@ describe('ApprovalDecisionShelf', () => {
     expect(onConfirm).toHaveBeenLastCalledWith('reject');
   });
 
-  it('retains the selected choice after failure and allows an explicit retry', async () => {
+  it('matrix:FM-24 layer:frontend retains the selected choice after failure and allows an explicit retry', async () => {
     const onConfirm = vi.fn()
       .mockRejectedValueOnce(new Error('approval unavailable'))
       .mockResolvedValueOnce(true);

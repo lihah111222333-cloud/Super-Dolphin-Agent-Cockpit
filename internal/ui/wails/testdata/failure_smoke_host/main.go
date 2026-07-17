@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -39,6 +40,14 @@ type frontendIngestParams struct {
 type preferenceGetParams struct {
 	Key string `json:"key"`
 	Cwd string `json:"cwd,omitempty"`
+}
+
+type promptHistoryParams struct {
+	CWD            string `json:"cwd"`
+	ActiveThreadID string `json:"activeThreadId,omitempty"`
+	Cursor         string `json:"cursor,omitempty"`
+	Nonce          string `json:"nonce,omitempty"`
+	Limit          int    `json:"limit"`
 }
 
 // main 启动只服务于真实 DOM failure smoke 的 Wails WebSocket 测试宿主。
@@ -132,6 +141,7 @@ func fixtureHandlers(dispatcher *event.Dispatcher, project string) handler.Map {
 			}
 		},
 	)
+	handlers["thread/promptHistory"] = newPromptHistoryHandler(project)
 	handlers["failure-smoke/trigger"] = platformrpc.StrictHandler(func(_ context.Context, params triggerParams) (any, error) {
 		if params.CaseID != "terminal-failed" {
 			return nil, fmt.Errorf("unsupported failure smoke case %q", params.CaseID)
@@ -142,6 +152,25 @@ func fixtureHandlers(dispatcher *event.Dispatcher, project string) handler.Map {
 		return map[string]any{"ok": true, "caseId": params.CaseID}, nil
 	})
 	return handlers
+}
+
+func newPromptHistoryHandler(project string) handler.Func {
+	var calls atomic.Int32
+	return platformrpc.StrictHandler(func(_ context.Context, params promptHistoryParams) (any, error) {
+		if params.CWD != project || params.ActiveThreadID != smokeThreadID || params.Limit != 50 {
+			return nil, fmt.Errorf("invalid prompt history smoke request")
+		}
+		if calls.Add(1) == 1 {
+			return nil, fmt.Errorf("prompt history private token=secret")
+		}
+		return map[string]any{
+			"entries": []any{map[string]any{
+				"threadId": smokeThreadID, "messageId": "prompt-history-retry",
+				"text": "桌面 smoke 重试恢复", "createdAt": time.Now().UTC().Format(time.RFC3339Nano),
+			}},
+			"nextCursor": "", "hasMore": false, "nonce": "desktop-failure-smoke-nonce",
+		}, nil
+	})
 }
 
 // fixtureResponses 返回前端启动所需的最小 RPC 快照，避免 smoke 依赖真实用户数据。

@@ -25,3 +25,32 @@ test('terminal-failed crosses Go RPC WebSocket and canonical event surface into 
   await expect(page.getByText('provider internal stack secret')).toHaveCount(0);
   expect(pageErrors).toEqual([]);
 });
+
+test('prompt-history-reject preserves the real DOM draft and cursor before retry recovery', async ({ page }) => {
+  const pageErrors = [];
+  page.on('pageerror', (error) => pageErrors.push(error.message));
+
+  await page.goto('/');
+  await expect(page.getByTestId('chat-page')).toBeVisible();
+  const composer = page.getByTestId('composer-input');
+  await composer.fill('draft kept');
+  await composer.evaluate((textarea) => textarea.setSelectionRange(3, 3));
+  await composer.press('ArrowUp');
+
+  const alert = page.getByTestId('global-action-failure');
+  await expect(alert).toBeVisible();
+  await expect(alert).toContainText('提示历史暂时不可用');
+  await expect(alert).not.toContainText('prompt history private token=secret');
+  await expect(composer).toHaveValue('draft kept');
+  expect(await composer.evaluate((textarea) => {
+    const input = /** @type {HTMLTextAreaElement} */ (textarea);
+    return [input.selectionStart, input.selectionEnd];
+  })).toEqual([3, 3]);
+  await expect(page.getByText('桌面 smoke 重试恢复')).toHaveCount(0);
+
+  await alert.getByRole('button', { name: '重试' }).click();
+  await expect(composer).toHaveValue('桌面 smoke 重试恢复');
+  await expect(alert).toHaveCount(0);
+  await expect(page.getByText('prompt history private token=secret')).toHaveCount(0);
+  expect(pageErrors).toEqual([]);
+});
