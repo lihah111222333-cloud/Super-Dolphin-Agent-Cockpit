@@ -152,11 +152,12 @@ func RunDesktop(parent context.Context, frontendFS fs.FS, ready func(context.Con
 	}
 	var wailsApp *application.App
 	var lifecycle *uiwails.WailsLifecycle
+	var activation *uiwails.ActivationReadiness
 
 	app := newDesktopFXApp(
 		fx.Supply(fx.Annotate(owner, fx.As(new(RootCtxProvider)))),
 		fx.Supply(uiwails.FrontendFS{FS: frontendFS}),
-		fx.Populate(&wailsApp, &lifecycle),
+		fx.Populate(&wailsApp, &lifecycle, &activation),
 	)
 	startCtx, cancelStart := platformconfig.WithTimeout(ctx, platformconfig.StartupTimeout)
 	defer cancelStart()
@@ -169,12 +170,12 @@ func RunDesktop(parent context.Context, frontendFS fs.FS, ready func(context.Con
 			return errors.New("wails lifecycle not available")
 		}
 		return nil
-	}, ready, stopper.Stop); err != nil {
+	}, stopper.Stop); err != nil {
 		return err
 	}
 
 	watcher := watchFXShutdown(ctx, app, lifecycle, stopper.Stop)
-	runErr := wailsApp.Run()
+	runErr := runActivatedDesktop(startCtx, activation, ready, wailsApp.Run, wailsApp.Quit)
 	owner.Cancel()
 	preDrainErr := preDrainDesktopRuntime(ctx, owner)
 	watcher.StopAndWait()
@@ -183,15 +184,14 @@ func RunDesktop(parent context.Context, frontendFS fs.FS, ready func(context.Con
 	return errors.Join(runErr, preDrainErr, stopErr)
 }
 
-// prepareDesktopRuntime 串行执行 Fx Start、Wails 校验与 ready，后两步失败时停止 Fx。
+// prepareDesktopRuntime 串行执行 Fx Start 与 Wails 依赖校验；ACK 由 ApplicationStarted 驱动。
 func prepareDesktopRuntime(
 	ctx context.Context,
 	start func(context.Context) error,
 	validate func() error,
-	ready func(context.Context) error,
 	stop func() error,
 ) error {
-	if ctx == nil || start == nil || validate == nil || ready == nil || stop == nil {
+	if ctx == nil || start == nil || validate == nil || stop == nil {
 		return errors.New("desktop startup lifecycle dependencies are required")
 	}
 	if err := start(ctx); err != nil {
@@ -200,10 +200,53 @@ func prepareDesktopRuntime(
 	if err := validate(); err != nil {
 		return errors.Join(err, stop())
 	}
-	if err := ready(ctx); err != nil {
-		return errors.Join(err, stop())
-	}
 	return nil
+}
+
+var (
+	errDesktopNotActivated = errors.New("wails application exited before ApplicationStarted")
+	errDesktopRunBeforeACK = errors.New("wails application exited before activation ACK completed")
+)
+
+// runActivatedDesktop 在调用方 goroutine 运行 Wails，并仅在 ApplicationStarted 后写入 ACK。
+func runActivatedDesktop(
+	ctx context.Context,
+	activation *uiwails.ActivationReadiness,
+	ready func(context.Context) error,
+	run func() error,
+	quit func(),
+) error {
+	if ctx == nil || activation == nil || ready == nil || run == nil || quit == nil {
+		return errors.New("desktop activation lifecycle dependencies are required")
+	}
+	activationCtx, cancelActivation := context.WithCancelCause(ctx)
+	defer cancelActivation(context.Canceled)
+	readyDone := make(chan error, 1)
+	runtimesafe.SafeGo(activationCtx, pkglogger.Get(), "app.desktopActivation", func(context.Context) {
+		if err := activation.Wait(activationCtx); err != nil {
+			quit()
+			readyDone <- errors.Join(errDesktopNotActivated, err)
+			return
+		}
+		err := ready(activationCtx)
+		if err != nil {
+			quit()
+		}
+		readyDone <- err
+	})
+
+	runErr := run()
+	select {
+	case readyErr := <-readyDone:
+		return errors.Join(runErr, readyErr)
+	default:
+	}
+	if !activation.Activated() {
+		cancelActivation(errDesktopNotActivated)
+	} else {
+		cancelActivation(errDesktopRunBeforeACK)
+	}
+	return errors.Join(runErr, <-readyDone)
 }
 
 // runDesktopPreflight 在 Fx 启动前准备桌面运行环境。

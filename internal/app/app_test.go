@@ -8,6 +8,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	uiwails "github.com/lihah111222333-cloud/super-dolphin-agent/internal/ui/wails"
 )
 
 func startAppGoroutineForTest(t *testing.T, label string, run func()) <-chan struct{} {
@@ -171,8 +173,8 @@ func TestRunShutdownWatcherStopsBackendBeforeAllowingQuit(t *testing.T) {
 	}
 }
 
-func TestPrepareDesktopRuntimeRecordsReadyAfterStartAndValidation(t *testing.T) {
-	events := make([]string, 0, 4)
+func TestPrepareDesktopRuntimeStartsAndValidatesBeforeRun(t *testing.T) {
+	events := make([]string, 0, 3)
 	err := prepareDesktopRuntime(
 		context.Background(),
 		func(context.Context) error {
@@ -183,10 +185,6 @@ func TestPrepareDesktopRuntimeRecordsReadyAfterStartAndValidation(t *testing.T) 
 			events = append(events, "validate")
 			return nil
 		},
-		func(context.Context) error {
-			events = append(events, "ready")
-			return nil
-		},
 		func() error {
 			events = append(events, "stop")
 			return nil
@@ -195,28 +193,85 @@ func TestPrepareDesktopRuntimeRecordsReadyAfterStartAndValidation(t *testing.T) 
 	if err != nil {
 		t.Fatalf("prepareDesktopRuntime() error = %v", err)
 	}
-	if got := strings.Join(events, ","); got != "start,validate,ready" {
-		t.Fatalf("events = %q, want start,validate,ready", got)
+	if got := strings.Join(events, ","); got != "start,validate" {
+		t.Fatalf("events = %q, want start,validate", got)
 	}
 }
 
-func TestPrepareDesktopRuntimeReadyFailureStopsFXOnce(t *testing.T) {
-	readyErr := errors.New("record exact ready ACK")
+func TestPrepareDesktopRuntimeValidationFailureStopsFXOnce(t *testing.T) {
+	validationErr := errors.New("validate Wails dependencies")
 	stopCalls := 0
 	err := prepareDesktopRuntime(
 		context.Background(),
 		func(context.Context) error { return nil },
-		func() error { return nil },
-		func(context.Context) error { return readyErr },
+		func() error { return validationErr },
 		func() error {
 			stopCalls++
 			return nil
 		},
 	)
-	if !errors.Is(err, readyErr) {
-		t.Fatalf("prepareDesktopRuntime() error = %v, want %v", err, readyErr)
+	if !errors.Is(err, validationErr) {
+		t.Fatalf("prepareDesktopRuntime() error = %v, want %v", err, validationErr)
 	}
 	if stopCalls != 1 {
 		t.Fatalf("stop calls = %d, want 1", stopCalls)
+	}
+}
+
+func TestRunActivatedDesktopDoesNotACKBeforeApplicationStarted(t *testing.T) {
+	readiness := uiwails.NewActivationReadiness()
+	readyCalls := 0
+	runErr := errors.New("wails run failed before activation")
+	err := runActivatedDesktop(
+		context.Background(),
+		readiness,
+		func(context.Context) error { readyCalls++; return nil },
+		func() error { return runErr },
+		func() {},
+	)
+	if !errors.Is(err, runErr) || !errors.Is(err, errDesktopNotActivated) {
+		t.Fatalf("runActivatedDesktop() error = %v, want run and activation errors", err)
+	}
+	if readyCalls != 0 {
+		t.Fatalf("ready calls = %d, want 0", readyCalls)
+	}
+}
+
+func TestRunActivatedDesktopACKsAfterApplicationStarted(t *testing.T) {
+	readiness := uiwails.NewActivationReadiness()
+	readyCalled := make(chan struct{})
+	err := runActivatedDesktop(
+		context.Background(),
+		readiness,
+		func(context.Context) error { close(readyCalled); return nil },
+		func() error {
+			readiness.MarkApplicationStarted()
+			<-readyCalled
+			return nil
+		},
+		func() {},
+	)
+	if err != nil {
+		t.Fatalf("runActivatedDesktop() error = %v", err)
+	}
+}
+
+func TestRunActivatedDesktopPropagatesACKFailureAndQuits(t *testing.T) {
+	readiness := uiwails.NewActivationReadiness()
+	readyErr := errors.New("record healthy ACK")
+	quit := make(chan struct{})
+	err := runActivatedDesktop(
+		context.Background(),
+		readiness,
+		func(context.Context) error { return readyErr },
+		func() error {
+			readiness.MarkApplicationStarted()
+			<-quit
+			return nil
+		},
+		func() { close(quit) },
+	)
+	if !errors.Is(err, readyErr) {
+		t.Fatalf("runActivatedDesktop() error = %v, want %v", err, readyErr)
 	}
 }

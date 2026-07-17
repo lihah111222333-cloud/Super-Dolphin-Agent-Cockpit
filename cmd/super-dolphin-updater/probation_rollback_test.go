@@ -73,8 +73,59 @@ func TestCandidateReadinessWaitsForAuthenticatedDelayedListener(t *testing.T) {
 	}
 }
 
+func TestCandidateStartFailureUsesSharedForceReclaim(t *testing.T) {
+	handle, identity, err := startCandidateHandleTestProcess("ignore_termination")
+	if err != nil {
+		t.Fatal(err)
+	}
+	primary := errors.New("candidate READY failed")
+	injected := errors.New("identity read failed")
+	handle.captureStable = func(int) (pidregistry.StableProcessIdentity, error) {
+		return pidregistry.StableProcessIdentity{}, injected
+	}
+	returned, gotErr := failCandidateStart(handle, primary)
+	if returned != nil || !errors.Is(gotErr, primary) {
+		t.Fatalf("failCandidateStart() = handle %v error %v, want nil handle and primary", returned != nil, gotErr)
+	}
+	assertCandidateReaped(t, updaterRollbackResult{candidate: handle, identity: identity})
+}
+
+func TestCandidateStartFailureRetainsHandleWhenReclaimUnconfirmed(t *testing.T) {
+	handle, identity, err := startCandidateHandleTestProcess("serve")
+	if err != nil {
+		t.Fatal(err)
+	}
+	primary := errors.New("candidate identity capture failed")
+	injected := errors.New("endpoint cleanup failed")
+	handle.cleanupEndpoint = func(string) error { return injected }
+	handle.directChild = false
+	returned, gotErr := failCandidateStart(handle, primary)
+	if returned != handle || !errors.Is(gotErr, primary) || !errors.Is(gotErr, injected) {
+		t.Fatalf("failCandidateStart() = handle %v error %v, want retained handle and joined errors", returned == handle, gotErr)
+	}
+	handle.directChild = true
+	handle.cleanupEndpoint = pidregistry.CleanupCooperativeTerminationEndpoint
+	if err := handle.Reclaim(context.Background(), identity); err != nil {
+		t.Fatalf("cleanup retained candidate: %v", err)
+	}
+	assertCandidateReaped(t, updaterRollbackResult{candidate: handle, identity: identity})
+}
+
+func TestCandidateReclaimUsesIndependentDeadlineAfterCallerCancel(t *testing.T) {
+	handle, identity, err := startCandidateHandleTestProcess("serve")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := handle.Reclaim(ctx, identity); err != nil {
+		t.Fatalf("Reclaim() error = %v", err)
+	}
+	assertCandidateReaped(t, updaterRollbackResult{candidate: handle, identity: identity})
+}
+
 func TestProbationImmediatePostStartFailuresReapCandidate(t *testing.T) {
-	for _, failure := range []string{"owner", "lease", "guard", "supervisor"} {
+	for _, failure := range []string{"owner", "lease", "guard", "supervisor", "supervisor_run"} {
 		t.Run(failure, func(t *testing.T) { runProbationImmediatePostStartFailure(t, failure) })
 	}
 }
@@ -85,10 +136,22 @@ func runProbationImmediatePostStartFailure(t *testing.T, failure string) {
 		return h.resolve, h.launch
 	}
 	var result updaterRollbackResult
+	mode := "serve"
+	if failure == "supervisor" || failure == "supervisor_run" {
+		mode = "ignore_termination"
+	}
 	h.app.startProbationCandidate = func(context.Context, recovery.Transaction) (*candidateHandle, error) {
-		handle, identity, err := startCandidateHandleTestProcess("serve")
+		handle, identity, err := startCandidateHandleTestProcess(mode)
 		result.candidate, result.identity = handle, identity
+		if err == nil {
+			injectCandidateRollbackFailure(t, failure, handle, identity)
+		}
 		return handle, err
+	}
+	launch := h.launch
+	h.launch = func(ctx context.Context, token string) (recovery.RollbackRestartControl, error) {
+		assertCandidateReclaimedBeforeRestart(t, result)
+		return launch(ctx, token)
 	}
 	cause := errors.New("force probation " + failure + " failure")
 	configureProbationImmediateFailure(t, &h.app, &h.transaction, failure, cause)
@@ -102,6 +165,43 @@ func runProbationImmediatePostStartFailure(t *testing.T, failure string) {
 	token := h.startedToken
 	h.tokenMu.Unlock()
 	assertUpdaterRollbackRestart(t, h, token)
+}
+
+func assertCandidateReclaimedBeforeRestart(t *testing.T, result updaterRollbackResult) {
+	t.Helper()
+	if result.candidate == nil {
+		t.Fatal("rollback restart began without candidate handle evidence")
+	}
+	select {
+	case <-result.candidate.done:
+	default:
+		t.Fatal("rollback restart began before candidate reap")
+	}
+	assertCandidateGone(t, result.identity)
+	if _, err := os.Stat(result.identity.TerminationEndpoint); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("rollback restart began before endpoint cleanup: %v", err)
+	}
+}
+
+func injectCandidateRollbackFailure(t *testing.T, failure string, handle *candidateHandle, identity recovery.ProcessIdentity) {
+	t.Helper()
+	injected := errors.New("injected candidate cleanup failure")
+	switch failure {
+	case "owner":
+		if err := os.Remove(identity.TerminationEndpoint); err != nil {
+			t.Fatalf("remove candidate endpoint: %v", err)
+		}
+	case "lease":
+		handle.terminate = func(context.Context, recovery.ProcessIdentity) error { return injected }
+	case "guard":
+		handle.terminate = func(context.Context, recovery.ProcessIdentity) error { return injected }
+		handle.captureStable = func(int) (pidregistry.StableProcessIdentity, error) {
+			return pidregistry.StableProcessIdentity{}, injected
+		}
+	case "supervisor", "supervisor_run":
+	default:
+		t.Fatalf("unknown candidate cleanup injection %q", failure)
+	}
 }
 
 func configureProbationImmediateFailure(
@@ -126,6 +226,12 @@ func configureProbationImmediateFailure(
 		transaction.Paths.RecoveryDir = t.TempDir()
 		app.newProbationSupervisor = func(recovery.ProbationSupervisorConfig) (*recovery.ProbationSupervisor, error) {
 			return nil, cause
+		}
+	case "supervisor_run":
+		transaction.Paths.RecoveryDir = t.TempDir()
+		app.newProbationSupervisor = func(config recovery.ProbationSupervisorConfig) (*recovery.ProbationSupervisor, error) {
+			config.ProcessAlive = func(recovery.ProcessIdentity) (bool, error) { return false, cause }
+			return recovery.NewProbationSupervisor(config)
 		}
 	default:
 		t.Fatalf("unknown probation failure %q", failure)
@@ -295,10 +401,21 @@ func assertCandidateReaped(t *testing.T, result updaterRollbackResult) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	if err := result.candidate.Wait(ctx); err != nil {
+	if err := result.candidate.Wait(ctx); err != nil && !isCandidateExitError(err) {
 		t.Fatalf("candidate reap error = %v", err)
 	}
+	if got := result.candidate.waitCalls.Load(); got != 1 {
+		t.Fatalf("candidate cmd.Wait calls = %d, want 1", got)
+	}
 	assertCandidateGone(t, result.identity)
+	if _, err := os.Stat(result.identity.TerminationEndpoint); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("candidate termination endpoint remains: %v", err)
+	}
+}
+
+func isCandidateExitError(err error) bool {
+	var exitErr *exec.ExitError
+	return errors.As(err, &exitErr)
 }
 
 func assertCandidateGone(t *testing.T, identity recovery.ProcessIdentity) {
@@ -381,12 +498,16 @@ func TestProbationCandidateProcess(t *testing.T) {
 		time.Sleep(100 * time.Millisecond)
 		mode = "serve"
 	}
+	stop := func() { os.Exit(0) }
+	if mode == "ignore_termination" {
+		stop = func() {}
+	}
 	server, err := pidregistry.StartCooperativeTerminationServer(
 		os.Getenv("SUPER_DOLPHIN_TEST_TERMINATION_ENDPOINT"),
 		os.Getenv("SUPER_DOLPHIN_TEST_TERMINATION_TOKEN"),
-		func() { os.Exit(0) },
+		stop,
 	)
-	if mode != "serve" || err != nil {
+	if (mode != "serve" && mode != "ignore_termination") || err != nil {
 		os.Exit(20)
 	}
 	defer server.Close()
@@ -444,7 +565,7 @@ func candidateTestEndpoint() (string, error) {
 
 func waitCandidateEndpoint(cmd *exec.Cmd, mode, endpoint string) error {
 	deadline := time.Now().Add(3 * time.Second)
-	for mode == "serve" {
+	for mode == "serve" || mode == "ignore_termination" {
 		if _, err := os.Stat(endpoint); err == nil {
 			return nil
 		} else if !errors.Is(err, os.ErrNotExist) {

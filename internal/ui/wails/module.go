@@ -29,6 +29,7 @@ var Module = fx.Module("ui.wails",
 		NewService,
 		NewActiveAgentCounter,
 		NewWailsLifecycle,
+		NewActivationReadiness,
 		NewEventBridge,
 		NewWailsApplication,
 		NewHTTPAssetServer,
@@ -127,6 +128,7 @@ type applicationParams struct {
 	Binding   *App
 	Service   application.Service
 	Lifecycle *WailsLifecycle
+	Readiness *ActivationReadiness
 	Frontend  FrontendFS `optional:"true"`
 }
 
@@ -149,6 +151,9 @@ type httpAssetServerParams struct {
 // NewWailsApplication 创建 Wails 桌面应用。
 // 窗口标题和调试开关来自绑定对象，避免应用层重复解析桌面配置。
 func NewWailsApplication(p applicationParams) (*application.App, error) {
+	if p.Readiness == nil {
+		return nil, errors.New("wails activation readiness is required")
+	}
 	title := applicationTitle()
 	debug := false
 	if p.Binding != nil {
@@ -181,6 +186,7 @@ func NewWailsApplication(p applicationParams) (*application.App, error) {
 		wailsApp.Event.Emit(channel, payload)
 	})
 	wailsApp.Event.OnApplicationEvent(events.Common.ApplicationStarted, func(*application.ApplicationEvent) {
+		p.Readiness.MarkApplicationStarted()
 		p.Lifecycle.MarkFrontendReady()
 		safego.Go(context.Background(), nil, "wails.clipboard.cleanup", func(context.Context) {
 			cleanupStaleClipboardImages(p.Logger, os.TempDir(), defaultClipboardRetention)

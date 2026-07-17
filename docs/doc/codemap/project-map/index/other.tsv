@@ -22,11 +22,11 @@ cmd/super-dolphin-updater/install.go	cmd	other	go-source	30175	Super-Dolphin upd
 cmd/super-dolphin-updater/main.go	cmd	other	go-source	8740	Super-Dolphin updater install and detach command	cmd,super,dolphin,updater,main,Super-Dolphin,install,and,detach,command
 cmd/super-dolphin-updater/package_trust_test.go	cmd	other	go-test	5711	Super-Dolphin updater install and detach command	cmd,super,dolphin,updater,package,trust,test,Super-Dolphin,install,and,detach,command
 cmd/super-dolphin-updater/package_trust.go	cmd	other	go-source	15701	Super-Dolphin updater install and detach command	cmd,super,dolphin,updater,package,trust,Super-Dolphin,install,and,detach,command
-cmd/super-dolphin-updater/probation_rollback_test.go	cmd	other	go-test	15537	Super-Dolphin updater install and detach command	cmd,super,dolphin,updater,probation,rollback,test,Super-Dolphin,install,and,detach,command
-cmd/super-dolphin-updater/probation.go	cmd	other	go-source	20819	Super-Dolphin updater install and detach command	cmd,super,dolphin,updater,probation,Super-Dolphin,install,and,detach,command
+cmd/super-dolphin-updater/probation_rollback_test.go	cmd	other	go-test	20345	Super-Dolphin updater install and detach command	cmd,super,dolphin,updater,probation,rollback,test,Super-Dolphin,install,and,detach,command
+cmd/super-dolphin-updater/probation.go	cmd	other	go-source	23840	Super-Dolphin updater install and detach command	cmd,super,dolphin,updater,probation,Super-Dolphin,install,and,detach,command
 go.mod	(root)	other	mod	3841	仓库根级配置、入口或说明文件	go,仓库根级配置,入口或说明文件
-internal/app/app_test.go	internal	other	go-test	5525	root Fx/app 装配、runner 与 graph closure	internal,app,test,root,Fx,装配,runner,与,graph,closure
-internal/app/app.go	internal	other	go-source	13893	root Fx/app 装配、runner 与 graph closure	internal,app,root,Fx,装配,runner,与,graph,closure
+internal/app/app_test.go	internal	other	go-test	7105	root Fx/app 装配、runner 与 graph closure	internal,app,test,root,Fx,装配,runner,与,graph,closure
+internal/app/app.go	internal	other	go-source	15273	root Fx/app 装配、runner 与 graph closure	internal,app,root,Fx,装配,runner,与,graph,closure
 internal/app/dashboard_adapter.go	internal	other	go-source	4491	root Fx/app 装配、runner 与 graph closure	internal,app,dashboard,adapter,root,Fx,装配,runner,与,graph,closure
 internal/app/dependency_contract_test.go	internal	other	go-test	3737	root Fx/app 装配、runner 与 graph closure	internal,app,dependency,contract,test,root,Fx,装配,runner,与,graph,closure
 internal/app/dependency_contract.go	internal	other	go-source	1520	root Fx/app 装配、runner 与 graph closure	internal,app,dependency,contract,root,Fx,装配,runner,与,graph,closure
@@ -444,8 +444,10 @@ internal/ui/wails/http_server_test.go	internal	other	go-test	10700	Wails binding
 internal/ui/wails/http_server.go	internal	other	go-source	10473	Wails binding 与 UI RPC 桥接	internal,ui,wails,http,server,Wails,binding,与,UI,RPC,桥接
 internal/ui/wails/lifecycle_test.go	internal	other	go-test	6649	Wails binding 与 UI RPC 桥接	internal,ui,wails,lifecycle,test,Wails,binding,与,UI,RPC,桥接
 internal/ui/wails/lifecycle.go	internal	other	go-source	8665	Wails binding 与 UI RPC 桥接	internal,ui,wails,lifecycle,Wails,binding,与,UI,RPC,桥接
-internal/ui/wails/module.go	internal	other	go-source	7393	Wails binding 与 UI RPC 桥接	internal,ui,wails,module,Wails,binding,与,UI,RPC,桥接
+internal/ui/wails/module.go	internal	other	go-source	7585	Wails binding 与 UI RPC 桥接	internal,ui,wails,module,Wails,binding,与,UI,RPC,桥接
 internal/ui/wails/path_open.go	internal	other	go-source	3573	Wails binding 与 UI RPC 桥接	internal,ui,wails,path,open,Wails,binding,与,UI,RPC,桥接
+internal/ui/wails/readiness_test.go	internal	other	go-test	1068	Wails binding 与 UI RPC 桥接	internal,ui,wails,readiness,test,Wails,binding,与,UI,RPC,桥接
+internal/ui/wails/readiness.go	internal	other	go-source	1363	Wails binding 与 UI RPC 桥接	internal,ui,wails,readiness,Wails,binding,与,UI,RPC,桥接
 internal/ui/wails/rpc_frontend_log_level_test.go	internal	other	go-test	4599	Wails binding 与 UI RPC 桥接	internal,ui,wails,rpc,frontend,log,level,test,Wails,binding,与,UI,RPC,桥接
 internal/ui/wails/rpc_path_open_test.go	internal	other	go-test	3416	Wails binding 与 UI RPC 桥接	internal,ui,wails,rpc,path,open,test,Wails,binding,与,UI,RPC,桥接
 internal/ui/wails/rpc_save_text_file_test.go	internal	other	go-test	4111	Wails binding 与 UI RPC 桥接	internal,ui,wails,rpc,save,text,file,test,Wails,binding,与,UI,RPC,桥接
