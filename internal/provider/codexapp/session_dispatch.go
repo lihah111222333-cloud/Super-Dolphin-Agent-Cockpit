@@ -181,12 +181,12 @@ func (s *session) forceCompleteTargetTurnID(providerID string) (string, bool) {
 }
 
 func (s *session) forceCompleteTurn(turnID string) {
-	s.completeSyntheticTurn(turnID, "force_complete", "")
+	s.completeSyntheticTurn(turnID, "force_complete", "", nil)
 }
 
 // completeSyntheticTurn 在 Codex 只给出 assistant message 时合成 turn 终态。
 // 若同一 active turn 已记录工具失败，终态必须标为 failed，避免 UI 误显示干净完成。
-func (s *session) completeSyntheticTurn(turnID, reason, result string) {
+func (s *session) completeSyntheticTurn(turnID, reason, result string, acceptedItemIDs []string) {
 	turnID = strings.TrimSpace(turnID)
 	if turnID == "" {
 		return
@@ -199,6 +199,9 @@ func (s *session) completeSyntheticTurn(turnID, reason, result string) {
 		status = "failed"
 	}
 	payload := map[string]any{"turnId": turnID, "success": success, "status": status, "reason": strings.TrimSpace(reason)}
+	if len(acceptedItemIDs) > 0 {
+		payload["accepted_partial_item_ids"] = slices.Clone(acceptedItemIDs)
+	}
 	if !success {
 		payload["error"] = toolFailureSummary(failures)
 		payload["tool_failure_count"] = len(failures)

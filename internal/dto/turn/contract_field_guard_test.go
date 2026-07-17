@@ -134,6 +134,15 @@ func TestTurnContractFieldGuardFailsFirst(t *testing.T) {
 		}
 		assertGuardFailure(t, validateConsumerRegistry(root, registry, map[string]string{path: mutated}), "want \"turn/terminal\"")
 	})
+	t.Run("missing canonical remote republish", func(t *testing.T) {
+		path := "internal/platform/eventsurface/bind.go"
+		source := readRepositorySource(t, root, path)
+		mutated := strings.Replace(source, "CanonicalTurnTerminal(ev)", "missingCanonicalTurnTerminal(ev)", 1)
+		if mutated == source {
+			t.Fatal("canonical republish mutation did not change production source")
+		}
+		assertGuardFailure(t, validateConsumerRegistry(root, registry, map[string]string{path: mutated}), "missing call CanonicalTurnTerminal")
+	})
 }
 
 func validateConsumerRegistry(root string, registry consumerRegistry, overrides map[string]string) error {

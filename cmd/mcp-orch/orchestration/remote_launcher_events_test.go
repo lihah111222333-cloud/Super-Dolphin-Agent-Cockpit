@@ -174,6 +174,62 @@ func TestRemoteTerminalRequiresTurnID(t *testing.T) {
 	require.NotContains(t, snapshot.LastReport, "done without turn id")
 }
 
+func TestRemoteTerminalFirstCanonicalTruthWins(t *testing.T) {
+	t.Parallel()
+	svc := NewService(silentLogger(), event.NewDispatcher(), nil, nil, nil, nil)
+	agent := svc.newAgentLocked("agent-1")
+	agent.state = agentdto.StateTurnRunning
+	agent.threadID = "thread-1"
+	agent.remoteThreadID = "thread-1"
+	agent.activeTurnID = "remote-turn-1"
+	agent.lastReport = "report before terminal"
+	svc.registry.agents[agent.id] = agent
+
+	success := turndto.TurnTerminalV2{
+		SchemaVersion: 2,
+		EventID:       "event-success",
+		ThreadID:      "thread-1",
+		TurnID:        "remote-turn-1",
+		Outcome:       "success",
+		OccurredAt:    "2026-07-17T01:02:03Z",
+	}
+	svc.handleRemoteTurnTerminal(context.Background(), success)
+	first, err := svc.Snapshot(context.Background(), "agent-1")
+	require.NoError(t, err)
+	require.Equal(t, string(agentdto.StateIdle), first.State)
+	require.Equal(t, "", first.ActiveTurnID)
+	require.Equal(t, "report before terminal", first.LastReport)
+
+	svc.handleRemoteTurnTerminal(context.Background(), success)
+	duplicate, err := svc.Snapshot(context.Background(), "agent-1")
+	require.NoError(t, err)
+	require.Equal(t, first.State, duplicate.State)
+	require.Equal(t, first.LastReport, duplicate.LastReport)
+
+	conflict := turndto.TurnTerminalV2{
+		SchemaVersion: 2,
+		EventID:       "event-conflicting-failure",
+		ThreadID:      "thread-1",
+		TurnID:        "remote-turn-1",
+		Outcome:       "failed",
+		PublicError: &turndto.PublicErrorV1{
+			Code:            "PERMANENT_FAILURE",
+			Title:           "Permanent failure",
+			Message:         "must not replace success",
+			DiagnosticID:    "diag-conflict",
+			Retryable:       false,
+			RecoveryActions: []string{},
+		},
+		OccurredAt: "2026-07-17T01:02:04Z",
+	}
+	svc.handleRemoteTurnTerminal(context.Background(), conflict)
+	afterConflict, err := svc.Snapshot(context.Background(), "agent-1")
+	require.NoError(t, err)
+	require.Equal(t, string(agentdto.StateIdle), afterConflict.State)
+	require.Equal(t, "", afterConflict.ActiveTurnID)
+	require.Equal(t, first.LastReport, afterConflict.LastReport)
+}
+
 func TestService_SubmitTurnRemoteModeDeadlineFailureClearsBusyState(t *testing.T) {
 	svc := NewService(silentLogger(), event.NewDispatcher(), remoteLocalLauncher(t, handler.Map{
 		"turn/start": handler.New(func(ctx context.Context, _ map[string]any) (map[string]any, error) {

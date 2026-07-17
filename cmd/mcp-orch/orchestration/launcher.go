@@ -2,7 +2,10 @@ package orchestration
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"github.com/creachadair/jrpc2"
 	"github.com/creachadair/jrpc2/channel"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-orch/orchestration/exitmonitor"
@@ -508,12 +511,57 @@ func (s *service) handleRemoteTurnTerminal(ctx context.Context, terminal turndto
 		pkglogger.Warn("orchestration: remote terminal owner lookup failed", "thread_id", terminal.ThreadID, "turn_id", terminal.TurnID, "error", err)
 		return
 	}
+	accepted, err := s.turns.acceptRemoteTurnTerminal(terminal)
+	if err != nil {
+		pkglogger.Warn("orchestration: conflicting remote terminal rejected", "thread_id", terminal.ThreadID, "turn_id", terminal.TurnID, "event_id", terminal.EventID, "error", err)
+		return
+	}
+	if !accepted {
+		return
+	}
 	ev, err := eventsurface.ProjectRemoteTurnTerminal(terminal, ownerAgentID)
 	if err != nil {
 		pkglogger.Warn("orchestration: remote terminal projection failed", "agent_id", ownerAgentID, "thread_id", terminal.ThreadID, "turn_id", terminal.TurnID, "error", err)
 		return
 	}
 	s.handleRemoteTurnCompleted(ctx, ev)
+}
+
+type remoteTerminalTurnRef struct {
+	threadID string
+	turnID   string
+}
+
+type remoteTerminalTruth struct {
+	eventID     string
+	fingerprint [sha256.Size]byte
+}
+
+// acceptRemoteTurnTerminal 为每个 TurnRef 永久封存首个 canonical eventId 与内容指纹。
+func (c *turnController) acceptRemoteTurnTerminal(terminal turndto.TurnTerminalV2) (bool, error) {
+	if c == nil {
+		return false, errors.New("turn controller is required")
+	}
+	encoded, err := json.Marshal(terminal)
+	if err != nil {
+		return false, fmt.Errorf("marshal remote terminal fingerprint: %w", err)
+	}
+	ref := remoteTerminalTurnRef{threadID: terminal.ThreadID, turnID: terminal.TurnID}
+	truth := remoteTerminalTruth{eventID: terminal.EventID, fingerprint: sha256.Sum256(encoded)}
+	c.remoteTerminalMu.Lock()
+	defer c.remoteTerminalMu.Unlock()
+	if c.remoteTerminalSeal == nil {
+		c.remoteTerminalSeal = make(map[remoteTerminalTurnRef]remoteTerminalTruth)
+	}
+	first, exists := c.remoteTerminalSeal[ref]
+	if !exists {
+		c.remoteTerminalSeal[ref] = truth
+		return true, nil
+	}
+	if first == truth {
+		return false, nil
+	}
+	return false, fmt.Errorf("remote terminal truth conflict: first_event_id=%q conflicting_event_id=%q", first.eventID, truth.eventID)
 }
 
 // handleRemoteTurnCompleted 处理来自 remote launcher 的 turn 完成通知，写入 report 并推进状态机。

@@ -3,6 +3,7 @@ package eventsurface
 import (
 	"context"
 	"encoding/json"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -129,6 +130,105 @@ func TestRemoteTurnTerminalRequiresCanonicalPayloadAndExplicitOwner(t *testing.T
 	}
 	if projected.AgentID != "agent-1" || projected.ThreadID != "thread-1" || projected.TurnID != "turn-1" || !projected.Success || projected.Status != "completed" {
 		t.Fatalf("projected terminal = %#v, want explicit owner and canonical identity", projected)
+	}
+}
+
+func TestDecodeRemoteTurnTerminalRejectsUnknownFields(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name string
+		raw  string
+	}{
+		{
+			name: "legacy top-level success",
+			raw:  `{"schemaVersion":2,"eventId":"event-1","threadId":"thread-1","turnId":"turn-1","outcome":"success","occurredAt":"2026-07-17T01:02:03Z","success":true}`,
+		},
+		{
+			name: "nested public error extra",
+			raw:  `{"schemaVersion":2,"eventId":"event-2","threadId":"thread-1","turnId":"turn-1","outcome":"failed","publicError":{"code":"FAILED","title":"Failed","message":"failed","diagnosticId":"diag-1","retryable":false,"recoveryActions":[],"extra":"forbidden"},"occurredAt":"2026-07-17T01:02:03Z"}`,
+		},
+		{
+			name: "partial item id typo",
+			raw:  `{"schemaVersion":2,"eventId":"event-3","threadId":"thread-1","turnId":"turn-1","outcome":"success","partialItemId":["item-1"],"occurredAt":"2026-07-17T01:02:03Z"}`,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if _, err := DecodeRemoteTurnTerminal(func(target any) error {
+				return json.Unmarshal([]byte(test.raw), target)
+			}); err == nil {
+				t.Fatal("DecodeRemoteTurnTerminal() accepted unknown field")
+			}
+		})
+	}
+}
+
+func TestRemoteTurnTerminalPublishPreservesCanonicalPayload(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name     string
+		terminal turndto.TurnTerminalV2
+	}{
+		{
+			name: "failed with public error and partial items",
+			terminal: turndto.TurnTerminalV2{
+				SchemaVersion: 2,
+				EventID:       "event-failed",
+				ThreadID:      "thread-1",
+				TurnID:        "turn-1",
+				Outcome:       "failed",
+				PublicError: &turndto.PublicErrorV1{
+					Code:            "PROVIDER_FAILED",
+					Title:           "Turn failed",
+					Message:         "provider unavailable",
+					DiagnosticID:    "diag-1",
+					Retryable:       true,
+					RecoveryActions: []string{"retry", "copy_diagnostics"},
+				},
+				PartialItemIDs: []string{"item-1", "item-2"},
+				OccurredAt:     "2026-07-17T01:02:03.456Z",
+			},
+		},
+		{
+			name: "accepted user termination",
+			terminal: turndto.TurnTerminalV2{
+				SchemaVersion:        2,
+				EventID:              "event-interrupted",
+				ThreadID:             "thread-2",
+				TurnID:               "turn-2",
+				Outcome:              "interrupted",
+				TerminationCause:     "user_request",
+				TerminationRequestID: "request-2",
+				PartialItemIDs:       []string{"item-3"},
+				OccurredAt:           "2026-07-17T02:03:04Z",
+			},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			decoded, err := DecodeRemoteTurnTerminal(jsonValueDecoder(t, test.terminal))
+			if err != nil {
+				t.Fatalf("DecodeRemoteTurnTerminal() error = %v", err)
+			}
+			projected, err := ProjectRemoteTurnTerminal(decoded, "owner-agent")
+			if err != nil {
+				t.Fatalf("ProjectRemoteTurnTerminal() error = %v", err)
+			}
+			var published publishedEvent
+			publishTurnTerminal(nil, func(method string, payload any) {
+				published = publishedEvent{method: method, payload: payload}
+			}, projected)
+			if published.method != MethodTurnTerminal {
+				t.Fatalf("published method = %q, want %q", published.method, MethodTurnTerminal)
+			}
+			got, ok := published.payload.(turndto.TurnTerminalV2)
+			if !ok {
+				t.Fatalf("published payload type = %T, want TurnTerminalV2", published.payload)
+			}
+			if !reflect.DeepEqual(got, test.terminal) {
+				t.Fatalf("published terminal = %#v, want exact input %#v", got, test.terminal)
+			}
+		})
 	}
 }
 
