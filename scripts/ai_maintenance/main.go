@@ -28,20 +28,12 @@ var aiMaintenanceFiles = map[string]bool{
 	"scripts/test_with_guard.sh":                 true,
 }
 
-var turnContractFiles = map[string]bool{
-	"scripts/turncontract/main.go":                                       true,
-	"frontend-app/package.json":                                          true,
-	"frontend-app/scripts/turn-contract-field-guard.mjs":                 true,
-	"frontend-app/scripts/turn-contract-field-guard.test.mjs":            true,
-	"frontend-app/src/shared/contracts/turnContractValidators.js":        true,
-	"frontend-app/src/shared/contracts/turnContracts.generated.js":       true,
-	"frontend-app/src/entities/client/model/runtimeAssistantTimeline.js": true,
-	"frontend-app/src/shared/api/backend/backendApiFactoryThread.js":     true,
-	"internal/provider/shared/terminal_outcome.go":                       true,
-	"internal/provider/claudecli/event_map.go":                           true,
-	"internal/provider/codexapp/factory.go":                              true,
-	"internal/platform/eventsurface/bind.go":                             true,
-	"internal/platform/eventsurface/remote_decode.go":                    true,
+var turnContractInfrastructureFiles = map[string]bool{
+	"scripts/turncontract/main.go":                                 true,
+	"frontend-app/package.json":                                    true,
+	"frontend-app/scripts/turn-contract-field-guard.mjs":           true,
+	"frontend-app/scripts/turn-contract-field-guard.test.mjs":      true,
+	"frontend-app/src/shared/contracts/turnContracts.generated.js": true,
 }
 
 var coreBackendGatePackages = []string{
@@ -272,6 +264,10 @@ func buildGatePlanForRepo(repoRoot string, files []string) (gatePlan, error) {
 	if err != nil {
 		return gatePlan{}, fmt.Errorf("load capability-contract path rules: %w", err)
 	}
+	turnContractPaths, err := loadTurnContractPaths(repoRoot)
+	if err != nil {
+		return gatePlan{}, err
+	}
 	normalized := normalizeFiles(files)
 	plan := gatePlan{ChangedFiles: normalized}
 	gates := map[string]bool{"diff:whitespace": true}
@@ -279,7 +275,7 @@ func buildGatePlanForRepo(repoRoot string, files []string) (gatePlan, error) {
 	generated := map[string]bool{}
 	backendChanged := false
 	for _, file := range normalized {
-		backendFile, err := applyFileGateRules(file, capabilityRules, gates, evidence, generated)
+		backendFile, err := applyFileGateRules(file, capabilityRules, turnContractPaths, gates, evidence, generated)
 		if err != nil {
 			return gatePlan{}, err
 		}
@@ -306,7 +302,7 @@ func buildGatePlanForRepo(repoRoot string, files []string) (gatePlan, error) {
 }
 
 // applyFileGateRules 汇总单个路径触发的命令 gate 和证据要求，并返回它是否属于 Go/后端验证面。
-func applyFileGateRules(file string, capabilityRules capcontract.PathRules, gates, evidence, generated map[string]bool) (bool, error) {
+func applyFileGateRules(file string, capabilityRules capcontract.PathRules, turnContractPaths, gates, evidence, generated map[string]bool) (bool, error) {
 	backendChanged := applySourceGateRules(file, gates, evidence)
 	if err := applyCapabilityContractGateRules(file, capabilityRules, gates, evidence, generated); err != nil {
 		return false, err
@@ -323,7 +319,7 @@ func applyFileGateRules(file string, capabilityRules capcontract.PathRules, gate
 	if sqlcRelevant(file) {
 		gates["sqlc:verify"] = true
 	}
-	if turnContractRelevant(file) {
+	if turnContractRelevant(file, turnContractPaths) {
 		gates["turncontract:verify"] = true
 	}
 	if codemapRelevant(file) {
@@ -373,9 +369,9 @@ func sqlcRelevant(file string) bool {
 		strings.HasPrefix(file, "internal/store/")
 }
 
-// turnContractRelevant 覆盖 canonical schema、生成器以及终态字段生产消费链的显式边界。
-func turnContractRelevant(file string) bool {
-	return strings.HasPrefix(file, "internal/dto/turn/") || turnContractFiles[file]
+// turnContractRelevant 覆盖 canonical schema、基础设施以及 registry 派生的完整生产消费链。
+func turnContractRelevant(file string, turnContractPaths map[string]bool) bool {
+	return strings.HasPrefix(file, "internal/dto/turn/") || turnContractPaths[file]
 }
 
 // aiMaintenanceRelevant 识别会改变本 gate 自身行为的文件，触发自测避免 workflow/script 空绿。

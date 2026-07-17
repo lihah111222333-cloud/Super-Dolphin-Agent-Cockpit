@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"io"
 	"os"
 	"path/filepath"
@@ -326,6 +327,77 @@ func TestBuildGatePlanRoutesTurnContractProductionChain(t *testing.T) {
 		plan := mustBuildGatePlan(t, []string{file})
 		assertStringSetContains(t, plan.RequiredGates, "turncontract:verify")
 	}
+}
+
+func TestBuildGatePlanRoutesEveryTurnContractRegistryLocator(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("..", "..", "internal", "dto", "turn", "schema", "field_consumers.json"))
+	if err != nil {
+		t.Fatalf("read turn contract consumer registry: %v", err)
+	}
+	var registry any
+	if err := json.Unmarshal(raw, &registry); err != nil {
+		t.Fatalf("parse turn contract consumer registry: %v", err)
+	}
+	paths := map[string]bool{}
+	collectRegistryLocatorPaths(registry, paths)
+	if len(paths) == 0 {
+		t.Fatal("turn contract consumer registry contains no locator paths")
+	}
+	for locatorPath := range paths {
+		plan := mustBuildGatePlan(t, []string{locatorPath})
+		assertStringSetContains(t, plan.RequiredGates, "turncontract:verify")
+	}
+}
+
+func TestLoadTurnContractPathsFailsClosedForInvalidRegistry(t *testing.T) {
+	tests := []struct {
+		name string
+		body *string
+		want string
+	}{
+		{name: "missing", want: "read turn contract consumer registry"},
+		{name: "malformed", body: stringPointer(`{"version":`), want: "parse turn contract consumer registry"},
+		{name: "wrong version", body: stringPointer(`{"version":1,"schemas":{},"goChains":[],"goConstants":[],"jsMappers":[]}`), want: "version 2"},
+		{name: "wrong structure", body: stringPointer(`{"version":2,"schemas":[],"goChains":[],"goConstants":[],"jsMappers":[]}`), want: "schemas"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			repoRoot := t.TempDir()
+			if test.body != nil {
+				registryPath := filepath.Join(repoRoot, "internal", "dto", "turn", "schema", "field_consumers.json")
+				if err := os.MkdirAll(filepath.Dir(registryPath), 0o755); err != nil {
+					t.Fatalf("mkdir registry dir: %v", err)
+				}
+				if err := os.WriteFile(registryPath, []byte(*test.body), 0o644); err != nil {
+					t.Fatalf("write registry: %v", err)
+				}
+			}
+			_, err := loadTurnContractPaths(repoRoot)
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("loadTurnContractPaths() error = %v, want %q", err, test.want)
+			}
+		})
+	}
+}
+
+func collectRegistryLocatorPaths(value any, paths map[string]bool) {
+	switch typed := value.(type) {
+	case map[string]any:
+		if locatorPath, ok := typed["path"].(string); ok && locatorPath != "" {
+			paths[locatorPath] = true
+		}
+		for _, child := range typed {
+			collectRegistryLocatorPaths(child, paths)
+		}
+	case []any:
+		for _, child := range typed {
+			collectRegistryLocatorPaths(child, paths)
+		}
+	}
+}
+
+func stringPointer(value string) *string {
+	return &value
 }
 
 func TestGatePlanProducerMatchesRunnerAndEvidenceRegistries(t *testing.T) {

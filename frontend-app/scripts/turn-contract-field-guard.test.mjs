@@ -45,6 +45,80 @@ describe('turn contract production field guard', () => {
     })).toThrow('TurnTerminalV2 JS production consumers');
   });
 
+  it('fails when production adds an unregistered exported arrow consumer', () => {
+    const source = read(runtimePath);
+    const mutated = `${source}\nexport const unregisteredArrowConsumer = (payload) => validateTurnTerminalV2(payload);\n`;
+    expect(() => validateTurnContractFieldGuard({
+      repoRoot,
+      sourceOverrides: new Map([[runtimePath, mutated]]),
+    })).toThrow('unregisteredArrowConsumer');
+  });
+
+  it('fails when production adds an unregistered function expression consumer', () => {
+    const source = read(runtimePath);
+    const mutated = `${source}\nexport const unregisteredExpressionConsumer = function (payload) { return validateTurnTerminalV2(payload); };\n`;
+    expect(() => validateTurnContractFieldGuard({
+      repoRoot,
+      sourceOverrides: new Map([[runtimePath, mutated]]),
+    })).toThrow('unregisteredExpressionConsumer');
+  });
+
+  it('fails when production adds an unregistered object method consumer', () => {
+    const source = read(runtimePath);
+    const mutated = `${source}\nexport const unregisteredConsumers = { parse(payload) { return validateTurnTerminalV2(payload); } };\n`;
+    expect(() => validateTurnContractFieldGuard({
+      repoRoot,
+      sourceOverrides: new Map([[runtimePath, mutated]]),
+    })).toThrow('unregisteredConsumers.parse');
+  });
+
+  it('fails when production adds an unregistered class method consumer', () => {
+    const source = read(runtimePath);
+    const mutated = `${source}\nexport class UnregisteredConsumers { parse(payload) { return validateTurnTerminalV2(payload); } }\n`;
+    expect(() => validateTurnContractFieldGuard({
+      repoRoot,
+      sourceOverrides: new Map([[runtimePath, mutated]]),
+    })).toThrow('UnregisteredConsumers.parse');
+  });
+
+  it.each([
+    ['exported arrow', 'export const registeredConsumer = (payload) => validateTurnTerminalV2(payload);', 'registeredConsumer'],
+    ['object method', 'export const registeredConsumers = { parse(payload) { return validateTurnTerminalV2(payload); } };', 'registeredConsumers.parse'],
+  ])('resolves a registered %s consumer by exact path, symbol, and call', (_label, declaration, symbol) => {
+    const source = `${read(runtimePath)}\n${declaration}\n`;
+    const registry = JSON.parse(read(registryPath));
+    registry.schemas.TurnTerminalV2.jsConsumers.push({
+      path: runtimePath,
+      symbol,
+      calls: 'validateTurnTerminalV2',
+    });
+    expect(validateTurnContractFieldGuard({
+      repoRoot,
+      sourceOverrides: new Map([
+        [runtimePath, source],
+        [registryPath, JSON.stringify(registry)],
+      ]),
+    })).toEqual({ schemaCount: 3, mapperCount: 1 });
+  });
+
+  it('fails when a registered consumer call target drifts', () => {
+    const registry = JSON.parse(read(registryPath));
+    registry.schemas.TurnTerminalV2.jsConsumers[0].calls = 'validateTurnRefV1';
+    expect(() => validateTurnContractFieldGuard({
+      repoRoot,
+      sourceOverrides: new Map([[registryPath, JSON.stringify(registry)]]),
+    })).toThrow('missing call validateTurnRefV1');
+  });
+
+  it('fails when a validator call cannot be attributed to a stable production symbol', () => {
+    const source = read(runtimePath);
+    const mutated = `${source}\nexport default ((payload) => validateTurnTerminalV2(payload));\n`;
+    expect(() => validateTurnContractFieldGuard({
+      repoRoot,
+      sourceOverrides: new Map([[runtimePath, mutated]]),
+    })).toThrow('cannot be attributed to a stable production symbol');
+  });
+
   it('fails when a registry locator becomes stale', () => {
     const source = read(registryPath);
     const mutated = source.replace('"symbol": "parseRuntimeTurnTerminal"', '"symbol": "missingRuntimeTurnTerminal"');

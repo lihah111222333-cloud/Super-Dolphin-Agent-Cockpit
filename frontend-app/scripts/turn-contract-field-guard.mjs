@@ -53,14 +53,25 @@ function discoverJSValidatorConsumers(repoRoot, sourceOverrides, schemaEntries) 
     const ast = parseModule(readRepositorySource(repoRoot, relativePath, sourceOverrides), relativePath);
     const bindings = validatorBindings(ast, relativePath, targetSchemas);
     if (bindings.size === 0) continue;
-    for (const fn of topLevelFunctions(ast)) {
+    const claimedCalls = new Set();
+    const functions = namedProductionFunctions(ast);
+    assertUniqueProductionSymbols(functions, relativePath);
+    for (const fn of functions) {
       walkFunctionBody(fn, (node) => {
         if (node.type !== 'CallExpression' || node.callee?.type !== 'Identifier') return;
         const target = bindings.get(node.callee.name);
         if (!target) return;
-        discovered.get(target.schemaName).push(consumerKey({ path: relativePath, symbol: fn.id.name, calls: target.symbol }));
+        claimedCalls.add(node);
+        discovered.get(target.schemaName).push(consumerKey({ path: relativePath, symbol: fn.symbol, calls: target.symbol }));
       });
     }
+    walkNode(ast.program, (node) => {
+      if (node.type !== 'CallExpression' || node.callee?.type !== 'Identifier') return;
+      const target = bindings.get(node.callee.name);
+      if (target && !claimedCalls.has(node)) {
+        throw new Error(`${relativePath} validator call ${target.symbol} cannot be attributed to a stable production symbol`);
+      }
+    });
   }
   for (const [schemaName, consumers] of discovered) discovered.set(schemaName, [...new Set(consumers)].sort());
   return discovered;
@@ -100,13 +111,84 @@ function validatorBindings(ast, relativePath, targetSchemas) {
   return bindings;
 }
 
-function topLevelFunctions(ast) {
+function namedProductionFunctions(ast) {
   const functions = [];
   for (const statement of ast.program.body) {
-    const declaration = statement.type === 'ExportNamedDeclaration' ? statement.declaration : statement;
-    if (declaration?.type === 'FunctionDeclaration' && declaration.id?.name) functions.push(declaration);
+    const declaration = statement.type === 'ExportNamedDeclaration' || statement.type === 'ExportDefaultDeclaration'
+      ? statement.declaration
+      : statement;
+    collectNamedDeclaration(declaration, functions);
   }
   return functions;
+}
+
+function collectNamedDeclaration(declaration, functions) {
+  if (declaration?.type === 'FunctionDeclaration' && declaration.id?.name) {
+    functions.push({ symbol: declaration.id.name, body: declaration.body });
+    return;
+  }
+  if (declaration?.type === 'VariableDeclaration') {
+    for (const declarator of declaration.declarations) {
+      if (declarator.id?.type !== 'Identifier') continue;
+      collectNamedValue(declarator.id.name, declarator.init, functions);
+    }
+    return;
+  }
+  if (declaration?.type === 'ClassDeclaration' && declaration.id?.name) {
+    collectNamedClassMethods(declaration.id.name, declaration, functions);
+  }
+}
+
+function collectNamedValue(owner, value, functions) {
+  if (isFunctionNode(value)) {
+    functions.push({ symbol: owner, body: value.body });
+    return;
+  }
+  if (value?.type === 'ObjectExpression') {
+    collectNamedObjectMethods(owner, value, functions);
+    return;
+  }
+  if (value?.type === 'ClassExpression') collectNamedClassMethods(owner, value, functions);
+}
+
+function collectNamedObjectMethods(owner, object, functions) {
+  for (const property of object.properties) {
+    const propertyName = staticPropertyName(property);
+    if (!propertyName) continue;
+    const symbol = `${owner}.${propertyName}`;
+    if (property.type === 'ObjectMethod') {
+      functions.push({ symbol, body: property.body });
+    } else if (property.type === 'ObjectProperty') {
+      collectNamedValue(symbol, property.value, functions);
+    }
+  }
+}
+
+function collectNamedClassMethods(owner, classNode, functions) {
+  for (const member of classNode.body.body) {
+    const memberName = staticPropertyName(member);
+    if (!memberName) continue;
+    const symbol = `${owner}.${memberName}`;
+    if (member.type === 'ClassMethod') {
+      functions.push({ symbol, body: member.body });
+    } else if (member.type === 'ClassProperty') {
+      collectNamedValue(symbol, member.value, functions);
+    }
+  }
+}
+
+function staticPropertyName(property) {
+  if (property.computed) return '';
+  if (property.key?.type === 'Identifier') return property.key.name;
+  return stringLiteralValue(property.key);
+}
+
+function assertUniqueProductionSymbols(functions, filePath) {
+  const seen = new Set();
+  for (const fn of functions) {
+    if (seen.has(fn.symbol)) throw new Error(`${filePath}:${fn.symbol} resolved multiple production functions`);
+    seen.add(fn.symbol);
+  }
 }
 
 function consumerKey(consumer) {
@@ -209,11 +291,7 @@ function parseModule(source, filePath) {
 }
 
 function findFunction(ast, symbol, filePath) {
-  const matches = [];
-  for (const statement of ast.program.body) {
-    const declaration = statement.type === 'ExportNamedDeclaration' ? statement.declaration : statement;
-    if (declaration?.type === 'FunctionDeclaration' && declaration.id?.name === symbol) matches.push(declaration);
-  }
+  const matches = namedProductionFunctions(ast).filter((fn) => fn.symbol === symbol);
   if (matches.length !== 1) throw new Error(`${filePath}:${symbol} resolved ${matches.length} production functions`);
   return matches[0];
 }
@@ -274,7 +352,7 @@ function walkNode(node, visitor, skipNestedFunctions = false, root = true) {
 }
 
 function isFunctionNode(node) {
-  return node.type === 'FunctionDeclaration' || node.type === 'FunctionExpression' || node.type === 'ArrowFunctionExpression';
+  return node?.type === 'FunctionDeclaration' || node?.type === 'FunctionExpression' || node?.type === 'ArrowFunctionExpression';
 }
 
 function calleeName(callee) {
