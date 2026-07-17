@@ -1,12 +1,12 @@
 package main
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
-	"reflect"
 	"strings"
 	"time"
 
@@ -165,7 +165,10 @@ func (config productionCoordinatorConfig) validateIdentity() error {
 	if err := config.validateReceiptAuthorityIdentity(); err != nil {
 		return err
 	}
-	return config.validateActionGrantAuthorityIdentity()
+	if err := config.validateActionGrantAuthorityIdentity(); err != nil {
+		return err
+	}
+	return config.validateAuthoritySeparation()
 }
 
 // validateRepositoryIdentity 校验 repository、ref、platform 与验签根显式且规范。
@@ -216,16 +219,69 @@ func (config productionCoordinatorConfig) validateActionGrantAuthorityIdentity()
 	if err := config.ActionGrantAuthority.Signer.Validate(); err != nil {
 		return fmt.Errorf("production action grant signer: %w", err)
 	}
-	if reflect.DeepEqual(config.ActionGrantAuthority.Signer, config.ResultReceiptAuthority.Signer) ||
-		reflect.DeepEqual(config.ActionGrantAuthority.Signer, config.PromotionSigner.Signer) {
-		return errors.New("production action grant signer must be distinct from receipt and promotion authorities")
-	}
 	if strings.TrimSpace(config.ActionGrantAuthority.PublicKey) == "" ||
 		strings.TrimSpace(config.ActionGrantAuthority.PrivateKeyFile) == "" {
 		return errors.New("production action grant public key and private key file are required")
 	}
 	if config.ActionGrantAuthority.TTLSeconds <= 0 || config.ActionGrantAuthority.TTLSeconds > 900 {
 		return errors.New("production action grant ttl_seconds must be within 1..900")
+	}
+	return nil
+}
+
+type productionAuthorityIdentity struct {
+	name      string
+	signer    gatecontract.SignerIdentity
+	publicKey string
+}
+
+// validateAuthoritySeparation 拒绝 promotion/bootstrap、receipt 与 ActionGrant 复用身份或公钥。
+func (config productionCoordinatorConfig) validateAuthoritySeparation() error {
+	if _, err := newProductionSignatureVerifier(config.AcceptedImageSigners); err != nil {
+		return err
+	}
+	promotionPublicKey := ""
+	for _, trusted := range config.AcceptedImageSigners {
+		if trusted.Signer == config.PromotionSigner.Signer {
+			promotionPublicKey = trusted.PublicKey
+			break
+		}
+	}
+	if promotionPublicKey == "" {
+		return errors.New("production promotion signer must have an accepted image public key")
+	}
+	return validateProductionAuthoritySeparation([]productionAuthorityIdentity{
+		{name: "promotion/bootstrap", signer: config.PromotionSigner.Signer, publicKey: promotionPublicKey},
+		{name: "result receipt", signer: config.ResultReceiptAuthority.Signer, publicKey: config.ResultReceiptAuthority.PublicKey},
+		{name: "action grant", signer: config.ActionGrantAuthority.Signer, publicKey: config.ActionGrantAuthority.PublicKey},
+	})
+}
+
+// validateProductionAuthoritySeparation 对三类 authority 执行身份和 Ed25519 公钥两两去重。
+func validateProductionAuthoritySeparation(authorities []productionAuthorityIdentity) error {
+	if len(authorities) != 3 {
+		return errors.New("production authority separation requires exactly three authorities")
+	}
+	publicKeys := make([][]byte, len(authorities))
+	for index, authority := range authorities {
+		if err := authority.signer.Validate(); err != nil {
+			return fmt.Errorf("validate production %s signer: %w", authority.name, err)
+		}
+		publicKey, err := decodeProductionBootstrapPublicKey(authority.publicKey)
+		if err != nil {
+			return fmt.Errorf("validate production %s public key: %w", authority.name, err)
+		}
+		publicKeys[index] = publicKey
+	}
+	for left := range authorities {
+		for right := left + 1; right < len(authorities); right++ {
+			if authorities[left].signer == authorities[right].signer {
+				return fmt.Errorf("production %s and %s signer identities must be distinct", authorities[left].name, authorities[right].name)
+			}
+			if bytes.Equal(publicKeys[left], publicKeys[right]) {
+				return fmt.Errorf("production %s and %s public keys must be distinct", authorities[left].name, authorities[right].name)
+			}
+		}
 	}
 	return nil
 }

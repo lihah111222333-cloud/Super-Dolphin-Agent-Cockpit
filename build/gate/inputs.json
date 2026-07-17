@@ -20,6 +20,8 @@
     "cmd/super-dolphin-gate/coordinator_production_trust.go",
     "cmd/super-dolphin-gate/coordinator_promotion.go",
     "cmd/super-dolphin-gate/coordinator_provision.go",
+    "cmd/super-dolphin-gate/coordinator_provision_publish_unsupported.go",
+    "cmd/super-dolphin-gate/coordinator_provision_recovery.go",
     "cmd/super-dolphin-gate/coordinator_recovery.go",
     "cmd/super-dolphin-gate/coordinator_recovery_store.go",
     "cmd/super-dolphin-gate/coordinator_runtime.go",

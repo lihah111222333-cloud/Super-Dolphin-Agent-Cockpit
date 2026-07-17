@@ -158,6 +158,7 @@ func provisionProduction(
 type productionProvisionRuntime interface {
 	VerifyRunner(context.Context, gatecontract.ImageIdentity) error
 	CloneTrustedRepository(context.Context, productionBootstrapRoot, string) error
+	VerifyTrustedRepository(context.Context, productionBootstrapRoot, string) error
 }
 
 type productionProvisionLiveRuntime struct{}
@@ -176,17 +177,29 @@ func (productionProvisionLiveRuntime) CloneTrustedRepository(
 	return cloneProductionProvisionTrustedRepository(ctx, root, destination)
 }
 
+// VerifyTrustedRepository 复核已发布恢复态仍固定到 signed bare baseline。
+func (productionProvisionLiveRuntime) VerifyTrustedRepository(
+	ctx context.Context,
+	root productionBootstrapRoot,
+	destination string,
+) error {
+	return verifyProductionProvisionTrustedRepository(ctx, root, destination)
+}
+
 // provisionProductionWithRuntime 保持 production 与测试共用同一原子发布状态机。
 func provisionProductionWithRuntime(
 	ctx context.Context,
 	manifest productionProvisionManifest,
 	runtime productionProvisionRuntime,
 ) (productionProvisionResult, error) {
-	inputs, installRoot, parent, err := preflightProductionProvision(ctx, manifest, runtime)
+	plan, err := preflightProductionProvision(ctx, manifest, runtime)
 	if err != nil {
 		return productionProvisionResult{}, err
 	}
-	staging, err := os.MkdirTemp(parent, ".super-dolphin-gate-provision-")
+	if plan.rootExists {
+		return completeProductionProvision(plan, manifest.LauncherPath)
+	}
+	staging, err := os.MkdirTemp(plan.parent, ".super-dolphin-gate-provision-")
 	if err != nil {
 		return productionProvisionResult{}, err
 	}
@@ -196,15 +209,15 @@ func provisionProductionWithRuntime(
 			_ = os.RemoveAll(staging)
 		}
 	}()
-	config, err := stageProductionProvision(ctx, staging, installRoot, manifest, inputs, runtime)
+	config, err := stageProductionProvision(ctx, staging, plan.installRoot, manifest, plan.inputs, runtime)
 	if err != nil {
 		return productionProvisionResult{}, err
 	}
-	if err := os.Rename(staging, installRoot); err != nil {
+	if err := publishProductionProvisionRoot(staging, plan.installRoot); err != nil {
 		return productionProvisionResult{}, fmt.Errorf("publish production provision root: %w", err)
 	}
 	cleanup = false
-	configPath := filepath.Join(installRoot, "production.json")
+	configPath := filepath.Join(plan.installRoot, "production.json")
 	if _, err := loadProductionCoordinatorConfigFile(configPath); err != nil {
 		return productionProvisionResult{}, fmt.Errorf("verify installed production config: %w", err)
 	}
@@ -214,33 +227,72 @@ func provisionProductionWithRuntime(
 	return productionProvisionResult{SchemaVersion: 1, ProductionConfigFile: configPath, LauncherPath: manifest.LauncherPath}, nil
 }
 
+func completeProductionProvision(plan productionProvisionPlan, launcherPath string) (productionProvisionResult, error) {
+	if !plan.launcherReady {
+		if err := installProductionProvisionLauncher(launcherPath, plan.configPath, plan.config.BootstrapControllerFile); err != nil {
+			return productionProvisionResult{}, err
+		}
+	}
+	return productionProvisionResult{SchemaVersion: 1, ProductionConfigFile: plan.configPath, LauncherPath: launcherPath}, nil
+}
+
 // preflightProductionProvision 在任何 staging 或发布副作用前固定全部输入边界。
 func preflightProductionProvision(
 	ctx context.Context,
 	manifest productionProvisionManifest,
 	runtime productionProvisionRuntime,
-) (productionProvisionInputs, string, string, error) {
+) (productionProvisionPlan, error) {
 	if runtime == nil {
-		return productionProvisionInputs{}, "", "", errors.New("production provision runtime is required")
+		return productionProvisionPlan{}, errors.New("production provision runtime is required")
 	}
 	if err := manifest.Validate(); err != nil {
-		return productionProvisionInputs{}, "", "", err
+		return productionProvisionPlan{}, err
 	}
 	if _, err := canonicalProductionLauncherDirectory(filepath.Dir(manifest.LauncherPath)); err != nil {
-		return productionProvisionInputs{}, "", "", err
+		return productionProvisionPlan{}, err
 	}
 	if _, err := canonicalProductionDirectory(manifest.TrustedSourceRoot); err != nil {
-		return productionProvisionInputs{}, "", "", err
+		return productionProvisionPlan{}, err
 	}
 	inputs, err := verifyProductionProvisionInputs(ctx, manifest, runtime)
 	if err != nil {
-		return productionProvisionInputs{}, "", "", err
+		return productionProvisionPlan{}, err
 	}
-	installRoot, parent, err := productionProvisionDestination(manifest.InstallRoot)
+	installRoot, parent, rootExists, err := productionProvisionDestination(manifest.InstallRoot)
 	if err != nil {
-		return productionProvisionInputs{}, "", "", err
+		return productionProvisionPlan{}, err
 	}
-	return inputs, installRoot, parent, nil
+	return planProductionProvisionRoot(ctx, manifest, inputs, installRoot, parent, rootExists, runtime)
+}
+
+func planProductionProvisionRoot(
+	ctx context.Context,
+	manifest productionProvisionManifest,
+	inputs productionProvisionInputs,
+	installRoot string,
+	parent string,
+	rootExists bool,
+	runtime productionProvisionRuntime,
+) (productionProvisionPlan, error) {
+	config := productionProvisionConfig(installRoot, manifest, inputs)
+	configPath := filepath.Join(installRoot, "production.json")
+	launcherReady, err := inspectProductionProvisionLauncher(manifest.LauncherPath, configPath, config.BootstrapControllerFile)
+	if err != nil {
+		return productionProvisionPlan{}, err
+	}
+	if !rootExists {
+		if launcherReady {
+			return productionProvisionPlan{}, errors.New("production provision launcher exists without its verified install root")
+		}
+		return productionProvisionPlan{inputs: inputs, installRoot: installRoot, parent: parent, config: config, configPath: configPath}, nil
+	}
+	if err := verifyProductionProvisionResidue(ctx, installRoot, manifest, inputs, runtime); err != nil {
+		return productionProvisionPlan{}, err
+	}
+	return productionProvisionPlan{
+		inputs: inputs, installRoot: installRoot, parent: parent, config: config, configPath: configPath,
+		rootExists: true, launcherReady: launcherReady,
+	}, nil
 }
 
 type productionProvisionInputs struct {
@@ -281,8 +333,12 @@ func verifyProductionProvisionInputs(
 	if err != nil {
 		return productionProvisionInputs{}, err
 	}
-	if actionGrantKey.Signer == receiptKey.Signer || actionGrantKey.Signer == root.BootstrapSigner {
-		return productionProvisionInputs{}, errors.New("production provision action grant signer must be distinct")
+	if err := validateProductionAuthoritySeparation([]productionAuthorityIdentity{
+		{name: "promotion/bootstrap", signer: root.BootstrapSigner, publicKey: root.BootstrapPublicKey},
+		{name: "result receipt", signer: receiptKey.Signer, publicKey: receiptKey.PublicKey},
+		{name: "action grant", signer: actionGrantKey.Signer, publicKey: actionGrantKey.PublicKey},
+	}); err != nil {
+		return productionProvisionInputs{}, err
 	}
 	if err := runtime.VerifyRunner(ctx, root.Runner); err != nil {
 		return productionProvisionInputs{}, err
@@ -395,18 +451,20 @@ func decodeProductionProvisionPrivateKey(encoded string) (ed25519.PrivateKey, er
 }
 
 // productionProvisionDestination 要求尚不存在且父目录为私有 canonical directory。
-func productionProvisionDestination(path string) (string, string, error) {
+func productionProvisionDestination(path string) (string, string, bool, error) {
 	if !filepath.IsAbs(path) || filepath.Clean(path) != path {
-		return "", "", errors.New("production provision install_root must be a canonical absolute path")
+		return "", "", false, errors.New("production provision install_root must be a canonical absolute path")
 	}
 	parent, err := canonicalProductionDirectory(filepath.Dir(path))
 	if err != nil {
-		return "", "", err
+		return "", "", false, err
 	}
-	if _, err := os.Lstat(path); err == nil || !errors.Is(err, os.ErrNotExist) {
-		return "", "", errors.New("production provision install_root already exists or cannot be inspected")
+	if _, err := os.Lstat(path); err == nil {
+		return path, parent, true, nil
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return "", "", false, errors.New("production provision install_root cannot be inspected")
 	}
-	return path, parent, nil
+	return path, parent, false, nil
 }
 
 // stageProductionProvision 写入完整私有安装树但不创建 accepted-image.json。
@@ -429,74 +487,22 @@ func stageProductionProvision(
 	if err := runtime.CloneTrustedRepository(ctx, inputs.root, filepath.Join(staging, "trusted.git")); err != nil {
 		return productionCoordinatorConfig{}, err
 	}
-	if err := stageProductionProvisionFiles(staging, inputs); err != nil {
+	config := productionProvisionConfig(installRoot, manifest, inputs)
+	expectedFiles, err := productionProvisionExpectedFiles(config, inputs)
+	if err != nil {
+		return productionCoordinatorConfig{}, err
+	}
+	if err := writeProductionProvisionExpectedFiles(staging, expectedFiles); err != nil {
+		return productionCoordinatorConfig{}, err
+	}
+	if err := verifyProductionBootstrapCodeRequirement(filepath.Join(staging, "bootstrap-controller"), inputs.root.Controller.DesignatedRequirement); err != nil {
 		return productionCoordinatorConfig{}, err
 	}
 	validationConfig := productionProvisionConfig(staging, manifest, inputs)
 	if err := validationConfig.Validate(); err != nil {
 		return productionCoordinatorConfig{}, fmt.Errorf("validate staged production config: %w", err)
 	}
-	config := productionProvisionConfig(installRoot, manifest, inputs)
-	data, err := json.MarshalIndent(config, "", "  ")
-	if err != nil {
-		return config, err
-	}
-	if err := os.WriteFile(filepath.Join(staging, "production.json"), append(data, '\n'), 0o600); err != nil {
-		return config, err
-	}
 	return config, nil
-}
-
-// stageProductionProvisionFiles 复制已验证外部 artifacts 到私有 staging root。
-func stageProductionProvisionFiles(
-	staging string,
-	inputs productionProvisionInputs,
-) error {
-	rootData, err := json.MarshalIndent(inputs.root, "", "  ")
-	if err != nil {
-		return err
-	}
-	if err := os.WriteFile(filepath.Join(staging, "bootstrap-root.json"), append(rootData, '\n'), 0o600); err != nil {
-		return err
-	}
-	if err := os.WriteFile(filepath.Join(staging, "bootstrap-controller"), inputs.controllerData, 0o500); err != nil {
-		return err
-	}
-	bootstrapKeyData, err := json.Marshal(inputs.bootstrapKey)
-	if err != nil {
-		return err
-	}
-	if err := os.WriteFile(filepath.Join(staging, "bootstrap-controller-key.json"), append(bootstrapKeyData, '\n'), 0o600); err != nil {
-		return err
-	}
-	if err := os.WriteFile(filepath.Join(staging, "seccomp.json"), inputs.seccompData, 0o600); err != nil {
-		return err
-	}
-	if err := writeProductionProvisionAuthorityFiles(staging, inputs); err != nil {
-		return err
-	}
-	return verifyProductionBootstrapCodeRequirement(filepath.Join(staging, "bootstrap-controller"), inputs.root.Controller.DesignatedRequirement)
-}
-
-// writeProductionProvisionAuthorityFiles 写入 promotion、receipt 与 action grant 私钥。
-func writeProductionProvisionAuthorityFiles(staging string, inputs productionProvisionInputs) error {
-	if err := os.WriteFile(
-		filepath.Join(staging, "promotion-private.key"), []byte(inputs.bootstrapKey.PrivateKey+"\n"), 0o600,
-	); err != nil {
-		return err
-	}
-	receipt, err := json.Marshal(productionResultReceiptPrivateKey{PrivateKey: inputs.receiptKey.PrivateKey})
-	if err != nil {
-		return err
-	}
-	grant, err := json.Marshal(productionActionGrantPrivateKey{PrivateKey: inputs.actionGrantKey.PrivateKey})
-	if err != nil {
-		return err
-	}
-	if err := os.WriteFile(filepath.Join(staging, "receipt-private.json"), append(receipt, '\n'), 0o600); err != nil {
-		return err
-	}
-	return os.WriteFile(filepath.Join(staging, "action-grant-private.json"), append(grant, '\n'), 0o600)
 }
 
 // productionProvisionConfig 生成只引用最终 install root 的 production config。
@@ -539,15 +545,10 @@ func cloneProductionProvisionTrustedRepository(
 	if output, err := command.CombinedOutput(); err != nil {
 		return fmt.Errorf("clone production trusted repository: %w: %s", err, strings.TrimSpace(string(output)))
 	}
-	commit, err := productionProvisionGitLine(ctx, destination, "rev-parse", "--verify", root.TrustedRef+"^{commit}")
-	if err != nil || commit != root.BaselineCommit {
-		return errors.Join(errors.New("production provision trusted ref baseline commit drifted"), err)
+	if err := os.Chmod(destination, 0o700); err != nil {
+		return err
 	}
-	tree, err := productionProvisionGitLine(ctx, destination, "rev-parse", "--verify", root.BaselineCommit+"^{tree}")
-	if err != nil || tree != root.BaselineTree {
-		return errors.Join(errors.New("production provision baseline tree drifted"), err)
-	}
-	return os.Chmod(destination, 0o700)
+	return verifyProductionProvisionTrustedRepository(ctx, root, destination)
 }
 
 // productionProvisionGitLine 执行无 prompt 的 bare repository 只读查询。
@@ -571,8 +572,7 @@ func installProductionProvisionLauncher(path string, configPath string, controll
 	if err != nil {
 		return err
 	}
-	data := []byte("#!/bin/sh\nSUPER_DOLPHIN_GATE_PRODUCTION_CONFIG=" + shellQuoteProductionProvision(configPath) +
-		" exec " + shellQuoteProductionProvision(controllerPath) + " \"$@\"\n")
+	data := productionProvisionLauncherData(configPath, controllerPath)
 	temp, err := os.CreateTemp(parent, ".super-dolphin-gate-launcher-")
 	if err != nil {
 		return err
@@ -588,7 +588,18 @@ func installProductionProvisionLauncher(path string, configPath string, controll
 	if err := errors.Join(temp.Sync(), temp.Close()); err != nil {
 		return err
 	}
-	return os.Rename(tempPath, path)
+	return linkProductionProvisionLauncher(tempPath, path, configPath, controllerPath)
+}
+
+func linkProductionProvisionLauncher(tempPath string, path string, configPath string, controllerPath string) error {
+	if err := os.Link(tempPath, path); err != nil {
+		ready, inspectErr := inspectProductionProvisionLauncher(path, configPath, controllerPath)
+		if inspectErr == nil && ready {
+			return nil
+		}
+		return errors.Join(fmt.Errorf("install production provision launcher without replacement: %w", err), inspectErr)
+	}
+	return nil
 }
 
 // canonicalProductionLauncherDirectory 允许标准用户 bin 权限，但拒绝非 owner 写入和路径替换。

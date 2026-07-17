@@ -16,10 +16,11 @@ import (
 )
 
 type productionProvisionRuntimeStub struct {
-	verifyErr error
-	cloneErr  error
-	verified  gatecontract.ImageIdentity
-	clones    int
+	verifyErr  error
+	cloneErr   error
+	afterClone func() error
+	verified   gatecontract.ImageIdentity
+	clones     int
 }
 
 func (stub *productionProvisionRuntimeStub) VerifyRunner(
@@ -39,7 +40,25 @@ func (stub *productionProvisionRuntimeStub) CloneTrustedRepository(
 	if stub.cloneErr != nil {
 		return stub.cloneErr
 	}
-	return os.Mkdir(destination, 0o700)
+	if err := os.Mkdir(destination, 0o700); err != nil {
+		return err
+	}
+	if stub.afterClone != nil {
+		return stub.afterClone()
+	}
+	return nil
+}
+
+func (stub *productionProvisionRuntimeStub) VerifyTrustedRepository(
+	_ context.Context,
+	_ productionBootstrapRoot,
+	destination string,
+) error {
+	info, err := os.Stat(destination)
+	if err != nil || !info.IsDir() {
+		return errors.Join(errors.New("stub trusted repository is unavailable"), err)
+	}
+	return nil
 }
 
 func TestProductionProvisionInstallsClosureWithoutAcceptedSeed(t *testing.T) {
@@ -69,6 +88,22 @@ func TestProductionProvisionInstallsClosureWithoutAcceptedSeed(t *testing.T) {
 	}
 }
 
+func TestProductionProvisionRepeatReusesVerifiedRoot(t *testing.T) {
+	fixture := newProductionProvisionFixture(t)
+	runtimeStub := &productionProvisionRuntimeStub{}
+	first, err := provisionProductionWithRuntime(context.Background(), fixture.manifest, runtimeStub)
+	if err != nil {
+		t.Fatal(err)
+	}
+	repeated, err := provisionProductionWithRuntime(context.Background(), fixture.manifest, runtimeStub)
+	if err != nil {
+		t.Fatalf("repeat verified provision: %v", err)
+	}
+	if repeated != first || runtimeStub.clones != 1 {
+		t.Fatalf("repeat provision result = %#v, clones = %d", repeated, runtimeStub.clones)
+	}
+}
+
 func TestProductionProvisionFailurePublishesNothing(t *testing.T) {
 	fixture := newProductionProvisionFixture(t)
 	runtimeStub := &productionProvisionRuntimeStub{cloneErr: errors.New("clone failed")}
@@ -79,6 +114,134 @@ func TestProductionProvisionFailurePublishesNothing(t *testing.T) {
 		if _, err := os.Lstat(path); !errors.Is(err, os.ErrNotExist) {
 			t.Fatalf("failed provision published %q: %v", path, err)
 		}
+	}
+}
+
+func TestProductionProvisionRetriesVerifiedRootAfterLauncherConflict(t *testing.T) {
+	fixture := newProductionProvisionFixture(t)
+	foreignLauncher := []byte("foreign launcher\n")
+	runtimeStub := &productionProvisionRuntimeStub{afterClone: func() error {
+		return os.WriteFile(fixture.manifest.LauncherPath, foreignLauncher, 0o700)
+	}}
+	if _, err := provisionProductionWithRuntime(context.Background(), fixture.manifest, runtimeStub); err == nil {
+		t.Fatal("provision overwrote launcher created after preflight")
+	}
+	if _, err := os.Stat(fixture.manifest.InstallRoot); err != nil {
+		t.Fatalf("launcher conflict did not leave the published repairable root: %v", err)
+	}
+	assertFileData(t, fixture.manifest.LauncherPath, foreignLauncher)
+	if err := os.Remove(fixture.manifest.LauncherPath); err != nil {
+		t.Fatal(err)
+	}
+	runtimeStub.afterClone = nil
+	if _, err := provisionProductionWithRuntime(context.Background(), fixture.manifest, runtimeStub); err != nil {
+		t.Fatalf("retry verified provision residue: %v", err)
+	}
+	if runtimeStub.clones != 1 {
+		t.Fatalf("repairable provision cloned %d times, want 1", runtimeStub.clones)
+	}
+}
+
+func TestProductionProvisionDoesNotTakeOverUnknownRoot(t *testing.T) {
+	fixture := newProductionProvisionFixture(t)
+	if err := os.Mkdir(fixture.manifest.InstallRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	sentinel := filepath.Join(fixture.manifest.InstallRoot, "sentinel")
+	if err := os.WriteFile(sentinel, []byte("foreign root\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := provisionProductionWithRuntime(context.Background(), fixture.manifest, &productionProvisionRuntimeStub{}); err == nil {
+		t.Fatal("provision accepted an unknown install root")
+	}
+	assertFileData(t, sentinel, []byte("foreign root\n"))
+	if _, err := os.Lstat(fixture.manifest.LauncherPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("unknown root provision published launcher: %v", err)
+	}
+}
+
+func TestProductionProvisionDoesNotReplaceRootPublishedAfterPreflight(t *testing.T) {
+	fixture := newProductionProvisionFixture(t)
+	var foreignRoot os.FileInfo
+	runtimeStub := &productionProvisionRuntimeStub{afterClone: func() error {
+		if err := os.Mkdir(fixture.manifest.InstallRoot, 0o700); err != nil {
+			return err
+		}
+		var err error
+		foreignRoot, err = os.Stat(fixture.manifest.InstallRoot)
+		return err
+	}}
+	if _, err := provisionProductionWithRuntime(context.Background(), fixture.manifest, runtimeStub); err == nil {
+		t.Fatal("provision replaced a root created after preflight")
+	}
+	installedRoot, err := os.Stat(fixture.manifest.InstallRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !os.SameFile(foreignRoot, installedRoot) {
+		t.Fatal("provision replaced the concurrently created unknown root")
+	}
+	entries, err := os.ReadDir(fixture.manifest.InstallRoot)
+	if err != nil || len(entries) != 0 {
+		t.Fatalf("concurrently created unknown root was modified: entries=%v err=%v", entries, err)
+	}
+	if _, err := os.Lstat(fixture.manifest.LauncherPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("root publication conflict installed launcher: %v", err)
+	}
+}
+
+func TestProductionProvisionDoesNotTakeOverUnknownLauncher(t *testing.T) {
+	fixture := newProductionProvisionFixture(t)
+	foreignLauncher := []byte("foreign launcher\n")
+	if err := os.WriteFile(fixture.manifest.LauncherPath, foreignLauncher, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := provisionProductionWithRuntime(context.Background(), fixture.manifest, &productionProvisionRuntimeStub{}); err == nil {
+		t.Fatal("provision overwrote an unknown launcher")
+	}
+	assertFileData(t, fixture.manifest.LauncherPath, foreignLauncher)
+	if _, err := os.Lstat(fixture.manifest.InstallRoot); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("unknown launcher provision published install root: %v", err)
+	}
+}
+
+func TestProductionProvisionRejectsAuthorityIdentityAndPublicKeyReuse(t *testing.T) {
+	t.Run("receipt signer matches bootstrap", func(t *testing.T) {
+		fixture := newProductionProvisionFixture(t)
+		key, err := loadProductionProvisionSigningKey("receipt", fixture.manifest.ReceiptKeyFile)
+		if err != nil {
+			t.Fatal(err)
+		}
+		key.Signer = fixture.root.BootstrapSigner
+		writePrivateJSON(t, fixture.manifest.ReceiptKeyFile, key)
+		if _, err := provisionProductionWithRuntime(context.Background(), fixture.manifest, &productionProvisionRuntimeStub{}); err == nil {
+			t.Fatal("provision accepted receipt signer equal to bootstrap signer")
+		}
+	})
+
+	t.Run("distinct receipt signer reuses bootstrap public key", func(t *testing.T) {
+		fixture := newProductionProvisionFixture(t)
+		key, err := loadProductionProvisionSigningKey("receipt", fixture.manifest.ReceiptKeyFile)
+		if err != nil {
+			t.Fatal(err)
+		}
+		key.PublicKey = fixture.root.BootstrapPublicKey
+		key.PrivateKey = fixture.bootstrapPrivateKey
+		writePrivateJSON(t, fixture.manifest.ReceiptKeyFile, key)
+		if _, err := provisionProductionWithRuntime(context.Background(), fixture.manifest, &productionProvisionRuntimeStub{}); err == nil {
+			t.Fatal("provision accepted receipt authority reusing bootstrap public key")
+		}
+	})
+}
+
+func assertFileData(t *testing.T, path string, want []byte) {
+	t.Helper()
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("%s data = %q, want %q", path, got, want)
 	}
 }
 
@@ -160,8 +323,9 @@ func TestProductionProvisionFieldRegistryIsComplete(t *testing.T) {
 }
 
 type productionProvisionFixture struct {
-	manifest productionProvisionManifest
-	root     productionBootstrapRoot
+	manifest            productionProvisionManifest
+	root                productionBootstrapRoot
+	bootstrapPrivateKey string
 }
 
 func newProductionProvisionFixture(t *testing.T) productionProvisionFixture {
@@ -209,7 +373,7 @@ func newProductionProvisionFixture(t *testing.T) productionProvisionFixture {
 	grantFile := writeProductionProvisionTestAuthority(t, inputs, "grant", "provision-grant")
 	seccomp := writeProductionSeccompProfile(t, inputs)
 	trustedSourceRoot := makePrivateDirectory(t, base, "trusted-source")
-	return productionProvisionFixture{root: root, manifest: productionProvisionManifest{
+	return productionProvisionFixture{root: root, bootstrapPrivateKey: base64.StdEncoding.EncodeToString(bootstrapPrivate), manifest: productionProvisionManifest{
 		SchemaVersion: productionProvisionSchemaVersion, InstallRoot: filepath.Join(base, "installed"),
 		LauncherPath: filepath.Join(launcherDirectory, "super-dolphin-gate"), ControllerBinary: controller,
 		BootstrapRootFile: rootFile, BootstrapControllerKeyFile: bootstrapKeyFile,

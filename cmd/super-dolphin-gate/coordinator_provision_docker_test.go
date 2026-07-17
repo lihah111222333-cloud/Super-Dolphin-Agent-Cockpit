@@ -61,6 +61,14 @@ func (runtimeFixture productionProvisionDockerRuntime) CloneTrustedRepository(
 	return os.Chmod(destination, 0o700)
 }
 
+func (runtimeFixture productionProvisionDockerRuntime) VerifyTrustedRepository(
+	ctx context.Context,
+	root productionBootstrapRoot,
+	destination string,
+) error {
+	return verifyProductionProvisionTrustedRepository(ctx, root, destination)
+}
+
 func TestProductionProvisionBootstrapOwnerHookDockerE2E(t *testing.T) {
 	requireProductionProvisionDockerE2E(t)
 	fixture := newProductionProvisionDockerFixture(t)
