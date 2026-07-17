@@ -124,6 +124,68 @@ func TestProbationTimeoutRollsBackAndRestarts(t *testing.T) {
 	}
 }
 
+func TestSupervisorAndDetachedGuardConvergeOneRollbackRestart(t *testing.T) {
+	store, transaction, _, lease := createLeasedProbation(t, time.Second)
+	expiresAt, err := time.Parse(time.RFC3339Nano, lease.ExpiresAt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	restartProcess := RollbackRestartProcess{
+		PID: 303, StartToken: "unique-old-start", ExecutableIdentity: "/test/old-release",
+		ExecutableSHA256: digestText("unique-old-release"),
+	}
+	var launchMu sync.Mutex
+	launchCount := 0
+	resolve := func(string) (RollbackRestartProcess, bool, error) { return RollbackRestartProcess{}, false, nil }
+	launch := func(string) (RollbackRestartProcess, error) {
+		launchMu.Lock()
+		defer launchMu.Unlock()
+		launchCount++
+		return restartProcess, nil
+	}
+	supervisorReady := make(chan struct{})
+	guardReady := make(chan struct{})
+	start := make(chan struct{})
+	guardResult := make(chan error, 1)
+	supervisor, err := NewProbationSupervisor(ProbationSupervisorConfig{
+		Store: store, Identity: transaction.Identity, Lease: lease,
+		ProcessAlive: func(ProcessIdentity) (bool, error) { return true, nil }, StopCandidate: stopCandidateForTest,
+		RestartOldRelease: func(ctx context.Context, rolledBack Transaction) error {
+			close(supervisorReady)
+			<-guardReady
+			close(start)
+			_, convergeErr := store.ConvergeRollbackRestart(ctx, rolledBack.Identity, resolve, launch)
+			return convergeErr
+		},
+		Now: func() time.Time { return expiresAt }, ObservationPeriod: time.Millisecond,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var guardWait sync.WaitGroup
+	guardWait.Go(func() {
+		<-supervisorReady
+		close(guardReady)
+		<-start
+		_, convergeErr := store.ConvergeRollbackRestart(context.Background(), transaction.Identity, resolve, launch)
+		guardResult <- convergeErr
+	})
+	if err := supervisor.Run(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-guardResult; err != nil {
+		t.Fatal(err)
+	}
+	guardWait.Wait()
+	got := loadTransaction(t, store, transaction.Identity)
+	launchMu.Lock()
+	defer launchMu.Unlock()
+	if launchCount != 1 || !got.RollbackRestart.ACKPresent || got.RollbackRestart.ACK.Process != restartProcess ||
+		got.RollbackRestart.ACK.LaunchToken != got.RollbackRestart.LaunchToken {
+		t.Fatalf("launches=%d restart=%+v", launchCount, got.RollbackRestart)
+	}
+}
+
 func TestSupervisorInterruptionLeavesLeaseForGuard(t *testing.T) {
 	store, transaction, _, lease := createLeasedProbation(t, time.Minute)
 	ctx, cancel := context.WithCancel(context.Background())

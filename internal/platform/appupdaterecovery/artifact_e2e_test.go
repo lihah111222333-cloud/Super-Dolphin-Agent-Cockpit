@@ -16,6 +16,7 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 
@@ -104,6 +105,7 @@ func runRecoveryGuardCrashE2E(t *testing.T, crashAfterEffect bool) {
 	waitForArtifactGuardState(t, fixture, StateRolledBack)
 	waitForArtifactGuardExit(t, fixture)
 	assertResolvedTrust(t, fixture.target, fixture.oldTrust, fixture.oldGeneration)
+	assertArtifactRollbackRestartAliveAndTerminate(t, fixture)
 	t.Logf(
 		"backup_retained_guard=%s updater=%s old_release=%s signer=%s",
 		fixture.request.Identity.OldHelpers.GuardSHA256,
@@ -481,6 +483,79 @@ func artifactProcessAlive(process ProcessIdentity) (bool, error) {
 	return stable.ProcessStartToken == process.StartToken && stable.ExecutableIdentity == process.ExecutableIdentity, nil
 }
 
+func assertArtifactRollbackRestartAliveAndTerminate(t *testing.T, fixture *recoveryGuardCrashFixture) {
+	t.Helper()
+	transaction, err := fixture.store.Load(context.Background(), fixture.request.Identity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	record := transaction.RollbackRestart
+	if !record.ACKPresent || record.ACK.LaunchToken != record.LaunchToken {
+		t.Fatalf("rollback restart ACK = %+v, intent = %+v", record.ACK, record)
+	}
+	executable := filepath.Join(fixture.target, "Contents", "MacOS", "agent-terminal")
+	process := record.ACK.Process
+	if process.ExecutableIdentity != executable || process.ExecutableSHA256 != mustArtifactDigest(t, executable) {
+		t.Fatalf("rollback restart process = %+v, executable = %q", process, executable)
+	}
+	alive, err := artifactProcessAlive(ProcessIdentity{
+		PID: process.PID, StartToken: process.StartToken,
+		ExecutableIdentity: process.ExecutableIdentity, ExecutableSHA256: process.ExecutableSHA256,
+	})
+	if err != nil || !alive {
+		t.Fatalf("rollback restart exact process alive = %t, error = %v, ACK = %+v", alive, err, record.ACK)
+	}
+	t.Cleanup(func() { terminateArtifactRollbackProcess(t, process) })
+	terminateArtifactRollbackProcess(t, process)
+}
+
+func terminateArtifactRollbackProcess(t *testing.T, process RollbackRestartProcess) {
+	t.Helper()
+	stable, err := pidregistry.CaptureStableProcessIdentity(process.PID)
+	if errors.Is(err, pidregistry.ErrStableProcessNotFound) {
+		return
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stable.ProcessStartToken != process.StartToken || stable.ExecutableIdentity != process.ExecutableIdentity {
+		t.Fatalf("rollback restart process identity changed before terminate: stable=%+v ACK=%+v", stable, process)
+	}
+	osProcess, err := os.FindProcess(process.PID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := osProcess.Signal(syscall.SIGTERM); err != nil && !errors.Is(err, os.ErrProcessDone) {
+		t.Fatal(err)
+	}
+	waitForArtifactRollbackProcessExit(t, process)
+}
+
+func waitForArtifactRollbackProcessExit(t *testing.T, process RollbackRestartProcess) {
+	t.Helper()
+	deadline := time.NewTimer(5 * time.Second)
+	poll := time.NewTicker(25 * time.Millisecond)
+	defer deadline.Stop()
+	defer poll.Stop()
+	for {
+		select {
+		case <-poll.C:
+			stable, err := pidregistry.CaptureStableProcessIdentity(process.PID)
+			if errors.Is(err, pidregistry.ErrStableProcessNotFound) {
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if stable.ProcessStartToken != process.StartToken || stable.ExecutableIdentity != process.ExecutableIdentity {
+				return
+			}
+		case <-deadline.C:
+			t.Fatalf("rollback restart process %d did not exit", process.PID)
+		}
+	}
+}
+
 func mustArtifactDigest(t *testing.T, path string) string {
 	t.Helper()
 	digest, err := ComputeReleaseDigest(path)
@@ -554,7 +629,9 @@ const artifactProgramSource = `package main
 import (
 	"fmt"
 	"os"
-	"time"
+	"os/signal"
+	"strings"
+	"syscall"
 )
 
 var release string
@@ -565,9 +642,28 @@ func main() {
 	case "crash":
 		os.Exit(23)
 	case "serve":
-		time.Sleep(30 * time.Second)
+		waitForTermination()
 	default:
+		if hasRollbackLaunchToken(os.Args[1:]) {
+			waitForTermination()
+			return
+		}
 		fmt.Printf("%s:%s\n", release, role)
 	}
+}
+
+func hasRollbackLaunchToken(args []string) bool {
+	for _, arg := range args {
+		if strings.HasPrefix(arg, "--super-dolphin-rollback-launch-token=") {
+			return true
+		}
+	}
+	return false
+}
+
+func waitForTermination() {
+	terminated := make(chan os.Signal, 1)
+	signal.Notify(terminated, syscall.SIGINT, syscall.SIGTERM)
+	<-terminated
 }
 `

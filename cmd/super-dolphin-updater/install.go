@@ -52,16 +52,18 @@ type processExitWaiter func(int, time.Duration) error
 
 // updaterApp 显式携带 updater 的可替换系统依赖，避免安装流程依赖隐式全局状态。
 type updaterApp struct {
-	runCommand         commandRunner
-	runRestartCommand  restartCommandRunner
-	waitForProcessExit processExitWaiter
+	runCommand                     commandRunner
+	runRestartCommand              restartCommandRunner
+	waitForProcessExit             processExitWaiter
+	rollbackRestartCallbackFactory func(recovery.Transaction) (recovery.RollbackRestartResolver, recovery.RollbackRestartLauncher)
 }
 
 func defaultUpdaterApp() updaterApp {
 	return updaterApp{
-		runCommand:         runCommand,
-		runRestartCommand:  runRestartCommand,
-		waitForProcessExit: waitForProcessExit,
+		runCommand:                     runCommand,
+		runRestartCommand:              runRestartCommand,
+		waitForProcessExit:             waitForProcessExit,
+		rollbackRestartCallbackFactory: recovery.RollbackRestartCallbacks,
 	}
 }
 
@@ -74,6 +76,9 @@ func (app updaterApp) validate() error {
 	}
 	if app.waitForProcessExit == nil {
 		return errors.New("updater process waiter is required")
+	}
+	if app.rollbackRestartCallbackFactory == nil {
+		return errors.New("updater rollback restart callback factory is required")
 	}
 	return nil
 }

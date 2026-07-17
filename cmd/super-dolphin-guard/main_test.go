@@ -470,6 +470,61 @@ func TestGuardTerminationFailureHasNoRollbackOrRestart(t *testing.T) {
 	assertGuardTransactionState(t, fixture, recovery.StateProbation)
 }
 
+func TestDetachedGuardsConvergeOneRollbackRestart(t *testing.T) {
+	fixture := newGuardFixture(t)
+	forceGuardPendingState(t, fixture.transaction, recovery.TriggerRollbackRequested, recovery.StateRollbackPending, true)
+	rolledBack, err := fixture.store.Replay(context.Background(), fixture.transaction.Identity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	restartProcess := fixtureRestartProcess()
+	var launchMu sync.Mutex
+	launchCount := 0
+	resolve := func(string) (recovery.RollbackRestartProcess, bool, error) {
+		return recovery.RollbackRestartProcess{}, false, nil
+	}
+	launch := func(string) (recovery.RollbackRestartProcess, error) {
+		launchMu.Lock()
+		defer launchMu.Unlock()
+		launchCount++
+		return restartProcess, nil
+	}
+	guards := []*probationGuard{
+		newGuard(guardConfig{Store: fixture.store, Identity: rolledBack.Identity, ResolveOldRelease: resolve, RestartOldRelease: launch}),
+		newGuard(guardConfig{Store: fixture.store, Identity: rolledBack.Identity, ResolveOldRelease: resolve, RestartOldRelease: launch}),
+	}
+	start := make(chan struct{})
+	results := make(chan error, len(guards))
+	var ready sync.WaitGroup
+	var runners sync.WaitGroup
+	ready.Add(len(guards))
+	for _, guard := range guards {
+		runners.Go(func() {
+			ready.Done()
+			<-start
+			results <- guard.restartRolledBackRelease(context.Background(), rolledBack)
+		})
+	}
+	ready.Wait()
+	close(start)
+	for range guards {
+		if err := <-results; err != nil {
+			t.Fatal(err)
+		}
+	}
+	runners.Wait()
+	got, err := fixture.store.Load(context.Background(), rolledBack.Identity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	launchMu.Lock()
+	defer launchMu.Unlock()
+	if launchCount != 1 || !got.RollbackRestart.ACKPresent || got.RollbackRestart.ACK.Process != restartProcess ||
+		got.RollbackRestart.ACK.LaunchToken != got.RollbackRestart.LaunchToken {
+		t.Fatalf("launches=%d restart=%+v", launchCount, got.RollbackRestart)
+	}
+}
+
 func assertGuardTransactionState(t *testing.T, fixture *guardFixture, want recovery.State) {
 	t.Helper()
 	got, err := fixture.store.Load(context.Background(), fixture.transaction.Identity)
