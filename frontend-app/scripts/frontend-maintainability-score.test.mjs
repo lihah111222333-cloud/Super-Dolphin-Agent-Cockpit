@@ -821,6 +821,23 @@ describe('executable evidence registry', () => {
     })).toBe('FAIL');
   }, 30_000);
 
+  it('binds every performance control to the audited runner content files', () => {
+    const { controls } = documents();
+    const baselineDocument = JSON.parse(readFileSync(
+      join(scriptRoot, 'frontend-maintainability-baseline.json'),
+      'utf8',
+    ));
+    const auditedRunnerFiles = baselineDocument.provenance.runnerFiles.map(({ path }) => path);
+
+    expect(auditedRunnerFiles).not.toContain('frontend-app/package.json');
+    for (const controlId of ['P01-render-isolation', 'P02-history-budget', 'P03-feedback-budget', 'P04-resource-budget']) {
+      const control = controls.controls.find(({ id }) => id === controlId);
+      const check = control.allOf.find(({ evidenceProtocol }) => evidenceProtocol === 'performance-budget-json-v1');
+      expect(check.runnerFiles).toEqual(auditedRunnerFiles);
+    }
+    expect(performanceAuditPathAllowed('frontend-app/package.json')).toBe(true);
+  });
+
   it('matches the runner codemap audit allowlist without widening the codemap prefix', () => {
     expect(performanceAuditPathAllowed('docs/doc/codemap/README.md')).toBe(true);
     expect(performanceAuditPathAllowed('docs/doc/codemap/ai-index.json')).toBe(true);
