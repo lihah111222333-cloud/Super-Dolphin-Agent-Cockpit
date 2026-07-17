@@ -87,6 +87,63 @@ func TestJournalFieldGuardRejectsProducerFieldMutation(t *testing.T) {
 	}
 }
 
+func TestDiscardIdentityFieldGuardRoundTrip(t *testing.T) {
+	want := discardInstanceIdentity{
+		SchemaVersion: discardIdentitySchemaVersion,
+		TransactionID: TransactionID("00112233445566778899aabbccddeeff"),
+		Root: discardRootIdentity{
+			VolumeID: 12,
+			FileID:   34,
+			Kind:     discardRootKindDirectory,
+		},
+	}
+	raw, err := encodeDiscardInstanceIdentity(want)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := decodeDiscardInstanceIdentity(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != want {
+		t.Fatalf("discard identity roundtrip = %+v, want %+v", got, want)
+	}
+}
+
+func TestDiscardIdentityFieldGuardRejectsRootFieldMutation(t *testing.T) {
+	identity := discardInstanceIdentity{
+		SchemaVersion: discardIdentitySchemaVersion,
+		TransactionID: TransactionID("00112233445566778899aabbccddeeff"),
+		Root:          discardRootIdentity{VolumeID: 12, FileID: 34, Kind: discardRootKindDirectory},
+	}
+	raw, err := encodeDiscardInstanceIdentity(identity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		t.Fatal(err)
+	}
+	root, ok := payload["root"].(map[string]any)
+	if !ok {
+		t.Fatal("discard root identity was not serialized as an object")
+	}
+	delete(root, "file_id")
+	mutated, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = decodeDiscardInstanceIdentity(mutated)
+	if err == nil {
+		t.Fatal("discard identity root field mutation was accepted")
+	}
+	for _, evidence := range []string{discardIdentityFieldChain, "producer=discardRootIdentity", "$.root.file_id"} {
+		if !strings.Contains(err.Error(), evidence) {
+			t.Fatalf("field guard error %q does not identify %q", err, evidence)
+		}
+	}
+}
+
 func fieldGuardJournal(t *testing.T) journalPayload {
 	t.Helper()
 	id := TransactionID("00112233445566778899aabbccddeeff")

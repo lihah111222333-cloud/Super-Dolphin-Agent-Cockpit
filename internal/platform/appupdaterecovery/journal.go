@@ -16,6 +16,14 @@ import (
 
 const journalSchemaVersion = 2
 
+const (
+	discardIdentitySchemaVersion = 1
+	discardIdentityFileName      = "discard-identity.json"
+	discardIdentityFieldChain    = "release_transaction_discard_identity"
+	discardRootKindFile          = "file"
+	discardRootKindDirectory     = "directory"
+)
+
 type journalEntry struct {
 	Sequence uint64  `json:"sequence"`
 	Trigger  Trigger `json:"trigger"`
@@ -39,6 +47,18 @@ type journalPayload struct {
 type journalEnvelope struct {
 	Payload  []byte `json:"payload"`
 	Checksum string `json:"checksum"`
+}
+
+type discardRootIdentity struct {
+	VolumeID uint64 `json:"volume_id"`
+	FileID   uint64 `json:"file_id"`
+	Kind     string `json:"kind"`
+}
+
+type discardInstanceIdentity struct {
+	SchemaVersion int                 `json:"schema_version"`
+	TransactionID TransactionID       `json:"transaction_id"`
+	Root          discardRootIdentity `json:"root"`
 }
 
 func newJournal(req CreateRequest, targetGeneration uint64, now time.Time) journalPayload {
@@ -126,6 +146,45 @@ func decodeStrict(raw []byte, target any) error {
 			return errors.New("unexpected trailing JSON value")
 		}
 		return err
+	}
+	return nil
+}
+
+func encodeDiscardInstanceIdentity(identity discardInstanceIdentity) ([]byte, error) {
+	if err := validateDiscardInstanceIdentity(identity); err != nil {
+		return nil, err
+	}
+	raw, err := json.MarshalIndent(identity, "", "  ")
+	if err != nil {
+		return nil, fmt.Errorf("encode backup discard identity: %w", err)
+	}
+	return append(raw, '\n'), nil
+}
+
+func decodeDiscardInstanceIdentity(raw []byte) (discardInstanceIdentity, error) {
+	producer := reflect.TypeFor[discardInstanceIdentity]()
+	if err := validateRequiredJSONFieldsForChain(raw, producer, discardIdentityFieldChain); err != nil {
+		return discardInstanceIdentity{}, err
+	}
+	var identity discardInstanceIdentity
+	if err := decodeStrict(raw, &identity); err != nil {
+		return discardInstanceIdentity{}, fmt.Errorf("decode backup discard identity: %w", err)
+	}
+	if err := validateDiscardInstanceIdentity(identity); err != nil {
+		return discardInstanceIdentity{}, err
+	}
+	return identity, nil
+}
+
+func validateDiscardInstanceIdentity(identity discardInstanceIdentity) error {
+	if identity.SchemaVersion != discardIdentitySchemaVersion {
+		return fmt.Errorf("backup discard identity schema = %d, want %d", identity.SchemaVersion, discardIdentitySchemaVersion)
+	}
+	if err := validateTransactionID(identity.TransactionID); err != nil {
+		return fmt.Errorf("validate backup discard transaction identity: %w", err)
+	}
+	if identity.Root.Kind != discardRootKindFile && identity.Root.Kind != discardRootKindDirectory {
+		return fmt.Errorf("backup discard root kind = %q", identity.Root.Kind)
 	}
 	return nil
 }

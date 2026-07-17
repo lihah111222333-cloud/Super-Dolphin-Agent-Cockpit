@@ -204,20 +204,18 @@ func TestCommitReplayCompletesAfterBackupDiscardRename(t *testing.T) {
 	assertPathExists(t, paths.Target)
 	assertPathMissing(t, paths.Backup)
 	assertPathMissing(t, discard)
+	assertPathExists(t, store.discardIdentityPath(identity.TransactionID))
 }
 
 func TestCommittedReplayRemovesPartiallyDeletedDiscardTree(t *testing.T) {
 	store, identity, paths := createDirectoryProbationTransaction(t)
-	ackProbationTransaction(t, store, identity)
-	beginCommitPending(t, store, identity)
+	lease := ackProbationTransaction(t, store, identity)
+	crashAfterEffect(store, StateCommitted)
+	if _, err := store.commitHealthyClaimed(t.Context(), identity, lease); !errors.Is(err, errSimulatedCrash) {
+		t.Fatalf("commitHealthyClaimed() error = %v, want committed crash", err)
+	}
+	assertCommittedDiscardCrash(t, store, identity)
 	discard := expectedBackupDiscardPath(paths)
-	if err := os.Rename(paths.Backup, discard); err != nil {
-		t.Fatal(err)
-	}
-	if err := syncDirectory(filepath.Dir(paths.Target)); err != nil {
-		t.Fatal(err)
-	}
-	advanceCommitCompleted(t, store, identity)
 	if err := os.Remove(filepath.Join(discard, "Contents", "old-a")); err != nil {
 		t.Fatal(err)
 	}
@@ -229,6 +227,66 @@ func TestCommittedReplayRemovesPartiallyDeletedDiscardTree(t *testing.T) {
 		t.Fatalf("candidate release lost trust after discard replay: %v", err)
 	}
 	assertPathMissing(t, discard)
+}
+
+func TestCommittedReplayRejectsReplacedDiscardRoot(t *testing.T) {
+	store, identity, paths := createDirectoryProbationTransaction(t)
+	lease := ackProbationTransaction(t, store, identity)
+	crashAfterEffect(store, StateCommitted)
+	if _, err := store.commitHealthyClaimed(t.Context(), identity, lease); !errors.Is(err, errSimulatedCrash) {
+		t.Fatalf("commitHealthyClaimed() error = %v, want committed crash", err)
+	}
+	assertCommittedDiscardCrash(t, store, identity)
+	discard := expectedBackupDiscardPath(paths)
+	if err := os.RemoveAll(discard); err != nil {
+		t.Fatal(err)
+	}
+	replacement := filepath.Join(discard, "Contents", "replacement-marker")
+	writeDirectoryFixture(t, discard, "replacement-marker", "unrelated")
+	reopened, err := NewStore(store.root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := reopened.Replay(t.Context(), identity); err == nil {
+		t.Fatal("Replay() error = nil, want replaced discard root rejection")
+	} else if !strings.Contains(err.Error(), "backup discard root identity changed") {
+		t.Fatalf("Replay() error = %v, want root identity mismatch", err)
+	}
+	assertPathExists(t, replacement)
+}
+
+func assertCommittedDiscardCrash(t *testing.T, store *Store, identity Identity) {
+	t.Helper()
+	transaction := loadTransaction(t, store, identity)
+	if transaction.State != StateCommitted || transaction.Trust.State != TrustCommitted {
+		t.Fatalf("committed cleanup crash transaction = %#v", transaction)
+	}
+	assertPathExists(t, store.discardIdentityPath(identity.TransactionID))
+}
+
+func TestCommittedReplaySupportsLegacyJournalWithoutDiscardIdentity(t *testing.T) {
+	store, identity, paths := createProbationTransaction(t)
+	lease := ackProbationTransaction(t, store, identity)
+	transaction, err := store.commitHealthyClaimed(t.Context(), identity, lease)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(store.discardIdentityPath(identity.TransactionID)); err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := NewStore(store.root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	replayed, err := reopened.Replay(t.Context(), identity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if replayed.State != StateCommitted || transaction.State != StateCommitted {
+		t.Fatalf("legacy committed replay = %#v, initial = %#v", replayed, transaction)
+	}
+	assertPathMissing(t, paths.Backup)
+	assertPathMissing(t, expectedBackupDiscardPath(paths))
 }
 
 func TestCommitRejectsDiscardCollision(t *testing.T) {
@@ -552,15 +610,6 @@ func beginCommitPending(t *testing.T, store *Store, identity Identity) {
 		return store.beginHealthyCommitLocked(journal)
 	}); err != nil {
 		t.Fatalf("beginHealthyCommitLocked() error = %v", err)
-	}
-}
-
-func advanceCommitCompleted(t *testing.T, store *Store, identity Identity) {
-	t.Helper()
-	if _, err := store.withExact(t.Context(), identity, func(journal *journalPayload) error {
-		return store.advanceLocked(journal, TriggerCommitCompleted)
-	}); err != nil {
-		t.Fatalf("advanceLocked(commit_completed) error = %v", err)
 	}
 }
 

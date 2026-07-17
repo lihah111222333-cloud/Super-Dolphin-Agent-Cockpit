@@ -134,12 +134,27 @@ func renameVerifiedBackupToDiscard(journal journalPayload, discard string) error
 	return syncDirectory(filepath.Dir(journal.Paths.Target))
 }
 
-// cleanupCommittedEffect 只清理已被 committed journal 判定为不可信恢复源的 discard。
-func cleanupCommittedEffect(journal journalPayload) error {
+// cleanupCommittedEffect 只清理根实例仍与持久身份一致的 committed discard。
+func cleanupCommittedEffect(journal journalPayload, expected discardRootIdentity) error {
 	if err := verifyRelease(journal.Paths.Target, journal.Identity.CandidateRelease); err != nil {
 		return fmt.Errorf("verify candidate before committed cleanup: %w", err)
 	}
-	if err := removeIfExists(backupDiscardPath(journal.Paths)); err != nil {
+	discard := backupDiscardPath(journal.Paths)
+	exists, err := pathExists(discard)
+	if err != nil {
+		return err
+	}
+	if !exists {
+		return syncDirectory(filepath.Dir(journal.Paths.Target))
+	}
+	actual, err := captureDiscardRootIdentity(discard)
+	if err != nil {
+		return err
+	}
+	if actual != expected {
+		return fmt.Errorf("backup discard root identity changed: got %+v, want %+v", actual, expected)
+	}
+	if err := removeIfExists(discard); err != nil {
 		return fmt.Errorf("remove committed backup discard: %w", err)
 	}
 	return syncDirectory(filepath.Dir(journal.Paths.Target))
