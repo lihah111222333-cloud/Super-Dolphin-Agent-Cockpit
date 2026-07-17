@@ -91,3 +91,52 @@ func TestActiveProbationNormalFailureDoesNotOpenRecovery(t *testing.T) {
 		t.Fatalf("Recovery calls = %d, want 0", recoveryCalls)
 	}
 }
+
+type fakeTerminationServer struct {
+	closed    bool
+	activated bool
+	waitErr   error
+	closeErr  error
+}
+
+func (server *fakeTerminationServer) WaitForActivation(context.Context) error {
+	server.activated = true
+	return server.waitErr
+}
+
+func (server *fakeTerminationServer) Close() error {
+	server.closed = true
+	return server.closeErr
+}
+
+func TestRunMainErrorExitRunsTerminationCleanup(t *testing.T) {
+	server := &fakeTerminationServer{}
+	stopped := false
+	runErr := errors.New("desktop failed")
+	exitCode := runMain(t.Context(), func() { stopped = true }, terminalMainDeps{
+		startTermination: func(context.CancelFunc) (cooperativeTerminationServer, bool, error) {
+			return server, false, nil
+		},
+		run: func(context.Context, terminalDeps) error { return runErr },
+	})
+	if exitCode != 1 || !server.closed || !stopped {
+		t.Fatalf("runMain exit=%d closed=%t stopped=%t, want 1/true/true", exitCode, server.closed, stopped)
+	}
+}
+
+func TestRunMainParkedWaitFailureRunsCleanup(t *testing.T) {
+	waitErr := errors.New("activation failed")
+	server := &fakeTerminationServer{waitErr: waitErr}
+	exitCode := runMain(t.Context(), func() {}, terminalMainDeps{
+		startTermination: func(context.CancelFunc) (cooperativeTerminationServer, bool, error) {
+			return server, true, nil
+		},
+		run: func(context.Context, terminalDeps) error {
+			t.Fatal("desktop ran after activation failure")
+			return nil
+		},
+	})
+	if exitCode != 1 || !server.activated || !server.closed {
+		t.Fatalf("runMain exit=%d activated=%t closed=%t, want 1/true/true", exitCode, server.activated, server.closed)
+	}
+}

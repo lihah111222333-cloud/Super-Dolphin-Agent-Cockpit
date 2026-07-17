@@ -25,27 +25,91 @@ type terminalDeps struct {
 	runRecovery   func(context.Context, app.StartupSelection) error
 }
 
+type cooperativeTerminationServer interface {
+	WaitForActivation(context.Context) error
+	Close() error
+}
+
+type terminalMainDeps struct {
+	startTermination func(context.CancelFunc) (cooperativeTerminationServer, bool, error)
+	run              func(context.Context, terminalDeps) error
+	terminal         terminalDeps
+}
+
 // main 在任何 normal preflight 前运行 early selector。
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	os.Exit(runMain(ctx, stop, productionTerminalMainDeps()))
+}
+
+// runMain 返回退出码，确保最外层 os.Exit 前完成全部 cleanup defer。
+func runMain(ctx context.Context, stop context.CancelFunc, deps terminalMainDeps) (exitCode int) {
+	if err := validateTerminalMainDeps(ctx, stop, deps); err != nil {
+		pkglogger.Get().Error("agent-terminal main dependencies are incomplete")
+		return 1
+	}
 	defer stop()
-	terminationServer, parked, err := startCooperativeTermination(stop)
+	terminationServer, parked, err := deps.startTermination(stop)
 	if err != nil {
 		pkglogger.Get().Error("agent-terminal termination endpoint failed", "error", err)
-		os.Exit(1)
+		return 1
 	}
 	if terminationServer != nil {
-		defer terminationServer.Close()
+		defer func() { exitCode = closeTerminationServer(terminationServer, exitCode) }()
 	}
-	if parked {
-		if err := terminationServer.WaitForCommit(ctx); err != nil {
-			pkglogger.Get().Error("agent-terminal rollback commit failed", "error", err)
-			return
+	return executeTerminalMain(ctx, deps, terminationServer, parked)
+}
+
+func validateTerminalMainDeps(ctx context.Context, stop context.CancelFunc, deps terminalMainDeps) error {
+	if ctx == nil || stop == nil || deps.startTermination == nil || deps.run == nil {
+		return errors.New("agent-terminal main dependencies are incomplete")
+	}
+	return nil
+}
+
+func closeTerminationServer(server cooperativeTerminationServer, exitCode int) int {
+	if err := server.Close(); err != nil {
+		pkglogger.Get().Error("agent-terminal termination endpoint cleanup failed", "error", err)
+		if exitCode == 0 {
+			return 1
 		}
 	}
-	if err := runAgentTerminal(ctx, productionTerminalDeps()); err != nil && !errors.Is(err, context.Canceled) {
+	return exitCode
+}
+
+// executeTerminalMain 执行 parked 激活等待或正常 terminal 主流程并返回退出码。
+func executeTerminalMain(
+	ctx context.Context,
+	deps terminalMainDeps,
+	terminationServer cooperativeTerminationServer,
+	parked bool,
+) int {
+	if parked {
+		if terminationServer == nil {
+			pkglogger.Get().Error("agent-terminal parked startup requires termination server")
+			return 1
+		}
+		if err := terminationServer.WaitForActivation(ctx); err != nil {
+			if !errors.Is(err, context.Canceled) {
+				pkglogger.Get().Error("agent-terminal rollback activation failed", "error", err)
+				return 1
+			}
+			return 0
+		}
+	}
+	if err := deps.run(ctx, deps.terminal); err != nil && !errors.Is(err, context.Canceled) {
 		pkglogger.Get().Error("agent-terminal failed", "error", err)
-		os.Exit(1)
+		return 1
+	}
+	return 0
+}
+
+func productionTerminalMainDeps() terminalMainDeps {
+	return terminalMainDeps{
+		startTermination: func(cancel context.CancelFunc) (cooperativeTerminationServer, bool, error) {
+			return startCooperativeTermination(cancel)
+		},
+		run: runAgentTerminal, terminal: productionTerminalDeps(),
 	}
 }
 

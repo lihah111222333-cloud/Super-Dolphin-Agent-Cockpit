@@ -31,7 +31,11 @@ func runRollbackRestartLauncherFailure(t *testing.T, failure string) {
 	runtime := fixture.runtime()
 	_, launch := rollbackRestartCallbacksWithRuntime(transaction, runtime)
 	_, launchErr := launch(t.Context(), transaction.RollbackRestart.LaunchToken)
-	for _, want := range []error{fixture.primary, fixture.terminationFailure, fixture.waitFailure} {
+	wants := []error{fixture.primary, fixture.waitFailure}
+	if failure != "capture" {
+		wants = append(wants, fixture.terminationFailure)
+	}
+	for _, want := range wants {
 		if !errors.Is(launchErr, want) {
 			t.Fatalf("launch error %v does not retain %v", launchErr, want)
 		}
@@ -57,11 +61,23 @@ type rollbackRuntimeFailureFixture struct {
 func (fixture *rollbackRuntimeFailureFixture) runtime() rollbackRestartRuntime {
 	return rollbackRestartRuntime{
 		cleanupLimits: rollbackRestartCleanupLimits{total: 500 * time.Millisecond, terminate: 100 * time.Millisecond, firstWait: 100 * time.Millisecond},
-		start:         fixture.start, waitReady: func(context.Context, pidregistry.StableProcessIdentity) error { return nil },
+		start:         fixture.start,
+		waitReady: func(context.Context, pidregistry.StableProcessIdentity) (pidregistry.CooperativeEndpointIdentity, error) {
+			return fixtureCooperativeEndpointIdentity(), nil
+		},
 		capture: fixture.capture, validate: fixture.validate, release: fixture.release,
-		commit:           func(context.Context, pidregistry.StableProcessIdentity) error { return nil },
-		requestTerminate: fixture.requestTerminate, terminate: pidregistry.TerminateExactProcess,
-		kill: fixture.kill, waitChild: fixture.waitChild, cleanupEndpoint: func(string) error { return nil },
+		prepare: func(context.Context, pidregistry.StableProcessIdentity, pidregistry.CooperativeEndpointIdentity) error {
+			return nil
+		},
+		activate: func(context.Context, pidregistry.StableProcessIdentity, pidregistry.CooperativeEndpointIdentity) error {
+			return nil
+		},
+		requestTerminate: fixture.requestTerminate,
+		terminate: func(context.Context, pidregistry.StableProcessIdentity, pidregistry.CooperativeEndpointIdentity) error {
+			return nil
+		},
+		kill: fixture.kill, waitChild: fixture.waitChild,
+		cleanupEndpoint: func(string, pidregistry.CooperativeEndpointIdentity) error { return nil },
 	}
 }
 
@@ -113,7 +129,11 @@ func (fixture *rollbackRuntimeFailureFixture) release(process *os.Process) error
 	return process.Release()
 }
 
-func (fixture *rollbackRuntimeFailureFixture) requestTerminate(_ context.Context, identity pidregistry.StableProcessIdentity) error {
+func (fixture *rollbackRuntimeFailureFixture) requestTerminate(
+	_ context.Context,
+	identity pidregistry.StableProcessIdentity,
+	_ pidregistry.CooperativeEndpointIdentity,
+) error {
 	process, err := os.FindProcess(identity.PID)
 	if err != nil {
 		return errors.Join(err, fixture.terminationFailure)
@@ -144,12 +164,14 @@ func TestRollbackRestartCleanupReturnsWhenTerminationAndKillDoNotRespond(t *test
 	terminationFailure := errors.New("termination did not respond")
 	killFailure := errors.New("kill had no effect")
 	runtime := rollbackRestartRuntime{
-		cleanupLimits:    rollbackRestartCleanupLimits{total: 80 * time.Millisecond, terminate: 20 * time.Millisecond, firstWait: 20 * time.Millisecond},
-		capture:          func(context.Context, int) (pidregistry.StableProcessIdentity, error) { return stable, nil },
-		release:          func(*os.Process) error { return nil },
-		requestTerminate: func(context.Context, pidregistry.StableProcessIdentity) error { return terminationFailure },
-		kill:             func(*os.Process) error { return killFailure },
-		cleanupEndpoint:  func(string) error { return nil },
+		cleanupLimits: rollbackRestartCleanupLimits{total: 80 * time.Millisecond, terminate: 20 * time.Millisecond, firstWait: 20 * time.Millisecond},
+		capture:       func(context.Context, int) (pidregistry.StableProcessIdentity, error) { return stable, nil },
+		release:       func(*os.Process) error { return nil },
+		requestTerminate: func(context.Context, pidregistry.StableProcessIdentity, pidregistry.CooperativeEndpointIdentity) error {
+			return terminationFailure
+		},
+		kill:            func(*os.Process) error { return killFailure },
+		cleanupEndpoint: func(string, pidregistry.CooperativeEndpointIdentity) error { return nil },
 		waitChild: func(ctx context.Context, _ int) error {
 			<-ctx.Done()
 			return context.Cause(ctx)
@@ -160,7 +182,9 @@ func TestRollbackRestartCleanupReturnsWhenTerminationAndKillDoNotRespond(t *test
 		TerminationToken:    testLowerHex("cleanup-token"), ContractPresent: true,
 	}
 	startedAt := time.Now()
-	cleanupErr := cleanupStartedRollbackProcess(runtime, cmd, cmd.Process.Pid, stable, contract, primary)
+	cleanupErr := cleanupStartedRollbackProcess(
+		runtime, cmd, cmd.Process.Pid, stable, fixtureCooperativeEndpointIdentity(), contract, primary,
+	)
 	if elapsed := time.Since(startedAt); elapsed > 500*time.Millisecond {
 		t.Fatalf("bounded cleanup elapsed %s", elapsed)
 	}
@@ -194,13 +218,20 @@ func TestRollbackRestartResolverCleanupUsesFrozenExactContract(t *testing.T) {
 		validate: func(context.Context, pidregistry.StableProcessIdentity, string) (RollbackRestartProcess, error) {
 			return fixtureRollbackRestartProcess(), nil
 		},
-		waitReady: func(context.Context, pidregistry.StableProcessIdentity) error { return nil },
-		commit:    func(context.Context, pidregistry.StableProcessIdentity) error { return nil },
-		terminate: func(_ context.Context, identity pidregistry.StableProcessIdentity) error {
+		waitReady: func(context.Context, pidregistry.StableProcessIdentity) (pidregistry.CooperativeEndpointIdentity, error) {
+			return fixtureCooperativeEndpointIdentity(), nil
+		},
+		prepare: func(context.Context, pidregistry.StableProcessIdentity, pidregistry.CooperativeEndpointIdentity) error {
+			return nil
+		},
+		activate: func(context.Context, pidregistry.StableProcessIdentity, pidregistry.CooperativeEndpointIdentity) error {
+			return nil
+		},
+		terminate: func(_ context.Context, identity pidregistry.StableProcessIdentity, _ pidregistry.CooperativeEndpointIdentity) error {
 			terminated = identity
 			return nil
 		},
-		cleanupEndpoint: func(string) error { return nil },
+		cleanupEndpoint: func(string, pidregistry.CooperativeEndpointIdentity) error { return nil },
 	}
 	resolve, _ := rollbackRestartCallbacksWithRuntime(transaction, runtime)
 	control, found, err := resolve(t.Context(), transaction.RollbackRestart.LaunchToken)
@@ -220,6 +251,10 @@ func TestRollbackRestartResolverCleanupUsesFrozenExactContract(t *testing.T) {
 	if terminated != expected {
 		t.Fatalf("resolver cleanup identity = %+v, want frozen contract %+v", terminated, contract)
 	}
+}
+
+func fixtureCooperativeEndpointIdentity() pidregistry.CooperativeEndpointIdentity {
+	return pidregistry.CooperativeEndpointIdentity{Device: 1, Inode: 2, UID: uint32(os.Geteuid()), Mode: 0o140600}
 }
 
 func startRollbackRuntimeChild(t *testing.T) *exec.Cmd {

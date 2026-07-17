@@ -19,9 +19,14 @@ func StartParkedCooperativeTerminationServer(string, string, func()) (*Cooperati
 	return nil, ErrExactProcessTerminationUnsupported
 }
 
-// WaitForCommit 在非 Darwin 平台保持 fail-closed。
-func (server *CooperativeTerminationServer) WaitForCommit(context.Context) error {
+// WaitForActivation 在非 Darwin 平台保持 fail-closed。
+func (server *CooperativeTerminationServer) WaitForActivation(context.Context) error {
 	return ErrExactProcessTerminationUnsupported
+}
+
+// CaptureCooperativeEndpointIdentity 在非 Darwin 平台保持 fail-closed。
+func CaptureCooperativeEndpointIdentity(string) (CooperativeEndpointIdentity, error) {
+	return CooperativeEndpointIdentity{}, ErrExactProcessTerminationUnsupported
 }
 
 // CleanupCooperativeTerminationEndpoint 在非 Darwin 平台保持 fail-closed。
@@ -29,13 +34,23 @@ func CleanupCooperativeTerminationEndpoint(string) error {
 	return ErrExactProcessTerminationUnsupported
 }
 
-// Close 在 unsupported stub 上保持幂等。
-func (server *CooperativeTerminationServer) Close() error { return nil }
-
-func requestCooperativeTermination(context.Context, string, string) error {
+// CleanupCooperativeTerminationEndpointInstance 在非 Darwin 平台保持 fail-closed。
+func CleanupCooperativeTerminationEndpointInstance(string, CooperativeEndpointIdentity) error {
 	return ErrExactProcessTerminationUnsupported
 }
 
-func requestCooperativeControl(context.Context, string, string, string, string) error {
+// CleanupStaleCooperativeTerminationEndpoint 在非 Darwin 平台保持 fail-closed。
+func CleanupStaleCooperativeTerminationEndpoint(context.Context, string) error {
+	return ErrExactProcessTerminationUnsupported
+}
+
+// Close 在 unsupported stub 上保持幂等。
+func (server *CooperativeTerminationServer) Close() error { return nil }
+
+func requestCooperativeTermination(context.Context, string, string, int, CooperativeEndpointIdentity) error {
+	return ErrExactProcessTerminationUnsupported
+}
+
+func requestCooperativeControl(context.Context, string, string, string, string, int, CooperativeEndpointIdentity) error {
 	return ErrExactProcessTerminationUnsupported
 }
