@@ -3,18 +3,19 @@ import { z } from 'zod';
 import { Database, FileText, MousePointer2, RefreshCw, Search, Plus } from 'lucide-react';
 import { FocusTrapDialog } from '../../shared/ui/FocusTrapDialog.jsx';
 import { APP_COPY } from '../../shared/i18n/appI18n.js'; import { skillsPageService } from './services/skillsPageService.js';
-import { cleanScalar, dashboardQueryKey, errorMessage, listToText, optionalSettingsCwd, SKILLS_REQUEST_TIMEOUT_MS, textValue, withTimeout, wordListFromText } from '../shared/pageShared.js'; import { RetryableSyncError } from '../shared/pageComponents.jsx'; import './SkillsPage.css';
+import { cleanScalar, dashboardQueryKey, errorMessage, listToText, optionalSettingsCwd, textValue, withTimeout, wordListFromText } from '../shared/pageShared.js'; import { RetryableSyncError } from '../shared/pageComponents.jsx'; import './SkillsPage.css';
 import { SkillMarkdownPreview } from './SkillMarkdownPreview.jsx';
 import { resolveSkillPreviewFile, skillCitationFromLink, skillPreviewDir, stripLinkHash } from './SkillMarkdownPreviewModel.js';
 import { SkillToolsState } from './SkillToolsTable.jsx';
 import { MCPToolCard } from './MCPToolCard.jsx';
+import { AddSkillToolDialog } from './AddSkillToolDialog.jsx';
+import { useSkillToolRegistration } from './skillToolRegistrationModel.js';
 import { DataSourceView } from './DataSourceView.jsx';
-
-const SKILLS_DASHBOARD_TIMEOUT_MS = Math.max(1, SKILLS_REQUEST_TIMEOUT_MS - 250);
+import { fetchSkillsDashboard, firstTextField, lowerTrimmedText, optionalArray, optionalObject, requiredText, scopeForSkill, SKILLS_DASHBOARD_TIMEOUT_MS, textFromValue, trimmedText } from './skillsDashboardModel.js';
 
 const {
   applySkillResolution,
-  getDashboardPage,
+  createSkillTool,
   importSkillDirectories,
   listMCPServers,
   listSkillFiles,
@@ -29,43 +30,15 @@ const {
   stopSQLiteMCPServer,
   suggestSkillSummary,
 } = skillsPageService; function normalizeSettingsCwd(value) { const cwd = trimmedText(value); if (!cwd || cwd === '.' || cwd === '未选择项目') { throw new Error('settings: cwd is required'); } return cwd; }
-function textFromValue(value) { if (value === null || value === undefined) return ''; return value.toString(); } function trimmedText(value) { return textFromValue(value).trim(); } function lowerTrimmedText(value) { return trimmedText(value).toLowerCase(); }
-function requiredText(value, field, source) { const text = trimmedText(value); if (!text) throw new Error(`${source} is missing ${field}`); return text; } function optionalArray(value) { return Array.isArray(value) ? value : []; }
-function optionalObject(value) { return value && typeof value === 'object' && !Array.isArray(value) ? value : null; }
-function firstTextField(raw, fields, source, required = false) { for (const field of fields) { const text = trimmedText(raw?.[field]); if (text) return text; } if (required) throw new Error(`${source} is missing ${fields[0]}`); return ''; }
-function firstArrayField(raw, fields, source, required = false) { for (const field of fields) { const value = raw?.[field]; if (Array.isArray(value)) return value; } if (required) throw new Error(`${source} is missing ${fields[0]}`); return []; }
 
-const skillDashboardItemSchema = z.object({ name: z.unknown().optional(), dir: z.unknown().optional(), skill_file: z.unknown().optional() }).passthrough();
-const skillsDashboardResponseSchema = z.object({ skills: z.array(skillDashboardItemSchema) }).passthrough();
 const skillResolutionItemsSchema = z.array(z.unknown());
 const skillResolutionResponseSchema = z.union([
   skillResolutionItemsSchema,
   z.object({ items: skillResolutionItemsSchema }).passthrough(),
   z.object({ conflicts: skillResolutionItemsSchema }).passthrough(),
 ]);
-async function fetchSkillsDashboard(cwd) { const response = await withTimeout( getDashboardPage({ cwd, page: 'skills' }), SKILLS_DASHBOARD_TIMEOUT_MS, '技能列表加载超时，请检查技能目录或后端状态。', ); return normalizeSkillsResponse(response); }
 async function fetchSkillResolutionsDashboard(cwd) { const response = await withTimeout( listSkillResolutions({ cwd }), SKILLS_DASHBOARD_TIMEOUT_MS, '技能冲突检查超时，请检查技能目录或后端状态。', ); return normalizeResolutionResponse(response); }
-function scopeForSkill(raw) { const scope = lowerTrimmedText(raw?.scope); if (scope === 'project' || scope === 'personal') return scope;
-const trust = lowerTrimmedText(raw?.trust); if (trust === 'user' || trust === 'signed' || trust === 'system' || trust === 'personal') { return 'personal'; } return 'project'; } function scopeLabel(scope) { return scope === 'personal' ? '私人使用' : '项目共享'; }
-function isInternalSkillReferenceWord(word) { const text = trimmedText(word); return text.startsWith('@') || /^\[skill:[^\]]+\]$/i.test(text); }
-function normalizeWordList(...groups) { const seen = new Set(); const words = []; groups.flat().forEach((word) => { const text = trimmedText(word); const key = text.toLowerCase(); if (!text || seen.has(key) || isInternalSkillReferenceWord(text)) return;
-seen.add(key); words.push(text); }); return words; } function normalizeSkill(raw, index) { if (!raw || typeof raw !== 'object' || Array.isArray(raw)) { throw new Error(`skills dashboard response item ${index} must be an object`);
-} const source = `skills dashboard response item ${index}`; const name = firstTextField(raw, ['name'], source, true); const displayName = firstTextField(raw, ['display_name'], source); const scope = scopeForSkill(raw); const dir = firstTextField(raw, ['dir'], source, true);
-const skillFile = firstTextField(raw, ['skill_file'], source, true); const description = firstTextField(raw, ['description'], source); const summary = firstTextField(raw, ['summary'], source); const title = displayName ? displayName : name;
-const personalType = firstTextField(raw, ['personal_type'], source); return { id: [scope, personalType, name, dir, index].join(':'), name, title: title ? title : '未命名技能', dir, skillFile, description, summary, scope, personalType,
-tags: normalizeWordList(firstArrayField(raw, ['trigger_words'], source), firstArrayField(raw, ['force_words'], source)), }; }
-function parseSkillsDashboardResponse(response) {
-  const result = skillsDashboardResponseSchema.safeParse(response);
-  if (result.success) return result.data;
-  const issue = result.error.issues[0];
-  if (issue?.path?.[0] === 'skills') {
-    const itemIndex = issue.path.find((part) => Number.isInteger(part));
-    if (Number.isInteger(itemIndex)) throw new Error(`skills dashboard response item ${itemIndex} must be an object`);
-    throw new Error('skills dashboard response skills must be an array');
-  }
-  throw new Error('skills dashboard response must be an object');
-}
-function normalizeSkillsResponse(response) { const parsed = parseSkillsDashboardResponse(response); return parsed.skills.map((item, index) => normalizeSkill(item, index)); }
+function scopeLabel(scope) { return scope === 'personal' ? '私人使用' : '项目共享'; }
 function normalizeSummarySuggestion(value) { if (value && typeof value === 'object' && !Array.isArray(value)) { return textValue(value.description); } return textValue(value); }
 function parseWordsValue(value) { if (Array.isArray(value)) return wordListFromText(value); const raw = trimmedText(value); if (!raw) return []; return wordListFromText(raw.startsWith('[') && raw.endsWith(']') ? raw.slice(1, -1) : raw); }
 function parseSkillMarkdown(content, fallbackName = '') { const text = textFromValue(content).replace(/\r\n/g, '\n'); if (!text.startsWith('---\n')) { return { name: fallbackName, displayName: '', description: '', triggerWords: [], body: text, };
@@ -196,7 +169,8 @@ waitingProject: '\u6b63\u5728\u8fde\u63a5\u672c\u5730\u9879\u76ee...', });
  function SkillsPage({ copy = APP_COPY.zh.skills, projectPath, refreshKey = 0, resolveLaunchPreferences }) { const [subTab, setSubTab] = useState('plugins'); return (
 <div className="skills-tabbed-container"> <div className="skills-subtabs-header"> <button type="button" className={subTab === 'plugins' ? 'active' : ''} onClick={() => setSubTab('plugins')} > {copy.tabs.plugins} </button> <button type="button"
 className={subTab === 'library' ? 'active' : ''} onClick={() => setSubTab('library')} > {copy.tabs.library} </button> <button type="button" className={subTab === 'datasource' ? 'active' : ''} onClick={() => setSubTab('datasource')} > {copy.tabs.datasource} </button>
-</div> <div className="skills-tab-content"> {subTab === 'plugins' ? ( <PluginsSquareView copy={copy} projectPath={projectPath} /> ) : subTab === 'datasource' ? ( <DataSourceView copy={copy} /> ) : subTab === 'skills' ? ( <SkillToolsView projectPath={projectPath} /> ) : (
+</div> <div className="skills-tab-content"> {subTab === 'plugins' ? ( <PluginsSquareView copy={copy} projectPath={projectPath} /> ) : subTab === 'datasource' ? ( <DataSourceView copy={copy} /> ) : subTab === 'skills' ? (
+<SkillToolsView projectPath={projectPath} /> ) : (
 <SkillsLibraryTab copy={copy} projectPath={projectPath} refreshKey={refreshKey} resolveLaunchPreferences={resolveLaunchPreferences} /> )} </div> </div> ); }
 function SkillsLibraryTab({ copy, projectPath, refreshKey, resolveLaunchPreferences }) { const model = useSkillsPageModel({ projectPath, refreshKey, resolveLaunchPreferences }); return <SkillsPageView copy={copy} model={model} />; } function skillToolsQueryKey(cwd) { return ['skillTools', cwd]; }
 function normalizeSkillTool(raw, index = 0) { if (!raw || typeof raw !== 'object' || Array.isArray(raw)) { throw new Error(`skill tool ${index} must be an object`); } const id = Number(raw.id); if (!Number.isInteger(id) || id <= 0) {
@@ -230,6 +204,8 @@ function PluginsSquareView({ copy, projectPath }) {
   const [mcpActions, setMCPActions] = useState({});
   const [mcpNotices, setMCPNotices] = useState({});
   const [mcpErrors, setMCPErrors] = useState({});
+  const [panelNotice, setPanelNotice] = useState('');
+  const toolRegistration = useSkillToolRegistration({ createTool: createSkillTool, listTools: listSkillTools, projectPath, queryClient, setPanelNotice });
   const {
     data: mcpServersData,
     error: mcpServersError,
@@ -267,22 +243,27 @@ function PluginsSquareView({ copy, projectPath }) {
     }
   }, [projectPath, queryClient]);
 
+  // 未选择项目时，MCP 开关与注册技能工具入口不静默失效：给出明确的项目引导提示。
+  const requireProjectNotice = useCallback((actionLabel) => {
+    setPanelNotice(`请先在聊天页选择项目，再${actionLabel}。`);
+  }, []);
+  const handleAddNewSkill = useCallback(() => {
+    if (!projectReady) {
+      setPanelNotice(copy.registerTool.projectRequired);
+      return;
+    }
+    setPanelNotice('');
+    toolRegistration.openEditor();
+  }, [projectReady, copy.registerTool.projectRequired, toolRegistration]);
+
   return (
     <div className="plugins-square-container">
-      {/* Skill Fusion Beta Promo Banner */}
-      <div className="skill-fusion-banner">
-        <div className="skill-fusion-banner-content">
-          <span className="beta-badge">BETA</span>
-          <h3>Skill Fusion</h3>
-          <p>Combine multiple local skills and MCP tools into a unified super-agent workflow.</p>
-        </div>
-        <button type="button" className="fusion-btn">Try Fusion</button>
-      </div>
-
       <div className="plugins-square-header">
         <h1>{copy.pluginsTitle}</h1>
         <p className="plugins-square-subtitle">{copy.pluginsSubtitle}</p>
       </div>
+
+      {panelNotice ? <p className="plugins-square-panel-notice" role="status">{panelNotice}</p> : null}
 
       <div className="mcp-tool-panel">
         {MCP_TOOL_DEFINITIONS.map((tool) => (
@@ -298,25 +279,45 @@ function PluginsSquareView({ copy, projectPath }) {
               mcpServersError,
               mcpServersIsError,
               mcpStatusQuery,
+              onProjectRequired: () => requireProjectNotice(`管理 ${tool.title}`),
               projectReady,
               runMCPAction,
             })}
           />
         ))}
 
-        {/* Add New Skill card */}
-        <div className="mcp-tool-card add-new-card">
-          <div className="mcp-tool-icon add-new" aria-hidden="true">
+        {/* 注册技能工具卡片：打开“注册技能工具”对话框（从现有技能选择并注册，skills/tools/create） */}
+        <button type="button" className="mcp-tool-card add-new-card" aria-label={copy.registerTool.card} onClick={handleAddNewSkill}>
+          <span className="mcp-tool-icon add-new" aria-hidden="true">
             <Plus size={20} />
-          </div>
-          <div className="mcp-tool-main">
-            <div className="mcp-tool-title-line">
-              <h2>Add New Skill</h2>
-            </div>
-            <p className="mcp-tool-notice">Register custom MCP servers or local scripts</p>
-          </div>
-        </div>
+          </span>
+          <span className="mcp-tool-main">
+            <span className="mcp-tool-title-line">
+              <span className="add-new-title">{copy.registerTool.card}</span>
+            </span>
+            <span className="mcp-tool-notice">{copy.registerTool.cardHint}</span>
+          </span>
+        </button>
       </div>
+
+      {toolRegistration.toolEditorOpen ? (
+        <AddSkillToolDialog
+          availableSkills={toolRegistration.availableSkills}
+          copy={copy.registerTool}
+          description={toolRegistration.description}
+          enabled={toolRegistration.enabled}
+          loadState={toolRegistration.loadState}
+          onChangeDescription={toolRegistration.setDescription}
+          onChangeEnabled={toolRegistration.setEnabled}
+          onClose={toolRegistration.closeEditor}
+          onSave={toolRegistration.saveTool}
+          onSelectSkill={toolRegistration.selectSkill}
+          registeredCount={toolRegistration.registeredCount}
+          saveError={toolRegistration.saveError}
+          saving={toolRegistration.toolSaving}
+          selection={toolRegistration.selection}
+        />
+      ) : null}
     </div>
   );
 }

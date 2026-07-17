@@ -1,6 +1,7 @@
 import {
   applySkillResolution as applySkillResolutionBackend,
   createSkill as createSkillBackend,
+  createSkillTool as createSkillToolBackend,
   deleteDatasourceDocument as deleteDatasourceDocumentBackend,
   deleteSkill as deleteSkillBackend,
   getDashboardPage as getDashboardPageBackend,
@@ -35,6 +36,7 @@ import {
 export const skillsPageService = Object.freeze({
   applySkillResolution: (payload) => applySkillResolutionBackend(payload),
   createSkill: (payload) => createSkillBackend(payload),
+  createSkillTool: (payload) => createSkillToolBackend(payload),
   deleteDatasourceDocument: (payload) => deleteDatasourceDocumentBackend(payload),
   deleteSkill: (payload) => deleteSkillBackend(payload),
   getDashboardPage: (payload) => getDashboardPageBackend(payload),

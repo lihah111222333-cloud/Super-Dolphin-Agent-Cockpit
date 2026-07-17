@@ -51,7 +51,7 @@ const UI_STATE_RESPONSE_KEYS = new Set([
   'groups',
 ]);
 const SIDEBAR_STATE_RESPONSE_KEYS = new Set([...UI_STATE_RESPONSE_KEYS, 'workspace']);
-const SIDEBAR_REQUIRED_RESPONSE_KEYS = ['threads', 'agents', 'workspace', 'token_usage'];
+const SIDEBAR_REQUIRED_RESPONSE_KEYS = ['threads', 'agents', 'recent_turns', 'workspace', 'token_usage'];
 
 /** @param {string} method @param {unknown} value @param {string} path */
 function assertUIStateNonNegativeInteger(method, value, path) {

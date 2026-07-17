@@ -135,6 +135,7 @@ describe('backend response validators', () => {
     expect(() => validate(RPC_METHODS.UI_SIDEBAR_GET, {
       threads: [],
       agents: [],
+      recent_turns: [],
       workspace: { runs: [] },
       token_usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0, usedTokens: 0 },
       activityStatsByThread: {
@@ -165,6 +166,7 @@ describe('backend response validators', () => {
     const response = {
       threads: [],
       agents: [],
+      recent_turns: [],
       workspace: { runs: [] },
       token_usage: {
         inputTokens: 0,
@@ -177,7 +179,7 @@ describe('backend response validators', () => {
     };
 
     expect(validate(RPC_METHODS.UI_SIDEBAR_GET, response)).toBe(response);
-    for (const requiredField of ['threads', 'agents', 'workspace', 'token_usage']) {
+    for (const requiredField of ['threads', 'agents', 'recent_turns', 'workspace', 'token_usage']) {
       const incompleteResponse = { ...response };
       delete incompleteResponse[requiredField];
       expect(() => validate(RPC_METHODS.UI_SIDEBAR_GET, incompleteResponse)).toThrow(

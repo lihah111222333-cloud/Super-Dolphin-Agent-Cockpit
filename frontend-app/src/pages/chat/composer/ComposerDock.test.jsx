@@ -26,6 +26,7 @@ function createComposer(overrides = {}) {
 function createStore(overrides = {}) {
   return {
     addComposerCapability: vi.fn(),
+    bootstrapStatus: 'ready',
     clearComposer: vi.fn(),
     composerCapabilities: [],
     forkDraft: { open: false },
@@ -359,6 +360,51 @@ describe('ComposerDock', () => {
     fireEvent.click(within(menu).getByRole('menuitem', { name: 'repo/side-project' }));
 
     expect(store.setActiveProjectPath).toHaveBeenCalledWith('/repo/side-project');
+  });
+
+  it('keeps composer tool controls usable when only the project cwd is missing', async () => {
+    const selectFiles = vi.fn();
+    const store = createStore({
+      activeProject: '',
+      projects: [],
+      setActiveProjectPath: vi.fn(),
+    });
+    renderDock({
+      ...baseProps,
+      canUseProjectActions: false,
+      composer: createComposer(),
+      projectPath: '未选择项目',
+      selectFiles,
+      sendMessage: vi.fn(),
+      showProjectSelector: true,
+      store,
+    });
+
+    // 发送仍要求项目 cwd（业务契约保留）；四个工具控件只要求后端就绪。
+    expect(screen.getByRole('button', { name: '发送消息' })).toBeDisabled();
+
+    const addFile = screen.getByRole('button', { name: '添加文件' });
+    const addImage = screen.getByRole('button', { name: 'Add image' });
+    const projectButton = screen.getByRole('button', { name: '选择项目' });
+    const modelButton = screen.getByRole('button', { name: '选择模型' });
+    expect(addFile).toBeEnabled();
+    expect(addImage).toBeEnabled();
+    expect(projectButton).toBeEnabled();
+    expect(modelButton).toBeEnabled();
+
+    // 文件与图片按钮进入真实的文件选择流程。
+    fireEvent.click(addFile);
+    expect(selectFiles).toHaveBeenCalledTimes(1);
+    fireEvent.click(addImage);
+    expect(selectFiles).toHaveBeenCalledTimes(2);
+
+    // 项目按钮在无项目时仍可打开选择器（恢复入口不能自我禁用）。
+    fireEvent.click(projectButton);
+    expect(await screen.findByRole('menu')).toBeInTheDocument();
+
+    // 模型按钮打开模型菜单。
+    fireEvent.click(modelButton);
+    expect(await screen.findByRole('dialog')).toBeInTheDocument();
   });
 
   it('exposes an accessible submit anchor only in send mode', () => {

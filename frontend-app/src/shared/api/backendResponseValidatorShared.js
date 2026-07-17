@@ -72,9 +72,22 @@ function assertOnlyResponseKeys(method, value, allowedKeys, label) {
   }
 }
 
+/**
+ * @param {string} method
+ * @param {any} value
+ * @param {string} label
+ */
+function assertResponseArray(method, value, label) {
+  if (!Array.isArray(value)) {
+    throw new TypeError(`${method} response ${label} must be an array`);
+  }
+  return value;
+}
+
 export {
   assertBackendResponseObject,
   assertOnlyResponseKeys,
+  assertResponseArray,
   assertResponseRecord,
   hasOwn,
   normalizeString,
