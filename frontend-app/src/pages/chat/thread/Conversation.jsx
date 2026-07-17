@@ -272,7 +272,7 @@ function Conversation(props) {
       onDragEnter={composerController.handleDragEnter}
       onDragOver={composerController.handleDragOver}
       onDragLeave={composerController.handleDragLeave}
-      onDrop={(event) => runUIAction(() => composerController.handleDrop(event))}
+      onDrop={(event) => runUIAction('composer.drop', () => composerController.handleDrop(event))}
     >
       <ContextUsageBanner activeThreadId={activeThreadId} store={store} tokenUsage={tokenUsage} />
       <ConversationTimeline
@@ -312,7 +312,7 @@ function ContextUsageBanner({ activeThreadId, store, tokenUsage }) {
         type="button"
         disabled={!canFork}
         onClick={() => {
-          if (canFork) runUIAction(() => store.openForkDraft?.({ origin: 'context-usage' }));
+          if (canFork) runUIAction('thread.fork.open', () => store.openForkDraft?.({ origin: 'context-usage' }));
         }}
       >
         新建继承会话

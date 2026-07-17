@@ -1,0 +1,5484 @@
+{
+  "schemaVersion": 2,
+  "cases": [
+    {
+      "caseId": "a.producer.app.bootstrap",
+      "layer": "A",
+      "actionId": "app.bootstrap"
+    },
+    {
+      "caseId": "a.producer.app.bootstrap.background",
+      "layer": "A",
+      "actionId": "app.bootstrap.background"
+    },
+    {
+      "caseId": "a.producer.app.update.check",
+      "layer": "A",
+      "actionId": "app.update.check"
+    },
+    {
+      "caseId": "a.producer.app.update.install",
+      "layer": "A",
+      "actionId": "app.update.install"
+    },
+    {
+      "caseId": "a.producer.approval.respond",
+      "layer": "A",
+      "actionId": "approval.respond"
+    },
+    {
+      "caseId": "a.producer.composer.drop",
+      "layer": "A",
+      "actionId": "composer.drop"
+    },
+    {
+      "caseId": "a.producer.composer.file.drop",
+      "layer": "A",
+      "actionId": "composer.file.drop"
+    },
+    {
+      "caseId": "a.producer.composer.file.native-drop",
+      "layer": "A",
+      "actionId": "composer.file.native-drop"
+    },
+    {
+      "caseId": "a.producer.composer.file.paste",
+      "layer": "A",
+      "actionId": "composer.file.paste"
+    },
+    {
+      "caseId": "a.producer.composer.file.paste-paths",
+      "layer": "A",
+      "actionId": "composer.file.paste-paths"
+    },
+    {
+      "caseId": "a.producer.composer.file.select",
+      "layer": "A",
+      "actionId": "composer.file.select"
+    },
+    {
+      "caseId": "a.producer.composer.model.selector",
+      "layer": "A",
+      "actionId": "composer.model.selector"
+    },
+    {
+      "caseId": "a.producer.composer.paste",
+      "layer": "A",
+      "actionId": "composer.paste"
+    },
+    {
+      "caseId": "a.producer.composer.send",
+      "layer": "A",
+      "actionId": "composer.send"
+    },
+    {
+      "caseId": "a.producer.datasource.delete",
+      "layer": "A",
+      "actionId": "datasource.delete"
+    },
+    {
+      "caseId": "a.producer.datasource.detail.load",
+      "layer": "A",
+      "actionId": "datasource.detail.load"
+    },
+    {
+      "caseId": "a.producer.datasource.documents.load",
+      "layer": "A",
+      "actionId": "datasource.documents.load"
+    },
+    {
+      "caseId": "a.producer.datasource.documents.refresh",
+      "layer": "A",
+      "actionId": "datasource.documents.refresh"
+    },
+    {
+      "caseId": "a.producer.datasource.import",
+      "layer": "A",
+      "actionId": "datasource.import"
+    },
+    {
+      "caseId": "a.producer.datasource.update",
+      "layer": "A",
+      "actionId": "datasource.update"
+    },
+    {
+      "caseId": "a.producer.file.code-preview.locate",
+      "layer": "A",
+      "actionId": "file.code-preview.locate"
+    },
+    {
+      "caseId": "a.producer.file.code-preview.open",
+      "layer": "A",
+      "actionId": "file.code-preview.open"
+    },
+    {
+      "caseId": "a.producer.file.code-preview.save",
+      "layer": "A",
+      "actionId": "file.code-preview.save"
+    },
+    {
+      "caseId": "a.producer.file.continue",
+      "layer": "A",
+      "actionId": "file.continue"
+    },
+    {
+      "caseId": "a.producer.file.copy",
+      "layer": "A",
+      "actionId": "file.copy"
+    },
+    {
+      "caseId": "a.producer.file.dashboard.load",
+      "layer": "A",
+      "actionId": "file.dashboard.load"
+    },
+    {
+      "caseId": "a.producer.file.delete",
+      "layer": "A",
+      "actionId": "file.delete"
+    },
+    {
+      "caseId": "a.producer.file.export",
+      "layer": "A",
+      "actionId": "file.export"
+    },
+    {
+      "caseId": "a.producer.file.local.open",
+      "layer": "A",
+      "actionId": "file.local.open"
+    },
+    {
+      "caseId": "a.producer.file.open",
+      "layer": "A",
+      "actionId": "file.open"
+    },
+    {
+      "caseId": "a.producer.mcp.playwright.start",
+      "layer": "A",
+      "actionId": "mcp.playwright.start"
+    },
+    {
+      "caseId": "a.producer.mcp.playwright.stop",
+      "layer": "A",
+      "actionId": "mcp.playwright.stop"
+    },
+    {
+      "caseId": "a.producer.mcp.servers.load",
+      "layer": "A",
+      "actionId": "mcp.servers.load"
+    },
+    {
+      "caseId": "a.producer.mcp.sqlite.start",
+      "layer": "A",
+      "actionId": "mcp.sqlite.start"
+    },
+    {
+      "caseId": "a.producer.mcp.sqlite.stop",
+      "layer": "A",
+      "actionId": "mcp.sqlite.stop"
+    },
+    {
+      "caseId": "a.producer.memory.auto-dream.toggle",
+      "layer": "A",
+      "actionId": "memory.auto-dream.toggle"
+    },
+    {
+      "caseId": "a.producer.memory.badge.load",
+      "layer": "A",
+      "actionId": "memory.badge.load"
+    },
+    {
+      "caseId": "a.producer.memory.consolidation.apply",
+      "layer": "A",
+      "actionId": "memory.consolidation.apply"
+    },
+    {
+      "caseId": "a.producer.memory.consolidation.poll",
+      "layer": "A",
+      "actionId": "memory.consolidation.poll"
+    },
+    {
+      "caseId": "a.producer.memory.dashboard.load",
+      "layer": "A",
+      "actionId": "memory.dashboard.load"
+    },
+    {
+      "caseId": "a.producer.memory.entry.delete",
+      "layer": "A",
+      "actionId": "memory.entry.delete"
+    },
+    {
+      "caseId": "a.producer.memory.entry.open",
+      "layer": "A",
+      "actionId": "memory.entry.open"
+    },
+    {
+      "caseId": "a.producer.memory.entry.save",
+      "layer": "A",
+      "actionId": "memory.entry.save"
+    },
+    {
+      "caseId": "a.producer.memory.similarity.consolidate",
+      "layer": "A",
+      "actionId": "memory.similarity.consolidate"
+    },
+    {
+      "caseId": "a.producer.memory.similarity.ignore",
+      "layer": "A",
+      "actionId": "memory.similarity.ignore"
+    },
+    {
+      "caseId": "a.producer.memory.similarity.merge",
+      "layer": "A",
+      "actionId": "memory.similarity.merge"
+    },
+    {
+      "caseId": "a.producer.message.output.copy",
+      "layer": "A",
+      "actionId": "message.output.copy"
+    },
+    {
+      "caseId": "a.producer.observability.query",
+      "layer": "A",
+      "actionId": "observability.query"
+    },
+    {
+      "caseId": "a.producer.observability.recent.invalidate",
+      "layer": "A",
+      "actionId": "observability.recent.invalidate"
+    },
+    {
+      "caseId": "a.producer.observability.recent.load",
+      "layer": "A",
+      "actionId": "observability.recent.load"
+    },
+    {
+      "caseId": "a.producer.observability.trace-id.copy",
+      "layer": "A",
+      "actionId": "observability.trace-id.copy"
+    },
+    {
+      "caseId": "a.producer.observability.trace.load",
+      "layer": "A",
+      "actionId": "observability.trace.load"
+    },
+    {
+      "caseId": "a.producer.project.add",
+      "layer": "A",
+      "actionId": "project.add"
+    },
+    {
+      "caseId": "a.producer.project.remove",
+      "layer": "A",
+      "actionId": "project.remove"
+    },
+    {
+      "caseId": "a.producer.project.select",
+      "layer": "A",
+      "actionId": "project.select"
+    },
+    {
+      "caseId": "a.producer.prompt-history.next",
+      "layer": "A",
+      "actionId": "prompt-history.next"
+    },
+    {
+      "caseId": "a.producer.prompt-history.previous",
+      "layer": "A",
+      "actionId": "prompt-history.previous"
+    },
+    {
+      "caseId": "a.producer.prompt.active.load",
+      "layer": "A",
+      "actionId": "prompt.active.load"
+    },
+    {
+      "caseId": "a.producer.prompt.assets.load",
+      "layer": "A",
+      "actionId": "prompt.assets.load"
+    },
+    {
+      "caseId": "a.producer.prompt.copy",
+      "layer": "A",
+      "actionId": "prompt.copy"
+    },
+    {
+      "caseId": "a.producer.prompt.delete",
+      "layer": "A",
+      "actionId": "prompt.delete"
+    },
+    {
+      "caseId": "a.producer.prompt.draft.commit",
+      "layer": "A",
+      "actionId": "prompt.draft.commit"
+    },
+    {
+      "caseId": "a.producer.prompt.draft.discard",
+      "layer": "A",
+      "actionId": "prompt.draft.discard"
+    },
+    {
+      "caseId": "a.producer.prompt.draft.dry-run",
+      "layer": "A",
+      "actionId": "prompt.draft.dry-run"
+    },
+    {
+      "caseId": "a.producer.prompt.draft.generate",
+      "layer": "A",
+      "actionId": "prompt.draft.generate"
+    },
+    {
+      "caseId": "a.producer.prompt.launch.clear",
+      "layer": "A",
+      "actionId": "prompt.launch.clear"
+    },
+    {
+      "caseId": "a.producer.prompt.launch.set",
+      "layer": "A",
+      "actionId": "prompt.launch.set"
+    },
+    {
+      "caseId": "a.producer.prompt.profile.load",
+      "layer": "A",
+      "actionId": "prompt.profile.load"
+    },
+    {
+      "caseId": "a.producer.prompt.profile.save",
+      "layer": "A",
+      "actionId": "prompt.profile.save"
+    },
+    {
+      "caseId": "a.producer.prompt.save",
+      "layer": "A",
+      "actionId": "prompt.save"
+    },
+    {
+      "caseId": "a.producer.prompt.surface.retry",
+      "layer": "A",
+      "actionId": "prompt.surface.retry"
+    },
+    {
+      "caseId": "a.producer.provider.reconnect",
+      "layer": "A",
+      "actionId": "provider.reconnect"
+    },
+    {
+      "caseId": "a.producer.provider.reconnect.bootstrap",
+      "layer": "A",
+      "actionId": "provider.reconnect.bootstrap"
+    },
+    {
+      "caseId": "a.producer.provider.reconnect.bootstrap-deferred",
+      "layer": "A",
+      "actionId": "provider.reconnect.bootstrap-deferred"
+    },
+    {
+      "caseId": "a.producer.runtime.panel.toggle",
+      "layer": "A",
+      "actionId": "runtime.panel.toggle"
+    },
+    {
+      "caseId": "a.producer.settings.build.bootstrap",
+      "layer": "A",
+      "actionId": "settings.build.bootstrap"
+    },
+    {
+      "caseId": "a.producer.settings.build.refresh",
+      "layer": "A",
+      "actionId": "settings.build.refresh"
+    },
+    {
+      "caseId": "a.producer.settings.builtin.bootstrap",
+      "layer": "A",
+      "actionId": "settings.builtin.bootstrap"
+    },
+    {
+      "caseId": "a.producer.settings.builtin.load",
+      "layer": "A",
+      "actionId": "settings.builtin.load"
+    },
+    {
+      "caseId": "a.producer.settings.builtin.toggle",
+      "layer": "A",
+      "actionId": "settings.builtin.toggle"
+    },
+    {
+      "caseId": "a.producer.settings.logs.level",
+      "layer": "A",
+      "actionId": "settings.logs.level"
+    },
+    {
+      "caseId": "a.producer.settings.logs.refresh",
+      "layer": "A",
+      "actionId": "settings.logs.refresh"
+    },
+    {
+      "caseId": "a.producer.settings.model-providers.apply",
+      "layer": "A",
+      "actionId": "settings.model-providers.apply"
+    },
+    {
+      "caseId": "a.producer.settings.model-providers.bootstrap",
+      "layer": "A",
+      "actionId": "settings.model-providers.bootstrap"
+    },
+    {
+      "caseId": "a.producer.settings.model-providers.load",
+      "layer": "A",
+      "actionId": "settings.model-providers.load"
+    },
+    {
+      "caseId": "a.producer.settings.model-providers.save",
+      "layer": "A",
+      "actionId": "settings.model-providers.save"
+    },
+    {
+      "caseId": "a.producer.settings.model.restore",
+      "layer": "A",
+      "actionId": "settings.model.restore"
+    },
+    {
+      "caseId": "a.producer.settings.model.save",
+      "layer": "A",
+      "actionId": "settings.model.save"
+    },
+    {
+      "caseId": "a.producer.settings.prompt.bootstrap",
+      "layer": "A",
+      "actionId": "settings.prompt.bootstrap"
+    },
+    {
+      "caseId": "a.producer.settings.prompt.copy",
+      "layer": "A",
+      "actionId": "settings.prompt.copy"
+    },
+    {
+      "caseId": "a.producer.settings.prompt.load",
+      "layer": "A",
+      "actionId": "settings.prompt.load"
+    },
+    {
+      "caseId": "a.producer.settings.prompt.reset",
+      "layer": "A",
+      "actionId": "settings.prompt.reset"
+    },
+    {
+      "caseId": "a.producer.settings.prompt.save",
+      "layer": "A",
+      "actionId": "settings.prompt.save"
+    },
+    {
+      "caseId": "a.producer.settings.prompt.visibility.save",
+      "layer": "A",
+      "actionId": "settings.prompt.visibility.save"
+    },
+    {
+      "caseId": "a.producer.settings.provider.change",
+      "layer": "A",
+      "actionId": "settings.provider.change"
+    },
+    {
+      "caseId": "a.producer.settings.provider.preferences.bootstrap",
+      "layer": "A",
+      "actionId": "settings.provider.preferences.bootstrap"
+    },
+    {
+      "caseId": "a.producer.settings.provider.preferences.load",
+      "layer": "A",
+      "actionId": "settings.provider.preferences.load"
+    },
+    {
+      "caseId": "a.producer.settings.provider.preferences.save",
+      "layer": "A",
+      "actionId": "settings.provider.preferences.save"
+    },
+    {
+      "caseId": "a.producer.settings.provider.save",
+      "layer": "A",
+      "actionId": "settings.provider.save"
+    },
+    {
+      "caseId": "a.producer.settings.runtime.bootstrap",
+      "layer": "A",
+      "actionId": "settings.runtime.bootstrap"
+    },
+    {
+      "caseId": "a.producer.settings.runtime.save",
+      "layer": "A",
+      "actionId": "settings.runtime.save"
+    },
+    {
+      "caseId": "a.producer.settings.shortcuts.bootstrap",
+      "layer": "A",
+      "actionId": "settings.shortcuts.bootstrap"
+    },
+    {
+      "caseId": "a.producer.settings.shortcuts.reset",
+      "layer": "A",
+      "actionId": "settings.shortcuts.reset"
+    },
+    {
+      "caseId": "a.producer.settings.shortcuts.save",
+      "layer": "A",
+      "actionId": "settings.shortcuts.save"
+    },
+    {
+      "caseId": "a.producer.settings.video.bootstrap",
+      "layer": "A",
+      "actionId": "settings.video.bootstrap"
+    },
+    {
+      "caseId": "a.producer.settings.video.save",
+      "layer": "A",
+      "actionId": "settings.video.save"
+    },
+    {
+      "caseId": "a.producer.sidebar.project-threads.load",
+      "layer": "A",
+      "actionId": "sidebar.project-threads.load"
+    },
+    {
+      "caseId": "a.producer.skill.dashboard.load",
+      "layer": "A",
+      "actionId": "skill.dashboard.load"
+    },
+    {
+      "caseId": "a.producer.skill.delete",
+      "layer": "A",
+      "actionId": "skill.delete"
+    },
+    {
+      "caseId": "a.producer.skill.file.open",
+      "layer": "A",
+      "actionId": "skill.file.open"
+    },
+    {
+      "caseId": "a.producer.skill.import",
+      "layer": "A",
+      "actionId": "skill.import"
+    },
+    {
+      "caseId": "a.producer.skill.import-summary.open",
+      "layer": "A",
+      "actionId": "skill.import-summary.open"
+    },
+    {
+      "caseId": "a.producer.skill.open",
+      "layer": "A",
+      "actionId": "skill.open"
+    },
+    {
+      "caseId": "a.producer.skill.resolution.apply",
+      "layer": "A",
+      "actionId": "skill.resolution.apply"
+    },
+    {
+      "caseId": "a.producer.skill.resolution.preview",
+      "layer": "A",
+      "actionId": "skill.resolution.preview"
+    },
+    {
+      "caseId": "a.producer.skill.resolutions.load",
+      "layer": "A",
+      "actionId": "skill.resolutions.load"
+    },
+    {
+      "caseId": "a.producer.skill.save",
+      "layer": "A",
+      "actionId": "skill.save"
+    },
+    {
+      "caseId": "a.producer.skill.summary.suggest",
+      "layer": "A",
+      "actionId": "skill.summary.suggest"
+    },
+    {
+      "caseId": "a.producer.skill.tools.load",
+      "layer": "A",
+      "actionId": "skill.tools.load"
+    },
+    {
+      "caseId": "a.producer.slash-command.automations.load",
+      "layer": "A",
+      "actionId": "slash-command.automations.load"
+    },
+    {
+      "caseId": "a.producer.slash-command.mcp-tools.load",
+      "layer": "A",
+      "actionId": "slash-command.mcp-tools.load"
+    },
+    {
+      "caseId": "a.producer.slash-command.prompts.load",
+      "layer": "A",
+      "actionId": "slash-command.prompts.load"
+    },
+    {
+      "caseId": "a.producer.slash-command.skills.load",
+      "layer": "A",
+      "actionId": "slash-command.skills.load"
+    },
+    {
+      "caseId": "a.producer.thread.archive",
+      "layer": "A",
+      "actionId": "thread.archive"
+    },
+    {
+      "caseId": "a.producer.thread.delete",
+      "layer": "A",
+      "actionId": "thread.delete"
+    },
+    {
+      "caseId": "a.producer.thread.force-complete",
+      "layer": "A",
+      "actionId": "thread.force-complete"
+    },
+    {
+      "caseId": "a.producer.thread.fork.close",
+      "layer": "A",
+      "actionId": "thread.fork.close"
+    },
+    {
+      "caseId": "a.producer.thread.fork.file.toggle",
+      "layer": "A",
+      "actionId": "thread.fork.file.toggle"
+    },
+    {
+      "caseId": "a.producer.thread.fork.open",
+      "layer": "A",
+      "actionId": "thread.fork.open"
+    },
+    {
+      "caseId": "a.producer.thread.fork.submit",
+      "layer": "A",
+      "actionId": "thread.fork.submit"
+    },
+    {
+      "caseId": "a.producer.thread.info.copy",
+      "layer": "A",
+      "actionId": "thread.info.copy"
+    },
+    {
+      "caseId": "a.producer.thread.interrupt",
+      "layer": "A",
+      "actionId": "thread.interrupt"
+    },
+    {
+      "caseId": "a.producer.thread.new",
+      "layer": "A",
+      "actionId": "thread.new"
+    },
+    {
+      "caseId": "a.producer.thread.pin",
+      "layer": "A",
+      "actionId": "thread.pin"
+    },
+    {
+      "caseId": "a.producer.thread.recover",
+      "layer": "A",
+      "actionId": "thread.recover"
+    },
+    {
+      "caseId": "a.producer.thread.rename",
+      "layer": "A",
+      "actionId": "thread.rename"
+    },
+    {
+      "caseId": "a.producer.thread.select",
+      "layer": "A",
+      "actionId": "thread.select"
+    },
+    {
+      "caseId": "a.producer.thread.sync",
+      "layer": "A",
+      "actionId": "thread.sync"
+    },
+    {
+      "caseId": "a.producer.workflow.dag-detail.load",
+      "layer": "A",
+      "actionId": "workflow.dag-detail.load"
+    },
+    {
+      "caseId": "a.producer.workflow.dashboard.load",
+      "layer": "A",
+      "actionId": "workflow.dashboard.load"
+    },
+    {
+      "caseId": "a.producer.workflow.delete",
+      "layer": "A",
+      "actionId": "workflow.delete"
+    },
+    {
+      "caseId": "a.producer.workflow.design.start",
+      "layer": "A",
+      "actionId": "workflow.design.start"
+    },
+    {
+      "caseId": "a.producer.workflow.node.dispatch",
+      "layer": "A",
+      "actionId": "workflow.node.dispatch"
+    },
+    {
+      "caseId": "a.producer.workflow.node.save",
+      "layer": "A",
+      "actionId": "workflow.node.save"
+    },
+    {
+      "caseId": "a.producer.workflow.output.open",
+      "layer": "A",
+      "actionId": "workflow.output.open"
+    },
+    {
+      "caseId": "a.producer.workflow.output.preview",
+      "layer": "A",
+      "actionId": "workflow.output.preview"
+    },
+    {
+      "caseId": "a.producer.workflow.output.preview.load",
+      "layer": "A",
+      "actionId": "workflow.output.preview.load"
+    },
+    {
+      "caseId": "a.producer.workflow.output.read",
+      "layer": "A",
+      "actionId": "workflow.output.read"
+    },
+    {
+      "caseId": "a.producer.workflow.refresh-after-action",
+      "layer": "A",
+      "actionId": "workflow.refresh-after-action"
+    },
+    {
+      "caseId": "a.producer.workflow.run",
+      "layer": "A",
+      "actionId": "workflow.run"
+    },
+    {
+      "caseId": "a.producer.workflow.run-detail.load",
+      "layer": "A",
+      "actionId": "workflow.run-detail.load"
+    },
+    {
+      "caseId": "a.producer.workflow.schedule.save",
+      "layer": "A",
+      "actionId": "workflow.schedule.save"
+    },
+    {
+      "caseId": "a.producer.workflow.schedule.toggle",
+      "layer": "A",
+      "actionId": "workflow.schedule.toggle"
+    },
+    {
+      "caseId": "a.producer.workflow.stop",
+      "layer": "A",
+      "actionId": "workflow.stop"
+    },
+    {
+      "caseId": "a.producer.workflow.template-detail.load",
+      "layer": "A",
+      "actionId": "workflow.template-detail.load"
+    },
+    {
+      "caseId": "a.producer.workflow.template.create-start",
+      "layer": "A",
+      "actionId": "workflow.template.create-start"
+    },
+    {
+      "caseId": "a.producer.workflow.template.rollback",
+      "layer": "A",
+      "actionId": "workflow.template.rollback"
+    },
+    {
+      "caseId": "a.producer.workflow.templates.load",
+      "layer": "A",
+      "actionId": "workflow.templates.load"
+    },
+    {
+      "caseId": "a.producer.workspace.window.open",
+      "layer": "A",
+      "actionId": "workspace.window.open"
+    },
+    {
+      "caseId": "b.wrapper.sync-throw",
+      "layer": "B",
+      "file": "src/shared/ui/runUIAction.test.js",
+      "testName": "routes synchronous failures to visible and persistent sinks without console-only reporting"
+    },
+    {
+      "caseId": "b.wrapper.promise-reject",
+      "layer": "B",
+      "file": "src/shared/ui/runUIAction.test.js",
+      "testName": "routes Promise rejection through the same sinks"
+    },
+    {
+      "caseId": "b.wrapper.unsuccessful-result",
+      "layer": "B",
+      "file": "src/shared/ui/runUIAction.test.js",
+      "testName": "projects an explicit false result into visible failure and Health"
+    },
+    {
+      "caseId": "b.wrapper.sink-failure",
+      "layer": "B",
+      "file": "src/shared/ui/runUIAction.test.js",
+      "testName": "survives throwing health and visible sinks with finite observable Health records"
+    },
+    {
+      "caseId": "c.prompt-history",
+      "layer": "C",
+      "semanticFamily": "prompt-history",
+      "file": "src/features/prompt-history/model/promptHistoryController.test.js",
+      "testName": "keeps committed cursor entries and selection when a later page is invalid"
+    },
+    {
+      "caseId": "c.settings-save",
+      "layer": "C",
+      "semanticFamily": "settings-save",
+      "file": "src/pages/settings/SettingsPage.test.jsx",
+      "testName": "shows save failures from the named video facade method"
+    },
+    {
+      "caseId": "c.approval-pending",
+      "layer": "C",
+      "semanticFamily": "approval-pending",
+      "file": "src/features/approval/ui/ApprovalDecisionShelf.test.jsx",
+      "testName": "blocks duplicate confirmation while submission is pending"
+    },
+    {
+      "caseId": "c.file",
+      "layer": "C",
+      "semanticFamily": "file",
+      "file": "src/App.test.jsx",
+      "testName": "keeps cached shared files visible and exposes retry when a background sync fails"
+    },
+    {
+      "caseId": "c.mcp",
+      "layer": "C",
+      "semanticFamily": "mcp",
+      "file": "src/pages/skills/SkillsPage.test.jsx",
+      "testName": "renders default MCP controls and sends the start and stop RPC actions"
+    },
+    {
+      "caseId": "c.skill",
+      "layer": "C",
+      "semanticFamily": "skill",
+      "file": "src/pages/skills/SkillsPage.test.jsx",
+      "testName": "reports a malformed resolution apply response without showing success"
+    },
+    {
+      "caseId": "c.thread-mutation",
+      "layer": "C",
+      "semanticFamily": "thread-mutation",
+      "file": "src/entities/client/model/threadLifecycleRuntime.test.js",
+      "testName": "records warning when backend lifecycle rpc fails"
+    },
+    {
+      "caseId": "c.background-reconnect",
+      "layer": "C",
+      "semanticFamily": "background-reconnect",
+      "file": "src/entities/client/model/useClientStore.test.js",
+      "testName": "retries bootstrap after a transient cold-start runtime reconnect"
+    },
+    {
+      "caseId": "c.invalid-response-validator",
+      "layer": "C",
+      "semanticFamily": "invalid-response-validator",
+      "file": "src/shared/api/backendApi.test.js",
+      "testName": "fails fast on malformed guarded backend responses before consumers normalize them"
+    }
+  ],
+  "cells": [
+    {
+      "actionId": "app.bootstrap",
+      "errorSource": "sync-throw",
+      "evidence": [
+        "a.producer.app.bootstrap",
+        "b.wrapper.sync-throw",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "app.bootstrap",
+      "errorSource": "promise-reject",
+      "evidence": [
+        "a.producer.app.bootstrap",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "app.bootstrap.background",
+      "errorSource": "promise-reject",
+      "evidence": [
+        "a.producer.app.bootstrap.background",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "app.bootstrap.background",
+      "errorSource": "invalid-response",
+      "evidence": [
+        "a.producer.app.bootstrap.background",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure",
+        "c.invalid-response-validator"
+      ]
+    },
+    {
+      "actionId": "datasource.delete",
+      "errorSource": "sync-throw",
+      "evidence": [
+        "a.producer.datasource.delete",
+        "b.wrapper.sync-throw",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "datasource.delete",
+      "errorSource": "promise-reject",
+      "evidence": [
+        "a.producer.datasource.delete",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "datasource.delete",
+      "errorSource": "invalid-response",
+      "evidence": [
+        "a.producer.datasource.delete",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure",
+        "c.invalid-response-validator"
+      ]
+    },
+    {
+      "actionId": "datasource.detail.load",
+      "errorSource": "promise-reject",
+      "evidence": [
+        "a.producer.datasource.detail.load",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "datasource.detail.load",
+      "errorSource": "invalid-response",
+      "evidence": [
+        "a.producer.datasource.detail.load",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure",
+        "c.invalid-response-validator"
+      ]
+    },
+    {
+      "actionId": "datasource.documents.load",
+      "errorSource": "promise-reject",
+      "evidence": [
+        "a.producer.datasource.documents.load",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "datasource.documents.load",
+      "errorSource": "invalid-response",
+      "evidence": [
+        "a.producer.datasource.documents.load",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure",
+        "c.invalid-response-validator"
+      ]
+    },
+    {
+      "actionId": "datasource.documents.refresh",
+      "errorSource": "sync-throw",
+      "evidence": [
+        "a.producer.datasource.documents.refresh",
+        "b.wrapper.sync-throw",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "datasource.documents.refresh",
+      "errorSource": "promise-reject",
+      "evidence": [
+        "a.producer.datasource.documents.refresh",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "datasource.documents.refresh",
+      "errorSource": "invalid-response",
+      "evidence": [
+        "a.producer.datasource.documents.refresh",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure",
+        "c.invalid-response-validator"
+      ]
+    },
+    {
+      "actionId": "datasource.import",
+      "errorSource": "sync-throw",
+      "evidence": [
+        "a.producer.datasource.import",
+        "b.wrapper.sync-throw",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "datasource.import",
+      "errorSource": "promise-reject",
+      "evidence": [
+        "a.producer.datasource.import",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "datasource.import",
+      "errorSource": "invalid-response",
+      "evidence": [
+        "a.producer.datasource.import",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure",
+        "c.invalid-response-validator"
+      ]
+    },
+    {
+      "actionId": "datasource.update",
+      "errorSource": "sync-throw",
+      "evidence": [
+        "a.producer.datasource.update",
+        "b.wrapper.sync-throw",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "datasource.update",
+      "errorSource": "promise-reject",
+      "evidence": [
+        "a.producer.datasource.update",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "datasource.update",
+      "errorSource": "invalid-response",
+      "evidence": [
+        "a.producer.datasource.update",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure",
+        "c.invalid-response-validator"
+      ]
+    },
+    {
+      "actionId": "memory.badge.load",
+      "errorSource": "promise-reject",
+      "evidence": [
+        "a.producer.memory.badge.load",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "memory.badge.load",
+      "errorSource": "invalid-response",
+      "evidence": [
+        "a.producer.memory.badge.load",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure",
+        "c.invalid-response-validator"
+      ]
+    },
+    {
+      "actionId": "settings.model-providers.bootstrap",
+      "errorSource": "promise-reject",
+      "evidence": [
+        "a.producer.settings.model-providers.bootstrap",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "settings.model-providers.bootstrap",
+      "errorSource": "invalid-response",
+      "evidence": [
+        "a.producer.settings.model-providers.bootstrap",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure",
+        "c.invalid-response-validator"
+      ]
+    },
+    {
+      "actionId": "settings.runtime.bootstrap",
+      "errorSource": "promise-reject",
+      "evidence": [
+        "a.producer.settings.runtime.bootstrap",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "settings.runtime.bootstrap",
+      "errorSource": "invalid-response",
+      "evidence": [
+        "a.producer.settings.runtime.bootstrap",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure",
+        "c.invalid-response-validator"
+      ]
+    },
+    {
+      "actionId": "settings.logs.level",
+      "errorSource": "sync-throw",
+      "evidence": [
+        "a.producer.settings.logs.level",
+        "b.wrapper.sync-throw",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "settings.shortcuts.bootstrap",
+      "errorSource": "promise-reject",
+      "evidence": [
+        "a.producer.settings.shortcuts.bootstrap",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "settings.shortcuts.bootstrap",
+      "errorSource": "invalid-response",
+      "evidence": [
+        "a.producer.settings.shortcuts.bootstrap",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure",
+        "c.invalid-response-validator"
+      ]
+    },
+    {
+      "actionId": "settings.shortcuts.reset",
+      "errorSource": "sync-throw",
+      "evidence": [
+        "a.producer.settings.shortcuts.reset",
+        "b.wrapper.sync-throw",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "settings.shortcuts.reset",
+      "errorSource": "promise-reject",
+      "evidence": [
+        "a.producer.settings.shortcuts.reset",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "settings.shortcuts.reset",
+      "errorSource": "invalid-response",
+      "evidence": [
+        "a.producer.settings.shortcuts.reset",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure",
+        "c.invalid-response-validator"
+      ]
+    },
+    {
+      "actionId": "settings.shortcuts.save",
+      "errorSource": "sync-throw",
+      "evidence": [
+        "a.producer.settings.shortcuts.save",
+        "b.wrapper.sync-throw",
+        "b.wrapper.sink-failure",
+        "c.settings-save"
+      ]
+    },
+    {
+      "actionId": "settings.shortcuts.save",
+      "errorSource": "promise-reject",
+      "evidence": [
+        "a.producer.settings.shortcuts.save",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure",
+        "c.settings-save"
+      ]
+    },
+    {
+      "actionId": "settings.shortcuts.save",
+      "errorSource": "invalid-response",
+      "evidence": [
+        "a.producer.settings.shortcuts.save",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure",
+        "c.settings-save",
+        "c.invalid-response-validator"
+      ]
+    },
+    {
+      "actionId": "memory.auto-dream.toggle",
+      "errorSource": "sync-throw",
+      "evidence": [
+        "a.producer.memory.auto-dream.toggle",
+        "b.wrapper.sync-throw",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "memory.auto-dream.toggle",
+      "errorSource": "promise-reject",
+      "evidence": [
+        "a.producer.memory.auto-dream.toggle",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "memory.auto-dream.toggle",
+      "errorSource": "invalid-response",
+      "evidence": [
+        "a.producer.memory.auto-dream.toggle",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure",
+        "c.invalid-response-validator"
+      ]
+    },
+    {
+      "actionId": "memory.consolidation.apply",
+      "errorSource": "promise-reject",
+      "evidence": [
+        "a.producer.memory.consolidation.apply",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "memory.consolidation.apply",
+      "errorSource": "invalid-response",
+      "evidence": [
+        "a.producer.memory.consolidation.apply",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure",
+        "c.invalid-response-validator"
+      ]
+    },
+    {
+      "actionId": "memory.consolidation.poll",
+      "errorSource": "promise-reject",
+      "evidence": [
+        "a.producer.memory.consolidation.poll",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "memory.consolidation.poll",
+      "errorSource": "invalid-response",
+      "evidence": [
+        "a.producer.memory.consolidation.poll",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure",
+        "c.invalid-response-validator"
+      ]
+    },
+    {
+      "actionId": "memory.dashboard.load",
+      "errorSource": "promise-reject",
+      "evidence": [
+        "a.producer.memory.dashboard.load",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "memory.dashboard.load",
+      "errorSource": "invalid-response",
+      "evidence": [
+        "a.producer.memory.dashboard.load",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure",
+        "c.invalid-response-validator"
+      ]
+    },
+    {
+      "actionId": "memory.entry.delete",
+      "errorSource": "sync-throw",
+      "evidence": [
+        "a.producer.memory.entry.delete",
+        "b.wrapper.sync-throw",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "memory.entry.delete",
+      "errorSource": "promise-reject",
+      "evidence": [
+        "a.producer.memory.entry.delete",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "memory.entry.delete",
+      "errorSource": "invalid-response",
+      "evidence": [
+        "a.producer.memory.entry.delete",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure",
+        "c.invalid-response-validator"
+      ]
+    },
+    {
+      "actionId": "memory.entry.open",
+      "errorSource": "sync-throw",
+      "evidence": [
+        "a.producer.memory.entry.open",
+        "b.wrapper.sync-throw",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "memory.entry.open",
+      "errorSource": "promise-reject",
+      "evidence": [
+        "a.producer.memory.entry.open",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "memory.entry.open",
+      "errorSource": "invalid-response",
+      "evidence": [
+        "a.producer.memory.entry.open",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure",
+        "c.invalid-response-validator"
+      ]
+    },
+    {
+      "actionId": "memory.entry.save",
+      "errorSource": "sync-throw",
+      "evidence": [
+        "a.producer.memory.entry.save",
+        "b.wrapper.sync-throw",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "memory.entry.save",
+      "errorSource": "promise-reject",
+      "evidence": [
+        "a.producer.memory.entry.save",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "memory.entry.save",
+      "errorSource": "invalid-response",
+      "evidence": [
+        "a.producer.memory.entry.save",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure",
+        "c.invalid-response-validator"
+      ]
+    },
+    {
+      "actionId": "memory.similarity.consolidate",
+      "errorSource": "sync-throw",
+      "evidence": [
+        "a.producer.memory.similarity.consolidate",
+        "b.wrapper.sync-throw",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "memory.similarity.consolidate",
+      "errorSource": "promise-reject",
+      "evidence": [
+        "a.producer.memory.similarity.consolidate",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "memory.similarity.consolidate",
+      "errorSource": "invalid-response",
+      "evidence": [
+        "a.producer.memory.similarity.consolidate",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure",
+        "c.invalid-response-validator"
+      ]
+    },
+    {
+      "actionId": "memory.similarity.ignore",
+      "errorSource": "sync-throw",
+      "evidence": [
+        "a.producer.memory.similarity.ignore",
+        "b.wrapper.sync-throw",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "memory.similarity.ignore",
+      "errorSource": "promise-reject",
+      "evidence": [
+        "a.producer.memory.similarity.ignore",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "memory.similarity.ignore",
+      "errorSource": "invalid-response",
+      "evidence": [
+        "a.producer.memory.similarity.ignore",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure",
+        "c.invalid-response-validator"
+      ]
+    },
+    {
+      "actionId": "memory.similarity.merge",
+      "errorSource": "sync-throw",
+      "evidence": [
+        "a.producer.memory.similarity.merge",
+        "b.wrapper.sync-throw",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "memory.similarity.merge",
+      "errorSource": "promise-reject",
+      "evidence": [
+        "a.producer.memory.similarity.merge",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "memory.similarity.merge",
+      "errorSource": "invalid-response",
+      "evidence": [
+        "a.producer.memory.similarity.merge",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure",
+        "c.invalid-response-validator"
+      ]
+    },
+    {
+      "actionId": "workflow.dag-detail.load",
+      "errorSource": "promise-reject",
+      "evidence": [
+        "a.producer.workflow.dag-detail.load",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "workflow.dag-detail.load",
+      "errorSource": "invalid-response",
+      "evidence": [
+        "a.producer.workflow.dag-detail.load",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure",
+        "c.invalid-response-validator"
+      ]
+    },
+    {
+      "actionId": "workflow.dashboard.load",
+      "errorSource": "promise-reject",
+      "evidence": [
+        "a.producer.workflow.dashboard.load",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "workflow.dashboard.load",
+      "errorSource": "invalid-response",
+      "evidence": [
+        "a.producer.workflow.dashboard.load",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure",
+        "c.invalid-response-validator"
+      ]
+    },
+    {
+      "actionId": "workflow.delete",
+      "errorSource": "sync-throw",
+      "evidence": [
+        "a.producer.workflow.delete",
+        "b.wrapper.sync-throw",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "workflow.delete",
+      "errorSource": "promise-reject",
+      "evidence": [
+        "a.producer.workflow.delete",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "workflow.delete",
+      "errorSource": "invalid-response",
+      "evidence": [
+        "a.producer.workflow.delete",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure",
+        "c.invalid-response-validator"
+      ]
+    },
+    {
+      "actionId": "workflow.design.start",
+      "errorSource": "sync-throw",
+      "evidence": [
+        "a.producer.workflow.design.start",
+        "b.wrapper.sync-throw",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "workflow.design.start",
+      "errorSource": "promise-reject",
+      "evidence": [
+        "a.producer.workflow.design.start",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "workflow.design.start",
+      "errorSource": "invalid-response",
+      "evidence": [
+        "a.producer.workflow.design.start",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure",
+        "c.invalid-response-validator"
+      ]
+    },
+    {
+      "actionId": "workflow.node.dispatch",
+      "errorSource": "sync-throw",
+      "evidence": [
+        "a.producer.workflow.node.dispatch",
+        "b.wrapper.sync-throw",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "workflow.node.dispatch",
+      "errorSource": "promise-reject",
+      "evidence": [
+        "a.producer.workflow.node.dispatch",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "workflow.node.dispatch",
+      "errorSource": "invalid-response",
+      "evidence": [
+        "a.producer.workflow.node.dispatch",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure",
+        "c.invalid-response-validator"
+      ]
+    },
+    {
+      "actionId": "workflow.node.save",
+      "errorSource": "sync-throw",
+      "evidence": [
+        "a.producer.workflow.node.save",
+        "b.wrapper.sync-throw",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "workflow.node.save",
+      "errorSource": "promise-reject",
+      "evidence": [
+        "a.producer.workflow.node.save",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "workflow.node.save",
+      "errorSource": "invalid-response",
+      "evidence": [
+        "a.producer.workflow.node.save",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure",
+        "c.invalid-response-validator"
+      ]
+    },
+    {
+      "actionId": "workflow.refresh-after-action",
+      "errorSource": "promise-reject",
+      "evidence": [
+        "a.producer.workflow.refresh-after-action",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "workflow.run",
+      "errorSource": "sync-throw",
+      "evidence": [
+        "a.producer.workflow.run",
+        "b.wrapper.sync-throw",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "workflow.run",
+      "errorSource": "promise-reject",
+      "evidence": [
+        "a.producer.workflow.run",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "workflow.run",
+      "errorSource": "invalid-response",
+      "evidence": [
+        "a.producer.workflow.run",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure",
+        "c.invalid-response-validator"
+      ]
+    },
+    {
+      "actionId": "workflow.run-detail.load",
+      "errorSource": "promise-reject",
+      "evidence": [
+        "a.producer.workflow.run-detail.load",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "workflow.run-detail.load",
+      "errorSource": "invalid-response",
+      "evidence": [
+        "a.producer.workflow.run-detail.load",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure",
+        "c.invalid-response-validator"
+      ]
+    },
+    {
+      "actionId": "workflow.schedule.save",
+      "errorSource": "sync-throw",
+      "evidence": [
+        "a.producer.workflow.schedule.save",
+        "b.wrapper.sync-throw",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "workflow.schedule.save",
+      "errorSource": "promise-reject",
+      "evidence": [
+        "a.producer.workflow.schedule.save",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "workflow.schedule.save",
+      "errorSource": "invalid-response",
+      "evidence": [
+        "a.producer.workflow.schedule.save",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure",
+        "c.invalid-response-validator"
+      ]
+    },
+    {
+      "actionId": "workflow.schedule.toggle",
+      "errorSource": "sync-throw",
+      "evidence": [
+        "a.producer.workflow.schedule.toggle",
+        "b.wrapper.sync-throw",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "workflow.schedule.toggle",
+      "errorSource": "promise-reject",
+      "evidence": [
+        "a.producer.workflow.schedule.toggle",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "workflow.schedule.toggle",
+      "errorSource": "invalid-response",
+      "evidence": [
+        "a.producer.workflow.schedule.toggle",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure",
+        "c.invalid-response-validator"
+      ]
+    },
+    {
+      "actionId": "workflow.stop",
+      "errorSource": "sync-throw",
+      "evidence": [
+        "a.producer.workflow.stop",
+        "b.wrapper.sync-throw",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "workflow.stop",
+      "errorSource": "promise-reject",
+      "evidence": [
+        "a.producer.workflow.stop",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "workflow.stop",
+      "errorSource": "invalid-response",
+      "evidence": [
+        "a.producer.workflow.stop",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure",
+        "c.invalid-response-validator"
+      ]
+    },
+    {
+      "actionId": "workflow.template.create-start",
+      "errorSource": "sync-throw",
+      "evidence": [
+        "a.producer.workflow.template.create-start",
+        "b.wrapper.sync-throw",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "workflow.template.create-start",
+      "errorSource": "promise-reject",
+      "evidence": [
+        "a.producer.workflow.template.create-start",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "workflow.template.create-start",
+      "errorSource": "invalid-response",
+      "evidence": [
+        "a.producer.workflow.template.create-start",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure",
+        "c.invalid-response-validator"
+      ]
+    },
+    {
+      "actionId": "workflow.template-detail.load",
+      "errorSource": "promise-reject",
+      "evidence": [
+        "a.producer.workflow.template-detail.load",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "workflow.template-detail.load",
+      "errorSource": "invalid-response",
+      "evidence": [
+        "a.producer.workflow.template-detail.load",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure",
+        "c.invalid-response-validator"
+      ]
+    },
+    {
+      "actionId": "workflow.template.rollback",
+      "errorSource": "sync-throw",
+      "evidence": [
+        "a.producer.workflow.template.rollback",
+        "b.wrapper.sync-throw",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "workflow.template.rollback",
+      "errorSource": "promise-reject",
+      "evidence": [
+        "a.producer.workflow.template.rollback",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "workflow.template.rollback",
+      "errorSource": "invalid-response",
+      "evidence": [
+        "a.producer.workflow.template.rollback",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure",
+        "c.invalid-response-validator"
+      ]
+    },
+    {
+      "actionId": "workflow.templates.load",
+      "errorSource": "promise-reject",
+      "evidence": [
+        "a.producer.workflow.templates.load",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "workflow.templates.load",
+      "errorSource": "invalid-response",
+      "evidence": [
+        "a.producer.workflow.templates.load",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure",
+        "c.invalid-response-validator"
+      ]
+    },
+    {
+      "actionId": "app.update.check",
+      "errorSource": "sync-throw",
+      "evidence": [
+        "a.producer.app.update.check",
+        "b.wrapper.sync-throw",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "app.update.check",
+      "errorSource": "promise-reject",
+      "evidence": [
+        "a.producer.app.update.check",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "app.update.install",
+      "errorSource": "sync-throw",
+      "evidence": [
+        "a.producer.app.update.install",
+        "b.wrapper.sync-throw",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "app.update.install",
+      "errorSource": "promise-reject",
+      "evidence": [
+        "a.producer.app.update.install",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "approval.respond",
+      "errorSource": "sync-throw",
+      "evidence": [
+        "a.producer.approval.respond",
+        "b.wrapper.sync-throw",
+        "b.wrapper.sink-failure",
+        "c.approval-pending"
+      ]
+    },
+    {
+      "actionId": "approval.respond",
+      "errorSource": "promise-reject",
+      "evidence": [
+        "a.producer.approval.respond",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure",
+        "c.approval-pending"
+      ]
+    },
+    {
+      "actionId": "approval.respond",
+      "errorSource": "invalid-response",
+      "evidence": [
+        "a.producer.approval.respond",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure",
+        "c.approval-pending",
+        "c.invalid-response-validator"
+      ]
+    },
+    {
+      "actionId": "composer.drop",
+      "errorSource": "sync-throw",
+      "evidence": [
+        "a.producer.composer.drop",
+        "b.wrapper.sync-throw",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "composer.drop",
+      "errorSource": "promise-reject",
+      "evidence": [
+        "a.producer.composer.drop",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "composer.file.select",
+      "errorSource": "sync-throw",
+      "evidence": [
+        "a.producer.composer.file.select",
+        "b.wrapper.sync-throw",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "composer.file.select",
+      "errorSource": "promise-reject",
+      "evidence": [
+        "a.producer.composer.file.select",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "composer.model.selector",
+      "errorSource": "sync-throw",
+      "evidence": [
+        "a.producer.composer.model.selector",
+        "b.wrapper.sync-throw",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "composer.model.selector",
+      "errorSource": "promise-reject",
+      "evidence": [
+        "a.producer.composer.model.selector",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "composer.paste",
+      "errorSource": "sync-throw",
+      "evidence": [
+        "a.producer.composer.paste",
+        "b.wrapper.sync-throw",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "composer.paste",
+      "errorSource": "promise-reject",
+      "evidence": [
+        "a.producer.composer.paste",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "composer.send",
+      "errorSource": "sync-throw",
+      "evidence": [
+        "a.producer.composer.send",
+        "b.wrapper.sync-throw",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "composer.send",
+      "errorSource": "promise-reject",
+      "evidence": [
+        "a.producer.composer.send",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "file.continue",
+      "errorSource": "sync-throw",
+      "evidence": [
+        "a.producer.file.continue",
+        "b.wrapper.sync-throw",
+        "b.wrapper.sink-failure",
+        "c.file"
+      ]
+    },
+    {
+      "actionId": "file.copy",
+      "errorSource": "sync-throw",
+      "evidence": [
+        "a.producer.file.copy",
+        "b.wrapper.sync-throw",
+        "b.wrapper.sink-failure",
+        "c.file"
+      ]
+    },
+    {
+      "actionId": "file.copy",
+      "errorSource": "promise-reject",
+      "evidence": [
+        "a.producer.file.copy",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure",
+        "c.file"
+      ]
+    },
+    {
+      "actionId": "file.dashboard.load",
+      "errorSource": "promise-reject",
+      "evidence": [
+        "a.producer.file.dashboard.load",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure",
+        "c.file"
+      ]
+    },
+    {
+      "actionId": "file.dashboard.load",
+      "errorSource": "invalid-response",
+      "evidence": [
+        "a.producer.file.dashboard.load",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure",
+        "c.file",
+        "c.invalid-response-validator"
+      ]
+    },
+    {
+      "actionId": "file.delete",
+      "errorSource": "sync-throw",
+      "evidence": [
+        "a.producer.file.delete",
+        "b.wrapper.sync-throw",
+        "b.wrapper.sink-failure",
+        "c.file"
+      ]
+    },
+    {
+      "actionId": "file.delete",
+      "errorSource": "promise-reject",
+      "evidence": [
+        "a.producer.file.delete",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure",
+        "c.file"
+      ]
+    },
+    {
+      "actionId": "file.delete",
+      "errorSource": "invalid-response",
+      "evidence": [
+        "a.producer.file.delete",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure",
+        "c.file",
+        "c.invalid-response-validator"
+      ]
+    },
+    {
+      "actionId": "file.export",
+      "errorSource": "sync-throw",
+      "evidence": [
+        "a.producer.file.export",
+        "b.wrapper.sync-throw",
+        "b.wrapper.sink-failure",
+        "c.file"
+      ]
+    },
+    {
+      "actionId": "file.export",
+      "errorSource": "promise-reject",
+      "evidence": [
+        "a.producer.file.export",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure",
+        "c.file"
+      ]
+    },
+    {
+      "actionId": "file.export",
+      "errorSource": "invalid-response",
+      "evidence": [
+        "a.producer.file.export",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure",
+        "c.file",
+        "c.invalid-response-validator"
+      ]
+    },
+    {
+      "actionId": "file.open",
+      "errorSource": "sync-throw",
+      "evidence": [
+        "a.producer.file.open",
+        "b.wrapper.sync-throw",
+        "b.wrapper.sink-failure",
+        "c.file"
+      ]
+    },
+    {
+      "actionId": "file.open",
+      "errorSource": "promise-reject",
+      "evidence": [
+        "a.producer.file.open",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure",
+        "c.file"
+      ]
+    },
+    {
+      "actionId": "file.open",
+      "errorSource": "invalid-response",
+      "evidence": [
+        "a.producer.file.open",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure",
+        "c.file",
+        "c.invalid-response-validator"
+      ]
+    },
+    {
+      "actionId": "mcp.playwright.start",
+      "errorSource": "sync-throw",
+      "evidence": [
+        "a.producer.mcp.playwright.start",
+        "b.wrapper.sync-throw",
+        "b.wrapper.sink-failure",
+        "c.mcp"
+      ]
+    },
+    {
+      "actionId": "mcp.playwright.start",
+      "errorSource": "promise-reject",
+      "evidence": [
+        "a.producer.mcp.playwright.start",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure",
+        "c.mcp"
+      ]
+    },
+    {
+      "actionId": "mcp.playwright.start",
+      "errorSource": "invalid-response",
+      "evidence": [
+        "a.producer.mcp.playwright.start",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure",
+        "c.mcp",
+        "c.invalid-response-validator"
+      ]
+    },
+    {
+      "actionId": "mcp.playwright.stop",
+      "errorSource": "sync-throw",
+      "evidence": [
+        "a.producer.mcp.playwright.stop",
+        "b.wrapper.sync-throw",
+        "b.wrapper.sink-failure",
+        "c.mcp"
+      ]
+    },
+    {
+      "actionId": "mcp.playwright.stop",
+      "errorSource": "promise-reject",
+      "evidence": [
+        "a.producer.mcp.playwright.stop",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure",
+        "c.mcp"
+      ]
+    },
+    {
+      "actionId": "mcp.playwright.stop",
+      "errorSource": "invalid-response",
+      "evidence": [
+        "a.producer.mcp.playwright.stop",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure",
+        "c.mcp",
+        "c.invalid-response-validator"
+      ]
+    },
+    {
+      "actionId": "mcp.servers.load",
+      "errorSource": "promise-reject",
+      "evidence": [
+        "a.producer.mcp.servers.load",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure",
+        "c.mcp"
+      ]
+    },
+    {
+      "actionId": "mcp.servers.load",
+      "errorSource": "invalid-response",
+      "evidence": [
+        "a.producer.mcp.servers.load",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure",
+        "c.mcp",
+        "c.invalid-response-validator"
+      ]
+    },
+    {
+      "actionId": "mcp.sqlite.start",
+      "errorSource": "sync-throw",
+      "evidence": [
+        "a.producer.mcp.sqlite.start",
+        "b.wrapper.sync-throw",
+        "b.wrapper.sink-failure",
+        "c.mcp"
+      ]
+    },
+    {
+      "actionId": "mcp.sqlite.start",
+      "errorSource": "promise-reject",
+      "evidence": [
+        "a.producer.mcp.sqlite.start",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure",
+        "c.mcp"
+      ]
+    },
+    {
+      "actionId": "mcp.sqlite.start",
+      "errorSource": "invalid-response",
+      "evidence": [
+        "a.producer.mcp.sqlite.start",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure",
+        "c.mcp",
+        "c.invalid-response-validator"
+      ]
+    },
+    {
+      "actionId": "mcp.sqlite.stop",
+      "errorSource": "sync-throw",
+      "evidence": [
+        "a.producer.mcp.sqlite.stop",
+        "b.wrapper.sync-throw",
+        "b.wrapper.sink-failure",
+        "c.mcp"
+      ]
+    },
+    {
+      "actionId": "mcp.sqlite.stop",
+      "errorSource": "promise-reject",
+      "evidence": [
+        "a.producer.mcp.sqlite.stop",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure",
+        "c.mcp"
+      ]
+    },
+    {
+      "actionId": "mcp.sqlite.stop",
+      "errorSource": "invalid-response",
+      "evidence": [
+        "a.producer.mcp.sqlite.stop",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure",
+        "c.mcp",
+        "c.invalid-response-validator"
+      ]
+    },
+    {
+      "actionId": "project.add",
+      "errorSource": "sync-throw",
+      "evidence": [
+        "a.producer.project.add",
+        "b.wrapper.sync-throw",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "project.add",
+      "errorSource": "promise-reject",
+      "evidence": [
+        "a.producer.project.add",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "project.remove",
+      "errorSource": "sync-throw",
+      "evidence": [
+        "a.producer.project.remove",
+        "b.wrapper.sync-throw",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "project.remove",
+      "errorSource": "promise-reject",
+      "evidence": [
+        "a.producer.project.remove",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "project.select",
+      "errorSource": "sync-throw",
+      "evidence": [
+        "a.producer.project.select",
+        "b.wrapper.sync-throw",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "project.select",
+      "errorSource": "promise-reject",
+      "evidence": [
+        "a.producer.project.select",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "prompt-history.next",
+      "errorSource": "sync-throw",
+      "evidence": [
+        "a.producer.prompt-history.next",
+        "b.wrapper.sync-throw",
+        "b.wrapper.sink-failure",
+        "c.prompt-history"
+      ]
+    },
+    {
+      "actionId": "prompt-history.next",
+      "errorSource": "promise-reject",
+      "evidence": [
+        "a.producer.prompt-history.next",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure",
+        "c.prompt-history"
+      ]
+    },
+    {
+      "actionId": "prompt-history.previous",
+      "errorSource": "sync-throw",
+      "evidence": [
+        "a.producer.prompt-history.previous",
+        "b.wrapper.sync-throw",
+        "b.wrapper.sink-failure",
+        "c.prompt-history"
+      ]
+    },
+    {
+      "actionId": "prompt-history.previous",
+      "errorSource": "promise-reject",
+      "evidence": [
+        "a.producer.prompt-history.previous",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure",
+        "c.prompt-history"
+      ]
+    },
+    {
+      "actionId": "prompt-history.previous",
+      "errorSource": "invalid-response",
+      "evidence": [
+        "a.producer.prompt-history.previous",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure",
+        "c.prompt-history",
+        "c.invalid-response-validator"
+      ]
+    },
+    {
+      "actionId": "provider.reconnect",
+      "errorSource": "promise-reject",
+      "evidence": [
+        "a.producer.provider.reconnect",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure",
+        "c.background-reconnect"
+      ]
+    },
+    {
+      "actionId": "provider.reconnect.bootstrap",
+      "errorSource": "promise-reject",
+      "evidence": [
+        "a.producer.provider.reconnect.bootstrap",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure",
+        "c.background-reconnect"
+      ]
+    },
+    {
+      "actionId": "provider.reconnect.bootstrap-deferred",
+      "errorSource": "promise-reject",
+      "evidence": [
+        "a.producer.provider.reconnect.bootstrap-deferred",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure",
+        "c.background-reconnect"
+      ]
+    },
+    {
+      "actionId": "runtime.panel.toggle",
+      "errorSource": "sync-throw",
+      "evidence": [
+        "a.producer.runtime.panel.toggle",
+        "b.wrapper.sync-throw",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "settings.build.bootstrap",
+      "errorSource": "promise-reject",
+      "evidence": [
+        "a.producer.settings.build.bootstrap",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "settings.build.refresh",
+      "errorSource": "sync-throw",
+      "evidence": [
+        "a.producer.settings.build.refresh",
+        "b.wrapper.sync-throw",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "settings.build.refresh",
+      "errorSource": "promise-reject",
+      "evidence": [
+        "a.producer.settings.build.refresh",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "settings.builtin.bootstrap",
+      "errorSource": "promise-reject",
+      "evidence": [
+        "a.producer.settings.builtin.bootstrap",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "settings.builtin.load",
+      "errorSource": "sync-throw",
+      "evidence": [
+        "a.producer.settings.builtin.load",
+        "b.wrapper.sync-throw",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "settings.builtin.load",
+      "errorSource": "promise-reject",
+      "evidence": [
+        "a.producer.settings.builtin.load",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "settings.builtin.load",
+      "errorSource": "invalid-response",
+      "evidence": [
+        "a.producer.settings.builtin.load",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure",
+        "c.invalid-response-validator"
+      ]
+    },
+    {
+      "actionId": "settings.builtin.toggle",
+      "errorSource": "sync-throw",
+      "evidence": [
+        "a.producer.settings.builtin.toggle",
+        "b.wrapper.sync-throw",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "settings.builtin.toggle",
+      "errorSource": "promise-reject",
+      "evidence": [
+        "a.producer.settings.builtin.toggle",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "settings.builtin.toggle",
+      "errorSource": "invalid-response",
+      "evidence": [
+        "a.producer.settings.builtin.toggle",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure",
+        "c.invalid-response-validator"
+      ]
+    },
+    {
+      "actionId": "settings.logs.refresh",
+      "errorSource": "sync-throw",
+      "evidence": [
+        "a.producer.settings.logs.refresh",
+        "b.wrapper.sync-throw",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "settings.logs.refresh",
+      "errorSource": "promise-reject",
+      "evidence": [
+        "a.producer.settings.logs.refresh",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "settings.model-providers.apply",
+      "errorSource": "sync-throw",
+      "evidence": [
+        "a.producer.settings.model-providers.apply",
+        "b.wrapper.sync-throw",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "settings.model-providers.apply",
+      "errorSource": "promise-reject",
+      "evidence": [
+        "a.producer.settings.model-providers.apply",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "settings.model-providers.apply",
+      "errorSource": "invalid-response",
+      "evidence": [
+        "a.producer.settings.model-providers.apply",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure",
+        "c.invalid-response-validator"
+      ]
+    },
+    {
+      "actionId": "settings.model-providers.load",
+      "errorSource": "sync-throw",
+      "evidence": [
+        "a.producer.settings.model-providers.load",
+        "b.wrapper.sync-throw",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "settings.model-providers.load",
+      "errorSource": "promise-reject",
+      "evidence": [
+        "a.producer.settings.model-providers.load",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "settings.model-providers.load",
+      "errorSource": "invalid-response",
+      "evidence": [
+        "a.producer.settings.model-providers.load",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure",
+        "c.invalid-response-validator"
+      ]
+    },
+    {
+      "actionId": "settings.model-providers.save",
+      "errorSource": "sync-throw",
+      "evidence": [
+        "a.producer.settings.model-providers.save",
+        "b.wrapper.sync-throw",
+        "b.wrapper.sink-failure",
+        "c.settings-save"
+      ]
+    },
+    {
+      "actionId": "settings.model-providers.save",
+      "errorSource": "promise-reject",
+      "evidence": [
+        "a.producer.settings.model-providers.save",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure",
+        "c.settings-save"
+      ]
+    },
+    {
+      "actionId": "settings.model-providers.save",
+      "errorSource": "invalid-response",
+      "evidence": [
+        "a.producer.settings.model-providers.save",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure",
+        "c.settings-save",
+        "c.invalid-response-validator"
+      ]
+    },
+    {
+      "actionId": "settings.model.restore",
+      "errorSource": "sync-throw",
+      "evidence": [
+        "a.producer.settings.model.restore",
+        "b.wrapper.sync-throw",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "settings.model.restore",
+      "errorSource": "promise-reject",
+      "evidence": [
+        "a.producer.settings.model.restore",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "settings.model.save",
+      "errorSource": "sync-throw",
+      "evidence": [
+        "a.producer.settings.model.save",
+        "b.wrapper.sync-throw",
+        "b.wrapper.sink-failure",
+        "c.settings-save"
+      ]
+    },
+    {
+      "actionId": "settings.model.save",
+      "errorSource": "promise-reject",
+      "evidence": [
+        "a.producer.settings.model.save",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure",
+        "c.settings-save"
+      ]
+    },
+    {
+      "actionId": "settings.prompt.bootstrap",
+      "errorSource": "promise-reject",
+      "evidence": [
+        "a.producer.settings.prompt.bootstrap",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "settings.prompt.copy",
+      "errorSource": "sync-throw",
+      "evidence": [
+        "a.producer.settings.prompt.copy",
+        "b.wrapper.sync-throw",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "settings.prompt.copy",
+      "errorSource": "promise-reject",
+      "evidence": [
+        "a.producer.settings.prompt.copy",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "settings.prompt.load",
+      "errorSource": "sync-throw",
+      "evidence": [
+        "a.producer.settings.prompt.load",
+        "b.wrapper.sync-throw",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "settings.prompt.load",
+      "errorSource": "promise-reject",
+      "evidence": [
+        "a.producer.settings.prompt.load",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "settings.prompt.load",
+      "errorSource": "invalid-response",
+      "evidence": [
+        "a.producer.settings.prompt.load",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure",
+        "c.invalid-response-validator"
+      ]
+    },
+    {
+      "actionId": "settings.prompt.reset",
+      "errorSource": "sync-throw",
+      "evidence": [
+        "a.producer.settings.prompt.reset",
+        "b.wrapper.sync-throw",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "settings.prompt.reset",
+      "errorSource": "promise-reject",
+      "evidence": [
+        "a.producer.settings.prompt.reset",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "settings.prompt.reset",
+      "errorSource": "invalid-response",
+      "evidence": [
+        "a.producer.settings.prompt.reset",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure",
+        "c.invalid-response-validator"
+      ]
+    },
+    {
+      "actionId": "settings.prompt.save",
+      "errorSource": "sync-throw",
+      "evidence": [
+        "a.producer.settings.prompt.save",
+        "b.wrapper.sync-throw",
+        "b.wrapper.sink-failure",
+        "c.settings-save"
+      ]
+    },
+    {
+      "actionId": "settings.prompt.save",
+      "errorSource": "promise-reject",
+      "evidence": [
+        "a.producer.settings.prompt.save",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure",
+        "c.settings-save"
+      ]
+    },
+    {
+      "actionId": "settings.prompt.save",
+      "errorSource": "invalid-response",
+      "evidence": [
+        "a.producer.settings.prompt.save",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure",
+        "c.settings-save",
+        "c.invalid-response-validator"
+      ]
+    },
+    {
+      "actionId": "settings.prompt.visibility.save",
+      "errorSource": "sync-throw",
+      "evidence": [
+        "a.producer.settings.prompt.visibility.save",
+        "b.wrapper.sync-throw",
+        "b.wrapper.sink-failure",
+        "c.settings-save"
+      ]
+    },
+    {
+      "actionId": "settings.prompt.visibility.save",
+      "errorSource": "promise-reject",
+      "evidence": [
+        "a.producer.settings.prompt.visibility.save",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure",
+        "c.settings-save"
+      ]
+    },
+    {
+      "actionId": "settings.provider.change",
+      "errorSource": "sync-throw",
+      "evidence": [
+        "a.producer.settings.provider.change",
+        "b.wrapper.sync-throw",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "settings.provider.change",
+      "errorSource": "promise-reject",
+      "evidence": [
+        "a.producer.settings.provider.change",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "settings.provider.preferences.bootstrap",
+      "errorSource": "promise-reject",
+      "evidence": [
+        "a.producer.settings.provider.preferences.bootstrap",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "settings.provider.preferences.load",
+      "errorSource": "sync-throw",
+      "evidence": [
+        "a.producer.settings.provider.preferences.load",
+        "b.wrapper.sync-throw",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "settings.provider.preferences.load",
+      "errorSource": "promise-reject",
+      "evidence": [
+        "a.producer.settings.provider.preferences.load",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "settings.provider.preferences.load",
+      "errorSource": "invalid-response",
+      "evidence": [
+        "a.producer.settings.provider.preferences.load",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure",
+        "c.invalid-response-validator"
+      ]
+    },
+    {
+      "actionId": "settings.provider.preferences.save",
+      "errorSource": "sync-throw",
+      "evidence": [
+        "a.producer.settings.provider.preferences.save",
+        "b.wrapper.sync-throw",
+        "b.wrapper.sink-failure",
+        "c.settings-save"
+      ]
+    },
+    {
+      "actionId": "settings.provider.preferences.save",
+      "errorSource": "promise-reject",
+      "evidence": [
+        "a.producer.settings.provider.preferences.save",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure",
+        "c.settings-save"
+      ]
+    },
+    {
+      "actionId": "settings.provider.preferences.save",
+      "errorSource": "invalid-response",
+      "evidence": [
+        "a.producer.settings.provider.preferences.save",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure",
+        "c.settings-save",
+        "c.invalid-response-validator"
+      ]
+    },
+    {
+      "actionId": "settings.provider.save",
+      "errorSource": "sync-throw",
+      "evidence": [
+        "a.producer.settings.provider.save",
+        "b.wrapper.sync-throw",
+        "b.wrapper.sink-failure",
+        "c.settings-save"
+      ]
+    },
+    {
+      "actionId": "settings.provider.save",
+      "errorSource": "promise-reject",
+      "evidence": [
+        "a.producer.settings.provider.save",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure",
+        "c.settings-save"
+      ]
+    },
+    {
+      "actionId": "settings.provider.save",
+      "errorSource": "invalid-response",
+      "evidence": [
+        "a.producer.settings.provider.save",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure",
+        "c.settings-save",
+        "c.invalid-response-validator"
+      ]
+    },
+    {
+      "actionId": "settings.runtime.save",
+      "errorSource": "sync-throw",
+      "evidence": [
+        "a.producer.settings.runtime.save",
+        "b.wrapper.sync-throw",
+        "b.wrapper.sink-failure",
+        "c.settings-save"
+      ]
+    },
+    {
+      "actionId": "settings.runtime.save",
+      "errorSource": "promise-reject",
+      "evidence": [
+        "a.producer.settings.runtime.save",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure",
+        "c.settings-save"
+      ]
+    },
+    {
+      "actionId": "settings.runtime.save",
+      "errorSource": "invalid-response",
+      "evidence": [
+        "a.producer.settings.runtime.save",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure",
+        "c.settings-save",
+        "c.invalid-response-validator"
+      ]
+    },
+    {
+      "actionId": "settings.video.bootstrap",
+      "errorSource": "promise-reject",
+      "evidence": [
+        "a.producer.settings.video.bootstrap",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "settings.video.save",
+      "errorSource": "sync-throw",
+      "evidence": [
+        "a.producer.settings.video.save",
+        "b.wrapper.sync-throw",
+        "b.wrapper.sink-failure",
+        "c.settings-save"
+      ]
+    },
+    {
+      "actionId": "settings.video.save",
+      "errorSource": "promise-reject",
+      "evidence": [
+        "a.producer.settings.video.save",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure",
+        "c.settings-save"
+      ]
+    },
+    {
+      "actionId": "skill.dashboard.load",
+      "errorSource": "promise-reject",
+      "evidence": [
+        "a.producer.skill.dashboard.load",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure",
+        "c.skill"
+      ]
+    },
+    {
+      "actionId": "skill.dashboard.load",
+      "errorSource": "invalid-response",
+      "evidence": [
+        "a.producer.skill.dashboard.load",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure",
+        "c.skill",
+        "c.invalid-response-validator"
+      ]
+    },
+    {
+      "actionId": "skill.delete",
+      "errorSource": "sync-throw",
+      "evidence": [
+        "a.producer.skill.delete",
+        "b.wrapper.sync-throw",
+        "b.wrapper.sink-failure",
+        "c.skill"
+      ]
+    },
+    {
+      "actionId": "skill.delete",
+      "errorSource": "promise-reject",
+      "evidence": [
+        "a.producer.skill.delete",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure",
+        "c.skill"
+      ]
+    },
+    {
+      "actionId": "skill.file.open",
+      "errorSource": "sync-throw",
+      "evidence": [
+        "a.producer.skill.file.open",
+        "b.wrapper.sync-throw",
+        "b.wrapper.sink-failure",
+        "c.skill"
+      ]
+    },
+    {
+      "actionId": "skill.file.open",
+      "errorSource": "promise-reject",
+      "evidence": [
+        "a.producer.skill.file.open",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure",
+        "c.skill"
+      ]
+    },
+    {
+      "actionId": "skill.file.open",
+      "errorSource": "invalid-response",
+      "evidence": [
+        "a.producer.skill.file.open",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure",
+        "c.skill",
+        "c.invalid-response-validator"
+      ]
+    },
+    {
+      "actionId": "skill.import",
+      "errorSource": "sync-throw",
+      "evidence": [
+        "a.producer.skill.import",
+        "b.wrapper.sync-throw",
+        "b.wrapper.sink-failure",
+        "c.skill"
+      ]
+    },
+    {
+      "actionId": "skill.import",
+      "errorSource": "promise-reject",
+      "evidence": [
+        "a.producer.skill.import",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure",
+        "c.skill"
+      ]
+    },
+    {
+      "actionId": "skill.import",
+      "errorSource": "invalid-response",
+      "evidence": [
+        "a.producer.skill.import",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure",
+        "c.skill",
+        "c.invalid-response-validator"
+      ]
+    },
+    {
+      "actionId": "skill.import-summary.open",
+      "errorSource": "sync-throw",
+      "evidence": [
+        "a.producer.skill.import-summary.open",
+        "b.wrapper.sync-throw",
+        "b.wrapper.sink-failure",
+        "c.skill"
+      ]
+    },
+    {
+      "actionId": "skill.import-summary.open",
+      "errorSource": "promise-reject",
+      "evidence": [
+        "a.producer.skill.import-summary.open",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure",
+        "c.skill"
+      ]
+    },
+    {
+      "actionId": "skill.import-summary.open",
+      "errorSource": "invalid-response",
+      "evidence": [
+        "a.producer.skill.import-summary.open",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure",
+        "c.skill",
+        "c.invalid-response-validator"
+      ]
+    },
+    {
+      "actionId": "skill.open",
+      "errorSource": "sync-throw",
+      "evidence": [
+        "a.producer.skill.open",
+        "b.wrapper.sync-throw",
+        "b.wrapper.sink-failure",
+        "c.skill"
+      ]
+    },
+    {
+      "actionId": "skill.open",
+      "errorSource": "promise-reject",
+      "evidence": [
+        "a.producer.skill.open",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure",
+        "c.skill"
+      ]
+    },
+    {
+      "actionId": "skill.open",
+      "errorSource": "invalid-response",
+      "evidence": [
+        "a.producer.skill.open",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure",
+        "c.skill",
+        "c.invalid-response-validator"
+      ]
+    },
+    {
+      "actionId": "skill.resolution.apply",
+      "errorSource": "sync-throw",
+      "evidence": [
+        "a.producer.skill.resolution.apply",
+        "b.wrapper.sync-throw",
+        "b.wrapper.sink-failure",
+        "c.skill"
+      ]
+    },
+    {
+      "actionId": "skill.resolution.apply",
+      "errorSource": "promise-reject",
+      "evidence": [
+        "a.producer.skill.resolution.apply",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure",
+        "c.skill"
+      ]
+    },
+    {
+      "actionId": "skill.resolution.apply",
+      "errorSource": "invalid-response",
+      "evidence": [
+        "a.producer.skill.resolution.apply",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure",
+        "c.skill",
+        "c.invalid-response-validator"
+      ]
+    },
+    {
+      "actionId": "skill.resolution.preview",
+      "errorSource": "sync-throw",
+      "evidence": [
+        "a.producer.skill.resolution.preview",
+        "b.wrapper.sync-throw",
+        "b.wrapper.sink-failure",
+        "c.skill"
+      ]
+    },
+    {
+      "actionId": "skill.resolution.preview",
+      "errorSource": "promise-reject",
+      "evidence": [
+        "a.producer.skill.resolution.preview",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure",
+        "c.skill"
+      ]
+    },
+    {
+      "actionId": "skill.resolution.preview",
+      "errorSource": "invalid-response",
+      "evidence": [
+        "a.producer.skill.resolution.preview",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure",
+        "c.skill",
+        "c.invalid-response-validator"
+      ]
+    },
+    {
+      "actionId": "skill.resolutions.load",
+      "errorSource": "promise-reject",
+      "evidence": [
+        "a.producer.skill.resolutions.load",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure",
+        "c.skill"
+      ]
+    },
+    {
+      "actionId": "skill.resolutions.load",
+      "errorSource": "invalid-response",
+      "evidence": [
+        "a.producer.skill.resolutions.load",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure",
+        "c.skill",
+        "c.invalid-response-validator"
+      ]
+    },
+    {
+      "actionId": "skill.save",
+      "errorSource": "sync-throw",
+      "evidence": [
+        "a.producer.skill.save",
+        "b.wrapper.sync-throw",
+        "b.wrapper.sink-failure",
+        "c.skill"
+      ]
+    },
+    {
+      "actionId": "skill.save",
+      "errorSource": "promise-reject",
+      "evidence": [
+        "a.producer.skill.save",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure",
+        "c.skill"
+      ]
+    },
+    {
+      "actionId": "skill.save",
+      "errorSource": "invalid-response",
+      "evidence": [
+        "a.producer.skill.save",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure",
+        "c.skill",
+        "c.invalid-response-validator"
+      ]
+    },
+    {
+      "actionId": "skill.summary.suggest",
+      "errorSource": "sync-throw",
+      "evidence": [
+        "a.producer.skill.summary.suggest",
+        "b.wrapper.sync-throw",
+        "b.wrapper.sink-failure",
+        "c.skill"
+      ]
+    },
+    {
+      "actionId": "skill.summary.suggest",
+      "errorSource": "promise-reject",
+      "evidence": [
+        "a.producer.skill.summary.suggest",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure",
+        "c.skill"
+      ]
+    },
+    {
+      "actionId": "skill.summary.suggest",
+      "errorSource": "invalid-response",
+      "evidence": [
+        "a.producer.skill.summary.suggest",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure",
+        "c.skill",
+        "c.invalid-response-validator"
+      ]
+    },
+    {
+      "actionId": "skill.tools.load",
+      "errorSource": "promise-reject",
+      "evidence": [
+        "a.producer.skill.tools.load",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure",
+        "c.skill"
+      ]
+    },
+    {
+      "actionId": "skill.tools.load",
+      "errorSource": "invalid-response",
+      "evidence": [
+        "a.producer.skill.tools.load",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure",
+        "c.skill",
+        "c.invalid-response-validator"
+      ]
+    },
+    {
+      "actionId": "thread.archive",
+      "errorSource": "sync-throw",
+      "evidence": [
+        "a.producer.thread.archive",
+        "b.wrapper.sync-throw",
+        "b.wrapper.sink-failure",
+        "c.thread-mutation"
+      ]
+    },
+    {
+      "actionId": "thread.archive",
+      "errorSource": "promise-reject",
+      "evidence": [
+        "a.producer.thread.archive",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure",
+        "c.thread-mutation"
+      ]
+    },
+    {
+      "actionId": "thread.delete",
+      "errorSource": "sync-throw",
+      "evidence": [
+        "a.producer.thread.delete",
+        "b.wrapper.sync-throw",
+        "b.wrapper.sink-failure",
+        "c.thread-mutation"
+      ]
+    },
+    {
+      "actionId": "thread.delete",
+      "errorSource": "promise-reject",
+      "evidence": [
+        "a.producer.thread.delete",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure",
+        "c.thread-mutation"
+      ]
+    },
+    {
+      "actionId": "thread.force-complete",
+      "errorSource": "sync-throw",
+      "evidence": [
+        "a.producer.thread.force-complete",
+        "b.wrapper.sync-throw",
+        "b.wrapper.sink-failure",
+        "c.thread-mutation"
+      ]
+    },
+    {
+      "actionId": "thread.force-complete",
+      "errorSource": "promise-reject",
+      "evidence": [
+        "a.producer.thread.force-complete",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure",
+        "c.thread-mutation"
+      ]
+    },
+    {
+      "actionId": "thread.force-complete",
+      "errorSource": "unsuccessful-result",
+      "evidence": [
+        "a.producer.thread.force-complete",
+        "b.wrapper.unsuccessful-result",
+        "b.wrapper.sink-failure",
+        "c.thread-mutation"
+      ]
+    },
+    {
+      "actionId": "thread.fork.close",
+      "errorSource": "sync-throw",
+      "evidence": [
+        "a.producer.thread.fork.close",
+        "b.wrapper.sync-throw",
+        "b.wrapper.sink-failure",
+        "c.thread-mutation"
+      ]
+    },
+    {
+      "actionId": "thread.fork.file.toggle",
+      "errorSource": "sync-throw",
+      "evidence": [
+        "a.producer.thread.fork.file.toggle",
+        "b.wrapper.sync-throw",
+        "b.wrapper.sink-failure",
+        "c.thread-mutation"
+      ]
+    },
+    {
+      "actionId": "thread.fork.open",
+      "errorSource": "sync-throw",
+      "evidence": [
+        "a.producer.thread.fork.open",
+        "b.wrapper.sync-throw",
+        "b.wrapper.sink-failure",
+        "c.thread-mutation"
+      ]
+    },
+    {
+      "actionId": "thread.fork.open",
+      "errorSource": "promise-reject",
+      "evidence": [
+        "a.producer.thread.fork.open",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure",
+        "c.thread-mutation"
+      ]
+    },
+    {
+      "actionId": "thread.fork.submit",
+      "errorSource": "sync-throw",
+      "evidence": [
+        "a.producer.thread.fork.submit",
+        "b.wrapper.sync-throw",
+        "b.wrapper.sink-failure",
+        "c.thread-mutation"
+      ]
+    },
+    {
+      "actionId": "thread.fork.submit",
+      "errorSource": "promise-reject",
+      "evidence": [
+        "a.producer.thread.fork.submit",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure",
+        "c.thread-mutation"
+      ]
+    },
+    {
+      "actionId": "thread.info.copy",
+      "errorSource": "sync-throw",
+      "evidence": [
+        "a.producer.thread.info.copy",
+        "b.wrapper.sync-throw",
+        "b.wrapper.sink-failure",
+        "c.thread-mutation"
+      ]
+    },
+    {
+      "actionId": "thread.info.copy",
+      "errorSource": "promise-reject",
+      "evidence": [
+        "a.producer.thread.info.copy",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure",
+        "c.thread-mutation"
+      ]
+    },
+    {
+      "actionId": "thread.interrupt",
+      "errorSource": "sync-throw",
+      "evidence": [
+        "a.producer.thread.interrupt",
+        "b.wrapper.sync-throw",
+        "b.wrapper.sink-failure",
+        "c.thread-mutation"
+      ]
+    },
+    {
+      "actionId": "thread.interrupt",
+      "errorSource": "promise-reject",
+      "evidence": [
+        "a.producer.thread.interrupt",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure",
+        "c.thread-mutation"
+      ]
+    },
+    {
+      "actionId": "thread.interrupt",
+      "errorSource": "unsuccessful-result",
+      "evidence": [
+        "a.producer.thread.interrupt",
+        "b.wrapper.unsuccessful-result",
+        "b.wrapper.sink-failure",
+        "c.thread-mutation"
+      ]
+    },
+    {
+      "actionId": "thread.new",
+      "errorSource": "sync-throw",
+      "evidence": [
+        "a.producer.thread.new",
+        "b.wrapper.sync-throw",
+        "b.wrapper.sink-failure",
+        "c.thread-mutation"
+      ]
+    },
+    {
+      "actionId": "thread.new",
+      "errorSource": "promise-reject",
+      "evidence": [
+        "a.producer.thread.new",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure",
+        "c.thread-mutation"
+      ]
+    },
+    {
+      "actionId": "thread.pin",
+      "errorSource": "sync-throw",
+      "evidence": [
+        "a.producer.thread.pin",
+        "b.wrapper.sync-throw",
+        "b.wrapper.sink-failure",
+        "c.thread-mutation"
+      ]
+    },
+    {
+      "actionId": "thread.pin",
+      "errorSource": "promise-reject",
+      "evidence": [
+        "a.producer.thread.pin",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure",
+        "c.thread-mutation"
+      ]
+    },
+    {
+      "actionId": "thread.recover",
+      "errorSource": "sync-throw",
+      "evidence": [
+        "a.producer.thread.recover",
+        "b.wrapper.sync-throw",
+        "b.wrapper.sink-failure",
+        "c.thread-mutation"
+      ]
+    },
+    {
+      "actionId": "thread.recover",
+      "errorSource": "promise-reject",
+      "evidence": [
+        "a.producer.thread.recover",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure",
+        "c.thread-mutation"
+      ]
+    },
+    {
+      "actionId": "thread.rename",
+      "errorSource": "sync-throw",
+      "evidence": [
+        "a.producer.thread.rename",
+        "b.wrapper.sync-throw",
+        "b.wrapper.sink-failure",
+        "c.thread-mutation"
+      ]
+    },
+    {
+      "actionId": "thread.rename",
+      "errorSource": "promise-reject",
+      "evidence": [
+        "a.producer.thread.rename",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure",
+        "c.thread-mutation"
+      ]
+    },
+    {
+      "actionId": "thread.select",
+      "errorSource": "sync-throw",
+      "evidence": [
+        "a.producer.thread.select",
+        "b.wrapper.sync-throw",
+        "b.wrapper.sink-failure",
+        "c.thread-mutation"
+      ]
+    },
+    {
+      "actionId": "thread.select",
+      "errorSource": "promise-reject",
+      "evidence": [
+        "a.producer.thread.select",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure",
+        "c.thread-mutation"
+      ]
+    },
+    {
+      "actionId": "thread.sync",
+      "errorSource": "sync-throw",
+      "evidence": [
+        "a.producer.thread.sync",
+        "b.wrapper.sync-throw",
+        "b.wrapper.sink-failure",
+        "c.thread-mutation"
+      ]
+    },
+    {
+      "actionId": "thread.sync",
+      "errorSource": "promise-reject",
+      "evidence": [
+        "a.producer.thread.sync",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure",
+        "c.thread-mutation"
+      ]
+    },
+    {
+      "actionId": "workspace.window.open",
+      "errorSource": "sync-throw",
+      "evidence": [
+        "a.producer.workspace.window.open",
+        "b.wrapper.sync-throw",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "workspace.window.open",
+      "errorSource": "promise-reject",
+      "evidence": [
+        "a.producer.workspace.window.open",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "sidebar.project-threads.load",
+      "errorSource": "promise-reject",
+      "evidence": [
+        "a.producer.sidebar.project-threads.load",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "sidebar.project-threads.load",
+      "errorSource": "invalid-response",
+      "evidence": [
+        "a.producer.sidebar.project-threads.load",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure",
+        "c.invalid-response-validator"
+      ]
+    },
+    {
+      "actionId": "prompt.assets.load",
+      "errorSource": "promise-reject",
+      "evidence": [
+        "a.producer.prompt.assets.load",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "prompt.assets.load",
+      "errorSource": "invalid-response",
+      "evidence": [
+        "a.producer.prompt.assets.load",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure",
+        "c.invalid-response-validator"
+      ]
+    },
+    {
+      "actionId": "prompt.active.load",
+      "errorSource": "promise-reject",
+      "evidence": [
+        "a.producer.prompt.active.load",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "prompt.active.load",
+      "errorSource": "invalid-response",
+      "evidence": [
+        "a.producer.prompt.active.load",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure",
+        "c.invalid-response-validator"
+      ]
+    },
+    {
+      "actionId": "prompt.surface.retry",
+      "errorSource": "sync-throw",
+      "evidence": [
+        "a.producer.prompt.surface.retry",
+        "b.wrapper.sync-throw",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "prompt.surface.retry",
+      "errorSource": "promise-reject",
+      "evidence": [
+        "a.producer.prompt.surface.retry",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "prompt.surface.retry",
+      "errorSource": "invalid-response",
+      "evidence": [
+        "a.producer.prompt.surface.retry",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure",
+        "c.invalid-response-validator"
+      ]
+    },
+    {
+      "actionId": "prompt.save",
+      "errorSource": "sync-throw",
+      "evidence": [
+        "a.producer.prompt.save",
+        "b.wrapper.sync-throw",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "prompt.save",
+      "errorSource": "promise-reject",
+      "evidence": [
+        "a.producer.prompt.save",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "prompt.save",
+      "errorSource": "invalid-response",
+      "evidence": [
+        "a.producer.prompt.save",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure",
+        "c.invalid-response-validator"
+      ]
+    },
+    {
+      "actionId": "prompt.delete",
+      "errorSource": "sync-throw",
+      "evidence": [
+        "a.producer.prompt.delete",
+        "b.wrapper.sync-throw",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "prompt.delete",
+      "errorSource": "promise-reject",
+      "evidence": [
+        "a.producer.prompt.delete",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "prompt.delete",
+      "errorSource": "invalid-response",
+      "evidence": [
+        "a.producer.prompt.delete",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure",
+        "c.invalid-response-validator"
+      ]
+    },
+    {
+      "actionId": "prompt.copy",
+      "errorSource": "sync-throw",
+      "evidence": [
+        "a.producer.prompt.copy",
+        "b.wrapper.sync-throw",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "prompt.copy",
+      "errorSource": "promise-reject",
+      "evidence": [
+        "a.producer.prompt.copy",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "prompt.launch.set",
+      "errorSource": "sync-throw",
+      "evidence": [
+        "a.producer.prompt.launch.set",
+        "b.wrapper.sync-throw",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "prompt.launch.set",
+      "errorSource": "promise-reject",
+      "evidence": [
+        "a.producer.prompt.launch.set",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "prompt.launch.set",
+      "errorSource": "invalid-response",
+      "evidence": [
+        "a.producer.prompt.launch.set",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure",
+        "c.invalid-response-validator"
+      ]
+    },
+    {
+      "actionId": "prompt.launch.clear",
+      "errorSource": "sync-throw",
+      "evidence": [
+        "a.producer.prompt.launch.clear",
+        "b.wrapper.sync-throw",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "prompt.launch.clear",
+      "errorSource": "promise-reject",
+      "evidence": [
+        "a.producer.prompt.launch.clear",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "prompt.launch.clear",
+      "errorSource": "invalid-response",
+      "evidence": [
+        "a.producer.prompt.launch.clear",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure",
+        "c.invalid-response-validator"
+      ]
+    },
+    {
+      "actionId": "prompt.draft.discard",
+      "errorSource": "sync-throw",
+      "evidence": [
+        "a.producer.prompt.draft.discard",
+        "b.wrapper.sync-throw",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "prompt.draft.discard",
+      "errorSource": "promise-reject",
+      "evidence": [
+        "a.producer.prompt.draft.discard",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "prompt.draft.discard",
+      "errorSource": "invalid-response",
+      "evidence": [
+        "a.producer.prompt.draft.discard",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure",
+        "c.invalid-response-validator"
+      ]
+    },
+    {
+      "actionId": "prompt.profile.load",
+      "errorSource": "promise-reject",
+      "evidence": [
+        "a.producer.prompt.profile.load",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "prompt.profile.load",
+      "errorSource": "invalid-response",
+      "evidence": [
+        "a.producer.prompt.profile.load",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure",
+        "c.invalid-response-validator"
+      ]
+    },
+    {
+      "actionId": "prompt.profile.save",
+      "errorSource": "sync-throw",
+      "evidence": [
+        "a.producer.prompt.profile.save",
+        "b.wrapper.sync-throw",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "prompt.profile.save",
+      "errorSource": "promise-reject",
+      "evidence": [
+        "a.producer.prompt.profile.save",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "prompt.profile.save",
+      "errorSource": "invalid-response",
+      "evidence": [
+        "a.producer.prompt.profile.save",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure",
+        "c.invalid-response-validator"
+      ]
+    },
+    {
+      "actionId": "prompt.draft.generate",
+      "errorSource": "sync-throw",
+      "evidence": [
+        "a.producer.prompt.draft.generate",
+        "b.wrapper.sync-throw",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "prompt.draft.generate",
+      "errorSource": "promise-reject",
+      "evidence": [
+        "a.producer.prompt.draft.generate",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "prompt.draft.generate",
+      "errorSource": "invalid-response",
+      "evidence": [
+        "a.producer.prompt.draft.generate",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure",
+        "c.invalid-response-validator"
+      ]
+    },
+    {
+      "actionId": "prompt.draft.commit",
+      "errorSource": "sync-throw",
+      "evidence": [
+        "a.producer.prompt.draft.commit",
+        "b.wrapper.sync-throw",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "prompt.draft.commit",
+      "errorSource": "promise-reject",
+      "evidence": [
+        "a.producer.prompt.draft.commit",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "prompt.draft.commit",
+      "errorSource": "invalid-response",
+      "evidence": [
+        "a.producer.prompt.draft.commit",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure",
+        "c.invalid-response-validator"
+      ]
+    },
+    {
+      "actionId": "prompt.draft.dry-run",
+      "errorSource": "sync-throw",
+      "evidence": [
+        "a.producer.prompt.draft.dry-run",
+        "b.wrapper.sync-throw",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "prompt.draft.dry-run",
+      "errorSource": "promise-reject",
+      "evidence": [
+        "a.producer.prompt.draft.dry-run",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "prompt.draft.dry-run",
+      "errorSource": "invalid-response",
+      "evidence": [
+        "a.producer.prompt.draft.dry-run",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure",
+        "c.invalid-response-validator"
+      ]
+    },
+    {
+      "actionId": "slash-command.skills.load",
+      "errorSource": "promise-reject",
+      "evidence": [
+        "a.producer.slash-command.skills.load",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "slash-command.skills.load",
+      "errorSource": "invalid-response",
+      "evidence": [
+        "a.producer.slash-command.skills.load",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure",
+        "c.invalid-response-validator"
+      ]
+    },
+    {
+      "actionId": "slash-command.prompts.load",
+      "errorSource": "promise-reject",
+      "evidence": [
+        "a.producer.slash-command.prompts.load",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "slash-command.prompts.load",
+      "errorSource": "invalid-response",
+      "evidence": [
+        "a.producer.slash-command.prompts.load",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure",
+        "c.invalid-response-validator"
+      ]
+    },
+    {
+      "actionId": "slash-command.automations.load",
+      "errorSource": "promise-reject",
+      "evidence": [
+        "a.producer.slash-command.automations.load",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "slash-command.automations.load",
+      "errorSource": "invalid-response",
+      "evidence": [
+        "a.producer.slash-command.automations.load",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure",
+        "c.invalid-response-validator"
+      ]
+    },
+    {
+      "actionId": "slash-command.mcp-tools.load",
+      "errorSource": "promise-reject",
+      "evidence": [
+        "a.producer.slash-command.mcp-tools.load",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "slash-command.mcp-tools.load",
+      "errorSource": "invalid-response",
+      "evidence": [
+        "a.producer.slash-command.mcp-tools.load",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure",
+        "c.invalid-response-validator"
+      ]
+    },
+    {
+      "actionId": "observability.recent.load",
+      "errorSource": "promise-reject",
+      "evidence": [
+        "a.producer.observability.recent.load",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "observability.recent.load",
+      "errorSource": "invalid-response",
+      "evidence": [
+        "a.producer.observability.recent.load",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure",
+        "c.invalid-response-validator"
+      ]
+    },
+    {
+      "actionId": "observability.trace-id.copy",
+      "errorSource": "sync-throw",
+      "evidence": [
+        "a.producer.observability.trace-id.copy",
+        "b.wrapper.sync-throw",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "observability.trace-id.copy",
+      "errorSource": "promise-reject",
+      "evidence": [
+        "a.producer.observability.trace-id.copy",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "observability.query",
+      "errorSource": "sync-throw",
+      "evidence": [
+        "a.producer.observability.query",
+        "b.wrapper.sync-throw",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "observability.recent.invalidate",
+      "errorSource": "promise-reject",
+      "evidence": [
+        "a.producer.observability.recent.invalidate",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "observability.trace.load",
+      "errorSource": "promise-reject",
+      "evidence": [
+        "a.producer.observability.trace.load",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "observability.trace.load",
+      "errorSource": "invalid-response",
+      "evidence": [
+        "a.producer.observability.trace.load",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure",
+        "c.invalid-response-validator"
+      ]
+    },
+    {
+      "actionId": "file.code-preview.save",
+      "errorSource": "sync-throw",
+      "evidence": [
+        "a.producer.file.code-preview.save",
+        "b.wrapper.sync-throw",
+        "b.wrapper.sink-failure",
+        "c.file"
+      ]
+    },
+    {
+      "actionId": "file.code-preview.save",
+      "errorSource": "promise-reject",
+      "evidence": [
+        "a.producer.file.code-preview.save",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure",
+        "c.file"
+      ]
+    },
+    {
+      "actionId": "file.code-preview.save",
+      "errorSource": "invalid-response",
+      "evidence": [
+        "a.producer.file.code-preview.save",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure",
+        "c.file",
+        "c.invalid-response-validator"
+      ]
+    },
+    {
+      "actionId": "file.code-preview.open",
+      "errorSource": "sync-throw",
+      "evidence": [
+        "a.producer.file.code-preview.open",
+        "b.wrapper.sync-throw",
+        "b.wrapper.sink-failure",
+        "c.file"
+      ]
+    },
+    {
+      "actionId": "file.code-preview.open",
+      "errorSource": "promise-reject",
+      "evidence": [
+        "a.producer.file.code-preview.open",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure",
+        "c.file"
+      ]
+    },
+    {
+      "actionId": "file.code-preview.open",
+      "errorSource": "invalid-response",
+      "evidence": [
+        "a.producer.file.code-preview.open",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure",
+        "c.file",
+        "c.invalid-response-validator"
+      ]
+    },
+    {
+      "actionId": "file.code-preview.locate",
+      "errorSource": "sync-throw",
+      "evidence": [
+        "a.producer.file.code-preview.locate",
+        "b.wrapper.sync-throw",
+        "b.wrapper.sink-failure",
+        "c.file"
+      ]
+    },
+    {
+      "actionId": "file.code-preview.locate",
+      "errorSource": "promise-reject",
+      "evidence": [
+        "a.producer.file.code-preview.locate",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure",
+        "c.file"
+      ]
+    },
+    {
+      "actionId": "file.code-preview.locate",
+      "errorSource": "invalid-response",
+      "evidence": [
+        "a.producer.file.code-preview.locate",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure",
+        "c.file",
+        "c.invalid-response-validator"
+      ]
+    },
+    {
+      "actionId": "file.local.open",
+      "errorSource": "sync-throw",
+      "evidence": [
+        "a.producer.file.local.open",
+        "b.wrapper.sync-throw",
+        "b.wrapper.sink-failure",
+        "c.file"
+      ]
+    },
+    {
+      "actionId": "file.local.open",
+      "errorSource": "promise-reject",
+      "evidence": [
+        "a.producer.file.local.open",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure",
+        "c.file"
+      ]
+    },
+    {
+      "actionId": "file.local.open",
+      "errorSource": "invalid-response",
+      "evidence": [
+        "a.producer.file.local.open",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure",
+        "c.file",
+        "c.invalid-response-validator"
+      ]
+    },
+    {
+      "actionId": "composer.file.native-drop",
+      "errorSource": "sync-throw",
+      "evidence": [
+        "a.producer.composer.file.native-drop",
+        "b.wrapper.sync-throw",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "composer.file.native-drop",
+      "errorSource": "promise-reject",
+      "evidence": [
+        "a.producer.composer.file.native-drop",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "composer.file.native-drop",
+      "errorSource": "invalid-response",
+      "evidence": [
+        "a.producer.composer.file.native-drop",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure",
+        "c.invalid-response-validator"
+      ]
+    },
+    {
+      "actionId": "composer.file.paste-paths",
+      "errorSource": "sync-throw",
+      "evidence": [
+        "a.producer.composer.file.paste-paths",
+        "b.wrapper.sync-throw",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "composer.file.paste-paths",
+      "errorSource": "promise-reject",
+      "evidence": [
+        "a.producer.composer.file.paste-paths",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "composer.file.paste-paths",
+      "errorSource": "invalid-response",
+      "evidence": [
+        "a.producer.composer.file.paste-paths",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure",
+        "c.invalid-response-validator"
+      ]
+    },
+    {
+      "actionId": "composer.file.paste",
+      "errorSource": "sync-throw",
+      "evidence": [
+        "a.producer.composer.file.paste",
+        "b.wrapper.sync-throw",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "composer.file.paste",
+      "errorSource": "promise-reject",
+      "evidence": [
+        "a.producer.composer.file.paste",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "composer.file.paste",
+      "errorSource": "invalid-response",
+      "evidence": [
+        "a.producer.composer.file.paste",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure",
+        "c.invalid-response-validator"
+      ]
+    },
+    {
+      "actionId": "composer.file.drop",
+      "errorSource": "sync-throw",
+      "evidence": [
+        "a.producer.composer.file.drop",
+        "b.wrapper.sync-throw",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "composer.file.drop",
+      "errorSource": "promise-reject",
+      "evidence": [
+        "a.producer.composer.file.drop",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "composer.file.drop",
+      "errorSource": "invalid-response",
+      "evidence": [
+        "a.producer.composer.file.drop",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure",
+        "c.invalid-response-validator"
+      ]
+    },
+    {
+      "actionId": "message.output.copy",
+      "errorSource": "sync-throw",
+      "evidence": [
+        "a.producer.message.output.copy",
+        "b.wrapper.sync-throw",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "message.output.copy",
+      "errorSource": "promise-reject",
+      "evidence": [
+        "a.producer.message.output.copy",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "workflow.output.preview",
+      "errorSource": "sync-throw",
+      "evidence": [
+        "a.producer.workflow.output.preview",
+        "b.wrapper.sync-throw",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "workflow.output.preview",
+      "errorSource": "promise-reject",
+      "evidence": [
+        "a.producer.workflow.output.preview",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "workflow.output.preview",
+      "errorSource": "invalid-response",
+      "evidence": [
+        "a.producer.workflow.output.preview",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure",
+        "c.invalid-response-validator"
+      ]
+    },
+    {
+      "actionId": "workflow.output.preview.load",
+      "errorSource": "promise-reject",
+      "evidence": [
+        "a.producer.workflow.output.preview.load",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "workflow.output.preview.load",
+      "errorSource": "invalid-response",
+      "evidence": [
+        "a.producer.workflow.output.preview.load",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure",
+        "c.invalid-response-validator"
+      ]
+    },
+    {
+      "actionId": "workflow.output.read",
+      "errorSource": "sync-throw",
+      "evidence": [
+        "a.producer.workflow.output.read",
+        "b.wrapper.sync-throw",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "workflow.output.read",
+      "errorSource": "promise-reject",
+      "evidence": [
+        "a.producer.workflow.output.read",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "workflow.output.read",
+      "errorSource": "invalid-response",
+      "evidence": [
+        "a.producer.workflow.output.read",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure",
+        "c.invalid-response-validator"
+      ]
+    },
+    {
+      "actionId": "workflow.output.open",
+      "errorSource": "sync-throw",
+      "evidence": [
+        "a.producer.workflow.output.open",
+        "b.wrapper.sync-throw",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "workflow.output.open",
+      "errorSource": "promise-reject",
+      "evidence": [
+        "a.producer.workflow.output.open",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "workflow.output.open",
+      "errorSource": "invalid-response",
+      "evidence": [
+        "a.producer.workflow.output.open",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure",
+        "c.invalid-response-validator"
+      ]
+    }
+  ],
+  "rpcCallsites": [
+    {
+      "file": "src/App.jsx",
+      "facade": "installLatestAppUpdate",
+      "via": "backendApi",
+      "level": "P0",
+      "count": 1,
+      "actionIds": [
+        "app.update.install"
+      ]
+    },
+    {
+      "file": "src/app/commands/appCommandPreferencePort.js",
+      "facade": "getPreference",
+      "via": "backendApi",
+      "level": "P1",
+      "count": 1,
+      "actionIds": [
+        "settings.shortcuts.bootstrap"
+      ]
+    },
+    {
+      "file": "src/app/commands/appCommandPreferencePort.js",
+      "facade": "setPreference",
+      "via": "backendApi",
+      "level": "P1",
+      "count": 1,
+      "actionIds": [
+        "settings.shortcuts.save"
+      ]
+    },
+    {
+      "file": "src/entities/client/model/helpers/a1/clientStoreBridgeRuntime.js",
+      "facade": "emitFrontendTraceEvent",
+      "via": "backendApi",
+      "level": "P1",
+      "count": 1,
+      "actionIds": [
+        "app.bootstrap.background"
+      ]
+    },
+    {
+      "file": "src/entities/client/model/helpers/a1/clientStorePageActions.js",
+      "facade": "getThreadConfig",
+      "via": "backendApi",
+      "level": "P1",
+      "count": 1,
+      "actionIds": [
+        "thread.select"
+      ]
+    },
+    {
+      "file": "src/entities/client/model/helpers/a1/clientStoreSendModel.js",
+      "facade": "deleteThread",
+      "via": "backendApi",
+      "level": "P0",
+      "count": 1,
+      "actionIds": [
+        "thread.delete"
+      ]
+    },
+    {
+      "file": "src/entities/client/model/helpers/a1/clientStoreSendModel.js",
+      "facade": "listSharedFiles",
+      "via": "backendApi",
+      "level": "P1",
+      "count": 1,
+      "actionIds": [
+        "composer.send"
+      ]
+    },
+    {
+      "file": "src/entities/client/model/helpers/a1/clientStoreSendModel.js",
+      "facade": "recoverThread",
+      "via": "backendApi",
+      "level": "P0",
+      "count": 1,
+      "actionIds": [
+        "thread.recover"
+      ]
+    },
+    {
+      "file": "src/entities/client/model/helpers/a1/clientStoreSendModel.js",
+      "facade": "setPreference",
+      "via": "backendApi",
+      "level": "P1",
+      "count": 3,
+      "actionIds": [
+        "composer.model.selector",
+        "thread.pin"
+      ]
+    },
+    {
+      "file": "src/entities/client/model/helpers/a1/clientStoreSendModel.js",
+      "facade": "setThreadConfig",
+      "via": "backendApi",
+      "level": "P0",
+      "count": 2,
+      "actionIds": [
+        "composer.model.selector"
+      ]
+    },
+    {
+      "file": "src/entities/client/model/helpers/a1/clientStoreSendModel.js",
+      "facade": "forkThread",
+      "via": "sessionApi",
+      "level": "P1",
+      "count": 1,
+      "actionIds": [
+        "thread.fork.submit"
+      ]
+    },
+    {
+      "file": "src/entities/client/model/helpers/a1/clientStoreSendModel.js",
+      "facade": "startThread",
+      "via": "sessionApi",
+      "level": "P0",
+      "count": 1,
+      "actionIds": [
+        "composer.send"
+      ]
+    },
+    {
+      "file": "src/entities/client/model/helpers/a1/clientStoreSendModel.js",
+      "facade": "startTurn",
+      "via": "sessionApi",
+      "level": "P0",
+      "count": 3,
+      "actionIds": [
+        "composer.send"
+      ]
+    },
+    {
+      "file": "src/entities/client/model/helpers/a1/clientStoreSidebarRuntime.js",
+      "facade": "getSidebarState",
+      "via": "backendApi",
+      "level": "P1",
+      "count": 1,
+      "actionIds": [
+        "app.bootstrap.background"
+      ]
+    },
+    {
+      "file": "src/entities/client/model/helpers/a1/clientStoreThreadActions.js",
+      "facade": "archiveThread",
+      "via": "backendApi",
+      "level": "P0",
+      "count": 1,
+      "actionIds": [
+        "thread.archive"
+      ]
+    },
+    {
+      "file": "src/entities/client/model/helpers/a1/clientStoreThreadActions.js",
+      "facade": "deleteThread",
+      "via": "backendApi",
+      "level": "P0",
+      "count": 1,
+      "actionIds": [
+        "thread.delete"
+      ]
+    },
+    {
+      "file": "src/entities/client/model/helpers/a1/clientStoreThreadActions.js",
+      "facade": "renameThread",
+      "via": "backendApi",
+      "level": "P0",
+      "count": 1,
+      "actionIds": [
+        "thread.rename"
+      ]
+    },
+    {
+      "file": "src/entities/client/model/helpers/a1/clientStoreThreadActions.js",
+      "facade": "resolveThreadIdentity",
+      "via": "backendApi",
+      "level": "P1",
+      "count": 1,
+      "actionIds": [
+        "thread.select"
+      ]
+    },
+    {
+      "file": "src/entities/client/model/helpers/a1/clientStoreThreadActions.js",
+      "facade": "respondApproval",
+      "via": "backendApi",
+      "level": "P0",
+      "count": 1,
+      "actionIds": [
+        "approval.respond"
+      ]
+    },
+    {
+      "file": "src/entities/client/model/helpers/a1/clientStoreThreadActions.js",
+      "facade": "setPreference",
+      "via": "backendApi",
+      "level": "P1",
+      "count": 3,
+      "actionIds": [
+        "thread.pin",
+        "thread.select"
+      ]
+    },
+    {
+      "file": "src/entities/client/model/helpers/a1/clientStoreThreadActions.js",
+      "facade": "unarchiveThread",
+      "via": "backendApi",
+      "level": "P0",
+      "count": 1,
+      "actionIds": [
+        "thread.archive"
+      ]
+    },
+    {
+      "file": "src/entities/client/model/helpers/a1/clientStoreThreadActions.js",
+      "facade": "startTurn",
+      "via": "sessionApi",
+      "level": "P0",
+      "count": 1,
+      "actionIds": [
+        "composer.send"
+      ]
+    },
+    {
+      "file": "src/entities/client/model/helpers/a1/clientStoreUtils.js",
+      "facade": "emitFrontendTraceEvent",
+      "via": "backendApi",
+      "level": "P1",
+      "count": 1,
+      "actionIds": [
+        "app.bootstrap.background"
+      ]
+    },
+    {
+      "file": "src/entities/client/model/helpers/threadSelectionActions.js",
+      "facade": "resolveThreadIdentity",
+      "via": "backendApi",
+      "level": "P1",
+      "count": 1,
+      "actionIds": [
+        "thread.select"
+      ]
+    },
+    {
+      "file": "src/entities/client/model/useClientStore.js",
+      "facade": "addProject",
+      "via": "backendApi",
+      "level": "P1",
+      "count": 1,
+      "actionIds": [
+        "project.add"
+      ]
+    },
+    {
+      "file": "src/entities/client/model/useClientStore.js",
+      "facade": "getProjects",
+      "via": "backendApi",
+      "level": "P1",
+      "count": 1,
+      "actionIds": [
+        "app.bootstrap.background"
+      ]
+    },
+    {
+      "file": "src/entities/client/model/useClientStore.js",
+      "facade": "getSidebarState",
+      "via": "backendApi",
+      "level": "P1",
+      "count": 1,
+      "actionIds": [
+        "app.bootstrap.background"
+      ]
+    },
+    {
+      "file": "src/entities/client/model/useClientStore.js",
+      "facade": "getThreadState",
+      "via": "backendApi",
+      "level": "P1",
+      "count": 1,
+      "actionIds": [
+        "app.bootstrap.background"
+      ]
+    },
+    {
+      "file": "src/entities/client/model/useClientStore.js",
+      "facade": "getWindowBootstrap",
+      "via": "backendApi",
+      "level": "P1",
+      "count": 1,
+      "actionIds": [
+        "app.bootstrap.background"
+      ]
+    },
+    {
+      "file": "src/entities/client/model/useClientStore.js",
+      "facade": "openNewWindow",
+      "via": "backendApi",
+      "level": "P1",
+      "count": 1,
+      "actionIds": [
+        "workspace.window.open"
+      ]
+    },
+    {
+      "file": "src/entities/client/model/useClientStore.js",
+      "facade": "readConfig",
+      "via": "backendApi",
+      "level": "P1",
+      "count": 1,
+      "actionIds": [
+        "app.bootstrap.background"
+      ]
+    },
+    {
+      "file": "src/entities/client/model/useClientStore.js",
+      "facade": "removeProject",
+      "via": "backendApi",
+      "level": "P1",
+      "count": 1,
+      "actionIds": [
+        "project.remove"
+      ]
+    },
+    {
+      "file": "src/entities/client/model/useClientStore.js",
+      "facade": "setActiveProject",
+      "via": "backendApi",
+      "level": "P1",
+      "count": 1,
+      "actionIds": [
+        "project.select"
+      ]
+    },
+    {
+      "file": "src/features/prompt-history/hooks/usePromptHistory.js",
+      "facade": "getPromptHistory",
+      "via": "backendApi",
+      "level": "P1",
+      "count": 1,
+      "actionIds": [
+        "prompt-history.next",
+        "prompt-history.previous"
+      ]
+    },
+    {
+      "file": "src/main.jsx",
+      "facade": "emitFrontendTraceEvent",
+      "via": "backendApi",
+      "level": "P1",
+      "count": 2,
+      "actionIds": [
+        "app.bootstrap.background"
+      ]
+    },
+    {
+      "file": "src/pages/chat/services/chatCodeService.js",
+      "facade": "saveCodeFile",
+      "via": "backendApi",
+      "level": "P0",
+      "count": 1,
+      "actionIds": [
+        "file.code-preview.save"
+      ]
+    },
+    {
+      "file": "src/pages/settings/services/settingsPageService.js",
+      "facade": "applyModelProvider",
+      "via": "backendApi",
+      "level": "P0",
+      "count": 1,
+      "actionIds": [
+        "settings.model-providers.apply"
+      ]
+    },
+    {
+      "file": "src/pages/settings/services/settingsPageService.js",
+      "facade": "getVideoApiKey",
+      "via": "backendApi",
+      "level": "P1",
+      "count": 1,
+      "actionIds": [
+        "settings.video.bootstrap"
+      ]
+    },
+    {
+      "file": "src/pages/settings/services/settingsPageService.js",
+      "facade": "installLatestAppUpdate",
+      "via": "backendApi",
+      "level": "P0",
+      "count": 1,
+      "actionIds": [
+        "app.update.install"
+      ]
+    },
+    {
+      "file": "src/pages/settings/services/settingsPageService.js",
+      "facade": "listDashboardLogs",
+      "via": "backendApi",
+      "level": "P1",
+      "count": 1,
+      "actionIds": [
+        "settings.logs.refresh"
+      ]
+    },
+    {
+      "file": "src/pages/settings/services/settingsPageService.js",
+      "facade": "listModelProviders",
+      "via": "backendApi",
+      "level": "P1",
+      "count": 1,
+      "actionIds": [
+        "settings.model-providers.load"
+      ]
+    },
+    {
+      "file": "src/pages/settings/services/settingsPageService.js",
+      "facade": "readBuiltinTools",
+      "via": "backendApi",
+      "level": "P1",
+      "count": 1,
+      "actionIds": [
+        "settings.builtin.load"
+      ]
+    },
+    {
+      "file": "src/pages/settings/services/settingsPageService.js",
+      "facade": "readConfig",
+      "via": "backendApi",
+      "level": "P1",
+      "count": 1,
+      "actionIds": [
+        "settings.runtime.bootstrap"
+      ]
+    },
+    {
+      "file": "src/pages/settings/services/settingsPageService.js",
+      "facade": "readLspPromptHint",
+      "via": "backendApi",
+      "level": "P1",
+      "count": 1,
+      "actionIds": [
+        "settings.prompt.load"
+      ]
+    },
+    {
+      "file": "src/pages/settings/services/settingsPageService.js",
+      "facade": "saveModelProviders",
+      "via": "backendApi",
+      "level": "P0",
+      "count": 1,
+      "actionIds": [
+        "settings.model-providers.save"
+      ]
+    },
+    {
+      "file": "src/pages/settings/services/settingsPageService.js",
+      "facade": "setPreference",
+      "via": "backendApi",
+      "level": "P1",
+      "count": 1,
+      "actionIds": [
+        "settings.provider.preferences.save"
+      ]
+    },
+    {
+      "file": "src/pages/settings/services/settingsPageService.js",
+      "facade": "setVideoApiKey",
+      "via": "backendApi",
+      "level": "P0",
+      "count": 1,
+      "actionIds": [
+        "settings.video.save"
+      ]
+    },
+    {
+      "file": "src/pages/settings/services/settingsPageService.js",
+      "facade": "writeBuiltinTool",
+      "via": "backendApi",
+      "level": "P0",
+      "count": 1,
+      "actionIds": [
+        "settings.builtin.toggle"
+      ]
+    },
+    {
+      "file": "src/pages/settings/services/settingsPageService.js",
+      "facade": "writeLspPromptHint",
+      "via": "backendApi",
+      "level": "P0",
+      "count": 1,
+      "actionIds": [
+        "settings.prompt.save"
+      ]
+    },
+    {
+      "file": "src/pages/skills/services/skillsPageService.js",
+      "facade": "applySkillResolution",
+      "via": "backendApi",
+      "level": "P0",
+      "count": 1,
+      "actionIds": [
+        "skill.resolution.apply"
+      ]
+    },
+    {
+      "file": "src/pages/skills/services/skillsPageService.js",
+      "facade": "createSkill",
+      "via": "backendApi",
+      "level": "P0",
+      "count": 1,
+      "actionIds": [
+        "skill.save"
+      ]
+    },
+    {
+      "file": "src/pages/skills/services/skillsPageService.js",
+      "facade": "deleteDatasourceDocument",
+      "via": "backendApi",
+      "level": "P0",
+      "count": 1,
+      "actionIds": [
+        "datasource.delete"
+      ]
+    },
+    {
+      "file": "src/pages/skills/services/skillsPageService.js",
+      "facade": "deleteSkill",
+      "via": "backendApi",
+      "level": "P0",
+      "count": 1,
+      "actionIds": [
+        "skill.delete"
+      ]
+    },
+    {
+      "file": "src/pages/skills/services/skillsPageService.js",
+      "facade": "getDashboardPage",
+      "via": "backendApi",
+      "level": "P1",
+      "count": 1,
+      "actionIds": [
+        "skill.dashboard.load"
+      ]
+    },
+    {
+      "file": "src/pages/skills/services/skillsPageService.js",
+      "facade": "getDatasourceDocument",
+      "via": "backendApi",
+      "level": "P1",
+      "count": 1,
+      "actionIds": [
+        "datasource.detail.load"
+      ]
+    },
+    {
+      "file": "src/pages/skills/services/skillsPageService.js",
+      "facade": "importDatasourceLocalFile",
+      "via": "backendApi",
+      "level": "P0",
+      "count": 1,
+      "actionIds": [
+        "datasource.import"
+      ]
+    },
+    {
+      "file": "src/pages/skills/services/skillsPageService.js",
+      "facade": "importSkillDirectories",
+      "via": "backendApi",
+      "level": "P0",
+      "count": 1,
+      "actionIds": [
+        "skill.import"
+      ]
+    },
+    {
+      "file": "src/pages/skills/services/skillsPageService.js",
+      "facade": "listDatasourceChunks",
+      "via": "backendApi",
+      "level": "P1",
+      "count": 1,
+      "actionIds": [
+        "datasource.detail.load"
+      ]
+    },
+    {
+      "file": "src/pages/skills/services/skillsPageService.js",
+      "facade": "listDatasourceDocuments",
+      "via": "backendApi",
+      "level": "P1",
+      "count": 1,
+      "actionIds": [
+        "datasource.documents.load"
+      ]
+    },
+    {
+      "file": "src/pages/skills/services/skillsPageService.js",
+      "facade": "listMCPServers",
+      "via": "backendApi",
+      "level": "P1",
+      "count": 1,
+      "actionIds": [
+        "mcp.servers.load"
+      ]
+    },
+    {
+      "file": "src/pages/skills/services/skillsPageService.js",
+      "facade": "listSkillFiles",
+      "via": "backendApi",
+      "level": "P1",
+      "count": 1,
+      "actionIds": [
+        "skill.file.open"
+      ]
+    },
+    {
+      "file": "src/pages/skills/services/skillsPageService.js",
+      "facade": "listSkillResolutions",
+      "via": "backendApi",
+      "level": "P1",
+      "count": 1,
+      "actionIds": [
+        "skill.resolutions.load"
+      ]
+    },
+    {
+      "file": "src/pages/skills/services/skillsPageService.js",
+      "facade": "listSkillTools",
+      "via": "backendApi",
+      "level": "P1",
+      "count": 1,
+      "actionIds": [
+        "skill.tools.load"
+      ]
+    },
+    {
+      "file": "src/pages/skills/services/skillsPageService.js",
+      "facade": "previewSkillResolution",
+      "via": "backendApi",
+      "level": "P1",
+      "count": 1,
+      "actionIds": [
+        "skill.resolution.preview"
+      ]
+    },
+    {
+      "file": "src/pages/skills/services/skillsPageService.js",
+      "facade": "readSkill",
+      "via": "backendApi",
+      "level": "P1",
+      "count": 1,
+      "actionIds": [
+        "skill.open"
+      ]
+    },
+    {
+      "file": "src/pages/skills/services/skillsPageService.js",
+      "facade": "startPlaywrightMCPServer",
+      "via": "backendApi",
+      "level": "P0",
+      "count": 1,
+      "actionIds": [
+        "mcp.playwright.start"
+      ]
+    },
+    {
+      "file": "src/pages/skills/services/skillsPageService.js",
+      "facade": "startSQLiteMCPServer",
+      "via": "backendApi",
+      "level": "P0",
+      "count": 1,
+      "actionIds": [
+        "mcp.sqlite.start"
+      ]
+    },
+    {
+      "file": "src/pages/skills/services/skillsPageService.js",
+      "facade": "stopPlaywrightMCPServer",
+      "via": "backendApi",
+      "level": "P0",
+      "count": 1,
+      "actionIds": [
+        "mcp.playwright.stop"
+      ]
+    },
+    {
+      "file": "src/pages/skills/services/skillsPageService.js",
+      "facade": "stopSQLiteMCPServer",
+      "via": "backendApi",
+      "level": "P0",
+      "count": 1,
+      "actionIds": [
+        "mcp.sqlite.stop"
+      ]
+    },
+    {
+      "file": "src/pages/skills/services/skillsPageService.js",
+      "facade": "suggestSkillSummary",
+      "via": "backendApi",
+      "level": "P1",
+      "count": 1,
+      "actionIds": [
+        "skill.summary.suggest"
+      ]
+    },
+    {
+      "file": "src/pages/skills/services/skillsPageService.js",
+      "facade": "updateDatasourceDocument",
+      "via": "backendApi",
+      "level": "P0",
+      "count": 1,
+      "actionIds": [
+        "datasource.update"
+      ]
+    },
+    {
+      "file": "src/pages/skills/services/skillsPageService.js",
+      "facade": "writeSkill",
+      "via": "backendApi",
+      "level": "P0",
+      "count": 1,
+      "actionIds": [
+        "skill.save"
+      ]
+    },
+    {
+      "file": "src/pages/workflows/services/workflowPageService.js",
+      "facade": "applyDagOps",
+      "via": "backendApi",
+      "level": "P0",
+      "count": 1,
+      "actionIds": [
+        "workflow.node.save"
+      ]
+    },
+    {
+      "file": "src/pages/workflows/services/workflowPageService.js",
+      "facade": "createAndStartDag",
+      "via": "backendApi",
+      "level": "P0",
+      "count": 1,
+      "actionIds": [
+        "workflow.design.start"
+      ]
+    },
+    {
+      "file": "src/pages/workflows/services/workflowPageService.js",
+      "facade": "deleteDag",
+      "via": "backendApi",
+      "level": "P0",
+      "count": 1,
+      "actionIds": [
+        "workflow.delete"
+      ]
+    },
+    {
+      "file": "src/pages/workflows/services/workflowPageService.js",
+      "facade": "dispatchDagNode",
+      "via": "backendApi",
+      "level": "P0",
+      "count": 1,
+      "actionIds": [
+        "workflow.node.dispatch"
+      ]
+    },
+    {
+      "file": "src/pages/workflows/services/workflowPageService.js",
+      "facade": "getDagDetail",
+      "via": "backendApi",
+      "level": "P1",
+      "count": 1,
+      "actionIds": [
+        "workflow.dag-detail.load"
+      ]
+    },
+    {
+      "file": "src/pages/workflows/services/workflowPageService.js",
+      "facade": "getDagRun",
+      "via": "backendApi",
+      "level": "P1",
+      "count": 1,
+      "actionIds": [
+        "workflow.run-detail.load"
+      ]
+    },
+    {
+      "file": "src/pages/workflows/services/workflowPageService.js",
+      "facade": "getDagRuns",
+      "via": "backendApi",
+      "level": "P1",
+      "count": 1,
+      "actionIds": [
+        "workflow.run-detail.load"
+      ]
+    },
+    {
+      "file": "src/pages/workflows/services/workflowPageService.js",
+      "facade": "getDashboardPage",
+      "via": "backendApi",
+      "level": "P1",
+      "count": 1,
+      "actionIds": [
+        "workflow.dashboard.load"
+      ]
+    },
+    {
+      "file": "src/pages/workflows/services/workflowPageService.js",
+      "facade": "getWorkflowTemplate",
+      "via": "backendApi",
+      "level": "P1",
+      "count": 1,
+      "actionIds": [
+        "workflow.template-detail.load"
+      ]
+    },
+    {
+      "file": "src/pages/workflows/services/workflowPageService.js",
+      "facade": "listWorkflowTemplates",
+      "via": "backendApi",
+      "level": "P1",
+      "count": 1,
+      "actionIds": [
+        "workflow.templates.load"
+      ]
+    },
+    {
+      "file": "src/pages/workflows/services/workflowPageService.js",
+      "facade": "renderWorkflowTemplateDraft",
+      "via": "backendApi",
+      "level": "P1",
+      "count": 1,
+      "actionIds": [
+        "workflow.template.create-start"
+      ]
+    },
+    {
+      "file": "src/pages/workflows/services/workflowPageService.js",
+      "facade": "rollbackWorkflowTemplate",
+      "via": "backendApi",
+      "level": "P0",
+      "count": 1,
+      "actionIds": [
+        "workflow.template.rollback"
+      ]
+    },
+    {
+      "file": "src/pages/workflows/services/workflowPageService.js",
+      "facade": "saveWorkflowTemplate",
+      "via": "backendApi",
+      "level": "P0",
+      "count": 1,
+      "actionIds": [
+        "workflow.node.save"
+      ]
+    },
+    {
+      "file": "src/pages/workflows/services/workflowPageService.js",
+      "facade": "startDag",
+      "via": "backendApi",
+      "level": "P0",
+      "count": 1,
+      "actionIds": [
+        "workflow.run"
+      ]
+    },
+    {
+      "file": "src/pages/workflows/services/workflowPageService.js",
+      "facade": "terminateDagRun",
+      "via": "backendApi",
+      "level": "P0",
+      "count": 1,
+      "actionIds": [
+        "workflow.stop"
+      ]
+    },
+    {
+      "file": "src/pages/workflows/services/workflowPageService.js",
+      "facade": "writeWorkflowMaterial",
+      "via": "backendApi",
+      "level": "P0",
+      "count": 1,
+      "actionIds": [
+        "workflow.node.save"
+      ]
+    },
+    {
+      "file": "src/pages/workflows/services/workflowPageService.js",
+      "facade": "startThread",
+      "via": "sessionApi",
+      "level": "P0",
+      "count": 1,
+      "actionIds": [
+        "workflow.run",
+        "workflow.design.start",
+        "workflow.template.create-start"
+      ]
+    },
+    {
+      "file": "src/pages/workflows/services/workflowPageService.js",
+      "facade": "startTurn",
+      "via": "sessionApi",
+      "level": "P0",
+      "count": 1,
+      "actionIds": [
+        "workflow.run",
+        "workflow.design.start",
+        "workflow.template.create-start"
+      ]
+    },
+    {
+      "file": "src/services/modules/fileService.js",
+      "facade": "deleteSharedFile",
+      "via": "backendApi",
+      "level": "P0",
+      "count": 1,
+      "actionIds": [
+        "file.delete"
+      ]
+    },
+    {
+      "file": "src/services/modules/fileService.js",
+      "facade": "listSharedFiles",
+      "via": "backendApi",
+      "level": "P1",
+      "count": 1,
+      "actionIds": [
+        "file.dashboard.load"
+      ]
+    },
+    {
+      "file": "src/services/modules/memoryService.js",
+      "facade": "getMemorySnapshot",
+      "via": "backendApi",
+      "level": "P1",
+      "count": 1,
+      "actionIds": [
+        "memory.dashboard.load"
+      ]
+    },
+    {
+      "file": "src/shared/api/preferenceResponseGuards.js",
+      "facade": "getPreference",
+      "via": "backendApi",
+      "level": "P1",
+      "count": 1,
+      "actionIds": [
+        "settings.provider.preferences.load",
+        "settings.prompt.load",
+        "settings.shortcuts.bootstrap"
+      ]
+    },
+    {
+      "file": "src/WorkbenchSidebarProjectTree.jsx",
+      "facade": "getSidebarState",
+      "via": "backendApi",
+      "level": "P1",
+      "count": 1,
+      "actionIds": [
+        "sidebar.project-threads.load"
+      ]
+    }
+  ]
+}

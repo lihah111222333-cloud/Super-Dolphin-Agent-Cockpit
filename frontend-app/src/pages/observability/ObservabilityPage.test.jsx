@@ -598,7 +598,8 @@ describe('ObservabilityPage module', () => {
     fireEvent.click(within(table).getByRole('button', { name: '打开 Trace trace-frontend-1' }));
 
     const inlineTrace = await within(table).findByTestId('observability-inline-trace-trace-frontend-1');
-    await waitFor(() => expect(inlineTrace).toHaveTextContent('Trace 数据无效：observability trace events 必须是数组'));
+    await waitFor(() => expect(inlineTrace).toHaveTextContent('Trace 加载失败，请重试。'));
+    expect(document.body.textContent).not.toContain('observability trace events');
   });
 
 });

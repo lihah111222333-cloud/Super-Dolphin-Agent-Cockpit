@@ -78,9 +78,9 @@ function createSetActiveProjectPathAction(runtime, deps) {
     }
     catch (error) {
       restoreActiveProject(runtime, previousActiveProject, previousProjects);
-      runtime.notifyAction(`切换项目失败：${error.message}`, 'error');
-      runtime.addWarning('error', 'project.set_active.failed', { path: target, error: error.message });
-      return false;
+      runtime.notifyAction('切换项目失败，请重试。', 'error');
+      runtime.addWarning('error', 'project.set_active.failed', { path: target, error: 'action failure; see Health diagnostic ID' });
+      throw error;
     }
   };
 }
@@ -103,9 +103,9 @@ function createAddProjectFromPickerAction(runtime, deps) {
       return true;
     }
     catch (error) {
-      runtime.notifyAction(`添加项目失败：${error.message}`, 'error');
-      runtime.addWarning('error', 'project.add.failed', { path: selected, error: error.message });
-      return false;
+      runtime.notifyAction('添加项目失败，请重试。', 'error');
+      runtime.addWarning('error', 'project.add.failed', { path: selected, error: 'action failure; see Health diagnostic ID' });
+      throw error;
     }
   };
 }
@@ -127,9 +127,9 @@ function createOpenNewWindowAction(runtime, deps) {
       return true;
     }
     catch (error) {
-      runtime.notifyAction(`打开新窗口失败：${error.message}`, 'error');
-      runtime.addWarning('error', 'ui.open_new_window.failed', { path: selected, error: error.message });
-      return false;
+      runtime.notifyAction('打开新窗口失败，请重试。', 'error');
+      runtime.addWarning('error', 'ui.open_new_window.failed', { path: selected, error: 'action failure; see Health diagnostic ID' });
+      throw error;
     }
   };
 }
@@ -147,9 +147,9 @@ function createRemoveProjectPathAction(runtime, deps) {
       return true;
     }
     catch (error) {
-      runtime.notifyAction(`移除项目失败：${error.message}`, 'error');
-      runtime.addWarning('error', 'project.remove.failed', { path: target, error: error.message });
-      return false;
+      runtime.notifyAction('移除项目失败，请重试。', 'error');
+      runtime.addWarning('error', 'project.remove.failed', { path: target, error: 'action failure; see Health diagnostic ID' });
+      throw error;
     }
   };
 }

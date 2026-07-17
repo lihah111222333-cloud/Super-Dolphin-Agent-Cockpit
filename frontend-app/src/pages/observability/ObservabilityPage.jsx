@@ -1,8 +1,14 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react'; import { useQuery, useQueryClient } from '@tanstack/react-query'; import { Copy } from 'lucide-react'; import { APP_COPY } from '../../shared/i18n/appI18n.js';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { Copy } from 'lucide-react';
+import { FrontendHealthPanel } from '../../features/health/FrontendHealthPanel.jsx';
+import { APP_COPY } from '../../shared/i18n/appI18n.js';
+import { runBackgroundAction, runUIAction } from '../../shared/ui/runUIAction.js';
 import { optionalArrayValue, optionalDateFromValue, errorMessage, firstPresentRawText, textValue, optionalTimestampMillis } from '../shared/pageShared.js';
 import { copyTextToClipboard, getObservabilityTrace, listObservabilityRecent as getObservabilityRecent } from './services/observabilityPageService.js'; import './ObservabilityPage.css';
 function observabilityRecentQueryKey(cwd, params) { return ['observability', 'recent', textValue(cwd), Number(params?.limit) || 0, params || null]; }
 function observabilityTraceQueryKey(cwd, traceId, limit) { return ['observability', 'trace', textValue(cwd), textValue(traceId), Number(limit) || 0]; }
+function validatedObservabilityResult(value, label) { if (!value || typeof value !== 'object' || Array.isArray(value) || !Array.isArray(value.events)) { throw new TypeError(`${label} response must contain an events array`); } return value; }
 function stableBackendLogValue(value, seen = new WeakSet()) { if (!value || typeof value !== 'object') return value; if (seen.has(value)) return '[Circular]'; seen.add(value); if (Array.isArray(value)) {
 const items = value.map((item) => stableBackendLogValue(item, seen)); seen.delete(value); return items; } const record = Object.fromEntries( Object.keys(value) .sort((left, right) => left.localeCompare(right)) .map((key) => [key, stableBackendLogValue(value[key], seen)]),
 ); seen.delete(value); return record; }
@@ -39,15 +45,26 @@ function collapsedTraceState(current, traceId) { const entry = { ...current[trac
 function ObservabilityPage({ copy = APP_COPY.zh.observability, cwd = '' }) {
 const queryClient = useQueryClient(); const queryCwd = textValue(cwd); const { buildRecentParams, filters, queryLimit, setFilter } = useObservabilityFilters(); const [submittedRecentParams, setSubmittedRecentParams] = useState(null);
 const [copiedTraceId, setCopiedTraceId] = useState(''); const [notice, setNotice] = useState(''); const { expandedTraces, setExpandedTraces, toggleTraceExpansion } = useObservabilityTraceExpansion({ setFilter, setNotice }); const recentQueryKey = useMemo(
-() => observabilityRecentQueryKey(queryCwd, submittedRecentParams), [queryCwd, submittedRecentParams], ); const recentQuery = useQuery({ queryKey: recentQueryKey, queryFn: () => getObservabilityRecent(submittedRecentParams), enabled: Boolean(submittedRecentParams),
+() => observabilityRecentQueryKey(queryCwd, submittedRecentParams), [queryCwd, submittedRecentParams], ); const recentQuery = useQuery({ queryKey: recentQueryKey,
+queryFn: () => runBackgroundAction('observability.recent.load', async () => validatedObservabilityResult(
+await getObservabilityRecent(submittedRecentParams),
+'observability recent',
+)), enabled: Boolean(submittedRecentParams),
 refetchOnWindowFocus: false, retry: false, }); const loading = recentQuery.isFetching; const recentResult = recentQuery.data || null;
-useEffect(() => { if (recentQuery.error) setNotice(errorMessage(recentQuery.error)); }, [recentQuery.error]);
-const copyTraceId = useCallback(async (value) => { const nextTraceId = textValue(value); if (!nextTraceId) return; setNotice(''); try { await copyTextToClipboard(nextTraceId); setCopiedTraceId(nextTraceId); } catch (error) { setNotice(`复制 Trace ID 失败：${errorMessage(error)}`); }
+useEffect(() => { if (recentQuery.error) setNotice('查询最近日志失败，请重试。'); }, [recentQuery.error]);
+const copyTraceId = useCallback((value) => { const nextTraceId = textValue(value); if (!nextTraceId) return undefined; return runUIAction('observability.trace-id.copy', async () => {
+setNotice('');
+try { await copyTextToClipboard(nextTraceId); setCopiedTraceId(nextTraceId); } catch (error) { setNotice('复制 Trace ID 失败，请重试。'); throw error; }
+}, { retryable: true });
 }, [setNotice]);
 const runQuery = useCallback(() => {
-setCopiedTraceId(''); setNotice(''); setExpandedTraces({}); const params = { ...buildRecentParams(), includeTail: true }; void queryClient.invalidateQueries({ queryKey: observabilityRecentQueryKey(queryCwd, params), exact: true }); setSubmittedRecentParams(params);
+return runUIAction('observability.query', () => { setCopiedTraceId(''); setNotice(''); setExpandedTraces({}); const params = { ...buildRecentParams(), includeTail: true };
+runBackgroundAction('observability.recent.invalidate', async () => queryClient.invalidateQueries({
+queryKey: observabilityRecentQueryKey(queryCwd, params), exact: true,
+}));
+setSubmittedRecentParams(params); });
 }, [buildRecentParams, queryClient, queryCwd, setExpandedTraces]);
-return ( <section className="settings-page observability-page" data-testid="observability-page"> <ObservabilityHeader copy={copy} /> {notice ? <div className="settings-alert error" role="alert">{notice}</div> : null}
+return ( <section className="settings-page observability-page" data-testid="observability-page"> <ObservabilityHeader copy={copy} /> <FrontendHealthPanel /> {notice ? <div className="settings-alert error" role="alert">{notice}</div> : null}
 <ObservabilitySearchForm copy={copy} filters={filters} loading={loading} onFilter={setFilter} onSubmit={runQuery} /> <ObservabilityRecentLogs result={recentResult} onOpenTrace={toggleTraceExpansion} onCopyTrace={copyTraceId} copiedTraceId={copiedTraceId}
 expandedTraces={expandedTraces} queryCwd={queryCwd} queryLimit={queryLimit} onTraceError={setNotice} /> </section> ); }
 function ObservabilityHeader({ copy }) { return ( <div className="settings-header"> <div> <h1>{copy.title}</h1> </div> </div> ); }
@@ -106,9 +123,12 @@ function observabilityTraceDetailId(traceID) { const safeTraceID = textValue(tra
 function observabilityTraceSummary(row) { const event = row.representative && typeof row.representative === 'object' ? row.representative : {}; const durationText = formatMatchedEventDuration(row.durationMS); const parts = [ event.kind, event.phase, traceEventClientRoute(event),
 traceEventAgentId(event) ? `agent=${traceEventAgentId(event)}` : '', traceEventCallId(event) ? `call=${traceEventCallId(event)}` : '', traceEventToolName(event) ? `tool=${traceEventToolName(event)}` : '', durationText, ].map(textValue).filter(Boolean); return parts.join(' · '); }
 function ObservabilityInlineTraceResult(props) { const { traceID, detailId, state, queryCwd, queryLimit, onTraceError } = props; const expanded = Boolean(state?.expanded); const traceQuery = useQuery({ queryKey: observabilityTraceQueryKey(queryCwd, traceID, queryLimit),
-queryFn: () => getObservabilityTrace({ traceId: traceID, limit: queryLimit }), enabled: expanded && Boolean(traceID), refetchOnWindowFocus: false, retry: false, staleTime: Infinity,
-}); const result = traceQuery.data; const traceError = traceQuery.error ? errorMessage(traceQuery.error) : ''; const tailDiagnostics = observabilityTailDiagnosticText(result); let traceEvents = []; let traceShapeError = ''; if (result) { try {
-traceEvents = optionalArrayValue(result.events, 'observability trace events'); } catch (error) { traceShapeError = errorMessage(error); } } useEffect(() => { if (traceError) onTraceError(traceError); }, [onTraceError, traceError]); if (!expanded) return null; return (
+queryFn: () => runBackgroundAction('observability.trace.load', async () => validatedObservabilityResult(
+await getObservabilityTrace({ traceId: traceID, limit: queryLimit }),
+'observability trace',
+)), enabled: expanded && Boolean(traceID), refetchOnWindowFocus: false, retry: false, staleTime: Infinity,
+}); const result = traceQuery.data; const traceError = traceQuery.error ? 'Trace 加载失败，请重试。' : ''; const tailDiagnostics = observabilityTailDiagnosticText(result); let traceEvents = []; let traceShapeError = ''; if (result) { try {
+traceEvents = optionalArrayValue(result.events, 'observability trace events'); } catch { traceShapeError = 'Trace 数据无效，请查看 Health。'; } } useEffect(() => { if (traceError) onTraceError(traceError); }, [onTraceError, traceError]); if (!expanded) return null; return (
 <section className="observability-log-trace-detail" data-testid={`observability-inline-trace-${traceID}`} id={detailId} aria-label={`Trace ${traceID || '-'} 结果`} aria-busy={traceQuery.isFetching} > <div className="observability-inline-trace-header"> <div> <h3>Trace 结果</h3>
 {result ? ( <p>source={result.source || 'memory'} total_duration_ms={traceResultTotalDurationMs(result)} truncated={String(Boolean(result.truncated))}{tailDiagnostics ? ` ${tailDiagnostics}` : ''}</p>
 ) : null} </div> </div> {traceQuery.isFetching && !result ? <output className="empty-state">Trace 加载中...</output> : null} {traceError ? <div className="settings-alert error" role="alert">Trace 加载失败：{traceError}</div> : null}

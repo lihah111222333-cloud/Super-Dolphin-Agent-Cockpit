@@ -77,8 +77,8 @@ function ThreadCard({
         loading={Boolean(store.threadArchiveLoadingByThread?.[thread.id])}
         onSetHoveredArchiveThreadId={onSetHoveredArchiveThreadId}
         onSetHoveredPinThreadId={onSetHoveredPinThreadId}
-        onToggleArchive={() => runUIAction(() => store.archiveThread(thread.id, !thread.archived))}
-        onTogglePin={() => runUIAction(() => store.toggleThreadPin(thread.id))}
+        onToggleArchive={() => runUIAction('thread.archive', () => store.archiveThread(thread.id, !thread.archived))}
+        onTogglePin={() => runUIAction('thread.pin', () => store.toggleThreadPin(thread.id))}
         onBeginDelete={onBeginDelete}
       />
     </div>
@@ -125,7 +125,7 @@ function ThreadRenameCardContent({
         data-rename-save-button-for={thread.id}
         disabled={renaming}
         onMouseDown={(event) => event.preventDefault()}
-        onClick={() => runUIAction(() => onSubmitRename(thread))}
+        onClick={() => runUIAction('thread.rename', () => onSubmitRename(thread))}
       >
         {copy.saveAlias}
       </button>
@@ -136,7 +136,7 @@ function ThreadRenameCardContent({
 function handleThreadRenameKeyDown(event, thread, onSubmitRename, onCancelRename) {
   if (event.key === 'Enter') {
     event.preventDefault();
-    runUIAction(() => onSubmitRename(thread));
+    runUIAction('thread.rename', () => onSubmitRename(thread));
   }
   if (event.key === 'Escape') {
     event.preventDefault();
@@ -159,7 +159,7 @@ function ThreadDisplayCardContent({ thread, store, onBeginRename }) {
       statusLabel={statusLabel}
       threadLabel={threadLabel}
       onBeginRename={onBeginRename}
-      onSelect={() => runUIAction(() => store.setActiveThread(thread.id))}
+      onSelect={() => runUIAction('thread.select', () => store.setActiveThread(thread.id))}
     />
   );
 }

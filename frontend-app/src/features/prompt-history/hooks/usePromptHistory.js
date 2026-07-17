@@ -34,7 +34,7 @@ export function usePromptHistory({
     controller.captureDraft(draft);
   }, [controller, draft]);
 
-  useEffect(() => () => controller.invalidate(), [controller]);
+  useEffect(() => () => controller.dispose(), [controller]);
 
   const previous = useCallback(async () => {
     const selected = await controller.previous();
@@ -43,9 +43,7 @@ export function usePromptHistory({
   }, [controller, setDraft]);
 
   const next = useCallback(() => {
-    const selected = controller.next();
-    setDraft(selected);
-    return selected;
+    return controller.next(setDraft);
   }, [controller, setDraft]);
 
   const send = useCallback(async (...args) => {

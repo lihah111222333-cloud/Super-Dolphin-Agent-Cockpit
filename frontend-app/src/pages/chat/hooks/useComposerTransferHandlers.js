@@ -8,6 +8,7 @@ import {
   nativeDropFiles,
 } from '../model/composerInteractionsModel.js';
 import { onFilesDropped } from '../services/chatCodeService.js';
+import { runUIAction } from '../../../shared/ui/runUIAction.js';
 
 function extractTransferFilePaths(event) {
   return extractFilePathsFromTransferData(event?.dataTransfer);
@@ -36,25 +37,25 @@ function useComposerTransferHandlers({
       const files = nativeDropFiles(event, { acceptEmptyDetails: dropDepthRef.current > 0 });
       if (files.length === 0) return;
       if (!canUseProjectActions) return;
-      attachPaths(files);
+      runUIAction('composer.file.native-drop', () => attachPaths(files));
       resetDropState();
     });
     return fileDropSubscriptionCleanup(subscription);
   }, [attachPaths, canUseProjectActions, dropDepthRef, resetDropState]);
 
-  const handlePaste = async (event) => {
+  const handlePaste = (event) => {
     const paths = extractClipboardFilePaths(event);
     if (paths.length > 0) {
       event.preventDefault();
       if (projectActionBlocked) return;
-      if (typeof attachPaths === 'function') attachPaths(paths);
-      return;
+      if (typeof attachPaths === 'function') return runUIAction('composer.file.paste-paths', () => attachPaths(paths));
+      return undefined;
     }
     const files = extractClipboardFiles(event);
     if (files.length === 0) return;
     event.preventDefault();
     if (projectActionBlocked) return;
-    await attachDroppedFiles(files);
+    return runUIAction('composer.file.paste', () => attachDroppedFiles(files));
   };
   const handleDragEnter = (event) => {
     if (!hasFilesTransfer(event)) return;
@@ -79,19 +80,21 @@ function useComposerTransferHandlers({
     dropDepthRef.current = Math.max(dropDepthRef.current - 1, 0);
     if (dropDepthRef.current === 0) setDropActive(false);
   };
-  const handleDrop = async (event) => {
+  const handleDrop = (event) => {
     if (!hasFilesTransfer(event)) return;
     event.preventDefault();
     event.stopPropagation();
     resetDropState();
     if (projectActionBlocked) return;
-    const files = collectTransferFiles(event);
-    const paths = extractTransferFilePaths(event);
-    if (files.length > 0) {
-      const attachedCount = await attachDroppedFiles(files);
-      if (attachedCount > 0 && paths.length === 0) return;
-    }
-    if (paths.length > 0 && typeof attachPaths === 'function') attachPaths(paths);
+    return runUIAction('composer.file.drop', async () => {
+      const files = collectTransferFiles(event);
+      const paths = extractTransferFilePaths(event);
+      if (files.length > 0) {
+        const attachedCount = await attachDroppedFiles(files);
+        if (attachedCount > 0 && paths.length === 0) return;
+      }
+      if (paths.length > 0 && typeof attachPaths === 'function') attachPaths(paths);
+    });
   };
   return { handleDragEnter, handleDragLeave, handleDragOver, handleDrop, handlePaste };
 }

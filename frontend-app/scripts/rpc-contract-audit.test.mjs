@@ -215,8 +215,15 @@ function realResultHandledSources({
   facade = 'interruptTurn', action = 'thread.interrupt', resultProperty = 'result',
   injectionBody = '',
   handlerCondition = "action === 'thread.interrupt' && result?.ok === false",
-  handlerDefinitions = '',
-  warningBody = "notifyAction(result.error, 'warning'); addWarning('warn', action, { error: result.error })",
+  handlerDefinitions = `
+    function interruptFailureMessage(result) {
+      for (const value of [result?.error, result?.message, result?.reason, result?.status, result?.mode]) {
+        const message = normalizeOptionalTextField(value); if (message) return message
+      }
+      throw new Error('thread.interrupt ok:false response message is required')
+    }
+  `,
+  warningBody = "interruptFailureMessage(result); notifyAction('中断当前执行失败，请重试。', 'warning', { threadId: 'thread-1' }); addWarning('warn', 'thread.interrupt.failed', { threadId: 'thread-1', error: 'action failure; see Health diagnostic ID' })",
   regressionDefinitions = '',
   regressionBeforeAwait = '',
   regressionBetween = '',
@@ -281,9 +288,11 @@ function realResultHandledSources({
         await expect(runtime.activeThreadRPC('thread.interrupt', rpc)).resolves.toBe(false)
         ${regressionBetween}
         expect(rpc).toHaveBeenCalledTimes(1)
-        expect(runtime.notifyAction).toHaveBeenCalledWith('中断当前执行失败：turn already completed', 'warning', { threadId: 'thread-1' })
+        expect(runtime.notifyAction).toHaveBeenCalledWith('中断当前执行失败，请重试。', 'warning', { threadId: 'thread-1' })
         expect(runtime.notifyAction).not.toHaveBeenCalledWith('已发送中断请求', 'success', { threadId: 'thread-1' })
-        expect(runtime.addWarning).toHaveBeenCalledWith('warn', 'thread.interrupt.failed', { threadId: 'thread-1', error: 'turn already completed' })
+        expect(runtime.addWarning).toHaveBeenCalledWith('warn', 'thread.interrupt.failed', { threadId: 'thread-1', error: 'action failure; see Health diagnostic ID' })
+        expect(JSON.stringify(runtime.notifyAction.mock.calls)).not.toContain('turn already completed')
+        expect(JSON.stringify(runtime.addWarning.mock.calls)).not.toContain('turn already completed')
       })
     `,
   }

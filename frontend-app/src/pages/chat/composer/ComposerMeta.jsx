@@ -36,10 +36,10 @@ function ComposerMeta({
   const projectTitle = projectPath || projectLabel;
   const onPrimaryAction = () => {
     if (canInterrupt) {
-      runUIAction(() => store.interruptActiveThread?.());
+      runUIAction('thread.interrupt', () => store.interruptActiveThread?.(), { rejectFalse: true });
       return;
     }
-    if (canSend) runUIAction(() => sendMessage());
+    if (canSend) runUIAction('composer.send', () => sendMessage());
   };
   return (
     <div className="composer-meta">
@@ -50,7 +50,7 @@ function ComposerMeta({
         title={projectActionBlocked ? projectActionBlockedTitle : copy.addFile}
         disabled={projectActionBlocked}
         onClick={() => {
-          if (!projectActionBlocked) runUIAction(() => selectFiles());
+          if (!projectActionBlocked) runUIAction('composer.file.select', () => selectFiles());
         }}
       >
         <Paperclip size={18} aria-hidden="true" />
@@ -62,7 +62,7 @@ function ComposerMeta({
         title={projectActionBlocked ? projectActionBlockedTitle : "Add image"}
         disabled={projectActionBlocked}
         onClick={() => {
-          if (!projectActionBlocked) runUIAction(() => selectFiles());
+          if (!projectActionBlocked) runUIAction('composer.file.select', () => selectFiles());
         }}
       >
         <Image size={18} aria-hidden="true" />

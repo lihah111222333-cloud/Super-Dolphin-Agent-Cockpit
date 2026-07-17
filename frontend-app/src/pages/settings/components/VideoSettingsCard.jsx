@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
+import { runBackgroundAction, runUIAction } from '../../../shared/ui/runUIAction.js';
 
 function VideoSettingsCard({ copy, getApiKey, setApiKey: saveApiKey }) {
   const videoCopy = copy.video;
@@ -8,17 +9,18 @@ function VideoSettingsCard({ copy, getApiKey, setApiKey: saveApiKey }) {
   const [masked, setMasked] = useState('');
 
   useEffect(() => {
-    getApiKey().then((res) => {
+    runBackgroundAction('settings.video.bootstrap', () => getApiKey().then((res) => {
       if (res?.configured) {
         setConfigured(true);
         setMasked(res.masked);
       }
     }).catch((err) => {
-      setNotice({ level: 'error', message: videoCopy.readFailed + (err?.message || String(err)) });
-    });
+      setNotice({ level: 'error', message: videoCopy.readFailed });
+      throw err;
+    }));
   }, [getApiKey, videoCopy]);
 
-  const save = useCallback(async () => {
+  const save = useCallback(() => runUIAction('settings.video.save', async () => {
     const key = apiKey.trim();
     if (!key) {
       setNotice({ level: 'error', message: videoCopy.apiKeyRequired });
@@ -31,9 +33,10 @@ function VideoSettingsCard({ copy, getApiKey, setApiKey: saveApiKey }) {
       setApiKey('');
       setNotice({ level: 'info', message: videoCopy.saved });
     } catch (err) {
-      setNotice({ level: 'error', message: videoCopy.saveFailed + (err?.message || String(err)) });
+      setNotice({ level: 'error', message: videoCopy.saveFailed });
+      throw err;
     }
-  }, [apiKey, saveApiKey, videoCopy]);
+  }), [apiKey, saveApiKey, videoCopy]);
 
   return (
     <>

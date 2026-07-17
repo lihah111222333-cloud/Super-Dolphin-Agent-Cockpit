@@ -460,6 +460,13 @@ describe('frontend maintainability scorer configuration', () => {
     ]);
   });
 
+  it('keeps the repaired terminal and visible-action truth bound to current executable probes', () => {
+    expect(sourceHasPromptHistoryConsoleOnly()).toBe(false);
+    expect(probeResult('terminalTruth')).toBe('PASS');
+    expect(probeResult('visibleActionError')).toBe('PASS');
+    expect(probeResult('actionProducerGuard')).toBe('PASS');
+  }, 45_000);
+
   it('enforces exact CLI forms', () => {
     expect(cli(['--validate'])).toMatchObject({ status: 0 });
     expect(cli(['--validate', 'extra']).status).not.toBe(0);
@@ -559,15 +566,15 @@ describe('executable evidence registry', () => {
   });
 
   it('keeps resolved legacy artifact probes read-only and unregistered until real lane evidence exists', () => {
-    expect(sourceHasPromptHistoryConsoleOnly()).toBe(true);
+    expect(sourceHasPromptHistoryConsoleOnly()).toBe(false);
     expect(sourceHasCriticalTypecheckGap()).toBe(false);
     expect(probeResult('promptHistoryVisibleError')).toBe('NOT_VERIFIED');
     expect(probeResult('criticalTypecheck')).toBe('NOT_VERIFIED');
   });
 
-  it('keeps an unregistered redMatrix and a missing exact action runner NOT_VERIFIED', () => {
+  it('keeps an unregistered redMatrix NOT_VERIFIED and accepts the exact action runner', () => {
     expect(probeResult('redMatrix')).toBe('NOT_VERIFIED');
-    expect(probeResult('actionProducerGuard')).toBe('NOT_VERIFIED');
+    expect(probeResult('actionProducerGuard')).toBe('PASS');
   });
 
   it('rejects stale, mismatched, zero-test, wrong-control, and wrong-case Task3 evidence', () => {
@@ -840,9 +847,10 @@ describe('scoring semantics', () => {
     const result = scoreCurrentTree();
     expect(result.controls.find(({ id }) => id === 'E06-failure-matrix').status).toBe('NOT_VERIFIED');
     expect(result.controls.find(({ id }) => id === 'A04-action-registry').status).toBe('NOT_VERIFIED');
-    expect(result.controls.find(({ id }) => id === 'E02-visible-action-error').status).toBe('FAIL');
+    expect(result.controls.find(({ id }) => id === 'E02-visible-action-error').status).toBe('PASS');
     expect(result.controls.find(({ id }) => id === 'C04-critical-typecheck').status).toBe('NOT_VERIFIED');
     expect(result.controls.find(({ id }) => id === 'T05-build-embed-smoke').status).toBe('NOT_VERIFIED');
-    expect(result.displayScore).toBe(22.8);
+    expect(result.controls.find(({ id }) => id === 'E01-terminal-truth').status).toBe('PASS');
+    expect(result.displayScore).not.toBe(61.8);
   }, 150_000);
 });

@@ -6,12 +6,15 @@ it('reports synchronous chat UI action failures', () => {
   const logger = vi.fn();
   const error = new Error('chat sync boom');
 
-  runUIAction(() => {
+  runUIAction('chat.fixture.sync', () => {
     throw error;
-  }, { onError, logger });
+  }, {
+    healthSink: logger,
+    visibleFailureSink: ({ publicError }) => onError(publicError),
+  });
 
-  expect(onError).toHaveBeenCalledWith(error);
-  expect(logger).toHaveBeenCalledWith('[frontend-app] UI action failed', error);
+  expect(onError).toHaveBeenCalledWith(expect.objectContaining({ code: 'UI_ACTION_FAILED' }));
+  expect(logger).toHaveBeenCalledWith(expect.objectContaining({ actionId: 'chat.fixture.sync' }));
 });
 
 it('reports asynchronous chat UI action failures', async () => {
@@ -19,9 +22,12 @@ it('reports asynchronous chat UI action failures', async () => {
   const logger = vi.fn();
   const error = new Error('chat async boom');
 
-  runUIAction(Promise.reject(error), { onError, logger });
+  runUIAction('chat.fixture.async', () => Promise.reject(error), {
+    healthSink: logger,
+    visibleFailureSink: ({ publicError }) => onError(publicError),
+  });
   await Promise.resolve();
 
-  expect(onError).toHaveBeenCalledWith(error);
-  expect(logger).toHaveBeenCalledWith('[frontend-app] UI action failed', error);
+  expect(onError).toHaveBeenCalledWith(expect.objectContaining({ code: 'UI_ACTION_FAILED' }));
+  expect(logger).toHaveBeenCalledWith(expect.objectContaining({ actionId: 'chat.fixture.async' }));
 });

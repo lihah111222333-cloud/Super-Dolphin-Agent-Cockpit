@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { codeOpenDisplayPath, codePreviewStateAfterSave, codePreviewStateFromOpenResult, emptyCodePreviewState } from '../adapters/codePreviewAdapter.js';
-import { codeActionError, emptyPathChoiceState, fileRefPosition, normalizeCodeLocateOptions, runtimeCodeScopeKey, runtimeCodeScopePayload } from '../adapters/runtimeCodeAdapter.js';
+import { emptyPathChoiceState, fileRefPosition, normalizeCodeLocateOptions, runtimeCodeScopeKey, runtimeCodeScopePayload } from '../adapters/runtimeCodeAdapter.js';
 import { firstText, firstTrimmedText } from '../markdown/markdownMessageModel.js';
 import { locateCodeFile, openCodeFile, openPath, saveCodeFile } from '../services/chatCodeService.js';
 import { CodePreviewControllerDialogs } from './CodePreviewControllerDialogs.jsx';
+import { runUIAction } from '../../../shared/ui/runUIAction.js';
 
 function codePreviewPathChoice(filePath, position, options, locateResult) {
   return { open: true, file: { filename: filePath, position }, options, truncated: Boolean(locateResult?.truncated) };
@@ -31,7 +32,7 @@ async function saveCodePreviewChanges({
   const requestScopeKey = previewScopeKey;
   const savedDraft = codePreview.draft;
   setCodePreview((current) => ({ ...current, saving: true, error: '', status: '' }));
-  try {
+  return runUIAction('file.code-preview.save', async () => { try {
     const result = await saveCodeFile({
       ...runtimeCodeScopePayload(codePreview.filePath, projectPath, projects),
       content: savedDraft,
@@ -42,9 +43,9 @@ async function saveCodePreviewChanges({
     const relative = codeOpenDisplayPath(result, codePreview.relative || codePreview.filePath);
     setCodePreview((current) => codePreviewStateAfterSave(current, result, relative, savedDraft));
   } catch (error) {
-    if (!isCurrentPreviewRequest(requestSeq, requestScopeKey)) return;
-    setCodePreview((current) => ({ ...current, saving: false, error: codeActionError(error, '保存失败') }));
-  }
+    if (isCurrentPreviewRequest(requestSeq, requestScopeKey)) setCodePreview((current) => ({ ...current, saving: false, error: '保存失败，请重试。' }));
+    throw error;
+  } });
 }
 
 function useCodePreviewController({ projectPath, projects }) {
@@ -53,7 +54,6 @@ function useCodePreviewController({ projectPath, projects }) {
   const previewRequestSeqRef = useRef(0);
   const previewScopeKey = useMemo(() => runtimeCodeScopeKey(projectPath, projects), [projectPath, projects]);
   const previewScopeKeyRef = useRef(previewScopeKey);
-  previewScopeKeyRef.current = previewScopeKey;
 
   const nextPreviewRequestSeq = useCallback(() => {
     previewRequestSeqRef.current += 1;
@@ -65,23 +65,17 @@ function useCodePreviewController({ projectPath, projects }) {
   ), []);
 
   useEffect(() => {
+    previewScopeKeyRef.current = previewScopeKey;
     previewRequestSeqRef.current += 1;
     setCodePreview(emptyCodePreviewState());
     setPathChoice(emptyPathChoiceState());
   }, [previewScopeKey]);
 
-  const openCodePreviewForPath = useCallback(async (filePath, fallbackRelative = '', position = null) => {
+  const openCodePreviewForPath = useCallback((filePath, fallbackRelative = '', position = null) => runUIAction('file.code-preview.open', async () => {
     const requestSeq = nextPreviewRequestSeq();
     const requestScopeKey = previewScopeKey;
     const displayPath = firstText(fallbackRelative, filePath);
-    setCodePreview({
-      ...emptyCodePreviewState(),
-      open: true,
-      loading: true,
-      filePath,
-      relative: displayPath,
-      scopeKey: requestScopeKey,
-    });
+    setCodePreview({ ...emptyCodePreviewState(), open: true, loading: true, filePath, relative: displayPath, scopeKey: requestScopeKey });
     try {
       const result = await openCodeFile(runtimeCodeScopePayload(filePath, projectPath, projects, position));
       if (!isCurrentPreviewRequest(requestSeq, requestScopeKey)) return;
@@ -90,29 +84,18 @@ function useCodePreviewController({ projectPath, projects }) {
         scopeKey: requestScopeKey,
       });
     } catch (error) {
-      if (!isCurrentPreviewRequest(requestSeq, requestScopeKey)) return;
-      setCodePreview((current) => ({
-        ...current,
-        loading: false,
-        error: codeActionError(error, '打开失败'),
-      }));
+      if (isCurrentPreviewRequest(requestSeq, requestScopeKey)) setCodePreview((current) => ({ ...current, loading: false, error: '打开失败，请重试。' }));
+      throw error;
     }
-  }, [isCurrentPreviewRequest, nextPreviewRequestSeq, previewScopeKey, projectPath, projects]);
+  }), [isCurrentPreviewRequest, nextPreviewRequestSeq, previewScopeKey, projectPath, projects]);
 
-  const openFileRef = useCallback(async (payload = {}) => {
+  const openFileRef = useCallback((payload = {}) => runUIAction('file.code-preview.locate', async () => {
     const filePath = firstTrimmedText(payload.path, payload.filePath);
     if (!filePath) return;
     const requestSeq = nextPreviewRequestSeq();
     const requestScopeKey = previewScopeKey;
     const position = fileRefPosition(payload);
-    setCodePreview({
-      ...emptyCodePreviewState(),
-      open: true,
-      loading: true,
-      filePath,
-      relative: filePath,
-      scopeKey: requestScopeKey,
-    });
+    setCodePreview({ ...emptyCodePreviewState(), open: true, loading: true, filePath, relative: filePath, scopeKey: requestScopeKey });
     try {
       const locateResult = await locateCodeFile(runtimeCodeScopePayload(filePath, projectPath, projects, position));
       if (!isCurrentPreviewRequest(requestSeq, requestScopeKey)) return;
@@ -124,16 +107,12 @@ function useCodePreviewController({ projectPath, projects }) {
       }
       await openCodePreviewForPath(options[0] || filePath, filePath, position);
     } catch (error) {
-      if (!isCurrentPreviewRequest(requestSeq, requestScopeKey)) return;
-      setCodePreview((current) => ({
-        ...current,
-        loading: false,
-        error: codeActionError(error, '定位失败'),
-      }));
+      if (isCurrentPreviewRequest(requestSeq, requestScopeKey)) setCodePreview((current) => ({ ...current, loading: false, error: '定位失败，请重试。' }));
+      throw error;
     }
-  }, [isCurrentPreviewRequest, nextPreviewRequestSeq, openCodePreviewForPath, previewScopeKey, projectPath, projects]);
+  }), [isCurrentPreviewRequest, nextPreviewRequestSeq, openCodePreviewForPath, previewScopeKey, projectPath, projects]);
 
-  const openLocalPath = useCallback(async (payload = {}) => {
+  const openLocalPath = useCallback((payload = {}) => runUIAction('file.local.open', async () => {
     const filePath = firstTrimmedText(payload.path, payload.filePath);
     if (!filePath) return;
     const requestSeq = nextPreviewRequestSeq();
@@ -142,18 +121,18 @@ function useCodePreviewController({ projectPath, projects }) {
     try {
       await openPath(runtimeCodeScopePayload(filePath, projectPath, projects, position));
     } catch (error) {
-      if (!isCurrentPreviewRequest(requestSeq, requestScopeKey)) return;
-      setCodePreview({
+      if (isCurrentPreviewRequest(requestSeq, requestScopeKey)) setCodePreview({
         ...emptyCodePreviewState(),
         open: true,
         loading: false,
         filePath,
         relative: filePath,
-        error: codeActionError(error, '打开失败'),
+        error: '打开失败，请重试。',
         scopeKey: requestScopeKey,
       });
+      throw error;
     }
-  }, [isCurrentPreviewRequest, nextPreviewRequestSeq, previewScopeKey, projectPath, projects]);
+  }), [isCurrentPreviewRequest, nextPreviewRequestSeq, previewScopeKey, projectPath, projects]);
 
   const openChosenPath = useCallback(async (filePath) => {
     const fallback = firstText(pathChoice.file?.filename, filePath);

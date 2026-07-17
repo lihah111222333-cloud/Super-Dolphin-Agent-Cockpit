@@ -2,7 +2,8 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Database, Eye, Pencil, Trash2, RefreshCw, Search, Upload } from 'lucide-react';
 import { FocusTrapDialog } from '../../shared/ui/FocusTrapDialog.jsx';
-import { cleanScalar, errorMessage } from '../shared/pageShared.js';
+import { runBackgroundAction, runUIAction } from '../../shared/ui/runUIAction.js';
+import { cleanScalar } from '../shared/pageShared.js';
 import { skillsPageService } from './services/skillsPageService.js';
 
 const {
@@ -320,7 +321,7 @@ function DataSourceDocumentCard({ doc, setDetailID, setEditingDoc, setDeletingDo
 }
 
 function DatasourceDetailModal(props) {
-  const { detail, error, isError, isFetchingNextPage, isLoading, onClose } = props;
+  const { detail, isError, isFetchingNextPage, isLoading, onClose } = props;
   return (
     <FocusTrapDialog ariaLabel={DATASOURCE_UI.detailTitle} className="modal-box datasource-modal" closeDisabled={false} onClose={onClose}>
       <header>
@@ -328,7 +329,7 @@ function DatasourceDetailModal(props) {
         <button type="button" className="ghost" onClick={onClose}>{DATASOURCE_UI.close}</button>
       </header>
       {isLoading ? <p>{DATASOURCE_UI.loading}</p> : null}
-      {isError ? <p className="datasource-error" role="alert">{`${DATASOURCE_UI.errorPrefix}${errorMessage(error)}`}</p> : null}
+      {isError ? <p className="datasource-error" role="alert">{`${DATASOURCE_UI.errorPrefix}读取详情失败，请重试。`}</p> : null}
       {detail ? (
         <>
           <dl className="datasource-detail-grid">
@@ -416,7 +417,7 @@ function useDataSourceViewModel({
     refetch: refetchDocuments,
   } = useQuery({
     queryKey: datasourceDocumentsQueryKey(),
-    queryFn: async () => normalizeDatasourceDocuments(await listDatasourceDocuments({ limit: DATASOURCE_LIST_LIMIT })),
+    queryFn: () => runBackgroundAction('datasource.documents.load', async () => normalizeDatasourceDocuments(await listDatasourceDocuments({ limit: DATASOURCE_LIST_LIMIT }))),
   });
 
   const {
@@ -431,7 +432,7 @@ function useDataSourceViewModel({
     queryKey: datasourceDocumentQueryKey(detailID),
     enabled: detailID > 0,
     initialPageParam: null,
-    queryFn: async ({ pageParam }) => fetchDatasourceDetailPage(detailID, pageParam),
+    queryFn: ({ pageParam }) => runBackgroundAction('datasource.detail.load', () => fetchDatasourceDetailPage(detailID, pageParam)),
     getNextPageParam: (lastPage) => (lastPage.hasMore ? lastPage.nextCursor : undefined),
   });
 
@@ -446,20 +447,13 @@ function useDataSourceViewModel({
   const invalidateDocuments = useCallback(async () => {
     await queryClient.invalidateQueries({ queryKey: datasourceDocumentsQueryKey() });
   }, [queryClient]);
+  const refreshDocuments = useCallback(() => runUIAction(
+    'datasource.documents.refresh',
+    () => refetchDocuments({ throwOnError: true }),
+    { retryable: true },
+  ), [refetchDocuments]);
 
-  const runAction = useCallback(async (action, successText) => {
-    setNotice('');
-    setActionError('');
-    try {
-      await action();
-      setNotice(successText);
-      await invalidateDocuments();
-    } catch (error) {
-      setActionError(`${DATASOURCE_UI.errorPrefix}${errorMessage(error)}`);
-    }
-  }, [invalidateDocuments]);
-
-  const handleImport = useCallback(async () => {
+  const handleImport = useCallback(() => runUIAction('datasource.import', async () => {
     setBusyAction('import');
     setNotice('');
     setActionError('');
@@ -480,16 +474,19 @@ function useDataSourceViewModel({
         successText: DATASOURCE_UI.importSuccess,
       });
     } catch (error) {
-      setActionError(`${DATASOURCE_UI.errorPrefix}${errorMessage(error)}`);
+      setActionError(`${DATASOURCE_UI.errorPrefix}请重试。`);
+      throw error;
     } finally {
       setBusyAction('');
     }
-  }, [invalidateDocuments, setSourcePath]);
+  }), [invalidateDocuments, setSourcePath]);
 
-  const handleUpdate = useCallback(async (form) => {
+  const handleUpdate = useCallback((form) => runUIAction('datasource.update', async () => {
     if (!editingDoc) return;
     setBusyAction('update');
-    await runAction(async () => {
+    setNotice('');
+    setActionError('');
+    try {
       const updated = await updateDatasourceDocument({
         documentId: editingDoc.documentId,
         sourcePath: form.sourcePath,
@@ -499,46 +496,44 @@ function useDataSourceViewModel({
       });
       setEditingDoc(null);
       const normalized = normalizeDatasourceDocument(updated, 0);
-      if (detailID === normalized.documentId) {
-        queryClient.setQueryData(datasourceDocumentQueryKey(detailID), (current) => datasourceDetailPagesWithDocument(current, normalized));
-      }
-    }, DATASOURCE_UI.updateSuccess);
-    setBusyAction('');
-  }, [detailID, editingDoc, queryClient, runAction, setEditingDoc]);
+      if (detailID === normalized.documentId) queryClient.setQueryData(datasourceDocumentQueryKey(detailID), (current) => datasourceDetailPagesWithDocument(current, normalized));
+      setNotice(DATASOURCE_UI.updateSuccess);
+      await invalidateDocuments();
+    } catch (error) {
+      setActionError(`${DATASOURCE_UI.errorPrefix}请重试。`);
+      throw error;
+    } finally {
+      setBusyAction('');
+    }
+  }), [detailID, editingDoc, invalidateDocuments, queryClient, setEditingDoc]);
 
-  const handleDelete = useCallback(async () => {
+  const handleDelete = useCallback(() => runUIAction('datasource.delete', async () => {
     if (!deletingDoc) return;
     const documentID = deletingDoc.documentId;
     setBusyAction('delete');
-    await runAction(async () => {
+    setNotice('');
+    setActionError('');
+    try {
       await deleteDatasourceDocument({ documentId: documentID });
       setDeletingDoc(null);
       if (detailID === documentID) setDetailID(0);
       queryClient.removeQueries({ queryKey: datasourceDocumentQueryKey(documentID) });
-    }, DATASOURCE_UI.deleteSuccess);
-    setBusyAction('');
-  }, [deletingDoc, detailID, queryClient, runAction, setDeletingDoc, setDetailID]);
+      setNotice(DATASOURCE_UI.deleteSuccess);
+      await invalidateDocuments();
+    } catch (error) {
+      setActionError(`${DATASOURCE_UI.errorPrefix}请重试。`);
+      throw error;
+    } finally {
+      setBusyAction('');
+    }
+  }), [deletingDoc, detailID, invalidateDocuments, queryClient, setDeletingDoc, setDetailID]);
 
   return {
-    search,
-    setSearch,
-    busyAction,
-    notice,
-    actionError,
-    documentsError,
-    documentsIsError,
-    documentsIsFetching,
-    documentsIsLoading,
-    refetchDocuments,
-    detailData,
-    detailError,
-    detailIsError,
-    detailIsFetchingNextPage,
-    detailIsLoading,
-    filtered,
-    handleImport,
-    handleUpdate,
-    handleDelete,
+    search, setSearch, busyAction, notice, actionError,
+    documentsError, documentsIsError, documentsIsFetching, documentsIsLoading,
+    refetchDocuments: refreshDocuments,
+    detailData, detailError, detailIsError, detailIsFetchingNextPage, detailIsLoading,
+    filtered, handleImport, handleUpdate, handleDelete,
   };
 }
 
@@ -599,7 +594,7 @@ export function DataSourceView({ copy }) {
       {model.actionError ? <div className="status-surface-line error-status" role="alert">{model.actionError}</div> : null}
       {model.documentsIsError ? (
         <div className="status-surface-line error-status" role="alert">
-          {`${DATASOURCE_UI.errorPrefix}${errorMessage(model.documentsError)}`}
+          {`${DATASOURCE_UI.errorPrefix}读取数据源失败，请重试。`}
         </div>
       ) : null}
 

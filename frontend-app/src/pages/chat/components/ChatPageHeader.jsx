@@ -86,7 +86,7 @@ function ChatPageHeader({ copy = APP_COPY.zh.chat, store, projectPath, rightPane
           className="icon-btn"
           aria-label="新窗口（独立进程）"
           title="新窗口（独立进程）"
-          onClick={() => runUIAction(() => store.openNewWindow?.())}
+          onClick={() => runUIAction('workspace.window.open', () => store.openNewWindow?.())}
         >
           <PanelTopOpen size={14} />
         </button>
@@ -96,7 +96,7 @@ function ChatPageHeader({ copy = APP_COPY.zh.chat, store, projectPath, rightPane
           aria-label={canUseThreadActions ? '复制当前线程' : '复制当前线程（不可用）'}
           title={canUseThreadActions ? '复制当前线程' : '请先选择会话'}
           disabled={!canUseThreadActions}
-          onClick={() => runUIAction(() => store.copyActiveThreadInfo?.())}
+          onClick={() => runUIAction('thread.info.copy', () => store.copyActiveThreadInfo?.())}
         >
           <Copy size={14} />
         </button>
@@ -106,7 +106,7 @@ function ChatPageHeader({ copy = APP_COPY.zh.chat, store, projectPath, rightPane
           aria-label={canInterruptThread ? '停止' : '停止（不可用）'}
           title={canInterruptThread ? '中断当前执行' : '无运行中任务'}
           disabled={!canInterruptThread}
-          onClick={() => runUIAction(() => store.interruptActiveThread?.())}
+          onClick={() => runUIAction('thread.interrupt', () => store.interruptActiveThread?.(), { rejectFalse: true })}
         >
           <CircleStop size={14} />
         </button>
@@ -116,7 +116,7 @@ function ChatPageHeader({ copy = APP_COPY.zh.chat, store, projectPath, rightPane
           aria-label={canForceCompleteThread ? '强制完成' : '强制完成（不可用）'}
           title={canForceCompleteThread ? '强制完成当前执行' : '无运行中任务'}
           disabled={!canForceCompleteThread}
-          onClick={() => runUIAction(() => store.forceCompleteActiveThread?.())}
+          onClick={() => runUIAction('thread.force-complete', () => store.forceCompleteActiveThread?.(), { rejectFalse: true })}
         >
           <CheckCircle2 size={14} />
         </button>
@@ -126,7 +126,7 @@ function ChatPageHeader({ copy = APP_COPY.zh.chat, store, projectPath, rightPane
           aria-label={recoveryRequesting ? '正在恢复' : (canUseThreadActions ? '进程恢复' : '请先选择会话')}
           title={recoveryRequesting ? '恢复请求处理中' : (canUseThreadActions ? '手动杀进程并恢复连接' : '请先选择会话')}
           disabled={!canUseThreadActions || recoveryRequesting}
-          onClick={() => runUIAction(() => store.recoverActiveThread?.())}
+          onClick={() => runUIAction('thread.recover', () => store.recoverActiveThread?.())}
         >
           <RefreshCw size={14} />
         </button>
@@ -141,7 +141,7 @@ function ChatPageHeader({ copy = APP_COPY.zh.chat, store, projectPath, rightPane
             className="btn secondary chat-bootstrap-retry"
             aria-label={feedback.retrying ? '正在重新连接后端' : '重新连接后端'}
             disabled={feedback.retrying}
-            onClick={() => runUIAction(() => store.bootstrap())}
+            onClick={() => runUIAction('app.bootstrap', () => store.bootstrap())}
           >
             {feedback.retrying ? '连接中…' : '重新连接'}
           </button>
@@ -165,25 +165,25 @@ function ChatActionsMenu({
   const runAction = (key) => {
     switch (String(key)) {
       case 'new-window':
-        runUIAction(() => store.openNewWindow?.());
+        runUIAction('workspace.window.open', () => store.openNewWindow?.());
         break;
       case 'copy-thread':
-        runUIAction(() => store.copyActiveThreadInfo?.());
+        runUIAction('thread.info.copy', () => store.copyActiveThreadInfo?.());
         break;
       case 'fork-thread':
-        runUIAction(() => store.openForkDraft?.());
+        runUIAction('thread.fork.open', () => store.openForkDraft?.());
         break;
       case 'interrupt-thread':
-        runUIAction(() => store.interruptActiveThread?.());
+        runUIAction('thread.interrupt', () => store.interruptActiveThread?.(), { rejectFalse: true });
         break;
       case 'force-complete-thread':
-        runUIAction(() => store.forceCompleteActiveThread?.());
+        runUIAction('thread.force-complete', () => store.forceCompleteActiveThread?.(), { rejectFalse: true });
         break;
       case 'recover-thread':
-        runUIAction(() => store.recoverActiveThread?.());
+        runUIAction('thread.recover', () => store.recoverActiveThread?.());
         break;
       case 'toggle-runtime-panel':
-        runUIAction(() => setRightPanelOpen?.((prev) => !prev));
+        runUIAction('runtime.panel.toggle', () => setRightPanelOpen?.((prev) => !prev));
         break;
       default:
         throw new Error(`Unknown chat header action: ${String(key)}`);

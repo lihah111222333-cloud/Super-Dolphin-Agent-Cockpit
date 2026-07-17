@@ -446,7 +446,8 @@ it('fails fast before saving invalid node schema settings', async () => {
   fireEvent.change(screen.getByLabelText('命令卡片'), { target: { value: '' } });
   fireEvent.click(screen.getByRole('button', { name: '保存步骤' }));
 
-  expect(await screen.findByRole('alert')).toHaveTextContent('config.exec.command_ref 不能为空');
+  expect(await screen.findByRole('alert')).toHaveTextContent('保存步骤失败，请重试。');
+  expect(screen.queryByText(/config\.exec\.command_ref/)).not.toBeInTheDocument();
   expect(backend.applyDagOps).not.toHaveBeenCalled();
 });
 

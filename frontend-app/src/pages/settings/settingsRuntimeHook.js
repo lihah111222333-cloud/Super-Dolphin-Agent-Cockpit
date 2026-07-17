@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { APP_COPY } from '../../shared/i18n/appI18n.js';
 import { firstPresentText } from '../shared/pageShared.js';
+import { runBackgroundAction, runUIAction } from '../../shared/ui/runUIAction.js';
 import { settingsPageService } from './services/settingsPageService.js';
 import {
   changeActiveProviderPreference,
@@ -34,7 +35,7 @@ function useSettingsRuntime(cwd, copy) {
     const requestSeq = preferenceRequestSeq.current;
     return () => preferenceRequestSeq.current === requestSeq;
   }, []);
-  const refreshBuildInfo = useCallback(async () => {
+  const loadBuildInfo = useCallback(async () => {
     setError('');
     try {
       const info = await getBuildInfo();
@@ -42,12 +43,14 @@ function useSettingsRuntime(cwd, copy) {
       setBuildInfo(info);
       setStatus(copy.buildInfoRefreshed);
     } catch (err) {
-      setError(err.message || String(err));
+      setError('读取构建信息失败，请重试。');
+      throw err;
     }
   }, [copy]);
+  const refreshBuildInfo = useCallback(() => runUIAction('settings.build.refresh', loadBuildInfo, { retryable: true }), [loadBuildInfo]);
   const runtimePreferencesQuery = useQuery({
     queryKey: settingsRuntimePreferencesQueryKey(cwd),
-    queryFn: () => readRuntimeSettingsForm(cwd),
+    queryFn: () => runBackgroundAction('settings.runtime.bootstrap', () => readRuntimeSettingsForm(cwd)),
     enabled: Boolean(normalizeSettingsCwd(cwd)),
     retry: false,
     refetchOnWindowFocus: false,
@@ -56,9 +59,9 @@ function useSettingsRuntime(cwd, copy) {
     const value = event.target.type === 'checkbox' ? event.target.checked : event.target.value;
     setForm((current) => settingsFormWithUpdate(current, key, value));
   }, []);
-  const changeActiveProvider = useCallback((event) => changeActiveProviderPreference({ copy, cwd, event, isCurrent: nextPreferenceRequest(), setError, setForm, setStatus }), [copy, cwd, nextPreferenceRequest]);
-  const saveRuntimeSettings = useCallback(() => saveRuntimePreferences({ copy, cwd, form, setError, setStatus }), [copy, cwd, form]);
-  const saveProviderSettings = useCallback(() => saveProviderRuntimePreferences({ copy, cwd, form, setError, setStatus }), [copy, cwd, form]);
+  const changeActiveProvider = useCallback((event) => runUIAction('settings.provider.change', () => changeActiveProviderPreference({ copy, cwd, event, isCurrent: nextPreferenceRequest(), setError, setForm, setStatus })), [copy, cwd, nextPreferenceRequest]);
+  const saveRuntimeSettings = useCallback(() => runUIAction('settings.runtime.save', () => saveRuntimePreferences({ copy, cwd, form, setError, setStatus })), [copy, cwd, form]);
+  const saveProviderSettings = useCallback(() => runUIAction('settings.provider.save', () => saveProviderRuntimePreferences({ copy, cwd, form, setError, setStatus })), [copy, cwd, form]);
   const checkUpdateMutation = useMutation({
     mutationFn: checkAppUpdate,
     onMutate: () => {
@@ -69,9 +72,9 @@ function useSettingsRuntime(cwd, copy) {
     onSuccess: (info) => {
       applyCheckedAppUpdateInfo({ copy, info, setUpdateInfo, setUpdateNotice });
     },
-    onError: (mutationError) => {
+    onError: (_mutationError) => {
       setUpdateInfo(null);
-      setUpdateNotice({ level: 'error', message: copy.update.checkFailed + (mutationError?.message || mutationError) });
+      setUpdateNotice({ level: 'error', message: copy.update.checkFailed });
     },
     retry: false,
   });
@@ -87,10 +90,10 @@ function useSettingsRuntime(cwd, copy) {
       setUpdateInstalled(true);
       setUpdateNotice({ level: 'info', message: context?.installingMessage || copy.update.installing });
     },
-    onError: (mutationError, _variables, context) => {
+    onError: (_mutationError, _variables, context) => {
       setUpdateInfo(context?.pendingInfo || null);
       setUpdateInstalled(false);
-      setUpdateNotice({ level: 'error', message: copy.update.installFailed + (mutationError?.message || mutationError) });
+      setUpdateNotice({ level: 'error', message: copy.update.installFailed });
     },
     retry: false,
   });
@@ -98,16 +101,16 @@ function useSettingsRuntime(cwd, copy) {
   const updateInstalling = installUpdateMutation.isPending || updateInstalled;
   const checkForUpdate = useCallback(() => {
     if (updateBusy || updateInstalling) return;
-    checkUpdateMutation.mutate();
+    return runUIAction('app.update.check', () => checkUpdateMutation.mutateAsync(), { retryable: true });
   }, [checkUpdateMutation, updateBusy, updateInstalling]);
   const installUpdate = useCallback(() => {
     if (!updateInfo?.available || updateInstalling) return;
-    installUpdateMutation.mutate({ pendingInfo: updateInfo });
+    return runUIAction('app.update.install', () => installUpdateMutation.mutateAsync({ pendingInfo: updateInfo }));
   }, [installUpdateMutation, updateInfo, updateInstalling]);
-  useEffect(() => { void refreshBuildInfo(); }, [refreshBuildInfo]);
+  useEffect(() => { runBackgroundAction('settings.build.bootstrap', loadBuildInfo); }, [loadBuildInfo]);
   useEffect(() => {
     if (runtimePreferencesQuery.error) {
-      setError(runtimePreferencesQuery.error.message || String(runtimePreferencesQuery.error));
+      setError('读取运行时偏好失败，请重试。');
       return;
     }
     if (runtimePreferencesQuery.data) {

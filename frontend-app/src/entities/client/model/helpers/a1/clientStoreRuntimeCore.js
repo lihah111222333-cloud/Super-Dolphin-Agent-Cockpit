@@ -218,9 +218,9 @@ function attachLogRuntime(runtime) {
     catch (error) {
       addWarning('error', 'log_level.preference_save.failed', {
         status: 'storage_write_failed',
-        error: error?.message || String(error),
+        error: 'action failure; see Health diagnostic ID',
       });
-      return;
+      throw error;
     }
     set({ logLevel: level });
   };
@@ -350,9 +350,8 @@ function attachNotificationRuntime(runtime) {
   };
 
   const notifyRPCFailure = (messagePrefix, warningEvent, error, fields = {}) => {
-    const message = error?.message || String(error);
-    notifyAction(`${messagePrefix}失败：${message}`, 'error', fields);
-    addWarning('error', warningEvent, { ...fields, error: message });
+    notifyAction(`${messagePrefix}失败，请重试。`, 'error', fields);
+    addWarning('error', warningEvent, { ...fields, error: 'action failure; see Health diagnostic ID' });
     return false;
   };
 

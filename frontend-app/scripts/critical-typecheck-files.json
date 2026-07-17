@@ -44,9 +44,13 @@
     "src/pages/chat/runtime/RuntimeDiffView.jsx",
     "src/shared/api/backend/backendApiCommon.js",
     "src/shared/api/backend/backendRpcMethods.js",
+    "src/shared/api/browser/browserStorage.js",
     "src/shared/contracts/turnContractValidators.js",
     "src/shared/contracts/turnContracts.generated.js",
+    "src/shared/diagnostics/frontendHealthStore.js",
     "src/shared/diagnostics/safeLogFields.js",
+    "src/shared/ui/actionFailureSink.js",
+    "src/shared/ui/publicError.js",
     "src/shared/ui/runUIAction.js"
   ],
   "testFiles": [

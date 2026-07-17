@@ -16,6 +16,10 @@ import {
 const entrypoints = [
   'src/shared/contracts/turnContractValidators.js',
   'src/shared/ui/runUIAction.js',
+  'src/shared/ui/actionFailureSink.js',
+  'src/shared/ui/publicError.js',
+  'src/shared/diagnostics/frontendHealthStore.js',
+  'src/shared/api/browser/browserStorage.js',
 ];
 
 function config(overrides = {}) {

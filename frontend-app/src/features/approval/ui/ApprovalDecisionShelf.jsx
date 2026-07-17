@@ -1,6 +1,7 @@
 import { useLayoutEffect, useRef, useState } from 'react';
 import { approvalIdentityKey } from '../../../shared/api/approvalRequestId.js';
 import { approvalSubmissionFor } from '../model/approvalDecision.js';
+import { runUIAction } from '../../../shared/ui/runUIAction.js';
 
 const APPROVE_CHOICE = 'approve';
 const REJECT_CHOICE = 'reject';
@@ -26,7 +27,7 @@ function ApprovalDecisionShelf({ request, onConfirm }) {
   const terminal = request?.terminal === true;
   const unavailable = terminal || busy || resolved || typeof onConfirm !== 'function';
 
-  const confirmSelection = async () => {
+  const confirmSelection = () => runUIAction('approval.respond', async () => {
     if (!choice || unavailable) return;
     approvalSubmissionFor(request, choice);
     const requestToken = currentRequestRef.current.token;
@@ -34,21 +35,18 @@ function ApprovalDecisionShelf({ request, onConfirm }) {
     setBusyRequestKey(requestKey);
     try {
       const confirmed = await onConfirm(choice);
-      if (confirmed === true && currentRequestRef.current.token === requestToken) {
-        setResolvedRequestKey(requestKey);
-      }
-    }
-    catch (error) {
-      if (currentRequestRef.current.token === requestToken) {
-        setErrorText(error instanceof Error ? error.message : String(error));
-      }
+      if (confirmed === true && currentRequestRef.current.token === requestToken) setResolvedRequestKey(requestKey);
     }
     finally {
       if (currentRequestRef.current.token === requestToken) {
         setBusyRequestKey((current) => (current === requestKey ? '' : current));
       }
     }
-  };
+  }, {
+    onError: (publicError) => {
+      if (currentRequestRef.current.requestKey === requestKey) setErrorText(publicError.message);
+    },
+  });
 
   return (
     <div

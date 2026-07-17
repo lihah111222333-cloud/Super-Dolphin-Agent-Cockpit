@@ -1,0 +1,1974 @@
+{
+  "schemaVersion": 2,
+  "scope": "All production runUIAction and runBackgroundAction bindings, including import aliases and re-exports.",
+  "coveredProducers": [
+    {
+      "actionId": "app.bootstrap",
+      "producerCount": 1,
+      "kind": "user",
+      "owner": "app/bootstrap",
+      "visibleSink": "ActionFailureSink",
+      "healthSink": "frontendHealthStore",
+      "errorSources": [
+        "sync-throw",
+        "promise-reject"
+      ]
+    },
+    {
+      "actionId": "app.bootstrap.background",
+      "producerCount": 1,
+      "kind": "background",
+      "owner": "app/bootstrap",
+      "visibleSink": null,
+      "healthSink": "frontendHealthStore",
+      "errorSources": [
+        "promise-reject",
+        "invalid-response"
+      ]
+    },
+    {
+      "actionId": "datasource.delete",
+      "producerCount": 1,
+      "kind": "user",
+      "owner": "skill/datasource",
+      "visibleSink": "ActionFailureSink",
+      "healthSink": "frontendHealthStore",
+      "errorSources": [
+        "sync-throw",
+        "promise-reject",
+        "invalid-response"
+      ]
+    },
+    {
+      "actionId": "datasource.detail.load",
+      "producerCount": 1,
+      "kind": "background",
+      "owner": "skill/datasource",
+      "visibleSink": null,
+      "healthSink": "frontendHealthStore",
+      "errorSources": [
+        "promise-reject",
+        "invalid-response"
+      ]
+    },
+    {
+      "actionId": "datasource.documents.load",
+      "producerCount": 1,
+      "kind": "background",
+      "owner": "skill/datasource",
+      "visibleSink": null,
+      "healthSink": "frontendHealthStore",
+      "errorSources": [
+        "promise-reject",
+        "invalid-response"
+      ]
+    },
+    {
+      "actionId": "datasource.documents.refresh",
+      "producerCount": 1,
+      "kind": "user",
+      "owner": "skill/datasource",
+      "visibleSink": "ActionFailureSink",
+      "healthSink": "frontendHealthStore",
+      "errorSources": [
+        "sync-throw",
+        "promise-reject",
+        "invalid-response"
+      ]
+    },
+    {
+      "actionId": "datasource.import",
+      "producerCount": 1,
+      "kind": "user",
+      "owner": "skill/datasource",
+      "visibleSink": "ActionFailureSink",
+      "healthSink": "frontendHealthStore",
+      "errorSources": [
+        "sync-throw",
+        "promise-reject",
+        "invalid-response"
+      ]
+    },
+    {
+      "actionId": "datasource.update",
+      "producerCount": 1,
+      "kind": "user",
+      "owner": "skill/datasource",
+      "visibleSink": "ActionFailureSink",
+      "healthSink": "frontendHealthStore",
+      "errorSources": [
+        "sync-throw",
+        "promise-reject",
+        "invalid-response"
+      ]
+    },
+    {
+      "actionId": "memory.badge.load",
+      "producerCount": 1,
+      "kind": "background",
+      "owner": "memory/badge",
+      "visibleSink": null,
+      "healthSink": "frontendHealthStore",
+      "errorSources": [
+        "promise-reject",
+        "invalid-response"
+      ]
+    },
+    {
+      "actionId": "settings.model-providers.bootstrap",
+      "producerCount": 1,
+      "kind": "background",
+      "owner": "settings/model-providers",
+      "visibleSink": null,
+      "healthSink": "frontendHealthStore",
+      "errorSources": [
+        "promise-reject",
+        "invalid-response"
+      ]
+    },
+    {
+      "actionId": "settings.runtime.bootstrap",
+      "producerCount": 1,
+      "kind": "background",
+      "owner": "settings/runtime",
+      "visibleSink": null,
+      "healthSink": "frontendHealthStore",
+      "errorSources": [
+        "promise-reject",
+        "invalid-response"
+      ]
+    },
+    {
+      "actionId": "settings.logs.level",
+      "producerCount": 1,
+      "kind": "user",
+      "owner": "settings/logs",
+      "visibleSink": "ActionFailureSink",
+      "healthSink": "frontendHealthStore",
+      "errorSources": [
+        "sync-throw"
+      ]
+    },
+    {
+      "actionId": "settings.shortcuts.bootstrap",
+      "producerCount": 1,
+      "kind": "background",
+      "owner": "settings/shortcuts",
+      "visibleSink": null,
+      "healthSink": "frontendHealthStore",
+      "errorSources": [
+        "promise-reject",
+        "invalid-response"
+      ]
+    },
+    {
+      "actionId": "settings.shortcuts.reset",
+      "producerCount": 1,
+      "kind": "user",
+      "owner": "settings/shortcuts",
+      "visibleSink": "ActionFailureSink",
+      "healthSink": "frontendHealthStore",
+      "errorSources": [
+        "sync-throw",
+        "promise-reject",
+        "invalid-response"
+      ]
+    },
+    {
+      "actionId": "settings.shortcuts.save",
+      "producerCount": 1,
+      "kind": "user",
+      "owner": "settings/shortcuts",
+      "visibleSink": "ActionFailureSink",
+      "healthSink": "frontendHealthStore",
+      "errorSources": [
+        "sync-throw",
+        "promise-reject",
+        "invalid-response"
+      ]
+    },
+    {
+      "actionId": "memory.auto-dream.toggle",
+      "producerCount": 1,
+      "kind": "user",
+      "owner": "memory/action",
+      "visibleSink": "ActionFailureSink",
+      "healthSink": "frontendHealthStore",
+      "errorSources": [
+        "sync-throw",
+        "promise-reject",
+        "invalid-response"
+      ]
+    },
+    {
+      "actionId": "memory.consolidation.apply",
+      "producerCount": 1,
+      "kind": "background",
+      "owner": "memory/consolidation",
+      "visibleSink": null,
+      "healthSink": "frontendHealthStore",
+      "errorSources": [
+        "promise-reject",
+        "invalid-response"
+      ]
+    },
+    {
+      "actionId": "memory.consolidation.poll",
+      "producerCount": 1,
+      "kind": "background",
+      "owner": "memory/consolidation",
+      "visibleSink": null,
+      "healthSink": "frontendHealthStore",
+      "errorSources": [
+        "promise-reject",
+        "invalid-response"
+      ]
+    },
+    {
+      "actionId": "memory.dashboard.load",
+      "producerCount": 1,
+      "kind": "background",
+      "owner": "memory/query",
+      "visibleSink": null,
+      "healthSink": "frontendHealthStore",
+      "errorSources": [
+        "promise-reject",
+        "invalid-response"
+      ]
+    },
+    {
+      "actionId": "memory.entry.delete",
+      "producerCount": 1,
+      "kind": "user",
+      "owner": "memory/action",
+      "visibleSink": "ActionFailureSink",
+      "healthSink": "frontendHealthStore",
+      "errorSources": [
+        "sync-throw",
+        "promise-reject",
+        "invalid-response"
+      ]
+    },
+    {
+      "actionId": "memory.entry.open",
+      "producerCount": 1,
+      "kind": "user",
+      "owner": "memory/action",
+      "visibleSink": "ActionFailureSink",
+      "healthSink": "frontendHealthStore",
+      "errorSources": [
+        "sync-throw",
+        "promise-reject",
+        "invalid-response"
+      ]
+    },
+    {
+      "actionId": "memory.entry.save",
+      "producerCount": 1,
+      "kind": "user",
+      "owner": "memory/action",
+      "visibleSink": "ActionFailureSink",
+      "healthSink": "frontendHealthStore",
+      "errorSources": [
+        "sync-throw",
+        "promise-reject",
+        "invalid-response"
+      ]
+    },
+    {
+      "actionId": "memory.similarity.consolidate",
+      "producerCount": 1,
+      "kind": "user",
+      "owner": "memory/similarity",
+      "visibleSink": "ActionFailureSink",
+      "healthSink": "frontendHealthStore",
+      "errorSources": [
+        "sync-throw",
+        "promise-reject",
+        "invalid-response"
+      ]
+    },
+    {
+      "actionId": "memory.similarity.ignore",
+      "producerCount": 1,
+      "kind": "user",
+      "owner": "memory/similarity",
+      "visibleSink": "ActionFailureSink",
+      "healthSink": "frontendHealthStore",
+      "errorSources": [
+        "sync-throw",
+        "promise-reject",
+        "invalid-response"
+      ]
+    },
+    {
+      "actionId": "memory.similarity.merge",
+      "producerCount": 1,
+      "kind": "user",
+      "owner": "memory/similarity",
+      "visibleSink": "ActionFailureSink",
+      "healthSink": "frontendHealthStore",
+      "errorSources": [
+        "sync-throw",
+        "promise-reject",
+        "invalid-response"
+      ]
+    },
+    {
+      "actionId": "workflow.dag-detail.load",
+      "producerCount": 1,
+      "kind": "background",
+      "owner": "workflow/query",
+      "visibleSink": null,
+      "healthSink": "frontendHealthStore",
+      "errorSources": [
+        "promise-reject",
+        "invalid-response"
+      ]
+    },
+    {
+      "actionId": "workflow.dashboard.load",
+      "producerCount": 1,
+      "kind": "background",
+      "owner": "workflow/query",
+      "visibleSink": null,
+      "healthSink": "frontendHealthStore",
+      "errorSources": [
+        "promise-reject",
+        "invalid-response"
+      ]
+    },
+    {
+      "actionId": "workflow.delete",
+      "producerCount": 1,
+      "kind": "user",
+      "owner": "workflow/action",
+      "visibleSink": "ActionFailureSink",
+      "healthSink": "frontendHealthStore",
+      "errorSources": [
+        "sync-throw",
+        "promise-reject",
+        "invalid-response"
+      ]
+    },
+    {
+      "actionId": "workflow.design.start",
+      "producerCount": 1,
+      "kind": "user",
+      "owner": "workflow/action",
+      "visibleSink": "ActionFailureSink",
+      "healthSink": "frontendHealthStore",
+      "errorSources": [
+        "sync-throw",
+        "promise-reject",
+        "invalid-response"
+      ]
+    },
+    {
+      "actionId": "workflow.node.dispatch",
+      "producerCount": 1,
+      "kind": "user",
+      "owner": "workflow/action",
+      "visibleSink": "ActionFailureSink",
+      "healthSink": "frontendHealthStore",
+      "errorSources": [
+        "sync-throw",
+        "promise-reject",
+        "invalid-response"
+      ]
+    },
+    {
+      "actionId": "workflow.node.save",
+      "producerCount": 1,
+      "kind": "user",
+      "owner": "workflow/action",
+      "visibleSink": "ActionFailureSink",
+      "healthSink": "frontendHealthStore",
+      "errorSources": [
+        "sync-throw",
+        "promise-reject",
+        "invalid-response"
+      ]
+    },
+    {
+      "actionId": "workflow.refresh-after-action",
+      "producerCount": 1,
+      "kind": "background",
+      "owner": "workflow/action",
+      "visibleSink": null,
+      "healthSink": "frontendHealthStore",
+      "errorSources": [
+        "promise-reject"
+      ]
+    },
+    {
+      "actionId": "workflow.run",
+      "producerCount": 1,
+      "kind": "user",
+      "owner": "workflow/action",
+      "visibleSink": "ActionFailureSink",
+      "healthSink": "frontendHealthStore",
+      "errorSources": [
+        "sync-throw",
+        "promise-reject",
+        "invalid-response"
+      ]
+    },
+    {
+      "actionId": "workflow.run-detail.load",
+      "producerCount": 1,
+      "kind": "background",
+      "owner": "workflow/query",
+      "visibleSink": null,
+      "healthSink": "frontendHealthStore",
+      "errorSources": [
+        "promise-reject",
+        "invalid-response"
+      ]
+    },
+    {
+      "actionId": "workflow.schedule.save",
+      "producerCount": 1,
+      "kind": "user",
+      "owner": "workflow/action",
+      "visibleSink": "ActionFailureSink",
+      "healthSink": "frontendHealthStore",
+      "errorSources": [
+        "sync-throw",
+        "promise-reject",
+        "invalid-response"
+      ]
+    },
+    {
+      "actionId": "workflow.schedule.toggle",
+      "producerCount": 1,
+      "kind": "user",
+      "owner": "workflow/action",
+      "visibleSink": "ActionFailureSink",
+      "healthSink": "frontendHealthStore",
+      "errorSources": [
+        "sync-throw",
+        "promise-reject",
+        "invalid-response"
+      ]
+    },
+    {
+      "actionId": "workflow.stop",
+      "producerCount": 1,
+      "kind": "user",
+      "owner": "workflow/action",
+      "visibleSink": "ActionFailureSink",
+      "healthSink": "frontendHealthStore",
+      "errorSources": [
+        "sync-throw",
+        "promise-reject",
+        "invalid-response"
+      ]
+    },
+    {
+      "actionId": "workflow.template.create-start",
+      "producerCount": 1,
+      "kind": "user",
+      "owner": "workflow/template",
+      "visibleSink": "ActionFailureSink",
+      "healthSink": "frontendHealthStore",
+      "errorSources": [
+        "sync-throw",
+        "promise-reject",
+        "invalid-response"
+      ]
+    },
+    {
+      "actionId": "workflow.template-detail.load",
+      "producerCount": 1,
+      "kind": "background",
+      "owner": "workflow/template",
+      "visibleSink": null,
+      "healthSink": "frontendHealthStore",
+      "errorSources": [
+        "promise-reject",
+        "invalid-response"
+      ]
+    },
+    {
+      "actionId": "workflow.template.rollback",
+      "producerCount": 1,
+      "kind": "user",
+      "owner": "workflow/template",
+      "visibleSink": "ActionFailureSink",
+      "healthSink": "frontendHealthStore",
+      "errorSources": [
+        "sync-throw",
+        "promise-reject",
+        "invalid-response"
+      ]
+    },
+    {
+      "actionId": "workflow.templates.load",
+      "producerCount": 1,
+      "kind": "background",
+      "owner": "workflow/template",
+      "visibleSink": null,
+      "healthSink": "frontendHealthStore",
+      "errorSources": [
+        "promise-reject",
+        "invalid-response"
+      ]
+    },
+    {
+      "actionId": "app.update.check",
+      "producerCount": 1,
+      "kind": "user",
+      "owner": "app/update",
+      "visibleSink": "ActionFailureSink",
+      "healthSink": "frontendHealthStore",
+      "errorSources": [
+        "sync-throw",
+        "promise-reject"
+      ]
+    },
+    {
+      "actionId": "app.update.install",
+      "producerCount": 1,
+      "kind": "user",
+      "owner": "app/update",
+      "visibleSink": "ActionFailureSink",
+      "healthSink": "frontendHealthStore",
+      "errorSources": [
+        "sync-throw",
+        "promise-reject"
+      ]
+    },
+    {
+      "actionId": "approval.respond",
+      "producerCount": 1,
+      "kind": "user",
+      "owner": "approval/respond",
+      "visibleSink": "ActionFailureSink",
+      "healthSink": "frontendHealthStore",
+      "errorSources": [
+        "sync-throw",
+        "promise-reject",
+        "invalid-response"
+      ]
+    },
+    {
+      "actionId": "composer.drop",
+      "producerCount": 2,
+      "kind": "user",
+      "owner": "composer/drop",
+      "visibleSink": "ActionFailureSink",
+      "healthSink": "frontendHealthStore",
+      "errorSources": [
+        "sync-throw",
+        "promise-reject"
+      ]
+    },
+    {
+      "actionId": "composer.file.select",
+      "producerCount": 2,
+      "kind": "user",
+      "owner": "composer/file",
+      "visibleSink": "ActionFailureSink",
+      "healthSink": "frontendHealthStore",
+      "errorSources": [
+        "sync-throw",
+        "promise-reject"
+      ]
+    },
+    {
+      "actionId": "composer.model.selector",
+      "producerCount": 1,
+      "kind": "user",
+      "owner": "composer/model",
+      "visibleSink": "ActionFailureSink",
+      "healthSink": "frontendHealthStore",
+      "errorSources": [
+        "sync-throw",
+        "promise-reject"
+      ]
+    },
+    {
+      "actionId": "composer.paste",
+      "producerCount": 1,
+      "kind": "user",
+      "owner": "composer/paste",
+      "visibleSink": "ActionFailureSink",
+      "healthSink": "frontendHealthStore",
+      "errorSources": [
+        "sync-throw",
+        "promise-reject"
+      ]
+    },
+    {
+      "actionId": "composer.send",
+      "producerCount": 2,
+      "kind": "user",
+      "owner": "composer/send",
+      "visibleSink": "ActionFailureSink",
+      "healthSink": "frontendHealthStore",
+      "errorSources": [
+        "sync-throw",
+        "promise-reject"
+      ]
+    },
+    {
+      "actionId": "file.continue",
+      "producerCount": 1,
+      "kind": "user",
+      "owner": "file/continue",
+      "visibleSink": "ActionFailureSink",
+      "healthSink": "frontendHealthStore",
+      "errorSources": [
+        "sync-throw"
+      ]
+    },
+    {
+      "actionId": "file.copy",
+      "producerCount": 1,
+      "kind": "user",
+      "owner": "file/copy",
+      "visibleSink": "ActionFailureSink",
+      "healthSink": "frontendHealthStore",
+      "errorSources": [
+        "sync-throw",
+        "promise-reject"
+      ]
+    },
+    {
+      "actionId": "file.dashboard.load",
+      "producerCount": 1,
+      "kind": "background",
+      "owner": "file/dashboard",
+      "visibleSink": null,
+      "healthSink": "frontendHealthStore",
+      "errorSources": [
+        "promise-reject",
+        "invalid-response"
+      ]
+    },
+    {
+      "actionId": "file.delete",
+      "producerCount": 1,
+      "kind": "user",
+      "owner": "file/delete",
+      "visibleSink": "ActionFailureSink",
+      "healthSink": "frontendHealthStore",
+      "errorSources": [
+        "sync-throw",
+        "promise-reject",
+        "invalid-response"
+      ]
+    },
+    {
+      "actionId": "file.export",
+      "producerCount": 1,
+      "kind": "user",
+      "owner": "file/export",
+      "visibleSink": "ActionFailureSink",
+      "healthSink": "frontendHealthStore",
+      "errorSources": [
+        "sync-throw",
+        "promise-reject",
+        "invalid-response"
+      ]
+    },
+    {
+      "actionId": "file.open",
+      "producerCount": 1,
+      "kind": "user",
+      "owner": "file/open",
+      "visibleSink": "ActionFailureSink",
+      "healthSink": "frontendHealthStore",
+      "errorSources": [
+        "sync-throw",
+        "promise-reject",
+        "invalid-response"
+      ]
+    },
+    {
+      "actionId": "mcp.playwright.start",
+      "producerCount": 1,
+      "kind": "user",
+      "owner": "mcp/playwright",
+      "visibleSink": "ActionFailureSink",
+      "healthSink": "frontendHealthStore",
+      "errorSources": [
+        "sync-throw",
+        "promise-reject",
+        "invalid-response"
+      ]
+    },
+    {
+      "actionId": "mcp.playwright.stop",
+      "producerCount": 1,
+      "kind": "user",
+      "owner": "mcp/playwright",
+      "visibleSink": "ActionFailureSink",
+      "healthSink": "frontendHealthStore",
+      "errorSources": [
+        "sync-throw",
+        "promise-reject",
+        "invalid-response"
+      ]
+    },
+    {
+      "actionId": "mcp.servers.load",
+      "producerCount": 1,
+      "kind": "background",
+      "owner": "mcp/servers",
+      "visibleSink": null,
+      "healthSink": "frontendHealthStore",
+      "errorSources": [
+        "promise-reject",
+        "invalid-response"
+      ]
+    },
+    {
+      "actionId": "mcp.sqlite.start",
+      "producerCount": 1,
+      "kind": "user",
+      "owner": "mcp/sqlite",
+      "visibleSink": "ActionFailureSink",
+      "healthSink": "frontendHealthStore",
+      "errorSources": [
+        "sync-throw",
+        "promise-reject",
+        "invalid-response"
+      ]
+    },
+    {
+      "actionId": "mcp.sqlite.stop",
+      "producerCount": 1,
+      "kind": "user",
+      "owner": "mcp/sqlite",
+      "visibleSink": "ActionFailureSink",
+      "healthSink": "frontendHealthStore",
+      "errorSources": [
+        "sync-throw",
+        "promise-reject",
+        "invalid-response"
+      ]
+    },
+    {
+      "actionId": "project.add",
+      "producerCount": 2,
+      "kind": "user",
+      "owner": "project/add",
+      "visibleSink": "ActionFailureSink",
+      "healthSink": "frontendHealthStore",
+      "errorSources": [
+        "sync-throw",
+        "promise-reject"
+      ]
+    },
+    {
+      "actionId": "project.remove",
+      "producerCount": 1,
+      "kind": "user",
+      "owner": "project/remove",
+      "visibleSink": "ActionFailureSink",
+      "healthSink": "frontendHealthStore",
+      "errorSources": [
+        "sync-throw",
+        "promise-reject"
+      ]
+    },
+    {
+      "actionId": "project.select",
+      "producerCount": 1,
+      "kind": "user",
+      "owner": "project/select",
+      "visibleSink": "ActionFailureSink",
+      "healthSink": "frontendHealthStore",
+      "errorSources": [
+        "sync-throw",
+        "promise-reject"
+      ]
+    },
+    {
+      "actionId": "prompt-history.next",
+      "producerCount": 1,
+      "kind": "user",
+      "owner": "prompt-history/next",
+      "visibleSink": "ActionFailureSink",
+      "healthSink": "frontendHealthStore",
+      "errorSources": [
+        "sync-throw",
+        "promise-reject"
+      ]
+    },
+    {
+      "actionId": "prompt-history.previous",
+      "producerCount": 1,
+      "kind": "user",
+      "owner": "prompt-history/previous",
+      "visibleSink": "ActionFailureSink",
+      "healthSink": "frontendHealthStore",
+      "errorSources": [
+        "sync-throw",
+        "promise-reject",
+        "invalid-response"
+      ]
+    },
+    {
+      "actionId": "provider.reconnect",
+      "producerCount": 1,
+      "kind": "background",
+      "owner": "provider/reconnect",
+      "visibleSink": null,
+      "healthSink": "frontendHealthStore",
+      "errorSources": [
+        "promise-reject"
+      ]
+    },
+    {
+      "actionId": "provider.reconnect.bootstrap",
+      "producerCount": 1,
+      "kind": "background",
+      "owner": "provider/reconnect",
+      "visibleSink": null,
+      "healthSink": "frontendHealthStore",
+      "errorSources": [
+        "promise-reject"
+      ]
+    },
+    {
+      "actionId": "provider.reconnect.bootstrap-deferred",
+      "producerCount": 1,
+      "kind": "background",
+      "owner": "provider/reconnect",
+      "visibleSink": null,
+      "healthSink": "frontendHealthStore",
+      "errorSources": [
+        "promise-reject"
+      ]
+    },
+    {
+      "actionId": "runtime.panel.toggle",
+      "producerCount": 1,
+      "kind": "user",
+      "owner": "runtime/panel",
+      "visibleSink": "ActionFailureSink",
+      "healthSink": "frontendHealthStore",
+      "errorSources": [
+        "sync-throw"
+      ]
+    },
+    {
+      "actionId": "settings.build.bootstrap",
+      "producerCount": 1,
+      "kind": "background",
+      "owner": "settings/build",
+      "visibleSink": null,
+      "healthSink": "frontendHealthStore",
+      "errorSources": [
+        "promise-reject"
+      ]
+    },
+    {
+      "actionId": "settings.build.refresh",
+      "producerCount": 1,
+      "kind": "user",
+      "owner": "settings/build",
+      "visibleSink": "ActionFailureSink",
+      "healthSink": "frontendHealthStore",
+      "errorSources": [
+        "sync-throw",
+        "promise-reject"
+      ]
+    },
+    {
+      "actionId": "settings.builtin.bootstrap",
+      "producerCount": 1,
+      "kind": "background",
+      "owner": "settings/builtin",
+      "visibleSink": null,
+      "healthSink": "frontendHealthStore",
+      "errorSources": [
+        "promise-reject"
+      ]
+    },
+    {
+      "actionId": "settings.builtin.load",
+      "producerCount": 1,
+      "kind": "user",
+      "owner": "settings/builtin",
+      "visibleSink": "ActionFailureSink",
+      "healthSink": "frontendHealthStore",
+      "errorSources": [
+        "sync-throw",
+        "promise-reject",
+        "invalid-response"
+      ]
+    },
+    {
+      "actionId": "settings.builtin.toggle",
+      "producerCount": 1,
+      "kind": "user",
+      "owner": "settings/builtin",
+      "visibleSink": "ActionFailureSink",
+      "healthSink": "frontendHealthStore",
+      "errorSources": [
+        "sync-throw",
+        "promise-reject",
+        "invalid-response"
+      ]
+    },
+    {
+      "actionId": "settings.logs.refresh",
+      "producerCount": 1,
+      "kind": "user",
+      "owner": "settings/logs",
+      "visibleSink": "ActionFailureSink",
+      "healthSink": "frontendHealthStore",
+      "errorSources": [
+        "sync-throw",
+        "promise-reject"
+      ]
+    },
+    {
+      "actionId": "settings.model-providers.apply",
+      "producerCount": 1,
+      "kind": "user",
+      "owner": "settings/model-providers",
+      "visibleSink": "ActionFailureSink",
+      "healthSink": "frontendHealthStore",
+      "errorSources": [
+        "sync-throw",
+        "promise-reject",
+        "invalid-response"
+      ]
+    },
+    {
+      "actionId": "settings.model-providers.load",
+      "producerCount": 1,
+      "kind": "user",
+      "owner": "settings/model-providers",
+      "visibleSink": "ActionFailureSink",
+      "healthSink": "frontendHealthStore",
+      "errorSources": [
+        "sync-throw",
+        "promise-reject",
+        "invalid-response"
+      ]
+    },
+    {
+      "actionId": "settings.model-providers.save",
+      "producerCount": 1,
+      "kind": "user",
+      "owner": "settings/model-providers",
+      "visibleSink": "ActionFailureSink",
+      "healthSink": "frontendHealthStore",
+      "errorSources": [
+        "sync-throw",
+        "promise-reject",
+        "invalid-response"
+      ]
+    },
+    {
+      "actionId": "settings.model.restore",
+      "producerCount": 1,
+      "kind": "user",
+      "owner": "settings/model",
+      "visibleSink": "ActionFailureSink",
+      "healthSink": "frontendHealthStore",
+      "errorSources": [
+        "sync-throw",
+        "promise-reject"
+      ]
+    },
+    {
+      "actionId": "settings.model.save",
+      "producerCount": 2,
+      "kind": "user",
+      "owner": "settings/model",
+      "visibleSink": "ActionFailureSink",
+      "healthSink": "frontendHealthStore",
+      "errorSources": [
+        "sync-throw",
+        "promise-reject"
+      ]
+    },
+    {
+      "actionId": "settings.prompt.bootstrap",
+      "producerCount": 1,
+      "kind": "background",
+      "owner": "settings/prompt",
+      "visibleSink": null,
+      "healthSink": "frontendHealthStore",
+      "errorSources": [
+        "promise-reject"
+      ]
+    },
+    {
+      "actionId": "settings.prompt.copy",
+      "producerCount": 1,
+      "kind": "user",
+      "owner": "settings/prompt",
+      "visibleSink": "ActionFailureSink",
+      "healthSink": "frontendHealthStore",
+      "errorSources": [
+        "sync-throw",
+        "promise-reject"
+      ]
+    },
+    {
+      "actionId": "settings.prompt.load",
+      "producerCount": 1,
+      "kind": "user",
+      "owner": "settings/prompt",
+      "visibleSink": "ActionFailureSink",
+      "healthSink": "frontendHealthStore",
+      "errorSources": [
+        "sync-throw",
+        "promise-reject",
+        "invalid-response"
+      ]
+    },
+    {
+      "actionId": "settings.prompt.reset",
+      "producerCount": 1,
+      "kind": "user",
+      "owner": "settings/prompt",
+      "visibleSink": "ActionFailureSink",
+      "healthSink": "frontendHealthStore",
+      "errorSources": [
+        "sync-throw",
+        "promise-reject",
+        "invalid-response"
+      ]
+    },
+    {
+      "actionId": "settings.prompt.save",
+      "producerCount": 1,
+      "kind": "user",
+      "owner": "settings/prompt",
+      "visibleSink": "ActionFailureSink",
+      "healthSink": "frontendHealthStore",
+      "errorSources": [
+        "sync-throw",
+        "promise-reject",
+        "invalid-response"
+      ]
+    },
+    {
+      "actionId": "settings.prompt.visibility.save",
+      "producerCount": 1,
+      "kind": "user",
+      "owner": "settings/prompt",
+      "visibleSink": "ActionFailureSink",
+      "healthSink": "frontendHealthStore",
+      "errorSources": [
+        "sync-throw",
+        "promise-reject"
+      ]
+    },
+    {
+      "actionId": "settings.provider.change",
+      "producerCount": 1,
+      "kind": "user",
+      "owner": "settings/provider",
+      "visibleSink": "ActionFailureSink",
+      "healthSink": "frontendHealthStore",
+      "errorSources": [
+        "sync-throw",
+        "promise-reject"
+      ]
+    },
+    {
+      "actionId": "settings.provider.preferences.bootstrap",
+      "producerCount": 1,
+      "kind": "background",
+      "owner": "settings/provider",
+      "visibleSink": null,
+      "healthSink": "frontendHealthStore",
+      "errorSources": [
+        "promise-reject"
+      ]
+    },
+    {
+      "actionId": "settings.provider.preferences.load",
+      "producerCount": 1,
+      "kind": "user",
+      "owner": "settings/provider",
+      "visibleSink": "ActionFailureSink",
+      "healthSink": "frontendHealthStore",
+      "errorSources": [
+        "sync-throw",
+        "promise-reject",
+        "invalid-response"
+      ]
+    },
+    {
+      "actionId": "settings.provider.preferences.save",
+      "producerCount": 1,
+      "kind": "user",
+      "owner": "settings/provider",
+      "visibleSink": "ActionFailureSink",
+      "healthSink": "frontendHealthStore",
+      "errorSources": [
+        "sync-throw",
+        "promise-reject",
+        "invalid-response"
+      ]
+    },
+    {
+      "actionId": "settings.provider.save",
+      "producerCount": 1,
+      "kind": "user",
+      "owner": "settings/provider",
+      "visibleSink": "ActionFailureSink",
+      "healthSink": "frontendHealthStore",
+      "errorSources": [
+        "sync-throw",
+        "promise-reject",
+        "invalid-response"
+      ]
+    },
+    {
+      "actionId": "settings.runtime.save",
+      "producerCount": 1,
+      "kind": "user",
+      "owner": "settings/runtime",
+      "visibleSink": "ActionFailureSink",
+      "healthSink": "frontendHealthStore",
+      "errorSources": [
+        "sync-throw",
+        "promise-reject",
+        "invalid-response"
+      ]
+    },
+    {
+      "actionId": "settings.video.bootstrap",
+      "producerCount": 1,
+      "kind": "background",
+      "owner": "settings/video",
+      "visibleSink": null,
+      "healthSink": "frontendHealthStore",
+      "errorSources": [
+        "promise-reject"
+      ]
+    },
+    {
+      "actionId": "settings.video.save",
+      "producerCount": 1,
+      "kind": "user",
+      "owner": "settings/video",
+      "visibleSink": "ActionFailureSink",
+      "healthSink": "frontendHealthStore",
+      "errorSources": [
+        "sync-throw",
+        "promise-reject"
+      ]
+    },
+    {
+      "actionId": "skill.dashboard.load",
+      "producerCount": 1,
+      "kind": "background",
+      "owner": "skill/dashboard",
+      "visibleSink": null,
+      "healthSink": "frontendHealthStore",
+      "errorSources": [
+        "promise-reject",
+        "invalid-response"
+      ]
+    },
+    {
+      "actionId": "skill.delete",
+      "producerCount": 1,
+      "kind": "user",
+      "owner": "skill/delete",
+      "visibleSink": "ActionFailureSink",
+      "healthSink": "frontendHealthStore",
+      "errorSources": [
+        "sync-throw",
+        "promise-reject"
+      ]
+    },
+    {
+      "actionId": "skill.file.open",
+      "producerCount": 1,
+      "kind": "user",
+      "owner": "skill/file",
+      "visibleSink": "ActionFailureSink",
+      "healthSink": "frontendHealthStore",
+      "errorSources": [
+        "sync-throw",
+        "promise-reject",
+        "invalid-response"
+      ]
+    },
+    {
+      "actionId": "skill.import",
+      "producerCount": 1,
+      "kind": "user",
+      "owner": "skill/import",
+      "visibleSink": "ActionFailureSink",
+      "healthSink": "frontendHealthStore",
+      "errorSources": [
+        "sync-throw",
+        "promise-reject",
+        "invalid-response"
+      ]
+    },
+    {
+      "actionId": "skill.import-summary.open",
+      "producerCount": 1,
+      "kind": "user",
+      "owner": "skill/import-summary",
+      "visibleSink": "ActionFailureSink",
+      "healthSink": "frontendHealthStore",
+      "errorSources": [
+        "sync-throw",
+        "promise-reject",
+        "invalid-response"
+      ]
+    },
+    {
+      "actionId": "skill.open",
+      "producerCount": 1,
+      "kind": "user",
+      "owner": "skill/open",
+      "visibleSink": "ActionFailureSink",
+      "healthSink": "frontendHealthStore",
+      "errorSources": [
+        "sync-throw",
+        "promise-reject",
+        "invalid-response"
+      ]
+    },
+    {
+      "actionId": "skill.resolution.apply",
+      "producerCount": 1,
+      "kind": "user",
+      "owner": "skill/resolution",
+      "visibleSink": "ActionFailureSink",
+      "healthSink": "frontendHealthStore",
+      "errorSources": [
+        "sync-throw",
+        "promise-reject",
+        "invalid-response"
+      ]
+    },
+    {
+      "actionId": "skill.resolution.preview",
+      "producerCount": 1,
+      "kind": "user",
+      "owner": "skill/resolution",
+      "visibleSink": "ActionFailureSink",
+      "healthSink": "frontendHealthStore",
+      "errorSources": [
+        "sync-throw",
+        "promise-reject",
+        "invalid-response"
+      ]
+    },
+    {
+      "actionId": "skill.resolutions.load",
+      "producerCount": 1,
+      "kind": "background",
+      "owner": "skill/resolutions",
+      "visibleSink": null,
+      "healthSink": "frontendHealthStore",
+      "errorSources": [
+        "promise-reject",
+        "invalid-response"
+      ]
+    },
+    {
+      "actionId": "skill.save",
+      "producerCount": 1,
+      "kind": "user",
+      "owner": "skill/save",
+      "visibleSink": "ActionFailureSink",
+      "healthSink": "frontendHealthStore",
+      "errorSources": [
+        "sync-throw",
+        "promise-reject",
+        "invalid-response"
+      ]
+    },
+    {
+      "actionId": "skill.summary.suggest",
+      "producerCount": 1,
+      "kind": "user",
+      "owner": "skill/summary",
+      "visibleSink": "ActionFailureSink",
+      "healthSink": "frontendHealthStore",
+      "errorSources": [
+        "sync-throw",
+        "promise-reject",
+        "invalid-response"
+      ]
+    },
+    {
+      "actionId": "skill.tools.load",
+      "producerCount": 1,
+      "kind": "background",
+      "owner": "skill/tools",
+      "visibleSink": null,
+      "healthSink": "frontendHealthStore",
+      "errorSources": [
+        "promise-reject",
+        "invalid-response"
+      ]
+    },
+    {
+      "actionId": "thread.archive",
+      "producerCount": 1,
+      "kind": "user",
+      "owner": "thread/archive",
+      "visibleSink": "ActionFailureSink",
+      "healthSink": "frontendHealthStore",
+      "errorSources": [
+        "sync-throw",
+        "promise-reject"
+      ]
+    },
+    {
+      "actionId": "thread.delete",
+      "producerCount": 3,
+      "kind": "user",
+      "owner": "thread/delete",
+      "visibleSink": "ActionFailureSink",
+      "healthSink": "frontendHealthStore",
+      "errorSources": [
+        "sync-throw",
+        "promise-reject"
+      ]
+    },
+    {
+      "actionId": "thread.force-complete",
+      "producerCount": 2,
+      "kind": "user",
+      "owner": "thread/force-complete",
+      "visibleSink": "ActionFailureSink",
+      "healthSink": "frontendHealthStore",
+      "errorSources": [
+        "sync-throw",
+        "promise-reject",
+        "unsuccessful-result"
+      ]
+    },
+    {
+      "actionId": "thread.fork.close",
+      "producerCount": 2,
+      "kind": "user",
+      "owner": "thread/fork",
+      "visibleSink": "ActionFailureSink",
+      "healthSink": "frontendHealthStore",
+      "errorSources": [
+        "sync-throw"
+      ]
+    },
+    {
+      "actionId": "thread.fork.file.toggle",
+      "producerCount": 1,
+      "kind": "user",
+      "owner": "thread/fork",
+      "visibleSink": "ActionFailureSink",
+      "healthSink": "frontendHealthStore",
+      "errorSources": [
+        "sync-throw"
+      ]
+    },
+    {
+      "actionId": "thread.fork.open",
+      "producerCount": 2,
+      "kind": "user",
+      "owner": "thread/fork",
+      "visibleSink": "ActionFailureSink",
+      "healthSink": "frontendHealthStore",
+      "errorSources": [
+        "sync-throw",
+        "promise-reject"
+      ]
+    },
+    {
+      "actionId": "thread.fork.submit",
+      "producerCount": 1,
+      "kind": "user",
+      "owner": "thread/fork",
+      "visibleSink": "ActionFailureSink",
+      "healthSink": "frontendHealthStore",
+      "errorSources": [
+        "sync-throw",
+        "promise-reject"
+      ]
+    },
+    {
+      "actionId": "thread.info.copy",
+      "producerCount": 2,
+      "kind": "user",
+      "owner": "thread/info",
+      "visibleSink": "ActionFailureSink",
+      "healthSink": "frontendHealthStore",
+      "errorSources": [
+        "sync-throw",
+        "promise-reject"
+      ]
+    },
+    {
+      "actionId": "thread.interrupt",
+      "producerCount": 4,
+      "kind": "user",
+      "owner": "thread/interrupt",
+      "visibleSink": "ActionFailureSink",
+      "healthSink": "frontendHealthStore",
+      "errorSources": [
+        "sync-throw",
+        "promise-reject",
+        "unsuccessful-result"
+      ]
+    },
+    {
+      "actionId": "thread.new",
+      "producerCount": 3,
+      "kind": "user",
+      "owner": "thread/new",
+      "visibleSink": "ActionFailureSink",
+      "healthSink": "frontendHealthStore",
+      "errorSources": [
+        "sync-throw",
+        "promise-reject"
+      ]
+    },
+    {
+      "actionId": "thread.pin",
+      "producerCount": 1,
+      "kind": "user",
+      "owner": "thread/pin",
+      "visibleSink": "ActionFailureSink",
+      "healthSink": "frontendHealthStore",
+      "errorSources": [
+        "sync-throw",
+        "promise-reject"
+      ]
+    },
+    {
+      "actionId": "thread.recover",
+      "producerCount": 2,
+      "kind": "user",
+      "owner": "thread/recover",
+      "visibleSink": "ActionFailureSink",
+      "healthSink": "frontendHealthStore",
+      "errorSources": [
+        "sync-throw",
+        "promise-reject"
+      ]
+    },
+    {
+      "actionId": "thread.rename",
+      "producerCount": 2,
+      "kind": "user",
+      "owner": "thread/rename",
+      "visibleSink": "ActionFailureSink",
+      "healthSink": "frontendHealthStore",
+      "errorSources": [
+        "sync-throw",
+        "promise-reject"
+      ]
+    },
+    {
+      "actionId": "thread.select",
+      "producerCount": 3,
+      "kind": "user",
+      "owner": "thread/select",
+      "visibleSink": "ActionFailureSink",
+      "healthSink": "frontendHealthStore",
+      "errorSources": [
+        "sync-throw",
+        "promise-reject"
+      ]
+    },
+    {
+      "actionId": "thread.sync",
+      "producerCount": 2,
+      "kind": "user",
+      "owner": "thread/sync",
+      "visibleSink": "ActionFailureSink",
+      "healthSink": "frontendHealthStore",
+      "errorSources": [
+        "sync-throw",
+        "promise-reject"
+      ]
+    },
+    {
+      "actionId": "workspace.window.open",
+      "producerCount": 2,
+      "kind": "user",
+      "owner": "workspace/window",
+      "visibleSink": "ActionFailureSink",
+      "healthSink": "frontendHealthStore",
+      "errorSources": [
+        "sync-throw",
+        "promise-reject"
+      ]
+    },
+    {
+      "actionId": "sidebar.project-threads.load",
+      "producerCount": 1,
+      "kind": "background",
+      "owner": "sidebar/project-threads",
+      "visibleSink": null,
+      "healthSink": "frontendHealthStore",
+      "errorSources": [
+        "promise-reject",
+        "invalid-response"
+      ]
+    },
+    {
+      "actionId": "prompt.assets.load",
+      "producerCount": 1,
+      "kind": "background",
+      "owner": "prompt/assets",
+      "visibleSink": null,
+      "healthSink": "frontendHealthStore",
+      "errorSources": [
+        "promise-reject",
+        "invalid-response"
+      ]
+    },
+    {
+      "actionId": "prompt.active.load",
+      "producerCount": 1,
+      "kind": "background",
+      "owner": "prompt/active",
+      "visibleSink": null,
+      "healthSink": "frontendHealthStore",
+      "errorSources": [
+        "promise-reject",
+        "invalid-response"
+      ]
+    },
+    {
+      "actionId": "prompt.surface.retry",
+      "producerCount": 1,
+      "kind": "user",
+      "owner": "prompt/surface",
+      "visibleSink": "ActionFailureSink",
+      "healthSink": "frontendHealthStore",
+      "errorSources": [
+        "sync-throw",
+        "promise-reject",
+        "invalid-response"
+      ]
+    },
+    {
+      "actionId": "prompt.save",
+      "producerCount": 1,
+      "kind": "user",
+      "owner": "prompt/editor",
+      "visibleSink": "ActionFailureSink",
+      "healthSink": "frontendHealthStore",
+      "errorSources": [
+        "sync-throw",
+        "promise-reject",
+        "invalid-response"
+      ]
+    },
+    {
+      "actionId": "prompt.delete",
+      "producerCount": 1,
+      "kind": "user",
+      "owner": "prompt/editor",
+      "visibleSink": "ActionFailureSink",
+      "healthSink": "frontendHealthStore",
+      "errorSources": [
+        "sync-throw",
+        "promise-reject",
+        "invalid-response"
+      ]
+    },
+    {
+      "actionId": "prompt.copy",
+      "producerCount": 1,
+      "kind": "user",
+      "owner": "prompt/editor",
+      "visibleSink": "ActionFailureSink",
+      "healthSink": "frontendHealthStore",
+      "errorSources": [
+        "sync-throw",
+        "promise-reject"
+      ]
+    },
+    {
+      "actionId": "prompt.launch.set",
+      "producerCount": 1,
+      "kind": "user",
+      "owner": "prompt/launch",
+      "visibleSink": "ActionFailureSink",
+      "healthSink": "frontendHealthStore",
+      "errorSources": [
+        "sync-throw",
+        "promise-reject",
+        "invalid-response"
+      ]
+    },
+    {
+      "actionId": "prompt.launch.clear",
+      "producerCount": 1,
+      "kind": "user",
+      "owner": "prompt/launch",
+      "visibleSink": "ActionFailureSink",
+      "healthSink": "frontendHealthStore",
+      "errorSources": [
+        "sync-throw",
+        "promise-reject",
+        "invalid-response"
+      ]
+    },
+    {
+      "actionId": "prompt.draft.discard",
+      "producerCount": 1,
+      "kind": "user",
+      "owner": "prompt/draft",
+      "visibleSink": "ActionFailureSink",
+      "healthSink": "frontendHealthStore",
+      "errorSources": [
+        "sync-throw",
+        "promise-reject",
+        "invalid-response"
+      ]
+    },
+    {
+      "actionId": "prompt.profile.load",
+      "producerCount": 1,
+      "kind": "background",
+      "owner": "prompt/profile",
+      "visibleSink": null,
+      "healthSink": "frontendHealthStore",
+      "errorSources": [
+        "promise-reject",
+        "invalid-response"
+      ]
+    },
+    {
+      "actionId": "prompt.profile.save",
+      "producerCount": 1,
+      "kind": "user",
+      "owner": "prompt/profile",
+      "visibleSink": "ActionFailureSink",
+      "healthSink": "frontendHealthStore",
+      "errorSources": [
+        "sync-throw",
+        "promise-reject",
+        "invalid-response"
+      ]
+    },
+    {
+      "actionId": "prompt.draft.generate",
+      "producerCount": 1,
+      "kind": "user",
+      "owner": "prompt/draft",
+      "visibleSink": "ActionFailureSink",
+      "healthSink": "frontendHealthStore",
+      "errorSources": [
+        "sync-throw",
+        "promise-reject",
+        "invalid-response"
+      ]
+    },
+    {
+      "actionId": "prompt.draft.commit",
+      "producerCount": 1,
+      "kind": "user",
+      "owner": "prompt/draft",
+      "visibleSink": "ActionFailureSink",
+      "healthSink": "frontendHealthStore",
+      "errorSources": [
+        "sync-throw",
+        "promise-reject",
+        "invalid-response"
+      ]
+    },
+    {
+      "actionId": "prompt.draft.dry-run",
+      "producerCount": 1,
+      "kind": "user",
+      "owner": "prompt/draft",
+      "visibleSink": "ActionFailureSink",
+      "healthSink": "frontendHealthStore",
+      "errorSources": [
+        "sync-throw",
+        "promise-reject",
+        "invalid-response"
+      ]
+    },
+    {
+      "actionId": "slash-command.skills.load",
+      "producerCount": 1,
+      "kind": "background",
+      "owner": "slash-command/catalog",
+      "visibleSink": null,
+      "healthSink": "frontendHealthStore",
+      "errorSources": [
+        "promise-reject",
+        "invalid-response"
+      ]
+    },
+    {
+      "actionId": "slash-command.prompts.load",
+      "producerCount": 1,
+      "kind": "background",
+      "owner": "slash-command/catalog",
+      "visibleSink": null,
+      "healthSink": "frontendHealthStore",
+      "errorSources": [
+        "promise-reject",
+        "invalid-response"
+      ]
+    },
+    {
+      "actionId": "slash-command.automations.load",
+      "producerCount": 1,
+      "kind": "background",
+      "owner": "slash-command/catalog",
+      "visibleSink": null,
+      "healthSink": "frontendHealthStore",
+      "errorSources": [
+        "promise-reject",
+        "invalid-response"
+      ]
+    },
+    {
+      "actionId": "slash-command.mcp-tools.load",
+      "producerCount": 1,
+      "kind": "background",
+      "owner": "slash-command/catalog",
+      "visibleSink": null,
+      "healthSink": "frontendHealthStore",
+      "errorSources": [
+        "promise-reject",
+        "invalid-response"
+      ]
+    },
+    {
+      "actionId": "observability.recent.load",
+      "producerCount": 1,
+      "kind": "background",
+      "owner": "observability/recent",
+      "visibleSink": null,
+      "healthSink": "frontendHealthStore",
+      "errorSources": [
+        "promise-reject",
+        "invalid-response"
+      ]
+    },
+    {
+      "actionId": "observability.trace-id.copy",
+      "producerCount": 1,
+      "kind": "user",
+      "owner": "observability/trace",
+      "visibleSink": "ActionFailureSink",
+      "healthSink": "frontendHealthStore",
+      "errorSources": [
+        "sync-throw",
+        "promise-reject"
+      ]
+    },
+    {
+      "actionId": "observability.query",
+      "producerCount": 1,
+      "kind": "user",
+      "owner": "observability/recent",
+      "visibleSink": "ActionFailureSink",
+      "healthSink": "frontendHealthStore",
+      "errorSources": [
+        "sync-throw"
+      ]
+    },
+    {
+      "actionId": "observability.recent.invalidate",
+      "producerCount": 1,
+      "kind": "background",
+      "owner": "observability/recent",
+      "visibleSink": null,
+      "healthSink": "frontendHealthStore",
+      "errorSources": [
+        "promise-reject"
+      ]
+    },
+    {
+      "actionId": "observability.trace.load",
+      "producerCount": 1,
+      "kind": "background",
+      "owner": "observability/trace",
+      "visibleSink": null,
+      "healthSink": "frontendHealthStore",
+      "errorSources": [
+        "promise-reject",
+        "invalid-response"
+      ]
+    },
+    {
+      "actionId": "file.code-preview.save",
+      "producerCount": 1,
+      "kind": "user",
+      "owner": "file/code-preview",
+      "visibleSink": "ActionFailureSink",
+      "healthSink": "frontendHealthStore",
+      "errorSources": [
+        "sync-throw",
+        "promise-reject",
+        "invalid-response"
+      ]
+    },
+    {
+      "actionId": "file.code-preview.open",
+      "producerCount": 1,
+      "kind": "user",
+      "owner": "file/code-preview",
+      "visibleSink": "ActionFailureSink",
+      "healthSink": "frontendHealthStore",
+      "errorSources": [
+        "sync-throw",
+        "promise-reject",
+        "invalid-response"
+      ]
+    },
+    {
+      "actionId": "file.code-preview.locate",
+      "producerCount": 1,
+      "kind": "user",
+      "owner": "file/code-preview",
+      "visibleSink": "ActionFailureSink",
+      "healthSink": "frontendHealthStore",
+      "errorSources": [
+        "sync-throw",
+        "promise-reject",
+        "invalid-response"
+      ]
+    },
+    {
+      "actionId": "file.local.open",
+      "producerCount": 1,
+      "kind": "user",
+      "owner": "file/local-open",
+      "visibleSink": "ActionFailureSink",
+      "healthSink": "frontendHealthStore",
+      "errorSources": [
+        "sync-throw",
+        "promise-reject",
+        "invalid-response"
+      ]
+    },
+    {
+      "actionId": "composer.file.native-drop",
+      "producerCount": 1,
+      "kind": "user",
+      "owner": "composer/file-transfer",
+      "visibleSink": "ActionFailureSink",
+      "healthSink": "frontendHealthStore",
+      "errorSources": [
+        "sync-throw",
+        "promise-reject",
+        "invalid-response"
+      ]
+    },
+    {
+      "actionId": "composer.file.paste-paths",
+      "producerCount": 1,
+      "kind": "user",
+      "owner": "composer/file-transfer",
+      "visibleSink": "ActionFailureSink",
+      "healthSink": "frontendHealthStore",
+      "errorSources": [
+        "sync-throw",
+        "promise-reject",
+        "invalid-response"
+      ]
+    },
+    {
+      "actionId": "composer.file.paste",
+      "producerCount": 1,
+      "kind": "user",
+      "owner": "composer/file-transfer",
+      "visibleSink": "ActionFailureSink",
+      "healthSink": "frontendHealthStore",
+      "errorSources": [
+        "sync-throw",
+        "promise-reject",
+        "invalid-response"
+      ]
+    },
+    {
+      "actionId": "composer.file.drop",
+      "producerCount": 1,
+      "kind": "user",
+      "owner": "composer/file-transfer",
+      "visibleSink": "ActionFailureSink",
+      "healthSink": "frontendHealthStore",
+      "errorSources": [
+        "sync-throw",
+        "promise-reject",
+        "invalid-response"
+      ]
+    },
+    {
+      "actionId": "message.output.copy",
+      "producerCount": 1,
+      "kind": "user",
+      "owner": "message/output",
+      "visibleSink": "ActionFailureSink",
+      "healthSink": "frontendHealthStore",
+      "errorSources": [
+        "sync-throw",
+        "promise-reject"
+      ]
+    },
+    {
+      "actionId": "workflow.output.preview",
+      "producerCount": 1,
+      "kind": "user",
+      "owner": "workflow/output",
+      "visibleSink": "ActionFailureSink",
+      "healthSink": "frontendHealthStore",
+      "errorSources": [
+        "sync-throw",
+        "promise-reject",
+        "invalid-response"
+      ]
+    },
+    {
+      "actionId": "workflow.output.preview.load",
+      "producerCount": 1,
+      "kind": "background",
+      "owner": "workflow/output",
+      "visibleSink": null,
+      "healthSink": "frontendHealthStore",
+      "errorSources": [
+        "promise-reject",
+        "invalid-response"
+      ]
+    },
+    {
+      "actionId": "workflow.output.read",
+      "producerCount": 1,
+      "kind": "user",
+      "owner": "workflow/output",
+      "visibleSink": "ActionFailureSink",
+      "healthSink": "frontendHealthStore",
+      "errorSources": [
+        "sync-throw",
+        "promise-reject",
+        "invalid-response"
+      ]
+    },
+    {
+      "actionId": "workflow.output.open",
+      "producerCount": 1,
+      "kind": "user",
+      "owner": "workflow/output",
+      "visibleSink": "ActionFailureSink",
+      "healthSink": "frontendHealthStore",
+      "errorSources": [
+        "sync-throw",
+        "promise-reject",
+        "invalid-response"
+      ]
+    }
+  ],
+  "exemptions": []
+}

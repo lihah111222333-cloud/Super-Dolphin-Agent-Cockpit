@@ -4,23 +4,25 @@ import { SettingsPromptNotice } from './SettingsPromptNotice.jsx';
 import { UILogLevelRow } from './UILogLevelRow.jsx';
 import { UILogRefreshButton } from './UILogRefreshButton.jsx';
 import './UILogCard.css';
+import { runUIAction } from '../../../shared/ui/runUIAction.js';
 
 function UILogCard({ copy, loadLogs, store }) {
   const logsCopy = copy.logs;
   const [remoteLogs, setRemoteLogs] = useState([]);
   const [logError, setLogError] = useState('');
   const [refreshing, setRefreshing] = useState(false);
-  const refreshLogs = useCallback(async () => {
+  const refreshLogs = useCallback(() => runUIAction('settings.logs.refresh', async () => {
     setRefreshing(true);
     setLogError('');
     try {
       setRemoteLogs(normalizeDashboardLogs(await loadLogs()));
     } catch (error) {
-      setLogError(logsCopy.refreshFailed + firstPresentRawText(error?.message, error));
+      setLogError(logsCopy.refreshFailed);
+      throw error;
     } finally {
       setRefreshing(false);
     }
-  }, [loadLogs, logsCopy]);
+  }, { retryable: true }), [loadLogs, logsCopy]);
   const localLogs = store.logEntries ? store.logEntries.slice(0, 14) : [];
   const logList = remoteLogs.length > 0 ? remoteLogs : localLogs;
   return (

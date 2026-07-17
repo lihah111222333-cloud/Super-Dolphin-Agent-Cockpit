@@ -332,7 +332,7 @@ function promotedDraftThreadState(state, request, started) {
   };
 }
 
-function rollbackSendDraftState(state, request, error, options = {}) {
+function rollbackSendDraftState(state, request, _error, options = {}) {
   const createdThreadId = normalizeString(options.createdThreadId);
   const localDeleteIds = !request.previousThreadId
     ? [request.provisionalThreadId, createdThreadId].filter(Boolean)
@@ -371,8 +371,8 @@ function rollbackSendDraftState(state, request, error, options = {}) {
     sidebarThreadsByProject: createdThreadId
       ? mapSidebarThreadCache(state, (threads) => threads.filter((thread) => thread.id !== createdThreadId))
       : state.sidebarThreadsByProject,
-    error: error.message,
-    actionNotice: actionNotice(error.message, 'error', 'send'),
+    error: '发送失败，请重试。',
+    actionNotice: actionNotice('发送失败，请重试。', 'error', 'send'),
   };
 }
 
@@ -485,10 +485,10 @@ async function saveThreadComposerModelConfig(target, set, addWarning) {
   catch (error) {
     set({
       threadConfigSaving: false,
-      actionNotice: actionNotice(`线程配置保存失败：${error.message}`, 'error'),
+      actionNotice: actionNotice('线程配置保存失败，请重试。', 'error'),
     });
-    addWarning('error', 'thread.config.set.failed', { threadId: target.threadId, error: error.message });
-    return false;
+    addWarning('error', 'thread.config.set.failed', { threadId: target.threadId, error: 'action failure; see Health diagnostic ID' });
+    throw error;
   }
 }
 
@@ -510,7 +510,8 @@ async function saveGlobalComposerModelConfig(cwd, state, target, set, notifyRPCF
     return true;
   }
   catch (error) {
-    return notifyRPCFailure('全局模型配置保存', 'provider.config.save.failed', error, { provider });
+    notifyRPCFailure('全局模型配置保存', 'provider.config.save.failed', error, { provider });
+    throw error;
   }
 }
 

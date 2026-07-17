@@ -12,6 +12,7 @@ import {
   markThreadDiffReady,
   threadStateLoadingPatch,
   trackRuntimeSubscription } from './helpers/runtimeSliceHelpers.js';
+import { runBackgroundAction } from '../../../shared/ui/runUIAction.js';
 
 export function createRuntimeSlice(runtime, deps) {
   return {
@@ -36,9 +37,10 @@ async function initializeRuntimeEventSubscriptions(runtime, deps, retryBootstrap
     bridgeSubscription = trackRuntimeSubscription(runtime, onBridgeEvent(runtime.handleBridgeEvent, {
       escalateCallbackError: (_error, evt) => isDagNodeStatusBridgeEvent(evt),
     }), 'runtime.bridge.subscribe', generation);
-    reconnectSubscription = trackRuntimeSubscription(runtime, onRuntimeReconnect(() => {
-      handleRuntimeReconnect(runtime, retryBootstrapAfterReconnect);
-    }), 'runtime.reconnect.subscribe', generation);
+    reconnectSubscription = trackRuntimeSubscription(runtime, onRuntimeReconnect(() => runBackgroundAction(
+      'provider.reconnect',
+      () => handleRuntimeReconnect(runtime, retryBootstrapAfterReconnect),
+    )), 'runtime.reconnect.subscribe', generation);
     await Promise.all([
       bridgeSubscription.ready,
       reconnectSubscription.ready,
@@ -64,9 +66,10 @@ async function initializeRuntimeEventSubscriptions(runtime, deps, retryBootstrap
 
 function createLifecycleActions(runtime, deps) {
   const retryBootstrapAfterReconnect = () => {
-    void runtime.get().bootstrap().catch((error) => {
-      runtime.addWarning('error', 'app.bootstrap.reconnect_failed', { error: error?.message || String(error) });
-    });
+    runBackgroundAction('provider.reconnect.bootstrap', () => runtime.get().bootstrap().catch((error) => {
+      runtime.addWarning('error', 'app.bootstrap.reconnect_failed', { error: 'background action failure; see Health diagnostic ID' });
+      throw error;
+    }));
   };
 
   const initializeEvents = () => {
@@ -125,11 +128,10 @@ function createLifecycleActions(runtime, deps) {
   return { initializeEvents, destroy };
 }
 
-function publishThreadSyncFailure(runtime, syncOptions, id, error) {
+function publishThreadSyncFailure(runtime, syncOptions, id, _error) {
   if (typeof syncOptions.shouldPublishFailure === 'function' && !syncOptions.shouldPublishFailure()) return;
-  const message = error?.message || String(error);
-  runtime.notifyAction(`同步会话失败：${message}`, 'error', { threadId: id });
-  runtime.addWarning('error', 'thread.sync.failed', { threadId: id, error: message });
+  runtime.notifyAction('同步会话失败，请重试。', 'error', { threadId: id });
+  runtime.addWarning('error', 'thread.sync.failed', { threadId: id, error: 'action failure; see Health diagnostic ID' });
 }
 
 function createBootstrapActions(runtime, deps) {

@@ -4,6 +4,7 @@ commitPromptIntent, copyTextToClipboard, deletePrompt, discardPromptIntent, draf
 } from '../../pages/prompts/services/promptPageService.js'; import { APP_COPY } from '../../shared/i18n/appI18n.js';
 import { firstPresentText, parseStrictJsonValue, rawTextValue } from '../../pages/shared/pageShared.js'; import './PromptPageView.css';
 import { requiredAppStoragePort } from '../../shared/api/browser/browserStorage.js';
+import { runBackgroundAction, runUIAction } from '../../shared/ui/runUIAction.js';
 const ACTIVE_PROMPT_PREF_KEY = 'settings.activePromptKey'; const PROMPTS_REQUEST_TIMEOUT_MS = 8000;
 const PROMPT_KIND_OPTIONS = Object.freeze([ { key: 'expert', label: '专家能力' }, { key: 'recall', label: '参考资料' }, { key: 'default_rule', label: '默认规则' }, ]);
 const PROMPT_DRAFT_NOT_READY_MESSAGE = '这条内容还需要完善后才能保存，请调整描述后重新生成。'; const PROMPT_DRAFT_REVIEW_MESSAGE = '保存前请先确认提示里的风险。'; const PROMPT_ISSUE_COPY = Object.freeze({ missing_title: '需要补充一个清晰名称。', missing_summary: '需要补充一句简短说明。', missing_when_to_use: '需要说明 AI 什么时候会使用它。',
@@ -115,7 +116,7 @@ function normalizeDraft(raw = {}, fallbackKind = 'expert') { const meta = { infe
 const draftOptions = raw.drafts.map((item) => normalizeDraftItem(item, fallbackKind, meta)); return { ...draftOptions[0], draftOptions }; } return normalizeDraftItem(raw, fallbackKind, meta); }
 function pendingDraftFromItem(item) { return normalizeDraft({ draft_key: item.draftKey || item.id, kind: item.assetType || 'expert', scope: item.scope || 'project', status: item.draftStatus || 'ready_to_save', card: item.card || { kind: item.assetType || 'expert',
 title: item.name, summary: item.description, output: item.content, hit_examples: [], miss_examples: [], }, issues: Array.isArray(item.issues) ? item.issues : [], }, item.assetType || 'expert'); }
-function noticeText(error, prefix) { const message = firstPresentText(error?.message, error); const friendly = promptFriendlyErrorText(message); if (friendly) return friendly; return `${prefix}：${message}`; }
+function noticeText(error, prefix) { const message = firstPresentText(error?.message, error); const friendly = promptFriendlyErrorText(message); if (friendly) return friendly; return `${prefix}，请重试。`; }
 function promptFriendlyErrorText(message) { const lower = textValue(message).toLowerCase(); if (lower.includes('prompt intent draft is not ready to save')) { return PROMPT_DRAFT_NOT_READY_MESSAGE; } if (lower.includes('prompt intent draft requires risk confirmation')) {
 return PROMPT_DRAFT_REVIEW_MESSAGE; } return ''; }
 function promptDraftNeedsRevision(draft) { const status = textValue(draft?.status).toLowerCase(); const hasBlockIssue = Array.isArray(draft?.issues) && draft.issues.some((issue) => textValue(issue?.severity).toLowerCase() === 'block');
@@ -126,17 +127,23 @@ if (timeoutID) globalThis.clearTimeout(timeoutID); } }
 function promptAssetsQueryKey(cwd) { return ['dashboard', 'project', cwd, 'prompts']; }
 function activePromptQueryKey(cwd) { return ['dashboard', 'project', cwd, 'active-prompt']; }
 async function fetchPromptAssetsSurface(cwd) { try { const response = await withTimeout( listPromptAssets({ cwd }), PROMPTS_REQUEST_TIMEOUT_MS, '提示词列表加载超时，请检查提示词目录或后端状态。', ); return { items: normalizePromptList(response), fallbackMode: false }; } catch (err) {
-if (!isReadonlyFallbackListError(err)) throw err; const response = await withTimeout( getDashboardPrompts({ cwd }), PROMPTS_REQUEST_TIMEOUT_MS, '只读提示词列表加载超时，请检查 dashboard/prompts 后端状态。', ); return { items: normalizeDashboardPromptList(response), fallbackMode: true,
-fallbackReason: errorMessage(err), }; } }
+if (!isReadonlyFallbackListError(err)) throw err; const response = await withTimeout( getDashboardPrompts({ cwd }), PROMPTS_REQUEST_TIMEOUT_MS, '只读提示词列表加载超时，请检查 dashboard/prompts 后端状态。', ); return { items: normalizeDashboardPromptList(response), fallbackMode: true }; } }
 async function fetchActivePromptId(cwd) { const value = await withTimeout( getPreference({ cwd, key: ACTIVE_PROMPT_PREF_KEY }), PROMPTS_REQUEST_TIMEOUT_MS, '强制提示词状态加载超时，请检查后端状态。', ); return typeof value === 'string' ? value.trim() : ''; }
 function promptQueryState(cwd, promptAssetsQuery, activePromptQuery) {
-const items = Array.isArray(promptAssetsQuery.data?.items) ? promptAssetsQuery.data.items : []; const hasPromptSnapshot = Array.isArray(promptAssetsQuery.data?.items); const promptSyncError = promptAssetsQuery.error ? errorMessage(promptAssetsQuery.error) : '';
-const activePromptSyncError = activePromptQuery.error ? errorMessage(activePromptQuery.error) : ''; const syncErrorMessage = [promptSyncError, activePromptSyncError].filter(Boolean).join('；');
+const items = Array.isArray(promptAssetsQuery.data?.items) ? promptAssetsQuery.data.items : []; const hasPromptSnapshot = Array.isArray(promptAssetsQuery.data?.items); const promptSyncError = Boolean(promptAssetsQuery.error);
+const activePromptSyncError = Boolean(activePromptQuery.error); const syncErrorMessage = promptSyncError || activePromptSyncError;
 const activePromptId = promptActiveIdForItems(textValue(activePromptQuery.data), items, hasPromptSnapshot); return { items, fallbackMode: Boolean(promptAssetsQuery.data?.fallbackMode), activePromptId, loading: Boolean(cwd) && promptAssetsQuery.isPending && !hasPromptSnapshot,
-syncError: syncErrorMessage && hasPromptSnapshot ? `同步失败，显示的是上次成功的数据：${syncErrorMessage}` : '', error: promptSyncError && !hasPromptSnapshot ? noticeText(promptAssetsQuery.error, '加载提示词失败') : '', }; }
+syncError: syncErrorMessage && hasPromptSnapshot ? '同步失败，显示的是上次成功的数据。' : '', error: promptSyncError && !hasPromptSnapshot ? '加载提示词失败，请重试。' : '', }; }
 function promptActiveIdForItems(activePromptId, items, hasPromptSnapshot) { if (!activePromptId) return ''; if (!hasPromptSnapshot) return activePromptId; return items.some((item) => item.id === activePromptId && canForceLaunchPrompt(item)) ? activePromptId : ''; }
-function usePromptQueries(cwd) { const { data: promptAssetsData, error: promptAssetsError, isPending: promptAssetsPending, refetch: refetchPromptAssets, } = useQuery({ queryKey: promptAssetsQueryKey(cwd), queryFn: () => fetchPromptAssetsSurface(cwd), enabled: Boolean(cwd),
-}); const { data: activePromptData, error: activePromptError, refetch: refetchActivePrompt, } = useQuery({ queryKey: activePromptQueryKey(cwd), queryFn: () => fetchActivePromptId(cwd), enabled: Boolean(cwd), }); const promptAssetsQuery = { data: promptAssetsData,
+function usePromptQueries(cwd) { const { data: promptAssetsData, error: promptAssetsError, isPending: promptAssetsPending, refetch: refetchPromptAssets, } = useQuery({
+queryKey: promptAssetsQueryKey(cwd),
+queryFn: () => runBackgroundAction('prompt.assets.load', () => fetchPromptAssetsSurface(cwd)),
+enabled: Boolean(cwd),
+}); const { data: activePromptData, error: activePromptError, refetch: refetchActivePrompt, } = useQuery({
+queryKey: activePromptQueryKey(cwd),
+queryFn: () => runBackgroundAction('prompt.active.load', () => fetchActivePromptId(cwd)),
+enabled: Boolean(cwd),
+}); const promptAssetsQuery = { data: promptAssetsData,
 error: promptAssetsError, isPending: promptAssetsPending, }; const activePromptQuery = { data: activePromptData, error: activePromptError, }; const state = promptQueryState(cwd, promptAssetsQuery, activePromptQuery); return { ...state, refetchPromptAssets, refetchActivePrompt, };
 }
 function usePromptRefreshSurface(cwd, queryClient, refetchPromptAssets, refetchActivePrompt) { return useCallback(async (options = {}) => { const isCancelled = typeof options.isCancelled === 'function' ? options.isCancelled : () => false; if (!cwd) return [];
@@ -153,26 +160,32 @@ window.removeEventListener('focus', runAutoRefresh); document.removeEventListene
  match_when: form.hasMatchWhen || textValue(form.matchWhenText) ? matchWhen : undefined, }; if (form.hasPriority) payload.priority = Number.isFinite(Number(form.priority)) ? Number(form.priority) : 0; return payload; }
  async function savePromptForm(options) { const { cwd, form, refreshPromptSurface, setEditorOpen, setNotice, setSaving } = options; const name = textValue(form.name); if (!name) { setNotice('请填写提示词名称'); return;
  } const agentType = textValue(form.agentType); if (!agentType) { setNotice('请填写 Agent Key'); return; } const parsedMatchWhen = parseJsonObjectForEditor(form.matchWhenText, '自动匹配条件'); if (parsedMatchWhen.error) { setNotice(parsedMatchWhen.error); return; } setSaving(true); try {
- await writePrompt(promptWritePayload(cwd, form, name, agentType, parsedMatchWhen.value)); await refreshPromptSurface({ force: true }); setEditorOpen(false); setNotice(`提示词已保存：${name}`); } catch (err) { setNotice(noticeText(err, '保存失败')); } finally { setSaving(false); } }
+ await writePrompt(promptWritePayload(cwd, form, name, agentType, parsedMatchWhen.value)); await refreshPromptSurface({ force: true }); setEditorOpen(false); setNotice(`提示词已保存：${name}`); } catch (err) { setNotice(noticeText(err, '保存失败')); throw err; } finally { setSaving(false); } }
 async function removePromptItem({ cwd, item, refreshPromptSurface, setActioning, setNotice }) { setActioning(`delete:${item.id}`); try {
-await deletePrompt({ cwd, id: item.id, scope: item.scope === 'global' ? 'global' : 'project' }); await refreshPromptSurface({ force: true }); setNotice(`已删除：${item.name}`); } catch (err) { setNotice(noticeText(err, '删除失败')); } finally { setActioning(''); } }
+await deletePrompt({ cwd, id: item.id, scope: item.scope === 'global' ? 'global' : 'project' }); await refreshPromptSurface({ force: true }); setNotice(`已删除：${item.name}`); } catch (err) { setNotice(noticeText(err, '删除失败')); throw err; } finally { setActioning(''); } }
 async function copyPromptItem({ cwd, item, fallbackMode, setActioning, setNotice }) { if (item.isPendingDraft) { setNotice('这条草稿还在待确认，确认保存后才能复制内容'); return; } setActioning(`copy:${item.id}`); try { let content = rawTextValue(item.content); if (!fallbackMode && item.id) {
 const response = await getPrompt({ cwd, id: item.id }); content = firstText(response?.prompt?.content, response?.prompt?.prompt_text, response?.promptText, content); } if (!textValue(content)) { setNotice('暂无可复制内容'); return;
-} await copyTextToClipboard(content); setNotice('已复制提示词内容'); } catch (err) { setNotice(noticeText(err, '复制失败')); } finally { setActioning(''); } }
+} await copyTextToClipboard(content); setNotice('已复制提示词内容'); } catch (err) { setNotice(noticeText(err, '复制失败')); throw err; } finally { setActioning(''); } }
 async function setLaunchPreference({ cwd, item, queryClient, setActioning, setNotice }) { setActioning(`launch:${item.id}`); try {
-await setPreference({ cwd, key: ACTIVE_PROMPT_PREF_KEY, value: item.id }); queryClient.setQueryData(activePromptQueryKey(cwd), item.id); setNotice(`已设为强制使用：${item.name}`); } catch (err) { setNotice(noticeText(err, '设置强制使用失败')); } finally { setActioning(''); } }
+await setPreference({ cwd, key: ACTIVE_PROMPT_PREF_KEY, value: item.id }); queryClient.setQueryData(activePromptQueryKey(cwd), item.id); setNotice(`已设为强制使用：${item.name}`); } catch (err) { setNotice(noticeText(err, '设置强制使用失败')); throw err; } finally { setActioning(''); } }
 async function clearLaunchPreference({ cwd, queryClient, setActioning, setNotice }) { setActioning('launch:clear'); try {
-await setPreference({ cwd, key: ACTIVE_PROMPT_PREF_KEY, value: '' }); queryClient.setQueryData(activePromptQueryKey(cwd), ''); setNotice('已取消强制使用，新对话将使用默认路由'); } catch (err) { setNotice(noticeText(err, '取消强制使用失败')); } finally { setActioning(''); } }
+await setPreference({ cwd, key: ACTIVE_PROMPT_PREF_KEY, value: '' }); queryClient.setQueryData(activePromptQueryKey(cwd), ''); setNotice('已取消强制使用，新对话将使用默认路由'); } catch (err) { setNotice(noticeText(err, '取消强制使用失败')); throw err; } finally { setActioning(''); } }
 async function discardPromptDraftItem({ cwd, item, refreshPromptSurface, setActioning, setNotice }) { const draftKey = item.draftKey || item.id; setActioning(`discard:${draftKey}`); try {
-await discardPromptIntent({ cwd, draftKey }); await refreshPromptSurface({ force: true }); setNotice(`已丢弃：${item.name}`); } catch (err) { setNotice(noticeText(err, '丢弃失败')); } finally { setActioning(''); } }
-function usePromptEditorActions(params) { const { cwd, fallbackMode, actioning, form, queryClient, refreshPromptSurface, setters } = params; const { setActioning, setEditorOpen, setForm, setNotice, setSaving } = setters; return { retryPromptSync: () => {
-void refreshPromptSurface({ force: true }); }, openEdit: (item) => { setForm(promptFormFromItem(item)); setEditorOpen(true); setNotice(''); }, savePrompt: () => savePromptForm({ cwd, form, refreshPromptSurface, setEditorOpen, setNotice, setSaving }), removePrompt: (item) => {
-if (fallbackMode) { setNotice('当前为只读降级，暂不支持删除'); return; } if (!item.id || actioning) return; void removePromptItem({ cwd, item, refreshPromptSurface, setActioning, setNotice }); }, copyPrompt: (item) => { if (!item.id || actioning) return;
-void copyPromptItem({ cwd, item, fallbackMode, setActioning, setNotice }); }, setLaunchPrompt: (item) => { if (!canForceLaunchPrompt(item) || actioning) return; void setLaunchPreference({ cwd, item, queryClient, setActioning, setNotice }); }, clearLaunchPrompt: () => {
-if (actioning) return; void clearLaunchPreference({ cwd, queryClient, setActioning, setNotice }); }, }; }
-function usePromptDraftActions({ cwd, actioning, refreshPromptSurface, setters }) { const { setActioning, setNotice, setWizardDraft, setWizardOpen } = setters; return { continuePendingDraft: (item) => {
-setWizardDraft(pendingDraftFromItem(item)); setWizardOpen(true); setNotice(''); }, discardDraft: (item) => { const draftKey = item.draftKey || item.id; if (!draftKey || actioning) return; void discardPromptDraftItem({ cwd, item, refreshPromptSurface, setActioning, setNotice });
-}, handleWizardSaved: async () => { setWizardOpen(false); setWizardDraft(null); await refreshPromptSurface({ force: true }); setNotice('已保存，可在新对话中被 AI 发现和使用'); }, }; }
+await discardPromptIntent({ cwd, draftKey }); await refreshPromptSurface({ force: true }); setNotice(`已丢弃：${item.name}`); } catch (err) { setNotice(noticeText(err, '丢弃失败')); throw err; } finally { setActioning(''); } }
+function usePromptEditorActions(params) { const { cwd, fallbackMode, actioning, form, queryClient, refreshPromptSurface, setters } = params; const { setActioning, setEditorOpen, setForm, setNotice, setSaving } = setters; return {
+retryPromptSync: () => runUIAction('prompt.surface.retry', () => refreshPromptSurface({ force: true }), { retryable: true }),
+openEdit: (item) => { setForm(promptFormFromItem(item)); setEditorOpen(true); setNotice(''); },
+savePrompt: () => runUIAction('prompt.save', () => savePromptForm({ cwd, form, refreshPromptSurface, setEditorOpen, setNotice, setSaving })),
+removePrompt: (item) => { if (fallbackMode) { setNotice('当前为只读降级，暂不支持删除'); return; } if (!item.id || actioning) return; runUIAction('prompt.delete', () => removePromptItem({ cwd, item, refreshPromptSurface, setActioning, setNotice })); },
+copyPrompt: (item) => { if (!item.id || actioning) return; runUIAction('prompt.copy', () => copyPromptItem({ cwd, item, fallbackMode, setActioning, setNotice }), { retryable: true }); },
+setLaunchPrompt: (item) => { if (!canForceLaunchPrompt(item) || actioning) return; runUIAction('prompt.launch.set', () => setLaunchPreference({ cwd, item, queryClient, setActioning, setNotice })); },
+clearLaunchPrompt: () => { if (actioning) return; runUIAction('prompt.launch.clear', () => clearLaunchPreference({ cwd, queryClient, setActioning, setNotice })); },
+}; }
+function usePromptDraftActions({ cwd, actioning, refreshPromptSurface, setters }) { const { setActioning, setNotice, setWizardDraft, setWizardOpen } = setters; return {
+continuePendingDraft: (item) => { setWizardDraft(pendingDraftFromItem(item)); setWizardOpen(true); setNotice(''); },
+discardDraft: (item) => { const draftKey = item.draftKey || item.id; if (!draftKey || actioning) return; runUIAction('prompt.draft.discard', () => discardPromptDraftItem({ cwd, item, refreshPromptSurface, setActioning, setNotice })); },
+handleWizardSaved: async () => { setWizardOpen(false); setWizardDraft(null); await refreshPromptSurface({ force: true }); setNotice('已保存，可在新对话中被 AI 发现和使用'); },
+}; }
 function PromptStatusMessages(props) { const { copy, isProjectPending, fallbackMode, syncError, error, loading, onRetry } = props; return (
 <> {isProjectPending ? <div className="prompt-notice">{copy.connecting}</div> : null} {fallbackMode ? <div className="prompt-notice warn">{copy.fallbackNotice}</div> : null} {syncError ? <PromptRetryNotice copy={copy} message={syncError} onRetry={onRetry} /> : null}
 {error ? <PromptRetryNotice copy={copy} message={error} onRetry={onRetry} /> : null} {loading ? <output className="prompt-loading" aria-live="polite">{copy.loading}</output> : null} </> ); }
@@ -200,14 +213,14 @@ setWizardDraft, setWizardOpen, }, }; }
 export function PromptPageView({ copy = APP_COPY.zh.prompts, projectPath, refreshKey = 0, resolveLaunchPreferences }) {
 const cwd = optionalPromptCwd(projectPath); const isProjectPending = !cwd; const queryClient = useQueryClient(); const pageState = usePromptPageState(cwd); const { actioning, form, modals, notice, saving, setters } = pageState;
 const queryState = usePromptQueries(cwd); const { items, fallbackMode, activePromptId, loading, syncError, error } = queryState; const { data: profileData, error: profileError, isLoading: profileLoading } = useQuery({ queryKey: ['personalizationProfile', cwd],
-queryFn: () => getPersonalizationProfile({ cwd }), enabled: Boolean(cwd),
+queryFn: () => runBackgroundAction('prompt.profile.load', () => getPersonalizationProfile({ cwd })), enabled: Boolean(cwd),
 }); const loadedProfile = profileData?.profile ? { ...emptyPersonalizationProfile, ...profileData.profile } : emptyPersonalizationProfile; const [profileDraft, setProfileDraft] = useState({ cwd: '', profile: null });
 const profileForm = profileDraft.cwd === cwd && profileDraft.profile ? profileDraft.profile : loadedProfile; const setProfileForm = useCallback((nextProfile) => { setProfileDraft({ cwd, profile: nextProfile }); }, [cwd]); const refreshPromptSurface = usePromptRefreshSurface( cwd,
 queryClient, queryState.refetchPromptAssets, queryState.refetchActivePrompt, ); usePromptRefreshEffects(Number(refreshKey || 0), refreshPromptSurface);
 const counts = useMemo(() => promptCounts(items), [items]); const visibleItems = items; const editorActions = usePromptEditorActions({ cwd, fallbackMode, actioning, form, queryClient, refreshPromptSurface, setters,
-}); const draftActions = usePromptDraftActions({ cwd, actioning, refreshPromptSurface, setters }); const handleSaveProfile = async () => { if (!cwd || saving) return; setters.setSaving(true); setters.setNotice(''); try {
+}); const draftActions = usePromptDraftActions({ cwd, actioning, refreshPromptSurface, setters }); const handleSaveProfile = () => runUIAction('prompt.profile.save', async () => { if (!cwd || saving) return; setters.setSaving(true); setters.setNotice(''); try {
 const result = await savePersonalizationProfile({ cwd, profile: profileForm }); const savedProfile = savedPersonalizationProfile(result); queryClient.setQueryData(['personalizationProfile', cwd], { profile: savedProfile }); setProfileDraft({ cwd, profile: null });
-setters.setNotice('个人资料已保存'); } catch (err) { setters.setNotice(noticeText(err, '个人资料保存失败')); } finally { setters.setSaving(false); } }; const handleImportMemory = () => { setters.setWizardDraft({ kind: 'recall', rawInput: '', scope: 'project' }); setters.setWizardOpen(true);
+setters.setNotice('个人资料已保存'); } catch (err) { setters.setNotice(noticeText(err, '个人资料保存失败')); throw err; } finally { setters.setSaving(false); } }); const handleImportMemory = () => { setters.setWizardDraft({ kind: 'recall', rawInput: '', scope: 'project' }); setters.setWizardOpen(true);
 }; const layoutProps = { activePromptId, actioning, counts, copy, cwd, draftActions, editorActions, error, fallbackMode, isProjectPending, loading, modals, notice, personalization: { error: profileError, loading: profileLoading, onImportMemory: handleImportMemory,
 onProfileChange: setProfileForm, onSaveProfile: handleSaveProfile, profile: profileForm, saving, }, projectPath, resolveLaunchPreferences, saving, setters, showBlockingError: Boolean(error), syncError, visibleItems, };
 return <PromptPageLayout {...layoutProps} />; }
@@ -323,11 +336,11 @@ function promptDryRunSummary(result, draft) { if (!result) return ''; const woul
 return `这条内容会参与${dryRunKindLabel(kind)}匹配。`; } return `这条内容暂不会被当前问题命中。`; }
 async function runPromptDraftDryRun(options) { const { cwd, draft, question, setDryRunResult, setNotice, setWorking } = options; const cleanQuestion = textValue(question); if (!cleanQuestion) { setNotice('请先填写试问问题'); return; } if (!draft?.draftKey) {
 setNotice('请先生成草稿后再验证'); return; } setWorking('dry-run'); setNotice(''); try { const result = await dryRunPromptIntent({ cwd, draftKey: draft.draftKey, kind: draft.kind, card: draft.card, question: cleanQuestion, }); setDryRunResult(result); } catch (err) {
-setNotice(noticeText(err, '验证失败')); } finally { setWorking(''); } }
+setNotice(noticeText(err, '验证失败')); throw err; } finally { setWorking(''); } }
 async function runPromptDraftGeneration(params) { const { cwd, kind, rawInput, scope, resolveLaunchPreferences, setDraft, setNotice, setWorking } = params; setWorking('draft'); setNotice(''); try {
-const response = await buildPromptDraft({ cwd, kind, rawInput, scope, resolveLaunchPreferences }); setDraft(normalizeDraft(response, kind)); } catch (err) { setNotice(noticeText(err, '生成失败')); } finally { setWorking(''); } }
+const response = await buildPromptDraft({ cwd, kind, rawInput, scope, resolveLaunchPreferences }); setDraft(normalizeDraft(response, kind)); } catch (err) { setNotice(noticeText(err, '生成失败')); throw err; } finally { setWorking(''); } }
 async function runPromptDraftCommit(options) { const { confirmGlobal, confirmRisk, cwd, draft, onSaved, setNotice, setWorking } = options; setWorking('commit'); setNotice(''); try {
-await commitPromptIntent({ cwd, draftKey: draft.draftKey, scope: draft.scope, confirmGlobal, confirmRisk }); await onSaved(); } catch (err) { setNotice(noticeText(err, '保存失败')); } finally { setWorking(''); } }
+await commitPromptIntent({ cwd, draftKey: draft.draftKey, scope: draft.scope, confirmGlobal, confirmRisk }); await onSaved(); } catch (err) { setNotice(noticeText(err, '保存失败')); throw err; } finally { setWorking(''); } }
 function promptWizardInitialState(initialDraft) { const hasDraft = Boolean(initialDraft?.draftKey) || Boolean(initialDraft?.id) || Boolean(initialDraft?.card); return { draft: hasDraft ? initialDraft : null, dryRunQuestion: '', dryRunResult: null,
 kind: initialDraft?.kind || 'expert', notice: '', rawInput: textValue(initialDraft?.rawInput), reviewConfirmed: false, scope: initialDraft?.scope || 'project', working: '', }; }
 function promptWizardReducer(state, action) { switch (action.type) { case 'draft/generated': return { ...state, draft: action.draft, dryRunQuestion: '', dryRunResult: null, reviewConfirmed: false }; case 'dry-run/result': return { ...state, dryRunResult: action.result };
@@ -338,11 +351,16 @@ const [state, dispatch] = useReducer(promptWizardReducer, initialDraft, promptWi
 dispatch({ type: 'draft/generated', draft: nextDraft }); }, []); const setDryRunResult = useCallback((result) => { dispatch({ type: 'dry-run/result', result }); }, []); const setNotice = useCallback((nextNotice) => { dispatch({ type: 'notice/set', notice: nextNotice });
 }, []); const setWorking = useCallback((nextWorking) => { dispatch({ type: 'working/set', working: nextWorking }); }, []); const setReviewConfirmed = useCallback((confirmed) => { dispatch({ type: 'review/confirmed', confirmed });
 }, []); const setWizardField = useCallback((key, value) => { dispatch({ type: 'field/set', key, value }); }, []);
-const runDraft = async () => { const text = textValue(rawInput); if (!text) { setNotice('请先写下希望 AI 记住或使用的内容'); return; } await runPromptDraftGeneration({ cwd, kind, rawInput: text, scope, resolveLaunchPreferences, setDraft, setNotice, setWorking }); };
-const commitDraft = async () => { if (!draft?.draftKey) return; if (promptDraftNeedsRevision(draft)) { setNotice(PROMPT_DRAFT_NOT_READY_MESSAGE); return; } if (draftHasReviewIssues && !reviewConfirmed) { setNotice(PROMPT_DRAFT_REVIEW_MESSAGE); return;
-} await runPromptDraftCommit({ confirmGlobal: draft.scope === 'global' ? true : undefined, confirmRisk: draftHasReviewIssues && reviewConfirmed ? true : undefined, cwd, draft, onSaved, setNotice, setWorking, }); };
-const draftNeedsRevision = promptDraftNeedsRevision(draft); const draftHasReviewIssues = promptDraftHasReviewIssues(draft); const canCommitDraft = Boolean(draft?.draftKey) && !draftNeedsRevision && (!draftHasReviewIssues || reviewConfirmed); const runDryRun = async () => {
-await runPromptDraftDryRun({ cwd, draft, question: dryRunQuestion, setDryRunResult, setNotice, setWorking }); };
+const runDraft = () => { const text = textValue(rawInput); if (!text) { setNotice('请先写下希望 AI 记住或使用的内容'); return undefined; } return runUIAction(
+'prompt.draft.generate',
+() => runPromptDraftGeneration({ cwd, kind, rawInput: text, scope, resolveLaunchPreferences, setDraft, setNotice, setWorking }),
+); };
+const commitDraft = () => { if (!draft?.draftKey) return undefined; if (promptDraftNeedsRevision(draft)) { setNotice(PROMPT_DRAFT_NOT_READY_MESSAGE); return undefined; } if (draftHasReviewIssues && !reviewConfirmed) { setNotice(PROMPT_DRAFT_REVIEW_MESSAGE); return undefined;
+} return runUIAction('prompt.draft.commit', () => runPromptDraftCommit({ confirmGlobal: draft.scope === 'global' ? true : undefined, confirmRisk: draftHasReviewIssues && reviewConfirmed ? true : undefined, cwd, draft, onSaved, setNotice, setWorking, })); };
+const draftNeedsRevision = promptDraftNeedsRevision(draft); const draftHasReviewIssues = promptDraftHasReviewIssues(draft); const canCommitDraft = Boolean(draft?.draftKey) && !draftNeedsRevision && (!draftHasReviewIssues || reviewConfirmed); const runDryRun = () => runUIAction(
+'prompt.draft.dry-run',
+() => runPromptDraftDryRun({ cwd, draft, question: dryRunQuestion, setDryRunResult, setNotice, setWorking }),
+);
 return (
 <PromptAriaModal ariaLabel="添加给 AI 的内容" className="modal-box prompt-wizard-modal" overlayClassName="modal-overlay prompt-modal-overlay" closeDisabled={working === 'commit'} closeOnOverlayClick onClose={onClose} > <header> <div> <h2>添加给 AI 的内容</h2> <p>{cwd || '未知'}</p> </div>
 </header> <PromptKindTabs autoFocus kind={kind} onChange={(value) => setWizardField('kind', value)} /> <PromptScopeChoice scope={scope} onChange={(value) => setWizardField('scope', value)} /> <label className="prompt-wizard-input"> 写下希望 AI 记住或使用的内容

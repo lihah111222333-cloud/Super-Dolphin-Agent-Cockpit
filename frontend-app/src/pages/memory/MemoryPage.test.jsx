@@ -419,7 +419,8 @@ describe('MemoryPage consolidation polling', () => {
 
 		renderMemoryPage();
 
-		expect(await screen.findByText(/memory health similarityDegraded must be a boolean/)).toBeInTheDocument();
+		expect(await screen.findByText('读取记忆失败，请重试。')).toBeInTheDocument();
+		expect(screen.queryByText(/similarityDegraded must be a boolean/)).not.toBeInTheDocument();
 		expect(screen.queryByRole('button', { name: '一键整合全部' })).not.toBeInTheDocument();
 		expect(backend.startConsolidateMemorySimilarities).not.toHaveBeenCalled();
 	});
@@ -490,7 +491,7 @@ describe('MemoryPage consolidation polling', () => {
       }
     });
 
-    expect(screen.getByText('智能整合仍在进行，请稍后查看结果')).toBeInTheDocument();
+    expect(screen.getByText('智能整合仍在进行，请稍后查看结果。')).toBeInTheDocument();
   }, 10_000);
 
   it('treats a succeeded consolidation status without result as an error', async () => {
@@ -503,7 +504,8 @@ describe('MemoryPage consolidation polling', () => {
 
     await startMergeAllPolling(mergeAll);
 
-    expect(await screen.findByText('智能整合失败：智能整合完成但没有返回结果')).toBeInTheDocument();
+    expect(await screen.findByText('智能整合失败，请查看 Health 诊断 ID。')).toBeInTheDocument();
+    expect(screen.queryByText(/没有返回结果/)).not.toBeInTheDocument();
   });
 
   it('invalidates the memory dashboard when consolidation succeeds with a result', async () => {

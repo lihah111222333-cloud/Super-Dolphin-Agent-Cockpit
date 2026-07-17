@@ -155,7 +155,7 @@ function useRuntimeDiffSync({ activeThreadId, open, store }) {
     if (!open || !activeThreadId) return;
     if (store.threadDiffReadyByThread?.[activeThreadId]) return;
     if (store.threadStateLoadingByThread?.[activeThreadId]) return;
-    runUIAction(() => store.syncThreadState?.(activeThreadId, {
+    runUIAction('thread.sync', () => store.syncThreadState?.(activeThreadId, {
       includeArchived: true,
       includeDiff: true,
       loadMessages: false,

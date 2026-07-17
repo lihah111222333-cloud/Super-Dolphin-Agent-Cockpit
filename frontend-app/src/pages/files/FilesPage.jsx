@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { FocusTrapDialog } from '../../shared/ui/FocusTrapDialog.jsx'; import { deleteSharedFile, listSharedFilesDashboard, openSharedFile, readSharedFile, saveTextFile } from './services/filesPageService.js'; import { APP_COPY } from '../../shared/i18n/appI18n.js';
 import { dashboardQueryErrorState, optionalSettingsCwd, parseStrictJsonValue, queryHasSnapshot, rawTextValue, sharedFileTimestamp, textValue, optionalTimestampMillis, useDashboardQueryFocusInvalidation } from '../shared/pageShared.js';
 import { PageHeader, RetryableSyncError } from '../shared/pageComponents.jsx'; import './FilesPage.css'; const SHARED_FILE_CATEGORY_KEYS = Object.freeze(['all', 'final', 'work']); const SHARED_FILE_SORT_KEYS = Object.freeze(['updated-desc', 'updated-asc', 'path-asc']);
+import { runBackgroundAction, runUIAction } from '../../shared/ui/runUIAction.js';
 const SHARED_FILE_FORMAT_LABELS = Object.freeze({ csv: 'CSV', css: 'CSS', go: 'Go', htm: 'HTML', html: 'HTML', java: 'Java', js: 'JavaScript', json: 'JSON', jsonl: 'JSONL', jsx: 'React JSX', log: '日志', md: 'Markdown', markdown: 'Markdown', py: 'Python', rs: 'Rust', sh: 'Shell',
 sql: 'SQL', toml: 'TOML', ts: 'TypeScript', tsx: 'React TSX', txt: '文本', xml: 'XML', yaml: 'YAML', yml: 'YAML', });
 function dashboardGlobalQueryKey(page, ...parts) { const normalizedParts = []; for (const part of parts) { const value = textValue(part); if (value) normalizedParts.push(value); } return ['dashboard', 'global', page, ...normalizedParts]; }
@@ -49,11 +50,14 @@ function sortSharedFiles(files, sortMode) { const list = [...files]; if (sortMod
 }; return list.sort((left, right) => ( sortMode === 'updated-asc' ? updatedTime(left) - updatedTime(right) : updatedTime(right) - updatedTime(left) )); } function sharedFileCategoryOf(file, finalOutputByPath) { return finalOutputByPath.has(file.path) ? 'final' : 'work'; }
 function finalOutputRefsByPath(files, finalOutputRefs) { const filePaths = new Set(files.map((file) => file.path)); return new Map(finalOutputRefs.filter((ref) => filePaths.has(ref.path)).map((ref) => [ref.path, ref])); }
 function useSharedFilesDashboard(store) { const queryClient = useQueryClient(); const queryKey = useMemo(() => dashboardGlobalQueryKey('shared-files'), []); useDashboardQueryFocusInvalidation(queryKey);
-const { data: queryData, error: queryError, isPending: queryPending } = useQuery({ queryKey, queryFn: listSharedFilesDashboard }); const query = { data: queryData, error: queryError, isPending: queryPending }; const hasSnapshot = queryHasSnapshot(query);
+const { data: queryData, error: queryError, isPending: queryPending } = useQuery({
+queryKey,
+queryFn: () => runBackgroundAction('file.dashboard.load', listSharedFilesDashboard),
+}); const query = { data: queryData, error: queryError, isPending: queryPending }; const hasSnapshot = queryHasSnapshot(query);
 const data = query.data || { files: [], finalOutputRefs: [], retention: { items: [], protectedCount: 0, cleanupCandidateCount: 0 },
 }; const loading = query.isPending && !hasSnapshot; const { cachedSyncError: syncError, blockingError } = dashboardQueryErrorState(query, hasSnapshot); const refreshFiles = useCallback(async () => { await queryClient.invalidateQueries({ queryKey });
-}, [queryClient, queryKey]); useEffect(() => { const revision = Number(store?.sharedFilesRevision || 0); if (revision > 0) void refreshFiles(); }, [refreshFiles, store?.sharedFilesRevision]); return { error: blockingError ? `加载共享文件失败：${blockingError}` : '', files: data.files,
-finalOutputRefs: data.finalOutputRefs, loading, refreshFiles, retention: data.retention, syncError, }; }
+}, [queryClient, queryKey]); useEffect(() => { const revision = Number(store?.sharedFilesRevision || 0); if (revision > 0) void refreshFiles(); }, [refreshFiles, store?.sharedFilesRevision]); return { error: blockingError ? '加载共享文件失败，请重试。' : '', files: data.files,
+finalOutputRefs: data.finalOutputRefs, loading, refreshFiles, retention: data.retention, syncError: syncError ? '同步共享文件失败，当前显示上次成功数据。' : '', }; }
 function useSharedFilesFilters(options) { const { files, finalOutputRefs, retention, copy } = options;
 const [searchText, setSearchText] = useState(''); const [sortMode, setSortMode] = useState('updated-desc'); const [category, setCategory] = useState('all');
 const finalOutputByPath = useMemo(() => finalOutputRefsByPath(files, finalOutputRefs), [files, finalOutputRefs]);
@@ -68,16 +72,22 @@ function useSharedFileActions(context) { const { exportDefaultPath, refreshFiles
 const [notice, setNotice] = useState(null); const [selectedFile, setSelectedFile] = useState(null); const [deleteTarget, setDeleteTarget] = useState(null); const [busyPath, setBusyPath] = useState(''); const [exportingPath, setExportingPath] = useState('');
 const [deletingPath, setDeletingPath] = useState(''); const [copied, setCopied] = useState(false); const openRequestRef = useRef(0); const loadFileDetail = useSharedFileDetailLoader(setBusyPath);
 const openContext = useMemo(() => ({ loadFileDetail, openRequestRef, setBusyPath, setCopied, setNotice, setSelectedFile }), [loadFileDetail]);
-const openFile = useCallback((file) => openSharedFileFromRow(file, openContext), [openContext]);
-const exportFile = useSharedFileExport({ exportDefaultPath, exportingPath, loadFileDetail, setExportingPath, setNotice }); const askDelete = useCallback((file) => {
+const openFile = useCallback((file) => runUIAction('file.open', () => openSharedFileFromRow(file, openContext), { retryable: true }), [openContext]);
+const exportAction = useSharedFileExport({ exportDefaultPath, exportingPath, loadFileDetail, setExportingPath, setNotice });
+const exportFile = useCallback((file) => runUIAction('file.export', () => exportAction(file)), [exportAction]); const askDelete = useCallback((file) => {
 if (protectionFor(file)) setNotice({ level: 'error', message: `最终产物不能直接删除：${file.path}` }); else setDeleteTarget(file);
-}, [protectionFor]); const confirmDelete = useSharedFileDelete({ deleteTarget, deletingPath, refreshFiles, selectedFile, setDeleteTarget, setDeletingPath, setNotice, setSelectedFile }); const continueWithFile = useCallback((file) => {
-if (typeof store?.continueWithSharedFile === 'function') store.continueWithSharedFile(file.path); }, [store]);
-const copySelectedContent = useCallback(() => copySharedFileContent({ selectedFile, setCopied, setNotice }), [selectedFile]);
+}, [protectionFor]); const deleteAction = useSharedFileDelete({ deleteTarget, deletingPath, refreshFiles, selectedFile, setDeleteTarget, setDeletingPath, setNotice, setSelectedFile });
+const confirmDelete = useCallback(() => runUIAction('file.delete', deleteAction), [deleteAction]); const continueWithFile = useCallback((file) => runUIAction('file.continue', () => {
+if (typeof store?.continueWithSharedFile === 'function') return store.continueWithSharedFile(file.path);
+return undefined; }), [store]);
+const copySelectedContent = useCallback(() => runUIAction('file.copy', () => copySharedFileContent({ selectedFile, setCopied, setNotice }), { retryable: true }), [selectedFile]);
 return { askDelete, busyPath, copied, continueWithFile, confirmDelete, copySelectedContent,
 deletingPath, deleteTarget, exportFile, exportingPath, notice, openFile, selectedFile, setDeleteTarget, setSelectedFile, }; }
-async function copySharedFileContent(context) { const { selectedFile, setCopied, setNotice } = context; const text = rawTextValue(selectedFile?.content); if (!text) return; try { await navigator.clipboard.writeText(text); setCopied(true); } catch (err) { showCopySharedFileError(err, setNotice); } }
-function showCopySharedFileError(err, setNotice) { setNotice({ level: 'error', message: `复制失败：${err.message || String(err)}` }); }
+async function copySharedFileContent(context) { const { selectedFile, setCopied, setNotice } = context; const text = rawTextValue(selectedFile?.content); if (!text) return; try {
+await navigator.clipboard.writeText(text);
+setCopied(true);
+} catch (err) { showCopySharedFileError(err, setNotice); throw err; } }
+function showCopySharedFileError(_err, setNotice) { setNotice({ level: 'error', message: '复制失败，请重试。' }); }
 async function openBinarySharedFile(context) { const { isCurrentRequest, path, setBusyPath } = context; setBusyPath(path); try { await openSharedFile(path); } finally { if (isCurrentRequest()) setBusyPath(''); } }
 function showBinaryOpenNotice(isCurrentRequest, setNotice) { if (isCurrentRequest()) setNotice(binaryOpenSuccessNotice()); } function binaryOpenSuccessNotice() { return { level: 'success', message: '已打开媒体文件。' }; }
 async function openSharedFileFromRow(file, context) {
@@ -86,8 +96,8 @@ openRequestRef.current += 1; const requestId = openRequestRef.current; const isC
 const path = textValue(file?.path); const binaryMedia = isBinaryMediaPath(path); setNotice(null); setCopied(false);
 try { if (binaryMedia) { await openBinarySharedFile({ isCurrentRequest, path, setBusyPath }); showBinaryOpenNotice(isCurrentRequest, setNotice); return; }
 const detail = await loadFileDetail(file, { shouldClearBusy: isCurrentRequest }); if (isCurrentRequest()) setSelectedFile(detail);
-} catch (err) { if (!isCurrentRequest()) return; showSharedFileOpenError({ binaryMedia, err, setNotice }); } }
-function showSharedFileOpenError(context) { const { binaryMedia, err, setNotice } = context; const action = binaryMedia ? '打开文件失败' : '读取文件失败'; setNotice({ level: 'error', message: `${action}：${err.message || String(err)}` }); }
+} catch (err) { if (isCurrentRequest()) showSharedFileOpenError({ binaryMedia, err, setNotice }); throw err; } }
+function showSharedFileOpenError(context) { const { binaryMedia, setNotice } = context; const action = binaryMedia ? '打开文件失败' : '读取文件失败'; setNotice({ level: 'error', message: `${action}，请重试。` }); }
 function useSharedFileDetailLoader(setBusyPath) { return useCallback(async (file, options = {}) => { const path = textValue(file?.path); if (!path) throw new Error('shared file path is required'); setBusyPath(path); try { return await readSharedFile(path, file); } finally {
 if (!options.shouldClearBusy || options.shouldClearBusy(path)) setBusyPath(''); } }, [setBusyPath]); }
 function useSharedFileExport(context) { const { exportDefaultPath, exportingPath, loadFileDetail, setExportingPath, setNotice } = context;
@@ -96,21 +106,21 @@ async function exportSharedFile(file, context) {
 const { exportDefaultPath, exportingPath, loadFileDetail, setExportingPath, setNotice } = context;
 const path = textValue(file?.path); if (!path || exportingPath) return; setNotice(null); setExportingPath(path);
 try { const detail = await loadFileDetail(file); const savedPath = await saveTextFile(exportSharedFilePayload(exportDefaultPath, detail)); setNotice(exportSharedFileNotice(savedPath)); }
-catch (err) { showExportSharedFileError(err, setNotice); } finally { setExportingPath(''); }
+catch (err) { showExportSharedFileError(err, setNotice); throw err; } finally { setExportingPath(''); }
 }
 function exportSharedFilePayload(exportDefaultPath, detail) { return { defaultPath: exportDefaultPath, defaultFilename: sharedFileExportName(detail.path), content: detail.content }; }
 function exportSharedFileNotice(savedPath) { return { level: 'info', message: savedPath ? `已保存到：${savedPath}` : '已取消保存。' }; }
-function showExportSharedFileError(err, setNotice) { setNotice({ level: 'error', message: `导出失败：${err.message || String(err)}` }); }
+function showExportSharedFileError(_err, setNotice) { setNotice({ level: 'error', message: '导出失败，请重试。' }); }
 function useSharedFileDelete(context) { const { deleteTarget, deletingPath, refreshFiles, selectedFile, setDeleteTarget, setDeletingPath, setNotice, setSelectedFile } = context;
 return useCallback(() => deleteSharedFileFromPage({ deleteTarget, deletingPath, refreshFiles, selectedFile, setDeleteTarget, setDeletingPath, setNotice, setSelectedFile }), [deleteTarget, deletingPath, refreshFiles, selectedFile, setDeleteTarget, setDeletingPath, setNotice, setSelectedFile]); }
 async function deleteSharedFileFromPage(context) {
 const { deleteTarget, deletingPath, refreshFiles, selectedFile, setDeleteTarget, setDeletingPath, setNotice, setSelectedFile } = context;
 const target = deleteTarget; if (!target?.path || deletingPath) return; setNotice(null); setDeletingPath(target.path);
 try { await deleteSharedFile(target.path); if (selectedFile?.path === target.path) setSelectedFile(null); setDeleteTarget(null); setNotice(deleteSharedFileNotice(target)); await refreshFiles(); }
-catch (err) { showDeleteSharedFileError(err, setNotice); } finally { setDeletingPath(''); }
+catch (err) { showDeleteSharedFileError(err, setNotice); throw err; } finally { setDeletingPath(''); }
 }
 function deleteSharedFileNotice(target) { return { level: 'info', message: `已删除文件：${target.path}` }; }
-function showDeleteSharedFileError(err, setNotice) { setNotice({ level: 'error', message: `删除失败：${err.message || String(err)}` }); }
+function showDeleteSharedFileError(_err, setNotice) { setNotice({ level: 'error', message: '删除失败，请重试。' }); }
 function FilesPage(props) { const { copy = APP_COPY.zh.files, projectPath, store } = props;
 const exportDefaultPath = optionalSettingsCwd(projectPath); const dashboard = useSharedFilesDashboard(store);
 const filters = useSharedFilesFilters({ files: dashboard.files, finalOutputRefs: dashboard.finalOutputRefs, retention: dashboard.retention, copy }); const actions = useSharedFileActions({ exportDefaultPath,

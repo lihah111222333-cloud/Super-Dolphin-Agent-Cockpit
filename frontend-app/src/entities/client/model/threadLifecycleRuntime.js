@@ -47,15 +47,15 @@ function threadActionPayload(params) {
 function notifyThreadActionFailure(params) {
   const { action, addWarning, notifyAction, result, threadId } = params;
   if (action === 'thread.interrupt' && result?.ok === false) {
-    const message = interruptFailureMessage(result);
-    notifyAction(`${THREAD_ACTION_LABELS[action]}失败：${message}`, 'warning', { threadId });
-    addWarning('warn', `${action}.failed`, { threadId, error: message });
+    interruptFailureMessage(result);
+    notifyAction('中断当前执行失败，请重试。', 'warning', { threadId });
+    addWarning('warn', `${action}.failed`, { threadId, error: 'action failure; see Health diagnostic ID' });
     return true;
   }
   if (action === 'thread.force_complete' && (result?.ok === false || result?.forceCompleted === false)) {
-    const message = forceCompleteFailureMessage(result);
-    notifyAction(`${THREAD_ACTION_LABELS[action]}失败：${message}`, 'warning', { threadId, error: message });
-    addWarning('warn', `${action}.failed`, { threadId, error: message });
+    forceCompleteFailureMessage(result);
+    notifyAction(`${THREAD_ACTION_LABELS[action]}失败，请重试。`, 'warning', { threadId });
+    addWarning('warn', `${action}.failed`, { threadId, error: 'action failure; see Health diagnostic ID' });
     return true;
   }
   return false;
@@ -82,11 +82,10 @@ function notifyRecoveryResult(params) {
 }
 
 function notifyThreadTransportFailure(params) {
-  const { action, addWarning, error, noticeGate, notifyAction, threadId } = params;
+  const { action, addWarning, error: _, noticeGate, notifyAction, threadId } = params;
   if (noticeGate && !noticeGate(threadId)) return;
-  const message = error?.message || String(error);
-  notifyAction(`${THREAD_ACTION_LABELS[action] || '线程操作'}失败：${message}`, 'error', { threadId });
-  addWarning('error', `${action}.failed`, { threadId, error: message });
+  notifyAction(`${THREAD_ACTION_LABELS[action] || '线程操作'}失败，请重试。`, 'error', { threadId });
+  addWarning('error', `${action}.failed`, { threadId, error: 'action failure; see Health diagnostic ID' });
 }
 
 export function attachActiveThreadRpcRuntime(runtime, deps) {
@@ -114,7 +113,7 @@ export function attachActiveThreadRpcRuntime(runtime, deps) {
     }
     catch (error) {
       notifyThreadTransportFailure({ action, addWarning, error, noticeGate: options.noticeGate, notifyAction, threadId });
-      return { ok: false, threadId, result: null };
+      throw error;
     }
   };
 

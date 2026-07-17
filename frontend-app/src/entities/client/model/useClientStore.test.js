@@ -199,7 +199,7 @@ function registerBridgeEventHandlersForTest() {
       throw new Error('storage denied');
     });
     try {
-      useClientStore.getState().setLogLevel('error');
+      expect(() => useClientStore.getState().setLogLevel('error')).toThrow('storage denied');
 
       const state = useClientStore.getState();
       expect(state.logLevel).toBe('info');
@@ -236,13 +236,14 @@ function registerBridgeEventHandlersForTest() {
   it('classifies composer file selection failures as attachment errors', async () => {
     backend.selectFiles.mockRejectedValue(new Error('picker unavailable'));
 
-    await expect(useClientStore.getState().selectFilesForComposer()).resolves.toEqual([]);
+    await expect(useClientStore.getState().selectFilesForComposer()).rejects.toThrow('picker unavailable');
 
     expect(useClientStore.getState().actionNotice).toEqual(expect.objectContaining({
       category: 'attachment',
-      message: 'picker unavailable',
+      message: '选择附件失败，请重试。',
       tone: 'error',
     }));
+    expect(JSON.stringify(useClientStore.getState().actionNotice)).not.toContain('picker unavailable');
   });
 
   it('bootstraps through config, window, projects, and sidebar without blocking on thread snapshot', async () => {
@@ -385,7 +386,7 @@ function registerBridgeEventHandlersForTest() {
 
     const retryPromise = useClientStore.getState().bootstrap();
     expect(useClientStore.getState().bootstrapStatus).toBe('loading');
-    expect(useClientStore.getState().error).toBe('event bridge unavailable');
+    expect(useClientStore.getState().error).toBe('连接后端失败，请重试。');
 
     retryConfig.resolve({ cwd: '/repo/app' });
     await retryPromise;
@@ -459,7 +460,7 @@ function registerBridgeEventHandlersForTest() {
     expect(backend.readConfig).not.toHaveBeenCalled();
     expect(backend.getWindowBootstrap).not.toHaveBeenCalled();
     expect(useClientStore.getState().bootstrapStatus).toBe('failed');
-    expect(useClientStore.getState().error).toBe('runtime.reconnect.subscribe unavailable');
+    expect(useClientStore.getState().error).toBe('连接后端失败，请重试。');
   });
 
   it('preserves a live bridge status over a stale bootstrap sidebar snapshot', async () => {
@@ -658,12 +659,12 @@ function registerBridgeEventHandlersForTest() {
       projects: ['/repo/app', '/repo/other'],
     });
 
-    await expect(useClientStore.getState().setActiveProjectPath('/repo/other')).resolves.toBe(false);
+    await expect(useClientStore.getState().setActiveProjectPath('/repo/other')).rejects.toThrow('project backend offline');
 
     expect(useClientStore.getState().activeProject).toBe('/repo/app');
     expect(useClientStore.getState().projects).toEqual(['/repo/app', '/repo/other']);
     expect(useClientStore.getState().actionNotice).toEqual(expect.objectContaining({
-      message: '切换项目失败：project backend offline',
+      message: '切换项目失败，请重试。',
       tone: 'error',
     }));
   });
@@ -3508,7 +3509,7 @@ function registerBridgeEventHandlersForTest() {
     await expect(useClientStore.getState().openThreadById('thread-a', {
       source: 'sidebar',
       selectionIntent: intentA,
-    })).resolves.toBe(false);
+    })).rejects.toThrow('current resolve failed');
 
     expect(useClientStore.getState().threadStateLoadingByThread['thread-a']).toBe(false);
   });
@@ -7122,7 +7123,7 @@ function registerBridgeEventHandlersForTest() {
 
     expect(backend.forceCompleteTurn).toHaveBeenCalledWith({ cwd: '/repo/app', threadId: 'thread-1' });
     expect(useClientStore.getState().actionNotice).toEqual(expect.objectContaining({
-      message: '强制完成当前执行失败：force_complete_target_not_found',
+      message: '强制完成当前执行失败，请重试。',
       tone: 'warning',
     }));
     expect(useClientStore.getState().warningEntries).toContainEqual(expect.objectContaining({
@@ -7179,7 +7180,7 @@ function registerBridgeEventHandlersForTest() {
       });
 
       await expect(useClientStore.getState().respondApproval(approvalItem(11), true))
-        .resolves.toBe(false);
+        .rejects.toThrow('approval/respond response must be null');
 
       expect(useClientStore.getState().actionNotice).not.toEqual(expect.objectContaining({
         message: '审批结果已提交',
@@ -7239,7 +7240,7 @@ function registerBridgeEventHandlersForTest() {
     expect(backend.respondApproval).not.toHaveBeenCalled();
     expect(diagnosticBreadcrumbs()).toEqual([]);
     expect(useClientStore.getState().actionNotice).toEqual(expect.objectContaining({
-      message: '审批提交失败：approval decision must be a boolean',
+      message: '审批提交失败，请重试。',
       tone: 'error',
     }));
     expect(useClientStore.getState().warningEntries).toContainEqual(expect.objectContaining({
@@ -7351,7 +7352,7 @@ function registerBridgeEventHandlersForTest() {
     });
     backend.respondApproval.mockResolvedValueOnce({ ok: false });
 
-    await expect(useClientStore.getState().respondApproval(approvalItem(11), true)).resolves.toBe(false);
+    await expect(useClientStore.getState().respondApproval(approvalItem(11), true)).rejects.toThrow('approval/respond response must be null');
     expect(diagnosticBreadcrumbs()).toEqual([
       { actionCode: 'approval.submit', routeId: 'chat', phase: 'start' },
       { actionCode: 'approval.submit', routeId: 'chat', phase: 'failure' },
@@ -7359,7 +7360,7 @@ function registerBridgeEventHandlersForTest() {
 
     frontendBreadcrumbs.resetFrontendBreadcrumbsForTests();
     backend.respondApproval.mockRejectedValueOnce(new Error('private failure /Users/alice'));
-    await expect(useClientStore.getState().respondApproval(approvalItem(12), false)).resolves.toBe(false);
+    await expect(useClientStore.getState().respondApproval(approvalItem(12), false)).rejects.toThrow('private failure');
     expect(diagnosticBreadcrumbs()).toEqual([
       { actionCode: 'approval.submit', routeId: 'chat', phase: 'start' },
       { actionCode: 'approval.submit', routeId: 'chat', phase: 'failure' },
@@ -7573,7 +7574,7 @@ function registerBridgeEventHandlersForTest() {
     });
   });
 
-  it('surfaces recover RPC failures without throwing an unhandled action error', async () => {
+  it('surfaces recover RPC failures to the unified action boundary', async () => {
     backend.recoverThread.mockRejectedValueOnce(new Error('orchestration: service not configured'));
     resetClientStoreForTests({
       cwd: '/repo/app',
@@ -7582,11 +7583,11 @@ function registerBridgeEventHandlersForTest() {
       threads: [{ id: 'thread-1', name: '运行线程', provider: 'codex', status: 'running' }],
     });
 
-    await expect(useClientStore.getState().recoverActiveThread()).resolves.toBe(false);
+    await expect(useClientStore.getState().recoverActiveThread()).rejects.toThrow('orchestration: service not configured');
 
     expect(backend.recoverThread).toHaveBeenCalledWith({ cwd: '/repo/app', threadId: 'thread-1' });
     expect(useClientStore.getState().actionNotice).toEqual(expect.objectContaining({
-      message: '恢复连接失败：orchestration: service not configured',
+      message: '恢复连接失败，请重试。',
       tone: 'error',
     }));
     expect(useClientStore.getState().warningEntries.at(-1)).toEqual(expect.objectContaining({
@@ -7717,7 +7718,7 @@ function registerBridgeEventHandlersForTest() {
       threads: [{ id: 'thread-1', name: '后端线程', provider: 'codex', status: 'idle', archived: false }],
     });
 
-    await expect(useClientStore.getState().archiveThread('thread-1', true)).resolves.toBe(false);
+    await expect(useClientStore.getState().archiveThread('thread-1', true)).rejects.toThrow('orchestration: service not configured');
 
     expect(backend.archiveThread).toHaveBeenCalledWith({ threadId: 'thread-1' });
     expect(backend.setPreference).not.toHaveBeenCalledWith(expect.objectContaining({
@@ -7726,7 +7727,7 @@ function registerBridgeEventHandlersForTest() {
     expect(useClientStore.getState().threads[0]).toEqual(expect.objectContaining({ archived: false, status: 'idle' }));
     expect(useClientStore.getState().threadArchiveLoadingByThread['thread-1']).toBe(false);
     expect(useClientStore.getState().actionNotice).toEqual(expect.objectContaining({
-      message: '归档会话失败：orchestration: service not configured',
+      message: '归档会话失败，请重试。',
       tone: 'error',
     }));
     expect(useClientStore.getState().warningEntries.at(-1)).toEqual(expect.objectContaining({
@@ -7744,7 +7745,7 @@ function registerBridgeEventHandlersForTest() {
       threads: [{ id: 'thread-1', name: '后端线程', provider: 'codex', status: 'idle', archived: false }],
     });
 
-    await expect(useClientStore.getState().archiveThread('thread-1', true)).resolves.toBe(true);
+    await expect(useClientStore.getState().archiveThread('thread-1', true)).rejects.toThrow('preference backend offline');
 
     expect(backend.archiveThread).toHaveBeenCalledWith({ threadId: 'thread-1' });
     expect(backend.setPreference).toHaveBeenCalledWith({
@@ -7758,7 +7759,7 @@ function registerBridgeEventHandlersForTest() {
     }));
     expect(useClientStore.getState().activeThreadId).toBe('');
     expect(useClientStore.getState().actionNotice).toEqual(expect.objectContaining({
-      message: '归档偏好保存失败：preference backend offline',
+      message: '归档偏好保存失败，请重试。',
       tone: 'error',
     }));
     expect(useClientStore.getState().warningEntries.at(-1)).toEqual(expect.objectContaining({
@@ -7776,11 +7777,11 @@ function registerBridgeEventHandlersForTest() {
       threads: [{ id: 'thread-1', name: '旧名称', provider: 'codex', status: 'idle' }],
     });
 
-    await expect(useClientStore.getState().renameThread('thread-1', '新名称')).resolves.toBe(false);
+    await expect(useClientStore.getState().renameThread('thread-1', '新名称')).rejects.toThrow('name backend offline');
 
     expect(useClientStore.getState().threads[0]).toEqual(expect.objectContaining({ name: '旧名称' }));
     expect(useClientStore.getState().actionNotice).toEqual(expect.objectContaining({
-      message: '重命名会话失败：name backend offline',
+      message: '重命名会话失败，请重试。',
       tone: 'error',
     }));
     expect(useClientStore.getState().warningEntries.at(-1)).toEqual(expect.objectContaining({
@@ -7798,11 +7799,11 @@ function registerBridgeEventHandlersForTest() {
       threads: [{ id: 'thread-1', name: '后端线程', provider: 'codex', status: 'idle', pinned: false, pinnedAt: 0 }],
     });
 
-    await expect(useClientStore.getState().toggleThreadPin('thread-1')).resolves.toBe(false);
+    await expect(useClientStore.getState().toggleThreadPin('thread-1')).rejects.toThrow('preference backend offline');
 
     expect(useClientStore.getState().threads[0]).toEqual(expect.objectContaining({ pinned: false, pinnedAt: 0 }));
     expect(useClientStore.getState().actionNotice).toEqual(expect.objectContaining({
-      message: '置顶会话失败：preference backend offline',
+      message: '置顶会话失败，请重试。',
       tone: 'error',
     }));
     expect(useClientStore.getState().warningEntries.at(-1)).toEqual(expect.objectContaining({
@@ -7836,6 +7837,32 @@ function registerBridgeEventHandlersForTest() {
       message: '已删除 1 个无用会话',
       tone: 'success',
     }));
+  });
+
+  it('commits successful thread deletions but rejects a partial failure for the action boundary', async () => {
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'thread-ok',
+      threads: [
+        { id: 'thread-ok', name: '可删除', provider: 'codex', status: 'archived', archived: true },
+        { id: 'thread-failed', name: '删除失败', provider: 'codex', status: 'archived', archived: true },
+      ],
+    });
+    const rawFailure = new Error('raw delete provider failure');
+    backend.deleteThread
+      .mockResolvedValueOnce({ ok: true })
+      .mockRejectedValueOnce(rawFailure);
+
+    await expect(useClientStore.getState().deleteStaleThreads(['thread-ok', 'thread-failed']))
+      .rejects.toThrow('1 thread delete action(s) failed');
+
+    expect(useClientStore.getState().threads.map((thread) => thread.id)).toEqual(['thread-failed']);
+    expect(useClientStore.getState().actionNotice).toEqual(expect.objectContaining({
+      message: '已删除 1 个无用会话，1 个失败',
+      tone: 'warning',
+    }));
+    expect(JSON.stringify(useClientStore.getState().actionNotice)).not.toContain('raw delete');
   });
 
   it('preserves the reference of equivalent timeline items during bridge patch merges', async () => {
@@ -7887,7 +7914,7 @@ function registerBridgeEventHandlersForTest() {
     expect(updatedTimeline[0].done).toBe(false);
   });
 
-  it('returns true when archiveThread succeeds but setPreference fails', async () => {
+  it('keeps the backend archive result but rejects when its preference write fails', async () => {
     backend.setPreference.mockRejectedValueOnce(new Error('preference write error'));
     resetClientStoreForTests({
       cwd: '/repo/app',
@@ -7896,8 +7923,7 @@ function registerBridgeEventHandlersForTest() {
       threads: [{ id: 'thread-1', name: 'Thread 1', provider: 'codex', status: 'idle', archived: false }],
     });
 
-    const result = await useClientStore.getState().archiveThread('thread-1', true);
-    expect(result).toBe(true); // 必须是 true，即便 preference 报错
+    await expect(useClientStore.getState().archiveThread('thread-1', true)).rejects.toThrow('preference write error');
     expect(useClientStore.getState().threads[0].archived).toBe(true);
   });
 
@@ -8002,7 +8028,7 @@ function registerBridgeEventHandlersForTest() {
     expect(useClientStore.getState().threads.find(t => t.id === 'thread-B').archived).toBe(true);
 
     // Resolve A (which fails)
-    await promiseA;
+    await expect(promiseA).rejects.toThrow('Archiving A failed');
 
     // A should be rolled back to active (archived = false)
     expect(useClientStore.getState().threads.find(t => t.id === 'thread-A').archived).toBe(false);

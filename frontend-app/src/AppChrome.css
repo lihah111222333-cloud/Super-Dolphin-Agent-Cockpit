@@ -369,6 +369,43 @@
   color: var(--error);
 }
 
+#overlay-root .global-action-failure {
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  z-index: var(--z-overlay-critical);
+  width: min(520px, calc(100vw - 36px));
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid color-mix(in srgb, var(--error) 48%, var(--line));
+  border-radius: var(--radius-md);
+  background: var(--panel);
+  color: var(--text-pri);
+  padding: 12px;
+  box-shadow: var(--shadow-lg);
+}
+
+#overlay-root .global-action-failure > span {
+  min-width: 0;
+  flex: 1;
+  display: grid;
+  gap: 3px;
+}
+
+#overlay-root .global-action-failure span,
+#overlay-root .global-action-failure small {
+  overflow-wrap: anywhere;
+}
+
+#overlay-root .global-action-failure small {
+  color: var(--text-subtle);
+}
+
+#overlay-root .global-action-failure button {
+  flex: 0 0 auto;
+}
+
 .sa-body {
   height: calc(100vh - 48px);
   flex: 1;

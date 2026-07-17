@@ -191,7 +191,7 @@ function useActiveChatThreadSync(store, activeThreadId) {
   const loading = Boolean(activeThreadId && store.threadStateLoadingByThread?.[activeThreadId]);
   useEffect(() => {
     if (!activeThreadId || timelineReady || loading) return;
-    runUIAction(() => store.syncThreadState?.(activeThreadId, {
+    runUIAction('thread.sync', () => store.syncThreadState?.(activeThreadId, {
       includeArchived: true,
       includeDiff: true,
       preserveActiveThreadId: true,
@@ -364,7 +364,7 @@ function ProviderToggle({ store, canUseProjectActions = true }) {
       title={title}
       onClick={() => {
         if (disabled) return;
-        runUIAction(() => store.toggleProviderMode());
+        runUIAction('settings.provider.toggle', () => store.toggleProviderMode());
       }}
     >
       <span className="provider-track" aria-hidden="true">

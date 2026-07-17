@@ -116,10 +116,12 @@ describe('useShortcutSettings', () => {
     await waitFor(() => expect(result.current.status).toBe('ready'));
 
     act(() => result.current.setDraftBinding('chat.new', ctrlShortcut('x')));
-    await act(async () => result.current.save());
+    await act(async () => {
+      await expect(result.current.save()).rejects.toThrow('disk unavailable');
+    });
 
     expect(result.current.draftOverrides).toEqual({ 'chat.new': ctrlShortcut('x') });
-    expect(result.current.error).toContain('disk unavailable');
+    expect(result.current.error).toBe('保存快捷键设置失败，请重试。');
   });
 
   it('reads after write and rebuilds validated overrides from the returned persisted value', async () => {

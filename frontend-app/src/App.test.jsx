@@ -11,6 +11,7 @@ import chatPageSource from './pages/chat/ChatPage.jsx?raw';
 import chatWorkbenchLayoutSource from './pages/chat/hooks/useChatWorkbenchLayout.js?raw';
 import { rightPanelDefaultWidth, rightPanelMaxWidth, threadRailTargetWidth } from './pages/chat/model/chatWorkbenchLayoutModel.js';
 import { resetClientStoreForTests, useClientStore } from './entities/client/model/useClientStore.js';
+import { frontendHealthSnapshot, resetFrontendHealthForTest } from './shared/diagnostics/frontendHealthStore.js';
 import mermaid from 'mermaid';
 
 let createRootMock = null;
@@ -645,6 +646,7 @@ beforeEach(mockCronDefaults);
 beforeEach(mockSkillDefaults);
 beforeEach(mockSharedFileDefaults);
 beforeEach(mockSettingsAndThreadDefaults);
+beforeEach(resetFrontendHealthForTest);
 afterEach(() => {
   cleanup();
   document.querySelectorAll('#overlay-root').forEach((node) => node.remove());
@@ -1675,7 +1677,12 @@ async function toggleInlineTraceFromRecentLogs(table) {
 
     render(<App />);
 
-    expect(await screen.findByText('连接后端失败：runtime shim: failed to connect ws://127.0.0.1:5175/wails/ws')).toBeInTheDocument();
+    expect(await screen.findByText('连接后端失败：连接后端失败，请重试。')).toBeInTheDocument();
+    expect(screen.queryByText(/127\.0\.0\.1/)).not.toBeInTheDocument();
+    expect(frontendHealthSnapshot()).toEqual(expect.arrayContaining([
+      expect.objectContaining({ actionId: 'app.bootstrap.background' }),
+    ]));
+    expect(JSON.stringify(frontendHealthSnapshot())).not.toContain('127.0.0.1');
   });
 
   it('does not expose provider switching when no project cwd is available', async () => {
@@ -4691,7 +4698,8 @@ async function toggleInlineTraceFromRecentLogs(table) {
     fireEvent.click(screen.getByLabelText('复制当前线程'));
 
     await waitFor(() => {
-      expect(screen.getByTestId('chat-action-feedback')).toHaveTextContent('复制失败：clipboard copy failed: native ui/copyText returned ok=false: clipboard not available in headless mode');
+      expect(screen.getByTestId('chat-action-feedback')).toHaveTextContent('复制失败，请重试。');
+      expect(screen.getByTestId('chat-action-feedback')).not.toHaveTextContent('headless mode');
       expect(JSON.parse(backend.copyTextToClipboard.mock.calls[0][0])).toEqual(expect.objectContaining({
         agentId: 'agent-1',
         providerThreadId: 'provider-thread-1',
@@ -5543,7 +5551,12 @@ async function toggleInlineTraceFromRecentLogs(table) {
     });
 
     expect(screen.getByText('代码审查专家')).toBeInTheDocument();
-    expect(await screen.findByRole('alert')).toHaveTextContent('同步失败，显示的是上次成功的数据：prompt backend offline');
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent('同步失败，显示的是上次成功的数据。');
+    expect(alert).not.toHaveTextContent('prompt backend offline');
+    expect(frontendHealthSnapshot()).toEqual(expect.arrayContaining([
+      expect.objectContaining({ actionId: 'prompt.assets.load', diagnosticId: expect.any(String) }),
+    ]));
 
     prompts = [{
       ...canonicalPromptRPCItem(),
@@ -5601,7 +5614,11 @@ async function toggleInlineTraceFromRecentLogs(table) {
 
     expect(await screen.findByText('代码审查专家')).toBeInTheDocument();
     const alert = await screen.findByRole('alert');
-    expect(alert).toHaveTextContent('同步失败，显示的是上次成功的数据：active prompt preference offline');
+    expect(alert).toHaveTextContent('同步失败，显示的是上次成功的数据。');
+    expect(alert).not.toHaveTextContent('active prompt preference offline');
+    expect(frontendHealthSnapshot()).toEqual(expect.arrayContaining([
+      expect.objectContaining({ actionId: 'prompt.active.load', diagnosticId: expect.any(String) }),
+    ]));
 
     activePreferenceFails = false;
     fireEvent.click(within(alert).getByRole('button', { name: '重试同步' }));
@@ -5621,8 +5638,11 @@ async function toggleInlineTraceFromRecentLogs(table) {
     fireEvent.click(screen.getByLabelText('提示词'));
 
     const alert = await screen.findByRole('alert');
-    expect(alert).toHaveTextContent('加载提示词失败');
-    expect(alert).toHaveTextContent('prompt backend offline');
+    expect(alert).toHaveTextContent('加载提示词失败，请重试。');
+    expect(alert).not.toHaveTextContent('prompt backend offline');
+    expect(frontendHealthSnapshot()).toEqual(expect.arrayContaining([
+      expect.objectContaining({ actionId: 'prompt.assets.load', diagnosticId: expect.any(String) }),
+    ]));
     expect(screen.queryByText('暂无内容')).not.toBeInTheDocument();
 
     backend.listPromptAssets.mockResolvedValueOnce({
@@ -6240,7 +6260,12 @@ async function createGeneratedPromptIntent() {
     });
 
     expect(screen.getByText('遵守 TDD')).toBeInTheDocument();
-    expect(await screen.findByRole('alert')).toHaveTextContent('同步失败，显示的是上次成功的数据：memory backend offline');
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent('同步记忆失败，当前显示上次成功数据。');
+    expect(alert).not.toHaveTextContent('memory backend offline');
+    expect(frontendHealthSnapshot()).toEqual(expect.arrayContaining([
+      expect.objectContaining({ actionId: 'memory.dashboard.load', diagnosticId: expect.any(String) }),
+    ]));
 
     entries = [{
       name: 'review-style',
@@ -6289,7 +6314,11 @@ async function createGeneratedPromptIntent() {
     fireEvent.click(screen.getByLabelText('记忆中心'));
 
     const alert = await screen.findByRole('alert');
-    expect(alert).toHaveTextContent('memory backend offline');
+    expect(alert).toHaveTextContent('读取记忆失败，请重试。');
+    expect(alert).not.toHaveTextContent('memory backend offline');
+    expect(frontendHealthSnapshot()).toEqual(expect.arrayContaining([
+      expect.objectContaining({ actionId: 'memory.dashboard.load', diagnosticId: expect.any(String) }),
+    ]));
     expect(screen.queryByText('暂无记忆')).not.toBeInTheDocument();
 
     failMemory = false;
@@ -7031,7 +7060,12 @@ async function continueChatFromFinalSharedFile() {
     });
 
     expect(screen.getByText('final.md')).toBeInTheDocument();
-    expect(await screen.findByRole('alert')).toHaveTextContent('同步失败，显示的是上次成功的数据：shared files backend offline');
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent('同步共享文件失败，当前显示上次成功数据。');
+    expect(alert).not.toHaveTextContent('shared files backend offline');
+    expect(frontendHealthSnapshot()).toEqual(expect.arrayContaining([
+      expect.objectContaining({ actionId: 'file.dashboard.load', diagnosticId: expect.any(String) }),
+    ]));
 
     memoryFiles = [{
       path: 'scratch/notes.md',
@@ -7053,7 +7087,11 @@ async function continueChatFromFinalSharedFile() {
     fireEvent.click(screen.getByLabelText('共享文件'));
 
     const alert = await screen.findByRole('alert');
-    expect(alert).toHaveTextContent('加载共享文件失败：shared files backend offline');
+    expect(alert).toHaveTextContent('加载共享文件失败，请重试。');
+    expect(alert).not.toHaveTextContent('shared files backend offline');
+    expect(frontendHealthSnapshot()).toEqual(expect.arrayContaining([
+      expect.objectContaining({ actionId: 'file.dashboard.load', diagnosticId: expect.any(String) }),
+    ]));
     expect(screen.queryByText('还没有文件产物')).not.toBeInTheDocument();
 
     backend.listSharedFiles.mockResolvedValueOnce({
@@ -7340,7 +7378,12 @@ async function continueChatFromFinalSharedFile() {
     });
 
     expect(screen.getAllByText('流程 A').length).toBeGreaterThanOrEqual(1);
-    expect(await screen.findByRole('alert')).toHaveTextContent('同步失败，显示的是上次成功的数据：workflow backend offline');
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent('同步自动化失败，当前显示上次成功数据。');
+    expect(alert).not.toHaveTextContent('workflow backend offline');
+    expect(frontendHealthSnapshot()).toEqual(expect.arrayContaining([
+      expect.objectContaining({ actionId: 'workflow.dashboard.load', diagnosticId: expect.any(String) }),
+    ]));
 
     dags = [{
       dag_key: 'flow-b',
@@ -7396,7 +7439,9 @@ async function continueChatFromFinalSharedFile() {
       bridgeCallback?.({ type: 'task/node/statusChanged', payload: { dag_key: 'flow-a', run_key: 'run-a', node_key: 'step', new_status: 'running' } });
       await Promise.resolve();
     });
-    expect(await screen.findByRole('alert')).toHaveTextContent('同步失败，显示的是上次成功的数据：workflow backend offline');
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent('同步自动化失败，当前显示上次成功数据。');
+    expect(alert).not.toHaveTextContent('workflow backend offline');
 
     dags = [{
       dag_key: 'flow-b',
@@ -7464,7 +7509,8 @@ async function continueChatFromFinalSharedFile() {
       await Promise.resolve();
     });
     const alert = await screen.findByRole('alert');
-    expect(alert).toHaveTextContent('workflow backend offline');
+    expect(alert).toHaveTextContent('同步自动化失败，当前显示上次成功数据。');
+    expect(alert).not.toHaveTextContent('workflow backend offline');
     await waitFor(() => expect(backend.getDagDetail).toHaveBeenCalledTimes(1));
 
     fireEvent.click(within(alert).getByRole('button', { name: '重试同步' }));
@@ -7486,7 +7532,9 @@ async function continueChatFromFinalSharedFile() {
       runRefresh.resolve({ run: runningDag.latest_run, nodes: [node] });
     });
 
-    expect(await screen.findByRole('alert')).toHaveTextContent('detail backend offline');
+    const detailAlert = await screen.findByRole('alert');
+    expect(detailAlert).toHaveTextContent('同步自动化失败，当前显示上次成功数据。');
+    expect(detailAlert).not.toHaveTextContent('detail backend offline');
   });
 
   it('shows a retryable blocking error instead of an empty workflow state on initial load failure', async () => {
@@ -7509,7 +7557,11 @@ async function continueChatFromFinalSharedFile() {
     fireEvent.click(screen.getByLabelText('自动化'));
 
     const alert = await screen.findByRole('alert');
-    expect(alert).toHaveTextContent('加载自动化失败：workflow backend offline');
+    expect(alert).toHaveTextContent('加载自动化失败，请重试。');
+    expect(alert).not.toHaveTextContent('workflow backend offline');
+    expect(frontendHealthSnapshot()).toEqual(expect.arrayContaining([
+      expect.objectContaining({ actionId: 'workflow.dashboard.load', diagnosticId: expect.any(String) }),
+    ]));
     expect(screen.queryByText('无任务')).not.toBeInTheDocument();
 
     backend.getDashboardPage.mockImplementation(({ page }) => (

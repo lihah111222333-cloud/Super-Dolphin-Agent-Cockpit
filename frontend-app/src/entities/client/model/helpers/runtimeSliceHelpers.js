@@ -78,14 +78,15 @@ export function clearRuntimeUnsubscribe(runtime, key) {
 function retryBootstrapAfterFailedReconnect(runtime) {
   if (!runtime.bootstrapRetryAfterReconnect) return;
   runtime.bootstrapRetryAfterReconnect = false;
-  void runtime.get().bootstrap().catch((retryError) => {
-    runtime.addWarning('error', 'app.bootstrap.reconnect_failed', { error: retryError?.message || String(retryError) });
-  });
+  runBackgroundAction('provider.reconnect.bootstrap-deferred', () => runtime.get().bootstrap().catch((retryError) => {
+    runtime.addWarning('error', 'app.bootstrap.reconnect_failed', { error: 'background action failure; see Health diagnostic ID' });
+    throw retryError;
+  }));
 }
 
-export function handleBootstrapError(runtime, error) {
-  runtime.set({ bootstrapStatus: 'failed', error: error.message });
-  runtime.addWarning('error', 'app.bootstrap.failed', { error: error.message });
+export function handleBootstrapError(runtime, _error) {
+  runtime.set({ bootstrapStatus: 'failed', error: '连接后端失败，请重试。' });
+  runtime.addWarning('error', 'app.bootstrap.failed', { error: 'background action failure; see Health diagnostic ID' });
   retryBootstrapAfterFailedReconnect(runtime);
 }
 
@@ -117,3 +118,4 @@ export function markThreadDiffReady(runtime, id) {
     },
   }));
 }
+import { runBackgroundAction } from '../../../../shared/ui/runUIAction.js';

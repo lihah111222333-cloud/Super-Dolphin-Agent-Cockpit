@@ -238,7 +238,8 @@ describe('ChatApprovalMessage bug-locking', () => {
     );
     confirmChoice('同意');
     await waitFor(() => expect(onError).toHaveBeenCalledWith('approval.failed', '审批提交超时'));
-    expect(screen.getByRole('alert')).toHaveTextContent('审批提交超时');
+    expect(screen.getByRole('alert')).toHaveTextContent('操作失败，当前页面状态已保留。');
+    expect(screen.getByRole('alert')).not.toHaveTextContent('审批提交超时');
     expect(screen.getByRole('button', { name: '同意' })).toHaveAttribute('aria-pressed', 'true');
     expect(screen.getByRole('button', { name: '确认选择' })).toBeEnabled();
 

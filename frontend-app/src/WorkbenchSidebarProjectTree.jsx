@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Folder, Plus, SquarePlus } from 'lucide-react';
 import { getSidebarState } from './shared/api/backendApi.js';
-import { runUIAction } from './shared/ui/runUIAction.js';
+import { runBackgroundAction, runUIAction } from './shared/ui/runUIAction.js';
 import { APP_COPY } from './shared/i18n/appI18n.js';
 import { currentTimestampMillis, errorMessage, textValue } from './pages/shared/pageShared.js';
 import {
@@ -78,7 +78,7 @@ function refreshProjectThreadCacheEntry(props) {
     loading: true,
     error: '',
   }));
-  getSidebarState({ cwd: path })
+  runBackgroundAction('sidebar.project-threads.load', async () => getSidebarState({ cwd: path }))
     .then((snapshot) => {
       updateProjectThreadCache(path, {
         threads: sidebarSnapshotThreads(snapshot),
@@ -87,11 +87,11 @@ function refreshProjectThreadCacheEntry(props) {
         error: '',
       });
     })
-    .catch((error) => {
+    .catch(() => {
       updateProjectThreadCache(path, (previous) => ({
         threads: Array.isArray(previous.threads) ? previous.threads : [],
         loading: false,
-        error: error?.message || String(error),
+        error: '项目线程加载失败，请查看 Health。',
       }));
     });
 }
@@ -305,7 +305,7 @@ export function SidebarProjectTree({ copy = APP_COPY.zh.workbench, projectPath, 
     refreshProjectThreadCacheEntry({ force: options.force, path, projectThreadCacheRef, updateProjectThreadCache });
   }, [updateProjectThreadCache]);
   useActiveProjectThreadCacheSync({ activeProjectPath, store, updateProjectThreadCache });
-  const addProject = () => runUIAction(async () => {
+  const addProject = () => runUIAction('project.add', async () => {
     const added = await store?.addProjectFromPicker?.();
     if (added) setActivePage('chat');
   }, actionOptions);
@@ -325,7 +325,7 @@ export function SidebarProjectTree({ copy = APP_COPY.zh.workbench, projectPath, 
   const startProjectThread = (path, event) => {
     event?.stopPropagation?.();
     if (!path) return;
-    runUIAction(() => startProjectThreadAction({ activeProjectPath, path, setActivePage, store }), actionOptions);
+    runUIAction('thread.new', () => startProjectThreadAction({ activeProjectPath, path, setActivePage, store }), actionOptions);
   };
   const selectThread = (thread, path) => {
     const threadId = typeof thread === 'object' ? thread?.id : thread;
@@ -333,7 +333,7 @@ export function SidebarProjectTree({ copy = APP_COPY.zh.workbench, projectPath, 
     const selectionIntent = store?.beginOpeningThread?.(thread);
     if (!selectionIntent) return;
     setActivePage('chat');
-    runUIAction(() => selectProjectThreadAction({ activeProjectPath, path, selectionIntent, store, threadId }), actionOptions);
+    runUIAction('thread.select', () => selectProjectThreadAction({ activeProjectPath, path, selectionIntent, store, threadId }), actionOptions);
   };
   return (
     <section className="sidebar-project-tree" aria-label={copy.projects}>
@@ -373,7 +373,7 @@ export function SidebarTaskSummary({ copy = APP_COPY.zh.workbench, store, setAct
   const selectThread = (threadId) => {
     if (!threadId) return;
     setActivePage('chat');
-    runUIAction(() => store?.setActiveThread?.(threadId), actionOptions);
+    runUIAction('thread.select', () => store?.setActiveThread?.(threadId), actionOptions);
   };
   const taskEntry = (thread) => (
     <SidebarTaskThreadEntry
