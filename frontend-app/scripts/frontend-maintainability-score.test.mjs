@@ -316,6 +316,35 @@ function performanceEvidence(context, check, metricStatus = 'PASS', overrides = 
     sampleCount: 5,
     cases: Object.fromEntries(caseIds.map((caseId) => [caseId, timingCase()])),
   });
+  const pairedSample = (sampleIndex, normalizedRatio = 1.2) => ({
+    blockOrders: Array.from({ length: 3 }, (_, blockIndex) => (
+      (sampleIndex + blockIndex) % 2 === 0 ? 'production-reference' : 'reference-production'
+    )),
+    productionBlockCpuDurationsMs: Array.from({ length: 3 }, () => normalizedRatio * 10),
+    referenceBlockCpuDurationsMs: Array.from({ length: 3 }, () => 10),
+    rawNormalizedBlockRatios: Array.from({ length: 3 }, () => normalizedRatio),
+    normalizedRatio,
+  });
+  const pairedTimingCase = (normalizedRatio = 1.2) => ({
+    attemptsPerSample: 1,
+    durationClock: 'p50(production/reference process.cpuUsage(user+system),alternating,500000-iteration-blocks)',
+    blockCount: 3,
+    blockIterationCount: 10,
+    iterationCount: 30,
+    materializedCount: 80,
+    referenceMaterializedCount: 80,
+    sampleDiagnostics: Array.from({ length: 5 }, (_, sampleIndex) => pairedSample(sampleIndex, normalizedRatio)),
+    normalizedRatioSamples: Array.from({ length: 5 }, () => normalizedRatio),
+    normalizedRatioMedian: normalizedRatio,
+  });
+  const pairedTimingMetric = (subjectSha, caseIds, frozen = false) => ({
+    ...(frozen ? { status: 'PASS', maxRegressionRatio: 1.15 } : {}),
+    metricId: 'P02-history-budget',
+    subjectSha,
+    warmupCount: 1,
+    sampleCount: 5,
+    cases: Object.fromEntries(caseIds.map((caseId) => [caseId, pairedTimingCase()])),
+  });
   const metricsFor = (subjectSha, frozen = false) => ({
     'P01-render-isolation': {
       ...(frozen ? { status: 'PASS', absoluteUpdateLimit: 1 } : {}),
@@ -331,7 +360,7 @@ function performanceEvidence(context, check, metricStatus = 'PASS', overrides = 
       productionBoundary: 'src/App.jsx#App',
       productionStoreSubscriptions: [{ source: 'src/App.jsx', line: 1, column: 1 }],
     },
-    'P02-history-budget': timingMetric('P02-history-budget', subjectSha, casesByMetric['P02-history-budget'], frozen),
+    'P02-history-budget': pairedTimingMetric(subjectSha, casesByMetric['P02-history-budget'], frozen),
     'P03-feedback-budget': timingMetric('P03-feedback-budget', subjectSha, casesByMetric['P03-feedback-budget'], frozen),
     'P04-resource-budget': {
       ...(frozen ? { status: 'PASS', maxRegressionRatio: 1.05 } : {}),
@@ -784,35 +813,54 @@ describe('executable evidence registry', () => {
     expect(baselineDocument.metrics['P01-render-isolation'].mainPageUpdateCommits).toBe(40);
     expect(structuredEvidenceStatus(valid, options)).toBe('PASS');
     const timingCaseId = check.caseIds[0];
-    const validTimingCase = valid.evidence.metrics['P02-history-budget'].cases[timingCaseId];
-    const withTimingCase = (timingCaseEntry) => ({
-      ...valid,
-      evidence: {
-        ...valid.evidence,
-        metrics: {
-          ...valid.evidence.metrics,
-          'P02-history-budget': {
-            ...valid.evidence.metrics['P02-history-budget'],
-            cases: {
-              ...valid.evidence.metrics['P02-history-budget'].cases,
-              [timingCaseId]: timingCaseEntry,
-            },
-          },
-        },
+    const mutateCandidateCase = (mutate) => {
+      const report = structuredClone(valid);
+      mutate(report.evidence.metrics['P02-history-budget'].cases[timingCaseId]);
+      return report;
+    };
+    const mutateBaselineCase = (mutate) => {
+      const document = structuredClone(baselineDocument);
+      mutate(document.metrics['P02-history-budget'].cases[timingCaseId]);
+      return document;
+    };
+    const malformedCaseMutations = [
+      (entry) => {
+        for (const key of Object.keys(entry)) delete entry[key];
+        Object.assign(entry, {
+          attemptsPerSample: 1,
+          durationClock: 'test-clock',
+          iterationCount: 1,
+          durationAttemptSamplesMs: Array.from({ length: 5 }, () => [10]),
+          durationSamplesMs: [10, 10, 10, 10, 10],
+          durationMedianMs: 10,
+        });
       },
+      (entry) => { entry.sampleDiagnostics[0].rawNormalizedBlockRatios[0] = 1.3; },
+      (entry) => { entry.sampleDiagnostics[0].blockOrders[0] = 'reference-production'; },
+      (entry) => { entry.sampleDiagnostics[0].referenceBlockCpuDurationsMs.pop(); },
+      (entry) => { entry.normalizedRatioSamples[0] = 1.3; },
+      (entry) => { entry.normalizedRatioMedian = 1.3; },
+      (entry) => { entry.sampleDiagnostics[0].productionBlockCpuDurationsMs[0] = 0; },
+      (entry) => { entry.sampleDiagnostics[0].referenceBlockCpuDurationsMs[0] = Number.NaN; },
+    ];
+    for (const mutate of malformedCaseMutations) {
+      expect(structuredEvidenceStatus(mutateCandidateCase(mutate), options)).toBe('FAIL');
+      expect(structuredEvidenceStatus(valid, {
+        ...options,
+        baselineDocument: mutateBaselineCase(mutate),
+      })).toBe('FAIL');
+    }
+    const overBudget = mutateCandidateCase((entry) => {
+      entry.sampleDiagnostics.forEach((sample) => {
+        sample.productionBlockCpuDurationsMs.fill(15);
+        sample.referenceBlockCpuDurationsMs.fill(10);
+        sample.rawNormalizedBlockRatios.fill(1.5);
+        sample.normalizedRatio = 1.5;
+      });
+      entry.normalizedRatioSamples.fill(1.5);
+      entry.normalizedRatioMedian = 1.5;
     });
-    expect(structuredEvidenceStatus(withTimingCase({
-      ...validTimingCase,
-      durationAttemptSamplesMs: Array.from({ length: 5 }, () => [10, 11, 12]),
-    }), options)).toBe('FAIL');
-    expect(structuredEvidenceStatus(withTimingCase({
-      ...validTimingCase,
-      durationSamplesMs: [11, 10, 10, 10, 10],
-    }), options)).toBe('FAIL');
-    expect(structuredEvidenceStatus(withTimingCase({
-      ...validTimingCase,
-      attemptsPerSample: 3,
-    }), options)).toBe('FAIL');
+    expect(structuredEvidenceStatus(overBudget, options)).toBe('FAIL');
     expect(structuredEvidenceStatus({
       ...valid,
       evidence: {
@@ -883,7 +931,8 @@ describe('executable evidence registry', () => {
               ...valid.evidence.metrics['P02-history-budget'].cases,
               'turns-200-tools-1': {
                 ...valid.evidence.metrics['P02-history-budget'].cases['turns-200-tools-1'],
-                durationMedianMs: 9,
+                blockIterationCount: 20,
+                iterationCount: 60,
               },
             },
           },
@@ -952,7 +1001,7 @@ describe('executable evidence registry', () => {
         },
       },
     })).toBe('FAIL');
-  }, 30_000);
+  }, 60_000);
 
   it('binds every performance control to the audited runner content files', () => {
     const { controls } = documents();
