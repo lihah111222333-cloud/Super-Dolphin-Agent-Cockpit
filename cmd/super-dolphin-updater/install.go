@@ -51,6 +51,12 @@ type restartCommandRunner func(...string) (commandResult, error)
 
 type processExitWaiter func(int, time.Duration) error
 
+type probationCandidateStarter func(context.Context, recovery.Transaction) (*candidateHandle, error)
+type probationOwnerIDFactory func() (string, error)
+type probationLeaseAcquirer func(*recovery.Store, context.Context, recovery.Identity, recovery.ProbationLeaseRequest) (recovery.ProbationLease, error)
+type probationGuardStarter func(recovery.Transaction, bool, func() error) error
+type probationSupervisorFactory func(recovery.ProbationSupervisorConfig) (*recovery.ProbationSupervisor, error)
+
 // updaterApp 显式携带 updater 的可替换系统依赖，避免安装流程依赖隐式全局状态。
 type updaterApp struct {
 	runCommand                     commandRunner
@@ -58,6 +64,11 @@ type updaterApp struct {
 	waitForProcessExit             processExitWaiter
 	rollbackRestartDeadline        time.Duration
 	rollbackRestartCallbackFactory func(recovery.Transaction) (recovery.RollbackRestartResolver, recovery.RollbackRestartLauncher)
+	startProbationCandidate        probationCandidateStarter
+	newProbationOwnerID            probationOwnerIDFactory
+	acquireProbationLease          probationLeaseAcquirer
+	startProbationGuard            probationGuardStarter
+	newProbationSupervisor         probationSupervisorFactory
 }
 
 func defaultUpdaterApp() updaterApp {
@@ -67,6 +78,11 @@ func defaultUpdaterApp() updaterApp {
 		waitForProcessExit:             waitForProcessExit,
 		rollbackRestartDeadline:        rollbackRestartTimeout,
 		rollbackRestartCallbackFactory: recovery.RollbackRestartCallbacks,
+		startProbationCandidate:        startProbationCandidate,
+		newProbationOwnerID:            newProbationOwnerID,
+		acquireProbationLease:          (*recovery.Store).AcquireProbationLease,
+		startProbationGuard:            startDetachedGuard,
+		newProbationSupervisor:         recovery.NewProbationSupervisor,
 	}
 }
 

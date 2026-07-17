@@ -11,22 +11,48 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/pidregistry"
 )
 
-func TestArtifactRollbackLaunchIsCleanedWhenACKWriteFails(t *testing.T) {
+func TestArtifactRollbackFallbackKillCleansEndpointAndSameTokenRetries(t *testing.T) {
 	requireArtifactE2EPlatform(t)
 	fixture := newRecoveryGuardCrashFixture(t)
 	crashArtifactRetain(t, fixture, false)
-	hold := artifactRollbackHoldPath(fixture.request.Identity.TransactionID)
-	if err := os.WriteFile(hold, []byte("hold"), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	hold, ignoreTerminate := prepareArtifactFallbackMarkers(t, fixture.request.Identity.TransactionID)
 	stopArtifactUpdater(t, fixture)
 	if alive, err := artifactProcessAlive(fixture.request.Identity.UpdaterProcess); alive ||
 		!errors.Is(err, pidregistry.ErrStableProcessNotFound) {
 		t.Fatalf("artifact updater after stop alive=%t error=%v", alive, err)
 	}
 	startArtifactRecoveryGuard(t, fixture)
-	t.Cleanup(func() { _ = os.Remove(hold) })
+	t.Cleanup(func() {
+		_ = os.Remove(hold)
+		_ = os.Remove(ignoreTerminate)
+	})
 	record, stable := waitForArtifactRollbackLaunch(t, fixture)
+	forceArtifactACKWriteFailure(t, fixture, hold)
+	assertArtifactRollbackRecordHasNoACK(t, fixture, record.LaunchToken)
+	assertArtifactStableIdentityGone(t, stable)
+	assertArtifactRollbackEndpointMissing(t, fixture, record.LaunchToken)
+	mustRemoveArtifactPath(t, ignoreTerminate)
+	retryArtifactRollbackRestart(t, fixture, record.LaunchToken)
+	if err := fixture.cleanupRollbackIntent(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func prepareArtifactFallbackMarkers(t *testing.T, transactionID TransactionID) (string, string) {
+	t.Helper()
+	hold := artifactRollbackHoldPath(transactionID)
+	ignoreTerminate := artifactRollbackIgnoreTerminatePath(transactionID)
+	if err := os.WriteFile(hold, []byte("hold"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(ignoreTerminate, []byte("force fallback"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return hold, ignoreTerminate
+}
+
+func forceArtifactACKWriteFailure(t *testing.T, fixture *recoveryGuardCrashFixture, hold string) {
+	t.Helper()
 	journalDir := filepath.Dir(fixture.store.journalPath(fixture.request.Identity.TransactionID))
 	info, err := os.Stat(journalDir)
 	if err != nil {
@@ -50,15 +76,46 @@ func TestArtifactRollbackLaunchIsCleanedWhenACKWriteFails(t *testing.T) {
 		t.Fatal(err)
 	}
 	restored = true
-	assertArtifactRollbackRecordHasNoACK(t, fixture, record.LaunchToken)
-	assertArtifactStableIdentityGone(t, stable)
-	if err := fixture.cleanupRollbackIntent(); err != nil {
+}
+
+func assertArtifactRollbackEndpointMissing(t *testing.T, fixture *recoveryGuardCrashFixture, launchToken string) {
+	t.Helper()
+	endpoint := artifactRollbackEndpoint(fixture.request.Identity.TransactionID, launchToken)
+	if _, err := os.Lstat(endpoint); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("fallback endpoint remains after reaped child cleanup: %v", err)
+	}
+}
+
+func mustRemoveArtifactPath(t *testing.T, path string) {
+	t.Helper()
+	if err := os.Remove(path); err != nil {
 		t.Fatal(err)
 	}
 }
 
 func artifactRollbackHoldPath(transactionID TransactionID) string {
 	return filepath.Join(os.TempDir(), "sd-art-hold-"+string(transactionID))
+}
+
+func artifactRollbackIgnoreTerminatePath(transactionID TransactionID) string {
+	return filepath.Join(os.TempDir(), "sd-art-ignore-terminate-"+string(transactionID))
+}
+
+func retryArtifactRollbackRestart(t *testing.T, fixture *recoveryGuardCrashFixture, wantToken string) {
+	t.Helper()
+	transaction, err := fixture.store.Load(t.Context(), fixture.request.Identity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolve, launch := RollbackRestartCallbacks(transaction)
+	converged, err := fixture.store.ConvergeRollbackRestart(t.Context(), transaction.Identity, resolve, launch)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !converged.RollbackRestart.ACKPresent || converged.RollbackRestart.LaunchToken != wantToken ||
+		converged.RollbackRestart.ACK.LaunchToken != wantToken {
+		t.Fatalf("same-token retry did not ACK: %+v", converged.RollbackRestart)
+	}
 }
 
 func waitForArtifactRollbackLaunch(t *testing.T, fixture *recoveryGuardCrashFixture) (RollbackRestartRecord, pidregistry.StableProcessIdentity) {

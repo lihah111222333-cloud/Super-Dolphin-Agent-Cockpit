@@ -27,8 +27,8 @@ func TestRollbackRestartIntentSurvivesRenameAndConvergesOnce(t *testing.T) {
 	process := fixtureRollbackRestartProcess()
 	converged, err := store.ConvergeRollbackRestart(
 		context.Background(), identity,
-		func(context.Context, string) (RollbackRestartProcess, RollbackRestartCleanup, bool, error) {
-			return RollbackRestartProcess{}, nil, false, nil
+		func(context.Context, string) (RollbackRestartControl, bool, error) {
+			return RollbackRestartControl{}, false, nil
 		},
 		rollbackRestartLauncher(t, transaction.RollbackRestart.LaunchToken, process, &launches),
 	)
@@ -38,34 +38,39 @@ func TestRollbackRestartIntentSurvivesRenameAndConvergesOnce(t *testing.T) {
 	if launches != 1 || !converged.RollbackRestart.ACKPresent || converged.RollbackRestart.ACK.Process != process {
 		t.Fatalf("converged restart = %+v launches=%d", converged.RollbackRestart, launches)
 	}
-	assertRollbackRestartAlreadyACKed(t, store, identity)
+	assertRollbackRestartAlreadyACKed(t, store, identity, process)
 }
 
 func rollbackRestartLauncher(t *testing.T, wantToken string, process RollbackRestartProcess, launches *int) RollbackRestartLauncher {
 	t.Helper()
-	return func(_ context.Context, token string) (RollbackRestartProcess, RollbackRestartCleanup, error) {
+	return func(_ context.Context, token string) (RollbackRestartControl, error) {
 		*launches++
 		if token != wantToken {
 			t.Fatalf("launch token = %q, want durable intent token", token)
 		}
-		return process, func() error { return nil }, nil
+		return fixtureRollbackRestartControl(process), nil
 	}
 }
 
-func assertRollbackRestartAlreadyACKed(t *testing.T, store *Store, identity Identity) {
+func assertRollbackRestartAlreadyACKed(t *testing.T, store *Store, identity Identity, process RollbackRestartProcess) {
 	t.Helper()
+	commits := 0
 	if _, err := store.ConvergeRollbackRestart(
 		context.Background(), identity,
-		func(context.Context, string) (RollbackRestartProcess, RollbackRestartCleanup, bool, error) {
-			t.Fatal("resolver called after ACK")
-			return RollbackRestartProcess{}, nil, false, nil
+		func(context.Context, string) (RollbackRestartControl, bool, error) {
+			control := fixtureRollbackRestartControl(process)
+			control.Commit = func(context.Context) error { commits++; return nil }
+			return control, true, nil
 		},
-		func(context.Context, string) (RollbackRestartProcess, RollbackRestartCleanup, error) {
+		func(context.Context, string) (RollbackRestartControl, error) {
 			t.Fatal("launcher called after ACK")
-			return RollbackRestartProcess{}, nil, nil
+			return RollbackRestartControl{}, nil
 		},
 	); err != nil {
 		t.Fatal(err)
+	}
+	if commits != 1 {
+		t.Fatalf("ACKed rollback COMMIT count = %d, want 1", commits)
 	}
 }
 
@@ -79,16 +84,16 @@ func TestRollbackRestartRecoversLaunchBeforeACKWindowByToken(t *testing.T) {
 	resolved := 0
 	converged, err := store.ConvergeRollbackRestart(
 		context.Background(), identity,
-		func(_ context.Context, token string) (RollbackRestartProcess, RollbackRestartCleanup, bool, error) {
+		func(_ context.Context, token string) (RollbackRestartControl, bool, error) {
 			resolved++
 			if token != transaction.RollbackRestart.LaunchToken {
 				t.Fatalf("resolve token = %q, want %q", token, transaction.RollbackRestart.LaunchToken)
 			}
-			return process, func() error { return nil }, true, nil
+			return fixtureRollbackRestartControl(process), true, nil
 		},
-		func(context.Context, string) (RollbackRestartProcess, RollbackRestartCleanup, error) {
+		func(context.Context, string) (RollbackRestartControl, error) {
 			t.Fatal("launcher called although token-bound process was rediscovered")
-			return RollbackRestartProcess{}, nil, nil
+			return RollbackRestartControl{}, nil
 		},
 	)
 	if err != nil {
@@ -97,6 +102,117 @@ func TestRollbackRestartRecoversLaunchBeforeACKWindowByToken(t *testing.T) {
 	if resolved != 1 || !converged.RollbackRestart.ACKPresent || converged.RollbackRestart.ACK.LaunchToken != transaction.RollbackRestart.LaunchToken {
 		t.Fatalf("converged restart = %+v resolved=%d", converged.RollbackRestart, resolved)
 	}
+}
+
+func TestRollbackRestartReplaysCommitAfterDurableACK(t *testing.T) {
+	store, identity, _ := createProbationTransaction(t)
+	transaction, err := store.RollbackUnclaimedProbation(t.Context(), identity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	process := fixtureRollbackRestartProcess()
+	commitInterrupted := errors.New("COMMIT response lost")
+	launches := 0
+	commits := 0
+	cleanups := 0
+	control := func() RollbackRestartControl {
+		return RollbackRestartControl{
+			Process: process,
+			Cleanup: func() error { cleanups++; return nil },
+			Commit: func(context.Context) error {
+				commits++
+				if commits == 1 {
+					return commitInterrupted
+				}
+				return nil
+			},
+		}
+	}
+	resolve := func(context.Context, string) (RollbackRestartControl, bool, error) {
+		return control(), launches > 0, nil
+	}
+	launch := func(context.Context, string) (RollbackRestartControl, error) {
+		launches++
+		return control(), nil
+	}
+	if _, err := store.ConvergeRollbackRestart(t.Context(), transaction.Identity, resolve, launch); !errors.Is(err, commitInterrupted) {
+		t.Fatalf("first convergence error = %v, want COMMIT interruption", err)
+	}
+	acked := loadTransaction(t, store, identity)
+	if !acked.RollbackRestart.ACKPresent || acked.RollbackRestart.ACK.Process != process {
+		t.Fatalf("durable ACK after COMMIT interruption = %+v", acked.RollbackRestart)
+	}
+	if _, err := store.ConvergeRollbackRestart(t.Context(), transaction.Identity, resolve, launch); err != nil {
+		t.Fatalf("replayed convergence: %v", err)
+	}
+	if launches != 1 || commits != 2 || cleanups != 0 {
+		t.Fatalf("launches=%d commits=%d cleanups=%d, want 1/2/0", launches, commits, cleanups)
+	}
+}
+
+func TestRollbackRestartACKReplayIdentityChangeDoesNotCleanup(t *testing.T) {
+	store, identity, _ := createProbationTransaction(t)
+	transaction, err := store.RollbackUnclaimedProbation(t.Context(), identity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	process := fixtureRollbackRestartProcess()
+	if _, err := store.ConvergeRollbackRestart(
+		t.Context(), identity,
+		func(context.Context, string) (RollbackRestartControl, bool, error) {
+			return RollbackRestartControl{}, false, nil
+		},
+		func(context.Context, string) (RollbackRestartControl, error) {
+			return fixtureRollbackRestartControl(process), nil
+		},
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	cleanups := 0
+	changed := process
+	changed.StartToken = "reused-generation"
+	_, replayErr := store.ConvergeRollbackRestart(
+		t.Context(), transaction.Identity,
+		func(context.Context, string) (RollbackRestartControl, bool, error) {
+			control := fixtureRollbackRestartControl(changed)
+			control.Cleanup = func() error { cleanups++; return nil }
+			return control, true, nil
+		},
+		func(context.Context, string) (RollbackRestartControl, error) {
+			t.Fatal("launcher called after durable ACK")
+			return RollbackRestartControl{}, nil
+		},
+	)
+	if replayErr == nil || cleanups != 0 {
+		t.Fatalf("ACK replay error=%v cleanups=%d, want identity error and no cleanup", replayErr, cleanups)
+	}
+}
+
+func TestRollbackRestartLargeDigestDeadlineReleasesLockWithoutACK(t *testing.T) {
+	defer goleak.VerifyNone(t, goleak.IgnoreCurrent())
+	store, identity, paths := createProbationTransaction(t)
+	transaction, err := store.RollbackUnclaimedProbation(t.Context(), identity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	transaction.Paths.Target, err = CanonicalExistingPath(paths.Target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Truncate(transaction.Paths.Target, 1<<30); err != nil {
+		t.Fatal(err)
+	}
+	before := rollbackRestartJournalBytes(t, store, identity)
+	ctx, cancel := context.WithTimeout(context.Background(), 35*time.Millisecond)
+	defer cancel()
+	resolve, launch := RollbackRestartCallbacks(transaction)
+	started := time.Now()
+	_, convergeErr := store.ConvergeRollbackRestart(ctx, identity, resolve, launch)
+	if elapsed := time.Since(started); elapsed > time.Second {
+		t.Fatalf("large digest deadline elapsed %s", elapsed)
+	}
+	assertRollbackRestartDeadlineResult(t, store, identity, before, convergeErr)
 }
 
 func TestRollbackRestartRediscoveredValidationFailureCleansWithoutACK(t *testing.T) {
@@ -110,15 +226,15 @@ func TestRollbackRestartRediscoveredValidationFailureCleansWithoutACK(t *testing
 	cleanups := 0
 	_, convergeErr := store.ConvergeRollbackRestart(
 		t.Context(), transaction.Identity,
-		func(context.Context, string) (RollbackRestartProcess, RollbackRestartCleanup, bool, error) {
-			return RollbackRestartProcess{}, func() error {
+		func(context.Context, string) (RollbackRestartControl, bool, error) {
+			return RollbackRestartControl{Cleanup: func() error {
 				cleanups++
 				return cleanupEvidence
-			}, true, nil
+			}}, true, nil
 		},
-		func(context.Context, string) (RollbackRestartProcess, RollbackRestartCleanup, error) {
+		func(context.Context, string) (RollbackRestartControl, error) {
 			t.Fatal("launcher called after rediscovery")
-			return RollbackRestartProcess{}, nil, nil
+			return RollbackRestartControl{}, nil
 		},
 	)
 	if cleanups != 1 || !errors.Is(convergeErr, cleanupEvidence) {
@@ -151,13 +267,13 @@ func TestRollbackRestartBusyLockHonorsDeadlineWithoutJournalMutation(t *testing.
 	defer cancel()
 	_, convergeErr := store.ConvergeRollbackRestart(
 		ctx, transaction.Identity,
-		func(context.Context, string) (RollbackRestartProcess, RollbackRestartCleanup, bool, error) {
+		func(context.Context, string) (RollbackRestartControl, bool, error) {
 			t.Fatal("resolver called while transaction lock is held")
-			return RollbackRestartProcess{}, nil, false, nil
+			return RollbackRestartControl{}, false, nil
 		},
-		func(context.Context, string) (RollbackRestartProcess, RollbackRestartCleanup, error) {
+		func(context.Context, string) (RollbackRestartControl, error) {
 			t.Fatal("launcher called while transaction lock is held")
-			return RollbackRestartProcess{}, nil, nil
+			return RollbackRestartControl{}, nil
 		},
 	)
 	if !errors.Is(convergeErr, context.DeadlineExceeded) {
@@ -185,13 +301,13 @@ func TestRollbackRestartBlockingResolverHonorsDeadline(t *testing.T) {
 
 	_, convergeErr := store.ConvergeRollbackRestart(
 		ctx, transaction.Identity,
-		func(callbackCtx context.Context, _ string) (RollbackRestartProcess, RollbackRestartCleanup, bool, error) {
+		func(callbackCtx context.Context, _ string) (RollbackRestartControl, bool, error) {
 			<-callbackCtx.Done()
-			return RollbackRestartProcess{}, nil, false, context.Cause(callbackCtx)
+			return RollbackRestartControl{}, false, context.Cause(callbackCtx)
 		},
-		func(context.Context, string) (RollbackRestartProcess, RollbackRestartCleanup, error) {
+		func(context.Context, string) (RollbackRestartControl, error) {
 			t.Fatal("launcher called after resolver deadline")
-			return RollbackRestartProcess{}, nil, nil
+			return RollbackRestartControl{}, nil
 		},
 	)
 	assertRollbackRestartDeadlineResult(t, store, identity, before, convergeErr)
@@ -210,12 +326,12 @@ func TestRollbackRestartBlockingLauncherHonorsDeadline(t *testing.T) {
 
 	_, convergeErr := store.ConvergeRollbackRestart(
 		ctx, transaction.Identity,
-		func(context.Context, string) (RollbackRestartProcess, RollbackRestartCleanup, bool, error) {
-			return RollbackRestartProcess{}, nil, false, nil
+		func(context.Context, string) (RollbackRestartControl, bool, error) {
+			return RollbackRestartControl{}, false, nil
 		},
-		func(callbackCtx context.Context, _ string) (RollbackRestartProcess, RollbackRestartCleanup, error) {
+		func(callbackCtx context.Context, _ string) (RollbackRestartControl, error) {
 			<-callbackCtx.Done()
-			return RollbackRestartProcess{}, nil, context.Cause(callbackCtx)
+			return RollbackRestartControl{}, context.Cause(callbackCtx)
 		},
 	)
 	assertRollbackRestartDeadlineResult(t, store, identity, before, convergeErr)
@@ -235,15 +351,17 @@ func TestRollbackRestartDeadlineAfterLaunchCleansWithoutACK(t *testing.T) {
 
 	_, convergeErr := store.ConvergeRollbackRestart(
 		ctx, transaction.Identity,
-		func(context.Context, string) (RollbackRestartProcess, RollbackRestartCleanup, bool, error) {
-			return RollbackRestartProcess{}, nil, false, nil
+		func(context.Context, string) (RollbackRestartControl, bool, error) {
+			return RollbackRestartControl{}, false, nil
 		},
-		func(context.Context, string) (RollbackRestartProcess, RollbackRestartCleanup, error) {
+		func(context.Context, string) (RollbackRestartControl, error) {
 			cancel(context.DeadlineExceeded)
-			return fixtureRollbackRestartProcess(), func() error {
+			control := fixtureRollbackRestartControl(fixtureRollbackRestartProcess())
+			control.Cleanup = func() error {
 				cleanups++
 				return nil
-			}, nil
+			}
+			return control, nil
 		},
 	)
 	if cleanups != 1 {
@@ -265,16 +383,18 @@ func TestRollbackRestartDeadlineAfterResolverCleansWithoutACK(t *testing.T) {
 
 	_, convergeErr := store.ConvergeRollbackRestart(
 		ctx, transaction.Identity,
-		func(context.Context, string) (RollbackRestartProcess, RollbackRestartCleanup, bool, error) {
+		func(context.Context, string) (RollbackRestartControl, bool, error) {
 			cancel(context.DeadlineExceeded)
-			return fixtureRollbackRestartProcess(), func() error {
+			control := fixtureRollbackRestartControl(fixtureRollbackRestartProcess())
+			control.Cleanup = func() error {
 				cleanups++
 				return nil
-			}, true, nil
+			}
+			return control, true, nil
 		},
-		func(context.Context, string) (RollbackRestartProcess, RollbackRestartCleanup, error) {
+		func(context.Context, string) (RollbackRestartControl, error) {
 			t.Fatal("launcher called after resolver found exact process")
-			return RollbackRestartProcess{}, nil, nil
+			return RollbackRestartControl{}, nil
 		},
 	)
 	if cleanups != 1 {
@@ -314,5 +434,13 @@ func fixtureRollbackRestartProcess() RollbackRestartProcess {
 	return RollbackRestartProcess{
 		PID: 303, StartToken: "kernel-start-token", ExecutableIdentity: "/Applications/Super Dolphin.app/Contents/MacOS/agent-terminal",
 		ExecutableSHA256: digestText("old executable"),
+	}
+}
+
+func fixtureRollbackRestartControl(process RollbackRestartProcess) RollbackRestartControl {
+	return RollbackRestartControl{
+		Process: process,
+		Cleanup: func() error { return nil },
+		Commit:  func(context.Context) error { return nil },
 	}
 }

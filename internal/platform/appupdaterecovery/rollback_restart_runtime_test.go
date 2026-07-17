@@ -16,7 +16,7 @@ import (
 )
 
 func TestRollbackRestartLauncherReapsEveryPostStartFailure(t *testing.T) {
-	for _, failure := range []string{"capture", "validation", "release"} {
+	for _, failure := range []string{"capture", "validation"} {
 		t.Run(failure, func(t *testing.T) { runRollbackRestartLauncherFailure(t, failure) })
 	}
 }
@@ -30,7 +30,7 @@ func runRollbackRestartLauncherFailure(t *testing.T, failure string) {
 	}
 	runtime := fixture.runtime()
 	_, launch := rollbackRestartCallbacksWithRuntime(transaction, runtime)
-	_, _, launchErr := launch(t.Context(), transaction.RollbackRestart.LaunchToken)
+	_, launchErr := launch(t.Context(), transaction.RollbackRestart.LaunchToken)
 	for _, want := range []error{fixture.primary, fixture.terminationFailure, fixture.waitFailure} {
 		if !errors.Is(launchErr, want) {
 			t.Fatalf("launch error %v does not retain %v", launchErr, want)
@@ -38,9 +38,6 @@ func runRollbackRestartLauncherFailure(t *testing.T, failure string) {
 	}
 	if fixture.started == nil || !fixture.reaped.Load() {
 		t.Fatal("started rollback process was not bounded-waited and reaped")
-	}
-	if failure == "release" && fixture.started.Process.Pid != -1 {
-		t.Fatalf("release failure fixture did not invalidate process handle PID: %d", fixture.started.Process.Pid)
 	}
 	if _, err := pidregistry.CaptureStableProcessIdentity(fixture.startedPID); !errors.Is(err, pidregistry.ErrStableProcessNotFound) {
 		t.Fatalf("started rollback process remains observable: %v", err)
@@ -60,10 +57,11 @@ type rollbackRuntimeFailureFixture struct {
 func (fixture *rollbackRuntimeFailureFixture) runtime() rollbackRestartRuntime {
 	return rollbackRestartRuntime{
 		cleanupLimits: rollbackRestartCleanupLimits{total: 500 * time.Millisecond, terminate: 100 * time.Millisecond, firstWait: 100 * time.Millisecond},
-		start:         fixture.start, waitReady: func(context.Context, string) error { return nil },
+		start:         fixture.start, waitReady: func(context.Context, pidregistry.StableProcessIdentity) error { return nil },
 		capture: fixture.capture, validate: fixture.validate, release: fixture.release,
+		commit:           func(context.Context, pidregistry.StableProcessIdentity) error { return nil },
 		requestTerminate: fixture.requestTerminate, terminate: pidregistry.TerminateExactProcess,
-		kill: fixture.kill, waitChild: fixture.waitChild,
+		kill: fixture.kill, waitChild: fixture.waitChild, cleanupEndpoint: func(string) error { return nil },
 	}
 }
 
@@ -151,6 +149,7 @@ func TestRollbackRestartCleanupReturnsWhenTerminationAndKillDoNotRespond(t *test
 		release:          func(*os.Process) error { return nil },
 		requestTerminate: func(context.Context, pidregistry.StableProcessIdentity) error { return terminationFailure },
 		kill:             func(*os.Process) error { return killFailure },
+		cleanupEndpoint:  func(string) error { return nil },
 		waitChild: func(ctx context.Context, _ int) error {
 			<-ctx.Done()
 			return context.Cause(ctx)
@@ -195,20 +194,23 @@ func TestRollbackRestartResolverCleanupUsesFrozenExactContract(t *testing.T) {
 		validate: func(context.Context, pidregistry.StableProcessIdentity, string) (RollbackRestartProcess, error) {
 			return fixtureRollbackRestartProcess(), nil
 		},
+		waitReady: func(context.Context, pidregistry.StableProcessIdentity) error { return nil },
+		commit:    func(context.Context, pidregistry.StableProcessIdentity) error { return nil },
 		terminate: func(_ context.Context, identity pidregistry.StableProcessIdentity) error {
 			terminated = identity
 			return nil
 		},
+		cleanupEndpoint: func(string) error { return nil },
 	}
 	resolve, _ := rollbackRestartCallbacksWithRuntime(transaction, runtime)
-	_, cleanup, found, err := resolve(t.Context(), transaction.RollbackRestart.LaunchToken)
-	if err != nil || !found || cleanup == nil {
-		t.Fatalf("resolve found=%t cleanup=%t error=%v", found, cleanup != nil, err)
+	control, found, err := resolve(t.Context(), transaction.RollbackRestart.LaunchToken)
+	if err != nil || !found || control.Cleanup == nil {
+		t.Fatalf("resolve found=%t cleanup=%t error=%v", found, control.Cleanup != nil, err)
 	}
-	if err := cleanup(); err != nil {
+	if err := control.Cleanup(); err != nil {
 		t.Fatal(err)
 	}
-	contract, err := rollbackRestartRecoveryLaunch(transaction, transaction.RollbackRestart.LaunchToken, executable)
+	contract, err := rollbackRestartRecoveryLaunch(t.Context(), transaction, transaction.RollbackRestart.LaunchToken, executable)
 	if err != nil {
 		t.Fatal(err)
 	}
