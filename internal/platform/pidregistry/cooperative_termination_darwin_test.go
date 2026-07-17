@@ -11,7 +11,26 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util/safego"
 )
+
+type cooperativeServerStartResult struct {
+	server *CooperativeTerminationServer
+	err    error
+}
+
+func awaitCooperativeTestValue[T any](t *testing.T, ctx context.Context, values <-chan T, timeoutMessage string) T {
+	t.Helper()
+	select {
+	case value := <-values:
+		return value
+	case <-ctx.Done():
+		t.Fatal(timeoutMessage)
+		var zero T
+		return zero
+	}
+}
 
 func TestCooperativeTerminationAuthenticatesBeforeACK(t *testing.T) {
 	endpoint := testTerminationSocketPath(t)
@@ -46,6 +65,104 @@ func TestCooperativeTerminationAuthenticatesBeforeACK(t *testing.T) {
 	case <-terminated:
 	case <-ctx.Done():
 		t.Fatal("authenticated termination ACK did not invoke callback")
+	}
+}
+
+func TestCooperativeTerminationEndpointPublishesOnlyAfterOwnerMode(t *testing.T) {
+	endpoint := testTerminationSocketPath(t)
+	identity, err := CaptureStableProcessIdentity(os.Getpid())
+	if err != nil {
+		t.Fatal(err)
+	}
+	identity.TerminationEndpoint = endpoint
+	identity.TerminationToken = "publish-secret"
+
+	staged := make(chan string, 1)
+	release := make(chan struct{})
+	var releaseOnce sync.Once
+	t.Cleanup(func() { releaseOnce.Do(func() { close(release) }) })
+	result := make(chan cooperativeServerStartResult, 1)
+	safego.Go(context.Background(), nil, "pidregistry.test-cooperative-endpoint-publication", func(context.Context) {
+		server, startErr := startCooperativeTerminationServerWithPublishHook(
+			endpoint,
+			identity.TerminationToken,
+			func() {},
+			func(staging string) error {
+				if chmodErr := os.Chmod(staging, 0o777); chmodErr != nil {
+					return chmodErr
+				}
+				staged <- staging
+				<-release
+				return nil
+			},
+		)
+		result <- cooperativeServerStartResult{server: server, err: startErr}
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	awaitCooperativeTestValue(t, ctx, staged, "cooperative endpoint did not reach pre-publication barrier")
+	if err := ProbeExactProcessEndpoint(ctx, identity); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("pre-publication probe error = %v, want os.ErrNotExist", err)
+	}
+	releaseOnce.Do(func() { close(release) })
+	started := awaitCooperativeTestValue(t, ctx, result, "cooperative endpoint publication did not complete")
+	if started.err != nil {
+		t.Fatal(started.err)
+	}
+	defer started.server.Close()
+	if err := ProbeExactProcessEndpoint(ctx, identity); err != nil {
+		t.Fatalf("published endpoint READY: %v", err)
+	}
+}
+
+func TestCooperativeTerminationEndpointPublicationRejectsReplacement(t *testing.T) {
+	endpoint := testTerminationSocketPath(t)
+	t.Cleanup(func() { _ = os.Remove(endpoint) })
+	staged := make(chan string, 1)
+	release := make(chan struct{})
+	var releaseOnce sync.Once
+	t.Cleanup(func() { releaseOnce.Do(func() { close(release) }) })
+	result := make(chan cooperativeServerStartResult, 1)
+	safego.Go(context.Background(), nil, "pidregistry.test-cooperative-endpoint-replacement", func(context.Context) {
+		server, startErr := startCooperativeTerminationServerWithPublishHook(
+			endpoint,
+			"replacement-secret",
+			func() {},
+			func(staging string) error {
+				staged <- staging
+				<-release
+				return nil
+			},
+		)
+		result <- cooperativeServerStartResult{server: server, err: startErr}
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	stagingEndpoint := awaitCooperativeTestValue(t, ctx, staged, "cooperative endpoint did not reach replacement barrier")
+	const replacement = "occupied"
+	if err := os.WriteFile(endpoint, []byte(replacement), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	releaseOnce.Do(func() { close(release) })
+	started := awaitCooperativeTestValue(t, ctx, result, "cooperative endpoint replacement check did not complete")
+	if started.server != nil {
+		_ = started.server.Close()
+		t.Fatalf("replacement publication returned server %v", started.server)
+	}
+	if started.err == nil {
+		t.Fatal("replacement publication returned nil error")
+	}
+	contents, err := os.ReadFile(endpoint)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(contents) != replacement {
+		t.Fatalf("replacement contents = %q, want %q", contents, replacement)
+	}
+	if _, err := os.Lstat(stagingEndpoint); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("staging endpoint cleanup error = %v, want os.ErrNotExist", err)
 	}
 }
 

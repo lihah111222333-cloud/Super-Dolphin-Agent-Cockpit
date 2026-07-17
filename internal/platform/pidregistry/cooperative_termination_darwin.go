@@ -5,7 +5,9 @@ package pidregistry
 import (
 	"bufio"
 	"context"
+	cryptorand "crypto/rand"
 	"crypto/subtle"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -18,6 +20,7 @@ import (
 	"time"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util/safego"
+	"golang.org/x/sys/unix"
 )
 
 const (
@@ -52,19 +55,23 @@ func StartParkedCooperativeTerminationServer(endpoint, token string, terminate f
 
 // startCooperativeTerminationServer 创建 owner-only socket 并托管唯一 serve 循环。
 func startCooperativeTerminationServer(endpoint, token string, terminate func()) (*CooperativeTerminationServer, error) {
+	return startCooperativeTerminationServerWithPublishHook(endpoint, token, terminate, nil)
+}
+
+// startCooperativeTerminationServerWithPublishHook 在测试屏障后发布协作终止端点。
+func startCooperativeTerminationServerWithPublishHook(
+	endpoint, token string,
+	terminate func(),
+	beforePublish func(string) error,
+) (*CooperativeTerminationServer, error) {
 	if endpoint == "" || token == "" || terminate == nil {
 		return nil, errors.New("pidregistry: cooperative termination endpoint, token, and callback are required")
 	}
 	if _, err := os.Lstat(endpoint); !errors.Is(err, os.ErrNotExist) {
 		return nil, errors.New("pidregistry: cooperative termination endpoint already exists")
 	}
-	listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: endpoint, Net: "unix"})
+	listener, err := listenAndPublishCooperativeEndpoint(endpoint, beforePublish)
 	if err != nil {
-		return nil, fmt.Errorf("pidregistry: listen cooperative termination endpoint: %w", err)
-	}
-	if err := os.Chmod(endpoint, 0o600); err != nil {
-		_ = listener.Close()
-		_ = os.Remove(endpoint)
 		return nil, err
 	}
 	server := &CooperativeTerminationServer{
@@ -74,6 +81,51 @@ func startCooperativeTerminationServer(endpoint, token string, terminate func())
 		server.serve(token, terminate)
 	})
 	return server, nil
+}
+
+// listenAndPublishCooperativeEndpoint 在随机 staging 路径收敛权限后原子发布正式 endpoint。
+func listenAndPublishCooperativeEndpoint(endpoint string, beforePublish func(string) error) (*net.UnixListener, error) {
+	stagingEndpoint, err := newCooperativeTerminationStagingEndpoint(endpoint)
+	if err != nil {
+		return nil, err
+	}
+	listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: stagingEndpoint, Net: "unix"})
+	if err != nil {
+		return nil, fmt.Errorf("pidregistry: listen cooperative termination endpoint: %w", err)
+	}
+	cleanupStaging := func() {
+		_ = listener.Close()
+		_ = os.Remove(stagingEndpoint)
+	}
+	if beforePublish != nil {
+		if err := beforePublish(stagingEndpoint); err != nil {
+			cleanupStaging()
+			return nil, fmt.Errorf("pidregistry: prepare cooperative termination endpoint publication: %w", err)
+		}
+	}
+	if err := os.Chmod(stagingEndpoint, 0o600); err != nil {
+		cleanupStaging()
+		return nil, err
+	}
+	if err := unix.RenameatxNp(unix.AT_FDCWD, stagingEndpoint, unix.AT_FDCWD, endpoint, unix.RENAME_EXCL); err != nil {
+		cleanupStaging()
+		return nil, fmt.Errorf("pidregistry: publish cooperative termination endpoint: %w", err)
+	}
+	listener.SetUnlinkOnClose(false)
+	return listener, nil
+}
+
+// newCooperativeTerminationStagingEndpoint 创建不长于正式 basename 的随机同目录 socket 路径。
+func newCooperativeTerminationStagingEndpoint(endpoint string) (string, error) {
+	const randomBytes = 8
+	if len(filepath.Base(endpoint)) < 1+hex.EncodedLen(randomBytes) {
+		return "", errors.New("pidregistry: cooperative termination endpoint basename is too short for private staging")
+	}
+	var nonce [randomBytes]byte
+	if _, err := cryptorand.Read(nonce[:]); err != nil {
+		return "", fmt.Errorf("pidregistry: generate cooperative termination staging endpoint: %w", err)
+	}
+	return filepath.Join(filepath.Dir(endpoint), "."+hex.EncodeToString(nonce[:])), nil
 }
 
 func (server *CooperativeTerminationServer) serve(token string, terminate func()) {
