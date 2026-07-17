@@ -266,9 +266,11 @@ type containerInspectDocument struct {
 	Path   string   `json:"Path"`
 	Args   []string `json:"Args"`
 	Config *struct {
-		Image  string            `json:"Image"`
-		User   string            `json:"User"`
-		Labels map[string]string `json:"Labels"`
+		Image      string            `json:"Image"`
+		User       string            `json:"User"`
+		WorkingDir string            `json:"WorkingDir"`
+		Env        []string          `json:"Env"`
+		Labels     map[string]string `json:"Labels"`
 	} `json:"Config"`
 	HostConfig *containerHostConfig `json:"HostConfig"`
 	Mounts     []struct {
@@ -318,7 +320,10 @@ type canonicalHostConfig struct {
 	NetworkMode     string
 	StorageSize     string
 	Source          string
-	TmpfsOptions    []string
+	WorkingDir      string
+	Environment     []string
+	TempTmpfs       []string
+	WorkTmpfs       []string
 	LogDriver       string
 	LogOptions      map[string]string
 }
@@ -363,8 +368,9 @@ func (runner *FreshContainerRunner) validateContainerContract(document container
 	if err := validateContainerMount(document, sourceDirectory); err != nil {
 		return canonical, err
 	}
-	tmpfs := splitOptionSet(host.Tmpfs["/tmp"])
-	if err := validateContainerTmpfsAndLogs(host, tmpfs); err != nil {
+	tempTmpfs := splitOptionSet(host.Tmpfs["/tmp"])
+	workTmpfs := splitOptionSet(host.Tmpfs[containerWorkDir])
+	if err := validateContainerRuntime(document, tempTmpfs, workTmpfs); err != nil {
 		return canonical, err
 	}
 	canonical = canonicalHostConfig{
@@ -372,7 +378,9 @@ func (runner *FreshContainerRunner) validateContainerContract(document container
 		NanoCPUs: host.NanoCPUs, Memory: host.Memory, PidsLimit: host.PidsLimit, ReadonlyRootfs: host.ReadonlyRootfs,
 		CapDrop: sortedStrings(host.CapDrop), NoNewPrivileges: true, SeccompDigest: runner.docker.seccompDigest,
 		NetworkMode: host.NetworkMode, StorageSize: host.StorageOpt["size"], Source: sourceDirectory,
-		TmpfsOptions: sortedStrings(tmpfs), LogDriver: host.LogConfig.Type, LogOptions: host.LogConfig.Config,
+		WorkingDir: document.Config.WorkingDir, Environment: append([]string(nil), containerRuntimeEnvironment...),
+		TempTmpfs: sortedStrings(tempTmpfs), WorkTmpfs: sortedStrings(workTmpfs),
+		LogDriver: host.LogConfig.Type, LogOptions: host.LogConfig.Config,
 	}
 	return canonical, nil
 }
@@ -432,14 +440,40 @@ func validateContainerMount(document containerInspectDocument, sourceDirectory s
 	return nil
 }
 
-func validateContainerTmpfsAndLogs(host *containerHostConfig, tmpfs []string) error {
-	if !equalStringSet(tmpfs, []string{"rw", "noexec", "nosuid", "nodev", "size=2147483648"}) {
+// validateContainerRuntime 复验只读根文件系统上的两块 tmpfs、工作目录和固定缓存环境。
+func validateContainerRuntime(document containerInspectDocument, tempTmpfs, workTmpfs []string) error {
+	host := document.HostConfig
+	if len(host.Tmpfs) != 2 || !equalStringSet(tempTmpfs, strings.Split(containerTempTmpfs, ",")) ||
+		!equalStringSet(workTmpfs, strings.Split(containerWorkTmpfs, ",")) {
 		return errors.New("gate container tmpfs contract drifted")
+	}
+	if document.Config.WorkingDir != containerWorkDir || !containsRequiredEnvironment(document.Config.Env, containerRuntimeEnvironment) {
+		return errors.New("gate container workdir or cache environment drifted")
 	}
 	if host.LogConfig.Type != "local" || host.LogConfig.Config["max-size"] != "10m" || host.LogConfig.Config["max-file"] != "3" {
 		return errors.New("gate container log contract drifted")
 	}
 	return nil
+}
+
+// containsRequiredEnvironment 拒绝缺失、重复或被镜像环境覆盖的必需变量。
+func containsRequiredEnvironment(observed, required []string) bool {
+	for _, wanted := range required {
+		key := wanted[:strings.IndexByte(wanted, '=')+1]
+		matches := 0
+		for _, entry := range observed {
+			if strings.HasPrefix(entry, key) {
+				if entry != wanted {
+					return false
+				}
+				matches++
+			}
+		}
+		if matches != 1 {
+			return false
+		}
+	}
+	return true
 }
 
 // inspectFinishedContainer 复验终态容器身份、退出码和完成时间。

@@ -20,7 +20,21 @@ import (
 	platformconfig "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/config"
 )
 
-const dockerInfoJSONFormat = "{{json .}}"
+const (
+	dockerInfoJSONFormat = "{{json .}}"
+	containerWorkDir     = "/workspace/work"
+	containerWorkTmpfs   = "rw,exec,nosuid,nodev,size=5368709120,uid=65532,gid=65532,mode=0700"
+	containerTempTmpfs   = "rw,noexec,nosuid,nodev,size=2147483648"
+)
+
+var containerRuntimeEnvironment = []string{
+	"HOME=/workspace/work/home",
+	"TMPDIR=/workspace/work/tmp",
+	"GOCACHE=/workspace/work/go-cache",
+	"GOMODCACHE=/workspace/work/go-mod-cache",
+	"npm_config_cache=/workspace/work/npm-cache",
+	"XDG_CACHE_HOME=/workspace/work/xdg-cache",
+}
 
 type dockerDaemonCapacityInspector struct {
 	runner dockerRunner
@@ -364,8 +378,13 @@ func (executor *dockerExecutor) createArgs(request containerRequest) []string {
 		"--pids-limit=512", "--storage-opt=size=10G", "--read-only", "--user=65532:65532",
 		"--cap-drop=ALL", "--security-opt=no-new-privileges", "--security-opt=seccomp=" + executor.seccompPath,
 		"--network=none", "--mount=type=bind,src=" + request.SourceDir + ",dst=/workspace/source,readonly",
-		"--tmpfs=/tmp:rw,noexec,nosuid,nodev,size=2147483648", "--log-driver=local", "--log-opt=max-size=10m", "--log-opt=max-file=3",
+		"--tmpfs=/tmp:" + containerTempTmpfs, "--tmpfs=" + containerWorkDir + ":" + containerWorkTmpfs,
+		"--workdir=" + containerWorkDir,
 	}
+	for _, entry := range containerRuntimeEnvironment {
+		args = append(args, "--env="+entry)
+	}
+	args = append(args, "--log-driver=local", "--log-opt=max-size=10m", "--log-opt=max-file=3")
 	labelKeys := make([]string, 0, len(request.Labels))
 	for key := range request.Labels {
 		labelKeys = append(labelKeys, key)
@@ -374,8 +393,8 @@ func (executor *dockerExecutor) createArgs(request containerRequest) []string {
 	for _, key := range labelKeys {
 		args = append(args, "--label="+key+"="+request.Labels[key])
 	}
-	args = append(args, request.Image)
-	return append(args, request.Command...)
+	args = append(args, "--entrypoint="+request.Command[0], request.Image)
+	return append(args, request.Command[1:]...)
 }
 
 // validateContainerRequest 校验不可变镜像、受信源码挂载和 gate 命令。
@@ -386,8 +405,8 @@ func (executor *dockerExecutor) validateContainerRequest(request containerReques
 	if err := executor.validateSourceDirectory(request.SourceDir); err != nil {
 		return err
 	}
-	if len(request.Command) == 0 || request.Command[0] == "" {
-		return errors.New("gate command is required")
+	if len(request.Command) == 0 || !strings.HasPrefix(request.Command[0], "/") || filepath.Clean(request.Command[0]) != request.Command[0] {
+		return errors.New("gate command must use a canonical absolute executable path")
 	}
 	return validateContainerLabels(request.Labels)
 }

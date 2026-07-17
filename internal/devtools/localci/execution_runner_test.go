@@ -143,12 +143,23 @@ func (stub *freshDockerRunnerStub) containerInspectJSON(finished bool) string {
 	}
 	document := map[string]any{
 		"Id": stub.containerID, "Image": stub.request.Image.PlatformManifestDigest, "Path": command[0], "Args": command[1:],
-		"Config": map[string]any{"Image": stub.request.Image.Registry + "@" + stub.request.Image.PlatformManifestDigest, "User": "65532:65532"},
+		"Config": map[string]any{
+			"Image": stub.request.Image.Registry + "@" + stub.request.Image.PlatformManifestDigest, "User": "65532:65532",
+			"WorkingDir": "/workspace/work",
+			"Env": []string{
+				"HOME=/workspace/work/home", "TMPDIR=/workspace/work/tmp", "GOCACHE=/workspace/work/go-cache",
+				"GOMODCACHE=/workspace/work/go-mod-cache", "npm_config_cache=/workspace/work/npm-cache",
+				"XDG_CACHE_HOME=/workspace/work/xdg-cache",
+			},
+		},
 		"HostConfig": map[string]any{
 			"NanoCpus": int64(4_000_000_000), "Memory": int64(8 * 1024 * 1024 * 1024), "PidsLimit": int64(512),
 			"ReadonlyRootfs": true, "CapDrop": []string{"ALL"}, "SecurityOpt": []string{"no-new-privileges", "seccomp=/fixture/seccomp.json"},
 			"NetworkMode": "none", "StorageOpt": map[string]string{"size": "10G"},
-			"Tmpfs":     map[string]string{"/tmp": "rw,noexec,nosuid,nodev,size=2147483648"},
+			"Tmpfs": map[string]string{
+				"/tmp":            "rw,noexec,nosuid,nodev,size=2147483648",
+				"/workspace/work": "rw,exec,nosuid,nodev,size=5368709120,uid=65532,gid=65532,mode=0700",
+			},
 			"LogConfig": map[string]any{"Type": "local", "Config": map[string]string{"max-size": "10m", "max-file": "3"}},
 		},
 		"Mounts": []map[string]any{{"Type": "bind", "Source": stub.request.SourceSnapshotDir, "Destination": "/workspace/source", "RW": false}},
