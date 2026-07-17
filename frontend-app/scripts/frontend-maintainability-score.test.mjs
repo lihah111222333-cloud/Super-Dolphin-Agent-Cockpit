@@ -262,11 +262,15 @@ function performanceEvidence(context, check, metricStatus = 'PASS', overrides = 
       ...(frozen ? { status: 'PASS', absoluteUpdateLimit: 1 } : {}),
       metricId: 'P01-render-isolation',
       subjectSha,
-      warmupUpdates: 1,
+      warmupUpdates: 2,
       updateCount: 20,
-      mainPageUpdateCommits: 1,
-      unrelatedSubtreeUpdateCommits: 1,
+      updateAction: 'useClientStore.getState().setLogLevel',
+      mainPageUpdateCommits: frozen ? 40 : 1,
+      unrelatedSubtreeUpdateCommits: 0,
+      mutationUpdateCommits: 20,
       mutationDetected: true,
+      productionBoundary: 'src/App.jsx#App',
+      productionStoreSubscriptions: ['src/App.jsx:fixture'],
     },
     'P02-history-budget': timingMetric('P02-history-budget', subjectSha, casesByMetric['P02-history-budget'], frozen),
     'P03-feedback-budget': timingMetric('P03-feedback-budget', subjectSha, casesByMetric['P03-feedback-budget'], frozen),
@@ -621,7 +625,34 @@ describe('executable evidence registry', () => {
     const { report: valid, baselineDocument } = performanceEvidence(context, check);
     options.baselineDocument = baselineDocument;
 
+    expect(baselineDocument.metrics['P01-render-isolation'].mainPageUpdateCommits).toBe(40);
     expect(structuredEvidenceStatus(valid, options)).toBe('PASS');
+    expect(structuredEvidenceStatus({
+      ...valid,
+      evidence: {
+        ...valid.evidence,
+        metrics: {
+          ...valid.evidence.metrics,
+          'P01-render-isolation': {
+            ...valid.evidence.metrics['P01-render-isolation'],
+            mainPageUpdateCommits: 0,
+          },
+        },
+      },
+    }, options)).toBe('PASS');
+    expect(structuredEvidenceStatus({
+      ...valid,
+      evidence: {
+        ...valid.evidence,
+        metrics: {
+          ...valid.evidence.metrics,
+          'P01-render-isolation': {
+            ...valid.evidence.metrics['P01-render-isolation'],
+            mainPageUpdateCommits: 2,
+          },
+        },
+      },
+    }, options)).toBe('FAIL');
     expect(structuredEvidenceStatus({
       ...valid,
       evidence: { ...valid.evidence, subjectTree: undefined },
@@ -718,19 +749,6 @@ describe('executable evidence registry', () => {
           baselineAudit: {
             ...baselineDocument.provenance.baselineAudit,
             changedPaths: [...baselineDocument.provenance.baselineAudit.changedPaths, 'src/candidate-product.js'],
-          },
-        },
-      },
-    })).toBe('FAIL');
-    expect(structuredEvidenceStatus(valid, {
-      ...options,
-      baselineDocument: {
-        ...baselineDocument,
-        metrics: {
-          ...baselineDocument.metrics,
-          'P01-render-isolation': {
-            ...baselineDocument.metrics['P01-render-isolation'],
-            mainPageUpdateCommits: 2,
           },
         },
       },

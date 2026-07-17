@@ -535,9 +535,20 @@ function validateRenderMetric(metric, subjectSha, label) {
     || !Number.isSafeInteger(metric.warmupUpdates) || metric.warmupUpdates <= 0) {
     fail(`${label} render subject, warmup, or update count mismatch`);
   }
-  requireFiniteNonNegative(metric.mainPageUpdateCommits, `${label}.mainPageUpdateCommits`);
-  requireFiniteNonNegative(metric.unrelatedSubtreeUpdateCommits, `${label}.unrelatedSubtreeUpdateCommits`);
-  if (typeof metric.mutationDetected !== 'boolean') fail(`${label}.mutationDetected must be boolean`);
+  for (const field of ['mainPageUpdateCommits', 'unrelatedSubtreeUpdateCommits', 'mutationUpdateCommits']) {
+    if (!Number.isSafeInteger(metric[field]) || metric[field] < 0) fail(`${label}.${field} must be a non-negative integer`);
+  }
+  if (metric.mutationDetected !== true || metric.mutationUpdateCommits <= 1) {
+    fail(`${label} must prove the broad-subscription mutation`);
+  }
+  if (metric.updateAction !== 'useClientStore.getState().setLogLevel'
+    || metric.productionBoundary !== 'src/App.jsx#App'
+    || !Array.isArray(metric.productionStoreSubscriptions)
+    || metric.productionStoreSubscriptions.length === 0
+    || new Set(metric.productionStoreSubscriptions).size !== metric.productionStoreSubscriptions.length
+    || metric.productionStoreSubscriptions.some((source) => typeof source !== 'string' || !source.trim())) {
+    fail(`${label} render probe contract is incomplete`);
+  }
 }
 
 function validateResourceMetric(metric, subjectSha, label) {
@@ -703,11 +714,6 @@ function recomputePerformanceStatuses(evidence, baselineDocument, context) {
   validateRenderMetric(current['P01-render-isolation'], context.subjectSha, 'P01 current');
   validateRenderMetric(frozen['P01-render-isolation'], baselineDocument.baseSha, 'P01 baseline');
   if (frozen['P01-render-isolation'].absoluteUpdateLimit !== 1) fail('P01 absolute update limit must equal 1');
-  if (frozen['P01-render-isolation'].mainPageUpdateCommits > 1
-    || frozen['P01-render-isolation'].unrelatedSubtreeUpdateCommits > 1
-    || frozen['P01-render-isolation'].mutationDetected !== true) {
-    fail('P01 baseline raw evidence does not satisfy the frozen budget');
-  }
   validateTimingMetric(current['P02-history-budget'], performanceCaseIds['P02-history-budget'], context.subjectSha, 'P02 current');
   validateTimingMetric(frozen['P02-history-budget'], performanceCaseIds['P02-history-budget'], baselineDocument.baseSha, 'P02 baseline');
   validateTimingMetric(current['P03-feedback-budget'], performanceCaseIds['P03-feedback-budget'], context.subjectSha, 'P03 current');
