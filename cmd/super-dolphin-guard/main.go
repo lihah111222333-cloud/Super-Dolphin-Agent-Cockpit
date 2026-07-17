@@ -93,24 +93,27 @@ func (guard *probationGuard) superviseState(ctx context.Context, transaction rec
 		if !transaction.Probation.LeasePresent {
 			return guard.monitorUpdater(ctx, transaction)
 		}
-		return true, guard.takeOverProbation(ctx, transaction)
+		return guard.takeOverProbation(ctx, transaction)
 	default:
 		return false, fmt.Errorf("guard cannot supervise transaction state %q", transaction.State)
 	}
 }
 
-func (guard *probationGuard) takeOverProbation(ctx context.Context, transaction recovery.Transaction) error {
+func (guard *probationGuard) takeOverProbation(ctx context.Context, transaction recovery.Transaction) (bool, error) {
 	if err := guard.waitUntilLeaseExpires(ctx, transaction.Probation.Lease); err != nil {
-		return err
+		return false, err
 	}
 	lease, active, err := guard.takeOverActive(ctx, transaction)
-	if err != nil || !active {
-		return err
+	if err != nil {
+		return false, err
+	}
+	if !active {
+		return false, nil
 	}
 	if err := guard.stopTakenOverCandidate(ctx, transaction, lease); err != nil {
-		return err
+		return false, err
 	}
-	return guard.rollbackAndRestart(ctx, transaction, lease)
+	return true, guard.rollbackAndRestart(ctx, transaction, lease)
 }
 
 // monitorUpdater 在 probation 前只依据 exact updater process 决定等待或回滚。

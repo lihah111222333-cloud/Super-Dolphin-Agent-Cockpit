@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -158,6 +159,81 @@ func TestGuardTakesOverStaleProbationOnce(t *testing.T) {
 	}
 	if got.State != recovery.StateRolledBack {
 		t.Fatalf("state = %q, want rolled_back", got.State)
+	}
+}
+
+func TestGuardReloadsRollbackPendingAfterProbationWait(t *testing.T) {
+	fixture := newGuardFixture(t)
+	guard := runGuardAcrossProbationWaitTransition(t, fixture, func() {
+		forceGuardPendingState(t, fixture.transaction, recovery.TriggerRollbackRequested, recovery.StateRollbackPending, true)
+	})
+	assertGuardRestartConvergedOnce(t, fixture, guard)
+}
+
+func TestGuardReloadsRolledBackWithoutRestartACKAfterProbationWait(t *testing.T) {
+	fixture := newGuardFixture(t)
+	guard := runGuardAcrossProbationWaitTransition(t, fixture, func() {
+		forceGuardPendingState(t, fixture.transaction, recovery.TriggerRollbackRequested, recovery.StateRollbackPending, true)
+		if _, err := fixture.store.Replay(context.Background(), fixture.transaction.Identity); err != nil {
+			t.Fatalf("Replay() error = %v", err)
+		}
+	})
+	assertGuardRestartConvergedOnce(t, fixture, guard)
+}
+
+func runGuardAcrossProbationWaitTransition(t *testing.T, fixture *guardFixture, transition func()) *probationGuard {
+	t.Helper()
+	waitEntered := make(chan struct{})
+	journalAdvanced := make(chan struct{})
+	nowCalls := 0
+	guard := newGuard(guardConfig{
+		Store: fixture.store, Identity: fixture.transaction.Identity,
+		OwnerID: "guard-wait-reload",
+		Now: func() time.Time {
+			nowCalls++
+			if nowCalls == 1 {
+				close(waitEntered)
+				<-journalAdvanced
+			}
+			return fixture.expiredAt
+		},
+		UpdaterAlive:      func(recovery.ProcessIdentity) (bool, error) { return true, nil },
+		StopCandidate:     func(context.Context, recovery.ProcessIdentity) error { return nil },
+		ResolveOldRelease: fixture.resolve,
+		RestartOldRelease: fixture.restart,
+	})
+	runDone := make(chan error, 1)
+	var runGroup sync.WaitGroup
+	runGroup.Go(func() {
+		runDone <- guard.Run(context.Background())
+	})
+	<-waitEntered
+	transition()
+	close(journalAdvanced)
+	if err := <-runDone; err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	runGroup.Wait()
+	return guard
+}
+
+func assertGuardRestartConvergedOnce(t *testing.T, fixture *guardFixture, guard *probationGuard) {
+	t.Helper()
+	transaction, err := fixture.store.Load(context.Background(), fixture.transaction.Identity)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if transaction.State != recovery.StateRolledBack || !transaction.RollbackRestart.ACKPresent {
+		t.Fatalf("rollback restart did not converge: state=%q record=%+v", transaction.State, transaction.RollbackRestart)
+	}
+	if fixture.restarts != 1 {
+		t.Fatalf("restart count = %d, want 1", fixture.restarts)
+	}
+	if err := guard.Run(context.Background()); err != nil {
+		t.Fatalf("idempotent Run() error = %v", err)
+	}
+	if fixture.restarts != 1 {
+		t.Fatalf("restart count after replay = %d, want 1", fixture.restarts)
 	}
 }
 
