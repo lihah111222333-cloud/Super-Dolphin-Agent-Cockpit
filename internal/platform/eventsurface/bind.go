@@ -170,7 +170,10 @@ func bindCore(dispatcher *event.Dispatcher, logger *pkglogger.Logger, publish Pu
 }
 
 func publishTurnTerminal(logger *pkglogger.Logger, publish PublishFunc, ev turndto.TurnCompleted) {
-	terminal, err := turndto.NewTurnTerminalV2(ev, uuid.NewString())
+	terminal, canonical, err := turndto.CanonicalTurnTerminal(ev)
+	if err == nil && !canonical {
+		terminal, err = turndto.NewTurnTerminalV2(ev, uuid.NewString())
+	}
 	if err != nil {
 		if logger != nil {
 			logger.Error("eventsurface: canonical turn terminal rejected", "error", err, "thread_id", ev.ThreadID, "turn_id", ev.TurnID)

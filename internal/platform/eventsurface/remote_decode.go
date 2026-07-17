@@ -41,7 +41,7 @@ func ProjectRemoteTurnTerminal(terminal turndto.TurnTerminalV2, ownerAgentID str
 	if err != nil {
 		return turndto.TurnCompleted{}, fmt.Errorf("remote turn terminal occurredAt: %w", err)
 	}
-	return remoteTurnCompleted(terminal, timestamp, ownerAgentID), nil
+	return turndto.AttachCanonicalTurnTerminal(remoteTurnCompleted(terminal, timestamp, ownerAgentID), terminal)
 }
 
 func remoteTurnCompleted(terminal turndto.TurnTerminalV2, timestamp time.Time, ownerAgentID string) turndto.TurnCompleted {
@@ -62,6 +62,7 @@ func remoteTurnCompleted(terminal turndto.TurnTerminalV2, timestamp time.Time, o
 		Reason:               terminal.TerminationCause,
 		Error:                errorText,
 		TerminationRequestID: terminal.TerminationRequestID,
+		PartialItemIDs:       append([]string(nil), terminal.PartialItemIDs...),
 	}
 }
 

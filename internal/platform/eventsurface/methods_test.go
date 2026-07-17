@@ -82,11 +82,11 @@ func frontendFrozenStringArray(t *testing.T, raw []byte, name string) []string {
 		t.Fatalf("frontend list %s not found", name)
 	}
 	rest := raw[start+len(prefix):]
-	end := bytes.Index(rest, []byte("]);"))
-	if end < 0 {
+	body, _, found := bytes.Cut(rest, []byte("]);"))
+	if !found {
 		t.Fatalf("frontend list %s missing closing ]);", name)
 	}
-	matches := frontendStringRE.FindAllSubmatch(rest[:end], -1)
+	matches := frontendStringRE.FindAllSubmatch(body, -1)
 	out := make([]string, 0, len(matches))
 	for _, match := range matches {
 		out = append(out, string(match[1]))
@@ -96,20 +96,24 @@ func frontendFrozenStringArray(t *testing.T, raw []byte, name string) []string {
 
 func assertStringSetEqual(t *testing.T, label string, want, got []string) {
 	t.Helper()
-	want = sortedUniqueStrings(want)
-	got = sortedUniqueStrings(got)
+	want = sortedUniqueStrings(t, label+" want", want)
+	got = sortedUniqueStrings(t, label+" got", got)
 	if strings.Join(want, "\n") != strings.Join(got, "\n") {
 		t.Fatalf("%s mismatch\nwant:\n%s\n\ngot:\n%s", label, strings.Join(want, "\n"), strings.Join(got, "\n"))
 	}
 }
 
-func sortedUniqueStrings(in []string) []string {
+func sortedUniqueStrings(t *testing.T, label string, in []string) []string {
+	t.Helper()
 	seen := map[string]bool{}
 	out := make([]string, 0, len(in))
 	for _, value := range in {
 		value = strings.TrimSpace(value)
-		if value == "" || seen[value] {
-			continue
+		if value == "" {
+			t.Fatalf("%s contains blank method", label)
+		}
+		if seen[value] {
+			t.Fatalf("%s contains duplicate method %q", label, value)
 		}
 		seen[value] = true
 		out = append(out, value)

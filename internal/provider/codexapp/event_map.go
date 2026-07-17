@@ -405,12 +405,37 @@ func translateTurnTerminalEvent(eventType string, payload map[string]any) turndt
 		Status:               outcome.status,
 		Reason:               outcome.reason,
 		TerminationRequestID: outcome.requestID,
+		PartialItemIDs:       acceptedPartialItemIDs(payload),
 		// result 由 session 的 per-turn 输出累积器在分发前合并进 payload。
 		// 其他字段保留兼容读取，覆盖未来 Codex 直接携带 terminal 文本的 wire 形态。
 		Result:     stringValue(payload, "result"),
 		Summary:    stringValue(payload, "summary"),
 		Message:    stringValue(payload, "message"),
 		StopReason: stringValue(payload, "stop_reason"),
+	}
+}
+
+// acceptedPartialItemIDs 只读取 session 为同一 active TurnRef 注入的已验收 assistant item ID。
+func acceptedPartialItemIDs(payload map[string]any) []string {
+	raw, ok := payload["accepted_partial_item_ids"]
+	if !ok {
+		return nil
+	}
+	switch values := raw.(type) {
+	case []string:
+		return append([]string(nil), values...)
+	case []any:
+		out := make([]string, len(values))
+		for index, value := range values {
+			itemID, ok := value.(string)
+			if !ok || strings.TrimSpace(itemID) == "" {
+				return []string{""}
+			}
+			out[index] = itemID
+		}
+		return out
+	default:
+		return []string{""}
 	}
 }
 

@@ -701,8 +701,16 @@ func (s *session) completeAssistantMessageCompleted(method string, params json.R
 	if !ok {
 		return false
 	}
-	s.completeSyntheticTurn(turnID, "assistant_message_completed", assistantMessageText(item))
+	s.completeSyntheticTurn(turnID, "assistant_message_completed", assistantMessageText(item), acceptedAssistantItemIDs(item))
 	return true
+}
+
+func acceptedAssistantItemIDs(item map[string]any) []string {
+	itemID := strings.TrimSpace(stringValue(item, "id", "itemId", "item_id"))
+	if itemID == "" {
+		return nil
+	}
+	return []string{itemID}
 }
 
 func isAssistantMessageCompletedMethod(method string) bool {

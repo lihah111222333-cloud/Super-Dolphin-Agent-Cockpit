@@ -28,6 +28,8 @@
       "goValidator": { "path": "internal/dto/turn/contract_validator.go", "symbol": "ValidateTurnTerminalV2" },
       "goConsumers": [
         { "path": "internal/dto/turn/terminal.go", "symbol": "NewTurnTerminalV2", "calls": "ValidateTurnTerminalV2" },
+        { "path": "internal/dto/turn/terminal.go", "symbol": "AttachCanonicalTurnTerminal", "calls": "ValidateTurnTerminalV2" },
+        { "path": "internal/dto/turn/terminal.go", "symbol": "CanonicalTurnTerminal", "calls": "ValidateTurnTerminalV2" },
         { "path": "internal/platform/eventsurface/remote_decode.go", "symbol": "DecodeRemoteTurnTerminal", "calls": "ValidateTurnTerminalV2" },
         { "path": "internal/platform/eventsurface/remote_decode.go", "symbol": "ProjectRemoteTurnTerminal", "calls": "ValidateTurnTerminalV2" }
       ],
@@ -38,6 +40,31 @@
     }
   },
   "goChains": [
+    {
+      "name": "strict-remote-terminal-decoder",
+      "path": "internal/dto/turn/terminal.go",
+      "symbol": "UnmarshalJSON",
+      "calls": ["DisallowUnknownFields"]
+    },
+    {
+      "name": "canonical-terminal-deep-copy",
+      "path": "internal/dto/turn/terminal.go",
+      "symbol": "cloneTurnTerminalV2",
+      "calls": ["cloneStrings"],
+      "identifiers": ["SchemaVersion", "EventID", "ThreadID", "TurnID", "Outcome", "TerminationCause", "TerminationRequestID", "PublicError", "PartialItemIDs", "OccurredAt", "Code", "Title", "Message", "DiagnosticID", "Retryable", "RecoveryActions"]
+    },
+    {
+      "name": "canonical-terminal-attachment",
+      "path": "internal/dto/turn/terminal.go",
+      "symbol": "AttachCanonicalTurnTerminal",
+      "calls": ["ValidateTurnTerminalV2", "validateTerminalIdentity", "cloneTurnTerminalV2"]
+    },
+    {
+      "name": "canonical-terminal-read",
+      "path": "internal/dto/turn/terminal.go",
+      "symbol": "CanonicalTurnTerminal",
+      "calls": ["ValidateTurnTerminalV2", "validateTerminalIdentity", "cloneTurnTerminalV2"]
+    },
     {
       "name": "claude-result-terminal-producer",
       "path": "internal/provider/claudecli/session_events.go",
@@ -67,6 +94,25 @@
       "path": "internal/provider/codexapp/session_dispatch.go",
       "symbol": "applyAcceptedInterruptRequest",
       "strings": ["termination_cause", "termination_request_id"]
+    },
+    {
+      "name": "codex-accepted-assistant-item-producer",
+      "path": "internal/provider/codexapp/session_approval.go",
+      "symbol": "completeAssistantMessageCompleted",
+      "calls": ["acceptedAssistantItemIDs", "completeSyntheticTurn"]
+    },
+    {
+      "name": "codex-accepted-partial-item-injection",
+      "path": "internal/provider/codexapp/session_dispatch.go",
+      "symbol": "completeSyntheticTurn",
+      "strings": ["accepted_partial_item_ids"]
+    },
+    {
+      "name": "codex-accepted-partial-item-mapper",
+      "path": "internal/provider/codexapp/event_map.go",
+      "symbol": "translateTurnTerminalEvent",
+      "calls": ["acceptedPartialItemIDs"],
+      "identifiers": ["PartialItemIDs"]
     },
     {
       "name": "raw-terminal-parser",
@@ -113,10 +159,22 @@
       "calls": ["ResolveRawTermination"]
     },
     {
+      "name": "remote-terminal-canonical-projection",
+      "path": "internal/platform/eventsurface/remote_decode.go",
+      "symbol": "ProjectRemoteTurnTerminal",
+      "calls": ["ValidateTurnTerminalV2", "AttachCanonicalTurnTerminal"]
+    },
+    {
+      "name": "remote-terminal-first-truth-seal",
+      "path": "cmd/mcp-orch/orchestration/launcher.go",
+      "symbol": "handleRemoteTurnTerminal",
+      "calls": ["acceptRemoteTurnTerminal", "ProjectRemoteTurnTerminal"]
+    },
+    {
       "name": "terminal-wire-producer",
       "path": "internal/platform/eventsurface/bind.go",
       "symbol": "publishTurnTerminal",
-      "calls": ["NewTurnTerminalV2", "publish"],
+      "calls": ["CanonicalTurnTerminal", "NewTurnTerminalV2", "publish"],
       "identifiers": ["MethodTurnTerminal"]
     }
   ],

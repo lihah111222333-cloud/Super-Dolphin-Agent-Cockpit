@@ -1,8 +1,11 @@
 package turn
 
 import (
+	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"strings"
 	"time"
 )
@@ -37,6 +40,25 @@ type TurnTerminalV2 struct {
 	OccurredAt           string         `json:"occurredAt"`
 }
 
+// UnmarshalJSON 保持 canonical schema 的 additionalProperties=false 语义。
+func (terminal *TurnTerminalV2) UnmarshalJSON(data []byte) error {
+	type wireTurnTerminal TurnTerminalV2
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	var decoded wireTurnTerminal
+	if err := decoder.Decode(&decoded); err != nil {
+		return err
+	}
+	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
+		if err == nil {
+			return errors.New("turn terminal contains multiple JSON values")
+		}
+		return err
+	}
+	*terminal = TurnTerminalV2(decoded)
+	return nil
+}
+
 // NewTurnTerminalV2 把 provider-neutral TurnCompleted 映射成 canonical 终态并调用生成 validator。
 func NewTurnTerminalV2(ev TurnCompleted, eventID string) (TurnTerminalV2, error) {
 	turnRef := TurnRefV1{ThreadID: strings.TrimSpace(ev.ThreadID), TurnID: strings.TrimSpace(ev.TurnID)}
@@ -48,11 +70,12 @@ func NewTurnTerminalV2(ev TurnCompleted, eventID string) (TurnTerminalV2, error)
 		return TurnTerminalV2{}, err
 	}
 	terminal := TurnTerminalV2{
-		SchemaVersion: 2,
-		EventID:       strings.TrimSpace(eventID),
-		ThreadID:      turnRef.ThreadID,
-		TurnID:        turnRef.TurnID,
-		Outcome:       outcome,
+		SchemaVersion:  2,
+		EventID:        strings.TrimSpace(eventID),
+		ThreadID:       turnRef.ThreadID,
+		TurnID:         turnRef.TurnID,
+		Outcome:        outcome,
+		PartialItemIDs: cloneStrings(ev.PartialItemIDs),
 	}
 	if ev.Timestamp.IsZero() {
 		return TurnTerminalV2{}, errors.New("turn terminal occurredAt is required")
@@ -68,6 +91,86 @@ func NewTurnTerminalV2(ev TurnCompleted, eventID string) (TurnTerminalV2, error)
 		return TurnTerminalV2{}, fmt.Errorf("turn terminal contract: %w", err)
 	}
 	return terminal, nil
+}
+
+// AttachCanonicalTurnTerminal 把远端 canonical truth 以不可导出的深拷贝附着到内部事件。
+func AttachCanonicalTurnTerminal(ev TurnCompleted, terminal TurnTerminalV2) (TurnCompleted, error) {
+	if ev.canonicalTerminal != nil {
+		return TurnCompleted{}, errors.New("turn completed already has canonical terminal")
+	}
+	if err := ValidateTurnTerminalV2(terminal); err != nil {
+		return TurnCompleted{}, fmt.Errorf("turn terminal contract: %w", err)
+	}
+	if err := validateTerminalIdentity(ev, terminal); err != nil {
+		return TurnCompleted{}, err
+	}
+	clone := cloneTurnTerminalV2(terminal)
+	ev.canonicalTerminal = &clone
+	return ev, nil
+}
+
+// CanonicalTurnTerminal 返回远端 canonical truth 的深拷贝；本地事件返回 ok=false。
+func CanonicalTurnTerminal(ev TurnCompleted) (TurnTerminalV2, bool, error) {
+	if ev.canonicalTerminal == nil {
+		return TurnTerminalV2{}, false, nil
+	}
+	terminal := cloneTurnTerminalV2(*ev.canonicalTerminal)
+	if err := ValidateTurnTerminalV2(terminal); err != nil {
+		return TurnTerminalV2{}, false, fmt.Errorf("turn terminal contract: %w", err)
+	}
+	if err := validateTerminalIdentity(ev, terminal); err != nil {
+		return TurnTerminalV2{}, false, err
+	}
+	return terminal, true, nil
+}
+
+// validateTerminalIdentity 锁定内部 header 与 canonical TurnRef/occurredAt 的同一性。
+func validateTerminalIdentity(ev TurnCompleted, terminal TurnTerminalV2) error {
+	if ev.ThreadID != terminal.ThreadID || ev.TurnID != terminal.TurnID {
+		return fmt.Errorf("turn terminal identity mismatch: header=%q/%q canonical=%q/%q", ev.ThreadID, ev.TurnID, terminal.ThreadID, terminal.TurnID)
+	}
+	occurredAt, err := time.Parse(time.RFC3339Nano, terminal.OccurredAt)
+	if err != nil {
+		return fmt.Errorf("turn terminal occurredAt: %w", err)
+	}
+	if ev.Timestamp.IsZero() || !ev.Timestamp.Equal(occurredAt) {
+		return fmt.Errorf("turn terminal timestamp mismatch: header=%q canonical=%q", ev.Timestamp.Format(time.RFC3339Nano), terminal.OccurredAt)
+	}
+	return nil
+}
+
+func cloneTurnTerminalV2(terminal TurnTerminalV2) TurnTerminalV2 {
+	clone := TurnTerminalV2{
+		SchemaVersion:        terminal.SchemaVersion,
+		EventID:              terminal.EventID,
+		ThreadID:             terminal.ThreadID,
+		TurnID:               terminal.TurnID,
+		Outcome:              terminal.Outcome,
+		TerminationCause:     terminal.TerminationCause,
+		TerminationRequestID: terminal.TerminationRequestID,
+		PartialItemIDs:       cloneStrings(terminal.PartialItemIDs),
+		OccurredAt:           terminal.OccurredAt,
+	}
+	if terminal.PublicError != nil {
+		clone.PublicError = &PublicErrorV1{
+			Code:            terminal.PublicError.Code,
+			Title:           terminal.PublicError.Title,
+			Message:         terminal.PublicError.Message,
+			DiagnosticID:    terminal.PublicError.DiagnosticID,
+			Retryable:       terminal.PublicError.Retryable,
+			RecoveryActions: cloneStrings(terminal.PublicError.RecoveryActions),
+		}
+	}
+	return clone
+}
+
+func cloneStrings(values []string) []string {
+	if values == nil {
+		return nil
+	}
+	clone := make([]string, len(values))
+	copy(clone, values)
+	return clone
 }
 
 // canonicalTerminalOutcome 严格折叠内部 status/success，不允许冲突或未知终态。
