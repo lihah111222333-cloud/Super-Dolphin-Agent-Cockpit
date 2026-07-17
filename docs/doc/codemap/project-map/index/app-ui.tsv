@@ -53,8 +53,8 @@ frontend-app/scripts/rpc-contract-audit.mjs	frontend-app	app-ui	js-source	210533
 frontend-app/scripts/rpc-contract-audit.test.mjs	frontend-app	app-ui	js-test	143358	React 前端构建与校验脚本	frontend,app,scripts,rpc,contract,audit,test,React,前端构建与校验脚本
 frontend-app/scripts/sync-frontend-dist.mjs	frontend-app	app-ui	js-source	1433	React 前端构建与校验脚本	frontend,app,scripts,sync,dist,React,前端构建与校验脚本
 frontend-app/scripts/sync-frontend-dist.test.mjs	frontend-app	app-ui	js-test	1637	React 前端构建与校验脚本	frontend,app,scripts,sync,dist,test,React,前端构建与校验脚本
-frontend-app/scripts/turn-contract-field-guard.mjs	frontend-app	app-ui	js-source	15770	React 前端构建与校验脚本	frontend,app,scripts,turn,contract,field,guard,React,前端构建与校验脚本
-frontend-app/scripts/turn-contract-field-guard.test.mjs	frontend-app	app-ui	js-test	2677	React 前端构建与校验脚本	frontend,app,scripts,turn,contract,field,guard,test,React,前端构建与校验脚本
+frontend-app/scripts/turn-contract-field-guard.mjs	frontend-app	app-ui	js-source	29556	React 前端构建与校验脚本	frontend,app,scripts,turn,contract,field,guard,React,前端构建与校验脚本
+frontend-app/scripts/turn-contract-field-guard.test.mjs	frontend-app	app-ui	js-test	12834	React 前端构建与校验脚本	frontend,app,scripts,turn,contract,field,guard,test,React,前端构建与校验脚本
 frontend-app/scripts/ui-test-mcp-acceptance.mjs	frontend-app	app-ui	js-source	20806	React 前端构建与校验脚本	frontend,app,scripts,ui,test,mcp,acceptance,React,前端构建与校验脚本
 frontend-app/scripts/ui-test-mcp-framing.mjs	frontend-app	app-ui	js-source	6075	React 前端构建与校验脚本	frontend,app,scripts,ui,test,mcp,framing,React,前端构建与校验脚本
 frontend-app/scripts/ui-test-mcp-scenario.mjs	frontend-app	app-ui	js-source	3101	React 前端构建与校验脚本	frontend,app,scripts,ui,test,mcp,scenario,React,前端构建与校验脚本
