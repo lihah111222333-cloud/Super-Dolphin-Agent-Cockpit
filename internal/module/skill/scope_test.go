@@ -46,7 +46,42 @@ func TestListSkillsIgnoresSystemRootAndListsProjectRoot(t *testing.T) {
 	}
 }
 
-func TestWriteLocalScopeRoutesProjectSystemAndDefaultProject(t *testing.T) {
+func TestWriteLocalRejectsEmptyScopeBeforeProjectWrite(t *testing.T) {
+	t.Parallel()
+
+	projectRoot := filepath.Join(t.TempDir(), "repo-a")
+	svc := &service{
+		projectRoot:       projectRoot,
+		projectSkillsRoot: defaultProjectSkillsRoot(projectRoot),
+		http:              &http.Client{},
+	}
+
+	_, err := svc.WriteLocal(skillTestContext(projectRoot), "empty-scope", "# blocked", "   ")
+	if !errors.Is(err, ErrInvalidSkillScope) {
+		t.Fatalf("WriteLocal(empty scope) error = %v, want ErrInvalidSkillScope", err)
+	}
+	if _, statErr := os.Stat(filepath.Join(projectRoot, ".agents", "skills", "empty-scope")); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("empty-scope write reached project storage: %v", statErr)
+	}
+}
+
+func TestImportLocalDirRejectsEmptyScopeBeforeSourceValidation(t *testing.T) {
+	t.Parallel()
+
+	projectRoot := filepath.Join(t.TempDir(), "repo-a")
+	svc := &service{
+		projectRoot:       projectRoot,
+		projectSkillsRoot: defaultProjectSkillsRoot(projectRoot),
+		http:              &http.Client{},
+	}
+
+	_, err := svc.ImportLocalDir(skillTestContext(projectRoot), importSkillDirParams{Path: filepath.Join(t.TempDir(), "missing"), Scope: " "})
+	if !errors.Is(err, ErrInvalidSkillScope) {
+		t.Fatalf("ImportLocalDir(empty scope) error = %v, want ErrInvalidSkillScope", err)
+	}
+}
+
+func TestWriteLocalScopeRoutesProjectSystemAndRejectsEmpty(t *testing.T) {
 	t.Parallel()
 
 	systemRoot := t.TempDir()
@@ -72,18 +107,15 @@ func TestWriteLocalScopeRoutesProjectSystemAndDefaultProject(t *testing.T) {
 		t.Fatalf("WriteLocal(system) error = %v, want ErrSkillSystemScopeRemoved", err)
 	}
 
-	defaultOut, err := svc.WriteLocal(skillTestContext(projectRoot), "default-skill", "# default")
-	if err != nil {
-		t.Fatalf("WriteLocal(default) error = %v", err)
+	if _, err := svc.WriteLocal(skillTestContext(projectRoot), "default-skill", "# default"); !errors.Is(err, ErrInvalidSkillScope) {
+		t.Fatalf("WriteLocal(empty scope) error = %v, want ErrInvalidSkillScope", err)
 	}
-	defaultPath, _ := defaultOut.(map[string]any)["path"].(string)
-	wantDefaultPath := filepath.Join(projectRoot, ".agents", "skills", "default-skill", skillMainFile)
-	if defaultPath != wantDefaultPath {
-		t.Fatalf("default path = %q, want %q", defaultPath, wantDefaultPath)
+	if _, err := os.Stat(filepath.Join(projectRoot, ".agents", "skills", "default-skill")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("empty scope reached default project path: %v", err)
 	}
 }
 
-func TestImportLocalDirScopeRoutesDefaultProjectAndSystemGlobal(t *testing.T) {
+func TestImportLocalDirScopeRoutesProjectAndSystemGlobal(t *testing.T) {
 	t.Parallel()
 
 	systemRoot := t.TempDir()
@@ -102,15 +134,15 @@ func TestImportLocalDirScopeRoutesDefaultProjectAndSystemGlobal(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(projectSource, skillMainFile), []byte("# project"), 0o644); err != nil {
 		t.Fatalf("write project source: %v", err)
 	}
-	projectOut, err := svc.ImportLocalDir(skillTestContext(projectRoot), importSkillDirParams{Path: projectSource})
+	projectOut, err := svc.ImportLocalDir(skillTestContext(projectRoot), importSkillDirParams{Path: projectSource, Scope: skillScopeProject})
 	if err != nil {
-		t.Fatalf("ImportLocalDir(default) error = %v", err)
+		t.Fatalf("ImportLocalDir(project) error = %v", err)
 	}
 	projectImported := projectOut.(map[string]any)["imported"].([]map[string]any)
 	projectSkillFile, _ := projectImported[0]["skill_file"].(string)
 	wantProjectSkillFile := filepath.Join(projectRoot, ".agents", "skills", "project-import", skillMainFile)
 	if projectSkillFile != wantProjectSkillFile {
-		t.Fatalf("default import path = %q, want %q", projectSkillFile, wantProjectSkillFile)
+		t.Fatalf("project import path = %q, want %q", projectSkillFile, wantProjectSkillFile)
 	}
 
 	systemSource := filepath.Join(t.TempDir(), "system-import")
