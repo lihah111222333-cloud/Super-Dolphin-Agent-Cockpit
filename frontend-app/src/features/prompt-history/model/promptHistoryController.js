@@ -2,6 +2,22 @@ const PROMPT_HISTORY_LIMIT = 50;
 const STALE_PROMPT_HISTORY_CODE = -31003;
 const STALE_PROMPT_HISTORY_MESSAGE = 'prompt history snapshot is stale';
 
+/**
+ * @typedef {{ messageId?: string, text: string, threadId?: string, createdAt?: string }} PromptHistoryEntry
+ * @typedef {{
+ *   entries: PromptHistoryEntry[],
+ *   nextCursor: string,
+ *   hasMore: boolean,
+ *   nonce: string,
+ * }} PromptHistoryPage
+ * @typedef {{
+ *   fetchPage: (params: { cwd: string, activeThreadId: string, cursor: string, nonce: string, limit: number }) => Promise<unknown>,
+ *   cwd: string,
+ *   activeThreadId?: string,
+ * }} PromptHistoryControllerOptions
+ */
+
+/** @param {PromptHistoryControllerOptions} options */
 export function createPromptHistoryController({ fetchPage, cwd, activeThreadId = '' }) {
   if (typeof fetchPage !== 'function') throw new Error('fetchPage is required');
   if (typeof cwd !== 'string') throw new Error('cwd is required');
@@ -9,6 +25,7 @@ export function createPromptHistoryController({ fetchPage, cwd, activeThreadId =
   if (!normalizedCwd) throw new Error('cwd is required');
   if (typeof activeThreadId !== 'string') throw new TypeError('activeThreadId must be a string');
   const normalizedActiveThreadId = activeThreadId.trim();
+  /** @type {PromptHistoryEntry[]} */
   let entries = [];
   let index = -1;
   let cursor = '';
@@ -17,10 +34,13 @@ export function createPromptHistoryController({ fetchPage, cwd, activeThreadId =
   let loaded = false;
   let generation = 0;
   let navigationIntent = 0;
+  /** @type {Promise<boolean> | undefined} */
   let pending;
+  /** @type {{ intent: number, promise: Promise<string | undefined> } | undefined} */
   let pendingSelection;
   let draftSentinel = '';
 
+  /** @param {string} draft */
   function captureDraft(draft) {
     if (typeof draft !== 'string') throw new TypeError('draft must be a string');
     if (index === -1) draftSentinel = draft;
@@ -88,6 +108,7 @@ export function createPromptHistoryController({ fetchPage, cwd, activeThreadId =
     };
   }
 
+  /** @param {number} requestGeneration @param {boolean} staleRetried */
   async function loadPreviousPage(requestGeneration, staleRetried) {
     try {
       const response = await fetchPage({
@@ -127,27 +148,38 @@ export function createPromptHistoryController({ fetchPage, cwd, activeThreadId =
   return { captureDraft, previous, next, invalidate, snapshot };
 }
 
+/** @param {unknown} error */
 function isStalePromptHistoryError(error) {
-  const message = typeof error?.message === 'string' ? error.message : '';
+  if (!error || typeof error !== 'object') return false;
+  const fields = /** @type {Record<string, unknown>} */ (error);
+  const message = typeof fields.message === 'string' ? fields.message : '';
   return message === STALE_PROMPT_HISTORY_MESSAGE
-    && typeof error?.code === 'number'
-    && error.code === STALE_PROMPT_HISTORY_CODE;
+    && typeof fields.code === 'number'
+    && fields.code === STALE_PROMPT_HISTORY_CODE;
 }
 
+/**
+ * @param {unknown} response
+ * @returns {asserts response is PromptHistoryPage}
+ */
 function assertPromptHistoryPage(response) {
   if (!response || typeof response !== 'object'
-    || !Array.isArray(response.entries)
-    || response.entries.length > PROMPT_HISTORY_LIMIT
-    || typeof response.nextCursor !== 'string'
-    || typeof response.hasMore !== 'boolean'
-    || typeof response.nonce !== 'string'
-    || !response.nonce.trim()
-    || (response.hasMore && !response.nextCursor)
-    || (!response.hasMore && response.nextCursor !== '')) {
+    || !Array.isArray(/** @type {Record<string, unknown>} */ (response).entries)) {
     throw new TypeError('prompt history response is invalid');
   }
-  for (const entry of response.entries) {
-    if (!entry || typeof entry !== 'object' || typeof entry.text !== 'string') {
+  const page = /** @type {Record<string, unknown> & { entries: unknown[] }} */ (response);
+  if (page.entries.length > PROMPT_HISTORY_LIMIT
+    || typeof page.nextCursor !== 'string'
+    || typeof page.hasMore !== 'boolean'
+    || typeof page.nonce !== 'string'
+    || !page.nonce.trim()
+    || (page.hasMore && !page.nextCursor)
+    || (!page.hasMore && page.nextCursor !== '')) {
+    throw new TypeError('prompt history response is invalid');
+  }
+  for (const entry of page.entries) {
+    if (!entry || typeof entry !== 'object'
+      || typeof /** @type {Record<string, unknown>} */ (entry).text !== 'string') {
       throw new TypeError('prompt history response is invalid');
     }
   }

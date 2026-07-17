@@ -418,9 +418,13 @@ func applyGateInfrastructureRules(file string, gates map[string]bool) bool {
 	return false
 }
 
+// applySourceGateRules 根据生产源码路径补充必须执行的门禁和 LSP 证据要求。
 func applySourceGateRules(file string, gates, evidence map[string]bool) bool {
 	switch {
 	case strings.HasPrefix(file, "frontend-app/"):
+		if criticalTypecheckRelevant(file) {
+			gates["frontend:typecheck-contracts"] = true
+		}
 		gates["frontend:lint"] = true
 		gates["frontend:test"] = true
 		gates["frontend:build"] = true
@@ -434,6 +438,16 @@ func applySourceGateRules(file string, gates, evidence map[string]bool) bool {
 		return true
 	}
 	return false
+}
+
+// criticalTypecheckRelevant 判断变更是否会影响关键前端严格类型检查闭包。
+func criticalTypecheckRelevant(file string) bool {
+	return file == "frontend-app/tsconfig.contracts.json" ||
+		file == "frontend-app/scripts/critical-typecheck-files.json" ||
+		file == "frontend-app/scripts/critical-typecheck-guard.mjs" ||
+		file == "frontend-app/scripts/contracts-typecheck-guard.test.mjs" ||
+		(strings.HasPrefix(file, "frontend-app/src/") &&
+			(strings.HasSuffix(file, ".js") || strings.HasSuffix(file, ".jsx")))
 }
 
 // affectedGoPackages 合并稳定后端回归包与 diff 命中的 Go 包，并避免 archtest 被守卫包装器重复执行。
@@ -568,6 +582,7 @@ func gateEvidenceCommandFragments() map[string][]string {
 		"capcontract:check":                {"make capcontract-check"},
 		"turncontract:verify":              {"go run ./scripts/turncontract --verify", "go test ./internal/dto/turn -run ^TestTurnContractFieldGuard", "node frontend-app/scripts/turn-contract-field-guard.mjs"},
 		"frontend:lint":                    {"npm run lint"},
+		"frontend:typecheck-contracts":     {"npm run typecheck:contracts"},
 		"frontend:test":                    {"npm test"},
 		"frontend:build":                   {"npm run build"},
 		"frontend:embed-verify":            {"make frontend-embed-verify"},
@@ -656,6 +671,7 @@ func orderedGates(values map[string]bool) []string {
 		"ai-maintenance:self-test",
 		"turncontract:verify",
 		"frontend:lint",
+		"frontend:typecheck-contracts",
 		"frontend:test",
 		"frontend:build",
 		"frontend:embed-verify",

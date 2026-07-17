@@ -9,7 +9,7 @@ frontend-app/eslint.config.js	frontend-app	app-ui	js-source	857	当前 React/Vit
 frontend-app/index.html	frontend-app	app-ui	html	391	当前 React/Vite 前端包	frontend,app,index,当前,React,Vite,前端包
 frontend-app/jsconfig.json	frontend-app	app-ui	json	421	当前 React/Vite 前端包	frontend,app,jsconfig,当前,React,Vite,前端包
 frontend-app/package-lock.json	frontend-app	app-ui	json	233478	当前 React/Vite 前端包	frontend,app,package,lock,当前,React,Vite,前端包
-frontend-app/package.json	frontend-app	app-ui	json	3255	当前 React/Vite 前端包	frontend,app,package,当前,React,Vite,前端包
+frontend-app/package.json	frontend-app	app-ui	json	3495	当前 React/Vite 前端包	frontend,app,package,当前,React,Vite,前端包
 frontend-app/playwright.business-flows.config.js	frontend-app	app-ui	js-source	894	当前 React/Vite 前端包	frontend,app,playwright,business,flows,config,当前,React,Vite,前端包
 frontend-app/playwright.desktop-wide.config.js	frontend-app	app-ui	js-source	1030	当前 React/Vite 前端包	frontend,app,playwright,desktop,wide,config,当前,React,Vite,前端包
 frontend-app/playwright.desktop.config.js	frontend-app	app-ui	js-source	617	当前 React/Vite 前端包	frontend,app,playwright,desktop,config,当前,React,Vite,前端包
@@ -29,7 +29,9 @@ frontend-app/scripts/agentic-e2e.mjs	frontend-app	app-ui	js-source	26608	React �
 frontend-app/scripts/agentic-e2e.test.mjs	frontend-app	app-ui	js-test	57464	React 前端构建与校验脚本	frontend,app,scripts,agentic,e2e,test,React,前端构建与校验脚本
 frontend-app/scripts/chat-history-benchmark.mjs	frontend-app	app-ui	js-source	3595	React 前端构建与校验脚本	frontend,app,scripts,chat,history,benchmark,React,前端构建与校验脚本
 frontend-app/scripts/chat-history-benchmark.test.mjs	frontend-app	app-ui	js-test	4193	React 前端构建与校验脚本	frontend,app,scripts,chat,history,benchmark,test,React,前端构建与校验脚本
-frontend-app/scripts/contracts-typecheck-guard.test.mjs	frontend-app	app-ui	js-test	1567	React 前端构建与校验脚本	frontend,app,scripts,contracts,typecheck,guard,test,React,前端构建与校验脚本
+frontend-app/scripts/contracts-typecheck-guard.test.mjs	frontend-app	app-ui	js-test	7797	React 前端构建与校验脚本	frontend,app,scripts,contracts,typecheck,guard,test,React,前端构建与校验脚本
+frontend-app/scripts/critical-typecheck-files.json	frontend-app	app-ui	json	1859	React 前端构建与校验脚本	frontend,app,scripts,critical,typecheck,files,React,前端构建与校验脚本
+frontend-app/scripts/critical-typecheck-guard.mjs	frontend-app	app-ui	js-source	9183	React 前端构建与校验脚本	frontend,app,scripts,critical,typecheck,guard,React,前端构建与校验脚本
 frontend-app/scripts/desktop-failure-smoke.mjs	frontend-app	app-ui	js-source	10441	React 前端构建与校验脚本	frontend,app,scripts,desktop,failure,smoke,React,前端构建与校验脚本
 frontend-app/scripts/desktop-failure-smoke.test.mjs	frontend-app	app-ui	js-test	2370	React 前端构建与校验脚本	frontend,app,scripts,desktop,failure,smoke,test,React,前端构建与校验脚本
 frontend-app/scripts/desktop-runner-contract.test.mjs	frontend-app	app-ui	js-test	1236	React 前端构建与校验脚本	frontend,app,scripts,desktop,runner,contract,test,React,前端构建与校验脚本
@@ -116,7 +118,7 @@ frontend-app/src/entities/client/model/capabilities/composerCapabilities.test.js
 frontend-app/src/entities/client/model/composerAttachments.js	frontend-app	app-ui	js-source	9106	React 客户端状态、thread/composer/store 模型	frontend,app,src,entities,client,model,composerAttachments,React,客户端状态,thread,composer,store,模型
 frontend-app/src/entities/client/model/composerAttachments.test.js	frontend-app	app-ui	js-test	5533	React 客户端状态、thread/composer/store 模型	frontend,app,src,entities,client,model,composerAttachments,test,React,客户端状态,thread,composer,store,模型
 frontend-app/src/entities/client/model/composerSlice.js	frontend-app	app-ui	js-source	326	React 客户端状态、thread/composer/store 模型	frontend,app,src,entities,client,model,composerSlice,React,客户端状态,thread,composer,store,模型
-frontend-app/src/entities/client/model/contractStoreModel.js	frontend-app	app-ui	js-source	5741	React 客户端状态、thread/composer/store 模型	frontend,app,src,entities,client,model,contractStoreModel,React,客户端状态,thread,composer,store,模型
+frontend-app/src/entities/client/model/contractStoreModel.js	frontend-app	app-ui	js-source	6811	React 客户端状态、thread/composer/store 模型	frontend,app,src,entities,client,model,contractStoreModel,React,客户端状态,thread,composer,store,模型
 frontend-app/src/entities/client/model/failureMatrix.test.js	frontend-app	app-ui	js-test	8275	React 客户端状态、thread/composer/store 模型	frontend,app,src,entities,client,model,failureMatrix,test,React,客户端状态,thread,composer,store,模型
 frontend-app/src/entities/client/model/forkSlice.js	frontend-app	app-ui	js-source	325	React 客户端状态、thread/composer/store 模型	frontend,app,src,entities,client,model,forkSlice,React,客户端状态,thread,composer,store,模型
 frontend-app/src/entities/client/model/helpers/a1/clientStoreBridgeRuntime.js	frontend-app	app-ui	js-source	9452	React 客户端状态、thread/composer/store 模型	frontend,app,src,entities,client,model,helpers,a1,clientStoreBridgeRuntime,React,客户端状态,thread,composer,store,模型
@@ -134,8 +136,8 @@ frontend-app/src/entities/client/model/helpers/a2Slice/composerSliceActions.js	f
 frontend-app/src/entities/client/model/helpers/a2Slice/forkSliceActions.js	frontend-app	app-ui	js-source	7747	React 客户端状态、thread/composer/store 模型	frontend,app,src,entities,client,model,helpers,a2Slice,forkSliceActions,React,客户端状态,thread,composer,store,模型
 frontend-app/src/entities/client/model/helpers/a2Slice/projectSliceActions.js	frontend-app	app-ui	js-source	7121	React 客户端状态、thread/composer/store 模型	frontend,app,src,entities,client,model,helpers,a2Slice,projectSliceActions,React,客户端状态,thread,composer,store,模型
 frontend-app/src/entities/client/model/helpers/assistantEventRuntime.js	frontend-app	app-ui	js-source	17185	React 客户端状态、thread/composer/store 模型	frontend,app,src,entities,client,model,helpers,assistantEventRuntime,React,客户端状态,thread,composer,store,模型
-frontend-app/src/entities/client/model/helpers/bridgeRevision.js	frontend-app	app-ui	js-source	2614	React 客户端状态、thread/composer/store 模型	frontend,app,src,entities,client,model,helpers,bridgeRevision,React,客户端状态,thread,composer,store,模型
-frontend-app/src/entities/client/model/helpers/providerPreferences.js	frontend-app	app-ui	js-source	1484	React 客户端状态、thread/composer/store 模型	frontend,app,src,entities,client,model,helpers,providerPreferences,React,客户端状态,thread,composer,store,模型
+frontend-app/src/entities/client/model/helpers/bridgeRevision.js	frontend-app	app-ui	js-source	3039	React 客户端状态、thread/composer/store 模型	frontend,app,src,entities,client,model,helpers,bridgeRevision,React,客户端状态,thread,composer,store,模型
+frontend-app/src/entities/client/model/helpers/providerPreferences.js	frontend-app	app-ui	js-source	1805	React 客户端状态、thread/composer/store 模型	frontend,app,src,entities,client,model,helpers,providerPreferences,React,客户端状态,thread,composer,store,模型
 frontend-app/src/entities/client/model/helpers/providerRuntimeConfig.js	frontend-app	app-ui	js-source	3422	React 客户端状态、thread/composer/store 模型	frontend,app,src,entities,client,model,helpers,providerRuntimeConfig,React,客户端状态,thread,composer,store,模型
 frontend-app/src/entities/client/model/helpers/runtimeAssistantTimelineMerge.js	frontend-app	app-ui	js-source	4389	React 客户端状态、thread/composer/store 模型	frontend,app,src,entities,client,model,helpers,runtimeAssistantTimelineMerge,React,客户端状态,thread,composer,store,模型
 frontend-app/src/entities/client/model/helpers/runtimeResultHelpers.js	frontend-app	app-ui	js-source	9890	React 客户端状态、thread/composer/store 模型	frontend,app,src,entities,client,model,helpers,runtimeResultHelpers,React,客户端状态,thread,composer,store,模型
@@ -187,7 +189,7 @@ frontend-app/src/features/command-palette/ui/CommandPalette.jsx	frontend-app	app
 frontend-app/src/features/command-palette/ui/CommandPalette.test.jsx	frontend-app	app-ui	jsx	6875	当前 React/Vite 前端包	frontend,app,src,features,command,palette,ui,CommandPalette,test,当前,React,Vite,前端包
 frontend-app/src/features/prompt-history/hooks/usePromptHistory.js	frontend-app	app-ui	js-source	1951	当前 React/Vite 前端包	frontend,app,src,features,prompt,history,hooks,usePromptHistory,当前,React,Vite,前端包
 frontend-app/src/features/prompt-history/hooks/usePromptHistory.test.jsx	frontend-app	app-ui	jsx	7737	当前 React/Vite 前端包	frontend,app,src,features,prompt,history,hooks,usePromptHistory,test,当前,React,Vite,前端包
-frontend-app/src/features/prompt-history/model/promptHistoryController.js	frontend-app	app-ui	js-source	4842	当前 React/Vite 前端包	frontend,app,src,features,prompt,history,model,promptHistoryController,当前,React,Vite,前端包
+frontend-app/src/features/prompt-history/model/promptHistoryController.js	frontend-app	app-ui	js-source	6116	当前 React/Vite 前端包	frontend,app,src,features,prompt,history,model,promptHistoryController,当前,React,Vite,前端包
 frontend-app/src/features/prompt-history/model/promptHistoryController.test.js	frontend-app	app-ui	js-test	8286	当前 React/Vite 前端包	frontend,app,src,features,prompt,history,model,promptHistoryController,test,当前,React,Vite,前端包
 frontend-app/src/features/prompts/Personalization.css	frontend-app	app-ui	css	2665	当前 React/Vite 前端包	frontend,app,src,features,prompts,Personalization,当前,React,Vite,前端包
 frontend-app/src/features/prompts/PromptPagePolish.css	frontend-app	app-ui	css	4892	当前 React/Vite 前端包	frontend,app,src,features,prompts,PromptPagePolish,当前,React,Vite,前端包
@@ -326,7 +328,7 @@ frontend-app/src/pages/chat/runtime/RuntimeActivityLog.jsx	frontend-app	app-ui	j
 frontend-app/src/pages/chat/runtime/RuntimeActivityPanel.jsx	frontend-app	app-ui	jsx	4943	React 页面与路由级 UI	frontend,app,src,pages,chat,runtime,RuntimeActivityPanel,React,页面与路由级,UI
 frontend-app/src/pages/chat/runtime/RuntimeActivityStats.jsx	frontend-app	app-ui	jsx	3638	React 页面与路由级 UI	frontend,app,src,pages,chat,runtime,RuntimeActivityStats,React,页面与路由级,UI
 frontend-app/src/pages/chat/runtime/RuntimeCodePreviewDialogs.jsx	frontend-app	app-ui	jsx	1339	React 页面与路由级 UI	frontend,app,src,pages,chat,runtime,RuntimeCodePreviewDialogs,React,页面与路由级,UI
-frontend-app/src/pages/chat/runtime/RuntimeDiffView.jsx	frontend-app	app-ui	jsx	4860	React 页面与路由级 UI	frontend,app,src,pages,chat,runtime,RuntimeDiffView,React,页面与路由级,UI
+frontend-app/src/pages/chat/runtime/RuntimeDiffView.jsx	frontend-app	app-ui	jsx	6344	React 页面与路由级 UI	frontend,app,src,pages,chat,runtime,RuntimeDiffView,React,页面与路由级,UI
 frontend-app/src/pages/chat/runtime/RuntimePanel.css	frontend-app	app-ui	css	15510	React 页面与路由级 UI	frontend,app,src,pages,chat,runtime,RuntimePanel,React,页面与路由级,UI
 frontend-app/src/pages/chat/runtime/RuntimePanel.jsx	frontend-app	app-ui	jsx	2579	React 页面与路由级 UI	frontend,app,src,pages,chat,runtime,RuntimePanel,React,页面与路由级,UI
 frontend-app/src/pages/chat/runtime/RuntimePanelSlot.jsx	frontend-app	app-ui	jsx	1543	React 页面与路由级 UI	frontend,app,src,pages,chat,runtime,RuntimePanelSlot,React,页面与路由级,UI
@@ -470,14 +472,14 @@ frontend-app/src/services/modules/observabilityService.js	frontend-app	app-ui	js
 frontend-app/src/services/modules/observabilityService.test.js	frontend-app	app-ui	js-test	1997	当前 React/Vite 前端包	frontend,app,src,services,modules,observabilityService,test,当前,React,Vite,前端包
 frontend-app/src/SettingsPage.test.jsx	frontend-app	app-ui	jsx	25002	当前 React/Vite 前端包	frontend,app,src,SettingsPage,test,当前,React,Vite,前端包
 frontend-app/src/shared/api/approvalRequestId.js	frontend-app	app-ui	js-source	3601	React 前端 API facade 与 Wails bridge	frontend,app,src,shared,api,approvalRequestId,React,前端,API,facade,与,Wails,bridge
-frontend-app/src/shared/api/backend/backendApiCommon.js	frontend-app	app-ui	js-source	6298	React 前端 API facade 与 Wails bridge	frontend,app,src,shared,api,backend,backendApiCommon,React,前端,API,facade,与,Wails,bridge
+frontend-app/src/shared/api/backend/backendApiCommon.js	frontend-app	app-ui	js-source	7676	React 前端 API facade 与 Wails bridge	frontend,app,src,shared,api,backend,backendApiCommon,React,前端,API,facade,与,Wails,bridge
 frontend-app/src/shared/api/backend/backendApiFactoryCore.js	frontend-app	app-ui	js-source	21076	React 前端 API facade 与 Wails bridge	frontend,app,src,shared,api,backend,backendApiFactoryCore,React,前端,API,facade,与,Wails,bridge
 frontend-app/src/shared/api/backend/backendApiFactoryOps.js	frontend-app	app-ui	js-source	18523	React 前端 API facade 与 Wails bridge	frontend,app,src,shared,api,backend,backendApiFactoryOps,React,前端,API,facade,与,Wails,bridge
 frontend-app/src/shared/api/backend/backendApiFactoryThread.js	frontend-app	app-ui	js-source	21043	React 前端 API facade 与 Wails bridge	frontend,app,src,shared,api,backend,backendApiFactoryThread,React,前端,API,facade,与,Wails,bridge
 frontend-app/src/shared/api/backend/backendApiPayloadCore.js	frontend-app	app-ui	js-source	8999	React 前端 API facade 与 Wails bridge	frontend,app,src,shared,api,backend,backendApiPayloadCore,React,前端,API,facade,与,Wails,bridge
 frontend-app/src/shared/api/backend/backendApiPayloads.js	frontend-app	app-ui	js-source	108	React 前端 API facade 与 Wails bridge	frontend,app,src,shared,api,backend,backendApiPayloads,React,前端,API,facade,与,Wails,bridge
 frontend-app/src/shared/api/backend/backendApiPayloadWorkflow.js	frontend-app	app-ui	js-source	19011	React 前端 API facade 与 Wails bridge	frontend,app,src,shared,api,backend,backendApiPayloadWorkflow,React,前端,API,facade,与,Wails,bridge
-frontend-app/src/shared/api/backend/backendRpcMethods.js	frontend-app	app-ui	js-source	6743	React 前端 API facade 与 Wails bridge	frontend,app,src,shared,api,backend,backendRpcMethods,React,前端,API,facade,与,Wails,bridge
+frontend-app/src/shared/api/backend/backendRpcMethods.js	frontend-app	app-ui	js-source	6727	React 前端 API facade 与 Wails bridge	frontend,app,src,shared,api,backend,backendRpcMethods,React,前端,API,facade,与,Wails,bridge
 frontend-app/src/shared/api/backendApi.contractMatrix.js	frontend-app	app-ui	js-source	46665	React 前端 API facade 与 Wails bridge	frontend,app,src,shared,api,backendApi,contractMatrix,React,前端,API,facade,与,Wails,bridge
 frontend-app/src/shared/api/backendApi.contractMatrix.test.js	frontend-app	app-ui	js-test	23451	React 前端 API facade 与 Wails bridge	frontend,app,src,shared,api,backendApi,contractMatrix,test,React,前端,API,facade,与,Wails,bridge
 frontend-app/src/shared/api/backendApi.js	frontend-app	app-ui	js-source	6390	React 前端 API facade 与 Wails bridge	frontend,app,src,shared,api,backendApi,React,前端,API,facade,与,Wails,bridge
@@ -511,7 +513,7 @@ frontend-app/src/shared/api/wails/wailsBridgeTraceEvents.test.js	frontend-app	ap
 frontend-app/src/shared/api/wailsBridge.js	frontend-app	app-ui	js-source	1091	React 前端 API facade 与 Wails bridge	frontend,app,src,shared,api,wailsBridge,React,前端,API,facade,与,Wails,bridge
 frontend-app/src/shared/api/wailsBridge.test.js	frontend-app	app-ui	js-test	69155	React 前端 API facade 与 Wails bridge	frontend,app,src,shared,api,wailsBridge,test,React,前端,API,facade,与,Wails,bridge
 frontend-app/src/shared/contracts/turnContracts.generated.js	frontend-app	app-ui	js-source	11384	当前 React/Vite 前端包	frontend,app,src,shared,contracts,turnContracts,generated,当前,React,Vite,前端包
-frontend-app/src/shared/contracts/turnContractValidators.js	frontend-app	app-ui	js-source	4635	当前 React/Vite 前端包	frontend,app,src,shared,contracts,turnContractValidators,当前,React,Vite,前端包
+frontend-app/src/shared/contracts/turnContractValidators.js	frontend-app	app-ui	js-source	6207	当前 React/Vite 前端包	frontend,app,src,shared,contracts,turnContractValidators,当前,React,Vite,前端包
 frontend-app/src/shared/contracts/turnContractValidators.test.js	frontend-app	app-ui	js-test	2111	当前 React/Vite 前端包	frontend,app,src,shared,contracts,turnContractValidators,test,当前,React,Vite,前端包
 frontend-app/src/shared/diagnostics/frontendBreadcrumbs.js	frontend-app	app-ui	js-source	5472	当前 React/Vite 前端包	frontend,app,src,shared,diagnostics,frontendBreadcrumbs,当前,React,Vite,前端包
 frontend-app/src/shared/diagnostics/frontendBreadcrumbs.test.js	frontend-app	app-ui	js-test	5492	当前 React/Vite 前端包	frontend,app,src,shared,diagnostics,frontendBreadcrumbs,test,当前,React,Vite,前端包
@@ -519,7 +521,7 @@ frontend-app/src/shared/diagnostics/frontendCrashReport.js	frontend-app	app-ui	j
 frontend-app/src/shared/diagnostics/frontendCrashReport.test.js	frontend-app	app-ui	js-test	10223	当前 React/Vite 前端包	frontend,app,src,shared,diagnostics,frontendCrashReport,test,当前,React,Vite,前端包
 frontend-app/src/shared/diagnostics/frontendPerformancePressure.js	frontend-app	app-ui	js-source	9200	当前 React/Vite 前端包	frontend,app,src,shared,diagnostics,frontendPerformancePressure,当前,React,Vite,前端包
 frontend-app/src/shared/diagnostics/frontendPerformancePressure.test.js	frontend-app	app-ui	js-test	14346	当前 React/Vite 前端包	frontend,app,src,shared,diagnostics,frontendPerformancePressure,test,当前,React,Vite,前端包
-frontend-app/src/shared/diagnostics/safeLogFields.js	frontend-app	app-ui	js-source	6782	当前 React/Vite 前端包	frontend,app,src,shared,diagnostics,safeLogFields,当前,React,Vite,前端包
+frontend-app/src/shared/diagnostics/safeLogFields.js	frontend-app	app-ui	js-source	8615	当前 React/Vite 前端包	frontend,app,src,shared,diagnostics,safeLogFields,当前,React,Vite,前端包
 frontend-app/src/shared/diagnostics/safeLogFields.test.js	frontend-app	app-ui	js-test	5503	当前 React/Vite 前端包	frontend,app,src,shared,diagnostics,safeLogFields,test,当前,React,Vite,前端包
 frontend-app/src/shared/i18n/appI18n.constants.js	frontend-app	app-ui	js-source	218	当前 React/Vite 前端包	frontend,app,src,shared,i18n,appI18n,constants,当前,React,Vite,前端包
 frontend-app/src/shared/i18n/appI18n.copy.js	frontend-app	app-ui	js-source	139	当前 React/Vite 前端包	frontend,app,src,shared,i18n,appI18n,copy,当前,React,Vite,前端包
@@ -539,7 +541,7 @@ frontend-app/src/shared/ui/FocusTrapDialog.jsx	frontend-app	app-ui	jsx	4280	Reac
 frontend-app/src/shared/ui/FocusTrapDialog.test.jsx	frontend-app	app-ui	jsx	4473	React 共享 UI 组件	frontend,app,src,shared,ui,FocusTrapDialog,test,React,共享,UI,组件
 frontend-app/src/shared/ui/OverlayPortal.jsx	frontend-app	app-ui	jsx	669	React 共享 UI 组件	frontend,app,src,shared,ui,OverlayPortal,React,共享,UI,组件
 frontend-app/src/shared/ui/OverlayPortal.test.jsx	frontend-app	app-ui	jsx	2166	React 共享 UI 组件	frontend,app,src,shared,ui,OverlayPortal,test,React,共享,UI,组件
-frontend-app/src/shared/ui/runUIAction.js	frontend-app	app-ui	js-source	520	React 共享 UI 组件	frontend,app,src,shared,ui,runUIAction,React,共享,UI,组件
+frontend-app/src/shared/ui/runUIAction.js	frontend-app	app-ui	js-source	992	React 共享 UI 组件	frontend,app,src,shared,ui,runUIAction,React,共享,UI,组件
 frontend-app/src/shared/ui/runUIAction.test.js	frontend-app	app-ui	js-test	811	React 共享 UI 组件	frontend,app,src,shared,ui,runUIAction,test,React,共享,UI,组件
 frontend-app/src/styles.css	frontend-app	app-ui	css	7450	当前 React/Vite 前端包	frontend,app,src,styles,当前,React,Vite,前端包
 frontend-app/src/styles.test.js	frontend-app	app-ui	js-test	119025	当前 React/Vite 前端包	frontend,app,src,styles,test,当前,React,Vite,前端包
@@ -555,6 +557,6 @@ frontend-app/tests/e2e/business-flows.spec.js	frontend-app	app-ui	js-test	20140	
 frontend-app/tests/e2e/desktop-failure.spec.js	frontend-app	app-ui	js-test	1370	React 前端 Playwright E2E 与视觉回归测试	frontend,app,tests,e2e,desktop,failure,spec,React,前端,Playwright,E2E,与视觉回归测试
 frontend-app/tests/e2e/desktop-ux.spec.js	frontend-app	app-ui	js-test	3384	React 前端 Playwright E2E 与视觉回归测试	frontend,app,tests,e2e,desktop,ux,spec,React,前端,Playwright,E2E,与视觉回归测试
 frontend-app/tests/e2e/desktop-wide.spec.js	frontend-app	app-ui	js-test	11010	React 前端 Playwright E2E 与视觉回归测试	frontend,app,tests,e2e,desktop,wide,spec,React,前端,Playwright,E2E,与视觉回归测试
-frontend-app/tsconfig.contracts.json	frontend-app	app-ui	json	391	当前 React/Vite 前端包	frontend,app,tsconfig,contracts,当前,React,Vite,前端包
+frontend-app/tsconfig.contracts.json	frontend-app	app-ui	json	742	当前 React/Vite 前端包	frontend,app,tsconfig,contracts,当前,React,Vite,前端包
 frontend-app/vite.config.js	frontend-app	app-ui	js-source	5389	当前 React/Vite 前端包	frontend,app,vite,config,当前,React,Vite,前端包
 frontend-app/vite.config.test.js	frontend-app	app-ui	js-test	4569	当前 React/Vite 前端包	frontend,app,vite,config,test,当前,React,Vite,前端包

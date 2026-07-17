@@ -6,16 +6,48 @@ const DIFF_LINE_ESTIMATE_PX = 20;
 const DIFF_LINE_OVERSCAN = 8;
 const DIFF_LINES_VIEWPORT_PX = 420;
 
+/**
+ * @typedef {import('@tanstack/react-virtual').VirtualItem} VirtualItem
+ * @typedef {{
+ *   filename: string,
+ *   additions: number,
+ *   deletions: number,
+ *   text: string,
+ * }} RuntimeDiffFileModel
+ * @typedef {{
+ *   key: string,
+ *   type: string,
+ *   oldNo: string | number,
+ *   newNo: string | number,
+ *   prefix: string,
+ *   content: string,
+ * }} RuntimeDiffLineModel
+ */
+
+/** @param {unknown} _instance @param {(rect: { width: number, height: number }) => void} callback */
 function observeDiffLineViewport(_instance, callback) {
   callback({ width: 0, height: DIFF_LINES_VIEWPORT_PX });
   return undefined;
 }
 
+/** @param {HTMLElement} element */
 function measureDiffLineElement(element) {
   const height = Math.ceil(element.getBoundingClientRect().height || 0);
   return Math.max(DIFF_LINE_ESTIMATE_PX, height);
 }
 
+/**
+ * @param {{
+ *   diffText?: string,
+ *   diffSummary: { files: RuntimeDiffFileModel[] },
+ *   collapsedFiles: Set<string>,
+ *   actionNotice?: string,
+ *   onLocateFile: (file: RuntimeDiffFileModel) => void,
+ *   onOpenFile: (file: RuntimeDiffFileModel) => void,
+ *   onToggleFile: (key: string) => void,
+ *   parseLineEntries: (text: string) => RuntimeDiffLineModel[],
+ * }} props
+ */
 function RuntimeDiffView({
   diffText,
   diffSummary,
@@ -48,6 +80,17 @@ function RuntimeDiffView({
   );
 }
 
+/**
+ * @param {{
+ *   file: RuntimeDiffFileModel,
+ *   index: number,
+ *   collapsed: boolean,
+ *   onLocate: () => void,
+ *   onOpen: () => void,
+ *   onToggle: () => void,
+ *   parseLineEntries: (text: string) => RuntimeDiffLineModel[],
+ * }} props
+ */
 function RuntimeDiffFile({
   file,
   index,
@@ -82,6 +125,13 @@ function RuntimeDiffFile({
   );
 }
 
+/**
+ * @param {{
+ *   file: RuntimeDiffFileModel,
+ *   index: number,
+ *   parseLineEntries: (text: string) => RuntimeDiffLineModel[],
+ * }} props
+ */
 function RuntimeDiffLines({ file, index, parseLineEntries }) {
   const lines = useMemo(() => parseLineEntries(file.text), [file.text, parseLineEntries]);
   const scrollRef = useRef(null);
@@ -113,6 +163,13 @@ function RuntimeDiffLines({ file, index, parseLineEntries }) {
   );
 }
 
+/**
+ * @param {{
+ *   line: RuntimeDiffLineModel,
+ *   measureElement: (node: HTMLDivElement | null) => void,
+ *   virtualRow: VirtualItem,
+ * }} props
+ */
 function RuntimeDiffLine({ line, measureElement, virtualRow }) {
   return (
     <div

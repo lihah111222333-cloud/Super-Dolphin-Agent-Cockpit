@@ -24,6 +24,7 @@ func TestBuildGatePlanRoutesFrontendBackendAndGeneratedFiles(t *testing.T) {
 		"frontend:build",
 		"frontend:embed-verify",
 		"frontend:lint",
+		"frontend:typecheck-contracts",
 		"frontend:test",
 		"lsp:changed-diagnostics",
 		"project-map:check",
@@ -47,6 +48,18 @@ func TestBuildGatePlanRoutesAIMaintenanceHooksToSelfTest(t *testing.T) {
 	plan := mustBuildGatePlan(t, []string{".githooks/pre-commit", ".githooks/pre-push"})
 
 	assertStringSetContains(t, plan.RequiredGates, "ai-maintenance:self-test", "diff:whitespace")
+}
+
+func TestBuildGatePlanRoutesCriticalTypecheckSourcesAndInfrastructure(t *testing.T) {
+	for _, file := range []string{
+		"frontend-app/src/shared/ui/runUIAction.js",
+		"frontend-app/tsconfig.contracts.json",
+		"frontend-app/scripts/critical-typecheck-files.json",
+		"frontend-app/scripts/critical-typecheck-guard.mjs",
+	} {
+		plan := mustBuildGatePlan(t, []string{file})
+		assertStringSetContains(t, plan.RequiredGates, "frontend:typecheck-contracts")
+	}
 }
 
 func TestPushGatePlanAddsRiskGatesWithoutChangingCommitPlan(t *testing.T) {
@@ -618,6 +631,8 @@ COMMANDS_RUN:
   - cmd: go run ./scripts/lsp_diagnostics_gate --file frontend-app/src/App.jsx
     exit: 0
   - cmd: cd frontend-app && npm run lint
+    exit: 0
+  - cmd: cd frontend-app && npm run typecheck:contracts
     exit: 0
   - cmd: cd frontend-app && npm test
     exit: 0

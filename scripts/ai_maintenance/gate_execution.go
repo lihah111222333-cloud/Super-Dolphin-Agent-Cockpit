@@ -58,7 +58,7 @@ func gateRunners(plan gatePlan, executionScope gateExecutionScope) map[string]ga
 			return runCommand("", name, args...)
 		}}
 	}
-	return map[string]gateRunner{
+	runners := map[string]gateRunner{
 		"ai-maintenance:self-test": {run: func() error {
 			if err := runCommand("", "go", "test", "./scripts/ai_maintenance", "-count=1"); err != nil {
 				return err
@@ -119,6 +119,10 @@ func gateRunners(plan gatePlan, executionScope gateExecutionScope) map[string]ga
 		"sqlc:verify":           {run: func() error { return runCommand("", "make", "sqlc-verify-worktree") }},
 		"diff:whitespace":       {run: func() error { return runWhitespaceCheck(executionScope) }},
 	}
+	runners["frontend:typecheck-contracts"] = gateRunner{run: func() error {
+		return runCommand("frontend-app", "npm", "run", "typecheck:contracts")
+	}}
+	return runners
 }
 
 // existingDiagnosticFiles keeps deleted paths out of the live diagnostics request while

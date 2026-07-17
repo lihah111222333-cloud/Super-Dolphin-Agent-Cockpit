@@ -6,6 +6,27 @@ export const SAFE_LOG_LIMITS = Object.freeze({
   maxFieldCount: 50,
 });
 
+/**
+ * @typedef {{
+ *   forbiddenKeys?: readonly unknown[] | ReadonlySet<unknown>,
+ *   forbiddenKeyMode?: 'redact' | 'omit',
+ *   maxStringLength?: number,
+ *   maxFieldDepth?: number,
+ *   maxFieldCount?: number,
+ *   redactedValue?: string,
+ *   truncatedValue?: string,
+ * }} SafeLogOptions
+ * @typedef {{
+ *   forbiddenKeys: Set<string>,
+ *   forbiddenKeyMode: 'redact' | 'omit',
+ *   maxStringLength: number,
+ *   maxFieldDepth: number,
+ *   maxFieldCount: number,
+ *   redactedValue: string,
+ *   truncatedValue: string,
+ * }} NormalizedSafeLogOptions
+ */
+
 export const SAFE_LOG_FORBIDDEN_KEYS = Object.freeze([
   'token',
   'api_key',
@@ -56,21 +77,24 @@ const POSIX_LOCAL_PATH_RE =
 const WINDOWS_LOCAL_PATH_RE = /\b[a-z]:\\(?:[^\\/:*?"<>|\r\n]+\\?)+/gi;
 const UNC_LOCAL_PATH_RE = /\\\\[a-z0-9._-]+\\[^\s"'`<>|]+/gi;
 
+/** @param {unknown} value @returns {value is Record<string, unknown>} */
 function isPlainLogObject(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
   const proto = Object.getPrototypeOf(value);
   return proto === Object.prototype || proto === null;
 }
 
+/** @param {unknown} value @param {string} label @returns {number} */
 function assertPositiveInteger(value, label) {
-  if (!Number.isInteger(value) || value <= 0) {
+  if (typeof value !== 'number' || !Number.isInteger(value) || value <= 0) {
     throw new Error(`safeLogFields ${label} must be a positive integer`);
   }
   return value;
 }
 
+/** @param {unknown} key */
 export function normalizeSafeLogFieldKey(key) {
-  const raw = key ? key.toString() : '';
+  const raw = key ? String(key) : '';
   return raw
     .toString()
     .replace(/([a-z0-9])([A-Z])/g, '$1_$2')
@@ -78,6 +102,7 @@ export function normalizeSafeLogFieldKey(key) {
     .toLowerCase();
 }
 
+/** @param {SafeLogOptions['forbiddenKeys']} forbiddenKeys */
 function normalizeForbiddenKeys(forbiddenKeys) {
   const keys = forbiddenKeys === undefined ? SAFE_LOG_FORBIDDEN_KEYS : forbiddenKeys;
   if (!Array.isArray(keys) && !(keys instanceof Set)) {
@@ -86,6 +111,7 @@ function normalizeForbiddenKeys(forbiddenKeys) {
   return new Set([...keys].map((key) => normalizeSafeLogFieldKey(key)));
 }
 
+/** @param {SafeLogOptions} [options] @returns {NormalizedSafeLogOptions} */
 function normalizeSafeLogOptions(options = {}) {
   if (!isPlainLogObject(options)) {
     throw new Error('safeLogFields options must be a plain object');
@@ -121,11 +147,13 @@ function normalizeSafeLogOptions(options = {}) {
   };
 }
 
+/** @param {unknown} key @param {SafeLogOptions} [options] */
 export function isSafeLogForbiddenKey(key, options = {}) {
   const normalized = normalizeSafeLogOptions(options);
   return normalized.forbiddenKeys.has(normalizeSafeLogFieldKey(key));
 }
 
+/** @param {string} value @param {NormalizedSafeLogOptions} options */
 function redactUnsafeString(value, options) {
   if (SECRET_ASSIGNMENT_RE.test(value) || TOKEN_VALUE_RE.test(value)) {
     return options.redactedValue;
@@ -139,7 +167,9 @@ function redactUnsafeString(value, options) {
   return `${withoutPaths.slice(0, options.maxStringLength - 3)}...`;
 }
 
+/** @param {Error} error @param {NormalizedSafeLogOptions} options @param {number} depth @param {WeakSet<object>} seen @returns {unknown} */
 function sanitizeError(error, options, depth, seen) {
+  /** @type {Record<string, unknown>} */
   const out = {
     name: error.name || 'Error',
     message: error.message ? error.message : '',
@@ -151,6 +181,7 @@ function sanitizeError(error, options, depth, seen) {
   return sanitizeObject(out, options, depth, seen);
 }
 
+/** @param {unknown[]} value @param {NormalizedSafeLogOptions} options @param {number} depth @param {WeakSet<object>} seen @returns {unknown} */
 function sanitizeArray(value, options, depth, seen) {
   if (depth >= options.maxFieldDepth) return options.truncatedValue;
   if (seen.has(value)) return '[Circular]';
@@ -160,11 +191,13 @@ function sanitizeArray(value, options, depth, seen) {
     .map((item) => sanitizeValue(item, options, depth + 1, seen));
 }
 
+/** @param {Record<string, unknown>} value @param {NormalizedSafeLogOptions} options @param {number} depth @param {WeakSet<object>} seen @returns {unknown} */
 function sanitizeObject(value, options, depth, seen) {
   if (depth >= options.maxFieldDepth) return options.truncatedValue;
   if (seen.has(value)) return '[Circular]';
   seen.add(value);
 
+  /** @type {Record<string, unknown>} */
   const out = {};
   let count = 0;
   for (const [key, item] of Object.entries(value)) {
@@ -181,6 +214,7 @@ function sanitizeObject(value, options, depth, seen) {
   return out;
 }
 
+/** @param {unknown} value @param {NormalizedSafeLogOptions} options @param {number} depth @param {WeakSet<object>} seen @returns {unknown} */
 function sanitizeValue(value, options, depth, seen) {
   if (value === undefined || value === null) return value;
   if (typeof value === 'string') return redactUnsafeString(value, options);
@@ -194,10 +228,12 @@ function sanitizeValue(value, options, depth, seen) {
   return sanitizeObject(value, options, depth, seen);
 }
 
+/** @param {unknown} value @param {SafeLogOptions} [options] */
 export function redactUITestValue(value, options = {}) {
   return sanitizeValue(value, normalizeSafeLogOptions(options), 0, new WeakSet());
 }
 
+/** @param {unknown} fields @param {SafeLogOptions} [options] */
 export function safeLogFields(fields, options = {}) {
   if (!isPlainLogObject(fields)) {
     throw new Error('safeLogFields fields must be a plain object');

@@ -1,15 +1,26 @@
 {
   "extends": "./jsconfig.json",
   "compilerOptions": {
-    "checkJs": false,
-    "strict": false,
-    "noImplicitAny": false,
+    "checkJs": true,
+    "strict": true,
+    "noImplicitAny": true,
+    "useUnknownInCatchVariables": true,
+    "skipLibCheck": false,
     "maxNodeModuleJsDepth": 0
   },
   "include": [
-    "src/shared/api/backendApi.js",
-    "src/shared/api/backendApi.contractMatrix.js",
+    "src/entities/client/model/helpers/bridgeRevision.js",
     "src/entities/client/model/helpers/providerPreferences.js",
-    "src/shared/api/backend/backendApiFactoryThread.js"
+    "src/features/prompt-history/model/promptHistoryController.js",
+    "src/pages/chat/runtime/RuntimeDiffView.jsx",
+    "src/shared/api/backend/backendApiCommon.js",
+    "src/shared/contracts/turnContractValidators.js",
+    "src/shared/diagnostics/safeLogFields.js",
+    "src/shared/ui/runUIAction.js"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "coverage"
   ]
 }

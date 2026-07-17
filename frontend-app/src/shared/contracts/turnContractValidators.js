@@ -1,29 +1,55 @@
 import { generatedSchemas } from './turnContracts.generated.js';
 
+/**
+ * @typedef {Record<string, unknown> & {
+ *   $ref?: string,
+ *   const?: unknown,
+ *   enum?: unknown[],
+ *   type?: string,
+ *   allOf?: JSONSchema[],
+ *   anyOf?: JSONSchema[],
+ *   not?: JSONSchema,
+ *   properties?: Record<string, JSONSchema>,
+ *   required?: string[],
+ *   additionalProperties?: boolean,
+ *   items?: JSONSchema,
+ *   uniqueItems?: boolean,
+ *   minLength?: number,
+ *   if?: JSONSchema,
+ *   then?: JSONSchema,
+ *   else?: JSONSchema,
+ * }} JSONSchema
+ */
+
+/** @param {unknown} value */
 export function validateTurnRefV1(value) {
   return validateNamedSchema('TurnRefV1', value);
 }
 
+/** @param {unknown} value */
 export function validatePublicErrorV1(value) {
   return validateNamedSchema('PublicErrorV1', value);
 }
 
+/** @param {unknown} value */
 export function validateTurnTerminalV2(value) {
   if (isRecord(value) && value.publicError !== undefined) validatePublicErrorV1(value.publicError);
   return validateNamedSchema('TurnTerminalV2', value);
 }
 
+/** @param {string} name @param {unknown} value */
 function validateNamedSchema(name, value) {
-  const schema = generatedSchemas[name];
+  const schema = /** @type {JSONSchema | undefined} */ (generatedSchemas[name]);
   if (!schema) throw new TypeError(`unknown generated turn schema: ${name}`);
   validateSchema(schema, value, '$', 0);
   return value;
 }
 
+/** @param {JSONSchema} schema @param {unknown} value @param {string} path @param {number} depth */
 function validateSchema(schema, value, path, depth) {
   if (depth > 32) throw new TypeError(`${path} exceeds schema recursion limit`);
   if (schema.$ref) {
-    const referenced = generatedSchemas[schema.$ref];
+    const referenced = /** @type {JSONSchema | undefined} */ (generatedSchemas[schema.$ref]);
     if (!referenced) throw new TypeError(`${path} references unknown schema ${schema.$ref}`);
     validateSchema(referenced, value, path, depth + 1);
     return;
@@ -51,6 +77,7 @@ function validateSchema(schema, value, path, depth) {
   }
 }
 
+/** @param {JSONSchema} schema @param {unknown} value @param {string} path @param {number} depth */
 function validateConditional(schema, value, path, depth) {
   if (!schema.if) {
     validateSchema(schema, value, path, depth);
@@ -63,6 +90,7 @@ function validateConditional(schema, value, path, depth) {
   }
 }
 
+/** @param {JSONSchema} schema @param {Record<string, unknown>} value @param {string} path @param {number} depth */
 function validateObject(schema, value, path, depth) {
   const properties = objectProperties(schema, path);
   for (const field of requiredFields(schema, path)) {
@@ -78,12 +106,14 @@ function validateObject(schema, value, path, depth) {
   }
 }
 
+/** @param {JSONSchema} schema @param {string} path */
 function objectProperties(schema, path) {
   if (!Object.hasOwn(schema, 'properties')) return {};
   if (!isRecord(schema.properties)) throw new TypeError(`${path} has invalid schema properties`);
-  return schema.properties;
+  return /** @type {Record<string, JSONSchema>} */ (schema.properties);
 }
 
+/** @param {JSONSchema} schema @param {string} path */
 function requiredFields(schema, path) {
   if (!Object.hasOwn(schema, 'required')) return [];
   if (!Array.isArray(schema.required) || schema.required.some((field) => typeof field !== 'string')) {
@@ -92,13 +122,16 @@ function requiredFields(schema, path) {
   return schema.required;
 }
 
+/** @param {JSONSchema} schema @param {unknown[]} value @param {string} path @param {number} depth */
 function validateArray(schema, value, path, depth) {
   if (schema.uniqueItems && new Set(value.map((item) => JSON.stringify(item))).size !== value.length) {
     throw new TypeError(`${path} contains duplicate item`);
   }
-  if (schema.items) value.forEach((item, index) => validateSchema(schema.items, item, `${path}[${index}]`, depth));
+  const items = schema.items;
+  if (items) value.forEach((item, index) => validateSchema(items, item, `${path}[${index}]`, depth));
 }
 
+/** @param {JSONSchema} schema @param {unknown} value @param {string} path @param {number} depth */
 function matchesSchema(schema, value, path, depth) {
   try {
     validateSchema(schema, value, path, depth);
@@ -108,16 +141,19 @@ function matchesSchema(schema, value, path, depth) {
   }
 }
 
+/** @param {string} type @param {unknown} value */
 function matchesType(type, value) {
   if (type === 'object') return isRecord(value);
   if (type === 'array') return Array.isArray(value);
   return typeof value === type;
 }
 
+/** @param {unknown} value @returns {value is Record<string, unknown>} */
 function isRecord(value) {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
+/** @param {unknown} left @param {unknown} right */
 function sameJSONValue(left, right) {
   return JSON.stringify(left) === JSON.stringify(right);
 }
