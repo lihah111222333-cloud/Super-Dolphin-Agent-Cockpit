@@ -5,6 +5,7 @@ import {
   mkdtempSync,
   mkdirSync,
   readFileSync,
+  realpathSync,
   rmSync,
   writeFileSync,
 } from 'node:fs';
@@ -46,6 +47,13 @@ function git(repoRoot, args) {
 
 function cli(args, cwd = frozenRepoRoot) {
   return spawnSync(process.execPath, [scorerPath, ...args], { cwd, encoding: 'utf8' });
+}
+
+function detachedTmpAlias() {
+  const canonical = realpathSync(tmpdir());
+  return canonical === '/private/var' || canonical.startsWith('/private/var/')
+    ? canonical.replace(/^\/private\/var/u, '/var')
+    : tmpdir();
 }
 
 function write(relativePath, content, repoRoot) {
@@ -159,6 +167,15 @@ function createFinalCliFixture() {
   packageDocument.scripts.build = 'false';
   write('frontend-app/package.json', `${JSON.stringify(packageDocument, null, 2)}\n`, subjectRoot);
   write('Makefile', 'frontend-embed-verify:\n\t@false\n', subjectRoot);
+  write('frontend-app/scripts/delivery-smoke-runner.mjs', [
+    "import process from 'node:process';",
+    "import { resolve } from 'node:path';",
+    "import { fileURLToPath } from 'node:url';",
+    '',
+    'const SCRIPT_PATH = fileURLToPath(import.meta.url);',
+    "if (process.argv[1] && resolve(process.argv[1]) === SCRIPT_PATH) process.stdout.write('{}\\n');",
+    '',
+  ].join('\n'), subjectRoot);
   git(subjectRoot, ['add', '.']);
   git(subjectRoot, ['commit', '-q', '-m', '测试：建立最终评分目标']);
   return { baseRoot, scoreBaseSha, subjectRoot, subjectSha: git(subjectRoot, ['rev-parse', 'HEAD']) };
@@ -458,6 +475,19 @@ describe('frontend maintainability scorer configuration', () => {
       ['node', 'node_modules/vitest/vitest.mjs', 'run', 'src/shared/ui/productionActionFailureMatrix.test.js', '--reporter=json', '--no-file-parallelism', '--maxWorkers=1'],
       ['node', 'frontend-app/scripts/failure-matrix-runner.mjs'],
     ]);
+    const publicErrorControl = controls.controls.find(({ id }) => id === 'C03-public-error-contract');
+    expect(publicErrorControl.required).toBe(true);
+    const publicErrorContract = publicErrorControl.allOf[0];
+    expect(publicErrorContract.testCount).toBe(7);
+    expect(publicErrorContract.testNames).toEqual([
+      'routes synchronous failures to visible and persistent sinks without console-only reporting',
+      'routes Promise rejection through the same sinks',
+      'fails fast when actionId or the retryable action thunk is missing',
+      'records a visible failure sink exception in Health without recursive reporting',
+      'records an onError callback exception in Health without exposing the raw action cause',
+      'terminates async reporting when the id factory and all caller-owned sinks throw',
+      'survives throwing health and visible sinks with finite observable Health records',
+    ]);
   });
 
   it('keeps the repaired terminal and visible-action truth bound to current executable probes', () => {
@@ -529,21 +559,37 @@ describe('frozen scorer target binding', () => {
     })).toThrow('frozen governance drift');
   }, 30_000);
 
-  it('runs the exact final CLI from a clean SCORE_BASE against a detached subject', () => {
+  it('canonicalizes the macOS /var symlink alias before detached runner execution', () => {
     const fixture = createFinalCliFixture();
     try {
+      const tmpAlias = detachedTmpAlias();
+      if (process.platform === 'darwin') {
+        expect(tmpAlias).toMatch(/^\/var(?:\/|$)/u);
+        expect(realpathSync(tmpAlias)).toMatch(/^\/private\/var(?:\/|$)/u);
+      }
       const result = spawnSync(process.execPath, [
         join(fixture.baseRoot, 'frontend-app', 'scripts', 'frontend-maintainability-score.mjs'),
         '--final',
         '--repo', fixture.subjectRoot,
         '--subject', fixture.subjectSha,
-      ], { cwd: join(fixture.baseRoot, 'frontend-app'), encoding: 'utf8' });
+      ], {
+        cwd: join(fixture.baseRoot, 'frontend-app'),
+        encoding: 'utf8',
+        env: { ...process.env, TMPDIR: tmpAlias },
+      });
 
       expect(result.status).toBe(1);
       expect(result.stdout).toContain(`SCORE_BASE\t${fixture.scoreBaseSha}`);
       expect(result.stdout).toContain(`SCORE\t0.0\t${fixture.subjectSha}`);
       expect(result.stdout).toContain('REPORT\t');
       expect(result.stderr).toContain('FINAL_GATE\tFAIL');
+      const reportPath = result.stdout.match(/^REPORT\t(.+)$/mu)?.[1];
+      expect(reportPath).toBeTruthy();
+      temporaryRepositories.push(dirname(reportPath));
+      const report = JSON.parse(readFileSync(reportPath, 'utf8'));
+      const deliveryEvidence = report.controls.find(({ id }) => id === 'T05-build-embed-smoke').evidence[0];
+      expect(deliveryEvidence.summary).not.toContain('runner report is not valid JSON');
+      expect(deliveryEvidence.summary).toBe('runner report schemaVersion must equal 1');
     }
     finally {
       execFileSync('git', ['worktree', 'remove', '--force', fixture.subjectRoot], { cwd: fixture.baseRoot });
