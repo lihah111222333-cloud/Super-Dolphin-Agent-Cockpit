@@ -1,11 +1,19 @@
 import { execFileSync } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import {
   mkdtempSync,
   readFileSync,
+  renameSync,
   rmSync,
+  writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
+import {
+  dirname,
+  join,
+  relative,
+  resolve,
+} from 'node:path';
 import { fileURLToPath } from 'node:url';
 import process from 'node:process';
 import { runChatHistoryBenchmarkSamples, verifyChatHistoryEvidence } from './chat-history-benchmark.mjs';
@@ -25,6 +33,10 @@ const METRIC_IDS = Object.freeze([
   'P03-feedback-budget',
   'P04-resource-budget',
 ]);
+const FREEZE_RUN_COUNT = 3;
+const P02_MAX_REGRESSION_RATIO = 1.15;
+const P03_MAX_REGRESSION_RATIO = 1.15;
+const P04_MAX_REGRESSION_RATIO = 1.05;
 
 function currentCommit() {
   return execFileSync('git', ['rev-parse', 'HEAD'], {
@@ -32,6 +44,76 @@ function currentCommit() {
     encoding: 'utf8',
     stdio: ['ignore', 'pipe', 'pipe'],
   }).trim();
+}
+
+function executeGit(args, repositoryRoot = REPOSITORY_ROOT) {
+  return execFileSync('git', args, {
+    cwd: repositoryRoot,
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+  }).trim();
+}
+
+function requireFullSha(value, label) {
+  if (!/^[0-9a-f]{40}$/.test(value || '')) {
+    throw new TypeError(`${label} must be a full 40-character Git SHA`);
+  }
+  return value;
+}
+
+function pathIsWithin(root, candidate) {
+  const rel = relative(resolve(root), resolve(candidate));
+  return rel.length > 0 && rel !== '..' && !rel.startsWith(`..${process.platform === 'win32' ? '\\' : '/'}`);
+}
+
+function validateFreezeOutputPath(outputPath) {
+  if (typeof outputPath !== 'string' || outputPath.length === 0) {
+    throw new TypeError('freeze output path is required');
+  }
+  const resolved = resolve(outputPath);
+  const isBaseline = resolved === DEFAULT_BASELINE_PATH;
+  const isTemporary = pathIsWithin(tmpdir(), resolved);
+  if ((!isBaseline && !isTemporary) || !resolved.endsWith('.json')) {
+    throw new Error('freeze output must be the baseline artifact or a JSON path under the system temporary directory');
+  }
+  return resolved;
+}
+
+function validateFreezePreconditions({
+  subjectSha,
+  planSnapshotSha,
+  outputPath,
+  repositoryRoot = REPOSITORY_ROOT,
+  git = (args) => executeGit(args, repositoryRoot),
+}) {
+  requireFullSha(subjectSha, 'freeze subject');
+  requireFullSha(planSnapshotSha, 'plan snapshot');
+  const runnerSha = requireFullSha(git(['rev-parse', 'HEAD']), 'runner SHA');
+  const runnerTree = requireFullSha(git(['rev-parse', 'HEAD^{tree}']), 'runner tree');
+  const status = git(['status', '--porcelain', '--untracked-files=all']);
+  if (status) throw new Error('freeze requires a clean committed runner worktree');
+  if (subjectSha === runnerSha) throw new Error('freeze subject must differ from runner SHA');
+  for (const [label, sha] of [['freeze subject', subjectSha], ['plan snapshot', planSnapshotSha]]) {
+    try {
+      git(['cat-file', '-e', `${sha}^{commit}`]);
+    } catch (error) {
+      throw new Error(`${label} commit does not exist`, { cause: error });
+    }
+  }
+  try {
+    git(['merge-base', '--is-ancestor', subjectSha, runnerSha]);
+  } catch (error) {
+    throw new Error('freeze subject must be an ancestor of runner SHA', { cause: error });
+  }
+  const subjectTree = requireFullSha(git(['rev-parse', `${subjectSha}^{tree}`]), 'subject tree');
+  return Object.freeze({
+    outputPath: validateFreezeOutputPath(outputPath),
+    planSnapshotSha,
+    runnerSha,
+    runnerTree,
+    subjectSha,
+    subjectTree,
+  });
 }
 
 function collectRenderIsolationEvidence() {
@@ -84,6 +166,274 @@ async function collectPerformanceEvidence({
       'P04-resource-budget': resourceBudget,
     }),
   });
+}
+
+function exactJSON(actual, expected, label) {
+  if (JSON.stringify(actual) !== JSON.stringify(expected)) {
+    throw new Error(`${label} mismatch`);
+  }
+}
+
+function requireNonNegativeInteger(value, label) {
+  if (!Number.isSafeInteger(value) || value < 0) throw new TypeError(`${label} must be a non-negative integer`);
+  return value;
+}
+
+function validateRenderIsolationFreezeMetric(metric, subjectSha) {
+  if (metric?.metricId !== 'P01-render-isolation' || metric.subjectSha !== subjectSha) {
+    throw new Error('P01 freeze metric subject or metricId mismatch');
+  }
+  if (!Number.isSafeInteger(metric.warmupUpdates) || metric.warmupUpdates <= 0) {
+    throw new TypeError('P01 warmupUpdates must be a positive integer');
+  }
+  if (metric.updateCount !== 20) throw new Error('P01 freeze requires exactly 20 measured updates');
+  requireNonNegativeInteger(metric.mainPageUpdateCommits, 'P01 mainPageUpdateCommits');
+  requireNonNegativeInteger(metric.unrelatedSubtreeUpdateCommits, 'P01 unrelatedSubtreeUpdateCommits');
+  requireNonNegativeInteger(metric.mutationUpdateCommits, 'P01 mutationUpdateCommits');
+  if (metric.mutationDetected !== true || metric.mutationUpdateCommits !== metric.updateCount) {
+    throw new Error('P01 mutation sensitivity contract failed');
+  }
+}
+
+function validateResourceFreezeMetric(metric, subjectSha) {
+  if (metric?.metricId !== 'P04-resource-budget' || metric.subjectSha !== subjectSha) {
+    throw new Error('P04 freeze metric subject or metricId mismatch');
+  }
+  if (!Array.isArray(metric.files) || metric.files.length === 0 || metric.fileCount !== metric.files.length) {
+    throw new Error('P04 resource fileCount must match a non-empty files array');
+  }
+  const paths = metric.files.map(({ path }) => path);
+  if (new Set(paths).size !== paths.length || JSON.stringify(paths) !== JSON.stringify([...paths].sort())) {
+    throw new Error('P04 resource paths must be exact, unique, and sorted');
+  }
+  metric.files.forEach(({ bytes, path }) => {
+    if (typeof path !== 'string' || path.length === 0 || !Number.isSafeInteger(bytes) || bytes <= 0) {
+      throw new TypeError('P04 resource entries require a path and positive integer bytes');
+    }
+  });
+  const totalBundleBytes = metric.files.reduce((total, { bytes }) => total + bytes, 0);
+  const maxChunkBytes = Math.max(...metric.files.map(({ bytes }) => bytes));
+  if (metric.totalBundleBytes !== totalBundleBytes || metric.maxChunkBytes !== maxChunkBytes) {
+    throw new Error('P04 resource summary is not recomputable from files');
+  }
+}
+
+function requireFreezeVerifierPass(verdict, metricId) {
+  if (verdict?.status !== 'PASS') {
+    throw new Error(`${metricId} freeze evidence failed schema validation: ${verdict?.reason || 'unknown reason'}`);
+  }
+}
+
+function validateFreezeEvidence(evidence, subjectSha) {
+  if (evidence?.schemaVersion !== 1 || evidence.subjectSha !== subjectSha) {
+    throw new Error('freeze evidence schema or subject mismatch');
+  }
+  requireFullSha(evidence.subjectTree, 'freeze subject tree');
+  if (!Number.isFinite(Date.parse(evidence.generatedAt))) throw new TypeError('freeze generatedAt must be an ISO timestamp');
+  exactSet(Object.keys(evidence.metrics || {}), METRIC_IDS, 'freeze metric ids');
+  const provenance = evidence.provenance;
+  if (!provenance || provenance.worktreeClean !== true || provenance.worktreeStatus?.length !== 0) {
+    throw new Error('freeze evidence requires clean worktree provenance');
+  }
+  requireFullSha(provenance.runnerSha, 'freeze runner SHA');
+  requireFullSha(provenance.runnerTree, 'freeze runner tree');
+  if (provenance.runnerSha === subjectSha) throw new Error('freeze evidence runner SHA must differ from subject');
+  if (!/^[0-9a-f]{64}$/.test(provenance.runnerContentHash || '')) {
+    throw new TypeError('freeze runnerContentHash must be SHA-256');
+  }
+  if (!Array.isArray(provenance.runnerFiles) || provenance.runnerFiles.length === 0) {
+    throw new Error('freeze runnerFiles must be non-empty');
+  }
+  const runnerPaths = provenance.runnerFiles.map(({ path }) => path);
+  if (new Set(runnerPaths).size !== runnerPaths.length) throw new Error('freeze runnerFiles contain duplicate paths');
+  provenance.runnerFiles.forEach(({ path, sha256 }) => {
+    if (typeof path !== 'string' || !/^[0-9a-f]{64}$/.test(sha256 || '')) {
+      throw new TypeError('freeze runnerFiles require path and SHA-256');
+    }
+  });
+  const audit = provenance.baselineAudit;
+  if (!audit || audit.baseSha !== subjectSha || audit.baseTree !== evidence.subjectTree) {
+    throw new Error('freeze evidence requires matching baselineAudit provenance');
+  }
+  if (!Array.isArray(audit.changedPaths) || audit.changedPaths.length === 0) {
+    throw new Error('freeze baselineAudit changedPaths must be non-empty');
+  }
+  exactJSON(audit.changedPaths, [...new Set(audit.changedPaths)].sort(), 'freeze baselineAudit changedPaths');
+  if (!evidence.environment || typeof evidence.environment !== 'object') {
+    throw new Error('freeze environment metadata is required');
+  }
+
+  const p01 = evidence.metrics['P01-render-isolation'];
+  const p02 = evidence.metrics['P02-history-budget'];
+  const p03 = evidence.metrics['P03-feedback-budget'];
+  const p04 = evidence.metrics['P04-resource-budget'];
+  validateRenderIsolationFreezeMetric(p01, subjectSha);
+  if (p02?.subjectSha !== subjectSha || p03?.subjectSha !== subjectSha) {
+    throw new Error('P02/P03 freeze metric subject mismatch');
+  }
+  requireFreezeVerifierPass(verifyChatHistoryEvidence(p02, {
+    metrics: {
+      'P02-history-budget': {
+        ...p02,
+        status: 'PASS',
+        maxRegressionRatio: P02_MAX_REGRESSION_RATIO,
+      },
+    },
+  }), 'P02-history-budget');
+  requireFreezeVerifierPass(verifyStopFeedbackEvidence(p03, {
+    metrics: {
+      'P03-feedback-budget': {
+        ...p03,
+        status: 'PASS',
+        maxRegressionRatio: P03_MAX_REGRESSION_RATIO,
+      },
+    },
+  }), 'P03-feedback-budget');
+  validateResourceFreezeMetric(p04, subjectSha);
+  requireFreezeVerifierPass(verifyResourceEvidence(p04, {
+    metrics: {
+      'P04-resource-budget': {
+        ...p04,
+        status: 'PASS',
+        maxRegressionRatio: P04_MAX_REGRESSION_RATIO,
+      },
+    },
+  }), 'P04-resource-budget');
+}
+
+function stableEnvironmentIdentity(environment) {
+  const { loadAverage: _loadAverage, ...identity } = environment;
+  return identity;
+}
+
+function validateFreezeRunConsistency(runs, subjectSha, expectedProvenance) {
+  if (!Array.isArray(runs) || runs.length !== FREEZE_RUN_COUNT) {
+    throw new Error(`freeze requires exactly ${FREEZE_RUN_COUNT} evidence runs`);
+  }
+  if (!expectedProvenance || typeof expectedProvenance !== 'object') {
+    throw new Error('freeze expected provenance is required');
+  }
+  requireFullSha(expectedProvenance.runnerSha, 'expected runner SHA');
+  requireFullSha(expectedProvenance.runnerTree, 'expected runner tree');
+  requireFullSha(expectedProvenance.subjectTree, 'expected subject tree');
+  runs.forEach((run) => validateFreezeEvidence(run, subjectSha));
+  const designated = runs[0];
+  exactJSON(designated.provenance.runnerSha, expectedProvenance.runnerSha, 'freeze runnerSha provenance');
+  exactJSON(designated.provenance.runnerTree, expectedProvenance.runnerTree, 'freeze runnerTree provenance');
+  exactJSON(designated.subjectTree, expectedProvenance.subjectTree, 'freeze subjectTree provenance');
+  for (const [index, run] of runs.slice(1).entries()) {
+    const label = `freeze run ${index + 2}`;
+    exactJSON(run.subjectSha, designated.subjectSha, `${label} subjectSha`);
+    exactJSON(run.subjectTree, designated.subjectTree, `${label} subjectTree`);
+    exactJSON(run.provenance.runnerSha, designated.provenance.runnerSha, `${label} runnerSha`);
+    exactJSON(run.provenance.runnerTree, designated.provenance.runnerTree, `${label} runnerTree`);
+    exactJSON(
+      run.provenance.runnerContentHash,
+      designated.provenance.runnerContentHash,
+      `${label} runnerContentHash`,
+    );
+    exactJSON(run.provenance.runnerFiles, designated.provenance.runnerFiles, `${label} runnerFiles`);
+    exactJSON(run.provenance.baselineAudit, designated.provenance.baselineAudit, `${label} baselineAudit`);
+    exactJSON(
+      stableEnvironmentIdentity(run.environment),
+      stableEnvironmentIdentity(designated.environment),
+      `${label} environment identity`,
+    );
+  }
+}
+
+function freezeMetric(metric, metadata) {
+  return Object.freeze({ ...metric, status: 'PASS', ...metadata });
+}
+
+function buildFrozenPerformanceBaseline({
+  runs,
+  subjectSha,
+  planSnapshotSha,
+  expectedProvenance,
+}) {
+  requireFullSha(subjectSha, 'freeze subject');
+  requireFullSha(planSnapshotSha, 'plan snapshot');
+  validateFreezeRunConsistency(runs, subjectSha, expectedProvenance);
+  const designated = runs[0];
+  return Object.freeze({
+    schemaVersion: 1,
+    baseSha: subjectSha,
+    subjectSha,
+    subjectTree: designated.subjectTree,
+    planSnapshotSha,
+    generatedAt: designated.generatedAt,
+    environment: designated.environment,
+    provenance: designated.provenance,
+    measurementAudit: Object.freeze({
+      runCount: FREEZE_RUN_COUNT,
+      designatedRun: 1,
+      reproducibilityRuns: Object.freeze(runs.slice(1).map((run, index) => Object.freeze({
+        run: index + 2,
+        generatedAt: run.generatedAt,
+        runnerContentHash: run.provenance.runnerContentHash,
+        metrics: run.metrics,
+      }))),
+    }),
+    metrics: Object.freeze({
+      'P01-render-isolation': freezeMetric(designated.metrics['P01-render-isolation'], {
+        absoluteUpdateLimit: 1,
+      }),
+      'P02-history-budget': freezeMetric(designated.metrics['P02-history-budget'], {
+        maxRegressionRatio: P02_MAX_REGRESSION_RATIO,
+      }),
+      'P03-feedback-budget': freezeMetric(designated.metrics['P03-feedback-budget'], {
+        maxRegressionRatio: P03_MAX_REGRESSION_RATIO,
+      }),
+      'P04-resource-budget': freezeMetric(designated.metrics['P04-resource-budget'], {
+        maxRegressionRatio: P04_MAX_REGRESSION_RATIO,
+      }),
+    }),
+  });
+}
+
+function writeFrozenBaselineAtomically(outputPath, baseline) {
+  const resolvedOutput = validateFreezeOutputPath(outputPath);
+  const temporaryPath = `${resolvedOutput}.${process.pid}.${randomUUID()}.tmp`;
+  try {
+    writeFileSync(temporaryPath, `${JSON.stringify(baseline, null, 2)}\n`, {
+      encoding: 'utf8',
+      flag: 'wx',
+      mode: 0o600,
+    });
+    renameSync(temporaryPath, resolvedOutput);
+  } catch (error) {
+    rmSync(temporaryPath, { force: true });
+    throw error;
+  }
+  return resolvedOutput;
+}
+
+async function freezePerformanceBaseline({
+  subjectSha,
+  planSnapshotSha,
+  outputPath,
+  collectEvidence = collectPerformanceEvidence,
+  preflight = validateFreezePreconditions,
+  writeBaseline = writeFrozenBaselineAtomically,
+} = {}) {
+  const validated = preflight({ subjectSha, planSnapshotSha, outputPath });
+  const runs = [];
+  for (let run = 0; run < FREEZE_RUN_COUNT; run += 1) {
+    runs.push(await collectEvidence({ subjectSha: validated.subjectSha }));
+  }
+  const baseline = buildFrozenPerformanceBaseline({
+    runs,
+    subjectSha: validated.subjectSha,
+    planSnapshotSha: validated.planSnapshotSha,
+    expectedProvenance: {
+      runnerSha: validated.runnerSha,
+      runnerTree: validated.runnerTree,
+      subjectTree: validated.subjectTree,
+    },
+  });
+  writeBaseline(validated.outputPath, baseline);
+  return baseline;
 }
 
 function verifyPerformanceEvidence(evidence, baseline) {
@@ -208,26 +558,47 @@ function parseArguments(args) {
     mode: '',
     subjectSha: currentCommit(),
     baselinePath: DEFAULT_BASELINE_PATH,
+    baselineProvided: false,
+    outputPath: '',
+    planSnapshotSha: '',
+    subjectProvided: false,
   };
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
-    if (arg === '--measure' || arg === '--verify') {
-      if (options.mode) throw new TypeError('choose exactly one of --measure or --verify');
+    if (arg === '--measure' || arg === '--verify' || arg === '--freeze') {
+      if (options.mode) throw new TypeError('choose exactly one of --measure, --verify, or --freeze');
       options.mode = arg.slice(2);
     } else if (arg === '--subject') {
       options.subjectSha = args[++index] || '';
+      options.subjectProvided = true;
     } else if (arg === '--baseline') {
       options.baselinePath = resolve(args[++index] || '');
+      options.baselineProvided = true;
+    } else if (arg === '--plan-snapshot') {
+      options.planSnapshotSha = args[++index] || '';
+    } else if (arg === '--output') {
+      options.outputPath = resolve(args[++index] || '');
     } else {
       throw new TypeError(`unsupported performance budget argument: ${arg}`);
     }
   }
-  if (!options.mode) throw new TypeError('one of --measure or --verify is required');
+  if (!options.mode) throw new TypeError('one of --measure, --verify, or --freeze is required');
+  if (options.mode === 'freeze') {
+    if (!options.subjectProvided) throw new TypeError('--freeze requires an explicit --subject');
+    requireFullSha(options.subjectSha, 'freeze subject');
+    requireFullSha(options.planSnapshotSha, 'plan snapshot');
+    validateFreezeOutputPath(options.outputPath);
+  } else if (options.planSnapshotSha || options.outputPath) {
+    throw new TypeError('--plan-snapshot and --output are only valid with --freeze');
+  }
+  if (options.mode !== 'verify' && options.baselineProvided) {
+    throw new TypeError('--baseline is only valid with --verify');
+  }
   if (options.mode === 'verify') requireSubjectSha(options.subjectSha, currentCommit());
   else if (!/^[0-9a-f]{40}$/.test(options.subjectSha || '')) {
     throw new TypeError('subject must be a full 40-character Git SHA');
   }
-  return options;
+  return Object.freeze(options);
 }
 
 async function runPerformanceVerification({ subjectSha, baselinePath = DEFAULT_BASELINE_PATH }) {
@@ -244,13 +615,25 @@ if (process.argv[1] && resolve(process.argv[1]) === SCRIPT_PATH) {
     if (options.mode === 'measure') {
       const evidence = await collectPerformanceEvidence({ subjectSha: options.subjectSha });
       process.stdout.write(`${JSON.stringify({ schemaVersion: 1, status: 'MEASURED', evidence })}\n`);
-    } else {
+    } else if (options.mode === 'verify') {
       const report = await runPerformanceVerification({
         baselinePath: options.baselinePath,
         subjectSha: options.subjectSha,
       });
       process.stdout.write(`${JSON.stringify(report)}\n`);
       if (report.verdict.status !== 'PASS') process.exitCode = 2;
+    } else {
+      const baseline = await freezePerformanceBaseline({
+        subjectSha: options.subjectSha,
+        planSnapshotSha: options.planSnapshotSha,
+        outputPath: options.outputPath,
+      });
+      process.stdout.write(`${JSON.stringify({
+        schemaVersion: 1,
+        status: 'FROZEN',
+        outputPath: options.outputPath,
+        baseline,
+      })}\n`);
     }
   } catch (error) {
     process.stderr.write(`performance budget failed: ${error.message}\n`);
@@ -260,10 +643,16 @@ if (process.argv[1] && resolve(process.argv[1]) === SCRIPT_PATH) {
 
 export {
   DEFAULT_BASELINE_PATH,
+  FREEZE_RUN_COUNT,
+  buildFrozenPerformanceBaseline,
   collectPerformanceEvidence,
   collectRenderIsolationEvidence,
+  freezePerformanceBaseline,
   parseArguments,
   runPerformanceVerification,
   validateCaseRegistry,
+  validateFreezeOutputPath,
+  validateFreezePreconditions,
   verifyPerformanceEvidence,
+  writeFrozenBaselineAtomically,
 };
