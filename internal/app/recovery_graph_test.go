@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -14,6 +15,7 @@ import (
 	"time"
 
 	recovery "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/appupdaterecovery"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/runtimesafe"
 )
 
 // TestMain 让测试二进制在 helper 模式下只处理一次 filesystem 请求。
@@ -107,11 +109,12 @@ func TestRecoveryRestoreClosesStableCrashBetweenCallsStates(t *testing.T) {
 			if err != nil {
 				t.Fatalf("NewRecoveryRuntime() error = %v", err)
 			}
+			runtime.Restore.restartCallbacks = successfulRecoveryRestartCallbacks
 			restored, err := runtime.Restore.Restore(context.Background())
 			if err != nil {
 				t.Fatalf("Restore() error = %v", err)
 			}
-			if restored.State != recovery.StateRolledBack {
+			if restored.State != recovery.StateRolledBack || !restored.RollbackRestart.ACKPresent {
 				t.Fatalf("restored state = %q", restored.State)
 			}
 			contents, err := os.ReadFile(restored.Paths.Target)
@@ -137,17 +140,154 @@ func TestRecoveryRestoreRollsBackUnclaimedProbation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewRecoveryRuntime() error = %v", err)
 	}
+	runtime.Restore.restartCallbacks = successfulRecoveryRestartCallbacks
 	restored, err := runtime.Restore.Restore(context.Background())
 	if err != nil {
 		t.Fatalf("Restore() error = %v", err)
 	}
-	if restored.State != recovery.StateRolledBack || restored.Probation.LeasePresent {
+	if restored.State != recovery.StateRolledBack || restored.Probation.LeasePresent || !restored.RollbackRestart.ACKPresent {
 		t.Fatalf("restored transaction = %#v", restored)
 	}
 	contents, err := os.ReadFile(restored.Paths.Target)
 	if err != nil || string(contents) != "old" {
 		t.Fatalf("restored target contents=%q error=%v", contents, err)
 	}
+}
+
+func TestRecoveryRestoreAndGuardConvergeOneTokenBoundLaunch(t *testing.T) {
+	store, transaction := createStableRecoveryTransaction(t, true)
+	transaction = mustStartupValue(t, func() (recovery.Transaction, error) {
+		return store.InstallCandidate(t.Context(), transaction.Identity)
+	})
+	transaction = mustStartupValue(t, func() (recovery.Transaction, error) {
+		return store.RollbackUnclaimedProbation(t.Context(), transaction.Identity)
+	})
+	if transaction.State != recovery.StateRolledBack || transaction.RollbackRestart.LaunchToken == "" {
+		t.Fatalf("rolled back transaction = %#v", transaction)
+	}
+	fixture := &recoveryGuardRestartFixture{transaction: transaction, process: recovery.RollbackRestartProcess{
+		PID: 303, StartToken: "recovery-guard-start",
+		ExecutableIdentity: transaction.Paths.Target + "/Contents/MacOS/agent-terminal",
+		ExecutableSHA256:   transaction.Identity.OldRelease.SHA256,
+	}}
+	runtime, err := NewRecoveryRuntime(StartupSelection{
+		Mode: StartupModeRecovery, Store: store, Transaction: transaction,
+		Projection: projectRecoveryTransaction(transaction, "Recovery and Guard convergence"),
+	})
+	if err != nil {
+		t.Fatalf("NewRecoveryRuntime() error = %v", err)
+	}
+	runtime.Restore.restartCallbacks = fixture.callbacks
+	guardResolve, guardLaunch := fixture.callbacks(transaction)
+	start := make(chan struct{})
+	results := make(chan error, 2)
+	runtimesafe.SafeGo(t.Context(), nil, "app.recoveryRestore.concurrent", func(context.Context) {
+		<-start
+		_, restoreErr := runtime.Restore.Restore(t.Context())
+		results <- restoreErr
+	})
+	runtimesafe.SafeGo(t.Context(), nil, "app.recoveryGuard.concurrent", func(context.Context) {
+		<-start
+		_, guardErr := store.ConvergeRollbackRestart(t.Context(), transaction.Identity, guardResolve, guardLaunch)
+		results <- guardErr
+	})
+	close(start)
+	for range 2 {
+		if err := <-results; err != nil {
+			t.Fatalf("concurrent Recovery/Guard convergence error = %v", err)
+		}
+	}
+
+	repeated, err := runtime.Restore.Restore(t.Context())
+	if err != nil {
+		t.Fatalf("repeated Recovery Restore() error = %v", err)
+	}
+	assertRecoveryGuardRestartConverged(t, fixture, transaction, repeated)
+}
+
+func assertRecoveryGuardRestartConverged(
+	t *testing.T,
+	fixture *recoveryGuardRestartFixture,
+	want recovery.Transaction,
+	got recovery.Transaction,
+) {
+	t.Helper()
+	if fixture.launches != 1 {
+		t.Fatalf("launches = %d, want 1", fixture.launches)
+	}
+	if fixture.resolves < 4 || !fixture.live {
+		t.Fatalf("resolves/live = %d/%t, want >=4/true", fixture.resolves, fixture.live)
+	}
+	if !got.RollbackRestart.ACKPresent {
+		t.Fatal("rollback restart ACK is absent")
+	}
+	if got.RollbackRestart.ACK.LaunchToken != want.RollbackRestart.LaunchToken {
+		t.Fatalf("ACK launch token = %q, want %q", got.RollbackRestart.ACK.LaunchToken, want.RollbackRestart.LaunchToken)
+	}
+	if got.RollbackRestart.ACK.Process != fixture.process {
+		t.Fatalf("rollback restart ACK process = %#v, want %#v", got.RollbackRestart.ACK.Process, fixture.process)
+	}
+}
+
+func successfulRecoveryRestartCallbacks(transaction recovery.Transaction) (
+	recovery.RollbackRestartResolver,
+	recovery.RollbackRestartLauncher,
+) {
+	fixture := &recoveryGuardRestartFixture{transaction: transaction, process: recovery.RollbackRestartProcess{
+		PID: 202, StartToken: "recovery-restore-start",
+		ExecutableIdentity: transaction.Paths.Target + "/Contents/MacOS/agent-terminal",
+		ExecutableSHA256:   transaction.Identity.OldRelease.SHA256,
+	}}
+	return fixture.callbacks(transaction)
+}
+
+type recoveryGuardRestartFixture struct {
+	transaction recovery.Transaction
+	process     recovery.RollbackRestartProcess
+	launches    int
+	resolves    int
+	live        bool
+}
+
+func (fixture *recoveryGuardRestartFixture) callbacks(recovery.Transaction) (
+	recovery.RollbackRestartResolver,
+	recovery.RollbackRestartLauncher,
+) {
+	return fixture.resolve, fixture.launch
+}
+
+func (fixture *recoveryGuardRestartFixture) control() recovery.RollbackRestartControl {
+	return recovery.RollbackRestartControl{
+		Process: fixture.process, Cleanup: func() error { fixture.live = false; return nil },
+		Prepare:  func(context.Context) error { return nil },
+		Activate: func(context.Context) error { return nil },
+	}
+}
+
+func (fixture *recoveryGuardRestartFixture) resolve(
+	_ context.Context,
+	token string,
+) (recovery.RollbackRestartControl, bool, error) {
+	fixture.resolves++
+	if token != fixture.transaction.RollbackRestart.LaunchToken {
+		return recovery.RollbackRestartControl{}, false, errors.New("resolver received non-durable launch token")
+	}
+	return fixture.control(), fixture.live, nil
+}
+
+func (fixture *recoveryGuardRestartFixture) launch(
+	_ context.Context,
+	token string,
+) (recovery.RollbackRestartControl, error) {
+	if token != fixture.transaction.RollbackRestart.LaunchToken {
+		return recovery.RollbackRestartControl{}, errors.New("launcher received non-durable launch token")
+	}
+	if fixture.live {
+		return recovery.RollbackRestartControl{}, errors.New("duplicate rolled back release launch")
+	}
+	fixture.launches++
+	fixture.live = true
+	return fixture.control(), nil
 }
 
 func createStableRecoveryTransaction(t *testing.T, retainBackup bool) (*recovery.Store, recovery.Transaction) {

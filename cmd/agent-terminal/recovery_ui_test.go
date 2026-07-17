@@ -100,51 +100,49 @@ func TestRecoveryBindingStateExposesTypedRecoveryMode(t *testing.T) {
 func TestCompleteRecoveryRestoreOrdersEffectsOnce(t *testing.T) {
 	var order []string
 	state, err := completeRecoveryRestore(context.Background(), recoveryRestoreOps{
-		Rollback: func(context.Context) (recovery.Transaction, error) {
-			order = append(order, "rollback")
+		Restore: func(context.Context) (recovery.Transaction, error) {
+			order = append(order, "restore")
 			return recovery.Transaction{Paths: recovery.Paths{Target: "/Applications/Super Dolphin.app"}}, nil
 		},
 		Projection: func(context.Context) (app.RecoveryProjection, error) {
 			order = append(order, "projection")
-			return app.RecoveryProjection{TransactionID: "transaction-1", State: recovery.StateRolledBack}, nil
-		},
-		Restart: func(_ context.Context, target string) error {
-			order = append(order, "restart:"+target)
-			return nil
+			return app.RecoveryProjection{
+				TransactionID: "transaction-1", AttemptID: "attempt-1", State: recovery.StateRolledBack,
+			}, nil
 		},
 		Quit: func() { order = append(order, "quit") },
 	})
-	want := []string{"rollback", "projection", "restart:/Applications/Super Dolphin.app", "quit"}
+	want := []string{"restore", "projection", "quit"}
 	if err != nil || !slices.Equal(order, want) {
 		t.Fatalf("completeRecoveryRestore() state=%#v error=%v order=%v, want %v", state, err, order, want)
 	}
 	if state.LastAction != "restore" || state.Projection.State != recovery.StateRolledBack {
 		t.Fatalf("completeRecoveryRestore() state = %#v", state)
 	}
-	if state.Actions != (recoveryActionAvailability{}) {
-		t.Fatalf("completeRecoveryRestore() actions = %#v, want all disabled", state.Actions)
+	if state.Actions != (recoveryActionAvailability{Restore: true}) {
+		t.Fatalf("completeRecoveryRestore() actions = %#v, want retryable restore", state.Actions)
 	}
 }
 
 func TestCompleteRecoveryRestoreFailureKeepsSurfaceOpen(t *testing.T) {
-	restartErr := errors.New("restart unavailable")
+	restoreErr := errors.New("restart convergence unavailable")
 	quitCalls := 0
-	restartCalls := 0
+	restoreCalls := 0
 	_, err := completeRecoveryRestore(context.Background(), recoveryRestoreOps{
-		Rollback: func(context.Context) (recovery.Transaction, error) {
-			return recovery.Transaction{Paths: recovery.Paths{Target: "/Applications/Super Dolphin.app"}}, nil
+		Restore: func(context.Context) (recovery.Transaction, error) {
+			restoreCalls++
+			return recovery.Transaction{}, restoreErr
 		},
 		Projection: func(context.Context) (app.RecoveryProjection, error) {
 			return app.RecoveryProjection{TransactionID: "transaction-1", State: recovery.StateRolledBack}, nil
 		},
-		Restart: func(context.Context, string) error { restartCalls++; return restartErr },
-		Quit:    func() { quitCalls++ },
+		Quit: func() { quitCalls++ },
 	})
-	if !errors.Is(err, restartErr) {
-		t.Fatalf("completeRecoveryRestore() error = %v, want %v", err, restartErr)
+	if !errors.Is(err, restoreErr) {
+		t.Fatalf("completeRecoveryRestore() error = %v, want %v", err, restoreErr)
 	}
-	if restartCalls != 1 || quitCalls != 0 {
-		t.Fatalf("restart/quit calls = %d/%d, want 1/0", restartCalls, quitCalls)
+	if restoreCalls != 1 || quitCalls != 0 {
+		t.Fatalf("restore/quit calls = %d/%d, want 1/0", restoreCalls, quitCalls)
 	}
 }
 
@@ -246,7 +244,7 @@ func TestRecoverySurfaceActionsFollowJournalState(t *testing.T) {
 		{name: "commit pending", projection: withRecoveryState(identity, recovery.StateCommitPending), want: recoveryActionAvailability{Check: true, Retry: true}},
 		{name: "committed", projection: withRecoveryState(identity, recovery.StateCommitted)},
 		{name: "rollback pending", projection: withRecoveryState(identity, recovery.StateRollbackPending), want: recoveryActionAvailability{Retry: true, Restore: true}},
-		{name: "rolled back", projection: withRecoveryState(identity, recovery.StateRolledBack)},
+		{name: "rolled back", projection: withRecoveryState(identity, recovery.StateRolledBack), want: recoveryActionAvailability{Restore: true}},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
