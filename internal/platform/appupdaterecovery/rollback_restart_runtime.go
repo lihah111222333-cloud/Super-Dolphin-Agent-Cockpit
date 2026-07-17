@@ -2,6 +2,7 @@ package appupdaterecovery
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -10,8 +11,33 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/runtimeenv"
 )
 
+type rollbackRestartRuntime struct {
+	start    func(string, string, []string) (*exec.Cmd, error)
+	capture  func(int) (pidregistry.StableProcessIdentity, error)
+	validate func(pidregistry.StableProcessIdentity, string) (RollbackRestartProcess, error)
+	release  func(*os.Process) error
+	kill     func(*os.Process) error
+	wait     func(*exec.Cmd) error
+}
+
 // RollbackRestartCallbacks 构造按 durable launch token 重发现或启动旧版本的共享回调。
 func RollbackRestartCallbacks(transaction Transaction) (RollbackRestartResolver, RollbackRestartLauncher) {
+	return rollbackRestartCallbacksWithRuntime(transaction, rollbackRestartRuntime{
+		start: func(executable, argument string, env []string) (*exec.Cmd, error) {
+			cmd := exec.Command(executable, argument)
+			cmd.Env = env
+			return cmd, cmd.Start()
+		},
+		capture:  pidregistry.CaptureStableProcessIdentity,
+		validate: rollbackRestartProcess,
+		release:  (*os.Process).Release,
+		kill:     (*os.Process).Kill,
+		wait:     (*exec.Cmd).Wait,
+	})
+}
+
+// rollbackRestartCallbacksWithRuntime 通过可注入进程原语复用生产 launcher 状态机。
+func rollbackRestartCallbacksWithRuntime(transaction Transaction, runtime rollbackRestartRuntime) (RollbackRestartResolver, RollbackRestartLauncher) {
 	executable := filepath.Join(transaction.Paths.Target, "Contents", "MacOS", "agent-terminal")
 	argument := func(token string) string { return "--super-dolphin-rollback-launch-token=" + token }
 	resolve := func(token string) (RollbackRestartProcess, bool, error) {
@@ -22,7 +48,7 @@ func RollbackRestartCallbacks(transaction Transaction) (RollbackRestartResolver,
 		if err != nil || !found {
 			return RollbackRestartProcess{}, found, err
 		}
-		process, err := rollbackRestartProcess(stable, executable)
+		process, err := runtime.validate(stable, executable)
 		return process, err == nil, err
 	}
 	launch := func(token string) (RollbackRestartProcess, error) {
@@ -33,27 +59,36 @@ func RollbackRestartCallbacks(transaction Transaction) (RollbackRestartResolver,
 		if err != nil {
 			return RollbackRestartProcess{}, err
 		}
-		cmd := exec.Command(executable, argument(token))
-		cmd.Env = env
-		if err := cmd.Start(); err != nil {
-			return RollbackRestartProcess{}, err
-		}
-		stable, err := pidregistry.CaptureStableProcessIdentity(cmd.Process.Pid)
+		cmd, err := runtime.start(executable, argument(token), env)
 		if err != nil {
-			_ = cmd.Process.Kill()
 			return RollbackRestartProcess{}, err
 		}
-		process, err := rollbackRestartProcess(stable, executable)
+		stable, err := runtime.capture(cmd.Process.Pid)
 		if err != nil {
-			_ = cmd.Process.Kill()
-			return RollbackRestartProcess{}, err
+			return RollbackRestartProcess{}, cleanupStartedRollbackProcess(runtime, cmd, err)
 		}
-		if err := cmd.Process.Release(); err != nil {
-			return RollbackRestartProcess{}, err
+		process, err := runtime.validate(stable, executable)
+		if err != nil {
+			return RollbackRestartProcess{}, cleanupStartedRollbackProcess(runtime, cmd, err)
+		}
+		if err := runtime.release(cmd.Process); err != nil {
+			return RollbackRestartProcess{}, cleanupStartedRollbackProcess(runtime, cmd, err)
 		}
 		return process, nil
 	}
 	return resolve, launch
+}
+
+func cleanupStartedRollbackProcess(runtime rollbackRestartRuntime, cmd *exec.Cmd, primary error) error {
+	killErr := runtime.kill(cmd.Process)
+	if killErr != nil {
+		killErr = fmt.Errorf("kill started rollback process: %w", killErr)
+	}
+	waitErr := runtime.wait(cmd)
+	if waitErr != nil {
+		waitErr = fmt.Errorf("wait started rollback process: %w", waitErr)
+	}
+	return errors.Join(primary, killErr, waitErr)
 }
 
 func verifyRolledBackRelease(transaction Transaction) error {

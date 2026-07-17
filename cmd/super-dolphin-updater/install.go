@@ -26,6 +26,7 @@ const (
 
 	updateTransactionDirName = ".super-dolphin-update-transactions"
 	unsignedSignerIdentity   = "unsigned"
+	rollbackRestartTimeout   = 15 * time.Second
 )
 
 // installRequest 描述一次 updater 安装请求。
@@ -55,6 +56,7 @@ type updaterApp struct {
 	runCommand                     commandRunner
 	runRestartCommand              restartCommandRunner
 	waitForProcessExit             processExitWaiter
+	rollbackRestartDeadline        time.Duration
 	rollbackRestartCallbackFactory func(recovery.Transaction) (recovery.RollbackRestartResolver, recovery.RollbackRestartLauncher)
 }
 
@@ -63,10 +65,12 @@ func defaultUpdaterApp() updaterApp {
 		runCommand:                     runCommand,
 		runRestartCommand:              runRestartCommand,
 		waitForProcessExit:             waitForProcessExit,
+		rollbackRestartDeadline:        rollbackRestartTimeout,
 		rollbackRestartCallbackFactory: recovery.RollbackRestartCallbacks,
 	}
 }
 
+// validate 要求 updater 的系统依赖和 rollback convergence 时限均被显式配置。
 func (app updaterApp) validate() error {
 	if app.runCommand == nil {
 		return errors.New("updater command runner is required")
@@ -76,6 +80,9 @@ func (app updaterApp) validate() error {
 	}
 	if app.waitForProcessExit == nil {
 		return errors.New("updater process waiter is required")
+	}
+	if app.rollbackRestartDeadline <= 0 {
+		return errors.New("updater rollback restart deadline must be positive")
 	}
 	if app.rollbackRestartCallbackFactory == nil {
 		return errors.New("updater rollback restart callback factory is required")

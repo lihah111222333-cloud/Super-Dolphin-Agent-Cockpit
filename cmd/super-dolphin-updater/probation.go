@@ -437,8 +437,13 @@ func (app updaterApp) convergeRollbackRestart(ctx context.Context, store *recove
 	if app.rollbackRestartCallbackFactory == nil {
 		return errors.New("updater rollback restart callback factory is required")
 	}
+	if app.rollbackRestartDeadline <= 0 {
+		return errors.New("updater rollback restart deadline must be positive")
+	}
 	resolve, launch := app.rollbackRestartCallbackFactory(transaction)
-	_, err := store.ConvergeRollbackRestart(ctx, transaction.Identity, resolve, launch)
+	deadlineCtx, cancel := ctxutil.WithTimeout(ctx, app.rollbackRestartDeadline)
+	defer cancel()
+	_, err := store.ConvergeRollbackRestart(deadlineCtx, transaction.Identity, resolve, launch)
 	return err
 }
 

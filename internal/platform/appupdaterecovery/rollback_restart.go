@@ -67,17 +67,17 @@ func (store *Store) withRollbackRestartConvergence(
 	identity Identity,
 	action func(*journalPayload) error,
 ) (Transaction, error) {
+	ticker := time.NewTicker(rollbackRestartLockPollInterval)
+	defer ticker.Stop()
 	for {
 		transaction, err := store.withExact(ctx, identity, action)
 		if !errors.Is(err, ErrTransactionBusy) {
 			return transaction, err
 		}
-		timer := time.NewTimer(rollbackRestartLockPollInterval)
 		select {
 		case <-ctx.Done():
-			timer.Stop()
 			return Transaction{}, context.Cause(ctx)
-		case <-timer.C:
+		case <-ticker.C:
 		}
 	}
 }
