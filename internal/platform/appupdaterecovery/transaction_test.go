@@ -256,7 +256,7 @@ func replaceRenamedDiscardWithMatchingRoot(t *testing.T, identity Identity, path
 	if err := os.WriteFile(filepath.Join(discard, "Contents", "old-b"), []byte("old b"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := verifyRelease(discard, identity.OldRelease); err != nil {
+	if err := verifyRelease(t.Context(), discard, identity.OldRelease); err != nil {
 		t.Fatalf("replacement must match old release digest: %v", err)
 	}
 	replacement, err := captureDiscardRootIdentity(discard)
@@ -285,7 +285,7 @@ func TestCommittedReplayRemovesPartiallyDeletedDiscardTree(t *testing.T) {
 	if transaction.State != StateCommitted || transaction.Trust.State != TrustCommitted {
 		t.Fatalf("replayed terminal commit transaction = %#v", transaction)
 	}
-	if err := verifyRelease(paths.Target, identity.CandidateRelease); err != nil {
+	if err := verifyRelease(t.Context(), paths.Target, identity.CandidateRelease); err != nil {
 		t.Fatalf("candidate release lost trust after discard replay: %v", err)
 	}
 	assertPathMissing(t, discard)

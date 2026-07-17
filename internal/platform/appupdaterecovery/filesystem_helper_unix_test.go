@@ -85,6 +85,62 @@ func TestRollbackRestartBlockedFilesystemHelperReleasesLockWithoutLateWrite(t *t
 	}
 }
 
+// TestRetainBackupBlockedFilesystemHelperReleasesLockWithoutLateWrite proves a
+// cancelled reconcile does not retain the transaction lock or write later.
+func TestRetainBackupBlockedFilesystemHelperReleasesLockWithoutLateWrite(t *testing.T) {
+	defer goleak.VerifyNone(t, goleak.IgnoreCurrent())
+	store, identity, _ := createPreparedTransaction(t)
+	fixture := installBlockingReleaseFilesystemHelper(t)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	var group errgroup.Group
+	group.Go(func() error {
+		_, err := store.RetainBackup(ctx, identity)
+		return err
+	})
+	waitForReleaseFilesystemHelperStart(t, fixture.started)
+	before := rollbackRestartJournalBytes(t, store, identity)
+	started := time.Now()
+	err := group.Wait()
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("RetainBackup() error = %v, want deadline exceeded", err)
+	}
+	if elapsed := time.Since(started); elapsed > 2*time.Second {
+		t.Fatalf("blocked backup reconciliation deadline elapsed %s", elapsed)
+	}
+	assertTransactionLockReleased(t, store, identity)
+	assertBlockingReleaseFilesystemHelperReaped(t, fixture)
+	assertTransactionJournalStable(t, store, identity, before)
+}
+
+// TestRollbackBlockedFilesystemHelperReleasesLockWithoutLateWrite proves a
+// cancelled rollback effect does not retain the transaction lock or write later.
+func TestRollbackBlockedFilesystemHelperReleasesLockWithoutLateWrite(t *testing.T) {
+	defer goleak.VerifyNone(t, goleak.IgnoreCurrent())
+	store, identity, _ := createProbationTransaction(t)
+	fixture := installBlockingReleaseFilesystemHelper(t)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	var group errgroup.Group
+	group.Go(func() error {
+		_, err := store.RollbackUnclaimedProbation(ctx, identity)
+		return err
+	})
+	waitForReleaseFilesystemHelperStart(t, fixture.started)
+	before := rollbackRestartJournalBytes(t, store, identity)
+	started := time.Now()
+	err := group.Wait()
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("RollbackUnclaimedProbation() error = %v, want deadline exceeded", err)
+	}
+	if elapsed := time.Since(started); elapsed > 2*time.Second {
+		t.Fatalf("blocked rollback effect deadline elapsed %s", elapsed)
+	}
+	assertTransactionLockReleased(t, store, identity)
+	assertBlockingReleaseFilesystemHelperReaped(t, fixture)
+	assertTransactionJournalStable(t, store, identity, before)
+}
+
 func installBlockingReleaseFilesystemHelper(t *testing.T) *blockingReleaseFilesystemHelperFixture {
 	t.Helper()
 	dir := t.TempDir()
@@ -140,5 +196,22 @@ func assertBlockingReleaseFilesystemHelperReaped(t *testing.T, fixture *blocking
 	}
 	if _, err := os.Stat(fixture.finished); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("blocked release filesystem helper continued after cancellation: %v", err)
+	}
+}
+
+func assertTransactionLockReleased(t *testing.T, store *Store, identity Identity) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	if _, err := store.Load(ctx, identity); err != nil {
+		t.Fatalf("Load() after cancelled effect error = %v", err)
+	}
+}
+
+func assertTransactionJournalStable(t *testing.T, store *Store, identity Identity, before []byte) {
+	t.Helper()
+	time.Sleep(100 * time.Millisecond)
+	if after := rollbackRestartJournalBytes(t, store, identity); !bytes.Equal(before, after) {
+		t.Fatal("transaction journal changed after helper was killed and effect returned")
 	}
 }

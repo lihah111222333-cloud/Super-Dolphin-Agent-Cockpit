@@ -69,7 +69,7 @@ func (store *Store) createLocked(ctx context.Context, req CreateRequest) (Transa
 	if err != nil {
 		return Transaction{}, err
 	}
-	if err := persistCreateReleases(req); err != nil {
+	if err := persistCreateReleases(ctx, req); err != nil {
 		return Transaction{}, err
 	}
 	lock, err := store.acquire(req.Identity.TransactionID)
@@ -90,11 +90,11 @@ func (store *Store) createLocked(ctx context.Context, req CreateRequest) (Transa
 }
 
 // persistCreateReleases 校验 old/candidate identity，并在建 journal 前持久化 staging。
-func persistCreateReleases(req CreateRequest) error {
-	if err := verifyRelease(req.Paths.Target, req.Identity.OldRelease); err != nil {
+func persistCreateReleases(ctx context.Context, req CreateRequest) error {
+	if err := verifyRelease(ctx, req.Paths.Target, req.Identity.OldRelease); err != nil {
 		return fmt.Errorf("verify old release: %w", err)
 	}
-	if err := verifyRelease(req.Paths.Staging, req.Identity.CandidateRelease); err != nil {
+	if err := verifyRelease(ctx, req.Paths.Staging, req.Identity.CandidateRelease); err != nil {
 		return fmt.Errorf("verify candidate release: %w", err)
 	}
 	if err := syncRelease(req.Paths.Staging); err != nil {
@@ -136,7 +136,7 @@ func (store *Store) RetainBackup(ctx context.Context, identity Identity) (Transa
 		if state != StateBackupPending {
 			return fmt.Errorf("retain backup from state %q: illegal transition", state)
 		}
-		if err := reconcileBackupEffect(*journal); err != nil {
+		if err := reconcileBackupEffect(ctx, *journal); err != nil {
 			return err
 		}
 		if err := store.runAfterEffect(StateBackupPending); err != nil {
@@ -162,7 +162,7 @@ func (store *Store) InstallCandidate(ctx context.Context, identity Identity) (Tr
 		if state != StateInstallPending {
 			return fmt.Errorf("install candidate from state %q: illegal transition", state)
 		}
-		if err := reconcileInstallEffect(*journal); err != nil {
+		if err := reconcileInstallEffect(ctx, *journal); err != nil {
 			return err
 		}
 		if err := store.runAfterEffect(StateInstallPending); err != nil {
@@ -186,15 +186,15 @@ func (store *Store) Rollback(ctx context.Context, identity Identity) (Transactio
 			}
 			return ErrProbationRollbackRequiresUnclaimed
 		}
-		return store.rollbackLocked(journal)
+		return store.rollbackLocked(ctx, journal)
 	})
 }
 
 // commitHealthyLocked 在已持有 transaction lock 时完成 commit 意图和文件效果。
-func (store *Store) commitHealthyLocked(journal *journalPayload) error {
+func (store *Store) commitHealthyLocked(ctx context.Context, journal *journalPayload) error {
 	state := journal.transaction().State
 	if state == StateCommitted {
-		return store.cleanupCommittedTransaction(*journal)
+		return store.cleanupCommittedTransaction(ctx, *journal)
 	}
 	if state == StateProbation {
 		if err := store.beginHealthyCommitLocked(journal); err != nil {
@@ -205,7 +205,7 @@ func (store *Store) commitHealthyLocked(journal *journalPayload) error {
 	if state != StateCommitPending {
 		return fmt.Errorf("healthy commit from state %q: illegal transition", state)
 	}
-	if err := store.prepareCommitDiscardLocked(journal); err != nil {
+	if err := store.prepareCommitDiscardLocked(ctx, journal); err != nil {
 		return err
 	}
 	if err := store.runAfterEffect(StateCommitPending); err != nil {
@@ -217,7 +217,7 @@ func (store *Store) commitHealthyLocked(journal *journalPayload) error {
 	if err := store.runAfterEffect(StateCommitted); err != nil {
 		return err
 	}
-	return store.cleanupCommittedTransaction(*journal)
+	return store.cleanupCommittedTransaction(ctx, *journal)
 }
 
 // beginHealthyCommitLocked 校验 exact ACK 与 backup 后持久化 commit intent。
@@ -232,17 +232,17 @@ func (store *Store) beginHealthyCommitLocked(journal *journalPayload) error {
 }
 
 // rollbackLocked 在已持有 transaction lock 时完成 rollback 意图和文件效果。
-func (store *Store) rollbackLocked(journal *journalPayload) error {
+func (store *Store) rollbackLocked(ctx context.Context, journal *journalPayload) error {
 	state := journal.transaction().State
 	if state == StateRolledBack {
 		return cleanupTransactionCapsule(journal.Paths)
 	}
 	if state != StateRollbackPending {
-		if err := store.beginRollbackLocked(journal, state); err != nil {
+		if err := store.beginRollbackLocked(ctx, journal, state); err != nil {
 			return err
 		}
 	}
-	if err := completeRollbackEffect(*journal); err != nil {
+	if err := completeRollbackEffect(ctx, *journal); err != nil {
 		return err
 	}
 	if err := store.runAfterEffect(StateRollbackPending); err != nil {
@@ -254,9 +254,9 @@ func (store *Store) rollbackLocked(journal *journalPayload) error {
 	return cleanupTransactionCapsule(journal.Paths)
 }
 
-func (store *Store) beginRollbackLocked(journal *journalPayload, state State) error {
+func (store *Store) beginRollbackLocked(ctx context.Context, journal *journalPayload, state State) error {
 	if state == StatePrepared {
-		if err := validatePreparedRollback(*journal); err != nil {
+		if err := validatePreparedRollback(ctx, *journal); err != nil {
 			return err
 		}
 	} else if err := requirePath(journal.Paths.Backup); err != nil {
@@ -271,23 +271,23 @@ func (store *Store) beginRollbackLocked(journal *journalPayload, state State) er
 // Replay 只补完 journal 已持久化的文件系统意图，不推断新事务。
 func (store *Store) Replay(ctx context.Context, identity Identity) (Transaction, error) {
 	return store.withExact(ctx, identity, func(journal *journalPayload) error {
-		return store.replayLocked(journal)
+		return store.replayLocked(ctx, journal)
 	})
 }
 
 // replayLocked 将单个已持久化 intent 分派给对应的幂等效果收敛器。
-func (store *Store) replayLocked(journal *journalPayload) error {
+func (store *Store) replayLocked(ctx context.Context, journal *journalPayload) error {
 	switch journal.transaction().State {
 	case StateBackupPending:
-		return store.replayEffectLocked(journal, reconcileBackupEffect, TriggerBackupRetained)
+		return store.replayEffectLocked(ctx, journal, reconcileBackupEffect, TriggerBackupRetained)
 	case StateInstallPending:
-		return store.replayEffectLocked(journal, reconcileInstallEffect, TriggerCandidateInstalled)
+		return store.replayEffectLocked(ctx, journal, reconcileInstallEffect, TriggerCandidateInstalled)
 	case StateCommitPending:
-		return store.replayCommitPendingLocked(journal)
+		return store.replayCommitPendingLocked(ctx, journal)
 	case StateRollbackPending:
-		return store.replayTerminalEffectLocked(journal, completeRollbackEffect, TriggerRollbackCompleted)
+		return store.replayTerminalEffectLocked(ctx, journal, completeRollbackEffect, TriggerRollbackCompleted)
 	case StateCommitted:
-		return store.cleanupCommittedTransaction(*journal)
+		return store.cleanupCommittedTransaction(ctx, *journal)
 	case StateRolledBack:
 		return cleanupTransactionCapsule(journal.Paths)
 	default:
@@ -295,19 +295,19 @@ func (store *Store) replayLocked(journal *journalPayload) error {
 	}
 }
 
-func (store *Store) replayCommitPendingLocked(journal *journalPayload) error {
-	if err := store.prepareCommitDiscardLocked(journal); err != nil {
+func (store *Store) replayCommitPendingLocked(ctx context.Context, journal *journalPayload) error {
+	if err := store.prepareCommitDiscardLocked(ctx, journal); err != nil {
 		return err
 	}
 	if err := store.advanceLocked(journal, TriggerCommitCompleted); err != nil {
 		return err
 	}
-	return store.cleanupCommittedTransaction(*journal)
+	return store.cleanupCommittedTransaction(ctx, *journal)
 }
 
 // prepareCommitDiscardLocked 只使用 rename 前持久化的 backup 根身份完成 discard 隔离。
-func (store *Store) prepareCommitDiscardLocked(journal *journalPayload) error {
-	if err := verifyCommitCandidate(*journal); err != nil {
+func (store *Store) prepareCommitDiscardLocked(ctx context.Context, journal *journalPayload) error {
+	if err := verifyCommitCandidate(ctx, *journal); err != nil {
 		return err
 	}
 	backupExists, err := pathExists(journal.Paths.Backup)
@@ -322,15 +322,15 @@ func (store *Store) prepareCommitDiscardLocked(journal *journalPayload) error {
 		return errors.New("healthy commit backup discard path collision")
 	}
 	if backupExists {
-		return store.prepareBackupDiscardLocked(*journal)
+		return store.prepareBackupDiscardLocked(ctx, *journal)
 	}
 	if !discardExists {
 		return errors.New("commit intent has neither retained backup nor durable discard")
 	}
-	return store.resumePreparedDiscardLocked(*journal)
+	return store.resumePreparedDiscardLocked(ctx, *journal)
 }
 
-func (store *Store) prepareBackupDiscardLocked(journal journalPayload) error {
+func (store *Store) prepareBackupDiscardLocked(ctx context.Context, journal journalPayload) error {
 	root, err := captureDiscardRootIdentity(journal.Paths.Backup)
 	if err != nil {
 		return err
@@ -341,13 +341,13 @@ func (store *Store) prepareBackupDiscardLocked(journal journalPayload) error {
 	if err := requireRootIdentity(journal.Paths.Backup, root); err != nil {
 		return fmt.Errorf("verify backup root after identity persistence: %w", err)
 	}
-	if err := verifyReleaseAtRootIdentity(journal.Paths.Backup, journal.Identity.OldRelease, root); err != nil {
+	if err := verifyReleaseAtRootIdentity(ctx, journal.Paths.Backup, journal.Identity.OldRelease, root); err != nil {
 		return fmt.Errorf("verify backup before healthy commit: %w", err)
 	}
 	return renameBackupToDiscardAtIdentity(journal, root)
 }
 
-func (store *Store) resumePreparedDiscardLocked(journal journalPayload) error {
+func (store *Store) resumePreparedDiscardLocked(ctx context.Context, journal journalPayload) error {
 	identity, found, err := store.loadDiscardIdentityLocked(journal.Identity.TransactionID)
 	if err != nil {
 		return err
@@ -359,14 +359,14 @@ func (store *Store) resumePreparedDiscardLocked(journal journalPayload) error {
 		return ErrIdentityMismatch
 	}
 	discard := backupDiscardPath(journal.Paths)
-	if err := verifyReleaseAtRootIdentity(discard, journal.Identity.OldRelease, identity.Root); err != nil {
+	if err := verifyReleaseAtRootIdentity(ctx, discard, journal.Identity.OldRelease, identity.Root); err != nil {
 		return fmt.Errorf("verify durable backup discard before commit replay: %w", err)
 	}
 	return syncDirectory(filepath.Dir(journal.Paths.Target))
 }
 
 // cleanupCommittedTransaction 在根实例核验后清理 committed discard 与 recovery capsule。
-func (store *Store) cleanupCommittedTransaction(journal journalPayload) error {
+func (store *Store) cleanupCommittedTransaction(ctx context.Context, journal journalPayload) error {
 	discard := backupDiscardPath(journal.Paths)
 	exists, err := pathExists(discard)
 	if err != nil {
@@ -386,7 +386,7 @@ func (store *Store) cleanupCommittedTransaction(journal journalPayload) error {
 		}
 		expected = identity.Root
 	}
-	if err := cleanupCommittedEffect(journal, expected); err != nil {
+	if err := cleanupCommittedEffect(ctx, journal, expected); err != nil {
 		return err
 	}
 	return cleanupTransactionCapsule(journal.Paths)
@@ -435,16 +435,16 @@ func (store *Store) loadDiscardIdentityLocked(id TransactionID) (discardInstance
 }
 
 // replayEffectLocked 补完非终态效果并推进唯一合法 trigger。
-func (store *Store) replayEffectLocked(journal *journalPayload, effect func(journalPayload) error, trigger Trigger) error {
-	if err := effect(*journal); err != nil {
+func (store *Store) replayEffectLocked(ctx context.Context, journal *journalPayload, effect func(context.Context, journalPayload) error, trigger Trigger) error {
+	if err := effect(ctx, *journal); err != nil {
 		return err
 	}
 	return store.advanceLocked(journal, trigger)
 }
 
 // replayTerminalEffectLocked 补完终态效果、推进 journal 并清理不可执行 capsule。
-func (store *Store) replayTerminalEffectLocked(journal *journalPayload, effect func(journalPayload) error, trigger Trigger) error {
-	if err := store.replayEffectLocked(journal, effect, trigger); err != nil {
+func (store *Store) replayTerminalEffectLocked(ctx context.Context, journal *journalPayload, effect func(context.Context, journalPayload) error, trigger Trigger) error {
+	if err := store.replayEffectLocked(ctx, journal, effect, trigger); err != nil {
 		return err
 	}
 	return cleanupTransactionCapsule(journal.Paths)

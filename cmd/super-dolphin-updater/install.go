@@ -108,7 +108,10 @@ func (app updaterApp) validate() error {
 
 // install 挂载 DMG、执行安装并尽力卸载临时挂载点。
 // 安装和清理错误会合并返回，避免清理失败被静默吞掉。
-func (app updaterApp) install(req installRequest) error {
+func (app updaterApp) install(ctx context.Context, req installRequest) error {
+	if ctx == nil {
+		return errors.New("updater install context is required")
+	}
 	if err := app.validate(); err != nil {
 		return err
 	}
@@ -119,7 +122,7 @@ func (app updaterApp) install(req installRequest) error {
 	if err != nil {
 		return err
 	}
-	installErr := app.installFromMount(req, mountPoint)
+	installErr := app.installFromMount(ctx, req, mountPoint)
 	detachErr := app.detachDMG(mountPoint)
 	removeErr := os.Remove(mountPoint)
 	return errors.Join(installErr, detachErr, removeErr)
@@ -128,12 +131,15 @@ func (app updaterApp) install(req installRequest) error {
 // installFromMount 从已挂载 DMG 安装 app。
 // 复制前后都做结构和签名校验，任一步失败都不会继续重启目标 app。
 func installFromMount(req installRequest, mountPoint string) error {
-	return defaultUpdaterApp().installFromMount(req, mountPoint)
+	return defaultUpdaterApp().installFromMount(context.Background(), req, mountPoint)
 }
 
 // installFromMount 使用显式 updaterApp 依赖执行已挂载 DMG 的安装流程。
 // 等待旧进程、签名校验、复制替换和重启都必须在同一个依赖上下文里完成，避免测试钩子或生产命令来源混用。
-func (app updaterApp) installFromMount(req installRequest, mountPoint string) error {
+func (app updaterApp) installFromMount(ctx context.Context, req installRequest, mountPoint string) error {
+	if ctx == nil {
+		return errors.New("updater install context is required")
+	}
 	if err := app.validate(); err != nil {
 		return err
 	}
@@ -158,18 +164,18 @@ func (app updaterApp) installFromMount(req installRequest, mountPoint string) er
 	if err := app.verifyAppSignature(stagedApp, teamID, req.AllowUnsigned); err != nil {
 		return fmt.Errorf("verify staged app: %w", err)
 	}
-	transaction, transactional, err := app.replaceTargetAppTransaction(stagedApp, req.TargetAppPath, teamID, req.AllowUnsigned, req.Restart)
+	transaction, transactional, err := app.replaceTargetAppTransactionContext(ctx, stagedApp, req.TargetAppPath, teamID, req.AllowUnsigned, req.Restart)
 	if err != nil {
 		return err
 	}
-	return app.completeInstalledRelease(req, transaction, transactional)
+	return app.completeInstalledRelease(ctx, req, transaction, transactional)
 }
 
 // completeInstalledRelease 将首次安装重启与 transaction probation 监督分流。
-func (app updaterApp) completeInstalledRelease(req installRequest, transaction recovery.Transaction, transactional bool) error {
+func (app updaterApp) completeInstalledRelease(ctx context.Context, req installRequest, transaction recovery.Transaction, transactional bool) error {
 	if req.Restart {
 		if transactional {
-			return app.runProbationSupervisor(context.Background(), transaction)
+			return app.runProbationSupervisor(ctx, transaction)
 		}
 		return app.restartTargetApp(req.TargetAppPath)
 	}
@@ -551,6 +557,14 @@ func parseSigningValue(details string, key string) string {
 
 // replaceTargetAppTransaction 返回 Task 1 journal 快照，首次安装不伪造 transaction。
 func (app updaterApp) replaceTargetAppTransaction(stagedApp string, targetApp string, expectedTeamID string, allowUnsigned bool, superviseReplacement bool) (recovery.Transaction, bool, error) {
+	return app.replaceTargetAppTransactionContext(context.Background(), stagedApp, targetApp, expectedTeamID, allowUnsigned, superviseReplacement)
+}
+
+// replaceTargetAppTransactionContext 将调用方生命周期贯穿候选校验与事务效果。
+func (app updaterApp) replaceTargetAppTransactionContext(ctx context.Context, stagedApp string, targetApp string, expectedTeamID string, allowUnsigned bool, superviseReplacement bool) (recovery.Transaction, bool, error) {
+	if ctx == nil {
+		return recovery.Transaction{}, false, errors.New("replace target app context is required")
+	}
 	targetExists, err := inspectReplacementTarget(targetApp, superviseReplacement)
 	if err != nil {
 		return recovery.Transaction{}, false, err
@@ -558,7 +572,7 @@ func (app updaterApp) replaceTargetAppTransaction(stagedApp string, targetApp st
 	if !targetExists {
 		return recovery.Transaction{}, false, app.installFirstRelease(stagedApp, targetApp, expectedTeamID, allowUnsigned)
 	}
-	request, packageOwned, err := app.prepareReleaseTransaction(stagedApp, targetApp, expectedTeamID, allowUnsigned)
+	request, packageOwned, err := app.prepareReleaseTransaction(ctx, stagedApp, targetApp, expectedTeamID, allowUnsigned)
 	if err != nil {
 		return recovery.Transaction{}, false, err
 	}
@@ -566,7 +580,6 @@ func (app updaterApp) replaceTargetAppTransaction(stagedApp string, targetApp st
 	if err != nil {
 		return recovery.Transaction{}, false, removePreparedCandidate(request.Paths.Staging, err)
 	}
-	ctx := context.Background()
 	created, err := store.Create(ctx, request)
 	if err != nil {
 		return recovery.Transaction{}, false, fmt.Errorf("create release transaction: %w", err)
@@ -577,7 +590,7 @@ func (app updaterApp) replaceTargetAppTransaction(stagedApp string, targetApp st
 // completePreparedReleaseTransaction 发布 capsule、建立 Guard fence 并安装 candidate。
 func (app updaterApp) completePreparedReleaseTransaction(ctx context.Context, store *recovery.Store, created recovery.Transaction, packageOwned bool) (recovery.Transaction, bool, error) {
 	if packageOwned {
-		if err := publishPackageRecoveryCapsule(created); err != nil {
+		if err := publishPackageRecoveryCapsule(ctx, created); err != nil {
 			_, rollbackErr := store.Rollback(ctx, created.Identity)
 			cleanupErr := cleanupPackageRecoveryCapsule(created.Paths.RecoveryDir)
 			return recovery.Transaction{}, false, errors.Join(fmt.Errorf("publish package recovery capsule: %w", err), rollbackErr, cleanupErr)
@@ -683,16 +696,16 @@ func inspectReplacementTarget(targetApp string, superviseReplacement bool) (bool
 }
 
 // prepareReleaseTransaction 生成 exact paths，复制并验证 candidate，再计算 release identity。
-func (app updaterApp) prepareReleaseTransaction(stagedApp string, targetApp string, expectedTeamID string, allowUnsigned bool) (recovery.CreateRequest, bool, error) {
+func (app updaterApp) prepareReleaseTransaction(ctx context.Context, stagedApp string, targetApp string, expectedTeamID string, allowUnsigned bool) (recovery.CreateRequest, bool, error) {
 	id, paths, err := app.prepareReleaseCandidate(stagedApp, targetApp, expectedTeamID, allowUnsigned)
 	if err != nil {
 		return recovery.CreateRequest{}, false, err
 	}
-	request, err := buildReleaseTransactionRequest(targetApp, paths, id, expectedTeamID, allowUnsigned)
+	request, err := buildReleaseTransactionRequest(ctx, targetApp, paths, id, expectedTeamID, allowUnsigned)
 	if err != nil {
 		return recovery.CreateRequest{}, false, err
 	}
-	request, packageOwned, err := bindPackageOwnedTrust(request, installRequest{AllowUnsigned: allowUnsigned}, expectedTeamID)
+	request, packageOwned, err := bindPackageOwnedTrust(ctx, request, installRequest{AllowUnsigned: allowUnsigned}, expectedTeamID)
 	return request, packageOwned, err
 }
 
@@ -722,12 +735,12 @@ func (app updaterApp) prepareReleaseCandidate(stagedApp string, targetApp string
 }
 
 // buildReleaseTransactionRequest 绑定新旧摘要、signer、attempt 与 pending trust。
-func buildReleaseTransactionRequest(targetApp string, paths recovery.Paths, id recovery.TransactionID, expectedTeamID string, allowUnsigned bool) (recovery.CreateRequest, error) {
-	oldDigest, err := recovery.ComputeReleaseDigest(targetApp)
+func buildReleaseTransactionRequest(ctx context.Context, targetApp string, paths recovery.Paths, id recovery.TransactionID, expectedTeamID string, allowUnsigned bool) (recovery.CreateRequest, error) {
+	oldDigest, err := recovery.ComputeReleaseDigestContext(ctx, targetApp)
 	if err != nil {
 		return recovery.CreateRequest{}, removePreparedCandidate(paths.Staging, fmt.Errorf("digest old release: %w", err))
 	}
-	candidateDigest, err := recovery.ComputeReleaseDigest(paths.Staging)
+	candidateDigest, err := recovery.ComputeReleaseDigestContext(ctx, paths.Staging)
 	if err != nil {
 		return recovery.CreateRequest{}, removePreparedCandidate(paths.Staging, fmt.Errorf("digest candidate release: %w", err))
 	}
@@ -745,7 +758,7 @@ func buildReleaseTransactionRequest(targetApp string, paths recovery.Paths, id r
 			SHA256: candidateDigest, SignerIdentity: signer,
 		},
 	}
-	updaterProcess, helpers, err := captureUpdaterProcessIdentity()
+	updaterProcess, helpers, err := captureUpdaterProcessIdentityContext(ctx)
 	if err != nil {
 		return recovery.CreateRequest{}, removePreparedCandidate(paths.Staging, err)
 	}

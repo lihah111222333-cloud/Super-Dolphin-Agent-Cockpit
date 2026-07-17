@@ -1,6 +1,7 @@
 package appupdaterecovery
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -33,7 +34,7 @@ func InstallFirstRelease(staging string, target string) error {
 }
 
 // reconcileBackupEffect 将 backup_pending 意图收敛到 exact backup 已保留。
-func reconcileBackupEffect(journal journalPayload) error {
+func reconcileBackupEffect(ctx context.Context, journal journalPayload) error {
 	targetExists, err := pathExists(journal.Paths.Target)
 	if err != nil {
 		return err
@@ -44,7 +45,7 @@ func reconcileBackupEffect(journal journalPayload) error {
 	}
 	switch {
 	case targetExists && !backupExists:
-		if err := verifyRelease(journal.Paths.Target, journal.Identity.OldRelease); err != nil {
+		if err := verifyRelease(ctx, journal.Paths.Target, journal.Identity.OldRelease); err != nil {
 			return fmt.Errorf("verify old release before backup: %w", err)
 		}
 		if err := os.Rename(journal.Paths.Target, journal.Paths.Backup); err != nil {
@@ -52,14 +53,14 @@ func reconcileBackupEffect(journal journalPayload) error {
 		}
 		return syncDirectory(filepath.Dir(journal.Paths.Target))
 	case !targetExists && backupExists:
-		return verifyRelease(journal.Paths.Backup, journal.Identity.OldRelease)
+		return verifyRelease(ctx, journal.Paths.Backup, journal.Identity.OldRelease)
 	default:
 		return fmt.Errorf("backup intent has ambiguous filesystem state: target=%v backup=%v", targetExists, backupExists)
 	}
 }
 
 // reconcileInstallEffect 将 install_pending 意图收敛到 exact candidate 已安装。
-func reconcileInstallEffect(journal journalPayload) error {
+func reconcileInstallEffect(ctx context.Context, journal journalPayload) error {
 	targetExists, err := pathExists(journal.Paths.Target)
 	if err != nil {
 		return err
@@ -68,22 +69,22 @@ func reconcileInstallEffect(journal journalPayload) error {
 	if err != nil {
 		return err
 	}
-	if err := verifyRelease(journal.Paths.Backup, journal.Identity.OldRelease); err != nil {
+	if err := verifyRelease(ctx, journal.Paths.Backup, journal.Identity.OldRelease); err != nil {
 		return fmt.Errorf("verify retained backup before candidate install: %w", err)
 	}
 	switch {
 	case !targetExists && stagingExists:
-		return installStagedCandidate(journal)
+		return installStagedCandidate(ctx, journal)
 	case targetExists && !stagingExists:
-		return verifyRelease(journal.Paths.Target, journal.Identity.CandidateRelease)
+		return verifyRelease(ctx, journal.Paths.Target, journal.Identity.CandidateRelease)
 	default:
 		return fmt.Errorf("install intent has ambiguous filesystem state: target=%v staging=%v", targetExists, stagingExists)
 	}
 }
 
 // installStagedCandidate 验证 staging，执行同卷 rename，并复验 target。
-func installStagedCandidate(journal journalPayload) error {
-	if err := verifyRelease(journal.Paths.Staging, journal.Identity.CandidateRelease); err != nil {
+func installStagedCandidate(ctx context.Context, journal journalPayload) error {
+	if err := verifyRelease(ctx, journal.Paths.Staging, journal.Identity.CandidateRelease); err != nil {
 		return fmt.Errorf("verify staged candidate: %w", err)
 	}
 	if err := os.Rename(journal.Paths.Staging, journal.Paths.Target); err != nil {
@@ -92,21 +93,21 @@ func installStagedCandidate(journal journalPayload) error {
 	if err := syncDirectory(filepath.Dir(journal.Paths.Target)); err != nil {
 		return err
 	}
-	return verifyRelease(journal.Paths.Target, journal.Identity.CandidateRelease)
+	return verifyRelease(ctx, journal.Paths.Target, journal.Identity.CandidateRelease)
 }
 
-func verifyCommitCandidate(journal journalPayload) error {
-	if err := verifyRelease(journal.Paths.Target, journal.Identity.CandidateRelease); err != nil {
+func verifyCommitCandidate(ctx context.Context, journal journalPayload) error {
+	if err := verifyRelease(ctx, journal.Paths.Target, journal.Identity.CandidateRelease); err != nil {
 		return fmt.Errorf("verify candidate before healthy commit: %w", err)
 	}
 	return nil
 }
 
-func verifyReleaseAtRootIdentity(path string, release ReleaseIdentity, expected discardRootIdentity) error {
+func verifyReleaseAtRootIdentity(ctx context.Context, path string, release ReleaseIdentity, expected discardRootIdentity) error {
 	if err := requireRootIdentity(path, expected); err != nil {
 		return err
 	}
-	if err := verifyRelease(path, release); err != nil {
+	if err := verifyRelease(ctx, path, release); err != nil {
 		return err
 	}
 	return requireRootIdentity(path, expected)
@@ -141,8 +142,8 @@ func renameBackupToDiscardAtIdentity(journal journalPayload, expected discardRoo
 }
 
 // cleanupCommittedEffect 只清理根实例仍与持久身份一致的 committed discard。
-func cleanupCommittedEffect(journal journalPayload, expected discardRootIdentity) error {
-	if err := verifyRelease(journal.Paths.Target, journal.Identity.CandidateRelease); err != nil {
+func cleanupCommittedEffect(ctx context.Context, journal journalPayload, expected discardRootIdentity) error {
+	if err := verifyRelease(ctx, journal.Paths.Target, journal.Identity.CandidateRelease); err != nil {
 		return fmt.Errorf("verify candidate before committed cleanup: %w", err)
 	}
 	discard := backupDiscardPath(journal.Paths)
@@ -171,7 +172,7 @@ func backupDiscardPath(paths Paths) string {
 }
 
 // completeRollbackEffect 恢复 exact old release，并兼容 rename 后的 crash replay。
-func completeRollbackEffect(journal journalPayload) error {
+func completeRollbackEffect(ctx context.Context, journal journalPayload) error {
 	backupExists, err := pathExists(journal.Paths.Backup)
 	if err != nil {
 		return err
@@ -181,17 +182,17 @@ func completeRollbackEffect(journal journalPayload) error {
 		return err
 	}
 	if backupExists {
-		if err := restoreRetainedBackup(journal); err != nil {
+		if err := restoreRetainedBackup(ctx, journal); err != nil {
 			return err
 		}
 	} else if !targetExists {
 		return errors.New("rollback intent has neither backup nor restored target")
 	}
-	return finalizeRollback(journal)
+	return finalizeRollback(ctx, journal)
 }
 
 // validatePreparedRollback 在持久化终止意图前确认旧版本和 staging 仍与 exact transaction 一致。
-func validatePreparedRollback(journal journalPayload) error {
+func validatePreparedRollback(ctx context.Context, journal journalPayload) error {
 	backupExists, err := pathExists(journal.Paths.Backup)
 	if err != nil {
 		return err
@@ -199,18 +200,18 @@ func validatePreparedRollback(journal journalPayload) error {
 	if backupExists {
 		return errors.New("prepared rollback cannot start with a retained backup")
 	}
-	if err := verifyRelease(journal.Paths.Target, journal.Identity.OldRelease); err != nil {
+	if err := verifyRelease(ctx, journal.Paths.Target, journal.Identity.OldRelease); err != nil {
 		return fmt.Errorf("verify old release before prepared rollback: %w", err)
 	}
-	if err := verifyRelease(journal.Paths.Staging, journal.Identity.CandidateRelease); err != nil {
+	if err := verifyRelease(ctx, journal.Paths.Staging, journal.Identity.CandidateRelease); err != nil {
 		return fmt.Errorf("verify candidate staging before prepared rollback: %w", err)
 	}
 	return nil
 }
 
 // restoreRetainedBackup 以 exact backup 替换 candidate target。
-func restoreRetainedBackup(journal journalPayload) error {
-	if err := verifyRelease(journal.Paths.Backup, journal.Identity.OldRelease); err != nil {
+func restoreRetainedBackup(ctx context.Context, journal journalPayload) error {
+	if err := verifyRelease(ctx, journal.Paths.Backup, journal.Identity.OldRelease); err != nil {
 		return fmt.Errorf("verify backup before rollback: %w", err)
 	}
 	if err := removeIfExists(journal.Paths.Target); err != nil {
@@ -226,14 +227,14 @@ func restoreRetainedBackup(journal journalPayload) error {
 }
 
 // finalizeRollback 同步父目录并确认 old release 已恢复。
-func finalizeRollback(journal journalPayload) error {
+func finalizeRollback(ctx context.Context, journal journalPayload) error {
 	if err := removeIfExists(journal.Paths.Staging); err != nil {
 		return err
 	}
 	if err := syncDirectory(filepath.Dir(journal.Paths.Target)); err != nil {
 		return err
 	}
-	return verifyRelease(journal.Paths.Target, journal.Identity.OldRelease)
+	return verifyRelease(ctx, journal.Paths.Target, journal.Identity.OldRelease)
 }
 
 func pathExists(path string) (bool, error) {

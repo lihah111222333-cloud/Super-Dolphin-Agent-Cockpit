@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"slices"
 	"testing"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/app"
@@ -99,6 +100,10 @@ type fakeTerminationServer struct {
 	closeErr  error
 }
 
+func prepareTestFilesystemHelper() (func() error, error) {
+	return func() error { return nil }, nil
+}
+
 func (server *fakeTerminationServer) WaitForActivation(context.Context) error {
 	server.activated = true
 	return server.waitErr
@@ -114,6 +119,7 @@ func TestRunMainErrorExitRunsTerminationCleanup(t *testing.T) {
 	stopped := false
 	runErr := errors.New("desktop failed")
 	exitCode := runMain(t.Context(), func() { stopped = true }, terminalMainDeps{
+		prepareFilesystemHelper: prepareTestFilesystemHelper,
 		startTermination: func(context.CancelFunc) (cooperativeTerminationServer, bool, error) {
 			return server, false, nil
 		},
@@ -128,6 +134,7 @@ func TestRunMainParkedWaitFailureRunsCleanup(t *testing.T) {
 	waitErr := errors.New("activation failed")
 	server := &fakeTerminationServer{waitErr: waitErr}
 	exitCode := runMain(t.Context(), func() {}, terminalMainDeps{
+		prepareFilesystemHelper: prepareTestFilesystemHelper,
 		startTermination: func(context.CancelFunc) (cooperativeTerminationServer, bool, error) {
 			return server, true, nil
 		},
@@ -138,5 +145,33 @@ func TestRunMainParkedWaitFailureRunsCleanup(t *testing.T) {
 	})
 	if exitCode != 1 || !server.activated || !server.closed {
 		t.Fatalf("runMain exit=%d activated=%t closed=%t, want 1/true/true", exitCode, server.activated, server.closed)
+	}
+}
+
+func TestRunMainStagesFilesystemHelperBeforeStartupAndCleansAfterRuntime(t *testing.T) {
+	events := make([]string, 0, 5)
+	exitCode := runMain(t.Context(), func() { events = append(events, "stop") }, terminalMainDeps{
+		prepareFilesystemHelper: func() (func() error, error) {
+			events = append(events, "prepare")
+			return func() error {
+				events = append(events, "cleanup")
+				return nil
+			}, nil
+		},
+		startTermination: func(context.CancelFunc) (cooperativeTerminationServer, bool, error) {
+			events = append(events, "termination")
+			return nil, false, nil
+		},
+		run: func(context.Context, terminalDeps) error {
+			events = append(events, "run")
+			return nil
+		},
+	})
+	if exitCode != 0 {
+		t.Fatalf("runMain exit = %d, want 0", exitCode)
+	}
+	want := []string{"prepare", "termination", "run", "cleanup", "stop"}
+	if !slices.Equal(events, want) {
+		t.Fatalf("runMain events = %v, want %v", events, want)
 	}
 }

@@ -59,7 +59,7 @@ func SelectStartup(ctx context.Context, input StartupSelectorInput) (StartupSele
 	if !found {
 		return StartupSelection{Mode: StartupModeNormal, Store: input.Store}, nil
 	}
-	if err := validateStartupTransaction(transaction, input); err != nil {
+	if err := validateStartupTransaction(ctx, transaction, input); err != nil {
 		return recoverySelection(input.Store, transaction, err), err
 	}
 	return StartupSelection{Mode: StartupModeNormal, Store: input.Store, Transaction: transaction}, nil
@@ -102,11 +102,11 @@ func discoverStartupTransaction(ctx context.Context, input StartupSelectorInput)
 	return transaction, found, err
 }
 
-func validateStartupTransaction(transaction recovery.Transaction, input StartupSelectorInput) error {
+func validateStartupTransaction(ctx context.Context, transaction recovery.Transaction, input StartupSelectorInput) error {
 	if input.ExpectedTransactionID != "" && transaction.Identity.TransactionID != input.ExpectedTransactionID {
 		return errors.New("probation transaction identity does not match launch contract")
 	}
-	return validateProbationCandidate(transaction, input.Process)
+	return validateProbationCandidate(ctx, transaction, input.Process)
 }
 
 // waitForProbationLease 在 candidate 先于 updater lease 落盘启动时做有界阻塞。
@@ -137,7 +137,7 @@ func waitForProbationLease(ctx context.Context, input StartupSelectorInput) (rec
 }
 
 // validateProbationCandidate 校验 probation state、lease、进程及候选摘要。
-func validateProbationCandidate(transaction recovery.Transaction, process recovery.ProcessIdentity) error {
+func validateProbationCandidate(ctx context.Context, transaction recovery.Transaction, process recovery.ProcessIdentity) error {
 	if transaction.State != recovery.StateProbation {
 		return fmt.Errorf("active transaction state %q requires Recovery", transaction.State)
 	}
@@ -147,7 +147,7 @@ func validateProbationCandidate(transaction recovery.Transaction, process recove
 	if transaction.Probation.Lease.Process != process {
 		return errors.New("candidate process identity does not match probation lease")
 	}
-	digest, err := recovery.ComputeReleaseDigest(transaction.Paths.Target)
+	digest, err := recovery.ComputeReleaseDigestContext(ctx, transaction.Paths.Target)
 	if err != nil {
 		return fmt.Errorf("verify probation candidate: %w", err)
 	}

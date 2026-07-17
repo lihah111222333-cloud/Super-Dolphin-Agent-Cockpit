@@ -132,7 +132,7 @@ func (store *Store) commitHealthyClaimed(ctx context.Context, identity Identity,
 		if !journal.Probation.ACKPresent {
 			return errors.New("healthy commit requires exact probation ACK")
 		}
-		return store.commitHealthyLocked(journal)
+		return store.commitHealthyLocked(ctx, journal)
 	})
 }
 
@@ -142,7 +142,7 @@ func (store *Store) RollbackClaimed(ctx context.Context, identity Identity, leas
 		if !journal.Probation.LeasePresent || journal.Probation.Lease != lease {
 			return ErrProbationLeaseMismatch
 		}
-		return store.rollbackLocked(journal)
+		return store.rollbackLocked(ctx, journal)
 	})
 }
 
@@ -155,7 +155,7 @@ func (store *Store) RollbackUnclaimedProbation(ctx context.Context, identity Ide
 		if journal.Probation.LeasePresent {
 			return ErrProbationLeaseMismatch
 		}
-		return store.rollbackLocked(journal)
+		return store.rollbackLocked(ctx, journal)
 	})
 }
 
