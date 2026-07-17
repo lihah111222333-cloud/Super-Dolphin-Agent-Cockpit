@@ -512,8 +512,8 @@ internal/platform/observability/service.go	internal	platform-provider	go-source	
 internal/platform/observability/sink.go	internal	platform-provider	go-source	354	基础设施层	internal,platform,observability,sink,基础设施层
 internal/platform/observability/stack_test.go	internal	platform-provider	go-test	1982	基础设施层	internal,platform,observability,stack,test,基础设施层
 internal/platform/observability/stack.go	internal	platform-provider	go-source	1821	基础设施层	internal,platform,observability,stack,基础设施层
-internal/platform/pidregistry/cooperative_termination_darwin_test.go	internal	platform-provider	go-test	10418	基础设施层	internal,platform,pidregistry,cooperative,termination,darwin,test,基础设施层
-internal/platform/pidregistry/cooperative_termination_darwin.go	internal	platform-provider	go-source	7473	基础设施层	internal,platform,pidregistry,cooperative,termination,darwin,基础设施层
+internal/platform/pidregistry/cooperative_termination_darwin_test.go	internal	platform-provider	go-test	14427	基础设施层	internal,platform,pidregistry,cooperative,termination,darwin,test,基础设施层
+internal/platform/pidregistry/cooperative_termination_darwin.go	internal	platform-provider	go-source	9617	基础设施层	internal,platform,pidregistry,cooperative,termination,darwin,基础设施层
 internal/platform/pidregistry/cooperative_termination_unsupported.go	internal	platform-provider	go-source	1444	基础设施层	internal,platform,pidregistry,cooperative,termination,unsupported,基础设施层
 internal/platform/pidregistry/exact_process.go	internal	platform-provider	go-source	7105	基础设施层	internal,platform,pidregistry,exact,process,基础设施层
 internal/platform/pidregistry/file_owner_unix.go	internal	platform-provider	go-source	251	基础设施层	internal,platform,pidregistry,file,owner,unix,基础设施层
