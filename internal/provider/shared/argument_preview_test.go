@@ -54,3 +54,65 @@ func TestSafeToolArgumentsPreviewCapsRawBeforeProcessingAndOutput(t *testing.T) 
 		t.Fatalf("preview = %q, must not contain path beyond raw cap", preview)
 	}
 }
+
+func TestSafeToolArgumentsPreviewRedactsExplicitSensitiveKeyVariants(t *testing.T) {
+	preview := SafeToolArgumentsPreview(map[string]any{
+		"privateKey":  "private-camel-leak",
+		"private_key": "private-snake-leak",
+		"credential":  "credential-leak",
+		"cookie":      "cookie-leak",
+		"session":     "session-leak",
+		"certificate": "certificate-leak",
+		"key":         "ordinary-key-value",
+		"keyboard":    "ordinary-keyboard-value",
+	})
+
+	for _, fragment := range []string{
+		"private-camel-leak",
+		"private-snake-leak",
+		"credential-leak",
+		"cookie-leak",
+		"session-leak",
+		"certificate-leak",
+	} {
+		if strings.Contains(preview, fragment) {
+			t.Fatalf("SafeToolArgumentsPreview() = %q, must not contain %q", preview, fragment)
+		}
+	}
+	for _, fragment := range []string{"ordinary-key-value", "ordinary-keyboard-value"} {
+		if !strings.Contains(preview, fragment) {
+			t.Fatalf("SafeToolArgumentsPreview() = %q, want ordinary field value %q", preview, fragment)
+		}
+	}
+}
+
+func TestSafeToolArgumentsPreviewRedactsPEMAndNestedJSONString(t *testing.T) {
+	privateKeyPEM := "-----BEGIN PRIVATE KEY-----\nprivate-key-leak\n-----END PRIVATE KEY-----"
+	certificatePEM := "-----BEGIN CERTIFICATE-----\ncertificate-pem-leak\n-----END CERTIFICATE-----"
+	doubleEncoded := `{"payload":"{\"credential\":\"nested-credential-leak\"}"}`
+	preview := SafeToolArgumentsPreview(map[string]any{
+		"privateMaterial": privateKeyPEM,
+		"certificatePEM":  certificatePEM,
+		"envelope":        doubleEncoded,
+	})
+
+	for _, fragment := range []string{"private-key-leak", "certificate-pem-leak", "nested-credential-leak", "BEGIN PRIVATE KEY", "BEGIN CERTIFICATE"} {
+		if strings.Contains(preview, fragment) {
+			t.Fatalf("SafeToolArgumentsPreview() = %q, must not contain %q", preview, fragment)
+		}
+	}
+	if !strings.Contains(preview, "[REDACTED]") {
+		t.Fatalf("SafeToolArgumentsPreview() = %q, want redaction marker", preview)
+	}
+}
+
+func TestSafeToolArgumentsPreviewStringFailsClosedOnPEM(t *testing.T) {
+	for _, raw := range []string{
+		"prefix -----BEGIN RSA PRIVATE KEY-----\nprivate-key-leak\n-----END RSA PRIVATE KEY----- suffix",
+		"prefix -----BEGIN CERTIFICATE-----\ncertificate-leak\n-----END CERTIFICATE----- suffix",
+	} {
+		if preview := SafeToolArgumentsPreviewString(raw); preview != "[REDACTED]" {
+			t.Fatalf("SafeToolArgumentsPreviewString() = %q, want fail-closed redaction", preview)
+		}
+	}
+}
