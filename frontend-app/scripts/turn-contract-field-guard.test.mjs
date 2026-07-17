@@ -134,6 +134,138 @@ export function namespaceEscape(payload) { return escapedValidator(payload); }
     })).toThrow('escapes direct calls');
   });
 
+  it('resolves a static computed namespace member as a real validator call', () => {
+    const source = `${read(runtimePath)}
+import * as validators from '../../../shared/contracts/turnContractValidators.js';
+export function staticComputedNamespaceConsumer(payload) {
+  return validators['validateTurnTerminalV2'](payload);
+}
+`;
+    expect(() => validateTurnContractFieldGuard({
+      repoRoot,
+      sourceOverrides: new Map([[runtimePath, source]]),
+    })).toThrow('staticComputedNamespaceConsumer');
+  });
+
+  it('fails fast for a dynamic computed validator namespace member', () => {
+    const source = `${read(runtimePath)}
+import * as validators from '../../../shared/contracts/turnContractValidators.js';
+export function dynamicComputedNamespaceEscape(name, payload) {
+  return validators[name](payload);
+}
+`;
+    expect(() => validateTurnContractFieldGuard({
+      repoRoot,
+      sourceOverrides: new Map([[runtimePath, source]]),
+    })).toThrow('validator namespace validators uses a dynamic computed member');
+  });
+
+  it.each([
+    [
+      'function parameter',
+      '',
+      'export function namedParameterShadow(validateTurnTerminalV2, payload) { return validateTurnTerminalV2(payload); }',
+    ],
+    [
+      'block const',
+      '',
+      `export function namedBlockShadow(payload) {
+  {
+    const validateTurnTerminalV2 = (value) => value;
+    return validateTurnTerminalV2(payload);
+  }
+}`,
+    ],
+    [
+      'nested callback parameter',
+      '',
+      `export function namedCallbackShadow(payloads) {
+  return payloads.map((validateTurnTerminalV2) => validateTurnTerminalV2(payloads[0]));
+}`,
+    ],
+    [
+      'catch parameter',
+      '',
+      `export function namedCatchShadow(payload) {
+  try { throw (value) => value; }
+  catch (validateTurnTerminalV2) { return validateTurnTerminalV2(payload); }
+}`,
+    ],
+    [
+      'function declaration',
+      '',
+      `export function namedFunctionDeclarationShadow(payload) {
+  function validateTurnTerminalV2(value) { return value; }
+  return validateTurnTerminalV2(payload);
+}`,
+    ],
+    [
+      'class declaration',
+      '',
+      `export function namedClassDeclarationShadow(payload) {
+  class validateTurnTerminalV2 { constructor(value) { this.value = value; } }
+  return new validateTurnTerminalV2(payload).value;
+}`,
+    ],
+    [
+      'destructured import alias parameter',
+      "import { validateTurnTerminalV2 as importedTerminalValidator } from '../../../shared/contracts/turnContractValidators.js';",
+      `export function namedDestructuredAliasShadow({ importedTerminalValidator }, payload) {
+  return importedTerminalValidator(payload);
+}`,
+    ],
+  ])('ignores a shadowed named validator %s', (_label, importLine, declaration) => {
+    const source = `${read(runtimePath)}\n${importLine}\n${declaration}\n`;
+    expect(validateTurnContractFieldGuard({
+      repoRoot,
+      sourceOverrides: new Map([[runtimePath, source]]),
+    })).toEqual({ schemaCount: 3, mapperCount: 1 });
+  });
+
+  it.each([
+    [
+      'function parameter',
+      'export function namespaceParameterShadow(validators, payload) { return validators.validateTurnTerminalV2(payload); }',
+    ],
+    [
+      'block const',
+      `export function namespaceBlockShadow(payload) {
+  {
+    const validators = { validateTurnTerminalV2: (value) => value };
+    return validators.validateTurnTerminalV2(payload);
+  }
+}`,
+    ],
+    [
+      'destructured alias parameter',
+      `export function namespaceDestructuredAliasShadow({ localValidators: validators }, payload) {
+  return validators.validateTurnTerminalV2(payload);
+}`,
+    ],
+  ])('ignores a shadowed validator namespace %s', (_label, declaration) => {
+    const source = `${read(runtimePath)}
+import * as validators from '../../../shared/contracts/turnContractValidators.js';
+${declaration}
+`;
+    expect(validateTurnContractFieldGuard({
+      repoRoot,
+      sourceOverrides: new Map([[runtimePath, source]]),
+    })).toEqual({ schemaCount: 3, mapperCount: 1 });
+  });
+
+  it('does not let a shadowed validator call satisfy a registered consumer', () => {
+    const source = read(runtimePath);
+    const mutated = source.replace(
+      'export function parseRuntimeTurnTerminal(payload) {',
+      'export function parseRuntimeTurnTerminal(payload, validateTurnTerminalV2) {',
+    );
+    expect(mutated).not.toBe(source);
+    expect(() => validateTurnContractFieldGuard({
+      repoRoot,
+      sourceOverrides: new Map([[runtimePath, mutated]]),
+    })).toThrow(`${runtimePath}:parseRuntimeTurnTerminal missing call validateTurnTerminalV2`);
+  });
+
   it.each([
     [
       'named import',
