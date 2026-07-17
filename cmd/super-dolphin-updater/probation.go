@@ -62,8 +62,8 @@ func (app updaterApp) runProbationSupervisor(ctx context.Context, transaction re
 		Store: store, Identity: transaction.Identity, Lease: lease,
 		ProcessAlive:  candidate.ProcessAlive,
 		StopCandidate: candidate.Stop,
-		RestartOldRelease: func(_ context.Context, rolledBack recovery.Transaction) error {
-			return app.restartTargetApp(rolledBack.Paths.Target)
+		RestartOldRelease: func(restartCtx context.Context, rolledBack recovery.Transaction) error {
+			return app.convergeRollbackRestart(restartCtx, store, rolledBack)
 		},
 		ObservationPeriod: probationObservationPeriod,
 		PollInterval:      probationPollInterval,
@@ -408,9 +408,11 @@ func processAlive(identity recovery.ProcessIdentity) (bool, error) {
 }
 
 func (app updaterApp) rollbackLaunchFailure(ctx context.Context, store *recovery.Store, transaction recovery.Transaction, cause error) error {
-	_, rollbackErr := store.RollbackUnclaimedProbation(ctx, transaction.Identity)
-	restartErr := app.restartTargetApp(transaction.Paths.Target)
-	return errors.Join(cause, rollbackErr, restartErr)
+	rolledBack, rollbackErr := store.RollbackUnclaimedProbation(ctx, transaction.Identity)
+	if rollbackErr != nil {
+		return errors.Join(cause, rollbackErr)
+	}
+	return errors.Join(cause, app.convergeRollbackRestart(ctx, store, rolledBack))
 }
 
 func (app updaterApp) rollbackStartedCandidate(ctx context.Context, store *recovery.Store, transaction recovery.Transaction, candidate *candidateHandle, cause error) error {
@@ -424,9 +426,20 @@ func (app updaterApp) rollbackClaimedCandidate(ctx context.Context, store *recov
 	if stopErr := candidate.Stop(ctx, candidate.Identity()); stopErr != nil {
 		return errors.Join(cause, stopErr)
 	}
-	_, rollbackErr := store.RollbackClaimed(ctx, transaction.Identity, lease)
-	restartErr := app.restartTargetApp(transaction.Paths.Target)
-	return errors.Join(cause, rollbackErr, restartErr)
+	rolledBack, rollbackErr := store.RollbackClaimed(ctx, transaction.Identity, lease)
+	if rollbackErr != nil {
+		return errors.Join(cause, rollbackErr)
+	}
+	return errors.Join(cause, app.convergeRollbackRestart(ctx, store, rolledBack))
+}
+
+func (app updaterApp) convergeRollbackRestart(ctx context.Context, store *recovery.Store, transaction recovery.Transaction) error {
+	if app.rollbackRestartCallbackFactory == nil {
+		return errors.New("updater rollback restart callback factory is required")
+	}
+	resolve, launch := app.rollbackRestartCallbackFactory(transaction)
+	_, err := store.ConvergeRollbackRestart(ctx, transaction.Identity, resolve, launch)
+	return err
 }
 
 func terminateCandidate(ctx context.Context, process recovery.ProcessIdentity) error {

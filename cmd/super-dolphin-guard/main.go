@@ -7,7 +7,6 @@ import (
 	"io"
 	"log/slog"
 	"os"
-	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"syscall"
@@ -15,7 +14,6 @@ import (
 
 	recovery "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/appupdaterecovery"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/pidregistry"
-	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/runtimeenv"
 )
 
 const (
@@ -302,7 +300,7 @@ func runGuardCommandWithWriter(ctx context.Context, args []string, readyWriter i
 	if err != nil {
 		return err
 	}
-	resolveOldRelease, restartOldRelease := rollbackRestartCallbacks(transaction)
+	resolveOldRelease, restartOldRelease := recovery.RollbackRestartCallbacks(transaction)
 	guard := newGuard(guardConfig{
 		Store: store, Identity: transaction.Identity, OwnerID: string(owner), Now: time.Now,
 		UpdaterAlive:      updaterAliveForTransaction(transaction),
@@ -433,92 +431,4 @@ func stopCandidateExact(ctx context.Context, process recovery.ProcessIdentity) e
 		PID: process.PID, ProcessStartToken: process.StartToken, ExecutableIdentity: process.ExecutableIdentity,
 		TerminationEndpoint: process.TerminationEndpoint, TerminationToken: process.TerminationToken,
 	})
-}
-
-// rollbackRestartCallbacks 构造按 launch token 重发现或启动旧版本的回调。
-func rollbackRestartCallbacks(transaction recovery.Transaction) (
-	recovery.RollbackRestartResolver,
-	recovery.RollbackRestartLauncher,
-) {
-	executable := filepath.Join(transaction.Paths.Target, "Contents", "MacOS", "agent-terminal")
-	argument := func(token string) string { return "--super-dolphin-rollback-launch-token=" + token }
-	resolve := func(token string) (recovery.RollbackRestartProcess, bool, error) {
-		if err := verifyRolledBackRelease(transaction); err != nil {
-			return recovery.RollbackRestartProcess{}, false, err
-		}
-		stable, found, err := pidregistry.FindStableProcessByArgument(argument(token), executable)
-		if err != nil || !found {
-			return recovery.RollbackRestartProcess{}, found, err
-		}
-		process, err := rollbackRestartProcess(stable, executable)
-		return process, err == nil, err
-	}
-	launch := func(token string) (recovery.RollbackRestartProcess, error) {
-		if err := verifyRolledBackRelease(transaction); err != nil {
-			return recovery.RollbackRestartProcess{}, err
-		}
-		env, err := runtimeenv.DetachedCommandEnvironment(os.Environ())
-		if err != nil {
-			return recovery.RollbackRestartProcess{}, err
-		}
-		cmd := exec.Command(executable, argument(token))
-		cmd.Env = env
-		if err := cmd.Start(); err != nil {
-			return recovery.RollbackRestartProcess{}, err
-		}
-		stable, err := pidregistry.CaptureStableProcessIdentity(cmd.Process.Pid)
-		if err != nil {
-			_ = cmd.Process.Kill()
-			return recovery.RollbackRestartProcess{}, err
-		}
-		process, err := rollbackRestartProcess(stable, executable)
-		if err != nil {
-			_ = cmd.Process.Kill()
-			return recovery.RollbackRestartProcess{}, err
-		}
-		if err := cmd.Process.Release(); err != nil {
-			return recovery.RollbackRestartProcess{}, err
-		}
-		return process, nil
-	}
-	return resolve, launch
-}
-
-func verifyRolledBackRelease(transaction recovery.Transaction) error {
-	canonical, err := recovery.CanonicalExistingPath(transaction.Paths.Target)
-	if err != nil {
-		return err
-	}
-	if canonical != transaction.Paths.Target {
-		return errors.New("rolled back target is not canonical")
-	}
-	digest, err := recovery.ComputeReleaseDigest(transaction.Paths.Target)
-	if err != nil {
-		return err
-	}
-	if digest != transaction.Identity.OldRelease.SHA256 {
-		return errors.New("rolled back target digest does not match old release")
-	}
-	return nil
-}
-
-func rollbackRestartProcess(stable pidregistry.StableProcessIdentity, expectedExecutable string) (
-	recovery.RollbackRestartProcess,
-	error,
-) {
-	canonical, err := recovery.CanonicalExistingPath(stable.ExecutableIdentity)
-	if err != nil {
-		return recovery.RollbackRestartProcess{}, err
-	}
-	if canonical != expectedExecutable {
-		return recovery.RollbackRestartProcess{}, pidregistry.ErrStableProcessIdentityMismatch
-	}
-	digest, err := recovery.ComputeReleaseDigest(canonical)
-	if err != nil {
-		return recovery.RollbackRestartProcess{}, err
-	}
-	return recovery.RollbackRestartProcess{
-		PID: stable.PID, StartToken: stable.ProcessStartToken,
-		ExecutableIdentity: canonical, ExecutableSHA256: digest,
-	}, nil
 }

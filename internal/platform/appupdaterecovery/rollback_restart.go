@@ -10,7 +10,10 @@ import (
 	"time"
 )
 
-const rollbackLaunchTokenBytes = 32
+const (
+	rollbackLaunchTokenBytes        = 32
+	rollbackRestartLockPollInterval = 10 * time.Millisecond
+)
 
 // RollbackRestartResolver 重发现已携带 exact launch token 的旧版本进程。
 type RollbackRestartResolver func(string) (RollbackRestartProcess, bool, error)
@@ -28,7 +31,7 @@ func (store *Store) ConvergeRollbackRestart(
 	if resolve == nil || launch == nil {
 		return Transaction{}, errors.New("rollback restart resolver and launcher are required")
 	}
-	return store.withExact(ctx, identity, func(journal *journalPayload) error {
+	return store.withRollbackRestartConvergence(ctx, identity, func(journal *journalPayload) error {
 		transaction := journal.transaction()
 		if transaction.State != StateRolledBack {
 			return fmt.Errorf("rollback restart from state %q: illegal transition", transaction.State)
@@ -57,6 +60,26 @@ func (store *Store) ConvergeRollbackRestart(
 		}
 		return store.writeLocked(*journal)
 	})
+}
+
+func (store *Store) withRollbackRestartConvergence(
+	ctx context.Context,
+	identity Identity,
+	action func(*journalPayload) error,
+) (Transaction, error) {
+	for {
+		transaction, err := store.withExact(ctx, identity, action)
+		if !errors.Is(err, ErrTransactionBusy) {
+			return transaction, err
+		}
+		timer := time.NewTimer(rollbackRestartLockPollInterval)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return Transaction{}, context.Cause(ctx)
+		case <-timer.C:
+		}
+	}
 }
 
 func (store *Store) beginRollbackRestartIntentLocked(journal *journalPayload) error {

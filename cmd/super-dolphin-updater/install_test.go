@@ -617,6 +617,114 @@ func TestCandidateHandleTerminatesAndReapsExactProcess(t *testing.T) {
 	}
 }
 
+func TestUpdaterRollbackEntriesConvergeWithDetachedGuardOnce(t *testing.T) {
+	for _, entry := range []string{"launch_failure", "started_candidate", "claimed_candidate"} {
+		t.Run(entry, func(t *testing.T) {
+			store, transaction := newUpdaterRollbackFixture(t)
+			cause := errors.New("force " + entry)
+			launches := 0
+			untokenizedStarts := 0
+			startedToken := ""
+			process := recovery.RollbackRestartProcess{
+				PID: 404, StartToken: "unique-updater-old-start", ExecutableIdentity: "/test/updater-old-release",
+				ExecutableSHA256: strings.Repeat("b", 64),
+			}
+			factory := func(recovery.Transaction) (recovery.RollbackRestartResolver, recovery.RollbackRestartLauncher) {
+				resolve := func(string) (recovery.RollbackRestartProcess, bool, error) {
+					return recovery.RollbackRestartProcess{}, false, nil
+				}
+				launch := func(token string) (recovery.RollbackRestartProcess, error) {
+					launches++
+					startedToken = token
+					return process, nil
+				}
+				return resolve, launch
+			}
+			app := defaultUpdaterApp()
+			app.rollbackRestartCallbackFactory = factory
+			app.runRestartCommand = func(...string) (commandResult, error) {
+				untokenizedStarts++
+				return commandResult{}, nil
+			}
+			if err := invokeUpdaterRollbackEntry(t, entry, app, store, transaction, cause); !errors.Is(err, cause) {
+				t.Fatalf("rollback error = %v, want cause", err)
+			}
+			rolledBack, err := store.Load(context.Background(), transaction.Identity)
+			if err != nil {
+				t.Fatal(err)
+			}
+			resolve, launch := factory(rolledBack)
+			if _, err := store.ConvergeRollbackRestart(context.Background(), rolledBack.Identity, resolve, launch); err != nil {
+				t.Fatal(err)
+			}
+			assertUpdaterRollbackRestart(t, rolledBack, store, process, startedToken, launches, untokenizedStarts)
+		})
+	}
+}
+
+func invokeUpdaterRollbackEntry(t *testing.T, entry string, app updaterApp, store *recovery.Store, transaction recovery.Transaction, cause error) error {
+	t.Helper()
+	if entry == "launch_failure" {
+		return app.rollbackLaunchFailure(context.Background(), store, transaction, cause)
+	}
+	handle, process := startCandidateHandleTestProcess(t, "block")
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = handle.Stop(ctx, process)
+	})
+	if entry == "started_candidate" {
+		return app.rollbackStartedCandidate(context.Background(), store, transaction, handle, cause)
+	}
+	lease, err := store.AcquireProbationLease(context.Background(), transaction.Identity, recovery.ProbationLeaseRequest{
+		OwnerID: "updater-entry-test", Process: process, TTL: time.Minute,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return app.rollbackClaimedCandidate(context.Background(), store, transaction, lease, handle, cause)
+}
+
+func newUpdaterRollbackFixture(t *testing.T) (*recovery.Store, recovery.Transaction) {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows filesystems do not preserve macOS launcher execute bits in this fixture")
+	}
+	stubSuccessfulDitto(t)
+	stagedParent, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	targetParent, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	staged := createAppBundle(t, filepath.Join(stagedParent, "Super Dolphin.app"))
+	target := createAppBundle(t, filepath.Join(targetParent, "Super Dolphin.app"))
+	transaction, transactional, err := defaultUpdaterApp().replaceTargetAppTransaction(staged, target, "", true, true)
+	if err != nil || !transactional || transaction.State != recovery.StateProbation {
+		t.Fatalf("probation fixture = transactional %t state %q error %v", transactional, transaction.State, err)
+	}
+	store, err := recovery.NewStore(filepath.Join(targetParent, updateTransactionDirName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return store, transaction
+}
+
+func assertUpdaterRollbackRestart(t *testing.T, transaction recovery.Transaction, store *recovery.Store, process recovery.RollbackRestartProcess, token string, launches, untokenizedStarts int) {
+	t.Helper()
+	got, err := store.Load(context.Background(), transaction.Identity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	record := got.RollbackRestart
+	if launches != 1 || untokenizedStarts != 0 || token == "" || !record.ACKPresent ||
+		record.ACK.LaunchToken != token || record.LaunchToken != token || record.ACK.Process != process {
+		t.Fatalf("launches=%d untokenized=%d token=%q restart=%+v", launches, untokenizedStarts, token, record)
+	}
+}
+
 func TestProbationCandidateProcess(t *testing.T) {
 	mode := os.Getenv("SUPER_DOLPHIN_TEST_PROBATION_CANDIDATE")
 	if mode == "" {
@@ -648,7 +756,7 @@ func startCandidateHandleTestProcess(t *testing.T, mode string) (*candidateHandl
 	}
 	identity := recovery.ProcessIdentity{
 		PID: stable.PID, StartToken: stable.ProcessStartToken,
-		ExecutableIdentity: stable.ExecutableIdentity, ExecutableSHA256: "test-digest",
+		ExecutableIdentity: stable.ExecutableIdentity, ExecutableSHA256: strings.Repeat("a", 64),
 	}
 	return newCandidateHandle(cmd, identity), identity
 }
