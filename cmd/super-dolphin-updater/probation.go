@@ -59,7 +59,7 @@ func (app updaterApp) runProbationSupervisor(ctx context.Context, transaction re
 		return app.rollbackStartedCandidate(ctx, store, transaction, candidate, err)
 	}
 	if _, statErr := os.Stat(transaction.Paths.RecoveryDir); errors.Is(statErr, os.ErrNotExist) {
-		if err := app.startProbationGuard(transaction, false, nil); err != nil {
+		if err := app.startProbationGuard(ctx, transaction, false, nil); err != nil {
 			return app.rollbackClaimedCandidate(ctx, store, transaction, lease, candidate, err)
 		}
 	} else if statErr != nil {
@@ -403,17 +403,17 @@ func (handle *candidateHandle) result() error {
 	return handle.waitErr
 }
 
-// startDetachedGuard 在有界时间内验证 exact Guard 凭据，成功后才释放进程句柄。
-func startDetachedGuard(transaction recovery.Transaction, capsule bool, readyAction func() error) error {
-	cmd, executable, digest, err := buildDetachedGuardCommand(transaction, capsule)
+// startDetachedGuard 在 caller context 内验证 exact Guard 凭据，成功后才释放独立进程句柄。
+func startDetachedGuard(ctx context.Context, transaction recovery.Transaction, capsule bool, readyAction func() error) error {
+	cmd, executable, digest, err := buildDetachedGuardCommand(ctx, transaction, capsule)
 	if err != nil {
 		return err
 	}
-	stdout, expected, err := startDetachedGuardProcess(cmd, executable, digest)
+	stdout, expected, err := startDetachedGuardProcess(ctx, cmd, executable, digest)
 	if err != nil {
 		return err
 	}
-	if err := awaitDetachedGuardArmed(stdout, transaction, expected, readyAction); err != nil {
+	if err := awaitDetachedGuardArmed(ctx, stdout, transaction, expected, readyAction); err != nil {
 		return errors.Join(err, stopStartedGuard(cmd))
 	}
 	if err := cmd.Process.Release(); err != nil {
@@ -422,18 +422,18 @@ func startDetachedGuard(transaction recovery.Transaction, capsule bool, readyAct
 	return nil
 }
 
-// buildDetachedGuardCommand 绑定 exact helper 路径、SHA、generation 与清洗后的环境。
-func buildDetachedGuardCommand(transaction recovery.Transaction, capsule bool) (*exec.Cmd, string, string, error) {
+// buildDetachedGuardCommand 在 caller context 内绑定 exact helper 路径、SHA、generation 与清洗后的环境。
+func buildDetachedGuardCommand(ctx context.Context, transaction recovery.Transaction, capsule bool) (*exec.Cmd, string, string, error) {
 	executable, err := detachedGuardPath(transaction, capsule)
 	if err != nil {
 		return nil, "", "", err
 	}
-	executable, err = recovery.CanonicalExistingPath(executable)
+	executable, err = recovery.CanonicalExistingPathContext(ctx, executable)
 	if err != nil {
 		return nil, "", "", err
 	}
 	generation, expectedSHA := guardGenerationIdentity(transaction, capsule)
-	digest, err := recovery.ComputeReleaseDigestContext(context.Background(), executable)
+	digest, err := recovery.ComputeReleaseDigestContext(ctx, executable)
 	if err != nil {
 		return nil, "", "", fmt.Errorf("digest detached Guard: %w", err)
 	}
@@ -445,13 +445,14 @@ func buildDetachedGuardCommand(transaction recovery.Transaction, capsule bool) (
 		return nil, "", "", err
 	}
 	transactionRoot := filepath.Join(filepath.Dir(transaction.Paths.Target), updateTransactionDirName)
+	// Guard 在 armed receipt 后独立存活，因此不能让 exec.Cmd 继承 caller context 的自动 kill。
 	cmd := exec.Command(executable, transactionRoot, string(transaction.Identity.TransactionID), generation)
 	cmd.Env = env
 	return cmd, executable, digest, nil
 }
 
-// startDetachedGuardProcess 启动子进程并重新读取其内核 process identity。
-func startDetachedGuardProcess(cmd *exec.Cmd, executable, digest string) (io.ReadCloser, recovery.ProcessIdentity, error) {
+// startDetachedGuardProcess 启动子进程并在 caller context 内重新读取其内核 process identity。
+func startDetachedGuardProcess(ctx context.Context, cmd *exec.Cmd, executable, digest string) (io.ReadCloser, recovery.ProcessIdentity, error) {
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return nil, recovery.ProcessIdentity{}, fmt.Errorf("open detached Guard readiness pipe: %w", err)
@@ -459,16 +460,16 @@ func startDetachedGuardProcess(cmd *exec.Cmd, executable, digest string) (io.Rea
 	if err := cmd.Start(); err != nil {
 		return nil, recovery.ProcessIdentity{}, fmt.Errorf("start detached Guard: %w", err)
 	}
-	expected, err := captureStartedGuardIdentity(cmd, executable, digest)
+	expected, err := captureStartedGuardIdentity(ctx, cmd, executable, digest)
 	if err != nil {
 		return nil, recovery.ProcessIdentity{}, errors.Join(err, stopStartedGuard(cmd))
 	}
 	return stdout, expected, nil
 }
 
-// awaitDetachedGuardArmed 验证 armed receipt、关闭 parent pipe，再执行 destructive action。
-func awaitDetachedGuardArmed(stdout io.ReadCloser, transaction recovery.Transaction, expected recovery.ProcessIdentity, readyAction func() error) error {
-	receipt, err := waitGuardReadyReceipt(stdout, guardReadinessTimeout)
+// awaitDetachedGuardArmed 在 caller context 内验证 armed receipt、关闭 parent pipe，再执行 destructive action。
+func awaitDetachedGuardArmed(ctx context.Context, stdout io.ReadCloser, transaction recovery.Transaction, expected recovery.ProcessIdentity, readyAction func() error) error {
+	receipt, err := waitGuardReadyReceiptContext(ctx, stdout, guardReadinessTimeout)
 	if err != nil {
 		return err
 	}
@@ -491,12 +492,12 @@ func guardGenerationIdentity(transaction recovery.Transaction, capsule bool) (st
 	return "candidate", transaction.Identity.CandidateHelpers.GuardSHA256
 }
 
-func captureStartedGuardIdentity(cmd *exec.Cmd, executable, digest string) (recovery.ProcessIdentity, error) {
+func captureStartedGuardIdentity(ctx context.Context, cmd *exec.Cmd, executable, digest string) (recovery.ProcessIdentity, error) {
 	stable, err := pidregistry.CaptureStableProcessIdentity(cmd.Process.Pid)
 	if err != nil {
 		return recovery.ProcessIdentity{}, fmt.Errorf("capture detached Guard identity: %w", err)
 	}
-	stablePath, err := recovery.CanonicalExistingPath(stable.ExecutableIdentity)
+	stablePath, err := recovery.CanonicalExistingPathContext(ctx, stable.ExecutableIdentity)
 	if err != nil {
 		return recovery.ProcessIdentity{}, err
 	}
@@ -507,6 +508,29 @@ func captureStartedGuardIdentity(cmd *exec.Cmd, executable, digest string) (reco
 		PID: stable.PID, StartToken: stable.ProcessStartToken,
 		ExecutableIdentity: executable, ExecutableSHA256: digest,
 	}, nil
+}
+
+// waitGuardReadyReceiptContext 用已 join 的关闭监视器让 caller 取消中断 pipe read。
+func waitGuardReadyReceiptContext(ctx context.Context, reader io.ReadCloser, timeout time.Duration) (recovery.GuardReadyReceipt, error) {
+	if ctx == nil {
+		return recovery.GuardReadyReceipt{}, errors.New("Guard readiness context is required")
+	}
+	stopWatching := make(chan struct{})
+	var watcher sync.WaitGroup
+	watcher.Go(func() {
+		select {
+		case <-ctx.Done():
+			_ = reader.Close()
+		case <-stopWatching:
+		}
+	})
+	receipt, readErr := waitGuardReadyReceipt(reader, timeout)
+	close(stopWatching)
+	watcher.Wait()
+	if err := context.Cause(ctx); err != nil {
+		return recovery.GuardReadyReceipt{}, err
+	}
+	return receipt, readErr
 }
 
 // waitGuardReadyReceipt 通过 OS pipe deadline 有界读取单个 exact receipt，不创建游离 goroutine。

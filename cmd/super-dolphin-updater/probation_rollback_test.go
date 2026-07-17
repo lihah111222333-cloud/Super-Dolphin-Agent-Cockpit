@@ -17,6 +17,8 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/pidregistry"
 )
 
+type probationCallerContextKey struct{}
+
 func TestCandidateHandleReapsCrashedProcess(t *testing.T) {
 	handle, identity, err := startCandidateHandleTestProcess("exit")
 	if err != nil {
@@ -154,8 +156,9 @@ func runProbationImmediatePostStartFailure(t *testing.T, failure string) {
 		return launch(ctx, token)
 	}
 	cause := errors.New("force probation " + failure + " failure")
-	configureProbationImmediateFailure(t, &h.app, &h.transaction, failure, cause)
-	result.err = h.app.runProbationSupervisor(t.Context(), h.transaction)
+	callerCtx := context.WithValue(t.Context(), probationCallerContextKey{}, failure)
+	configureProbationImmediateFailure(t, &h.app, &h.transaction, failure, cause, callerCtx)
+	result.err = h.app.runProbationSupervisor(callerCtx, h.transaction)
 	registerCandidateCleanup(t, result)
 	if !errors.Is(result.err, cause) {
 		t.Fatalf("probation %s error = %v, want cause", failure, result.err)
@@ -210,6 +213,7 @@ func configureProbationImmediateFailure(
 	transaction *recovery.Transaction,
 	failure string,
 	cause error,
+	callerCtx context.Context,
 ) {
 	t.Helper()
 	switch failure {
@@ -221,7 +225,12 @@ func configureProbationImmediateFailure(
 		}
 	case "guard":
 		transaction.Paths.RecoveryDir = filepath.Join(t.TempDir(), "missing-recovery")
-		app.startProbationGuard = func(recovery.Transaction, bool, func() error) error { return cause }
+		app.startProbationGuard = func(ctx context.Context, _ recovery.Transaction, _ bool, _ func() error) error {
+			if ctx != callerCtx || ctx.Value(probationCallerContextKey{}) != failure {
+				t.Errorf("probation Guard context did not preserve caller context")
+			}
+			return cause
+		}
 	case "supervisor":
 		transaction.Paths.RecoveryDir = t.TempDir()
 		app.newProbationSupervisor = func(recovery.ProbationSupervisorConfig) (*recovery.ProbationSupervisor, error) {
@@ -311,9 +320,10 @@ func newRollbackRaceHarness(t *testing.T, entry string) *rollbackRaceHarness {
 
 func updaterRollbackControl(process recovery.RollbackRestartProcess) recovery.RollbackRestartControl {
 	return recovery.RollbackRestartControl{
-		Process: process,
-		Cleanup: func() error { return nil },
-		Commit:  func(context.Context) error { return nil },
+		Process:  process,
+		Cleanup:  func() error { return nil },
+		Prepare:  func(context.Context) error { return nil },
+		Activate: func(context.Context) error { return nil },
 	}
 }
 

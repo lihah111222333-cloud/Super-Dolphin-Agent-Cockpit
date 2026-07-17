@@ -469,7 +469,7 @@ func verifyRolledBackRelease(ctx context.Context, transaction Transaction) error
 	if err := rollbackRestartContextError(ctx); err != nil {
 		return err
 	}
-	canonical, err := CanonicalExistingPath(transaction.Paths.Target)
+	canonical, err := CanonicalExistingPathContext(ctx, transaction.Paths.Target)
 	if err != nil {
 		return err
 	}
@@ -497,7 +497,7 @@ func rollbackRestartProcess(ctx context.Context, stable pidregistry.StableProces
 	if err := rollbackRestartContextError(ctx); err != nil {
 		return RollbackRestartProcess{}, err
 	}
-	canonical, err := CanonicalExistingPath(stable.ExecutableIdentity)
+	canonical, err := CanonicalExistingPathContext(ctx, stable.ExecutableIdentity)
 	if err != nil {
 		return RollbackRestartProcess{}, err
 	}

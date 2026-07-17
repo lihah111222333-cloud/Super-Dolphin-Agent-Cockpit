@@ -127,7 +127,8 @@ func fixtureRestartCleanup() error { return nil }
 func fixtureRestartControl(process recovery.RollbackRestartProcess) recovery.RollbackRestartControl {
 	return recovery.RollbackRestartControl{
 		Process: process, Cleanup: fixtureRestartCleanup,
-		Commit: func(context.Context) error { return nil },
+		Prepare:  func(context.Context) error { return nil },
+		Activate: func(context.Context) error { return nil },
 	}
 }
 
@@ -172,7 +173,7 @@ func TestGuardTakesOverStaleProbationOnce(t *testing.T) {
 	first := newGuard(guardConfig{
 		Store: fixture.store, Identity: fixture.transaction.Identity,
 		OwnerID: "guard-1", Now: func() time.Time { return fixture.expiredAt },
-		UpdaterAlive:      func(recovery.ProcessIdentity) (bool, error) { return true, nil },
+		UpdaterAlive:      func(context.Context, recovery.ProcessIdentity) (bool, error) { return true, nil },
 		StopCandidate:     func(context.Context, recovery.ProcessIdentity) error { return nil },
 		ResolveOldRelease: fixture.resolve,
 		RestartOldRelease: fixture.restart,
@@ -183,7 +184,7 @@ func TestGuardTakesOverStaleProbationOnce(t *testing.T) {
 	second := newGuard(guardConfig{
 		Store: fixture.store, Identity: fixture.transaction.Identity,
 		OwnerID: "guard-2", Now: func() time.Time { return fixture.expiredAt.Add(time.Minute) },
-		UpdaterAlive:      func(recovery.ProcessIdentity) (bool, error) { return true, nil },
+		UpdaterAlive:      func(context.Context, recovery.ProcessIdentity) (bool, error) { return true, nil },
 		StopCandidate:     func(context.Context, recovery.ProcessIdentity) error { return nil },
 		ResolveOldRelease: fixture.resolve,
 		RestartOldRelease: fixture.restart,
@@ -238,7 +239,7 @@ func runGuardAcrossProbationWaitTransition(t *testing.T, fixture *guardFixture, 
 			}
 			return fixture.expiredAt
 		},
-		UpdaterAlive:      func(recovery.ProcessIdentity) (bool, error) { return true, nil },
+		UpdaterAlive:      func(context.Context, recovery.ProcessIdentity) (bool, error) { return true, nil },
 		StopCandidate:     func(context.Context, recovery.ProcessIdentity) error { return nil },
 		ResolveOldRelease: fixture.resolve,
 		RestartOldRelease: fixture.restart,
@@ -315,7 +316,7 @@ func TestGuardReplaysRollbackPendingAndConvergesRestart(t *testing.T) {
 func newPendingReplayGuard(fixture *guardFixture, restart recovery.RollbackRestartLauncher) *probationGuard {
 	return newGuard(guardConfig{
 		Store: fixture.store, Identity: fixture.transaction.Identity, OwnerID: "pending-replay", Now: time.Now,
-		UpdaterAlive:      func(recovery.ProcessIdentity) (bool, error) { return false, nil },
+		UpdaterAlive:      func(context.Context, recovery.ProcessIdentity) (bool, error) { return false, nil },
 		StopCandidate:     func(context.Context, recovery.ProcessIdentity) error { return nil },
 		ResolveOldRelease: fixture.resolve, RestartOldRelease: restart,
 	})
@@ -377,7 +378,7 @@ func TestGuardStopsAliveExactCandidateBeforeRollback(t *testing.T) {
 	guard := newGuard(guardConfig{
 		Store: fixture.store, Identity: fixture.transaction.Identity,
 		OwnerID: "guard-exact-stop", Now: func() time.Time { return fixture.expiredAt },
-		UpdaterAlive: func(recovery.ProcessIdentity) (bool, error) { return true, nil },
+		UpdaterAlive: func(context.Context, recovery.ProcessIdentity) (bool, error) { return true, nil },
 		StopCandidate: func(_ context.Context, got recovery.ProcessIdentity) error {
 			stopCalls++
 			if got != fixture.transaction.Probation.Lease.Process {
@@ -469,7 +470,7 @@ func TestGuardPIDReuseIdentityMismatchLeavesRecoveryActive(t *testing.T) {
 	guard := newGuard(guardConfig{
 		Store: fixture.store, Identity: fixture.transaction.Identity,
 		OwnerID: "guard-pid-reuse", Now: func() time.Time { return fixture.expiredAt },
-		UpdaterAlive: func(recovery.ProcessIdentity) (bool, error) { return true, nil },
+		UpdaterAlive: func(context.Context, recovery.ProcessIdentity) (bool, error) { return true, nil },
 		StopCandidate: func(context.Context, recovery.ProcessIdentity) error {
 			return ErrCandidateProcessIdentityMismatch
 		},
@@ -495,7 +496,7 @@ func TestGuardTerminationFailureHasNoRollbackOrRestart(t *testing.T) {
 	guard := newGuard(guardConfig{
 		Store: fixture.store, Identity: fixture.transaction.Identity,
 		OwnerID: "guard-stop-failure", Now: func() time.Time { return fixture.expiredAt },
-		UpdaterAlive: func(recovery.ProcessIdentity) (bool, error) { return true, nil },
+		UpdaterAlive: func(context.Context, recovery.ProcessIdentity) (bool, error) { return true, nil },
 		StopCandidate: func(context.Context, recovery.ProcessIdentity) error {
 			return terminationErr
 		},
