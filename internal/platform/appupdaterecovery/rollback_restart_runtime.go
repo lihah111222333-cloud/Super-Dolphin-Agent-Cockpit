@@ -27,16 +27,17 @@ type rollbackRestartRuntime struct {
 	cleanupLimits    rollbackRestartCleanupLimits
 	find             func(context.Context, string, string) (pidregistry.StableProcessIdentity, bool, error)
 	start            func(context.Context, string, string, []string) (*exec.Cmd, error)
-	waitReady        func(context.Context, pidregistry.StableProcessIdentity) error
+	waitReady        func(context.Context, pidregistry.StableProcessIdentity) (pidregistry.CooperativeEndpointIdentity, error)
 	capture          func(context.Context, int) (pidregistry.StableProcessIdentity, error)
 	validate         func(context.Context, pidregistry.StableProcessIdentity, string) (RollbackRestartProcess, error)
-	commit           func(context.Context, pidregistry.StableProcessIdentity) error
+	prepare          func(context.Context, pidregistry.StableProcessIdentity, pidregistry.CooperativeEndpointIdentity) error
+	activate         func(context.Context, pidregistry.StableProcessIdentity, pidregistry.CooperativeEndpointIdentity) error
 	release          func(*os.Process) error
-	requestTerminate func(context.Context, pidregistry.StableProcessIdentity) error
-	terminate        func(context.Context, pidregistry.StableProcessIdentity) error
+	requestTerminate func(context.Context, pidregistry.StableProcessIdentity, pidregistry.CooperativeEndpointIdentity) error
+	terminate        func(context.Context, pidregistry.StableProcessIdentity, pidregistry.CooperativeEndpointIdentity) error
 	kill             func(*os.Process) error
 	waitChild        func(context.Context, int) error
-	cleanupEndpoint  func(string) error
+	cleanupEndpoint  func(string, pidregistry.CooperativeEndpointIdentity) error
 }
 
 type rollbackRestartCleanupLimits struct {
@@ -77,13 +78,14 @@ func RollbackRestartCallbacks(transaction Transaction) (RollbackRestartResolver,
 			return identity, nil
 		},
 		validate:         rollbackRestartProcess,
-		commit:           pidregistry.CommitExactProcessStartup,
+		prepare:          pidregistry.PrepareExactProcessStartup,
+		activate:         pidregistry.ActivateExactProcessStartup,
 		release:          (*os.Process).Release,
-		requestTerminate: pidregistry.RequestExactProcessTermination,
-		terminate:        pidregistry.TerminateExactProcess,
+		requestTerminate: pidregistry.RequestExactProcessTerminationInstance,
+		terminate:        pidregistry.TerminateExactProcessInstance,
 		kill:             (*os.Process).Kill,
 		waitChild:        waitRollbackRestartChild,
-		cleanupEndpoint:  pidregistry.CleanupCooperativeTerminationEndpoint,
+		cleanupEndpoint:  pidregistry.CleanupCooperativeTerminationEndpointInstance,
 	})
 }
 
@@ -129,16 +131,18 @@ func resolveRollbackRestartProcess(
 		return RollbackRestartControl{}, false, err
 	}
 	exact := rollbackRestartStableIdentity(stable, contract)
-	if err := runtime.waitReady(ctx, exact); err != nil {
+	endpointIdentity, err := runtime.waitReady(ctx, exact)
+	if err != nil {
 		return RollbackRestartControl{}, false, err
 	}
-	cleanup := func() error { return cleanupReleasedRollbackProcess(runtime, exact) }
+	cleanup := func() error { return cleanupReleasedRollbackProcess(runtime, exact, endpointIdentity) }
 	if err := rollbackRestartContextError(ctx); err != nil {
 		return RollbackRestartControl{}, false, errors.Join(err, cleanup())
 	}
 	return RollbackRestartControl{
 		Process: process, Cleanup: cleanup,
-		Commit: func(commitCtx context.Context) error { return runtime.commit(commitCtx, exact) },
+		Prepare:  func(prepareCtx context.Context) error { return runtime.prepare(prepareCtx, exact, endpointIdentity) },
+		Activate: func(activateCtx context.Context) error { return runtime.activate(activateCtx, exact, endpointIdentity) },
 	}, true, nil
 }
 
@@ -158,11 +162,11 @@ func launchRollbackRestartProcess(
 	if err != nil {
 		return RollbackRestartControl{}, err
 	}
-	cmd, stable, err := startRollbackRestartProcess(ctx, runtime, contract, executable, argument, env)
+	cmd, stable, endpointIdentity, err := startRollbackRestartProcess(ctx, runtime, contract, executable, argument, env)
 	if err != nil {
 		return RollbackRestartControl{}, err
 	}
-	return prepareRollbackRestartControl(ctx, runtime, contract, executable, cmd, stable)
+	return prepareRollbackRestartControl(ctx, runtime, contract, executable, cmd, stable, endpointIdentity)
 }
 
 func validateRollbackRestartCleanupLimits(limits rollbackRestartCleanupLimits) error {
@@ -177,7 +181,7 @@ func validateRollbackRestartCleanupLimits(limits rollbackRestartCleanupLimits) e
 
 // validateRollbackRestartResolverRuntime 拒绝缺失认证或 cleanup 原语的 resolver。
 func validateRollbackRestartResolverRuntime(runtime rollbackRestartRuntime) error {
-	if runtime.find == nil || runtime.waitReady == nil || runtime.validate == nil || runtime.commit == nil ||
+	if runtime.find == nil || runtime.waitReady == nil || runtime.validate == nil || runtime.prepare == nil || runtime.activate == nil ||
 		runtime.terminate == nil || runtime.cleanupEndpoint == nil {
 		return errors.New("rollback restart resolver runtime is incomplete")
 	}
@@ -186,7 +190,7 @@ func validateRollbackRestartResolverRuntime(runtime rollbackRestartRuntime) erro
 
 // validateRollbackRestartLauncherRuntime 拒绝缺失启动或失败清理原语的 launcher。
 func validateRollbackRestartLauncherRuntime(runtime rollbackRestartRuntime) error {
-	if runtime.start == nil || runtime.waitReady == nil || runtime.validate == nil || runtime.commit == nil {
+	if runtime.start == nil || runtime.waitReady == nil || runtime.validate == nil || runtime.prepare == nil || runtime.activate == nil {
 		return errors.New("rollback restart launcher runtime is incomplete")
 	}
 	if err := validateRollbackRestartCleanupRuntime(runtime); err != nil {
@@ -225,7 +229,7 @@ func prepareRollbackRestartLaunch(
 	if err != nil {
 		return runtimeenv.RecoveryLaunch{}, nil, err
 	}
-	if err := cleanupStaleRollbackRestartEndpoint(contract.TerminationEndpoint); err != nil {
+	if err := cleanupStaleRollbackRestartEndpoint(ctx, contract.TerminationEndpoint); err != nil {
 		return runtimeenv.RecoveryLaunch{}, nil, err
 	}
 	if err := rollbackRestartContextError(ctx); err != nil {
@@ -240,23 +244,24 @@ func startRollbackRestartProcess(
 	contract runtimeenv.RecoveryLaunch,
 	executable, argument string,
 	env []string,
-) (*exec.Cmd, pidregistry.StableProcessIdentity, error) {
+) (*exec.Cmd, pidregistry.StableProcessIdentity, pidregistry.CooperativeEndpointIdentity, error) {
 	cmd, err := runtime.start(ctx, executable, argument, env)
 	if err != nil {
-		return nil, pidregistry.StableProcessIdentity{}, err
+		return nil, pidregistry.StableProcessIdentity{}, pidregistry.CooperativeEndpointIdentity{}, err
 	}
 	if err := rollbackRestartContextError(ctx); err != nil {
-		return nil, pidregistry.StableProcessIdentity{}, cleanupStartedRollbackProcess(runtime, cmd, cmd.Process.Pid, pidregistry.StableProcessIdentity{}, contract, err)
+		return nil, pidregistry.StableProcessIdentity{}, pidregistry.CooperativeEndpointIdentity{}, cleanupStartedRollbackProcess(runtime, cmd, cmd.Process.Pid, pidregistry.StableProcessIdentity{}, pidregistry.CooperativeEndpointIdentity{}, contract, err)
 	}
 	stable, err := runtime.capture(ctx, cmd.Process.Pid)
 	if err != nil {
-		return nil, pidregistry.StableProcessIdentity{}, cleanupStartedRollbackProcess(runtime, cmd, cmd.Process.Pid, pidregistry.StableProcessIdentity{}, contract, err)
+		return nil, pidregistry.StableProcessIdentity{}, pidregistry.CooperativeEndpointIdentity{}, cleanupStartedRollbackProcess(runtime, cmd, cmd.Process.Pid, pidregistry.StableProcessIdentity{}, pidregistry.CooperativeEndpointIdentity{}, contract, err)
 	}
 	exact := rollbackRestartStableIdentity(stable, contract)
-	if err := runtime.waitReady(ctx, exact); err != nil {
-		return nil, pidregistry.StableProcessIdentity{}, cleanupStartedRollbackProcess(runtime, cmd, cmd.Process.Pid, stable, contract, err)
+	endpointIdentity, err := runtime.waitReady(ctx, exact)
+	if err != nil {
+		return nil, pidregistry.StableProcessIdentity{}, pidregistry.CooperativeEndpointIdentity{}, cleanupStartedRollbackProcess(runtime, cmd, cmd.Process.Pid, stable, pidregistry.CooperativeEndpointIdentity{}, contract, err)
 	}
-	return cmd, stable, nil
+	return cmd, stable, endpointIdentity, nil
 }
 
 // prepareRollbackRestartControl 复验 READY 与 tuple，并将 direct-child ownership 保留到 ACK 后。
@@ -267,26 +272,34 @@ func prepareRollbackRestartControl(
 	executable string,
 	cmd *exec.Cmd,
 	stable pidregistry.StableProcessIdentity,
+	endpointIdentity pidregistry.CooperativeEndpointIdentity,
 ) (RollbackRestartControl, error) {
 	childPID := cmd.Process.Pid
 	process, err := runtime.validate(ctx, stable, executable)
 	if err != nil {
-		return RollbackRestartControl{}, cleanupStartedRollbackProcess(runtime, cmd, childPID, stable, contract, err)
+		return RollbackRestartControl{}, cleanupStartedRollbackProcess(runtime, cmd, childPID, stable, endpointIdentity, contract, err)
 	}
 	exact := rollbackRestartStableIdentity(stable, contract)
-	if err := runtime.waitReady(ctx, exact); err != nil {
-		return RollbackRestartControl{}, cleanupStartedRollbackProcess(runtime, cmd, childPID, stable, contract, err)
+	confirmedEndpoint, err := runtime.waitReady(ctx, exact)
+	if err != nil {
+		return RollbackRestartControl{}, cleanupStartedRollbackProcess(runtime, cmd, childPID, stable, endpointIdentity, contract, err)
+	}
+	if confirmedEndpoint != endpointIdentity {
+		return RollbackRestartControl{}, cleanupStartedRollbackProcess(
+			runtime, cmd, childPID, stable, endpointIdentity, contract, pidregistry.ErrCooperativeEndpointIdentityMismatch,
+		)
 	}
 	if err := rollbackRestartContextError(ctx); err != nil {
-		return RollbackRestartControl{}, cleanupStartedRollbackProcess(runtime, cmd, childPID, stable, contract, err)
+		return RollbackRestartControl{}, cleanupStartedRollbackProcess(runtime, cmd, childPID, stable, endpointIdentity, contract, err)
 	}
 	cleanup := func() error {
-		return cleanupStartedRollbackProcess(runtime, cmd, childPID, stable, contract, nil)
+		return cleanupStartedRollbackProcess(runtime, cmd, childPID, stable, endpointIdentity, contract, nil)
 	}
 	return RollbackRestartControl{
 		Process: process, Cleanup: cleanup,
-		Commit:  func(commitCtx context.Context) error { return runtime.commit(commitCtx, exact) },
-		release: func() error { return runtime.release(cmd.Process) },
+		Prepare:  func(prepareCtx context.Context) error { return runtime.prepare(prepareCtx, exact, endpointIdentity) },
+		Activate: func(activateCtx context.Context) error { return runtime.activate(activateCtx, exact, endpointIdentity) },
+		release:  func() error { return runtime.release(cmd.Process) },
 	}, nil
 }
 
@@ -312,7 +325,7 @@ func rollbackRestartRecoveryLaunch(ctx context.Context, transaction Transaction,
 	}, nil
 }
 
-func cleanupStaleRollbackRestartEndpoint(endpoint string) error {
+func cleanupStaleRollbackRestartEndpoint(ctx context.Context, endpoint string) error {
 	_, err := os.Lstat(endpoint)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil
@@ -320,28 +333,35 @@ func cleanupStaleRollbackRestartEndpoint(endpoint string) error {
 	if err != nil {
 		return fmt.Errorf("inspect rollback restart termination endpoint: %w", err)
 	}
-	if err := pidregistry.CleanupCooperativeTerminationEndpoint(endpoint); err != nil {
+	if err := pidregistry.CleanupStaleCooperativeTerminationEndpoint(ctx, endpoint); err != nil {
 		return fmt.Errorf("cleanup stale rollback restart termination endpoint: %w", err)
 	}
 	return nil
 }
 
 // waitRollbackRestartEndpoint 等待 exact 协作终止端点就绪并响应 callback 取消。
-func waitRollbackRestartEndpoint(ctx context.Context, exact pidregistry.StableProcessIdentity) error {
+func waitRollbackRestartEndpoint(
+	ctx context.Context,
+	exact pidregistry.StableProcessIdentity,
+) (pidregistry.CooperativeEndpointIdentity, error) {
 	ticker := time.NewTicker(rollbackRestartEndpointPoll)
 	defer ticker.Stop()
 	for {
 		if err := rollbackRestartContextError(ctx); err != nil {
-			return err
+			return pidregistry.CooperativeEndpointIdentity{}, err
 		}
-		if err := pidregistry.ProbeExactProcessEndpoint(ctx, exact); err == nil {
-			return nil
-		} else if !errors.Is(err, os.ErrNotExist) {
-			return fmt.Errorf("authenticate rollback restart termination endpoint: %w", err)
+		endpointIdentity, err := pidregistry.CaptureCooperativeEndpointIdentity(exact.TerminationEndpoint)
+		if err == nil {
+			err = pidregistry.ProbeExactProcessEndpointInstance(ctx, exact, endpointIdentity)
+		}
+		if err == nil {
+			return endpointIdentity, nil
+		} else if !errors.Is(err, os.ErrNotExist) && !errors.Is(err, pidregistry.ErrCooperativeEndpointNotReady) {
+			return pidregistry.CooperativeEndpointIdentity{}, fmt.Errorf("authenticate rollback restart termination endpoint: %w", err)
 		}
 		select {
 		case <-ctx.Done():
-			return context.Cause(ctx)
+			return pidregistry.CooperativeEndpointIdentity{}, context.Cause(ctx)
 		case <-ticker.C:
 		}
 	}
@@ -353,6 +373,7 @@ func cleanupStartedRollbackProcess(
 	cmd *exec.Cmd,
 	childPID int,
 	stable pidregistry.StableProcessIdentity,
+	endpointIdentity pidregistry.CooperativeEndpointIdentity,
 	contract runtimeenv.RecoveryLaunch,
 	primary error,
 ) error {
@@ -363,20 +384,25 @@ func cleanupStartedRollbackProcess(
 		captured, err := runtime.capture(cleanupCtx, cmd.Process.Pid)
 		if err != nil {
 			return errors.Join(primary, fmt.Errorf("capture started rollback process for cleanup: %w", err),
-				fallbackRollbackChildCleanup(cleanupCtx, runtime, cmd.Process, childPID, contract.TerminationEndpoint))
+				fallbackRollbackChildCleanup(cleanupCtx, runtime, cmd.Process, childPID, contract.TerminationEndpoint, endpointIdentity))
 		}
 		stable = captured
 	}
 	exact := rollbackRestartStableIdentity(stable, contract)
+	if endpointIdentity == (pidregistry.CooperativeEndpointIdentity{}) {
+		return errors.Join(primary, fallbackRollbackChildCleanup(
+			cleanupCtx, runtime, cmd.Process, childPID, contract.TerminationEndpoint, endpointIdentity,
+		))
+	}
 	terminateCtx, terminateCancel := context.WithTimeoutCause(
 		cleanupCtx, runtime.cleanupLimits.terminate, errRollbackRestartCleanupTimeout,
 	)
-	terminationErr := runtime.requestTerminate(terminateCtx, exact)
+	terminationErr := runtime.requestTerminate(terminateCtx, exact, endpointIdentity)
 	terminateCancel()
 	if terminationErr != nil {
 		terminationErr = fmt.Errorf("request exact rollback process termination: %w", terminationErr)
 		return errors.Join(primary, terminationErr,
-			fallbackRollbackChildCleanup(cleanupCtx, runtime, cmd.Process, childPID, contract.TerminationEndpoint))
+			fallbackRollbackChildCleanup(cleanupCtx, runtime, cmd.Process, childPID, contract.TerminationEndpoint, endpointIdentity))
 	}
 
 	waitCtx, waitCancel := context.WithTimeoutCause(
@@ -385,11 +411,11 @@ func cleanupStartedRollbackProcess(
 	waitErr := runtime.waitChild(waitCtx, childPID)
 	waitCancel()
 	if waitErr == nil {
-		return errors.Join(primary, runtime.release(cmd.Process), runtime.cleanupEndpoint(contract.TerminationEndpoint))
+		return errors.Join(primary, runtime.release(cmd.Process), runtime.cleanupEndpoint(contract.TerminationEndpoint, endpointIdentity))
 	}
 	waitErr = fmt.Errorf("wait exact rollback child after cooperative termination: %w", waitErr)
 	return errors.Join(primary, waitErr,
-		fallbackRollbackChildCleanup(cleanupCtx, runtime, cmd.Process, childPID, contract.TerminationEndpoint))
+		fallbackRollbackChildCleanup(cleanupCtx, runtime, cmd.Process, childPID, contract.TerminationEndpoint, endpointIdentity))
 }
 
 func fallbackRollbackChildCleanup(
@@ -398,6 +424,7 @@ func fallbackRollbackChildCleanup(
 	process *os.Process,
 	childPID int,
 	endpoint string,
+	endpointIdentity pidregistry.CooperativeEndpointIdentity,
 ) error {
 	killErr := runtime.kill(process)
 	if killErr != nil {
@@ -411,16 +438,24 @@ func fallbackRollbackChildCleanup(
 		}
 		return errors.Join(killErr, waitErr)
 	}
-	return errors.Join(killErr, runtime.release(process), runtime.cleanupEndpoint(endpoint))
+	var cleanupErr error
+	if endpointIdentity != (pidregistry.CooperativeEndpointIdentity{}) {
+		cleanupErr = runtime.cleanupEndpoint(endpoint, endpointIdentity)
+	}
+	return errors.Join(killErr, runtime.release(process), cleanupErr)
 }
 
-func cleanupReleasedRollbackProcess(runtime rollbackRestartRuntime, exact pidregistry.StableProcessIdentity) error {
+func cleanupReleasedRollbackProcess(
+	runtime rollbackRestartRuntime,
+	exact pidregistry.StableProcessIdentity,
+	endpointIdentity pidregistry.CooperativeEndpointIdentity,
+) error {
 	cleanupCtx, cancel := context.WithTimeoutCause(context.Background(), runtime.cleanupLimits.total, errRollbackRestartCleanupTimeout)
 	defer cancel()
-	if err := runtime.terminate(cleanupCtx, exact); err != nil {
+	if err := runtime.terminate(cleanupCtx, exact, endpointIdentity); err != nil {
 		return fmt.Errorf("terminate released rollback process: %w", err)
 	}
-	return runtime.cleanupEndpoint(exact.TerminationEndpoint)
+	return runtime.cleanupEndpoint(exact.TerminationEndpoint, endpointIdentity)
 }
 
 func rollbackRestartStableIdentity(stable pidregistry.StableProcessIdentity, contract runtimeenv.RecoveryLaunch) pidregistry.StableProcessIdentity {

@@ -8,6 +8,7 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"reflect"
 	"sync"
 	"testing"
 	"time"
@@ -50,7 +51,7 @@ func TestCooperativeTerminationAuthenticatesBeforeACK(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
-	if err := requestCooperativeTermination(ctx, endpoint, "wrong-secret"); err == nil {
+	if err := requestCooperativeTermination(ctx, endpoint, "wrong-secret", os.Getpid(), CooperativeEndpointIdentity{}); err == nil {
 		t.Fatal("wrong termination token received ACK")
 	}
 	select {
@@ -58,7 +59,7 @@ func TestCooperativeTerminationAuthenticatesBeforeACK(t *testing.T) {
 		t.Fatal("wrong termination token invoked callback")
 	default:
 	}
-	if err := requestCooperativeTermination(ctx, endpoint, "exact-secret"); err != nil {
+	if err := requestCooperativeTermination(ctx, endpoint, "exact-secret", os.Getpid(), CooperativeEndpointIdentity{}); err != nil {
 		t.Fatal(err)
 	}
 	select {
@@ -269,7 +270,7 @@ func TestCooperativeTerminationNoResponseHonorsDeadline(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
 	startedAt := time.Now()
-	if err := requestCooperativeTermination(ctx, endpoint, "no-response-token"); err == nil {
+	if err := requestCooperativeTermination(ctx, endpoint, "no-response-token", os.Getpid(), CooperativeEndpointIdentity{}); err == nil {
 		t.Fatal("termination request without ACK returned success")
 	}
 	if elapsed := time.Since(startedAt); elapsed > time.Second {
@@ -282,19 +283,9 @@ func TestCooperativeTerminationNoResponseHonorsDeadline(t *testing.T) {
 	}
 }
 
-func TestParkedCooperativeServerAuthenticatesReadyAndCommitReplay(t *testing.T) {
-	endpoint := testTerminationSocketPath(t)
-	server, err := StartParkedCooperativeTerminationServer(endpoint, "parked-secret", func() {})
-	if err != nil {
-		t.Fatal(err)
-	}
+func TestParkedCooperativeServerPreparesAndActivatesIdempotently(t *testing.T) {
+	server, identity, endpointIdentity := newParkedProtocolTestServer(t, "parked-secret")
 	defer server.Close()
-	identity, err := CaptureStableProcessIdentity(os.Getpid())
-	if err != nil {
-		t.Fatal(err)
-	}
-	identity.TerminationEndpoint = endpoint
-	identity.TerminationToken = "parked-secret"
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
@@ -306,15 +297,81 @@ func TestParkedCooperativeServerAuthenticatesReadyAndCommitReplay(t *testing.T) 
 	if err := ProbeExactProcessEndpoint(ctx, identity); err != nil {
 		t.Fatalf("authenticated READY: %v", err)
 	}
-	if err := CommitExactProcessStartup(ctx, identity); err != nil {
-		t.Fatalf("first COMMIT: %v", err)
+	if err := PrepareExactProcessStartup(ctx, identity, endpointIdentity); err != nil {
+		t.Fatalf("PREPARE: %v", err)
 	}
-	if err := server.WaitForCommit(ctx); err != nil {
-		t.Fatalf("WaitForCommit(): %v", err)
+	select {
+	case <-server.activation:
+		t.Fatal("PREPARE released parked helper before durable ACK")
+	default:
 	}
-	if err := CommitExactProcessStartup(ctx, identity); err != nil {
-		t.Fatalf("replayed COMMIT: %v", err)
+	if err := ActivateExactProcessStartup(ctx, identity, endpointIdentity); err != nil {
+		t.Fatalf("first ACTIVATE: %v", err)
 	}
+	if err := server.WaitForActivation(ctx); err != nil {
+		t.Fatalf("WaitForActivation(): %v", err)
+	}
+	if err := ActivateExactProcessStartup(ctx, identity, endpointIdentity); err != nil {
+		t.Fatalf("replayed ACTIVATE: %v", err)
+	}
+}
+
+func TestParkedServerReplaysActivationAfterResponseLoss(t *testing.T) {
+	server, identity, endpointIdentity := newParkedProtocolTestServer(t, "lost-response-secret")
+	defer server.Close()
+	if err := ProbeExactProcessEndpointInstance(t.Context(), identity, endpointIdentity); err != nil {
+		t.Fatal(err)
+	}
+	if err := PrepareExactProcessStartup(t.Context(), identity, endpointIdentity); err != nil {
+		t.Fatal(err)
+	}
+	connection, err := net.DialUnix("unix", nil, &net.UnixAddr{Name: identity.TerminationEndpoint, Net: "unix"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := connection.Write([]byte("COMMIT lost-response-secret\n")); err != nil {
+		t.Fatal(err)
+	}
+	discarded := make([]byte, len("COMMITTED\n"))
+	if _, err := connection.Read(discarded); err != nil {
+		t.Fatal(err)
+	}
+	if err := connection.Close(); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+	defer cancel()
+	if err := server.WaitForActivation(ctx); err != nil {
+		t.Fatalf("activation after lost response: %v", err)
+	}
+	if err := ActivateExactProcessStartup(ctx, identity, endpointIdentity); err != nil {
+		t.Fatalf("replayed ACTIVATE: %v", err)
+	}
+}
+
+func newParkedProtocolTestServer(
+	t *testing.T,
+	token string,
+) (*CooperativeTerminationServer, StableProcessIdentity, CooperativeEndpointIdentity) {
+	t.Helper()
+	endpoint := testTerminationSocketPath(t)
+	server, err := StartParkedCooperativeTerminationServer(endpoint, token, func() {})
+	if err != nil {
+		t.Fatal(err)
+	}
+	identity, err := CaptureStableProcessIdentity(os.Getpid())
+	if err != nil {
+		server.Close()
+		t.Fatal(err)
+	}
+	identity.TerminationEndpoint = endpoint
+	identity.TerminationToken = token
+	endpointIdentity, err := CaptureCooperativeEndpointIdentity(endpoint)
+	if err != nil {
+		server.Close()
+		t.Fatal(err)
+	}
+	return server, identity, endpointIdentity
 }
 
 func TestParkedHelperExitAfterReadyCannotCommit(t *testing.T) {
@@ -356,15 +413,19 @@ func TestParkedHelperExitAfterReadyCannotCommit(t *testing.T) {
 	if err := cmd.Wait(); err != nil {
 		t.Fatal(err)
 	}
-	if err := CommitExactProcessStartup(t.Context(), identity); err == nil {
-		t.Fatal("COMMIT succeeded after parked helper exited")
+	endpointIdentity, err := CaptureCooperativeEndpointIdentity(endpoint)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := PrepareExactProcessStartup(t.Context(), identity, endpointIdentity); err == nil {
+		t.Fatal("PREPARE succeeded after parked helper exited")
 	}
 	if err := CleanupCooperativeTerminationEndpoint(endpoint); err != nil {
 		t.Fatal(err)
 	}
 }
 
-func TestCommitRejectsSocketReplacedByOrdinaryFile(t *testing.T) {
+func TestActivateRejectsSocketReplacedByOrdinaryFile(t *testing.T) {
 	endpoint := testTerminationSocketPath(t)
 	server, err := StartParkedCooperativeTerminationServer(endpoint, "replace-secret", func() {})
 	if err != nil {
@@ -379,14 +440,21 @@ func TestCommitRejectsSocketReplacedByOrdinaryFile(t *testing.T) {
 	if err := ProbeExactProcessEndpoint(t.Context(), identity); err != nil {
 		t.Fatal(err)
 	}
+	endpointIdentity, err := CaptureCooperativeEndpointIdentity(endpoint)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := PrepareExactProcessStartup(t.Context(), identity, endpointIdentity); err != nil {
+		t.Fatal(err)
+	}
 	if err := server.Close(); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(endpoint, []byte("replacement"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := CommitExactProcessStartup(t.Context(), identity); err == nil {
-		t.Fatal("COMMIT accepted an ordinary-file endpoint replacement")
+	if err := ActivateExactProcessStartup(t.Context(), identity, endpointIdentity); err == nil {
+		t.Fatal("ACTIVATE accepted an ordinary-file endpoint replacement")
 	}
 	if _, err := os.Stat(endpoint); err != nil {
 		t.Fatalf("ordinary-file replacement was removed: %v", err)
@@ -438,6 +506,161 @@ func TestCleanupCooperativeTerminationEndpointRejectsOrdinaryFile(t *testing.T) 
 	}
 	if _, err := os.Stat(endpoint); err != nil {
 		t.Fatalf("ordinary file was removed: %v", err)
+	}
+}
+
+func TestCaptureCooperativeEndpointIdentityReportsOwnedSocketNotReady(t *testing.T) {
+	endpoint := testTerminationSocketPath(t)
+	listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: endpoint, Net: "unix"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	if err := os.Chmod(endpoint, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := CaptureCooperativeEndpointIdentity(endpoint); !errors.Is(err, ErrCooperativeEndpointNotReady) {
+		t.Fatalf("CaptureCooperativeEndpointIdentity() error = %v, want not ready", err)
+	}
+	if err := os.Chmod(endpoint, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := CaptureCooperativeEndpointIdentity(endpoint); err != nil {
+		t.Fatalf("CaptureCooperativeEndpointIdentity() after chmod: %v", err)
+	}
+}
+
+func TestServerClosePreservesSocketReplacement(t *testing.T) {
+	endpoint := testTerminationSocketPath(t)
+	original, err := StartParkedCooperativeTerminationServer(endpoint, "same-token", func() {})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(endpoint); err != nil {
+		t.Fatal(err)
+	}
+	replacement, err := StartParkedCooperativeTerminationServer(endpoint, "same-token", func() {})
+	if err != nil {
+		t.Fatal(err)
+	}
+	replacementIdentity := replacement.endpointIdentity
+	if err := original.Close(); !errors.Is(err, ErrCooperativeEndpointIdentityMismatch) {
+		t.Fatalf("original Close error = %v, want endpoint identity mismatch", err)
+	}
+	got, err := CaptureCooperativeEndpointIdentity(endpoint)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != replacementIdentity {
+		t.Fatalf("replacement identity = %+v, want %+v", got, replacementIdentity)
+	}
+	if err := replacement.Close(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestStaleCleanupPreservesLiveSameTokenEndpoint(t *testing.T) {
+	endpoint := testTerminationSocketPath(t)
+	server, err := StartParkedCooperativeTerminationServer(endpoint, "same-token", func() {})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+	defer cancel()
+	if err := CleanupStaleCooperativeTerminationEndpoint(ctx, endpoint); err == nil {
+		t.Fatal("stale cleanup removed a live same-token endpoint")
+	}
+	if got, err := CaptureCooperativeEndpointIdentity(endpoint); err != nil || got != server.endpointIdentity {
+		t.Fatalf("live endpoint after stale cleanup = %+v error=%v", got, err)
+	}
+	if err := server.Close(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestReplacementPeerPIDFailsClosedForAllControls(t *testing.T) {
+	if os.Getenv("SUPER_DOLPHIN_TEST_REPLACEMENT_PEER") == "1" {
+		runReplacementPeerChild()
+		return
+	}
+	endpoint := testTerminationSocketPath(t)
+	original, err := StartParkedCooperativeTerminationServer(endpoint, "replacement-token", func() {})
+	if err != nil {
+		t.Fatal(err)
+	}
+	originalEndpoint := original.endpointIdentity
+	if err := original.Close(); err != nil {
+		t.Fatal(err)
+	}
+	ready := endpoint + ".replacement-ready"
+	cmd := exec.Command(os.Args[0], "-test.run=^TestReplacementPeerPIDFailsClosedForAllControls$")
+	cmd.Env = append(os.Environ(),
+		"SUPER_DOLPHIN_TEST_REPLACEMENT_PEER=1",
+		"SUPER_DOLPHIN_TEST_TERMINATION_ENDPOINT="+endpoint,
+		"SUPER_DOLPHIN_TEST_TERMINATION_READY="+ready,
+	)
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
+		_ = os.Remove(ready)
+		_ = os.Remove(endpoint)
+	})
+	waitForTerminationTestPath(t, ready)
+	identity, err := CaptureStableProcessIdentity(os.Getpid())
+	if err != nil {
+		t.Fatal(err)
+	}
+	identity.TerminationEndpoint = endpoint
+	identity.TerminationToken = "replacement-token"
+	if err := ProbeExactProcessEndpoint(t.Context(), identity); !errors.Is(err, ErrStableProcessIdentityMismatch) {
+		t.Fatalf("replacement READY error = %v, want peer PID mismatch", err)
+	}
+	if err := ActivateExactProcessStartup(t.Context(), identity, originalEndpoint); !errors.Is(err, ErrCooperativeEndpointIdentityMismatch) {
+		t.Fatalf("replacement ACTIVATE error = %v, want endpoint mismatch", err)
+	}
+	if err := RequestExactProcessTermination(t.Context(), identity); !errors.Is(err, ErrStableProcessIdentityMismatch) {
+		t.Fatalf("replacement TERMINATE error = %v, want peer PID mismatch", err)
+	}
+}
+
+func runReplacementPeerChild() {
+	server, err := StartParkedCooperativeTerminationServer(
+		os.Getenv("SUPER_DOLPHIN_TEST_TERMINATION_ENDPOINT"), "replacement-token", func() {},
+	)
+	if err != nil {
+		os.Exit(2)
+	}
+	defer server.Close()
+	if err := os.WriteFile(os.Getenv("SUPER_DOLPHIN_TEST_TERMINATION_READY"), []byte("ready"), 0o600); err != nil {
+		os.Exit(3)
+	}
+	select {}
+}
+
+func TestCooperativeEndpointIdentityFieldGuard(t *testing.T) {
+	identityType := reflect.TypeFor[CooperativeEndpointIdentity]()
+	want := map[string]reflect.Kind{
+		"Device": reflect.Uint64,
+		"Inode":  reflect.Uint64,
+		"UID":    reflect.Uint32,
+		"Mode":   reflect.Uint32,
+	}
+	if identityType.NumField() != len(want) {
+		t.Fatalf("endpoint identity field count = %d, want %d", identityType.NumField(), len(want))
+	}
+	for index := range identityType.NumField() {
+		field := identityType.Field(index)
+		kind, ok := want[field.Name]
+		if !ok || field.Type.Kind() != kind {
+			t.Fatalf("unregistered endpoint identity field %s %s", field.Name, field.Type)
+		}
+		delete(want, field.Name)
+	}
+	if len(want) != 0 {
+		t.Fatalf("missing endpoint identity field coverage: %v", want)
 	}
 }
 
