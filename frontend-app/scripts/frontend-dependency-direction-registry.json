@@ -10,8 +10,11 @@
     "A03-re-export",
     "A03-alias-barrel",
     "A03-transitive-barrel",
+    "A03-unknown-source-layer",
+    "A03-unknown-target-layer",
     "A03-expired-exemption",
     "A03-exemption-drift",
+    "A03-source-exclusion-drift",
     "A03-zero-tests",
     "A03-legal-import"
   ],
@@ -20,6 +23,23 @@
     "~/": "src/"
   },
   "rootLayer": "app",
+  "sourceExclusions": [
+    {
+      "path": "src/__tests__/reactQueryRender.jsx",
+      "owner": "frontend-architecture",
+      "reason": "Vitest-only React Query render helper; exact registration prevents a test directory from becoming a broad production blind spot."
+    },
+    {
+      "path": "src/pages/chat/__tests__/chatPageTestSupport.js",
+      "owner": "frontend-architecture",
+      "reason": "Chat test-only fixture helper; exact registration is checked against the live test directory contents."
+    },
+    {
+      "path": "src/test-utils/importAst.js",
+      "owner": "frontend-architecture",
+      "reason": "AST helper used only by frontend tests; exact registration is checked against the live test-utils directory."
+    }
+  ],
   "allowedDirections": [
     "adapters->shared",
     "app->adapters",

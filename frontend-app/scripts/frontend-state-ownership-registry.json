@@ -8,6 +8,8 @@
     "A02-second-writer",
     "A02-alias-indirect",
     "A02-computed-key",
+    "A02-lexical-binding",
+    "A02-reassigned-binding",
     "A02-deleted-writer",
     "A02-mapper-drift",
     "A02-new-consumer",

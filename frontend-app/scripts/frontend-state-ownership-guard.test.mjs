@@ -66,7 +66,7 @@ describe('frontend state ownership guard', () => {
   it('[A02-computed-key] rejects a writer hidden behind a constant computed key', () => {
     const source = `${read(terminalWriterPath)}
       export function computedTerminalWriter(outcome) {
-        const terminalKey = 'terminalOutcome';
+        let terminalKey = 'terminalOutcome';
         return { [terminalKey]: outcome };
       }
     `;
@@ -74,6 +74,38 @@ describe('frontend state ownership guard', () => {
       root: appRoot,
       sourceOverrides: new Map([[terminalWriterPath, source]]),
     })).toThrow('computedTerminalWriter:object-property:terminalOutcome');
+  });
+
+  it('[A02-lexical-binding] keeps a computed writer visible when another scope shadows its key name', () => {
+    const source = `${read(terminalWriterPath)}
+      export function scopedComputedTerminalWriter(outcome) {
+        const terminalKey = 'terminalOutcome';
+        function unrelatedScope() {
+          const terminalKey = 'notTerminalOutcome';
+          return terminalKey;
+        }
+        unrelatedScope();
+        return { [terminalKey]: outcome };
+      }
+    `;
+    expect(() => validateFrontendStateOwnership({
+      root: appRoot,
+      sourceOverrides: new Map([[terminalWriterPath, source]]),
+    })).toThrow('scopedComputedTerminalWriter:object-property:terminalOutcome');
+  });
+
+  it('[A02-reassigned-binding] does not resolve a reassigned key as its old string constant', () => {
+    const source = `${read(terminalWriterPath)}
+      export function reassignedComputedWriter(outcome) {
+        let terminalKey = 'terminalOutcome';
+        terminalKey = 'notTerminalOutcome';
+        return { [terminalKey]: outcome };
+      }
+    `;
+    expect(validateFrontendStateOwnership({
+      root: appRoot,
+      sourceOverrides: new Map([[terminalWriterPath, source]]),
+    })['terminal-truth'].writerCount).toBe(1);
   });
 
   it('[A02-deleted-writer] rejects deletion of the registered production writer', () => {

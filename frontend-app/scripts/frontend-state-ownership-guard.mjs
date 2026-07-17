@@ -398,7 +398,7 @@ function stringValue(node) {
 function staticStringValue(node, bindings) {
   const direct = stringValue(node);
   if (direct) return direct;
-  if (node?.type === 'Identifier') return bindings.get(node.name) || '';
+  if (node?.type === 'Identifier') return bindings.get(node) || '';
   return '';
 }
 
@@ -408,19 +408,153 @@ function staticPropertyName(node, computed, bindings) {
 }
 
 function staticStringBindings(ast) {
-  const candidates = new Map();
-  const invalid = new Set();
-  walkNode(ast, [], (node) => {
-    if (node.type !== 'VariableDeclarator' || node.id?.type !== 'Identifier') return;
-    const value = stringValue(node.init);
-    if (!value || candidates.has(node.id.name)) {
-      invalid.add(node.id.name);
+  const scopeByNode = new WeakMap();
+  walkNode(ast, [], (node, ancestors) => {
+    if (!isScopeNode(node)) return;
+    scopeByNode.set(node, {
+      bindings: new Map(),
+      node,
+      parent: nearestScope(ancestors, scopeByNode),
+    });
+  });
+
+  walkNode(ast, [], (node, ancestors) => {
+    if (node.type === 'VariableDeclarator') {
+      const declaration = ancestors.at(-1);
+      const scope = declaration?.kind === 'var'
+        ? nearestFunctionScope(ancestors, scopeByNode)
+        : nearestScope(ancestors, scopeByNode);
+      const names = bindingNames(node.id);
+      for (const name of names) {
+        const value = names.length === 1 && node.id.type === 'Identifier'
+          ? stringValue(node.init)
+          : '';
+        declareBinding(scope, name, { kind: declaration?.kind || 'unknown', value });
+      }
       return;
     }
-    candidates.set(node.id.name, value);
+    if (isFunctionNode(node)) {
+      const functionScope = scopeByNode.get(node);
+      for (const parameter of node.params || []) {
+        for (const name of bindingNames(parameter)) declareBinding(functionScope, name);
+      }
+      if (node.type === 'FunctionDeclaration' && node.id?.name) {
+        declareBinding(nearestScope(ancestors, scopeByNode), node.id.name);
+      } else if (node.id?.name) {
+        declareBinding(functionScope, node.id.name);
+      }
+      return;
+    }
+    if (node.type === 'ClassDeclaration' && node.id?.name) {
+      declareBinding(nearestScope(ancestors, scopeByNode), node.id.name);
+      return;
+    }
+    if (node.type === 'CatchClause') {
+      const catchScope = scopeByNode.get(node);
+      for (const name of bindingNames(node.param)) declareBinding(catchScope, name);
+      return;
+    }
+    if (node.type === 'ImportDeclaration') {
+      const scope = nearestScope(ancestors, scopeByNode);
+      for (const specifier of node.specifiers || []) {
+        if (specifier.local?.name) declareBinding(scope, specifier.local.name);
+      }
+    }
   });
-  for (const name of invalid) candidates.delete(name);
-  return candidates;
+
+  walkNode(ast, [], (node, ancestors) => {
+    let target = null;
+    if (node.type === 'AssignmentExpression') target = node.left;
+    else if (node.type === 'UpdateExpression') target = node.argument;
+    else if (node.type === 'ForInStatement' || node.type === 'ForOfStatement') target = node.left;
+    if (!target || target.type === 'VariableDeclaration') return;
+    const scope = nearestScope(ancestors, scopeByNode);
+    for (const name of bindingNames(target)) {
+      const binding = resolveBinding(scope, name);
+      if (binding) binding.mutated = true;
+    }
+  });
+
+  const valuesByIdentifier = new WeakMap();
+  walkNode(ast, [], (node, ancestors) => {
+    if (node.type !== 'Identifier') return;
+    const binding = resolveBinding(nearestScope(ancestors, scopeByNode), node.name);
+    if (binding?.value && !binding.invalid && !binding.mutated) {
+      valuesByIdentifier.set(node, binding.value);
+    }
+  });
+  return valuesByIdentifier;
+}
+
+function isFunctionNode(node) {
+  return node?.type === 'FunctionDeclaration'
+    || node?.type === 'FunctionExpression'
+    || node?.type === 'ArrowFunctionExpression'
+    || node?.type === 'ObjectMethod'
+    || node?.type === 'ClassMethod'
+    || node?.type === 'ClassPrivateMethod';
+}
+
+function isScopeNode(node) {
+  return node?.type === 'Program'
+    || node?.type === 'BlockStatement'
+    || node?.type === 'CatchClause'
+    || node?.type === 'ForStatement'
+    || node?.type === 'ForInStatement'
+    || node?.type === 'ForOfStatement'
+    || node?.type === 'SwitchStatement'
+    || node?.type === 'StaticBlock'
+    || isFunctionNode(node);
+}
+
+function nearestScope(ancestors, scopeByNode) {
+  for (let index = ancestors.length - 1; index >= 0; index -= 1) {
+    const scope = scopeByNode.get(ancestors[index]);
+    if (scope) return scope;
+  }
+  return null;
+}
+
+function nearestFunctionScope(ancestors, scopeByNode) {
+  for (let index = ancestors.length - 1; index >= 0; index -= 1) {
+    const node = ancestors[index];
+    if (node.type !== 'Program' && !isFunctionNode(node)) continue;
+    const scope = scopeByNode.get(node);
+    if (scope) return scope;
+  }
+  return null;
+}
+
+function bindingNames(pattern) {
+  if (!pattern) return [];
+  if (pattern.type === 'Identifier') return [pattern.name];
+  if (pattern.type === 'RestElement') return bindingNames(pattern.argument);
+  if (pattern.type === 'AssignmentPattern') return bindingNames(pattern.left);
+  if (pattern.type === 'ArrayPattern') return pattern.elements.flatMap(bindingNames);
+  if (pattern.type === 'ObjectPattern') {
+    return pattern.properties.flatMap((property) => (
+      property.type === 'RestElement' ? bindingNames(property.argument) : bindingNames(property.value)
+    ));
+  }
+  return [];
+}
+
+function declareBinding(scope, name, { kind = 'unknown', value = '' } = {}) {
+  if (!scope || !name) return;
+  const existing = scope.bindings.get(name);
+  if (existing) {
+    existing.invalid = true;
+    return;
+  }
+  scope.bindings.set(name, { invalid: false, kind, mutated: false, value });
+}
+
+function resolveBinding(scope, name) {
+  for (let current = scope; current; current = current.parent) {
+    const binding = current.bindings.get(name);
+    if (binding) return binding;
+  }
+  return null;
 }
 
 function expressionShape(node, stringBindings) {

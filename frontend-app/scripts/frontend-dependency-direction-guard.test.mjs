@@ -87,6 +87,19 @@ describe('frontend dependency direction guard', () => {
     ]);
   });
 
+  it('[A03-unknown-source-layer] fails closed when a production source has no registered layer', () => {
+    expect(() => syntheticResult(new Map([
+      ['src/new-layer/source.js', 'export const value = true;'],
+    ]))).toThrow('dependency sources have no registered layer');
+  });
+
+  it('[A03-unknown-target-layer] fails closed when a dependency target has no registered layer', () => {
+    expect(() => syntheticResult(new Map([
+      ['src/features/consumer.js', "import { value } from '../new-layer/value.js';"],
+      ['src/new-layer/value.js', 'export const value = true;'],
+    ]))).toThrow('dependency target has no registered layer');
+  });
+
   it('[A03-expired-exemption] rejects a matched exemption after its expiry', () => {
     const sources = new Map([
       ['src/shared/unsafe.js', "import { feature } from '../features/feature.js';"],
@@ -121,6 +134,22 @@ describe('frontend dependency direction guard', () => {
       expiresOn: '2026-08-31',
       owner: 'frontend-architecture',
       reason: 'Fixture stale exemption.',
+    });
+    expect(() => validateFrontendDependencyDirection({ root: appRoot, registry: stale, today: '2026-07-17' }))
+      .toThrow('stale=');
+  });
+
+  it('[A03-source-exclusion-drift] rejects missing and stale exact test-only source exclusions', () => {
+    const missing = clone(registry);
+    missing.sourceExclusions = missing.sourceExclusions.slice(1);
+    expect(() => validateFrontendDependencyDirection({ root: appRoot, registry: missing, today: '2026-07-17' }))
+      .toThrow('missing=');
+
+    const stale = clone(registry);
+    stale.sourceExclusions.push({
+      path: 'src/__tests__/stale-helper.js',
+      owner: 'frontend-architecture',
+      reason: 'Fixture stale source exclusion.',
     });
     expect(() => validateFrontendDependencyDirection({ root: appRoot, registry: stale, today: '2026-07-17' }))
       .toThrow('stale=');

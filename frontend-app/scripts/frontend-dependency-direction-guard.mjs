@@ -14,10 +14,11 @@ const sourceCandidates = Object.freeze(['.js', '.jsx', '.ts', '.tsx', '.mjs', '.
 export function validateFrontendDependencyDirection({
   root = appRoot,
   registry = readJSON(path.join(root, registryPath)),
-  sources = productionSources(root),
+  sources = null,
   today = currentDate(),
 } = {}) {
   validateRegistryShape(registry);
+  const graphSources = sources || productionSources(root, registry);
   const actualCaseIds = discoverCaseIds(
     fs.readFileSync(path.join(root, registry.testFile), 'utf8'),
     registry.testFile,
@@ -25,7 +26,7 @@ export function validateFrontendDependencyDirection({
   );
   assertExactSet('A03 regression case IDs', registry.caseIds, actualCaseIds);
 
-  const result = dependencyDirectionResult({ sources, registry, today });
+  const result = dependencyDirectionResult({ sources: graphSources, registry, today });
   if (result.unresolved.length > 0) {
     throw new Error(`dependency direction unresolved local imports: ${JSON.stringify(result.unresolved)}`);
   }
@@ -49,11 +50,15 @@ export function dependencyDirectionResult({ sources, registry, today = currentDa
   const allowedDirections = new Set(registry.allowedDirections);
   const violations = [];
   const unresolved = [];
+  const unknownSources = [];
   let checkedImports = 0;
 
   for (const [from, source] of [...normalizedSources].sort(([left], [right]) => left.localeCompare(right))) {
     const fromLayer = layerForPath(from, registry);
-    if (!fromLayer) continue;
+    if (!fromLayer) {
+      unknownSources.push(from);
+      continue;
+    }
     for (const dependency of discoverDependencies(source, from)) {
       if (!isLocalSpecifier(dependency.specifier, registry.aliases)) continue;
       const resolution = resolveLocalDependency(from, dependency.specifier, normalizedSources, registry.aliases);
@@ -63,7 +68,9 @@ export function dependencyDirectionResult({ sources, registry, today = currentDa
         continue;
       }
       const toLayer = layerForPath(resolution.path, registry);
-      if (!toLayer) continue;
+      if (!toLayer) {
+        throw new Error(`dependency target has no registered layer: ${from} -> ${resolution.path}`);
+      }
       checkedImports += 1;
       if (fromLayer.name !== toLayer.name && !allowedDirections.has(`${fromLayer.name}->${toLayer.name}`)) {
         violations.push({
@@ -76,6 +83,9 @@ export function dependencyDirectionResult({ sources, registry, today = currentDa
         });
       }
     }
+  }
+  if (unknownSources.length > 0) {
+    throw new Error(`dependency sources have no registered layer: ${JSON.stringify(unknownSources.sort())}`);
   }
 
   const violationByKey = new Map(violations.map((violation) => [dependencyKey(violation), violation]));
@@ -168,11 +178,20 @@ function layerForPath(relativePath, registry) {
   return null;
 }
 
-function productionSources(root) {
+function productionSources(root, registry) {
+  const absolutePaths = walkSourceFiles(path.join(root, 'src'));
+  const relativePaths = absolutePaths.map((absolutePath) => normalizeRelativePath(path.relative(root, absolutePath)));
+  const registeredExclusions = registry.sourceExclusions.map(({ path: relativePath }) => normalizeRelativePath(relativePath));
+  const discoveredTestOnlySources = relativePaths.filter((relativePath) => (
+    !testFilePattern.test(relativePath) && isTestOnlyDirectoryPath(relativePath)
+  ));
+  assertExactSet('dependency test-only source exclusions', registeredExclusions, discoveredTestOnlySources);
+  const exclusionSet = new Set(registeredExclusions);
   const sources = new Map();
-  for (const absolutePath of walkSourceFiles(path.join(root, 'src'))) {
-    const relativePath = normalizeRelativePath(path.relative(root, absolutePath));
-    if (testFilePattern.test(relativePath)) continue;
+  for (let index = 0; index < absolutePaths.length; index += 1) {
+    const absolutePath = absolutePaths[index];
+    const relativePath = relativePaths[index];
+    if (testFilePattern.test(relativePath) || exclusionSet.has(relativePath)) continue;
     sources.set(relativePath, fs.readFileSync(absolutePath, 'utf8'));
   }
   if (sources.size === 0) throw new Error('dependency direction guard found zero production files');
@@ -183,7 +202,7 @@ function walkSourceFiles(directory) {
   const files = [];
   for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
     const absolutePath = path.join(directory, entry.name);
-    if (entry.isDirectory() && entry.name !== '__tests__') files.push(...walkSourceFiles(absolutePath));
+    if (entry.isDirectory()) files.push(...walkSourceFiles(absolutePath));
     else if (sourceExtensionPattern.test(entry.name)) files.push(absolutePath);
   }
   return files;
@@ -209,9 +228,30 @@ function validateRegistryShape(registry, { requireTests = true } = {}) {
     !isRecord(registry.aliases)
     || !Array.isArray(registry.allowedDirections)
     || registry.allowedDirections.length === 0
+    || !Array.isArray(registry.sourceExclusions)
     || !Array.isArray(registry.exemptions)
   ) {
     throw new Error('dependency direction registry aliases, directions, or exemptions are invalid');
+  }
+  const sourceExclusionPaths = new Set();
+  for (const exclusion of registry.sourceExclusions) {
+    if (
+      !isRecord(exclusion)
+      || typeof exclusion.path !== 'string'
+      || typeof exclusion.owner !== 'string'
+      || typeof exclusion.reason !== 'string'
+      || !exclusion.path.trim()
+      || !exclusion.owner.trim()
+      || !exclusion.reason.trim()
+    ) {
+      throw new Error('dependency source exclusion must contain exact path, owner, and reason');
+    }
+    const relativePath = normalizeRelativePath(exclusion.path);
+    if (!relativePath.startsWith('src/') || !isTestOnlyDirectoryPath(relativePath)) {
+      throw new Error(`dependency source exclusion is not a test-only file: ${relativePath}`);
+    }
+    if (sourceExclusionPaths.has(relativePath)) throw new Error(`duplicate dependency source exclusion ${relativePath}`);
+    sourceExclusionPaths.add(relativePath);
   }
   const layerNames = new Set();
   for (const layer of registry.layers) {
@@ -253,6 +293,11 @@ function validateExemption(exemption) {
   if (!['import', 'dynamic-import', 're-export', 'require'].includes(exemption.kind)) {
     throw new Error(`dependency exemption has invalid kind ${exemption.kind}`);
   }
+}
+
+function isTestOnlyDirectoryPath(relativePath) {
+  const segments = relativePath.split('/');
+  return segments.includes('__tests__') || segments.includes('test-utils');
 }
 
 function discoverCaseIds(source, filePath, prefix) {
