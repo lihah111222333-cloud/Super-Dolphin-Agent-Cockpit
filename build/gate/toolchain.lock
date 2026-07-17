@@ -2,6 +2,7 @@
   "schema_version": "1",
   "buildkit_version": "v0.26.2",
   "dockerfile_frontend": "builtin:dockerfile.v1",
+  "source_date_epoch": "0",
   "target_platforms": [
     "linux/arm64"
   ],

@@ -71,6 +71,42 @@ func TestGateImageManifestIsExactLinuxBuildClosure(t *testing.T) {
 	}
 }
 
+func TestGateImageLocksSourceDateEpoch(t *testing.T) {
+	root := repositoryRoot(t)
+	data, err := os.ReadFile(filepath.Join(root, toolchainPath))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var lock struct {
+		SourceDateEpoch string `json:"source_date_epoch"`
+	}
+	if err := json.Unmarshal(data, &lock); err != nil {
+		t.Fatal(err)
+	}
+	if lock.SourceDateEpoch != "0" {
+		t.Fatalf("source_date_epoch = %q, want canonical Unix epoch", lock.SourceDateEpoch)
+	}
+
+	dockerfile, err := os.ReadFile(filepath.Join(root, dockerfilePath))
+	if err != nil {
+		t.Fatal(err)
+	}
+	declaration := "ARG SOURCE_DATE_EPOCH=" + lock.SourceDateEpoch + "\n"
+	firstFrom := bytes.Index(dockerfile, []byte("FROM "))
+	declarationIndex := bytes.Index(dockerfile, []byte(declaration))
+	if declarationIndex < 0 || firstFrom < 0 || declarationIndex > firstFrom {
+		t.Fatalf("Dockerfile must declare %q before its first FROM", strings.TrimSpace(declaration))
+	}
+	for _, required := range []string{
+		"FROM ${GO_IMAGE} AS build\nARG SOURCE_DATE_EPOCH\n",
+		"touch -d \"@${SOURCE_DATE_EPOCH}\" /out/super-dolphin-gate",
+	} {
+		if !bytes.Contains(dockerfile, []byte(required)) {
+			t.Fatalf("Dockerfile is missing deterministic artifact timestamp contract %q", required)
+		}
+	}
+}
+
 func TestGateVendorArchiveIsCanonicalAndBuildsOffline(t *testing.T) {
 	root := repositoryRoot(t)
 	tracked := readManifest(t, root)

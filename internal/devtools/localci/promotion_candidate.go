@@ -789,7 +789,7 @@ func newPromotionCandidateID() (string, error) {
 	return hex.EncodeToString(value[:]), nil
 }
 
-// validateLockedImageArgumentDefaults 确保 Dockerfile 和工具链锁不会形成两个漂移的镜像真值。
+// validateLockedImageArgumentDefaults 确保 Dockerfile 和工具链锁不会形成两个漂移的参数真值。
 func validateLockedImageArgumentDefaults(lines []string, locked map[string]string) error {
 	declared := make(map[string]struct{}, len(locked))
 	for _, line := range lines {
@@ -810,7 +810,7 @@ func validateLockedImageArgumentDefaults(lines []string, locked map[string]strin
 	}
 	for name := range locked {
 		if _, exists := declared[name]; !exists {
-			return fmt.Errorf("Dockerfile must declare locked image ARG %q with a default before FROM", name)
+			return fmt.Errorf("Dockerfile must declare locked ARG %q with a default before FROM", name)
 		}
 	}
 	return nil
@@ -837,7 +837,7 @@ func lockedImageArgumentDefault(line string, locked map[string]string) (string, 
 		return "", false, nil
 	}
 	if !hasDefault || value == "" {
-		return "", false, fmt.Errorf("Dockerfile ARG %q must default to its toolchain lock reference", name)
+		return "", false, fmt.Errorf("Dockerfile ARG %q must default to its toolchain lock value", name)
 	}
 	if value != expected {
 		return "", false, fmt.Errorf("Dockerfile ARG %q default does not match the toolchain lock", name)

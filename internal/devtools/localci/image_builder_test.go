@@ -134,7 +134,7 @@ func TestCandidateAndBuildKitFieldRegistriesAreComplete(t *testing.T) {
 		"ToolchainDigest": "toolchain label", "DockerfilePath": "build file",
 		"DockerfileDigest": "Dockerfile label", "Platform": "build platform and label",
 		"BuildKitVersion": "builder binding", "DockerfileFrontend": "frontend binding",
-		"BuildArguments": "locked base images", "NetworkPolicy": "network contract",
+		"BuildArguments": "locked toolchain arguments", "NetworkPolicy": "network contract",
 		"CacheNamespace": "isolated cache",
 	})
 }
@@ -304,6 +304,40 @@ func TestEnsureCandidateRejectsMissingOrDriftedBaseImageArgDefault(t *testing.T)
 	assertRejectedDockerfile(t, driftedDefault)
 }
 
+func TestEnsureCandidateRejectsMissingOrDriftedSourceDateEpoch(t *testing.T) {
+	missingDefault := strings.Replace(validCandidateDockerfile(), "ARG SOURCE_DATE_EPOCH=0", "ARG SOURCE_DATE_EPOCH", 1)
+	assertRejectedDockerfile(t, missingDefault)
+	driftedDefault := strings.Replace(validCandidateDockerfile(), "ARG SOURCE_DATE_EPOCH=0", "ARG SOURCE_DATE_EPOCH=1", 1)
+	assertRejectedDockerfile(t, driftedDefault)
+
+	missingLock := candidateEntries(validCandidateDockerfile())
+	replaceEntryText(t, missingLock, toolchainLockPath, "  \"source_date_epoch\": \"0\",\n", "")
+	assertCandidateRejectedBeforeBuild(t, missingLock)
+	nonCanonicalLock := candidateEntries(validCandidateDockerfile())
+	replaceEntryText(t, nonCanonicalLock, toolchainLockPath, "\"source_date_epoch\": \"0\"", "\"source_date_epoch\": \"00\"")
+	assertCandidateRejectedBeforeBuild(t, nonCanonicalLock)
+}
+
+func TestSourceDateEpochBindsCandidateInputAndBuildRequest(t *testing.T) {
+	first, err := prepareCandidate(candidateRequest(candidateEntries(validCandidateDockerfile()), digest("f"), digest("e")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	changedEntries := candidateEntries(strings.Replace(validCandidateDockerfile(), "ARG SOURCE_DATE_EPOCH=0", "ARG SOURCE_DATE_EPOCH=1", 1))
+	replaceEntryText(t, changedEntries, toolchainLockPath, "\"source_date_epoch\": \"0\"", "\"source_date_epoch\": \"1\"")
+	second, err := prepareCandidate(candidateRequest(changedEntries, digest("f"), digest("e")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.result.InputDigest == second.result.InputDigest {
+		t.Fatal("source_date_epoch change did not invalidate candidate input digest")
+	}
+	wanted := BuildArgument{Name: sourceDateEpochArgument, Value: "1"}
+	if !slices.Contains(second.buildRequest.BuildArguments, wanted) {
+		t.Fatalf("BuildKit request lost source date epoch: %+v", second.buildRequest.BuildArguments)
+	}
+}
+
 func TestLockedImageArgumentDefaultsRejectsArgAfterTabSeparatedFrom(t *testing.T) {
 	lines := []string{
 		"FROM\t${GO_IMAGE} AS build",
@@ -365,6 +399,7 @@ func candidateEntries(dockerfile string) []sourceexport.TreeEntry {
   "schema_version": "1",
   "buildkit_version": "v0.26.2",
   "dockerfile_frontend": "builtin:dockerfile.v1",
+  "source_date_epoch": "0",
   "target_platforms": ["linux/arm64"],
   "base_images": [{"name":"GO_IMAGE","reference":"golang@sha256:` + strings.Repeat("b", 64) + `"}],
   "dependency_sources": ["go.sum"],
@@ -381,11 +416,11 @@ func candidateEntries(dockerfile string) []sourceexport.TreeEntry {
 }
 
 func validCandidateDockerfile() string {
-	return "ARG GO_IMAGE=" + lockedGoImageReference() + "\nFROM ${GO_IMAGE} AS build\nCOPY go.mod go.sum ./\nCOPY cmd/super-dolphin-gate/main.go ./cmd/super-dolphin-gate/main.go\nRUN --network=none go build -o /out/gate ./cmd/super-dolphin-gate\nFROM scratch\nCOPY --from=build /out/gate /gate\nENTRYPOINT [\"/gate\"]\n"
+	return "ARG GO_IMAGE=" + lockedGoImageReference() + "\nARG SOURCE_DATE_EPOCH=0\nFROM ${GO_IMAGE} AS build\nCOPY go.mod go.sum ./\nCOPY cmd/super-dolphin-gate/main.go ./cmd/super-dolphin-gate/main.go\nRUN --network=none go build -o /out/gate ./cmd/super-dolphin-gate\nFROM scratch\nCOPY --from=build /out/gate /gate\nENTRYPOINT [\"/gate\"]\n"
 }
 
 func forwardStageDockerfile() string {
-	return "ARG GO_IMAGE=" + lockedGoImageReference() + "\nFROM ${GO_IMAGE} AS build\nCOPY --from=later /tool /tool\nFROM scratch AS later\nCOPY --from=build /out/gate /gate\nENTRYPOINT [\"/gate\"]\n"
+	return "ARG GO_IMAGE=" + lockedGoImageReference() + "\nARG SOURCE_DATE_EPOCH=0\nFROM ${GO_IMAGE} AS build\nCOPY --from=later /tool /tool\nFROM scratch AS later\nCOPY --from=build /out/gate /gate\nENTRYPOINT [\"/gate\"]\n"
 }
 
 func lockedGoImageReference() string {

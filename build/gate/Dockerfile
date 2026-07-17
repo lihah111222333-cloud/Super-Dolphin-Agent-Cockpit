@@ -1,5 +1,7 @@
 ARG GO_IMAGE=golang@sha256:1ecb7edf62a0408027bd5729dfd6b1b8766e578e8df93995b225dfd0944eb651
+ARG SOURCE_DATE_EPOCH=0
 FROM ${GO_IMAGE} AS build
+ARG SOURCE_DATE_EPOCH
 
 WORKDIR /src
 ENV GOTOOLCHAIN=local GOPROXY=off GOSUMDB=off
@@ -24,7 +26,7 @@ COPY ["internal/util/configutil/configutil.go","./internal/util/configutil/"]
 COPY ["internal/util/ctxutil/ctxutil.go","./internal/util/ctxutil/"]
 COPY ["pkg/logger/agent_logger.go","pkg/logger/error_enricher.go","pkg/logger/fields.go","pkg/logger/logger.go","pkg/logger/metadata.go","pkg/logger/redact.go","pkg/logger/relay.go","pkg/logger/relay_throttle.go","pkg/logger/safego.go","pkg/logger/sampler.go","pkg/logger/stderr_collector.go","pkg/logger/trace_carrier.go","pkg/logger/trace_context.go","pkg/logger/truncate.go","pkg/logger/watchdog.go","./pkg/logger/"]
 RUN --network=none CGO_ENABLED=0 go test -mod=vendor -run '^$' ./internal/devtools/gatehook
-RUN --network=none CGO_ENABLED=0 go build -mod=vendor -trimpath -buildvcs=false -o /out/super-dolphin-gate ./cmd/super-dolphin-gate
+RUN --network=none CGO_ENABLED=0 go build -mod=vendor -trimpath -buildvcs=false -o /out/super-dolphin-gate ./cmd/super-dolphin-gate && touch -d "@${SOURCE_DATE_EPOCH}" /out/super-dolphin-gate
 
 FROM scratch
 COPY --from=build /out/super-dolphin-gate /super-dolphin-gate

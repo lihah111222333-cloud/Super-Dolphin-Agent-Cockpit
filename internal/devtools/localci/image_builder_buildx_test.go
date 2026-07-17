@@ -218,6 +218,18 @@ func TestDockerBuildxRunnerRejectsUnsafeRequestBeforeCommand(t *testing.T) {
 		{name: "out of order build arguments", mutate: func(request *BuildKitBuildRequest) {
 			request.BuildArguments = []BuildArgument{{Name: "Z_IMAGE", Value: request.BuildArguments[0].Value}, request.BuildArguments[0]}
 		}},
+		{name: "missing source date epoch", mutate: func(request *BuildKitBuildRequest) {
+			request.BuildArguments = slices.DeleteFunc(request.BuildArguments, func(argument BuildArgument) bool {
+				return argument.Name == sourceDateEpochArgument
+			})
+		}},
+		{name: "non-canonical source date epoch", mutate: func(request *BuildKitBuildRequest) {
+			for index := range request.BuildArguments {
+				if request.BuildArguments[index].Name == sourceDateEpochArgument {
+					request.BuildArguments[index].Value = "00"
+				}
+			}
+		}},
 		{name: "Dockerfile path escape", mutate: func(request *BuildKitBuildRequest) {
 			request.DockerfilePath = "../Dockerfile"
 		}},

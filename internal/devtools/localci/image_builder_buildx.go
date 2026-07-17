@@ -313,12 +313,13 @@ func validateBuildxDigests(request BuildKitBuildRequest) error {
 	return nil
 }
 
-// validateBuildxArguments 要求镜像参数严格排序、唯一且使用不可变引用。
+// validateBuildxArguments 要求工具链参数严格排序、唯一且值类型受锁约束。
 func validateBuildxArguments(arguments []BuildArgument) error {
 	if len(arguments) == 0 {
 		return errors.New("buildx locked build arguments are required")
 	}
 	previous := ""
+	foundSourceDateEpoch := false
 	for _, argument := range arguments {
 		if !validBuildxArgumentName(argument.Name) {
 			return fmt.Errorf("buildx argument name %q is invalid", argument.Name)
@@ -329,10 +330,18 @@ func validateBuildxArguments(arguments []BuildArgument) error {
 		if previous >= argument.Name {
 			return errors.New("buildx arguments must be strictly sorted and unique")
 		}
-		if !immutableImageReference(argument.Value) {
+		if argument.Name == sourceDateEpochArgument {
+			if err := validateSourceDateEpoch(argument.Value); err != nil {
+				return err
+			}
+			foundSourceDateEpoch = true
+		} else if !immutableImageReference(argument.Value) {
 			return fmt.Errorf("buildx argument %q must be an immutable image reference", argument.Name)
 		}
 		previous = argument.Name
+	}
+	if !foundSourceDateEpoch {
+		return errors.New("buildx SOURCE_DATE_EPOCH argument is required")
 	}
 	return nil
 }

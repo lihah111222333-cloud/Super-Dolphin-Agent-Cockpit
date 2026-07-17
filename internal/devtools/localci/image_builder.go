@@ -22,6 +22,7 @@ const (
 	buildInputManifestPath  = "build/gate/inputs.json"
 	toolchainLockPath       = "build/gate/toolchain.lock"
 	imageInputSchemaVersion = "1"
+	sourceDateEpochArgument = "SOURCE_DATE_EPOCH"
 )
 
 // BuildKitRunner 只接收经过安全收敛的候选镜像构建请求。
@@ -94,6 +95,7 @@ type toolchainLock struct {
 	SchemaVersion      string            `json:"schema_version"`
 	BuildKitVersion    string            `json:"buildkit_version"`
 	DockerfileFrontend string            `json:"dockerfile_frontend"`
+	SourceDateEpoch    string            `json:"source_date_epoch"`
 	TargetPlatforms    []string          `json:"target_platforms"`
 	BaseImages         []lockedBaseImage `json:"base_images"`
 	DependencySources  []string          `json:"dependency_sources"`
@@ -179,7 +181,7 @@ func prepareCandidate(request CandidateRequest) (preparedCandidate, error) {
 		return preparedCandidate{}, err
 	}
 	dockerfile := closureByPath[manifest.Dockerfile].Data
-	arguments := lockedBuildArguments(lock.BaseImages)
+	arguments := lockedBuildArguments(lock.BaseImages, lock.SourceDateEpoch)
 	if err := validateCandidateDockerfile(dockerfile, arguments, closureByPath, entriesByPath); err != nil {
 		return preparedCandidate{}, err
 	}
@@ -362,6 +364,9 @@ func validateToolchainVersions(lock toolchainLock) error {
 	if lock.DockerfileFrontend != "builtin:dockerfile.v1" {
 		return errors.New("Dockerfile frontend must be the locked builtin:dockerfile.v1 frontend")
 	}
+	if err := validateSourceDateEpoch(lock.SourceDateEpoch); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -391,6 +396,9 @@ func validateLockedBaseImages(images []lockedBaseImage) error {
 		if image.Name == "" || image.Name <= previous {
 			return errors.New("base image names must be non-empty, unique, and sorted")
 		}
+		if image.Name == sourceDateEpochArgument {
+			return errors.New("base image name SOURCE_DATE_EPOCH is reserved")
+		}
 		if err := validateImmutableReference("base image "+image.Name, image.Reference); err != nil {
 			return err
 		}
@@ -399,11 +407,13 @@ func validateLockedBaseImages(images []lockedBaseImage) error {
 	return nil
 }
 
-func lockedBuildArguments(images []lockedBaseImage) []BuildArgument {
-	arguments := make([]BuildArgument, len(images))
-	for index, image := range images {
-		arguments[index] = BuildArgument{Name: image.Name, Value: image.Reference}
+func lockedBuildArguments(images []lockedBaseImage, sourceDateEpoch string) []BuildArgument {
+	arguments := make([]BuildArgument, 0, len(images)+1)
+	for _, image := range images {
+		arguments = append(arguments, BuildArgument{Name: image.Name, Value: image.Reference})
 	}
+	arguments = append(arguments, BuildArgument{Name: sourceDateEpochArgument, Value: sourceDateEpoch})
+	sort.Slice(arguments, func(left int, right int) bool { return arguments[left].Name < arguments[right].Name })
 	return arguments
 }
 
@@ -431,12 +441,20 @@ func assemblePreparedCandidate(request CandidateRequest, manifest buildInputMani
 	return preparedCandidate{result: result, buildRequest: buildRequest}
 }
 
+// validateCandidateDockerfile 绑定锁定参数，并拒绝越界构建能力和未声明输入。
 func validateCandidateDockerfile(data []byte, arguments []BuildArgument, closure map[string]sourceexport.TreeEntry, allEntries map[string]sourceexport.TreeEntry) error {
 	lines, err := logicalDockerfileLines(data)
 	if err != nil {
 		return err
 	}
 	if err := rejectForbiddenDockerfileCapabilities(lines); err != nil {
+		return err
+	}
+	lockedDefaults := make(map[string]string, len(arguments))
+	for _, argument := range arguments {
+		lockedDefaults[argument.Name] = argument.Value
+	}
+	if err := validateLockedImageArgumentDefaults(lines, lockedDefaults); err != nil {
 		return err
 	}
 	if err := validateDockerfileFrom(lines, arguments); err != nil {
@@ -493,11 +511,11 @@ func validateDockerfileFrom(lines []string, arguments []BuildArgument) error {
 	locked := make(map[string]string, len(arguments))
 	allowed := make(map[string]struct{}, len(arguments))
 	for _, argument := range arguments {
+		if argument.Name == sourceDateEpochArgument {
+			continue
+		}
 		locked[argument.Name] = argument.Value
 		allowed[argument.Value] = struct{}{}
-	}
-	if err := validateLockedImageArgumentDefaults(lines, locked); err != nil {
-		return err
 	}
 	fromCount := 0
 	for _, line := range lines {
@@ -758,6 +776,14 @@ func validateImmutableReference(name string, reference string) error {
 		return fmt.Errorf("%s must use an immutable repository@sha256 reference", name)
 	}
 	return validateDigest(name, reference[separator+1:])
+}
+
+func validateSourceDateEpoch(value string) error {
+	seconds, err := strconv.ParseInt(value, 10, 64)
+	if err != nil || seconds < 0 || strconv.FormatInt(seconds, 10) != value {
+		return errors.New("source_date_epoch must be a canonical non-negative integer")
+	}
+	return nil
 }
 
 func validateSortedUnique(name string, values []string) error {

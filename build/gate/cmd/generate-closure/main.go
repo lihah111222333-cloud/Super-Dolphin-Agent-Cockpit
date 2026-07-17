@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -52,6 +53,7 @@ type toolchainLock struct {
 	SchemaVersion      string   `json:"schema_version"`
 	BuildKitVersion    string   `json:"buildkit_version"`
 	DockerfileFrontend string   `json:"dockerfile_frontend"`
+	SourceDateEpoch    string   `json:"source_date_epoch"`
 	TargetPlatforms    []string `json:"target_platforms"`
 	BaseImages         []struct {
 		Name      string `json:"name"`
@@ -319,13 +321,16 @@ func renderDockerfile(lock toolchainLock, localFiles []string) ([]byte, error) {
 	if len(lock.BaseImages) != 1 || lock.BaseImages[0].Name != "GO_IMAGE" || !strings.Contains(lock.BaseImages[0].Reference, "@sha256:") {
 		return nil, errors.New("toolchain lock must contain exactly one immutable GO_IMAGE")
 	}
+	if !isCanonicalSourceDateEpoch(lock.SourceDateEpoch) {
+		return nil, errors.New("toolchain lock source_date_epoch must be a canonical non-negative integer")
+	}
 	groups := make(map[string][]string)
 	for _, name := range localFiles {
 		groups[filepath.ToSlash(filepath.Dir(name))] = append(groups[filepath.ToSlash(filepath.Dir(name))], name)
 	}
 	directories := sortedKeys(groups)
 	var output strings.Builder
-	fmt.Fprintf(&output, "ARG GO_IMAGE=%s\nFROM ${GO_IMAGE} AS build\n\n", lock.BaseImages[0].Reference)
+	fmt.Fprintf(&output, "ARG GO_IMAGE=%s\nARG SOURCE_DATE_EPOCH=%s\nFROM ${GO_IMAGE} AS build\nARG SOURCE_DATE_EPOCH\n\n", lock.BaseImages[0].Reference, lock.SourceDateEpoch)
 	output.WriteString("WORKDIR /src\nENV GOTOOLCHAIN=local GOPROXY=off GOSUMDB=off\n")
 	output.WriteString("COPY [\"go.mod\", \"go.sum\", \"./\"]\n")
 	output.WriteString("ADD build/gate/vendor.tar.gz ./vendor/\n")
@@ -340,9 +345,14 @@ func renderDockerfile(lock toolchainLock, localFiles []string) ([]byte, error) {
 		fmt.Fprintf(&output, "COPY %s\n", encoded)
 	}
 	output.WriteString("RUN --network=none CGO_ENABLED=0 go test -mod=vendor -run '^$' ./internal/devtools/gatehook\n")
-	output.WriteString("RUN --network=none CGO_ENABLED=0 go build -mod=vendor -trimpath -buildvcs=false -o /out/super-dolphin-gate ./cmd/super-dolphin-gate\n\n")
+	output.WriteString("RUN --network=none CGO_ENABLED=0 go build -mod=vendor -trimpath -buildvcs=false -o /out/super-dolphin-gate ./cmd/super-dolphin-gate && touch -d \"@${SOURCE_DATE_EPOCH}\" /out/super-dolphin-gate\n\n")
 	output.WriteString("FROM scratch\nCOPY --from=build /out/super-dolphin-gate /super-dolphin-gate\nENTRYPOINT [\"/super-dolphin-gate\"]\n")
 	return []byte(output.String()), nil
+}
+
+func isCanonicalSourceDateEpoch(value string) bool {
+	seconds, err := strconv.ParseInt(value, 10, 64)
+	return err == nil && seconds >= 0 && strconv.FormatInt(seconds, 10) == value
 }
 
 func renderManifest(localFiles []string) ([]byte, error) {
