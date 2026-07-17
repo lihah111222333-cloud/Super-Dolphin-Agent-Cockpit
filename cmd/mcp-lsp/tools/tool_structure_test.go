@@ -300,7 +300,7 @@ func TestStructureWorkspaceSymbolSQLLanguageRequiresFilePath(t *testing.T) {
 	}
 }
 
-func TestStructureDocumentSymbolAcceptsLegacyPathAlias(t *testing.T) {
+func TestStructureDocumentSymbolRejectsLegacyPathAlias(t *testing.T) {
 	root := t.TempDir()
 	target := filepath.Join(root, "sample.go")
 	if err := os.WriteFile(target, []byte("package sample\n"), 0o600); err != nil {
@@ -308,16 +308,16 @@ func TestStructureDocumentSymbolAcceptsLegacyPathAlias(t *testing.T) {
 	}
 	registry := &structureTestRegistry{fileManager: &structureTestManager{}}
 	handler := NewStructureHandler(registry)
-	input, err := json.Marshal(structureParams{Action: "document_symbol", Path: target})
+	input, err := json.Marshal(map[string]any{"action": "document_symbol", "path": target})
 	if err != nil {
 		t.Fatalf("marshal input: %v", err)
 	}
 
-	if _, err := handler(common.WithToolScope(context.Background(), common.ToolScope{CWD: root}), input); err != nil {
-		t.Fatalf("document_symbol with path alias returned error: %v", err)
+	if _, err := handler(common.WithToolScope(context.Background(), common.ToolScope{CWD: root}), input); err == nil || !strings.Contains(err.Error(), `unknown field "path"`) {
+		t.Fatalf("document_symbol with path alias error = %v, want unknown field rejection", err)
 	}
-	if registry.gotFilePath != target {
-		t.Fatalf("GetManagerForFile path = %q, want legacy path alias", registry.gotFilePath)
+	if registry.gotFilePath != "" {
+		t.Fatalf("GetManagerForFile path = %q, want handler not called", registry.gotFilePath)
 	}
 }
 

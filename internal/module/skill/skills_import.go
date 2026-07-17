@@ -475,7 +475,11 @@ func copyCanonicalSkillMainFile(src, dst, rel string, mode os.FileMode, tracker 
 	if err != nil {
 		return err
 	}
-	data = []byte(capProjectMirrorTrustFrontmatter(string(data)))
+	capped, err := capProjectMirrorTrustFrontmatter(string(data))
+	if err != nil {
+		return fmt.Errorf("cap project mirror frontmatter %s: %w", rel, err)
+	}
+	data = []byte(capped)
 	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
 		return err
 	}

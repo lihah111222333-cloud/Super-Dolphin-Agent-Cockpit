@@ -467,12 +467,6 @@ function SkillsPageView({ copy, model }) {
       <div className="subhead">{copy.localLibrary}</div>
       <SkillsOverview copy={copy} model={model} />
       <SkillsToolbar copy={copy} model={model} />
-      <SkillFilter
-        copy={copy}
-        filters={model.filters}
-        scopeFilter={model.scopeFilter}
-        setScopeFilter={model.setScopeFilter}
-      />
       <SkillsStatus copy={copy} model={model} />
       <SkillImportSummaryPanel editor={model.editor} />
       <SkillResolutionPanel model={model} />
@@ -492,8 +486,22 @@ function SkillImportSummaryItem({ draft, editor, index }) { return (
 <p className="skills-import-summary-text">{draft.status === 'ready' || draft.status === 'applied' ? draft.suggestion : (draft.error || '技能已正常导入。可以稍后手动补充简介。')}</p> <div className="skills-import-summary-actions">
 {draft.status === 'ready' ? <button type="button" data-testid={'skills-import-summary-apply-' + index} onClick={() => { void editor.applyImportSummaryDraft(draft); }}>采用并编辑</button> : null} {draft.status === 'applied' ? <span className="skills-inline-tip">已采用，保存后生效</span> : null}
 {draft.status === 'error' ? <button type="button" data-testid={'skills-import-summary-edit-' + index} onClick={() => { void editor.openImportSummaryDraft(draft); }}>编辑简介</button> : null}
-<button type="button" className="ghost" data-testid={'skills-import-summary-dismiss-' + index} onClick={() => editor.dismissImportSummaryDraft(draft)}>跳过</button> </div> </article> ); } function SkillsToolbar({ copy, model }) { return (
+<button type="button" className="ghost" data-testid={'skills-import-summary-dismiss-' + index} onClick={() => editor.dismissImportSummaryDraft(draft)}>跳过</button> </div> </article> ); }
+
+function SkillsToolbar({ copy, model }) { return (
 <div className="skills-toolbar skills-toolbar-unified">
+  <div className="skill-filter segment">
+    {model.filters.scopeOptions.map(([value]) => (
+      <button
+        key={value}
+        type="button"
+        className={model.scopeFilter === value ? 'active' : ''}
+        onClick={() => model.setScopeFilter(value)}
+      >
+        {copy.scopeLabels?.[value] || (value === 'personal' ? copy.personalUse : value === 'project' ? copy.projectShared : copy.scopeAll)} {model.filters.counts[value]}
+      </button>
+    ))}
+  </div>
   <label>
     <Search size={18} />
     <input value={model.query} onChange={(event) => model.setQuery(event.target.value)} placeholder={copy.searchSkillsPlaceholder} aria-label={copy.searchSkills} />
@@ -504,8 +512,6 @@ function SkillImportSummaryItem({ draft, editor, index }) { return (
   </div>
 </div>
 ); }
-function SkillFilter({ copy, filters, scopeFilter, setScopeFilter }) { const labels = { personal: copy.personalUse, project: copy.projectShared, all: copy.scopeAll }; return (
-<div className="skill-filter"> {filters.scopeOptions.map(([value]) => <button key={value} type="button" className={scopeFilter === value ? 'active' : ''} onClick={() => setScopeFilter(value)}>{labels[value]} {filters.counts[value]}</button>)} </div> ); }
 function SkillsStatus({ copy, model }) {
   return (
     <>

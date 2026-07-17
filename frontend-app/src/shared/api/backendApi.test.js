@@ -1574,8 +1574,8 @@ function guardedBackendResponse(method) {
       { response: sidebarStateResponse({ statusHeadersByThread: [] }), message: 'statusHeadersByThread must be an object' },
       { response: sidebarStateResponse({ statusDetailsByThread: { 'thread-1': 7 } }), message: 'statusDetailsByThread.thread-1 must be a string' },
       { response: sidebarStateResponse({ agentRuntimeById: { 'agent-1': [] } }), message: 'agentRuntimeById.agent-1 must be an object' },
-      { response: sidebarStateResponse({ activityStatsByThread: { 'thread-1': { lspCalls: '1', commands: 0, fileEdits: 0 } } }), message: 'activityStatsByThread.thread-1.lspCalls must be a non-negative integer' },
-      { response: sidebarStateResponse({ activityStatsByThread: { 'thread-1': { lspCalls: 0, commands: 0, fileEdits: 0, toolCalls: { read: '1' } } } }), message: 'activityStatsByThread.thread-1.toolCalls.read must be a non-negative integer' },
+      { response: sidebarStateResponse({ activityStatsByThread: { 'thread-1': { lspCalls: '1', commands: 0, fileEdits: 0 } } }), message: 'activityStatsByThread.thread-1.lspCalls must be an integer' },
+      { response: sidebarStateResponse({ activityStatsByThread: { 'thread-1': { lspCalls: 0, commands: 0, fileEdits: 0, toolCalls: { read: '1' } } } }), message: 'activityStatsByThread.thread-1.toolCalls.read must be an integer' },
       { response: sidebarStateResponse({ activeThreadId: 1 }), message: 'activeThreadId must be a string' },
       { response: sidebarStateResponse({ 'viewPrefs.chat': [] }), message: 'viewPrefs.chat must be an object' },
       { response: sidebarStateResponse({ 'threadPins.chat': { 'thread-1': 1.5 } }), message: 'threadPins.chat values must be integers' },
@@ -2269,7 +2269,7 @@ function guardedBackendResponse(method) {
   });
 
   it('creates project skills through the dedicated internal skills/create RPC', async () => {
-    const callAPI = vi.fn().mockResolvedValue({ path: '/repo/app/.agent/skills/DocsSkill/SKILL.md' });
+    const callAPI = vi.fn().mockResolvedValue({ path: '/repo/app/.agents/skills/DocsSkill/SKILL.md' });
     const api = createBackendApi({ callAPI });
 
     await api.createSkill({
@@ -2300,9 +2300,9 @@ function guardedBackendResponse(method) {
       method === RPC_METHODS.SKILLS_SUMMARY_SUGGEST
         ? { description: '当你需要编写文档时使用。' }
         : method === RPC_METHODS.SKILLS_LOCAL_READ
-          ? { skill: { path: '/repo/app/.agent/skills/docs/SKILL.md', content: '# DocsSkill' } }
+          ? { skill: { path: '/repo/app/.agents/skills/docs/SKILL.md', content: '# DocsSkill' } }
           : method === RPC_METHODS.SKILLS_LOCAL_LIST_FILES
-            ? { dir: '/repo/app/.agent/skills/docs', files: [{ name: 'SKILL.md', path: '/repo/app/.agent/skills/docs/SKILL.md', size: 10, is_main: true }] }
+            ? { dir: '/repo/app/.agents/skills/docs', files: [{ name: 'SKILL.md', path: '/repo/app/.agents/skills/docs/SKILL.md', size: 10, is_main: true }] }
             : method === RPC_METHODS.SKILLS_LOCAL_IMPORT_DIR
               ? { requested: 1, imported: [importedSkill], skill: importedSkill, mirror_publish: {} }
               : { ok: true },
@@ -2318,8 +2318,8 @@ function guardedBackendResponse(method) {
   });
 
 async function callSkillEditorApis(api) {
-  await api.readSkill({ cwd: '/repo/app', path: '/repo/app/.agent/skills/docs/SKILL.md' });
-  await api.listSkillFiles({ cwd: '/repo/app', dir: '/repo/app/.agent/skills/docs' });
+  await api.readSkill({ cwd: '/repo/app', path: '/repo/app/.agents/skills/docs/SKILL.md' });
+  await api.listSkillFiles({ cwd: '/repo/app', dir: '/repo/app/.agents/skills/docs' });
   await api.writeSkill({ cwd: '/repo/app', path: 'DocsSkill', content: '---', scope: 'personal', personalType: 'user' });
   await api.importSkillDirectories({ cwd: '/repo/app', paths: ['/imports/a'], scope: 'personal', personal_type: 'imported' });
   await api.suggestSkillSummary({ cwd: '/repo/app', name: 'DocsSkill', description: '', content: 'body', scenario_words: ['docs'], scope: 'project' });
@@ -2328,11 +2328,11 @@ async function callSkillEditorApis(api) {
 function expectSkillEditorCalls(callAPI) {
   expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.SKILLS_LOCAL_READ, {
     cwd: '/repo/app',
-    path: '/repo/app/.agent/skills/docs/SKILL.md',
+    path: '/repo/app/.agents/skills/docs/SKILL.md',
   });
   expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.SKILLS_LOCAL_LIST_FILES, {
     cwd: '/repo/app',
-    dir: '/repo/app/.agent/skills/docs',
+    dir: '/repo/app/.agents/skills/docs',
   });
   expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.SKILLS_LOCAL_WRITE, {
     cwd: '/repo/app',
