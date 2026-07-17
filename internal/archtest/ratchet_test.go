@@ -16,18 +16,28 @@ func TestGuardHookModeFailsOnBaselineOrFreezeDrift(t *testing.T) {
 		"internal/archtest/freeze_baseline.json",
 	)
 	assertGuardModeFileContains(t, root, ".githooks/pre-commit",
-		"SUPER_DOLPHIN_GUARD_FAIL_ON_DRIFT=1",
-		"run_ai_maintenance_staged_gate",
-		"./scripts/ai_maintenance_gates.sh",
+		"command -v super-dolphin-gate",
+		`exec "$gate_bin" hook pre-commit`,
+	)
+	assertGuardModeFileExcludes(t, root, ".githooks/pre-commit",
+		"SUPER_DOLPHIN_GUARD_FAIL_ON_DRIFT",
+		"ai_maintenance",
+		"test_with_guard",
+		"go run",
 	)
 	assertGuardModeFileContains(t, root, "scripts/ai_maintenance/main.go",
 		`"backend:test_with_guard"`,
 		`"./scripts/test_with_guard.sh"`,
 	)
 	assertGuardModeFileContains(t, root, ".githooks/pre-push",
-		"SUPER_DOLPHIN_GUARD_FAIL_ON_DRIFT=1",
-		"run_ai_maintenance_push_gate",
-		"./scripts/ai_maintenance_gates.sh",
+		"command -v super-dolphin-gate",
+		`exec "$gate_bin" hook pre-push "$1" "$2"`,
+	)
+	assertGuardModeFileExcludes(t, root, ".githooks/pre-push",
+		"SUPER_DOLPHIN_GUARD_FAIL_ON_DRIFT",
+		"ai_maintenance",
+		"test_with_guard",
+		"go run",
 	)
 	assertGuardModeFileContains(t, root, ".github/workflows/ci.yml",
 		"SUPER_DOLPHIN_GUARD_FAIL_ON_DRIFT: \"1\"",
@@ -413,6 +423,20 @@ func assertGuardModeFileContains(t *testing.T, root, relPath string, wants ...st
 	for _, want := range wants {
 		if !strings.Contains(content, want) {
 			t.Fatalf("%s missing %q", relPath, want)
+		}
+	}
+}
+
+func assertGuardModeFileExcludes(t *testing.T, root, relPath string, forbidden ...string) {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join(root, relPath))
+	if err != nil {
+		t.Fatalf("read %s: %v", relPath, err)
+	}
+	content := string(data)
+	for _, value := range forbidden {
+		if strings.Contains(content, value) {
+			t.Fatalf("%s contains forbidden legacy hook entrypoint %q", relPath, value)
 		}
 	}
 }

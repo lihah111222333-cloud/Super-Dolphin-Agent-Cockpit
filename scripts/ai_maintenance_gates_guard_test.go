@@ -43,21 +43,14 @@ func TestAIMaintenanceGateVerifiesLocalHookArtifacts(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertScriptContains(t, script, "go run ./scripts/ai_maintenance run \"$@\"")
-	assertScriptContains(t, preCommit, "run_ai_maintenance_staged_gate")
-	assertScriptContains(t, preCommit, "./scripts/ai_maintenance_gates.sh")
-	assertScriptContains(t, preCommit, "--changed-file")
-	assertScriptContains(t, preCommit, "--prevalidated-gate")
-	assertScriptContains(t, preCommit, "go run ./scripts/ai_maintenance")
-	assertScriptContains(t, preCommit, "scripts/refresh_generated_artifacts.sh capcontract")
-	assertScriptContains(t, preCommit, "git add -- \"$CAPCONTRACT_MANIFEST\"")
-	assertScriptContains(t, prePush, "run_ai_maintenance_push_gate")
-	assertScriptContains(t, prePush, "./scripts/ai_maintenance_gates.sh")
-	assertScriptContains(t, prePush, "--changed-file")
-	assertScriptContains(t, prePush, "--cache-scope")
-	assertScriptContains(t, preCommit, "export GOFLAGS=")
-	assertScriptContains(t, prePush, "export GOFLAGS=")
-	if strings.Contains(prePush, "add_capcontract_path") || strings.Contains(prePush, "internal/provider/*") {
-		t.Fatal("pre-push must delegate capcontract routing to the unified AI plan")
+	assertScriptContains(t, preCommit, `exec "$gate_bin" hook pre-commit`)
+	assertScriptContains(t, prePush, `exec "$gate_bin" hook pre-push "$1" "$2"`)
+	for name, hook := range map[string]string{"pre-commit": preCommit, "pre-push": prePush} {
+		for _, forbidden := range []string{"ai_maintenance", "test_with_guard", "go run", "npm ", "make "} {
+			if strings.Contains(hook, forbidden) {
+				t.Fatalf("%s contains forbidden host gate %q", name, forbidden)
+			}
+		}
 	}
 }
 
@@ -120,10 +113,4 @@ func TestAIMaintenanceGateImplementationContracts(t *testing.T) {
 func TestGeneratedArtifactRefreshOrdersProducersBeforeConsumers(t *testing.T) {
 	refresh := readScript(t, "refresh_generated_artifacts.sh")
 	assertScriptContains(t, refresh, "refresh_codemap\n    refresh_capcontract\n    refresh_project_map")
-	preCommit := readRepoFile(t, "../.githooks/pre-commit")
-	capcontract := strings.Index(preCommit, "scripts/refresh_generated_artifacts.sh capcontract")
-	projectMap := strings.Index(preCommit, "scripts/refresh_generated_artifacts.sh project-map")
-	if capcontract < 0 || projectMap < 0 || capcontract > projectMap {
-		t.Fatal("pre-commit must refresh capability contract before project map")
-	}
 }

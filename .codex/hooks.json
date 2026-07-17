@@ -8,7 +8,7 @@
             "type": "command",
             "command": "bash \"$(git rev-parse --show-toplevel)/scripts/codex_stop_gate.sh\"",
             "timeout": 1200,
-            "statusMessage": "Running Super-Dolphin scoped tests and guards"
+            "statusMessage": "Waiting for the Super-Dolphin gate coordinator"
           }
         ]
       }
@@ -20,7 +20,7 @@
             "type": "command",
             "command": "bash \"$(git rev-parse --show-toplevel)/scripts/codex_stop_gate.sh\"",
             "timeout": 1200,
-            "statusMessage": "Running Super-Dolphin scoped tests and guards"
+            "statusMessage": "Waiting for the Super-Dolphin gate coordinator"
           }
         ]
       }
