@@ -1,0 +1,176 @@
+{
+  "version": 1,
+  "testFile": "scripts/frontend-dependency-direction-guard.test.mjs",
+  "caseIds": [
+    "A03-production",
+    "A03-upward-import",
+    "A03-dynamic-import",
+    "A03-computed-import",
+    "A03-require",
+    "A03-re-export",
+    "A03-alias-barrel",
+    "A03-transitive-barrel",
+    "A03-unknown-source-layer",
+    "A03-unknown-target-layer",
+    "A03-expired-exemption",
+    "A03-exemption-drift",
+    "A03-source-exclusion-drift",
+    "A03-zero-tests",
+    "A03-legal-import"
+  ],
+  "aliases": {
+    "@/": "src/",
+    "~/": "src/"
+  },
+  "rootLayer": "app",
+  "sourceExclusions": [
+    {
+      "path": "src/__tests__/reactQueryRender.jsx",
+      "owner": "frontend-architecture",
+      "reason": "Vitest-only React Query render helper; exact registration prevents a test directory from becoming a broad production blind spot."
+    },
+    {
+      "path": "src/pages/chat/__tests__/chatPageTestSupport.js",
+      "owner": "frontend-architecture",
+      "reason": "Chat test-only fixture helper; exact registration is checked against the live test directory contents."
+    },
+    {
+      "path": "src/test-utils/importAst.js",
+      "owner": "frontend-architecture",
+      "reason": "AST helper used only by frontend tests; exact registration is checked against the live test-utils directory."
+    }
+  ],
+  "allowedDirections": [
+    "adapters->shared",
+    "app->adapters",
+    "app->devtools",
+    "app->entities",
+    "app->features",
+    "app->pages",
+    "app->services",
+    "app->shared",
+    "devtools->adapters",
+    "devtools->entities",
+    "devtools->features",
+    "devtools->pages",
+    "devtools->services",
+    "devtools->shared",
+    "entities->shared",
+    "features->adapters",
+    "features->entities",
+    "features->shared",
+    "pages->adapters",
+    "pages->entities",
+    "pages->features",
+    "pages->services",
+    "pages->shared",
+    "services->adapters",
+    "services->entities",
+    "services->shared"
+  ],
+  "layers": [
+    {
+      "name": "shared",
+      "rank": 0,
+      "prefixes": [
+        "src/shared/"
+      ]
+    },
+    {
+      "name": "adapters",
+      "rank": 1,
+      "prefixes": [
+        "src/adapters/"
+      ]
+    },
+    {
+      "name": "entities",
+      "rank": 1,
+      "prefixes": [
+        "src/entities/"
+      ]
+    },
+    {
+      "name": "services",
+      "rank": 2,
+      "prefixes": [
+        "src/services/"
+      ]
+    },
+    {
+      "name": "features",
+      "rank": 2,
+      "prefixes": [
+        "src/features/"
+      ]
+    },
+    {
+      "name": "pages",
+      "rank": 3,
+      "prefixes": [
+        "src/pages/"
+      ]
+    },
+    {
+      "name": "app",
+      "rank": 4,
+      "prefixes": [
+        "src/app/"
+      ]
+    },
+    {
+      "name": "devtools",
+      "rank": 4,
+      "prefixes": [
+        "src/devtools/"
+      ]
+    }
+  ],
+  "exemptions": [
+    {
+      "from": "src/features/prompts/PromptPageView.jsx",
+      "kind": "import",
+      "specifier": "../../pages/prompts/services/promptPageService.js",
+      "to": "src/pages/prompts/services/promptPageService.js",
+      "expiresOn": "2026-08-31",
+      "owner": "frontend-architecture",
+      "reason": "PromptPageView is still hosted under features while its backend facade remains page-owned; move the facade before expiry."
+    },
+    {
+      "from": "src/features/prompts/PromptPageView.jsx",
+      "kind": "import",
+      "specifier": "../../pages/shared/pageShared.js",
+      "to": "src/pages/shared/pageShared.js",
+      "expiresOn": "2026-08-31",
+      "owner": "frontend-architecture",
+      "reason": "Prompt shared parsing helpers must move below features before expiry."
+    },
+    {
+      "from": "src/pages/chat/ChatPage.jsx",
+      "kind": "import",
+      "specifier": "../../app/shell/model/useShellLayoutStore.js",
+      "to": "src/app/shell/model/useShellLayoutStore.js",
+      "expiresOn": "2026-08-31",
+      "owner": "frontend-architecture",
+      "reason": "Chat layout access predates the page-to-app boundary; expose a lower-level layout port before expiry."
+    },
+    {
+      "from": "src/shared/api/wails/wailsBridgeLogRuntime.js",
+      "kind": "dynamic-import",
+      "specifier": "<non-literal>",
+      "to": "<unresolved>",
+      "expiresOn": "2026-08-31",
+      "owner": "frontend-architecture",
+      "reason": "The browser-native Wails runtime loader accepts only the modulePath parameter and is invoked with the fixed public runtime module; replace it with a statically auditable loader before expiry."
+    },
+    {
+      "from": "src/shared/api/wailsBridge.js",
+      "kind": "dynamic-import",
+      "specifier": "<non-literal>",
+      "to": "<unresolved>",
+      "expiresOn": "2026-08-31",
+      "owner": "frontend-architecture",
+      "reason": "The facade preserves the fixed browser-native Wails runtime import contract; remove the parameterized compatibility shell before expiry."
+    }
+  ]
+}

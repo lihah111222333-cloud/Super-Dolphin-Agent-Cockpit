@@ -342,6 +342,22 @@ func TestBuildGatePlanRoutesTurnContractProductionChain(t *testing.T) {
 	}
 }
 
+func TestBuildGatePlanRoutesFrontendStaticGuardInputs(t *testing.T) {
+	for _, file := range []string{
+		"frontend-app/package.json",
+		"frontend-app/scripts/frontend-state-ownership-registry.json",
+		"frontend-app/scripts/frontend-dependency-direction-guard.mjs",
+		"frontend-app/src/entities/client/model/helpers/warningRuntime.js",
+		"frontend-app/src/pages/chat/ChatPage.jsx",
+	} {
+		plan := mustBuildGatePlan(t, []string{file})
+		assertStringSetContains(t, plan.RequiredGates, "frontend:static-guards")
+	}
+
+	plan := mustBuildGatePlan(t, []string{"docs/plans/frontend.md"})
+	assertStringSetOmits(t, plan.RequiredGates, "frontend:static-guards")
+}
+
 func TestBuildGatePlanRoutesAllProductionGoToTurnContract(t *testing.T) {
 	for _, file := range []string{
 		"cmd/example/main.go",
@@ -629,6 +645,8 @@ LSP_EVIDENCE:
   diagnostics: PASS
 COMMANDS_RUN:
   - cmd: go run ./scripts/lsp_diagnostics_gate --file frontend-app/src/App.jsx
+    exit: 0
+  - cmd: cd frontend-app && npm run guard:architecture
     exit: 0
   - cmd: cd frontend-app && npm run lint
     exit: 0
