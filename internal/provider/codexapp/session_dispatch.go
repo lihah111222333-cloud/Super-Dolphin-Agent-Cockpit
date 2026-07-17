@@ -131,6 +131,7 @@ func (s *session) takeTurn(turnID string) *turnHandle {
 	}
 	h := s.turns[turnID]
 	delete(s.turns, turnID)
+	delete(s.interruptRequests, turnID)
 	if turnID == s.activeTurnID {
 		s.setActiveTurnLocked("")
 	}
@@ -152,9 +153,13 @@ func (s *session) applyAcceptedInterruptRequest(method string, payload map[strin
 	}
 	s.mu.Lock()
 	claim := s.interruptRequests[turnID]
-	delete(s.interruptRequests, turnID)
+	state := interruptRequestReserved
+	if claim != nil {
+		state = claim.state
+		claim.state = interruptRequestConsumed
+	}
 	s.mu.Unlock()
-	if claim == nil || claim.state == interruptRequestReserved {
+	if claim == nil || state == interruptRequestReserved {
 		return false
 	}
 	requestID := strings.TrimSpace(claim.requestID)

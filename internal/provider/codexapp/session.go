@@ -80,6 +80,8 @@ var _ contract.Session = (*session)(nil)
 
 var codexToolSurfaceSeq atomic.Uint64
 
+var errInterruptRequestAlreadyClaimed = errors.New("codexapp: interrupt request already claimed for active turn")
+
 type turnHandle struct {
 	localID    string
 	providerID string
@@ -595,6 +597,7 @@ const (
 	interruptRequestReserved interruptRequestState = iota
 	interruptRequestPending
 	interruptRequestAccepted
+	interruptRequestConsumed
 )
 
 type interruptRequestClaim struct {
@@ -604,15 +607,19 @@ type interruptRequestClaim struct {
 	state      interruptRequestState
 }
 
+// reserveInterruptRequest 为 active turn 建立唯一 Stop ownership；已有 claim 时在 wire 前拒绝并发请求。
 func (s *session) reserveInterruptRequest(claim interruptTargetClaim, requestID string) (*interruptRequestClaim, error) {
 	requestID = strings.TrimSpace(requestID)
-	if requestID == "" {
-		return nil, nil
-	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if claim.turnID != strings.TrimSpace(s.activeTurnID) || claim.generation != s.activeTurnGeneration {
 		return nil, contract.ErrInterruptTargetChanged
+	}
+	if s.interruptRequests[claim.turnID] != nil {
+		return nil, errInterruptRequestAlreadyClaimed
+	}
+	if requestID == "" {
+		return nil, nil
 	}
 	if s.interruptRequests == nil {
 		s.interruptRequests = map[string]*interruptRequestClaim{}
@@ -645,7 +652,8 @@ func (s *session) rollbackInterruptRequest(requestClaim *interruptRequestClaim) 
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if current := s.interruptRequests[requestClaim.turnID]; current == requestClaim && current.state != interruptRequestAccepted {
+	if current := s.interruptRequests[requestClaim.turnID]; current == requestClaim &&
+		current.state != interruptRequestAccepted && current.state != interruptRequestConsumed {
 		delete(s.interruptRequests, requestClaim.turnID)
 	}
 }
@@ -658,6 +666,9 @@ func (s *session) markInterruptRequestAccepted(claim interruptTargetClaim, reque
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.interruptRequests[claim.turnID] != requestClaim {
+		return
+	}
+	if requestClaim.state == interruptRequestConsumed {
 		return
 	}
 	if claim.turnID != strings.TrimSpace(s.activeTurnID) || claim.generation != s.activeTurnGeneration ||

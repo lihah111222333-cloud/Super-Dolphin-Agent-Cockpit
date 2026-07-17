@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -137,6 +138,43 @@ func TestSessionInterruptTargetChangesBeforeWireWrite(t *testing.T) {
 	}
 }
 
+func TestSessionInterruptPendingClaimRejectsSecondRequestWithoutWire(t *testing.T) {
+	serverURL, firstSeen, releaseFirst, calls := startBlockedInterruptResponseServer(t)
+	s := newActiveInterruptTestSession(t, serverURL, nil)
+	firstErr := make(chan error, 1)
+	runtimesafe.SafeGo(context.Background(), pkglogger.Get(), "codexapp.test.first-pending-interrupt", func(context.Context) {
+		firstErr <- s.Interrupt(context.Background(), interruptTestRequest("request-A"))
+	})
+	waitForInterruptSignal(t, firstSeen, "first interrupt wire request")
+	baseline := s.transport.nextID.Load()
+
+	err := s.Interrupt(context.Background(), interruptTestRequest("request-B"))
+	if !errors.Is(err, errInterruptRequestAlreadyClaimed) {
+		close(releaseFirst)
+		t.Fatalf("second Interrupt() error = %v, want already claimed", err)
+	}
+	if got := s.transport.nextID.Load(); got != baseline {
+		close(releaseFirst)
+		t.Fatalf("second Interrupt() advanced wire request ID from %d to %d", baseline, got)
+	}
+	if got := calls.Load(); got != 1 {
+		close(releaseFirst)
+		t.Fatalf("interrupt wire calls = %d, want 1", got)
+	}
+	s.mu.Lock()
+	retained := s.interruptRequests["turn-1"]
+	s.mu.Unlock()
+	if retained == nil || retained.requestID != "request-A" || retained.state != interruptRequestPending {
+		close(releaseFirst)
+		t.Fatalf("retained claim = %#v, want pending request-A", retained)
+	}
+
+	close(releaseFirst)
+	if err := waitForInterruptError(t, firstErr, "first interrupt response"); err != nil {
+		t.Fatalf("first Interrupt() error = %v", err)
+	}
+}
+
 func TestSessionInterruptNotificationBeforeResponseKeepsAcceptedRequestID(t *testing.T) {
 	bus := event.NewDispatcher()
 	defer func() { _ = bus.Close() }()
@@ -146,35 +184,69 @@ func TestSessionInterruptNotificationBeforeResponseKeepsAcceptedRequestID(t *tes
 	cancelTerminal := event.Subscribe(bus, func(ev turndto.TurnCompleted) { terminals <- ev })
 	defer cancelTerminal()
 
-	serverURL := startInterruptNotificationBeforeResponseServer(t)
-	s, err := newSession(context.Background(), pkglogger.Get(), serverURL, "agent-1", dispatcher, testApprovalManager(), nil)
-	if err != nil {
-		t.Fatalf("newSession() error = %v", err)
-	}
-	s.setThreadID("thread-1")
-	handle := newTurnHandle("local-1", "turn-1")
-	s.mu.Lock()
-	s.turns["turn-1"] = handle
-	s.setActiveTurnLocked("turn-1")
-	s.mu.Unlock()
-	s.runtime.Start()
-	t.Cleanup(func() { closeCodexTestSession(t, s) })
-
-	if err := s.Interrupt(context.Background(), dto.InterruptRequest{
-		ThreadID: "thread-1", TurnID: "turn-1", Source: "ui_stop", RequestID: "request-A",
-	}); err != nil {
-		t.Fatalf("Interrupt() error = %v", err)
-	}
+	serverURL, notificationSent, releaseResponse, calls := startInterruptNotificationBeforeResponseServer(t)
+	s := newActiveInterruptTestSession(t, serverURL, dispatcher)
+	firstErr := make(chan error, 1)
+	runtimesafe.SafeGo(context.Background(), pkglogger.Get(), "codexapp.test.notification-before-response", func(context.Context) {
+		firstErr <- s.Interrupt(context.Background(), interruptTestRequest("request-A"))
+	})
+	waitForInterruptSignal(t, notificationSent, "interrupt terminal notification")
 	select {
 	case terminal := <-terminals:
 		assertAcceptedInterruptTerminal(t, terminal)
 	case <-time.After(time.Second):
 		t.Fatal("timed out waiting for notification-before-response terminal")
 	}
+	baseline := s.transport.nextID.Load()
+	secondErr := s.Interrupt(context.Background(), interruptTestRequest("request-B"))
+	if !errors.Is(secondErr, errInterruptRequestAlreadyClaimed) && !errors.Is(secondErr, contract.ErrInterruptTargetChanged) {
+		close(releaseResponse)
+		t.Fatalf("second concurrent Interrupt() error = %v, want claimed or target changed", secondErr)
+	}
+	if got := s.transport.nextID.Load(); got != baseline {
+		close(releaseResponse)
+		t.Fatalf("second concurrent Interrupt() advanced wire request ID from %d to %d", baseline, got)
+	}
+	if got := calls.Load(); got != 1 {
+		close(releaseResponse)
+		t.Fatalf("interrupt wire calls = %d, want 1", got)
+	}
+
+	close(releaseResponse)
+	if err := waitForInterruptError(t, firstErr, "late interrupt response"); err != nil {
+		t.Fatalf("first Interrupt() error = %v", err)
+	}
 	select {
 	case duplicate := <-terminals:
 		t.Fatalf("late interrupt response published duplicate terminal: %#v", duplicate)
 	case <-time.After(100 * time.Millisecond):
+	}
+}
+
+func TestSessionInterruptConsumedClaimBlocksReplacementUntilTurnCleanup(t *testing.T) {
+	s := &session{
+		activeTurnID:         "turn-1",
+		activeTurnGeneration: 7,
+		interruptRequests: map[string]*interruptRequestClaim{"turn-1": {
+			turnID: "turn-1", requestID: "request-A", generation: 7, state: interruptRequestPending,
+		}},
+	}
+	payload := map[string]any{"turnId": "turn-1"}
+	if !s.applyAcceptedInterruptRequest("turn/aborted", payload) {
+		t.Fatal("pending interrupt terminal was not attributed")
+	}
+	claim, err := s.claimInterruptTarget("turn-1")
+	if err != nil {
+		t.Fatalf("claimInterruptTarget() error = %v", err)
+	}
+	if _, err = s.reserveInterruptRequest(claim, "request-B"); !errors.Is(err, errInterruptRequestAlreadyClaimed) {
+		t.Fatalf("reserveInterruptRequest() error = %v, want already claimed", err)
+	}
+	s.mu.Lock()
+	retained := s.interruptRequests["turn-1"]
+	s.mu.Unlock()
+	if retained == nil || retained.requestID != "request-A" || retained.state != interruptRequestConsumed {
+		t.Fatalf("retained consumed claim = %#v, want request-A", retained)
 	}
 }
 
@@ -187,26 +259,18 @@ func assertAcceptedInterruptTerminal(t *testing.T, terminal turndto.TurnComplete
 }
 
 func TestSessionInterruptResponseFailureRollsBackPendingClaim(t *testing.T) {
+	var calls atomic.Int32
 	serverURL := startCodexRPCServerWithHandler(t, func(msg jsonRPCMessage) json.RawMessage {
 		if strings.TrimSpace(msg.Method) == "turn/interrupt" {
-			return mustJSON(map[string]any{"$rpcError": "interrupt rejected"})
+			if calls.Add(1) == 1 {
+				return mustJSON(map[string]any{"$rpcError": "interrupt rejected"})
+			}
 		}
 		return mustJSON(map[string]any{"ok": true})
 	})
-	s, err := newSession(context.Background(), pkglogger.Get(), serverURL, "agent-1", nil, testApprovalManager(), nil)
-	if err != nil {
-		t.Fatalf("newSession() error = %v", err)
-	}
-	s.setThreadID("thread-1")
-	s.mu.Lock()
-	s.setActiveTurnLocked("turn-1")
-	s.mu.Unlock()
-	s.runtime.Start()
-	t.Cleanup(func() { closeCodexTestSession(t, s) })
+	s := newActiveInterruptTestSession(t, serverURL, nil)
 
-	err = s.Interrupt(context.Background(), dto.InterruptRequest{
-		ThreadID: "thread-1", TurnID: "turn-1", Source: "ui_stop", RequestID: "request-A",
-	})
+	err := s.Interrupt(context.Background(), interruptTestRequest("request-A"))
 	if err == nil {
 		t.Fatal("Interrupt() error = nil, want provider rejection")
 	}
@@ -216,30 +280,55 @@ func TestSessionInterruptResponseFailureRollsBackPendingClaim(t *testing.T) {
 	if retained {
 		t.Fatal("failed interrupt retained pending request claim")
 	}
+	if err := s.Interrupt(context.Background(), interruptTestRequest("request-B")); err != nil {
+		t.Fatalf("Interrupt() after rollback error = %v", err)
+	}
+	s.mu.Lock()
+	replacement := s.interruptRequests["turn-1"]
+	s.mu.Unlock()
+	if calls.Load() != 2 || replacement == nil || replacement.requestID != "request-B" || replacement.state != interruptRequestAccepted {
+		t.Fatalf("replacement claim = %#v, calls=%d, want accepted request-B after two wires", replacement, calls.Load())
+	}
 }
 
-func startInterruptNotificationBeforeResponseServer(t *testing.T) string {
+func startInterruptNotificationBeforeResponseServer(t *testing.T) (string, <-chan struct{}, chan struct{}, *atomic.Int32) {
 	t.Helper()
+	notificationSent := make(chan struct{}, 1)
+	releaseResponse := make(chan struct{})
+	calls := &atomic.Int32{}
+	t.Cleanup(func() { closeInterruptSignal(releaseResponse) })
 	upgrader := websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		conn, err := upgrader.Upgrade(w, r, nil)
 		if err != nil {
 			return
 		}
-		serveInterruptNotificationBeforeResponse(t, conn)
+		serveInterruptNotificationBeforeResponse(t, conn, notificationSent, releaseResponse, calls)
 	}))
 	t.Cleanup(server.Close)
-	return "ws" + strings.TrimPrefix(server.URL, "http")
+	return "ws" + strings.TrimPrefix(server.URL, "http"), notificationSent, releaseResponse, calls
 }
 
-func serveInterruptNotificationBeforeResponse(t *testing.T, conn *websocket.Conn) {
+func serveInterruptNotificationBeforeResponse(
+	t *testing.T,
+	conn *websocket.Conn,
+	notificationSent chan<- struct{},
+	releaseResponse <-chan struct{},
+	calls *atomic.Int32,
+) {
 	t.Helper()
 	defer conn.Close()
-	for handleInterruptServerMessage(t, conn) {
+	for handleInterruptServerMessage(t, conn, notificationSent, releaseResponse, calls) {
 	}
 }
 
-func handleInterruptServerMessage(t *testing.T, conn *websocket.Conn) bool {
+func handleInterruptServerMessage(
+	t *testing.T,
+	conn *websocket.Conn,
+	notificationSent chan<- struct{},
+	releaseResponse <-chan struct{},
+	calls *atomic.Int32,
+) bool {
 	t.Helper()
 	_, raw, err := conn.ReadMessage()
 	if err != nil {
@@ -249,8 +338,13 @@ func handleInterruptServerMessage(t *testing.T, conn *websocket.Conn) bool {
 	if !ok {
 		return true
 	}
-	if strings.TrimSpace(msg.Method) == "turn/interrupt" && !writeInterruptTerminalNotification(conn) {
-		return false
+	if strings.TrimSpace(msg.Method) == "turn/interrupt" {
+		calls.Add(1)
+		if !writeInterruptTerminalNotification(conn) {
+			return false
+		}
+		notificationSent <- struct{}{}
+		<-releaseResponse
 	}
 	result := codexTestRPCResultOrDefault(msg.Method, mustJSON(map[string]any{"ok": true}))
 	return writeCodexTestRPCResponse(t, conn, msg.ID, result)
@@ -262,6 +356,73 @@ func writeInterruptTerminalNotification(conn *websocket.Conn) bool {
 		"params": map[string]any{"threadId": "thread-1", "turnId": "turn-1"},
 	}
 	return conn.WriteJSON(notification) == nil
+}
+
+func startBlockedInterruptResponseServer(t *testing.T) (string, <-chan struct{}, chan struct{}, *atomic.Int32) {
+	t.Helper()
+	firstSeen := make(chan struct{}, 1)
+	releaseFirst := make(chan struct{})
+	calls := &atomic.Int32{}
+	t.Cleanup(func() { closeInterruptSignal(releaseFirst) })
+	serverURL := startCodexRPCServerWithHandler(t, func(msg jsonRPCMessage) json.RawMessage {
+		if strings.TrimSpace(msg.Method) == "turn/interrupt" {
+			calls.Add(1)
+			firstSeen <- struct{}{}
+			<-releaseFirst
+		}
+		return mustJSON(map[string]any{"ok": true})
+	})
+	return serverURL, firstSeen, releaseFirst, calls
+}
+
+func newActiveInterruptTestSession(t *testing.T, serverURL string, dispatcher *unified.EventDispatcher) *session {
+	t.Helper()
+	s, err := newSession(context.Background(), pkglogger.Get(), serverURL, "agent-1", dispatcher, testApprovalManager(), nil)
+	if err != nil {
+		t.Fatalf("newSession() error = %v", err)
+	}
+	s.setThreadID("thread-1")
+	s.mu.Lock()
+	s.turns["turn-1"] = newTurnHandle("local-1", "turn-1")
+	s.setActiveTurnLocked("turn-1")
+	s.mu.Unlock()
+	s.runtime.Start()
+	t.Cleanup(func() { closeCodexTestSession(t, s) })
+	return s
+}
+
+func interruptTestRequest(requestID string) dto.InterruptRequest {
+	return dto.InterruptRequest{
+		ThreadID: "thread-1", TurnID: "turn-1", Source: "ui_stop", RequestID: requestID,
+	}
+}
+
+func waitForInterruptSignal(t *testing.T, signal <-chan struct{}, name string) {
+	t.Helper()
+	select {
+	case <-signal:
+	case <-time.After(time.Second):
+		t.Fatalf("timed out waiting for %s", name)
+	}
+}
+
+func waitForInterruptError(t *testing.T, errCh <-chan error, name string) error {
+	t.Helper()
+	select {
+	case err := <-errCh:
+		return err
+	case <-time.After(time.Second):
+		t.Fatalf("timed out waiting for %s", name)
+		return nil
+	}
+}
+
+func closeInterruptSignal(signal chan struct{}) {
+	select {
+	case <-signal:
+	default:
+		close(signal)
+	}
 }
 
 func waitForInterruptCallRegistration(t *testing.T, tr *transport, baseline int64) {
