@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -31,6 +32,11 @@ type cooperativeTerminationServer interface {
 	Close() error
 }
 
+type filesystemHelperMode struct {
+	name string
+	run  func(io.Reader, io.Writer) (bool, error)
+}
+
 type terminalMainDeps struct {
 	prepareReleaseFilesystemHelper func() (func() error, error)
 	prepareSchemaFilesystemWorker  func() (func() error, error)
@@ -46,22 +52,33 @@ func main() {
 
 // runAgentTerminalProcess 在 signal/UI 前依次分流 release 与 schema filesystem helper。
 func runAgentTerminalProcess() int {
-	if handled, err := recovery.RunReleaseFilesystemHelperIfRequested(os.Stdin, os.Stdout); handled {
+	handled, name, err := routeFilesystemHelperModes(os.Stdin, os.Stdout, []filesystemHelperMode{
+		{name: "release", run: recovery.RunReleaseFilesystemHelperIfRequested},
+		{name: "schema", run: app.RunSchemaFilesystemWorkerIfRequested},
+	})
+	if handled {
 		if err != nil {
-			slog.Error("release filesystem helper failed", "error", err)
-			return 2
-		}
-		return 0
-	}
-	if handled, err := app.RunSchemaFilesystemWorkerIfRequested(os.Stdin, os.Stdout); handled {
-		if err != nil {
-			slog.Error("schema filesystem worker failed", "error", err)
+			slog.Error("filesystem helper failed", "helper", name, "error", err)
 			return 2
 		}
 		return 0
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	return runMain(ctx, stop, productionTerminalMainDeps())
+}
+
+// routeFilesystemHelperModes 按冻结顺序分流 helper，首个 handled 或错误立即阻断后续模式。
+func routeFilesystemHelperModes(reader io.Reader, writer io.Writer, modes []filesystemHelperMode) (bool, string, error) {
+	for _, mode := range modes {
+		if mode.name == "" || mode.run == nil {
+			return true, mode.name, errors.New("agent-terminal filesystem helper mode is incomplete")
+		}
+		handled, err := mode.run(reader, writer)
+		if handled || err != nil {
+			return true, mode.name, err
+		}
+	}
+	return false, "", nil
 }
 
 // runMain 返回退出码，确保最外层 os.Exit 前完成全部 cleanup defer。

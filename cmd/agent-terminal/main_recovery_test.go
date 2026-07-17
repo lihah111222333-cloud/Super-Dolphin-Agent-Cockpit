@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"io"
 	"slices"
 	"testing"
 
@@ -93,6 +94,41 @@ func TestActiveProbationNormalFailureDoesNotOpenRecovery(t *testing.T) {
 	}
 }
 
+func TestRouteFilesystemHelperModesChecksReleaseBeforeSchema(t *testing.T) {
+	events := make([]string, 0, 2)
+	modes := []filesystemHelperMode{
+		{name: "release", run: func(io.Reader, io.Writer) (bool, error) {
+			events = append(events, "release")
+			return false, nil
+		}},
+		{name: "schema", run: func(io.Reader, io.Writer) (bool, error) {
+			events = append(events, "schema")
+			return true, nil
+		}},
+	}
+	handled, name, err := routeFilesystemHelperModes(nil, nil, modes)
+	if !handled || name != "schema" || err != nil {
+		t.Fatalf("route result = handled %t name %q error %v", handled, name, err)
+	}
+	if want := []string{"release", "schema"}; !slices.Equal(events, want) {
+		t.Fatalf("filesystem helper route events = %v, want %v", events, want)
+	}
+}
+
+func TestRouteFilesystemHelperModesStopsAfterReleaseHandles(t *testing.T) {
+	modes := []filesystemHelperMode{
+		{name: "release", run: func(io.Reader, io.Writer) (bool, error) { return true, nil }},
+		{name: "schema", run: func(io.Reader, io.Writer) (bool, error) {
+			t.Fatal("schema helper recursively routed after release helper handled")
+			return false, nil
+		}},
+	}
+	handled, name, err := routeFilesystemHelperModes(nil, nil, modes)
+	if !handled || name != "release" || err != nil {
+		t.Fatalf("route result = handled %t name %q error %v", handled, name, err)
+	}
+}
+
 type fakeTerminationServer struct {
 	closed    bool
 	activated bool
@@ -119,7 +155,8 @@ func TestRunMainErrorExitRunsTerminationCleanup(t *testing.T) {
 	stopped := false
 	runErr := errors.New("desktop failed")
 	exitCode := runMain(t.Context(), func() { stopped = true }, terminalMainDeps{
-		prepareFilesystemHelper: prepareTestFilesystemHelper,
+		prepareReleaseFilesystemHelper: prepareTestFilesystemHelper,
+		prepareSchemaFilesystemWorker:  prepareTestFilesystemHelper,
 		startTermination: func(context.CancelFunc) (cooperativeTerminationServer, bool, error) {
 			return server, false, nil
 		},
@@ -134,7 +171,8 @@ func TestRunMainParkedWaitFailureRunsCleanup(t *testing.T) {
 	waitErr := errors.New("activation failed")
 	server := &fakeTerminationServer{waitErr: waitErr}
 	exitCode := runMain(t.Context(), func() {}, terminalMainDeps{
-		prepareFilesystemHelper: prepareTestFilesystemHelper,
+		prepareReleaseFilesystemHelper: prepareTestFilesystemHelper,
+		prepareSchemaFilesystemWorker:  prepareTestFilesystemHelper,
 		startTermination: func(context.CancelFunc) (cooperativeTerminationServer, bool, error) {
 			return server, true, nil
 		},
@@ -148,16 +186,11 @@ func TestRunMainParkedWaitFailureRunsCleanup(t *testing.T) {
 	}
 }
 
-func TestRunMainStagesFilesystemHelperBeforeStartupAndCleansAfterRuntime(t *testing.T) {
-	events := make([]string, 0, 5)
+func TestRunMainPreparesBothHelpersAndCleansInReverseOrder(t *testing.T) {
+	events := make([]string, 0, 7)
 	exitCode := runMain(t.Context(), func() { events = append(events, "stop") }, terminalMainDeps{
-		prepareFilesystemHelper: func() (func() error, error) {
-			events = append(events, "prepare")
-			return func() error {
-				events = append(events, "cleanup")
-				return nil
-			}, nil
-		},
+		prepareReleaseFilesystemHelper: recordedHelperPreparation(&events, "prepare-release", "cleanup-release", nil),
+		prepareSchemaFilesystemWorker:  recordedHelperPreparation(&events, "prepare-schema", "cleanup-schema", nil),
 		startTermination: func(context.CancelFunc) (cooperativeTerminationServer, bool, error) {
 			events = append(events, "termination")
 			return nil, false, nil
@@ -170,8 +203,62 @@ func TestRunMainStagesFilesystemHelperBeforeStartupAndCleansAfterRuntime(t *test
 	if exitCode != 0 {
 		t.Fatalf("runMain exit = %d, want 0", exitCode)
 	}
-	want := []string{"prepare", "termination", "run", "cleanup", "stop"}
+	want := []string{"prepare-release", "prepare-schema", "termination", "run", "cleanup-schema", "cleanup-release", "stop"}
 	if !slices.Equal(events, want) {
 		t.Fatalf("runMain events = %v, want %v", events, want)
+	}
+}
+
+func TestRunMainSchemaPreparationFailureCleansReleaseAndStopsStartup(t *testing.T) {
+	events := make([]string, 0, 4)
+	prepareErr := errors.New("schema preparation failed")
+	exitCode := runMain(t.Context(), func() { events = append(events, "stop") }, terminalMainDeps{
+		prepareReleaseFilesystemHelper: recordedHelperPreparation(&events, "prepare-release", "cleanup-release", nil),
+		prepareSchemaFilesystemWorker: func() (func() error, error) {
+			events = append(events, "prepare-schema")
+			return nil, prepareErr
+		},
+		startTermination: func(context.CancelFunc) (cooperativeTerminationServer, bool, error) {
+			t.Fatal("termination server started after schema preparation failure")
+			return nil, false, nil
+		},
+		run: func(context.Context, terminalDeps) error {
+			t.Fatal("desktop ran after schema preparation failure")
+			return nil
+		},
+	})
+	if exitCode != 1 {
+		t.Fatalf("runMain exit = %d, want 1", exitCode)
+	}
+	want := []string{"prepare-release", "prepare-schema", "cleanup-release", "stop"}
+	if !slices.Equal(events, want) {
+		t.Fatalf("runMain events = %v, want %v", events, want)
+	}
+}
+
+func TestRunMainHelperCleanupErrorChangesSuccessfulExit(t *testing.T) {
+	cleanupErr := errors.New("schema cleanup failed")
+	exitCode := runMain(t.Context(), func() {}, terminalMainDeps{
+		prepareReleaseFilesystemHelper: prepareTestFilesystemHelper,
+		prepareSchemaFilesystemWorker: func() (func() error, error) {
+			return func() error { return cleanupErr }, nil
+		},
+		startTermination: func(context.CancelFunc) (cooperativeTerminationServer, bool, error) {
+			return nil, false, nil
+		},
+		run: func(context.Context, terminalDeps) error { return nil },
+	})
+	if exitCode != 1 {
+		t.Fatalf("runMain cleanup error exit = %d, want 1", exitCode)
+	}
+}
+
+func recordedHelperPreparation(events *[]string, prepare, cleanup string, cleanupErr error) func() (func() error, error) {
+	return func() (func() error, error) {
+		*events = append(*events, prepare)
+		return func() error {
+			*events = append(*events, cleanup)
+			return cleanupErr
+		}, nil
 	}
 }

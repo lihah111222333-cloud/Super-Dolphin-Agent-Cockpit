@@ -299,15 +299,18 @@ type admittedMCPTool struct {
 type lazyMCPSchemaExecutor struct {
 	config           schema.ClientConfig
 	profile          contract.DependencyProfile
-	once             sync.Once
+	mu               sync.Mutex
+	client           mcpSchemaExecutor
+	terminalErr      error
 	init             *mcpSchemaClientInit
 	initializeClient func(context.Context) (mcpSchemaExecutor, error)
 }
 
 type mcpSchemaClientInit struct {
-	done   chan struct{}
-	client mcpSchemaExecutor
-	err    error
+	done      chan struct{}
+	client    mcpSchemaExecutor
+	err       error
+	retryable bool
 }
 
 // Execute 延迟绑定当前应用 identity，并只执行已校验后固定的 helper 镜像。
@@ -317,25 +320,73 @@ func (executor *lazyMCPSchemaExecutor) Execute(ctx context.Context, invocation s
 	}
 	operationCtx, cancel := schema.WithOperationDeadline(ctx)
 	defer cancel()
-	candidate := &mcpSchemaClientInit{done: make(chan struct{})}
-	executor.once.Do(func() {
-		executor.init = candidate
-	})
-	state := executor.init
-	if state == candidate {
-		state.client, state.err = executor.initialize(operationCtx)
-		close(state.done)
-	} else {
+	client, err := executor.resolveClient(operationCtx)
+	if err != nil {
+		return schema.Result{}, err
+	}
+	return client.Execute(operationCtx, invocation, fence)
+}
+
+// resolveClient 合并并发初始化；仅调用者取消类失败允许下一轮重新竞争。
+func (executor *lazyMCPSchemaExecutor) resolveClient(ctx context.Context) (mcpSchemaExecutor, error) {
+	for {
+		if err := ctx.Err(); err != nil {
+			return nil, fmt.Errorf("toolbridge: MCP schema initialization context: %w", err)
+		}
+		state, owner, client, err := executor.initializationState()
+		if client != nil || err != nil {
+			return client, err
+		}
+		if owner {
+			executor.runInitialization(ctx, state)
+			return state.client, state.err
+		}
 		select {
 		case <-state.done:
-		case <-operationCtx.Done():
-			return schema.Result{}, fmt.Errorf("toolbridge: wait for MCP schema client initialization: %w", operationCtx.Err())
+			if state.retryable {
+				continue
+			}
+			return state.client, state.err
+		case <-ctx.Done():
+			return nil, fmt.Errorf("toolbridge: wait for MCP schema client initialization: %w", ctx.Err())
 		}
 	}
-	if state.err != nil {
-		return schema.Result{}, state.err
+}
+
+func (executor *lazyMCPSchemaExecutor) initializationState() (*mcpSchemaClientInit, bool, mcpSchemaExecutor, error) {
+	executor.mu.Lock()
+	defer executor.mu.Unlock()
+	if executor.client != nil || executor.terminalErr != nil {
+		return nil, false, executor.client, executor.terminalErr
 	}
-	return state.client.Execute(operationCtx, invocation, fence)
+	if executor.init != nil {
+		return executor.init, false, nil, nil
+	}
+	state := &mcpSchemaClientInit{done: make(chan struct{})}
+	executor.init = state
+	return state, true, nil, nil
+}
+
+func (executor *lazyMCPSchemaExecutor) runInitialization(ctx context.Context, state *mcpSchemaClientInit) {
+	client, err := executor.initialize(ctx)
+	if client == nil && err == nil {
+		err = errors.New("toolbridge: MCP schema initializer returned nil client")
+	}
+	retryable := initializationCallerCanceled(ctx, err)
+	executor.mu.Lock()
+	state.client, state.err, state.retryable = client, err, retryable
+	if err == nil {
+		executor.client = client
+	} else if !retryable {
+		executor.terminalErr = err
+	}
+	executor.init = nil
+	close(state.done)
+	executor.mu.Unlock()
+}
+
+func initializationCallerCanceled(ctx context.Context, err error) bool {
+	return err != nil && ctx.Err() != nil
 }
 
 func (executor *lazyMCPSchemaExecutor) initialize(ctx context.Context) (mcpSchemaExecutor, error) {
