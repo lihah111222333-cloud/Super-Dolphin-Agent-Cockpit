@@ -28,12 +28,21 @@ const SHADOW_FILES = [
   'frontend-app/src/pages/observability/services/observabilityPageService.js',
   'frontend-app/src/pages/prompts/services/promptPageService.js',
 ]
+const SHADOW_GO_FILES = [
+  'internal/contract/rpc_handler.go',
+  'internal/module/thread/rpc_types.go',
+  'internal/module/turn/rpc_types.go',
+]
 
 async function createShadowRepo(overrides) {
   const repoRoot = await mkdtemp(join(tmpdir(), 'rpc-contract-audit-'))
   onTestFinished(() => rm(repoRoot, { recursive: true, force: true }))
-  await symlink(join(REPO_ROOT, 'internal'), join(repoRoot, 'internal'))
-  await symlink(join(REPO_ROOT, 'cmd'), join(repoRoot, 'cmd'))
+  await mkdir(join(repoRoot, 'cmd'), { recursive: true })
+  for (const filePath of SHADOW_GO_FILES) {
+    const target = join(repoRoot, filePath)
+    await mkdir(dirname(target), { recursive: true })
+    await writeFile(target, await readFile(join(REPO_ROOT, filePath), 'utf8'))
+  }
   for (const filePath of new Set([...SHADOW_FILES, ...Object.keys(overrides)])) {
     const target = join(repoRoot, filePath)
     await mkdir(dirname(target), { recursive: true })

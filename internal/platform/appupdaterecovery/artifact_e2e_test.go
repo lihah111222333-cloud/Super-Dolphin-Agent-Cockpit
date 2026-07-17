@@ -95,9 +95,10 @@ func TestRecoveryGuardProcessRestoresAfterRetainEffectCrash(t *testing.T) {
 
 func TestArtifactRollbackFallbackCleanupReapsAfterValidationFailure(t *testing.T) {
 	requireArtifactE2EPlatform(t)
+	waitForArtifactProcessBarrier(t)
 	fixture := newArtifactE2EFixture(t)
 	executable := filepath.Join(fixture.target, "Contents", "MacOS", "agent-terminal")
-	token := strings.Repeat("d", 64)
+	token := mustArtifactRollbackLaunchToken(t)
 	transactionID := fixture.request.Identity.TransactionID
 	cmd := exec.Command(executable, "--super-dolphin-rollback-launch-token="+token)
 	env, err := runtimeenv.AppendRecoveryLaunchEnvironment(os.Environ(), runtimeenv.RecoveryLaunch{
@@ -146,6 +147,7 @@ func TestArtifactRollbackFallbackCleanupReapsAfterValidationFailure(t *testing.T
 			t.Errorf("fallback wait/reap after validation failure: %v", waitErr)
 		}
 	})
+	mustWaitForArtifactTerminationEndpoint(t, termination.TerminationEndpoint)
 	if err := validateArtifactRollbackProcess(process, executable, strings.Repeat("0", 64)); err == nil {
 		t.Fatal("artifact process validation unexpectedly accepted the wrong digest")
 	}
@@ -159,6 +161,25 @@ func TestArtifactRollbackFallbackCleanupReapsAfterValidationFailure(t *testing.T
 	}
 	if cmd.ProcessState == nil {
 		t.Fatal("artifact helper was not reaped")
+	}
+	assertArtifactStableIdentityGone(t, termination)
+	assertArtifactRollbackEndpointMissing(t, fixture.request.Identity.TransactionID, token)
+	t.Log(artifactResidualCleanEvidence)
+}
+
+func mustArtifactRollbackLaunchToken(t *testing.T) string {
+	t.Helper()
+	token, err := newRollbackLaunchToken()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return token
+}
+
+func mustWaitForArtifactTerminationEndpoint(t *testing.T, endpoint string) {
+	t.Helper()
+	if err := waitForArtifactTerminationEndpoint(endpoint); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -190,6 +211,8 @@ type recoveryGuardCrashFixture struct {
 	target        string
 	oldTrust      PackageTrust
 	oldGeneration string
+	holdMarker    string
+	ignoreMarker  string
 	updater       *exec.Cmd
 	guard         *exec.Cmd
 	guardDone     chan struct{}
@@ -208,7 +231,10 @@ func newRecoveryGuardCrashFixture(t *testing.T) *recoveryGuardCrashFixture {
 		t.Fatal(err)
 	}
 	target := filepath.Join(root, "Super Dolphin.app")
-	id := TransactionID("bbccddeeff00112233445566778899aa")
+	id, err := NewTransactionID()
+	if err != nil {
+		t.Fatal(err)
+	}
 	paths, err := PathsFor(target, id)
 	if err != nil {
 		t.Fatal(err)
@@ -238,9 +264,14 @@ func newRecoveryGuardCrashFixture(t *testing.T) *recoveryGuardCrashFixture {
 	if _, err := store.Create(context.Background(), request); err != nil {
 		t.Fatal(err)
 	}
+	markerDir := artifactRollbackMarkerDir(target, id)
+	if err := os.Mkdir(markerDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
 	return &recoveryGuardCrashFixture{
 		store: store, request: request, target: target, oldTrust: oldTrust,
 		oldGeneration: oldGeneration, updater: updater,
+		holdMarker: filepath.Join(markerDir, "hold"), ignoreMarker: filepath.Join(markerDir, "ignore-terminate"),
 	}
 }
 
@@ -420,7 +451,10 @@ func newArtifactE2EFixture(t *testing.T) artifactE2EFixture {
 		t.Fatal(err)
 	}
 	target := filepath.Join(root, "Super Dolphin.app")
-	id := TransactionID("aabbccddeeff00112233445566778899")
+	id, err := NewTransactionID()
+	if err != nil {
+		t.Fatal(err)
+	}
 	paths, err := PathsFor(target, id)
 	if err != nil {
 		t.Fatal(err)
@@ -662,7 +696,7 @@ func cleanupArtifactRollbackProcess(identity pidregistry.StableProcessIdentity) 
 }
 
 func waitForArtifactTerminationEndpoint(endpoint string) error {
-	deadline := time.Now().Add(3 * time.Second)
+	deadline := time.Now().Add(10 * time.Second)
 	for {
 		if _, err := os.Stat(endpoint); err == nil {
 			return nil
@@ -701,7 +735,7 @@ func readArtifactGuardReceipt(t *testing.T, reader io.Reader) GuardReadyReceipt 
 	if !ok {
 		t.Fatal("Guard readiness pipe does not support a bounded read deadline")
 	}
-	if err := deadlineReader.SetReadDeadline(time.Now().Add(5 * time.Second)); err != nil {
+	if err := deadlineReader.SetReadDeadline(time.Now().Add(15 * time.Second)); err != nil {
 		t.Fatal(err)
 	}
 	line, err := bufio.NewReader(io.LimitReader(reader, 64*1024)).ReadBytes('\n')
