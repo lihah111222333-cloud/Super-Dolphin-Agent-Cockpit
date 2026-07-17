@@ -1,8 +1,14 @@
 package appupdaterecovery
 
 import (
+	"bytes"
 	"context"
+	"errors"
+	"os"
 	"testing"
+	"time"
+
+	"go.uber.org/goleak"
 )
 
 func TestRollbackRestartIntentSurvivesRenameAndConvergesOnce(t *testing.T) {
@@ -88,6 +94,48 @@ func TestRollbackRestartRecoversLaunchBeforeACKWindowByToken(t *testing.T) {
 	}
 	if resolved != 1 || !converged.RollbackRestart.ACKPresent || converged.RollbackRestart.ACK.LaunchToken != transaction.RollbackRestart.LaunchToken {
 		t.Fatalf("converged restart = %+v resolved=%d", converged.RollbackRestart, resolved)
+	}
+}
+
+func TestRollbackRestartBusyLockHonorsDeadlineWithoutJournalMutation(t *testing.T) {
+	defer goleak.VerifyNone(t, goleak.IgnoreCurrent())
+	store, identity, _ := createProbationTransaction(t)
+	transaction, err := store.RollbackUnclaimedProbation(context.Background(), identity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	before, err := os.ReadFile(store.journalPath(identity.TransactionID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	lock, err := store.acquire(identity.TransactionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lock.releaseInto(&err)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 35*time.Millisecond)
+	defer cancel()
+	_, convergeErr := store.ConvergeRollbackRestart(
+		ctx, transaction.Identity,
+		func(string) (RollbackRestartProcess, bool, error) {
+			t.Fatal("resolver called while transaction lock is held")
+			return RollbackRestartProcess{}, false, nil
+		},
+		func(string) (RollbackRestartProcess, error) {
+			t.Fatal("launcher called while transaction lock is held")
+			return RollbackRestartProcess{}, nil
+		},
+	)
+	if !errors.Is(convergeErr, context.DeadlineExceeded) {
+		t.Fatalf("ConvergeRollbackRestart() error = %v, want deadline exceeded", convergeErr)
+	}
+	after, readErr := os.ReadFile(store.journalPath(identity.TransactionID))
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if !bytes.Equal(before, after) {
+		t.Fatal("transaction journal changed while convergence lock remained busy")
 	}
 }
 

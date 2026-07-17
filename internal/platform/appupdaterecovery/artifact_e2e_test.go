@@ -16,7 +16,6 @@ import (
 	"runtime"
 	"strings"
 	"sync"
-	"syscall"
 	"testing"
 	"time"
 
@@ -91,6 +90,65 @@ func TestRecoveryGuardProcessRestoresBackupRetainedAfterUpdaterCrash(t *testing.
 
 func TestRecoveryGuardProcessRestoresAfterRetainEffectCrash(t *testing.T) {
 	runRecoveryGuardCrashE2E(t, true)
+}
+
+func TestArtifactRollbackFallbackCleanupReapsAfterValidationFailure(t *testing.T) {
+	requireArtifactE2EPlatform(t)
+	fixture := newArtifactE2EFixture(t)
+	executable := filepath.Join(fixture.target, "Contents", "MacOS", "agent-terminal")
+	token := strings.Repeat("d", 64)
+	cmd := exec.Command(executable, "--super-dolphin-rollback-launch-token="+token)
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	stable, err := pidregistry.CaptureStableProcessIdentity(cmd.Process.Pid)
+	if err != nil {
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
+		t.Fatal(err)
+	}
+	process := RollbackRestartProcess{
+		PID: stable.PID, StartToken: stable.ProcessStartToken, ExecutableIdentity: stable.ExecutableIdentity,
+		ExecutableSHA256: mustArtifactDigest(t, executable),
+	}
+	termination := artifactRollbackTerminationIdentity(process, token)
+	waitDone := make(chan struct{})
+	var waitErr error
+	var waitOnce sync.Once
+	var waiter sync.WaitGroup
+	startWait := func() {
+		waitOnce.Do(func() {
+			waiter.Go(func() {
+				waitErr = cmd.Wait()
+				close(waitDone)
+			})
+		})
+	}
+	t.Cleanup(func() {
+		startWait()
+		if err := cleanupArtifactRollbackProcess(termination); err != nil {
+			t.Errorf("fallback cleanup after validation failure: %v", err)
+		}
+		<-waitDone
+		waiter.Wait()
+		if waitErr != nil {
+			t.Errorf("fallback wait/reap after validation failure: %v", waitErr)
+		}
+	})
+	if err := validateArtifactRollbackProcess(process, executable, strings.Repeat("0", 64)); err == nil {
+		t.Fatal("artifact process validation unexpectedly accepted the wrong digest")
+	}
+	startWait()
+	if err := cleanupArtifactRollbackProcess(termination); err != nil {
+		t.Fatal(err)
+	}
+	<-waitDone
+	if waitErr != nil {
+		t.Fatalf("artifact helper wait/reap error = %v", waitErr)
+	}
+	if cmd.ProcessState == nil {
+		t.Fatal("artifact helper was not reaped")
+	}
 }
 
 func runRecoveryGuardCrashE2E(t *testing.T, crashAfterEffect bool) {
@@ -495,8 +553,14 @@ func assertArtifactRollbackRestartAliveAndTerminate(t *testing.T, fixture *recov
 	}
 	executable := filepath.Join(fixture.target, "Contents", "MacOS", "agent-terminal")
 	process := record.ACK.Process
-	if process.ExecutableIdentity != executable || process.ExecutableSHA256 != mustArtifactDigest(t, executable) {
-		t.Fatalf("rollback restart process = %+v, executable = %q", process, executable)
+	termination := artifactRollbackTerminationIdentity(process, record.LaunchToken)
+	t.Cleanup(func() {
+		if err := cleanupArtifactRollbackProcess(termination); err != nil {
+			t.Errorf("fallback cleanup rollback restart process: %v", err)
+		}
+	})
+	if err := validateArtifactRollbackProcess(process, executable, mustArtifactDigest(t, executable)); err != nil {
+		t.Fatal(err)
 	}
 	alive, err := artifactProcessAlive(ProcessIdentity{
 		PID: process.PID, StartToken: process.StartToken,
@@ -505,54 +569,57 @@ func assertArtifactRollbackRestartAliveAndTerminate(t *testing.T, fixture *recov
 	if err != nil || !alive {
 		t.Fatalf("rollback restart exact process alive = %t, error = %v, ACK = %+v", alive, err, record.ACK)
 	}
-	t.Cleanup(func() { terminateArtifactRollbackProcess(t, process) })
-	terminateArtifactRollbackProcess(t, process)
+	if err := cleanupArtifactRollbackProcess(termination); err != nil {
+		t.Fatal(err)
+	}
 }
 
-func terminateArtifactRollbackProcess(t *testing.T, process RollbackRestartProcess) {
-	t.Helper()
-	stable, err := pidregistry.CaptureStableProcessIdentity(process.PID)
+func validateArtifactRollbackProcess(process RollbackRestartProcess, executable, digest string) error {
+	if process.ExecutableIdentity != executable || process.ExecutableSHA256 != digest {
+		return fmt.Errorf("rollback restart process = %+v, executable = %q digest = %q", process, executable, digest)
+	}
+	return nil
+}
+
+func artifactRollbackTerminationIdentity(process RollbackRestartProcess, launchToken string) pidregistry.StableProcessIdentity {
+	return pidregistry.StableProcessIdentity{
+		PID: process.PID, ProcessStartToken: process.StartToken, ExecutableIdentity: process.ExecutableIdentity,
+		TerminationEndpoint: filepath.Join(os.TempDir(), "sd-art-"+launchToken[:24]+".sock"),
+		TerminationToken:    launchToken,
+	}
+}
+
+func cleanupArtifactRollbackProcess(identity pidregistry.StableProcessIdentity) error {
+	stable, err := pidregistry.CaptureStableProcessIdentity(identity.PID)
 	if errors.Is(err, pidregistry.ErrStableProcessNotFound) {
-		return
+		return nil
 	}
 	if err != nil {
-		t.Fatal(err)
+		return err
 	}
-	if stable.ProcessStartToken != process.StartToken || stable.ExecutableIdentity != process.ExecutableIdentity {
-		t.Fatalf("rollback restart process identity changed before terminate: stable=%+v ACK=%+v", stable, process)
+	if stable.ProcessStartToken != identity.ProcessStartToken || stable.ExecutableIdentity != identity.ExecutableIdentity {
+		return pidregistry.ErrStableProcessIdentityMismatch
 	}
-	osProcess, err := os.FindProcess(process.PID)
-	if err != nil {
-		t.Fatal(err)
+	if err := waitForArtifactTerminationEndpoint(identity.TerminationEndpoint); err != nil {
+		return err
 	}
-	if err := osProcess.Signal(syscall.SIGTERM); err != nil && !errors.Is(err, os.ErrProcessDone) {
-		t.Fatal(err)
-	}
-	waitForArtifactRollbackProcessExit(t, process)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	return pidregistry.TerminateExactProcess(ctx, identity)
 }
 
-func waitForArtifactRollbackProcessExit(t *testing.T, process RollbackRestartProcess) {
-	t.Helper()
-	deadline := time.NewTimer(5 * time.Second)
-	poll := time.NewTicker(25 * time.Millisecond)
-	defer deadline.Stop()
-	defer poll.Stop()
+func waitForArtifactTerminationEndpoint(endpoint string) error {
+	deadline := time.Now().Add(3 * time.Second)
 	for {
-		select {
-		case <-poll.C:
-			stable, err := pidregistry.CaptureStableProcessIdentity(process.PID)
-			if errors.Is(err, pidregistry.ErrStableProcessNotFound) {
-				return
-			}
-			if err != nil {
-				t.Fatal(err)
-			}
-			if stable.ProcessStartToken != process.StartToken || stable.ExecutableIdentity != process.ExecutableIdentity {
-				return
-			}
-		case <-deadline.C:
-			t.Fatalf("rollback restart process %d did not exit", process.PID)
+		if _, err := os.Stat(endpoint); err == nil {
+			return nil
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return err
 		}
+		if time.Now().After(deadline) {
+			return errors.New("artifact termination endpoint readiness timeout")
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 }
 
@@ -627,9 +694,13 @@ func logArtifactEvidence(t *testing.T, fixture artifactE2EFixture) {
 const artifactProgramSource = `package main
 
 import (
+	"bufio"
+	"crypto/subtle"
 	"fmt"
+	"net"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 )
@@ -644,21 +715,48 @@ func main() {
 	case "serve":
 		waitForTermination()
 	default:
-		if hasRollbackLaunchToken(os.Args[1:]) {
-			waitForTermination()
+		if token, ok := rollbackLaunchToken(os.Args[1:]); ok {
+			serveAuthenticatedTermination(token)
 			return
 		}
 		fmt.Printf("%s:%s\n", release, role)
 	}
 }
 
-func hasRollbackLaunchToken(args []string) bool {
+func rollbackLaunchToken(args []string) (string, bool) {
 	for _, arg := range args {
-		if strings.HasPrefix(arg, "--super-dolphin-rollback-launch-token=") {
-			return true
+		if token, ok := strings.CutPrefix(arg, "--super-dolphin-rollback-launch-token="); ok {
+			return token, true
 		}
 	}
-	return false
+	return "", false
+}
+
+func serveAuthenticatedTermination(token string) {
+	endpoint := filepath.Join(os.TempDir(), "sd-art-"+token[:24]+".sock")
+	listener, err := net.Listen("unix", endpoint)
+	if err != nil {
+		os.Exit(31)
+	}
+	defer listener.Close()
+	defer os.Remove(endpoint)
+	if err := os.Chmod(endpoint, 0600); err != nil {
+		os.Exit(32)
+	}
+	for {
+		connection, err := listener.Accept()
+		if err != nil {
+			os.Exit(33)
+		}
+		line, readErr := bufio.NewReader(connection).ReadString('\n')
+		got := strings.TrimSuffix(line, "\n")
+		if readErr == nil && subtle.ConstantTimeCompare([]byte(got), []byte(token)) == 1 {
+			_, _ = connection.Write([]byte("ACK\n"))
+			_ = connection.Close()
+			return
+		}
+		_ = connection.Close()
+	}
 }
 
 func waitForTermination() {
