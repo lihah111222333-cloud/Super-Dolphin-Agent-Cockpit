@@ -15,11 +15,11 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/pidregistry"
-	"golang.org/x/sync/errgroup"
 )
 
 func TestIndependentArtifactCrashRollbackReopensOldRelease(t *testing.T) {
@@ -102,6 +102,7 @@ func runRecoveryGuardCrashE2E(t *testing.T, crashAfterEffect bool) {
 	assertArtifactGuardKeepsBackupRetained(t, fixture)
 	stopArtifactUpdater(t, fixture)
 	waitForArtifactGuardState(t, fixture, StateRolledBack)
+	waitForArtifactGuardExit(t, fixture)
 	assertResolvedTrust(t, fixture.target, fixture.oldTrust, fixture.oldGeneration)
 	t.Logf(
 		"backup_retained_guard=%s updater=%s old_release=%s signer=%s",
@@ -119,9 +120,11 @@ type recoveryGuardCrashFixture struct {
 	oldTrust      PackageTrust
 	oldGeneration string
 	updater       *exec.Cmd
-	guardDone     chan error
+	guard         *exec.Cmd
+	guardDone     chan struct{}
+	guardErr      error
 	guardStderr   bytes.Buffer
-	guardWait     errgroup.Group
+	guardWait     sync.WaitGroup
 }
 
 func newRecoveryGuardCrashFixture(t *testing.T) *recoveryGuardCrashFixture {
@@ -185,20 +188,22 @@ func startArtifactRecoveryGuard(t *testing.T, fixture *recoveryGuardCrashFixture
 	if err := guard.Start(); err != nil {
 		t.Fatal(err)
 	}
-	fixture.guardDone = make(chan error, 1)
-	fixture.guardWait.Go(func() error {
-		fixture.guardDone <- guard.Wait()
+	fixture.guard = guard
+	fixture.guardDone = make(chan struct{})
+	fixture.guardWait.Go(func() {
+		fixture.guardErr = guard.Wait()
 		close(fixture.guardDone)
-		return nil
 	})
 	t.Cleanup(func() {
 		select {
 		case <-fixture.guardDone:
+			fixture.guardWait.Wait()
 			return
 		default:
 		}
-		_ = guard.Process.Kill()
+		_ = fixture.guard.Process.Kill()
 		<-fixture.guardDone
+		fixture.guardWait.Wait()
 	})
 	receipt := readArtifactGuardReceipt(t, ready)
 	if receipt.TransactionID != request.Identity.TransactionID ||
@@ -248,12 +253,13 @@ func waitForArtifactGuardState(t *testing.T, fixture *recoveryGuardCrashFixture,
 	defer poll.Stop()
 	for {
 		select {
-		case err := <-fixture.guardDone:
+		case <-fixture.guardDone:
+			fixture.guardWait.Wait()
 			transaction, loadErr := fixture.store.Load(context.Background(), fixture.request.Identity)
-			if loadErr == nil && transaction.State == want {
+			if artifactGuardExitedAtState(fixture, transaction, loadErr, want) {
 				return
 			}
-			t.Fatalf("Guard exited before state %q: guard=%v stderr=%q state=%q load=%v", want, err, fixture.guardStderr.String(), transaction.State, loadErr)
+			t.Fatalf("Guard exited before state %q: guard=%v stderr=%q state=%q load=%v", want, fixture.guardErr, fixture.guardStderr.String(), transaction.State, loadErr)
 		case <-poll.C:
 			transaction, err := fixture.store.Load(context.Background(), fixture.request.Identity)
 			if err == nil && transaction.State == want {
@@ -263,6 +269,28 @@ func waitForArtifactGuardState(t *testing.T, fixture *recoveryGuardCrashFixture,
 			transaction, err := fixture.store.Load(context.Background(), fixture.request.Identity)
 			t.Fatalf("transaction state = %q error=%v, want %q", transaction.State, err, want)
 		}
+	}
+}
+
+func artifactGuardExitedAtState(fixture *recoveryGuardCrashFixture, transaction Transaction, loadErr error, want State) bool {
+	return fixture.guardErr == nil && loadErr == nil && transaction.State == want && want == StateRolledBack
+}
+
+func waitForArtifactGuardExit(t *testing.T, fixture *recoveryGuardCrashFixture) {
+	t.Helper()
+	timeout := time.NewTimer(10 * time.Second)
+	defer timeout.Stop()
+	select {
+	case <-fixture.guardDone:
+		fixture.guardWait.Wait()
+	case <-timeout.C:
+		killErr := fixture.guard.Process.Kill()
+		<-fixture.guardDone
+		fixture.guardWait.Wait()
+		t.Fatalf("Guard exit timeout: kill=%v guard=%v stderr=%q", killErr, fixture.guardErr, fixture.guardStderr.String())
+	}
+	if fixture.guardErr != nil {
+		t.Fatalf("Guard exit error = %v stderr=%q", fixture.guardErr, fixture.guardStderr.String())
 	}
 }
 
