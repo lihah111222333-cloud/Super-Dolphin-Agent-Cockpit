@@ -36,8 +36,8 @@ frontend-app/scripts/desktop-smoke.mjs	frontend-app	app-ui	js-source	10249	React
 frontend-app/scripts/desktop-smoke.test.mjs	frontend-app	app-ui	js-test	2380	React 前端构建与校验脚本	frontend,app,scripts,desktop,smoke,test,React,前端构建与校验脚本
 frontend-app/scripts/desktop-ux-smoke.mjs	frontend-app	app-ui	js-source	7636	React 前端构建与校验脚本	frontend,app,scripts,desktop,ux,smoke,React,前端构建与校验脚本
 frontend-app/scripts/desktop-ux-smoke.test.mjs	frontend-app	app-ui	js-test	2456	React 前端构建与校验脚本	frontend,app,scripts,desktop,ux,smoke,test,React,前端构建与校验脚本
-frontend-app/scripts/evidence-provenance.mjs	frontend-app	app-ui	js-source	6082	React 前端构建与校验脚本	frontend,app,scripts,evidence,provenance,React,前端构建与校验脚本
-frontend-app/scripts/evidence-provenance.test.mjs	frontend-app	app-ui	js-test	2597	React 前端构建与校验脚本	frontend,app,scripts,evidence,provenance,test,React,前端构建与校验脚本
+frontend-app/scripts/evidence-provenance.mjs	frontend-app	app-ui	js-source	6150	React 前端构建与校验脚本	frontend,app,scripts,evidence,provenance,React,前端构建与校验脚本
+frontend-app/scripts/evidence-provenance.test.mjs	frontend-app	app-ui	js-test	2814	React 前端构建与校验脚本	frontend,app,scripts,evidence,provenance,test,React,前端构建与校验脚本
 frontend-app/scripts/frontend-code-size-guard.mjs	frontend-app	app-ui	js-source	25277	React 前端构建与校验脚本	frontend,app,scripts,code,size,guard,React,前端构建与校验脚本
 frontend-app/scripts/frontend-code-size-guard.test.mjs	frontend-app	app-ui	js-test	8078	React 前端构建与校验脚本	frontend,app,scripts,code,size,guard,test,React,前端构建与校验脚本
 frontend-app/scripts/frontend-contract-store-guard.mjs	frontend-app	app-ui	js-source	20112	React 前端构建与校验脚本	frontend,app,scripts,contract,store,guard,React,前端构建与校验脚本

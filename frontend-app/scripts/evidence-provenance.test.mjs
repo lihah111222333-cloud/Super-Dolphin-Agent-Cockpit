@@ -22,6 +22,13 @@ describe('evidence provenance', () => {
   });
 
   it('rejects duplicate, unsorted, and forbidden baseline audit changes', () => {
+    expect(validateBaselineAuditDiff([
+      'docs/doc/codemap/README.md',
+      'docs/doc/codemap/ai-index.json',
+    ])).toEqual([
+      'docs/doc/codemap/README.md',
+      'docs/doc/codemap/ai-index.json',
+    ]);
     expect(validateBaselineAuditDiff(['frontend-app/scripts/evidence-provenance.test.mjs']))
       .toEqual(['frontend-app/scripts/evidence-provenance.test.mjs']);
     expect(() => validateBaselineAuditDiff(['frontend-app/package.json', 'frontend-app/package.json']))

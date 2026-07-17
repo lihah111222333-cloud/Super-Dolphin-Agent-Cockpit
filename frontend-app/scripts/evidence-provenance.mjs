@@ -20,6 +20,8 @@ const RUNNER_CONTENT_PATHS = Object.freeze([
 
 const BASELINE_AUDIT_ALLOWED_PATHS = Object.freeze(new Set([
   ...RUNNER_CONTENT_PATHS,
+  'docs/doc/codemap/README.md',
+  'docs/doc/codemap/ai-index.json',
   'frontend-app/scripts/chat-history-benchmark.test.mjs',
   'frontend-app/scripts/delivery-smoke-runner.mjs',
   'frontend-app/scripts/delivery-smoke-runner.test.mjs',
