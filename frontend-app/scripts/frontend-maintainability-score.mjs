@@ -51,16 +51,16 @@ const failureMatrixLayers = Object.freeze({
   'FM-12': ['go-codex'],
   'FM-13': ['go-codex'],
   'FM-14': ['go-codex'],
-  'FM-15': ['fixture-replay'],
+  'FM-15': ['go-turn'],
   'FM-16': ['go-turn'],
   'FM-17': ['go-turn'],
-  'FM-18': ['fixture-replay'],
+  'FM-18': ['frontend'],
   'FM-19': ['frontend', 'go-codex'],
   'FM-20': ['frontend', 'go-codex'],
-  'FM-21': ['fixture-replay'],
-  'FM-22': ['fixture-replay'],
-  'FM-23': ['fixture-replay'],
-  'FM-24': ['fixture-replay'],
+  'FM-21': ['frontend'],
+  'FM-22': ['frontend'],
+  'FM-23': ['frontend'],
+  'FM-24': ['frontend'],
 });
 const failureMatrixEvidencePairs = Object.freeze(Object.entries(failureMatrixLayers)
   .flatMap(([caseId, layers]) => layers.map((layer) => `${caseId}\0${layer}`)));

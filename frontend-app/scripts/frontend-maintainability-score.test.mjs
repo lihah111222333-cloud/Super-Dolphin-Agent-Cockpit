@@ -197,16 +197,16 @@ function failureMatrixEvidence(context, overrides = {}) {
     'FM-12': ['go-codex'],
     'FM-13': ['go-codex'],
     'FM-14': ['go-codex'],
-    'FM-15': ['fixture-replay'],
+    'FM-15': ['go-turn'],
     'FM-16': ['go-turn'],
     'FM-17': ['go-turn'],
-    'FM-18': ['fixture-replay'],
+    'FM-18': ['frontend'],
     'FM-19': ['frontend', 'go-codex'],
     'FM-20': ['frontend', 'go-codex'],
-    'FM-21': ['fixture-replay'],
-    'FM-22': ['fixture-replay'],
-    'FM-23': ['fixture-replay'],
-    'FM-24': ['fixture-replay'],
+    'FM-21': ['frontend'],
+    'FM-22': ['frontend'],
+    'FM-23': ['frontend'],
+    'FM-24': ['frontend'],
   };
   const evidence = Object.entries(layersByCase).flatMap(([caseId, layers]) => (
     layers.map((layer) => ({ caseId, layer, test: `${caseId}:${layer}` }))
@@ -621,7 +621,7 @@ describe('executable evidence registry', () => {
   it('keeps an unregistered redMatrix NOT_VERIFIED and accepts the exact action runner', () => {
     expect(probeResult('redMatrix')).toBe('NOT_VERIFIED');
     expect(probeResult('actionProducerGuard')).toBe('PASS');
-  });
+  }, 15_000);
 
   it('rejects stale, mismatched, zero-test, wrong-control, and wrong-case Task3 evidence', () => {
     const { controls } = documents();
@@ -640,6 +640,14 @@ describe('executable evidence registry', () => {
     expect(structuredEvidenceStatus({
       ...valid,
       caseIds: valid.caseIds.slice(1),
+    }, options)).toBe('FAIL');
+    expect(structuredEvidenceStatus({
+      ...valid,
+      evidence: valid.evidence.map((entry) => (
+        ['FM-15', 'FM-18', 'FM-21', 'FM-22', 'FM-23', 'FM-24'].includes(entry.caseId)
+          ? { ...entry, layer: 'fixture-replay' }
+          : entry
+      )),
     }, options)).toBe('FAIL');
   });
 

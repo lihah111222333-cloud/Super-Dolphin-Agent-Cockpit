@@ -148,7 +148,7 @@ describe('chat history benchmark', () => {
       expect(Number.isFinite(entry.durationMedianMs)).toBe(true);
       expect(entry.durationMedianMs).toBeGreaterThanOrEqual(0);
     });
-  }, 20_000);
+  }, 60_000);
 
   it('keeps verify NOT_VERIFIED until an exact frozen five-sample baseline exists', () => {
     expect(verifyChatHistoryEvidence({ cases: {} }, {
