@@ -18,19 +18,21 @@ const (
 )
 
 type productionCoordinatorConfig struct {
-	AcceptedImageRoot    string                 `json:"accepted_image_root"`
-	CandidateStateRoot   string                 `json:"candidate_state_root"`
-	CandidateBuildRoot   string                 `json:"candidate_build_root"`
-	TrustedSourceRoot    string                 `json:"trusted_source_root"`
-	SeccompProfile       string                 `json:"seccomp_profile"`
-	Platform             string                 `json:"platform"`
-	RepoID               string                 `json:"repo_id"`
-	TrustedRef           string                 `json:"trusted_ref"`
-	TrustedRepository    string                 `json:"trusted_repository"`
-	AcceptedImageSigners []productionTrustedKey `json:"accepted_image_signers"`
-	PromotionSigner      productionPromotionKey `json:"promotion_signer"`
-	CandidateTTLSeconds  int64                  `json:"candidate_ttl_seconds"`
-	PromotionPollMillis  int64                  `json:"promotion_poll_millis"`
+	AcceptedImageRoot       string                 `json:"accepted_image_root"`
+	BootstrapRootFile       string                 `json:"bootstrap_root_file"`
+	BootstrapControllerFile string                 `json:"bootstrap_controller_file"`
+	CandidateStateRoot      string                 `json:"candidate_state_root"`
+	CandidateBuildRoot      string                 `json:"candidate_build_root"`
+	TrustedSourceRoot       string                 `json:"trusted_source_root"`
+	SeccompProfile          string                 `json:"seccomp_profile"`
+	Platform                string                 `json:"platform"`
+	RepoID                  string                 `json:"repo_id"`
+	TrustedRef              string                 `json:"trusted_ref"`
+	TrustedRepository       string                 `json:"trusted_repository"`
+	AcceptedImageSigners    []productionTrustedKey `json:"accepted_image_signers"`
+	PromotionSigner         productionPromotionKey `json:"promotion_signer"`
+	CandidateTTLSeconds     int64                  `json:"candidate_ttl_seconds"`
+	PromotionPollMillis     int64                  `json:"promotion_poll_millis"`
 }
 
 type productionTrustedKey struct {
@@ -160,12 +162,29 @@ func (config productionCoordinatorConfig) validatePaths() error {
 			return err
 		}
 	}
+	if err := config.validateAuthorityFiles(); err != nil {
+		return err
+	}
+	return config.validateAuthorityFilesOutsideRoots()
+}
+
+func (config productionCoordinatorConfig) validateAuthorityFiles() error {
 	if _, err := canonicalProductionFile("seccomp profile", config.SeccompProfile); err != nil {
 		return err
 	}
 	if _, err := canonicalProductionFile("promotion private key", config.PromotionSigner.PrivateKeyFile); err != nil {
 		return err
 	}
+	if _, err := canonicalProductionFile("bootstrap trust root", config.BootstrapRootFile); err != nil {
+		return err
+	}
+	if _, err := canonicalProductionExecutable("bootstrap controller", config.BootstrapControllerFile); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (config productionCoordinatorConfig) validateAuthorityFilesOutsideRoots() error {
 	for _, root := range []string{
 		config.AcceptedImageRoot, config.CandidateStateRoot, config.CandidateBuildRoot,
 		config.TrustedSourceRoot, config.TrustedRepository,
@@ -173,8 +192,30 @@ func (config productionCoordinatorConfig) validatePaths() error {
 		if productionPathContains(root, config.PromotionSigner.PrivateKeyFile) {
 			return errors.New("promotion private key must be outside all production data, build, source, and Git roots")
 		}
+		if productionPathContains(root, config.BootstrapRootFile) {
+			return errors.New("bootstrap trust root must be outside all production data, build, source, and Git roots")
+		}
+		if productionPathContains(root, config.BootstrapControllerFile) {
+			return errors.New("bootstrap controller must be outside all production data, build, source, and Git roots")
+		}
 	}
 	return nil
+}
+
+// canonicalProductionExecutable 在私有规范文件约束上追加 owner execute bit。
+func canonicalProductionExecutable(name string, path string) (string, error) {
+	canonical, err := canonicalProductionFile(name, path)
+	if err != nil {
+		return "", err
+	}
+	info, err := os.Lstat(canonical)
+	if err != nil {
+		return "", fmt.Errorf("inspect %s executable: %w", name, err)
+	}
+	if info.Mode().Perm()&0o100 == 0 {
+		return "", fmt.Errorf("%s must be owner-executable", name)
+	}
+	return canonical, nil
 }
 
 // validateProductionRootSeparation 阻断信任状态、候选构建、源码快照和 bare mirror 互相嵌套。

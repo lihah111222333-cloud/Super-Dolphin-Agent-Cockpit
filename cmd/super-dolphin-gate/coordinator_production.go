@@ -52,7 +52,9 @@ func newProductionImageServices(
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	record, err := promotion.state.Load(ctx)
+	record, err := loadOrBootstrapProductionAcceptedImage(
+		ctx, config, promotion, productionBootstrapHostRuntime{},
+	)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("load production accepted image: %w", err)
 	}

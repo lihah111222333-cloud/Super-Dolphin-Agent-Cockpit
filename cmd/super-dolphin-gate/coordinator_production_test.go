@@ -369,10 +369,18 @@ func TestProductionFreshRunnerForwardsOnlyMatchingAcceptedProvenance(t *testing.
 }
 
 func TestProductionCoordinatorConfigFieldRegistryIsComplete(t *testing.T) {
+	assertProductionCoordinatorConfigFields(t)
+	assertProductionBootstrapFields(t)
+}
+
+func assertProductionCoordinatorConfigFields(t *testing.T) {
+	t.Helper()
 	assertProductionFields(t, reflect.TypeFor[productionCoordinatorConfig](), map[string]string{
-		"AcceptedImageRoot": "signed state", "CandidateStateRoot": "durable candidate authority",
-		"CandidateBuildRoot": "candidate isolation",
-		"TrustedSourceRoot":  "snapshot mount boundary", "SeccompProfile": "container policy",
+		"AcceptedImageRoot": "signed state", "BootstrapRootFile": "signed generation-one authority",
+		"BootstrapControllerFile": "signed external execution closure",
+		"CandidateStateRoot":      "durable candidate authority",
+		"CandidateBuildRoot":      "candidate isolation",
+		"TrustedSourceRoot":       "snapshot mount boundary", "SeccompProfile": "container policy",
 		"Platform": "image platform", "RepoID": "repository identity", "TrustedRef": "admission ref",
 		"TrustedRepository": "external bare mirror", "AcceptedImageSigners": "signature trust root",
 		"PromotionSigner": "host signing authority", "CandidateTTLSeconds": "candidate expiry",
@@ -383,6 +391,22 @@ func TestProductionCoordinatorConfigFieldRegistryIsComplete(t *testing.T) {
 	})
 	assertProductionFields(t, reflect.TypeFor[productionPromotionKey](), map[string]string{
 		"Signer": "host key identity", "PrivateKeyFile": "repository-external signing key",
+	})
+}
+
+func assertProductionBootstrapFields(t *testing.T) {
+	t.Helper()
+	assertProductionFields(t, reflect.TypeFor[productionBootstrapRoot](), map[string]string{
+		"SchemaVersion": "strict root schema", "RepoID": "repository identity", "RemoteURL": "canonical remote", "TrustedRef": "admission ref",
+		"BaselineCommit": "fixed bootstrap commit", "BaselineTree": "fixed bootstrap tree",
+		"PolicyDigest": "fixed baseline policy", "ImageInputDigest": "fixed baseline input closure",
+		"Runner": "immutable OCI runner", "Controller": "external execution authority",
+		"Signer": "installation signer", "Ed25519PublicKey": "verification material",
+		"VerifierVersion": "host verifier contract", "Signature": "root authenticity",
+	})
+	assertProductionFields(t, reflect.TypeFor[productionBootstrapControllerIdentity](), map[string]string{
+		"BinaryDigest": "controller executable identity", "DesignatedRequirement": "macOS code-signing identity",
+		"Signer": "controller attestation identity",
 	})
 }
 
@@ -428,6 +452,12 @@ func TestLoadProductionCoordinatorConfigFileValidatesDecodedConfig(t *testing.T)
 		{name: "platform", want: "platform must be explicit", mutate: func(config *productionCoordinatorConfig) {
 			config.Platform = "linux"
 		}},
+		{name: "bootstrap_root", want: "bootstrap trust root", mutate: func(config *productionCoordinatorConfig) {
+			config.BootstrapRootFile = ""
+		}},
+		{name: "bootstrap_controller", want: "bootstrap controller", mutate: func(config *productionCoordinatorConfig) {
+			config.BootstrapControllerFile = ""
+		}},
 		{name: "root_overlap", want: "roots must not overlap", mutate: func(config *productionCoordinatorConfig) {
 			config.CandidateBuildRoot = config.AcceptedImageRoot
 		}},
@@ -455,6 +485,52 @@ func TestProductionCoordinatorRejectsGitObjectEnvironmentOverrides(t *testing.T)
 
 func newProductionTestFixture(t *testing.T) productionTestFixture {
 	t.Helper()
+	root, sourceRepo, trustedRepository, commit, tree := newProductionTestGitFixture(t)
+	acceptedRoot := makePrivateDirectory(t, root, "accepted")
+	candidateStateRoot := makePrivateDirectory(t, root, "candidate-state")
+	buildRoot := makePrivateDirectory(t, root, "build")
+	trustedSourceRoot := productionTestTrustedSourceRoot(t)
+	seccomp := filepath.Join(root, "seccomp.json")
+	if err := os.WriteFile(seccomp, []byte("{}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	publicKey, privateKey, signer, privateKeyFile := newProductionTestSignerFixture(t, root)
+	bootstrapRootFile := filepath.Join(root, "bootstrap-root.json")
+	bootstrapControllerFile := writeProductionTestBootstrapController(t, root)
+	config := productionCoordinatorConfig{
+		AcceptedImageRoot: acceptedRoot, CandidateStateRoot: candidateStateRoot,
+		BootstrapRootFile: bootstrapRootFile, BootstrapControllerFile: bootstrapControllerFile,
+		CandidateBuildRoot: buildRoot, TrustedSourceRoot: trustedSourceRoot,
+		SeccompProfile: seccomp, Platform: "linux/arm64", RepoID: "example/repository",
+		TrustedRef: "refs/heads/main", TrustedRepository: trustedRepository,
+		AcceptedImageSigners: []productionTrustedKey{{
+			Signer: signer, PublicKey: base64.StdEncoding.EncodeToString(publicKey),
+		}},
+		PromotionSigner:     productionPromotionKey{Signer: signer, PrivateKeyFile: privateKeyFile},
+		CandidateTTLSeconds: 3600, PromotionPollMillis: 20,
+	}
+	bootstrapRoot := productionBootstrapRootForFixture(t, config, commit, tree, signer, publicKey)
+	writeProductionBootstrapRootFixture(t, bootstrapRootFile, bootstrapRoot, privateKey)
+	fixture := productionTestFixture{
+		config: config, signer: signer, privateKey: privateKey, commit: commit, tree: tree, sourceRepo: sourceRepo,
+	}
+	baseTree, err := localci.LoadReadOnlyGitTree(context.Background(), sourceRepo, productionSourceSpec(fixture))
+	if err != nil {
+		t.Fatal(err)
+	}
+	baseInputs, err := localci.ResolveGateImageInputs(baseTree, productionDigest("1"), config.Platform)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixture.acceptedInputDigest = baseInputs.ImageInputDigest
+	bootstrapAcceptedState(t, fixture)
+	fixture.configPath = filepath.Join(root, "production.json")
+	writePrivateJSON(t, fixture.configPath, config)
+	return fixture
+}
+
+func newProductionTestGitFixture(t *testing.T) (string, string, string, string, string) {
+	t.Helper()
 	root, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -474,9 +550,11 @@ func newProductionTestFixture(t *testing.T) productionTestFixture {
 	trustedRepository := filepath.Join(root, "trusted.git")
 	runProductionGit(t, "", "clone", "-q", "--bare", "--", sourceRepo, trustedRepository)
 	chmodPrivate(t, trustedRepository)
-	acceptedRoot := makePrivateDirectory(t, root, "accepted")
-	candidateStateRoot := makePrivateDirectory(t, root, "candidate-state")
-	buildRoot := makePrivateDirectory(t, root, "build")
+	return root, sourceRepo, trustedRepository, commit, tree
+}
+
+func productionTestTrustedSourceRoot(t *testing.T) string {
+	t.Helper()
 	cacheRoot, err := os.UserCacheDir()
 	if err != nil {
 		t.Fatal(err)
@@ -486,10 +564,14 @@ func newProductionTestFixture(t *testing.T) productionTestFixture {
 		t.Fatal(err)
 	}
 	chmodPrivate(t, trustedSourceRoot)
-	seccomp := filepath.Join(root, "seccomp.json")
-	if err := os.WriteFile(seccomp, []byte("{}\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	return trustedSourceRoot
+}
+
+func newProductionTestSignerFixture(
+	t *testing.T,
+	root string,
+) (ed25519.PublicKey, ed25519.PrivateKey, gatecontract.SignerIdentity, string) {
+	t.Helper()
 	publicKey, privateKey, err := ed25519.GenerateKey(nil)
 	if err != nil {
 		t.Fatal(err)
@@ -502,33 +584,16 @@ func newProductionTestFixture(t *testing.T) productionTestFixture {
 	if err := os.WriteFile(privateKeyFile, []byte(privateKeyData), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	config := productionCoordinatorConfig{
-		AcceptedImageRoot: acceptedRoot, CandidateStateRoot: candidateStateRoot,
-		CandidateBuildRoot: buildRoot, TrustedSourceRoot: trustedSourceRoot,
-		SeccompProfile: seccomp, Platform: "linux/arm64", RepoID: "example/repository",
-		TrustedRef: "refs/heads/main", TrustedRepository: trustedRepository,
-		AcceptedImageSigners: []productionTrustedKey{{
-			Signer: signer, PublicKey: base64.StdEncoding.EncodeToString(publicKey),
-		}},
-		PromotionSigner:     productionPromotionKey{Signer: signer, PrivateKeyFile: privateKeyFile},
-		CandidateTTLSeconds: 3600, PromotionPollMillis: 20,
-	}
-	fixture := productionTestFixture{
-		config: config, signer: signer, privateKey: privateKey, commit: commit, tree: tree, sourceRepo: sourceRepo,
-	}
-	baseTree, err := localci.LoadReadOnlyGitTree(context.Background(), sourceRepo, productionSourceSpec(fixture))
-	if err != nil {
+	return publicKey, privateKey, signer, privateKeyFile
+}
+
+func writeProductionTestBootstrapController(t *testing.T, root string) string {
+	t.Helper()
+	bootstrapControllerFile := filepath.Join(root, "bootstrap-controller")
+	if err := os.WriteFile(bootstrapControllerFile, []byte("#!/bin/sh\nexit 97\n"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	baseInputs, err := localci.ResolveGateImageInputs(baseTree, productionDigest("1"), config.Platform)
-	if err != nil {
-		t.Fatal(err)
-	}
-	fixture.acceptedInputDigest = baseInputs.ImageInputDigest
-	bootstrapAcceptedState(t, fixture)
-	fixture.configPath = filepath.Join(root, "production.json")
-	writePrivateJSON(t, fixture.configPath, config)
-	return fixture
+	return bootstrapControllerFile
 }
 
 func bootstrapAcceptedState(t *testing.T, fixture productionTestFixture) {
