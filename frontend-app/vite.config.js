@@ -124,6 +124,7 @@ export function createFrontendViteConfig(env = process.env, viteEnv = {}) {
     build: {
       outDir: 'dist',
       emptyOutDir: true,
+      minify: 'terser',
       chunkSizeWarningLimit: 650,
       rolldownOptions: {
         external: ['/wails/runtime.js'],

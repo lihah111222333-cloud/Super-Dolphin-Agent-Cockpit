@@ -521,12 +521,11 @@ function SuiyuanSidebar({ copy, projectPath, sidebar, store }) {
 }
 
 function useAppShellState(store, skipBootstrap) {
-  const appStore = useClientStore();
   const routeBootstrapPending = !skipBootstrap && !['ready', 'failed'].includes(store.bootstrapStatus);
   useActivePageHistory(store.activePage, store.setActivePage, routeBootstrapPending);
   useAppBootstrap(store.bootstrap, skipBootstrap);
   const projectPath = store.activeProject && store.activeProject !== '.' ? store.activeProject : store.cwd || '未选择项目';
-  const memoryBadge = useMemoryBadgeState(appStore, projectPath);
+  const memoryBadge = useMemoryBadgeState(store, projectPath);
   const { theme, toggleTheme } = useColorTheme();
   const [rightPanelOpen, setRightPanelOpen] = useState(false);
   const updateBanner = useAppUpdateBanner(skipBootstrap);
@@ -575,7 +574,6 @@ function AppCommandPalette({ copy, onClose, open, runtime }) {
 }
 
 function AppWindow({ language, shell, shellLayoutStore, shortcutController, store }) {
-  const routeStore = useClientStore();
   const {
     memoryBadge,
     projectPath,
@@ -701,7 +699,7 @@ function AppWindow({ language, shell, shellLayoutStore, shortcutController, stor
               <ActivePageContent
                 activePage={store.activePage}
                 copy={copy}
-                store={routeStore}
+                store={store}
                 projectPath={projectPath}
                 memoryRevision={memoryBadge.memoryRevision}
                 setMemoryPageSimilarCount={memoryBadge.setMemoryPageSimilarCount}
