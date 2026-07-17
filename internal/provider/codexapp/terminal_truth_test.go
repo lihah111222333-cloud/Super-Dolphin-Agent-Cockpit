@@ -82,7 +82,9 @@ func TestCodexAcceptedInterruptOnlyAttributesCancellationTerminal(t *testing.T) 
 	t.Parallel()
 
 	t.Run("completed remains success", func(t *testing.T) {
-		s := &session{interruptRequests: map[string]string{"turn-1": "stop-1"}}
+		s := &session{interruptRequests: map[string]*interruptRequestClaim{"turn-1": {
+			requestID: "stop-1", state: interruptRequestAccepted,
+		}}}
 		payload := map[string]any{"turnId": "turn-1", "success": true, "status": "completed"}
 		if s.applyAcceptedInterruptRequest("turn/completed", payload) {
 			t.Fatalf("completed payload was attributed to user cancellation: %#v", payload)
@@ -94,7 +96,9 @@ func TestCodexAcceptedInterruptOnlyAttributesCancellationTerminal(t *testing.T) 
 	})
 
 	t.Run("aborted owns accepted request", func(t *testing.T) {
-		s := &session{interruptRequests: map[string]string{"turn-1": "stop-1"}}
+		s := &session{interruptRequests: map[string]*interruptRequestClaim{"turn-1": {
+			requestID: "stop-1", state: interruptRequestAccepted,
+		}}}
 		payload := map[string]any{"turnId": "turn-1"}
 		if !s.applyAcceptedInterruptRequest("turn/aborted", payload) {
 			t.Fatal("accepted cancellation was not attributed")

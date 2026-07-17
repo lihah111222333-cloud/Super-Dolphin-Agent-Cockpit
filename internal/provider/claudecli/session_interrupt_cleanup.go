@@ -1,7 +1,8 @@
 package claudecli
 
 import (
-	"log/slog"
+	"errors"
+	"fmt"
 	"time"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/pidregistry"
@@ -21,7 +22,7 @@ func settleInterruptedTransportWithTimeout(tr *transport, grace time.Duration) e
 		return nil
 	}
 	if err := normalizeSignalError(tr.signalProcess(sigInterrupt)); err != nil {
-		return tr.Kill()
+		return errors.Join(fmt.Errorf("signal interrupt: %w", err), tr.Kill())
 	}
 	if grace > 0 {
 		tr.waitForExit(grace)
@@ -33,20 +34,27 @@ func settleInterruptedTransportWithTimeout(tr *transport, grace time.Duration) e
 	return nil
 }
 
-// cleanupInterruptedTransport 解除 PID 注册并执行被 interrupt transport 的清理回调。
-// settle 失败只记录告警，因为调用方已经切换到新的 transport，不能让旧进程清理阻断恢复流程。
-func cleanupInterruptedTransport(logger *slog.Logger, reg *pidregistry.Registry, tr *transport, cleanup func(), settleTransport func(*transport) error) {
+// cleanupInterruptedTransport 确认进程退出后解除 PID 注册并执行清理回调。
+// 任一 settle 错误或仍存活状态都会保留 PID remediation ownership，由调用方返回失败语义。
+func cleanupInterruptedTransport(reg *pidregistry.Registry, tr *transport, cleanup func(), settleTransport func(*transport) error) error {
 	if tr == nil {
 		if cleanup != nil {
 			cleanup()
 		}
-		return
+		return nil
+	}
+	if settleTransport == nil {
+		return errors.New("claudecli: interrupt transport settle function is required")
+	}
+	if err := settleTransport(tr); err != nil {
+		return fmt.Errorf("claudecli: settle interrupted transport: %w", err)
+	}
+	if tr.Running() {
+		return errors.New("claudecli: interrupted transport is still running")
 	}
 	unregisterTransportPID(reg, tr)
-	if err := settleTransport(tr); err != nil && logger != nil {
-		logger.Warn("claudecli: interrupt transport cleanup failed", "error", err)
-	}
 	if cleanup != nil {
 		cleanup()
 	}
+	return nil
 }

@@ -2802,6 +2802,7 @@
         "internal/provider/claudecli.*historyBackend.rootDir",
         "internal/provider/claudecli.*historyBackend.sessionPath",
         "internal/provider/claudecli.*imageHashTracker.markIfNew",
+        "internal/provider/claudecli.*interruptCleanupClaim.cancelRestartAndStopWatcher",
         "internal/provider/claudecli.*limitedBuffer.String",
         "internal/provider/claudecli.*limitedBuffer.Write",
         "internal/provider/claudecli.*modeAwareRuntimeReporter.ReportRuntime",
@@ -2839,6 +2840,7 @@
         "internal/provider/claudecli.*session.awaitResolvedThreadID",
         "internal/provider/claudecli.*session.awaitSessionRestartLocked",
         "internal/provider/claudecli.*session.awaitThreadReadyLocked",
+        "internal/provider/claudecli.*session.beginInterruptCleanup",
         "internal/provider/claudecli.*session.beginRestartWaitLocked",
         "internal/provider/claudecli.*session.buildStopEvent",
         "internal/provider/claudecli.*session.clearSilentTurnStateLocked",
@@ -2858,6 +2860,7 @@
         "internal/provider/claudecli.*session.effectiveModelLocked",
         "internal/provider/claudecli.*session.eventThreadIDLocked",
         "internal/provider/claudecli.*session.executeRetry",
+        "internal/provider/claudecli.*session.finishInterruptCleanup",
         "internal/provider/claudecli.*session.finishRestartWaitLocked",
         "internal/provider/claudecli.*session.finishTurnFromRaw",
         "internal/provider/claudecli.*session.finishTurnWithError",
@@ -2894,6 +2897,7 @@
         "internal/provider/claudecli.*session.restartReasonLocked",
         "internal/provider/claudecli.*session.restartResumeIDLocked",
         "internal/provider/claudecli.*session.restartSnapshotLocked",
+        "internal/provider/claudecli.*session.restoreFailedInterrupt",
         "internal/provider/claudecli.*session.restoreRestartSnapshotLocked",
         "internal/provider/claudecli.*session.rollbackSessionRestartLocked",
         "internal/provider/claudecli.*session.runtimePromptSnapshotLocked",
@@ -2943,6 +2947,7 @@
         "internal/provider/claudecli.*transport.ensureProcessAlive",
         "internal/provider/claudecli.*transport.readyForSend",
         "internal/provider/claudecli.*transport.signalProcess",
+        "internal/provider/claudecli.*transport.signalProcessNative",
         "internal/provider/claudecli.*transport.wait",
         "internal/provider/claudecli.*transport.waitErr",
         "internal/provider/claudecli.*transport.waitForExit",
@@ -3061,6 +3066,7 @@
         "internal/provider/claudecli.imageBlockFromPath",
         "internal/provider/claudecli.imageBlockFromURL",
         "internal/provider/claudecli.imageHashTracker",
+        "internal/provider/claudecli.interruptCleanupClaim",
         "internal/provider/claudecli.interruptTerminalFields",
         "internal/provider/claudecli.interruptWorkAbsent",
         "internal/provider/claudecli.invalidClaudeResolvedCursorError",
@@ -3446,6 +3452,8 @@
         "internal/provider/codexapp.*session.logApprovalRequestResponded",
         "internal/provider/codexapp.*session.logReplayPendingTurn",
         "internal/provider/codexapp.*session.logReplayedTurn",
+        "internal/provider/codexapp.*session.markInterruptRequestAccepted",
+        "internal/provider/codexapp.*session.markInterruptRequestPending",
         "internal/provider/codexapp.*session.noteReadActivity",
         "internal/provider/codexapp.*session.notifyWriteOutcomeUnknown",
         "internal/provider/codexapp.*session.onInboundMessage",
@@ -3457,7 +3465,6 @@
         "internal/provider/codexapp.*session.publishToolCallEnd",
         "internal/provider/codexapp.*session.purgeCompletedProcessedApprovalsLocked",
         "internal/provider/codexapp.*session.readHistoryFallback",
-        "internal/provider/codexapp.*session.recordAcceptedInterruptRequest",
         "internal/provider/codexapp.*session.recordDirectToolFailure",
         "internal/provider/codexapp.*session.recordToolFailureFromRaw",
         "internal/provider/codexapp.*session.recordTranslatedToolFailure",
@@ -3472,9 +3479,11 @@
         "internal/provider/codexapp.*session.requestApprovalDecision",
         "internal/provider/codexapp.*session.requestToolApproval",
         "internal/provider/codexapp.*session.requestToolApprovalWithContext",
+        "internal/provider/codexapp.*session.reserveInterruptRequest",
         "internal/provider/codexapp.*session.resolveTurnStartModel",
         "internal/provider/codexapp.*session.respondInvalidToolCall",
         "internal/provider/codexapp.*session.resumeThreadAfterRecovery",
+        "internal/provider/codexapp.*session.rollbackInterruptRequest",
         "internal/provider/codexapp.*session.rolloutEndToolName",
         "internal/provider/codexapp.*session.rolloutToolName",
         "internal/provider/codexapp.*session.runtimeConfigJSON",
@@ -3803,6 +3812,7 @@
         "internal/provider/codexapp.installCodexWrapper",
         "internal/provider/codexapp.installManagedCodexCLI",
         "internal/provider/codexapp.int64Value",
+        "internal/provider/codexapp.interruptRequestClaim",
         "internal/provider/codexapp.interruptTargetClaim",
         "internal/provider/codexapp.invokeReadHandler",
         "internal/provider/codexapp.isAppServerArgs",
@@ -7416,6 +7426,7 @@
         "internal/provider/claudecli.*historyBackend.rootDir",
         "internal/provider/claudecli.*historyBackend.sessionPath",
         "internal/provider/claudecli.*imageHashTracker.markIfNew",
+        "internal/provider/claudecli.*interruptCleanupClaim.cancelRestartAndStopWatcher",
         "internal/provider/claudecli.*limitedBuffer.String",
         "internal/provider/claudecli.*limitedBuffer.Write",
         "internal/provider/claudecli.*modeAwareRuntimeReporter.ReportRuntime",
@@ -7453,6 +7464,7 @@
         "internal/provider/claudecli.*session.awaitResolvedThreadID",
         "internal/provider/claudecli.*session.awaitSessionRestartLocked",
         "internal/provider/claudecli.*session.awaitThreadReadyLocked",
+        "internal/provider/claudecli.*session.beginInterruptCleanup",
         "internal/provider/claudecli.*session.beginRestartWaitLocked",
         "internal/provider/claudecli.*session.buildStopEvent",
         "internal/provider/claudecli.*session.clearSilentTurnStateLocked",
@@ -7472,6 +7484,7 @@
         "internal/provider/claudecli.*session.effectiveModelLocked",
         "internal/provider/claudecli.*session.eventThreadIDLocked",
         "internal/provider/claudecli.*session.executeRetry",
+        "internal/provider/claudecli.*session.finishInterruptCleanup",
         "internal/provider/claudecli.*session.finishRestartWaitLocked",
         "internal/provider/claudecli.*session.finishTurnFromRaw",
         "internal/provider/claudecli.*session.finishTurnWithError",
@@ -7508,6 +7521,7 @@
         "internal/provider/claudecli.*session.restartReasonLocked",
         "internal/provider/claudecli.*session.restartResumeIDLocked",
         "internal/provider/claudecli.*session.restartSnapshotLocked",
+        "internal/provider/claudecli.*session.restoreFailedInterrupt",
         "internal/provider/claudecli.*session.restoreRestartSnapshotLocked",
         "internal/provider/claudecli.*session.rollbackSessionRestartLocked",
         "internal/provider/claudecli.*session.runtimePromptSnapshotLocked",
@@ -7557,6 +7571,7 @@
         "internal/provider/claudecli.*transport.ensureProcessAlive",
         "internal/provider/claudecli.*transport.readyForSend",
         "internal/provider/claudecli.*transport.signalProcess",
+        "internal/provider/claudecli.*transport.signalProcessNative",
         "internal/provider/claudecli.*transport.wait",
         "internal/provider/claudecli.*transport.waitErr",
         "internal/provider/claudecli.*transport.waitForExit",
@@ -7675,6 +7690,7 @@
         "internal/provider/claudecli.imageBlockFromPath",
         "internal/provider/claudecli.imageBlockFromURL",
         "internal/provider/claudecli.imageHashTracker",
+        "internal/provider/claudecli.interruptCleanupClaim",
         "internal/provider/claudecli.interruptTerminalFields",
         "internal/provider/claudecli.interruptWorkAbsent",
         "internal/provider/claudecli.invalidClaudeResolvedCursorError",
@@ -8060,6 +8076,8 @@
         "internal/provider/codexapp.*session.logApprovalRequestResponded",
         "internal/provider/codexapp.*session.logReplayPendingTurn",
         "internal/provider/codexapp.*session.logReplayedTurn",
+        "internal/provider/codexapp.*session.markInterruptRequestAccepted",
+        "internal/provider/codexapp.*session.markInterruptRequestPending",
         "internal/provider/codexapp.*session.noteReadActivity",
         "internal/provider/codexapp.*session.notifyWriteOutcomeUnknown",
         "internal/provider/codexapp.*session.onInboundMessage",
@@ -8071,7 +8089,6 @@
         "internal/provider/codexapp.*session.publishToolCallEnd",
         "internal/provider/codexapp.*session.purgeCompletedProcessedApprovalsLocked",
         "internal/provider/codexapp.*session.readHistoryFallback",
-        "internal/provider/codexapp.*session.recordAcceptedInterruptRequest",
         "internal/provider/codexapp.*session.recordDirectToolFailure",
         "internal/provider/codexapp.*session.recordToolFailureFromRaw",
         "internal/provider/codexapp.*session.recordTranslatedToolFailure",
@@ -8086,9 +8103,11 @@
         "internal/provider/codexapp.*session.requestApprovalDecision",
         "internal/provider/codexapp.*session.requestToolApproval",
         "internal/provider/codexapp.*session.requestToolApprovalWithContext",
+        "internal/provider/codexapp.*session.reserveInterruptRequest",
         "internal/provider/codexapp.*session.resolveTurnStartModel",
         "internal/provider/codexapp.*session.respondInvalidToolCall",
         "internal/provider/codexapp.*session.resumeThreadAfterRecovery",
+        "internal/provider/codexapp.*session.rollbackInterruptRequest",
         "internal/provider/codexapp.*session.rolloutEndToolName",
         "internal/provider/codexapp.*session.rolloutToolName",
         "internal/provider/codexapp.*session.runtimeConfigJSON",
@@ -8417,6 +8436,7 @@
         "internal/provider/codexapp.installCodexWrapper",
         "internal/provider/codexapp.installManagedCodexCLI",
         "internal/provider/codexapp.int64Value",
+        "internal/provider/codexapp.interruptRequestClaim",
         "internal/provider/codexapp.interruptTargetClaim",
         "internal/provider/codexapp.invokeReadHandler",
         "internal/provider/codexapp.isAppServerArgs",
@@ -12030,6 +12050,7 @@
         "internal/provider/claudecli.*historyBackend.rootDir",
         "internal/provider/claudecli.*historyBackend.sessionPath",
         "internal/provider/claudecli.*imageHashTracker.markIfNew",
+        "internal/provider/claudecli.*interruptCleanupClaim.cancelRestartAndStopWatcher",
         "internal/provider/claudecli.*limitedBuffer.String",
         "internal/provider/claudecli.*limitedBuffer.Write",
         "internal/provider/claudecli.*modeAwareRuntimeReporter.ReportRuntime",
@@ -12067,6 +12088,7 @@
         "internal/provider/claudecli.*session.awaitResolvedThreadID",
         "internal/provider/claudecli.*session.awaitSessionRestartLocked",
         "internal/provider/claudecli.*session.awaitThreadReadyLocked",
+        "internal/provider/claudecli.*session.beginInterruptCleanup",
         "internal/provider/claudecli.*session.beginRestartWaitLocked",
         "internal/provider/claudecli.*session.buildStopEvent",
         "internal/provider/claudecli.*session.clearSilentTurnStateLocked",
@@ -12086,6 +12108,7 @@
         "internal/provider/claudecli.*session.effectiveModelLocked",
         "internal/provider/claudecli.*session.eventThreadIDLocked",
         "internal/provider/claudecli.*session.executeRetry",
+        "internal/provider/claudecli.*session.finishInterruptCleanup",
         "internal/provider/claudecli.*session.finishRestartWaitLocked",
         "internal/provider/claudecli.*session.finishTurnFromRaw",
         "internal/provider/claudecli.*session.finishTurnWithError",
@@ -12122,6 +12145,7 @@
         "internal/provider/claudecli.*session.restartReasonLocked",
         "internal/provider/claudecli.*session.restartResumeIDLocked",
         "internal/provider/claudecli.*session.restartSnapshotLocked",
+        "internal/provider/claudecli.*session.restoreFailedInterrupt",
         "internal/provider/claudecli.*session.restoreRestartSnapshotLocked",
         "internal/provider/claudecli.*session.rollbackSessionRestartLocked",
         "internal/provider/claudecli.*session.runtimePromptSnapshotLocked",
@@ -12171,6 +12195,7 @@
         "internal/provider/claudecli.*transport.ensureProcessAlive",
         "internal/provider/claudecli.*transport.readyForSend",
         "internal/provider/claudecli.*transport.signalProcess",
+        "internal/provider/claudecli.*transport.signalProcessNative",
         "internal/provider/claudecli.*transport.wait",
         "internal/provider/claudecli.*transport.waitErr",
         "internal/provider/claudecli.*transport.waitForExit",
@@ -12289,6 +12314,7 @@
         "internal/provider/claudecli.imageBlockFromPath",
         "internal/provider/claudecli.imageBlockFromURL",
         "internal/provider/claudecli.imageHashTracker",
+        "internal/provider/claudecli.interruptCleanupClaim",
         "internal/provider/claudecli.interruptTerminalFields",
         "internal/provider/claudecli.interruptWorkAbsent",
         "internal/provider/claudecli.invalidClaudeResolvedCursorError",
@@ -12674,6 +12700,8 @@
         "internal/provider/codexapp.*session.logApprovalRequestResponded",
         "internal/provider/codexapp.*session.logReplayPendingTurn",
         "internal/provider/codexapp.*session.logReplayedTurn",
+        "internal/provider/codexapp.*session.markInterruptRequestAccepted",
+        "internal/provider/codexapp.*session.markInterruptRequestPending",
         "internal/provider/codexapp.*session.noteReadActivity",
         "internal/provider/codexapp.*session.notifyWriteOutcomeUnknown",
         "internal/provider/codexapp.*session.onInboundMessage",
@@ -12685,7 +12713,6 @@
         "internal/provider/codexapp.*session.publishToolCallEnd",
         "internal/provider/codexapp.*session.purgeCompletedProcessedApprovalsLocked",
         "internal/provider/codexapp.*session.readHistoryFallback",
-        "internal/provider/codexapp.*session.recordAcceptedInterruptRequest",
         "internal/provider/codexapp.*session.recordDirectToolFailure",
         "internal/provider/codexapp.*session.recordToolFailureFromRaw",
         "internal/provider/codexapp.*session.recordTranslatedToolFailure",
@@ -12700,9 +12727,11 @@
         "internal/provider/codexapp.*session.requestApprovalDecision",
         "internal/provider/codexapp.*session.requestToolApproval",
         "internal/provider/codexapp.*session.requestToolApprovalWithContext",
+        "internal/provider/codexapp.*session.reserveInterruptRequest",
         "internal/provider/codexapp.*session.resolveTurnStartModel",
         "internal/provider/codexapp.*session.respondInvalidToolCall",
         "internal/provider/codexapp.*session.resumeThreadAfterRecovery",
+        "internal/provider/codexapp.*session.rollbackInterruptRequest",
         "internal/provider/codexapp.*session.rolloutEndToolName",
         "internal/provider/codexapp.*session.rolloutToolName",
         "internal/provider/codexapp.*session.runtimeConfigJSON",
@@ -13031,6 +13060,7 @@
         "internal/provider/codexapp.installCodexWrapper",
         "internal/provider/codexapp.installManagedCodexCLI",
         "internal/provider/codexapp.int64Value",
+        "internal/provider/codexapp.interruptRequestClaim",
         "internal/provider/codexapp.interruptTargetClaim",
         "internal/provider/codexapp.invokeReadHandler",
         "internal/provider/codexapp.isAppServerArgs",
@@ -16647,6 +16677,7 @@
         "internal/provider/claudecli.*historyBackend.rootDir",
         "internal/provider/claudecli.*historyBackend.sessionPath",
         "internal/provider/claudecli.*imageHashTracker.markIfNew",
+        "internal/provider/claudecli.*interruptCleanupClaim.cancelRestartAndStopWatcher",
         "internal/provider/claudecli.*limitedBuffer.String",
         "internal/provider/claudecli.*limitedBuffer.Write",
         "internal/provider/claudecli.*modeAwareRuntimeReporter.ReportRuntime",
@@ -16684,6 +16715,7 @@
         "internal/provider/claudecli.*session.awaitResolvedThreadID",
         "internal/provider/claudecli.*session.awaitSessionRestartLocked",
         "internal/provider/claudecli.*session.awaitThreadReadyLocked",
+        "internal/provider/claudecli.*session.beginInterruptCleanup",
         "internal/provider/claudecli.*session.beginRestartWaitLocked",
         "internal/provider/claudecli.*session.buildStopEvent",
         "internal/provider/claudecli.*session.clearSilentTurnStateLocked",
@@ -16703,6 +16735,7 @@
         "internal/provider/claudecli.*session.effectiveModelLocked",
         "internal/provider/claudecli.*session.eventThreadIDLocked",
         "internal/provider/claudecli.*session.executeRetry",
+        "internal/provider/claudecli.*session.finishInterruptCleanup",
         "internal/provider/claudecli.*session.finishRestartWaitLocked",
         "internal/provider/claudecli.*session.finishTurnFromRaw",
         "internal/provider/claudecli.*session.finishTurnWithError",
@@ -16739,6 +16772,7 @@
         "internal/provider/claudecli.*session.restartReasonLocked",
         "internal/provider/claudecli.*session.restartResumeIDLocked",
         "internal/provider/claudecli.*session.restartSnapshotLocked",
+        "internal/provider/claudecli.*session.restoreFailedInterrupt",
         "internal/provider/claudecli.*session.restoreRestartSnapshotLocked",
         "internal/provider/claudecli.*session.rollbackSessionRestartLocked",
         "internal/provider/claudecli.*session.runtimePromptSnapshotLocked",
@@ -16788,6 +16822,7 @@
         "internal/provider/claudecli.*transport.ensureProcessAlive",
         "internal/provider/claudecli.*transport.readyForSend",
         "internal/provider/claudecli.*transport.signalProcess",
+        "internal/provider/claudecli.*transport.signalProcessNative",
         "internal/provider/claudecli.*transport.wait",
         "internal/provider/claudecli.*transport.waitErr",
         "internal/provider/claudecli.*transport.waitForExit",
@@ -16907,6 +16942,7 @@
         "internal/provider/claudecli.imageBlockFromPath",
         "internal/provider/claudecli.imageBlockFromURL",
         "internal/provider/claudecli.imageHashTracker",
+        "internal/provider/claudecli.interruptCleanupClaim",
         "internal/provider/claudecli.interruptTerminalFields",
         "internal/provider/claudecli.interruptWorkAbsent",
         "internal/provider/claudecli.invalidClaudeResolvedCursorError",
@@ -17293,6 +17329,8 @@
         "internal/provider/codexapp.*session.logApprovalRequestResponded",
         "internal/provider/codexapp.*session.logReplayPendingTurn",
         "internal/provider/codexapp.*session.logReplayedTurn",
+        "internal/provider/codexapp.*session.markInterruptRequestAccepted",
+        "internal/provider/codexapp.*session.markInterruptRequestPending",
         "internal/provider/codexapp.*session.noteReadActivity",
         "internal/provider/codexapp.*session.notifyWriteOutcomeUnknown",
         "internal/provider/codexapp.*session.onInboundMessage",
@@ -17304,7 +17342,6 @@
         "internal/provider/codexapp.*session.publishToolCallEnd",
         "internal/provider/codexapp.*session.purgeCompletedProcessedApprovalsLocked",
         "internal/provider/codexapp.*session.readHistoryFallback",
-        "internal/provider/codexapp.*session.recordAcceptedInterruptRequest",
         "internal/provider/codexapp.*session.recordDirectToolFailure",
         "internal/provider/codexapp.*session.recordToolFailureFromRaw",
         "internal/provider/codexapp.*session.recordTranslatedToolFailure",
@@ -17319,9 +17356,11 @@
         "internal/provider/codexapp.*session.requestApprovalDecision",
         "internal/provider/codexapp.*session.requestToolApproval",
         "internal/provider/codexapp.*session.requestToolApprovalWithContext",
+        "internal/provider/codexapp.*session.reserveInterruptRequest",
         "internal/provider/codexapp.*session.resolveTurnStartModel",
         "internal/provider/codexapp.*session.respondInvalidToolCall",
         "internal/provider/codexapp.*session.resumeThreadAfterRecovery",
+        "internal/provider/codexapp.*session.rollbackInterruptRequest",
         "internal/provider/codexapp.*session.rolloutEndToolName",
         "internal/provider/codexapp.*session.rolloutToolName",
         "internal/provider/codexapp.*session.runtimeConfigJSON",
@@ -17651,6 +17690,7 @@
         "internal/provider/codexapp.installCodexWrapper",
         "internal/provider/codexapp.installManagedCodexCLI",
         "internal/provider/codexapp.int64Value",
+        "internal/provider/codexapp.interruptRequestClaim",
         "internal/provider/codexapp.interruptTargetClaim",
         "internal/provider/codexapp.invokeReadHandler",
         "internal/provider/codexapp.isApprovalBridgeMethod",
@@ -18482,12 +18522,12 @@
   "summary": {
     "total_packages": 41,
     "total_functions": 2265,
-    "total_methods": 1157,
+    "total_methods": 1165,
     "total_interfaces": 183,
     "total_interface_methods": 363,
     "total_exported": 1256,
-    "total_unexported": 2950,
-    "total_structs": 601
+    "total_unexported": 2960,
+    "total_structs": 603
   },
   "packages": [
     {
@@ -57330,10 +57370,6 @@
           "exported": false,
           "params": [
             {
-              "name": "logger",
-              "type": "*slog.Logger"
-            },
-            {
               "name": "reg",
               "type": "*pidregistry.Registry"
             },
@@ -57349,6 +57385,9 @@
               "name": "settleTransport",
               "type": "func(*transport) error"
             }
+          ],
+          "returns": [
+            "error"
           ]
         },
         {
@@ -60675,6 +60714,11 @@
           ]
         },
         {
+          "receiver": "*interruptCleanupClaim",
+          "name": "cancelRestartAndStopWatcher",
+          "exported": false
+        },
+        {
           "receiver": "*limitedBuffer",
           "name": "String",
           "exported": true,
@@ -61357,6 +61401,21 @@
         },
         {
           "receiver": "*session",
+          "name": "beginInterruptCleanup",
+          "exported": false,
+          "params": [
+            {
+              "name": "targetTurnID",
+              "type": "string"
+            }
+          ],
+          "returns": [
+            "*interruptCleanupClaim",
+            "error"
+          ]
+        },
+        {
+          "receiver": "*session",
           "name": "beginRestartWaitLocked",
           "exported": false,
           "params": [
@@ -61576,6 +61635,26 @@
               "name": "payload",
               "type": "[]byte"
             }
+          ]
+        },
+        {
+          "receiver": "*session",
+          "name": "finishInterruptCleanup",
+          "exported": false,
+          "params": [
+            {
+              "name": "claim",
+              "type": "*interruptCleanupClaim"
+            },
+            {
+              "name": "reason",
+              "type": "string"
+            }
+          ],
+          "returns": [
+            "*turnHandle",
+            "[]dto.RawProviderEvent",
+            "bool"
           ]
         },
         {
@@ -62076,6 +62155,17 @@
         },
         {
           "receiver": "*session",
+          "name": "restoreFailedInterrupt",
+          "exported": false,
+          "params": [
+            {
+              "name": "claim",
+              "type": "*interruptCleanupClaim"
+            }
+          ]
+        },
+        {
+          "receiver": "*session",
           "name": "restoreRestartSnapshotLocked",
           "exported": false,
           "params": [
@@ -62509,6 +62599,20 @@
         },
         {
           "receiver": "*transport",
+          "name": "signalProcessNative",
+          "exported": false,
+          "params": [
+            {
+              "name": "sig",
+              "type": "processSig"
+            }
+          ],
+          "returns": [
+            "error"
+          ]
+        },
+        {
+          "receiver": "*transport",
           "name": "signalProcess",
           "exported": false,
           "params": [
@@ -62686,6 +62790,10 @@
         },
         {
           "name": "imageHashTracker",
+          "exported": false
+        },
+        {
+          "name": "interruptCleanupClaim",
           "exported": false
         },
         {
@@ -73315,6 +73423,39 @@
         },
         {
           "receiver": "*session",
+          "name": "markInterruptRequestAccepted",
+          "exported": false,
+          "params": [
+            {
+              "name": "claim",
+              "type": "interruptTargetClaim"
+            },
+            {
+              "name": "requestClaim",
+              "type": "*interruptRequestClaim"
+            }
+          ]
+        },
+        {
+          "receiver": "*session",
+          "name": "markInterruptRequestPending",
+          "exported": false,
+          "params": [
+            {
+              "name": "claim",
+              "type": "interruptTargetClaim"
+            },
+            {
+              "name": "requestClaim",
+              "type": "*interruptRequestClaim"
+            }
+          ],
+          "returns": [
+            "error"
+          ]
+        },
+        {
+          "receiver": "*session",
           "name": "noteReadActivity",
           "exported": false
         },
@@ -73468,21 +73609,6 @@
           ],
           "returns": [
             "[]Message"
-          ]
-        },
-        {
-          "receiver": "*session",
-          "name": "recordAcceptedInterruptRequest",
-          "exported": false,
-          "params": [
-            {
-              "name": "claim",
-              "type": "interruptTargetClaim"
-            },
-            {
-              "name": "requestID",
-              "type": "string"
-            }
           ]
         },
         {
@@ -73704,6 +73830,25 @@
         },
         {
           "receiver": "*session",
+          "name": "reserveInterruptRequest",
+          "exported": false,
+          "params": [
+            {
+              "name": "claim",
+              "type": "interruptTargetClaim"
+            },
+            {
+              "name": "requestID",
+              "type": "string"
+            }
+          ],
+          "returns": [
+            "*interruptRequestClaim",
+            "error"
+          ]
+        },
+        {
+          "receiver": "*session",
           "name": "resolveTurnStartModel",
           "exported": false,
           "params": [
@@ -73752,6 +73897,17 @@
           ],
           "returns": [
             "error"
+          ]
+        },
+        {
+          "receiver": "*session",
+          "name": "rollbackInterruptRequest",
+          "exported": false,
+          "params": [
+            {
+              "name": "requestClaim",
+              "type": "*interruptRequestClaim"
+            }
           ]
         },
         {
@@ -75486,6 +75642,10 @@
         },
         {
           "name": "initializeRPCResult",
+          "exported": false
+        },
+        {
+          "name": "interruptRequestClaim",
           "exported": false
         },
         {

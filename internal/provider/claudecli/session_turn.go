@@ -186,6 +186,9 @@ func errorMessageFromTerminalReason(reason string) string {
 // prepareTurnLocked 在持锁状态下完成 turn payload、重启检查和 active turn 绑定。
 // 任何编码或 transport 检查失败都会回滚 active turn，避免留下不可完成的 handle。
 func (s *session) prepareTurnLocked(ctx context.Context, req dto.TurnRequest) ([]byte, string, *turnHandle, error) {
+	if s.interrupting {
+		return nil, "", nil, errors.New("claudecli: interrupt cleanup in progress")
+	}
 	blocks := composeTurnContent(req, s.imageTracker)
 	if len(blocks) == 0 {
 		return nil, "", nil, errors.New("claudecli: empty turn input")
