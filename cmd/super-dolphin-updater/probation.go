@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	recovery "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/appupdaterecovery"
@@ -29,6 +30,8 @@ const (
 	guardReadinessTimeout      = 5 * time.Second
 	guardReadinessMaxBytes     = 16 << 10
 	candidateReadinessTimeout  = 5 * time.Second
+	candidateCleanupTimeout    = 5 * time.Second
+	candidateStopTimeout       = time.Second
 )
 
 // runProbationSupervisor 启动候选与 detached Guard，并阻塞监督 exact ACK。
@@ -42,7 +45,7 @@ func (app updaterApp) runProbationSupervisor(ctx context.Context, transaction re
 	}
 	candidate, err := app.startProbationCandidate(ctx, transaction)
 	if err != nil {
-		return app.rollbackLaunchFailure(ctx, store, transaction, err)
+		return app.handleCandidateStartFailure(ctx, store, transaction, candidate, err)
 	}
 	process := candidate.Identity()
 	ownerID, err := app.newProbationOwnerID()
@@ -65,7 +68,7 @@ func (app updaterApp) runProbationSupervisor(ctx context.Context, transaction re
 	supervisor, err := app.newProbationSupervisor(recovery.ProbationSupervisorConfig{
 		Store: store, Identity: transaction.Identity, Lease: lease,
 		ProcessAlive:  candidate.ProcessAlive,
-		StopCandidate: candidate.Stop,
+		StopCandidate: candidate.Reclaim,
 		RestartOldRelease: func(restartCtx context.Context, rolledBack recovery.Transaction) error {
 			return app.convergeRollbackRestart(restartCtx, store, rolledBack)
 		},
@@ -77,6 +80,20 @@ func (app updaterApp) runProbationSupervisor(ctx context.Context, transaction re
 		return app.rollbackClaimedCandidate(ctx, store, transaction, lease, candidate, err)
 	}
 	return supervisor.Run(ctx)
+}
+
+// handleCandidateStartFailure 仅在 starter 已确认 child 回收后进入 unclaimed rollback。
+func (app updaterApp) handleCandidateStartFailure(
+	ctx context.Context,
+	store *recovery.Store,
+	transaction recovery.Transaction,
+	candidate *candidateHandle,
+	cause error,
+) error {
+	if candidate != nil {
+		return cause
+	}
+	return app.rollbackLaunchFailure(ctx, store, transaction, cause)
 }
 
 // validateProbationRuntime 拒绝缺失任一 post-start cleanup 入口依赖。
@@ -124,52 +141,76 @@ func startProbationCandidate(ctx context.Context, transaction recovery.Transacti
 	if err := cmd.Start(); err != nil {
 		return nil, fmt.Errorf("start probation candidate: %w", err)
 	}
+	provisional := recovery.ProcessIdentity{
+		PID: cmd.Process.Pid, ExecutableIdentity: filepath.Clean(executable), ExecutableSHA256: digest,
+		TerminationEndpoint: terminationEndpoint, TerminationToken: terminationToken,
+	}
+	handle := newCandidateHandle(cmd, provisional)
 	stable, err := pidregistry.CaptureStableProcessIdentity(cmd.Process.Pid)
 	if err != nil {
-		return nil, errors.Join(err, killStartedCandidate(cmd), pidregistry.CleanupCooperativeTerminationEndpoint(terminationEndpoint))
+		return failCandidateStart(handle, err)
 	}
 	identity := recovery.ProcessIdentity{
 		PID: stable.PID, StartToken: stable.ProcessStartToken,
 		ExecutableIdentity: stable.ExecutableIdentity, ExecutableSHA256: digest,
 		TerminationEndpoint: terminationEndpoint, TerminationToken: terminationToken,
 	}
-	handle := newCandidateHandle(cmd, identity)
+	handle.bindIdentity(identity)
 	if stable.ExecutableIdentity != filepath.Clean(executable) {
-		return nil, handle.cleanupStartFailure(pidregistry.ErrStableProcessIdentityMismatch)
+		return failCandidateStart(handle, pidregistry.ErrStableProcessIdentityMismatch)
 	}
 	readyCtx, cancel := ctxutil.WithTimeout(ctx, candidateReadinessTimeout)
 	defer cancel()
 	if err := waitCandidateTerminationReady(readyCtx, identity); err != nil {
-		return nil, handle.cleanupStartFailure(err)
+		return failCandidateStart(handle, err)
 	}
 	return handle, nil
 }
 
 type candidateHandle struct {
-	identity recovery.ProcessIdentity
-	process  *os.Process
-	done     chan struct{}
+	process     *os.Process
+	directChild bool
+	done        chan struct{}
 
-	mu      sync.RWMutex
-	waitErr error
+	terminate       func(context.Context, recovery.ProcessIdentity) error
+	captureStable   func(int) (pidregistry.StableProcessIdentity, error)
+	cleanupEndpoint func(string) error
+	waitCalls       atomic.Int32
+
+	mu       sync.RWMutex
+	identity recovery.ProcessIdentity
+	waitErr  error
 }
 
 func newCandidateHandle(cmd *exec.Cmd, identity recovery.ProcessIdentity) *candidateHandle {
-	handle := &candidateHandle{identity: identity, process: cmd.Process, done: make(chan struct{})}
+	handle := &candidateHandle{
+		identity: identity, process: cmd.Process, directChild: true, done: make(chan struct{}),
+		terminate: terminateCandidate, captureStable: pidregistry.CaptureStableProcessIdentity,
+		cleanupEndpoint: pidregistry.CleanupCooperativeTerminationEndpoint,
+	}
 	logger := pkglogger.Get()
 	safego.Go(context.Background(), logger, "updater.probationCandidate.wait", func(context.Context) {
+		handle.waitCalls.Add(1)
 		waitErr := cmd.Wait()
 		handle.mu.Lock()
 		handle.waitErr = waitErr
 		handle.mu.Unlock()
 		close(handle.done)
-		logger.Info("probation candidate reaped", "pid", identity.PID, "wait_error", waitErr)
+		logger.Info("probation candidate reaped", "pid", cmd.Process.Pid, "wait_error", waitErr)
 	})
 	return handle
 }
 
+func (handle *candidateHandle) bindIdentity(identity recovery.ProcessIdentity) {
+	handle.mu.Lock()
+	handle.identity = identity
+	handle.mu.Unlock()
+}
+
 // Identity 返回 candidate handle 绑定的 exact process identity。
 func (handle *candidateHandle) Identity() recovery.ProcessIdentity {
+	handle.mu.RLock()
+	defer handle.mu.RUnlock()
 	return handle.identity
 }
 
@@ -190,7 +231,7 @@ func (handle *candidateHandle) Wait(ctx context.Context) error {
 
 // ProcessAlive 优先读取 reaper 结果，否则复核内核 stable identity。
 func (handle *candidateHandle) ProcessAlive(identity recovery.ProcessIdentity) (bool, error) {
-	if identity != handle.identity {
+	if identity != handle.Identity() {
 		return false, pidregistry.ErrStableProcessIdentityMismatch
 	}
 	select {
@@ -206,22 +247,22 @@ func (handle *candidateHandle) Stop(ctx context.Context, identity recovery.Proce
 	if ctx == nil {
 		return errors.New("candidate stop context is required")
 	}
-	if identity != handle.identity {
+	if identity != handle.Identity() {
 		return pidregistry.ErrStableProcessIdentityMismatch
 	}
 	select {
 	case <-handle.done:
-		return pidregistry.CleanupCooperativeTerminationEndpoint(identity.TerminationEndpoint)
+		return handle.cleanupEndpoint(identity.TerminationEndpoint)
 	default:
 	}
-	if err := terminateCandidate(ctx, identity); err != nil {
+	if err := handle.terminate(ctx, identity); err != nil {
 		return handle.resolveTerminationError(ctx, err)
 	}
 	select {
 	case <-ctx.Done():
 		return context.Cause(ctx)
 	case <-handle.done:
-		return pidregistry.CleanupCooperativeTerminationEndpoint(identity.TerminationEndpoint)
+		return handle.cleanupEndpoint(identity.TerminationEndpoint)
 	}
 }
 
@@ -233,10 +274,10 @@ func (handle *candidateHandle) resolveTerminationError(ctx context.Context, term
 	case <-handle.done:
 		pkglogger.Get().Info(
 			"candidate exit confirmed by reaper",
-			"pid", handle.identity.PID,
+			"pid", handle.Identity().PID,
 			"termination_error", terminationErr,
 		)
-		return pidregistry.CleanupCooperativeTerminationEndpoint(handle.identity.TerminationEndpoint)
+		return handle.cleanupEndpoint(handle.Identity().TerminationEndpoint)
 	case <-ctx.Done():
 		return context.Cause(ctx)
 	case <-timer.C:
@@ -244,39 +285,94 @@ func (handle *candidateHandle) resolveTerminationError(ctx context.Context, term
 	}
 }
 
-// cleanupStartFailure 在独立时限内执行 exact stop、必要时 kill、Wait 与 endpoint 清理。
+// cleanupStartFailure 复用 rollback 的强制回收路径处理启动或 READY 失败。
 func (handle *candidateHandle) cleanupStartFailure(primary error) error {
-	cleanupCtx, cancel := ctxutil.WithTimeout(context.Background(), candidateReadinessTimeout)
+	_, err := failCandidateStart(handle, primary)
+	return err
+}
+
+// failCandidateStart 只在共享回收确认完成后隐藏 handle，阻止未回收 child 进入 rollback。
+func failCandidateStart(handle *candidateHandle, primary error) (*candidateHandle, error) {
+	if handle == nil {
+		return nil, primary
+	}
+	if reclaimErr := handle.Reclaim(context.Background(), handle.Identity()); reclaimErr != nil {
+		return handle, errors.Join(primary, reclaimErr)
+	}
+	return nil, primary
+}
+
+// Reclaim 在独立 deadline 内完成 cooperative stop、exact recapture、direct kill、唯一 reap 与 endpoint cleanup。
+func (handle *candidateHandle) Reclaim(caller context.Context, identity recovery.ProcessIdentity) error {
+	if caller == nil {
+		return errors.New("candidate reclaim caller context is required")
+	}
+	if handle == nil || handle.process == nil || handle.done == nil || handle.terminate == nil ||
+		handle.captureStable == nil || handle.cleanupEndpoint == nil {
+		return errors.New("candidate reclaim owner is incomplete")
+	}
+	if identity != handle.Identity() {
+		return pidregistry.ErrStableProcessIdentityMismatch
+	}
+	cleanupCtx, cancel := ctxutil.WithTimeout(context.Background(), candidateCleanupTimeout)
 	defer cancel()
-	stopErr := handle.Stop(cleanupCtx, handle.identity)
+	return handle.reclaimWithin(cleanupCtx, identity)
+}
+
+func (handle *candidateHandle) reclaimWithin(ctx context.Context, identity recovery.ProcessIdentity) error {
+	stopCtx, cancelStop := ctxutil.WithTimeout(ctx, candidateStopTimeout)
+	stopErr := handle.Stop(stopCtx, identity)
+	cancelStop()
 	if stopErr == nil {
-		return primary
+		return nil
 	}
-	current, captureErr := pidregistry.CaptureStableProcessIdentity(handle.identity.PID)
-	shouldKill := false
-	if errors.Is(captureErr, pidregistry.ErrStableProcessNotFound) {
-		captureErr = nil
-	} else if captureErr == nil {
-		if current.ProcessStartToken != handle.identity.StartToken || current.ExecutableIdentity != handle.identity.ExecutableIdentity {
-			captureErr = pidregistry.ErrStableProcessIdentityMismatch
-		} else {
-			shouldKill = true
-		}
+	recaptureErr := handle.recaptureExact(identity)
+	killErr := handle.killDirectChild()
+	waitErr := normalizeCandidateWait(handle.Wait(ctx))
+	endpointErr := handle.cleanupEndpoint(identity.TerminationEndpoint)
+	fatalErr := errors.Join(killErr, waitErr, endpointErr)
+	if fatalErr != nil {
+		return errors.Join(stopErr, recaptureErr, fatalErr)
 	}
-	var killErr error
-	if shouldKill {
-		killErr = handle.process.Kill()
-		if errors.Is(killErr, os.ErrProcessDone) {
-			killErr = nil
-		}
+	pkglogger.Get().Warn("candidate force reclaim recovered cleanup failure",
+		"pid", identity.PID, "cleanup_error", errors.Join(stopErr, recaptureErr))
+	return nil
+}
+
+// recaptureExact 读取当前 PID identity，并与 candidate generation 做完整比对。
+func (handle *candidateHandle) recaptureExact(identity recovery.ProcessIdentity) error {
+	current, err := handle.captureStable(identity.PID)
+	if err != nil {
+		return fmt.Errorf("recapture probation candidate identity: %w", err)
 	}
-	waitErr := handle.Wait(cleanupCtx)
+	if identity.StartToken == "" || identity.ExecutableIdentity == "" {
+		return errors.New("probation candidate exact identity was not captured")
+	}
+	if current.PID != identity.PID || current.ProcessStartToken != identity.StartToken ||
+		current.ExecutableIdentity != identity.ExecutableIdentity {
+		return pidregistry.ErrStableProcessIdentityMismatch
+	}
+	return nil
+}
+
+// killDirectChild 只使用 Start 返回的 direct-child handle；同一 handle 的 Wait 会在 reap 前禁止后续 Signal。
+func (handle *candidateHandle) killDirectChild() error {
+	if !handle.directChild {
+		return errors.New("candidate direct-child ownership is required for forced kill")
+	}
+	err := handle.process.Kill()
+	if errors.Is(err, os.ErrProcessDone) {
+		return nil
+	}
+	return err
+}
+
+func normalizeCandidateWait(err error) error {
 	var exitErr *exec.ExitError
-	if errors.As(waitErr, &exitErr) {
-		waitErr = nil
+	if errors.As(err, &exitErr) {
+		return nil
 	}
-	endpointErr := pidregistry.CleanupCooperativeTerminationEndpoint(handle.identity.TerminationEndpoint)
-	return errors.Join(primary, stopErr, captureErr, killErr, waitErr, endpointErr)
+	return err
 }
 
 // waitCandidateTerminationReady 在发布 handle 前完成 token-authenticated READY。
@@ -305,19 +401,6 @@ func (handle *candidateHandle) result() error {
 	handle.mu.RLock()
 	defer handle.mu.RUnlock()
 	return handle.waitErr
-}
-
-func killStartedCandidate(cmd *exec.Cmd) error {
-	if err := cmd.Process.Kill(); err != nil && !errors.Is(err, os.ErrProcessDone) {
-		return fmt.Errorf("kill candidate after identity capture failure: %w", err)
-	}
-	if err := cmd.Wait(); err != nil {
-		var exitErr *exec.ExitError
-		if !errors.As(err, &exitErr) {
-			return fmt.Errorf("reap candidate after identity capture failure: %w", err)
-		}
-	}
-	return nil
 }
 
 // startDetachedGuard 在有界时间内验证 exact Guard 凭据，成功后才释放进程句柄。
@@ -493,14 +576,14 @@ func (app updaterApp) rollbackLaunchFailure(ctx context.Context, store *recovery
 }
 
 func (app updaterApp) rollbackStartedCandidate(ctx context.Context, store *recovery.Store, transaction recovery.Transaction, candidate *candidateHandle, cause error) error {
-	if stopErr := candidate.Stop(ctx, candidate.Identity()); stopErr != nil {
+	if stopErr := candidate.Reclaim(ctx, candidate.Identity()); stopErr != nil {
 		return errors.Join(cause, stopErr)
 	}
 	return app.rollbackLaunchFailure(ctx, store, transaction, cause)
 }
 
 func (app updaterApp) rollbackClaimedCandidate(ctx context.Context, store *recovery.Store, transaction recovery.Transaction, lease recovery.ProbationLease, candidate *candidateHandle, cause error) error {
-	if stopErr := candidate.Stop(ctx, candidate.Identity()); stopErr != nil {
+	if stopErr := candidate.Reclaim(ctx, candidate.Identity()); stopErr != nil {
 		return errors.Join(cause, stopErr)
 	}
 	rolledBack, rollbackErr := store.RollbackClaimed(ctx, transaction.Identity, lease)

@@ -138,9 +138,16 @@ func Run() error {
 	return runApp(owner, newFXApp(fx.Supply(fx.Annotate(owner, fx.As(new(RootCtxProvider))))))
 }
 
+// DesktopACKPublisher 把健康 ACK 写入与 Wails Run 退出放入同一线性化顺序。
+type DesktopACKPublisher func(write func() error) error
+
 // RunDesktop 启动桌面 Wails 应用，并在 backend 与 Wails lifecycle 就绪后调用 ready。
 // 前端 filesystem 为空时由 wails 模块降级到内置占位页；运行结束前会先 drain runtime。
-func RunDesktop(parent context.Context, frontendFS fs.FS, ready func(context.Context) error) error {
+func RunDesktop(
+	parent context.Context,
+	frontendFS fs.FS,
+	ready func(context.Context, DesktopACKPublisher) error,
+) error {
 	if parent == nil || ready == nil {
 		return errors.New("desktop parent context and ready callback are required")
 	}
@@ -152,11 +159,12 @@ func RunDesktop(parent context.Context, frontendFS fs.FS, ready func(context.Con
 	}
 	var wailsApp *application.App
 	var lifecycle *uiwails.WailsLifecycle
+	var activation *uiwails.ActivationReadiness
 
 	app := newDesktopFXApp(
 		fx.Supply(fx.Annotate(owner, fx.As(new(RootCtxProvider)))),
 		fx.Supply(uiwails.FrontendFS{FS: frontendFS}),
-		fx.Populate(&wailsApp, &lifecycle),
+		fx.Populate(&wailsApp, &lifecycle, &activation),
 	)
 	startCtx, cancelStart := platformconfig.WithTimeout(ctx, platformconfig.StartupTimeout)
 	defer cancelStart()
@@ -169,12 +177,12 @@ func RunDesktop(parent context.Context, frontendFS fs.FS, ready func(context.Con
 			return errors.New("wails lifecycle not available")
 		}
 		return nil
-	}, ready, stopper.Stop); err != nil {
+	}, stopper.Stop); err != nil {
 		return err
 	}
 
 	watcher := watchFXShutdown(ctx, app, lifecycle, stopper.Stop)
-	runErr := wailsApp.Run()
+	runErr := runActivatedDesktop(startCtx, activation, ready, wailsApp.Run, wailsApp.Quit)
 	owner.Cancel()
 	preDrainErr := preDrainDesktopRuntime(ctx, owner)
 	watcher.StopAndWait()
@@ -183,15 +191,14 @@ func RunDesktop(parent context.Context, frontendFS fs.FS, ready func(context.Con
 	return errors.Join(runErr, preDrainErr, stopErr)
 }
 
-// prepareDesktopRuntime 串行执行 Fx Start、Wails 校验与 ready，后两步失败时停止 Fx。
+// prepareDesktopRuntime 串行执行 Fx Start 与 Wails 依赖校验；ACK 由 ApplicationStarted 驱动。
 func prepareDesktopRuntime(
 	ctx context.Context,
 	start func(context.Context) error,
 	validate func() error,
-	ready func(context.Context) error,
 	stop func() error,
 ) error {
-	if ctx == nil || start == nil || validate == nil || ready == nil || stop == nil {
+	if ctx == nil || start == nil || validate == nil || stop == nil {
 		return errors.New("desktop startup lifecycle dependencies are required")
 	}
 	if err := start(ctx); err != nil {
@@ -200,10 +207,116 @@ func prepareDesktopRuntime(
 	if err := validate(); err != nil {
 		return errors.Join(err, stop())
 	}
-	if err := ready(ctx); err != nil {
-		return errors.Join(err, stop())
-	}
 	return nil
+}
+
+var (
+	errDesktopNotActivated = errors.New("wails application exited before ApplicationStarted")
+	errDesktopRunBeforeACK = errors.New("wails application exited before activation ACK completed")
+)
+
+type desktopActivationGate struct {
+	mu           sync.Mutex
+	runExited    bool
+	ackAttempted bool
+	ackCommitted bool
+	ackErr       error
+}
+
+type desktopActivationSnapshot struct {
+	ackAttempted bool
+	ackCommitted bool
+	ackErr       error
+}
+
+func (gate *desktopActivationGate) publish(write func() error) error {
+	if write == nil {
+		return errors.New("desktop activation ACK write is required")
+	}
+	gate.mu.Lock()
+	defer gate.mu.Unlock()
+	if gate.runExited {
+		return errDesktopRunBeforeACK
+	}
+	if gate.ackAttempted {
+		return errors.New("desktop activation ACK was already attempted")
+	}
+	gate.ackAttempted = true
+	gate.ackErr = write()
+	if gate.ackErr != nil {
+		return gate.ackErr
+	}
+	gate.ackCommitted = true
+	return nil
+}
+
+func (gate *desktopActivationGate) markRunExited() desktopActivationSnapshot {
+	gate.mu.Lock()
+	defer gate.mu.Unlock()
+	gate.runExited = true
+	return desktopActivationSnapshot{
+		ackAttempted: gate.ackAttempted,
+		ackCommitted: gate.ackCommitted,
+		ackErr:       gate.ackErr,
+	}
+}
+
+func desktopActivationResult(
+	runErr error,
+	activated bool,
+	snapshot desktopActivationSnapshot,
+	readyErr error,
+) error {
+	if !activated {
+		return errors.Join(runErr, errDesktopNotActivated, readyErr)
+	}
+	if snapshot.ackCommitted {
+		return errors.Join(runErr, readyErr)
+	}
+	if snapshot.ackAttempted {
+		return errors.Join(runErr, snapshot.ackErr, readyErr)
+	}
+	return errors.Join(runErr, errDesktopRunBeforeACK, readyErr)
+}
+
+// runActivatedDesktop 在调用方 goroutine 运行 Wails，并仅在 ApplicationStarted 后写入 ACK。
+func runActivatedDesktop(
+	ctx context.Context,
+	activation *uiwails.ActivationReadiness,
+	ready func(context.Context, DesktopACKPublisher) error,
+	run func() error,
+	quit func(),
+) error {
+	if ctx == nil || activation == nil || ready == nil || run == nil || quit == nil {
+		return errors.New("desktop activation lifecycle dependencies are required")
+	}
+	activationCtx, cancelActivation := context.WithCancelCause(ctx)
+	defer cancelActivation(context.Canceled)
+	gate := &desktopActivationGate{}
+	readyDone := make(chan error, 1)
+	runtimesafe.SafeGo(activationCtx, pkglogger.Get(), "app.desktopActivation", func(context.Context) {
+		if err := activation.Wait(activationCtx); err != nil {
+			quit()
+			readyDone <- errors.Join(errDesktopNotActivated, err)
+			return
+		}
+		err := ready(activationCtx, gate.publish)
+		if err != nil {
+			quit()
+		}
+		readyDone <- err
+	})
+
+	runErr := run()
+	snapshot := gate.markRunExited()
+	activated := activation.Activated()
+	if !activated {
+		cancelActivation(errDesktopNotActivated)
+	} else {
+		cancelActivation(errDesktopRunBeforeACK)
+	}
+	readyErr := <-readyDone
+	return desktopActivationResult(runErr, activated, snapshot, readyErr)
 }
 
 // runDesktopPreflight 在 Fx 启动前准备桌面运行环境。
