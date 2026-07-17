@@ -1,8 +1,8 @@
 const SAMPLE_COUNT = 5;
 const WARMUP_COUNT = 1;
-const ATTEMPTS_PER_SAMPLE = 3;
-const CPU_DURATION_CLOCK = 'process.cpuUsage(user+system)';
-const FEEDBACK_DURATION_CLOCK = 'performance.now(feedbackAt-startedAt)';
+const ATTEMPTS_PER_SAMPLE = 1;
+const CPU_DURATION_CLOCK = 'p50(process.cpuUsage(user+system),500000-iteration-blocks)';
+const FEEDBACK_DURATION_CLOCK = 'trimmed-mean-80%(performance.now(feedbackAt-startedAt))';
 const RENDER_UPDATE_LIMIT = 1;
 const HISTORY_REGRESSION_RATIO = 1.15;
 const FEEDBACK_REGRESSION_RATIO = 1.15;
@@ -22,13 +22,31 @@ function requirePositive(value, label) {
   return value;
 }
 
-function median(values, label = 'samples') {
-  if (!Array.isArray(values) || values.length !== SAMPLE_COUNT) {
-    throw new TypeError(`${label} must contain exactly ${SAMPLE_COUNT} samples`);
+function measurementMedian(values, label = 'measurements') {
+  if (!Array.isArray(values) || values.length === 0) {
+    throw new TypeError(`${label} must be non-empty`);
   }
   const sorted = values.map((value, index) => requireFiniteNonNegative(value, `${label}[${index}]`))
     .sort((left, right) => left - right);
   return sorted[Math.floor(sorted.length / 2)];
+}
+
+function measurementTrimmedMean(values, label = 'measurements') {
+  if (!Array.isArray(values) || values.length < 5) {
+    throw new TypeError(`${label} must contain at least 5 measurements`);
+  }
+  const sorted = values.map((value, index) => requireFiniteNonNegative(value, `${label}[${index}]`))
+    .sort((left, right) => left - right);
+  const trimCount = Math.floor(sorted.length * 0.1);
+  const retained = sorted.slice(trimCount, sorted.length - trimCount);
+  return retained.reduce((total, value) => total + value, 0) / retained.length;
+}
+
+function median(values, label = 'samples') {
+  if (!Array.isArray(values) || values.length !== SAMPLE_COUNT) {
+    throw new TypeError(`${label} must contain exactly ${SAMPLE_COUNT} samples`);
+  }
+  return measurementMedian(values, label);
 }
 
 function requireSubjectSha(subjectSha, currentSha) {
@@ -90,8 +108,8 @@ function validateTimingCase(entry, label, durationClock) {
       entry.durationSamplesMs[sampleIndex],
       `${label}.sample[${sampleIndex}]`,
     );
-    if (selected !== Math.min(...measured)) {
-      throw new TypeError(`${label} sample ${sampleIndex} must select the fastest fixed attempt`);
+    if (selected !== measured[0]) {
+      throw new TypeError(`${label} sample ${sampleIndex} must preserve its raw measurement`);
     }
   });
   if (entry.durationMedianMs !== median(entry.durationSamplesMs, `${label}.durationSamplesMs`)) {
@@ -209,6 +227,8 @@ export {
   evaluateMedianCases,
   evaluateRenderIsolation,
   evaluateResourceBudget,
+  measurementMedian,
+  measurementTrimmedMean,
   median,
   requireFiniteNonNegative,
   requirePositive,

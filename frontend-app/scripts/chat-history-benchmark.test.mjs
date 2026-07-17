@@ -5,6 +5,9 @@ import { cwd, execPath } from 'node:process';
 import { describe, expect, it } from 'vitest';
 import {
   ATTEMPTS_PER_SAMPLE,
+  DEFAULT_BASELINE_PATH,
+  HISTORY_BLOCK_COUNT,
+  HISTORY_BLOCK_ITERATIONS,
   MEASUREMENT_ITERATIONS,
   buildChatHistoryBenchmarkCases,
   measureChatHistoryCase,
@@ -113,6 +116,9 @@ describe('chat history benchmark', () => {
   });
 
   it('warms each case and reports exactly five duration samples with a median', () => {
+    expect(HISTORY_BLOCK_COUNT).toBe(9);
+    expect(HISTORY_BLOCK_ITERATIONS).toBe(500_000);
+    expect(MEASUREMENT_ITERATIONS).toBe(4_500_000);
     const evidence = runChatHistoryBenchmarkSamples({ commit: 'a'.repeat(40) });
 
     expect(evidence).toEqual(expect.objectContaining({
@@ -124,11 +130,19 @@ describe('chat history benchmark', () => {
     expect(Object.keys(evidence.cases)).toHaveLength(6);
     Object.values(evidence.cases).forEach((entry) => {
       expect(entry.attemptsPerSample).toBe(ATTEMPTS_PER_SAMPLE);
+      expect(entry.blockCount).toBe(HISTORY_BLOCK_COUNT);
+      expect(entry.blockIterationCount).toBe(HISTORY_BLOCK_ITERATIONS);
       expect(entry.iterationCount).toBe(MEASUREMENT_ITERATIONS);
       expect(entry.durationAttemptSamplesMs).toHaveLength(5);
       entry.durationAttemptSamplesMs.forEach((attempts, index) => {
         expect(attempts).toHaveLength(ATTEMPTS_PER_SAMPLE);
-        expect(entry.durationSamplesMs[index]).toBe(Math.min(...attempts));
+        expect(entry.durationSamplesMs[index]).toBe(attempts[0]);
+      });
+      expect(entry.rawSamplesMs).toEqual(entry.durationSamplesMs);
+      expect(entry.sampleDiagnostics).toHaveLength(5);
+      entry.sampleDiagnostics.forEach(({ blockDurationsMs, durationMs }) => {
+        expect(blockDurationsMs).toHaveLength(HISTORY_BLOCK_COUNT);
+        expect(Number.isFinite(durationMs)).toBe(true);
       });
       expect(entry.durationSamplesMs).toHaveLength(5);
       expect(Number.isFinite(entry.durationMedianMs)).toBe(true);
@@ -156,5 +170,6 @@ describe('chat history benchmark', () => {
     expect(packageJSON.scripts['benchmark:chat-history']).toBe('node scripts/chat-history-benchmark.mjs');
     expect(packageJSON.scripts['benchmark:chat-history:verify']).toBe('node scripts/chat-history-benchmark.mjs --verify');
     expect(packageJSON.scripts['benchmark:verify']).toBe('node scripts/chat-history-benchmark.mjs --verify');
+    expect(DEFAULT_BASELINE_PATH).toBe(join(cwd(), 'scripts/frontend-maintainability-baseline.json'));
   });
 });

@@ -13,12 +13,12 @@ import {
 
 function timingCase(durationMedianMs, durationClock = CPU_DURATION_CLOCK) {
   return {
-    attemptsPerSample: 3,
+    attemptsPerSample: 1,
     durationClock,
     iterationCount: 100,
     durationAttemptSamplesMs: Array.from(
       { length: 5 },
-      () => [durationMedianMs + 2, durationMedianMs, durationMedianMs + 1],
+      () => [durationMedianMs],
     ),
     durationSamplesMs: Array.from({ length: 5 }, () => durationMedianMs),
     durationMedianMs,
@@ -35,6 +35,7 @@ function evidence() {
     'turns-5000-tools-3',
   ].map((caseId) => [caseId, timingCase(100)]));
   return {
+    provenance: { runnerContentHash: 'runner-hash' },
     metrics: {
       'P01-render-isolation': {
         updateCount: 20,
@@ -65,6 +66,7 @@ function baseline() {
   };
   const current = evidence();
   return {
+    provenance: { runnerContentHash: 'runner-hash' },
     metrics: {
       'P01-render-isolation': {
         status: 'PASS',
@@ -105,6 +107,16 @@ describe('performance budget runner registry', () => {
     const currentEvidence = evidence();
     expect(verifyPerformanceEvidence(currentEvidence, relaxedThreshold).verdicts
       .find(({ metricId }) => metricId === 'P02-history-budget').status).toBe('NOT_VERIFIED');
+  });
+
+  it('refuses a missing or changed frozen runner content hash', () => {
+    const missing = baseline();
+    delete missing.provenance;
+    expect(verifyPerformanceEvidence(evidence(), missing).status).toBe('NOT_VERIFIED');
+
+    const changed = baseline();
+    changed.provenance.runnerContentHash = 'different-runner';
+    expect(verifyPerformanceEvidence(evidence(), changed).status).toBe('NOT_VERIFIED');
   });
 
   it('derives twelve exact current-tree cases and rejects zero, missing, stale, and duplicate registrations', () => {

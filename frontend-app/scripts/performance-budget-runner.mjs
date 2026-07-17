@@ -9,14 +9,15 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import process from 'node:process';
 import { runChatHistoryBenchmarkSamples, verifyChatHistoryEvidence } from './chat-history-benchmark.mjs';
+import { DEFAULT_BASELINE_PATH } from './performance-budget-config.mjs';
 import { evaluateRenderIsolation, requireSubjectSha } from './performance-budget-model.mjs';
+import { collectEvidenceProvenance } from './evidence-provenance.mjs';
 import { measureFrontendResources, verifyResourceEvidence } from './resource-budget.mjs';
 import { runStopFeedbackBenchmark, verifyStopFeedbackEvidence } from './stop-feedback-benchmark.mjs';
 
 const SCRIPT_PATH = fileURLToPath(import.meta.url);
 const FRONTEND_ROOT = resolve(dirname(SCRIPT_PATH), '..');
 const REPOSITORY_ROOT = resolve(FRONTEND_ROOT, '..');
-const DEFAULT_BASELINE_PATH = resolve(dirname(SCRIPT_PATH), 'frontend-maintainability-baseline.json');
 const CASE_REGISTRY_PATH = resolve(dirname(SCRIPT_PATH), 'frontend-performance-cases.json');
 const METRIC_IDS = Object.freeze([
   'P01-render-isolation',
@@ -63,17 +64,19 @@ async function collectPerformanceEvidence({
   subjectSha = currentCommit(),
   distDir = resolve(FRONTEND_ROOT, 'dist'),
 } = {}) {
-  requireSubjectSha(subjectSha, currentCommit());
-  const [renderIsolation, historyBudget, feedbackBudget] = await Promise.all([
-    Promise.resolve().then(collectRenderIsolationEvidence),
-    Promise.resolve().then(() => runChatHistoryBenchmarkSamples({ commit: subjectSha })),
-    runStopFeedbackBenchmark({ subjectSha }),
-  ]);
+  const context = collectEvidenceProvenance({
+    repositoryRoot: REPOSITORY_ROOT,
+    runnerId: 'frontend-performance-budget',
+    subjectSha,
+  });
+  const renderIsolation = collectRenderIsolationEvidence();
+  const historyBudget = runChatHistoryBenchmarkSamples({ commit: subjectSha });
+  const feedbackBudget = await runStopFeedbackBenchmark({ subjectSha });
   const resourceBudget = measureFrontendResources({ distDir, subjectSha });
   return Object.freeze({
     schemaVersion: 1,
     subjectSha,
-    node: process.version,
+    ...context,
     metrics: Object.freeze({
       'P01-render-isolation': Object.freeze({ ...renderIsolation, subjectSha }),
       'P02-history-budget': historyBudget,
@@ -84,7 +87,7 @@ async function collectPerformanceEvidence({
 }
 
 function verifyPerformanceEvidence(evidence, baseline) {
-  const verdicts = [
+  let verdicts = [
     evaluateRenderIsolation(
       evidence.metrics['P01-render-isolation'],
       baseline?.metrics?.['P01-render-isolation'],
@@ -93,6 +96,14 @@ function verifyPerformanceEvidence(evidence, baseline) {
     verifyStopFeedbackEvidence(evidence.metrics['P03-feedback-budget'], baseline),
     verifyResourceEvidence(evidence.metrics['P04-resource-budget'], baseline),
   ];
+  const baselineRunnerHash = baseline?.provenance?.runnerContentHash;
+  const currentRunnerHash = evidence?.provenance?.runnerContentHash;
+  if (!baselineRunnerHash || baselineRunnerHash !== currentRunnerHash) {
+    const reason = !baselineRunnerHash
+      ? 'frozen baseline runnerContentHash is missing'
+      : 'candidate runnerContentHash does not match the frozen baseline runner';
+    verdicts = METRIC_IDS.map((metricId) => Object.freeze({ metricId, status: 'NOT_VERIFIED', reason }));
+  }
   const registry = JSON.parse(readFileSync(CASE_REGISTRY_PATH, 'utf8'));
   const caseResults = validateCaseRegistry(evidence, verdicts, registry);
   const status = verdicts.some((verdict) => verdict.status === 'FAIL')
@@ -212,7 +223,10 @@ function parseArguments(args) {
     }
   }
   if (!options.mode) throw new TypeError('one of --measure or --verify is required');
-  requireSubjectSha(options.subjectSha, currentCommit());
+  if (options.mode === 'verify') requireSubjectSha(options.subjectSha, currentCommit());
+  else if (!/^[0-9a-f]{40}$/.test(options.subjectSha || '')) {
+    throw new TypeError('subject must be a full 40-character Git SHA');
+  }
   return options;
 }
 
@@ -245,6 +259,7 @@ if (process.argv[1] && resolve(process.argv[1]) === SCRIPT_PATH) {
 }
 
 export {
+  DEFAULT_BASELINE_PATH,
   collectPerformanceEvidence,
   collectRenderIsolationEvidence,
   parseArguments,

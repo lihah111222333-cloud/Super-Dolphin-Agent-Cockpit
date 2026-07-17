@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import process from 'node:process';
+import { collectEvidenceProvenance } from './evidence-provenance.mjs';
 import { requireSubjectSha } from './performance-budget-model.mjs';
 
 const SCRIPT_PATH = fileURLToPath(import.meta.url);
@@ -137,10 +138,16 @@ if (process.argv[1] && resolve(process.argv[1]) === SCRIPT_PATH) {
       readFileSync(resolve(REPOSITORY_ROOT, 'Makefile'), 'utf8'),
     );
     const verdict = options.mode === 'verify' ? runDeliveryCommands(inspected) : inspected;
+    const context = collectEvidenceProvenance({
+      repositoryRoot: REPOSITORY_ROOT,
+      runnerId: 'frontend-delivery-smoke',
+      subjectSha: options.subjectSha,
+    });
     process.stdout.write(`${JSON.stringify({
       schemaVersion: 1,
       metricId: 'T05-build-embed-smoke',
       subjectSha: options.subjectSha,
+      ...context,
       verdict,
     })}\n`);
     if (options.mode === 'verify' && verdict.status !== 'PASS') process.exitCode = 2;

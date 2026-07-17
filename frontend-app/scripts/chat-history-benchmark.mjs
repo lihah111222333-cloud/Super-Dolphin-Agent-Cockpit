@@ -1,4 +1,4 @@
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 import { performance } from 'node:perf_hooks';
@@ -10,9 +10,11 @@ import {
   SAMPLE_COUNT,
   WARMUP_COUNT,
   evaluateMedianCases,
+  measurementMedian,
   median,
   requireSubjectSha,
 } from './performance-budget-model.mjs';
+import { DEFAULT_BASELINE_PATH } from './performance-budget-config.mjs';
 import { buildChatHistoryFixture } from '../src/pages/chat/model/chatHistoryBenchmarkFixture.js';
 import {
   TIMELINE_INITIAL_MATERIALIZED_MESSAGES,
@@ -24,8 +26,9 @@ const REPOSITORY_ROOT = resolve(dirname(SCRIPT_PATH), '..', '..');
 const DEFAULT_TURNS = Object.freeze([200, 1_000, 5_000]);
 const EXTENDED_TURNS = 10_000;
 const TOOL_COUNTS = Object.freeze([1, 3]);
-const BASELINE_PATH = resolve(dirname(SCRIPT_PATH), 'frontend-maintainability-baseline.json');
-const MEASUREMENT_ITERATIONS = 100_000;
+const HISTORY_BLOCK_COUNT = 9;
+const HISTORY_BLOCK_ITERATIONS = 500_000;
+const MEASUREMENT_ITERATIONS = HISTORY_BLOCK_COUNT * HISTORY_BLOCK_ITERATIONS;
 
 function buildChatHistoryBenchmarkCases({ extended }) {
   if (typeof extended !== 'boolean') throw new TypeError('extended must be a boolean');
@@ -100,37 +103,45 @@ function runChatHistoryBenchmarkSamples({
     const caseName = `turns-${turns}-tools-${toolsPerTurn}`;
     const history = buildChatHistoryFixture({ archived: true, seed: 7, toolsPerTurn, turns });
     const measureBatch = () => {
-      const startedAt = process.cpuUsage();
       let materializedCount = 0;
-      for (let index = 0; index < MEASUREMENT_ITERATIONS; index += 1) {
-        materializedCount += selectMaterializedTimeline(
-          history,
-          TIMELINE_INITIAL_MATERIALIZED_MESSAGES,
-        ).length;
+      const blockDurationsMs = [];
+      for (let block = 0; block < HISTORY_BLOCK_COUNT; block += 1) {
+        const startedAt = process.cpuUsage();
+        for (let index = 0; index < HISTORY_BLOCK_ITERATIONS; index += 1) {
+          materializedCount += selectMaterializedTimeline(
+            history,
+            TIMELINE_INITIAL_MATERIALIZED_MESSAGES,
+          ).length;
+        }
+        const cpuUsage = process.cpuUsage(startedAt);
+        blockDurationsMs.push((cpuUsage.user + cpuUsage.system) / 1_000);
       }
-      const cpuUsage = process.cpuUsage(startedAt);
-      const durationMs = (cpuUsage.user + cpuUsage.system) / 1_000;
       const expectedCount = TIMELINE_INITIAL_MATERIALIZED_MESSAGES * MEASUREMENT_ITERATIONS;
       if (materializedCount !== expectedCount) {
         throw new Error(`${caseName} materialized ${materializedCount}, expected ${expectedCount}`);
       }
-      return durationMs;
+      return Object.freeze({
+        blockDurationsMs: Object.freeze(blockDurationsMs),
+        durationMs: measurementMedian(blockDurationsMs, `${caseName}.blockDurationsMs`),
+      });
     };
     for (let index = 0; index < warmupCount; index += 1) {
       measureBatch();
     }
-    const durationAttemptSamplesMs = Array.from(
-      { length: sampleCount },
-      () => Array.from({ length: ATTEMPTS_PER_SAMPLE }, measureBatch),
-    );
-    const durationSamplesMs = durationAttemptSamplesMs.map((attempts) => Math.min(...attempts));
+    const sampleDiagnostics = Array.from({ length: sampleCount }, measureBatch);
+    const durationSamplesMs = sampleDiagnostics.map(({ durationMs }) => durationMs);
+    const durationAttemptSamplesMs = durationSamplesMs.map((durationMs) => Object.freeze([durationMs]));
     measuredCases[caseName] = Object.freeze({
       turns,
       toolsPerTurn,
       attemptsPerSample: ATTEMPTS_PER_SAMPLE,
       durationClock: CPU_DURATION_CLOCK,
+      blockCount: HISTORY_BLOCK_COUNT,
+      blockIterationCount: HISTORY_BLOCK_ITERATIONS,
       iterationCount: MEASUREMENT_ITERATIONS,
       materializedCount: TIMELINE_INITIAL_MATERIALIZED_MESSAGES,
+      rawSamplesMs: Object.freeze(durationSamplesMs),
+      sampleDiagnostics: Object.freeze(sampleDiagnostics),
       durationAttemptSamplesMs,
       durationSamplesMs,
       durationMedianMs: median(durationSamplesMs, `${caseName}.durationSamplesMs`),
@@ -163,7 +174,7 @@ function parseArguments(args) {
     extended: false,
     verify: false,
     subject: currentCommit(),
-    baselinePath: BASELINE_PATH,
+    baselinePath: DEFAULT_BASELINE_PATH,
   };
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
@@ -186,13 +197,21 @@ if (process.argv[1] && resolve(process.argv[1]) === SCRIPT_PATH) {
       if (options.extended) {
         throw new TypeError('--extended is not part of the frozen --verify case registry');
       }
-      const { runPerformanceVerification } = await import('./performance-budget-runner.mjs');
-      const report = await runPerformanceVerification({
-        baselinePath: options.baselinePath,
-        subjectSha: options.subject,
+      const result = spawnSync(process.execPath, [
+        resolve(dirname(SCRIPT_PATH), 'performance-budget-runner.mjs'),
+        '--verify',
+        '--subject', options.subject,
+        '--baseline', options.baselinePath,
+      ], {
+        cwd: REPOSITORY_ROOT,
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'pipe'],
       });
-      process.stdout.write(`${JSON.stringify(report)}\n`);
-      if (report.verdict.status !== 'PASS') process.exitCode = 2;
+      if (result.error) throw result.error;
+      if (result.stdout) process.stdout.write(result.stdout);
+      if (result.stderr) process.stderr.write(result.stderr);
+      if (!Number.isInteger(result.status)) throw new Error(`performance runner terminated by ${result.signal || 'unknown signal'}`);
+      process.exitCode = result.status;
     }
   } catch (error) {
     process.stderr.write(`chat history benchmark failed: ${error.message}\n`);
@@ -202,6 +221,9 @@ if (process.argv[1] && resolve(process.argv[1]) === SCRIPT_PATH) {
 
 export {
   ATTEMPTS_PER_SAMPLE,
+  DEFAULT_BASELINE_PATH,
+  HISTORY_BLOCK_COUNT,
+  HISTORY_BLOCK_ITERATIONS,
   MEASUREMENT_ITERATIONS,
   buildChatHistoryBenchmarkCases,
   measureChatHistoryCase,

@@ -6,11 +6,12 @@ import {
   SAMPLE_COUNT,
   WARMUP_COUNT,
   evaluateMedianCases,
+  measurementTrimmedMean,
   median,
 } from './performance-budget-model.mjs';
 import { attachActiveThreadRpcRuntime } from '../src/entities/client/model/threadLifecycleRuntime.js';
 
-const MEASUREMENT_ITERATIONS = 10_000;
+const MEASUREMENT_ITERATIONS = 10_001;
 
 function createStopFeedbackHarness() {
   let state = {
@@ -71,22 +72,28 @@ async function runStopFeedbackBenchmark({
   if (warmupCount !== WARMUP_COUNT) throw new TypeError(`warmupCount must be ${WARMUP_COUNT}`);
   const harness = createStopFeedbackHarness();
   const measureBatch = async () => {
-    let durationMs = 0;
+    const durationsMs = [];
     for (let index = 0; index < MEASUREMENT_ITERATIONS; index += 1) {
-      durationMs += await harness.measure();
+      durationsMs.push(await harness.measure());
     }
-    return durationMs;
+    const sorted = [...durationsMs].sort((left, right) => left - right);
+    const durationMs = measurementTrimmedMean(durationsMs, 'stop feedback measurements');
+    return Object.freeze({
+      count: durationsMs.length,
+      minMs: sorted[0],
+      p50Ms: sorted[Math.floor(sorted.length * 0.5)],
+      p95Ms: sorted[Math.floor(sorted.length * 0.95)],
+      maxMs: sorted.at(-1),
+      durationMs,
+    });
   };
   for (let index = 0; index < warmupCount; index += 1) await measureBatch();
-  const durationAttemptSamplesMs = [];
+  const sampleDiagnostics = [];
   for (let sampleIndex = 0; sampleIndex < sampleCount; sampleIndex += 1) {
-    const attempts = [];
-    for (let attemptIndex = 0; attemptIndex < ATTEMPTS_PER_SAMPLE; attemptIndex += 1) {
-      attempts.push(await measureBatch());
-    }
-    durationAttemptSamplesMs.push(attempts);
+    sampleDiagnostics.push(await measureBatch());
   }
-  const durationSamplesMs = durationAttemptSamplesMs.map((attempts) => Math.min(...attempts));
+  const durationSamplesMs = sampleDiagnostics.map(({ durationMs }) => durationMs);
+  const durationAttemptSamplesMs = durationSamplesMs.map((durationMs) => Object.freeze([durationMs]));
   return Object.freeze({
     metricId: 'P03-feedback-budget',
     subjectSha,
@@ -97,6 +104,8 @@ async function runStopFeedbackBenchmark({
         attemptsPerSample: ATTEMPTS_PER_SAMPLE,
         durationClock: FEEDBACK_DURATION_CLOCK,
         iterationCount: MEASUREMENT_ITERATIONS,
+        rawSamplesMs: Object.freeze(durationSamplesMs),
+        sampleDiagnostics: Object.freeze(sampleDiagnostics),
         durationAttemptSamplesMs,
         durationSamplesMs,
         durationMedianMs: median(durationSamplesMs, 'stop-visible-feedback.durationSamplesMs'),
@@ -122,6 +131,7 @@ export {
   FEEDBACK_DURATION_CLOCK,
   MEASUREMENT_ITERATIONS,
   createStopFeedbackHarness,
+  measurementTrimmedMean,
   runStopFeedbackBenchmark,
   verifyStopFeedbackEvidence,
 };

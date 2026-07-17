@@ -20,12 +20,12 @@ function frozenMetric(overrides = {}) {
 
 function timingCase(durationMedianMs) {
   return {
-    attemptsPerSample: 3,
+    attemptsPerSample: 1,
     durationClock: CPU_DURATION_CLOCK,
     iterationCount: 100,
     durationAttemptSamplesMs: Array.from(
       { length: 5 },
-      () => [durationMedianMs + 2, durationMedianMs, durationMedianMs + 1],
+      () => [durationMedianMs],
     ),
     durationSamplesMs: Array.from({ length: 5 }, () => durationMedianMs),
     durationMedianMs,
@@ -87,7 +87,7 @@ describe('performance budget model', () => {
     const baselineCase = timingCase(100);
     const editedMedian = { ...timingCase(100), durationMedianMs: 99 };
     const missingAttempt = timingCase(100);
-    missingAttempt.durationAttemptSamplesMs[0] = [100, 101];
+    missingAttempt.durationAttemptSamplesMs[0] = [];
     const evaluate = (currentCase) => evaluateMedianCases({
       baselineMetric: frozenMetric({
         maxRegressionRatio: 1.15,
@@ -102,7 +102,7 @@ describe('performance budget model', () => {
     });
 
     expect(() => evaluate(editedMedian)).toThrow(/median does not match/);
-    expect(() => evaluate(missingAttempt)).toThrow(/must contain 3 attempts/);
+    expect(() => evaluate(missingAttempt)).toThrow(/must contain 1 attempts/);
   });
 
   it('requires the P01 mutation counterexample and both absolute render limits', () => {
