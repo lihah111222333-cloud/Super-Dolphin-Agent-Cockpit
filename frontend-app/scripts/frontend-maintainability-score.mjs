@@ -23,6 +23,7 @@ const governancePaths = [
   'frontend-app/scripts/frontend-maintainability-red-fixtures.json',
 ];
 const artifactProbes = new Set(['promptHistoryVisibleError', 'criticalTypecheck']);
+const plannedBaseSha = 'b40867229af8e17916c00393639ccb0fcb4bf6fc';
 const plannedThresholds = { overall: 90, dimensions: { E: 90, A: 85, C: 85, T: 85, P: 80 } };
 const requiredDoDControls = new Set(['E06-failure-matrix', 'C05-provider-rpc-parity', 'T05-build-embed-smoke']);
 const customEvidenceProtocols = new Set([
@@ -96,6 +97,7 @@ const performanceAuditAllowedPaths = new Set([
   'frontend-app/scripts/chat-history-benchmark.test.mjs',
   'frontend-app/scripts/delivery-smoke-runner.mjs',
   'frontend-app/scripts/delivery-smoke-runner.test.mjs',
+  'frontend-app/scripts/evidence-provenance.test.mjs',
   'frontend-app/scripts/performance-budget-model.test.mjs',
   'frontend-app/scripts/performance-budget-runner.test.mjs',
   'frontend-app/scripts/resource-budget.test.mjs',
@@ -194,6 +196,7 @@ function frozenHead() {
 }
 
 function assertFrozenProvenance(scoreBaseSha = frozenHead()) {
+  if (baseline.baseSha !== plannedBaseSha) fail('baseline baseSha differs from the frozen plan BASE_SHA');
   for (const [label, sha] of [
     ['baseline baseSha', baseline.baseSha],
     ['baseline planSnapshotSha', baseline.planSnapshotSha],
@@ -625,10 +628,11 @@ function validateRunnerContent(provenance, context, check, label) {
 }
 
 function validatePerformanceProvenance(evidence, context, check, baselineDocument) {
+  const baseSha = baselineDocument.baseSha;
+  if (baseSha !== plannedBaseSha) fail('performance baseline does not bind the frozen plan BASE_SHA');
   if (!baselineDocument.provenance || !baselineDocument.subjectSha || !baselineDocument.subjectTree) {
     notVerified('performance baseline has not been audited against immutable BASE_SHA');
   }
-  const baseSha = baselineDocument.baseSha;
   if (baselineDocument.subjectSha !== baseSha || baseSha === context.subjectSha
     || !/^[0-9a-f]{40}$/u.test(baseSha)
     || !gitSucceeds(context.repoRoot, ['cat-file', '-e', `${baseSha}^{commit}`])
@@ -1216,7 +1220,7 @@ export function validateConfiguration(config = controls, fixtureDocument = fixtu
       .reduce((sum, control) => sum + control.points, 0);
     if (points !== 100) fail(`dimension points must total 100: ${dimension}`);
   }
-  if (!/^[0-9a-f]{40}$/.test(baseline.baseSha) || !/^[0-9a-f]{40}$/.test(baseline.planSnapshotSha)) {
+  if (baseline.baseSha !== plannedBaseSha || !/^[0-9a-f]{40}$/.test(baseline.planSnapshotSha)) {
     fail('baseline provenance is incomplete');
   }
   return true;

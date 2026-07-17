@@ -29,6 +29,7 @@ import {
 const scriptRoot = dirname(fileURLToPath(import.meta.url));
 const frozenRepoRoot = resolve(scriptRoot, '..', '..');
 const scorerPath = join(scriptRoot, 'frontend-maintainability-score.mjs');
+const plannedBaseSha = 'b40867229af8e17916c00393639ccb0fcb4bf6fc';
 const temporaryRepositories = [];
 
 function documents() {
@@ -71,22 +72,30 @@ function createTargetRepository() {
 }
 
 function createPerformanceTarget(runnerFiles) {
-  const target = createTargetRepository();
-  runnerFiles.forEach((runnerPath, index) => write(runnerPath, `runner fixture ${index}\n`, target.repoRoot));
-  git(target.repoRoot, ['add', '.']);
-  git(target.repoRoot, ['commit', '-q', '-m', '测试：加入性能评分器闭包']);
-  const runnerSha = git(target.repoRoot, ['rev-parse', 'HEAD']);
-  const runnerTree = git(target.repoRoot, ['rev-parse', 'HEAD^{tree}']);
-  write('frontend-app/candidate-product.js', 'export const candidate = true;\n', target.repoRoot);
-  git(target.repoRoot, ['add', '.']);
-  git(target.repoRoot, ['commit', '-q', '-m', '测试：建立独立候选提交']);
+  const repoRoot = mkdtempSync(join(tmpdir(), 'frontend-maintainability-performance-'));
+  rmSync(repoRoot, { recursive: true, force: true });
+  temporaryRepositories.push(repoRoot);
+  execFileSync('git', ['clone', '-q', '--shared', frozenRepoRoot, repoRoot]);
+  git(repoRoot, ['checkout', '-q', '--detach', plannedBaseSha]);
+  git(repoRoot, ['config', 'user.email', 'scorer-test@example.invalid']);
+  git(repoRoot, ['config', 'user.name', 'Scorer Test']);
+  const baseTree = git(repoRoot, ['rev-parse', 'HEAD^{tree}']);
+  runnerFiles.forEach((runnerPath, index) => write(runnerPath, `runner fixture ${index}\n`, repoRoot));
+  write('frontend-app/scripts/evidence-provenance.test.mjs', 'export const provenanceTestFixture = true;\n', repoRoot);
+  git(repoRoot, ['add', '.']);
+  git(repoRoot, ['commit', '-q', '-m', '测试：加入性能评分器闭包']);
+  const runnerSha = git(repoRoot, ['rev-parse', 'HEAD']);
+  const runnerTree = git(repoRoot, ['rev-parse', 'HEAD^{tree}']);
+  write('frontend-app/candidate-product.js', 'export const candidate = true;\n', repoRoot);
+  git(repoRoot, ['add', '.']);
+  git(repoRoot, ['commit', '-q', '-m', '测试：建立独立候选提交']);
   return {
     ...inspectTargetRepository({
-      repoRoot: target.repoRoot,
-      subjectSha: git(target.repoRoot, ['rev-parse', 'HEAD']),
+      repoRoot,
+      subjectSha: git(repoRoot, ['rev-parse', 'HEAD']),
     }),
-    baseSha: target.subjectSha,
-    baseTree: target.subjectTree,
+    baseSha: plannedBaseSha,
+    baseTree,
     runnerSha,
     runnerTree,
   };
@@ -131,6 +140,7 @@ function createFinalCliFixture() {
   ]) {
     copyFileSync(join(scriptRoot, name), join(baseRoot, 'frontend-app', 'scripts', name));
   }
+  write('frontend-app/scorer-freeze-marker.txt', 'frozen scorer fixture\n', baseRoot);
   git(baseRoot, ['add', '.']);
   git(baseRoot, ['commit', '-q', '-m', '测试：冻结最终评分器']);
   const scoreBaseSha = git(baseRoot, ['rev-parse', 'HEAD']);
@@ -151,7 +161,7 @@ function createFinalCliFixture() {
   return { baseRoot, scoreBaseSha, subjectRoot, subjectSha: git(subjectRoot, ['rev-parse', 'HEAD']) };
 }
 
-function failureMatrixEvidence(context, check, overrides = {}) {
+function failureMatrixEvidence(context, overrides = {}) {
   const layersByCase = {
     'FM-01': ['frontend', 'go-wails'],
     'FM-02': ['frontend'],
@@ -432,6 +442,8 @@ describe('frontend maintainability scorer configuration', () => {
       .toEqual(['node', 'scripts/performance-budget-runner.mjs', '--verify', '--subject', '$SUBJECT_SHA', '--baseline', '$FROZEN_BASELINE']);
     expect(controls.controls.find(({ id }) => id === 'T05-build-embed-smoke').allOf[0].argv)
       .toEqual(['node', 'scripts/delivery-smoke-runner.mjs', '--verify', '--subject', '$SUBJECT_SHA']);
+    expect(JSON.parse(readFileSync(join(scriptRoot, 'frontend-maintainability-baseline.json'), 'utf8')).baseSha)
+      .toBe(plannedBaseSha);
     const backgroundHealth = controls.controls.find(({ id }) => id === 'E03-background-health');
     expect(backgroundHealth.allOf).toHaveLength(3);
     expect(backgroundHealth.allOf.map(({ argv }) => argv)).toEqual([
@@ -558,7 +570,7 @@ describe('executable evidence registry', () => {
     const context = inspectTargetRepository();
     const now = Date.now();
     const options = { context, control, check, startedAt: now - 100, finishedAt: now + 100 };
-    const valid = failureMatrixEvidence(context, check);
+    const valid = failureMatrixEvidence(context);
 
     expect(structuredEvidenceStatus(valid, options)).toBe('PASS');
     expect(structuredEvidenceStatus({ ...valid, subjectSha: 'f'.repeat(40) }, options)).toBe('FAIL');
@@ -586,9 +598,9 @@ describe('executable evidence registry', () => {
       expect(check.caseIds).toEqual(expectedCases);
       expect(check.testCount).toBe(expectedCount);
       const options = { context, control, check, startedAt: now - 100, finishedAt: now + 100 };
-      expect(structuredEvidenceStatus(failureMatrixEvidence(context, check), options)).toBe('PASS');
+      expect(structuredEvidenceStatus(failureMatrixEvidence(context), options)).toBe('PASS');
       if (['E03-background-health', 'E05-safe-recovery'].includes(controlId)) {
-        expect(structuredEvidenceStatus(failureMatrixEvidence(context, check, {
+        expect(structuredEvidenceStatus(failureMatrixEvidence(context, {
           status: 'partial',
           blockedCases: [{ caseId: 'FM-18', blockedBy: 'Task2A', blocker: 'reconnect recovery is absent' }],
         }), options)).toBe('NOT_VERIFIED');
@@ -691,6 +703,13 @@ describe('executable evidence registry', () => {
       ...options,
       baselineDocument: {
         ...baselineDocument,
+        baseSha: '895ca09998b2c09a4c6b86a18b5c4ea3f50be8d0',
+      },
+    })).toBe('FAIL');
+    expect(structuredEvidenceStatus(valid, {
+      ...options,
+      baselineDocument: {
+        ...baselineDocument,
         provenance: {
           ...baselineDocument.provenance,
           baselineAudit: {
@@ -726,7 +745,7 @@ describe('executable evidence registry', () => {
         },
       },
     })).toBe('FAIL');
-  });
+  }, 30_000);
 
   it('requires Task4C delivery output to bind the subject and all four exact commands', () => {
     const { controls } = documents();
