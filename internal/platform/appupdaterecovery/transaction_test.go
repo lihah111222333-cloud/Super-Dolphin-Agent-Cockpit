@@ -186,17 +186,24 @@ func TestCrashReplayCompletesCommitIntent(t *testing.T) {
 	assertPathMissing(t, expectedBackupDiscardPath(paths))
 }
 
-func TestCommitReplayCompletesAfterBackupDiscardRename(t *testing.T) {
+func TestCommitReplayCompletesAfterDiscardIdentityPersistedBeforeRename(t *testing.T) {
 	store, identity, paths := createProbationTransaction(t)
 	ackProbationTransaction(t, store, identity)
 	beginCommitPending(t, store, identity)
 	discard := expectedBackupDiscardPath(paths)
-	if err := os.Rename(paths.Backup, discard); err != nil {
+	root, err := captureDiscardRootIdentity(paths.Backup)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if err := syncDirectory(filepath.Dir(paths.Target)); err != nil {
+	journal, err := store.loadExactLocked(identity)
+	if err != nil {
 		t.Fatal(err)
 	}
+	if err := store.persistDiscardIdentityLocked(journal, root); err != nil {
+		t.Fatal(err)
+	}
+	assertPathExists(t, paths.Backup)
+	assertPathMissing(t, discard)
 	transaction := replayTransaction(t, store, identity)
 	if transaction.State != StateCommitted || transaction.Trust.State != TrustCommitted {
 		t.Fatalf("replayed commit transaction = %#v", transaction)
@@ -205,6 +212,61 @@ func TestCommitReplayCompletesAfterBackupDiscardRename(t *testing.T) {
 	assertPathMissing(t, paths.Backup)
 	assertPathMissing(t, discard)
 	assertPathExists(t, store.discardIdentityPath(identity.TransactionID))
+}
+
+func TestCommitPendingReplayRejectsMatchingReplacementWithoutDiscardIdentity(t *testing.T) {
+	store, identity, paths := createDirectoryProbationTransaction(t)
+	ackProbationTransaction(t, store, identity)
+	beginCommitPending(t, store, identity)
+	discard := replaceRenamedDiscardWithMatchingRoot(t, identity, paths)
+	assertPathMissing(t, store.discardIdentityPath(identity.TransactionID))
+
+	reopened, err := NewStore(store.root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = reopened.Replay(t.Context(), identity)
+	if err == nil {
+		t.Fatal("Replay() error = nil, want missing persisted discard identity failure")
+	}
+	if !strings.Contains(err.Error(), "missing its persisted root identity") {
+		t.Fatalf("Replay() error = %v, want missing persisted root identity", err)
+	}
+	assertPathExists(t, filepath.Join(discard, "Contents", "old-a"))
+	assertPathExists(t, filepath.Join(discard, "Contents", "old-b"))
+}
+
+func replaceRenamedDiscardWithMatchingRoot(t *testing.T, identity Identity, paths Paths) string {
+	t.Helper()
+	discard := expectedBackupDiscardPath(paths)
+	original, err := captureDiscardRootIdentity(paths.Backup)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(paths.Backup, discard); err != nil {
+		t.Fatal(err)
+	}
+	if err := syncDirectory(filepath.Dir(paths.Target)); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.RemoveAll(discard); err != nil {
+		t.Fatal(err)
+	}
+	writeDirectoryFixture(t, discard, "old-a", "old a")
+	if err := os.WriteFile(filepath.Join(discard, "Contents", "old-b"), []byte("old b"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := verifyRelease(discard, identity.OldRelease); err != nil {
+		t.Fatalf("replacement must match old release digest: %v", err)
+	}
+	replacement, err := captureDiscardRootIdentity(discard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if replacement == original {
+		t.Fatalf("replacement unexpectedly reused original root identity: %+v", replacement)
+	}
+	return discard
 }
 
 func TestCommittedReplayRemovesPartiallyDeletedDiscardTree(t *testing.T) {

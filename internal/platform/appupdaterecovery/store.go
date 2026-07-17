@@ -305,11 +305,64 @@ func (store *Store) replayCommitPendingLocked(journal *journalPayload) error {
 	return store.cleanupCommittedTransaction(*journal)
 }
 
+// prepareCommitDiscardLocked 只使用 rename 前持久化的 backup 根身份完成 discard 隔离。
 func (store *Store) prepareCommitDiscardLocked(journal *journalPayload) error {
-	if err := completeCommitEffect(*journal); err != nil {
+	if err := verifyCommitCandidate(*journal); err != nil {
 		return err
 	}
-	return store.ensureDiscardIdentityLocked(*journal)
+	backupExists, err := pathExists(journal.Paths.Backup)
+	if err != nil {
+		return err
+	}
+	discardExists, err := pathExists(backupDiscardPath(journal.Paths))
+	if err != nil {
+		return err
+	}
+	if backupExists && discardExists {
+		return errors.New("healthy commit backup discard path collision")
+	}
+	if backupExists {
+		return store.prepareBackupDiscardLocked(*journal)
+	}
+	if !discardExists {
+		return errors.New("commit intent has neither retained backup nor durable discard")
+	}
+	return store.resumePreparedDiscardLocked(*journal)
+}
+
+func (store *Store) prepareBackupDiscardLocked(journal journalPayload) error {
+	root, err := captureDiscardRootIdentity(journal.Paths.Backup)
+	if err != nil {
+		return err
+	}
+	if err := store.persistDiscardIdentityLocked(journal, root); err != nil {
+		return err
+	}
+	if err := requireRootIdentity(journal.Paths.Backup, root); err != nil {
+		return fmt.Errorf("verify backup root after identity persistence: %w", err)
+	}
+	if err := verifyReleaseAtRootIdentity(journal.Paths.Backup, journal.Identity.OldRelease, root); err != nil {
+		return fmt.Errorf("verify backup before healthy commit: %w", err)
+	}
+	return renameBackupToDiscardAtIdentity(journal, root)
+}
+
+func (store *Store) resumePreparedDiscardLocked(journal journalPayload) error {
+	identity, found, err := store.loadDiscardIdentityLocked(journal.Identity.TransactionID)
+	if err != nil {
+		return err
+	}
+	if !found {
+		return errors.New("commit pending backup discard is missing its persisted root identity")
+	}
+	if identity.TransactionID != journal.Identity.TransactionID {
+		return ErrIdentityMismatch
+	}
+	discard := backupDiscardPath(journal.Paths)
+	if err := verifyReleaseAtRootIdentity(discard, journal.Identity.OldRelease, identity.Root); err != nil {
+		return fmt.Errorf("verify durable backup discard before commit replay: %w", err)
+	}
+	return syncDirectory(filepath.Dir(journal.Paths.Target))
 }
 
 // cleanupCommittedTransaction 在根实例核验后清理 committed discard 与 recovery capsule。
@@ -339,12 +392,8 @@ func (store *Store) cleanupCommittedTransaction(journal journalPayload) error {
 	return cleanupTransactionCapsule(journal.Paths)
 }
 
-// ensureDiscardIdentityLocked 在 committed 状态推进前持久化并复核 discard 根实例。
-func (store *Store) ensureDiscardIdentityLocked(journal journalPayload) error {
-	root, err := captureDiscardRootIdentity(backupDiscardPath(journal.Paths))
-	if err != nil {
-		return err
-	}
+// persistDiscardIdentityLocked 在 backup rename 前持久化其根实例。
+func (store *Store) persistDiscardIdentityLocked(journal journalPayload, root discardRootIdentity) error {
 	want := discardInstanceIdentity{
 		SchemaVersion: discardIdentitySchemaVersion,
 		TransactionID: journal.Identity.TransactionID,

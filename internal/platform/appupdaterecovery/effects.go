@@ -95,43 +95,49 @@ func installStagedCandidate(journal journalPayload) error {
 	return verifyRelease(journal.Paths.Target, journal.Identity.CandidateRelease)
 }
 
-// completeCommitEffect 验证 candidate 与完整 backup，并将 backup 原子隔离为事务专属 discard。
-func completeCommitEffect(journal journalPayload) error {
+func verifyCommitCandidate(journal journalPayload) error {
 	if err := verifyRelease(journal.Paths.Target, journal.Identity.CandidateRelease); err != nil {
 		return fmt.Errorf("verify candidate before healthy commit: %w", err)
 	}
-	backupExists, err := pathExists(journal.Paths.Backup)
-	if err != nil {
-		return err
-	}
-	discard := backupDiscardPath(journal.Paths)
-	discardExists, err := pathExists(discard)
-	if err != nil {
-		return err
-	}
-	if backupExists && discardExists {
-		return errors.New("healthy commit backup discard path collision")
-	}
-	if backupExists {
-		return renameVerifiedBackupToDiscard(journal, discard)
-	}
-	if !discardExists {
-		return errors.New("commit intent has neither retained backup nor durable discard")
-	}
-	if err := verifyRelease(discard, journal.Identity.OldRelease); err != nil {
-		return fmt.Errorf("verify durable backup discard before commit replay: %w", err)
-	}
-	return syncDirectory(filepath.Dir(journal.Paths.Target))
+	return nil
 }
 
-func renameVerifiedBackupToDiscard(journal journalPayload, discard string) error {
-	if err := verifyRelease(journal.Paths.Backup, journal.Identity.OldRelease); err != nil {
-		return fmt.Errorf("verify backup before healthy commit: %w", err)
+func verifyReleaseAtRootIdentity(path string, release ReleaseIdentity, expected discardRootIdentity) error {
+	if err := requireRootIdentity(path, expected); err != nil {
+		return err
 	}
+	if err := verifyRelease(path, release); err != nil {
+		return err
+	}
+	return requireRootIdentity(path, expected)
+}
+
+func requireRootIdentity(path string, expected discardRootIdentity) error {
+	actual, err := captureDiscardRootIdentity(path)
+	if err != nil {
+		return err
+	}
+	if actual != expected {
+		return fmt.Errorf("backup discard root identity changed: got %+v, want %+v", actual, expected)
+	}
+	return nil
+}
+
+func renameBackupToDiscardAtIdentity(journal journalPayload, expected discardRootIdentity) error {
+	if err := requireRootIdentity(journal.Paths.Backup, expected); err != nil {
+		return fmt.Errorf("verify backup root immediately before discard rename: %w", err)
+	}
+	discard := backupDiscardPath(journal.Paths)
 	if err := os.Rename(journal.Paths.Backup, discard); err != nil {
 		return fmt.Errorf("rename committed update backup to discard: %w", err)
 	}
-	return syncDirectory(filepath.Dir(journal.Paths.Target))
+	if err := syncDirectory(filepath.Dir(journal.Paths.Target)); err != nil {
+		return err
+	}
+	if err := requireRootIdentity(discard, expected); err != nil {
+		return fmt.Errorf("verify discard root after rename: %w", err)
+	}
+	return nil
 }
 
 // cleanupCommittedEffect 只清理根实例仍与持久身份一致的 committed discard。
