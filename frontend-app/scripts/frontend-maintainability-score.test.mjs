@@ -17,6 +17,7 @@ import {
   commandEvidenceStatus,
   controlStatus,
   inspectTargetRepository,
+  performanceAuditPathAllowed,
   probeResult,
   scoreCurrentTree,
   sourceHasCriticalTypecheckGap,
@@ -81,6 +82,8 @@ function createPerformanceTarget(runnerFiles) {
   git(repoRoot, ['config', 'user.name', 'Scorer Test']);
   const baseTree = git(repoRoot, ['rev-parse', 'HEAD^{tree}']);
   runnerFiles.forEach((runnerPath, index) => write(runnerPath, `runner fixture ${index}\n`, repoRoot));
+  write('docs/doc/codemap/README.md', 'generated codemap fixture\n', repoRoot);
+  write('docs/doc/codemap/ai-index.json', '{"generated":true}\n', repoRoot);
   write('frontend-app/scripts/evidence-provenance.test.mjs', 'export const provenanceTestFixture = true;\n', repoRoot);
   git(repoRoot, ['add', '.']);
   git(repoRoot, ['commit', '-q', '-m', '测试：加入性能评分器闭包']);
@@ -746,6 +749,13 @@ describe('executable evidence registry', () => {
       },
     })).toBe('FAIL');
   }, 30_000);
+
+  it('matches the runner codemap audit allowlist without widening the codemap prefix', () => {
+    expect(performanceAuditPathAllowed('docs/doc/codemap/README.md')).toBe(true);
+    expect(performanceAuditPathAllowed('docs/doc/codemap/ai-index.json')).toBe(true);
+    expect(performanceAuditPathAllowed('docs/doc/codemap/project-map/index/app-ui.tsv')).toBe(true);
+    expect(performanceAuditPathAllowed('docs/doc/codemap/OTHER.md')).toBe(false);
+  });
 
   it('requires Task4C delivery output to bind the subject and all four exact commands', () => {
     const { controls } = documents();

@@ -94,6 +94,8 @@ const performanceEnvironmentKeys = Object.freeze([
 ]);
 const performanceAuditAllowedPaths = new Set([
   ...performanceRunnerFiles,
+  'docs/doc/codemap/README.md',
+  'docs/doc/codemap/ai-index.json',
   'frontend-app/scripts/chat-history-benchmark.test.mjs',
   'frontend-app/scripts/delivery-smoke-runner.mjs',
   'frontend-app/scripts/delivery-smoke-runner.test.mjs',
@@ -108,6 +110,11 @@ const performanceAuditAllowedPaths = new Set([
   'scripts/sqlc_verify_worktree_guard_test.go',
 ]);
 const performanceAuditAllowedPrefixes = Object.freeze(['docs/doc/codemap/project-map/']);
+
+export function performanceAuditPathAllowed(changedPath) {
+  return performanceAuditAllowedPaths.has(changedPath)
+    || performanceAuditAllowedPrefixes.some((prefix) => changedPath.startsWith(prefix));
+}
 const failureMatrixChecks = Object.freeze({
   'E03-background-health': Object.freeze({ probe: 'backgroundProviderHealth', caseIds: ['FM-18'], testCount: 1 }),
   'E05-safe-recovery': Object.freeze({ probe: 'safeRecovery', caseIds: ['FM-16', 'FM-17', 'FM-18'], testCount: 3 }),
@@ -669,10 +676,7 @@ function validatePerformanceProvenance(evidence, context, check, baselineDocumen
     fail('performance baselineAudit does not bind BASE_SHA ancestry');
   }
   if (!Array.isArray(audit.changedPaths) || new Set(audit.changedPaths).size !== audit.changedPaths.length
-    || audit.changedPaths.some((changedPath) => (
-      !performanceAuditAllowedPaths.has(changedPath)
-      && !performanceAuditAllowedPrefixes.some((prefix) => changedPath.startsWith(prefix))
-    ))) {
+    || audit.changedPaths.some((changedPath) => !performanceAuditPathAllowed(changedPath))) {
     fail('performance baselineAudit changedPaths violate the frozen allowlist');
   }
   const actualChangedPaths = git(context.repoRoot, [
