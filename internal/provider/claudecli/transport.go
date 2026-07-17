@@ -38,6 +38,7 @@ const (
 type transport struct {
 	cmd     *exec.Cmd
 	guard   *processGuard
+	signal  func(processSig) error
 	stdin   io.WriteCloser
 	stdout  *bufio.Scanner
 	stdoutR io.ReadCloser
@@ -216,9 +217,12 @@ func (t *transport) Kill() error {
 		return nil
 	}
 	t.closeInput()
-	err := t.signalProcess(sigForceKill)
+	err := normalizeSignalError(t.signalProcess(sigForceKill))
+	if err != nil {
+		return err
+	}
 	<-t.done
-	return normalizeSignalError(err)
+	return nil
 }
 
 // Running 判断 Claude CLI 进程是否仍可视为存活。
@@ -322,6 +326,7 @@ func (s *session) ForceStop() error {
 // force=true 时使用强杀路径；无论是否有 transport，都要向事件总线发布停止状态。
 func (s *session) stop(force bool) error {
 	s.mu.Lock()
+	s.interrupting = false
 	tr := s.transport
 	cleanup := s.cleanup
 	handle := s.takeActiveTurnLocked()
@@ -376,6 +381,13 @@ func (s *session) buildStopEvent(tr *transport, force bool) dto.RawProviderEvent
 }
 
 func (t *transport) signalProcess(sig processSig) error {
+	if t != nil && t.signal != nil {
+		return t.signal(sig)
+	}
+	return t.signalProcessNative(sig)
+}
+
+func (t *transport) signalProcessNative(sig processSig) error {
 	pid, err := t.ensureProcessAlive()
 	if err != nil {
 		return err

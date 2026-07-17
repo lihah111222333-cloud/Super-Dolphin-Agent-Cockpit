@@ -2,6 +2,7 @@ package claudecli
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"reflect"
 	"strings"
@@ -62,6 +63,7 @@ type session struct {
 	suppressedTurns map[string]struct{}
 	imageTracker    *imageHashTracker
 	settleTransport func(*transport) error
+	interrupting    bool
 }
 
 type turnHandle struct {
@@ -274,60 +276,110 @@ func (s *session) Steer(ctx context.Context, req dto.SteerRequest) error {
 }
 
 // Interrupt 中断当前 Claude turn 或正在进行的 transport restart。
-// 它会先摘除 active 状态和 log watcher，再清理旧 transport，防止旧事件继续进入 UI。
+// 它会预留 active ownership 并摘除旧 transport；只有确认退出后才发布成功终态。
 func (s *session) Interrupt(ctx context.Context, req dto.InterruptRequest) error {
 	if err := shared.CheckCtx(ctx); err != nil {
 		return err
 	}
 	reason := strings.TrimSpace(req.Source)
 	targetTurnID := strings.TrimSpace(req.TurnID)
-	s.mu.Lock()
-	if s.interruptTargetChangedLocked(targetTurnID) {
-		s.mu.Unlock()
-		return contract.ErrInterruptTargetChanged
+	claim, err := s.beginInterruptCleanup(targetTurnID)
+	if err != nil || claim == nil {
+		return err
 	}
-	handle := s.takeActiveTurnLocked()
-	restartCancel := s.restartCancel
-	if interruptWorkAbsent(handle, restartCancel) {
-		s.mu.Unlock()
-		return nil
+	claim.cancelRestartAndStopWatcher()
+	if err := cleanupInterruptedTransport(claim.registry, claim.transport, claim.cleanup, s.resolveSettleTransport()); err != nil {
+		s.restoreFailedInterrupt(claim)
+		return err
 	}
-	turnID := currentTurnID(handle)
-	if turnID != "" {
-		if s.suppressedTurns == nil {
-			s.suppressedTurns = map[string]struct{}{}
-		}
-		s.suppressedTurns[turnID] = struct{}{}
-	}
-	tr := s.transport
-	cleanup := s.cleanup
-	reg := s.pidRegistry
-	watcher := s.detachLogWatcherLocked()
-	toolEvents := s.takeActiveToolInterruptEventsLocked(turnID, reason)
-	s.restartCancel = nil
-	s.transport = nil
-	s.transportConfig = cliLaunchConfig{}
-	s.transportManifest = dto.MCPManifest{}
-	s.cleanup = nil
-	s.sessionContextWindow = 0
-	s.activeToolCalls = nil
-	s.mu.Unlock()
-	if restartCancel != nil {
-		restartCancel()
-	}
-	if watcher != nil {
-		watcher.stopAndWait()
-	}
-	cleanupInterruptedTransport(s.logger, reg, tr, cleanup, s.resolveSettleTransport())
-	if handle == nil {
+	handle, toolEvents, accepted := s.finishInterruptCleanup(claim, reason)
+	if !accepted || handle == nil {
 		return nil
 	}
 	for _, event := range toolEvents {
 		s.dispatch(event)
 	}
 	handle.finish(context.Canceled)
-	s.dispatch(s.turnRawEvent("turn:interrupted", turnID, interruptTerminalFields(req, reason)))
+	s.dispatch(s.turnRawEvent("turn:interrupted", claim.turnID, interruptTerminalFields(req, reason)))
 	return nil
+}
+
+type interruptCleanupClaim struct {
+	handle        *turnHandle
+	restartCancel context.CancelFunc
+	turnID        string
+	transport     *transport
+	cleanup       func()
+	registry      *pidregistry.Registry
+	watcher       *sessionLogWatcher
+}
+
+// beginInterruptCleanup 预留当前 turn 和 transport 的清理所有权，并阻断并发 turn。
+func (s *session) beginInterruptCleanup(targetTurnID string) (*interruptCleanupClaim, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.interruptTargetChangedLocked(targetTurnID) {
+		return nil, contract.ErrInterruptTargetChanged
+	}
+	if s.interrupting {
+		return nil, errors.New("claudecli: interrupt cleanup already in progress")
+	}
+	handle := s.activeTurn
+	if interruptWorkAbsent(handle, s.restartCancel) {
+		return nil, nil
+	}
+	claim := &interruptCleanupClaim{
+		handle: handle, restartCancel: s.restartCancel, turnID: currentTurnID(handle),
+		transport: s.transport, cleanup: s.cleanup, registry: s.pidRegistry,
+		watcher: s.detachLogWatcherLocked(),
+	}
+	if claim.turnID != "" {
+		if s.suppressedTurns == nil {
+			s.suppressedTurns = map[string]struct{}{}
+		}
+		s.suppressedTurns[claim.turnID] = struct{}{}
+	}
+	s.interrupting = true
+	s.restartCancel = nil
+	s.transport = nil
+	return claim, nil
+}
+
+func (c *interruptCleanupClaim) cancelRestartAndStopWatcher() {
+	if c.restartCancel != nil {
+		c.restartCancel()
+	}
+	if c.watcher != nil {
+		c.watcher.stopAndWait()
+	}
+}
+
+func (s *session) restoreFailedInterrupt(claim *interruptCleanupClaim) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.interrupting || s.activeTurn != claim.handle {
+		return
+	}
+	s.interrupting = false
+	s.transport = claim.transport
+	delete(s.suppressedTurns, claim.turnID)
+}
+
+func (s *session) finishInterruptCleanup(claim *interruptCleanupClaim, reason string) (*turnHandle, []dto.RawProviderEvent, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.interrupting || s.activeTurn != claim.handle {
+		return nil, nil, false
+	}
+	s.interrupting = false
+	handle := s.takeActiveTurnLocked()
+	toolEvents := s.takeActiveToolInterruptEventsLocked(claim.turnID, reason)
+	s.transportConfig = cliLaunchConfig{}
+	s.transportManifest = dto.MCPManifest{}
+	s.cleanup = nil
+	s.sessionContextWindow = 0
+	s.activeToolCalls = nil
+	return handle, toolEvents, true
 }
 
 func interruptTerminalFields(req dto.InterruptRequest, reason string) map[string]any {

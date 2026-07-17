@@ -51,7 +51,7 @@ type session struct {
 	turns                  map[string]*turnHandle
 	activeTurnID           string
 	activeTurnGeneration   uint64
-	interruptRequests      map[string]string
+	interruptRequests      map[string]*interruptRequestClaim
 	pendingTurn            *turnReplayState
 	suppressed             map[string]struct{}
 	suppressedToolEnds     map[string]struct{}
@@ -545,17 +545,23 @@ func (s *session) Interrupt(ctx context.Context, req dto.InterruptRequest) error
 	if turnID == "" {
 		return errors.New("codexapp: active turn id is required for interrupt")
 	}
+	requestClaim, err := s.reserveInterruptRequest(claim, req.RequestID)
+	if err != nil {
+		return err
+	}
 	params := buildTurnInterruptParams(threadID, turnID, req.Source)
 	target := callTargetFunc(func(callCtx context.Context, method string, callParams any) (json.RawMessage, error) {
 		return s.callTransportWithGuard(callCtx, method, callParams, func() error {
-			return s.validateInterruptClaim(claim)
+			return s.markInterruptRequestPending(claim, requestClaim)
 		})
 	})
 	_, err = callWithTimeout(ctx, target, 10*time.Second, "turn/interrupt", params)
-	if err == nil {
-		s.recordAcceptedInterruptRequest(claim, req.RequestID)
+	if err != nil {
+		s.rollbackInterruptRequest(requestClaim)
+		return err
 	}
-	return err
+	s.markInterruptRequestAccepted(claim, requestClaim)
+	return nil
 }
 
 type interruptTargetClaim struct {
@@ -583,21 +589,83 @@ func (s *session) validateInterruptClaim(claim interruptTargetClaim) error {
 	return nil
 }
 
-func (s *session) recordAcceptedInterruptRequest(claim interruptTargetClaim, requestID string) {
+type interruptRequestState uint8
+
+const (
+	interruptRequestReserved interruptRequestState = iota
+	interruptRequestPending
+	interruptRequestAccepted
+)
+
+type interruptRequestClaim struct {
+	turnID     string
+	requestID  string
+	generation uint64
+	state      interruptRequestState
+}
+
+func (s *session) reserveInterruptRequest(claim interruptTargetClaim, requestID string) (*interruptRequestClaim, error) {
 	requestID = strings.TrimSpace(requestID)
 	if requestID == "" {
-		return
+		return nil, nil
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if claim.turnID != strings.TrimSpace(s.activeTurnID) || claim.generation != s.activeTurnGeneration {
-		return
+		return nil, contract.ErrInterruptTargetChanged
 	}
 	if s.interruptRequests == nil {
-		s.interruptRequests = map[string]string{}
+		s.interruptRequests = map[string]*interruptRequestClaim{}
 	}
-	s.interruptRequests[claim.turnID] = requestID
+	requestClaim := &interruptRequestClaim{
+		turnID: claim.turnID, requestID: requestID, generation: claim.generation, state: interruptRequestReserved,
+	}
+	s.interruptRequests[claim.turnID] = requestClaim
+	return requestClaim, nil
+}
 
+// markInterruptRequestPending 在 wire 写入前确认目标未漂移，并开放 pending claim 给终态消费。
+func (s *session) markInterruptRequestPending(claim interruptTargetClaim, requestClaim *interruptRequestClaim) error {
+	if requestClaim == nil {
+		return s.validateInterruptClaim(claim)
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if claim.turnID != strings.TrimSpace(s.activeTurnID) || claim.generation != s.activeTurnGeneration ||
+		s.interruptRequests[claim.turnID] != requestClaim || requestClaim.state != interruptRequestReserved {
+		return contract.ErrInterruptTargetChanged
+	}
+	requestClaim.state = interruptRequestPending
+	return nil
+}
+
+func (s *session) rollbackInterruptRequest(requestClaim *interruptRequestClaim) {
+	if requestClaim == nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if current := s.interruptRequests[requestClaim.turnID]; current == requestClaim && current.state != interruptRequestAccepted {
+		delete(s.interruptRequests, requestClaim.turnID)
+	}
+}
+
+// markInterruptRequestAccepted 只确认仍由当前请求拥有且尚未被终态消费的 pending claim。
+func (s *session) markInterruptRequestAccepted(claim interruptTargetClaim, requestClaim *interruptRequestClaim) {
+	if requestClaim == nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.interruptRequests[claim.turnID] != requestClaim {
+		return
+	}
+	if claim.turnID != strings.TrimSpace(s.activeTurnID) || claim.generation != s.activeTurnGeneration ||
+		requestClaim.state != interruptRequestPending {
+		delete(s.interruptRequests, claim.turnID)
+		return
+	}
+	requestClaim.state = interruptRequestAccepted
 }
 
 func (s *session) setActiveTurnLocked(turnID string) {

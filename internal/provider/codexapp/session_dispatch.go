@@ -144,16 +144,20 @@ func (s *session) takeTurn(turnID string) *turnHandle {
 	return h
 }
 
-// applyAcceptedInterruptRequest 消费已接受的 Stop claim，仅把真实取消或中断终态归因给该请求。
+// applyAcceptedInterruptRequest 消费 pending 或 accepted Stop claim，仅把真实取消或中断终态归因给该请求。
 func (s *session) applyAcceptedInterruptRequest(method string, payload map[string]any) bool {
 	turnID := strings.TrimSpace(payloadTurnID(payload))
 	if turnID == "" {
 		return false
 	}
 	s.mu.Lock()
-	requestID := strings.TrimSpace(s.interruptRequests[turnID])
+	claim := s.interruptRequests[turnID]
 	delete(s.interruptRequests, turnID)
 	s.mu.Unlock()
+	if claim == nil || claim.state == interruptRequestReserved {
+		return false
+	}
+	requestID := strings.TrimSpace(claim.requestID)
 	if requestID == "" {
 		return false
 	}
