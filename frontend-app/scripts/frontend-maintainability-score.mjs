@@ -511,17 +511,20 @@ function validateTimingMetric(metric, caseIds, subjectSha, label) {
   exactSet(Object.keys(metric.cases || {}), caseIds, `${label} cases`);
   for (const caseId of caseIds) {
     const entry = metric.cases[caseId];
-    if (!Array.isArray(entry?.durationAttemptSamplesMs) || entry.durationAttemptSamplesMs.length !== 5
+    if (entry?.attemptsPerSample !== 1
+      || !Array.isArray(entry.durationAttemptSamplesMs) || entry.durationAttemptSamplesMs.length !== 5
       || !Array.isArray(entry.durationSamplesMs) || entry.durationSamplesMs.length !== 5) {
       fail(`${label}.${caseId} raw samples are missing`);
     }
     entry.durationAttemptSamplesMs.forEach((attempts, sampleIndex) => {
-      if (!Array.isArray(attempts) || attempts.length !== 3) fail(`${label}.${caseId} must record three attempts per sample`);
-      const measured = attempts.map((value, attemptIndex) => (
-        requireFiniteNonNegative(value, `${label}.${caseId}.attempt[${sampleIndex}][${attemptIndex}]`)
-      ));
-      if (entry.durationSamplesMs[sampleIndex] !== Math.min(...measured)) {
-        fail(`${label}.${caseId} selected sample is not the fastest fixed attempt`);
+      if (!Array.isArray(attempts) || attempts.length !== 1) fail(`${label}.${caseId} must record one attempt per sample`);
+      const measured = requireFiniteNonNegative(attempts[0], `${label}.${caseId}.attempt[${sampleIndex}][0]`);
+      const selected = requireFiniteNonNegative(
+        entry.durationSamplesMs[sampleIndex],
+        `${label}.${caseId}.sample[${sampleIndex}]`,
+      );
+      if (selected !== measured) {
+        fail(`${label}.${caseId} selected sample does not preserve its raw measurement`);
       }
     });
     if (entry.durationMedianMs !== exactMedian(entry.durationSamplesMs, `${label}.${caseId}.durationSamplesMs`)) {
