@@ -817,6 +817,7 @@ function commandResult(command, args, options) {
     cwd: options.cwd,
     encoding: 'utf8',
     env: options.env,
+    maxBuffer: 16 * 1024 * 1024,
     stdio: ['ignore', 'pipe', 'pipe'],
     timeout: options.timeoutMs,
   });

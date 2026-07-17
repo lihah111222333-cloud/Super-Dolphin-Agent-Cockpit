@@ -752,6 +752,13 @@ describe('executable evidence registry', () => {
       argv: ['frontend-maintainability-command-does-not-exist'],
     })).toBe('FAIL');
   });
+
+  it('does not turn a verbose successful command into ENOBUFS failure', () => {
+    expect(commandEvidenceStatus({
+      repoRoot: frozenRepoRoot,
+      argv: [process.execPath, '-e', 'process.stdout.write("x".repeat(2 * 1024 * 1024))'],
+    })).toBe('PASS');
+  });
 });
 
 describe('scoring semantics', () => {
