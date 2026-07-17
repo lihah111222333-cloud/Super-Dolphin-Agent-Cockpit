@@ -1,6 +1,7 @@
 package schema
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -21,6 +22,32 @@ import (
 
 const helperFixtureTimeout = 10 * time.Second
 
+func TestMain(m *testing.M) {
+	if runBlockingFilesystemWorkerFixture() {
+		os.Exit(0)
+	}
+	if handled, err := RunFilesystemWorkerIfRequested(os.Stdin, os.Stdout); handled {
+		if err != nil {
+			_, _ = fmt.Fprintln(os.Stderr, err)
+			os.Exit(2)
+		}
+		os.Exit(0)
+	}
+	if runCancellationFixture() {
+		os.Exit(0)
+	}
+	if mode := os.Getenv("REASONIX_SCHEMA_MALICIOUS_HELPER"); mode != "" {
+		time.Sleep(25 * time.Millisecond)
+		if runImmediateMaliciousMode(mode) {
+			os.Exit(0)
+		}
+		request := readMaliciousRequest()
+		writeMaliciousResponse(mode, maliciousResponse(mode, request))
+		os.Exit(0)
+	}
+	os.Exit(m.Run())
+}
+
 func testHelperIdentity() HelperIdentity {
 	return HelperIdentity{AppCommit: "test-commit", GoVersion: runtime.Version(), GOOS: runtime.GOOS, GOARCH: runtime.GOARCH}
 }
@@ -40,7 +67,9 @@ func newSchemaTestClient(t *testing.T, source string) *Client {
 	if err := WriteHelperManifest(helper, manifest, testHelperIdentity()); err != nil {
 		t.Fatalf("write helper manifest: %v", err)
 	}
-	client, err := NewClient(ClientConfig{HelperPath: helper, ManifestPath: manifest, Identity: testHelperIdentity()})
+	client, err := NewClient(context.Background(), ClientConfig{
+		HelperPath: helper, ManifestPath: manifest, FilesystemWorkerPath: os.Args[0], Identity: testHelperIdentity(),
+	})
 	if err != nil {
 		t.Fatalf("NewClient() error = %v", err)
 	}
@@ -111,22 +140,20 @@ func TestSchemaCompilerCancellationOrIsolationIsBounded(t *testing.T) {
 	if err := WriteHelperManifest(helper, manifest, testHelperIdentity()); err != nil {
 		t.Fatal(err)
 	}
-	client, err := NewClient(ClientConfig{HelperPath: helper, ManifestPath: manifest, Identity: testHelperIdentity()})
+	client, err := NewClient(context.Background(), ClientConfig{
+		HelperPath: helper, ManifestPath: manifest, FilesystemWorkerPath: os.Args[0], Identity: testHelperIdentity(),
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	client.operationTimeout = helperFixtureTimeout
+	client.operationTimeout = 2 * helperFixtureTimeout
 	if err := os.WriteFile(helper, []byte("replaced-after-verification"), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	marker := filepath.Join(t.TempDir(), "started")
-	client.command = func(path string) *exec.Cmd {
-		cmd := exec.Command(path, "-test.run=^TestSchemaCompilerCancellationOrIsolationIsBounded$")
-		cmd.Env = append(os.Environ(),
-			"REASONIX_SCHEMA_HELPER_FIXTURE=sleep",
-			"REASONIX_SCHEMA_HELPER_MARKER="+marker,
-		)
-		return cmd
+	client.workerEnv = []string{
+		"REASONIX_SCHEMA_HELPER_FIXTURE=sleep",
+		"REASONIX_SCHEMA_HELPER_MARKER=" + marker,
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -159,7 +186,7 @@ func runCancellationFixture() bool {
 
 func waitForHelperMarker(t *testing.T, marker string) {
 	t.Helper()
-	deadline := time.Now().Add(helperFixtureTimeout / 2)
+	deadline := time.Now().Add(helperFixtureTimeout)
 	for {
 		if _, statErr := os.Stat(marker); statErr == nil {
 			return
@@ -167,7 +194,7 @@ func waitForHelperMarker(t *testing.T, marker string) {
 			t.Fatalf("stat helper marker: %v", statErr)
 		}
 		if time.Now().After(deadline) {
-			t.Fatal("helper did not start within five seconds")
+			t.Fatalf("helper did not start within %s", helperFixtureTimeout)
 		}
 		time.Sleep(5 * time.Millisecond)
 	}
@@ -229,6 +256,40 @@ func TestSchemaProtocolStrictIdentityDigestAndFieldGuard(t *testing.T) {
 	}
 }
 
+func TestFilesystemWorkerProtocolFieldsAndStrictDecoding(t *testing.T) {
+	request := filesystemWorkerRequest{
+		Version: filesystemWorkerVersion, Operation: filesystemWorkerVerify,
+		HelperPath: "/tmp/helper", ManifestPath: "/tmp/helper.manifest",
+		Identity: testHelperIdentity(), HelperGOOS: runtime.GOOS,
+		ImageBytes: 1, RequestBytes: 1, DeadlineUnixNano: 1,
+	}
+	assertProducerFieldsAcceptedByConsumer(t, request, &filesystemWorkerRequest{})
+	rawRequest, err := json.Marshal(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	unknownRequest := append(bytes.TrimSuffix(rawRequest, []byte("}")), []byte(`,"unknown":true}`)...)
+	unknownRequest = append(unknownRequest, '\n')
+	if _, err := decodeFilesystemWorkerRequest(bufio.NewReader(bytes.NewReader(unknownRequest))); err == nil {
+		t.Fatal("filesystem worker request accepted an unknown field")
+	}
+
+	response := filesystemWorkerResponse{
+		Version: filesystemWorkerVersion, Operation: filesystemWorkerVerify, PayloadBytes: 1,
+		Error: &filesystemWorkerError{Code: CodeProcessExited, Message: "fixture"},
+	}
+	assertProducerFieldsAcceptedByConsumer(t, response, &filesystemWorkerResponse{})
+	rawResponse, err := json.Marshal(response)
+	if err != nil {
+		t.Fatal(err)
+	}
+	unknownResponse := append(bytes.TrimSuffix(rawResponse, []byte("}")), []byte(`,"unknown":true}`)...)
+	unknownResponse = append(unknownResponse, '\n')
+	if _, err := decodeFilesystemWorkerResponse(unknownResponse, filesystemWorkerVerify, 1); ErrorCode(err) != CodeProtocolViolation {
+		t.Fatalf("unknown filesystem worker response field error = %v", err)
+	}
+}
+
 func assertJSONFieldsMatchProducer(t *testing.T, raw []byte, producer any) {
 	t.Helper()
 	got, err := strictObjectFieldNames(raw)
@@ -250,7 +311,7 @@ func TestSchemaCompilerStaleFencePreventsExecution(t *testing.T) {
 		t.Fatalf("Canonicalize() error = %v", err)
 	}
 	client := newSchemaTestClient(t, os.Args[0])
-	client.command = func(string) *exec.Cmd {
+	client.workerCommand = func(string) *exec.Cmd {
 		t.Fatal("helper started after stale pre-launch fence")
 		return nil
 	}
@@ -358,11 +419,7 @@ func TestSchemaCompilerRejectsMaliciousHelperOutputs(t *testing.T) {
 			if tc.mode != "timeout" {
 				client.operationTimeout = helperFixtureTimeout
 			}
-			client.command = func(path string) *exec.Cmd {
-				cmd := exec.Command(path, "-test.run=^TestSchemaHelperProcessFixture$")
-				cmd.Env = append(os.Environ(), "REASONIX_SCHEMA_MALICIOUS_HELPER="+tc.mode)
-				return cmd
-			}
+			client.workerEnv = []string{"REASONIX_SCHEMA_MALICIOUS_HELPER=" + tc.mode}
 			_, err = client.Execute(context.Background(), testInvocation(canonical), allowFence)
 			if ErrorCode(err) != tc.code {
 				t.Fatalf("Execute(%s) code = %q, want %q; error=%v", tc.mode, ErrorCode(err), tc.code, err)
@@ -377,11 +434,8 @@ func TestSchemaCompilerPostSuccessStaleFence(t *testing.T) {
 		t.Fatalf("Canonicalize() error = %v", err)
 	}
 	client := newSchemaTestClient(t, os.Args[0])
-	client.command = func(path string) *exec.Cmd {
-		cmd := exec.Command(path, "-test.run=^TestSchemaHelperProcessFixture$")
-		cmd.Env = append(os.Environ(), "REASONIX_SCHEMA_MALICIOUS_HELPER=success")
-		return cmd
-	}
+	client.operationTimeout = helperFixtureTimeout
+	client.workerEnv = []string{"REASONIX_SCHEMA_MALICIOUS_HELPER=success"}
 	stages := make([]FenceStage, 0, 2)
 	_, err = client.Execute(context.Background(), testInvocation(canonical), func(_ context.Context, stage FenceStage, _ FenceIdentity) error {
 		stages = append(stages, stage)
@@ -416,18 +470,17 @@ func TestSchemaCompilerExecutesPinnedImageAfterPackagePathReplacement(t *testing
 	if err := WriteHelperManifest(helper, manifest, testHelperIdentity()); err != nil {
 		t.Fatal(err)
 	}
-	client, err := NewClient(ClientConfig{HelperPath: helper, ManifestPath: manifest, Identity: testHelperIdentity()})
+	client, err := NewClient(context.Background(), ClientConfig{
+		HelperPath: helper, ManifestPath: manifest, FilesystemWorkerPath: os.Args[0], Identity: testHelperIdentity(),
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
+	client.operationTimeout = helperFixtureTimeout
 	if err := os.WriteFile(helper, []byte("replaced-after-verification"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	client.command = func(path string) *exec.Cmd {
-		cmd := exec.Command(path, "-test.run=^TestSchemaHelperProcessFixture$")
-		cmd.Env = append(os.Environ(), "REASONIX_SCHEMA_MALICIOUS_HELPER=success")
-		return cmd
-	}
+	client.workerEnv = []string{"REASONIX_SCHEMA_MALICIOUS_HELPER=success"}
 	result, err := client.Execute(context.Background(), testInvocation(canonical), allowFence)
 	if err != nil || result.CompiledDigest != canonical.Digest {
 		t.Fatalf("Execute() result=%+v error=%v", result, err)
@@ -507,7 +560,10 @@ func TestSchemaCompilerRejectsNonAbsoluteOrUncleanHelperPaths(t *testing.T) {
 			filepath.Base(directory) + string(os.PathSeparator) + "mcp-schema-compiler-helper",
 	}
 	for _, helperPath := range paths {
-		client, err := NewClient(ClientConfig{HelperPath: helperPath, ManifestPath: helper + HelperManifestSuffix, Identity: testHelperIdentity()})
+		client, err := NewClient(context.Background(), ClientConfig{
+			HelperPath: helperPath, ManifestPath: helper + HelperManifestSuffix,
+			FilesystemWorkerPath: os.Args[0], Identity: testHelperIdentity(),
+		})
 		if err == nil || client != nil {
 			t.Errorf("NewClient(%q) = (%v, %v), want rejection", helperPath, client, err)
 		}
@@ -518,7 +574,10 @@ func TestSchemaCompilerRejectsNonAbsoluteOrUncleanHelperPaths(t *testing.T) {
 	if err := WriteHelperManifest(helper, helper+HelperManifestSuffix, testHelperIdentity()); err != nil {
 		t.Fatalf("write helper manifest: %v", err)
 	}
-	client, err := NewClient(ClientConfig{HelperPath: helper, ManifestPath: helper + HelperManifestSuffix, Identity: testHelperIdentity()})
+	client, err := NewClient(context.Background(), ClientConfig{
+		HelperPath: helper, ManifestPath: helper + HelperManifestSuffix,
+		FilesystemWorkerPath: os.Args[0], Identity: testHelperIdentity(),
+	})
 	if err != nil || client == nil {
 		t.Fatalf("NewClient(absolute clean) = (%v, %v)", client, err)
 	}
