@@ -95,7 +95,7 @@ func installStagedCandidate(journal journalPayload) error {
 	return verifyRelease(journal.Paths.Target, journal.Identity.CandidateRelease)
 }
 
-// completeCommitEffect 在验证 candidate 与 backup 后删除已提交 backup。
+// completeCommitEffect 验证 candidate 与完整 backup，并将 backup 原子隔离为事务专属 discard。
 func completeCommitEffect(journal journalPayload) error {
 	if err := verifyRelease(journal.Paths.Target, journal.Identity.CandidateRelease); err != nil {
 		return fmt.Errorf("verify candidate before healthy commit: %w", err)
@@ -104,15 +104,49 @@ func completeCommitEffect(journal journalPayload) error {
 	if err != nil {
 		return err
 	}
+	discard := backupDiscardPath(journal.Paths)
+	discardExists, err := pathExists(discard)
+	if err != nil {
+		return err
+	}
+	if backupExists && discardExists {
+		return errors.New("healthy commit backup discard path collision")
+	}
 	if backupExists {
-		if err := verifyRelease(journal.Paths.Backup, journal.Identity.OldRelease); err != nil {
-			return fmt.Errorf("verify backup before healthy commit: %w", err)
-		}
-		if err := os.RemoveAll(journal.Paths.Backup); err != nil {
-			return fmt.Errorf("remove committed update backup: %w", err)
-		}
+		return renameVerifiedBackupToDiscard(journal, discard)
+	}
+	if !discardExists {
+		return errors.New("commit intent has neither retained backup nor durable discard")
+	}
+	if err := verifyRelease(discard, journal.Identity.OldRelease); err != nil {
+		return fmt.Errorf("verify durable backup discard before commit replay: %w", err)
 	}
 	return syncDirectory(filepath.Dir(journal.Paths.Target))
+}
+
+func renameVerifiedBackupToDiscard(journal journalPayload, discard string) error {
+	if err := verifyRelease(journal.Paths.Backup, journal.Identity.OldRelease); err != nil {
+		return fmt.Errorf("verify backup before healthy commit: %w", err)
+	}
+	if err := os.Rename(journal.Paths.Backup, discard); err != nil {
+		return fmt.Errorf("rename committed update backup to discard: %w", err)
+	}
+	return syncDirectory(filepath.Dir(journal.Paths.Target))
+}
+
+// cleanupCommittedEffect 只清理已被 committed journal 判定为不可信恢复源的 discard。
+func cleanupCommittedEffect(journal journalPayload) error {
+	if err := verifyRelease(journal.Paths.Target, journal.Identity.CandidateRelease); err != nil {
+		return fmt.Errorf("verify candidate before committed cleanup: %w", err)
+	}
+	if err := removeIfExists(backupDiscardPath(journal.Paths)); err != nil {
+		return fmt.Errorf("remove committed backup discard: %w", err)
+	}
+	return syncDirectory(filepath.Dir(journal.Paths.Target))
+}
+
+func backupDiscardPath(paths Paths) string {
+	return paths.Backup + ".discard"
 }
 
 // completeRollbackEffect 恢复 exact old release，并兼容 rename 后的 crash replay。

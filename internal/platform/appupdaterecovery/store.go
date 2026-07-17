@@ -194,7 +194,7 @@ func (store *Store) Rollback(ctx context.Context, identity Identity) (Transactio
 func (store *Store) commitHealthyLocked(journal *journalPayload) error {
 	state := journal.transaction().State
 	if state == StateCommitted {
-		return cleanupTransactionCapsule(journal.Paths)
+		return cleanupCommittedTransaction(*journal)
 	}
 	if state == StateProbation {
 		if err := store.beginHealthyCommitLocked(journal); err != nil {
@@ -214,7 +214,7 @@ func (store *Store) commitHealthyLocked(journal *journalPayload) error {
 	if err := store.advanceLocked(journal, TriggerCommitCompleted); err != nil {
 		return err
 	}
-	return cleanupTransactionCapsule(journal.Paths)
+	return cleanupCommittedTransaction(*journal)
 }
 
 // beginHealthyCommitLocked 校验 exact ACK 与 backup 后持久化 commit intent。
@@ -280,14 +280,30 @@ func (store *Store) replayLocked(journal *journalPayload) error {
 	case StateInstallPending:
 		return store.replayEffectLocked(journal, reconcileInstallEffect, TriggerCandidateInstalled)
 	case StateCommitPending:
-		return store.replayTerminalEffectLocked(journal, completeCommitEffect, TriggerCommitCompleted)
+		return store.replayCommitPendingLocked(journal)
 	case StateRollbackPending:
 		return store.replayTerminalEffectLocked(journal, completeRollbackEffect, TriggerRollbackCompleted)
-	case StateCommitted, StateRolledBack:
+	case StateCommitted:
+		return cleanupCommittedTransaction(*journal)
+	case StateRolledBack:
 		return cleanupTransactionCapsule(journal.Paths)
 	default:
 		return nil
 	}
+}
+
+func (store *Store) replayCommitPendingLocked(journal *journalPayload) error {
+	if err := store.replayEffectLocked(journal, completeCommitEffect, TriggerCommitCompleted); err != nil {
+		return err
+	}
+	return cleanupCommittedTransaction(*journal)
+}
+
+func cleanupCommittedTransaction(journal journalPayload) error {
+	if err := cleanupCommittedEffect(journal); err != nil {
+		return err
+	}
+	return cleanupTransactionCapsule(journal.Paths)
 }
 
 // replayEffectLocked 补完非终态效果并推进唯一合法 trigger。
