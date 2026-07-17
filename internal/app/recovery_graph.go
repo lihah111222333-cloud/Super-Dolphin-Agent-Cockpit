@@ -105,15 +105,12 @@ func (service RecoveryRestoreService) Restore(ctx context.Context) (recovery.Tra
 	return service.selection.Store.ConvergeRollbackRestart(ctx, transaction.Identity, resolve, launch)
 }
 
-// currentTransaction 让 selector 已绑定的 rolled_back identity 直接进入等待式 convergence。
+// currentTransaction 按 selector 的完整 identity 等待并加载 current journal，拒绝使用 stale projection。
 func (service RecoveryRestoreService) currentTransaction(ctx context.Context) (recovery.Transaction, error) {
 	if service.selection.Store == nil || service.selection.Transaction.Identity.TransactionID == "" {
 		return recovery.Transaction{}, errors.New("Recovery transaction is unavailable or ambiguous")
 	}
-	if service.selection.Transaction.State == recovery.StateRolledBack {
-		return service.selection.Transaction, nil
-	}
-	return requireRecoveryTransaction(ctx, service.selection)
+	return service.selection.Store.LoadRollbackRestartCurrent(ctx, service.selection.Transaction.Identity)
 }
 
 // rollback 将 current exact transaction 推进到 rolled_back，已完成状态保持幂等。

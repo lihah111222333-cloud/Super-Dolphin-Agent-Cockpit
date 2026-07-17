@@ -1,6 +1,6 @@
 path	module	domain	type	size_bytes	purpose	search_keys
 cmd/agent-terminal/frontend.go	cmd	app-ui	go-source	824	Wails 桌面 UI、HTTP server、app host 与前端嵌入入口	cmd,agent,terminal,frontend,Wails,桌面,UI,HTTP,server,app,host,与前端嵌入入口
-cmd/agent-terminal/main_recovery_test.go	cmd	app-ui	go-test	9387	Wails 桌面 UI、HTTP server、app host 与前端嵌入入口	cmd,agent,terminal,main,recovery,test,Wails,桌面,UI,HTTP,server,app,host,与前端嵌入入口
+cmd/agent-terminal/main_recovery_test.go	cmd	app-ui	go-test	23254	Wails 桌面 UI、HTTP server、app host 与前端嵌入入口	cmd,agent,terminal,main,recovery,test,Wails,桌面,UI,HTTP,server,app,host,与前端嵌入入口
 cmd/agent-terminal/main.go	cmd	app-ui	go-source	12522	Wails 桌面 UI、HTTP server、app host 与前端嵌入入口	cmd,agent,terminal,main,Wails,桌面,UI,HTTP,server,app,host,与前端嵌入入口
 cmd/agent-terminal/recovery_ui_test.go	cmd	app-ui	go-test	17832	Wails 桌面 UI、HTTP server、app host 与前端嵌入入口	cmd,agent,terminal,recovery,ui,test,Wails,桌面,UI,HTTP,server,app,host,与前端嵌入入口
 cmd/agent-terminal/recovery_ui.go	cmd	app-ui	go-source	8705	Wails 桌面 UI、HTTP server、app host 与前端嵌入入口	cmd,agent,terminal,recovery,ui,Wails,桌面,UI,HTTP,server,app,host,与前端嵌入入口

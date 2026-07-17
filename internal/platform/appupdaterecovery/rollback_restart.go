@@ -53,6 +53,15 @@ func (store *Store) ConvergeRollbackRestart(
 	})
 }
 
+// LoadRollbackRestartCurrent 等待 transaction lock，并按完整 identity 加载 convergence 前的 current journal。
+func (store *Store) LoadRollbackRestartCurrent(ctx context.Context, identity Identity) (Transaction, error) {
+	deadlineCtx, cancel := ctxutil.WithTimeout(ctx, rollbackRestartDeadline)
+	defer cancel()
+	return store.withRollbackRestartConvergence(deadlineCtx, identity, func(*journalPayload) error {
+		return nil
+	})
+}
+
 func (store *Store) convergeRollbackRestartLocked(
 	ctx context.Context,
 	journal *journalPayload,
