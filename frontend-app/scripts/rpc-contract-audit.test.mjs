@@ -588,6 +588,28 @@ describe('rpc contract audit', () => {
     })).toEqual(['runtime:SIDEBAR_REQUIRED_RESPONSE_KEYS is not used by the required-field check'])
   })
 
+  it.each(['continue;', 'return value;'])(
+    'rejects a Sidebar required-field check made unreachable by unconditional %s',
+    async (controlTransfer) => {
+      const goSource = await readFile(join(REPO_ROOT, 'internal/module/uistate/state.go'), 'utf8')
+      const runtimeSource = await readFile(
+        join(REPO_ROOT, 'frontend-app/src/shared/api/backendResponseValidatorsRuntime.js'),
+        'utf8',
+      )
+      const loopHeader = 'for (const requiredField of SIDEBAR_REQUIRED_RESPONSE_KEYS) {\n'
+
+      const unreachableCheckSource = runtimeSource.replace(
+        loopHeader,
+        `${loopHeader}    ${controlTransfer}\n`,
+      )
+      expect(unreachableCheckSource).not.toBe(runtimeSource)
+      expect(collectSidebarRequiredFieldFindingsFromSources({
+        goSource,
+        runtimeSource: unreachableCheckSource,
+      })).toEqual(['runtime:SIDEBAR_REQUIRED_RESPONSE_KEYS is not used by the required-field check'])
+    },
+  )
+
   it('detects frontend and Go hardcoded payload guard sources', () => {
     const findings = collectHardcodedPayloadGuardFindingsFromSources({
       frontendSource: `
