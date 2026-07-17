@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/pidregistry"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/runtimeenv"
 )
 
 func TestIndependentArtifactCrashRollbackReopensOldRelease(t *testing.T) {
@@ -97,7 +98,17 @@ func TestArtifactRollbackFallbackCleanupReapsAfterValidationFailure(t *testing.T
 	fixture := newArtifactE2EFixture(t)
 	executable := filepath.Join(fixture.target, "Contents", "MacOS", "agent-terminal")
 	token := strings.Repeat("d", 64)
+	transactionID := fixture.request.Identity.TransactionID
 	cmd := exec.Command(executable, "--super-dolphin-rollback-launch-token="+token)
+	env, err := runtimeenv.AppendRecoveryLaunchEnvironment(os.Environ(), runtimeenv.RecoveryLaunch{
+		TransactionRoot: TransactionRootForTarget(fixture.target), TransactionID: string(transactionID),
+		ExecutableIdentity: executable, ExecutableSHA256: mustArtifactDigest(t, executable),
+		TerminationEndpoint: artifactRollbackEndpoint(transactionID, token), TerminationToken: token, ContractPresent: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmd.Env = env
 	if err := cmd.Start(); err != nil {
 		t.Fatal(err)
 	}
@@ -111,7 +122,7 @@ func TestArtifactRollbackFallbackCleanupReapsAfterValidationFailure(t *testing.T
 		PID: stable.PID, StartToken: stable.ProcessStartToken, ExecutableIdentity: stable.ExecutableIdentity,
 		ExecutableSHA256: mustArtifactDigest(t, executable),
 	}
-	termination := artifactRollbackTerminationIdentity(process, token)
+	termination := artifactRollbackTerminationIdentity(process, transactionID, token)
 	waitDone := make(chan struct{})
 	var waitErr error
 	var waitOnce sync.Once
@@ -185,6 +196,8 @@ type recoveryGuardCrashFixture struct {
 	guardErr      error
 	guardStderr   bytes.Buffer
 	guardWait     sync.WaitGroup
+	cleanupOnce   sync.Once
+	cleanupErr    error
 }
 
 func newRecoveryGuardCrashFixture(t *testing.T) *recoveryGuardCrashFixture {
@@ -249,6 +262,11 @@ func startArtifactRecoveryGuard(t *testing.T, fixture *recoveryGuardCrashFixture
 		t.Fatal(err)
 	}
 	fixture.guard = guard
+	t.Cleanup(func() {
+		if err := fixture.cleanupRollbackIntent(); err != nil {
+			t.Errorf("fixture rollback intent cleanup: %v", err)
+		}
+	})
 	fixture.guardDone = make(chan struct{})
 	fixture.guardWait.Go(func() {
 		fixture.guardErr = guard.Wait()
@@ -553,12 +571,6 @@ func assertArtifactRollbackRestartAliveAndTerminate(t *testing.T, fixture *recov
 	}
 	executable := filepath.Join(fixture.target, "Contents", "MacOS", "agent-terminal")
 	process := record.ACK.Process
-	termination := artifactRollbackTerminationIdentity(process, record.LaunchToken)
-	t.Cleanup(func() {
-		if err := cleanupArtifactRollbackProcess(termination); err != nil {
-			t.Errorf("fallback cleanup rollback restart process: %v", err)
-		}
-	})
 	if err := validateArtifactRollbackProcess(process, executable, mustArtifactDigest(t, executable)); err != nil {
 		t.Fatal(err)
 	}
@@ -569,7 +581,7 @@ func assertArtifactRollbackRestartAliveAndTerminate(t *testing.T, fixture *recov
 	if err != nil || !alive {
 		t.Fatalf("rollback restart exact process alive = %t, error = %v, ACK = %+v", alive, err, record.ACK)
 	}
-	if err := cleanupArtifactRollbackProcess(termination); err != nil {
+	if err := fixture.cleanupRollbackIntent(); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -581,12 +593,53 @@ func validateArtifactRollbackProcess(process RollbackRestartProcess, executable,
 	return nil
 }
 
-func artifactRollbackTerminationIdentity(process RollbackRestartProcess, launchToken string) pidregistry.StableProcessIdentity {
+func artifactRollbackTerminationIdentity(process RollbackRestartProcess, transactionID TransactionID, launchToken string) pidregistry.StableProcessIdentity {
 	return pidregistry.StableProcessIdentity{
 		PID: process.PID, ProcessStartToken: process.StartToken, ExecutableIdentity: process.ExecutableIdentity,
-		TerminationEndpoint: filepath.Join(os.TempDir(), "sd-art-"+launchToken[:24]+".sock"),
+		TerminationEndpoint: artifactRollbackEndpoint(transactionID, launchToken),
 		TerminationToken:    launchToken,
 	}
+}
+
+func artifactRollbackEndpoint(transactionID TransactionID, launchToken string) string {
+	return filepath.Join(os.TempDir(), fmt.Sprintf(
+		"sd-rr-%s-%s.sock", string(transactionID)[:8], launchToken[:rollbackRestartEndpointNameBytes],
+	))
+}
+
+func (fixture *recoveryGuardCrashFixture) cleanupRollbackIntent() error {
+	fixture.cleanupOnce.Do(func() {
+		fixture.cleanupErr = cleanupArtifactRollbackIntent(fixture)
+	})
+	return fixture.cleanupErr
+}
+
+func cleanupArtifactRollbackIntent(fixture *recoveryGuardCrashFixture) error {
+	transaction, err := fixture.store.Load(context.Background(), fixture.request.Identity)
+	if err != nil {
+		return err
+	}
+	record := transaction.RollbackRestart
+	if !record.IntentPresent {
+		return nil
+	}
+	executable := filepath.Join(fixture.target, "Contents", "MacOS", "agent-terminal")
+	if record.ACKPresent {
+		return cleanupArtifactRollbackProcess(artifactRollbackTerminationIdentity(
+			record.ACK.Process, transaction.Identity.TransactionID, record.LaunchToken,
+		))
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	stable, found, err := pidregistry.FindStableProcessByArgumentContext(
+		ctx, "--super-dolphin-rollback-launch-token="+record.LaunchToken, executable,
+	)
+	if err != nil || !found {
+		return err
+	}
+	stable.TerminationEndpoint = artifactRollbackEndpoint(transaction.Identity.TransactionID, record.LaunchToken)
+	stable.TerminationToken = record.LaunchToken
+	return cleanupArtifactRollbackProcess(stable)
 }
 
 func cleanupArtifactRollbackProcess(identity pidregistry.StableProcessIdentity) error {
@@ -703,6 +756,7 @@ import (
 	"path/filepath"
 	"strings"
 	"syscall"
+	"time"
 )
 
 var release string
@@ -733,7 +787,21 @@ func rollbackLaunchToken(args []string) (string, bool) {
 }
 
 func serveAuthenticatedTermination(token string) {
-	endpoint := filepath.Join(os.TempDir(), "sd-art-"+token[:24]+".sock")
+	endpoint := os.Getenv("SUPER_DOLPHIN_UPDATE_TERMINATION_ENDPOINT")
+	terminationToken := os.Getenv("SUPER_DOLPHIN_UPDATE_TERMINATION_TOKEN")
+	transactionID := os.Getenv("SUPER_DOLPHIN_UPDATE_TRANSACTION_ID")
+	if endpoint == "" || terminationToken == "" || terminationToken != token || transactionID == "" {
+		os.Exit(30)
+	}
+	hold := filepath.Join(os.TempDir(), "sd-art-hold-"+transactionID)
+	for {
+		if _, err := os.Stat(hold); os.IsNotExist(err) {
+			break
+		} else if err != nil {
+			os.Exit(34)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
 	listener, err := net.Listen("unix", endpoint)
 	if err != nil {
 		os.Exit(31)
@@ -750,7 +818,7 @@ func serveAuthenticatedTermination(token string) {
 		}
 		line, readErr := bufio.NewReader(connection).ReadString('\n')
 		got := strings.TrimSuffix(line, "\n")
-		if readErr == nil && subtle.ConstantTimeCompare([]byte(got), []byte(token)) == 1 {
+		if readErr == nil && subtle.ConstantTimeCompare([]byte(got), []byte(terminationToken)) == 1 {
 			_, _ = connection.Write([]byte("ACK\n"))
 			_ = connection.Close()
 			return

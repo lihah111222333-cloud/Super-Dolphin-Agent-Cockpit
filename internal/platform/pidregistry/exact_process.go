@@ -49,15 +49,34 @@ func CaptureStableProcessIdentity(pid int) (StableProcessIdentity, error) {
 
 // TerminateExactProcess 通过认证协作端点请求 exact process 自行退出，不发送 PID signal。
 func TerminateExactProcess(ctx context.Context, identity StableProcessIdentity) error {
+	if err := RequestExactProcessTermination(ctx, identity); err != nil {
+		return err
+	}
+	return waitForCooperativeProcessExit(ctx, identity, time.Now().Add(exactTerminationGrace))
+}
+
+// RequestExactProcessTermination 校验稳定身份后向其认证端点发送终止请求。
+func RequestExactProcessTermination(ctx context.Context, identity StableProcessIdentity) error {
 	if !stableProcessIdentityComplete(identity) ||
 		strings.TrimSpace(identity.TerminationEndpoint) == "" ||
 		strings.TrimSpace(identity.TerminationToken) == "" {
 		return errors.New("cooperative termination requires stable identity, endpoint, and token")
 	}
-	if err := requestCooperativeTermination(ctx, identity.TerminationEndpoint, identity.TerminationToken); err != nil {
+	if err := context.Cause(ctx); err != nil {
 		return err
 	}
-	return waitForCooperativeProcessExit(ctx, identity, time.Now().Add(exactTerminationGrace))
+	current, err := CaptureStableProcessIdentity(identity.PID)
+	if err != nil {
+		return err
+	}
+	if current.ProcessStartToken != identity.ProcessStartToken ||
+		current.ExecutableIdentity != identity.ExecutableIdentity {
+		return ErrStableProcessIdentityMismatch
+	}
+	if err := context.Cause(ctx); err != nil {
+		return err
+	}
+	return requestCooperativeTermination(ctx, identity.TerminationEndpoint, identity.TerminationToken)
 }
 
 // waitForCooperativeProcessExit 只观察原稳定身份消失，不向可能复用的 PID 发信号。

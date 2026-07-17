@@ -110,19 +110,50 @@ func fixtureRelease(t *testing.T, path string, signer string) recovery.ReleaseId
 	return recovery.ReleaseIdentity{SHA256: digest, SignerIdentity: signer}
 }
 
-func (fixture *guardFixture) resolve(string) (recovery.RollbackRestartProcess, bool, error) {
-	return recovery.RollbackRestartProcess{}, false, nil
+func (fixture *guardFixture) resolve(context.Context, string) (recovery.RollbackRestartProcess, recovery.RollbackRestartCleanup, bool, error) {
+	return recovery.RollbackRestartProcess{}, nil, false, nil
 }
 
-func (fixture *guardFixture) restart(string) (recovery.RollbackRestartProcess, error) {
+func (fixture *guardFixture) restart(context.Context, string) (recovery.RollbackRestartProcess, recovery.RollbackRestartCleanup, error) {
 	fixture.restarts++
-	return fixtureRestartProcess(), nil
+	return fixtureRestartProcess(), fixtureRestartCleanup, nil
 }
+
+func fixtureRestartCleanup() error { return nil }
 
 func fixtureRestartProcess() recovery.RollbackRestartProcess {
 	return recovery.RollbackRestartProcess{
 		PID: 202, StartToken: "old-release-start", ExecutableIdentity: "/test/old-release",
 		ExecutableSHA256: fixtureDigest("old executable"),
+	}
+}
+
+func TestGuardRollbackRestartUsesFifteenSecondDeadline(t *testing.T) {
+	fixture := newGuardFixture(t)
+	rolledBack, err := fixture.store.RollbackClaimed(
+		t.Context(), fixture.transaction.Identity, fixture.transaction.Probation.Lease,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolverEvidence := errors.New("resolver observed deadline")
+	guard := newGuard(guardConfig{
+		Store: fixture.store,
+		ResolveOldRelease: func(ctx context.Context, _ string) (recovery.RollbackRestartProcess, recovery.RollbackRestartCleanup, bool, error) {
+			deadline, ok := ctx.Deadline()
+			remaining := time.Until(deadline)
+			if !ok || remaining < 14*time.Second || remaining > 15*time.Second {
+				t.Fatalf("rollback restart deadline ok=%t remaining=%s", ok, remaining)
+			}
+			return recovery.RollbackRestartProcess{}, nil, false, resolverEvidence
+		},
+		RestartOldRelease: func(context.Context, string) (recovery.RollbackRestartProcess, recovery.RollbackRestartCleanup, error) {
+			t.Fatal("launcher called after resolver failure")
+			return recovery.RollbackRestartProcess{}, nil, nil
+		},
+	})
+	if err := guard.restartRolledBackRelease(context.Background(), rolledBack); !errors.Is(err, resolverEvidence) {
+		t.Fatalf("restartRolledBackRelease() error = %v", err)
 	}
 }
 
@@ -248,9 +279,9 @@ func TestGuardReplaysCommitPendingToCommitted(t *testing.T) {
 		t.Fatal(err)
 	}
 	forceGuardPendingState(t, transaction, recovery.TriggerHealthy, recovery.StateCommitPending, false)
-	guard := newPendingReplayGuard(fixture, func(string) (recovery.RollbackRestartProcess, error) {
+	guard := newPendingReplayGuard(fixture, func(context.Context, string) (recovery.RollbackRestartProcess, recovery.RollbackRestartCleanup, error) {
 		t.Fatal("committed replay attempted old release restart")
-		return recovery.RollbackRestartProcess{}, nil
+		return recovery.RollbackRestartProcess{}, nil, nil
 	})
 	if err := guard.Run(context.Background()); err != nil {
 		t.Fatal(err)
@@ -397,11 +428,11 @@ func TestGuardTreatsReusedUpdaterPIDAsDeadAndRollsBack(t *testing.T) {
 			stopCalls++
 			return nil
 		},
-		ResolveOldRelease: func(string) (recovery.RollbackRestartProcess, bool, error) {
-			return recovery.RollbackRestartProcess{}, false, nil
+		ResolveOldRelease: func(context.Context, string) (recovery.RollbackRestartProcess, recovery.RollbackRestartCleanup, bool, error) {
+			return recovery.RollbackRestartProcess{}, nil, false, nil
 		},
-		RestartOldRelease: func(string) (recovery.RollbackRestartProcess, error) {
-			return fixtureRestartProcess(), nil
+		RestartOldRelease: func(context.Context, string) (recovery.RollbackRestartProcess, recovery.RollbackRestartCleanup, error) {
+			return fixtureRestartProcess(), fixtureRestartCleanup, nil
 		},
 	})
 	if err := guard.Run(context.Background()); err != nil {
@@ -430,9 +461,9 @@ func TestGuardPIDReuseIdentityMismatchLeavesRecoveryActive(t *testing.T) {
 			return ErrCandidateProcessIdentityMismatch
 		},
 		ResolveOldRelease: fixture.resolve,
-		RestartOldRelease: func(string) (recovery.RollbackRestartProcess, error) {
+		RestartOldRelease: func(context.Context, string) (recovery.RollbackRestartProcess, recovery.RollbackRestartCleanup, error) {
 			restarts++
-			return fixtureRestartProcess(), nil
+			return fixtureRestartProcess(), fixtureRestartCleanup, nil
 		},
 	})
 	if err := guard.Run(context.Background()); !errors.Is(err, ErrCandidateProcessIdentityMismatch) {
@@ -456,9 +487,9 @@ func TestGuardTerminationFailureHasNoRollbackOrRestart(t *testing.T) {
 			return terminationErr
 		},
 		ResolveOldRelease: fixture.resolve,
-		RestartOldRelease: func(string) (recovery.RollbackRestartProcess, error) {
+		RestartOldRelease: func(context.Context, string) (recovery.RollbackRestartProcess, recovery.RollbackRestartCleanup, error) {
 			restarts++
-			return fixtureRestartProcess(), nil
+			return fixtureRestartProcess(), fixtureRestartCleanup, nil
 		},
 	})
 	if err := guard.Run(context.Background()); !errors.Is(err, terminationErr) {
@@ -480,14 +511,14 @@ func TestDetachedGuardsConvergeOneRollbackRestart(t *testing.T) {
 	restartProcess := fixtureRestartProcess()
 	var launchMu sync.Mutex
 	launchCount := 0
-	resolve := func(string) (recovery.RollbackRestartProcess, bool, error) {
-		return recovery.RollbackRestartProcess{}, false, nil
+	resolve := func(context.Context, string) (recovery.RollbackRestartProcess, recovery.RollbackRestartCleanup, bool, error) {
+		return recovery.RollbackRestartProcess{}, nil, false, nil
 	}
-	launch := func(string) (recovery.RollbackRestartProcess, error) {
+	launch := func(context.Context, string) (recovery.RollbackRestartProcess, recovery.RollbackRestartCleanup, error) {
 		launchMu.Lock()
 		defer launchMu.Unlock()
 		launchCount++
-		return restartProcess, nil
+		return restartProcess, fixtureRestartCleanup, nil
 	}
 	guards := []*probationGuard{
 		newGuard(guardConfig{Store: fixture.store, Identity: rolledBack.Identity, ResolveOldRelease: resolve, RestartOldRelease: launch}),

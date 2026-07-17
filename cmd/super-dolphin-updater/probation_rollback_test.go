@@ -92,15 +92,15 @@ func newRollbackRaceHarness(t *testing.T, entry string) *rollbackRaceHarness {
 		},
 		updaterReady: make(chan struct{}), guardReady: make(chan struct{}), compete: make(chan struct{}),
 	}
-	h.resolve = func(string) (recovery.RollbackRestartProcess, bool, error) {
-		return recovery.RollbackRestartProcess{}, false, nil
+	h.resolve = func(context.Context, string) (recovery.RollbackRestartProcess, recovery.RollbackRestartCleanup, bool, error) {
+		return recovery.RollbackRestartProcess{}, nil, false, nil
 	}
-	h.launch = func(token string) (recovery.RollbackRestartProcess, error) {
+	h.launch = func(_ context.Context, token string) (recovery.RollbackRestartProcess, recovery.RollbackRestartCleanup, error) {
 		h.launches.Add(1)
 		h.tokenMu.Lock()
 		h.startedToken = token
 		h.tokenMu.Unlock()
-		return h.process, nil
+		return h.process, func() error { return nil }, nil
 	}
 	h.app = defaultUpdaterApp()
 	h.app.rollbackRestartCallbackFactory = func(recovery.Transaction) (recovery.RollbackRestartResolver, recovery.RollbackRestartLauncher) {

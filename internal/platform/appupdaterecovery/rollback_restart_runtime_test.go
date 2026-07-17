@@ -1,13 +1,18 @@
 package appupdaterecovery
 
 import (
+	"context"
 	"errors"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/pidregistry"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/runtimeenv"
+	"go.uber.org/goleak"
 )
 
 func TestRollbackRestartLauncherReapsEveryPostStartFailure(t *testing.T) {
@@ -17,78 +22,232 @@ func TestRollbackRestartLauncherReapsEveryPostStartFailure(t *testing.T) {
 }
 
 func runRollbackRestartLauncherFailure(t *testing.T, failure string) {
-	store, identity, _ := createProbationTransaction(t)
-	transaction, err := store.RollbackUnclaimedProbation(t.Context(), identity)
-	if err != nil {
-		t.Fatal(err)
-	}
-	transaction.Paths.Target, err = CanonicalExistingPath(transaction.Paths.Target)
-	if err != nil {
-		t.Fatal(err)
-	}
+	defer goleak.VerifyNone(t, goleak.IgnoreCurrent())
+	transaction := newRollbackRuntimeTransaction(t)
 	fixture := &rollbackRuntimeFailureFixture{
 		failure: failure, primary: errors.New(failure + " failed"),
-		killFailure: errors.New("kill evidence"), waitFailure: errors.New("wait evidence"),
+		terminationFailure: errors.New("termination evidence"), waitFailure: errors.New("wait evidence"),
 	}
-	runtime := rollbackRestartRuntime{
-		start: fixture.start, capture: fixture.capture, validate: fixture.validate,
-		release: fixture.release, kill: fixture.kill, wait: fixture.wait,
-	}
+	runtime := fixture.runtime()
 	_, launch := rollbackRestartCallbacksWithRuntime(transaction, runtime)
-	_, launchErr := launch(transaction.RollbackRestart.LaunchToken)
-	for _, want := range []error{fixture.primary, fixture.killFailure, fixture.waitFailure} {
+	_, _, launchErr := launch(t.Context(), transaction.RollbackRestart.LaunchToken)
+	for _, want := range []error{fixture.primary, fixture.terminationFailure, fixture.waitFailure} {
 		if !errors.Is(launchErr, want) {
 			t.Fatalf("launch error %v does not retain %v", launchErr, want)
 		}
 	}
-	if fixture.started == nil || fixture.started.ProcessState == nil {
-		t.Fatal("started rollback process was not waited and reaped")
+	if fixture.started == nil || !fixture.reaped.Load() {
+		t.Fatal("started rollback process was not bounded-waited and reaped")
 	}
-	if _, err := pidregistry.CaptureStableProcessIdentity(fixture.started.Process.Pid); !errors.Is(err, pidregistry.ErrStableProcessNotFound) {
+	if failure == "release" && fixture.started.Process.Pid != -1 {
+		t.Fatalf("release failure fixture did not invalidate process handle PID: %d", fixture.started.Process.Pid)
+	}
+	if _, err := pidregistry.CaptureStableProcessIdentity(fixture.startedPID); !errors.Is(err, pidregistry.ErrStableProcessNotFound) {
 		t.Fatalf("started rollback process remains observable: %v", err)
 	}
 }
 
 type rollbackRuntimeFailureFixture struct {
-	failure                  string
-	primary                  error
-	killFailure, waitFailure error
-	started                  *exec.Cmd
+	failure                     string
+	primary, terminationFailure error
+	waitFailure                 error
+	started                     *exec.Cmd
+	startedPID                  int
+	captures                    atomic.Int32
+	reaped                      atomic.Bool
 }
 
-func (fixture *rollbackRuntimeFailureFixture) start(string, string, []string) (*exec.Cmd, error) {
+func (fixture *rollbackRuntimeFailureFixture) runtime() rollbackRestartRuntime {
+	return rollbackRestartRuntime{
+		cleanupLimits: rollbackRestartCleanupLimits{total: 500 * time.Millisecond, terminate: 100 * time.Millisecond, firstWait: 100 * time.Millisecond},
+		start:         fixture.start, waitReady: func(context.Context, string) error { return nil },
+		capture: fixture.capture, validate: fixture.validate, release: fixture.release,
+		requestTerminate: fixture.requestTerminate, terminate: pidregistry.TerminateExactProcess,
+		kill: fixture.kill, waitChild: fixture.waitChild,
+	}
+}
+
+func (fixture *rollbackRuntimeFailureFixture) start(context.Context, string, string, []string) (*exec.Cmd, error) {
 	fixture.started = exec.Command(os.Args[0], "-test.run=TestRollbackRestartRuntimeChild")
 	fixture.started.Env = append(os.Environ(), "SUPER_DOLPHIN_TEST_ROLLBACK_RUNTIME_CHILD=1")
-	return fixture.started, fixture.started.Start()
+	if err := fixture.started.Start(); err != nil {
+		return nil, err
+	}
+	fixture.startedPID = fixture.started.Process.Pid
+	return fixture.started, nil
 }
 
-func (fixture *rollbackRuntimeFailureFixture) capture(pid int) (pidregistry.StableProcessIdentity, error) {
-	if fixture.failure == "capture" {
+func (fixture *rollbackRuntimeFailureFixture) capture(ctx context.Context, pid int) (pidregistry.StableProcessIdentity, error) {
+	if fixture.failure == "capture" && fixture.captures.Add(1) == 1 {
 		return pidregistry.StableProcessIdentity{}, fixture.primary
 	}
-	return pidregistry.StableProcessIdentity{PID: pid, ProcessStartToken: "start", ExecutableIdentity: "executable"}, nil
+	if err := context.Cause(ctx); err != nil {
+		return pidregistry.StableProcessIdentity{}, err
+	}
+	return pidregistry.CaptureStableProcessIdentity(pid)
 }
 
-func (fixture *rollbackRuntimeFailureFixture) validate(pidregistry.StableProcessIdentity, string) (RollbackRestartProcess, error) {
+func (fixture *rollbackRuntimeFailureFixture) validate(
+	ctx context.Context,
+	stable pidregistry.StableProcessIdentity,
+	expectedExecutable string,
+) (RollbackRestartProcess, error) {
 	if fixture.failure == "validation" {
 		return RollbackRestartProcess{}, fixture.primary
 	}
-	return fixtureRollbackRestartProcess(), nil
+	if err := context.Cause(ctx); err != nil {
+		return RollbackRestartProcess{}, err
+	}
+	digest, err := ComputeReleaseDigest(expectedExecutable)
+	if err != nil {
+		return RollbackRestartProcess{}, err
+	}
+	return RollbackRestartProcess{
+		PID: stable.PID, StartToken: stable.ProcessStartToken,
+		ExecutableIdentity: expectedExecutable, ExecutableSHA256: digest,
+	}, nil
 }
 
-func (fixture *rollbackRuntimeFailureFixture) release(*os.Process) error {
+func (fixture *rollbackRuntimeFailureFixture) release(process *os.Process) error {
 	if fixture.failure == "release" {
-		return fixture.primary
+		return errors.Join(fixture.primary, process.Release())
 	}
-	return nil
+	return process.Release()
+}
+
+func (fixture *rollbackRuntimeFailureFixture) requestTerminate(_ context.Context, identity pidregistry.StableProcessIdentity) error {
+	process, err := os.FindProcess(identity.PID)
+	if err != nil {
+		return errors.Join(err, fixture.terminationFailure)
+	}
+	return errors.Join(process.Signal(os.Kill), fixture.terminationFailure)
 }
 
 func (fixture *rollbackRuntimeFailureFixture) kill(process *os.Process) error {
-	return errors.Join(process.Kill(), fixture.killFailure)
+	return process.Kill()
 }
 
-func (fixture *rollbackRuntimeFailureFixture) wait(cmd *exec.Cmd) error {
-	return errors.Join(cmd.Wait(), fixture.waitFailure)
+func (fixture *rollbackRuntimeFailureFixture) waitChild(ctx context.Context, childPID int) error {
+	err := waitRollbackRestartChild(ctx, childPID)
+	if err == nil {
+		fixture.reaped.Store(true)
+	}
+	return errors.Join(err, fixture.waitFailure)
+}
+
+func TestRollbackRestartCleanupReturnsWhenTerminationAndKillDoNotRespond(t *testing.T) {
+	defer goleak.VerifyNone(t, goleak.IgnoreCurrent())
+	cmd := startRollbackRuntimeChild(t)
+	stable, err := pidregistry.CaptureStableProcessIdentity(cmd.Process.Pid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	primary := errors.New("primary failure")
+	terminationFailure := errors.New("termination did not respond")
+	killFailure := errors.New("kill had no effect")
+	runtime := rollbackRestartRuntime{
+		cleanupLimits:    rollbackRestartCleanupLimits{total: 80 * time.Millisecond, terminate: 20 * time.Millisecond, firstWait: 20 * time.Millisecond},
+		capture:          func(context.Context, int) (pidregistry.StableProcessIdentity, error) { return stable, nil },
+		release:          func(*os.Process) error { return nil },
+		requestTerminate: func(context.Context, pidregistry.StableProcessIdentity) error { return terminationFailure },
+		kill:             func(*os.Process) error { return killFailure },
+		waitChild: func(ctx context.Context, _ int) error {
+			<-ctx.Done()
+			return context.Cause(ctx)
+		},
+	}
+	contract := runtimeenv.RecoveryLaunch{
+		TerminationEndpoint: filepath.Join(t.TempDir(), "unused.sock"),
+		TerminationToken:    testLowerHex("cleanup-token"), ContractPresent: true,
+	}
+	startedAt := time.Now()
+	cleanupErr := cleanupStartedRollbackProcess(runtime, cmd, cmd.Process.Pid, stable, contract, primary)
+	if elapsed := time.Since(startedAt); elapsed > 500*time.Millisecond {
+		t.Fatalf("bounded cleanup elapsed %s", elapsed)
+	}
+	for _, want := range []error{primary, terminationFailure, killFailure, errRollbackRestartCleanupTimeout} {
+		if !errors.Is(cleanupErr, want) {
+			t.Fatalf("cleanup error %v does not retain %v", cleanupErr, want)
+		}
+	}
+	current, err := pidregistry.CaptureStableProcessIdentity(stable.PID)
+	if err != nil {
+		t.Fatalf("sentinel process disappeared unexpectedly: %v", err)
+	}
+	if current.ProcessStartToken != stable.ProcessStartToken || current.ExecutableIdentity != stable.ExecutableIdentity {
+		t.Fatal("cleanup targeted a reused or different PID")
+	}
+	boundedKillAndReapRollbackChild(t, cmd)
+}
+
+func TestRollbackRestartResolverCleanupUsesFrozenExactContract(t *testing.T) {
+	transaction := newRollbackRuntimeTransaction(t)
+	executable := filepath.Join(transaction.Paths.Target, "Contents", "MacOS", "agent-terminal")
+	stable := pidregistry.StableProcessIdentity{
+		PID: 4321, ProcessStartToken: "resolver-start", ExecutableIdentity: executable,
+	}
+	var terminated pidregistry.StableProcessIdentity
+	runtime := rollbackRestartRuntime{
+		cleanupLimits: rollbackRestartCleanupLimits{total: 500 * time.Millisecond, terminate: 100 * time.Millisecond, firstWait: 100 * time.Millisecond},
+		find: func(context.Context, string, string) (pidregistry.StableProcessIdentity, bool, error) {
+			return stable, true, nil
+		},
+		validate: func(context.Context, pidregistry.StableProcessIdentity, string) (RollbackRestartProcess, error) {
+			return fixtureRollbackRestartProcess(), nil
+		},
+		terminate: func(_ context.Context, identity pidregistry.StableProcessIdentity) error {
+			terminated = identity
+			return nil
+		},
+	}
+	resolve, _ := rollbackRestartCallbacksWithRuntime(transaction, runtime)
+	_, cleanup, found, err := resolve(t.Context(), transaction.RollbackRestart.LaunchToken)
+	if err != nil || !found || cleanup == nil {
+		t.Fatalf("resolve found=%t cleanup=%t error=%v", found, cleanup != nil, err)
+	}
+	if err := cleanup(); err != nil {
+		t.Fatal(err)
+	}
+	contract, err := rollbackRestartRecoveryLaunch(transaction, transaction.RollbackRestart.LaunchToken, executable)
+	if err != nil {
+		t.Fatal(err)
+	}
+	expected := stable
+	expected.TerminationEndpoint = contract.TerminationEndpoint
+	expected.TerminationToken = contract.TerminationToken
+	if terminated != expected {
+		t.Fatalf("resolver cleanup identity = %+v, want frozen contract %+v", terminated, contract)
+	}
+}
+
+func startRollbackRuntimeChild(t *testing.T) *exec.Cmd {
+	t.Helper()
+	cmd := exec.Command(os.Args[0], "-test.run=TestRollbackRestartRuntimeChild")
+	cmd.Env = append(os.Environ(), "SUPER_DOLPHIN_TEST_ROLLBACK_RUNTIME_CHILD=1")
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		childPID := cmd.Process.Pid
+		_ = cmd.Process.Kill()
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		_ = waitRollbackRestartChild(ctx, childPID)
+	})
+	return cmd
+}
+
+func boundedKillAndReapRollbackChild(t *testing.T, cmd *exec.Cmd) {
+	t.Helper()
+	childPID := cmd.Process.Pid
+	if err := cmd.Process.Kill(); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	if err := waitRollbackRestartChild(ctx, childPID); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func TestRollbackRestartRuntimeChild(t *testing.T) {
@@ -98,4 +257,79 @@ func TestRollbackRestartRuntimeChild(t *testing.T) {
 	for {
 		time.Sleep(time.Hour)
 	}
+}
+
+func newRollbackRuntimeTransaction(t *testing.T) Transaction {
+	t.Helper()
+	store, id, paths := newRollbackRuntimeStore(t)
+	writeRollbackRuntimeBundle(t, paths.Target, "old")
+	writeRollbackRuntimeBundle(t, paths.Staging, "candidate")
+	oldDigest, err := ComputeReleaseDigest(paths.Target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	candidateDigest, err := ComputeReleaseDigest(paths.Staging)
+	if err != nil {
+		t.Fatal(err)
+	}
+	identity := Identity{
+		TransactionID: id, AttemptID: "rollback-runtime",
+		OldRelease:       ReleaseIdentity{SHA256: oldDigest, SignerIdentity: "TEAM-OLD"},
+		CandidateRelease: ReleaseIdentity{SHA256: candidateDigest, SignerIdentity: "TEAM-NEW"},
+		OldHelpers:       fixtureHelperIdentity("old"), CandidateHelpers: fixtureHelperIdentity("candidate"),
+		UpdaterProcess: fixtureUpdaterProcess(),
+	}
+	if _, err := store.Create(t.Context(), CreateRequest{Identity: identity, Paths: paths, Trust: TrustGeneration{
+		PreviousGeneration: "trust-1", Generation: "trust-2", PackageSigner: "TEAM-NEW", State: TrustPending,
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.RetainBackup(t.Context(), identity); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.InstallCandidate(t.Context(), identity); err != nil {
+		t.Fatal(err)
+	}
+	transaction, err := store.RollbackUnclaimedProbation(t.Context(), identity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	transaction.Paths.Target, err = CanonicalExistingPath(transaction.Paths.Target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return transaction
+}
+
+func newRollbackRuntimeStore(t *testing.T) (*Store, TransactionID, Paths) {
+	t.Helper()
+	parent := t.TempDir()
+	store, err := NewStore(filepath.Join(parent, ".update-transactions"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	id, err := NewTransactionID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	paths, err := PathsFor(filepath.Join(parent, "Super Dolphin.app"), id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return store, id, paths
+}
+
+func writeRollbackRuntimeBundle(t *testing.T, root, content string) {
+	t.Helper()
+	executable := filepath.Join(root, "Contents", "MacOS", "agent-terminal")
+	if err := os.MkdirAll(filepath.Dir(executable), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(executable, []byte(content), 0o755); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func testLowerHex(seed string) string {
+	return digestText(seed)
 }

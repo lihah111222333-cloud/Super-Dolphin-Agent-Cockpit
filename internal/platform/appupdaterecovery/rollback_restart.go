@@ -8,18 +8,24 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util/ctxutil"
 )
 
 const (
 	rollbackLaunchTokenBytes        = 32
+	rollbackRestartDeadline         = 15 * time.Second
 	rollbackRestartLockPollInterval = 10 * time.Millisecond
 )
 
-// RollbackRestartResolver 重发现已携带 exact launch token 的旧版本进程。
-type RollbackRestartResolver func(string) (RollbackRestartProcess, bool, error)
+// RollbackRestartResolver 重发现已携带 exact launch token 的旧版本进程并移交 cleanup ownership。
+type RollbackRestartResolver func(context.Context, string) (RollbackRestartProcess, RollbackRestartCleanup, bool, error)
 
 // RollbackRestartLauncher 启动携带 exact launch token 的旧版本进程。
-type RollbackRestartLauncher func(string) (RollbackRestartProcess, error)
+type RollbackRestartLauncher func(context.Context, string) (RollbackRestartProcess, RollbackRestartCleanup, error)
+
+// RollbackRestartCleanup 认证终止已启动但未能持久 ACK 的旧版本进程。
+type RollbackRestartCleanup func() error
 
 // ConvergeRollbackRestart 在 transaction lock 内重发现或启动旧版本并持久化 ACK。
 func (store *Store) ConvergeRollbackRestart(
@@ -31,35 +37,129 @@ func (store *Store) ConvergeRollbackRestart(
 	if resolve == nil || launch == nil {
 		return Transaction{}, errors.New("rollback restart resolver and launcher are required")
 	}
-	return store.withRollbackRestartConvergence(ctx, identity, func(journal *journalPayload) error {
-		transaction := journal.transaction()
-		if transaction.State != StateRolledBack {
-			return fmt.Errorf("rollback restart from state %q: illegal transition", transaction.State)
-		}
-		if transaction.RollbackRestart.ACKPresent {
-			return nil
-		}
-		process, found, err := resolve(transaction.RollbackRestart.LaunchToken)
-		if err != nil {
-			return fmt.Errorf("resolve rollback restart launch token: %w", err)
-		}
-		if !found {
-			process, err = launch(transaction.RollbackRestart.LaunchToken)
-			if err != nil {
-				return fmt.Errorf("launch rolled back release: %w", err)
-			}
-		}
-		if err := validateRollbackRestartProcess(process); err != nil {
-			return err
-		}
-		journal.RollbackRestart.ACKPresent = true
-		journal.RollbackRestart.ACK = RollbackRestartACK{
-			LaunchToken:    transaction.RollbackRestart.LaunchToken,
-			Process:        process,
-			AcknowledgedAt: store.now().UTC().Format(time.RFC3339Nano),
-		}
-		return store.writeLocked(*journal)
+	deadlineCtx, cancel := ctxutil.WithTimeout(ctx, rollbackRestartDeadline)
+	defer cancel()
+	return store.withRollbackRestartConvergence(deadlineCtx, identity, func(journal *journalPayload) error {
+		return store.convergeRollbackRestartLocked(deadlineCtx, journal, resolve, launch)
 	})
+}
+
+func (store *Store) convergeRollbackRestartLocked(
+	ctx context.Context,
+	journal *journalPayload,
+	resolve RollbackRestartResolver,
+	launch RollbackRestartLauncher,
+) error {
+	transaction := journal.transaction()
+	if transaction.State != StateRolledBack {
+		return fmt.Errorf("rollback restart from state %q: illegal transition", transaction.State)
+	}
+	if transaction.RollbackRestart.ACKPresent {
+		return nil
+	}
+	process, cleanup, err := acquireRollbackRestartProcess(ctx, transaction, resolve, launch)
+	if err != nil {
+		return err
+	}
+	return store.persistRollbackRestartACK(ctx, journal, transaction, process, cleanup)
+}
+
+// acquireRollbackRestartProcess 优先重发现 exact token 进程，仅在不存在时启动并移交 cleanup ownership。
+func acquireRollbackRestartProcess(
+	ctx context.Context,
+	transaction Transaction,
+	resolve RollbackRestartResolver,
+	launch RollbackRestartLauncher,
+) (RollbackRestartProcess, RollbackRestartCleanup, error) {
+	if err := rollbackRestartContextError(ctx); err != nil {
+		return RollbackRestartProcess{}, nil, err
+	}
+	process, cleanup, found, err := acquireResolvedRollbackRestart(ctx, transaction.RollbackRestart.LaunchToken, resolve)
+	if err != nil {
+		return RollbackRestartProcess{}, nil, err
+	}
+	if found {
+		return process, cleanup, nil
+	}
+	process, cleanup, err = launch(ctx, transaction.RollbackRestart.LaunchToken)
+	if err != nil {
+		return RollbackRestartProcess{}, nil, fmt.Errorf("launch rolled back release: %w", err)
+	}
+	if cleanup == nil {
+		return RollbackRestartProcess{}, nil, errors.New("rollback restart launcher cleanup is required")
+	}
+	if err := rollbackRestartContextError(ctx); err != nil {
+		return RollbackRestartProcess{}, nil, cleanupRollbackRestartLaunch(cleanup, err)
+	}
+	return process, cleanup, nil
+}
+
+// acquireResolvedRollbackRestart 校验 resolver 的 cleanup ownership，并收口返回点取消窗口。
+func acquireResolvedRollbackRestart(
+	ctx context.Context,
+	token string,
+	resolve RollbackRestartResolver,
+) (RollbackRestartProcess, RollbackRestartCleanup, bool, error) {
+	process, cleanup, found, err := resolve(ctx, token)
+	if err != nil {
+		return RollbackRestartProcess{}, nil, false, fmt.Errorf("resolve rollback restart launch token: %w", err)
+	}
+	if found && cleanup == nil {
+		return RollbackRestartProcess{}, nil, false, errors.New("rollback restart resolver cleanup is required")
+	}
+	if err := rollbackRestartContextError(ctx); err != nil {
+		if !found {
+			return RollbackRestartProcess{}, nil, false, err
+		}
+		return RollbackRestartProcess{}, nil, false, cleanupRollbackRestartLaunch(cleanup, err)
+	}
+	return process, cleanup, found, nil
+}
+
+func (store *Store) persistRollbackRestartACK(
+	ctx context.Context,
+	journal *journalPayload,
+	transaction Transaction,
+	process RollbackRestartProcess,
+	cleanup RollbackRestartCleanup,
+) error {
+	if err := validateRollbackRestartProcess(process); err != nil {
+		return cleanupRollbackRestartLaunch(cleanup, err)
+	}
+	if err := rollbackRestartContextError(ctx); err != nil {
+		return cleanupRollbackRestartLaunch(cleanup, err)
+	}
+	updated := *journal
+	updated.RollbackRestart.ACKPresent = true
+	updated.RollbackRestart.ACK = RollbackRestartACK{
+		LaunchToken:    transaction.RollbackRestart.LaunchToken,
+		Process:        process,
+		AcknowledgedAt: store.now().UTC().Format(time.RFC3339Nano),
+	}
+	if err := rollbackRestartContextError(ctx); err != nil {
+		return cleanupRollbackRestartLaunch(cleanup, err)
+	}
+	if err := store.writeLocked(updated); err != nil {
+		return cleanupRollbackRestartLaunch(cleanup, err)
+	}
+	*journal = updated
+	return nil
+}
+
+func rollbackRestartContextError(ctx context.Context) error {
+	select {
+	case <-ctx.Done():
+		return context.Cause(ctx)
+	default:
+		return nil
+	}
+}
+
+func cleanupRollbackRestartLaunch(cleanup RollbackRestartCleanup, primary error) error {
+	if cleanup == nil {
+		return primary
+	}
+	return errors.Join(primary, cleanup())
 }
 
 func (store *Store) withRollbackRestartConvergence(

@@ -136,12 +136,14 @@ func TestSupervisorAndDetachedGuardConvergeOneRollbackRestart(t *testing.T) {
 	}
 	var launchMu sync.Mutex
 	launchCount := 0
-	resolve := func(string) (RollbackRestartProcess, bool, error) { return RollbackRestartProcess{}, false, nil }
-	launch := func(string) (RollbackRestartProcess, error) {
+	resolve := func(context.Context, string) (RollbackRestartProcess, RollbackRestartCleanup, bool, error) {
+		return RollbackRestartProcess{}, nil, false, nil
+	}
+	launch := func(context.Context, string) (RollbackRestartProcess, RollbackRestartCleanup, error) {
 		launchMu.Lock()
 		defer launchMu.Unlock()
 		launchCount++
-		return restartProcess, nil
+		return restartProcess, func() error { return nil }, nil
 	}
 	supervisorReady := make(chan struct{})
 	guardReady := make(chan struct{})
