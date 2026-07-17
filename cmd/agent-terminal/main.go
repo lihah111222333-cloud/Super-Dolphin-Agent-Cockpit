@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -31,24 +32,53 @@ type cooperativeTerminationServer interface {
 	Close() error
 }
 
+type filesystemHelperMode struct {
+	name string
+	run  func(io.Reader, io.Writer) (bool, error)
+}
+
 type terminalMainDeps struct {
-	prepareFilesystemHelper func() (func() error, error)
-	startTermination        func(context.CancelFunc) (cooperativeTerminationServer, bool, error)
-	run                     func(context.Context, terminalDeps) error
-	terminal                terminalDeps
+	prepareReleaseFilesystemHelper func() (func() error, error)
+	prepareSchemaFilesystemWorker  func() (func() error, error)
+	startTermination               func(context.CancelFunc) (cooperativeTerminationServer, bool, error)
+	run                            func(context.Context, terminalDeps) error
+	terminal                       terminalDeps
 }
 
 // main 在任何 normal preflight 前运行 early selector。
 func main() {
-	if handled, err := recovery.RunReleaseFilesystemHelperIfRequested(os.Stdin, os.Stdout); handled {
+	os.Exit(runAgentTerminalProcess())
+}
+
+// runAgentTerminalProcess 在 signal/UI 前依次分流 release 与 schema filesystem helper。
+func runAgentTerminalProcess() int {
+	handled, name, err := routeFilesystemHelperModes(os.Stdin, os.Stdout, []filesystemHelperMode{
+		{name: "release", run: recovery.RunReleaseFilesystemHelperIfRequested},
+		{name: "schema", run: app.RunSchemaFilesystemWorkerIfRequested},
+	})
+	if handled {
 		if err != nil {
-			slog.Error("release filesystem helper failed", "error", err)
-			os.Exit(2)
+			slog.Error("filesystem helper failed", "helper", name, "error", err)
+			return 2
 		}
-		return
+		return 0
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	os.Exit(runMain(ctx, stop, productionTerminalMainDeps()))
+	return runMain(ctx, stop, productionTerminalMainDeps())
+}
+
+// routeFilesystemHelperModes 按冻结顺序分流 helper，首个 handled 或错误立即阻断后续模式。
+func routeFilesystemHelperModes(reader io.Reader, writer io.Writer, modes []filesystemHelperMode) (bool, string, error) {
+	for _, mode := range modes {
+		if mode.name == "" || mode.run == nil {
+			return true, mode.name, errors.New("agent-terminal filesystem helper mode is incomplete")
+		}
+		handled, err := mode.run(reader, writer)
+		if handled || err != nil {
+			return true, mode.name, err
+		}
+	}
+	return false, "", nil
 }
 
 // runMain 返回退出码，确保最外层 os.Exit 前完成全部 cleanup defer。
@@ -58,12 +88,18 @@ func runMain(ctx context.Context, stop context.CancelFunc, deps terminalMainDeps
 		return 1
 	}
 	defer stop()
-	cleanupFilesystemHelper, err := deps.prepareFilesystemHelper()
+	cleanupReleaseHelper, err := deps.prepareReleaseFilesystemHelper()
 	if err != nil {
 		pkglogger.Get().Error("agent-terminal release filesystem helper preparation failed", "error", err)
 		return 1
 	}
-	defer func() { exitCode = cleanupReleaseFilesystemHelper(cleanupFilesystemHelper, exitCode) }()
+	defer func() { exitCode = cleanupFilesystemHelper("release", cleanupReleaseHelper, exitCode) }()
+	cleanupSchemaWorker, err := deps.prepareSchemaFilesystemWorker()
+	if err != nil {
+		pkglogger.Get().Error("agent-terminal schema filesystem worker preparation failed", "error", err)
+		return 1
+	}
+	defer func() { exitCode = cleanupFilesystemHelper("schema", cleanupSchemaWorker, exitCode) }()
 	terminationServer, parked, err := deps.startTermination(stop)
 	if err != nil {
 		pkglogger.Get().Error("agent-terminal termination endpoint failed", "error", err)
@@ -77,18 +113,19 @@ func runMain(ctx context.Context, stop context.CancelFunc, deps terminalMainDeps
 
 // validateTerminalMainDeps 在任何启动副作用前校验 early helper 与运行依赖完整。
 func validateTerminalMainDeps(ctx context.Context, stop context.CancelFunc, deps terminalMainDeps) error {
-	if ctx == nil || stop == nil || deps.prepareFilesystemHelper == nil || deps.startTermination == nil || deps.run == nil {
+	if ctx == nil || stop == nil || deps.prepareReleaseFilesystemHelper == nil ||
+		deps.prepareSchemaFilesystemWorker == nil || deps.startTermination == nil || deps.run == nil {
 		return errors.New("agent-terminal main dependencies are incomplete")
 	}
 	return nil
 }
 
-func cleanupReleaseFilesystemHelper(cleanup func() error, exitCode int) int {
+func cleanupFilesystemHelper(name string, cleanup func() error, exitCode int) int {
 	if cleanup == nil {
 		return 1
 	}
 	if err := cleanup(); err != nil {
-		pkglogger.Get().Error("agent-terminal release filesystem helper cleanup failed", "error", err)
+		pkglogger.Get().Error("agent-terminal filesystem helper cleanup failed", "helper", name, "error", err)
 		if exitCode == 0 {
 			return 1
 		}
@@ -135,7 +172,8 @@ func executeTerminalMain(
 
 func productionTerminalMainDeps() terminalMainDeps {
 	return terminalMainDeps{
-		prepareFilesystemHelper: recovery.PrepareReleaseFilesystemHelper,
+		prepareReleaseFilesystemHelper: recovery.PrepareReleaseFilesystemHelper,
+		prepareSchemaFilesystemWorker:  app.PrepareSchemaFilesystemWorker,
 		startTermination: func(cancel context.CancelFunc) (cooperativeTerminationServer, bool, error) {
 			return startCooperativeTermination(cancel)
 		},

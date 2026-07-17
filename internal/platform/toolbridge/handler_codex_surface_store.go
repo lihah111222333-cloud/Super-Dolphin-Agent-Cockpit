@@ -297,25 +297,113 @@ type admittedMCPTool struct {
 }
 
 type lazyMCPSchemaExecutor struct {
-	config schema.ClientConfig
-	once   sync.Once
-	client *schema.Client
-	err    error
+	config           schema.ClientConfig
+	profile          contract.DependencyProfile
+	mu               sync.Mutex
+	client           mcpSchemaExecutor
+	terminalErr      error
+	init             *mcpSchemaClientInit
+	initializeClient func(context.Context) (mcpSchemaExecutor, error)
+}
+
+type mcpSchemaClientInit struct {
+	done      chan struct{}
+	client    mcpSchemaExecutor
+	err       error
+	retryable bool
 }
 
 // Execute 延迟绑定当前应用 identity，并只执行已校验后固定的 helper 镜像。
 func (executor *lazyMCPSchemaExecutor) Execute(ctx context.Context, invocation schema.Invocation, fence schema.FenceHook) (schema.Result, error) {
-	executor.once.Do(func() {
-		executor.config.Identity, executor.err = runningSchemaHelperIdentity()
-		if executor.err != nil {
-			return
-		}
-		executor.client, executor.err = schema.NewClient(executor.config)
-	})
-	if executor.err != nil {
-		return schema.Result{}, executor.err
+	if ctx == nil {
+		return schema.Result{}, fmt.Errorf("toolbridge: MCP schema context is required")
 	}
-	return executor.client.Execute(ctx, invocation, fence)
+	operationCtx, cancel := schema.WithOperationDeadline(ctx)
+	defer cancel()
+	client, err := executor.resolveClient(operationCtx)
+	if err != nil {
+		return schema.Result{}, err
+	}
+	return client.Execute(operationCtx, invocation, fence)
+}
+
+// resolveClient 合并并发初始化；仅调用者取消类失败允许下一轮重新竞争。
+func (executor *lazyMCPSchemaExecutor) resolveClient(ctx context.Context) (mcpSchemaExecutor, error) {
+	for {
+		if err := ctx.Err(); err != nil {
+			return nil, fmt.Errorf("toolbridge: MCP schema initialization context: %w", err)
+		}
+		state, owner, client, err := executor.initializationState()
+		if client != nil || err != nil {
+			return client, err
+		}
+		if owner {
+			executor.runInitialization(ctx, state)
+			return state.client, state.err
+		}
+		select {
+		case <-state.done:
+			if state.retryable {
+				continue
+			}
+			return state.client, state.err
+		case <-ctx.Done():
+			return nil, fmt.Errorf("toolbridge: wait for MCP schema client initialization: %w", ctx.Err())
+		}
+	}
+}
+
+func (executor *lazyMCPSchemaExecutor) initializationState() (*mcpSchemaClientInit, bool, mcpSchemaExecutor, error) {
+	executor.mu.Lock()
+	defer executor.mu.Unlock()
+	if executor.client != nil || executor.terminalErr != nil {
+		return nil, false, executor.client, executor.terminalErr
+	}
+	if executor.init != nil {
+		return executor.init, false, nil, nil
+	}
+	state := &mcpSchemaClientInit{done: make(chan struct{})}
+	executor.init = state
+	return state, true, nil, nil
+}
+
+func (executor *lazyMCPSchemaExecutor) runInitialization(ctx context.Context, state *mcpSchemaClientInit) {
+	client, err := executor.initialize(ctx)
+	if client == nil && err == nil {
+		err = errors.New("toolbridge: MCP schema initializer returned nil client")
+	}
+	retryable := initializationCallerCanceled(ctx, err)
+	executor.mu.Lock()
+	state.client, state.err, state.retryable = client, err, retryable
+	if err == nil {
+		executor.client = client
+	} else if !retryable {
+		executor.terminalErr = err
+	}
+	executor.init = nil
+	close(state.done)
+	executor.mu.Unlock()
+}
+
+func initializationCallerCanceled(ctx context.Context, err error) bool {
+	return err != nil && ctx.Err() != nil
+}
+
+func (executor *lazyMCPSchemaExecutor) initialize(ctx context.Context) (mcpSchemaExecutor, error) {
+	if executor.initializeClient != nil {
+		return executor.initializeClient(ctx)
+	}
+	identity, err := runningSchemaHelperIdentity()
+	if err != nil {
+		return nil, err
+	}
+	executor.config.Identity = identity
+	workerPath, err := schemaFilesystemWorkerPath(executor.profile)
+	if err != nil {
+		return nil, err
+	}
+	executor.config.FilesystemWorkerPath = workerPath
+	return schema.NewClient(ctx, executor.config)
 }
 
 func newMCPSchemaExecutor(cfgProjectRoot string, profile contract.DependencyProfile) (mcpSchemaExecutor, error) {
@@ -324,13 +412,33 @@ func newMCPSchemaExecutor(cfgProjectRoot string, profile contract.DependencyProf
 		return nil, err
 	}
 	helperName := schema.HelperFileName(runtime.GOOS)
-	return &lazyMCPSchemaExecutor{config: schema.ClientConfig{
+	return &lazyMCPSchemaExecutor{profile: profile, config: schema.ClientConfig{
 		HelperPath:   filepath.Join(helperDir, helperName),
 		ManifestPath: filepath.Join(helperDir, schema.HelperManifestFileName(runtime.GOOS)),
 	}}, nil
 }
 
+func schemaFilesystemWorkerPath(profile contract.DependencyProfile) (string, error) {
+	path, err := schema.PreparedFilesystemWorkerPath()
+	if err == nil {
+		return path, nil
+	}
+	if profile == contract.DependencyProfileProduction {
+		return "", fmt.Errorf("toolbridge: %w", err)
+	}
+	path, err = os.Executable()
+	if err != nil {
+		return "", fmt.Errorf("toolbridge: resolve schema filesystem worker: %w", err)
+	}
+	path, err = filepath.EvalSymlinks(path)
+	if err != nil {
+		return "", fmt.Errorf("toolbridge: canonicalize schema filesystem worker: %w", err)
+	}
+	return filepath.Clean(path), nil
+}
+
 func schemaHelperDirectory(cfgProjectRoot string, profile contract.DependencyProfile) (string, error) {
+
 	switch profile {
 	case contract.DependencyProfileProduction:
 		return packagedSchemaHelperDirectory()

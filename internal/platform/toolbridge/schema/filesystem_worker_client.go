@@ -1,0 +1,238 @@
+package schema
+
+import (
+	"bufio"
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"os"
+	"os/exec"
+	"strings"
+
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util/safego"
+)
+
+func verifyHelperPackageInWorker(ctx context.Context, config ClientConfig) ([]byte, error) {
+	request := filesystemWorkerRequest{
+		Version: filesystemWorkerVersion, Operation: filesystemWorkerVerify,
+		HelperPath: config.HelperPath, ManifestPath: config.ManifestPath, Identity: config.Identity,
+	}
+	setFilesystemWorkerDeadline(ctx, &request)
+	return runFilesystemWorker(ctx, ctx, config.FilesystemWorkerPath, func(path string) *exec.Cmd {
+		return exec.Command(path)
+	}, nil, request, nil, maxHelperBytes)
+}
+
+func (client *Client) executeInFilesystemWorker(parentCtx, operationCtx context.Context, encodedRequest []byte) ([]byte, error) {
+	request := filesystemWorkerRequest{
+		Version: filesystemWorkerVersion, Operation: filesystemWorkerExecute,
+		HelperGOOS: client.helperGOOS, ImageBytes: len(client.helperImage), RequestBytes: len(encodedRequest),
+	}
+	setFilesystemWorkerDeadline(operationCtx, &request)
+	payload := io.MultiReader(bytes.NewReader(client.helperImage), bytes.NewReader(encodedRequest))
+	return runFilesystemWorker(
+		parentCtx, operationCtx, client.filesystemWorkerPath, client.workerCommand, client.workerEnv,
+		request, payload, maxStdoutBytes,
+	)
+}
+
+func setFilesystemWorkerDeadline(ctx context.Context, request *filesystemWorkerRequest) {
+	if deadline, ok := ctx.Deadline(); ok {
+		request.DeadlineUnixNano = deadline.UnixNano()
+	}
+}
+
+// runFilesystemWorker 启动单次受监管 worker，并在任何取消路径同步回收。
+func runFilesystemWorker(
+	parentCtx context.Context,
+	operationCtx context.Context,
+	workerPath string,
+	command func(string) *exec.Cmd,
+	extraEnv []string,
+	request filesystemWorkerRequest,
+	payload io.Reader,
+	maxPayload int,
+) ([]byte, error) {
+	header, err := encodeFilesystemWorkerRequest(request)
+	if err != nil {
+		return nil, err
+	}
+	cmd := command(workerPath)
+	if cmd == nil {
+		return nil, newDiagnostic(CodeProcessStartFailed, "schema filesystem worker command is nil", nil)
+	}
+	cmd.Env = filesystemWorkerProcessEnvironment(cmd.Env, extraEnv)
+	if payload == nil {
+		cmd.Stdin = bytes.NewReader(header)
+	} else {
+		cmd.Stdin = io.MultiReader(bytes.NewReader(header), payload)
+	}
+	stdout := &boundedBuffer{limit: filesystemWorkerMaxHeaderBytes + maxPayload}
+	stderr := &boundedBuffer{limit: maxStderrBytes}
+	cmd.Stdout = stdout
+	cmd.Stderr = stderr
+	if err := configureProcess(cmd); err != nil {
+		return nil, newDiagnostic(CodeProcessStartFailed, "configure schema filesystem worker", err)
+	}
+	if err := cmd.Start(); err != nil {
+		return nil, newDiagnostic(CodeProcessStartFailed, "start schema filesystem worker", err)
+	}
+	guard, err := attachProcessGuard(cmd)
+	if err != nil {
+		return nil, cleanupUnattachedProcess(cmd, err)
+	}
+	return waitFilesystemWorker(parentCtx, operationCtx, request.Operation, cmd, guard, stdout, stderr, maxPayload)
+}
+
+// waitFilesystemWorker 等待 worker 完成，或终止整个进程树后再返回取消结果。
+func waitFilesystemWorker(
+	parentCtx context.Context,
+	operationCtx context.Context,
+	operation string,
+	cmd *exec.Cmd,
+	guard *processGuard,
+	stdout *boundedBuffer,
+	stderr *boundedBuffer,
+	maxPayload int,
+) ([]byte, error) {
+	waitResult := make(chan error, 1)
+	safego.Go(operationCtx, nil, "toolbridge.schema-filesystem-worker.wait", func(context.Context) {
+		waitResult <- cmd.Wait()
+	})
+	select {
+	case waitErr := <-waitResult:
+		return completeFilesystemWorkerWait(operation, waitErr, guard, stdout, stderr, maxPayload)
+	case <-operationCtx.Done():
+		// deadline 与正常退出同时就绪时，优先消费已完成的同步 Wait。
+		select {
+		case waitErr := <-waitResult:
+			return completeFilesystemWorkerWait(operation, waitErr, guard, stdout, stderr, maxPayload)
+		default:
+		}
+		code, message, cause := filesystemWorkerStopReason(parentCtx, operationCtx)
+		return nil, stopAndReap(cmd, guard, waitResult, code, message, cause)
+	}
+}
+
+func completeFilesystemWorkerWait(
+	operation string,
+	waitErr error,
+	guard *processGuard,
+	stdout *boundedBuffer,
+	stderr *boundedBuffer,
+	maxPayload int,
+) ([]byte, error) {
+	if err := closeProcessGuard(guard); err != nil {
+		return nil, newDiagnostic(CodeProcessExited, "close schema filesystem worker guard", err)
+	}
+	if stdout.overflow || stderr.overflow {
+		return nil, newDiagnostic(CodeOutputTooLarge, "schema filesystem worker output exceeded the frozen cap", nil)
+	}
+	if waitErr != nil {
+		return nil, newDiagnostic(CodeProcessExited, "schema filesystem worker exited non-zero", fmt.Errorf("%w; stderr=%q", waitErr, stderr.String()))
+	}
+	return decodeFilesystemWorkerResponse(stdout.Bytes(), operation, maxPayload)
+}
+
+func filesystemWorkerStopReason(parentCtx, operationCtx context.Context) (Code, string, error) {
+	if err := parentCtx.Err(); err != nil {
+		if errors.Is(err, context.DeadlineExceeded) {
+			return CodeTimeout, "schema filesystem worker deadline exceeded", err
+		}
+		return CodeCancelled, "schema filesystem worker request cancelled", err
+	}
+	return CodeTimeout, "schema filesystem worker deadline exceeded", operationCtx.Err()
+}
+
+func filesystemWorkerProcessEnvironment(current, extra []string) []string {
+	if current == nil {
+		current = os.Environ()
+	}
+	environment := make([]string, 0, len(current)+len(extra)+1)
+	for _, item := range append(append([]string(nil), current...), extra...) {
+		if strings.HasPrefix(item, filesystemWorkerModeEnv+"=") {
+			continue
+		}
+		environment = append(environment, item)
+	}
+	return append(environment, filesystemWorkerModeEnv+"=1")
+}
+
+func encodeFilesystemWorkerRequest(request filesystemWorkerRequest) ([]byte, error) {
+	header, err := json.Marshal(request)
+	if err != nil {
+		return nil, newDiagnostic(CodeInvalidEnvelope, "encode schema filesystem worker request", err)
+	}
+	if len(header)+1 > filesystemWorkerMaxHeaderBytes {
+		return nil, newDiagnostic(CodeInputTooLarge, "schema filesystem worker request header exceeds byte budget", nil)
+	}
+	return append(header, '\n'), nil
+}
+
+// decodeFilesystemWorkerResponse 严格校验响应 identity、错误和 payload 长度。
+func decodeFilesystemWorkerResponse(raw []byte, operation string, maxPayload int) ([]byte, error) {
+	response, reader, err := decodeFilesystemWorkerResponseHeader(raw)
+	if err != nil {
+		return nil, err
+	}
+	if err := validateFilesystemWorkerResponse(response, operation, maxPayload); err != nil {
+		return nil, err
+	}
+	return readFilesystemWorkerResponsePayload(reader, response.PayloadBytes)
+}
+
+func decodeFilesystemWorkerResponseHeader(raw []byte) (filesystemWorkerResponse, *bufio.Reader, error) {
+	reader := bufio.NewReader(bytes.NewReader(raw))
+	header, err := readFilesystemWorkerHeader(reader)
+	if err != nil {
+		return filesystemWorkerResponse{}, nil, newDiagnostic(CodeProtocolViolation, "decode schema filesystem worker response", err)
+	}
+	decoder := json.NewDecoder(bytes.NewReader(header))
+	decoder.DisallowUnknownFields()
+	var response filesystemWorkerResponse
+	if err := decoder.Decode(&response); err != nil {
+		return filesystemWorkerResponse{}, nil, newDiagnostic(CodeProtocolViolation, "decode schema filesystem worker response", err)
+	}
+	if err := ensureJSONEOF(decoder); err != nil {
+		return filesystemWorkerResponse{}, nil, newDiagnostic(CodeProtocolViolation, "decode schema filesystem worker response", err)
+	}
+	return response, reader, nil
+}
+
+// validateFilesystemWorkerResponse 校验 worker 响应 identity、尺寸和错误码。
+func validateFilesystemWorkerResponse(response filesystemWorkerResponse, operation string, maxPayload int) error {
+	if response.Version != filesystemWorkerVersion || response.Operation != operation || response.PayloadBytes < 0 || response.PayloadBytes > maxPayload {
+		return newDiagnostic(CodeProtocolViolation, "schema filesystem worker response identity or size mismatch", nil)
+	}
+	if response.Error != nil {
+		if response.PayloadBytes != 0 || !validFilesystemWorkerErrorCode(response.Error.Code) || strings.TrimSpace(response.Error.Message) == "" {
+			return newDiagnostic(CodeProtocolViolation, "schema filesystem worker error response is invalid", nil)
+		}
+		return newDiagnostic(response.Error.Code, response.Error.Message, nil)
+	}
+	return nil
+}
+
+func readFilesystemWorkerResponsePayload(reader *bufio.Reader, payloadBytes int) ([]byte, error) {
+	payload := make([]byte, payloadBytes)
+	if _, err := io.ReadFull(reader, payload); err != nil {
+		return nil, newDiagnostic(CodeProtocolViolation, "read schema filesystem worker response payload", err)
+	}
+	if _, err := reader.ReadByte(); !errors.Is(err, io.EOF) {
+		return nil, newDiagnostic(CodeProtocolViolation, "schema filesystem worker response has trailing bytes", err)
+	}
+	return payload, nil
+}
+
+func validFilesystemWorkerErrorCode(code Code) bool {
+	switch code {
+	case CodeInvalidEnvelope, CodeInputTooLarge, CodeOutputTooLarge, CodeProcessStartFailed,
+		CodeProcessExited, CodeTimeout, CodeCancelled, CodeReapFailed:
+		return true
+	default:
+		return false
+	}
+}

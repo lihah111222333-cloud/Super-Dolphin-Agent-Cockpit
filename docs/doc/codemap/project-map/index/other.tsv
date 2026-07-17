@@ -63,6 +63,7 @@ internal/app/runtimeadapter/mcpcontrol/adapter.go	internal	other	go-source	1704	
 internal/app/runtimeadapter/module.go	internal	other	go-source	732	runtime consumer 的 Store/module 窄端口适配器	internal,app,runtimeadapter,module,runtime,consumer,的,Store,窄端口适配器
 internal/app/runtimeadapter/toolbridge/adapter_test.go	internal	other	go-test	6474	runtime consumer 的 Store/module 窄端口适配器	internal,app,runtimeadapter,toolbridge,adapter,test,runtime,consumer,的,Store,module,窄端口适配器
 internal/app/runtimeadapter/toolbridge/adapter.go	internal	other	go-source	13615	runtime consumer 的 Store/module 窄端口适配器	internal,app,runtimeadapter,toolbridge,adapter,runtime,consumer,的,Store,module,窄端口适配器
+internal/app/schema_filesystem_worker.go	internal	other	go-source	576	root Fx/app 装配、runner 与 graph closure	internal,app,schema,filesystem,worker,root,Fx,装配,runner,与,graph,closure
 internal/app/session_ports_test.go	internal	other	go-test	1303	root Fx/app 装配、runner 与 graph closure	internal,app,session,ports,test,root,Fx,装配,runner,与,graph,closure
 internal/app/session_ports.go	internal	other	go-source	538	root Fx/app 装配、runner 与 graph closure	internal,app,session,ports,root,Fx,装配,runner,与,graph,closure
 internal/app/sharedfile_adapter.go	internal	other	go-source	922	root Fx/app 装配、runner 与 graph closure	internal,app,sharedfile,adapter,root,Fx,装配,runner,与,graph,closure

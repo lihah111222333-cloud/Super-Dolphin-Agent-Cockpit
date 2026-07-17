@@ -35,43 +35,68 @@ var globalHelperLimiter = newHelperLimiter(maxLiveHelpers)
 
 // ClientConfig 指定与桌面产物同版本的本地 helper 路径。
 type ClientConfig struct {
-	HelperPath   string
-	ManifestPath string
-	Identity     HelperIdentity
+	HelperPath           string
+	ManifestPath         string
+	FilesystemWorkerPath string
+	Identity             HelperIdentity
 }
 
 // Client 每次 Execute 都启动一个新 helper 进程。
 type Client struct {
-	helperImage      []byte
-	helperGOOS       string
-	operationTimeout time.Duration
-	command          func(string) *exec.Cmd
+	helperImage          []byte
+	helperGOOS           string
+	filesystemWorkerPath string
+	operationTimeout     time.Duration
+	workerCommand        func(string) *exec.Cmd
+	workerEnv            []string
 }
 
 // NewClient 创建 one-shot schema helper client。
-func NewClient(config ClientConfig) (*Client, error) {
-	if strings.TrimSpace(config.HelperPath) == "" {
-		return nil, newDiagnostic(CodeProcessStartFailed, "helper path is required", nil)
+func NewClient(ctx context.Context, config ClientConfig) (*Client, error) {
+	if ctx == nil {
+		return nil, newDiagnostic(CodeInvalidEnvelope, "context is required", nil)
 	}
-	if !filepath.IsAbs(config.HelperPath) || filepath.Clean(config.HelperPath) != config.HelperPath {
-		return nil, newDiagnostic(CodeProcessStartFailed, "helper path must be absolute and clean", nil)
+	if err := validateClientConfig(config); err != nil {
+		return nil, newDiagnostic(CodeProcessStartFailed, err.Error(), nil)
 	}
-	if strings.TrimSpace(config.ManifestPath) == "" || !filepath.IsAbs(config.ManifestPath) ||
-		filepath.Clean(config.ManifestPath) != config.ManifestPath {
-		return nil, newDiagnostic(CodeProcessStartFailed, "helper manifest path must be absolute and clean", nil)
-	}
-	image, err := verifyHelperPackage(config.HelperPath, config.ManifestPath, config.Identity)
+	image, err := verifyHelperPackageInWorker(ctx, config)
 	if err != nil {
 		return nil, newDiagnostic(CodeProcessStartFailed, "verify package-owned schema helper", err)
 	}
 	return &Client{
-		helperImage:      image,
-		helperGOOS:       config.Identity.GOOS,
-		operationTimeout: operationDeadline,
-		command: func(path string) *exec.Cmd {
+		helperImage:          image,
+		helperGOOS:           config.Identity.GOOS,
+		filesystemWorkerPath: config.FilesystemWorkerPath,
+		operationTimeout:     operationDeadline,
+		workerCommand: func(path string) *exec.Cmd {
 			return exec.Command(path)
 		},
 	}, nil
+}
+
+func validateClientConfig(config ClientConfig) error {
+	if err := validateAbsoluteCleanPath(config.HelperPath, "helper path"); err != nil {
+		return err
+	}
+	if err := validateAbsoluteCleanPath(config.ManifestPath, "helper manifest path"); err != nil {
+		return err
+	}
+	return validateAbsoluteCleanPath(config.FilesystemWorkerPath, "filesystem worker path")
+}
+
+func validateAbsoluteCleanPath(path, label string) error {
+	if strings.TrimSpace(path) == "" {
+		return fmt.Errorf("%s is required", label)
+	}
+	if !filepath.IsAbs(path) || filepath.Clean(path) != path {
+		return fmt.Errorf("%s must be absolute and clean", label)
+	}
+	return nil
+}
+
+// WithOperationDeadline 让 lazy 初始化与 helper 执行共享同一个冻结的操作期限。
+func WithOperationDeadline(ctx context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(ctx, operationDeadline)
 }
 
 // Execute 完成父侧预检、双阶段 fence、进程执行和响应 identity/digest 校验。
@@ -105,7 +130,7 @@ func (client *Client) Execute(ctx context.Context, invocation Invocation, fence 
 	})
 }
 
-// executeProcess 启动单次 helper，绑定进程边界并收集有界输出。
+// executeProcess 在受监管 worker 内完成快照物化、helper 执行和清理。
 func (client *Client) executeProcess(
 	parentCtx context.Context,
 	operationCtx context.Context,
@@ -123,61 +148,11 @@ func (client *Client) executeProcess(
 	if err := operationContextError(parentCtx, operationCtx); err != nil {
 		return Result{}, err
 	}
-	snapshotPath, cleanupSnapshot, err := writeExecutableSnapshot(client.helperImage, client.helperGOOS)
+	raw, err := client.executeInFilesystemWorker(parentCtx, operationCtx, encodedRequest)
 	if err != nil {
-		return Result{}, newDiagnostic(CodeProcessStartFailed, "materialize verified schema helper snapshot", err)
+		return Result{}, err
 	}
-	defer func() {
-		if err := cleanupSnapshot(); err != nil {
-			result = Result{}
-			resultErr = newDiagnostic(CodeProcessExited, "remove verified schema helper snapshot", errors.Join(resultErr, err))
-		}
-	}()
-	cmd := client.command(snapshotPath)
-	if cmd == nil {
-		return Result{}, newDiagnostic(CodeProcessStartFailed, "helper command is nil", nil)
-	}
-	cmd.Env = helperEnvironment(cmd.Env)
-	cmd.Stdin = bytes.NewReader(encodedRequest)
-	stdout := &boundedBuffer{limit: maxStdoutBytes}
-	stderr := &boundedBuffer{limit: maxStderrBytes}
-	cmd.Stdout = stdout
-	cmd.Stderr = stderr
-	if err := configureProcess(cmd); err != nil {
-		return Result{}, newDiagnostic(CodeProcessStartFailed, "configure schema helper process", err)
-	}
-	if err := cmd.Start(); err != nil {
-		return Result{}, newDiagnostic(CodeProcessStartFailed, "start schema helper", err)
-	}
-	guard, err := attachProcessGuard(cmd)
-	if err != nil {
-		return Result{}, cleanupUnattachedProcess(cmd, err)
-	}
-	return client.waitForProcess(parentCtx, operationCtx, request, identity, fence, cmd, guard, stdout, stderr)
-}
-
-func (client *Client) waitForProcess(
-	parentCtx context.Context,
-	operationCtx context.Context,
-	request protocolRequest,
-	identity FenceIdentity,
-	fence FenceHook,
-	cmd *exec.Cmd,
-	guard *processGuard,
-	stdout *boundedBuffer,
-	stderr *boundedBuffer,
-) (Result, error) {
-	waitResult := make(chan error, 1)
-	safego.Go(operationCtx, nil, "toolbridge.schema-helper.wait", func(context.Context) {
-		waitResult <- cmd.Wait()
-	})
-	select {
-	case waitErr := <-waitResult:
-		return client.finish(operationCtx, request, identity, fence, guard, waitErr, stdout, stderr)
-	case <-operationCtx.Done():
-		code, message, cause := operationStopReason(parentCtx)
-		return Result{}, stopAndReap(cmd, guard, waitResult, code, message, cause)
-	}
+	return client.finish(operationCtx, request, identity, fence, raw)
 }
 
 func operationContextError(parentCtx, operationCtx context.Context) error {
@@ -188,13 +163,6 @@ func operationContextError(parentCtx, operationCtx context.Context) error {
 		return newDiagnostic(CodeTimeout, "schema helper deadline exceeded", operationErr)
 	}
 	return nil
-}
-
-func operationStopReason(parentCtx context.Context) (Code, string, error) {
-	if parentErr := parentCtx.Err(); parentErr != nil {
-		return CodeCancelled, "schema helper request cancelled", parentErr
-	}
-	return CodeTimeout, "schema helper deadline exceeded", nil
 }
 
 // run 获取一个全局 helper 槽，并仅在已确认没有未回收进程时归还。
@@ -228,22 +196,9 @@ func (client *Client) finish(
 	request protocolRequest,
 	identity FenceIdentity,
 	fence FenceHook,
-	guard *processGuard,
-	waitErr error,
-	stdout *boundedBuffer,
-	stderr *boundedBuffer,
+	raw []byte,
 ) (Result, error) {
-	if err := closeProcessGuard(guard); err != nil {
-		return Result{}, newDiagnostic(CodeProcessExited, "close helper process guard", err)
-	}
-	if stdout.overflow || stderr.overflow {
-		return Result{}, newDiagnostic(CodeOutputTooLarge, "helper stdout or stderr exceeded the frozen cap", nil)
-	}
-	if waitErr != nil {
-		cause := fmt.Errorf("%w; stderr=%q", waitErr, stderr.String())
-		return Result{}, newDiagnostic(CodeProcessExited, "schema helper exited non-zero", cause)
-	}
-	response, err := decodeProtocolResponse(stdout.Bytes())
+	response, err := decodeProtocolResponse(raw)
 	if err != nil {
 		return Result{}, err
 	}
