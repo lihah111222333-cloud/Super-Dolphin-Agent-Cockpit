@@ -28,7 +28,7 @@ type guardConfig struct {
 	Identity          recovery.Identity
 	OwnerID           string
 	Now               func() time.Time
-	UpdaterAlive      func(recovery.ProcessIdentity) (bool, error)
+	UpdaterAlive      func(context.Context, recovery.ProcessIdentity) (bool, error)
 	StopCandidate     func(context.Context, recovery.ProcessIdentity) error
 	ResolveOldRelease recovery.RollbackRestartResolver
 	RestartOldRelease recovery.RollbackRestartLauncher
@@ -126,7 +126,7 @@ func (guard *probationGuard) monitorUpdater(ctx context.Context, transaction rec
 		}
 		transaction = replayed
 	}
-	alive, err := guard.config.UpdaterAlive(transaction.Identity.UpdaterProcess)
+	alive, err := guard.config.UpdaterAlive(ctx, transaction.Identity.UpdaterProcess)
 	if err != nil {
 		return false, fmt.Errorf("inspect exact updater process: %w", err)
 	}
@@ -263,12 +263,40 @@ func (guard *probationGuard) takeOverActive(
 }
 
 func main() {
+	if handled, err := recovery.RunReleaseFilesystemHelperIfRequested(os.Stdin, os.Stdout); handled {
+		if err != nil {
+			slog.Error("release filesystem helper failed", "error", err)
+			os.Exit(2)
+		}
+		return
+	}
+	if exitCode := runGuardMain(); exitCode != 0 {
+		os.Exit(exitCode)
+	}
+}
+
+// runGuardMain 暂存稳定 helper 后运行 Guard，并在退出前清理暂存文件。
+func runGuardMain() (exitCode int) {
+	cleanup, err := recovery.PrepareReleaseFilesystemHelper()
+	if err != nil {
+		slog.Error("prepare release filesystem helper failed", "error", err)
+		return 2
+	}
+	defer func() {
+		if err := cleanup(); err != nil {
+			slog.Error("cleanup release filesystem helper failed", "error", err)
+			if exitCode == 0 {
+				exitCode = 1
+			}
+		}
+	}()
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	if err := runGuardCommand(ctx, os.Args[1:]); err != nil {
 		slog.Error("super-dolphin-guard failed", "error", err)
-		os.Exit(1)
+		return 1
 	}
+	return 0
 }
 
 // runGuardCommand 加载调用方指定的 exact transaction，发布就绪凭据后运行 Guard。
@@ -292,7 +320,7 @@ func runGuardCommandWithWriter(ctx context.Context, args []string, readyWriter i
 	if err != nil {
 		return err
 	}
-	process, err := captureGuardProcess(transaction, args[2])
+	process, err := captureGuardProcess(ctx, transaction, args[2])
 	if err != nil {
 		return err
 	}
@@ -321,24 +349,24 @@ func runGuardCommandWithWriter(ctx context.Context, args []string, readyWriter i
 	return guard.Run(ctx)
 }
 
-// captureGuardProcess 将当前 Guard 的 canonical path、SHA 和内核进程身份绑定到事务 helper。
-func captureGuardProcess(transaction recovery.Transaction, generation string) (recovery.ProcessIdentity, error) {
+// captureGuardProcess 在 caller context 内将当前 Guard 的 canonical path、SHA 和内核进程身份绑定到事务 helper。
+func captureGuardProcess(ctx context.Context, transaction recovery.Transaction, generation string) (recovery.ProcessIdentity, error) {
 	executable, err := os.Executable()
 	if err != nil {
 		return recovery.ProcessIdentity{}, fmt.Errorf("resolve Guard executable: %w", err)
 	}
-	canonical, err := recovery.CanonicalExistingPath(executable)
+	canonical, err := recovery.CanonicalExistingPathContext(ctx, executable)
 	if err != nil {
 		return recovery.ProcessIdentity{}, err
 	}
-	expectedPath, expectedSHA, err := expectedGuardIdentity(transaction, generation)
+	expectedPath, expectedSHA, err := expectedGuardIdentity(ctx, transaction, generation)
 	if err != nil {
 		return recovery.ProcessIdentity{}, err
 	}
 	if canonical != expectedPath {
 		return recovery.ProcessIdentity{}, fmt.Errorf("running Guard executable = %q, want %q", canonical, expectedPath)
 	}
-	digest, err := recovery.ComputeReleaseDigest(canonical)
+	digest, err := recovery.ComputeReleaseDigestContext(ctx, canonical)
 	if err != nil {
 		return recovery.ProcessIdentity{}, fmt.Errorf("digest running Guard: %w", err)
 	}
@@ -349,7 +377,7 @@ func captureGuardProcess(transaction recovery.Transaction, generation string) (r
 	if err != nil {
 		return recovery.ProcessIdentity{}, fmt.Errorf("capture Guard process identity: %w", err)
 	}
-	stablePath, err := recovery.CanonicalExistingPath(stable.ExecutableIdentity)
+	stablePath, err := recovery.CanonicalExistingPathContext(ctx, stable.ExecutableIdentity)
 	if err != nil {
 		return recovery.ProcessIdentity{}, err
 	}
@@ -362,7 +390,7 @@ func captureGuardProcess(transaction recovery.Transaction, generation string) (r
 	}, nil
 }
 
-func expectedGuardIdentity(transaction recovery.Transaction, generation string) (string, string, error) {
+func expectedGuardIdentity(ctx context.Context, transaction recovery.Transaction, generation string) (string, string, error) {
 	var path, digest string
 	switch generation {
 	case "old":
@@ -374,18 +402,18 @@ func expectedGuardIdentity(transaction recovery.Transaction, generation string) 
 	default:
 		return "", "", fmt.Errorf("unsupported Guard generation %q", generation)
 	}
-	canonical, err := recovery.CanonicalExistingPath(path)
+	canonical, err := recovery.CanonicalExistingPathContext(ctx, path)
 	return canonical, digest, err
 }
 
-func updaterAliveForTransaction(transaction recovery.Transaction) func(recovery.ProcessIdentity) (bool, error) {
-	return func(process recovery.ProcessIdentity) (bool, error) {
-		return updaterAliveExact(process, transaction)
+func updaterAliveForTransaction(transaction recovery.Transaction) func(context.Context, recovery.ProcessIdentity) (bool, error) {
+	return func(ctx context.Context, process recovery.ProcessIdentity) (bool, error) {
+		return updaterAliveExact(ctx, process, transaction)
 	}
 }
 
 // updaterAliveExact 只接受事务 target/backup 内同一 PID、启动令牌和旧 updater 摘要。
-func updaterAliveExact(process recovery.ProcessIdentity, transaction recovery.Transaction) (bool, error) {
+func updaterAliveExact(ctx context.Context, process recovery.ProcessIdentity, transaction recovery.Transaction) (bool, error) {
 	stable, err := pidregistry.CaptureStableProcessIdentity(process.PID)
 	if errors.Is(err, pidregistry.ErrStableProcessNotFound) {
 		return false, nil
@@ -406,12 +434,12 @@ func updaterAliveExact(process recovery.ProcessIdentity, transaction recovery.Tr
 	if stablePath != targetUpdater && stablePath != backupUpdater {
 		return false, nil
 	}
-	return trustedUpdaterArtifactExists([]string{targetUpdater, backupUpdater}, process.ExecutableSHA256)
+	return trustedUpdaterArtifactExists(ctx, []string{targetUpdater, backupUpdater}, process.ExecutableSHA256)
 }
 
-func trustedUpdaterArtifactExists(paths []string, expectedSHA string) (bool, error) {
+func trustedUpdaterArtifactExists(ctx context.Context, paths []string, expectedSHA string) (bool, error) {
 	for _, path := range paths {
-		digest, err := recovery.ComputeReleaseDigest(path)
+		digest, err := recovery.ComputeReleaseDigestContext(ctx, path)
 		if errors.Is(err, os.ErrNotExist) {
 			continue
 		}

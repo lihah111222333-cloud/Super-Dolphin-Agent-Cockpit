@@ -38,12 +38,12 @@ func defaultReleaseDigestOps() releaseDigestOps {
 
 // ComputeReleaseDigest 计算文件或目录 release 的确定性 SHA-256。
 func ComputeReleaseDigest(path string) (string, error) {
-	return ComputeReleaseDigestContext(context.Background(), path)
+	return computeReleaseDigestContextWithOps(context.Background(), path, defaultReleaseDigestOps())
 }
 
-// ComputeReleaseDigestContext 在目录遍历、条目处理和文件分块边界响应取消。
+// ComputeReleaseDigestContext 在单个可终止 helper 中执行完整摘要，deadline 会 kill 并同步回收 helper。
 func ComputeReleaseDigestContext(ctx context.Context, path string) (string, error) {
-	return computeReleaseDigestContextWithOps(ctx, path, defaultReleaseDigestOps())
+	return computeReleaseDigestInHelper(ctx, path)
 }
 
 // computeReleaseDigestContextWithOps 校验依赖后分派单文件或目录摘要。

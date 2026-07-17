@@ -6,6 +6,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -16,6 +17,7 @@ import (
 	"syscall"
 	"time"
 
+	recovery "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/appupdaterecovery"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util/ctxutil"
 	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
 )
@@ -33,24 +35,52 @@ const (
 // main 是 updater CLI 入口。
 // 首次启动只负责 detach，后台子进程才执行真实安装，避免替换正在运行的 app。
 func main() {
+	if handled, err := recovery.RunReleaseFilesystemHelperIfRequested(os.Stdin, os.Stdout); handled {
+		if err != nil {
+			slog.Error("release filesystem helper failed", "error", err)
+			os.Exit(2)
+		}
+		return
+	}
+	if exitCode := runUpdaterMain(); exitCode != 0 {
+		os.Exit(exitCode)
+	}
+}
+
+// runUpdaterMain 暂存稳定 helper 后执行 updater，并在返回前清理暂存文件。
+func runUpdaterMain() (exitCode int) {
+	cleanup, err := recovery.PrepareReleaseFilesystemHelper()
+	if err != nil {
+		slog.Error("prepare release filesystem helper failed", "error", err)
+		return 2
+	}
+	defer func() {
+		if err := cleanup(); err != nil {
+			slog.Error("cleanup release filesystem helper failed", "error", err)
+			if exitCode == 0 {
+				exitCode = 1
+			}
+		}
+	}()
 	pkglogger.InitWithConsoleWriter(os.Stderr)
 	req, err := parseInstallRequest(os.Args[1:])
 	if err != nil {
 		pkglogger.Get().Error("super-dolphin-updater request failed", "error", err)
-		os.Exit(2)
+		return 2
 	}
 	if os.Getenv(updaterDetachedEnv) != "1" {
 		updater := defaultUpdaterApp()
 		if err := updater.startDetachedUpdater(req.LogPath); err != nil {
 			pkglogger.Get().Error("super-dolphin-updater detach failed", "error", err)
-			os.Exit(1)
+			return 1
 		}
-		return
+		return 0
 	}
 	if err := defaultUpdaterApp().install(req); err != nil {
 		pkglogger.Get().Error("super-dolphin-updater install failed", "error", err)
-		os.Exit(1)
+		return 1
 	}
+	return 0
 }
 
 // parseInstallRequest 解析 updater CLI 参数。
@@ -107,11 +137,6 @@ var runCommand = func(ctx context.Context, timeout time.Duration, name string, a
 		return result, ctxErr
 	}
 	return result, err
-}
-
-// runUpdaterCommand 用默认 timeout 执行 updater 外部命令。
-func runUpdaterCommand(name string, args ...string) (commandResult, error) {
-	return defaultUpdaterApp().runUpdaterCommand(name, args...)
 }
 
 // killCommandProcessGroup 优先终止整棵命令树，失败时回退到当前进程。
@@ -219,11 +244,6 @@ func setSysProcUint(attr *syscall.SysProcAttr, field string, value uint64) {
 	if target.IsValid() && target.CanSet() && target.CanUint() {
 		target.SetUint(value)
 	}
-}
-
-// startDetachedUpdater 重新启动一个脱离当前进程组的 updater 子进程。
-func startDetachedUpdater(logPath string) error {
-	return defaultUpdaterApp().startDetachedUpdater(logPath)
 }
 
 func (app updaterApp) startDetachedUpdater(logPath string) error {

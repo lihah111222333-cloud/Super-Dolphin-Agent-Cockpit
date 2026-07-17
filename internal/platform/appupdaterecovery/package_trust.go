@@ -149,6 +149,15 @@ func EncodePackageTrust(trust PackageTrust) ([]byte, error) {
 
 // CanonicalExistingPath 返回已存在文件经绝对化和符号链接解析后的 exact 路径。
 func CanonicalExistingPath(path string) (string, error) {
+	return canonicalExistingPath(path)
+}
+
+// CanonicalExistingPathContext 在可终止 helper 中解析现存路径，deadline 会 kill 并同步回收 helper。
+func CanonicalExistingPathContext(ctx context.Context, path string) (string, error) {
+	return canonicalExistingPathInHelper(ctx, path)
+}
+
+func canonicalExistingPath(path string) (string, error) {
 	absolute, err := filepath.Abs(path)
 	if err != nil {
 		return "", fmt.Errorf("resolve absolute executable path: %w", err)

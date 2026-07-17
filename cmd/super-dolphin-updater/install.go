@@ -54,7 +54,7 @@ type processExitWaiter func(int, time.Duration) error
 type probationCandidateStarter func(context.Context, recovery.Transaction) (*candidateHandle, error)
 type probationOwnerIDFactory func() (string, error)
 type probationLeaseAcquirer func(*recovery.Store, context.Context, recovery.Identity, recovery.ProbationLeaseRequest) (recovery.ProbationLease, error)
-type probationGuardStarter func(recovery.Transaction, bool, func() error) error
+type probationGuardStarter func(context.Context, recovery.Transaction, bool, func() error) error
 type probationSupervisorFactory func(recovery.ProbationSupervisorConfig) (*recovery.ProbationSupervisor, error)
 
 // updaterApp 显式携带 updater 的可替换系统依赖，避免安装流程依赖隐式全局状态。
@@ -615,7 +615,7 @@ func (app updaterApp) retainBackupWithRecoveryGuard(ctx context.Context, store *
 	readyAction := func() error {
 		return retainBackupAfterGuardArmed(ctx, store, transaction.Identity)
 	}
-	if err := startDetachedGuard(transaction, true, readyAction); err == nil {
+	if err := startDetachedGuard(ctx, transaction, true, readyAction); err == nil {
 		return nil
 	} else {
 		_, rollbackErr := store.Rollback(ctx, transaction.Identity)
