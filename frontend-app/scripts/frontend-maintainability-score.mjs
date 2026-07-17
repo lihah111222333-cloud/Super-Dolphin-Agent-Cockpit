@@ -544,9 +544,19 @@ function validateRenderMetric(metric, subjectSha, label) {
   if (metric.updateAction !== 'useClientStore.getState().setLogLevel'
     || metric.productionBoundary !== 'src/App.jsx#App'
     || !Array.isArray(metric.productionStoreSubscriptions)
-    || metric.productionStoreSubscriptions.length === 0
-    || new Set(metric.productionStoreSubscriptions).size !== metric.productionStoreSubscriptions.length
-    || metric.productionStoreSubscriptions.some((source) => typeof source !== 'string' || !source.trim())) {
+    || metric.productionStoreSubscriptions.length === 0) {
+    fail(`${label} render probe contract is incomplete`);
+  }
+  const subscriptionKeys = metric.productionStoreSubscriptions.map((subscription) => {
+    if (!subscription || typeof subscription !== 'object' || Array.isArray(subscription)
+      || typeof subscription.source !== 'string' || !subscription.source.trim()
+      || !Number.isSafeInteger(subscription.line) || subscription.line <= 0
+      || !Number.isSafeInteger(subscription.column) || subscription.column <= 0) {
+      fail(`${label} render probe contract is incomplete`);
+    }
+    return JSON.stringify([subscription.source, subscription.line, subscription.column]);
+  });
+  if (new Set(subscriptionKeys).size !== subscriptionKeys.length) {
     fail(`${label} render probe contract is incomplete`);
   }
 }
