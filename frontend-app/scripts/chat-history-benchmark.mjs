@@ -9,7 +9,7 @@ import {
   HISTORY_REGRESSION_RATIO,
   SAMPLE_COUNT,
   WARMUP_COUNT,
-  evaluateMedianCases,
+  evaluatePairedMedianCases,
   measurementMedian,
   median,
   requireSubjectSha,
@@ -102,35 +102,67 @@ function runChatHistoryBenchmarkSamples({
   for (const { turns, toolsPerTurn } of cases) {
     const caseName = `turns-${turns}-tools-${toolsPerTurn}`;
     const history = buildChatHistoryFixture({ archived: true, seed: 7, toolsPerTurn, turns });
-    const measureBatch = () => {
+    const expectedBlockMaterializedCount = TIMELINE_INITIAL_MATERIALIZED_MESSAGES * HISTORY_BLOCK_ITERATIONS;
+    const measureBlock = (workload, label) => {
       let materializedCount = 0;
-      const blockDurationsMs = [];
-      for (let block = 0; block < HISTORY_BLOCK_COUNT; block += 1) {
-        const startedAt = process.cpuUsage();
-        for (let index = 0; index < HISTORY_BLOCK_ITERATIONS; index += 1) {
-          materializedCount += selectMaterializedTimeline(
-            history,
-            TIMELINE_INITIAL_MATERIALIZED_MESSAGES,
-          ).length;
-        }
-        const cpuUsage = process.cpuUsage(startedAt);
-        blockDurationsMs.push((cpuUsage.user + cpuUsage.system) / 1_000);
+      const startedAt = process.cpuUsage();
+      for (let index = 0; index < HISTORY_BLOCK_ITERATIONS; index += 1) {
+        materializedCount += workload().length;
       }
-      const expectedCount = TIMELINE_INITIAL_MATERIALIZED_MESSAGES * MEASUREMENT_ITERATIONS;
-      if (materializedCount !== expectedCount) {
-        throw new Error(`${caseName} materialized ${materializedCount}, expected ${expectedCount}`);
+      const cpuUsage = process.cpuUsage(startedAt);
+      if (materializedCount !== expectedBlockMaterializedCount) {
+        throw new Error(`${caseName} ${label} materialized ${materializedCount}, expected ${expectedBlockMaterializedCount}`);
+      }
+      const durationMs = (cpuUsage.user + cpuUsage.system) / 1_000;
+      if (!Number.isFinite(durationMs) || durationMs <= 0) {
+        throw new Error(`${caseName} ${label} CPU duration must be finite and positive`);
+      }
+      return durationMs;
+    };
+    const productionWorkload = () => selectMaterializedTimeline(
+      history,
+      TIMELINE_INITIAL_MATERIALIZED_MESSAGES,
+    );
+    const referenceWorkload = () => history.slice(-TIMELINE_INITIAL_MATERIALIZED_MESSAGES);
+    const measureBatch = (sampleIndex) => {
+      const blockOrders = [];
+      const productionBlockCpuDurationsMs = [];
+      const referenceBlockCpuDurationsMs = [];
+      const rawNormalizedBlockRatios = [];
+      for (let block = 0; block < HISTORY_BLOCK_COUNT; block += 1) {
+        const productionFirst = (sampleIndex + block) % 2 === 0;
+        const order = productionFirst ? 'production-reference' : 'reference-production';
+        let productionDurationMs;
+        let referenceDurationMs;
+        if (productionFirst) {
+          productionDurationMs = measureBlock(productionWorkload, `production block ${block}`);
+          referenceDurationMs = measureBlock(referenceWorkload, `reference block ${block}`);
+        } else {
+          referenceDurationMs = measureBlock(referenceWorkload, `reference block ${block}`);
+          productionDurationMs = measureBlock(productionWorkload, `production block ${block}`);
+        }
+        const normalizedRatio = productionDurationMs / referenceDurationMs;
+        if (!Number.isFinite(normalizedRatio) || normalizedRatio <= 0) {
+          throw new Error(`${caseName} block ${block} normalized ratio must be finite and positive`);
+        }
+        blockOrders.push(order);
+        productionBlockCpuDurationsMs.push(productionDurationMs);
+        referenceBlockCpuDurationsMs.push(referenceDurationMs);
+        rawNormalizedBlockRatios.push(normalizedRatio);
       }
       return Object.freeze({
-        blockDurationsMs: Object.freeze(blockDurationsMs),
-        durationMs: measurementMedian(blockDurationsMs, `${caseName}.blockDurationsMs`),
+        blockOrders: Object.freeze(blockOrders),
+        productionBlockCpuDurationsMs: Object.freeze(productionBlockCpuDurationsMs),
+        referenceBlockCpuDurationsMs: Object.freeze(referenceBlockCpuDurationsMs),
+        rawNormalizedBlockRatios: Object.freeze(rawNormalizedBlockRatios),
+        normalizedRatio: measurementMedian(rawNormalizedBlockRatios, `${caseName}.rawNormalizedBlockRatios`),
       });
     };
     for (let index = 0; index < warmupCount; index += 1) {
-      measureBatch();
+      measureBatch(index - warmupCount);
     }
-    const sampleDiagnostics = Array.from({ length: sampleCount }, measureBatch);
-    const durationSamplesMs = sampleDiagnostics.map(({ durationMs }) => durationMs);
-    const durationAttemptSamplesMs = durationSamplesMs.map((durationMs) => Object.freeze([durationMs]));
+    const sampleDiagnostics = Array.from({ length: sampleCount }, (_, sampleIndex) => measureBatch(sampleIndex));
+    const normalizedRatioSamples = sampleDiagnostics.map(({ normalizedRatio }) => normalizedRatio);
     measuredCases[caseName] = Object.freeze({
       turns,
       toolsPerTurn,
@@ -140,11 +172,10 @@ function runChatHistoryBenchmarkSamples({
       blockIterationCount: HISTORY_BLOCK_ITERATIONS,
       iterationCount: MEASUREMENT_ITERATIONS,
       materializedCount: TIMELINE_INITIAL_MATERIALIZED_MESSAGES,
-      rawSamplesMs: Object.freeze(durationSamplesMs),
+      referenceMaterializedCount: TIMELINE_INITIAL_MATERIALIZED_MESSAGES,
       sampleDiagnostics: Object.freeze(sampleDiagnostics),
-      durationAttemptSamplesMs,
-      durationSamplesMs,
-      durationMedianMs: median(durationSamplesMs, `${caseName}.durationSamplesMs`),
+      normalizedRatioSamples: Object.freeze(normalizedRatioSamples),
+      normalizedRatioMedian: median(normalizedRatioSamples, `${caseName}.normalizedRatioSamples`),
     });
   }
   return Object.freeze({
@@ -158,14 +189,13 @@ function runChatHistoryBenchmarkSamples({
 }
 
 function verifyChatHistoryEvidence(evidence, baseline) {
-  return evaluateMedianCases({
+  return evaluatePairedMedianCases({
     baselineMetric: baseline?.metrics?.['P02-history-budget'],
     currentMetric: evidence,
     durationClock: CPU_DURATION_CLOCK,
     metricId: 'P02-history-budget',
     ratioKey: 'maxRegressionRatio',
     requiredRatio: HISTORY_REGRESSION_RATIO,
-    valueKey: 'durationMedianMs',
   });
 }
 
