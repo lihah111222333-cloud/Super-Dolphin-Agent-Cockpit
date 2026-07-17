@@ -5,11 +5,11 @@
   "rules_sources": [
     ".ai-project-map.overrides.json"
   ],
-  "files": 4475,
+  "files": 4487,
   "domains": {
     "docs-agent": 941,
     "other": 648,
-    "app-ui": 539,
+    "app-ui": 551,
     "platform-provider": 1023,
     "orchestration": 391,
     "modules": 729,
@@ -22,8 +22,8 @@
       {
         "key": "app-ui",
         "file": "docs/doc/codemap/project-map/index/app-ui.tsv",
-        "file_count": 539,
-        "size_kb": 110.2,
+        "file_count": 551,
+        "size_kb": 112.5,
         "desc": "桌面应用、Wails host、React/Vite 前端与 UI 测试"
       },
       {
@@ -74,7 +74,7 @@
     "(root)": 12,
     "cmd": 648,
     "docs": 933,
-    "frontend-app": 537,
+    "frontend-app": 549,
     "internal": 2139,
     "pkg": 30,
     "scripts": 128,

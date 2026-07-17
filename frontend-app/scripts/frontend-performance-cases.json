@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "testCount": 12,
+  "cases": [
+    { "caseId": "render-main-page-update-commits", "metricId": "P01-render-isolation", "evidenceKey": "mainPageUpdateCommits" },
+    { "caseId": "render-unrelated-subtree-update-commits", "metricId": "P01-render-isolation", "evidenceKey": "unrelatedSubtreeUpdateCommits" },
+    { "caseId": "render-broad-subscription-mutation-detected", "metricId": "P01-render-isolation", "evidenceKey": "mutationDetected" },
+    { "caseId": "turns-200-tools-1", "metricId": "P02-history-budget", "evidenceKey": "turns-200-tools-1" },
+    { "caseId": "turns-200-tools-3", "metricId": "P02-history-budget", "evidenceKey": "turns-200-tools-3" },
+    { "caseId": "turns-1000-tools-1", "metricId": "P02-history-budget", "evidenceKey": "turns-1000-tools-1" },
+    { "caseId": "turns-1000-tools-3", "metricId": "P02-history-budget", "evidenceKey": "turns-1000-tools-3" },
+    { "caseId": "turns-5000-tools-1", "metricId": "P02-history-budget", "evidenceKey": "turns-5000-tools-1" },
+    { "caseId": "turns-5000-tools-3", "metricId": "P02-history-budget", "evidenceKey": "turns-5000-tools-3" },
+    { "caseId": "stop-visible-feedback", "metricId": "P03-feedback-budget", "evidenceKey": "stop-visible-feedback" },
+    { "caseId": "bundle-total-bytes", "metricId": "P04-resource-budget", "evidenceKey": "totalBundleBytes" },
+    { "caseId": "bundle-max-chunk-bytes", "metricId": "P04-resource-budget", "evidenceKey": "maxChunkBytes" }
+  ]
+}

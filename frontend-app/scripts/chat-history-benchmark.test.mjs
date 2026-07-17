@@ -4,8 +4,12 @@ import { join } from 'node:path';
 import { cwd, execPath } from 'node:process';
 import { describe, expect, it } from 'vitest';
 import {
+  ATTEMPTS_PER_SAMPLE,
+  MEASUREMENT_ITERATIONS,
   buildChatHistoryBenchmarkCases,
   measureChatHistoryCase,
+  runChatHistoryBenchmarkSamples,
+  verifyChatHistoryEvidence,
 } from './chat-history-benchmark.mjs';
 import { buildChatHistoryFixture } from '../src/pages/chat/model/chatHistoryBenchmarkFixture.js';
 
@@ -108,9 +112,49 @@ describe('chat history benchmark', () => {
     ]);
   });
 
+  it('warms each case and reports exactly five duration samples with a median', () => {
+    const evidence = runChatHistoryBenchmarkSamples({ commit: 'a'.repeat(40) });
+
+    expect(evidence).toEqual(expect.objectContaining({
+      metricId: 'P02-history-budget',
+      sampleCount: 5,
+      warmupCount: 1,
+      subjectSha: 'a'.repeat(40),
+    }));
+    expect(Object.keys(evidence.cases)).toHaveLength(6);
+    Object.values(evidence.cases).forEach((entry) => {
+      expect(entry.attemptsPerSample).toBe(ATTEMPTS_PER_SAMPLE);
+      expect(entry.iterationCount).toBe(MEASUREMENT_ITERATIONS);
+      expect(entry.durationAttemptSamplesMs).toHaveLength(5);
+      entry.durationAttemptSamplesMs.forEach((attempts, index) => {
+        expect(attempts).toHaveLength(ATTEMPTS_PER_SAMPLE);
+        expect(entry.durationSamplesMs[index]).toBe(Math.min(...attempts));
+      });
+      expect(entry.durationSamplesMs).toHaveLength(5);
+      expect(Number.isFinite(entry.durationMedianMs)).toBe(true);
+      expect(entry.durationMedianMs).toBeGreaterThanOrEqual(0);
+    });
+  }, 20_000);
+
+  it('keeps verify NOT_VERIFIED until an exact frozen five-sample baseline exists', () => {
+    expect(verifyChatHistoryEvidence({ cases: {} }, {
+      metrics: {
+        'P02-history-budget': {
+          status: 'NOT_VERIFIED',
+          reason: 'not frozen',
+        },
+      },
+    })).toEqual(expect.objectContaining({
+      metricId: 'P02-history-budget',
+      status: 'NOT_VERIFIED',
+    }));
+  });
+
   it('registers the exact package script without lifecycle flags', () => {
     const packageJSON = JSON.parse(readFileSync(join(cwd(), 'package.json'), 'utf8'));
 
     expect(packageJSON.scripts['benchmark:chat-history']).toBe('node scripts/chat-history-benchmark.mjs');
+    expect(packageJSON.scripts['benchmark:chat-history:verify']).toBe('node scripts/chat-history-benchmark.mjs --verify');
+    expect(packageJSON.scripts['benchmark:verify']).toBe('node scripts/chat-history-benchmark.mjs --verify');
   });
 });

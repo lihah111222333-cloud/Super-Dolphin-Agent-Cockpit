@@ -105,10 +105,13 @@ func gateRunners(plan gatePlan, executionScope gateExecutionScope) map[string]ga
 		"frontend:test":         {run: func() error { return runCommand("frontend-app", "npm", "test") }},
 		"frontend:build":        {run: func() error { return runCommand("frontend-app", "npm", "run", "build") }},
 		"frontend:embed-verify": {run: func() error { return runCommand("", "make", "frontend-embed-verify") }},
-		"codemap:check":         generatedCheck(false, "make", "codemap-check"),
-		"project-map:check":     generatedCheck(true, "make", "project-map-check", "PROJECT_MAP_ARGS="),
-		"sqlc:verify":           {run: func() error { return runCommand("", "make", "sqlc-verify-worktree") }},
-		"diff:whitespace":       {run: func() error { return runWhitespaceCheck(executionScope) }},
+		"frontend:performance-verify": {run: func() error {
+			return runCommand("frontend-app", "npm", "run", "performance:verify")
+		}},
+		"codemap:check":     generatedCheck(false, "make", "codemap-check"),
+		"project-map:check": generatedCheck(true, "make", "project-map-check", "PROJECT_MAP_ARGS="),
+		"sqlc:verify":       {run: func() error { return runCommand("", "make", "sqlc-verify-worktree") }},
+		"diff:whitespace":   {run: func() error { return runWhitespaceCheck(executionScope) }},
 	}
 }
 

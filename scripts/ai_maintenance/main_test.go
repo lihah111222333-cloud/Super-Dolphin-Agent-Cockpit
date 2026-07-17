@@ -321,6 +321,7 @@ func TestGatePlanProducerMatchesRunnerAndEvidenceRegistries(t *testing.T) {
 		{"scripts/ai_maintenance/main.go"},
 		{".githooks/pre-commit"},
 		{"frontend-app/src/App.jsx"},
+		{"frontend-app/scripts/frontend-maintainability-baseline.json"},
 		{"internal/store/thread/store.go"},
 		{"internal/contract/provider.go"},
 		{"docs/doc/codemap/ai-index.json"},
@@ -334,6 +335,15 @@ func TestGatePlanProducerMatchesRunnerAndEvidenceRegistries(t *testing.T) {
 	runners := gateRunners(gatePlan{}, gateExecutionScope{})
 	assertRegistryMatchesProducer(t, producerGates, runners, "runner", "diff:whitespace")
 	assertRegistryMatchesProducer(t, producerGates, gateEvidenceCommandFragments(), "evidence", "diff:whitespace")
+}
+
+func TestBuildGatePlanRoutesFrozenPerformanceBaselineToVerification(t *testing.T) {
+	plan := mustBuildGatePlan(t, []string{"frontend-app/scripts/frontend-maintainability-baseline.json"})
+	assertStringSetContains(t, plan.RequiredGates,
+		"frontend:build",
+		"frontend:embed-verify",
+		"frontend:performance-verify",
+	)
 }
 
 func TestGateRunnersCacheOnlyStaticGeneratedChecks(t *testing.T) {
@@ -513,6 +523,8 @@ COMMANDS_RUN:
   - cmd: cd frontend-app && npm run build
     exit: 0
   - cmd: make frontend-embed-verify
+    exit: 0
+  - cmd: cd frontend-app && npm run performance:verify
     exit: 0
   - cmd: make codemap-check
     exit: 0

@@ -307,6 +307,9 @@ func applyFileGateRules(file string, capabilityRules capcontract.PathRules, gate
 	if sqlcRelevant(file) {
 		gates["sqlc:verify"] = true
 	}
+	if file == "frontend-app/scripts/frontend-maintainability-baseline.json" {
+		gates["frontend:performance-verify"] = true
+	}
 	if codemapRelevant(file) {
 		gates["codemap:check"] = true
 		gates["project-map:check"] = true
@@ -535,6 +538,7 @@ func gateEvidenceCommandFragments() map[string][]string {
 		"frontend:test":                    {"npm test"},
 		"frontend:build":                   {"npm run build"},
 		"frontend:embed-verify":            {"make frontend-embed-verify"},
+		"frontend:performance-verify":      {"npm run performance:verify"},
 		"codemap:check":                    {"make codemap-check"},
 		"project-map:check":                {"make project-map-check"},
 		"sqlc:verify":                      {"make sqlc-verify-worktree", "make sqlc-verify"},
@@ -622,6 +626,7 @@ func orderedGates(values map[string]bool) []string {
 		"frontend:test",
 		"frontend:build",
 		"frontend:embed-verify",
+		"frontend:performance-verify",
 		"backend:test_with_guard",
 		"lsp:changed-diagnostics",
 		"backend:test_with_guard_and_race",
