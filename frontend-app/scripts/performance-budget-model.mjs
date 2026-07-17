@@ -1,7 +1,7 @@
 const SAMPLE_COUNT = 5;
 const WARMUP_COUNT = 1;
 const ATTEMPTS_PER_SAMPLE = 1;
-const CPU_DURATION_CLOCK = 'p50(process.cpuUsage(user+system),500000-iteration-blocks)';
+const CPU_DURATION_CLOCK = 'p50(production/reference process.cpuUsage(user+system),alternating,500000-iteration-blocks)';
 const FEEDBACK_DURATION_CLOCK = 'trimmed-mean-80%(performance.now(feedbackAt-startedAt))';
 const RENDER_UPDATE_LIMIT = 1;
 const HISTORY_REGRESSION_RATIO = 1.15;
@@ -117,6 +117,150 @@ function validateTimingCase(entry, label, durationClock) {
   }
 }
 
+function validatePairedTimingCase(entry, label, durationClock) {
+  if (entry?.durationClock !== durationClock
+    || entry?.attemptsPerSample !== ATTEMPTS_PER_SAMPLE
+    || !Number.isSafeInteger(entry.blockCount)
+    || entry.blockCount <= 0
+    || !Number.isSafeInteger(entry.blockIterationCount)
+    || entry.blockIterationCount <= 0
+    || entry.iterationCount !== entry.blockCount * entry.blockIterationCount
+    || !Number.isSafeInteger(entry.materializedCount)
+    || entry.materializedCount <= 0
+    || entry.referenceMaterializedCount !== entry.materializedCount) {
+    throw new TypeError(`${label} paired measurement shape is invalid`);
+  }
+  if (!Array.isArray(entry.sampleDiagnostics)
+    || entry.sampleDiagnostics.length !== SAMPLE_COUNT
+    || !Array.isArray(entry.normalizedRatioSamples)
+    || entry.normalizedRatioSamples.length !== SAMPLE_COUNT) {
+    throw new TypeError(`${label} must contain ${SAMPLE_COUNT} paired samples`);
+  }
+  entry.sampleDiagnostics.forEach((sample, sampleIndex) => {
+    const arrays = [
+      sample?.blockOrders,
+      sample?.productionBlockCpuDurationsMs,
+      sample?.referenceBlockCpuDurationsMs,
+      sample?.rawNormalizedBlockRatios,
+    ];
+    if (arrays.some((values) => !Array.isArray(values) || values.length !== entry.blockCount)) {
+      throw new TypeError(`${label} sample ${sampleIndex} paired block evidence is incomplete`);
+    }
+    const recomputedRatios = sample.blockOrders.map((order, blockIndex) => {
+      const expectedOrder = (sampleIndex + blockIndex) % 2 === 0
+        ? 'production-reference'
+        : 'reference-production';
+      if (order !== expectedOrder) {
+        throw new TypeError(`${label} sample ${sampleIndex} block ${blockIndex} order is invalid`);
+      }
+      const production = requirePositive(
+        sample.productionBlockCpuDurationsMs[blockIndex],
+        `${label}.production[${sampleIndex}][${blockIndex}]`,
+      );
+      const reference = requirePositive(
+        sample.referenceBlockCpuDurationsMs[blockIndex],
+        `${label}.reference[${sampleIndex}][${blockIndex}]`,
+      );
+      const recordedRatio = requirePositive(
+        sample.rawNormalizedBlockRatios[blockIndex],
+        `${label}.ratio[${sampleIndex}][${blockIndex}]`,
+      );
+      const recomputedRatio = production / reference;
+      if (recordedRatio !== recomputedRatio) {
+        throw new TypeError(`${label} sample ${sampleIndex} block ${blockIndex} ratio is not reproducible`);
+      }
+      return recomputedRatio;
+    });
+    const recomputedSample = measurementMedian(
+      recomputedRatios,
+      `${label}.rawNormalizedBlockRatios[${sampleIndex}]`,
+    );
+    const recordedSample = requirePositive(
+      entry.normalizedRatioSamples[sampleIndex],
+      `${label}.normalizedRatioSamples[${sampleIndex}]`,
+    );
+    const diagnosticSample = requirePositive(
+      sample.normalizedRatio,
+      `${label}.sampleDiagnostics[${sampleIndex}].normalizedRatio`,
+    );
+    if (recordedSample !== recomputedSample || diagnosticSample !== recomputedSample) {
+      throw new TypeError(`${label} sample ${sampleIndex} normalized ratio summary is invalid`);
+    }
+  });
+  if (entry.normalizedRatioMedian !== median(
+    entry.normalizedRatioSamples,
+    `${label}.normalizedRatioSamples`,
+  )) {
+    throw new TypeError(`${label} normalized ratio median does not match its samples`);
+  }
+}
+
+function evaluatePairedMedianCases({
+  baselineMetric,
+  currentMetric,
+  durationClock,
+  metricId,
+  ratioKey,
+  requiredRatio,
+}) {
+  const missing = requireFrozenMetric(metricId, baselineMetric);
+  if (missing) return missing;
+  if (baselineMetric[ratioKey] !== requiredRatio) {
+    return notVerified(metricId, `${ratioKey} must equal the plan ratio ${requiredRatio}`);
+  }
+  const baselineCases = baselineMetric.cases;
+  const currentCases = currentMetric.cases;
+  if (!baselineCases || !currentCases || typeof baselineCases !== 'object' || typeof currentCases !== 'object') {
+    return notVerified(metricId, 'baseline and current cases are required');
+  }
+  const baselineNames = Object.keys(baselineCases).sort();
+  const currentNames = Object.keys(currentCases).sort();
+  if (JSON.stringify(baselineNames) !== JSON.stringify(currentNames) || baselineNames.length === 0) {
+    return notVerified(metricId, 'baseline and current case sets must match exactly and be non-empty');
+  }
+  try {
+    for (const caseName of baselineNames) {
+      validatePairedTimingCase(
+        baselineCases[caseName],
+        `${metricId}.${caseName}.baseline`,
+        durationClock,
+      );
+    }
+  } catch (error) {
+    return notVerified(metricId, `frozen ${metricId} paired schema is invalid: ${error.message}`);
+  }
+  const comparisons = baselineNames.map((caseName) => {
+    const baselineCase = baselineCases[caseName];
+    const currentCase = currentCases[caseName];
+    validatePairedTimingCase(currentCase, `${metricId}.${caseName}.current`, durationClock);
+    for (const field of [
+      'blockCount',
+      'blockIterationCount',
+      'iterationCount',
+      'materializedCount',
+      'referenceMaterializedCount',
+    ]) {
+      if (baselineCase[field] !== currentCase[field]) {
+        throw new TypeError(`${metricId}.${caseName} ${field} mismatch`);
+      }
+    }
+    const baselineValue = requirePositive(
+      baselineCase.normalizedRatioMedian,
+      `${metricId}.${caseName}.baseline`,
+    );
+    const currentValue = requirePositive(
+      currentCase.normalizedRatioMedian,
+      `${metricId}.${caseName}.current`,
+    );
+    const threshold = baselineValue * requiredRatio;
+    return Object.freeze({ case: caseName, baseline: baselineValue, current: currentValue, threshold });
+  });
+  const failures = comparisons.filter(({ current, threshold }) => current > threshold);
+  return failures.length > 0
+    ? fail(metricId, `${failures.length} case(s) exceed the frozen budget`, comparisons)
+    : pass(metricId, comparisons);
+}
+
 function evaluateMedianCases({
   baselineMetric,
   currentMetric,
@@ -225,6 +369,7 @@ export {
   SAMPLE_COUNT,
   WARMUP_COUNT,
   evaluateMedianCases,
+  evaluatePairedMedianCases,
   evaluateRenderIsolation,
   evaluateResourceBudget,
   measurementMedian,
