@@ -616,7 +616,7 @@ internal/module/turn/frc_config.go	internal	modules	go-source	1980	turn 启动�
 internal/module/turn/frc_lifecycle_test.go	internal	modules	go-test	3096	turn 启动、执行、审批与 provider 调度	internal,module,turn,frc,lifecycle,test,启动,执行,审批与,provider,调度
 internal/module/turn/interrupt_atomic_test.go	internal	modules	go-test	7517	turn 启动、执行、审批与 provider 调度	internal,module,turn,interrupt,atomic,test,启动,执行,审批与,provider,调度
 internal/module/turn/interrupt_envelope.go	internal	modules	go-source	3852	turn 启动、执行、审批与 provider 调度	internal,module,turn,interrupt,envelope,启动,执行,审批与,provider,调度
-internal/module/turn/interrupt_rpc_test.go	internal	modules	go-test	13025	turn 启动、执行、审批与 provider 调度	internal,module,turn,interrupt,rpc,test,启动,执行,审批与,provider,调度
+internal/module/turn/interrupt_rpc_test.go	internal	modules	go-test	13523	turn 启动、执行、审批与 provider 调度	internal,module,turn,interrupt,rpc,test,启动,执行,审批与,provider,调度
 internal/module/turn/interrupt_service_test.go	internal	modules	go-test	4173	turn 启动、执行、审批与 provider 调度	internal,module,turn,interrupt,service,test,启动,执行,审批与,provider,调度
 internal/module/turn/interrupt_service.go	internal	modules	go-source	4308	turn 启动、执行、审批与 provider 调度	internal,module,turn,interrupt,service,启动,执行,审批与,provider,调度
 internal/module/turn/manifest_p2_transport_test.go	internal	modules	go-test	6630	turn 启动、执行、审批与 provider 调度	internal,module,turn,manifest,p2,transport,test,启动,执行,审批与,provider,调度

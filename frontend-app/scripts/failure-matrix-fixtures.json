@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "fixtures": [
+    { "caseId": "FM-01", "expected": "partial retained, failed visible, no success" },
+    { "caseId": "FM-02", "expected": "failed visible without blank completion" },
+    { "caseId": "FM-03", "expected": "first failed terminal remains sealed" },
+    { "caseId": "FM-04", "expected": "late T1 delta, item, and terminal leave T2 unchanged" },
+    { "caseId": "FM-05", "expected": "unknown outcome enters visible contract error and diagnostics" },
+    { "caseId": "FM-06", "expected": "missing outcome enters visible contract error and diagnostics" },
+    { "caseId": "FM-07", "expected": "accepted stop does not rewrite provider failure" },
+    { "caseId": "FM-08", "expected": "Claude interrupted event seals terminal without completed" },
+    { "caseId": "FM-09", "expected": "Codex cancelled is non-success" },
+    { "caseId": "FM-10", "expected": "Codex interrupted is non-success" },
+    { "caseId": "FM-11", "expected": "Codex failed is non-success" },
+    { "caseId": "FM-12", "expected": "Codex unknown status is contract failure" },
+    { "caseId": "FM-13", "expected": "Codex missing success is contract failure" },
+    { "caseId": "FM-14", "expected": "Codex completed with success false is contract failure" },
+    { "caseId": "FM-15", "expected": "NOT_APPLIED leaves turn active and exposes unconfirmed stop", "blockedBy": "Task2A" },
+    { "caseId": "FM-16", "expected": "TARGET_CHANGED has zero provider side effects" },
+    { "caseId": "FM-17", "expected": "timeout returns explicit unconfirmed running state" },
+    { "caseId": "FM-18", "expected": "disconnect persists Health and exposes reconnect", "blockedBy": "Task2A" },
+    { "caseId": "FM-19", "expected": "matched user cancel is neutral and request attributed" },
+    { "caseId": "FM-20", "expected": "provider cancel is safe error without user attribution" },
+    { "caseId": "FM-21", "expected": "prompt history rejection preserves draft and cursor", "blockedBy": "Task2A" },
+    { "caseId": "FM-22", "expected": "prompt history invalid response preserves cursor", "blockedBy": "Task2A" },
+    { "caseId": "FM-23", "expected": "settings rejection preserves edited values", "blockedBy": "Task2A" },
+    { "caseId": "FM-24", "expected": "approval rejection remains pending", "blockedBy": "Task2A" }
+  ]
+}

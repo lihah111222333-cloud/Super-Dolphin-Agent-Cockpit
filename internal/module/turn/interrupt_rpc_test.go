@@ -63,7 +63,17 @@ func TestTurnInterruptHandlerReturnsEnvelope(t *testing.T) {
 
 func TestTurnInterruptTargetChangedHasZeroProviderSideEffects(t *testing.T) {
 	t.Parallel()
+	testTurnInterruptTargetChangedHasZeroProviderSideEffects(t)
+}
 
+func TestFailureMatrixTurnInterruptCases(t *testing.T) {
+	t.Parallel()
+	t.Run("FM-16", testTurnInterruptTargetChangedHasZeroProviderSideEffects)
+	t.Run("FM-17", testTurnInterruptHandlerReturnsTimeoutEnvelope)
+}
+
+func testTurnInterruptTargetChangedHasZeroProviderSideEffects(t *testing.T) {
+	t.Helper()
 	handle := newStubTurnHandle("local-2", "provider-2")
 	interruptCalls := 0
 	session := &stubSession{
@@ -186,7 +196,11 @@ func TestTurnInterruptHandlerRejectsUnknownField(t *testing.T) {
 
 func TestTurnInterruptHandlerReturnsTimeoutEnvelope(t *testing.T) {
 	t.Parallel()
+	testTurnInterruptHandlerReturnsTimeoutEnvelope(t)
+}
 
+func testTurnInterruptHandlerReturnsTimeoutEnvelope(t *testing.T) {
+	t.Helper()
 	handle := newStubTurnHandle("local-timeout", "provider-timeout")
 	session := &stubSession{
 		threadID: "thread-timeout",

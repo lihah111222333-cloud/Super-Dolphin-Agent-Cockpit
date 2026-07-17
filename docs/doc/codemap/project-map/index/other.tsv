@@ -438,6 +438,7 @@ internal/ui/wails/code_scope_windows_test.go	internal	other	go-test	502	Wails bi
 internal/ui/wails/code_scope.go	internal	other	go-source	11451	Wails binding 与 UI RPC 桥接	internal,ui,wails,code,scope,Wails,binding,与,UI,RPC,桥接
 internal/ui/wails/datasource_import_picker.go	internal	other	go-source	4752	Wails binding 与 UI RPC 桥接	internal,ui,wails,datasource,import,picker,Wails,binding,与,UI,RPC,桥接
 internal/ui/wails/dropped_text.go	internal	other	go-source	17027	Wails binding 与 UI RPC 桥接	internal,ui,wails,dropped,text,Wails,binding,与,UI,RPC,桥接
+internal/ui/wails/failure_matrix_integration_test.go	internal	other	go-test	4133	Wails binding 与 UI RPC 桥接	internal,ui,wails,failure,matrix,integration,test,Wails,binding,与,UI,RPC,桥接
 internal/ui/wails/frontend/index.html	internal	other	html	1274	Wails binding 与 UI RPC 桥接	internal,ui,wails,frontend,index,Wails,binding,与,UI,RPC,桥接
 internal/ui/wails/http_logging.go	internal	other	go-source	5573	Wails binding 与 UI RPC 桥接	internal,ui,wails,http,logging,Wails,binding,与,UI,RPC,桥接
 internal/ui/wails/http_route_policy.go	internal	other	go-source	2267	Wails binding 与 UI RPC 桥接	internal,ui,wails,http,route,policy,Wails,binding,与,UI,RPC,桥接
@@ -456,6 +457,7 @@ internal/ui/wails/rpc.go	internal	other	go-source	20397	Wails binding 与 UI RPC
 internal/ui/wails/runner.go	internal	other	go-source	1596	Wails binding 与 UI RPC 桥接	internal,ui,wails,runner,Wails,binding,与,UI,RPC,桥接
 internal/ui/wails/scope_catalog.go	internal	other	go-source	4033	Wails binding 与 UI RPC 桥接	internal,ui,wails,scope,catalog,Wails,binding,与,UI,RPC,桥接
 internal/ui/wails/sharedfile_open.go	internal	other	go-source	17139	Wails binding 与 UI RPC 桥接	internal,ui,wails,sharedfile,open,Wails,binding,与,UI,RPC,桥接
+internal/ui/wails/testdata/failure_smoke_host/main.go	internal	other	go-source	10720	Wails binding 与 UI RPC 桥接	internal,ui,wails,testdata,failure,smoke,host,main,Wails,binding,与,UI,RPC,桥接
 internal/ui/wails/window_state.go	internal	other	go-source	4310	Wails binding 与 UI RPC 桥接	internal,ui,wails,window,state,Wails,binding,与,UI,RPC,桥接
 internal/ui/wails/window_test.go	internal	other	go-test	5353	Wails binding 与 UI RPC 桥接	internal,ui,wails,window,test,Wails,binding,与,UI,RPC,桥接
 internal/ui/wails/window.go	internal	other	go-source	6593	Wails binding 与 UI RPC 桥接	internal,ui,wails,window,Wails,binding,与,UI,RPC,桥接

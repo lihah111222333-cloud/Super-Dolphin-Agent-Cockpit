@@ -10,6 +10,8 @@
     "smoke:desktop": "npm run smoke:desktop:rpc",
     "smoke:desktop:rpc": "node scripts/desktop-smoke.mjs",
     "smoke:desktop:ux": "node scripts/desktop-ux-smoke.mjs",
+    "smoke:desktop:failure": "node scripts/desktop-failure-smoke.mjs",
+    "test:failure-matrix": "node scripts/failure-matrix-runner.mjs",
     "test:e2e:business": "playwright test --config playwright.business-flows.config.js",
     "test:e2e:desktop-wide": "playwright test --config playwright.desktop-wide.config.js",
     "build": "vite build && node scripts/sync-frontend-dist.mjs",
