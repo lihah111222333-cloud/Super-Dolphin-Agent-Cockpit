@@ -371,7 +371,22 @@ func sqlcRelevant(file string) bool {
 
 // turnContractRelevant 覆盖 canonical schema、基础设施以及 registry 派生的完整生产消费链。
 func turnContractRelevant(file string, turnContractPaths map[string]bool) bool {
-	return strings.HasPrefix(file, "internal/dto/turn/") || turnContractPaths[file]
+	if strings.HasSuffix(file, "_test.go") {
+		return false
+	}
+	return strings.HasPrefix(file, "internal/dto/turn/") || turnContractPaths[file] || turnContractProductionGo(file)
+}
+
+func turnContractProductionGo(file string) bool {
+	if !strings.HasSuffix(file, ".go") || strings.HasSuffix(file, "_test.go") {
+		return false
+	}
+	for _, prefix := range []string{"cmd/", "internal/", "pkg/", "scripts/"} {
+		if strings.HasPrefix(file, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 // aiMaintenanceRelevant 识别会改变本 gate 自身行为的文件，触发自测避免 workflow/script 空绿。

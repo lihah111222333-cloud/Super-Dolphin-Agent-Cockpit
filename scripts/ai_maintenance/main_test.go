@@ -329,6 +329,31 @@ func TestBuildGatePlanRoutesTurnContractProductionChain(t *testing.T) {
 	}
 }
 
+func TestBuildGatePlanRoutesAllProductionGoToTurnContract(t *testing.T) {
+	for _, file := range []string{
+		"cmd/example/main.go",
+		"internal/platform/uistate/projector_handlers.go",
+		"pkg/example/consumer.go",
+		"scripts/example/producer.go",
+	} {
+		plan := mustBuildGatePlan(t, []string{file})
+		assertStringSetContains(t, plan.RequiredGates, "turncontract:verify")
+	}
+}
+
+func TestBuildGatePlanDoesNotTreatTestOnlyGoAsTurnContractProduction(t *testing.T) {
+	for _, file := range []string{
+		"cmd/example/main_test.go",
+		"internal/dto/turn/contract_field_guard_test.go",
+		"internal/platform/uistate/projector_handlers_test.go",
+		"pkg/example/consumer_test.go",
+		"scripts/example/producer_test.go",
+	} {
+		plan := mustBuildGatePlan(t, []string{file})
+		assertStringSetOmits(t, plan.RequiredGates, "turncontract:verify")
+	}
+}
+
 func TestBuildGatePlanRoutesEveryTurnContractRegistryLocator(t *testing.T) {
 	raw, err := os.ReadFile(filepath.Join("..", "..", "internal", "dto", "turn", "schema", "field_consumers.json"))
 	if err != nil {

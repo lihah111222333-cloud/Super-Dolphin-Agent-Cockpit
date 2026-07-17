@@ -21,10 +21,25 @@ export function validateTurnContractFieldGuard({ repoRoot = defaultRepoRoot, sou
   const registeredSchemas = Object.keys(registry.schemas).sort();
   const schemaNames = [...schemas.keys()].sort();
   assertExactSet('consumer registry schemas', schemaNames, registeredSchemas);
-  const discoveredConsumers = discoverJSValidatorConsumers(repoRoot, sourceOverrides, registry.schemas);
+  const targetSchemas = new Map(Object.entries(registry.schemas)
+    .map(([schemaName, entry]) => [entry.jsValidator.symbol, schemaName]));
+  const resolveValidatorExports = createValidatorExportResolver(repoRoot, sourceOverrides, targetSchemas);
+  const discoveredConsumers = discoverJSValidatorConsumers(
+    repoRoot,
+    sourceOverrides,
+    targetSchemas,
+    resolveValidatorExports,
+  );
   for (const [schemaName, schema] of schemas) {
     const entry = registry.schemas[schemaName];
-    validateSchemaRegistryEntry(repoRoot, sourceOverrides, schemaName, entry);
+    validateSchemaRegistryEntry(
+      repoRoot,
+      sourceOverrides,
+      schemaName,
+      entry,
+      targetSchemas,
+      resolveValidatorExports,
+    );
     const registeredConsumers = entry.jsConsumers.map((consumer) => consumerKey(consumer)).sort();
     assertExactSet(`${schemaName} JS production consumers`, discoveredConsumers.get(schemaName) ?? [], registeredConsumers);
     if (stableJSON(schema) !== stableJSON(generatedSchemas[schemaName])) {
@@ -44,30 +59,38 @@ export function validateTurnContractFieldGuard({ repoRoot = defaultRepoRoot, sou
   return { schemaCount: schemas.size, mapperCount: registry.jsMappers.length };
 }
 
-function discoverJSValidatorConsumers(repoRoot, sourceOverrides, schemaEntries) {
-  const targetSchemas = new Map(Object.entries(schemaEntries).map(([schemaName, entry]) => [entry.jsValidator.symbol, schemaName]));
+function discoverJSValidatorConsumers(repoRoot, sourceOverrides, targetSchemas, resolveValidatorExports) {
   const discovered = new Map([...targetSchemas.values()].map((schemaName) => [schemaName, []]));
   const sourceRoot = path.join(repoRoot, 'frontend-app/src');
   for (const absolutePath of productionJavaScriptFiles(sourceRoot)) {
     const relativePath = path.relative(repoRoot, absolutePath).split(path.sep).join('/');
     const ast = parseModule(readRepositorySource(repoRoot, relativePath, sourceOverrides), relativePath);
-    const bindings = validatorBindings(ast, relativePath, targetSchemas);
-    if (bindings.size === 0) continue;
+    resolveValidatorExports(relativePath);
+    const bindings = validatorBindings(
+      repoRoot,
+      sourceOverrides,
+      ast,
+      relativePath,
+      targetSchemas,
+      resolveValidatorExports,
+    );
+    if (!hasValidatorBindings(bindings)) continue;
+    assertValidatorBindingsSafe(ast, bindings, relativePath);
     const claimedCalls = new Set();
     const functions = namedProductionFunctions(ast);
     assertUniqueProductionSymbols(functions, relativePath);
     for (const fn of functions) {
       walkFunctionBody(fn, (node) => {
-        if (node.type !== 'CallExpression' || node.callee?.type !== 'Identifier') return;
-        const target = bindings.get(node.callee.name);
+        if (node.type !== 'CallExpression') return;
+        const target = validatorBindingTarget(node.callee, bindings);
         if (!target) return;
         claimedCalls.add(node);
         discovered.get(target.schemaName).push(consumerKey({ path: relativePath, symbol: fn.symbol, calls: target.symbol }));
       });
     }
     walkNode(ast.program, (node) => {
-      if (node.type !== 'CallExpression' || node.callee?.type !== 'Identifier') return;
-      const target = bindings.get(node.callee.name);
+      if (node.type !== 'CallExpression') return;
+      const target = validatorBindingTarget(node.callee, bindings);
       if (target && !claimedCalls.has(node)) {
         throw new Error(`${relativePath} validator call ${target.symbol} cannot be attributed to a stable production symbol`);
       }
@@ -91,24 +114,264 @@ function productionJavaScriptFiles(root) {
   return files;
 }
 
-function validatorBindings(ast, relativePath, targetSchemas) {
-  const bindings = new Map();
+function validatorBindings(repoRoot, sourceOverrides, ast, relativePath, targetSchemas, resolveValidatorExports) {
+  const bindings = importedValidatorBindings(
+    repoRoot,
+    sourceOverrides,
+    ast,
+    relativePath,
+    resolveValidatorExports,
+  );
   if (relativePath === validatorRelativePath) {
-    for (const [symbol, schemaName] of targetSchemas) bindings.set(symbol, { schemaName, symbol });
-  }
-  for (const statement of ast.program.body) {
-    if (statement.type !== 'ImportDeclaration' || typeof statement.source?.value !== 'string') continue;
-    let sourcePath = path.posix.normalize(path.posix.join(path.posix.dirname(relativePath), statement.source.value));
-    if (!path.posix.extname(sourcePath)) sourcePath += '.js';
-    if (sourcePath !== validatorRelativePath) continue;
-    for (const specifier of statement.specifiers) {
-      if (specifier.type !== 'ImportSpecifier') continue;
-      const imported = specifier.imported.type === 'Identifier' ? specifier.imported.name : specifier.imported.value;
-      const schemaName = targetSchemas.get(imported);
-      if (schemaName) bindings.set(specifier.local.name, { schemaName, symbol: imported });
+    for (const [symbol, schemaName] of targetSchemas) {
+      bindings.identifiers.set(symbol, { schemaName, symbol });
     }
   }
   return bindings;
+}
+
+function importedValidatorBindings(repoRoot, sourceOverrides, ast, relativePath, resolveValidatorExports) {
+  const bindings = { identifiers: new Map(), namespaces: new Map() };
+  for (const statement of ast.program.body) {
+    if (statement.type !== 'ImportDeclaration' || typeof statement.source?.value !== 'string') continue;
+    const sourcePath = resolveLocalModulePath(repoRoot, sourceOverrides, relativePath, statement.source.value);
+    if (!sourcePath) continue;
+    const sourceExports = resolveValidatorExports(sourcePath);
+    if (sourceExports.size === 0) continue;
+    for (const specifier of statement.specifiers) {
+      if (specifier.type === 'ImportSpecifier') {
+        const target = sourceExports.get(moduleName(specifier.imported));
+        if (target) bindings.identifiers.set(specifier.local.name, target);
+      } else if (specifier.type === 'ImportNamespaceSpecifier') {
+        bindings.namespaces.set(specifier.local.name, sourceExports);
+      } else if (specifier.type === 'ImportDefaultSpecifier') {
+        const target = sourceExports.get('default');
+        if (target) bindings.identifiers.set(specifier.local.name, target);
+      }
+    }
+  }
+  return bindings;
+}
+
+function createValidatorExportResolver(repoRoot, sourceOverrides, targetSchemas) {
+  const directExports = new Map([...targetSchemas]
+    .map(([symbol, schemaName]) => [symbol, { schemaName, symbol }]));
+  const cache = new Map([[validatorRelativePath, directExports]]);
+  const resolving = new Set();
+
+  function resolveValidatorExports(modulePath) {
+    if (cache.has(modulePath)) return cache.get(modulePath);
+    if (resolving.has(modulePath)) return new Map();
+    resolving.add(modulePath);
+    try {
+      const ast = parseModule(readRepositorySource(repoRoot, modulePath, sourceOverrides), modulePath);
+      const bindings = importedValidatorBindings(
+        repoRoot,
+        sourceOverrides,
+        ast,
+        modulePath,
+        resolveValidatorExports,
+      );
+      const exports = collectValidatorExports(
+        repoRoot,
+        sourceOverrides,
+        ast,
+        modulePath,
+        bindings,
+        resolveValidatorExports,
+      );
+      cache.set(modulePath, exports);
+      return exports;
+    } finally {
+      resolving.delete(modulePath);
+    }
+  }
+
+  return resolveValidatorExports;
+}
+
+function collectValidatorExports(repoRoot, sourceOverrides, ast, modulePath, bindings, resolveValidatorExports) {
+  const exports = new Map();
+  for (const statement of ast.program.body) {
+    if (statement.type === 'ExportAllDeclaration') {
+      const sourceExports = validatorExportsFromSource(
+        repoRoot,
+        sourceOverrides,
+        modulePath,
+        statement.source?.value,
+        resolveValidatorExports,
+      );
+      if (sourceExports.size > 0) throw new Error(`${modulePath} validator export escape requires explicit named re-exports`);
+      continue;
+    }
+    if (statement.type === 'ExportNamedDeclaration') {
+      collectNamedValidatorExports(
+        repoRoot,
+        sourceOverrides,
+        modulePath,
+        statement,
+        bindings,
+        resolveValidatorExports,
+        exports,
+      );
+      continue;
+    }
+    if (statement.type === 'ExportDefaultDeclaration') {
+      const target = validatorBindingTarget(statement.declaration, bindings);
+      if (target) setValidatorExport(exports, 'default', target, modulePath);
+      else if (statement.declaration?.type === 'Identifier' && bindings.namespaces.has(statement.declaration.name)) {
+        throw new Error(`${modulePath} validator namespace export escape cannot be resolved exactly`);
+      }
+    }
+  }
+  return exports;
+}
+
+function collectNamedValidatorExports(
+  repoRoot,
+  sourceOverrides,
+  modulePath,
+  statement,
+  bindings,
+  resolveValidatorExports,
+  exports,
+) {
+  if (typeof statement.source?.value === 'string') {
+    const sourceExports = validatorExportsFromSource(
+      repoRoot,
+      sourceOverrides,
+      modulePath,
+      statement.source.value,
+      resolveValidatorExports,
+    );
+    for (const specifier of statement.specifiers) {
+      if (specifier.type !== 'ExportSpecifier') {
+        if (sourceExports.size > 0) throw new Error(`${modulePath} validator export escape cannot be resolved exactly`);
+        continue;
+      }
+      const target = sourceExports.get(moduleName(specifier.local));
+      if (target) setValidatorExport(exports, moduleName(specifier.exported), target, modulePath);
+    }
+    return;
+  }
+  for (const specifier of statement.specifiers) {
+    if (specifier.type !== 'ExportSpecifier') continue;
+    const localName = moduleName(specifier.local);
+    const target = bindings.identifiers.get(localName);
+    if (target) setValidatorExport(exports, moduleName(specifier.exported), target, modulePath);
+    else if (bindings.namespaces.has(localName)) {
+      throw new Error(`${modulePath} validator namespace export escape cannot be resolved exactly`);
+    }
+  }
+  if (statement.declaration?.type !== 'VariableDeclaration') return;
+  for (const declarator of statement.declaration.declarations) {
+    if (validatorBindingTarget(declarator.init, bindings)) {
+      throw new Error(`${modulePath} validator export escape cannot be resolved exactly`);
+    }
+  }
+}
+
+function validatorExportsFromSource(
+  repoRoot,
+  sourceOverrides,
+  modulePath,
+  sourceValue,
+  resolveValidatorExports,
+) {
+  const sourcePath = resolveLocalModulePath(repoRoot, sourceOverrides, modulePath, sourceValue);
+  return sourcePath ? resolveValidatorExports(sourcePath) : new Map();
+}
+
+function resolveLocalModulePath(repoRoot, sourceOverrides, importerPath, sourceValue) {
+  if (typeof sourceValue !== 'string' || !sourceValue.startsWith('.')) return '';
+  const base = path.posix.normalize(path.posix.join(path.posix.dirname(importerPath), sourceValue));
+  if (!base.startsWith('frontend-app/src/')) return '';
+  const extension = path.posix.extname(base);
+  if (extension && !/\.(?:js|jsx)$/.test(extension)) return '';
+  const candidates = extension ? [base] : [`${base}.js`, `${base}.jsx`, `${base}/index.js`, `${base}/index.jsx`];
+  for (const candidate of candidates) {
+    if (sourceOverrides.has(candidate)) return candidate;
+    try {
+      const info = fs.lstatSync(path.join(repoRoot, candidate));
+      if (info.isFile() && !info.isSymbolicLink()) return candidate;
+    } catch (error) {
+      if (error?.code !== 'ENOENT') throw error;
+    }
+  }
+  return '';
+}
+
+function setValidatorExport(exports, exportedName, target, modulePath) {
+  if (!exportedName) throw new Error(`${modulePath} validator export has a blank name`);
+  const existing = exports.get(exportedName);
+  if (existing && (existing.schemaName !== target.schemaName || existing.symbol !== target.symbol)) {
+    throw new Error(`${modulePath} validator export ${exportedName} is ambiguous`);
+  }
+  exports.set(exportedName, target);
+}
+
+function validatorBindingTarget(callee, bindings) {
+  if (callee?.type === 'Identifier') return bindings.identifiers.get(callee.name);
+  if (callee?.type !== 'MemberExpression' || callee.object?.type !== 'Identifier') return undefined;
+  const namespace = bindings.namespaces.get(callee.object.name);
+  return namespace?.get(memberPropertyName(callee));
+}
+
+function memberPropertyName(member) {
+  if (!member.computed && member.property?.type === 'Identifier') return member.property.name;
+  return stringLiteralValue(member.property);
+}
+
+function moduleName(node) {
+  if (node?.type === 'Identifier') return node.name;
+  return stringLiteralValue(node);
+}
+
+function hasValidatorBindings(bindings) {
+  return bindings.identifiers.size > 0 || bindings.namespaces.size > 0;
+}
+
+function assertValidatorBindingsSafe(ast, bindings, relativePath) {
+  const parents = new WeakMap();
+  walkNodeWithParent(ast.program, (node, parent) => {
+    if (parent) parents.set(node, parent);
+    if (node.type !== 'Identifier' || isStaticPropertyName(node, parent)) return;
+    if (bindings.identifiers.has(node.name)) {
+      if (isControlledValidatorIdentifierUse(node, parent, relativePath)) return;
+      throw new Error(`${relativePath} validator binding ${node.name} escapes direct calls or controlled explicit re-exports`);
+    }
+    const namespace = bindings.namespaces.get(node.name);
+    if (!namespace) return;
+    if (parent?.type === 'ImportNamespaceSpecifier' && parent.local === node) return;
+    if (parent?.type === 'MemberExpression' && parent.object === node) {
+      const propertyName = memberPropertyName(parent);
+      if (!namespace.has(propertyName)) return;
+      const memberParent = parents.get(parent);
+      if (memberParent?.type === 'CallExpression' && memberParent.callee === parent) return;
+      throw new Error(`${relativePath} validator namespace member ${node.name}.${propertyName} escapes direct calls`);
+    }
+    throw new Error(`${relativePath} validator namespace ${node.name} escapes direct calls or controlled explicit re-exports`);
+  });
+}
+
+function isControlledValidatorIdentifierUse(node, parent, relativePath) {
+  if (parent?.type === 'CallExpression' && parent.callee === node) return true;
+  if (parent?.type === 'ImportSpecifier' || parent?.type === 'ImportDefaultSpecifier') return true;
+  if (parent?.type === 'ExportSpecifier' || parent?.type === 'ExportDefaultDeclaration') return true;
+  return relativePath === validatorRelativePath
+    && parent?.type === 'FunctionDeclaration'
+    && parent.id === node;
+}
+
+function isStaticPropertyName(node, parent) {
+  if ((parent?.type === 'MemberExpression' || parent?.type === 'OptionalMemberExpression')
+    && !parent.computed
+    && parent.property === node) return true;
+  if (parent?.computed || parent?.key !== node) return false;
+  return parent.type === 'ObjectProperty'
+    || parent.type === 'ObjectMethod'
+    || parent.type === 'ClassProperty'
+    || parent.type === 'ClassMethod';
 }
 
 function namedProductionFunctions(ast) {
@@ -234,21 +497,35 @@ function loadRegistry(repoRoot, sourceOverrides) {
   return parseJSON(readRepositorySource(repoRoot, registryRelativePath, sourceOverrides), 'consumer registry');
 }
 
-function validateSchemaRegistryEntry(repoRoot, sourceOverrides, schemaName, entry) {
+function validateSchemaRegistryEntry(
+  repoRoot,
+  sourceOverrides,
+  schemaName,
+  entry,
+  targetSchemas,
+  resolveValidatorExports,
+) {
   if (!isRecord(entry)) throw new Error(`consumer registry missing schema ${schemaName}`);
   validateLocatorShape(repoRoot, entry.goType, '.go');
   validateLocatorShape(repoRoot, entry.goValidator, '.go');
   validateCallLocators(repoRoot, entry.goConsumers, '.go', `${schemaName} Go consumers`);
   const validator = resolveJSFunction(repoRoot, sourceOverrides, entry.jsValidator);
-  if (!functionHasCall(validator, 'validateNamedSchema', schemaName)) {
+  if (!functionHasCall(validator.fn, 'validateNamedSchema', schemaName)) {
     throw new Error(`${schemaName} JS validator does not call validateNamedSchema for its schema`);
   }
   if (!Array.isArray(entry.jsConsumers) || entry.jsConsumers.length === 0) {
     throw new Error(`${schemaName} has no JS production consumers`);
   }
   for (const consumer of entry.jsConsumers) {
-    const fn = resolveJSFunction(repoRoot, sourceOverrides, consumer);
-    if (!functionHasCall(fn, consumer.calls)) {
+    const resolved = resolveJSFunction(repoRoot, sourceOverrides, consumer);
+    if (!functionHasValidatorCall(
+      repoRoot,
+      sourceOverrides,
+      resolved,
+      consumer,
+      targetSchemas,
+      resolveValidatorExports,
+    )) {
       throw new Error(`${consumer.path}:${consumer.symbol} missing call ${consumer.calls}`);
     }
   }
@@ -265,7 +542,8 @@ function validateCallLocators(repoRoot, locators, extension, label) {
 function resolveJSFunction(repoRoot, sourceOverrides, locator) {
   validateLocatorShape(repoRoot, locator, '.js');
   const source = readRepositorySource(repoRoot, locator.path, sourceOverrides);
-  return findFunction(parseModule(source, locator.path), locator.symbol, locator.path);
+  const ast = parseModule(source, locator.path);
+  return { ast, fn: findFunction(ast, locator.symbol, locator.path) };
 }
 
 function validateLocatorShape(repoRoot, locator, extension) {
@@ -302,6 +580,32 @@ function functionHasCall(fn, target, firstStringArgument = '') {
     if (node.type !== 'CallExpression' || calleeName(node.callee) !== target) return;
     if (firstStringArgument && stringLiteralValue(node.arguments[0]) !== firstStringArgument) return;
     found = true;
+  });
+  return found;
+}
+
+function functionHasValidatorCall(
+  repoRoot,
+  sourceOverrides,
+  resolved,
+  locator,
+  targetSchemas,
+  resolveValidatorExports,
+) {
+  const bindings = validatorBindings(
+    repoRoot,
+    sourceOverrides,
+    resolved.ast,
+    locator.path,
+    targetSchemas,
+    resolveValidatorExports,
+  );
+  assertValidatorBindingsSafe(resolved.ast, bindings, locator.path);
+  let found = false;
+  walkFunctionBody(resolved.fn, (node) => {
+    if (node.type !== 'CallExpression') return;
+    const target = validatorBindingTarget(node.callee, bindings);
+    if (target?.symbol === locator.calls) found = true;
   });
   return found;
 }
@@ -348,6 +652,18 @@ function walkNode(node, visitor, skipNestedFunctions = false, root = true) {
     if (key === 'loc' || key === 'start' || key === 'end') continue;
     if (Array.isArray(value)) value.forEach((item) => walkNode(item, visitor, skipNestedFunctions, false));
     else if (value && typeof value === 'object' && typeof value.type === 'string') walkNode(value, visitor, skipNestedFunctions, false);
+  }
+}
+
+function walkNodeWithParent(node, visitor, parent = null) {
+  if (!node || typeof node !== 'object') return;
+  visitor(node, parent);
+  for (const [key, value] of Object.entries(node)) {
+    if (key === 'loc' || key === 'start' || key === 'end') continue;
+    if (Array.isArray(value)) value.forEach((item) => walkNodeWithParent(item, visitor, node));
+    else if (value && typeof value === 'object' && typeof value.type === 'string') {
+      walkNodeWithParent(value, visitor, node);
+    }
   }
 }
 
