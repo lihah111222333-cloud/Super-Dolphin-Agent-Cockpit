@@ -282,7 +282,7 @@ describe('layer token and overlay host contract', () => {
     expect(mainCssImports[0]).toBe(LAYER_TOKENS_FILE);
   });
 
-  it('keeps all 41 active z-index declarations in 12 files on exact known token references', () => {
+  it('keeps all 42 active z-index declarations in 12 files on exact known token references', () => {
     const declarations = activeZIndexDeclarations();
     const files = [...new Set(declarations.map((declaration) => declaration.file))].sort();
     const invalid = declarations.filter((declaration) => {
@@ -290,7 +290,7 @@ describe('layer token and overlay host contract', () => {
       return !match || !EXPECTED_Z_INDEX_TOKENS.has(match[1]);
     });
 
-    expect(declarations).toHaveLength(41);
+    expect(declarations).toHaveLength(42);
     expect(files).toEqual(EXPECTED_Z_INDEX_FILES);
     expect(invalid).toEqual([]);
   });

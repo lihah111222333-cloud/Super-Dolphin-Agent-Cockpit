@@ -42,10 +42,10 @@ describe('frontend maintainability scorer', () => {
     expect(() => validateConfiguration(staleFixture.controls, staleFixture.fixtures)).toThrow('fixture coverage exact set mismatch');
   });
 
-  it('keeps the repaired terminal truth green while reproducing the remaining confirmed blocker', () => {
-    expect(sourceHasPromptHistoryConsoleOnly()).toBe(true);
+  it('keeps the repaired terminal and visible-action truth green while reproducing remaining blockers', () => {
+    expect(sourceHasPromptHistoryConsoleOnly()).toBe(false);
     expect(probeResult('terminalTruth')).toBe('PASS');
-    expect(probeResult('promptHistoryVisibleError')).toBe('FAIL');
+    expect(probeResult('promptHistoryVisibleError')).toBe('PASS');
     expect(probeResult('redMatrix')).toBe('FAIL');
     expect(probeResult('actionRegistry')).toBe('FAIL');
   }, 45_000);
@@ -82,7 +82,7 @@ describe('frontend maintainability scorer', () => {
     const result = scoreCurrentTree();
     expect(result.controls).toHaveLength(25);
     expect(result.controls.find(({ id }) => id === 'E01-terminal-truth')).toMatchObject({ status: 'PASS' });
-    expect(result.controls.find(({ id }) => id === 'E02-visible-action-error')).toMatchObject({ status: 'FAIL' });
+    expect(result.controls.find(({ id }) => id === 'E02-visible-action-error')).toMatchObject({ status: 'PASS' });
     expect(result.displayScore).not.toBe(61.8);
   }, 45_000);
 });

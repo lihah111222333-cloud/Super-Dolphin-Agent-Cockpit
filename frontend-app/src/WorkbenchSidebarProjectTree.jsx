@@ -305,7 +305,7 @@ export function SidebarProjectTree({ copy = APP_COPY.zh.workbench, projectPath, 
     refreshProjectThreadCacheEntry({ force: options.force, path, projectThreadCacheRef, updateProjectThreadCache });
   }, [updateProjectThreadCache]);
   useActiveProjectThreadCacheSync({ activeProjectPath, store, updateProjectThreadCache });
-  const addProject = () => runUIAction(async () => {
+  const addProject = () => runUIAction('project.add', async () => {
     const added = await store?.addProjectFromPicker?.();
     if (added) setActivePage('chat');
   }, actionOptions);
@@ -325,7 +325,7 @@ export function SidebarProjectTree({ copy = APP_COPY.zh.workbench, projectPath, 
   const startProjectThread = (path, event) => {
     event?.stopPropagation?.();
     if (!path) return;
-    runUIAction(() => startProjectThreadAction({ activeProjectPath, path, setActivePage, store }), actionOptions);
+    runUIAction('thread.new', () => startProjectThreadAction({ activeProjectPath, path, setActivePage, store }), actionOptions);
   };
   const selectThread = (thread, path) => {
     const threadId = typeof thread === 'object' ? thread?.id : thread;
@@ -333,7 +333,7 @@ export function SidebarProjectTree({ copy = APP_COPY.zh.workbench, projectPath, 
     const selectionIntent = store?.beginOpeningThread?.(thread);
     if (!selectionIntent) return;
     setActivePage('chat');
-    runUIAction(() => selectProjectThreadAction({ activeProjectPath, path, selectionIntent, store, threadId }), actionOptions);
+    runUIAction('thread.select', () => selectProjectThreadAction({ activeProjectPath, path, selectionIntent, store, threadId }), actionOptions);
   };
   return (
     <section className="sidebar-project-tree" aria-label={copy.projects}>
@@ -373,7 +373,7 @@ export function SidebarTaskSummary({ copy = APP_COPY.zh.workbench, store, setAct
   const selectThread = (threadId) => {
     if (!threadId) return;
     setActivePage('chat');
-    runUIAction(() => store?.setActiveThread?.(threadId), actionOptions);
+    runUIAction('thread.select', () => store?.setActiveThread?.(threadId), actionOptions);
   };
   const taskEntry = (thread) => (
     <SidebarTaskThreadEntry

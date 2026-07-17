@@ -71,7 +71,7 @@ function ComposerModelSelector({ copy = APP_COPY.zh.chat, store, activeThreadId,
 
   return (
     <div className="composer-model-wrap">
-      <DialogTrigger isOpen={controller.open} onOpenChange={(open) => runUIAction(() => controller.setSelectorOpen(open))}>
+      <DialogTrigger isOpen={controller.open} onOpenChange={(open) => runUIAction('composer.model.selector', () => controller.setSelectorOpen(open))}>
         <ModelSelectorButton copy={copy} controller={controller} />
         {controller.open ? <ModelSelectorDropdown copy={copy} controller={controller} /> : null}
       </DialogTrigger>
@@ -108,20 +108,20 @@ function ModelSelectorDropdown({ copy, controller }) {
       <Dialog aria-label={copy.modelConfig} className="model-dropdown-dialog">
         <label>
           <span>{copy.model}</span>
-          <select aria-label={copy.model} value={controller.selectModelValue} disabled={optionDisabled} onChange={(event) => runUIAction(() => controller.saveModelConfig({ model: event.target.value }))}>
+          <select aria-label={copy.model} value={controller.selectModelValue} disabled={optionDisabled} onChange={(event) => runUIAction('settings.model.save', () => controller.saveModelConfig({ model: event.target.value }))}>
             {controller.canOverrideThread ? <option value="">{controller.inheritModelLabel}</option> : null}
             {controller.modelOptions.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
           </select>
         </label>
         <label>
           <span>{copy.effort}</span>
-          <select aria-label={copy.reasoningEffort} value={controller.selectEffortValue} disabled={optionDisabled} onChange={(event) => runUIAction(() => controller.saveModelConfig({ effort: event.target.value }))}>
+          <select aria-label={copy.reasoningEffort} value={controller.selectEffortValue} disabled={optionDisabled} onChange={(event) => runUIAction('settings.model.save', () => controller.saveModelConfig({ effort: event.target.value }))}>
             {controller.canOverrideThread ? <option value="">{controller.inheritEffortLabel}</option> : null}
             {controller.effortOptions.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
           </select>
         </label>
         {controller.canOverrideThread && !controller.inherited ? (
-          <button type="button" className="model-inherit" disabled={optionDisabled} onClick={() => runUIAction(controller.restoreInheritance)}>
+          <button type="button" className="model-inherit" disabled={optionDisabled} onClick={() => runUIAction('settings.model.restore', controller.restoreInheritance)}>
             {copy.inheritGlobal}
           </button>
         ) : null}

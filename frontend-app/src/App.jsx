@@ -40,6 +40,7 @@ import {
 import { memoryPageService } from './pages/memory/services/memoryPageService.js';
 import { APP_BRAND_NAME, APP_COPY, APP_LANGUAGE_STORAGE_KEY, initialAppLocale } from './shared/i18n/appI18n.js';
 import { runUIAction } from './shared/ui/runUIAction.js';
+import { ActionFailureSink } from './shared/ui/actionFailureSink.jsx';
 import { requiredOverlayRoot } from './shared/ui/OverlayPortal.jsx';
 import suiyuanBrandIcon from './assets/suiyuan-brand-icon.png';
 import './AppChrome.css';
@@ -557,7 +558,7 @@ function useBoundAppCommandRuntime(options) {
           run: () => setSidebarOpen((open) => !open),
         },
         [APP_COMMAND_IDS.TURN_INTERRUPT]: {
-          run: () => runUIAction(() => store.interruptActiveThread(), uiActionOptions(store)),
+          run: () => runUIAction('thread.interrupt', () => store.interruptActiveThread(), uiActionOptions(store)),
           canExecute: () => store.hasActiveThreadActions() && !hasOpenLocalEscapeSurface(),
           disabledReason: copy.turnInterruptDisabledReason,
         },
@@ -627,7 +628,7 @@ function AppWindow({ language, shell, shellLayoutStore, shortcutController, stor
   }, []);
   const startNewChat = useCallback(() => {
     setActivePageFromSidebar('chat');
-    runUIAction(() => store?.newThread?.(), uiActionOptions(store));
+    runUIAction('thread.new', () => store?.newThread?.(), uiActionOptions(store));
   }, [setActivePageFromSidebar, store]);
   const commandRuntime = useBoundAppCommandRuntime({
     copy: copy.commands,
@@ -722,6 +723,7 @@ function AppWindow({ language, shell, shellLayoutStore, shortcutController, stor
         </main>
       </div>
       <AppCommandPalette copy={copy.commands} onClose={() => setPaletteOpen(false)} open={paletteOpen} runtime={commandRuntime} />
+      <ActionFailureSink />
     </div>
   );
 }

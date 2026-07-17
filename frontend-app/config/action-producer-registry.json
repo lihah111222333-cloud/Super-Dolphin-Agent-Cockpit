@@ -1,0 +1,80 @@
+{
+  "schemaVersion": 1,
+  "scope": "Direct production runUIAction call expressions only; this is not full application action coverage.",
+  "coveredProducers": [
+    {
+      "actionId": "prompt-history.next",
+      "producerCount": 1,
+      "owner": "features/prompt-history",
+      "visibleSink": "ActionFailureSink",
+      "healthSink": "frontendHealthStore",
+      "preservedState": ["draft", "selection", "history cursor"],
+      "tests": [
+        {
+          "file": "src/pages/chat/composer/ComposerDock.actionFailure.test.jsx",
+          "names": ["keeps next navigation committable and retries the same draft intent"]
+        },
+        {
+          "file": "src/features/prompt-history/model/promptHistoryController.test.js",
+          "names": ["does not commit next navigation when applying the selected draft fails"]
+        }
+      ]
+    },
+    {
+      "actionId": "prompt-history.previous",
+      "producerCount": 1,
+      "owner": "features/prompt-history",
+      "visibleSink": "ActionFailureSink",
+      "healthSink": "frontendHealthStore",
+      "preservedState": ["draft", "selection", "history cursor"],
+      "tests": [
+        {
+          "file": "src/pages/chat/composer/ComposerDock.actionFailure.test.jsx",
+          "names": [
+            "keeps draft cursor and selection stable on rejected prompt history RPC",
+            "keeps draft cursor and selection stable on invalid prompt history response",
+            "retries only the failed prompt history intent without sending"
+          ]
+        },
+        {
+          "file": "src/features/prompt-history/model/promptHistoryController.test.js",
+          "names": [
+            "keeps committed cursor entries and selection when stale retry also fails",
+            "keeps committed cursor entries and selection when a later page is invalid"
+          ]
+        }
+      ]
+    }
+  ],
+  "exemptions": [
+    { "actionId": "app.bootstrap", "producerCount": 1, "owner": "Task2B", "reason": "Bootstrap recovery keeps its existing page-owned feedback until Task2B migration.", "expires": "2026-08-15" },
+    { "actionId": "composer.drop", "producerCount": 2, "owner": "Task2B", "reason": "File drop state and attachment feedback require the Task2B file-action migration.", "expires": "2026-08-15" },
+    { "actionId": "composer.file.select", "producerCount": 2, "owner": "Task2B", "reason": "File picker cancellation and failure semantics remain in the Task2B file-action migration.", "expires": "2026-08-15" },
+    { "actionId": "composer.model.selector", "producerCount": 1, "owner": "Task2B", "reason": "Model selector UI-only failure coverage remains in the Task2B settings migration.", "expires": "2026-08-15" },
+    { "actionId": "composer.paste", "producerCount": 1, "owner": "Task2B", "reason": "Clipboard attachment failure coverage remains in the Task2B file-action migration.", "expires": "2026-08-15" },
+    { "actionId": "composer.send", "producerCount": 2, "owner": "Task2B", "reason": "Send owns terminal and side-effect semantics outside the Prompt History Task2A slice.", "expires": "2026-08-15" },
+    { "actionId": "project.add", "producerCount": 2, "owner": "Task2B", "reason": "Project picker and project state preservation remain in the Task2B thread migration.", "expires": "2026-08-15" },
+    { "actionId": "project.remove", "producerCount": 1, "owner": "Task2B", "reason": "Project removal state preservation remains in the Task2B thread migration.", "expires": "2026-08-15" },
+    { "actionId": "project.select", "producerCount": 1, "owner": "Task2B", "reason": "Project selection state preservation remains in the Task2B thread migration.", "expires": "2026-08-15" },
+    { "actionId": "runtime.panel.toggle", "producerCount": 1, "owner": "Task2B", "reason": "Runtime panel UI-only coverage remains in the Task2B thread migration.", "expires": "2026-08-15" },
+    { "actionId": "settings.model.restore", "producerCount": 1, "owner": "Task2B", "reason": "Model preference restore remains in the Task2B settings migration.", "expires": "2026-08-15" },
+    { "actionId": "settings.model.save", "producerCount": 2, "owner": "Task2B", "reason": "Model preference save remains in the Task2B settings migration.", "expires": "2026-08-15" },
+    { "actionId": "thread.archive", "producerCount": 1, "owner": "Task2B", "reason": "Archive mutation preservation remains in the Task2B thread migration.", "expires": "2026-08-15" },
+    { "actionId": "thread.delete", "producerCount": 3, "owner": "Task2B", "reason": "Thread deletion mutation preservation remains in the Task2B thread migration.", "expires": "2026-08-15" },
+    { "actionId": "thread.force-complete", "producerCount": 2, "owner": "Task2B", "reason": "Force-complete terminal semantics remain outside Task2A and will migrate in Task2B.", "expires": "2026-08-15" },
+    { "actionId": "thread.fork.close", "producerCount": 2, "owner": "Task2B", "reason": "Fork draft lifecycle remains in the Task2B thread migration.", "expires": "2026-08-15" },
+    { "actionId": "thread.fork.file.toggle", "producerCount": 1, "owner": "Task2B", "reason": "Fork shared-file mutation remains in the Task2B file and thread migration.", "expires": "2026-08-15" },
+    { "actionId": "thread.fork.open", "producerCount": 2, "owner": "Task2B", "reason": "Fork draft lifecycle remains in the Task2B thread migration.", "expires": "2026-08-15" },
+    { "actionId": "thread.fork.submit", "producerCount": 1, "owner": "Task2B", "reason": "Fork submission side effects remain in the Task2B thread migration.", "expires": "2026-08-15" },
+    { "actionId": "thread.info.copy", "producerCount": 2, "owner": "Task2B", "reason": "Clipboard action coverage remains in the Task2B file-action migration.", "expires": "2026-08-15" },
+    { "actionId": "thread.interrupt", "producerCount": 4, "owner": "Task2B", "reason": "Interrupt terminal truth remains outside Task2A and will migrate in Task2B.", "expires": "2026-08-15" },
+    { "actionId": "thread.new", "producerCount": 3, "owner": "Task2B", "reason": "New-thread state and routing preservation remain in the Task2B thread migration.", "expires": "2026-08-15" },
+    { "actionId": "thread.pin", "producerCount": 1, "owner": "Task2B", "reason": "Pin mutation preservation remains in the Task2B thread migration.", "expires": "2026-08-15" },
+    { "actionId": "thread.recover", "producerCount": 2, "owner": "Task2B", "reason": "Thread recovery semantics remain in the Task2B thread migration.", "expires": "2026-08-15" },
+    { "actionId": "thread.rename", "producerCount": 2, "owner": "Task2B", "reason": "Rename draft preservation remains in the Task2B thread migration.", "expires": "2026-08-15" },
+    { "actionId": "thread.select", "producerCount": 3, "owner": "Task2B", "reason": "Thread selection race handling remains in the Task2B thread migration.", "expires": "2026-08-15" },
+    { "actionId": "thread.sync", "producerCount": 2, "owner": "Task2B", "reason": "Background thread sync belongs to the Task2B health migration.", "expires": "2026-08-15" },
+    { "actionId": "workspace.window.open", "producerCount": 2, "owner": "Task2B", "reason": "Native window action coverage remains in the Task2B thread migration.", "expires": "2026-08-15" }
+  ],
+  "unmigratedTask2BAreas": ["approval", "settings", "thread", "file", "MCP", "skill"]
+}

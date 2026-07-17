@@ -14,16 +14,16 @@ function ProjectDropdown({
 }) {
   const runProjectAction = (key) => {
     const actionKey = String(key);
-    if (actionKey === 'add-project') return runUIAction(onAdd);
+    if (actionKey === 'add-project') return runUIAction('project.add', onAdd);
     const value = actionKey.startsWith('select:') ? actionKey.slice('select:'.length) : '';
     const item = value ? options.find((option) => option.value === value) : null;
     if (!item) throw new Error(`Unknown project selector action: ${actionKey}`);
-    return runUIAction(() => onSelect(item.value));
+    return runUIAction('project.select', () => onSelect(item.value));
   };
   const removeProject = (event, value) => {
     event.preventDefault();
     event.stopPropagation();
-    return runUIAction(() => onRemove(value));
+    return runUIAction('project.remove', () => onRemove(value));
   };
   return (
     <Menu className="project-dropdown" aria-label={copy.projectList || copy.projects} onAction={runProjectAction}>

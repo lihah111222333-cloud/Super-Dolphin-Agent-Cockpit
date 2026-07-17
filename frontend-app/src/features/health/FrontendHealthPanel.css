@@ -1,0 +1,60 @@
+.frontend-health-panel {
+  display: grid;
+  gap: 14px;
+}
+
+.frontend-health-header,
+.frontend-health-record-title,
+.frontend-health-record-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.frontend-health-header p,
+.frontend-health-panel p {
+  margin: 4px 0 0;
+  color: var(--text-muted);
+}
+
+.frontend-health-list {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.frontend-health-list li {
+  display: grid;
+  gap: 8px;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--error);
+  border-radius: var(--radius-sm);
+  background: var(--panel-2);
+  padding: 12px;
+}
+
+.frontend-health-record-title span,
+.frontend-health-record-meta {
+  color: var(--text-subtle);
+  font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.frontend-health-record-meta {
+  justify-content: flex-start;
+  flex-wrap: wrap;
+}
+
+.frontend-health-record-meta code {
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 720px) {
+  .frontend-health-header,
+  .frontend-health-record-title {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}

@@ -1,4 +1,8 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react'; import { useQuery, useQueryClient } from '@tanstack/react-query'; import { Copy } from 'lucide-react'; import { APP_COPY } from '../../shared/i18n/appI18n.js';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { Copy } from 'lucide-react';
+import { FrontendHealthPanel } from '../../features/health/FrontendHealthPanel.jsx';
+import { APP_COPY } from '../../shared/i18n/appI18n.js';
 import { optionalArrayValue, optionalDateFromValue, errorMessage, firstPresentRawText, textValue, optionalTimestampMillis } from '../shared/pageShared.js';
 import { copyTextToClipboard, getObservabilityTrace, listObservabilityRecent as getObservabilityRecent } from './services/observabilityPageService.js'; import './ObservabilityPage.css';
 function observabilityRecentQueryKey(cwd, params) { return ['observability', 'recent', textValue(cwd), Number(params?.limit) || 0, params || null]; }
@@ -47,7 +51,7 @@ const copyTraceId = useCallback(async (value) => { const nextTraceId = textValue
 const runQuery = useCallback(() => {
 setCopiedTraceId(''); setNotice(''); setExpandedTraces({}); const params = { ...buildRecentParams(), includeTail: true }; void queryClient.invalidateQueries({ queryKey: observabilityRecentQueryKey(queryCwd, params), exact: true }); setSubmittedRecentParams(params);
 }, [buildRecentParams, queryClient, queryCwd, setExpandedTraces]);
-return ( <section className="settings-page observability-page" data-testid="observability-page"> <ObservabilityHeader copy={copy} /> {notice ? <div className="settings-alert error" role="alert">{notice}</div> : null}
+return ( <section className="settings-page observability-page" data-testid="observability-page"> <ObservabilityHeader copy={copy} /> <FrontendHealthPanel /> {notice ? <div className="settings-alert error" role="alert">{notice}</div> : null}
 <ObservabilitySearchForm copy={copy} filters={filters} loading={loading} onFilter={setFilter} onSubmit={runQuery} /> <ObservabilityRecentLogs result={recentResult} onOpenTrace={toggleTraceExpansion} onCopyTrace={copyTraceId} copiedTraceId={copiedTraceId}
 expandedTraces={expandedTraces} queryCwd={queryCwd} queryLimit={queryLimit} onTraceError={setNotice} /> </section> ); }
 function ObservabilityHeader({ copy }) { return ( <div className="settings-header"> <div> <h1>{copy.title}</h1> </div> </div> ); }

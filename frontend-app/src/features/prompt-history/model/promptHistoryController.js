@@ -39,6 +39,7 @@ export function createPromptHistoryController({ fetchPage, cwd, activeThreadId =
   /** @type {{ intent: number, promise: Promise<string | undefined> } | undefined} */
   let pendingSelection;
   let draftSentinel = '';
+  let disposed = false;
 
   /** @param {string} draft */
   function captureDraft(draft) {
@@ -47,6 +48,7 @@ export function createPromptHistoryController({ fetchPage, cwd, activeThreadId =
   }
 
   function previous() {
+    if (disposed) return Promise.resolve(undefined);
     if (pending && pendingSelection?.intent === navigationIntent) return pendingSelection.promise;
     const requestIntent = navigationIntent + 1;
     navigationIntent = requestIntent;
@@ -77,20 +79,36 @@ export function createPromptHistoryController({ fetchPage, cwd, activeThreadId =
     return selection;
   }
 
-  function next() {
-    navigationIntent += 1;
-    if (index > 0) {
-      index -= 1;
-      return entries[index].text;
+  function next(applySelection) {
+    if (applySelection !== undefined && typeof applySelection !== 'function') {
+      throw new TypeError('applySelection must be a function');
     }
-    if (index === 0) index = -1;
-    return draftSentinel;
+    if (disposed) return undefined;
+    let nextIndex = index;
+    if (index > 0) {
+      nextIndex = index - 1;
+    } else if (index === 0) {
+      nextIndex = -1;
+    }
+    const selected = nextIndex >= 0 ? entries[nextIndex].text : draftSentinel;
+    if (applySelection) applySelection(selected);
+    navigationIntent += 1;
+    index = nextIndex;
+    return selected;
   }
 
   function invalidate() {
     generation += 1;
     navigationIntent += 1;
     resetPageState();
+    pending = undefined;
+    pendingSelection = undefined;
+  }
+
+  function dispose() {
+    disposed = true;
+    generation += 1;
+    navigationIntent += 1;
     pending = undefined;
     pendingSelection = undefined;
   }
@@ -108,19 +126,25 @@ export function createPromptHistoryController({ fetchPage, cwd, activeThreadId =
     };
   }
 
-  /** @param {number} requestGeneration @param {boolean} staleRetried */
-  async function loadPreviousPage(requestGeneration, staleRetried) {
+  /**
+   * @param {number} requestGeneration
+   * @param {boolean} staleRetried
+   * @param {string} [requestCursor]
+   * @param {string} [requestNonce]
+   */
+  async function loadPreviousPage(requestGeneration, staleRetried, requestCursor = cursor, requestNonce = nonce) {
     try {
       const response = await fetchPage({
         cwd: normalizedCwd,
         activeThreadId: normalizedActiveThreadId,
-        cursor,
-        nonce,
+        cursor: requestCursor,
+        nonce: requestNonce,
         limit: PROMPT_HISTORY_LIMIT,
       });
       if (requestGeneration !== generation) return false;
       assertPromptHistoryPage(response);
-      entries = entries.concat(response.entries);
+      entries = staleRetried ? [...response.entries] : entries.concat(response.entries);
+      if (staleRetried) index = -1;
       cursor = response.nextCursor;
       nonce = response.nonce;
       hasMore = response.hasMore;
@@ -129,8 +153,7 @@ export function createPromptHistoryController({ fetchPage, cwd, activeThreadId =
     } catch (error) {
       if (requestGeneration !== generation) return false;
       if (!staleRetried && isStalePromptHistoryError(error)) {
-        resetPageState();
-        return loadPreviousPage(requestGeneration, true);
+        return loadPreviousPage(requestGeneration, true, '', '');
       }
       throw error;
     }
@@ -145,7 +168,7 @@ export function createPromptHistoryController({ fetchPage, cwd, activeThreadId =
     loaded = false;
   }
 
-  return { captureDraft, previous, next, invalidate, snapshot };
+  return { captureDraft, previous, next, invalidate, dispose, snapshot };
 }
 
 /** @param {unknown} error */

@@ -68,6 +68,23 @@ describe('promptHistoryController', () => {
     expect(controller.snapshot().entries.map((item) => item.messageId)).toEqual(['message-2', 'message-1']);
   });
 
+  it('does not commit next navigation when applying the selected draft fails', async () => {
+    const controller = createPromptHistoryController({
+      fetchPage: vi.fn().mockResolvedValue(page([entry('message-1', 'older')], {
+        hasMore: true,
+        nextCursor: 'cursor-1',
+      })),
+      cwd: '/repo',
+    });
+    controller.captureDraft('unfinished');
+    await expect(controller.previous()).resolves.toBe('older');
+    const beforeFailure = controller.snapshot();
+
+    expect(() => controller.next(() => { throw new Error('draft application failed'); })).toThrow('draft application failed');
+
+    expect(controller.snapshot()).toEqual(beforeFailure);
+  });
+
   it('deduplicates a pending page load and continues with cursor plus nonce', async () => {
     const firstPage = deferred();
     const fetchPage = vi.fn()
@@ -154,6 +171,25 @@ describe('promptHistoryController', () => {
     expect(fetchPage).toHaveBeenCalledTimes(2);
   });
 
+  it('keeps committed cursor entries and selection when stale retry also fails', async () => {
+    const fetchPage = vi.fn()
+      .mockResolvedValueOnce(page([entry('message-2', 'newer')], {
+        hasMore: true, nextCursor: 'cursor-1', nonce: 'nonce-1',
+      }))
+      .mockRejectedValue(staleError());
+    const controller = createPromptHistoryController({ fetchPage, cwd: '/repo', activeThreadId: 'thread-1' });
+    controller.captureDraft('draft');
+    await expect(controller.previous()).resolves.toBe('newer');
+    const beforeFailure = controller.snapshot();
+
+    await expect(controller.previous()).rejects.toThrow('prompt history snapshot is stale');
+
+    expect(controller.snapshot()).toEqual(beforeFailure);
+    expect(fetchPage).toHaveBeenNthCalledWith(3, {
+      cwd: '/repo', activeThreadId: 'thread-1', cursor: '', nonce: '', limit: 50,
+    });
+  });
+
   it.each([
     ['missing code', staleError, (error) => { delete error.code; }],
     ['wrong code', staleError, (error) => { error.code = -31004; }],
@@ -205,5 +241,20 @@ describe('promptHistoryController', () => {
       });
       await expect(invalid.previous()).rejects.toThrow('prompt history response is invalid');
     }
+  });
+
+  it('keeps committed cursor entries and selection when a later page is invalid', async () => {
+    const fetchPage = vi.fn()
+      .mockResolvedValueOnce(page([entry('message-2', 'newer')], {
+        hasMore: true, nextCursor: 'cursor-1', nonce: 'nonce-1',
+      }))
+      .mockResolvedValueOnce({ entries: null, nonce: 'raw-invalid' });
+    const controller = createPromptHistoryController({ fetchPage, cwd: '/repo' });
+    controller.captureDraft('draft');
+    await controller.previous();
+    const beforeFailure = controller.snapshot();
+
+    await expect(controller.previous()).rejects.toThrow('prompt history response is invalid');
+    expect(controller.snapshot()).toEqual(beforeFailure);
   });
 });
