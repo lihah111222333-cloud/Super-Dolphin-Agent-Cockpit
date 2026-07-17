@@ -174,7 +174,7 @@ func TestPendingTrustGenerationActivatesOnlyAfterHealthyAndRollbackDiscardsIt(t 
 	assertResolvedTrust(t, fixture.target, fixture.oldTrust, fixture.oldGeneration)
 
 	transaction.Trust.Generation = strings.Repeat("f", 64)
-	if _, _, err := ResolvePackageTrustForTransaction(fixture.target, "darwin-arm64", transaction); err == nil || !strings.Contains(err.Error(), "stale") {
+	if _, _, err := ResolvePackageTrustForTransaction(t.Context(), fixture.target, "darwin-arm64", transaction); err == nil || !strings.Contains(err.Error(), "stale") {
 		t.Fatalf("ResolvePackageTrustForTransaction(stale) error = %v", err)
 	}
 	if _, err := fixture.store.RollbackUnclaimedProbation(context.Background(), fixture.request.Identity); err != nil {

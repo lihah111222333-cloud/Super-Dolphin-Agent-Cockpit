@@ -17,11 +17,11 @@ cmd/super-dolphin-release-manifest/main_test.go	cmd	other	go-test	6957	Release m
 cmd/super-dolphin-release-manifest/main.go	cmd	other	go-source	14374	Release manifest generation command	cmd,super,dolphin,release,manifest,main,Release,generation,command
 cmd/super-dolphin-updater/detach_darwin.go	cmd	other	go-source	248	Super-Dolphin updater install and detach command	cmd,super,dolphin,updater,detach,darwin,Super-Dolphin,install,and,command
 cmd/super-dolphin-updater/detach_default.go	cmd	other	go-source	176	Super-Dolphin updater install and detach command	cmd,super,dolphin,updater,detach,default,Super-Dolphin,install,and,command
-cmd/super-dolphin-updater/install_test.go	cmd	other	go-test	19599	Super-Dolphin updater install and detach command	cmd,super,dolphin,updater,install,test,Super-Dolphin,and,detach,command
-cmd/super-dolphin-updater/install.go	cmd	other	go-source	30197	Super-Dolphin updater install and detach command	cmd,super,dolphin,updater,install,Super-Dolphin,and,detach,command
-cmd/super-dolphin-updater/main.go	cmd	other	go-source	9207	Super-Dolphin updater install and detach command	cmd,super,dolphin,updater,main,Super-Dolphin,install,and,detach,command
+cmd/super-dolphin-updater/install_test.go	cmd	other	go-test	19943	Super-Dolphin updater install and detach command	cmd,super,dolphin,updater,install,test,Super-Dolphin,and,detach,command
+cmd/super-dolphin-updater/install.go	cmd	other	go-source	31093	Super-Dolphin updater install and detach command	cmd,super,dolphin,updater,install,Super-Dolphin,and,detach,command
+cmd/super-dolphin-updater/main.go	cmd	other	go-source	9424	Super-Dolphin updater install and detach command	cmd,super,dolphin,updater,main,Super-Dolphin,install,and,detach,command
 cmd/super-dolphin-updater/package_trust_test.go	cmd	other	go-test	5711	Super-Dolphin updater install and detach command	cmd,super,dolphin,updater,package,trust,test,Super-Dolphin,install,and,detach,command
-cmd/super-dolphin-updater/package_trust.go	cmd	other	go-source	15701	Super-Dolphin updater install and detach command	cmd,super,dolphin,updater,package,trust,Super-Dolphin,install,and,detach,command
+cmd/super-dolphin-updater/package_trust.go	cmd	other	go-source	16851	Super-Dolphin updater install and detach command	cmd,super,dolphin,updater,package,trust,Super-Dolphin,install,and,detach,command
 cmd/super-dolphin-updater/probation_rollback_test.go	cmd	other	go-test	20752	Super-Dolphin updater install and detach command	cmd,super,dolphin,updater,probation,rollback,test,Super-Dolphin,install,and,detach,command
 cmd/super-dolphin-updater/probation.go	cmd	other	go-source	24908	Super-Dolphin updater install and detach command	cmd,super,dolphin,updater,probation,Super-Dolphin,install,and,detach,command
 go.mod	(root)	other	mod	3841	仓库根级配置、入口或说明文件	go,仓库根级配置,入口或说明文件
@@ -47,9 +47,10 @@ internal/app/orchestration_adapter_ports_test.go	internal	other	go-test	10127	ro
 internal/app/orchestration_dag_runtime_adapter_test.go	internal	other	go-test	16057	root Fx/app 装配、runner 与 graph closure	internal,app,orchestration,dag,runtime,adapter,test,root,Fx,装配,runner,与,graph,closure
 internal/app/orchestration_dag_runtime_adapter.go	internal	other	go-source	12661	root Fx/app 装配、runner 与 graph closure	internal,app,orchestration,dag,runtime,adapter,root,Fx,装配,runner,与,graph,closure
 internal/app/provider_hooks_contract_test.go	internal	other	go-test	931	root Fx/app 装配、runner 与 graph closure	internal,app,provider,hooks,contract,test,root,Fx,装配,runner,与,graph,closure
-internal/app/recovery_graph_test.go	internal	other	go-test	10039	root Fx/app 装配、runner 与 graph closure	internal,app,recovery,graph,test,root,Fx,装配,runner,与,closure
-internal/app/recovery_graph.go	internal	other	go-source	6842	root Fx/app 装配、runner 与 graph closure	internal,app,recovery,graph,root,Fx,装配,runner,与,closure
-internal/app/recovery_selection.go	internal	other	go-source	7214	root Fx/app 装配、runner 与 graph closure	internal,app,recovery,selection,root,Fx,装配,runner,与,graph,closure
+internal/app/recovery_digest_unix_test.go	internal	other	go-test	5687	root Fx/app 装配、runner 与 graph closure	internal,app,recovery,digest,unix,test,root,Fx,装配,runner,与,graph,closure
+internal/app/recovery_graph_test.go	internal	other	go-test	10374	root Fx/app 装配、runner 与 graph closure	internal,app,recovery,graph,test,root,Fx,装配,runner,与,closure
+internal/app/recovery_graph.go	internal	other	go-source	6854	root Fx/app 装配、runner 与 graph closure	internal,app,recovery,graph,root,Fx,装配,runner,与,closure
+internal/app/recovery_selection.go	internal	other	go-source	7278	root Fx/app 装配、runner 与 graph closure	internal,app,recovery,selection,root,Fx,装配,runner,与,graph,closure
 internal/app/runner_test.go	internal	other	go-test	8403	root Fx/app 装配、runner 与 graph closure	internal,app,runner,test,root,Fx,装配,与,graph,closure
 internal/app/runner.go	internal	other	go-source	8049	root Fx/app 装配、runner 与 graph closure	internal,app,runner,root,Fx,装配,与,graph,closure
 internal/app/runtime_reporter_adapter.go	internal	other	go-source	2586	root Fx/app 装配、runner 与 graph closure	internal,app,runtime,reporter,adapter,root,Fx,装配,runner,与,graph,closure

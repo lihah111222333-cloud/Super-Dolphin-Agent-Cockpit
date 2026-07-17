@@ -412,19 +412,19 @@ func ResolveTransactionBoundPackageTrust(ctx context.Context, target, platform s
 			return PackageTrust{}, "", fmt.Errorf("inspect prepared recovery capsule: %w", err)
 		}
 	}
-	return ResolvePackageTrustForTransaction(target, platform, transaction)
+	return ResolvePackageTrustForTransaction(ctx, target, platform, transaction)
 }
 
 // recoverPreparedWithoutCapsule 验证 journal 两代真值后安全终止 journal-before-capsule 崩溃窗。
 func recoverPreparedWithoutCapsule(ctx context.Context, store *Store, target, platform string, transaction Transaction) (PackageTrust, string, error) {
 	oldTrust, oldGeneration, err := loadExactTransactionTrust(
-		target, platform, transaction.Identity.OldRelease, transaction.Identity.OldHelpers,
+		ctx, target, platform, transaction.Identity.OldRelease, transaction.Identity.OldHelpers,
 		transaction.Trust.PreviousGeneration, transaction.Trust.PackageSigner,
 	)
 	if err != nil {
 		return PackageTrust{}, "", err
 	}
-	if err := verifyCandidateForState(platform, transaction); err != nil {
+	if err := verifyCandidateForState(ctx, platform, transaction); err != nil {
 		return PackageTrust{}, "", err
 	}
 	rolledBack, err := store.Rollback(ctx, transaction.Identity)
@@ -461,15 +461,15 @@ func cleanupTransactionCapsule(paths Paths) error {
 }
 
 // ResolvePackageTrustForTransaction 按 exact state/intent 校验双代 release、helper 和 trust。
-func ResolvePackageTrustForTransaction(target, platform string, transaction Transaction) (PackageTrust, string, error) {
+func ResolvePackageTrustForTransaction(ctx context.Context, target, platform string, transaction Transaction) (PackageTrust, string, error) {
 	if transaction.Paths.Target != target {
 		return PackageTrust{}, "", ErrIdentityMismatch
 	}
-	trust, generation, terminal, err := resolveTerminalPackageTrust(target, platform, transaction)
+	trust, generation, terminal, err := resolveTerminalPackageTrust(ctx, target, platform, transaction)
 	if terminal || err != nil {
 		return trust, generation, err
 	}
-	if err := verifyRecoveryCapsule(platform, transaction); err != nil {
+	if err := verifyRecoveryCapsule(ctx, platform, transaction); err != nil {
 		return PackageTrust{}, "", err
 	}
 	oldPath, err := oldReleasePathForState(transaction)
@@ -477,18 +477,18 @@ func ResolvePackageTrustForTransaction(target, platform string, transaction Tran
 		return PackageTrust{}, "", err
 	}
 	if oldPath != "" {
-		if _, _, err := loadExactTransactionTrust(oldPath, platform, transaction.Identity.OldRelease, transaction.Identity.OldHelpers, transaction.Trust.PreviousGeneration, transaction.Trust.PackageSigner); err != nil {
+		if _, _, err := loadExactTransactionTrust(ctx, oldPath, platform, transaction.Identity.OldRelease, transaction.Identity.OldHelpers, transaction.Trust.PreviousGeneration, transaction.Trust.PackageSigner); err != nil {
 			return PackageTrust{}, "", err
 		}
 	}
-	if err := verifyCandidateForState(platform, transaction); err != nil {
+	if err := verifyCandidateForState(ctx, platform, transaction); err != nil {
 		return PackageTrust{}, "", err
 	}
 	return loadCapsuleTrust(platform, transaction)
 }
 
 // resolveTerminalPackageTrust 清理 capsule 后仅从 exact target 解析终态 trust。
-func resolveTerminalPackageTrust(target, platform string, transaction Transaction) (PackageTrust, string, bool, error) {
+func resolveTerminalPackageTrust(ctx context.Context, target, platform string, transaction Transaction) (PackageTrust, string, bool, error) {
 	if transaction.State != StateCommitted && transaction.State != StateRolledBack {
 		return PackageTrust{}, "", false, nil
 	}
@@ -496,10 +496,10 @@ func resolveTerminalPackageTrust(target, platform string, transaction Transactio
 		return PackageTrust{}, "", true, err
 	}
 	if transaction.State == StateCommitted {
-		trust, generation, err := loadExactTransactionTrust(target, platform, transaction.Identity.CandidateRelease, transaction.Identity.CandidateHelpers, transaction.Trust.Generation, transaction.Trust.PackageSigner)
+		trust, generation, err := loadExactTransactionTrust(ctx, target, platform, transaction.Identity.CandidateRelease, transaction.Identity.CandidateHelpers, transaction.Trust.Generation, transaction.Trust.PackageSigner)
 		return trust, generation, true, err
 	}
-	trust, generation, err := loadExactTransactionTrust(target, platform, transaction.Identity.OldRelease, transaction.Identity.OldHelpers, transaction.Trust.PreviousGeneration, transaction.Trust.PackageSigner)
+	trust, generation, err := loadExactTransactionTrust(ctx, target, platform, transaction.Identity.OldRelease, transaction.Identity.OldHelpers, transaction.Trust.PreviousGeneration, transaction.Trust.PackageSigner)
 	return trust, generation, true, err
 }
 
@@ -524,7 +524,7 @@ func oldReleasePathForState(transaction Transaction) (string, error) {
 }
 
 // verifyCandidateForState 验证当前 state 仍应存在的 exact candidate。
-func verifyCandidateForState(platform string, transaction Transaction) error {
+func verifyCandidateForState(ctx context.Context, platform string, transaction Transaction) error {
 	var path string
 	var err error
 	switch transaction.State {
@@ -542,16 +542,16 @@ func verifyCandidateForState(platform string, transaction Transaction) error {
 	if err != nil {
 		return err
 	}
-	_, _, err = loadExactTransactionTrust(path, platform, transaction.Identity.CandidateRelease, transaction.Identity.CandidateHelpers, transaction.Trust.Generation, transaction.Trust.PackageSigner)
+	_, _, err = loadExactTransactionTrust(ctx, path, platform, transaction.Identity.CandidateRelease, transaction.Identity.CandidateHelpers, transaction.Trust.Generation, transaction.Trust.PackageSigner)
 	return err
 }
 
 // loadExactTransactionTrust 联合校验 release、helper、generation 和 signer。
-func loadExactTransactionTrust(path, platform string, release ReleaseIdentity, helpers HelperIdentity, generation, signer string) (PackageTrust, string, error) {
+func loadExactTransactionTrust(ctx context.Context, path, platform string, release ReleaseIdentity, helpers HelperIdentity, generation, signer string) (PackageTrust, string, error) {
 	if err := RequireCanonicalExistingPath(path); err != nil {
 		return PackageTrust{}, "", fmt.Errorf("reject transaction release alias: %w", err)
 	}
-	if err := verifyRelease(path, release); err != nil {
+	if err := verifyRelease(ctx, path, release); err != nil {
 		return PackageTrust{}, "", fmt.Errorf("verify transaction release at %s: %w", path, err)
 	}
 	trust, actualGeneration, err := LoadPackageTrust(filepath.Join(path, "Contents", "Resources"), platform)
@@ -564,19 +564,19 @@ func loadExactTransactionTrust(path, platform string, release ReleaseIdentity, h
 	if trust.SignerIdentity != signer {
 		return PackageTrust{}, "", fmt.Errorf("transaction trust signer = %q, want %q", trust.SignerIdentity, signer)
 	}
-	if err := verifyReleaseHelpers(path, trust, helpers); err != nil {
+	if err := verifyReleaseHelpers(ctx, path, trust, helpers); err != nil {
 		return PackageTrust{}, "", err
 	}
 	return trust, actualGeneration, nil
 }
 
 // verifyReleaseHelpers 校验包内 helper 同时匹配 trust 与 journal identity。
-func verifyReleaseHelpers(release string, trust PackageTrust, helpers HelperIdentity) error {
+func verifyReleaseHelpers(ctx context.Context, release string, trust PackageTrust, helpers HelperIdentity) error {
 	updaterPath := filepath.Join(release, "Contents", "Resources", "bin", "super-dolphin-updater")
 	if err := RequireCanonicalExistingPath(updaterPath); err != nil {
 		return fmt.Errorf("reject transaction updater alias: %w", err)
 	}
-	updater, err := ComputeReleaseDigest(updaterPath)
+	updater, err := ComputeReleaseDigestContext(ctx, updaterPath)
 	if err != nil {
 		return fmt.Errorf("digest transaction updater helper: %w", err)
 	}
@@ -584,7 +584,7 @@ func verifyReleaseHelpers(release string, trust PackageTrust, helpers HelperIden
 	if err := RequireCanonicalExistingPath(guardPath); err != nil {
 		return fmt.Errorf("reject transaction Guard alias: %w", err)
 	}
-	guard, err := ComputeReleaseDigest(guardPath)
+	guard, err := ComputeReleaseDigestContext(ctx, guardPath)
 	if err != nil {
 		return fmt.Errorf("digest transaction Guard helper: %w", err)
 	}
@@ -594,14 +594,14 @@ func verifyReleaseHelpers(release string, trust PackageTrust, helpers HelperIden
 	return nil
 }
 
-func verifyRecoveryCapsule(platform string, transaction Transaction) error {
+func verifyRecoveryCapsule(ctx context.Context, platform string, transaction Transaction) error {
 	updater := filepath.Join(transaction.Paths.RecoveryDir, "super-dolphin-updater")
 	guard := filepath.Join(transaction.Paths.RecoveryDir, "super-dolphin-guard")
-	updaterDigest, err := ComputeReleaseDigest(updater)
+	updaterDigest, err := ComputeReleaseDigestContext(ctx, updater)
 	if err != nil {
 		return fmt.Errorf("verify recovery capsule updater: %w", err)
 	}
-	guardDigest, err := ComputeReleaseDigest(guard)
+	guardDigest, err := ComputeReleaseDigestContext(ctx, guard)
 	if err != nil {
 		return fmt.Errorf("verify recovery capsule Guard: %w", err)
 	}

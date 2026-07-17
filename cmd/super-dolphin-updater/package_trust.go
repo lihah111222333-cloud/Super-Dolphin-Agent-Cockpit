@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -25,7 +26,7 @@ type recoveryCapsule struct {
 }
 
 // bindPackageOwnedTrust 将两代包内 trust 和 helper 真值绑定到事务。
-func bindPackageOwnedTrust(req recovery.CreateRequest, install installRequest, expectedSigner string) (recovery.CreateRequest, bool, error) {
+func bindPackageOwnedTrust(ctx context.Context, req recovery.CreateRequest, install installRequest, expectedSigner string) (recovery.CreateRequest, bool, error) {
 	platform := runtime.GOOS + "-" + runtime.GOARCH
 	oldResources := filepath.Join(req.Paths.Target, "Contents", "Resources")
 	candidateResources := filepath.Join(req.Paths.Staging, "Contents", "Resources")
@@ -36,11 +37,11 @@ func bindPackageOwnedTrust(req recovery.CreateRequest, install installRequest, e
 	if err := recovery.RejectPackageTrustOverrides(os.Environ()); err != nil {
 		return recovery.CreateRequest{}, false, err
 	}
-	oldHelpers, err := helperIdentityForRelease(req.Paths.Target)
+	oldHelpers, err := helperIdentityForRelease(ctx, req.Paths.Target)
 	if err != nil {
 		return recovery.CreateRequest{}, false, err
 	}
-	candidateHelpers, err := helperIdentityForRelease(req.Paths.Staging)
+	candidateHelpers, err := helperIdentityForRelease(ctx, req.Paths.Staging)
 	if err != nil {
 		return recovery.CreateRequest{}, false, err
 	}
@@ -48,7 +49,7 @@ func bindPackageOwnedTrust(req recovery.CreateRequest, install installRequest, e
 		return recovery.CreateRequest{}, false, err
 	}
 	canonicalUpdater := filepath.Join(req.Paths.Target, packageUpdaterPath)
-	if err := validateRunningPackageUpdater(req.Identity.UpdaterProcess, oldTrust, oldHelpers, canonicalUpdater); err != nil {
+	if err := validateRunningPackageUpdaterContext(ctx, req.Identity.UpdaterProcess, oldTrust, oldHelpers, canonicalUpdater); err != nil {
 		return recovery.CreateRequest{}, false, err
 	}
 	req.Identity.OldHelpers = oldHelpers
@@ -63,9 +64,10 @@ func bindPackageOwnedTrust(req recovery.CreateRequest, install installRequest, e
 }
 
 // publishPackageRecoveryCapsule 发布并复核旧包 helper 与 trust 的 exact 快照。
-func publishPackageRecoveryCapsule(transaction recovery.Transaction) error {
+func publishPackageRecoveryCapsule(ctx context.Context, transaction recovery.Transaction) error {
 	oldResources := filepath.Join(transaction.Paths.Target, "Contents", "Resources")
-	capsule, err := prepareRecoveryCapsule(
+	capsule, err := prepareRecoveryCapsuleContext(
+		ctx,
 		transaction.Paths.RecoveryDir,
 		filepath.Join(transaction.Paths.Target, packageUpdaterPath),
 		filepath.Join(transaction.Paths.Target, packageGuardPath),
@@ -99,7 +101,12 @@ func cleanupPackageRecoveryCapsule(dir string) error {
 
 // validateRunningPackageUpdater 拒绝不来自旧包规范 helper 路径的直接 CLI。
 func validateRunningPackageUpdater(process recovery.ProcessIdentity, trust recovery.PackageTrust, helpers recovery.HelperIdentity, canonicalPath string) error {
-	expectedPath, runningPath, err := canonicalUpdaterPaths(canonicalPath, process.ExecutableIdentity)
+	return validateRunningPackageUpdaterContext(context.Background(), process, trust, helpers, canonicalPath)
+}
+
+// validateRunningPackageUpdaterContext 在调用方期限内验证 updater 路径、进程和摘要身份。
+func validateRunningPackageUpdaterContext(ctx context.Context, process recovery.ProcessIdentity, trust recovery.PackageTrust, helpers recovery.HelperIdentity, canonicalPath string) error {
+	expectedPath, runningPath, err := canonicalUpdaterPathsContext(ctx, canonicalPath, process.ExecutableIdentity)
 	if err != nil {
 		return err
 	}
@@ -112,7 +119,7 @@ func validateRunningPackageUpdater(process recovery.ProcessIdentity, trust recov
 	if process.ExecutableSHA256 != trust.UpdaterSHA256 || process.ExecutableSHA256 != helpers.UpdaterSHA256 {
 		return errors.New("running updater digest does not match package-owned trust")
 	}
-	digest, err := recovery.ComputeReleaseDigest(expectedPath)
+	digest, err := recovery.ComputeReleaseDigestContext(ctx, expectedPath)
 	if err != nil {
 		return fmt.Errorf("digest canonical package updater: %w", err)
 	}
@@ -122,13 +129,13 @@ func validateRunningPackageUpdater(process recovery.ProcessIdentity, trust recov
 	return nil
 }
 
-// canonicalUpdaterPaths 解析 package helper 与进程声明路径的 canonical existing identity。
-func canonicalUpdaterPaths(expected, running string) (string, string, error) {
-	expectedPath, err := recovery.CanonicalExistingPath(expected)
+// canonicalUpdaterPathsContext 解析 package helper 与进程声明路径的 canonical existing identity。
+func canonicalUpdaterPathsContext(ctx context.Context, expected, running string) (string, string, error) {
+	expectedPath, err := recovery.CanonicalExistingPathContext(ctx, expected)
 	if err != nil {
 		return "", "", fmt.Errorf("canonicalize package updater executable: %w", err)
 	}
-	runningPath, err := recovery.CanonicalExistingPath(running)
+	runningPath, err := recovery.CanonicalExistingPathContext(ctx, running)
 	if err != nil {
 		return "", "", fmt.Errorf("canonicalize running updater executable: %w", err)
 	}
@@ -167,11 +174,15 @@ func loadPackageTrustPair(oldResources, candidateResources, platform string) (re
 }
 
 func captureUpdaterProcessIdentity() (recovery.ProcessIdentity, recovery.HelperIdentity, error) {
+	return captureUpdaterProcessIdentityContext(context.Background())
+}
+
+func captureUpdaterProcessIdentityContext(ctx context.Context) (recovery.ProcessIdentity, recovery.HelperIdentity, error) {
 	executable, err := os.Executable()
 	if err != nil {
 		return recovery.ProcessIdentity{}, recovery.HelperIdentity{}, fmt.Errorf("resolve updater executable: %w", err)
 	}
-	digest, err := recovery.ComputeReleaseDigest(executable)
+	digest, err := recovery.ComputeReleaseDigestContext(ctx, executable)
 	if err != nil {
 		return recovery.ProcessIdentity{}, recovery.HelperIdentity{}, fmt.Errorf("digest updater executable: %w", err)
 	}
@@ -227,12 +238,12 @@ func validatePackageHelpers(oldTrust, candidateTrust recovery.PackageTrust, oldH
 	return nil
 }
 
-func helperIdentityForRelease(release string) (recovery.HelperIdentity, error) {
-	updater, err := recovery.ComputeReleaseDigest(filepath.Join(release, packageUpdaterPath))
+func helperIdentityForRelease(ctx context.Context, release string) (recovery.HelperIdentity, error) {
+	updater, err := recovery.ComputeReleaseDigestContext(ctx, filepath.Join(release, packageUpdaterPath))
 	if err != nil {
 		return recovery.HelperIdentity{}, fmt.Errorf("digest package updater helper: %w", err)
 	}
-	guard, err := recovery.ComputeReleaseDigest(filepath.Join(release, packageGuardPath))
+	guard, err := recovery.ComputeReleaseDigestContext(ctx, filepath.Join(release, packageGuardPath))
 	if err != nil {
 		return recovery.HelperIdentity{}, fmt.Errorf("digest package Guard helper: %w", err)
 	}
@@ -241,6 +252,10 @@ func helperIdentityForRelease(release string) (recovery.HelperIdentity, error) {
 
 // prepareRecoveryCapsule 在 Prepared journal 后构建、同步并原子发布旧 helper 与 trust 快照。
 func prepareRecoveryCapsule(dir string, updater string, guard string, trust string) (capsule recoveryCapsule, err error) {
+	return prepareRecoveryCapsuleContext(context.Background(), dir, updater, guard, trust)
+}
+
+func prepareRecoveryCapsuleContext(ctx context.Context, dir string, updater string, guard string, trust string) (capsule recoveryCapsule, err error) {
 	parent := filepath.Dir(dir)
 	pending := dir + ".pending"
 	if err := initializeRecoveryCapsule(pending, parent); err != nil {
@@ -251,7 +266,7 @@ func prepareRecoveryCapsule(dir string, updater string, guard string, trust stri
 			err = errors.Join(err, removeRecoveryCapsule(pending))
 		}
 	}()
-	capsule, err = copyRecoveryCapsule(pending, updater, guard, trust)
+	capsule, err = copyRecoveryCapsule(ctx, pending, updater, guard, trust)
 	if err != nil {
 		return recoveryCapsule{}, err
 	}
@@ -273,7 +288,7 @@ func initializeRecoveryCapsule(pending, parent string) error {
 }
 
 // copyRecoveryCapsule 逐文件 fsync，复算 helper SHA，并同步 pending 目录。
-func copyRecoveryCapsule(pending, updater, guard, trust string) (recoveryCapsule, error) {
+func copyRecoveryCapsule(ctx context.Context, pending, updater, guard, trust string) (recoveryCapsule, error) {
 	capsule := recoveryCapsuleAt(pending, recovery.HelperIdentity{})
 	if err := copyExecutable(updater, capsule.UpdaterPath); err != nil {
 		return recoveryCapsule{}, err
@@ -284,7 +299,7 @@ func copyRecoveryCapsule(pending, updater, guard, trust string) (recoveryCapsule
 	if err := copyFile(trust, capsule.TrustPath, 0o600); err != nil {
 		return recoveryCapsule{}, err
 	}
-	identity, err := helperIdentityForPaths(capsule.UpdaterPath, capsule.GuardPath)
+	identity, err := helperIdentityForPaths(ctx, capsule.UpdaterPath, capsule.GuardPath)
 	if err != nil {
 		return recoveryCapsule{}, err
 	}
@@ -331,12 +346,12 @@ func removeRecoveryCapsule(path string) error {
 	return nil
 }
 
-func helperIdentityForPaths(updater, guard string) (recovery.HelperIdentity, error) {
-	updaterDigest, err := recovery.ComputeReleaseDigest(updater)
+func helperIdentityForPaths(ctx context.Context, updater, guard string) (recovery.HelperIdentity, error) {
+	updaterDigest, err := recovery.ComputeReleaseDigestContext(ctx, updater)
 	if err != nil {
 		return recovery.HelperIdentity{}, err
 	}
-	guardDigest, err := recovery.ComputeReleaseDigest(guard)
+	guardDigest, err := recovery.ComputeReleaseDigestContext(ctx, guard)
 	if err != nil {
 		return recovery.HelperIdentity{}, err
 	}

@@ -309,8 +309,8 @@ func syncRegularFile(path string) error {
 	return nil
 }
 
-func verifyRelease(path string, identity ReleaseIdentity) error {
-	digest, err := ComputeReleaseDigest(path)
+func verifyRelease(ctx context.Context, path string, identity ReleaseIdentity) error {
+	digest, err := ComputeReleaseDigestContext(ctx, path)
 	if err != nil {
 		return err
 	}

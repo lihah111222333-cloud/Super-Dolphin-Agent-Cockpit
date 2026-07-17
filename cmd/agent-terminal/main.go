@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/signal"
 	"strings"
@@ -31,13 +32,21 @@ type cooperativeTerminationServer interface {
 }
 
 type terminalMainDeps struct {
-	startTermination func(context.CancelFunc) (cooperativeTerminationServer, bool, error)
-	run              func(context.Context, terminalDeps) error
-	terminal         terminalDeps
+	prepareFilesystemHelper func() (func() error, error)
+	startTermination        func(context.CancelFunc) (cooperativeTerminationServer, bool, error)
+	run                     func(context.Context, terminalDeps) error
+	terminal                terminalDeps
 }
 
 // main 在任何 normal preflight 前运行 early selector。
 func main() {
+	if handled, err := recovery.RunReleaseFilesystemHelperIfRequested(os.Stdin, os.Stdout); handled {
+		if err != nil {
+			slog.Error("release filesystem helper failed", "error", err)
+			os.Exit(2)
+		}
+		return
+	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	os.Exit(runMain(ctx, stop, productionTerminalMainDeps()))
 }
@@ -49,6 +58,12 @@ func runMain(ctx context.Context, stop context.CancelFunc, deps terminalMainDeps
 		return 1
 	}
 	defer stop()
+	cleanupFilesystemHelper, err := deps.prepareFilesystemHelper()
+	if err != nil {
+		pkglogger.Get().Error("agent-terminal release filesystem helper preparation failed", "error", err)
+		return 1
+	}
+	defer func() { exitCode = cleanupReleaseFilesystemHelper(cleanupFilesystemHelper, exitCode) }()
 	terminationServer, parked, err := deps.startTermination(stop)
 	if err != nil {
 		pkglogger.Get().Error("agent-terminal termination endpoint failed", "error", err)
@@ -60,11 +75,25 @@ func runMain(ctx context.Context, stop context.CancelFunc, deps terminalMainDeps
 	return executeTerminalMain(ctx, deps, terminationServer, parked)
 }
 
+// validateTerminalMainDeps 在任何启动副作用前校验 early helper 与运行依赖完整。
 func validateTerminalMainDeps(ctx context.Context, stop context.CancelFunc, deps terminalMainDeps) error {
-	if ctx == nil || stop == nil || deps.startTermination == nil || deps.run == nil {
+	if ctx == nil || stop == nil || deps.prepareFilesystemHelper == nil || deps.startTermination == nil || deps.run == nil {
 		return errors.New("agent-terminal main dependencies are incomplete")
 	}
 	return nil
+}
+
+func cleanupReleaseFilesystemHelper(cleanup func() error, exitCode int) int {
+	if cleanup == nil {
+		return 1
+	}
+	if err := cleanup(); err != nil {
+		pkglogger.Get().Error("agent-terminal release filesystem helper cleanup failed", "error", err)
+		if exitCode == 0 {
+			return 1
+		}
+	}
+	return exitCode
 }
 
 func closeTerminationServer(server cooperativeTerminationServer, exitCode int) int {
@@ -106,6 +135,7 @@ func executeTerminalMain(
 
 func productionTerminalMainDeps() terminalMainDeps {
 	return terminalMainDeps{
+		prepareFilesystemHelper: recovery.PrepareReleaseFilesystemHelper,
 		startTermination: func(cancel context.CancelFunc) (cooperativeTerminationServer, bool, error) {
 			return startCooperativeTermination(cancel)
 		},

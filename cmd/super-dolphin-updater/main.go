@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"reflect"
 	"runtime"
@@ -42,13 +43,19 @@ func main() {
 		}
 		return
 	}
-	if exitCode := runUpdaterMain(); exitCode != 0 {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	if exitCode := runUpdaterMain(ctx); exitCode != 0 {
 		os.Exit(exitCode)
 	}
 }
 
 // runUpdaterMain 暂存稳定 helper 后执行 updater，并在返回前清理暂存文件。
-func runUpdaterMain() (exitCode int) {
+func runUpdaterMain(ctx context.Context) (exitCode int) {
+	if ctx == nil {
+		slog.Error("updater context is required")
+		return 2
+	}
 	cleanup, err := recovery.PrepareReleaseFilesystemHelper()
 	if err != nil {
 		slog.Error("prepare release filesystem helper failed", "error", err)
@@ -76,7 +83,7 @@ func runUpdaterMain() (exitCode int) {
 		}
 		return 0
 	}
-	if err := defaultUpdaterApp().install(req); err != nil {
+	if err := defaultUpdaterApp().install(ctx, req); err != nil {
 		pkglogger.Get().Error("super-dolphin-updater install failed", "error", err)
 		return 1
 	}

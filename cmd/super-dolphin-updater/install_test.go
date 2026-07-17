@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -13,6 +14,18 @@ import (
 
 	recovery "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/appupdaterecovery"
 )
+
+// TestMain 让 updater 测试二进制在 helper 模式下只处理一次 filesystem 请求。
+func TestMain(m *testing.M) {
+	if handled, err := recovery.RunReleaseFilesystemHelperIfRequested(os.Stdin, os.Stdout); handled {
+		if err != nil {
+			_, _ = fmt.Fprintln(os.Stderr, err)
+			os.Exit(2)
+		}
+		os.Exit(0)
+	}
+	os.Exit(m.Run())
+}
 
 func TestValidateInstallRequestRejectsMissingDMG(t *testing.T) {
 	target := filepath.Join(t.TempDir(), "Super Dolphin.app")

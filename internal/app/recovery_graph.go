@@ -53,7 +53,7 @@ func (service RecoveryCheckService) Check(ctx context.Context) error {
 	if transaction.State != recovery.StateProbation && transaction.State != recovery.StateCommitPending {
 		return fmt.Errorf("Recovery check is unavailable from state %q", transaction.State)
 	}
-	digest, err := recovery.ComputeReleaseDigest(transaction.Paths.Target)
+	digest, err := recovery.ComputeReleaseDigestContext(ctx, transaction.Paths.Target)
 	if err != nil {
 		return err
 	}
