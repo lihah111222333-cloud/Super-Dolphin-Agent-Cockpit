@@ -4,6 +4,7 @@ import process from 'node:process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { parse } from '@babel/parser';
+import { Linter } from 'eslint';
 
 import { generatedSchemas } from '../src/shared/contracts/turnContracts.generated.js';
 
@@ -123,15 +124,26 @@ function validatorBindings(repoRoot, sourceOverrides, ast, relativePath, targetS
     resolveValidatorExports,
   );
   if (relativePath === validatorRelativePath) {
+    bindings.lexical ??= createLexicalBindingIndex(
+      readRepositorySource(repoRoot, relativePath, sourceOverrides),
+      relativePath,
+    );
     for (const [symbol, schemaName] of targetSchemas) {
-      bindings.identifiers.set(symbol, { schemaName, symbol });
+      const binding = bindings.lexical.programBinding(symbol);
+      if (!binding) throw new Error(`${relativePath} validator declaration ${symbol} is missing`);
+      bindings.identifiers.set(binding, { schemaName, symbol });
     }
   }
   return bindings;
 }
 
 function importedValidatorBindings(repoRoot, sourceOverrides, ast, relativePath, resolveValidatorExports) {
-  const bindings = { identifiers: new Map(), namespaces: new Map() };
+  const bindings = {
+    identifiers: new Map(),
+    namespaces: new Map(),
+    lexical: undefined,
+  };
+  const imported = [];
   for (const statement of ast.program.body) {
     if (statement.type !== 'ImportDeclaration' || typeof statement.source?.value !== 'string') continue;
     const sourcePath = resolveLocalModulePath(repoRoot, sourceOverrides, relativePath, statement.source.value);
@@ -141,14 +153,24 @@ function importedValidatorBindings(repoRoot, sourceOverrides, ast, relativePath,
     for (const specifier of statement.specifiers) {
       if (specifier.type === 'ImportSpecifier') {
         const target = sourceExports.get(moduleName(specifier.imported));
-        if (target) bindings.identifiers.set(specifier.local.name, target);
+        if (target) imported.push({ kind: 'identifier', local: specifier.local, target });
       } else if (specifier.type === 'ImportNamespaceSpecifier') {
-        bindings.namespaces.set(specifier.local.name, sourceExports);
+        imported.push({ kind: 'namespace', local: specifier.local, target: sourceExports });
       } else if (specifier.type === 'ImportDefaultSpecifier') {
         const target = sourceExports.get('default');
-        if (target) bindings.identifiers.set(specifier.local.name, target);
+        if (target) imported.push({ kind: 'identifier', local: specifier.local, target });
       }
     }
+  }
+  if (imported.length === 0) return bindings;
+  bindings.lexical = createLexicalBindingIndex(
+    readRepositorySource(repoRoot, relativePath, sourceOverrides),
+    relativePath,
+  );
+  for (const entry of imported) {
+    const binding = requiredLexicalBinding(bindings, entry.local, relativePath);
+    const registry = entry.kind === 'namespace' ? bindings.namespaces : bindings.identifiers;
+    registry.set(binding, entry.target);
   }
   return bindings;
 }
@@ -219,7 +241,7 @@ function collectValidatorExports(repoRoot, sourceOverrides, ast, modulePath, bin
     if (statement.type === 'ExportDefaultDeclaration') {
       const target = validatorBindingTarget(statement.declaration, bindings);
       if (target) setValidatorExport(exports, 'default', target, modulePath);
-      else if (statement.declaration?.type === 'Identifier' && bindings.namespaces.has(statement.declaration.name)) {
+      else if (validatorNamespace(statement.declaration, bindings)) {
         throw new Error(`${modulePath} validator namespace export escape cannot be resolved exactly`);
       }
     }
@@ -256,10 +278,9 @@ function collectNamedValidatorExports(
   }
   for (const specifier of statement.specifiers) {
     if (specifier.type !== 'ExportSpecifier') continue;
-    const localName = moduleName(specifier.local);
-    const target = bindings.identifiers.get(localName);
+    const target = validatorBindingTarget(specifier.local, bindings);
     if (target) setValidatorExport(exports, moduleName(specifier.exported), target, modulePath);
-    else if (bindings.namespaces.has(localName)) {
+    else if (validatorNamespace(specifier.local, bindings)) {
       throw new Error(`${modulePath} validator namespace export escape cannot be resolved exactly`);
     }
   }
@@ -311,10 +332,25 @@ function setValidatorExport(exports, exportedName, target, modulePath) {
 }
 
 function validatorBindingTarget(callee, bindings) {
-  if (callee?.type === 'Identifier') return bindings.identifiers.get(callee.name);
+  if (callee?.type === 'Identifier') {
+    const binding = bindings.lexical?.bindingFor(callee);
+    return binding ? bindings.identifiers.get(binding) : undefined;
+  }
   if (callee?.type !== 'MemberExpression' || callee.object?.type !== 'Identifier') return undefined;
-  const namespace = bindings.namespaces.get(callee.object.name);
+  const namespace = validatorNamespace(callee.object, bindings);
   return namespace?.get(memberPropertyName(callee));
+}
+
+function validatorNamespace(identifier, bindings) {
+  if (identifier?.type !== 'Identifier') return undefined;
+  const binding = bindings.lexical?.bindingFor(identifier);
+  return binding ? bindings.namespaces.get(binding) : undefined;
+}
+
+function requiredLexicalBinding(bindings, identifier, relativePath) {
+  const binding = bindings.lexical?.bindingFor(identifier);
+  if (!binding) throw new Error(`${relativePath} import binding ${identifier?.name ?? ''} cannot be resolved`);
+  return binding;
 }
 
 function memberPropertyName(member) {
@@ -336,15 +372,19 @@ function assertValidatorBindingsSafe(ast, bindings, relativePath) {
   walkNodeWithParent(ast.program, (node, parent) => {
     if (parent) parents.set(node, parent);
     if (node.type !== 'Identifier' || isStaticPropertyName(node, parent)) return;
-    if (bindings.identifiers.has(node.name)) {
+    const binding = bindings.lexical.bindingFor(node);
+    if (binding && bindings.identifiers.has(binding)) {
       if (isControlledValidatorIdentifierUse(node, parent, relativePath)) return;
       throw new Error(`${relativePath} validator binding ${node.name} escapes direct calls or controlled explicit re-exports`);
     }
-    const namespace = bindings.namespaces.get(node.name);
+    const namespace = binding ? bindings.namespaces.get(binding) : undefined;
     if (!namespace) return;
     if (parent?.type === 'ImportNamespaceSpecifier' && parent.local === node) return;
     if (parent?.type === 'MemberExpression' && parent.object === node) {
       const propertyName = memberPropertyName(parent);
+      if (!propertyName) {
+        throw new Error(`${relativePath} validator namespace ${node.name} uses a dynamic computed member`);
+      }
       if (!namespace.has(propertyName)) return;
       const memberParent = parents.get(parent);
       if (memberParent?.type === 'CallExpression' && memberParent.callee === parent) return;
@@ -367,11 +407,58 @@ function isStaticPropertyName(node, parent) {
   if ((parent?.type === 'MemberExpression' || parent?.type === 'OptionalMemberExpression')
     && !parent.computed
     && parent.property === node) return true;
+  if (parent?.type === 'ObjectProperty' && parent.shorthand && parent.value === node) return false;
   if (parent?.computed || parent?.key !== node) return false;
   return parent.type === 'ObjectProperty'
     || parent.type === 'ObjectMethod'
     || parent.type === 'ClassProperty'
     || parent.type === 'ClassMethod';
+}
+
+function createLexicalBindingIndex(source, filePath) {
+  const linter = new Linter({ configType: 'flat' });
+  const messages = linter.verify(source, [{
+    languageOptions: {
+      ecmaVersion: 'latest',
+      sourceType: 'module',
+      parserOptions: { ecmaFeatures: { jsx: true } },
+    },
+  }], { filename: filePath });
+  const fatal = messages.find((message) => message.fatal);
+  if (fatal) throw new Error(`scope analysis ${filePath}:${fatal.line}:${fatal.column}: ${fatal.message}`);
+  const scopeManager = linter.getSourceCode()?.scopeManager;
+  if (!scopeManager) throw new Error(`scope analysis ${filePath} did not produce a scope manager`);
+
+  const bindingsByRange = new Map();
+  const programBindings = new Map();
+  for (const scope of scopeManager.scopes) {
+    for (const variable of scope.variables) {
+      if (variable.identifiers.length === 0) continue;
+      for (const identifier of variable.identifiers) {
+        bindingsByRange.set(nodeRangeKey(identifier), variable);
+      }
+      for (const reference of variable.references) {
+        bindingsByRange.set(nodeRangeKey(reference.identifier), variable);
+      }
+      if (scope.type === 'module') programBindings.set(variable.name, variable);
+    }
+  }
+  return {
+    bindingFor(identifier) {
+      return identifier?.type === 'Identifier'
+        ? bindingsByRange.get(nodeRangeKey(identifier))
+        : undefined;
+    },
+    programBinding(name) {
+      return programBindings.get(name);
+    },
+  };
+}
+
+function nodeRangeKey(node) {
+  const start = node?.start ?? node?.range?.[0];
+  const end = node?.end ?? node?.range?.[1];
+  return Number.isInteger(start) && Number.isInteger(end) ? `${start}:${end}` : '';
 }
 
 function namedProductionFunctions(ast) {
