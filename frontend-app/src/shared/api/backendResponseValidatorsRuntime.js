@@ -51,6 +51,7 @@ const UI_STATE_RESPONSE_KEYS = new Set([
   'groups',
 ]);
 const SIDEBAR_STATE_RESPONSE_KEYS = new Set([...UI_STATE_RESPONSE_KEYS, 'workspace']);
+const SIDEBAR_REQUIRED_RESPONSE_KEYS = ['threads', 'agents', 'workspace', 'token_usage'];
 
 /** @param {string} method @param {unknown} value @param {string} path */
 function assertUIStateNonNegativeInteger(method, value, path) {
@@ -152,22 +153,12 @@ export function validateSidebarStateResponse(method, response) {
   const value = assertBackendResponseObject(method, response);
   assertOnlyResponseKeys(method, value, SIDEBAR_STATE_RESPONSE_KEYS, 'body');
   const { activityStatsByThread, ...coreValue } = value;
-  const hasFullSidebarContract = (
-    hasOwn(value, 'threads')
-    && hasOwn(value, 'agents')
-    && hasOwn(value, 'workspace')
-    && hasOwn(value, 'token_usage')
-  );
-  if (hasFullSidebarContract) {
-    validateCoreSidebarStateResponse(method, coreValue);
-  } else {
-    if (hasOwn(value, 'threads') && value.threads !== null && !Array.isArray(value.threads)) {
-      throw new TypeError(`${method} response threads must be an array or null`);
-    }
-    if (hasOwn(value, 'agents') && value.agents !== null && !Array.isArray(value.agents)) {
-      throw new TypeError(`${method} response agents must be an array or null`);
+  for (const requiredField of SIDEBAR_REQUIRED_RESPONSE_KEYS) {
+    if (!hasOwn(value, requiredField)) {
+      throw new TypeError(`${method} response ${requiredField} is required`);
     }
   }
+  validateCoreSidebarStateResponse(method, coreValue);
   validateStateMaps(method, value);
   return value;
 }

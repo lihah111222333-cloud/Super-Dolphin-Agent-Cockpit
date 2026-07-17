@@ -1594,6 +1594,29 @@ function guardedBackendResponse(method) {
     }
   });
 
+  it('fails fast when the sidebar facade receives empty or malformed success bodies', async () => {
+    const missingWorkspaceWithMalformedThread = sidebarStateResponse({
+      threads: [{ id: 7 }],
+    });
+    delete missingWorkspaceWithMalformedThread.workspace;
+    const cases = [
+      { response: {}, message: 'ui/sidebar/get response threads is required' },
+      {
+        response: { statuses: { 'thread-1': 'running' } },
+        message: 'ui/sidebar/get response threads is required',
+      },
+      {
+        response: missingWorkspaceWithMalformedThread,
+        message: 'ui/sidebar/get response workspace is required',
+      },
+    ];
+
+    for (const item of cases) {
+      const api = createBackendApi({ callAPI: vi.fn().mockResolvedValue(item.response) });
+      await expect(api.getSidebarState({ cwd: '/repo/app' })).rejects.toThrow(item.message);
+    }
+  });
+
   it('rejects unsuccessful or malformed code save response fields', async () => {
     const call = (api) => api.saveCodeFile({
       filePath: 'src/App.jsx',
