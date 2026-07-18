@@ -23,24 +23,35 @@ type startupBlockingFilesystemHelperFixture struct {
 	finished string
 }
 
-func TestSelectStartupBlockedReleaseDigestEntersRecoveryAtDeadline(t *testing.T) {
+func TestSelectStartupBlockedReleaseDigestEntersRecoveryOnDeadlineCause(t *testing.T) {
 	defer goleak.VerifyNone(t, goleak.IgnoreCurrent())
 	store, transaction, process := createStartupProbation(t)
 	fixture := installStartupBlockingFilesystemHelper(t, transaction.Paths.Target)
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
+	watchdogCtx, watchdogCancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer watchdogCancel()
+	ctx, cancel := context.WithCancelCause(watchdogCtx)
+	defer cancel(context.Canceled)
 	var selection StartupSelection
 	var group errgroup.Group
+	returned := make(chan struct{}, 1)
 	group.Go(func() error {
 		var err error
 		selection, err = SelectStartup(ctx, StartupSelectorInput{
 			Store: store, Process: process, ExpectedTransactionID: transaction.Identity.TransactionID,
 			LeaseWait: time.Second,
 		})
+		returned <- struct{}{}
 		return err
 	})
 	waitForStartupFilesystemHelper(t, fixture.started)
+	select {
+	case <-returned:
+		err := group.Wait()
+		t.Fatalf("SelectStartup() returned before blocked filesystem syscall: %v", err)
+	default:
+	}
 	started := time.Now()
+	cancel(context.DeadlineExceeded)
 	err := group.Wait()
 	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("SelectStartup() error = %v, want deadline exceeded", err)
