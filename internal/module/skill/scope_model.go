@@ -198,6 +198,14 @@ func deriveOwnerKey(salt []byte, normalizedHome, osUID, appProfile string) strin
 	return "sd_owner:" + hex.EncodeToString(mac.Sum(nil))
 }
 
+// requireExplicitSkillScope 拒绝写入口缺失或仅包含空白的 scope。
+func requireExplicitSkillScope(scope string) error {
+	if strings.TrimSpace(scope) == "" {
+		return fmt.Errorf("%w: scope is required", ErrInvalidSkillScope)
+	}
+	return nil
+}
+
 // normalizeSkillTarget 规范化用户传入的 skill 目标路径。
 func normalizeSkillTarget(scope, personalType string) (string, string, error) {
 	switch strings.ToLower(strings.TrimSpace(scope)) {

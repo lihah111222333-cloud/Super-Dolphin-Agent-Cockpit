@@ -165,6 +165,14 @@ function promptItemWithout(field) {
   return item;
 }
 
+function createDeferred() {
+  let resolve;
+  const promise = new Promise((resolvePromise) => {
+    resolve = resolvePromise;
+  });
+  return { promise, resolve };
+}
+
 async function openPendingDraftWizard(overrides) {
   mockPendingDraftPrompt(overrides);
   renderPromptPage();
@@ -276,6 +284,61 @@ describe('PromptPageView module', () => {
       },
     }));
     expect(await screen.findByText('个人资料已保存')).toBeInTheDocument();
+  });
+
+  it('preserves profile edits made while an earlier save is pending', async () => {
+    const deferredSave = createDeferred();
+    backend.savePersonalizationProfile.mockReturnValueOnce(deferredSave.promise);
+    renderPromptPage();
+
+    const overview = await screen.findByLabelText('个性化概览');
+    const roleInput = within(overview).getByLabelText('职业');
+    const saveButton = within(overview).getByRole('button', { name: '保存个人资料' });
+    fireEvent.change(roleInput, { target: { value: '架构师' } });
+    fireEvent.click(saveButton);
+    await waitFor(() => expect(backend.savePersonalizationProfile).toHaveBeenCalledWith(expect.objectContaining({
+      cwd: '/repo/app',
+      profile: expect.objectContaining({ role: '架构师' }),
+    })));
+
+    fireEvent.change(roleInput, { target: { value: '产品经理' } });
+    deferredSave.resolve({ profile: { displayName: '', role: '架构师', background: '', customInstructions: '' } });
+
+    await waitFor(() => expect(saveButton).toBeEnabled());
+    expect(roleInput).toHaveValue('产品经理');
+    expect(screen.queryByText('个人资料已保存')).not.toBeInTheDocument();
+  });
+
+  it('ignores a previous project profile save after switching projects', async () => {
+    const deferredSave = createDeferred();
+    backend.savePersonalizationProfile.mockReturnValueOnce(deferredSave.promise);
+    backend.getPersonalizationProfile.mockImplementation(({ cwd }) => Promise.resolve({
+      profile: { displayName: '', role: cwd === '/repo/app' ? 'A 初始角色' : 'B 初始角色', background: '', customInstructions: '' },
+    }));
+    const { queryClient, rerender } = renderPromptPage();
+
+    let overview = await screen.findByLabelText('个性化概览');
+    fireEvent.change(within(overview).getByLabelText('职业'), { target: { value: 'A 保存角色' } });
+    fireEvent.click(within(overview).getByRole('button', { name: '保存个人资料' }));
+    await waitFor(() => expect(backend.savePersonalizationProfile).toHaveBeenCalledWith(expect.objectContaining({
+      cwd: '/repo/app',
+      profile: expect.objectContaining({ role: 'A 保存角色' }),
+    })));
+
+    rerender(
+      <QueryClientProvider client={queryClient}>
+        <PromptPageView projectPath="/repo/next" />
+      </QueryClientProvider>,
+    );
+    overview = await screen.findByLabelText('个性化概览');
+    const nextRoleInput = within(overview).getByLabelText('职业');
+    await waitFor(() => expect(nextRoleInput).toHaveValue('B 初始角色'));
+    fireEvent.change(nextRoleInput, { target: { value: 'B 当前草稿' } });
+    deferredSave.resolve({ profile: { displayName: '', role: 'A 保存角色', background: '', customInstructions: '' } });
+
+    await deferredSave.promise;
+    await waitFor(() => expect(nextRoleInput).toHaveValue('B 当前草稿'));
+    expect(screen.queryByText('个人资料已保存')).not.toBeInTheDocument();
   });
 
   it('does not publish profile success after save response validation rejects', async () => {
@@ -406,6 +469,43 @@ describe('PromptPageView backend wiring', () => {
       });
     });
     expect(await screen.findByText('提示词已保存：审查提示词')).toBeInTheDocument();
+  });
+
+  it('keeps the current project editor and draft when a previous project save resolves late', async () => {
+    let resolveSave;
+    backend.writePrompt.mockImplementationOnce(() => new Promise((resolve) => {
+      resolveSave = resolve;
+    }));
+    const { queryClient, rerender } = renderPromptPage();
+
+    fireEvent.click(await screen.findByRole('button', { name: '编辑' }));
+    let editor = await screen.findByRole('dialog', { name: '编辑提示词' });
+    fireEvent.change(within(editor).getByRole('textbox', { name: '名称' }), {
+      target: { value: '旧项目保存' },
+    });
+    fireEvent.click(within(editor).getByRole('button', { name: '保存' }));
+    await waitFor(() => expect(backend.writePrompt).toHaveBeenCalledWith(expect.objectContaining({
+      cwd: '/repo/app',
+      name: '旧项目保存',
+    })));
+
+    rerender(
+      <QueryClientProvider client={queryClient}>
+        <PromptPageView projectPath="/repo/next" />
+      </QueryClientProvider>,
+    );
+    editor = await screen.findByRole('dialog', { name: '编辑提示词' });
+    fireEvent.change(within(editor).getByRole('textbox', { name: '名称' }), {
+      target: { value: '新项目草稿' },
+    });
+
+    resolveSave({});
+
+    await waitFor(() => {
+      const currentEditor = screen.getByRole('dialog', { name: '编辑提示词' });
+      expect(within(currentEditor).getByRole('textbox', { name: '名称' })).toHaveValue('新项目草稿');
+    });
+    expect(screen.queryByText('提示词已保存：旧项目保存')).not.toBeInTheDocument();
   });
 
   it('blocks saving an empty agent type instead of defaulting it to main', async () => {

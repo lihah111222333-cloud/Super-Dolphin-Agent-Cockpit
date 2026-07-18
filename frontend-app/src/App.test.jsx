@@ -749,6 +749,19 @@ it('persists the shell layout initial width exactly once under StrictMode', () =
   expect(storage.remove).not.toHaveBeenCalled();
 });
 
+it('renders the persisted shell layout width through the real chat layout', async () => {
+  Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1980 });
+  const storage = createShellLayoutStorage('480.5');
+
+  render(<App shellLayoutStorage={storage} />);
+  await waitForBackendThreadHeading();
+  fireEvent.click(screen.getByRole('button', { name: '显示侧边栏' }));
+
+  expect(screen.getByTestId('chat-layout')).toHaveStyle({
+    gridTemplateColumns: 'minmax(0, 1fr) 6px 480.5px',
+  });
+  expect(storage.set).not.toHaveBeenCalled();
+}, 15000);
 it.each([
   ['read', (storage) => storage.get.mockImplementation(() => { throw new Error('private shell layout read'); })],
   ['first write', (storage) => storage.set.mockImplementation(() => { throw new Error('private shell layout write'); })],

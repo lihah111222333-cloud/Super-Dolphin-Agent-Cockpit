@@ -5162,6 +5162,9 @@ function hasSidebarRuntimeRequiredCheck(validator) {
     }
     const fieldName = statement.left.declarations[0].id.name
     for (const candidate of statement.body.body) {
+      if (candidate.type === 'ContinueStatement' || candidate.type === 'ReturnStatement') {
+        break
+      }
       if (
         candidate.type === 'IfStatement'
         && isMissingSidebarFieldCheck(candidate.test, fieldName)

@@ -85,8 +85,8 @@ frontend-app/scripts/performance-budget-runner.test.mjs	frontend-app	app-ui	js-t
 frontend-app/scripts/render-isolation-probe.test.jsx	frontend-app	app-ui	jsx	6076	React 前端构建与校验脚本	frontend,app,scripts,render,isolation,probe,test,React,前端构建与校验脚本
 frontend-app/scripts/resource-budget.mjs	frontend-app	app-ui	js-source	1695	React 前端构建与校验脚本	frontend,app,scripts,resource,budget,React,前端构建与校验脚本
 frontend-app/scripts/resource-budget.test.mjs	frontend-app	app-ui	js-test	1926	React 前端构建与校验脚本	frontend,app,scripts,resource,budget,test,React,前端构建与校验脚本
-frontend-app/scripts/rpc-contract-audit.mjs	frontend-app	app-ui	js-source	222239	React 前端构建与校验脚本	frontend,app,scripts,rpc,contract,audit,React,前端构建与校验脚本
-frontend-app/scripts/rpc-contract-audit.test.mjs	frontend-app	app-ui	js-test	148161	React 前端构建与校验脚本	frontend,app,scripts,rpc,contract,audit,test,React,前端构建与校验脚本
+frontend-app/scripts/rpc-contract-audit.mjs	frontend-app	app-ui	js-source	222353	React 前端构建与校验脚本	frontend,app,scripts,rpc,contract,audit,React,前端构建与校验脚本
+frontend-app/scripts/rpc-contract-audit.test.mjs	frontend-app	app-ui	js-test	149130	React 前端构建与校验脚本	frontend,app,scripts,rpc,contract,audit,test,React,前端构建与校验脚本
 frontend-app/scripts/stop-feedback-benchmark.mjs	frontend-app	app-ui	js-source	5472	React 前端构建与校验脚本	frontend,app,scripts,stop,feedback,benchmark,React,前端构建与校验脚本
 frontend-app/scripts/stop-feedback-benchmark.test.mjs	frontend-app	app-ui	js-test	2601	React 前端构建与校验脚本	frontend,app,scripts,stop,feedback,benchmark,test,React,前端构建与校验脚本
 frontend-app/scripts/sync-frontend-dist.mjs	frontend-app	app-ui	js-source	1433	React 前端构建与校验脚本	frontend,app,scripts,sync,dist,React,前端构建与校验脚本
@@ -107,7 +107,7 @@ frontend-app/src/adapters/memoryAdapter.test.js	frontend-app	app-ui	js-test	3331
 frontend-app/src/adapters/observabilityAdapter.js	frontend-app	app-ui	js-source	224	当前 React/Vite 前端包	frontend,app,src,adapters,observabilityAdapter,当前,React,Vite,前端包
 frontend-app/src/adapters/observabilityAdapter.test.js	frontend-app	app-ui	js-test	2694	当前 React/Vite 前端包	frontend,app,src,adapters,observabilityAdapter,test,当前,React,Vite,前端包
 frontend-app/src/App.jsx	frontend-app	app-ui	jsx	30763	当前 React/Vite 前端包	frontend,app,src,App,当前,React,Vite,前端包
-frontend-app/src/App.test.jsx	frontend-app	app-ui	jsx	335747	当前 React/Vite 前端包	frontend,app,src,App,test,当前,React,Vite,前端包
+frontend-app/src/App.test.jsx	frontend-app	app-ui	jsx	336315	当前 React/Vite 前端包	frontend,app,src,App,test,当前,React,Vite,前端包
 frontend-app/src/app/AppErrorBoundary.jsx	frontend-app	app-ui	jsx	1776	当前 React/Vite 前端包	frontend,app,src,AppErrorBoundary,当前,React,Vite,前端包
 frontend-app/src/app/AppErrorBoundary.test.jsx	frontend-app	app-ui	jsx	5087	当前 React/Vite 前端包	frontend,app,src,AppErrorBoundary,test,当前,React,Vite,前端包
 frontend-app/src/app/appShellModel.js	frontend-app	app-ui	js-source	5107	当前 React/Vite 前端包	frontend,app,src,appShellModel,当前,React,Vite,前端包
@@ -225,8 +225,8 @@ frontend-app/src/features/prompt-history/model/promptHistoryController.test.js	f
 frontend-app/src/features/prompts/Personalization.css	frontend-app	app-ui	css	2799	当前 React/Vite 前端包	frontend,app,src,features,prompts,Personalization,当前,React,Vite,前端包
 frontend-app/src/features/prompts/PromptPagePolish.css	frontend-app	app-ui	css	4892	当前 React/Vite 前端包	frontend,app,src,features,prompts,PromptPagePolish,当前,React,Vite,前端包
 frontend-app/src/features/prompts/PromptPageView.css	frontend-app	app-ui	css	13085	当前 React/Vite 前端包	frontend,app,src,features,prompts,PromptPageView,当前,React,Vite,前端包
-frontend-app/src/features/prompts/PromptPageView.jsx	frontend-app	app-ui	jsx	59242	当前 React/Vite 前端包	frontend,app,src,features,prompts,PromptPageView,当前,React,Vite,前端包
-frontend-app/src/features/prompts/PromptPageView.test.jsx	frontend-app	app-ui	jsx	36996	当前 React/Vite 前端包	frontend,app,src,features,prompts,PromptPageView,test,当前,React,Vite,前端包
+frontend-app/src/features/prompts/PromptPageView.jsx	frontend-app	app-ui	jsx	60968	当前 React/Vite 前端包	frontend,app,src,features,prompts,PromptPageView,当前,React,Vite,前端包
+frontend-app/src/features/prompts/PromptPageView.test.jsx	frontend-app	app-ui	jsx	41634	当前 React/Vite 前端包	frontend,app,src,features,prompts,PromptPageView,test,当前,React,Vite,前端包
 frontend-app/src/features/shortcut-settings/hooks/useShortcutSettings.js	frontend-app	app-ui	js-source	4643	当前 React/Vite 前端包	frontend,app,src,features,shortcut,settings,hooks,useShortcutSettings,当前,React,Vite,前端包
 frontend-app/src/features/shortcut-settings/hooks/useShortcutSettings.test.jsx	frontend-app	app-ui	jsx	6324	当前 React/Vite 前端包	frontend,app,src,features,shortcut,settings,hooks,useShortcutSettings,test,当前,React,Vite,前端包
 frontend-app/src/features/shortcut-settings/model/shortcutSettingsModel.js	frontend-app	app-ui	js-source	3625	当前 React/Vite 前端包	frontend,app,src,features,shortcut,settings,model,shortcutSettingsModel,当前,React,Vite,前端包
