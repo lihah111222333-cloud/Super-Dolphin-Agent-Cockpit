@@ -9,8 +9,6 @@ import {
   readdirSync,
   realpathSync,
   rmSync,
-  statSync,
-  symlinkSync,
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -213,6 +211,7 @@ function createFinalContractTarget() {
     'frontend-app/scripts/frontend-maintainability-score.mjs',
     'frontend-app/scripts/frontend-execution-closure.mjs',
     'frontend-app/scripts/frontend-maintainability-baseline.json',
+    'frontend-app/scripts/frontend-maintainability-dependencies.json',
     'frontend-app/scripts/frontend-maintainability-red-fixtures.json',
     'frontend-app/scripts/delivery-smoke-runner.mjs',
     'frontend-app/scripts/evidence-provenance.mjs',
@@ -226,6 +225,7 @@ function createFinalContractTarget() {
     'frontend-maintainability-controls.json',
     'frontend-maintainability-score.mjs',
     'frontend-maintainability-baseline.json',
+    'frontend-maintainability-dependencies.json',
     'frontend-maintainability-red-fixtures.json',
     'delivery-smoke-runner.mjs',
     'evidence-provenance.mjs',
@@ -260,6 +260,7 @@ function createFinalCliFixture({ hangFirstProbe = false } = {}) {
     'frontend-maintainability-controls.json',
     'frontend-maintainability-score.mjs',
     'frontend-maintainability-baseline.json',
+    'frontend-maintainability-dependencies.json',
     'frontend-maintainability-red-fixtures.json',
     'delivery-smoke-runner.mjs',
     'evidence-provenance.mjs',
@@ -269,7 +270,7 @@ function createFinalCliFixture({ hangFirstProbe = false } = {}) {
   }
   for (const relativePath of DELIVERY_RUNNER_CONTENT_PATHS) copyWorkspaceFile(relativePath, baseRoot);
   for (const relativePath of addedGovernancePaths) copyWorkspaceFile(relativePath, baseRoot);
-  for (const name of ['package.json', 'package-lock.json', 'vite.config.js']) {
+  for (const name of ['.gitignore', 'package.json', 'package-lock.json', 'vite.config.js']) {
     copyFileSync(join(frozenRepoRoot, 'frontend-app', name), join(baseRoot, 'frontend-app', name));
   }
   mkdirSync(join(baseRoot, 'frontend-app', 'src'), { recursive: true });
@@ -277,13 +278,6 @@ function createFinalCliFixture({ hangFirstProbe = false } = {}) {
     join(frozenRepoRoot, 'frontend-app', 'src', 'test-setup.js'),
     join(baseRoot, 'frontend-app', 'src', 'test-setup.js'),
   );
-  const sourceNodeModules = join(frozenRepoRoot, 'frontend-app', 'node_modules');
-  const baseNodeModules = join(baseRoot, 'frontend-app', 'node_modules');
-  mkdirSync(baseNodeModules);
-  for (const entry of readdirSync(sourceNodeModules)) {
-    const sourcePath = join(sourceNodeModules, entry);
-    symlinkSync(sourcePath, join(baseNodeModules, entry), statSync(sourcePath).isDirectory() ? 'dir' : 'file');
-  }
   write('frontend-app/scripts/delivery-smoke-runner.mjs', [
     "import { execFile } from 'node:child_process';",
     "import { lstatSync, writeFileSync } from 'node:fs';",
@@ -1097,7 +1091,7 @@ describe('frozen scorer target binding', () => {
     })).toThrow('frozen governance drift');
   });
 
-  it('keeps the canonical detached dependency mount Git-clean and Vitest-executable', async () => {
+  it('keeps the canonical detached immutable dependency installation Git-clean and Vitest-executable', async () => {
     const fixture = createFinalCliFixture();
     try {
       const tmpAlias = detachedTmpAlias();
@@ -1147,6 +1141,67 @@ describe('frozen scorer target binding', () => {
       });
       expect(deliveryEvidence.summary).not.toContain('runner report is not valid JSON');
       expect(deliveryEvidence.summary).toBe('runner report schemaVersion must equal 1');
+    }
+    finally {
+      execFileSync('git', ['worktree', 'remove', '--force', fixture.subjectRoot], { cwd: fixture.baseRoot });
+    }
+  }, 120_000);
+
+  it.each([
+    'eslint/bin/eslint.js',
+    'vitest/vitest.mjs',
+    'vite/bin/vite.js',
+    '@playwright/test/index.js',
+  ])('rejects an immutable installed-tool mutation before final execution: %s', async (relativePath) => {
+    const fixture = createFinalCliFixture();
+    const commandRoot = mkdtempSync(join(tmpdir(), 'frontend-maintainability-installer-mutation-'));
+    const trustedToolsRoot = join(commandRoot, 'trusted-tools');
+    const npmShim = join(commandRoot, 'npm');
+    const immutableToolPaths = [
+      'eslint/bin/eslint.js',
+      'vitest/vitest.mjs',
+      'vite/bin/vite.js',
+      '@playwright/test/index.js',
+    ];
+    try {
+      const ignoredHostTool = join(fixture.baseRoot, 'frontend-app', 'node_modules', relativePath);
+      mkdirSync(dirname(ignoredHostTool), { recursive: true });
+      writeFileSync(ignoredHostTool, 'throw new Error("ignored host tool must not execute");\n');
+      expect(git(fixture.baseRoot, ['status', '--porcelain', '--untracked-files=all'])).toBe('');
+      for (const toolPath of immutableToolPaths) {
+        const target = join(trustedToolsRoot, toolPath);
+        mkdirSync(dirname(target), { recursive: true });
+        copyFileSync(join(frozenRepoRoot, 'frontend-app', 'node_modules', toolPath), target);
+      }
+      writeFileSync(npmShim, [
+        '#!/bin/sh',
+        'set -eu',
+        'mkdir -p ./node_modules/eslint/bin ./node_modules/vitest ./node_modules/vite/bin ./node_modules/@playwright/test',
+        'cp "$SCORER_TRUSTED_TOOLS/eslint/bin/eslint.js" ./node_modules/eslint/bin/eslint.js',
+        'cp "$SCORER_TRUSTED_TOOLS/vitest/vitest.mjs" ./node_modules/vitest/vitest.mjs',
+        'cp "$SCORER_TRUSTED_TOOLS/vite/bin/vite.js" ./node_modules/vite/bin/vite.js',
+        'cp "$SCORER_TRUSTED_TOOLS/@playwright/test/index.js" ./node_modules/@playwright/test/index.js',
+        `printf '%s\\n' 'throw new Error("forged installed tool must not execute");' > "./node_modules/${relativePath}"`,
+      ].join('\n'), { mode: 0o755 });
+      const result = await runManagedCommand(process.execPath, [
+        join(fixture.baseRoot, 'frontend-app', 'scripts', 'frontend-maintainability-score.mjs'),
+        '--final',
+        '--repo', fixture.subjectRoot,
+        '--subject', fixture.subjectSha,
+      ], {
+        cwd: join(fixture.baseRoot, 'frontend-app'),
+        env: {
+          ...process.env,
+          PATH: `${commandRoot}:${process.env.PATH}`,
+          SCORER_TRUSTED_TOOLS: trustedToolsRoot,
+        },
+        timeoutMs: 90_000,
+        killGraceMs: 2_000,
+      });
+      expect(result.timedOut, [result.stdout, result.stderr].join('\n')).toBe(false);
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain(`immutable dependency tool SHA-256 mismatch: ${relativePath}`);
+      expect(result.stderr).not.toContain('forged installed tool must not execute');
     }
     finally {
       execFileSync('git', ['worktree', 'remove', '--force', fixture.subjectRoot], { cwd: fixture.baseRoot });
