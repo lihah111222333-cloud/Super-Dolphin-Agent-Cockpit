@@ -483,6 +483,48 @@ function failureMatrixEvidence(context, overrides = {}) {
   };
 }
 
+function desktopFailureEvidence(context, overrides = {}) {
+  const command = ['node', 'scripts/desktop-failure-smoke.mjs'];
+  const sourceHashes = Object.fromEntries(addedGovernancePaths.slice(-10).map((sourcePath) => [
+    sourcePath,
+    createHash('sha256').update(execFileSync('git', ['show', `${context.subjectSha}:${sourcePath}`], {
+      cwd: context.repoRoot,
+    })).digest('hex'),
+  ]));
+  const caseEvidence = (caseId, hops, domAssertions) => ({
+    caseId,
+    result: 'GREEN',
+    command,
+    hops,
+    domAssertions,
+    secretAssertions: ['dom-does-not-contain-raw-provider-secret', 'report-does-not-contain-raw-provider-secret'],
+    execution: { status: 'passed', durationMs: 1 },
+  });
+  return {
+    schemaVersion: 2,
+    generatedAt: new Date().toISOString(),
+    subjectSha: context.subjectSha,
+    subjectTreeSha: context.subjectTree,
+    controlId: 'T03-wails-integration',
+    caseIds: ['terminal-failed', 'prompt-history-reject'],
+    testCount: 2,
+    status: 'covered',
+    blockedCases: [],
+    sourceHashes,
+    execution: {
+      goBuild: { argv: ['go', 'build'], cwd: '.', exitCode: 0, signal: null, outputSha256: 'a'.repeat(64) },
+      playwright: { argv: ['playwright', 'test'], cwd: 'frontend-app', exitCode: 0, signal: null, outputSha256: 'b'.repeat(64), testCount: 2 },
+      wailsHost: { argv: ['failure-smoke-host'], cwd: '.', exitCode: null, signal: 'SIGTERM', outputSha256: 'c'.repeat(64) },
+      vite: { argv: ['npm', 'run', 'dev'], cwd: 'frontend-app', exitCode: null, signal: 'SIGTERM', outputSha256: 'd'.repeat(64) },
+    },
+    cases: [
+      caseEvidence('terminal-failed', ['claudecli.raw', 'claudecli.adapter', 'turndto.TurnOutputDelta', 'wails.EventBridge', 'chromium.DOM', 'codexapp.raw', 'codexapp.adapter', 'turndto.TurnCompleted', 'turn/terminal', 'chromium.DOM'], ['partial-response-visible', 'safe-terminal-visible', 'raw-secret-absent']),
+      caseEvidence('prompt-history-reject', ['wails.rpc', 'thread/promptHistory', 'frontend.action', 'chromium.DOM', 'retry.control', 'wails.rpc', 'chromium.DOM'], ['draft-preserved', 'cursor-preserved', 'retry-click-recovers']),
+    ],
+    ...overrides,
+  };
+}
+
 function performanceEvidence(context, check, metricStatus = 'PASS', overrides = {}) {
   const casesByMetric = {
     'P01-render-isolation': ['render-main-page-update-commits', 'render-unrelated-subtree-update-commits', 'render-broad-subscription-mutation-detected'],
@@ -1384,6 +1426,25 @@ describe('executable evidence registry', () => {
       )),
     }, options)).toBe('FAIL');
   }, 120000);
+
+  it('accepts source-hashed T03 v2 evidence while retaining v1-only validation for other runners', () => {
+    const { controls } = documents();
+    const context = inspectTargetRepository();
+    const now = Date.now();
+    const t03Control = controls.controls.find(({ id }) => id === 'T03-wails-integration');
+    const t03Check = t03Control.allOf.find(({ evidenceProtocol }) => evidenceProtocol === 'desktop-failure-report-v1');
+    const t03Options = { context, control: t03Control, check: t03Check, startedAt: now - 100, finishedAt: now + 100 };
+    const t03Report = desktopFailureEvidence(context);
+    expect(structuredEvidenceStatus(t03Report, t03Options)).toBe('PASS');
+    expect(structuredEvidenceStatus({ ...t03Report, schemaVersion: 1 }, t03Options)).toBe('FAIL');
+
+    const t01Control = controls.controls.find(({ id }) => id === 'T01-red-green-regression');
+    const t01Check = t01Control.allOf.find(({ evidenceProtocol }) => evidenceProtocol === 'failure-matrix-report-v1');
+    const t01Options = { context, control: t01Control, check: t01Check, startedAt: now - 100, finishedAt: now + 100 };
+    const t01Report = failureMatrixEvidence(context);
+    expect(structuredEvidenceStatus(t01Report, t01Options)).toBe('PASS');
+    expect(structuredEvidenceStatus({ ...t01Report, schemaVersion: 2 }, t01Options)).toBe('FAIL');
+  });
 
   it('persists normalized raw reports with reproducible SHA-256 metadata', () => {
     const repoRoot = mkdtempSync(join(tmpdir(), 'frontend-score-report-'));

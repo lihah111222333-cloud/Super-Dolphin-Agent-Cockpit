@@ -827,7 +827,7 @@ function validateFailureMatrixReport(report, { context, control, check, startedA
 }
 
 function validateDesktopFailureReport(report, { context, control, check, startedAt, finishedAt }) {
-  validateReportBinding(report, context, startedAt, finishedAt);
+  validateReportBinding(report, context, startedAt, finishedAt, 2);
   if (report.controlId !== control.id) fail('desktop failure smoke controlId mismatch');
   validateExactCaseResult(report.caseIds, report.testCount, check, 'desktop failure smoke');
   const requiredSources = [
