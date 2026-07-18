@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"reflect"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 
@@ -30,6 +31,16 @@ func awaitCooperativeTestValue[T any](t *testing.T, ctx context.Context, values 
 		t.Fatal(timeoutMessage)
 		var zero T
 		return zero
+	}
+}
+
+func TestCooperativeEndpointDialErrorClassifiesRefusedAsNotReady(t *testing.T) {
+	err := cooperativeEndpointDialError(syscall.ECONNREFUSED)
+	if !errors.Is(err, ErrCooperativeEndpointNotReady) {
+		t.Fatalf("dial error = %v, want endpoint not ready", err)
+	}
+	if !errors.Is(err, syscall.ECONNREFUSED) {
+		t.Fatalf("dial error = %v, want connection refused cause", err)
 	}
 }
 

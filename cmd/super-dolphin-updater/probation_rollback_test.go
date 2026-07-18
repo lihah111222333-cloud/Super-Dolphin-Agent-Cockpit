@@ -261,6 +261,17 @@ func TestUpdaterRejectsMissingRollbackRestartDeadline(t *testing.T) {
 	}
 }
 
+func TestCandidateTestEnvReplacesInheritedRaceExitDelay(t *testing.T) {
+	env := []string{"HOME=/tmp", "GORACE=atexit_sleep_ms=10000"}
+	got := upsertCandidateTestEnv(env, "GORACE", "atexit_sleep_ms=0")
+	if len(got) != len(env) {
+		t.Fatalf("environment length = %d, want %d", len(got), len(env))
+	}
+	if got[1] != "GORACE=atexit_sleep_ms=0" {
+		t.Fatalf("race environment = %q", got[1])
+	}
+}
+
 type rollbackRaceHarness struct {
 	store             *recovery.Store
 	transaction       recovery.Transaction
@@ -533,7 +544,8 @@ func startCandidateHandleTestProcess(mode string) (*candidateHandle, recovery.Pr
 	}
 	token := strings.Repeat("c", 64)
 	cmd := exec.Command(os.Args[0], "-test.run=TestProbationCandidateProcess")
-	cmd.Env = append(os.Environ(),
+	// 测试子进程的 os.Exit 表示协议终止，不让 race runtime 追加退出等待。
+	cmd.Env = append(upsertCandidateTestEnv(os.Environ(), "GORACE", "atexit_sleep_ms=0"),
 		"SUPER_DOLPHIN_TEST_PROBATION_CANDIDATE="+mode,
 		"SUPER_DOLPHIN_TEST_TERMINATION_ENDPOINT="+endpoint,
 		"SUPER_DOLPHIN_TEST_TERMINATION_TOKEN="+token,
@@ -556,6 +568,18 @@ func startCandidateHandleTestProcess(mode string) (*candidateHandle, recovery.Pr
 		TerminationEndpoint: endpoint, TerminationToken: token,
 	}
 	return newCandidateHandle(cmd, identity), identity, nil
+}
+
+func upsertCandidateTestEnv(env []string, key, value string) []string {
+	prefix := key + "="
+	entry := prefix + value
+	for i, current := range env {
+		if strings.HasPrefix(current, prefix) {
+			env[i] = entry
+			return env
+		}
+	}
+	return append(env, entry)
 }
 
 func candidateTestEndpoint() (string, error) {

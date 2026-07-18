@@ -489,7 +489,7 @@ func dialVerifiedCooperativeEndpoint(
 	dialer := net.Dialer{}
 	rawConnection, err := dialer.DialContext(ctx, "unix", endpoint)
 	if err != nil {
-		return nil, fmt.Errorf("pidregistry: dial cooperative termination endpoint: %w", err)
+		return nil, cooperativeEndpointDialError(err)
 	}
 	connection, ok := rawConnection.(*net.UnixConn)
 	if !ok {
@@ -508,6 +508,14 @@ func dialVerifiedCooperativeEndpoint(
 		return nil, errors.Join(ErrCooperativeEndpointIdentityMismatch, connection.Close())
 	}
 	return connection, nil
+}
+
+func cooperativeEndpointDialError(err error) error {
+	dialErr := fmt.Errorf("pidregistry: dial cooperative termination endpoint: %w", err)
+	if errors.Is(err, syscall.ECONNREFUSED) {
+		return errors.Join(ErrCooperativeEndpointNotReady, dialErr)
+	}
+	return dialErr
 }
 
 // validateCooperativePeerPID 验证已连接 Darwin Unix peer 的真实 PID。
