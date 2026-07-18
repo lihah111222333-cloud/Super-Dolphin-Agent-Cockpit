@@ -23,7 +23,10 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util/safego"
 )
 
-const helperFixtureTimeout = 10 * time.Second
+const (
+	helperFixtureTimeout              = 10 * time.Second
+	maximumCancellationResponseBudget = 8 * time.Second
+)
 
 func TestMain(m *testing.M) {
 	if runBlockingFilesystemWorkerFixture() {
@@ -226,6 +229,14 @@ func assertBoundedCancellation(t *testing.T, result <-chan error) {
 	t.Helper()
 	// Cancellation reaps the execute worker, then bounds cleanup and its worker reap.
 	shutdownDeadline := 2*reapDeadline + filesystemSnapshotCleanupTimeout + time.Second
+	// 固定总预算独立于阶段 timeout，避免生产常量增长时静默放宽取消响应契约。
+	if shutdownDeadline > maximumCancellationResponseBudget {
+		t.Fatalf(
+			"cancellation response budget = %v, exceeds fixed contract %v",
+			shutdownDeadline,
+			maximumCancellationResponseBudget,
+		)
+	}
 	timer := time.NewTimer(shutdownDeadline)
 	defer timer.Stop()
 	select {

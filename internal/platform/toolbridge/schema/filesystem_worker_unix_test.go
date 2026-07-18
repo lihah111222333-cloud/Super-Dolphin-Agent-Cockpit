@@ -97,6 +97,53 @@ func TestExecuteDeadlineKillsBlockedSnapshotBeforeHelperLaunch(t *testing.T) {
 	assertFilesystemSnapshotSetUnchanged(t, snapshotRoot, snapshotsBefore)
 }
 
+func TestExecuteReapsBlockedCleanupWorkerAndPreservesCleanupFailure(t *testing.T) {
+	previousLimiter := globalHelperLimiter
+	globalHelperLimiter = newHelperLimiter(maxLiveHelpers)
+	t.Cleanup(func() { globalHelperLimiter = previousLimiter })
+	snapshotRoot := setFilesystemSnapshotRoot(t)
+	snapshotsBefore := filesystemSnapshotDirectoryNames(t, snapshotRoot)
+	client := newSchemaTestClient(t, os.Args[0])
+	client.operationTimeout = helperFixtureTimeout
+	client.workerEnv = []string{"REASONIX_SCHEMA_MALICIOUS_HELPER=success"}
+	fixture := installBlockingFilesystemWorker(t)
+	workerStarts := 0
+	client.workerCommand = func(path string) *exec.Cmd {
+		workerStarts++
+		cmd := exec.Command(path)
+		if workerStarts == 2 {
+			cmd.Env = blockingFilesystemWorkerEnvironment(fixture)
+		}
+		return cmd
+	}
+	canonical, err := Canonicalize([]byte(`{"type":"object"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), helperFixtureTimeout)
+	defer cancel()
+	result := make(chan error, 1)
+	safego.Go(ctx, nil, "toolbridge.schema-blocked-cleanup-test", func(context.Context) {
+		_, executeErr := client.Execute(ctx, testInvocation(canonical), allowFence)
+		result <- executeErr
+	})
+	waitForHelperMarker(t, fixture.started)
+	cleanupStarted := time.Now()
+	select {
+	case err = <-result:
+	case <-time.After(filesystemSnapshotCleanupTimeout + reapDeadline + time.Second):
+		t.Fatal("blocked cleanup worker was not synchronously reaped")
+	}
+	if ErrorCode(err) != CodeReapFailed || !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("Execute(blocked cleanup) error=%v code=%q", err, ErrorCode(err))
+	}
+	if workerStarts != 2 {
+		t.Fatalf("filesystem worker starts = %d, want execute and cleanup workers", workerStarts)
+	}
+	assertBlockedFilesystemWorkerResult(t, fixture, cleanupStarted)
+	assertFilesystemSnapshotSetUnchanged(t, snapshotRoot, snapshotsBefore)
+}
+
 func TestSweepFilesystemSnapshotsRequiresExactIdentityAndStaleOwner(t *testing.T) {
 	root := setFilesystemSnapshotRoot(t)
 	owner, err := pidregistry.CaptureStableProcessIdentity(os.Getpid())
