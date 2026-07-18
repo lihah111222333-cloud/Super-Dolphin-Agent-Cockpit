@@ -731,4 +731,4 @@ internal/module/uistate/tracing_test.go	internal	modules	go-test	5722	UI 事件�
 internal/module/workflowtemplate/module.go	internal	modules	go-source	3127	业务模块层	internal,module,workflowtemplate,业务模块层
 internal/module/workflowtemplate/rpc_test.go	internal	modules	go-test	12144	业务模块层	internal,module,workflowtemplate,rpc,test,业务模块层
 internal/module/workflowtemplate/rpc.go	internal	modules	go-source	9401	业务模块层	internal,module,workflowtemplate,rpc,业务模块层
-internal/module/ws_test/wails_ws_rpc_test.go	internal	modules	go-test	14975	业务模块层	internal,module,ws,test,wails,rpc,业务模块层
+internal/module/ws_test/wails_ws_rpc_test.go	internal	modules	go-test	14949	业务模块层	internal,module,ws,test,wails,rpc,业务模块层

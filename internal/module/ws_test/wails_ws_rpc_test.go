@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -428,9 +429,7 @@ func cloneWSMCPServers(input map[string]mcpserver.ServerConfig) map[string]mcpse
 
 func cloneWSMCPServerConfig(config mcpserver.ServerConfig) mcpserver.ServerConfig {
 	headers := make(map[string]string, len(config.Headers))
-	for name, value := range config.Headers {
-		headers[name] = value
-	}
+	maps.Copy(headers, config.Headers)
 	if len(headers) == 0 {
 		headers = nil
 	}
