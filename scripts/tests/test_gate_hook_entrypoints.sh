@@ -187,6 +187,7 @@ production_e2e="$repo_root/scripts/tests/test_gate_hook_production_e2e.sh"
 [[ -x "$production_e2e" ]] || fail "production hook E2E driver is not executable"
 grep -Fq 'git -C "$worktree/nested" commit' "$production_e2e" || fail "production E2E does not invoke Git commit"
 grep -Fq 'git -C "$worktree/nested" push' "$production_e2e" || fail "production E2E does not invoke Git push"
+grep -Fq 'branch -D "$branch"' "$production_e2e" || fail "production E2E leaks its temporary branch"
 grep -Fq 'scripts/codex_stop_gate.sh' "$production_e2e" || fail "production E2E bypasses the Codex thin entrypoint"
 if grep -Eq 'fake|mock|recordingHookCoordinator|provision production' "$production_e2e"; then
   fail "production hook E2E contains a fixture or provisioning bypass"

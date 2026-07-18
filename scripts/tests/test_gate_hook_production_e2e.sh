@@ -135,6 +135,7 @@ run_git_e2e() {
   branch="gate-hook-e2e-$(date +%s)-$$"
   cleanup_git_e2e() {
     git -C "$repo_root" worktree remove --force "$worktree" >/dev/null 2>&1 || true
+    git -C "$repo_root" branch -D "$branch" >/dev/null 2>&1 || true
     rm -rf "$fixture"
   }
   trap cleanup_git_e2e EXIT
