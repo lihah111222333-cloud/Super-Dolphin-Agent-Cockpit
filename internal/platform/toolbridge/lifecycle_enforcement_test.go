@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -195,6 +196,140 @@ func TestCodexSurfaceToolCallDeniesNonEnabledLifecycleStates(t *testing.T) {
 					}
 				})
 			}
+		})
+	}
+}
+
+func TestCodexSurfaceToolCallRejectsRequestScopeExpansionBeforePolicyAndClient(t *testing.T) {
+	workspaceA := t.TempDir()
+	workspaceB := t.TempDir()
+	client := &fakeMCPClient{tools: []mcpdto.MCPTool{{Name: "grep", InputSchema: strictEmptyObjectSchema()}}}
+	owner := newFakeMCPToolLifecycleOwner()
+	owner.setDecision(workspaceA, mcpdto.ClientKindLSP, "grep", contract.MCPToolLifecycleEnabled, "")
+	h := &Handler{
+		stdioClientFactory: fakeClientFactory(map[string]mcpClient{mcpdto.ClientKindLSP: client}),
+		lifecycle:          owner,
+		lifecyclePolicy:    owner,
+	}
+	_, err := prepareCodexToolSurfaceForTest(t, h, context.Background(), contract.CodexToolSurfaceScope{
+		AgentID: "agent-1",
+		CWD:     workspaceA,
+		Manifest: providerdto.MCPManifest{Binaries: []providerdto.MCPBinary{
+			{Name: mcpdto.ClientKindLSP, Command: []string{"mcp-lsp"}},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("PrepareCodexToolSurface() error = %v", err)
+	}
+
+	tests := []struct {
+		name     string
+		params   map[string]any
+		wantText string
+	}{
+		{
+			name: "cwd mismatch",
+			params: map[string]any{
+				"name":      "grep",
+				"arguments": map[string]any{},
+				"_agentId":  "agent-1",
+				"_cwd":      workspaceB,
+			},
+			wantText: "does not match prepared surface cwd",
+		},
+		{
+			name: "workspace roots expand surface",
+			params: map[string]any{
+				"name":            "grep",
+				"arguments":       map[string]any{},
+				"_agentId":        "agent-1",
+				"_cwd":            workspaceA,
+				"_workspaceRoots": []string{workspaceB},
+			},
+			wantText: "outside prepared surface scope",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			owner.policyRequests = nil
+			client.calls = nil
+			client.requests = nil
+
+			_, err := h.HandleToolCall(context.Background(), contract.ToolCallRawMessage{Params: mustRawJSON(t, tt.params)})
+			if err == nil || !strings.Contains(err.Error(), tt.wantText) {
+				t.Fatalf("HandleToolCall() error = %v, want %q", err, tt.wantText)
+			}
+			if len(owner.policyRequests) != 0 {
+				t.Fatalf("scope mismatch resolved lifecycle policy: %#v", owner.policyRequests)
+			}
+			if len(client.calls) != 0 || len(client.requests) != 0 {
+				t.Fatalf("scope mismatch reached MCP client: calls=%#v requests=%#v", client.calls, client.requests)
+			}
+		})
+	}
+}
+
+func TestCodexSurfaceToolCallBindsPreparedWorkspaceScope(t *testing.T) {
+	workspaceA := t.TempDir()
+	extraRoot := filepath.Join(workspaceA, "extra")
+	client := &fakeMCPClient{tools: []mcpdto.MCPTool{{Name: "grep", InputSchema: strictEmptyObjectSchema()}}}
+	owner := newFakeMCPToolLifecycleOwner()
+	owner.setDecision(workspaceA, mcpdto.ClientKindLSP, "grep", contract.MCPToolLifecycleEnabled, "")
+	h := &Handler{
+		stdioClientFactory: fakeClientFactory(map[string]mcpClient{mcpdto.ClientKindLSP: client}),
+		lifecycle:          owner,
+		lifecyclePolicy:    owner,
+	}
+	_, err := prepareCodexToolSurfaceForTest(t, h, context.Background(), contract.CodexToolSurfaceScope{
+		AgentID:        "agent-1",
+		CWD:            workspaceA,
+		WorkspaceRoots: []string{extraRoot},
+		Manifest: providerdto.MCPManifest{Binaries: []providerdto.MCPBinary{
+			{Name: mcpdto.ClientKindLSP, Command: []string{"mcp-lsp"}},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("PrepareCodexToolSurface() error = %v", err)
+	}
+
+	tests := []struct {
+		name   string
+		params map[string]any
+	}{
+		{
+			name: "empty cwd",
+			params: map[string]any{
+				"name":      "grep",
+				"arguments": map[string]any{},
+				"_agentId":  "agent-1",
+			},
+		},
+		{
+			name: "matching prepared scope",
+			params: map[string]any{
+				"name":            "grep",
+				"arguments":       map[string]any{},
+				"_agentId":        "agent-1",
+				"_cwd":            filepath.Join(workspaceA, "."),
+				"_workspaceRoots": []string{extraRoot},
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			owner.policyRequests = nil
+			client.calls = nil
+			client.requests = nil
+
+			_, err := h.HandleToolCall(context.Background(), contract.ToolCallRawMessage{Params: mustRawJSON(t, tt.params)})
+			if err != nil {
+				t.Fatalf("HandleToolCall() error = %v", err)
+			}
+			if len(client.requests) != 1 {
+				t.Fatalf("MCP client requests = %#v, want one bound request", client.requests)
+			}
+			assertCodexSurfaceClientWorkspaceScope(t, client.requests[0], workspaceA, []string{workspaceA, extraRoot})
+			assertLifecyclePolicyRequest(t, owner.policyRequests, workspaceA, mcpdto.ClientKindLSP, "grep")
 		})
 	}
 }
@@ -479,6 +614,21 @@ func assertLifecyclePolicyRequest(
 		}
 	}
 	t.Fatalf("policy requests = %#v, want %s/%s in %s", requests, serverName, toolName, workspaceRoot)
+}
+
+func assertCodexSurfaceClientWorkspaceScope(t *testing.T, req ToolCallRequest, cwd string, roots []string) {
+	t.Helper()
+	if req.CWD != cwd {
+		t.Fatalf("MCP client request cwd = %q, want %q", req.CWD, cwd)
+	}
+	if len(req.WorkspaceRoots) != len(roots) {
+		t.Fatalf("MCP client workspace roots = %#v, want %#v", req.WorkspaceRoots, roots)
+	}
+	for i, root := range roots {
+		if req.WorkspaceRoots[i] != root {
+			t.Fatalf("MCP client workspace roots[%d] = %q, want %q; all roots %#v", i, req.WorkspaceRoots[i], root, req.WorkspaceRoots)
+		}
+	}
 }
 
 func assertLifecycleDeniedResult(

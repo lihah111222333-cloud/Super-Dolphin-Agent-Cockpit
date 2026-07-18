@@ -32,6 +32,7 @@ type fakeMCPClient struct {
 	tools           []mcpdto.MCPTool
 	calls           []string
 	arguments       []json.RawMessage
+	requests        []ToolCallRequest
 	closed          int
 	listStarted     chan<- string
 	listStartedName string
@@ -67,9 +68,12 @@ func (c *fakeMCPClient) ListTools(ctx context.Context) ([]mcpdto.MCPTool, error)
 	return append([]mcpdto.MCPTool(nil), c.tools...), nil
 }
 
-func (c *fakeMCPClient) CallTool(_ context.Context, name string, arguments json.RawMessage, _ ToolCallRequest) (*ToolCallResult, error) {
+func (c *fakeMCPClient) CallTool(_ context.Context, name string, arguments json.RawMessage, req ToolCallRequest) (*ToolCallResult, error) {
 	c.calls = append(c.calls, name)
 	c.arguments = append(c.arguments, append(json.RawMessage(nil), arguments...))
+	cloned := req
+	cloned.WorkspaceRoots = append([]string(nil), req.WorkspaceRoots...)
+	c.requests = append(c.requests, cloned)
 	return toolCallTextResult(true, "ok"), nil
 }
 

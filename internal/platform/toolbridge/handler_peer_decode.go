@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -35,6 +36,7 @@ type mcpClient interface {
 type codexToolSurface struct {
 	keys           []string
 	cwd            string
+	workspaceRoots []string
 	tools          map[string]codexToolEntry
 	aliases        map[string]string
 	disabledTools  map[string]string
@@ -63,8 +65,10 @@ func (h *Handler) PrepareCodexToolSurface(ctx context.Context, scope contract.Co
 	if err := validateCodexToolSurfaceScope(scope); err != nil {
 		return nil, err
 	}
+	cwd := normalizeToolCallCWD(scope.CWD)
 	surface := &codexToolSurface{
-		cwd:            normalizeToolCallCWD(scope.CWD),
+		cwd:            cwd,
+		workspaceRoots: normalizeToolCallWorkspaceRoots(cwd, scope.WorkspaceRoots),
 		keys:           codexSurfaceKeys(scope),
 		tools:          map[string]codexToolEntry{},
 		aliases:        map[string]string{},
@@ -469,9 +473,33 @@ func (h *Handler) lookupCodexToolSurface(req ToolCallRequest) *codexToolSurface 
 	return nil
 }
 
+// bindCodexSurfaceToolCallScope 将调用固定到已准备 surface 的可信工作区范围。
+func bindCodexSurfaceToolCallScope(surface *codexToolSurface, req ToolCallRequest) (ToolCallRequest, error) {
+	if surface == nil || strings.TrimSpace(surface.cwd) == "" {
+		return ToolCallRequest{}, fmt.Errorf("toolbridge: prepared codex tool surface cwd is required")
+	}
+	requestedCWD := normalizeToolCallCWD(req.CWD)
+	if requestedCWD != "" && requestedCWD != surface.cwd {
+		return ToolCallRequest{}, fmt.Errorf("toolbridge: codex tool call cwd %q does not match prepared surface cwd %q", requestedCWD, surface.cwd)
+	}
+	for _, root := range req.WorkspaceRoots {
+		if !slices.Contains(surface.workspaceRoots, root) {
+			return ToolCallRequest{}, fmt.Errorf("toolbridge: codex tool call workspace root %q is outside prepared surface scope", root)
+		}
+	}
+	req.CWD = surface.cwd
+	req.WorkspaceRoots = append([]string(nil), surface.workspaceRoots...)
+	return req, nil
+}
+
 // callCodexSurfaceTool 根据 surface entry 调用 host、skill 或 stdio MCP 工具。
 // 本函数负责补发 proxy lifecycle 事件，除非上游 context 已声明事件已发布。
 func (h *Handler) callCodexSurfaceTool(ctx context.Context, surface *codexToolSurface, req ToolCallRequest) (*ToolCallResult, error) {
+	var err error
+	req, err = bindCodexSurfaceToolCallScope(surface, req)
+	if err != nil {
+		return nil, err
+	}
 	canonical := surface.aliases[strings.TrimSpace(req.Name)]
 	if canonical == "" {
 		return h.denyHiddenCodexSurfaceMCPToolCall(ctx, surface, req)
@@ -489,7 +517,6 @@ func (h *Handler) callCodexSurfaceTool(ctx context.Context, surface *codexToolSu
 		h.publishProxyToolCallBegin(eventReq, started)
 	}
 	var result *ToolCallResult
-	var err error
 	defer func() {
 		if publishLifecycle {
 			h.publishProxyToolCallEnd(eventReq, started, result, err)

@@ -397,7 +397,7 @@ func TestCodexToolSurfaceLaunchInjectsManagedContextWithoutCWD(t *testing.T) {
 				t.Fatalf("PrepareCodexToolSurface() error = %v", err)
 			}
 
-			_, err = h.HandleToolCall(context.Background(), contract.ToolCallRawMessage{Params: json.RawMessage(`{"name":"launch_agent","arguments":{"name":"idle-agent"},"_agentId":"agent-parent","_threadId":"provider-thread-parent","_callId":"call-1","_cwd":"/repo/current"}`)})
+			_, err = h.HandleToolCall(context.Background(), contract.ToolCallRawMessage{Params: json.RawMessage(`{"name":"launch_agent","arguments":{"name":"idle-agent"},"_agentId":"agent-parent","_threadId":"provider-thread-parent","_callId":"call-1"}`)})
 			if err != nil {
 				t.Fatalf("HandleToolCall(launch_agent) error = %v", err)
 			}
