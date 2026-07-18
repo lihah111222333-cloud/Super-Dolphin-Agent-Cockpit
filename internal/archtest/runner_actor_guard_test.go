@@ -18,7 +18,7 @@ func TestOrchestrationWaiterHotFileGuard(t *testing.T) {
 }
 
 // TestRunnerActorGuard 锁定 actor Run(ctx) 内禁止的并发形状。
-// 这里保留小范围热点文件扫描和 matcher 骨架，避免把 owner-joined goroutine 误报成泄漏。
+// 这里保留小范围热点文件扫描和 ownership 守卫，避免把 owner-joined goroutine 误报成泄漏。
 func TestRunnerActorGuard(t *testing.T) {
 	t.Parallel()
 
@@ -55,25 +55,8 @@ func TestRunnerActorGuard(t *testing.T) {
 	})
 
 	// SessionRuntime 的 reader/health goroutine 已在 runtime 层用 TestShutdownDrain 覆盖；
-	// 这里保留 matcher 骨架，避免把未接入的检查误当成已生效。
+	// actor Run(ctx) 通用 matcher 尚未接入，本测试只保留当前真实生效的热点与 ownership 守卫。
 	// process_lifecycle.go 的 waiter 热点检查已生效，不允许旧停止路径重新出现。
-	matcherCases := []struct {
-		name        string
-		owningSlice string
-	}{
-		{
-			name:        "actor_run_ctx_auxiliary_goroutines_must_join_on_stop",
-			owningSlice: "P1c (codexapp session runtime reader/health — covered by TestShutdownDrain* at runtime level)",
-		},
-	}
-
-	for _, tc := range matcherCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			t.Skipf("matcher skeleton only; owning slice will flip red→green: %s", tc.owningSlice)
-		})
-	}
-
 	t.Run("actor_run_ctx_must_not_fire_waiter_goroutine", func(t *testing.T) {
 		// waiter 热点检查只面向当前 runner actor 文件；startWaiters /
 		// waitForExit / claimMonitorTargets 任一 token 重新出现都表示停止路径回退。

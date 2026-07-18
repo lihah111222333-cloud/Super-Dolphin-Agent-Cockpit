@@ -1543,6 +1543,7 @@
 
 .suiyuan-sidebar-footer .suiyuan-footer-item {
   flex: 1;
+  justify-content: center;
 }
 
 /* Suiyuan general toggle switch button */

@@ -177,7 +177,7 @@ func assertDisabledCodexSurfaceTools(
 ) {
 	t.Helper()
 
-	disabledNames := []string{ToolNameMemoryWrite, "skill_write_note", "launch_agent", "mcp__orch__launch_agent", "launch_agent", "connect_tool_source"}
+	disabledNames := []string{ToolNameMemoryWrite, "skill__skill_write_note", "launch_agent", "mcp__orch__launch_agent", "launch_agent", "connect_tool_source"}
 	disabledTools, err := h.PrepareCodexToolSurface(context.Background(), contract.CodexToolSurfaceScope{
 		AgentID:          "agent-deny",
 		ProviderThreadID: "provider-thread-deny",
@@ -214,7 +214,7 @@ func assertAllowedCodexSurfaceTools(
 	if err != nil {
 		t.Fatalf("PrepareCodexToolSurface(allowed) error = %v", err)
 	}
-	assertDynamicToolNames(t, allowedTools, []string{ToolNameMemoryWrite, "skill_write_note", "launch_agent", "connect_tool_source"})
+	assertDynamicToolNames(t, allowedTools, []string{ToolNameMemoryWrite, "skill__skill_write_note", "launch_agent", "connect_tool_source"})
 	callAllowedCodexSurfaceTools(t, h, cwd)
 	assertAllowedCodexSurfaceCallsReachedBackends(t, host, skills, orch, external)
 }
@@ -262,7 +262,7 @@ func callAllowedCodexSurfaceTools(t *testing.T, h *Handler, cwd string) {
 	t.Helper()
 
 	callCodexSurfaceToolForTest(t, h, "agent-allow", "provider-thread-allow", cwd, ToolNameMemoryWrite)
-	callCodexSurfaceToolForTest(t, h, "agent-allow", "provider-thread-allow", cwd, "skill_write_note")
+	callCodexSurfaceToolForTest(t, h, "agent-allow", "provider-thread-allow", cwd, "skill__skill_write_note")
 	callCodexSurfaceToolForTest(t, h, "agent-allow", "provider-thread-allow", cwd, "launch_agent")
 	callCodexSurfaceToolForTest(t, h, "agent-allow", "provider-thread-allow", cwd, "connect_tool_source")
 }
@@ -350,11 +350,11 @@ func TestPrepareCodexToolSurfaceAdvertisesSkillToolsAndReturnsSkillText(t *testi
 	if err != nil {
 		t.Fatalf("PrepareCodexToolSurface() error = %v", err)
 	}
-	assertDynamicToolNames(t, tools, []string{"backend"})
-	assertDynamicSkillToolSchema(t, tools, "backend", "Return backend skill details", inputSchema)
+	assertDynamicToolNames(t, tools, []string{"skill__backend"})
+	assertDynamicSkillToolSchema(t, tools, "skill__backend", "Return backend skill details", inputSchema)
 
 	resultAny, err := h.HandleToolCall(context.Background(), contract.ToolCallRawMessage{
-		Params: json.RawMessage(`{"name":"backend","arguments":{},"_agentId":"agent-1","_threadId":"provider-thread-1","_callId":"call-1","_cwd":"` + jsonEscape(projectRoot) + `"}`),
+		Params: json.RawMessage(`{"name":"skill__backend","arguments":{},"_agentId":"agent-1","_threadId":"provider-thread-1","_callId":"call-1","_cwd":"` + jsonEscape(projectRoot) + `"}`),
 	})
 	if err != nil {
 		t.Fatalf("HandleToolCall(backend) error = %v", err)

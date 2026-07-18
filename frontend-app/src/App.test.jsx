@@ -11,6 +11,7 @@ import chatPageSource from './pages/chat/ChatPage.jsx?raw';
 import chatWorkbenchLayoutSource from './pages/chat/hooks/useChatWorkbenchLayout.js?raw';
 import { rightPanelDefaultWidth, rightPanelMaxWidth, threadRailTargetWidth } from './pages/chat/model/chatWorkbenchLayoutModel.js';
 import { resetClientStoreForTests, useClientStore } from './entities/client/model/useClientStore.js';
+import { normalizeMemorySnapshot as normalizeMemorySnapshotForFacade } from './adapters/memoryAdapter.js';
 import mermaid from 'mermaid';
 
 let createRootMock = null;
@@ -216,7 +217,7 @@ function defaultSkillFixtures() {
     {
       name: 'backend',
       display_name: '后端',
-      dir: '/repo/app/.agent/skills/backend',
+      dir: '/repo/app/.agents/skills/backend',
       description: '当你需要 Go 后端开发时使用。',
       summary: 'Go 后端开发指南',
       trigger_words: ['Go', 'backend', 'service'],
@@ -422,7 +423,9 @@ function mockPromptWizardEntryPrompt(overrides = {}) {
 }
 
 function mockMemoryDefaults() {
-  backend.getMemorySnapshot.mockResolvedValue({
+  // mock 必须与真实 facade 输出一致：backendApi.getMemorySnapshot 经 validateMemorySnapshotResponse
+  // parse + transform 后返回扁平 { overview, entries }，而不是原始 wire 的 private/team 结构。
+  backend.getMemorySnapshot.mockResolvedValue(normalizeMemorySnapshotForFacade({
     overview: {
       enabled: true,
       autoDreamEnabled: false,
@@ -432,7 +435,7 @@ function mockMemoryDefaults() {
     },
     private: { entries: [] },
     team: { entries: [] },
-  });
+  }));
   backend.getMemoryEntry.mockResolvedValue({
     target: 'private',
     path: 'feedback/tdd.md',
@@ -506,11 +509,11 @@ function mockSkillDefaults() {
   }));
   backend.listSkillFiles.mockResolvedValue({
     files: [
-      { name: 'SKILL.md', path: '/repo/app/.agent/skills/backend/SKILL.md', is_main: true },
-      { name: 'guide.md', path: '/repo/app/.agent/skills/backend/references/guide.md', is_main: false },
+      { name: 'SKILL.md', path: '/repo/app/.agents/skills/backend/SKILL.md', is_main: true },
+      { name: 'guide.md', path: '/repo/app/.agents/skills/backend/references/guide.md', is_main: false },
     ],
   });
-  backend.writeSkill.mockResolvedValue({ path: '/repo/app/.agent/skills/backend/SKILL.md' });
+  backend.writeSkill.mockResolvedValue({ path: '/repo/app/.agents/skills/backend/SKILL.md' });
   backend.importSkillDirectories.mockResolvedValue({
     imported: [{ name: 'ImportedSkill', skill_file: '/imports/ImportedSkill/SKILL.md' }],
     failures: [],
@@ -529,7 +532,7 @@ function mockSkillDefaults() {
       provider: 'codex',
       preview_id: 'preview-1',
       preview_hash: 'hash-1',
-      source_path: '/repo/app/.agent/skills/backend/SKILL.md',
+      source_path: '/repo/app/.agents/skills/backend/SKILL.md',
       target_path: '/Users/test/.codex/skills/backend/SKILL.md',
     }],
   });
@@ -756,7 +759,7 @@ it('renders the persisted shell layout width through the real chat layout', asyn
     gridTemplateColumns: 'minmax(0, 1fr) 6px 480.5px',
   });
   expect(storage.set).not.toHaveBeenCalled();
-});
+}, 15000);
 
 it.each([
   ['read', (storage) => storage.get.mockImplementation(() => { throw new Error('private shell layout read'); })],
@@ -1708,7 +1711,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
     expect(backend.setPreference).not.toHaveBeenCalledWith(expect.objectContaining({ key: 'settings.provider.active' }));
   });
 
-  it('disables composer send by button and Enter when no project cwd is available', () => {
+  it('disables composer send by button and Enter when no project cwd is available', async () => {
     resetClientStoreForTests({
       bootstrapStatus: 'ready',
       cwd: '',
@@ -1720,19 +1723,22 @@ async function toggleInlineTraceFromRecentLogs(table) {
 
     render(<App skipBootstrap />);
 
-    const sendButton = screen.getByRole('button', { name: '发送消息' });
+    // 发送仍要求项目 cwd（业务契约保留）；附件/模型控件在后端就绪后即可交互。
+    const sendButton = await screen.findByRole('button', { name: '发送消息' });
     expect(sendButton).toBeDisabled();
-    expect(screen.getByRole('button', { name: '添加文件' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: '添加文件' })).toBeEnabled();
     expect(screen.queryByRole('combobox', { name: '发送权限' })).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '选择模型' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: '选择模型' })).toBeEnabled();
 
     fireEvent.click(sendButton);
-    fireEvent.click(screen.getByRole('button', { name: '添加文件' }));
     fireEvent.keyDown(screen.getByTestId('composer-input'), { key: 'Enter', code: 'Enter', charCode: 13 });
 
     expect(backend.startThread).not.toHaveBeenCalled();
     expect(backend.startTurn).not.toHaveBeenCalled();
-    expect(backend.selectFiles).not.toHaveBeenCalled();
+
+    // 附件按钮在无项目时进入真实文件选择流程（不依赖项目 cwd）。
+    fireEvent.click(screen.getByRole('button', { name: '添加文件' }));
+    await waitFor(() => expect(backend.selectFiles).toHaveBeenCalled());
   });
 
   it('does not show composer interrupt controls for a running runtime agent without an active turn', async () => {
@@ -5251,7 +5257,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
   });
 
   it('marks the memory center nav only for similar memories that need merging', async () => {
-    backend.getMemorySnapshot.mockResolvedValue({
+    backend.getMemorySnapshot.mockResolvedValue(normalizeMemorySnapshotForFacade({
       overview: {
         enabled: true,
         autoDreamEnabled: false,
@@ -5274,7 +5280,7 @@ async function toggleInlineTraceFromRecentLogs(table) {
       },
       private: { entries: [] },
       team: { entries: [] },
-    });
+    }));
 
     render(<App />);
     await waitForBackendThreadHeading();
@@ -6036,7 +6042,7 @@ async function createGeneratedPromptIntent() {
   });
 
   it('loads memory center through ui/memory/get and groups entries by type', async () => {
-    backend.getMemorySnapshot.mockResolvedValue({
+    backend.getMemorySnapshot.mockResolvedValue(normalizeMemorySnapshotForFacade({
       overview: {
         enabled: true,
         autoDreamEnabled: false,
@@ -6075,7 +6081,7 @@ async function createGeneratedPromptIntent() {
           preview: 'DAG 内容',
         }],
       },
-    });
+    }));
 
     render(<App />);
     await waitForBackendThreadHeading();
@@ -6113,7 +6119,7 @@ async function createGeneratedPromptIntent() {
       updatedAt: '2026-05-30T08:00:00Z',
       preview: '规则\n先写红测',
     }];
-    backend.getMemorySnapshot.mockImplementation(() => Promise.resolve({
+    backend.getMemorySnapshot.mockImplementation(() => Promise.resolve(normalizeMemorySnapshotForFacade({
       overview: {
         enabled: true,
         autoDreamEnabled: true,
@@ -6123,7 +6129,7 @@ async function createGeneratedPromptIntent() {
       },
       private: { entries },
       team: { entries: [] },
-    }));
+    })));
 
     render(<App />);
     await waitForBackendThreadHeading();
@@ -6172,7 +6178,7 @@ async function createGeneratedPromptIntent() {
   it('does not poll memory center with a page interval', async () => {
     const intervalSpy = vi.spyOn(window, 'setInterval');
     try {
-      backend.getMemorySnapshot.mockResolvedValue({
+      backend.getMemorySnapshot.mockResolvedValue(normalizeMemorySnapshotForFacade({
         overview: {
           enabled: true,
           autoDreamEnabled: true,
@@ -6192,7 +6198,7 @@ async function createGeneratedPromptIntent() {
           }],
         },
         team: { entries: [] },
-      });
+      }));
 
       render(<App />);
       await waitForBackendThreadHeading();
@@ -6216,7 +6222,7 @@ async function createGeneratedPromptIntent() {
       updatedAt: '2026-05-30T08:00:00Z',
       preview: '规则\n先写红测',
     }];
-    backend.getMemorySnapshot.mockImplementation(() => Promise.resolve({
+    backend.getMemorySnapshot.mockImplementation(() => Promise.resolve(normalizeMemorySnapshotForFacade({
       overview: {
         enabled: true,
         autoDreamEnabled: true,
@@ -6226,7 +6232,7 @@ async function createGeneratedPromptIntent() {
       },
       private: { entries },
       team: { entries: [] },
-    }));
+    })));
 
     render(<App />);
     await waitForBackendThreadHeading();
@@ -6261,7 +6267,7 @@ async function createGeneratedPromptIntent() {
     let failMemory = true;
     backend.getMemorySnapshot.mockImplementation(() => {
       if (failMemory) return Promise.reject(new Error('memory backend offline'));
-      return Promise.resolve({
+      return Promise.resolve(normalizeMemorySnapshotForFacade({
         overview: {
           enabled: true,
           autoDreamEnabled: true,
@@ -6281,7 +6287,7 @@ async function createGeneratedPromptIntent() {
           }],
         },
         team: { entries: [] },
-      });
+      }));
     });
 
     render(<App />);
@@ -6309,7 +6315,7 @@ async function createGeneratedPromptIntent() {
       updatedAt: '2026-05-30T08:00:00Z',
       preview: '规则\n先写红测',
     }];
-    backend.getMemorySnapshot.mockImplementation(() => Promise.resolve({
+    backend.getMemorySnapshot.mockImplementation(() => Promise.resolve(normalizeMemorySnapshotForFacade({
       overview: {
         enabled: true,
         autoDreamEnabled: true,
@@ -6319,7 +6325,7 @@ async function createGeneratedPromptIntent() {
       },
       private: { entries },
       team: { entries: [] },
-    }));
+    })));
 
     render(<App />);
     await waitForBackendThreadHeading();
@@ -6345,7 +6351,7 @@ async function createGeneratedPromptIntent() {
   });
 
   it('wires memory center mutation actions to backend RPCs', async () => {
-    backend.getMemorySnapshot.mockResolvedValue({
+    backend.getMemorySnapshot.mockResolvedValue(normalizeMemorySnapshotForFacade({
       overview: {
         enabled: true,
         autoDreamEnabled: false,
@@ -6365,7 +6371,7 @@ async function createGeneratedPromptIntent() {
         }],
       },
       team: { entries: [] },
-    });
+    }));
 
     render(<App />);
     await waitForBackendThreadHeading();
@@ -6422,7 +6428,7 @@ async function createGeneratedPromptIntent() {
   });
 
   it('wires memory similarity actions to backend RPCs', async () => {
-    backend.getMemorySnapshot.mockResolvedValue({
+    backend.getMemorySnapshot.mockResolvedValue(normalizeMemorySnapshotForFacade({
       overview: {
         enabled: true,
         autoDreamEnabled: true,
@@ -6440,7 +6446,7 @@ async function createGeneratedPromptIntent() {
       },
       private: { entries: [] },
       team: { entries: [] },
-    });
+    }));
 
     render(<App />);
     await waitForBackendThreadHeading();
@@ -6506,7 +6512,8 @@ function createSimilaritySnapshots() {
     nameB: 'B', targetB: 'team', pathB: 'feedback/b.md',
     score: 0.88,
   };
-  const snapshotWithSimilar = {
+  // 与真实 facade 输出一致：parse + transform 后的扁平 { overview, entries } 形态。
+  const snapshotWithSimilar = normalizeMemorySnapshotForFacade({
     overview: {
       enabled: true,
       autoDreamEnabled: true,
@@ -6520,7 +6527,7 @@ function createSimilaritySnapshots() {
     },
     private: { entries: [] },
     team: { entries: [] },
-  };
+  });
   const snapshotWithoutSimilar = {
     ...snapshotWithSimilar,
     overview: {

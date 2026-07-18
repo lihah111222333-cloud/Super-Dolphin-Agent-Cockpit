@@ -520,6 +520,15 @@ function guardedBackendResponse(method) {
     await expect(api.getObservabilityTrace({ traceId: 'trace-1' })).rejects.toThrow(/observability response must be an object/);
   });
 
+  it('rejects memory snapshot responses whose section entries are null at the facade boundary', async () => {
+    // 生产端（internal/module/memory/ui_rpc.go loadUIMemoryScope）始终输出数组；
+    // null entries 属于非法 wire 形状，facade 必须 fail-fast，不得归一为空列表。
+    const callAPI = vi.fn().mockResolvedValue({ overview: {}, private: { entries: null }, team: { entries: [] } });
+    const api = createBackendApi({ callAPI });
+
+    await expect(api.getMemorySnapshot({ cwd: '/repo/app' })).rejects.toThrow(/memory private entries must be an array/);
+  });
+
   it('fails fast without extra backend calls for representative invalid facade inputs', () => {
     const callAPI = vi.fn().mockResolvedValue({ ok: true });
     const api = createBackendApi({ callAPI });
@@ -1574,8 +1583,8 @@ function guardedBackendResponse(method) {
       { response: sidebarStateResponse({ statusHeadersByThread: [] }), message: 'statusHeadersByThread must be an object' },
       { response: sidebarStateResponse({ statusDetailsByThread: { 'thread-1': 7 } }), message: 'statusDetailsByThread.thread-1 must be a string' },
       { response: sidebarStateResponse({ agentRuntimeById: { 'agent-1': [] } }), message: 'agentRuntimeById.agent-1 must be an object' },
-      { response: sidebarStateResponse({ activityStatsByThread: { 'thread-1': { lspCalls: '1', commands: 0, fileEdits: 0 } } }), message: 'activityStatsByThread.thread-1.lspCalls must be a non-negative integer' },
-      { response: sidebarStateResponse({ activityStatsByThread: { 'thread-1': { lspCalls: 0, commands: 0, fileEdits: 0, toolCalls: { read: '1' } } } }), message: 'activityStatsByThread.thread-1.toolCalls.read must be a non-negative integer' },
+      { response: sidebarStateResponse({ activityStatsByThread: { 'thread-1': { lspCalls: '1', commands: 0, fileEdits: 0 } } }), message: 'activityStatsByThread.thread-1.lspCalls must be an integer' },
+      { response: sidebarStateResponse({ activityStatsByThread: { 'thread-1': { lspCalls: 0, commands: 0, fileEdits: 0, toolCalls: { read: '1' } } } }), message: 'activityStatsByThread.thread-1.toolCalls.read must be an integer' },
       { response: sidebarStateResponse({ activeThreadId: 1 }), message: 'activeThreadId must be a string' },
       { response: sidebarStateResponse({ 'viewPrefs.chat': [] }), message: 'viewPrefs.chat must be an object' },
       { response: sidebarStateResponse({ 'threadPins.chat': { 'thread-1': 1.5 } }), message: 'threadPins.chat values must be integers' },
@@ -1592,6 +1601,60 @@ function guardedBackendResponse(method) {
       const api = createBackendApi({ callAPI });
       await expect(call(api)).rejects.toThrow(item.message);
     }
+  });
+
+  it('fails fast when the sidebar facade receives empty or malformed success bodies', async () => {
+    const missingWorkspaceWithMalformedThread = sidebarStateResponse({
+      threads: [{ id: 7 }],
+    });
+    delete missingWorkspaceWithMalformedThread.workspace;
+    const missingRecentTurns = sidebarStateResponse();
+    delete missingRecentTurns.recent_turns;
+    const cases = [
+      { response: {}, message: 'ui/sidebar/get response threads is required' },
+      {
+        response: { statuses: { 'thread-1': 'running' } },
+        message: 'ui/sidebar/get response threads is required',
+      },
+      {
+        response: missingWorkspaceWithMalformedThread,
+        message: 'ui/sidebar/get response workspace is required',
+      },
+      {
+        response: missingRecentTurns,
+        message: 'ui/sidebar/get response recent_turns is required',
+      },
+    ];
+
+    for (const item of cases) {
+      const api = createBackendApi({ callAPI: vi.fn().mockResolvedValue(item.response) });
+      await expect(api.getSidebarState({ cwd: '/repo/app' })).rejects.toThrow(item.message);
+    }
+  });
+
+  it('rejects null sidebar list fields instead of accepting Go nil slice drift', async () => {
+    // nil slice 漂移必须在 Go producer/clone 层修复（输出 []），前端契约保持严格：
+    // 字段存在时必须是数组，null 一律拒绝。
+    const call = (api) => api.getSidebarState({ cwd: '/repo/app' });
+    const cases = [
+      sidebarStateResponse({ agents: null }),
+      sidebarStateResponse({ threads: null }),
+      sidebarStateResponse({ recent_turns: null }),
+      sidebarStateResponse({ agents: {} }),
+      sidebarStateResponse({ agents: 'agents' }),
+      sidebarStateResponse({ threads: 3 }),
+    ];
+
+    for (const response of cases) {
+      const api = createBackendApi({ callAPI: vi.fn().mockResolvedValue(response) });
+      await expect(call(api)).rejects.toThrow(/must be an array/);
+    }
+  });
+
+  it('accepts empty arrays for sidebar list fields', async () => {
+    const response = sidebarStateResponse({ agents: [], threads: [], recent_turns: [] });
+    const api = createBackendApi({ callAPI: vi.fn().mockResolvedValue(response) });
+    await expect(api.getSidebarState({ cwd: '/repo/app' })).resolves.toEqual(response);
   });
 
   it('rejects unsuccessful or malformed code save response fields', async () => {
@@ -1611,6 +1674,85 @@ function guardedBackendResponse(method) {
     for (const item of cases) {
       const api = createBackendApi({ callAPI: vi.fn().mockResolvedValue(item.response) });
       await expect(call(api)).rejects.toThrow(item.message);
+    }
+  });
+
+  it('accepts a null window bootstrap snapshot after the desktop host consumed it', async () => {
+    // 一次性快照被桌面宿主消费后返回 { snapshot: null }，必须放行给 normalize 层回退，
+    // 否则浏览器直开/刷新会让 bootstrap 永久失败、控件全部禁用。
+    const api = createBackendApi({ callAPI: vi.fn().mockResolvedValue({ snapshot: null }) });
+    await expect(api.getWindowBootstrap()).resolves.toEqual({ snapshot: null });
+  });
+
+  it('validates skills/tools/create responses at the facade boundary', async () => {
+    const created = {
+      id: 9,
+      cwd: '/repo/app',
+      methodName: 'deploy_frontend',
+      description: '部署前端到本地预览',
+      enabled: true,
+      createdAt: '2026-07-17T10:00:00+08:00',
+      updatedAt: '2026-07-17T10:00:00+08:00',
+    };
+    const api = createBackendApi({ callAPI: vi.fn().mockResolvedValue(created) });
+    await expect(api.createSkillTool({
+      cwd: '/repo/app',
+      methodName: 'deploy_frontend',
+      description: '部署前端到本地预览',
+      enabled: true,
+    })).resolves.toEqual(created);
+
+    const malformed = [
+      { ...created, id: 0 },
+      { ...created, id: -3 },
+      { ...created, id: '9' },
+      { ...created, cwd: '' },
+      { ...created, cwd: '   ' },
+      { ...created, methodName: '' },
+      { ...created, methodName: 'bad name' },
+      { ...created, methodName: 'bad/name' },
+      { ...created, description: '' },
+      { ...created, enabled: 'true' },
+      { ...created, createdAt: 'not-a-time' },
+      { ...created, createdAt: '' },
+      { ...created, updatedAt: '2026-13-99' },
+      { ...created, surprise: true },
+    ];
+    for (const response of malformed) {
+      const failingApi = createBackendApi({ callAPI: vi.fn().mockResolvedValue(response) });
+      await expect(failingApi.createSkillTool({
+        cwd: '/repo/app',
+        methodName: 'deploy_frontend',
+        description: '部署前端到本地预览',
+        enabled: true,
+      })).rejects.toThrow(/skills\/tools\/create response/);
+    }
+  });
+
+  it('reuses the same SkillTool DTO contract for skills/tools/list responses', async () => {
+    const tool = {
+      id: 3,
+      cwd: '/repo/app',
+      methodName: 'backend',
+      description: '后端技能',
+      enabled: true,
+      createdAt: '2026-07-17T10:00:00Z',
+      updatedAt: '2026-07-17T10:00:00Z',
+    };
+    const api = createBackendApi({ callAPI: vi.fn().mockResolvedValue({ tools: [tool] }) });
+    await expect(api.listSkillTools({ cwd: '/repo/app', keyword: '', limit: 10 })).resolves.toEqual({ tools: [tool] });
+
+    const malformed = [
+      { ...tool, id: 0 },
+      { ...tool, cwd: '' },
+      { ...tool, methodName: 'bad name' },
+      { ...tool, description: '' },
+      { ...tool, createdAt: 'not-a-time' },
+      { ...tool, extra: 'field' },
+    ];
+    for (const badTool of malformed) {
+      const failingApi = createBackendApi({ callAPI: vi.fn().mockResolvedValue({ tools: [badTool] }) });
+      await expect(failingApi.listSkillTools({ cwd: '/repo/app', keyword: '', limit: 10 })).rejects.toThrow(/skills\/tools\/list response/);
     }
   });
 
@@ -2241,7 +2383,7 @@ function guardedBackendResponse(method) {
   });
 
   it('creates project skills through the dedicated internal skills/create RPC', async () => {
-    const callAPI = vi.fn().mockResolvedValue({ path: '/repo/app/.agent/skills/DocsSkill/SKILL.md' });
+    const callAPI = vi.fn().mockResolvedValue({ path: '/repo/app/.agents/skills/DocsSkill/SKILL.md' });
     const api = createBackendApi({ callAPI });
 
     await api.createSkill({
@@ -2272,9 +2414,9 @@ function guardedBackendResponse(method) {
       method === RPC_METHODS.SKILLS_SUMMARY_SUGGEST
         ? { description: '当你需要编写文档时使用。' }
         : method === RPC_METHODS.SKILLS_LOCAL_READ
-          ? { skill: { path: '/repo/app/.agent/skills/docs/SKILL.md', content: '# DocsSkill' } }
+          ? { skill: { path: '/repo/app/.agents/skills/docs/SKILL.md', content: '# DocsSkill' } }
           : method === RPC_METHODS.SKILLS_LOCAL_LIST_FILES
-            ? { dir: '/repo/app/.agent/skills/docs', files: [{ name: 'SKILL.md', path: '/repo/app/.agent/skills/docs/SKILL.md', size: 10, is_main: true }] }
+            ? { dir: '/repo/app/.agents/skills/docs', files: [{ name: 'SKILL.md', path: '/repo/app/.agents/skills/docs/SKILL.md', size: 10, is_main: true }] }
             : method === RPC_METHODS.SKILLS_LOCAL_IMPORT_DIR
               ? { requested: 1, imported: [importedSkill], skill: importedSkill, mirror_publish: {} }
               : { ok: true },
@@ -2290,8 +2432,8 @@ function guardedBackendResponse(method) {
   });
 
 async function callSkillEditorApis(api) {
-  await api.readSkill({ cwd: '/repo/app', path: '/repo/app/.agent/skills/docs/SKILL.md' });
-  await api.listSkillFiles({ cwd: '/repo/app', dir: '/repo/app/.agent/skills/docs' });
+  await api.readSkill({ cwd: '/repo/app', path: '/repo/app/.agents/skills/docs/SKILL.md' });
+  await api.listSkillFiles({ cwd: '/repo/app', dir: '/repo/app/.agents/skills/docs' });
   await api.writeSkill({ cwd: '/repo/app', path: 'DocsSkill', content: '---', scope: 'personal', personalType: 'user' });
   await api.importSkillDirectories({ cwd: '/repo/app', paths: ['/imports/a'], scope: 'personal', personal_type: 'imported' });
   await api.suggestSkillSummary({ cwd: '/repo/app', name: 'DocsSkill', description: '', content: 'body', scenario_words: ['docs'], scope: 'project' });
@@ -2300,11 +2442,11 @@ async function callSkillEditorApis(api) {
 function expectSkillEditorCalls(callAPI) {
   expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.SKILLS_LOCAL_READ, {
     cwd: '/repo/app',
-    path: '/repo/app/.agent/skills/docs/SKILL.md',
+    path: '/repo/app/.agents/skills/docs/SKILL.md',
   });
   expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.SKILLS_LOCAL_LIST_FILES, {
     cwd: '/repo/app',
-    dir: '/repo/app/.agent/skills/docs',
+    dir: '/repo/app/.agents/skills/docs',
   });
   expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.SKILLS_LOCAL_WRITE, {
     cwd: '/repo/app',

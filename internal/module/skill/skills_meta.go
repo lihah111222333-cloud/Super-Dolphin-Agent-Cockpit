@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -87,12 +88,11 @@ func parseSkillInfo(rel, dir, content string, defaultTrust TrustScope) (SkillInf
 			if !ok {
 				continue
 			}
-			if metaKeyMatch(key, trustMetaKeys) && !parseTrustScope(parseScalar(value)).Valid() {
-				return SkillInfo{}, fmt.Errorf("trust must be user, project, or signed: %q", parseScalar(value))
-			}
 			i += applyMetaLine(&info, key, value, lines[i+1:])
 		}
-		applyYAMLFrontmatter(&info, frontmatter)
+		if err := applyYAMLFrontmatter(&info, frontmatter); err != nil {
+			return SkillInfo{}, err
+		}
 	} else {
 		body = content
 	}
@@ -230,12 +230,6 @@ func applyMetaLine(info *SkillInfo, key, value string, tail []string) int {
 	if used, ok := applyMetaWordList(info, key, value, tail); ok {
 		return used
 	}
-	if applyMetaTrust(info, key, value) {
-		return 0
-	}
-	if applyDisableModelInvocationMeta(info, key, value) {
-		return 0
-	}
 	return 0
 }
 
@@ -254,38 +248,218 @@ func applyMetaWordList(info *SkillInfo, key, value string, tail []string) (int, 
 	return used, true
 }
 
-func applyMetaTrust(info *SkillInfo, key, value string) bool {
-	if !metaKeyMatch(key, trustMetaKeys) {
-		return false
-	}
-	// frontmatter 里的 trust 只接受已知值；未知值视为未设置，保留根目录推断结果。
-	if scope := parseTrustScope(parseScalar(value)); scope != TrustUnknown {
-		info.Trust = scope
-	}
-	return true
+type yamlSecurityMetadata struct {
+	key   *yaml.Node
+	value *yaml.Node
 }
 
-func applyDisableModelInvocationMeta(info *SkillInfo, key, value string) bool {
-	if !metaKeyMatch(key, disableModelInvocationMetaKeys) {
-		return false
-	}
-	if parseBoolScalar(parseScalar(value)) {
-		info.DisableModelInvocation = true
-	}
-	return true
+type skillFrontmatterYAML struct {
+	root     *yaml.Node
+	security map[string]yamlSecurityMetadata
 }
 
-func applyYAMLFrontmatter(info *SkillInfo, frontmatter string) {
-	var doc map[string]any
-	if err := yaml.Unmarshal([]byte(frontmatter), &doc); err != nil {
-		return
+// parseSkillFrontmatterYAML 解析并校验唯一的 YAML 映射根节点，保留节点语义供 parser 与 mirror 共用。
+func parseSkillFrontmatterYAML(frontmatter string) (skillFrontmatterYAML, error) {
+	var document yaml.Node
+	if err := yaml.Unmarshal([]byte(frontmatter), &document); err != nil {
+		return skillFrontmatterYAML{}, fmt.Errorf("parse skill frontmatter YAML: %w", err)
 	}
-	for _, key := range replacesNativeMetaKeys {
-		if raw, ok := doc[key]; ok {
-			info.ReplacesNative = parseReplacesNativeYAML(raw)
-			return
+	if document.Kind != yaml.DocumentNode || len(document.Content) != 1 {
+		return skillFrontmatterYAML{}, fmt.Errorf("parse skill frontmatter YAML: root must be a mapping")
+	}
+	root := document.Content[0]
+	if root.Kind != yaml.MappingNode {
+		return skillFrontmatterYAML{}, fmt.Errorf("parse skill frontmatter YAML: root must be a mapping")
+	}
+	if yamlNodeHasMerge(root) {
+		return skillFrontmatterYAML{}, fmt.Errorf("parse skill frontmatter YAML: merge keys are not allowed")
+	}
+	if yamlNodeUsesAlias(root) {
+		return skillFrontmatterYAML{}, fmt.Errorf("parse skill frontmatter YAML: aliases are not allowed")
+	}
+	security, err := indexYAMLSecurityMetadata(root)
+	if err != nil {
+		return skillFrontmatterYAML{}, fmt.Errorf("parse skill frontmatter YAML: %w", err)
+	}
+	return skillFrontmatterYAML{root: root, security: security}, nil
+}
+
+// yamlNodeHasMerge 检查 YAML 树中是否存在 merge key，阻止字段通过合并语义注入根节点。
+func yamlNodeHasMerge(node *yaml.Node) bool {
+	if node.Kind == yaml.MappingNode {
+		for i := 0; i+1 < len(node.Content); i += 2 {
+			key := node.Content[i]
+			if key.Tag == "!!merge" || key.Value == "<<" {
+				return true
+			}
 		}
 	}
+	return slices.ContainsFunc(node.Content, yamlNodeHasMerge)
+}
+
+// yamlNodeUsesAlias 检查 YAML 树中的 anchor 与 alias，避免安全字段通过间接节点表达。
+func yamlNodeUsesAlias(node *yaml.Node) bool {
+	if node.Kind == yaml.AliasNode || node.Anchor != "" {
+		return true
+	}
+	return slices.ContainsFunc(node.Content, yamlNodeUsesAlias)
+}
+
+// indexYAMLSecurityMetadata 建立安全字段索引，并拒绝重复键、别名重复和非标量安全值。
+func indexYAMLSecurityMetadata(root *yaml.Node) (map[string]yamlSecurityMetadata, error) {
+	if len(root.Content)%2 != 0 {
+		return nil, fmt.Errorf("mapping contains an unmatched key")
+	}
+	seenKeys := make(map[string]struct{}, len(root.Content)/2)
+	security := make(map[string]yamlSecurityMetadata, 2)
+	for i := 0; i < len(root.Content); i += 2 {
+		key, value := root.Content[i], root.Content[i+1]
+		if key.Kind != yaml.ScalarNode || key.Tag != "!!str" {
+			return nil, fmt.Errorf("metadata key must be a string scalar")
+		}
+		if _, exists := seenKeys[key.Value]; exists {
+			return nil, fmt.Errorf("duplicate metadata key %q", key.Value)
+		}
+		seenKeys[key.Value] = struct{}{}
+		field := yamlSecurityFieldName(key.Value)
+		if field == "" {
+			continue
+		}
+		if previous, exists := security[field]; exists {
+			return nil, fmt.Errorf(
+				"%s declared through multiple aliases: %q and %q",
+				field,
+				previous.key.Value,
+				key.Value,
+			)
+		}
+		if value.Kind != yaml.ScalarNode || value.Tag == "!!null" {
+			return nil, invalidYAMLSecurityScalarError(field)
+		}
+		security[field] = yamlSecurityMetadata{key: key, value: value}
+	}
+	return security, nil
+}
+
+func invalidYAMLSecurityScalarError(field string) error {
+	if field == "trust" {
+		return fmt.Errorf("trust must be user, project, or signed")
+	}
+	return fmt.Errorf("disable_model_invocation must be a boolean")
+}
+
+func yamlSecurityFieldName(key string) string {
+	normalized := strings.ToLower(strings.TrimSpace(key))
+	switch {
+	case metaKeyMatch(normalized, trustMetaKeys):
+		return "trust"
+	case metaKeyMatch(normalized, disableModelInvocationMetaKeys):
+		return "disable_model_invocation"
+	default:
+		return ""
+	}
+}
+
+// applyYAMLFrontmatter 将严格 YAML 节点中的安全字段和普通结构化字段写入技能信息。
+func applyYAMLFrontmatter(info *SkillInfo, frontmatter string) error {
+	doc, err := parseSkillFrontmatterYAML(frontmatter)
+	if err != nil {
+		return err
+	}
+	if err := applyYAMLSecurityMetadata(info, doc); err != nil {
+		return err
+	}
+	var decoded map[string]any
+	if err := doc.root.Decode(&decoded); err != nil {
+		return fmt.Errorf("decode skill frontmatter YAML: %w", err)
+	}
+	for _, key := range replacesNativeMetaKeys {
+		if raw, ok := decoded[key]; ok {
+			info.ReplacesNative = parseReplacesNativeYAML(raw)
+			break
+		}
+	}
+	return nil
+}
+
+func applyYAMLSecurityMetadata(info *SkillInfo, doc skillFrontmatterYAML) error {
+	if err := applyYAMLTrust(info, doc.security["trust"]); err != nil {
+		return err
+	}
+	return applyYAMLDisableModelInvocation(info, doc.security["disable_model_invocation"])
+}
+
+func applyYAMLTrust(info *SkillInfo, metadata yamlSecurityMetadata) error {
+	if metadata.value == nil {
+		return nil
+	}
+	if metadata.value.Tag != "!!str" {
+		return fmt.Errorf("trust must be user, project, or signed: %s", metadata.value.Value)
+	}
+	value := strings.TrimSpace(metadata.value.Value)
+	scope := parseTrustScope(value)
+	if !scope.Valid() {
+		return fmt.Errorf("trust must be user, project, or signed: %q", value)
+	}
+	info.Trust = scope
+	return nil
+}
+
+func applyYAMLDisableModelInvocation(info *SkillInfo, metadata yamlSecurityMetadata) error {
+	if metadata.value == nil {
+		return nil
+	}
+	var raw any
+	if err := metadata.value.Decode(&raw); err != nil {
+		return fmt.Errorf("decode disable_model_invocation: %w", err)
+	}
+	disabled, err := parseYAMLBoolScalar(raw)
+	if err != nil {
+		return err
+	}
+	info.DisableModelInvocation = disabled
+	return nil
+}
+
+func marshalSkillFrontmatterYAML(doc skillFrontmatterYAML) (string, error) {
+	encoded, err := yaml.Marshal(doc.root)
+	if err != nil {
+		return "", fmt.Errorf("marshal skill frontmatter YAML: %w", err)
+	}
+	return strings.TrimSuffix(string(encoded), "\n"), nil
+}
+
+func rewriteYAMLScalar(node *yaml.Node, value string) {
+	node.Value = value
+	node.Tag = "!!str"
+	node.Style = 0
+	node.Anchor = ""
+	node.HeadComment = ""
+	node.LineComment = ""
+	node.FootComment = ""
+}
+
+// parseYAMLBoolScalar 解析兼容的布尔标量；未知或空值必须失败，禁止静默降级。
+func parseYAMLBoolScalar(value any) (bool, error) {
+	switch typed := value.(type) {
+	case bool:
+		return typed, nil
+	case int:
+		switch typed {
+		case 1:
+			return true, nil
+		case 0:
+			return false, nil
+		}
+	case string:
+		switch strings.ToLower(strings.TrimSpace(typed)) {
+		case "true", "yes", "y", "on", "1":
+			return true, nil
+		case "false", "no", "n", "off", "0":
+			return false, nil
+		}
+	}
+	return false, fmt.Errorf("disable_model_invocation must be a boolean: %v", value)
 }
 
 // parseReplacesNativeYAML 解析 replaces_native YAML 字段为 provider 到工具名列表的映射。

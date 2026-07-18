@@ -226,9 +226,11 @@ func TestHandleToolCallRejectsLegacyLSPAlias(t *testing.T) {
 		},
 	})
 
-	_, err := handleToolCall(context.Background(), defs, "lsp_file", json.RawMessage(`{}`))
-	if err == nil || !strings.Contains(err.Error(), "unknown tool") {
-		t.Fatalf("handleToolCall(lsp_file) error = %v, want unknown tool", err)
+	for _, legacy := range []string{"lsp_file", "lsp_inspect", "lsp_xref", "lsp_grep", "lsp_structure", "lsp_edit", "lsp_completion"} {
+		_, err := handleToolCall(context.Background(), defs, legacy, json.RawMessage(`{}`))
+		if err == nil || !strings.Contains(err.Error(), "unknown tool: "+legacy) {
+			t.Fatalf("handleToolCall(%s) error = %v, want unknown tool", legacy, err)
+		}
 	}
 }
 

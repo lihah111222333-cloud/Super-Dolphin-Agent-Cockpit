@@ -161,9 +161,6 @@ func fileToolTimeoutTier(params json.RawMessage) time.Duration {
 		return middleware.TierNormal
 	}
 	action := normalizeAction(input.Action)
-	if alias := legacyActionAlias("file", action); alias != "" {
-		action = alias
-	}
 	if action == "diagnostics" {
 		return toolTimeoutDisabled
 	}

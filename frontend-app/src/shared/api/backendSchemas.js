@@ -381,6 +381,35 @@ const memorySnapshotSchema = z.object({
   ],
 }));
 
+/*
+ * SkillTool wire DTO 的单一事实源：skills/tools/list 与 skills/tools/create/update
+ * 的响应都复用 skillToolRecordSchema，禁止维护两套字段规则。
+ */
+const nonEmptyWireString = (message) => z.string().refine((value) => value.trim() !== '', { message });
+
+const skillToolRecordSchema = z.object({
+  id: z.number().int().positive(),
+  cwd: nonEmptyWireString('skill tool cwd must be a non-empty string'),
+  methodName: nonEmptyWireString('skill tool methodName must be a non-empty string')
+    .refine((value) => !/[\s\\/]/.test(value), { message: 'skill tool methodName must not contain whitespace or path separators' }),
+  description: nonEmptyWireString('skill tool description must be a non-empty string'),
+  enabled: z.boolean(),
+  createdAt: wireTimestampSchema,
+  updatedAt: wireTimestampSchema,
+}).strict();
+
+const skillToolsListResponseSchema = z.object({
+  tools: z.array(skillToolRecordSchema),
+}).strict();
+
+function parseSkillToolMutationResponse(response) {
+  return parseSchema('skill tool mutation', skillToolRecordSchema, response);
+}
+
+function parseSkillToolsListResponse(response) {
+  return parseSchema('skill tools list', skillToolsListResponseSchema, response);
+}
+
 function sharedFileItemError(raw, index) {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
     return `shared file item ${index} must be an object`;
@@ -675,6 +704,8 @@ export {
   parseSharedFileDetailResponse,
   parseSharedFileDeleteResponse,
   parseSharedFilesDashboardResponse,
+  parseSkillToolMutationResponse,
+  parseSkillToolsListResponse,
   parseWorkflowMaterialWriteResponse,
   sharedFileDetailResponseSchema,
   sharedFilesDashboardSchema,

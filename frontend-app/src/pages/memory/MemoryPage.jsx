@@ -67,16 +67,24 @@ const similarGroups = Array.isArray(health?.similarGroups) ? health.similarGroup
 if (typeof onSimilarCountChange === 'function') onSimilarCountChange(similarGroups.length); }, [onSimilarCountChange, similarGroups.length]); return { categoryCounts, health, similarGroups, similarityDegraded, visibleEntries }; }
 function useMemoryAutoDream({ dashboard, showNotice }) {
 const [autoToggling, setAutoToggling] = useState(false); const runtime = dashboard.snapshot.overview?.autoDreamEnabled === true; const intent = normalizeAutoDreamIntent(dashboard.snapshot.overview?.autoDreamIntent); const enabled = intent === null ? runtime : intent;
-const pendingRestart = intent !== null && intent !== runtime; const toggleAutoDream = useCallback(async () => { if (autoToggling || dashboard.isProjectPending) return; if (!dashboard.memoryCwd) { showNotice('error', '正在连接本地项目...'); return; }
-const next = !enabled; setAutoToggling(true); try { await setMemoryAutoDreamIntent({ cwd: dashboard.memoryCwd, enabled: next }); showNotice('warning', `自动沉淀已切换为${next ? '开启' : '关闭'}，重启 ${APP_BRAND_NAME} 后生效`); await dashboard.refreshMemory(); } catch (err) {
+const pendingRestart = intent !== null && intent !== runtime; const toggleAutoDream = useCallback(async () => { if (autoToggling) return;
+if (dashboard.isProjectPending || !dashboard.memoryCwd) { showNotice('info', '请先在聊天页选择项目，再切换自动沉淀。'); return; }
+const next = !enabled; setAutoToggling(true); try { await setMemoryAutoDreamIntent({ cwd: dashboard.memoryCwd, enabled: next }); await dashboard.refreshMemory();
+// 切换后回读快照校验是否生效：当前后端 intent 写入项目记忆根、snapshot 读全局根（读写路径不一致），
+// 状态会静默回退；读不到预期状态时给出明确的未生效反馈，而不是假装切换成功。
+const refreshed = dashboard.queryClient.getQueryData(dashboardQueryKey(dashboard.memoryCwd, 'memory')); const runtimeAfter = refreshed?.overview?.autoDreamEnabled === true;
+const intentAfter = normalizeAutoDreamIntent(refreshed?.overview?.autoDreamIntent); const effectiveAfter = intentAfter === null ? runtimeAfter : intentAfter;
+if (effectiveAfter !== next) { showNotice('error', '自动沉淀切换未生效：记忆服务的自动梦境配置存在读写路径不一致（后端已知问题），请检查记忆目录配置或联系管理员。'); return; }
+showNotice('warning', `自动沉淀已切换为${next ? '开启' : '关闭'}，重启 ${APP_BRAND_NAME} 后生效`); } catch (err) {
 showNotice('error', `切换自动沉淀失败：${errorMessage(err)}`); } finally { setAutoToggling(false); } }, [autoToggling, dashboard, enabled, showNotice]); return { enabled, pendingRestart, toggleAutoDream, toggling: autoToggling }; }
 function useLatestValue(value) { const valueRef = useRef(value); useLayoutEffect(() => { valueRef.current = value; }, [value]); return valueRef; }
 function useMemoryEditor({ dashboard, showNotice }) {
 const [createMenuOpen, setCreateMenuOpen] = useState(false); const [editor, setEditor] = useState({ open: false, mode: 'create', scopeCwd: '', form: defaultMemoryForm('project') }); const [busyKey, setBusyKey] = useState(''); const [saving, setSaving] = useState(false);
 const memoryCwdRef = useLatestValue(dashboard.memoryCwd); const editRequestRef = useRef(0); useEffect(() => { editRequestRef.current += 1; setCreateMenuOpen(false); setBusyKey(''); setEditor((current) => {
 if (!current.scopeCwd || current.scopeCwd === dashboard.memoryCwd) return current; return { open: false, mode: 'create', scopeCwd: '', form: defaultMemoryForm('project') }; });
-}, [dashboard.memoryCwd]); const updateEditorForm = useCallback((patch) => setEditor((current) => ({ ...current, form: { ...current.form, ...patch } })), []); const openCreate = useCallback((type) => { if (dashboard.isProjectPending) return;
-if (!dashboard.memoryCwd) { showNotice('error', '正在连接本地项目...'); return; } editRequestRef.current += 1; setEditor({ open: true, mode: 'create', scopeCwd: dashboard.memoryCwd, form: defaultMemoryForm(type, memoryTargetForType(type)) }); setCreateMenuOpen(false);
+}, [dashboard.memoryCwd]); const updateEditorForm = useCallback((patch) => setEditor((current) => ({ ...current, form: { ...current.form, ...patch } })), []); const openCreate = useCallback((type) => {
+if (dashboard.isProjectPending || !dashboard.memoryCwd) { showNotice('info', '请先在聊天页选择项目，再创建记忆。'); return; }
+editRequestRef.current += 1; setEditor({ open: true, mode: 'create', scopeCwd: dashboard.memoryCwd, form: defaultMemoryForm(type, memoryTargetForType(type)) }); setCreateMenuOpen(false);
 }, [dashboard.isProjectPending, dashboard.memoryCwd, showNotice]); const openEdit = useCallback(async (entry) => { const requestCwd = dashboard.memoryCwd; if (!requestCwd) return;
 const requestID = editRequestRef.current + 1; editRequestRef.current = requestID; const key = `${entry.target}:${entry.path}`; setBusyKey(key); try {
 const detail = await getMemoryEntry({ cwd: requestCwd, target: entry.target, path: entry.path }); if (editRequestRef.current !== requestID || memoryCwdRef.current !== requestCwd) return; if (!memoryDetailHasContent(detail)) { showNotice('error', '加载失败：记忆详情缺少内容，已阻断编辑保存'); return;
@@ -150,11 +158,11 @@ const editor = useMemoryEditor({ dashboard, showNotice }); const deletion = useM
 const similarity = useMemorySimilarityActions({
 applyConsolidationResult, dashboard, resolveLaunchPreferences, showNotice, similarGroups: derived.similarGroups, similarityDegraded: derived.similarityDegraded,
 }); useMemoryConsolidationPolling({ applyConsolidationResult, setConsolidationJob: similarity.setConsolidationJob,
-showNotice, similarity, }); return { activeCategory, autoDream, dashboard, deletion, derived, editor, notice, searchText, setActiveCategory, setSearchText, setSimilarExpanded, similarExpanded, similarity }; }
+showNotice, similarity, }); return { activeCategory, autoDream, dashboard, deletion, derived, editor, notice, searchText, setActiveCategory, setSearchText, setSimilarExpanded, showNotice, similarExpanded, similarity }; }
 function MemoryPage({ copy = APP_COPY.zh.memory, projectPath, onSimilarCountChange, resolveLaunchPreferences }) { const model = useMemoryPageModel({ projectPath, onSimilarCountChange, resolveLaunchPreferences }); return <MemoryPageView copy={copy} model={model} />; }
 function MemoryPageView({ copy, model }) { return ( <section className="memory-page"> <MemoryPageHeader copy={copy} />
 <MemoryStats autoDream={model.autoDream} categoryCounts={model.derived.categoryCounts} copy={copy} disabled={model.dashboard.isProjectPending} health={model.derived.health} />
-<MemoryToolbar copy={copy} disabled={model.dashboard.isProjectPending} editor={model.editor} searchText={model.searchText} setSearchText={model.setSearchText} />
+<MemoryToolbar copy={copy} disabled={model.dashboard.isProjectPending} editor={model.editor} searchText={model.searchText} setSearchText={model.setSearchText} showNotice={model.showNotice} />
 <MemorySimilaritySection copy={copy} degraded={model.derived.similarityDegraded} expanded={model.similarExpanded}
 groups={model.derived.similarGroups} setExpanded={model.setSimilarExpanded} similarity={model.similarity} /> <MemoryStatusMessages copy={copy} dashboard={model.dashboard} notice={model.notice} />
 <MemoryTabs activeCategory={model.activeCategory} categoryCounts={model.derived.categoryCounts} copy={copy} setActiveCategory={model.setActiveCategory} /> <MemoryCardsSection copy={copy} dashboard={model.dashboard} deletion={model.deletion} editor={model.editor}
@@ -164,7 +172,16 @@ function MemoryPageHeader({ copy }) {
     <PageHeader icon={MemoryStick} title={copy.title} />
   );
 }
-function MemoryToolbar({ copy, disabled, editor, searchText, setSearchText }) {
+function MemoryToolbar(props) {
+  const { copy, disabled, editor, searchText, setSearchText, showNotice } = props;
+  // 未选择项目时不使用原生 disabled（点击零反馈），改为 aria-disabled + 点击提示引导。
+  const handleCreateClick = () => {
+    if (disabled) {
+      showNotice?.('info', '请先在聊天页选择项目，再创建记忆。');
+      return;
+    }
+    editor.setCreateMenuOpen((open) => !open);
+  };
   return (
     <div className="memory-toolbar fusion-toolbar" data-testid="memory-toolbar">
         <label className="memory-search fusion-toolbar-input">
@@ -172,7 +189,7 @@ function MemoryToolbar({ copy, disabled, editor, searchText, setSearchText }) {
           <input aria-label={copy.search} placeholder={copy.searchPlaceholder} value={searchText} onChange={(event) => setSearchText(event.target.value)} />
         </label>
         <div className="memory-create">
-          <button type="button" className="suiyuan-btn-fusion-ghost memory-create-button" aria-label={`+ ${copy.new} ▾`} aria-haspopup="menu" aria-expanded={editor.createMenuOpen} disabled={disabled} onClick={() => editor.setCreateMenuOpen((open) => !open)}>
+          <button type="button" className="suiyuan-btn-fusion-ghost memory-create-button" aria-label={`+ ${copy.new} ▾`} aria-haspopup="menu" aria-expanded={editor.createMenuOpen} aria-disabled={disabled || undefined} title={disabled ? '请先选择项目' : undefined} onClick={handleCreateClick}>
             <Plus size={15} aria-hidden="true" />
             <span>{copy.new}</span>
             <ChevronDown size={14} aria-hidden="true" className="memory-create-chevron" />
@@ -214,7 +231,7 @@ function MemoryAutoDreamPanel({ autoDream, copy, disabled }) {
           <span className={autoDream.enabled ? 'green-dot' : 'orange-dot'} /> {autoDream.enabled ? copy.autoDreamOn : copy.autoDreamOff}
         </p>
         <small className="memory-auto-dream-description">{copy.autoDreamDescription}</small>
-        <button type="button" className="memory-auto-dream-toggle" onClick={() => { void autoDream.toggleAutoDream(); }} disabled={autoDream.toggling || disabled}>
+        <button type="button" className="memory-auto-dream-toggle" aria-disabled={disabled || undefined} title={disabled ? '请先选择项目' : undefined} onClick={() => { void autoDream.toggleAutoDream(); }} disabled={autoDream.toggling}>
           {autoDream.enabled ? copy.disable : copy.enable}
         </button>
         {autoDream.pendingRestart ? <small className="memory-pending">{copy.pendingRestart}</small> : null}

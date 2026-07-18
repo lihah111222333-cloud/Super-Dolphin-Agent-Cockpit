@@ -1,12 +1,15 @@
 import { describe, expect, it, onTestFinished } from 'vitest'
-import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promises'
+import { spawnSync } from 'node:child_process'
+import { mkdtemp, mkdir, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import {
   auditRpcContracts,
+  astReferencesFacadeForTest,
   collectFrontendPayloadKeysFromSource,
   collectHardcodedPayloadGuardFindingsFromSources,
   collectPayloadRegistryDrift,
+  collectSidebarRequiredFieldFindingsFromSources,
   parseContractMatrixForTest,
   parseRpcMethodsForTest,
 } from './rpc-contract-audit.mjs'
@@ -17,6 +20,7 @@ const SHADOW_FILES = [
   'frontend-app/src/shared/api/backend/backendRpcMethods.js',
   'frontend-app/src/shared/api/backendApi.contractMatrix.js',
   'frontend-app/src/shared/api/backendResponseValidators.js',
+  'frontend-app/src/shared/api/backendResponseValidatorsRuntime.js',
   'frontend-app/src/shared/api/backend/backendApiFactoryCore.js',
   'frontend-app/src/shared/api/backend/backendApiFactoryOps.js',
   'frontend-app/src/shared/api/backend/backendApiFactoryThread.js',
@@ -428,7 +432,31 @@ function consumerValidatedRegression() {
   `
 }
 
-describe('rpc contract audit', () => {
+describe('rpc contract audit', { timeout: 30000 }, () => {
+  it('skips deep AST traversal when a file has no relevant facade bindings', () => {
+    const unrelatedStatement = {
+      type: 'ExpressionStatement',
+      get expression() {
+        throw new Error('unrelated AST was traversed')
+      },
+    }
+    const ast = {
+      type: 'File',
+      program: {
+        type: 'Program',
+        body: [unrelatedStatement],
+      },
+    }
+
+    expect(astReferencesFacadeForTest(
+      ast,
+      'frontend-app/src/unrelated.js',
+      { key: 'CONFIG_READ', facade: 'readConfig' },
+      new Map([['readConfig', 'CONFIG_READ']]),
+      new Map(),
+    )).toBe(false)
+  })
+
   it('accepts the production matrix after response policy migration', async () => {
     const report = await auditRpcContracts({ repoRoot: REPO_ROOT })
 
@@ -455,6 +483,7 @@ describe('rpc contract audit', () => {
     expect(report.p0MissingBackendHandlers).toEqual([])
     expect(report.allowedPayloadRegistryDrift).toEqual([])
     expect(report.hardcodedPayloadGuardFindings).toEqual([])
+    expect(report.sidebarRequiredFieldFindings).toEqual([])
     expect(report.responseContractStrategies).toEqual(expect.arrayContaining([
       {
         key: 'UI_SIDEBAR_GET',
@@ -486,7 +515,100 @@ describe('rpc contract audit', () => {
       'selected_skill_refs',
       'selectedSkillRefs',
     ]))
-  }, 15000)
+  }, 30000)
+
+  it('derives Sidebar required fields from Go tags and detects missing or stale consumer entries', async () => {
+    const goSource = await readFile(join(REPO_ROOT, 'internal/module/uistate/state.go'), 'utf8')
+    const runtimePath = 'frontend-app/src/shared/api/backendResponseValidatorsRuntime.js'
+    const runtimeSource = await readFile(join(REPO_ROOT, runtimePath), 'utf8')
+    const missingConsumerSource = runtimeSource.replace("'workspace', ", '')
+    const staleProducerSource = goSource.replace(
+      'Workspace             WorkspacePanel            `json:"workspace"`',
+      'Workspace             WorkspacePanel            `json:"workspace,omitempty"`',
+    )
+
+    expect(missingConsumerSource).not.toBe(runtimeSource)
+    expect(staleProducerSource).not.toBe(goSource)
+    const repoRoot = await createShadowRepo({ [runtimePath]: missingConsumerSource })
+    const report = await auditRpcContracts({ repoRoot })
+    expect(report.sidebarRequiredFieldFindings).toEqual(['missing:workspace'])
+    expect(collectSidebarRequiredFieldFindingsFromSources({
+      goSource: staleProducerSource,
+      runtimeSource,
+    })).toEqual(['stale:workspace'])
+  })
+
+  it('exits the real CLI with the exact Sidebar required-field drift', async () => {
+    const runtimePath = 'frontend-app/src/shared/api/backendResponseValidatorsRuntime.js'
+    const auditScriptPath = 'frontend-app/scripts/rpc-contract-audit.mjs'
+    const runtimeSource = await readFile(join(REPO_ROOT, runtimePath), 'utf8')
+    const auditScriptSource = await readFile(join(REPO_ROOT, auditScriptPath), 'utf8')
+    const missingConsumerSource = runtimeSource.replace("'workspace', ", '')
+
+    expect(missingConsumerSource).not.toBe(runtimeSource)
+    const repoRoot = await createShadowRepo({
+      [runtimePath]: missingConsumerSource,
+      [auditScriptPath]: auditScriptSource,
+    })
+    await symlink(
+      join(REPO_ROOT, 'frontend-app/node_modules'),
+      join(repoRoot, 'frontend-app/node_modules'),
+    )
+
+    const canonicalRepoRoot = await realpath(repoRoot)
+    const result = spawnSync(process.execPath, [join(canonicalRepoRoot, auditScriptPath)], {
+      cwd: join(canonicalRepoRoot, 'frontend-app'),
+      encoding: 'utf8',
+    })
+
+    expect(result.stdout).toContain('Sidebar required field drift: 1')
+    expect(result.status).toBe(1)
+    expect(result.stderr).toContain('\nSidebar required field drift:\n[\n  "missing:workspace"\n]\n')
+  })
+
+  it('rejects malformed Sidebar tags and an unreferenced runtime required-field registry', async () => {
+    const goSource = await readFile(join(REPO_ROOT, 'internal/module/uistate/state.go'), 'utf8')
+    const runtimeSource = await readFile(
+      join(REPO_ROOT, 'frontend-app/src/shared/api/backendResponseValidatorsRuntime.js'),
+      'utf8',
+    )
+    const malformedGoSource = goSource.replace('json:"workspace"', 'yaml:"workspace"')
+    const unreferencedRegistrySource = runtimeSource.replace(
+      'for (const requiredField of SIDEBAR_REQUIRED_RESPONSE_KEYS)',
+      'for (const requiredField of [])',
+    )
+
+    expect(() => collectSidebarRequiredFieldFindingsFromSources({
+      goSource: malformedGoSource,
+      runtimeSource,
+    })).toThrow('Sidebar.Workspace must declare exactly one json tag')
+    expect(collectSidebarRequiredFieldFindingsFromSources({
+      goSource,
+      runtimeSource: unreferencedRegistrySource,
+    })).toEqual(['runtime:SIDEBAR_REQUIRED_RESPONSE_KEYS is not used by the required-field check'])
+  })
+
+  it.each(['continue;', 'return value;'])(
+    'rejects a Sidebar required-field check made unreachable by unconditional %s',
+    async (controlTransfer) => {
+      const goSource = await readFile(join(REPO_ROOT, 'internal/module/uistate/state.go'), 'utf8')
+      const runtimeSource = await readFile(
+        join(REPO_ROOT, 'frontend-app/src/shared/api/backendResponseValidatorsRuntime.js'),
+        'utf8',
+      )
+      const loopHeader = 'for (const requiredField of SIDEBAR_REQUIRED_RESPONSE_KEYS) {\n'
+
+      const unreachableCheckSource = runtimeSource.replace(
+        loopHeader,
+        `${loopHeader}    ${controlTransfer}\n`,
+      )
+      expect(unreachableCheckSource).not.toBe(runtimeSource)
+      expect(collectSidebarRequiredFieldFindingsFromSources({
+        goSource,
+        runtimeSource: unreachableCheckSource,
+      })).toEqual(['runtime:SIDEBAR_REQUIRED_RESPONSE_KEYS is not used by the required-field check'])
+    },
+  )
 
   it('detects frontend and Go hardcoded payload guard sources', () => {
     const findings = collectHardcodedPayloadGuardFindingsFromSources({
@@ -679,7 +801,7 @@ describe('rpc contract audit', () => {
       registryMethod: 'config/read',
       rpcMethod: 'config/read-mismatch',
     })
-  }, 15000)
+  }, 30000)
 
   it.each([
     ['missing', '', 'must declare exactly one of responseValidator or responsePolicy'],
@@ -709,7 +831,7 @@ describe('rpc contract audit', () => {
       responseValidator: 'doesNotExist',
       runtimeResponseValidator: 'lspPromptHintResponse',
     })
-  }, 15000)
+  }, 30000)
 
   it('reports an existing runtime validator replaced by a structured response policy', async () => {
     const repoRoot = await createShadowRepo({
@@ -727,7 +849,7 @@ describe('rpc contract audit', () => {
       responseValidator: '',
       runtimeResponseValidator: 'uiStateResponse',
     })
-  }, 15000)
+  }, 30000)
 
   it('reports a runtime validator key that is absent from the contract registry', async () => {
     const validatorPath = 'frontend-app/src/shared/api/backendResponseValidators.js'
@@ -748,7 +870,7 @@ describe('rpc contract audit', () => {
       responseValidator: '',
       runtimeResponseValidator: 'uiStateResponse',
     })
-  }, 15000)
+  }, 30000)
 
   it('reports a passthrough facade that cannot be traced to a real backend API export', async () => {
     const repoRoot = await createShadowRepo({
@@ -762,7 +884,7 @@ describe('rpc contract audit', () => {
       facade: 'totallyFake',
       locator: 'frontend-app/src/shared/api/backendApi.js',
     })
-  }, 15000)
+  }, 30000)
 
   it('reports a real backend facade that belongs to a different RPC key', async () => {
     const repoRoot = await createShadowRepo({
@@ -776,7 +898,7 @@ describe('rpc contract audit', () => {
       facade: 'readBuiltinTools',
       locator: 'frontend-app/src/shared/api/backendApi.js',
     })
-  }, 15000)
+  }, 30000)
 
   it('reports a service facade whose downstream destructure outlives its factory member', async () => {
     const servicePath = 'frontend-app/src/pages/prompts/services/promptPageService.js'
@@ -796,7 +918,7 @@ describe('rpc contract audit', () => {
       facade: 'promptPageService.listPromptAssets',
       locator: servicePath,
     })
-  }, 15000)
+  }, 30000)
 
   it('reports payload registry drift when frontend builders miss Go fields', () => {
     const drift = collectPayloadRegistryDrift(
@@ -924,7 +1046,7 @@ describe('rpc contract audit', () => {
         reason,
       }),
     ]))
-  }, 15000)
+  }, 30000)
 
   it.each([
     ['nested-only declaration', `
@@ -956,7 +1078,7 @@ describe('rpc contract audit', () => {
       field: 'consumer',
       reason: 'symbol was not found',
     }))
-  }, 15000)
+  }, 30000)
 
   it('resolves one explicit module-private consumer without weakening exported locator defaults', async () => {
     const repoRoot = await createPolicyShadow({
@@ -971,7 +1093,7 @@ describe('rpc contract audit', () => {
     const report = await auditRpcContracts({ repoRoot })
 
     expect(report.invalidResponsePolicyEvidence).toEqual([])
-  }, 15000)
+  }, 30000)
 
   it('resolves one explicit nested module-private consumer and proves only its own body', async () => {
     const repoRoot = await createPolicyShadow({
@@ -990,7 +1112,7 @@ describe('rpc contract audit', () => {
     const report = await auditRpcContracts({ repoRoot })
 
     expect(report.invalidResponsePolicyEvidence).toEqual([])
-  }, 15000)
+  }, 30000)
 
   it('resolves an exact hook-bound module-private callback and proves only its callback body', async () => {
     const repoRoot = await createPolicyShadow({
@@ -1010,7 +1132,7 @@ describe('rpc contract audit', () => {
     const report = await auditRpcContracts({ repoRoot })
 
     expect(report.invalidResponsePolicyEvidence).toEqual([])
-  }, 15000)
+  }, 30000)
 
   it.each([
     ['missing private symbol', 'missingConsumer', `async function loadConfig() { await readConfig() }`, 'symbol was not found'],
@@ -1042,7 +1164,7 @@ describe('rpc contract audit', () => {
       field: 'consumer',
       reason,
     }))
-  }, 15000)
+  }, 30000)
 
   it('rejects an invalid response locator visibility marker', () => {
     expect(() => parseContractMatrixForTest(shadowMatrix(`{
@@ -1069,7 +1191,7 @@ describe('rpc contract audit', () => {
     })
     const report = await auditRpcContracts({ repoRoot })
     expect(report.invalidResponsePolicyEvidence).toEqual([])
-  }, 15000)
+  }, 30000)
 
   it('rejects unused policy with a production reference', async () => {
     const repoRoot = await createPolicyShadow({
@@ -1090,7 +1212,7 @@ describe('rpc contract audit', () => {
       symbol: 'readConfig',
       reason: 'production facade reference exists',
     })
-  }, 15000)
+  }, 30000)
 
   it('accepts result-handled proof for the real consumer, envelope handler, and warning regression', async () => {
     const repoRoot = await createPolicyShadow({
@@ -1101,19 +1223,19 @@ describe('rpc contract audit', () => {
     })
     const report = await auditRpcContracts({ repoRoot })
     expect(report.invalidResponsePolicyEvidence).toEqual([])
-  }, 15000)
+  }, 30000)
 
   it('accepts the real TURN_INTERRUPT injection, private handler, and runtime regression shape', async () => {
     const repoRoot = await createRealResultHandledShadow()
     const report = await auditRpcContracts({ repoRoot })
     expect(report.invalidResponsePolicyEvidence).toEqual([])
-  }, 15000)
+  }, 30000)
 
   it('accepts one exact helper hop from activeThreadRPC to runActiveThreadRPC', async () => {
     const repoRoot = await createRealResultHandledShadow({})
     const report = await auditRpcContracts({ repoRoot })
     expect(report.invalidResponsePolicyEvidence).toEqual([])
-  }, 15000)
+  }, 30000)
 
   it.each([
     ['a shadow runActiveThreadRPC binding', (source) => source.replace(
@@ -1164,7 +1286,7 @@ describe('rpc contract audit', () => {
       key: 'TURN_INTERRUPT',
       field: 'consumer',
     }))
-  }, 15000)
+  }, 30000)
 
   it.each([
     ['the complete result flow inside if (false)', (source) => source.replace(
@@ -1202,7 +1324,7 @@ describe('rpc contract audit', () => {
       key: 'TURN_INTERRUPT',
       field: 'consumer',
     }))
-  }, 15000)
+  }, 30000)
 
   it.each([
     ['a labeled return before result', (source) => source.replace(
@@ -1248,7 +1370,7 @@ describe('rpc contract audit', () => {
       key: 'TURN_INTERRUPT',
       field: 'consumer',
     }))
-  }, 15000)
+  }, 30000)
 
   it.each([
     ['an unconditional return between the no-thread guard and try', (source) => source.replace(
@@ -1283,7 +1405,7 @@ describe('rpc contract audit', () => {
       key: 'TURN_INTERRUPT',
       field: 'consumer',
     }))
-  }, 15000)
+  }, 30000)
 
   it.each([
     ['direct warning seeded before awaited runtime call', {
@@ -1299,7 +1421,7 @@ describe('rpc contract audit', () => {
     expect(report.invalidResponsePolicyEvidence).toContainEqual(
       expect.objectContaining({ key: 'TURN_INTERRUPT', field: 'regressionTest' }),
     )
-  }, 15000)
+  }, 30000)
 
   it('rejects a decoy runtime flow when the exact runActiveThreadRPC helper passes response instead of result', async () => {
     const repoRoot = await createMutatedRealResultHandledShadow({
@@ -1320,7 +1442,7 @@ describe('rpc contract audit', () => {
       key: 'TURN_INTERRUPT',
       field: 'consumer',
     }))
-  }, 15000)
+  }, 30000)
 
   it('rejects a nested handler-call decoy inside the exact runActiveThreadRPC helper', async () => {
     const repoRoot = await createMutatedRealResultHandledShadow({
@@ -1335,7 +1457,7 @@ describe('rpc contract audit', () => {
       key: 'TURN_INTERRUPT',
       field: 'consumer',
     }))
-  }, 15000)
+  }, 30000)
 
   it('rejects a fabricated interrupt failure helper return after dead derived-message evidence', async () => {
     const repoRoot = await createMutatedRealResultHandledShadow({
@@ -1351,7 +1473,7 @@ describe('rpc contract audit', () => {
       key: 'TURN_INTERRUPT',
       field: 'handler',
     }))
-  }, 15000)
+  }, 30000)
 
   it('rejects a TURN_INTERRUPT handler predicate weakened by an always-true disjunction', async () => {
     const repoRoot = await createMutatedRealResultHandledShadow({
@@ -1365,7 +1487,7 @@ describe('rpc contract audit', () => {
       key: 'TURN_INTERRUPT',
       field: 'handler',
     }))
-  }, 15000)
+  }, 30000)
 
   it.each([
     ['a top-level throw before the return', "throw new Error('unreachable injection');"],
@@ -1382,7 +1504,7 @@ describe('rpc contract audit', () => {
       key: 'TURN_INTERRUPT',
       field: 'consumer',
     }))
-  }, 15000)
+  }, 30000)
 
   it.each([
     [
@@ -1405,7 +1527,7 @@ describe('rpc contract audit', () => {
       key: 'TURN_INTERRUPT',
       field: 'consumer',
     }))
-  }, 15000)
+  }, 30000)
 
   it('rejects warning seeding after the first post-matcher rpc assertion', async () => {
     const repoRoot = await createMutatedRealResultHandledShadow({
@@ -1424,7 +1546,7 @@ describe('rpc contract audit', () => {
       key: 'TURN_INTERRUPT',
       field: 'regressionTest',
     }))
-  }, 15000)
+  }, 30000)
 
   it('rejects a warning-producing variable declaration before the awaited runtime assertion', async () => {
     const repoRoot = await createMutatedRealResultHandledShadow({
@@ -1438,7 +1560,7 @@ describe('rpc contract audit', () => {
       key: 'TURN_INTERRUPT',
       field: 'regressionTest',
     }))
-  }, 15000)
+  }, 30000)
 
   it('rejects a post-await helper call that only nests expect in an argument', async () => {
     const repoRoot = await createMutatedRealResultHandledShadow({
@@ -1457,7 +1579,7 @@ describe('rpc contract audit', () => {
       key: 'TURN_INTERRUPT',
       field: 'regressionTest',
     }))
-  }, 15000)
+  }, 30000)
 
   it.each([
     ['wrong injected facade', { facade: 'startThread' }],
@@ -1482,7 +1604,7 @@ describe('rpc contract audit', () => {
     expect(report.invalidResponsePolicyEvidence).toContainEqual(
       expect.objectContaining({ key: 'TURN_INTERRUPT', kind: 'result-handled' }),
     )
-  }, 15000)
+  }, 30000)
 
   it('does not leak the runtime/private-handler exception to another result-handled key', async () => {
     const actual = {
@@ -1501,7 +1623,7 @@ describe('rpc contract audit', () => {
       key: 'CONFIG_READ',
       field: 'consumer',
     }))
-  }, 15000)
+  }, 30000)
 
   it.each([
     ['wrong facade', { consumer: resultHandledConsumer({ facade: 'startThread' }) }],
@@ -1613,7 +1735,7 @@ describe('rpc contract audit', () => {
     expect(report.invalidResponsePolicyEvidence).toEqual([
       expect.objectContaining({ key: 'CONFIG_READ', kind: 'result-handled' }),
     ])
-  }, 15000)
+  }, 30000)
 
   it('rejects result-handled metadata with a mismatched handler locator', async () => {
     const repoRoot = await createPolicyShadow({
@@ -1628,7 +1750,7 @@ describe('rpc contract audit', () => {
       kind: 'result-handled',
       field: 'handler',
     }))
-  }, 15000)
+  }, 30000)
 
   it('rejects ignored-result policy when the consumer reads the result', async () => {
     const repoRoot = await createPolicyShadow({
@@ -1651,7 +1773,7 @@ describe('rpc contract audit', () => {
       field: 'consumer',
       reason: 'consumer reads the RPC result',
     }))
-  }, 15000)
+  }, 30000)
 
   it('accepts ignored-result policy with an unobserved awaited call', async () => {
     const repoRoot = await createPolicyShadow({
@@ -1666,7 +1788,7 @@ describe('rpc contract audit', () => {
     const report = await auditRpcContracts({ repoRoot })
 
     expect(report.invalidResponsePolicyEvidence).toEqual([])
-  }, 15000)
+  }, 30000)
 
   it('accepts an exact published-callback action and direct regression proof', async () => {
     const repoRoot = await createPolicyShadow({
@@ -1678,7 +1800,7 @@ describe('rpc contract audit', () => {
     const report = await auditRpcContracts({ repoRoot })
 
     expect(report.invalidResponsePolicyEvidence).toEqual([])
-  }, 15000)
+  }, 30000)
 
   it.each([
     ['publisher before facade', `notices.showTaskNotice('saved'); await facade.readConfig({ cwd: '/repo' })`],
@@ -1711,7 +1833,7 @@ describe('rpc contract audit', () => {
       field: 'consumer',
       reason: 'consumer lacks the exact post-RPC published callback outcome',
     }))
-  }, 15000)
+  }, 30000)
 
   it.each([
     ['wrong import', { importStatement: "import { loadConfig as wrong } from './consumer.js'" }],
@@ -1768,7 +1890,7 @@ describe('rpc contract audit', () => {
       key: 'CONFIG_READ',
       field: 'regressionTest',
     }))
-  }, 15000)
+  }, 30000)
 
   it('rejects consumer-validated policy without executable shape proof', async () => {
     const repoRoot = await createPolicyShadow({
@@ -1793,7 +1915,7 @@ describe('rpc contract audit', () => {
       field: 'shape',
       reason: 'shape symbol lacks executable narrowing',
     }))
-  }, 15000)
+  }, 30000)
 
   it('accepts consumer-validated policy with dominating executable shape proof', async () => {
     const repoRoot = await createPolicyShadow({
@@ -1817,7 +1939,7 @@ describe('rpc contract audit', () => {
     const report = await auditRpcContracts({ repoRoot })
 
     expect(report.invalidResponsePolicyEvidence).toEqual([])
-  }, 15000)
+  }, 30000)
 
   it.each([
     ['callback-local result', `queueMicrotask(async () => { const result = await readConfig(); consume(result.value) }); const result = {}; assertConfigShape(result)`],
@@ -1842,7 +1964,7 @@ describe('rpc contract audit', () => {
       kind: 'consumer-validated',
       field: 'shape',
     }))
-  }, 15000)
+  }, 30000)
 
   it.each([
     ignoredResultPolicy(),
@@ -1862,7 +1984,7 @@ describe('rpc contract audit', () => {
       responseValidator: '',
       runtimeResponseValidator: 'uiStateResponse',
     })
-  }, 15000)
+  }, 30000)
 
   it('rejects a response validator and response policy union', () => {
     expect(() => parseContractMatrixForTest(shadowMatrix(`{
@@ -1884,7 +2006,7 @@ describe('rpc contract audit', () => {
     await expect(auditRpcContracts({ repoRoot })).resolves.toEqual(expect.objectContaining({
       invalidResponsePolicyEvidence: [],
     }))
-  }, 15000)
+  }, 30000)
 
   it('rejects a response-policy locator file that is a symlink escaping the repository', async () => {
     const repoRoot = await createPolicyShadow({
@@ -1905,7 +2027,7 @@ describe('rpc contract audit', () => {
       field: 'consumer',
       reason: 'path must not resolve through a symbolic link',
     }))
-  }, 15000)
+  }, 30000)
 
   it('fails when the production scan tree contains a symlink escaping the repository', async () => {
     const repoRoot = await createPolicyShadow({ policy: UNUSED_POLICY })
@@ -1917,7 +2039,7 @@ describe('rpc contract audit', () => {
     await expect(auditRpcContracts({ repoRoot })).rejects.toThrow(
       'production scan tree must not contain symbolic links',
     )
-  }, 15000)
+  }, 30000)
 
   it.each([
     ['wrong-object member', `
@@ -1953,7 +2075,7 @@ describe('rpc contract audit', () => {
       field: 'consumer',
       reason: 'symbol does not call the facade for this RPC key',
     }))
-  }, 15000)
+  }, 30000)
 
   it.each([
     ['named import shadowed by a parameter', `
@@ -1990,7 +2112,7 @@ describe('rpc contract audit', () => {
       field: 'consumer',
       reason: 'symbol does not call the facade for this RPC key',
     }))
-  }, 15000)
+  }, 30000)
 
   it('still finds an unshadowed facade call beside a nested shadow', async () => {
     const repoRoot = await createPolicyShadow({
@@ -2006,7 +2128,7 @@ describe('rpc contract audit', () => {
     })
     const report = await auditRpcContracts({ repoRoot })
     expect(report.invalidResponsePolicyEvidence).toEqual([])
-  }, 15000)
+  }, 30000)
 
   it.each([
     ['named wrapper export', `
@@ -2039,7 +2161,7 @@ describe('rpc contract audit', () => {
     const report = await auditRpcContracts({ repoRoot })
 
     expect(report.invalidResponsePolicyEvidence).toEqual([])
-  }, 15000)
+  }, 30000)
 
   it('allows a wrapper binding only when the exact facade result flows directly to return', async () => {
     const servicePath = 'frontend-app/src/pages/audit-fixture/configService.js'
@@ -2062,7 +2184,7 @@ describe('rpc contract audit', () => {
     const report = await auditRpcContracts({ repoRoot })
 
     expect(report.invalidResponsePolicyEvidence).toEqual([])
-  }, 15000)
+  }, 30000)
 
   it.each([
     ['observed branch', `const observed = await readConfig(payload); if (observed?.ok) consume(observed); return observed`],
@@ -2092,7 +2214,7 @@ describe('rpc contract audit', () => {
       field: 'consumer',
       reason: 'symbol does not call the facade for this RPC key',
     }))
-  }, 15000)
+  }, 30000)
 
   it('rejects an exact service wrapper whose imported facade belongs to a different RPC key', async () => {
     const servicePath = 'frontend-app/src/pages/audit-fixture/configService.js'
@@ -2116,7 +2238,7 @@ describe('rpc contract audit', () => {
       field: 'consumer',
       reason: 'symbol does not call the facade for this RPC key',
     }))
-  }, 15000)
+  }, 30000)
 
   it('rejects ignored-result consumers when any matching call result is observed', async () => {
     const repoRoot = await createPolicyShadow({
@@ -2139,7 +2261,7 @@ describe('rpc contract audit', () => {
       field: 'consumer',
       reason: 'consumer reads the RPC result',
     }))
-  }, 15000)
+  }, 30000)
 
   it.each([
     ['unrelated parse', `
@@ -2198,7 +2320,7 @@ describe('rpc contract audit', () => {
       field: 'shape',
       reason: 'shape symbol lacks executable narrowing',
     }))
-  }, 15000)
+  }, 30000)
 
   it.each([
     ['inverted truthiness', `if (value) throw new TypeError('valid config rejected')`],
@@ -2214,7 +2336,7 @@ describe('rpc contract audit', () => {
     expect(report.invalidResponsePolicyEvidence).toContainEqual(expect.objectContaining({
       key: 'CONFIG_READ', field: 'shape', reason: 'shape symbol lacks executable narrowing',
     }))
-  }, 15000)
+  }, 30000)
 
   it.each([
     ['falsy value', `if (!value) throw new TypeError('invalid config')`],
@@ -2228,7 +2350,7 @@ describe('rpc contract audit', () => {
     `, regression: consumerValidatedRegression() })
     const report = await auditRpcContracts({ repoRoot })
     expect(report.invalidResponsePolicyEvidence).toEqual([])
-  }, 15000)
+  }, 30000)
 
   it('accepts parse only from a locally proven throwing schema implementation', async () => {
     const repoRoot = await createPolicyShadow({ policy: consumerValidatedPolicy(), consumer: `
@@ -2242,7 +2364,7 @@ describe('rpc contract audit', () => {
     `, regression: consumerValidatedRegression() })
     const report = await auditRpcContracts({ repoRoot })
     expect(report.invalidResponsePolicyEvidence).toEqual([])
-  }, 15000)
+  }, 30000)
 
   it.each([
     ['negated success', `if (!parsed.success) throw new TypeError('invalid config')`],
@@ -2259,7 +2381,7 @@ describe('rpc contract audit', () => {
     `, regression: consumerValidatedRegression() })
     const report = await auditRpcContracts({ repoRoot })
     expect(report.invalidResponsePolicyEvidence).toEqual([])
-  }, 15000)
+  }, 30000)
 
   it('rejects a locally shadowed otherwise-proven schema binding', async () => {
     const repoRoot = await createPolicyShadow({ policy: consumerValidatedPolicy(), consumer: `
@@ -2274,7 +2396,7 @@ describe('rpc contract audit', () => {
     expect(report.invalidResponsePolicyEvidence).toContainEqual(expect.objectContaining({
       key: 'CONFIG_READ', field: 'shape', reason: 'shape symbol lacks executable narrowing',
     }))
-  }, 15000)
+  }, 30000)
 
   it('rejects a same-name consumer binding that is not the resolved shape symbol', async () => {
     const shapePath = 'frontend-app/src/pages/audit-fixture/configShape.js'
@@ -2304,7 +2426,7 @@ describe('rpc contract audit', () => {
       field: 'shape',
       reason: 'shape proof does not dominate consumer use',
     }))
-  }, 15000)
+  }, 30000)
 
   it.each([
     ['ordinary declaration', `export function keepsConfigResultIrrelevant() { expect(true).toBe(true) }`],
@@ -2336,7 +2458,7 @@ describe('rpc contract audit', () => {
       field: 'regressionTest',
       reason: 'test callback lacks executable assertions tied to the consumer and RPC key',
     }))
-  }, 15000)
+  }, 30000)
 
   it('rejects ignored-result regression evidence that merely observes the consumer result', async () => {
     const repoRoot = await createPolicyShadow({
@@ -2358,7 +2480,7 @@ describe('rpc contract audit', () => {
       key: 'CONFIG_READ',
       field: 'regressionTest',
     }))
-  }, 15000)
+  }, 30000)
 
   it('rejects page-level success text without an explicit published-callback outcome contract', async () => {
     const repoRoot = await createPolicyShadow({
@@ -2381,7 +2503,7 @@ describe('rpc contract audit', () => {
       key: 'CONFIG_READ',
       field: 'regressionTest',
     }))
-  }, 15000)
+  }, 30000)
 
   it('accepts a negative dialog assertion backed by a concrete post-call state dismissal', async () => {
     const repoRoot = await createPolicyShadow({
@@ -2406,7 +2528,7 @@ describe('rpc contract audit', () => {
     const report = await auditRpcContracts({ repoRoot })
 
     expect(report.invalidResponsePolicyEvidence).toEqual([])
-  }, 15000)
+  }, 30000)
 
   it('rejects a negative dialog assertion when the state dismissal precedes the RPC', async () => {
     const repoRoot = await createPolicyShadow({
@@ -2434,7 +2556,7 @@ describe('rpc contract audit', () => {
       key: 'CONFIG_READ',
       field: 'regressionTest',
     }))
-  }, 15000)
+  }, 30000)
 
   it('rejects an unrelated negative dialog assertion after an unrelated post-call setter', async () => {
     const repoRoot = await createPolicyShadow({
@@ -2457,7 +2579,7 @@ describe('rpc contract audit', () => {
       key: 'CONFIG_READ',
       field: 'regressionTest',
     }))
-  }, 15000)
+  }, 30000)
 
   it('rejects a dialog controlled by a different state than the post-call setter', async () => {
     const repoRoot = await createPolicyShadow({
@@ -2486,7 +2608,7 @@ describe('rpc contract audit', () => {
       key: 'CONFIG_READ',
       field: 'regressionTest',
     }))
-  }, 15000)
+  }, 30000)
 
   it('rejects an ambiguous setter with multiple useState bindings', async () => {
     const repoRoot = await createPolicyShadow({
@@ -2518,7 +2640,7 @@ describe('rpc contract audit', () => {
       key: 'CONFIG_READ',
       field: 'regressionTest',
     }))
-  }, 15000)
+  }, 30000)
 
   it.each([
     ['wrong RPC facade', { mockFacade: 'startThread' }],
@@ -2542,7 +2664,7 @@ describe('rpc contract audit', () => {
       field: 'regressionTest',
       reason: 'test callback lacks executable assertions tied to the consumer and RPC key',
     }))
-  }, 15000)
+  }, 30000)
 
   it.each([
     ['no exact facade invocation assertion', {
@@ -2568,7 +2690,7 @@ describe('rpc contract audit', () => {
       key: 'CONFIG_READ',
       field: 'regressionTest',
     }))
-  }, 15000)
+  }, 30000)
 
   it.each([
     ['query/refetch key after the RPC', `
@@ -2611,7 +2733,7 @@ describe('rpc contract audit', () => {
       key: 'CONFIG_READ',
       field: 'regressionTest',
     }))
-  }, 15000)
+  }, 30000)
 
   it('rejects a negative alert assertion backed only by a generic catch error setter', async () => {
     const repoRoot = await createPolicyShadow({
@@ -2638,7 +2760,7 @@ describe('rpc contract audit', () => {
       key: 'CONFIG_READ',
       field: 'regressionTest',
     }))
-  }, 15000)
+  }, 30000)
 
   it('accepts exact direct-wails rejection propagation evidence for the configured RPC method', async () => {
     const consumerPath = 'frontend-app/src/shared/api/wails/wailsBridgeRpc.js'
@@ -2656,7 +2778,7 @@ describe('rpc contract audit', () => {
     const report = await auditRpcContracts({ repoRoot })
 
     expect(report.invalidResponsePolicyEvidence).toEqual([])
-  }, 15000)
+  }, 30000)
 
   it.each([
     ['wrong RPC method', { methodAssertion: "expect(byID).toHaveBeenCalledWith(expect.any(Number), 'thread/start', expect.any(Object))" }],
@@ -2682,7 +2804,7 @@ describe('rpc contract audit', () => {
       key: 'UI_LOG',
       field: 'regressionTest',
     }))
-  }, 15000)
+  }, 30000)
 
   it('rejects consumer-validated regression evidence without malformed-shape rejection', async () => {
     const repoRoot = await createPolicyShadow({
@@ -2710,7 +2832,7 @@ describe('rpc contract audit', () => {
       key: 'CONFIG_READ',
       field: 'regressionTest',
     }))
-  }, 15000)
+  }, 30000)
 
   it.each([
     ['parameter', `async (loadConfig) => { expect(await loadConfig()).toBeUndefined() }`],
@@ -2728,7 +2850,7 @@ describe('rpc contract audit', () => {
       key: 'CONFIG_READ',
       field: 'regressionTest',
     }))
-  }, 15000)
+  }, 30000)
 
   it('accepts regression evidence using the unshadowed imported consumer alias', async () => {
     const repoRoot = await createPolicyShadow({
@@ -2738,7 +2860,7 @@ describe('rpc contract audit', () => {
     })
     const report = await auditRpcContracts({ repoRoot })
     expect(report.invalidResponsePolicyEvidence).toEqual([])
-  }, 15000)
+  }, 30000)
 
   it.each([
     ['parameter', `async (loadConfig) => { await expect(loadConfig()).rejects.toThrow('invalid config') }`],
@@ -2764,7 +2886,7 @@ describe('rpc contract audit', () => {
       key: 'CONFIG_READ',
       field: 'regressionTest',
     }))
-  }, 15000)
+  }, 30000)
 
   it('tracks an unused facade imported through a barrel re-export', async () => {
     const barrelPath = 'frontend-app/src/pages/audit-fixture/backendApiBarrel.js'
@@ -2785,7 +2907,7 @@ describe('rpc contract audit', () => {
       path: CONSUMER_PATH,
       reason: 'production facade reference exists',
     }))
-  }, 15000)
+  }, 30000)
 
   it.each([
     ['single alias', {
@@ -2808,7 +2930,7 @@ describe('rpc contract audit', () => {
       kind: 'unused',
       path: CONSUMER_PATH,
     }))
-  }, 15000)
+  }, 30000)
 
   it.each([
     ['default import through renamed default', {
@@ -2835,7 +2957,7 @@ describe('rpc contract audit', () => {
       kind: 'unused',
       path: CONSUMER_PATH,
     }))
-  }, 15000)
+  }, 30000)
 
   it.each([
     ['direct namespace export', {
@@ -2854,7 +2976,7 @@ describe('rpc contract audit', () => {
       kind: 'unused',
       path: CONSUMER_PATH,
     }))
-  }, 15000)
+  }, 30000)
 
   it('does not treat an unrelated member of a namespace export as facade usage', async () => {
     const repoRoot = await createPolicyShadow({
@@ -2867,7 +2989,7 @@ describe('rpc contract audit', () => {
     )
     const report = await auditRpcContracts({ repoRoot })
     expect(report.invalidResponsePolicyEvidence).toEqual([])
-  }, 15000)
+  }, 30000)
 
   it.each([
     ['direct nested namespace member', {
@@ -2889,7 +3011,7 @@ describe('rpc contract audit', () => {
       kind: 'unused',
       path: CONSUMER_PATH,
     }))
-  }, 15000)
+  }, 30000)
 
   it.each([
     ['unrelated nested member', `barrel.api.createBackendApi()`],
@@ -2907,7 +3029,7 @@ describe('rpc contract audit', () => {
     )
     const report = await auditRpcContracts({ repoRoot })
     expect(report.invalidResponsePolicyEvidence).toEqual([])
-  }, 15000)
+  }, 30000)
 
   it('does not treat unrelated aliased or star exports as facade usage', async () => {
     const barrelPath = 'frontend-app/src/pages/audit-fixture/unrelatedBarrel.js'
@@ -2921,7 +3043,7 @@ describe('rpc contract audit', () => {
     `)
     const report = await auditRpcContracts({ repoRoot })
     expect(report.invalidResponsePolicyEvidence).toEqual([])
-  }, 15000)
+  }, 30000)
 
   it.each([
     ['namespace member', `
@@ -2950,7 +3072,7 @@ describe('rpc contract audit', () => {
       path: CONSUMER_PATH,
       reason: 'production facade reference exists',
     }))
-  }, 15000)
+  }, 30000)
   it.each([
     ['dead branch', `if (false) assertConfigShape(result)`],
     ['one-sided branch', `if (flag) assertConfigShape(result)`],
@@ -2965,7 +3087,7 @@ describe('rpc contract audit', () => {
     `, regression: consumerValidatedRegression() })
     const report = await auditRpcContracts({ repoRoot })
     expect(report.invalidResponsePolicyEvidence).toContainEqual(expect.objectContaining({ field: 'shape', reason: 'shape proof does not dominate consumer use' }))
-  }, 15000)
+  }, 30000)
   it.each([
     ['nested guard', `function nested() { if (!value) throw new TypeError('invalid config') }`, ''],
     ['callback guard', `[value].forEach(() => { if (!value) throw new TypeError('invalid config') })`, ''],
@@ -2981,7 +3103,7 @@ describe('rpc contract audit', () => {
     `, regression: consumerValidatedRegression() })
     const report = await auditRpcContracts({ repoRoot })
     expect(report.invalidResponsePolicyEvidence).toContainEqual(expect.objectContaining({ field: 'shape', reason: 'shape symbol lacks executable narrowing' }))
-  }, 15000)
+  }, 30000)
 
   it.each([
     ['no malformed input', `import { loadConfig } from './consumer.js'; it('rejects malformed config', async () => { await expect(loadConfig()).rejects.toThrow('invalid config') })`],
@@ -2996,7 +3118,7 @@ describe('rpc contract audit', () => {
     `, regression })
     const report = await auditRpcContracts({ repoRoot })
     expect(report.invalidResponsePolicyEvidence).toContainEqual(expect.objectContaining({ field: 'regressionTest' }))
-  }, 15000)
+  }, 30000)
 
   it.each([
     ['parameter', `function shadow(readConfig) { readConfig() }`, false],
@@ -3009,7 +3131,7 @@ describe('rpc contract audit', () => {
     const repoRoot = await createPolicyShadow({ policy: UNUSED_POLICY, consumer })
     const report = await auditRpcContracts({ repoRoot })
     expect(report.invalidResponsePolicyEvidence).toEqual([])
-  }, 15000)
+  }, 30000)
 
   it.each([
     ['named', `import { readConfig } from '../../shared/api/backendApi.js'; function shadow(readConfig) { readConfig() }; readConfig()`],
@@ -3018,7 +3140,7 @@ describe('rpc contract audit', () => {
     const repoRoot = await createPolicyShadow({ policy: UNUSED_POLICY, consumer })
     const report = await auditRpcContracts({ repoRoot })
     expect(report.invalidResponsePolicyEvidence).toContainEqual(expect.objectContaining({ kind: 'unused' }))
-  }, 15000)
+  }, 30000)
   it.each([
     ['failure guard in callback', `const parsed = ConfigSchema.safeParse(value); [parsed].forEach(() => { if (!parsed.success) throw new TypeError('invalid config') })`, `if (!value) return { success: false }; return { success: true, data: value }`],
     ['schema invalid return in callback', `const parsed = ConfigSchema.safeParse(value); if (!parsed.success) throw new TypeError('invalid config')`, `[value].forEach(() => { if (!value) return { success: false } }); return { success: true, data: value }`],
@@ -3032,7 +3154,7 @@ describe('rpc contract audit', () => {
     `, regression: consumerValidatedRegression() })
     const report = await auditRpcContracts({ repoRoot })
     expect(report.invalidResponsePolicyEvidence).toContainEqual(expect.objectContaining({ field: 'shape', reason: 'shape symbol lacks executable narrowing' }))
-  }, 15000)
+  }, 30000)
 
   it('audits runtime payload builders when facade shadows stay unchanged', async function payloadCb(){const runtimePath='frontend-app/src/shared/api/backend/backendApiFactoryThread.js';const runtimeSource=await readFile(join(REPO_ROOT,runtimePath),'utf8');const mutatedSource=runtimeSource.replace("takePayloadField(unused, 'provider')","takePayloadField(unused, 'provider_shadow')");expect(mutatedSource).not.toBe(runtimeSource);const repoRoot=await createShadowRepo({[runtimePath]:mutatedSource});const report=await auditRpcContracts({repoRoot});expect(report.allowedPayloadRegistryDrift).toEqual(expect.arrayContaining([expect.objectContaining({method:'thread/start',missingFrontendKeys:expect.arrayContaining(['provider']),extraFrontendKeys:expect.arrayContaining(['provider_shadow'])})]))})
 

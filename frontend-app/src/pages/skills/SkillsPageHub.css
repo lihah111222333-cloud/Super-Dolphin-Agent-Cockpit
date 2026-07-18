@@ -109,9 +109,10 @@
   grid-template-columns: 36px minmax(0, 1fr) max-content auto;
   align-items: center;
   gap: 10px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--mcp-card-border);
   border-radius: 8px;
-  background: var(--surface);
+  background: var(--mcp-card-bg);
+  color: var(--mcp-card-text);
   min-height: 54px;
   padding: 8px 10px;
 }
@@ -235,6 +236,61 @@
 .mcp-tool-actions button:disabled {
   cursor: not-allowed;
   opacity: 0.56;
+}
+
+/* MCP 卡片暗底专用：文字、徽章、图标与开关都限定在 .mcp-tool-card 作用域，
+   避免影响技能库白底卡片复用的 .mcp-tool-* 裸类。 */
+.mcp-tool-card:hover {
+  background: var(--mcp-card-bg-hover);
+}
+
+.mcp-tool-card .mcp-tool-icon,
+.mcp-tool-card .mcp-tool-icon.playwright,
+.mcp-tool-card .mcp-tool-icon.add-new {
+  background: var(--mcp-card-icon-bg);
+  color: var(--mcp-card-ok);
+}
+
+.mcp-tool-card .mcp-tool-icon.playwright {
+  color: var(--mcp-card-text);
+}
+
+.mcp-tool-card .mcp-tool-title-line h2,
+.mcp-tool-card .add-new-title {
+  color: var(--mcp-card-text);
+  font-size: 15px;
+  font-weight: 600;
+  margin: 0;
+}
+
+.mcp-tool-card .mcp-tool-notice {
+  color: var(--mcp-card-text-muted);
+}
+
+.mcp-tool-card .mcp-tool-notice.is-error {
+  color: var(--mcp-card-danger);
+}
+
+.mcp-tool-card .mcp-tool-status {
+  background: var(--mcp-card-badge-bg);
+  border-color: var(--mcp-card-badge-border);
+  color: var(--mcp-card-text-muted);
+}
+
+.mcp-tool-card .mcp-tool-status.is-enabled {
+  background: color-mix(in srgb, var(--mcp-card-ok) 18%, transparent);
+  border-color: color-mix(in srgb, var(--mcp-card-ok) 46%, transparent);
+  color: var(--mcp-card-ok);
+}
+
+.mcp-tool-card .mcp-tool-status.is-error {
+  background: color-mix(in srgb, var(--mcp-card-danger) 16%, transparent);
+  border-color: color-mix(in srgb, var(--mcp-card-danger) 42%, transparent);
+  color: var(--mcp-card-danger);
+}
+
+.mcp-tool-card .suiyuan-switch-track {
+  border-color: var(--mcp-card-badge-border);
 }
 
 @media (max-width: 640px) {

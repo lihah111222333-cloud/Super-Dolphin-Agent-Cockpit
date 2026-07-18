@@ -94,7 +94,7 @@ func TestWriteLocalRejectsPathOutsideSkillsRoot(t *testing.T) {
 	}
 	svc := &service{projectRoot: projectRoot, root: skillsRoot, projectSkillsRoot: defaultProjectSkillsRoot(projectRoot), http: &http.Client{}}
 
-	_, err := svc.WriteLocal(skillTestContext(projectRoot), outsidePath, "after")
+	_, err := svc.WriteLocal(skillTestContext(projectRoot), outsidePath, "after", skillScopeProject)
 	if err == nil || err.Error() != "path escapes skills root: "+outsidePath {
 		t.Fatalf("WriteLocal() error = %v, want path escapes skills root", err)
 	}

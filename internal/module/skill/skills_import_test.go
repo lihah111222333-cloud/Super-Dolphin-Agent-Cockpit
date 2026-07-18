@@ -21,7 +21,7 @@ func TestImportLocalDir_BatchContainer_ExpandsSubdirs(t *testing.T) {
 	writeImportTestSkill(t, source, "alpha")
 	writeImportTestSkill(t, source, "beta")
 
-	out, err := svc.ImportLocalDir(skillTestContext(projectRoot), importSkillDirParams{Path: source})
+	out, err := svc.ImportLocalDir(skillTestContext(projectRoot), importSkillDirParams{Path: source, Scope: skillScopeProject})
 	if err != nil {
 		t.Fatalf("ImportLocalDir() error = %v", err)
 	}
@@ -47,7 +47,7 @@ func TestImportLocalDir_BatchSkipsSubdirsWithoutSkillFile(t *testing.T) {
 	mustMkdirAll(t, notesDir)
 	mustWriteFile(t, filepath.Join(notesDir, "README.md"), "# notes")
 
-	out, err := svc.ImportLocalDir(skillTestContext(projectRoot), importSkillDirParams{Path: source})
+	out, err := svc.ImportLocalDir(skillTestContext(projectRoot), importSkillDirParams{Path: source, Scope: skillScopeProject})
 	if err != nil {
 		t.Fatalf("ImportLocalDir() error = %v", err)
 	}
@@ -74,7 +74,7 @@ func TestImportLocalDir_BatchPartialFailureCollects(t *testing.T) {
 	mustSymlink(t, "missing-target", filepath.Join(brokenDir, "bad-link"))
 	writeImportTestSkill(t, source, "gamma")
 
-	out, err := svc.ImportLocalDir(skillTestContext(projectRoot), importSkillDirParams{Path: source})
+	out, err := svc.ImportLocalDir(skillTestContext(projectRoot), importSkillDirParams{Path: source, Scope: skillScopeProject})
 	if err != nil {
 		t.Fatalf("ImportLocalDir() error = %v", err)
 	}
@@ -101,7 +101,7 @@ func TestImportLocalDir_SingleStillWorks_BackwardCompat(t *testing.T) {
 	mustWriteFile(t, filepath.Join(source, skillMainFile), "# demo")
 	mustWriteFile(t, filepath.Join(source, "references", "guide.md"), "details")
 
-	out, err := svc.ImportLocalDir(skillTestContext(projectRoot), importSkillDirParams{Path: source})
+	out, err := svc.ImportLocalDir(skillTestContext(projectRoot), importSkillDirParams{Path: source, Scope: skillScopeProject})
 	if err != nil {
 		t.Fatalf("ImportLocalDir() error = %v", err)
 	}
@@ -124,7 +124,7 @@ func TestImportLocalDirRejectsOversizedSupportFile(t *testing.T) {
 	mustWriteFile(t, filepath.Join(source, skillMainFile), "# demo")
 	mustWriteBytes(t, filepath.Join(source, "references", "huge.bin"), make([]byte, maxSkillFileBytes+1))
 
-	out, err := svc.ImportLocalDir(skillTestContext(projectRoot), importSkillDirParams{Path: source})
+	out, err := svc.ImportLocalDir(skillTestContext(projectRoot), importSkillDirParams{Path: source, Scope: skillScopeProject})
 	if err != nil {
 		t.Fatalf("ImportLocalDir() error = %v", err)
 	}
@@ -148,7 +148,7 @@ func TestImportLocalDir_RewritesFrontmatterNameToImportedName(t *testing.T) {
 	mustMkdirAll(t, source)
 	mustWriteFile(t, filepath.Join(source, skillMainFile), "---\nname: stale\nsummary: imported docs\n---\n# docs\n")
 
-	out, err := svc.ImportLocalDir(skillTestContext(projectRoot), importSkillDirParams{Path: source})
+	out, err := svc.ImportLocalDir(skillTestContext(projectRoot), importSkillDirParams{Path: source, Scope: skillScopeProject})
 	if err != nil {
 		t.Fatalf("ImportLocalDir() error = %v", err)
 	}
@@ -165,7 +165,7 @@ func TestImportLocalDirPublishesProjectMirrors(t *testing.T) {
 	mustWriteFile(t, filepath.Join(source, skillMainFile), "---\nname: demo-skill\n---\nbody")
 	mustWriteFile(t, filepath.Join(source, "references", "guide.md"), "details")
 
-	out, err := svc.ImportLocalDir(skillTestContext(projectRoot), importSkillDirParams{Path: source})
+	out, err := svc.ImportLocalDir(skillTestContext(projectRoot), importSkillDirParams{Path: source, Scope: skillScopeProject})
 	if err != nil {
 		t.Fatalf("ImportLocalDir() error = %v", err)
 	}
@@ -192,7 +192,7 @@ func TestImportLocalDirPublishErrorBlocksAndRollsBackCanonical(t *testing.T) {
 	mustMkdirAll(t, source)
 	mustWriteFile(t, filepath.Join(source, skillMainFile), "---\nname: demo-skill\n---\nbody")
 
-	_, err := svc.ImportLocalDir(skillTestContext(projectRoot), importSkillDirParams{Path: source})
+	_, err := svc.ImportLocalDir(skillTestContext(projectRoot), importSkillDirParams{Path: source, Scope: skillScopeProject})
 	assertMirrorPublishBlockingError(t, err)
 	assertImportTargetMissing(t, projectRoot, "demo-skill")
 }
@@ -208,7 +208,7 @@ func TestImportLocalDirRejectsSymlinkSkillsRoot(t *testing.T) {
 	mustMkdirAll(t, source)
 	mustWriteFile(t, filepath.Join(source, skillMainFile), "---\nname: demo-skill\n---\nbody")
 
-	out, err := svc.ImportLocalDir(skillTestContext(projectRoot), importSkillDirParams{Path: source})
+	out, err := svc.ImportLocalDir(skillTestContext(projectRoot), importSkillDirParams{Path: source, Scope: skillScopeProject})
 	if err != nil {
 		t.Fatalf("ImportLocalDir() error = %v", err)
 	}
@@ -230,7 +230,7 @@ func TestImportLocalDir_EmptyDirError(t *testing.T) {
 	source := filepath.Join(t.TempDir(), "empty")
 	mustMkdirAll(t, source)
 
-	out, err := svc.ImportLocalDir(skillTestContext(projectRoot), importSkillDirParams{Path: source})
+	out, err := svc.ImportLocalDir(skillTestContext(projectRoot), importSkillDirParams{Path: source, Scope: skillScopeProject})
 	if err != nil {
 		t.Fatalf("ImportLocalDir() error = %v", err)
 	}
@@ -259,7 +259,7 @@ func TestImportLocalDir_BatchPublishesSkillsChangedEvent(t *testing.T) {
 	writeImportTestSkill(t, source, "alpha")
 	writeImportTestSkill(t, source, "beta")
 
-	if _, err := svc.ImportLocalDir(skillTestContext(projectRoot), importSkillDirParams{Path: source}); err != nil {
+	if _, err := svc.ImportLocalDir(skillTestContext(projectRoot), importSkillDirParams{Path: source, Scope: skillScopeProject}); err != nil {
 		t.Fatalf("ImportLocalDir() error = %v", err)
 	}
 	ev := mustReceiveSkillsChanged(t, got)
@@ -293,7 +293,7 @@ func TestImportLocalDir_AutoMixedPaths_DetectsEachSource(t *testing.T) {
 	writeImportTestSkill(t, container, "alpha")
 	writeImportTestSkill(t, container, "beta")
 
-	out, err := svc.ImportLocalDir(skillTestContext(projectRoot), importSkillDirParams{Paths: []string{single, container}})
+	out, err := svc.ImportLocalDir(skillTestContext(projectRoot), importSkillDirParams{Paths: []string{single, container}, Scope: skillScopeProject})
 	if err != nil {
 		t.Fatalf("ImportLocalDir() error = %v", err)
 	}
@@ -313,7 +313,7 @@ func TestImportLocalDir_AutoPrefersSingleWhenRootSkillExists(t *testing.T) {
 	mustWriteFile(t, filepath.Join(source, skillMainFile), "# mixed")
 	writeImportTestSkill(t, source, "alpha")
 
-	autoOut, err := svc.ImportLocalDir(skillTestContext(projectRoot), importSkillDirParams{Path: source})
+	autoOut, err := svc.ImportLocalDir(skillTestContext(projectRoot), importSkillDirParams{Path: source, Scope: skillScopeProject})
 	if err != nil {
 		t.Fatalf("auto ImportLocalDir() error = %v", err)
 	}
@@ -323,7 +323,7 @@ func TestImportLocalDir_AutoPrefersSingleWhenRootSkillExists(t *testing.T) {
 	assertImportTargetExists(t, projectRoot, "mixed")
 	assertImportTargetMissing(t, projectRoot, "alpha")
 
-	batchOut, err := svc.ImportLocalDir(skillTestContext(projectRoot), importSkillDirParams{Path: source, Mode: "batch"})
+	batchOut, err := svc.ImportLocalDir(skillTestContext(projectRoot), importSkillDirParams{Path: source, Scope: skillScopeProject, Mode: "batch"})
 	if err != nil {
 		t.Fatalf("batch ImportLocalDir() error = %v", err)
 	}
@@ -341,9 +341,10 @@ func TestImportLocalDir_BatchRejectsNameOverride(t *testing.T) {
 	writeImportTestSkill(t, source, "alpha")
 
 	_, err := svc.ImportLocalDir(skillTestContext(projectRoot), importSkillDirParams{
-		Path: source,
-		Mode: "batch",
-		Name: "override",
+		Scope: skillScopeProject,
+		Path:  source,
+		Mode:  "batch",
+		Name:  "override",
 	})
 	if err == nil || err.Error() != "name is not allowed in batch mode" {
 		t.Fatalf("ImportLocalDir() error = %v, want name rejection", err)
@@ -473,7 +474,7 @@ func TestImportLocalDirRejectsSourceInsideProjectSkillsRoot(t *testing.T) {
 	}
 	svc := &service{root: systemRoot, projectRoot: projectRoot, projectSkillsRoot: projectSkillsRoot}
 
-	out, err := svc.ImportLocalDir(skillTestContext(projectRoot), importSkillDirParams{Path: sourceDir})
+	out, err := svc.ImportLocalDir(skillTestContext(projectRoot), importSkillDirParams{Path: sourceDir, Scope: skillScopeProject})
 	if err != nil {
 		t.Fatalf("ImportLocalDir() error = %v", err)
 	}
@@ -557,7 +558,7 @@ func TestImportLocalDirAcceptsLegacyRootAsExplicitSource(t *testing.T) {
 	}
 	svc := &service{projectRoot: projectRoot, root: skillsRoot, projectSkillsRoot: defaultProjectSkillsRoot(projectRoot)}
 
-	out, err := svc.ImportLocalDir(skillTestContext(projectRoot), importSkillDirParams{Path: sourceDir})
+	out, err := svc.ImportLocalDir(skillTestContext(projectRoot), importSkillDirParams{Path: sourceDir, Scope: skillScopeProject})
 	if err != nil {
 		t.Fatalf("ImportLocalDir() error = %v", err)
 	}

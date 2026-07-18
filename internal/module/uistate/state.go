@@ -1,6 +1,7 @@
 package uistate
 
 import (
+	"maps"
 	"sort"
 	"strings"
 	"time"
@@ -117,10 +118,12 @@ type ActivityStats struct {
 
 // Sidebar 是 UI 侧栏专用的收窄状态快照。
 type Sidebar struct {
-	Threads               []ThreadSummary           `json:"threads"`
-	Agents                []AgentSummary            `json:"agents"`
-	ActiveTurn            *TurnSummary              `json:"active_turn,omitempty"`
-	RecentTurns           []TurnSummary             `json:"recent_turns,omitempty"`
+	Threads    []ThreadSummary `json:"threads"`
+	Agents     []AgentSummary  `json:"agents"`
+	ActiveTurn *TurnSummary    `json:"active_turn,omitempty"`
+	// recent_turns 与 threads/agents 一样必须稳定输出数组（空时为 []），
+	// 前端契约不允许 null；omitempty 会把空 slice 省略成缺失键，一并去掉。
+	RecentTurns           []TurnSummary             `json:"recent_turns"`
 	Workspace             WorkspacePanel            `json:"workspace"`
 	TokenUsage            TokenUsage                `json:"token_usage"`
 	Statuses              map[string]string         `json:"statuses,omitempty"`
@@ -257,7 +260,9 @@ func clonePreferences(value Preferences) *Preferences {
 }
 
 func cloneThreads(items []ThreadSummary) []ThreadSummary {
-	out := append([]ThreadSummary(nil), items...)
+	// make 保证 nil 输入也得到非 nil 空 slice：wire 契约要求输出 [] 而不是 null。
+	out := make([]ThreadSummary, len(items))
+	copy(out, items)
 	for i := range out {
 		out[i].CreatedAt = clone.Time(items[i].CreatedAt)
 		out[i].UpdatedAt = clone.Time(items[i].UpdatedAt)
@@ -266,7 +271,9 @@ func cloneThreads(items []ThreadSummary) []ThreadSummary {
 }
 
 func cloneAgents(items []AgentSummary) []AgentSummary {
-	out := append([]AgentSummary(nil), items...)
+	// 与 cloneThreads 一致：nil 输入克隆为非 nil 空 slice，避免序列化为 null。
+	out := make([]AgentSummary, len(items))
+	copy(out, items)
 	for i := range out {
 		out[i].CreatedAt = clone.Time(items[i].CreatedAt)
 		out[i].UpdatedAt = clone.Time(items[i].UpdatedAt)
@@ -279,9 +286,7 @@ func cloneTokenUsages(m map[string]TokenUsage) map[string]TokenUsage {
 		return nil
 	}
 	out := make(map[string]TokenUsage, len(m))
-	for k, v := range m {
-		out[k] = v
-	}
+	maps.Copy(out, m)
 	return out
 }
 
