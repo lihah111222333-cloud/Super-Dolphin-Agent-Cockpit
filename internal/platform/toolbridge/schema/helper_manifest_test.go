@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -74,6 +75,33 @@ func TestHelperPackageRejectsMissingMixedAndTamperedArtifacts(t *testing.T) {
 				t.Fatal("VerifyHelperPackage() error = nil")
 			}
 		})
+	}
+}
+
+func TestWriteHelperManifestAtomicallyReplacesExistingDocument(t *testing.T) {
+	identity := HelperIdentity{AppCommit: "commit-a", GoVersion: runtime.Version(), GOOS: runtime.GOOS, GOARCH: runtime.GOARCH}
+	helper, manifest := writeHelperPackageFixture(t, t.TempDir(), "#!/bin/sh\nexit 0\n", identity)
+	updated := identity
+	updated.AppCommit = "commit-b"
+	if err := WriteHelperManifest(helper, manifest, updated); err != nil {
+		t.Fatalf("rewrite helper manifest: %v", err)
+	}
+	if err := VerifyHelperPackage(helper, manifest, updated); err != nil {
+		t.Fatalf("verify rewritten helper manifest: %v", err)
+	}
+	if _, err := os.Lstat(manifest + filesystemSnapshotPublishSuffix); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("manifest publishing file = %v, want not exist", err)
+	}
+}
+
+func TestWriteHelperManifestRejectsPartialPublish(t *testing.T) {
+	identity := HelperIdentity{AppCommit: "commit-a", GoVersion: runtime.Version(), GOOS: runtime.GOOS, GOARCH: runtime.GOARCH}
+	helper, manifest := writeHelperPackageFixture(t, t.TempDir(), "#!/bin/sh\nexit 0\n", identity)
+	if err := os.WriteFile(manifest+filesystemSnapshotPublishSuffix, []byte("partial"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := WriteHelperManifest(helper, manifest, identity); err == nil {
+		t.Fatal("WriteHelperManifest() error = nil with partial publish")
 	}
 }
 

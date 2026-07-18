@@ -33,6 +33,7 @@ const (
 	filesystemSnapshotMarker        = ".reasonix-schema-owner.json"
 	filesystemSnapshotStagingOwner  = ".owner-"
 	filesystemSnapshotStagingSuffix = ".staging"
+	filesystemSnapshotPublishSuffix = ".publishing"
 	filesystemSnapshotTokenBytes    = 16
 )
 
@@ -109,7 +110,7 @@ func WriteHelperManifest(helperPath, manifestPath string, identity HelperIdentit
 		return fmt.Errorf("marshal helper manifest: %w", err)
 	}
 	encoded = append(encoded, '\n')
-	if err := os.WriteFile(manifestPath, encoded, 0o644); err != nil {
+	if err := writeAtomicRegularFile(manifestPath, encoded, 0o644); err != nil {
 		return fmt.Errorf("write helper manifest: %w", err)
 	}
 	return nil
@@ -382,8 +383,14 @@ func publishExecutableSnapshot(
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return "", errors.Join(err, removeStagedFilesystemSnapshot(identity, directory))
 	}
+	if err := syncFilesystemSnapshotDirectory(directory); err != nil {
+		return "", errors.Join(err, removeStagedFilesystemSnapshot(identity, directory))
+	}
 	if err := os.Rename(directory, identity.Directory); err != nil {
 		return "", errors.Join(err, removeStagedFilesystemSnapshot(identity, directory))
+	}
+	if err := syncFilesystemSnapshotDirectory(filepath.Dir(identity.Directory)); err != nil {
+		return "", errors.Join(err, removeOwnedFilesystemSnapshot(identity))
 	}
 	return filepath.Join(identity.Directory, filepath.Base(path)), nil
 }
@@ -414,26 +421,6 @@ func removeStagedFilesystemSnapshot(identity filesystemSnapshotIdentity, directo
 		}
 	}
 	return removeFilesystemSnapshotFiles(directory, helperName)
-}
-
-func writeFilesystemSnapshotMarker(directory string, identity filesystemSnapshotIdentity) error {
-	encoded, err := json.Marshal(identity)
-	if err != nil {
-		return fmt.Errorf("encode schema snapshot owner marker: %w", err)
-	}
-	encoded = append(encoded, '\n')
-	return writeExclusiveRegularFile(filepath.Join(directory, filesystemSnapshotMarker), encoded, 0o600)
-}
-
-func writeExclusiveRegularFile(path string, data []byte, mode os.FileMode) error {
-	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, mode)
-	if err != nil {
-		return err
-	}
-	if _, err := file.Write(data); err != nil {
-		return errors.Join(err, file.Close())
-	}
-	return file.Close()
 }
 
 // removeOwnedFilesystemSnapshot 清理 identity 精确派生的 staging 与最终目录。
@@ -487,26 +474,32 @@ func ownedFilesystemSnapshotEntries(directory string) ([]os.DirEntry, bool, erro
 }
 
 func removeFilesystemSnapshotFiles(directory, helperName string) error {
-	if err := removeSnapshotEntryIfPresent(directory, helperName); err != nil {
-		return err
+	names := []string{
+		helperName + filesystemSnapshotPublishSuffix, helperName,
+		filesystemSnapshotMarker + filesystemSnapshotPublishSuffix, filesystemSnapshotMarker,
 	}
-	if err := removeSnapshotEntryIfPresent(directory, filesystemSnapshotMarker); err != nil {
-		return err
+	for _, name := range names {
+		if err := removeSnapshotEntryIfPresent(directory, name); err != nil {
+			return err
+		}
 	}
 	return os.Remove(directory)
 }
 
 // validateFilesystemSnapshotEntry 严格拒绝未知、symlink 或非 regular 条目。
 func validateFilesystemSnapshotEntry(directory, helperName string, entry os.DirEntry) error {
-	if entry.Name() != filesystemSnapshotMarker && entry.Name() != helperName {
-		return fmt.Errorf("schema snapshot contains unexpected entry %q", entry.Name())
+	name := entry.Name()
+	markerPublishing := filesystemSnapshotMarker + filesystemSnapshotPublishSuffix
+	helperEntry := helperName != "" && (name == helperName || name == helperName+filesystemSnapshotPublishSuffix)
+	if name != filesystemSnapshotMarker && name != markerPublishing && !helperEntry {
+		return fmt.Errorf("schema snapshot contains unexpected entry %q", name)
 	}
-	info, err := os.Lstat(filepath.Join(directory, entry.Name()))
+	info, err := os.Lstat(filepath.Join(directory, name))
 	if err != nil {
 		return err
 	}
 	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
-		return fmt.Errorf("schema snapshot entry %q is not a regular non-symlink file", entry.Name())
+		return fmt.Errorf("schema snapshot entry %q is not a regular non-symlink file", name)
 	}
 	return nil
 }
@@ -532,7 +525,11 @@ func verifyFilesystemSnapshotMarker(identity filesystemSnapshotIdentity) error {
 }
 
 func removeSnapshotEntryIfPresent(directory, name string) error {
-	err := os.Remove(filepath.Join(directory, name))
+	return removeSnapshotPathIfPresent(filepath.Join(directory, name))
+}
+
+func removeSnapshotPathIfPresent(path string) error {
+	err := os.Remove(path)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil
 	}
@@ -593,18 +590,30 @@ func sweepPublishedFilesystemSnapshotCandidate(root, name, token string) error {
 // sweepFilesystemSnapshotStagingCandidate 清理 owner 已失效的严格 staging 状态。
 func sweepFilesystemSnapshotStagingCandidate(root, name, token string, ownerPID int, ownerDigest string) error {
 	directory := filepath.Join(root, name)
-	identity, marked, err := readSweepStagingIdentity(directory, token)
+	active, err := filesystemSnapshotStagingOwnerActive(ownerPID, ownerDigest)
 	if err != nil {
 		return err
 	}
-	active, err := filesystemSnapshotStagingOwnerActive(ownerPID, ownerDigest)
-	if err != nil || active {
+	identity, state, err := readSweepStagingIdentity(directory, token)
+	if active && (err == nil || errors.Is(err, os.ErrNotExist)) {
+		return nil
+	}
+	if err != nil {
 		return err
 	}
-	if !marked {
+	switch state {
+	case filesystemSnapshotStagingEmpty:
 		return os.Remove(directory)
+	case filesystemSnapshotStagingPublishing:
+		if err := removeSnapshotEntryIfPresent(directory, filesystemSnapshotMarker+filesystemSnapshotPublishSuffix); err != nil {
+			return err
+		}
+		return os.Remove(directory)
+	case filesystemSnapshotStagingOwned:
+		return removeStagedFilesystemSnapshot(identity, directory)
+	default:
+		return errors.New("schema snapshot staging state is invalid")
 	}
-	return removeStagedFilesystemSnapshot(identity, directory)
 }
 
 func filesystemSnapshotTokenFromName(name string) (string, bool) {
@@ -686,43 +695,34 @@ func readSweepSnapshotIdentity(directory, token string) (filesystemSnapshotIdent
 	return identity, false, nil
 }
 
-// readSweepStagingIdentity 读取 marker 并复验其与 staging 名称的 owner 绑定。
-func readSweepStagingIdentity(directory, token string) (filesystemSnapshotIdentity, bool, error) {
+// readSweepStagingIdentity 分类原子发布中间态并复验 marker 与目录 owner 绑定。
+func readSweepStagingIdentity(directory, token string) (filesystemSnapshotIdentity, filesystemSnapshotStagingState, error) {
 	entries, _, err := ownedFilesystemSnapshotEntries(directory)
 	if err != nil {
-		return filesystemSnapshotIdentity{}, false, err
+		return filesystemSnapshotIdentity{}, 0, err
 	}
-	if len(entries) == 0 {
-		return filesystemSnapshotIdentity{}, false, nil
-	}
-	if len(entries) > 2 {
-		return filesystemSnapshotIdentity{}, false, errors.New(
-			"schema snapshot staging contains an unexpected number of entries",
-		)
+	state, err := classifyFilesystemSnapshotStagingState(directory, entries)
+	if err != nil || state != filesystemSnapshotStagingOwned {
+		return filesystemSnapshotIdentity{}, state, err
 	}
 	identity, err := readFilesystemSnapshotIdentity(directory)
 	if err != nil {
-		return filesystemSnapshotIdentity{}, false, err
+		return filesystemSnapshotIdentity{}, 0, err
 	}
 	if err := validateFilesystemSnapshotIdentity(identity); err != nil {
-		return filesystemSnapshotIdentity{}, false, err
+		return filesystemSnapshotIdentity{}, 0, err
 	}
 	expectedDirectory := filesystemSnapshotStagingDirectory(identity)
 	if [2]string{identity.Token, directory} != [2]string{token, expectedDirectory} {
-		return filesystemSnapshotIdentity{}, false, errors.New(
+		return filesystemSnapshotIdentity{}, 0, errors.New(
 			"schema snapshot staging identity mismatch",
 		)
 	}
-	helperName := ""
-	if len(entries) == 2 {
-		helperName = HelperFileName(identity.HelperGOOS)
+	helperName := HelperFileName(identity.HelperGOOS)
+	if err := validateSweepStagingEntries(directory, helperName, entries); err != nil {
+		return filesystemSnapshotIdentity{}, 0, err
 	}
-	for _, entry := range entries {
-		if err := validateFilesystemSnapshotEntry(directory, helperName, entry); err != nil {
-			return filesystemSnapshotIdentity{}, false, err
-		}
-	}
-	return identity, true, nil
+	return identity, filesystemSnapshotStagingOwned, nil
 }
 
 func readFilesystemSnapshotIdentity(directory string) (filesystemSnapshotIdentity, error) {
