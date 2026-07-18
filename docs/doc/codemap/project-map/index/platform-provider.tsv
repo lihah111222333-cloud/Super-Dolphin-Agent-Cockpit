@@ -271,14 +271,14 @@ internal/mcpserver/common/tool_result.go	internal	platform-provider	go-source	32
 internal/platform/appupdaterecovery/artifact_e2e_test.go	internal	platform-provider	go-test	28176	基础设施层	internal,platform,appupdaterecovery,artifact,e2e,test,基础设施层
 internal/platform/appupdaterecovery/artifact_program_source_test.go	internal	platform-provider	go-test	2904	基础设施层	internal,platform,appupdaterecovery,artifact,program,source,test,基础设施层
 internal/platform/appupdaterecovery/artifact_rollback_cleanup_e2e_test.go	internal	platform-provider	go-test	12440	基础设施层	internal,platform,appupdaterecovery,artifact,rollback,cleanup,e2e,test,基础设施层
-internal/platform/appupdaterecovery/digest_context_test.go	internal	platform-provider	go-test	5815	基础设施层	internal,platform,appupdaterecovery,digest,context,test,基础设施层
+internal/platform/appupdaterecovery/digest_context_test.go	internal	platform-provider	go-test	8994	基础设施层	internal,platform,appupdaterecovery,digest,context,test,基础设施层
 internal/platform/appupdaterecovery/digest.go	internal	platform-provider	go-source	9231	基础设施层	internal,platform,appupdaterecovery,digest,基础设施层
 internal/platform/appupdaterecovery/discovery_test.go	internal	platform-provider	go-test	2524	基础设施层	internal,platform,appupdaterecovery,discovery,test,基础设施层
 internal/platform/appupdaterecovery/discovery.go	internal	platform-provider	go-source	9869	基础设施层	internal,platform,appupdaterecovery,discovery,基础设施层
 internal/platform/appupdaterecovery/effects.go	internal	platform-provider	go-source	9263	基础设施层	internal,platform,appupdaterecovery,effects,基础设施层
 internal/platform/appupdaterecovery/field_guard_test.go	internal	platform-provider	go-test	6150	基础设施层	internal,platform,appupdaterecovery,field,guard,test,基础设施层
 internal/platform/appupdaterecovery/field_guard.go	internal	platform-provider	go-source	2910	基础设施层	internal,platform,appupdaterecovery,field,guard,基础设施层
-internal/platform/appupdaterecovery/filesystem_helper_unix_test.go	internal	platform-provider	go-test	7898	基础设施层	internal,platform,appupdaterecovery,filesystem,helper,unix,test,基础设施层
+internal/platform/appupdaterecovery/filesystem_helper_unix_test.go	internal	platform-provider	go-test	7958	基础设施层	internal,platform,appupdaterecovery,filesystem,helper,unix,test,基础设施层
 internal/platform/appupdaterecovery/filesystem_helper.go	internal	platform-provider	go-source	17511	基础设施层	internal,platform,appupdaterecovery,filesystem,helper,基础设施层
 internal/platform/appupdaterecovery/journal.go	internal	platform-provider	go-source	11167	基础设施层	internal,platform,appupdaterecovery,journal,基础设施层
 internal/platform/appupdaterecovery/lock_unix.go	internal	platform-provider	go-source	1704	基础设施层	internal,platform,appupdaterecovery,lock,unix,基础设施层
