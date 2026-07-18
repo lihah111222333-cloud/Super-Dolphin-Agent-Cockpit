@@ -1,6 +1,7 @@
 package observability
 
 import (
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -25,6 +26,52 @@ func TestSafePreviewRedactsShortTextAndBoundsLongText(t *testing.T) {
 	}
 	if strings.Contains(long.SHA256, "sk-") {
 		t.Fatalf("long preview hash leaked secret: %+v", long)
+	}
+}
+
+func TestSafeToolArgumentsPreviewOversizedInvalidStructuredInputFailsClosed(t *testing.T) {
+	const sensitiveValue = "invalid-value-5a82d1"
+	raw := `{"credentials":"` + sensitiveValue + `","padding":"` + strings.Repeat("x", 17*1024)
+
+	preview := SafeToolArgumentsPreviewString(raw)
+	if strings.Contains(preview, sensitiveValue) {
+		t.Fatalf("SafeToolArgumentsPreviewString() = %q, must not contain credentials value %q", preview, sensitiveValue)
+	}
+	if !strings.Contains(preview, "[REDACTED]") || !strings.Contains(preview, "[truncated]") {
+		t.Fatalf("SafeToolArgumentsPreviewString() = %q, want fail-closed redaction and truncation markers", preview)
+	}
+}
+
+func TestSafeToolArgumentsPreviewMultiMegabyteStructuredInputFailsClosed(t *testing.T) {
+	const sensitiveValue = "multi-megabyte-value-91d2c4"
+	payload := " \t\r\n" + `{"credentials":"` + sensitiveValue + `","padding":"` + strings.Repeat("x", 4*1024*1024) + `"}`
+	want := redacted + argumentPreviewTruncated
+	previews := map[string]string{
+		"raw_message": SafeToolArgumentsPreview(json.RawMessage(payload)),
+		"string":      SafeToolArgumentsPreviewString(payload),
+	}
+	for name, preview := range previews {
+		if preview != want {
+			t.Fatalf("%s preview = %q, want bounded fail-closed preview %q", name, preview, want)
+		}
+		if strings.Contains(preview, sensitiveValue) {
+			t.Fatalf("%s preview = %q, must not contain credentials value %q", name, preview, sensitiveValue)
+		}
+	}
+}
+
+func TestSafeToolArgumentsPreviewOversizedStructuredPrefixSkipsInvalidUTF8(t *testing.T) {
+	const sensitiveValue = "invalid-prefix-value-43a11f"
+	payload := `{"credentials":"` + sensitiveValue + `","padding":"` + strings.Repeat("x", 17*1024) + `"}`
+	raw := append([]byte{0xff, ' ', '\t'}, []byte(payload)...)
+
+	preview := SafeToolArgumentsPreview(raw)
+	want := redacted + argumentPreviewTruncated
+	if preview != want {
+		t.Fatalf("SafeToolArgumentsPreview() = %q, want UTF-8-safe fail-closed preview %q", preview, want)
+	}
+	if strings.Contains(preview, sensitiveValue) {
+		t.Fatalf("SafeToolArgumentsPreview() = %q, must not contain credentials value %q", preview, sensitiveValue)
 	}
 }
 
