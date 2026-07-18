@@ -409,15 +409,15 @@ func startDetachedGuard(ctx context.Context, transaction recovery.Transaction, c
 	if err != nil {
 		return err
 	}
-	stdout, expected, err := startDetachedGuardProcess(ctx, cmd, executable, digest)
+	stdout, expected, lease, err := startDetachedGuardProcess(ctx, cmd, executable, digest)
 	if err != nil {
 		return err
 	}
 	if err := awaitDetachedGuardArmed(ctx, stdout, transaction, expected, readyAction); err != nil {
-		return errors.Join(err, stopStartedGuard(cmd))
+		return errors.Join(err, stopStartedGuard(cmd, lease))
 	}
-	if err := cmd.Process.Release(); err != nil {
-		return errors.Join(fmt.Errorf("release detached Guard process: %w", err), stopStartedGuard(cmd))
+	if err := handoffGuardProcessTree(cmd, lease); err != nil {
+		return fmt.Errorf("handoff detached Guard process tree: %w", err)
 	}
 	return nil
 }
@@ -448,23 +448,44 @@ func buildDetachedGuardCommand(ctx context.Context, transaction recovery.Transac
 	// Guard 在 armed receipt 后独立存活，因此不能让 exec.Cmd 继承 caller context 的自动 kill。
 	cmd := exec.Command(executable, transactionRoot, string(transaction.Identity.TransactionID), generation)
 	cmd.Env = env
+	if err := configureGuardProcessTree(cmd); err != nil {
+		return nil, "", "", fmt.Errorf("configure detached Guard process tree: %w", err)
+	}
 	return cmd, executable, digest, nil
 }
 
 // startDetachedGuardProcess 启动子进程并在 caller context 内重新读取其内核 process identity。
-func startDetachedGuardProcess(ctx context.Context, cmd *exec.Cmd, executable, digest string) (io.ReadCloser, recovery.ProcessIdentity, error) {
+func startDetachedGuardProcess(
+	ctx context.Context,
+	cmd *exec.Cmd,
+	executable string,
+	digest string,
+) (io.ReadCloser, recovery.ProcessIdentity, *guardProcessTreeLease, error) {
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
-		return nil, recovery.ProcessIdentity{}, fmt.Errorf("open detached Guard readiness pipe: %w", err)
+		return nil, recovery.ProcessIdentity{}, nil, fmt.Errorf("open detached Guard readiness pipe: %w", err)
 	}
 	if err := cmd.Start(); err != nil {
-		return nil, recovery.ProcessIdentity{}, fmt.Errorf("start detached Guard: %w", err)
+		return nil, recovery.ProcessIdentity{}, nil, fmt.Errorf("start detached Guard: %w", err)
+	}
+	lease, err := attachGuardProcessTree(cmd)
+	if err != nil {
+		var cleanupErr error
+		if lease != nil {
+			cleanupErr = stopStartedGuard(cmd, lease)
+		} else {
+			cleanupErr = stopUnleasedStartedGuard(cmd)
+		}
+		return nil, recovery.ProcessIdentity{}, nil, errors.Join(
+			fmt.Errorf("attach detached Guard process tree: %w", err),
+			cleanupErr,
+		)
 	}
 	expected, err := captureStartedGuardIdentity(ctx, cmd, executable, digest)
 	if err != nil {
-		return nil, recovery.ProcessIdentity{}, errors.Join(err, stopStartedGuard(cmd))
+		return nil, recovery.ProcessIdentity{}, nil, errors.Join(err, stopStartedGuard(cmd, lease))
 	}
-	return stdout, expected, nil
+	return stdout, expected, lease, nil
 }
 
 // awaitDetachedGuardArmed 在 caller context 内验证 armed receipt、关闭 parent pipe，再执行 destructive action。
@@ -555,16 +576,20 @@ func waitGuardReadyReceipt(reader io.Reader, timeout time.Duration) (recovery.Gu
 	return recovery.DecodeGuardReadyReceipt(line)
 }
 
-func stopStartedGuard(cmd *exec.Cmd) error {
+func stopStartedGuard(cmd *exec.Cmd, lease *guardProcessTreeLease) error {
+	return stopGuardProcessTree(cmd, lease)
+}
+
+// stopUnleasedStartedGuard 仅处理边界尚未建立且不能派生子进程的启动失败。
+func stopUnleasedStartedGuard(cmd *exec.Cmd) error {
+	if cmd == nil || cmd.Process == nil {
+		return errors.New("started Guard direct-child process is required")
+	}
 	killErr := cmd.Process.Kill()
 	if errors.Is(killErr, os.ErrProcessDone) {
 		killErr = nil
 	}
-	waitErr := cmd.Wait()
-	var exitErr *exec.ExitError
-	if errors.As(waitErr, &exitErr) {
-		waitErr = nil
-	}
+	waitErr := normalizeGuardProcessWait(cmd.Wait())
 	return errors.Join(killErr, waitErr)
 }
 
