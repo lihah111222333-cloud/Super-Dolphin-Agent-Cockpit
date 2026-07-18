@@ -1,6 +1,7 @@
 import { execFileSync } from 'node:child_process';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import {
+  existsSync,
   mkdtempSync,
   readFileSync,
   renameSync,
@@ -37,6 +38,8 @@ const FREEZE_RUN_COUNT = 3;
 const P02_MAX_REGRESSION_RATIO = 1.15;
 const P03_MAX_REGRESSION_RATIO = 1.15;
 const P04_MAX_REGRESSION_RATIO = 1.05;
+const BASE_BUILD_ARGV = Object.freeze(['run', 'build']);
+const MAX_LOAD_AVERAGE_DELTA_PER_LOGICAL_CORE = 0.25;
 
 function currentCommit() {
   return execFileSync('git', ['rev-parse', 'HEAD'], {
@@ -52,6 +55,83 @@ function executeGit(args, repositoryRoot = REPOSITORY_ROOT) {
     encoding: 'utf8',
     stdio: ['ignore', 'pipe', 'pipe'],
   }).trim();
+}
+
+function loadAverageTolerance(environment) {
+  if (!Number.isSafeInteger(environment?.cpu?.logicalCores) || environment.cpu.logicalCores <= 0) {
+    throw new TypeError('load-average comparison requires logical CPU cores');
+  }
+  return Math.max(1, environment.cpu.logicalCores * MAX_LOAD_AVERAGE_DELTA_PER_LOGICAL_CORE);
+}
+
+function assertComparableLoadAverage(left, right, label) {
+  const tolerance = Math.min(loadAverageTolerance(left), loadAverageTolerance(right));
+  for (const [index, value] of left.loadAverage.entries()) {
+    if (Math.abs(value - right.loadAverage[index]) > tolerance) {
+      throw new Error(`${label} loadAverage differs beyond ${tolerance}`);
+    }
+  }
+}
+
+function sha256(content) {
+  return createHash('sha256').update(content).digest('hex');
+}
+
+function baseDistManifest(distDir, resourceMetric) {
+  const manifest = resourceMetric.files.map(({ path, bytes }) => Object.freeze({
+    path,
+    bytes,
+    sha256: sha256(readFileSync(join(distDir, path))),
+  }));
+  const manifestHash = sha256(manifest.map(({ path, bytes, sha256: fileHash }) => (
+    `${path}\0${bytes}\0${fileHash}\n`
+  )).join(''));
+  return Object.freeze({ manifest: Object.freeze(manifest), manifestHash });
+}
+
+function collectBaseResourceBudget({
+  subjectSha,
+  subjectTree,
+  repositoryRoot = REPOSITORY_ROOT,
+  execute = execFileSync,
+} = {}) {
+  const temporaryRoot = mkdtempSync(join(tmpdir(), 'frontend-performance-base-'));
+  let worktreeAdded = false;
+  try {
+    execute('git', ['worktree', 'add', '--detach', temporaryRoot, subjectSha], {
+      cwd: repositoryRoot, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    worktreeAdded = true;
+    const frontendRoot = join(temporaryRoot, 'frontend-app');
+    const distDir = join(frontendRoot, 'dist');
+    if (existsSync(distDir)) throw new Error('BASE detached tree must not contain a prebuilt dist directory');
+    execute('npm', ['ci'], {
+      cwd: frontendRoot, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    execute('npm', BASE_BUILD_ARGV, {
+      cwd: frontendRoot, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    if (!existsSync(join(distDir, 'index.html'))) throw new Error('BASE build did not produce dist/index.html');
+    const metric = measureFrontendResources({ distDir, subjectSha });
+    const { manifest, manifestHash } = baseDistManifest(distDir, metric);
+    return Object.freeze({
+      ...metric,
+      baseBuild: Object.freeze({
+        baseSha: subjectSha,
+        baseTree: subjectTree,
+        buildArgv: Object.freeze(['npm', ...BASE_BUILD_ARGV]),
+        distManifest: manifest,
+        distManifestHash: manifestHash,
+      }),
+    });
+  } finally {
+    if (worktreeAdded) {
+      execute('git', ['worktree', 'remove', '--force', temporaryRoot], {
+        cwd: repositoryRoot, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'],
+      });
+    }
+    rmSync(temporaryRoot, { recursive: true, force: true });
+  }
 }
 
 function requireFullSha(value, label) {
@@ -145,6 +225,7 @@ function collectRenderIsolationEvidence() {
 async function collectPerformanceEvidence({
   subjectSha = currentCommit(),
   distDir = resolve(FRONTEND_ROOT, 'dist'),
+  resourceBudget,
 } = {}) {
   const context = collectEvidenceProvenance({
     repositoryRoot: REPOSITORY_ROOT,
@@ -154,7 +235,7 @@ async function collectPerformanceEvidence({
   const renderIsolation = collectRenderIsolationEvidence();
   const historyBudget = runChatHistoryBenchmarkSamples({ commit: subjectSha });
   const feedbackBudget = await runStopFeedbackBenchmark({ subjectSha });
-  const resourceBudget = measureFrontendResources({ distDir, subjectSha });
+  const measuredResources = resourceBudget || measureFrontendResources({ distDir, subjectSha });
   return Object.freeze({
     schemaVersion: 1,
     subjectSha,
@@ -163,7 +244,7 @@ async function collectPerformanceEvidence({
       'P01-render-isolation': Object.freeze({ ...renderIsolation, subjectSha }),
       'P02-history-budget': historyBudget,
       'P03-feedback-budget': feedbackBudget,
-      'P04-resource-budget': resourceBudget,
+      'P04-resource-budget': measuredResources,
     }),
   });
 }
@@ -217,6 +298,26 @@ function validateResourceFreezeMetric(metric, subjectSha) {
   if (metric.totalBundleBytes !== totalBundleBytes || metric.maxChunkBytes !== maxChunkBytes) {
     throw new Error('P04 resource summary is not recomputable from files');
   }
+}
+
+function validateBaseResourceBuild(metric, subjectSha, subjectTree) {
+  const build = metric?.baseBuild;
+  if (!build || build.baseSha !== subjectSha || build.baseTree !== subjectTree
+    || JSON.stringify(build.buildArgv) !== JSON.stringify(['npm', ...BASE_BUILD_ARGV])
+    || !Array.isArray(build.distManifest) || build.distManifest.length !== metric.files.length
+    || !/^[0-9a-f]{64}$/.test(build.distManifestHash || '')) {
+    throw new Error('P04 requires BASE detached-build provenance');
+  }
+  const expectedFiles = metric.files.map(({ path, bytes }) => `${path}\0${bytes}`);
+  const actualFiles = build.distManifest.map(({ path, bytes, sha256: fileHash }) => {
+    if (!/^[0-9a-f]{64}$/.test(fileHash || '')) throw new Error('P04 BASE dist manifest requires SHA-256');
+    return `${path}\0${bytes}`;
+  });
+  exactJSON(actualFiles, expectedFiles, 'P04 BASE dist manifest');
+  const actualHash = sha256(build.distManifest.map(({ path, bytes, sha256: fileHash }) => (
+    `${path}\0${bytes}\0${fileHash}\n`
+  )).join(''));
+  if (actualHash !== build.distManifestHash) throw new Error('P04 BASE dist manifest hash mismatch');
 }
 
 function requireFreezeVerifierPass(verdict, metricId) {
@@ -291,6 +392,7 @@ function validateFreezeEvidence(evidence, subjectSha) {
     },
   }), 'P03-feedback-budget');
   validateResourceFreezeMetric(p04, subjectSha);
+  validateBaseResourceBuild(p04, subjectSha, evidence.subjectTree);
   requireFreezeVerifierPass(verifyResourceEvidence(p04, {
     metrics: {
       'P04-resource-budget': {
@@ -334,6 +436,7 @@ function validateFreezeRunConsistency(runs, subjectSha, expectedProvenance) {
   exactJSON(designated.provenance.runnerSha, expectedProvenance.runnerSha, 'freeze runnerSha provenance');
   exactJSON(designated.provenance.runnerTree, expectedProvenance.runnerTree, 'freeze runnerTree provenance');
   exactJSON(designated.subjectTree, expectedProvenance.subjectTree, 'freeze subjectTree provenance');
+  validateBaseResourceBuild(designated.metrics['P04-resource-budget'], subjectSha, expectedProvenance.subjectTree);
   for (const [index, run] of runs.slice(1).entries()) {
     const label = `freeze run ${index + 2}`;
     exactJSON(run.subjectSha, designated.subjectSha, `${label} subjectSha`);
@@ -352,6 +455,7 @@ function validateFreezeRunConsistency(runs, subjectSha, expectedProvenance) {
       stableEnvironmentIdentity(designated.environment),
       `${label} environment identity`,
     );
+    assertComparableLoadAverage(run.environment, designated.environment, label);
   }
 }
 
@@ -428,13 +532,18 @@ async function freezePerformanceBaseline({
   planSnapshotSha,
   outputPath,
   collectEvidence = collectPerformanceEvidence,
+  collectBaseResources = collectBaseResourceBudget,
   preflight = validateFreezePreconditions,
   writeBaseline = writeFrozenBaselineAtomically,
 } = {}) {
   const validated = preflight({ subjectSha, planSnapshotSha, outputPath });
+  const resourceBudget = collectBaseResources({
+    subjectSha: validated.subjectSha,
+    subjectTree: validated.subjectTree,
+  });
   const runs = [];
   for (let run = 0; run < FREEZE_RUN_COUNT; run += 1) {
-    runs.push(await collectEvidence({ subjectSha: validated.subjectSha }));
+    runs.push(await collectEvidence({ subjectSha: validated.subjectSha, resourceBudget }));
   }
   const baseline = buildFrozenPerformanceBaseline({
     runs,

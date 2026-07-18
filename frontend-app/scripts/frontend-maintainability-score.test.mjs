@@ -604,6 +604,10 @@ function performanceEvidence(context, check, metricStatus = 'PASS', overrides = 
     sampleCount: 5,
     cases: Object.fromEntries(caseIds.map((caseId) => [caseId, pairedTimingCase()])),
   });
+  const baseDistManifest = [{ path: 'assets/index.js', bytes: 100, sha256: 'e'.repeat(64) }];
+  const baseDistManifestHash = createHash('sha256').update(
+    baseDistManifest.map(({ path: filePath, bytes, sha256 }) => `${filePath}\0${bytes}\0${sha256}\n`).join(''),
+  ).digest('hex');
   const metricsFor = (subjectSha, frozen = false) => ({
     'P01-render-isolation': {
       ...(frozen ? { status: 'PASS', absoluteUpdateLimit: 1 } : {}),
@@ -622,7 +626,17 @@ function performanceEvidence(context, check, metricStatus = 'PASS', overrides = 
     'P02-history-budget': pairedTimingMetric(subjectSha, casesByMetric['P02-history-budget'], frozen),
     'P03-feedback-budget': timingMetric('P03-feedback-budget', subjectSha, casesByMetric['P03-feedback-budget'], frozen),
     'P04-resource-budget': {
-      ...(frozen ? { status: 'PASS', maxRegressionRatio: 1.05 } : {}),
+      ...(frozen ? {
+        status: 'PASS',
+        maxRegressionRatio: 1.05,
+        baseBuild: {
+          baseSha,
+          baseTree,
+          buildArgv: ['npm', 'run', 'build'],
+          distManifest: baseDistManifest,
+          distManifestHash: baseDistManifestHash,
+        },
+      } : {}),
       metricId: 'P04-resource-budget',
       subjectSha,
       fileCount: 1,
@@ -1857,6 +1871,12 @@ describe('executable evidence registry', () => {
       }],
       ['environment binding', (document) => {
         document.measurementAudit.reproducibilityRuns[0].bindings.environment.cpu.model = 'forged';
+      }],
+      ['BASE detached build hash', (document) => {
+        document.metrics['P04-resource-budget'].baseBuild.distManifestHash = 'f'.repeat(64);
+      }],
+      ['BASE detached build manifest', (document) => {
+        document.metrics['P04-resource-budget'].baseBuild.distManifest[0].sha256 = 'f'.repeat(64);
       }],
       ['runnerSha binding', (document) => {
         document.measurementAudit.reproducibilityRuns[0].bindings.runnerSha = 'f'.repeat(40);
