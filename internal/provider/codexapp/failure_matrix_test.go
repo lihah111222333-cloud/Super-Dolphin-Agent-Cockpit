@@ -33,14 +33,14 @@ func TestFailureMatrixCodexTerminalCases(t *testing.T) {
 	})
 	t.Run("FM-19", testMatchedUserCancellation)
 	t.Run("FM-20", testUnmatchedProviderUserCancellation)
-	t.Run("FM-21", testStaleClaimCannotOwnCancellation)
-	t.Run("FM-22", func(t *testing.T) {
+	t.Run("stale-claim-cannot-own-cancellation", testStaleClaimCannotOwnCancellation)
+	t.Run("system-cancellation-without-accepted-stop", func(t *testing.T) {
 		assertCodexFailureMatrixTerminal(t, map[string]any{
 			"threadId": "thread-1", "agentId": "agent-1", "turnId": "turn-1",
 			"success": false, "status": "cancelled", "terminationCause": "system",
 		}, "cancelled", false, "system", "")
 	})
-	t.Run("FM-23", testSystemCancellationWinsAcceptedStop)
+	t.Run("system-cancellation-wins-accepted-stop", testSystemCancellationWinsAcceptedStop)
 }
 
 func testAcceptedStopFollowedByFailure(t *testing.T) {
