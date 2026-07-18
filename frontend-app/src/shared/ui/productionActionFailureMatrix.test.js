@@ -11,6 +11,7 @@ import {
 	visibleActionFailureSnapshot,
 } from './actionFailureSink.js';
 import { runBackgroundAction, runUIAction } from './runUIAction.js';
+import { productionActionFailureMatrixTitle } from './productionActionFailureMatrixTitles.js';
 
 const cellKey = (actionId, errorSource) => `${actionId}\n${errorSource}`;
 
@@ -132,14 +133,7 @@ const productionEntries = assertProductionRegistryIsExact();
 const productionCells = assertMatrixIsExact(productionEntries);
 const entriesByActionId = new Map(productionEntries.map((entry) => [entry.actionId, entry]));
 
-function productionCellTitle(index, { actionId, errorSource }) {
-	if (actionId === 'provider.reconnect' && errorSource === 'promise-reject') {
-		return 'routes provider reconnect cancellation to Health without an interactive error';
-	}
-	return `cell-${index}`;
-}
-
-it.each(productionCells.map((cell, index) => [productionCellTitle(index, cell), cell]))('%s', async (_title, { actionId, errorSource }) => {
+it.each(productionCells.map((cell, index) => [productionActionFailureMatrixTitle(index, cell), cell]))('%s', async (_title, { actionId, errorSource }) => {
 	const entry = entriesByActionId.get(actionId);
 	expect(entry, `matrix cell references missing producer ${actionId}`).toBeDefined();
 	await enforceDeclaredSink(entry, errorSource);

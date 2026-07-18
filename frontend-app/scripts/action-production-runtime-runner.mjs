@@ -9,6 +9,7 @@ import {
   mutateProductionBindingsSource,
   runActionProducerGuard,
 } from './action-producer-guard.mjs';
+import { productionActionFailureMatrixTitle } from '../src/shared/ui/productionActionFailureMatrixTitles.js';
 
 const APP_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const REPO_ROOT = path.resolve(APP_ROOT, '..');
@@ -176,7 +177,7 @@ export async function runActionProductionRuntime(options = {}) {
       .map(({ sourcePath, line, column }) => `${sourcePath}:${line}:${column}`)
       .sort();
     if (bindingKeys.length === 0) throw new Error(`${cell.actionId}: matrix cell has no production binding`);
-    const testName = `cell-${index}`;
+    const testName = productionActionFailureMatrixTitle(index, cell);
     const assertion = matrixExecution.assertionsByTitle.get(testName);
     if (!assertion || assertion.status !== 'passed') {
       throw new Error(`${cell.actionId}/${cell.errorSource}: production matrix has no passing named cell test`);
