@@ -18,6 +18,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
 import { runManagedCommand } from './managed-command.mjs';
+import { DELIVERY_RUNNER_CONTENT_PATHS } from './delivery-smoke-runner.mjs';
 import {
   actionProducerGuardOutputStatus,
   commandEvidenceStatus,
@@ -75,6 +76,18 @@ function documents() {
 
 function git(repoRoot, args) {
   return execFileSync('git', args, { cwd: repoRoot, encoding: 'utf8' }).trim();
+}
+
+function commitTree(repoRoot, message) {
+  const parent = git(repoRoot, ['rev-parse', 'HEAD']);
+  const tree = git(repoRoot, ['write-tree']);
+  const commit = execFileSync('git', ['commit-tree', tree, '-p', parent, '-m', message], {
+    cwd: repoRoot,
+    encoding: 'utf8',
+  }).trim();
+  git(repoRoot, ['update-ref', 'HEAD', commit, parent]);
+  git(repoRoot, ['reset', '--mixed', commit]);
+  return commit;
 }
 
 function cloneSparseRepository(repoRoot, revision, paths) {
@@ -184,6 +197,7 @@ function createFinalContractTarget() {
   ]) {
     copyFileSync(join(scriptRoot, name), join(repoRoot, 'frontend-app', 'scripts', name));
   }
+  for (const relativePath of DELIVERY_RUNNER_CONTENT_PATHS) copyWorkspaceFile(relativePath, repoRoot);
   for (const relativePath of addedGovernancePaths) copyWorkspaceFile(relativePath, repoRoot);
   write('frontend-app/scorer-final-subject.txt', 'strict descendant\n', repoRoot);
   git(repoRoot, ['add', '.']);
@@ -217,6 +231,7 @@ function createFinalCliFixture({ hangFirstProbe = false } = {}) {
   ]) {
     copyFileSync(join(scriptRoot, name), join(baseRoot, 'frontend-app', 'scripts', name));
   }
+  for (const relativePath of DELIVERY_RUNNER_CONTENT_PATHS) copyWorkspaceFile(relativePath, baseRoot);
   for (const relativePath of addedGovernancePaths) copyWorkspaceFile(relativePath, baseRoot);
   for (const name of ['package.json', 'package-lock.json', 'vite.config.js']) {
     copyFileSync(join(frozenRepoRoot, 'frontend-app', name), join(baseRoot, 'frontend-app', name));
@@ -278,6 +293,11 @@ function createFinalCliFixture({ hangFirstProbe = false } = {}) {
     write(relativePath, 'process.exitCode = 1;\n', baseRoot);
   }
   write('frontend-app/scorer-freeze-marker.txt', 'frozen scorer fixture\n', baseRoot);
+  if (hangFirstProbe) {
+    const packageDocument = JSON.parse(readFileSync(join(baseRoot, 'frontend-app', 'package.json'), 'utf8'));
+    packageDocument.scripts.lint = `${process.execPath} -e "setInterval(() => {}, 1000)"`;
+    write('frontend-app/package.json', `${JSON.stringify(packageDocument, null, 2)}\n`, baseRoot);
+  }
   git(baseRoot, ['add', '-A']);
   git(baseRoot, ['commit', '-q', '-m', '测试：冻结最终评分器']);
   const scoreBaseSha = git(baseRoot, ['rev-parse', 'HEAD']);
@@ -287,13 +307,6 @@ function createFinalCliFixture({ hangFirstProbe = false } = {}) {
   execFileSync('git', ['worktree', 'add', '-q', '--detach', subjectRoot, scoreBaseSha], { cwd: baseRoot });
   write('frontend-app/final-subject.txt', 'strict descendant\n', subjectRoot);
   write('go.mod', 'invalid final fixture\n', subjectRoot);
-  const packageDocument = JSON.parse(readFileSync(join(subjectRoot, 'frontend-app', 'package.json'), 'utf8'));
-  packageDocument.scripts.lint = hangFirstProbe
-    ? `${process.execPath} -e "setInterval(() => {}, 1000)"`
-    : 'false';
-  packageDocument.scripts.test = 'false';
-  packageDocument.scripts.build = 'false';
-  write('frontend-app/package.json', `${JSON.stringify(packageDocument, null, 2)}\n`, subjectRoot);
   const probeSources = [
     'frontend-app/src/entities/client/model/useClientStore.test.js',
     'frontend-app/src/shared/diagnostics/frontendHealthStore.test.js',
@@ -319,7 +332,6 @@ function createFinalCliFixture({ hangFirstProbe = false } = {}) {
     "import { expect, it } from 'vitest';\nit('executes through detached dependencies', () => expect(true).toBe(true));\n",
     subjectRoot,
   );
-  write('Makefile', 'frontend-embed-verify:\n\t@false\n', subjectRoot);
   git(subjectRoot, ['add', '.']);
   git(subjectRoot, ['commit', '-q', '-m', '测试：建立最终评分目标']);
   return { baseRoot, scoreBaseSha, subjectRoot, subjectSha: git(subjectRoot, ['rev-parse', 'HEAD']) };
@@ -897,7 +909,7 @@ describe('frozen scorer target binding', () => {
       identityFreeze: false,
       governanceFreeze: {
         rule: 'byte-identical-governance-v1',
-        pathCount: 24,
+        pathCount: 35,
       },
     });
     expect(context.subjectContract.governanceFreeze.sha256).toMatch(/^[0-9a-f]{64}$/u);
@@ -932,10 +944,31 @@ describe('frozen scorer target binding', () => {
     expect(() => inspectTargetRepository({
       repoRoot: target.repoRoot,
       subjectSha: git(target.repoRoot, ['rev-parse', 'HEAD']),
-      requireClean: true,
+      requireClean: false,
       requireFinalContract: true,
     })).toThrow('frozen governance drift');
   }, 90_000);
+
+  it.each([
+    'frontend-app/package.json',
+    'Makefile',
+    'scripts/frontend_embed_verify.sh',
+    'frontend-app/scripts/desktop-smoke.mjs',
+    'frontend-app/tests/e2e/desktop-failure.spec.js',
+    'internal/ui/wails/testdata/failure_smoke_host/main.go',
+  ])('rejects frozen delivery closure mutation: %s', (relativePath) => {
+    const target = createFinalContractTarget();
+    const source = relativePath.endsWith('.json') ? '{"forged":true}' : '// forged delivery closure';
+    write(relativePath, `${source}\n`, target.repoRoot);
+    git(target.repoRoot, ['add', '.']);
+    commitTree(target.repoRoot, '测试：伪造交付闭包');
+    expect(() => inspectTargetRepository({
+      repoRoot: target.repoRoot,
+      subjectSha: git(target.repoRoot, ['rev-parse', 'HEAD']),
+      requireClean: false,
+      requireFinalContract: true,
+    })).toThrow('frozen governance drift');
+  });
 
   it('keeps the canonical detached dependency mount Git-clean and Vitest-executable', async () => {
     const fixture = createFinalCliFixture();

@@ -41,6 +41,17 @@ const governancePaths = [
   'frontend-app/scripts/delivery-smoke-runner.mjs',
   'frontend-app/scripts/evidence-provenance.mjs',
   'frontend-app/scripts/performance-budget-model.mjs',
+  'Makefile',
+  'run-new-ui-desktop.sh',
+  'scripts/frontend_embed_verify.sh',
+  'frontend-app/package.json',
+  'frontend-app/vite.config.js',
+  'frontend-app/playwright.failure.config.js',
+  'frontend-app/scripts/desktop-smoke.mjs',
+  'frontend-app/scripts/desktop-failure-smoke.mjs',
+  'frontend-app/scripts/sync-frontend-dist.mjs',
+  'frontend-app/tests/e2e/desktop-failure.spec.js',
+  'internal/ui/wails/testdata/failure_smoke_host/main.go',
 ];
 const artifactProbes = new Set(['promptHistoryVisibleError', 'criticalTypecheck']);
 const plannedBaseSha = 'b40867229af8e17916c00393639ccb0fcb4bf6fc';
@@ -195,9 +206,20 @@ const deliveryCaseIds = Object.freeze([
   'desktop-failure-smoke',
 ]);
 const deliveryRunnerFiles = Object.freeze([
+  'Makefile',
+  'run-new-ui-desktop.sh',
+  'scripts/frontend_embed_verify.sh',
+  'frontend-app/package.json',
+  'frontend-app/vite.config.js',
+  'frontend-app/playwright.failure.config.js',
   'frontend-app/scripts/delivery-smoke-runner.mjs',
+  'frontend-app/scripts/desktop-smoke.mjs',
+  'frontend-app/scripts/desktop-failure-smoke.mjs',
   'frontend-app/scripts/evidence-provenance.mjs',
   'frontend-app/scripts/performance-budget-model.mjs',
+  'frontend-app/scripts/sync-frontend-dist.mjs',
+  'frontend-app/tests/e2e/desktop-failure.spec.js',
+  'internal/ui/wails/testdata/failure_smoke_host/main.go',
 ]);
 const deliveryCommands = Object.freeze([
   Object.freeze({ id: 'frontend-build', cwd: 'frontend-app', argv: Object.freeze(['npm', 'run', 'build']) }),

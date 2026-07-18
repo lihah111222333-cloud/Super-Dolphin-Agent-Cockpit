@@ -10,9 +10,20 @@ const SCRIPT_PATH = fileURLToPath(import.meta.url);
 const FRONTEND_ROOT = resolve(dirname(SCRIPT_PATH), '..');
 const REPOSITORY_ROOT = resolve(FRONTEND_ROOT, '..');
 const DELIVERY_RUNNER_CONTENT_PATHS = Object.freeze([
+  'Makefile',
+  'run-new-ui-desktop.sh',
+  'scripts/frontend_embed_verify.sh',
+  'frontend-app/package.json',
+  'frontend-app/vite.config.js',
+  'frontend-app/playwright.failure.config.js',
   'frontend-app/scripts/delivery-smoke-runner.mjs',
+  'frontend-app/scripts/desktop-smoke.mjs',
+  'frontend-app/scripts/desktop-failure-smoke.mjs',
   'frontend-app/scripts/evidence-provenance.mjs',
   'frontend-app/scripts/performance-budget-model.mjs',
+  'frontend-app/scripts/sync-frontend-dist.mjs',
+  'frontend-app/tests/e2e/desktop-failure.spec.js',
+  'internal/ui/wails/testdata/failure_smoke_host/main.go',
 ]);
 
 const DELIVERY_COMMANDS = Object.freeze([
