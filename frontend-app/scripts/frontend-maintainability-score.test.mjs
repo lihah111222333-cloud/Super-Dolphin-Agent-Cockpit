@@ -21,6 +21,7 @@ import { DESKTOP_FAILURE_SOURCE_PATHS } from './desktop-failure-smoke.mjs';
 import { runManagedCommand } from './managed-command.mjs';
 import { DELIVERY_RUNNER_CONTENT_PATHS } from './delivery-smoke-runner.mjs';
 import { FROZEN_T04_T05_EXECUTION_CLOSURE_PATHS } from './frontend-execution-closure.mjs';
+import { productionActionFailureMatrixTitle } from '../src/shared/ui/productionActionFailureMatrixTitles.js';
 import {
   actionProducerGuardOutputStatus,
   commandEvidenceStatus,
@@ -350,7 +351,6 @@ function createFinalCliFixture({ hangFirstProbe = false } = {}) {
     'frontend-app/src/entities/client/model/useClientStore.test.js',
     'frontend-app/src/shared/diagnostics/frontendHealthStore.test.js',
     'frontend-app/src/shared/ui/productionActionFailureMatrix.test.js',
-    'frontend-app/src/shared/ui/productionActionFailureMatrixTitles.js',
     'frontend-app/src/shared/contracts/turnContractValidators.test.js',
     'frontend-app/scripts/frontend-state-ownership-guard.test.mjs',
     'frontend-app/scripts/frontend-dependency-direction-guard.test.mjs',
@@ -1399,11 +1399,11 @@ describe('executable evidence registry', () => {
       evidence: [...cell.evidence],
       bindingKeys: report.bindings.filter(({ actionId }) => actionId === cell.actionId)
         .map(({ sourcePath, line, column }) => `${sourcePath}:${line}:${column}`).sort(),
-      testName: `cell-${index}`,
+      testName: productionActionFailureMatrixTitle(index, cell),
       testFileSha256: report.matrixExecution.testFileSha256,
       vitest: {
         status: 'passed',
-        title: `cell-${index}`,
+        title: productionActionFailureMatrixTitle(index, cell),
       },
     }));
     report.testCount = report.cellResults.length;
@@ -1413,6 +1413,35 @@ describe('executable evidence registry', () => {
     report.generatedAt = new Date(now).toISOString();
     const options = { context, control, check, startedAt: now - 100, finishedAt: now + 100 };
     expect(structuredEvidenceStatus(report, options)).toBe('PASS');
+    const specialCellIndex = matrix.cells.findIndex(({ actionId, errorSource }) => (
+      actionId === 'provider.reconnect' && errorSource === 'promise-reject'
+    ));
+    expect(specialCellIndex).toBeGreaterThanOrEqual(0);
+    expect(report.cellResults[specialCellIndex].testName)
+      .toBe('routes provider reconnect cancellation to Health without an interactive error');
+    expect(structuredEvidenceStatus({
+      ...report,
+      cellResults: report.cellResults.map((entry, index) => (
+        index === specialCellIndex
+          ? { ...entry, testName: `cell-${index}`, vitest: { ...entry.vitest, title: `cell-${index}` } }
+          : entry
+      )),
+    }, options)).toBe('FAIL');
+    expect(structuredEvidenceStatus({
+      ...report,
+      cellResults: report.cellResults.map((entry, index) => (
+        index === specialCellIndex
+          ? { ...entry, testName: report.cellResults[0].testName, vitest: { ...entry.vitest, title: report.cellResults[0].testName } }
+          : entry
+      )),
+    }, options)).toBe('FAIL');
+    expect(structuredEvidenceStatus({
+      ...report,
+      cellResults: report.cellResults.map((entry, index) => {
+        if (index !== specialCellIndex) return entry;
+        return Object.fromEntries(Object.entries(entry).filter(([key]) => key !== 'testName'));
+      }),
+    }, options)).toBe('FAIL');
     expect(structuredEvidenceStatus({ ...report, bindings: report.bindings.slice(1) }, options)).toBe('FAIL');
     expect(structuredEvidenceStatus({
       ...report,
