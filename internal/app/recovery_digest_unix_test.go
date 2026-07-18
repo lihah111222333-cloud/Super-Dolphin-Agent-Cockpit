@@ -23,22 +23,22 @@ type startupBlockingFilesystemHelperFixture struct {
 	finished string
 }
 
-func TestSelectStartupBlockedReleaseDigestEntersRecoveryOnDeadlineCause(t *testing.T) {
+func TestSelectStartupBlockedReleaseDigestEntersRecoveryOnRealTimerDeadline(t *testing.T) {
 	defer goleak.VerifyNone(t, goleak.IgnoreCurrent())
 	store, transaction, process := createStartupProbation(t)
 	fixture := installStartupBlockingFilesystemHelper(t, transaction.Paths.Target)
-	watchdogCtx, watchdogCancel := context.WithTimeout(context.Background(), 30*time.Second)
+	watchdogCause := errors.New("startup digest deadline test watchdog expired")
+	watchdogCtx, watchdogCancel := context.WithTimeoutCause(context.Background(), 30*time.Second, watchdogCause)
 	defer watchdogCancel()
-	ctx, cancel := context.WithCancelCause(watchdogCtx)
-	defer cancel(context.Canceled)
 	var selection StartupSelection
 	var group errgroup.Group
 	returned := make(chan struct{}, 1)
+	started := time.Now()
 	group.Go(func() error {
 		var err error
-		selection, err = SelectStartup(ctx, StartupSelectorInput{
+		selection, err = SelectStartup(watchdogCtx, StartupSelectorInput{
 			Store: store, Process: process, ExpectedTransactionID: transaction.Identity.TransactionID,
-			LeaseWait: time.Second,
+			LeaseWait: time.Second, DigestTimeout: StartupDigestTimeout,
 		})
 		returned <- struct{}{}
 		return err
@@ -50,16 +50,17 @@ func TestSelectStartupBlockedReleaseDigestEntersRecoveryOnDeadlineCause(t *testi
 		t.Fatalf("SelectStartup() returned before blocked filesystem syscall: %v", err)
 	default:
 	}
-	started := time.Now()
-	cancel(context.DeadlineExceeded)
 	err := group.Wait()
+	if errors.Is(err, watchdogCause) {
+		t.Fatalf("SelectStartup() reached watchdog instead of startup digest deadline: %v", err)
+	}
 	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("SelectStartup() error = %v, want deadline exceeded", err)
 	}
 	if selection.Mode != StartupModeRecovery {
 		t.Fatalf("SelectStartup() mode = %q, want Recovery", selection.Mode)
 	}
-	if elapsed := time.Since(started); elapsed > 6*time.Second {
+	if elapsed := time.Since(started); elapsed > StartupDigestTimeout+6*time.Second {
 		t.Fatalf("blocked startup selector deadline elapsed %s", elapsed)
 	}
 	assertStartupFilesystemHelperReaped(t, fixture)
