@@ -99,6 +99,39 @@ func TestNewTurnTerminalV2PreservesAcceptedPartialItemIDs(t *testing.T) {
 	}
 }
 
+func TestNewTurnTerminalV2AdvertisesOnlyImplementedRecoveryActions(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name   string
+		status string
+		reason string
+	}{
+		{name: "provider failure", status: "failed"},
+		{name: "system termination", status: "interrupted", reason: "provider"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			terminal, err := NewTurnTerminalV2(TurnCompleted{
+				TurnHeader: turnHeaderWith(time.Date(2026, 7, 17, 1, 2, 3, 0, time.UTC), "thread-1", "turn-1"),
+				Status:     test.status,
+				Reason:     test.reason,
+			}, "event-local")
+			if err != nil {
+				t.Fatalf("NewTurnTerminalV2() error = %v", err)
+			}
+			if terminal.PublicError == nil {
+				t.Fatal("NewTurnTerminalV2() omitted public error")
+			}
+			if terminal.PublicError.Retryable {
+				t.Fatal("terminal public error advertised unavailable retry capability")
+			}
+			if !reflect.DeepEqual(terminal.PublicError.RecoveryActions, []string{"copy_diagnostics"}) {
+				t.Fatalf("RecoveryActions = %#v, want only copy_diagnostics", terminal.PublicError.RecoveryActions)
+			}
+		})
+	}
+}
+
 func terminalTestHeader(t *testing.T, terminal TurnTerminalV2) shareddto.TurnHeader {
 	t.Helper()
 	timestamp, err := time.Parse(time.RFC3339Nano, terminal.OccurredAt)

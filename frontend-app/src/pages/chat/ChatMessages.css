@@ -229,6 +229,24 @@
   color: var(--error);
 }
 
+.turn-terminal-diagnostic-id {
+  display: block;
+  overflow-wrap: anywhere;
+  color: var(--text-muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+}
+
+.turn-terminal-actions {
+  display: flex;
+  align-items: center;
+  min-height: 34px;
+}
+
+.turn-terminal-actions .message-copy {
+  margin-left: -10px;
+}
+
 .bubble header {
   display: flex;
   justify-content: space-between;

@@ -400,8 +400,8 @@ internal/dto/turn/schema/field_consumers.json	internal	other	json	8731	provider/
 internal/dto/turn/schema/public_error.v1.json	internal	other	json	766	provider/shared DTO 与事件协议	internal,dto,turn,schema,public,error,v1,provider,shared,DTO,与事件协议
 internal/dto/turn/schema/turn_ref.v1.json	internal	other	json	329	provider/shared DTO 与事件协议	internal,dto,turn,schema,ref,v1,provider,shared,DTO,与事件协议
 internal/dto/turn/schema/turn_terminal.v2.json	internal	other	json	2244	provider/shared DTO 与事件协议	internal,dto,turn,schema,terminal,v2,provider,shared,DTO,与事件协议
-internal/dto/turn/terminal_roundtrip_test.go	internal	other	go-test	4461	provider/shared DTO 与事件协议	internal,dto,turn,terminal,roundtrip,test,provider,shared,DTO,与事件协议
-internal/dto/turn/terminal.go	internal	other	go-source	7953	provider/shared DTO 与事件协议	internal,dto,turn,terminal,provider,shared,DTO,与事件协议
+internal/dto/turn/terminal_roundtrip_test.go	internal	other	go-test	5568	provider/shared DTO 与事件协议	internal,dto,turn,terminal,roundtrip,test,provider,shared,DTO,与事件协议
+internal/dto/turn/terminal.go	internal	other	go-source	7945	provider/shared DTO 与事件协议	internal,dto,turn,terminal,provider,shared,DTO,与事件协议
 internal/dto/turn/turn_contract_schemas_generated.go	internal	other	go-source	5340	provider/shared DTO 与事件协议	internal,dto,turn,contract,schemas,generated,provider,shared,DTO,与事件协议
 internal/dto/ui/event_test.go	internal	other	go-test	642	provider/shared DTO 与事件协议	internal,dto,ui,event,test,provider,shared,DTO,与事件协议
 internal/dto/ui/event.go	internal	other	go-source	7844	provider/shared DTO 与事件协议	internal,dto,ui,event,provider,shared,DTO,与事件协议

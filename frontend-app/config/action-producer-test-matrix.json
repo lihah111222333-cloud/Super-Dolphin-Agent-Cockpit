@@ -237,6 +237,11 @@
       "actionId": "message.output.copy"
     },
     {
+      "caseId": "a.producer.turn.terminal.copy-diagnostics",
+      "layer": "A",
+      "actionId": "turn.terminal.copy-diagnostics"
+    },
+    {
       "caseId": "a.producer.observability.query",
       "layer": "A",
       "actionId": "observability.query"
@@ -4412,6 +4417,24 @@
       "errorSource": "promise-reject",
       "evidence": [
         "a.producer.message.output.copy",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "turn.terminal.copy-diagnostics",
+      "errorSource": "sync-throw",
+      "evidence": [
+        "a.producer.turn.terminal.copy-diagnostics",
+        "b.wrapper.sync-throw",
+        "b.wrapper.sink-failure"
+      ]
+    },
+    {
+      "actionId": "turn.terminal.copy-diagnostics",
+      "errorSource": "promise-reject",
+      "evidence": [
+        "a.producer.turn.terminal.copy-diagnostics",
         "b.wrapper.promise-reject",
         "b.wrapper.sink-failure"
       ]
