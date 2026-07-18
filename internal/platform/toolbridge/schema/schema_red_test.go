@@ -12,10 +12,13 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"sort"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/pidregistry"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util/ctxutil"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util/safego"
 )
@@ -123,6 +126,11 @@ func TestSchemaCompilerCancellationOrIsolationIsBounded(t *testing.T) {
 		return
 	}
 
+	snapshotRoot := t.TempDir()
+	for _, name := range []string{"TMPDIR", "TMP", "TEMP"} {
+		t.Setenv(name, snapshotRoot)
+	}
+	snapshotsBefore := filesystemSnapshotDirectoryNames(t, snapshotRoot)
 	canonical, err := Canonicalize([]byte(`{"type":"object"}`))
 	if err != nil {
 		t.Fatalf("Canonicalize() error = %v", err)
@@ -150,10 +158,13 @@ func TestSchemaCompilerCancellationOrIsolationIsBounded(t *testing.T) {
 	if err := os.WriteFile(helper, []byte("replaced-after-verification"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	marker := filepath.Join(t.TempDir(), "started")
+	markerDir := t.TempDir()
+	marker := filepath.Join(markerDir, "started")
+	doneMarker := filepath.Join(markerDir, "finished")
 	client.workerEnv = []string{
 		"REASONIX_SCHEMA_HELPER_FIXTURE=sleep",
 		"REASONIX_SCHEMA_HELPER_MARKER=" + marker,
+		"REASONIX_SCHEMA_HELPER_DONE_MARKER=" + doneMarker,
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -164,9 +175,16 @@ func TestSchemaCompilerCancellationOrIsolationIsBounded(t *testing.T) {
 		result <- executeErr
 	})
 	waitForHelperMarker(t, marker)
+	helperIdentity := captureFixtureProcessIdentity(t, marker)
 	started := time.Now()
 	cancel()
 	assertBoundedCancellation(t, result, started)
+	assertStableProcessIdentityGone(t, helperIdentity)
+	time.Sleep(100 * time.Millisecond)
+	if _, err := os.Stat(doneMarker); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("late helper write at %s: %v", doneMarker, err)
+	}
+	assertFilesystemSnapshotSetUnchanged(t, snapshotRoot, snapshotsBefore)
 }
 
 func runCancellationFixture() bool {
@@ -177,10 +195,13 @@ func runCancellationFixture() bool {
 	if marker == "" {
 		os.Exit(2)
 	}
-	if err := os.WriteFile(marker, []byte("started"), 0o600); err != nil {
+	if err := os.WriteFile(marker, []byte(fmt.Sprintf("%d", os.Getpid())), 0o600); err != nil {
 		os.Exit(3)
 	}
 	time.Sleep(30 * time.Second)
+	if err := os.WriteFile(os.Getenv("REASONIX_SCHEMA_HELPER_DONE_MARKER"), []byte("finished"), 0o600); err != nil {
+		os.Exit(4)
+	}
 	return true
 }
 
@@ -212,6 +233,62 @@ func assertBoundedCancellation(t *testing.T, result <-chan error, started time.T
 	}
 	if elapsed := time.Since(started); elapsed > reapDeadline+250*time.Millisecond {
 		t.Fatalf("cancelled helper returned after %v", elapsed)
+	}
+}
+
+func filesystemSnapshotDirectoryNames(t *testing.T, root string) []string {
+	t.Helper()
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		t.Fatalf("read schema snapshot root: %v", err)
+	}
+	names := make([]string, 0)
+	for _, entry := range entries {
+		if entry.IsDir() && strings.HasPrefix(entry.Name(), filesystemSnapshotPrefix) {
+			names = append(names, entry.Name())
+		}
+	}
+	sort.Strings(names)
+	return names
+}
+
+func assertFilesystemSnapshotSetUnchanged(t *testing.T, root string, before []string) {
+	t.Helper()
+	after := filesystemSnapshotDirectoryNames(t, root)
+	if strings.Join(after, ",") != strings.Join(before, ",") {
+		t.Fatalf("schema snapshot set changed: before=%v after=%v", before, after)
+	}
+}
+
+func captureFixtureProcessIdentity(t *testing.T, marker string) pidregistry.StableProcessIdentity {
+	t.Helper()
+	rawPID, err := os.ReadFile(marker)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pid, err := strconv.Atoi(string(rawPID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	identity, err := pidregistry.CaptureStableProcessIdentity(pid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return identity
+}
+
+func assertStableProcessIdentityGone(t *testing.T, identity pidregistry.StableProcessIdentity) {
+	t.Helper()
+	current, err := pidregistry.CaptureStableProcessIdentity(identity.PID)
+	if errors.Is(err, pidregistry.ErrStableProcessNotFound) {
+		return
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	if current.ProcessStartToken == identity.ProcessStartToken &&
+		current.ExecutableIdentity == identity.ExecutableIdentity {
+		t.Fatalf("schema helper identity remains alive: %+v", identity)
 	}
 }
 
@@ -262,8 +339,14 @@ func TestFilesystemWorkerProtocolFieldsAndStrictDecoding(t *testing.T) {
 		HelperPath: "/tmp/helper", ManifestPath: "/tmp/helper.manifest",
 		Identity: testHelperIdentity(), HelperGOOS: runtime.GOOS,
 		ImageBytes: 1, RequestBytes: 1, DeadlineUnixNano: 1,
+		Snapshot: filesystemSnapshotIdentity{
+			Version: filesystemSnapshotVersion, Directory: "/tmp/reasonix-schema-helper.00112233445566778899aabbccddeeff",
+			Token: "00112233445566778899aabbccddeeff", HelperGOOS: runtime.GOOS,
+			OwnerPID: 1, OwnerStartToken: "start", OwnerExecutable: "executable",
+		},
 	}
 	assertProducerFieldsAcceptedByConsumer(t, request, &filesystemWorkerRequest{})
+	assertProducerFieldsAcceptedByConsumer(t, request.Snapshot, &filesystemSnapshotIdentity{})
 	rawRequest, err := json.Marshal(request)
 	if err != nil {
 		t.Fatal(err)
@@ -276,9 +359,12 @@ func TestFilesystemWorkerProtocolFieldsAndStrictDecoding(t *testing.T) {
 
 	response := filesystemWorkerResponse{
 		Version: filesystemWorkerVersion, Operation: filesystemWorkerVerify, PayloadBytes: 1,
-		Error: &filesystemWorkerError{Code: CodeProcessExited, Message: "fixture"},
+		Error: &filesystemWorkerError{
+			Code: CodeProcessExited, Message: "fixture", FailureClass: InitializationFailureTransient,
+		},
 	}
 	assertProducerFieldsAcceptedByConsumer(t, response, &filesystemWorkerResponse{})
+	assertProducerFieldsAcceptedByConsumer(t, *response.Error, &filesystemWorkerError{})
 	rawResponse, err := json.Marshal(response)
 	if err != nil {
 		t.Fatal(err)

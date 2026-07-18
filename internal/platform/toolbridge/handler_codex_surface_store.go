@@ -327,7 +327,7 @@ func (executor *lazyMCPSchemaExecutor) Execute(ctx context.Context, invocation s
 	return client.Execute(operationCtx, invocation, fence)
 }
 
-// resolveClient 合并并发初始化；仅调用者取消类失败允许下一轮重新竞争。
+// resolveClient 合并并发初始化；取消与瞬态初始化失败允许下一轮重新竞争。
 func (executor *lazyMCPSchemaExecutor) resolveClient(ctx context.Context) (mcpSchemaExecutor, error) {
 	for {
 		if err := ctx.Err(); err != nil {
@@ -370,9 +370,11 @@ func (executor *lazyMCPSchemaExecutor) initializationState() (*mcpSchemaClientIn
 func (executor *lazyMCPSchemaExecutor) runInitialization(ctx context.Context, state *mcpSchemaClientInit) {
 	client, err := executor.initialize(ctx)
 	if client == nil && err == nil {
-		err = errors.New("toolbridge: MCP schema initializer returned nil client")
+		err = schema.StableInitializationError(
+			errors.New("toolbridge: MCP schema initializer returned nil client"),
+		)
 	}
-	retryable := initializationCallerCanceled(ctx, err)
+	retryable := initializationFailureRetryable(ctx, err)
 	executor.mu.Lock()
 	state.client, state.err, state.retryable = client, err, retryable
 	if err == nil {
@@ -385,8 +387,12 @@ func (executor *lazyMCPSchemaExecutor) runInitialization(ctx context.Context, st
 	executor.mu.Unlock()
 }
 
-func initializationCallerCanceled(ctx context.Context, err error) bool {
-	return err != nil && ctx.Err() != nil
+func initializationFailureRetryable(ctx context.Context, err error) bool {
+	if ctx.Err() != nil && errors.Is(err, ctx.Err()) {
+		return true
+	}
+	class, ok := schema.InitializationFailureClassOf(err)
+	return !ok || class == schema.InitializationFailureTransient
 }
 
 func (executor *lazyMCPSchemaExecutor) initialize(ctx context.Context) (mcpSchemaExecutor, error) {
@@ -395,7 +401,7 @@ func (executor *lazyMCPSchemaExecutor) initialize(ctx context.Context) (mcpSchem
 	}
 	identity, err := runningSchemaHelperIdentity()
 	if err != nil {
-		return nil, err
+		return nil, schema.StableInitializationError(err)
 	}
 	executor.config.Identity = identity
 	workerPath, err := schemaFilesystemWorkerPath(executor.profile)
@@ -424,15 +430,19 @@ func schemaFilesystemWorkerPath(profile contract.DependencyProfile) (string, err
 		return path, nil
 	}
 	if profile == contract.DependencyProfileProduction {
-		return "", fmt.Errorf("toolbridge: %w", err)
+		return "", schema.StableInitializationError(fmt.Errorf("toolbridge: %w", err))
 	}
 	path, err = os.Executable()
 	if err != nil {
-		return "", fmt.Errorf("toolbridge: resolve schema filesystem worker: %w", err)
+		return "", schema.TransientInitializationError(
+			fmt.Errorf("toolbridge: resolve schema filesystem worker: %w", err),
+		)
 	}
 	path, err = filepath.EvalSymlinks(path)
 	if err != nil {
-		return "", fmt.Errorf("toolbridge: canonicalize schema filesystem worker: %w", err)
+		return "", schema.TransientInitializationError(
+			fmt.Errorf("toolbridge: canonicalize schema filesystem worker: %w", err),
+		)
 	}
 	return filepath.Clean(path), nil
 }

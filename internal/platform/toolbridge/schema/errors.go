@@ -5,6 +5,61 @@ import (
 	"fmt"
 )
 
+// InitializationFailureClass 控制 lazy schema 初始化失败是否可缓存。
+type InitializationFailureClass string
+
+const (
+	InitializationFailureStable    InitializationFailureClass = "stable"
+	InitializationFailureTransient InitializationFailureClass = "transient"
+)
+
+type initializationFailure struct {
+	class InitializationFailureClass
+	cause error
+}
+
+// Error 返回被分类初始化错误的原始文本。
+func (e *initializationFailure) Error() string {
+	if e == nil || e.cause == nil {
+		return ""
+	}
+	return e.cause.Error()
+}
+
+// Unwrap 保留被分类初始化错误的根因链。
+func (e *initializationFailure) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.cause
+}
+
+// StableInitializationError 将确定性初始化失败标记为可缓存。
+func StableInitializationError(err error) error {
+	return classifyInitializationError(err, InitializationFailureStable)
+}
+
+// TransientInitializationError 将系统或资源失败标记为可重试。
+func TransientInitializationError(err error) error {
+	return classifyInitializationError(err, InitializationFailureTransient)
+}
+
+func classifyInitializationError(err error, class InitializationFailureClass) error {
+	if err == nil {
+		return nil
+	}
+	return &initializationFailure{class: class, cause: err}
+}
+
+// InitializationFailureClassOf 返回错误链中最近的初始化分类。
+func InitializationFailureClassOf(err error) (InitializationFailureClass, bool) {
+	var failure *initializationFailure
+	if !errors.As(err, &failure) {
+		return "", false
+	}
+	return failure.class, true
+}
+
 // Code 是 schema execution boundary 的稳定诊断码。
 type Code string
 

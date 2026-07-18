@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 
@@ -116,13 +117,81 @@ func TestLazyMCPSchemaExecutorCanceledWaitersDoNotPoisonHealthyOwner(t *testing.
 	}
 }
 
+func TestLazyMCPSchemaExecutorTransientFailureAllowsHealthyRetry(t *testing.T) {
+	var initializeCalls atomic.Int32
+	executor := &lazyMCPSchemaExecutor{
+		initializeClient: func(context.Context) (mcpSchemaExecutor, error) {
+			if initializeCalls.Add(1) == 1 {
+				return nil, schema.TransientInitializationError(syscall.EMFILE)
+			}
+			return successfulMCPExecutor(), nil
+		},
+	}
+	if _, err := executor.Execute(context.Background(), schema.Invocation{}, nil); !errors.Is(err, syscall.EMFILE) {
+		t.Fatalf("first transient initialization error = %v", err)
+	}
+	if _, err := executor.Execute(context.Background(), schema.Invocation{}, nil); err != nil {
+		t.Fatalf("healthy retry error = %v", err)
+	}
+	if got := initializeCalls.Load(); got != 2 {
+		t.Fatalf("initializer calls after transient retry = %d, want 2", got)
+	}
+}
+
+func TestLazyMCPSchemaExecutorTransientFailureWakesMultipleWaiters(t *testing.T) {
+	firstStarted := make(chan struct{})
+	releaseFirst := make(chan struct{})
+	var initializeCalls atomic.Int32
+	executor := &lazyMCPSchemaExecutor{
+		initializeClient: func(context.Context) (mcpSchemaExecutor, error) {
+			if initializeCalls.Add(1) == 1 {
+				close(firstStarted)
+				<-releaseFirst
+				return nil, schema.TransientInitializationError(syscall.EAGAIN)
+			}
+			return successfulMCPExecutor(), nil
+		},
+	}
+	ownerResult := make(chan error, 1)
+	safego.Go(context.Background(), nil, "toolbridge.lazy-schema-transient-owner", func(context.Context) {
+		_, err := executor.Execute(context.Background(), schema.Invocation{}, nil)
+		ownerResult <- err
+	})
+	assertLazyInitializationStarted(t, firstStarted)
+	const waiterCount = 8
+	waiterReady := make(chan struct{}, waiterCount)
+	waiterResults := make(chan error, waiterCount)
+	for range waiterCount {
+		safego.Go(context.Background(), nil, "toolbridge.lazy-schema-transient-waiter", func(context.Context) {
+			waiterReady <- struct{}{}
+			_, err := executor.Execute(context.Background(), schema.Invocation{}, nil)
+			waiterResults <- err
+		})
+	}
+	for range waiterCount {
+		<-waiterReady
+	}
+	close(releaseFirst)
+	if err := <-ownerResult; !errors.Is(err, syscall.EAGAIN) {
+		t.Fatalf("transient owner error = %v", err)
+	}
+	for index := range waiterCount {
+		if err := <-waiterResults; err != nil {
+			t.Fatalf("transient waiter %d error = %v", index+1, err)
+		}
+	}
+	if got := initializeCalls.Load(); got != 2 {
+		t.Fatalf("initializer calls with transient waiters = %d, want 2", got)
+	}
+}
+
 func TestLazyMCPSchemaExecutorCachesStableInitializationError(t *testing.T) {
 	stableErr := errors.New("stable helper package verification failed")
 	var initializeCalls atomic.Int32
 	executor := &lazyMCPSchemaExecutor{
 		initializeClient: func(context.Context) (mcpSchemaExecutor, error) {
 			initializeCalls.Add(1)
-			return nil, stableErr
+			return nil, schema.StableInitializationError(stableErr)
 		},
 	}
 	for attempt := range 2 {

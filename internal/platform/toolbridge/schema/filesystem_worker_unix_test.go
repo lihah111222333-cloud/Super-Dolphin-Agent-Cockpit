@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strconv"
@@ -14,6 +15,9 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/pidregistry"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util/safego"
 )
 
 const (
@@ -69,6 +73,8 @@ func TestNewClientDeadlineKillsBlockedPackageVerification(t *testing.T) {
 }
 
 func TestExecuteDeadlineKillsBlockedSnapshotBeforeHelperLaunch(t *testing.T) {
+	snapshotRoot := setFilesystemSnapshotRoot(t)
+	snapshotsBefore := filesystemSnapshotDirectoryNames(t, snapshotRoot)
 	client := newSchemaTestClient(t, os.Args[0])
 	fixture := installBlockingFilesystemWorker(t)
 	client.workerEnv = blockingFilesystemWorkerEnvironment(fixture)
@@ -88,6 +94,155 @@ func TestExecuteDeadlineKillsBlockedSnapshotBeforeHelperLaunch(t *testing.T) {
 		t.Fatalf("Execute(blocked snapshot) error=%v code=%q", err, ErrorCode(err))
 	}
 	assertBlockedFilesystemWorkerResult(t, fixture, started)
+	assertFilesystemSnapshotSetUnchanged(t, snapshotRoot, snapshotsBefore)
+}
+
+func TestSweepFilesystemSnapshotsRequiresExactIdentityAndStaleOwner(t *testing.T) {
+	root := setFilesystemSnapshotRoot(t)
+	owner, err := pidregistry.CaptureStableProcessIdentity(os.Getpid())
+	if err != nil {
+		t.Fatal(err)
+	}
+	active, err := newFilesystemSnapshotIdentity(runtime.GOOS, owner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := writeExecutableSnapshot([]byte("active"), active); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = removeOwnedFilesystemSnapshot(active) })
+	stale := filesystemSnapshotIdentity{
+		Version: filesystemSnapshotVersion,
+		Token:   "00112233445566778899aabbccddeeff", HelperGOOS: runtime.GOOS,
+		OwnerPID: 1 << 30, OwnerStartToken: "stale-start", OwnerExecutable: "stale-executable",
+	}
+	stale.Directory = filepath.Join(root, filesystemSnapshotPrefix+stale.Token)
+	if _, err := writeExecutableSnapshot([]byte("stale"), stale); err != nil {
+		t.Fatal(err)
+	}
+	legacy := filepath.Join(root, filesystemSnapshotPrefix+"legacy-unowned")
+	if err := os.Mkdir(legacy, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := sweepStaleFilesystemSnapshots(); err != nil {
+		t.Fatal(err)
+	}
+	assertPathExistence(t, stale.Directory, false)
+	assertPathExistence(t, active.Directory, true)
+	assertPathExistence(t, legacy, true)
+}
+
+func TestTerminateProcessTreeSkipsReusedIdentity(t *testing.T) {
+	cmd, guard := startGuardedUnixTestProcess(t, "sleep 30")
+	killCalled := false
+	reused := guard.identity
+	reused.ProcessStartToken += "-reused"
+	guard.captureIdentity = func(int) (pidregistry.StableProcessIdentity, error) {
+		return reused, nil
+	}
+	guard.killGroup = func(int, syscall.Signal) error {
+		killCalled = true
+		return nil
+	}
+	if err := terminateProcessTree(cmd, guard); err != nil {
+		t.Fatal(err)
+	}
+	if killCalled {
+		t.Fatal("identity mismatch sent SIGKILL to a reused process group")
+	}
+	reapGuardedUnixTestProcess(t, cmd)
+}
+
+func TestWaitPublishBarrierIdentityMismatchDoesNotKillReusedGroup(t *testing.T) {
+	cmd, guard := startGuardedUnixTestProcess(t, "sleep 0.05")
+	waitCompleted := make(chan struct{})
+	releasePublish := make(chan struct{})
+	identityChecked := make(chan struct{})
+	guard.beforeWaitResultPublish = func() {
+		close(waitCompleted)
+		<-releasePublish
+	}
+	reused := guard.identity
+	reused.ExecutableIdentity += "-reused"
+	guard.captureIdentity = func(int) (pidregistry.StableProcessIdentity, error) {
+		close(identityChecked)
+		return reused, nil
+	}
+	killCalled := false
+	guard.killGroup = func(int, syscall.Signal) error {
+		killCalled = true
+		return nil
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	result := make(chan error, 1)
+	safego.Go(ctx, nil, "toolbridge.schema-wait-publish-barrier-test", func(context.Context) {
+		_, err := waitFilesystemWorker(
+			ctx, ctx, filesystemWorkerSweep, cmd, guard,
+			&boundedBuffer{limit: 64}, &boundedBuffer{limit: 64}, 0,
+		)
+		result <- err
+	})
+	<-waitCompleted
+	cancel()
+	<-identityChecked
+	close(releasePublish)
+	if err := <-result; ErrorCode(err) != CodeCancelled {
+		t.Fatalf("wait barrier error = %v, code=%q", err, ErrorCode(err))
+	}
+	if killCalled {
+		t.Fatal("wait publish barrier sent SIGKILL after identity mismatch")
+	}
+}
+
+func setFilesystemSnapshotRoot(t *testing.T) string {
+	t.Helper()
+	root := t.TempDir()
+	for _, name := range []string{"TMPDIR", "TMP", "TEMP"} {
+		t.Setenv(name, root)
+	}
+	return root
+}
+
+func assertPathExistence(t *testing.T, path string, want bool) {
+	t.Helper()
+	_, err := os.Lstat(path)
+	if want && err != nil {
+		t.Fatalf("expected path %s: %v", path, err)
+	}
+	if !want && !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("unexpected path %s: %v", path, err)
+	}
+}
+
+func startGuardedUnixTestProcess(t *testing.T, command string) (*exec.Cmd, *processGuard) {
+	t.Helper()
+	cmd := exec.Command("sh", "-c", command)
+	if err := configureProcess(cmd); err != nil {
+		t.Fatal(err)
+	}
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	guard, err := attachProcessGuard(cmd)
+	if err != nil {
+		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+		_ = cmd.Wait()
+		t.Fatal(err)
+	}
+	return cmd, guard
+}
+
+func reapGuardedUnixTestProcess(t *testing.T, cmd *exec.Cmd) {
+	t.Helper()
+	if err := syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL); err != nil && !errors.Is(err, syscall.ESRCH) {
+		t.Fatal(err)
+	}
+	if err := cmd.Wait(); err != nil {
+		var exitErr *exec.ExitError
+		if !errors.As(err, &exitErr) {
+			t.Fatal(err)
+		}
+	}
 }
 
 func newBlockingFilesystemWorkerClientConfig(t *testing.T) ClientConfig {
@@ -144,7 +299,7 @@ func blockingFilesystemWorkerEnvironment(fixture blockingFilesystemWorkerFixture
 
 func assertBlockedFilesystemWorkerResult(t *testing.T, fixture blockingFilesystemWorkerFixture, started time.Time) {
 	t.Helper()
-	if elapsed := time.Since(started); elapsed > 2*time.Second {
+	if elapsed := time.Since(started); elapsed > filesystemSnapshotCleanupTimeout+reapDeadline+time.Second {
 		t.Fatalf("blocked schema filesystem worker returned after %s", elapsed)
 	}
 	rawPID, err := os.ReadFile(fixture.started)
