@@ -129,12 +129,19 @@ function setAssistantDeltaBuffer(runtime, method, entry) {
   });
 }
 
-function emitRejectedTurnEvent(deps, event, method, turnRef, reason = '') {
+function emitRejectedTurnEvent(runtime, deps, event, method, rejection) {
+  const { threadId, turnId, reason = '' } = rejection;
+  runtime.addWarning('error', event, {
+    eventName: method,
+    threadId,
+    turnId,
+    ...(reason ? { reason } : {}),
+  });
   deps.emitFrontendTraceEvent({
     phase: 'frontend.turn_event.rejected',
     method: event,
-    thread_id: turnRef?.threadId,
-    turn_id: turnRef?.turnId,
+    thread_id: threadId,
+    turn_id: turnId,
     status: 'error',
     ...(reason ? { error: reason } : {}),
     metadata: { event_name: method },
@@ -158,12 +165,12 @@ function canonicalTurnEventRef(runtime, method, payload) {
 function turnEventRejected(runtime, method, turnRef, deps) {
   const key = runtimeTurnRefKey(turnRef.threadId, turnRef.turnId);
   if (runtime.sealedTurnTerminals.has(key) || runtime.retiredTurnRefs.has(key)) {
-    emitRejectedTurnEvent(deps, 'turn.event.late', method, turnRef);
+    emitRejectedTurnEvent(runtime, deps, 'turn.event.late', method, turnRef);
     return true;
   }
   const activeTurnId = deps.activeTurnIdForThread(runtime.get(), turnRef.threadId);
   if (activeTurnId && activeTurnId !== turnRef.turnId) {
-    emitRejectedTurnEvent(deps, 'turn.event.stale', method, turnRef);
+    emitRejectedTurnEvent(runtime, deps, 'turn.event.stale', method, turnRef);
     return true;
   }
   const observedTurnId = runtime.observedTurnByThread.get(turnRef.threadId);
@@ -347,8 +354,19 @@ function applyTurnTerminal(runtime, method, payload, deps) {
   const fingerprint = runtimeTerminalFingerprint(terminal);
   const sealed = runtime.sealedTurnTerminals.get(key);
   if (sealed) {
-    if (sealed.eventId === terminal.eventId || sealed.fingerprint === fingerprint) return false;
-    emitRejectedTurnEvent(deps, 'turn.terminal.conflict', method, { threadId, turnId: terminal.turnId });
+    if (sealed.eventId === terminal.eventId && sealed.fingerprint === fingerprint) return false;
+    const reason = sealed.eventId === terminal.eventId
+      ? 'event_id_content_mismatch'
+      : sealed.fingerprint === fingerprint
+        ? 'content_replayed_with_new_event_id'
+        : 'terminal_truth_conflict';
+    emitRejectedTurnEvent(
+      runtime,
+      deps,
+      'turn.terminal.conflict',
+      method,
+      { threadId, turnId: terminal.turnId, reason },
+    );
     return false;
   }
   const activeTurnId = deps.activeTurnIdForThread(runtime.get(), threadId);
@@ -356,7 +374,7 @@ function applyTurnTerminal(runtime, method, payload, deps) {
   if ((observedTurnId && observedTurnId !== terminal.turnId)
     || (!observedTurnId && activeTurnId && activeTurnId !== terminal.turnId)
     || runtime.retiredTurnRefs.has(key)) {
-    emitRejectedTurnEvent(deps, 'turn.terminal.stale', method, { threadId, turnId: terminal.turnId });
+    emitRejectedTurnEvent(runtime, deps, 'turn.terminal.stale', method, { threadId, turnId: terminal.turnId });
     return false;
   }
   const turnRef = { threadId, turnId: terminal.turnId };
