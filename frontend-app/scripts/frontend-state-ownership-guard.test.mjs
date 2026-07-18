@@ -4,7 +4,10 @@ import { fileURLToPath } from 'node:url';
 
 import { describe, expect, it } from 'vitest';
 
-import { validateFrontendStateOwnership } from './frontend-state-ownership-guard.mjs';
+import {
+  discoverStateWriterRecordsFromSources,
+  validateFrontendStateOwnership,
+} from './frontend-state-ownership-guard.mjs';
 
 const appRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const registry = JSON.parse(fs.readFileSync(path.join(appRoot, 'scripts/frontend-state-ownership-registry.json'), 'utf8'));
@@ -17,6 +20,34 @@ describe('frontend state ownership guard', () => {
       'public-error-diagnostics': expect.objectContaining({ writerCount: 1 }),
       'terminal-truth': expect.objectContaining({ writerCount: 1 }),
     });
+
+    const relativePath = 'src/cache-proof.js';
+    const source = 'export const project = (outcome) => ({ terminalOutcome: outcome });';
+    const sources = new Map([[relativePath, source]]);
+    const analysisCache = new Map();
+    const expected = discoverStateWriterRecordsFromSources(
+      sources,
+      ['terminalOutcome'],
+      new Map(),
+      analysisCache,
+    );
+    const rejectingParseCache = {
+      get() {
+        throw new Error('analysis cache unexpectedly missed unchanged source');
+      },
+    };
+    expect(discoverStateWriterRecordsFromSources(
+      sources,
+      ['terminalOutcome'],
+      rejectingParseCache,
+      analysisCache,
+    )).toEqual(expected);
+    expect(() => discoverStateWriterRecordsFromSources(
+      new Map([[relativePath, `${source}\nexport const changed = true;`]]),
+      ['terminalOutcome'],
+      rejectingParseCache,
+      analysisCache,
+    )).toThrow('analysis cache unexpectedly missed unchanged source');
   }, 15000);
 
   it('[A02-missing-writer] rejects a production writer missing from the registry', () => {
