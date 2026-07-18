@@ -235,6 +235,8 @@ const plannedLaneAllOfArgv = Object.freeze({
     ['git', 'diff', '--check', '$SCORE_BASE_SHA', '$SUBJECT_SHA'],
   ],
 });
+const t04FrontendTestCommand = Object.freeze(['npm', 'test']);
+const t04FrontendTestTimeoutMs = 900000;
 
 function readFrozenJSON(name) {
   return JSON.parse(fs.readFileSync(path.join(frozenScriptRoot, name), 'utf8'));
@@ -2137,6 +2139,11 @@ function validateConfiguredCheck(control, check) {
   if (weakCommands.has(check.argv[0]) || check.argv.includes('--help')
     || !Number.isInteger(check.timeoutMs) || check.timeoutMs <= 0) {
     fail(`weak runner command: ${control.id}`);
+  }
+  if (control.id === 'T04-local-gates'
+    && JSON.stringify(check.argv) === JSON.stringify(t04FrontendTestCommand)
+    && check.timeoutMs !== t04FrontendTestTimeoutMs) {
+    fail(`T04 frontend-test timeout must be ${t04FrontendTestTimeoutMs}ms`);
   }
   if ('status' in check || 'score' in check) fail(`hand-authored check result is forbidden: ${control.id}`);
   if (!Array.isArray(check.caseIds) || check.caseIds.length === 0

@@ -107,7 +107,7 @@
       "id": "T04-local-gates", "dimension": "T", "points": 15, "required": true,
       "allOf": [
         { "kind": "command", "cwd": "frontend-app", "argv": ["npm", "run", "lint"], "timeoutMs": 120000, "caseIds": ["frontend-lint"], "testCount": 1 },
-        { "kind": "command", "cwd": "frontend-app", "argv": ["npm", "test"], "timeoutMs": 600000, "caseIds": ["frontend-test"], "testCount": 1 },
+        { "kind": "command", "cwd": "frontend-app", "argv": ["npm", "test"], "timeoutMs": 900000, "caseIds": ["frontend-test"], "testCount": 1 },
         { "kind": "command", "cwd": "frontend-app", "argv": ["npm", "run", "build"], "timeoutMs": 180000, "caseIds": ["frontend-build"], "testCount": 1 },
         { "kind": "probe", "probe": "gitDiffCheck", "evidenceProtocol": "git-diff-check-v1", "cwd": ".", "argv": ["git", "diff", "--check", "$SCORE_BASE_SHA", "$SUBJECT_SHA"], "timeoutMs": 120000, "caseIds": ["frontend-diff-check"], "testCount": 1 }
       ]

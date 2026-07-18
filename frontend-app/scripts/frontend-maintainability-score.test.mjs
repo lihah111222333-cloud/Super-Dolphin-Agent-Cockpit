@@ -766,6 +766,21 @@ describe('frontend maintainability scorer configuration', () => {
     expect(() => validateConfiguration(mutableDiffCheck.controls, mutableDiffCheck.fixtures))
       .toThrow('git diff check argv differs from frozen contract');
 
+    const t04FrontendTest = documents();
+    const frontendTestCheck = t04FrontendTest.controls.controls.find(({ id }) => id === 'T04-local-gates')
+      .allOf.find(({ argv }) => JSON.stringify(argv) === JSON.stringify(['npm', 'test']));
+    expect(frontendTestCheck).toMatchObject({
+      kind: 'command',
+      cwd: 'frontend-app',
+      argv: ['npm', 'test'],
+      timeoutMs: 900000,
+      caseIds: ['frontend-test'],
+      testCount: 1,
+    });
+    frontendTestCheck.timeoutMs = 600000;
+    expect(() => validateConfiguration(t04FrontendTest.controls, t04FrontendTest.fixtures))
+      .toThrow('T04 frontend-test timeout must be 900000ms');
+
     const mutableProbe = documents();
     mutableProbe.controls.controls.find(({ id }) => id === 'A02-state-ownership').allOf[0].argv[1] = 'scripts/renamed-guard.mjs';
     expect(() => validateConfiguration(mutableProbe.controls, mutableProbe.fixtures))
