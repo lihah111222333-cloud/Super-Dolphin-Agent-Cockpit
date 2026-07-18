@@ -132,6 +132,203 @@ func TestSweepFilesystemSnapshotsRequiresExactIdentityAndStaleOwner(t *testing.T
 	assertPathExistence(t, legacy, true)
 }
 
+func TestExecutableSnapshotPublicationSurvivesConcurrentStartupSweep(t *testing.T) {
+	root := setFilesystemSnapshotRoot(t)
+	identity := newTestFilesystemSnapshotIdentity(t)
+	staged := make(chan string, 1)
+	continuePublish := make(chan struct{}, 1)
+	t.Cleanup(func() { continuePublish <- struct{}{} })
+	result := make(chan error, 1)
+	safego.Go(context.Background(), nil, "toolbridge.schema-snapshot-publish-test", func(context.Context) {
+		directory, createErr := createFilesystemSnapshotStagingDirectory(identity)
+		if createErr != nil {
+			result <- createErr
+			return
+		}
+		staged <- directory
+		<-continuePublish
+		_, publishErr := publishExecutableSnapshot([]byte("snapshot"), identity, directory)
+		result <- publishErr
+	})
+	var directory string
+	select {
+	case directory = <-staged:
+	case createErr := <-result:
+		t.Fatalf("create snapshot staging directory: %v", createErr)
+	}
+	if directory == identity.Directory {
+		t.Fatalf("writer exposed final snapshot directory before publication: %s", directory)
+	}
+	assertPathExistence(t, directory, true)
+	assertPathExistence(t, identity.Directory, false)
+	if err := sweepStaleFilesystemSnapshots(); err != nil {
+		t.Fatal(err)
+	}
+	assertPathExistence(t, directory, true)
+	continuePublish <- struct{}{}
+	if err := <-result; err != nil {
+		t.Fatalf("publish snapshot after concurrent startup sweep: %v", err)
+	}
+	t.Cleanup(func() { _ = removeOwnedFilesystemSnapshot(identity) })
+	if filepath.Dir(directory) != root {
+		t.Fatalf("staging parent = %q, want %q", filepath.Dir(directory), root)
+	}
+	assertPathExistence(t, directory, false)
+	assertPathExistence(t, identity.Directory, true)
+	assertPublishedFilesystemSnapshot(t, identity, "snapshot")
+}
+
+func TestRemoveOwnedFilesystemSnapshotCleansAbandonedStaging(t *testing.T) {
+	setFilesystemSnapshotRoot(t)
+	for _, complete := range []bool{false, true} {
+		t.Run(fmt.Sprintf("complete=%t", complete), func(t *testing.T) {
+			identity := newTestFilesystemSnapshotIdentity(t)
+			directory, err := createFilesystemSnapshotStagingDirectory(identity)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if complete {
+				if err := writeFilesystemSnapshotMarker(directory, identity); err != nil {
+					t.Fatal(err)
+				}
+				if err := writeExclusiveRegularFile(
+					filepath.Join(directory, HelperFileName(identity.HelperGOOS)),
+					[]byte("abandoned"),
+					0o700,
+				); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := removeOwnedFilesystemSnapshot(identity); err != nil {
+				t.Fatal(err)
+			}
+			assertPathExistence(t, directory, false)
+			assertPathExistence(t, identity.Directory, false)
+		})
+	}
+}
+
+func TestSweepFilesystemSnapshotsCleansOnlyStaleCompleteStaging(t *testing.T) {
+	setFilesystemSnapshotRoot(t)
+	active := newTestFilesystemSnapshotIdentity(t)
+	activeDirectory := writeCompleteFilesystemSnapshotStaging(t, active)
+	stale := newTestFilesystemSnapshotIdentity(t)
+	stale.OwnerPID = 1 << 30
+	stale.OwnerStartToken = "stale-start"
+	stale.OwnerExecutable = "stale-executable"
+	staleDirectory := writeCompleteFilesystemSnapshotStaging(t, stale)
+	empty := newTestFilesystemSnapshotIdentity(t)
+	emptyDirectory, err := createFilesystemSnapshotStagingDirectory(empty)
+	if err != nil {
+		t.Fatal(err)
+	}
+	markerOnly := newTestFilesystemSnapshotIdentity(t)
+	markerOnlyDirectory, err := createFilesystemSnapshotStagingDirectory(markerOnly)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := writeFilesystemSnapshotMarker(markerOnlyDirectory, markerOnly); err != nil {
+		t.Fatal(err)
+	}
+	for _, identity := range []filesystemSnapshotIdentity{active, stale, empty, markerOnly} {
+		identity := identity
+		t.Cleanup(func() { _ = removeOwnedFilesystemSnapshot(identity) })
+	}
+	if err := sweepStaleFilesystemSnapshots(); err != nil {
+		t.Fatal(err)
+	}
+	assertPathExistence(t, activeDirectory, true)
+	assertPathExistence(t, staleDirectory, false)
+	assertPathExistence(t, emptyDirectory, true)
+	assertPathExistence(t, markerOnlyDirectory, true)
+}
+
+func TestSweepFilesystemSnapshotsRejectsAnomalousStaging(t *testing.T) {
+	t.Run("unexpected entry", func(t *testing.T) {
+		setFilesystemSnapshotRoot(t)
+		identity := newTestFilesystemSnapshotIdentity(t)
+		directory, err := createFilesystemSnapshotStagingDirectory(identity)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := writeFilesystemSnapshotMarker(directory, identity); err != nil {
+			t.Fatal(err)
+		}
+		if err := writeExclusiveRegularFile(filepath.Join(directory, "unexpected"), []byte("x"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := sweepStaleFilesystemSnapshots(); err == nil {
+			t.Fatal("sweep staging with unexpected entry error = nil")
+		}
+		assertPathExistence(t, directory, true)
+	})
+	t.Run("malformed complete marker", func(t *testing.T) {
+		setFilesystemSnapshotRoot(t)
+		identity := newTestFilesystemSnapshotIdentity(t)
+		directory := writeCompleteFilesystemSnapshotStaging(t, identity)
+		if err := os.WriteFile(filepath.Join(directory, filesystemSnapshotMarker), []byte("{"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := sweepStaleFilesystemSnapshots(); err == nil {
+			t.Fatal("sweep staging with malformed complete marker error = nil")
+		}
+		assertPathExistence(t, directory, true)
+	})
+}
+
+func newTestFilesystemSnapshotIdentity(t *testing.T) filesystemSnapshotIdentity {
+	t.Helper()
+	owner, err := pidregistry.CaptureStableProcessIdentity(os.Getpid())
+	if err != nil {
+		t.Fatal(err)
+	}
+	identity, err := newFilesystemSnapshotIdentity(runtime.GOOS, owner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return identity
+}
+
+func writeCompleteFilesystemSnapshotStaging(
+	t *testing.T,
+	identity filesystemSnapshotIdentity,
+) string {
+	t.Helper()
+	directory, err := createFilesystemSnapshotStagingDirectory(identity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := writeFilesystemSnapshotMarker(directory, identity); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeExclusiveRegularFile(
+		filepath.Join(directory, HelperFileName(identity.HelperGOOS)),
+		[]byte("staged"),
+		0o700,
+	); err != nil {
+		t.Fatal(err)
+	}
+	return directory
+}
+
+func assertPublishedFilesystemSnapshot(
+	t *testing.T,
+	identity filesystemSnapshotIdentity,
+	wantHelper string,
+) {
+	t.Helper()
+	if err := verifyFilesystemSnapshotMarker(identity); err != nil {
+		t.Fatalf("verify published snapshot marker: %v", err)
+	}
+	helper, err := os.ReadFile(filepath.Join(identity.Directory, HelperFileName(identity.HelperGOOS)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(helper) != wantHelper {
+		t.Fatalf("published helper = %q, want %q", helper, wantHelper)
+	}
+}
+
 func TestTerminateProcessTreeSignalsLeasedGroup(t *testing.T) {
 	cmd, guard := startGuardedUnixTestProcess(t, "sleep 30")
 	killCalled := false
