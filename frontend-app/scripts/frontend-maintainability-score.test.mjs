@@ -856,6 +856,18 @@ describe('frontend maintainability scorer configuration', () => {
       ['node', 'node_modules/vitest/vitest.mjs', 'run', 'src/shared/ui/productionActionFailureMatrix.test.js', '--reporter=json', '--no-file-parallelism', '--maxWorkers=1'],
       ['node', 'frontend-app/scripts/failure-matrix-runner.mjs'],
     ]);
+    expect(backgroundHealth.allOf[0].testNames).toEqual([
+      'persists and deduplicates safe Health records with first and last occurrence times',
+      'fails fast on malformed or field-expanded persisted Health data',
+      'exposes one finite observable persistence failure state without a fallback store',
+      'makes a storage read exception observable even when the storage throws TypeError',
+      'uses the exact same identity for merge semantics and list keys',
+      'makes default persistence failure observable and clear does not silently report success',
+    ]);
+    expect(backgroundHealth.allOf[1]).toMatchObject({
+      testCount: 1,
+      testNames: ['routes provider reconnect cancellation to Health without an interactive error'],
+    });
     const publicErrorControl = controls.controls.find(({ id }) => id === 'C03-public-error-contract');
     expect(publicErrorControl.required).toBe(true);
     const publicErrorContract = publicErrorControl.allOf[0];
