@@ -375,7 +375,7 @@ func (executor *dockerExecutor) createArgs(request containerRequest) []string {
 		"create",
 		"--cpus=" + strconv.FormatInt(workloadLogicalCPUs, 10),
 		"--memory=" + strconv.FormatInt(workloadMemoryGiB, 10) + "g",
-		"--pids-limit=512", "--storage-opt=size=10G", "--read-only", "--user=65532:65532",
+		"--pids-limit=512", "--storage-opt=size=10G", "--init", "--read-only", "--user=65532:65532",
 		"--cap-drop=ALL", "--security-opt=no-new-privileges", "--security-opt=seccomp=" + executor.seccompPath,
 		"--network=none", "--mount=type=bind,src=" + request.SourceDir + ",dst=/workspace/source,readonly",
 		"--tmpfs=/tmp:" + containerTempTmpfs, "--tmpfs=" + containerWorkDir + ":" + containerWorkTmpfs,

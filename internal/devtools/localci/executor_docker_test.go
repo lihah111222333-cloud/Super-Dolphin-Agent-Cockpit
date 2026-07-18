@@ -69,7 +69,7 @@ func TestDockerExecutorAppliesIsolationAndResourceContract(t *testing.T) {
 		t.Fatalf("lifecycle evidence = %#v", evidence)
 	}
 	wantCreate := []string{
-		"create", "--cpus=4", "--memory=8g", "--pids-limit=512", "--storage-opt=size=10G", "--read-only", "--user=65532:65532",
+		"create", "--cpus=4", "--memory=8g", "--pids-limit=512", "--storage-opt=size=10G", "--init", "--read-only", "--user=65532:65532",
 		"--cap-drop=ALL", "--security-opt=no-new-privileges", "--security-opt=seccomp=" + seccomp,
 		"--network=none", "--mount=type=bind,src=" + sourceDir + ",dst=/workspace/source,readonly",
 		"--tmpfs=/tmp:rw,noexec,nosuid,nodev,size=2147483648",
