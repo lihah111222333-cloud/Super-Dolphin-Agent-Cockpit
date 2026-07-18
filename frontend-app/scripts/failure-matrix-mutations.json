@@ -21,16 +21,16 @@
       "id": "force-codex-terminal-success",
       "layer": "go-codex",
       "sourcePath": "internal/provider/codexapp/event_map.go",
-      "search": "Success:              outcome.success,",
-      "replacement": "Success:              true,",
+      "search": "Success:              outcome.",
+      "replacement": "Success:              true || outcome.",
       "caseIds": ["FM-07", "FM-09", "FM-10", "FM-11", "FM-12", "FM-13", "FM-14", "FM-19", "FM-20"]
     },
     {
       "id": "misclassify-claude-interruption",
       "layer": "go-claude",
       "sourcePath": "internal/provider/claudecli/event_map.go",
-      "search": "Status:               \"interrupted\",",
-      "replacement": "Status:               \"completed\",",
+      "search": "case \"turn:interrupted\":",
+      "replacement": "case \"turn:interrupted-disabled\":",
       "caseIds": ["FM-08"]
     },
     {

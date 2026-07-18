@@ -1095,6 +1095,15 @@ describe('executable evidence registry', () => {
     const control = controls.controls.find(({ id }) => id === 'T01-red-green-regression');
     const check = control.allOf[0];
     const context = inspectTargetRepository();
+    const mutationDocument = JSON.parse(readFileSync(join(scriptRoot, 'failure-matrix-mutations.json'), 'utf8'));
+    expect(mutationDocument.mutations.find(({ id }) => id === 'force-codex-terminal-success')).toMatchObject({
+      search: 'Success:              outcome.',
+      replacement: 'Success:              true || outcome.',
+    });
+    expect(mutationDocument.mutations.find(({ id }) => id === 'misclassify-claude-interruption')).toMatchObject({
+      search: 'case "turn:interrupted":',
+      replacement: 'case "turn:interrupted-disabled":',
+    });
     const now = Date.now();
     const options = { context, control, check, startedAt: now - 100, finishedAt: now + 100 };
     const valid = failureMatrixEvidence(context);
