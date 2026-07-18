@@ -74,8 +74,8 @@
 | 契约 | C04-critical-typecheck | 15 | yes | 关键 JS/JSX 纳入真实 typecheck |
 | 契约 | C05-provider-rpc-parity | 15 | score | provider、event surface、frontend 合法/非法矩阵 |
 | 测试 | T01-red-green-regression | 25 | yes | 每个生产 blocker 先 RED 后 GREEN |
-| 测试 | T02-critical-action-coverage | 25 | yes | 每个 actionId 的可达错误源都有失败测试 |
-| 测试 | T03-wails-integration | 20 | yes | Go/Wails 到真实 DOM 的失败链路 |
+| 测试 | T02-critical-action-coverage | 25 | yes | Task 2 |
+| 测试 | T03-wails-integration | 20 | yes | Task 3 |
 | 测试 | T04-local-gates | 15 | yes | pre-commit/pre-push 或等价 CI 门禁 |
 | 测试 | T05-build-embed-smoke | 15 | score | build、embed、桌面启动 smoke |
 | 性能 | P01-render-isolation | 30 | yes | 无关 store 更新不使主页面大面积重渲染 |
@@ -271,9 +271,9 @@ Stop 不需要分布式 watchdog 或跨服务事务。本计划只要求：
 
 **实现要求：**
 
-- 每个用户 action 通过 wrapper 携带 actionId，并有 visible failure sink；每个可达错误源都有生产路径测试。
-- background failure 有持久 health sink。
-- producer set、registry 与测试 cells 做 missing/stale exact diff；合并类别不能计覆盖率。
+- T02-1：AST exact-diff producer callsites→actionId/kind/sink via source+binding；dynamic/unparsed/missing/stale/dup/count drift FAIL。
+- T02-2：exact-diff all `producer×reachable errorSource` cells；each fails into user-visible or background persistent Health；zero/wrapper/category invalid。
+- T02-3：detached-mutate real component/service error projection in `prompt-history/approval-pending/settings-save/thread-mutation/background-reconnect`；original test RED，config/fixture-only invalid。Proves 5≠161/all；L1/2 retain per-action visibility。
 - retry 只重试同一用户意图，不重复成功副作用。
 - onError 自身异常也必须进入 health，不能递归吞错。
 - exemptions 有边界和过期时间。
@@ -302,19 +302,13 @@ Stop 不需要分布式 watchdog 或跨服务事务。本计划只要求：
 | approval action reject | decision 保持 pending，错误可见 |
 | 匹配 user cancel / provider 自发 cancel | 前者中性；后者必须安全错误 |
 
-证据分三层：
-
-1. 单元测试：mapper、validator、store 和组件。
-2. Go/Wails 集成测试：真实 event/RPC 边界。
-3. 桌面 smoke：新增 `frontend-app/scripts/desktop-failure-smoke.mjs`/`smoke:desktop:failure`，至少验证 terminal-failed 和 prompt-history-reject 从 Go/Wails 到真实 DOM。
-
-现有 agentic E2E 可复用，但 mock-only 结果不能替代第 2、3 层。
+T03 PASS iff each `terminal-failed`/`prompt-history-reject` runs Go injection→`NewWailsApplication`→`App`→lifecycle→`EventBridge`→frontend→real DOM and reports hops+DOM；bypass or separate Go+mock stitching/splitting FAILS。
 
 **出口：** E06、C05、T03 PASS。
 
 ### Task 4：维护性、性能与交付
 
-- 锁定 allOf：A02=ownership guard；A03=dependency guard；C04=strict typecheck+exact listFiles；T02=producer×errorSource 与实际 case exact diff；T03=两条真实 DOM case；T04=路由/失败注入；T05=build+embed+start/failure smoke。
+- 锁定 allOf：A02=ownership guard；A03=dependency guard；C04=strict typecheck+exact listFiles；T02=Task 2；T03=Task 3；T04=路由/失败注入；T05=build+embed+start/failure smoke。
 - 清理重复 outcome/error 推导；以 `frontend-state-ownership-guard.mjs` 和 `frontend-dependency-direction-guard.mjs` 分别锁唯一 writer 与层级 import。
 - 将 terminal/PublicError/action 的 producer 与反向 consumer discovery 接入 field/drift guard。
 - 让 `tsconfig.contracts.json` 对真实关键 JS/JSX 启用 checkJs/strict 并用 listFiles guard 防漏文件。
@@ -352,17 +346,13 @@ node "$SCORE_WORKTREE/frontend-app/scripts/frontend-maintainability-score.mjs" -
 
 ### 6.3 桌面验收
 
-- primary desktop platform 上运行 terminal-failed 和 prompt-history-reject smoke。
-- DOM 断言包括 visible error、无 success notice、状态保留、safe recovery 和无 raw cause。
-- mock navigation 测试可以补充覆盖，但不能独立满足 T03。
+- T03 按 Task 3；DOM: visible/no-success/state/recovery/no-raw。
 - 本计划不要求外部签名、远程 evaluator 或跨平台发布证明。
 - 若本次变更实际修改打包/跨平台代码，再按现有发布流程追加对应平台验证。
 
 ### 6.4 证据记录
 
-每条证据记录 SCORE_BASE/SUBJECT_SHA、SUBJECT_TREE_SHA、controlId、cwd/argv、caseIds/testCount 或 metric/threshold、exit code、摘要、报告路径、时间和环境。
-
-scorer 只接受同一 SUBJECT_SHA 的本地结构化结果并派生状态；不要求签名/hash 链/外部证明服务，测试输出和 Git 提交是审计面。
+runner emits SCORE_BASE-schema normalized report with SUBJECT SHA/tree, control, argv, case/metric, exit/env。Scorer embeds it or persists exact bytes+path and recomputes `sha256`；summary-only/unreadable/hash missing/mismatch/cross-SHA/reuse = NOT_VERIFIED。
 
 ---
 
@@ -393,12 +383,10 @@ scorer 只接受同一 SUBJECT_SHA 的本地结构化结果并派生状态；不
 
 - 为通过测试需要默认成功、空 catch、吞错或 console-only。
 - terminal outcome 仍有两个 owner，或首终态能被冲突 terminal/late delta 改写。
-- 生产 action 与 registry/test 存在 missing/stale，或关键用户 action 无 visible sink。
+- T02/T03 违反 Task 2/3。
 - background failure 无可持续查看入口。
 - 非法 contract 可进入 store 或 DOM。
 - raw sensitive error 进入 DOM。
-- 测试只能通过直写 store/DOM，无法经过生产 mapper 或 Wails 边界。
-- mock-only 被当作真实桌面失败证明。
 - 需要扩大 baseline、降低 coverage 或放宽性能阈值才能过门禁。
 - LSP diagnostics 存在 Error、Warning、Information 或 Hint。
 - 当前复审仍有 open P0/P1。
@@ -415,12 +403,11 @@ scorer 只接受同一 SUBJECT_SHA 的本地结构化结果并派生状态；不
 - [ ] partial output 与失败状态可以同时展示。
 - [ ] Prompt History 失败可见，draft/cursor 保持，retry 安全。
 - [ ] RPC matrix + AST producer set 与 critical-ui-actions registry missing/stale 为 0。
-- [ ] 每个直接 actionId 的可达错误源都有 visible failure 测试。
+- [ ] Task 2/3/6.4 PASS；5≠161/all，SHA-256 PASS。
 - [ ] background failure 进入 Health/Diagnostics。
 - [ ] PublicError 在 wire/store/notice/Health/DOM 均不泄漏 raw cause、token、命令、堆栈或敏感路径。
 - [ ] recovery action 只在能力真实存在时展示。
 - [ ] 最小失败矩阵全部通过。
-- [ ] 至少两条真实 Go/Wails 到 DOM 的失败 smoke 通过。
 - [ ] 修改文件 LSP diagnostics 四级 severity 为 0；不支持能力已记录。
 - [ ] frontend lint、test、build 全部通过。
 - [ ] 相关 Go 测试、frontend embed verify 和 git diff --check 通过。
