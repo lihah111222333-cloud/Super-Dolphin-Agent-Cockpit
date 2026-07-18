@@ -2,6 +2,7 @@ import { join } from 'node:path';
 import { cwd, execPath } from 'node:process';
 import { describe, expect, it } from 'vitest';
 import { runManagedCommand } from './managed-command.mjs';
+import { FROZEN_T04_T05_EXECUTION_CLOSURE_PATHS } from './frontend-execution-closure.mjs';
 import {
   DELIVERY_CASE_IDS,
   DELIVERY_COMMANDS,
@@ -32,22 +33,7 @@ describe('delivery smoke runner', () => {
       'desktop-start-smoke',
       'desktop-failure-smoke',
     ]);
-    expect(DELIVERY_RUNNER_CONTENT_PATHS).toEqual([
-      'Makefile',
-      'run-new-ui-desktop.sh',
-      'scripts/frontend_embed_verify.sh',
-      'frontend-app/package.json',
-      'frontend-app/vite.config.js',
-      'frontend-app/playwright.failure.config.js',
-      'frontend-app/scripts/delivery-smoke-runner.mjs',
-      'frontend-app/scripts/desktop-smoke.mjs',
-      'frontend-app/scripts/desktop-failure-smoke.mjs',
-      'frontend-app/scripts/evidence-provenance.mjs',
-      'frontend-app/scripts/performance-budget-model.mjs',
-      'frontend-app/scripts/sync-frontend-dist.mjs',
-      'frontend-app/tests/e2e/desktop-failure.spec.js',
-      'internal/ui/wails/testdata/failure_smoke_host/main.go',
-    ]);
+    expect(DELIVERY_RUNNER_CONTENT_PATHS).toBe(FROZEN_T04_T05_EXECUTION_CLOSURE_PATHS);
   });
 
   it.each([
