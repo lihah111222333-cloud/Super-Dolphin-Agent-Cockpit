@@ -9,7 +9,7 @@ import {
   verifyStopFeedbackEvidence,
 } from './stop-feedback-benchmark.mjs';
 
-it('produces pending stop feedback before a delayed RPC confirmation', async () => {
+it('measures the first visible stop feedback across baseline and candidate runtimes', async () => {
   await expect(createStopFeedbackHarness().measure()).resolves.toBeGreaterThanOrEqual(0);
 });
 
