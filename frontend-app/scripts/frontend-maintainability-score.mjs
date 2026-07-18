@@ -807,6 +807,36 @@ function validateDesktopFailureReport(report, { context, control, check, started
   validateReportBinding(report, context, startedAt, finishedAt);
   if (report.controlId !== control.id) fail('desktop failure smoke controlId mismatch');
   validateExactCaseResult(report.caseIds, report.testCount, check, 'desktop failure smoke');
+  const requiredSources = [
+    'frontend-app/scripts/desktop-failure-smoke.mjs',
+    'frontend-app/tests/e2e/desktop-failure.spec.js',
+    'internal/ui/wails/testdata/failure_smoke_host/main.go',
+    'internal/provider/claudecli/event_map.go',
+    'internal/provider/codexapp/event_map.go',
+    'internal/provider/unified/event_map.go',
+    'internal/ui/wails/bridge.go',
+  ];
+  if (report.schemaVersion !== 2 || !report.sourceHashes || JSON.stringify(Object.keys(report.sourceHashes).sort()) !== JSON.stringify(requiredSources.slice().sort())) {
+    fail('desktop failure smoke requires source-hashed v2 raw report');
+  }
+  for (const sourcePath of requiredSources) {
+    if (report.sourceHashes[sourcePath] !== runnerFileSha256(context.repoRoot, context.subjectSha, sourcePath)) {
+      fail(`desktop failure source hash mismatch: ${sourcePath}`);
+    }
+  }
+  if (!Array.isArray(report.cases) || report.cases.length !== check.caseIds.length) fail('desktop failure summary-only report is forbidden');
+  for (const [index, evidence] of report.cases.entries()) {
+    if (evidence?.caseId !== check.caseIds[index] || evidence.result !== 'GREEN'
+      || JSON.stringify(evidence.command) !== JSON.stringify(check.argv)
+      || !Array.isArray(evidence.hops) || evidence.hops.length < 6
+      || !Array.isArray(evidence.domAssertions) || evidence.domAssertions.length < 3
+      || !Array.isArray(evidence.secretAssertions) || evidence.secretAssertions.length !== 2) {
+      fail(`desktop failure case evidence is incomplete: ${check.caseIds[index]}`);
+    }
+  }
+  if (JSON.stringify(report).includes('t03-raw-provider-secret-do-not-persist')) {
+    fail('desktop failure raw report leaked provider secret');
+  }
   return normalizedRunnerStatus(report.status);
 }
 

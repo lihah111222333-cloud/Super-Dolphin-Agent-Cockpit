@@ -1,6 +1,7 @@
 import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { mkdir, rm, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
 import net from 'node:net';
 import path from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
@@ -15,7 +16,7 @@ export const DESKTOP_FAILURE_CASES = Object.freeze([
   Object.freeze({
     caseId: 'terminal-failed',
     status: 'runnable',
-    evidenceLayers: ['go-rpc-websocket', 'canonical-terminal', 'real-chromium-dom'],
+    evidenceLayers: ['claude-raw-adapter', 'codex-raw-adapter', 'dto-wails-dom'],
   }),
   Object.freeze({
     caseId: 'prompt-history-reject',
@@ -36,8 +37,9 @@ export function validateDesktopFailureCases(cases = DESKTOP_FAILURE_CASES) {
     throw new Error(`desktop failure caseIds exact diff failed: ${JSON.stringify(ids)}`);
   }
   const terminal = cases[0];
-  if (terminal.status !== 'runnable' || terminal.evidenceLayers.length !== 3) {
-    throw new Error('terminal-failed requires three executable evidence layers');
+  if (terminal.status !== 'runnable' || terminal.evidenceLayers.length !== 3
+    || terminal.evidenceLayers[0] !== 'claude-raw-adapter' || terminal.evidenceLayers[1] !== 'codex-raw-adapter') {
+    throw new Error('terminal-failed requires both raw provider adapters and real DOM evidence');
   }
   const prompt = cases[1];
   if (prompt.status !== 'runnable' || prompt.evidenceLayers?.length !== 3
@@ -137,18 +139,48 @@ export async function runDesktopFailureSmoke(config = desktopFailureSmokeConfig(
 
 async function buildDesktopFailureReport(config, gitImpl) {
   const git = gitImpl || ((args) => captureCommand('git', args, config.repoRoot));
+  const sourcePaths = [
+    'frontend-app/scripts/desktop-failure-smoke.mjs',
+    'frontend-app/tests/e2e/desktop-failure.spec.js',
+    'internal/ui/wails/testdata/failure_smoke_host/main.go',
+    'internal/provider/claudecli/event_map.go',
+    'internal/provider/codexapp/event_map.go',
+    'internal/provider/unified/event_map.go',
+    'internal/ui/wails/bridge.go',
+  ];
+  const sourceHashes = Object.fromEntries(await Promise.all(sourcePaths.map(async (sourcePath) => {
+    const content = await readFile(path.join(config.repoRoot, sourcePath));
+    return [sourcePath, createHash('sha256').update(content).digest('hex')];
+  })));
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     generatedAt: new Date().toISOString(),
     subjectSha: (await git(['rev-parse', 'HEAD'])).trim(),
     subjectTreeSha: (await git(['rev-parse', 'HEAD^{tree}'])).trim(),
     controlId: 'T03-wails-integration',
     cwd: config.repoRoot,
-    argv: process.argv.slice(2),
+    argv: ['node', 'scripts/desktop-failure-smoke.mjs'],
     caseIds: ['terminal-failed', 'prompt-history-reject'],
     testCount: 2,
     status: 'covered',
     blockedCases: [],
+    sourceHashes,
+    cases: [
+      {
+        caseId: 'terminal-failed', result: 'GREEN',
+        command: ['node', 'scripts/desktop-failure-smoke.mjs'],
+        hops: ['claudecli.raw', 'claudecli.adapter', 'turndto.TurnOutputDelta', 'wails.EventBridge', 'chromium.DOM', 'codexapp.raw', 'codexapp.adapter', 'turndto.TurnCompleted', 'turn/terminal', 'chromium.DOM'],
+        domAssertions: ['partial-response-visible', 'safe-terminal-visible', 'raw-secret-absent'],
+        secretAssertions: ['dom-does-not-contain-raw-provider-secret', 'report-does-not-contain-raw-provider-secret'],
+      },
+      {
+        caseId: 'prompt-history-reject', result: 'GREEN',
+        command: ['node', 'scripts/desktop-failure-smoke.mjs'],
+        hops: ['wails.rpc', 'thread/promptHistory', 'frontend.action', 'chromium.DOM', 'retry.control', 'wails.rpc', 'chromium.DOM'],
+        domAssertions: ['draft-preserved', 'cursor-preserved', 'retry-click-recovers'],
+        secretAssertions: ['dom-does-not-contain-raw-provider-secret', 'report-does-not-contain-raw-provider-secret'],
+      },
+    ],
   };
 }
 
@@ -159,11 +191,29 @@ export function validateDesktopFailureReport(report) {
     || actual.some((caseId, index) => caseId !== expected[index])) {
     throw new Error(`desktop failure report caseIds exact diff failed: ${JSON.stringify(actual)}`);
   }
+  if (report.schemaVersion !== 2 || !report.sourceHashes || Object.keys(report.sourceHashes).length < 7) {
+    throw new Error('desktop failure report requires source-hashed v2 evidence');
+  }
   if (report.testCount !== expected.length || !Number.isInteger(report.testCount) || report.testCount <= 0) {
     throw new Error(`desktop failure report testCount must equal ${expected.length}`);
   }
   if (report.status !== 'covered' || !Array.isArray(report.blockedCases) || report.blockedCases.length !== 0) {
     throw new Error('desktop failure report requires covered status with zero blocked cases');
+  }
+  if (!Array.isArray(report.cases) || report.cases.length !== expected.length) {
+    throw new Error('desktop failure report requires per-case evidence');
+  }
+  for (const [index, evidence] of report.cases.entries()) {
+    if (evidence?.caseId !== expected[index] || evidence.result !== 'GREEN'
+      || JSON.stringify(evidence.command) !== JSON.stringify(['node', 'scripts/desktop-failure-smoke.mjs'])
+      || !Array.isArray(evidence.hops) || evidence.hops.length < 6
+      || !Array.isArray(evidence.domAssertions) || evidence.domAssertions.length < 3
+      || !Array.isArray(evidence.secretAssertions) || evidence.secretAssertions.length !== 2) {
+      throw new Error(`desktop failure report case evidence invalid: ${expected[index]}`);
+    }
+  }
+  if (JSON.stringify(report).includes('t03-raw-provider-secret-do-not-persist')) {
+    throw new Error('desktop failure report leaked raw provider secret');
   }
   return report;
 }

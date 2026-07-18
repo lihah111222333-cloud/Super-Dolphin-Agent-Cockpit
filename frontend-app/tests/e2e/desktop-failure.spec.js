@@ -18,11 +18,11 @@ test('terminal-failed crosses production Wails application and EventBridge into 
   await expect(page.getByText('桌面 smoke 部分响应')).toBeVisible();
   const terminalAlert = page.locator('.turn-terminal-error');
   await expect(terminalAlert).toBeVisible();
-  await expect(terminalAlert).toContainText('运行失败');
-  await expect(terminalAlert).toContainText('提供方未能完成本轮响应');
+  await expect(terminalAlert).toContainText('Turn failed');
+  await expect(terminalAlert).toContainText('The provider could not complete this turn.');
   await expect(page.locator('.turn-terminal-status')).toHaveCount(0);
   await expect(page.getByTestId('chat-action-feedback')).toHaveClass(/is-error/u);
-  await expect(page.getByText('provider internal stack secret')).toHaveCount(0);
+  await expect(page.getByText('Authorization: Bearer t03-raw-provider-secret-do-not-persist')).toHaveCount(0);
   expect(pageErrors).toEqual([]);
 });
 
@@ -41,6 +41,7 @@ test('prompt-history-reject crosses production Wails application and preserves r
   await expect(alert).toBeVisible();
   await expect(alert).toContainText('提示历史暂时不可用');
   await expect(alert).not.toContainText('prompt history private token=secret');
+  await expect(page.getByText('Authorization: Bearer t03-raw-provider-secret-do-not-persist')).toHaveCount(0);
   await expect(page.getByText('prompt history production Wails hop')).toBeVisible();
   await expect(composer).toHaveValue('draft kept');
   expect(await composer.evaluate((textarea) => {
@@ -53,5 +54,6 @@ test('prompt-history-reject crosses production Wails application and preserves r
   await expect(composer).toHaveValue('桌面 smoke 重试恢复');
   await expect(alert).toHaveCount(0);
   await expect(page.getByText('prompt history private token=secret')).toHaveCount(0);
+  await expect(page.getByText('Authorization: Bearer t03-raw-provider-secret-do-not-persist')).toHaveCount(0);
   expect(pageErrors).toEqual([]);
 });
