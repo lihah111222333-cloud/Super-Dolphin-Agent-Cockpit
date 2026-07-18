@@ -1066,6 +1066,7 @@
         "cmd/mcp-orch/orchestration.validateLaunchRequestForLauncher",
         "cmd/mcp-orch/orchestration.validateRecoveryContext",
         "cmd/mcp-orch/orchestration.validateRouteInputs",
+        "cmd/mcp-orch/orchestration.validateTurnInterruptResponse",
         "cmd/mcp-orch/orchestration.validationMaterializationFailure",
         "cmd/mcp-orch/orchestration.validationOutcome",
         "cmd/mcp-orch/orchestration.wakeupEligibleForReplay",
@@ -1162,6 +1163,8 @@
         "cmd/mcp-orch/orchestration/launcherwire.ResolveThreadForkThreadID",
         "cmd/mcp-orch/orchestration/launcherwire.ResolveThreadStartAgentID",
         "cmd/mcp-orch/orchestration/launcherwire.ResolveThreadStartThreadID",
+        "cmd/mcp-orch/orchestration/launcherwire.TurnInterruptRequest",
+        "cmd/mcp-orch/orchestration/launcherwire.TurnInterruptResponse",
         "cmd/mcp-orch/orchestration/launcherwire.resolveAlias",
         "cmd/mcp-orch/orchestration/launcherwire.stringValue",
         "cmd/mcp-orch/orchestration/metrics.*dagFallbackCounter.snapshot",
@@ -5702,6 +5705,7 @@
         "cmd/mcp-orch/orchestration.validateLaunchRequestForLauncher",
         "cmd/mcp-orch/orchestration.validateRecoveryContext",
         "cmd/mcp-orch/orchestration.validateRouteInputs",
+        "cmd/mcp-orch/orchestration.validateTurnInterruptResponse",
         "cmd/mcp-orch/orchestration.validationMaterializationFailure",
         "cmd/mcp-orch/orchestration.validationOutcome",
         "cmd/mcp-orch/orchestration.wakeupEligibleForReplay",
@@ -5798,6 +5802,8 @@
         "cmd/mcp-orch/orchestration/launcherwire.ResolveThreadForkThreadID",
         "cmd/mcp-orch/orchestration/launcherwire.ResolveThreadStartAgentID",
         "cmd/mcp-orch/orchestration/launcherwire.ResolveThreadStartThreadID",
+        "cmd/mcp-orch/orchestration/launcherwire.TurnInterruptRequest",
+        "cmd/mcp-orch/orchestration/launcherwire.TurnInterruptResponse",
         "cmd/mcp-orch/orchestration/launcherwire.resolveAlias",
         "cmd/mcp-orch/orchestration/launcherwire.stringValue",
         "cmd/mcp-orch/orchestration/metrics.*dagFallbackCounter.snapshot",
@@ -10338,6 +10344,7 @@
         "cmd/mcp-orch/orchestration.validateLaunchRequestForLauncher",
         "cmd/mcp-orch/orchestration.validateRecoveryContext",
         "cmd/mcp-orch/orchestration.validateRouteInputs",
+        "cmd/mcp-orch/orchestration.validateTurnInterruptResponse",
         "cmd/mcp-orch/orchestration.validationMaterializationFailure",
         "cmd/mcp-orch/orchestration.validationOutcome",
         "cmd/mcp-orch/orchestration.wakeupEligibleForReplay",
@@ -10434,6 +10441,8 @@
         "cmd/mcp-orch/orchestration/launcherwire.ResolveThreadForkThreadID",
         "cmd/mcp-orch/orchestration/launcherwire.ResolveThreadStartAgentID",
         "cmd/mcp-orch/orchestration/launcherwire.ResolveThreadStartThreadID",
+        "cmd/mcp-orch/orchestration/launcherwire.TurnInterruptRequest",
+        "cmd/mcp-orch/orchestration/launcherwire.TurnInterruptResponse",
         "cmd/mcp-orch/orchestration/launcherwire.resolveAlias",
         "cmd/mcp-orch/orchestration/launcherwire.stringValue",
         "cmd/mcp-orch/orchestration/metrics.*dagFallbackCounter.snapshot",
@@ -14974,6 +14983,7 @@
         "cmd/mcp-orch/orchestration.validateLaunchRequestForLauncher",
         "cmd/mcp-orch/orchestration.validateRecoveryContext",
         "cmd/mcp-orch/orchestration.validateRouteInputs",
+        "cmd/mcp-orch/orchestration.validateTurnInterruptResponse",
         "cmd/mcp-orch/orchestration.validationMaterializationFailure",
         "cmd/mcp-orch/orchestration.validationOutcome",
         "cmd/mcp-orch/orchestration.wakeupEligibleForReplay",
@@ -15070,6 +15080,8 @@
         "cmd/mcp-orch/orchestration/launcherwire.ResolveThreadForkThreadID",
         "cmd/mcp-orch/orchestration/launcherwire.ResolveThreadStartAgentID",
         "cmd/mcp-orch/orchestration/launcherwire.ResolveThreadStartThreadID",
+        "cmd/mcp-orch/orchestration/launcherwire.TurnInterruptRequest",
+        "cmd/mcp-orch/orchestration/launcherwire.TurnInterruptResponse",
         "cmd/mcp-orch/orchestration/launcherwire.resolveAlias",
         "cmd/mcp-orch/orchestration/launcherwire.stringValue",
         "cmd/mcp-orch/orchestration/metrics.*dagFallbackCounter.snapshot",
@@ -18569,13 +18581,13 @@
   ],
   "summary": {
     "total_packages": 41,
-    "total_functions": 2274,
+    "total_functions": 2275,
     "total_methods": 1168,
     "total_interfaces": 183,
     "total_interface_methods": 363,
-    "total_exported": 1255,
-    "total_unexported": 2973,
-    "total_structs": 603
+    "total_exported": 1257,
+    "total_unexported": 2974,
+    "total_structs": 605
   },
   "packages": [
     {
@@ -24904,6 +24916,23 @@
             {
               "name": "w",
               "type": "*taskdag.Wakeup"
+            }
+          ],
+          "returns": [
+            "error"
+          ]
+        },
+        {
+          "name": "validateTurnInterruptResponse",
+          "exported": false,
+          "params": [
+            {
+              "name": "request",
+              "type": "launcherwire.TurnInterruptRequest"
+            },
+            {
+              "name": "response",
+              "type": "launcherwire.TurnInterruptResponse"
             }
           ],
           "returns": [
@@ -36312,6 +36341,16 @@
           "returns": [
             "string"
           ]
+        }
+      ],
+      "structs": [
+        {
+          "name": "TurnInterruptRequest",
+          "exported": true
+        },
+        {
+          "name": "TurnInterruptResponse",
+          "exported": true
         }
       ]
     },
