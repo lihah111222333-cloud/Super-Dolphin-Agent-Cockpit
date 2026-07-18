@@ -2,12 +2,14 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -21,13 +23,17 @@ import (
 	platformconfig "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/config"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/eventsurface"
 	platformrpc "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/rpc"
+	uiwails "github.com/lihah111222333-cloud/super-dolphin-agent/internal/ui/wails"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util/safego"
+	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
 const (
-	smokeThreadID = "thread-failure-smoke"
-	smokeTurnID   = "turn-failure-smoke"
-	smokeItemID   = "assistant-stream-" + smokeTurnID
+	smokeThreadID        = "thread-failure-smoke"
+	smokeTurnID          = "turn-failure-smoke"
+	smokeItemID          = "assistant-stream-" + smokeTurnID
+	smokePromptHopTurnID = "turn-prompt-history-wails-hop"
+	smokePromptHopText   = "prompt history production Wails hop"
 )
 
 type triggerParams struct {
@@ -63,24 +69,15 @@ func main() {
 			slog.Error("close failure smoke dispatcher", "error", err)
 		}
 	}()
-	server := platformrpc.NewServer(platformrpc.Params{
-		Config: &platformconfig.Config{RPCAddr: "127.0.0.1:0"},
-	})
-	bridge := platformrpc.NewPushBridge(dispatcher, nil)
-	cancels := eventsurface.Bind(dispatcher, nil, func(method string, payload any) {
-		server.NotifyAll(context.Background(), bridge, method, payload)
-	})
-	defer func() {
-		for _, cancel := range cancels {
-			if cancel != nil {
-				cancel()
-			}
-		}
-	}()
-	server.Register(fixtureHandlers(dispatcher, *project))
+	runtime, err := newProductionWailsRuntime(dispatcher, *project)
+	if err != nil {
+		slog.Error("create production Wails failure smoke runtime", "error", err)
+		os.Exit(1)
+	}
+	defer runtime.stop()
 
 	mux := http.NewServeMux()
-	mux.Handle("/wails/ws", platformrpc.WSHandler(server, nil))
+	mux.Handle("/wails/ws", platformrpc.WSHandler(runtime.transport, nil))
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"ok":true}`))
@@ -110,6 +107,88 @@ func main() {
 	if err := httpServer.Shutdown(ctx); err != nil {
 		slog.Error("failure smoke host shutdown", "error", err)
 	}
+}
+
+type productionWailsRuntime struct {
+	transport   *platformrpc.Server
+	bridge      *uiwails.EventBridge
+	eventUnsubs []func()
+}
+
+func (r *productionWailsRuntime) stop() {
+	for _, unsubscribe := range r.eventUnsubs {
+		unsubscribe()
+	}
+	r.bridge.Stop()
+}
+
+// newProductionWailsRuntime 复用 production application、binding、lifecycle 与 EventBridge。
+// fixture adapter 只负责浏览器 RPC 入站，以及把真实 Wails EventManager 事件转交给测试浏览器。
+func newProductionWailsRuntime(dispatcher *event.Dispatcher, project string) (*productionWailsRuntime, error) {
+	config := &platformconfig.Config{RPCAddr: "127.0.0.1:0"}
+	backend := platformrpc.NewServer(platformrpc.Params{Config: config})
+	backendHandlers := fixtureHandlers(dispatcher, project)
+	backend.Register(backendHandlers)
+
+	applicationTransport := platformrpc.NewServer(platformrpc.Params{Config: config})
+	browserTransport := platformrpc.NewServer(platformrpc.Params{Config: config})
+	pushBridge := platformrpc.NewPushBridge(dispatcher, nil)
+	binding := uiwails.NewApp(uiwails.AppParams{
+		Dispatcher: backend,
+		Config:     config,
+		RPCServer:  applicationTransport,
+		PushBridge: pushBridge,
+	})
+	lifecycle := uiwails.NewWailsLifecycle(
+		uiwails.ActiveAgentCounterFunc(func(context.Context) (int, error) { return 0, nil }),
+		slog.Default(),
+	)
+	wailsApp, err := uiwails.NewWailsApplication(uiwails.ApplicationParams{
+		Logger:    slog.Default(),
+		Binding:   binding,
+		Service:   uiwails.NewService(binding),
+		Lifecycle: lifecycle,
+		Frontend:  uiwails.FrontendFS{FS: os.DirFS(filepath.Join(project, "frontend-app"))},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("create production Wails application: %w", err)
+	}
+	browserTransport.Register(bindingHandlers(binding, backendHandlers))
+	eventUnsubs := adaptWailsEventsToBrowser(wailsApp, browserTransport, pushBridge)
+
+	bridge := uiwails.NewEventBridge(dispatcher, lifecycle, slog.Default())
+	bridge.Start()
+	return &productionWailsRuntime{
+		transport: browserTransport, bridge: bridge, eventUnsubs: eventUnsubs,
+	}, nil
+}
+
+// adaptWailsEventsToBrowser 是 fixture adapter：只转发已由 production Wails EventManager 发出的事件。
+func adaptWailsEventsToBrowser(
+	wailsApp *application.App,
+	transport *platformrpc.Server,
+	pushBridge *platformrpc.PushBridge,
+) []func() {
+	eventNames := []string{"bridge-event", "agent-event"}
+	unsubs := make([]func(), 0, len(eventNames))
+	for _, eventName := range eventNames {
+		eventName := eventName
+		unsubs = append(unsubs, wailsApp.Event.On(eventName, func(wailsEvent *application.CustomEvent) {
+			transport.NotifyAll(context.Background(), pushBridge, eventName, wailsEvent.Data)
+		}))
+	}
+	return unsubs
+}
+
+func bindingHandlers(binding *uiwails.App, methods handler.Map) handler.Map {
+	result := make(handler.Map, len(methods))
+	for method := range methods {
+		method := method
+		result[method] = handler.Func(func(_ context.Context, request *jrpc2.Request) (any, error) {
+			return binding.CallAPI(method, json.RawMessage(request.ParamString()))
+		})
+	}
+	return result
 }
 
 // fixtureHandlers 组装启动快照和失败终态触发器的严格 RPC 契约。
@@ -142,7 +221,7 @@ func fixtureHandlers(dispatcher *event.Dispatcher, project string) handler.Map {
 			}
 		},
 	)
-	handlers["thread/promptHistory"] = newPromptHistoryHandler(project)
+	handlers["thread/promptHistory"] = newPromptHistoryHandler(dispatcher, project)
 	handlers["failure-smoke/trigger"] = platformrpc.StrictHandler(func(_ context.Context, params triggerParams) (any, error) {
 		if params.CaseID != "terminal-failed" {
 			return nil, fmt.Errorf("unsupported failure smoke case %q", params.CaseID)
@@ -155,13 +234,14 @@ func fixtureHandlers(dispatcher *event.Dispatcher, project string) handler.Map {
 	return handlers
 }
 
-func newPromptHistoryHandler(project string) handler.Func {
+func newPromptHistoryHandler(dispatcher *event.Dispatcher, project string) handler.Func {
 	var calls atomic.Int32
 	return platformrpc.StrictHandler(func(_ context.Context, params promptHistoryParams) (any, error) {
 		if params.CWD != project || params.ActiveThreadID != smokeThreadID || params.Limit != 50 {
 			return nil, fmt.Errorf("invalid prompt history smoke request")
 		}
 		if calls.Add(1) == 1 {
+			publishPromptHistoryHop(dispatcher)
 			return nil, fmt.Errorf("prompt history private token=secret")
 		}
 		return map[string]any{
@@ -260,6 +340,25 @@ func fixtureSidebarState(project string) (map[string]any, map[string]any, map[st
 		ActiveThreadID: smokeThreadID,
 	}
 	return thread, agent, tokenUsage, sidebar
+}
+
+// publishPromptHistoryHop 为 prompt reject case 发布一个可见 delta，证明 EventBridge/Wails emitter 被实际使用。
+func publishPromptHistoryHop(dispatcher *event.Dispatcher) {
+	now := time.Now().UTC()
+	event.Publish(dispatcher, turndto.TurnOutputDelta{
+		TurnHeader: shareddto.TurnHeader{
+			AgentHeader: shareddto.AgentHeader{
+				ThreadHeader: shareddto.ThreadHeader{
+					EventHeader: shareddto.EventHeader{Timestamp: now},
+					ThreadID:    smokeThreadID,
+				},
+				AgentID: "agent-failure-smoke",
+			},
+			TurnIDHeader: shareddto.TurnIDHeader{TurnID: smokePromptHopTurnID},
+		},
+		Stream: "message",
+		Delta:  smokePromptHopText,
+	})
 }
 
 // publishTerminalFailure 通过 canonical DTO 发布部分响应和失败终态。

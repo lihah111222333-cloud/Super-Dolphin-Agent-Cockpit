@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 
-test('terminal-failed crosses Go RPC WebSocket and canonical event surface into real DOM', async ({ page }) => {
+test('terminal-failed crosses production Wails application and EventBridge into real DOM', async ({ page }) => {
   const pageErrors = [];
   page.on('pageerror', (error) => pageErrors.push(error.message));
 
@@ -26,7 +26,7 @@ test('terminal-failed crosses Go RPC WebSocket and canonical event surface into 
   expect(pageErrors).toEqual([]);
 });
 
-test('prompt-history-reject preserves the real DOM draft and cursor before retry recovery', async ({ page }) => {
+test('prompt-history-reject crosses production Wails application and preserves real DOM input', async ({ page }) => {
   const pageErrors = [];
   page.on('pageerror', (error) => pageErrors.push(error.message));
 
@@ -41,6 +41,7 @@ test('prompt-history-reject preserves the real DOM draft and cursor before retry
   await expect(alert).toBeVisible();
   await expect(alert).toContainText('提示历史暂时不可用');
   await expect(alert).not.toContainText('prompt history private token=secret');
+  await expect(page.getByText('prompt history production Wails hop')).toBeVisible();
   await expect(composer).toHaveValue('draft kept');
   expect(await composer.evaluate((textarea) => {
     const input = /** @type {HTMLTextAreaElement} */ (textarea);

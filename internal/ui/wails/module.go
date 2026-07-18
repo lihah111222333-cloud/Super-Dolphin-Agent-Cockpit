@@ -39,8 +39,9 @@ var Module = fx.Module("ui.wails",
 	fx.Invoke(bindEventBridge),
 )
 
-// appParams 汇总创建 App 绑定所需的跨模块依赖。
-type appParams struct {
+// AppParams 汇总创建 App 绑定所需的跨模块依赖。
+// 导出该装配参数后，外部桌面宿主仍可复用 production App binding，而无需复制 dispatch 逻辑。
+type AppParams struct {
 	fx.In
 
 	Dispatcher    contract.RPCDispatcher
@@ -57,7 +58,7 @@ func provideAppUpdateRequestQuit(lifecycle *WailsLifecycle) appupdate.RequestQui
 
 // NewApp 创建暴露给 Wails 前端的后端绑定对象。
 // 它只装配 RPC dispatch、runtime event 推送和观测依赖，不持有业务模块状态。
-func NewApp(p appParams) *App {
+func NewApp(p AppParams) *App {
 	return &App{
 		dispatch: p.Dispatcher.Dispatch,
 		emitter:  func(string, any) {},
@@ -119,8 +120,9 @@ func NewActiveAgentCounter(p activeAgentCounterParams) ActiveAgentCounter {
 	})
 }
 
-// applicationParams 汇总创建 Wails application 所需依赖。
-type applicationParams struct {
+// ApplicationParams 汇总创建 Wails application 所需依赖。
+// 测试桌面宿主使用同一构造器装配真实 Wails application 与 lifecycle emitter。
+type ApplicationParams struct {
 	fx.In
 
 	Logger    *slog.Logger
@@ -148,7 +150,7 @@ type httpAssetServerParams struct {
 
 // NewWailsApplication 创建 Wails 桌面应用。
 // 窗口标题和调试开关来自绑定对象，避免应用层重复解析桌面配置。
-func NewWailsApplication(p applicationParams) (*application.App, error) {
+func NewWailsApplication(p ApplicationParams) (*application.App, error) {
 	title := applicationTitle()
 	debug := false
 	if p.Binding != nil {
@@ -177,9 +179,7 @@ func NewWailsApplication(p applicationParams) (*application.App, error) {
 	})
 	p.Binding.bindRuntime(wailsApp)
 	p.Lifecycle.SetQuitFunc(wailsApp.Quit)
-	p.Lifecycle.SetEventEmitter(func(channel string, payload any) {
-		wailsApp.Event.Emit(channel, payload)
-	})
+	p.Lifecycle.SetEventEmitter(p.Binding.emitRuntimeEvent)
 	wailsApp.Event.OnApplicationEvent(events.Common.ApplicationStarted, func(*application.ApplicationEvent) {
 		p.Lifecycle.MarkFrontendReady()
 		safego.Go(context.Background(), nil, "wails.clipboard.cleanup", func(context.Context) {
