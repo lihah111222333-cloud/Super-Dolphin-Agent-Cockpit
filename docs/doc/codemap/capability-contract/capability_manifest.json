@@ -4626,7 +4626,6 @@
         "internal/provider/unified.providerTurnEvent",
         "internal/provider/unified.publishEvent",
         "internal/provider/unified.publishTypedEvent",
-        "internal/provider/unified.rawEventPayload",
         "internal/provider/unified.recoverableAutoResumeProviderThreadID",
         "internal/provider/unified.redactDreamLogField",
         "internal/provider/unified.registerSessionShutdown",
@@ -9262,7 +9261,6 @@
         "internal/provider/unified.providerTurnEvent",
         "internal/provider/unified.publishEvent",
         "internal/provider/unified.publishTypedEvent",
-        "internal/provider/unified.rawEventPayload",
         "internal/provider/unified.recoverableAutoResumeProviderThreadID",
         "internal/provider/unified.redactDreamLogField",
         "internal/provider/unified.registerSessionShutdown",
@@ -13898,7 +13896,6 @@
         "internal/provider/unified.providerTurnEvent",
         "internal/provider/unified.publishEvent",
         "internal/provider/unified.publishTypedEvent",
-        "internal/provider/unified.rawEventPayload",
         "internal/provider/unified.recoverableAutoResumeProviderThreadID",
         "internal/provider/unified.redactDreamLogField",
         "internal/provider/unified.registerSessionShutdown",
@@ -18542,7 +18539,6 @@
         "internal/provider/unified.providerTurnEvent",
         "internal/provider/unified.publishEvent",
         "internal/provider/unified.publishTypedEvent",
-        "internal/provider/unified.rawEventPayload",
         "internal/provider/unified.recoverableAutoResumeProviderThreadID",
         "internal/provider/unified.redactDreamLogField",
         "internal/provider/unified.registerSessionShutdown",
@@ -18569,12 +18565,12 @@
   ],
   "summary": {
     "total_packages": 41,
-    "total_functions": 2274,
+    "total_functions": 2273,
     "total_methods": 1168,
     "total_interfaces": 183,
     "total_interface_methods": 363,
     "total_exported": 1255,
-    "total_unexported": 2973,
+    "total_unexported": 2972,
     "total_structs": 603
   },
   "packages": [
@@ -81647,19 +81643,6 @@
           ],
           "returns": [
             "bool"
-          ]
-        },
-        {
-          "name": "rawEventPayload",
-          "exported": false,
-          "params": [
-            {
-              "name": "data",
-              "type": "any"
-            }
-          ],
-          "returns": [
-            "json.RawMessage"
           ]
         },
         {

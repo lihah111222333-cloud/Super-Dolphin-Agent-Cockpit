@@ -1009,7 +1009,7 @@ internal/provider/unified/dream_executor_provider_order_test.go	internal	platfor
 internal/provider/unified/dream_executor_test.go	internal	platform-provider	go-test	24198	统一 provider 会话解析与 manifest	internal,provider,unified,dream,executor,test,统一,会话解析与,manifest
 internal/provider/unified/dream_executor.go	internal	platform-provider	go-source	10020	统一 provider 会话解析与 manifest	internal,provider,unified,dream,executor,统一,会话解析与,manifest
 internal/provider/unified/event_map_test.go	internal	platform-provider	go-test	5245	统一 provider 会话解析与 manifest	internal,provider,unified,event,map,test,统一,会话解析与,manifest
-internal/provider/unified/event_map.go	internal	platform-provider	go-source	17708	统一 provider 会话解析与 manifest	internal,provider,unified,event,map,统一,会话解析与,manifest
+internal/provider/unified/event_map.go	internal	platform-provider	go-source	17291	统一 provider 会话解析与 manifest	internal,provider,unified,event,map,统一,会话解析与,manifest
 internal/provider/unified/manifest_test.go	internal	platform-provider	go-test	14279	统一 provider 会话解析与 manifest	internal,provider,unified,manifest,test,统一,会话解析与
 internal/provider/unified/module.go	internal	platform-provider	go-source	2764	统一 provider 会话解析与 manifest	internal,provider,unified,module,统一,会话解析与,manifest
 internal/provider/unified/observability_trace_test.go	internal	platform-provider	go-test	3142	统一 provider 会话解析与 manifest	internal,provider,unified,observability,trace,test,统一,会话解析与,manifest

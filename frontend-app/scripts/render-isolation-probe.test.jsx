@@ -1,4 +1,4 @@
-import React, { Profiler } from 'react';
+import { Profiler } from 'react';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { parse } from '@babel/parser';
 import { resolve } from 'node:path';
