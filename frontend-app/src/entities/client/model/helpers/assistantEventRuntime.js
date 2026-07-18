@@ -181,6 +181,17 @@ function turnEventRejected(runtime, method, turnRef, deps) {
   return false;
 }
 
+function reconcileObservedTurnWithActiveTurn(runtime, threadId, deps) {
+  const activeTurnId = deps.activeTurnIdForThread(runtime.get(), threadId);
+  if (!activeTurnId) return;
+  const observedTurnId = runtime.observedTurnByThread.get(threadId);
+  if (observedTurnId === activeTurnId) return;
+  if (observedTurnId) {
+    runtime.retiredTurnRefs.add(runtimeTurnRefKey(threadId, observedTurnId));
+  }
+  runtime.observedTurnByThread.set(threadId, activeTurnId);
+}
+
 function enqueueAssistantDelta(runtime, method, payload, deps) {
   const turnRef = canonicalTurnEventRef(runtime, method, payload);
   const delta = deps.extractDeltaText(payload.delta ?? payload.text ?? payload.content);
@@ -452,6 +463,7 @@ export function attachAssistantEventRuntime(runtime, deps) {
     enqueueReasoningDelta: (method, payload) => enqueueReasoningDelta(runtime, method, payload, deps),
     enqueueCommandOutputDelta: (method, payload) => enqueueCommandOutputDelta(runtime, method, payload, deps),
     clearTurnRuntimeForThread: (threadId) => clearTurnRuntimeForThread(runtime, threadId),
+    reconcileObservedTurnWithActiveTurn: (threadId) => reconcileObservedTurnWithActiveTurn(runtime, threadId, deps),
     finalizeActiveAssistantMessages: (turnRef) => finalizeActiveAssistantMessages(runtime, turnRef, deps),
     flushAssistantDeltasNow: (turnRef) => flushAssistantDeltaBuffers(runtime, deps, turnRef),
     applyAssistantCompletion: (method, payload) => applyAssistantCompletion(runtime, method, payload, deps),

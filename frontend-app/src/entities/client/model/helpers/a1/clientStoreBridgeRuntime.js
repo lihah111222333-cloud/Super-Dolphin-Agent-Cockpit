@@ -108,7 +108,7 @@ function attachBridgePatchRuntime(runtime) {
    * ui/thread/patch 是实时线程状态入口。
    * 先确认 thread/cwd 属于当前页面，再按 sequence 跳过旧事件。
    */
-  const { set, bridgeThreadIdForPayload } = runtime;
+  const { set, bridgeThreadIdForPayload, reconcileObservedTurnWithActiveTurn } = runtime;
   const { sequencesByThread, patchGenerationsByThread } = runtime;
 
   const applyBridgePatch = (method, payload) => {
@@ -144,6 +144,7 @@ function attachBridgePatchRuntime(runtime) {
           threadActivityTimestamp,
           threadMatchesIdentifier,
         }));
+        reconcileObservedTurnWithActiveTurn(threadId);
       }
     finally {
       const durationMs = clockNowMillis() - patchStart;

@@ -6406,6 +6406,137 @@ function registerBridgeEventHandlersForTest() {
     }
   });
 
+  it.each(['success', 'failed'])('retires an observed turn when a patch selects T2 and rejects stale T1 %s terminals without mutation', async (outcome) => {
+    vi.useFakeTimers();
+    try {
+      resetClientStoreForTests({
+        cwd: '/repo/app',
+        activeProject: '/repo/app',
+        activeThreadId: 'thread-1',
+        actionNotice: { message: 'T1 is streaming', tone: 'info' },
+        timelinesByThread: { 'thread-1': [] },
+      });
+      registerBridgeEventHandlersForTest();
+
+      bridgeCallback({
+        type: 'turn/output/delta',
+        payload: { threadId: 'thread-1', turnId: 'turn-1', itemId: 'turn-1-open', delta: 'T1 partial' },
+      });
+      bridgeCallback({
+        type: 'ui/thread/patch',
+        payload: {
+          threadId: 'thread-1',
+          sequence: '1',
+          status: 'running',
+          activeTurn: { id: 'turn-2', status: 'running' },
+        },
+      });
+
+      const beforeTerminal = useClientStore.getState();
+      const timeline = beforeTerminal.timelinesByThread['thread-1'];
+      const actionNotice = beforeTerminal.actionNotice;
+      const activityEntries = beforeTerminal.activityEntries;
+
+      bridgeCallback({
+        type: 'turn/terminal',
+        payload: {
+          schemaVersion: 2,
+          eventId: `terminal-stale-turn-1-${outcome}`,
+          threadId: 'thread-1',
+          turnId: 'turn-1',
+          outcome,
+          ...(outcome === 'failed' ? {
+            publicError: {
+              code: 'PROVIDER_FAILED',
+              title: 'Provider failed',
+              message: 'T1 failed',
+              diagnosticId: 'diag-stale-turn-1',
+              retryable: false,
+              recoveryActions: [],
+            },
+          } : {}),
+          occurredAt: '2026-07-18T01:00:00Z',
+        },
+      });
+      await flushAssistantDeltaBatch();
+
+      const state = useClientStore.getState();
+      expect(state.timelinesByThread['thread-1']).toBe(timeline);
+      expect(state.actionNotice).toBe(actionNotice);
+      expect(state.activityEntries).toBe(activityEntries);
+      expect(state.timelinesByThread['thread-1']).toEqual(expect.arrayContaining([
+        expect.objectContaining({ id: 'turn-1-open', text: 'T1 partial', done: false, turnId: 'turn-1' }),
+      ]));
+      expect(state.timelinesByThread['thread-1']).not.toEqual(expect.arrayContaining([
+        expect.objectContaining({ kind: 'turn_terminal', turnId: 'turn-1' }),
+      ]));
+      expect(state.warningEntries).toEqual([
+        expect.objectContaining({
+          event: 'turn.terminal.stale',
+          fields: expect.objectContaining({ eventName: 'turn/terminal', turn_id: 'turn-1' }),
+          occurrenceCount: 1,
+        }),
+      ]);
+      expect(backend.emitFrontendTraceEvent).toHaveBeenCalledWith(expect.objectContaining({
+        phase: 'frontend.turn_event.rejected',
+        method: 'turn.terminal.stale',
+        thread_id: 'thread-1',
+        turn_id: 'turn-1',
+      }));
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('accepts T2 first terminal after a patch retires the observed T1 turn', async () => {
+    vi.useFakeTimers();
+    try {
+      resetClientStoreForTests({
+        cwd: '/repo/app',
+        activeProject: '/repo/app',
+        activeThreadId: 'thread-1',
+        timelinesByThread: { 'thread-1': [] },
+      });
+      registerBridgeEventHandlersForTest();
+
+      bridgeCallback({
+        type: 'turn/output/delta',
+        payload: { threadId: 'thread-1', turnId: 'turn-1', itemId: 'turn-1-open', delta: 'T1 partial' },
+      });
+      bridgeCallback({
+        type: 'ui/thread/patch',
+        payload: {
+          threadId: 'thread-1',
+          sequence: '1',
+          status: 'running',
+          activeTurn: { id: 'turn-2', status: 'running' },
+        },
+      });
+      bridgeCallback({
+        type: 'turn/terminal',
+        payload: {
+          schemaVersion: 2,
+          eventId: 'terminal-active-turn-2',
+          threadId: 'thread-1',
+          turnId: 'turn-2',
+          outcome: 'success',
+          occurredAt: '2026-07-18T01:00:01Z',
+        },
+      });
+      await flushAssistantDeltaBatch();
+
+      const state = useClientStore.getState();
+      expect(state.timelinesByThread['thread-1']).toEqual(expect.arrayContaining([
+        expect.objectContaining({ id: 'turn-1-open', text: 'T1 partial', done: false, turnId: 'turn-1' }),
+        expect.objectContaining({ kind: 'turn_terminal', turnId: 'turn-2', terminalOutcome: 'success' }),
+      ]));
+      expect(state.actionNotice).toEqual(expect.objectContaining({ message: '已收到回复', tone: 'success' }));
+      expect(state.warningEntries).toEqual([]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('does not flush or finalize a newer buffered turn when an older terminal arrives before the active-turn patch', async () => {
     vi.useFakeTimers();
     try {
