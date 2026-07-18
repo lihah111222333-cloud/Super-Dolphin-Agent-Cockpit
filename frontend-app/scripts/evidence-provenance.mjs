@@ -73,8 +73,12 @@ function validateBaselineAuditDiff(changedPaths) {
   return Object.freeze([...changedPaths]);
 }
 
-function runnerContentEvidence(repositoryRoot) {
-  const files = RUNNER_CONTENT_PATHS.map((path) => {
+function runnerContentEvidence(repositoryRoot, runnerContentPaths = RUNNER_CONTENT_PATHS) {
+  if (!Array.isArray(runnerContentPaths) || runnerContentPaths.length === 0
+    || new Set(runnerContentPaths).size !== runnerContentPaths.length) {
+    throw new TypeError('runnerContentPaths must be a non-empty unique array');
+  }
+  const files = runnerContentPaths.map((path) => {
     const content = readFileSync(resolve(repositoryRoot, path));
     return Object.freeze({
       path,
@@ -89,40 +93,54 @@ function runnerContentEvidence(repositoryRoot) {
   });
 }
 
-function collectEvidenceProvenance({ repositoryRoot, runnerId, subjectSha }) {
+function collectEvidenceProvenance({
+  repositoryRoot,
+  runnerRepositoryRoot = repositoryRoot,
+  runnerContentPaths = RUNNER_CONTENT_PATHS,
+  recordBaselineAudit = true,
+  runnerId,
+  subjectSha,
+}) {
   if (typeof runnerId !== 'string' || runnerId.length === 0) throw new TypeError('runnerId is required');
   requireFullSha(subjectSha, 'subjectSha');
-  const git = (args) => commandOutput('git', args, repositoryRoot);
-  const runnerSha = requireFullSha(git(['rev-parse', 'HEAD']), 'runnerSha');
-  const runnerTree = requireFullSha(git(['rev-parse', 'HEAD^{tree}']), 'runnerTree');
-  const subjectTree = requireFullSha(git(['rev-parse', `${subjectSha}^{tree}`]), 'subjectTree');
+  const subjectGit = (args) => commandOutput('git', args, repositoryRoot);
+  const runnerGit = (args) => commandOutput('git', args, runnerRepositoryRoot);
+  const runnerSha = requireFullSha(runnerGit(['rev-parse', 'HEAD']), 'runnerSha');
+  const runnerTree = requireFullSha(runnerGit(['rev-parse', 'HEAD^{tree}']), 'runnerTree');
+  const subjectTree = requireFullSha(subjectGit(['rev-parse', `${subjectSha}^{tree}`]), 'subjectTree');
   const status = execFileSync('git', ['status', '--porcelain', '--untracked-files=all'], {
-    cwd: repositoryRoot,
+    cwd: runnerRepositoryRoot,
     encoding: 'utf8',
     stdio: ['ignore', 'pipe', 'pipe'],
   }).trim();
   let baselineAudit = null;
   if (subjectSha !== runnerSha) {
     if (status) throw new Error('baseline audit runner requires a clean worktree');
+    const ancestry = recordBaselineAudit ? [subjectSha, runnerSha] : [runnerSha, subjectSha];
     try {
-      execFileSync('git', ['merge-base', '--is-ancestor', subjectSha, runnerSha], {
+      execFileSync('git', ['merge-base', '--is-ancestor', ...ancestry], {
         cwd: repositoryRoot,
         stdio: ['ignore', 'ignore', 'pipe'],
       });
     } catch (error) {
       const detail = String(error.stderr || '').trim();
-      throw new Error(`baseline subject must be an ancestor of runner HEAD${detail ? `: ${detail}` : ''}`);
+      const relation = recordBaselineAudit
+        ? 'baseline subject must be an ancestor of runner HEAD'
+        : 'frozen runner must be an ancestor of the subject';
+      throw new Error(`${relation}${detail ? `: ${detail}` : ''}`);
     }
-    const changedPaths = git(['diff', '--name-only', subjectSha, runnerSha]).split('\n');
-    baselineAudit = Object.freeze({
-      baseSha: subjectSha,
-      baseTree: subjectTree,
-      changedPaths: validateBaselineAuditDiff(changedPaths),
-    });
+    if (recordBaselineAudit) {
+      const changedPaths = subjectGit(['diff', '--name-only', subjectSha, runnerSha]).split('\n');
+      baselineAudit = Object.freeze({
+        baseSha: subjectSha,
+        baseTree: subjectTree,
+        changedPaths: validateBaselineAuditDiff(changedPaths),
+      });
+    }
   }
   const cpuList = cpus();
   if (cpuList.length === 0 || !cpuList[0]?.model) throw new Error('CPU metadata is unavailable');
-  const runnerContent = runnerContentEvidence(repositoryRoot);
+  const runnerContent = runnerContentEvidence(runnerRepositoryRoot, runnerContentPaths);
   return Object.freeze({
     subjectTree,
     generatedAt: new Date().toISOString(),

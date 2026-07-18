@@ -30,10 +30,10 @@ function createStopFeedbackHarness() {
     addWarning() {},
     get: () => state,
     notifyAction(message, tone) {
-      if (message !== '已发送中断请求' || tone !== 'success') {
-        throw new Error(`unexpected stop feedback: ${tone}:${message}`);
-      }
-      feedbackAt = performance.now();
+      const isPending = message === '正在请求停止，尚未确认，任务可能仍在运行' && tone === 'info';
+      const isConfirmed = message === '已发送中断请求' && tone === 'success';
+      if (!isPending && !isConfirmed) throw new Error(`unexpected stop feedback: ${tone}:${message}`);
+      if (feedbackAt === 0) feedbackAt = performance.now();
     },
     requireCwd: () => state.cwd,
     set(patch) {
@@ -56,8 +56,27 @@ function createStopFeedbackHarness() {
     async measure() {
       feedbackAt = 0;
       const startedAt = performance.now();
-      const accepted = await runtime.activeThreadRPC('thread.interrupt', async () => ({ ok: true }));
-      if (!accepted || feedbackAt === 0) throw new Error('stop feedback was not produced');
+      let resolveConfirmation;
+      const confirmation = new Promise((resolve) => { resolveConfirmation = resolve; });
+      const pending = runtime.activeThreadRPC('thread.interrupt', () => confirmation);
+      resolveConfirmation({
+        ok: true,
+        accepted: true,
+        requestId: 'performance-stop-request',
+        expectedTurnId: 'turn-performance',
+        turnId: 'turn-performance',
+        status: 'interrupted',
+        confirmed: true,
+        mode: 'interrupt_confirmed',
+        interruptSent: true,
+        stateBefore: 'running',
+        stateAfter: 'idle',
+        waitedMs: 0,
+        activeObserved: true,
+      });
+      const accepted = await pending;
+      if (!accepted) throw new Error('stop confirmation was not accepted');
+      if (feedbackAt === 0) throw new Error('stop visible feedback was not produced');
       return feedbackAt - startedAt;
     },
   };

@@ -3,10 +3,15 @@ import {
   ATTEMPTS_PER_SAMPLE,
   FEEDBACK_DURATION_CLOCK,
   MEASUREMENT_ITERATIONS,
+  createStopFeedbackHarness,
   measurementTrimmedMean,
   runStopFeedbackBenchmark,
   verifyStopFeedbackEvidence,
 } from './stop-feedback-benchmark.mjs';
+
+it('measures the first visible stop feedback across baseline and candidate runtimes', async () => {
+  await expect(createStopFeedbackHarness().measure()).resolves.toBeGreaterThanOrEqual(0);
+});
 
 it('uses an 80 percent trimmed mean and rejects invalid timing values', () => {
   const values = [1_000, ...Array.from({ length: 8 }, () => 5), 0];
