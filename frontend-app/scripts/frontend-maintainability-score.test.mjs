@@ -17,6 +17,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
+import { DESKTOP_FAILURE_SOURCE_PATHS } from './desktop-failure-smoke.mjs';
 import { runManagedCommand } from './managed-command.mjs';
 import { DELIVERY_RUNNER_CONTENT_PATHS } from './delivery-smoke-runner.mjs';
 import { FROZEN_T04_T05_EXECUTION_CLOSURE_PATHS } from './frontend-execution-closure.mjs';
@@ -316,9 +317,13 @@ function createFinalCliFixture({ hangFirstProbe = false } = {}) {
     "process.stdout.write('{}\\n');",
     '',
   ].join('\n'), baseRoot);
+  write(
+    'frontend-app/scripts/desktop-failure-smoke.mjs',
+    `export const DESKTOP_FAILURE_SOURCE_PATHS = Object.freeze(${JSON.stringify(DESKTOP_FAILURE_SOURCE_PATHS)});\nif (process.argv[1]?.endsWith('/desktop-failure-smoke.mjs')) process.exitCode = 1;\n`,
+    baseRoot,
+  );
   for (const relativePath of [
     'frontend-app/scripts/failure-matrix-runner.mjs',
-    'frontend-app/scripts/desktop-failure-smoke.mjs',
     'frontend-app/scripts/action-production-runtime-runner.mjs',
     'frontend-app/scripts/action-producer-guard.selftest.mjs',
     'frontend-app/scripts/action-producer-guard.mjs',
@@ -480,6 +485,48 @@ function failureMatrixEvidence(context, overrides = {}) {
     blockedCases: [],
     evidence,
     redGreenCases,
+    ...overrides,
+  };
+}
+
+function desktopFailureEvidence(context, overrides = {}) {
+  const command = ['node', 'scripts/desktop-failure-smoke.mjs'];
+  const sourceHashes = Object.fromEntries(DESKTOP_FAILURE_SOURCE_PATHS.map((sourcePath) => [
+    sourcePath,
+    createHash('sha256').update(execFileSync('git', ['show', `${context.subjectSha}:${sourcePath}`], {
+      cwd: context.repoRoot,
+    })).digest('hex'),
+  ]));
+  const caseEvidence = (caseId, hops, domAssertions) => ({
+    caseId,
+    result: 'GREEN',
+    command,
+    hops,
+    domAssertions,
+    secretAssertions: ['dom-does-not-contain-raw-provider-secret', 'report-does-not-contain-raw-provider-secret'],
+    execution: { status: 'passed', durationMs: 1 },
+  });
+  return {
+    schemaVersion: 2,
+    generatedAt: new Date().toISOString(),
+    subjectSha: context.subjectSha,
+    subjectTreeSha: context.subjectTree,
+    controlId: 'T03-wails-integration',
+    caseIds: ['terminal-failed', 'prompt-history-reject'],
+    testCount: 2,
+    status: 'covered',
+    blockedCases: [],
+    sourceHashes,
+    execution: {
+      goBuild: { argv: ['go', 'build'], cwd: '.', exitCode: 0, signal: null, outputSha256: 'a'.repeat(64) },
+      playwright: { argv: ['playwright', 'test'], cwd: 'frontend-app', exitCode: 0, signal: null, outputSha256: 'b'.repeat(64), testCount: 2 },
+      wailsHost: { argv: ['failure-smoke-host'], cwd: '.', exitCode: null, signal: 'SIGTERM', outputSha256: 'c'.repeat(64) },
+      vite: { argv: ['npm', 'run', 'dev'], cwd: 'frontend-app', exitCode: null, signal: 'SIGTERM', outputSha256: 'd'.repeat(64) },
+    },
+    cases: [
+      caseEvidence('terminal-failed', ['claudecli.raw', 'claudecli.adapter', 'turndto.TurnOutputDelta', 'wails.EventBridge', 'chromium.DOM', 'codexapp.raw', 'codexapp.adapter', 'turndto.TurnCompleted', 'turn/terminal', 'chromium.DOM'], ['partial-response-visible', 'safe-terminal-visible', 'raw-secret-absent']),
+      caseEvidence('prompt-history-reject', ['wails.rpc', 'thread/promptHistory', 'frontend.action', 'chromium.DOM', 'retry.control', 'wails.rpc', 'chromium.DOM'], ['draft-preserved', 'cursor-preserved', 'retry-click-recovers']),
+    ],
     ...overrides,
   };
 }
@@ -1412,6 +1459,27 @@ describe('executable evidence registry', () => {
       )),
     }, options)).toBe('FAIL');
   }, 120000);
+
+  it('accepts source-hashed T03 v2 evidence while retaining v1-only validation for other runners', () => {
+    const { controls } = documents();
+    const context = inspectTargetRepository();
+    const now = Date.now();
+    const t03Control = controls.controls.find(({ id }) => id === 'T03-wails-integration');
+    const t03Check = t03Control.allOf.find(({ evidenceProtocol }) => evidenceProtocol === 'desktop-failure-report-v1');
+    const t03Options = { context, control: t03Control, check: t03Check, startedAt: now - 100, finishedAt: now + 100 };
+    const t03Report = desktopFailureEvidence(context);
+    expect(DESKTOP_FAILURE_SOURCE_PATHS).toHaveLength(10);
+    expect(Object.isFrozen(DESKTOP_FAILURE_SOURCE_PATHS)).toBe(true);
+    expect(structuredEvidenceStatus(t03Report, t03Options)).toBe('PASS');
+    expect(structuredEvidenceStatus({ ...t03Report, schemaVersion: 1 }, t03Options)).toBe('FAIL');
+
+    const t01Control = controls.controls.find(({ id }) => id === 'T01-red-green-regression');
+    const t01Check = t01Control.allOf.find(({ evidenceProtocol }) => evidenceProtocol === 'failure-matrix-report-v1');
+    const t01Options = { context, control: t01Control, check: t01Check, startedAt: now - 100, finishedAt: now + 100 };
+    const t01Report = failureMatrixEvidence(context);
+    expect(structuredEvidenceStatus(t01Report, t01Options)).toBe('PASS');
+    expect(structuredEvidenceStatus({ ...t01Report, schemaVersion: 2 }, t01Options)).toBe('FAIL');
+  });
 
   it('persists normalized raw reports with reproducible SHA-256 metadata', () => {
     const repoRoot = mkdtempSync(join(tmpdir(), 'frontend-score-report-'));

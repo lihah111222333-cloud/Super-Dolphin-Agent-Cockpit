@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
+import { DESKTOP_FAILURE_SOURCE_PATHS } from './desktop-failure-smoke.mjs';
 import { FROZEN_T04_T05_EXECUTION_CLOSURE_PATHS } from './frontend-execution-closure.mjs';
 
 const scriptPath = fileURLToPath(import.meta.url);
@@ -829,25 +830,13 @@ function validateFailureMatrixReport(report, { context, control, check, startedA
 }
 
 function validateDesktopFailureReport(report, { context, control, check, startedAt, finishedAt }) {
-  validateReportBinding(report, context, startedAt, finishedAt);
+  validateReportBinding(report, context, startedAt, finishedAt, 2);
   if (report.controlId !== control.id) fail('desktop failure smoke controlId mismatch');
   validateExactCaseResult(report.caseIds, report.testCount, check, 'desktop failure smoke');
-  const requiredSources = [
-    'frontend-app/scripts/desktop-failure-smoke.mjs',
-    'frontend-app/tests/e2e/desktop-failure.spec.js',
-    'frontend-app/playwright.failure.config.js',
-    'frontend-app/package.json',
-    'frontend-app/src/shared/api/wailsBridge.js',
-    'internal/ui/wails/testdata/failure_smoke_host/main.go',
-    'internal/provider/claudecli/event_map.go',
-    'internal/provider/codexapp/event_map.go',
-    'internal/provider/unified/event_map.go',
-    'internal/ui/wails/bridge.go',
-  ];
-  if (report.schemaVersion !== 2 || !report.sourceHashes || JSON.stringify(Object.keys(report.sourceHashes).sort()) !== JSON.stringify(requiredSources.slice().sort())) {
+  if (report.schemaVersion !== 2 || !report.sourceHashes || JSON.stringify(Object.keys(report.sourceHashes).sort()) !== JSON.stringify([...DESKTOP_FAILURE_SOURCE_PATHS].sort())) {
     fail('desktop failure smoke requires source-hashed v2 raw report');
   }
-  for (const sourcePath of requiredSources) {
+  for (const sourcePath of DESKTOP_FAILURE_SOURCE_PATHS) {
     if (report.sourceHashes[sourcePath] !== runnerFileSha256(context.repoRoot, context.subjectSha, sourcePath)) {
       fail(`desktop failure source hash mismatch: ${sourcePath}`);
     }

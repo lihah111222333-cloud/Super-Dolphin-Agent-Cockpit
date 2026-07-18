@@ -11,7 +11,7 @@ import { chromium } from '@playwright/test';
 const DEFAULT_BACKEND_ADDR = '127.0.0.1:4514';
 const DEFAULT_VITE_URL = 'http://127.0.0.1:5178';
 const DEFAULT_TIMEOUT_MS = 180000;
-const DESKTOP_FAILURE_SOURCE_PATHS = Object.freeze([
+export const DESKTOP_FAILURE_SOURCE_PATHS = Object.freeze([
   'frontend-app/scripts/desktop-failure-smoke.mjs',
   'frontend-app/tests/e2e/desktop-failure.spec.js',
   'frontend-app/playwright.failure.config.js',
