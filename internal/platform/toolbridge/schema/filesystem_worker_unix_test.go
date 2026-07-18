@@ -231,7 +231,6 @@ func TestSweepFilesystemSnapshotsCleansOnlyStaleCompleteStaging(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, identity := range []filesystemSnapshotIdentity{active, stale, empty, markerOnly} {
-		identity := identity
 		t.Cleanup(func() { _ = removeOwnedFilesystemSnapshot(identity) })
 	}
 	if err := sweepStaleFilesystemSnapshots(); err != nil {
