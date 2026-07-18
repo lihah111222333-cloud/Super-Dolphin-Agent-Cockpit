@@ -52,6 +52,7 @@
 }
 
 .segment button,
+.skill-filter button,
 .memory-tabs button,
 .tabs button,
 .shared-files-tabs button,
@@ -166,10 +167,9 @@
 }
 
 .workflow-overview {
-  display: grid;
-  grid-template-columns: minmax(220px, 1fr) auto;
+  display: flex;
+  flex-direction: column;
   gap: 14px;
-  align-items: center;
   margin-bottom: 14px;
   padding: 14px;
   border: 1px solid var(--border);
@@ -178,7 +178,10 @@
 }
 
 .workflow-overview-copy {
-  display: grid;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  text-align: right;
   gap: 6px;
 }
 
@@ -197,13 +200,20 @@
 }
 
 .workflow-overview dl {
-  display: grid;
-  grid-template-columns: repeat(5, minmax(74px, 1fr));
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
   gap: 8px;
   margin: 0;
+  width: 100%;
 }
 
 .workflow-overview dl div {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  flex: 1 1 100px;
+  max-width: 200px;
   min-width: 0;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
@@ -222,22 +232,8 @@
   color: var(--text-pri);
   font-size: 18px;
   font-weight: 700;
-}
-
-@media (max-width: 1180px) {
-  .workflow-overview {
-    grid-template-columns: 1fr;
-  }
-
-  .workflow-overview dl {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-}
-
-@media (max-width: 860px) {
-  .workflow-overview dl {
-    grid-template-columns: 1fr;
-  }
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .panel {
@@ -358,9 +354,7 @@
 
 .skill-filter {
   display: inline-flex;
-  width: auto;
-  max-width: calc(100% - 56px);
-  margin-block: 14px;
+  flex: 0 0 auto;
 }
 
 .skill-filter button {

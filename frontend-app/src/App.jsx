@@ -24,7 +24,7 @@ import {
   HelpCircle,
 } from 'lucide-react';
 import { useClientStore } from './entities/client/model/useClientStore.js';
-import { checkAppUpdate, installLatestAppUpdate, getPersonalizationProfile } from './shared/api/backendApi.js';
+import { checkAppUpdate, installLatestAppUpdate } from './shared/api/backendApi.js';
 import { requiredAppStoragePort } from './shared/api/browser/browserStorage.js';
 import { UITestMCPShell } from './devtools/UITestMCPShell.jsx';
 import { ActivePageContent, PageLoadingFallback } from './AppRoutes.jsx';
@@ -452,15 +452,6 @@ function SuiyuanSidebar({ copy, projectPath, sidebar, store }) {
   const { activePage, closeSidebar, isOpen, memorySimilarCount, setActivePage, startNewChat } = sidebar;
   const memoryBadgeCount = Math.max(0, Number(memorySimilarCount) || 0);
 
-  const { data: profileData } = useQuery({
-    queryKey: ['personalizationProfile', projectPath],
-    queryFn: () => getPersonalizationProfile({ cwd: projectPath }),
-    enabled: Boolean(projectPath) && projectPath !== '未选择项目',
-  });
-  const profile = profileData?.profile;
-  const profileName = profile?.displayName ? profile.displayName : 'Alex Rivera';
-  const profileEmailOrRole = profile?.role ? profile.role : 'alex.r@suiyuan.ai';
-
   return (
     <aside
       id="app-sidebar"
@@ -530,15 +521,6 @@ function SuiyuanSidebar({ copy, projectPath, sidebar, store }) {
           <HelpCircle size={15} aria-hidden="true" />
           <span>{copy.workbench.help || 'Help'}</span>
         </a>
-      </div>
-      <div className="suiyuan-sidebar-profile-card">
-        <div className="suiyuan-profile-avatar-wrapper">
-          <CircleUserRound size={28} />
-        </div>
-        <div className="suiyuan-profile-info">
-          <div className="suiyuan-profile-name">{profileName}</div>
-          <div className="suiyuan-profile-subtext">{profileEmailOrRole}</div>
-        </div>
       </div>
     </aside>
   );
@@ -716,9 +698,6 @@ function AppWindow({ language, shell, shellLayoutStore, shortcutController, stor
               </button>
               <button type="button" className="suiyuan-locale-action" aria-label={copy.switchLanguage} title={copy.switchLanguage} onClick={toggleLocale}>
                 {locale.toUpperCase()}
-              </button>
-              <button type="button" className="suiyuan-profile-action" aria-label={copy.workbench.settings} title={copy.workbench.settings} onClick={() => setActivePageFromSidebar('settings')}>
-                <CircleUserRound size={16} aria-hidden="true" />
               </button>
             </div>
           </header>

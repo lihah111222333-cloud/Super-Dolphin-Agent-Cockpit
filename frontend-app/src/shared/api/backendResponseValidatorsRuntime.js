@@ -50,13 +50,8 @@ const UI_STATE_RESPONSE_KEYS = new Set([
   'threadArchives.chat',
   'groups',
 ]);
-
-/** @param {string} method @param {unknown} value @param {string} path */
-function assertNonNegativeInteger(method, value, path) {
-  if (!Number.isInteger(value) || /** @type {number} */ (value) < 0) {
-    throw new TypeError(`${method} response ${path} must be a non-negative integer`);
-  }
-}
+const SIDEBAR_STATE_RESPONSE_KEYS = new Set([...UI_STATE_RESPONSE_KEYS, 'workspace']);
+const SIDEBAR_REQUIRED_RESPONSE_KEYS = ['threads', 'agents', 'recent_turns', 'workspace', 'token_usage'];
 
 /** @param {string} method @param {unknown} value @param {string} path */
 function assertUIStateNonNegativeInteger(method, value, path) {
@@ -156,29 +151,15 @@ export function validateUIStateResponse(method, response) {
 /** @param {string} method @param {unknown} response */
 export function validateSidebarStateResponse(method, response) {
   const value = assertBackendResponseObject(method, response);
+  assertOnlyResponseKeys(method, value, SIDEBAR_STATE_RESPONSE_KEYS, 'body');
   const { activityStatsByThread, ...coreValue } = value;
-  validateCoreSidebarStateResponse(method, coreValue);
-  validateStateMaps(method, coreValue);
-  if (!hasOwn(value, 'activityStatsByThread')) return value;
-  const activityMap = assertResponseRecord(method, activityStatsByThread, 'activityStatsByThread');
-  for (const [threadId, candidate] of Object.entries(activityMap)) {
-    if (!normalizeString(threadId)) {
-      throw new TypeError(`${method} response activityStatsByThread thread id must be non-empty`);
-    }
-    const activity = assertResponseRecord(method, candidate, `activityStatsByThread.${threadId}`);
-    assertOnlyResponseKeys(method, activity, ACTIVITY_STATS_RESPONSE_KEYS, `activityStatsByThread.${threadId}`);
-    for (const key of ['lspCalls', 'commands', 'fileEdits']) {
-      assertNonNegativeInteger(method, activity[key], `activityStatsByThread.${threadId}.${key}`);
-    }
-    if (!hasOwn(activity, 'toolCalls')) continue;
-    const toolCalls = assertResponseRecord(method, activity.toolCalls, `activityStatsByThread.${threadId}.toolCalls`);
-    for (const [toolName, count] of Object.entries(toolCalls)) {
-      if (!normalizeString(toolName)) {
-        throw new TypeError(`${method} response activityStatsByThread.${threadId}.toolCalls tool name must be non-blank`);
-      }
-      assertNonNegativeInteger(method, count, `activityStatsByThread.${threadId}.toolCalls.${toolName}`);
+  for (const requiredField of SIDEBAR_REQUIRED_RESPONSE_KEYS) {
+    if (!hasOwn(value, requiredField)) {
+      throw new TypeError(`${method} response ${requiredField} is required`);
     }
   }
+  validateCoreSidebarStateResponse(method, coreValue);
+  validateStateMaps(method, value);
   return value;
 }
 

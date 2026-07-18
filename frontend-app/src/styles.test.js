@@ -2066,9 +2066,22 @@ describe('card layout styles', () => {
     expect(notice.margin).toBe('0');
     expect(notice['line-height']).toBe('1.35');
 
-    // contract: the card provides its own base surface styling
-    expect(card.background).toBe('var(--surface)');
-    expect(card.border).toBe('1px solid var(--border)');
+    // contract: MCP 卡片统一使用暗色主题变量底座（浅色/深色主题各自取值），
+    // 保证白色标题、说明与状态文字的对比度；颜色必须走 --mcp-card-* 变量而非硬编码。
+    expect(card.background).toBe('var(--mcp-card-bg)');
+    expect(card.border).toBe('1px solid var(--mcp-card-border)');
+    expect(card.color).toBe('var(--mcp-card-text)');
+
+    const lightTokens = declarationsFor(':root[data-theme="light"]');
+    const darkTokens = declarationsFor(':root[data-theme="dark"]');
+    for (const token of ['--mcp-card-bg', '--mcp-card-text', '--mcp-card-text-muted', '--mcp-card-border']) {
+      expect(lightTokens[token], `light ${token}`).toBeTruthy();
+      expect(darkTokens[token], `dark ${token}`).toBeTruthy();
+    }
+    expect(lightTokens['--mcp-card-text']).toBe('#ffffff');
+    // 两个主题的卡片底色都必须是暗色（亮度低），确保白色文字可读。
+    expect(lightTokens['--mcp-card-bg']).toMatch(/^#([0-5][0-9a-f]){3}$/i);
+    expect(darkTokens['--mcp-card-bg']).toMatch(/^#([0-5][0-9a-f]){3}$/i);
   });
 
   it('keeps card badges and actions horizontal beside long content', () => {
@@ -2151,6 +2164,32 @@ describe('fusion surface redesign contracts', () => {
 
     // contract: empty state must not use fusion background
     expect(emptyCard.background).toBe('var(--surface)');
+
+    // contract: empty state explicitly overrides 42vh
+    expect(emptyCard['min-height']).toBe('auto');
+  });
+
+  it('restricts workflow overview to a stable vertical column layout', () => {
+    const overview = declarationsFor('.workflow-overview');
+    const dl = declarationsFor('.workflow-overview dl');
+    const dd = declarationsFor('.workflow-overview dd');
+
+    // contract: workflow-overview must be column-based to avoid overflow
+    expect(overview.display).toBe('flex');
+    expect(overview['flex-direction']).toBe('column');
+    expect(overview['grid-template-columns']).toBeUndefined();
+
+    // contract: workflow-overview dl stats row uses flex-wrap and justify-content: center
+    expect(dl.display).toBe('flex');
+    expect(dl['flex-wrap']).toBe('wrap');
+    expect(dl['justify-content']).toBe('center');
+
+    // contract: no text clipping or ellipsis in stats; must wrap naturally
+    expect(dd['overflow']).toBeUndefined();
+    expect(dd['text-overflow']).toBeUndefined();
+    expect(dd['white-space']).toBeUndefined();
+    expect(dd['overflow-wrap']).toBe('anywhere');
+    expect(dd['word-break']).toBe('break-word');
   });
 });
 

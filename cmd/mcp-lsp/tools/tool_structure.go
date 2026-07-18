@@ -13,11 +13,10 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/shared"
 )
 
-// structureParams 是 structure 工具的入参，兼容 file_path/path 和 language 写法。
+// structureParams 是 structure 工具的入参，支持 file_path 和 language 写法。
 type structureParams struct {
 	Action     string `json:"action"`
 	FilePath   string `json:"file_path"`
-	Path       string `json:"path"`
 	LanguageID string `json:"language_id,omitempty"`
 	Query      string `json:"query"`
 	Language   string `json:"language"`
@@ -36,7 +35,6 @@ type documentSymbolListResponse struct {
 // NewStructureHandler 创建 structure 工具处理器，按 action 延迟选择文件或语言级 manager。
 func NewStructureHandler(registry lspmanager.Registry) ToolHandler {
 	return newManagerTool("structure", middleware.TierSlow, registry, decodeLenient, func(ctx context.Context, registry lspmanager.Registry, req structureParams) (any, error) {
-		req.FilePath = firstNonEmpty(req.FilePath, req.Path)
 		// Resolve the manager lazily per action: workspace_symbol can use
 		// the "language" parameter instead of "file_path", so we must not
 		// call GetManagerForFile unconditionally.

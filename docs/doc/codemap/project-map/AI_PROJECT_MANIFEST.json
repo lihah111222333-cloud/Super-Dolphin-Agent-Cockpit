@@ -4,14 +4,14 @@
   "rules_sources": [
     ".ai-project-map.overrides.json"
   ],
-  "files": 4587,
+  "files": 4598,
   "domains": {
-    "docs-agent": 953,
+    "docs-agent": 954,
     "other": 669,
-    "app-ui": 549,
-    "platform-provider": 1088,
+    "app-ui": 557,
+    "platform-provider": 1089,
     "orchestration": 391,
-    "modules": 733,
+    "modules": 734,
     "store-sql": 204
   },
   "index_files": {
@@ -21,8 +21,8 @@
       {
         "key": "app-ui",
         "file": "docs/doc/codemap/project-map/index/app-ui.tsv",
-        "file_count": 549,
-        "size_kb": 112.1,
+        "file_count": 557,
+        "size_kb": 113.7,
         "desc": "桌面应用、Wails host、React/Vite 前端与 UI 测试"
       },
       {
@@ -35,15 +35,15 @@
       {
         "key": "modules",
         "file": "docs/doc/codemap/project-map/index/modules.tsv",
-        "file_count": 733,
-        "size_kb": 142.7,
+        "file_count": 734,
+        "size_kb": 142.9,
         "desc": "业务模块层：dashboard、memory、prompt、skill、thread、turn、uistate 等"
       },
       {
         "key": "platform-provider",
         "file": "docs/doc/codemap/project-map/index/platform-provider.tsv",
-        "file_count": 1088,
-        "size_kb": 200.5,
+        "file_count": 1089,
+        "size_kb": 200.7,
         "desc": "基础设施与 provider 集成：RPC、hooks、toolbridge、Claude/Codex/统一 provider"
       },
       {
@@ -56,8 +56,8 @@
       {
         "key": "docs-agent",
         "file": "docs/doc/codemap/project-map/index/docs-agent.tsv",
-        "file_count": 953,
-        "size_kb": 171.6,
+        "file_count": 954,
+        "size_kb": 171.8,
         "desc": "代码地图、ADR/决策、计划与 docs 项目知识"
       },
       {
@@ -72,9 +72,9 @@
   "module_counts": {
     "(root)": 12,
     "cmd": 662,
-    "docs": 945,
-    "frontend-app": 544,
-    "internal": 2216,
+    "docs": 946,
+    "frontend-app": 552,
+    "internal": 2218,
     "pkg": 30,
     "scripts": 130,
     "sql": 29,
@@ -232,7 +232,7 @@
   ],
   "drift": {
     "status": "OK",
-    "unknown_ratio": 0.0031,
+    "unknown_ratio": 0.003,
     "unknown_files": 14,
     "thresholds": {
       "max_unknown_ratio": 0.05

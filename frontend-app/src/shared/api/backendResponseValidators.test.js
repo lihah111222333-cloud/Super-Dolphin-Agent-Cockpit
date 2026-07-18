@@ -135,6 +135,7 @@ describe('backend response validators', () => {
     expect(() => validate(RPC_METHODS.UI_SIDEBAR_GET, {
       threads: [],
       agents: [],
+      recent_turns: [],
       workspace: { runs: [] },
       token_usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0, usedTokens: 0 },
       activityStatsByThread: {
@@ -161,18 +162,42 @@ describe('backend response validators', () => {
     expect(validate(RPC_METHODS.UI_STATE_GET, camelResponse)).toBe(camelResponse);
   });
 
-  it('binds sidebar responses to their partial wire contract and validates status map types', () => {
+  it('requires complete sidebar snapshots and validates status map types', () => {
     const response = {
+      threads: [],
+      agents: [],
+      recent_turns: [],
+      workspace: { runs: [] },
+      token_usage: {
+        inputTokens: 0,
+        outputTokens: 0,
+        totalTokens: 0,
+        usedTokens: 0,
+      },
       statuses: { 'thread-1': 'running' },
       interruptibleByThread: { 'thread-1': true },
     };
 
     expect(validate(RPC_METHODS.UI_SIDEBAR_GET, response)).toBe(response);
+    for (const requiredField of ['threads', 'agents', 'recent_turns', 'workspace', 'token_usage']) {
+      const incompleteResponse = { ...response };
+      delete incompleteResponse[requiredField];
+      expect(() => validate(RPC_METHODS.UI_SIDEBAR_GET, incompleteResponse)).toThrow(
+        `ui/sidebar/get response ${requiredField} is required`,
+      );
+    }
+    const missingWorkspaceWithMalformedThread = { ...response, threads: [{ id: 7 }] };
+    delete missingWorkspaceWithMalformedThread.workspace;
+    expect(() => validate(
+      RPC_METHODS.UI_SIDEBAR_GET,
+      missingWorkspaceWithMalformedThread,
+    )).toThrow('ui/sidebar/get response workspace is required');
     expect(() => validate(RPC_METHODS.UI_SIDEBAR_GET, {
       ...response,
       surprise: true,
     })).toThrow('body must not include surprise');
     expect(() => validate(RPC_METHODS.UI_SIDEBAR_GET, {
+      ...response,
       interruptibleByThread: { 'thread-1': 'true' },
     })).toThrow(
       'ui/sidebar/get response interruptibleByThread.thread-1 must be a boolean',

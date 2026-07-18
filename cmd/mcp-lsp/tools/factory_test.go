@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -32,15 +33,28 @@ func TestDispatchToolActionReportsValidActionsAndClosestMatch(t *testing.T) {
 	}
 }
 
-func TestDispatchToolActionAcceptsLegacyFileReadAlias(t *testing.T) {
-	got, err := dispatchToolAction(common.WithToolScope(context.Background(), common.ToolScope{CWD: "/"}), "file", "read", struct{}{}, map[string]actionHandler[struct{}]{
-		"read_file": func(context.Context, struct{}) (any, error) { return "ok", nil },
-	})
-	if err != nil {
-		t.Fatalf("dispatch read alias error = %v", err)
+func TestDispatchToolActionRejectsLegacyFileAliases(t *testing.T) {
+	tests := []struct {
+		legacy  string
+		current string
+	}{
+		{legacy: "read", current: "read_file"},
+		{legacy: "open", current: "open_file"},
 	}
-	if got != "ok" {
-		t.Fatalf("dispatch read alias result = %#v, want ok", got)
+	for _, tc := range tests {
+		t.Run(tc.legacy, func(t *testing.T) {
+			got, err := dispatchToolAction(common.WithToolScope(context.Background(), common.ToolScope{CWD: "/"}), "file", tc.legacy, struct{}{}, map[string]actionHandler[struct{}]{
+				tc.current: func(context.Context, struct{}) (any, error) { return "ok", nil },
+			})
+			if err == nil {
+				t.Fatalf("dispatch %s alias error = nil, result = %#v; want unsupported action", tc.legacy, got)
+			}
+			for _, want := range []string{fmt.Sprintf(`unsupported file action %q`, tc.legacy), fmt.Sprintf(`legacy action %q is no longer accepted`, tc.legacy), fmt.Sprintf(`%q`, tc.current)} {
+				if !strings.Contains(err.Error(), want) {
+					t.Fatalf("dispatch %s alias error = %q, want %q", tc.legacy, err.Error(), want)
+				}
+			}
+		})
 	}
 }
 

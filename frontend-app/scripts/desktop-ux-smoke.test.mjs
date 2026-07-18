@@ -18,21 +18,21 @@ describe('desktop UX smoke command', () => {
       .toBe('/opt/chrome');
   });
 
-  it('uses independent ports and a short Postgres socket path', () => {
+  it('uses independent ports and an isolated SQLite dev flow', () => {
     const config = desktopUXSmokeConfig({
       PLAYWRIGHT_CHROMIUM_EXECUTABLE: '/opt/chrome',
       SUPER_DOLPHIN_PLAYWRIGHT_HTTP_ADDR: '127.0.0.1:4613',
       SUPER_DOLPHIN_PLAYWRIGHT_VITE_URL: 'http://127.0.0.1:5276',
       SUPER_DOLPHIN_PLAYWRIGHT_CTL_ADDR: '127.0.0.1:8193',
-      SUPER_DOLPHIN_PLAYWRIGHT_POSTGRES_PORT: '56434',
+      SUPER_DOLPHIN_PLAYWRIGHT_HOME: '/tmp/sd-home',
+      SUPER_DOLPHIN_PLAYWRIGHT_SQLITE_PATH: '/tmp/sd-home/smoke.db',
     }, '/repo/app');
 
     expect(config.httpAddr).toBe('127.0.0.1:4613');
     expect(config.viteURL).toBe('http://127.0.0.1:5276');
     expect(config.ctlAddr).toBe('127.0.0.1:8193');
-    expect(config.postgresPort).toBe(56434);
-    expect(config.postgresRuntimeDir).toMatch(/^[/\\]tmp[/\\]sd-pw-pg-56434-/);
-    expect(config.postgresRuntimeDir.length).toBeLessThan(60);
+    expect(config.superDolphinHome).toBe('/tmp/sd-home');
+    expect(config.sqlitePath).toBe('/tmp/sd-home/smoke.db');
   });
 
   it('builds the run-new-ui-desktop environment for UX smoke', () => {
@@ -43,8 +43,8 @@ describe('desktop UX smoke command', () => {
     expect(env.VITE_DEV_URL).toBe('http://127.0.0.1:5176');
     expect(env.FRONTEND_DEVSERVER_URL).toBe('http://127.0.0.1:5176');
     expect(env.GO_AGENT_CTL_RPC_ADDR).toBe('127.0.0.1:8093');
-    expect(env.SUPER_DOLPHIN_LOCAL_POSTGRES_PORT).toBe('55434');
-    expect(env.SUPER_DOLPHIN_LOCAL_POSTGRES_RUNTIME_DIR).toMatch(/^[/\\]tmp[/\\]sd-pw-pg-55434-/);
+    expect(env.SUPER_DOLPHIN_HOME).toMatch(/[/\\]\.tmp[/\\]playwright-super-dolphin-home-/);
+    expect(env.SUPER_DOLPHIN_SQLITE_PATH).toBe(`${env.SUPER_DOLPHIN_HOME}/super-dolphin.db`);
     expect(env.PLAYWRIGHT_CHROMIUM_EXECUTABLE).toBe('/opt/chrome');
     expect(env.SUPER_DOLPHIN_DESKTOP_UX_BASE_URL).toBe('http://127.0.0.1:5176');
   });

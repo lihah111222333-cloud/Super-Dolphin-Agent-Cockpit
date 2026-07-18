@@ -45,6 +45,39 @@ describe('memoryAdapter', () => {
     })).toThrow(/memory private entries must be an array/);
   });
 
+  it('fails fast when memory section entries are null instead of arrays', () => {
+    // Go 生产端（loadUIMemoryScope）保证 entries 始终为数组；
+    // null 属于非法 wire 形状，必须在 schema 边界 fail-fast，不得静默归一为空列表。
+    expect(() => normalizeMemorySnapshot({
+      overview: {},
+      private: { entries: null },
+      team: { entries: [] },
+    })).toThrow(/memory private entries must be an array/);
+    expect(() => normalizeMemorySnapshot({
+      overview: {},
+      private: { entries: [] },
+      team: { entries: null },
+    })).toThrow(/memory team entries must be an array/);
+  });
+
+  it('fails fast when memory section entries are missing entirely', () => {
+    expect(() => normalizeMemorySnapshot({
+      overview: {},
+      private: {},
+      team: { entries: [] },
+    })).toThrow(/memory private entries must be an array/);
+    expect(() => normalizeMemorySnapshot({
+      overview: {},
+      private: { entries: [] },
+      team: {},
+    })).toThrow(/memory team entries must be an array/);
+    expect(() => normalizeMemorySnapshot({
+      overview: {},
+      private: { entries: [] },
+      team: null,
+    })).toThrow(/memory team entries must be an array/);
+  });
+
   it('rejects malformed memory entries at the schema boundary', () => {
     expect(() => parseMemorySnapshotResponse(memorySnapshot([{ ...privateMemoryEntry, path: '' }], []))).toThrow('memory private entry 0 path is required');
 

@@ -775,7 +775,7 @@ else
   GO_AGENT_PEER_BIN_DIR="${GO_AGENT_PEER_BIN_DIR:-$PROJECT_DIR}"
 fi
 if [ -z "${SUPER_DOLPHIN_HOT_WATCH_PATHS+x}" ]; then
-  SUPER_DOLPHIN_HOT_WATCH_PATHS="cmd internal pkg migrations sql go.mod go.sum sqlc.yaml"
+  SUPER_DOLPHIN_HOT_WATCH_PATHS="cmd internal pkg sql go.mod go.sum sqlc.yaml"
 fi
 if [ -z "${SUPER_DOLPHIN_HOT_POLL_INTERVAL+x}" ]; then
   SUPER_DOLPHIN_HOT_POLL_INTERVAL="1"

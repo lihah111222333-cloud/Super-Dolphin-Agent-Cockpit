@@ -263,6 +263,10 @@ func (s *service) WriteLocal(ctx context.Context, path, content string, scopeAnd
 	if err != nil {
 		return nil, err
 	}
+	requestedScope, _ := resolveRequestedSkillTarget(scopeAndType...)
+	if err := requireExplicitSkillScope(requestedScope); err != nil {
+		return nil, err
+	}
 	target, err := s.prepareWriteLocalTarget(cwd, path, content, scopeAndType...)
 	if err != nil {
 		return nil, err
@@ -317,6 +321,9 @@ func (s *service) ImportLocalDir(ctx context.Context, p importSkillDirParams) (a
 	if err != nil {
 		return nil, err
 	}
+	if err := requireExplicitSkillScope(p.Scope); err != nil {
+		return nil, err
+	}
 	sources, mode, err := validateImportLocalDirParams(p)
 	if err != nil {
 		return nil, err
@@ -328,7 +335,10 @@ func (s *service) ImportLocalDir(ctx context.Context, p importSkillDirParams) (a
 		if name == "" && len(results) == 1 {
 			name, _ = results[0]["name"].(string)
 		}
-		resolvedScope, resolvedPersonalType, _ := normalizeSkillTarget(p.Scope, p.PersonalType)
+		resolvedScope, resolvedPersonalType, err := normalizeSkillTarget(p.Scope, p.PersonalType)
+		if err != nil {
+			return nil, rollbackImportedSkillResultsOnError(results, err)
+		}
 		s.publishSkillsChanged(ctx, "import_dir", name, resolvedScope)
 		report, err := s.publishWriteTimeMirrorsBlocking(ctx, cwd, resolvedScope, resolvedPersonalType, name)
 		if err != nil {
@@ -340,6 +350,14 @@ func (s *service) ImportLocalDir(ctx context.Context, p importSkillDirParams) (a
 		response["mirror_publish"] = report
 	}
 	return response, nil
+}
+
+// rollbackImportedSkillResultsOnError 回滚已导入结果并保留触发回滚的原始错误。
+func rollbackImportedSkillResultsOnError(results []map[string]any, err error) error {
+	if rollbackErr := rollbackImportedSkillResults(results); rollbackErr != nil {
+		return errors.Join(err, fmt.Errorf("rollback imported skills: %w", rollbackErr))
+	}
+	return err
 }
 
 // validateImportLocalDirParams 规范化导入模式并收集本地来源目录。

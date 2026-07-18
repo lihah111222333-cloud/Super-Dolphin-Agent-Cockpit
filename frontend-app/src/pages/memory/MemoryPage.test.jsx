@@ -20,11 +20,11 @@ const backend = vi.hoisted(() => ({
 
 vi.mock('./services/memoryPageService.js', () => backend);
 
-function memorySnapshot({ privateEntries = [], similarGroups = [], similarityDegraded, teamEntries = [] } = {}) {
+function memorySnapshot({ privateEntries = [], similarGroups = [], similarityDegraded, teamEntries = [], autoDream = {} } = {}) {
   return {
     overview: {
-      autoDreamEnabled: false,
-      autoDreamIntent: null,
+      autoDreamEnabled: autoDream.enabled === true,
+      autoDreamIntent: autoDream.intent === undefined ? null : autoDream.intent,
       health: {
         preferenceCount: privateEntries.length,
         projectCount: teamEntries.length,
@@ -353,6 +353,56 @@ describe('MemoryPage editor', () => {
 		await waitFor(() => {
 			expect(backend.setMemoryAutoDreamIntent).toHaveBeenCalledWith({ cwd: '/repo/app', enabled: true });
 		});
+	});
+
+	it('shows explicit feedback when the auto-dream toggle does not take effect', async () => {
+		backend.setMemoryAutoDreamIntent.mockResolvedValue({ ok: true, enabled: true });
+		renderMemoryPage('/repo/app');
+
+		fireEvent.click(await screen.findByRole('button', { name: '开启' }));
+
+		await waitFor(() => {
+			expect(backend.setMemoryAutoDreamIntent).toHaveBeenCalledWith({ cwd: '/repo/app', enabled: true });
+		});
+		// 快照回读的 intent 仍为 null（后端读写路径不一致）时，必须给出明确的未生效反馈，
+		// 不能假装切换成功。
+		expect(await screen.findByText(/自动沉淀切换未生效/)).toBeInTheDocument();
+		expect(screen.queryByText(/重启 燧元 后生效/)).not.toBeInTheDocument();
+	});
+
+	it('confirms the auto-dream toggle when the snapshot reflects the new intent', async () => {
+		backend.setMemoryAutoDreamIntent.mockResolvedValue({ ok: true, enabled: true });
+		fetchMemoryDashboard
+			.mockResolvedValueOnce(normalizeMemorySnapshot(memorySnapshot()))
+			.mockResolvedValue(normalizeMemorySnapshot(memorySnapshot({ autoDream: { intent: true } })));
+		renderMemoryPage('/repo/app');
+
+		fireEvent.click(await screen.findByRole('button', { name: '开启' }));
+
+		expect(await screen.findByText(/自动沉淀已切换为开启/)).toBeInTheDocument();
+		await waitFor(() => {
+			expect(backend.setMemoryAutoDreamIntent).toHaveBeenCalledWith({ cwd: '/repo/app', enabled: true });
+		});
+		expect(await screen.findByRole('button', { name: '关闭' })).toBeInTheDocument();
+	});
+
+	it('guides project selection for create menu and auto-dream toggle without a project', async () => {
+		renderMemoryPage('未选择项目');
+
+		const createButton = await screen.findByRole('button', { name: '+ 新建 ▾' });
+		// 未选择项目时按钮不再原生禁用（保留焦点与点击能力），点击后给出明确引导。
+		expect(createButton).not.toBeDisabled();
+		expect(createButton).toHaveAttribute('aria-disabled', 'true');
+		fireEvent.click(createButton);
+		expect(await screen.findByText('请先在聊天页选择项目，再创建记忆。')).toBeInTheDocument();
+		expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+
+		const toggle = screen.getByRole('button', { name: '开启' });
+		expect(toggle).not.toBeDisabled();
+		expect(toggle).toHaveAttribute('aria-disabled', 'true');
+		fireEvent.click(toggle);
+		expect(await screen.findByText('请先在聊天页选择项目，再切换自动沉淀。')).toBeInTheDocument();
+		expect(backend.setMemoryAutoDreamIntent).not.toHaveBeenCalled();
 	});
 });
 

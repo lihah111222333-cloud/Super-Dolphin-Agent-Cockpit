@@ -191,7 +191,7 @@ func TestWriteLocalRejectsPersonalAbsolutePathWithoutPersonalTarget(t *testing.T
 	audit := &capturingSkillAuditStore{}
 	svc := &service{projectRoot: project, projectSkillsRoot: defaultProjectSkillsRoot(project), superDolphinHome: superDolphinHome, auditStore: audit}
 
-	_, err := svc.WriteLocal(skillTestContext(project), filepath.Join(personalDir, skillMainFile), "---\nname: notes\n---\nafter")
+	_, err := svc.WriteLocal(skillTestContext(project), filepath.Join(personalDir, skillMainFile), "---\nname: notes\n---\nafter", skillScopeProject)
 	if err == nil || !strings.Contains(err.Error(), "does not match requested scope") {
 		t.Fatalf("WriteLocal personal absolute path error = %v, want scope mismatch", err)
 	}

@@ -8,7 +8,6 @@ import { fileURLToPath } from 'node:url';
 const DEFAULT_HTTP_ADDR = '127.0.0.1:4513';
 const DEFAULT_VITE_URL = 'http://127.0.0.1:5176';
 const DEFAULT_CTL_ADDR = '127.0.0.1:8093';
-const DEFAULT_POSTGRES_PORT = 55434;
 const DEFAULT_TIMEOUT_MS = 180000;
 const DEFAULT_CHROME_PATH = '/usr/bin/google-chrome';
 
@@ -23,8 +22,11 @@ export function resolveChromeExecutable(env = process.env, exists = existsSync) 
 }
 
 export function desktopUXSmokeConfig(env = process.env, repoRoot = repoRootFromScript()) {
-  const postgresPort = positiveInt(env.SUPER_DOLPHIN_PLAYWRIGHT_POSTGRES_PORT, DEFAULT_POSTGRES_PORT);
-  const runID = `${postgresPort}-${process.pid}`;
+  const runID = `${process.pid}`;
+  const superDolphinHome = env.SUPER_DOLPHIN_PLAYWRIGHT_HOME
+    || path.join(repoRoot, '.tmp', `playwright-super-dolphin-home-${runID}`);
+  const sqlitePath = env.SUPER_DOLPHIN_PLAYWRIGHT_SQLITE_PATH
+    || path.join(superDolphinHome, 'super-dolphin.db');
   return {
     repoRoot,
     frontendRoot: path.join(repoRoot, 'frontend-app'),
@@ -32,9 +34,8 @@ export function desktopUXSmokeConfig(env = process.env, repoRoot = repoRootFromS
     httpAddr: env.SUPER_DOLPHIN_PLAYWRIGHT_HTTP_ADDR || DEFAULT_HTTP_ADDR,
     viteURL: env.SUPER_DOLPHIN_PLAYWRIGHT_VITE_URL || DEFAULT_VITE_URL,
     ctlAddr: env.SUPER_DOLPHIN_PLAYWRIGHT_CTL_ADDR || DEFAULT_CTL_ADDR,
-    postgresPort,
-    postgresDataDir: env.SUPER_DOLPHIN_PLAYWRIGHT_POSTGRES_DATA_DIR || path.join(repoRoot, '.tmp', `playwright-pgdata-${runID}`),
-    postgresRuntimeDir: env.SUPER_DOLPHIN_PLAYWRIGHT_POSTGRES_RUNTIME_DIR || path.join('/tmp', `sd-pw-pg-${runID}`),
+    superDolphinHome,
+    sqlitePath,
     chromeExecutable: resolveChromeExecutable(env),
     timeoutMs: positiveInt(env.SUPER_DOLPHIN_PLAYWRIGHT_TIMEOUT_MS, DEFAULT_TIMEOUT_MS),
   };
@@ -55,10 +56,8 @@ export function buildDesktopUXEnv(config, baseEnv = process.env) {
     GO_AGENT_CTL_RPC_ADDR: config.ctlAddr,
     VITE_DEV_URL: config.viteURL,
     FRONTEND_DEVSERVER_URL: config.viteURL,
-    SUPER_DOLPHIN_LOCAL_POSTGRES_PORT: String(config.postgresPort),
-    SUPER_DOLPHIN_LOCAL_POSTGRES_DATA_DIR: config.postgresDataDir,
-    SUPER_DOLPHIN_LOCAL_POSTGRES_RUNTIME_DIR: config.postgresRuntimeDir,
-    SUPER_DOLPHIN_LOCAL_POSTGRES_LOG: path.join(logDir, 'postgres.log'),
+    SUPER_DOLPHIN_HOME: config.superDolphinHome,
+    SUPER_DOLPHIN_SQLITE_PATH: config.sqlitePath,
     SUPER_DOLPHIN_BACKEND_LOG: path.join(logDir, 'backend.log'),
     SUPER_DOLPHIN_FRONTEND_LOG: path.join(logDir, 'frontend.log'),
     SUPER_DOLPHIN_DESKTOP_SMOKE_ACTIVE: '1',
@@ -87,7 +86,7 @@ export async function runDesktopUXSmoke(config = desktopUXSmokeConfig(), deps = 
 }
 
 async function assertSmokePortsFree(config) {
-  for (const value of [config.httpAddr, config.ctlAddr, `127.0.0.1:${config.postgresPort}`, new URL(config.viteURL).host]) {
+  for (const value of [config.httpAddr, config.ctlAddr, new URL(config.viteURL).host]) {
     await assertPortFree(value);
   }
 }
@@ -186,9 +185,12 @@ async function stopProcessTree(child) {
 }
 
 function cleanupCreatedPaths(config) {
-  for (const dir of [config.postgresRuntimeDir, config.postgresDataDir]) {
-    if (dir.startsWith('/tmp/sd-pw-pg-') || dir.includes(`${path.sep}.tmp${path.sep}playwright-pgdata-`)) {
-      rmSync(dir, { recursive: true, force: true });
+  if (config.superDolphinHome.includes(`${path.sep}.tmp${path.sep}playwright-super-dolphin-home-`)) {
+    rmSync(config.superDolphinHome, { recursive: true, force: true });
+  }
+  if (config.sqlitePath.includes(`${path.sep}.tmp${path.sep}playwright-sqlite-`)) {
+    for (const file of [config.sqlitePath, `${config.sqlitePath}-wal`, `${config.sqlitePath}-shm`]) {
+      rmSync(file, { force: true });
     }
   }
 }

@@ -202,6 +202,10 @@ func wrappedMCPToolName(family, name string) string {
 	return WrapMCPToolName(family, name)
 }
 
+func canonicalSkillToolName(name string) string {
+	return "skill__" + strings.TrimSpace(name)
+}
+
 // addMCPToolAlias 给工具补短别名；第三方 server 的短别名冲突时跳过，
 // 冲突工具仍可通过完整命名空间名调用。
 func addMCPToolAlias(surface *codexToolSurface, family, alias, canonical string) error {
@@ -228,14 +232,15 @@ func (h *Handler) addSkillSurfaceTools(
 		return fmt.Errorf("toolbridge: list skill tools for codex surface: %w", err)
 	}
 	for _, tool := range tools {
-		name := strings.TrimSpace(tool.Name)
-		if disabledName, ok := disabled.match(name); ok {
+		realName := strings.TrimSpace(tool.Name)
+		name := canonicalSkillToolName(realName)
+		if disabledName, ok := disabled.match(realName, name); ok {
 			if err := addDisabledSurfaceToolAliases(surface, disabledName, name); err != nil {
 				return err
 			}
 			continue
 		}
-		entry := codexToolEntry{name: name, realName: name, executionKind: "skill", family: "skill"}
+		entry := codexToolEntry{name: name, realName: realName, executionKind: "skill", family: "skill"}
 		schema := mcpdto.MCPTool{
 			Name:         name,
 			Description:  strings.TrimSpace(tool.Description),
