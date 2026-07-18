@@ -146,6 +146,29 @@ func TestCompleteRecoveryRestoreFailureKeepsSurfaceOpen(t *testing.T) {
 	}
 }
 
+func TestCompleteRecoveryRestoreProjectionFailureStillQuits(t *testing.T) {
+	projectionErr := errors.New("projection refresh failed")
+	var order []string
+	state, err := completeRecoveryRestore(context.Background(), recoveryRestoreOps{
+		Restore: func(context.Context) (recovery.Transaction, error) {
+			order = append(order, "restore")
+			return recovery.Transaction{}, nil
+		},
+		Projection: func(context.Context) (app.RecoveryProjection, error) {
+			order = append(order, "projection")
+			return app.RecoveryProjection{}, projectionErr
+		},
+		Quit: func() { order = append(order, "quit") },
+	})
+	want := []string{"restore", "projection", "quit"}
+	if !errors.Is(err, projectionErr) || state != (recoverySurfaceState{}) {
+		t.Fatalf("completeRecoveryRestore() state=%#v error=%v, want zero/%v", state, err, projectionErr)
+	}
+	if !slices.Equal(order, want) {
+		t.Fatalf("completeRecoveryRestore() order=%v, want %v", order, want)
+	}
+}
+
 func TestRecoverySurfaceFieldGuard(t *testing.T) {
 	frontend := readRecoveryClientSource(t)
 	projection := app.RecoveryProjection{

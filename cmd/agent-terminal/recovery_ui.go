@@ -124,12 +124,12 @@ func completeRecoveryRestore(ctx context.Context, ops recoveryRestoreOps) (recov
 	if err != nil {
 		return recoverySurfaceState{}, err
 	}
+	defer ops.Quit()
 	projection, err := ops.Projection(ctx)
 	if err != nil {
 		return recoverySurfaceState{}, err
 	}
 	state := newRecoverySurfaceState(projection, "restore")
-	ops.Quit()
 	return state, nil
 }
 
