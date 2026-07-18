@@ -1919,6 +1919,18 @@
       ]
     },
     {
+      "actionId": "turn.terminal.copy-diagnostics",
+      "producerCount": 1,
+      "kind": "user",
+      "owner": "turn/terminal",
+      "visibleSink": "ActionFailureSink",
+      "healthSink": "frontendHealthStore",
+      "errorSources": [
+        "sync-throw",
+        "promise-reject"
+      ]
+    },
+    {
       "actionId": "workflow.output.preview",
       "producerCount": 1,
       "kind": "user",

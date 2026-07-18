@@ -209,6 +209,6 @@ func applyTerminalDependencies(terminal *TurnTerminalV2, ev TurnCompleted) {
 func terminalPublicError(diagnosticID, code, title, message string) *PublicErrorV1 {
 	return &PublicErrorV1{
 		Code: code, Title: title, Message: message, DiagnosticID: diagnosticID,
-		Retryable: true, RecoveryActions: []string{"retry", "copy_diagnostics"},
+		Retryable: false, RecoveryActions: []string{"copy_diagnostics"},
 	}
 }

@@ -1,10 +1,13 @@
 import React from 'react';
 import { readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { expect, it, vi } from 'vitest';
 import { TimelineLoadingPlaceholder, TimelineMessage, UserMessageAttachments } from './TimelineMessage.jsx';
 import { resolveAttachmentImageSrc } from './timelineMessageModel.js';
+import { copyTextToClipboard } from '../services/chatCodeService.js';
+
+vi.mock('../services/chatCodeService.js', () => ({ copyTextToClipboard: vi.fn() }));
 
 const formatTime = () => '16:00';
 const screenshotName = '\u5c4f\u5e55\u622a\u56fe 2026-06-13 170324.png';
@@ -73,7 +76,8 @@ function localScreenshotPath(separator) {
     expect(screen.queryByText('\u601d\u8003\u4e2d')).not.toBeInTheDocument();
   });
 
-  it('renders failed terminals as alerts and user cancellation as neutral status', () => {
+  it('renders failed terminals with executable diagnostics copy and user cancellation as neutral status', async () => {
+    copyTextToClipboard.mockResolvedValueOnce(true);
     const { rerender } = render(
       <TimelineMessage
         message={{
@@ -81,7 +85,14 @@ function localScreenshotPath(separator) {
           role: 'assistant',
           kind: 'turn_terminal',
           terminalOutcome: 'failed',
-          publicError: { title: '运行失败', message: '本轮执行失败' },
+          publicError: {
+            code: 'PROVIDER_FAILED',
+            title: '运行失败',
+            message: '本轮执行失败',
+            diagnosticId: 'diag-terminal-1',
+            retryable: false,
+            recoveryActions: ['copy_diagnostics'],
+          },
           time: '2026-07-16T01:00:00Z',
           done: true,
         }}
@@ -91,6 +102,16 @@ function localScreenshotPath(separator) {
 
     expect(screen.getByRole('alert')).toHaveTextContent('运行失败');
     expect(screen.getByRole('alert')).toHaveTextContent('本轮执行失败');
+    expect(screen.getByRole('alert')).toHaveTextContent('诊断 ID：diag-terminal-1');
+    expect(screen.queryByRole('button', { name: /重试/ })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '复制诊断信息 diag-terminal-1' }));
+    await waitFor(() => expect(copyTextToClipboard).toHaveBeenCalledWith([
+      'Diagnostic ID: diag-terminal-1',
+      'Code: PROVIDER_FAILED',
+      'Title: 运行失败',
+      'Message: 本轮执行失败',
+    ].join('\n')));
+    expect(screen.getByRole('button', { name: '复制诊断信息 diag-terminal-1' })).toHaveTextContent('已复制');
 
     rerender(
       <TimelineMessage
@@ -109,6 +130,35 @@ function localScreenshotPath(separator) {
 
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
     expect(screen.getByRole('status')).toHaveTextContent('已取消');
+  });
+
+  it('shows copy failure feedback and omits actions the terminal did not advertise', async () => {
+    copyTextToClipboard.mockRejectedValueOnce(new Error('clipboard unavailable'));
+    const error = {
+      code: 'TURN_TERMINATED',
+      title: '执行已结束',
+      message: '系统结束了本轮执行',
+      diagnosticId: 'diag-terminal-2',
+      retryable: false,
+      recoveryActions: ['copy_diagnostics'],
+    };
+    const { rerender } = render(
+      <TimelineMessage
+        message={{ id: 'terminal-2', role: 'assistant', kind: 'turn_terminal', terminalOutcome: 'failed', publicError: error, time: '2026-07-16T01:00:00Z', done: true }}
+        formatTime={formatTime}
+      />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: '复制诊断信息 diag-terminal-2' }));
+    await waitFor(() => expect(screen.getByRole('button', { name: '复制诊断信息 diag-terminal-2' })).toHaveTextContent('复制失败，请重试'));
+
+    rerender(
+      <TimelineMessage
+        message={{ ...error, id: 'terminal-3', role: 'assistant', kind: 'turn_terminal', terminalOutcome: 'failed', publicError: { ...error, recoveryActions: [] }, time: '2026-07-16T01:00:00Z', done: true }}
+        formatTime={formatTime}
+      />
+    );
+    expect(screen.queryByRole('button', { name: /复制诊断信息/ })).not.toBeInTheDocument();
   });
 
   it('opens generated image previews rendered inside assistant markdown', () => {
