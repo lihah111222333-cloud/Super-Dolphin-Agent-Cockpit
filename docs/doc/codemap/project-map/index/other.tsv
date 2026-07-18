@@ -23,10 +23,10 @@ cmd/super-dolphin-updater/main.go	cmd	other	go-source	9716	Super-Dolphin updater
 cmd/super-dolphin-updater/package_trust_test.go	cmd	other	go-test	5711	Super-Dolphin updater install and detach command	cmd,super,dolphin,updater,package,trust,test,Super-Dolphin,install,and,detach,command
 cmd/super-dolphin-updater/package_trust.go	cmd	other	go-source	16851	Super-Dolphin updater install and detach command	cmd,super,dolphin,updater,package,trust,Super-Dolphin,install,and,detach,command
 cmd/super-dolphin-updater/probation_rollback_test.go	cmd	other	go-test	21552	Super-Dolphin updater install and detach command	cmd,super,dolphin,updater,probation,rollback,test,Super-Dolphin,install,and,detach,command
-cmd/super-dolphin-updater/probation.go	cmd	other	go-source	25962	Super-Dolphin updater install and detach command	cmd,super,dolphin,updater,probation,Super-Dolphin,install,and,detach,command
-cmd/super-dolphin-updater/process_guard_unix_test.go	cmd	other	go-test	9087	Super-Dolphin updater install and detach command	cmd,super,dolphin,updater,process,guard,unix,test,Super-Dolphin,install,and,detach,command
+cmd/super-dolphin-updater/probation.go	cmd	other	go-source	26025	Super-Dolphin updater install and detach command	cmd,super,dolphin,updater,probation,Super-Dolphin,install,and,detach,command
+cmd/super-dolphin-updater/process_guard_unix_test.go	cmd	other	go-test	10166	Super-Dolphin updater install and detach command	cmd,super,dolphin,updater,process,guard,unix,test,Super-Dolphin,install,and,detach,command
 cmd/super-dolphin-updater/process_guard_unix.go	cmd	other	go-source	9853	Super-Dolphin updater install and detach command	cmd,super,dolphin,updater,process,guard,unix,Super-Dolphin,install,and,detach,command
-cmd/super-dolphin-updater/process_guard_windows_test.go	cmd	other	go-test	1499	Super-Dolphin updater install and detach command	cmd,super,dolphin,updater,process,guard,windows,test,Super-Dolphin,install,and,detach,command
+cmd/super-dolphin-updater/process_guard_windows_test.go	cmd	other	go-test	2126	Super-Dolphin updater install and detach command	cmd,super,dolphin,updater,process,guard,windows,test,Super-Dolphin,install,and,detach,command
 cmd/super-dolphin-updater/process_guard_windows.go	cmd	other	go-source	6777	Super-Dolphin updater install and detach command	cmd,super,dolphin,updater,process,guard,windows,Super-Dolphin,install,and,detach,command
 go.mod	(root)	other	mod	3841	仓库根级配置、入口或说明文件	go,仓库根级配置,入口或说明文件
 internal/app/app_test.go	internal	other	go-test	8430	root Fx/app 装配、runner 与 graph closure	internal,app,test,root,Fx,装配,runner,与,graph,closure

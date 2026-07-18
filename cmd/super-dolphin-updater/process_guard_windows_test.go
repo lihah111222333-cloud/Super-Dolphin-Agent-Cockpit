@@ -3,12 +3,30 @@
 package main
 
 import (
+	"context"
 	"errors"
+	"io"
 	"os/exec"
 	"testing"
 
 	"golang.org/x/sys/windows"
 )
+
+func TestGuardStdoutPipeFailureAcceptsNilWindowsPrelease(t *testing.T) {
+	cmd := exec.Command("super-dolphin-guard")
+	cmd.Stdout = io.Discard
+	lease, err := configureGuardProcessTree(cmd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stdout, _, returnedLease, err := startDetachedGuardProcess(context.Background(), cmd, "unused", "unused", lease)
+	if err == nil {
+		t.Fatal("startDetachedGuardProcess() error = nil, want StdoutPipe failure")
+	}
+	if stdout != nil || returnedLease != nil {
+		t.Fatalf("startDetachedGuardProcess() returned stdout=%v lease=%v, want nil results", stdout != nil, returnedLease != nil)
+	}
+}
 
 func TestConfigureGuardProcessTreeSuspendsBeforeJobAttach(t *testing.T) {
 	cmd := exec.Command("super-dolphin-guard")

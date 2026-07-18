@@ -102,6 +102,27 @@ func TestGuardProcessTreeKillsDescendantWhenDirectGuardExitsOnTERM(t *testing.T)
 	assertGuardFixturePIDGone(t, descendantPID)
 }
 
+func TestGuardStdoutPipeFailureReapsLeasePIDAndPGID(t *testing.T) {
+	cmd := exec.Command(os.Args[0], "-test.run=^$")
+	cmd.Stdout = io.Discard
+	lease, err := configureGuardProcessTree(cmd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	leasePID := lease.leaseCmd.Process.Pid
+	leasePGID := lease.pgid
+
+	stdout, _, returnedLease, err := startDetachedGuardProcess(t.Context(), cmd, "unused", "unused", lease)
+	if err == nil || !strings.Contains(err.Error(), "Stdout already set") {
+		t.Fatalf("startDetachedGuardProcess() error = %v, want StdoutPipe failure", err)
+	}
+	if stdout != nil || returnedLease != nil {
+		t.Fatalf("startDetachedGuardProcess() returned stdout=%v lease=%v, want nil results", stdout != nil, returnedLease != nil)
+	}
+	assertGuardFixturePIDGone(t, leasePID)
+	assertGuardFixturePGIDGone(t, leasePGID)
+}
+
 type guardTreeTestProcess struct {
 	cmd           *exec.Cmd
 	stdout        io.ReadCloser
@@ -305,5 +326,15 @@ func assertGuardFixturePIDGone(t *testing.T, pid int) {
 			t.Fatalf("fixture PID %d is still present: %v", pid, err)
 		}
 		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+func assertGuardFixturePGIDGone(t *testing.T, pgid int) {
+	t.Helper()
+	if pgid <= 1 {
+		t.Fatalf("invalid fixture PGID %d", pgid)
+	}
+	if err := syscall.Kill(-pgid, 0); !errors.Is(err, syscall.ESRCH) {
+		t.Fatalf("fixture PGID %d is still present: %v", pgid, err)
 	}
 }

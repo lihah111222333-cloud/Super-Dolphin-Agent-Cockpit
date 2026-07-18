@@ -465,7 +465,10 @@ func startDetachedGuardProcess(
 ) (io.ReadCloser, recovery.ProcessIdentity, *guardProcessTreeLease, error) {
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
-		return nil, recovery.ProcessIdentity{}, nil, fmt.Errorf("open detached Guard readiness pipe: %w", err)
+		return nil, recovery.ProcessIdentity{}, nil, errors.Join(
+			fmt.Errorf("open detached Guard readiness pipe: %w", err),
+			stopUnattachedGuardProcessTree(lease),
+		)
 	}
 	if err := cmd.Start(); err != nil {
 		return nil, recovery.ProcessIdentity{}, nil, errors.Join(fmt.Errorf("start detached Guard: %w", err), stopUnattachedGuardProcessTree(lease))
