@@ -1,7 +1,7 @@
-import { spawnSync } from 'node:child_process';
 import { join } from 'node:path';
 import { cwd, execPath } from 'node:process';
 import { describe, expect, it } from 'vitest';
+import { runManagedCommand } from './managed-command.mjs';
 import {
   DELIVERY_CASE_IDS,
   DELIVERY_COMMANDS,
@@ -63,12 +63,14 @@ describe('delivery smoke runner', () => {
     expect(calls).toBe(0);
   });
 
-  it('runs the complete integration delivery surface in final verify mode', () => {
-    const result = spawnSync(execPath, [join(cwd(), 'scripts/delivery-smoke-runner.mjs'), '--verify'], {
+  it('runs the complete integration delivery surface in final verify mode', async () => {
+    const result = await runManagedCommand(execPath, [join(cwd(), 'scripts/delivery-smoke-runner.mjs'), '--verify'], {
       cwd: cwd(),
-      encoding: 'utf8',
+      timeoutMs: 300_000,
+      killGraceMs: 20_000,
     });
-    expect(result.status).toBe(0);
+    expect(result.timedOut).toBe(false);
+    expect(result.status, result.stderr).toBe(0);
     const report = JSON.parse(result.stdout);
     expect(report.caseIds).toEqual(DELIVERY_CASE_IDS);
     expect(report.testCount).toBe(DELIVERY_CASE_IDS.length);
@@ -76,5 +78,5 @@ describe('delivery smoke runner', () => {
       status: 'PASS',
       commands: expect.arrayContaining(DELIVERY_COMMANDS.map(({ id }) => expect.objectContaining({ id, status: 'PASS' }))),
     }));
-  }, 120_000);
+  }, 325_000);
 });

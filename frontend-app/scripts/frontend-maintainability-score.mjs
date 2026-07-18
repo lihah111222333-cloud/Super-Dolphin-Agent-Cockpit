@@ -1441,11 +1441,50 @@ function mountDetachedDependencies(sourceAppRoot, detachedAppRoot) {
 function withDetachedSubject(context, callback) {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'frontend-maintainability-subject-'));
   const detachedRoot = path.join(fs.realpathSync(tempRoot), 'repo');
-  execFileSync('git', ['worktree', 'add', '--detach', detachedRoot, context.subjectSha], {
-    cwd: context.repoRoot,
-    stdio: 'ignore',
-  });
+  let worktreeRemoved = false;
+  let tempRootRemoved = false;
+  const cleanup = () => {
+    if (!worktreeRemoved) {
+      if (fs.existsSync(detachedRoot)) {
+        try {
+          execFileSync('git', ['worktree', 'remove', '--force', detachedRoot], { cwd: context.repoRoot, stdio: 'ignore' });
+        }
+        catch (removeError) {
+          fs.rmSync(detachedRoot, { recursive: true, force: true });
+          execFileSync('git', ['worktree', 'prune'], { cwd: context.repoRoot, stdio: 'ignore' });
+          const registered = git(context.repoRoot, ['worktree', 'list', '--porcelain']);
+          if (registered.includes(`worktree ${detachedRoot}`)) throw removeError;
+        }
+      }
+      else {
+        execFileSync('git', ['worktree', 'prune'], { cwd: context.repoRoot, stdio: 'ignore' });
+      }
+      worktreeRemoved = true;
+    }
+    if (!tempRootRemoved) {
+      fs.rmSync(tempRoot, { recursive: true, force: true });
+      tempRootRemoved = true;
+    }
+  };
+  const terminate = (signal) => {
+    try {
+      cleanup();
+    }
+    catch (error) {
+      process.stderr.write(`detached subject cleanup failed after ${signal}: ${error.message}\n`);
+      process.exit(1);
+    }
+    process.exit(signal === 'SIGINT' ? 130 : 143);
+  };
+  const onInterrupt = () => terminate('SIGINT');
+  const onTerminate = () => terminate('SIGTERM');
+  process.once('SIGINT', onInterrupt);
+  process.once('SIGTERM', onTerminate);
   try {
+    execFileSync('git', ['worktree', 'add', '--detach', detachedRoot, context.subjectSha], {
+      cwd: context.repoRoot,
+      stdio: 'ignore',
+    });
     const executionContext = contextForExecution(context, fs.realpathSync(detachedRoot));
     const dependencies = dependencySource(context);
     const detachedNodeModules = path.join(executionContext.appRoot, 'node_modules');
@@ -1455,8 +1494,9 @@ function withDetachedSubject(context, callback) {
     return callback(executionContext);
   }
   finally {
-    execFileSync('git', ['worktree', 'remove', '--force', detachedRoot], { cwd: context.repoRoot, stdio: 'ignore' });
-    fs.rmSync(tempRoot, { recursive: true, force: true });
+    process.off('SIGINT', onInterrupt);
+    process.off('SIGTERM', onTerminate);
+    cleanup();
   }
 }
 
