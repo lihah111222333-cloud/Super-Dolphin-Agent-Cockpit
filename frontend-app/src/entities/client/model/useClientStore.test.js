@@ -6029,7 +6029,27 @@ function registerBridgeEventHandlersForTest() {
         },
       };
       bridgeCallback(firstTerminal);
+      backend.emitFrontendTraceEvent.mockClear();
       bridgeCallback(firstTerminal);
+      expect(backend.emitFrontendTraceEvent).not.toHaveBeenCalled();
+      bridgeCallback({
+        type: 'turn/terminal',
+        payload: {
+          schemaVersion: 2,
+          eventId: 'terminal-first',
+          threadId: 'thread-1',
+          turnId: 'turn-1',
+          outcome: 'success',
+          occurredAt: '2026-07-16T01:00:01Z',
+        },
+      });
+      bridgeCallback({
+        ...firstTerminal,
+        payload: {
+          ...firstTerminal.payload,
+          eventId: 'terminal-replayed-content',
+        },
+      });
       bridgeCallback({
         type: 'turn/terminal',
         payload: {
@@ -6047,7 +6067,12 @@ function registerBridgeEventHandlersForTest() {
       });
       bridgeCallback({
         type: 'turn/output/delta',
-        payload: { threadId: 'thread-1', turnId: 'turn-1', itemId: 'partial-late', delta: 'late mutation' },
+        payload: {
+          threadId: 'thread-1',
+          turnId: 'turn-1',
+          itemId: 'partial-late',
+          delta: 'late mutation token=super-secret-value',
+        },
       });
       await flushAssistantDeltaBatch();
 
@@ -6062,8 +6087,22 @@ function registerBridgeEventHandlersForTest() {
         expect.objectContaining({ text: expect.stringContaining('late mutation') }),
       ]));
       expect(state.warningEntries).toEqual([
+        expect.objectContaining({
+          event: 'turn.event.late',
+          threadId: 'thread-1',
+          fields: expect.objectContaining({ eventName: 'turn/output/delta', turn_id: 'turn-1' }),
+          occurrenceCount: 1,
+        }),
+        expect.objectContaining({
+          event: 'turn.terminal.conflict',
+          threadId: 'thread-1',
+          fields: expect.objectContaining({ eventName: 'turn/terminal', turn_id: 'turn-1' }),
+          occurrenceCount: 3,
+        }),
         expect.objectContaining({ event: 'turn.terminal.failed' }),
       ]);
+      expect(JSON.stringify(state.warningEntries)).not.toContain('super-secret-value');
+      expect(JSON.stringify(backend.emitFrontendTraceEvent.mock.calls)).not.toContain('super-secret-value');
       expect(backend.emitFrontendTraceEvent).toHaveBeenCalledWith(expect.objectContaining({
         phase: 'frontend.turn_event.rejected',
         method: 'turn.terminal.conflict',
@@ -6113,7 +6152,13 @@ function registerBridgeEventHandlersForTest() {
     expect(state.timelinesByThread['thread-1']).toBe(timeline);
     expect(state.actionNotice).toBe(actionNotice);
     expect(state.timelinesByThread['thread-1'][1]).toEqual(expect.objectContaining({ done: false, turnId: 'turn-2' }));
-    expect(state.warningEntries).toEqual([]);
+    expect(state.warningEntries).toEqual([
+      expect.objectContaining({
+        event: 'turn.terminal.stale',
+        fields: expect.objectContaining({ eventName: 'turn/terminal', turn_id: 'turn-1' }),
+        occurrenceCount: 1,
+      }),
+    ]);
     expect(state.activityEntries).toEqual([]);
     expect(backend.emitFrontendTraceEvent).toHaveBeenCalledWith(expect.objectContaining({
       phase: 'frontend.turn_event.rejected',
@@ -6160,7 +6205,13 @@ function registerBridgeEventHandlersForTest() {
     const state = useClientStore.getState();
     expect(state.timelinesByThread['thread-1']).toBe(sealedTimeline);
     expect(state.actionNotice).toBe(sealedNotice);
-    expect(state.warningEntries).toEqual([]);
+    expect(state.warningEntries).toEqual([
+      expect.objectContaining({
+        event: 'turn.event.late',
+        fields: expect.objectContaining({ eventName: 'item/completed', turn_id: 'turn-1' }),
+        occurrenceCount: 1,
+      }),
+    ]);
     expect(backend.emitFrontendTraceEvent).toHaveBeenCalledWith(expect.objectContaining({
       phase: 'frontend.turn_event.rejected',
       method: 'turn.event.late',
@@ -6235,7 +6286,6 @@ function registerBridgeEventHandlersForTest() {
       const timeline = sealedState.timelinesByThread['thread-1'];
       const actionNotice = sealedState.actionNotice;
       const activityEntries = sealedState.activityEntries;
-      const warningEntries = sealedState.warningEntries;
       backend.emitFrontendTraceEvent.mockClear();
 
       bridgeCallback({ type: 'turn/output/delta', payload: { threadId: 'thread-1', turnId: 'turn-1', itemId: 'assistant-turn-1', delta: 'late assistant' } });
@@ -6248,8 +6298,19 @@ function registerBridgeEventHandlersForTest() {
       expect(state.timelinesByThread['thread-1']).toBe(timeline);
       expect(state.actionNotice).toBe(actionNotice);
       expect(state.activityEntries).toBe(activityEntries);
-      expect(state.warningEntries).toBe(warningEntries);
-      expect(backend.emitFrontendTraceEvent).toHaveBeenCalledTimes(4);
+      expect(state.warningEntries).toEqual([
+        expect.objectContaining({
+          event: 'turn.event.late',
+          fields: expect.objectContaining({ eventName: 'item/completed', turn_id: 'turn-1' }),
+          occurrenceCount: 4,
+        }),
+      ]);
+      expect(backend.emitFrontendTraceEvent.mock.calls.filter(([payload]) => (
+        payload.phase === 'frontend.turn_event.rejected'
+      ))).toHaveLength(4);
+      expect(backend.emitFrontendTraceEvent.mock.calls.filter(([payload]) => (
+        payload.phase === 'frontend.warning' && payload.method === 'turn.event.late'
+      ))).toHaveLength(4);
       expect(backend.emitFrontendTraceEvent).toHaveBeenCalledWith(expect.objectContaining({
         phase: 'frontend.turn_event.rejected',
         method: 'turn.event.late',
@@ -6291,7 +6352,13 @@ function registerBridgeEventHandlersForTest() {
       expect(state.timelinesByThread['thread-1']).toBe(timeline);
       expect(state.actionNotice).toBe(actionNotice);
       expect(state.activityEntries).toBe(activityEntries);
-      expect(state.warningEntries).toBe(warningEntries);
+      expect(state.warningEntries).toEqual([
+        expect.objectContaining({
+          event: 'turn.event.stale',
+          fields: expect.objectContaining({ eventName: event.type, turn_id: 'turn-1' }),
+          occurrenceCount: 1,
+        }),
+      ]);
       expect(state.activeTurnByThread['thread-1']).toBe(activeTurn);
       expect(backend.emitFrontendTraceEvent).toHaveBeenCalledWith(expect.objectContaining({
         phase: 'frontend.turn_event.rejected',
@@ -6355,7 +6422,13 @@ function registerBridgeEventHandlersForTest() {
       expect(beforeFlush.timelinesByThread['thread-1']).toBe(timeline);
       expect(beforeFlush.actionNotice).toBe(actionNotice);
       expect(beforeFlush.activityEntries).toBe(activityEntries);
-      expect(beforeFlush.warningEntries).toEqual([]);
+      expect(beforeFlush.warningEntries).toEqual([
+        expect.objectContaining({
+          event: 'turn.terminal.stale',
+          fields: expect.objectContaining({ eventName: 'turn/terminal', turn_id: 'turn-1' }),
+          occurrenceCount: 1,
+        }),
+      ]);
       expect(backend.emitFrontendTraceEvent).toHaveBeenCalledWith(expect.objectContaining({
         phase: 'frontend.turn_event.rejected',
         method: 'turn.terminal.stale',
@@ -6411,7 +6484,13 @@ function registerBridgeEventHandlersForTest() {
     expect(useClientStore.getState()).toMatchObject({
       actionNotice: null,
       activityEntries: [],
-      warningEntries: [],
+      warningEntries: [
+        expect.objectContaining({
+          event: 'turn.terminal.stale',
+          fields: expect.objectContaining({ eventName: 'turn/terminal', turn_id: 'turn-1' }),
+          occurrenceCount: 1,
+        }),
+      ],
       timelinesByThread: { 'thread-1': [] },
     });
     expect(backend.emitFrontendTraceEvent).toHaveBeenCalledWith(expect.objectContaining({
