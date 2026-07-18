@@ -141,7 +141,7 @@ func cleanupFilesystemSnapshotWithWorker(
 	setFilesystemWorkerDeadline(ctx, &request)
 	_, err := runFilesystemWorker(ctx, ctx, workerPath, command, nil, request, nil, 0)
 	if err != nil {
-		return newDiagnostic(CodeReapFailed, "bounded schema snapshot cleanup failed", err)
+		return fmt.Errorf("bounded schema snapshot cleanup failed: %w", err)
 	}
 	return nil
 }

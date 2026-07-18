@@ -106,13 +106,16 @@ func TestExecuteReapsBlockedCleanupWorkerAndPreservesCleanupFailure(t *testing.T
 	client := newSchemaTestClient(t, os.Args[0])
 	client.operationTimeout = helperFixtureTimeout
 	client.workerEnv = []string{"REASONIX_SCHEMA_MALICIOUS_HELPER=success"}
-	fixture := installBlockingFilesystemWorker(t)
+	fixtures := make([]blockingFilesystemWorkerFixture, maxLiveHelpers)
+	for index := range fixtures {
+		fixtures[index] = installBlockingFilesystemWorker(t)
+	}
 	workerStarts := 0
 	client.workerCommand = func(path string) *exec.Cmd {
 		workerStarts++
 		cmd := exec.Command(path)
-		if workerStarts == 2 {
-			cmd.Env = blockingFilesystemWorkerEnvironment(fixture)
+		if workerStarts%2 == 0 && workerStarts <= 2*maxLiveHelpers {
+			cmd.Env = blockingFilesystemWorkerEnvironment(fixtures[workerStarts/2-1])
 		}
 		return cmd
 	}
@@ -120,28 +123,46 @@ func TestExecuteReapsBlockedCleanupWorkerAndPreservesCleanupFailure(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), helperFixtureTimeout)
-	defer cancel()
+	for index, fixture := range fixtures {
+		assertBlockedCleanupReaped(t, client, testInvocation(canonical), fixture, index)
+	}
+	if _, err = client.Execute(context.Background(), testInvocation(canonical), allowFence); err != nil {
+		t.Fatalf("Execute(after %d cleanup timeouts) error = %v", maxLiveHelpers, err)
+	}
+	if workerStarts != 2*(maxLiveHelpers+1) {
+		t.Fatalf("filesystem worker starts = %d, want %d", workerStarts, 2*(maxLiveHelpers+1))
+	}
+	assertFilesystemSnapshotSetUnchanged(t, snapshotRoot, snapshotsBefore)
+}
+
+func assertBlockedCleanupReaped(
+	t *testing.T,
+	client *Client,
+	invocation Invocation,
+	fixture blockingFilesystemWorkerFixture,
+	index int,
+) {
+	t.Helper()
 	result := make(chan error, 1)
-	safego.Go(ctx, nil, "toolbridge.schema-blocked-cleanup-test", func(context.Context) {
-		_, executeErr := client.Execute(ctx, testInvocation(canonical), allowFence)
-		result <- executeErr
+	safego.Go(context.Background(), nil, "toolbridge.schema-blocked-cleanup-test", func(context.Context) {
+		_, err := client.Execute(context.Background(), invocation, allowFence)
+		result <- err
 	})
 	waitForHelperMarker(t, fixture.started)
 	cleanupStarted := time.Now()
+	var err error
 	select {
 	case err = <-result:
 	case <-time.After(filesystemSnapshotCleanupTimeout + reapDeadline + time.Second):
-		t.Fatal("blocked cleanup worker was not synchronously reaped")
+		t.Fatalf("blocked cleanup worker %d was not synchronously reaped", index)
 	}
-	if ErrorCode(err) != CodeReapFailed || !errors.Is(err, context.DeadlineExceeded) {
-		t.Fatalf("Execute(blocked cleanup) error=%v code=%q", err, ErrorCode(err))
+	if ErrorCode(err) != CodeTimeout || !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("Execute(blocked cleanup %d) error=%v code=%q", index, err, ErrorCode(err))
 	}
-	if workerStarts != 2 {
-		t.Fatalf("filesystem worker starts = %d, want execute and cleanup workers", workerStarts)
+	if errorTreeContainsCode(err, CodeReapFailed) {
+		t.Fatalf("Execute(blocked cleanup %d) mislabeled a reaped worker: %v", index, err)
 	}
 	assertBlockedFilesystemWorkerResult(t, fixture, cleanupStarted)
-	assertFilesystemSnapshotSetUnchanged(t, snapshotRoot, snapshotsBefore)
 }
 
 func TestSweepFilesystemSnapshotsRequiresExactIdentityAndStaleOwner(t *testing.T) {
