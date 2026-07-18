@@ -207,15 +207,17 @@ func runCancellationFixture() bool {
 
 func waitForHelperMarker(t *testing.T, marker string) {
 	t.Helper()
-	deadline := time.Now().Add(helperFixtureTimeout)
+	end := time.Now().Add(helperFixtureTimeout)
 	for {
-		if _, statErr := os.Stat(marker); statErr == nil {
-			return
-		} else if !errors.Is(statErr, os.ErrNotExist) {
-			t.Fatalf("stat helper marker: %v", statErr)
+		if raw, err := os.ReadFile(marker); err == nil {
+			if _, err := strconv.Atoi(string(raw)); err == nil {
+				return
+			}
+		} else if !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("read PID: %v", err)
 		}
-		if time.Now().After(deadline) {
-			t.Fatalf("helper did not start within %s", helperFixtureTimeout)
+		if time.Now().After(end) {
+			t.Fatal("helper wait timed out")
 		}
 		time.Sleep(5 * time.Millisecond)
 	}
