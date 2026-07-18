@@ -3,9 +3,12 @@ package appupdaterecovery
 import (
 	"context"
 	"errors"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -19,6 +22,141 @@ func TestRollbackRestartLauncherReapsEveryPostStartFailure(t *testing.T) {
 	for _, failure := range []string{"capture", "validation"} {
 		t.Run(failure, func(t *testing.T) { runRollbackRestartLauncherFailure(t, failure) })
 	}
+}
+
+func TestRollbackRestartReadinessRetriesRefusedPublishedEndpoint(t *testing.T) {
+	endpoint := newRefusedRollbackRestartEndpoint(t)
+	token := "rollback-restart-readiness"
+	exact := currentRollbackRestartExactProcess(t, endpoint, token)
+	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
+	result := make(chan rollbackEndpointWaitResult, 1)
+	var workers sync.WaitGroup
+	workers.Go(func() {
+		identity, err := waitRollbackRestartEndpoint(ctx, exact)
+		result <- rollbackEndpointWaitResult{endpoint: identity, err: err}
+	})
+	t.Cleanup(func() {
+		cancel()
+		workers.Wait()
+	})
+	select {
+	case early := <-result:
+		t.Fatalf("wait returned before listener became ready: %v", early.err)
+	case <-time.After(3 * rollbackRestartEndpointPoll):
+	}
+	startReadyRollbackRestartEndpoint(t, endpoint, token)
+	assertRollbackRestartEndpointReady(t, ctx, result, endpoint)
+}
+
+type rollbackEndpointWaitResult struct {
+	endpoint pidregistry.CooperativeEndpointIdentity
+	err      error
+}
+
+func startReadyRollbackRestartEndpoint(t *testing.T, endpoint, token string) {
+	t.Helper()
+	if err := os.Remove(endpoint); err != nil {
+		t.Fatalf("remove refused rollback endpoint: %v", err)
+	}
+	server, err := pidregistry.StartCooperativeTerminationServer(endpoint, token, func() {})
+	if err != nil {
+		t.Fatalf("start ready rollback endpoint: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := server.Close(); err != nil {
+			t.Errorf("close ready rollback endpoint: %v", err)
+		}
+	})
+}
+
+func assertRollbackRestartEndpointReady(
+	t *testing.T,
+	ctx context.Context,
+	result <-chan rollbackEndpointWaitResult,
+	endpoint string,
+) {
+	t.Helper()
+	select {
+	case ready := <-result:
+		if ready.err != nil {
+			t.Fatalf("wait for ready rollback endpoint: %v", ready.err)
+		}
+		current, err := pidregistry.CaptureCooperativeEndpointIdentity(endpoint)
+		if err != nil {
+			t.Fatalf("capture ready rollback endpoint: %v", err)
+		}
+		if ready.endpoint != current {
+			t.Fatalf("ready endpoint identity = %+v, want %+v", ready.endpoint, current)
+		}
+	case <-ctx.Done():
+		t.Fatalf("wait for ready rollback endpoint: %v", context.Cause(ctx))
+	}
+}
+
+func TestRollbackRestartReadinessRefusedEndpointHonorsDeadline(t *testing.T) {
+	endpoint := newRefusedRollbackRestartEndpoint(t)
+	exact := currentRollbackRestartExactProcess(t, endpoint, "rollback-restart-deadline")
+	ctx, cancel := context.WithTimeout(t.Context(), 3*rollbackRestartEndpointPoll)
+	defer cancel()
+	started := time.Now()
+	_, err := waitRollbackRestartEndpoint(ctx, exact)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("wait error = %v, want deadline exceeded", err)
+	}
+	if elapsed := time.Since(started); elapsed > time.Second {
+		t.Fatalf("deadline wait elapsed = %v, want <= 1s", elapsed)
+	}
+}
+
+func newRefusedRollbackRestartEndpoint(t *testing.T) string {
+	t.Helper()
+	if runtime.GOOS != "darwin" {
+		t.Skip("cooperative rollback endpoint requires Darwin")
+	}
+	file, err := os.CreateTemp("/tmp", "sd-rollback-ready-")
+	if err != nil {
+		t.Fatalf("create refused rollback endpoint path: %v", err)
+	}
+	endpoint := file.Name() + ".sock"
+	if err := file.Close(); err != nil {
+		t.Fatalf("close refused rollback endpoint path: %v", err)
+	}
+	if err := os.Remove(file.Name()); err != nil {
+		t.Fatalf("remove refused rollback endpoint path: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := os.Remove(endpoint); err != nil && !errors.Is(err, os.ErrNotExist) {
+			t.Errorf("remove refused rollback endpoint: %v", err)
+		}
+	})
+	listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: endpoint, Net: "unix"})
+	if err != nil {
+		t.Fatalf("listen refused rollback endpoint: %v", err)
+	}
+	listener.SetUnlinkOnClose(false)
+	if err := os.Chmod(endpoint, 0o600); err != nil {
+		_ = listener.Close()
+		t.Fatalf("chmod refused rollback endpoint: %v", err)
+	}
+	if err := listener.Close(); err != nil {
+		t.Fatalf("close refused rollback listener: %v", err)
+	}
+	return endpoint
+}
+
+func currentRollbackRestartExactProcess(
+	t *testing.T,
+	endpoint string,
+	token string,
+) pidregistry.StableProcessIdentity {
+	t.Helper()
+	exact, err := pidregistry.CaptureStableProcessIdentity(os.Getpid())
+	if err != nil {
+		t.Fatalf("capture current process identity: %v", err)
+	}
+	exact.TerminationEndpoint = endpoint
+	exact.TerminationToken = token
+	return exact
 }
 
 func runRollbackRestartLauncherFailure(t *testing.T, failure string) {
