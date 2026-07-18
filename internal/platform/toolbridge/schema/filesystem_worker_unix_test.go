@@ -276,41 +276,104 @@ func TestRemoveOwnedFilesystemSnapshotCleansAbandonedStaging(t *testing.T) {
 	}
 }
 
-func TestSweepFilesystemSnapshotsCleansOnlyStaleCompleteStaging(t *testing.T) {
+func TestSweepFilesystemSnapshotsUsesExactOwnerForEveryStagingState(t *testing.T) {
 	setFilesystemSnapshotRoot(t)
-	active := newTestFilesystemSnapshotIdentity(t)
-	activeDirectory := writeCompleteFilesystemSnapshotStaging(t, active)
-	stale := newTestFilesystemSnapshotIdentity(t)
-	stale.OwnerPID = 1 << 30
-	stale.OwnerStartToken = "stale-start"
-	stale.OwnerExecutable = "stale-executable"
-	staleDirectory := writeCompleteFilesystemSnapshotStaging(t, stale)
-	empty := newTestFilesystemSnapshotIdentity(t)
-	emptyDirectory, err := createFilesystemSnapshotStagingDirectory(empty)
-	if err != nil {
+	type stagingState int
+	const (
+		stagingEmpty stagingState = iota
+		stagingMarkerOnly
+		stagingComplete
+	)
+	tests := []struct {
+		name        string
+		state       stagingState
+		mutateOwner func(*filesystemSnapshotIdentity)
+		wantExists  bool
+	}{
+		{name: "active empty", state: stagingEmpty, wantExists: true},
+		{name: "stale empty", state: stagingEmpty, mutateOwner: makeStaleFilesystemSnapshotOwner, wantExists: false},
+		{name: "PID reuse empty", state: stagingEmpty, mutateOwner: makeReusedFilesystemSnapshotOwner, wantExists: false},
+		{name: "active marker only", state: stagingMarkerOnly, wantExists: true},
+		{name: "stale marker only", state: stagingMarkerOnly, mutateOwner: makeStaleFilesystemSnapshotOwner, wantExists: false},
+		{name: "PID reuse marker only", state: stagingMarkerOnly, mutateOwner: makeReusedFilesystemSnapshotOwner, wantExists: false},
+		{name: "active complete", state: stagingComplete, wantExists: true},
+		{name: "stale complete", state: stagingComplete, mutateOwner: makeStaleFilesystemSnapshotOwner, wantExists: false},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			identity := newTestFilesystemSnapshotIdentity(t)
+			if test.mutateOwner != nil {
+				test.mutateOwner(&identity)
+			}
+			directory, err := createFilesystemSnapshotStagingDirectory(identity)
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = removeOwnedFilesystemSnapshot(identity) })
+			if test.state >= stagingMarkerOnly {
+				if err := writeFilesystemSnapshotMarker(directory, identity); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if test.state == stagingComplete {
+				if err := writeExclusiveRegularFile(
+					filepath.Join(directory, HelperFileName(identity.HelperGOOS)),
+					[]byte("staged"),
+					0o700,
+				); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := sweepStaleFilesystemSnapshots(); err != nil {
+				t.Fatal(err)
+			}
+			assertPathExistence(t, directory, test.wantExists)
+		})
+	}
+}
+
+func makeStaleFilesystemSnapshotOwner(identity *filesystemSnapshotIdentity) {
+	identity.OwnerPID = 1 << 30
+	identity.OwnerStartToken = "stale-start"
+	identity.OwnerExecutable = "stale-executable"
+}
+
+func makeReusedFilesystemSnapshotOwner(identity *filesystemSnapshotIdentity) {
+	identity.OwnerStartToken += "-reused"
+}
+
+func TestSweepFilesystemSnapshotsRejectsMissingOwnerBinding(t *testing.T) {
+	setFilesystemSnapshotRoot(t)
+	identity := newTestFilesystemSnapshotIdentity(t)
+	directory := identity.Directory + filesystemSnapshotStagingSuffix
+	if err := os.Mkdir(directory, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	markerOnly := newTestFilesystemSnapshotIdentity(t)
-	markerOnlyDirectory, err := createFilesystemSnapshotStagingDirectory(markerOnly)
-	if err != nil {
-		t.Fatal(err)
+	if err := sweepStaleFilesystemSnapshots(); err == nil {
+		t.Fatal("sweep staging without owner binding error = nil")
 	}
-	if err := writeFilesystemSnapshotMarker(markerOnlyDirectory, markerOnly); err != nil {
-		t.Fatal(err)
-	}
-	for _, identity := range []filesystemSnapshotIdentity{active, stale, empty, markerOnly} {
-		t.Cleanup(func() { _ = removeOwnedFilesystemSnapshot(identity) })
-	}
-	if err := sweepStaleFilesystemSnapshots(); err != nil {
-		t.Fatal(err)
-	}
-	assertPathExistence(t, activeDirectory, true)
-	assertPathExistence(t, staleDirectory, false)
-	assertPathExistence(t, emptyDirectory, true)
-	assertPathExistence(t, markerOnlyDirectory, true)
+	assertPathExistence(t, directory, true)
 }
 
 func TestSweepFilesystemSnapshotsRejectsAnomalousStaging(t *testing.T) {
+	t.Run("marker owner mismatch", func(t *testing.T) {
+		setFilesystemSnapshotRoot(t)
+		identity := newTestFilesystemSnapshotIdentity(t)
+		directory, err := createFilesystemSnapshotStagingDirectory(identity)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = removeOwnedFilesystemSnapshot(identity) })
+		recorded := identity
+		makeReusedFilesystemSnapshotOwner(&recorded)
+		if err := writeFilesystemSnapshotMarker(directory, recorded); err != nil {
+			t.Fatal(err)
+		}
+		if err := sweepStaleFilesystemSnapshots(); err == nil {
+			t.Fatal("sweep staging with marker owner mismatch error = nil")
+		}
+		assertPathExistence(t, directory, true)
+	})
 	t.Run("unexpected entry", func(t *testing.T) {
 		setFilesystemSnapshotRoot(t)
 		identity := newTestFilesystemSnapshotIdentity(t)

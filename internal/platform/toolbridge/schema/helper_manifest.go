@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"runtime/debug"
+	"strconv"
 	"strings"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/pidregistry"
@@ -30,6 +31,7 @@ const (
 	filesystemSnapshotVersion       = 1
 	filesystemSnapshotPrefix        = "reasonix-schema-helper."
 	filesystemSnapshotMarker        = ".reasonix-schema-owner.json"
+	filesystemSnapshotStagingOwner  = ".owner-"
 	filesystemSnapshotStagingSuffix = ".staging"
 	filesystemSnapshotTokenBytes    = 16
 )
@@ -332,11 +334,24 @@ func createFilesystemSnapshotStagingDirectory(identity filesystemSnapshotIdentit
 	if err := validateFilesystemSnapshotIdentity(identity); err != nil {
 		return "", err
 	}
-	directory := identity.Directory + filesystemSnapshotStagingSuffix
+	directory := filesystemSnapshotStagingDirectory(identity)
 	if err := os.Mkdir(directory, 0o700); err != nil {
 		return "", err
 	}
 	return directory, nil
+}
+
+// filesystemSnapshotStagingDirectory 在目录名中绑定 owner，使 empty staging 也可安全判活。
+func filesystemSnapshotStagingDirectory(identity filesystemSnapshotIdentity) string {
+	digest := filesystemSnapshotOwnerDigest(identity)
+	return identity.Directory + filesystemSnapshotStagingOwner +
+		strconv.Itoa(identity.OwnerPID) + "-" + digest + filesystemSnapshotStagingSuffix
+}
+
+func filesystemSnapshotOwnerDigest(identity filesystemSnapshotIdentity) string {
+	owner := fmt.Sprintf("%d\n%d:%s%d:%s", identity.OwnerPID, len(identity.OwnerStartToken), identity.OwnerStartToken, len(identity.OwnerExecutable), identity.OwnerExecutable)
+	digest := sha256.Sum256([]byte(owner))
+	return hex.EncodeToString(digest[:])
 }
 
 // publishExecutableSnapshot 完整写入 staging 后原子发布最终快照目录。
@@ -348,7 +363,8 @@ func publishExecutableSnapshot(
 	if err := validateFilesystemSnapshotIdentity(identity); err != nil {
 		return "", errors.Join(err, removeStagedFilesystemSnapshot(identity, directory))
 	}
-	if directory != identity.Directory+filesystemSnapshotStagingSuffix {
+	expectedDirectory := filesystemSnapshotStagingDirectory(identity)
+	if directory != expectedDirectory {
 		return "", errors.New("schema snapshot staging directory is invalid")
 	}
 	if err := writeFilesystemSnapshotMarker(directory, identity); err != nil {
@@ -377,7 +393,8 @@ func removeStagedFilesystemSnapshot(identity filesystemSnapshotIdentity, directo
 	if err := validateFilesystemSnapshotIdentity(identity); err != nil {
 		return err
 	}
-	if directory != identity.Directory+filesystemSnapshotStagingSuffix {
+	expectedDirectory := filesystemSnapshotStagingDirectory(identity)
+	if directory != expectedDirectory {
 		return errors.New("schema snapshot staging directory is invalid")
 	}
 	entries, exists, err := ownedFilesystemSnapshotEntries(directory)
@@ -424,9 +441,10 @@ func removeOwnedFilesystemSnapshot(identity filesystemSnapshotIdentity) error {
 	if err := validateFilesystemSnapshotIdentity(identity); err != nil {
 		return err
 	}
+	stagingDirectory := filesystemSnapshotStagingDirectory(identity)
 	stagingErr := removeStagedFilesystemSnapshot(
 		identity,
-		identity.Directory+filesystemSnapshotStagingSuffix,
+		stagingDirectory,
 	)
 	entries, exists, err := ownedFilesystemSnapshotEntries(identity.Directory)
 	if err != nil {
@@ -545,11 +563,14 @@ func sweepFilesystemSnapshotCandidate(root, name string) error {
 	if ok {
 		return sweepPublishedFilesystemSnapshotCandidate(root, name, token)
 	}
-	token, ok = filesystemSnapshotStagingTokenFromName(name)
-	if !ok {
+	token, ownerPID, ownerDigest, matched, err := parseFilesystemSnapshotStagingName(name)
+	if err != nil {
+		return err
+	}
+	if !matched {
 		return nil
 	}
-	return sweepFilesystemSnapshotStagingCandidate(root, name, token)
+	return sweepFilesystemSnapshotStagingCandidate(root, name, token, ownerPID, ownerDigest)
 }
 
 // sweepPublishedFilesystemSnapshotCandidate 清理 owner 已失效的 final 快照。
@@ -569,16 +590,19 @@ func sweepPublishedFilesystemSnapshotCandidate(root, name, token string) error {
 	return removeOwnedFilesystemSnapshot(identity)
 }
 
-// sweepFilesystemSnapshotStagingCandidate 只清理 owner 已失效的完整 staging。
-func sweepFilesystemSnapshotStagingCandidate(root, name, token string) error {
+// sweepFilesystemSnapshotStagingCandidate 清理 owner 已失效的严格 staging 状态。
+func sweepFilesystemSnapshotStagingCandidate(root, name, token string, ownerPID int, ownerDigest string) error {
 	directory := filepath.Join(root, name)
-	identity, complete, err := readSweepStagingIdentity(directory, token)
-	if err != nil || !complete {
+	identity, marked, err := readSweepStagingIdentity(directory, token)
+	if err != nil {
 		return err
 	}
-	active, err := filesystemSnapshotOwnerActive(identity)
+	active, err := filesystemSnapshotStagingOwnerActive(ownerPID, ownerDigest)
 	if err != nil || active {
 		return err
+	}
+	if !marked {
+		return os.Remove(directory)
 	}
 	return removeStagedFilesystemSnapshot(identity, directory)
 }
@@ -597,14 +621,38 @@ func filesystemSnapshotTokenFromName(name string) (string, bool) {
 	return token, true
 }
 
-// filesystemSnapshotStagingTokenFromName 只接受精确 token 加 staging 后缀。
-func filesystemSnapshotStagingTokenFromName(name string) (string, bool) {
-	if !strings.HasSuffix(name, filesystemSnapshotStagingSuffix) {
-		return "", false
+// parseFilesystemSnapshotStagingName 严格解析 token 与可判活 owner 绑定。
+func parseFilesystemSnapshotStagingName(name string) (string, int, string, bool, error) {
+	if !strings.HasPrefix(name, filesystemSnapshotPrefix) ||
+		!strings.HasSuffix(name, filesystemSnapshotStagingSuffix) {
+		return "", 0, "", false, nil
 	}
-	return filesystemSnapshotTokenFromName(
-		strings.TrimSuffix(name, filesystemSnapshotStagingSuffix),
-	)
+	stem := strings.TrimSuffix(name, filesystemSnapshotStagingSuffix)
+	finalName, owner, ok := strings.Cut(stem, filesystemSnapshotStagingOwner)
+	if !ok {
+		return "", 0, "", true, errors.New("schema snapshot staging owner binding is missing")
+	}
+	token, ok := filesystemSnapshotTokenFromName(finalName)
+	if !ok {
+		return "", 0, "", true, errors.New("schema snapshot staging token is invalid")
+	}
+	pidText, digest, ok := strings.Cut(owner, "-")
+	ownerPID, err := strconv.Atoi(pidText)
+	if !ok || err != nil || ownerPID <= 0 {
+		return "", 0, "", true, errors.New("schema snapshot staging owner PID is invalid")
+	}
+	if !validFilesystemSnapshotOwnerDigest(digest) {
+		return "", 0, "", true, errors.New("schema snapshot staging owner digest is invalid")
+	}
+	return token, ownerPID, digest, true, nil
+}
+
+func validFilesystemSnapshotOwnerDigest(digest string) bool {
+	if len(digest) != sha256.Size*2 || strings.ToLower(digest) != digest {
+		return false
+	}
+	_, err := hex.DecodeString(digest)
+	return err == nil
 }
 
 // readSweepSnapshotIdentity 读取并复验启动清扫候选的 marker identity。
@@ -638,56 +686,37 @@ func readSweepSnapshotIdentity(directory, token string) (filesystemSnapshotIdent
 	return identity, false, nil
 }
 
-// readSweepStagingIdentity 区分不可判定的未完成 staging 与可安全回收的完整 staging。
+// readSweepStagingIdentity 读取 marker 并复验其与 staging 名称的 owner 绑定。
 func readSweepStagingIdentity(directory, token string) (filesystemSnapshotIdentity, bool, error) {
-	entries, exists, err := ownedFilesystemSnapshotEntries(directory)
+	entries, _, err := ownedFilesystemSnapshotEntries(directory)
 	if err != nil {
 		return filesystemSnapshotIdentity{}, false, err
 	}
-	if !exists || len(entries) == 0 {
+	if len(entries) == 0 {
 		return filesystemSnapshotIdentity{}, false, nil
 	}
-	if len(entries) != 2 {
-		return readIncompleteSweepStagingIdentity(directory, entries)
-	}
-	return readCompleteSweepStagingIdentity(directory, token, entries)
-}
-
-// readIncompleteSweepStagingIdentity 仅允许保留 regular marker 单条目中间态。
-func readIncompleteSweepStagingIdentity(
-	directory string,
-	entries []os.DirEntry,
-) (filesystemSnapshotIdentity, bool, error) {
-	if len(entries) != 1 {
+	if len(entries) > 2 {
 		return filesystemSnapshotIdentity{}, false, errors.New(
 			"schema snapshot staging contains an unexpected number of entries",
 		)
 	}
-	if err := validateFilesystemSnapshotEntry(directory, "", entries[0]); err != nil {
-		return filesystemSnapshotIdentity{}, false, err
-	}
-	return filesystemSnapshotIdentity{}, false, nil
-}
-
-// readCompleteSweepStagingIdentity 严格复验完整 staging 的 marker 与条目集合。
-func readCompleteSweepStagingIdentity(
-	directory, token string,
-	entries []os.DirEntry,
-) (filesystemSnapshotIdentity, bool, error) {
 	identity, err := readFilesystemSnapshotIdentity(directory)
 	if err != nil {
 		return filesystemSnapshotIdentity{}, false, err
 	}
-	finalDirectory := strings.TrimSuffix(directory, filesystemSnapshotStagingSuffix)
-	if identity.Directory != finalDirectory || identity.Token != token {
+	if err := validateFilesystemSnapshotIdentity(identity); err != nil {
+		return filesystemSnapshotIdentity{}, false, err
+	}
+	expectedDirectory := filesystemSnapshotStagingDirectory(identity)
+	if [2]string{identity.Token, directory} != [2]string{token, expectedDirectory} {
 		return filesystemSnapshotIdentity{}, false, errors.New(
 			"schema snapshot staging identity mismatch",
 		)
 	}
-	if err := validateFilesystemSnapshotIdentity(identity); err != nil {
-		return filesystemSnapshotIdentity{}, false, err
+	helperName := ""
+	if len(entries) == 2 {
+		helperName = HelperFileName(identity.HelperGOOS)
 	}
-	helperName := HelperFileName(identity.HelperGOOS)
 	for _, entry := range entries {
 		if err := validateFilesystemSnapshotEntry(directory, helperName, entry); err != nil {
 			return filesystemSnapshotIdentity{}, false, err
@@ -713,8 +742,8 @@ func readFilesystemSnapshotIdentity(directory string) (filesystemSnapshotIdentit
 	return identity, nil
 }
 
-func filesystemSnapshotOwnerActive(identity filesystemSnapshotIdentity) (bool, error) {
-	current, err := pidregistry.CaptureStableProcessIdentity(identity.OwnerPID)
+func filesystemSnapshotStagingOwnerActive(ownerPID int, ownerDigest string) (bool, error) {
+	current, err := pidregistry.CaptureStableProcessIdentity(ownerPID)
 	if errors.Is(err, pidregistry.ErrStableProcessNotFound) ||
 		errors.Is(err, pidregistry.ErrStableProcessIdentityMismatch) {
 		return false, nil
@@ -722,8 +751,17 @@ func filesystemSnapshotOwnerActive(identity filesystemSnapshotIdentity) (bool, e
 	if err != nil {
 		return false, err
 	}
-	return current.ProcessStartToken == identity.OwnerStartToken &&
-		current.ExecutableIdentity == identity.OwnerExecutable, nil
+	digest := filesystemSnapshotOwnerDigest(filesystemSnapshotIdentity{
+		OwnerPID: current.PID, OwnerStartToken: current.ProcessStartToken, OwnerExecutable: current.ExecutableIdentity,
+	})
+	return digest == ownerDigest, nil
+}
+
+func filesystemSnapshotOwnerActive(identity filesystemSnapshotIdentity) (bool, error) {
+	return filesystemSnapshotStagingOwnerActive(
+		identity.OwnerPID,
+		filesystemSnapshotOwnerDigest(identity),
+	)
 }
 
 func currentRuntimeIdentity(appCommit, goVersion string) HelperIdentity {
