@@ -27,7 +27,9 @@ func TestSelectStartupBlockedReleaseDigestEntersRecoveryOnDeadlineCause(t *testi
 	defer goleak.VerifyNone(t, goleak.IgnoreCurrent())
 	store, transaction, process := createStartupProbation(t)
 	fixture := installStartupBlockingFilesystemHelper(t, transaction.Paths.Target)
-	ctx, cancel := context.WithCancelCause(context.Background())
+	watchdogCtx, watchdogCancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer watchdogCancel()
+	ctx, cancel := context.WithCancelCause(watchdogCtx)
 	defer cancel(context.Canceled)
 	var selection StartupSelection
 	var group errgroup.Group
