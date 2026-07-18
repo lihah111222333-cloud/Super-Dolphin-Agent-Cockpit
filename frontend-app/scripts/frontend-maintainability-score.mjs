@@ -7,6 +7,7 @@ import process from 'node:process';
 import { fileURLToPath } from 'node:url';
 import { DESKTOP_FAILURE_SOURCE_PATHS } from './desktop-failure-smoke.mjs';
 import { FROZEN_T04_T05_EXECUTION_CLOSURE_PATHS } from './frontend-execution-closure.mjs';
+import { productionActionFailureMatrixTitle } from '../src/shared/ui/productionActionFailureMatrixTitles.js';
 
 const scriptPath = fileURLToPath(import.meta.url);
 const frozenScriptRoot = path.dirname(scriptPath);
@@ -41,6 +42,7 @@ const governancePaths = [
   'frontend-app/scripts/action-production-runtime-runner.mjs',
   'frontend-app/config/action-producer-registry.json',
   'frontend-app/config/action-producer-test-matrix.json',
+  'frontend-app/src/shared/ui/productionActionFailureMatrixTitles.js',
   ...FROZEN_T04_T05_EXECUTION_CLOSURE_PATHS,
   'frontend-app/src/shared/api/wailsBridge.js',
   'internal/provider/claudecli/event_map.go',
@@ -1639,7 +1641,8 @@ function validateActionProductionBindingReport(report, { context, control, check
     fail('T02 production matrix execution did not run every cell exactly once');
   }
   const expectedCells = new Map(matrix.cells.map((cell, index) => [
-    `${cell.actionId}\0${cell.errorSource}`, { ...cell, testName: `cell-${index}` },
+    `${cell.actionId}\0${cell.errorSource}`,
+    { ...cell, testName: productionActionFailureMatrixTitle(index, cell) },
   ]));
   if (expectedCells.size !== matrix.cells.length || report.cellResults.length !== expectedCells.size) {
     fail('T02 production report has missing or duplicate cell results');
