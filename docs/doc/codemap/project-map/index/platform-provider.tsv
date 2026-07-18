@@ -482,7 +482,7 @@ internal/platform/notify/slack_test.go	internal	platform-provider	go-test	1020	�
 internal/platform/notify/slack.go	internal	platform-provider	go-source	1305	基础设施层	internal,platform,notify,slack,基础设施层
 internal/platform/notify/webhook_test.go	internal	platform-provider	go-test	6207	基础设施层	internal,platform,notify,webhook,test,基础设施层
 internal/platform/notify/webhook.go	internal	platform-provider	go-source	7478	基础设施层	internal,platform,notify,webhook,基础设施层
-internal/platform/observability/argument_preview.go	internal	platform-provider	go-source	10696	基础设施层	internal,platform,observability,argument,preview,基础设施层
+internal/platform/observability/argument_preview.go	internal	platform-provider	go-source	13595	基础设施层	internal,platform,observability,argument,preview,基础设施层
 internal/platform/observability/code_anchor_test.go	internal	platform-provider	go-test	1006	基础设施层	internal,platform,observability,code,anchor,test,基础设施层
 internal/platform/observability/code_anchor.go	internal	platform-provider	go-source	663	基础设施层	internal,platform,observability,code,anchor,基础设施层
 internal/platform/observability/config_test.go	internal	platform-provider	go-test	3174	基础设施层	internal,platform,observability,config,test,基础设施层
@@ -503,7 +503,7 @@ internal/platform/observability/module.go	internal	platform-provider	go-source	1
 internal/platform/observability/query.go	internal	platform-provider	go-source	4973	基础设施层	internal,platform,observability,query,基础设施层
 internal/platform/observability/record_error.go	internal	platform-provider	go-source	1582	基础设施层	internal,platform,observability,record,error,基础设施层
 internal/platform/observability/retention_test.go	internal	platform-provider	go-test	3096	基础设施层	internal,platform,observability,retention,test,基础设施层
-internal/platform/observability/safe_preview_test.go	internal	platform-provider	go-test	7212	基础设施层	internal,platform,observability,safe,preview,test,基础设施层
+internal/platform/observability/safe_preview_test.go	internal	platform-provider	go-test	9908	基础设施层	internal,platform,observability,safe,preview,test,基础设施层
 internal/platform/observability/safe_preview.go	internal	platform-provider	go-source	14539	基础设施层	internal,platform,observability,safe,preview,基础设施层
 internal/platform/observability/sampler_test.go	internal	platform-provider	go-test	1222	基础设施层	internal,platform,observability,sampler,test,基础设施层
 internal/platform/observability/sampler.go	internal	platform-provider	go-source	1818	基础设施层	internal,platform,observability,sampler,基础设施层
@@ -694,7 +694,7 @@ internal/platform/sharedfilepath/policy.go	internal	platform-provider	go-source	
 internal/platform/statemachine/factory_test.go	internal	platform-provider	go-test	4761	基础设施层	internal,platform,statemachine,factory,test,基础设施层
 internal/platform/statemachine/factory.go	internal	platform-provider	go-source	2559	基础设施层	internal,platform,statemachine,factory,基础设施层
 internal/platform/statemachine/module.go	internal	platform-provider	go-source	249	基础设施层	internal,platform,statemachine,module,基础设施层
-internal/platform/toolbridge/argument_preview_sanitizer_test.go	internal	platform-provider	go-test	5905	provider 与 MCP tools 桥接	internal,platform,toolbridge,argument,preview,sanitizer,test,provider,与,MCP,tools,桥接
+internal/platform/toolbridge/argument_preview_sanitizer_test.go	internal	platform-provider	go-test	6050	provider 与 MCP tools 桥接	internal,platform,toolbridge,argument,preview,sanitizer,test,provider,与,MCP,tools,桥接
 internal/platform/toolbridge/codex_surface_duplicates_test.go	internal	platform-provider	go-test	3214	provider 与 MCP tools 桥接	internal,platform,toolbridge,codex,surface,duplicates,test,provider,与,MCP,tools,桥接
 internal/platform/toolbridge/codex_surface_helpers_test.go	internal	platform-provider	go-test	8837	provider 与 MCP tools 桥接	internal,platform,toolbridge,codex,surface,helpers,test,provider,与,MCP,tools,桥接
 internal/platform/toolbridge/codex_surface_interrupt_agent_test.go	internal	platform-provider	go-test	1979	provider 与 MCP tools 桥接	internal,platform,toolbridge,codex,surface,interrupt,agent,test,provider,与,MCP,tools,桥接
@@ -798,7 +798,7 @@ internal/platform/toolpolicy/shell.go	internal	platform-provider	go-source	9823	
 internal/provider/_template/module.go.txt	internal	platform-provider	txt	2409	AI provider 集成层	internal,provider,template,module,go,AI,集成层
 internal/provider/_template/provider_contract_test.go.txt	internal	platform-provider	txt	8034	AI provider 集成层	internal,provider,template,contract,test,go,AI,集成层
 internal/provider/_template/README.md	internal	platform-provider	doc	889	AI provider 集成层	internal,provider,template,README,AI,集成层
-internal/provider/claudecli/argument_preview_sanitizer_test.go	internal	platform-provider	go-test	2573	Claude CLI provider 集成	internal,provider,claudecli,argument,preview,sanitizer,test,Claude,CLI,集成
+internal/provider/claudecli/argument_preview_sanitizer_test.go	internal	platform-provider	go-test	2666	Claude CLI provider 集成	internal,provider,claudecli,argument,preview,sanitizer,test,Claude,CLI,集成
 internal/provider/claudecli/auth_preflight.go	internal	platform-provider	go-source	3526	Claude CLI provider 集成	internal,provider,claudecli,auth,preflight,Claude,CLI,集成
 internal/provider/claudecli/config_test.go	internal	platform-provider	go-test	1579	Claude CLI provider 集成	internal,provider,claudecli,config,test,Claude,CLI,集成
 internal/provider/claudecli/config.go	internal	platform-provider	go-source	13140	Claude CLI provider 集成	internal,provider,claudecli,config,Claude,CLI,集成
@@ -884,7 +884,7 @@ internal/provider/claudecli/transport.go	internal	platform-provider	go-source	10
 internal/provider/claudecli/turn_complete_payload_test.go	internal	platform-provider	go-test	4254	Claude CLI provider 集成	internal,provider,claudecli,turn,complete,payload,test,Claude,CLI,集成
 internal/provider/claudecli/turn_result_long_e2e_README.md	internal	platform-provider	doc	3495	Claude CLI provider 集成	internal,provider,claudecli,turn,result,long,e2e,README,Claude,CLI,集成
 internal/provider/claudecli/turn_result_long_e2e_test.go	internal	platform-provider	go-test	7189	Claude CLI provider 集成	internal,provider,claudecli,turn,result,long,e2e,test,Claude,CLI,集成
-internal/provider/codexapp/argument_preview_sanitizer_test.go	internal	platform-provider	go-test	4240	Codex app/server provider 集成	internal,provider,codexapp,argument,preview,sanitizer,test,Codex,app,server,集成
+internal/provider/codexapp/argument_preview_sanitizer_test.go	internal	platform-provider	go-test	4325	Codex app/server provider 集成	internal,provider,codexapp,argument,preview,sanitizer,test,Codex,app,server,集成
 internal/provider/codexapp/codex_autoinstall_archive_test.go	internal	platform-provider	go-test	2755	Codex app/server provider 集成	internal,provider,codexapp,codex,autoinstall,archive,test,Codex,app,server,集成
 internal/provider/codexapp/codex_autoinstall_bundled_manifest_test.go	internal	platform-provider	go-test	5556	Codex app/server provider 集成	internal,provider,codexapp,codex,autoinstall,bundled,manifest,test,Codex,app,server,集成
 internal/provider/codexapp/codex_autoinstall_bundled_test.go	internal	platform-provider	go-test	5117	Codex app/server provider 集成	internal,provider,codexapp,codex,autoinstall,bundled,test,Codex,app,server,集成

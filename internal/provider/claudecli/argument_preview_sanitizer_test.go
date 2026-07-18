@@ -58,17 +58,17 @@ func TestToolCallBeginFailsClosedForOversizedPrefixedArguments(t *testing.T) {
 }
 
 func sensitiveClaudeArgumentsPreview() string {
-	return `{"command":"curl --api-key sk-test https://example.test","token":"token=abc","file_path":"/Users/alice/secret"}`
+	return `run password="claude-password-value" TOKEN='claude-token-value' --password=\"claude-escaped-value\" keep=claude-visible`
 }
 
 func assertClaudeArgumentsPreviewSanitized(t *testing.T, preview string) {
 	t.Helper()
-	for _, fragment := range []string{"token=abc", "sk-test", "/Users/alice/secret", "--api-key"} {
+	for _, fragment := range []string{"claude-password-value", "claude-token-value", "claude-escaped-value"} {
 		if strings.Contains(preview, fragment) {
 			t.Fatalf("ArgumentsPreview = %q, must not contain sensitive fragment %q", preview, fragment)
 		}
 	}
-	if !strings.Contains(preview, "[REDACTED]") {
-		t.Fatalf("ArgumentsPreview = %q, want redaction marker", preview)
+	if !strings.Contains(preview, "[REDACTED]") || !strings.Contains(preview, "keep=claude-visible") {
+		t.Fatalf("ArgumentsPreview = %q, want redaction marker and ordinary context", preview)
 	}
 }

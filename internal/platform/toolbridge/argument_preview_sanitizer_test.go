@@ -22,7 +22,7 @@ func TestPublishProxyToolCallBeginSanitizesArgumentsPreview(t *testing.T) {
 	h := &Handler{dispatcher: dispatcher}
 	h.publishProxyToolCallBegin(ToolCallRequest{
 		Name:      "shell",
-		Arguments: json.RawMessage(`{"command":"curl --api-key sk-test https://example.test","token":"token=abc","file_path":"/Users/alice/secret"}`),
+		Arguments: json.RawMessage(`{"command":"run password=\"toolbridge-password-value\" TOKEN='toolbridge-token-value' --password=\\\"toolbridge-escaped-value\\\" keep=toolbridge-visible"}`),
 		AgentID:   "agent-1",
 		ThreadID:  "thread-1",
 		TurnID:    "turn-1",
@@ -35,13 +35,13 @@ func TestPublishProxyToolCallBeginSanitizesArgumentsPreview(t *testing.T) {
 
 func assertToolbridgeArgumentsPreviewSanitized(t *testing.T, preview string) {
 	t.Helper()
-	for _, fragment := range []string{"token=abc", "sk-test", "/Users/alice/secret", "--api-key"} {
+	for _, fragment := range []string{"toolbridge-password-value", "toolbridge-token-value", "toolbridge-escaped-value"} {
 		if strings.Contains(preview, fragment) {
 			t.Fatalf("ArgumentsPreview = %q, must not contain sensitive fragment %q", preview, fragment)
 		}
 	}
-	if !strings.Contains(preview, "[REDACTED]") {
-		t.Fatalf("ArgumentsPreview = %q, want redaction marker", preview)
+	if !strings.Contains(preview, "[REDACTED]") || !strings.Contains(preview, "keep=toolbridge-visible") {
+		t.Fatalf("ArgumentsPreview = %q, want redaction marker and ordinary context", preview)
 	}
 }
 

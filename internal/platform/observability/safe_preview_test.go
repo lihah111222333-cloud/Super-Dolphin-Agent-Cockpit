@@ -30,6 +30,55 @@ func TestSafePreviewRedactsShortTextAndBoundsLongText(t *testing.T) {
 	}
 }
 
+func TestSafeToolArgumentsPreviewRedactsQuotedAssignments(t *testing.T) {
+	tests := map[string]struct {
+		raw    string
+		secret string
+	}{
+		"double_quoted":         {raw: `run password="double-quoted-value" keep=visible`, secret: "double-quoted-value"},
+		"single_quoted_env":     {raw: `run TOKEN='single-quoted-value' keep=visible`, secret: "single-quoted-value"},
+		"double_quoted_flag":    {raw: `run --password="flag-quoted-value" keep=visible`, secret: "flag-quoted-value"},
+		"escaped_double_quotes": {raw: `run password=\"escaped-quoted-value\" keep=visible`, secret: "escaped-quoted-value"},
+		"escaped_single_quotes": {raw: `run TOKEN=\'escaped-single-value\' keep=visible`, secret: "escaped-single-value"},
+	}
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			preview := SafeToolArgumentsPreviewString(test.raw)
+			if strings.Contains(preview, test.secret) {
+				t.Fatalf("SafeToolArgumentsPreviewString() = %q, must redact complete quoted value %q", preview, test.secret)
+			}
+			if !strings.Contains(preview, "[REDACTED]") || !strings.Contains(preview, "keep=visible") {
+				t.Fatalf("SafeToolArgumentsPreviewString() = %q, want redaction marker and ordinary context", preview)
+			}
+			if len(preview) > argumentPreviewOutputLimit {
+				t.Fatalf("SafeToolArgumentsPreviewString() length = %d, want <= %d", len(preview), argumentPreviewOutputLimit)
+			}
+		})
+	}
+}
+
+func TestSafeToolArgumentsPreviewOversizedPrefixedQuotedAssignment(t *testing.T) {
+	const sensitiveValue = "oversized-quoted-value-84d7c2"
+	raw := `provider arguments: --password="` + sensitiveValue + `" keep=visible ` + strings.Repeat("x", 17*1024)
+
+	preview := SafeToolArgumentsPreviewString(raw)
+	if strings.Contains(preview, sensitiveValue) {
+		t.Fatalf("SafeToolArgumentsPreviewString() = %q, must redact complete quoted value %q", preview, sensitiveValue)
+	}
+	if !strings.Contains(preview, "provider arguments:") || !strings.Contains(preview, "keep=visible") {
+		t.Fatalf("SafeToolArgumentsPreviewString() = %q, want ordinary prefixed context", preview)
+	}
+	if !strings.Contains(preview, "[REDACTED]") || !strings.Contains(preview, "[truncated]") {
+		t.Fatalf("SafeToolArgumentsPreviewString() = %q, want redaction and truncation markers", preview)
+	}
+	if len(preview) > argumentPreviewOutputLimit {
+		t.Fatalf("SafeToolArgumentsPreviewString() length = %d, want <= %d", len(preview), argumentPreviewOutputLimit)
+	}
+	if argumentPreviewRawLimit != 16*1024 || argumentPreviewProbeLimit != 1024 || argumentPreviewOutputLimit != 512 {
+		t.Fatalf("argument preview bounds drifted: raw=%d probe=%d output=%d", argumentPreviewRawLimit, argumentPreviewProbeLimit, argumentPreviewOutputLimit)
+	}
+}
+
 func TestSafeToolArgumentsPreviewOversizedInvalidStructuredInputFailsClosed(t *testing.T) {
 	const sensitiveValue = "invalid-value-5a82d1"
 	raw := `{"credentials":"` + sensitiveValue + `","padding":"` + strings.Repeat("x", 17*1024)

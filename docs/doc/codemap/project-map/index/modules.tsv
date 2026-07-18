@@ -608,7 +608,7 @@ internal/module/threadprompt/runtime_catalog.go	internal	modules	go-source	19630
 internal/module/threadprompt/runtime_intent.go	internal	modules	go-source	5145	业务模块层	internal,module,threadprompt,runtime,intent,业务模块层
 internal/module/threadprompt/runtime_provider_test.go	internal	modules	go-test	2981	业务模块层	internal,module,threadprompt,runtime,provider,test,业务模块层
 internal/module/threadprompt/types.go	internal	modules	go-source	4301	业务模块层	internal,module,threadprompt,types,业务模块层
-internal/module/turn/argument_preview_sanitizer_test.go	internal	modules	go-test	1515	turn 启动、执行、审批与 provider 调度	internal,module,turn,argument,preview,sanitizer,test,启动,执行,审批与,provider,调度
+internal/module/turn/argument_preview_sanitizer_test.go	internal	modules	go-test	1640	turn 启动、执行、审批与 provider 调度	internal,module,turn,argument,preview,sanitizer,test,启动,执行,审批与,provider,调度
 internal/module/turn/assembler.go	internal	modules	go-source	8840	turn 启动、执行、审批与 provider 调度	internal,module,turn,assembler,启动,执行,审批与,provider,调度
 internal/module/turn/contract.go	internal	modules	go-source	7953	turn 启动、执行、审批与 provider 调度	internal,module,turn,contract,启动,执行,审批与,provider,调度
 internal/module/turn/expanded_state_test.go	internal	modules	go-test	10133	turn 启动、执行、审批与 provider 调度	internal,module,turn,expanded,state,test,启动,执行,审批与,provider,调度
@@ -717,7 +717,7 @@ internal/module/uistate/subscribers.go	internal	modules	go-source	1266	UI 事件
 internal/module/uistate/terminalstatus/status_test.go	internal	modules	go-test	1234	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,terminalstatus,status,test,UI,事件投影,sidebar,timeline,状态
 internal/module/uistate/terminalstatus/status.go	internal	modules	go-source	351	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,terminalstatus,status,UI,事件投影,sidebar,timeline,状态
 internal/module/uistate/timeline/approval_identity_test.go	internal	modules	go-test	3451	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,timeline,approval,identity,test,UI,事件投影,sidebar,状态
-internal/module/uistate/timeline/argument_preview_sanitizer_test.go	internal	modules	go-test	1556	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,timeline,argument,preview,sanitizer,test,UI,事件投影,sidebar,状态
+internal/module/uistate/timeline/argument_preview_sanitizer_test.go	internal	modules	go-test	1665	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,timeline,argument,preview,sanitizer,test,UI,事件投影,sidebar,状态
 internal/module/uistate/timeline/merge.go	internal	modules	go-source	1848	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,timeline,merge,UI,事件投影,sidebar,状态
 internal/module/uistate/timeline/phase2_projector_pending_helpers_test.go	internal	modules	go-test	3123	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,timeline,phase2,projector,pending,helpers,test,UI,事件投影,sidebar,状态
 internal/module/uistate/timeline/phase2_projector_pending_test.go	internal	modules	go-test	19903	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,timeline,phase2,projector,pending,test,UI,事件投影,sidebar,状态

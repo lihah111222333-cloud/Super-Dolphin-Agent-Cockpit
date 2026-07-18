@@ -16,11 +16,14 @@ const (
 	argumentPreviewTruncated   = "... [truncated]"
 )
 
+var argumentPreviewAssignmentPrefixes = []*regexp.Regexp{
+	regexp.MustCompile(`(?i)--(?:api[_-]?key|private[_-]?key|token|access-token|secret|password|credential|cookie|session|certificate)(?:[=\s]+)`),
+	regexp.MustCompile(`(?i)authorization\s*[:=]\s*bearer\s+`),
+	regexp.MustCompile(`(?i)\b(?:api[_-]?key|private[_-]?key|secret[_-]?key|access[_-]?token|token|password|credential|cookie|session|certificate)\s*[:=]\s*`),
+	regexp.MustCompile(`(?i)\b[A-Z_]*(?:TOKEN|KEY|SECRET|PASSWORD)[A-Z_]*\s*=\s*`),
+}
+
 var argumentPreviewPatterns = []*regexp.Regexp{
-	regexp.MustCompile(`(?i)--(?:api[_-]?key|private[_-]?key|token|access-token|secret|password|credential|cookie|session|certificate)(?:[=\s]+[^\s,;&"'}]+)?`),
-	regexp.MustCompile(`(?i)(authorization\s*[:=]\s*bearer\s+)[^\s,;&"'}]+`),
-	regexp.MustCompile(`(?i)\b((?:api[_-]?key|private[_-]?key|secret[_-]?key|access[_-]?token|token|password|credential|cookie|session|certificate)\s*[:=]\s*)[^\s,;&"'}]+`),
-	regexp.MustCompile(`(?i)\b([A-Z_]*(?:TOKEN|KEY|SECRET|PASSWORD)[A-Z_]*=)[^\s,;&"'}]+`),
 	regexp.MustCompile(`sk-[A-Za-z0-9_-]+`),
 	regexp.MustCompile(`(?i)(?:/Users|/home|/private|/tmp|/var|/etc|/Volumes)/[^\s,;&"'}]+`),
 	regexp.MustCompile(`[A-Za-z]:\\[^\s,;&"'}]+`),
@@ -279,10 +282,109 @@ func sanitizeArgumentPreviewText(text string) string {
 		return redacted
 	}
 	text = strings.NewReplacer("\r", " ", "\n", " ", "\t", " ").Replace(text)
+	text = redactSensitiveArgumentPreviewAssignments(text)
 	for _, pattern := range argumentPreviewPatterns {
 		text = pattern.ReplaceAllString(text, redacted)
 	}
 	return strings.Join(strings.Fields(text), " ")
+}
+
+// redactSensitiveArgumentPreviewAssignments 对敏感 key、环境变量和 flag 的赋值做整值替换。
+func redactSensitiveArgumentPreviewAssignments(text string) string {
+	for _, prefix := range argumentPreviewAssignmentPrefixes {
+		text = redactArgumentPreviewAssignmentsByPrefix(text, prefix)
+	}
+	return text
+}
+
+// redactArgumentPreviewAssignmentsByPrefix 在每个前缀后消费一个完整的有界参数值。
+func redactArgumentPreviewAssignmentsByPrefix(text string, prefix *regexp.Regexp) string {
+	matches := prefix.FindAllStringIndex(text, -1)
+	if len(matches) == 0 {
+		return text
+	}
+	var out strings.Builder
+	out.Grow(len(text))
+	cursor := 0
+	for _, match := range matches {
+		if match[0] < cursor {
+			continue
+		}
+		out.WriteString(text[cursor:match[0]])
+		out.WriteString(redacted)
+		cursor = consumeArgumentPreviewAssignmentValue(text, match[1])
+	}
+	out.WriteString(text[cursor:])
+	return out.String()
+}
+
+// consumeArgumentPreviewAssignmentValue 消费普通、引号或反斜杠转义引号包裹的单个值。
+func consumeArgumentPreviewAssignmentValue(text string, start int) int {
+	if start >= len(text) {
+		return start
+	}
+	if text[start] == '\\' && start+1 < len(text) && isArgumentPreviewQuote(text[start+1]) {
+		return consumeEscapedQuotedArgumentPreviewValue(text, start, text[start+1])
+	}
+	if isArgumentPreviewQuote(text[start]) {
+		return consumeQuotedArgumentPreviewValue(text, start, text[start])
+	}
+	for start < len(text) && !argumentPreviewValueBoundary(text[start]) {
+		start++
+	}
+	return start
+}
+
+// consumeQuotedArgumentPreviewValue 消费 shell 风格引号值；未闭合时 fail-closed 到输入末尾。
+func consumeQuotedArgumentPreviewValue(text string, start int, quote byte) int {
+	escaped := false
+	for i := start + 1; i < len(text); i++ {
+		if escaped {
+			escaped = false
+			continue
+		}
+		if text[i] == '\\' {
+			escaped = true
+			continue
+		}
+		if text[i] == quote && argumentPreviewValueEndsAt(text, i+1) {
+			return i + 1
+		}
+	}
+	return len(text)
+}
+
+// consumeEscapedQuotedArgumentPreviewValue 消费 JSON 字符串中仍保留反斜杠的引号值。
+func consumeEscapedQuotedArgumentPreviewValue(text string, start int, quote byte) int {
+	for i := start + 2; i+1 < len(text); i++ {
+		if text[i] != '\\' || text[i+1] != quote {
+			continue
+		}
+		if i > 0 && text[i-1] == '\\' {
+			continue
+		}
+		if argumentPreviewValueEndsAt(text, i+2) {
+			return i + 2
+		}
+	}
+	return len(text)
+}
+
+func isArgumentPreviewQuote(value byte) bool {
+	return value == '"' || value == '\''
+}
+
+func argumentPreviewValueEndsAt(text string, end int) bool {
+	return end >= len(text) || argumentPreviewValueBoundary(text[end])
+}
+
+func argumentPreviewValueBoundary(value byte) bool {
+	switch value {
+	case ' ', '\t', '\r', '\n', ',', ';', '&', '}', ']':
+		return true
+	default:
+		return false
+	}
 }
 
 // containsSensitivePEM 检测私钥或证书 PEM 起始标签，命中后调用方整段脱敏。
