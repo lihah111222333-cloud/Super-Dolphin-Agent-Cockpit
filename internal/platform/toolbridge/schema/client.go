@@ -310,8 +310,9 @@ func stopAndReap(
 	}
 }
 
-func cleanupUnattachedProcess(cmd *exec.Cmd, attachErr error) error {
-	killErr := cmd.Process.Kill()
+// cleanupUnattachedProcessTree 在 attach 失败后等待完整树被已验证 ownership lease 同步回收。
+func cleanupUnattachedProcessTree(cmd *exec.Cmd, guard *processGuard, attachErr error) error {
+	terminateErr := terminateUnattachedProcessTree(cmd, guard)
 	waitResult := make(chan error, 1)
 	reapCtx, cancel := context.WithTimeout(context.Background(), reapDeadline)
 	defer cancel()
@@ -320,9 +321,26 @@ func cleanupUnattachedProcess(cmd *exec.Cmd, attachErr error) error {
 	})
 	select {
 	case <-waitResult:
-		return newDiagnostic(CodeProcessStartFailed, "attach helper process boundary", errors.Join(attachErr, killErr))
+		closeErr := closeProcessGuard(guard)
+		if terminateErr != nil || closeErr != nil {
+			return newDiagnostic(
+				CodeReapFailed,
+				"unattached helper process tree ownership was not proven",
+				errors.Join(attachErr, terminateErr, closeErr),
+			)
+		}
+		return newDiagnostic(
+			CodeProcessStartFailed,
+			"attach helper process boundary",
+			attachErr,
+		)
 	case <-reapCtx.Done():
-		return newDiagnostic(CodeReapFailed, "unattached helper was not reaped within one second", errors.Join(attachErr, killErr))
+		closeErr := closeProcessGuard(guard)
+		return newDiagnostic(
+			CodeReapFailed,
+			"unattached helper was not reaped within one second",
+			errors.Join(attachErr, terminateErr, closeErr),
+		)
 	}
 }
 

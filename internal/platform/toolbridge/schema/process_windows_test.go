@@ -4,6 +4,7 @@ package schema
 
 import (
 	"context"
+	"errors"
 	"os/exec"
 	"testing"
 	"time"
@@ -13,16 +14,18 @@ import (
 
 func TestStopAndReapClosesWindowsGuardOnTimeout(t *testing.T) {
 	cmd := exec.Command("ping.exe", "-n", "30", "127.0.0.1")
-	if err := configureProcess(cmd); err != nil {
-		t.Fatalf("configureProcess() error = %v", err)
+	guard, err := prepareProcessGuard(cmd)
+	if err != nil {
+		t.Fatalf("prepareProcessGuard() error = %v", err)
 	}
 	if err := cmd.Start(); err != nil {
+		_ = closeProcessGuard(guard)
 		t.Fatalf("cmd.Start() error = %v", err)
 	}
-	guard, err := attachProcessGuard(cmd)
-	if err != nil {
+	if err := attachProcessGuard(cmd, guard); err != nil {
 		_ = cmd.Process.Kill()
 		_ = cmd.Wait()
+		_ = closeProcessGuard(guard)
 		t.Fatalf("attachProcessGuard() error = %v", err)
 	}
 	t.Cleanup(func() {
@@ -60,5 +63,43 @@ func TestStopAndReapClosesWindowsGuardOnTimeout(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		_ = cmd.Process.Kill()
 		t.Fatal("guarded process remained alive after Job Object termination and close")
+	}
+}
+
+func TestWindowsInternalAttachFailuresReapPreparedBoundary(t *testing.T) {
+	for _, stage := range []processGuardAttachStage{
+		processGuardAttachOpenProcess,
+		processGuardAttachAssignJob,
+	} {
+		t.Run(string(stage), func(t *testing.T) {
+			cmd := exec.Command("ping.exe", "-n", "30", "127.0.0.1")
+			guard, err := prepareProcessGuard(cmd)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := cmd.Start(); err != nil {
+				_ = closeProcessGuard(guard)
+				t.Fatal(err)
+			}
+			attachErr := errors.New("injected internal attach failure")
+			err = attachProcessGuardWithProbe(cmd, guard, func(current processGuardAttachStage) error {
+				if current == stage {
+					return attachErr
+				}
+				return nil
+			})
+			if !errors.Is(err, attachErr) {
+				t.Fatalf("attachProcessGuardWithProbe() error = %v", err)
+			}
+			if err := terminateUnattachedProcessTree(cmd, guard); err != nil {
+				t.Fatalf("terminateUnattachedProcessTree() error = %v", err)
+			}
+			if err := cmd.Wait(); err == nil {
+				t.Fatal("terminated suspended process exited successfully")
+			}
+			if err := closeProcessGuard(guard); err != nil {
+				t.Fatalf("closeProcessGuard() error = %v", err)
+			}
+		})
 	}
 }

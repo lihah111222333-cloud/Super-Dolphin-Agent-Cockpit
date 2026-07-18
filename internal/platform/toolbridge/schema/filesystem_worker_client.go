@@ -22,6 +22,20 @@ const (
 	filesystemSnapshotSweepTimeout   = 5 * time.Second
 )
 
+type processGuardAttacher func(*exec.Cmd, *processGuard) error
+
+type processGuardAttachStage string
+
+const (
+	processGuardAttachCaptureIdentity      processGuardAttachStage = "capture_identity"
+	processGuardAttachValidateProcessGroup processGuardAttachStage = "validate_process_group"
+	processGuardAttachValidateOwnership    processGuardAttachStage = "validate_ownership"
+	processGuardAttachOpenProcess          processGuardAttachStage = "open_process"
+	processGuardAttachAssignJob            processGuardAttachStage = "assign_job"
+)
+
+type processGuardAttachProbe func(processGuardAttachStage) error
+
 func verifyHelperPackageInWorker(ctx context.Context, config ClientConfig) ([]byte, error) {
 	request := filesystemWorkerRequest{
 		Version: filesystemWorkerVersion, Operation: filesystemWorkerVerify,
@@ -68,6 +82,36 @@ func runFilesystemWorker(
 	payload io.Reader,
 	maxPayload int,
 ) ([]byte, error) {
+	return runFilesystemWorkerWithAttacher(
+		parentCtx,
+		operationCtx,
+		workerPath,
+		command,
+		extraEnv,
+		request,
+		payload,
+		maxPayload,
+		attachProcessGuard,
+	)
+}
+
+// runFilesystemWorkerWithAttacher 允许故障测试在真实 Start 后注入 guard attach 失败。
+func runFilesystemWorkerWithAttacher(
+	parentCtx context.Context,
+	operationCtx context.Context,
+	workerPath string,
+	command func(string) *exec.Cmd,
+	extraEnv []string,
+	request filesystemWorkerRequest,
+	payload io.Reader,
+	maxPayload int,
+	attacher processGuardAttacher,
+) ([]byte, error) {
+	if attacher == nil {
+		return nil, TransientInitializationError(
+			newDiagnostic(CodeProcessStartFailed, "schema filesystem worker guard attacher is nil", nil),
+		)
+	}
 	header, err := encodeFilesystemWorkerRequest(request)
 	if err != nil {
 		return nil, err
@@ -88,19 +132,22 @@ func runFilesystemWorker(
 	stderr := &boundedBuffer{limit: maxStderrBytes}
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
-	if err := configureProcess(cmd); err != nil {
+	guard, err := prepareProcessGuard(cmd)
+	if err != nil {
 		return nil, TransientInitializationError(
-			newDiagnostic(CodeProcessStartFailed, "configure schema filesystem worker", err),
+			newDiagnostic(CodeProcessStartFailed, "prepare schema filesystem worker process boundary", err),
 		)
 	}
 	if err := cmd.Start(); err != nil {
+		closeErr := closeProcessGuard(guard)
 		return nil, TransientInitializationError(
-			newDiagnostic(CodeProcessStartFailed, "start schema filesystem worker", err),
+			newDiagnostic(CodeProcessStartFailed, "start schema filesystem worker", errors.Join(err, closeErr)),
 		)
 	}
-	guard, err := attachProcessGuard(cmd)
-	if err != nil {
-		return nil, TransientInitializationError(cleanupUnattachedProcess(cmd, err))
+	if err := attacher(cmd, guard); err != nil {
+		return nil, TransientInitializationError(
+			cleanupFilesystemWorkerAfterAttachFailure(workerPath, command, request, cmd, guard, err),
+		)
 	}
 	result, runErr := waitFilesystemWorker(
 		parentCtx,
@@ -124,6 +171,23 @@ func runFilesystemWorker(
 		return nil, errors.Join(runErr, cleanupErr)
 	}
 	return result, runErr
+}
+
+// cleanupFilesystemWorkerAfterAttachFailure 仅在确认 worker 已回收后清除其已发布 snapshot。
+func cleanupFilesystemWorkerAfterAttachFailure(
+	workerPath string,
+	command func(string) *exec.Cmd,
+	request filesystemWorkerRequest,
+	cmd *exec.Cmd,
+	guard *processGuard,
+	attachErr error,
+) error {
+	processErr := cleanupUnattachedProcessTree(cmd, guard, attachErr)
+	if request.Operation != filesystemWorkerExecute || errorTreeContainsCode(processErr, CodeReapFailed) {
+		return processErr
+	}
+	cleanupErr := cleanupFilesystemSnapshotWithWorker(workerPath, command, request.Snapshot)
+	return errors.Join(processErr, cleanupErr)
 }
 
 func cleanupFilesystemSnapshotWithWorker(

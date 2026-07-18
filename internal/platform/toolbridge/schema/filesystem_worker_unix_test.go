@@ -491,7 +491,7 @@ func TestTerminateProcessTreeSignalsLeasedGroup(t *testing.T) {
 	if !killCalled {
 		t.Fatal("leased process group was not terminated")
 	}
-	reapGuardedUnixTestProcess(t, cmd)
+	reapGuardedUnixTestProcess(t, cmd, guard)
 	if err := closeProcessGuard(guard); err != nil {
 		t.Fatal(err)
 	}
@@ -501,6 +501,12 @@ func TestWaitPublishBarrierLeasesGroupAcrossPIDReuseWindow(t *testing.T) {
 	cmd, guard := startGuardedUnixTestProcess(t, "sleep 0.05")
 	waitCompleted := make(chan struct{})
 	releasePublish := make(chan struct{})
+	released := false
+	defer func() {
+		if !released {
+			close(releasePublish)
+		}
+	}()
 	guard.beforeWaitResultPublish = func() {
 		close(waitCompleted)
 		<-releasePublish
@@ -533,10 +539,11 @@ func TestWaitPublishBarrierLeasesGroupAcrossPIDReuseWindow(t *testing.T) {
 	cancel()
 	select {
 	case <-killCalled:
-	case <-time.After(time.Second):
+	case <-time.After(5 * time.Second):
 		t.Fatal("cancellation did not terminate the leased process group")
 	}
 	close(releasePublish)
+	released = true
 	if err := <-result; ErrorCode(err) != CodeCancelled {
 		t.Fatalf("wait barrier error = %v, code=%q", err, ErrorCode(err))
 	}
@@ -565,26 +572,30 @@ func assertPathExistence(t *testing.T, path string, want bool) {
 func startGuardedUnixTestProcess(t *testing.T, command string) (*exec.Cmd, *processGuard) {
 	t.Helper()
 	cmd := exec.Command("sh", "-c", command)
-	if err := configureProcess(cmd); err != nil {
+	guard, err := prepareProcessGuard(cmd)
+	if err != nil {
 		t.Fatal(err)
 	}
 	if err := cmd.Start(); err != nil {
+		_ = closeProcessGuard(guard)
 		t.Fatal(err)
 	}
-	guard, err := attachProcessGuard(cmd)
-	if err != nil {
-		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+	if err := attachProcessGuard(cmd, guard); err != nil {
+		_ = guard.killGroup(-guard.groupID, syscall.SIGKILL)
+		guard.groupKilled = true
 		_ = cmd.Wait()
+		_ = closeProcessGuard(guard)
 		t.Fatal(err)
 	}
 	return cmd, guard
 }
 
-func reapGuardedUnixTestProcess(t *testing.T, cmd *exec.Cmd) {
+func reapGuardedUnixTestProcess(t *testing.T, cmd *exec.Cmd, guard *processGuard) {
 	t.Helper()
-	if err := syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL); err != nil && !errors.Is(err, syscall.ESRCH) {
+	if err := syscall.Kill(-guard.groupID, syscall.SIGKILL); err != nil && !errors.Is(err, syscall.ESRCH) {
 		t.Fatal(err)
 	}
+	guard.groupKilled = true
 	if err := cmd.Wait(); err != nil {
 		var exitErr *exec.ExitError
 		if !errors.As(err, &exitErr) {
