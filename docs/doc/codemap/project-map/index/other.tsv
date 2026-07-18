@@ -317,7 +317,7 @@ internal/contract/insight.go	internal	other	go-source	3160	跨模块稳定接口
 internal/contract/manifest_test.go	internal	other	go-test	5445	跨模块稳定接口、事件和 DTO 边界	internal,contract,manifest,test,跨模块稳定接口,事件和,DTO,边界
 internal/contract/manifest.go	internal	other	go-source	13074	跨模块稳定接口、事件和 DTO 边界	internal,contract,manifest,跨模块稳定接口,事件和,DTO,边界
 internal/contract/mcp_control_test.go	internal	other	go-test	1867	跨模块稳定接口、事件和 DTO 边界	internal,contract,mcp,control,test,跨模块稳定接口,事件和,DTO,边界
-internal/contract/mcp_control.go	internal	other	go-source	23596	跨模块稳定接口、事件和 DTO 边界	internal,contract,mcp,control,跨模块稳定接口,事件和,DTO,边界
+internal/contract/mcp_control.go	internal	other	go-source	23670	跨模块稳定接口、事件和 DTO 边界	internal,contract,mcp,control,跨模块稳定接口,事件和,DTO,边界
 internal/contract/memory.go	internal	other	go-source	8165	跨模块稳定接口、事件和 DTO 边界	internal,contract,memory,跨模块稳定接口,事件和,DTO,边界
 internal/contract/message_notifier.go	internal	other	go-source	1872	跨模块稳定接口、事件和 DTO 边界	internal,contract,message,notifier,跨模块稳定接口,事件和,DTO,边界
 internal/contract/orchestration_tools_test.go	internal	other	go-test	3997	跨模块稳定接口、事件和 DTO 边界	internal,contract,orchestration,tools,test,跨模块稳定接口,事件和,DTO,边界

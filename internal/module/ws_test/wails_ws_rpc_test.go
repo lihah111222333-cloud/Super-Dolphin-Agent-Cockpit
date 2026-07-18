@@ -264,6 +264,20 @@ func (s *wsMCPServerStore) InsertServer(_ context.Context, params mcpserver.Stor
 	return true, nil
 }
 
+func (s *wsMCPServerStore) ReplaceServer(ctx context.Context, params mcpserver.StoreMCPServerConfigParams) (bool, error) {
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
+	if s.servers[params.WorkspaceRoot] == nil {
+		return false, nil
+	}
+	if _, exists := s.servers[params.WorkspaceRoot][params.Name]; !exists {
+		return false, nil
+	}
+	s.servers[params.WorkspaceRoot][params.Name] = cloneWSMCPServerConfig(params.Config)
+	return true, nil
+}
+
 func (s *wsMCPServerStore) ListServers(_ context.Context, workspaceRoot string) (map[string]mcpserver.ServerConfig, error) {
 	return cloneWSMCPServers(s.servers[workspaceRoot]), nil
 }

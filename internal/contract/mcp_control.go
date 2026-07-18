@@ -511,6 +511,7 @@ type BackfillMCPToolLifecycleParams struct {
 // MCPServerConfigStore 只暴露 MCP server 服务需要的配置持久化能力。
 type MCPServerConfigStore interface {
 	InsertServer(context.Context, StoreMCPServerConfigParams) (bool, error)
+	ReplaceServer(context.Context, StoreMCPServerConfigParams) (bool, error)
 	ListServers(context.Context, string) (map[string]MCPServerConfig, error)
 	DeleteServer(context.Context, string, string) (bool, error)
 	SetServerEnabled(context.Context, string, string, bool) (bool, error)
