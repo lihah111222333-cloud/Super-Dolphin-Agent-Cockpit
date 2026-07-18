@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -264,6 +265,20 @@ func (s *wsMCPServerStore) InsertServer(_ context.Context, params mcpserver.Stor
 	return true, nil
 }
 
+func (s *wsMCPServerStore) ReplaceServer(ctx context.Context, params mcpserver.StoreMCPServerConfigParams) (bool, error) {
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
+	if s.servers[params.WorkspaceRoot] == nil {
+		return false, nil
+	}
+	if _, exists := s.servers[params.WorkspaceRoot][params.Name]; !exists {
+		return false, nil
+	}
+	s.servers[params.WorkspaceRoot][params.Name] = cloneWSMCPServerConfig(params.Config)
+	return true, nil
+}
+
 func (s *wsMCPServerStore) ListServers(_ context.Context, workspaceRoot string) (map[string]mcpserver.ServerConfig, error) {
 	return cloneWSMCPServers(s.servers[workspaceRoot]), nil
 }
@@ -414,9 +429,7 @@ func cloneWSMCPServers(input map[string]mcpserver.ServerConfig) map[string]mcpse
 
 func cloneWSMCPServerConfig(config mcpserver.ServerConfig) mcpserver.ServerConfig {
 	headers := make(map[string]string, len(config.Headers))
-	for name, value := range config.Headers {
-		headers[name] = value
-	}
+	maps.Copy(headers, config.Headers)
 	if len(headers) == 0 {
 		headers = nil
 	}

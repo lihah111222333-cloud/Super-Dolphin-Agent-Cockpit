@@ -593,9 +593,12 @@ func TestMCPServerConfigProviderSkipsDisabledRows(t *testing.T) {
 }
 
 type memoryMCPServerStore struct {
-	servers   map[string]map[string]ServerConfig
-	lifecycle map[memoryMCPToolLifecycleKey]contract.MCPToolLifecycleDecision
+	servers    map[string]map[string]ServerConfig
+	lifecycle  map[memoryMCPToolLifecycleKey]contract.MCPToolLifecycleDecision
+	replaceErr error
 }
+
+var _ MCPServerConfigStore = (*memoryMCPServerStore)(nil)
 
 type memoryMCPToolLifecycleKey struct {
 	workspaceRoot string
@@ -618,6 +621,23 @@ func (s *memoryMCPServerStore) InsertServer(_ context.Context, params StoreMCPSe
 		s.servers[params.WorkspaceRoot] = map[string]ServerConfig{}
 	}
 	if _, exists := s.servers[params.WorkspaceRoot][params.Name]; exists {
+		return false, nil
+	}
+	s.servers[params.WorkspaceRoot][params.Name] = cloneSingleMCPServerConfig(params.Config)
+	return true, nil
+}
+
+func (s *memoryMCPServerStore) ReplaceServer(ctx context.Context, params StoreMCPServerConfigParams) (bool, error) {
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
+	if s.replaceErr != nil {
+		return false, s.replaceErr
+	}
+	if s.servers[params.WorkspaceRoot] == nil {
+		return false, nil
+	}
+	if _, exists := s.servers[params.WorkspaceRoot][params.Name]; !exists {
 		return false, nil
 	}
 	s.servers[params.WorkspaceRoot][params.Name] = cloneSingleMCPServerConfig(params.Config)

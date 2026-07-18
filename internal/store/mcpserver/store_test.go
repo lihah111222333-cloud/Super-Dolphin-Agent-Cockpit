@@ -7,6 +7,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -263,6 +264,126 @@ func TestConfigStoreDeleteRemovesServer(t *testing.T) {
 	if _, ok := servers["my-search"]; ok {
 		t.Fatalf("server still listed after delete: %#v", servers)
 	}
+}
+
+func TestConfigStoreReplaceServerOnlyUpdatesExactExistingRow(t *testing.T) {
+	store, closeDB := newSQLiteConfigStore(t)
+	defer closeDB()
+	ctx := context.Background()
+	workspaceRoot := filepath.Join(t.TempDir(), "project")
+	otherWorkspace := filepath.Join(t.TempDir(), "other")
+	original := atomicityOriginalMCPServerConfig()
+	replacement := atomicityReplacementMCPServerConfig()
+	insertMCPServerConfig(t, store, ctx, workspaceRoot, "sqlite", original)
+	insertMCPServerConfig(t, store, ctx, workspaceRoot, "other", original)
+	insertMCPServerConfig(t, store, ctx, otherWorkspace, "sqlite", original)
+
+	replaced, err := store.ReplaceServer(ctx, contract.StoreMCPServerConfigParams{
+		WorkspaceRoot: workspaceRoot,
+		Name:          "sqlite",
+		Config:        replacement,
+	})
+	if err != nil {
+		t.Fatalf("ReplaceServer() error = %v", err)
+	}
+	if !replaced {
+		t.Fatal("ReplaceServer() replaced = false, want true")
+	}
+	assertStoredMCPServerConfig(t, store, ctx, workspaceRoot, "sqlite", replacement)
+	assertStoredMCPServerConfig(t, store, ctx, workspaceRoot, "other", original)
+	assertStoredMCPServerConfig(t, store, ctx, otherWorkspace, "sqlite", original)
+
+	replaced, err = store.ReplaceServer(ctx, contract.StoreMCPServerConfigParams{
+		WorkspaceRoot: workspaceRoot,
+		Name:          "missing",
+		Config:        replacement,
+	})
+	if err != nil {
+		t.Fatalf("ReplaceServer(missing) error = %v", err)
+	}
+	if replaced {
+		t.Fatal("ReplaceServer(missing) replaced = true, want false")
+	}
+}
+
+func TestConfigStoreReplaceServerSQLiteFailureKeepsOriginalRow(t *testing.T) {
+	store, closeDB := newSQLiteConfigStore(t)
+	defer closeDB()
+	ctx := context.Background()
+	workspaceRoot := filepath.Join(t.TempDir(), "project")
+	original := atomicityOriginalMCPServerConfig()
+	insertMCPServerConfig(t, store, ctx, workspaceRoot, "sqlite", original)
+	if _, err := store.db.ExecContext(ctx, `
+		CREATE TRIGGER reject_mcp_server_replace
+		BEFORE UPDATE ON mcp_server_configs
+		BEGIN
+			SELECT RAISE(ABORT, 'injected replace failure');
+		END
+	`); err != nil {
+		t.Fatalf("create replace failure trigger: %v", err)
+	}
+
+	_, err := store.ReplaceServer(ctx, contract.StoreMCPServerConfigParams{
+		WorkspaceRoot: workspaceRoot,
+		Name:          "sqlite",
+		Config:        atomicityReplacementMCPServerConfig(),
+	})
+	if err == nil || !strings.Contains(err.Error(), "injected replace failure") {
+		t.Fatalf("ReplaceServer() error = %v, want injected SQLite failure", err)
+	}
+	assertStoredMCPServerConfig(t, store, ctx, workspaceRoot, "sqlite", original)
+}
+
+func TestConfigStoreReplaceServerCanceledContextKeepsOriginalRow(t *testing.T) {
+	store, closeDB := newSQLiteConfigStore(t)
+	defer closeDB()
+	workspaceRoot := filepath.Join(t.TempDir(), "project")
+	original := atomicityOriginalMCPServerConfig()
+	insertMCPServerConfig(t, store, context.Background(), workspaceRoot, "sqlite", original)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, err := store.ReplaceServer(ctx, contract.StoreMCPServerConfigParams{
+		WorkspaceRoot: workspaceRoot,
+		Name:          "sqlite",
+		Config:        atomicityReplacementMCPServerConfig(),
+	})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("ReplaceServer() error = %v, want context.Canceled", err)
+	}
+	assertStoredMCPServerConfig(t, store, context.Background(), workspaceRoot, "sqlite", original)
+}
+
+func TestConfigStoreReplaceServerClosedDBKeepsOriginalRow(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "mcp-server.db")
+	db, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	store := &configStore{db: db}
+	ctx := context.Background()
+	workspaceRoot := filepath.Join(t.TempDir(), "project")
+	original := atomicityOriginalMCPServerConfig()
+	insertMCPServerConfig(t, store, ctx, workspaceRoot, "sqlite", original)
+	if err := db.Close(); err != nil {
+		t.Fatalf("close sqlite before replace: %v", err)
+	}
+
+	_, err = store.ReplaceServer(ctx, contract.StoreMCPServerConfigParams{
+		WorkspaceRoot: workspaceRoot,
+		Name:          "sqlite",
+		Config:        atomicityReplacementMCPServerConfig(),
+	})
+	if err == nil {
+		t.Fatal("ReplaceServer() error = nil, want closed DB failure")
+	}
+
+	verifyDB, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("reopen sqlite: %v", err)
+	}
+	defer verifyDB.Close()
+	assertStoredMCPServerConfig(t, &configStore{db: verifyDB}, ctx, workspaceRoot, "sqlite", original)
 }
 
 type failOnMCPServerExecDB struct {
@@ -524,6 +645,69 @@ func TestConfigStoreExportsToolLifecycleForRollback(t *testing.T) {
 	}
 	assertExportedLifecycleRow(t, got[0], "a-lsp", "grep", contract.MCPToolLifecycleSuspended, "")
 	assertExportedLifecycleRow(t, got[1], "z-search", "search", contract.MCPToolLifecycleRemoved, "search_v2")
+}
+
+func atomicityOriginalMCPServerConfig() contract.MCPServerConfig {
+	return contract.MCPServerConfig{
+		Transport: "http",
+		URL:       "https://legacy.example/mcp",
+		Headers:   map[string]string{"Authorization": "Bearer legacy"},
+		Enabled:   boolPtr(false),
+	}
+}
+
+func atomicityReplacementMCPServerConfig() contract.MCPServerConfig {
+	return contract.MCPServerConfig{
+		Transport: "stdio",
+		Command:   "npx",
+		Args:      []string{"-y", "@bytebase/dbhub", "--dsn=sqlite:///replacement.db"},
+		Env:       map[string]string{"DBHUB_LOG_LEVEL": "error"},
+		Enabled:   boolPtr(true),
+	}
+}
+
+func insertMCPServerConfig(
+	t *testing.T,
+	store *configStore,
+	ctx context.Context,
+	workspaceRoot string,
+	name string,
+	config contract.MCPServerConfig,
+) {
+	t.Helper()
+	inserted, err := store.InsertServer(ctx, contract.StoreMCPServerConfigParams{
+		WorkspaceRoot: workspaceRoot,
+		Name:          name,
+		Config:        config,
+	})
+	if err != nil {
+		t.Fatalf("InsertServer(%s) error = %v", name, err)
+	}
+	if !inserted {
+		t.Fatalf("InsertServer(%s) inserted = false, want true", name)
+	}
+}
+
+func assertStoredMCPServerConfig(
+	t *testing.T,
+	store *configStore,
+	ctx context.Context,
+	workspaceRoot string,
+	name string,
+	want contract.MCPServerConfig,
+) {
+	t.Helper()
+	servers, err := store.ListServers(ctx, workspaceRoot)
+	if err != nil {
+		t.Fatalf("ListServers() error = %v", err)
+	}
+	got, ok := servers[name]
+	if !ok {
+		t.Fatalf("stored server %q missing: %#v", name, servers)
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("stored server %q = %#v, want %#v", name, got, want)
+	}
 }
 
 func newSQLiteConfigStore(t *testing.T) (*configStore, func()) {
