@@ -595,10 +595,22 @@ func (s *session) onNotification(method string, params json.RawMessage) {
 	}
 	method = strings.TrimSpace(method)
 	raw := dto.RawProviderEvent{EventType: method, Data: params}
+	if isTurnTerminalEvent(method) {
+		payload := decodeEventPayload(params)
+		clearCodexProviderUserAttribution(payload)
+		outcome := canonicalTurnTerminalOutcome(method, payload)
+		if outcome.ContractError != "" {
+			s.failMalformedTerminalNotification(method)
+			return
+		}
+		s.applyAcceptedInterruptRequest(payload, &outcome)
+		raw.Data = payload
+		raw.Terminal = &outcome
+	}
 	if !isApprovalBridgeMethod(method) || s.approvals == nil {
 		s.dispatch(raw)
 	}
-	s.handleNotificationAction(method, params)
+	s.handleNotificationAction(method, params, raw)
 }
 
 func malformedTerminalNotification(method string, params json.RawMessage) bool {
@@ -667,12 +679,12 @@ func (s *session) injectAccumulatedResult(params json.RawMessage) json.RawMessag
 	return encodeEventPayload(payload, params)
 }
 
-func (s *session) handleNotificationAction(method string, params json.RawMessage) {
+func (s *session) handleNotificationAction(method string, params json.RawMessage, raw dto.RawProviderEvent) {
 	switch {
 	case isApprovalBridgeMethod(method):
 		s.handleApprovalRequest(method, params)
 	case isTurnTerminalEvent(method):
-		s.finishTurn(params, turnTerminalSuccess(method, decodeEventPayload(params)))
+		s.finishTurn(raw)
 	case s.completeAssistantMessageCompleted(method, params):
 	case method == "connection.dead":
 		s.handleConnectionDead(params)

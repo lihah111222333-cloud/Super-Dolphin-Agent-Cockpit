@@ -54,7 +54,7 @@ func isTransientErrorText(errStr string) bool {
 
 // isTransientTurnError 从 turn:complete 事件中识别可重试失败。
 func isTransientTurnError(raw dto.RawProviderEvent) bool {
-	if dataBool(raw.Data, "success") {
+	if raw.Terminal == nil || raw.Terminal.Success {
 		return false
 	}
 	if reason := dataString(raw.Data, "terminal_reason"); reason != "" {
@@ -66,7 +66,7 @@ func isTransientTurnError(raw dto.RawProviderEvent) bool {
 // shouldRetryTransientError 在 Claude turn 临时失败时安排一次异步重试。
 // 它只在 active turn 与 pendingRetry 都未漂移时生效，并先发布 retrying 状态给前端。
 func (s *session) shouldRetryTransientError(raw dto.RawProviderEvent) bool {
-	if raw.EventType != "turn:complete" || dataBool(raw.Data, "success") {
+	if raw.EventType != "turn:complete" || raw.Terminal == nil || raw.Terminal.Success {
 		return false
 	}
 	var (

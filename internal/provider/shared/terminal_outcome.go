@@ -3,16 +3,12 @@ package shared
 import (
 	"fmt"
 	"strings"
+
+	providerdto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/provider"
 )
 
 // RawTerminalOutcome 是 provider raw adapter 共用的 success/status 严格配对结果。
-type RawTerminalOutcome struct {
-	Success       bool
-	Status        string
-	Cause         string
-	RequestID     string
-	ContractError string
-}
+type RawTerminalOutcome = providerdto.TerminalOutcome
 
 // RawTermination 是 provider raw cancel/interruption 的严格 cause/request 配对结果。
 type RawTermination struct {

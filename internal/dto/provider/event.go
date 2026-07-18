@@ -14,6 +14,16 @@ import (
 type RawProviderEvent struct {
 	EventType string
 	Data      any
+	Terminal  *TerminalOutcome
+}
+
+// TerminalOutcome 是 provider adapter 一次解析后供投影与 runtime 共用的终态真值。
+type TerminalOutcome struct {
+	Success       bool
+	Status        string
+	Cause         string
+	RequestID     string
+	ContractError string
 }
 
 // Type 返回 provider raw event 分发用的类型编号。

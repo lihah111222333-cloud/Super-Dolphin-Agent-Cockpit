@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	dto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/provider"
 	turndto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/turn"
 )
 
@@ -47,10 +48,11 @@ func testAcceptedStopFollowedByFailure(t *testing.T) {
 	t.Helper()
 	s := failureMatrixSessionWithClaim("turn-1", "stop-1", 1)
 	payload := codexFailureMatrixPayload(false, "failed")
-	if s.applyAcceptedInterruptRequest("turn/completed", payload) {
+	outcome := canonicalTurnTerminalOutcome("turn/completed", payload)
+	if s.applyAcceptedInterruptRequest(payload, &outcome) {
 		t.Fatalf("failed terminal consumed accepted stop claim: %#v", payload)
 	}
-	terminal := requireFailureMatrixTerminal(t, payload)
+	terminal := requireFailureMatrixTerminal(t, payload, &outcome)
 	if terminal.Success || terminal.Status != "failed" || terminal.Reason == "user_request" || terminal.TerminationRequestID != "" {
 		t.Fatalf("terminal = %#v, want provider failure without user-request attribution", terminal)
 	}
@@ -62,10 +64,11 @@ func testMatchedUserCancellation(t *testing.T) {
 	payload := codexFailureMatrixPayload(false, "cancelled")
 	payload["terminationCause"] = "user_request"
 	payload["terminationRequestId"] = "untrusted-provider-request"
-	if !s.applyAcceptedInterruptRequest("turn/completed", payload) {
+	outcome := canonicalTurnTerminalOutcome("turn/completed", payload)
+	if !s.applyAcceptedInterruptRequest(payload, &outcome) {
 		t.Fatalf("cancelled terminal did not consume accepted user stop claim: %#v", payload)
 	}
-	terminal := requireFailureMatrixTerminal(t, payload)
+	terminal := requireFailureMatrixTerminal(t, payload, &outcome)
 	if terminal.Success || terminal.Status != "cancelled" || terminal.Reason != "user_request" || terminal.TerminationRequestID != "stop-user-1" {
 		t.Fatalf("terminal = %#v, want request-attributed user cancellation", terminal)
 	}
@@ -79,7 +82,8 @@ func testUnmatchedProviderUserCancellation(t *testing.T) {
 		"terminationCause": "user_request", "terminationRequestId": "untrusted-provider-request",
 	}
 	s := &session{activeTurnID: "turn-1", activeTurnGeneration: 1}
-	if s.applyAcceptedInterruptRequest("turn/completed", payload) {
+	outcome := canonicalTurnTerminalOutcome("turn/completed", payload)
+	if s.applyAcceptedInterruptRequest(payload, &outcome) {
 		t.Fatalf("unmatched provider attribution changed payload: %#v", payload)
 	}
 	assertCodexFailureMatrixTerminal(t, payload, "cancelled", false, "provider", "")
@@ -90,7 +94,8 @@ func testStaleClaimCannotOwnCancellation(t *testing.T) {
 	s := failureMatrixSessionWithClaim("turn-1", "stale-stop", 1)
 	s.activeTurnGeneration = 2
 	payload := codexFailureMatrixPayload(false, "cancelled")
-	if s.applyAcceptedInterruptRequest("turn/completed", payload) {
+	outcome := canonicalTurnTerminalOutcome("turn/completed", payload)
+	if s.applyAcceptedInterruptRequest(payload, &outcome) {
 		t.Fatalf("stale TurnRef claim owned cancellation: %#v", payload)
 	}
 	assertCodexFailureMatrixTerminal(t, payload, "cancelled", false, "provider", "")
@@ -101,7 +106,8 @@ func testSystemCancellationWinsAcceptedStop(t *testing.T) {
 	s := failureMatrixSessionWithClaim("turn-1", "stop-user-1", 1)
 	payload := codexFailureMatrixPayload(false, "cancelled")
 	payload["terminationCause"] = "system"
-	if s.applyAcceptedInterruptRequest("turn/completed", payload) {
+	outcome := canonicalTurnTerminalOutcome("turn/completed", payload)
+	if s.applyAcceptedInterruptRequest(payload, &outcome) {
 		t.Fatalf("accepted Stop overrode explicit system cancellation: %#v", payload)
 	}
 	assertCodexFailureMatrixTerminal(t, payload, "cancelled", false, "system", "")
@@ -126,7 +132,8 @@ func assertCodexFailureMatrixTerminal(
 	wantRequestID string,
 ) {
 	t.Helper()
-	terminal := requireFailureMatrixTerminal(t, payload)
+	outcome := canonicalTurnTerminalOutcome("turn/completed", payload)
+	terminal := requireFailureMatrixTerminal(t, payload, &outcome)
 	if terminal.Success || terminal.Status != wantStatus {
 		t.Fatalf("terminal = %#v, want non-success status %q", terminal, wantStatus)
 	}
@@ -148,9 +155,9 @@ func codexFailureMatrixPayload(success bool, status string) map[string]any {
 	}
 }
 
-func requireFailureMatrixTerminal(t *testing.T, payload map[string]any) turndto.TurnCompleted {
+func requireFailureMatrixTerminal(t *testing.T, payload map[string]any, outcome *dto.TerminalOutcome) turndto.TurnCompleted {
 	t.Helper()
-	ev, ok := translateTurnEvent("turn/completed", payload)
+	ev, ok := translateTurnEvent("turn/completed", payload, outcome)
 	if !ok {
 		t.Fatal("translateTurnEvent() ok = false, want visible terminal")
 	}

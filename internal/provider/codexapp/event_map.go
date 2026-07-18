@@ -24,8 +24,28 @@ import (
 // RegisterTranslators 将 Codex raw event 翻译器注册到统一事件分发器。
 func RegisterTranslators(dispatcher *unified.EventDispatcher) {
 	if dispatcher != nil {
-		dispatcher.Register(translateCodexEvent)
+		dispatcher.Register(translateCodexAdapterEvent)
 	}
+}
+
+// translateCodexAdapterEvent 为绕过 session 的合法 raw producer 幂等附加 canonical outcome。
+func translateCodexAdapterEvent(raw dto.RawProviderEvent, publish func(ev any)) {
+	translateCodexEvent(canonicalizeCodexAdapterRaw(raw), publish)
+}
+
+func canonicalizeCodexAdapterRaw(raw dto.RawProviderEvent) dto.RawProviderEvent {
+	if raw.Terminal != nil || !isTurnTerminalEvent(raw.EventType) {
+		return raw
+	}
+	payload, err := decodeRawEventPayload(raw.Data)
+	if err != nil {
+		return raw
+	}
+	clearCodexProviderUserAttribution(payload)
+	outcome := canonicalTurnTerminalOutcome(raw.EventType, payload)
+	raw.Data = payload
+	raw.Terminal = &outcome
+	return raw
 }
 
 var outputDeltaTranslateLogSampler = pkglogger.NewEverySampler(1000)
@@ -63,7 +83,7 @@ func translateCodexEvent(raw dto.RawProviderEvent, publish func(ev any)) {
 		publishCodexTranslatedEvent(eventType, ev, publish)
 		return
 	}
-	if ev, ok := translateTurnEvent(eventType, payload); ok {
+	if ev, ok := translateTurnEvent(eventType, payload, raw.Terminal); ok {
 		publishCodexTranslatedEvent(eventType, ev, publish)
 		return
 	}
@@ -332,15 +352,16 @@ func translateAgentEvent(eventType string, payload map[string]any) (any, bool) {
 
 // translateTurnEvent 将 Codex turn 生命周期和输出 delta 转换为统一 turn DTO。
 // terminal event 会先重置 tool result scope，避免下一轮复用上一轮的工具结果缓存。
-func translateTurnEvent(eventType string, payload map[string]any) (any, bool) {
+func translateTurnEvent(eventType string, payload map[string]any, terminals ...*dto.TerminalOutcome) (any, bool) {
+	terminal := selectedCodexTerminal(terminals)
 	if isTurnTerminalEvent(eventType) {
-		return translateTurnTerminalEvent(eventType, payload), true
+		return translateTurnTerminalEvent(payload, terminal), true
 	}
 	switch eventType {
 	case "turn/started", "turn.started":
 		return turndto.TurnStarted{TurnHeader: buildTurnHeader(payload)}, true
 	case "turn/interrupted", "turn.interrupted":
-		return translateTurnTerminalEvent(eventType, payload), true
+		return translateTurnTerminalEvent(payload, terminal), true
 	case "item/agentMessage/delta", "message.delta", "agent_message_delta":
 		if outputDeltaTranslateLogSampler.ShouldLog("message") {
 			pkglogger.Get().Debug("codexapp: translateTurnEvent: outputDelta",
@@ -382,29 +403,36 @@ func translateTurnEvent(eventType string, payload map[string]any) (any, bool) {
 	}
 }
 
-// translateTurnTerminalEvent 构造终态事件，并把作用域清理失败提升为 turn 失败。
-func translateTurnTerminalEvent(eventType string, payload map[string]any) turndto.TurnCompleted {
+func selectedCodexTerminal(terminals []*dto.TerminalOutcome) *dto.TerminalOutcome {
+	if len(terminals) != 1 {
+		return nil
+	}
+	return terminals[0]
+}
+
+// translateTurnTerminalEvent 只投影 adapter 解析后的 canonical outcome。
+func translateTurnTerminalEvent(payload map[string]any, terminal *dto.TerminalOutcome) turndto.TurnCompleted {
 	header := buildTurnHeader(payload)
-	outcome := resolveTurnTerminalOutcome(eventType, payload)
-	errorText := turnTerminalError(outcome.success, payload)
-	if outcome.contractError != "" {
-		if errorText != "" {
-			errorText += "; "
-		}
-		errorText += "terminal contract: " + outcome.contractError
+	outcome := dto.TerminalOutcome{Status: "failed", ContractError: "missing canonical terminal outcome"}
+	if terminal != nil {
+		outcome = *terminal
+	}
+	errorText := turnTerminalError(outcome.Success, payload)
+	if outcome.ContractError != "" && errorText == "" {
+		errorText = "terminal contract: " + outcome.ContractError
 	}
 	if err := providershared.ResetToolResultScope(header.ThreadID, header.TurnID); err != nil {
-		outcome.success = false
-		outcome.status = "failed"
+		outcome.Success = false
+		outcome.Status = "failed"
 		errorText = appendProviderRuntimeError(errorText, err)
 	}
 	return turndto.TurnCompleted{
 		TurnHeader:           header,
-		Success:              outcome.success,
+		Success:              outcome.Success,
 		Error:                errorText,
-		Status:               outcome.status,
-		Reason:               outcome.reason,
-		TerminationRequestID: outcome.requestID,
+		Status:               outcome.Status,
+		Reason:               outcome.Cause,
+		TerminationRequestID: outcome.RequestID,
 		PartialItemIDs:       acceptedPartialItemIDs(payload),
 		// result 由 session 的 per-turn 输出累积器在分发前合并进 payload。
 		// 其他字段保留兼容读取，覆盖未来 Codex 直接携带 terminal 文本的 wire 形态。

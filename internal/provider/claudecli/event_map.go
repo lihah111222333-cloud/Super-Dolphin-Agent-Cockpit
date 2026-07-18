@@ -21,7 +21,12 @@ func RegisterTranslators(dispatcher *unified.EventDispatcher) {
 	if dispatcher == nil {
 		return
 	}
-	dispatcher.Register(translateClaudeEvent)
+	dispatcher.Register(translateClaudeAdapterEvent)
+}
+
+// translateClaudeAdapterEvent 为绕过 session 的合法 raw producer 幂等附加 canonical outcome。
+func translateClaudeAdapterEvent(raw dto.RawProviderEvent, publish func(ev any)) {
+	translateClaudeEvent(attachClaudeTerminalOutcome(raw), publish)
 }
 
 // translateClaudeEvent 按 UI token、状态、agent、turn、tool 的顺序翻译并发布事件。
@@ -200,29 +205,20 @@ func translateTurnEvent(raw dto.RawProviderEvent) (any, bool) {
 			Delta:      delta,
 		}, true
 	case "turn:interrupted":
-		termination := providershared.ResolveRawTermination(raw.Data, "provider")
-		if termination.ContractError != "" {
-			return turndto.TurnCompleted{
-				TurnHeader: turnHeader(raw.Data), Status: "failed",
-				Error: "terminal contract: " + termination.ContractError,
-			}, true
-		}
+		outcome := claudeCanonicalTerminal(raw.Terminal)
 		return turndto.TurnCompleted{
 			TurnHeader:           turnHeader(raw.Data),
-			Success:              false,
-			Status:               "interrupted",
-			Reason:               termination.Cause,
+			Success:              outcome.Success,
+			Status:               outcome.Status,
+			Reason:               outcome.Cause,
 			Error:                dataString(raw.Data, "reason"),
-			TerminationRequestID: termination.RequestID,
+			TerminationRequestID: outcome.RequestID,
 		}, true
 	case "turn:complete":
 		header := turnHeader(raw.Data)
-		outcome := providershared.ResolveRawTerminalOutcome(raw.Data)
+		outcome := claudeCanonicalTerminal(raw.Terminal)
 		errorText := dataString(raw.Data, "error")
-		if outcome.ContractError != "" {
-			if errorText != "" {
-				errorText += "; "
-			}
+		if outcome.ContractError != "" && errorText == "" {
 			errorText += "terminal contract: " + outcome.ContractError
 		}
 		if err := providershared.ResetToolResultScope(header.ThreadID, header.TurnID); err != nil {
@@ -246,6 +242,13 @@ func translateTurnEvent(raw dto.RawProviderEvent) (any, bool) {
 	default:
 		return nil, false
 	}
+}
+
+func claudeCanonicalTerminal(terminal *dto.TerminalOutcome) dto.TerminalOutcome {
+	if terminal != nil {
+		return *terminal
+	}
+	return dto.TerminalOutcome{Status: "failed", ContractError: "missing canonical terminal outcome"}
 }
 
 func terminalReason(cause, rawReason string) string {

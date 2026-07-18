@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"net/url"
 	"runtime"
 	"strconv"
@@ -171,6 +172,7 @@ func normalizedTurnOutputStream(payload map[string]any, fallback string) string 
 func isTurnTerminalEvent(method string) bool {
 	switch strings.TrimSpace(method) {
 	case "turn/completed", "turn.completed",
+		"turn/interrupted", "turn.interrupted",
 		"turn/aborted", "turn.aborted",
 		"turn/failed", "turn.failed",
 		"turn/error", "turn.error":
@@ -211,6 +213,17 @@ func resolveTurnTerminalOutcome(method string, payload map[string]any) turnTermi
 		return turnTerminalOutcome{status: "failed", reason: stringValue(payload, "reason")}
 	}
 	return resolveCompletedTerminalOutcome(payload)
+}
+
+func canonicalTurnTerminalOutcome(method string, payload map[string]any) dto.TerminalOutcome {
+	outcome := resolveTurnTerminalOutcome(method, payload)
+	return dto.TerminalOutcome{
+		Success:       outcome.success,
+		Status:        outcome.status,
+		Cause:         outcome.reason,
+		RequestID:     outcome.requestID,
+		ContractError: outcome.contractError,
+	}
 }
 
 func resolveExplicitTerminationOutcome(status string, payload map[string]any) turnTerminalOutcome {
@@ -257,9 +270,7 @@ func resolveCompletedTerminalOutcome(payload map[string]any) turnTerminalOutcome
 // codexTerminationPayload 移除 provider 无权生产的用户 Stop 归因，仅保留 session 注入的私有 claim。
 func codexTerminationPayload(payload map[string]any) (map[string]any, string, string) {
 	sanitized := make(map[string]any, len(payload))
-	for key, value := range payload {
-		sanitized[key] = value
-	}
+	maps.Copy(sanitized, payload)
 	acceptedRequestID := ""
 	if value, exists := sanitized[acceptedInterruptRequestIDKey]; exists {
 		attribution, ok := value.(acceptedInterruptAttribution)
@@ -274,8 +285,8 @@ func codexTerminationPayload(payload map[string]any) (map[string]any, string, st
 	return sanitized, acceptedRequestID, ""
 }
 
-// turnTerminalSuccess 保留工具和旧 session 收敛路径的宽松判定；turn raw adapter 必须使用严格 mapping。
-func turnTerminalSuccess(method string, payload map[string]any) bool {
+// toolEventRawSuccess 保留工具事件兼容判定；turn terminal 禁止调用。
+func toolEventRawSuccess(method string, payload map[string]any) bool {
 	normalizedMethod := strings.ToLower(strings.TrimSpace(method))
 	if strings.Contains(normalizedMethod, "aborted") ||
 		strings.Contains(normalizedMethod, "failed") ||

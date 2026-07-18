@@ -232,7 +232,8 @@ func TestSessionInterruptConsumedClaimBlocksReplacementUntilTurnCleanup(t *testi
 		}},
 	}
 	payload := map[string]any{"turnId": "turn-1"}
-	if !s.applyAcceptedInterruptRequest("turn/aborted", payload) {
+	outcome := canonicalTurnTerminalOutcome("turn/aborted", payload)
+	if !s.applyAcceptedInterruptRequest(payload, &outcome) {
 		t.Fatal("pending interrupt terminal was not attributed")
 	}
 	claim, err := s.claimInterruptTarget("turn-1")

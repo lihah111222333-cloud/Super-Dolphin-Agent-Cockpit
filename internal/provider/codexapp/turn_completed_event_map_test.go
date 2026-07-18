@@ -5,7 +5,11 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/kelindar/event"
+	dto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/provider"
 	turndto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/turn"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/eventsurface"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/unified"
 )
 
 // sniffAndTranslate 解码 sniffTurnOutput 改写后的参数，并转成 TurnCompleted DTO。
@@ -13,7 +17,8 @@ func sniffAndTranslate(t *testing.T, s *session, method string, raw json.RawMess
 	t.Helper()
 	merged := s.sniffTurnOutput(method, raw)
 	payload := decodeEventPayload(merged)
-	ev, ok := translateTurnEvent(method, payload)
+	outcome := canonicalTurnTerminalOutcome(method, payload)
+	ev, ok := translateTurnEvent(method, payload, &outcome)
 	if !ok {
 		return turndto.TurnCompleted{}, false
 	}
@@ -293,7 +298,7 @@ func TestFinishTurn_ModelUnsupportedErrorCompletesHandleWithNotice(t *testing.T)
 		"error":  "The 'gpt-5' model is not supported when using Codex with a ChatGPT account.",
 	})
 
-	s.finishTurn(terminal, false)
+	s.finishTurn(dto.RawProviderEvent{EventType: "turn/failed", Data: terminal, Terminal: &dto.TerminalOutcome{Status: "failed"}})
 
 	select {
 	case <-h.Done():
@@ -341,6 +346,9 @@ func TestOnNotification_MalformedTerminalFailsActiveTurnExactlyOnceWithoutPayloa
 	}{
 		{name: "invalid JSON", method: "turn/completed", params: json.RawMessage(`{"turnId":"T-malformed","prompt":"raw-secret"`)},
 		{name: "missing turn identity", method: "turn.failed", params: json.RawMessage(`{"threadId":"thread-public","prompt":"raw-secret"}`)},
+		{name: "missing outcome", method: "turn/completed", params: json.RawMessage(`{"turnId":"raw-turn","prompt":"raw-secret"}`)},
+		{name: "unknown outcome", method: "turn/completed", params: json.RawMessage(`{"turnId":"raw-turn","success":false,"status":"raw-secret"}`)},
+		{name: "conflicting outcome", method: "turn/completed", params: json.RawMessage(`{"turnId":"raw-turn","success":true,"status":"failed","prompt":"raw-secret"}`)},
 	}
 
 	for _, tt := range tests {
@@ -365,10 +373,8 @@ func TestOnNotification_MalformedTerminalFailsActiveTurnExactlyOnceWithoutPayloa
 				t.Fatal("malformed terminal notification completed without an error")
 			}
 			errText := h.Err().Error()
-			if !strings.Contains(errText, "malformed terminal notification") ||
-				!strings.Contains(errText, tt.method) ||
-				!strings.Contains(errText, "T-malformed") {
-				t.Fatalf("turn error = %q, want contextual method and turn identity", errText)
+			if errText != "terminal contract: malformed terminal payload" {
+				t.Fatalf("turn error = %q, want safe canonical contract failure", errText)
 			}
 			if strings.Contains(errText, "raw-secret") {
 				t.Fatalf("turn error leaked raw payload: %q", errText)
@@ -380,6 +386,70 @@ func TestOnNotification_MalformedTerminalFailsActiveTurnExactlyOnceWithoutPayloa
 				t.Fatal("active turn remained registered after malformed terminal notification")
 			}
 		})
+	}
+}
+
+func TestOnNotification_MalformedOutcomeUsesActiveIdentityAcrossEventSurface(t *testing.T) {
+	tests := []struct {
+		name   string
+		params json.RawMessage
+	}{
+		{name: "missing", params: json.RawMessage(`{"turnId":"raw-turn","agentId":"raw-agent","prompt":"raw-secret"}`)},
+		{name: "unknown", params: json.RawMessage(`{"turnId":"raw-turn","agentId":"raw-agent","success":false,"status":"raw-secret"}`)},
+		{name: "conflicting", params: json.RawMessage(`{"turnId":"raw-turn","agentId":"raw-agent","success":true,"status":"failed","prompt":"raw-secret"}`)},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assertCodexMalformedOutcomeAcrossEventSurface(t, tt.params)
+		})
+	}
+}
+
+func assertCodexMalformedOutcomeAcrossEventSurface(t *testing.T, params json.RawMessage) {
+	t.Helper()
+	bus := event.NewDispatcher()
+	defer func() { _ = bus.Close() }()
+	dispatcher := unified.NewEventDispatcher(bus, nil)
+	RegisterTranslators(dispatcher)
+	surface := make(chan turndto.TurnTerminalV2, 1)
+	for _, cancel := range eventsurface.Bind(bus, nil, func(method string, payload any) {
+		if method == eventsurface.MethodTurnTerminal {
+			surface <- payload.(turndto.TurnTerminalV2)
+		}
+	}) {
+		defer cancel()
+	}
+	h := newTurnHandle("local-trusted", "T-trusted")
+	s := &session{agentID: "trusted-agent", dispatcher: dispatcher, turns: map[string]*turnHandle{"T-trusted": h}, activeTurnID: "T-trusted"}
+	s.onNotification("turn/completed", params)
+	terminal := <-surface
+	assertTrustedMalformedTerminal(t, terminal)
+	encoded, err := json.Marshal(terminal)
+	if err != nil {
+		t.Fatalf("marshal surface terminal: %v", err)
+	}
+	assertMalformedTerminalHasNoRawLeak(t, encoded)
+	assertMalformedHandleError(t, h.Err())
+}
+
+func assertTrustedMalformedTerminal(t *testing.T, terminal turndto.TurnTerminalV2) {
+	t.Helper()
+	if terminal.ThreadID != "trusted-agent" || terminal.TurnID != "T-trusted" || terminal.Outcome != "failed" {
+		t.Fatalf("surface terminal = %#v, want trusted failed identity", terminal)
+	}
+}
+
+func assertMalformedTerminalHasNoRawLeak(t *testing.T, encoded []byte) {
+	t.Helper()
+	if strings.Contains(string(encoded), "raw-secret") || strings.Contains(string(encoded), "raw-turn") || strings.Contains(string(encoded), "raw-agent") {
+		t.Fatalf("surface terminal leaked raw payload: %s", encoded)
+	}
+}
+
+func assertMalformedHandleError(t *testing.T, err error) {
+	t.Helper()
+	if err == nil || err.Error() != "terminal contract: malformed terminal payload" {
+		t.Fatalf("handle error = %v, want canonical contract failure", err)
 	}
 }
 

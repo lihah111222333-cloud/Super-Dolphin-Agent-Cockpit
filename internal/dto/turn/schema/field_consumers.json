@@ -135,10 +135,22 @@
       "strings": ["termination_cause", "terminationCause", "termination_request_id", "terminationRequestId"]
     },
     {
+      "name": "claude-terminal-adapter",
+      "path": "internal/provider/claudecli/session_events.go",
+      "symbol": "attachClaudeTerminalOutcome",
+      "calls": ["ResolveRawTerminalOutcome", "ResolveRawTermination"]
+    },
+    {
       "name": "claude-terminal-consumer",
       "path": "internal/provider/claudecli/event_map.go",
       "symbol": "translateTurnEvent",
-      "calls": ["ResolveRawTerminalOutcome", "ResolveRawTermination"]
+      "calls": ["claudeCanonicalTerminal"]
+    },
+    {
+      "name": "claude-runtime-terminal-consumer",
+      "path": "internal/provider/claudecli/session_events.go",
+      "symbol": "finishTurnFromRaw",
+      "identifiers": ["Terminal", "Success", "Status"]
     },
     {
       "name": "codex-terminal-consumer",

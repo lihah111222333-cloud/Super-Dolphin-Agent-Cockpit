@@ -2878,6 +2878,7 @@
         "internal/provider/claudecli.*session.markThreadReadyLocked",
         "internal/provider/claudecli.*session.needsRestartLocked",
         "internal/provider/claudecli.*session.newCurrentLogWatcher",
+        "internal/provider/claudecli.*session.normalizeClaudeTerminal",
         "internal/provider/claudecli.*session.pendingThreadReadyLocked",
         "internal/provider/claudecli.*session.performRestartLocked",
         "internal/provider/claudecli.*session.prepareLogWatcherStart",
@@ -2901,6 +2902,7 @@
         "internal/provider/claudecli.*session.restoreRestartSnapshotLocked",
         "internal/provider/claudecli.*session.rollbackSessionRestartLocked",
         "internal/provider/claudecli.*session.runtimePromptSnapshotLocked",
+        "internal/provider/claudecli.*session.safeMalformedTerminal",
         "internal/provider/claudecli.*session.sendRetryLocked",
         "internal/provider/claudecli.*session.sendSteer",
         "internal/provider/claudecli.*session.setContextWindowForTransport",
@@ -2971,6 +2973,7 @@
         "internal/provider/claudecli.appendTurnInput",
         "internal/provider/claudecli.applyAutoApprove",
         "internal/provider/claudecli.applyHeaders",
+        "internal/provider/claudecli.attachClaudeTerminalOutcome",
         "internal/provider/claudecli.attachProcessGuard",
         "internal/provider/claudecli.base64ImageBlock",
         "internal/provider/claudecli.baseData",
@@ -2984,6 +2987,7 @@
         "internal/provider/claudecli.canonicalizeClaudeLaunchConfig",
         "internal/provider/claudecli.claudeAgentErrorFromRaw",
         "internal/provider/claudecli.claudeAuthStatus",
+        "internal/provider/claudecli.claudeCanonicalTerminal",
         "internal/provider/claudecli.claudeContextWindow",
         "internal/provider/claudecli.claudeEventRequiresTimestamp",
         "internal/provider/claudecli.claudeLaunchDisplayModel",
@@ -3199,6 +3203,7 @@
         "internal/provider/claudecli.toolHeader",
         "internal/provider/claudecli.toolResultContent",
         "internal/provider/claudecli.translateAgentEvent",
+        "internal/provider/claudecli.translateClaudeAdapterEvent",
         "internal/provider/claudecli.translateClaudeEvent",
         "internal/provider/claudecli.translateStatusPatchEvent",
         "internal/provider/claudecli.translateToolEvent",
@@ -3659,6 +3664,8 @@
         "internal/provider/codexapp.callWithTimeout",
         "internal/provider/codexapp.canonicalCodexSandboxMode",
         "internal/provider/codexapp.canonicalStartRuntimeConfig",
+        "internal/provider/codexapp.canonicalTurnTerminalOutcome",
+        "internal/provider/codexapp.canonicalizeCodexAdapterRaw",
         "internal/provider/codexapp.captureCodexRolloutToolResult",
         "internal/provider/codexapp.captureSessionToolResult",
         "internal/provider/codexapp.chmodCodexInstallHelpers",
@@ -4036,6 +4043,7 @@
         "internal/provider/codexapp.selectCodexModel",
         "internal/provider/codexapp.selectCodexProviderHome",
         "internal/provider/codexapp.selectCodexReleaseAsset",
+        "internal/provider/codexapp.selectedCodexTerminal",
         "internal/provider/codexapp.selectedSkillNames",
         "internal/provider/codexapp.sendSignalToPID",
         "internal/provider/codexapp.session",
@@ -4084,9 +4092,11 @@
         "internal/provider/codexapp.toolEndSuppressionKey",
         "internal/provider/codexapp.toolEndSuppressionToolNames",
         "internal/provider/codexapp.toolEventEndOutcome",
+        "internal/provider/codexapp.toolEventRawSuccess",
         "internal/provider/codexapp.toolEventResultOutcome",
         "internal/provider/codexapp.toolFailureSummary",
         "internal/provider/codexapp.translateAgentEvent",
+        "internal/provider/codexapp.translateCodexAdapterEvent",
         "internal/provider/codexapp.translateCodexEvent",
         "internal/provider/codexapp.translateCodexFunctionCallBegin",
         "internal/provider/codexapp.translateCodexFunctionCallOutputEnd",
@@ -4117,7 +4127,6 @@
         "internal/provider/codexapp.turnStartResult",
         "internal/provider/codexapp.turnTerminalError",
         "internal/provider/codexapp.turnTerminalOutcome",
-        "internal/provider/codexapp.turnTerminalSuccess",
         "internal/provider/codexapp.turnToolFailure",
         "internal/provider/codexapp.validCodexCLI",
         "internal/provider/codexapp.validateAgentSessionHeader",
@@ -4394,7 +4403,6 @@
         "internal/provider/shared.PackagedRuntimeFromEnv",
         "internal/provider/shared.ProviderMirrorTargets",
         "internal/provider/shared.ProviderStartupGateError",
-        "internal/provider/shared.RawTerminalOutcome",
         "internal/provider/shared.RawTermination",
         "internal/provider/shared.RecordTrace",
         "internal/provider/shared.ResetToolResultScope",
@@ -7506,6 +7514,7 @@
         "internal/provider/claudecli.*session.markThreadReadyLocked",
         "internal/provider/claudecli.*session.needsRestartLocked",
         "internal/provider/claudecli.*session.newCurrentLogWatcher",
+        "internal/provider/claudecli.*session.normalizeClaudeTerminal",
         "internal/provider/claudecli.*session.pendingThreadReadyLocked",
         "internal/provider/claudecli.*session.performRestartLocked",
         "internal/provider/claudecli.*session.prepareLogWatcherStart",
@@ -7529,6 +7538,7 @@
         "internal/provider/claudecli.*session.restoreRestartSnapshotLocked",
         "internal/provider/claudecli.*session.rollbackSessionRestartLocked",
         "internal/provider/claudecli.*session.runtimePromptSnapshotLocked",
+        "internal/provider/claudecli.*session.safeMalformedTerminal",
         "internal/provider/claudecli.*session.sendRetryLocked",
         "internal/provider/claudecli.*session.sendSteer",
         "internal/provider/claudecli.*session.setContextWindowForTransport",
@@ -7599,6 +7609,7 @@
         "internal/provider/claudecli.appendTurnInput",
         "internal/provider/claudecli.applyAutoApprove",
         "internal/provider/claudecli.applyHeaders",
+        "internal/provider/claudecli.attachClaudeTerminalOutcome",
         "internal/provider/claudecli.attachProcessGuard",
         "internal/provider/claudecli.base64ImageBlock",
         "internal/provider/claudecli.baseData",
@@ -7612,6 +7623,7 @@
         "internal/provider/claudecli.canonicalizeClaudeLaunchConfig",
         "internal/provider/claudecli.claudeAgentErrorFromRaw",
         "internal/provider/claudecli.claudeAuthStatus",
+        "internal/provider/claudecli.claudeCanonicalTerminal",
         "internal/provider/claudecli.claudeContextWindow",
         "internal/provider/claudecli.claudeEventRequiresTimestamp",
         "internal/provider/claudecli.claudeLaunchDisplayModel",
@@ -7827,6 +7839,7 @@
         "internal/provider/claudecli.toolHeader",
         "internal/provider/claudecli.toolResultContent",
         "internal/provider/claudecli.translateAgentEvent",
+        "internal/provider/claudecli.translateClaudeAdapterEvent",
         "internal/provider/claudecli.translateClaudeEvent",
         "internal/provider/claudecli.translateStatusPatchEvent",
         "internal/provider/claudecli.translateToolEvent",
@@ -8287,6 +8300,8 @@
         "internal/provider/codexapp.callWithTimeout",
         "internal/provider/codexapp.canonicalCodexSandboxMode",
         "internal/provider/codexapp.canonicalStartRuntimeConfig",
+        "internal/provider/codexapp.canonicalTurnTerminalOutcome",
+        "internal/provider/codexapp.canonicalizeCodexAdapterRaw",
         "internal/provider/codexapp.captureCodexRolloutToolResult",
         "internal/provider/codexapp.captureSessionToolResult",
         "internal/provider/codexapp.chmodCodexInstallHelpers",
@@ -8664,6 +8679,7 @@
         "internal/provider/codexapp.selectCodexModel",
         "internal/provider/codexapp.selectCodexProviderHome",
         "internal/provider/codexapp.selectCodexReleaseAsset",
+        "internal/provider/codexapp.selectedCodexTerminal",
         "internal/provider/codexapp.selectedSkillNames",
         "internal/provider/codexapp.sendSignalToPID",
         "internal/provider/codexapp.session",
@@ -8712,9 +8728,11 @@
         "internal/provider/codexapp.toolEndSuppressionKey",
         "internal/provider/codexapp.toolEndSuppressionToolNames",
         "internal/provider/codexapp.toolEventEndOutcome",
+        "internal/provider/codexapp.toolEventRawSuccess",
         "internal/provider/codexapp.toolEventResultOutcome",
         "internal/provider/codexapp.toolFailureSummary",
         "internal/provider/codexapp.translateAgentEvent",
+        "internal/provider/codexapp.translateCodexAdapterEvent",
         "internal/provider/codexapp.translateCodexEvent",
         "internal/provider/codexapp.translateCodexFunctionCallBegin",
         "internal/provider/codexapp.translateCodexFunctionCallOutputEnd",
@@ -8745,7 +8763,6 @@
         "internal/provider/codexapp.turnStartResult",
         "internal/provider/codexapp.turnTerminalError",
         "internal/provider/codexapp.turnTerminalOutcome",
-        "internal/provider/codexapp.turnTerminalSuccess",
         "internal/provider/codexapp.turnToolFailure",
         "internal/provider/codexapp.validCodexCLI",
         "internal/provider/codexapp.validateAgentSessionHeader",
@@ -9022,7 +9039,6 @@
         "internal/provider/shared.PackagedRuntimeFromEnv",
         "internal/provider/shared.ProviderMirrorTargets",
         "internal/provider/shared.ProviderStartupGateError",
-        "internal/provider/shared.RawTerminalOutcome",
         "internal/provider/shared.RawTermination",
         "internal/provider/shared.RecordTrace",
         "internal/provider/shared.ResetToolResultScope",
@@ -12134,6 +12150,7 @@
         "internal/provider/claudecli.*session.markThreadReadyLocked",
         "internal/provider/claudecli.*session.needsRestartLocked",
         "internal/provider/claudecli.*session.newCurrentLogWatcher",
+        "internal/provider/claudecli.*session.normalizeClaudeTerminal",
         "internal/provider/claudecli.*session.pendingThreadReadyLocked",
         "internal/provider/claudecli.*session.performRestartLocked",
         "internal/provider/claudecli.*session.prepareLogWatcherStart",
@@ -12157,6 +12174,7 @@
         "internal/provider/claudecli.*session.restoreRestartSnapshotLocked",
         "internal/provider/claudecli.*session.rollbackSessionRestartLocked",
         "internal/provider/claudecli.*session.runtimePromptSnapshotLocked",
+        "internal/provider/claudecli.*session.safeMalformedTerminal",
         "internal/provider/claudecli.*session.sendRetryLocked",
         "internal/provider/claudecli.*session.sendSteer",
         "internal/provider/claudecli.*session.setContextWindowForTransport",
@@ -12227,6 +12245,7 @@
         "internal/provider/claudecli.appendTurnInput",
         "internal/provider/claudecli.applyAutoApprove",
         "internal/provider/claudecli.applyHeaders",
+        "internal/provider/claudecli.attachClaudeTerminalOutcome",
         "internal/provider/claudecli.attachProcessGuard",
         "internal/provider/claudecli.base64ImageBlock",
         "internal/provider/claudecli.baseData",
@@ -12240,6 +12259,7 @@
         "internal/provider/claudecli.canonicalizeClaudeLaunchConfig",
         "internal/provider/claudecli.claudeAgentErrorFromRaw",
         "internal/provider/claudecli.claudeAuthStatus",
+        "internal/provider/claudecli.claudeCanonicalTerminal",
         "internal/provider/claudecli.claudeContextWindow",
         "internal/provider/claudecli.claudeEventRequiresTimestamp",
         "internal/provider/claudecli.claudeLaunchDisplayModel",
@@ -12455,6 +12475,7 @@
         "internal/provider/claudecli.toolHeader",
         "internal/provider/claudecli.toolResultContent",
         "internal/provider/claudecli.translateAgentEvent",
+        "internal/provider/claudecli.translateClaudeAdapterEvent",
         "internal/provider/claudecli.translateClaudeEvent",
         "internal/provider/claudecli.translateStatusPatchEvent",
         "internal/provider/claudecli.translateToolEvent",
@@ -12915,6 +12936,8 @@
         "internal/provider/codexapp.callWithTimeout",
         "internal/provider/codexapp.canonicalCodexSandboxMode",
         "internal/provider/codexapp.canonicalStartRuntimeConfig",
+        "internal/provider/codexapp.canonicalTurnTerminalOutcome",
+        "internal/provider/codexapp.canonicalizeCodexAdapterRaw",
         "internal/provider/codexapp.captureCodexRolloutToolResult",
         "internal/provider/codexapp.captureSessionToolResult",
         "internal/provider/codexapp.chmodCodexInstallHelpers",
@@ -13292,6 +13315,7 @@
         "internal/provider/codexapp.selectCodexModel",
         "internal/provider/codexapp.selectCodexProviderHome",
         "internal/provider/codexapp.selectCodexReleaseAsset",
+        "internal/provider/codexapp.selectedCodexTerminal",
         "internal/provider/codexapp.selectedSkillNames",
         "internal/provider/codexapp.sendSignalToPID",
         "internal/provider/codexapp.session",
@@ -13340,9 +13364,11 @@
         "internal/provider/codexapp.toolEndSuppressionKey",
         "internal/provider/codexapp.toolEndSuppressionToolNames",
         "internal/provider/codexapp.toolEventEndOutcome",
+        "internal/provider/codexapp.toolEventRawSuccess",
         "internal/provider/codexapp.toolEventResultOutcome",
         "internal/provider/codexapp.toolFailureSummary",
         "internal/provider/codexapp.translateAgentEvent",
+        "internal/provider/codexapp.translateCodexAdapterEvent",
         "internal/provider/codexapp.translateCodexEvent",
         "internal/provider/codexapp.translateCodexFunctionCallBegin",
         "internal/provider/codexapp.translateCodexFunctionCallOutputEnd",
@@ -13373,7 +13399,6 @@
         "internal/provider/codexapp.turnStartResult",
         "internal/provider/codexapp.turnTerminalError",
         "internal/provider/codexapp.turnTerminalOutcome",
-        "internal/provider/codexapp.turnTerminalSuccess",
         "internal/provider/codexapp.turnToolFailure",
         "internal/provider/codexapp.validCodexCLI",
         "internal/provider/codexapp.validateAgentSessionHeader",
@@ -13650,7 +13675,6 @@
         "internal/provider/shared.PackagedRuntimeFromEnv",
         "internal/provider/shared.ProviderMirrorTargets",
         "internal/provider/shared.ProviderStartupGateError",
-        "internal/provider/shared.RawTerminalOutcome",
         "internal/provider/shared.RawTermination",
         "internal/provider/shared.RecordTrace",
         "internal/provider/shared.ResetToolResultScope",
@@ -16765,6 +16789,7 @@
         "internal/provider/claudecli.*session.markThreadReadyLocked",
         "internal/provider/claudecli.*session.needsRestartLocked",
         "internal/provider/claudecli.*session.newCurrentLogWatcher",
+        "internal/provider/claudecli.*session.normalizeClaudeTerminal",
         "internal/provider/claudecli.*session.pendingThreadReadyLocked",
         "internal/provider/claudecli.*session.performRestartLocked",
         "internal/provider/claudecli.*session.prepareLogWatcherStart",
@@ -16788,6 +16813,7 @@
         "internal/provider/claudecli.*session.restoreRestartSnapshotLocked",
         "internal/provider/claudecli.*session.rollbackSessionRestartLocked",
         "internal/provider/claudecli.*session.runtimePromptSnapshotLocked",
+        "internal/provider/claudecli.*session.safeMalformedTerminal",
         "internal/provider/claudecli.*session.sendRetryLocked",
         "internal/provider/claudecli.*session.sendSteer",
         "internal/provider/claudecli.*session.setContextWindowForTransport",
@@ -16858,6 +16884,7 @@
         "internal/provider/claudecli.appendTurnInput",
         "internal/provider/claudecli.applyAutoApprove",
         "internal/provider/claudecli.applyHeaders",
+        "internal/provider/claudecli.attachClaudeTerminalOutcome",
         "internal/provider/claudecli.attachProcessGuard",
         "internal/provider/claudecli.base64ImageBlock",
         "internal/provider/claudecli.baseData",
@@ -16871,6 +16898,7 @@
         "internal/provider/claudecli.canonicalizeClaudeLaunchConfig",
         "internal/provider/claudecli.claudeAgentErrorFromRaw",
         "internal/provider/claudecli.claudeAuthStatus",
+        "internal/provider/claudecli.claudeCanonicalTerminal",
         "internal/provider/claudecli.claudeContextWindow",
         "internal/provider/claudecli.claudeEventRequiresTimestamp",
         "internal/provider/claudecli.claudeLaunchDisplayModel",
@@ -17087,6 +17115,7 @@
         "internal/provider/claudecli.toolHeader",
         "internal/provider/claudecli.toolResultContent",
         "internal/provider/claudecli.translateAgentEvent",
+        "internal/provider/claudecli.translateClaudeAdapterEvent",
         "internal/provider/claudecli.translateClaudeEvent",
         "internal/provider/claudecli.translateStatusPatchEvent",
         "internal/provider/claudecli.translateToolEvent",
@@ -17548,6 +17577,8 @@
         "internal/provider/codexapp.callWithTimeout",
         "internal/provider/codexapp.canonicalCodexSandboxMode",
         "internal/provider/codexapp.canonicalStartRuntimeConfig",
+        "internal/provider/codexapp.canonicalTurnTerminalOutcome",
+        "internal/provider/codexapp.canonicalizeCodexAdapterRaw",
         "internal/provider/codexapp.captureCodexRolloutToolResult",
         "internal/provider/codexapp.captureSessionToolResult",
         "internal/provider/codexapp.chmodCodexInstallHelpers",
@@ -17929,6 +17960,7 @@
         "internal/provider/codexapp.selectCodexModel",
         "internal/provider/codexapp.selectCodexProviderHome",
         "internal/provider/codexapp.selectCodexReleaseAsset",
+        "internal/provider/codexapp.selectedCodexTerminal",
         "internal/provider/codexapp.selectedSkillNames",
         "internal/provider/codexapp.sendSignalToPID",
         "internal/provider/codexapp.session",
@@ -17975,9 +18007,11 @@
         "internal/provider/codexapp.toolEndSuppressionKey",
         "internal/provider/codexapp.toolEndSuppressionToolNames",
         "internal/provider/codexapp.toolEventEndOutcome",
+        "internal/provider/codexapp.toolEventRawSuccess",
         "internal/provider/codexapp.toolEventResultOutcome",
         "internal/provider/codexapp.toolFailureSummary",
         "internal/provider/codexapp.translateAgentEvent",
+        "internal/provider/codexapp.translateCodexAdapterEvent",
         "internal/provider/codexapp.translateCodexEvent",
         "internal/provider/codexapp.translateCodexFunctionCallBegin",
         "internal/provider/codexapp.translateCodexFunctionCallOutputEnd",
@@ -18008,7 +18042,6 @@
         "internal/provider/codexapp.turnStartResult",
         "internal/provider/codexapp.turnTerminalError",
         "internal/provider/codexapp.turnTerminalOutcome",
-        "internal/provider/codexapp.turnTerminalSuccess",
         "internal/provider/codexapp.turnToolFailure",
         "internal/provider/codexapp.unwrapCodexNpmShim",
         "internal/provider/codexapp.validCodexCLI",
@@ -18286,7 +18319,6 @@
         "internal/provider/shared.PackagedRuntimeFromEnv",
         "internal/provider/shared.ProviderMirrorTargets",
         "internal/provider/shared.ProviderStartupGateError",
-        "internal/provider/shared.RawTerminalOutcome",
         "internal/provider/shared.RawTermination",
         "internal/provider/shared.RecordTrace",
         "internal/provider/shared.ResetToolResultScope",
@@ -18537,13 +18569,13 @@
   ],
   "summary": {
     "total_packages": 41,
-    "total_functions": 2267,
-    "total_methods": 1166,
+    "total_functions": 2274,
+    "total_methods": 1168,
     "total_interfaces": 183,
     "total_interface_methods": 363,
-    "total_exported": 1256,
-    "total_unexported": 2964,
-    "total_structs": 604
+    "total_exported": 1255,
+    "total_unexported": 2973,
+    "total_structs": 603
   },
   "packages": [
     {
@@ -56939,6 +56971,19 @@
           ]
         },
         {
+          "name": "attachClaudeTerminalOutcome",
+          "exported": false,
+          "params": [
+            {
+              "name": "raw",
+              "type": "dto.RawProviderEvent"
+            }
+          ],
+          "returns": [
+            "dto.RawProviderEvent"
+          ]
+        },
+        {
           "name": "attachProcessGuard",
           "exported": false,
           "params": [
@@ -57143,6 +57188,19 @@
           ],
           "returns": [
             "agentdto.AgentError"
+          ]
+        },
+        {
+          "name": "claudeCanonicalTerminal",
+          "exported": false,
+          "params": [
+            {
+              "name": "terminal",
+              "type": "*dto.TerminalOutcome"
+            }
+          ],
+          "returns": [
+            "dto.TerminalOutcome"
           ]
         },
         {
@@ -59953,6 +60011,20 @@
           ]
         },
         {
+          "name": "translateClaudeAdapterEvent",
+          "exported": false,
+          "params": [
+            {
+              "name": "raw",
+              "type": "dto.RawProviderEvent"
+            },
+            {
+              "name": "publish",
+              "type": "func(ev any)"
+            }
+          ]
+        },
+        {
           "name": "translateClaudeEvent",
           "exported": false,
           "params": [
@@ -61910,6 +61982,20 @@
         },
         {
           "receiver": "*session",
+          "name": "normalizeClaudeTerminal",
+          "exported": false,
+          "params": [
+            {
+              "name": "raw",
+              "type": "dto.RawProviderEvent"
+            }
+          ],
+          "returns": [
+            "dto.RawProviderEvent"
+          ]
+        },
+        {
+          "receiver": "*session",
           "name": "pendingThreadReadyLocked",
           "exported": false,
           "returns": [
@@ -62215,6 +62301,20 @@
           "exported": false,
           "returns": [
             "contract.PromptAssemblySnapshot"
+          ]
+        },
+        {
+          "receiver": "*session",
+          "name": "safeMalformedTerminal",
+          "exported": false,
+          "params": [
+            {
+              "name": "raw",
+              "type": "dto.RawProviderEvent"
+            }
+          ],
+          "returns": [
+            "dto.RawProviderEvent"
           ]
         },
         {
@@ -63821,6 +63921,36 @@
           ],
           "returns": [
             "map[string]any"
+          ]
+        },
+        {
+          "name": "canonicalTurnTerminalOutcome",
+          "exported": false,
+          "params": [
+            {
+              "name": "method",
+              "type": "string"
+            },
+            {
+              "name": "payload",
+              "type": "map[string]any"
+            }
+          ],
+          "returns": [
+            "dto.TerminalOutcome"
+          ]
+        },
+        {
+          "name": "canonicalizeCodexAdapterRaw",
+          "exported": false,
+          "params": [
+            {
+              "name": "raw",
+              "type": "dto.RawProviderEvent"
+            }
+          ],
+          "returns": [
+            "dto.RawProviderEvent"
           ]
         },
         {
@@ -68559,6 +68689,19 @@
           ]
         },
         {
+          "name": "selectedCodexTerminal",
+          "exported": false,
+          "params": [
+            {
+              "name": "terminals",
+              "type": "[]*dto.TerminalOutcome"
+            }
+          ],
+          "returns": [
+            "*dto.TerminalOutcome"
+          ]
+        },
+        {
           "name": "selectedSkillNames",
           "exported": false,
           "params": [
@@ -69162,6 +69305,23 @@
           ]
         },
         {
+          "name": "toolEventRawSuccess",
+          "exported": false,
+          "params": [
+            {
+              "name": "method",
+              "type": "string"
+            },
+            {
+              "name": "payload",
+              "type": "map[string]any"
+            }
+          ],
+          "returns": [
+            "bool"
+          ]
+        },
+        {
           "name": "toolEventResultOutcome",
           "exported": false,
           "params": [
@@ -69205,6 +69365,20 @@
           "returns": [
             "any",
             "bool"
+          ]
+        },
+        {
+          "name": "translateCodexAdapterEvent",
+          "exported": false,
+          "params": [
+            {
+              "name": "raw",
+              "type": "dto.RawProviderEvent"
+            },
+            {
+              "name": "publish",
+              "type": "func(ev any)"
+            }
           ]
         },
         {
@@ -69310,6 +69484,10 @@
             {
               "name": "payload",
               "type": "map[string]any"
+            },
+            {
+              "name": "terminals",
+              "type": "...*dto.TerminalOutcome"
             }
           ],
           "returns": [
@@ -69322,12 +69500,12 @@
           "exported": false,
           "params": [
             {
-              "name": "eventType",
-              "type": "string"
-            },
-            {
               "name": "payload",
               "type": "map[string]any"
+            },
+            {
+              "name": "terminal",
+              "type": "*dto.TerminalOutcome"
             }
           ],
           "returns": [
@@ -69500,23 +69678,6 @@
           ],
           "returns": [
             "string"
-          ]
-        },
-        {
-          "name": "turnTerminalSuccess",
-          "exported": false,
-          "params": [
-            {
-              "name": "method",
-              "type": "string"
-            },
-            {
-              "name": "payload",
-              "type": "map[string]any"
-            }
-          ],
-          "returns": [
-            "bool"
           ]
         },
         {
@@ -72614,12 +72775,12 @@
           "exported": false,
           "params": [
             {
-              "name": "method",
-              "type": "string"
-            },
-            {
               "name": "payload",
               "type": "map[string]any"
+            },
+            {
+              "name": "outcome",
+              "type": "*dto.TerminalOutcome"
             }
           ],
           "returns": [
@@ -73279,12 +73440,8 @@
           "exported": false,
           "params": [
             {
-              "name": "params",
-              "type": "json.RawMessage"
-            },
-            {
-              "name": "optimistic",
-              "type": "bool"
+              "name": "raw",
+              "type": "dto.RawProviderEvent"
             }
           ]
         },
@@ -73375,6 +73532,10 @@
             {
               "name": "params",
               "type": "json.RawMessage"
+            },
+            {
+              "name": "raw",
+              "type": "dto.RawProviderEvent"
             }
           ]
         },
@@ -80385,10 +80546,6 @@
       "structs": [
         {
           "name": "ProviderStartupGateError",
-          "exported": true
-        },
-        {
-          "name": "RawTerminalOutcome",
           "exported": true
         },
         {

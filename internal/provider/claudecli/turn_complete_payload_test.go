@@ -126,6 +126,7 @@ func TestDecodeResultEventTerminalTruthReachesTranslatorAndHandle(t *testing.T) 
 			if !ok || payload["status"] != test.wantStatus {
 				t.Fatalf("decoded terminal payload = %#v, want status %q", events[0].Data, test.wantStatus)
 			}
+			events[0] = attachClaudeTerminalOutcome(events[0])
 			translated, ok := translateTurnEvent(events[0])
 			if !ok {
 				t.Fatal("translateTurnEvent() rejected decoded result")
@@ -149,7 +150,7 @@ func TestDecodeResultEventTerminalTruthReachesTranslatorAndHandle(t *testing.T) 
 func TestTranslateTurnEventCompleteMapsCompletionFields(t *testing.T) {
 	t.Parallel()
 
-	got, ok := translateTurnEvent(dto.RawProviderEvent{
+	got, ok := translateCanonicalClaudeTerminal(dto.RawProviderEvent{
 		EventType: "turn:complete",
 		Data: map[string]any{
 			"agent_id":    "agent-1",
