@@ -6,7 +6,7 @@ frontend-app/.frontend_code_size_guard_baseline_test.json	frontend-app	app-ui	js
 frontend-app/.frontend_code_size_guard_baseline.json	frontend-app	app-ui	json	76	当前 React/Vite 前端包	frontend,app,code,size,guard,baseline,当前,React,Vite,前端包
 frontend-app/.gitignore	frontend-app	app-ui	file	30	当前 React/Vite 前端包	frontend,app,当前,React,Vite,前端包
 frontend-app/config/action-producer-registry.json	frontend-app	app-ui	json	50335	当前 React/Vite 前端包	frontend,app,config,action,producer,registry,当前,React,Vite,前端包
-frontend-app/config/action-producer-test-matrix.json	frontend-app	app-ui	json	143345	当前 React/Vite 前端包	frontend,app,config,action,producer,test,matrix,当前,React,Vite,前端包
+frontend-app/config/action-producer-test-matrix.json	frontend-app	app-ui	json	145033	当前 React/Vite 前端包	frontend,app,config,action,producer,test,matrix,当前,React,Vite,前端包
 frontend-app/eslint.config.js	frontend-app	app-ui	js-source	857	当前 React/Vite 前端包	frontend,app,eslint,config,当前,React,Vite,前端包
 frontend-app/index.html	frontend-app	app-ui	html	391	当前 React/Vite 前端包	frontend,app,index,当前,React,Vite,前端包
 frontend-app/jsconfig.json	frontend-app	app-ui	json	421	当前 React/Vite 前端包	frontend,app,jsconfig,当前,React,Vite,前端包
@@ -21,8 +21,9 @@ frontend-app/public/favicon.svg	frontend-app	app-ui	svg	295	当前 React/Vite �
 frontend-app/public/wails/runtime.js	frontend-app	app-ui	js-source	19498	当前 React/Vite 前端包	frontend,app,public,wails,runtime,当前,React,Vite,前端包
 frontend-app/public/wails/runtime.test.js	frontend-app	app-ui	js-test	17803	当前 React/Vite 前端包	frontend,app,public,wails,runtime,test,当前,React,Vite,前端包
 frontend-app/README.md	frontend-app	app-ui	doc	1427	当前 React/Vite 前端包	frontend,app,README,当前,React,Vite,前端包
-frontend-app/scripts/action-producer-guard.mjs	frontend-app	app-ui	js-source	25335	React 前端构建与校验脚本	frontend,app,scripts,action,producer,guard,React,前端构建与校验脚本
-frontend-app/scripts/action-producer-guard.selftest.mjs	frontend-app	app-ui	js-source	8554	React 前端构建与校验脚本	frontend,app,scripts,action,producer,guard,selftest,React,前端构建与校验脚本
+frontend-app/scripts/action-producer-guard.mjs	frontend-app	app-ui	js-source	34680	React 前端构建与校验脚本	frontend,app,scripts,action,producer,guard,React,前端构建与校验脚本
+frontend-app/scripts/action-producer-guard.selftest.mjs	frontend-app	app-ui	js-source	10030	React 前端构建与校验脚本	frontend,app,scripts,action,producer,guard,selftest,React,前端构建与校验脚本
+frontend-app/scripts/action-production-runtime-runner.mjs	frontend-app	app-ui	js-source	7149	React 前端构建与校验脚本	frontend,app,scripts,action,production,runtime,runner,React,前端构建与校验脚本
 frontend-app/scripts/agentic-e2e-discovery.mjs	frontend-app	app-ui	js-source	6036	React 前端构建与校验脚本	frontend,app,scripts,agentic,e2e,discovery,React,前端构建与校验脚本
 frontend-app/scripts/agentic-e2e-goals.mjs	frontend-app	app-ui	js-source	7632	React 前端构建与校验脚本	frontend,app,scripts,agentic,e2e,goals,React,前端构建与校验脚本
 frontend-app/scripts/agentic-e2e-planner.mjs	frontend-app	app-ui	js-source	12675	React 前端构建与校验脚本	frontend,app,scripts,agentic,e2e,planner,React,前端构建与校验脚本
@@ -52,8 +53,9 @@ frontend-app/scripts/evidence-provenance.test.mjs	frontend-app	app-ui	js-test	28
 frontend-app/scripts/failure-matrix-cases.json	frontend-app	app-ui	json	4229	React 前端构建与校验脚本	frontend,app,scripts,failure,matrix,cases,React,前端构建与校验脚本
 frontend-app/scripts/failure-matrix-fixture-replay.test.mjs	frontend-app	app-ui	js-test	737	React 前端构建与校验脚本	frontend,app,scripts,failure,matrix,fixture,replay,test,React,前端构建与校验脚本
 frontend-app/scripts/failure-matrix-fixtures.json	frontend-app	app-ui	json	2182	React 前端构建与校验脚本	frontend,app,scripts,failure,matrix,fixtures,React,前端构建与校验脚本
-frontend-app/scripts/failure-matrix-runner.mjs	frontend-app	app-ui	js-source	10969	React 前端构建与校验脚本	frontend,app,scripts,failure,matrix,runner,React,前端构建与校验脚本
-frontend-app/scripts/failure-matrix-runner.test.mjs	frontend-app	app-ui	js-test	4929	React 前端构建与校验脚本	frontend,app,scripts,failure,matrix,runner,test,React,前端构建与校验脚本
+frontend-app/scripts/failure-matrix-mutations.json	frontend-app	app-ui	json	3338	React 前端构建与校验脚本	frontend,app,scripts,failure,matrix,mutations,React,前端构建与校验脚本
+frontend-app/scripts/failure-matrix-runner.mjs	frontend-app	app-ui	js-source	19319	React 前端构建与校验脚本	frontend,app,scripts,failure,matrix,runner,React,前端构建与校验脚本
+frontend-app/scripts/failure-matrix-runner.test.mjs	frontend-app	app-ui	js-test	7261	React 前端构建与校验脚本	frontend,app,scripts,failure,matrix,runner,test,React,前端构建与校验脚本
 frontend-app/scripts/frontend-code-size-guard.mjs	frontend-app	app-ui	js-source	25277	React 前端构建与校验脚本	frontend,app,scripts,code,size,guard,React,前端构建与校验脚本
 frontend-app/scripts/frontend-code-size-guard.test.mjs	frontend-app	app-ui	js-test	8078	React 前端构建与校验脚本	frontend,app,scripts,code,size,guard,test,React,前端构建与校验脚本
 frontend-app/scripts/frontend-contract-store-guard.mjs	frontend-app	app-ui	js-source	20112	React 前端构建与校验脚本	frontend,app,scripts,contract,store,guard,React,前端构建与校验脚本
@@ -62,10 +64,10 @@ frontend-app/scripts/frontend-dependency-direction-guard.mjs	frontend-app	app-ui
 frontend-app/scripts/frontend-dependency-direction-guard.test.mjs	frontend-app	app-ui	js-test	8128	React 前端构建与校验脚本	frontend,app,scripts,dependency,direction,guard,test,React,前端构建与校验脚本
 frontend-app/scripts/frontend-dependency-direction-registry.json	frontend-app	app-ui	json	4878	React 前端构建与校验脚本	frontend,app,scripts,dependency,direction,registry,React,前端构建与校验脚本
 frontend-app/scripts/frontend-maintainability-baseline.json	frontend-app	app-ui	json	221416	React 前端构建与校验脚本	frontend,app,scripts,maintainability,baseline,React,前端构建与校验脚本
-frontend-app/scripts/frontend-maintainability-controls.json	frontend-app	app-ui	json	25461	React 前端构建与校验脚本	frontend,app,scripts,maintainability,controls,React,前端构建与校验脚本
-frontend-app/scripts/frontend-maintainability-red-fixtures.json	frontend-app	app-ui	json	1445	React 前端构建与校验脚本	frontend,app,scripts,maintainability,red,fixtures,React,前端构建与校验脚本
-frontend-app/scripts/frontend-maintainability-score.mjs	frontend-app	app-ui	js-source	84267	React 前端构建与校验脚本	frontend,app,scripts,maintainability,score,React,前端构建与校验脚本
-frontend-app/scripts/frontend-maintainability-score.test.mjs	frontend-app	app-ui	js-test	61872	React 前端构建与校验脚本	frontend,app,scripts,maintainability,score,test,React,前端构建与校验脚本
+frontend-app/scripts/frontend-maintainability-controls.json	frontend-app	app-ui	json	26171	React 前端构建与校验脚本	frontend,app,scripts,maintainability,controls,React,前端构建与校验脚本
+frontend-app/scripts/frontend-maintainability-red-fixtures.json	frontend-app	app-ui	json	2006	React 前端构建与校验脚本	frontend,app,scripts,maintainability,red,fixtures,React,前端构建与校验脚本
+frontend-app/scripts/frontend-maintainability-score.mjs	frontend-app	app-ui	js-source	113435	React 前端构建与校验脚本	frontend,app,scripts,maintainability,score,React,前端构建与校验脚本
+frontend-app/scripts/frontend-maintainability-score.test.mjs	frontend-app	app-ui	js-test	78351	React 前端构建与校验脚本	frontend,app,scripts,maintainability,score,test,React,前端构建与校验脚本
 frontend-app/scripts/frontend-performance-cases.json	frontend-app	app-ui	json	1472	React 前端构建与校验脚本	frontend,app,scripts,performance,cases,React,前端构建与校验脚本
 frontend-app/scripts/frontend-state-ownership-guard.mjs	frontend-app	app-ui	js-source	25954	React 前端构建与校验脚本	frontend,app,scripts,state,ownership,guard,React,前端构建与校验脚本
 frontend-app/scripts/frontend-state-ownership-guard.test.mjs	frontend-app	app-ui	js-test	8229	React 前端构建与校验脚本	frontend,app,scripts,state,ownership,guard,test,React,前端构建与校验脚本

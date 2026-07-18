@@ -1,3 +1,6 @@
+import { mkdtempSync, mkdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 import {
@@ -6,6 +9,7 @@ import {
   validateFailureMatrixEvidence,
   validateFailureMatrixFixtures,
   validateFailureMatrixManifest,
+  validateFailureMatrixMutations,
 } from './failure-matrix-runner.mjs';
 
 function validManifest() {
@@ -101,6 +105,33 @@ describe('failure matrix runner', () => {
     expect(() => validateFailureMatrixEvidence(cases, fixtures, [...valid.slice(0, -1), { caseId: 'FM-99', layer: 'frontend' }])).toThrow(/stale/);
   });
 
+  it('requires one production mutation RED binding for every case', () => {
+    const valid = {
+      schemaVersion: 1,
+      mutations: [{
+        id: 'production-mutation',
+        layer: 'frontend',
+        sourcePath: 'frontend-app/src/production.js',
+        search: 'before',
+        replacement: 'after',
+        caseIds: Array.from({ length: 24 }, (_, index) => `FM-${String(index + 1).padStart(2, '0')}`),
+      }],
+    };
+    expect(validateFailureMatrixMutations(valid)).toEqual(valid.mutations);
+    expect(() => validateFailureMatrixMutations({
+      ...valid,
+      mutations: [{ ...valid.mutations[0], caseIds: valid.mutations[0].caseIds.slice(1) }],
+    })).toThrow(/missing=.*FM-01/);
+    expect(() => validateFailureMatrixMutations({
+      ...valid,
+      mutations: [{ ...valid.mutations[0], sourcePath: '../production.js' }],
+    })).toThrow(/repository-relative/);
+    expect(() => validateFailureMatrixMutations({
+      ...valid,
+      mutations: [{ ...valid.mutations[0], replacement: 'before' }],
+    })).toThrow(/distinct search and replacement/);
+  });
+
   it('parses only passed case evidence from Vitest and Go JSON', () => {
     expect(parseVitestEvidence({
       testResults: [{
@@ -118,5 +149,34 @@ describe('failure matrix runner', () => {
     expect(parseGoEvidence(go, 'go-codex')).toEqual([
       { caseId: 'FM-06', layer: 'go-codex', test: 'TestFailureMatrix/FM-06' },
     ]);
+  });
+
+  it('canonicalizes symlinked worktree roots before recording focused Vitest files', () => {
+    const root = mkdtempSync(join(tmpdir(), 'failure-matrix-realpath-'));
+    try {
+      const realFrontend = join(root, 'real', 'frontend-app');
+      const testFile = join(realFrontend, 'src', 'failure.test.js');
+      mkdirSync(join(realFrontend, 'src'), { recursive: true });
+      writeFileSync(testFile, '// fixture\n');
+      symlinkSync(join(root, 'real'), join(root, 'alias'), 'dir');
+
+      expect(parseVitestEvidence({
+        testResults: [{
+          name: realpathSync(testFile),
+          assertionResults: [{
+            fullName: 'matrix:FM-01 layer:frontend visible failure',
+            status: 'passed',
+          }],
+        }],
+      }, join(root, 'alias', 'frontend-app'))).toEqual([{
+        caseId: 'FM-01',
+        layer: 'frontend',
+        test: 'matrix:FM-01 layer:frontend visible failure',
+        file: 'src/failure.test.js',
+      }]);
+    }
+    finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });

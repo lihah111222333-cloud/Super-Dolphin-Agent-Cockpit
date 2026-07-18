@@ -27,7 +27,7 @@ function fixture(source = `
     });
   `);
   fs.writeFileSync(path.join(root, 'src/action.js'), source);
-  fs.writeFileSync(path.join(root, 'src/action.test.js'), "it('reports the failure', () => {});\nit('validates the semantic path', () => {});");
+  fs.writeFileSync(path.join(root, 'src/action.test.js'), "import './action.js';\nit('reports the failure', () => {});\nit('validates the semantic path', () => {});");
   return root;
 }
 
@@ -75,6 +75,13 @@ function matrix(overrides = {}) {
     rpcCallsites: [{
       file: 'src/action.js', via: 'backendApi', facade: 'startThread', level: 'P0', count: 1, actionIds: ['fixture.action'],
     }],
+    runtimeBindings: [{
+      semanticClass: 'fixture-runtime',
+      actionId: 'fixture.action',
+      sourcePath: 'src/action.js',
+      testFile: 'src/action.test.js',
+      testName: 'reports the failure',
+    }],
     ...overrides,
   };
 }
@@ -85,9 +92,22 @@ function expectFailure(run, text) {
 
 {
   const root = fixture();
-  assert.deepEqual(runActionProducerGuard({ root, registry: coveredRegistry(), testMatrix: matrix(), today: '2026-07-17' }), {
-    covered: 1, discovered: 1, exempted: 0,
+  const result = runActionProducerGuard({ root, registry: coveredRegistry(), testMatrix: matrix(), today: '2026-07-17' });
+  assert.equal(result.covered, 1);
+  assert.equal(result.discovered, 1);
+  assert.equal(result.exempted, 0);
+  assert.deepEqual(result.bindings.map(({ actionId, sourcePath, callbackKind, handlers }) => ({
+    actionId, sourcePath, callbackKind, handlers,
+  })), [{
+    actionId: 'fixture.action', sourcePath: 'src/action.js', callbackKind: 'arrow', handlers: ['startThread'],
+  }]);
+  assert.deepEqual(result.bindings[0].guardMutationDetection, {
+    mutationId: 'empty-production-callback',
+    detected: true,
+    sourceSha256: result.bindings[0].sourceSha256,
+    mutatedSha256: result.bindings[0].guardMutationDetection.mutatedSha256,
   });
+  assert.notEqual(result.bindings[0].guardMutationDetection.mutatedSha256, result.bindings[0].sourceSha256);
 }
 
 {
@@ -95,6 +115,18 @@ function expectFailure(run, text) {
   const discovery = discoverActionProducers(root);
   assert.equal(discovery.problems.length, 1);
   assert.match(discovery.problems[0], /literal actionId/);
+}
+
+{
+  const root = fixture("import { runUIAction } from './shared/ui/runUIAction.js'; runUIAction('fixture.action', true);");
+  const discovery = discoverActionProducers(root);
+  assert.match(discovery.problems.join('\n'), /action-specific production callback/);
+}
+
+{
+  const root = fixture("import { runUIAction } from './shared/ui/runUIAction.js'; runUIAction('fixture.action', runUIAction);");
+  const discovery = discoverActionProducers(root);
+  assert.match(discovery.problems.join('\n'), /action-specific production callback/);
 }
 
 {

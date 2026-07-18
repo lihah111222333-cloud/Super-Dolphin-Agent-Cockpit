@@ -1,4 +1,6 @@
 import fs from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import path from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
@@ -68,6 +70,83 @@ function nodeName(node) {
   return '';
 }
 
+function memberName(node) {
+  if (node?.type === 'Identifier') return node.name;
+  if (node?.type === 'ThisExpression') return 'this';
+  if (['MemberExpression', 'OptionalMemberExpression'].includes(node?.type) && !node.computed) {
+    const object = memberName(node.object);
+    const property = nodeName(node.property);
+    return object && property ? `${object}.${property}` : '';
+  }
+  return '';
+}
+
+function callbackBinding(node) {
+  if (!node) return undefined;
+  if (node.type === 'Identifier') return { callbackKind: 'identifier', handlers: [node.name] };
+  if (['MemberExpression', 'OptionalMemberExpression'].includes(node.type)) {
+    const handler = memberName(node);
+    return handler ? { callbackKind: 'member', handlers: [handler] } : undefined;
+  }
+  if (!['ArrowFunctionExpression', 'FunctionExpression'].includes(node.type)) return undefined;
+  const handlers = new Set();
+  walk(node.body, (candidate) => {
+    if (!['CallExpression', 'OptionalCallExpression'].includes(candidate.type)) return;
+    const handler = memberName(candidate.callee);
+    if (handler) handlers.add(handler);
+  });
+  return {
+    callbackKind: node.type === 'ArrowFunctionExpression' ? 'arrow' : 'function',
+    handlers: [...handlers].sort(),
+  };
+}
+
+const genericActionHandlers = new Set(['runUIAction', 'runBackgroundAction']);
+
+export function mutateProductionBindingsSource(source, bindings) {
+  let mutated = source;
+  for (const binding of [...bindings].sort((left, right) => right.callbackStart - left.callbackStart)) {
+    if (!Number.isInteger(binding.callbackStart) || !Number.isInteger(binding.callbackEnd)
+      || binding.callbackStart < 0 || binding.callbackEnd <= binding.callbackStart
+      || binding.callbackEnd > mutated.length) {
+      throw new Error(`${binding.actionId}: production callback range is invalid`);
+    }
+    mutated = `${mutated.slice(0, binding.callbackStart)}() => {}${mutated.slice(binding.callbackEnd)}`;
+  }
+  return mutated;
+}
+
+function focusedBindingCallback(source, binding) {
+  const ast = parseModule(source, binding.sourcePath);
+  let callback;
+  traverse(ast, {
+    CallExpression(callPath) {
+      const actionId = callPath.node.arguments[0];
+      if (actionId?.type !== 'StringLiteral' || actionId.value !== binding.actionId
+        || actionId.loc?.start.line !== binding.line
+        || (actionId.loc?.start.column || 0) + 1 !== binding.column) return;
+      callback = callbackBinding(callPath.node.arguments[1]);
+      callPath.stop();
+    },
+  });
+  return callback;
+}
+
+export function productionBindingGuardMutationDetection(binding, root = ROOT) {
+  const source = fs.readFileSync(path.join(root, binding.sourcePath), 'utf8');
+  const mutated = mutateProductionBindingsSource(source, [binding]);
+  const callback = focusedBindingCallback(mutated, binding);
+  if (callback?.handlers.some((handler) => !genericActionHandlers.has(handler))) {
+    throw new Error(`${binding.actionId}: empty callback mutation did not make the focused guard RED`);
+  }
+  return {
+    mutationId: 'empty-production-callback',
+    detected: true,
+    sourceSha256: createHash('sha256').update(source).digest('hex'),
+    mutatedSha256: createHash('sha256').update(mutated).digest('hex'),
+  };
+}
+
 function resolveModule(fromFile, request, files) {
   if (typeof request !== 'string' || !request.startsWith('.')) return '';
   const unresolved = path.resolve(path.dirname(fromFile), request);
@@ -134,6 +213,7 @@ function discoverActionProducers(root = ROOT) {
   const kinds = new Map();
   const locations = new Map();
   const unsuccessfulResultActions = new Set();
+  const bindings = [];
   const problems = [];
   const files = new Set(productionSourceFiles(root));
   const asts = new Map([...files].map((file) => {
@@ -187,6 +267,24 @@ function discoverActionProducers(root = ROOT) {
         const actionLocations = locations.get(actionId.value) || [];
         actionLocations.push(`${relative}:${callPath.node.loc?.start.line || 0}`);
         locations.set(actionId.value, actionLocations);
+        const callback = callbackBinding(callPath.node.arguments[1]);
+        if (!callback || callback.handlers.length === 0
+          || callback.handlers.every((handler) => genericActionHandlers.has(handler))) {
+          problems.push(`${relative}:${callPath.node.loc?.start.line || 0} ${actionId.value} requires an action-specific production callback`);
+        } else {
+          bindings.push({
+            actionId: actionId.value,
+            kind: actionKind,
+            sourcePath: relative,
+            line: actionId.loc?.start.line || 0,
+            column: (actionId.loc?.start.column || 0) + 1,
+            callbackKind: callback.callbackKind,
+            handlers: callback.handlers,
+            callbackStart: callPath.node.arguments[1].start,
+            callbackEnd: callPath.node.arguments[1].end,
+            sourceSha256: createHash('sha256').update(fs.readFileSync(file)).digest('hex'),
+          });
+        }
         const options = callPath.node.arguments[2];
         if (options?.type === 'ObjectExpression' && options.properties.some((property) => (
           property.type === 'ObjectProperty'
@@ -197,7 +295,7 @@ function discoverActionProducers(root = ROOT) {
       },
     });
   }
-  return { counts, kinds, locations, problems, unsuccessfulResultActions };
+  return { counts, kinds, locations, bindings, problems, unsuccessfulResultActions };
 }
 
 function p0P1Facades(root) {
@@ -286,6 +384,75 @@ function discoveredTestNames(source, file) {
     if (node.arguments[0]?.type === 'StringLiteral') names.add(node.arguments[0].value);
   });
   return names;
+}
+
+function resolveImportedModule(fromFile, request) {
+  if (typeof request !== 'string' || !request.startsWith('.')) return '';
+  const unresolved = path.resolve(path.dirname(fromFile), request);
+  return [
+    unresolved,
+    `${unresolved}.js`,
+    `${unresolved}.jsx`,
+    `${unresolved}.mjs`,
+    path.join(unresolved, 'index.js'),
+    path.join(unresolved, 'index.jsx'),
+  ].find((candidate) => fs.existsSync(candidate) && fs.statSync(candidate).isFile()) || '';
+}
+
+function testReachesProductionSource(root, testFile, sourcePath) {
+  const target = path.resolve(root, sourcePath);
+  const queue = [path.resolve(root, testFile)];
+  const visited = new Set();
+  while (queue.length > 0) {
+    const file = queue.shift();
+    if (file === target) return true;
+    if (visited.has(file) || !fs.existsSync(file)) continue;
+    visited.add(file);
+    const ast = parseModule(fs.readFileSync(file, 'utf8'), path.relative(root, file));
+    for (const statement of ast.program.body) {
+      if (statement.type !== 'ImportDeclaration') continue;
+      const imported = resolveImportedModule(file, statement.source.value);
+      if (imported && !visited.has(imported)) queue.push(imported);
+    }
+  }
+  return false;
+}
+
+function validateRuntimeBindings(root, discovery, matrix, problems) {
+  if (!Array.isArray(matrix.runtimeBindings)) {
+    problems.push('action producer runtimeBindings must be an array');
+    return;
+  }
+  const seen = new Set();
+  const seenSemanticClasses = new Set();
+  for (const anchor of matrix.runtimeBindings) {
+    if (!anchor || typeof anchor.semanticClass !== 'string' || !anchor.semanticClass.trim()
+      || typeof anchor.actionId !== 'string' || typeof anchor.sourcePath !== 'string'
+      || typeof anchor.testFile !== 'string' || typeof anchor.testName !== 'string') {
+      problems.push('action producer runtime binding anchor is invalid');
+      continue;
+    }
+    if (seen.has(anchor.actionId)) problems.push(`duplicate runtime binding anchor: ${anchor.actionId}`);
+    seen.add(anchor.actionId);
+    if (seenSemanticClasses.has(anchor.semanticClass)) {
+      problems.push(`duplicate runtime binding semantic class: ${anchor.semanticClass}`);
+    }
+    seenSemanticClasses.add(anchor.semanticClass);
+    const bindings = discovery.bindings.filter(({ actionId, sourcePath }) => (
+      actionId === anchor.actionId && sourcePath === anchor.sourcePath
+    ));
+    if (bindings.length === 0) problems.push(`${anchor.actionId} runtime anchor has no production binding`);
+    const testPath = path.join(root, anchor.testFile);
+    if (!fs.existsSync(testPath)) {
+      problems.push(`${anchor.actionId} runtime test file is missing: ${anchor.testFile}`);
+      continue;
+    }
+    const names = discoveredTestNames(fs.readFileSync(testPath, 'utf8'), anchor.testFile);
+    if (!names.has(anchor.testName)) problems.push(`${anchor.actionId} runtime test is stale: ${anchor.testName}`);
+    if (!testReachesProductionSource(root, anchor.testFile, anchor.sourcePath)) {
+      problems.push(`${anchor.actionId} runtime test does not import its production component/service`);
+    }
+  }
 }
 
 function validateCoveredContracts(covered, problems) {
@@ -485,15 +652,56 @@ export function runActionProducerGuard({ root = ROOT, registry = loadRegistry(),
   if (matrixShapeValid) {
     validateProducerErrorMatrix(registry, discovery, testMatrix, cases, problems);
     validateRpcCallsites(root, registry, testMatrix, problems);
+    validateRuntimeBindings(root, discovery, testMatrix, problems);
   }
   validateExemptions(registry.exemptions, today, problems);
+  const expectedBindingCount = [...discovery.counts.values()].reduce((sum, count) => sum + count, 0);
+  if (discovery.bindings.length !== expectedBindingCount) {
+    problems.push(`production action binding count mismatch: discovered=${expectedBindingCount} bound=${discovery.bindings.length}`);
+  }
   if (problems.length > 0) throw new Error(`action producer guard failed:\n- ${problems.join('\n- ')}`);
-  return { covered: registry.coveredProducers.length, discovered: discovery.counts.size, exempted: registry.exemptions.length };
+  const bindings = discovery.bindings.map((binding) => ({
+    ...binding,
+    guardMutationDetection: productionBindingGuardMutationDetection(binding, root),
+  }));
+  return {
+    covered: registry.coveredProducers.length,
+    discovered: discovery.counts.size,
+    exempted: registry.exemptions.length,
+    bindings: bindings.sort((left, right) => (
+      left.actionId.localeCompare(right.actionId)
+      || left.sourcePath.localeCompare(right.sourcePath)
+      || left.line - right.line
+      || left.column - right.column
+    )),
+  };
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const result = runActionProducerGuard();
-  process.stdout.write(`action producer guard passed: discovered=${result.discovered} covered=${result.covered} exempted=${result.exempted}\n`);
+  if (process.argv.length === 2) {
+    process.stdout.write(`action producer guard passed: discovered=${result.discovered} covered=${result.covered} exempted=${result.exempted}\n`);
+  } else if (process.argv.length === 4 && process.argv[2] === '--report') {
+    const reportPath = path.resolve(ROOT, process.argv[3]);
+    const repoRoot = path.resolve(ROOT, '..');
+    const git = (args) => execFileSync('git', args, { cwd: repoRoot, encoding: 'utf8' }).trim();
+    const report = {
+      schemaVersion: 1,
+      generatedAt: new Date().toISOString(),
+      subjectSha: git(['rev-parse', 'HEAD']),
+      subjectTreeSha: git(['rev-parse', 'HEAD^{tree}']),
+      reportKind: 'action-production-binding-structure-v1',
+      actionIds: [...new Set(result.bindings.map(({ actionId }) => actionId))].sort(),
+      bindingCount: result.bindings.length,
+      bindings: result.bindings,
+      status: 'structural-only',
+    };
+    fs.mkdirSync(path.dirname(reportPath), { recursive: true });
+    fs.writeFileSync(reportPath, `${JSON.stringify(report, null, 2)}\n`);
+    process.stdout.write(`action production binding report passed: actions=${report.actionIds.length} bindings=${report.bindingCount} report=${reportPath}\n`);
+  } else {
+    throw new Error('usage: action-producer-guard.mjs [--report <path>]');
+  }
 }
 
 export { discoverActionProducers, discoverP0P1Callsites };

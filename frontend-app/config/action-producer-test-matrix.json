@@ -5549,5 +5549,42 @@
         "sidebar.project-threads.load"
       ]
     }
+  ],
+  "runtimeBindings": [
+    {
+      "semanticClass": "background-reconnect",
+      "actionId": "provider.reconnect.bootstrap",
+      "sourcePath": "src/entities/client/model/runtimeSlice.js",
+      "testFile": "src/entities/client/model/runtimeSlice.test.js",
+      "testName": "matrix:FM-18 layer:frontend persists reconnect bootstrap failure in Health and permits recovery"
+    },
+    {
+      "semanticClass": "prompt-history",
+      "actionId": "prompt-history.previous",
+      "sourcePath": "src/pages/chat/composer/ComposerDock.jsx",
+      "testFile": "src/pages/chat/composer/ComposerDock.actionFailure.test.jsx",
+      "testName": "keeps draft cursor and selection stable on rejected prompt history RPC"
+    },
+    {
+      "semanticClass": "thread-mutation",
+      "actionId": "thread.pin",
+      "sourcePath": "src/pages/chat/thread/ThreadCard.jsx",
+      "testFile": "src/pages/chat/thread/ThreadRail.test.jsx",
+      "testName": "renders active threads and routes thread actions through the store"
+    },
+    {
+      "semanticClass": "settings-save",
+      "actionId": "settings.video.save",
+      "sourcePath": "src/pages/settings/components/VideoSettingsCard.jsx",
+      "testFile": "src/pages/settings/SettingsPage.test.jsx",
+      "testName": "shows save failures from the named video facade method"
+    },
+    {
+      "semanticClass": "approval-pending",
+      "actionId": "approval.respond",
+      "sourcePath": "src/features/approval/ui/ApprovalDecisionShelf.jsx",
+      "testFile": "src/features/approval/ui/ApprovalDecisionShelf.test.jsx",
+      "testName": "matrix:FM-24 layer:frontend retains the selected choice after failure and allows an explicit retry"
+    }
   ]
 }

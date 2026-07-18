@@ -1,0 +1,85 @@
+{
+  "schemaVersion": 1,
+  "mutations": [
+    {
+      "id": "disable-frontend-terminal-handler",
+      "layer": "frontend",
+      "sourcePath": "frontend-app/src/entities/client/model/helpers/a1/clientStoreBridgeRuntime.js",
+      "search": "if (eventName === 'turn/terminal') {",
+      "replacement": "if (eventName === '__mutation_disabled_turn_terminal__') {",
+      "caseIds": ["FM-01", "FM-02", "FM-03", "FM-05", "FM-06"]
+    },
+    {
+      "id": "accept-stale-frontend-turn-events",
+      "layer": "frontend",
+      "sourcePath": "frontend-app/src/entities/client/model/helpers/assistantEventRuntime.js",
+      "search": "if (activeTurnId && activeTurnId !== turnRef.turnId) {",
+      "replacement": "if (false) {",
+      "caseIds": ["FM-04"]
+    },
+    {
+      "id": "force-codex-terminal-success",
+      "layer": "go-codex",
+      "sourcePath": "internal/provider/codexapp/event_map.go",
+      "search": "Success:              outcome.success,",
+      "replacement": "Success:              true,",
+      "caseIds": ["FM-07", "FM-09", "FM-10", "FM-11", "FM-12", "FM-13", "FM-14", "FM-19", "FM-20"]
+    },
+    {
+      "id": "misclassify-claude-interruption",
+      "layer": "go-claude",
+      "sourcePath": "internal/provider/claudecli/event_map.go",
+      "search": "Status:               \"interrupted\",",
+      "replacement": "Status:               \"completed\",",
+      "caseIds": ["FM-08"]
+    },
+    {
+      "id": "accept-rejected-turn-interrupt",
+      "layer": "go-turn",
+      "sourcePath": "internal/module/turn/rpc_helpers.go",
+      "search": "if !accepted {",
+      "replacement": "if false {",
+      "caseIds": ["FM-15", "FM-16"]
+    },
+    {
+      "id": "drop-turn-interrupt-timeout-envelope",
+      "layer": "go-turn",
+      "sourcePath": "internal/module/turn/rpc_helpers.go",
+      "search": "if errors.Is(err, context.DeadlineExceeded) {",
+      "replacement": "if false {",
+      "caseIds": ["FM-17"]
+    },
+    {
+      "id": "drift-reconnect-health-action",
+      "layer": "frontend",
+      "sourcePath": "frontend-app/src/entities/client/model/runtimeSlice.js",
+      "search": "runBackgroundAction('provider.reconnect.bootstrap',",
+      "replacement": "runBackgroundAction('provider.reconnect.bootstrap.mutated',",
+      "caseIds": ["FM-18"]
+    },
+    {
+      "id": "bypass-prompt-history-visible-action",
+      "layer": "frontend",
+      "sourcePath": "frontend-app/src/pages/chat/composer/ComposerDock.jsx",
+      "search": "return runUIAction('prompt-history.previous', () => promptHistory.previous(), { retryable: true });",
+      "replacement": "return promptHistory.previous();",
+      "caseIds": ["FM-21", "FM-22"]
+    },
+    {
+      "id": "hide-settings-save-failure",
+      "layer": "frontend",
+      "sourcePath": "frontend-app/src/pages/settings/components/VideoSettingsCard.jsx",
+      "search": "setNotice({ level: 'error', message: videoCopy.saveFailed });",
+      "replacement": "setNotice({ level: 'info', message: videoCopy.saved });",
+      "caseIds": ["FM-23"]
+    },
+    {
+      "id": "drift-approval-action-binding",
+      "layer": "frontend",
+      "sourcePath": "frontend-app/src/features/approval/ui/ApprovalDecisionShelf.jsx",
+      "search": "runUIAction('approval.respond',",
+      "replacement": "runUIAction('approval.respond.mutated',",
+      "caseIds": ["FM-24"]
+    }
+  ]
+}
