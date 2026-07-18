@@ -57,13 +57,14 @@ type session struct {
 	tracer               *observability.Service
 	mu                   sync.Mutex
 
-	activeTurn      *turnHandle
-	pendingRetry    *turnRetryState
-	activeToolCalls map[string]string
-	suppressedTurns map[string]struct{}
-	imageTracker    *imageHashTracker
-	settleTransport func(*transport) error
-	interrupting    bool
+	activeTurn              *turnHandle
+	pendingRetry            *turnRetryState
+	activeToolCalls         map[string]string
+	suppressedTurns         map[string]struct{}
+	imageTracker            *imageHashTracker
+	settleTransport         func(*transport) error
+	interrupting            bool
+	forceCompletedTransport *transport
 }
 
 type turnHandle struct {

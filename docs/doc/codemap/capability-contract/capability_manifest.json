@@ -2866,6 +2866,7 @@
         "internal/provider/claudecli.*session.finishTurnWithError",
         "internal/provider/claudecli.*session.forceCompleteTarget",
         "internal/provider/claudecli.*session.forceCompleteTurn",
+        "internal/provider/claudecli.*session.forceCompletedTransportIsCurrentLocked",
         "internal/provider/claudecli.*session.handleReceiveExit",
         "internal/provider/claudecli.*session.handleSystemInitRaw",
         "internal/provider/claudecli.*session.installLogWatcherIfCurrent",
@@ -7502,6 +7503,7 @@
         "internal/provider/claudecli.*session.finishTurnWithError",
         "internal/provider/claudecli.*session.forceCompleteTarget",
         "internal/provider/claudecli.*session.forceCompleteTurn",
+        "internal/provider/claudecli.*session.forceCompletedTransportIsCurrentLocked",
         "internal/provider/claudecli.*session.handleReceiveExit",
         "internal/provider/claudecli.*session.handleSystemInitRaw",
         "internal/provider/claudecli.*session.installLogWatcherIfCurrent",
@@ -12138,6 +12140,7 @@
         "internal/provider/claudecli.*session.finishTurnWithError",
         "internal/provider/claudecli.*session.forceCompleteTarget",
         "internal/provider/claudecli.*session.forceCompleteTurn",
+        "internal/provider/claudecli.*session.forceCompletedTransportIsCurrentLocked",
         "internal/provider/claudecli.*session.handleReceiveExit",
         "internal/provider/claudecli.*session.handleSystemInitRaw",
         "internal/provider/claudecli.*session.installLogWatcherIfCurrent",
@@ -16777,6 +16780,7 @@
         "internal/provider/claudecli.*session.finishTurnWithError",
         "internal/provider/claudecli.*session.forceCompleteTarget",
         "internal/provider/claudecli.*session.forceCompleteTurn",
+        "internal/provider/claudecli.*session.forceCompletedTransportIsCurrentLocked",
         "internal/provider/claudecli.*session.handleReceiveExit",
         "internal/provider/claudecli.*session.handleSystemInitRaw",
         "internal/provider/claudecli.*session.installLogWatcherIfCurrent",
@@ -18570,11 +18574,11 @@
   "summary": {
     "total_packages": 41,
     "total_functions": 2274,
-    "total_methods": 1168,
+    "total_methods": 1169,
     "total_interfaces": 183,
     "total_interface_methods": 363,
     "total_exported": 1255,
-    "total_unexported": 2973,
+    "total_unexported": 2974,
     "total_structs": 603
   },
   "packages": [
@@ -61804,6 +61808,10 @@
           "exported": false,
           "params": [
             {
+              "name": "tr",
+              "type": "*transport"
+            },
+            {
               "name": "target",
               "type": "*turnHandle"
             },
@@ -61811,6 +61819,14 @@
               "name": "turnID",
               "type": "string"
             }
+          ]
+        },
+        {
+          "receiver": "*session",
+          "name": "forceCompletedTransportIsCurrentLocked",
+          "exported": false,
+          "returns": [
+            "bool"
           ]
         },
         {

@@ -74,15 +74,16 @@ type preparedStartSession struct {
 
 // restartSnapshot 保存重启前可恢复的 session 状态，失败时用于回滚 transport 与 watcher。
 type restartSnapshot struct {
-	transport         *transport
-	cleanup           func()
-	watcher           *sessionLogWatcher
-	ready             chan struct{}
-	readyClosed       bool
-	transportModel    string
-	transportConfig   cliLaunchConfig
-	transportManifest dto.MCPManifest
-	contextWindow     int
+	transport               *transport
+	cleanup                 func()
+	watcher                 *sessionLogWatcher
+	ready                   chan struct{}
+	readyClosed             bool
+	transportModel          string
+	transportConfig         cliLaunchConfig
+	transportManifest       dto.MCPManifest
+	contextWindow           int
+	forceCompletedTransport *transport
 }
 
 // preparedSessionRestart 保存已准备好的重启结果，等待锁内提交或回滚。
@@ -560,6 +561,7 @@ func (s *session) restoreRestartSnapshotLocked(snapshot restartSnapshot) {
 	s.transportConfig = snapshot.transportConfig
 	s.transportManifest = snapshot.transportManifest
 	s.sessionContextWindow = snapshot.contextWindow
+	s.forceCompletedTransport = snapshot.forceCompletedTransport
 	if snapshot.readyClosed {
 		s.resetThreadReadyLocked()
 		s.markThreadReadyLocked()

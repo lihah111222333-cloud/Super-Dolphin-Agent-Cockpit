@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"testing"
+	"time"
 
 	dto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/provider"
 )
@@ -97,5 +98,99 @@ func TestForceCompleteProcessGoneCompletesActiveTurn(t *testing.T) {
 	}
 	if err := handle.Err(); err != nil {
 		t.Fatalf("handle.Err() = %v, want nil", err)
+	}
+}
+
+func TestForceCompleteLateResultCannotFinishReplacementTurn(t *testing.T) {
+	s, old, next, launched := newForceCompleteReplacementRaceSession(t)
+	defer old.finish()
+	defer next.finish()
+
+	forceCompleteOldTurn(t, s)
+	newHandle := startReplacementTurn(t, s, launched)
+	emitLateOldResult(t, old)
+	assertTurnStaysOpen(t, newHandle)
+}
+
+func newForceCompleteReplacementRaceSession(t *testing.T) (*session, *scriptedTransport, *scriptedTransport, <-chan struct{}) {
+	t.Helper()
+	old := newScriptedTransport()
+	next := newScriptedTransport()
+	launched := make(chan struct{}, 1)
+	initLine := []byte(marshalSystemInit(t, "11111111-2222-3333-4444-555555555555") + "\n")
+	launchFn := overrideLaunchCLI(t, func(string, string, string, string, cliLaunchConfig, dto.MCPManifest, string) (*transport, func(), error) {
+		launched <- struct{}{}
+		newTestGoroutineGroup(t).Go(func() {
+			_, _ = next.stdout.Write(initLine)
+		})
+		return next.tr, nil, nil
+	})
+	ready := make(chan struct{})
+	close(ready)
+	s := &session{
+		threadID:        "thread-1",
+		sessionID:       "thread-1",
+		threadReady:     ready,
+		transport:       old.tr,
+		model:           "claude-old",
+		transportModel:  "claude-old",
+		config:          cliLaunchConfig{PromptSnapshot: validResumePromptSnapshotForTest()},
+		launchCLI:       launchFn,
+		suppressedTurns: map[string]struct{}{},
+	}
+	old.tr.signal = func(processSig) error { return nil }
+	s.startReadLoop(old.tr)
+	return s, old, next, launched
+}
+
+func forceCompleteOldTurn(t *testing.T, s *session) {
+	t.Helper()
+	oldHandle, err := s.StartTurn(context.Background(), turnRequest("claude-old"))
+	if err != nil {
+		t.Fatalf("first StartTurn() error = %v", err)
+	}
+	if err := s.ForceComplete(context.Background(), dto.ForceCompleteRequest{}); err != nil {
+		t.Fatalf("ForceComplete() error = %v", err)
+	}
+	select {
+	case <-oldHandle.Done():
+	case <-time.After(time.Second):
+		t.Fatal("ForceComplete() did not finish the old turn")
+	}
+}
+
+func startReplacementTurn(t *testing.T, s *session, launched <-chan struct{}) interface {
+	Done() <-chan struct{}
+	Err() error
+} {
+	t.Helper()
+	handle, err := s.StartTurn(context.Background(), turnRequest("claude-old"))
+	if err != nil {
+		t.Fatalf("replacement StartTurn() error = %v", err)
+	}
+	select {
+	case <-launched:
+	case <-time.After(time.Second):
+		t.Fatal("replacement turn reused the force-completed transport")
+	}
+	return handle
+}
+
+func emitLateOldResult(t *testing.T, old *scriptedTransport) {
+	t.Helper()
+	if _, err := old.stdout.Write([]byte(`{"type":"result","subtype":"success","result":"late old result"}` + "\n")); err != nil {
+		t.Fatalf("write late old result: %v", err)
+	}
+}
+
+func assertTurnStaysOpen(t *testing.T, handle interface {
+	Done() <-chan struct{}
+	Err() error
+}) {
+	t.Helper()
+	select {
+	case <-handle.Done():
+		t.Fatalf("late old result finished replacement turn: %v", handle.Err())
+	case <-time.After(150 * time.Millisecond):
 	}
 }

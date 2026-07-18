@@ -752,7 +752,7 @@ internal/provider/claudecli/driver_capability_test.go	internal	platform-provider
 internal/provider/claudecli/driver_cwd_test.go	internal	platform-provider	go-test	2461	Claude CLI provider 集成	internal,provider,claudecli,driver,cwd,test,Claude,CLI,集成
 internal/provider/claudecli/driver_mirror_test.go	internal	platform-provider	go-test	24567	Claude CLI provider 集成	internal,provider,claudecli,driver,mirror,test,Claude,CLI,集成
 internal/provider/claudecli/driver_resume_snapshot_test.go	internal	platform-provider	go-test	986	Claude CLI provider 集成	internal,provider,claudecli,driver,resume,snapshot,test,Claude,CLI,集成
-internal/provider/claudecli/driver.go	internal	platform-provider	go-source	24031	Claude CLI provider 集成	internal,provider,claudecli,driver,Claude,CLI,集成
+internal/provider/claudecli/driver.go	internal	platform-provider	go-source	24183	Claude CLI provider 集成	internal,provider,claudecli,driver,Claude,CLI,集成
 internal/provider/claudecli/event_map_test.go	internal	platform-provider	go-test	9762	Claude CLI provider 集成	internal,provider,claudecli,event,map,test,Claude,CLI,集成
 internal/provider/claudecli/event_map.go	internal	platform-provider	go-source	12623	Claude CLI provider 集成	internal,provider,claudecli,event,map,Claude,CLI,集成
 internal/provider/claudecli/factory_tool_result_test.go	internal	platform-provider	go-test	1546	Claude CLI provider 集成	internal,provider,claudecli,factory,tool,result,test,Claude,CLI,集成
@@ -774,10 +774,10 @@ internal/provider/claudecli/observability_trace.go	internal	platform-provider	go
 internal/provider/claudecli/provider_contract_test.go	internal	platform-provider	go-test	24686	Claude CLI provider 集成	internal,provider,claudecli,contract,test,Claude,CLI,集成
 internal/provider/claudecli/runtime_hooks_test.go	internal	platform-provider	go-test	1451	Claude CLI provider 集成	internal,provider,claudecli,runtime,hooks,test,Claude,CLI,集成
 internal/provider/claudecli/session_config_pending_test.go	internal	platform-provider	go-test	7071	Claude CLI provider 集成	internal,provider,claudecli,session,config,pending,test,Claude,CLI,集成
-internal/provider/claudecli/session_config.go	internal	platform-provider	go-source	7501	Claude CLI provider 集成	internal,provider,claudecli,session,config,Claude,CLI,集成
+internal/provider/claudecli/session_config.go	internal	platform-provider	go-source	7599	Claude CLI provider 集成	internal,provider,claudecli,session,config,Claude,CLI,集成
 internal/provider/claudecli/session_events_test.go	internal	platform-provider	go-test	16332	Claude CLI provider 集成	internal,provider,claudecli,session,events,test,Claude,CLI,集成
 internal/provider/claudecli/session_events.go	internal	platform-provider	go-source	16998	Claude CLI provider 集成	internal,provider,claudecli,session,events,Claude,CLI,集成
-internal/provider/claudecli/session_force_complete_test.go	internal	platform-provider	go-test	2604	Claude CLI provider 集成	internal,provider,claudecli,session,force,complete,test,Claude,CLI,集成
+internal/provider/claudecli/session_force_complete_test.go	internal	platform-provider	go-test	5521	Claude CLI provider 集成	internal,provider,claudecli,session,force,complete,test,Claude,CLI,集成
 internal/provider/claudecli/session_history_strict_test.go	internal	platform-provider	go-test	474	Claude CLI provider 集成	internal,provider,claudecli,session,history,strict,test,Claude,CLI,集成
 internal/provider/claudecli/session_history_test.go	internal	platform-provider	go-test	8132	Claude CLI provider 集成	internal,provider,claudecli,session,history,test,Claude,CLI,集成
 internal/provider/claudecli/session_history.go	internal	platform-provider	go-source	9517	Claude CLI provider 集成	internal,provider,claudecli,session,history,Claude,CLI,集成
@@ -785,7 +785,7 @@ internal/provider/claudecli/session_interrupt_cleanup.go	internal	platform-provi
 internal/provider/claudecli/session_interrupt_pending_test.go	internal	platform-provider	go-test	1932	Claude CLI provider 集成	internal,provider,claudecli,session,interrupt,pending,test,Claude,CLI,集成
 internal/provider/claudecli/session_interrupt_test.go	internal	platform-provider	go-test	15622	Claude CLI provider 集成	internal,provider,claudecli,session,interrupt,test,Claude,CLI,集成
 internal/provider/claudecli/session_log_watcher_integration_test.go	internal	platform-provider	go-test	8413	Claude CLI provider 集成	internal,provider,claudecli,session,log,watcher,integration,test,Claude,CLI,集成
-internal/provider/claudecli/session_log_watcher_integration.go	internal	platform-provider	go-source	15479	Claude CLI provider 集成	internal,provider,claudecli,session,log,watcher,integration,Claude,CLI,集成
+internal/provider/claudecli/session_log_watcher_integration.go	internal	platform-provider	go-source	15890	Claude CLI provider 集成	internal,provider,claudecli,session,log,watcher,integration,Claude,CLI,集成
 internal/provider/claudecli/session_log_watcher_parse_test.go	internal	platform-provider	go-test	2310	Claude CLI provider 集成	internal,provider,claudecli,session,log,watcher,parse,test,Claude,CLI,集成
 internal/provider/claudecli/session_log_watcher_poll_test.go	internal	platform-provider	go-test	4878	Claude CLI provider 集成	internal,provider,claudecli,session,log,watcher,poll,test,Claude,CLI,集成
 internal/provider/claudecli/session_log_watcher.go	internal	platform-provider	go-source	9970	Claude CLI provider 集成	internal,provider,claudecli,session,log,watcher,Claude,CLI,集成
@@ -801,7 +801,7 @@ internal/provider/claudecli/session_silent_turn_test.go	internal	platform-provid
 internal/provider/claudecli/session_silent_turn.go	internal	platform-provider	go-source	2909	Claude CLI provider 集成	internal,provider,claudecli,session,silent,turn,Claude,CLI,集成
 internal/provider/claudecli/session_turn_attachment_test.go	internal	platform-provider	go-test	1742	Claude CLI provider 集成	internal,provider,claudecli,session,turn,attachment,test,Claude,CLI,集成
 internal/provider/claudecli/session_turn.go	internal	platform-provider	go-source	13579	Claude CLI provider 集成	internal,provider,claudecli,session,turn,Claude,CLI,集成
-internal/provider/claudecli/session.go	internal	platform-provider	go-source	14552	Claude CLI provider 集成	internal,provider,claudecli,session,Claude,CLI,集成
+internal/provider/claudecli/session.go	internal	platform-provider	go-source	14644	Claude CLI provider 集成	internal,provider,claudecli,session,Claude,CLI,集成
 internal/provider/claudecli/terminal_truth_test.go	internal	platform-provider	go-test	4664	Claude CLI provider 集成	internal,provider,claudecli,terminal,truth,test,Claude,CLI,集成
 internal/provider/claudecli/test_goroutine_group_test.go	internal	platform-provider	go-test	1181	Claude CLI provider 集成	internal,provider,claudecli,test,goroutine,group,Claude,CLI,集成
 internal/provider/claudecli/testdata/event_snapshots/agent_failed.json	internal	platform-provider	json	138	Claude CLI provider 集成	internal,provider,claudecli,testdata,event,snapshots,agent,failed,Claude,CLI,集成
@@ -822,7 +822,7 @@ internal/provider/claudecli/transport_config.go	internal	platform-provider	go-so
 internal/provider/claudecli/transport_env_test.go	internal	platform-provider	go-test	5483	Claude CLI provider 集成	internal,provider,claudecli,transport,env,test,Claude,CLI,集成
 internal/provider/claudecli/transport_unix.go	internal	platform-provider	go-source	1289	Claude CLI provider 集成	internal,provider,claudecli,transport,unix,Claude,CLI,集成
 internal/provider/claudecli/transport_windows.go	internal	platform-provider	go-source	5477	Claude CLI provider 集成	internal,provider,claudecli,transport,windows,Claude,CLI,集成
-internal/provider/claudecli/transport.go	internal	platform-provider	go-source	10717	Claude CLI provider 集成	internal,provider,claudecli,transport,Claude,CLI,集成
+internal/provider/claudecli/transport.go	internal	platform-provider	go-source	10750	Claude CLI provider 集成	internal,provider,claudecli,transport,Claude,CLI,集成
 internal/provider/claudecli/turn_complete_payload_test.go	internal	platform-provider	go-test	5927	Claude CLI provider 集成	internal,provider,claudecli,turn,complete,payload,test,Claude,CLI,集成
 internal/provider/claudecli/turn_result_long_e2e_README.md	internal	platform-provider	doc	3495	Claude CLI provider 集成	internal,provider,claudecli,turn,result,long,e2e,README,Claude,CLI,集成
 internal/provider/claudecli/turn_result_long_e2e_test.go	internal	platform-provider	go-test	7189	Claude CLI provider 集成	internal,provider,claudecli,turn,result,long,e2e,test,Claude,CLI,集成
