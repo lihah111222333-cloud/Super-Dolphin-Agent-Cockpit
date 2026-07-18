@@ -59,23 +59,11 @@ func preparePrebuiltReleaseFilesystemTestHelper() (func() error, error) {
 		return nil, fmt.Errorf("resolve app update recovery test directory: %w", err)
 	}
 	repoRoot := filepath.Clean(filepath.Join(workDir, "..", "..", ".."))
-	dir, err := os.MkdirTemp(
-		filepath.Join(repoRoot, "internal", "platform", "appupdaterecovery"),
-		".release-filesystem-test-helper-",
-	)
+	dir, err := os.MkdirTemp("", "release-filesystem-test-helper-")
 	if err != nil {
 		return nil, fmt.Errorf("create prebuilt release filesystem test helper directory: %w", err)
 	}
-	source := filepath.Join(dir, "main.go")
-	helperSource := "package main\n\nimport (\n\t\"errors\"\n\t\"log/slog\"\n\t\"os\"\n" +
-		"\n\t\"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/appupdaterecovery\"\n)\n" +
-		"\nfunc main() {\n\thandled, err := appupdaterecovery.RunReleaseFilesystemHelperIfRequested(os.Stdin, os.Stdout)\n" +
-		"\tif !handled { exitWithError(errors.New(\"release filesystem helper mode is required\")) }\n" +
-		"\tif err != nil { exitWithError(err) }\n}\n\nfunc exitWithError(err error) {\n" +
-		"\tslog.Error(\"release filesystem helper failed\", \"error\", err)\n\tos.Exit(2)\n}\n"
-	if err := os.WriteFile(source, []byte(helperSource), 0o600); err != nil {
-		return nil, errors.Join(fmt.Errorf("write prebuilt release filesystem test helper source: %w", err), os.RemoveAll(dir))
-	}
+	source := filepath.Join(repoRoot, "internal", "platform", "appupdaterecovery", "testdata", "release_filesystem_helper", "main.go")
 	helper := filepath.Join(dir, "helper")
 	cmd := exec.Command("go", "build", "-trimpath", "-o", helper, source)
 	cmd.Dir = repoRoot
@@ -214,6 +202,13 @@ func TestReleaseFilesystemHelperUsesPrebuiltTestExecutable(t *testing.T) {
 	helper := os.Getenv(releaseFilesystemHelperExecutableEnv)
 	if helper == "" {
 		t.Fatal("prebuilt release filesystem test helper is not configured")
+	}
+	relativeHelper, err := filepath.Rel(os.TempDir(), helper)
+	if err != nil {
+		t.Fatalf("resolve prebuilt helper path relative to system temporary directory: %v", err)
+	}
+	if !filepath.IsLocal(relativeHelper) {
+		t.Fatalf("prebuilt release filesystem test helper is outside system temporary directory: %s", helper)
 	}
 	helperInfo, err := os.Stat(helper)
 	if err != nil {

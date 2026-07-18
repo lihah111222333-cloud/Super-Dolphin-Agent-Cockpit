@@ -271,7 +271,7 @@ internal/mcpserver/common/tool_result.go	internal	platform-provider	go-source	32
 internal/platform/appupdaterecovery/artifact_e2e_test.go	internal	platform-provider	go-test	28176	基础设施层	internal,platform,appupdaterecovery,artifact,e2e,test,基础设施层
 internal/platform/appupdaterecovery/artifact_program_source_test.go	internal	platform-provider	go-test	2904	基础设施层	internal,platform,appupdaterecovery,artifact,program,source,test,基础设施层
 internal/platform/appupdaterecovery/artifact_rollback_cleanup_e2e_test.go	internal	platform-provider	go-test	12440	基础设施层	internal,platform,appupdaterecovery,artifact,rollback,cleanup,e2e,test,基础设施层
-internal/platform/appupdaterecovery/digest_context_test.go	internal	platform-provider	go-test	8994	基础设施层	internal,platform,appupdaterecovery,digest,context,test,基础设施层
+internal/platform/appupdaterecovery/digest_context_test.go	internal	platform-provider	go-test	8537	基础设施层	internal,platform,appupdaterecovery,digest,context,test,基础设施层
 internal/platform/appupdaterecovery/digest.go	internal	platform-provider	go-source	9231	基础设施层	internal,platform,appupdaterecovery,digest,基础设施层
 internal/platform/appupdaterecovery/discovery_test.go	internal	platform-provider	go-test	2524	基础设施层	internal,platform,appupdaterecovery,discovery,test,基础设施层
 internal/platform/appupdaterecovery/discovery.go	internal	platform-provider	go-source	9869	基础设施层	internal,platform,appupdaterecovery,discovery,基础设施层
@@ -298,6 +298,7 @@ internal/platform/appupdaterecovery/rollback_restart.go	internal	platform-provid
 internal/platform/appupdaterecovery/store.go	internal	platform-provider	go-source	19011	基础设施层	internal,platform,appupdaterecovery,store,基础设施层
 internal/platform/appupdaterecovery/supervisor_test.go	internal	platform-provider	go-test	18675	基础设施层	internal,platform,appupdaterecovery,supervisor,test,基础设施层
 internal/platform/appupdaterecovery/supervisor.go	internal	platform-provider	go-source	5400	基础设施层	internal,platform,appupdaterecovery,supervisor,基础设施层
+internal/platform/appupdaterecovery/testdata/release_filesystem_helper/main.go	internal	platform-provider	go-source	498	基础设施层	internal,platform,appupdaterecovery,testdata,release,filesystem,helper,main,基础设施层
 internal/platform/appupdaterecovery/transaction_test.go	internal	platform-provider	go-test	29754	基础设施层	internal,platform,appupdaterecovery,transaction,test,基础设施层
 internal/platform/appupdaterecovery/types.go	internal	platform-provider	go-source	11170	基础设施层	internal,platform,appupdaterecovery,types,基础设施层
 internal/platform/bus/bus_test.go	internal	platform-provider	go-test	4493	事件总线	internal,platform,bus,test,事件总线
