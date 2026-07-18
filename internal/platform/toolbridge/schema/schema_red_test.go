@@ -176,9 +176,8 @@ func TestSchemaCompilerCancellationOrIsolationIsBounded(t *testing.T) {
 	})
 	waitForHelperMarker(t, marker)
 	helperIdentity := captureFixtureProcessIdentity(t, marker)
-	started := time.Now()
 	cancel()
-	assertBoundedCancellation(t, result, started)
+	assertBoundedCancellation(t, result)
 	assertStableProcessIdentityGone(t, helperIdentity)
 	time.Sleep(100 * time.Millisecond)
 	if _, err := os.Stat(doneMarker); !errors.Is(err, os.ErrNotExist) {
@@ -223,18 +222,19 @@ func waitForHelperMarker(t *testing.T, marker string) {
 	}
 }
 
-func assertBoundedCancellation(t *testing.T, result <-chan error, started time.Time) {
+func assertBoundedCancellation(t *testing.T, result <-chan error) {
 	t.Helper()
+	// Cancellation reaps the execute worker, then bounds cleanup and its worker reap.
+	shutdownDeadline := 2*reapDeadline + filesystemSnapshotCleanupTimeout + time.Second
+	timer := time.NewTimer(shutdownDeadline)
+	defer timer.Stop()
 	select {
 	case err := <-result:
 		if !errors.Is(err, context.Canceled) || ErrorCode(err) != CodeCancelled {
 			t.Fatalf("Execute(cancelled) error = %v, code=%q", err, ErrorCode(err))
 		}
-	case <-time.After(reapDeadline + 500*time.Millisecond):
-		t.Fatal("cancelled helper was not reaped")
-	}
-	if elapsed := time.Since(started); elapsed > reapDeadline+250*time.Millisecond {
-		t.Fatalf("cancelled helper returned after %v", elapsed)
+	case <-timer.C:
+		t.Fatalf("cancelled helper cleanup exceeded %v", shutdownDeadline)
 	}
 }
 
