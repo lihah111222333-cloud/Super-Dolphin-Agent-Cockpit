@@ -4,14 +4,15 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
+	"strconv"
 	"strings"
-	"unicode"
 	"unicode/utf8"
 )
 
 const (
 	argumentPreviewRawLimit    = 16 * 1024
 	argumentPreviewOutputLimit = 512
+	argumentPreviewProbeLimit  = 1024
 	argumentPreviewTruncated   = "... [truncated]"
 )
 
@@ -24,6 +25,8 @@ var argumentPreviewPatterns = []*regexp.Regexp{
 	regexp.MustCompile(`(?i)(?:/Users|/home|/private|/tmp|/var|/etc|/Volumes)/[^\s,;&"'}]+`),
 	regexp.MustCompile(`[A-Za-z]:\\[^\s,;&"'}]+`),
 }
+
+var argumentPreviewJSONLikePair = regexp.MustCompile(`"[^"\\\x00-\x1f]{1,128}"[ \t\r\n]*:`)
 
 // SafeToolArgumentsPreview 将任意工具参数编码成短预览，并统一执行参数脱敏与长度上限。
 // provider、toolbridge 和 UI 消费面都应从这里取 ArgumentsPreview，避免各自实现不同规则。
@@ -80,21 +83,85 @@ func safeOversizedToolArgumentsPreview(prefix []byte) string {
 	return finishArgumentPreview(sanitizeArgumentPreviewText(text), true)
 }
 
-// argumentPreviewPrefixLooksStructured 在有界字节前缀中查找首个有效非空白 rune。
+// argumentPreviewPrefixLooksStructured 在固定大小探针内识别容器、短前缀键值和任意有限层 JSON 字符串转义。
 func argumentPreviewPrefixLooksStructured(prefix []byte) bool {
-	for len(prefix) > 0 {
-		r, size := utf8.DecodeRune(prefix)
-		if r == utf8.RuneError && size == 1 {
-			prefix = prefix[1:]
-			continue
+	if len(prefix) > argumentPreviewProbeLimit {
+		prefix = prefix[:argumentPreviewProbeLimit]
+	}
+	probe := strings.TrimSpace(strings.ToValidUTF8(string(prefix), ""))
+	probe = strings.TrimSpace(strings.TrimPrefix(probe, "\uFEFF"))
+	if probe == "" {
+		return true
+	}
+	// 每次成功展开都必须严格缩短 probe，因此初始字节数是收敛迭代的完备上限。
+	for iterationsRemaining := len(probe); iterationsRemaining > 0; iterationsRemaining-- {
+		if argumentPreviewProbeStartsContainer(probe) || argumentPreviewJSONLikePair.MatchString(probe) {
+			return true
 		}
-		if unicode.IsSpace(r) {
-			prefix = prefix[size:]
-			continue
+		unescaped, changed := unescapeArgumentPreviewProbe(probe)
+		if !changed {
+			return false
 		}
-		return r == '{' || r == '['
+		if len(unescaped) >= len(probe) {
+			return true
+		}
+		probe = unescaped
 	}
 	return true
+}
+
+// argumentPreviewProbeStartsContainer 识别直接容器及 JSON 字符串包裹的容器起点。
+func argumentPreviewProbeStartsContainer(probe string) bool {
+	probe = strings.TrimSpace(probe)
+	if probe == "" {
+		return false
+	}
+	if probe[0] == '{' || probe[0] == '[' {
+		return true
+	}
+	if probe[0] != '"' {
+		return false
+	}
+	probe = strings.TrimSpace(probe[1:])
+	return probe != "" && (probe[0] == '{' || probe[0] == '[')
+}
+
+// unescapeArgumentPreviewProbe 只展开识别 JSON 结构所需的有界常见及 Unicode 转义，不解析完整超限输入。
+func unescapeArgumentPreviewProbe(probe string) (string, bool) {
+	var out strings.Builder
+	out.Grow(len(probe))
+	changed := false
+	for i := 0; i < len(probe); i++ {
+		if probe[i] != '\\' || i+1 >= len(probe) {
+			out.WriteByte(probe[i])
+			continue
+		}
+		next := probe[i+1]
+		switch next {
+		case '\\', '"', '/':
+			out.WriteByte(next)
+			i++
+			changed = true
+		case 'b', 'f', 'n', 'r', 't':
+			out.WriteByte(' ')
+			i++
+			changed = true
+		case 'u':
+			if i+5 < len(probe) {
+				decoded, err := strconv.ParseUint(probe[i+2:i+6], 16, 16)
+				if err == nil {
+					out.WriteRune(rune(decoded))
+					i += 5
+					changed = true
+					continue
+				}
+			}
+			out.WriteByte(probe[i])
+		default:
+			out.WriteByte(probe[i])
+		}
+	}
+	return out.String(), changed
 }
 
 func limitArgumentPreviewRaw(raw []byte) ([]byte, bool) {

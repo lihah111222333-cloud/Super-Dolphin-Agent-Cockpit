@@ -3,6 +3,7 @@ package observability
 import (
 	"encoding/json"
 	"errors"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -72,6 +73,67 @@ func TestSafeToolArgumentsPreviewOversizedStructuredPrefixSkipsInvalidUTF8(t *te
 	}
 	if strings.Contains(preview, sensitiveValue) {
 		t.Fatalf("SafeToolArgumentsPreview() = %q, must not contain credentials value %q", preview, sensitiveValue)
+	}
+}
+
+func TestSafeToolArgumentsPreviewOversizedJSONLikePrefixesFailClosed(t *testing.T) {
+	const sensitiveValue = "oversized-secret-7d3e91"
+	padding := strings.Repeat("x", 17*1024)
+	structured := `{"password":"` + sensitiveValue + `","padding":"` + padding + `"}`
+	tripleEncoded := structured
+	for range 3 {
+		tripleEncoded = strconv.Quote(tripleEncoded)
+	}
+	maxNested := structured
+	maxNestedLayers := 0
+	for {
+		candidate := strconv.Quote(maxNested)
+		secretStart := strings.Index(candidate, sensitiveValue)
+		if secretStart < 0 {
+			t.Fatal("nested fixture lost sensitive value")
+		}
+		secretEnd := secretStart + len(sensitiveValue)
+		if secretEnd > argumentPreviewProbeLimit {
+			break
+		}
+		maxNested = candidate
+		maxNestedLayers++
+	}
+	if maxNestedLayers <= 3 {
+		t.Fatalf("max nested layers = %d, want a convergence case deeper than triple encoding", maxNestedLayers)
+	}
+	tests := map[string]string{
+		"bom":             "\uFEFF \t" + `{"password":"` + sensitiveValue + `","padding":"` + padding,
+		"text_prefix":     "provider arguments: " + `{"password":"` + sensitiveValue + `","padding":"` + padding,
+		"json_string":     `"{\"password\":\"` + sensitiveValue + `\",\"padding\":\"` + padding,
+		"double_encoded":  `\\"password\\":\\"` + sensitiveValue + `\\",\\"padding\\":\\"` + padding,
+		"triple_encoded":  tripleEncoded,
+		"max_nested":      maxNested,
+		"unicode_encoded": `\u007b\u0022password\u0022:\u0022` + sensitiveValue + `\u0022,\u0022padding\u0022:\u0022` + padding,
+	}
+	want := redacted + argumentPreviewTruncated
+	for name, raw := range tests {
+		t.Run(name, func(t *testing.T) {
+			preview := SafeToolArgumentsPreviewString(raw)
+			if preview != want {
+				t.Fatalf("SafeToolArgumentsPreviewString() = %q, want bounded fail-closed preview %q", preview, want)
+			}
+			if strings.Contains(preview, sensitiveValue) {
+				t.Fatalf("SafeToolArgumentsPreviewString() = %q, must not contain password value %q", preview, sensitiveValue)
+			}
+		})
+	}
+}
+
+func TestSafeToolArgumentsPreviewOversizedOrdinaryTextRemainsVisible(t *testing.T) {
+	raw := "ordinary release note with [brackets] and {braces} but no JSON fields " + strings.Repeat("x", 17*1024)
+
+	preview := SafeToolArgumentsPreviewString(raw)
+	if !strings.HasPrefix(preview, "ordinary release note") || !strings.Contains(preview, "[truncated]") {
+		t.Fatalf("SafeToolArgumentsPreviewString() = %q, want visible bounded ordinary text", preview)
+	}
+	if strings.Contains(preview, "[REDACTED]") {
+		t.Fatalf("SafeToolArgumentsPreviewString() = %q, ordinary text must not be classified as structured", preview)
 	}
 }
 

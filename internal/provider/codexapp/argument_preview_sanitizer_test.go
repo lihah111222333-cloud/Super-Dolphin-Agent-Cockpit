@@ -32,6 +32,30 @@ func TestTranslateToolCallBeginSanitizesArgumentsPreview(t *testing.T) {
 	assertCodexArgumentsPreviewSanitized(t, begin.ArgumentsPreview)
 }
 
+func TestTranslateToolCallBeginFailsClosedForOversizedEncodedArguments(t *testing.T) {
+	const sensitiveValue = "codex-oversized-secret-3a71b9"
+	raw := `{"password":"` + sensitiveValue + `","padding":"` + strings.Repeat("x", 17*1024)
+
+	ev, ok := translateToolEvent("tool.call.begin", map[string]any{
+		"callId":    "call-oversized",
+		"toolName":  "shell",
+		"arguments": raw,
+	})
+	if !ok {
+		t.Fatal("translateToolEvent() ok=false, want ToolCallBegin")
+	}
+	begin, ok := ev.(tooldto.ToolCallBegin)
+	if !ok {
+		t.Fatalf("event type = %T, want ToolCallBegin", ev)
+	}
+	if strings.Contains(begin.ArgumentsPreview, sensitiveValue) {
+		t.Fatalf("ToolCallBegin.ArgumentsPreview = %q, must not expose %q to event consumers", begin.ArgumentsPreview, sensitiveValue)
+	}
+	if !strings.Contains(begin.ArgumentsPreview, "[REDACTED]") || !strings.Contains(begin.ArgumentsPreview, "[truncated]") {
+		t.Fatalf("ToolCallBegin.ArgumentsPreview = %q, want fail-closed markers", begin.ArgumentsPreview)
+	}
+}
+
 func TestPublishToolCallBeginSanitizesArgumentsPreview(t *testing.T) {
 	bus := event.NewDispatcher()
 	t.Cleanup(func() { _ = bus.Close() })
