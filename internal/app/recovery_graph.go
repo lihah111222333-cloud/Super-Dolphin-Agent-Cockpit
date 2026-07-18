@@ -84,15 +84,40 @@ func (service RecoveryRetryService) Retry(ctx context.Context) (recovery.Transac
 
 // RecoveryRestoreService 按 journal state 终止未安装事务或 exact 回滚已保留的旧 release。
 type RecoveryRestoreService struct {
-	selection StartupSelection
+	selection        StartupSelection
+	restartCallbacks func(recovery.Transaction) (recovery.RollbackRestartResolver, recovery.RollbackRestartLauncher)
 }
 
-// Restore 区分无 lease 的 pre-probation 恢复与 current probation lease 回滚。
+// Restore 区分无 lease 的 pre-probation 恢复与 current probation lease 回滚，并收敛唯一旧版本启动。
 func (service RecoveryRestoreService) Restore(ctx context.Context) (recovery.Transaction, error) {
-	transaction, err := requireRecoveryTransaction(ctx, service.selection)
+	if service.restartCallbacks == nil {
+		return recovery.Transaction{}, errors.New("Recovery restore restart callbacks are required")
+	}
+	transaction, err := service.currentTransaction(ctx)
 	if err != nil {
 		return recovery.Transaction{}, err
 	}
+	transaction, err = service.rollback(ctx, transaction)
+	if err != nil {
+		return recovery.Transaction{}, err
+	}
+	resolve, launch := service.restartCallbacks(transaction)
+	return service.selection.Store.ConvergeRollbackRestart(ctx, transaction.Identity, resolve, launch)
+}
+
+// currentTransaction 按 selector 的完整 identity 等待并加载 current journal，拒绝使用 stale projection。
+func (service RecoveryRestoreService) currentTransaction(ctx context.Context) (recovery.Transaction, error) {
+	if service.selection.Store == nil || service.selection.Transaction.Identity.TransactionID == "" {
+		return recovery.Transaction{}, errors.New("Recovery transaction is unavailable or ambiguous")
+	}
+	return service.selection.Store.LoadRollbackRestartCurrent(ctx, service.selection.Transaction.Identity)
+}
+
+// rollback 将 current exact transaction 推进到 rolled_back，已完成状态保持幂等。
+func (service RecoveryRestoreService) rollback(
+	ctx context.Context,
+	transaction recovery.Transaction,
+) (recovery.Transaction, error) {
 	switch transaction.State {
 	case recovery.StatePrepared, recovery.StateBackupRetained, recovery.StateInstallPending:
 		return service.selection.Store.Rollback(ctx, transaction.Identity)
@@ -108,6 +133,8 @@ func (service RecoveryRestoreService) Restore(ctx context.Context) (recovery.Tra
 		return service.selection.Store.RollbackClaimed(ctx, transaction.Identity, transaction.Probation.Lease)
 	case recovery.StateRollbackPending:
 		return service.selection.Store.Replay(ctx, transaction.Identity)
+	case recovery.StateRolledBack:
+		return transaction, nil
 	default:
 		return recovery.Transaction{}, fmt.Errorf("Recovery restore is unavailable from state %q", transaction.State)
 	}
@@ -136,10 +163,12 @@ func NewRecoveryRuntime(selection StartupSelection) (*RecoveryRuntime, error) {
 		return nil, err
 	}
 	return &RecoveryRuntime{
-		State:     RecoveryStateService{selection: selection},
-		Check:     RecoveryCheckService{selection: selection},
-		Retry:     RecoveryRetryService{selection: selection},
-		Restore:   RecoveryRestoreService{selection: selection},
+		State: RecoveryStateService{selection: selection},
+		Check: RecoveryCheckService{selection: selection},
+		Retry: RecoveryRetryService{selection: selection},
+		Restore: RecoveryRestoreService{
+			selection: selection, restartCallbacks: recovery.RollbackRestartCallbacks,
+		},
 		selection: selection,
 	}, nil
 }

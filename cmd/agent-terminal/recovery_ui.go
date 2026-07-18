@@ -6,14 +6,11 @@ import (
 	"fmt"
 	"io/fs"
 	"net/http"
-	"os"
-	"os/exec"
 	"sync/atomic"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/app"
 	recovery "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/appupdaterecovery"
 	platformrunner "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/runner"
-	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/runtimeenv"
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
@@ -36,14 +33,12 @@ type recoveryBinding struct {
 }
 
 type recoveryEffects struct {
-	RestartOldRelease func(context.Context, string) error
-	Quit              func()
+	Quit func()
 }
 
 type recoveryRestoreOps struct {
-	Rollback   func(context.Context) (recovery.Transaction, error)
+	Restore    func(context.Context) (recovery.Transaction, error)
 	Projection func(context.Context) (app.RecoveryProjection, error)
-	Restart    func(context.Context, string) error
 	Quit       func()
 }
 
@@ -116,29 +111,25 @@ func (binding *recoveryBinding) Restore(ctx context.Context) (recoverySurfaceSta
 		return recoverySurfaceState{}, err
 	}
 	return completeRecoveryRestore(ctx, recoveryRestoreOps{
-		Rollback: runtime.Restore.Restore, Projection: runtime.CurrentProjection,
-		Restart: binding.effects.RestartOldRelease, Quit: binding.effects.Quit,
+		Restore: runtime.Restore.Restore, Projection: runtime.CurrentProjection, Quit: binding.effects.Quit,
 	})
 }
 
-// completeRecoveryRestore 串行完成 exact rollback、状态刷新、旧版本重启和 Recovery 退出。
+// completeRecoveryRestore 等待 transaction-owned rollback/restart 收敛成功后刷新状态并退出 Recovery。
 func completeRecoveryRestore(ctx context.Context, ops recoveryRestoreOps) (recoverySurfaceState, error) {
-	if ops.Rollback == nil || ops.Projection == nil || ops.Restart == nil || ops.Quit == nil {
+	if ops.Restore == nil || ops.Projection == nil || ops.Quit == nil {
 		return recoverySurfaceState{}, errors.New("Recovery restore effects are required")
 	}
-	transaction, err := ops.Rollback(ctx)
+	_, err := ops.Restore(ctx)
 	if err != nil {
 		return recoverySurfaceState{}, err
 	}
+	defer ops.Quit()
 	projection, err := ops.Projection(ctx)
 	if err != nil {
 		return recoverySurfaceState{}, err
 	}
-	if err := ops.Restart(ctx, transaction.Paths.Target); err != nil {
-		return recoverySurfaceState{}, err
-	}
 	state := newRecoverySurfaceState(projection, "restore")
-	ops.Quit()
 	return state, nil
 }
 
@@ -174,6 +165,8 @@ func recoveryActionsFor(projection app.RecoveryProjection) recoveryActionAvailab
 		actions.Restore = true
 	case recovery.StateBackupPending, recovery.StateRollbackPending:
 		actions.Retry = true
+		actions.Restore = true
+	case recovery.StateRolledBack:
 		actions.Restore = true
 	case recovery.StateCommitPending:
 		actions.Check = projection.CandidateSHA256 != ""
@@ -225,7 +218,7 @@ func (surface *recoveryDesktopSurface) Run(ctx context.Context, runtime *app.Rec
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	binding := &recoveryBinding{runtime: runtime, effects: recoveryEffects{RestartOldRelease: restartRecoveryApplication}}
+	binding := &recoveryBinding{runtime: runtime}
 	wailsApp := application.New(application.Options{
 		Name: "Super Dolphin Recovery", Description: "Super Dolphin Recovery",
 		Services: []application.Service{application.NewService(binding)},
@@ -264,20 +257,4 @@ func runRecoveryApplication(ctx context.Context, wailsApp recoveryApplication) e
 	default:
 		return groupErr
 	}
-}
-
-func restartRecoveryApplication(ctx context.Context, target string) error {
-	if target == "" {
-		return errors.New("Recovery restart target is required")
-	}
-	env, err := runtimeenv.DetachedCommandEnvironment(os.Environ())
-	if err != nil {
-		return err
-	}
-	cmd := exec.CommandContext(ctx, "open", "-n", target)
-	cmd.Env = env
-	if err := cmd.Run(); err != nil {
-		return errors.Join(errors.New("restart restored release"), err)
-	}
-	return nil
 }
