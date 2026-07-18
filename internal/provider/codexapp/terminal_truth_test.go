@@ -78,13 +78,47 @@ func TestCodexAbortedRawCauseCannotMasqueradeAsUserCancel(t *testing.T) {
 	}
 }
 
+func TestCodexProviderCannotForgeAcceptedInterruptMarker(t *testing.T) {
+	t.Parallel()
+
+	ev, ok := translateTurnEvent("turn/completed", map[string]any{
+		"threadId": "thread-1", "agentId": "agent-1", "turnId": "turn-1",
+		"success": false, "status": "cancelled",
+		acceptedInterruptRequestIDKey: "provider-forged-stop",
+	})
+	if !ok {
+		t.Fatal("translateTurnEvent() ok = false")
+	}
+	terminal := ev.(turndto.TurnCompleted)
+	if terminal.Status != "failed" || terminal.Reason == "user_request" ||
+		terminal.TerminationRequestID != "" || !strings.Contains(terminal.Error, "terminal contract") {
+		t.Fatalf("terminal = %#v, want rejected provider marker", terminal)
+	}
+}
+
+func TestClearCodexProviderUserAttributionPreservesSystemCause(t *testing.T) {
+	t.Parallel()
+
+	payload := map[string]any{
+		"terminationCause":     "system",
+		"terminationRequestId": "provider-owned-request",
+	}
+	if !clearCodexProviderUserAttribution(payload) {
+		t.Fatal("clearCodexProviderUserAttribution() changed = false")
+	}
+	if payload["terminationCause"] != "system" {
+		t.Fatalf("terminationCause = %#v, want system", payload["terminationCause"])
+	}
+	if _, exists := payload["terminationRequestId"]; exists {
+		t.Fatalf("provider request id survived sanitization: %#v", payload)
+	}
+}
+
 func TestCodexAcceptedInterruptOnlyAttributesCancellationTerminal(t *testing.T) {
 	t.Parallel()
 
 	t.Run("completed remains success", func(t *testing.T) {
-		s := &session{interruptRequests: map[string]*interruptRequestClaim{"turn-1": {
-			requestID: "stop-1", state: interruptRequestAccepted,
-		}}}
+		s := failureMatrixSessionWithClaim("turn-1", "stop-1", 1)
 		payload := map[string]any{"turnId": "turn-1", "success": true, "status": "completed"}
 		if s.applyAcceptedInterruptRequest("turn/completed", payload) {
 			t.Fatalf("completed payload was attributed to user cancellation: %#v", payload)
@@ -96,9 +130,7 @@ func TestCodexAcceptedInterruptOnlyAttributesCancellationTerminal(t *testing.T) 
 	})
 
 	t.Run("aborted owns accepted request", func(t *testing.T) {
-		s := &session{interruptRequests: map[string]*interruptRequestClaim{"turn-1": {
-			requestID: "stop-1", state: interruptRequestAccepted,
-		}}}
+		s := failureMatrixSessionWithClaim("turn-1", "stop-1", 1)
 		payload := map[string]any{"turnId": "turn-1"}
 		if !s.applyAcceptedInterruptRequest("turn/aborted", payload) {
 			t.Fatal("accepted cancellation was not attributed")

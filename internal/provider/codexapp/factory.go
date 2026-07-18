@@ -214,16 +214,33 @@ func resolveTurnTerminalOutcome(method string, payload map[string]any) turnTermi
 }
 
 func resolveExplicitTerminationOutcome(status string, payload map[string]any) turnTerminalOutcome {
-	termination := providershared.ResolveRawTermination(payload, "provider")
+	sanitized, acceptedRequestID, contractError := codexTerminationPayload(payload)
+	if contractError != "" {
+		return turnTerminalOutcome{status: "failed", contractError: contractError}
+	}
+	termination := providershared.ResolveRawTermination(sanitized, "provider")
 	if termination.ContractError != "" {
 		return turnTerminalOutcome{status: "failed", contractError: termination.ContractError}
+	}
+	if acceptedRequestID != "" && termination.Cause != "system" {
+		termination.Cause = "user_request"
+		termination.RequestID = acceptedRequestID
 	}
 	return turnTerminalOutcome{status: status, reason: termination.Cause, requestID: termination.RequestID}
 }
 
 // resolveCompletedTerminalOutcome 校验 completed 事件的 success/status 配对，避免失败默认为成功。
 func resolveCompletedTerminalOutcome(payload map[string]any) turnTerminalOutcome {
-	resolved := providershared.ResolveRawTerminalOutcome(payload)
+	sanitized, acceptedRequestID, contractError := codexTerminationPayload(payload)
+	if contractError != "" {
+		return turnTerminalOutcome{status: "failed", contractError: contractError}
+	}
+	resolved := providershared.ResolveRawTerminalOutcome(sanitized)
+	if resolved.ContractError == "" && acceptedRequestID != "" &&
+		(resolved.Status == "interrupted" || resolved.Status == "cancelled") && resolved.Cause != "system" {
+		resolved.Cause = "user_request"
+		resolved.RequestID = acceptedRequestID
+	}
 	reason := resolved.Cause
 	if reason == "" {
 		reason = stringValue(payload, "reason")
@@ -235,6 +252,26 @@ func resolveCompletedTerminalOutcome(payload map[string]any) turnTerminalOutcome
 		requestID:     resolved.RequestID,
 		contractError: resolved.ContractError,
 	}
+}
+
+// codexTerminationPayload 移除 provider 无权生产的用户 Stop 归因，仅保留 session 注入的私有 claim。
+func codexTerminationPayload(payload map[string]any) (map[string]any, string, string) {
+	sanitized := make(map[string]any, len(payload))
+	for key, value := range payload {
+		sanitized[key] = value
+	}
+	acceptedRequestID := ""
+	if value, exists := sanitized[acceptedInterruptRequestIDKey]; exists {
+		attribution, ok := value.(acceptedInterruptAttribution)
+		if !ok || strings.TrimSpace(attribution.requestID) == "" ||
+			strings.TrimSpace(attribution.turnID) != strings.TrimSpace(payloadTurnID(payload)) {
+			return nil, "", "accepted interrupt request id is missing or non-string"
+		}
+		acceptedRequestID = strings.TrimSpace(attribution.requestID)
+	}
+	delete(sanitized, acceptedInterruptRequestIDKey)
+	clearCodexProviderUserAttribution(sanitized)
+	return sanitized, acceptedRequestID, ""
 }
 
 // turnTerminalSuccess 保留工具和旧 session 收敛路径的宽松判定；turn raw adapter 必须使用严格 mapping。
