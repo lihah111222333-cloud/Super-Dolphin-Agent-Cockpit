@@ -23,14 +23,15 @@ import (
 var buildAppCommit string
 
 const (
-	HelperBaseName               = "mcp-schema-compiler-helper"
-	HelperManifestSuffix         = ".manifest.json"
-	maxHelperBytes               = 64 << 20
-	maxManifestBytes             = 32 << 10
-	filesystemSnapshotVersion    = 1
-	filesystemSnapshotPrefix     = "reasonix-schema-helper."
-	filesystemSnapshotMarker     = ".reasonix-schema-owner.json"
-	filesystemSnapshotTokenBytes = 16
+	HelperBaseName                  = "mcp-schema-compiler-helper"
+	HelperManifestSuffix            = ".manifest.json"
+	maxHelperBytes                  = 64 << 20
+	maxManifestBytes                = 32 << 10
+	filesystemSnapshotVersion       = 1
+	filesystemSnapshotPrefix        = "reasonix-schema-helper."
+	filesystemSnapshotMarker        = ".reasonix-schema-owner.json"
+	filesystemSnapshotStagingSuffix = ".staging"
+	filesystemSnapshotTokenBytes    = 16
 )
 
 type filesystemSnapshotIdentity struct {
@@ -319,26 +320,92 @@ func writeExecutableSnapshot(image []byte, identity filesystemSnapshotIdentity) 
 	if err := validateFilesystemSnapshotIdentity(identity); err != nil {
 		return "", err
 	}
-	if err := os.Mkdir(identity.Directory, 0o700); err != nil {
+	directory, err := createFilesystemSnapshotStagingDirectory(identity)
+	if err != nil {
 		return "", err
 	}
-	if err := writeFilesystemSnapshotMarker(identity); err != nil {
-		return "", errors.Join(err, os.Remove(identity.Directory))
-	}
-	path := filepath.Join(identity.Directory, HelperFileName(identity.HelperGOOS))
-	if err := writeExclusiveRegularFile(path, image, 0o700); err != nil {
-		return "", errors.Join(err, removeOwnedFilesystemSnapshot(identity))
-	}
-	return path, nil
+	return publishExecutableSnapshot(image, identity, directory)
 }
 
-func writeFilesystemSnapshotMarker(identity filesystemSnapshotIdentity) error {
+// createFilesystemSnapshotStagingDirectory 建立快照写入目录，发布前由调用方独占。
+func createFilesystemSnapshotStagingDirectory(identity filesystemSnapshotIdentity) (string, error) {
+	if err := validateFilesystemSnapshotIdentity(identity); err != nil {
+		return "", err
+	}
+	directory := identity.Directory + filesystemSnapshotStagingSuffix
+	if err := os.Mkdir(directory, 0o700); err != nil {
+		return "", err
+	}
+	return directory, nil
+}
+
+// publishExecutableSnapshot 完整写入 staging 后原子发布最终快照目录。
+func publishExecutableSnapshot(
+	image []byte,
+	identity filesystemSnapshotIdentity,
+	directory string,
+) (string, error) {
+	if err := validateFilesystemSnapshotIdentity(identity); err != nil {
+		return "", errors.Join(err, removeStagedFilesystemSnapshot(identity, directory))
+	}
+	if directory != identity.Directory+filesystemSnapshotStagingSuffix {
+		return "", errors.New("schema snapshot staging directory is invalid")
+	}
+	if err := writeFilesystemSnapshotMarker(directory, identity); err != nil {
+		return "", errors.Join(err, removeStagedFilesystemSnapshot(identity, directory))
+	}
+	path := filepath.Join(directory, HelperFileName(identity.HelperGOOS))
+	if err := writeExclusiveRegularFile(path, image, 0o700); err != nil {
+		return "", errors.Join(err, removeStagedFilesystemSnapshot(identity, directory))
+	}
+	if _, err := os.Lstat(identity.Directory); err == nil {
+		return "", errors.Join(
+			errors.New("schema snapshot final directory already exists"),
+			removeStagedFilesystemSnapshot(identity, directory),
+		)
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return "", errors.Join(err, removeStagedFilesystemSnapshot(identity, directory))
+	}
+	if err := os.Rename(directory, identity.Directory); err != nil {
+		return "", errors.Join(err, removeStagedFilesystemSnapshot(identity, directory))
+	}
+	return filepath.Join(identity.Directory, filepath.Base(path)), nil
+}
+
+// removeStagedFilesystemSnapshot 只清理本次 identity 的严格 staging 内容。
+func removeStagedFilesystemSnapshot(identity filesystemSnapshotIdentity, directory string) error {
+	if err := validateFilesystemSnapshotIdentity(identity); err != nil {
+		return err
+	}
+	if directory != identity.Directory+filesystemSnapshotStagingSuffix {
+		return errors.New("schema snapshot staging directory is invalid")
+	}
+	entries, exists, err := ownedFilesystemSnapshotEntries(directory)
+	if err != nil {
+		return err
+	}
+	if !exists {
+		return nil
+	}
+	if len(entries) == 0 {
+		return os.Remove(directory)
+	}
+	helperName := HelperFileName(identity.HelperGOOS)
+	for _, entry := range entries {
+		if err := validateFilesystemSnapshotEntry(directory, helperName, entry); err != nil {
+			return err
+		}
+	}
+	return removeFilesystemSnapshotFiles(directory, helperName)
+}
+
+func writeFilesystemSnapshotMarker(directory string, identity filesystemSnapshotIdentity) error {
 	encoded, err := json.Marshal(identity)
 	if err != nil {
 		return fmt.Errorf("encode schema snapshot owner marker: %w", err)
 	}
 	encoded = append(encoded, '\n')
-	return writeExclusiveRegularFile(filepath.Join(identity.Directory, filesystemSnapshotMarker), encoded, 0o600)
+	return writeExclusiveRegularFile(filepath.Join(directory, filesystemSnapshotMarker), encoded, 0o600)
 }
 
 func writeExclusiveRegularFile(path string, data []byte, mode os.FileMode) error {
@@ -352,31 +419,38 @@ func writeExclusiveRegularFile(path string, data []byte, mode os.FileMode) error
 	return file.Close()
 }
 
-// removeOwnedFilesystemSnapshot 只删除 identity 和 marker 完全一致的目录。
+// removeOwnedFilesystemSnapshot 清理 identity 精确派生的 staging 与最终目录。
 func removeOwnedFilesystemSnapshot(identity filesystemSnapshotIdentity) error {
 	if err := validateFilesystemSnapshotIdentity(identity); err != nil {
 		return err
 	}
+	stagingErr := removeStagedFilesystemSnapshot(
+		identity,
+		identity.Directory+filesystemSnapshotStagingSuffix,
+	)
 	entries, exists, err := ownedFilesystemSnapshotEntries(identity.Directory)
 	if err != nil {
-		return err
+		return errors.Join(stagingErr, err)
 	}
 	if !exists {
-		return nil
+		return stagingErr
 	}
 	if len(entries) == 0 {
-		return os.Remove(identity.Directory)
+		return errors.Join(stagingErr, os.Remove(identity.Directory))
 	}
 	if err := verifyFilesystemSnapshotMarker(identity); err != nil {
-		return err
+		return errors.Join(stagingErr, err)
 	}
 	helperName := HelperFileName(identity.HelperGOOS)
 	for _, entry := range entries {
 		if err := validateFilesystemSnapshotEntry(identity.Directory, helperName, entry); err != nil {
-			return err
+			return errors.Join(stagingErr, err)
 		}
 	}
-	return removeFilesystemSnapshotFiles(identity.Directory, helperName)
+	return errors.Join(
+		stagingErr,
+		removeFilesystemSnapshotFiles(identity.Directory, helperName),
+	)
 }
 
 func ownedFilesystemSnapshotEntries(directory string) ([]os.DirEntry, bool, error) {
@@ -465,12 +539,21 @@ func sweepStaleFilesystemSnapshots() error {
 	return nil
 }
 
-// sweepFilesystemSnapshotCandidate 仅清理严格匹配且 owner 已失效的单个快照。
+// sweepFilesystemSnapshotCandidate 分派严格 final 与 staging 候选。
 func sweepFilesystemSnapshotCandidate(root, name string) error {
 	token, ok := filesystemSnapshotTokenFromName(name)
+	if ok {
+		return sweepPublishedFilesystemSnapshotCandidate(root, name, token)
+	}
+	token, ok = filesystemSnapshotStagingTokenFromName(name)
 	if !ok {
 		return nil
 	}
+	return sweepFilesystemSnapshotStagingCandidate(root, name, token)
+}
+
+// sweepPublishedFilesystemSnapshotCandidate 清理 owner 已失效的 final 快照。
+func sweepPublishedFilesystemSnapshotCandidate(root, name, token string) error {
 	directory := filepath.Join(root, name)
 	identity, empty, err := readSweepSnapshotIdentity(directory, token)
 	if err != nil {
@@ -486,6 +569,20 @@ func sweepFilesystemSnapshotCandidate(root, name string) error {
 	return removeOwnedFilesystemSnapshot(identity)
 }
 
+// sweepFilesystemSnapshotStagingCandidate 只清理 owner 已失效的完整 staging。
+func sweepFilesystemSnapshotStagingCandidate(root, name, token string) error {
+	directory := filepath.Join(root, name)
+	identity, complete, err := readSweepStagingIdentity(directory, token)
+	if err != nil || !complete {
+		return err
+	}
+	active, err := filesystemSnapshotOwnerActive(identity)
+	if err != nil || active {
+		return err
+	}
+	return removeStagedFilesystemSnapshot(identity, directory)
+}
+
 func filesystemSnapshotTokenFromName(name string) (string, bool) {
 	if !strings.HasPrefix(name, filesystemSnapshotPrefix) {
 		return "", false
@@ -498,6 +595,16 @@ func filesystemSnapshotTokenFromName(name string) (string, bool) {
 		return "", false
 	}
 	return token, true
+}
+
+// filesystemSnapshotStagingTokenFromName 只接受精确 token 加 staging 后缀。
+func filesystemSnapshotStagingTokenFromName(name string) (string, bool) {
+	if !strings.HasSuffix(name, filesystemSnapshotStagingSuffix) {
+		return "", false
+	}
+	return filesystemSnapshotTokenFromName(
+		strings.TrimSuffix(name, filesystemSnapshotStagingSuffix),
+	)
 }
 
 // readSweepSnapshotIdentity 读取并复验启动清扫候选的 marker identity。
@@ -529,6 +636,64 @@ func readSweepSnapshotIdentity(directory, token string) (filesystemSnapshotIdent
 		return filesystemSnapshotIdentity{}, false, err
 	}
 	return identity, false, nil
+}
+
+// readSweepStagingIdentity 区分不可判定的未完成 staging 与可安全回收的完整 staging。
+func readSweepStagingIdentity(directory, token string) (filesystemSnapshotIdentity, bool, error) {
+	entries, exists, err := ownedFilesystemSnapshotEntries(directory)
+	if err != nil {
+		return filesystemSnapshotIdentity{}, false, err
+	}
+	if !exists || len(entries) == 0 {
+		return filesystemSnapshotIdentity{}, false, nil
+	}
+	if len(entries) != 2 {
+		return readIncompleteSweepStagingIdentity(directory, entries)
+	}
+	return readCompleteSweepStagingIdentity(directory, token, entries)
+}
+
+// readIncompleteSweepStagingIdentity 仅允许保留 regular marker 单条目中间态。
+func readIncompleteSweepStagingIdentity(
+	directory string,
+	entries []os.DirEntry,
+) (filesystemSnapshotIdentity, bool, error) {
+	if len(entries) != 1 {
+		return filesystemSnapshotIdentity{}, false, errors.New(
+			"schema snapshot staging contains an unexpected number of entries",
+		)
+	}
+	if err := validateFilesystemSnapshotEntry(directory, "", entries[0]); err != nil {
+		return filesystemSnapshotIdentity{}, false, err
+	}
+	return filesystemSnapshotIdentity{}, false, nil
+}
+
+// readCompleteSweepStagingIdentity 严格复验完整 staging 的 marker 与条目集合。
+func readCompleteSweepStagingIdentity(
+	directory, token string,
+	entries []os.DirEntry,
+) (filesystemSnapshotIdentity, bool, error) {
+	identity, err := readFilesystemSnapshotIdentity(directory)
+	if err != nil {
+		return filesystemSnapshotIdentity{}, false, err
+	}
+	finalDirectory := strings.TrimSuffix(directory, filesystemSnapshotStagingSuffix)
+	if identity.Directory != finalDirectory || identity.Token != token {
+		return filesystemSnapshotIdentity{}, false, errors.New(
+			"schema snapshot staging identity mismatch",
+		)
+	}
+	if err := validateFilesystemSnapshotIdentity(identity); err != nil {
+		return filesystemSnapshotIdentity{}, false, err
+	}
+	helperName := HelperFileName(identity.HelperGOOS)
+	for _, entry := range entries {
+		if err := validateFilesystemSnapshotEntry(directory, helperName, entry); err != nil {
+			return filesystemSnapshotIdentity{}, false, err
+		}
+	}
+	return identity, true, nil
 }
 
 func readFilesystemSnapshotIdentity(directory string) (filesystemSnapshotIdentity, error) {
