@@ -64,6 +64,50 @@ func TestProxyToolResultPreviewSanitizesStructuredResult(t *testing.T) {
 	}
 }
 
+func TestPublishProxyToolCallBeginSanitizesOversizedStructuredArguments(t *testing.T) {
+	dispatcher := event.NewDispatcher()
+	t.Cleanup(func() { _ = dispatcher.Close() })
+	beginCh := make(chan tooldto.ToolCallBegin, 1)
+	cancelBegin := event.Subscribe(dispatcher, func(ev tooldto.ToolCallBegin) { beginCh <- ev })
+	t.Cleanup(cancelBegin)
+
+	const sensitiveValue = "request-value-7f89a3"
+	h := &Handler{dispatcher: dispatcher}
+	h.publishProxyToolCallBegin(ToolCallRequest{
+		Name:      "oversized",
+		Arguments: oversizedStructuredPreviewPayload(sensitiveValue),
+		ThreadID:  "thread-oversized",
+		CallID:    "call-oversized",
+	}, time.Now())
+
+	preview := waitProxyToolBegin(t, beginCh).ArgumentsPreview
+	assertOversizedStructuredPreviewSanitized(t, preview, sensitiveValue)
+}
+
+func TestProxyToolResultPreviewSanitizesOversizedStructuredResult(t *testing.T) {
+	const sensitiveValue = "result-value-1c42de"
+	result := &ToolCallResult{
+		StructuredContent: oversizedStructuredPreviewPayload(sensitiveValue),
+	}
+
+	preview := proxyToolResultPreview(result)
+	assertOversizedStructuredPreviewSanitized(t, preview, sensitiveValue)
+}
+
+func oversizedStructuredPreviewPayload(sensitiveValue string) json.RawMessage {
+	return json.RawMessage(`{"credentials":"` + sensitiveValue + `","padding":"` + strings.Repeat("x", 17*1024) + `"}`)
+}
+
+func assertOversizedStructuredPreviewSanitized(t *testing.T, preview, sensitiveValue string) {
+	t.Helper()
+	if strings.Contains(preview, sensitiveValue) {
+		t.Fatalf("preview = %q, must not contain credentials value %q", preview, sensitiveValue)
+	}
+	if !strings.Contains(preview, "[REDACTED]") || !strings.Contains(preview, "[truncated]") {
+		t.Fatalf("preview = %q, want redaction and truncation markers", preview)
+	}
+}
+
 func TestCodexSurfaceValidationFailureSanitizesPreValidationLifecycleEvent(t *testing.T) {
 	dispatcher := event.NewDispatcher()
 	t.Cleanup(func() { _ = dispatcher.Close() })

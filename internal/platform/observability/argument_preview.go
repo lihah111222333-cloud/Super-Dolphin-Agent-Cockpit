@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"unicode"
 	"unicode/utf8"
 )
 
@@ -48,19 +49,52 @@ func SafeToolArgumentsPreview(raw any) string {
 // SafeToolArgumentsPreviewString 处理已经是字符串形态的工具参数预览。
 // 调用方传入 provider 原始 preview 时仍会走 JSON 感知脱敏、16KiB 输入上限和 512B 输出上限。
 func SafeToolArgumentsPreviewString(raw string) string {
+	if len(raw) > argumentPreviewRawLimit {
+		return safeOversizedToolArgumentsPreview([]byte(raw[:argumentPreviewRawLimit]))
+	}
 	return safeToolArgumentsPreviewBytes([]byte(raw))
 }
 
+// safeToolArgumentsPreviewBytes 对超限结构化输入 fail-closed，仅解析大小受限的完整输入。
 func safeToolArgumentsPreviewBytes(raw []byte) string {
 	limited, rawTruncated := limitArgumentPreviewRaw(raw)
+	if rawTruncated {
+		return safeOversizedToolArgumentsPreview(limited)
+	}
 	text := strings.TrimSpace(strings.ToValidUTF8(string(limited), ""))
 	if text == "" {
-		return finishArgumentPreview(text, rawTruncated)
+		return ""
 	}
 	if preview, ok := safeToolArgumentsPreviewJSON(text); ok {
-		return finishArgumentPreview(preview, rawTruncated)
+		return finishArgumentPreview(preview, false)
 	}
-	return finishArgumentPreview(sanitizeArgumentPreviewText(text), rawTruncated)
+	return finishArgumentPreview(sanitizeArgumentPreviewText(text), false)
+}
+
+// safeOversizedToolArgumentsPreview 仅处理已经限制为 16KiB 的超限输入前缀。
+func safeOversizedToolArgumentsPreview(prefix []byte) string {
+	if argumentPreviewPrefixLooksStructured(prefix) {
+		return finishArgumentPreview(redacted, true)
+	}
+	text := strings.TrimSpace(strings.ToValidUTF8(string(prefix), ""))
+	return finishArgumentPreview(sanitizeArgumentPreviewText(text), true)
+}
+
+// argumentPreviewPrefixLooksStructured 在有界字节前缀中查找首个有效非空白 rune。
+func argumentPreviewPrefixLooksStructured(prefix []byte) bool {
+	for len(prefix) > 0 {
+		r, size := utf8.DecodeRune(prefix)
+		if r == utf8.RuneError && size == 1 {
+			prefix = prefix[1:]
+			continue
+		}
+		if unicode.IsSpace(r) {
+			prefix = prefix[size:]
+			continue
+		}
+		return r == '{' || r == '['
+	}
+	return true
 }
 
 func limitArgumentPreviewRaw(raw []byte) ([]byte, bool) {
