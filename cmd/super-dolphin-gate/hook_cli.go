@@ -48,25 +48,28 @@ func runHookWithConnector(
 			if len(args) != 1 {
 				return protocolError("pre-commit hook accepts no adapter arguments")
 			}
-			return runPreCommitHook(ctx, cwd, coordinator)
+			return runPreCommitHook(ctx, cwd, stdout, coordinator)
 		case "pre-push":
 			if len(args) != 3 || strings.TrimSpace(args[1]) == "" || strings.TrimSpace(args[2]) == "" {
 				return protocolError("pre-push hook requires exact remote name and URL arguments")
 			}
-			return runPrePushHook(ctx, cwd, input, coordinator, args[2])
+			return runPrePushHook(ctx, cwd, input, stdout, coordinator, args[2])
 		default:
 			return protocolError("unsupported hook adapter %q", args[0])
 		}
 	})
 }
 
-func runPreCommitHook(ctx context.Context, cwd string, coordinator gatehook.Coordinator) error {
+func runPreCommitHook(ctx context.Context, cwd string, stdout io.Writer, coordinator gatehook.Coordinator) error {
 	request, err := gatehook.NormalizePreCommit(ctx, cwd, managedGitHookInvocationID)
 	if err != nil {
 		return sourceError("normalize staged index tree: %v", err)
 	}
 	status, executeErr := executeHookRequest(ctx, coordinator, request)
-	return gitHookDecision(status, request.Submit.Source.SourceTreeSHA, executeErr)
+	if err := gitHookDecision(status, request.Submit.Source.SourceTreeSHA, executeErr); err != nil {
+		return err
+	}
+	return writeGitHookPassedEvidence(stdout, status)
 }
 
 // runPrePushHook 为每条已验收 ref update 取得并消费独立 git.push grant。
@@ -74,6 +77,7 @@ func runPrePushHook(
 	ctx context.Context,
 	cwd string,
 	input io.Reader,
+	stdout io.Writer,
 	coordinator gatehook.Coordinator,
 	remoteURL string,
 ) error {
@@ -100,6 +104,9 @@ func runPrePushHook(
 			Status: status, Submit: *request.Submit, RemoteURL: remoteURL,
 			ActionAttemptID: actionAttemptID,
 		}); err != nil {
+			return fmt.Errorf("pre-push ref update %d: %w", index+1, err)
+		}
+		if err := writeGitHookPassedEvidence(stdout, status); err != nil {
 			return fmt.Errorf("pre-push ref update %d: %w", index+1, err)
 		}
 	}
@@ -132,8 +139,27 @@ func runCodexHook(input io.Reader, stdout io.Writer, connector hookCoordinatorCo
 	decision, err := gatehook.DecisionForStatus(status, requestSourceTree(request))
 	if err != nil {
 		decision = blockedCodexDecision(status, err)
+	} else if decision.Continue {
+		decision.Reason = hookPassedEvidence(status)
 	}
 	return encodeCodexDecision(stdout, decision)
+}
+
+func writeGitHookPassedEvidence(stdout io.Writer, status gatehook.JobStatus) error {
+	if _, err := fmt.Fprintln(stdout, hookPassedEvidence(status)); err != nil {
+		return infrastructureError("write passed hook evidence: %v", err)
+	}
+	return nil
+}
+
+func hookPassedEvidence(status gatehook.JobStatus) string {
+	return fmt.Sprintf(
+		"gate hook passed: job=%s; receipt=%s; source_tree=%s; status: super-dolphin-gate status --job %s",
+		status.JobID,
+		status.ReceiptID,
+		status.SourceTreeSHA,
+		status.JobID,
+	)
 }
 
 // executeHookRequest 只分派 typed submit、status 或 wait 分支。

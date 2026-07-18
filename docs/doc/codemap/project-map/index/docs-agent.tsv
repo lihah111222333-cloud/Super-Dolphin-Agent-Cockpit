@@ -833,6 +833,7 @@ docs/plans/迁移/verify-align-workspace.md	docs	docs-agent	doc	5365	历史计�
 docs/plans/迁移/verify-arch-compliance.md	docs	docs-agent	doc	8054	历史计划与迁移执行文档	docs,plans,迁移,verify,arch,compliance,历史计划与迁移执行文档
 docs/README.md	docs	docs-agent	doc	1558	项目文档体系	docs,README,项目文档体系
 docs/scripts/macos_release_smoke.sh	docs	docs-agent	script	19061	项目文档体系	docs,scripts,macos,release,smoke,项目文档体系
+docs/security/gate-hook-production-e2e.md	docs	docs-agent	doc	1345	项目文档体系	docs,security,gate,hook,production,e2e,项目文档体系
 docs/security/internal/check_repofp_delegators.go	docs	docs-agent	go-source	2298	项目文档体系	docs,security,internal,check,repofp,delegators,项目文档体系
 docs/security/p21-redteam.sh	docs	docs-agent	script	7238	项目文档体系	docs,security,p21,redteam,项目文档体系
 docs/security/production-bootstrap-provisioning.md	docs	docs-agent	doc	6481	项目文档体系	docs,security,production,bootstrap,provisioning,项目文档体系

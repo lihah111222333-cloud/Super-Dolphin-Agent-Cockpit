@@ -66,9 +66,10 @@ func TestPrePushHookSubmitsEveryVerifiedRef(t *testing.T) {
 		head, zero, head, zero,
 	)
 	coordinator := &recordingHookCoordinator{passWithReceipt: true}
+	stdout := &bytes.Buffer{}
 
 	err := runHookWithConnector(
-		[]string{"pre-push", "origin", "file://" + repository}, strings.NewReader(input), &bytes.Buffer{}, repository, hookTestConnector(coordinator),
+		[]string{"pre-push", "origin", "file://" + repository}, strings.NewReader(input), stdout, repository, hookTestConnector(coordinator),
 	)
 	if err != nil {
 		t.Fatalf("pre-push error = %v", err)
@@ -85,6 +86,50 @@ func TestPrePushHookSubmitsEveryVerifiedRef(t *testing.T) {
 	}
 	if err := gatecontract.ValidateActionAttemptID(coordinator.grantRequests[0].ActionAttemptID); err != nil {
 		t.Fatalf("pre-push action attempt is not high entropy: %v", err)
+	}
+	if strings.Count(stdout.String(), "gate hook passed: job=job-passed; receipt=receipt-valid;") != 2 ||
+		!strings.Contains(stdout.String(), "status: super-dolphin-gate status --job job-passed") {
+		t.Fatalf("pre-push passed evidence = %q", stdout.String())
+	}
+}
+
+func TestPreCommitAndCodexPassedEvidenceBindsReceiptAndStatus(t *testing.T) {
+	repository := newHookTestRepository(t)
+	coordinator := &recordingHookCoordinator{passWithReceipt: true}
+	gitOutput := &bytes.Buffer{}
+	if err := runHookWithConnector(
+		[]string{"pre-commit"}, bytes.NewReader(nil), gitOutput, repository, hookTestConnector(coordinator),
+	); err != nil {
+		t.Fatalf("pre-commit error = %v", err)
+	}
+	for _, want := range []string{
+		"job=job-passed", "receipt=receipt-valid", "source_tree=", "status: super-dolphin-gate status --job job-passed",
+	} {
+		if !strings.Contains(gitOutput.String(), want) {
+			t.Fatalf("pre-commit passed evidence missing %q: %q", want, gitOutput.String())
+		}
+	}
+
+	codexOutput := &bytes.Buffer{}
+	if err := runHookWithConnector(
+		[]string{"codex"}, strings.NewReader(codexHookPayload(repository, false)), codexOutput,
+		repository, hookTestConnector(coordinator),
+	); err != nil {
+		t.Fatalf("Codex hook error = %v", err)
+	}
+	var decision gatehook.CodexDecision
+	if err := json.Unmarshal(codexOutput.Bytes(), &decision); err != nil {
+		t.Fatalf("Codex decision JSON error = %v: %s", err, codexOutput.Bytes())
+	}
+	if !decision.Continue || decision.Decision != "" {
+		t.Fatalf("Codex passed decision = %#v", decision)
+	}
+	for _, want := range []string{
+		"job=job-passed", "receipt=receipt-valid", "source_tree=", "status: super-dolphin-gate status --job job-passed",
+	} {
+		if !strings.Contains(decision.Reason, want) {
+			t.Fatalf("Codex passed evidence missing %q: %#v", want, decision)
+		}
 	}
 }
 
