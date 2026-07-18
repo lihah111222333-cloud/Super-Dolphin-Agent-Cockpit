@@ -85,10 +85,10 @@ frontend-app/scripts/performance-budget-runner.test.mjs	frontend-app	app-ui	js-t
 frontend-app/scripts/render-isolation-probe.test.jsx	frontend-app	app-ui	jsx	6076	React 前端构建与校验脚本	frontend,app,scripts,render,isolation,probe,test,React,前端构建与校验脚本
 frontend-app/scripts/resource-budget.mjs	frontend-app	app-ui	js-source	1695	React 前端构建与校验脚本	frontend,app,scripts,resource,budget,React,前端构建与校验脚本
 frontend-app/scripts/resource-budget.test.mjs	frontend-app	app-ui	js-test	1926	React 前端构建与校验脚本	frontend,app,scripts,resource,budget,test,React,前端构建与校验脚本
-frontend-app/scripts/rpc-contract-audit.mjs	frontend-app	app-ui	js-source	210618	React 前端构建与校验脚本	frontend,app,scripts,rpc,contract,audit,React,前端构建与校验脚本
-frontend-app/scripts/rpc-contract-audit.test.mjs	frontend-app	app-ui	js-test	144070	React 前端构建与校验脚本	frontend,app,scripts,rpc,contract,audit,test,React,前端构建与校验脚本
-frontend-app/scripts/stop-feedback-benchmark.mjs	frontend-app	app-ui	js-source	4641	React 前端构建与校验脚本	frontend,app,scripts,stop,feedback,benchmark,React,前端构建与校验脚本
-frontend-app/scripts/stop-feedback-benchmark.test.mjs	frontend-app	app-ui	js-test	2377	React 前端构建与校验脚本	frontend,app,scripts,stop,feedback,benchmark,test,React,前端构建与校验脚本
+frontend-app/scripts/rpc-contract-audit.mjs	frontend-app	app-ui	js-source	215017	React 前端构建与校验脚本	frontend,app,scripts,rpc,contract,audit,React,前端构建与校验脚本
+frontend-app/scripts/rpc-contract-audit.test.mjs	frontend-app	app-ui	js-test	144410	React 前端构建与校验脚本	frontend,app,scripts,rpc,contract,audit,test,React,前端构建与校验脚本
+frontend-app/scripts/stop-feedback-benchmark.mjs	frontend-app	app-ui	js-source	5662	React 前端构建与校验脚本	frontend,app,scripts,stop,feedback,benchmark,React,前端构建与校验脚本
+frontend-app/scripts/stop-feedback-benchmark.test.mjs	frontend-app	app-ui	js-test	2586	React 前端构建与校验脚本	frontend,app,scripts,stop,feedback,benchmark,test,React,前端构建与校验脚本
 frontend-app/scripts/sync-frontend-dist.mjs	frontend-app	app-ui	js-source	1433	React 前端构建与校验脚本	frontend,app,scripts,sync,dist,React,前端构建与校验脚本
 frontend-app/scripts/sync-frontend-dist.test.mjs	frontend-app	app-ui	js-test	1637	React 前端构建与校验脚本	frontend,app,scripts,sync,dist,test,React,前端构建与校验脚本
 frontend-app/scripts/turn-contract-field-guard.mjs	frontend-app	app-ui	js-source	32982	React 前端构建与校验脚本	frontend,app,scripts,turn,contract,field,guard,React,前端构建与校验脚本
@@ -194,8 +194,8 @@ frontend-app/src/entities/client/model/threadForkState.js	frontend-app	app-ui	js
 frontend-app/src/entities/client/model/threadForkState.test.js	frontend-app	app-ui	js-test	6575	React 客户端状态、thread/composer/store 模型	frontend,app,src,entities,client,model,threadForkState,test,React,客户端状态,thread,composer,store,模型
 frontend-app/src/entities/client/model/threadHistoryTimeline.test.js	frontend-app	app-ui	js-test	4112	React 客户端状态、thread/composer/store 模型	frontend,app,src,entities,client,model,threadHistoryTimeline,test,React,客户端状态,thread,composer,store,模型
 frontend-app/src/entities/client/model/threadIdentity.test.js	frontend-app	app-ui	js-test	2006	React 客户端状态、thread/composer/store 模型	frontend,app,src,entities,client,model,threadIdentity,test,React,客户端状态,thread,composer,store,模型
-frontend-app/src/entities/client/model/threadLifecycleRuntime.js	frontend-app	app-ui	js-source	7523	React 客户端状态、thread/composer/store 模型	frontend,app,src,entities,client,model,threadLifecycleRuntime,React,客户端状态,thread,composer,store,模型
-frontend-app/src/entities/client/model/threadLifecycleRuntime.test.js	frontend-app	app-ui	js-test	10440	React 客户端状态、thread/composer/store 模型	frontend,app,src,entities,client,model,threadLifecycleRuntime,test,React,客户端状态,thread,composer,store,模型
+frontend-app/src/entities/client/model/threadLifecycleRuntime.js	frontend-app	app-ui	js-source	10886	React 客户端状态、thread/composer/store 模型	frontend,app,src,entities,client,model,threadLifecycleRuntime,React,客户端状态,thread,composer,store,模型
+frontend-app/src/entities/client/model/threadLifecycleRuntime.test.js	frontend-app	app-ui	js-test	13809	React 客户端状态、thread/composer/store 模型	frontend,app,src,entities,client,model,threadLifecycleRuntime,test,React,客户端状态,thread,composer,store,模型
 frontend-app/src/entities/client/model/threadListMutations.test.js	frontend-app	app-ui	js-test	3590	React 客户端状态、thread/composer/store 模型	frontend,app,src,entities,client,model,threadListMutations,test,React,客户端状态,thread,composer,store,模型
 frontend-app/src/entities/client/model/threadMessagesPagination.js	frontend-app	app-ui	js-source	2961	React 客户端状态、thread/composer/store 模型	frontend,app,src,entities,client,model,threadMessagesPagination,React,客户端状态,thread,composer,store,模型
 frontend-app/src/entities/client/model/threadMessagesPagination.test.js	frontend-app	app-ui	js-test	3066	React 客户端状态、thread/composer/store 模型	frontend,app,src,entities,client,model,threadMessagesPagination,test,React,客户端状态,thread,composer,store,模型
@@ -204,7 +204,7 @@ frontend-app/src/entities/client/model/threadMessagesRuntime.test.js	frontend-ap
 frontend-app/src/entities/client/model/timelineRuntime.js	frontend-app	app-ui	js-source	24268	React 客户端状态、thread/composer/store 模型	frontend,app,src,entities,client,model,timelineRuntime,React,客户端状态,thread,composer,store,模型
 frontend-app/src/entities/client/model/timelineRuntime.test.js	frontend-app	app-ui	js-test	8977	React 客户端状态、thread/composer/store 模型	frontend,app,src,entities,client,model,timelineRuntime,test,React,客户端状态,thread,composer,store,模型
 frontend-app/src/entities/client/model/useClientStore.js	frontend-app	app-ui	js-source	6138	React 客户端状态、thread/composer/store 模型	frontend,app,src,entities,client,model,useClientStore,React,客户端状态,thread,composer,store,模型
-frontend-app/src/entities/client/model/useClientStore.test.js	frontend-app	app-ui	js-test	310053	React 客户端状态、thread/composer/store 模型	frontend,app,src,entities,client,model,useClientStore,test,React,客户端状态,thread,composer,store,模型
+frontend-app/src/entities/client/model/useClientStore.test.js	frontend-app	app-ui	js-test	310608	React 客户端状态、thread/composer/store 模型	frontend,app,src,entities,client,model,useClientStore,test,React,客户端状态,thread,composer,store,模型
 frontend-app/src/entities/client/model/warningRuntime.test.js	frontend-app	app-ui	js-test	5359	React 客户端状态、thread/composer/store 模型	frontend,app,src,entities,client,model,warningRuntime,test,React,客户端状态,thread,composer,store,模型
 frontend-app/src/features/approval/model/approvalDecision.js	frontend-app	app-ui	js-source	1941	当前 React/Vite 前端包	frontend,app,src,features,approval,model,approvalDecision,当前,React,Vite,前端包
 frontend-app/src/features/approval/model/approvalDecision.test.js	frontend-app	app-ui	js-test	5608	当前 React/Vite 前端包	frontend,app,src,features,approval,model,approvalDecision,test,当前,React,Vite,前端包

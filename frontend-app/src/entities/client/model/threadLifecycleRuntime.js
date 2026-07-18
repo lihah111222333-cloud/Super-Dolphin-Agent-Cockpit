@@ -2,6 +2,10 @@ import { firstOptionalPresent, normalizeOptionalTextField, optionalTextField } f
 
 const THREAD_ACTION_LABELS = Object.freeze({ 'thread.interrupt': '中断当前执行', 'thread.force_complete': '强制完成当前执行', 'thread.compact': '压缩上下文', 'thread.recover': '恢复连接' });
 const THREAD_ACTION_SUCCESS_MESSAGES = Object.freeze({ 'thread.interrupt': '已发送中断请求', 'thread.force_complete': '已发送强制完成请求', 'thread.compact': '已发送压缩请求', 'thread.recover': '已发送恢复请求' });
+export const INTERRUPT_RPC_TIMEOUT_MS = 15_000;
+const INTERRUPT_RPC_TIMEOUT_CODE = 'THREAD_INTERRUPT_RPC_TIMEOUT';
+const INTERRUPT_PENDING_MESSAGE = '正在请求停止，尚未确认，任务可能仍在运行';
+const INTERRUPT_UNCONFIRMED_MESSAGE = '停止未确认，任务可能仍在运行';
 function threadActionRequiresActiveTurn(action) { return action === 'thread.interrupt' || action === 'thread.force_complete'; }
 
 export function createStopRequestId() {
@@ -17,6 +21,61 @@ function interruptFailureMessage(result) {
     const message = normalizeOptionalTextField(value); if (message) return message;
   }
   throw new Error('thread.interrupt ok:false response message is required');
+}
+
+function interruptResponseContractError(field) {
+  const error = new TypeError(`thread.interrupt response contract violation: ${field}`);
+  error.code = 'THREAD_INTERRUPT_RESPONSE_CONTRACT';
+  return error;
+}
+
+function requireInterruptResponseText(result, field, expected) {
+  const actual = result[field];
+  if (typeof actual !== 'string' || actual === '' || actual !== expected) {
+    throw interruptResponseContractError(field);
+  }
+}
+
+function validateInterruptSuccessResponse(result, request) {
+  if (result == null || typeof result !== 'object' || Array.isArray(result)) {
+    throw interruptResponseContractError('object');
+  }
+  if (result.ok !== true) throw interruptResponseContractError('ok');
+  if (result.accepted !== true) throw interruptResponseContractError('accepted');
+  requireInterruptResponseText(result, 'requestId', request.requestId);
+  requireInterruptResponseText(result, 'expectedTurnId', request.expectedTurnId);
+  requireInterruptResponseText(result, 'turnId', request.expectedTurnId);
+  requireInterruptResponseText(result, 'status', 'interrupted');
+  requireInterruptResponseText(result, 'mode', 'interrupt_confirmed');
+  requireInterruptResponseText(result, 'stateBefore', 'running');
+  requireInterruptResponseText(result, 'stateAfter', 'idle');
+  if (result.confirmed !== true) throw interruptResponseContractError('confirmed');
+  if (result.interruptSent !== true) throw interruptResponseContractError('interruptSent');
+  if (result.activeObserved !== true) throw interruptResponseContractError('activeObserved');
+  if (!Number.isInteger(result.waitedMs) || result.waitedMs < 0) {
+    throw interruptResponseContractError('waitedMs');
+  }
+}
+
+function interruptTimeoutError() {
+  const error = new Error('thread.interrupt RPC timed out before confirmation');
+  error.code = INTERRUPT_RPC_TIMEOUT_CODE;
+  return error;
+}
+
+async function interruptWithinTimeout(rpc, payload) {
+  let timeoutId;
+  try {
+    return await Promise.race([
+      rpc(payload),
+      new Promise((_, reject) => {
+        timeoutId = globalThis.setTimeout(() => reject(interruptTimeoutError()), INTERRUPT_RPC_TIMEOUT_MS);
+      }),
+    ]);
+  }
+  finally {
+    globalThis.clearTimeout(timeoutId);
+  }
 }
 
 function forceCompleteFailureMessage(result) {
@@ -48,6 +107,11 @@ function notifyThreadActionFailure(params) {
   const { action, addWarning, notifyAction, result, threadId } = params;
   if (action === 'thread.interrupt' && result?.ok === false) {
     interruptFailureMessage(result);
+    if (result.mode === 'interrupt_timeout') {
+      notifyAction(INTERRUPT_UNCONFIRMED_MESSAGE, 'warning', { threadId });
+      addWarning('warn', `${action}.unconfirmed`, { threadId, error: 'stop confirmation timed out; see Health diagnostic ID' });
+      return true;
+    }
     notifyAction('中断当前执行失败，请重试。', 'warning', { threadId });
     addWarning('warn', `${action}.failed`, { threadId, error: 'action failure; see Health diagnostic ID' });
     return true;
@@ -84,6 +148,11 @@ function notifyRecoveryResult(params) {
 function notifyThreadTransportFailure(params) {
   const { action, addWarning, error: _, noticeGate, notifyAction, threadId } = params;
   if (noticeGate && !noticeGate(threadId)) return;
+  if (action === 'thread.interrupt') {
+    notifyAction(INTERRUPT_UNCONFIRMED_MESSAGE, 'warning', { threadId });
+    addWarning('error', `${action}.unconfirmed`, { threadId, error: 'stop confirmation unavailable; see Health diagnostic ID' });
+    return;
+  }
   notifyAction(`${THREAD_ACTION_LABELS[action] || '线程操作'}失败，请重试。`, 'error', { threadId });
   addWarning('error', `${action}.failed`, { threadId, error: 'action failure; see Health diagnostic ID' });
 }
@@ -107,8 +176,13 @@ export function attachActiveThreadRpcRuntime(runtime, deps) {
       const cwd = requireCwd(action);
       const payload = threadActionPayload({ action, activeThreadInterruptTarget, activeTurnTarget, cleanObject, createRequestId, currentState, cwd, notifyAction, threadId });
       if (!payload) return { ok: false, threadId, result: null };
-      const result = await rpc(cleanObject(payload));
+      const request = cleanObject(payload);
+      if (action === 'thread.interrupt') notifyAction(INTERRUPT_PENDING_MESSAGE, 'info', { threadId });
+      const result = action === 'thread.interrupt'
+        ? await interruptWithinTimeout(rpc, request)
+        : await rpc(request);
       if (notifyThreadActionFailure({ action, addWarning, notifyAction, result, threadId })) return { ok: false, threadId, result };
+      if (action === 'thread.interrupt') validateInterruptSuccessResponse(result, request);
       return { ok: true, threadId, result };
     }
     catch (error) {

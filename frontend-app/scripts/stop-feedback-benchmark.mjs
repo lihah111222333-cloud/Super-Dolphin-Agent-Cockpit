@@ -26,14 +26,18 @@ function createStopFeedbackHarness() {
     cwd: '/performance/probe',
   };
   let feedbackAt = 0;
+  let confirmationResolved = false;
   const runtime = {
     addWarning() {},
     get: () => state,
     notifyAction(message, tone) {
-      if (message !== '已发送中断请求' || tone !== 'success') {
-        throw new Error(`unexpected stop feedback: ${tone}:${message}`);
+      if (message === '正在请求停止，尚未确认，任务可能仍在运行' && tone === 'info') {
+        if (confirmationResolved) throw new Error('stop pending feedback arrived after RPC confirmation');
+        feedbackAt = performance.now();
+        return;
       }
-      feedbackAt = performance.now();
+      if (message === '已发送中断请求' && tone === 'success') return;
+      throw new Error(`unexpected stop feedback: ${tone}:${message}`);
     },
     requireCwd: () => state.cwd,
     set(patch) {
@@ -55,9 +59,30 @@ function createStopFeedbackHarness() {
   return {
     async measure() {
       feedbackAt = 0;
+      confirmationResolved = false;
       const startedAt = performance.now();
-      const accepted = await runtime.activeThreadRPC('thread.interrupt', async () => ({ ok: true }));
-      if (!accepted || feedbackAt === 0) throw new Error('stop feedback was not produced');
+      let resolveConfirmation;
+      const confirmation = new Promise((resolve) => { resolveConfirmation = resolve; });
+      const pending = runtime.activeThreadRPC('thread.interrupt', () => confirmation);
+      if (feedbackAt === 0) throw new Error('stop pending feedback was not produced before RPC confirmation');
+      confirmationResolved = true;
+      resolveConfirmation({
+        ok: true,
+        accepted: true,
+        requestId: 'performance-stop-request',
+        expectedTurnId: 'turn-performance',
+        turnId: 'turn-performance',
+        status: 'interrupted',
+        confirmed: true,
+        mode: 'interrupt_confirmed',
+        interruptSent: true,
+        stateBefore: 'running',
+        stateAfter: 'idle',
+        waitedMs: 0,
+        activeObserved: true,
+      });
+      const accepted = await pending;
+      if (!accepted) throw new Error('stop confirmation was not accepted');
       return feedbackAt - startedAt;
     },
   };

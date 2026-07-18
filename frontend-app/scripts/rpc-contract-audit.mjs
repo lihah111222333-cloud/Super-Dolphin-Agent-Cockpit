@@ -716,11 +716,18 @@ async function collectInvalidResponsePolicyEvidence(auditContext, registryEntrie
         consumer.ast, consumerSymbol, consumerCalls[0]?.node, consumer.path, policy.handler,
       )
       const runtimeResultFlow = exactTurnInterruptPolicy && resultRuntimeInjection
-        && runtimePassesAwaitedResultToHandler(
-          handler.ast,
-          handlerSymbol,
-          policy.handler.symbol,
-          policy.consumer.symbol,
+        && (
+          runtimePassesAwaitedResultToHandler(
+            handler.ast,
+            handlerSymbol,
+            policy.handler.symbol,
+            policy.consumer.symbol,
+          )
+          || runtimePassesStrictInterruptResultToHandler(
+            handler.ast,
+            policy.handler.symbol,
+            policy.consumer.symbol,
+          )
         )
       if (!directResultFlow && !runtimeResultFlow) {
         findings.push(policyFinding(entry, 'consumer', policy.consumer, 'consumer does not pass the observed RPC result to the located handler'))
@@ -3377,6 +3384,98 @@ function runtimePassesAwaitedResultToHandler(ast, handlerSymbol, handlerName, co
     }
   }
   return exposures === 1
+}
+
+function runtimePassesStrictInterruptResultToHandler(ast, handlerName, consumerName) {
+  const consumer = findModuleLevelSymbol(ast, consumerName)
+  if (!consumer || consumer.body?.type !== 'BlockStatement') return false
+  const helperDeclarations = consumer.body.body.filter((statement) => (
+    statement.type === 'VariableDeclaration'
+    && statement.kind === 'const'
+    && statement.declarations.length === 1
+    && statement.declarations[0].id.type === 'Identifier'
+    && statement.declarations[0].id.name === 'runActiveThreadRPC'
+    && statement.declarations[0].init?.type === 'ArrowFunctionExpression'
+    && statement.declarations[0].init.async
+  ))
+  if (helperDeclarations.length !== 1) return false
+  const helper = helperDeclarations[0].declarations[0].init
+  const tryStatements = helper.body.body.filter((statement) => statement.type === 'TryStatement')
+  if (tryStatements.length !== 1 || tryStatements[0].finalizer !== null) return false
+  const statements = tryStatements[0].block.body
+  if (statements.length !== 9) return false
+
+  const request = statements[3]?.type === 'VariableDeclaration' && statements[3].declarations.length === 1
+    ? statements[3].declarations[0]
+    : null
+  const requestCall = request?.init
+  if (
+    request?.id.type !== 'Identifier' || request.id.name !== 'request'
+    || requestCall?.type !== 'CallExpression'
+    || requestCall.callee.type !== 'Identifier' || requestCall.callee.name !== 'cleanObject'
+    || requestCall.arguments.length !== 1
+    || requestCall.arguments[0].type !== 'Identifier' || requestCall.arguments[0].name !== 'payload'
+  ) return false
+
+  const result = statements[5]?.type === 'VariableDeclaration' && statements[5].declarations.length === 1
+    ? statements[5].declarations[0]
+    : null
+  const conditional = result?.init
+  const interruptCall = conditional?.consequent?.type === 'AwaitExpression'
+    ? conditional.consequent.argument
+    : null
+  const directCall = conditional?.alternate?.type === 'AwaitExpression'
+    ? conditional.alternate.argument
+    : null
+  if (
+    result?.id.type !== 'Identifier' || result.id.name !== 'result'
+    || conditional?.type !== 'ConditionalExpression'
+    || !isExactActionLiteralMatch(conditional.test, 'thread.interrupt')
+    || !isExactNamedCall(interruptCall, 'interruptWithinTimeout', ['rpc', 'request'])
+    || !isExactNamedCall(directCall, 'rpc', ['request'])
+  ) return false
+
+  if (!isExactHandlerFailureGate(statements[6], handlerName)) return false
+  const validation = statements[7]
+  const validationCall = validation?.consequent?.type === 'ExpressionStatement'
+    ? validation.consequent.expression
+    : null
+  if (
+    validation?.type !== 'IfStatement' || validation.alternate
+    || !isExactActionLiteralMatch(validation.test, 'thread.interrupt')
+    || !isExactNamedCall(validationCall, 'validateInterruptSuccessResponse', ['result', 'request'])
+    || !isExactRuntimeOutcomeReturn(statements[8], true)
+  ) return false
+
+  const pending = statements[4]
+  const pendingCall = pending?.consequent?.type === 'ExpressionStatement'
+    ? pending.consequent.expression
+    : null
+  return pending?.type === 'IfStatement'
+    && !pending.alternate
+    && isExactActionLiteralMatch(pending.test, 'thread.interrupt')
+    && pendingCall?.type === 'CallExpression'
+    && pendingCall.callee.type === 'Identifier' && pendingCall.callee.name === 'notifyAction'
+}
+
+function isExactActionLiteralMatch(node, action) {
+  if (node?.type !== 'BinaryExpression' || node.operator !== '===') return false
+  return (
+    node.left.type === 'Identifier' && node.left.name === 'action'
+    && node.right.type === 'StringLiteral' && node.right.value === action
+  ) || (
+    node.right.type === 'Identifier' && node.right.name === 'action'
+    && node.left.type === 'StringLiteral' && node.left.value === action
+  )
+}
+
+function isExactNamedCall(node, name, argumentNames) {
+  return node?.type === 'CallExpression'
+    && node.callee.type === 'Identifier' && node.callee.name === name
+    && node.arguments.length === argumentNames.length
+    && node.arguments.every((argument, index) => (
+      argument.type === 'Identifier' && argument.name === argumentNames[index]
+    ))
 }
 
 function countRuntimeProofBindings(node, name) {
