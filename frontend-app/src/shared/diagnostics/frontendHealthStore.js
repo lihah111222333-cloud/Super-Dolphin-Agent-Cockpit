@@ -93,10 +93,9 @@ function internalHealthDiagnosticId() {
   return `frontend-health-${internalDiagnosticSequence}`;
 }
 
-/** @param {unknown} cause @returns {SafePublicError} */
-function persistencePublicError(cause) {
+/** @returns {SafePublicError} */
+function persistencePublicError() {
   const diagnosticId = internalHealthDiagnosticId();
-  retainDiagnosticCause(diagnosticId, cause);
   return Object.freeze({
     code: 'HEALTH_PERSISTENCE_FAILED',
     title: 'Health 持久化异常',
@@ -110,8 +109,8 @@ function persistHealthRecords(storage, records) {
   try {
     storage.set(FRONTEND_HEALTH_STORAGE_KEY, JSON.stringify(records));
     return { status: 'available' };
-  } catch (error) {
-    return { status: 'failed', ...persistencePublicError(error) };
+  } catch {
+    return { status: 'failed', ...persistencePublicError() };
   }
 }
 
@@ -120,14 +119,14 @@ function clearPersistedHealth(storage) {
   try {
     storage.remove(FRONTEND_HEALTH_STORAGE_KEY);
     return { status: 'available' };
-  } catch (error) {
-    return { status: 'failed', ...persistencePublicError(error) };
+  } catch {
+    return { status: 'failed', ...persistencePublicError() };
   }
 }
 
-/** @param {unknown} error @returns {HealthStoragePort} */
-function unavailableHealthStorage(error) {
-  const fail = () => { throw error; };
+/** @returns {HealthStoragePort} */
+function unavailableHealthStorage() {
+  const fail = () => { throw new Error('frontend health storage is unavailable'); };
   return { get: fail, set: fail, remove: fail };
 }
 
@@ -142,14 +141,11 @@ export function createFrontendHealthStore({ now = currentHealthTimestamp, storag
   let records = [];
   /** @type {FrontendHealthPersistence} */
   let persistence = { status: 'available' };
-  /** @type {string | null} */
-  let storedRecords = null;
   try {
-    storedRecords = storage.get(FRONTEND_HEALTH_STORAGE_KEY);
-  } catch (error) {
-    persistence = { status: 'failed', ...persistencePublicError(error) };
+    records = parseStoredRecords(storage.get(FRONTEND_HEALTH_STORAGE_KEY));
+  } catch {
+    persistence = { status: 'failed', ...persistencePublicError() };
   }
-  if (persistence.status === 'available') records = parseStoredRecords(storedRecords);
   /** @type {Set<() => void>} */
   const listeners = new Set();
   const emit = () => listeners.forEach((listener) => listener());
@@ -169,7 +165,7 @@ export function createFrontendHealthStore({ now = currentHealthTimestamp, storag
       title: publicError.title,
     });
     records = mergedHealthRecords(records, incoming);
-    if (persist) persistence = persistHealthRecords(storage, records);
+    if (persist && persistence.status === 'available') persistence = persistHealthRecords(storage, records);
     emit();
     return Object.freeze({ record: incoming, persisted: persistence.status === 'available' && persist });
   };
@@ -201,16 +197,13 @@ export function createFrontendHealthStore({ now = currentHealthTimestamp, storag
 
 /** @type {ReturnType<typeof createFrontendHealthStore> | undefined} */
 let persistentStore;
-/** @type {Map<string, unknown>} */
-const diagnosticCauses = new Map();
-
 function defaultPersistentStore() {
   if (!persistentStore) {
     let storage;
     try {
       storage = requiredAppStoragePort('frontend health storage');
-    } catch (error) {
-      storage = unavailableHealthStorage(error);
+    } catch {
+      storage = unavailableHealthStorage();
     }
     persistentStore = createFrontendHealthStore({ storage });
   }
@@ -248,32 +241,11 @@ export function subscribeFrontendHealth(listener) {
 }
 
 export function clearFrontendHealth() {
-  try {
-    return defaultPersistentStore().clear();
-  } finally {
-    diagnosticCauses.clear();
-  }
-}
-
-/** @param {string} diagnosticId @param {unknown} cause */
-export function retainDiagnosticCause(diagnosticId, cause) {
-  diagnosticCauses.delete(diagnosticId);
-  diagnosticCauses.set(diagnosticId, cause);
-  while (diagnosticCauses.size > FRONTEND_HEALTH_LIMIT) {
-    const oldest = diagnosticCauses.keys().next();
-    if (oldest.done) throw new Error('frontend diagnostic cause eviction invariant failed');
-    diagnosticCauses.delete(oldest.value);
-  }
-}
-
-/** @param {string} diagnosticId */
-export function diagnosticCauseForTest(diagnosticId) {
-  return diagnosticCauses.get(diagnosticId);
+  return defaultPersistentStore().clear();
 }
 
 export function resetFrontendHealthForTest() {
   persistentStore = undefined;
-  diagnosticCauses.clear();
   internalDiagnosticSequence = 0;
 }
 

@@ -219,7 +219,7 @@ frontend-app/src/features/command-palette/ui/CommandPalette.jsx	frontend-app	app
 frontend-app/src/features/command-palette/ui/CommandPalette.test.jsx	frontend-app	app-ui	jsx	6875	当前 React/Vite 前端包	frontend,app,src,features,command,palette,ui,CommandPalette,test,当前,React,Vite,前端包
 frontend-app/src/features/health/FrontendHealthPanel.css	frontend-app	app-ui	css	1333	当前 React/Vite 前端包	frontend,app,src,features,health,FrontendHealthPanel,当前,React,Vite,前端包
 frontend-app/src/features/health/FrontendHealthPanel.jsx	frontend-app	app-ui	jsx	2286	当前 React/Vite 前端包	frontend,app,src,features,health,FrontendHealthPanel,当前,React,Vite,前端包
-frontend-app/src/features/health/FrontendHealthPanel.test.jsx	frontend-app	app-ui	jsx	2567	当前 React/Vite 前端包	frontend,app,src,features,health,FrontendHealthPanel,test,当前,React,Vite,前端包
+frontend-app/src/features/health/FrontendHealthPanel.test.jsx	frontend-app	app-ui	jsx	2480	当前 React/Vite 前端包	frontend,app,src,features,health,FrontendHealthPanel,test,当前,React,Vite,前端包
 frontend-app/src/features/prompt-history/hooks/usePromptHistory.js	frontend-app	app-ui	js-source	1901	当前 React/Vite 前端包	frontend,app,src,features,prompt,history,hooks,usePromptHistory,当前,React,Vite,前端包
 frontend-app/src/features/prompt-history/hooks/usePromptHistory.test.jsx	frontend-app	app-ui	jsx	7737	当前 React/Vite 前端包	frontend,app,src,features,prompt,history,hooks,usePromptHistory,test,当前,React,Vite,前端包
 frontend-app/src/features/prompt-history/model/promptHistoryController.js	frontend-app	app-ui	js-source	7019	当前 React/Vite 前端包	frontend,app,src,features,prompt,history,model,promptHistoryController,当前,React,Vite,前端包
@@ -300,7 +300,7 @@ frontend-app/src/pages/chat/composer/ComposerAttachments.test.jsx	frontend-app	a
 frontend-app/src/pages/chat/composer/ComposerDock.actionFailure.test.jsx	frontend-app	app-ui	jsx	7141	React 页面与路由级 UI	frontend,app,src,pages,chat,composer,ComposerDock,actionFailure,test,React,页面与路由级,UI
 frontend-app/src/pages/chat/composer/ComposerDock.css	frontend-app	app-ui	css	20344	React 页面与路由级 UI	frontend,app,src,pages,chat,composer,ComposerDock,React,页面与路由级,UI
 frontend-app/src/pages/chat/composer/ComposerDock.jsx	frontend-app	app-ui	jsx	10298	React 页面与路由级 UI	frontend,app,src,pages,chat,composer,ComposerDock,React,页面与路由级,UI
-frontend-app/src/pages/chat/composer/ComposerDock.test.jsx	frontend-app	app-ui	jsx	22196	React 页面与路由级 UI	frontend,app,src,pages,chat,composer,ComposerDock,test,React,页面与路由级,UI
+frontend-app/src/pages/chat/composer/ComposerDock.test.jsx	frontend-app	app-ui	jsx	24088	React 页面与路由级 UI	frontend,app,src,pages,chat,composer,ComposerDock,test,React,页面与路由级,UI
 frontend-app/src/pages/chat/composer/ComposerMeta.jsx	frontend-app	app-ui	jsx	3655	React 页面与路由级 UI	frontend,app,src,pages,chat,composer,ComposerMeta,React,页面与路由级,UI
 frontend-app/src/pages/chat/composer/ComposerModelSelector.jsx	frontend-app	app-ui	jsx	5984	React 页面与路由级 UI	frontend,app,src,pages,chat,composer,ComposerModelSelector,React,页面与路由级,UI
 frontend-app/src/pages/chat/composer/ComposerModelSelector.test.jsx	frontend-app	app-ui	jsx	4931	React 页面与路由级 UI	frontend,app,src,pages,chat,composer,ComposerModelSelector,test,React,页面与路由级,UI
@@ -556,8 +556,8 @@ frontend-app/src/shared/diagnostics/frontendBreadcrumbs.js	frontend-app	app-ui	j
 frontend-app/src/shared/diagnostics/frontendBreadcrumbs.test.js	frontend-app	app-ui	js-test	5492	当前 React/Vite 前端包	frontend,app,src,shared,diagnostics,frontendBreadcrumbs,test,当前,React,Vite,前端包
 frontend-app/src/shared/diagnostics/frontendCrashReport.js	frontend-app	app-ui	js-source	6196	当前 React/Vite 前端包	frontend,app,src,shared,diagnostics,frontendCrashReport,当前,React,Vite,前端包
 frontend-app/src/shared/diagnostics/frontendCrashReport.test.js	frontend-app	app-ui	js-test	10223	当前 React/Vite 前端包	frontend,app,src,shared,diagnostics,frontendCrashReport,test,当前,React,Vite,前端包
-frontend-app/src/shared/diagnostics/frontendHealthStore.js	frontend-app	app-ui	js-source	10552	当前 React/Vite 前端包	frontend,app,src,shared,diagnostics,frontendHealthStore,当前,React,Vite,前端包
-frontend-app/src/shared/diagnostics/frontendHealthStore.test.js	frontend-app	app-ui	js-test	6203	当前 React/Vite 前端包	frontend,app,src,shared,diagnostics,frontendHealthStore,test,当前,React,Vite,前端包
+frontend-app/src/shared/diagnostics/frontendHealthStore.js	frontend-app	app-ui	js-source	9594	当前 React/Vite 前端包	frontend,app,src,shared,diagnostics,frontendHealthStore,当前,React,Vite,前端包
+frontend-app/src/shared/diagnostics/frontendHealthStore.test.js	frontend-app	app-ui	js-test	5406	当前 React/Vite 前端包	frontend,app,src,shared,diagnostics,frontendHealthStore,test,当前,React,Vite,前端包
 frontend-app/src/shared/diagnostics/frontendPerformancePressure.js	frontend-app	app-ui	js-source	9200	当前 React/Vite 前端包	frontend,app,src,shared,diagnostics,frontendPerformancePressure,当前,React,Vite,前端包
 frontend-app/src/shared/diagnostics/frontendPerformancePressure.test.js	frontend-app	app-ui	js-test	14346	当前 React/Vite 前端包	frontend,app,src,shared,diagnostics,frontendPerformancePressure,test,当前,React,Vite,前端包
 frontend-app/src/shared/diagnostics/safeLogFields.js	frontend-app	app-ui	js-source	8615	当前 React/Vite 前端包	frontend,app,src,shared,diagnostics,safeLogFields,当前,React,Vite,前端包
@@ -582,10 +582,10 @@ frontend-app/src/shared/ui/FocusTrapDialog.jsx	frontend-app	app-ui	jsx	4280	Reac
 frontend-app/src/shared/ui/FocusTrapDialog.test.jsx	frontend-app	app-ui	jsx	4473	React 共享 UI 组件	frontend,app,src,shared,ui,FocusTrapDialog,test,React,共享,UI,组件
 frontend-app/src/shared/ui/OverlayPortal.jsx	frontend-app	app-ui	jsx	669	React 共享 UI 组件	frontend,app,src,shared,ui,OverlayPortal,React,共享,UI,组件
 frontend-app/src/shared/ui/OverlayPortal.test.jsx	frontend-app	app-ui	jsx	2166	React 共享 UI 组件	frontend,app,src,shared,ui,OverlayPortal,test,React,共享,UI,组件
-frontend-app/src/shared/ui/productionActionFailureMatrix.test.js	frontend-app	app-ui	js-test	6319	React 共享 UI 组件	frontend,app,src,shared,ui,productionActionFailureMatrix,test,React,共享,UI,组件
+frontend-app/src/shared/ui/productionActionFailureMatrix.test.js	frontend-app	app-ui	js-test	6074	React 共享 UI 组件	frontend,app,src,shared,ui,productionActionFailureMatrix,test,React,共享,UI,组件
 frontend-app/src/shared/ui/publicError.js	frontend-app	app-ui	js-source	3090	React 共享 UI 组件	frontend,app,src,shared,ui,publicError,React,共享,UI,组件
-frontend-app/src/shared/ui/runUIAction.js	frontend-app	app-ui	js-source	9317	React 共享 UI 组件	frontend,app,src,shared,ui,runUIAction,React,共享,UI,组件
-frontend-app/src/shared/ui/runUIAction.test.js	frontend-app	app-ui	js-test	9192	React 共享 UI 组件	frontend,app,src,shared,ui,runUIAction,test,React,共享,UI,组件
+frontend-app/src/shared/ui/runUIAction.js	frontend-app	app-ui	js-source	8601	React 共享 UI 组件	frontend,app,src,shared,ui,runUIAction,React,共享,UI,组件
+frontend-app/src/shared/ui/runUIAction.test.js	frontend-app	app-ui	js-test	8363	React 共享 UI 组件	frontend,app,src,shared,ui,runUIAction,test,React,共享,UI,组件
 frontend-app/src/styles.css	frontend-app	app-ui	css	8405	当前 React/Vite 前端包	frontend,app,src,styles,当前,React,Vite,前端包
 frontend-app/src/styles.test.js	frontend-app	app-ui	js-test	119941	当前 React/Vite 前端包	frontend,app,src,styles,test,当前,React,Vite,前端包
 frontend-app/src/test-setup.js	frontend-app	app-ui	js-source	1465	当前 React/Vite 前端包	frontend,app,src,test,setup,当前,React,Vite,前端包
