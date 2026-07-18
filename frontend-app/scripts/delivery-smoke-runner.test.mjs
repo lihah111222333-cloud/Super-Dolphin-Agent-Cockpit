@@ -6,6 +6,7 @@ import { FROZEN_T04_T05_EXECUTION_CLOSURE_PATHS } from './frontend-execution-clo
 import {
   DELIVERY_CASE_IDS,
   DELIVERY_COMMANDS,
+  DELIVERY_COMMAND_TIMEOUT_MS,
   DELIVERY_RUNNER_CONTENT_PATHS,
   inspectDeliveryCommands,
   runDeliveryCommands,
@@ -33,6 +34,7 @@ describe('delivery smoke runner', () => {
       'desktop-start-smoke',
       'desktop-failure-smoke',
     ]);
+    expect(DELIVERY_COMMAND_TIMEOUT_MS).toBe(900_000);
     expect(DELIVERY_RUNNER_CONTENT_PATHS).toBe(FROZEN_T04_T05_EXECUTION_CLOSURE_PATHS);
   });
 
@@ -53,12 +55,12 @@ describe('delivery smoke runner', () => {
     expect(inspected.status).toBe('NOT_VERIFIED');
   });
 
-  it('stops before running commands when any required smoke is missing', () => {
+  it('stops before running commands when any required smoke is missing', async () => {
     const inspected = inspectDeliveryCommands({
       scripts: { ...COMPLETE_SCRIPTS, 'smoke:desktop:failure': undefined },
     }, MAKEFILE);
     let calls = 0;
-    const verdict = runDeliveryCommands(inspected, () => {
+    const verdict = await runDeliveryCommands(inspected, async () => {
       calls += 1;
       return { status: 0, signal: null };
     });

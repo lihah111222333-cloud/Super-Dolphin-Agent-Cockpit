@@ -1,6 +1,7 @@
 import { spawn } from 'node:child_process';
 
 const DEFAULT_MAX_BUFFER = 16 * 1024 * 1024;
+const activeTerminations = new Set();
 
 function signalProcessTree(child, signal) {
   if (!child.pid) return;
@@ -15,6 +16,10 @@ function signalProcessTree(child, signal) {
     }
   }
   if (child.exitCode == null && child.signalCode == null) child.kill(signal);
+}
+
+export function terminateManagedCommands(signal = 'SIGTERM') {
+  for (const terminate of activeTerminations) terminate(`parent received ${signal}`);
 }
 
 export function runManagedCommand(command, args, {
@@ -62,6 +67,11 @@ export function runManagedCommand(command, args, {
         }
       }, killGraceMs);
     };
+    const onInterrupt = () => terminate('parent received SIGINT');
+    const onTerminate = () => terminate('parent received SIGTERM');
+    activeTerminations.add(terminate);
+    process.once('SIGINT', onInterrupt);
+    process.once('SIGTERM', onTerminate);
 
     const append = (stream, chunk) => {
       const value = chunk.toString();
@@ -81,6 +91,9 @@ export function runManagedCommand(command, args, {
     const timeout = setTimeout(() => terminate('timeout'), timeoutMs);
     child.once('close', (status, signal) => {
       clearTimeout(timeout);
+      activeTerminations.delete(terminate);
+      process.off('SIGINT', onInterrupt);
+      process.off('SIGTERM', onTerminate);
       if (forceTimer) {
         clearTimeout(forceTimer);
         try {

@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { DESKTOP_FAILURE_SOURCE_PATHS } from './desktop-failure-smoke.mjs';
 import { FROZEN_T04_T05_EXECUTION_CLOSURE_PATHS } from './frontend-execution-closure.mjs';
 import { productionActionFailureMatrixTitle } from '../src/shared/ui/productionActionFailureMatrixTitles.js';
+import { runManagedCommand, terminateManagedCommands } from './managed-command.mjs';
 
 const scriptPath = fileURLToPath(import.meta.url);
 const frozenScriptRoot = path.dirname(scriptPath);
@@ -529,7 +530,7 @@ function resolveVitestRuntime(context) {
   return undefined;
 }
 
-function collectVitestEvidence(context, check) {
+async function collectVitestEvidence(context, check) {
   try {
     const fingerprint = sourceFingerprint(context, check.sourcePaths);
     const runtime = resolveVitestRuntime(context);
@@ -546,12 +547,16 @@ function collectVitestEvidence(context, check) {
       if (configuredNode !== 'node' || configuredVitest !== 'node_modules/vitest/vitest.mjs') {
         fail(`invalid frozen Vitest argv for ${check.probe}`);
       }
-      output = execFileSync(process.execPath, [runtime.vitestPath, ...args], {
+      const result = await runManagedCommand(process.execPath, [runtime.vitestPath, ...args], {
         cwd: context.appRoot,
-        encoding: 'utf8',
-        stdio: ['ignore', 'pipe', 'pipe'],
-        timeout: check.timeoutMs,
+        timeoutMs: check.timeoutMs,
+        killGraceMs: 20_000,
       });
+      if (result.timedOut) throw new Error(`Vitest evidence timed out after ${check.timeoutMs}ms`);
+      if (result.error || result.status !== 0) {
+        throw new Error(`${result.stderr || result.stdout || result.error?.message || 'Vitest evidence failed'}`.trim());
+      }
+      output = result.stdout;
     }
     finally {
       if (linkedDependencies) fs.unlinkSync(targetNodeModules);
@@ -573,15 +578,24 @@ function collectVitestEvidence(context, check) {
   }
 }
 
-function vitestProbe(context, control, check) {
-  const fingerprint = sourceFingerprint(context, check.sourcePaths);
-  const evidence = collectVitestEvidence(context, check);
-  const status = terminalTruthEvidenceStatus(evidence, { fingerprint, testNames: check.testNames });
-  return evidenceRecord(context, control, check, {
-    status,
-    exitCode: status === 'PASS' ? 0 : 1,
-    summary: evidence.summary || `${evidence.testResults.length}/${check.testCount} exact named tests passed`,
-  });
+async function vitestProbe(context, control, check) {
+  try {
+    const fingerprint = sourceFingerprint(context, check.sourcePaths);
+    const evidence = await collectVitestEvidence(context, check);
+    const status = terminalTruthEvidenceStatus(evidence, { fingerprint, testNames: check.testNames });
+    return evidenceRecord(context, control, check, {
+      status,
+      exitCode: status === 'PASS' ? 0 : 1,
+      summary: evidence.summary || `${evidence.testResults.length}/${check.testCount} exact named tests passed`,
+    });
+  }
+  catch (error) {
+    return evidenceRecord(context, control, check, {
+      status: 'FAIL',
+      exitCode: 1,
+      summary: error.message,
+    });
+  }
 }
 
 export function sourceHasPromptHistoryConsoleOnly(context = inspectTargetRepository()) {
@@ -1694,21 +1708,21 @@ export function structuredEvidenceStatus(evidence, options) {
   }
 }
 
-function commandResult(command, args, options) {
-  const result = spawnSync(command, args, {
+async function commandResult(command, args, options) {
+  const result = await runManagedCommand(command, args, {
     cwd: options.cwd,
-    encoding: 'utf8',
     env: options.env,
     maxBuffer: 16 * 1024 * 1024,
-    stdio: ['ignore', 'pipe', 'pipe'],
-    timeout: options.timeoutMs,
+    timeoutMs: options.timeoutMs,
+    killGraceMs: 20_000,
   });
   return {
     exitCode: result.status ?? 1,
     signal: result.signal ?? null,
     stdout: result.stdout || '',
     stderr: result.stderr || '',
-    error: result.error,
+    timedOut: result.timedOut,
+    error: result.error || (result.timedOut ? new Error(`managed command timed out after ${options.timeoutMs}ms`) : undefined),
   };
 }
 
@@ -1722,7 +1736,7 @@ function expandedRunnerArgv(context, check) {
   });
 }
 
-function executeActualRunner(context, check) {
+async function executeActualRunner(context, check) {
   if (!context.evidenceCache) context.evidenceCache = new Map();
   const argv = expandedRunnerArgv(context, check);
   const cacheKey = JSON.stringify([check.evidenceProtocol, check.cwd, argv, check.reportPath || '']);
@@ -1757,7 +1771,7 @@ function executeActualRunner(context, check) {
     fs.rmSync(reportPath, { force: true });
   }
   const startedAt = Date.now();
-  const result = commandResult(command === 'node' ? process.execPath : command, [absoluteRunnerPath, ...args], {
+  const result = await commandResult(command === 'node' ? process.execPath : command, [absoluteRunnerPath, ...args], {
     cwd,
     timeoutMs: check.timeoutMs,
     env: process.env,
@@ -1816,8 +1830,8 @@ export function actionProducerGuardOutputStatus(stdout) {
   return 'FAIL';
 }
 
-function actionProducerGuardProbe(context, control, check) {
-  const execution = executeActualRunner(context, check);
+async function actionProducerGuardProbe(context, control, check) {
+  const execution = await executeActualRunner(context, check);
   if (execution.missing) {
     return evidenceRecord(context, control, check, {
       status: 'NOT_VERIFIED', exitCode: null, summary: `target runner is missing: ${execution.runnerPath}`,
@@ -1843,11 +1857,11 @@ function actionProducerGuardProbe(context, control, check) {
   });
 }
 
-function structuredProbe(context, control, check) {
+async function structuredProbe(context, control, check) {
   if (check.evidenceProtocol === 'action-producer-guard-v1') {
     return actionProducerGuardProbe(context, control, check);
   }
-  const execution = executeActualRunner(context, check);
+  const execution = await executeActualRunner(context, check);
   if (execution.missing) {
     return evidenceRecord(context, control, check, {
       status: 'NOT_VERIFIED', exitCode: null, summary: `target runner is missing: ${execution.runnerPath}`,
@@ -1901,10 +1915,10 @@ function structuredProbe(context, control, check) {
   });
 }
 
-export function commandEvidenceStatus({ repoRoot = frozenRepoRoot, cwd = '.', argv, timeoutMs = 10_000 }) {
+export async function commandEvidenceStatus({ repoRoot = frozenRepoRoot, cwd = '.', argv, timeoutMs = 10_000 }) {
   if (!Array.isArray(argv) || argv.length === 0) fail('command evidence argv is empty');
   const [command, ...args] = argv;
-  const result = commandResult(command, args, {
+  const result = await commandResult(command, args, {
     cwd: path.resolve(repoRoot, cwd),
     timeoutMs,
     env: process.env,
@@ -1930,11 +1944,11 @@ function evidenceRecord(context, control, check, result) {
   };
 }
 
-function runCommand(context, control, check) {
+async function runCommand(context, control, check) {
   const argv = expandedRunnerArgv(context, check);
   const [command, ...args] = argv;
   const cwd = path.resolve(context.repoRoot, check.cwd);
-  const result = commandResult(command, args, {
+  const result = await commandResult(command, args, {
     cwd,
     timeoutMs: check.timeoutMs,
     env: process.env,
@@ -1948,7 +1962,7 @@ function runCommand(context, control, check) {
   });
 }
 
-function evaluateProbe(context, control, check) {
+async function evaluateProbe(context, control, check) {
   try {
     if (check.evidenceProtocol === 'git-diff-check-v1') return runCommand(context, control, check);
     if (check.evidenceProtocol === 'vitest-json-v1') return vitestProbe(context, control, check);
@@ -1963,7 +1977,7 @@ function evaluateProbe(context, control, check) {
   }
 }
 
-function evaluateCheck(context, control, check, runCommands) {
+async function evaluateCheck(context, control, check, runCommands) {
   if (check.kind === 'probe') {
     if (customEvidenceProtocols.has(check.evidenceProtocol) && !runCommands) {
       return evidenceRecord(context, control, check, {
@@ -2216,19 +2230,21 @@ export function validateConfiguration(config = controls, fixtureDocument = fixtu
   }
   return true;
 }
-function scoreContext(context, { runCommands }) {
+async function scoreContext(context, { runCommands }) {
   const executionContext = { ...context, evidenceCache: new Map(), rawReports: new Map() };
-  const scoredControls = controls.controls.map((control) => {
-    const evidence = control.allOf.map((check) => evaluateCheck(executionContext, control, check, runCommands));
-    return {
+  const scoredControls = [];
+  for (const control of controls.controls) {
+    const evidence = [];
+    for (const check of control.allOf) evidence.push(await evaluateCheck(executionContext, control, check, runCommands));
+    scoredControls.push({
       id: control.id,
       dimension: control.dimension,
       points: control.points,
       required: control.required,
       status: controlStatus(evidence),
       evidence,
-    };
-  });
+    });
+  }
   const dimensions = {};
   for (const dimension of Object.keys(controls.weights)) {
     const members = scoredControls.filter((control) => control.dimension === dimension);
@@ -2258,7 +2274,7 @@ function scoreContext(context, { runCommands }) {
   };
 }
 
-export function scoreCurrentTree({
+export async function scoreCurrentTree({
   runCommands = false,
   repoRoot = frozenRepoRoot,
   subjectSha,
@@ -2277,12 +2293,12 @@ function probeCheck(probe) {
   return undefined;
 }
 
-export function probeResult(probe, { repoRoot = frozenRepoRoot, subjectSha } = {}) {
+export async function probeResult(probe, { repoRoot = frozenRepoRoot, subjectSha } = {}) {
   validateConfiguration();
   const match = probeCheck(probe);
   if (!match) return 'NOT_VERIFIED';
   const context = inspectTargetRepository({ repoRoot, subjectSha, requireClean: subjectSha !== undefined });
-  return evaluateProbe(context, match.control, match.check).status;
+  return (await evaluateProbe(context, match.control, match.check)).status;
 }
 
 function dependencySource(context) {
@@ -2342,7 +2358,7 @@ function startDetachedSubjectWatchdog({ leasePath, tempRoot, detachedRoot, repoR
   watchdog.unref();
 }
 
-function withDetachedSubject(context, callback) {
+async function withDetachedSubject(context, callback) {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'frontend-maintainability-subject-'));
   const detachedRoot = path.join(fs.realpathSync(tempRoot), 'repo');
   const leasePath = path.join(tempRoot, '.cleanup-lease');
@@ -2376,6 +2392,7 @@ function withDetachedSubject(context, callback) {
   };
   const terminate = (signal) => {
     try {
+      terminateManagedCommands(signal);
       cleanup();
     }
     catch (error) {
@@ -2399,7 +2416,7 @@ function withDetachedSubject(context, callback) {
     if (dependencies && !fs.existsSync(detachedNodeModules)) {
       mountDetachedDependencies(dependencies, executionContext.appRoot);
     }
-    return callback(executionContext);
+    return await callback(executionContext);
   }
   finally {
     process.off('SIGINT', onInterrupt);
@@ -2487,16 +2504,17 @@ function parseCLI(args) {
 }
 
 if (process.argv[1] && fs.realpathSync(path.resolve(process.argv[1])) === fs.realpathSync(scriptPath)) {
+  (async () => {
   const cli = parseCLI(process.argv.slice(2));
   if (cli.mode === '--validate') {
     validateConfiguration();
     process.stdout.write('frontend maintainability scorer configuration valid\n');
   }
   else if (cli.mode === '--probe') {
-    process.stdout.write(`${probeResult(cli.probe, { repoRoot: cli.repo, subjectSha: cli.subject })}\n`);
+    process.stdout.write(`${await probeResult(cli.probe, { repoRoot: cli.repo, subjectSha: cli.subject })}\n`);
   }
   else if (cli.mode === '--score') {
-    const result = scoreCurrentTree({
+    const result = await scoreCurrentTree({
       runCommands: cli.runCommands,
       repoRoot: cli.repo,
       subjectSha: cli.subject,
@@ -2512,7 +2530,7 @@ if (process.argv[1] && fs.realpathSync(path.resolve(process.argv[1])) === fs.rea
       requireClean: true,
       requireFinalContract: true,
     });
-    const result = withDetachedSubject(targetContext, (executionContext) => (
+    const result = await withDetachedSubject(targetContext, (executionContext) => (
       scoreContext(executionContext, { runCommands: true })
     ));
     const reportPath = persistScoreReport(result, targetContext.repoRoot);
@@ -2526,4 +2544,8 @@ if (process.argv[1] && fs.realpathSync(path.resolve(process.argv[1])) === fs.rea
       process.stdout.write('FINAL_GATE\tPASS\n');
     }
   }
+  })().catch((error) => {
+    process.stderr.write(`frontend maintainability scorer failed: ${error.message}\n`);
+    process.exitCode = 1;
+  });
 }
