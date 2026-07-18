@@ -6,6 +6,7 @@ import {
   readdirSync,
   rmSync,
 } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { cwd } from 'node:process';
@@ -142,6 +143,19 @@ function evidence(subjectSha = SUBJECT_SHA) {
           { path: 'assets/a.js', bytes: 50 },
           { path: 'assets/Chat.js', bytes: 50 },
         ],
+        baseBuild: {
+          baseSha: subjectSha,
+          baseTree: SUBJECT_TREE,
+          buildArgv: ['npm', 'run', 'build'],
+          distManifest: [
+            { path: 'assets/a.js', bytes: 50, sha256: 'a'.repeat(64) },
+            { path: 'assets/Chat.js', bytes: 50, sha256: 'b'.repeat(64) },
+          ],
+          distManifestHash: createHash('sha256').update([
+            `assets/a.js\0${50}\0${'a'.repeat(64)}\n`,
+            `assets/Chat.js\0${50}\0${'b'.repeat(64)}\n`,
+          ].join('')).digest('hex'),
+        },
       },
     },
   };
@@ -498,12 +512,20 @@ describe('performance baseline freeze', () => {
     ]) {
       const forged = freezeRuns();
       forged.forEach(mutate);
-      expect(() => buildFreezeArtifact(forged)).toThrow(/provenance mismatch/);
+      expect(() => buildFreezeArtifact(forged)).toThrow(/provenance mismatch|BASE detached-build/);
     }
   });
 
-  it('allows loadAverage drift but rejects forged P02/P03 raw evidence and legacy P02 schema', () => {
+  it('allows bounded loadAverage drift but rejects a materially different host load', () => {
     expect(() => buildFreezeArtifact(freezeRuns())).not.toThrow();
+
+    const overloaded = freezeRuns();
+    overloaded[2].environment.loadAverage = [20, 20, 20];
+    expect(() => buildFreezeArtifact(overloaded)).toThrow(/loadAverage/);
+
+  });
+
+  it('rejects forged P02/P03 raw evidence and legacy P02 schema', () => {
 
     const forgedP02 = freezeRuns();
     forgedP02[0].metrics['P02-history-budget'].cases['turns-200-tools-1']
@@ -531,6 +553,10 @@ describe('performance baseline freeze', () => {
     const forgedResource = freezeRuns();
     forgedResource[0].metrics['P04-resource-budget'].totalBundleBytes = 101;
     expect(() => buildFreezeArtifact(forgedResource)).toThrow(/not recomputable/);
+
+    const pollutedRunnerDist = freezeRuns();
+    pollutedRunnerDist[0].metrics['P04-resource-budget'].baseBuild.distManifest[0].sha256 = 'f'.repeat(64);
+    expect(() => buildFreezeArtifact(pollutedRunnerDist)).toThrow(/manifest hash/);
   });
 
   it('collects exactly three runs and passes the structured artifact to the writer', async () => {
@@ -554,6 +580,7 @@ describe('performance baseline freeze', () => {
       planSnapshotSha: PLAN_SNAPSHOT_SHA,
       outputPath,
       collectEvidence,
+      collectBaseResources: () => runs[0].metrics['P04-resource-budget'],
       preflight,
       writeBaseline,
     });
@@ -561,7 +588,10 @@ describe('performance baseline freeze', () => {
     expect(collectEvidence).toHaveBeenCalledTimes(3);
     expect(collectEvidence.mock.calls).toEqual(Array.from(
       { length: 3 },
-      () => [{ subjectSha: SUBJECT_SHA }],
+      () => [{
+        subjectSha: SUBJECT_SHA,
+        resourceBudget: runs[0].metrics['P04-resource-budget'],
+      }],
     ));
     expect(writeBaseline).toHaveBeenCalledOnce();
     expect(writeBaseline).toHaveBeenCalledWith(outputPath, artifact);

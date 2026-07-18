@@ -160,6 +160,7 @@ const performanceRunnerFiles = Object.freeze([
 const performanceEnvironmentKeys = Object.freeze([
   'os', 'cpu', 'totalMemoryBytes', 'loadAverage', 'node', 'npm', 'go',
 ]);
+const MAX_LOAD_AVERAGE_DELTA_PER_LOGICAL_CORE = 0.25;
 const performanceAuditAllowedPaths = new Set([
   ...performanceRunnerFiles,
   'docs/doc/codemap/README.md',
@@ -1111,6 +1112,41 @@ function stablePerformanceEnvironment(environment) {
   };
 }
 
+function validateComparableLoadAverage(baselineEnvironment, candidateEnvironment) {
+  const baselineCores = baselineEnvironment.cpu.logicalCores;
+  const candidateCores = candidateEnvironment.cpu.logicalCores;
+  const tolerance = Math.min(
+    Math.max(1, baselineCores * MAX_LOAD_AVERAGE_DELTA_PER_LOGICAL_CORE),
+    Math.max(1, candidateCores * MAX_LOAD_AVERAGE_DELTA_PER_LOGICAL_CORE),
+  );
+  for (const [index, baselineLoad] of baselineEnvironment.loadAverage.entries()) {
+    if (Math.abs(baselineLoad - candidateEnvironment.loadAverage[index]) > tolerance) {
+      fail(`performance baseline and candidate loadAverage differ beyond ${tolerance}`);
+    }
+  }
+}
+
+function validateBaseResourceBuild(metric, baseSha, baseTree) {
+  const build = metric?.baseBuild;
+  exactKeys(build, ['baseSha', 'baseTree', 'buildArgv', 'distManifest', 'distManifestHash'], 'P04 baseline build');
+  if (build.baseSha !== baseSha || build.baseTree !== baseTree
+    || JSON.stringify(build.buildArgv) !== JSON.stringify(['npm', 'run', 'build'])
+    || !Array.isArray(build.distManifest) || build.distManifest.length !== metric.files.length
+    || !/^[0-9a-f]{64}$/u.test(build.distManifestHash || '')) {
+    fail('P04 baseline detached-build provenance is invalid');
+  }
+  const files = metric.files.map(({ path: filePath, bytes }) => `${filePath}\0${bytes}`);
+  const manifest = build.distManifest.map(({ path: filePath, bytes, sha256 }) => {
+    if (!/^[0-9a-f]{64}$/u.test(sha256 || '')) fail('P04 baseline dist manifest hash is invalid');
+    return `${filePath}\0${bytes}`;
+  });
+  exactValue(manifest, files, 'P04 baseline dist manifest');
+  const hash = createHash('sha256').update(build.distManifest.map(({ path: filePath, bytes, sha256 }) => (
+    `${filePath}\0${bytes}\0${sha256}\n`
+  )).join('')).digest('hex');
+  if (hash !== build.distManifestHash) fail('P04 baseline dist manifest aggregate hash mismatch');
+}
+
 function runnerFileSha256(repoRoot, revision, relativePath) {
   const content = revision
     ? execFileSync('git', ['show', `${revision}:${relativePath}`], { cwd: repoRoot })
@@ -1175,7 +1211,9 @@ function validatePerformanceProvenance(evidence, context, check, baselineDocumen
     !== JSON.stringify(stablePerformanceEnvironment(evidence.environment))) {
     fail('performance baseline and candidate environments differ');
   }
+  validateComparableLoadAverage(baselineDocument.environment, evidence.environment);
   validateMeasurementAudit(baselineDocument);
+  validateBaseResourceBuild(baselineDocument.metrics['P04-resource-budget'], baseSha, baseTree);
   validateRunnerContent(baselineDocument.provenance, context, check, 'baseline');
   validateRunnerContent(evidence.provenance, context, check, 'candidate');
   if (baselineDocument.provenance.runnerContentHash !== evidence.provenance.runnerContentHash
