@@ -152,6 +152,7 @@ func installBlockingReleaseFilesystemHelper(t *testing.T) *blockingReleaseFilesy
 		started:  filepath.Join(dir, "started"),
 		finished: filepath.Join(dir, "finished"),
 	}
+	t.Setenv(releaseFilesystemHelperExecutableEnv, os.Args[0])
 	t.Setenv(blockingReleaseFilesystemHelperEnv, "1")
 	t.Setenv(blockingReleaseFilesystemHelperFIFOEnv, fifo)
 	t.Setenv(blockingReleaseFilesystemHelperStartEnv, fixture.started)

@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -35,7 +37,60 @@ func TestMain(m *testing.M) {
 		}
 		os.Exit(0)
 	}
-	os.Exit(m.Run())
+	if os.Getenv("SUPER_DOLPHIN_TEST_ROLLBACK_RUNTIME_CHILD") == "1" {
+		os.Exit(m.Run())
+	}
+	cleanup, err := preparePrebuiltReleaseFilesystemTestHelper()
+	if err != nil {
+		_, _ = fmt.Fprintln(os.Stderr, err)
+		os.Exit(2)
+	}
+	code := m.Run()
+	if err := cleanup(); err != nil {
+		_, _ = fmt.Fprintln(os.Stderr, err)
+		code = 2
+	}
+	os.Exit(code)
+}
+
+func preparePrebuiltReleaseFilesystemTestHelper() (func() error, error) {
+	workDir, err := os.Getwd()
+	if err != nil {
+		return nil, fmt.Errorf("resolve app update recovery test directory: %w", err)
+	}
+	repoRoot := filepath.Clean(filepath.Join(workDir, "..", "..", ".."))
+	dir, err := os.MkdirTemp(
+		filepath.Join(repoRoot, "internal", "platform", "appupdaterecovery"),
+		".release-filesystem-test-helper-",
+	)
+	if err != nil {
+		return nil, fmt.Errorf("create prebuilt release filesystem test helper directory: %w", err)
+	}
+	source := filepath.Join(dir, "main.go")
+	helperSource := "package main\n\nimport (\n\t\"errors\"\n\t\"log/slog\"\n\t\"os\"\n" +
+		"\n\t\"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/appupdaterecovery\"\n)\n" +
+		"\nfunc main() {\n\thandled, err := appupdaterecovery.RunReleaseFilesystemHelperIfRequested(os.Stdin, os.Stdout)\n" +
+		"\tif !handled { exitWithError(errors.New(\"release filesystem helper mode is required\")) }\n" +
+		"\tif err != nil { exitWithError(err) }\n}\n\nfunc exitWithError(err error) {\n" +
+		"\tslog.Error(\"release filesystem helper failed\", \"error\", err)\n\tos.Exit(2)\n}\n"
+	if err := os.WriteFile(source, []byte(helperSource), 0o600); err != nil {
+		return nil, errors.Join(fmt.Errorf("write prebuilt release filesystem test helper source: %w", err), os.RemoveAll(dir))
+	}
+	helper := filepath.Join(dir, "helper")
+	cmd := exec.Command("go", "build", "-trimpath", "-o", helper, source)
+	cmd.Dir = repoRoot
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return nil, errors.Join(
+			fmt.Errorf("build prebuilt release filesystem test helper: %w: %s", err, strings.TrimSpace(string(output))),
+			os.RemoveAll(dir),
+		)
+	}
+	previous, hadPrevious := os.LookupEnv(releaseFilesystemHelperExecutableEnv)
+	if err := os.Setenv(releaseFilesystemHelperExecutableEnv, helper); err != nil {
+		return nil, errors.Join(fmt.Errorf("publish prebuilt release filesystem test helper: %w", err), os.RemoveAll(dir))
+	}
+	return releaseFilesystemHelperCleanup(dir, previous, hadPrevious), nil
 }
 
 func runBlockingReleaseFilesystemHelperProcess() error {
@@ -152,6 +207,28 @@ func TestPrepareReleaseFilesystemHelperStagesExecutesAndCleans(t *testing.T) {
 	current, hasCurrent := os.LookupEnv(releaseFilesystemHelperExecutableEnv)
 	if current != previous || hasCurrent != hadPrevious {
 		t.Fatalf("helper executable environment after cleanup = %q, %v, want %q, %v", current, hasCurrent, previous, hadPrevious)
+	}
+}
+
+func TestReleaseFilesystemHelperUsesPrebuiltTestExecutable(t *testing.T) {
+	helper := os.Getenv(releaseFilesystemHelperExecutableEnv)
+	if helper == "" {
+		t.Fatal("prebuilt release filesystem test helper is not configured")
+	}
+	helperInfo, err := os.Stat(helper)
+	if err != nil {
+		t.Fatalf("inspect prebuilt release filesystem test helper: %v", err)
+	}
+	testExecutable, err := os.Executable()
+	if err != nil {
+		t.Fatalf("resolve app update recovery test executable: %v", err)
+	}
+	testExecutableInfo, err := os.Stat(testExecutable)
+	if err != nil {
+		t.Fatalf("inspect app update recovery test executable: %v", err)
+	}
+	if os.SameFile(helperInfo, testExecutableInfo) {
+		t.Fatal("release filesystem helper still uses the race-instrumented test executable")
 	}
 }
 
