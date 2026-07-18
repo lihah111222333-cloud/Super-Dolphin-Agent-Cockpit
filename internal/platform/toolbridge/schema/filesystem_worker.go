@@ -18,25 +18,28 @@ import (
 const (
 	filesystemWorkerModeEnv        = "SUPER_DOLPHIN_SCHEMA_FS_WORKER"
 	filesystemWorkerExecutableEnv  = "SUPER_DOLPHIN_SCHEMA_FS_WORKER_EXECUTABLE"
-	filesystemWorkerVersion        = 1
+	filesystemWorkerVersion        = 2
 	filesystemWorkerMaxHeaderBytes = 16 << 10
 	filesystemWorkerMaxPathBytes   = 32 << 10
 	filesystemWorkerMaxBinaryBytes = 256 << 20
 
 	filesystemWorkerVerify  = "verify"
 	filesystemWorkerExecute = "execute"
+	filesystemWorkerCleanup = "cleanup"
+	filesystemWorkerSweep   = "sweep"
 )
 
 type filesystemWorkerRequest struct {
-	Version          int            `json:"version"`
-	Operation        string         `json:"operation"`
-	HelperPath       string         `json:"helper_path,omitempty"`
-	ManifestPath     string         `json:"manifest_path,omitempty"`
-	Identity         HelperIdentity `json:"identity"`
-	HelperGOOS       string         `json:"helper_goos,omitempty"`
-	ImageBytes       int            `json:"image_bytes,omitempty"`
-	RequestBytes     int            `json:"request_bytes,omitempty"`
-	DeadlineUnixNano int64          `json:"deadline_unix_nano,omitempty"`
+	Version          int                        `json:"version"`
+	Operation        string                     `json:"operation"`
+	HelperPath       string                     `json:"helper_path,omitempty"`
+	ManifestPath     string                     `json:"manifest_path,omitempty"`
+	Identity         HelperIdentity             `json:"identity"`
+	HelperGOOS       string                     `json:"helper_goos,omitempty"`
+	ImageBytes       int                        `json:"image_bytes,omitempty"`
+	RequestBytes     int                        `json:"request_bytes,omitempty"`
+	DeadlineUnixNano int64                      `json:"deadline_unix_nano,omitempty"`
+	Snapshot         filesystemSnapshotIdentity `json:"snapshot"`
 }
 
 type filesystemWorkerResponse struct {
@@ -47,8 +50,9 @@ type filesystemWorkerResponse struct {
 }
 
 type filesystemWorkerError struct {
-	Code    Code   `json:"code"`
-	Message string `json:"message"`
+	Code         Code                       `json:"code"`
+	Message      string                     `json:"message"`
+	FailureClass InitializationFailureClass `json:"failure_class"`
 }
 
 // PrepareFilesystemWorker 固定当前宿主执行物，避免请求期重新解析或读取可替换路径。
@@ -69,15 +73,23 @@ func PrepareFilesystemWorker() (func() error, error) {
 	if err := os.Setenv(filesystemWorkerExecutableEnv, staged); err != nil {
 		return nil, errors.Join(fmt.Errorf("publish schema filesystem worker: %w", err), os.RemoveAll(dir))
 	}
-	return func() error {
-		var envErr error
-		if hadPrevious {
-			envErr = os.Setenv(filesystemWorkerExecutableEnv, previous)
-		} else {
-			envErr = os.Unsetenv(filesystemWorkerExecutableEnv)
-		}
-		return errors.Join(envErr, os.RemoveAll(dir))
-	}, nil
+	cleanup := func() error {
+		return errors.Join(
+			restoreFilesystemWorkerEnvironment(previous, hadPrevious),
+			os.RemoveAll(dir),
+		)
+	}
+	if err := sweepFilesystemSnapshotsWithWorker(staged); err != nil {
+		return nil, errors.Join(err, cleanup())
+	}
+	return cleanup, nil
+}
+
+func restoreFilesystemWorkerEnvironment(previous string, hadPrevious bool) error {
+	if hadPrevious {
+		return os.Setenv(filesystemWorkerExecutableEnv, previous)
+	}
+	return os.Unsetenv(filesystemWorkerExecutableEnv)
 }
 
 // PreparedFilesystemWorkerPath 返回启动期固定且只供子进程执行的宿主路径。
@@ -144,23 +156,56 @@ func RunFilesystemWorkerIfRequested(reader io.Reader, writer io.Writer) (bool, e
 // executeFilesystemWorkerRequest 校验 operation 后分派 verify 或 execute 单次请求。
 func executeFilesystemWorkerRequest(reader io.Reader, request filesystemWorkerRequest) ([]byte, *filesystemWorkerError) {
 	if err := validateFilesystemWorkerRequest(request); err != nil {
-		return nil, workerError(CodeInvalidEnvelope, "validate schema filesystem worker request", err)
+		return nil, stableWorkerError(CodeInvalidEnvelope, "validate schema filesystem worker request", err)
 	}
 	switch request.Operation {
 	case filesystemWorkerVerify:
-		if err := ensureFilesystemWorkerPayloadEOF(reader); err != nil {
-			return nil, workerError(CodeInvalidEnvelope, "verify request has trailing payload", err)
-		}
-		image, err := verifyHelperPackage(request.HelperPath, request.ManifestPath, request.Identity)
-		if err != nil {
-			return nil, workerError(CodeProcessStartFailed, "verify package-owned schema helper", err)
-		}
-		return image, nil
+		return executeFilesystemWorkerVerify(reader, request)
 	case filesystemWorkerExecute:
 		return executeVerifiedImageInWorker(reader, request)
+	case filesystemWorkerCleanup:
+		return executeFilesystemWorkerCleanup(reader, request)
+	case filesystemWorkerSweep:
+		return executeFilesystemWorkerSweep(reader)
 	default:
-		return nil, workerError(CodeInvalidEnvelope, "unknown schema filesystem worker operation", nil)
+		return nil, stableWorkerError(CodeInvalidEnvelope, "unknown schema filesystem worker operation", nil)
 	}
+}
+
+func executeFilesystemWorkerVerify(reader io.Reader, request filesystemWorkerRequest) ([]byte, *filesystemWorkerError) {
+	if err := ensureFilesystemWorkerPayloadEOF(reader); err != nil {
+		return nil, stableWorkerError(CodeInvalidEnvelope, "verify request has trailing payload", err)
+	}
+	image, err := verifyHelperPackage(request.HelperPath, request.ManifestPath, request.Identity)
+	if err != nil {
+		return nil, classifiedWorkerError(
+			CodeProcessStartFailed,
+			"verify package-owned schema helper",
+			err,
+			initializationFailureClassOrTransient(err),
+		)
+	}
+	return image, nil
+}
+
+func executeFilesystemWorkerCleanup(reader io.Reader, request filesystemWorkerRequest) ([]byte, *filesystemWorkerError) {
+	if err := ensureFilesystemWorkerPayloadEOF(reader); err != nil {
+		return nil, stableWorkerError(CodeInvalidEnvelope, "cleanup request has trailing payload", err)
+	}
+	if err := removeOwnedFilesystemSnapshot(request.Snapshot); err != nil {
+		return nil, workerError(CodeProcessExited, "remove owned schema helper snapshot", err)
+	}
+	return nil, nil
+}
+
+func executeFilesystemWorkerSweep(reader io.Reader) ([]byte, *filesystemWorkerError) {
+	if err := ensureFilesystemWorkerPayloadEOF(reader); err != nil {
+		return nil, stableWorkerError(CodeInvalidEnvelope, "sweep request has trailing payload", err)
+	}
+	if err := sweepStaleFilesystemSnapshots(); err != nil {
+		return nil, workerError(CodeProcessExited, "sweep stale schema helper snapshots", err)
+	}
+	return nil, nil
 }
 
 // executeVerifiedImageInWorker 在 worker 内完成输入读取、快照物化和同步清理。
@@ -181,12 +226,12 @@ func executeVerifiedImageInWorker(reader io.Reader, request filesystemWorkerRequ
 	if err := ctx.Err(); err != nil {
 		return nil, workerError(CodeTimeout, "schema helper deadline exceeded before snapshot", err)
 	}
-	snapshotPath, cleanup, err := writeExecutableSnapshot(image, request.HelperGOOS)
+	snapshotPath, err := writeExecutableSnapshot(image, request.Snapshot)
 	if err != nil {
 		return nil, workerError(CodeProcessStartFailed, "materialize verified schema helper snapshot", err)
 	}
 	defer func() {
-		if err := cleanup(); err != nil {
+		if err := removeOwnedFilesystemSnapshot(request.Snapshot); err != nil {
 			payload = nil
 			responseErr = workerError(CodeProcessExited, "remove verified schema helper snapshot", err)
 		}
@@ -263,9 +308,46 @@ func validateFilesystemWorkerRequest(request filesystemWorkerRequest) error {
 		return validateFilesystemWorkerVerifyRequest(request)
 	case filesystemWorkerExecute:
 		return validateFilesystemWorkerExecuteRequest(request)
+	case filesystemWorkerCleanup:
+		return validateFilesystemWorkerCleanupRequest(request)
+	case filesystemWorkerSweep:
+		return validateFilesystemWorkerSweepRequest(request)
 	default:
 		return errors.New("schema filesystem worker operation is invalid")
 	}
+}
+
+type filesystemWorkerVerifyFields struct {
+	helperPath   string
+	manifestPath string
+	identity     HelperIdentity
+}
+
+type filesystemWorkerExecutePayloadFields struct {
+	helperGOOS   string
+	imageBytes   int
+	requestBytes int
+}
+
+type filesystemWorkerExecuteFields struct {
+	payload  filesystemWorkerExecutePayloadFields
+	snapshot filesystemSnapshotIdentity
+}
+
+func verifyRequestFields(request filesystemWorkerRequest) filesystemWorkerVerifyFields {
+	return filesystemWorkerVerifyFields{
+		helperPath: request.HelperPath, manifestPath: request.ManifestPath, identity: request.Identity,
+	}
+}
+
+func executePayloadFields(request filesystemWorkerRequest) filesystemWorkerExecutePayloadFields {
+	return filesystemWorkerExecutePayloadFields{
+		helperGOOS: request.HelperGOOS, imageBytes: request.ImageBytes, requestBytes: request.RequestBytes,
+	}
+}
+
+func executeRequestFields(request filesystemWorkerRequest) filesystemWorkerExecuteFields {
+	return filesystemWorkerExecuteFields{payload: executePayloadFields(request), snapshot: request.Snapshot}
 }
 
 // validateFilesystemWorkerVerifyRequest 校验 verify 专属字段并拒绝 execute 字段。
@@ -276,7 +358,7 @@ func validateFilesystemWorkerVerifyRequest(request filesystemWorkerRequest) erro
 	if len(request.HelperPath) > filesystemWorkerMaxPathBytes || len(request.ManifestPath) > filesystemWorkerMaxPathBytes {
 		return errors.New("schema filesystem verify path exceeds byte budget")
 	}
-	if request.HelperGOOS != "" || request.ImageBytes != 0 || request.RequestBytes != 0 {
+	if executeRequestFields(request) != (filesystemWorkerExecuteFields{}) {
 		return errors.New("schema filesystem verify request has execute fields")
 	}
 	return validateIdentity(request.Identity)
@@ -284,7 +366,7 @@ func validateFilesystemWorkerVerifyRequest(request filesystemWorkerRequest) erro
 
 // validateFilesystemWorkerExecuteRequest 校验 execute 专属长度并拒绝 verify 字段。
 func validateFilesystemWorkerExecuteRequest(request filesystemWorkerRequest) error {
-	if request.HelperPath != "" || request.ManifestPath != "" || request.Identity != (HelperIdentity{}) {
+	if verifyRequestFields(request) != (filesystemWorkerVerifyFields{}) {
 		return errors.New("schema filesystem execute request has verify fields")
 	}
 	if strings.TrimSpace(request.HelperGOOS) == "" {
@@ -295,6 +377,30 @@ func validateFilesystemWorkerExecuteRequest(request filesystemWorkerRequest) err
 	}
 	if request.RequestBytes <= 0 || request.RequestBytes > maxEnvelopeBytes {
 		return errors.New("schema filesystem execute request size is invalid")
+	}
+	if err := validateFilesystemSnapshotIdentity(request.Snapshot); err != nil {
+		return err
+	}
+	if request.Snapshot.HelperGOOS != request.HelperGOOS {
+		return errors.New("schema filesystem execute snapshot GOOS mismatch")
+	}
+	return nil
+}
+
+// validateFilesystemWorkerCleanupRequest 只接受完整 snapshot identity。
+func validateFilesystemWorkerCleanupRequest(request filesystemWorkerRequest) error {
+	if verifyRequestFields(request) != (filesystemWorkerVerifyFields{}) ||
+		executePayloadFields(request) != (filesystemWorkerExecutePayloadFields{}) {
+		return errors.New("schema filesystem cleanup request has non-cleanup fields")
+	}
+	return validateFilesystemSnapshotIdentity(request.Snapshot)
+}
+
+// validateFilesystemWorkerSweepRequest 拒绝 sweep 之外的全部字段。
+func validateFilesystemWorkerSweepRequest(request filesystemWorkerRequest) error {
+	if verifyRequestFields(request) != (filesystemWorkerVerifyFields{}) ||
+		executeRequestFields(request) != (filesystemWorkerExecuteFields{}) {
+		return errors.New("schema filesystem sweep request has non-sweep fields")
 	}
 	return nil
 }
@@ -352,11 +458,32 @@ func encodeFilesystemWorkerResponse(writer io.Writer, response filesystemWorkerR
 }
 
 func workerError(code Code, message string, cause error) *filesystemWorkerError {
+	return classifiedWorkerError(code, message, cause, InitializationFailureTransient)
+}
+
+func stableWorkerError(code Code, message string, cause error) *filesystemWorkerError {
+	return classifiedWorkerError(code, message, cause, InitializationFailureStable)
+}
+
+func classifiedWorkerError(
+	code Code,
+	message string,
+	cause error,
+	class InitializationFailureClass,
+) *filesystemWorkerError {
 	if cause != nil {
 		message = fmt.Sprintf("%s: %v", message, cause)
 	}
 	if len(message) > maxMessageBytes {
 		message = message[:maxMessageBytes]
 	}
-	return &filesystemWorkerError{Code: code, Message: message}
+	return &filesystemWorkerError{Code: code, Message: message, FailureClass: class}
+}
+
+func initializationFailureClassOrTransient(err error) InitializationFailureClass {
+	class, ok := InitializationFailureClassOf(err)
+	if !ok {
+		return InitializationFailureTransient
+	}
+	return class
 }

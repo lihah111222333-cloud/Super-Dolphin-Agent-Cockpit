@@ -70,6 +70,10 @@ func terminateProcessTree(_ *exec.Cmd, guard *processGuard) error {
 	return windows.TerminateJobObject(guard.handle, 1)
 }
 
+func waitGuardedProcess(cmd *exec.Cmd, _ *processGuard) error {
+	return cmd.Wait()
+}
+
 func closeProcessGuard(guard *processGuard) error {
 	if guard == nil || guard.handle == 0 {
 		return nil

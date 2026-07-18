@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/pidregistry"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util/safego"
 )
 
@@ -45,6 +46,7 @@ type ClientConfig struct {
 type Client struct {
 	helperImage          []byte
 	helperGOOS           string
+	ownerIdentity        pidregistry.StableProcessIdentity
 	filesystemWorkerPath string
 	operationTimeout     time.Duration
 	workerCommand        func(string) *exec.Cmd
@@ -57,15 +59,22 @@ func NewClient(ctx context.Context, config ClientConfig) (*Client, error) {
 		return nil, newDiagnostic(CodeInvalidEnvelope, "context is required", nil)
 	}
 	if err := validateClientConfig(config); err != nil {
-		return nil, newDiagnostic(CodeProcessStartFailed, err.Error(), nil)
+		return nil, StableInitializationError(newDiagnostic(CodeProcessStartFailed, err.Error(), nil))
 	}
 	image, err := verifyHelperPackageInWorker(ctx, config)
 	if err != nil {
 		return nil, newDiagnostic(CodeProcessStartFailed, "verify package-owned schema helper", err)
 	}
+	ownerIdentity, err := pidregistry.CaptureStableProcessIdentity(os.Getpid())
+	if err != nil {
+		return nil, TransientInitializationError(
+			newDiagnostic(CodeProcessStartFailed, "capture schema snapshot owner identity", err),
+		)
+	}
 	return &Client{
 		helperImage:          image,
 		helperGOOS:           config.Identity.GOOS,
+		ownerIdentity:        ownerIdentity,
 		filesystemWorkerPath: config.FilesystemWorkerPath,
 		operationTimeout:     operationDeadline,
 		workerCommand: func(path string) *exec.Cmd {

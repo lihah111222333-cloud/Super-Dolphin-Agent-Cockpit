@@ -11,8 +11,15 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"time"
 
+	platformconfig "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/config"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util/safego"
+)
+
+const (
+	filesystemSnapshotCleanupTimeout = 3 * time.Second
+	filesystemSnapshotSweepTimeout   = 5 * time.Second
 )
 
 func verifyHelperPackageInWorker(ctx context.Context, config ClientConfig) ([]byte, error) {
@@ -27,9 +34,14 @@ func verifyHelperPackageInWorker(ctx context.Context, config ClientConfig) ([]by
 }
 
 func (client *Client) executeInFilesystemWorker(parentCtx, operationCtx context.Context, encodedRequest []byte) ([]byte, error) {
+	snapshot, err := newFilesystemSnapshotIdentity(client.helperGOOS, client.ownerIdentity)
+	if err != nil {
+		return nil, newDiagnostic(CodeProcessStartFailed, "create schema snapshot cleanup identity", err)
+	}
 	request := filesystemWorkerRequest{
 		Version: filesystemWorkerVersion, Operation: filesystemWorkerExecute,
 		HelperGOOS: client.helperGOOS, ImageBytes: len(client.helperImage), RequestBytes: len(encodedRequest),
+		Snapshot: snapshot,
 	}
 	setFilesystemWorkerDeadline(operationCtx, &request)
 	payload := io.MultiReader(bytes.NewReader(client.helperImage), bytes.NewReader(encodedRequest))
@@ -62,7 +74,9 @@ func runFilesystemWorker(
 	}
 	cmd := command(workerPath)
 	if cmd == nil {
-		return nil, newDiagnostic(CodeProcessStartFailed, "schema filesystem worker command is nil", nil)
+		return nil, TransientInitializationError(
+			newDiagnostic(CodeProcessStartFailed, "schema filesystem worker command is nil", nil),
+		)
 	}
 	cmd.Env = filesystemWorkerProcessEnvironment(cmd.Env, extraEnv)
 	if payload == nil {
@@ -75,16 +89,85 @@ func runFilesystemWorker(
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
 	if err := configureProcess(cmd); err != nil {
-		return nil, newDiagnostic(CodeProcessStartFailed, "configure schema filesystem worker", err)
+		return nil, TransientInitializationError(
+			newDiagnostic(CodeProcessStartFailed, "configure schema filesystem worker", err),
+		)
 	}
 	if err := cmd.Start(); err != nil {
-		return nil, newDiagnostic(CodeProcessStartFailed, "start schema filesystem worker", err)
+		return nil, TransientInitializationError(
+			newDiagnostic(CodeProcessStartFailed, "start schema filesystem worker", err),
+		)
 	}
 	guard, err := attachProcessGuard(cmd)
 	if err != nil {
-		return nil, cleanupUnattachedProcess(cmd, err)
+		return nil, TransientInitializationError(cleanupUnattachedProcess(cmd, err))
 	}
-	return waitFilesystemWorker(parentCtx, operationCtx, request.Operation, cmd, guard, stdout, stderr, maxPayload)
+	result, runErr := waitFilesystemWorker(
+		parentCtx,
+		operationCtx,
+		request.Operation,
+		cmd,
+		guard,
+		stdout,
+		stderr,
+		maxPayload,
+	)
+	if request.Operation != filesystemWorkerExecute {
+		return result, runErr
+	}
+	cleanupErr := cleanupFilesystemSnapshotWithWorker(
+		workerPath,
+		command,
+		request.Snapshot,
+	)
+	if cleanupErr != nil {
+		return nil, errors.Join(runErr, cleanupErr)
+	}
+	return result, runErr
+}
+
+func cleanupFilesystemSnapshotWithWorker(
+	workerPath string,
+	command func(string) *exec.Cmd,
+	snapshot filesystemSnapshotIdentity,
+) error {
+	ctx, cancel := platformconfig.WithTimeout(context.Background(), filesystemSnapshotCleanupTimeout)
+	defer cancel()
+	request := filesystemWorkerRequest{
+		Version:   filesystemWorkerVersion,
+		Operation: filesystemWorkerCleanup,
+		Snapshot:  snapshot,
+	}
+	setFilesystemWorkerDeadline(ctx, &request)
+	_, err := runFilesystemWorker(ctx, ctx, workerPath, command, nil, request, nil, 0)
+	if err != nil {
+		return newDiagnostic(CodeReapFailed, "bounded schema snapshot cleanup failed", err)
+	}
+	return nil
+}
+
+func sweepFilesystemSnapshotsWithWorker(workerPath string) error {
+	ctx, cancel := platformconfig.WithTimeout(context.Background(), filesystemSnapshotSweepTimeout)
+	defer cancel()
+	request := filesystemWorkerRequest{
+		Version:   filesystemWorkerVersion,
+		Operation: filesystemWorkerSweep,
+	}
+	setFilesystemWorkerDeadline(ctx, &request)
+	_, err := runFilesystemWorker(
+		ctx,
+		ctx,
+		workerPath,
+		func(path string) *exec.Cmd { return exec.Command(path) },
+		nil,
+		request,
+		nil,
+		0,
+	)
+	if err != nil {
+		return fmt.Errorf("sweep stale schema snapshots through bounded worker: %w", err)
+	}
+	return nil
 }
 
 // waitFilesystemWorker 等待 worker 完成，或终止整个进程树后再返回取消结果。
@@ -100,7 +183,7 @@ func waitFilesystemWorker(
 ) ([]byte, error) {
 	waitResult := make(chan error, 1)
 	safego.Go(operationCtx, nil, "toolbridge.schema-filesystem-worker.wait", func(context.Context) {
-		waitResult <- cmd.Wait()
+		waitResult <- waitGuardedProcess(cmd, guard)
 	})
 	select {
 	case waitErr := <-waitResult:
@@ -176,12 +259,19 @@ func encodeFilesystemWorkerRequest(request filesystemWorkerRequest) ([]byte, err
 func decodeFilesystemWorkerResponse(raw []byte, operation string, maxPayload int) ([]byte, error) {
 	response, reader, err := decodeFilesystemWorkerResponseHeader(raw)
 	if err != nil {
-		return nil, err
+		return nil, StableInitializationError(err)
 	}
 	if err := validateFilesystemWorkerResponse(response, operation, maxPayload); err != nil {
-		return nil, err
+		if _, ok := InitializationFailureClassOf(err); ok {
+			return nil, err
+		}
+		return nil, StableInitializationError(err)
 	}
-	return readFilesystemWorkerResponsePayload(reader, response.PayloadBytes)
+	payload, err := readFilesystemWorkerResponsePayload(reader, response.PayloadBytes)
+	if err != nil {
+		return nil, StableInitializationError(err)
+	}
+	return payload, nil
 }
 
 func decodeFilesystemWorkerResponseHeader(raw []byte) (filesystemWorkerResponse, *bufio.Reader, error) {
@@ -207,13 +297,24 @@ func validateFilesystemWorkerResponse(response filesystemWorkerResponse, operati
 	if response.Version != filesystemWorkerVersion || response.Operation != operation || response.PayloadBytes < 0 || response.PayloadBytes > maxPayload {
 		return newDiagnostic(CodeProtocolViolation, "schema filesystem worker response identity or size mismatch", nil)
 	}
-	if response.Error != nil {
-		if response.PayloadBytes != 0 || !validFilesystemWorkerErrorCode(response.Error.Code) || strings.TrimSpace(response.Error.Message) == "" {
-			return newDiagnostic(CodeProtocolViolation, "schema filesystem worker error response is invalid", nil)
-		}
-		return newDiagnostic(response.Error.Code, response.Error.Message, nil)
+	if response.Error == nil {
+		return nil
 	}
-	return nil
+	return filesystemWorkerResponseError(response)
+}
+
+// filesystemWorkerResponseError 校验 worker 错误响应并恢复初始化失败分类。
+func filesystemWorkerResponseError(response filesystemWorkerResponse) error {
+	if response.PayloadBytes != 0 || !validFilesystemWorkerErrorCode(response.Error.Code) ||
+		strings.TrimSpace(response.Error.Message) == "" ||
+		!validInitializationFailureClass(response.Error.FailureClass) {
+		return newDiagnostic(CodeProtocolViolation, "schema filesystem worker error response is invalid", nil)
+	}
+	diagnostic := newDiagnostic(response.Error.Code, response.Error.Message, nil)
+	if response.Error.FailureClass == InitializationFailureStable {
+		return StableInitializationError(diagnostic)
+	}
+	return TransientInitializationError(diagnostic)
 }
 
 func readFilesystemWorkerResponsePayload(reader *bufio.Reader, payloadBytes int) ([]byte, error) {
@@ -235,4 +336,8 @@ func validFilesystemWorkerErrorCode(code Code) bool {
 	default:
 		return false
 	}
+}
+
+func validInitializationFailureClass(class InitializationFailureClass) bool {
+	return class == InitializationFailureStable || class == InitializationFailureTransient
 }
