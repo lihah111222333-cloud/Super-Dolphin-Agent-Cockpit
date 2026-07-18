@@ -1,4 +1,4 @@
-//go:build !windows
+//go:build darwin || linux
 
 package main
 
@@ -21,6 +21,8 @@ import (
 
 const (
 	guardTreeFixtureEnv         = "SUPER_DOLPHIN_TEST_GUARD_TREE_FIXTURE"
+	guardTreeDirectExitEnv      = "SUPER_DOLPHIN_TEST_GUARD_TREE_DIRECT_EXIT"
+	guardTreeIgnoringChildEnv   = "SUPER_DOLPHIN_TEST_GUARD_TREE_IGNORING_CHILD"
 	guardDigestBlockEnv         = "SUPER_DOLPHIN_TEST_GUARD_DIGEST_BLOCK"
 	guardDigestTargetEnv        = "SUPER_DOLPHIN_TEST_GUARD_DIGEST_TARGET"
 	guardDigestFIFOEnv          = "SUPER_DOLPHIN_TEST_GUARD_DIGEST_FIFO"
@@ -31,6 +33,12 @@ const (
 )
 
 func runGuardProcessTreeFixtureIfRequested() (bool, int) {
+	if os.Getenv(guardTreeIgnoringChildEnv) == "1" {
+		return true, runTermIgnoringDescendantFixture()
+	}
+	if os.Getenv(guardTreeDirectExitEnv) == "1" {
+		return true, runDirectExitWithTermIgnoringDescendantFixture()
+	}
 	if os.Getenv(guardDigestBlockEnv) == "1" && os.Getenv(releaseFilesystemHelperEnv) == "1" {
 		return true, runBlockedGuardDigestHelperFixture()
 	}
@@ -58,6 +66,40 @@ func TestGuardReadyTimeoutReapsBlockedDigestHelperTree(t *testing.T) {
 	if _, err := os.Stat(helperDir); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("guard helper directory %q still exists: %v", helperDir, err)
 	}
+}
+
+func TestGuardProcessTreeKillsDescendantWhenDirectGuardExitsOnTERM(t *testing.T) {
+	root := t.TempDir()
+	directPIDPath := filepath.Join(root, "direct.pid")
+	descendantPIDPath := filepath.Join(root, "descendant.pid")
+	cmd := exec.Command(os.Args[0], "-test.run=^$")
+	cmd.Env = append(os.Environ(),
+		guardTreeDirectExitEnv+"=1",
+		guardDigestHelperPIDEnv+"="+directPIDPath,
+		guardDigestHelperDirEnv+"="+descendantPIDPath,
+	)
+	lease, err := configureGuardProcessTree(cmd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cmd.Start(); err != nil {
+		_ = stopUnattachedGuardProcessTree(lease)
+		t.Fatal(err)
+	}
+	lease, err = attachGuardProcessTree(cmd, lease)
+	if err != nil {
+		_ = stopStartedGuard(cmd, lease)
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = stopStartedGuard(cmd, lease) })
+	directPID := waitGuardFixturePID(t, directPIDPath)
+	descendantPID := waitGuardFixturePID(t, descendantPIDPath)
+
+	if err := stopStartedGuard(cmd, lease); err != nil {
+		t.Fatal(err)
+	}
+	assertGuardFixturePIDGone(t, directPID)
+	assertGuardFixturePIDGone(t, descendantPID)
 }
 
 type guardTreeTestProcess struct {
@@ -97,13 +139,15 @@ func startGuardTreeTestProcess(t *testing.T) *guardTreeTestProcess {
 		t.Fatal(err)
 	}
 	fixture.stdout = stdout
-	if err := configureGuardProcessTree(fixture.cmd); err != nil {
+	lease, err := configureGuardProcessTree(fixture.cmd)
+	if err != nil {
 		t.Fatal(err)
 	}
 	if err := fixture.cmd.Start(); err != nil {
+		_ = stopUnattachedGuardProcessTree(lease)
 		t.Fatal(err)
 	}
-	fixture.lease, err = attachGuardProcessTree(fixture.cmd)
+	fixture.lease, err = attachGuardProcessTree(fixture.cmd, lease)
 	if err != nil {
 		_ = fixture.cmd.Process.Kill()
 		_ = fixture.cmd.Wait()
@@ -119,13 +163,15 @@ func startGuardTreeTestProcess(t *testing.T) *guardTreeTestProcess {
 
 func TestGuardProcessTreeLeaseRejectsPIDReuseHandle(t *testing.T) {
 	cmd := exec.Command("sh", "-c", "while :; do sleep 1; done")
-	if err := configureGuardProcessTree(cmd); err != nil {
+	lease, err := configureGuardProcessTree(cmd)
+	if err != nil {
 		t.Fatal(err)
 	}
 	if err := cmd.Start(); err != nil {
+		_ = stopUnattachedGuardProcessTree(lease)
 		t.Fatal(err)
 	}
-	lease, err := attachGuardProcessTree(cmd)
+	lease, err = attachGuardProcessTree(cmd, lease)
 	if err != nil {
 		_ = cmd.Process.Kill()
 		_ = cmd.Wait()
@@ -169,6 +215,34 @@ func runGuardTreeFixture() int {
 		return 24
 	}
 	return 0
+}
+
+func runDirectExitWithTermIgnoringDescendantFixture() int {
+	child := exec.Command(os.Args[0], "-test.run=^$")
+	child.Env = append(os.Environ(), guardTreeIgnoringChildEnv+"=1", guardTreeDirectExitEnv+"=0")
+	if err := child.Start(); err != nil {
+		return 41
+	}
+	if err := os.WriteFile(os.Getenv(guardDigestHelperPIDEnv), []byte(strconv.Itoa(os.Getpid())), 0o600); err != nil {
+		_ = child.Process.Kill()
+		_ = child.Wait()
+		return 42
+	}
+	if err := os.WriteFile(os.Getenv(guardDigestHelperDirEnv), []byte(strconv.Itoa(child.Process.Pid)), 0o600); err != nil {
+		_ = child.Process.Kill()
+		_ = child.Wait()
+		return 43
+	}
+	signals := make(chan os.Signal, 1)
+	signal.Notify(signals, syscall.SIGTERM)
+	defer signal.Stop(signals)
+	<-signals
+	return 0
+}
+
+func runTermIgnoringDescendantFixture() int {
+	signal.Ignore(syscall.SIGTERM)
+	select {}
 }
 
 func runBlockedGuardDigestHelperFixture() int {
@@ -217,11 +291,19 @@ func assertGuardFixturePIDGone(t *testing.T, pid int) {
 	if pid <= 0 {
 		t.Fatalf("invalid fixture PID %d", pid)
 	}
-	process, err := os.FindProcess(pid)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := process.Signal(syscall.Signal(0)); !errors.Is(err, os.ErrProcessDone) && !errors.Is(err, syscall.ESRCH) {
-		t.Fatalf("fixture PID %d is still present: %v", pid, err)
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		process, err := os.FindProcess(pid)
+		if err != nil {
+			t.Fatal(err)
+		}
+		err = process.Signal(syscall.Signal(0))
+		if errors.Is(err, os.ErrProcessDone) || errors.Is(err, syscall.ESRCH) {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("fixture PID %d is still present: %v", pid, err)
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 }

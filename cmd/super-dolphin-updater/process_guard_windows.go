@@ -15,6 +15,10 @@ import (
 
 const guardJobLimitKillOnClose = 0x00002000
 
+func runGuardProcessTreeLeaseIfRequestedPlatform() (bool, int) {
+	return false, 0
+}
+
 type guardProcessTreeLease struct {
 	cmd             *exec.Cmd
 	process         *os.Process
@@ -25,22 +29,25 @@ type guardProcessTreeLease struct {
 }
 
 // configureGuardProcessTree 让 Windows Guard suspended 启动，避免绑定 Job 前派生子进程。
-func configureGuardProcessTree(cmd *exec.Cmd) error {
+func configureGuardProcessTree(cmd *exec.Cmd) (*guardProcessTreeLease, error) {
 	if cmd == nil {
-		return errors.New("Guard command is required")
+		return nil, errors.New("Guard command is required")
 	}
 	if cmd.SysProcAttr != nil {
-		return errors.New("Guard command process attributes are already configured")
+		return nil, errors.New("Guard command process attributes are already configured")
 	}
 	cmd.SysProcAttr = &syscall.SysProcAttr{
 		CreationFlags: windows.CREATE_SUSPENDED | windows.CREATE_NEW_PROCESS_GROUP,
 		HideWindow:    true,
 	}
-	return nil
+	return nil, nil
 }
 
 // attachGuardProcessTree 将 suspended Guard 放入 kill-on-close Job 后才恢复执行。
-func attachGuardProcessTree(cmd *exec.Cmd) (*guardProcessTreeLease, error) {
+func attachGuardProcessTree(cmd *exec.Cmd, configured *guardProcessTreeLease) (*guardProcessTreeLease, error) {
+	if configured != nil {
+		return configured, errors.New("Windows Guard process tree must not receive a Unix lease")
+	}
 	if cmd == nil || cmd.Process == nil || cmd.Process.Pid <= 1 {
 		return nil, errors.New("started Guard direct-child process is required")
 	}
@@ -109,6 +116,15 @@ func handoffGuardProcessTree(cmd *exec.Cmd, lease *guardProcessTreeLease) error 
 		return errors.Join(err, cleanupErr)
 	}
 	lease.handedOff = true
+	return nil
+}
+
+// stopUnattachedGuardProcessTree is a no-op on Windows because a Job is
+// allocated only after the suspended Guard process has started.
+func stopUnattachedGuardProcessTree(lease *guardProcessTreeLease) error {
+	if lease != nil {
+		return errors.New("unexpected pre-start Windows Guard process tree lease")
+	}
 	return nil
 }
 

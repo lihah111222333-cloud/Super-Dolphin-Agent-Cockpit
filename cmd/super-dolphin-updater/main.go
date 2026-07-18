@@ -33,9 +33,17 @@ const (
 	windowsCreateNewProcessGroup = 0x00000200
 )
 
+// runGuardProcessTreeLeaseIfRequested dispatches the platform lease child mode.
+func runGuardProcessTreeLeaseIfRequested() (bool, int) {
+	return runGuardProcessTreeLeaseIfRequestedPlatform()
+}
+
 // main 是 updater CLI 入口。
 // 首次启动只负责 detach，后台子进程才执行真实安装，避免替换正在运行的 app。
 func main() {
+	if handled, exitCode := runGuardProcessTreeLeaseIfRequested(); handled {
+		os.Exit(exitCode)
+	}
 	if handled, err := recovery.RunReleaseFilesystemHelperIfRequested(os.Stdin, os.Stdout); handled {
 		if err != nil {
 			slog.Error("release filesystem helper failed", "error", err)

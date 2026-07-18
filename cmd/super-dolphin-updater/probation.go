@@ -405,11 +405,11 @@ func (handle *candidateHandle) result() error {
 
 // startDetachedGuard 在 caller context 内验证 exact Guard 凭据，成功后才释放独立进程句柄。
 func startDetachedGuard(ctx context.Context, transaction recovery.Transaction, capsule bool, readyAction func() error) error {
-	cmd, executable, digest, err := buildDetachedGuardCommand(ctx, transaction, capsule)
+	cmd, executable, digest, lease, err := buildDetachedGuardCommand(ctx, transaction, capsule)
 	if err != nil {
 		return err
 	}
-	stdout, expected, lease, err := startDetachedGuardProcess(ctx, cmd, executable, digest)
+	stdout, expected, lease, err := startDetachedGuardProcess(ctx, cmd, executable, digest, lease)
 	if err != nil {
 		return err
 	}
@@ -417,41 +417,42 @@ func startDetachedGuard(ctx context.Context, transaction recovery.Transaction, c
 		return errors.Join(err, stopStartedGuard(cmd, lease))
 	}
 	if err := handoffGuardProcessTree(cmd, lease); err != nil {
-		return fmt.Errorf("handoff detached Guard process tree: %w", err)
+		return errors.Join(fmt.Errorf("handoff detached Guard process tree: %w", err), stopStartedGuard(cmd, lease))
 	}
 	return nil
 }
 
 // buildDetachedGuardCommand 在 caller context 内绑定 exact helper 路径、SHA、generation 与清洗后的环境。
-func buildDetachedGuardCommand(ctx context.Context, transaction recovery.Transaction, capsule bool) (*exec.Cmd, string, string, error) {
+func buildDetachedGuardCommand(ctx context.Context, transaction recovery.Transaction, capsule bool) (*exec.Cmd, string, string, *guardProcessTreeLease, error) {
 	executable, err := detachedGuardPath(transaction, capsule)
 	if err != nil {
-		return nil, "", "", err
+		return nil, "", "", nil, err
 	}
 	executable, err = recovery.CanonicalExistingPathContext(ctx, executable)
 	if err != nil {
-		return nil, "", "", err
+		return nil, "", "", nil, err
 	}
 	generation, expectedSHA := guardGenerationIdentity(transaction, capsule)
 	digest, err := recovery.ComputeReleaseDigestContext(ctx, executable)
 	if err != nil {
-		return nil, "", "", fmt.Errorf("digest detached Guard: %w", err)
+		return nil, "", "", nil, fmt.Errorf("digest detached Guard: %w", err)
 	}
 	if digest != expectedSHA {
-		return nil, "", "", errors.New("detached Guard digest does not match exact transaction helper identity")
+		return nil, "", "", nil, errors.New("detached Guard digest does not match exact transaction helper identity")
 	}
 	env, err := runtimeenv.DetachedCommandEnvironment(os.Environ())
 	if err != nil {
-		return nil, "", "", err
+		return nil, "", "", nil, err
 	}
 	transactionRoot := filepath.Join(filepath.Dir(transaction.Paths.Target), updateTransactionDirName)
 	// Guard 在 armed receipt 后独立存活，因此不能让 exec.Cmd 继承 caller context 的自动 kill。
 	cmd := exec.Command(executable, transactionRoot, string(transaction.Identity.TransactionID), generation)
 	cmd.Env = env
-	if err := configureGuardProcessTree(cmd); err != nil {
-		return nil, "", "", fmt.Errorf("configure detached Guard process tree: %w", err)
+	lease, err := configureGuardProcessTree(cmd)
+	if err != nil {
+		return nil, "", "", nil, fmt.Errorf("configure detached Guard process tree: %w", err)
 	}
-	return cmd, executable, digest, nil
+	return cmd, executable, digest, lease, nil
 }
 
 // startDetachedGuardProcess 启动子进程并在 caller context 内重新读取其内核 process identity。
@@ -460,15 +461,16 @@ func startDetachedGuardProcess(
 	cmd *exec.Cmd,
 	executable string,
 	digest string,
+	lease *guardProcessTreeLease,
 ) (io.ReadCloser, recovery.ProcessIdentity, *guardProcessTreeLease, error) {
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return nil, recovery.ProcessIdentity{}, nil, fmt.Errorf("open detached Guard readiness pipe: %w", err)
 	}
 	if err := cmd.Start(); err != nil {
-		return nil, recovery.ProcessIdentity{}, nil, fmt.Errorf("start detached Guard: %w", err)
+		return nil, recovery.ProcessIdentity{}, nil, errors.Join(fmt.Errorf("start detached Guard: %w", err), stopUnattachedGuardProcessTree(lease))
 	}
-	lease, err := attachGuardProcessTree(cmd)
+	lease, err = attachGuardProcessTree(cmd, lease)
 	if err != nil {
 		var cleanupErr error
 		if lease != nil {

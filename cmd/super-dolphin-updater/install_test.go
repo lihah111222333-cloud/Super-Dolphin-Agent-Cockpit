@@ -17,6 +17,9 @@ import (
 
 // TestMain 让 updater 测试二进制在 helper 模式下只处理一次 filesystem 请求。
 func TestMain(m *testing.M) {
+	if handled, code := runGuardProcessTreeLeaseIfRequested(); handled {
+		os.Exit(code)
+	}
 	if handled, code := runGuardProcessTreeFixtureIfRequested(); handled {
 		os.Exit(code)
 	}
