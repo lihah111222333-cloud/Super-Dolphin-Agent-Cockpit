@@ -28,6 +28,7 @@ const governancePaths = [
   'frontend-app/src/entities/client/model/failureMatrix.test.js',
   'frontend-app/src/entities/client/model/runtimeSlice.test.js',
   'frontend-app/src/pages/chat/composer/ComposerDock.actionFailure.test.jsx',
+  'frontend-app/src/pages/chat/thread/ThreadRail.test.jsx',
   'frontend-app/src/pages/settings/SettingsPage.test.jsx',
   'frontend-app/src/features/approval/ui/ApprovalDecisionShelf.test.jsx',
   'internal/provider/codexapp/failure_matrix_test.go',
@@ -655,8 +656,8 @@ function recordRawReport(context, check, report, reportArtifact) {
   context.rawReports.set(kind, artifact);
 }
 
-function validateReportBinding(report, context, startedAt, finishedAt) {
-  if (report?.schemaVersion !== 1) fail('runner report schemaVersion must equal 1');
+function validateReportBinding(report, context, startedAt, finishedAt, schemaVersion = 1) {
+  if (report?.schemaVersion !== schemaVersion) fail(`runner report schemaVersion must equal ${schemaVersion}`);
   if (report.subjectSha !== context.subjectSha) fail('runner report subjectSha mismatch');
   const subjectTree = report.subjectTree ?? report.subjectTreeSha;
   if (subjectTree !== context.subjectTree) fail('runner report subject tree mismatch');
@@ -1384,8 +1385,8 @@ function validateDeliveryRunnerProvenance(provenance, context, check) {
   }
 }
 
-function validateActionProductionBindingReport(report, { context, control, startedAt, finishedAt }) {
-  validateReportBinding(report, context, startedAt, finishedAt);
+function validateActionProductionBindingReport(report, { context, control, check, startedAt, finishedAt }) {
+  validateReportBinding(report, context, startedAt, finishedAt, 2);
   if (control.id !== 'T02-critical-action-coverage' || report.controlId !== control.id
     || report.status !== 'covered'
     || !Array.isArray(report.bindings) || report.bindings.length === 0) {
@@ -1528,6 +1529,69 @@ function validateActionProductionBindingReport(report, { context, control, start
       fail(`T02 runtime production mutation RED is invalid: ${runtimeCase.actionId}`);
     }
   }
+  if (!report.matrixExecution || !Array.isArray(report.cellResults)
+    || report.testCount !== report.cellResults.length || report.testCount !== matrix.cells.length
+    || report.testCount !== check.testCount) {
+    fail('T02 production report must derive testCount from the complete cell result set');
+  }
+  exactKeys(report.matrixExecution, [
+    'testFile', 'testFileSha256', 'cwd', 'argv', 'exitCode', 'signal', 'outputSha256', 'vitest',
+  ], 'T02 matrix execution');
+  const matrixTestFile = 'src/shared/ui/productionActionFailureMatrix.test.js';
+  const matrixTestSource = execFileSync('git', [
+    'show', `${context.subjectSha}:frontend-app/${matrixTestFile}`,
+  ], { cwd: context.repoRoot });
+  const expectedMatrixArgv = [
+    path.join('node_modules', '.bin', 'vitest'), 'run', matrixTestFile,
+    '--reporter=json', '--no-file-parallelism', '--maxWorkers=1',
+  ];
+  if (report.matrixExecution.testFile !== matrixTestFile
+    || report.matrixExecution.testFileSha256 !== createHash('sha256').update(matrixTestSource).digest('hex')
+    || report.matrixExecution.cwd !== 'frontend-app'
+    || JSON.stringify(report.matrixExecution.argv) !== JSON.stringify(expectedMatrixArgv)
+    || report.matrixExecution.exitCode !== 0 || report.matrixExecution.signal !== null
+    || !/^[0-9a-f]{64}$/u.test(report.matrixExecution.outputSha256)) {
+    fail('T02 production matrix execution is invalid');
+  }
+  exactKeys(report.matrixExecution.vitest, [
+    'numTotalTests', 'numPassedTests', 'numFailedTests', 'numPendingTests',
+  ], 'T02 matrix Vitest execution');
+  if (report.matrixExecution.vitest.numTotalTests !== matrix.cells.length
+    || report.matrixExecution.vitest.numPassedTests !== matrix.cells.length
+    || report.matrixExecution.vitest.numFailedTests !== 0
+    || report.matrixExecution.vitest.numPendingTests !== 0) {
+    fail('T02 production matrix execution did not run every cell exactly once');
+  }
+  const expectedCells = new Map(matrix.cells.map((cell, index) => [
+    `${cell.actionId}\0${cell.errorSource}`, { ...cell, testName: `cell-${index}` },
+  ]));
+  if (expectedCells.size !== matrix.cells.length || report.cellResults.length !== expectedCells.size) {
+    fail('T02 production report has missing or duplicate cell results');
+  }
+  const actualCells = new Set();
+  for (const cell of report.cellResults) {
+    exactKeys(cell, [
+      'actionId', 'errorSource', 'evidence', 'bindingKeys', 'testName', 'testFileSha256', 'vitest',
+    ], `T02 cell ${cell?.actionId || '<unknown>'}`);
+    const key = `${cell.actionId}\0${cell.errorSource}`;
+    const expected = expectedCells.get(key);
+    const expectedBindingKeys = report.bindings.filter(({ actionId }) => actionId === cell.actionId)
+      .map(({ sourcePath, line, column }) => `${sourcePath}:${line}:${column}`).sort();
+    if (!expected || actualCells.has(key) || !Array.isArray(cell.evidence) || !Array.isArray(cell.bindingKeys)
+      || cell.evidence.length === 0 || new Set(cell.evidence).size !== cell.evidence.length
+      || JSON.stringify(cell.evidence) !== JSON.stringify(expected.evidence)
+      || JSON.stringify(cell.bindingKeys) !== JSON.stringify(expectedBindingKeys)
+      || cell.testName !== expected.testName
+      || cell.testFileSha256 !== report.matrixExecution.testFileSha256) {
+      fail(`T02 cell result is invalid: ${cell?.actionId || '<unknown>'}/${cell?.errorSource || '<unknown>'}`);
+    }
+    exactKeys(cell.vitest, ['status', 'title'], `T02 cell Vitest result ${cell.actionId}/${cell.errorSource}`);
+    if (cell.vitest.status !== 'passed' || cell.vitest.title !== cell.testName) {
+      fail(`T02 cell has no non-empty passing named test: ${cell.actionId}/${cell.errorSource}`);
+    }
+    actualCells.add(key);
+  }
+  exactSet([...actualCells], [...expectedCells.keys()], 'T02 production cell results');
   return 'PASS';
 }
 
@@ -1912,7 +1976,7 @@ function validateStructuredCheck(control, check) {
       'node', 'frontend-app/scripts/action-production-runtime-runner.mjs',
     ], 'action production binding argv');
     exact(check.caseIds, criticalRuntimeActionIds, 'action production binding caseIds');
-    if (check.cwd !== '.' || check.reportPath !== '.tmp/action-producer/runtime-report.json' || check.testCount !== 5) {
+    if (check.cwd !== '.' || check.reportPath !== '.tmp/action-producer/runtime-report.json' || check.testCount !== 382) {
       fail(`action production binding report contract differs from frozen contract: ${control.id}`);
     }
     return;
@@ -2039,7 +2103,7 @@ function validateT02DerivedLayerCounts(config) {
   const control = config.controls.find(({ id }) => id === 'T02-critical-action-coverage');
   const matrixCheck = control?.allOf.find(({ argv }) => argv.includes('src/shared/ui/productionActionFailureMatrix.test.js'));
   const runtimeCheck = control?.allOf.find(({ evidenceProtocol }) => evidenceProtocol === 'action-production-runtime-report-v1');
-  if (matrixCheck?.testCount !== expectedMatrixCount || runtimeCheck?.testCount !== matrix.runtimeBindings.length) {
+  if (matrixCheck?.testCount !== expectedMatrixCount || runtimeCheck?.testCount !== expectedMatrixCount) {
     fail('T02 configured layer counts differ from registry/matrix-derived exact counts');
   }
 }

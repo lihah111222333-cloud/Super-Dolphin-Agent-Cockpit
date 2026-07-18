@@ -53,6 +53,7 @@ const addedGovernancePaths = [
   'frontend-app/src/entities/client/model/failureMatrix.test.js',
   'frontend-app/src/entities/client/model/runtimeSlice.test.js',
   'frontend-app/src/pages/chat/composer/ComposerDock.actionFailure.test.jsx',
+  'frontend-app/src/pages/chat/thread/ThreadRail.test.jsx',
   'frontend-app/src/pages/settings/SettingsPage.test.jsx',
   'frontend-app/src/features/approval/ui/ApprovalDecisionShelf.test.jsx',
   'internal/provider/codexapp/failure_matrix_test.go',
@@ -897,7 +898,7 @@ describe('frozen scorer target binding', () => {
       identityFreeze: false,
       governanceFreeze: {
         rule: 'byte-identical-governance-v1',
-        pathCount: 24,
+        pathCount: 25,
       },
     });
     expect(context.subjectContract.governanceFreeze.sha256).toMatch(/^[0-9a-f]{64}$/u);
@@ -1149,6 +1150,7 @@ describe('executable evidence registry', () => {
     });
     report.controlId = 'T02-critical-action-coverage';
     report.status = 'covered';
+    report.schemaVersion = 2;
     const matrix = JSON.parse(readFileSync(join(frozenRepoRoot, 'frontend-app/config/action-producer-test-matrix.json'), 'utf8'));
     const registry = JSON.parse(readFileSync(join(frozenRepoRoot, 'frontend-app/config/action-producer-registry.json'), 'utf8'));
     report.structuralActionCount = report.actionIds.length;
@@ -1205,6 +1207,42 @@ describe('executable evidence registry', () => {
         },
       };
     });
+    const matrixTestFile = 'src/shared/ui/productionActionFailureMatrix.test.js';
+    const matrixTestSource = execFileSync('git', [
+      'show', `${context.subjectSha}:frontend-app/${matrixTestFile}`,
+    ], { cwd: context.repoRoot });
+    report.matrixExecution = {
+      testFile: matrixTestFile,
+      testFileSha256: createHash('sha256').update(matrixTestSource).digest('hex'),
+      cwd: 'frontend-app',
+      argv: [
+        join('node_modules', '.bin', 'vitest'), 'run', matrixTestFile,
+        '--reporter=json', '--no-file-parallelism', '--maxWorkers=1',
+      ],
+      exitCode: 0,
+      signal: null,
+      outputSha256: createHash('sha256').update('T02 matrix execution').digest('hex'),
+      vitest: {
+        numTotalTests: matrix.cells.length,
+        numPassedTests: matrix.cells.length,
+        numFailedTests: 0,
+        numPendingTests: 0,
+      },
+    };
+    report.cellResults = matrix.cells.map((cell, index) => ({
+      actionId: cell.actionId,
+      errorSource: cell.errorSource,
+      evidence: [...cell.evidence],
+      bindingKeys: report.bindings.filter(({ actionId }) => actionId === cell.actionId)
+        .map(({ sourcePath, line, column }) => `${sourcePath}:${line}:${column}`).sort(),
+      testName: `cell-${index}`,
+      testFileSha256: report.matrixExecution.testFileSha256,
+      vitest: {
+        status: 'passed',
+        title: `cell-${index}`,
+      },
+    }));
+    report.testCount = report.cellResults.length;
     expect(report.structuralActionCount).toBe(registry.coveredProducers.length);
     expect(report.runtimeAnchorCount).toBe(5);
     expect(report.runtimeAnchorCount).toBeLessThan(report.bindingCount);
@@ -1238,6 +1276,24 @@ describe('executable evidence registry', () => {
       ...report,
       bindings: report.bindings.map((entry, index) => (
         index === 0 ? { ...entry, sourceSha256: '0'.repeat(64) } : entry
+      )),
+    }, options)).toBe('FAIL');
+    expect(structuredEvidenceStatus({ ...report, cellResults: report.cellResults.slice(1) }, options)).toBe('FAIL');
+    expect(structuredEvidenceStatus({
+      ...report,
+      cellResults: [...report.cellResults.slice(0, -1), report.cellResults[0]],
+    }, options)).toBe('FAIL');
+    expect(structuredEvidenceStatus({
+      ...report,
+      cellResults: report.cellResults.map((entry, index) => (
+        index === 0 ? { ...entry, bindingKeys: [] } : entry
+      )),
+    }, options)).toBe('FAIL');
+    expect(structuredEvidenceStatus({ ...report, matrixExecution: {} }, options)).toBe('FAIL');
+    expect(structuredEvidenceStatus({
+      ...report,
+      cellResults: report.cellResults.map((entry, index) => (
+        index === 0 ? { ...entry, vitest: { ...entry.vitest, status: 'pending' } } : entry
       )),
     }, options)).toBe('FAIL');
   }, 120000);

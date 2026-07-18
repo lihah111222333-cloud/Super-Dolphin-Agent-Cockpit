@@ -19,6 +19,39 @@ function sha256(value) {
   return createHash('sha256').update(value).digest('hex');
 }
 
+function parseCellVitestResult(result) {
+  const output = `${result.stdout}\n${result.stderr}`;
+  if (result.exitCode !== 0 || result.signal !== null) {
+    throw new Error('production action matrix Vitest GREEN must exit zero');
+  }
+  let summary;
+  try {
+    summary = JSON.parse(result.stdout);
+  } catch (error) {
+    throw new Error(`production action matrix Vitest JSON report is invalid: ${error.message}`);
+  }
+  if (summary.numTotalTests !== matrix.cells.length || summary.numPassedTests !== matrix.cells.length
+    || summary.numFailedTests !== 0 || summary.numPendingTests !== 0 || !Array.isArray(summary.testResults)) {
+    throw new Error('production action matrix Vitest must execute every cell exactly once');
+  }
+  const assertions = summary.testResults.flatMap(({ assertionResults = [] }) => assertionResults);
+  if (assertions.length !== matrix.cells.length) {
+    throw new Error('production action matrix Vitest report does not contain one assertion per cell');
+  }
+  const assertionsByTitle = new Map(assertions.map((assertion) => [assertion.title, assertion]));
+  if (assertionsByTitle.size !== assertions.length) throw new Error('production action matrix Vitest report has duplicate assertion titles');
+  return {
+    outputSha256: sha256(output),
+    vitest: {
+      numTotalTests: summary.numTotalTests,
+      numPassedTests: summary.numPassedTests,
+      numFailedTests: summary.numFailedTests,
+      numPendingTests: summary.numPendingTests,
+    },
+    assertionsByTitle,
+  };
+}
+
 function capture(command, args, cwd) {
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, { cwd, stdio: ['ignore', 'pipe', 'pipe'] });
@@ -49,6 +82,8 @@ export async function runActionProductionRuntime(options = {}) {
   const subjectTreeSha = (await requireSuccess('git', ['rev-parse', 'HEAD^{tree}'], repoRoot)).trim();
   const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'action-production-runtime-'));
   const runtimeCases = [];
+  if (!Array.isArray(matrix.cells) || matrix.cells.length === 0) throw new Error('production action matrix must not be empty');
+  let matrixExecution;
   try {
     for (const anchor of anchors) {
       const bindings = structural.bindings.filter(({ actionId, sourcePath }) => (
@@ -110,13 +145,54 @@ export async function runActionProductionRuntime(options = {}) {
         await requireSuccess('git', ['worktree', 'remove', '--force', mutationRoot], repoRoot);
       }
     }
+
+    const testFile = 'src/shared/ui/productionActionFailureMatrix.test.js';
+    const testSource = await readFile(path.join(appRoot, testFile));
+    const argv = [
+      path.join('node_modules', '.bin', 'vitest'), 'run', testFile,
+      '--reporter=json', '--no-file-parallelism', '--maxWorkers=1',
+    ];
+    const green = await capture(argv[0], argv.slice(1), appRoot);
+    const parsed = parseCellVitestResult(green);
+    matrixExecution = {
+      testFile,
+      testFileSha256: sha256(testSource),
+      cwd: 'frontend-app',
+      argv,
+      exitCode: green.exitCode,
+      signal: green.signal,
+      outputSha256: parsed.outputSha256,
+      vitest: parsed.vitest,
+      assertionsByTitle: parsed.assertionsByTitle,
+    };
   } finally {
     await rm(tempRoot, { recursive: true, force: true });
   }
   const coveredActionIds = anchors.map(({ actionId }) => actionId).sort();
   const allActionIds = registry.coveredProducers.map(({ actionId }) => actionId).sort();
+  const cellResults = matrix.cells.map((cell, index) => {
+    const bindingKeys = structural.bindings
+      .filter(({ actionId }) => actionId === cell.actionId)
+      .map(({ sourcePath, line, column }) => `${sourcePath}:${line}:${column}`)
+      .sort();
+    if (bindingKeys.length === 0) throw new Error(`${cell.actionId}: matrix cell has no production binding`);
+    const testName = `cell-${index}`;
+    const assertion = matrixExecution.assertionsByTitle.get(testName);
+    if (!assertion || assertion.status !== 'passed') {
+      throw new Error(`${cell.actionId}/${cell.errorSource}: production matrix has no passing named cell test`);
+    }
+    return {
+      actionId: cell.actionId,
+      errorSource: cell.errorSource,
+      evidence: [...cell.evidence],
+      bindingKeys,
+      testName,
+      testFileSha256: matrixExecution.testFileSha256,
+      vitest: { status: assertion.status, title: assertion.title },
+    };
+  });
   const report = {
-    schemaVersion: 1,
+    schemaVersion: 2,
     generatedAt: new Date().toISOString(),
     subjectSha,
     subjectTreeSha,
@@ -132,6 +208,18 @@ export async function runActionProductionRuntime(options = {}) {
     requiredRuntimeActionIds: coveredActionIds,
     requiredRuntimeSemanticClasses: anchors.map(({ semanticClass }) => semanticClass).sort(),
     runtimeCases,
+    matrixExecution: {
+      testFile: matrixExecution.testFile,
+      testFileSha256: matrixExecution.testFileSha256,
+      cwd: matrixExecution.cwd,
+      argv: matrixExecution.argv,
+      exitCode: matrixExecution.exitCode,
+      signal: matrixExecution.signal,
+      outputSha256: matrixExecution.outputSha256,
+      vitest: matrixExecution.vitest,
+    },
+    cellResults,
+    testCount: cellResults.length,
     status: 'covered',
   };
   const reportPath = options.reportPath || path.join(repoRoot, '.tmp', 'action-producer', 'runtime-report.json');
