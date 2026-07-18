@@ -372,6 +372,16 @@ function performanceEvidence(context, check, metricStatus = 'PASS', overrides = 
       files: [{ path: 'assets/index.js', bytes: 100 }],
     },
   });
+  const measurementMetricsFor = () => {
+    const metrics = metricsFor(baseSha, true);
+    delete metrics['P01-render-isolation'].status;
+    delete metrics['P01-render-isolation'].absoluteUpdateLimit;
+    for (const metricId of ['P02-history-budget', 'P03-feedback-budget', 'P04-resource-budget']) {
+      delete metrics[metricId].status;
+      delete metrics[metricId].maxRegressionRatio;
+    }
+    return metrics;
+  };
   const runnerFiles = check.runnerFiles.map((runnerPath) => ({
     path: runnerPath,
     sha256: createHash('sha256').update(readFileSync(join(context.repoRoot, runnerPath))).digest('hex'),
@@ -395,6 +405,23 @@ function performanceEvidence(context, check, metricStatus = 'PASS', overrides = 
       baseTree,
       changedPaths: git(context.repoRoot, ['diff', '--name-only', baseSha, context.runnerSha]).split('\n'),
     },
+  };
+  const baselineGeneratedAt = new Date().toISOString();
+  const measurementBindings = {
+    subjectSha: baseSha,
+    subjectTree: baseTree,
+    environment: {
+      os: environment.os,
+      cpu: environment.cpu,
+      totalMemoryBytes: environment.totalMemoryBytes,
+      node: environment.node,
+      npm: environment.npm,
+      go: environment.go,
+    },
+    runnerSha: baselineProvenance.runnerSha,
+    runnerTree: baselineProvenance.runnerTree,
+    runnerContentHash: baselineProvenance.runnerContentHash,
+    changedPaths: baselineProvenance.baselineAudit.changedPaths,
   };
   const report = {
     schemaVersion: 1,
@@ -428,9 +455,20 @@ function performanceEvidence(context, check, metricStatus = 'PASS', overrides = 
       planSnapshotSha: 'a'.repeat(40),
       subjectSha: baseSha,
       subjectTree: baseTree,
-      generatedAt: new Date().toISOString(),
+      generatedAt: baselineGeneratedAt,
       environment,
       provenance: baselineProvenance,
+      measurementAudit: {
+        runCount: 3,
+        designatedRun: 1,
+        reproducibilityRuns: [2, 3].map((run) => ({
+          run,
+          generatedAt: new Date(Date.parse(baselineGeneratedAt) + ((run - 1) * 1_000)).toISOString(),
+          runnerContentHash: baselineProvenance.runnerContentHash,
+          bindings: structuredClone(measurementBindings),
+          metrics: measurementMetricsFor(),
+        })),
+      },
       metrics: metricsFor(baseSha, true),
     },
   };
@@ -1001,6 +1039,86 @@ describe('executable evidence registry', () => {
         },
       },
     })).toBe('FAIL');
+  }, 60_000);
+
+  it('fails closed when the three-run measurement audit is forged or incomplete', () => {
+    const { controls } = documents();
+    const control = controls.controls.find(({ id }) => id === 'P02-history-budget');
+    const check = control.allOf[0];
+    const context = createPerformanceTarget(check.runnerFiles);
+    const now = Date.now();
+    const options = { context, control, check, startedAt: now - 100, finishedAt: now + 100 };
+    const { report, baselineDocument } = performanceEvidence(context, check);
+    const statusAfter = (mutate) => {
+      const forged = structuredClone(baselineDocument);
+      mutate(forged);
+      return structuredEvidenceStatus(report, { ...options, baselineDocument: forged });
+    };
+
+    expect(structuredEvidenceStatus(report, { ...options, baselineDocument })).toBe('PASS');
+    const mutations = [
+      ['measurementAudit extra field', (document) => { document.measurementAudit.forged = true; }],
+      ['runCount', (document) => { document.measurementAudit.runCount = 999; }],
+      ['designatedRun', (document) => { document.measurementAudit.designatedRun = 999; }],
+      ['missing reproduction', (document) => { document.measurementAudit.reproducibilityRuns.pop(); }],
+      ['duplicate reproduction', (document) => { document.measurementAudit.reproducibilityRuns[1].run = 2; }],
+      ['reordered reproduction', (document) => { document.measurementAudit.reproducibilityRuns.reverse(); }],
+      ['unordered timestamp', (document) => {
+        document.measurementAudit.reproducibilityRuns[0].generatedAt = document.generatedAt;
+      }],
+      ['reproduction extra field', (document) => {
+        document.measurementAudit.reproducibilityRuns[0].forged = true;
+      }],
+      ['bindings extra field', (document) => {
+        document.measurementAudit.reproducibilityRuns[0].bindings.forged = true;
+      }],
+      ['subjectSha binding', (document) => {
+        document.measurementAudit.reproducibilityRuns[0].bindings.subjectSha = 'f'.repeat(40);
+      }],
+      ['subjectTree binding', (document) => {
+        document.measurementAudit.reproducibilityRuns[0].bindings.subjectTree = 'f'.repeat(40);
+      }],
+      ['environment binding', (document) => {
+        document.measurementAudit.reproducibilityRuns[0].bindings.environment.cpu.model = 'forged';
+      }],
+      ['runnerSha binding', (document) => {
+        document.measurementAudit.reproducibilityRuns[0].bindings.runnerSha = 'f'.repeat(40);
+      }],
+      ['runnerTree binding', (document) => {
+        document.measurementAudit.reproducibilityRuns[0].bindings.runnerTree = 'f'.repeat(40);
+      }],
+      ['bindings runnerContentHash', (document) => {
+        document.measurementAudit.reproducibilityRuns[0].bindings.runnerContentHash = 'f'.repeat(64);
+      }],
+      ['run runnerContentHash', (document) => {
+        document.measurementAudit.reproducibilityRuns[0].runnerContentHash = 'f'.repeat(64);
+      }],
+      ['changedPaths binding', (document) => {
+        document.measurementAudit.reproducibilityRuns[0]
+          .bindings.changedPaths.push('frontend-app/src/forged.js');
+      }],
+      ['missing metric', (document) => {
+        delete document.measurementAudit.reproducibilityRuns[0].metrics['P04-resource-budget'];
+      }],
+      ['metric identity', (document) => {
+        document.measurementAudit.reproducibilityRuns[0]
+          .metrics['P02-history-budget'].metricId = 'P03-feedback-budget';
+      }],
+      ['metric subject', (document) => {
+        document.measurementAudit.reproducibilityRuns[0]
+          .metrics['P03-feedback-budget'].subjectSha = 'f'.repeat(40);
+      }],
+      ['metric raw sample', (document) => {
+        document.measurementAudit.reproducibilityRuns[0].metrics['P03-feedback-budget']
+          .cases['stop-visible-feedback'].durationSamplesMs[0] = 999;
+      }],
+      ['designated metric subject', (document) => {
+        document.metrics['P01-render-isolation'].subjectSha = 'f'.repeat(40);
+      }],
+    ];
+    for (const [label, mutate] of mutations) {
+      expect(statusAfter(mutate), label).toBe('FAIL');
+    }
   }, 60_000);
 
   it('binds every performance control to the audited runner content files', () => {

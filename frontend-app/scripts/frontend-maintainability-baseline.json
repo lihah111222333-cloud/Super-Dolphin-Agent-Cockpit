@@ -114,6 +114,59 @@
         "run": 2,
         "generatedAt": "2026-07-17T19:16:23.050Z",
         "runnerContentHash": "27836162e802286d263f86836f75e8b5ebab73dd2661eee653716b3ac7ed866a",
+        "bindings": {
+          "subjectSha": "b40867229af8e17916c00393639ccb0fcb4bf6fc",
+          "subjectTree": "b16c5c05458424a489132c313f83045933a53b67",
+          "environment": {
+            "os": {
+              "platform": "darwin",
+              "release": "25.5.0",
+              "arch": "arm64"
+            },
+            "cpu": {
+              "model": "Apple M5 Pro",
+              "logicalCores": 18
+            },
+            "totalMemoryBytes": 68719476736,
+            "node": "v25.6.1",
+            "npm": "11.9.0",
+            "go": "go version go1.26.5 darwin/arm64"
+          },
+          "runnerSha": "3df6460d64b0e2ed79483463af9b35f80930366b",
+          "runnerTree": "6c97ed2cad5982564d9e176a33de02c87d6cc419",
+          "runnerContentHash": "27836162e802286d263f86836f75e8b5ebab73dd2661eee653716b3ac7ed866a",
+          "changedPaths": [
+            "docs/doc/codemap/README.md",
+            "docs/doc/codemap/ai-index.json",
+            "docs/doc/codemap/project-map/AI_PROJECT_DRIFT.md",
+            "docs/doc/codemap/project-map/AI_PROJECT_MANIFEST.json",
+            "docs/doc/codemap/project-map/AI_PROJECT_MAP.md",
+            "docs/doc/codemap/project-map/index/app-ui.tsv",
+            "docs/doc/codemap/project-map/index/other.tsv",
+            "frontend-app/package.json",
+            "frontend-app/scripts/chat-history-benchmark.mjs",
+            "frontend-app/scripts/chat-history-benchmark.test.mjs",
+            "frontend-app/scripts/delivery-smoke-runner.mjs",
+            "frontend-app/scripts/delivery-smoke-runner.test.mjs",
+            "frontend-app/scripts/evidence-provenance.mjs",
+            "frontend-app/scripts/evidence-provenance.test.mjs",
+            "frontend-app/scripts/frontend-performance-cases.json",
+            "frontend-app/scripts/performance-budget-config.mjs",
+            "frontend-app/scripts/performance-budget-model.mjs",
+            "frontend-app/scripts/performance-budget-model.test.mjs",
+            "frontend-app/scripts/performance-budget-runner.mjs",
+            "frontend-app/scripts/performance-budget-runner.test.mjs",
+            "frontend-app/scripts/render-isolation-probe.test.jsx",
+            "frontend-app/scripts/resource-budget.mjs",
+            "frontend-app/scripts/resource-budget.test.mjs",
+            "frontend-app/scripts/stop-feedback-benchmark.mjs",
+            "frontend-app/scripts/stop-feedback-benchmark.test.mjs",
+            "scripts/ai_maintenance/gate_execution.go",
+            "scripts/ai_maintenance/main.go",
+            "scripts/ai_maintenance/main_test.go",
+            "scripts/sqlc_verify_worktree_guard_test.go"
+          ]
+        },
         "metrics": {
           "P01-render-isolation": {
             "metricId": "P01-render-isolation",
@@ -2211,6 +2264,59 @@
         "run": 3,
         "generatedAt": "2026-07-17T19:16:52.601Z",
         "runnerContentHash": "27836162e802286d263f86836f75e8b5ebab73dd2661eee653716b3ac7ed866a",
+        "bindings": {
+          "subjectSha": "b40867229af8e17916c00393639ccb0fcb4bf6fc",
+          "subjectTree": "b16c5c05458424a489132c313f83045933a53b67",
+          "environment": {
+            "os": {
+              "platform": "darwin",
+              "release": "25.5.0",
+              "arch": "arm64"
+            },
+            "cpu": {
+              "model": "Apple M5 Pro",
+              "logicalCores": 18
+            },
+            "totalMemoryBytes": 68719476736,
+            "node": "v25.6.1",
+            "npm": "11.9.0",
+            "go": "go version go1.26.5 darwin/arm64"
+          },
+          "runnerSha": "3df6460d64b0e2ed79483463af9b35f80930366b",
+          "runnerTree": "6c97ed2cad5982564d9e176a33de02c87d6cc419",
+          "runnerContentHash": "27836162e802286d263f86836f75e8b5ebab73dd2661eee653716b3ac7ed866a",
+          "changedPaths": [
+            "docs/doc/codemap/README.md",
+            "docs/doc/codemap/ai-index.json",
+            "docs/doc/codemap/project-map/AI_PROJECT_DRIFT.md",
+            "docs/doc/codemap/project-map/AI_PROJECT_MANIFEST.json",
+            "docs/doc/codemap/project-map/AI_PROJECT_MAP.md",
+            "docs/doc/codemap/project-map/index/app-ui.tsv",
+            "docs/doc/codemap/project-map/index/other.tsv",
+            "frontend-app/package.json",
+            "frontend-app/scripts/chat-history-benchmark.mjs",
+            "frontend-app/scripts/chat-history-benchmark.test.mjs",
+            "frontend-app/scripts/delivery-smoke-runner.mjs",
+            "frontend-app/scripts/delivery-smoke-runner.test.mjs",
+            "frontend-app/scripts/evidence-provenance.mjs",
+            "frontend-app/scripts/evidence-provenance.test.mjs",
+            "frontend-app/scripts/frontend-performance-cases.json",
+            "frontend-app/scripts/performance-budget-config.mjs",
+            "frontend-app/scripts/performance-budget-model.mjs",
+            "frontend-app/scripts/performance-budget-model.test.mjs",
+            "frontend-app/scripts/performance-budget-runner.mjs",
+            "frontend-app/scripts/performance-budget-runner.test.mjs",
+            "frontend-app/scripts/render-isolation-probe.test.jsx",
+            "frontend-app/scripts/resource-budget.mjs",
+            "frontend-app/scripts/resource-budget.test.mjs",
+            "frontend-app/scripts/stop-feedback-benchmark.mjs",
+            "frontend-app/scripts/stop-feedback-benchmark.test.mjs",
+            "scripts/ai_maintenance/gate_execution.go",
+            "scripts/ai_maintenance/main.go",
+            "scripts/ai_maintenance/main_test.go",
+            "scripts/sqlc_verify_worktree_guard_test.go"
+          ]
+        },
         "metrics": {
           "P01-render-isolation": {
             "metricId": "P01-render-isolation",
