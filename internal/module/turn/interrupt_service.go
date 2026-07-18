@@ -22,7 +22,7 @@ func (s *service) InterruptTurnForTarget(ctx context.Context, session contract.S
 	if err != nil {
 		return TurnStatus{}, false, err
 	}
-	claim := s.tracker.ClaimInterruptTarget(threadID, expectedTurnID)
+	claim := s.tracker.ClaimInterruptTarget(threadID, expectedTurnID, requestID)
 	active := claim.target
 	span := s.beginTurnTraceSpan(ctx, "turn.interrupt", threadID, "", active.localID, platformobs.NewCodeAnchor("internal/module/turn/interrupt_service.go", "turn.(*service).InterruptTurn", 11), map[string]any{"source": source})
 	ctx = span.ctx
@@ -32,7 +32,11 @@ func (s *service) InterruptTurnForTarget(ctx context.Context, session contract.S
 		return attachInterruptEnvelope(before, buildTurnInterruptEnvelope(before.State, before.State, false, false, 0, false)), false, nil
 	}
 	if claim.accepted {
-		return before, true, nil
+		return attachAcceptedInterruptRequestID(before, claim.acceptedRequestID), true, nil
+	}
+	if claim.conflict {
+		status := attachInterruptEnvelope(before, buildTurnInterruptNotAppliedEnvelope(before.State))
+		return attachAcceptedInterruptRequestID(status, claim.acceptedRequestID), false, nil
 	}
 	if !claim.claimed {
 		return before, false, nil
@@ -40,20 +44,20 @@ func (s *service) InterruptTurnForTarget(ctx context.Context, session contract.S
 	start := time.Now()
 	waited, err := interruptAndWait(ctx, session, nil, active, threadID, source, requestID, nil)
 	if errors.Is(err, contract.ErrInterruptTargetChanged) {
-		releaseInterruptClaim(s.tracker, active.localID)
+		releaseInterruptClaim(s.tracker, active.localID, requestID)
 		return attachInterruptEnvelope(before, buildTurnInterruptNotAppliedEnvelope(before.State)), false, nil
 	}
 	if err != nil {
-		releaseInterruptClaim(s.tracker, active.localID)
+		releaseInterruptClaim(s.tracker, active.localID, requestID)
 		return TurnStatus{}, false, err
 	}
 	if !waited {
-		releaseInterruptClaim(s.tracker, active.localID)
+		releaseInterruptClaim(s.tracker, active.localID, requestID)
 		return before, false, nil
 	}
-	confirmInterruptClaim(s.tracker, active.localID)
+	confirmInterruptClaim(s.tracker, active.localID, requestID)
 	status, err = s.finishInterrupt(ctx, active, before, start, waited)
-	return status, true, err
+	return attachAcceptedInterruptRequestID(status, requestID), true, err
 }
 
 // finishInterrupt 在 provider 确认收到中断后等待本地 tracker 收敛，并构造响应 envelope。

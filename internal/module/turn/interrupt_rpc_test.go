@@ -61,6 +61,60 @@ func TestTurnInterruptHandlerReturnsEnvelope(t *testing.T) {
 	}
 }
 
+func TestTurnInterruptConflictEchoesAcceptedRequestID(t *testing.T) {
+	handle := newStubTurnHandle("local-request-id", "provider-request-id")
+	interruptCalls := 0
+	session := &stubSession{
+		threadID: "thread-request-id",
+		startTurn: func(context.Context, dto.TurnRequest) (contract.TurnHandle, error) {
+			return handle, nil
+		},
+		interrupt: func(context.Context, dto.InterruptRequest) error {
+			interruptCalls++
+			handle.complete(nil)
+			return nil
+		},
+	}
+	svc := NewServiceWithPromptAssembly(silentLogger(), &stubPromptAssemblyService{})
+	startInterruptRPCTestTurn(t, svc, session, dto.TurnRequest{
+		LocalID: "local-request-id", ThreadID: "thread-request-id", Inputs: []dto.InputItem{{Type: "text", Content: "hello"}},
+	})
+	server := platformrpc.NewServer(platformrpc.Params{Config: &contract.Config{RPCAddr: "127.0.0.1:0"}})
+	server.Register(handler.Map{"turn/interrupt": turnInterruptHandler(svc, rpcHelperResolver{session: session})})
+
+	accepted := dispatchInterruptRPCTestResult(t, server, `{"threadId":"thread-request-id","expectedTurnId":"local-request-id","requestId":"request-A"}`)
+	conflict := dispatchInterruptRPCTestResult(t, server, `{"threadId":"thread-request-id","expectedTurnId":"local-request-id","requestId":"request-B"}`)
+	if !accepted.Accepted || accepted.RequestID != "request-A" {
+		t.Fatalf("accepted result = %#v, want request-A", accepted)
+	}
+	if conflict.OK || conflict.Accepted || conflict.ErrorCode != "NOT_APPLIED" || conflict.Mode != "not_applied" {
+		t.Fatalf("conflict result = %#v, want explicit NOT_APPLIED", conflict)
+	}
+	if conflict.RequestID != "request-A" || conflict.RequestID == "request-B" {
+		t.Fatalf("conflict requestId = %q, want accepted request-A and never request-B", conflict.RequestID)
+	}
+	if interruptCalls != 1 {
+		t.Fatalf("provider interrupt calls = %d, want 1", interruptCalls)
+	}
+}
+
+func TestInterruptResponseRequestIDDoesNotEchoConcurrentConflict(t *testing.T) {
+	pendingConflict := attachAcceptedInterruptRequestID(
+		attachInterruptEnvelope(TurnStatus{State: string(StateRunning)}, buildTurnInterruptNotAppliedEnvelope(string(StateRunning))),
+		"",
+	)
+	if got := interruptResponseRequestID(pendingConflict, "request-B"); got != "" {
+		t.Fatalf("concurrent conflict requestId = %q, want omitted", got)
+	}
+	providerNotApplied := attachInterruptEnvelope(
+		TurnStatus{State: string(StateRunning)},
+		buildTurnInterruptNotAppliedEnvelope(string(StateRunning)),
+	)
+	if got := interruptResponseRequestID(providerNotApplied, "request-A"); got != "request-A" {
+		t.Fatalf("provider NOT_APPLIED requestId = %q, want existing request-A feedback", got)
+	}
+}
+
 func TestTurnInterruptTargetChangedHasZeroProviderSideEffects(t *testing.T) {
 	t.Parallel()
 	testTurnInterruptTargetChangedHasZeroProviderSideEffects(t)

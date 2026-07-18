@@ -167,6 +167,8 @@ type trackedTurn struct {
 	lastError                     string
 	interruptRequested            bool
 	interruptClaimed              bool
+	interruptClaimRequestID       string
+	interruptAcceptedRequestID    string
 	handle                        contract.TurnHandle
 	sm                            *stateless.StateMachine
 }
@@ -179,11 +181,13 @@ type activeTurn struct {
 }
 
 type interruptClaim struct {
-	target   activeTurn
-	before   TurnStatus
-	found    bool
-	claimed  bool
-	accepted bool
+	target            activeTurn
+	before            TurnStatus
+	found             bool
+	claimed           bool
+	accepted          bool
+	conflict          bool
+	acceptedRequestID string
 }
 
 // newTurnTracker 创建默认进程内 tracker，终态记录按 trackerTTL 延迟清理。
@@ -326,10 +330,11 @@ func (t *turnTracker) MarkInterruptRequested(localID string) bool {
 	return interrupted
 }
 
-// ClaimInterruptTarget 在 tracker 写锁内完成 active 选择、expectedTurnID 比较和 handle 捕获。
-func (t *turnTracker) ClaimInterruptTarget(threadID, expectedTurnID string) interruptClaim {
+// ClaimInterruptTarget 在 tracker 写锁内完成 active 选择、Stop identity 比较和 handle 捕获。
+func (t *turnTracker) ClaimInterruptTarget(threadID, expectedTurnID, requestID string) interruptClaim {
 	threadID = strings.TrimSpace(threadID)
 	expectedTurnID = strings.TrimSpace(expectedTurnID)
+	requestID = strings.TrimSpace(requestID)
 	claim := interruptClaim{}
 	if threadID == "" {
 		return claim
@@ -337,40 +342,78 @@ func (t *turnTracker) ClaimInterruptTarget(threadID, expectedTurnID string) inte
 	claim.found = t.store.MutateLatest(func(turn *trackedTurn) bool {
 		return turn.threadID == threadID && !turn.isTerminal()
 	}, func(turn *trackedTurn) {
-		claim.target = activeTurnFromTracked(turn)
-		claim.before = turn.status()
-		if expectedTurnID != "" && turn.localID != expectedTurnID {
-			return
-		}
-		if turn.interruptRequested {
-			claim.accepted = true
-			return
-		}
-		if turn.interruptClaimed {
-			return
-		}
-		turn.interruptClaimed = true
-		claim.claimed = true
+		applyActiveInterruptClaim(turn, expectedTurnID, requestID, &claim)
+	})
+	if claim.found || expectedTurnID == "" {
+		return claim
+	}
+	t.store.View(expectedTurnID, func(turn *trackedTurn) {
+		applyTerminalInterruptDecision(turn, threadID, requestID, &claim)
 	})
 	return claim
 }
 
-// releaseInterruptClaim 释放尚未被 provider 接受的中断 claim。
-func releaseInterruptClaim(t *turnTracker, localID string) {
-	t.store.Mutate(strings.TrimSpace(localID), func(turn *trackedTurn) {
-		turn.interruptClaimed = false
-	})
+// applyActiveInterruptClaim 在已持有的 tracker 写锁内判定 active turn 的 Stop ownership。
+func applyActiveInterruptClaim(turn *trackedTurn, expectedTurnID, requestID string, claim *interruptClaim) {
+	claim.target = activeTurnFromTracked(turn)
+	claim.before = turn.status()
+	if expectedTurnID != "" && turn.localID != expectedTurnID {
+		return
+	}
+	if turn.interruptAcceptedRequestID != "" || turn.interruptRequested {
+		applyAcceptedInterruptDecision(turn, requestID, claim)
+		return
+	}
+	if turn.interruptClaimed {
+		claim.conflict = turn.interruptClaimRequestID != requestID
+		return
+	}
+	turn.interruptClaimed = true
+	turn.interruptClaimRequestID = requestID
+	claim.claimed = true
 }
 
-// confirmInterruptClaim 在 provider 接受后把 claim 推进为 interrupting 状态。
-func confirmInterruptClaim(t *turnTracker, localID string) bool {
-	confirmed := false
+// applyTerminalInterruptDecision 只允许已保存 accepted requestId 的终态 turn 回放原 Stop 判定。
+func applyTerminalInterruptDecision(turn *trackedTurn, threadID, requestID string, claim *interruptClaim) {
+	if turn.threadID != threadID || turn.interruptAcceptedRequestID == "" {
+		return
+	}
+	claim.found = true
+	claim.before = turn.status()
+	applyAcceptedInterruptDecision(turn, requestID, claim)
+}
+
+// applyAcceptedInterruptDecision 区分同 requestId 幂等重试与不同 requestId 冲突。
+func applyAcceptedInterruptDecision(turn *trackedTurn, requestID string, claim *interruptClaim) {
+	claim.acceptedRequestID = turn.interruptAcceptedRequestID
+	claim.accepted = turn.interruptAcceptedRequestID == requestID
+	claim.conflict = !claim.accepted
+}
+
+// releaseInterruptClaim 只释放同一 requestId 尚未被 provider 接受的中断 claim。
+func releaseInterruptClaim(t *turnTracker, localID, requestID string) {
 	t.store.Mutate(strings.TrimSpace(localID), func(turn *trackedTurn) {
-		if !turn.interruptClaimed {
+		if turn.interruptClaimRequestID != strings.TrimSpace(requestID) {
 			return
 		}
 		turn.interruptClaimed = false
+		turn.interruptClaimRequestID = ""
+	})
+}
+
+// confirmInterruptClaim 原子保存 provider 接受的 requestId，并把 claim 推进为 interrupting 状态。
+func confirmInterruptClaim(t *turnTracker, localID, requestID string) bool {
+	confirmed := false
+	requestID = strings.TrimSpace(requestID)
+	t.store.Mutate(strings.TrimSpace(localID), func(turn *trackedTurn) {
+		if !turn.interruptClaimed || turn.interruptClaimRequestID != requestID {
+			return
+		}
+		turn.interruptClaimed = false
+		turn.interruptClaimRequestID = ""
+		turn.interruptAcceptedRequestID = requestID
 		if turn.isTerminal() {
+			turn.updatedAt = t.store.Tick()
 			return
 		}
 		if err := turn.sm.Fire(string(TriggerInterrupt)); err != nil {

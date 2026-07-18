@@ -402,21 +402,31 @@ func turnInterruptHandler(svc Service, resolver contract.SessionResolver) handle
 				return nil, errors.New("turn/interrupt: target-aware interrupt service is required")
 			}
 			status, accepted, err := targeted.InterruptTurnForTarget(ctx, session, p.Source, p.ExpectedTurnID, p.RequestID)
+			responseRequestID := interruptResponseRequestID(status, p.RequestID)
 			if err != nil {
 				if errors.Is(err, context.DeadlineExceeded) {
-					return buildInterruptFailureResult(status, status.interruptEnvelope(), p.ExpectedTurnID, p.RequestID, accepted), nil
+					return buildInterruptFailureResult(status, status.interruptEnvelope(), p.ExpectedTurnID, responseRequestID, accepted), nil
 				}
 				return nil, err
 			}
 			if !accepted {
 				if status.interruptEnvelope().mode == "not_applied" {
-					return buildInterruptNotAppliedResult(status, status.interruptEnvelope(), p.ExpectedTurnID, p.RequestID), nil
+					return buildInterruptNotAppliedResult(status, status.interruptEnvelope(), p.ExpectedTurnID, responseRequestID), nil
 				}
-				return buildInterruptTargetChangedResult(status, p.ExpectedTurnID, p.RequestID), nil
+				return buildInterruptTargetChangedResult(status, p.ExpectedTurnID, responseRequestID), nil
 			}
-			return buildInterruptResult(status, status.interruptEnvelope(), p.ExpectedTurnID, p.RequestID, true), nil
+			return buildInterruptResult(status, status.interruptEnvelope(), p.ExpectedTurnID, responseRequestID, true), nil
 		})
 	})
+}
+
+// interruptResponseRequestID 只在 service 尚未决议 Stop identity 时沿用请求 ID。
+func interruptResponseRequestID(status TurnStatus, fallback string) string {
+	envelope := status.interruptEnvelope()
+	if envelope.requestIDKnown {
+		return strings.TrimSpace(envelope.requestID)
+	}
+	return strings.TrimSpace(fallback)
 }
 
 // turnForceCompleteHandler 处理强制完成请求，只负责把 service 成功结果映射为 RPC payload。
