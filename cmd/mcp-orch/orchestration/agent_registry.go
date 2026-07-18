@@ -108,6 +108,21 @@ func (r *agentRegistry) withAgentReadLocked(agentID string, fn func(*agentState)
 	return fn(agent)
 }
 
+// remoteTerminalTargetsCurrentTurn 防止淘汰后的旧终态收口已替换的 active turn。
+func (r *agentRegistry) remoteTerminalTargetsCurrentTurn(agentID, turnID string) bool {
+	if r == nil {
+		return false
+	}
+	r.rLock()
+	defer r.rUnlock()
+	agent, err := r.lookupAgentByIDLocked(agentID)
+	if err != nil {
+		return false
+	}
+	activeTurnID := strings.TrimSpace(agent.activeTurnID)
+	return activeTurnID == "" || activeTurnID == strings.TrimSpace(turnID)
+}
+
 func (r *agentRegistry) withAgentReadLockedByAgentID(ctx context.Context, agentID string, fn func(*agentState) error) error {
 	if err := r.lockRead(ctx); err != nil {
 		return err
