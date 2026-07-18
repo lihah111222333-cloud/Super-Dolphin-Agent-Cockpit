@@ -128,14 +128,12 @@ async function enforceDeclaredSink(entry, errorSource) {
 	}
 }
 
-it('enforces every registered producer error cell through its declared sink', async () => {
-	const entries = assertProductionRegistryIsExact();
-	const cells = assertMatrixIsExact(entries);
-	const entriesByActionId = new Map(entries.map((entry) => [entry.actionId, entry]));
+const productionEntries = assertProductionRegistryIsExact();
+const productionCells = assertMatrixIsExact(productionEntries);
+const entriesByActionId = new Map(productionEntries.map((entry) => [entry.actionId, entry]));
 
-	for (const cell of cells) {
-		const entry = entriesByActionId.get(cell.actionId);
-		expect(entry, `matrix cell references missing producer ${cell.actionId}`).toBeDefined();
-		await enforceDeclaredSink(entry, cell.errorSource);
-	}
+it.each(productionCells.map((cell, index) => [index, cell]))('cell-%s', async (_index, { actionId, errorSource }) => {
+	const entry = entriesByActionId.get(actionId);
+	expect(entry, `matrix cell references missing producer ${actionId}`).toBeDefined();
+	await enforceDeclaredSink(entry, errorSource);
 });
