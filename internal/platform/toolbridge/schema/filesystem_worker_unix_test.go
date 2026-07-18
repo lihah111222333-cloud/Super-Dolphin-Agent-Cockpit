@@ -62,14 +62,30 @@ func TestNewClientDeadlineKillsBlockedPackageVerification(t *testing.T) {
 	config := newBlockingFilesystemWorkerClientConfig(t)
 	fixture := installBlockingFilesystemWorker(t)
 	setBlockingFilesystemWorkerEnvironment(t, fixture)
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	started := time.Now()
-	client, err := NewClient(ctx, config)
-	if client != nil || ErrorCode(err) != CodeProcessStartFailed || !errors.Is(err, context.DeadlineExceeded) {
-		t.Fatalf("NewClient(blocked verification) = (%v, %v), code=%q", client, err, ErrorCode(err))
+	type newClientResult struct {
+		client *Client
+		err    error
 	}
-	assertBlockedFilesystemWorkerResult(t, fixture, started)
+	result := make(chan newClientResult, 1)
+	safego.Go(context.Background(), nil, "toolbridge.schema-blocked-verification-test", func(context.Context) {
+		client, err := NewClient(ctx, config)
+		result <- newClientResult{client: client, err: err}
+	})
+	waitForHelperMarker(t, fixture.started)
+	cancelledAt := time.Now()
+	cancel()
+	var got newClientResult
+	select {
+	case got = <-result:
+	case <-time.After(filesystemSnapshotCleanupTimeout + reapDeadline + time.Second):
+		t.Fatal("NewClient blocked verification worker was not synchronously reaped")
+	}
+	if got.client != nil || ErrorCode(got.err) != CodeProcessStartFailed || !errors.Is(got.err, context.Canceled) {
+		t.Fatalf("NewClient(blocked verification) = (%v, %v), code=%q", got.client, got.err, ErrorCode(got.err))
+	}
+	assertBlockedFilesystemWorkerResult(t, fixture, cancelledAt)
 }
 
 func TestExecuteDeadlineKillsBlockedSnapshotBeforeHelperLaunch(t *testing.T) {
