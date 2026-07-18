@@ -180,7 +180,7 @@ func (limiter *helperLimiter) run(ctx context.Context, operation func() (Result,
 		return Result{}, err
 	}
 	result, err := operation()
-	if ErrorCode(err) != CodeReapFailed {
+	if !errorTreeContainsCode(err, CodeReapFailed) {
 		<-limiter.slots
 	}
 	return result, err
@@ -301,7 +301,12 @@ func stopAndReap(
 		}
 		return newDiagnostic(code, message, cause)
 	case <-timer.C:
-		return newDiagnostic(CodeReapFailed, "schema helper was not reaped within one second", errors.Join(terminateErr, cause))
+		closeErr := closeProcessGuard(guard)
+		return newDiagnostic(
+			CodeReapFailed,
+			"schema helper was not reaped within one second",
+			errors.Join(terminateErr, closeErr, cause),
+		)
 	}
 }
 
