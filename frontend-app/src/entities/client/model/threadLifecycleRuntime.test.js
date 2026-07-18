@@ -1,5 +1,24 @@
 import { describe, expect, it, vi } from 'vitest';
-import { attachActiveThreadRpcRuntime } from './threadLifecycleRuntime.js';
+import { attachActiveThreadRpcRuntime, INTERRUPT_RPC_TIMEOUT_MS } from './threadLifecycleRuntime.js';
+
+function successfulInterruptResult(overrides = {}) {
+  return {
+    ok: true,
+    accepted: true,
+    requestId: 'stop-request-1',
+    expectedTurnId: 'turn-1',
+    turnId: 'turn-1',
+    status: 'interrupted',
+    confirmed: true,
+    mode: 'interrupt_confirmed',
+    interruptSent: true,
+    stateBefore: 'running',
+    stateAfter: 'idle',
+    waitedMs: 1,
+    activeObserved: true,
+    ...overrides,
+  };
+}
 
 function createRuntime(overrides = {}) {
   return {
@@ -42,7 +61,7 @@ describe('thread lifecycle runtime', () => {
       Object.entries(payload).filter(([, value]) => value !== undefined && value !== ''),
     ));
     const deps = createDeps({ cleanObject });
-    const rpc = vi.fn().mockResolvedValue({ ok: true });
+    const rpc = vi.fn().mockResolvedValue(successfulInterruptResult());
     attachActiveThreadRpcRuntime(runtime, deps);
 
     await expect(runtime.activeThreadRPC('thread.interrupt', rpc)).resolves.toBe(true);
@@ -57,6 +76,73 @@ describe('thread lifecycle runtime', () => {
     });
     expect(cleanObject).toHaveBeenCalledTimes(1);
     expect(runtime.notifyAction).toHaveBeenCalledWith('已发送中断请求', 'success', { threadId: 'thread-1' });
+  });
+
+  it.each([
+    ['null', null],
+    ['empty object', {}],
+    ['missing accepted', successfulInterruptResult({ accepted: undefined })],
+  ])('fails fast for malformed interrupt response: %s', async (_name, response) => {
+    const runtime = createRuntime();
+    const rpc = vi.fn().mockResolvedValue(response);
+    attachActiveThreadRpcRuntime(runtime, createDeps());
+
+    await expect(runtime.activeThreadRPC('thread.interrupt', rpc)).rejects.toThrow(/response contract violation/);
+    expect(runtime.notifyAction).toHaveBeenCalledWith(
+      '停止未确认，任务可能仍在运行',
+      'warning',
+      { threadId: 'thread-1' },
+    );
+    expect(runtime.notifyAction).not.toHaveBeenCalledWith('已发送中断请求', 'success', { threadId: 'thread-1' });
+  });
+
+  it.each([
+    ['requestId', { requestId: 'another-request' }],
+    ['requestId type', { requestId: 1 }],
+    ['requestId surrounding whitespace', { requestId: ' stop-request-1 ' }],
+    ['expectedTurnId', { expectedTurnId: 'another-turn' }],
+    ['turnId target', { turnId: 'another-turn' }],
+    ['mode', { mode: 'interrupt_timeout' }],
+  ])('rejects interrupt response with mismatched %s', async (_name, overrides) => {
+    const runtime = createRuntime();
+    const rpc = vi.fn().mockResolvedValue(successfulInterruptResult(overrides));
+    attachActiveThreadRpcRuntime(runtime, createDeps());
+
+    await expect(runtime.activeThreadRPC('thread.interrupt', rpc)).rejects.toThrow(/response contract violation/);
+    expect(runtime.notifyAction).toHaveBeenCalledWith(
+      '停止未确认，任务可能仍在运行',
+      'warning',
+      { threadId: 'thread-1' },
+    );
+  });
+
+  it('shows unconfirmed pending feedback while the interrupt RPC waits and times out', async () => {
+    vi.useFakeTimers();
+    try {
+      const runtime = createRuntime();
+      const rpc = vi.fn(() => new Promise(() => {}));
+      attachActiveThreadRpcRuntime(runtime, createDeps());
+
+      const pending = runtime.activeThreadRPC('thread.interrupt', rpc);
+      expect(runtime.notifyAction).toHaveBeenCalledWith(
+        '正在请求停止，尚未确认，任务可能仍在运行',
+        'info',
+        { threadId: 'thread-1' },
+      );
+
+      const timedOut = expect(pending).rejects.toMatchObject({ code: 'THREAD_INTERRUPT_RPC_TIMEOUT' });
+      await vi.advanceTimersByTimeAsync(INTERRUPT_RPC_TIMEOUT_MS);
+      await timedOut;
+      expect(runtime.notifyAction).toHaveBeenCalledWith(
+        '停止未确认，任务可能仍在运行',
+        'warning',
+        { threadId: 'thread-1' },
+      );
+      expect(runtime.notifyAction).not.toHaveBeenCalledWith('已发送中断请求', 'success', { threadId: 'thread-1' });
+    }
+    finally {
+      vi.useRealTimers();
+    }
   });
 
   it('reports interrupt ok:false as warning without showing success', async () => {
@@ -90,7 +176,7 @@ describe('thread lifecycle runtime', () => {
     const deps = createDeps({
       activeThreadInterruptTarget: vi.fn(() => ({ threadId: 'thread-1', interruptible: false })),
     });
-    const rpc = vi.fn().mockResolvedValue({ ok: true });
+    const rpc = vi.fn().mockResolvedValue(successfulInterruptResult());
     attachActiveThreadRpcRuntime(runtime, deps);
 
     await expect(runtime.activeThreadRPC('thread.interrupt', rpc)).resolves.toBe(false);
@@ -107,7 +193,9 @@ describe('thread lifecycle runtime', () => {
         .mockReturnValueOnce('stop-request-1')
         .mockReturnValueOnce('stop-request-2'),
     });
-    const rpc = vi.fn().mockResolvedValue({ ok: true });
+    const rpc = vi.fn()
+      .mockResolvedValueOnce(successfulInterruptResult({ requestId: 'stop-request-1' }))
+      .mockResolvedValueOnce(successfulInterruptResult({ requestId: 'stop-request-2' }));
     attachActiveThreadRpcRuntime(runtime, deps);
 
     await expect(runtime.activeThreadRPC('thread.interrupt', rpc)).resolves.toBe(true);

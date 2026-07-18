@@ -5,6 +5,24 @@ function optionalUiArray() {
   return [];
 }
 
+function interruptSuccessResult({ expectedTurnId, requestId }) {
+  return {
+    ok: true,
+    accepted: true,
+    requestId,
+    expectedTurnId,
+    turnId: expectedTurnId,
+    status: 'interrupted',
+    confirmed: true,
+    mode: 'interrupt_confirmed',
+    interruptSent: true,
+    stateBefore: 'running',
+    stateAfter: 'idle',
+    waitedMs: 1,
+    activeObserved: true,
+  };
+}
+
 let bridgeCallback;
 let bridgeOptions;
 let runtimeReconnectCallback;
@@ -169,7 +187,9 @@ function registerBridgeEventHandlersForTest() {
     }[key] ?? null));
     backend.archiveThread.mockResolvedValue({ ok: true });
     backend.unarchiveThread.mockResolvedValue({ ok: true });
+    backend.interruptTurn.mockImplementation((params) => Promise.resolve(interruptSuccessResult(params)));
     backend.forceCompleteTurn.mockResolvedValue({ confirmed: true });
+    backend.recoverThread.mockResolvedValue({ recovered: true });
     backend.respondApproval.mockResolvedValue(null);
     backend.deleteThread.mockResolvedValue({ ok: true });
     backend.getThreadConfig.mockResolvedValue({

@@ -1226,6 +1226,20 @@ describe('rpc contract audit', () => {
     expect(report.invalidResponsePolicyEvidence).toEqual([])
   }, 15000)
 
+  it('rejects TURN_INTERRUPT when strict success-envelope validation is removed', async () => {
+    const repoRoot = await createMutatedRealResultHandledShadow({
+      runtime: (source) => source.replace(
+        "      if (action === 'thread.interrupt') validateInterruptSuccessResponse(result, request);\n",
+        '',
+      ),
+    })
+    const report = await auditRpcContracts({ repoRoot })
+    expect(report.invalidResponsePolicyEvidence).toContainEqual(expect.objectContaining({
+      key: 'TURN_INTERRUPT',
+      field: 'consumer',
+    }))
+  }, 15000)
+
   it('accepts one exact helper hop from activeThreadRPC to runActiveThreadRPC', async () => {
     const repoRoot = await createRealResultHandledShadow({})
     const report = await auditRpcContracts({ repoRoot })
@@ -1422,8 +1436,8 @@ describe('rpc contract audit', () => {
     const repoRoot = await createMutatedRealResultHandledShadow({
       runtime: (source) => source
         .replace(
-          'const result = await rpc(cleanObject(payload));\n      if (notifyThreadActionFailure({ action, addWarning, notifyAction, result, threadId })) return { ok: false, threadId, result };',
-          'const result = await rpc(cleanObject(payload));\n      if (notifyThreadActionFailure({ action, addWarning, notifyAction, response: result, threadId })) return { ok: false, threadId, result };',
+          'if (notifyThreadActionFailure({ action, addWarning, notifyAction, result, threadId })) return { ok: false, threadId, result };',
+          'if (notifyThreadActionFailure({ action, addWarning, notifyAction, response: result, threadId })) return { ok: false, threadId, result };',
         )
         .concat(`
           async function decoyRuntimeFlow(action, rpc, addWarning, notifyAction, threadId) {
@@ -1443,8 +1457,8 @@ describe('rpc contract audit', () => {
     const repoRoot = await createMutatedRealResultHandledShadow({
       runtime: (source) => source
         .replace(
-          'const result = await rpc(cleanObject(payload));\n      if (notifyThreadActionFailure({ action, addWarning, notifyAction, result, threadId })) return { ok: false, threadId, result };',
-          'const result = await rpc(cleanObject(payload));\n      const decoy = () => notifyThreadActionFailure({ action, addWarning, notifyAction, result, threadId });\n      if (notifyThreadActionFailure({ action, addWarning, notifyAction, response: result, threadId })) return { ok: false, threadId, result };',
+          'if (notifyThreadActionFailure({ action, addWarning, notifyAction, result, threadId })) return { ok: false, threadId, result };',
+          'const decoy = () => notifyThreadActionFailure({ action, addWarning, notifyAction, result, threadId });\n      if (notifyThreadActionFailure({ action, addWarning, notifyAction, response: result, threadId })) return { ok: false, threadId, result };',
         ),
     })
     const report = await auditRpcContracts({ repoRoot })
