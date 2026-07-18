@@ -17,12 +17,15 @@ import (
 	"github.com/creachadair/jrpc2"
 	"github.com/creachadair/jrpc2/handler"
 	"github.com/kelindar/event"
+	dto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/provider"
 	shareddto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/shared"
 	turndto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/turn"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/uistate"
 	platformconfig "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/config"
-	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/eventsurface"
 	platformrpc "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/rpc"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/claudecli"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/codexapp"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/unified"
 	uiwails "github.com/lihah111222333-cloud/super-dolphin-agent/internal/ui/wails"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util/safego"
 	"github.com/wailsapp/wails/v3/pkg/application"
@@ -34,6 +37,7 @@ const (
 	smokeItemID          = "assistant-stream-" + smokeTurnID
 	smokePromptHopTurnID = "turn-prompt-history-wails-hop"
 	smokePromptHopText   = "prompt history production Wails hop"
+	rawProviderSecret    = "Authorization: Bearer t03-raw-provider-secret-do-not-persist"
 )
 
 type triggerParams struct {
@@ -110,9 +114,10 @@ func main() {
 }
 
 type productionWailsRuntime struct {
-	transport   *platformrpc.Server
-	bridge      *uiwails.EventBridge
-	eventUnsubs []func()
+	transport        *platformrpc.Server
+	bridge           *uiwails.EventBridge
+	eventUnsubs      []func()
+	providerDispatch map[string]*unified.EventDispatcher
 }
 
 func (r *productionWailsRuntime) stop() {
@@ -127,7 +132,8 @@ func (r *productionWailsRuntime) stop() {
 func newProductionWailsRuntime(dispatcher *event.Dispatcher, project string) (*productionWailsRuntime, error) {
 	config := &platformconfig.Config{RPCAddr: "127.0.0.1:0"}
 	backend := platformrpc.NewServer(platformrpc.Params{Config: config})
-	backendHandlers := fixtureHandlers(dispatcher, project)
+	providerDispatch := providerDispatchers(dispatcher)
+	backendHandlers := fixtureHandlers(dispatcher, project, providerDispatch)
 	backend.Register(backendHandlers)
 
 	applicationTransport := platformrpc.NewServer(platformrpc.Params{Config: config})
@@ -159,8 +165,18 @@ func newProductionWailsRuntime(dispatcher *event.Dispatcher, project string) (*p
 	bridge := uiwails.NewEventBridge(dispatcher, lifecycle, slog.Default())
 	bridge.Start()
 	return &productionWailsRuntime{
-		transport: browserTransport, bridge: bridge, eventUnsubs: eventUnsubs,
+		transport: browserTransport, bridge: bridge, eventUnsubs: eventUnsubs, providerDispatch: providerDispatch,
 	}, nil
+}
+
+// providerDispatchers keeps each provider's real adapter isolated: registering both
+// adapters on one dispatcher would translate every raw event twice.
+func providerDispatchers(dispatcher *event.Dispatcher) map[string]*unified.EventDispatcher {
+	claude := unified.NewEventDispatcher(dispatcher, slog.Default())
+	claudecli.RegisterTranslators(claude)
+	codex := unified.NewEventDispatcher(dispatcher, slog.Default())
+	codexapp.RegisterTranslators(codex)
+	return map[string]*unified.EventDispatcher{"claude": claude, "codex": codex}
 }
 
 // adaptWailsEventsToBrowser 是 fixture adapter：只转发已由 production Wails EventManager 发出的事件。
@@ -192,7 +208,7 @@ func bindingHandlers(binding *uiwails.App, methods handler.Map) handler.Map {
 }
 
 // fixtureHandlers 组装启动快照和失败终态触发器的严格 RPC 契约。
-func fixtureHandlers(dispatcher *event.Dispatcher, project string) handler.Map {
+func fixtureHandlers(dispatcher *event.Dispatcher, project string, providers map[string]*unified.EventDispatcher) handler.Map {
 	handlers := handler.Map{}
 	for method, response := range fixtureResponses(project) {
 		current := response
@@ -226,7 +242,7 @@ func fixtureHandlers(dispatcher *event.Dispatcher, project string) handler.Map {
 		if params.CaseID != "terminal-failed" {
 			return nil, fmt.Errorf("unsupported failure smoke case %q", params.CaseID)
 		}
-		if err := publishTerminalFailure(dispatcher); err != nil {
+		if err := publishTerminalFailure(providers); err != nil {
 			return nil, err
 		}
 		return map[string]any{"ok": true, "caseId": params.CaseID}, nil
@@ -362,44 +378,23 @@ func publishPromptHistoryHop(dispatcher *event.Dispatcher) {
 }
 
 // publishTerminalFailure 通过 canonical DTO 发布部分响应和失败终态。
-func publishTerminalFailure(dispatcher *event.Dispatcher) error {
+// publishTerminalFailure injects sensitive raw provider failures into both production
+// adapters. Only their typed DTO output reaches EventBridge and the browser.
+func publishTerminalFailure(providers map[string]*unified.EventDispatcher) error {
 	now := time.Now().UTC()
-	header := shareddto.TurnHeader{
-		AgentHeader: shareddto.AgentHeader{
-			ThreadHeader: shareddto.ThreadHeader{
-				EventHeader: shareddto.EventHeader{Timestamp: now},
-				ThreadID:    smokeThreadID,
-			},
-			AgentID: "agent-failure-smoke",
-		},
-		TurnIDHeader: shareddto.TurnIDHeader{TurnID: smokeTurnID},
+	claude := providers["claude"]
+	codex := providers["codex"]
+	if claude == nil || codex == nil {
+		return fmt.Errorf("failure smoke provider adapters are required")
 	}
-	event.Publish(dispatcher, turndto.TurnOutputDelta{
-		TurnHeader: header,
-		Stream:     "message",
-		Delta:      "桌面 smoke 部分响应",
-	})
-	terminal := turndto.TurnTerminalV2{
-		SchemaVersion: 2,
-		EventID:       "desktop-failure-smoke-terminal",
-		ThreadID:      smokeThreadID,
-		TurnID:        smokeTurnID,
-		Outcome:       "failed",
-		PublicError: &turndto.PublicErrorV1{
-			Code:            "PROVIDER_FAILED",
-			Title:           "运行失败",
-			Message:         "提供方未能完成本轮响应",
-			DiagnosticID:    "desktop-failure-smoke",
-			Retryable:       true,
-			RecoveryActions: []string{"retry"},
-		},
-		PartialItemIDs: []string{smokeItemID},
-		OccurredAt:     now.Format(time.RFC3339Nano),
-	}
-	projected, err := eventsurface.ProjectRemoteTurnTerminal(terminal, "agent-failure-smoke")
-	if err != nil {
-		return fmt.Errorf("project failure smoke terminal: %w", err)
-	}
-	event.Publish(dispatcher, projected)
+	claude.Dispatch(dto.RawProviderEvent{EventType: "assistant:message_delta", Data: map[string]any{
+		"timestamp": now.Format(time.RFC3339Nano), "thread_id": smokeThreadID, "agent_id": smokeThreadID,
+		"turn_id": smokeTurnID, "stream": "message", "delta": "桌面 smoke 部分响应", "error": rawProviderSecret,
+	}})
+	codex.Dispatch(dto.RawProviderEvent{EventType: "turn/failed", Data: map[string]any{
+		"timestamp": now.Format(time.RFC3339Nano), "thread_id": smokeThreadID, "agent_id": smokeThreadID,
+		"turn_id": smokeTurnID, "error": rawProviderSecret, "reason": "provider_failure",
+		"accepted_partial_item_ids": []string{smokeItemID},
+	}})
 	return nil
 }

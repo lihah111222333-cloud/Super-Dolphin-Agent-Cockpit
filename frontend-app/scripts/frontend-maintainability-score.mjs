@@ -1,4 +1,4 @@
-import { execFileSync, spawnSync } from 'node:child_process';
+import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -41,6 +41,11 @@ const governancePaths = [
   'frontend-app/config/action-producer-registry.json',
   'frontend-app/config/action-producer-test-matrix.json',
   ...FROZEN_T04_T05_EXECUTION_CLOSURE_PATHS,
+  'frontend-app/src/shared/api/wailsBridge.js',
+  'internal/provider/claudecli/event_map.go',
+  'internal/provider/codexapp/event_map.go',
+  'internal/provider/unified/event_map.go',
+  'internal/ui/wails/bridge.go',
 ];
 const artifactProbes = new Set(['promptHistoryVisibleError', 'criticalTypecheck']);
 const plannedBaseSha = 'b40867229af8e17916c00393639ccb0fcb4bf6fc';
@@ -825,6 +830,69 @@ function validateDesktopFailureReport(report, { context, control, check, started
   validateReportBinding(report, context, startedAt, finishedAt);
   if (report.controlId !== control.id) fail('desktop failure smoke controlId mismatch');
   validateExactCaseResult(report.caseIds, report.testCount, check, 'desktop failure smoke');
+  const requiredSources = [
+    'frontend-app/scripts/desktop-failure-smoke.mjs',
+    'frontend-app/tests/e2e/desktop-failure.spec.js',
+    'frontend-app/playwright.failure.config.js',
+    'frontend-app/package.json',
+    'frontend-app/src/shared/api/wailsBridge.js',
+    'internal/ui/wails/testdata/failure_smoke_host/main.go',
+    'internal/provider/claudecli/event_map.go',
+    'internal/provider/codexapp/event_map.go',
+    'internal/provider/unified/event_map.go',
+    'internal/ui/wails/bridge.go',
+  ];
+  if (report.schemaVersion !== 2 || !report.sourceHashes || JSON.stringify(Object.keys(report.sourceHashes).sort()) !== JSON.stringify(requiredSources.slice().sort())) {
+    fail('desktop failure smoke requires source-hashed v2 raw report');
+  }
+  for (const sourcePath of requiredSources) {
+    if (report.sourceHashes[sourcePath] !== runnerFileSha256(context.repoRoot, context.subjectSha, sourcePath)) {
+      fail(`desktop failure source hash mismatch: ${sourcePath}`);
+    }
+  }
+  const executionLocations = [
+    ['goBuild', '.'],
+    ['playwright', 'frontend-app'],
+    ['wailsHost', '.'],
+    ['vite', 'frontend-app'],
+  ];
+  if (!report.execution || executionLocations.some(([name, cwd]) => {
+    const execution = report.execution[name];
+    return !Array.isArray(execution?.argv) || execution.argv.length === 0 || execution.cwd !== cwd
+      || !Number.isInteger(execution.exitCode) && execution.exitCode !== null
+      || execution.signal !== null && typeof execution.signal !== 'string'
+      || !/^[0-9a-f]{64}$/u.test(execution.outputSha256 || '');
+  })
+    || report.execution.goBuild.exitCode !== 0 || report.execution.playwright.exitCode !== 0
+    || report.execution.goBuild.signal !== null || report.execution.playwright.signal !== null
+    || report.execution.playwright.testCount !== check.testCount) {
+    fail('desktop failure execution evidence is incomplete');
+  }
+  if (!Array.isArray(report.cases) || report.cases.length !== check.caseIds.length) fail('desktop failure summary-only report is forbidden');
+  const requiredEvidence = {
+    'terminal-failed': {
+      hops: ['claudecli.raw', 'claudecli.adapter', 'turndto.TurnOutputDelta', 'wails.EventBridge', 'chromium.DOM', 'codexapp.raw', 'codexapp.adapter', 'turndto.TurnCompleted', 'turn/terminal', 'chromium.DOM'],
+      domAssertions: ['partial-response-visible', 'safe-terminal-visible', 'raw-secret-absent'],
+    },
+    'prompt-history-reject': {
+      hops: ['wails.rpc', 'thread/promptHistory', 'frontend.action', 'chromium.DOM', 'retry.control', 'wails.rpc', 'chromium.DOM'],
+      domAssertions: ['draft-preserved', 'cursor-preserved', 'retry-click-recovers'],
+    },
+  };
+  for (const [index, evidence] of report.cases.entries()) {
+    const expectedEvidence = requiredEvidence[check.caseIds[index]];
+    if (evidence?.caseId !== check.caseIds[index] || evidence.result !== 'GREEN'
+      || JSON.stringify(evidence.command) !== JSON.stringify(check.argv)
+      || JSON.stringify(evidence.hops) !== JSON.stringify(expectedEvidence.hops)
+      || JSON.stringify(evidence.domAssertions) !== JSON.stringify(expectedEvidence.domAssertions)
+      || !Array.isArray(evidence.secretAssertions) || evidence.secretAssertions.length !== 2
+      || evidence.execution?.status !== 'passed' || !Number.isFinite(evidence.execution.durationMs)) {
+      fail(`desktop failure case evidence is incomplete: ${check.caseIds[index]}`);
+    }
+  }
+  if (JSON.stringify(report).includes('t03-raw-provider-secret-do-not-persist')) {
+    fail('desktop failure raw report leaked provider secret');
+  }
   return normalizedRunnerStatus(report.status);
 }
 
@@ -2236,12 +2304,55 @@ function mountDetachedDependencies(sourceAppRoot, detachedAppRoot) {
   }
 }
 
+function startDetachedSubjectWatchdog({ leasePath, tempRoot, detachedRoot, repoRoot }) {
+  const payload = JSON.stringify({ leasePath, tempRoot, detachedRoot, repoRoot, parentPid: process.pid });
+  const watchdog = spawn(process.execPath, ['-e', `
+    const { execFileSync } = require('node:child_process');
+    const fs = require('node:fs');
+    const context = JSON.parse(process.argv[1]);
+    const cleanup = () => {
+      if (!fs.existsSync(context.leasePath)) return;
+      try {
+        if (fs.existsSync(context.detachedRoot)) {
+          try {
+            execFileSync('git', ['worktree', 'remove', '--force', context.detachedRoot], { cwd: context.repoRoot, stdio: 'ignore' });
+          } catch {
+            fs.rmSync(context.detachedRoot, { recursive: true, force: true });
+            execFileSync('git', ['worktree', 'prune'], { cwd: context.repoRoot, stdio: 'ignore' });
+          }
+        } else {
+          execFileSync('git', ['worktree', 'prune'], { cwd: context.repoRoot, stdio: 'ignore' });
+        }
+      } finally {
+        fs.rmSync(context.tempRoot, { recursive: true, force: true });
+      }
+    };
+    const timer = setInterval(() => {
+      if (!fs.existsSync(context.leasePath)) process.exit(0);
+      try {
+        process.kill(context.parentPid, 0);
+      } catch (error) {
+        if (error.code === 'ESRCH') {
+          clearInterval(timer);
+          cleanup();
+          process.exit(0);
+        }
+      }
+    }, 100);
+  `, payload], { detached: true, stdio: 'ignore' });
+  watchdog.unref();
+}
+
 function withDetachedSubject(context, callback) {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'frontend-maintainability-subject-'));
   const detachedRoot = path.join(fs.realpathSync(tempRoot), 'repo');
+  const leasePath = path.join(tempRoot, '.cleanup-lease');
+  fs.writeFileSync(leasePath, `${process.pid}\n`);
+  startDetachedSubjectWatchdog({ leasePath, tempRoot, detachedRoot, repoRoot: context.repoRoot });
   let worktreeRemoved = false;
   let tempRootRemoved = false;
   const cleanup = () => {
+    fs.rmSync(leasePath, { force: true });
     if (!worktreeRemoved) {
       if (fs.existsSync(detachedRoot)) {
         try {

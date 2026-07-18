@@ -62,6 +62,16 @@ const addedGovernancePaths = [
   'internal/provider/codexapp/failure_matrix_test.go',
   'internal/provider/claudecli/failure_matrix_test.go',
   'internal/module/turn/interrupt_rpc_test.go',
+  'frontend-app/scripts/desktop-failure-smoke.mjs',
+  'frontend-app/tests/e2e/desktop-failure.spec.js',
+  'frontend-app/playwright.failure.config.js',
+  'frontend-app/package.json',
+  'frontend-app/src/shared/api/wailsBridge.js',
+  'internal/ui/wails/testdata/failure_smoke_host/main.go',
+  'internal/provider/claudecli/event_map.go',
+  'internal/provider/codexapp/event_map.go',
+  'internal/provider/unified/event_map.go',
+  'internal/ui/wails/bridge.go',
 ];
 
 function copyWorkspaceFile(relativePath, repoRoot) {
@@ -964,6 +974,29 @@ describe('frozen scorer target binding', () => {
       requireClean: false,
       requireFinalContract: true,
     })).toThrow('frozen governance drift');
+    for (const path of [
+      'frontend-app/scripts/desktop-failure-smoke.mjs',
+      'frontend-app/tests/e2e/desktop-failure.spec.js',
+      'frontend-app/playwright.failure.config.js',
+      'frontend-app/package.json',
+      'frontend-app/src/shared/api/wailsBridge.js',
+      'internal/ui/wails/testdata/failure_smoke_host/main.go',
+      'internal/provider/claudecli/event_map.go',
+      'internal/provider/codexapp/event_map.go',
+      'internal/provider/unified/event_map.go',
+      'internal/ui/wails/bridge.go',
+    ]) {
+      const controlled = createFinalContractTarget();
+      write(path, 'forged governance drift\\n', controlled.repoRoot);
+      git(controlled.repoRoot, ['add', '.']);
+      git(controlled.repoRoot, ['commit', '-q', '-m', '测试：篡改 T03 冻结闭包']);
+      expect(() => inspectTargetRepository({
+        repoRoot: controlled.repoRoot,
+        subjectSha: git(controlled.repoRoot, ['rev-parse', 'HEAD']),
+        requireClean: true,
+        requireFinalContract: true,
+      })).toThrow('frozen governance drift');
+    }
   }, 90_000);
 
   it.each([
@@ -1047,6 +1080,8 @@ describe('frozen scorer target binding', () => {
     const fixture = createFinalCliFixture({ hangFirstProbe: true });
     const commandTmpRoot = mkdtempSync(join(tmpdir(), 'frontend-maintainability-timeout-proof-'));
     temporaryRepositories.push(commandTmpRoot);
+    const npmShim = join(commandTmpRoot, 'npm');
+    writeFileSync(npmShim, `#!/bin/sh\nexec '${process.execPath}' -e 'setInterval(() => {}, 1000)'\n`, { mode: 0o755 });
     try {
       const result = await runManagedCommand(process.execPath, [
         join(fixture.baseRoot, 'frontend-app', 'scripts', 'frontend-maintainability-score.mjs'),
@@ -1055,16 +1090,19 @@ describe('frozen scorer target binding', () => {
         '--subject', fixture.subjectSha,
       ], {
         cwd: join(fixture.baseRoot, 'frontend-app'),
-        env: { ...process.env, TMPDIR: commandTmpRoot },
+        env: { ...process.env, TMPDIR: commandTmpRoot, PATH: `${commandTmpRoot}:${process.env.PATH}` },
         timeoutMs: 5_000,
         killGraceMs: 20_000,
       });
 
       expect(result.timedOut, [result.stdout, result.stderr, result.error?.message].filter(Boolean).join('\n')).toBe(true);
       expect(result.signal ?? result.status).not.toBe(null);
-      expect(readdirSync(commandTmpRoot).filter((entry) => (
-        entry.startsWith('frontend-maintainability-subject-')
-      ))).toEqual([]);
+      const cleanupDeadline = Date.now() + 5_000;
+      while (readdirSync(commandTmpRoot).some((entry) => entry.startsWith('frontend-maintainability-subject-'))
+        && Date.now() < cleanupDeadline) {
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+      expect(readdirSync(commandTmpRoot).filter((entry) => entry.startsWith('frontend-maintainability-subject-'))).toEqual([]);
       const worktrees = git(fixture.baseRoot, ['worktree', 'list', '--porcelain']);
       expect(worktrees).not.toContain('frontend-maintainability-subject-');
       expect(existsSync(commandTmpRoot)).toBe(true);
