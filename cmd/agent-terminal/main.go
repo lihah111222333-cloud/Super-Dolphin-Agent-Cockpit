@@ -302,6 +302,7 @@ func selectStartup(ctx context.Context) (app.StartupSelection, error) {
 		},
 		ExpectedTransactionID: recovery.TransactionID(launch.TransactionID),
 		LeaseWait:             2 * time.Second,
+		DigestTimeout:         app.StartupDigestTimeout,
 	})
 }
 

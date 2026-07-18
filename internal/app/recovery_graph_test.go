@@ -66,7 +66,7 @@ func TestSelectStartupDoesNotRecordHealthyACKBeforeReady(t *testing.T) {
 	store, transaction, process := createStartupProbation(t)
 	selection, err := SelectStartup(context.Background(), StartupSelectorInput{
 		Store: store, Process: process, ExpectedTransactionID: transaction.Identity.TransactionID,
-		LeaseWait: time.Second,
+		LeaseWait: time.Second, DigestTimeout: StartupDigestTimeout,
 	})
 	if err != nil {
 		t.Fatalf("SelectStartup() error = %v", err)
@@ -91,6 +91,19 @@ func TestSelectStartupDoesNotRecordHealthyACKBeforeReady(t *testing.T) {
 	}
 	if !afterReady.Probation.ACKPresent || afterReady.Probation.ACK.Process != process {
 		t.Fatalf("ready ACK = %#v, want exact process %#v", afterReady.Probation, process)
+	}
+}
+
+func TestSelectStartupRejectsNonPositiveDigestTimeout(t *testing.T) {
+	store, transaction, process := createStartupProbation(t)
+	for _, digestTimeout := range []time.Duration{0, -time.Second} {
+		_, err := SelectStartup(context.Background(), StartupSelectorInput{
+			Store: store, Process: process, ExpectedTransactionID: transaction.Identity.TransactionID,
+			LeaseWait: time.Second, DigestTimeout: digestTimeout,
+		})
+		if err == nil || !strings.Contains(err.Error(), "startup digest timeout must be positive") {
+			t.Fatalf("SelectStartup(DigestTimeout=%s) error = %v, want positive timeout error", digestTimeout, err)
+		}
 	}
 }
 

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	recovery "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/appupdaterecovery"
+	platformconfig "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/config"
 )
 
 // StartupMode 是 normal graph 与 frozen Recovery graph 的互斥启动模式。
@@ -17,6 +18,8 @@ const (
 	StartupModeNormal StartupMode = "normal"
 	// StartupModeRecovery 禁止进入 normal graph，只暴露恢复服务。
 	StartupModeRecovery StartupMode = "recovery"
+	// StartupDigestTimeout 是生产启动摘要 helper 的唯一 deadline 配置。
+	StartupDigestTimeout = 15 * time.Second
 )
 
 // RecoveryProjection 是 Recovery graph 对持久 transaction 的只读投影。
@@ -45,12 +48,17 @@ type StartupSelectorInput struct {
 	Process               recovery.ProcessIdentity
 	ExpectedTransactionID recovery.TransactionID
 	LeaseWait             time.Duration
+	// DigestTimeout 允许测试缩短真实 timer；生产调用方必须传 StartupDigestTimeout。
+	DigestTimeout time.Duration
 }
 
 // SelectStartup 在 normal preflight 前只检查并返回唯一 active transaction 与 exact lease。
 func SelectStartup(ctx context.Context, input StartupSelectorInput) (StartupSelection, error) {
 	if input.Store == nil {
 		return StartupSelection{}, errors.New("startup selector store is required")
+	}
+	if input.DigestTimeout <= 0 {
+		return StartupSelection{}, errors.New("startup digest timeout must be positive")
 	}
 	transaction, found, err := discoverStartupTransaction(ctx, input)
 	if err != nil {
@@ -106,7 +114,7 @@ func validateStartupTransaction(ctx context.Context, transaction recovery.Transa
 	if input.ExpectedTransactionID != "" && transaction.Identity.TransactionID != input.ExpectedTransactionID {
 		return errors.New("probation transaction identity does not match launch contract")
 	}
-	return validateProbationCandidate(ctx, transaction, input.Process)
+	return validateProbationCandidate(ctx, transaction, input.Process, input.DigestTimeout)
 }
 
 // waitForProbationLease 在 candidate 先于 updater lease 落盘启动时做有界阻塞。
@@ -137,7 +145,12 @@ func waitForProbationLease(ctx context.Context, input StartupSelectorInput) (rec
 }
 
 // validateProbationCandidate 校验 probation state、lease、进程及候选摘要。
-func validateProbationCandidate(ctx context.Context, transaction recovery.Transaction, process recovery.ProcessIdentity) error {
+func validateProbationCandidate(
+	ctx context.Context,
+	transaction recovery.Transaction,
+	process recovery.ProcessIdentity,
+	digestTimeout time.Duration,
+) error {
 	if transaction.State != recovery.StateProbation {
 		return fmt.Errorf("active transaction state %q requires Recovery", transaction.State)
 	}
@@ -147,7 +160,9 @@ func validateProbationCandidate(ctx context.Context, transaction recovery.Transa
 	if transaction.Probation.Lease.Process != process {
 		return errors.New("candidate process identity does not match probation lease")
 	}
-	digest, err := recovery.ComputeReleaseDigestContext(ctx, transaction.Paths.Target)
+	digestCtx, cancelDigest := platformconfig.WithTimeout(ctx, digestTimeout)
+	defer cancelDigest()
+	digest, err := recovery.ComputeReleaseDigestContext(digestCtx, transaction.Paths.Target)
 	if err != nil {
 		return fmt.Errorf("verify probation candidate: %w", err)
 	}
