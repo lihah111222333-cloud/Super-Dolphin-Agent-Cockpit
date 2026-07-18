@@ -49,7 +49,7 @@ it('persists and deduplicates safe Health records with first and last occurrence
   expect(createFrontendHealthStore({ storage }).getSnapshot()).toEqual(store.getSnapshot());
 });
 
-it('makes malformed or field-expanded persisted Health data observable in memory-only mode', () => {
+it('fails fast on malformed or field-expanded persisted Health data', () => {
   const storage = storagePort();
   storage.set(FRONTEND_HEALTH_STORAGE_KEY, JSON.stringify([{ rawCause: 'must not load' }]));
   expect(createFrontendHealthStore({ storage }).getState()).toEqual({

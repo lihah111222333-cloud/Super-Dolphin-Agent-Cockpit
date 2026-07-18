@@ -42,6 +42,7 @@ const scriptRoot = dirname(fileURLToPath(import.meta.url));
 const frozenRepoRoot = resolve(scriptRoot, '..', '..');
 const scorerPath = join(scriptRoot, 'frontend-maintainability-score.mjs');
 const plannedBaseSha = 'b40867229af8e17916c00393639ccb0fcb4bf6fc';
+const T05_DELIVERY_EVIDENCE_TEST_TIMEOUT_MS = 30_000;
 const temporaryRepositories = [];
 const addedGovernancePaths = [
   'frontend-app/scripts/failure-matrix-runner.mjs',
@@ -871,6 +872,18 @@ describe('frontend maintainability scorer configuration', () => {
       ['node', 'node_modules/vitest/vitest.mjs', 'run', 'src/shared/ui/productionActionFailureMatrix.test.js', '--reporter=json', '--no-file-parallelism', '--maxWorkers=1'],
       ['node', 'frontend-app/scripts/failure-matrix-runner.mjs'],
     ]);
+    expect(backgroundHealth.allOf[0].testNames).toEqual([
+      'persists and deduplicates safe Health records with first and last occurrence times',
+      'fails fast on malformed or field-expanded persisted Health data',
+      'exposes one finite observable persistence failure state without a fallback store',
+      'makes a storage read exception observable even when the storage throws TypeError',
+      'uses the exact same identity for merge semantics and list keys',
+      'makes default persistence failure observable and clear does not silently report success',
+    ]);
+    expect(backgroundHealth.allOf[1]).toMatchObject({
+      testCount: 1,
+      testNames: ['routes provider reconnect cancellation to Health without an interactive error'],
+    });
     const publicErrorControl = controls.controls.find(({ id }) => id === 'C03-public-error-contract');
     expect(publicErrorControl.required).toBe(true);
     const publicErrorContract = publicErrorControl.allOf[0];
@@ -1810,6 +1823,8 @@ describe('executable evidence registry', () => {
     expect(performanceAuditPathAllowed('docs/doc/codemap/OTHER.md')).toBe(false);
   });
 
+  // This builds a detached delivery-evidence repository and validates all four T05 commands.
+  // Its Vitest budget is independent from, and must not relax, the frozen production T05 checks.
   it('requires Task4C delivery output to bind the subject and all four exact commands', () => {
     const { controls } = documents();
     const control = controls.controls.find(({ id }) => id === 'T05-build-embed-smoke');
@@ -1839,7 +1854,7 @@ describe('executable evidence registry', () => {
       ...valid,
       verdict: { ...valid.verdict, commands: valid.verdict.commands.slice(1) },
     }, options)).toBe('FAIL');
-  });
+  }, T05_DELIVERY_EVIDENCE_TEST_TIMEOUT_MS);
 
   it('fails a missing executable command instead of treating it as evidence', () => {
     expect(commandEvidenceStatus({
