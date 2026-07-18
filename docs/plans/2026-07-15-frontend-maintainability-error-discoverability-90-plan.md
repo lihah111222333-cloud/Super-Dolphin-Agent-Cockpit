@@ -103,7 +103,7 @@ Task 0 在 `frontend-app/scripts/` 创建唯一 controls/baseline JSON 和 score
 
 ## 3. 最新代码上的已确认问题
 
-以下事实已在同步基线 b4086722 上重新检查；它们不是历史猜测。
+以下事实来自同步基线 b4086722 的复查。
 
 ### 3.1 失败 turn 仍可显示为成功
 
@@ -119,11 +119,11 @@ Task 0 在 `frontend-app/scripts/` 创建唯一 controls/baseline JSON 和 score
 
 ### 3.3 历史审查中仍有效的门禁缺口
 
-- no-silent-async-failure 主要拦空 catch/显式丢错；`runUIAction.onError` 可省略，尚不能完整阻断 console-only、默认空值和假成功。
-- `tsconfig.contracts.json` 当前仍是 `checkJs:false`、`strict:false`；命令绿色不能证明 C04 的关键 JS/JSX 已被真实检查。
-- agentic/desktop-wide/business-flow 可复用导航与 mock 回归，但不能替代真实 provider/Wails 失败到 DOM；现有 smoke 尚未强制覆盖该链。
-- chat-history benchmark 只测 duration/heap，未设阈值；Task 0 冻结预算前 P02/P04 只能是 NOT_VERIFIED。
-- LSP 当前报告 `internal/provider/codexapp/factory.go:99 unusedfunc` Information；Task 1 触及该包，完成门禁前必须清零。
+- no-silent-async-failure 尚未阻断可省略 `runUIAction.onError` 导致的 console-only、默认空值和假成功。
+- `tsconfig.contracts.json` 的 `checkJs:false`、`strict:false` 不能证明 C04 关键 JS/JSX 已检查。
+- mock 回归不能替代 provider/Wails 失败到 DOM 的真实 smoke。
+- 未冻结阈值前，chat-history 的 P02/P04 只能是 NOT_VERIFIED。
+- `internal/provider/codexapp/factory.go:99 unusedfunc` Information 必须清零。
 
 本节没有给当前分数。Task 0 必须在实施提交上重新运行全部基线命令和 scorer。
 
@@ -368,27 +368,22 @@ scorer 只接受同一 SUBJECT_SHA 的本地结构化结果并派生状态；不
 
 ## 7. 对抗复审
 
-每一轮使用两名此前未参与过的智能体，审查同一个冻结文档 SHA 和代码 SHA：
+最终轮使用三名此前未参与的智能体，只读审查同一冻结文档 SHA、代码 SHA 和 dirty 边界：
 
 - Reviewer A：源码、终态、错误出口、字段链和 fail-fast。
 - Reviewer B：计划可执行性、评分、测试成本、桌面产品边界和文档复杂度。
+- Reviewer C：基线 provenance、门禁覆盖、集成冲突和发布就绪度。
 
 规则：
 
-- 两名 reviewer 都只审不改，分别给出 P0/P1/P2。
-- P0/P1 必须修复后再换两名全新 reviewer。
-- P2 带 owner 保留，除非会使分数低于门槛；每项 finding 必须有锚点、最小反例和最小修复。
-- 同一轮开始与结束都记录文档 SHA、代码 SHA 和 dirty 边界。
-- 历史 finding 必须映射到当前规则/测试，或因单机产品边界明确记为 N/A；不得靠删段落静默关闭。
-- 不把“还可以更严格”本身当作 finding；必须证明会导致错误不可见、错误成功、维护性回退或评分失真。
+- 三名 reviewer 分别给出带锚点、最小反例和修复的 P0/P1/P2；P0/P1 修复后必须更换三名全新 reviewer。
+- P2 带 owner 保留，除非导致低于门槛；历史 finding 必须映射到当前规则/测试或明确 N/A。
+- “还可以更严格”不单独成项，必须证明会造成错误不可见、错误成功、维护性回退或评分失真。
 
 ### 7.1 文档体积门禁
 
-- 本计划目标不超过 500 行、25 KiB。
-- 新规则优先更新现有段落，不重复粘贴完整状态机。
-- 详细 case 放入测试表或测试代码。
-- 单机桌面不引入分布式术语和证明链。
-- 若实现需要新的大协议，单独建 ADR/计划并说明真实触发条件。
+- 本计划不超过 500 行、25 KiB；规则就地更新，详细 case 留在测试，不重复状态机或引入单机不需要的分布式证明。
+- 新的大协议单独建 ADR/计划并写明触发条件。
 
 ---
 
@@ -430,7 +425,7 @@ scorer 只接受同一 SUBJECT_SHA 的本地结构化结果并派生状态；不
 - [ ] frontend lint、test、build 全部通过。
 - [ ] 相关 Go 测试、frontend embed verify 和 git diff --check 通过。
 - [ ] P01 同时满足绝对 render 线与不回退；history/feedback/resource 通过 SCORE_BASE 公式，三项治理文件未改。
-- [ ] 两名全新 reviewer 对同一冻结对象均无 open P0/P1。
+- [ ] 三名全新 reviewer 对同一冻结对象均无 open P0/P1。
 - [ ] 错误维度不低于 90，其他维度达到最低线，总分不低于 90。
 - [ ] 最终报告明确区分“计划达标”和“当前实现实际达标”。
 - [ ] diff 只包含授权范围，未覆盖任何用户已有非目标改动。
