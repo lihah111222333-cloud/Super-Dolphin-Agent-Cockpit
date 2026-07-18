@@ -1,3 +1,4 @@
+/** @param {unknown} value @param {string} label @returns {string} */
 function assertSafeSharedFilePreviewURL(value, label) {
   if (typeof value !== 'string' || !value || value.trim() !== value) {
     throw new TypeError(`${label} must be a canonical loopback preview URL`);

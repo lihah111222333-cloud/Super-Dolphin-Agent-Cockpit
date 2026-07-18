@@ -112,7 +112,7 @@ function validateUIStateAgentRuntimeMap(method, value) {
   }
 }
 
-/** @param {string} method @param {Record<string, any>} value */
+/** @param {string} method @param {Record<string, unknown>} value */
 function validateStateMaps(method, value) {
   for (const key of ['statuses', 'statusHeadersByThread', 'statusDetailsByThread']) {
     if (hasOwn(value, key)) validateUIStateTypedMap(method, value[key], key, 'string');
@@ -204,7 +204,7 @@ export function validateThreadPromptHistoryResponse(method, response) {
   if (!value.hasMore && value.nextCursor !== '') {
     throw new TypeError(`${method} response nextCursor must be empty when hasMore is false`);
   }
-  if (!normalizeString(value.nonce)) throw new TypeError(`${method} response nonce must be a non-empty string`);
+  if (typeof value.nonce !== 'string' || !normalizeString(value.nonce)) throw new TypeError(`${method} response nonce must be a non-empty string`);
   if (new TextEncoder().encode(value.nonce).byteLength > 2048) {
     throw new TypeError(`${method} response nonce exceeds 2048 bytes`);
   }

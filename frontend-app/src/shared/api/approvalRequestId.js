@@ -1,18 +1,27 @@
+/** @param {unknown} value @returns {number} */
 function strictPositiveApprovalRequestId(value) {
   return typeof value === 'number' && Number.isSafeInteger(value) && value > 0 ? value : 0;
 }
 
+/** @param {unknown} source @param {readonly string[]} keys @returns {number} */
 function positiveApprovalRequestIdFromFields(source, keys = ['requestId', 'request_id']) {
   if (!source || typeof source !== 'object') return 0;
+  const payload = /** @type {Record<string, unknown>} */ (source);
   for (const key of keys) {
-    if (!Object.prototype.hasOwnProperty.call(source, key)) continue;
-    return strictPositiveApprovalRequestId(source[key]);
+    if (!Object.prototype.hasOwnProperty.call(payload, key)) continue;
+    return strictPositiveApprovalRequestId(payload[key]);
   }
   return 0;
 }
 
+/**
+ * @param {Record<string, unknown>} source
+ * @param {readonly string[]} keys
+ * @param {string} fieldName
+ * @param {string} context
+ */
 function approvalTextFromFields(source, keys, fieldName, context) {
-  let value;
+  let value = '';
   let present = false;
   for (const key of keys) {
     if (!Object.prototype.hasOwnProperty.call(source, key)) continue;
@@ -33,6 +42,7 @@ function approvalTextFromFields(source, keys, fieldName, context) {
   return { present, value: present ? value : '' };
 }
 
+/** @param {unknown} raw @param {string} context @returns {number} */
 function normalizedApprovalRequestId(raw, context) {
   if (raw === undefined || raw === null || raw === '' || raw === 0) return 0;
   const normalized = strictPositiveApprovalRequestId(raw);
@@ -42,6 +52,7 @@ function normalizedApprovalRequestId(raw, context) {
   return normalized;
 }
 
+/** @param {Record<string, unknown>} source @param {string} context */
 function approvalRequestIdDetails(source, context) {
   let value;
   let present = false;
@@ -57,13 +68,15 @@ function approvalRequestIdDetails(source, context) {
   return { present, value: value || 0 };
 }
 
+/** @param {unknown} source @param {string} context */
 function approvalIdentityFromFields(source, context = 'approval') {
   if (!source || typeof source !== 'object' || Array.isArray(source)) {
     throw new TypeError(`${context}: approval identity must be an object`);
   }
-  const sessionScope = approvalTextFromFields(source, ['sessionScope', 'session_scope'], 'sessionScope', context);
-  const callId = approvalTextFromFields(source, ['callId', 'call_id'], 'callId', context);
-  const requestId = approvalRequestIdDetails(source, context);
+  const payload = /** @type {Record<string, unknown>} */ (source);
+  const sessionScope = approvalTextFromFields(payload, ['sessionScope', 'session_scope'], 'sessionScope', context);
+  const callId = approvalTextFromFields(payload, ['callId', 'call_id'], 'callId', context);
+  const requestId = approvalRequestIdDetails(payload, context);
   return {
     sessionScope: sessionScope.value,
     callId: callId.value,
@@ -73,6 +86,7 @@ function approvalIdentityFromFields(source, context = 'approval') {
   };
 }
 
+/** @param {unknown} source @param {string} context */
 function requireApprovalIdentity(source, context = 'approval') {
   const identity = approvalIdentityFromFields(source, context);
   if (!identity.sessionScope) throw new Error(`${context}: sessionScope is required`);
@@ -85,6 +99,7 @@ function requireApprovalIdentity(source, context = 'approval') {
   };
 }
 
+/** @param {unknown} source */
 function approvalIdentityKey(source) {
   const identity = requireApprovalIdentity(source);
   return JSON.stringify([identity.sessionScope, identity.callId, identity.requestId]);

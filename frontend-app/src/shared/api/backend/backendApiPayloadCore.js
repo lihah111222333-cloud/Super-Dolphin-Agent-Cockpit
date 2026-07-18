@@ -1,5 +1,3 @@
-// @ts-nocheck
-
 import { RPC_METHODS } from './backendRpcMethods.js';
 import {
   assertPlainObject,
@@ -14,6 +12,7 @@ import {
   normalizeOptionalLimit,
 } from './backendApiCommon.js';
 
+/** @param {string} method @param {unknown} params */
 function observabilityTracePayload(method, params) {
   const payload = assertPlainObject(method, params);
   const traceId = normalizeString(payload.traceId || payload.trace_id);
@@ -21,6 +20,7 @@ function observabilityTracePayload(method, params) {
   return cleanObject({ traceId, limit: normalizeOptionalLimit(method, payload), includeTail: payload.includeTail });
 }
 
+/** @param {string} method @param {unknown} params */
 function observabilityThreadPayload(method, params) {
   const payload = assertPlainObject(method, params);
   const threadId = normalizeString(payload.threadId || payload.thread_id);
@@ -28,11 +28,13 @@ function observabilityThreadPayload(method, params) {
   return cleanObject({ threadId, limit: normalizeOptionalLimit(method, payload), includeTail: payload.includeTail });
 }
 
+/** @param {string} method @param {unknown} params */
 function observabilityListPayload(method, params = {}) {
   const payload = assertPlainObject(method, params);
   return cleanObject({ limit: normalizeOptionalLimit(method, payload), component: normalizeString(payload.component) });
 }
 
+/** @param {string} method @param {unknown} params */
 function observabilityRecentPayload(method, params = {}) {
   const payload = assertPlainObject(method, params);
   return cleanObject({
@@ -48,6 +50,7 @@ function observabilityRecentPayload(method, params = {}) {
   });
 }
 
+/** @param {string} method @param {unknown} params */
 function threadScopedPayload(method, params) {
   const payload = assertPlainObject(method, params);
   const threadId = resolveThreadIdAliases(method, payload);
@@ -58,6 +61,7 @@ function threadScopedPayload(method, params) {
   return { threadId, unused };
 }
 
+/** @param {string} method @param {Record<string, unknown>} payload */
 function resolveThreadIdAliases(method, payload) {
   const camel = hasOwn(payload, 'threadId') ? normalizeString(payload.threadId) : '';
   const snake = hasOwn(payload, 'thread_id') ? normalizeString(payload.thread_id) : '';
@@ -71,6 +75,7 @@ function resolveThreadIdAliases(method, payload) {
   return threadId;
 }
 
+/** @param {string} method @param {unknown} params */
 function legacyThreadNamePayload(method, params) {
   const { unused, threadId } = threadScopedPayload(method, params);
   const name = takePayloadField(unused, 'name');
@@ -79,6 +84,7 @@ function legacyThreadNamePayload(method, params) {
   return { threadId, name };
 }
 
+/** @param {string} method @param {unknown} value @param {string} field */
 function memoryTargetPayload(method, value, field = 'target') {
   const target = normalizeString(value);
   if (target !== 'private' && target !== 'team') {
@@ -87,6 +93,7 @@ function memoryTargetPayload(method, value, field = 'target') {
   return target;
 }
 
+/** @param {string} method @param {unknown} params */
 function memoryEntryGetPayload(method, params) {
   const payload = requireKey(method, requireCwd(method, params), 'path');
   return {
@@ -95,8 +102,9 @@ function memoryEntryGetPayload(method, params) {
   };
 }
 
+/** @param {string} method @param {unknown} params */
 function memoryEntryUpsertPayload(method, params) {
-  const payload = requireCwd(method, params);
+  const payload = /** @type {Record<string, unknown> & { cwd: string }} */ (requireCwd(method, params));
   for (const key of ['name', 'description', 'type', 'content']) {
     if (!normalizeString(payload[key])) throw new Error(`${method}: ${key} is required`);
   }
@@ -112,8 +120,9 @@ function memoryEntryUpsertPayload(method, params) {
   });
 }
 
+/** @param {string} method @param {unknown} params */
 function memoryPairPayload(method, params) {
-  const payload = requireCwd(method, params);
+  const payload = /** @type {Record<string, unknown> & { cwd: string }} */ (requireCwd(method, params));
   for (const key of ['pathA', 'pathB']) {
     if (!normalizeString(payload[key])) throw new Error(`${method}: ${key} is required`);
   }
@@ -126,24 +135,28 @@ function memoryPairPayload(method, params) {
   };
 }
 
+/** @param {Record<string, unknown>} payload */
 function skillPersonalType(payload) {
   return normalizeString(payload.personal_type || payload.personalType);
 }
 
+/** @param {unknown} raw @returns {string} */
 function normalizeSkillSummarySuggestion(raw) {
   if (typeof raw === 'string') return normalizeString(raw);
   if (raw && typeof raw === 'object' && !Array.isArray(raw) && hasOwn(raw, 'description')) {
-    return normalizeString(raw.description);
+    return normalizeString(/** @type {Record<string, unknown>} */ (raw).description);
   }
   throw new Error(`${RPC_METHODS.SKILLS_SUMMARY_SUGGEST}: description is required`);
 }
 
+/** @param {string} method @param {unknown} params */
 function skillResolutionPayload(method, params = {}) {
   const payload = assertPlainObject(method, params);
   const conflictID = normalizeString(payload.conflict_id ?? payload.conflictId);
   const action = normalizeString(payload.action);
   if (!conflictID) throw new Error(`${method}: conflict_id is required`);
   if (!action) throw new Error(`${method}: action is required`);
+  /** @type {Array<[string, unknown]>} */
   const entries = [
     ['conflict_id', conflictID],
     ['action', action],
@@ -161,22 +174,31 @@ function skillResolutionPayload(method, params = {}) {
   return cleanObject(Object.fromEntries(entries.map(([key, value]) => [key, normalizeString(value)])));
 }
 
+/** @param {unknown} path @returns {string} */
 function basename(path) {
   const value = normalizeString(path);
   return value.split(/[\\/]/).filter(Boolean).pop() || value;
 }
 
+/** @param {unknown} item @returns {string} */
 function normalizeAttachmentPath(item) {
   if (typeof item === 'string') return normalizeString(item);
-  if (item && typeof item === 'object') return normalizeString(item.path || item.url);
+  if (item && typeof item === 'object') {
+    const attachment = /** @type {Record<string, unknown>} */ (item);
+    return normalizeString(attachment.path || attachment.url);
+  }
   return '';
 }
 
+/** @param {unknown} item */
 function normalizeAttachmentInputItem(item) {
-  if (item && typeof item === 'object' && normalizeString(item.kind) === 'image') {
-    const path = normalizeString(item.path);
-    const previewUrl = normalizeString(item.previewUrl || item.url);
+  if (item && typeof item === 'object') {
+    const attachment = /** @type {Record<string, unknown>} */ (item);
+    if (normalizeString(attachment.kind) !== 'image') return normalizeMentionAttachment(item);
+    const path = normalizeString(attachment.path);
+    const previewUrl = normalizeString(attachment.previewUrl || attachment.url);
     if (path) {
+      /** @type {Record<string, unknown>} */
       const payload = { type: 'localImage', path };
       if (previewUrl.toLowerCase().startsWith('data:image/')) payload.url = previewUrl;
       return payload;
@@ -185,15 +207,22 @@ function normalizeAttachmentInputItem(item) {
     return null;
   }
 
+  return normalizeMentionAttachment(item);
+}
+
+/** @param {unknown} item */
+function normalizeMentionAttachment(item) {
   const path = normalizeAttachmentPath(item);
   if (!path) return null;
   return { type: 'mention', name: basename(path), path };
 }
 
+/** @param {unknown} attachments @returns {boolean} */
 function hasAttachmentInputContent(attachments) {
   return Array.isArray(attachments) && attachments.some((item) => normalizeAttachmentInputItem(item));
 }
 
+/** @param {unknown} input @param {unknown} attachments */
 function normalizeTurnInput(input, attachments = []) {
   const extraItems = Array.isArray(attachments)
     ? attachments.map(normalizeAttachmentInputItem).filter(Boolean)

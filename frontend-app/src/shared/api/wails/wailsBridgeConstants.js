@@ -1,4 +1,3 @@
-// @ts-nocheck
 
 const METHOD_IDS = Object.freeze({
   CALL_API: 1391035622,

@@ -45,7 +45,7 @@ const THREAD_RECOVER_THREAD_KEYS = new Set(['id', 'status']);
 
 /**
  * @param {string} method
- * @param {any} response
+ * @param {Record<string, unknown>} response
  * @param {readonly string[]} keys
  */
 function requireResponseKey(method, response, keys) {
@@ -57,7 +57,7 @@ function requireResponseKey(method, response, keys) {
 
 /**
  * @param {string} method
- * @param {any} response
+ * @param {unknown} response
  */
 function validateUIStateResponse(method, response) {
   const value = assertBackendResponseObject(method, response);
@@ -86,7 +86,7 @@ function validateUIStateResponse(method, response) {
 
 /**
  * @param {string} method
- * @param {any} response
+ * @param {unknown} response
  */
 function validateLspPromptHintResponse(method, response) {
   const value = assertBackendResponseObject(method, response);
@@ -103,7 +103,7 @@ function validateLspPromptHintResponse(method, response) {
 
 /**
  * @param {string} method
- * @param {any} response
+ * @param {unknown} response
  */
 function validateRuntimeConfigResponse(method, response) {
   const value = assertBackendResponseObject(method, response);
@@ -122,19 +122,20 @@ function validateRuntimeConfigResponse(method, response) {
   if (!toolRouting || typeof toolRouting !== 'object' || Array.isArray(toolRouting)) {
     throw new TypeError(`${method} response toolRouting must be an object`);
   }
-  assertOnlyResponseKeys(method, toolRouting, RUNTIME_TOOL_ROUTING_KEYS, 'toolRouting');
+  const routing = /** @type {Record<string, unknown>} */ (toolRouting);
+  assertOnlyResponseKeys(method, routing, RUNTIME_TOOL_ROUTING_KEYS, 'toolRouting');
   for (const key of ['mode', 'routerModel', 'routerProvider', 'routerBaseURL']) {
-    if (typeof toolRouting[key] !== 'string') {
+    if (typeof routing[key] !== 'string') {
       throw new TypeError(`${method} response toolRouting.${key} must be a string`);
     }
   }
-  if (typeof toolRouting.routerHasAPIKey !== 'boolean') {
+  if (typeof routing.routerHasAPIKey !== 'boolean') {
     throw new TypeError(`${method} response toolRouting.routerHasAPIKey must be a boolean`);
   }
-  if (typeof toolRouting.confidenceThreshold !== 'number' || !Number.isFinite(toolRouting.confidenceThreshold)) {
+  if (typeof routing.confidenceThreshold !== 'number' || !Number.isFinite(routing.confidenceThreshold)) {
     throw new TypeError(`${method} response toolRouting.confidenceThreshold must be a finite number`);
   }
-  if (!Number.isInteger(toolRouting.timeoutSec)) {
+  if (!Number.isInteger(routing.timeoutSec)) {
     throw new TypeError(`${method} response toolRouting.timeoutSec must be an integer`);
   }
   return value;
@@ -142,7 +143,7 @@ function validateRuntimeConfigResponse(method, response) {
 
 /**
  * @param {string} method
- * @param {any} response
+ * @param {unknown} response
  */
 function validateBuiltinToolsResponse(method, response) {
   const value = assertBackendResponseObject(method, response);
@@ -177,7 +178,7 @@ function validateBuiltinToolsResponse(method, response) {
 
 /**
  * @param {string} method
- * @param {any} response
+ * @param {unknown} response
  */
 function validateWindowBootstrapResponse(method, response) {
   const value = assertBackendResponseObject(method, response);
@@ -194,11 +195,11 @@ function validateWindowBootstrapResponse(method, response) {
 
 /**
  * @param {string} method
- * @param {any} response
+ * @param {unknown} response
  * @param {string} label
  */
 
-/** @param {string} method @param {any} value @param {string} label */
+/** @param {string} method @param {unknown} value @param {string} label */
 function validateThreadSummary(method, value, label) {
   const thread = assertResponseRecord(method, value, label);
   assertOnlyResponseKeys(method, thread, THREAD_SUMMARY_KEYS, label);
@@ -211,7 +212,7 @@ function validateThreadSummary(method, value, label) {
   }
 }
 
-/** @param {string} method @param {any} value @param {string} label */
+/** @param {string} method @param {unknown} value @param {string} label */
 function validateAgentSummary(method, value, label) {
   const agent = assertResponseRecord(method, value, label);
   assertOnlyResponseKeys(method, agent, AGENT_SUMMARY_KEYS, label);
@@ -225,7 +226,7 @@ function validateAgentSummary(method, value, label) {
   }
 }
 
-/** @param {string} method @param {any} value @param {string} label */
+/** @param {string} method @param {unknown} value @param {string} label */
 function validateTurnSummary(method, value, label) {
   const turn = assertResponseRecord(method, value, label);
   assertOnlyResponseKeys(method, turn, TURN_SUMMARY_KEYS, label);
@@ -237,7 +238,7 @@ function validateTurnSummary(method, value, label) {
   }
 }
 
-/** @param {string} method @param {any} value @param {string} label */
+/** @param {string} method @param {unknown} value @param {string} label */
 function validateWorkspaceRun(method, value, label) {
   const run = assertResponseRecord(method, value, label);
   assertOnlyResponseKeys(method, run, WORKSPACE_RUN_KEYS, label);
@@ -254,7 +255,7 @@ function validateWorkspaceRun(method, value, label) {
 
 /**
  * @param {string} method
- * @param {any} value
+ * @param {unknown} value
  * @param {string} label
  * @param {'string' | 'boolean' | 'integer'} valueType
  */
@@ -271,7 +272,7 @@ function validateTypedMap(method, value, label, valueType) {
   }
 }
 
-/** @param {string} method @param {any} value @param {string} label */
+/** @param {string} method @param {unknown} value @param {string} label */
 function validateThreadGroup(method, value, label) {
   const group = assertResponseRecord(method, value, label);
   assertOnlyResponseKeys(method, group, THREAD_GROUP_KEYS, label);
@@ -284,7 +285,7 @@ function validateThreadGroup(method, value, label) {
   }
 }
 
-/** @param {string} method @param {any} response */
+/** @param {string} method @param {unknown} response */
 function validateSidebarStateResponse(method, response) {
   const value = assertBackendResponseObject(method, response);
   assertOnlyResponseKeys(method, value, SIDEBAR_RESPONSE_KEYS, 'body');
@@ -366,7 +367,7 @@ function validateSidebarStateResponse(method, response) {
   return value;
 }
 
-/** @param {string} method @param {any} response */
+/** @param {string} method @param {unknown} response */
 function validateFrontendIngestResponse(method, response) {
   const value = assertBackendResponseObject(method, response);
   assertOnlyResponseKeys(method, value, FRONTEND_INGEST_RESPONSE_KEYS, 'body');
@@ -384,7 +385,7 @@ function validateFrontendIngestResponse(method, response) {
   return value;
 }
 
-/** @param {string} method @param {any} response */
+/** @param {string} method @param {unknown} response */
 function validateOpenWindowResponse(method, response) {
   const value = assertBackendResponseObject(method, response);
   assertOnlyResponseKeys(method, value, OPEN_WINDOW_RESPONSE_KEYS, 'body');
@@ -402,7 +403,7 @@ function validateOpenWindowResponse(method, response) {
   return value;
 }
 
-/** @param {string} method @param {any} response */
+/** @param {string} method @param {unknown} response */
 function validateCodeSaveResponse(method, response) {
   const value = assertBackendResponseObject(method, response);
   assertOnlyResponseKeys(method, value, CODE_SAVE_RESPONSE_KEYS, 'body');
@@ -423,11 +424,10 @@ function validateCodeSaveResponse(method, response) {
   return value;
 }
 
-/** @param {string} method @param {any} response */
+/** @param {string} method @param {unknown} response */
 function validateProjectsStateResponse(method, response) {
   const value = assertBackendResponseObject(method, response);
   assertOnlyResponseKeys(method, value, PROJECTS_STATE_RESPONSE_KEYS, 'body');
-  /** @type {unknown[]} */
   const projects = value.projects;
   if (!Array.isArray(projects) || projects.some((project) => typeof project !== 'string')) {
     throw new TypeError(`${method} response projects must be an array of strings`);
@@ -438,7 +438,7 @@ function validateProjectsStateResponse(method, response) {
   return value;
 }
 
-/** @param {string} method @param {any} response */
+/** @param {string} method @param {unknown} response */
 function validateOKResponse(method, response) {
   const value = assertBackendResponseObject(method, response);
   assertOnlyResponseKeys(method, value, OK_RESPONSE_KEYS, 'body');
@@ -511,7 +511,7 @@ function validateThreadRecoverResponse(method, response) {
   return value;
 }
 
-/** @param {string} method @param {any} response */
+/** @param {string} method @param {unknown} response */
 function validateDashboardPageResponse(method, response) {
   const value = assertBackendResponseObject(method, response);
   assertOnlyResponseKeys(method, value, DASHBOARD_PAGE_RESPONSE_KEYS, 'body');
@@ -524,19 +524,20 @@ function validateDashboardPageResponse(method, response) {
   if (!retention || typeof retention !== 'object' || Array.isArray(retention)) {
     throw new TypeError(`${method} response sharedFileRetention must be an object`);
   }
-  assertOnlyResponseKeys(method, retention, SHARED_FILE_RETENTION_KEYS, 'sharedFileRetention');
-  if (!Array.isArray(retention.items)) {
+  const retentionValue = /** @type {Record<string, unknown>} */ (retention);
+  assertOnlyResponseKeys(method, retentionValue, SHARED_FILE_RETENTION_KEYS, 'sharedFileRetention');
+  if (!Array.isArray(retentionValue.items)) {
     throw new TypeError(`${method} response sharedFileRetention.items must be an array`);
   }
   for (const key of ['protectedCount', 'cleanupCandidateCount']) {
-    if (!Number.isInteger(retention[key])) {
+    if (!Number.isInteger(retentionValue[key])) {
       throw new TypeError(`${method} response sharedFileRetention.${key} must be an integer`);
     }
   }
   return value;
 }
 
-/** @param {string} method @param {any} response */
+/** @param {string} method @param {unknown} response */
 function validateVideoAPIKeyStatusResponse(method, response) {
   const value = assertBackendResponseObject(method, response);
   assertOnlyResponseKeys(method, value, VIDEO_API_KEY_STATUS_RESPONSE_KEYS, 'body');
@@ -549,7 +550,7 @@ function validateVideoAPIKeyStatusResponse(method, response) {
   return value;
 }
 
-/** @param {string} method @param {any} response */
+/** @param {string} method @param {unknown} response */
 function validateDashboardLogsResponse(method, response) {
   const value = assertBackendResponseObject(method, response);
   assertOnlyResponseKeys(method, value, DASHBOARD_LOGS_RESPONSE_KEYS, 'body');
@@ -587,21 +588,21 @@ function validateDashboardLogsResponse(method, response) {
 
 /**
  * @param {string} method
- * @param {any} response
+ * @param {unknown} response
  */
 function validateThreadStartResponse(method, response) {
   const value = assertBackendResponseObject(method, response);
   if (value.thread && (typeof value.thread !== 'object' || Array.isArray(value.thread))) {
     throw new TypeError(`${method} response thread must be an object`);
   }
-  if (value.thread && normalizeString(value.thread.id)) return value;
+  if (value.thread && normalizeString(/** @type {Record<string, unknown>} */ (value.thread).id)) return value;
   requireResponseKey(method, value, ['threadId', 'thread_id']);
   return value;
 }
 
 /**
  * @param {string} method
- * @param {any} response
+ * @param {unknown} response
  */
 function validateThreadForkResponse(method, response) {
   const value = assertBackendResponseObject(method, response);
@@ -609,11 +610,12 @@ function validateThreadForkResponse(method, response) {
   if (!thread || typeof thread !== 'object' || Array.isArray(thread)) {
     throw new TypeError(`${method} response thread must be an object`);
   }
-  if (!normalizeString(thread.id)) {
+  const threadValue = /** @type {Record<string, unknown>} */ (thread);
+  if (!normalizeString(threadValue.id)) {
     throw new Error(`${method} response thread.id is required`);
   }
-  const forkedFromCamel = normalizeString(thread.forkedFrom);
-  const forkedFromSnake = normalizeString(thread.forked_from);
+  const forkedFromCamel = normalizeString(threadValue.forkedFrom);
+  const forkedFromSnake = normalizeString(threadValue.forked_from);
   if (forkedFromCamel && forkedFromSnake && forkedFromCamel !== forkedFromSnake) {
     throw new Error(`${method} response thread.forkedFrom fields conflict`);
   }
@@ -637,7 +639,7 @@ function validateThreadForkResponse(method, response) {
 
 /**
  * @param {string} method
- * @param {any} response
+ * @param {unknown} response
  */
 function validateThreadMessagesResponse(method, response) {
   const value = assertBackendResponseObject(method, response);
@@ -658,7 +660,7 @@ function validateThreadMessagesResponse(method, response) {
 
 /**
  * @param {string} method
- * @param {any} response
+ * @param {unknown} response
  */
 function validateThreadResolveResponse(method, response) {
   const value = assertBackendResponseObject(method, response);
@@ -668,7 +670,7 @@ function validateThreadResolveResponse(method, response) {
 
 /**
  * @param {string} method
- * @param {any} response
+ * @param {unknown} response
  */
 function validateTurnStartResponse(method, response) {
   const value = assertBackendResponseObject(method, response);
@@ -676,7 +678,7 @@ function validateTurnStartResponse(method, response) {
   return value;
 }
 
-/** @param {any} value */
+/** @param {Record<string, unknown>} value */
 function hasTurnForceCompleteFailureDiagnostic(value) {
   return ['errorCode', 'error', 'message'].some((key) => (
     typeof value[key] === 'string' && value[key].trim() !== ''
@@ -685,7 +687,7 @@ function hasTurnForceCompleteFailureDiagnostic(value) {
 
 /**
  * @param {string} method
- * @param {any} response
+ * @param {unknown} response
  */
 function validateTurnForceCompleteResponse(method, response) {
   const value = assertBackendResponseObject(method, response);
@@ -712,7 +714,7 @@ function validateTurnForceCompleteResponse(method, response) {
 
 /**
  * @param {string} method
- * @param {any} response
+ * @param {unknown} response
  */
 function validateDashboardDagStartResponse(method, response) {
   const value = assertBackendResponseObject(method, response);
@@ -722,7 +724,7 @@ function validateDashboardDagStartResponse(method, response) {
 
 /**
  * @param {string} method
- * @param {any} response
+ * @param {unknown} response
  */
 function validateDashboardDagCreateAndStartResponse(method, response) {
   const value = assertBackendResponseObject(method, response);
@@ -733,7 +735,7 @@ function validateDashboardDagCreateAndStartResponse(method, response) {
 
 /**
  * @param {string} method
- * @param {any} response
+ * @param {unknown} response
  */
 function validateSkillReadResponse(method, response) {
   const value = assertBackendResponseObject(method, response);
@@ -741,8 +743,9 @@ function validateSkillReadResponse(method, response) {
   if (!skill || typeof skill !== 'object' || Array.isArray(skill)) {
     throw new TypeError(`${method} response skill must be an object`);
   }
-  requireResponseKey(method, skill, ['path']);
-  if (!hasOwn(skill, 'content') || typeof skill.content !== 'string') {
+  const skillValue = /** @type {Record<string, unknown>} */ (skill);
+  requireResponseKey(method, skillValue, ['path']);
+  if (!hasOwn(skillValue, 'content') || typeof skillValue.content !== 'string') {
     throw new TypeError(`${method} response skill.content must be a string`);
   }
   return value;
@@ -750,7 +753,7 @@ function validateSkillReadResponse(method, response) {
 
 /**
  * @param {string} method
- * @param {any} response
+ * @param {unknown} response
  */
 function validateAppUpdateInstallResponse(method, response) {
   const value = assertBackendResponseObject(method, response);

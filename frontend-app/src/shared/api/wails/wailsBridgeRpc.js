@@ -1,12 +1,16 @@
-// @ts-nocheck
 
 import { METHOD_IDS, FRONTEND_TRACE_RPC_SLOW_MS } from './wailsBridgeConstants.js';
 import { compactBridgeValuePreview, waitRuntime, writeBridgeDebugLog, writeBridgeLog, writeBridgeSuccessDiagnosticLog } from './wailsBridgeLogRuntime.js';
 import { createTraceContext, currentMonotonicMS, elapsedMS, emitFrontendTraceEvent, resolveClientMeta, safeTraceErrorMessage } from './wailsBridgeTraceEvents.js';
 
+/** @typedef {Record<string, unknown>} RPCPayload */
+/** @typedef {{ traceId: string, spanId: string, traceparent: string }} APITrace */
+/** @typedef {{ reqId: number, method: string, clientKind: string, clientRoute: string, trace: APITrace }} APITraceContext */
+
 let bridgeRequestSeq = 0;
 let rpcRequestSeq = 0;
 
+/** @param {unknown} methodID @param {unknown[]} args @param {{ logRuntimeUnavailable?: boolean, logFailure?: boolean }} options */
 async function invokeRuntimeByID(methodID, args = [], options = {}) {
   const reqId = ++bridgeRequestSeq;
   const start = currentMonotonicMS();
@@ -17,7 +21,10 @@ async function invokeRuntimeByID(methodID, args = [], options = {}) {
   });
 
   const runtime = await waitRuntime();
-  if (!runtime?.Call?.ByID) {
+  const runtimeRecord = runtime && typeof runtime === 'object' ? /** @type {RPCPayload} */ (runtime) : {};
+  const call = runtimeRecord.Call && typeof runtimeRecord.Call === 'object' ? /** @type {RPCPayload} */ (runtimeRecord.Call) : {};
+  const byID = call.ByID;
+  if (typeof byID !== 'function') {
     // 误判防护：invokeRuntimeByID 在 Wails runtime 不可用时抛错，不静默成功。
     if (options.logRuntimeUnavailable !== false) {
       writeBridgeLog('warn', 'bridge.call.runtime.unavailable', {
@@ -30,7 +37,7 @@ async function invokeRuntimeByID(methodID, args = [], options = {}) {
 
   let result;
   try {
-    result = await runtime.Call.ByID(methodID, ...args);
+    result = await byID(methodID, ...args);
   }
   catch (error) {
     if (options.logFailure !== false) {
@@ -52,10 +59,12 @@ async function invokeRuntimeByID(methodID, args = [], options = {}) {
   return result;
 }
 
+/** @param {unknown} methodID @param {...unknown} args */
 function callByID(methodID, ...args) {
   return invokeRuntimeByID(methodID, args);
 }
 
+/** @param {unknown} method @param {number} reqId @returns {string} */
 function normalizeAPIMethod(method, reqId) {
   if (!method || typeof method !== 'string' || !method.trim()) {
     const error = new Error('callAPI method must be a non-empty string');
@@ -68,6 +77,7 @@ function normalizeAPIMethod(method, reqId) {
   return method;
 }
 
+/** @param {string} method @param {unknown} params @param {number} reqId @returns {RPCPayload} */
 function normalizeAPIPayload(method, params, reqId) {
   const rawPayload = params == null ? {} : params;
   if (typeof rawPayload !== 'object' || Array.isArray(rawPayload)) {
@@ -80,9 +90,10 @@ function normalizeAPIPayload(method, params, reqId) {
     });
     throw error;
   }
-  return rawPayload;
+  return /** @type {RPCPayload} */ (rawPayload);
 }
 
+/** @param {string} method @param {number} reqId @returns {{ clientKind: string, clientRoute: string, trace: APITrace }} */
 function createAPITrace(method, reqId) {
   const { clientKind, clientRoute } = resolveClientMeta();
   try {
@@ -102,6 +113,7 @@ function createAPITrace(method, reqId) {
   }
 }
 
+/** @param {RPCPayload} rawPayload @param {number} reqId @param {string} clientKind @param {string} clientRoute @param {APITrace} trace */
 function buildAPIPayload(rawPayload, reqId, clientKind, clientRoute, trace) {
   return {
     ...rawPayload,
@@ -114,8 +126,9 @@ function buildAPIPayload(rawPayload, reqId, clientKind, clientRoute, trace) {
   };
 }
 
-function logAPIStart(...entries) {
-  const [{ reqId, method, payload, clientKind, clientRoute, trace }] = entries;
+/** @param {APITraceContext & { payload: RPCPayload }} entry */
+function logAPIStart(entry) {
+  const { reqId, method, payload, clientKind, clientRoute, trace } = entry;
   writeBridgeDebugLog('api.rpc.start', {
     req_id: reqId,
     method,
@@ -138,8 +151,9 @@ function logAPIStart(...entries) {
   }, { flush: false });
 }
 
-function logAPIDone(...entries) {
-  const [{ reqId, method, start, result, clientKind, clientRoute, trace }] = entries;
+/** @param {APITraceContext & { start: number, result: unknown }} entry */
+function logAPIDone(entry) {
+  const { reqId, method, start, result, clientKind, clientRoute, trace } = entry;
   const durationMs = elapsedMS(start);
   const status = durationMs >= FRONTEND_TRACE_RPC_SLOW_MS ? 'slow' : 'ok';
   writeBridgeSuccessDiagnosticLog('api.rpc.done', {
@@ -166,8 +180,9 @@ function logAPIDone(...entries) {
   });
 }
 
-function logAPIFailed(...entries) {
-  const [{ reqId, method, start, error, clientKind, clientRoute, trace }] = entries;
+/** @param {APITraceContext & { start: number, error: unknown }} entry */
+function logAPIFailed(entry) {
+  const { reqId, method, start, error, clientKind, clientRoute, trace } = entry;
   const durationMs = elapsedMS(start);
   writeBridgeLog('error', 'api.rpc.failed', {
     req_id: reqId,
@@ -194,22 +209,25 @@ function logAPIFailed(...entries) {
   });
 }
 
-function attachAPITraceToError(...entries) {
-  const [error, { reqId, method, clientKind, clientRoute, trace }] = entries;
+/** @param {unknown} error @param {APITraceContext} context */
+function attachAPITraceToError(error, context) {
+  const { reqId, method, clientKind, clientRoute, trace } = context;
   if (!error || (typeof error !== 'object' && typeof error !== 'function')) return error;
-  error.traceId = trace.traceId;
-  error.trace_id = trace.traceId;
-  error.spanId = trace.spanId;
-  error.span_id = trace.spanId;
-  error.traceparent = trace.traceparent;
-  error.reqId = reqId;
-  error.req_id = reqId;
-  error.method = method;
-  error.clientKind = clientKind;
-  error.clientRoute = clientRoute;
+  const traced = /** @type {RPCPayload} */ (error);
+  traced.traceId = trace.traceId;
+  traced.trace_id = trace.traceId;
+  traced.spanId = trace.spanId;
+  traced.span_id = trace.spanId;
+  traced.traceparent = trace.traceparent;
+  traced.reqId = reqId;
+  traced.req_id = reqId;
+  traced.method = method;
+  traced.clientKind = clientKind;
+  traced.clientRoute = clientRoute;
   return error;
 }
 
+/** @param {unknown} method @param {unknown} params */
 async function callAPI(method, params = {}) {
   const reqId = ++rpcRequestSeq;
   const start = currentMonotonicMS();
@@ -237,15 +255,19 @@ async function callAPI(method, params = {}) {
   return result;
 }
 
+/** @param {unknown} entries */
 async function sendFrontendLogBatch(entries) {
   const batch = Array.isArray(entries) ? entries.filter(Boolean) : [];
   if (batch.length === 0) return;
   const runtime = await waitRuntime();
-  if (!runtime?.Call?.ByID) {
+  const runtimeRecord = runtime && typeof runtime === 'object' ? /** @type {RPCPayload} */ (runtime) : {};
+  const call = runtimeRecord.Call && typeof runtimeRecord.Call === 'object' ? /** @type {RPCPayload} */ (runtimeRecord.Call) : {};
+  const byID = call.ByID;
+  if (typeof byID !== 'function') {
     throw new Error('frontend log bridge runtime Call.ByID is required');
   }
   const { clientKind, clientRoute } = resolveClientMeta();
-  await runtime.Call.ByID(METHOD_IDS.CALL_API, 'ui/log', {
+  await byID(METHOD_IDS.CALL_API, 'ui/log', {
     entries: batch,
     _aoClientKind: clientKind,
     _aoClientRoute: clientRoute,

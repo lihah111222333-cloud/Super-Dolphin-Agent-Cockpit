@@ -13,6 +13,7 @@
     "src/entities/client/model/helpers/providerPreferences.js",
     "src/features/prompt-history/model/promptHistoryController.js",
     "src/pages/chat/runtime/RuntimeDiffView.jsx",
+    "src/shared/api/backend/backendApiFactoryThread.js",
     "src/shared/api/backend/backendApiCommon.js",
     "src/shared/contracts/turnContractValidators.js",
     "src/shared/diagnostics/safeLogFields.js",

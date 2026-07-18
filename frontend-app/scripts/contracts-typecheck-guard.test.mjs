@@ -43,7 +43,10 @@ function registry(overrides = {}) {
     diagnostics: ['src/shared/diagnostics/safeLogFields.js'],
     promptHistory: ['src/features/prompt-history/model/promptHistoryController.js'],
     providerPreference: ['src/entities/client/model/helpers/providerPreferences.js'],
-    rpcAdapter: ['src/shared/api/backend/backendApiCommon.js'],
+    rpcAdapter: [
+      'src/shared/api/backend/backendApiFactoryThread.js',
+      'src/shared/api/backend/backendApiCommon.js',
+    ],
     storeBridge: ['src/entities/client/model/helpers/bridgeRevision.js'],
     terminalPublicError: ['src/shared/contracts/turnContractValidators.js'],
     uiAction: ['src/shared/ui/runUIAction.js'],

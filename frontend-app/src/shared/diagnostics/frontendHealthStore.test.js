@@ -2,10 +2,13 @@ import { beforeEach, expect, it, vi } from 'vitest';
 import {
   clearFrontendHealth,
   createFrontendHealthStore,
+  diagnosticCauseForTest,
   frontendHealthIdentity,
   frontendHealthStateSnapshot,
+  FRONTEND_HEALTH_LIMIT,
   FRONTEND_HEALTH_STORAGE_KEY,
   recordFrontendHealth,
+  retainDiagnosticCause,
   resetFrontendHealthForTest,
 } from './frontendHealthStore.js';
 
@@ -129,4 +132,26 @@ it('makes default persistence failure observable and clear does not silently rep
   const clearResult = clearFrontendHealth();
   expect(clearResult.persisted).toBe(true);
   Object.defineProperty(window, 'localStorage', { configurable: true, value: originalStorage });
+});
+
+it('caps retained diagnostic causes at the Health record limit', () => {
+  const causes = Array.from(
+    { length: FRONTEND_HEALTH_LIMIT + 1 },
+    (_, index) => new Error(`raw diagnostic cause ${index}`),
+  );
+
+  causes.forEach((cause, index) => retainDiagnosticCause(`diagnostic-${index}`, cause));
+
+  expect(diagnosticCauseForTest('diagnostic-0')).toBeUndefined();
+  expect(diagnosticCauseForTest('diagnostic-1')).toBe(causes[1]);
+  expect(diagnosticCauseForTest(`diagnostic-${FRONTEND_HEALTH_LIMIT}`)).toBe(causes[FRONTEND_HEALTH_LIMIT]);
+});
+
+it('clears retained raw diagnostic causes with Health records', () => {
+  const cause = new Error('raw diagnostic cause must be released');
+  retainDiagnosticCause('diagnostic-clear', cause);
+
+  expect(diagnosticCauseForTest('diagnostic-clear')).toBe(cause);
+  clearFrontendHealth();
+  expect(diagnosticCauseForTest('diagnostic-clear')).toBeUndefined();
 });

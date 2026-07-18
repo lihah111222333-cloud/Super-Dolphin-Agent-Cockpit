@@ -148,7 +148,7 @@ function promptHistoryPayload(params) {
   const nonce = takeOpaquePromptHistoryString(method, payload, 'nonce');
   const limit = takePayloadField(payload, 'limit');
   assertNoExtraPayloadFields(method, payload);
-  if (!Number.isInteger(limit) || limit < 1 || limit > 50) {
+  if (typeof limit !== 'number' || !Number.isInteger(limit) || limit < 1 || limit > 50) {
     throw new Error(`${method}: limit must be an integer between 1 and 50`);
   }
   return { cwd, activeThreadId, cursor, nonce, limit };
@@ -335,7 +335,7 @@ function turnStartPayload(params) {
   if (normalizeString(request.prompt) && hasAttachmentInputContent(attachments)) {
     throw new Error(`${RPC_METHODS.TURN_START}: prompt and attachments cannot both contain content`);
   }
-  return { ...request, ...normalizeTurnInput(input, attachments) };
+  return { ...request, ...normalizeTurnInput(input, Array.isArray(attachments) ? attachments : undefined) };
 }
 
 /** @param {unknown} params */
@@ -364,10 +364,10 @@ function turnInterruptPayload(params) {
 /** @param {unknown} params */
 function forceCompleteTurnPayload(params) {
   const payload = requireThreadId(RPC_METHODS.TURN_FORCE_COMPLETE, requireCwd(RPC_METHODS.TURN_FORCE_COMPLETE, params));
-  const unused = { ...payload };
-  delete unused.cwd;
-  delete unused.threadId;
-  delete unused.thread_id;
+  const unused = /** @type {Record<string, unknown>} */ ({ ...payload });
+  takePayloadField(unused, 'cwd');
+  takePayloadField(unused, 'threadId');
+  takePayloadField(unused, 'thread_id');
   assertNoExtraPayloadFields(RPC_METHODS.TURN_FORCE_COMPLETE, unused);
   return { threadId: payload.threadId };
 }
@@ -425,6 +425,7 @@ function createNativeApi(native) {
   };
 }
 
+/** @param {Record<string, unknown> & { callAPI?: (method: string, payload: Record<string, unknown>) => Promise<unknown> }} deps */
 export function createBackendApi(deps = {}) {
   const callBackend = createBackendCaller(deps.callAPI || callWailsAPI);
   return {

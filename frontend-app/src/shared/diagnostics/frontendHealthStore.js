@@ -248,12 +248,22 @@ export function subscribeFrontendHealth(listener) {
 }
 
 export function clearFrontendHealth() {
-  return defaultPersistentStore().clear();
+  try {
+    return defaultPersistentStore().clear();
+  } finally {
+    diagnosticCauses.clear();
+  }
 }
 
 /** @param {string} diagnosticId @param {unknown} cause */
 export function retainDiagnosticCause(diagnosticId, cause) {
+  diagnosticCauses.delete(diagnosticId);
   diagnosticCauses.set(diagnosticId, cause);
+  while (diagnosticCauses.size > FRONTEND_HEALTH_LIMIT) {
+    const oldest = diagnosticCauses.keys().next();
+    if (oldest.done) throw new Error('frontend diagnostic cause eviction invariant failed');
+    diagnosticCauses.delete(oldest.value);
+  }
 }
 
 /** @param {string} diagnosticId */

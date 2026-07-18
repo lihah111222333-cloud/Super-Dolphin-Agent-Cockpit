@@ -110,14 +110,14 @@ const WORKFLOW_VALIDATION_KEYS = new Set(['sharedfile_prefix', 'sharedfile_prefi
 const WORKFLOW_FINAL_OUTPUT_KEYS = new Set(['node_key', 'kind', 'path_template']);
 const WORKFLOW_DAG_DRAFT_KEYS = new Set(['template_id', 'template_version', 'dag_key', 'title', 'description', 'trigger', 'final_node_key', 'review_node_key', 'nodes', 'final_output', 'metadata']);
 
-/** @param {string} method @param {Record<string, any>} value @param {string} label @param {string} key */
+/** @param {string} method @param {Record<string, unknown>} value @param {string} label @param {string} key */
 function requireResponseString(method, value, label, key) {
   if (typeof value[key] !== 'string') {
     throw new TypeError(`${method} response ${label}.${key} must be a string`);
   }
 }
 
-/** @param {string} method @param {Record<string, any>} value @param {string} label @param {string} key */
+/** @param {string} method @param {Record<string, unknown>} value @param {string} label @param {string} key */
 function requireResponseIdentity(method, value, label, key) {
   requireResponseString(method, value, label, key);
   if (!normalizeString(value[key])) {
@@ -125,14 +125,14 @@ function requireResponseIdentity(method, value, label, key) {
   }
 }
 
-/** @param {string} method @param {Record<string, any>} value @param {string} label @param {string} key */
+/** @param {string} method @param {Record<string, unknown>} value @param {string} label @param {string} key */
 function requireResponseInteger(method, value, label, key) {
   if (!Number.isInteger(value[key])) {
     throw new TypeError(`${method} response ${label}.${key} must be an integer`);
   }
 }
 
-/** @param {string} method @param {Record<string, any>} value @param {string} label @param {string} key */
+/** @param {string} method @param {Record<string, unknown>} value @param {string} label @param {string} key */
 function requireResponseBoolean(method, value, label, key) {
   if (typeof value[key] !== 'boolean') {
     throw new TypeError(`${method} response ${label}.${key} must be a boolean`);
@@ -152,7 +152,7 @@ function validateNullableResponseStringArray(method, value, label) {
   validateResponseStringArray(method, value, label);
 }
 
-/** @param {string} method @param {Record<string, any>} value @param {string} label @param {readonly string[]} keys */
+/** @param {string} method @param {Record<string, unknown>} value @param {string} label @param {readonly string[]} keys */
 function validateOptionalResponseStrings(method, value, label, keys) {
   for (const key of keys) {
     if (hasOwn(value, key)) requireResponseString(method, value, label, key);
@@ -395,7 +395,7 @@ function validateWorkflowTemplatesListResponse(method, response) {
 
 /**
  * @param {string} method
- * @param {any} response
+ * @param {unknown} response
  */
 function validateSidebarStateResponse(method, response) {
   return validateRuntimeSidebarStateResponse(method, response);
@@ -403,7 +403,7 @@ function validateSidebarStateResponse(method, response) {
 
 /**
  * @param {string} method
- * @param {any} response
+ * @param {unknown} response
  */
 function validateUIStateResponse(method, response) {
   const value = assertBackendResponseObject(method, response);
@@ -457,7 +457,7 @@ const MCP_SERVER_CONTROL_RESPONSE_KEYS = new Set(['configPath', 'config_path', '
 
 /**
  * @param {string} method
- * @param {any} response
+ * @param {unknown} response
  */
 function validateMCPServerListResponse(method, response) {
   const value = assertBackendResponseObject(method, response);
@@ -488,7 +488,7 @@ function validateMCPServerListResponse(method, response) {
 
 /**
  * @param {string} method
- * @param {any} response
+ * @param {unknown} response
  * @param {Record<string, { serverName: string, enabled: boolean }>} controlSpecs
  */
 function validateMCPServerControlResponse(method, response, controlSpecs) {
@@ -514,7 +514,7 @@ function validateMCPServerControlResponse(method, response, controlSpecs) {
 
 /**
  * @param {string} method
- * @param {any} response
+ * @param {unknown} response
  * @param {(response: unknown) => unknown} parser
  */
 function validateSchemaResponse(method, response, parser) {
@@ -522,7 +522,8 @@ function validateSchemaResponse(method, response, parser) {
     return parser(response);
   }
   catch (error) {
-    throw new TypeError(`${method} response ${error.message || 'schema is invalid'}`, { cause: error });
+    const message = error instanceof Error ? error.message : '';
+    throw new TypeError(`${method} response ${message || 'schema is invalid'}`, { cause: error });
   }
 }
 
@@ -603,7 +604,7 @@ const validateStrictModelProviderRegistryResponse = (method, response) => {
 
 /**
  * @param {string} method
- * @param {any} value
+ * @param {Record<string, unknown>} value
  * @param {string} label
  * @param {{ stringKeys: string[], integerKeys: string[], booleanKeys?: string[] }} fields
  */
@@ -622,7 +623,7 @@ function validateRequiredFields(method, value, label, fields) {
   }
 }
 
-/** @param {string} method @param {any} value @param {string} label */
+/** @param {string} method @param {unknown} value @param {string} label */
 function validateStringArray(method, value, label) {
   const items = assertResponseArray(method, value, label);
   items.forEach((item, index) => {
@@ -632,7 +633,7 @@ function validateStringArray(method, value, label) {
   });
 }
 
-/** @param {string} method @param {any} response */
+/** @param {string} method @param {unknown} response */
 function validateSkillFilesResponse(method, response) {
   const value = assertBackendResponseObject(method, response);
   assertOnlyResponseKeys(method, value, new Set(['dir', 'files']), 'body');
@@ -645,14 +646,14 @@ function validateSkillFilesResponse(method, response) {
     validateRequiredFields(method, file, label, {
       stringKeys: ['name', 'path'], integerKeys: ['size'], booleanKeys: ['is_main'],
     });
-    if (file.size < 0) {
+    if (typeof file.size !== 'number' || file.size < 0) {
       throw new TypeError(`${method} response ${label}.size must be non-negative`);
     }
   });
   return value;
 }
 
-/** @param {string} method @param {any} response @param {string} label */
+/** @param {string} method @param {unknown} response @param {string} label */
 function validateSkillImportItem(method, response, label) {
   const item = assertResponseRecord(method, response, label);
   assertOnlyResponseKeys(method, item, new Set(['name', 'dir', 'skill_file', 'source', 'files', 'bytes']), label);
@@ -661,7 +662,7 @@ function validateSkillImportItem(method, response, label) {
   });
 }
 
-/** @param {string} method @param {any} response @param {string} label */
+/** @param {string} method @param {unknown} response @param {string} label */
 function validateSkillMirrorReport(method, response, label) {
   const report = assertResponseRecord(method, response, label);
   assertOnlyResponseKeys(method, report, new Set(['published', 'skipped', 'deleted', 'conflicts']), label);
@@ -677,7 +678,7 @@ function validateSkillMirrorReport(method, response, label) {
   }
 }
 
-/** @param {string} method @param {any} response */
+/** @param {string} method @param {unknown} response */
 function validateSkillImportResponse(method, response) {
   const value = assertBackendResponseObject(method, response);
   assertOnlyResponseKeys(method, value, new Set(['requested', 'imported', 'failures', 'skill', 'mirror_publish']), 'body');
@@ -700,7 +701,7 @@ function validateSkillImportResponse(method, response) {
   return value;
 }
 
-/** @param {string} method @param {any} response */
+/** @param {string} method @param {unknown} response */
 function validateSkillSummarySuggestionResponse(method, response) {
   const value = assertBackendResponseObject(method, response);
   assertOnlyResponseKeys(method, value, new Set(['description']), 'body');
@@ -708,14 +709,14 @@ function validateSkillSummarySuggestionResponse(method, response) {
   return value;
 }
 
-/** @param {string} method @param {any} response @param {string} label */
+/** @param {string} method @param {unknown} response @param {string} label */
 function validateSkillResolutionSource(method, response, label) {
   const source = assertResponseRecord(method, response, label);
   assertOnlyResponseKeys(method, source, new Set(['scope', 'canonical_id', 'personal_type', 'content_hash', 'canonical_hash', 'path', 'skill_file']), label);
   validateStringFields(method, source, label, ['scope', 'canonical_id'], ['personal_type', 'content_hash', 'canonical_hash', 'path', 'skill_file']);
 }
 
-/** @param {string} method @param {any} response @param {string} label */
+/** @param {string} method @param {unknown} response @param {string} label */
 function validateSkillResolutionListItem(method, response, label) {
   const item = assertResponseRecord(method, response, label);
   assertOnlyResponseKeys(method, item, new Set(['conflict_id', 'kind', 'scope', 'personal_type', 'name', 'available_actions', 'provider_entries', 'sources']), label);
@@ -734,7 +735,7 @@ function validateSkillResolutionListItem(method, response, label) {
   }
 }
 
-/** @param {string} method @param {any} response */
+/** @param {string} method @param {unknown} response */
 function validateSkillResolutionListResponse(method, response) {
   const value = assertBackendResponseObject(method, response);
   assertOnlyResponseKeys(method, value, new Set(['items']), 'body');
@@ -742,7 +743,7 @@ function validateSkillResolutionListResponse(method, response) {
   return value;
 }
 
-/** @param {string} method @param {any} response */
+/** @param {string} method @param {unknown} response */
 function validateSkillResolutionPreviewResponse(method, response) {
   const value = assertBackendResponseObject(method, response);
   assertOnlyResponseKeys(method, value, new Set(['conflict_id', 'kind', 'items']), 'body');
@@ -756,7 +757,7 @@ function validateSkillResolutionPreviewResponse(method, response) {
   return value;
 }
 
-/** @param {string} method @param {any} response */
+/** @param {string} method @param {unknown} response */
 function validateSkillResolutionApplyResponse(method, response) {
   const value = assertBackendResponseObject(method, response);
   assertOnlyResponseKeys(method, value, new Set(['action', 'name', 'resultingHash', 'partialFailure', 'followUpAction']), 'body');
@@ -768,7 +769,7 @@ function validateSkillResolutionApplyResponse(method, response) {
   return value;
 }
 
-/** @param {string} method @param {any} response @param {string} label */
+/** @param {string} method @param {unknown} response @param {string} label */
 function validateDatasourceDocument(method, response, label) {
   const document = assertResponseRecord(method, response, label);
   assertOnlyResponseKeys(method, document, new Set(['documentId', 'sourcePath', 'fileName', 'extension', 'sizeBytes', 'contentHash', 'chunkCount', 'totalChars', 'status', 'errorMessage', 'createdAt', 'updatedAt']), label);
@@ -779,7 +780,7 @@ function validateDatasourceDocument(method, response, label) {
   return document;
 }
 
-/** @param {string} method @param {any} response @param {string} label @param {number} [documentId] */
+/** @param {string} method @param {unknown} response @param {string} label @param {number} [documentId] */
 function validateDatasourceChunk(method, response, label, documentId) {
   const chunk = assertResponseRecord(method, response, label);
   assertOnlyResponseKeys(method, chunk, new Set(['id', 'documentId', 'chunkIndex', 'content', 'charCount', 'byteCount', 'embeddingModel', 'embeddingDim', 'tokenCount', 'createdAt']), label);
@@ -792,7 +793,7 @@ function validateDatasourceChunk(method, response, label, documentId) {
   }
 }
 
-/** @param {string} method @param {any} response */
+/** @param {string} method @param {unknown} response */
 function validateDatasourceDocumentsResponse(method, response) {
   const value = assertBackendResponseObject(method, response);
   assertOnlyResponseKeys(method, value, new Set(['documents']), 'body');
@@ -800,7 +801,7 @@ function validateDatasourceDocumentsResponse(method, response) {
   return value;
 }
 
-/** @param {string} method @param {any} value */
+/** @param {string} method @param {Record<string, unknown>} value */
 function validateDatasourcePageFields(method, value) {
   validateRequiredFields(method, value, 'body', {
     stringKeys: [], integerKeys: ['nextCursor'], booleanKeys: ['hasMore'],
@@ -809,16 +810,18 @@ function validateDatasourcePageFields(method, value) {
   return chunks;
 }
 
-/** @param {string} method @param {any} response */
+/** @param {string} method @param {unknown} response */
 function validateDatasourceDetailResponse(method, response) {
   const value = assertBackendResponseObject(method, response);
   assertOnlyResponseKeys(method, value, new Set(['document', 'chunks', 'hasMore', 'nextCursor']), 'body');
   const document = validateDatasourceDocument(method, value.document, 'body.document');
-  validateDatasourcePageFields(method, value).forEach((item, index) => validateDatasourceChunk(method, item, `body.chunks[${index}]`, document.documentId));
+  if (typeof document.documentId !== 'number') throw new TypeError(`${method} response body.document.documentId must be an integer`);
+  const documentId = document.documentId;
+  validateDatasourcePageFields(method, value).forEach((item, index) => validateDatasourceChunk(method, item, `body.chunks[${index}]`, documentId));
   return value;
 }
 
-/** @param {string} method @param {any} response */
+/** @param {string} method @param {unknown} response */
 function validateDatasourceChunksResponse(method, response) {
   const value = assertBackendResponseObject(method, response);
   assertOnlyResponseKeys(method, value, new Set(['chunks', 'hasMore', 'nextCursor']), 'body');
@@ -826,7 +829,7 @@ function validateDatasourceChunksResponse(method, response) {
   return value;
 }
 
-/** @param {string} method @param {any} response */
+/** @param {string} method @param {unknown} response */
 function validateDatasourceDocumentResponse(method, response) {
   return validateDatasourceDocument(method, response, 'body');
 }

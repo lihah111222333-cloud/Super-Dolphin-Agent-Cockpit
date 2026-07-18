@@ -1,4 +1,3 @@
-// @ts-nocheck
 
 import { writeBridgeLog } from './wailsBridgeLogRuntime.js';
 import { METHOD_IDS } from './wailsBridgeConstants.js';
@@ -7,13 +6,21 @@ import { callAPI, callByID } from './wailsBridgeRpc.js';
 import { normalizeBridgeInputString } from './wailsBridgeNativeFiles.js';
 
 function isDebugRuntimeShim() {
-  return typeof window !== 'undefined' && window.__WAILS_SHIM_DEBUG__ === true;
+  return typeof window !== 'undefined'
+    && /** @type {Window & { __WAILS_SHIM_DEBUG__?: boolean }} */ (window).__WAILS_SHIM_DEBUG__ === true;
 }
 
+/** @param {unknown} error @returns {string} */
+function clipboardErrorMessage(error) {
+  return error instanceof Error && error.message ? error.message : String(error);
+}
+
+/** @param {unknown} text */
 async function copyTextToClipboard(text) {
   const value = normalizeBridgeInputString(text);
   if (!value) throw new Error('clipboard text is empty');
 
+  /** @type {string[]} */
   const failures = [];
   if (await copyTextViaNativeBridge(value, failures)) return true;
   if (await copyTextViaClipboardAPI(value, failures)) return true;
@@ -22,19 +29,22 @@ async function copyTextToClipboard(text) {
   throw new Error(`clipboard copy failed: ${failures.join('; ')}`);
 }
 
+/** @param {string} value @param {string[]} failures */
 async function copyTextViaNativeBridge(value, failures) {
   if (isDebugRuntimeShim()) return false;
   try {
     const res = await callAPI('ui/copyText', { text: value });
-    if (res?.ok) return true;
-    failures.push(`native ui/copyText returned ok=false${res?.error ? `: ${res.error}` : ''}`);
+    const response = res && typeof res === 'object' ? /** @type {Record<string, unknown>} */ (res) : {};
+    if (response.ok) return true;
+    failures.push(`native ui/copyText returned ok=false${response.error ? `: ${String(response.error)}` : ''}`);
   }
   catch (error) {
-    failures.push(`native ui/copyText failed: ${error.message || String(error)}`);
+    failures.push(`native ui/copyText failed: ${clipboardErrorMessage(error)}`);
   }
   return false;
 }
 
+/** @param {string} value @param {string[]} failures */
 async function copyTextViaClipboardAPI(value, failures) {
   if (!navigator?.clipboard?.writeText) {
     failures.push('browser clipboard.writeText is unavailable');
@@ -46,12 +56,13 @@ async function copyTextViaClipboardAPI(value, failures) {
     copied = true;
   }
   catch (error) {
-    failures.push(`browser clipboard.writeText failed: ${error.message || String(error)}`);
-    writeBridgeLog('warn', 'ui.copyText.clipboard_api_failed', { error: error.message || String(error) });
+    failures.push(`browser clipboard.writeText failed: ${clipboardErrorMessage(error)}`);
+    writeBridgeLog('warn', 'ui.copyText.clipboard_api_failed', { error: clipboardErrorMessage(error) });
   }
   return copied;
 }
 
+/** @param {string} value @param {string[]} failures */
 function copyTextViaExecCommand(value, failures) {
   let copied = false;
   try {
@@ -78,12 +89,13 @@ function copyTextViaExecCommand(value, failures) {
     }
   }
   catch (error) {
-    failures.push(`document.execCommand fallback failed: ${error.message || String(error)}`);
-    writeBridgeLog('warn', 'ui.copyText.exec_command_failed', { error: error.message || String(error) });
+    failures.push(`document.execCommand fallback failed: ${clipboardErrorMessage(error)}`);
+    writeBridgeLog('warn', 'ui.copyText.exec_command_failed', { error: clipboardErrorMessage(error) });
   }
   return copied;
 }
 
+/** @param {string} value */
 function createClipboardTextarea(value) {
   const textarea = document.createElement('textarea');
   textarea.value = value;
@@ -95,6 +107,7 @@ function createClipboardTextarea(value) {
   return textarea;
 }
 
+/** @param {Selection | null | undefined} selection @returns {Range[]} */
 function getSelectionRanges(selection) {
   if (!selection) return [];
   return Array.from({ length: selection.rangeCount }, (_, index) => selection.getRangeAt(index));
@@ -111,8 +124,11 @@ function beginTextClipboardWrite() {
   }
 
   let settled = false;
+  /** @type {(value: Blob) => void} */
   let resolveBlob;
+  /** @type {(reason?: unknown) => void} */
   let rejectBlob;
+  /** @type {Promise<Blob>} */
   const blobPromise = new Promise((resolve, reject) => {
     resolveBlob = resolve;
     rejectBlob = reject;
@@ -135,7 +151,7 @@ function beginTextClipboardWrite() {
   });
 
   return {
-    async commit(text) {
+    async commit(/** @type {unknown} */ text) {
       if (settled) throw new Error('prepared clipboard write is already settled');
       const value = normalizeBridgeInputString(text);
       if (!value) {
@@ -148,7 +164,7 @@ function beginTextClipboardWrite() {
       await writePromise;
       return true;
     },
-    cancel(reason) {
+    cancel(/** @type {unknown} */ reason) {
       if (settled) return;
       settled = true;
       rejectBlob(reason instanceof Error ? reason : new Error('clipboard write cancelled'));
@@ -156,6 +172,7 @@ function beginTextClipboardWrite() {
   };
 }
 
+/** @param {unknown} threadId */
 async function resolveThreadIdentity(threadId) {
   const id = normalizeBridgeInputString(threadId);
   if (!id) return {};
@@ -168,6 +185,7 @@ async function getBuildInfo() {
   return raw && typeof raw === 'object' ? raw : {};
 }
 
+/** @param {(event: unknown) => unknown} callback */
 function onAgentEvent(callback) {
   return subscribeRuntimeEvent('agent-event', callback, {
     callbackFailedLog: 'agent.callback.failed',
@@ -177,6 +195,7 @@ function onAgentEvent(callback) {
   });
 }
 
+/** @param {(event: unknown) => unknown} callback @param {Record<string, unknown>} options */
 function onBridgeEvent(callback, options = {}) {
   return subscribeRuntimeEvent('bridge-event', callback, {
     callbackFailedLog: 'bridge.callback.failed',
@@ -187,6 +206,7 @@ function onBridgeEvent(callback, options = {}) {
   });
 }
 
+/** @param {(event: unknown) => unknown} callback */
 function onFilesDropped(callback) {
   return subscribeRuntimeEvent('files-dropped', callback, {
     callbackFailedLog: 'filesDropped.callback.failed',
@@ -196,6 +216,7 @@ function onFilesDropped(callback) {
   });
 }
 
+/** @param {(event: unknown) => unknown} callback */
 function onAppWillQuit(callback) {
   return subscribeRuntimeEvent('app-will-quit', callback, {
     callbackFailedLog: 'appWillQuit.callback.failed',
@@ -205,6 +226,7 @@ function onAppWillQuit(callback) {
   });
 }
 
+/** @param {(event: unknown) => unknown} callback */
 function onRuntimeReconnect(callback) {
   return subscribeRuntimeEvent('wails:loaded', callback, {
     callbackFailedLog: 'reconnect.callback.failed',
