@@ -21,6 +21,9 @@ const governancePaths = [
   'frontend-app/scripts/frontend-maintainability-score.mjs',
   'frontend-app/scripts/frontend-maintainability-baseline.json',
   'frontend-app/scripts/frontend-maintainability-red-fixtures.json',
+  'frontend-app/scripts/delivery-smoke-runner.mjs',
+  'frontend-app/scripts/evidence-provenance.mjs',
+  'frontend-app/scripts/performance-budget-model.mjs',
 ];
 const artifactProbes = new Set(['promptHistoryVisibleError', 'criticalTypecheck']);
 const plannedBaseSha = 'b40867229af8e17916c00393639ccb0fcb4bf6fc';
@@ -133,6 +136,17 @@ const deliveryCaseIds = Object.freeze([
   'desktop-start-smoke',
   'desktop-failure-smoke',
 ]);
+const deliveryRunnerFiles = Object.freeze([
+  'frontend-app/scripts/delivery-smoke-runner.mjs',
+  'frontend-app/scripts/evidence-provenance.mjs',
+  'frontend-app/scripts/performance-budget-model.mjs',
+]);
+const deliveryCommands = Object.freeze([
+  Object.freeze({ id: 'frontend-build', cwd: 'frontend-app', argv: Object.freeze(['npm', 'run', 'build']) }),
+  Object.freeze({ id: 'frontend-embed-verify', cwd: '.', argv: Object.freeze(['make', 'frontend-embed-verify']) }),
+  Object.freeze({ id: 'desktop-start-smoke', cwd: 'frontend-app', argv: Object.freeze(['npm', 'run', 'smoke:desktop:rpc']) }),
+  Object.freeze({ id: 'desktop-failure-smoke', cwd: 'frontend-app', argv: Object.freeze(['npm', 'run', 'smoke:desktop:failure']) }),
+]);
 const plannedLaneAllOfArgv = Object.freeze({
   'A02-state-ownership': [
     ['node', 'scripts/frontend-state-ownership-guard.mjs'],
@@ -176,6 +190,10 @@ function sorted(values) {
 
 function exactSet(actual, expected, label) {
   if (JSON.stringify(sorted(actual)) !== JSON.stringify(sorted(expected))) fail(`${label} exact set mismatch`);
+}
+
+function exactOrdered(actual, expected, label) {
+  if (JSON.stringify(actual) !== JSON.stringify(expected)) fail(`${label} differs from frozen contract`);
 }
 
 function exactKeys(value, expected, label) {
@@ -915,14 +933,72 @@ function validateDeliveryReport(report, { context, control, check, startedAt, fi
   validateReportBinding(report, context, startedAt, finishedAt);
   if (report.metricId !== control.id) fail('delivery smoke metricId mismatch');
   validateExactCaseResult(report.caseIds, report.testCount, check, 'delivery smoke');
+  validateDeliveryRunnerProvenance(report.provenance, context, check);
   const commands = report.verdict?.commands;
   if (!Array.isArray(commands)) fail('delivery smoke commands must be an array');
-  exactSet(commands.map(({ id }) => id), check.caseIds, 'delivery smoke commands');
   const status = normalizedRunnerStatus(report.verdict.status);
-  if (status === 'PASS' && commands.some((command) => command.status !== 'PASS')) {
-    fail('delivery smoke PASS conflicts with command results');
+  if (status === 'PASS') {
+    if (report.verdict.executedCommands !== deliveryCommands.length
+      || commands.length !== report.verdict.executedCommands) {
+      fail('delivery smoke PASS must execute every frozen command');
+    }
+    commands.forEach((command, index) => {
+      const expected = deliveryCommands[index];
+      exactKeys(command, [
+        'id', 'argv', 'cwd', 'exitCode', 'signal', 'startedAt', 'finishedAt', 'durationMs', 'status',
+      ], `delivery smoke command ${index}`);
+      if (command.id !== expected.id || command.cwd !== expected.cwd) {
+        fail(`delivery smoke command ${index} identity mismatch`);
+      }
+      exactOrdered(command.argv, expected.argv, `delivery smoke command ${expected.id} argv`);
+      const commandStartedAt = Date.parse(command.startedAt);
+      const commandFinishedAt = Date.parse(command.finishedAt);
+      if (!Number.isFinite(commandStartedAt) || !Number.isFinite(commandFinishedAt)
+        || commandStartedAt < startedAt - 5_000 || commandFinishedAt > finishedAt + 5_000
+        || commandFinishedAt < commandStartedAt
+        || command.durationMs !== commandFinishedAt - commandStartedAt
+        || command.exitCode !== 0 || command.signal !== null || command.status !== 'PASS') {
+        fail(`delivery smoke command ${expected.id} execution provenance is invalid`);
+      }
+    });
   }
   return status;
+}
+
+function validateDeliveryRunnerProvenance(provenance, context, check) {
+  exactKeys(provenance, [
+    'runnerId', 'runnerSha', 'runnerTree', 'runnerContentHash', 'runnerFiles',
+    'worktreeClean', 'worktreeStatus', 'baselineAudit',
+  ], 'delivery runner provenance');
+  const scoreBaseTree = git(context.repoRoot, ['rev-parse', `${context.scoreBaseSha}^{tree}`]);
+  if (provenance.runnerId !== 'frontend-delivery-smoke'
+    || provenance.runnerSha !== context.scoreBaseSha
+    || provenance.runnerTree !== scoreBaseTree
+    || provenance.worktreeClean !== true
+    || !Array.isArray(provenance.worktreeStatus) || provenance.worktreeStatus.length !== 0
+    || provenance.baselineAudit !== null
+    || !gitSucceeds(context.repoRoot, ['merge-base', '--is-ancestor', provenance.runnerSha, context.subjectSha])) {
+    fail('delivery runner is not the clean frozen SCORE_BASE runner');
+  }
+  if (!Array.isArray(provenance.runnerFiles)) fail('delivery runnerFiles must be an array');
+  exactSet(provenance.runnerFiles.map(({ path: runnerPath }) => runnerPath), check.runnerFiles, 'delivery runnerFiles');
+  const byPath = new Map(provenance.runnerFiles.map((entry) => [entry.path, entry]));
+  const aggregate = createHash('sha256');
+  for (const runnerPath of check.runnerFiles) {
+    const expectedSha = runnerFileSha256(context.repoRoot, context.scoreBaseSha, runnerPath);
+    const entry = byPath.get(runnerPath);
+    if (!entry || entry.sha256 !== expectedSha || !/^[0-9a-f]{64}$/u.test(entry.sha256)) {
+      fail(`delivery frozen runner file hash mismatch: ${runnerPath}`);
+    }
+    if (context.subjectSha !== context.scoreBaseSha
+      && runnerFileSha256(context.repoRoot, null, runnerPath) !== expectedSha) {
+      fail(`delivery candidate runner content differs from SCORE_BASE: ${runnerPath}`);
+    }
+    aggregate.update(`${runnerPath}\0${entry.sha256}\n`);
+  }
+  if (aggregate.digest('hex') !== provenance.runnerContentHash) {
+    fail('delivery runnerContentHash does not match runnerFiles');
+  }
 }
 
 function validateActualRunnerEvidence(report, options) {
@@ -955,6 +1031,7 @@ function commandResult(command, args, options) {
   });
   return {
     exitCode: result.status ?? 1,
+    signal: result.signal ?? null,
     stdout: result.stdout || '',
     stderr: result.stderr || '',
     error: result.error,
@@ -964,6 +1041,7 @@ function commandResult(command, args, options) {
 function expandedRunnerArgv(context, check) {
   return check.argv.map((argument) => {
     if (argument === '$SUBJECT_SHA') return context.subjectSha;
+    if (argument === '$SUBJECT_REPO') return context.repoRoot;
     if (argument === '$FROZEN_BASELINE') return path.join(frozenScriptRoot, 'frontend-maintainability-baseline.json');
     return argument;
   });
@@ -976,7 +1054,8 @@ function executeActualRunner(context, check) {
   if (context.evidenceCache.has(cacheKey)) return context.evidenceCache.get(cacheKey);
   const [command, runnerPath, ...args] = argv;
   const cwd = fs.realpathSync(path.resolve(context.repoRoot, check.cwd));
-  const requestedRunnerPath = path.resolve(cwd, runnerPath);
+  const runnerRoot = check.evidenceProtocol === 'delivery-smoke-json-v1' ? frozenAppRoot : cwd;
+  const requestedRunnerPath = path.resolve(runnerRoot, runnerPath);
   if (!fs.existsSync(requestedRunnerPath)) {
     const missing = { missing: true, runnerPath: path.join(check.cwd, runnerPath) };
     context.evidenceCache.set(cacheKey, missing);
@@ -1005,7 +1084,22 @@ function executeActualRunner(context, check) {
   catch (error) {
     report = { parseError: error.message };
   }
-  const executed = { result, report, startedAt, finishedAt };
+  const executed = {
+    result,
+    report,
+    startedAt,
+    finishedAt,
+    invocation: {
+      cwd,
+      argv: [command === 'node' ? process.execPath : command, absoluteRunnerPath, ...args],
+      runnerPath: absoluteRunnerPath,
+      runnerSha256: createHash('sha256').update(fs.readFileSync(absoluteRunnerPath)).digest('hex'),
+      startedAt: new Date(startedAt).toISOString(),
+      finishedAt: new Date(finishedAt).toISOString(),
+      exitCode: result.exitCode,
+      signal: result.signal,
+    },
+  };
   context.evidenceCache.set(cacheKey, executed);
   return executed;
 }
@@ -1066,16 +1160,17 @@ function structuredProbe(context, control, check) {
       status: 'FAIL', exitCode: 1, summary: `target runner must be a regular file: ${execution.runnerPath}`,
     });
   }
-  const { result, report, startedAt, finishedAt } = execution;
+  const { result, report, startedAt, finishedAt, invocation } = execution;
   const output = `${result.stdout}${result.stderr}`.trim();
   if (result.error) {
     return evidenceRecord(context, control, check, {
-      status: 'FAIL', exitCode: result.exitCode, summary: result.error.message,
+      status: 'FAIL', exitCode: result.exitCode, summary: result.error.message, runnerExecution: invocation,
     });
   }
   if (report.parseError) {
     return evidenceRecord(context, control, check, {
       status: 'FAIL', exitCode: result.exitCode, summary: `runner report is not valid JSON: ${report.parseError}; ${output.slice(-600)}`,
+      runnerExecution: invocation,
     });
   }
   let status;
@@ -1088,17 +1183,20 @@ function structuredProbe(context, control, check) {
       status: notVerifiedResult ? 'NOT_VERIFIED' : 'FAIL',
       exitCode: notVerifiedResult ? null : 1,
       summary: error.message,
+      runnerExecution: invocation,
     });
   }
   if (status === 'PASS' && result.exitCode !== 0) {
     return evidenceRecord(context, control, check, {
       status: 'FAIL', exitCode: result.exitCode, summary: 'runner reported PASS with a non-zero exit',
+      runnerExecution: invocation,
     });
   }
   return evidenceRecord(context, control, check, {
     status,
     exitCode: status === 'PASS' ? 0 : status === 'FAIL' ? 1 : null,
     summary: `${check.evidenceProtocol} ${status}; cases=${check.caseIds.length} tests=${check.testCount}`,
+    runnerExecution: invocation,
   });
 }
 
@@ -1280,8 +1378,12 @@ function validateStructuredCheck(control, check) {
   if (check.evidenceProtocol === 'delivery-smoke-json-v1') {
     if (control.id !== 'T05-build-embed-smoke' || check.probe !== 'deliverySmoke'
       || check.metricId !== control.id) fail(`invalid delivery smoke control: ${control.id}`);
-    exact(check.argv, ['node', 'scripts/delivery-smoke-runner.mjs', '--verify', '--subject', '$SUBJECT_SHA'], 'delivery smoke argv');
+    exact(check.argv, [
+      'node', 'scripts/delivery-smoke-runner.mjs', '--verify',
+      '--repo', '$SUBJECT_REPO', '--subject', '$SUBJECT_SHA',
+    ], 'delivery smoke argv');
     exact(check.caseIds, deliveryCaseIds, 'delivery smoke caseIds');
+    exact(check.runnerFiles, deliveryRunnerFiles, 'delivery audited runner files');
     if (check.testCount !== deliveryCaseIds.length) fail(`delivery smoke testCount differs from frozen contract: ${control.id}`);
     return;
   }

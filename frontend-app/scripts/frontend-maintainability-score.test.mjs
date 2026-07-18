@@ -138,6 +138,9 @@ function createFinalContractTarget() {
     'frontend-app/scripts/frontend-maintainability-score.mjs',
     'frontend-app/scripts/frontend-maintainability-baseline.json',
     'frontend-app/scripts/frontend-maintainability-red-fixtures.json',
+    'frontend-app/scripts/delivery-smoke-runner.mjs',
+    'frontend-app/scripts/evidence-provenance.mjs',
+    'frontend-app/scripts/performance-budget-model.mjs',
     'frontend-app/scorer-final-subject.txt',
   ]);
   git(repoRoot, ['config', 'user.email', 'scorer-test@example.invalid']);
@@ -147,6 +150,9 @@ function createFinalContractTarget() {
     'frontend-maintainability-score.mjs',
     'frontend-maintainability-baseline.json',
     'frontend-maintainability-red-fixtures.json',
+    'delivery-smoke-runner.mjs',
+    'evidence-provenance.mjs',
+    'performance-budget-model.mjs',
   ]) {
     copyFileSync(join(scriptRoot, name), join(repoRoot, 'frontend-app', 'scripts', name));
   }
@@ -176,6 +182,9 @@ function createFinalCliFixture({ hangFirstProbe = false } = {}) {
     'frontend-maintainability-score.mjs',
     'frontend-maintainability-baseline.json',
     'frontend-maintainability-red-fixtures.json',
+    'delivery-smoke-runner.mjs',
+    'evidence-provenance.mjs',
+    'performance-budget-model.mjs',
   ]) {
     copyFileSync(join(scriptRoot, name), join(baseRoot, 'frontend-app', 'scripts', name));
   }
@@ -194,6 +203,41 @@ function createFinalCliFixture({ hangFirstProbe = false } = {}) {
     const sourcePath = join(sourceNodeModules, entry);
     symlinkSync(sourcePath, join(baseNodeModules, entry), statSync(sourcePath).isDirectory() ? 'dir' : 'file');
   }
+  write('frontend-app/scripts/delivery-smoke-runner.mjs', [
+    "import { execFile } from 'node:child_process';",
+    "import { lstatSync, writeFileSync } from 'node:fs';",
+    "import process from 'node:process';",
+    "import { resolve } from 'node:path';",
+    "import { promisify } from 'node:util';",
+    '',
+    'const run = promisify(execFile);',
+    'const repoIndex = process.argv.indexOf(\'--repo\');',
+    "if (repoIndex < 0 || !process.argv[repoIndex + 1]) throw new Error('--repo is required');",
+    'const REPO_ROOT = resolve(process.argv[repoIndex + 1]);',
+    "const FRONTEND_ROOT = resolve(REPO_ROOT, 'frontend-app');",
+    'const proofPath = process.env.SCORER_DETACHED_MOUNT_PROOF;',
+    "if (!proofPath) throw new Error('SCORER_DETACHED_MOUNT_PROOF is required');",
+    "const gitStatus = await run('git', ['status', '--porcelain', '--untracked-files=all'], { cwd: REPO_ROOT, encoding: 'utf8', timeout: 10_000 });",
+    'const vitest = await run(process.execPath, [',
+    "  resolve(FRONTEND_ROOT, 'node_modules', 'vitest', 'vitest.mjs'),",
+    "  'run', 'scripts/detached-mount-probe.test.mjs', '--reporter=json', '--no-file-parallelism', '--maxWorkers=1',",
+    "], { cwd: FRONTEND_ROOT, encoding: 'utf8', timeout: 30_000 });",
+    "const nodeModules = lstatSync(resolve(FRONTEND_ROOT, 'node_modules'));",
+    'const proof = {',
+    '  gitStatusExitCode: 0,',
+    '  gitStatus: gitStatus.stdout,',
+    '  nodeModulesIsDirectory: nodeModules.isDirectory(),',
+    '  nodeModulesIsSymbolicLink: nodeModules.isSymbolicLink(),',
+    '  vitestExitCode: 0,',
+    '  vitestStderr: vitest.stderr,',
+    '  vitestStdout: vitest.stdout,',
+    '};',
+    'writeFileSync(proofPath, JSON.stringify(proof));',
+    'const vitestReport = JSON.parse(vitest.stdout);',
+    'writeFileSync(proofPath, JSON.stringify({ ...proof, vitestPassedTests: vitestReport.numPassedTests }));',
+    "process.stdout.write('{}\\n');",
+    '',
+  ].join('\n'), baseRoot);
   write('frontend-app/scorer-freeze-marker.txt', 'frozen scorer fixture\n', baseRoot);
   git(baseRoot, ['add', '-A']);
   git(baseRoot, ['commit', '-q', '-m', '测试：冻结最终评分器']);
@@ -221,13 +265,6 @@ function createFinalCliFixture({ hangFirstProbe = false } = {}) {
     'frontend-app/scripts/contracts-typecheck-guard.test.mjs',
   ];
   for (const relativePath of probeSources) rmSync(join(subjectRoot, relativePath), { force: true });
-  if (hangFirstProbe) {
-    write(
-      'frontend-app/src/entities/client/model/useClientStore.test.js',
-      "setInterval(() => {}, 1_000);\nawait new Promise(() => {});\n",
-      subjectRoot,
-    );
-  }
   for (const relativePath of [
     'frontend-app/scripts/failure-matrix-runner.mjs',
     'frontend-app/scripts/desktop-failure-smoke.mjs',
@@ -239,7 +276,10 @@ function createFinalCliFixture({ hangFirstProbe = false } = {}) {
     'frontend-app/scripts/turn-contract-field-guard.mjs',
     'frontend-app/scripts/critical-typecheck-guard.mjs',
   ]) {
-    write(relativePath, "process.exitCode = 1;\n", subjectRoot);
+    const source = hangFirstProbe && relativePath.endsWith('failure-matrix-runner.mjs')
+      ? "setInterval(() => {}, 1_000);\nawait new Promise(() => {});\n"
+      : "process.exitCode = 1;\n";
+    write(relativePath, source, subjectRoot);
   }
   write(
     'frontend-app/scripts/detached-mount-probe.test.mjs',
@@ -247,44 +287,6 @@ function createFinalCliFixture({ hangFirstProbe = false } = {}) {
     subjectRoot,
   );
   write('Makefile', 'frontend-embed-verify:\n\t@false\n', subjectRoot);
-  write('frontend-app/scripts/delivery-smoke-runner.mjs', [
-    "import { execFile } from 'node:child_process';",
-    "import { lstatSync, writeFileSync } from 'node:fs';",
-    "import process from 'node:process';",
-    "import { dirname, resolve } from 'node:path';",
-    "import { fileURLToPath } from 'node:url';",
-    "import { promisify } from 'node:util';",
-    '',
-    'const SCRIPT_PATH = fileURLToPath(import.meta.url);',
-    "const FRONTEND_ROOT = resolve(dirname(SCRIPT_PATH), '..');",
-    "const REPO_ROOT = resolve(FRONTEND_ROOT, '..');",
-    'const run = promisify(execFile);',
-    '',
-    'if (process.argv[1] && resolve(process.argv[1]) === SCRIPT_PATH) {',
-    '  const proofPath = process.env.SCORER_DETACHED_MOUNT_PROOF;',
-    "  if (!proofPath) throw new Error('SCORER_DETACHED_MOUNT_PROOF is required');",
-    "  const gitStatus = await run('git', ['status', '--porcelain', '--untracked-files=all'], { cwd: REPO_ROOT, encoding: 'utf8', timeout: 10_000 });",
-    '  const vitest = await run(process.execPath, [',
-    "    resolve(FRONTEND_ROOT, 'node_modules', 'vitest', 'vitest.mjs'),",
-    "    'run', 'scripts/detached-mount-probe.test.mjs', '--reporter=json', '--no-file-parallelism', '--maxWorkers=1',",
-    "  ], { cwd: FRONTEND_ROOT, encoding: 'utf8', timeout: 30_000 });",
-    "  const nodeModules = lstatSync(resolve(FRONTEND_ROOT, 'node_modules'));",
-    '  const proof = {',
-    '    gitStatusExitCode: 0,',
-    '    gitStatus: gitStatus.stdout,',
-    '    nodeModulesIsDirectory: nodeModules.isDirectory(),',
-    '    nodeModulesIsSymbolicLink: nodeModules.isSymbolicLink(),',
-    '    vitestExitCode: 0,',
-    '    vitestStderr: vitest.stderr,',
-    '    vitestStdout: vitest.stdout,',
-    '  };',
-    '  writeFileSync(proofPath, JSON.stringify(proof));',
-    '  const vitestReport = JSON.parse(vitest.stdout);',
-    '  writeFileSync(proofPath, JSON.stringify({ ...proof, vitestPassedTests: vitestReport.numPassedTests }));',
-    "  process.stdout.write('{}\\n');",
-    '}',
-    '',
-  ].join('\n'), subjectRoot);
   git(subjectRoot, ['add', '.']);
   git(subjectRoot, ['commit', '-q', '-m', '测试：建立最终评分目标']);
   return { baseRoot, scoreBaseSha, subjectRoot, subjectSha: git(subjectRoot, ['rev-parse', 'HEAD']) };
@@ -504,18 +506,52 @@ function performanceEvidence(context, check, metricStatus = 'PASS', overrides = 
 }
 
 function deliveryEvidence(context, check, overrides = {}) {
+  const now = Date.now();
+  const commandContracts = [
+    { id: 'frontend-build', cwd: 'frontend-app', argv: ['npm', 'run', 'build'] },
+    { id: 'frontend-embed-verify', cwd: '.', argv: ['make', 'frontend-embed-verify'] },
+    { id: 'desktop-start-smoke', cwd: 'frontend-app', argv: ['npm', 'run', 'smoke:desktop:rpc'] },
+    { id: 'desktop-failure-smoke', cwd: 'frontend-app', argv: ['npm', 'run', 'smoke:desktop:failure'] },
+  ];
+  const runnerFiles = check.runnerFiles.map((runnerPath) => ({
+    path: runnerPath,
+    sha256: createHash('sha256').update(execFileSync('git', [
+      'show', `${context.scoreBaseSha}:${runnerPath}`,
+    ], { cwd: context.repoRoot })).digest('hex'),
+  }));
+  const runnerContentHash = createHash('sha256');
+  runnerFiles.forEach(({ path: runnerPath, sha256 }) => runnerContentHash.update(`${runnerPath}\0${sha256}\n`));
   return {
     schemaVersion: 1,
-    generatedAt: new Date().toISOString(),
+    generatedAt: new Date(now).toISOString(),
     subjectSha: context.subjectSha,
     subjectTree: context.subjectTree,
     metricId: 'T05-build-embed-smoke',
     caseIds: [...check.caseIds],
     testCount: check.testCount,
+    provenance: {
+      runnerId: 'frontend-delivery-smoke',
+      runnerSha: context.scoreBaseSha,
+      runnerTree: git(context.repoRoot, ['rev-parse', `${context.scoreBaseSha}^{tree}`]),
+      runnerContentHash: runnerContentHash.digest('hex'),
+      runnerFiles,
+      worktreeClean: true,
+      worktreeStatus: [],
+      baselineAudit: null,
+    },
     verdict: {
       status: 'PASS',
       reason: '',
-      commands: check.caseIds.map((id) => ({ id, status: 'PASS' })),
+      executedCommands: commandContracts.length,
+      commands: commandContracts.map((command) => ({
+        ...command,
+        exitCode: 0,
+        signal: null,
+        startedAt: new Date(now).toISOString(),
+        finishedAt: new Date(now).toISOString(),
+        durationMs: 0,
+        status: 'PASS',
+      })),
     },
     ...overrides,
   };
@@ -576,6 +612,12 @@ describe('frontend maintainability scorer configuration', () => {
     expect(() => validateConfiguration(mutablePerformanceCLI.controls, mutablePerformanceCLI.fixtures))
       .toThrow('performance budget argv differs from frozen contract');
 
+    const mutableDeliveryRunner = documents();
+    mutableDeliveryRunner.controls.controls.find(({ id }) => id === 'T05-build-embed-smoke')
+      .allOf[0].runnerFiles[0] = 'frontend-app/scripts/forged-delivery-runner.mjs';
+    expect(() => validateConfiguration(mutableDeliveryRunner.controls, mutableDeliveryRunner.fixtures))
+      .toThrow('delivery audited runner files differs from frozen contract');
+
     const missingFixture = documents();
     missingFixture.controls.controls[0].allOf[0].caseIds = ['does-not-exist'];
     expect(() => validateConfiguration(missingFixture.controls, missingFixture.fixtures)).toThrow('missing fixture case');
@@ -603,7 +645,10 @@ describe('frontend maintainability scorer configuration', () => {
     expect(controls.controls.find(({ id }) => id === 'P01-render-isolation').allOf[0].argv)
       .toEqual(['node', 'scripts/performance-budget-runner.mjs', '--verify', '--subject', '$SUBJECT_SHA', '--baseline', '$FROZEN_BASELINE']);
     expect(controls.controls.find(({ id }) => id === 'T05-build-embed-smoke').allOf[0].argv)
-      .toEqual(['node', 'scripts/delivery-smoke-runner.mjs', '--verify', '--subject', '$SUBJECT_SHA']);
+      .toEqual([
+        'node', 'scripts/delivery-smoke-runner.mjs', '--verify',
+        '--repo', '$SUBJECT_REPO', '--subject', '$SUBJECT_SHA',
+      ]);
     expect(JSON.parse(readFileSync(join(scriptRoot, 'frontend-maintainability-baseline.json'), 'utf8')).baseSha)
       .toBe(plannedBaseSha);
     const backgroundHealth = controls.controls.find(({ id }) => id === 'E03-background-health');
@@ -686,16 +731,16 @@ describe('frozen scorer target binding', () => {
     expect(context.subjectSha).toBe(target.subjectSha);
     expect(context.scoreBaseSha).toBe(git(frozenRepoRoot, ['rev-parse', 'HEAD']));
 
-    write('frontend-app/scripts/frontend-maintainability-score.mjs', '// drift\n', target.repoRoot);
+    write('frontend-app/scripts/delivery-smoke-runner.mjs', 'process.stdout.write("forged PASS\\n");\n', target.repoRoot);
     git(target.repoRoot, ['add', '.']);
-    git(target.repoRoot, ['commit', '-q', '-m', '测试：制造治理漂移']);
+    git(target.repoRoot, ['commit', '-q', '-m', '测试：伪造候选交付运行器']);
     expect(() => inspectTargetRepository({
       repoRoot: target.repoRoot,
       subjectSha: git(target.repoRoot, ['rev-parse', 'HEAD']),
       requireClean: true,
       requireFinalContract: true,
     })).toThrow('frozen governance drift');
-  }, 30_000);
+  }, 90_000);
 
   it('keeps the canonical detached dependency mount Git-clean and Vitest-executable', async () => {
     const fixture = createFinalCliFixture();
@@ -766,11 +811,11 @@ describe('frozen scorer target binding', () => {
       ], {
         cwd: join(fixture.baseRoot, 'frontend-app'),
         env: { ...process.env, TMPDIR: commandTmpRoot },
-        timeoutMs: 2_000,
+        timeoutMs: 5_000,
         killGraceMs: 20_000,
       });
 
-      expect(result.timedOut).toBe(true);
+      expect(result.timedOut, [result.stdout, result.stderr, result.error?.message].filter(Boolean).join('\n')).toBe(true);
       expect(result.signal ?? result.status).not.toBe(null);
       expect(readdirSync(commandTmpRoot).filter((entry) => (
         entry.startsWith('frontend-maintainability-subject-')
@@ -828,7 +873,7 @@ describe('executable evidence registry', () => {
     const check = control.allOf[0];
     const context = inspectTargetRepository();
     const now = Date.now();
-    const options = { context, control, check, startedAt: now - 100, finishedAt: now + 100 };
+    const options = { context, control, check, startedAt: now - 5_000, finishedAt: now + 5_000 };
     const valid = failureMatrixEvidence(context);
 
     expect(structuredEvidenceStatus(valid, options)).toBe('PASS');
@@ -1153,6 +1198,19 @@ describe('executable evidence registry', () => {
     expect(structuredEvidenceStatus({ ...valid, testCount: 0 }, options)).toBe('FAIL');
     expect(structuredEvidenceStatus({
       ...valid,
+      verdict: { ...valid.verdict, executedCommands: 0 },
+    }, options)).toBe('FAIL');
+    expect(structuredEvidenceStatus({
+      ...valid,
+      provenance: {
+        ...valid.provenance,
+        runnerFiles: valid.provenance.runnerFiles.map((entry, index) => (
+          index === 0 ? { ...entry, sha256: 'f'.repeat(64) } : entry
+        )),
+      },
+    }, options)).toBe('FAIL');
+    expect(structuredEvidenceStatus({
+      ...valid,
       verdict: { ...valid.verdict, commands: valid.verdict.commands.slice(1) },
     }, options)).toBe('FAIL');
   });
@@ -1168,6 +1226,7 @@ describe('executable evidence registry', () => {
     expect(commandEvidenceStatus({
       repoRoot: frozenRepoRoot,
       argv: [process.execPath, '-e', 'process.stdout.write("x".repeat(2 * 1024 * 1024))'],
+      timeoutMs: 60_000,
     })).toBe('PASS');
   });
 });
