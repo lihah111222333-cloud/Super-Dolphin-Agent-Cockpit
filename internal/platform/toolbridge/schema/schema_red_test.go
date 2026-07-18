@@ -195,7 +195,7 @@ func runCancellationFixture() bool {
 	if marker == "" {
 		os.Exit(2)
 	}
-	if err := os.WriteFile(marker, []byte(fmt.Sprintf("%d", os.Getpid())), 0o600); err != nil {
+	if err := os.WriteFile(marker, fmt.Appendf(nil, "%d", os.Getpid()), 0o600); err != nil {
 		os.Exit(3)
 	}
 	time.Sleep(30 * time.Second)
