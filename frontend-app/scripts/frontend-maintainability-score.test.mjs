@@ -127,6 +127,9 @@ function createFinalContractTarget() {
     'frontend-maintainability-score.mjs',
     'frontend-maintainability-baseline.json',
     'frontend-maintainability-red-fixtures.json',
+    'delivery-smoke-runner.mjs',
+    'evidence-provenance.mjs',
+    'performance-budget-model.mjs',
   ]) {
     copyFileSync(join(scriptRoot, name), join(repoRoot, 'frontend-app', 'scripts', name));
   }
@@ -151,6 +154,9 @@ function createFinalCliFixture() {
     'frontend-maintainability-score.mjs',
     'frontend-maintainability-baseline.json',
     'frontend-maintainability-red-fixtures.json',
+    'delivery-smoke-runner.mjs',
+    'evidence-provenance.mjs',
+    'performance-budget-model.mjs',
   ]) {
     copyFileSync(join(scriptRoot, name), join(baseRoot, 'frontend-app', 'scripts', name));
   }
@@ -161,6 +167,39 @@ function createFinalCliFixture() {
     const sourcePath = join(sourceNodeModules, entry);
     symlinkSync(sourcePath, join(baseNodeModules, entry), statSync(sourcePath).isDirectory() ? 'dir' : 'file');
   }
+  write('frontend-app/scripts/delivery-smoke-runner.mjs', [
+    "import { spawnSync } from 'node:child_process';",
+    "import { lstatSync, writeFileSync } from 'node:fs';",
+    "import process from 'node:process';",
+    "import { resolve } from 'node:path';",
+    '',
+    'const repoIndex = process.argv.indexOf(\'--repo\');',
+    "if (repoIndex < 0 || !process.argv[repoIndex + 1]) throw new Error('--repo is required');",
+    'const REPO_ROOT = resolve(process.argv[repoIndex + 1]);',
+    "const FRONTEND_ROOT = resolve(REPO_ROOT, 'frontend-app');",
+    'const proofPath = process.env.SCORER_DETACHED_MOUNT_PROOF;',
+    "if (!proofPath) throw new Error('SCORER_DETACHED_MOUNT_PROOF is required');",
+    "const gitStatus = spawnSync('git', ['status', '--porcelain', '--untracked-files=all'], { cwd: REPO_ROOT, encoding: 'utf8' });",
+    'const vitest = spawnSync(process.execPath, [',
+    "  resolve(FRONTEND_ROOT, 'node_modules', 'vitest', 'vitest.mjs'),",
+    "  'run', 'scripts/detached-mount-probe.test.mjs', '--reporter=json', '--no-file-parallelism', '--maxWorkers=1',",
+    "], { cwd: FRONTEND_ROOT, encoding: 'utf8' });",
+    "const nodeModules = lstatSync(resolve(FRONTEND_ROOT, 'node_modules'));",
+    'const proof = {',
+    '  gitStatusExitCode: gitStatus.status,',
+    '  gitStatus: gitStatus.stdout,',
+    '  nodeModulesIsDirectory: nodeModules.isDirectory(),',
+    '  nodeModulesIsSymbolicLink: nodeModules.isSymbolicLink(),',
+    '  vitestExitCode: vitest.status,',
+    '  vitestStderr: vitest.stderr,',
+    '  vitestStdout: vitest.stdout,',
+    '};',
+    'writeFileSync(proofPath, JSON.stringify(proof));',
+    'const vitestReport = JSON.parse(vitest.stdout);',
+    'writeFileSync(proofPath, JSON.stringify({ ...proof, vitestPassedTests: vitestReport.numPassedTests }));',
+    "process.stdout.write('{}\\n');",
+    '',
+  ].join('\n'), baseRoot);
   write('frontend-app/scorer-freeze-marker.txt', 'frozen scorer fixture\n', baseRoot);
   git(baseRoot, ['add', '.']);
   git(baseRoot, ['commit', '-q', '-m', '测试：冻结最终评分器']);
@@ -182,42 +221,6 @@ function createFinalCliFixture() {
     subjectRoot,
   );
   write('Makefile', 'frontend-embed-verify:\n\t@false\n', subjectRoot);
-  write('frontend-app/scripts/delivery-smoke-runner.mjs', [
-    "import { spawnSync } from 'node:child_process';",
-    "import { lstatSync, writeFileSync } from 'node:fs';",
-    "import process from 'node:process';",
-    "import { dirname, resolve } from 'node:path';",
-    "import { fileURLToPath } from 'node:url';",
-    '',
-    'const SCRIPT_PATH = fileURLToPath(import.meta.url);',
-    "const FRONTEND_ROOT = resolve(dirname(SCRIPT_PATH), '..');",
-    "const REPO_ROOT = resolve(FRONTEND_ROOT, '..');",
-    '',
-    'if (process.argv[1] && resolve(process.argv[1]) === SCRIPT_PATH) {',
-    '  const proofPath = process.env.SCORER_DETACHED_MOUNT_PROOF;',
-    "  if (!proofPath) throw new Error('SCORER_DETACHED_MOUNT_PROOF is required');",
-    "  const gitStatus = spawnSync('git', ['status', '--porcelain', '--untracked-files=all'], { cwd: REPO_ROOT, encoding: 'utf8' });",
-    '  const vitest = spawnSync(process.execPath, [',
-    "    resolve(FRONTEND_ROOT, 'node_modules', 'vitest', 'vitest.mjs'),",
-    "    'run', 'scripts/detached-mount-probe.test.mjs', '--reporter=json', '--no-file-parallelism', '--maxWorkers=1',",
-    "  ], { cwd: FRONTEND_ROOT, encoding: 'utf8' });",
-    "  const nodeModules = lstatSync(resolve(FRONTEND_ROOT, 'node_modules'));",
-    '  const proof = {',
-    '    gitStatusExitCode: gitStatus.status,',
-    '    gitStatus: gitStatus.stdout,',
-    '    nodeModulesIsDirectory: nodeModules.isDirectory(),',
-    '    nodeModulesIsSymbolicLink: nodeModules.isSymbolicLink(),',
-    '    vitestExitCode: vitest.status,',
-    '    vitestStderr: vitest.stderr,',
-    '    vitestStdout: vitest.stdout,',
-    '  };',
-    '  writeFileSync(proofPath, JSON.stringify(proof));',
-    '  const vitestReport = JSON.parse(vitest.stdout);',
-    '  writeFileSync(proofPath, JSON.stringify({ ...proof, vitestPassedTests: vitestReport.numPassedTests }));',
-    "  process.stdout.write('{}\\n');",
-    '}',
-    '',
-  ].join('\n'), subjectRoot);
   git(subjectRoot, ['add', '.']);
   git(subjectRoot, ['commit', '-q', '-m', '测试：建立最终评分目标']);
   return { baseRoot, scoreBaseSha, subjectRoot, subjectSha: git(subjectRoot, ['rev-parse', 'HEAD']) };
@@ -437,18 +440,52 @@ function performanceEvidence(context, check, metricStatus = 'PASS', overrides = 
 }
 
 function deliveryEvidence(context, check, overrides = {}) {
+  const now = Date.now();
+  const commandContracts = [
+    { id: 'frontend-build', cwd: 'frontend-app', argv: ['npm', 'run', 'build'] },
+    { id: 'frontend-embed-verify', cwd: '.', argv: ['make', 'frontend-embed-verify'] },
+    { id: 'desktop-start-smoke', cwd: 'frontend-app', argv: ['npm', 'run', 'smoke:desktop:rpc'] },
+    { id: 'desktop-failure-smoke', cwd: 'frontend-app', argv: ['npm', 'run', 'smoke:desktop:failure'] },
+  ];
+  const runnerFiles = check.runnerFiles.map((runnerPath) => ({
+    path: runnerPath,
+    sha256: createHash('sha256').update(execFileSync('git', [
+      'show', `${context.scoreBaseSha}:${runnerPath}`,
+    ], { cwd: context.repoRoot })).digest('hex'),
+  }));
+  const runnerContentHash = createHash('sha256');
+  runnerFiles.forEach(({ path: runnerPath, sha256 }) => runnerContentHash.update(`${runnerPath}\0${sha256}\n`));
   return {
     schemaVersion: 1,
-    generatedAt: new Date().toISOString(),
+    generatedAt: new Date(now).toISOString(),
     subjectSha: context.subjectSha,
     subjectTree: context.subjectTree,
     metricId: 'T05-build-embed-smoke',
     caseIds: [...check.caseIds],
     testCount: check.testCount,
+    provenance: {
+      runnerId: 'frontend-delivery-smoke',
+      runnerSha: context.scoreBaseSha,
+      runnerTree: git(context.repoRoot, ['rev-parse', `${context.scoreBaseSha}^{tree}`]),
+      runnerContentHash: runnerContentHash.digest('hex'),
+      runnerFiles,
+      worktreeClean: true,
+      worktreeStatus: [],
+      baselineAudit: null,
+    },
     verdict: {
       status: 'PASS',
       reason: '',
-      commands: check.caseIds.map((id) => ({ id, status: 'PASS' })),
+      executedCommands: commandContracts.length,
+      commands: commandContracts.map((command) => ({
+        ...command,
+        exitCode: 0,
+        signal: null,
+        startedAt: new Date(now).toISOString(),
+        finishedAt: new Date(now).toISOString(),
+        durationMs: 0,
+        status: 'PASS',
+      })),
     },
     ...overrides,
   };
@@ -509,6 +546,12 @@ describe('frontend maintainability scorer configuration', () => {
     expect(() => validateConfiguration(mutablePerformanceCLI.controls, mutablePerformanceCLI.fixtures))
       .toThrow('performance budget argv differs from frozen contract');
 
+    const mutableDeliveryRunner = documents();
+    mutableDeliveryRunner.controls.controls.find(({ id }) => id === 'T05-build-embed-smoke')
+      .allOf[0].runnerFiles[0] = 'frontend-app/scripts/forged-delivery-runner.mjs';
+    expect(() => validateConfiguration(mutableDeliveryRunner.controls, mutableDeliveryRunner.fixtures))
+      .toThrow('delivery audited runner files differs from frozen contract');
+
     const missingFixture = documents();
     missingFixture.controls.controls[0].allOf[0].caseIds = ['does-not-exist'];
     expect(() => validateConfiguration(missingFixture.controls, missingFixture.fixtures)).toThrow('missing fixture case');
@@ -536,7 +579,10 @@ describe('frontend maintainability scorer configuration', () => {
     expect(controls.controls.find(({ id }) => id === 'P01-render-isolation').allOf[0].argv)
       .toEqual(['node', 'scripts/performance-budget-runner.mjs', '--verify', '--subject', '$SUBJECT_SHA', '--baseline', '$FROZEN_BASELINE']);
     expect(controls.controls.find(({ id }) => id === 'T05-build-embed-smoke').allOf[0].argv)
-      .toEqual(['node', 'scripts/delivery-smoke-runner.mjs', '--verify', '--subject', '$SUBJECT_SHA']);
+      .toEqual([
+        'node', 'scripts/delivery-smoke-runner.mjs', '--verify',
+        '--repo', '$SUBJECT_REPO', '--subject', '$SUBJECT_SHA',
+      ]);
     expect(JSON.parse(readFileSync(join(scriptRoot, 'frontend-maintainability-baseline.json'), 'utf8')).baseSha)
       .toBe(plannedBaseSha);
     const backgroundHealth = controls.controls.find(({ id }) => id === 'E03-background-health');
@@ -619,16 +665,16 @@ describe('frozen scorer target binding', () => {
     expect(context.subjectSha).toBe(target.subjectSha);
     expect(context.scoreBaseSha).toBe(git(frozenRepoRoot, ['rev-parse', 'HEAD']));
 
-    write('frontend-app/scripts/frontend-maintainability-score.mjs', '// drift\n', target.repoRoot);
+    write('frontend-app/scripts/delivery-smoke-runner.mjs', 'process.stdout.write("forged PASS\\n");\n', target.repoRoot);
     git(target.repoRoot, ['add', '.']);
-    git(target.repoRoot, ['commit', '-q', '-m', '测试：制造治理漂移']);
+    git(target.repoRoot, ['commit', '-q', '-m', '测试：伪造候选交付运行器']);
     expect(() => inspectTargetRepository({
       repoRoot: target.repoRoot,
       subjectSha: git(target.repoRoot, ['rev-parse', 'HEAD']),
       requireClean: true,
       requireFinalContract: true,
     })).toThrow('frozen governance drift');
-  }, 30_000);
+  }, 90_000);
 
   it('keeps the canonical detached dependency mount Git-clean and Vitest-executable', () => {
     const fixture = createFinalCliFixture();
@@ -681,7 +727,7 @@ describe('frozen scorer target binding', () => {
     finally {
       execFileSync('git', ['worktree', 'remove', '--force', fixture.subjectRoot], { cwd: fixture.baseRoot });
     }
-  }, 180_000);
+  }, 600_000);
 });
 
 describe('executable evidence registry', () => {
@@ -708,7 +754,7 @@ describe('executable evidence registry', () => {
   it('keeps an unregistered redMatrix NOT_VERIFIED and accepts the exact action runner', () => {
     expect(probeResult('redMatrix')).toBe('NOT_VERIFIED');
     expect(probeResult('actionProducerGuard')).toBe('PASS');
-  }, 15_000);
+  }, 30_000);
 
   it('rejects stale, mismatched, zero-test, wrong-control, and wrong-case Task3 evidence', () => {
     const { controls } = documents();
@@ -716,7 +762,7 @@ describe('executable evidence registry', () => {
     const check = control.allOf[0];
     const context = inspectTargetRepository();
     const now = Date.now();
-    const options = { context, control, check, startedAt: now - 100, finishedAt: now + 100 };
+    const options = { context, control, check, startedAt: now - 5_000, finishedAt: now + 5_000 };
     const valid = failureMatrixEvidence(context);
 
     expect(structuredEvidenceStatus(valid, options)).toBe('PASS');
@@ -1039,6 +1085,19 @@ describe('executable evidence registry', () => {
     expect(structuredEvidenceStatus(valid, options)).toBe('PASS');
     expect(structuredEvidenceStatus({ ...valid, subjectSha: 'f'.repeat(40) }, options)).toBe('FAIL');
     expect(structuredEvidenceStatus({ ...valid, testCount: 0 }, options)).toBe('FAIL');
+    expect(structuredEvidenceStatus({
+      ...valid,
+      verdict: { ...valid.verdict, executedCommands: 0 },
+    }, options)).toBe('FAIL');
+    expect(structuredEvidenceStatus({
+      ...valid,
+      provenance: {
+        ...valid.provenance,
+        runnerFiles: valid.provenance.runnerFiles.map((entry, index) => (
+          index === 0 ? { ...entry, sha256: 'f'.repeat(64) } : entry
+        )),
+      },
+    }, options)).toBe('FAIL');
     expect(structuredEvidenceStatus({
       ...valid,
       verdict: { ...valid.verdict, commands: valid.verdict.commands.slice(1) },

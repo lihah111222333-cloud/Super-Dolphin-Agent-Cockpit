@@ -9,7 +9,11 @@ import { requireSubjectSha } from './performance-budget-model.mjs';
 const SCRIPT_PATH = fileURLToPath(import.meta.url);
 const FRONTEND_ROOT = resolve(dirname(SCRIPT_PATH), '..');
 const REPOSITORY_ROOT = resolve(FRONTEND_ROOT, '..');
-const PACKAGE_JSON_PATH = resolve(FRONTEND_ROOT, 'package.json');
+const DELIVERY_RUNNER_CONTENT_PATHS = Object.freeze([
+  'frontend-app/scripts/delivery-smoke-runner.mjs',
+  'frontend-app/scripts/evidence-provenance.mjs',
+  'frontend-app/scripts/performance-budget-model.mjs',
+]);
 
 const DELIVERY_COMMANDS = Object.freeze([
   Object.freeze({
@@ -58,13 +62,22 @@ function validateDeliveryCaseResult(caseIds, testCount) {
   }
 }
 
-function currentCommit() {
+function currentCommit(repositoryRoot) {
   const result = spawnSync('git', ['rev-parse', 'HEAD'], {
-    cwd: REPOSITORY_ROOT,
+    cwd: repositoryRoot,
     encoding: 'utf8',
   });
   if (result.status !== 0) throw new Error(`git rev-parse HEAD failed: ${result.stderr}`);
   return result.stdout.trim();
+}
+
+function canonicalRepositoryRoot(candidate) {
+  const result = spawnSync('git', ['rev-parse', '--show-toplevel'], {
+    cwd: resolve(candidate),
+    encoding: 'utf8',
+  });
+  if (result.status !== 0) throw new Error(`git repository discovery failed: ${result.stderr}`);
+  return resolve(result.stdout.trim());
 }
 
 function inspectDeliveryCommands(packageJSON, makefile) {
@@ -92,40 +105,52 @@ function inspectDeliveryCommands(packageJSON, makefile) {
   });
 }
 
-function runDeliveryCommands(inspected, spawn = spawnSync) {
+function runDeliveryCommands(inspected, spawn = spawnSync, repositoryRoot = REPOSITORY_ROOT) {
   if (inspected.status !== 'READY') {
     return Object.freeze({
       status: 'NOT_VERIFIED',
       reason: inspected.reason,
+      executedCommands: 0,
       commands: inspected.commands,
     });
   }
   const results = [];
   for (const command of inspected.commands) {
     const [program, ...args] = command.argv;
-    const cwd = command.cwd === '.' ? REPOSITORY_ROOT : resolve(REPOSITORY_ROOT, command.cwd);
+    const cwd = command.cwd === '.' ? repositoryRoot : resolve(repositoryRoot, command.cwd);
+    const startedAtMs = Date.now();
     const result = spawn(program, args, { cwd, encoding: 'utf8', stdio: 'pipe' });
+    const finishedAtMs = Date.now();
     results.push(Object.freeze({
       id: command.id,
       argv: command.argv,
       cwd: command.cwd,
       exitCode: result.status,
       signal: result.signal,
+      startedAt: new Date(startedAtMs).toISOString(),
+      finishedAt: new Date(finishedAtMs).toISOString(),
+      durationMs: finishedAtMs - startedAtMs,
       status: result.status === 0 ? 'PASS' : 'FAIL',
     }));
     if (result.status !== 0) {
       return Object.freeze({
         status: 'FAIL',
         reason: `${command.id} failed with exit ${result.status} signal ${result.signal || ''}`,
+        executedCommands: results.length,
         commands: Object.freeze(results),
       });
     }
   }
-  return Object.freeze({ status: 'PASS', reason: '', commands: Object.freeze(results) });
+  return Object.freeze({
+    status: 'PASS',
+    reason: '',
+    executedCommands: results.length,
+    commands: Object.freeze(results),
+  });
 }
 
 function parseArguments(args) {
-  const options = { mode: '', subjectSha: currentCommit() };
+  const options = { mode: '', repositoryRoot: REPOSITORY_ROOT, subjectSha: '' };
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
     if (arg === '--inspect' || arg === '--verify') {
@@ -133,25 +158,35 @@ function parseArguments(args) {
       options.mode = arg.slice(2);
     } else if (arg === '--subject') {
       options.subjectSha = args[++index] || '';
+    } else if (arg === '--repo') {
+      options.repositoryRoot = canonicalRepositoryRoot(args[++index] || '');
     } else {
       throw new TypeError(`unsupported delivery smoke argument: ${arg}`);
     }
   }
   if (!options.mode) throw new TypeError('one of --inspect or --verify is required');
-  requireSubjectSha(options.subjectSha, currentCommit());
+  const head = currentCommit(options.repositoryRoot);
+  if (!options.subjectSha) options.subjectSha = head;
+  requireSubjectSha(options.subjectSha, head);
   return options;
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === SCRIPT_PATH) {
   try {
     const options = parseArguments(process.argv.slice(2));
+    const frontendRoot = resolve(options.repositoryRoot, 'frontend-app');
     const inspected = inspectDeliveryCommands(
-      JSON.parse(readFileSync(PACKAGE_JSON_PATH, 'utf8')),
-      readFileSync(resolve(REPOSITORY_ROOT, 'Makefile'), 'utf8'),
+      JSON.parse(readFileSync(resolve(frontendRoot, 'package.json'), 'utf8')),
+      readFileSync(resolve(options.repositoryRoot, 'Makefile'), 'utf8'),
     );
-    const verdict = options.mode === 'verify' ? runDeliveryCommands(inspected) : inspected;
+    const verdict = options.mode === 'verify'
+      ? runDeliveryCommands(inspected, spawnSync, options.repositoryRoot)
+      : inspected;
     const context = collectEvidenceProvenance({
-      repositoryRoot: REPOSITORY_ROOT,
+      repositoryRoot: options.repositoryRoot,
+      runnerRepositoryRoot: REPOSITORY_ROOT,
+      runnerContentPaths: DELIVERY_RUNNER_CONTENT_PATHS,
+      recordBaselineAudit: false,
       runnerId: 'frontend-delivery-smoke',
       subjectSha: options.subjectSha,
     });
@@ -175,6 +210,7 @@ if (process.argv[1] && resolve(process.argv[1]) === SCRIPT_PATH) {
 export {
   DELIVERY_CASE_IDS,
   DELIVERY_COMMANDS,
+  DELIVERY_RUNNER_CONTENT_PATHS,
   inspectDeliveryCommands,
   parseArguments,
   runDeliveryCommands,

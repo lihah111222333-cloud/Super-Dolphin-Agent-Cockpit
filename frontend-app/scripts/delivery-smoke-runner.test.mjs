@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest';
 import {
   DELIVERY_CASE_IDS,
   DELIVERY_COMMANDS,
+  DELIVERY_RUNNER_CONTENT_PATHS,
   inspectDeliveryCommands,
   runDeliveryCommands,
   validateDeliveryCaseResult,
@@ -30,6 +31,11 @@ describe('delivery smoke runner', () => {
       'frontend-embed-verify',
       'desktop-start-smoke',
       'desktop-failure-smoke',
+    ]);
+    expect(DELIVERY_RUNNER_CONTENT_PATHS).toEqual([
+      'frontend-app/scripts/delivery-smoke-runner.mjs',
+      'frontend-app/scripts/evidence-provenance.mjs',
+      'frontend-app/scripts/performance-budget-model.mjs',
     ]);
   });
 
@@ -60,6 +66,7 @@ describe('delivery smoke runner', () => {
       return { status: 0, signal: null };
     });
     expect(verdict.status).toBe('NOT_VERIFIED');
+    expect(verdict.executedCommands).toBe(0);
     expect(calls).toBe(0);
   });
 
@@ -74,7 +81,26 @@ describe('delivery smoke runner', () => {
     expect(report.testCount).toBe(DELIVERY_CASE_IDS.length);
     expect(report.verdict).toEqual(expect.objectContaining({
       status: 'PASS',
-      commands: expect.arrayContaining(DELIVERY_COMMANDS.map(({ id }) => expect.objectContaining({ id, status: 'PASS' }))),
+      executedCommands: DELIVERY_COMMANDS.length,
+      commands: DELIVERY_COMMANDS.map(({ id, argv, cwd: commandCwd }) => expect.objectContaining({
+        id,
+        argv,
+        cwd: commandCwd,
+        exitCode: 0,
+        signal: null,
+        startedAt: expect.any(String),
+        finishedAt: expect.any(String),
+        durationMs: expect.any(Number),
+        status: 'PASS',
+      })),
     }));
-  }, 120_000);
+    expect(report.provenance).toEqual(expect.objectContaining({
+      runnerId: 'frontend-delivery-smoke',
+      runnerContentHash: expect.stringMatching(/^[0-9a-f]{64}$/),
+      runnerFiles: DELIVERY_RUNNER_CONTENT_PATHS.map((path) => ({
+        path,
+        sha256: expect.stringMatching(/^[0-9a-f]{64}$/),
+      })),
+    }));
+  }, 600_000);
 });
