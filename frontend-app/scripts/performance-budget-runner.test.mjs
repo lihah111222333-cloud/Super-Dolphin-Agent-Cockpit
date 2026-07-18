@@ -182,6 +182,19 @@ function freezeRuns() {
   ];
 }
 
+function measurementBindings(run) {
+  const { loadAverage: _loadAverage, ...environment } = run.environment;
+  return {
+    subjectSha: run.subjectSha,
+    subjectTree: run.subjectTree,
+    environment,
+    runnerSha: run.provenance.runnerSha,
+    runnerTree: run.provenance.runnerTree,
+    runnerContentHash: run.provenance.runnerContentHash,
+    changedPaths: run.provenance.baselineAudit.changedPaths,
+  };
+}
+
 function buildFreezeArtifact(runs, expectedProvenance = {
   runnerSha: RUNNER_SHA,
   runnerTree: RUNNER_TREE,
@@ -420,12 +433,14 @@ describe('performance baseline freeze', () => {
             run: 2,
             generatedAt: runs[1].generatedAt,
             runnerContentHash: RUNNER_CONTENT_HASH,
+            bindings: measurementBindings(runs[1]),
             metrics: runs[1].metrics,
           },
           {
             run: 3,
             generatedAt: runs[2].generatedAt,
             runnerContentHash: RUNNER_CONTENT_HASH,
+            bindings: measurementBindings(runs[2]),
             metrics: runs[2].metrics,
           },
         ],

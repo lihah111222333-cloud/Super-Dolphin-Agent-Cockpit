@@ -307,6 +307,18 @@ function stableEnvironmentIdentity(environment) {
   return identity;
 }
 
+function freezeMeasurementBindings(run) {
+  return Object.freeze({
+    subjectSha: run.subjectSha,
+    subjectTree: run.subjectTree,
+    environment: Object.freeze(stableEnvironmentIdentity(run.environment)),
+    runnerSha: run.provenance.runnerSha,
+    runnerTree: run.provenance.runnerTree,
+    runnerContentHash: run.provenance.runnerContentHash,
+    changedPaths: Object.freeze([...run.provenance.baselineAudit.changedPaths]),
+  });
+}
+
 function validateFreezeRunConsistency(runs, subjectSha, expectedProvenance) {
   if (!Array.isArray(runs) || runs.length !== FREEZE_RUN_COUNT) {
     throw new Error(`freeze requires exactly ${FREEZE_RUN_COUNT} evidence runs`);
@@ -373,6 +385,7 @@ function buildFrozenPerformanceBaseline({
         run: index + 2,
         generatedAt: run.generatedAt,
         runnerContentHash: run.provenance.runnerContentHash,
+        bindings: freezeMeasurementBindings(run),
         metrics: run.metrics,
       }))),
     }),

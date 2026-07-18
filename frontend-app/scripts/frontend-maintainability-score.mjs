@@ -201,6 +201,10 @@ function exactKeys(value, expected, label) {
   exactSet(Object.keys(value), expected, `${label} keys`);
 }
 
+function exactValue(actual, expected, label) {
+  if (JSON.stringify(actual) !== JSON.stringify(expected)) fail(`${label} mismatch`);
+}
+
 function git(repoRoot, args) {
   return execFileSync('git', args, { cwd: repoRoot, encoding: 'utf8' }).trim();
 }
@@ -796,6 +800,7 @@ function validatePerformanceProvenance(evidence, context, check, baselineDocumen
     !== JSON.stringify(stablePerformanceEnvironment(evidence.environment))) {
     fail('performance baseline and candidate environments differ');
   }
+  validateMeasurementAudit(baselineDocument);
   validateRunnerContent(baselineDocument.provenance, context, check, 'baseline');
   validateRunnerContent(evidence.provenance, context, check, 'candidate');
   if (baselineDocument.provenance.runnerContentHash !== evidence.provenance.runnerContentHash
@@ -824,6 +829,88 @@ function validatePerformanceProvenance(evidence, context, check, baselineDocumen
   ]).split('\n').filter(Boolean);
   if (JSON.stringify(audit.changedPaths) !== JSON.stringify(actualChangedPaths)) {
     fail('performance baselineAudit changedPaths exact order mismatch');
+  }
+}
+
+function validateMeasurementMetricSet(metrics, subjectSha, label) {
+  exactSet(Object.keys(metrics || {}), Object.keys(performanceCaseIds), `${label} metricIds`);
+  for (const metricId of Object.keys(performanceCaseIds)) {
+    if (metrics[metricId]?.metricId !== metricId) fail(`${label} ${metricId} identity mismatch`);
+  }
+  validateRenderMetric(metrics['P01-render-isolation'], subjectSha, `${label} P01`);
+  validatePairedTimingMetric(
+    metrics['P02-history-budget'],
+    performanceCaseIds['P02-history-budget'],
+    subjectSha,
+    `${label} P02`,
+  );
+  validateTimingMetric(
+    metrics['P03-feedback-budget'],
+    performanceCaseIds['P03-feedback-budget'],
+    subjectSha,
+    `${label} P03`,
+  );
+  validateResourceMetric(metrics['P04-resource-budget'], subjectSha, `${label} P04`);
+}
+
+function validateMeasurementAudit(baselineDocument) {
+  const measurementAudit = baselineDocument.measurementAudit;
+  exactKeys(
+    measurementAudit,
+    ['runCount', 'designatedRun', 'reproducibilityRuns'],
+    'performance measurementAudit',
+  );
+  if (measurementAudit.runCount !== 3 || measurementAudit.designatedRun !== 1
+    || !Array.isArray(measurementAudit.reproducibilityRuns)
+    || measurementAudit.reproducibilityRuns.length !== 2) {
+    fail('performance measurementAudit must bind exactly three runs with designated run one');
+  }
+
+  const designatedGeneratedAt = Date.parse(baselineDocument.generatedAt);
+  if (!Number.isFinite(designatedGeneratedAt)) fail('performance designated run timestamp is invalid');
+  const expectedEnvironment = stablePerformanceEnvironment(baselineDocument.environment);
+  const expectedProvenance = baselineDocument.provenance;
+  let previousGeneratedAt = designatedGeneratedAt;
+  const seenRuns = new Set([measurementAudit.designatedRun]);
+
+  validateMeasurementMetricSet(baselineDocument.metrics, baselineDocument.baseSha, 'performance designated run');
+  for (const [index, run] of measurementAudit.reproducibilityRuns.entries()) {
+    const expectedRun = index + 2;
+    exactKeys(
+      run,
+      ['run', 'generatedAt', 'runnerContentHash', 'bindings', 'metrics'],
+      `performance reproduction run ${expectedRun}`,
+    );
+    if (run.run !== expectedRun || seenRuns.has(run.run)) {
+      fail('performance measurementAudit contains a missing, duplicate, or reordered run');
+    }
+    seenRuns.add(run.run);
+    const generatedAt = Date.parse(run.generatedAt);
+    if (!Number.isFinite(generatedAt) || generatedAt <= previousGeneratedAt) {
+      fail(`performance reproduction run ${expectedRun} timestamp is invalid or unordered`);
+    }
+    previousGeneratedAt = generatedAt;
+
+    exactKeys(run.bindings, [
+      'subjectSha', 'subjectTree', 'environment', 'runnerSha', 'runnerTree',
+      'runnerContentHash', 'changedPaths',
+    ], `performance reproduction run ${expectedRun} bindings`);
+    exactValue(run.bindings.subjectSha, baselineDocument.baseSha, `performance reproduction run ${expectedRun} subjectSha`);
+    exactValue(run.bindings.subjectTree, baselineDocument.subjectTree, `performance reproduction run ${expectedRun} subjectTree`);
+    exactValue(run.bindings.environment, expectedEnvironment, `performance reproduction run ${expectedRun} environment`);
+    exactValue(run.bindings.runnerSha, expectedProvenance.runnerSha, `performance reproduction run ${expectedRun} runnerSha`);
+    exactValue(run.bindings.runnerTree, expectedProvenance.runnerTree, `performance reproduction run ${expectedRun} runnerTree`);
+    exactValue(run.bindings.runnerContentHash, expectedProvenance.runnerContentHash, `performance reproduction run ${expectedRun} runnerContentHash`);
+    exactValue(run.runnerContentHash, expectedProvenance.runnerContentHash, `performance reproduction run ${expectedRun} content hash`);
+    exactValue(
+      run.bindings.changedPaths,
+      expectedProvenance.baselineAudit.changedPaths,
+      `performance reproduction run ${expectedRun} changedPaths`,
+    );
+    validateMeasurementMetricSet(run.metrics, baselineDocument.baseSha, `performance reproduction run ${expectedRun}`);
+  }
+  if (seenRuns.size !== measurementAudit.runCount) {
+    fail('performance measurementAudit run count does not match its unique runs');
   }
 }
 
