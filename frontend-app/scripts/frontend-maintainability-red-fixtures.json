@@ -15,6 +15,11 @@
     { "id": "stop-target-changed", "area": "stop", "expected": "not-applied" },
     { "id": "provider-cancel-not-user-cancel", "area": "terminal", "expected": "provider-error" },
     { "id": "prompt-history-console-only", "area": "action", "expected": "visible-error" },
-    { "id": "action-scorer-missing-stale-zero-test", "area": "scorer", "expected": "reject" }
+    { "id": "action-scorer-missing-stale-zero-test", "area": "scorer", "expected": "reject" },
+    { "id": "provider.reconnect.bootstrap", "area": "action-runtime", "expected": "empty-callback-component-test-red" },
+    { "id": "prompt-history.previous", "area": "action-runtime", "expected": "empty-callback-component-test-red" },
+    { "id": "thread.pin", "area": "action-runtime", "expected": "empty-callback-component-test-red" },
+    { "id": "settings.video.save", "area": "action-runtime", "expected": "empty-callback-component-test-red" },
+    { "id": "approval.respond", "area": "action-runtime", "expected": "empty-callback-component-test-red" }
   ]
 }

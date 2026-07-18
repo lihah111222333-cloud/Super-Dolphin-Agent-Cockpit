@@ -21,6 +21,23 @@ const governancePaths = [
   'frontend-app/scripts/frontend-maintainability-score.mjs',
   'frontend-app/scripts/frontend-maintainability-baseline.json',
   'frontend-app/scripts/frontend-maintainability-red-fixtures.json',
+  'frontend-app/scripts/failure-matrix-runner.mjs',
+  'frontend-app/scripts/failure-matrix-cases.json',
+  'frontend-app/scripts/failure-matrix-fixtures.json',
+  'frontend-app/scripts/failure-matrix-mutations.json',
+  'frontend-app/src/entities/client/model/failureMatrix.test.js',
+  'frontend-app/src/entities/client/model/runtimeSlice.test.js',
+  'frontend-app/src/pages/chat/composer/ComposerDock.actionFailure.test.jsx',
+  'frontend-app/src/pages/settings/SettingsPage.test.jsx',
+  'frontend-app/src/features/approval/ui/ApprovalDecisionShelf.test.jsx',
+  'internal/provider/codexapp/failure_matrix_test.go',
+  'internal/provider/claudecli/failure_matrix_test.go',
+  'internal/module/turn/interrupt_rpc_test.go',
+  'frontend-app/scripts/action-producer-guard.mjs',
+  'frontend-app/scripts/action-producer-guard.selftest.mjs',
+  'frontend-app/scripts/action-production-runtime-runner.mjs',
+  'frontend-app/config/action-producer-registry.json',
+  'frontend-app/config/action-producer-test-matrix.json',
   'frontend-app/scripts/delivery-smoke-runner.mjs',
   'frontend-app/scripts/evidence-provenance.mjs',
   'frontend-app/scripts/performance-budget-model.mjs',
@@ -31,10 +48,12 @@ const plannedThresholds = { overall: 90, dimensions: { E: 90, A: 85, C: 85, T: 8
 const requiredDoDControls = new Set(['E06-failure-matrix', 'C05-provider-rpc-parity', 'T05-build-embed-smoke']);
 const customEvidenceProtocols = new Set([
   'action-producer-guard-v1',
+  'action-production-runtime-report-v1',
   'failure-matrix-report-v1',
   'desktop-failure-report-v1',
   'performance-budget-json-v1',
   'delivery-smoke-json-v1',
+  'git-diff-check-v1',
 ]);
 const failureMatrixCaseIds = Object.freeze(Array.from({ length: 24 }, (_, index) => (
   `FM-${String(index + 1).padStart(2, '0')}`
@@ -73,6 +92,45 @@ const failureMatrixControlIds = Object.freeze([
   'T01-red-green-regression',
   'T03-wails-integration',
 ]);
+const criticalRuntimeAnchors = Object.freeze([
+  Object.freeze({
+    semanticClass: 'background-reconnect',
+    actionId: 'provider.reconnect.bootstrap',
+    sourcePath: 'src/entities/client/model/runtimeSlice.js',
+    testFile: 'src/entities/client/model/runtimeSlice.test.js',
+    testName: 'matrix:FM-18 layer:frontend persists reconnect bootstrap failure in Health and permits recovery',
+  }),
+  Object.freeze({
+    semanticClass: 'prompt-history',
+    actionId: 'prompt-history.previous',
+    sourcePath: 'src/pages/chat/composer/ComposerDock.jsx',
+    testFile: 'src/pages/chat/composer/ComposerDock.actionFailure.test.jsx',
+    testName: 'keeps draft cursor and selection stable on rejected prompt history RPC',
+  }),
+  Object.freeze({
+    semanticClass: 'thread-mutation',
+    actionId: 'thread.pin',
+    sourcePath: 'src/pages/chat/thread/ThreadCard.jsx',
+    testFile: 'src/pages/chat/thread/ThreadRail.test.jsx',
+    testName: 'renders active threads and routes thread actions through the store',
+  }),
+  Object.freeze({
+    semanticClass: 'settings-save',
+    actionId: 'settings.video.save',
+    sourcePath: 'src/pages/settings/components/VideoSettingsCard.jsx',
+    testFile: 'src/pages/settings/SettingsPage.test.jsx',
+    testName: 'shows save failures from the named video facade method',
+  }),
+  Object.freeze({
+    semanticClass: 'approval-pending',
+    actionId: 'approval.respond',
+    sourcePath: 'src/features/approval/ui/ApprovalDecisionShelf.jsx',
+    testFile: 'src/features/approval/ui/ApprovalDecisionShelf.test.jsx',
+    testName: 'matrix:FM-24 layer:frontend retains the selected choice after failure and allows an explicit retry',
+  }),
+]);
+const criticalRuntimeActionIds = Object.freeze(criticalRuntimeAnchors.map(({ actionId }) => actionId));
+const criticalRuntimeSemanticClasses = Object.freeze(criticalRuntimeAnchors.map(({ semanticClass }) => semanticClass));
 const performanceCaseIds = Object.freeze({
   'P01-render-isolation': ['render-main-page-update-commits', 'render-unrelated-subtree-update-commits', 'render-broad-subscription-mutation-detected'],
   'P02-history-budget': ['turns-200-tools-1', 'turns-200-tools-3', 'turns-1000-tools-1', 'turns-1000-tools-3', 'turns-5000-tools-1', 'turns-5000-tools-3'],
@@ -166,7 +224,14 @@ const plannedLaneAllOfArgv = Object.freeze({
   ],
   'T02-critical-action-coverage': [
     ['node', 'scripts/action-producer-guard.selftest.mjs'],
-    ['node', 'scripts/action-producer-guard.mjs'],
+    ['node', 'node_modules/vitest/vitest.mjs', 'run', 'src/shared/ui/productionActionFailureMatrix.test.js', '--no-file-parallelism', '--maxWorkers=1'],
+    ['node', 'frontend-app/scripts/action-production-runtime-runner.mjs'],
+  ],
+  'T04-local-gates': [
+    ['npm', 'run', 'lint'],
+    ['npm', 'test'],
+    ['npm', 'run', 'build'],
+    ['git', 'diff', '--check', '$SCORE_BASE_SHA', '$SUBJECT_SHA'],
   ],
 });
 
@@ -244,6 +309,21 @@ function assertFrozenScorerClean() {
   }
 }
 
+function governanceSnapshot(repoRoot) {
+  const aggregate = createHash('sha256');
+  for (const relativePath of governancePaths) {
+    aggregate.update(relativePath);
+    aggregate.update('\0');
+    aggregate.update(fs.readFileSync(path.join(repoRoot, relativePath)));
+    aggregate.update('\0');
+  }
+  return {
+    rule: 'byte-identical-governance-v1',
+    pathCount: governancePaths.length,
+    sha256: aggregate.digest('hex'),
+  };
+}
+
 function assertGovernanceUnchanged(targetRepoRoot) {
   for (const relativePath of governancePaths) {
     const frozen = fs.readFileSync(path.join(frozenRepoRoot, relativePath));
@@ -252,6 +332,51 @@ function assertGovernanceUnchanged(targetRepoRoot) {
       fail(`frozen governance drift: ${relativePath}`);
     }
   }
+  const frozenSnapshot = governanceSnapshot(frozenRepoRoot);
+  const targetSnapshot = governanceSnapshot(targetRepoRoot);
+  if (JSON.stringify(targetSnapshot) !== JSON.stringify(frozenSnapshot)) {
+    fail('frozen governance aggregate differs from SCORE_BASE');
+  }
+  return targetSnapshot;
+}
+
+export function createSubjectContract({
+  scoreBaseSha,
+  scoreBaseTree,
+  subjectSha,
+  subjectTree,
+  strictDescendant,
+  governanceFreeze = null,
+  finalContractEnforced = false,
+}) {
+  for (const [label, value] of Object.entries({ scoreBaseSha, scoreBaseTree, subjectSha, subjectTree })) {
+    if (!/^[0-9a-f]{40}$/u.test(value || '')) fail(`subject contract ${label} is invalid`);
+  }
+  if (finalContractEnforced && strictDescendant !== true) {
+    fail('final subject contract requires strict descendant ancestry');
+  }
+  if (finalContractEnforced && (governanceFreeze?.rule !== 'byte-identical-governance-v1'
+    || governanceFreeze.pathCount !== governancePaths.length
+    || !/^[0-9a-f]{64}$/u.test(governanceFreeze.sha256 || ''))) {
+    fail('final subject contract requires exact frozen governance evidence');
+  }
+  const sameTree = subjectTree === scoreBaseTree;
+  if (finalContractEnforced && sameTree) {
+    fail('final subject must change the SCORE_BASE tree; empty-commit evidence is rejected');
+  }
+  return {
+    schemaVersion: 1,
+    rule: 'strict-descendant-governance-frozen-tree-relation-v1',
+    finalContractEnforced,
+    ancestry: strictDescendant ? 'strict-descendant' : (subjectSha === scoreBaseSha ? 'score-base' : 'unverified'),
+    scoreBaseSha,
+    scoreBaseTree,
+    subjectSha,
+    subjectTree,
+    treeRelation: sameTree ? (strictDescendant ? 'empty-commit-tree' : 'score-base-tree') : 'changed-tree',
+    identityFreeze: false,
+    governanceFreeze,
+  };
 }
 
 export function inspectTargetRepository({
@@ -268,21 +393,39 @@ export function inspectTargetRepository({
   }
   const subjectTree = git(targetRepoRoot, ['rev-parse', 'HEAD^{tree}']);
   const scoreBaseSha = frozenHead();
+  const scoreBaseTree = git(frozenRepoRoot, ['rev-parse', `${scoreBaseSha}^{tree}`]);
   assertFrozenProvenance(scoreBaseSha);
+  const strictDescendant = head !== scoreBaseSha
+    && gitSucceeds(targetRepoRoot, ['cat-file', '-e', `${scoreBaseSha}^{commit}`])
+    && gitSucceeds(targetRepoRoot, ['merge-base', '--is-ancestor', scoreBaseSha, head]);
+  let governanceFreeze = null;
   if (requireFinalContract) {
     if (head === scoreBaseSha) fail('final subject must be a strict descendant of SCORE_BASE_SHA');
-    if (!gitSucceeds(targetRepoRoot, ['cat-file', '-e', `${scoreBaseSha}^{commit}`])
-      || !gitSucceeds(targetRepoRoot, ['merge-base', '--is-ancestor', scoreBaseSha, head])) {
+    if (!strictDescendant) {
       fail('SCORE_BASE_SHA must be a strict ancestor of the final subject');
     }
-    assertGovernanceUnchanged(targetRepoRoot);
+    if (subjectTree === scoreBaseTree) {
+      fail('final subject must change the SCORE_BASE tree; empty-commit evidence is rejected');
+    }
+    governanceFreeze = assertGovernanceUnchanged(targetRepoRoot);
   }
+  const subjectContract = createSubjectContract({
+    scoreBaseSha,
+    scoreBaseTree,
+    subjectSha: head,
+    subjectTree,
+    strictDescendant,
+    governanceFreeze,
+    finalContractEnforced: requireFinalContract,
+  });
   return {
     repoRoot: targetRepoRoot,
     appRoot: path.join(targetRepoRoot, 'frontend-app'),
     subjectSha: head,
     subjectTree,
     scoreBaseSha,
+    scoreBaseTree,
+    subjectContract,
   };
 }
 
@@ -447,6 +590,71 @@ function normalizedRunnerStatus(status) {
   fail(`unsupported runner status: ${String(status)}`);
 }
 
+function normalizeReportValue(value) {
+  if (Array.isArray(value)) return value.map(normalizeReportValue);
+  if (!value || typeof value !== 'object') return value;
+  return Object.fromEntries(Object.keys(value).sort().map((key) => [key, normalizeReportValue(value[key])]));
+}
+
+function canonicalReportJSON(report) {
+  return `${JSON.stringify(normalizeReportValue(report), null, 2)}\n`;
+}
+
+function performanceThreshold(metricId) {
+  const metric = baseline.metrics?.[metricId];
+  if (metricId === 'P01-render-isolation') {
+    return { absoluteUpdateLimit: metric?.absoluteUpdateLimit, mutationDetected: true };
+  }
+  return { maxRegressionRatio: metric?.maxRegressionRatio };
+}
+
+function recordRawReport(context, check, report, reportArtifact) {
+  if (!context.rawReports) context.rawReports = new Map();
+  const kinds = {
+    'action-production-runtime-report-v1': 'actionProductionRuntime',
+    'failure-matrix-report-v1': 'failureMatrix',
+    'desktop-failure-report-v1': 'desktopFailure',
+    'performance-budget-json-v1': 'performance',
+    'delivery-smoke-json-v1': 'delivery',
+  };
+  const kind = kinds[check.evidenceProtocol];
+  if (!kind) fail(`structured report kind is not registered: ${check.evidenceProtocol}`);
+  const canonical = canonicalReportJSON(report);
+  const sha = createHash('sha256').update(canonical).digest('hex');
+  let metrics = [];
+  if (kind === 'performance') {
+    metrics = Object.keys(performanceCaseIds).sort().map((metricId) => ({
+      metricId,
+      threshold: performanceThreshold(metricId),
+      path: `evidence.metrics.${metricId}`,
+    }));
+  }
+  else if (kind === 'delivery') {
+    metrics = [{
+      metricId: 'T05-build-embed-smoke',
+      threshold: { requiredExitCode: 0, requiredCommandCount: deliveryCommands.length },
+      path: 'verdict.commands',
+    }];
+  }
+  const artifact = {
+    protocol: check.evidenceProtocol,
+    sourcePath: reportArtifact.path,
+    sourceSha256: reportArtifact.sha256,
+    sourceBytes: reportArtifact.bytes,
+    sha256: sha,
+    bytes: Buffer.byteLength(canonical),
+    metrics,
+    report: normalizeReportValue(report),
+  };
+  const current = context.rawReports.get(kind);
+  if (current && (current.sha256 !== artifact.sha256
+    || current.sourcePath !== artifact.sourcePath
+    || current.sourceSha256 !== artifact.sourceSha256)) {
+    fail(`${kind} raw report changed during one scorer run`);
+  }
+  context.rawReports.set(kind, artifact);
+}
+
 function validateReportBinding(report, context, startedAt, finishedAt) {
   if (report?.schemaVersion !== 1) fail('runner report schemaVersion must equal 1');
   if (report.subjectSha !== context.subjectSha) fail('runner report subjectSha mismatch');
@@ -466,8 +674,96 @@ function validateExactCaseResult(caseIds, testCount, check, label) {
   }
 }
 
-function validateFailureMatrixReport(report, { context, check, startedAt, finishedAt }) {
+function validateFailureMatrixRedGreen(report, context) {
+  if (!Array.isArray(report.redGreenCases) || report.redGreenCases.length !== failureMatrixCaseIds.length) {
+    fail('failure matrix RED/GREEN evidence must contain one entry per case');
+  }
+  exactSet(report.redGreenCases.map(({ caseId }) => caseId), failureMatrixCaseIds, 'failure matrix RED/GREEN caseIds');
+  const mutationDocument = readFrozenJSON('failure-matrix-mutations.json');
+  if (mutationDocument.schemaVersion !== 1 || !Array.isArray(mutationDocument.mutations)) {
+    fail('failure matrix mutation manifest is invalid');
+  }
+  const mutationByCase = new Map();
+  for (const mutation of mutationDocument.mutations) {
+    for (const caseId of mutation.caseIds || []) {
+      if (mutationByCase.has(caseId)) fail(`failure matrix mutation case is duplicated: ${caseId}`);
+      mutationByCase.set(caseId, mutation);
+    }
+  }
+  exactSet([...mutationByCase.keys()], failureMatrixCaseIds, 'failure matrix mutation manifest caseIds');
+  const mutationDocuments = new Map();
+  const goPackages = {
+    'go-codex': './internal/provider/codexapp',
+    'go-claude': './internal/provider/claudecli',
+    'go-turn': './internal/module/turn',
+    'go-wails': './internal/ui/wails',
+  };
+  for (const entry of report.redGreenCases) {
+    if (entry.subjectSha !== context.subjectSha || entry.subjectTreeSha !== context.subjectTree) {
+      fail(`failure matrix RED/GREEN subject binding mismatch: ${entry.caseId}`);
+    }
+    if (entry.green?.exitCode !== 0 || entry.green.signal !== null
+      || typeof entry.green.test !== 'string'
+      || !entry.green.test.includes(entry.caseId) || typeof entry.green.layer !== 'string') {
+      fail(`failure matrix GREEN execution is invalid: ${entry.caseId}`);
+    }
+    const red = entry.red;
+    const mutation = mutationByCase.get(entry.caseId);
+    if (!mutation || mutation.layer !== entry.green.layer || mutation.id !== red?.mutationId
+      || mutation.sourcePath !== red?.sourcePath) {
+      fail(`failure matrix mutation binding mismatch: ${entry.caseId}`);
+    }
+    const mutationKey = `${mutation.sourcePath}\0${mutation.id}`;
+    if (!mutationDocuments.has(mutationKey)) {
+      const original = execFileSync('git', ['show', `${context.subjectSha}:${mutation.sourcePath}`], {
+        cwd: context.repoRoot,
+        encoding: 'utf8',
+      });
+      const firstMatch = original.indexOf(mutation.search);
+      if (firstMatch < 0 || original.indexOf(mutation.search, firstMatch + mutation.search.length) >= 0
+        || !mutation.replacement || mutation.replacement === mutation.search) {
+        fail(`failure matrix mutation is not an exact production replacement: ${mutation.id}`);
+      }
+      mutationDocuments.set(mutationKey, {
+        sourceSha256: createHash('sha256').update(original).digest('hex'),
+        mutatedSha256: createHash('sha256').update(original.replace(mutation.search, mutation.replacement)).digest('hex'),
+      });
+    }
+    const source = mutationDocuments.get(mutationKey);
+    const expectedCommand = entry.green.layer === 'frontend'
+      ? {
+        cwd: 'frontend-app',
+        argv: [
+          path.join('node_modules', '.bin', 'vitest'), 'run', entry.green.file,
+          '-t', entry.green.test, '--no-file-parallelism', '--maxWorkers=1',
+        ],
+      }
+      : {
+        cwd: '.',
+        argv: ['go', 'test', goPackages[entry.green.layer], '-run', `^${entry.green.test}$`, '-count=1'],
+      };
+    if ((entry.green.layer === 'frontend' && typeof entry.green.file !== 'string')
+      || (!goPackages[entry.green.layer] && entry.green.layer !== 'frontend')
+      || entry.green.cwd !== expectedCommand.cwd
+      || JSON.stringify(entry.green.argv) !== JSON.stringify(expectedCommand.argv)
+      || !/^[0-9a-f]{64}$/u.test(entry.green.outputSha256)
+      || red.cwd !== expectedCommand.cwd || JSON.stringify(red.argv) !== JSON.stringify(expectedCommand.argv)) {
+      fail(`failure matrix mutation command mismatch: ${entry.caseId}`);
+    }
+    if (!Number.isInteger(red?.exitCode) || red.exitCode <= 0 || red.signal !== null
+      || typeof red.mutationId !== 'string' || !red.mutationId.trim()
+      || typeof red.sourcePath !== 'string' || !red.sourcePath.trim()
+      || red.sourceSha256 !== source.sourceSha256 || red.mutatedSha256 !== source.mutatedSha256
+      || !/^[0-9a-f]{64}$/u.test(red.outputSha256)
+      || typeof red.cwd !== 'string' || !Array.isArray(red.argv) || red.argv.length === 0) {
+      fail(`failure matrix mutation RED execution is invalid: ${entry.caseId}`);
+    }
+  }
+}
+
+function validateFailureMatrixReport(report, { context, control, check, startedAt, finishedAt }) {
   validateReportBinding(report, context, startedAt, finishedAt);
+  if (control.id === 'T01-red-green-regression') validateFailureMatrixRedGreen(report, context);
   exactSet(report.controlIds || [], failureMatrixControlIds, 'failure matrix controlIds');
   validateExactCaseResult(report.caseIds, report.testCount, {
     caseIds: failureMatrixCaseIds,
@@ -1088,8 +1384,156 @@ function validateDeliveryRunnerProvenance(provenance, context, check) {
   }
 }
 
+function validateActionProductionBindingReport(report, { context, control, startedAt, finishedAt }) {
+  validateReportBinding(report, context, startedAt, finishedAt);
+  if (control.id !== 'T02-critical-action-coverage' || report.controlId !== control.id
+    || report.status !== 'covered'
+    || !Array.isArray(report.bindings) || report.bindings.length === 0) {
+    fail('T02 action production binding report is incomplete');
+  }
+  const registry = JSON.parse(fs.readFileSync(path.join(frozenAppRoot, 'config/action-producer-registry.json'), 'utf8'));
+  const matrix = JSON.parse(fs.readFileSync(path.join(frozenAppRoot, 'config/action-producer-test-matrix.json'), 'utf8'));
+  if (!Array.isArray(registry.coveredProducers) || !Array.isArray(registry.exemptions)
+    || registry.exemptions.length !== 0) {
+    fail('T02 frozen action registry must have covered producers and zero exemptions');
+  }
+  const expectedActionIds = registry.coveredProducers.map(({ actionId }) => actionId);
+  const expectedErrorSourceCaseCount = registry.coveredProducers.reduce((sum, entry) => sum + entry.errorSources.length, 0);
+  if (!Array.isArray(matrix.runtimeBindings)) fail('T02 production runtime binding matrix is missing');
+  exactValue(matrix.runtimeBindings, criticalRuntimeAnchors, 'T02 frozen runtime anchor contracts');
+  const runtimeAnchors = new Map(matrix.runtimeBindings.map((entry) => [entry.actionId, entry]));
+  if (runtimeAnchors.size !== matrix.runtimeBindings.length) fail('T02 production runtime binding matrix has duplicates');
+  exactSet(report.actionIds || [], expectedActionIds, 'T02 production actionIds');
+  const expectedBindingCount = registry.coveredProducers.reduce((sum, entry) => sum + entry.producerCount, 0);
+  if (report.structuralActionCount !== expectedActionIds.length
+    || report.errorSourceCaseCount !== expectedErrorSourceCaseCount
+    || matrix.cells.length !== expectedErrorSourceCaseCount
+    || report.bindingCount !== expectedBindingCount || report.bindings.length !== expectedBindingCount) {
+    fail('T02 production binding count mismatch');
+  }
+  const counts = new Map();
+  const bindingKeys = new Set();
+  const sourceDocuments = new Map();
+  for (const binding of report.bindings) {
+    exactKeys(binding, [
+      'actionId', 'kind', 'sourcePath', 'line', 'column', 'callbackKind', 'handlers',
+      'callbackStart', 'callbackEnd', 'sourceSha256', 'guardMutationDetection',
+    ], `T02 binding ${binding?.actionId || '<unknown>'}`);
+    if (!expectedActionIds.includes(binding.actionId) || !['user', 'background'].includes(binding.kind)
+      || !['identifier', 'member', 'arrow', 'function'].includes(binding.callbackKind)
+      || !Array.isArray(binding.handlers) || binding.handlers.length === 0
+      || new Set(binding.handlers).size !== binding.handlers.length
+      || binding.handlers.some((handler) => typeof handler !== 'string' || !handler.trim())
+      || binding.handlers.every((handler) => ['runUIAction', 'runBackgroundAction'].includes(handler))
+      || typeof binding.sourcePath !== 'string' || !binding.sourcePath.startsWith('src/')
+      || /(?:^|\/)runUIAction\.js$/u.test(binding.sourcePath) || /\.test\.[jt]sx?$/u.test(binding.sourcePath)
+      || !Number.isInteger(binding.line) || binding.line <= 0
+      || !Number.isInteger(binding.column) || binding.column <= 0
+      || !Number.isInteger(binding.callbackStart) || binding.callbackStart < 0
+      || !Number.isInteger(binding.callbackEnd) || binding.callbackEnd <= binding.callbackStart) {
+      fail(`T02 action-specific production binding is invalid: ${binding.actionId}`);
+    }
+    const repoPath = `frontend-app/${binding.sourcePath}`;
+    if (!sourceDocuments.has(repoPath)) {
+      const contents = execFileSync('git', ['show', `${context.subjectSha}:${repoPath}`], { cwd: context.repoRoot });
+      sourceDocuments.set(repoPath, {
+        sha256: createHash('sha256').update(contents).digest('hex'),
+        source: contents.toString('utf8'),
+        lines: contents.toString('utf8').split(/\r?\n/u),
+      });
+    }
+    const sourceDocument = sourceDocuments.get(repoPath);
+    if (binding.sourceSha256 !== sourceDocument.sha256) {
+      fail(`T02 production source hash mismatch: ${binding.actionId}`);
+    }
+    const sourceLine = sourceDocument.lines[binding.line - 1] || '';
+    if (!sourceLine.includes(binding.actionId)) fail(`T02 production actionId is not bound at reported line: ${binding.actionId}`);
+    exactKeys(binding.guardMutationDetection, [
+      'mutationId', 'detected', 'sourceSha256', 'mutatedSha256',
+    ], `T02 structural mutation detection ${binding.actionId}`);
+    const structurallyMutated = `${sourceDocument.source.slice(0, binding.callbackStart)}() => {}${sourceDocument.source.slice(binding.callbackEnd)}`;
+    if (binding.guardMutationDetection.mutationId !== 'empty-production-callback'
+      || binding.guardMutationDetection.detected !== true
+      || binding.guardMutationDetection.sourceSha256 !== sourceDocument.sha256
+      || binding.guardMutationDetection.mutatedSha256 !== createHash('sha256').update(structurallyMutated).digest('hex')
+      || binding.guardMutationDetection.mutatedSha256 === sourceDocument.sha256) {
+      fail(`T02 structural production callback mutation was not detected: ${binding.actionId}`);
+    }
+    const key = `${binding.actionId}\0${binding.sourcePath}\0${binding.line}\0${binding.column}`;
+    if (bindingKeys.has(key)) fail(`T02 duplicate production binding: ${binding.actionId}`);
+    bindingKeys.add(key);
+    counts.set(binding.actionId, (counts.get(binding.actionId) || 0) + 1);
+  }
+  for (const entry of registry.coveredProducers) {
+    if (counts.get(entry.actionId) !== entry.producerCount) {
+      fail(`T02 per-action production binding count mismatch: ${entry.actionId}`);
+    }
+  }
+  if (!Array.isArray(report.requiredRuntimeActionIds) || !Array.isArray(report.runtimeCases)
+    || report.runtimeEvidenceScope !== 'five-semantic-class-anchors'
+    || report.runtimeAnchorCount !== criticalRuntimeAnchors.length
+    || report.runtimeClaimsFullMatrix !== false) {
+    fail('T02 production runtime coverage sets are missing');
+  }
+  exactSet([...runtimeAnchors.keys()], criticalRuntimeActionIds, 'T02 matrix runtime actionIds');
+  exactSet(matrix.runtimeBindings.map(({ semanticClass }) => semanticClass), criticalRuntimeSemanticClasses, 'T02 matrix runtime semantic classes');
+  exactSet(report.requiredRuntimeActionIds, criticalRuntimeActionIds, 'T02 required runtime actionIds');
+  exactSet(report.requiredRuntimeSemanticClasses || [], criticalRuntimeSemanticClasses, 'T02 required runtime semantic classes');
+  exactSet(report.runtimeCases.map(({ actionId }) => actionId), criticalRuntimeActionIds, 'T02 runtime actionIds');
+  exactSet(report.runtimeCases.map(({ semanticClass }) => semanticClass), criticalRuntimeSemanticClasses, 'T02 runtime semantic classes');
+  for (const runtimeCase of report.runtimeCases) {
+    exactKeys(runtimeCase, [
+      'semanticClass', 'actionId', 'sourcePath', 'sourceSha256', 'mutatedSha256', 'handlers',
+      'bindingLocations', 'testFile', 'testName', 'testFileSha256', 'green', 'red',
+    ], `T02 runtime case ${runtimeCase?.actionId || '<unknown>'}`);
+    const anchor = runtimeAnchors.get(runtimeCase.actionId);
+    if (!anchor || runtimeCase.semanticClass !== anchor.semanticClass || runtimeCase.sourcePath !== anchor.sourcePath
+      || runtimeCase.testFile !== anchor.testFile || runtimeCase.testName !== anchor.testName) {
+      fail(`T02 runtime test anchor mismatch: ${runtimeCase.actionId}`);
+    }
+    const anchoredBindings = report.bindings.filter(({ actionId, sourcePath }) => (
+      actionId === runtimeCase.actionId && sourcePath === runtimeCase.sourcePath
+    )).sort((left, right) => right.callbackStart - left.callbackStart);
+    if (anchoredBindings.length === 0) fail(`T02 runtime case has no production binding: ${runtimeCase.actionId}`);
+    const sourceDocument = sourceDocuments.get(`frontend-app/${runtimeCase.sourcePath}`);
+    let mutated = sourceDocument.source;
+    for (const binding of anchoredBindings) {
+      mutated = `${mutated.slice(0, binding.callbackStart)}() => {}${mutated.slice(binding.callbackEnd)}`;
+    }
+    const expectedHandlers = [...new Set(anchoredBindings.flatMap(({ handlers }) => handlers))].sort();
+    const expectedLocations = anchoredBindings.map(({ line, column }) => ({ line, column }));
+    const testContents = execFileSync('git', [
+      'show', `${context.subjectSha}:frontend-app/${runtimeCase.testFile}`,
+    ], { cwd: context.repoRoot });
+    exactValue(runtimeCase.handlers, expectedHandlers, `T02 runtime handlers ${runtimeCase.actionId}`);
+    exactValue(runtimeCase.bindingLocations, expectedLocations, `T02 runtime locations ${runtimeCase.actionId}`);
+    exactKeys(runtimeCase.green, ['cwd', 'argv', 'exitCode', 'signal', 'outputSha256'], `T02 runtime GREEN ${runtimeCase.actionId}`);
+    exactKeys(runtimeCase.red, ['cwd', 'argv', 'exitCode', 'signal', 'outputSha256'], `T02 runtime RED ${runtimeCase.actionId}`);
+    const expectedArgv = [
+      path.join('node_modules', '.bin', 'vitest'), 'run', runtimeCase.testFile,
+      '-t', runtimeCase.testName, '--no-file-parallelism', '--maxWorkers=1',
+    ];
+    if (runtimeCase.sourceSha256 !== sourceDocument.sha256
+      || runtimeCase.mutatedSha256 !== createHash('sha256').update(mutated).digest('hex')
+      || runtimeCase.mutatedSha256 === runtimeCase.sourceSha256
+      || runtimeCase.testFileSha256 !== createHash('sha256').update(testContents).digest('hex')
+      || runtimeCase.green.cwd !== 'frontend-app'
+      || JSON.stringify(runtimeCase.green.argv) !== JSON.stringify(expectedArgv)
+      || runtimeCase.green.exitCode !== 0 || runtimeCase.green.signal !== null
+      || !/^[0-9a-f]{64}$/u.test(runtimeCase.green.outputSha256)
+      || runtimeCase.red.cwd !== 'frontend-app'
+      || JSON.stringify(runtimeCase.red.argv) !== JSON.stringify(expectedArgv)
+      || !Number.isInteger(runtimeCase.red.exitCode) || runtimeCase.red.exitCode <= 0
+      || runtimeCase.red.signal !== null || !/^[0-9a-f]{64}$/u.test(runtimeCase.red.outputSha256)) {
+      fail(`T02 runtime production mutation RED is invalid: ${runtimeCase.actionId}`);
+    }
+  }
+  return 'PASS';
+}
+
 function validateActualRunnerEvidence(report, options) {
   switch (options.check.evidenceProtocol) {
+    case 'action-production-runtime-report-v1': return validateActionProductionBindingReport(report, options);
     case 'failure-matrix-report-v1': return validateFailureMatrixReport(report, options);
     case 'desktop-failure-report-v1': return validateDesktopFailureReport(report, options);
     case 'performance-budget-json-v1': return validatePerformanceReport(report, options);
@@ -1127,6 +1571,7 @@ function commandResult(command, args, options) {
 
 function expandedRunnerArgv(context, check) {
   return check.argv.map((argument) => {
+    if (argument === '$SCORE_BASE_SHA') return context.scoreBaseSha;
     if (argument === '$SUBJECT_SHA') return context.subjectSha;
     if (argument === '$SUBJECT_REPO') return context.repoRoot;
     if (argument === '$FROZEN_BASELINE') return path.join(frozenScriptRoot, 'frontend-maintainability-baseline.json');
@@ -1154,8 +1599,20 @@ function executeActualRunner(context, check) {
     return invalid;
   }
   const absoluteRunnerPath = fs.realpathSync(requestedRunnerPath);
-  const reportPath = check.reportPath ? path.resolve(context.repoRoot, check.reportPath) : undefined;
-  if (reportPath) fs.rmSync(reportPath, { force: true });
+  let reportPath;
+  let reportSourcePath = `${check.cwd}/${runnerPath}#stdout`.replace(/^\.\//u, '');
+  if (check.reportPath !== undefined) {
+    if (typeof check.reportPath !== 'string' || !check.reportPath.trim() || path.isAbsolute(check.reportPath)
+      || check.reportPath.split('/').includes('..')) {
+      fail(`structured runner reportPath is invalid: ${String(check.reportPath)}`);
+    }
+    reportPath = path.resolve(context.repoRoot, check.reportPath);
+    reportSourcePath = path.relative(context.repoRoot, reportPath).split(path.sep).join('/');
+    if (reportSourcePath.startsWith('../') || reportSourcePath === '..') {
+      fail(`structured runner reportPath escapes target repository: ${check.reportPath}`);
+    }
+    fs.rmSync(reportPath, { force: true });
+  }
   const startedAt = Date.now();
   const result = commandResult(command === 'node' ? process.execPath : command, [absoluteRunnerPath, ...args], {
     cwd,
@@ -1164,9 +1621,19 @@ function executeActualRunner(context, check) {
   });
   const finishedAt = Date.now();
   let report;
+  let reportArtifact;
   try {
+    if (reportPath) {
+      const stat = fs.lstatSync(reportPath);
+      if (!stat.isFile() || stat.isSymbolicLink()) fail('structured runner report must be a regular file');
+    }
     const raw = reportPath ? fs.readFileSync(reportPath, 'utf8') : result.stdout;
     report = JSON.parse(raw.trim());
+    reportArtifact = {
+      path: reportSourcePath,
+      sha256: createHash('sha256').update(raw).digest('hex'),
+      bytes: Buffer.byteLength(raw),
+    };
   }
   catch (error) {
     report = { parseError: error.message };
@@ -1174,6 +1641,7 @@ function executeActualRunner(context, check) {
   const executed = {
     result,
     report,
+    reportArtifact,
     startedAt,
     finishedAt,
     invocation: {
@@ -1247,7 +1715,7 @@ function structuredProbe(context, control, check) {
       status: 'FAIL', exitCode: 1, summary: `target runner must be a regular file: ${execution.runnerPath}`,
     });
   }
-  const { result, report, startedAt, finishedAt, invocation } = execution;
+  const { result, report, reportArtifact, startedAt, finishedAt, invocation } = execution;
   const output = `${result.stdout}${result.stderr}`.trim();
   if (result.error) {
     return evidenceRecord(context, control, check, {
@@ -1273,9 +1741,11 @@ function structuredProbe(context, control, check) {
       runnerExecution: invocation,
     });
   }
+  recordRawReport(context, check, report, reportArtifact);
   if (status === 'PASS' && result.exitCode !== 0) {
     return evidenceRecord(context, control, check, {
       status: 'FAIL', exitCode: result.exitCode, summary: 'runner reported PASS with a non-zero exit',
+      runnerReport: reportArtifact,
       runnerExecution: invocation,
     });
   }
@@ -1283,6 +1753,7 @@ function structuredProbe(context, control, check) {
     status,
     exitCode: status === 'PASS' ? 0 : status === 'FAIL' ? 1 : null,
     summary: `${check.evidenceProtocol} ${status}; cases=${check.caseIds.length} tests=${check.testCount}`,
+    runnerReport: reportArtifact,
     runnerExecution: invocation,
   });
 }
@@ -1301,8 +1772,10 @@ export function commandEvidenceStatus({ repoRoot = frozenRepoRoot, cwd = '.', ar
 function evidenceRecord(context, control, check, result) {
   return {
     scoreBaseSha: context.scoreBaseSha,
+    scoreBaseTree: context.scoreBaseTree,
     subjectSha: context.subjectSha,
     subjectTree: context.subjectTree,
+    subjectContract: context.subjectContract,
     controlId: control.id,
     cwd: check.cwd,
     argv: [...check.argv],
@@ -1315,7 +1788,8 @@ function evidenceRecord(context, control, check, result) {
 }
 
 function runCommand(context, control, check) {
-  const [command, ...args] = check.argv;
+  const argv = expandedRunnerArgv(context, check);
+  const [command, ...args] = argv;
   const cwd = path.resolve(context.repoRoot, check.cwd);
   const result = commandResult(command, args, {
     cwd,
@@ -1327,11 +1801,13 @@ function runCommand(context, control, check) {
     status: result.error || result.exitCode !== 0 ? 'FAIL' : 'PASS',
     exitCode: result.exitCode,
     summary: output.slice(result.exitCode === 0 ? -600 : -1200) || result.error?.message || '',
+    runnerExecution: { cwd, argv, exitCode: result.exitCode, signal: result.signal },
   });
 }
 
 function evaluateProbe(context, control, check) {
   try {
+    if (check.evidenceProtocol === 'git-diff-check-v1') return runCommand(context, control, check);
     if (check.evidenceProtocol === 'vitest-json-v1') return vitestProbe(context, control, check);
     if (check.evidenceProtocol === 'artifact-v1') return artifactProbe(context, control, check);
     if (customEvidenceProtocols.has(check.evidenceProtocol)) {
@@ -1427,6 +1903,20 @@ function validateStructuredCheck(control, check) {
     if (check.testCount !== 1) fail(`action producer testCount differs from frozen contract: ${control.id}`);
     return;
   }
+  if (check.evidenceProtocol === 'action-production-runtime-report-v1') {
+    if (control.id !== 'T02-critical-action-coverage' || check.probe !== 'criticalActionCoverage'
+      || check.requireZeroExemptions !== true) {
+      fail(`invalid action production binding contract: ${control.id}`);
+    }
+    exact(check.argv, [
+      'node', 'frontend-app/scripts/action-production-runtime-runner.mjs',
+    ], 'action production binding argv');
+    exact(check.caseIds, criticalRuntimeActionIds, 'action production binding caseIds');
+    if (check.cwd !== '.' || check.reportPath !== '.tmp/action-producer/runtime-report.json' || check.testCount !== 5) {
+      fail(`action production binding report contract differs from frozen contract: ${control.id}`);
+    }
+    return;
+  }
   if (check.evidenceProtocol === 'failure-matrix-report-v1') {
     const expected = failureMatrixChecks[control.id];
     if (!expected || check.probe !== expected.probe) fail(`invalid failure matrix control: ${control.id}`);
@@ -1472,6 +1962,19 @@ function validateStructuredCheck(control, check) {
     exact(check.caseIds, deliveryCaseIds, 'delivery smoke caseIds');
     exact(check.runnerFiles, deliveryRunnerFiles, 'delivery audited runner files');
     if (check.testCount !== deliveryCaseIds.length) fail(`delivery smoke testCount differs from frozen contract: ${control.id}`);
+    return;
+  }
+  if (check.evidenceProtocol === 'git-diff-check-v1') {
+    if (control.id !== 'T04-local-gates' || check.probe !== 'gitDiffCheck') {
+      fail(`invalid git diff check control: ${control.id}`);
+    }
+    exact(check.argv, [
+      'git', 'diff', '--check', '$SCORE_BASE_SHA', '$SUBJECT_SHA',
+    ], 'git diff check argv');
+    exact(check.caseIds, ['frontend-diff-check'], 'git diff check caseIds');
+    if (check.cwd !== '.' || check.testCount !== 1) {
+      fail(`git diff check contract differs from frozen contract: ${control.id}`);
+    }
     return;
   }
   fail(`unregistered structured evidence runner: ${control.id}`);
@@ -1521,6 +2024,26 @@ function validateConfiguredControl(config, control, seen) {
   }
 }
 
+function validateT02DerivedLayerCounts(config) {
+  const registry = JSON.parse(fs.readFileSync(path.join(frozenAppRoot, 'config/action-producer-registry.json'), 'utf8'));
+  const matrix = JSON.parse(fs.readFileSync(path.join(frozenAppRoot, 'config/action-producer-test-matrix.json'), 'utf8'));
+  const expectedMatrixCount = registry.coveredProducers.reduce((sum, entry) => sum + entry.errorSources.length, 0);
+  if (!Array.isArray(matrix.cells) || matrix.cells.length !== expectedMatrixCount) {
+    fail('T02 producer/error-source matrix count differs from the registry-derived exact set');
+  }
+  if (!Array.isArray(matrix.runtimeBindings) || matrix.runtimeBindings.length !== criticalRuntimeActionIds.length) {
+    fail('T02 representative runtime binding count differs from the exact required set');
+  }
+  exactSet(matrix.runtimeBindings.map(({ actionId }) => actionId), criticalRuntimeActionIds, 'T02 derived runtime actionIds');
+  exactSet(matrix.runtimeBindings.map(({ semanticClass }) => semanticClass), criticalRuntimeSemanticClasses, 'T02 derived runtime semantic classes');
+  const control = config.controls.find(({ id }) => id === 'T02-critical-action-coverage');
+  const matrixCheck = control?.allOf.find(({ argv }) => argv.includes('src/shared/ui/productionActionFailureMatrix.test.js'));
+  const runtimeCheck = control?.allOf.find(({ evidenceProtocol }) => evidenceProtocol === 'action-production-runtime-report-v1');
+  if (matrixCheck?.testCount !== expectedMatrixCount || runtimeCheck?.testCount !== matrix.runtimeBindings.length) {
+    fail('T02 configured layer counts differ from registry/matrix-derived exact counts');
+  }
+}
+
 export function validateConfiguration(config = controls, fixtureDocument = fixtures) {
   if (config.schemaVersion !== 1 || fixtureDocument.schemaVersion !== 1) fail('unsupported scorer schema version');
   if (!Array.isArray(config.controls) || config.controls.length !== 25) fail('controls must contain exactly 25 entries');
@@ -1532,6 +2055,7 @@ export function validateConfiguration(config = controls, fixtureDocument = fixtu
   const seen = new Set();
   for (const control of config.controls) validateConfiguredControl(config, control, seen);
   exactSet(seen, frozenControlIDs, 'control ids');
+  validateT02DerivedLayerCounts(config);
   for (const dimension of Object.keys(config.weights)) {
     const points = config.controls
       .filter((control) => control.dimension === dimension)
@@ -1544,7 +2068,7 @@ export function validateConfiguration(config = controls, fixtureDocument = fixtu
   return true;
 }
 function scoreContext(context, { runCommands }) {
-  const executionContext = { ...context, evidenceCache: new Map() };
+  const executionContext = { ...context, evidenceCache: new Map(), rawReports: new Map() };
   const scoredControls = controls.controls.map((control) => {
     const evidence = control.allOf.map((check) => evaluateCheck(executionContext, control, check, runCommands));
     return {
@@ -1572,13 +2096,16 @@ function scoreContext(context, { runCommands }) {
     .reduce((sum, dimension) => sum + (dimension.score * dimension.weight), 0);
   return {
     scoreBaseSha: context.scoreBaseSha,
+    scoreBaseTree: context.scoreBaseTree,
     subjectSha: context.subjectSha,
     subjectTree: context.subjectTree,
+    subjectContract: context.subjectContract,
     baseline,
     controls: scoredControls,
     dimensions,
     rawBasisPoints: Math.round(rawBasisPoints),
     displayScore: Number((rawBasisPoints / 100).toFixed(1)),
+    rawReports: Object.fromEntries(executionContext.rawReports),
   };
 }
 
@@ -1689,8 +2216,19 @@ function withDetachedSubject(context, callback) {
   }
 }
 
-function writeReport(result) {
-  const reportRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'frontend-maintainability-score-'));
+export function persistScoreReport(result, repoRoot) {
+  const reportRoot = path.join(repoRoot, '.tmp', 'frontend-maintainability-score');
+  fs.mkdirSync(reportRoot, { recursive: true });
+  for (const [kind, artifact] of Object.entries(result.rawReports || {})) {
+    const rawPath = path.join(reportRoot, `${result.subjectSha}.${kind}.raw.json`);
+    const canonical = canonicalReportJSON(artifact.report);
+    if (Buffer.byteLength(canonical) !== artifact.bytes
+      || createHash('sha256').update(canonical).digest('hex') !== artifact.sha256) {
+      fail(`${kind} normalized raw report bytes or SHA-256 changed before persistence`);
+    }
+    fs.writeFileSync(rawPath, canonical);
+    artifact.persistedPath = path.relative(repoRoot, rawPath).split(path.sep).join('/');
+  }
   const reportPath = path.join(reportRoot, `${result.subjectSha}.json`);
   fs.writeFileSync(reportPath, `${JSON.stringify(result, null, 2)}\n`);
   return reportPath;
@@ -1701,6 +2239,8 @@ function printScore(result, reportPath) {
   process.stdout.write(`SCORE\t${result.displayScore.toFixed(1)}\t${result.subjectSha}\n`);
   process.stdout.write(`SUBJECT_TREE\t${result.subjectTree}\n`);
   process.stdout.write(`SCORE_BASE\t${result.scoreBaseSha}\n`);
+  process.stdout.write(`SCORE_BASE_TREE\t${result.scoreBaseTree}\n`);
+  process.stdout.write(`SUBJECT_TREE_RULE\t${result.subjectContract.treeRelation}\n`);
   if (reportPath) process.stdout.write(`REPORT\t${reportPath}\n`);
 }
 
@@ -1783,7 +2323,7 @@ if (process.argv[1] && fs.realpathSync(path.resolve(process.argv[1])) === fs.rea
     const result = withDetachedSubject(targetContext, (executionContext) => (
       scoreContext(executionContext, { runCommands: true })
     ));
-    const reportPath = writeReport(result);
+    const reportPath = persistScoreReport(result, targetContext.repoRoot);
     printScore(result, reportPath);
     const failures = finalGateFailures(result);
     if (failures.length > 0) {

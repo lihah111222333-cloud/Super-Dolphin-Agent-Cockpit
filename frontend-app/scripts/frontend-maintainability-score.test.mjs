@@ -22,7 +22,9 @@ import {
   actionProducerGuardOutputStatus,
   commandEvidenceStatus,
   controlStatus,
+  createSubjectContract,
   inspectTargetRepository,
+  persistScoreReport,
   performanceAuditPathAllowed,
   probeResult,
   scoreCurrentTree,
@@ -38,6 +40,31 @@ const frozenRepoRoot = resolve(scriptRoot, '..', '..');
 const scorerPath = join(scriptRoot, 'frontend-maintainability-score.mjs');
 const plannedBaseSha = 'b40867229af8e17916c00393639ccb0fcb4bf6fc';
 const temporaryRepositories = [];
+const addedGovernancePaths = [
+  'frontend-app/scripts/failure-matrix-runner.mjs',
+  'frontend-app/scripts/failure-matrix-cases.json',
+  'frontend-app/scripts/failure-matrix-fixtures.json',
+  'frontend-app/scripts/failure-matrix-mutations.json',
+  'frontend-app/scripts/action-producer-guard.mjs',
+  'frontend-app/scripts/action-producer-guard.selftest.mjs',
+  'frontend-app/scripts/action-production-runtime-runner.mjs',
+  'frontend-app/config/action-producer-registry.json',
+  'frontend-app/config/action-producer-test-matrix.json',
+  'frontend-app/src/entities/client/model/failureMatrix.test.js',
+  'frontend-app/src/entities/client/model/runtimeSlice.test.js',
+  'frontend-app/src/pages/chat/composer/ComposerDock.actionFailure.test.jsx',
+  'frontend-app/src/pages/settings/SettingsPage.test.jsx',
+  'frontend-app/src/features/approval/ui/ApprovalDecisionShelf.test.jsx',
+  'internal/provider/codexapp/failure_matrix_test.go',
+  'internal/provider/claudecli/failure_matrix_test.go',
+  'internal/module/turn/interrupt_rpc_test.go',
+];
+
+function copyWorkspaceFile(relativePath, repoRoot) {
+  const target = join(repoRoot, relativePath);
+  mkdirSync(dirname(target), { recursive: true });
+  copyFileSync(join(frozenRepoRoot, relativePath), target);
+}
 
 function documents() {
   return {
@@ -142,6 +169,7 @@ function createFinalContractTarget() {
     'frontend-app/scripts/evidence-provenance.mjs',
     'frontend-app/scripts/performance-budget-model.mjs',
     'frontend-app/scorer-final-subject.txt',
+    ...addedGovernancePaths,
   ]);
   git(repoRoot, ['config', 'user.email', 'scorer-test@example.invalid']);
   git(repoRoot, ['config', 'user.name', 'Scorer Test']);
@@ -156,6 +184,7 @@ function createFinalContractTarget() {
   ]) {
     copyFileSync(join(scriptRoot, name), join(repoRoot, 'frontend-app', 'scripts', name));
   }
+  for (const relativePath of addedGovernancePaths) copyWorkspaceFile(relativePath, repoRoot);
   write('frontend-app/scorer-final-subject.txt', 'strict descendant\n', repoRoot);
   git(repoRoot, ['add', '.']);
   git(repoRoot, ['commit', '-q', '-m', '测试：建立最终评分后代']);
@@ -188,6 +217,7 @@ function createFinalCliFixture({ hangFirstProbe = false } = {}) {
   ]) {
     copyFileSync(join(scriptRoot, name), join(baseRoot, 'frontend-app', 'scripts', name));
   }
+  for (const relativePath of addedGovernancePaths) copyWorkspaceFile(relativePath, baseRoot);
   for (const name of ['package.json', 'package-lock.json', 'vite.config.js']) {
     copyFileSync(join(frozenRepoRoot, 'frontend-app', name), join(baseRoot, 'frontend-app', name));
   }
@@ -238,6 +268,15 @@ function createFinalCliFixture({ hangFirstProbe = false } = {}) {
     "process.stdout.write('{}\\n');",
     '',
   ].join('\n'), baseRoot);
+  for (const relativePath of [
+    'frontend-app/scripts/failure-matrix-runner.mjs',
+    'frontend-app/scripts/desktop-failure-smoke.mjs',
+    'frontend-app/scripts/action-production-runtime-runner.mjs',
+    'frontend-app/scripts/action-producer-guard.selftest.mjs',
+    'frontend-app/scripts/action-producer-guard.mjs',
+  ]) {
+    write(relativePath, 'process.exitCode = 1;\n', baseRoot);
+  }
   write('frontend-app/scorer-freeze-marker.txt', 'frozen scorer fixture\n', baseRoot);
   git(baseRoot, ['add', '-A']);
   git(baseRoot, ['commit', '-q', '-m', '测试：冻结最终评分器']);
@@ -249,13 +288,14 @@ function createFinalCliFixture({ hangFirstProbe = false } = {}) {
   write('frontend-app/final-subject.txt', 'strict descendant\n', subjectRoot);
   write('go.mod', 'invalid final fixture\n', subjectRoot);
   const packageDocument = JSON.parse(readFileSync(join(subjectRoot, 'frontend-app', 'package.json'), 'utf8'));
-  packageDocument.scripts.lint = 'false';
+  packageDocument.scripts.lint = hangFirstProbe
+    ? `${process.execPath} -e "setInterval(() => {}, 1000)"`
+    : 'false';
   packageDocument.scripts.test = 'false';
   packageDocument.scripts.build = 'false';
   write('frontend-app/package.json', `${JSON.stringify(packageDocument, null, 2)}\n`, subjectRoot);
   const probeSources = [
     'frontend-app/src/entities/client/model/useClientStore.test.js',
-    'frontend-app/src/pages/chat/composer/ComposerDock.actionFailure.test.jsx',
     'frontend-app/src/shared/diagnostics/frontendHealthStore.test.js',
     'frontend-app/src/shared/ui/productionActionFailureMatrix.test.js',
     'frontend-app/src/shared/contracts/turnContractValidators.test.js',
@@ -266,20 +306,13 @@ function createFinalCliFixture({ hangFirstProbe = false } = {}) {
   ];
   for (const relativePath of probeSources) rmSync(join(subjectRoot, relativePath), { force: true });
   for (const relativePath of [
-    'frontend-app/scripts/failure-matrix-runner.mjs',
-    'frontend-app/scripts/desktop-failure-smoke.mjs',
     'frontend-app/scripts/performance-budget-runner.mjs',
     'frontend-app/scripts/frontend-state-ownership-guard.mjs',
     'frontend-app/scripts/frontend-dependency-direction-guard.mjs',
-    'frontend-app/scripts/action-producer-guard.selftest.mjs',
-    'frontend-app/scripts/action-producer-guard.mjs',
     'frontend-app/scripts/turn-contract-field-guard.mjs',
     'frontend-app/scripts/critical-typecheck-guard.mjs',
   ]) {
-    const source = hangFirstProbe && relativePath.endsWith('failure-matrix-runner.mjs')
-      ? "setInterval(() => {}, 1_000);\nawait new Promise(() => {});\n"
-      : "process.exitCode = 1;\n";
-    write(relativePath, source, subjectRoot);
+    write(relativePath, 'process.exitCode = 1;\n', subjectRoot);
   }
   write(
     'frontend-app/scripts/detached-mount-probe.test.mjs',
@@ -319,9 +352,76 @@ function failureMatrixEvidence(context, overrides = {}) {
     'FM-23': ['frontend'],
     'FM-24': ['frontend'],
   };
+  const frontendFiles = {
+    'FM-18': 'src/entities/client/model/runtimeSlice.test.js',
+    'FM-21': 'src/pages/chat/composer/ComposerDock.actionFailure.test.jsx',
+    'FM-22': 'src/pages/chat/composer/ComposerDock.actionFailure.test.jsx',
+    'FM-23': 'src/pages/settings/SettingsPage.test.jsx',
+    'FM-24': 'src/features/approval/ui/ApprovalDecisionShelf.test.jsx',
+  };
   const evidence = Object.entries(layersByCase).flatMap(([caseId, layers]) => (
-    layers.map((layer) => ({ caseId, layer, test: `${caseId}:${layer}` }))
+    layers.map((layer) => ({
+      caseId,
+      layer,
+      test: `${caseId}:${layer}`,
+      ...(layer === 'frontend' ? {
+        file: frontendFiles[caseId] || 'src/entities/client/model/failureMatrix.test.js',
+      } : {}),
+    }))
   ));
+  const mutationDocument = JSON.parse(readFileSync(join(scriptRoot, 'failure-matrix-mutations.json'), 'utf8'));
+  const mutationByCase = new Map(mutationDocument.mutations.flatMap((mutation) => (
+    mutation.caseIds.map((caseId) => [caseId, mutation])
+  )));
+  const goPackages = {
+    'go-codex': './internal/provider/codexapp',
+    'go-claude': './internal/provider/claudecli',
+    'go-turn': './internal/module/turn',
+    'go-wails': './internal/ui/wails',
+  };
+  const redGreenCases = Object.keys(layersByCase).map((caseId) => {
+    const mutation = mutationByCase.get(caseId);
+    const greenEvidence = evidence.find((entry) => entry.caseId === caseId && entry.layer === mutation.layer);
+    const source = execFileSync('git', ['show', `${context.subjectSha}:${mutation.sourcePath}`], {
+      cwd: context.repoRoot,
+      encoding: 'utf8',
+    });
+    const mutated = source.replace(mutation.search, mutation.replacement);
+    const command = greenEvidence.layer === 'frontend'
+      ? {
+        cwd: 'frontend-app',
+        argv: [
+          join('node_modules', '.bin', 'vitest'), 'run', greenEvidence.file,
+          '-t', greenEvidence.test, '--no-file-parallelism', '--maxWorkers=1',
+        ],
+      }
+      : {
+        cwd: '.',
+        argv: ['go', 'test', goPackages[greenEvidence.layer], '-run', `^${greenEvidence.test}$`, '-count=1'],
+      };
+    return {
+      caseId,
+      subjectSha: context.subjectSha,
+      subjectTreeSha: context.subjectTree,
+      green: {
+        ...greenEvidence,
+        ...command,
+        exitCode: 0,
+        signal: null,
+        outputSha256: createHash('sha256').update(`GREEN:${caseId}`).digest('hex'),
+      },
+      red: {
+        mutationId: mutation.id,
+        sourcePath: mutation.sourcePath,
+        sourceSha256: createHash('sha256').update(source).digest('hex'),
+        mutatedSha256: createHash('sha256').update(mutated).digest('hex'),
+        ...command,
+        exitCode: 1,
+        signal: null,
+        outputSha256: createHash('sha256').update(`RED:${caseId}`).digest('hex'),
+      },
+    };
+  });
   return {
     schemaVersion: 1,
     generatedAt: new Date().toISOString(),
@@ -339,6 +439,7 @@ function failureMatrixEvidence(context, overrides = {}) {
     status: 'covered',
     blockedCases: [],
     evidence,
+    redGreenCases,
     ...overrides,
   };
 }
@@ -615,6 +716,17 @@ describe('frontend maintainability scorer configuration', () => {
     weakCommand.controls.controls.find(({ id }) => id === 'T04-local-gates').allOf[0].argv = ['echo', 'PASS'];
     expect(() => validateConfiguration(weakCommand.controls, weakCommand.fixtures)).toThrow('weak runner command');
 
+    const missingDiffCheck = documents();
+    missingDiffCheck.controls.controls.find(({ id }) => id === 'T04-local-gates').allOf.pop();
+    expect(() => validateConfiguration(missingDiffCheck.controls, missingDiffCheck.fixtures))
+      .toThrow('lane allOf argv T04-local-gates exact set mismatch');
+
+    const mutableDiffCheck = documents();
+    mutableDiffCheck.controls.controls.find(({ id }) => id === 'T04-local-gates').allOf[3]
+      .argv = ['git', 'diff', '--check'];
+    expect(() => validateConfiguration(mutableDiffCheck.controls, mutableDiffCheck.fixtures))
+      .toThrow('git diff check argv differs from frozen contract');
+
     const mutableProbe = documents();
     mutableProbe.controls.controls.find(({ id }) => id === 'A02-state-ownership').allOf[0].argv[1] = 'scripts/renamed-guard.mjs';
     expect(() => validateConfiguration(mutableProbe.controls, mutableProbe.fixtures))
@@ -687,6 +799,15 @@ describe('frontend maintainability scorer configuration', () => {
         'node', 'scripts/delivery-smoke-runner.mjs', '--verify',
         '--repo', '$SUBJECT_REPO', '--subject', '$SUBJECT_SHA',
       ]);
+    expect(controls.controls.find(({ id }) => id === 'T04-local-gates').allOf[3]).toMatchObject({
+      kind: 'probe',
+      probe: 'gitDiffCheck',
+      evidenceProtocol: 'git-diff-check-v1',
+      cwd: '.',
+      argv: ['git', 'diff', '--check', '$SCORE_BASE_SHA', '$SUBJECT_SHA'],
+      caseIds: ['frontend-diff-check'],
+      testCount: 1,
+    });
     expect(JSON.parse(readFileSync(join(scriptRoot, 'frontend-maintainability-baseline.json'), 'utf8')).baseSha)
       .toBe(plannedBaseSha);
     const backgroundHealth = controls.controls.find(({ id }) => id === 'E03-background-health');
@@ -768,6 +889,42 @@ describe('frozen scorer target binding', () => {
 
     expect(context.subjectSha).toBe(target.subjectSha);
     expect(context.scoreBaseSha).toBe(git(frozenRepoRoot, ['rev-parse', 'HEAD']));
+    expect(context.subjectContract).toMatchObject({
+      rule: 'strict-descendant-governance-frozen-tree-relation-v1',
+      finalContractEnforced: true,
+      ancestry: 'strict-descendant',
+      treeRelation: 'changed-tree',
+      identityFreeze: false,
+      governanceFreeze: {
+        rule: 'byte-identical-governance-v1',
+        pathCount: 24,
+      },
+    });
+    expect(context.subjectContract.governanceFreeze.sha256).toMatch(/^[0-9a-f]{64}$/u);
+
+    const emptyCommitContract = {
+      scoreBaseSha: 'a'.repeat(40),
+      scoreBaseTree: 'b'.repeat(40),
+      subjectSha: 'c'.repeat(40),
+      subjectTree: 'b'.repeat(40),
+      strictDescendant: true,
+      governanceFreeze: context.subjectContract.governanceFreeze,
+      finalContractEnforced: true,
+    };
+    expect(() => createSubjectContract(emptyCommitContract)).toThrow('empty-commit evidence is rejected');
+    expect(() => createSubjectContract({
+      ...emptyCommitContract,
+      subjectTree: 'd'.repeat(40),
+      strictDescendant: true,
+      governanceFreeze: null,
+      finalContractEnforced: true,
+    })).toThrow('exact frozen governance evidence');
+    expect(() => createSubjectContract({
+      ...emptyCommitContract,
+      subjectTree: 'd'.repeat(40),
+      strictDescendant: false,
+      finalContractEnforced: true,
+    })).toThrow('strict descendant ancestry');
 
     write('frontend-app/scripts/delivery-smoke-runner.mjs', 'process.stdout.write("forged PASS\\n");\n', target.repoRoot);
     git(target.repoRoot, ['add', '.']);
@@ -809,7 +966,7 @@ describe('frozen scorer target binding', () => {
       });
 
       expect(result.status).toBe(1);
-      expect(result.stdout).toContain(`SCORE_BASE\t${fixture.scoreBaseSha}`);
+      expect(result.stdout, result.stderr).toContain(`SCORE_BASE\t${fixture.scoreBaseSha}`);
       expect(result.stdout).toMatch(new RegExp(`^SCORE\\t\\d+\\.\\d\\t${fixture.subjectSha}$`, 'mu'));
       expect(result.stdout).toContain('REPORT\t');
       expect(result.stderr).toContain('FINAL_GATE\tFAIL');
@@ -933,10 +1090,202 @@ describe('executable evidence registry', () => {
     }, options)).toBe('FAIL');
   });
 
+  it('requires non-zero mutation RED and immutable source binding for every T01 case', () => {
+    const { controls } = documents();
+    const control = controls.controls.find(({ id }) => id === 'T01-red-green-regression');
+    const check = control.allOf[0];
+    const context = inspectTargetRepository();
+    const mutationDocument = JSON.parse(readFileSync(join(scriptRoot, 'failure-matrix-mutations.json'), 'utf8'));
+    expect(mutationDocument.mutations.find(({ id }) => id === 'force-codex-terminal-success')).toMatchObject({
+      search: 'Success:              outcome.',
+      replacement: 'Success:              true || outcome.',
+    });
+    expect(mutationDocument.mutations.find(({ id }) => id === 'misclassify-claude-interruption')).toMatchObject({
+      search: 'case "turn:interrupted":',
+      replacement: 'case "turn:interrupted-disabled":',
+    });
+    const now = Date.now();
+    const options = { context, control, check, startedAt: now - 100, finishedAt: now + 100 };
+    const valid = failureMatrixEvidence(context);
+    expect(structuredEvidenceStatus(valid, options)).toBe('PASS');
+    expect(structuredEvidenceStatus({
+      ...valid,
+      redGreenCases: valid.redGreenCases.slice(1),
+    }, options)).toBe('FAIL');
+    expect(structuredEvidenceStatus({
+      ...valid,
+      redGreenCases: valid.redGreenCases.map((entry) => (
+        entry.caseId === 'FM-01' ? { ...entry, red: { ...entry.red, exitCode: 0 } } : entry
+      )),
+    }, options)).toBe('FAIL');
+    expect(structuredEvidenceStatus({
+      ...valid,
+      redGreenCases: valid.redGreenCases.map((entry) => (
+        entry.caseId === 'FM-01' ? { ...entry, green: { ...entry.green, exitCode: 1 } } : entry
+      )),
+    }, options)).toBe('FAIL');
+    expect(structuredEvidenceStatus({
+      ...valid,
+      redGreenCases: valid.redGreenCases.map((entry) => (
+        entry.caseId === 'FM-01' ? { ...entry, red: { ...entry.red, sourceSha256: '0'.repeat(64) } } : entry
+      )),
+    }, options)).toBe('FAIL');
+  });
+
+  it('requires action-specific production callbacks and source hashes for T02', () => {
+    const { controls } = documents();
+    const control = controls.controls.find(({ id }) => id === 'T02-critical-action-coverage');
+    const check = control.allOf.find(({ evidenceProtocol }) => evidenceProtocol === 'action-production-runtime-report-v1');
+    const context = inspectTargetRepository();
+    const now = Date.now();
+    const reportRoot = mkdtempSync(join(tmpdir(), 'frontend-action-binding-report-'));
+    temporaryRepositories.push(reportRoot);
+    const reportPath = join(reportRoot, 'report.json');
+    execFileSync(process.execPath, [join(scriptRoot, 'action-producer-guard.mjs'), '--report', reportPath]);
+    const report = JSON.parse(readFileSync(reportPath, 'utf8'));
+    expect(report).toMatchObject({
+      reportKind: 'action-production-binding-structure-v1',
+      status: 'structural-only',
+    });
+    report.controlId = 'T02-critical-action-coverage';
+    report.status = 'covered';
+    const matrix = JSON.parse(readFileSync(join(frozenRepoRoot, 'frontend-app/config/action-producer-test-matrix.json'), 'utf8'));
+    const registry = JSON.parse(readFileSync(join(frozenRepoRoot, 'frontend-app/config/action-producer-registry.json'), 'utf8'));
+    report.structuralActionCount = report.actionIds.length;
+    report.errorSourceCaseCount = matrix.cells.length;
+    report.runtimeEvidenceScope = 'five-semantic-class-anchors';
+    report.runtimeAnchorCount = matrix.runtimeBindings.length;
+    report.runtimeClaimsFullMatrix = false;
+    report.requiredRuntimeActionIds = matrix.runtimeBindings.map(({ actionId }) => actionId).sort();
+    report.requiredRuntimeSemanticClasses = matrix.runtimeBindings.map(({ semanticClass }) => semanticClass).sort();
+    report.runtimeCases = matrix.runtimeBindings.map((anchor) => {
+      const bindings = report.bindings.filter(({ actionId, sourcePath }) => (
+        actionId === anchor.actionId && sourcePath === anchor.sourcePath
+      )).sort((left, right) => right.callbackStart - left.callbackStart);
+      const source = execFileSync('git', [
+        'show', `${context.subjectSha}:frontend-app/${anchor.sourcePath}`,
+      ], { cwd: context.repoRoot, encoding: 'utf8' });
+      let mutated = source;
+      for (const binding of bindings) {
+        mutated = `${mutated.slice(0, binding.callbackStart)}() => {}${mutated.slice(binding.callbackEnd)}`;
+      }
+      const testSource = execFileSync('git', [
+        'show', `${context.subjectSha}:frontend-app/${anchor.testFile}`,
+      ], { cwd: context.repoRoot });
+      return {
+        semanticClass: anchor.semanticClass,
+        actionId: anchor.actionId,
+        sourcePath: anchor.sourcePath,
+        sourceSha256: createHash('sha256').update(source).digest('hex'),
+        mutatedSha256: createHash('sha256').update(mutated).digest('hex'),
+        handlers: [...new Set(bindings.flatMap(({ handlers }) => handlers))].sort(),
+        bindingLocations: bindings.map(({ line, column }) => ({ line, column })),
+        testFile: anchor.testFile,
+        testName: anchor.testName,
+        testFileSha256: createHash('sha256').update(testSource).digest('hex'),
+        green: {
+          cwd: 'frontend-app',
+          argv: [
+            join('node_modules', '.bin', 'vitest'), 'run', anchor.testFile,
+            '-t', anchor.testName, '--no-file-parallelism', '--maxWorkers=1',
+          ],
+          exitCode: 0,
+          signal: null,
+          outputSha256: createHash('sha256').update(`GREEN:${anchor.actionId}`).digest('hex'),
+        },
+        red: {
+          cwd: 'frontend-app',
+          argv: [
+            join('node_modules', '.bin', 'vitest'), 'run', anchor.testFile,
+            '-t', anchor.testName, '--no-file-parallelism', '--maxWorkers=1',
+          ],
+          exitCode: 1,
+          signal: null,
+          outputSha256: createHash('sha256').update(`RED:${anchor.actionId}`).digest('hex'),
+        },
+      };
+    });
+    expect(report.structuralActionCount).toBe(registry.coveredProducers.length);
+    expect(report.runtimeAnchorCount).toBe(5);
+    expect(report.runtimeAnchorCount).toBeLessThan(report.bindingCount);
+    report.generatedAt = new Date(now).toISOString();
+    const options = { context, control, check, startedAt: now - 100, finishedAt: now + 100 };
+    expect(structuredEvidenceStatus(report, options)).toBe('PASS');
+    expect(structuredEvidenceStatus({ ...report, bindings: report.bindings.slice(1) }, options)).toBe('FAIL');
+    expect(structuredEvidenceStatus({
+      ...report,
+      bindings: report.bindings.map((entry, index) => (
+        index === 0 ? { ...entry, handlers: [] } : entry
+      )),
+    }, options)).toBe('FAIL');
+    expect(structuredEvidenceStatus({
+      ...report,
+      runtimeClaimsFullMatrix: true,
+    }, options)).toBe('FAIL');
+    expect(structuredEvidenceStatus({
+      ...report,
+      runtimeCases: report.runtimeCases.map((entry, index) => (
+        index === 0 ? { ...entry, red: { ...entry.red, exitCode: 0 } } : entry
+      )),
+    }, options)).toBe('FAIL');
+    expect(structuredEvidenceStatus({
+      ...report,
+      runtimeCases: report.runtimeCases.map((entry, index) => (
+        index === 0 ? { ...entry, green: { ...entry.green, exitCode: 1 } } : entry
+      )),
+    }, options)).toBe('FAIL');
+    expect(structuredEvidenceStatus({
+      ...report,
+      bindings: report.bindings.map((entry, index) => (
+        index === 0 ? { ...entry, sourceSha256: '0'.repeat(64) } : entry
+      )),
+    }, options)).toBe('FAIL');
+  }, 120000);
+
+  it('persists normalized raw reports with reproducible SHA-256 metadata', () => {
+    const repoRoot = mkdtempSync(join(tmpdir(), 'frontend-score-report-'));
+    temporaryRepositories.push(repoRoot);
+    const canonical = '{\n  "a": {\n    "b": 1\n  },\n  "z": 2\n}\n';
+    const sha256 = createHash('sha256').update(canonical).digest('hex');
+    const result = {
+      subjectSha: 'a'.repeat(40),
+      rawReports: {
+        performance: {
+          protocol: 'performance-budget-json-v1',
+          sourcePath: 'frontend-app/.tmp/performance-report.json',
+          sourceSha256: 'b'.repeat(64),
+          sourceBytes: canonical.length,
+          sha256,
+          bytes: Buffer.byteLength(canonical),
+          metrics: [{ metricId: 'P01-render-isolation', threshold: { absoluteUpdateLimit: 8 }, path: 'evidence.metrics.P01-render-isolation' }],
+          report: { z: 2, a: { b: 1 } },
+        },
+      },
+    };
+
+    const reportPath = persistScoreReport(result, repoRoot);
+    const rawPath = join(repoRoot, '.tmp/frontend-maintainability-score', `${result.subjectSha}.performance.raw.json`);
+    expect(readFileSync(rawPath, 'utf8')).toBe(canonical);
+    const persisted = JSON.parse(readFileSync(reportPath, 'utf8'));
+    expect(persisted.rawReports.performance).toMatchObject({
+      sha256,
+      bytes: Buffer.byteLength(canonical),
+      sourcePath: 'frontend-app/.tmp/performance-report.json',
+      sourceSha256: 'b'.repeat(64),
+      sourceBytes: canonical.length,
+      persistedPath: `.tmp/frontend-maintainability-score/${result.subjectSha}.performance.raw.json`,
+      metrics: result.rawReports.performance.metrics,
+      report: { a: { b: 1 }, z: 2 },
+    });
+    const summaryOnly = JSON.parse(JSON.stringify(result));
+    delete summaryOnly.rawReports.performance.report;
+    expect(() => persistScoreReport(summaryOnly, repoRoot))
+      .toThrow('normalized raw report bytes or SHA-256 changed before persistence');
+  });
+
   it('derives Task3 control status from each frozen semantic subset', () => {
     const { controls } = documents();
     const context = inspectTargetRepository();
-    const now = Date.now();
     for (const [controlId, expectedCases, expectedCount] of [
       ['E03-background-health', ['FM-18'], 1],
       ['E05-safe-recovery', ['FM-16', 'FM-17', 'FM-18'], 3],
@@ -947,8 +1296,9 @@ describe('executable evidence registry', () => {
       const check = control.allOf.find(({ evidenceProtocol }) => evidenceProtocol === 'failure-matrix-report-v1');
       expect(check.caseIds).toEqual(expectedCases);
       expect(check.testCount).toBe(expectedCount);
-      const options = { context, control, check, startedAt: now - 100, finishedAt: now + 100 };
-      expect(structuredEvidenceStatus(failureMatrixEvidence(context), options)).toBe('PASS');
+      const now = Date.now();
+      const options = { context, control, check, startedAt: now - 100, finishedAt: now + 30_000 };
+      expect(structuredEvidenceStatus(failureMatrixEvidence(context), options), controlId).toBe('PASS');
       if (['E03-background-health', 'E05-safe-recovery'].includes(controlId)) {
         expect(structuredEvidenceStatus(failureMatrixEvidence(context, {
           status: 'partial',
@@ -956,7 +1306,7 @@ describe('executable evidence registry', () => {
         }), options)).toBe('NOT_VERIFIED');
       }
     }
-  });
+  }, 30000);
 
   it('validates P01 production subscription locations by stable value', () => {
     const { controls } = documents();
@@ -1338,6 +1688,28 @@ describe('executable evidence registry', () => {
       repoRoot: frozenRepoRoot,
       argv: ['frontend-maintainability-command-does-not-exist'],
     })).toBe('FAIL');
+  });
+
+  it('fails closed when the scored commit range contains whitespace errors', () => {
+    const context = createTargetRepository();
+    const scoreBaseSha = context.subjectSha;
+    write('candidate.txt', 'trailing whitespace \n', context.repoRoot);
+    git(context.repoRoot, ['add', 'candidate.txt']);
+    git(context.repoRoot, ['commit', '-q', '-m', '测试：加入空白错误']);
+    const invalidSubjectSha = git(context.repoRoot, ['rev-parse', 'HEAD']);
+
+    expect(commandEvidenceStatus({
+      repoRoot: context.repoRoot,
+      argv: ['git', 'diff', '--check', scoreBaseSha, invalidSubjectSha],
+    })).toBe('FAIL');
+
+    write('candidate.txt', 'clean whitespace\n', context.repoRoot);
+    git(context.repoRoot, ['add', 'candidate.txt']);
+    git(context.repoRoot, ['commit', '-q', '-m', '测试：修复空白错误']);
+    expect(commandEvidenceStatus({
+      repoRoot: context.repoRoot,
+      argv: ['git', 'diff', '--check', scoreBaseSha, git(context.repoRoot, ['rev-parse', 'HEAD'])],
+    })).toBe('PASS');
   });
 
   it('does not turn a verbose successful command into ENOBUFS failure', () => {
