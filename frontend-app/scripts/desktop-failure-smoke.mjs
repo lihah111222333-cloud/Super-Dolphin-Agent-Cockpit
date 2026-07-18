@@ -11,6 +11,18 @@ import { chromium } from '@playwright/test';
 const DEFAULT_BACKEND_ADDR = '127.0.0.1:4514';
 const DEFAULT_VITE_URL = 'http://127.0.0.1:5178';
 const DEFAULT_TIMEOUT_MS = 180000;
+const DESKTOP_FAILURE_SOURCE_PATHS = Object.freeze([
+  'frontend-app/scripts/desktop-failure-smoke.mjs',
+  'frontend-app/tests/e2e/desktop-failure.spec.js',
+  'frontend-app/playwright.failure.config.js',
+  'frontend-app/package.json',
+  'frontend-app/src/shared/api/wailsBridge.js',
+  'internal/ui/wails/testdata/failure_smoke_host/main.go',
+  'internal/provider/claudecli/event_map.go',
+  'internal/provider/codexapp/event_map.go',
+  'internal/provider/unified/event_map.go',
+  'internal/ui/wails/bridge.go',
+]);
 
 export const DESKTOP_FAILURE_CASES = Object.freeze([
   Object.freeze({
@@ -31,6 +43,17 @@ export const DESKTOP_FAILURE_CASES = Object.freeze([
   }),
 ]);
 
+const DESKTOP_FAILURE_REPORT_REQUIREMENTS = Object.freeze({
+  'terminal-failed': Object.freeze({
+    hops: Object.freeze(['claudecli.raw', 'claudecli.adapter', 'turndto.TurnOutputDelta', 'wails.EventBridge', 'chromium.DOM', 'codexapp.raw', 'codexapp.adapter', 'turndto.TurnCompleted', 'turn/terminal', 'chromium.DOM']),
+    domAssertions: Object.freeze(['partial-response-visible', 'safe-terminal-visible', 'raw-secret-absent']),
+  }),
+  'prompt-history-reject': Object.freeze({
+    hops: Object.freeze(['wails.rpc', 'thread/promptHistory', 'frontend.action', 'chromium.DOM', 'retry.control', 'wails.rpc', 'chromium.DOM']),
+    domAssertions: Object.freeze(['draft-preserved', 'cursor-preserved', 'retry-click-recovers']),
+  }),
+});
+
 export function validateDesktopFailureCases(cases = DESKTOP_FAILURE_CASES) {
   const ids = cases.map((entry) => entry.caseId);
   if (ids.length !== 2 || new Set(ids).size !== 2 || ids[0] !== 'terminal-failed' || ids[1] !== 'prompt-history-reject') {
@@ -38,11 +61,12 @@ export function validateDesktopFailureCases(cases = DESKTOP_FAILURE_CASES) {
   }
   const terminal = cases[0];
   if (terminal.status !== 'runnable' || terminal.evidenceLayers.length !== 3
-    || terminal.evidenceLayers[0] !== 'claude-raw-adapter' || terminal.evidenceLayers[1] !== 'codex-raw-adapter') {
+    || terminal.evidenceLayers[0] !== 'claude-raw-adapter' || terminal.evidenceLayers[1] !== 'codex-raw-adapter'
+    || terminal.evidenceLayers[2] !== 'dto-wails-dom') {
     throw new Error('terminal-failed requires both raw provider adapters and real DOM evidence');
   }
   const prompt = cases[1];
-  if (prompt.status !== 'runnable' || prompt.evidenceLayers?.length !== 3
+  if (prompt.status !== 'runnable' || JSON.stringify(prompt.evidenceLayers) !== JSON.stringify(['go-rpc-websocket', 'prompt-history-action', 'real-chromium-dom'])
     || prompt.fixtureContract?.method !== 'thread/promptHistory'
     || !prompt.fixtureContract?.visibleError || !prompt.fixtureContract?.retryRecovery) {
     throw new Error('prompt-history-reject requires three executable evidence layers and retry recovery');
@@ -94,64 +118,61 @@ export async function runDesktopFailureSmoke(config = desktopFailureSmokeConfig(
   const spawnImpl = deps.spawn || spawn;
   let backend;
   let vite;
+  let goBuild;
+  let playwrightRun;
+  let smokeError;
   try {
     await mkdir(path.dirname(config.backendBinary), { recursive: true });
-    await runCommand('go', [
+    goBuild = await runCommand('go', [
       'build',
       '-o',
       config.backendBinary,
       './internal/ui/wails/testdata/failure_smoke_host',
     ], config.repoRoot, process.env, spawnImpl, config.timeoutMs);
-    backend = spawnImpl(config.backendBinary, [
+    backend = startTrackedProcess(config.backendBinary, [
       `--addr=${config.backendAddr}`,
       `--project=${config.repoRoot}`,
-    ], {
-      cwd: config.repoRoot,
-      stdio: 'inherit',
-      detached: true,
-    });
-    vite = spawnImpl('npm', ['run', 'dev', '--', '--port', new URL(config.viteURL).port, '--strictPort'], {
-      cwd: config.frontendRoot,
-      env: { ...process.env, SUPER_DOLPHIN_HTTP_ADDR: config.backendAddr },
-      stdio: 'inherit',
-      detached: true,
-    });
+    ], config.repoRoot, process.env, spawnImpl);
+    vite = startTrackedProcess('npm', ['run', 'dev', '--', '--port', new URL(config.viteURL).port, '--strictPort'], config.frontendRoot, {
+      ...process.env,
+      SUPER_DOLPHIN_HTTP_ADDR: config.backendAddr,
+    }, spawnImpl);
     await Promise.all([
-      waitForHTTP(`http://${config.backendAddr}/healthz`, config.timeoutMs, backend),
-      waitForHTTP(config.viteURL, config.timeoutMs, vite),
+      waitForHTTP(`http://${config.backendAddr}/healthz`, config.timeoutMs, backend.child),
+      waitForHTTP(config.viteURL, config.timeoutMs, vite.child),
     ]);
     const playwright = path.join(config.frontendRoot, 'node_modules', '.bin', 'playwright');
     if (!existsSync(playwright)) throw new Error(`missing Playwright binary: ${playwright}`);
-    await runCommand(playwright, ['test', '--config', 'playwright.failure.config.js'], config.frontendRoot, {
+    playwrightRun = await runCommand(playwright, ['test', '--config', 'playwright.failure.config.js', '--reporter=json'], config.frontendRoot, {
       ...process.env,
       PLAYWRIGHT_CHROMIUM_EXECUTABLE: config.chromeExecutable,
       SUPER_DOLPHIN_FAILURE_SMOKE_BASE_URL: config.viteURL,
     }, spawnImpl, config.timeoutMs);
-    const report = validateDesktopFailureReport(await buildDesktopFailureReport(config, deps.git));
+  } catch (error) {
+    smokeError = error;
+  } finally {
+    const [viteRun, backendRun] = await Promise.all([stopTrackedProcess(vite), stopTrackedProcess(backend)]);
+    await rm(config.backendBinary, { force: true });
+    if (smokeError) throw smokeError;
+    const report = validateDesktopFailureReport(await buildDesktopFailureReport(config, deps.git, {
+      goBuild,
+      playwrightRun,
+      viteRun,
+      backendRun,
+    }));
     await mkdir(path.dirname(config.reportPath), { recursive: true });
     await writeFile(config.reportPath, `${JSON.stringify(report, null, 2)}\n`, 'utf8');
     return report;
-  } finally {
-    await Promise.all([stopProcessTree(vite), stopProcessTree(backend)]);
-    await rm(config.backendBinary, { force: true });
   }
 }
 
-async function buildDesktopFailureReport(config, gitImpl) {
+async function buildDesktopFailureReport(config, gitImpl, executions) {
   const git = gitImpl || ((args) => captureCommand('git', args, config.repoRoot));
-  const sourcePaths = [
-    'frontend-app/scripts/desktop-failure-smoke.mjs',
-    'frontend-app/tests/e2e/desktop-failure.spec.js',
-    'internal/ui/wails/testdata/failure_smoke_host/main.go',
-    'internal/provider/claudecli/event_map.go',
-    'internal/provider/codexapp/event_map.go',
-    'internal/provider/unified/event_map.go',
-    'internal/ui/wails/bridge.go',
-  ];
-  const sourceHashes = Object.fromEntries(await Promise.all(sourcePaths.map(async (sourcePath) => {
+  const sourceHashes = Object.fromEntries(await Promise.all(DESKTOP_FAILURE_SOURCE_PATHS.map(async (sourcePath) => {
     const content = await readFile(path.join(config.repoRoot, sourcePath));
     return [sourcePath, createHash('sha256').update(content).digest('hex')];
   })));
+  const playwrightCases = playwrightCaseResults(executions.playwrightRun.stdout);
   return {
     schemaVersion: 2,
     generatedAt: new Date().toISOString(),
@@ -165,23 +186,96 @@ async function buildDesktopFailureReport(config, gitImpl) {
     status: 'covered',
     blockedCases: [],
     sourceHashes,
+    execution: {
+      goBuild: executionEvidence(executions.goBuild, config.repoRoot),
+      playwright: {
+        ...executionEvidence(executions.playwrightRun, config.frontendRoot),
+        testCount: playwrightCases.length,
+      },
+      wailsHost: executionEvidence(executions.backendRun, config.repoRoot),
+      vite: executionEvidence(executions.viteRun, config.frontendRoot),
+    },
     cases: [
       {
-        caseId: 'terminal-failed', result: 'GREEN',
+        caseId: 'terminal-failed', result: playwrightCase(playwrightCases, 'terminal-failed').result,
         command: ['node', 'scripts/desktop-failure-smoke.mjs'],
-        hops: ['claudecli.raw', 'claudecli.adapter', 'turndto.TurnOutputDelta', 'wails.EventBridge', 'chromium.DOM', 'codexapp.raw', 'codexapp.adapter', 'turndto.TurnCompleted', 'turn/terminal', 'chromium.DOM'],
-        domAssertions: ['partial-response-visible', 'safe-terminal-visible', 'raw-secret-absent'],
+        hops: playwrightCase(playwrightCases, 'terminal-failed').hops,
+        domAssertions: playwrightCase(playwrightCases, 'terminal-failed').domAssertions,
         secretAssertions: ['dom-does-not-contain-raw-provider-secret', 'report-does-not-contain-raw-provider-secret'],
+        execution: playwrightCase(playwrightCases, 'terminal-failed'),
       },
       {
-        caseId: 'prompt-history-reject', result: 'GREEN',
+        caseId: 'prompt-history-reject', result: playwrightCase(playwrightCases, 'prompt-history-reject').result,
         command: ['node', 'scripts/desktop-failure-smoke.mjs'],
-        hops: ['wails.rpc', 'thread/promptHistory', 'frontend.action', 'chromium.DOM', 'retry.control', 'wails.rpc', 'chromium.DOM'],
-        domAssertions: ['draft-preserved', 'cursor-preserved', 'retry-click-recovers'],
+        hops: playwrightCase(playwrightCases, 'prompt-history-reject').hops,
+        domAssertions: playwrightCase(playwrightCases, 'prompt-history-reject').domAssertions,
         secretAssertions: ['dom-does-not-contain-raw-provider-secret', 'report-does-not-contain-raw-provider-secret'],
+        execution: playwrightCase(playwrightCases, 'prompt-history-reject'),
       },
     ],
   };
+}
+
+function executionEvidence(execution, cwd) {
+  return {
+    argv: [execution.command, ...execution.args],
+    cwd: path.relative(repoRootFromScript(), cwd) || '.',
+    exitCode: execution.exitCode,
+    signal: execution.signal,
+    outputSha256: createHash('sha256').update(`${execution.stdout}\n${execution.stderr}`).digest('hex'),
+  };
+}
+
+function playwrightCaseResults(output) {
+  const report = JSON.parse(output);
+  const cases = [];
+  const walk = (suite) => {
+    for (const spec of suite.specs || []) {
+      const result = spec.tests?.[0]?.results?.[0];
+      if (result) {
+        const evidence = playwrightAttachmentEvidence(result, spec.title);
+        cases.push({
+          title: spec.title,
+          status: result.status,
+          duration: result.duration,
+          hops: evidence.hops,
+          domAssertions: evidence.domAssertions,
+        });
+      }
+    }
+    for (const child of suite.suites || []) walk(child);
+  };
+  for (const suite of report.suites || []) walk(suite);
+  if (cases.length !== DESKTOP_FAILURE_CASES.length || cases.some(({ status }) => status !== 'passed')) {
+    throw new Error('Playwright desktop failure cases did not produce two passed results');
+  }
+  return cases;
+}
+
+function playwrightCase(cases, caseId) {
+  const result = cases.find(({ title }) => title.startsWith(caseId));
+  if (!result) throw new Error(`Playwright case result is missing: ${caseId}`);
+  return {
+    title: result.title,
+    status: result.status,
+    result: result.status === 'passed' ? 'GREEN' : 'RED',
+    durationMs: result.duration,
+    hops: result.hops,
+    domAssertions: result.domAssertions,
+  };
+}
+
+function playwrightAttachmentEvidence(result, title) {
+  const attachment = result.attachments?.find(({ name, contentType }) => (
+    name === 't03-execution-evidence' && contentType === 'application/json'
+  ));
+  if (!attachment?.body) throw new Error(`Playwright execution evidence attachment is missing: ${title}`);
+  const parsed = JSON.parse(Buffer.from(attachment.body, 'base64').toString('utf8'));
+  if (!Array.isArray(parsed.hops) || parsed.hops.some((item) => typeof item !== 'string')
+    || !Array.isArray(parsed.domAssertions) || parsed.domAssertions.some((item) => typeof item !== 'string')) {
+    throw new Error(`Playwright execution evidence attachment is invalid: ${title}`);
+  }
+  return parsed;
 }
 
 export function validateDesktopFailureReport(report) {
@@ -191,7 +285,8 @@ export function validateDesktopFailureReport(report) {
     || actual.some((caseId, index) => caseId !== expected[index])) {
     throw new Error(`desktop failure report caseIds exact diff failed: ${JSON.stringify(actual)}`);
   }
-  if (report.schemaVersion !== 2 || !report.sourceHashes || Object.keys(report.sourceHashes).length < 7) {
+  if (report.schemaVersion !== 2 || !report.sourceHashes
+    || JSON.stringify(Object.keys(report.sourceHashes).sort()) !== JSON.stringify([...DESKTOP_FAILURE_SOURCE_PATHS].sort())) {
     throw new Error('desktop failure report requires source-hashed v2 evidence');
   }
   if (report.testCount !== expected.length || !Number.isInteger(report.testCount) || report.testCount <= 0) {
@@ -200,15 +295,31 @@ export function validateDesktopFailureReport(report) {
   if (report.status !== 'covered' || !Array.isArray(report.blockedCases) || report.blockedCases.length !== 0) {
     throw new Error('desktop failure report requires covered status with zero blocked cases');
   }
+  for (const [name, expectedCwd] of [['goBuild', '.'], ['playwright', 'frontend-app'], ['wailsHost', '.'], ['vite', 'frontend-app']]) {
+    const execution = report.execution?.[name];
+    if (!Array.isArray(execution?.argv) || execution.argv.length === 0 || execution.cwd !== expectedCwd
+      || !Number.isInteger(execution.exitCode) && execution.exitCode !== null
+      || execution.signal !== null && typeof execution.signal !== 'string'
+      || !/^[0-9a-f]{64}$/u.test(execution.outputSha256 || '')) {
+      throw new Error(`desktop failure report execution evidence invalid: ${name}`);
+    }
+  }
+  if (report.execution.goBuild.exitCode !== 0 || report.execution.goBuild.signal !== null
+    || report.execution.playwright.exitCode !== 0 || report.execution.playwright.signal !== null
+    || report.execution.playwright.testCount !== expected.length) {
+    throw new Error('desktop failure report command execution must prove Go and two Playwright cases passed');
+  }
   if (!Array.isArray(report.cases) || report.cases.length !== expected.length) {
     throw new Error('desktop failure report requires per-case evidence');
   }
   for (const [index, evidence] of report.cases.entries()) {
+    const requirement = DESKTOP_FAILURE_REPORT_REQUIREMENTS[expected[index]];
     if (evidence?.caseId !== expected[index] || evidence.result !== 'GREEN'
       || JSON.stringify(evidence.command) !== JSON.stringify(['node', 'scripts/desktop-failure-smoke.mjs'])
-      || !Array.isArray(evidence.hops) || evidence.hops.length < 6
-      || !Array.isArray(evidence.domAssertions) || evidence.domAssertions.length < 3
-      || !Array.isArray(evidence.secretAssertions) || evidence.secretAssertions.length !== 2) {
+      || JSON.stringify(evidence.hops) !== JSON.stringify(requirement.hops)
+      || JSON.stringify(evidence.domAssertions) !== JSON.stringify(requirement.domAssertions)
+      || !Array.isArray(evidence.secretAssertions) || evidence.secretAssertions.length !== 2
+      || evidence.execution?.status !== 'passed' || typeof evidence.execution.durationMs !== 'number') {
       throw new Error(`desktop failure report case evidence invalid: ${expected[index]}`);
     }
   }
@@ -216,6 +327,25 @@ export function validateDesktopFailureReport(report) {
     throw new Error('desktop failure report leaked raw provider secret');
   }
   return report;
+}
+
+function startTrackedProcess(command, args, cwd, env, spawnImpl) {
+  const child = spawnImpl(command, args, { cwd, env, stdio: ['ignore', 'pipe', 'pipe'], detached: true });
+  let stdout = '';
+  let stderr = '';
+  child.stdout?.on('data', (chunk) => { stdout += chunk; });
+  child.stderr?.on('data', (chunk) => { stderr += chunk; });
+  const exited = new Promise((resolve, reject) => {
+    child.once('error', reject);
+    child.once('exit', (exitCode, signal) => resolve({ command, args, exitCode, signal, stdout, stderr }));
+  });
+  return { child, exited };
+}
+
+async function stopTrackedProcess(process) {
+  if (!process) return { command: '', args: [], exitCode: null, signal: null, stdout: '', stderr: '' };
+  await stopProcessTree(process.child);
+  return process.exited;
 }
 
 async function assertPortsFree(values) {
@@ -254,7 +384,11 @@ async function waitForHTTP(url, timeoutMs, child) {
 
 function runCommand(command, args, cwd, env, spawnImpl, timeoutMs) {
   return new Promise((resolve, reject) => {
-    const child = spawnImpl(command, args, { cwd, env, stdio: 'inherit' });
+    const child = spawnImpl(command, args, { cwd, env, stdio: ['ignore', 'pipe', 'pipe'] });
+    let stdout = '';
+    let stderr = '';
+    child.stdout?.on('data', (chunk) => { stdout += chunk; });
+    child.stderr?.on('data', (chunk) => { stderr += chunk; });
     let settled = false;
     let timedOut = false;
     const finish = (callback) => {
@@ -275,7 +409,7 @@ function runCommand(command, args, cwd, env, spawnImpl, timeoutMs) {
     child.once('exit', (code, signal) => {
       if (timedOut) return;
       if (code === 0) {
-        finish(resolve);
+        finish(() => resolve({ command, args, exitCode: 0, signal: null, stdout, stderr }));
         return;
       }
       finish(() => reject(new Error(`${command} ${args.join(' ')} failed: exit=${code} signal=${signal || ''}`)));

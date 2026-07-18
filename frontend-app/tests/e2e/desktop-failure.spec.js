@@ -1,6 +1,11 @@
 import { expect, test } from '@playwright/test';
 
-test('terminal-failed crosses production Wails application and EventBridge into real DOM', async ({ page }) => {
+test('terminal-failed crosses production Wails application and EventBridge into real DOM', {
+  annotation: [
+    { type: 't03-hops', description: JSON.stringify(['claudecli.raw', 'claudecli.adapter', 'turndto.TurnOutputDelta', 'wails.EventBridge', 'chromium.DOM', 'codexapp.raw', 'codexapp.adapter', 'turndto.TurnCompleted', 'turn/terminal', 'chromium.DOM']) },
+    { type: 't03-dom-assertions', description: JSON.stringify(['partial-response-visible', 'safe-terminal-visible', 'raw-secret-absent']) },
+  ],
+}, async ({ page }, testInfo) => {
   const pageErrors = [];
   page.on('pageerror', (error) => pageErrors.push(error.message));
 
@@ -24,9 +29,21 @@ test('terminal-failed crosses production Wails application and EventBridge into 
   await expect(page.getByTestId('chat-action-feedback')).toHaveClass(/is-error/u);
   await expect(page.getByText('Authorization: Bearer t03-raw-provider-secret-do-not-persist')).toHaveCount(0);
   expect(pageErrors).toEqual([]);
+  await testInfo.attach('t03-execution-evidence', {
+    body: JSON.stringify({
+      hops: ['claudecli.raw', 'claudecli.adapter', 'turndto.TurnOutputDelta', 'wails.EventBridge', 'chromium.DOM', 'codexapp.raw', 'codexapp.adapter', 'turndto.TurnCompleted', 'turn/terminal', 'chromium.DOM'],
+      domAssertions: ['partial-response-visible', 'safe-terminal-visible', 'raw-secret-absent'],
+    }),
+    contentType: 'application/json',
+  });
 });
 
-test('prompt-history-reject crosses production Wails application and preserves real DOM input', async ({ page }) => {
+test('prompt-history-reject crosses production Wails application and preserves real DOM input', {
+  annotation: [
+    { type: 't03-hops', description: JSON.stringify(['wails.rpc', 'thread/promptHistory', 'frontend.action', 'chromium.DOM', 'retry.control', 'wails.rpc', 'chromium.DOM']) },
+    { type: 't03-dom-assertions', description: JSON.stringify(['draft-preserved', 'cursor-preserved', 'retry-click-recovers']) },
+  ],
+}, async ({ page }, testInfo) => {
   const pageErrors = [];
   page.on('pageerror', (error) => pageErrors.push(error.message));
 
@@ -56,4 +73,11 @@ test('prompt-history-reject crosses production Wails application and preserves r
   await expect(page.getByText('prompt history private token=secret')).toHaveCount(0);
   await expect(page.getByText('Authorization: Bearer t03-raw-provider-secret-do-not-persist')).toHaveCount(0);
   expect(pageErrors).toEqual([]);
+  await testInfo.attach('t03-execution-evidence', {
+    body: JSON.stringify({
+      hops: ['wails.rpc', 'thread/promptHistory', 'frontend.action', 'chromium.DOM', 'retry.control', 'wails.rpc', 'chromium.DOM'],
+      domAssertions: ['draft-preserved', 'cursor-preserved', 'retry-click-recovers'],
+    }),
+    contentType: 'application/json',
+  });
 });
