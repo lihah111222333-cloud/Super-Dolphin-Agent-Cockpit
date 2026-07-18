@@ -132,45 +132,42 @@ func TestSweepFilesystemSnapshotsRequiresExactIdentityAndStaleOwner(t *testing.T
 	assertPathExistence(t, legacy, true)
 }
 
-func TestTerminateProcessTreeSkipsReusedIdentity(t *testing.T) {
+func TestTerminateProcessTreeSignalsLeasedGroup(t *testing.T) {
 	cmd, guard := startGuardedUnixTestProcess(t, "sleep 30")
 	killCalled := false
-	reused := guard.identity
-	reused.ProcessStartToken += "-reused"
-	guard.captureIdentity = func(int) (pidregistry.StableProcessIdentity, error) {
-		return reused, nil
-	}
-	guard.killGroup = func(int, syscall.Signal) error {
+	guard.killGroup = func(pid int, signal syscall.Signal) error {
 		killCalled = true
+		if pid != -guard.groupID || signal != syscall.SIGKILL {
+			t.Errorf("kill group = (%d, %v), want (%d, %v)", pid, signal, -guard.groupID, syscall.SIGKILL)
+		}
 		return nil
 	}
 	if err := terminateProcessTree(cmd, guard); err != nil {
 		t.Fatal(err)
 	}
-	if killCalled {
-		t.Fatal("identity mismatch sent SIGKILL to a reused process group")
+	if !killCalled {
+		t.Fatal("leased process group was not terminated")
 	}
 	reapGuardedUnixTestProcess(t, cmd)
+	if err := closeProcessGuard(guard); err != nil {
+		t.Fatal(err)
+	}
 }
 
-func TestWaitPublishBarrierIdentityMismatchDoesNotKillReusedGroup(t *testing.T) {
+func TestWaitPublishBarrierLeasesGroupAcrossPIDReuseWindow(t *testing.T) {
 	cmd, guard := startGuardedUnixTestProcess(t, "sleep 0.05")
 	waitCompleted := make(chan struct{})
 	releasePublish := make(chan struct{})
-	identityChecked := make(chan struct{})
 	guard.beforeWaitResultPublish = func() {
 		close(waitCompleted)
 		<-releasePublish
 	}
-	reused := guard.identity
-	reused.ExecutableIdentity += "-reused"
-	guard.captureIdentity = func(int) (pidregistry.StableProcessIdentity, error) {
-		close(identityChecked)
-		return reused, nil
-	}
-	killCalled := false
-	guard.killGroup = func(int, syscall.Signal) error {
-		killCalled = true
+	killCalled := make(chan struct{})
+	guard.killGroup = func(pid int, signal syscall.Signal) error {
+		if pid != -guard.groupID || signal != syscall.SIGKILL {
+			t.Errorf("kill group = (%d, %v), want (%d, %v)", pid, signal, -guard.groupID, syscall.SIGKILL)
+		}
+		close(killCalled)
 		return nil
 	}
 	ctx, cancel := context.WithCancel(context.Background())
@@ -183,14 +180,22 @@ func TestWaitPublishBarrierIdentityMismatchDoesNotKillReusedGroup(t *testing.T) 
 		result <- err
 	})
 	<-waitCompleted
+	leaseGroupID, err := syscall.Getpgid(guard.leaseProcess.Process.Pid)
+	if err != nil {
+		t.Fatalf("get process-group lease PGID: %v", err)
+	}
+	if leaseGroupID != guard.groupID {
+		t.Fatalf("process-group lease PGID = %d, want %d", leaseGroupID, guard.groupID)
+	}
 	cancel()
-	<-identityChecked
+	select {
+	case <-killCalled:
+	case <-time.After(time.Second):
+		t.Fatal("cancellation did not terminate the leased process group")
+	}
 	close(releasePublish)
 	if err := <-result; ErrorCode(err) != CodeCancelled {
 		t.Fatalf("wait barrier error = %v, code=%q", err, ErrorCode(err))
-	}
-	if killCalled {
-		t.Fatal("wait publish barrier sent SIGKILL after identity mismatch")
 	}
 }
 

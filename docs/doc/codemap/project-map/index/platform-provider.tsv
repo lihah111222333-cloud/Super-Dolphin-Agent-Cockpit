@@ -767,12 +767,12 @@ internal/platform/toolbridge/schema/compiler.go	internal	platform-provider	go-so
 internal/platform/toolbridge/schema/errors.go	internal	platform-provider	go-source	4121	provider 与 MCP tools 桥接	internal,platform,toolbridge,schema,errors,provider,与,MCP,tools,桥接
 internal/platform/toolbridge/schema/filesystem_worker_client.go	internal	platform-provider	go-source	12117	provider 与 MCP tools 桥接	internal,platform,toolbridge,schema,filesystem,worker,client,provider,与,MCP,tools,桥接
 internal/platform/toolbridge/schema/filesystem_worker_nonunix_test.go	internal	platform-provider	go-test	99	provider 与 MCP tools 桥接	internal,platform,toolbridge,schema,filesystem,worker,nonunix,test,provider,与,MCP,tools,桥接
-internal/platform/toolbridge/schema/filesystem_worker_unix_test.go	internal	platform-provider	go-test	10391	provider 与 MCP tools 桥接	internal,platform,toolbridge,schema,filesystem,worker,unix,test,provider,与,MCP,tools,桥接
+internal/platform/toolbridge/schema/filesystem_worker_unix_test.go	internal	platform-provider	go-test	10675	provider 与 MCP tools 桥接	internal,platform,toolbridge,schema,filesystem,worker,unix,test,provider,与,MCP,tools,桥接
 internal/platform/toolbridge/schema/filesystem_worker.go	internal	platform-provider	go-source	18956	provider 与 MCP tools 桥接	internal,platform,toolbridge,schema,filesystem,worker,provider,与,MCP,tools,桥接
 internal/platform/toolbridge/schema/helper_manifest_test.go	internal	platform-provider	go-test	16107	provider 与 MCP tools 桥接	internal,platform,toolbridge,schema,helper,manifest,test,provider,与,MCP,tools,桥接
 internal/platform/toolbridge/schema/helper_manifest.go	internal	platform-provider	go-source	20028	provider 与 MCP tools 桥接	internal,platform,toolbridge,schema,helper,manifest,provider,与,MCP,tools,桥接
 internal/platform/toolbridge/schema/helper.go	internal	platform-provider	go-source	1021	provider 与 MCP tools 桥接	internal,platform,toolbridge,schema,helper,provider,与,MCP,tools,桥接
-internal/platform/toolbridge/schema/process_unix.go	internal	platform-provider	go-source	3423	provider 与 MCP tools 桥接	internal,platform,toolbridge,schema,process,unix,provider,与,MCP,tools,桥接
+internal/platform/toolbridge/schema/process_unix.go	internal	platform-provider	go-source	4803	provider 与 MCP tools 桥接	internal,platform,toolbridge,schema,process,unix,provider,与,MCP,tools,桥接
 internal/platform/toolbridge/schema/process_windows.go	internal	platform-provider	go-source	2789	provider 与 MCP tools 桥接	internal,platform,toolbridge,schema,process,windows,provider,与,MCP,tools,桥接
 internal/platform/toolbridge/schema/protocol.go	internal	platform-provider	go-source	12836	provider 与 MCP tools 桥接	internal,platform,toolbridge,schema,protocol,provider,与,MCP,tools,桥接
 internal/platform/toolbridge/schema/schema_red_test.go	internal	platform-provider	go-test	27384	provider 与 MCP tools 桥接	internal,platform,toolbridge,schema,red,test,provider,与,MCP,tools,桥接
