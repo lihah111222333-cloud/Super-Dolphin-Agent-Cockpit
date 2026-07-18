@@ -123,6 +123,28 @@ func ErrorCode(err error) Code {
 	return ""
 }
 
+// errorTreeContainsCode 递归检查单链包装与 errors.Join 多分支中的目标诊断码。
+func errorTreeContainsCode(err error, code Code) bool {
+	if err == nil {
+		return false
+	}
+	if diagnostic, ok := err.(*Diagnostic); ok && diagnostic != nil && diagnostic.Code == code {
+		return true
+	}
+	if joined, ok := err.(interface{ Unwrap() []error }); ok {
+		for _, child := range joined.Unwrap() {
+			if errorTreeContainsCode(child, code) {
+				return true
+			}
+		}
+		return false
+	}
+	if wrapped, ok := err.(interface{ Unwrap() error }); ok {
+		return errorTreeContainsCode(wrapped.Unwrap(), code)
+	}
+	return false
+}
+
 func isKnownCode(code Code) bool {
 	switch code {
 	case CodeInvalidEnvelope, CodeInputTooLarge, CodeOutputTooLarge, CodeBudgetExceeded,

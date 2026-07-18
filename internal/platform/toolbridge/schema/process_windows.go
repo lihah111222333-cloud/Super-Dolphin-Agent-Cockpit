@@ -74,6 +74,7 @@ func waitGuardedProcess(cmd *exec.Cmd, _ *processGuard) error {
 	return cmd.Wait()
 }
 
+// closeProcessGuard 关闭 Job Object 并将 guard 转入可重复关闭的终态。
 func closeProcessGuard(guard *processGuard) error {
 	if guard == nil || guard.handle == 0 {
 		return nil
