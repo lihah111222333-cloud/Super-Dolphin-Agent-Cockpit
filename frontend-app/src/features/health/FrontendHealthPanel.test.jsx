@@ -5,7 +5,6 @@ import {
   frontendHealthStateSnapshot,
   recordFrontendHealth,
   resetFrontendHealthForTest,
-  retainDiagnosticCause,
 } from '../../shared/diagnostics/frontendHealthStore.js';
 import { FrontendHealthPanel } from './FrontendHealthPanel.jsx';
 
@@ -44,9 +43,8 @@ it('renders an explicit safe persistence failure state', () => {
 
 afterEach(cleanup);
 
-it('renders persistent safe Health fields and never exposes the retained raw cause', () => {
+it('renders persistent safe Health fields and never exposes a raw error field', () => {
   const rawCause = 'provider payload token=secret /Users/private/path';
-  retainDiagnosticCause('diagnostic-health-panel', new Error(rawCause));
   recordFrontendHealth({
     actionId: 'prompt-history.previous',
     publicError: {
@@ -54,6 +52,7 @@ it('renders persistent safe Health fields and never exposes the retained raw cau
       title: '无法浏览提示历史',
       message: '提示历史暂时不可用，草稿与光标位置已保留。',
       diagnosticId: 'diagnostic-health-panel',
+      rawCause,
     },
   });
 

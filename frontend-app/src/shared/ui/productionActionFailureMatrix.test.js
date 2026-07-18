@@ -3,7 +3,6 @@ import actionProducerRegistry from '../../../config/action-producer-registry.jso
 import actionProducerTestMatrix from '../../../config/action-producer-test-matrix.json';
 import { discoverActionProducers } from '../../../scripts/action-producer-guard.mjs';
 import {
-	diagnosticCauseForTest,
 	frontendHealthSnapshot,
 	resetFrontendHealthForTest,
 } from '../diagnostics/frontendHealthStore.js';
@@ -112,12 +111,7 @@ async function enforceDeclaredSink(entry, errorSource) {
 
 	const healthRecord = frontendHealthSnapshot().find((record) => record.actionId === entry.actionId);
 	expect(healthRecord, `${entry.actionId} x ${errorSource} did not reach frontendHealthStore`).toBeDefined();
-	const retainedCause = diagnosticCauseForTest(healthRecord.diagnosticId);
-	if (errorSource === 'unsuccessful-result') {
-		expect(retainedCause, `${entry.actionId} unsuccessful result cause was not retained`).toBeInstanceOf(TypeError);
-	} else {
-		expect(retainedCause, `${entry.actionId} x ${errorSource} retained the wrong cause`).toBe(cause);
-	}
+	expect(JSON.stringify(healthRecord), `${entry.actionId} x ${errorSource} exposed its raw cause`).not.toContain(cause.message);
 
 	const visibleFailure = visibleActionFailureSnapshot();
 	if (entry.visibleSink === 'ActionFailureSink') {

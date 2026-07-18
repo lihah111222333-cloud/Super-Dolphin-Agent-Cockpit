@@ -3,7 +3,6 @@
 import {
   recordFrontendHealth,
   recordFrontendHealthFailureState,
-  retainDiagnosticCause,
 } from '../diagnostics/frontendHealthStore.js';
 import { clearVisibleActionFailure, publishVisibleActionFailure } from './actionFailureSink.js';
 import { publicErrorForAction, publicErrorForSink } from './publicError.js';
@@ -30,20 +29,13 @@ function reportingDiagnosticIdFactory() {
   return `ui-action-reporting-${reportingDiagnosticSequence}`;
 }
 
-/** @param {string} diagnosticId @param {unknown} cause */
-function retainCause(diagnosticId, cause) {
-  retainDiagnosticCause(diagnosticId, cause);
-}
-
 /**
  * The reporting failure state is the only terminal path. It never calls the
  * failing custom sink or persistence again, so reporting is finite.
  * @param {string} actionId
- * @param {unknown} cause
  * @param {PublicError} publicError
  */
-function recordReportingFailure(actionId, cause, publicError) {
-  retainCause(publicError.diagnosticId, cause);
+function recordReportingFailure(actionId, publicError) {
   recordFrontendHealthFailureState({ actionId, publicError });
 }
 
@@ -56,50 +48,48 @@ function createSafePublicError({ actionId, code, diagnosticIdFactory, retryable 
     return /** @type {PublicError} */ (code
       ? publicErrorForSink(code, diagnosticIdFactory)
       : publicErrorForAction(actionId, { diagnosticIdFactory, retryable }));
-  } catch (factoryCause) {
+  } catch {
     const publicError = /** @type {PublicError} */ (code
       ? publicErrorForSink(code, reportingDiagnosticIdFactory)
       : publicErrorForAction(actionId, { diagnosticIdFactory: reportingDiagnosticIdFactory, retryable }));
     const factoryFailure = /** @type {PublicError} */ (
       publicErrorForSink('DIAGNOSTIC_ID_FACTORY_FAILED', reportingDiagnosticIdFactory)
     );
-    recordReportingFailure('ui-action.diagnostic-id', factoryCause, factoryFailure);
+    recordReportingFailure('ui-action.diagnostic-id', factoryFailure);
     return publicError;
   }
 }
 
 /**
  * @param {string} actionId
- * @param {unknown} cause
  * @param {PublicError} publicError
  * @param {RunUIActionOptions} options
  */
-function writeHealth(actionId, cause, publicError, options) {
-  retainCause(publicError.diagnosticId, cause);
+function writeHealth(actionId, publicError, options) {
   const healthSink = options.healthSink ?? recordFrontendHealth;
   try {
     healthSink({ actionId, publicError });
-  } catch (healthCause) {
-    recordReportingFailure(actionId, cause, publicError);
+  } catch {
+    recordReportingFailure(actionId, publicError);
     const healthFailure = createSafePublicError({
       actionId: 'frontend-health.record',
       code: 'HEALTH_SINK_FAILED',
       diagnosticIdFactory: options.diagnosticIdFactory,
     });
-    recordReportingFailure('frontend-health.record', healthCause, healthFailure);
+    recordReportingFailure('frontend-health.record', healthFailure);
   }
 }
 
 /**
- * @param {{ action: () => unknown, actionId: string, cause: unknown, options: RunUIActionOptions }} args
+ * @param {{ action: () => unknown, actionId: string, options: RunUIActionOptions }} args
  */
-function reportFailure({ action, actionId, cause, options }) {
+function reportFailure({ action, actionId, options }) {
   const publicError = createSafePublicError({
     actionId,
     diagnosticIdFactory: options.diagnosticIdFactory,
     retryable: options.retryable,
   });
-  writeHealth(actionId, cause, publicError, options);
+  writeHealth(actionId, publicError, options);
   const visibleFailureSink = options.visibleFailureSink ?? publishVisibleActionFailure;
   let retryStarted = false;
   const retry = options.retryable ? () => {
@@ -114,24 +104,24 @@ function reportFailure({ action, actionId, cause, options }) {
   } : undefined;
   try {
     visibleFailureSink({ actionId, publicError, retry });
-  } catch (visibleCause) {
+  } catch {
     const visibleFailure = createSafePublicError({
       actionId: 'visible-action-failure.publish',
       code: 'VISIBLE_FAILURE_SINK_FAILED',
       diagnosticIdFactory: options.diagnosticIdFactory,
     });
-    writeHealth('visible-action-failure.publish', visibleCause, visibleFailure, options);
+    writeHealth('visible-action-failure.publish', visibleFailure, options);
   }
   if (options.onError) {
     try {
       options.onError(publicError);
-    } catch (onErrorCause) {
+    } catch {
       const onErrorFailure = createSafePublicError({
         actionId: 'ui-action.on-error',
         code: 'ON_ERROR_CALLBACK_FAILED',
         diagnosticIdFactory: options.diagnosticIdFactory,
       });
-      writeHealth('ui-action.on-error', onErrorCause, onErrorFailure, options);
+      writeHealth('ui-action.on-error', onErrorFailure, options);
     }
   }
 }
@@ -139,7 +129,7 @@ function reportFailure({ action, actionId, cause, options }) {
 /** @param {unknown} value @param {{ action: () => unknown, actionId: string, options: RunUIActionOptions }} args @param {(() => void) | undefined} onSuccess */
 function handleActionResolution(value, args, onSuccess) {
   if (args.options.rejectFalse && value === false) {
-    reportFailure({ ...args, cause: new TypeError(`${args.actionId} reported unsuccessful result`) });
+    reportFailure(args);
     return;
   }
   if (onSuccess) onSuccess();
@@ -153,16 +143,16 @@ function executeAction(actionId, action, options, onSuccess) {
       const args = { action, actionId, options };
       void Promise.resolve(result).then(
         (value) => handleActionResolution(value, args, onSuccess),
-        (cause) => reportFailure({ ...args, cause }),
+        () => reportFailure(args),
       );
     } else if (options.rejectFalse && result === false) {
-      reportFailure({ action, actionId, cause: new TypeError(`${actionId} reported unsuccessful result`), options });
+      reportFailure({ action, actionId, options });
     } else if (onSuccess) {
       onSuccess();
     }
     return result;
-  } catch (cause) {
-    reportFailure({ action, actionId, cause, options });
+  } catch {
+    reportFailure({ action, actionId, options });
     return undefined;
   }
 }
@@ -212,12 +202,12 @@ export function runBackgroundAction(actionId, action, options = {}) {
     }
   }
   const normalizedActionId = actionId.trim();
-  const reportBackgroundFailure = (/** @type {unknown} */ cause) => {
+  const reportBackgroundFailure = () => {
     const publicError = createSafePublicError({
       actionId: normalizedActionId,
       diagnosticIdFactory: options.diagnosticIdFactory,
     });
-    writeHealth(normalizedActionId, cause, publicError, options);
+    writeHealth(normalizedActionId, publicError, options);
   };
   try {
     const result = action();
@@ -225,8 +215,8 @@ export function runBackgroundAction(actionId, action, options = {}) {
       void Promise.resolve(result).catch(reportBackgroundFailure);
     }
     return result;
-  } catch (cause) {
-    reportBackgroundFailure(cause);
+  } catch {
+    reportBackgroundFailure();
     return undefined;
   }
 }

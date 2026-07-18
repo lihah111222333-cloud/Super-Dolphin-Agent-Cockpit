@@ -1,6 +1,5 @@
 import { beforeEach, expect, it, vi } from 'vitest';
 import {
-  diagnosticCauseForTest,
   frontendHealthSnapshot,
   resetFrontendHealthForTest,
 } from '../diagnostics/frontendHealthStore.js';
@@ -31,7 +30,6 @@ it('routes synchronous failures to visible and persistent sinks without console-
     publicError: expect.objectContaining({ diagnosticId: 'diagnostic-sync', message: '操作失败，当前页面状态已保留。' }),
   }));
   expect(JSON.stringify(visibleFailureSink.mock.calls)).not.toContain('raw provider');
-  expect(diagnosticCauseForTest('diagnostic-sync')).toBe(error);
   expect(consoleError).not.toHaveBeenCalled();
 });
 
@@ -47,7 +45,6 @@ it('routes Promise rejection through the same sinks', async () => {
 
   expect(healthSink).toHaveBeenCalledTimes(1);
   expect(visibleFailureSink).toHaveBeenCalledTimes(1);
-  expect(diagnosticCauseForTest('diagnostic-async')).toBe(error);
 });
 
 it('projects an explicit false result into visible failure and Health', async () => {
@@ -89,7 +86,6 @@ it('records a visible failure sink exception in Health without recursive reporti
     actionId: 'visible-action-failure.publish',
     publicError: expect.objectContaining({ code: 'VISIBLE_FAILURE_SINK_FAILED' }),
   }));
-  expect(diagnosticCauseForTest('diagnostic-visible')).toBe(visibleSinkError);
 });
 
 it('records an onError callback exception in Health without exposing the raw action cause', () => {
@@ -110,7 +106,6 @@ it('records an onError callback exception in Health without exposing the raw act
     actionId: 'ui-action.on-error',
     publicError: expect.objectContaining({ code: 'ON_ERROR_CALLBACK_FAILED' }),
   }));
-  expect(diagnosticCauseForTest('diagnostic-on-error')).toBe(onErrorCause);
 });
 
 it('terminates async reporting when the id factory and all caller-owned sinks throw', async () => {
@@ -146,11 +141,6 @@ it('terminates async reporting when the id factory and all caller-owned sinks th
     expect.objectContaining({ actionId: 'ui-action.on-error', code: 'ON_ERROR_CALLBACK_FAILED' }),
   ]));
   expect(JSON.stringify(records)).not.toContain('raw ');
-  const recordFor = (actionId) => records.find((record) => record.actionId === actionId);
-  expect(diagnosticCauseForTest(recordFor('ui-action.diagnostic-id').diagnosticId)).toBe(causes.diagnostic);
-  expect(diagnosticCauseForTest(recordFor('frontend-health.record').diagnosticId)).toBe(causes.health);
-  expect(diagnosticCauseForTest(recordFor('visible-action-failure.publish').diagnosticId)).toBe(causes.visible);
-  expect(diagnosticCauseForTest(recordFor('ui-action.on-error').diagnosticId)).toBe(causes.onError);
   expect(onError).toHaveBeenCalledTimes(1);
 });
 
