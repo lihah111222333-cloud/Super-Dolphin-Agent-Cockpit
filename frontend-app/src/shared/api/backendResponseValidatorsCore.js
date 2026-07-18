@@ -182,6 +182,10 @@ function validateBuiltinToolsResponse(method, response) {
 function validateWindowBootstrapResponse(method, response) {
   const value = assertBackendResponseObject(method, response);
   assertOnlyResponseKeys(method, value, WINDOW_BOOTSTRAP_RESPONSE_KEYS, 'body');
+  // snapshot 为一次性消费：桌面宿主首次加载后即被取走，此后页面加载（浏览器直开、
+  // 刷新、HMR）都会得到 null。null 交给 normalizeBootstrapSnapshot 回退为空快照，
+  // 不能在这里 fail，否则 bootstrap 永久失败、全部控件被禁用。
+  if (value.snapshot === null) return value;
   if (!value.snapshot || typeof value.snapshot !== 'object' || Array.isArray(value.snapshot)) {
     throw new TypeError(`${method} response snapshot must be an object`);
   }

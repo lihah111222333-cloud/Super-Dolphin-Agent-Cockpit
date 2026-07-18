@@ -132,7 +132,15 @@ function savedComposerModelProviderState(state, value, defaultProvider, normaliz
 function createSaveComposerModelConfigAction(runtime, deps) {
   const { composerModelConfigTarget, saveGlobalComposerModelConfig, saveThreadComposerModelConfig } = deps;
   return async (config = {}) => {
-    const cwd = runtime.requireCwd('composer.model.save');
+    let cwd;
+    try {
+      cwd = runtime.requireCwd('composer.model.save');
+    }
+    catch {
+      // 无可用项目 cwd 时保存必然失败；给用户可见反馈而不是静默 reject。
+      runtime.notifyAction('请先选择项目，再保存模型配置', 'error', { category: 'model' });
+      return false;
+    }
     const state = runtime.get();
     const target = await composerModelConfigTarget(config, state, runtime.get().loadThreadConfig);
     if (target.threadId && !target.threadConfig) {

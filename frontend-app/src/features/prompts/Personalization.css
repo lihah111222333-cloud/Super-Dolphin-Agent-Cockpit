@@ -83,3 +83,11 @@
 /* ==========================================================================
    Figure 2: Sidebar New Chat Alignment
    ========================================================================== */
+
+.personalization-field-error {
+  display: block;
+  margin-top: 4px;
+  color: var(--error);
+  font-size: 12px;
+  line-height: 1.35;
+}

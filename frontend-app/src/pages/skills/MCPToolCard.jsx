@@ -8,22 +8,33 @@ function textFromValue(value) {
 export function MCPToolCard({ errorMessage, mcpServerStatus, state, tool }) {
   const model = mcpToolCardModel({ errorMessage, mcpServerStatus, state, tool });
   const Icon = tool.Icon;
+  // 未选择项目时不使用原生 disabled（否则点击零反馈且移出 Tab 序），
+  // 改用 aria-disabled + 点击拦截，把用户引导到“请先选择项目”的明确提示。
+  const projectMissing = !state.projectReady;
   return (
-    <section className="mcp-tool-card fusion-surface" aria-label={`${tool.title} 控制`}>
-      <div className={`mcp-tool-icon fusion-surface-glass ${tool.id}`} aria-hidden="true"><Icon size={20} /></div>
+    <section className="mcp-tool-card" aria-label={`${tool.title} 控制`}>
+      <div className={`mcp-tool-icon ${tool.id}`} aria-hidden="true"><Icon size={20} /></div>
       <MCPToolMain model={model} tool={tool} />
       <span className={`mcp-tool-status is-${model.status.tone}`} data-testid={tool.testId}>{model.status.label}</span>
       <div className="mcp-tool-actions">
         <button
           type="button"
           aria-label={`${model.actionLabel} ${tool.title}`}
+          aria-disabled={projectMissing || undefined}
+          title={projectMissing ? '请先选择项目' : undefined}
           className={`suiyuan-switch-btn mcp-tool-toggle ${model.nextAction === 'stop' ? 'active is-stop' : 'is-start'}`}
-          onClick={() => { void state.runMCPAction(tool, model.nextAction); }}
-          disabled={!state.projectReady || Boolean(model.action)}
+          onClick={() => {
+            if (projectMissing) {
+              state.onProjectRequired?.(tool);
+              return;
+            }
+            void state.runMCPAction(tool, model.nextAction);
+          }}
+          disabled={Boolean(model.action)}
         >
-          <div className="suiyuan-switch-track">
-            <div className="suiyuan-switch-thumb" />
-          </div>
+          <span className="suiyuan-switch-track">
+            <span className="suiyuan-switch-thumb" />
+          </span>
         </button>
       </div>
     </section>

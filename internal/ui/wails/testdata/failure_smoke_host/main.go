@@ -17,6 +17,7 @@ import (
 	"github.com/kelindar/event"
 	shareddto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/shared"
 	turndto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/turn"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/uistate"
 	platformconfig "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/config"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/eventsurface"
 	platformrpc "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/rpc"
@@ -175,39 +176,14 @@ func newPromptHistoryHandler(project string) handler.Func {
 
 // fixtureResponses 返回前端启动所需的最小 RPC 快照，避免 smoke 依赖真实用户数据。
 func fixtureResponses(project string) map[string]any {
-	thread := map[string]any{
-		"id":              smokeThreadID,
-		"name":            "Failure smoke thread",
-		"agent_id":        "agent-failure-smoke",
-		"lifecycleStatus": "running",
-	}
-	agent := map[string]any{
-		"id":        "agent-failure-smoke",
-		"name":      "Failure smoke agent",
-		"thread_id": smokeThreadID,
-		"state":     "running",
-		"provider":  "codex",
-		"model":     "gpt-5.5",
-		"cwd":       project,
-	}
-	tokenUsage := map[string]any{
-		"inputTokens": 0, "outputTokens": 0, "totalTokens": 0, "usedTokens": 0,
-		"contextWindowTokens": 128000, "usedPercent": 0,
-	}
+	thread, agent, tokenUsage, sidebar := fixtureSidebarState(project)
 	emptyPreferences := map[string]any{"preferences": map[string]any{}}
 	return map[string]any{
 		"ui/log":       map[string]any{"ok": true},
 		"ui/buildInfo": map[string]any{"version": "failure-smoke"},
 		"config/read": map[string]any{
-			"model":                 "",
-			"modelProvider":         nil,
-			"cwd":                   project,
-			"approvalPolicy":        "",
-			"sandbox":               nil,
-			"config":                nil,
-			"baseInstructions":      nil,
-			"developerInstructions": nil,
-			"personality":           nil,
+			"model": "", "modelProvider": nil, "cwd": project, "approvalPolicy": "", "sandbox": nil,
+			"config": nil, "baseInstructions": nil, "developerInstructions": nil, "personality": nil,
 			"toolRouting": map[string]any{
 				"mode": "", "routerModel": "", "routerProvider": "", "routerBaseURL": "",
 				"routerHasAPIKey": false, "confidenceThreshold": 0.5, "timeoutSec": 30,
@@ -220,7 +196,7 @@ func fixtureResponses(project string) map[string]any {
 		"ui/projects/add":             map[string]any{"projects": []string{project}, "active": project},
 		"ui/projects/setActive":       map[string]any{"projects": []string{project}, "active": project},
 		"ui/projects/remove":          map[string]any{"projects": []string{project}, "active": project},
-		"ui/sidebar/get":              map[string]any{"activeThreadId": smokeThreadID, "threads": []any{thread}, "tokenUsageByThread": map[string]any{}},
+		"ui/sidebar/get":              sidebar,
 		"ui/state/get":                map[string]any{"activeThreadId": smokeThreadID, "threads": []any{thread}, "agents": []any{agent}, "token_usage": tokenUsage, "timelinesByThread": map[string]any{smokeThreadID: []any{}}, "diffTextByThread": map[string]any{}},
 		"thread/messages":             map[string]any{"messages": []any{}},
 		"thread/config/get":           map[string]any{"threadId": smokeThreadID, "provider": "codex", "supportsThreadOverride": true, "override": map[string]any{}, "effective": map[string]any{}},
@@ -247,6 +223,43 @@ func fixtureResponses(project string) map[string]any {
 		"mcpServer/list":              map[string]any{"mcpServers": map[string]any{}},
 		"datasourceV2/list":           map[string]any{"documents": []any{}},
 	}
+}
+
+// fixtureSidebarState 同时构造旧 UI 状态和强类型 sidebar 快照，保证两条启动路径使用同一身份数据。
+func fixtureSidebarState(project string) (map[string]any, map[string]any, map[string]any, uistate.Sidebar) {
+	thread := map[string]any{
+		"id":              smokeThreadID,
+		"name":            "Failure smoke thread",
+		"agent_id":        "agent-failure-smoke",
+		"lifecycleStatus": "running",
+	}
+	agent := map[string]any{
+		"id":        "agent-failure-smoke",
+		"name":      "Failure smoke agent",
+		"thread_id": smokeThreadID,
+		"state":     "running",
+		"provider":  "codex",
+		"model":     "gpt-5.5",
+		"cwd":       project,
+	}
+	tokenUsage := map[string]any{
+		"inputTokens": 0, "outputTokens": 0, "totalTokens": 0, "usedTokens": 0,
+		"contextWindowTokens": 128000, "usedPercent": 0,
+	}
+	sidebar := uistate.Sidebar{
+		Threads: []uistate.ThreadSummary{{
+			ID: smokeThreadID, Name: "Failure smoke thread", AgentID: "agent-failure-smoke", LifecycleStatus: "running",
+		}},
+		Agents: []uistate.AgentSummary{{
+			ID: "agent-failure-smoke", Name: "Failure smoke agent", ThreadID: smokeThreadID,
+			State: "running", Provider: "codex", Model: "gpt-5.5", CWD: project,
+		}},
+		RecentTurns:    []uistate.TurnSummary{},
+		Workspace:      uistate.WorkspacePanel{Runs: []uistate.WorkspaceRunSummary{}},
+		TokenUsage:     uistate.TokenUsage{ContextWindowTokens: 128000},
+		ActiveThreadID: smokeThreadID,
+	}
+	return thread, agent, tokenUsage, sidebar
 }
 
 // publishTerminalFailure 通过 canonical DTO 发布部分响应和失败终态。

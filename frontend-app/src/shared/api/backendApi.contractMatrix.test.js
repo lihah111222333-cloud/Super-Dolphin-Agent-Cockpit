@@ -72,6 +72,7 @@ const EXPECTED_NEW_RESPONSE_VALIDATORS = Object.freeze([
   ['SKILLS_RESOLUTION_LIST', 'skillResolutionListResponse'],
   ['SKILLS_RESOLUTION_PREVIEW', 'skillResolutionPreviewResponse'],
   ['SKILLS_SUMMARY_SUGGEST', 'skillSummarySuggestionResponse'],
+  ['SKILL_TOOLS_CREATE', 'skillToolMutationResponse'],
   ['SKILL_TOOLS_LIST', 'skillToolsListResponse'],
   ['THREAD_ARCHIVE', 'nullResponse'],
   ['THREAD_COMPACT_START', 'threadCompactResponse'],
@@ -162,7 +163,6 @@ const EXPECTED_UNUSED_RESPONSE_POLICIES = Object.freeze([
   'PROMPT_SECTIONS_DELETE',
   'PROMPT_SECTIONS_LIST',
   'PROMPT_SECTIONS_WRITE',
-  'SKILL_TOOLS_CREATE',
   'SKILL_TOOLS_DELETE',
   'SKILL_TOOLS_GET',
   'SKILL_TOOLS_UPDATE',
@@ -196,9 +196,9 @@ describe('backend API contract matrix', () => {
     ));
     expect(entries).toHaveLength(140);
     expect(validators).toEqual(EXPECTED_RESPONSE_VALIDATORS);
-    expect(validators).toHaveLength(98);
-    expect(EXPECTED_NEW_RESPONSE_VALIDATORS).toHaveLength(69);
-    expect(policies).toHaveLength(38);
+    expect(validators).toHaveLength(99);
+    expect(EXPECTED_NEW_RESPONSE_VALIDATORS).toHaveLength(70);
+    expect(policies).toHaveLength(37);
     expect(unusedKeys).toEqual(EXPECTED_UNUSED_RESPONSE_POLICIES);
     expect(RPC_CONTRACT_REGISTRY.UI_LOG.responsePolicy.kind).toBe('ignored-result');
     expect(RPC_CONTRACT_REGISTRY.TURN_INTERRUPT.responsePolicy.kind).toBe('result-handled');
@@ -225,8 +225,8 @@ describe('backend API contract matrix', () => {
       expect(Object.isFrozen(RPC_CONTRACT_REGISTRY[key].responsePolicy.outcome.target)).toBe(true);
     }
     expect(p2WithoutMandatoryGovernance).toHaveLength(4);
-    expect(28 + EXPECTED_NEW_RESPONSE_VALIDATORS.length + newIgnoredKeys.length + 1).toBe(108);
-    expect(EXPECTED_NEW_RESPONSE_VALIDATORS.length + newIgnoredKeys.length + 1).toBe(80);
+    expect(28 + EXPECTED_NEW_RESPONSE_VALIDATORS.length + newIgnoredKeys.length + 1).toBe(109);
+    expect(EXPECTED_NEW_RESPONSE_VALIDATORS.length + newIgnoredKeys.length + 1).toBe(81);
     expect(JSON.stringify(RPC_CONTRACT_REGISTRY)).not.toContain('responsePassthroughReason');
     expect(JSON.stringify(RPC_CONTRACT_REGISTRY)).not.toContain('response is consumed unchanged by');
 

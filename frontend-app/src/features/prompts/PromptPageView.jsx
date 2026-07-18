@@ -107,6 +107,10 @@ function promptFormFromItem(item) { return { id: textValue(item.id), name: textV
  matchWhenText: serializeJsonForEditor(item.matchWhen), hasMatchWhen: item.matchWhen !== undefined, }; }
  function emptyPromptForm() { return { id: '', name: '', description: '', whenToUse: '', content: '', originalContent: '', agentType: 'main', tagsText: '', scope: 'project', enabled: true, priority: 0, hasPriority: true, matchWhenText: '', hasMatchWhen: false, }; }
 const emptyPersonalizationProfile = Object.freeze({ displayName: '', role: '', background: '', customInstructions: '', });
+// 与后端 internal/module/personalization/dto.go 保持一致：短字段 80、长字段 1200 字符（按 code point 计数）。
+const PROFILE_FIELD_LIMITS = Object.freeze({ displayName: 80, role: 80, background: 1200, customInstructions: 1200 });
+function validatePersonalizationProfile(profile) {
+const errors = {}; for (const [field, limit] of Object.entries(PROFILE_FIELD_LIMITS)) { const value = profile?.[field]; const length = typeof value === 'string' ? [...value].length : 0; if (length > limit) errors[field] = `不能超过 ${limit} 个字符（当前 ${length} 个）`; } return errors; }
 function normalizeDraftItem(raw = {}, fallbackKind = 'expert', meta = {}) {
 const card = raw.card && typeof raw.card === 'object' ? raw.card : {}; const workflow = promptTextList(card.workflow); const hitExamples = promptTextList(card.hit_examples || card.hitExamples); const missExamples = promptTextList(card.miss_examples || card.missExamples); return {
 draftKey: firstText(raw.draft_key, raw.draftKey), kind: firstText(raw.inferred_kind, raw.inferredKind, raw.kind, card.kind, meta.inferredKind, fallbackKind), scope: firstText(raw.scope, card.scope, 'project'), status: firstText(raw.status, 'review'),
@@ -213,7 +217,7 @@ setWizardDraft, setWizardOpen, }, }; }
 export function PromptPageView({ copy = APP_COPY.zh.prompts, projectPath, refreshKey = 0, resolveLaunchPreferences }) {
 const cwd = optionalPromptCwd(projectPath); const isProjectPending = !cwd; const queryClient = useQueryClient(); const pageState = usePromptPageState(cwd); const { actioning, form, modals, notice, saving, setters } = pageState;
 const queryState = usePromptQueries(cwd); const { items, fallbackMode, activePromptId, loading, syncError, error } = queryState; const { data: profileData, error: profileError, isLoading: profileLoading } = useQuery({ queryKey: ['personalizationProfile', cwd],
-queryFn: () => runBackgroundAction('prompt.profile.load', () => getPersonalizationProfile({ cwd })), enabled: Boolean(cwd),
+ queryFn: () => runBackgroundAction('prompt.profile.load', () => withTimeout(getPersonalizationProfile({ cwd }), PROMPTS_REQUEST_TIMEOUT_MS, '个人资料加载超时，请检查后端状态。')), enabled: Boolean(cwd),
 }); const loadedProfile = profileData?.profile ? { ...emptyPersonalizationProfile, ...profileData.profile } : emptyPersonalizationProfile; const [profileDraft, setProfileDraft] = useState({ cwd: '', profile: null });
 const profileForm = profileDraft.cwd === cwd && profileDraft.profile ? profileDraft.profile : loadedProfile; const setProfileForm = useCallback((nextProfile) => { setProfileDraft({ cwd, profile: nextProfile }); }, [cwd]); const refreshPromptSurface = usePromptRefreshSurface( cwd,
 queryClient, queryState.refetchPromptAssets, queryState.refetchActivePrompt, ); usePromptRefreshEffects(Number(refreshKey || 0), refreshPromptSurface);
@@ -221,16 +225,24 @@ const counts = useMemo(() => promptCounts(items), [items]); const visibleItems =
 }); const draftActions = usePromptDraftActions({ cwd, actioning, refreshPromptSurface, setters }); const handleSaveProfile = () => runUIAction('prompt.profile.save', async () => { if (!cwd || saving) return; setters.setSaving(true); setters.setNotice(''); try {
 const result = await savePersonalizationProfile({ cwd, profile: profileForm }); const savedProfile = savedPersonalizationProfile(result); queryClient.setQueryData(['personalizationProfile', cwd], { profile: savedProfile }); setProfileDraft({ cwd, profile: null });
 setters.setNotice('个人资料已保存'); } catch (err) { setters.setNotice(noticeText(err, '个人资料保存失败')); throw err; } finally { setters.setSaving(false); } }); const handleImportMemory = () => { setters.setWizardDraft({ kind: 'recall', rawInput: '', scope: 'project' }); setters.setWizardOpen(true);
-}; const layoutProps = { activePromptId, actioning, counts, copy, cwd, draftActions, editorActions, error, fallbackMode, isProjectPending, loading, modals, notice, personalization: { error: profileError, loading: profileLoading, onImportMemory: handleImportMemory,
-onProfileChange: setProfileForm, onSaveProfile: handleSaveProfile, profile: profileForm, saving, }, projectPath, resolveLaunchPreferences, saving, setters, showBlockingError: Boolean(error), syncError, visibleItems, };
+ }; const profileValidationErrors = useMemo(() => validatePersonalizationProfile(profileForm), [profileForm]); const handleProjectRequired = useCallback(() => { setters.setNotice('请先在聊天页选择项目，再使用个性化设置。'); }, [setters]);
+ const layoutProps = { activePromptId, actioning, counts, copy, cwd, draftActions, editorActions, error, fallbackMode, isProjectPending, loading, modals, notice, personalization: { error: profileError, loading: profileLoading, onImportMemory: handleImportMemory,
+ onProfileChange: setProfileForm, onProjectRequired: handleProjectRequired, onSaveProfile: handleSaveProfile, profile: profileForm, saving, validationErrors: profileValidationErrors, },
+ projectPath, resolveLaunchPreferences, saving, setters, showBlockingError: Boolean(error), syncError, visibleItems, };
 return <PromptPageLayout {...layoutProps} />; }
 function PageHeader({ copy, title, subtitle, projectPath }) { return (
 <header className="prompt-header"> <div> <h1><FileText size={25} /> {title}</h1> {subtitle ? <strong>{subtitle}</strong> : null} <p title={projectPath}>{copy.currentProject}: {projectPath || copy.unknownProject}</p> </div> </header> ); }
 function PromptPersonalizationOverview({ copy, counts, isProjectPending, fallbackMode, personalization }) { const metrics = [ [copy.expert, counts.expert || 0], [copy.recall, counts.recall || 0], [copy.defaultRule, counts.default_rule || 0], [copy.pending, counts.pending || 0],
-]; const profile = personalization?.profile || emptyPersonalizationProfile; const profileLoading = Boolean(personalization?.loading); const profileSaving = Boolean(personalization?.saving); const profileDisabled = isProjectPending || profileLoading;
+]; const profile = personalization?.profile || emptyPersonalizationProfile; const profileLoading = Boolean(personalization?.loading); const profileSaving = Boolean(personalization?.saving);
+const profileErrors = personalization && personalization.validationErrors ? personalization.validationErrors : {}; const profileInvalid = Object.keys(profileErrors).length > 0;
+// 无项目：按钮保持可聚焦可点击，点击后由 onProjectRequired 显示明确引导（不再永久禁用且原因不明）。
+// 表单无效：禁用保存，但每个字段下方显示具体校验原因；加载/保存中为瞬态禁用。
+const saveProfileDisabled = !isProjectPending && (profileLoading || profileSaving || profileInvalid);
 const updateProfile = (key) => (event) => { personalization?.onProfileChange?.({ ...profile, [key]: event.target.value });
 }; const profileStatus = isProjectPending ? copy.waitingProject : personalization?.error ? copy.loadFailed : profileLoading ? copy.loadingShort : copy.connected; const overviewText = isProjectPending ? copy.overviewConnecting : fallbackMode ? copy.overviewFallback
-: copy.overviewReady; return (
+: copy.overviewReady; const handleSaveClick = () => { if (isProjectPending) { personalization?.onProjectRequired?.(); return; } if (saveProfileDisabled) return; personalization?.onSaveProfile?.(); };
+const handleImportClick = () => { if (isProjectPending) { personalization?.onProjectRequired?.(); return; } personalization?.onImportMemory?.(); };
+const fieldError = (key) => (profileErrors[key] ? <span className="personalization-field-error" role="alert">{profileErrors[key]}</span> : null); return (
 <section className="personalization-overview" aria-label={copy.overviewAria}>
   <div className="personalization-overview-hero fusion-surface">
     <div className="personalization-overview-copy">
@@ -254,12 +266,12 @@ const updateProfile = (key) => (event) => { personalization?.onProfileChange?.({
         <span>{profileStatus}</span>
       </header>
       <div className="personalization-form-grid">
-        <label>{copy.displayName}<input aria-label={copy.displayName} type="text" value={profile.displayName} onChange={updateProfile('displayName')} disabled={profileDisabled} /></label>
-        <label>{copy.role}<input aria-label={copy.role} type="text" value={profile.role} onChange={updateProfile('role')} disabled={profileDisabled} /></label>
-        <label>{copy.background}<textarea aria-label={copy.background} rows={3} value={profile.background} onChange={updateProfile('background')} disabled={profileDisabled} /></label>
-        <label>{copy.customInstructions}<textarea aria-label={copy.customInstructions} rows={3} value={profile.customInstructions} onChange={updateProfile('customInstructions')} disabled={profileDisabled} /></label>
+        <label>{copy.displayName}<input aria-label={copy.displayName} type="text" value={profile.displayName} onChange={updateProfile('displayName')} disabled={isProjectPending || profileLoading} />{fieldError('displayName')}</label>
+        <label>{copy.role}<input aria-label={copy.role} type="text" value={profile.role} onChange={updateProfile('role')} disabled={isProjectPending || profileLoading} />{fieldError('role')}</label>
+        <label>{copy.background}<textarea aria-label={copy.background} rows={3} value={profile.background} onChange={updateProfile('background')} disabled={isProjectPending || profileLoading} />{fieldError('background')}</label>
+        <label>{copy.customInstructions}<textarea aria-label={copy.customInstructions} rows={3} value={profile.customInstructions} onChange={updateProfile('customInstructions')} disabled={isProjectPending || profileLoading} />{fieldError('customInstructions')}</label>
       </div>
-      <button type="button" disabled={profileDisabled || profileSaving} onClick={personalization?.onSaveProfile}>
+      <button type="button" aria-disabled={isProjectPending || undefined} disabled={saveProfileDisabled} title={isProjectPending ? '请先选择项目' : undefined} onClick={handleSaveClick}>
         {profileSaving ? copy.saving : copy.saveProfile}
       </button>
     </section>
@@ -268,7 +280,7 @@ const updateProfile = (key) => (event) => { personalization?.onProfileChange?.({
         <Upload size={28} className="suiyuan-import-memory-icon" />
         <h3>{copy.importMemoryTitle}</h3>
         <p>{copy.importMemoryText}</p>
-        <button type="button" disabled={isProjectPending} onClick={personalization?.onImportMemory}>
+        <button type="button" aria-disabled={isProjectPending || undefined} title={isProjectPending ? '请先选择项目' : undefined} onClick={handleImportClick}>
           {copy.importMemory}
         </button>
       </div>

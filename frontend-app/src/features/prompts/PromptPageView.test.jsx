@@ -304,6 +304,49 @@ describe('PromptPageView module', () => {
     expect(within(dialog).getByRole('tab', { name: '参考资料' })).toHaveAttribute('aria-selected', 'true');
   });
 
+  it('shows inline validation reasons and blocks saving an invalid profile', async () => {
+    renderPromptPage();
+
+    const overview = await screen.findByLabelText('个性化概览');
+    const saveButton = within(overview).getByRole('button', { name: '保存个人资料' });
+    await waitFor(() => expect(saveButton).toBeEnabled());
+
+    // 超长输入触发与后端一致的字符上限校验：显示具体原因并禁用保存。
+    fireEvent.change(within(overview).getByLabelText('昵称'), { target: { value: 'a'.repeat(81) } });
+    expect(await within(overview).findByRole('alert')).toHaveTextContent('不能超过 80 个字符（当前 81 个）');
+    expect(saveButton).toBeDisabled();
+    fireEvent.click(saveButton);
+    expect(backend.savePersonalizationProfile).not.toHaveBeenCalled();
+
+    // 修正后校验原因消失，保存恢复可用并能成功执行。
+    fireEvent.change(within(overview).getByLabelText('昵称'), { target: { value: '小海' } });
+    await waitFor(() => expect(saveButton).toBeEnabled());
+    expect(within(overview).queryByRole('alert')).not.toBeInTheDocument();
+    fireEvent.click(saveButton);
+    await waitFor(() => expect(backend.savePersonalizationProfile).toHaveBeenCalledTimes(1));
+  });
+
+  it('guides project selection when saving profile or importing memory without a project', async () => {
+    renderPromptPage({ projectPath: '未选择项目' });
+
+    const overview = await screen.findByLabelText('个性化概览');
+    const saveButton = within(overview).getByRole('button', { name: '保存个人资料' });
+    const importButton = within(overview).getByRole('button', { name: '导入记忆' });
+
+    // 未选择项目时按钮不再原生禁用（保留焦点与点击能力），点击后给出明确引导。
+    expect(saveButton).not.toBeDisabled();
+    expect(importButton).not.toBeDisabled();
+    expect(saveButton).toHaveAttribute('aria-disabled', 'true');
+    expect(importButton).toHaveAttribute('aria-disabled', 'true');
+
+    fireEvent.click(saveButton);
+    expect(await screen.findByText('请先在聊天页选择项目，再使用个性化设置。')).toBeInTheDocument();
+    expect(backend.savePersonalizationProfile).not.toHaveBeenCalled();
+
+    fireEvent.click(importButton);
+    expect(screen.queryByRole('dialog', { name: '添加给 AI 的内容' })).not.toBeInTheDocument();
+  });
+
   it('labels the personalization overview as read-only when prompt assets fall back', async () => {
     const error = Object.assign(new Error('method not found'), { code: -32601 });
     backend.listPromptAssets.mockRejectedValueOnce(error);

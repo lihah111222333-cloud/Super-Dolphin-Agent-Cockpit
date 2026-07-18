@@ -1303,6 +1303,19 @@
       ]
     },
     {
+      "actionId": "skill.tool.register",
+      "producerCount": 1,
+      "kind": "user",
+      "owner": "skill/tool-registration",
+      "visibleSink": "ActionFailureSink",
+      "healthSink": "frontendHealthStore",
+      "errorSources": [
+        "sync-throw",
+        "promise-reject",
+        "invalid-response"
+      ]
+    },
+    {
       "actionId": "skill.tools.load",
       "producerCount": 1,
       "kind": "background",

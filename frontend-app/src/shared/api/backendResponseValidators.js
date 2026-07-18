@@ -20,6 +20,8 @@ import {
   parseSharedFileDeleteResponse,
   parseSharedFileDetailResponse,
   parseSharedFilesDashboardResponse,
+  parseSkillToolMutationResponse,
+  parseSkillToolsListResponse,
   parseWorkflowMaterialWriteResponse,
 } from './backendSchemas.js';
 
@@ -61,6 +63,7 @@ import {
 import {
   assertBackendResponseObject,
   assertOnlyResponseKeys,
+  assertResponseArray,
   assertResponseRecord,
   hasOwn,
   normalizeString,
@@ -528,6 +531,10 @@ const validateObservabilityResultResponse = (method, response) => validateSchema
 /** @type {(method: string, response: unknown) => unknown} */
 const validateMemorySnapshotResponse = (method, response) => validateSchemaResponse(method, response, parseMemorySnapshotResponse);
 /** @type {(method: string, response: unknown) => unknown} */
+const validateSkillToolsListResponse = (method, response) => validateSchemaResponse(method, response, parseSkillToolsListResponse);
+/** @type {(method: string, response: unknown) => unknown} */
+const validateSkillToolMutationResponse = (method, response) => validateSchemaResponse(method, response, parseSkillToolMutationResponse);
+/** @type {(method: string, response: unknown) => unknown} */
 const validateSharedFilesDashboardResponse = (method, response) => validateSchemaResponse(method, response, parseSharedFilesDashboardResponse);
 /** @type {(method: string, response: unknown) => unknown} */
 const validateSharedFileDetailResponse = (method, response) => validateSchemaResponse(method, response, parseSharedFileDetailResponse);
@@ -593,14 +600,6 @@ const validateStrictModelProviderRegistryResponse = (method, response) => {
   });
   return parsed;
 };
-
-/** @param {string} method @param {any} value @param {string} label */
-function assertResponseArray(method, value, label) {
-  if (!Array.isArray(value)) {
-    throw new TypeError(`${method} response ${label} must be an array`);
-  }
-  return value;
-}
 
 /**
  * @param {string} method
@@ -769,23 +768,6 @@ function validateSkillResolutionApplyResponse(method, response) {
   return value;
 }
 
-/** @param {string} method @param {any} response */
-function validateSkillToolsListResponse(method, response) {
-  const value = assertBackendResponseObject(method, response);
-  assertOnlyResponseKeys(method, value, new Set(['tools']), 'body');
-  assertResponseArray(method, value.tools, 'body.tools').forEach((raw, index) => {
-    const label = `body.tools[${index}]`;
-    const item = assertResponseRecord(method, raw, label);
-    assertOnlyResponseKeys(method, item, new Set(['id', 'cwd', 'methodName', 'description', 'enabled', 'createdAt', 'updatedAt']), label);
-    validateRequiredFields(method, item, label, {
-      stringKeys: ['cwd', 'methodName', 'description', 'createdAt', 'updatedAt'],
-      integerKeys: ['id'],
-      booleanKeys: ['enabled'],
-    });
-  });
-  return value;
-}
-
 /** @param {string} method @param {any} response @param {string} label */
 function validateDatasourceDocument(method, response, label) {
   const document = assertResponseRecord(method, response, label);
@@ -934,6 +916,7 @@ export function createBackendResponseValidators(methods) {
     [methods.SKILLS_RESOLUTION_PREVIEW]: validateSkillResolutionPreviewResponse,
     [methods.SKILLS_RESOLUTION_APPLY]: validateSkillResolutionApplyResponse,
     [methods.SKILL_TOOLS_LIST]: validateSkillToolsListResponse,
+    [methods.SKILL_TOOLS_CREATE]: validateSkillToolMutationResponse,
     [methods.DATASOURCE_V2_LIST]: validateDatasourceDocumentsResponse,
     [methods.DATASOURCE_V2_GET]: validateDatasourceDetailResponse,
     [methods.DATASOURCE_V2_LIST_CHUNKS]: validateDatasourceChunksResponse,

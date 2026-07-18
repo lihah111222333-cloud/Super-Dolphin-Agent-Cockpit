@@ -597,6 +597,11 @@
       "actionId": "skill.summary.suggest"
     },
     {
+      "caseId": "a.producer.skill.tool.register",
+      "layer": "A",
+      "actionId": "skill.tool.register"
+    },
+    {
       "caseId": "a.producer.skill.tools.load",
       "layer": "A",
       "actionId": "skill.tools.load"
@@ -3305,6 +3310,37 @@
       ]
     },
     {
+      "actionId": "skill.tool.register",
+      "errorSource": "sync-throw",
+      "evidence": [
+        "a.producer.skill.tool.register",
+        "b.wrapper.sync-throw",
+        "b.wrapper.sink-failure",
+        "c.skill"
+      ]
+    },
+    {
+      "actionId": "skill.tool.register",
+      "errorSource": "promise-reject",
+      "evidence": [
+        "a.producer.skill.tool.register",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure",
+        "c.skill"
+      ]
+    },
+    {
+      "actionId": "skill.tool.register",
+      "errorSource": "invalid-response",
+      "evidence": [
+        "a.producer.skill.tool.register",
+        "b.wrapper.promise-reject",
+        "b.wrapper.sink-failure",
+        "c.skill",
+        "c.invalid-response-validator"
+      ]
+    },
+    {
       "actionId": "skill.tools.load",
       "errorSource": "promise-reject",
       "evidence": [
@@ -5055,6 +5091,16 @@
       "count": 1,
       "actionIds": [
         "skill.save"
+      ]
+    },
+    {
+      "file": "src/pages/skills/services/skillsPageService.js",
+      "facade": "createSkillTool",
+      "via": "backendApi",
+      "level": "P0",
+      "count": 1,
+      "actionIds": [
+        "skill.tool.register"
       ]
     },
     {

@@ -17,9 +17,9 @@ function ComposerMeta({
   copy = APP_COPY.zh.chat,
   canInterrupt,
   canSend,
+  composerControlsBlocked = false,
   modelThreadId,
   projectPath,
-  projectActionBlocked,
   projectActionBlockedTitle,
   selectFiles,
   sendMessage,
@@ -47,10 +47,10 @@ function ComposerMeta({
         type="button"
         className="composer-icon-action composer-attach"
         aria-label={copy.addFile}
-        title={projectActionBlocked ? projectActionBlockedTitle : copy.addFile}
-        disabled={projectActionBlocked}
+        title={composerControlsBlocked ? projectActionBlockedTitle : copy.addFile}
+        disabled={composerControlsBlocked}
         onClick={() => {
-          if (!projectActionBlocked) runUIAction('composer.file.select', () => selectFiles());
+          if (!composerControlsBlocked) runUIAction('composer.file.select', () => selectFiles());
         }}
       >
         <Paperclip size={18} aria-hidden="true" />
@@ -59,16 +59,16 @@ function ComposerMeta({
         type="button"
         className="composer-icon-action composer-attach-image"
         aria-label="Add image"
-        title={projectActionBlocked ? projectActionBlockedTitle : "Add image"}
-        disabled={projectActionBlocked}
+        title={composerControlsBlocked ? projectActionBlockedTitle : "Add image"}
+        disabled={composerControlsBlocked}
         onClick={() => {
-          if (!projectActionBlocked) runUIAction('composer.file.select', () => selectFiles());
+          if (!composerControlsBlocked) runUIAction('composer.file.select', () => selectFiles());
         }}
       >
         <Image size={18} aria-hidden="true" />
       </button>
       {showProjectSelector ? (
-        <ProjectSelector copy={copy} projectPath={projectPath} store={store} isDisabled={projectActionBlocked} />
+        <ProjectSelector copy={copy} projectPath={projectPath} store={store} isDisabled={composerControlsBlocked} />
       ) : (
         <div className="composer-context" aria-label={copy.projects} title={projectTitle}>
           <Folder size={15} aria-hidden="true" />
@@ -76,7 +76,7 @@ function ComposerMeta({
         </div>
       )}
       <div className="composer-actions">
-        <ComposerModelSelector copy={copy} store={store} activeThreadId={modelThreadId} disabled={projectActionBlocked} />
+        <ComposerModelSelector copy={copy} store={store} activeThreadId={modelThreadId} disabled={composerControlsBlocked} />
         <button
           type="button"
           className={primaryActionClass}

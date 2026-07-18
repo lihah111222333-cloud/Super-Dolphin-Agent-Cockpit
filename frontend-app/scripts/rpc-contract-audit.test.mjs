@@ -1,5 +1,6 @@
 import { describe, expect, it, onTestFinished } from 'vitest'
-import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promises'
+import { spawnSync } from 'node:child_process'
+import { mkdtemp, mkdir, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import {
@@ -8,6 +9,7 @@ import {
   collectFrontendPayloadKeysFromSource,
   collectHardcodedPayloadGuardFindingsFromSources,
   collectPayloadRegistryDrift,
+  collectSidebarRequiredFieldFindingsFromSources,
   parseContractMatrixForTest,
   parseRpcMethodsForTest,
 } from './rpc-contract-audit.mjs'
@@ -17,10 +19,12 @@ const SHADOW_FILES = [
   'internal/contract/rpc_handler.go',
   'internal/module/thread/rpc_types.go',
   'internal/module/turn/rpc_types.go',
+  'internal/module/uistate/state.go',
   'frontend-app/src/shared/api/backendApi.js',
   'frontend-app/src/shared/api/backend/backendRpcMethods.js',
   'frontend-app/src/shared/api/backendApi.contractMatrix.js',
   'frontend-app/src/shared/api/backendResponseValidators.js',
+  'frontend-app/src/shared/api/backendResponseValidatorsRuntime.js',
   'frontend-app/src/shared/api/backend/backendApiFactoryCore.js',
   'frontend-app/src/shared/api/backend/backendApiFactoryOps.js',
   'frontend-app/src/shared/api/backend/backendApiFactoryThread.js',
@@ -494,6 +498,7 @@ describe('rpc contract audit', () => {
     expect(report.auditStats).toEqual(expect.objectContaining({
       productionFacadeReferenceIndexBuilds: 1,
     }))
+    expect(report.sidebarRequiredFieldFindings).toEqual([])
     expect(report.responseContractStrategies).toEqual(expect.arrayContaining([
       {
         key: 'UI_SIDEBAR_GET',
@@ -595,6 +600,77 @@ describe('rpc contract audit', () => {
       }),
     ]))
   }, 15000)
+
+  it('derives Sidebar required fields from Go tags and detects missing or stale consumer entries', async () => {
+    const goSource = await readFile(join(REPO_ROOT, 'internal/module/uistate/state.go'), 'utf8')
+    const runtimePath = 'frontend-app/src/shared/api/backendResponseValidatorsRuntime.js'
+    const runtimeSource = await readFile(join(REPO_ROOT, runtimePath), 'utf8')
+    const missingConsumerSource = runtimeSource.replace("'workspace', ", '')
+    const staleProducerSource = goSource.replace(
+      'Workspace             WorkspacePanel            `json:"workspace"`',
+      'Workspace             WorkspacePanel            `json:"workspace,omitempty"`',
+    )
+
+    expect(missingConsumerSource).not.toBe(runtimeSource)
+    expect(staleProducerSource).not.toBe(goSource)
+    const repoRoot = await createShadowRepo({ [runtimePath]: missingConsumerSource })
+    const report = await auditRpcContracts({ repoRoot })
+    expect(report.sidebarRequiredFieldFindings).toEqual(['missing:workspace'])
+    expect(collectSidebarRequiredFieldFindingsFromSources({
+      goSource: staleProducerSource,
+      runtimeSource,
+    })).toEqual(['stale:workspace'])
+  })
+
+  it('exits the real CLI with the exact Sidebar required-field drift', async () => {
+    const runtimePath = 'frontend-app/src/shared/api/backendResponseValidatorsRuntime.js'
+    const auditScriptPath = 'frontend-app/scripts/rpc-contract-audit.mjs'
+    const runtimeSource = await readFile(join(REPO_ROOT, runtimePath), 'utf8')
+    const auditScriptSource = await readFile(join(REPO_ROOT, auditScriptPath), 'utf8')
+    const missingConsumerSource = runtimeSource.replace("'workspace', ", '')
+
+    expect(missingConsumerSource).not.toBe(runtimeSource)
+    const repoRoot = await createShadowRepo({
+      [runtimePath]: missingConsumerSource,
+      [auditScriptPath]: auditScriptSource,
+    })
+    await symlink(
+      join(REPO_ROOT, 'frontend-app/node_modules'),
+      join(repoRoot, 'frontend-app/node_modules'),
+    )
+
+    const canonicalRepoRoot = await realpath(repoRoot)
+    const result = spawnSync(process.execPath, [join(canonicalRepoRoot, auditScriptPath)], {
+      cwd: join(canonicalRepoRoot, 'frontend-app'),
+      encoding: 'utf8',
+    })
+
+    expect(result.stdout).toContain('Sidebar required field drift: 1')
+    expect(result.status).toBe(1)
+    expect(result.stderr).toContain('\nSidebar required field drift:\n[\n  "missing:workspace"\n]\n')
+  })
+
+  it('rejects malformed Sidebar tags and an unreferenced runtime required-field registry', async () => {
+    const goSource = await readFile(join(REPO_ROOT, 'internal/module/uistate/state.go'), 'utf8')
+    const runtimeSource = await readFile(
+      join(REPO_ROOT, 'frontend-app/src/shared/api/backendResponseValidatorsRuntime.js'),
+      'utf8',
+    )
+    const malformedGoSource = goSource.replace('json:"workspace"', 'yaml:"workspace"')
+    const unreferencedRegistrySource = runtimeSource.replace(
+      'for (const requiredField of SIDEBAR_REQUIRED_RESPONSE_KEYS)',
+      'for (const requiredField of [])',
+    )
+
+    expect(() => collectSidebarRequiredFieldFindingsFromSources({
+      goSource: malformedGoSource,
+      runtimeSource,
+    })).toThrow('Sidebar.Workspace must declare exactly one json tag')
+    expect(collectSidebarRequiredFieldFindingsFromSources({
+      goSource,
+      runtimeSource: unreferencedRegistrySource,
+    })).toEqual(['runtime:SIDEBAR_REQUIRED_RESPONSE_KEYS is not used by the required-field check'])
+  })
 
   it('detects frontend and Go hardcoded payload guard sources', () => {
     const findings = collectHardcodedPayloadGuardFindingsFromSources({
