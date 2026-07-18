@@ -3420,6 +3420,7 @@
         "internal/provider/codexapp.*session.completeSyntheticTurn",
         "internal/provider/codexapp.*session.configureThread",
         "internal/provider/codexapp.*session.confirmPendingTurnLost",
+        "internal/provider/codexapp.*session.consumeInterruptClaimLocked",
         "internal/provider/codexapp.*session.consumeSuppressedToolEnd",
         "internal/provider/codexapp.*session.consumeSuppressedToolEndAnyTurnLocked",
         "internal/provider/codexapp.*session.consumeSuppressedToolEndExactLocked",
@@ -3613,6 +3614,7 @@
         "internal/provider/codexapp.WithPeerStopGrace",
         "internal/provider/codexapp.WithPeerWorkspaceRoots",
         "internal/provider/codexapp.acceptedAssistantItemIDs",
+        "internal/provider/codexapp.acceptedInterruptAttribution",
         "internal/provider/codexapp.acceptedPartialItemIDs",
         "internal/provider/codexapp.acquireFastPathResult",
         "internal/provider/codexapp.addCodexExtractedBytes",
@@ -3666,6 +3668,7 @@
         "internal/provider/codexapp.cleanPeerDiscoveryFiles",
         "internal/provider/codexapp.cleanResidualProcesses",
         "internal/provider/codexapp.cleanupFailedSession",
+        "internal/provider/codexapp.clearCodexProviderUserAttribution",
         "internal/provider/codexapp.cloneApprovalDecision",
         "internal/provider/codexapp.cloneCaps",
         "internal/provider/codexapp.cloneTurnStartParams",
@@ -3723,6 +3726,7 @@
         "internal/provider/codexapp.codexSandboxPolicyWireJSON",
         "internal/provider/codexapp.codexSandboxWireJSON",
         "internal/provider/codexapp.codexSupportedPlatformValue",
+        "internal/provider/codexapp.codexTerminationPayload",
         "internal/provider/codexapp.codexToolItemPayload",
         "internal/provider/codexapp.codexWheelReleasePlatform",
         "internal/provider/codexapp.collectRolloutMetadata",
@@ -8044,6 +8048,7 @@
         "internal/provider/codexapp.*session.completeSyntheticTurn",
         "internal/provider/codexapp.*session.configureThread",
         "internal/provider/codexapp.*session.confirmPendingTurnLost",
+        "internal/provider/codexapp.*session.consumeInterruptClaimLocked",
         "internal/provider/codexapp.*session.consumeSuppressedToolEnd",
         "internal/provider/codexapp.*session.consumeSuppressedToolEndAnyTurnLocked",
         "internal/provider/codexapp.*session.consumeSuppressedToolEndExactLocked",
@@ -8237,6 +8242,7 @@
         "internal/provider/codexapp.WithPeerStopGrace",
         "internal/provider/codexapp.WithPeerWorkspaceRoots",
         "internal/provider/codexapp.acceptedAssistantItemIDs",
+        "internal/provider/codexapp.acceptedInterruptAttribution",
         "internal/provider/codexapp.acceptedPartialItemIDs",
         "internal/provider/codexapp.acquireFastPathResult",
         "internal/provider/codexapp.addCodexExtractedBytes",
@@ -8290,6 +8296,7 @@
         "internal/provider/codexapp.cleanPeerDiscoveryFiles",
         "internal/provider/codexapp.cleanResidualProcesses",
         "internal/provider/codexapp.cleanupFailedSession",
+        "internal/provider/codexapp.clearCodexProviderUserAttribution",
         "internal/provider/codexapp.cloneApprovalDecision",
         "internal/provider/codexapp.cloneCaps",
         "internal/provider/codexapp.cloneTurnStartParams",
@@ -8347,6 +8354,7 @@
         "internal/provider/codexapp.codexSandboxPolicyWireJSON",
         "internal/provider/codexapp.codexSandboxWireJSON",
         "internal/provider/codexapp.codexSupportedPlatformValue",
+        "internal/provider/codexapp.codexTerminationPayload",
         "internal/provider/codexapp.codexToolItemPayload",
         "internal/provider/codexapp.codexWheelReleasePlatform",
         "internal/provider/codexapp.collectRolloutMetadata",
@@ -12668,6 +12676,7 @@
         "internal/provider/codexapp.*session.completeSyntheticTurn",
         "internal/provider/codexapp.*session.configureThread",
         "internal/provider/codexapp.*session.confirmPendingTurnLost",
+        "internal/provider/codexapp.*session.consumeInterruptClaimLocked",
         "internal/provider/codexapp.*session.consumeSuppressedToolEnd",
         "internal/provider/codexapp.*session.consumeSuppressedToolEndAnyTurnLocked",
         "internal/provider/codexapp.*session.consumeSuppressedToolEndExactLocked",
@@ -12861,6 +12870,7 @@
         "internal/provider/codexapp.WithPeerStopGrace",
         "internal/provider/codexapp.WithPeerWorkspaceRoots",
         "internal/provider/codexapp.acceptedAssistantItemIDs",
+        "internal/provider/codexapp.acceptedInterruptAttribution",
         "internal/provider/codexapp.acceptedPartialItemIDs",
         "internal/provider/codexapp.acquireFastPathResult",
         "internal/provider/codexapp.addCodexExtractedBytes",
@@ -12914,6 +12924,7 @@
         "internal/provider/codexapp.cleanPeerDiscoveryFiles",
         "internal/provider/codexapp.cleanResidualProcesses",
         "internal/provider/codexapp.cleanupFailedSession",
+        "internal/provider/codexapp.clearCodexProviderUserAttribution",
         "internal/provider/codexapp.cloneApprovalDecision",
         "internal/provider/codexapp.cloneCaps",
         "internal/provider/codexapp.cloneTurnStartParams",
@@ -12971,6 +12982,7 @@
         "internal/provider/codexapp.codexSandboxPolicyWireJSON",
         "internal/provider/codexapp.codexSandboxWireJSON",
         "internal/provider/codexapp.codexSupportedPlatformValue",
+        "internal/provider/codexapp.codexTerminationPayload",
         "internal/provider/codexapp.codexToolItemPayload",
         "internal/provider/codexapp.codexWheelReleasePlatform",
         "internal/provider/codexapp.collectRolloutMetadata",
@@ -17297,6 +17309,7 @@
         "internal/provider/codexapp.*session.completeSyntheticTurn",
         "internal/provider/codexapp.*session.configureThread",
         "internal/provider/codexapp.*session.confirmPendingTurnLost",
+        "internal/provider/codexapp.*session.consumeInterruptClaimLocked",
         "internal/provider/codexapp.*session.consumeSuppressedToolEnd",
         "internal/provider/codexapp.*session.consumeSuppressedToolEndAnyTurnLocked",
         "internal/provider/codexapp.*session.consumeSuppressedToolEndExactLocked",
@@ -17490,6 +17503,7 @@
         "internal/provider/codexapp.WithPeerStopGrace",
         "internal/provider/codexapp.WithPeerWorkspaceRoots",
         "internal/provider/codexapp.acceptedAssistantItemIDs",
+        "internal/provider/codexapp.acceptedInterruptAttribution",
         "internal/provider/codexapp.acceptedPartialItemIDs",
         "internal/provider/codexapp.acquireFastPathResult",
         "internal/provider/codexapp.addCodexExtractedBytes",
@@ -17543,6 +17557,7 @@
         "internal/provider/codexapp.cleanPeerDiscoveryFiles",
         "internal/provider/codexapp.cleanResidualProcesses",
         "internal/provider/codexapp.cleanupFailedSession",
+        "internal/provider/codexapp.clearCodexProviderUserAttribution",
         "internal/provider/codexapp.cloneApprovalDecision",
         "internal/provider/codexapp.cloneCaps",
         "internal/provider/codexapp.cloneTurnStartParams",
@@ -17600,6 +17615,7 @@
         "internal/provider/codexapp.codexSandboxPolicyWireJSON",
         "internal/provider/codexapp.codexSandboxWireJSON",
         "internal/provider/codexapp.codexSupportedPlatformValue",
+        "internal/provider/codexapp.codexTerminationPayload",
         "internal/provider/codexapp.codexToolItemPayload",
         "internal/provider/codexapp.codexWheelReleasePlatform",
         "internal/provider/codexapp.collectRolloutMetadata",
@@ -18521,13 +18537,13 @@
   ],
   "summary": {
     "total_packages": 41,
-    "total_functions": 2265,
-    "total_methods": 1165,
+    "total_functions": 2267,
+    "total_methods": 1166,
     "total_interfaces": 183,
     "total_interface_methods": 363,
     "total_exported": 1256,
-    "total_unexported": 2960,
-    "total_structs": 603
+    "total_unexported": 2964,
+    "total_structs": 604
   },
   "packages": [
     {
@@ -63922,6 +63938,19 @@
           ]
         },
         {
+          "name": "clearCodexProviderUserAttribution",
+          "exported": false,
+          "params": [
+            {
+              "name": "payload",
+              "type": "map[string]any"
+            }
+          ],
+          "returns": [
+            "bool"
+          ]
+        },
+        {
           "name": "cloneApprovalDecision",
           "exported": false,
           "params": [
@@ -64438,6 +64467,21 @@
           "returns": [
             "string",
             "error"
+          ]
+        },
+        {
+          "name": "codexTerminationPayload",
+          "exported": false,
+          "params": [
+            {
+              "name": "payload",
+              "type": "map[string]any"
+            }
+          ],
+          "returns": [
+            "map[string]any",
+            "string",
+            "string"
           ]
         },
         {
@@ -72959,6 +73003,20 @@
         },
         {
           "receiver": "*session",
+          "name": "consumeInterruptClaimLocked",
+          "exported": false,
+          "params": [
+            {
+              "name": "turnID",
+              "type": "string"
+            }
+          ],
+          "returns": [
+            "*interruptRequestClaim"
+          ]
+        },
+        {
+          "receiver": "*session",
           "name": "consumeSuppressedToolEndAnyTurnLocked",
           "exported": false,
           "params": [
@@ -75575,6 +75633,10 @@
         {
           "name": "SessionRuntime",
           "exported": true
+        },
+        {
+          "name": "acceptedInterruptAttribution",
+          "exported": false
         },
         {
           "name": "acquireFastPathResult",

@@ -32,20 +32,20 @@ func TestFailureMatrixCodexTerminalCases(t *testing.T) {
 		assertCodexFailureMatrixTerminal(t, codexFailureMatrixPayload(false, "completed"), "failed", true, "", "")
 	})
 	t.Run("FM-19", testMatchedUserCancellation)
-	t.Run("FM-20", func(t *testing.T) {
+	t.Run("FM-20", testUnmatchedProviderUserCancellation)
+	t.Run("FM-21", testStaleClaimCannotOwnCancellation)
+	t.Run("FM-22", func(t *testing.T) {
 		assertCodexFailureMatrixTerminal(t, map[string]any{
 			"threadId": "thread-1", "agentId": "agent-1", "turnId": "turn-1",
-			"success": false, "status": "cancelled", "requestId": "untrusted-provider-request",
-		}, "cancelled", false, "provider", "")
+			"success": false, "status": "cancelled", "terminationCause": "system",
+		}, "cancelled", false, "system", "")
 	})
+	t.Run("FM-23", testSystemCancellationWinsAcceptedStop)
 }
 
 func testAcceptedStopFollowedByFailure(t *testing.T) {
 	t.Helper()
-	s := &session{interruptRequests: map[string]*interruptRequestClaim{"turn-1": {
-		requestID: "stop-1",
-		state:     interruptRequestAccepted,
-	}}}
+	s := failureMatrixSessionWithClaim("turn-1", "stop-1", 1)
 	payload := codexFailureMatrixPayload(false, "failed")
 	if s.applyAcceptedInterruptRequest("turn/completed", payload) {
 		t.Fatalf("failed terminal consumed accepted stop claim: %#v", payload)
@@ -58,17 +58,62 @@ func testAcceptedStopFollowedByFailure(t *testing.T) {
 
 func testMatchedUserCancellation(t *testing.T) {
 	t.Helper()
-	s := &session{interruptRequests: map[string]*interruptRequestClaim{"turn-1": {
-		requestID: "stop-user-1",
-		state:     interruptRequestAccepted,
-	}}}
+	s := failureMatrixSessionWithClaim("turn-1", "stop-user-1", 1)
 	payload := codexFailureMatrixPayload(false, "cancelled")
+	payload["terminationCause"] = "user_request"
+	payload["terminationRequestId"] = "untrusted-provider-request"
 	if !s.applyAcceptedInterruptRequest("turn/completed", payload) {
 		t.Fatalf("cancelled terminal did not consume accepted user stop claim: %#v", payload)
 	}
 	terminal := requireFailureMatrixTerminal(t, payload)
 	if terminal.Success || terminal.Status != "cancelled" || terminal.Reason != "user_request" || terminal.TerminationRequestID != "stop-user-1" {
 		t.Fatalf("terminal = %#v, want request-attributed user cancellation", terminal)
+	}
+}
+
+func testUnmatchedProviderUserCancellation(t *testing.T) {
+	t.Helper()
+	payload := map[string]any{
+		"threadId": "thread-1", "agentId": "agent-1", "turnId": "turn-1",
+		"success": false, "status": "cancelled",
+		"terminationCause": "user_request", "terminationRequestId": "untrusted-provider-request",
+	}
+	s := &session{activeTurnID: "turn-1", activeTurnGeneration: 1}
+	if s.applyAcceptedInterruptRequest("turn/completed", payload) {
+		t.Fatalf("unmatched provider attribution changed payload: %#v", payload)
+	}
+	assertCodexFailureMatrixTerminal(t, payload, "cancelled", false, "provider", "")
+}
+
+func testStaleClaimCannotOwnCancellation(t *testing.T) {
+	t.Helper()
+	s := failureMatrixSessionWithClaim("turn-1", "stale-stop", 1)
+	s.activeTurnGeneration = 2
+	payload := codexFailureMatrixPayload(false, "cancelled")
+	if s.applyAcceptedInterruptRequest("turn/completed", payload) {
+		t.Fatalf("stale TurnRef claim owned cancellation: %#v", payload)
+	}
+	assertCodexFailureMatrixTerminal(t, payload, "cancelled", false, "provider", "")
+}
+
+func testSystemCancellationWinsAcceptedStop(t *testing.T) {
+	t.Helper()
+	s := failureMatrixSessionWithClaim("turn-1", "stop-user-1", 1)
+	payload := codexFailureMatrixPayload(false, "cancelled")
+	payload["terminationCause"] = "system"
+	if s.applyAcceptedInterruptRequest("turn/completed", payload) {
+		t.Fatalf("accepted Stop overrode explicit system cancellation: %#v", payload)
+	}
+	assertCodexFailureMatrixTerminal(t, payload, "cancelled", false, "system", "")
+}
+
+func failureMatrixSessionWithClaim(turnID, requestID string, generation uint64) *session {
+	return &session{
+		activeTurnID:         turnID,
+		activeTurnGeneration: generation,
+		interruptRequests: map[string]*interruptRequestClaim{turnID: {
+			turnID: turnID, requestID: requestID, generation: generation, state: interruptRequestAccepted,
+		}},
 	}
 }
 

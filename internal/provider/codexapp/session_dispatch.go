@@ -16,10 +16,16 @@ import (
 )
 
 const (
-	maxSuppressedToolEnds = 256
-	maxRolloutToolNames   = 256
-	turnToolFailurePrefix = "\x00turn_tool_failure\x00"
+	maxSuppressedToolEnds         = 256
+	maxRolloutToolNames           = 256
+	turnToolFailurePrefix         = "\x00turn_tool_failure\x00"
+	acceptedInterruptRequestIDKey = "\x00accepted_interrupt_request_id\x00"
 )
+
+type acceptedInterruptAttribution struct {
+	turnID    string
+	requestID string
+}
 
 // dispatch 统一发出 Codex provider 事件，并在发送前修正宿主可见身份。
 // Codex rollout 事件可能携带 provider 内部 UUID，这里会改写为宿主 agentID 以避免 UI 出现幽灵线程。
@@ -39,8 +45,13 @@ func (s *session) dispatch(raw dto.RawProviderEvent) {
 		if s.trackCodexRolloutToolName(raw.EventType, payload) {
 			payloadChanged = true
 		}
-		if isTurnTerminalEvent(raw.EventType) && s.applyAcceptedInterruptRequest(raw.EventType, payload) {
-			payloadChanged = true
+		if isTurnTerminalEvent(raw.EventType) {
+			if clearCodexProviderUserAttribution(payload) {
+				payloadChanged = true
+			}
+			if s.applyAcceptedInterruptRequest(raw.EventType, payload) {
+				payloadChanged = true
+			}
 		}
 		s.recordToolFailureFromRaw(raw.EventType, payload)
 		if payloadChanged {
@@ -145,21 +156,17 @@ func (s *session) takeTurn(turnID string) *turnHandle {
 	return h
 }
 
-// applyAcceptedInterruptRequest 消费 pending 或 accepted Stop claim，仅把真实取消或中断终态归因给该请求。
+// applyAcceptedInterruptRequest 消费同一 active TurnRef 的 Stop claim。
+// pending 表示请求已进入 wire；此时先到达的终态本身就是 provider 接受请求的证明。
 func (s *session) applyAcceptedInterruptRequest(method string, payload map[string]any) bool {
 	turnID := strings.TrimSpace(payloadTurnID(payload))
 	if turnID == "" {
 		return false
 	}
 	s.mu.Lock()
-	claim := s.interruptRequests[turnID]
-	state := interruptRequestReserved
-	if claim != nil {
-		state = claim.state
-		claim.state = interruptRequestConsumed
-	}
+	claim := s.consumeInterruptClaimLocked(turnID)
 	s.mu.Unlock()
-	if claim == nil || state == interruptRequestReserved {
+	if claim == nil {
 		return false
 	}
 	requestID := strings.TrimSpace(claim.requestID)
@@ -170,9 +177,47 @@ func (s *session) applyAcceptedInterruptRequest(method string, payload map[strin
 	if outcome.contractError != "" || (outcome.status != "interrupted" && outcome.status != "cancelled") {
 		return false
 	}
+	if outcome.reason == "system" {
+		return false
+	}
 	payload["termination_cause"] = "user_request"
 	payload["termination_request_id"] = requestID
+	payload[acceptedInterruptRequestIDKey] = acceptedInterruptAttribution{turnID: turnID, requestID: requestID}
 	return true
+}
+
+// clearCodexProviderUserAttribution 清除 raw provider 无权声明的 Stop request 归因。
+func clearCodexProviderUserAttribution(payload map[string]any) bool {
+	changed := false
+	for _, key := range []string{"termination_request_id", "terminationRequestId"} {
+		if _, exists := payload[key]; exists {
+			delete(payload, key)
+			changed = true
+		}
+	}
+	for _, key := range []string{"termination_cause", "terminationCause"} {
+		if cause, ok := payload[key].(string); ok && strings.TrimSpace(cause) == "user_request" {
+			delete(payload, key)
+			changed = true
+		}
+	}
+	return changed
+}
+
+// consumeInterruptClaimLocked 仅消费与当前 active turn 代际一致且已进入 wire 的 claim。
+func (s *session) consumeInterruptClaimLocked(turnID string) *interruptRequestClaim {
+	claim := s.interruptRequests[turnID]
+	if claim == nil || claim.turnID != turnID {
+		return nil
+	}
+	if claim.generation != s.activeTurnGeneration || turnID != strings.TrimSpace(s.activeTurnID) {
+		return nil
+	}
+	if claim.state != interruptRequestPending && claim.state != interruptRequestAccepted {
+		return nil
+	}
+	claim.state = interruptRequestConsumed
+	return claim
 }
 
 func (s *session) forceCompleteTargetTurnID(providerID string) (string, bool) {
