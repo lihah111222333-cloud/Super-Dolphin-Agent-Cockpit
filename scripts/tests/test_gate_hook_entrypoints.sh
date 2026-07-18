@@ -3,6 +3,7 @@ set -euo pipefail
 
 repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)
 fixture_root=$(mktemp -d -t gate-hook-contract.XXXXXX)
+fixture_root=$(cd "$fixture_root" && pwd -P)
 trap 'rm -rf "$fixture_root"' EXIT
 
 bin_dir="$fixture_root/bin"
@@ -26,6 +27,9 @@ fi
 cat >"$GATE_HOOK_CAPTURE_DIR/stdin"
 if [[ -n "${GATE_HOOK_STDOUT_FILE:-}" ]]; then
   cat "$GATE_HOOK_STDOUT_FILE"
+fi
+if [[ -n "${GATE_HOOK_STDERR_FILE:-}" ]]; then
+  cat "$GATE_HOOK_STDERR_FILE" >&2
 fi
 exit "${GATE_HOOK_EXIT_CODE:-0}"
 EOF
@@ -68,13 +72,16 @@ git -C "$git_repo" config user.email 'hook-fixture@example.invalid'
 printf '%s\n' 'base' >"$git_repo/tracked.txt"
 git -C "$git_repo" add tracked.txt
 git -C "$git_repo" commit -qm 'fixture base'
+mkdir -p "$git_repo/nested"
+cli_error="$fixture_root/cli-error.expected"
+printf '%s\n' 'fixture coordinator failure; job=job-23; status: super-dolphin-gate status --job job-23' >"$cli_error"
 
 reset_capture
 clean_tree=$(git -C "$git_repo" write-tree)
 (
-  cd "$git_repo"
-  GATE_HOOK_CAPTURE_SOURCE=1 GATE_HOOK_EXIT_CODE=23 run_with_status \
-    "$fixture_root/pre-commit.status" bash "$repo_root/.githooks/pre-commit"
+  cd "$git_repo/nested"
+  GATE_HOOK_CAPTURE_SOURCE=1 GATE_HOOK_STDERR_FILE="$cli_error" GATE_HOOK_EXIT_CODE=23 run_with_status \
+    "$fixture_root/pre-commit.status" bash "$repo_root/.githooks/pre-commit" 2>"$fixture_root/pre-commit.err"
 )
 assert_file_equals "$fixture_root/pre-commit.status" 23 "pre-commit exit code"
 assert_file_equals "$capture_dir/argc" 2 "pre-commit argc"
@@ -82,6 +89,7 @@ assert_file_equals "$capture_dir/arg.0" hook "pre-commit arg 0"
 assert_file_equals "$capture_dir/arg.1" pre-commit "pre-commit arg 1"
 assert_file_equals "$capture_dir/cwd" "$git_repo" "clean pre-commit cwd"
 assert_file_equals "$capture_dir/staged-tree" "$clean_tree" "clean pre-commit staged tree"
+cmp -s "$cli_error" "$fixture_root/pre-commit.err" || fail "pre-commit did not return readable CLI stderr"
 [[ ! -s "$capture_dir/stdin" ]] || fail "pre-commit forwarded unexpected stdin"
 
 printf '%s\n' 'staged' >"$git_repo/tracked.txt"
@@ -90,7 +98,7 @@ staged_tree=$(git -C "$git_repo" write-tree)
 printf '%s\n' 'unstaged' >>"$git_repo/tracked.txt"
 reset_capture
 (
-  cd "$git_repo"
+  cd "$git_repo/nested"
   GATE_HOOK_CAPTURE_SOURCE=1 run_with_status \
     "$fixture_root/staged-pre-commit.status" bash "$repo_root/.githooks/pre-commit"
 )
@@ -99,20 +107,42 @@ assert_file_equals "$capture_dir/cwd" "$git_repo" "staged pre-commit cwd"
 assert_file_equals "$capture_dir/staged-tree" "$staged_tree" "staged pre-commit tree"
 git -C "$git_repo" diff --quiet -- tracked.txt && fail "staged pre-commit discarded the unstaged worktree change"
 
+linked_repo="$fixture_root/linked-repository"
+git -C "$git_repo" worktree add -q -b hook-linked "$linked_repo" HEAD
+printf '%s\n' 'linked staged' >"$linked_repo/tracked.txt"
+git -C "$linked_repo" add tracked.txt
+linked_tree=$(git -C "$linked_repo" write-tree)
+mkdir -p "$linked_repo/nested"
+reset_capture
+(
+  cd "$linked_repo/nested"
+  GATE_HOOK_CAPTURE_SOURCE=1 run_with_status \
+    "$fixture_root/linked-pre-commit.status" bash "$repo_root/.githooks/pre-commit"
+)
+assert_file_equals "$fixture_root/linked-pre-commit.status" 0 "linked pre-commit exit code"
+assert_file_equals "$capture_dir/cwd" "$linked_repo" "linked pre-commit cwd"
+assert_file_equals "$capture_dir/staged-tree" "$linked_tree" "linked pre-commit staged tree"
+
 reset_capture
 push_input="$fixture_root/pre-push.stdin"
 printf '%s\n' \
   'refs/heads/main 1111111111111111111111111111111111111111 refs/heads/main 2222222222222222222222222222222222222222' \
   'refs/heads/topic 3333333333333333333333333333333333333333 refs/heads/topic 0000000000000000000000000000000000000000' >"$push_input"
-GATE_HOOK_EXIT_CODE=29 run_with_status "$fixture_root/pre-push.status" \
-  bash "$repo_root/.githooks/pre-push" 'upstream' 'ssh://git@example.invalid/team/repo.git' <"$push_input"
+(
+  cd "$linked_repo/nested"
+  GATE_HOOK_STDERR_FILE="$cli_error" GATE_HOOK_EXIT_CODE=29 run_with_status "$fixture_root/pre-push.status" \
+    bash "$repo_root/.githooks/pre-push" 'upstream' 'ssh://git@example.invalid/team/repo.git' \
+    <"$push_input" 2>"$fixture_root/pre-push.err"
+)
 assert_file_equals "$fixture_root/pre-push.status" 29 "pre-push exit code"
 assert_file_equals "$capture_dir/argc" 4 "pre-push argc"
 assert_file_equals "$capture_dir/arg.0" hook "pre-push arg 0"
 assert_file_equals "$capture_dir/arg.1" pre-push "pre-push arg 1"
 assert_file_equals "$capture_dir/arg.2" upstream "pre-push remote name"
 assert_file_equals "$capture_dir/arg.3" 'ssh://git@example.invalid/team/repo.git' "pre-push remote URL"
+assert_file_equals "$capture_dir/cwd" "$linked_repo" "pre-push cwd"
 cmp -s "$push_input" "$capture_dir/stdin" || fail "pre-push stdin was not forwarded byte-for-byte"
+cmp -s "$cli_error" "$fixture_root/pre-push.err" || fail "pre-push did not return readable CLI stderr"
 
 reset_capture
 codex_input="$fixture_root/codex.stdin"
@@ -129,6 +159,13 @@ cmp -s "$codex_input" "$capture_dir/stdin" || fail "Codex lifecycle JSON was not
 cmp -s "$codex_output" "$fixture_root/codex.actual" || fail "Codex decision JSON was not forwarded byte-for-byte"
 
 reset_capture
+GATE_HOOK_STDOUT_FILE="$codex_output" GATE_HOOK_EXIT_CODE=31 run_with_status "$fixture_root/codex-failure.status" \
+  bash "$repo_root/scripts/codex_stop_gate.sh" <"$codex_input" >"$fixture_root/codex-failure.actual"
+assert_file_equals "$fixture_root/codex-failure.status" 31 "Codex CLI failure exit code"
+cmp -s "$codex_input" "$capture_dir/stdin" || fail "Codex failure input was not forwarded byte-for-byte"
+cmp -s "$codex_output" "$fixture_root/codex-failure.actual" || fail "Codex failure notification JSON was not forwarded"
+
+reset_capture
 subagent_input="$fixture_root/subagent-stop.stdin"
 printf '%s\n' '{"session_id":"session-1","turn_id":"turn-2","cwd":"/tmp/repo","hook_event_name":"SubagentStop","permission_mode":"plan","stop_hook_active":false,"agent_id":"agent-7"}' >"$subagent_input"
 GATE_HOOK_STDOUT_FILE="$codex_output" run_with_status "$fixture_root/subagent-stop.status" \
@@ -139,6 +176,22 @@ assert_file_equals "$capture_dir/arg.0" hook "SubagentStop arg 0"
 assert_file_equals "$capture_dir/arg.1" codex "SubagentStop arg 1"
 cmp -s "$subagent_input" "$capture_dir/stdin" || fail "SubagentStop lifecycle JSON was not forwarded byte-for-byte"
 cmp -s "$codex_output" "$fixture_root/subagent-stop.actual" || fail "SubagentStop decision JSON was not forwarded byte-for-byte"
+
+no_repo="$fixture_root/not-a-repository"
+mkdir -p "$no_repo"
+reset_capture
+(
+  cd "$no_repo"
+  run_with_status "$fixture_root/no-repo-pre-commit.status" bash "$repo_root/.githooks/pre-commit" \
+    2>"$fixture_root/no-repo-pre-commit.err"
+  run_with_status "$fixture_root/no-repo-pre-push.status" bash "$repo_root/.githooks/pre-push" \
+    origin https://example.invalid/repo.git </dev/null 2>"$fixture_root/no-repo-pre-push.err"
+)
+assert_file_equals "$fixture_root/no-repo-pre-commit.status" 1 "pre-commit unresolved worktree exit code"
+assert_file_equals "$fixture_root/no-repo-pre-push.status" 1 "pre-push unresolved worktree exit code"
+grep -Fq 'git rev-parse' "$fixture_root/no-repo-pre-commit.err" || fail "pre-commit unresolved worktree error is not actionable"
+grep -Fq 'git rev-parse' "$fixture_root/no-repo-pre-push.err" || fail "pre-push unresolved worktree error is not actionable"
+[[ ! -e "$capture_dir/argc" ]] || fail "Git hook invoked the CLI without a resolved worktree"
 
 missing_path=/usr/bin:/bin:/usr/sbin:/sbin
 set +e
@@ -185,12 +238,54 @@ PY
 
 production_e2e="$repo_root/scripts/tests/test_gate_hook_production_e2e.sh"
 [[ -x "$production_e2e" ]] || fail "production hook E2E driver is not executable"
-grep -Fq 'git -C "$worktree/nested" commit' "$production_e2e" || fail "production E2E does not invoke Git commit"
-grep -Fq 'git -C "$worktree/nested" push' "$production_e2e" || fail "production E2E does not invoke Git push"
+# These assertions match literal shell source.
+# shellcheck disable=SC2016
+grep -Fq 'git -C "$git_e2e_worktree/nested" commit' "$production_e2e" || fail "production E2E does not invoke Git commit"
+# shellcheck disable=SC2016
+grep -Fq 'git -C "$git_e2e_worktree/nested" push "$git_e2e_remote_name"' "$production_e2e" || fail "production E2E does not invoke Git push"
+# shellcheck disable=SC2016
 grep -Fq 'branch -D "$branch"' "$production_e2e" || fail "production E2E leaks its temporary branch"
+# shellcheck disable=SC2016
+grep -Fq 'remote remove "$remote_name"' "$production_e2e" || fail "production E2E leaks its temporary remote"
 grep -Fq 'scripts/codex_stop_gate.sh' "$production_e2e" || fail "production E2E bypasses the Codex thin entrypoint"
 if grep -Eq 'fake|mock|recordingHookCoordinator|provision production' "$production_e2e"; then
   fail "production hook E2E contains a fixture or provisioning bypass"
 fi
+
+assert_cleanup_contract() {
+  local outcome expected_status state_file stdout_file stderr_file
+  outcome=$1
+  expected_status=$2
+  state_file="$fixture_root/cleanup-$outcome.state"
+  stdout_file="$fixture_root/cleanup-$outcome.stdout"
+  stderr_file="$fixture_root/cleanup-$outcome.stderr"
+  set +e
+  GATE_HOOK_E2E_CLEANUP_CONTRACT=1 \
+    GATE_HOOK_E2E_CLEANUP_OUTCOME="$outcome" \
+    GATE_HOOK_E2E_CLEANUP_STATE_FILE="$state_file" \
+    GATE_HOOK_E2E_EVIDENCE_DIR="$fixture_root/cleanup-$outcome-evidence" \
+    bash "$production_e2e" _cleanup-contract >"$stdout_file" 2>"$stderr_file"
+  local actual_status=$?
+  set -e
+  [[ $actual_status -eq $expected_status ]] || fail "cleanup $outcome exit=$actual_status, want $expected_status"
+  ! grep -Fq 'unbound variable' "$stderr_file" || fail "cleanup $outcome used an expired local variable"
+  local cleanup_fixture cleanup_worktree cleanup_branch cleanup_remote
+  {
+    IFS= read -r cleanup_fixture
+    IFS= read -r cleanup_worktree
+    IFS= read -r cleanup_branch
+    IFS= read -r cleanup_remote
+  } <"$state_file"
+  [[ ! -e "$cleanup_fixture" ]] || fail "cleanup $outcome leaked fixture $cleanup_fixture"
+  ! git -C "$repo_root" worktree list --porcelain | grep -Fqx "worktree $cleanup_worktree" || fail "cleanup $outcome leaked worktree"
+  ! git -C "$repo_root" show-ref --verify --quiet "refs/heads/$cleanup_branch" || fail "cleanup $outcome leaked branch"
+  ! git -C "$repo_root" remote | grep -Fqx "$cleanup_remote" || fail "cleanup $outcome leaked remote"
+}
+
+assert_cleanup_contract success 0
+assert_cleanup_contract failure 19
+assert_cleanup_contract int 130
+assert_cleanup_contract term 143
+assert_cleanup_contract repeat 0
 
 printf '%s\n' 'gate hook entrypoint contracts: PASS'

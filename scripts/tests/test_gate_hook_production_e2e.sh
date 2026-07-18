@@ -15,6 +15,12 @@ fi
 mode=${1:-}
 case "$mode" in
   git|codex) ;;
+  _cleanup-contract)
+    [[ ${GATE_HOOK_E2E_CLEANUP_CONTRACT:-} == 1 ]] || {
+      printf '%s\n' 'production hook E2E: cleanup contract mode is test-only' >&2
+      exit 2
+    }
+    ;;
   *)
     printf '%s\n' 'usage: test_gate_hook_production_e2e.sh git|codex' >&2
     exit 2
@@ -29,6 +35,47 @@ else
   evidence_root=$(cd "$evidence_root" && pwd -P)
 fi
 chmod 700 "$evidence_root"
+
+git_e2e_fixture=
+git_e2e_worktree=
+git_e2e_remote=
+git_e2e_remote_name=
+git_e2e_branch=
+
+cleanup_git_e2e() {
+  local worktree=${git_e2e_worktree:-}
+  local branch=${git_e2e_branch:-}
+  local remote_name=${git_e2e_remote_name:-}
+  local fixture=${git_e2e_fixture:-}
+  git_e2e_worktree=
+  git_e2e_branch=
+  git_e2e_remote_name=
+  git_e2e_remote=
+  git_e2e_fixture=
+  [[ -z "$worktree" ]] || git -C "$repo_root" worktree remove --force "$worktree" >/dev/null 2>&1 || true
+  [[ -z "$branch" ]] || git -C "$repo_root" branch -D "$branch" >/dev/null 2>&1 || true
+  [[ -z "$remote_name" ]] || git -C "$repo_root" remote remove "$remote_name" >/dev/null 2>&1 || true
+  [[ -z "$fixture" ]] || rm -rf "$fixture"
+}
+
+prepare_git_e2e() {
+  local identity
+  identity="$(date +%s)-$$-$RANDOM"
+  git_e2e_fixture=$(mktemp -d -t gate-hook-git-e2e.XXXXXX)
+  git_e2e_worktree="$git_e2e_fixture/worktree"
+  git_e2e_remote="$git_e2e_fixture/remote.git"
+  git_e2e_branch="gate-hook-e2e-$identity"
+  git_e2e_remote_name="gate-hook-e2e-$identity"
+  trap cleanup_git_e2e EXIT
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
+  git -C "$repo_root" worktree add --detach "$git_e2e_worktree" HEAD
+  git init --bare "$git_e2e_remote"
+  git -C "$git_e2e_worktree" switch -c "$git_e2e_branch"
+  git -C "$git_e2e_worktree" config user.name 'Gate Hook Production E2E'
+  git -C "$git_e2e_worktree" config user.email 'gate-hook-e2e@example.invalid'
+  git -C "$git_e2e_worktree" remote add "$git_e2e_remote_name" "$git_e2e_remote"
+}
 
 extract_job_id() {
   sed -n 's/.*job=\([^;[:space:]]*\).*/\1/p' "$1" | head -n 1
@@ -128,42 +175,46 @@ PY
 run_git_e2e() {
   git -C "$repo_root" diff --quiet
   git -C "$repo_root" diff --cached --quiet
-  local fixture worktree remote hooks_env branch bad_tree clean_tree commit
-  fixture=$(mktemp -d -t gate-hook-git-e2e.XXXXXX)
-  worktree="$fixture/worktree"
-  remote="$fixture/remote.git"
-  branch="gate-hook-e2e-$(date +%s)-$$"
-  cleanup_git_e2e() {
-    git -C "$repo_root" worktree remove --force "$worktree" >/dev/null 2>&1 || true
-    git -C "$repo_root" branch -D "$branch" >/dev/null 2>&1 || true
-    rm -rf "$fixture"
-  }
-  trap cleanup_git_e2e EXIT
-  git -C "$repo_root" worktree add --detach "$worktree" HEAD
-  git init --bare "$remote"
-  git -C "$worktree" switch -c "$branch"
-  git -C "$worktree" config user.name 'Gate Hook Production E2E'
-  git -C "$worktree" config user.email 'gate-hook-e2e@example.invalid'
-  git -C "$worktree" remote add e2e "$remote"
-  mkdir -p "$worktree/nested"
+  local hooks_env bad_tree clean_tree commit
+  prepare_git_e2e
+  mkdir -p "$git_e2e_worktree/nested"
   hooks_env=(env GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.hooksPath GIT_CONFIG_VALUE_0="$repo_root/.githooks")
 
-  printf 'deliberate trailing whitespace \n' >"$worktree/.gate-hook-e2e"
-  git -C "$worktree" add .gate-hook-e2e
-  bad_tree=$(git -C "$worktree" write-tree)
-  run_expected_violation "$bad_tree" "${hooks_env[@]}" git -C "$worktree/nested" commit -m '验证真实门禁违规反馈'
+  printf 'deliberate trailing whitespace \n' >"$git_e2e_worktree/.gate-hook-e2e"
+  git -C "$git_e2e_worktree" add .gate-hook-e2e
+  bad_tree=$(git -C "$git_e2e_worktree" write-tree)
+  run_expected_violation "$bad_tree" "${hooks_env[@]}" git -C "$git_e2e_worktree/nested" commit -m '验证真实门禁违规反馈'
 
-  printf '%s\n' 'production hook E2E' >"$worktree/.gate-hook-e2e"
-  git -C "$worktree" add .gate-hook-e2e
-  clean_tree=$(git -C "$worktree" write-tree)
-  run_gate_command pre-commit "$clean_tree" "${hooks_env[@]}" git -C "$worktree/nested" commit -m '验证真实 Hook 端到端链路'
-  commit=$(git -C "$worktree" rev-parse HEAD)
-  [[ $(git -C "$worktree" rev-parse 'HEAD^{tree}') == "$clean_tree" ]]
+  printf '%s\n' 'production hook E2E' >"$git_e2e_worktree/.gate-hook-e2e"
+  git -C "$git_e2e_worktree" add .gate-hook-e2e
+  clean_tree=$(git -C "$git_e2e_worktree" write-tree)
+  run_gate_command pre-commit "$clean_tree" "${hooks_env[@]}" git -C "$git_e2e_worktree/nested" commit -m '验证真实 Hook 端到端链路'
+  commit=$(git -C "$git_e2e_worktree" rev-parse HEAD)
+  [[ $(git -C "$git_e2e_worktree" rev-parse 'HEAD^{tree}') == "$clean_tree" ]]
 
-  run_gate_command cli-pre-commit "$clean_tree" env -C "$worktree/nested" "$gate_bin" hook pre-commit
-  run_gate_command pre-push "$clean_tree" "${hooks_env[@]}" git -C "$worktree/nested" push e2e "HEAD:refs/heads/$branch"
-  [[ $(git --git-dir="$remote" rev-parse "refs/heads/$branch") == "$commit" ]]
+  run_gate_command cli-pre-commit "$clean_tree" env -C "$git_e2e_worktree/nested" "$gate_bin" hook pre-commit
+  run_gate_command pre-push "$clean_tree" "${hooks_env[@]}" git -C "$git_e2e_worktree/nested" push "$git_e2e_remote_name" "HEAD:refs/heads/$git_e2e_branch"
+  [[ $(git --git-dir="$git_e2e_remote" rev-parse "refs/heads/$git_e2e_branch") == "$commit" ]]
   printf 'production Git hook E2E: PASS evidence=%s commit=%s tree=%s\n' "$evidence_root" "$commit" "$clean_tree"
+}
+
+run_git_cleanup_contract() {
+  prepare_git_e2e
+  printf '%s\n%s\n%s\n%s\n' \
+    "$git_e2e_fixture" "$git_e2e_worktree" "$git_e2e_branch" "$git_e2e_remote_name" \
+    >"${GATE_HOOK_E2E_CLEANUP_STATE_FILE:?}"
+  case ${GATE_HOOK_E2E_CLEANUP_OUTCOME:-success} in
+    success) return 0 ;;
+    failure) return 19 ;;
+    int) kill -s INT "$$" ;;
+    term) kill -s TERM "$$" ;;
+    repeat)
+      cleanup_git_e2e
+      cleanup_git_e2e
+      return 0
+      ;;
+    *) return 2 ;;
+  esac
 }
 
 run_codex_e2e() {
@@ -215,8 +266,8 @@ PY
   printf 'production Codex hook E2E: PASS evidence=%s\n' "$evidence_root"
 }
 
-if [[ "$mode" == git ]]; then
-  run_git_e2e
-else
-  run_codex_e2e
-fi
+case "$mode" in
+  git) run_git_e2e ;;
+  codex) run_codex_e2e ;;
+  _cleanup-contract) run_git_cleanup_contract ;;
+esac
