@@ -5,12 +5,13 @@ import os from 'node:os';
 import path from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
+import { FROZEN_T04_T05_EXECUTION_CLOSURE_PATHS } from './frontend-execution-closure.mjs';
 
 const scriptPath = fileURLToPath(import.meta.url);
 const frozenScriptRoot = path.dirname(scriptPath);
 const frozenAppRoot = path.resolve(frozenScriptRoot, '..');
 const frozenRepoRoot = path.resolve(frozenAppRoot, '..');
-const controls = readFrozenJSON('frontend-maintainability-controls.json');
+const controls = withFrozenDeliveryRunnerFiles(readFrozenJSON('frontend-maintainability-controls.json'));
 const fixtures = readFrozenJSON('frontend-maintainability-red-fixtures.json');
 const baseline = readFrozenJSON('frontend-maintainability-baseline.json');
 const frozenControlIDs = new Set(controls.controls.map(({ id }) => id));
@@ -39,9 +40,7 @@ const governancePaths = [
   'frontend-app/scripts/action-production-runtime-runner.mjs',
   'frontend-app/config/action-producer-registry.json',
   'frontend-app/config/action-producer-test-matrix.json',
-  'frontend-app/scripts/delivery-smoke-runner.mjs',
-  'frontend-app/scripts/evidence-provenance.mjs',
-  'frontend-app/scripts/performance-budget-model.mjs',
+  ...FROZEN_T04_T05_EXECUTION_CLOSURE_PATHS,
 ];
 const artifactProbes = new Set(['promptHistoryVisibleError', 'criticalTypecheck']);
 const plannedBaseSha = 'b40867229af8e17916c00393639ccb0fcb4bf6fc';
@@ -195,11 +194,7 @@ const deliveryCaseIds = Object.freeze([
   'desktop-start-smoke',
   'desktop-failure-smoke',
 ]);
-const deliveryRunnerFiles = Object.freeze([
-  'frontend-app/scripts/delivery-smoke-runner.mjs',
-  'frontend-app/scripts/evidence-provenance.mjs',
-  'frontend-app/scripts/performance-budget-model.mjs',
-]);
+const deliveryRunnerFiles = FROZEN_T04_T05_EXECUTION_CLOSURE_PATHS;
 const deliveryCommands = Object.freeze([
   Object.freeze({ id: 'frontend-build', cwd: 'frontend-app', argv: Object.freeze(['npm', 'run', 'build']) }),
   Object.freeze({ id: 'frontend-embed-verify', cwd: '.', argv: Object.freeze(['make', 'frontend-embed-verify']) }),
@@ -238,6 +233,28 @@ const plannedLaneAllOfArgv = Object.freeze({
 
 function readFrozenJSON(name) {
   return JSON.parse(fs.readFileSync(path.join(frozenScriptRoot, name), 'utf8'));
+}
+
+export function withFrozenDeliveryRunnerFiles(config) {
+  return {
+    ...config,
+    controls: config.controls.map((control) => {
+      if (control.id !== 'T05-build-embed-smoke') return control;
+      return {
+        ...control,
+        allOf: control.allOf.map((check) => {
+          if (Object.hasOwn(check, 'runnerFiles')
+            && JSON.stringify(check.runnerFiles) !== JSON.stringify(FROZEN_T04_T05_EXECUTION_CLOSURE_PATHS)) {
+            fail('delivery runnerFiles differs from the frozen execution closure');
+          }
+          return {
+            ...check,
+            runnerFiles: [...FROZEN_T04_T05_EXECUTION_CLOSURE_PATHS],
+          };
+        }),
+      };
+    }),
+  };
 }
 
 function fail(message) {
@@ -2109,6 +2126,7 @@ function validateT02DerivedLayerCounts(config) {
 }
 
 export function validateConfiguration(config = controls, fixtureDocument = fixtures) {
+  if (config !== controls) config = withFrozenDeliveryRunnerFiles(config);
   if (config.schemaVersion !== 1 || fixtureDocument.schemaVersion !== 1) fail('unsupported scorer schema version');
   if (!Array.isArray(config.controls) || config.controls.length !== 25) fail('controls must contain exactly 25 entries');
   exactSet(Object.keys(config.weights || {}), ['E', 'A', 'C', 'T', 'P'], 'dimension weights');

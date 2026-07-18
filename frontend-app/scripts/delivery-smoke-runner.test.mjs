@@ -2,6 +2,7 @@ import { join } from 'node:path';
 import { cwd, execPath } from 'node:process';
 import { describe, expect, it } from 'vitest';
 import { runManagedCommand } from './managed-command.mjs';
+import { FROZEN_T04_T05_EXECUTION_CLOSURE_PATHS } from './frontend-execution-closure.mjs';
 import {
   DELIVERY_CASE_IDS,
   DELIVERY_COMMANDS,
@@ -32,11 +33,7 @@ describe('delivery smoke runner', () => {
       'desktop-start-smoke',
       'desktop-failure-smoke',
     ]);
-    expect(DELIVERY_RUNNER_CONTENT_PATHS).toEqual([
-      'frontend-app/scripts/delivery-smoke-runner.mjs',
-      'frontend-app/scripts/evidence-provenance.mjs',
-      'frontend-app/scripts/performance-budget-model.mjs',
-    ]);
+    expect(DELIVERY_RUNNER_CONTENT_PATHS).toBe(FROZEN_T04_T05_EXECUTION_CLOSURE_PATHS);
   });
 
   it.each([

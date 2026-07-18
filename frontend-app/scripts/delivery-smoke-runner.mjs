@@ -4,16 +4,13 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import process from 'node:process';
 import { collectEvidenceProvenance } from './evidence-provenance.mjs';
+import { FROZEN_T04_T05_EXECUTION_CLOSURE_PATHS } from './frontend-execution-closure.mjs';
 import { requireSubjectSha } from './performance-budget-model.mjs';
 
 const SCRIPT_PATH = fileURLToPath(import.meta.url);
 const FRONTEND_ROOT = resolve(dirname(SCRIPT_PATH), '..');
 const REPOSITORY_ROOT = resolve(FRONTEND_ROOT, '..');
-const DELIVERY_RUNNER_CONTENT_PATHS = Object.freeze([
-  'frontend-app/scripts/delivery-smoke-runner.mjs',
-  'frontend-app/scripts/evidence-provenance.mjs',
-  'frontend-app/scripts/performance-budget-model.mjs',
-]);
+const DELIVERY_RUNNER_CONTENT_PATHS = FROZEN_T04_T05_EXECUTION_CLOSURE_PATHS;
 
 const DELIVERY_COMMANDS = Object.freeze([
   Object.freeze({

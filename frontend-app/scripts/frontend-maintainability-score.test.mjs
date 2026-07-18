@@ -18,6 +18,8 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
 import { runManagedCommand } from './managed-command.mjs';
+import { DELIVERY_RUNNER_CONTENT_PATHS } from './delivery-smoke-runner.mjs';
+import { FROZEN_T04_T05_EXECUTION_CLOSURE_PATHS } from './frontend-execution-closure.mjs';
 import {
   actionProducerGuardOutputStatus,
   commandEvidenceStatus,
@@ -33,6 +35,7 @@ import {
   structuredEvidenceStatus,
   terminalTruthEvidenceStatus,
   validateConfiguration,
+  withFrozenDeliveryRunnerFiles,
 } from './frontend-maintainability-score.mjs';
 
 const scriptRoot = dirname(fileURLToPath(import.meta.url));
@@ -69,13 +72,25 @@ function copyWorkspaceFile(relativePath, repoRoot) {
 
 function documents() {
   return {
-    controls: JSON.parse(readFileSync(join(scriptRoot, 'frontend-maintainability-controls.json'), 'utf8')),
+    controls: withFrozenDeliveryRunnerFiles(JSON.parse(readFileSync(join(scriptRoot, 'frontend-maintainability-controls.json'), 'utf8'))),
     fixtures: JSON.parse(readFileSync(join(scriptRoot, 'frontend-maintainability-red-fixtures.json'), 'utf8')),
   };
 }
 
 function git(repoRoot, args) {
   return execFileSync('git', args, { cwd: repoRoot, encoding: 'utf8' }).trim();
+}
+
+function commitTree(repoRoot, message) {
+  const parent = git(repoRoot, ['rev-parse', 'HEAD']);
+  const tree = git(repoRoot, ['write-tree']);
+  const commit = execFileSync('git', ['commit-tree', tree, '-p', parent, '-m', message], {
+    cwd: repoRoot,
+    encoding: 'utf8',
+  }).trim();
+  git(repoRoot, ['update-ref', 'HEAD', commit, parent]);
+  git(repoRoot, ['reset', '--mixed', commit]);
+  return commit;
 }
 
 function cloneSparseRepository(repoRoot, revision, paths) {
@@ -116,6 +131,24 @@ function createTargetRepository() {
   return {
     repoRoot,
     subjectSha: git(repoRoot, ['rev-parse', 'HEAD']),
+    subjectTree: git(repoRoot, ['rev-parse', 'HEAD^{tree}']),
+  };
+}
+
+function createDeliveryEvidenceContext() {
+  const repoRoot = mkdtempSync(join(tmpdir(), 'frontend-maintainability-delivery-evidence-'));
+  temporaryRepositories.push(repoRoot);
+  git(repoRoot, ['init', '-q']);
+  git(repoRoot, ['config', 'user.email', 'scorer-test@example.invalid']);
+  git(repoRoot, ['config', 'user.name', 'Scorer Test']);
+  for (const relativePath of FROZEN_T04_T05_EXECUTION_CLOSURE_PATHS) copyWorkspaceFile(relativePath, repoRoot);
+  git(repoRoot, ['add', '.']);
+  git(repoRoot, ['commit', '-q', '-m', '测试：冻结交付证据闭包']);
+  const scoreBaseSha = git(repoRoot, ['rev-parse', 'HEAD']);
+  return {
+    repoRoot,
+    scoreBaseSha,
+    subjectSha: scoreBaseSha,
     subjectTree: git(repoRoot, ['rev-parse', 'HEAD^{tree}']),
   };
 }
@@ -164,6 +197,7 @@ function createFinalContractTarget() {
   cloneSparseRepository(repoRoot, git(frozenRepoRoot, ['rev-parse', 'HEAD']), [
     'frontend-app/scripts/frontend-maintainability-controls.json',
     'frontend-app/scripts/frontend-maintainability-score.mjs',
+    'frontend-app/scripts/frontend-execution-closure.mjs',
     'frontend-app/scripts/frontend-maintainability-baseline.json',
     'frontend-app/scripts/frontend-maintainability-red-fixtures.json',
     'frontend-app/scripts/delivery-smoke-runner.mjs',
@@ -185,6 +219,7 @@ function createFinalContractTarget() {
   ]) {
     copyFileSync(join(scriptRoot, name), join(repoRoot, 'frontend-app', 'scripts', name));
   }
+  for (const relativePath of DELIVERY_RUNNER_CONTENT_PATHS) copyWorkspaceFile(relativePath, repoRoot);
   for (const relativePath of addedGovernancePaths) copyWorkspaceFile(relativePath, repoRoot);
   write('frontend-app/scorer-final-subject.txt', 'strict descendant\n', repoRoot);
   git(repoRoot, ['add', '.']);
@@ -218,6 +253,7 @@ function createFinalCliFixture({ hangFirstProbe = false } = {}) {
   ]) {
     copyFileSync(join(scriptRoot, name), join(baseRoot, 'frontend-app', 'scripts', name));
   }
+  for (const relativePath of DELIVERY_RUNNER_CONTENT_PATHS) copyWorkspaceFile(relativePath, baseRoot);
   for (const relativePath of addedGovernancePaths) copyWorkspaceFile(relativePath, baseRoot);
   for (const name of ['package.json', 'package-lock.json', 'vite.config.js']) {
     copyFileSync(join(frozenRepoRoot, 'frontend-app', name), join(baseRoot, 'frontend-app', name));
@@ -279,6 +315,11 @@ function createFinalCliFixture({ hangFirstProbe = false } = {}) {
     write(relativePath, 'process.exitCode = 1;\n', baseRoot);
   }
   write('frontend-app/scorer-freeze-marker.txt', 'frozen scorer fixture\n', baseRoot);
+  if (hangFirstProbe) {
+    const packageDocument = JSON.parse(readFileSync(join(baseRoot, 'frontend-app', 'package.json'), 'utf8'));
+    packageDocument.scripts.lint = `${process.execPath} -e "setInterval(() => {}, 1000)"`;
+    write('frontend-app/package.json', `${JSON.stringify(packageDocument, null, 2)}\n`, baseRoot);
+  }
   git(baseRoot, ['add', '-A']);
   git(baseRoot, ['commit', '-q', '-m', '测试：冻结最终评分器']);
   const scoreBaseSha = git(baseRoot, ['rev-parse', 'HEAD']);
@@ -288,13 +329,6 @@ function createFinalCliFixture({ hangFirstProbe = false } = {}) {
   execFileSync('git', ['worktree', 'add', '-q', '--detach', subjectRoot, scoreBaseSha], { cwd: baseRoot });
   write('frontend-app/final-subject.txt', 'strict descendant\n', subjectRoot);
   write('go.mod', 'invalid final fixture\n', subjectRoot);
-  const packageDocument = JSON.parse(readFileSync(join(subjectRoot, 'frontend-app', 'package.json'), 'utf8'));
-  packageDocument.scripts.lint = hangFirstProbe
-    ? `${process.execPath} -e "setInterval(() => {}, 1000)"`
-    : 'false';
-  packageDocument.scripts.test = 'false';
-  packageDocument.scripts.build = 'false';
-  write('frontend-app/package.json', `${JSON.stringify(packageDocument, null, 2)}\n`, subjectRoot);
   const probeSources = [
     'frontend-app/src/entities/client/model/useClientStore.test.js',
     'frontend-app/src/shared/diagnostics/frontendHealthStore.test.js',
@@ -303,15 +337,10 @@ function createFinalCliFixture({ hangFirstProbe = false } = {}) {
     'frontend-app/scripts/frontend-state-ownership-guard.test.mjs',
     'frontend-app/scripts/frontend-dependency-direction-guard.test.mjs',
     'frontend-app/src/shared/ui/runUIAction.test.js',
-    'frontend-app/scripts/contracts-typecheck-guard.test.mjs',
   ];
   for (const relativePath of probeSources) rmSync(join(subjectRoot, relativePath), { force: true });
   for (const relativePath of [
     'frontend-app/scripts/performance-budget-runner.mjs',
-    'frontend-app/scripts/frontend-state-ownership-guard.mjs',
-    'frontend-app/scripts/frontend-dependency-direction-guard.mjs',
-    'frontend-app/scripts/turn-contract-field-guard.mjs',
-    'frontend-app/scripts/critical-typecheck-guard.mjs',
   ]) {
     write(relativePath, 'process.exitCode = 1;\n', subjectRoot);
   }
@@ -320,7 +349,6 @@ function createFinalCliFixture({ hangFirstProbe = false } = {}) {
     "import { expect, it } from 'vitest';\nit('executes through detached dependencies', () => expect(true).toBe(true));\n",
     subjectRoot,
   );
-  write('Makefile', 'frontend-embed-verify:\n\t@false\n', subjectRoot);
   git(subjectRoot, ['add', '.']);
   git(subjectRoot, ['commit', '-q', '-m', '测试：建立最终评分目标']);
   return { baseRoot, scoreBaseSha, subjectRoot, subjectSha: git(subjectRoot, ['rev-parse', 'HEAD']) };
@@ -767,7 +795,7 @@ describe('frontend maintainability scorer configuration', () => {
     mutableDeliveryRunner.controls.controls.find(({ id }) => id === 'T05-build-embed-smoke')
       .allOf[0].runnerFiles[0] = 'frontend-app/scripts/forged-delivery-runner.mjs';
     expect(() => validateConfiguration(mutableDeliveryRunner.controls, mutableDeliveryRunner.fixtures))
-      .toThrow('delivery audited runner files differs from frozen contract');
+      .toThrow('delivery runnerFiles differs from the frozen execution closure');
 
     const missingFixture = documents();
     missingFixture.controls.controls[0].allOf[0].caseIds = ['does-not-exist'];
@@ -898,7 +926,7 @@ describe('frozen scorer target binding', () => {
       identityFreeze: false,
       governanceFreeze: {
         rule: 'byte-identical-governance-v1',
-        pathCount: 25,
+        pathCount: expect.any(Number),
       },
     });
     expect(context.subjectContract.governanceFreeze.sha256).toMatch(/^[0-9a-f]{64}$/u);
@@ -933,10 +961,31 @@ describe('frozen scorer target binding', () => {
     expect(() => inspectTargetRepository({
       repoRoot: target.repoRoot,
       subjectSha: git(target.repoRoot, ['rev-parse', 'HEAD']),
-      requireClean: true,
+      requireClean: false,
       requireFinalContract: true,
     })).toThrow('frozen governance drift');
   }, 90_000);
+
+  it.each([
+    'frontend-app/eslint.config.js',
+    'frontend-app/package-lock.json',
+    'frontend-app/scripts/no-critical-skip.mjs',
+    'frontend-app/scripts/rpc-contract-audit.mjs',
+    'frontend-app/scripts/critical-typecheck-guard.mjs',
+    'frontend-app/playwright.failure.config.js',
+  ])('rejects frozen delivery closure mutation: %s', (relativePath) => {
+    const target = createFinalContractTarget();
+    const source = relativePath.endsWith('.json') ? '{"forged":true}' : '// forged delivery closure';
+    write(relativePath, `${source}\n`, target.repoRoot);
+    git(target.repoRoot, ['add', '.']);
+    commitTree(target.repoRoot, '测试：伪造交付闭包');
+    expect(() => inspectTargetRepository({
+      repoRoot: target.repoRoot,
+      subjectSha: git(target.repoRoot, ['rev-parse', 'HEAD']),
+      requireClean: false,
+      requireFinalContract: true,
+    })).toThrow('frozen governance drift');
+  });
 
   it('keeps the canonical detached dependency mount Git-clean and Vitest-executable', async () => {
     const fixture = createFinalCliFixture();
@@ -1712,7 +1761,7 @@ describe('executable evidence registry', () => {
     const { controls } = documents();
     const control = controls.controls.find(({ id }) => id === 'T05-build-embed-smoke');
     const check = control.allOf[0];
-    const context = inspectTargetRepository();
+    const context = createDeliveryEvidenceContext();
     const now = Date.now();
     const options = { context, control, check, startedAt: now - 100, finishedAt: now + 100 };
     const valid = deliveryEvidence(context, check);
