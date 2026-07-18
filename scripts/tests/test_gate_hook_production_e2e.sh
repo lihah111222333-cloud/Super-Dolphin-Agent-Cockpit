@@ -37,44 +37,104 @@ fi
 chmod 700 "$evidence_root"
 
 git_e2e_fixture=
+git_e2e_repo_root=
 git_e2e_worktree=
 git_e2e_remote=
 git_e2e_remote_name=
 git_e2e_branch=
+git_e2e_lock_dir=
+git_e2e_lock_held=0
+
+release_git_metadata_lock() {
+  if [[ ${git_e2e_lock_held:-0} -eq 1 ]]; then
+    rmdir "$git_e2e_lock_dir" >/dev/null 2>&1 || true
+    git_e2e_lock_held=0
+  fi
+}
+
+acquire_git_metadata_lock() {
+  local attempt
+  for ((attempt = 1; attempt <= 600; attempt++)); do
+    if mkdir "$git_e2e_lock_dir" 2>/dev/null; then
+      git_e2e_lock_held=1
+      return 0
+    fi
+    sleep 0.05
+  done
+  printf 'production hook E2E: timed out acquiring Git metadata lock %s\n' "$git_e2e_lock_dir" >&2
+  return 1
+}
+
+with_git_metadata_lock() {
+  local command_status
+  acquire_git_metadata_lock || return 1
+  if "$@"; then
+    command_status=0
+  else
+    command_status=$?
+  fi
+  release_git_metadata_lock
+  return "$command_status"
+}
+
+remove_git_e2e_metadata() {
+  local repository=$1 worktree=$2 branch=$3 remote_name=$4
+  [[ -z "$worktree" ]] || git -C "$repository" worktree remove --force "$worktree" >/dev/null 2>&1 || true
+  [[ -z "$branch" ]] || git -C "$repository" branch -D "$branch" >/dev/null 2>&1 || true
+  [[ -z "$remote_name" ]] || git -C "$repository" remote remove "$remote_name" >/dev/null 2>&1 || true
+}
 
 cleanup_git_e2e() {
+  local repository=${git_e2e_repo_root:-}
   local worktree=${git_e2e_worktree:-}
   local branch=${git_e2e_branch:-}
   local remote_name=${git_e2e_remote_name:-}
   local fixture=${git_e2e_fixture:-}
-  git_e2e_worktree=
-  git_e2e_branch=
-  git_e2e_remote_name=
-  git_e2e_remote=
-  git_e2e_fixture=
-  [[ -z "$worktree" ]] || git -C "$repo_root" worktree remove --force "$worktree" >/dev/null 2>&1 || true
-  [[ -z "$branch" ]] || git -C "$repo_root" branch -D "$branch" >/dev/null 2>&1 || true
-  [[ -z "$remote_name" ]] || git -C "$repo_root" remote remove "$remote_name" >/dev/null 2>&1 || true
-  [[ -z "$fixture" ]] || rm -rf "$fixture"
+  release_git_metadata_lock
+  if [[ -n "$repository" ]] && with_git_metadata_lock remove_git_e2e_metadata "$repository" "$worktree" "$branch" "$remote_name"; then
+    git_e2e_worktree=
+    git_e2e_branch=
+    git_e2e_remote_name=
+    git_e2e_remote=
+    git_e2e_repo_root=
+    [[ -z "$fixture" ]] || rm -rf "$fixture"
+    git_e2e_fixture=
+  elif [[ -n "$repository" ]]; then
+    printf 'production hook E2E: cleanup could not acquire the Git metadata lock for %s\n' "$repository" >&2
+  elif [[ -n "$fixture" ]]; then
+    rm -rf "$fixture"
+    git_e2e_fixture=
+  fi
+}
+
+exit_from_git_e2e_signal() {
+  exit "$1"
+}
+
+add_git_e2e_metadata() {
+  local repository=$1 worktree=$2 branch=$3 remote_name=$4 remote=$5
+  git -C "$repository" worktree add --detach "$worktree" HEAD || return 1
+  git -C "$worktree" switch -c "$branch" || return 1
+  git -C "$repository" remote add "$remote_name" "$remote" || return 1
 }
 
 prepare_git_e2e() {
-  local identity
+  local repository=$1 identity common_dir
   identity="$(date +%s)-$$-$RANDOM"
+  git_e2e_repo_root=$(cd "$repository" && pwd -P)
   git_e2e_fixture=$(mktemp -d -t gate-hook-git-e2e.XXXXXX)
   git_e2e_worktree="$git_e2e_fixture/worktree"
   git_e2e_remote="$git_e2e_fixture/remote.git"
   git_e2e_branch="gate-hook-e2e-$identity"
   git_e2e_remote_name="gate-hook-e2e-$identity"
+  common_dir=$(git -C "$git_e2e_repo_root" rev-parse --path-format=absolute --git-common-dir)
+  git_e2e_lock_dir="$common_dir/super-dolphin-gate-hook-e2e.lock"
   trap cleanup_git_e2e EXIT
-  trap 'exit 130' INT
-  trap 'exit 143' TERM
-  git -C "$repo_root" worktree add --detach "$git_e2e_worktree" HEAD
+  trap 'exit_from_git_e2e_signal 130' INT
+  trap 'exit_from_git_e2e_signal 143' TERM
   git init --bare "$git_e2e_remote"
-  git -C "$git_e2e_worktree" switch -c "$git_e2e_branch"
-  git -C "$git_e2e_worktree" config user.name 'Gate Hook Production E2E'
-  git -C "$git_e2e_worktree" config user.email 'gate-hook-e2e@example.invalid'
-  git -C "$git_e2e_worktree" remote add "$git_e2e_remote_name" "$git_e2e_remote"
+  with_git_metadata_lock add_git_e2e_metadata \
+    "$git_e2e_repo_root" "$git_e2e_worktree" "$git_e2e_branch" "$git_e2e_remote_name" "$git_e2e_remote"
 }
 
 extract_job_id() {
@@ -176,9 +236,13 @@ run_git_e2e() {
   git -C "$repo_root" diff --quiet
   git -C "$repo_root" diff --cached --quiet
   local hooks_env bad_tree clean_tree commit
-  prepare_git_e2e
+  prepare_git_e2e "$repo_root"
   mkdir -p "$git_e2e_worktree/nested"
-  hooks_env=(env GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.hooksPath GIT_CONFIG_VALUE_0="$repo_root/.githooks")
+  hooks_env=(
+    env GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.hooksPath GIT_CONFIG_VALUE_0="$repo_root/.githooks"
+    GIT_AUTHOR_NAME='Gate Hook Production E2E' GIT_AUTHOR_EMAIL='gate-hook-e2e@example.invalid'
+    GIT_COMMITTER_NAME='Gate Hook Production E2E' GIT_COMMITTER_EMAIL='gate-hook-e2e@example.invalid'
+  )
 
   printf 'deliberate trailing whitespace \n' >"$git_e2e_worktree/.gate-hook-e2e"
   git -C "$git_e2e_worktree" add .gate-hook-e2e
@@ -199,15 +263,21 @@ run_git_e2e() {
 }
 
 run_git_cleanup_contract() {
-  prepare_git_e2e
-  printf '%s\n%s\n%s\n%s\n' \
-    "$git_e2e_fixture" "$git_e2e_worktree" "$git_e2e_branch" "$git_e2e_remote_name" \
+  prepare_git_e2e "${GATE_HOOK_E2E_CLEANUP_REPOSITORY:?}"
+  printf '%s\n%s\n%s\n%s\n%s\n' \
+    "$git_e2e_fixture" "$git_e2e_worktree" "$git_e2e_branch" "$git_e2e_remote_name" "$git_e2e_repo_root" \
     >"${GATE_HOOK_E2E_CLEANUP_STATE_FILE:?}"
   case ${GATE_HOOK_E2E_CLEANUP_OUTCOME:-success} in
     success) return 0 ;;
     failure) return 19 ;;
-    int) kill -s INT "$$" ;;
-    term) kill -s TERM "$$" ;;
+    int)
+      kill -s INT "$$"
+      exit_from_git_e2e_signal 130
+      ;;
+    term)
+      kill -s TERM "$$"
+      exit_from_git_e2e_signal 143
+      ;;
     repeat)
       cleanup_git_e2e
       cleanup_git_e2e

@@ -252,34 +252,77 @@ if grep -Eq 'fake|mock|recordingHookCoordinator|provision production' "$producti
   fail "production hook E2E contains a fixture or provisioning bypass"
 fi
 
+cleanup_contract_repo="$fixture_root/cleanup-contract-repository"
+mkdir -p "$cleanup_contract_repo"
+git -C "$cleanup_contract_repo" init -q
+git -C "$cleanup_contract_repo" config user.name 'Cleanup Contract'
+git -C "$cleanup_contract_repo" config user.email 'cleanup-contract@example.invalid'
+printf '%s\n' 'cleanup contract' >"$cleanup_contract_repo/tracked.txt"
+git -C "$cleanup_contract_repo" add tracked.txt
+git -C "$cleanup_contract_repo" commit -qm 'fixture base'
+
+verify_cleanup_contract() {
+  local label=$1 expected_status=$2 actual_status=$3 state_file=$4 stderr_file=$5
+  if [[ $actual_status -ne $expected_status ]]; then
+    cat "$stderr_file" >&2
+    fail "cleanup $label exit=$actual_status, want $expected_status"
+  fi
+  if grep -Fq 'unbound variable' "$stderr_file"; then
+    cat "$stderr_file" >&2
+    fail "cleanup $label used an expired local variable"
+  fi
+  if [[ ! -s "$state_file" ]]; then
+    cat "$stderr_file" >&2
+    fail "cleanup $label did not write resource state"
+  fi
+  local cleanup_fixture cleanup_worktree cleanup_branch cleanup_remote cleanup_repo
+  {
+    IFS= read -r cleanup_fixture
+    IFS= read -r cleanup_worktree
+    IFS= read -r cleanup_branch
+    IFS= read -r cleanup_remote
+    IFS= read -r cleanup_repo
+  } <"$state_file"
+  if [[ -e "$cleanup_fixture" ]]; then
+    cat "$stderr_file" >&2
+    fail "cleanup $label leaked fixture $cleanup_fixture"
+  fi
+  if git -C "$cleanup_repo" worktree list --porcelain | grep -Fqx "worktree $cleanup_worktree"; then
+    cat "$stderr_file" >&2
+    fail "cleanup $label leaked worktree"
+  fi
+  if git -C "$cleanup_repo" show-ref --verify --quiet "refs/heads/$cleanup_branch"; then
+    cat "$stderr_file" >&2
+    fail "cleanup $label leaked branch"
+  fi
+  if git -C "$cleanup_repo" remote | grep -Fqx "$cleanup_remote"; then
+    cat "$stderr_file" >&2
+    fail "cleanup $label leaked remote"
+  fi
+}
+
+run_cleanup_contract() {
+  local outcome=$1 state_file=$2 stdout_file=$3 stderr_file=$4
+  GATE_HOOK_E2E_CLEANUP_CONTRACT=1 \
+    GATE_HOOK_E2E_CLEANUP_OUTCOME="$outcome" \
+    GATE_HOOK_E2E_CLEANUP_REPOSITORY="$cleanup_contract_repo" \
+    GATE_HOOK_E2E_CLEANUP_STATE_FILE="$state_file" \
+    GATE_HOOK_E2E_EVIDENCE_DIR="${state_file%.state}-evidence" \
+    bash "$production_e2e" _cleanup-contract >"$stdout_file" 2>"$stderr_file"
+}
+
 assert_cleanup_contract() {
-  local outcome expected_status state_file stdout_file stderr_file
+  local outcome expected_status state_file stdout_file stderr_file actual_status
   outcome=$1
   expected_status=$2
   state_file="$fixture_root/cleanup-$outcome.state"
   stdout_file="$fixture_root/cleanup-$outcome.stdout"
   stderr_file="$fixture_root/cleanup-$outcome.stderr"
   set +e
-  GATE_HOOK_E2E_CLEANUP_CONTRACT=1 \
-    GATE_HOOK_E2E_CLEANUP_OUTCOME="$outcome" \
-    GATE_HOOK_E2E_CLEANUP_STATE_FILE="$state_file" \
-    GATE_HOOK_E2E_EVIDENCE_DIR="$fixture_root/cleanup-$outcome-evidence" \
-    bash "$production_e2e" _cleanup-contract >"$stdout_file" 2>"$stderr_file"
-  local actual_status=$?
+  run_cleanup_contract "$outcome" "$state_file" "$stdout_file" "$stderr_file"
+  actual_status=$?
   set -e
-  [[ $actual_status -eq $expected_status ]] || fail "cleanup $outcome exit=$actual_status, want $expected_status"
-  ! grep -Fq 'unbound variable' "$stderr_file" || fail "cleanup $outcome used an expired local variable"
-  local cleanup_fixture cleanup_worktree cleanup_branch cleanup_remote
-  {
-    IFS= read -r cleanup_fixture
-    IFS= read -r cleanup_worktree
-    IFS= read -r cleanup_branch
-    IFS= read -r cleanup_remote
-  } <"$state_file"
-  [[ ! -e "$cleanup_fixture" ]] || fail "cleanup $outcome leaked fixture $cleanup_fixture"
-  ! git -C "$repo_root" worktree list --porcelain | grep -Fqx "worktree $cleanup_worktree" || fail "cleanup $outcome leaked worktree"
-  ! git -C "$repo_root" show-ref --verify --quiet "refs/heads/$cleanup_branch" || fail "cleanup $outcome leaked branch"
-  ! git -C "$repo_root" remote | grep -Fqx "$cleanup_remote" || fail "cleanup $outcome leaked remote"
+  verify_cleanup_contract "$outcome" "$expected_status" "$actual_status" "$state_file" "$stderr_file"
 }
 
 assert_cleanup_contract success 0
@@ -287,5 +330,34 @@ assert_cleanup_contract failure 19
 assert_cleanup_contract int 130
 assert_cleanup_contract term 143
 assert_cleanup_contract repeat 0
+
+assert_parallel_cleanup_round() {
+  local round=$1 slot state_file stdout_file stderr_file
+  local -a pids=()
+  local -a statuses=()
+  for slot in 1 2; do
+    state_file="$fixture_root/parallel-$round-$slot.state"
+    stdout_file="$fixture_root/parallel-$round-$slot.stdout"
+    stderr_file="$fixture_root/parallel-$round-$slot.stderr"
+    run_cleanup_contract success "$state_file" "$stdout_file" "$stderr_file" &
+    pids[slot]=$!
+  done
+  for slot in 1 2; do
+    if wait "${pids[$slot]}"; then
+      statuses[slot]=0
+    else
+      statuses[slot]=$?
+    fi
+  done
+  for slot in 1 2; do
+    verify_cleanup_contract \
+      "parallel-$round-$slot" 0 "${statuses[$slot]}" \
+      "$fixture_root/parallel-$round-$slot.state" "$fixture_root/parallel-$round-$slot.stderr"
+  done
+}
+
+for round in 1 2 3; do
+  assert_parallel_cleanup_round "$round"
+done
 
 printf '%s\n' 'gate hook entrypoint contracts: PASS'
