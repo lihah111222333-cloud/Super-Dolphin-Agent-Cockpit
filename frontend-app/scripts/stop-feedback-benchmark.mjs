@@ -65,6 +65,12 @@ function stopFeedbackContractForSubject(subjectSha) {
   return subjectSha === FROZEN_PLAN_BASE_SHA ? STOP_FEEDBACK.base : STOP_FEEDBACK.candidate;
 }
 
+function resolveStopFeedbackAttachRuntime(attachRuntime) {
+  if (attachRuntime === undefined) return attachActiveThreadRpcRuntime;
+  if (typeof attachRuntime !== 'function') throw new TypeError('attachRuntime must be a function');
+  return attachRuntime;
+}
+
 function observeFeedbackCommit(host, expected) {
   return new Promise((resolve, reject) => {
     let timeoutId;
@@ -119,11 +125,11 @@ function unconfirmedInterruptResponse() {
 }
 
 function createStopFeedbackHarness({
-  attachRuntime = attachActiveThreadRpcRuntime,
+  attachRuntime,
   domMutation,
   subjectSha,
 } = {}) {
-  if (typeof attachRuntime !== 'function') throw new TypeError('attachRuntime must be a function');
+  const runtimeAttacher = resolveStopFeedbackAttachRuntime(attachRuntime);
   const contract = stopFeedbackContractForSubject(subjectSha);
   const mutation = normalizeDOMMutation(domMutation);
   const host = globalThis.document.createElement('div');
@@ -172,7 +178,7 @@ function createStopFeedbackHarness({
       state = { ...state, ...(typeof patch === 'function' ? patch(state) : patch) };
     },
   };
-  attachRuntime(runtime, {
+  runtimeAttacher(runtime, {
     activeThreadInterruptTarget: (current) => ({
       interruptible: true,
       threadId: current.activeThreadId,
@@ -297,6 +303,7 @@ export {
   createStopFeedbackHarness,
   measurementTrimmedMean,
   runStopFeedbackBenchmark,
+  resolveStopFeedbackAttachRuntime,
   stopFeedbackContractForSubject,
   verifyStopFeedbackEvidence,
 };

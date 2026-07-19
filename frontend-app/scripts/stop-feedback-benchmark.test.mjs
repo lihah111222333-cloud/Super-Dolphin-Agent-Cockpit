@@ -1,4 +1,5 @@
 import { expect, it } from 'vitest';
+import { attachActiveThreadRpcRuntime } from '../src/entities/client/model/threadLifecycleRuntime.js';
 import {
   ATTEMPTS_PER_SAMPLE,
   FEEDBACK_DURATION_CLOCK,
@@ -7,6 +8,7 @@ import {
   STOP_FEEDBACK_PENDING,
   createStopFeedbackHarness,
   measurementTrimmedMean,
+  resolveStopFeedbackAttachRuntime,
   runStopFeedbackBenchmark,
   stopFeedbackContractForSubject,
   verifyStopFeedbackEvidence,
@@ -16,8 +18,24 @@ let benchmarkEvidence;
 const CANDIDATE_SUBJECT_SHA = 'c'.repeat(40);
 
 function fullBenchmarkEvidence() {
-  benchmarkEvidence ??= runStopFeedbackBenchmark({ subjectSha: FROZEN_PLAN_BASE_SHA });
+  benchmarkEvidence ??= runStopFeedbackBenchmark({
+    attachRuntime: attachBaseRuntime,
+    subjectSha: FROZEN_PLAN_BASE_SHA,
+  });
   return benchmarkEvidence;
+}
+
+function attachBaseRuntime(runtime) {
+  runtime.activeThreadRPC = async (action, rpc) => {
+    if (action !== 'thread.interrupt') throw new Error(`unexpected action: ${action}`);
+    const response = await rpc({});
+    if (response.ok) {
+      runtime.notifyAction('已发送中断请求', 'success');
+      return true;
+    }
+    runtime.notifyAction('中断当前执行失败：stop confirmation timed out', 'warning');
+    return false;
+  };
 }
 
 function attachCandidateRuntime(runtime, deps) {
@@ -36,7 +54,10 @@ function attachCandidateRuntime(runtime, deps) {
 }
 
 it('measures BASE confirmed and timeout-unconfirmed Stop outcomes only after their React DOM output commits', async () => {
-  const harness = createStopFeedbackHarness({ subjectSha: FROZEN_PLAN_BASE_SHA });
+  const harness = createStopFeedbackHarness({
+    attachRuntime: attachBaseRuntime,
+    subjectSha: FROZEN_PLAN_BASE_SHA,
+  });
   try {
     await expect(harness.measureConfirmed()).resolves.toBeGreaterThanOrEqual(0);
     await expect(harness.measureUnconfirmed()).resolves.toBeGreaterThanOrEqual(0);
@@ -44,6 +65,12 @@ it('measures BASE confirmed and timeout-unconfirmed Stop outcomes only after the
   finally {
     harness.destroy();
   }
+});
+
+it('keeps the real product runtime as the omitted attachRuntime default', () => {
+  expect(resolveStopFeedbackAttachRuntime()).toBe(attachActiveThreadRpcRuntime);
+  expect(resolveStopFeedbackAttachRuntime(attachCandidateRuntime)).toBe(attachCandidateRuntime);
+  expect(() => resolveStopFeedbackAttachRuntime(null)).toThrow(/attachRuntime must be a function/);
 });
 
 it('binds the immutable BASE subject to the old final contract and every candidate subject to the new final contract', () => {
@@ -109,7 +136,11 @@ it('does not let pending feedback satisfy the final DOM commit', async () => {
 });
 
 it('fails rather than recording a synchronous notifyAction callback when a DOM mutation suppresses feedback', async () => {
-  const harness = createStopFeedbackHarness({ domMutation: { mode: 'suppress' }, subjectSha: FROZEN_PLAN_BASE_SHA });
+  const harness = createStopFeedbackHarness({
+    attachRuntime: attachBaseRuntime,
+    domMutation: { mode: 'suppress' },
+    subjectSha: FROZEN_PLAN_BASE_SHA,
+  });
   try {
     await expect(harness.measureConfirmed()).rejects.toThrow(/did not commit to the React DOM/);
     await expect(harness.measureUnconfirmed()).rejects.toThrow(/did not commit to the React DOM/);
@@ -121,7 +152,11 @@ it('fails rather than recording a synchronous notifyAction callback when a DOM m
 
 it('includes delayed React DOM commits in Stop feedback timing', async () => {
   const delayMs = 25;
-  const harness = createStopFeedbackHarness({ domMutation: { delayMs, mode: 'delay' }, subjectSha: FROZEN_PLAN_BASE_SHA });
+  const harness = createStopFeedbackHarness({
+    attachRuntime: attachBaseRuntime,
+    domMutation: { delayMs, mode: 'delay' },
+    subjectSha: FROZEN_PLAN_BASE_SHA,
+  });
   try {
     await expect(harness.measureConfirmed()).resolves.toBeGreaterThanOrEqual(delayMs);
     await expect(harness.measureUnconfirmed()).resolves.toBeGreaterThanOrEqual(delayMs);
@@ -139,7 +174,7 @@ it('uses an 80 percent trimmed mean and rejects invalid timing values', () => {
   expect(() => measurementTrimmedMean([1, 2, 3, 4, -1])).toThrow(/finite non-negative/);
 });
 
-it('measures visible stop feedback after warmup with five production-runtime samples', async () => {
+it('measures visible BASE stop feedback after warmup with five samples', async () => {
   const evidence = await fullBenchmarkEvidence();
 
   expect(evidence).toEqual(expect.objectContaining({
