@@ -25,6 +25,7 @@ import {
   commandEvidenceStatus,
   controlStatus,
   createSubjectContract,
+  finalGateFailures,
   inspectTargetRepository,
   persistScoreReport,
   performanceAuditPathAllowed,
@@ -883,6 +884,17 @@ describe('frontend maintainability scorer configuration', () => {
     expect(() => validateConfiguration(optionalDoD.controls, optionalDoD.fixtures))
       .toThrow('DoD control must be required');
 
+    const optionalP04 = documents();
+    optionalP04.controls.controls.find(({ id }) => id === 'P04-resource-budget').required = false;
+    expect(() => validateConfiguration(optionalP04.controls, optionalP04.fixtures))
+      .toThrow('DoD control must be required');
+
+    const missingDesktopSources = documents();
+    delete missingDesktopSources.controls.controls.find(({ id }) => id === 'T03-wails-integration')
+      .allOf.find(({ probe }) => probe === 'desktopFailureSmoke').sourcePaths;
+    expect(() => validateConfiguration(missingDesktopSources.controls, missingDesktopSources.fixtures))
+      .toThrow('desktop failure smoke report contract differs from frozen contract');
+
     const mutablePerformanceCLI = documents();
     mutablePerformanceCLI.controls.controls.find(({ id }) => id === 'P02-history-budget')
       .allOf[0].argv.push('--json');
@@ -913,6 +925,10 @@ describe('frontend maintainability scorer configuration', () => {
     expect(['E06-failure-matrix', 'C05-provider-rpc-parity', 'T05-build-embed-smoke'].every((id) => (
       controls.controls.find((control) => control.id === id).required
     ))).toBe(true);
+    expect(controls.controls.find(({ id }) => id === 'P04-resource-budget').required).toBe(true);
+    const desktopFailureCheck = controls.controls.find(({ id }) => id === 'T03-wails-integration')
+      .allOf.find(({ probe }) => probe === 'desktopFailureSmoke');
+    expect(desktopFailureCheck.sourcePaths).toEqual(DESKTOP_FAILURE_SOURCE_PATHS);
     expect(JSON.stringify(controls)).not.toContain('notImplemented');
     expect(JSON.stringify(controls)).not.toMatch(/frontend-[a-z-]+-evidence\.mjs/u);
     expect(controls.controls.find(({ id }) => id === 'E06-failure-matrix').allOf[0].argv)
@@ -988,6 +1004,31 @@ describe('frontend maintainability scorer configuration', () => {
 });
 
 describe('frozen scorer target binding', () => {
+  it('does not resolve ignored external dependencies while bootstrapping the frozen scorer', () => {
+    const fixture = createFinalCliFixture();
+    write('frontend-app/scripts/desktop-failure-smoke.mjs', [
+      "import '@playwright/test';",
+      `export const DESKTOP_FAILURE_SOURCE_PATHS = Object.freeze(${JSON.stringify(DESKTOP_FAILURE_SOURCE_PATHS)});`,
+      '',
+    ].join('\n'), fixture.baseRoot);
+    write('frontend-app/node_modules/@playwright/test/package.json', JSON.stringify({
+      name: '@playwright/test', type: 'module', exports: './index.js',
+    }), fixture.baseRoot);
+    write('frontend-app/node_modules/@playwright/test/index.js', [
+      "throw new Error('untrusted ignored dependency executed');",
+      '',
+    ].join('\n'), fixture.baseRoot);
+
+    const result = spawnSync(process.execPath, [
+      join(fixture.baseRoot, 'frontend-app', 'scripts', 'frontend-maintainability-score.mjs'),
+      '--validate',
+    ], { cwd: join(fixture.baseRoot, 'frontend-app'), encoding: 'utf8' });
+
+    expect(result.status).toBe(0);
+    expect(`${result.stdout}${result.stderr}`).not.toContain('untrusted ignored dependency executed');
+    expect(result.stdout).toContain('frontend maintainability scorer configuration valid');
+  });
+
   it('scores another Git target without loading a scorer from that target', async () => {
     const target = createTargetRepository();
     const result = await scoreCurrentTree({ repoRoot: target.repoRoot, subjectSha: target.subjectSha });
@@ -2121,6 +2162,26 @@ describe('executable evidence registry', () => {
 });
 
 describe('scoring semantics', () => {
+  it('rejects FINAL_GATE when P04 is the only failing control', () => {
+    const { controls } = documents();
+    const result = {
+      displayScore: 98,
+      dimensions: Object.fromEntries(Object.keys(controls.thresholds.dimensions).map((dimension) => [
+        dimension,
+        { score: controls.thresholds.dimensions[dimension] },
+      ])),
+      controls: controls.controls.map((control) => ({
+        id: control.id,
+        required: control.required,
+        status: control.id === 'P04-resource-budget' ? 'FAIL' : 'PASS',
+      })),
+    };
+
+    expect(finalGateFailures(result)).toEqual([
+      'required controls not PASS: P04-resource-budget',
+    ]);
+  });
+
   it('requires fresh named terminal behavior evidence', () => {
     const expected = {
       fingerprint: 'current-tree-fingerprint',

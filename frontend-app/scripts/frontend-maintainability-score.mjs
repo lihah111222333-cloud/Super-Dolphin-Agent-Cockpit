@@ -5,7 +5,6 @@ import os from 'node:os';
 import path from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
-import { DESKTOP_FAILURE_SOURCE_PATHS } from './desktop-failure-smoke.mjs';
 import { FROZEN_T04_T05_EXECUTION_CLOSURE_PATHS } from './frontend-execution-closure.mjs';
 import { productionActionFailureMatrixTitle } from '../src/shared/ui/productionActionFailureMatrixTitles.js';
 import { runManagedCommand, terminateManagedCommands } from './managed-command.mjs';
@@ -56,7 +55,7 @@ const governancePaths = [
 const artifactProbes = new Set(['promptHistoryVisibleError', 'criticalTypecheck']);
 const plannedBaseSha = '54d13a8d319442151aa7dc79ce25e653ca4ab13c';
 const plannedThresholds = { overall: 90, dimensions: { E: 90, A: 85, C: 85, T: 85, P: 80 } };
-const requiredDoDControls = new Set(['E06-failure-matrix', 'C05-provider-rpc-parity', 'T05-build-embed-smoke']);
+const requiredDoDControls = new Set(['E06-failure-matrix', 'C05-provider-rpc-parity', 'T05-build-embed-smoke', 'P04-resource-budget']);
 const customEvidenceProtocols = new Set([
   'action-producer-guard-v1',
   'action-production-runtime-report-v1',
@@ -917,13 +916,14 @@ function validateFailureMatrixReport(report, { context, control, check, startedA
 }
 
 function validateDesktopFailureReport(report, { context, control, check, startedAt, finishedAt }) {
+  const sourcePaths = check.sourcePaths;
   validateReportBinding(report, context, startedAt, finishedAt, 2);
   if (report.controlId !== control.id) fail('desktop failure smoke controlId mismatch');
   validateExactCaseResult(report.caseIds, report.testCount, check, 'desktop failure smoke');
-  if (report.schemaVersion !== 2 || !report.sourceHashes || JSON.stringify(Object.keys(report.sourceHashes).sort()) !== JSON.stringify([...DESKTOP_FAILURE_SOURCE_PATHS].sort())) {
+  if (report.schemaVersion !== 2 || !report.sourceHashes || JSON.stringify(Object.keys(report.sourceHashes).sort()) !== JSON.stringify([...sourcePaths].sort())) {
     fail('desktop failure smoke requires source-hashed v2 raw report');
   }
-  for (const sourcePath of DESKTOP_FAILURE_SOURCE_PATHS) {
+  for (const sourcePath of sourcePaths) {
     if (report.sourceHashes[sourcePath] !== runnerFileSha256(context.repoRoot, context.subjectSha, sourcePath)) {
       fail(`desktop failure source hash mismatch: ${sourcePath}`);
     }
@@ -2199,7 +2199,10 @@ function validateStructuredCheck(control, check) {
     }
     exact(check.argv, ['node', 'scripts/desktop-failure-smoke.mjs'], 'desktop failure smoke argv');
     exact(check.caseIds, ['terminal-failed', 'prompt-history-reject'], 'desktop failure smoke caseIds');
-    if (check.reportPath !== '.tmp/desktop-failure-smoke/report.json' || check.testCount !== 2) {
+    if (check.reportPath !== '.tmp/desktop-failure-smoke/report.json' || check.testCount !== 2
+      || !Array.isArray(check.sourcePaths) || check.sourcePaths.length === 0
+      || new Set(check.sourcePaths).size !== check.sourcePaths.length
+      || check.sourcePaths.some((sourcePath) => typeof sourcePath !== 'string' || sourcePath.length === 0)) {
       fail(`desktop failure smoke report contract differs from frozen contract: ${control.id}`);
     }
     return;
@@ -2573,7 +2576,7 @@ function printScore(result, reportPath) {
   if (reportPath) process.stdout.write(`REPORT\t${reportPath}\n`);
 }
 
-function finalGateFailures(result) {
+export function finalGateFailures(result) {
   const failures = [];
   if (result.displayScore < controls.thresholds.overall) {
     failures.push(`score ${result.displayScore.toFixed(1)} < ${controls.thresholds.overall}`);
