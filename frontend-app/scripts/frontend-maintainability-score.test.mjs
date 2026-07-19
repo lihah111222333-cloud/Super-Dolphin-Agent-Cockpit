@@ -215,6 +215,7 @@ function createFinalContractTarget() {
     'frontend-app/scripts/frontend-maintainability-baseline.json',
     'frontend-app/scripts/frontend-maintainability-red-fixtures.json',
     'frontend-app/scripts/delivery-smoke-runner.mjs',
+    'frontend-app/scripts/managed-command.mjs',
     'frontend-app/scripts/evidence-provenance.mjs',
     'frontend-app/scripts/performance-budget-model.mjs',
     'frontend-app/scorer-final-subject.txt',
@@ -228,6 +229,7 @@ function createFinalContractTarget() {
     'frontend-maintainability-baseline.json',
     'frontend-maintainability-red-fixtures.json',
     'delivery-smoke-runner.mjs',
+    'managed-command.mjs',
     'evidence-provenance.mjs',
     'performance-budget-model.mjs',
   ]) {
@@ -262,6 +264,7 @@ function createFinalCliFixture({ hangFirstProbe = false } = {}) {
     'frontend-maintainability-baseline.json',
     'frontend-maintainability-red-fixtures.json',
     'delivery-smoke-runner.mjs',
+    'managed-command.mjs',
     'evidence-provenance.mjs',
     'performance-budget-model.mjs',
   ]) {
@@ -962,11 +965,11 @@ describe('frontend maintainability scorer configuration', () => {
     ]);
   });
 
-  it('keeps the repaired terminal and visible-action truth bound to current executable probes', () => {
+  it('keeps the repaired terminal and visible-action truth bound to current executable probes', async () => {
     expect(sourceHasPromptHistoryConsoleOnly()).toBe(false);
-    expect(probeResult('terminalTruth')).toBe('PASS');
-    expect(probeResult('visibleActionError')).toBe('PASS');
-    expect(probeResult('actionProducerGuard')).toBe('PASS');
+    await expect(probeResult('terminalTruth')).resolves.toBe('PASS');
+    await expect(probeResult('visibleActionError')).resolves.toBe('PASS');
+    await expect(probeResult('actionProducerGuard')).resolves.toBe('PASS');
   }, 45_000);
 
   it('enforces exact CLI forms', () => {
@@ -979,9 +982,9 @@ describe('frontend maintainability scorer configuration', () => {
 });
 
 describe('frozen scorer target binding', () => {
-  it('scores another Git target without loading a scorer from that target', () => {
+  it('scores another Git target without loading a scorer from that target', async () => {
     const target = createTargetRepository();
-    const result = scoreCurrentTree({ repoRoot: target.repoRoot, subjectSha: target.subjectSha });
+    const result = await scoreCurrentTree({ repoRoot: target.repoRoot, subjectSha: target.subjectSha });
 
     expect(result.subjectSha).toBe(target.subjectSha);
     expect(result.subjectTree).toBe(target.subjectTree);
@@ -1010,6 +1013,7 @@ describe('frozen scorer target binding', () => {
 
   it('accepts only a clean strict descendant with byte-identical frozen governance', () => {
     const target = createFinalContractTarget();
+    expect(git(target.repoRoot, ['status', '--porcelain=v1', '--untracked-files=all'])).toBe('');
     const context = inspectTargetRepository({
       repoRoot: target.repoRoot,
       subjectSha: target.subjectSha,
@@ -1094,6 +1098,7 @@ describe('frozen scorer target binding', () => {
     'frontend-app/eslint.config.js',
     'frontend-app/package-lock.json',
     'frontend-app/scripts/no-critical-skip.mjs',
+    'frontend-app/scripts/managed-command.mjs',
     'frontend-app/scripts/rpc-contract-audit.mjs',
     'frontend-app/scripts/critical-typecheck-guard.mjs',
     'frontend-app/playwright.failure.config.js',
@@ -1172,7 +1177,16 @@ describe('frozen scorer target binding', () => {
     const commandTmpRoot = mkdtempSync(join(tmpdir(), 'frontend-maintainability-timeout-proof-'));
     temporaryRepositories.push(commandTmpRoot);
     const npmShim = join(commandTmpRoot, 'npm');
-    writeFileSync(npmShim, `#!/bin/sh\nexec '${process.execPath}' -e 'setInterval(() => {}, 1000)'\n`, { mode: 0o755 });
+    const descendantPidPath = join(commandTmpRoot, 'descendant-pids.json');
+    writeFileSync(npmShim, `#!/bin/sh
+exec '${process.execPath}' -e '
+  const { spawn } = require("node:child_process");
+  const fs = require("node:fs");
+  const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { stdio: "ignore" });
+  fs.writeFileSync(process.env.SCORER_TIMEOUT_DESCENDANT_PID, JSON.stringify({ parent: process.pid, child: child.pid }));
+  setInterval(() => {}, 1000);
+'
+`, { mode: 0o755 });
     try {
       const result = await runManagedCommand(process.execPath, [
         join(fixture.baseRoot, 'frontend-app', 'scripts', 'frontend-maintainability-score.mjs'),
@@ -1181,7 +1195,12 @@ describe('frozen scorer target binding', () => {
         '--subject', fixture.subjectSha,
       ], {
         cwd: join(fixture.baseRoot, 'frontend-app'),
-        env: { ...process.env, TMPDIR: commandTmpRoot, PATH: `${commandTmpRoot}:${process.env.PATH}` },
+        env: {
+          ...process.env,
+          TMPDIR: commandTmpRoot,
+          PATH: `${commandTmpRoot}:${process.env.PATH}`,
+          SCORER_TIMEOUT_DESCENDANT_PID: descendantPidPath,
+        },
         timeoutMs: 5_000,
         killGraceMs: 20_000,
       });
@@ -1196,6 +1215,23 @@ describe('frozen scorer target binding', () => {
       expect(readdirSync(commandTmpRoot).filter((entry) => entry.startsWith('frontend-maintainability-subject-'))).toEqual([]);
       const worktrees = git(fixture.baseRoot, ['worktree', 'list', '--porcelain']);
       expect(worktrees).not.toContain('frontend-maintainability-subject-');
+      const { parent, child } = JSON.parse(readFileSync(descendantPidPath, 'utf8'));
+      const pidDeadline = Date.now() + 5_000;
+      const processIsGone = (pid) => {
+        try {
+          process.kill(pid, 0);
+          return false;
+        }
+        catch (error) {
+          return error.code === 'ESRCH';
+        }
+      };
+      while ((!processIsGone(parent) || !processIsGone(child)) && Date.now() < pidDeadline) {
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+      expect(processIsGone(parent)).toBe(true);
+      expect(processIsGone(child)).toBe(true);
+      expect(existsSync(join(fixture.baseRoot, '.tmp', 'frontend-maintainability-score', `${fixture.subjectSha}.json`))).toBe(false);
       expect(existsSync(commandTmpRoot)).toBe(true);
     }
     finally {
@@ -1218,15 +1254,15 @@ describe('executable evidence registry', () => {
     expect(actionProducerGuardOutputStatus('action producer guard passed')).toBe('FAIL');
   });
 
-  it('keeps resolved legacy artifact probes read-only and unregistered until real lane evidence exists', () => {
+  it('keeps resolved legacy artifact probes read-only and unregistered until real lane evidence exists', async () => {
     expect(sourceHasPromptHistoryConsoleOnly()).toBe(false);
     expect(sourceHasCriticalTypecheckGap()).toBe(false);
-    expect(probeResult('promptHistoryVisibleError')).toBe('NOT_VERIFIED');
-    expect(probeResult('criticalTypecheck')).toBe('NOT_VERIFIED');
+    await expect(probeResult('promptHistoryVisibleError')).resolves.toBe('NOT_VERIFIED');
+    await expect(probeResult('criticalTypecheck')).resolves.toBe('NOT_VERIFIED');
   });
 
   it('keeps an unregistered redMatrix NOT_VERIFIED and accepts the exact action runner', async () => {
-    expect(probeResult('redMatrix')).toBe('NOT_VERIFIED');
+    await expect(probeResult('redMatrix')).resolves.toBe('NOT_VERIFIED');
     const result = await runManagedCommand(process.execPath, [
       scorerPath,
       '--probe',
@@ -1975,14 +2011,14 @@ describe('executable evidence registry', () => {
     }, options)).toBe('FAIL');
   }, T05_DELIVERY_EVIDENCE_TEST_TIMEOUT_MS);
 
-  it('fails a missing executable command instead of treating it as evidence', () => {
-    expect(commandEvidenceStatus({
+  it('fails a missing executable command instead of treating it as evidence', async () => {
+    await expect(commandEvidenceStatus({
       repoRoot: frozenRepoRoot,
       argv: ['frontend-maintainability-command-does-not-exist'],
-    })).toBe('FAIL');
+    })).resolves.toBe('FAIL');
   });
 
-  it('fails closed when the scored commit range contains whitespace errors', () => {
+  it('fails closed when the scored commit range contains whitespace errors', async () => {
     const context = createTargetRepository();
     const scoreBaseSha = context.subjectSha;
     write('candidate.txt', 'trailing whitespace \n', context.repoRoot);
@@ -1990,26 +2026,26 @@ describe('executable evidence registry', () => {
     git(context.repoRoot, ['commit', '-q', '-m', '测试：加入空白错误']);
     const invalidSubjectSha = git(context.repoRoot, ['rev-parse', 'HEAD']);
 
-    expect(commandEvidenceStatus({
+    await expect(commandEvidenceStatus({
       repoRoot: context.repoRoot,
       argv: ['git', 'diff', '--check', scoreBaseSha, invalidSubjectSha],
-    })).toBe('FAIL');
+    })).resolves.toBe('FAIL');
 
     write('candidate.txt', 'clean whitespace\n', context.repoRoot);
     git(context.repoRoot, ['add', 'candidate.txt']);
     git(context.repoRoot, ['commit', '-q', '-m', '测试：修复空白错误']);
-    expect(commandEvidenceStatus({
+    await expect(commandEvidenceStatus({
       repoRoot: context.repoRoot,
       argv: ['git', 'diff', '--check', scoreBaseSha, git(context.repoRoot, ['rev-parse', 'HEAD'])],
-    })).toBe('PASS');
+    })).resolves.toBe('PASS');
   });
 
-  it('does not turn a verbose successful command into ENOBUFS failure', () => {
-    expect(commandEvidenceStatus({
+  it('does not turn a verbose successful command into ENOBUFS failure', async () => {
+    await expect(commandEvidenceStatus({
       repoRoot: frozenRepoRoot,
       argv: [process.execPath, '-e', 'process.stdout.write("x".repeat(2 * 1024 * 1024))'],
       timeoutMs: 60_000,
-    })).toBe('PASS');
+    })).resolves.toBe('PASS');
   });
 });
 
@@ -2041,8 +2077,8 @@ describe('scoring semantics', () => {
     expect(controlStatus([{ status: 'PASS' }, { status: 'FAIL' }])).toBe('FAIL');
   });
 
-  it('does not turn zero evidence or confirmed artifact gaps into score', () => {
-    const result = scoreCurrentTree();
+  it('does not turn zero evidence or confirmed artifact gaps into score', async () => {
+    const result = await scoreCurrentTree();
     expect(result.controls.find(({ id }) => id === 'E06-failure-matrix').status).toBe('NOT_VERIFIED');
     expect(result.controls.find(({ id }) => id === 'A04-action-registry').status).toBe('NOT_VERIFIED');
     expect(result.controls.find(({ id }) => id === 'E02-visible-action-error').status).toBe('PASS');

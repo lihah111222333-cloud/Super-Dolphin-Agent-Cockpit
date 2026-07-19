@@ -10,6 +10,7 @@ export const FROZEN_T04_T05_EXECUTION_CLOSURE_PATHS = Object.freeze([
   'frontend-app/playwright.failure.config.js',
   'frontend-app/scripts/frontend-execution-closure.mjs',
   'frontend-app/scripts/delivery-smoke-runner.mjs',
+  'frontend-app/scripts/managed-command.mjs',
   'frontend-app/scripts/desktop-smoke.mjs',
   'frontend-app/scripts/desktop-failure-smoke.mjs',
   'frontend-app/scripts/evidence-provenance.mjs',

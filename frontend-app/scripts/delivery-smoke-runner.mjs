@@ -6,11 +6,13 @@ import process from 'node:process';
 import { collectEvidenceProvenance } from './evidence-provenance.mjs';
 import { FROZEN_T04_T05_EXECUTION_CLOSURE_PATHS } from './frontend-execution-closure.mjs';
 import { requireSubjectSha } from './performance-budget-model.mjs';
+import { runManagedCommand } from './managed-command.mjs';
 
 const SCRIPT_PATH = fileURLToPath(import.meta.url);
 const FRONTEND_ROOT = resolve(dirname(SCRIPT_PATH), '..');
 const REPOSITORY_ROOT = resolve(FRONTEND_ROOT, '..');
 const DELIVERY_RUNNER_CONTENT_PATHS = FROZEN_T04_T05_EXECUTION_CLOSURE_PATHS;
+export const DELIVERY_COMMAND_TIMEOUT_MS = 900_000;
 
 const DELIVERY_COMMANDS = Object.freeze([
   Object.freeze({
@@ -102,7 +104,7 @@ function inspectDeliveryCommands(packageJSON, makefile) {
   });
 }
 
-function runDeliveryCommands(inspected, spawn = spawnSync, repositoryRoot = REPOSITORY_ROOT) {
+async function runDeliveryCommands(inspected, runCommand = runManagedCommand, repositoryRoot = REPOSITORY_ROOT) {
   if (inspected.status !== 'READY') {
     return Object.freeze({
       status: 'NOT_VERIFIED',
@@ -116,23 +118,29 @@ function runDeliveryCommands(inspected, spawn = spawnSync, repositoryRoot = REPO
     const [program, ...args] = command.argv;
     const cwd = command.cwd === '.' ? repositoryRoot : resolve(repositoryRoot, command.cwd);
     const startedAtMs = Date.now();
-    const result = spawn(program, args, { cwd, encoding: 'utf8', stdio: 'pipe' });
+    const result = await runCommand(program, args, {
+      cwd,
+      timeoutMs: DELIVERY_COMMAND_TIMEOUT_MS,
+      killGraceMs: 20_000,
+    });
     const finishedAtMs = Date.now();
     results.push(Object.freeze({
       id: command.id,
       argv: command.argv,
       cwd: command.cwd,
-      exitCode: result.status,
-      signal: result.signal,
+      exitCode: result.status ?? 1,
+      signal: result.signal ?? null,
       startedAt: new Date(startedAtMs).toISOString(),
       finishedAt: new Date(finishedAtMs).toISOString(),
       durationMs: finishedAtMs - startedAtMs,
-      status: result.status === 0 ? 'PASS' : 'FAIL',
+      status: !result.timedOut && !result.error && result.status === 0 ? 'PASS' : 'FAIL',
     }));
-    if (result.status !== 0) {
+    if (result.timedOut || result.error || result.status !== 0) {
       return Object.freeze({
         status: 'FAIL',
-        reason: `${command.id} failed with exit ${result.status} signal ${result.signal || ''}`,
+        reason: result.timedOut
+          ? `${command.id} timed out after ${DELIVERY_COMMAND_TIMEOUT_MS}ms`
+          : `${command.id} failed with exit ${result.status} signal ${result.signal || ''}`,
         executedCommands: results.length,
         commands: Object.freeze(results),
       });
@@ -177,7 +185,7 @@ if (process.argv[1] && resolve(process.argv[1]) === SCRIPT_PATH) {
       readFileSync(resolve(options.repositoryRoot, 'Makefile'), 'utf8'),
     );
     const verdict = options.mode === 'verify'
-      ? runDeliveryCommands(inspected, spawnSync, options.repositoryRoot)
+      ? await runDeliveryCommands(inspected, runManagedCommand, options.repositoryRoot)
       : inspected;
     const context = collectEvidenceProvenance({
       repositoryRoot: options.repositoryRoot,
