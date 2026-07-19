@@ -372,7 +372,7 @@ runner emits SCORE_BASE-schema normalized report with SUBJECT SHA/tree, control,
 
 ### 7.1 文档体积门禁
 
-- 本计划不超过 500 行、25 KiB；规则就地更新，详细 case 留在测试，不重复状态机或引入单机不需要的分布式证明。
+- 计划不超过 500 行、25 KiB；规则就地改，细节留在测试，不重复状态机或单机不需的分布式证明。
 - 新的大协议单独建 ADR/计划并写明触发条件。
 
 ---
