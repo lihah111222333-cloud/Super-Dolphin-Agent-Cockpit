@@ -2,6 +2,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import React, { useState } from 'react';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { registerFrontendDiagnosticCorrelation } from '../../../shared/diagnostics/frontendDiagnosticCorrelation.js';
 import { frontendHealthSnapshot, resetFrontendHealthForTest } from '../../../shared/diagnostics/frontendHealthStore.js';
 import { resetVisibleActionFailureForTest } from '../../../shared/ui/actionFailureSink.js';
 import { ActionFailureSink } from '../../../shared/ui/actionFailureSink.jsx';
@@ -104,8 +105,11 @@ afterEach(() => {
 
 describe('matrix:FM-21 layer:frontend', () => {
   it('keeps draft cursor and selection stable on rejected prompt history RPC', async () => {
+    const traceId = '4bf92f3577b34da6a3ce929d0e0e4736';
     const rawCause = 'provider raw cause token=secret';
-    renderHarness({ fetchPromptHistory: vi.fn().mockRejectedValue(new Error(rawCause)) });
+    const failure = Object.assign(new Error(rawCause), { traceId, trace_id: traceId, reqId: 17, req_id: 17 });
+    registerFrontendDiagnosticCorrelation(failure, traceId);
+    renderHarness({ fetchPromptHistory: vi.fn().mockRejectedValue(failure) });
     const textarea = screen.getByRole('combobox', { name: '输入给 Agent 的内容' });
     navigatePrevious(textarea);
 
@@ -114,9 +118,10 @@ describe('matrix:FM-21 layer:frontend', () => {
     expect(textarea.selectionStart).toBe(3);
     expect(textarea.selectionEnd).toBe(3);
     expect(alert).toHaveTextContent('提示历史暂时不可用');
+    expect(alert).toHaveTextContent(traceId);
     expect(alert).not.toHaveTextContent(rawCause);
     expect(frontendHealthSnapshot()).toEqual(expect.arrayContaining([
-      expect.objectContaining({ actionId: 'prompt-history.previous', occurrences: 1 }),
+      expect.objectContaining({ actionId: 'prompt-history.previous', diagnosticId: traceId, occurrences: 1 }),
     ]));
     expect(window.localStorage.getItem('super-dolphin.frontend-health.v1')).not.toContain(rawCause);
   });

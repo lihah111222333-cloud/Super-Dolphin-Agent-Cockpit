@@ -3,6 +3,7 @@ import {
   frontendHealthSnapshot,
   resetFrontendHealthForTest,
 } from '../diagnostics/frontendHealthStore.js';
+import { registerFrontendDiagnosticCorrelation } from '../diagnostics/frontendDiagnosticCorrelation.js';
 import { runUIAction } from './runUIAction.js';
 
 function diagnosticIds(...ids) {
@@ -45,6 +46,69 @@ it('routes Promise rejection through the same sinks', async () => {
 
   expect(healthSink).toHaveBeenCalledTimes(1);
   expect(visibleFailureSink).toHaveBeenCalledTimes(1);
+});
+
+it('reuses a validated bridge trace ID for asynchronous visible and Health failures without exposing the cause', async () => {
+  const traceId = '4bf92f3577b34da6a3ce929d0e0e4736';
+  const rawCause = 'provider token=secret';
+  const error = Object.assign(new Error(rawCause), { traceId, trace_id: traceId, reqId: 17, req_id: 17 });
+  registerFrontendDiagnosticCorrelation(error, traceId);
+  const healthSink = vi.fn();
+  const visibleFailureSink = vi.fn();
+
+  runUIAction('fixture.traced-async', () => Promise.reject(error), {
+    diagnosticIdFactory: diagnosticIds('fallback-async'), healthSink, visibleFailureSink,
+  });
+  await Promise.resolve();
+  await Promise.resolve();
+
+  const healthFailure = healthSink.mock.calls[0][0];
+  const visibleFailure = visibleFailureSink.mock.calls[0][0];
+  expect(healthFailure.publicError.diagnosticId).toBe(traceId);
+  expect(visibleFailure.publicError.diagnosticId).toBe(traceId);
+  expect(JSON.stringify([healthFailure, visibleFailure])).not.toContain(rawCause);
+});
+
+it('reuses a validated bridge trace ID for synchronous failures', () => {
+  const traceId = '0123456789abcdef0123456789abcdef';
+  const error = Object.assign(new Error('raw sync provider token=secret'), { traceId, trace_id: traceId });
+  registerFrontendDiagnosticCorrelation(error, traceId);
+  const healthSink = vi.fn();
+  const visibleFailureSink = vi.fn();
+
+  runUIAction('fixture.traced-sync', () => {
+    throw error;
+  }, { diagnosticIdFactory: diagnosticIds('fallback-sync'), healthSink, visibleFailureSink });
+
+  expect(healthSink.mock.calls[0][0].publicError.diagnosticId).toBe(traceId);
+  expect(visibleFailureSink.mock.calls[0][0].publicError.diagnosticId).toBe(traceId);
+});
+
+it('generates a new diagnostic ID when an error has no valid bridge trace', () => {
+  const healthSink = vi.fn();
+  const visibleFailureSink = vi.fn();
+
+  runUIAction('fixture.untraced', () => {
+    throw new Error('raw untraced provider failure');
+  }, { diagnosticIdFactory: diagnosticIds('generated-diagnostic-id'), healthSink, visibleFailureSink });
+
+  expect(healthSink.mock.calls[0][0].publicError.diagnosticId).toBe('generated-diagnostic-id');
+  expect(visibleFailureSink.mock.calls[0][0].publicError.diagnosticId).toBe('generated-diagnostic-id');
+});
+
+it('rejects an unregistered forged bridge trace before publishing a diagnostic ID', () => {
+  const rawTraceInput = '4bf92f3577b34da6a3ce929d0e0e4736';
+  const healthSink = vi.fn();
+  const visibleFailureSink = vi.fn();
+
+  runUIAction('fixture.malicious-trace', () => {
+    throw Object.assign(new Error('raw malicious provider cause'), { traceId: rawTraceInput, trace_id: rawTraceInput });
+  }, { diagnosticIdFactory: diagnosticIds('generated-after-reject'), healthSink, visibleFailureSink });
+
+  const published = JSON.stringify([healthSink.mock.calls, visibleFailureSink.mock.calls]);
+  expect(healthSink.mock.calls[0][0].publicError.diagnosticId).toBe('generated-after-reject');
+  expect(visibleFailureSink.mock.calls[0][0].publicError.diagnosticId).toBe('generated-after-reject');
+  expect(published).not.toContain(rawTraceInput);
 });
 
 it('projects an explicit false result into visible failure and Health', async () => {

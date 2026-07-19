@@ -71,6 +71,7 @@
     "src/shared/api/wailsBridge.js",
     "src/shared/contracts/turnContractValidators.js",
     "src/shared/contracts/turnContracts.generated.js",
+    "src/shared/diagnostics/frontendDiagnosticCorrelation.js",
     "src/shared/diagnostics/frontendHealthStore.js",
     "src/shared/diagnostics/safeLogFields.js",
     "src/shared/ui/actionFailureSink.js",

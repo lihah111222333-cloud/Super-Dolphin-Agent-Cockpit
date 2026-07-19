@@ -1,5 +1,7 @@
 // @ts-check
 
+import { frontendDiagnosticCorrelationForError } from '../diagnostics/frontendDiagnosticCorrelation.js';
+
 const ACTION_PUBLIC_ERRORS = Object.freeze({
   'prompt-history.previous': Object.freeze({
     code: 'PROMPT_HISTORY_UNAVAILABLE',
@@ -31,6 +33,18 @@ function defaultDiagnosticIdFactory() {
     throw new Error('crypto.randomUUID is required for UI action diagnostics');
   }
   return globalThis.crypto.randomUUID();
+}
+
+/**
+ * A Wails bridge correlation is registered only after its trace is logged for
+ * this exact error object. All unregistered exception data stays unobservable.
+ * @param {unknown} error
+ * @param {(() => string) | undefined} fallbackFactory
+ * @returns {(() => string) | undefined}
+ */
+export function diagnosticIdFactoryForError(error, fallbackFactory) {
+  const traceId = frontendDiagnosticCorrelationForError(error);
+  return traceId ? () => traceId : fallbackFactory;
 }
 
 /** @param {string} actionId @param {{ diagnosticIdFactory?: () => string, retryable?: boolean }} [options] */
