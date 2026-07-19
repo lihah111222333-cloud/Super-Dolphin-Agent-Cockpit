@@ -2,11 +2,13 @@ package main
 
 import (
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -414,8 +416,10 @@ func writeMinimalPackagedMacOSApp(t *testing.T) string {
 		filepath.Join(macos, "agent-terminal"),
 		filepath.Join(resources, "bin", "mcp-orch"),
 		filepath.Join(resources, "bin", "mcp-lsp"),
+		filepath.Join(resources, "bin", "mcp-schema-compiler-helper"),
 		filepath.Join(resources, "bin", "mcp-ida"),
 		filepath.Join(resources, "bin", "super-dolphin-updater"),
+		filepath.Join(resources, "bin", "super-dolphin-guard"),
 		filepath.Join(resources, "bin", "codex"),
 		filepath.Join(resources, "bin", "ffmpeg"),
 		filepath.Join(resources, "bin", "gopls"),
@@ -444,6 +448,7 @@ func writeMinimalPackagedMacOSApp(t *testing.T) string {
 	} {
 		writeExecutable(t, path)
 	}
+	writeFile(t, filepath.Join(resources, "bin", "mcp-schema-compiler-helper.manifest.json"), "{}\n", 0o644)
 	pythonShadow := "#!/bin/sh\necho Packaged Super Dolphin does not bundle a Python interpreter e62\nexit 1\n"
 	writeFile(t, filepath.Join(resources, "lsp", "bin", "python"), pythonShadow, 0o755)
 	writeFile(t, filepath.Join(resources, "lsp", "bin", "python3"), pythonShadow, 0o755)
@@ -451,12 +456,47 @@ func writeMinimalPackagedMacOSApp(t *testing.T) string {
 	writeFile(t, filepath.Join(resources, "models.yaml"), "models: []\n", 0o644)
 	writeCodexManifest(t, resources)
 	writeLSPManifest(t, resources)
+	writeMacOSPackageTrust(t, resources)
 	return app
 }
 
 func writeExecutable(t *testing.T, path string) {
 	t.Helper()
 	writeFile(t, path, "#!/bin/sh\nexit 0\n", 0o755)
+}
+
+func writeMacOSPackageTrust(t *testing.T, resources string) {
+	t.Helper()
+	helperDigest := func(name string) string {
+		raw, err := os.ReadFile(filepath.Join(resources, "bin", name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		digest := sha256.Sum256(raw)
+		return hex.EncodeToString(digest[:])
+	}
+	trust := map[string]any{
+		"schema_version": 1, "enabled": false, "production": false,
+		"platform":            "darwin-" + runtime.GOARCH,
+		"source":              map[string]string{"kind": "", "value": ""},
+		"manifest_public_key": "", "channel": "", "signer_policy": "disabled", "signer_identity": "",
+		"updater_sha256": helperDigest("super-dolphin-updater"),
+		"guard_sha256":   helperDigest("super-dolphin-guard"),
+	}
+	if runtime.GOARCH == "arm64" {
+		trust["enabled"] = true
+		trust["production"] = true
+		trust["source"] = map[string]string{"kind": "github", "value": "super-dolphin/releases"}
+		trust["manifest_public_key"] = base64.StdEncoding.EncodeToString(make([]byte, 32))
+		trust["channel"] = "test"
+		trust["signer_policy"] = "exact"
+		trust["signer_identity"] = "TEAM-TEST"
+	}
+	raw, err := json.MarshalIndent(trust, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(resources, "update-trust.json"), string(raw)+"\n", 0o600)
 }
 
 func writeFile(t *testing.T, path, content string, mode os.FileMode) {
@@ -604,6 +644,7 @@ func writeMinimalPackagedLinuxStage(t *testing.T) string {
 		filepath.Join(stage, "bin", "agent-terminal"),
 		filepath.Join(stage, "bin", "mcp-orch"),
 		filepath.Join(stage, "bin", "mcp-lsp"),
+		filepath.Join(stage, "bin", "mcp-schema-compiler-helper"),
 		filepath.Join(stage, "bin", "mcp-ida"),
 		filepath.Join(stage, "bin", "codex"),
 		filepath.Join(stage, "bin", "gopls"),
@@ -632,6 +673,7 @@ func writeMinimalPackagedLinuxStage(t *testing.T) string {
 	} {
 		writeExecutable(t, path)
 	}
+	writeFile(t, filepath.Join(stage, "bin", "mcp-schema-compiler-helper.manifest.json"), "{}\n", 0o644)
 	pythonShadow := "#!/bin/sh\necho Packaged Super Dolphin does not bundle a Python interpreter >&2\nexit 1\n"
 	writeFile(t, filepath.Join(stage, "lsp", "bin", "python"), pythonShadow, 0o755)
 	writeFile(t, filepath.Join(stage, "lsp", "bin", "python3"), pythonShadow, 0o755)

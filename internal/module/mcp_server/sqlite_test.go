@@ -2,8 +2,10 @@ package mcpserver
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -127,7 +129,40 @@ func TestStartSQLiteServerMigratesLegacyNPXPackageConfig(t *testing.T) {
 				t.Fatalf("StartSQLiteServer() = %#v, want migrated enabled sqlite", got)
 			}
 			assertStartedSQLiteServerConfig(t, store.servers[project][DefaultSQLiteServerName], newDBPath)
+			if svc.configRevision != 1 {
+				t.Fatalf("config revision = %d, want 1 after successful replacement", svc.configRevision)
+			}
 		})
+	}
+}
+
+func TestStartSQLiteServerFailedLegacyReplacementPreservesConfigAndRevision(t *testing.T) {
+	store := newMemoryMCPServerStore()
+	project := t.TempDir()
+	newDBPath := filepath.Join(project, "super-dolphin.db")
+	legacy := ServerConfig{
+		Transport: "stdio",
+		Command:   "npx",
+		Args:      []string{"-y", legacyDefaultSQLitePackage, filepath.Join("old", "legacy.db")},
+		Enabled:   boolPtr(false),
+	}
+	store.seed(project, DefaultSQLiteServerName, legacy)
+	injectedErr := errors.New("injected replace failure")
+	store.replaceErr = injectedErr
+	svc := newServiceWithStoreAndSQLitePath(store, newDBPath)
+	svc.configRevision = 7
+	t.Chdir(project)
+
+	_, err := svc.StartSQLiteServer(context.Background(), StartSQLiteServerRequest{})
+	if !errors.Is(err, injectedErr) {
+		t.Fatalf("StartSQLiteServer() error = %v, want injected replace failure", err)
+	}
+	if svc.configRevision != 7 {
+		t.Fatalf("config revision = %d, want unchanged 7", svc.configRevision)
+	}
+	got := store.servers[project][DefaultSQLiteServerName]
+	if !reflect.DeepEqual(got, legacy) {
+		t.Fatalf("stored legacy config = %#v, want unchanged %#v", got, legacy)
 	}
 }
 

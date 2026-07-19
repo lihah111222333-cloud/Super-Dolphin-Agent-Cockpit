@@ -48,7 +48,7 @@ func TestCodexSurfaceInputSchemaRejectsUnknownFieldsBeforeDispatch(t *testing.T)
 		InputSchema: strictObjectSchema(t, "query"),
 	}}}
 	h := &Handler{stdioClientFactory: fakeClientFactory(map[string]mcpClient{"lsp": lsp})}
-	_, err := h.PrepareCodexToolSurface(context.Background(), contract.CodexToolSurfaceScope{
+	_, err := prepareCodexToolSurfaceForTest(t, h, context.Background(), contract.CodexToolSurfaceScope{
 		AgentID:          "agent-1",
 		ProviderThreadID: "provider-thread-1",
 		CWD:              "/repo",

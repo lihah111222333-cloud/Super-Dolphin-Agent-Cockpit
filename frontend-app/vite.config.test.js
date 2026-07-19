@@ -98,6 +98,12 @@ describe('frontend vite build budget', () => {
     expect(createFrontendViteConfig({}).build.minify).toBe('terser');
   });
 
+  it('builds isolated normal and Recovery entry points', () => {
+    const input = createFrontendViteConfig({}).build.rolldownOptions.input;
+    expect(input.main).toMatch(/index\.html$/);
+    expect(input.recovery).toMatch(/recovery\.html$/);
+  });
+
   it('keeps the lazy mermaid parser bundle under the configured warning limit', () => {
     expect(createFrontendViteConfig({}).build.chunkSizeWarningLimit).toBe(650);
   });

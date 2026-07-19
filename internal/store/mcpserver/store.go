@@ -84,6 +84,44 @@ func (s *configStore) InsertServer(ctx context.Context, params contract.StoreMCP
 	return rowsAffected > 0, nil
 }
 
+// ReplaceServer 原子替换已存在的 exact workspace/name 配置，不存在时返回 replaced=false。
+func (s *configStore) ReplaceServer(ctx context.Context, params contract.StoreMCPServerConfigParams) (bool, error) {
+	workspaceRoot, name, config, err := normalizeStoreServerParams(params)
+	if err != nil {
+		return false, err
+	}
+	headers, err := encodeMCPServerHeaders(config.Headers)
+	if err != nil {
+		return false, err
+	}
+	args, err := encodeMCPServerArgs(config.Args)
+	if err != nil {
+		return false, err
+	}
+	env, err := encodeMCPServerEnv(config.Env)
+	if err != nil {
+		return false, err
+	}
+	if err := s.ensureTable(ctx); err != nil {
+		return false, err
+	}
+	result, err := s.db.ExecContext(ctx, `
+		UPDATE mcp_server_configs
+		SET transport = ?, url = ?, headers = ?, command = ?, args = ?, env = ?, enabled = ?,
+			updated_at = CAST(strftime('%s','now') AS INTEGER) * 1000
+		WHERE workspace_root = ? AND name = ?
+	`, config.Transport, config.URL, string(headers), config.Command, string(args), string(env),
+		mcpServerEnabledInt(config.Enabled), workspaceRoot, name)
+	if err != nil {
+		return false, wrapMCPServerStoreError(err, "replace")
+	}
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return false, wrapMCPServerStoreError(err, "replace.rows_affected")
+	}
+	return rowsAffected > 0, nil
+}
+
 // ListServers 读取指定工作区的 MCP server 配置，并校验落库内容仍然可用。
 func (s *configStore) ListServers(ctx context.Context, workspaceRoot string) (map[string]contract.MCPServerConfig, error) {
 	workspaceRoot = strings.TrimSpace(workspaceRoot)

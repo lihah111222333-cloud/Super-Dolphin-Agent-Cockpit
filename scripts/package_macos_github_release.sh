@@ -76,39 +76,12 @@ cleanup() {
 }
 trap cleanup EXIT
 
-dotenv_value() {
-  local env_file="$1"
-  local key="$2"
-  awk -v key="$key" '
-    index($0, "=") {
-      k = substr($0, 1, index($0, "=") - 1)
-      if (k == key) {
-        print substr($0, index($0, "=") + 1)
-        found = 1
-        exit
-      }
-    }
-    END { if (!found) exit 1 }
-  ' "$env_file"
-}
-
-previous_public_key_from_env_file() {
-  local env_file="$1"
-  if [[ ! -f "$env_file" ]]; then
-    echo "previous update .env does not exist: $env_file" >&2
-    exit 1
-  fi
-  dotenv_value "$env_file" SUPER_DOLPHIN_UPDATE_PUBLIC_KEY
-}
-
 previous_public_key_from_app() {
   local app="$1"
-  local env_file="$app/Contents/Resources/.env"
-  if [[ ! -f "$env_file" ]]; then
-    echo "previous app update .env does not exist: $env_file" >&2
-    exit 1
-  fi
-  previous_public_key_from_env_file "$env_file"
+  local resources="$app/Contents/Resources"
+  go run "$root/cmd/super-dolphin-release-manifest" \
+    -print-package-trust-public-key "$resources" \
+    -platform darwin-arm64
 }
 
 previous_public_key_from_dmg() {
@@ -132,14 +105,16 @@ resolve_update_public_key() {
   if [[ -n "${SUPER_DOLPHIN_UPDATE_PUBLIC_KEY:-}" ]]; then
     return
   fi
-  if [[ -n "${SUPER_DOLPHIN_UPDATE_PREVIOUS_ENV_FILE:-}" ]]; then
-    SUPER_DOLPHIN_UPDATE_PUBLIC_KEY="$(previous_public_key_from_env_file "$SUPER_DOLPHIN_UPDATE_PREVIOUS_ENV_FILE")"
-  elif [[ -n "${SUPER_DOLPHIN_UPDATE_PREVIOUS_APP:-}" ]]; then
+  if [[ -n "${SUPER_DOLPHIN_UPDATE_PREVIOUS_APP:-}${SUPER_DOLPHIN_UPDATE_PREVIOUS_DMG:-}" && "${SUPER_DOLPHIN_ALLOW_LOCAL_PREVIOUS_RELEASE_TEST:-}" != "1" ]]; then
+    echo "local previous APP/DMG overrides require SUPER_DOLPHIN_ALLOW_LOCAL_PREVIOUS_RELEASE_TEST=1 and are not formal release proof" >&2
+    exit 1
+  fi
+  if [[ -n "${SUPER_DOLPHIN_UPDATE_PREVIOUS_APP:-}" ]]; then
     SUPER_DOLPHIN_UPDATE_PUBLIC_KEY="$(previous_public_key_from_app "$SUPER_DOLPHIN_UPDATE_PREVIOUS_APP")"
   elif [[ -n "${SUPER_DOLPHIN_UPDATE_PREVIOUS_DMG:-}" ]]; then
     SUPER_DOLPHIN_UPDATE_PUBLIC_KEY="$(previous_public_key_from_dmg "$SUPER_DOLPHIN_UPDATE_PREVIOUS_DMG")"
   else
-    echo "SUPER_DOLPHIN_UPDATE_PUBLIC_KEY, SUPER_DOLPHIN_UPDATE_PREVIOUS_DMG, SUPER_DOLPHIN_UPDATE_PREVIOUS_APP, or SUPER_DOLPHIN_UPDATE_PREVIOUS_ENV_FILE is required" >&2
+    echo "SUPER_DOLPHIN_UPDATE_PUBLIC_KEY, SUPER_DOLPHIN_UPDATE_PREVIOUS_DMG, or SUPER_DOLPHIN_UPDATE_PREVIOUS_APP is required" >&2
     exit 1
   fi
   if [[ -z "$SUPER_DOLPHIN_UPDATE_PUBLIC_KEY" ]]; then

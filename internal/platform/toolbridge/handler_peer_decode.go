@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -15,11 +16,14 @@ import (
 	providerdto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/provider"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/mcpserver/common"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/mcpcontrol"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/toolbridge/schema"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util/safego"
 )
 
 const peerReadyTimeout = 10 * time.Second
 const peerPollInterval = 300 * time.Millisecond
+const maxMCPSurfaceBinaries = 32
+const maxConcurrentMCPInitializers = 4
 
 // mcpClient 是 toolbridge 对 stdio/http MCP client 的统一最小接口。
 type mcpClient interface {
@@ -32,23 +36,27 @@ type mcpClient interface {
 type codexToolSurface struct {
 	keys           []string
 	cwd            string
+	workspaceRoots []string
 	tools          map[string]codexToolEntry
 	aliases        map[string]string
 	disabledTools  map[string]string
 	hiddenMCPTools map[string]codexToolEntry
 	clients        []mcpClient
+	authorities    []*mcpSchemaAuthority
 	closeOnce      sync.Once
 	closeErr       error
 }
 
 // codexToolEntry 描述动态工具名到真实执行端的映射。
 type codexToolEntry struct {
-	name          string
-	realName      string
-	executionKind string
-	family        string
-	inputSchema   json.RawMessage
-	client        mcpClient
+	name           string
+	realName       string
+	executionKind  string
+	family         string
+	inputSchema    json.RawMessage
+	compiledSchema schema.CanonicalSchema
+	authority      *mcpSchemaAuthority
+	client         mcpClient
 }
 
 // PrepareCodexToolSurface 为 Codex 会话准备 host、skill 和 MCP 动态工具面。
@@ -57,7 +65,11 @@ func (h *Handler) PrepareCodexToolSurface(ctx context.Context, scope contract.Co
 	if err := validateCodexToolSurfaceScope(scope); err != nil {
 		return nil, err
 	}
+	cwd := normalizeToolCallCWD(scope.CWD)
 	surface := &codexToolSurface{
+		cwd:            cwd,
+		workspaceRoots: normalizeToolCallWorkspaceRoots(cwd, scope.WorkspaceRoots),
+		keys:           codexSurfaceKeys(scope),
 		tools:          map[string]codexToolEntry{},
 		aliases:        map[string]string{},
 		disabledTools:  map[string]string{},
@@ -72,13 +84,10 @@ func (h *Handler) PrepareCodexToolSurface(ctx context.Context, scope contract.Co
 		return nil, err
 	}
 	if err := h.addMCPSurfaceTools(ctx, scope, surface, &out, disabled); err != nil {
-		return nil, joinMCPSurfaceErrors(err, surface.Close())
+		return nil, joinMCPSurfaceErrors(err, errors.Join(surface.Close(), h.revokeCodexToolSurfaceKeys(surface.keys)))
 	}
-	surface.cwd = normalizeToolCallCWD(scope.CWD)
-	surface.keys = codexSurfaceKeys(scope)
-	if err := h.storeCodexToolSurface(surface); err != nil {
-		h.removeCodexToolSurface(surface)
-		return nil, joinMCPSurfaceErrors(err, surface.Close())
+	if err := h.publishMCPSurfaceCurrentCAS(ctx, surface); err != nil {
+		return nil, joinMCPSurfaceErrors(err, errors.Join(surface.Close(), h.revokeCodexToolSurfaceKeys(surface.keys)))
 	}
 	return out, nil
 }
@@ -132,17 +141,23 @@ func (h *Handler) addMCPSurfaceTools(ctx context.Context, scope contract.CodexTo
 	}
 	surface.clients = append(surface.clients, clients...)
 	for _, result := range results {
-		if err := h.backfillMCPToolLifecycle(ctx, scope.CWD, result.binary.Name, result.binary.Name, result.tools); err != nil {
-			return err
-		}
-		tools, err := h.filterMCPToolLifecycleTools(ctx, scope.CWD, result.binary.Name, result.binary.Name, result.tools)
+		admitted, authority, err := h.admitMCPServerTools(ctx, scope.CWD, result.binary, result.tools)
 		if err != nil {
 			return err
 		}
-		if err := addMCPToolsToSurface(surface, out, result.binary.Name, result.client, tools, disabled); err != nil {
+		surface.authorities = append(surface.authorities, authority)
+		allTools := admittedMCPToolValues(admitted)
+		if err := h.backfillMCPToolLifecycle(ctx, scope.CWD, result.binary.Name, result.binary.Name, allTools); err != nil {
 			return err
 		}
-		if err := addHiddenLifecycleFilteredMCPTools(surface, result.binary.Name, result.tools, tools); err != nil {
+		tools, err := h.filterMCPToolLifecycleTools(ctx, scope.CWD, result.binary.Name, result.binary.Name, allTools)
+		if err != nil {
+			return err
+		}
+		if err := addMCPToolsToSurface(surface, out, result.binary.Name, result.client, filterAdmittedMCPTools(admitted, tools), disabled); err != nil {
+			return err
+		}
+		if err := addHiddenLifecycleFilteredMCPTools(surface, result.binary.Name, allTools, tools); err != nil {
 			return err
 		}
 	}
@@ -185,10 +200,14 @@ func prepareMCPSurfaceBinaries(
 	if len(binaries) == 0 {
 		return nil, nil
 	}
+	if len(binaries) > maxMCPSurfaceBinaries {
+		return nil, fmt.Errorf("toolbridge: MCP binary count %d exceeds hard limit %d", len(binaries), maxMCPSurfaceBinaries)
+	}
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
 	results := make([]mcpSurfaceBinaryResult, len(binaries))
+	initializers := make(chan struct{}, maxConcurrentMCPInitializers)
 	var wg sync.WaitGroup
 	var errMu sync.Mutex
 	var firstErr error
@@ -208,25 +227,11 @@ func prepareMCPSurfaceBinaries(
 		wg.Add(1)
 		safego.Go(ctx, nil, "toolbridge.prepareMCPSurfaceBinary", func(workerCtx context.Context) {
 			defer wg.Done()
-			result := mcpSurfaceBinaryResult{binary: binary}
-			client, err := factory(workerCtx, binary)
-			result.client = client
+			result, err := prepareMCPSurfaceBinary(workerCtx, factory, initializers, binary)
 			results[i] = result
 			if err != nil {
 				recordErr(wrapMCPSurfaceBinaryError(binary, err))
-				return
 			}
-			if client == nil {
-				recordErr(wrapMCPSurfaceBinaryError(binary, errMCPSurfaceClientNotConfigured))
-				return
-			}
-			tools, err := client.ListTools(workerCtx)
-			if err != nil {
-				recordErr(wrapMCPSurfaceBinaryError(binary, err))
-				return
-			}
-			result.tools = tools
-			results[i] = result
 		})
 	}
 	wg.Wait()
@@ -234,6 +239,31 @@ func prepareMCPSurfaceBinaries(
 		return nil, joinMCPSurfaceErrors(firstErr, closeMCPClients(results))
 	}
 	return results, nil
+}
+
+func prepareMCPSurfaceBinary(
+	ctx context.Context,
+	factory func(context.Context, providerdto.MCPBinary) (mcpClient, error),
+	initializers chan struct{},
+	binary providerdto.MCPBinary,
+) (mcpSurfaceBinaryResult, error) {
+	result := mcpSurfaceBinaryResult{binary: binary}
+	select {
+	case initializers <- struct{}{}:
+		defer func() { <-initializers }()
+	case <-ctx.Done():
+		return result, ctx.Err()
+	}
+	client, err := factory(ctx, binary)
+	result.client = client
+	if err != nil {
+		return result, err
+	}
+	if client == nil {
+		return result, errMCPSurfaceClientNotConfigured
+	}
+	result.tools, err = client.ListTools(ctx)
+	return result, err
 }
 
 // closeMCPClients 关闭已创建的全部 MCP client，并聚合每个关闭错误。
@@ -248,7 +278,7 @@ func closeMCPClients(results []mcpSurfaceBinaryResult) error {
 }
 
 // addMCPToolsToSurface 把 MCP 工具添加到 Codex surface，并补齐 canonical 名和安全别名。
-func addMCPToolsToSurface(surface *codexToolSurface, out *[]contract.DynamicToolSchema, family string, client mcpClient, tools []mcpdto.MCPTool, disabled codexDisabledToolSet) error {
+func addMCPToolsToSurface(surface *codexToolSurface, out *[]contract.DynamicToolSchema, family string, client mcpClient, tools []admittedMCPTool, disabled codexDisabledToolSet) error {
 	for _, tool := range tools {
 		if err := addSingleMCPToolToSurface(surface, out, family, client, tool, disabled); err != nil {
 			return err
@@ -443,14 +473,41 @@ func (h *Handler) lookupCodexToolSurface(req ToolCallRequest) *codexToolSurface 
 	return nil
 }
 
+// bindCodexSurfaceToolCallScope 将调用固定到已准备 surface 的可信工作区范围。
+func bindCodexSurfaceToolCallScope(surface *codexToolSurface, req ToolCallRequest) (ToolCallRequest, error) {
+	if surface == nil || strings.TrimSpace(surface.cwd) == "" {
+		return ToolCallRequest{}, fmt.Errorf("toolbridge: prepared codex tool surface cwd is required")
+	}
+	requestedCWD := normalizeToolCallCWD(req.CWD)
+	if requestedCWD != "" && requestedCWD != surface.cwd {
+		return ToolCallRequest{}, fmt.Errorf("toolbridge: codex tool call cwd %q does not match prepared surface cwd %q", requestedCWD, surface.cwd)
+	}
+	for _, root := range req.WorkspaceRoots {
+		if !slices.Contains(surface.workspaceRoots, root) {
+			return ToolCallRequest{}, fmt.Errorf("toolbridge: codex tool call workspace root %q is outside prepared surface scope", root)
+		}
+	}
+	req.CWD = surface.cwd
+	req.WorkspaceRoots = append([]string(nil), surface.workspaceRoots...)
+	return req, nil
+}
+
 // callCodexSurfaceTool 根据 surface entry 调用 host、skill 或 stdio MCP 工具。
 // 本函数负责补发 proxy lifecycle 事件，除非上游 context 已声明事件已发布。
 func (h *Handler) callCodexSurfaceTool(ctx context.Context, surface *codexToolSurface, req ToolCallRequest) (*ToolCallResult, error) {
+	var err error
+	req, err = bindCodexSurfaceToolCallScope(surface, req)
+	if err != nil {
+		return nil, err
+	}
 	canonical := surface.aliases[strings.TrimSpace(req.Name)]
 	if canonical == "" {
 		return h.denyHiddenCodexSurfaceMCPToolCall(ctx, surface, req)
 	}
 	entry := surface.tools[canonical]
+	if err := h.ensureCodexSurfaceEntryCurrent(ctx, entry); err != nil {
+		return nil, err
+	}
 	eventReq := req
 	eventReq.Name = entry.name
 	eventReq.ThreadID = codexSurfaceLifecycleThreadID(req)
@@ -460,7 +517,6 @@ func (h *Handler) callCodexSurfaceTool(ctx context.Context, surface *codexToolSu
 		h.publishProxyToolCallBegin(eventReq, started)
 	}
 	var result *ToolCallResult
-	var err error
 	defer func() {
 		if publishLifecycle {
 			h.publishProxyToolCallEnd(eventReq, started, result, err)
@@ -474,20 +530,41 @@ func (h *Handler) callCodexSurfaceTool(ctx context.Context, surface *codexToolSu
 			return result, err
 		}
 	}
-	if err = validateToolInputSchema(entry.name, entry.inputSchema, req.Arguments); err != nil {
+	err = h.validateCodexSurfaceEntryArguments(ctx, entry, req.Arguments)
+	if err != nil {
 		return nil, err
 	}
 	req.Name = entry.realName
 	req = h.injectManagedLaunchContext(ctx, req)
+	result, err = h.executeCodexSurfaceEntry(ctx, surface, entry, req)
+	return result, err
+}
+
+// executeCodexSurfaceEntry 在 authority revision lease 内执行外部 MCP 调用。
+func (h *Handler) executeCodexSurfaceEntry(
+	ctx context.Context,
+	surface *codexToolSurface,
+	entry codexToolEntry,
+	req ToolCallRequest,
+) (*ToolCallResult, error) {
 	if entry.executionKind == "host" {
-		result, err = h.callHostTool(ctx, req)
-		return result, err
+		return h.callHostTool(ctx, req)
 	}
 	if entry.executionKind == "skill" {
-		result, err = h.callSkillSurfaceTool(ctx, surface, req)
-		return result, err
+		return h.callSkillSurfaceTool(ctx, surface, req)
 	}
-	result, err = entry.client.CallTool(ctx, entry.realName, req.Arguments, req)
+	if err := h.ensureCodexSurfaceEntryCurrent(ctx, entry); err != nil {
+		return nil, err
+	}
+	if entry.authority == nil || h.authorityOwner == nil {
+		return nil, fmt.Errorf("toolbridge: MCP authority lease is required")
+	}
+	var result *ToolCallResult
+	err := h.authorityOwner.WithMCPToolAuthority(ctx, entry.authority.token, func() error {
+		var callErr error
+		result, callErr = entry.client.CallTool(ctx, entry.realName, req.Arguments, req)
+		return callErr
+	})
 	return result, err
 }
 

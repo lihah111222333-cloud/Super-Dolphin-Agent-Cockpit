@@ -16,19 +16,16 @@ func TestGitHubReleaseWrappersRejectMissingAndPlaceholderRepos(t *testing.T) {
 		assertScriptContains(t, script, "xiaoxiaotest9527-bit/-")
 	}
 	windows := readScript(t, "package_windows_github_release.ps1")
-	assertScriptContains(t, windows, "SUPER_DOLPHIN_UPDATE_GITHUB_REPO is required")
-	assertScriptContains(t, windows, "known placeholder update repo is not allowed")
-	assertScriptContains(t, windows, "xiaoxiaotest9527-bit/-")
+	assertScriptContains(t, windows, "check/install/publish capabilities are all disabled")
+	assertScriptDoesNotContain(t, windows, "SUPER_DOLPHIN_UPDATE_GITHUB_REPO")
 }
 
-func TestWindowsGitHubReleaseWrapperRejectsPublicKeyMismatch(t *testing.T) {
+func TestWindowsGitHubReleaseWrapperHasNoUpdatePublishRoute(t *testing.T) {
 	script := readScript(t, "package_windows_github_release.ps1")
-	body := powerShellFunctionBody(t, script, "Assert-UpdatePublicKeyContinuity")
-
-	assertScriptContains(t, body, "$PreviousPublicKey.Trim() -ne $PublicKey.Trim()")
-	assertScriptContains(t, body, "throw 'previous package update public key does not match SUPER_DOLPHIN_UPDATE_PUBLIC_KEY'")
-	assertScriptDoesNotContain(t, body, "+ $PreviousPublicKey")
-	assertScriptDoesNotContain(t, body, "+ $PublicKey")
+	assertScriptContains(t, script, "Windows package-owned update publishing is unsupported")
+	assertScriptDoesNotContain(t, script, "Assert-UpdatePublicKeyContinuity")
+	assertScriptDoesNotContain(t, script, "super-dolphin-release-manifest")
+	assertScriptDoesNotContain(t, script, ".update.json")
 }
 
 func TestGitHubReleasePublisherRequiresExplicitRepoBeforeGitHubAccess(t *testing.T) {
@@ -103,10 +100,9 @@ func powerShellFunctionBody(t *testing.T, script, name string) string {
 	if start < 0 {
 		t.Fatalf("script missing function %s", name)
 	}
-	rest := script[start:]
-	end := strings.Index(rest, "\n}\n")
-	if end < 0 {
+	body, _, found := strings.Cut(script[start:], "\n}\n")
+	if !found {
 		t.Fatalf("script function %s has no closing brace", name)
 	}
-	return rest[:end]
+	return body
 }

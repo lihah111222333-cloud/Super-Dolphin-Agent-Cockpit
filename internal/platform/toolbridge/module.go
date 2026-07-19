@@ -65,6 +65,7 @@ type handlerIn struct {
 	Dispatcher      *event.Dispatcher          `optional:"true"`
 	Lifecycle       mcpToolLifecycleBackfiller `optional:"true"`
 	LifecyclePolicy mcpToolLifecyclePolicyReader
+	AuthorityOwner  contract.MCPToolAuthorityOwner
 	// HostTools 是 Fx 可选字段：agent-terminal 生产图由 provideHostToolRegistry 填充；
 	// Handler 构造期会按 dependency profile 校验它不能静默为空。
 	HostTools  HostToolRegistry           `optional:"true"`

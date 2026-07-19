@@ -71,10 +71,11 @@ func mcpServerConfigBinary(name string, config contract.MCPServerConfig) (dto.MC
 	switch strings.ToLower(strings.TrimSpace(config.Transport)) {
 	case "http":
 		return dto.MCPBinary{
-			Name:    name,
-			Type:    "http",
-			URL:     strings.TrimSpace(config.URL),
-			Headers: cloneMCPServerHeaders(config.Headers),
+			Name:            name,
+			Type:            "http",
+			URL:             strings.TrimSpace(config.URL),
+			Headers:         cloneMCPServerHeaders(config.Headers),
+			TrustedServerID: strings.TrimSpace(config.TrustedServerID),
 		}, true
 	case "stdio":
 		command := strings.TrimSpace(config.Command)
@@ -82,9 +83,10 @@ func mcpServerConfigBinary(name string, config contract.MCPServerConfig) (dto.MC
 			return dto.MCPBinary{}, false
 		}
 		return dto.MCPBinary{
-			Name:    name,
-			Command: append([]string{command}, cloneMCPServerArgs(config.Args)...),
-			Env:     cloneMCPServerHeaders(config.Env),
+			Name:            name,
+			Command:         append([]string{command}, cloneMCPServerArgs(config.Args)...),
+			Env:             cloneMCPServerHeaders(config.Env),
+			TrustedServerID: strings.TrimSpace(config.TrustedServerID),
 		}, true
 	default:
 		return dto.MCPBinary{}, false

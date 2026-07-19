@@ -4,10 +4,13 @@ internal/module/appupdate/github_release.go	internal	modules	go-source	9752	业�
 internal/module/appupdate/manifest_test.go	internal	modules	go-test	7045	业务模块层	internal,module,appupdate,manifest,test,业务模块层
 internal/module/appupdate/manifest.go	internal	modules	go-source	9424	业务模块层	internal,module,appupdate,manifest,业务模块层
 internal/module/appupdate/module.go	internal	modules	go-source	533	业务模块层	internal,module,appupdate,业务模块层
+internal/module/appupdate/package_trust_test.go	internal	modules	go-test	11311	业务模块层	internal,module,appupdate,package,trust,test,业务模块层
+internal/module/appupdate/package_trust_tool.go	internal	modules	go-source	3996	业务模块层	internal,module,appupdate,package,trust,tool,业务模块层
+internal/module/appupdate/package_trust.go	internal	modules	go-source	5666	业务模块层	internal,module,appupdate,package,trust,业务模块层
 internal/module/appupdate/rpc_test.go	internal	modules	go-test	2346	业务模块层	internal,module,appupdate,rpc,test,业务模块层
 internal/module/appupdate/rpc.go	internal	modules	go-source	1874	业务模块层	internal,module,appupdate,rpc,业务模块层
-internal/module/appupdate/service_test.go	internal	modules	go-test	23622	业务模块层	internal,module,appupdate,service,test,业务模块层
-internal/module/appupdate/service.go	internal	modules	go-source	25999	业务模块层	internal,module,appupdate,service,业务模块层
+internal/module/appupdate/service_test.go	internal	modules	go-test	23623	业务模块层	internal,module,appupdate,service,test,业务模块层
+internal/module/appupdate/service.go	internal	modules	go-source	26281	业务模块层	internal,module,appupdate,service,业务模块层
 internal/module/appupdate/windows_signature.go	internal	modules	go-source	3923	业务模块层	internal,module,appupdate,windows,signature,业务模块层
 internal/module/cron/actors_test.go	internal	modules	go-test	2751	业务模块层	internal,module,cron,actors,test,业务模块层
 internal/module/cron/contract.go	internal	modules	go-source	14501	业务模块层	internal,module,cron,contract,业务模块层
@@ -112,20 +115,21 @@ internal/module/mcp_server_npx/module.go	internal	modules	go-source	471	业务�
 internal/module/mcp_server_npx/rpc.go	internal	modules	go-source	3851	业务模块层	internal,module,mcp,server,npx,rpc,业务模块层
 internal/module/mcp_server_npx/service_test.go	internal	modules	go-test	10037	业务模块层	internal,module,mcp,server,npx,service,test,业务模块层
 internal/module/mcp_server_npx/service.go	internal	modules	go-source	4618	业务模块层	internal,module,mcp,server,npx,service,业务模块层
-internal/module/mcp_server/config_helpers.go	internal	modules	go-source	5622	业务模块层	internal,module,mcp,server,config,helpers,业务模块层
+internal/module/mcp_server/authority_owner.go	internal	modules	go-source	9038	业务模块层	internal,module,mcp,server,authority,owner,业务模块层
+internal/module/mcp_server/config_helpers.go	internal	modules	go-source	5666	业务模块层	internal,module,mcp,server,config,helpers,业务模块层
 internal/module/mcp_server/http_tools_security_test.go	internal	modules	go-test	8051	业务模块层	internal,module,mcp,server,http,tools,security,test,业务模块层
 internal/module/mcp_server/http_tools.go	internal	modules	go-source	8466	业务模块层	internal,module,mcp,server,http,tools,业务模块层
-internal/module/mcp_server/lifecycle_export_test.go	internal	modules	go-test	2556	业务模块层	internal,module,mcp,server,lifecycle,export,test,业务模块层
+internal/module/mcp_server/lifecycle_export_test.go	internal	modules	go-test	14313	业务模块层	internal,module,mcp,server,lifecycle,export,test,业务模块层
 internal/module/mcp_server/lifecycle.go	internal	modules	go-source	11245	业务模块层	internal,module,mcp,server,lifecycle,业务模块层
-internal/module/mcp_server/module.go	internal	modules	go-source	588	业务模块层	internal,module,mcp,server,业务模块层
+internal/module/mcp_server/module.go	internal	modules	go-source	615	业务模块层	internal,module,mcp,server,业务模块层
 internal/module/mcp_server/playwright_test.go	internal	modules	go-test	3044	业务模块层	internal,module,mcp,server,playwright,test,业务模块层
-internal/module/mcp_server/playwright.go	internal	modules	go-source	4375	业务模块层	internal,module,mcp,server,playwright,业务模块层
+internal/module/mcp_server/playwright.go	internal	modules	go-source	4441	业务模块层	internal,module,mcp,server,playwright,业务模块层
 internal/module/mcp_server/rpc_test.go	internal	modules	go-test	16007	业务模块层	internal,module,mcp,server,rpc,test,业务模块层
 internal/module/mcp_server/rpc.go	internal	modules	go-source	10732	业务模块层	internal,module,mcp,server,rpc,业务模块层
-internal/module/mcp_server/service_test.go	internal	modules	go-test	24134	业务模块层	internal,module,mcp,server,service,test,业务模块层
-internal/module/mcp_server/service.go	internal	modules	go-source	22716	业务模块层	internal,module,mcp,server,service,业务模块层
-internal/module/mcp_server/sqlite_test.go	internal	modules	go-test	7016	业务模块层	internal,module,mcp,server,sqlite,test,业务模块层
-internal/module/mcp_server/sqlite.go	internal	modules	go-source	8852	业务模块层	internal,module,mcp,server,sqlite,业务模块层
+internal/module/mcp_server/service_test.go	internal	modules	go-test	25892	业务模块层	internal,module,mcp,server,service,test,业务模块层
+internal/module/mcp_server/service.go	internal	modules	go-source	23015	业务模块层	internal,module,mcp,server,service,业务模块层
+internal/module/mcp_server/sqlite_test.go	internal	modules	go-test	8293	业务模块层	internal,module,mcp,server,sqlite,test,业务模块层
+internal/module/mcp_server/sqlite.go	internal	modules	go-source	8763	业务模块层	internal,module,mcp,server,sqlite,业务模块层
 internal/module/mcp_server/store.go	internal	modules	go-source	383	业务模块层	internal,module,mcp,server,store,业务模块层
 internal/module/memory/auto_dream_e2e_manual_test.go	internal	modules	go-test	5573	memory canonical 管理、UI RPC 与持久化接线	internal,module,memory,auto,dream,e2e,manual,test,canonical,管理,UI,RPC,与持久化接线
 internal/module/memory/auto_dream_intent_test.go	internal	modules	go-test	7438	memory canonical 管理、UI RPC 与持久化接线	internal,module,memory,auto,dream,intent,test,canonical,管理,UI,RPC,与持久化接线
@@ -500,7 +504,7 @@ internal/module/thread/compact_event_test.go	internal	modules	go-test	2972	threa
 internal/module/thread/config_offline_shard03_test.go	internal	modules	go-test	9448	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,config,offline,shard03,test,start,resume,fork,stop,生命周期与绑定真相源
 internal/module/thread/config_offline_test.go	internal	modules	go-test	14242	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,config,offline,test,start,resume,fork,stop,生命周期与绑定真相源
 internal/module/thread/config_set_test.go	internal	modules	go-test	17030	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,config,set,test,start,resume,fork,stop,生命周期与绑定真相源
-internal/module/thread/contract_adapter.go	internal	modules	go-source	16681	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,contract,adapter,start,resume,fork,stop,生命周期与绑定真相源
+internal/module/thread/contract_adapter.go	internal	modules	go-source	16764	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,contract,adapter,start,resume,fork,stop,生命周期与绑定真相源
 internal/module/thread/contract.go	internal	modules	go-source	11664	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,contract,start,resume,fork,stop,生命周期与绑定真相源
 internal/module/thread/event_publish.go	internal	modules	go-source	5314	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,event,publish,start,resume,fork,stop,生命周期与绑定真相源
 internal/module/thread/events_test.go	internal	modules	go-test	13589	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,events,test,start,resume,fork,stop,生命周期与绑定真相源
@@ -525,8 +529,8 @@ internal/module/thread/lifecycle_fork.go	internal	modules	go-source	15868	thread
 internal/module/thread/lifecycle_helpers.go	internal	modules	go-source	24110	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,lifecycle,helpers,start,resume,fork,stop,生命周期与绑定真相源
 internal/module/thread/lifecycle.go	internal	modules	go-source	28094	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,lifecycle,start,resume,fork,stop,生命周期与绑定真相源
 internal/module/thread/mcp_live_context_test.go	internal	modules	go-test	6103	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,mcp,live,context,test,start,resume,fork,stop,生命周期与绑定真相源
-internal/module/thread/mcp_server_config.go	internal	modules	go-source	9477	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,mcp,server,config,start,resume,fork,stop,生命周期与绑定真相源
-internal/module/thread/mcp_server_npx_config_test.go	internal	modules	go-test	1412	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,mcp,server,npx,config,test,start,resume,fork,stop,生命周期与绑定真相源
+internal/module/thread/mcp_server_config.go	internal	modules	go-source	9760	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,mcp,server,config,start,resume,fork,stop,生命周期与绑定真相源
+internal/module/thread/mcp_server_npx_config_test.go	internal	modules	go-test	1600	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,mcp,server,npx,config,test,start,resume,fork,stop,生命周期与绑定真相源
 internal/module/thread/module.go	internal	modules	go-source	17483	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,start,resume,fork,stop,生命周期与绑定真相源
 internal/module/thread/name_policy_guard_test.go	internal	modules	go-test	8433	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,name,policy,guard,test,start,resume,fork,stop,生命周期与绑定真相源
 internal/module/thread/name_sync_test.go	internal	modules	go-test	3141	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,name,sync,test,start,resume,fork,stop,生命周期与绑定真相源
@@ -575,8 +579,8 @@ internal/module/thread/spawn.go	internal	modules	go-source	19980	thread start/re
 internal/module/thread/start_prompt_context_test.go	internal	modules	go-test	11933	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,start,prompt,context,test,resume,fork,stop,生命周期与绑定真相源
 internal/module/thread/start_prompt_context.go	internal	modules	go-source	16409	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,start,prompt,context,resume,fork,stop,生命周期与绑定真相源
 internal/module/thread/start_session_guard_test.go	internal	modules	go-test	27488	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,start,session,guard,test,resume,fork,stop,生命周期与绑定真相源
-internal/module/thread/start_session_helpers_test.go	internal	modules	go-test	12217	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,start,session,helpers,test,resume,fork,stop,生命周期与绑定真相源
-internal/module/thread/start_session_helpers.go	internal	modules	go-source	26550	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,start,session,helpers,resume,fork,stop,生命周期与绑定真相源
+internal/module/thread/start_session_helpers_test.go	internal	modules	go-test	12270	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,start,session,helpers,test,resume,fork,stop,生命周期与绑定真相源
+internal/module/thread/start_session_helpers.go	internal	modules	go-source	26584	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,start,session,helpers,resume,fork,stop,生命周期与绑定真相源
 internal/module/thread/start_session.go	internal	modules	go-source	26196	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,start,session,resume,fork,stop,生命周期与绑定真相源
 internal/module/thread/startconfig/sandbox.go	internal	modules	go-source	2659	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,startconfig,sandbox,start,resume,fork,stop,生命周期与绑定真相源
 internal/module/thread/stop_shard16_support_test.go	internal	modules	go-test	7805	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,stop,shard16,support,test,start,resume,fork,生命周期与绑定真相源
@@ -604,7 +608,7 @@ internal/module/threadprompt/runtime_catalog.go	internal	modules	go-source	19630
 internal/module/threadprompt/runtime_intent.go	internal	modules	go-source	5145	业务模块层	internal,module,threadprompt,runtime,intent,业务模块层
 internal/module/threadprompt/runtime_provider_test.go	internal	modules	go-test	2981	业务模块层	internal,module,threadprompt,runtime,provider,test,业务模块层
 internal/module/threadprompt/types.go	internal	modules	go-source	4301	业务模块层	internal,module,threadprompt,types,业务模块层
-internal/module/turn/argument_preview_sanitizer_test.go	internal	modules	go-test	1515	turn 启动、执行、审批与 provider 调度	internal,module,turn,argument,preview,sanitizer,test,启动,执行,审批与,provider,调度
+internal/module/turn/argument_preview_sanitizer_test.go	internal	modules	go-test	1640	turn 启动、执行、审批与 provider 调度	internal,module,turn,argument,preview,sanitizer,test,启动,执行,审批与,provider,调度
 internal/module/turn/assembler.go	internal	modules	go-source	8840	turn 启动、执行、审批与 provider 调度	internal,module,turn,assembler,启动,执行,审批与,provider,调度
 internal/module/turn/contract.go	internal	modules	go-source	7953	turn 启动、执行、审批与 provider 调度	internal,module,turn,contract,启动,执行,审批与,provider,调度
 internal/module/turn/expanded_state_test.go	internal	modules	go-test	10133	turn 启动、执行、审批与 provider 调度	internal,module,turn,expanded,state,test,启动,执行,审批与,provider,调度
@@ -620,8 +624,8 @@ internal/module/turn/interrupt_rpc_test.go	internal	modules	go-test	18999	turn �
 internal/module/turn/interrupt_service_test.go	internal	modules	go-test	4173	turn 启动、执行、审批与 provider 调度	internal,module,turn,interrupt,service,test,启动,执行,审批与,provider,调度
 internal/module/turn/interrupt_service.go	internal	modules	go-source	4751	turn 启动、执行、审批与 provider 调度	internal,module,turn,interrupt,service,启动,执行,审批与,provider,调度
 internal/module/turn/manifest_p2_transport_test.go	internal	modules	go-test	6630	turn 启动、执行、审批与 provider 调度	internal,module,turn,manifest,p2,transport,test,启动,执行,审批与,provider,调度
-internal/module/turn/manifest.go	internal	modules	go-source	5205	turn 启动、执行、审批与 provider 调度	internal,module,turn,manifest,启动,执行,审批与,provider,调度
-internal/module/turn/mcp_server_config_test.go	internal	modules	go-test	4818	turn 启动、执行、审批与 provider 调度	internal,module,turn,mcp,server,config,test,启动,执行,审批与,provider,调度
+internal/module/turn/manifest.go	internal	modules	go-source	5387	turn 启动、执行、审批与 provider 调度	internal,module,turn,manifest,启动,执行,审批与,provider,调度
+internal/module/turn/mcp_server_config_test.go	internal	modules	go-test	4916	turn 启动、执行、审批与 provider 调度	internal,module,turn,mcp,server,config,test,启动,执行,审批与,provider,调度
 internal/module/turn/mcp_server_npx_config_test.go	internal	modules	go-test	834	turn 启动、执行、审批与 provider 调度	internal,module,turn,mcp,server,npx,config,test,启动,执行,审批与,provider,调度
 internal/module/turn/module.go	internal	modules	go-source	2472	turn 启动、执行、审批与 provider 调度	internal,module,turn,启动,执行,审批与,provider,调度
 internal/module/turn/observation_wiring.go	internal	modules	go-source	2040	turn 启动、执行、审批与 provider 调度	internal,module,turn,observation,wiring,启动,执行,审批与,provider,调度
@@ -647,7 +651,7 @@ internal/module/turn/rpc_types.go	internal	modules	go-source	24150	turn 启动�
 internal/module/turn/rpc.go	internal	modules	go-source	1037	turn 启动、执行、审批与 provider 调度	internal,module,turn,rpc,启动,执行,审批与,provider,调度
 internal/module/turn/runtime_config_contract_test.go	internal	modules	go-test	3113	turn 启动、执行、审批与 provider 调度	internal,module,turn,runtime,config,contract,test,启动,执行,审批与,provider,调度
 internal/module/turn/service_dedupe_store_test.go	internal	modules	go-test	9117	turn 启动、执行、审批与 provider 调度	internal,module,turn,service,dedupe,store,test,启动,执行,审批与,provider,调度
-internal/module/turn/service_helpers.go	internal	modules	go-source	19822	turn 启动、执行、审批与 provider 调度	internal,module,turn,service,helpers,启动,执行,审批与,provider,调度
+internal/module/turn/service_helpers.go	internal	modules	go-source	20105	turn 启动、执行、审批与 provider 调度	internal,module,turn,service,helpers,启动,执行,审批与,provider,调度
 internal/module/turn/service_memory_test.go	internal	modules	go-test	4793	turn 启动、执行、审批与 provider 调度	internal,module,turn,service,memory,test,启动,执行,审批与,provider,调度
 internal/module/turn/service_observation_test.go	internal	modules	go-test	2138	turn 启动、执行、审批与 provider 调度	internal,module,turn,service,observation,test,启动,执行,审批与,provider,调度
 internal/module/turn/service_skill_hydrate_test.go	internal	modules	go-test	10611	turn 启动、执行、审批与 provider 调度	internal,module,turn,service,skill,hydrate,test,启动,执行,审批与,provider,调度
@@ -686,7 +690,7 @@ internal/module/uistate/model_providers_wire_test.go	internal	modules	go-test	39
 internal/module/uistate/model_providers.go	internal	modules	go-source	14905	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,model,providers,UI,事件投影,sidebar,timeline,状态
 internal/module/uistate/module_runtime_test.go	internal	modules	go-test	7181	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,runtime,test,UI,事件投影,sidebar,timeline,状态
 internal/module/uistate/module.go	internal	modules	go-source	7519	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,UI,事件投影,sidebar,timeline,状态
-internal/module/uistate/overlay_test.go	internal	modules	go-test	14372	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,overlay,test,UI,事件投影,sidebar,timeline,状态
+internal/module/uistate/overlay_test.go	internal	modules	go-test	14320	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,overlay,test,UI,事件投影,sidebar,timeline,状态
 internal/module/uistate/patch_test.go	internal	modules	go-test	21872	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,patch,test,UI,事件投影,sidebar,timeline,状态
 internal/module/uistate/patch_timeline.go	internal	modules	go-source	4604	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,patch,timeline,UI,事件投影,sidebar,状态
 internal/module/uistate/patch.go	internal	modules	go-source	17531	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,patch,UI,事件投影,sidebar,timeline,状态
@@ -716,7 +720,7 @@ internal/module/uistate/terminal_projection_test.go	internal	modules	go-test	362
 internal/module/uistate/terminalstatus/status_test.go	internal	modules	go-test	1234	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,terminalstatus,status,test,UI,事件投影,sidebar,timeline,状态
 internal/module/uistate/terminalstatus/status.go	internal	modules	go-source	351	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,terminalstatus,status,UI,事件投影,sidebar,timeline,状态
 internal/module/uistate/timeline/approval_identity_test.go	internal	modules	go-test	3451	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,timeline,approval,identity,test,UI,事件投影,sidebar,状态
-internal/module/uistate/timeline/argument_preview_sanitizer_test.go	internal	modules	go-test	1556	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,timeline,argument,preview,sanitizer,test,UI,事件投影,sidebar,状态
+internal/module/uistate/timeline/argument_preview_sanitizer_test.go	internal	modules	go-test	1665	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,timeline,argument,preview,sanitizer,test,UI,事件投影,sidebar,状态
 internal/module/uistate/timeline/merge.go	internal	modules	go-source	1848	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,timeline,merge,UI,事件投影,sidebar,状态
 internal/module/uistate/timeline/phase2_projector_pending_helpers_test.go	internal	modules	go-test	3123	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,timeline,phase2,projector,pending,helpers,test,UI,事件投影,sidebar,状态
 internal/module/uistate/timeline/phase2_projector_pending_test.go	internal	modules	go-test	19903	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,timeline,phase2,projector,pending,test,UI,事件投影,sidebar,状态
@@ -730,4 +734,4 @@ internal/module/uistate/tracing_test.go	internal	modules	go-test	5722	UI 事件�
 internal/module/workflowtemplate/module.go	internal	modules	go-source	3127	业务模块层	internal,module,workflowtemplate,业务模块层
 internal/module/workflowtemplate/rpc_test.go	internal	modules	go-test	12144	业务模块层	internal,module,workflowtemplate,rpc,test,业务模块层
 internal/module/workflowtemplate/rpc.go	internal	modules	go-source	9401	业务模块层	internal,module,workflowtemplate,rpc,业务模块层
-internal/module/ws_test/wails_ws_rpc_test.go	internal	modules	go-test	14523	业务模块层	internal,module,ws,test,wails,rpc,业务模块层
+internal/module/ws_test/wails_ws_rpc_test.go	internal	modules	go-test	14949	业务模块层	internal,module,ws,test,wails,rpc,业务模块层

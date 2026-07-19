@@ -1,6 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+case "$(uname -m)" in
+  arm64 | aarch64) platform="darwin-arm64" ;;
+  x86_64 | amd64) platform="darwin-amd64" ;;
+  *)
+    echo "unsupported macOS package verifier architecture: $(uname -m)" >&2
+    exit 1
+    ;;
+esac
 app="${1:-}"
 UPDATE_DMG="${UPDATE_DMG:-}"
 dmg_mount=""
@@ -698,71 +706,68 @@ is_placeholder_update_repo() {
   [[ "$repo" == "xiaoxiaotest9527-bit/-" ]]
 }
 
-verify_update_env() {
+verify_package_update_trust() {
   local env_file="$resources/.env"
-  if [[ ! -f "$env_file" ]]; then
-    return
-  fi
-  local enabled
-  enabled="$(dotenv_value "$env_file" SUPER_DOLPHIN_UPDATE_ENABLED 2>/dev/null || true)"
-  if [[ "$enabled" != "1" && "$enabled" != "true" && "$enabled" != "yes" && "$enabled" != "on" ]]; then
-    return
-  fi
-  local manifest_url github_repo public_key channel version decoded_key byte_count
-  manifest_url="$(dotenv_value "$env_file" SUPER_DOLPHIN_UPDATE_MANIFEST_URL 2>/dev/null || true)"
-  github_repo="$(dotenv_value "$env_file" SUPER_DOLPHIN_UPDATE_GITHUB_REPO 2>/dev/null || true)"
-  public_key="$(require_dotenv_value "$env_file" SUPER_DOLPHIN_UPDATE_PUBLIC_KEY)"
-  channel="$(require_dotenv_value "$env_file" SUPER_DOLPHIN_UPDATE_CHANNEL)"
-  version="$(require_dotenv_value "$env_file" SUPER_DOLPHIN_UPDATE_VERSION)"
-  if [[ -z "${manifest_url//[[:space:]]/}" && -z "${github_repo//[[:space:]]/}" ]]; then
-    echo "SUPER_DOLPHIN_UPDATE_MANIFEST_URL or SUPER_DOLPHIN_UPDATE_GITHUB_REPO is required when app update is enabled" >&2
+  if [[ -f "$env_file" ]] && grep -q '^SUPER_DOLPHIN_UPDATE_' "$env_file"; then
+    echo "packaged .env must not contain SUPER_DOLPHIN_UPDATE_* overrides" >&2
     exit 1
   fi
-  if [[ -n "${manifest_url//[[:space:]]/}" && -n "${github_repo//[[:space:]]/}" ]]; then
-    echo "SUPER_DOLPHIN_UPDATE_MANIFEST_URL and SUPER_DOLPHIN_UPDATE_GITHUB_REPO are mutually exclusive" >&2
+  local trust_file="$resources/update-trust.json"
+  if [[ ! -f "$trust_file" ]]; then
+    echo "missing package-owned update trust: $trust_file" >&2
     exit 1
   fi
-  if [[ -n "${manifest_url//[[:space:]]/}" && ! "$manifest_url" =~ ^https://[^/?#]+($|[/?#]) ]]; then
-    echo "SUPER_DOLPHIN_UPDATE_MANIFEST_URL must be HTTPS with host: $manifest_url" >&2
+  local schema enabled production trust_platform signer_policy
+  local source_kind source_value manifest_key channel signer updater_sha guard_sha
+  schema="$(json_value_at_path "$trust_file" schema_version json)"
+  enabled="$(json_value_at_path "$trust_file" enabled json)"
+  production="$(json_value_at_path "$trust_file" production json)"
+  trust_platform="$(json_value_at_path "$trust_file" platform string)"
+  source_kind="$(json_value_at_path "$trust_file" source.kind string)"
+  source_value="$(json_value_at_path "$trust_file" source.value string)"
+  manifest_key="$(json_value_at_path "$trust_file" manifest_public_key string)"
+  channel="$(json_value_at_path "$trust_file" channel string)"
+  signer_policy="$(json_value_at_path "$trust_file" signer_policy string)"
+  signer="$(json_value_at_path "$trust_file" signer_identity string)"
+  updater_sha="$(json_value_at_path "$trust_file" updater_sha256 string)"
+  guard_sha="$(json_value_at_path "$trust_file" guard_sha256 string)"
+  if [[ "$schema" != "1" || "$trust_platform" != "$platform" ]]; then
+    echo "package-owned update trust schema/platform mismatch" >&2
     exit 1
   fi
-  if [[ -n "${github_repo//[[:space:]]/}" && ! "$github_repo" =~ ^[^/[:space:]]+/[^/[:space:]]+$ ]]; then
-    echo "SUPER_DOLPHIN_UPDATE_GITHUB_REPO must be owner/repo without whitespace: $github_repo" >&2
+  require_sha256_hex "package trust updater_sha256" "$updater_sha"
+  require_sha256_hex "package trust guard_sha256" "$guard_sha"
+  if [[ "$(sha256_file "$resources/bin/super-dolphin-updater")" != "$updater_sha" ||
+        "$(sha256_file "$resources/bin/super-dolphin-guard")" != "$guard_sha" ]]; then
+    echo "package-owned update trust helper digest mismatch" >&2
     exit 1
   fi
-  if [[ -n "${github_repo//[[:space:]]/}" ]] && is_placeholder_update_repo "$github_repo"; then
-    echo "known placeholder update repo is not allowed" >&2
+  if [[ "$platform" == "darwin-arm64" ]]; then
+    if [[ "$enabled" != "true" || "$production" != "true" || "$signer_policy" != "exact" ||
+          -z "$source_value" || -z "$manifest_key" || -z "$channel" || -z "$signer" ]]; then
+      echo "darwin-arm64 package-owned update trust must be production exact-signer trust" >&2
+      exit 1
+    fi
+    if [[ "$source_kind" != "github" && "$source_kind" != "manifest" ]]; then
+      echo "darwin-arm64 package-owned update source kind must be github or manifest" >&2
+      exit 1
+    fi
+  elif [[ "$enabled" != "false" || "$production" != "false" || "$signer_policy" != "disabled" ||
+          -n "$source_kind" || -n "$source_value" || -n "$manifest_key" || -n "$channel" || -n "$signer" ]]; then
+    echo "$platform package-owned updates must remain fully disabled" >&2
     exit 1
   fi
-  decoded_key="$(mktemp)"
-  if ! printf '%s' "$public_key" | base64 --decode >"$decoded_key" 2>/dev/null && ! printf '%s' "$public_key" | base64 -D >"$decoded_key" 2>/dev/null; then
-    rm -f "$decoded_key"
-    echo "SUPER_DOLPHIN_UPDATE_PUBLIC_KEY must be valid base64" >&2
-    exit 1
-  fi
-  byte_count="$(wc -c <"$decoded_key" | tr -d '[:space:]')"
-  rm -f "$decoded_key"
-  if [[ "$byte_count" != "32" ]]; then
-    echo "decoded SUPER_DOLPHIN_UPDATE_PUBLIC_KEY must be 32 bytes" >&2
-    exit 1
-  fi
-  if [[ ! -x "$resources/bin/super-dolphin-updater" ]]; then
-    echo "missing updater helper: $resources/bin/super-dolphin-updater" >&2
-    exit 1
-  fi
-  if [[ -n "$github_repo" ]]; then
-    echo "packaged app update env verified: source=github:$github_repo channel=$channel version=$version"
-  else
-    echo "packaged app update env verified: source=manifest channel=$channel version=$version"
-  fi
+  echo "package-owned update trust verified: $platform"
 }
 
 required_execs=(
   "$macos/agent-terminal"
   "$resources/bin/mcp-orch"
   "$resources/bin/mcp-lsp"
+  "$resources/bin/mcp-schema-compiler-helper"
   "$resources/bin/mcp-ida"
   "$resources/bin/super-dolphin-updater"
+  "$resources/bin/super-dolphin-guard"
   "$resources/bin/codex"
   "$resources/bin/ffmpeg"
   "$resources/bin/gopls"
@@ -779,6 +784,12 @@ required_execs=(
   "$resources/lsp/bin/go"
   "$resources/bin/git"
 )
+
+if [[ ! -f "$resources/bin/mcp-schema-compiler-helper.manifest.json" ]]; then
+  echo "missing schema helper manifest" >&2
+  exit 1
+fi
+"$resources/bin/mcp-schema-compiler-helper" --verify-package "$resources/bin/mcp-schema-compiler-helper.manifest.json"
 
 verify_runtime_manifest
 if [[ -f "$resources/lsp/lsp-manifest.json" ]] && lsp_manifest_value "$resources/lsp/lsp-manifest.json" "jdtls" path >/dev/null 2>&1; then
@@ -800,7 +811,7 @@ fi
 
 verify_codex_manifest
 verify_packaged_ffmpeg
-verify_update_env
+verify_package_update_trust
 verify_lsp_manifest
 verify_packaged_go_lsp_smoke
 verify_packaged_java_lsp_smoke

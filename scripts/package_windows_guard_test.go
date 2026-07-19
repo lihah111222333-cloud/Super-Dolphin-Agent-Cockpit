@@ -5,7 +5,22 @@ import (
 	"os/exec"
 	"strings"
 	"testing"
+
+	recovery "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/appupdaterecovery"
 )
+
+func TestPackageWindowsRejectsUnsupportedPackageUpdates(t *testing.T) {
+	script := readScript(t, "package_windows.ps1")
+	verify := readScript(t, "verify_packaged_app_windows.ps1")
+	assertScriptContains(t, script, "package-owned updates are unsupported for $Platform")
+	assertScriptContains(t, verify, "package-owned updates are unsupported for windows-amd64/windows-arm64")
+	for _, name := range recovery.PackageTrustOverrideNames() {
+		assertScriptContains(t, script, name)
+	}
+	assertScriptDoesNotContain(t, verify, "SUPER_DOLPHIN_RUNTIME_RESOURCES_DIR")
+	assertScriptDoesNotContain(t, script, "Write-PackagedUpdateEnv")
+	assertScriptDoesNotContain(t, script, "PackagedUpdateEnabled")
+}
 
 func TestPackageWindowsScriptBuildsNativeWindowsPackage(t *testing.T) {
 	script := readScript(t, "package_windows.ps1")
@@ -14,7 +29,7 @@ func TestPackageWindowsScriptBuildsNativeWindowsPackage(t *testing.T) {
 	assertScriptContains(t, script, "Resolve-RepoRoot")
 	assertScriptContains(t, script, "keep package_windows.ps1 under <repo>\\scripts")
 	assertScriptContains(t, script, "$GoOS -ne 'windows'")
-	assertScriptContains(t, script, "Invoke-WindowsGoBuild -Output (Join-Path $Root 'bin/agent-terminal.exe') -Package './cmd/agent-terminal' -LdFlags $windowsGuiLdFlags")
+	assertScriptContains(t, script, "Invoke-WindowsGoBuild -Output (Join-Path $Root 'bin/agent-terminal.exe') -Package './cmd/agent-terminal' -LdFlags $windowsSchemaLdFlags")
 	assertScriptContains(t, script, "Invoke-WindowsGoBuild -Output (Join-Path $Root 'bin/mcp-orch.exe') -Package './cmd/mcp-orch' -LdFlags $windowsGuiLdFlags")
 	assertScriptContains(t, script, "Invoke-WindowsGoBuild -Output (Join-Path $Root 'bin/mcp-lsp.exe') -Package './cmd/mcp-lsp' -LdFlags $windowsGuiLdFlags")
 	assertScriptContains(t, script, "Invoke-WindowsGoBuild -Output (Join-Path $Root 'bin/mcp-ida.exe') -Package './cmd/mcp-ida' -LdFlags $windowsGuiLdFlags")
@@ -29,7 +44,7 @@ func TestPackageWindowsScriptBuildsNativeWindowsPackage(t *testing.T) {
 	assertScriptContains(t, script, "& $tar.Source -a -cf $ZipPath $stageName")
 	assertScriptContains(t, script, "Compress-Archive")
 	assertScriptContains(t, script, "$zipPath = Join-Path $dist \"$AppName-$Version-$Platform.zip\"")
-	assertScriptOrder(t, script, "Build-CurrentFrontendApp", "Invoke-WindowsGoBuild -Output (Join-Path $Root 'bin/agent-terminal.exe') -Package './cmd/agent-terminal' -LdFlags $windowsGuiLdFlags")
+	assertScriptOrder(t, script, "Build-CurrentFrontendApp", "Invoke-WindowsGoBuild -Output (Join-Path $Root 'bin/agent-terminal.exe') -Package './cmd/agent-terminal' -LdFlags $windowsSchemaLdFlags")
 }
 
 func TestPackageWindowsWhatIfRunsCrossPlatformValidation(t *testing.T) {
@@ -125,7 +140,7 @@ func TestPackageWindowsRejectsSensitiveVideoAPIKeyBeforeWritingEnv(t *testing.T)
 func TestPackageWindowsBuildsDesktopExeWithoutConsoleWindow(t *testing.T) {
 	script := readScript(t, "package_windows.ps1")
 
-	assertScriptContains(t, script, "Invoke-WindowsGoBuild -Output (Join-Path $Root 'bin/agent-terminal.exe') -Package './cmd/agent-terminal' -LdFlags $windowsGuiLdFlags")
+	assertScriptContains(t, script, "Invoke-WindowsGoBuild -Output (Join-Path $Root 'bin/agent-terminal.exe') -Package './cmd/agent-terminal' -LdFlags $windowsSchemaLdFlags")
 	assertScriptContains(t, script, "& go build -ldflags $LdFlags -o $Output $Package")
 	assertScriptDoesNotContain(t, script, "Invoke-WindowsGoBuild -Output (Join-Path $Root 'bin/agent-terminal.exe') -Package './cmd/agent-terminal'\n")
 }

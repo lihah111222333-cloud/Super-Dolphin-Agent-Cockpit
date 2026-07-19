@@ -31,17 +31,17 @@ func TestToolCallBeginSanitizesRunningPreview(t *testing.T) {
 }
 
 func sensitiveTimelineArgumentsPreview() string {
-	return `{"command":"curl --api-key sk-test https://example.test","token":"token=abc","file_path":"/Users/alice/secret"}`
+	return `run password="timeline-password-value" TOKEN='timeline-token-value' --password=\"timeline-escaped-value\" keep=timeline-visible`
 }
 
 func assertTimelineArgumentsPreviewSanitized(t *testing.T, preview string) {
 	t.Helper()
-	for _, fragment := range []string{"token=abc", "sk-test", "/Users/alice/secret", "--api-key"} {
+	for _, fragment := range []string{"timeline-password-value", "timeline-token-value", "timeline-escaped-value"} {
 		if strings.Contains(preview, fragment) {
 			t.Fatalf("timeline Preview = %q, must not contain sensitive fragment %q", preview, fragment)
 		}
 	}
-	if !strings.Contains(preview, "[REDACTED]") {
-		t.Fatalf("timeline Preview = %q, want redaction marker", preview)
+	if !strings.Contains(preview, "[REDACTED]") || !strings.Contains(preview, "keep=timeline-visible") {
+		t.Fatalf("timeline Preview = %q, want redaction marker and ordinary context", preview)
 	}
 }

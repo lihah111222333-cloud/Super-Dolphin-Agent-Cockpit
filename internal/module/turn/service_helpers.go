@@ -253,10 +253,11 @@ func normalizeTurnHTTPMCPServerConfig(name string, config contract.MCPServerConf
 		return contract.MCPServerConfig{}, err
 	}
 	return contract.MCPServerConfig{
-		Transport: "http",
-		URL:       rawURL,
-		Headers:   headers,
-		Enabled:   normalizeTurnMCPEnabled(config.Enabled),
+		TrustedServerID: strings.TrimSpace(config.TrustedServerID),
+		Transport:       "http",
+		URL:             rawURL,
+		Headers:         headers,
+		Enabled:         normalizeTurnMCPEnabled(config.Enabled),
 	}, nil
 }
 
@@ -275,11 +276,12 @@ func normalizeTurnStdioMCPServerConfig(name string, config contract.MCPServerCon
 		return contract.MCPServerConfig{}, err
 	}
 	return contract.MCPServerConfig{
-		Transport: "stdio",
-		Command:   command,
-		Args:      args,
-		Env:       env,
-		Enabled:   normalizeTurnMCPEnabled(config.Enabled),
+		TrustedServerID: strings.TrimSpace(config.TrustedServerID),
+		Transport:       "stdio",
+		Command:         command,
+		Args:            args,
+		Env:             env,
+		Enabled:         normalizeTurnMCPEnabled(config.Enabled),
 	}, nil
 }
 
@@ -478,13 +480,14 @@ func copyTurnMCPServerConfigs(out map[string]contract.MCPServerConfig, input map
 			continue
 		}
 		out[name] = contract.MCPServerConfig{
-			Transport: strings.TrimSpace(config.Transport),
-			URL:       strings.TrimSpace(config.URL),
-			Headers:   cloneTurnStringMap(config.Headers),
-			Command:   strings.TrimSpace(config.Command),
-			Args:      cloneTurnStringList(config.Args),
-			Env:       cloneTurnStringMap(config.Env),
-			Enabled:   cloneTurnBoolPtr(config.Enabled),
+			TrustedServerID: strings.TrimSpace(config.TrustedServerID),
+			Transport:       strings.TrimSpace(config.Transport),
+			URL:             strings.TrimSpace(config.URL),
+			Headers:         cloneTurnStringMap(config.Headers),
+			Command:         strings.TrimSpace(config.Command),
+			Args:            cloneTurnStringList(config.Args),
+			Env:             cloneTurnStringMap(config.Env),
+			Enabled:         cloneTurnBoolPtr(config.Enabled),
 		}
 	}
 }

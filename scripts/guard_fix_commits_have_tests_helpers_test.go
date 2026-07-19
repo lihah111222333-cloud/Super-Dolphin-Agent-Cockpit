@@ -229,7 +229,7 @@ func preparePreCommitGateFixture(t *testing.T) string {
 
 func writeFakeAIMaintenanceGateScript(t *testing.T, root string) {
 	t.Helper()
-	content := "#!/usr/bin/env bash\nset -e\nprintf 'fake ai maintenance gate %s\\n' \"$*\"\nprintf 'gate-worktree=%s\\n' \"$PWD\"\nif [ -n \"${GATE_MUTATE_ORIGINAL_PATH:-}\" ]; then\n  printf 'mutated during gate\\n' >\"$GATE_MUTATE_ORIGINAL_PATH\"\nfi\nif [ -n \"${GATE_ASSERT_RELATIVE_PATH:-}\" ]; then\n  grep -Fq \"${GATE_ASSERT_CONTENT:?}\" \"$GATE_ASSERT_RELATIVE_PATH\"\nfi\nif [ -n \"${GIT_INDEX_FILE:-}\" ]; then\n  printf 'gate-index=%s gate-tree=%s\\n' \"$GIT_INDEX_FILE\" \"$(git write-tree)\"\nfi\nif [ -n \"${GATE_ASSERT_WORKTREE_INDEX:-}\" ]; then\n  cache_tree=$(git write-tree)\n  worktree_tree=$(unset GIT_INDEX_FILE; git write-tree)\n  printf 'cache-tree=%s worktree-tree=%s\\n' \"$cache_tree\" \"$worktree_tree\"\n  [ \"$cache_tree\" = \"$worktree_tree\" ]\nfi\nif [ -n \"${GATE_ASSERT_NODE_MODULES_COPY:-}\" ]; then\n  [ -d frontend-app/node_modules ]\n  [ ! -L frontend-app/node_modules ]\n  [ -x frontend-app/node_modules/.bin/vite ]\nfi\nif [ -n \"${HOOK_SCOPE_LOG:-}\" ]; then\n  printf 'soft-generated=%s ai-maintenance %s\\n' \"${SUPER_DOLPHIN_PRE_PUSH_SOFT_GENERATED_DRIFT:-}\" \"$*\" >>\"$HOOK_SCOPE_LOG\"\nfi\n"
+	content := "#!/usr/bin/env bash\nset -e\nprintf 'fake ai maintenance gate %s\\n' \"$*\"\nprintf 'gate-worktree=%s\\n' \"$PWD\"\nif [ -n \"${GATE_MUTATE_ORIGINAL_PATH:-}\" ]; then\n  printf 'mutated during gate\\n' >\"$GATE_MUTATE_ORIGINAL_PATH\"\nfi\nif [ -n \"${GATE_ASSERT_RELATIVE_PATH:-}\" ]; then\n  grep -Fq \"${GATE_ASSERT_CONTENT:?}\" \"$GATE_ASSERT_RELATIVE_PATH\"\nfi\nif [ -n \"${GIT_INDEX_FILE:-}\" ]; then\n  printf 'gate-index=%s gate-tree=%s\\n' \"$GIT_INDEX_FILE\" \"$(git write-tree)\"\nfi\nif [ -n \"${GATE_ASSERT_WORKTREE_INDEX:-}\" ]; then\n  cache_tree=$(git write-tree)\n  worktree_tree=$(unset GIT_INDEX_FILE; git write-tree)\n  printf 'cache-tree=%s worktree-tree=%s\\n' \"$cache_tree\" \"$worktree_tree\"\n  [ \"$cache_tree\" = \"$worktree_tree\" ]\nfi\nif [ -n \"${GATE_ASSERT_NODE_MODULES_COPY:-}\" ]; then\n  [ -d frontend-app/node_modules ]\n  [ ! -L frontend-app/node_modules ]\n  [ -x frontend-app/node_modules/.bin/vite ]\nfi\nif [ -n \"${GATE_FORCE_CLEANUP_FAILURE:-}\" ]; then\n  chmod 0500 \"$TMPDIR\"\nfi\nif [ -n \"${HOOK_SCOPE_LOG:-}\" ]; then\n  printf 'soft-generated=%s ai-maintenance %s\\n' \"${SUPER_DOLPHIN_PRE_PUSH_SOFT_GENERATED_DRIFT:-}\" \"$*\" >>\"$HOOK_SCOPE_LOG\"\nfi\n"
 	path := filepath.Join(root, "scripts", "ai_maintenance_gates.sh")
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatalf("mkdir fake ai maintenance gate dir: %v", err)
@@ -313,6 +313,34 @@ func writePrePushScopeFakeBins(t *testing.T, logPath string) string {
 	return binDir
 }
 
+func TestPreCommitCreatesDeterministicEmbedPlaceholderFromStagedSnapshot(t *testing.T) {
+	for _, mutableIgnoredArtifact := range []bool{false, true} {
+		name := "without ignored artifact"
+		if mutableIgnoredArtifact {
+			name = "with mutable ignored artifact"
+		}
+		t.Run(name, func(t *testing.T) {
+			root := preparePreCommitGateFixture(t)
+			writeFixTestGuardFile(t, root, ".gitignore", "cmd/agent-terminal/web-dist/\n")
+			runFixTestGuardGit(t, root, "add", ".gitignore", "scripts/guard_fix_commits_have_tests.sh")
+			runFixTestGuardGit(t, root, "commit", "-m", "chore: 安装 embed fixture")
+			writeFixTestGuardFile(t, root, "cmd/agent-terminal/main.go", "package main\n\nimport \"embed\"\n\n//go:embed all:web-dist\nvar frontend embed.FS\n\nfunc main() { _ = frontend }\n")
+			if mutableIgnoredArtifact {
+				writeFixTestGuardFile(t, root, "cmd/agent-terminal/web-dist/index.html", "mutable ignored artifact\n")
+			}
+			runFixTestGuardGit(t, root, "add", "cmd/agent-terminal/main.go")
+			out, err := runPreCommitHookWithEnv(t, root, map[string]string{
+				"GATE_ASSERT_RELATIVE_PATH": "cmd/agent-terminal/web-dist/index.html",
+				"GATE_ASSERT_CONTENT":       "staged snapshot",
+			})
+			if err != nil {
+				t.Fatalf("pre-commit embed placeholder failed: %v\n%s", err, out)
+			}
+			assertOutputContainsAll(t, out, "go vet (staged snapshot)", "pre-commit OK")
+		})
+	}
+}
+
 func prePushStdin(base, head string) string {
 	return "refs/heads/main " + head + " refs/heads/main " + base + "\n"
 }
@@ -349,7 +377,13 @@ func runPreCommitHookWithEnv(t *testing.T, root string, extra map[string]string)
 	t.Helper()
 	cmd := exec.Command("bash", bashPath(".githooks", "pre-commit"))
 	cmd.Dir = root
-	env := os.Environ()
+	env := make([]string, 0, len(os.Environ())+len(extra))
+	for _, item := range os.Environ() {
+		key, _, _ := strings.Cut(item, "=")
+		if _, replaced := extra[key]; !replaced {
+			env = append(env, item)
+		}
+	}
 	keys := []string{"PATH"}
 	for key, value := range extra {
 		env = append(env, key+"="+value)
@@ -358,6 +392,25 @@ func runPreCommitHookWithEnv(t *testing.T, root string, extra map[string]string)
 	cmd.Env = appendWSLEnvKeysWithGitPath(t, env, keys...)
 	out, err := cmd.CombinedOutput()
 	return string(out), err
+}
+
+func assertPreCommitFixtureClean(t *testing.T, root, tmpRoot string) {
+	t.Helper()
+	entries, err := os.ReadDir(tmpRoot)
+	if err != nil {
+		t.Fatalf("read controlled TMPDIR: %v", err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("pre-commit leaked controlled TMPDIR entries: %v", entries)
+	}
+	worktrees := runFixTestGuardGitOutput(t, root, "worktree", "list", "--porcelain")
+	canonicalRoot, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		t.Fatalf("canonicalize fixture root: %v", err)
+	}
+	if strings.Count(worktrees, "worktree ") != 1 || !strings.Contains(worktrees, "worktree "+canonicalRoot) {
+		t.Fatalf("fixture worktrees after hook = %q, want only %s", worktrees, root)
+	}
 }
 
 func runCICommitGuard(t *testing.T, root string, env map[string]string, args ...string) (string, error) {

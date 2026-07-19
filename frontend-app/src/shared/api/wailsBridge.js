@@ -8,10 +8,11 @@ function nativeImportModule(modulePath) {
   return import(/* @vite-ignore */ modulePath);
 }
 
-// source-contract: nativeImportModule(WAILS_RUNTIME_MODULE)
-void nativeImportModule;
-void WAILS_RUNTIME_MODULE;
+function loadWailsRuntime() {
+  return nativeImportModule(WAILS_RUNTIME_MODULE);
+}
 
+export { loadWailsRuntime };
 export { registerBridgeLogStore } from './wails/wailsBridgeLogRuntime.js';
 export { normalizeRuntimeEventEnvelope, emitFrontendTraceEvent } from './wails/wailsBridgeTraceEvents.js';
 export { callAPI, sendFrontendLogBatch } from './wails/wailsBridgeRpc.js';

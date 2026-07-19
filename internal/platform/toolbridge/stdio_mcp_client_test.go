@@ -42,8 +42,6 @@ func TestStdioMCPClientListToolsRejectsMalformedResult(t *testing.T) {
 	}{
 		{name: "missing tools", result: `{}`, wantErr: "tools array is required"},
 		{name: "tools not array", result: `{"tools":null}`, wantErr: "tools array is required"},
-		{name: "empty name", result: `{"tools":[{"name":" ","inputSchema":{"type":"object"}}]}`, wantErr: "tool name is required"},
-		{name: "schema not object", result: `{"tools":[{"name":"grep","inputSchema":"bad"}]}`, wantErr: "inputSchema must be a JSON object"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -327,7 +325,7 @@ func runStdioMCPTestHelper() {
 		fmt.Fprintf(os.Stderr, "start child: %v\n", err)
 		os.Exit(2)
 	}
-	if err := os.WriteFile(marker, []byte(fmt.Sprintf("%d", child.Process.Pid)), 0o644); err != nil {
+	if err := os.WriteFile(marker, fmt.Appendf(nil, "%d", child.Process.Pid), 0o644); err != nil {
 		fmt.Fprintf(os.Stderr, "write marker: %v\n", err)
 		os.Exit(2)
 	}
@@ -487,8 +485,8 @@ func requireEnvValueInSlice(t *testing.T, env []string, key, want string) {
 func envValueInSlice(env []string, key string) (string, bool) {
 	prefix := key + "="
 	for _, item := range env {
-		if strings.HasPrefix(item, prefix) {
-			return strings.TrimPrefix(item, prefix), true
+		if value, ok := strings.CutPrefix(item, prefix); ok {
+			return value, true
 		}
 	}
 	return "", false

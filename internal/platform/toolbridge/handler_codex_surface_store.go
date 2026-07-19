@@ -1,12 +1,25 @@
 package toolbridge
 
 import (
+	"bytes"
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"os"
+	"path/filepath"
+	"runtime"
+	"sort"
 	"strings"
+	"sync"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
 	mcpdto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/mcp"
+	providerdto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/provider"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/toolbridge/schema"
 )
 
 type codexDisabledToolSet map[string]struct{}
@@ -51,9 +64,10 @@ func addSingleMCPToolToSurface(
 	out *[]contract.DynamicToolSchema,
 	family string,
 	client mcpClient,
-	tool mcpdto.MCPTool,
+	admitted admittedMCPTool,
 	disabled codexDisabledToolSet,
 ) error {
+	tool := admitted.tool
 	if _, reserved := reservedHostOnlySurfaceToolCanonicalName(family, tool.Name); reserved {
 		return nil
 	}
@@ -68,7 +82,11 @@ func addSingleMCPToolToSurface(
 	if disabledName, ok := disabled.match(aliases...); ok {
 		return addDisabledSurfaceToolAliases(surface, disabledName, aliases...)
 	}
-	entry := codexToolEntry{name: canonical, realName: tool.Name, executionKind: "stdio", family: strings.TrimSpace(family), client: client}
+	entry := codexToolEntry{
+		name: canonical, realName: tool.Name, executionKind: "stdio",
+		family: strings.TrimSpace(family), client: client,
+		compiledSchema: admitted.canonical, authority: admitted.authority,
+	}
 	if err := addSurfaceTool(surface, out, tool, entry); err != nil {
 		return err
 	}
@@ -174,18 +192,6 @@ func (h *Handler) replaceCodexToolSurface(surface *codexToolSurface) []*codexToo
 	return replaced
 }
 
-// removeCodexToolSurface 从索引中移除指定 surface 的所有 key。
-// 只有当前 key 仍指向同一个 surface 时才删除，避免误删并发绑定的新 surface。
-func (h *Handler) removeCodexToolSurface(surface *codexToolSurface) {
-	h.surfaceMu.Lock()
-	defer h.surfaceMu.Unlock()
-	for _, key := range surface.keys {
-		if h.surfaces[key] == surface {
-			delete(h.surfaces, key)
-		}
-	}
-}
-
 // BindCodexToolSurface 将已准备好的 Codex tool surface 绑定到更多 agent/thread key。
 // sourceKey 必须已经存在，目标 key 不能被其他 surface 占用。
 func (h *Handler) BindCodexToolSurface(scope contract.CodexToolSurfaceScope) error {
@@ -272,4 +278,582 @@ func (h *Handler) takeCodexToolSurfaces(keys []string) []*codexToolSurface {
 		}
 	}
 	return out
+}
+
+type mcpSchemaExecutor interface {
+	Execute(context.Context, schema.Invocation, schema.FenceHook) (schema.Result, error)
+}
+
+type mcpSchemaAuthority struct {
+	token       contract.MCPToolAuthority
+	toolDigests map[string]string
+	quarantine  map[string]string
+}
+
+type admittedMCPTool struct {
+	tool      mcpdto.MCPTool
+	canonical schema.CanonicalSchema
+	authority *mcpSchemaAuthority
+}
+
+type lazyMCPSchemaExecutor struct {
+	config           schema.ClientConfig
+	profile          contract.DependencyProfile
+	mu               sync.Mutex
+	client           mcpSchemaExecutor
+	terminalErr      error
+	init             *mcpSchemaClientInit
+	initializeClient func(context.Context) (mcpSchemaExecutor, error)
+}
+
+type mcpSchemaClientInit struct {
+	done      chan struct{}
+	client    mcpSchemaExecutor
+	err       error
+	retryable bool
+}
+
+// Execute 延迟绑定当前应用 identity，并只执行已校验后固定的 helper 镜像。
+func (executor *lazyMCPSchemaExecutor) Execute(ctx context.Context, invocation schema.Invocation, fence schema.FenceHook) (schema.Result, error) {
+	if ctx == nil {
+		return schema.Result{}, fmt.Errorf("toolbridge: MCP schema context is required")
+	}
+	operationCtx, cancel := schema.WithOperationDeadline(ctx)
+	defer cancel()
+	client, err := executor.resolveClient(operationCtx)
+	if err != nil {
+		return schema.Result{}, err
+	}
+	return client.Execute(operationCtx, invocation, fence)
+}
+
+// resolveClient 合并并发初始化；取消与瞬态初始化失败允许下一轮重新竞争。
+func (executor *lazyMCPSchemaExecutor) resolveClient(ctx context.Context) (mcpSchemaExecutor, error) {
+	for {
+		if err := ctx.Err(); err != nil {
+			return nil, fmt.Errorf("toolbridge: MCP schema initialization context: %w", err)
+		}
+		state, owner, client, err := executor.initializationState()
+		if client != nil || err != nil {
+			return client, err
+		}
+		if owner {
+			executor.runInitialization(ctx, state)
+			return state.client, state.err
+		}
+		select {
+		case <-state.done:
+			if state.retryable {
+				continue
+			}
+			return state.client, state.err
+		case <-ctx.Done():
+			return nil, fmt.Errorf("toolbridge: wait for MCP schema client initialization: %w", ctx.Err())
+		}
+	}
+}
+
+func (executor *lazyMCPSchemaExecutor) initializationState() (*mcpSchemaClientInit, bool, mcpSchemaExecutor, error) {
+	executor.mu.Lock()
+	defer executor.mu.Unlock()
+	if executor.client != nil || executor.terminalErr != nil {
+		return nil, false, executor.client, executor.terminalErr
+	}
+	if executor.init != nil {
+		return executor.init, false, nil, nil
+	}
+	state := &mcpSchemaClientInit{done: make(chan struct{})}
+	executor.init = state
+	return state, true, nil, nil
+}
+
+func (executor *lazyMCPSchemaExecutor) runInitialization(ctx context.Context, state *mcpSchemaClientInit) {
+	client, err := executor.initialize(ctx)
+	if client == nil && err == nil {
+		err = schema.StableInitializationError(
+			errors.New("toolbridge: MCP schema initializer returned nil client"),
+		)
+	}
+	retryable := initializationFailureRetryable(ctx, err)
+	executor.mu.Lock()
+	state.client, state.err, state.retryable = client, err, retryable
+	if err == nil {
+		executor.client = client
+	} else if !retryable {
+		executor.terminalErr = err
+	}
+	executor.init = nil
+	close(state.done)
+	executor.mu.Unlock()
+}
+
+func initializationFailureRetryable(ctx context.Context, err error) bool {
+	if ctx.Err() != nil && errors.Is(err, ctx.Err()) {
+		return true
+	}
+	class, ok := schema.InitializationFailureClassOf(err)
+	return !ok || class == schema.InitializationFailureTransient
+}
+
+func (executor *lazyMCPSchemaExecutor) initialize(ctx context.Context) (mcpSchemaExecutor, error) {
+	if executor.initializeClient != nil {
+		return executor.initializeClient(ctx)
+	}
+	identity, err := runningSchemaHelperIdentity()
+	if err != nil {
+		return nil, schema.StableInitializationError(err)
+	}
+	executor.config.Identity = identity
+	workerPath, err := schemaFilesystemWorkerPath(executor.profile)
+	if err != nil {
+		return nil, err
+	}
+	executor.config.FilesystemWorkerPath = workerPath
+	return schema.NewClient(ctx, executor.config)
+}
+
+func newMCPSchemaExecutor(cfgProjectRoot string, profile contract.DependencyProfile) (mcpSchemaExecutor, error) {
+	helperDir, err := schemaHelperDirectory(cfgProjectRoot, profile)
+	if err != nil {
+		return nil, err
+	}
+	helperName := schema.HelperFileName(runtime.GOOS)
+	return &lazyMCPSchemaExecutor{profile: profile, config: schema.ClientConfig{
+		HelperPath:   filepath.Join(helperDir, helperName),
+		ManifestPath: filepath.Join(helperDir, schema.HelperManifestFileName(runtime.GOOS)),
+	}}, nil
+}
+
+func schemaFilesystemWorkerPath(profile contract.DependencyProfile) (string, error) {
+	path, err := schema.PreparedFilesystemWorkerPath()
+	if err == nil {
+		return path, nil
+	}
+	if profile == contract.DependencyProfileProduction {
+		return "", schema.StableInitializationError(fmt.Errorf("toolbridge: %w", err))
+	}
+	path, err = os.Executable()
+	if err != nil {
+		return "", schema.TransientInitializationError(
+			fmt.Errorf("toolbridge: resolve schema filesystem worker: %w", err),
+		)
+	}
+	path, err = filepath.EvalSymlinks(path)
+	if err != nil {
+		return "", schema.TransientInitializationError(
+			fmt.Errorf("toolbridge: canonicalize schema filesystem worker: %w", err),
+		)
+	}
+	return filepath.Clean(path), nil
+}
+
+func schemaHelperDirectory(cfgProjectRoot string, profile contract.DependencyProfile) (string, error) {
+
+	switch profile {
+	case contract.DependencyProfileProduction:
+		return packagedSchemaHelperDirectory()
+	case contract.DependencyProfileDesktopHost, contract.DependencyProfileTest:
+		return developmentSchemaHelperDirectory(cfgProjectRoot)
+	default:
+		return "", fmt.Errorf("toolbridge: explicit dependency profile is required for schema helper")
+	}
+}
+
+// packagedSchemaHelperDirectory 仅从当前可执行文件推导 canonical package 目录。
+func packagedSchemaHelperDirectory() (string, error) {
+	executable, err := os.Executable()
+	if err != nil {
+		return "", fmt.Errorf("toolbridge: resolve executable for schema helper: %w", err)
+	}
+	executable, err = filepath.EvalSymlinks(executable)
+	if err != nil {
+		return "", fmt.Errorf("toolbridge: canonicalize executable for schema helper: %w", err)
+	}
+	dir := filepath.Dir(executable)
+	if runtime.GOOS == "darwin" && filepath.Base(dir) == "MacOS" && filepath.Base(filepath.Dir(dir)) == "Contents" {
+		return filepath.Join(filepath.Dir(dir), "Resources", "bin"), nil
+	}
+	return dir, nil
+}
+
+func developmentSchemaHelperDirectory(cfgProjectRoot string) (string, error) {
+	root := filepath.Clean(strings.TrimSpace(cfgProjectRoot))
+	if root == "." || !filepath.IsAbs(root) {
+		return "", fmt.Errorf("toolbridge: absolute project root is required in schema helper development mode")
+	}
+	return filepath.Join(root, "bin"), nil
+}
+
+func runningSchemaHelperIdentity() (schema.HelperIdentity, error) {
+	identity, err := schema.CurrentBuildIdentity()
+	if err != nil {
+		return schema.HelperIdentity{}, fmt.Errorf("toolbridge: %w", err)
+	}
+	return identity, nil
+}
+
+// admitMCPServerTools 为一个 current server generation 执行逐工具 schema admission。
+func (h *Handler) admitMCPServerTools(
+	ctx context.Context,
+	cwd string,
+	binary providerdto.MCPBinary,
+	tools []mcpdto.MCPTool,
+) ([]admittedMCPTool, *mcpSchemaAuthority, error) {
+	authority, strictTools, err := h.beginMCPAuthority(ctx, cwd, binary, tools)
+	if err != nil {
+		return nil, nil, err
+	}
+	if h.schemaExecutor == nil {
+		return nil, nil, fmt.Errorf("toolbridge: MCP schema executor is required")
+	}
+	admitted := make([]admittedMCPTool, 0, len(strictTools))
+	quarantined := make(map[string]string)
+	for _, tool := range strictTools {
+		item, admissionErr := h.admitMCPTool(ctx, authority, tool)
+		if admissionErr != nil {
+			if err := handleMCPAdmissionError(authority, tool.Name, admissionErr, quarantined); err != nil {
+				return nil, nil, err
+			}
+			continue
+		}
+		admitted = append(admitted, item)
+	}
+	if err := h.ensureMCPAuthorityCurrent(ctx, authority); err != nil {
+		return nil, nil, err
+	}
+	authority.quarantine = quarantined
+	return admitted, authority, nil
+}
+
+func (h *Handler) admitMCPTool(
+	ctx context.Context,
+	authority *mcpSchemaAuthority,
+	tool mcpdto.MCPTool,
+) (admittedMCPTool, error) {
+	canonical, err := schema.Canonicalize(tool.InputSchema)
+	if err != nil {
+		return admittedMCPTool{}, err
+	}
+	authority.toolDigests[tool.Name] = canonical.Digest
+	if err := h.compileMCPToolSchema(ctx, authority, tool.Name, canonical); err != nil {
+		return admittedMCPTool{}, err
+	}
+	tool.InputSchema = append(json.RawMessage(nil), canonical.Bytes...)
+	return admittedMCPTool{tool: tool, canonical: canonical, authority: authority}, nil
+}
+
+func handleMCPAdmissionError(
+	authority *mcpSchemaAuthority,
+	toolName string,
+	err error,
+	quarantined map[string]string,
+) error {
+	code := schema.ErrorCode(err)
+	if authority.token.Managed || !mcpSchemaErrorQuarantinable(code) {
+		return fmt.Errorf("toolbridge: MCP server %q tool %q schema admission: %w", authority.token.ServerID, toolName, err)
+	}
+	quarantined[toolName] = string(code)
+	return nil
+}
+
+func mcpSchemaErrorQuarantinable(code schema.Code) bool {
+	switch code {
+	case schema.CodeInvalidEnvelope, schema.CodeInputTooLarge, schema.CodeBudgetExceeded,
+		schema.CodeExternalRefForbidden, schema.CodeDraftUnsupported, schema.CodeRootNotObject,
+		schema.CodeCompileFailed:
+		return true
+	default:
+		return false
+	}
+}
+
+func (h *Handler) compileMCPToolSchema(
+	ctx context.Context,
+	authority *mcpSchemaAuthority,
+	toolName string,
+	canonical schema.CanonicalSchema,
+) error {
+	_, err := h.schemaExecutor.Execute(ctx, schema.Invocation{
+		Operation:           schema.OperationCompile,
+		RequestID:           mcpSchemaRequestID(authority, toolName, "compile"),
+		ServerID:            authority.token.ServerID,
+		ToolName:            toolName,
+		AuthorityGeneration: authority.token.Generation,
+		Schema:              canonical,
+	}, h.mcpAuthorityFence(authority))
+	return err
+}
+
+func (h *Handler) validateMCPToolCall(
+	ctx context.Context,
+	entry codexToolEntry,
+	arguments json.RawMessage,
+) error {
+	if err := h.ensureMCPAuthorityCurrent(ctx, entry.authority); err != nil {
+		return err
+	}
+	if h.schemaExecutor == nil {
+		return fmt.Errorf("toolbridge: MCP schema executor is required")
+	}
+	result, err := h.schemaExecutor.Execute(ctx, schema.Invocation{
+		Operation:           schema.OperationValidate,
+		RequestID:           mcpSchemaRequestID(entry.authority, entry.realName, "validate"),
+		ServerID:            entry.authority.token.ServerID,
+		ToolName:            entry.realName,
+		AuthorityGeneration: entry.authority.token.Generation,
+		Schema:              entry.compiledSchema,
+		Arguments:           arguments,
+	}, h.mcpAuthorityFence(entry.authority))
+	if err != nil {
+		return err
+	}
+	if !result.ArgumentsValid {
+		return fmt.Errorf("toolbridge: MCP tool %q arguments rejected by schema helper", entry.realName)
+	}
+	return nil
+}
+
+func mcpSchemaRequestID(authority *mcpSchemaAuthority, toolName, operation string) string {
+	return fmt.Sprintf("%s/%d/%s/%s", authority.token.ServerID, authority.token.Generation, operation, toolName)
+}
+
+// beginMCPAuthority 严格解析 raw identity，并向 config owner 申请 generation。
+func (h *Handler) beginMCPAuthority(
+	ctx context.Context,
+	cwd string,
+	binary providerdto.MCPBinary,
+	tools []mcpdto.MCPTool,
+) (*mcpSchemaAuthority, []mcpdto.MCPTool, error) {
+	strictTools, toolDigests, membershipDigest, err := mcpToolMembership(tools)
+	if err != nil {
+		return nil, nil, fmt.Errorf("toolbridge: MCP server %q identity: %w", binary.Name, err)
+	}
+	if h.authorityOwner == nil {
+		return nil, nil, fmt.Errorf("toolbridge: MCP authority owner is required")
+	}
+	token, err := h.authorityOwner.IssueMCPToolAuthority(ctx, contract.MCPToolAuthorityIssueRequest{
+		CWD: normalizeToolCallCWD(cwd), Binary: binary, MembershipDigest: membershipDigest,
+	})
+	if err != nil {
+		return nil, nil, fmt.Errorf("toolbridge: issue MCP authority: %w", err)
+	}
+	return &mcpSchemaAuthority{token: token, toolDigests: toolDigests}, strictTools, nil
+}
+
+// mcpToolMembership 直接解析每个 raw object，拒绝 duplicate/unknown/type-conflict identity。
+func mcpToolMembership(tools []mcpdto.MCPTool) ([]mcpdto.MCPTool, map[string]string, string, error) {
+	strictTools := make([]mcpdto.MCPTool, 0, len(tools))
+	digests := make(map[string]string, len(tools))
+	for _, tool := range tools {
+		strictTool, err := decodeStrictRawMCPTool(tool.RawJSON())
+		if err != nil {
+			return nil, nil, "", err
+		}
+		if _, exists := digests[strictTool.Name]; exists {
+			return nil, nil, "", fmt.Errorf("duplicate tool name %q", strictTool.Name)
+		}
+		sum := sha256.Sum256(strictTool.InputSchema)
+		digests[strictTool.Name] = hex.EncodeToString(sum[:])
+		strictTools = append(strictTools, strictTool)
+	}
+	names := make([]string, 0, len(digests))
+	for name := range digests {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	hash := sha256.New()
+	for _, name := range names {
+		_, _ = hash.Write([]byte(name + "\x00" + digests[name] + "\n"))
+	}
+	return strictTools, digests, hex.EncodeToString(hash.Sum(nil)), nil
+}
+
+// decodeStrictRawMCPTool 从 raw object 建立唯一 identity，不信任 DTO 宽松投影。
+func decodeStrictRawMCPTool(raw json.RawMessage) (mcpdto.MCPTool, error) {
+	fields, err := decodeRawMCPToolFields(raw)
+	if err != nil {
+		return mcpdto.MCPTool{}, err
+	}
+	tool := mcpdto.NewRawTool(raw)
+	if err := decodeRequiredMCPToolString(fields, "name", &tool.Name); err != nil {
+		return mcpdto.MCPTool{}, err
+	}
+	if tool.Name == "" || strings.TrimSpace(tool.Name) != tool.Name {
+		return mcpdto.MCPTool{}, fmt.Errorf("tool name must be a non-empty trimmed string")
+	}
+	if value, ok := fields["description"]; ok {
+		if err := json.Unmarshal(value, &tool.Description); err != nil {
+			return mcpdto.MCPTool{}, fmt.Errorf("tool description must be a string")
+		}
+	}
+	inputSchema, ok := fields["inputSchema"]
+	if !ok {
+		return mcpdto.MCPTool{}, fmt.Errorf("tool %q inputSchema is required", tool.Name)
+	}
+	tool.InputSchema = append(json.RawMessage(nil), inputSchema...)
+	tool.OutputSchema = append(json.RawMessage(nil), fields["outputSchema"]...)
+	return tool, nil
+}
+
+// decodeRawMCPToolFields 逐项读取 raw object，禁止未知键和重复键获权。
+func decodeRawMCPToolFields(raw json.RawMessage) (map[string]json.RawMessage, error) {
+	if len(raw) == 0 {
+		return nil, fmt.Errorf("raw tool object is required")
+	}
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	token, err := decoder.Token()
+	if err != nil {
+		return nil, fmt.Errorf("decode raw tool object: %w", err)
+	}
+	if delimiter, ok := token.(json.Delim); !ok || delimiter != '{' {
+		return nil, fmt.Errorf("raw tool must be an object")
+	}
+	fields := make(map[string]json.RawMessage, 4)
+	for decoder.More() {
+		if err := decodeRawMCPToolField(decoder, fields); err != nil {
+			return nil, err
+		}
+	}
+	if _, err := decoder.Token(); err != nil {
+		return nil, fmt.Errorf("close raw tool object: %w", err)
+	}
+	if err := ensureMCPToolJSONEOF(decoder); err != nil {
+		return nil, err
+	}
+	return fields, nil
+}
+
+// decodeRawMCPToolField 校验并保存一个 raw tool 字段。
+func decodeRawMCPToolField(decoder *json.Decoder, fields map[string]json.RawMessage) error {
+	keyToken, err := decoder.Token()
+	if err != nil {
+		return fmt.Errorf("decode raw tool key: %w", err)
+	}
+	key, ok := keyToken.(string)
+	if !ok {
+		return fmt.Errorf("raw tool key must be a string")
+	}
+	switch key {
+	case "name", "description", "inputSchema", "outputSchema":
+	default:
+		return fmt.Errorf("raw tool contains unknown field %q", key)
+	}
+	if _, duplicate := fields[key]; duplicate {
+		return fmt.Errorf("raw tool contains duplicate field %q", key)
+	}
+	var value json.RawMessage
+	if err := decoder.Decode(&value); err != nil {
+		return fmt.Errorf("decode raw tool field %q: %w", key, err)
+	}
+	fields[key] = append(json.RawMessage(nil), value...)
+	return nil
+}
+
+func decodeRequiredMCPToolString(fields map[string]json.RawMessage, key string, target *string) error {
+	raw, ok := fields[key]
+	if !ok {
+		return fmt.Errorf("tool %s is required", key)
+	}
+	if err := json.Unmarshal(raw, target); err != nil {
+		return fmt.Errorf("tool %s must be a string", key)
+	}
+	return nil
+}
+
+func ensureMCPToolJSONEOF(decoder *json.Decoder) error {
+	var trailing json.RawMessage
+	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
+		if err == nil {
+			return fmt.Errorf("raw tool contains trailing JSON")
+		}
+		return fmt.Errorf("decode raw tool trailing data: %w", err)
+	}
+	return nil
+}
+
+func (h *Handler) mcpAuthorityFence(authority *mcpSchemaAuthority) schema.FenceHook {
+	return func(ctx context.Context, _ schema.FenceStage, identity schema.FenceIdentity) error {
+		if identity.ServerID != authority.token.ServerID ||
+			identity.AuthorityGeneration != authority.token.Generation ||
+			authority.toolDigests[identity.ToolName] != identity.SchemaDigest {
+			return fmt.Errorf("toolbridge: MCP schema identity is stale")
+		}
+		return h.ensureMCPAuthorityCurrent(ctx, authority)
+	}
+}
+
+func (h *Handler) ensureMCPAuthorityCurrent(ctx context.Context, authority *mcpSchemaAuthority) error {
+	if authority == nil {
+		return fmt.Errorf("toolbridge: MCP authority is required")
+	}
+	if h.authorityOwner == nil {
+		return fmt.Errorf("toolbridge: MCP authority owner is required")
+	}
+	return h.authorityOwner.CheckMCPToolAuthority(ctx, authority.token)
+}
+
+// publishMCPSurfaceCurrentCAS 在 config owner 的批量 current-CAS 内发布 surface 和 quarantine。
+func (h *Handler) publishMCPSurfaceCurrentCAS(ctx context.Context, surface *codexToolSurface) error {
+	if h.authorityOwner == nil || len(surface.authorities) == 0 {
+		return fmt.Errorf("toolbridge: MCP authority owner and generations are required")
+	}
+	commits := make([]contract.MCPToolQuarantineCommit, 0, len(surface.authorities))
+	for _, authority := range surface.authorities {
+		commits = append(commits, contract.MCPToolQuarantineCommit{
+			Authority: authority.token,
+			Tools:     authority.quarantine,
+		})
+	}
+	return h.authorityOwner.CompareAndSwapMCPToolQuarantines(ctx, commits, func() error {
+		return h.storeCodexToolSurface(surface)
+	})
+}
+
+// revokeCodexToolSurfaceKeys 撤下 scope 上任何旧或半发布 surface，并关闭其 clients。
+func (h *Handler) revokeCodexToolSurfaceKeys(keys []string) error {
+	var err error
+	for _, surface := range h.takeCodexToolSurfaces(keys) {
+		err = errors.Join(err, surface.Close())
+	}
+	return err
+}
+
+func (h *Handler) ensureCodexSurfaceEntryCurrent(ctx context.Context, entry codexToolEntry) error {
+	if entry.executionKind != "stdio" {
+		return nil
+	}
+	return h.ensureMCPAuthorityCurrent(ctx, entry.authority)
+}
+
+func (h *Handler) validateCodexSurfaceEntryArguments(
+	ctx context.Context,
+	entry codexToolEntry,
+	arguments json.RawMessage,
+) error {
+	if entry.executionKind == "stdio" {
+		return h.validateMCPToolCall(ctx, entry, arguments)
+	}
+	return validateToolInputSchema(entry.name, entry.inputSchema, arguments)
+}
+
+func admittedMCPToolValues(admitted []admittedMCPTool) []mcpdto.MCPTool {
+	tools := make([]mcpdto.MCPTool, 0, len(admitted))
+	for _, item := range admitted {
+		tools = append(tools, item.tool)
+	}
+	return tools
+}
+
+func filterAdmittedMCPTools(admitted []admittedMCPTool, visible []mcpdto.MCPTool) []admittedMCPTool {
+	visibleNames := make(map[string]struct{}, len(visible))
+	for _, tool := range visible {
+		visibleNames[tool.Name] = struct{}{}
+	}
+	filtered := make([]admittedMCPTool, 0, len(visible))
+	for _, item := range admitted {
+		if _, ok := visibleNames[item.tool.Name]; ok {
+			filtered = append(filtered, item)
+		}
+	}
+	return filtered
 }

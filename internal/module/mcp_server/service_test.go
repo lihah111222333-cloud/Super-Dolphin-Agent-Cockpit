@@ -3,6 +3,7 @@ package mcpserver
 import (
 	"context"
 	"errors"
+	"os"
 	"path/filepath"
 	"slices"
 	"sort"
@@ -71,6 +72,35 @@ func TestNewServiceWritePathReturnsStoreNotConfigured(t *testing.T) {
 	})
 	if !errors.Is(err, errMCPServerStoreNotConfigured) {
 		t.Fatalf("AddServers() error = %v, want errMCPServerStoreNotConfigured", err)
+	}
+}
+
+func TestLegacyFileConfigHelpersRoundTripAndResolve(t *testing.T) {
+	root := t.TempDir()
+	nested := filepath.Join(root, "nested", "project")
+	if err := os.MkdirAll(nested, 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	configPath := mcpServerConfigPath(root)
+	want := ConfigDocument{MCPServers: map[string]ServerConfig{
+		"external": {Transport: "http", URL: "https://example.com/mcp"},
+	}}
+	if err := writeMCPServerConfig(configPath, want); err != nil {
+		t.Fatalf("writeMCPServerConfig() error = %v", err)
+	}
+	got, err := readMCPServerConfig(configPath)
+	if err != nil {
+		t.Fatalf("readMCPServerConfig() error = %v", err)
+	}
+	if got.MCPServers["external"].URL != want.MCPServers["external"].URL {
+		t.Fatalf("read URL = %q, want %q", got.MCPServers["external"].URL, want.MCPServers["external"].URL)
+	}
+	resolved, err := resolveMCPServerConfigBaseDir(nested)
+	if err != nil {
+		t.Fatalf("resolveMCPServerConfigBaseDir() error = %v", err)
+	}
+	if resolved != root {
+		t.Fatalf("resolved base dir = %q, want %q", resolved, root)
 	}
 }
 
@@ -519,11 +549,13 @@ func TestMCPServerConfigProviderReadsProjectTableRowsForNestedCWD(t *testing.T) 
 		t.Fatalf("ListMCPServerConfigs() error = %v", err)
 	}
 	want := contract.MCPServerConfig{
-		Transport: "http",
-		URL:       "https://your-domain.com/mcp",
-		Headers:   map[string]string{"Authorization": "Bearer YOUR_API_KEY"},
+		TrustedServerID: "my-search",
+		Transport:       "http",
+		URL:             "https://your-domain.com/mcp",
+		Headers:         map[string]string{"Authorization": "Bearer YOUR_API_KEY"},
 	}
-	if got["my-search"].Transport != want.Transport ||
+	if got["my-search"].TrustedServerID != want.TrustedServerID ||
+		got["my-search"].Transport != want.Transport ||
 		got["my-search"].URL != want.URL ||
 		got["my-search"].Headers["Authorization"] != want.Headers["Authorization"] {
 		t.Fatalf("ListMCPServerConfigs() = %#v, want my-search %#v", got, want)
@@ -561,9 +593,12 @@ func TestMCPServerConfigProviderSkipsDisabledRows(t *testing.T) {
 }
 
 type memoryMCPServerStore struct {
-	servers   map[string]map[string]ServerConfig
-	lifecycle map[memoryMCPToolLifecycleKey]contract.MCPToolLifecycleDecision
+	servers    map[string]map[string]ServerConfig
+	lifecycle  map[memoryMCPToolLifecycleKey]contract.MCPToolLifecycleDecision
+	replaceErr error
 }
+
+var _ MCPServerConfigStore = (*memoryMCPServerStore)(nil)
 
 type memoryMCPToolLifecycleKey struct {
 	workspaceRoot string
@@ -586,6 +621,23 @@ func (s *memoryMCPServerStore) InsertServer(_ context.Context, params StoreMCPSe
 		s.servers[params.WorkspaceRoot] = map[string]ServerConfig{}
 	}
 	if _, exists := s.servers[params.WorkspaceRoot][params.Name]; exists {
+		return false, nil
+	}
+	s.servers[params.WorkspaceRoot][params.Name] = cloneSingleMCPServerConfig(params.Config)
+	return true, nil
+}
+
+func (s *memoryMCPServerStore) ReplaceServer(ctx context.Context, params StoreMCPServerConfigParams) (bool, error) {
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
+	if s.replaceErr != nil {
+		return false, s.replaceErr
+	}
+	if s.servers[params.WorkspaceRoot] == nil {
+		return false, nil
+	}
+	if _, exists := s.servers[params.WorkspaceRoot][params.Name]; !exists {
 		return false, nil
 	}
 	s.servers[params.WorkspaceRoot][params.Name] = cloneSingleMCPServerConfig(params.Config)

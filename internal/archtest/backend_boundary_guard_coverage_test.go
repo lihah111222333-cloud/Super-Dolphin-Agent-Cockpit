@@ -1,6 +1,7 @@
 package archtest
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -174,6 +175,13 @@ func unregisteredMCPSidecarDirectories(root string, rule BackendBoundaryRule) ([
 	}
 	registered := make(map[string]bool, len(rule.FilePatterns))
 	for _, pattern := range rule.FilePatterns {
+		registered[strings.TrimSuffix(pattern, "/**/*.go")] = true
+	}
+	commandRule, ok := DefaultBackendBoundaryRegistry().Rule("command_narrow_import_surface")
+	if !ok {
+		return nil, errors.New("canonical command boundary rule is missing")
+	}
+	for _, pattern := range commandRule.FilePatterns {
 		registered[strings.TrimSuffix(pattern, "/**/*.go")] = true
 	}
 	var unregistered []string

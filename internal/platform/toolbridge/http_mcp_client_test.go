@@ -18,7 +18,7 @@ func TestPrepareCodexToolSurfaceUsesHTTPMCPServerTools(t *testing.T) {
 	workDir := t.TempDir()
 	h := &Handler{}
 
-	tools, err := h.PrepareCodexToolSurface(context.Background(), contract.CodexToolSurfaceScope{
+	tools, err := prepareCodexToolSurfaceForTest(t, h, context.Background(), contract.CodexToolSurfaceScope{
 		AgentID:          "agent-http",
 		ProviderThreadID: "provider-thread-http",
 		CWD:              workDir,
@@ -62,7 +62,7 @@ func TestPrepareCodexToolSurfaceReadsHTTPMCPEventStreamTools(t *testing.T) {
 	defer toolsServer.Close()
 	h := &Handler{}
 
-	tools, err := h.PrepareCodexToolSurface(context.Background(), contract.CodexToolSurfaceScope{
+	tools, err := prepareCodexToolSurfaceForTest(t, h, context.Background(), contract.CodexToolSurfaceScope{
 		AgentID:          "agent-http",
 		ProviderThreadID: "provider-thread-http",
 		CWD:              t.TempDir(),
@@ -85,7 +85,7 @@ func TestPrepareCodexToolSurfaceNamesHTTPMCPInitializeFailure(t *testing.T) {
 	defer toolsServer.Close()
 	h := &Handler{}
 
-	_, err := h.PrepareCodexToolSurface(context.Background(), contract.CodexToolSurfaceScope{
+	_, err := prepareCodexToolSurfaceForTest(t, h, context.Background(), contract.CodexToolSurfaceScope{
 		AgentID:          "agent-http",
 		ProviderThreadID: "provider-thread-http",
 		CWD:              t.TempDir(),
@@ -154,8 +154,6 @@ func TestHTTPMCPClientListToolsRejectsMalformedResult(t *testing.T) {
 	}{
 		{name: "missing tools", result: map[string]any{}, wantErr: "tools array is required"},
 		{name: "tools not array", result: map[string]any{"tools": nil}, wantErr: "tools array is required"},
-		{name: "empty name", result: map[string]any{"tools": []map[string]any{{"name": " ", "inputSchema": map[string]any{"type": "object"}}}}, wantErr: "tool name is required"},
-		{name: "schema not object", result: map[string]any{"tools": []map[string]any{{"name": "grep", "inputSchema": "bad"}}}, wantErr: "inputSchema must be a JSON object"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

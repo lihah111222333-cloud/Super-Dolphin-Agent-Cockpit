@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"strings"
@@ -76,9 +77,7 @@ func cloneStringMap(input map[string]string) map[string]string {
 		return nil
 	}
 	out := make(map[string]string, len(input))
-	for key, value := range input {
-		out[key] = value
-	}
+	maps.Copy(out, input)
 	return out
 }
 
@@ -99,13 +98,14 @@ func mcpServersToContract(input map[string]ServerConfig) map[string]contract.MCP
 		}
 		config = migrateLegacySQLiteServerConfigForContract(name, config)
 		out[name] = contract.MCPServerConfig{
-			Transport: strings.TrimSpace(config.Transport),
-			URL:       strings.TrimSpace(config.URL),
-			Headers:   cloneStringMap(config.Headers),
-			Command:   strings.TrimSpace(config.Command),
-			Args:      cloneStringList(config.Args),
-			Env:       cloneStringMap(config.Env),
-			Enabled:   cloneBoolPtr(config.Enabled),
+			TrustedServerID: name,
+			Transport:       strings.TrimSpace(config.Transport),
+			URL:             strings.TrimSpace(config.URL),
+			Headers:         cloneStringMap(config.Headers),
+			Command:         strings.TrimSpace(config.Command),
+			Args:            cloneStringList(config.Args),
+			Env:             cloneStringMap(config.Env),
+			Enabled:         cloneBoolPtr(config.Enabled),
 		}
 	}
 	if len(out) == 0 {

@@ -32,6 +32,30 @@ func TestTranslateToolCallBeginSanitizesArgumentsPreview(t *testing.T) {
 	assertCodexArgumentsPreviewSanitized(t, begin.ArgumentsPreview)
 }
 
+func TestTranslateToolCallBeginFailsClosedForOversizedEncodedArguments(t *testing.T) {
+	const sensitiveValue = "codex-oversized-secret-3a71b9"
+	raw := `{"password":"` + sensitiveValue + `","padding":"` + strings.Repeat("x", 17*1024)
+
+	ev, ok := translateToolEvent("tool.call.begin", map[string]any{
+		"callId":    "call-oversized",
+		"toolName":  "shell",
+		"arguments": raw,
+	})
+	if !ok {
+		t.Fatal("translateToolEvent() ok=false, want ToolCallBegin")
+	}
+	begin, ok := ev.(tooldto.ToolCallBegin)
+	if !ok {
+		t.Fatalf("event type = %T, want ToolCallBegin", ev)
+	}
+	if strings.Contains(begin.ArgumentsPreview, sensitiveValue) {
+		t.Fatalf("ToolCallBegin.ArgumentsPreview = %q, must not expose %q to event consumers", begin.ArgumentsPreview, sensitiveValue)
+	}
+	if !strings.Contains(begin.ArgumentsPreview, "[REDACTED]") || !strings.Contains(begin.ArgumentsPreview, "[truncated]") {
+		t.Fatalf("ToolCallBegin.ArgumentsPreview = %q, want fail-closed markers", begin.ArgumentsPreview)
+	}
+}
+
 func TestPublishToolCallBeginSanitizesArgumentsPreview(t *testing.T) {
 	bus := event.NewDispatcher()
 	t.Cleanup(func() { _ = bus.Close() })
@@ -86,20 +110,18 @@ func TestTranslateCodexRolloutFunctionCallSanitizesArgumentsPreview(t *testing.T
 
 func sensitiveCodexArguments() map[string]any {
 	return map[string]any{
-		"command":   "curl --api-key sk-test https://example.test",
-		"token":     "token=abc",
-		"file_path": "/Users/alice/secret",
+		"command": `run password="codex-password-value" TOKEN='codex-token-value' --password=\"codex-escaped-value\" keep=codex-visible`,
 	}
 }
 
 func assertCodexArgumentsPreviewSanitized(t *testing.T, preview string) {
 	t.Helper()
-	for _, fragment := range []string{"token=abc", "sk-test", "/Users/alice/secret", "--api-key"} {
+	for _, fragment := range []string{"codex-password-value", "codex-token-value", "codex-escaped-value"} {
 		if strings.Contains(preview, fragment) {
 			t.Fatalf("ArgumentsPreview = %q, must not contain sensitive fragment %q", preview, fragment)
 		}
 	}
-	if !strings.Contains(preview, "[REDACTED]") {
-		t.Fatalf("ArgumentsPreview = %q, want redaction marker", preview)
+	if !strings.Contains(preview, "[REDACTED]") || !strings.Contains(preview, "keep=codex-visible") {
+		t.Fatalf("ArgumentsPreview = %q, want redaction marker and ordinary context", preview)
 	}
 }

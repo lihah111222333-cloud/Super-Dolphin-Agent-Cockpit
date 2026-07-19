@@ -21,7 +21,7 @@ func TestPrepareCodexToolSurfaceBackfillsDiscoveredMCPTools(t *testing.T) {
 		lifecyclePolicy:    owner,
 	}
 
-	_, err := h.PrepareCodexToolSurface(context.Background(), contract.CodexToolSurfaceScope{
+	_, err := prepareCodexToolSurfaceForTest(t, h, context.Background(), contract.CodexToolSurfaceScope{
 		AgentID:          "agent-1",
 		ProviderThreadID: "provider-thread-1",
 		CWD:              root,

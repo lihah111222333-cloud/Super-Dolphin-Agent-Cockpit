@@ -150,119 +150,17 @@ function Get-JsonProperty() {
     return $prop.Value
 }
 
-function Get-DotEnvValue() {
-    param(
-        [Parameter(Mandatory)][string]$EnvFile,
-        [Parameter(Mandatory)][string]$Name
-    )
-    if (-not (Test-Path -LiteralPath $EnvFile -PathType Leaf)) {
-        return ''
-    }
-    foreach ($line in Get-Content -LiteralPath $EnvFile) {
-        $trimmed = $line.Trim()
-        if ($trimmed -eq '' -or $trimmed.StartsWith('#')) {
-            continue
-        }
-        $idx = $line.IndexOf('=')
-        if ($idx -lt 0) {
-            continue
-        }
-        $key = $line.Substring(0, $idx)
-        if ($key -eq $Name) {
-            return $line.Substring($idx + 1)
-        }
-    }
-    return ''
-}
-
-function Require-DotEnvValue() {
-    param(
-        [Parameter(Mandatory)][string]$EnvFile,
-        [Parameter(Mandatory)][string]$Name
-    )
-    $value = Get-DotEnvValue -EnvFile $EnvFile -Name $Name
-    if ($value.Trim() -eq '') {
-        throw "packaged update .env missing non-empty $Name"
-    }
-    return $value
-}
-
-function Test-Truthy() {
-    param([AllowEmptyString()][string]$Value)
-    if ($null -eq $Value) { return $false }
-    switch ($Value.Trim().ToLowerInvariant()) {
-        '' { return $false }
-        '0' { return $false }
-        'false' { return $false }
-        'no' { return $false }
-        'off' { return $false }
-        default { return $true }
-    }
-}
-
-function Assert-UpdatePublicKey() {
-    param([Parameter(Mandatory)][string]$PublicKey)
-    try {
-        $decoded = [Convert]::FromBase64String($PublicKey)
-    } catch {
-        throw 'SUPER_DOLPHIN_UPDATE_PUBLIC_KEY must be valid base64'
-    }
-    if ($decoded.Length -ne 32) {
-        throw 'decoded SUPER_DOLPHIN_UPDATE_PUBLIC_KEY must be 32 bytes'
-    }
-}
-
-function Test-PlaceholderUpdateRepo() {
-    param([Parameter(Mandatory)][string]$Repo)
-    return $Repo.Trim() -eq 'xiaoxiaotest9527-bit/-'
-}
-
-function Assert-UpdateWindowsThumbprint() {
-    param([Parameter(Mandatory)][string]$Thumbprint)
-    $normalized = ($Thumbprint.Trim() -replace '[ :]', '').ToUpperInvariant()
-    if ($normalized -notmatch '^[0-9A-F]{40}$') {
-        throw 'SUPER_DOLPHIN_UPDATE_WINDOWS_THUMBPRINT must be a 40-character certificate thumbprint'
-    }
-}
-
 function Verify-UpdateEnv() {
     param([Parameter(Mandatory)][string]$PackageRoot)
     $envFile = Join-Path $PackageRoot '.env'
-    if (-not (Test-Truthy -Value (Get-DotEnvValue -EnvFile $envFile -Name 'SUPER_DOLPHIN_UPDATE_ENABLED'))) {
-        return
-    }
-    $manifestURL = Get-DotEnvValue -EnvFile $envFile -Name 'SUPER_DOLPHIN_UPDATE_MANIFEST_URL'
-    $githubRepo = Get-DotEnvValue -EnvFile $envFile -Name 'SUPER_DOLPHIN_UPDATE_GITHUB_REPO'
-    if ($manifestURL.Trim() -eq '' -and $githubRepo.Trim() -eq '') {
-        throw 'SUPER_DOLPHIN_UPDATE_MANIFEST_URL or SUPER_DOLPHIN_UPDATE_GITHUB_REPO is required when app update is enabled'
-    }
-    if ($manifestURL.Trim() -ne '' -and $githubRepo.Trim() -ne '') {
-        throw 'SUPER_DOLPHIN_UPDATE_MANIFEST_URL and SUPER_DOLPHIN_UPDATE_GITHUB_REPO are mutually exclusive'
-    }
-    $source = ''
-    if ($manifestURL.Trim() -ne '') {
-        if ($manifestURL -notmatch '^https://[^/?#]+($|[/?#])') {
-            throw 'SUPER_DOLPHIN_UPDATE_MANIFEST_URL must be an HTTPS URL with a host'
+    if (Test-Path -LiteralPath $envFile -PathType Leaf) {
+        $override = Get-Content -LiteralPath $envFile |
+            Where-Object { $_ -match '^SUPER_DOLPHIN_UPDATE_' } |
+            Select-Object -First 1
+        if ($override) {
+            throw 'package-owned updates are unsupported for windows-amd64/windows-arm64; packaged .env contains update override'
         }
-        $source = "manifest:$manifestURL"
     }
-    if ($githubRepo.Trim() -ne '') {
-        if ($githubRepo -notmatch '^[^/\s]+/[^/\s]+$') {
-            throw 'SUPER_DOLPHIN_UPDATE_GITHUB_REPO must be owner/repo without whitespace'
-        }
-        if (Test-PlaceholderUpdateRepo -Repo $githubRepo) {
-            throw 'known placeholder update repo is not allowed'
-        }
-        $source = "github:$githubRepo"
-    }
-    $publicKey = Require-DotEnvValue -EnvFile $envFile -Name 'SUPER_DOLPHIN_UPDATE_PUBLIC_KEY'
-    $channel = Require-DotEnvValue -EnvFile $envFile -Name 'SUPER_DOLPHIN_UPDATE_CHANNEL'
-    $version = Require-DotEnvValue -EnvFile $envFile -Name 'SUPER_DOLPHIN_UPDATE_VERSION'
-    $windowsPublisher = Require-DotEnvValue -EnvFile $envFile -Name 'SUPER_DOLPHIN_UPDATE_WINDOWS_PUBLISHER'
-    $windowsThumbprint = Require-DotEnvValue -EnvFile $envFile -Name 'SUPER_DOLPHIN_UPDATE_WINDOWS_THUMBPRINT'
-    Assert-UpdatePublicKey -PublicKey $publicKey
-    Assert-UpdateWindowsThumbprint -Thumbprint $windowsThumbprint
-    Write-Host "packaged app update env verified: source=$source channel=$channel version=$version publisher=$windowsPublisher"
 }
 
 function Assert-JsonStringArray() {
@@ -493,6 +391,8 @@ function Verify-RequiredFiles() {
         'bin/agent-terminal.exe',
         'bin/mcp-orch.exe',
         'bin/mcp-lsp.exe',
+        'bin/mcp-schema-compiler-helper.exe',
+        'bin/mcp-schema-compiler-helper.exe.manifest.json',
         'bin/mcp-ida.exe',
         'bin/codex.exe',
         'bin/ffmpeg.exe',
@@ -509,6 +409,10 @@ function Verify-RequiredFiles() {
         if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
             throw "missing packaged file: $path"
         }
+    }
+    & (Join-Path $PackageRoot 'bin/mcp-schema-compiler-helper.exe') --verify-package (Join-Path $PackageRoot 'bin/mcp-schema-compiler-helper.exe.manifest.json')
+    if ($LASTEXITCODE -ne 0) {
+        throw 'packaged schema helper manifest verification failed'
     }
     $sqliteMigrationsDir = Join-Path $PackageRoot 'internal/platform/db/sqlite/migrations'
     if (-not (Test-Path -LiteralPath $sqliteMigrationsDir -PathType Container)) {

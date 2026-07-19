@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
+	"strconv"
 	"strings"
 	"unicode/utf8"
 )
@@ -11,18 +12,24 @@ import (
 const (
 	argumentPreviewRawLimit    = 16 * 1024
 	argumentPreviewOutputLimit = 512
+	argumentPreviewProbeLimit  = 1024
 	argumentPreviewTruncated   = "... [truncated]"
 )
 
+var argumentPreviewAssignmentPrefixes = []*regexp.Regexp{
+	regexp.MustCompile(`(?i)--(?:api[_-]?key|private[_-]?key|token|access-token|secret|password|credential|cookie|session|certificate)(?:[=\s]+)`),
+	regexp.MustCompile(`(?i)authorization\s*[:=]\s*bearer\s+`),
+	regexp.MustCompile(`(?i)\b(?:api[_-]?key|private[_-]?key|secret[_-]?key|access[_-]?token|token|password|credential|cookie|session|certificate)\s*[:=]\s*`),
+	regexp.MustCompile(`(?i)\b[A-Z_]*(?:TOKEN|KEY|SECRET|PASSWORD)[A-Z_]*\s*=\s*`),
+}
+
 var argumentPreviewPatterns = []*regexp.Regexp{
-	regexp.MustCompile(`(?i)--(?:api[_-]?key|token|access-token|secret|password)(?:[=\s]+[^\s,;&"'}]+)?`),
-	regexp.MustCompile(`(?i)(authorization\s*[:=]\s*bearer\s+)[^\s,;&"'}]+`),
-	regexp.MustCompile(`(?i)\b((?:api[_-]?key|secret[_-]?key|access[_-]?token|token|password)\s*[:=]\s*)[^\s,;&"'}]+`),
-	regexp.MustCompile(`(?i)\b([A-Z_]*(?:TOKEN|KEY|SECRET|PASSWORD)[A-Z_]*=)[^\s,;&"'}]+`),
 	regexp.MustCompile(`sk-[A-Za-z0-9_-]+`),
 	regexp.MustCompile(`(?i)(?:/Users|/home|/private|/tmp|/var|/etc|/Volumes)/[^\s,;&"'}]+`),
 	regexp.MustCompile(`[A-Za-z]:\\[^\s,;&"'}]+`),
 }
+
+var argumentPreviewJSONLikePair = regexp.MustCompile(`"[^"\\\x00-\x1f]{1,128}"[ \t\r\n]*:`)
 
 // SafeToolArgumentsPreview 将任意工具参数编码成短预览，并统一执行参数脱敏与长度上限。
 // provider、toolbridge 和 UI 消费面都应从这里取 ArgumentsPreview，避免各自实现不同规则。
@@ -48,19 +55,116 @@ func SafeToolArgumentsPreview(raw any) string {
 // SafeToolArgumentsPreviewString 处理已经是字符串形态的工具参数预览。
 // 调用方传入 provider 原始 preview 时仍会走 JSON 感知脱敏、16KiB 输入上限和 512B 输出上限。
 func SafeToolArgumentsPreviewString(raw string) string {
+	if len(raw) > argumentPreviewRawLimit {
+		return safeOversizedToolArgumentsPreview([]byte(raw[:argumentPreviewRawLimit]))
+	}
 	return safeToolArgumentsPreviewBytes([]byte(raw))
 }
 
+// safeToolArgumentsPreviewBytes 对超限结构化输入 fail-closed，仅解析大小受限的完整输入。
 func safeToolArgumentsPreviewBytes(raw []byte) string {
 	limited, rawTruncated := limitArgumentPreviewRaw(raw)
+	if rawTruncated {
+		return safeOversizedToolArgumentsPreview(limited)
+	}
 	text := strings.TrimSpace(strings.ToValidUTF8(string(limited), ""))
 	if text == "" {
-		return finishArgumentPreview(text, rawTruncated)
+		return ""
 	}
 	if preview, ok := safeToolArgumentsPreviewJSON(text); ok {
-		return finishArgumentPreview(preview, rawTruncated)
+		return finishArgumentPreview(preview, false)
 	}
-	return finishArgumentPreview(sanitizeArgumentPreviewText(text), rawTruncated)
+	return finishArgumentPreview(sanitizeArgumentPreviewText(text), false)
+}
+
+// safeOversizedToolArgumentsPreview 仅处理已经限制为 16KiB 的超限输入前缀。
+func safeOversizedToolArgumentsPreview(prefix []byte) string {
+	if argumentPreviewPrefixLooksStructured(prefix) {
+		return finishArgumentPreview(redacted, true)
+	}
+	text := strings.TrimSpace(strings.ToValidUTF8(string(prefix), ""))
+	return finishArgumentPreview(sanitizeArgumentPreviewText(text), true)
+}
+
+// argumentPreviewPrefixLooksStructured 在固定大小探针内识别容器、短前缀键值和任意有限层 JSON 字符串转义。
+func argumentPreviewPrefixLooksStructured(prefix []byte) bool {
+	if len(prefix) > argumentPreviewProbeLimit {
+		prefix = prefix[:argumentPreviewProbeLimit]
+	}
+	probe := strings.TrimSpace(strings.ToValidUTF8(string(prefix), ""))
+	probe = strings.TrimSpace(strings.TrimPrefix(probe, "\uFEFF"))
+	if probe == "" {
+		return true
+	}
+	// 每次成功展开都必须严格缩短 probe，因此初始字节数是收敛迭代的完备上限。
+	for iterationsRemaining := len(probe); iterationsRemaining > 0; iterationsRemaining-- {
+		if argumentPreviewProbeStartsContainer(probe) || argumentPreviewJSONLikePair.MatchString(probe) {
+			return true
+		}
+		unescaped, changed := unescapeArgumentPreviewProbe(probe)
+		if !changed {
+			return false
+		}
+		if len(unescaped) >= len(probe) {
+			return true
+		}
+		probe = unescaped
+	}
+	return true
+}
+
+// argumentPreviewProbeStartsContainer 识别直接容器及 JSON 字符串包裹的容器起点。
+func argumentPreviewProbeStartsContainer(probe string) bool {
+	probe = strings.TrimSpace(probe)
+	if probe == "" {
+		return false
+	}
+	if probe[0] == '{' || probe[0] == '[' {
+		return true
+	}
+	if probe[0] != '"' {
+		return false
+	}
+	probe = strings.TrimSpace(probe[1:])
+	return probe != "" && (probe[0] == '{' || probe[0] == '[')
+}
+
+// unescapeArgumentPreviewProbe 只展开识别 JSON 结构所需的有界常见及 Unicode 转义，不解析完整超限输入。
+func unescapeArgumentPreviewProbe(probe string) (string, bool) {
+	var out strings.Builder
+	out.Grow(len(probe))
+	changed := false
+	for i := 0; i < len(probe); i++ {
+		if probe[i] != '\\' || i+1 >= len(probe) {
+			out.WriteByte(probe[i])
+			continue
+		}
+		next := probe[i+1]
+		switch next {
+		case '\\', '"', '/':
+			out.WriteByte(next)
+			i++
+			changed = true
+		case 'b', 'f', 'n', 'r', 't':
+			out.WriteByte(' ')
+			i++
+			changed = true
+		case 'u':
+			if i+5 < len(probe) {
+				decoded, err := strconv.ParseUint(probe[i+2:i+6], 16, 16)
+				if err == nil {
+					out.WriteRune(rune(decoded))
+					i += 5
+					changed = true
+					continue
+				}
+			}
+			out.WriteByte(probe[i])
+		default:
+			out.WriteByte(probe[i])
+		}
+	}
+	return out.String(), changed
 }
 
 func limitArgumentPreviewRaw(raw []byte) ([]byte, bool) {
@@ -122,11 +226,16 @@ func sanitizeArgumentPreviewStringValue(value string) string {
 }
 
 // sensitiveArgumentPreviewKey 识别参数对象中必须整值替换的敏感字段名。
-// 这里保守覆盖 token、env、path 和工作区目录字段，避免路径或环境变量从结构化参数进入 UI。
+// 明确敏感词按分隔后的完整片段匹配，避免把 key、keyboard 等普通字段误判为私钥。
 func sensitiveArgumentPreviewKey(key string) bool {
 	key = strings.ToLower(argumentPreviewCamelBoundary.ReplaceAllString(strings.TrimSpace(key), "${1}_${2}"))
 	key = strings.ReplaceAll(key, "-", "_")
 	key = strings.ReplaceAll(key, " ", "_")
+	return broadSensitiveArgumentPreviewKey(key) || explicitSensitiveArgumentPreviewKey(key)
+}
+
+// broadSensitiveArgumentPreviewKey 保留既有 token、环境和路径等宽匹配规则。
+func broadSensitiveArgumentPreviewKey(key string) bool {
 	switch {
 	case key == "env" || key == "environment" || key == "cwd":
 		return true
@@ -141,14 +250,163 @@ func sensitiveArgumentPreviewKey(key string) bool {
 	}
 }
 
+// explicitSensitiveArgumentPreviewKey 按完整字段片段识别凭据、会话、证书和私钥。
+func explicitSensitiveArgumentPreviewKey(key string) bool {
+	segments := strings.FieldsFunc(key, func(r rune) bool {
+		return r == '_' || r == '.' || r == '/'
+	})
+	for i, segment := range segments {
+		if sensitiveArgumentPreviewKeySegment(segment) {
+			return true
+		}
+		if segment == "private" && i+1 < len(segments) && segments[i+1] == "key" {
+			return true
+		}
+	}
+	return false
+}
+
 var argumentPreviewCamelBoundary = regexp.MustCompile(`([a-z0-9])([A-Z])`)
 
+func sensitiveArgumentPreviewKeySegment(segment string) bool {
+	switch segment {
+	case "credential", "credentials", "cookie", "cookies", "session", "sessions", "certificate", "certificates":
+		return true
+	default:
+		return false
+	}
+}
+
 func sanitizeArgumentPreviewText(text string) string {
+	if containsSensitivePEM(text) {
+		return redacted
+	}
 	text = strings.NewReplacer("\r", " ", "\n", " ", "\t", " ").Replace(text)
+	text = redactSensitiveArgumentPreviewAssignments(text)
 	for _, pattern := range argumentPreviewPatterns {
 		text = pattern.ReplaceAllString(text, redacted)
 	}
 	return strings.Join(strings.Fields(text), " ")
+}
+
+// redactSensitiveArgumentPreviewAssignments 对敏感 key、环境变量和 flag 的赋值做整值替换。
+func redactSensitiveArgumentPreviewAssignments(text string) string {
+	for _, prefix := range argumentPreviewAssignmentPrefixes {
+		text = redactArgumentPreviewAssignmentsByPrefix(text, prefix)
+	}
+	return text
+}
+
+// redactArgumentPreviewAssignmentsByPrefix 在每个前缀后消费一个完整的有界参数值。
+func redactArgumentPreviewAssignmentsByPrefix(text string, prefix *regexp.Regexp) string {
+	matches := prefix.FindAllStringIndex(text, -1)
+	if len(matches) == 0 {
+		return text
+	}
+	var out strings.Builder
+	out.Grow(len(text))
+	cursor := 0
+	for _, match := range matches {
+		if match[0] < cursor {
+			continue
+		}
+		out.WriteString(text[cursor:match[0]])
+		out.WriteString(redacted)
+		cursor = consumeArgumentPreviewAssignmentValue(text, match[1])
+	}
+	out.WriteString(text[cursor:])
+	return out.String()
+}
+
+// consumeArgumentPreviewAssignmentValue 消费普通、引号或反斜杠转义引号包裹的单个值。
+func consumeArgumentPreviewAssignmentValue(text string, start int) int {
+	if start >= len(text) {
+		return start
+	}
+	if text[start] == '\\' && start+1 < len(text) && isArgumentPreviewQuote(text[start+1]) {
+		return consumeEscapedQuotedArgumentPreviewValue(text, start, text[start+1])
+	}
+	if isArgumentPreviewQuote(text[start]) {
+		return consumeQuotedArgumentPreviewValue(text, start, text[start])
+	}
+	for start < len(text) && !argumentPreviewValueBoundary(text[start]) {
+		start++
+	}
+	return start
+}
+
+// consumeQuotedArgumentPreviewValue 消费 shell 风格引号值；未闭合时 fail-closed 到输入末尾。
+func consumeQuotedArgumentPreviewValue(text string, start int, quote byte) int {
+	escaped := false
+	for i := start + 1; i < len(text); i++ {
+		if escaped {
+			escaped = false
+			continue
+		}
+		if text[i] == '\\' {
+			escaped = true
+			continue
+		}
+		if text[i] == quote && argumentPreviewValueEndsAt(text, i+1) {
+			return i + 1
+		}
+	}
+	return len(text)
+}
+
+// consumeEscapedQuotedArgumentPreviewValue 消费 JSON 字符串中仍保留反斜杠的引号值。
+func consumeEscapedQuotedArgumentPreviewValue(text string, start int, quote byte) int {
+	for i := start + 2; i+1 < len(text); i++ {
+		if text[i] != '\\' || text[i+1] != quote {
+			continue
+		}
+		if i > 0 && text[i-1] == '\\' {
+			continue
+		}
+		if argumentPreviewValueEndsAt(text, i+2) {
+			return i + 2
+		}
+	}
+	return len(text)
+}
+
+func isArgumentPreviewQuote(value byte) bool {
+	return value == '"' || value == '\''
+}
+
+func argumentPreviewValueEndsAt(text string, end int) bool {
+	return end >= len(text) || argumentPreviewValueBoundary(text[end])
+}
+
+func argumentPreviewValueBoundary(value byte) bool {
+	switch value {
+	case ' ', '\t', '\r', '\n', ',', ';', '&', '}', ']':
+		return true
+	default:
+		return false
+	}
+}
+
+// containsSensitivePEM 检测私钥或证书 PEM 起始标签，命中后调用方整段脱敏。
+func containsSensitivePEM(text string) bool {
+	const beginMarker = "-----BEGIN "
+	remaining := strings.ToUpper(text)
+	for {
+		begin := strings.Index(remaining, beginMarker)
+		if begin < 0 {
+			return false
+		}
+		remaining = remaining[begin+len(beginMarker):]
+		end := strings.Index(remaining, "-----")
+		if end < 0 {
+			return false
+		}
+		label := strings.TrimSpace(remaining[:end])
+		if strings.Contains(label, "PRIVATE KEY") || strings.Contains(label, "CERTIFICATE") {
+			return true
+		}
+		remaining = remaining[end+len("-----"):]
+	}
 }
 
 func finishArgumentPreview(text string, truncated bool) string {

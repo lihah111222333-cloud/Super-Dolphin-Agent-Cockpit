@@ -70,6 +70,7 @@ func contextWithTimeoutCall(n ast.Node) (*ast.CallExpr, bool) {
 
 func allowedTimeoutFile(relPath string) bool {
 	return relPath == "internal/platform/config/timeouts.go" ||
+		relPath == "internal/platform/toolbridge/schema/client.go" ||
 		relPath == "internal/util/ctxutil/ctxutil.go" ||
 		strings.HasPrefix(relPath, "internal/transport/retry/")
 }

@@ -13,6 +13,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	recovery "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/appupdaterecovery"
 )
 
 // Super Dolphin macOS app bundle 内关键路径和期望标识。
@@ -21,6 +23,10 @@ const (
 	launcherPath     = "Contents/MacOS/agent-terminal"
 	manifestPath     = "Contents/Resources/runtime-manifest.json"
 	infoPlistPath    = "Contents/Info.plist"
+
+	updateTransactionDirName = ".super-dolphin-update-transactions"
+	unsignedSignerIdentity   = "unsigned"
+	rollbackRestartTimeout   = 15 * time.Second
 )
 
 // installRequest 描述一次 updater 安装请求。
@@ -45,21 +51,42 @@ type restartCommandRunner func(...string) (commandResult, error)
 
 type processExitWaiter func(int, time.Duration) error
 
+type probationCandidateStarter func(context.Context, recovery.Transaction) (*candidateHandle, error)
+type probationOwnerIDFactory func() (string, error)
+type probationLeaseAcquirer func(*recovery.Store, context.Context, recovery.Identity, recovery.ProbationLeaseRequest) (recovery.ProbationLease, error)
+type probationGuardStarter func(context.Context, recovery.Transaction, bool, func() error) error
+type probationSupervisorFactory func(recovery.ProbationSupervisorConfig) (*recovery.ProbationSupervisor, error)
+
 // updaterApp 显式携带 updater 的可替换系统依赖，避免安装流程依赖隐式全局状态。
 type updaterApp struct {
-	runCommand         commandRunner
-	runRestartCommand  restartCommandRunner
-	waitForProcessExit processExitWaiter
+	runCommand                     commandRunner
+	runRestartCommand              restartCommandRunner
+	waitForProcessExit             processExitWaiter
+	rollbackRestartDeadline        time.Duration
+	rollbackRestartCallbackFactory func(recovery.Transaction) (recovery.RollbackRestartResolver, recovery.RollbackRestartLauncher)
+	startProbationCandidate        probationCandidateStarter
+	newProbationOwnerID            probationOwnerIDFactory
+	acquireProbationLease          probationLeaseAcquirer
+	startProbationGuard            probationGuardStarter
+	newProbationSupervisor         probationSupervisorFactory
 }
 
 func defaultUpdaterApp() updaterApp {
 	return updaterApp{
-		runCommand:         runCommand,
-		runRestartCommand:  runRestartCommand,
-		waitForProcessExit: waitForProcessExit,
+		runCommand:                     runCommand,
+		runRestartCommand:              runRestartCommand,
+		waitForProcessExit:             waitForProcessExit,
+		rollbackRestartDeadline:        rollbackRestartTimeout,
+		rollbackRestartCallbackFactory: recovery.RollbackRestartCallbacks,
+		startProbationCandidate:        startProbationCandidate,
+		newProbationOwnerID:            newProbationOwnerID,
+		acquireProbationLease:          (*recovery.Store).AcquireProbationLease,
+		startProbationGuard:            startDetachedGuard,
+		newProbationSupervisor:         recovery.NewProbationSupervisor,
 	}
 }
 
+// validate 要求 updater 的系统依赖和 rollback convergence 时限均被显式配置。
 func (app updaterApp) validate() error {
 	if app.runCommand == nil {
 		return errors.New("updater command runner is required")
@@ -70,12 +97,21 @@ func (app updaterApp) validate() error {
 	if app.waitForProcessExit == nil {
 		return errors.New("updater process waiter is required")
 	}
+	if app.rollbackRestartDeadline <= 0 {
+		return errors.New("updater rollback restart deadline must be positive")
+	}
+	if app.rollbackRestartCallbackFactory == nil {
+		return errors.New("updater rollback restart callback factory is required")
+	}
 	return nil
 }
 
 // install 挂载 DMG、执行安装并尽力卸载临时挂载点。
 // 安装和清理错误会合并返回，避免清理失败被静默吞掉。
-func (app updaterApp) install(req installRequest) error {
+func (app updaterApp) install(ctx context.Context, req installRequest) error {
+	if ctx == nil {
+		return errors.New("updater install context is required")
+	}
 	if err := app.validate(); err != nil {
 		return err
 	}
@@ -86,7 +122,7 @@ func (app updaterApp) install(req installRequest) error {
 	if err != nil {
 		return err
 	}
-	installErr := app.installFromMount(req, mountPoint)
+	installErr := app.installFromMount(ctx, req, mountPoint)
 	detachErr := app.detachDMG(mountPoint)
 	removeErr := os.Remove(mountPoint)
 	return errors.Join(installErr, detachErr, removeErr)
@@ -95,12 +131,15 @@ func (app updaterApp) install(req installRequest) error {
 // installFromMount 从已挂载 DMG 安装 app。
 // 复制前后都做结构和签名校验，任一步失败都不会继续重启目标 app。
 func installFromMount(req installRequest, mountPoint string) error {
-	return defaultUpdaterApp().installFromMount(req, mountPoint)
+	return defaultUpdaterApp().installFromMount(context.Background(), req, mountPoint)
 }
 
 // installFromMount 使用显式 updaterApp 依赖执行已挂载 DMG 的安装流程。
 // 等待旧进程、签名校验、复制替换和重启都必须在同一个依赖上下文里完成，避免测试钩子或生产命令来源混用。
-func (app updaterApp) installFromMount(req installRequest, mountPoint string) error {
+func (app updaterApp) installFromMount(ctx context.Context, req installRequest, mountPoint string) error {
+	if ctx == nil {
+		return errors.New("updater install context is required")
+	}
 	if err := app.validate(); err != nil {
 		return err
 	}
@@ -125,10 +164,19 @@ func (app updaterApp) installFromMount(req installRequest, mountPoint string) er
 	if err := app.verifyAppSignature(stagedApp, teamID, req.AllowUnsigned); err != nil {
 		return fmt.Errorf("verify staged app: %w", err)
 	}
-	if err := app.replaceTargetApp(stagedApp, req.TargetAppPath, teamID, req.AllowUnsigned); err != nil {
+	transaction, transactional, err := app.replaceTargetAppTransactionContext(ctx, stagedApp, req.TargetAppPath, teamID, req.AllowUnsigned, req.Restart)
+	if err != nil {
 		return err
 	}
+	return app.completeInstalledRelease(ctx, req, transaction, transactional)
+}
+
+// completeInstalledRelease 将首次安装重启与 transaction probation 监督分流。
+func (app updaterApp) completeInstalledRelease(ctx context.Context, req installRequest, transaction recovery.Transaction, transactional bool) error {
 	if req.Restart {
+		if transactional {
+			return app.runProbationSupervisor(ctx, transaction)
+		}
 		return app.restartTargetApp(req.TargetAppPath)
 	}
 	return nil
@@ -507,69 +555,231 @@ func parseSigningValue(details string, key string) string {
 	return ""
 }
 
-// replaceTargetApp 先备份目标 app，再复制、复验并原子替换目标路径。
-// 任一步失败都必须走 rollback，避免留下半替换状态或未清理的 staging 目录。
-func (app updaterApp) replaceTargetApp(stagedApp string, targetApp string, expectedTeamID string, allowUnsigned bool) error {
-	backupApp := backupPath(targetApp)
-	stagedCopyApp := stagedCopyPath(targetApp)
-	backupCreated, err := backupTargetApp(targetApp, backupApp)
-	if err != nil {
-		return err
-	}
+// replaceTargetAppTransaction 返回 Task 1 journal 快照，首次安装不伪造 transaction。
+func (app updaterApp) replaceTargetAppTransaction(stagedApp string, targetApp string, expectedTeamID string, allowUnsigned bool, superviseReplacement bool) (recovery.Transaction, bool, error) {
+	return app.replaceTargetAppTransactionContext(context.Background(), stagedApp, targetApp, expectedTeamID, allowUnsigned, superviseReplacement)
+}
 
-	if err := app.copyApp(stagedApp, stagedCopyApp); err != nil {
-		return rollbackInstallFailure(targetApp, backupApp, stagedCopyApp, backupCreated, fmt.Errorf("copy app: %w", err))
+// replaceTargetAppTransactionContext 将调用方生命周期贯穿候选校验与事务效果。
+func (app updaterApp) replaceTargetAppTransactionContext(ctx context.Context, stagedApp string, targetApp string, expectedTeamID string, allowUnsigned bool, superviseReplacement bool) (recovery.Transaction, bool, error) {
+	if ctx == nil {
+		return recovery.Transaction{}, false, errors.New("replace target app context is required")
 	}
-	if err := validateMountedApp(stagedCopyApp); err != nil {
-		return rollbackInstallFailure(
-			targetApp,
-			backupApp,
-			stagedCopyApp,
-			backupCreated,
-			fmt.Errorf("verify copied app structure: %w", err),
-		)
+	targetExists, err := inspectReplacementTarget(targetApp, superviseReplacement)
+	if err != nil {
+		return recovery.Transaction{}, false, err
 	}
-	if err := app.verifyAppSignature(stagedCopyApp, expectedTeamID, allowUnsigned); err != nil {
-		return rollbackInstallFailure(targetApp, backupApp, stagedCopyApp, backupCreated, fmt.Errorf("verify copied app: %w", err))
+	if !targetExists {
+		return recovery.Transaction{}, false, app.installFirstRelease(stagedApp, targetApp, expectedTeamID, allowUnsigned)
 	}
-	if err := app.clearQuarantine(stagedCopyApp); err != nil {
-		return rollbackInstallFailure(targetApp, backupApp, stagedCopyApp, backupCreated, fmt.Errorf("clear quarantine: %w", err))
+	request, packageOwned, err := app.prepareReleaseTransaction(ctx, stagedApp, targetApp, expectedTeamID, allowUnsigned)
+	if err != nil {
+		return recovery.Transaction{}, false, err
 	}
-	if err := os.Rename(stagedCopyApp, targetApp); err != nil {
-		return rollbackInstallFailure(targetApp, backupApp, stagedCopyApp, backupCreated, fmt.Errorf("replace target app: %w", err))
+	store, err := recovery.NewStore(filepath.Join(filepath.Dir(targetApp), updateTransactionDirName))
+	if err != nil {
+		return recovery.Transaction{}, false, removePreparedCandidate(request.Paths.Staging, err)
 	}
-	if backupCreated {
-		if err := os.RemoveAll(backupApp); err != nil {
-			return fmt.Errorf("remove backup app: %w", err)
+	created, err := store.Create(ctx, request)
+	if err != nil {
+		return recovery.Transaction{}, false, fmt.Errorf("create release transaction: %w", err)
+	}
+	return app.completePreparedReleaseTransaction(ctx, store, created, packageOwned)
+}
+
+// completePreparedReleaseTransaction 发布 capsule、建立 Guard fence 并安装 candidate。
+func (app updaterApp) completePreparedReleaseTransaction(ctx context.Context, store *recovery.Store, created recovery.Transaction, packageOwned bool) (recovery.Transaction, bool, error) {
+	if packageOwned {
+		if err := publishPackageRecoveryCapsule(ctx, created); err != nil {
+			_, rollbackErr := store.Rollback(ctx, created.Identity)
+			cleanupErr := cleanupPackageRecoveryCapsule(created.Paths.RecoveryDir)
+			return recovery.Transaction{}, false, errors.Join(fmt.Errorf("publish package recovery capsule: %w", err), rollbackErr, cleanupErr)
 		}
+	}
+	if err := app.retainBackupWithRecoveryGuard(ctx, store, created); err != nil {
+		return recovery.Transaction{}, false, err
+	}
+	transaction, err := store.InstallCandidate(ctx, created.Identity)
+	if err != nil {
+		return recovery.Transaction{}, false, fmt.Errorf("install release candidate: %w", err)
+	}
+	if err := validateInstalledTransaction(transaction); err != nil {
+		return recovery.Transaction{}, false, err
+	}
+	return transaction, true, nil
+}
+
+func validateInstalledTransaction(transaction recovery.Transaction) error {
+	if transaction.State != recovery.StateProbation || transaction.Trust.State != recovery.TrustPending {
+		return fmt.Errorf("installed release transaction has unexpected state=%q trust=%q", transaction.State, transaction.Trust.State)
 	}
 	return nil
 }
 
-// backupTargetApp 如目标 app 已存在则先改名为备份。
-// 目标不存在是首次安装的正常分支，其它 stat/rename 错误必须阻断安装。
-func backupTargetApp(targetApp string, backupApp string) (bool, error) {
-	if _, err := os.Stat(targetApp); err == nil {
-		if err := os.Rename(targetApp, backupApp); err != nil {
-			return false, fmt.Errorf("backup target app: %w", err)
-		}
-		return true, nil
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return false, fmt.Errorf("inspect target app: %w", err)
+func (app updaterApp) retainBackupWithRecoveryGuard(ctx context.Context, store *recovery.Store, transaction recovery.Transaction) error {
+	_, err := os.Stat(transaction.Paths.RecoveryDir)
+	if errors.Is(err, os.ErrNotExist) {
+		_, err := store.RetainBackup(ctx, transaction.Identity)
+		return err
 	}
-	return false, nil
+	if err != nil {
+		return fmt.Errorf("inspect recovery capsule: %w", err)
+	}
+	readyAction := func() error {
+		return retainBackupAfterGuardArmed(ctx, store, transaction.Identity)
+	}
+	if err := startDetachedGuard(ctx, transaction, true, readyAction); err == nil {
+		return nil
+	} else {
+		_, rollbackErr := store.Rollback(ctx, transaction.Identity)
+		return errors.Join(fmt.Errorf("fence package recovery Guard: %w", err), rollbackErr)
+	}
 }
 
-// backupPath 为目标 app 生成本次安装专用备份路径。
-func backupPath(targetApp string) string {
-	return fmt.Sprintf("%s.updater-backup-%d-%d", targetApp, os.Getpid(), time.Now().UnixNano())
+// retainBackupAfterGuardArmed 仅在 Guard 已 armed 时有界等待事务锁并执行 destructive rename。
+func retainBackupAfterGuardArmed(ctx context.Context, store *recovery.Store, identity recovery.Identity) error {
+	deadline := time.Now().Add(guardReadinessTimeout)
+	for {
+		_, err := store.RetainBackup(ctx, identity)
+		if !errors.Is(err, recovery.ErrTransactionBusy) {
+			if err != nil {
+				return fmt.Errorf("retain release backup after Guard armed: %w", err)
+			}
+			return nil
+		}
+		if time.Now().After(deadline) {
+			return errors.New("timed out retaining release backup after Guard armed")
+		}
+		timer := time.NewTimer(10 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return context.Cause(ctx)
+		case <-timer.C:
+		}
+	}
 }
 
-// stagedCopyPath 为 ditto 生成同目录临时 .app，验证通过后才会替换最终目标。
-func stagedCopyPath(targetApp string) string {
-	parent := filepath.Dir(targetApp)
-	base := strings.TrimSuffix(filepath.Base(targetApp), filepath.Ext(targetApp))
-	return filepath.Join(parent, fmt.Sprintf(".%s.updater-staging-%d-%d.app", base, os.Getpid(), time.Now().UnixNano()))
+// installFirstRelease 保留首次安装兼容性：原子替换并显式不创建 rollback transaction。
+func (app updaterApp) installFirstRelease(stagedApp string, targetApp string, expectedTeamID string, allowUnsigned bool) error {
+	_, paths, err := app.prepareReleaseCandidate(stagedApp, targetApp, expectedTeamID, allowUnsigned)
+	if err != nil {
+		return err
+	}
+	if err := recovery.InstallFirstRelease(paths.Staging, targetApp); err != nil {
+		return removePreparedCandidate(paths.Staging, err)
+	}
+	return nil
+}
+
+func targetReleaseExists(targetApp string) (bool, error) {
+	_, err := os.Lstat(targetApp)
+	if err == nil {
+		return true, nil
+	}
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+	return false, fmt.Errorf("inspect target app: %w", err)
+}
+
+// inspectReplacementTarget 在任何 staging 或 journal 副作用前验证已有 release 必须受监督。
+func inspectReplacementTarget(targetApp string, superviseReplacement bool) (bool, error) {
+	targetExists, err := targetReleaseExists(targetApp)
+	if err != nil {
+		return false, err
+	}
+	if targetExists && !superviseReplacement {
+		return false, errors.New("transactional replacement requires restart supervision")
+	}
+	return targetExists, nil
+}
+
+// prepareReleaseTransaction 生成 exact paths，复制并验证 candidate，再计算 release identity。
+func (app updaterApp) prepareReleaseTransaction(ctx context.Context, stagedApp string, targetApp string, expectedTeamID string, allowUnsigned bool) (recovery.CreateRequest, bool, error) {
+	id, paths, err := app.prepareReleaseCandidate(stagedApp, targetApp, expectedTeamID, allowUnsigned)
+	if err != nil {
+		return recovery.CreateRequest{}, false, err
+	}
+	request, err := buildReleaseTransactionRequest(ctx, targetApp, paths, id, expectedTeamID, allowUnsigned)
+	if err != nil {
+		return recovery.CreateRequest{}, false, err
+	}
+	request, packageOwned, err := bindPackageOwnedTrust(ctx, request, installRequest{AllowUnsigned: allowUnsigned}, expectedTeamID)
+	return request, packageOwned, err
+}
+
+// prepareReleaseCandidate 生成同目录 exact staging，并完成 candidate 验证。
+func (app updaterApp) prepareReleaseCandidate(stagedApp string, targetApp string, expectedTeamID string, allowUnsigned bool) (recovery.TransactionID, recovery.Paths, error) {
+	id, err := recovery.NewTransactionID()
+	if err != nil {
+		return "", recovery.Paths{}, err
+	}
+	paths, err := recovery.PathsFor(targetApp, id)
+	if err != nil {
+		return "", recovery.Paths{}, err
+	}
+	if err := app.copyApp(stagedApp, paths.Staging); err != nil {
+		return "", recovery.Paths{}, removePreparedCandidate(paths.Staging, fmt.Errorf("copy app: %w", err))
+	}
+	if err := validateMountedApp(paths.Staging); err != nil {
+		return "", recovery.Paths{}, removePreparedCandidate(paths.Staging, fmt.Errorf("verify copied app structure: %w", err))
+	}
+	if err := app.verifyAppSignature(paths.Staging, expectedTeamID, allowUnsigned); err != nil {
+		return "", recovery.Paths{}, removePreparedCandidate(paths.Staging, fmt.Errorf("verify copied app: %w", err))
+	}
+	if err := app.clearQuarantine(paths.Staging); err != nil {
+		return "", recovery.Paths{}, removePreparedCandidate(paths.Staging, fmt.Errorf("clear quarantine: %w", err))
+	}
+	return id, paths, nil
+}
+
+// buildReleaseTransactionRequest 绑定新旧摘要、signer、attempt 与 pending trust。
+func buildReleaseTransactionRequest(ctx context.Context, targetApp string, paths recovery.Paths, id recovery.TransactionID, expectedTeamID string, allowUnsigned bool) (recovery.CreateRequest, error) {
+	oldDigest, err := recovery.ComputeReleaseDigestContext(ctx, targetApp)
+	if err != nil {
+		return recovery.CreateRequest{}, removePreparedCandidate(paths.Staging, fmt.Errorf("digest old release: %w", err))
+	}
+	candidateDigest, err := recovery.ComputeReleaseDigestContext(ctx, paths.Staging)
+	if err != nil {
+		return recovery.CreateRequest{}, removePreparedCandidate(paths.Staging, fmt.Errorf("digest candidate release: %w", err))
+	}
+	signer := expectedTeamID
+	if allowUnsigned {
+		signer = unsignedSignerIdentity
+	}
+	identity := recovery.Identity{
+		TransactionID: id,
+		AttemptID:     fmt.Sprintf("updater-%d-%s", os.Getpid(), id),
+		OldRelease: recovery.ReleaseIdentity{
+			SHA256: oldDigest, SignerIdentity: signer,
+		},
+		CandidateRelease: recovery.ReleaseIdentity{
+			SHA256: candidateDigest, SignerIdentity: signer,
+		},
+	}
+	updaterProcess, helpers, err := captureUpdaterProcessIdentityContext(ctx)
+	if err != nil {
+		return recovery.CreateRequest{}, removePreparedCandidate(paths.Staging, err)
+	}
+	identity.OldHelpers = helpers
+	identity.CandidateHelpers = helpers
+	identity.UpdaterProcess = updaterProcess
+	return recovery.CreateRequest{
+		Identity: identity,
+		Paths:    paths,
+		Trust: recovery.TrustGeneration{
+			PreviousGeneration: oldDigest,
+			Generation:         candidateDigest, PackageSigner: signer, State: recovery.TrustPending,
+		},
+	}, nil
+}
+
+func removePreparedCandidate(path string, cause error) error {
+	if err := os.RemoveAll(path); err != nil {
+		return errors.Join(cause, fmt.Errorf("remove prepared candidate: %w", err))
+	}
+	return cause
 }
 
 // copyApp 使用 ditto 复制 app bundle，保留 macOS bundle 元数据。
@@ -634,38 +844,6 @@ func allLinesAreNoSuchXattr(output string) bool {
 		}
 	}
 	return seen
-}
-
-// rollbackAfterFailure 在安装失败后恢复目标 app，并保留原始失败原因。
-func rollbackAfterFailure(targetApp string, backupApp string, backupCreated bool, cause error) error {
-	rollbackErr := rollbackTargetApp(targetApp, backupApp, backupCreated)
-	if rollbackErr != nil {
-		return errors.Join(cause, fmt.Errorf("rollback failed: %w", rollbackErr))
-	}
-	return cause
-}
-
-// rollbackInstallFailure 恢复备份并清理 staging 目录。
-// 清理失败会和原始安装错误一起返回，避免后台安装留下未知半成品。
-func rollbackInstallFailure(targetApp string, backupApp string, stagedCopyApp string, backupCreated bool, cause error) error {
-	installErr := rollbackAfterFailure(targetApp, backupApp, backupCreated, cause)
-	if err := os.RemoveAll(stagedCopyApp); err != nil {
-		return errors.Join(installErr, fmt.Errorf("remove staged copy: %w", err))
-	}
-	return installErr
-}
-
-// rollbackTargetApp 删除失败的新 app 并恢复备份。
-func rollbackTargetApp(targetApp string, backupApp string, backupCreated bool) error {
-	if removeErr := os.RemoveAll(targetApp); removeErr != nil {
-		return fmt.Errorf("remove failed target app: %w", removeErr)
-	}
-	if backupCreated {
-		if err := os.Rename(backupApp, targetApp); err != nil {
-			return fmt.Errorf("restore backup app: %w", err)
-		}
-	}
-	return nil
 }
 
 // commandError 在外部命令失败时补充 stderr。

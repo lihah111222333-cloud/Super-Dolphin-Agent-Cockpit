@@ -26,17 +26,17 @@ func TestTrajectoryCollectorSanitizesToolCallArgumentsPreview(t *testing.T) {
 }
 
 func sensitiveTrajectoryArgumentsPreview() string {
-	return `{"command":"curl --api-key sk-test https://example.test","token":"token=abc","file_path":"/Users/alice/secret"}`
+	return `run password="trajectory-password-value" TOKEN='trajectory-token-value' --password=\"trajectory-escaped-value\" keep=trajectory-visible`
 }
 
 func assertTrajectoryArgumentsPreviewSanitized(t *testing.T, preview string) {
 	t.Helper()
-	for _, fragment := range []string{"token=abc", "sk-test", "/Users/alice/secret", "--api-key"} {
+	for _, fragment := range []string{"trajectory-password-value", "trajectory-token-value", "trajectory-escaped-value"} {
 		if strings.Contains(preview, fragment) {
 			t.Fatalf("trajectory args = %q, must not contain sensitive fragment %q", preview, fragment)
 		}
 	}
-	if !strings.Contains(preview, "[REDACTED]") {
-		t.Fatalf("trajectory args = %q, want redaction marker", preview)
+	if !strings.Contains(preview, "[REDACTED]") || !strings.Contains(preview, "keep=trajectory-visible") {
+		t.Fatalf("trajectory args = %q, want redaction marker and ordinary context", preview)
 	}
 }

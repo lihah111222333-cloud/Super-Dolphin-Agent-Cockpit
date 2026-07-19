@@ -10,6 +10,52 @@ import (
 	"testing"
 )
 
+func TestReadStableProcessIdentityRejectsGenerationDrift(t *testing.T) {
+	reads := 0
+	identity, err := readStableProcessIdentity(
+		42,
+		func(int) (string, error) {
+			reads++
+			if reads == 1 {
+				return "generation-1", nil
+			}
+			return "generation-2", nil
+		},
+		func(int) (string, error) { return "/bin/same-executable", nil },
+	)
+	if !errors.Is(err, ErrStableProcessIdentityMismatch) || identity != (processIdentity{}) {
+		t.Fatalf("readStableProcessIdentity() = (%+v, %v), want generation mismatch", identity, err)
+	}
+}
+
+func TestReadStableProcessIdentityRejectsSwitchAtEachSampleBoundary(t *testing.T) {
+	for _, boundary := range []string{"before executable", "before second start token"} {
+		t.Run(boundary, func(t *testing.T) {
+			generation := "generation-1"
+			startReads := 0
+			_, err := readStableProcessIdentity(
+				42,
+				func(int) (string, error) {
+					startReads++
+					if boundary == "before second start token" && startReads == 2 {
+						generation = "generation-2"
+					}
+					return generation, nil
+				},
+				func(int) (string, error) {
+					if boundary == "before executable" {
+						generation = "generation-2"
+					}
+					return "/bin/same-executable", nil
+				},
+			)
+			if !errors.Is(err, ErrStableProcessIdentityMismatch) {
+				t.Fatalf("boundary %q error = %v, want generation mismatch", boundary, err)
+			}
+		})
+	}
+}
+
 func TestRegisterCheckedIdentityReadFailureDoesNotRegister(t *testing.T) {
 	wantErr := errors.New("identity unavailable")
 	registry := New()

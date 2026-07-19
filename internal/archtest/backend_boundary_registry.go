@@ -249,7 +249,9 @@ func defaultBackendBoundarySurfaces() []BackendBoundarySurface {
 		backendBoundarySurface("cmd/mcp-ida", "IDA MCP sidecar boundary", []BoundaryRuleID{"mcp_sidecar_narrow_import_surface", "fx_assembly_scope", "mcpserver_ida_family"}, nil),
 		backendBoundarySurface("cmd/mcp-lsp", "LSP MCP sidecar boundary", []BoundaryRuleID{"mcp_sidecar_narrow_import_surface", "fx_assembly_scope"}, nil),
 		backendBoundarySurface("cmd/mcp-orch", "orchestration MCP sidecar boundary", []BoundaryRuleID{"mcp_sidecar_narrow_import_surface", "fx_assembly_scope", "mcpserver_orch_family"}, nil),
+		backendBoundarySurface("cmd/mcp-schema-compiler-helper", "one-shot MCP schema compiler helper", []BoundaryRuleID{"command_narrow_import_surface", "fx_assembly_scope"}, nil),
 		backendBoundarySurface("cmd/super-dolphin-release-manifest", "release manifest command assembly", []BoundaryRuleID{"command_narrow_import_surface", "fx_assembly_scope"}, nil),
+		backendBoundarySurface("cmd/super-dolphin-guard", "detached probation Guard command", []BoundaryRuleID{"command_narrow_import_surface", "fx_assembly_scope"}, nil),
 		backendBoundarySurface("cmd/super-dolphin-updater", "updater command assembly", []BoundaryRuleID{"command_narrow_import_surface", "fx_assembly_scope"}, nil),
 		backendBoundarySurface("internal/app", "desktop composition root", []BoundaryRuleID{"app_adapter_narrow_import_surface", "fx_assembly_scope"}, []BoundaryGuardID{"fx_graph"}),
 		backendBoundarySurface("internal/archtest", "architecture governance implementation", []BoundaryRuleID{"fx_assembly_scope"}, []BoundaryGuardID{"backend_surface_governance", "backend_boundary_single_source"}),
@@ -289,6 +291,7 @@ type backendBoundaryPatterns struct {
 	agentTerminal   []string
 	codexWorktree   []string
 	releaseManifest []string
+	guard           []string
 	updater         []string
 	devtools        []string
 	dto             []string
@@ -301,11 +304,13 @@ type backendBoundaryPatterns struct {
 	fx              []string
 	mcpOrch         []string
 	mcpIDA          []string
+	schemaHelper    []string
 	hooks           []string
 	mcpctrl         []string
 	pkg             []string
 }
 
+// defaultBackendBoundaryPatterns 汇总架构边界扫描使用的规范路径模式。
 func defaultBackendBoundaryPatterns() backendBoundaryPatterns {
 	return backendBoundaryPatterns{
 		contract:        []string{"internal/contract/**/*.go"},
@@ -317,6 +322,7 @@ func defaultBackendBoundaryPatterns() backendBoundaryPatterns {
 		agentTerminal:   []string{"cmd/agent-terminal/**/*.go"},
 		codexWorktree:   []string{"cmd/codex-worktree-setup/**/*.go"},
 		releaseManifest: []string{"cmd/super-dolphin-release-manifest/**/*.go"},
+		guard:           []string{"cmd/super-dolphin-guard/**/*.go"},
 		updater:         []string{"cmd/super-dolphin-updater/**/*.go"},
 		devtools:        []string{"internal/devtools/**/*.go"},
 		dto:             []string{"internal/dto/**/*.go"},
@@ -329,6 +335,7 @@ func defaultBackendBoundaryPatterns() backendBoundaryPatterns {
 		fx:              []string{"internal/**/*.go", "cmd/**/*.go"},
 		mcpOrch:         []string{"cmd/mcp-orch/**/*.go"},
 		mcpIDA:          []string{"cmd/mcp-ida/**/*.go"},
+		schemaHelper:    []string{"cmd/mcp-schema-compiler-helper/**/*.go"},
 		hooks:           []string{"internal/platform/hooks/**/*.go"},
 		mcpctrl:         []string{"internal/platform/mcpcontrol/**/*.go"},
 		pkg:             []string{"pkg/**/*.go"},
@@ -681,13 +688,14 @@ func mcpSidecarAllowPolicies() []BoundaryImportPolicy {
 }
 
 func commandBoundaryPatterns(patterns backendBoundaryPatterns) []string {
-	return combineBoundaryPatterns(patterns.agentRuntime, patterns.agentTerminal, patterns.codexWorktree, patterns.releaseManifest, patterns.updater)
+	return combineBoundaryPatterns(patterns.agentRuntime, patterns.agentTerminal, patterns.codexWorktree, patterns.releaseManifest, patterns.guard, patterns.updater, patterns.schemaHelper)
 }
 
 func internalSupportBoundaryPatterns(patterns backendBoundaryPatterns) []string {
 	return combineBoundaryPatterns(patterns.devtools, patterns.dto, patterns.testutil, patterns.util)
 }
 
+// commandNarrowAllowPolicies 为每个 standalone command 绑定精确内部依赖白名单。
 func commandNarrowAllowPolicies(patterns backendBoundaryPatterns) []BoundaryImportPolicy {
 	owner := BoundaryOwnerID("command_boundary")
 	policies := boundaryPolicies(owner, patterns.agentRuntime, []string{
@@ -697,7 +705,10 @@ func commandNarrowAllowPolicies(patterns backendBoundaryPatterns) []BoundaryImpo
 	}, "agent runtime host or process primitive")
 	policies = append(policies, boundaryPolicies(owner, patterns.agentTerminal, []string{
 		"internal/app",
+		"internal/platform/appupdaterecovery",
+		"internal/platform/pidregistry",
 		"internal/platform/rlimit",
+		"internal/platform/runner",
 		"internal/platform/runtimeenv",
 	}, "agent terminal host or process primitive")...)
 	policies = append(policies, boundaryPolicies(owner, patterns.codexWorktree, []string{
@@ -707,9 +718,21 @@ func commandNarrowAllowPolicies(patterns backendBoundaryPatterns) []BoundaryImpo
 	policies = append(policies, boundaryPolicies(owner, patterns.releaseManifest, []string{
 		"internal/module/appupdate",
 	}, "release manifest update contract")...)
+	policies = append(policies, boundaryPolicies(owner, patterns.guard, []string{
+		"internal/platform/appupdaterecovery",
+		"internal/platform/pidregistry",
+		"internal/platform/runtimeenv",
+	}, "detached Guard transaction and frozen environment seam")...)
 	policies = append(policies, boundaryPolicies(owner, patterns.updater, []string{
+		"internal/platform/appupdaterecovery",
+		"internal/platform/pidregistry",
+		"internal/platform/runtimeenv",
 		"internal/util/ctxutil",
-	}, "updater context primitive")...)
+		"internal/util/safego",
+	}, "updater release transaction, context, or supervised reaper primitive")...)
+	policies = append(policies, boundaryPolicies(owner, patterns.schemaHelper, []string{
+		"internal/platform/toolbridge/schema",
+	}, "one-shot schema compiler execution boundary")...)
 	return policies
 }
 

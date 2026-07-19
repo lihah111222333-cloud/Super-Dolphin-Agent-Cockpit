@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -10,10 +11,30 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	recovery "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/appupdaterecovery"
 )
 
+// TestMain 让 updater 测试二进制在 helper 模式下只处理一次 filesystem 请求。
+func TestMain(m *testing.M) {
+	if handled, code := runGuardProcessTreeLeaseIfRequested(); handled {
+		os.Exit(code)
+	}
+	if handled, code := runGuardProcessTreeFixtureIfRequested(); handled {
+		os.Exit(code)
+	}
+	if handled, err := recovery.RunReleaseFilesystemHelperIfRequested(os.Stdin, os.Stdout); handled {
+		if err != nil {
+			_, _ = fmt.Fprintln(os.Stderr, err)
+			os.Exit(2)
+		}
+		os.Exit(0)
+	}
+	os.Exit(m.Run())
+}
+
 func TestValidateInstallRequestRejectsMissingDMG(t *testing.T) {
-	target := createAppBundle(t, filepath.Join(t.TempDir(), "Super Dolphin.app"))
+	target := filepath.Join(t.TempDir(), "Super Dolphin.app")
 
 	err := validateInstallRequest(installRequest{
 		TargetAppPath: target,
@@ -275,7 +296,7 @@ func TestInstallFromMountWaitsForAppExitBeforeReplacing(t *testing.T) {
 	}
 	mountPoint := t.TempDir()
 	createAppBundle(t, filepath.Join(mountPoint, "Super Dolphin.app"))
-	target := createAppBundle(t, filepath.Join(t.TempDir(), "Super Dolphin.app"))
+	target := filepath.Join(t.TempDir(), "Super Dolphin.app")
 
 	err := installFromMount(installRequest{
 		TargetAppPath: target,
@@ -290,7 +311,141 @@ func TestInstallFromMountWaitsForAppExitBeforeReplacing(t *testing.T) {
 	}
 }
 
-func TestInstallRollsBackWhenDittoTimesOutAfterBackup(t *testing.T) {
+func TestFirstInstallUsesAtomicPathWithoutRollbackTransaction(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows filesystems do not preserve macOS launcher execute bits in this fixture")
+	}
+	stubSuccessfulDitto(t)
+	mountPoint := t.TempDir()
+	createAppBundle(t, filepath.Join(mountPoint, "Super Dolphin.app"))
+	parent := t.TempDir()
+	target := filepath.Join(parent, "Super Dolphin.app")
+	if err := installFromMount(installRequest{TargetAppPath: target, AllowUnsigned: true}, mountPoint); err != nil {
+		t.Fatalf("installFromMount() error = %v", err)
+	}
+	if err := validateMountedApp(target); err != nil {
+		t.Fatalf("first install target is invalid: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(parent, updateTransactionDirName)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("first install created rollback transaction root: %v", err)
+	}
+	backups, err := filepath.Glob(filepath.Join(parent, ".Super Dolphin.backup-*.app"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(backups) != 0 {
+		t.Fatalf("first install created backups: %v", backups)
+	}
+}
+
+func TestReplacementWithoutRestartHasNoSideEffects(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows filesystems do not preserve macOS launcher execute bits in this fixture")
+	}
+	oldRunCommand := runCommand
+	t.Cleanup(func() { runCommand = oldRunCommand })
+	commandCalls := 0
+	runCommand = func(context.Context, time.Duration, string, ...string) (commandResult, error) {
+		commandCalls++
+		return commandResult{}, errors.New("unexpected updater command")
+	}
+	mountPoint := t.TempDir()
+	staged := createAppBundle(t, filepath.Join(mountPoint, "Super Dolphin.app"))
+	parent := t.TempDir()
+	target := createAppBundle(t, filepath.Join(parent, "Super Dolphin.app"))
+	originalMarker := filepath.Join(target, "Contents", "Resources", "old-release.txt")
+	if err := os.WriteFile(originalMarker, []byte("old"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, _, err := defaultUpdaterApp().replaceTargetAppTransaction(staged, target, "", true, false)
+	if err == nil || !strings.Contains(err.Error(), "requires restart supervision") {
+		t.Fatalf("replaceTargetAppTransaction(no restart replacement) error = %v", err)
+	}
+	if commandCalls != 0 {
+		t.Fatalf("no-restart replacement command calls = %d, want zero", commandCalls)
+	}
+	assertPathsExist(t, staged, originalMarker)
+	assertNoPathMatches(t,
+		filepath.Join(parent, updateTransactionDirName),
+		filepath.Join(parent, ".Super Dolphin.backup-*.app"),
+		filepath.Join(parent, ".Super Dolphin.staging-*.app"),
+	)
+}
+
+func assertPathsExist(t *testing.T, paths ...string) {
+	t.Helper()
+	for _, path := range paths {
+		if _, err := os.Stat(path); err != nil {
+			t.Fatalf("expected path %s: %v", path, err)
+		}
+	}
+}
+
+func assertNoPathMatches(t *testing.T, patterns ...string) {
+	t.Helper()
+	for _, pattern := range patterns {
+		matches, err := filepath.Glob(pattern)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(matches) != 0 {
+			t.Fatalf("no-restart replacement created %s: %v", pattern, matches)
+		}
+	}
+}
+
+func TestSupervisedReplacementRetainsTransactionBackup(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows filesystems do not preserve macOS launcher execute bits in this fixture")
+	}
+	stubSuccessfulDitto(t)
+	mountPoint, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	createAppBundle(t, filepath.Join(mountPoint, "Super Dolphin.app"))
+	parent, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	target := createAppBundle(t, filepath.Join(parent, "Super Dolphin.app"))
+	oldMarker := filepath.Join(target, "Contents", "Resources", "old-release.txt")
+	if err := os.WriteFile(oldMarker, []byte("old"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	assertSupervisedReplacementStartsProbation(t, filepath.Join(mountPoint, "Super Dolphin.app"), target)
+	backups, err := filepath.Glob(filepath.Join(parent, ".Super Dolphin.backup-*.app"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(backups) != 1 {
+		t.Fatalf("retained transaction backups = %v, want exactly one", backups)
+	}
+	if _, err := os.Stat(filepath.Join(backups[0], "Contents", "Resources", "old-release.txt")); err != nil {
+		t.Fatalf("retained backup does not contain old release: %v", err)
+	}
+	journals, err := filepath.Glob(filepath.Join(parent, updateTransactionDirName, "*", "journal.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(journals) != 1 {
+		t.Fatalf("durable transaction journals = %v, want exactly one", journals)
+	}
+}
+
+func assertSupervisedReplacementStartsProbation(t *testing.T, staged string, target string) {
+	t.Helper()
+	transaction, transactional, err := defaultUpdaterApp().replaceTargetAppTransaction(staged, target, "", true, true)
+	if err != nil {
+		t.Fatalf("replaceTargetAppTransaction() error = %v", err)
+	}
+	if !transactional || transaction.State != recovery.StateProbation {
+		t.Fatalf("replacement result = transactional %v state %q", transactional, transaction.State)
+	}
+}
+
+func TestInstallKeepsTargetWhenDittoTimesOutBeforeTransaction(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("Windows filesystems do not preserve macOS launcher execute bits in this fixture")
 	}
@@ -307,6 +462,7 @@ func TestInstallRollsBackWhenDittoTimesOutAfterBackup(t *testing.T) {
 	err := installFromMount(installRequest{
 		TargetAppPath: target,
 		AllowUnsigned: true,
+		Restart:       true,
 	}, mountPoint)
 	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("installFromMount() error = %v, want ditto timeout", err)
@@ -318,13 +474,16 @@ func TestInstallRollsBackWhenDittoTimesOutAfterBackup(t *testing.T) {
 		t.Fatalf("ditto destination = %q, want staged copy path before final replacement", *dittoDest)
 	}
 	if _, err := os.Stat(originalMarker); err != nil {
-		t.Fatalf("original app was not restored after timeout: %v", err)
+		t.Fatalf("original app changed after pre-transaction timeout: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(target, "Contents", "Resources", "partial-copy.txt")); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("partial copy leaked into restored target: %v", err)
 	}
 	if _, err := os.Stat(*dittoDest); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("staged copy path still exists after rollback: %v", err)
+		t.Fatalf("staged copy path still exists after failed preparation: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(filepath.Dir(target), updateTransactionDirName)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("pre-transaction timeout created transaction root: %v", err)
 	}
 }
 
@@ -410,6 +569,23 @@ func stubRunCommandWithTimedOutDitto(t *testing.T) *string {
 		return commandResult{stderr: "ditto timed out"}, context.DeadlineExceeded
 	}
 	return &dittoDest
+}
+
+func stubSuccessfulDitto(t *testing.T) {
+	t.Helper()
+	oldRunCommand := runCommand
+	t.Cleanup(func() {
+		runCommand = oldRunCommand
+	})
+	runCommand = func(_ context.Context, _ time.Duration, name string, args ...string) (commandResult, error) {
+		if name != "ditto" {
+			return commandResult{}, nil
+		}
+		if err := os.Rename(args[0], args[1]); err != nil {
+			return commandResult{}, err
+		}
+		return commandResult{}, nil
+	}
 }
 
 func recordPartialDittoCopy(t *testing.T, args []string, dittoDest *string) {

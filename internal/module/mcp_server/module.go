@@ -10,6 +10,7 @@ var Module = fx.Module("mcp_server",
 	fx.Provide(
 		NewServiceWithStoreAndConfig,
 		AsMCPServerConfigProvider,
+		AsMCPToolAuthorityOwner,
 		NewHandlers,
 	),
 )

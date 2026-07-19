@@ -7,6 +7,31 @@ version="${VERSION:-0.1.0}"
 goos="$(go env GOOS)"
 goarch="$(go env GOARCH)"
 platform="${goos}-${goarch}"
+
+reject_unsupported_package_updates() {
+  local name
+  for name in \
+    SUPER_DOLPHIN_UPDATE_ENABLED \
+    SUPER_DOLPHIN_UPDATE_MANIFEST_URL \
+    SUPER_DOLPHIN_UPDATE_GITHUB_REPO \
+    SUPER_DOLPHIN_UPDATE_PUBLIC_KEY \
+    SUPER_DOLPHIN_UPDATE_CHANNEL \
+    SUPER_DOLPHIN_UPDATE_STAGE_DIR \
+    SUPER_DOLPHIN_UPDATE_HELPER_PATH \
+    SUPER_DOLPHIN_UPDATE_TARGET_APP_PATH \
+    SUPER_DOLPHIN_UPDATE_PLATFORM \
+    SUPER_DOLPHIN_UPDATE_VERSION \
+    SUPER_DOLPHIN_UPDATE_ALLOW_UNSIGNED \
+    SUPER_DOLPHIN_UPDATE_WINDOWS_PUBLISHER \
+    SUPER_DOLPHIN_UPDATE_WINDOWS_THUMBPRINT; do
+  if printenv "$name" >/dev/null 2>&1; then
+      echo "package-owned updates are unsupported for $platform; reject $name" >&2
+      exit 1
+    fi
+  done
+}
+
+reject_unsupported_package_updates
 codex_relay_base_url_env="SUPER_DOLPHIN_CODEX_RELAY_BASE_URL"
 codex_relay_bootstrap_token_env="SUPER_DOLPHIN_CODEX_RELAY_BOOTSTRAP_TOKEN"
 codex_relay_bootstrap_proof_env="SUPER_DOLPHIN_CODEX_RELAY_BOOTSTRAP_PROOF"
@@ -748,6 +773,8 @@ package_linux_main() {
 
   build_current_frontend_app
 
+  app_commit="$(git -C "$root" rev-parse HEAD)"
+  schema_build_identity_ldflag="-X github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/toolbridge/schema.buildAppCommit=$app_commit"
   linux_cgo_enabled="${CGO_ENABLED:-$(go env CGO_ENABLED)}"
   go_binary_cache_paths=(
     "$root/cmd"
@@ -760,6 +787,7 @@ package_linux_main() {
     "input:GOVERSION=$(go env GOVERSION)"
     "input:GOOS=$goos"
     "input:GOARCH=$goarch"
+    "input:APP_COMMIT=$app_commit"
     "input:CGO_ENABLED=$linux_cgo_enabled"
     "input:CGO_CFLAGS=${CGO_CFLAGS:-}"
     "input:CGO_CXXFLAGS=${CGO_CXXFLAGS:-}"
@@ -769,8 +797,8 @@ package_linux_main() {
     (
       cd "$root"
       export CGO_ENABLED="$linux_cgo_enabled"
-      make build-peer-binaries
-      go build -o bin/agent-terminal ./cmd/agent-terminal
+      make APP_COMMIT="$app_commit" build-peer-binaries
+      go build -ldflags "$schema_build_identity_ldflag" -o bin/agent-terminal ./cmd/agent-terminal
       go build -o bin/mcp-ida ./cmd/mcp-ida
     )
     phase_cache_save
@@ -779,6 +807,8 @@ package_linux_main() {
   cp "$root/bin/agent-terminal" "$stage/bin/agent-terminal"
   cp "$root/bin/mcp-orch" "$stage/bin/mcp-orch"
   cp "$root/bin/mcp-lsp" "$stage/bin/mcp-lsp"
+  cp "$root/bin/mcp-schema-compiler-helper" "$stage/bin/mcp-schema-compiler-helper"
+  cp "$root/bin/mcp-schema-compiler-helper.manifest.json" "$stage/bin/mcp-schema-compiler-helper.manifest.json"
   cp "$root/bin/mcp-ida" "$stage/bin/mcp-ida"
   copy_sqlite_migrations "$stage"
   copy_packaged_lsp_bundle "$stage"
@@ -808,7 +838,7 @@ export GO_AGENT_PEER_BIN_DIR="$here/bin"
 export SUPER_DOLPHIN_REQUIRE_BUNDLED_CODEX=1
 export SUPER_DOLPHIN_LSP_BUNDLE_DIR="$here/lsp"
 export SUPER_DOLPHIN_LSP_MANIFEST="$here/lsp/lsp-manifest.json"
-bundled_execs=(mcp-orch mcp-lsp mcp-ida gopls go typescript-language-server vscode-css-language-server pyright-langserver rust-analyzer bash-language-server sqruff shellcheck sg)
+bundled_execs=(mcp-orch mcp-lsp mcp-schema-compiler-helper mcp-ida gopls go typescript-language-server vscode-css-language-server pyright-langserver rust-analyzer bash-language-server sqruff shellcheck sg)
 if grep -q '"jdtls"' "$SUPER_DOLPHIN_LSP_MANIFEST"; then
   bundled_execs+=(jdtls)
 fi

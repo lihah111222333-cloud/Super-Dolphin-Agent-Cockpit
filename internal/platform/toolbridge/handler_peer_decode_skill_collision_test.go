@@ -67,7 +67,7 @@ func assertSkillCollisionRoutes(
 ) {
 	t.Helper()
 	cwd := t.TempDir()
-	tools, err := h.PrepareCodexToolSurface(context.Background(), contract.CodexToolSurfaceScope{
+	tools, err := prepareCodexToolSurfaceForTest(t, h, context.Background(), contract.CodexToolSurfaceScope{
 		AgentID: "agent-collision", ProviderThreadID: "thread-collision", CWD: cwd, Manifest: manifest,
 	})
 	if err != nil {
@@ -90,7 +90,7 @@ func TestPrepareCodexToolSurfaceFiltersDisabledSkillCanonicalAlias(t *testing.T)
 		stdioClientFactory: fakeClientFactory(map[string]mcpClient{mcpdto.ClientKindLSP: &fakeMCPClient{}}),
 	}
 	cwd := t.TempDir()
-	tools, err := h.PrepareCodexToolSurface(context.Background(), contract.CodexToolSurfaceScope{
+	tools, err := prepareCodexToolSurfaceForTest(t, h, context.Background(), contract.CodexToolSurfaceScope{
 		AgentID:          "agent-disabled-skill",
 		ProviderThreadID: "thread-disabled-skill",
 		CWD:              cwd,

@@ -21,7 +21,7 @@ func TestPackageMacOSScriptSupportsOptInPackagedVideoAPIKey(t *testing.T) {
 	assertScriptOrder(t, script, "resolve_packaged_video_env", "mkdir -p \"$macos\" \"$resources/bin\"")
 	assertScriptOrder(t, script, "resolve_macos_min_version", "mkdir -p \"$macos\" \"$resources/bin\"")
 	assertScriptOrder(t, script, "write_packaged_relay_env \"$resources\"", "write_packaged_video_env \"$resources\"")
-	assertScriptOrder(t, script, "write_packaged_video_env \"$resources\"", "write_packaged_update_env \"$resources\"")
+	assertScriptOrder(t, script, "write_packaged_video_env \"$resources\"", "phase_start \"codesign macho tree\"")
 
 	assertScriptContains(t, local, "SUPER_DOLPHIN_PACKAGE_INCLUDE_VIDEO_API_KEY=\"${SUPER_DOLPHIN_PACKAGE_INCLUDE_VIDEO_API_KEY:-0}\"")
 	assertScriptContains(t, local, "SILICONFLOW_API_KEY=\"${SILICONFLOW_API_KEY:-}\"")

@@ -32,6 +32,7 @@ type fakeMCPClient struct {
 	tools           []mcpdto.MCPTool
 	calls           []string
 	arguments       []json.RawMessage
+	requests        []ToolCallRequest
 	closed          int
 	listStarted     chan<- string
 	listStartedName string
@@ -67,9 +68,12 @@ func (c *fakeMCPClient) ListTools(ctx context.Context) ([]mcpdto.MCPTool, error)
 	return append([]mcpdto.MCPTool(nil), c.tools...), nil
 }
 
-func (c *fakeMCPClient) CallTool(_ context.Context, name string, arguments json.RawMessage, _ ToolCallRequest) (*ToolCallResult, error) {
+func (c *fakeMCPClient) CallTool(_ context.Context, name string, arguments json.RawMessage, req ToolCallRequest) (*ToolCallResult, error) {
 	c.calls = append(c.calls, name)
 	c.arguments = append(c.arguments, append(json.RawMessage(nil), arguments...))
+	cloned := req
+	cloned.WorkspaceRoots = append([]string(nil), req.WorkspaceRoots...)
+	c.requests = append(c.requests, cloned)
 	return toolCallTextResult(true, "ok"), nil
 }
 
@@ -86,6 +90,67 @@ func fakeClientFactory(clients map[string]mcpClient) func(context.Context, provi
 	return func(_ context.Context, binary providerdto.MCPBinary) (mcpClient, error) {
 		return clients[binary.Name], nil
 	}
+}
+
+type rawToolsMCPClientForTest struct {
+	mcpClient
+}
+
+func (c rawToolsMCPClientForTest) ListTools(ctx context.Context) ([]mcpdto.MCPTool, error) {
+	tools, err := c.mcpClient.ListTools(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for i, tool := range tools {
+		if len(tool.RawJSON()) != 0 {
+			continue
+		}
+		if len(tool.InputSchema) == 0 {
+			tool.InputSchema = strictEmptyObjectSchema()
+		}
+		raw, marshalErr := json.Marshal(tool)
+		if marshalErr != nil {
+			return nil, marshalErr
+		}
+		tools[i] = mcpdto.NewRawTool(raw)
+	}
+	return tools, nil
+}
+
+func prepareCodexToolSurfaceForTest(
+	t *testing.T,
+	h *Handler,
+	ctx context.Context,
+	scope contract.CodexToolSurfaceScope,
+) ([]contract.DynamicToolSchema, error) {
+	t.Helper()
+	if h.authorityOwner == nil {
+		h.authorityOwner = newTask4BAuthorityOwner()
+	}
+	if h.schemaExecutor == nil {
+		h.schemaExecutor = &task4BSchemaExecutor{}
+	}
+	for i, binary := range scope.Manifest.Binaries {
+		if contract.IsManagedRuntimeMCPServerName(binary.Name) {
+			scope.Manifest.Binaries[i] = providerdto.NewManagedMCPBinary(binary)
+			continue
+		}
+		if binary.TrustedServerID == "" {
+			binary.TrustedServerID = binary.Name
+			scope.Manifest.Binaries[i] = binary
+		}
+	}
+	if h.stdioClientFactory != nil {
+		factory := h.stdioClientFactory
+		h.stdioClientFactory = func(ctx context.Context, binary providerdto.MCPBinary) (mcpClient, error) {
+			client, err := factory(ctx, binary)
+			if err != nil || client == nil {
+				return client, err
+			}
+			return rawToolsMCPClientForTest{mcpClient: client}, nil
+		}
+	}
+	return h.PrepareCodexToolSurface(ctx, scope)
 }
 
 func jsonEscape(value string) string {

@@ -258,7 +258,7 @@ func TestCodexToolSurfaceHistoryReadRejectsThreadIDArgumentBeforeHostOrPeer(t *t
 
 func prepareHistoryReadCodexSurface(t *testing.T, h *Handler) []contract.DynamicToolSchema {
 	t.Helper()
-	tools, err := h.PrepareCodexToolSurface(context.Background(), contract.CodexToolSurfaceScope{
+	tools, err := prepareCodexToolSurfaceForTest(t, h, context.Background(), contract.CodexToolSurfaceScope{
 		AgentID:          "agent-surface",
 		ProviderThreadID: "provider-thread-1",
 		CWD:              "/repo",

@@ -10,6 +10,8 @@ AGENTID: 019f6938-f750-7ab1-ae8c-7d3f1f0f6ade
 
 BASE_HEAD: b40867229af8e17916c00393639ccb0fcb4bf6fc
 
+CURRENTNESS_NOTICE: superseded by `02-current-main-recheck.md` for latest `origin/main` status. This file remains historical evidence for the `b40867229...` Task 0 execution object and must not be used as current-main LSP PASS.
+
 VERDICT: `REVIEW_BLOCKED`
 
 `implementation_design_complete=false`

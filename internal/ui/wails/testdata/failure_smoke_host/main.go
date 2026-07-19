@@ -161,11 +161,13 @@ func newProductionWailsRuntime(dispatcher *event.Dispatcher, project string) (*p
 		uiwails.ActiveAgentCounterFunc(func(context.Context) (int, error) { return 0, nil }),
 		slog.Default(),
 	)
+	readiness := uiwails.NewActivationReadiness()
 	wailsApp, err := uiwails.NewWailsApplication(uiwails.ApplicationParams{
 		Logger:    slog.Default(),
 		Binding:   binding,
 		Service:   uiwails.NewService(binding),
 		Lifecycle: lifecycle,
+		Readiness: readiness,
 		Frontend:  uiwails.FrontendFS{FS: os.DirFS(filepath.Join(project, "frontend-app"))},
 	})
 	if err != nil {

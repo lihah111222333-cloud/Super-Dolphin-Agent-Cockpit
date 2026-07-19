@@ -27,7 +27,7 @@ func TestPrepareCodexToolSurfaceAdvertisesShortNamesAndRoutesCalls(t *testing.T)
 
 	h := &Handler{stdioClientFactory: fakeClientFactory(map[string]mcpClient{"lsp": lsp, "orch": orch})}
 
-	tools, err := h.PrepareCodexToolSurface(context.Background(), contract.CodexToolSurfaceScope{
+	tools, err := prepareCodexToolSurfaceForTest(t, h, context.Background(), contract.CodexToolSurfaceScope{
 		AgentID:          "agent-1",
 		ProviderThreadID: "provider-thread-1",
 		CWD:              "/repo",
@@ -72,7 +72,7 @@ func TestPrepareCodexToolSurfaceRejectsStaleLSPToolNames(t *testing.T) {
 			lsp := &fakeMCPClient{tools: []mcpdto.MCPTool{{Name: stale, Description: "stale", InputSchema: strictEmptyObjectSchema()}}}
 			h := &Handler{stdioClientFactory: fakeClientFactory(map[string]mcpClient{"lsp": lsp})}
 
-			_, err := h.PrepareCodexToolSurface(context.Background(), contract.CodexToolSurfaceScope{
+			_, err := prepareCodexToolSurfaceForTest(t, h, context.Background(), contract.CodexToolSurfaceScope{
 				AgentID:          "agent-stale-lsp",
 				ProviderThreadID: "provider-thread-stale-lsp",
 				CWD:              "/repo",
@@ -91,7 +91,7 @@ func TestPrepareCodexToolSurfaceRejectsLegacyOrchestrationAliases(t *testing.T) 
 	orch := &fakeMCPClient{tools: []mcpdto.MCPTool{{Name: "list_agents", Description: "list", InputSchema: strictEmptyObjectSchema()}}}
 	h := &Handler{stdioClientFactory: fakeClientFactory(map[string]mcpClient{mcpdto.ClientKindOrch: orch})}
 
-	tools, err := h.PrepareCodexToolSurface(context.Background(), contract.CodexToolSurfaceScope{
+	tools, err := prepareCodexToolSurfaceForTest(t, h, context.Background(), contract.CodexToolSurfaceScope{
 		AgentID:          "agent-legacy-deny",
 		ProviderThreadID: "provider-thread-legacy-deny",
 		CWD:              "/repo",
@@ -178,7 +178,7 @@ func assertDisabledCodexSurfaceTools(
 	t.Helper()
 
 	disabledNames := []string{ToolNameMemoryWrite, "skill__skill_write_note", "launch_agent", "mcp__orch__launch_agent", "launch_agent", "connect_tool_source"}
-	disabledTools, err := h.PrepareCodexToolSurface(context.Background(), contract.CodexToolSurfaceScope{
+	disabledTools, err := prepareCodexToolSurfaceForTest(t, h, context.Background(), contract.CodexToolSurfaceScope{
 		AgentID:          "agent-deny",
 		ProviderThreadID: "provider-thread-deny",
 		CWD:              cwd,
@@ -205,7 +205,7 @@ func assertAllowedCodexSurfaceTools(
 ) {
 	t.Helper()
 
-	allowedTools, err := h.PrepareCodexToolSurface(context.Background(), contract.CodexToolSurfaceScope{
+	allowedTools, err := prepareCodexToolSurfaceForTest(t, h, context.Background(), contract.CodexToolSurfaceScope{
 		AgentID:          "agent-allow",
 		ProviderThreadID: "provider-thread-allow",
 		CWD:              cwd,
@@ -341,7 +341,7 @@ func TestPrepareCodexToolSurfaceAdvertisesSkillToolsAndReturnsSkillText(t *testi
 	}
 	projectRoot := t.TempDir()
 
-	tools, err := h.PrepareCodexToolSurface(context.Background(), contract.CodexToolSurfaceScope{
+	tools, err := prepareCodexToolSurfaceForTest(t, h, context.Background(), contract.CodexToolSurfaceScope{
 		AgentID:          "agent-1",
 		ProviderThreadID: "provider-thread-1",
 		CWD:              projectRoot,
@@ -387,7 +387,7 @@ func TestCodexToolSurfaceLaunchInjectsManagedContextWithoutCWD(t *testing.T) {
 				threadStore: &toolCallThreadStoreStub{},
 				preferences: &stubUIPreferenceReader{},
 			}
-			_, err := h.PrepareCodexToolSurface(context.Background(), contract.CodexToolSurfaceScope{
+			_, err := prepareCodexToolSurfaceForTest(t, h, context.Background(), contract.CodexToolSurfaceScope{
 				AgentID:          "agent-parent",
 				ProviderThreadID: "provider-thread-parent",
 				CWD:              "/repo/project",
@@ -397,7 +397,7 @@ func TestCodexToolSurfaceLaunchInjectsManagedContextWithoutCWD(t *testing.T) {
 				t.Fatalf("PrepareCodexToolSurface() error = %v", err)
 			}
 
-			_, err = h.HandleToolCall(context.Background(), contract.ToolCallRawMessage{Params: json.RawMessage(`{"name":"launch_agent","arguments":{"name":"idle-agent"},"_agentId":"agent-parent","_threadId":"provider-thread-parent","_callId":"call-1","_cwd":"/repo/current"}`)})
+			_, err = h.HandleToolCall(context.Background(), contract.ToolCallRawMessage{Params: json.RawMessage(`{"name":"launch_agent","arguments":{"name":"idle-agent"},"_agentId":"agent-parent","_threadId":"provider-thread-parent","_callId":"call-1"}`)})
 			if err != nil {
 				t.Fatalf("HandleToolCall(launch_agent) error = %v", err)
 			}
@@ -434,7 +434,7 @@ func assertCodexSurfaceLaunchInjectedArgs(t *testing.T, arguments []json.RawMess
 func TestCodexToolSurfaceAcceptsShortLSPName(t *testing.T) {
 	lsp := &fakeMCPClient{tools: []mcpdto.MCPTool{{Name: "grep", InputSchema: json.RawMessage(`{"type":"object"}`)}}}
 	h := &Handler{stdioClientFactory: fakeClientFactory(map[string]mcpClient{"lsp": lsp})}
-	tools, err := h.PrepareCodexToolSurface(context.Background(), contract.CodexToolSurfaceScope{
+	tools, err := prepareCodexToolSurfaceForTest(t, h, context.Background(), contract.CodexToolSurfaceScope{
 		AgentID:          "agent-1",
 		ProviderThreadID: "provider-thread-1",
 		CWD:              "/repo",
@@ -484,7 +484,7 @@ func TestPrepareCodexToolSurfaceListsMCPBinariesInParallel(t *testing.T) {
 	var wg sync.WaitGroup
 	wg.Go(func() {
 		var err error
-		tools, err = h.PrepareCodexToolSurface(context.Background(), contract.CodexToolSurfaceScope{
+		tools, err = prepareCodexToolSurfaceForTest(t, h, context.Background(), contract.CodexToolSurfaceScope{
 			AgentID:          "agent-1",
 			ProviderThreadID: "provider-thread-1",
 			CWD:              "/repo",
@@ -518,7 +518,7 @@ func TestCodexToolSurfacePublishesLifecycleEvents(t *testing.T) {
 		dispatcher:         dispatcher,
 		stdioClientFactory: fakeClientFactory(map[string]mcpClient{"lsp": lsp}),
 	}
-	_, err := h.PrepareCodexToolSurface(context.Background(), contract.CodexToolSurfaceScope{
+	_, err := prepareCodexToolSurfaceForTest(t, h, context.Background(), contract.CodexToolSurfaceScope{
 		AgentID:          "agent-1",
 		ProviderThreadID: "provider-thread-1",
 		CWD:              "/repo",
@@ -561,7 +561,7 @@ func TestCodexToolSurfaceSkipsLifecycleWhenCallerAlreadyPublishes(t *testing.T) 
 		dispatcher:         dispatcher,
 		stdioClientFactory: fakeClientFactory(map[string]mcpClient{"lsp": lsp}),
 	}
-	_, err := h.PrepareCodexToolSurface(context.Background(), contract.CodexToolSurfaceScope{
+	_, err := prepareCodexToolSurfaceForTest(t, h, context.Background(), contract.CodexToolSurfaceScope{
 		AgentID:          "agent-1",
 		ProviderThreadID: "provider-thread-1",
 		CWD:              "/repo",
@@ -623,7 +623,7 @@ func TestPrepareCodexToolSurfaceReplacesOverlappingSurface(t *testing.T) {
 		return client, nil
 	}}
 
-	_, err := h.PrepareCodexToolSurface(context.Background(), contract.CodexToolSurfaceScope{
+	_, err := prepareCodexToolSurfaceForTest(t, h, context.Background(), contract.CodexToolSurfaceScope{
 		AgentID:          "agent-1",
 		ProviderThreadID: "provider-thread-old",
 		CWD:              "/repo",
@@ -632,7 +632,7 @@ func TestPrepareCodexToolSurfaceReplacesOverlappingSurface(t *testing.T) {
 	if err != nil {
 		t.Fatalf("PrepareCodexToolSurface(old) error = %v", err)
 	}
-	_, err = h.PrepareCodexToolSurface(context.Background(), contract.CodexToolSurfaceScope{
+	_, err = prepareCodexToolSurfaceForTest(t, h, context.Background(), contract.CodexToolSurfaceScope{
 		AgentID:          "agent-1",
 		ProviderThreadID: "provider-thread-new",
 		CWD:              "/repo",
@@ -660,7 +660,7 @@ func TestPrepareCodexToolSurfaceReplacesOverlappingSurface(t *testing.T) {
 func TestReleaseCodexToolSurfaceClosesAndRemovesSurface(t *testing.T) {
 	client := &fakeMCPClient{tools: []mcpdto.MCPTool{{Name: "grep", InputSchema: json.RawMessage(`{"type":"object"}`)}}}
 	h := &Handler{stdioClientFactory: fakeClientFactory(map[string]mcpClient{"lsp": client})}
-	_, err := h.PrepareCodexToolSurface(context.Background(), contract.CodexToolSurfaceScope{
+	_, err := prepareCodexToolSurfaceForTest(t, h, context.Background(), contract.CodexToolSurfaceScope{
 		AgentID:          "agent-1",
 		ProviderThreadID: "provider-thread-1",
 		CWD:              "/repo",
@@ -684,7 +684,7 @@ func TestReleaseCodexToolSurfaceClosesAndRemovesSurface(t *testing.T) {
 func TestBindCodexToolSurfaceAddsProviderReleaseKey(t *testing.T) {
 	client := &fakeMCPClient{tools: []mcpdto.MCPTool{{Name: "grep", InputSchema: json.RawMessage(`{"type":"object"}`)}}}
 	h := &Handler{stdioClientFactory: fakeClientFactory(map[string]mcpClient{"lsp": client})}
-	_, err := h.PrepareCodexToolSurface(context.Background(), contract.CodexToolSurfaceScope{
+	_, err := prepareCodexToolSurfaceForTest(t, h, context.Background(), contract.CodexToolSurfaceScope{
 		AgentID:  "agent-1",
 		CWD:      "/repo",
 		Manifest: providerdto.MCPManifest{Binaries: []providerdto.MCPBinary{{Name: "lsp", Command: []string{"mcp-lsp"}}}},
@@ -717,7 +717,7 @@ func TestReleaseCodexToolSurfaceByStaleProviderDoesNotRemoveReplacement(t *testi
 		return client, nil
 	}}
 
-	_, err := h.PrepareCodexToolSurface(context.Background(), contract.CodexToolSurfaceScope{
+	_, err := prepareCodexToolSurfaceForTest(t, h, context.Background(), contract.CodexToolSurfaceScope{
 		AgentID:          "agent-1",
 		ProviderThreadID: "provider-thread-old",
 		CWD:              "/repo",
@@ -726,7 +726,7 @@ func TestReleaseCodexToolSurfaceByStaleProviderDoesNotRemoveReplacement(t *testi
 	if err != nil {
 		t.Fatalf("PrepareCodexToolSurface(old) error = %v", err)
 	}
-	_, err = h.PrepareCodexToolSurface(context.Background(), contract.CodexToolSurfaceScope{
+	_, err = prepareCodexToolSurfaceForTest(t, h, context.Background(), contract.CodexToolSurfaceScope{
 		AgentID:          "agent-1",
 		ProviderThreadID: "provider-thread-new",
 		CWD:              "/repo",
@@ -761,7 +761,7 @@ func TestReleaseCodexToolSurfaceByStaleSurfaceIDDoesNotRemoveReplacement(t *test
 		return client, nil
 	}}
 
-	_, err := h.PrepareCodexToolSurface(context.Background(), contract.CodexToolSurfaceScope{
+	_, err := prepareCodexToolSurfaceForTest(t, h, context.Background(), contract.CodexToolSurfaceScope{
 		SurfaceID: "surface-old",
 		AgentID:   "agent-1",
 		CWD:       "/repo",
@@ -770,7 +770,7 @@ func TestReleaseCodexToolSurfaceByStaleSurfaceIDDoesNotRemoveReplacement(t *test
 	if err != nil {
 		t.Fatalf("PrepareCodexToolSurface(old) error = %v", err)
 	}
-	_, err = h.PrepareCodexToolSurface(context.Background(), contract.CodexToolSurfaceScope{
+	_, err = prepareCodexToolSurfaceForTest(t, h, context.Background(), contract.CodexToolSurfaceScope{
 		SurfaceID:        "surface-new",
 		AgentID:          "agent-1",
 		ProviderThreadID: "provider-thread-new",
@@ -799,7 +799,7 @@ func TestReleaseCodexToolSurfaceByStaleSurfaceIDDoesNotRemoveReplacement(t *test
 func TestCodexToolSurfaceLookupDoesNotFallbackFromStaleThreadToAgent(t *testing.T) {
 	client := &fakeMCPClient{tools: []mcpdto.MCPTool{{Name: "grep", InputSchema: json.RawMessage(`{"type":"object"}`)}}}
 	h := &Handler{stdioClientFactory: fakeClientFactory(map[string]mcpClient{"lsp": client})}
-	_, err := h.PrepareCodexToolSurface(context.Background(), contract.CodexToolSurfaceScope{
+	_, err := prepareCodexToolSurfaceForTest(t, h, context.Background(), contract.CodexToolSurfaceScope{
 		AgentID:          "agent-1",
 		ProviderThreadID: "provider-thread-new",
 		CWD:              "/repo",

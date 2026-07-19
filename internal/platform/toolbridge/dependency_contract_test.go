@@ -3,6 +3,9 @@ package toolbridge
 import (
 	"context"
 	"encoding/json"
+	"os"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -13,6 +16,40 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/difftracker"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/mcpcontrol"
 )
+
+func TestSchemaHelperProductionPathIgnoresProjectRootAndEnvironment(t *testing.T) {
+	t.Setenv("PROJECT_ROOT", filepath.Join(t.TempDir(), "attacker"))
+	dir, err := schemaHelperDirectory(filepath.Join(t.TempDir(), "controlled"), contract.DependencyProfileProduction)
+	if err != nil {
+		t.Fatal(err)
+	}
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	executable, err = filepath.EvalSymlinks(executable)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := filepath.Dir(executable)
+	if runtime.GOOS == "darwin" && filepath.Base(want) == "MacOS" && filepath.Base(filepath.Dir(want)) == "Contents" {
+		want = filepath.Join(filepath.Dir(want), "Resources", "bin")
+	}
+	if dir != want {
+		t.Fatalf("production helper dir = %q, want executable-owned %q", dir, want)
+	}
+}
+
+func TestSchemaHelperDevelopmentPathRequiresExplicitProfile(t *testing.T) {
+	root := t.TempDir()
+	dir, err := schemaHelperDirectory(root, contract.DependencyProfileDesktopHost)
+	if err != nil || dir != filepath.Join(root, "bin") {
+		t.Fatalf("development helper dir = %q error=%v", dir, err)
+	}
+	if _, err := schemaHelperDirectory(root, ""); err == nil {
+		t.Fatal("empty dependency profile accepted")
+	}
+}
 
 func TestToolbridgeProductionProfileRequiresCriticalDependencies(t *testing.T) {
 	for _, tc := range []struct {
@@ -104,6 +141,18 @@ func TestToolbridgeNewHandlerRequiresDependencyContractBeforeConstruction(t *tes
 	}
 }
 
+func TestToolbridgeNewHandlerRequiresAuthorityOwnerAtConstruction(t *testing.T) {
+	in := toolbridgeDependencyFixture{profile: contract.DependencyProfileProduction}.handlerIn()
+	in.AuthorityOwner = nil
+	h, err := NewHandler(in)
+	if err == nil || !strings.Contains(err.Error(), "MCP authority owner") {
+		t.Fatalf("NewHandler() error = %v, want missing MCP authority owner", err)
+	}
+	if h != nil {
+		t.Fatalf("NewHandler() handler = %#v, want nil on authority owner failure", h)
+	}
+}
+
 func allToolbridgeDependencyNamesForTest() []string {
 	return []string{
 		"toolbridge.dispatcher",
@@ -121,7 +170,10 @@ func allToolbridgeDependencyNamesForTest() []string {
 
 func mustNewToolbridgeDependencyHandler(t *testing.T) *Handler {
 	t.Helper()
-	h, err := NewHandler(toolbridgeDependencyFixture{profile: contract.DependencyProfileProduction}.handlerIn())
+	in := toolbridgeDependencyFixture{profile: contract.DependencyProfileProduction}.handlerIn()
+	in.Config.ProjectRoot = t.TempDir()
+	in.AuthorityOwner = newTask4BAuthorityOwner()
+	h, err := NewHandler(in)
 	if err != nil {
 		t.Fatalf("NewHandler() error = %v", err)
 	}
@@ -149,6 +201,7 @@ func (f toolbridgeDependencyFixture) handlerIn() handlerIn {
 		Dispatcher:      event.NewDispatcher(),
 		Lifecycle:       lifecycle,
 		LifecyclePolicy: lifecycle,
+		AuthorityOwner:  newTask4BAuthorityOwner(),
 		HostTools: &stubHostToolRegistry{
 			hasToolName: testHostToolName,
 			tools:       []mcpdto.MCPTool{{Name: testHostToolName}},

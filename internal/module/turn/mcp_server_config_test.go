@@ -17,9 +17,10 @@ func TestPrepareTurnMergesConfiguredMCPServersIntoAssemblyInput(t *testing.T) {
 	svc := NewServiceWithPromptAssembly(silentLogger(), assembly).(*service)
 	svc.mcpServers = staticTurnMCPServerConfigProvider{servers: map[string]contract.MCPServerConfig{
 		"my-search": {
-			Transport: "http",
-			URL:       "https://your-domain.com/mcp",
-			Headers:   map[string]string{"Authorization": "Bearer YOUR_API_KEY"},
+			TrustedServerID: "my-search",
+			Transport:       "http",
+			URL:             "https://your-domain.com/mcp",
+			Headers:         map[string]string{"Authorization": "Bearer YOUR_API_KEY"},
 		},
 	}}
 	session := &stubSession{threadID: "thread-1"}
@@ -46,7 +47,7 @@ func TestPrepareTurnMergesConfiguredMCPServersIntoAssemblyInput(t *testing.T) {
 	require.Equal(t, "https://preconfigured.example/mcp", assembly.lastTurnInput.MCPSnapshot.ServerConfigs["preconfigured"].URL)
 	require.Equal(t, "https://your-domain.com/mcp", assembly.lastTurnInput.MCPSnapshot.ServerConfigs["my-search"].URL)
 	require.Equal(t, "Bearer YOUR_API_KEY", assembly.lastTurnInput.MCPSnapshot.ServerConfigs["my-search"].Headers["Authorization"])
-	requireMCPBinary(t, req.MCP, "my-search")
+	require.Equal(t, "my-search", requireMCPBinary(t, req.MCP, "my-search").TrustedServerID)
 }
 
 func TestPrepareTurnSkipsDisabledConfiguredMCPServers(t *testing.T) {

@@ -8,7 +8,18 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	recovery "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/appupdaterecovery"
 )
+
+func TestPackageLinuxRejectsUnsupportedPackageUpdates(t *testing.T) {
+	script := readScript(t, "package_linux.sh")
+	assertScriptContains(t, script, "reject_unsupported_package_updates")
+	assertScriptContains(t, script, "package-owned updates are unsupported for $platform")
+	for _, name := range recovery.PackageTrustOverrideNames() {
+		assertScriptContains(t, script, name)
+	}
+}
 
 func TestPackageLinuxScriptBundlesVerifiedCodexArtifact(t *testing.T) {
 	script := readScript(t, "package_linux.sh")
@@ -92,12 +103,12 @@ func TestPackageLinuxRunScriptPrefersBundledCodexBin(t *testing.T) {
 	assertScriptContains(t, script, "export GO_AGENT_PEER_BIN_DIR=\"$here/bin\"")
 	assertScriptDoesNotContain(t, script, "GO_AGENT_PEER_BIN_DIR:+")
 	assertScriptContains(t, script, "export SUPER_DOLPHIN_REQUIRE_BUNDLED_CODEX=1")
-	assertScriptContains(t, script, "bundled_execs=(mcp-orch mcp-lsp mcp-ida gopls go typescript-language-server vscode-css-language-server pyright-langserver rust-analyzer bash-language-server sqruff shellcheck sg)")
+	assertScriptContains(t, script, "bundled_execs=(mcp-orch mcp-lsp mcp-schema-compiler-helper mcp-ida gopls go typescript-language-server vscode-css-language-server pyright-langserver rust-analyzer bash-language-server sqruff shellcheck sg)")
 	assertScriptContains(t, script, "if grep -q '\"jdtls\"' \"$SUPER_DOLPHIN_LSP_MANIFEST\"; then")
 	assertScriptContains(t, script, "bundled_execs+=(jdtls)")
 	assertScriptContains(t, script, "missing bundled executable: $here/bin/$bundled_exec")
 	assertScriptDoesNotContain(t, script, "gopls check")
-	assertScriptOrder(t, script, "bundled_execs=(mcp-orch mcp-lsp mcp-ida gopls go typescript-language-server vscode-css-language-server pyright-langserver rust-analyzer bash-language-server sqruff shellcheck sg)", "exec \"$here/bin/agent-terminal\"")
+	assertScriptOrder(t, script, "bundled_execs=(mcp-orch mcp-lsp mcp-schema-compiler-helper mcp-ida gopls go typescript-language-server vscode-css-language-server pyright-langserver rust-analyzer bash-language-server sqruff shellcheck sg)", "exec \"$here/bin/agent-terminal\"")
 }
 
 func TestPackageLinuxRunScriptDeclaresPackagedRuntime(t *testing.T) {
@@ -203,11 +214,12 @@ func TestPackageLinuxScriptEmbedsNewFrontendApp(t *testing.T) {
 	assertScriptContains(t, script, "build_current_frontend_app")
 	assertScriptContains(t, script, "cd \"$root/frontend-app\"")
 	assertScriptContains(t, script, "rsync -a --delete --exclude .gitkeep \"$root/frontend-app/dist\"/ \"$root/cmd/agent-terminal/web-dist\"/")
-	assertScriptContains(t, script, "go build -o bin/agent-terminal ./cmd/agent-terminal")
+	assertScriptContains(t, script, "make APP_COMMIT=\"$app_commit\" build-peer-binaries")
+	assertScriptContains(t, script, "go build -ldflags \"$schema_build_identity_ldflag\" -o bin/agent-terminal ./cmd/agent-terminal")
 	assertScriptDoesNotContain(t, script, "cd \"$root/cmd/agent-terminal/frontend\"")
 	assertScriptDoesNotContain(t, script, "make build-agent-terminal-plain")
 	assertScriptOrder(t, script, "npm run build", "rsync -a --delete --exclude .gitkeep \"$root/frontend-app/dist\"/ \"$root/cmd/agent-terminal/web-dist\"/")
-	assertScriptOrder(t, script, "rsync -a --delete --exclude .gitkeep \"$root/frontend-app/dist\"/ \"$root/cmd/agent-terminal/web-dist\"/", "go build -o bin/agent-terminal ./cmd/agent-terminal")
+	assertScriptOrder(t, script, "rsync -a --delete --exclude .gitkeep \"$root/frontend-app/dist\"/ \"$root/cmd/agent-terminal/web-dist\"/", "go build -ldflags \"$schema_build_identity_ldflag\" -o bin/agent-terminal ./cmd/agent-terminal")
 }
 
 func TestPackageLinuxScriptRequiresFrontendAppDistWhenSkippingBuild(t *testing.T) {

@@ -22,6 +22,7 @@ func TestPackageMacOSScriptBundlesRuntimeContracts(t *testing.T) {
 	assertScriptContains(t, script, "cp -f \"$packaged_ffmpeg_bin\" \"$resources/bin/ffmpeg\"")
 	assertScriptContains(t, script, "brew install ffmpeg")
 	assertScriptContains(t, script, "go build -o bin/super-dolphin-updater ./cmd/super-dolphin-updater")
+	assertScriptContains(t, script, "go build -o bin/super-dolphin-guard ./cmd/super-dolphin-guard")
 	assertScriptContains(t, script, "cp \"$root/bin/super-dolphin-updater\" \"$resources/bin/super-dolphin-updater\"")
 	assertScriptOrder(t, script, "copy_packaged_codex \"$resources\" \"$resources/bin/codex\"", "cp \"$root/bin/super-dolphin-updater\" \"$resources/bin/super-dolphin-updater\"")
 	assertScriptOrder(t, script, "copy_packaged_ffmpeg \"$resources\"", "bundle_git_dylibs \"$resources\"")
@@ -35,25 +36,29 @@ func TestPackageMacOSScriptBundlesRuntimeContracts(t *testing.T) {
 	assertScriptContains(t, script, "macos_min_version=\"${SUPER_DOLPHIN_MACOS_MIN_VERSION:-13.0}\"")
 	assertScriptContains(t, script, "sign_macho_tree \"$codesign_identity\" \"$macos\" \"$resources/bin\" \"$resources/lib\"")
 	assertScriptContains(t, verify, "$resources/bin/super-dolphin-updater")
+	assertScriptContains(t, verify, "$resources/bin/super-dolphin-guard")
 	assertScriptContains(t, verify, "$resources/bin/ffmpeg")
 	assertScriptContains(t, verify, "verify_packaged_ffmpeg")
 	assertScriptContains(t, verify, "packaged ffmpeg smoke verified")
-	assertScriptContains(t, verify, "verify_update_env")
-	assertScriptContains(t, verify, "SUPER_DOLPHIN_UPDATE_MANIFEST_URL must be HTTPS with host")
-	assertScriptContains(t, verify, "SUPER_DOLPHIN_UPDATE_GITHUB_REPO must be owner/repo without whitespace")
-	assertScriptContains(t, verify, "decoded SUPER_DOLPHIN_UPDATE_PUBLIC_KEY must be 32 bytes")
+	assertScriptContains(t, verify, "verify_package_update_trust")
+	assertScriptContains(t, verify, "update-trust.json")
+	assertScriptContains(t, verify, "package-owned update trust helper digest mismatch")
+	assertScriptDoesNotContain(t, verify, "go run")
+	assertScriptDoesNotContain(t, verify, "go env")
+	assertScriptContains(t, verify, "packaged .env must not contain SUPER_DOLPHIN_UPDATE_* overrides")
 }
 
-func TestPackageMacOSScriptSupportsUnsignedGrayUpdateProfile(t *testing.T) {
+func TestPackageMacOSScriptRequiresExactSignerForPackageUpdates(t *testing.T) {
 	script := readScript(t, "package_macos.sh")
 
 	assertScriptContains(t, script, "dev-local|gray|gray-unsigned")
 	assertScriptContains(t, script, "updates_enabled_for_profile()")
 	assertScriptContains(t, script, "[[ \"$release_profile\" == \"gray\" || \"$release_profile\" == \"gray-unsigned\" ]]")
-	assertScriptContains(t, script, "SUPER_DOLPHIN_UPDATE_ALLOW_UNSIGNED=1")
-	assertScriptContains(t, script, "if [[ \"$release_profile\" == \"gray-unsigned\" ]]; then")
+	assertScriptContains(t, script, "package-owned updates require an exact TeamIdentifier")
+	assertScriptContains(t, script, "-package-trust-signer")
+	assertScriptDoesNotContain(t, script, "SUPER_DOLPHIN_UPDATE_ALLOW_UNSIGNED=1")
 	assertScriptOrder(t, script, "resolve_release_profile", "resolve_update_config")
-	assertScriptOrder(t, script, "resolve_update_config", "write_packaged_update_env \"$resources\"")
+	assertScriptOrder(t, script, "sign_macho_tree", "write_packaged_update_trust \"$resources\"")
 }
 
 func TestPackageMacOSScriptWritesRuntimeManifest(t *testing.T) {
@@ -232,11 +237,12 @@ func TestPackageMacOSScriptEmbedsNewFrontendApp(t *testing.T) {
 
 	assertScriptContains(t, script, "cd \"$root/frontend-app\"")
 	assertScriptContains(t, script, "rsync -a --delete --exclude .gitkeep \"$root/frontend-app/dist\"/ \"$root/cmd/agent-terminal/web-dist\"/")
-	assertScriptContains(t, script, "go build -o bin/agent-terminal ./cmd/agent-terminal")
+	assertScriptContains(t, script, "make APP_COMMIT=\"$app_commit\" build-peer-binaries")
+	assertScriptContains(t, script, "go build -ldflags \"$schema_build_identity_ldflag\" -o bin/agent-terminal ./cmd/agent-terminal")
 	assertScriptDoesNotContain(t, script, "cd \"$root/cmd/agent-terminal/frontend\"")
 	assertScriptDoesNotContain(t, script, "make build-agent-terminal-plain")
 	assertScriptOrder(t, script, "npm run build", "rsync -a --delete --exclude .gitkeep \"$root/frontend-app/dist\"/ \"$root/cmd/agent-terminal/web-dist\"/")
-	assertScriptOrder(t, script, "rsync -a --delete --exclude .gitkeep \"$root/frontend-app/dist\"/ \"$root/cmd/agent-terminal/web-dist\"/", "go build -o bin/agent-terminal ./cmd/agent-terminal")
+	assertScriptOrder(t, script, "rsync -a --delete --exclude .gitkeep \"$root/frontend-app/dist\"/ \"$root/cmd/agent-terminal/web-dist\"/", "go build -ldflags \"$schema_build_identity_ldflag\" -o bin/agent-terminal ./cmd/agent-terminal")
 }
 
 // macOSInstallerGenerationBlock 提取 DMG 安装脚本生成区块，避免测试只盯单个 heredoc 形态而漏掉分段生成后的安装边界。
@@ -398,7 +404,7 @@ func TestPackageMacOSScriptEnforcesGrayReleaseProfile(t *testing.T) {
 	script := readScript(t, "package_macos.sh")
 	profileBody := functionBody(t, script, "resolve_release_profile")
 	updateBody := functionBody(t, script, "resolve_update_config")
-	envBody := functionBody(t, script, "write_packaged_update_env")
+	trustBody := functionBody(t, script, "write_packaged_update_trust")
 
 	for _, want := range []string{"release_profile=\"${SUPER_DOLPHIN_RELEASE_PROFILE:-dev-local}\"", "require_developer_id_codesign", "CODESIGN_IDENTITY must be a Developer ID Application identity for gray releases", "NOTARY_PROFILE is required for gray releases"} {
 		assertScriptContains(t, script, want)
@@ -409,13 +415,12 @@ func TestPackageMacOSScriptEnforcesGrayReleaseProfile(t *testing.T) {
 	for _, want := range []string{"SUPER_DOLPHIN_UPDATE_MANIFEST_URL", "SUPER_DOLPHIN_UPDATE_GITHUB_REPO", "SUPER_DOLPHIN_UPDATE_PUBLIC_KEY", "SUPER_DOLPHIN_UPDATE_CHANNEL", "SUPER_DOLPHIN_UPDATE_MANIFEST_URL or SUPER_DOLPHIN_UPDATE_GITHUB_REPO is required when app update is enabled", "SUPER_DOLPHIN_UPDATE_MANIFEST_URL must be an HTTPS URL with a host", "SUPER_DOLPHIN_UPDATE_GITHUB_REPO must be owner/repo without whitespace", "^https://[^/?#]+", "decoded SUPER_DOLPHIN_UPDATE_PUBLIC_KEY must be 32 bytes"} {
 		assertScriptContains(t, updateBody, want)
 	}
-	for _, want := range []string{"SUPER_DOLPHIN_UPDATE_ENABLED=1", "SUPER_DOLPHIN_UPDATE_MANIFEST_URL=%s", "SUPER_DOLPHIN_UPDATE_GITHUB_REPO=%s", "SUPER_DOLPHIN_UPDATE_PUBLIC_KEY=%s", "SUPER_DOLPHIN_UPDATE_CHANNEL=%s", "SUPER_DOLPHIN_UPDATE_VERSION=%s"} {
-		assertScriptContains(t, envBody, want)
+	for _, want := range []string{"-package-trust-out", "-package-trust-enabled", "-package-trust-source-kind", "-package-trust-source-value", "-package-trust-signer"} {
+		assertScriptContains(t, trustBody, want)
 	}
-	assertScriptContains(t, envBody, "\"$version\"")
-	assertScriptDoesNotContain(t, envBody, "$VERSION")
+	assertScriptDoesNotContain(t, trustBody, "printf '{")
 	assertScriptOrder(t, script, "resolve_release_profile", "resolve_update_config")
-	assertScriptOrder(t, script, "resolve_update_config", "write_packaged_update_env \"$resources\"")
+	assertScriptOrder(t, script, "resolve_update_config", "write_packaged_update_trust \"$resources\"")
 }
 
 func TestPackageMacOSScriptUsesDMGAsOnlyReleaseArtifact(t *testing.T) {

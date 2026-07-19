@@ -410,6 +410,7 @@ required_execs=(
   "$package_root/bin/agent-terminal"
   "$package_root/bin/mcp-orch"
   "$package_root/bin/mcp-lsp"
+  "$package_root/bin/mcp-schema-compiler-helper"
   "$package_root/bin/mcp-ida"
   "$package_root/bin/codex"
   "$package_root/bin/gopls"
@@ -425,6 +426,11 @@ required_execs=(
   "$package_root/lsp/bin/python3"
   "$package_root/lsp/bin/go"
 )
+if [[ ! -f "$package_root/bin/mcp-schema-compiler-helper.manifest.json" ]]; then
+  echo "missing schema helper manifest" >&2
+  exit 1
+fi
+"$package_root/bin/mcp-schema-compiler-helper" --verify-package "$package_root/bin/mcp-schema-compiler-helper.manifest.json"
 if [[ -f "$package_root/lsp/lsp-manifest.json" ]] && lsp_manifest_value "$package_root/lsp/lsp-manifest.json" "jdtls" path >/dev/null 2>&1; then
   required_execs+=("$package_root/bin/jdtls")
 fi
