@@ -76,49 +76,66 @@ if [[ "$lsp_profile" == "full" ]]; then
   lsp_server_specs+=("jdtls|bin/jdtls")
 fi
 
-# 增量构建缓存：对 phase 产物做哈希指纹，命中则跳过耗时构建。
-# 设置 SUPER_DOLPHIN_SKIP_BUILD_CACHE=1 可强制全量重建。
-_build_cache_dir="${root}/.build-cache/phases"
-
-_phase_hash() {
+# 增量构建缓存：在 Git common-dir 对应的共享 CAS 中保存不可变产物，
+# 命中后恢复到当前 worktree。设置 SUPER_DOLPHIN_SKIP_BUILD_CACHE=1 可禁用。
+phase_cache_run() {
+  local action="$1"
+  local name="$2"
+  shift 2
+  local mode="output"
   local item
+  local result
+  local args=(
+    --action "$action"
+    --root "$root"
+    --name "$name"
+  )
   for item in "$@"; do
-    if [[ "$item" == input:* ]]; then
-      printf 'input\t%s\n' "${item#input:}"
-    elif [[ -f "$item" ]]; then
-      printf 'file\t%s\t%s\n' "$item" "$(shasum -a 256 "$item" | awk '{print $1}')"
-    elif [[ -d "$item" ]]; then
-      find "$item" -type f -print0 | sort -z | while IFS= read -r -d '' file; do
-        printf 'file\t%s\t%s\n' "$file" "$(shasum -a 256 "$file" | awk '{print $1}')"
-      done
+    if [[ "$item" == "--" ]]; then
+      mode="input"
+    elif [[ "$mode" == "output" ]]; then
+      args+=(--output "$item")
+    elif [[ "$item" == input:* ]]; then
+      args+=(--input "${item#input:}")
     else
-      echo "missing build phase input: $item" >&2
-      return 1
+      args+=(--path "$item")
     fi
-  done | shasum -a 256 | awk '{print $1}'
+  done
+  if [[ "$mode" != "input" ]]; then
+    echo "build phase cache arguments are missing -- separator" >&2
+    return 1
+  fi
+  if ! result=$(cd "$root" && env -u GOOS -u GOARCH -u CGO_ENABLED go run ./scripts/build_phase_cache "${args[@]}"); then
+    return 1
+  fi
+  case "$result" in
+    hit)
+      echo "==> [$name] shared artifact cache hit, restored" >&2
+      return 0
+      ;;
+    miss)
+      return 10
+      ;;
+    saved)
+      return 0
+      ;;
+    *)
+      echo "unexpected build phase cache result: $result" >&2
+      return 1
+      ;;
+  esac
 }
 
-phase_cache_check() {
-  [[ "${SUPER_DOLPHIN_SKIP_BUILD_CACHE:-0}" == "1" ]] && return 1
-  [[ "${SUPER_DOLPHIN_RELEASE_BUILD:-0}" == "1" ]] && return 1
-  local name="$1"; shift
-  local hash; hash="$(_phase_hash "$@")"
-  if [[ -f "$_build_cache_dir/$name/$hash.ok" ]]; then
-    echo "==> [$name] cache hit ($hash), skipping" >&2
-    return 0
-  fi
-  _current_phase_name="$name"; _current_phase_hash="$hash"
-  return 1
+phase_cache_restore() {
+  [[ "${SUPER_DOLPHIN_SKIP_BUILD_CACHE:-0}" == "1" ]] && return 10
+  [[ "${SUPER_DOLPHIN_RELEASE_BUILD:-0}" == "1" ]] && return 10
+  phase_cache_run restore "$@"
 }
 
 phase_cache_save() {
   [[ "${SUPER_DOLPHIN_SKIP_BUILD_CACHE:-0}" == "1" ]] && return 0
   [[ "${SUPER_DOLPHIN_RELEASE_BUILD:-0}" == "1" ]] && return 0
-  local name="${_current_phase_name:-}"; local hash="${_current_phase_hash:-}"
-  [[ -z "$name" || -z "$hash" ]] && return 0
-  mkdir -p "$_build_cache_dir/$name"
-  rm -f "$_build_cache_dir/$name/"*.ok
-  touch "$_build_cache_dir/$name/$hash.ok"
+  phase_cache_run save "$@"
 }
 
 frontend_node_version_input() {
@@ -133,6 +150,16 @@ frontend_npm_version_input() {
   version="$(npm --version)"
   [[ -n "${version//[[:space:]]/}" ]] || { echo "npm --version returned empty output" >&2; exit 1; }
   printf '%s\n' "$version"
+}
+
+go_vcs_modified_input() {
+  local status
+  status="$(git -C "$root" status --porcelain=v1 --untracked-files=normal)"
+  if [[ -n "$status" ]]; then
+    printf 'true\n'
+  else
+    printf 'false\n'
+  fi
 }
 
 validate_env_file_value() {
@@ -729,16 +756,26 @@ build_current_frontend_app() {
       "$root/frontend-app/package-lock.json"
       "$root/frontend-app/vite.config.js"
       "$root/frontend-app/index.html"
+      "$root/frontend-app/recovery.html"
       "$root/frontend-app/public"
       "$root/frontend-app/src"
+      "$root/scripts/package_linux.sh"
+      "$root/scripts/build_phase_cache/main.go"
     )
-    if ! phase_cache_check "frontend" "${frontend_cache_inputs[@]}" "${frontend_cache_paths[@]}"; then
+    frontend_cache_outputs=("$root/frontend-app/dist")
+    if phase_cache_restore "frontend" "${frontend_cache_outputs[@]}" -- "${frontend_cache_inputs[@]}" "${frontend_cache_paths[@]}"; then
+      :
+    else
+      cache_status=$?
+      if [[ "$cache_status" -ne 10 ]]; then
+        exit "$cache_status"
+      fi
       (
         cd "$root/frontend-app"
         npm ci
         npm run build
       )
-      phase_cache_save
+      phase_cache_save "frontend" "${frontend_cache_outputs[@]}" -- "${frontend_cache_inputs[@]}" "${frontend_cache_paths[@]}"
     fi
   elif [[ ! -f "$root/frontend-app/dist/index.html" ]]; then
     echo "frontend dist missing; unset SUPER_DOLPHIN_SKIP_FRONTEND_BUILD or run npm run build first" >&2
@@ -782,18 +819,42 @@ package_linux_main() {
     "$root/pkg"
     "$root/go.mod"
     "$root/go.sum"
+    "$root/scripts/package_linux.sh"
+    "$root/scripts/build_phase_cache/main.go"
   )
   go_binary_cache_inputs=(
     "input:GOVERSION=$(go env GOVERSION)"
+    "input:GOFLAGS=$(go env GOFLAGS)"
+    "input:GOEXPERIMENT=$(go env GOEXPERIMENT)"
     "input:GOOS=$goos"
     "input:GOARCH=$goarch"
+    "input:GOAMD64=$(go env GOAMD64)"
+    "input:GOARM64=$(go env GOARM64)"
+    "input:GOARM=$(go env GOARM)"
     "input:APP_COMMIT=$app_commit"
+    "input:VCS_MODIFIED=$(go_vcs_modified_input)"
     "input:CGO_ENABLED=$linux_cgo_enabled"
+    "input:CC=$(go env CC)"
+    "input:CXX=$(go env CXX)"
     "input:CGO_CFLAGS=${CGO_CFLAGS:-}"
     "input:CGO_CXXFLAGS=${CGO_CXXFLAGS:-}"
     "input:CGO_LDFLAGS=${CGO_LDFLAGS:-}"
   )
-  if ! phase_cache_check "go-binaries" "${go_binary_cache_inputs[@]}" "${go_binary_cache_paths[@]}"; then
+  go_binary_cache_outputs=(
+    "$root/bin/agent-terminal"
+    "$root/bin/mcp-orch"
+    "$root/bin/mcp-lsp"
+    "$root/bin/mcp-schema-compiler-helper"
+    "$root/bin/mcp-schema-compiler-helper.manifest.json"
+    "$root/bin/mcp-ida"
+  )
+  if phase_cache_restore "go-binaries" "${go_binary_cache_outputs[@]}" -- "${go_binary_cache_inputs[@]}" "${go_binary_cache_paths[@]}"; then
+    :
+  else
+    cache_status=$?
+    if [[ "$cache_status" -ne 10 ]]; then
+      exit "$cache_status"
+    fi
     (
       cd "$root"
       export CGO_ENABLED="$linux_cgo_enabled"
@@ -801,7 +862,7 @@ package_linux_main() {
       go build -ldflags "$schema_build_identity_ldflag" -o bin/agent-terminal ./cmd/agent-terminal
       go build -o bin/mcp-ida ./cmd/mcp-ida
     )
-    phase_cache_save
+    phase_cache_save "go-binaries" "${go_binary_cache_outputs[@]}" -- "${go_binary_cache_inputs[@]}" "${go_binary_cache_paths[@]}"
   fi
 
   cp "$root/bin/agent-terminal" "$stage/bin/agent-terminal"
