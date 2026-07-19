@@ -386,15 +386,45 @@ func (r *remoteLauncher) Interrupt(ctx context.Context, agent *agentRuntime, sou
 	if agent == nil || strings.TrimSpace(agent.remoteThreadID) == "" {
 		return errors.New("remote thread id is required")
 	}
+	expectedTurnID := strings.TrimSpace(agent.activeTurnID)
+	if expectedTurnID == "" {
+		return errors.New("remote active turn id is required")
+	}
 	source = strings.TrimSpace(source)
 	if source == "" {
 		source = "parent_agent"
 	}
-	_, err := rpcCall[struct{}](ctx, r, launcherwire.MethodTurnInterrupt, map[string]string{
-		launcherwire.ParamThreadID: strings.TrimSpace(agent.remoteThreadID),
-		launcherwire.ParamSource:   source,
-	})
-	return err
+	request := launcherwire.TurnInterruptRequest{
+		ThreadID:       strings.TrimSpace(agent.remoteThreadID),
+		ExpectedTurnID: expectedTurnID,
+		RequestID:      shared.NewID("mcp_orch_interrupt"),
+		Source:         source,
+	}
+	response, err := rpcCall[launcherwire.TurnInterruptResponse](ctx, r, launcherwire.MethodTurnInterrupt, request)
+	if err != nil {
+		return err
+	}
+	return validateTurnInterruptResponse(request, response)
+}
+
+// validateTurnInterruptResponse 在编排控制器等待本地收口前拒绝过期、不完整或未被远端接受的 stop 回复。
+func validateTurnInterruptResponse(request launcherwire.TurnInterruptRequest, response launcherwire.TurnInterruptResponse) error {
+	if response.Accepted == nil {
+		return errors.New("remote launcher: turn/interrupt response missing accepted")
+	}
+	if strings.TrimSpace(response.RequestID) != request.RequestID {
+		return fmt.Errorf("remote launcher: turn/interrupt response request id %q does not match request %q", response.RequestID, request.RequestID)
+	}
+	if strings.TrimSpace(response.ExpectedTurnID) != request.ExpectedTurnID {
+		return fmt.Errorf("remote launcher: turn/interrupt response expected turn %q does not match request %q", response.ExpectedTurnID, request.ExpectedTurnID)
+	}
+	if !*response.Accepted {
+		if code := strings.TrimSpace(response.ErrorCode); code != "" {
+			return fmt.Errorf("remote launcher: turn/interrupt was not accepted for turn %q: %s", request.ExpectedTurnID, code)
+		}
+		return fmt.Errorf("remote launcher: turn/interrupt was not accepted for turn %q", request.ExpectedTurnID)
+	}
+	return nil
 }
 
 // SubmitTurn 通过 turn/start RPC 向远端 agent 提交 turn。

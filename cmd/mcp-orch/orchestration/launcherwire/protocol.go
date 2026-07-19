@@ -47,6 +47,24 @@ const (
 	RespTurnID       = "turn_id"
 )
 
+// TurnInterruptRequest is the strict wire shape for turn/interrupt. Stop
+// identity fields are deliberately required by the receiving turn service.
+type TurnInterruptRequest struct {
+	ThreadID       string `json:"thread_id"`
+	ExpectedTurnID string `json:"expected_turn_id"`
+	RequestID      string `json:"request_id"`
+	Source         string `json:"source,omitempty"`
+}
+
+// TurnInterruptResponse is the subset of the turn/interrupt result that the
+// orchestration launcher must validate before it waits for local settlement.
+type TurnInterruptResponse struct {
+	Accepted       *bool  `json:"accepted"`
+	RequestID      string `json:"requestId,omitempty"`
+	ExpectedTurnID string `json:"expectedTurnId,omitempty"`
+	ErrorCode      string `json:"errorCode,omitempty"`
+}
+
 // ResolveThreadStartThreadID 按兼容顺序读取 thread/start 返回的 provider thread id。
 func ResolveThreadStartThreadID(nested, resp map[string]any, fallback string) string {
 	return resolveAlias(nested, resp, []string{RespNestedID}, []string{RespThreadIDJSON, RespThreadID}, fallback)
