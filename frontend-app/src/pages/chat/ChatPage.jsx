@@ -4,6 +4,7 @@ import {
   activeThreadForStore,
 } from './adapters/threadStateAdapter.js';
 import { ChatPageHeader } from './components/ChatPageHeader.jsx';
+import { ChatActionFeedback } from './components/ChatActionFeedback.js';
 import { CodePreviewMarkdown } from './markdown/MarkdownMessage.jsx';
 import { chatHeaderFeedbackForStore } from './model/chatHeaderModel.js';
 import { RuntimePanelSlot } from './runtime/RuntimePanelSlot.jsx';
@@ -61,13 +62,6 @@ function renderIntroTitle(title) {
       {title.slice(markerIndex + marker.length)}
     </>
   );
-}
-
-function actionFeedbackTitle(feedback, copy) {
-  if (feedback?.tone !== 'error') return copy.noticeTitle;
-  if (feedback?.category === 'attachment') return copy.attachmentFailedTitle;
-  if (feedback?.category === 'send') return copy.sendFailedTitle;
-  return copy.actionFailedTitle;
 }
 
 function ChatIntroSpotlight({ copy, onSuggestion }) {
@@ -259,12 +253,7 @@ function ChatPage(props) {
       {showHeader ? (
         <ChatPageHeader copy={copy} store={store} projectPath={projectPath} rightPanelOpen={rightPanelOpen} setRightPanelOpen={setRightPanelOpen} />
       ) : null}
-      {headerFeedback?.message && !headerFeedback?.bootstrapRecovery ? (
-        <output className={`chat-action-toast is-${headerFeedback.tone || 'info'}`} role="alert" data-testid="chat-action-feedback">
-          <strong>{actionFeedbackTitle(headerFeedback, copy)}</strong>
-          <span>{headerFeedback.message}</span>
-        </output>
-      ) : null}
+      <ChatActionFeedback copy={copy} feedback={headerFeedback} />
       {approvalNotice ? (
         <output className="approval-action-feedback" role="alert" data-testid="approval-action-feedback">
           {approvalNotice}

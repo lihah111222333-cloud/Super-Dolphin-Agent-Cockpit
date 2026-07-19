@@ -73,7 +73,7 @@ frontend-app/scripts/frontend-maintainability-controls.json	frontend-app	app-ui	
 frontend-app/scripts/frontend-maintainability-dependencies.json	frontend-app	app-ui	json	651	React 前端构建与校验脚本	frontend,app,scripts,maintainability,dependencies,React,前端构建与校验脚本
 frontend-app/scripts/frontend-maintainability-red-fixtures.json	frontend-app	app-ui	json	2433	React 前端构建与校验脚本	frontend,app,scripts,maintainability,red,fixtures,React,前端构建与校验脚本
 frontend-app/scripts/frontend-maintainability-score.mjs	frontend-app	app-ui	js-source	142829	React 前端构建与校验脚本	frontend,app,scripts,maintainability,score,React,前端构建与校验脚本
-frontend-app/scripts/frontend-maintainability-score.test.mjs	frontend-app	app-ui	js-test	113153	React 前端构建与校验脚本	frontend,app,scripts,maintainability,score,test,React,前端构建与校验脚本
+frontend-app/scripts/frontend-maintainability-score.test.mjs	frontend-app	app-ui	js-test	113701	React 前端构建与校验脚本	frontend,app,scripts,maintainability,score,test,React,前端构建与校验脚本
 frontend-app/scripts/frontend-performance-cases.json	frontend-app	app-ui	json	1589	React 前端构建与校验脚本	frontend,app,scripts,performance,cases,React,前端构建与校验脚本
 frontend-app/scripts/frontend-state-ownership-guard.mjs	frontend-app	app-ui	js-source	25954	React 前端构建与校验脚本	frontend,app,scripts,state,ownership,guard,React,前端构建与校验脚本
 frontend-app/scripts/frontend-state-ownership-guard.test.mjs	frontend-app	app-ui	js-test	8229	React 前端构建与校验脚本	frontend,app,scripts,state,ownership,guard,test,React,前端构建与校验脚本
@@ -98,8 +98,8 @@ frontend-app/scripts/resource-budget.mjs	frontend-app	app-ui	js-source	7336	Reac
 frontend-app/scripts/resource-budget.test.mjs	frontend-app	app-ui	js-test	5065	React 前端构建与校验脚本	frontend,app,scripts,resource,budget,test,React,前端构建与校验脚本
 frontend-app/scripts/rpc-contract-audit.mjs	frontend-app	app-ui	js-source	222353	React 前端构建与校验脚本	frontend,app,scripts,rpc,contract,audit,React,前端构建与校验脚本
 frontend-app/scripts/rpc-contract-audit.test.mjs	frontend-app	app-ui	js-test	149539	React 前端构建与校验脚本	frontend,app,scripts,rpc,contract,audit,test,React,前端构建与校验脚本
-frontend-app/scripts/stop-feedback-benchmark.mjs	frontend-app	app-ui	js-source	5472	React 前端构建与校验脚本	frontend,app,scripts,stop,feedback,benchmark,React,前端构建与校验脚本
-frontend-app/scripts/stop-feedback-benchmark.test.mjs	frontend-app	app-ui	js-test	2601	React 前端构建与校验脚本	frontend,app,scripts,stop,feedback,benchmark,test,React,前端构建与校验脚本
+frontend-app/scripts/stop-feedback-benchmark.mjs	frontend-app	app-ui	js-source	9946	React 前端构建与校验脚本	frontend,app,scripts,stop,feedback,benchmark,React,前端构建与校验脚本
+frontend-app/scripts/stop-feedback-benchmark.test.mjs	frontend-app	app-ui	js-test	3832	React 前端构建与校验脚本	frontend,app,scripts,stop,feedback,benchmark,test,React,前端构建与校验脚本
 frontend-app/scripts/sync-frontend-dist.mjs	frontend-app	app-ui	js-source	1433	React 前端构建与校验脚本	frontend,app,scripts,sync,dist,React,前端构建与校验脚本
 frontend-app/scripts/sync-frontend-dist.test.mjs	frontend-app	app-ui	js-test	1637	React 前端构建与校验脚本	frontend,app,scripts,sync,dist,test,React,前端构建与校验脚本
 frontend-app/scripts/turn-contract-field-guard.mjs	frontend-app	app-ui	js-source	32982	React 前端构建与校验脚本	frontend,app,scripts,turn,contract,field,guard,React,前端构建与校验脚本
@@ -290,7 +290,7 @@ frontend-app/src/pages/chat/adapters/threadStatusAdapter.js	frontend-app	app-ui	
 frontend-app/src/pages/chat/ChatMessages.css	frontend-app	app-ui	css	15149	React 页面与路由级 UI	frontend,app,src,pages,chat,ChatMessages,React,页面与路由级,UI
 frontend-app/src/pages/chat/ChatPage.core.test.jsx	frontend-app	app-ui	jsx	34154	React 页面与路由级 UI	frontend,app,src,pages,chat,ChatPage,core,test,React,页面与路由级,UI
 frontend-app/src/pages/chat/ChatPage.css	frontend-app	app-ui	css	13625	React 页面与路由级 UI	frontend,app,src,pages,chat,ChatPage,React,页面与路由级,UI
-frontend-app/src/pages/chat/ChatPage.jsx	frontend-app	app-ui	jsx	15843	React 页面与路由级 UI	frontend,app,src,pages,chat,ChatPage,React,页面与路由级,UI
+frontend-app/src/pages/chat/ChatPage.jsx	frontend-app	app-ui	jsx	15338	React 页面与路由级 UI	frontend,app,src,pages,chat,ChatPage,React,页面与路由级,UI
 frontend-app/src/pages/chat/ChatPage.preview.test.jsx	frontend-app	app-ui	jsx	18527	React 页面与路由级 UI	frontend,app,src,pages,chat,ChatPage,preview,test,React,页面与路由级,UI
 frontend-app/src/pages/chat/ChatPage.scroll.test.jsx	frontend-app	app-ui	jsx	3519	React 页面与路由级 UI	frontend,app,src,pages,chat,ChatPage,scroll,test,React,页面与路由级,UI
 frontend-app/src/pages/chat/ChatPage.test.jsx	frontend-app	app-ui	jsx	299	React 页面与路由级 UI	frontend,app,src,pages,chat,ChatPage,test,React,页面与路由级,UI
@@ -299,6 +299,8 @@ frontend-app/src/pages/chat/ChatPage.transfers.test.jsx	frontend-app	app-ui	jsx	
 frontend-app/src/pages/chat/ChatPageWorkbench.css	frontend-app	app-ui	css	18267	React 页面与路由级 UI	frontend,app,src,pages,chat,ChatPageWorkbench,React,页面与路由级,UI
 frontend-app/src/pages/chat/ChatReasoning.css	frontend-app	app-ui	css	6782	React 页面与路由级 UI	frontend,app,src,pages,chat,ChatReasoning,React,页面与路由级,UI
 frontend-app/src/pages/chat/ChatTimeline.css	frontend-app	app-ui	css	98	React 页面与路由级 UI	frontend,app,src,pages,chat,ChatTimeline,React,页面与路由级,UI
+frontend-app/src/pages/chat/components/ChatActionFeedback.js	frontend-app	app-ui	js-source	780	React 页面与路由级 UI	frontend,app,src,pages,chat,components,ChatActionFeedback,React,页面与路由级,UI
+frontend-app/src/pages/chat/components/ChatActionFeedback.test.jsx	frontend-app	app-ui	jsx	875	React 页面与路由级 UI	frontend,app,src,pages,chat,components,ChatActionFeedback,test,React,页面与路由级,UI
 frontend-app/src/pages/chat/components/ChatPageHeader.jsx	frontend-app	app-ui	jsx	10183	React 页面与路由级 UI	frontend,app,src,pages,chat,components,ChatPageHeader,React,页面与路由级,UI
 frontend-app/src/pages/chat/components/ChatPageHeader.test.jsx	frontend-app	app-ui	jsx	4889	React 页面与路由级 UI	frontend,app,src,pages,chat,components,ChatPageHeader,test,React,页面与路由级,UI
 frontend-app/src/pages/chat/components/ProjectDropdown.jsx	frontend-app	app-ui	jsx	2414	React 页面与路由级 UI	frontend,app,src,pages,chat,components,ProjectDropdown,React,页面与路由级,UI
