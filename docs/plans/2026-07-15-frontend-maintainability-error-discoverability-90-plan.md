@@ -342,7 +342,7 @@ git -C .. worktree add --detach "$SCORE_WORKTREE" "$SCORE_BASE_SHA"
 node "$SCORE_WORKTREE/frontend-app/scripts/frontend-maintainability-score.mjs" --final --repo "$(pwd)/.." --subject "$(git -C .. rev-parse HEAD)"
 ~~~
 
-`--final` 从 SCORE_BASE worktree 启动；加载 SUBJECT JS 前，用 Git plumbing 确认严格祖先和三项治理文件逐字节相同。仅接受 clean HEAD，在新 detached worktree 跑 exact command/case、写新结果；tree 漂移、相关 untracked、零测试、结果复用均失败。命令集含 lint/test/typecheck/RPC audit/build、benchmark、真实 smoke、embed、目标 Go tests、diff-check；`--changed` 不能产出 90 分。
+`--final` 从 SCORE_BASE worktree 启动；加载 SUBJECT JS 前，用 Git plumbing 确认严格祖先和完整治理闭包逐字节相同。仅接受 clean HEAD，在新 detached worktree 跑 exact command/case、写新结果；tree 漂移、相关 untracked、零测试、结果复用均失败。命令集含 lint/test/typecheck/RPC audit/build、benchmark、真实 smoke、embed、目标 Go tests、diff-check；`--changed` 不能产出 90 分。
 
 ### 6.3 桌面验收
 
@@ -413,7 +413,7 @@ runner emits SCORE_BASE-schema normalized report with SUBJECT SHA/tree, control,
 - [ ] 修改文件 LSP diagnostics 四级 severity 为 0；不支持能力已记录。
 - [ ] frontend lint、test、build 全部通过。
 - [ ] 相关 Go 测试、frontend embed verify 和 git diff --check 通过。
-- [ ] P01 同时满足绝对 render 线与不回退；history/feedback/resource 通过 SCORE_BASE 公式，三项治理文件未改。
+- [ ] P01 同时满足绝对 render 线与不回退；history/feedback/resource 通过 SCORE_BASE 公式，完整治理闭包未改。
 - [ ] 三名全新 reviewer 对同一冻结对象均无 open P0/P1。
 - [ ] 错误维度不低于 90，其他维度达到最低线，总分不低于 90。
 - [ ] 最终报告明确区分“计划达标”和“当前实现实际达标”。
