@@ -52,8 +52,8 @@ frontend-app/scripts/performance-baseline-provenance.test.mjs	frontend-app	app-u
 frontend-app/scripts/performance-budget-config.mjs	frontend-app	app-ui	js-source	292	React 前端构建与校验脚本	frontend,app,scripts,performance,budget,config,React,前端构建与校验脚本
 frontend-app/scripts/performance-budget-model.mjs	frontend-app	app-ui	js-source	16024	React 前端构建与校验脚本	frontend,app,scripts,performance,budget,model,React,前端构建与校验脚本
 frontend-app/scripts/performance-budget-model.test.mjs	frontend-app	app-ui	js-test	7996	React 前端构建与校验脚本	frontend,app,scripts,performance,budget,model,test,React,前端构建与校验脚本
-frontend-app/scripts/performance-budget-runner.mjs	frontend-app	app-ui	js-source	32411	React 前端构建与校验脚本	frontend,app,scripts,performance,budget,runner,React,前端构建与校验脚本
-frontend-app/scripts/performance-budget-runner.test.mjs	frontend-app	app-ui	js-test	24257	React 前端构建与校验脚本	frontend,app,scripts,performance,budget,runner,test,React,前端构建与校验脚本
+frontend-app/scripts/performance-budget-runner.mjs	frontend-app	app-ui	js-source	33394	React 前端构建与校验脚本	frontend,app,scripts,performance,budget,runner,React,前端构建与校验脚本
+frontend-app/scripts/performance-budget-runner.test.mjs	frontend-app	app-ui	js-test	27543	React 前端构建与校验脚本	frontend,app,scripts,performance,budget,runner,test,React,前端构建与校验脚本
 frontend-app/scripts/render-isolation-probe.test.jsx	frontend-app	app-ui	jsx	6069	React 前端构建与校验脚本	frontend,app,scripts,render,isolation,probe,test,React,前端构建与校验脚本
 frontend-app/scripts/resource-budget.mjs	frontend-app	app-ui	js-source	7286	React 前端构建与校验脚本	frontend,app,scripts,resource,budget,React,前端构建与校验脚本
 frontend-app/scripts/resource-budget.test.mjs	frontend-app	app-ui	js-test	4248	React 前端构建与校验脚本	frontend,app,scripts,resource,budget,test,React,前端构建与校验脚本

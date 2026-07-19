@@ -43,6 +43,7 @@ const FREEZE_RUN_COUNT = 3;
 const P02_MAX_REGRESSION_RATIO = 1.15;
 const P03_MAX_REGRESSION_RATIO = 1.15;
 const P04_MAX_REGRESSION_RATIO = 1.05;
+const INSTALL_ARGV = Object.freeze(['ci']);
 const BASE_BUILD_ARGV = Object.freeze(['run', 'build']);
 const MAX_LOAD_AVERAGE_DELTA_PER_LOGICAL_CORE = 0.25;
 
@@ -94,13 +95,16 @@ function baseDistManifest(distDir, resourceMetric) {
   return Object.freeze({ manifest: Object.freeze(manifest), manifestHash });
 }
 
-function collectBaseResourceBudget({
+function collectDetachedResourceBudget({
   subjectSha,
   subjectTree,
+  buildLabel,
+  temporaryPrefix,
   repositoryRoot = REPOSITORY_ROOT,
   execute = execFileSync,
+  measureResources = measureFrontendResources,
 } = {}) {
-  const temporaryRoot = mkdtempSync(join(tmpdir(), 'frontend-performance-base-'));
+  const temporaryRoot = mkdtempSync(join(tmpdir(), temporaryPrefix));
   let worktreeAdded = false;
   try {
     execute('git', ['worktree', 'add', '--detach', temporaryRoot, subjectSha], {
@@ -109,21 +113,22 @@ function collectBaseResourceBudget({
     worktreeAdded = true;
     const frontendRoot = join(temporaryRoot, 'frontend-app');
     const distDir = join(frontendRoot, 'dist');
-    if (existsSync(distDir)) throw new Error('BASE detached tree must not contain a prebuilt dist directory');
-    execute('npm', ['ci'], {
+    if (existsSync(distDir)) throw new Error(`${buildLabel} detached tree must not contain a prebuilt dist directory`);
+    execute('npm', INSTALL_ARGV, {
       cwd: frontendRoot, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'],
     });
     execute('npm', BASE_BUILD_ARGV, {
       cwd: frontendRoot, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'],
     });
-    if (!existsSync(join(distDir, 'index.html'))) throw new Error('BASE build did not produce dist/index.html');
-    const metric = measureFrontendResources({ distDir, subjectSha });
+    if (!existsSync(join(distDir, 'index.html'))) throw new Error(`${buildLabel} build did not produce dist/index.html`);
+    const metric = measureResources({ distDir, subjectSha });
     const { manifest, manifestHash } = baseDistManifest(distDir, metric);
     return Object.freeze({
-      ...metric,
-      baseBuild: Object.freeze({
-        baseSha: subjectSha,
-        baseTree: subjectTree,
+      metric,
+      build: Object.freeze({
+        subjectSha,
+        subjectTree,
+        installArgv: Object.freeze(['npm', ...INSTALL_ARGV]),
         buildArgv: Object.freeze(['npm', ...BASE_BUILD_ARGV]),
         distManifest: manifest,
         distManifestHash: manifestHash,
@@ -137,6 +142,32 @@ function collectBaseResourceBudget({
     }
     rmSync(temporaryRoot, { recursive: true, force: true });
   }
+}
+
+function collectBaseResourceBudget(options = {}) {
+  const { metric, build } = collectDetachedResourceBudget({
+    ...options,
+    buildLabel: 'BASE',
+    temporaryPrefix: 'frontend-performance-base-',
+  });
+  const { subjectSha, subjectTree, ...buildEvidence } = build;
+  return Object.freeze({
+    ...metric,
+    baseBuild: Object.freeze({
+      baseSha: subjectSha,
+      baseTree: subjectTree,
+      ...buildEvidence,
+    }),
+  });
+}
+
+function collectCandidateResourceBudget(options = {}) {
+  const { metric, build } = collectDetachedResourceBudget({
+    ...options,
+    buildLabel: 'candidate',
+    temporaryPrefix: 'frontend-performance-candidate-',
+  });
+  return Object.freeze({ ...metric, candidateBuild: build });
 }
 
 function requireFullSha(value, label) {
@@ -229,8 +260,8 @@ function collectRenderIsolationEvidence() {
 
 async function collectPerformanceEvidence({
   subjectSha = currentCommit(),
-  distDir = resolve(FRONTEND_ROOT, 'dist'),
   resourceBudget,
+  collectCandidateResources = collectCandidateResourceBudget,
 } = {}) {
   const context = collectEvidenceProvenance({
     repositoryRoot: REPOSITORY_ROOT,
@@ -240,7 +271,10 @@ async function collectPerformanceEvidence({
   const renderIsolation = collectRenderIsolationEvidence();
   const historyBudget = runChatHistoryBenchmarkSamples({ commit: subjectSha });
   const feedbackBudget = await runStopFeedbackBenchmark({ subjectSha });
-  const measuredResources = resourceBudget || measureFrontendResources({ distDir, subjectSha });
+  const measuredResources = resourceBudget || collectCandidateResources({
+    subjectSha,
+    subjectTree: context.subjectTree,
+  });
   return Object.freeze({
     schemaVersion: 1,
     subjectSha,
@@ -775,6 +809,7 @@ export {
   DEFAULT_BASELINE_PATH,
   FREEZE_RUN_COUNT,
   buildFrozenPerformanceBaseline,
+  collectCandidateResourceBudget,
   collectPerformanceEvidence,
   collectRenderIsolationEvidence,
   freezePerformanceBaseline,
