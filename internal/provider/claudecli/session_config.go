@@ -199,7 +199,7 @@ func (s *session) ForceComplete(ctx context.Context, req dto.ForceCompleteReques
 			return err
 		}
 	}
-	s.forceCompleteTurn(handle, turnID)
+	s.forceCompleteTurn(tr, handle, turnID)
 	return nil
 }
 
@@ -218,8 +218,8 @@ func (s *session) forceCompleteTarget(providerID string) (*transport, *turnHandl
 }
 
 // forceCompleteTurn 在确认 active turn 未漂移后发布完成事件。
-// suppressedTurns 会吞掉随后 CLI 可能补发的 terminal 事件，避免前端收到重复完成。
-func (s *session) forceCompleteTurn(target *turnHandle, turnID string) {
+// 被强制收口的 transport 不能再承载新 turn，否则迟到 result 会被错误归属给新 handle。
+func (s *session) forceCompleteTurn(tr *transport, target *turnHandle, turnID string) {
 	if target == nil || turnID == "" {
 		return
 	}
@@ -233,6 +233,9 @@ func (s *session) forceCompleteTurn(target *turnHandle, turnID string) {
 		s.suppressedTurns = map[string]struct{}{}
 	}
 	s.suppressedTurns[turnID] = struct{}{}
+	if tr != nil && s.transport == tr {
+		s.forceCompletedTransport = tr
+	}
 	complete = s.turnRawEventLocked("turn:complete", turnID, map[string]any{
 		"success": true,
 		"status":  "completed",

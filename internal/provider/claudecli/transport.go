@@ -333,6 +333,7 @@ func (s *session) stop(force bool) error {
 	reg := s.pidRegistry
 	watcher := s.detachLogWatcherLocked()
 	s.transport = nil
+	s.forceCompletedTransport = nil
 	s.transportConfig = cliLaunchConfig{}
 	s.transportManifest = dto.MCPManifest{}
 	s.cleanup = nil
