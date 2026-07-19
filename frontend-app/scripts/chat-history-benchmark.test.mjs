@@ -1,13 +1,20 @@
 import { execFileSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { cwd, execPath } from 'node:process';
 import { describe, expect, it } from 'vitest';
 import {
+  ATTEMPTS_PER_SAMPLE,
+  DEFAULT_BASELINE_PATH,
+  HISTORY_BLOCK_COUNT,
+  HISTORY_BLOCK_ITERATIONS,
+  MEASUREMENT_ITERATIONS,
   buildChatHistoryBenchmarkCases,
   measureChatHistoryCase,
+  runChatHistoryBenchmarkSamples,
+  verifyChatHistoryEvidence,
 } from './chat-history-benchmark.mjs';
 import { buildChatHistoryFixture } from '../src/pages/chat/model/chatHistoryBenchmarkFixture.js';
+import { measurementMedian, median } from './performance-budget-model.mjs';
 
 const RESULT_KEYS = [
   'case',
@@ -108,9 +115,72 @@ describe('chat history benchmark', () => {
     ]);
   });
 
-  it('registers the exact package script without lifecycle flags', () => {
-    const packageJSON = JSON.parse(readFileSync(join(cwd(), 'package.json'), 'utf8'));
+  it('warms each case and reports five recomputable paired normalized samples', () => {
+    expect(HISTORY_BLOCK_COUNT).toBe(9);
+    expect(HISTORY_BLOCK_ITERATIONS).toBe(500_000);
+    expect(MEASUREMENT_ITERATIONS).toBe(4_500_000);
+    const evidence = runChatHistoryBenchmarkSamples({ commit: 'a'.repeat(40) });
 
-    expect(packageJSON.scripts['benchmark:chat-history']).toBe('node scripts/chat-history-benchmark.mjs');
+    expect(evidence).toEqual(expect.objectContaining({
+      metricId: 'P02-history-budget',
+      sampleCount: 5,
+      warmupCount: 1,
+      subjectSha: 'a'.repeat(40),
+    }));
+    expect(Object.keys(evidence.cases)).toHaveLength(6);
+    Object.values(evidence.cases).forEach((entry) => {
+      expect(entry.attemptsPerSample).toBe(ATTEMPTS_PER_SAMPLE);
+      expect(entry.blockCount).toBe(HISTORY_BLOCK_COUNT);
+      expect(entry.blockIterationCount).toBe(HISTORY_BLOCK_ITERATIONS);
+      expect(entry.iterationCount).toBe(MEASUREMENT_ITERATIONS);
+      expect(entry.materializedCount).toBe(80);
+      expect(entry.referenceMaterializedCount).toBe(80);
+      expect(entry.durationClock).toContain('production/reference');
+      expect(entry).not.toHaveProperty('durationSamplesMs');
+      expect(entry).not.toHaveProperty('durationMedianMs');
+      expect(entry.sampleDiagnostics).toHaveLength(5);
+      entry.sampleDiagnostics.forEach((sample, sampleIndex) => {
+        expect(sample.blockOrders).toEqual(Array.from(
+          { length: HISTORY_BLOCK_COUNT },
+          (_, blockIndex) => ((sampleIndex + blockIndex) % 2 === 0
+            ? 'production-reference'
+            : 'reference-production'),
+        ));
+        expect(sample.productionBlockCpuDurationsMs).toHaveLength(HISTORY_BLOCK_COUNT);
+        expect(sample.referenceBlockCpuDurationsMs).toHaveLength(HISTORY_BLOCK_COUNT);
+        expect(sample.rawNormalizedBlockRatios).toHaveLength(HISTORY_BLOCK_COUNT);
+        sample.rawNormalizedBlockRatios.forEach((ratio, blockIndex) => {
+          const production = sample.productionBlockCpuDurationsMs[blockIndex];
+          const reference = sample.referenceBlockCpuDurationsMs[blockIndex];
+          expect(Number.isFinite(production) && production > 0).toBe(true);
+          expect(Number.isFinite(reference) && reference > 0).toBe(true);
+          expect(ratio).toBe(production / reference);
+        });
+        expect(sample.normalizedRatio).toBe(measurementMedian(sample.rawNormalizedBlockRatios));
+      });
+      expect(entry.normalizedRatioSamples).toEqual(
+        entry.sampleDiagnostics.map(({ normalizedRatio }) => normalizedRatio),
+      );
+      expect(entry.normalizedRatioMedian).toBe(median(entry.normalizedRatioSamples));
+      expect(Object.keys(entry).filter((key) => key.includes('Ratio') && key.endsWith('Ms'))).toEqual([]);
+    });
+  }, 60_000);
+
+  it('keeps verify NOT_VERIFIED until an exact frozen five-sample baseline exists', () => {
+    expect(verifyChatHistoryEvidence({ cases: {} }, {
+      metrics: {
+        'P02-history-budget': {
+          status: 'NOT_VERIFIED',
+          reason: 'not frozen',
+        },
+      },
+    })).toEqual(expect.objectContaining({
+      metricId: 'P02-history-budget',
+      status: 'NOT_VERIFIED',
+    }));
+  });
+
+  it('uses the frozen default baseline path', () => {
+    expect(DEFAULT_BASELINE_PATH).toBe(join(cwd(), 'scripts/frontend-maintainability-baseline.json'));
   });
 });
