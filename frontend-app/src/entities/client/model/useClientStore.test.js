@@ -6012,6 +6012,274 @@ function registerBridgeEventHandlersForTest() {
     ]);
   });
 
+  it('replays a canonical terminal after its accepted partial delta arrives out of order', () => {
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'thread-1',
+      timelinesByThread: { 'thread-1': [] },
+    });
+    registerBridgeEventHandlersForTest();
+
+    bridgeCallback({
+      type: 'turn/terminal',
+      payload: {
+        schemaVersion: 2,
+        eventId: 'terminal-out-of-order',
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+        outcome: 'failed',
+        publicError: {
+          code: 'PROVIDER_FAILED',
+          title: '运行失败',
+          message: '提供方未能完成本轮响应',
+          diagnosticId: 'diag-out-of-order',
+          retryable: true,
+          recoveryActions: ['retry'],
+        },
+        partialItemIds: ['partial-1'],
+        occurredAt: '2026-07-16T01:00:00Z',
+      },
+    });
+    expect(useClientStore.getState().timelinesByThread['thread-1']).toEqual([]);
+
+    bridgeCallback({
+      type: 'turn/output/delta',
+      payload: { threadId: 'thread-1', turnId: 'turn-1', itemId: 'partial-1', delta: 'partial answer' },
+    });
+
+    const state = useClientStore.getState();
+    expect(state.timelinesByThread['thread-1']).toEqual([
+      expect.objectContaining({ id: 'partial-1', text: 'partial answer', done: true }),
+      expect.objectContaining({ kind: 'turn_terminal', terminalOutcome: 'failed' }),
+    ]);
+    expect(state.actionNotice).toEqual(expect.objectContaining({
+      tone: 'error',
+      message: expect.stringContaining('提供方未能完成本轮响应'),
+    }));
+    expect(state.warningEntries).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ event: 'turn.terminal.contract_invalid' }),
+    ]));
+  });
+
+  it('keeps the first pending terminal truth when a conflicting terminal arrives before its delta', () => {
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'thread-1',
+      timelinesByThread: { 'thread-1': [] },
+    });
+    registerBridgeEventHandlersForTest();
+
+    bridgeCallback({
+      type: 'turn/terminal',
+      payload: {
+        schemaVersion: 2,
+        eventId: 'terminal-first-pending',
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+        outcome: 'failed',
+        publicError: {
+          code: 'PROVIDER_FAILED',
+          title: '运行失败',
+          message: '首个终态失败',
+          diagnosticId: 'diag-first-pending',
+          retryable: false,
+          recoveryActions: [],
+        },
+        partialItemIds: ['partial-1'],
+        occurredAt: '2026-07-19T01:00:00Z',
+      },
+    });
+    bridgeCallback({
+      type: 'turn/terminal',
+      payload: {
+        schemaVersion: 2,
+        eventId: 'terminal-conflicting-pending',
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+        outcome: 'success',
+        occurredAt: '2026-07-19T01:00:01Z',
+      },
+    });
+    bridgeCallback({
+      type: 'turn/output/delta',
+      payload: { threadId: 'thread-1', turnId: 'turn-1', itemId: 'partial-1', delta: 'partial answer' },
+    });
+
+    const state = useClientStore.getState();
+    expect(state.timelinesByThread['thread-1']).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'turn_terminal', terminalOutcome: 'failed' }),
+    ]));
+    expect(state.actionNotice).toEqual(expect.objectContaining({ tone: 'error' }));
+    expect(state.warningEntries).toEqual(expect.arrayContaining([
+      expect.objectContaining({ event: 'turn.terminal.conflict' }),
+    ]));
+  });
+
+  it('keeps terminal cache state bounded, fails closed on exhaustion, and recovers after lifecycle cleanup', async () => {
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'pending-thread-0',
+      threads: Array.from({ length: 195 }, (_, index) => ({
+        id: `pending-thread-${index}`,
+        name: `Thread ${index}`,
+        provider: 'codex',
+        status: 'running',
+      })),
+      timelinesByThread: { 'pending-thread-0': [] },
+    });
+    registerBridgeEventHandlersForTest();
+    const pendingTerminal = (index) => ({
+      schemaVersion: 2,
+      eventId: `pending-terminal-${index}`,
+      threadId: `pending-thread-${index}`,
+      turnId: `pending-turn-${index}`,
+      outcome: 'failed',
+      publicError: {
+        code: 'PROVIDER_FAILED',
+        title: '运行失败',
+        message: `第 ${index} 个缺失部分响应`,
+        diagnosticId: `diag-pending-${index}`,
+        retryable: false,
+        recoveryActions: [],
+      },
+      partialItemIds: [`partial-${index}`],
+      occurredAt: '2026-07-19T01:00:00Z',
+    });
+
+    for (let index = 0; index < 195; index++) {
+      bridgeCallback({ type: 'turn/terminal', payload: pendingTerminal(index) });
+    }
+
+    expect(useClientStore.getState().getTurnTerminalCacheStats()).toEqual({
+      capacity: 64,
+      terminalStates: 64,
+      observedTurns: 64,
+      retiredTurns: 0,
+      overflowed: true,
+    });
+    expect(useClientStore.getState().warningEntries).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        event: 'turn.terminal.cache_exhausted',
+        threadId: 'pending-thread-64',
+        fields: expect.objectContaining({ turn_id: 'pending-turn-64', reason: 'capacity' }),
+      }),
+    ]));
+    bridgeCallback({
+      type: 'turn/terminal',
+      payload: {
+        schemaVersion: 2,
+        eventId: 'exhausted-terminal-replayed-as-success',
+        threadId: 'pending-thread-64',
+        turnId: 'pending-turn-64',
+        outcome: 'success',
+        occurredAt: '2026-07-19T01:00:02Z',
+      },
+    });
+
+    let state = useClientStore.getState();
+    expect(state.timelinesByThread['pending-thread-0']).toEqual([]);
+    expect(state.actionNotice).toBeNull();
+    expect(state.getTurnTerminalCacheStats()).toEqual(expect.objectContaining({
+      terminalStates: 64,
+      observedTurns: 64,
+      retiredTurns: 0,
+      overflowed: true,
+    }));
+
+    await useClientStore.getState().deleteStaleThreads(['pending-thread-0']);
+    useClientStore.setState((current) => ({
+      activeThreadId: 'recovered-thread',
+      threads: [...current.threads, { id: 'recovered-thread', name: 'Recovered', provider: 'codex', status: 'running' }],
+      timelinesByThread: { ...current.timelinesByThread, 'recovered-thread': [] },
+      actionNotice: null,
+    }));
+    expect(useClientStore.getState().getTurnTerminalCacheStats()).toEqual(expect.objectContaining({
+      terminalStates: 63,
+      observedTurns: 63,
+      retiredTurns: 0,
+      overflowed: false,
+    }));
+
+    bridgeCallback({
+      type: 'turn/terminal',
+      payload: {
+        schemaVersion: 2,
+        eventId: 'recovered-terminal-success',
+        threadId: 'recovered-thread',
+        turnId: 'recovered-turn',
+        outcome: 'success',
+        occurredAt: '2026-07-19T01:00:03Z',
+      },
+    });
+
+    state = useClientStore.getState();
+    expect(state.timelinesByThread['recovered-thread']).toEqual([
+      expect.objectContaining({ kind: 'turn_terminal', terminalOutcome: 'success', turnId: 'recovered-turn' }),
+    ]);
+    expect(state.getTurnTerminalCacheStats()).toEqual({
+      capacity: 64,
+      terminalStates: 64,
+      observedTurns: 64,
+      retiredTurns: 0,
+      overflowed: false,
+    });
+  });
+
+  it('bounds retired turn references before later terminal events can project', () => {
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'thread-1',
+      threads: [{ id: 'thread-1', name: 'Thread 1', provider: 'codex', status: 'running' }],
+      timelinesByThread: { 'thread-1': [] },
+    });
+    registerBridgeEventHandlersForTest();
+
+    for (let index = 0; index <= 65; index++) {
+      bridgeCallback({
+        type: 'turn/output/delta',
+        payload: {
+          threadId: 'thread-1',
+          turnId: `retired-turn-${index}`,
+          itemId: `retired-item-${index}`,
+          delta: `partial ${index}`,
+        },
+      });
+    }
+
+    expect(useClientStore.getState().getTurnTerminalCacheStats()).toEqual({
+      capacity: 64,
+      terminalStates: 0,
+      observedTurns: 1,
+      retiredTurns: 64,
+      overflowed: true,
+    });
+    bridgeCallback({
+      type: 'turn/terminal',
+      payload: {
+        schemaVersion: 2,
+        eventId: 'retired-overflow-success',
+        threadId: 'thread-1',
+        turnId: 'retired-turn-65',
+        outcome: 'success',
+        occurredAt: '2026-07-19T01:00:04Z',
+      },
+    });
+
+    expect(useClientStore.getState().timelinesByThread['thread-1']).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'turn_terminal' }),
+    ]));
+    expect(useClientStore.getState().getTurnTerminalCacheStats()).toEqual(expect.objectContaining({
+      terminalStates: 0,
+      observedTurns: 1,
+      retiredTurns: 64,
+      overflowed: true,
+    }));
+  });
+
   it('seals the first terminal and routes conflicting or late turn events to diagnostics', async () => {
     vi.useFakeTimers();
     try {
@@ -6591,6 +6859,66 @@ function registerBridgeEventHandlersForTest() {
         expect.objectContaining({ id: 'turn-1-open', done: false, turnId: 'turn-1' }),
         expect.objectContaining({ id: 'turn-2-open', done: false, turnId: 'turn-2' }),
       ]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('cleans a pending terminal when a thread lifecycle ends', async () => {
+    vi.useFakeTimers();
+    try {
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'thread-1',
+      threads: [{ id: 'thread-1', name: 'Thread 1', provider: 'codex', status: 'running' }],
+      timelinesByThread: { 'thread-1': [] },
+    });
+    registerBridgeEventHandlersForTest();
+    bridgeCallback({
+      type: 'turn/terminal',
+      payload: {
+        schemaVersion: 2,
+        eventId: 'terminal-before-delete-without-delta',
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+        outcome: 'failed',
+        publicError: {
+          code: 'PROVIDER_FAILED',
+          title: '运行失败',
+          message: '删除前缺失部分响应',
+          diagnosticId: 'diag-before-delete',
+          retryable: false,
+          recoveryActions: [],
+        },
+        partialItemIds: ['partial-1'],
+        occurredAt: '2026-07-19T01:00:00Z',
+      },
+    });
+
+    await useClientStore.getState().deleteStaleThreads(['thread-1']);
+    useClientStore.setState({
+      activeThreadId: 'thread-1',
+      threads: [{ id: 'thread-1', name: 'Recreated', provider: 'codex', status: 'running' }],
+      timelinesByThread: { 'thread-1': [] },
+      actionNotice: null,
+      activityEntries: [],
+      warningEntries: [],
+    });
+    bridgeCallback({
+      type: 'turn/output/delta',
+      payload: { threadId: 'thread-1', turnId: 'turn-1', itemId: 'partial-1', delta: 'new lifecycle partial' },
+    });
+    await flushAssistantDeltaBatch();
+
+    const state = useClientStore.getState();
+    expect(state.timelinesByThread['thread-1']).toEqual([
+      expect.objectContaining({ id: 'partial-1', text: 'new lifecycle partial', done: false }),
+    ]);
+    expect(state.timelinesByThread['thread-1']).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'turn_terminal' }),
+    ]));
+    expect(state.actionNotice).toBeNull();
     } finally {
       vi.useRealTimers();
     }

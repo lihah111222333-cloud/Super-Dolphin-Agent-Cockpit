@@ -11,7 +11,6 @@ import (
 	threaddto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/thread"
 	tooldto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/tool"
 	turndto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/turn"
-	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/uistate/terminalstatus"
 )
 
 func TestDerivedThreadStatusTransitions(t *testing.T) {
@@ -61,20 +60,24 @@ func TestTimelineAndProjectionTerminalStatusParity(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name string
-		ev   turndto.TurnCompleted
+		name     string
+		terminal turndto.TurnTerminalV2
+		want     string
 	}{
 		{
-			name: "completed without explicit status",
-			ev:   turndto.TurnCompleted{Success: true},
+			name:     "completed without explicit status",
+			terminal: turndto.TurnTerminalV2{Outcome: "success"},
+			want:     "completed",
 		},
 		{
-			name: "failed without provider diagnostic",
-			ev:   turndto.TurnCompleted{Success: false},
+			name:     "failed without provider diagnostic",
+			terminal: turndto.TurnTerminalV2{Outcome: "failed"},
+			want:     "failed",
 		},
 		{
-			name: "explicit provider status",
-			ev:   turndto.TurnCompleted{Success: false, Status: "interrupted", Reason: "user stopped"},
+			name:     "canonical interrupted status",
+			terminal: turndto.TurnTerminalV2{Outcome: "interrupted"},
+			want:     "interrupted",
 		},
 	}
 
@@ -82,9 +85,8 @@ func TestTimelineAndProjectionTerminalStatusParity(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			want := terminalstatus.Status(tt.ev.Success, tt.ev.Status, tt.ev.Reason, tt.ev.Error)
-			if got := completionStatus(tt.ev); got != want {
-				t.Fatalf("completionStatus(%+v) = %q, want shared terminal status %q", tt.ev, got, want)
+			if got := completionStatus(tt.terminal); got != tt.want {
+				t.Fatalf("completionStatus(%+v) = %q, want canonical terminal status %q", tt.terminal, got, tt.want)
 			}
 		})
 	}

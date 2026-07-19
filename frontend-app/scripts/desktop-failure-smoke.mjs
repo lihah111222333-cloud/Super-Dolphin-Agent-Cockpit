@@ -412,9 +412,51 @@ function runCommand(command, args, cwd, env, spawnImpl, timeoutMs) {
         finish(() => resolve({ command, args, exitCode: 0, signal: null, stdout, stderr }));
         return;
       }
-      finish(() => reject(new Error(`${command} ${args.join(' ')} failed: exit=${code} signal=${signal || ''}`)));
+      finish(() => reject(new Error(commandFailureMessage(command, args, code, signal, stdout, stderr))));
     });
   });
+}
+
+export function commandFailureMessage(command, args, code, signal, stdout, stderr) {
+  const output = `${stdout}\n${stderr}`
+    .replace(/Authorization:\s*Bearer\s+[^\s"']+/giu, "Authorization: Bearer [redacted]")
+    .replace(/t03-raw-provider-secret-do-not-persist/gu, '[redacted]')
+    .trim()
+  const diagnostic = output.length <= 4000
+    ? output
+    : `${output.slice(0, 2000)}\n...[truncated]...\n${output.slice(-2000)}`;
+  const playwrightFailure = playwrightFailureSummary(output);
+  return `${command} ${args.join(' ')} failed: exit=${code} signal=${signal || ''}${playwrightFailure ? `\n${playwrightFailure}` : ''}${diagnostic ? `\n${diagnostic}` : ''}`;
+}
+
+function playwrightFailureSummary(output) {
+  try {
+    const report = JSON.parse(output);
+    const failure = firstPlaywrightFailure(report.suites);
+    if (!failure) return '';
+    return `Playwright failure: ${failure.title}${failure.message ? `: ${failure.message}` : ''}`;
+  } catch {
+    return '';
+  }
+}
+
+function firstPlaywrightFailure(suites) {
+  for (const suite of suites || []) {
+    for (const spec of suite.specs || []) {
+      for (const test of spec.tests || []) {
+        for (const result of test.results || []) {
+          if (result.status === 'passed') continue;
+          return {
+            title: spec.title,
+            message: result.errors?.[0]?.message || '',
+          };
+        }
+      }
+    }
+    const nested = firstPlaywrightFailure(suite.suites);
+    if (nested) return nested;
+  }
+  return null;
 }
 
 function captureCommand(command, args, cwd) {

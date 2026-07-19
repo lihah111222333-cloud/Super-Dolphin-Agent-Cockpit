@@ -80,11 +80,20 @@ func TestBindPublishesCanonicalTurnTerminal(t *testing.T) {
 	defer cancelAll(cancels)
 
 	now := time.Unix(1710000000, 0).UTC()
-	event.Publish(dispatcher, turndto.TurnCompleted{
+	completed := turndto.TurnCompleted{
 		TurnHeader: bindTestTurnHeader(now),
 		Success:    true,
 		Status:     "completed",
-	})
+	}
+	terminal, err := turndto.NewTurnTerminalV2(completed, "bind-terminal-event")
+	if err != nil {
+		t.Fatalf("NewTurnTerminalV2() error = %v", err)
+	}
+	completed, err = turndto.AttachCanonicalTurnTerminal(completed, terminal)
+	if err != nil {
+		t.Fatalf("AttachCanonicalTurnTerminal() error = %v", err)
+	}
+	event.Publish(dispatcher, completed)
 	published := mustReceivePublished(t, got)
 	if published.method != "turn/terminal" {
 		t.Fatalf("terminal method = %q, want turn/terminal", published.method)

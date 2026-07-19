@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  commandFailureMessage,
   DESKTOP_FAILURE_CASES,
   desktopFailureSmokeConfig,
   packageScriptIncludesFailureSmoke,
@@ -114,5 +115,46 @@ describe('desktop failure smoke contract', () => {
       backendBinary: expect.stringMatching(/^\/repo\/app\/\.tmp\/desktop-failure-smoke\/failure-smoke-host-\d+$/u),
       reportPath: '/repo/app/.tmp/desktop-failure-smoke/report.json',
     }));
+  });
+
+  it('redacts bearer credentials from failed command diagnostics', () => {
+    const message = commandFailureMessage(
+      'playwright',
+      ['test'],
+      1,
+      null,
+      '',
+      'Authorization: Bearer t03-raw-provider-secret-do-not-persist',
+    );
+    expect(message).toContain('exit=1');
+    expect(message).toContain('Authorization: Bearer [redacted]');
+    expect(message).not.toContain('t03-raw-provider-secret-do-not-persist');
+  });
+
+  it('keeps both ends of an oversized redacted command failure', () => {
+    const message = commandFailureMessage(
+      'playwright',
+      ['test'],
+      1,
+      null,
+      `first-failure ${'x'.repeat(2500)}`,
+      `${'y'.repeat(2500)} t03-raw-provider-secret-do-not-persist final-result`,
+    );
+    expect(message).toContain('first-failure');
+    expect(message).toContain('final-result');
+    expect(message).toContain('...[truncated]...');
+    expect(message).not.toContain('t03-raw-provider-secret-do-not-persist');
+  });
+
+  it('summarizes the first failed Playwright case from structured output', () => {
+    const message = commandFailureMessage('playwright', ['test'], 1, null, JSON.stringify({
+      suites: [{
+        specs: [{
+          title: 'terminal-failed crosses production Wails application',
+          tests: [{ results: [{ status: 'failed', errors: [{ message: 'safe error missing' }] }] }],
+        }],
+      }],
+    }), '');
+    expect(message).toContain('Playwright failure: terminal-failed crosses production Wails application: safe error missing');
   });
 });

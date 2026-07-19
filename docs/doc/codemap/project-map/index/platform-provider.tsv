@@ -345,8 +345,8 @@ internal/platform/difftracker/types.go	internal	platform-provider	go-source	2624
 internal/platform/discovery/discovery_test.go	internal	platform-provider	go-test	2893	基础设施层	internal,platform,discovery,test,基础设施层
 internal/platform/discovery/discovery.go	internal	platform-provider	go-source	6413	基础设施层	internal,platform,discovery,基础设施层
 internal/platform/eventsurface/bind_payloads.go	internal	platform-provider	go-source	1870	基础设施层	internal,platform,eventsurface,bind,payloads,基础设施层
-internal/platform/eventsurface/bind_test.go	internal	platform-provider	go-test	22574	基础设施层	internal,platform,eventsurface,bind,test,基础设施层
-internal/platform/eventsurface/bind.go	internal	platform-provider	go-source	18592	基础设施层	internal,platform,eventsurface,bind,基础设施层
+internal/platform/eventsurface/bind_test.go	internal	platform-provider	go-test	22901	基础设施层	internal,platform,eventsurface,bind,test,基础设施层
+internal/platform/eventsurface/bind.go	internal	platform-provider	go-source	18450	基础设施层	internal,platform,eventsurface,bind,基础设施层
 internal/platform/eventsurface/legacy_test.go	internal	platform-provider	go-test	2363	基础设施层	internal,platform,eventsurface,legacy,test,基础设施层
 internal/platform/eventsurface/legacy.go	internal	platform-provider	go-source	3941	基础设施层	internal,platform,eventsurface,legacy,基础设施层
 internal/platform/eventsurface/methods_test.go	internal	platform-provider	go-test	4515	基础设施层	internal,platform,eventsurface,methods,test,基础设施层
@@ -1009,7 +1009,7 @@ internal/provider/unified/dream_executor_provider_order_test.go	internal	platfor
 internal/provider/unified/dream_executor_test.go	internal	platform-provider	go-test	24198	统一 provider 会话解析与 manifest	internal,provider,unified,dream,executor,test,统一,会话解析与,manifest
 internal/provider/unified/dream_executor.go	internal	platform-provider	go-source	10020	统一 provider 会话解析与 manifest	internal,provider,unified,dream,executor,统一,会话解析与,manifest
 internal/provider/unified/event_map_test.go	internal	platform-provider	go-test	5245	统一 provider 会话解析与 manifest	internal,provider,unified,event,map,test,统一,会话解析与,manifest
-internal/provider/unified/event_map.go	internal	platform-provider	go-source	17291	统一 provider 会话解析与 manifest	internal,provider,unified,event,map,统一,会话解析与,manifest
+internal/provider/unified/event_map.go	internal	platform-provider	go-source	18418	统一 provider 会话解析与 manifest	internal,provider,unified,event,map,统一,会话解析与,manifest
 internal/provider/unified/manifest_test.go	internal	platform-provider	go-test	14279	统一 provider 会话解析与 manifest	internal,provider,unified,manifest,test,统一,会话解析与
 internal/provider/unified/module.go	internal	platform-provider	go-source	2764	统一 provider 会话解析与 manifest	internal,provider,unified,module,统一,会话解析与,manifest
 internal/provider/unified/observability_trace_test.go	internal	platform-provider	go-test	3142	统一 provider 会话解析与 manifest	internal,provider,unified,observability,trace,test,统一,会话解析与,manifest
@@ -1024,6 +1024,7 @@ internal/provider/unified/session_resolver_identity_test.go	internal	platform-pr
 internal/provider/unified/session_resolver_test.go	internal	platform-provider	go-test	15017	统一 provider 会话解析与 manifest	internal,provider,unified,session,resolver,test,统一,会话解析与,manifest
 internal/provider/unified/session_resolver.go	internal	platform-provider	go-source	14358	统一 provider 会话解析与 manifest	internal,provider,unified,session,resolver,统一,会话解析与,manifest
 internal/provider/unified/session.go	internal	platform-provider	go-source	7532	统一 provider 会话解析与 manifest	internal,provider,unified,session,统一,会话解析与,manifest
+internal/provider/unified/terminal_projection_test.go	internal	platform-provider	go-test	1613	统一 provider 会话解析与 manifest	internal,provider,unified,terminal,projection,test,统一,会话解析与,manifest
 internal/provider/unified/testdata/event_snapshots/unified_common_plan_delta.json	internal	platform-provider	json	572	统一 provider 会话解析与 manifest	internal,provider,unified,testdata,event,snapshots,common,plan,delta,统一,会话解析与,manifest
 internal/provider/unified/testdata/golden/integration/auto_resume_identity_request.golden.json	internal	platform-provider	json	479	统一 provider 会话解析与 manifest	internal,provider,unified,testdata,golden,integration,auto,resume,identity,request,统一,会话解析与,manifest
 internal/provider/unified/testdata/prompt_snapshots/unified_prompt_parity.json	internal	platform-provider	json	395	统一 provider 会话解析与 manifest	internal,provider,unified,testdata,prompt,snapshots,parity,统一,会话解析与,manifest

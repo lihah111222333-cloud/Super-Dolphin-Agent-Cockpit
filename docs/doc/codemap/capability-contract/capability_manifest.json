@@ -4516,6 +4516,7 @@
         "internal/provider/unified.*EventDispatcher.Dispatch",
         "internal/provider/unified.*EventDispatcher.Publish",
         "internal/provider/unified.*EventDispatcher.Register",
+        "internal/provider/unified.*EventDispatcher.publishTranslatedEvent",
         "internal/provider/unified.*Registry.Names",
         "internal/provider/unified.*Registry.NativeTools",
         "internal/provider/unified.*Registry.Resolve",
@@ -4580,6 +4581,7 @@
         "internal/provider/unified.Registry",
         "internal/provider/unified.RegistryParams",
         "internal/provider/unified.SessionManager",
+        "internal/provider/unified.attachCanonicalTurnTerminal",
         "internal/provider/unified.autoResumeBindingCWD",
         "internal/provider/unified.autoResumeBindingProvider",
         "internal/provider/unified.autoResumeCodexIdentityFields",
@@ -9165,6 +9167,7 @@
         "internal/provider/unified.*EventDispatcher.Dispatch",
         "internal/provider/unified.*EventDispatcher.Publish",
         "internal/provider/unified.*EventDispatcher.Register",
+        "internal/provider/unified.*EventDispatcher.publishTranslatedEvent",
         "internal/provider/unified.*Registry.Names",
         "internal/provider/unified.*Registry.NativeTools",
         "internal/provider/unified.*Registry.Resolve",
@@ -9229,6 +9232,7 @@
         "internal/provider/unified.Registry",
         "internal/provider/unified.RegistryParams",
         "internal/provider/unified.SessionManager",
+        "internal/provider/unified.attachCanonicalTurnTerminal",
         "internal/provider/unified.autoResumeBindingCWD",
         "internal/provider/unified.autoResumeBindingProvider",
         "internal/provider/unified.autoResumeCodexIdentityFields",
@@ -13814,6 +13818,7 @@
         "internal/provider/unified.*EventDispatcher.Dispatch",
         "internal/provider/unified.*EventDispatcher.Publish",
         "internal/provider/unified.*EventDispatcher.Register",
+        "internal/provider/unified.*EventDispatcher.publishTranslatedEvent",
         "internal/provider/unified.*Registry.Names",
         "internal/provider/unified.*Registry.NativeTools",
         "internal/provider/unified.*Registry.Resolve",
@@ -13878,6 +13883,7 @@
         "internal/provider/unified.Registry",
         "internal/provider/unified.RegistryParams",
         "internal/provider/unified.SessionManager",
+        "internal/provider/unified.attachCanonicalTurnTerminal",
         "internal/provider/unified.autoResumeBindingCWD",
         "internal/provider/unified.autoResumeBindingProvider",
         "internal/provider/unified.autoResumeCodexIdentityFields",
@@ -18471,6 +18477,7 @@
         "internal/provider/unified.*EventDispatcher.Dispatch",
         "internal/provider/unified.*EventDispatcher.Publish",
         "internal/provider/unified.*EventDispatcher.Register",
+        "internal/provider/unified.*EventDispatcher.publishTranslatedEvent",
         "internal/provider/unified.*Registry.Names",
         "internal/provider/unified.*Registry.NativeTools",
         "internal/provider/unified.*Registry.Resolve",
@@ -18535,6 +18542,7 @@
         "internal/provider/unified.Registry",
         "internal/provider/unified.RegistryParams",
         "internal/provider/unified.SessionManager",
+        "internal/provider/unified.attachCanonicalTurnTerminal",
         "internal/provider/unified.autoResumeBindingCWD",
         "internal/provider/unified.autoResumeBindingProvider",
         "internal/provider/unified.autoResumeCodexIdentityFields",
@@ -18621,12 +18629,12 @@
   ],
   "summary": {
     "total_packages": 41,
-    "total_functions": 2274,
-    "total_methods": 1176,
+    "total_functions": 2275,
+    "total_methods": 1177,
     "total_interfaces": 183,
     "total_interface_methods": 363,
     "total_exported": 1257,
-    "total_unexported": 2984,
+    "total_unexported": 2986,
     "total_structs": 608
   },
   "packages": [
@@ -80997,6 +81005,20 @@
           ]
         },
         {
+          "name": "attachCanonicalTurnTerminal",
+          "exported": false,
+          "params": [
+            {
+              "name": "ev",
+              "type": "any"
+            }
+          ],
+          "returns": [
+            "any",
+            "error"
+          ]
+        },
+        {
           "name": "autoResumeBindingCWD",
           "exported": false,
           "params": [
@@ -82154,6 +82176,21 @@
             {
               "name": "t",
               "type": "EventTranslator"
+            }
+          ]
+        },
+        {
+          "receiver": "*EventDispatcher",
+          "name": "publishTranslatedEvent",
+          "exported": false,
+          "params": [
+            {
+              "name": "rawType",
+              "type": "string"
+            },
+            {
+              "name": "ev",
+              "type": "any"
             }
           ]
         },

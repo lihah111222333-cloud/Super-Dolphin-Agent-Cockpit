@@ -36,7 +36,7 @@ func TestAppendAndGetByThread(t *testing.T) {
 
 func TestAppendRespectsCapacity(t *testing.T) {
 	svc := timeline.New(nil, nil, 3)
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		svc.Append("t1", "a", timeline.Item{
 			ID:   fmt.Sprintf("item-%d", i),
 			Kind: "msg",
@@ -203,7 +203,7 @@ func TestUpdateByCallID_NonExistentCallID(t *testing.T) {
 
 func TestAppendRespectsCapacity_IndexConsistency(t *testing.T) {
 	svc := timeline.New(nil, nil, 3)
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		svc.Append("t1", "a", timeline.Item{
 			ID:     fmt.Sprintf("item-%d", i),
 			Kind:   "tool",
@@ -298,29 +298,25 @@ func TestRegisterSubscriptions_TurnCompleted(t *testing.T) {
 		items := svc.GetByThread("t1")
 		return len(items) == 1 && items[0].Kind == "turn_start"
 	}, "expected turn start item before turn completed")
-	event.Publish(dispatcher, turndto.TurnCompleted{
+	event.Publish(dispatcher, canonicalTimelineTurnCompleted(t, turndto.TurnCompleted{
 		TurnHeader: shared.TurnHeader{
 			AgentHeader: shared.AgentHeader{
-				ThreadHeader: shared.ThreadHeader{ThreadID: "t1"},
+				ThreadHeader: shared.ThreadHeader{EventHeader: shared.EventHeader{Timestamp: time.Now().UTC()}, ThreadID: "t1"},
 				AgentID:      "agent-1",
 			},
 			TurnIDHeader: shared.TurnIDHeader{TurnID: "turn-1"},
 		},
 		Success: true,
-	})
+		Status:  "completed",
+	}))
 
-	waitForCondition(t, func() bool {
-		return len(svc.GetByThread("t1")) == 2
-	}, "expected two timeline items after turn completed")
+	time.Sleep(50 * time.Millisecond)
 	items := svc.GetByThread("t1")
-	if len(items) != 2 {
-		t.Fatalf("len(items) = %d, want 2", len(items))
+	if len(items) != 1 {
+		t.Fatalf("len(items) = %d, want 1", len(items))
 	}
-	if items[1].Kind != "turn_end" {
-		t.Fatalf("items[1].Kind = %q, want %q", items[1].Kind, "turn_end")
-	}
-	if items[1].Status != "completed" {
-		t.Fatalf("items[1].Status = %q, want %q", items[1].Status, "completed")
+	if items[0].Kind != "turn_start" {
+		t.Fatalf("items[0].Kind = %q, want %q", items[0].Kind, "turn_start")
 	}
 }
 

@@ -754,8 +754,8 @@ it('renders the persisted shell layout width through the real chat layout', asyn
   const storage = createShellLayoutStorage('480.5');
 
   render(<App shellLayoutStorage={storage} />);
+  fireEvent.click(await screen.findByRole('button', { name: '显示侧边栏' }));
   await waitForBackendThreadHeading();
-  fireEvent.click(screen.getByRole('button', { name: '显示侧边栏' }));
 
   expect(screen.getByTestId('chat-layout')).toHaveStyle({
     gridTemplateColumns: 'minmax(0, 1fr) 6px 480.5px',

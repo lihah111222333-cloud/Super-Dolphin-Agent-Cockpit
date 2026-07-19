@@ -11,6 +11,8 @@ import {
 } from '../runtimeAssistantTimeline.js';
 import { normalizeThreadId } from './threadIdentity.js';
 
+const MAX_TRACKED_TURN_TERMINALS = 64;
+
 function entryMatchesTurnRef(entry, turnRef) {
   return !turnRef || (entry.threadId === turnRef.threadId && entry.turnId === turnRef.turnId);
 }
@@ -162,9 +164,51 @@ function canonicalTurnEventRef(runtime, method, payload) {
   return { threadId, turnId: parsed.value.turnId };
 }
 
+function terminalCacheStats(runtime) {
+  return {
+    capacity: MAX_TRACKED_TURN_TERMINALS,
+    terminalStates: runtime.turnTerminalStates.size,
+    observedTurns: runtime.observedTurnByThread.size,
+    retiredTurns: runtime.retiredTurnRefs.size,
+    overflowed: runtime.terminalCacheOverflowed,
+  };
+}
+
+function rejectTerminalCacheOverflow(runtime, deps, event, method, turnRef) {
+  runtime.terminalCacheOverflowed = true;
+  emitRejectedTurnEvent(runtime, deps, event, method, { ...turnRef, reason: 'capacity' });
+  return false;
+}
+
+function trackObservedTurn(runtime, deps, event, method, turnRef) {
+  if (runtime.terminalCacheOverflowed) {
+    return rejectTerminalCacheOverflow(runtime, deps, event, method, turnRef);
+  }
+  const observedTurnId = runtime.observedTurnByThread.get(turnRef.threadId);
+  if (observedTurnId === turnRef.turnId) return true;
+  if (!observedTurnId && runtime.observedTurnByThread.size >= MAX_TRACKED_TURN_TERMINALS) {
+    return rejectTerminalCacheOverflow(runtime, deps, event, method, turnRef);
+  }
+  if (observedTurnId) {
+    const retiredKey = runtimeTurnRefKey(turnRef.threadId, observedTurnId);
+    if (!runtime.retiredTurnRefs.has(retiredKey)
+      && runtime.retiredTurnRefs.size >= MAX_TRACKED_TURN_TERMINALS) {
+      return rejectTerminalCacheOverflow(runtime, deps, event, method, turnRef);
+    }
+    runtime.turnTerminalStates.delete(runtimeTurnRefKey(turnRef.threadId, observedTurnId));
+    runtime.retiredTurnRefs.set(retiredKey, true);
+  }
+  runtime.observedTurnByThread.set(turnRef.threadId, turnRef.turnId);
+  return true;
+}
+
 function turnEventRejected(runtime, method, turnRef, deps) {
   const key = runtimeTurnRefKey(turnRef.threadId, turnRef.turnId);
-  if (runtime.sealedTurnTerminals.has(key) || runtime.retiredTurnRefs.has(key)) {
+  if (runtime.terminalCacheOverflowed) {
+    rejectTerminalCacheOverflow(runtime, deps, 'turn.event.cache_exhausted', method, turnRef);
+    return true;
+  }
+  if (runtime.turnTerminalStates.get(key)?.status === 'sealed' || runtime.retiredTurnRefs.has(key)) {
     emitRejectedTurnEvent(runtime, deps, 'turn.event.late', method, turnRef);
     return true;
   }
@@ -173,23 +217,13 @@ function turnEventRejected(runtime, method, turnRef, deps) {
     emitRejectedTurnEvent(runtime, deps, 'turn.event.stale', method, turnRef);
     return true;
   }
-  const observedTurnId = runtime.observedTurnByThread.get(turnRef.threadId);
-  if (observedTurnId && observedTurnId !== turnRef.turnId) {
-    runtime.retiredTurnRefs.add(runtimeTurnRefKey(turnRef.threadId, observedTurnId));
-  }
-  runtime.observedTurnByThread.set(turnRef.threadId, turnRef.turnId);
-  return false;
+  return !trackObservedTurn(runtime, deps, 'turn.event.cache_exhausted', method, turnRef);
 }
 
 function reconcileObservedTurnWithActiveTurn(runtime, threadId, deps) {
   const activeTurnId = deps.activeTurnIdForThread(runtime.get(), threadId);
   if (!activeTurnId) return;
-  const observedTurnId = runtime.observedTurnByThread.get(threadId);
-  if (observedTurnId === activeTurnId) return;
-  if (observedTurnId) {
-    runtime.retiredTurnRefs.add(runtimeTurnRefKey(threadId, observedTurnId));
-  }
-  runtime.observedTurnByThread.set(threadId, activeTurnId);
+  trackObservedTurn(runtime, deps, 'turn.event.cache_exhausted', 'turn.active.reconcile', { threadId, turnId: activeTurnId });
 }
 
 function enqueueAssistantDelta(runtime, method, payload, deps) {
@@ -202,6 +236,7 @@ function enqueueAssistantDelta(runtime, method, payload, deps) {
     delta,
     timestamp: deps.normalizeString(payload.timestamp) || deps.clockNowISO(),
   });
+  replayPendingTurnTerminal(runtime, turnRef, deps);
   scheduleAssistantDeltaFlush(runtime, deps);
   return true;
 }
@@ -348,6 +383,44 @@ function terminalPartialItemsAccepted(runtime, timeline, turnRef, terminal) {
   )) || bufferedItemIds.has(itemId));
 }
 
+function replayPendingTurnTerminal(runtime, turnRef, deps) {
+  const key = runtimeTurnRefKey(turnRef.threadId, turnRef.turnId);
+  const pending = runtime.turnTerminalStates.get(key);
+  if (pending?.status !== 'pending') return false;
+  runtime.turnTerminalStates.delete(key);
+  return applyTurnTerminal(runtime, pending.method, pending.payload, deps);
+}
+
+function terminalConflictReason(existing, terminal) {
+  if (existing.eventId === terminal.eventId) return 'event_id_content_mismatch';
+  if (existing.fingerprint === runtimeTerminalFingerprint(terminal)) return 'content_replayed_with_new_event_id';
+  return 'terminal_truth_conflict';
+}
+
+function cachePendingTurnTerminal(runtime, pendingTerminal, deps) {
+  const { method, payload, terminal, threadId, key, fingerprint } = pendingTerminal;
+  const existing = runtime.turnTerminalStates.get(key);
+  if (existing) {
+    if (existing.eventId === terminal.eventId && existing.fingerprint === fingerprint) return false;
+    emitRejectedTurnEvent(runtime, deps, 'turn.terminal.conflict', method, {
+      threadId,
+      turnId: terminal.turnId,
+      reason: terminalConflictReason(existing, terminal),
+    });
+    return false;
+  }
+  runtime.turnTerminalStates.set(key, {
+    status: 'pending',
+    method,
+    payload,
+    eventId: terminal.eventId,
+    fingerprint,
+    threadId,
+    turnId: terminal.turnId,
+  });
+  return true;
+}
+
 function applyTurnTerminal(runtime, method, payload, deps) {
   const parsed = parseRuntimeTurnTerminal(payload);
   if (!parsed.value) {
@@ -363,20 +436,24 @@ function applyTurnTerminal(runtime, method, payload, deps) {
   }
   const key = runtimeTurnRefKey(threadId, terminal.turnId);
   const fingerprint = runtimeTerminalFingerprint(terminal);
-  const sealed = runtime.sealedTurnTerminals.get(key);
-  if (sealed) {
-    if (sealed.eventId === terminal.eventId && sealed.fingerprint === fingerprint) return false;
-    const reason = sealed.eventId === terminal.eventId
-      ? 'event_id_content_mismatch'
-      : sealed.fingerprint === fingerprint
-        ? 'content_replayed_with_new_event_id'
-        : 'terminal_truth_conflict';
+  if (runtime.terminalCacheOverflowed) {
+    return rejectTerminalCacheOverflow(
+      runtime,
+      deps,
+      'turn.terminal.cache_exhausted',
+      method,
+      { threadId, turnId: terminal.turnId },
+    );
+  }
+  const terminalState = runtime.turnTerminalStates.get(key);
+  if (terminalState) {
+    if (terminalState.eventId === terminal.eventId && terminalState.fingerprint === fingerprint) return false;
     emitRejectedTurnEvent(
       runtime,
       deps,
       'turn.terminal.conflict',
       method,
-      { threadId, turnId: terminal.turnId, reason },
+      { threadId, turnId: terminal.turnId, reason: terminalConflictReason(terminalState, terminal) },
     );
     return false;
   }
@@ -388,16 +465,23 @@ function applyTurnTerminal(runtime, method, payload, deps) {
     emitRejectedTurnEvent(runtime, deps, 'turn.terminal.stale', method, { threadId, turnId: terminal.turnId });
     return false;
   }
+  if (!trackObservedTurn(
+    runtime,
+    deps,
+    'turn.terminal.cache_exhausted',
+    method,
+    { threadId, turnId: terminal.turnId },
+  )) {
+    return false;
+  }
   const turnRef = { threadId, turnId: terminal.turnId };
   const timeline = runtime.get().timelinesByThread[threadId] || deps.optionalUiArray();
   if (!terminalPartialItemsAccepted(runtime, timeline, turnRef, terminal)) {
-    runtime.addWarning('error', 'turn.terminal.contract_invalid', { eventName: method, threadId, turnId: terminal.turnId, reason: 'partial_item_reference' });
-    runtime.notifyAction('响应契约错误', 'error', { category: 'turn_terminal_contract', threadId });
+    cachePendingTurnTerminal(runtime, { method, payload, terminal, threadId, key, fingerprint }, deps);
     return false;
   }
-  runtime.observedTurnByThread.set(threadId, terminal.turnId);
   runtime.flushAssistantDeltasNow(turnRef);
-  runtime.sealedTurnTerminals.set(key, { eventId: terminal.eventId, fingerprint });
+  runtime.turnTerminalStates.set(key, { status: 'sealed', eventId: terminal.eventId, fingerprint });
   runtime.finalizeActiveAssistantMessages(turnRef);
   runtime.set((state) => ({
     timelinesByThread: {
@@ -425,13 +509,19 @@ export function clearTurnRuntimeForThread(runtime, threadId) {
     if (key.startsWith(prefix)) runtime.assistantDeltaBuffers.delete(key);
   }
   if (runtime.assistantDeltaBuffers.size === 0) runtime.clearAssistantDeltaFlushTimer();
-  for (const key of runtime.sealedTurnTerminals.keys()) {
-    if (key.startsWith(prefix)) runtime.sealedTurnTerminals.delete(key);
+  for (const key of runtime.turnTerminalStates.keys()) {
+    if (key.startsWith(prefix)) runtime.turnTerminalStates.delete(key);
   }
-  for (const key of runtime.retiredTurnRefs) {
+  for (const key of runtime.retiredTurnRefs.keys()) {
     if (key.startsWith(prefix)) runtime.retiredTurnRefs.delete(key);
   }
   runtime.observedTurnByThread.delete(threadId);
+  if (runtime.terminalCacheOverflowed
+    && runtime.turnTerminalStates.size < MAX_TRACKED_TURN_TERMINALS
+    && runtime.observedTurnByThread.size < MAX_TRACKED_TURN_TERMINALS
+    && runtime.retiredTurnRefs.size < MAX_TRACKED_TURN_TERMINALS) {
+    runtime.terminalCacheOverflowed = false;
+  }
 }
 
 function relatedThreadTimelineKeys(state, threadId, deps) {
@@ -463,6 +553,7 @@ export function attachAssistantEventRuntime(runtime, deps) {
     enqueueReasoningDelta: (method, payload) => enqueueReasoningDelta(runtime, method, payload, deps),
     enqueueCommandOutputDelta: (method, payload) => enqueueCommandOutputDelta(runtime, method, payload, deps),
     clearTurnRuntimeForThread: (threadId) => clearTurnRuntimeForThread(runtime, threadId),
+    getTurnTerminalCacheStats: () => terminalCacheStats(runtime),
     reconcileObservedTurnWithActiveTurn: (threadId) => reconcileObservedTurnWithActiveTurn(runtime, threadId, deps),
     finalizeActiveAssistantMessages: (turnRef) => finalizeActiveAssistantMessages(runtime, turnRef, deps),
     flushAssistantDeltasNow: (turnRef) => flushAssistantDeltaBuffers(runtime, deps, turnRef),

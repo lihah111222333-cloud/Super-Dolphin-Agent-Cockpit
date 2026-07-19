@@ -396,7 +396,7 @@ internal/dto/turn/contract_validator.go	internal	other	go-source	8705	provider/s
 internal/dto/turn/event.go	internal	other	go-source	3186	provider/shared DTO 与事件协议	internal,dto,turn,event,provider,shared,DTO,与事件协议
 internal/dto/turn/model.go	internal	other	go-source	883	provider/shared DTO 与事件协议	internal,dto,turn,model,provider,shared,DTO,与事件协议
 internal/dto/turn/progress.go	internal	other	go-source	2537	provider/shared DTO 与事件协议	internal,dto,turn,progress,provider,shared,DTO,与事件协议
-internal/dto/turn/schema/field_consumers.json	internal	other	json	9156	provider/shared DTO 与事件协议	internal,dto,turn,schema,field,consumers,provider,shared,DTO,与事件协议
+internal/dto/turn/schema/field_consumers.json	internal	other	json	9386	provider/shared DTO 与事件协议	internal,dto,turn,schema,field,consumers,provider,shared,DTO,与事件协议
 internal/dto/turn/schema/public_error.v1.json	internal	other	json	766	provider/shared DTO 与事件协议	internal,dto,turn,schema,public,error,v1,provider,shared,DTO,与事件协议
 internal/dto/turn/schema/turn_ref.v1.json	internal	other	json	329	provider/shared DTO 与事件协议	internal,dto,turn,schema,ref,v1,provider,shared,DTO,与事件协议
 internal/dto/turn/schema/turn_terminal.v2.json	internal	other	json	2244	provider/shared DTO 与事件协议	internal,dto,turn,schema,terminal,v2,provider,shared,DTO,与事件协议
@@ -457,7 +457,8 @@ internal/ui/wails/rpc.go	internal	other	go-source	20397	Wails binding 与 UI RPC
 internal/ui/wails/runner.go	internal	other	go-source	1596	Wails binding 与 UI RPC 桥接	internal,ui,wails,runner,Wails,binding,与,UI,RPC,桥接
 internal/ui/wails/scope_catalog.go	internal	other	go-source	4033	Wails binding 与 UI RPC 桥接	internal,ui,wails,scope,catalog,Wails,binding,与,UI,RPC,桥接
 internal/ui/wails/sharedfile_open.go	internal	other	go-source	17139	Wails binding 与 UI RPC 桥接	internal,ui,wails,sharedfile,open,Wails,binding,与,UI,RPC,桥接
-internal/ui/wails/testdata/failure_smoke_host/main.go	internal	other	go-source	17333	Wails binding 与 UI RPC 桥接	internal,ui,wails,testdata,failure,smoke,host,main,Wails,binding,与,UI,RPC,桥接
+internal/ui/wails/testdata/failure_smoke_host/main.go	internal	other	go-source	17819	Wails binding 与 UI RPC 桥接	internal,ui,wails,testdata,failure,smoke,host,main,Wails,binding,与,UI,RPC,桥接
+internal/ui/wails/testdata/failure_smoke_host/terminal_projection_test.go	internal	other	go-test	1275	Wails binding 与 UI RPC 桥接	internal,ui,wails,testdata,failure,smoke,host,terminal,projection,test,Wails,binding,与,UI,RPC,桥接
 internal/ui/wails/window_state.go	internal	other	go-source	4310	Wails binding 与 UI RPC 桥接	internal,ui,wails,window,state,Wails,binding,与,UI,RPC,桥接
 internal/ui/wails/window_test.go	internal	other	go-test	5353	Wails binding 与 UI RPC 桥接	internal,ui,wails,window,test,Wails,binding,与,UI,RPC,桥接
 internal/ui/wails/window.go	internal	other	go-source	6593	Wails binding 与 UI RPC 桥接	internal,ui,wails,window,Wails,binding,与,UI,RPC,桥接

@@ -11,7 +11,6 @@ import (
 	tooldto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/tool"
 	turndto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/turn"
 	uidto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/ui"
-	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/uistate/terminalstatus"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/uistate/timeline"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util/clone"
 )
@@ -291,26 +290,25 @@ func (s *service) applyToolApprovalResolved(ev tooldto.ToolApprovalResolved) {
 	})
 }
 
-// completedTurnSummary 合并 active turn 和完成事件，生成 recent turn 摘要。
-// active turn 中已有开始时间会保留，完成事件只覆盖结果状态和错误字段。
-func completedTurnSummary(current *TurnSummary, ev turndto.TurnCompleted) TurnSummary {
+// completedTurnSummary 合并 active turn 和 canonical 终态，生成 recent turn 摘要。
+func completedTurnSummary(current *TurnSummary, ev turndto.TurnCompleted, terminal turndto.TurnTerminalV2) TurnSummary {
 	summary := TurnSummary{
 		ID:          strings.TrimSpace(ev.TurnID),
 		AgentID:     strings.TrimSpace(ev.AgentID),
 		ThreadID:    strings.TrimSpace(ev.ThreadID),
-		Status:      completionStatus(ev),
-		Error:       strings.TrimSpace(ev.Error),
-		Reason:      strings.TrimSpace(ev.Reason),
+		Status:      completionStatus(terminal),
+		Error:       publicTerminalError(terminal),
+		Reason:      strings.TrimSpace(terminal.TerminationCause),
 		CompletedAt: clone.Time(&ev.Timestamp),
 	}
 	if current != nil && current.ID == summary.ID {
 		summary = *cloneTurn(current)
-		summary.Status = completionStatus(ev)
-		summary.Error = strings.TrimSpace(ev.Error)
-		summary.Reason = strings.TrimSpace(ev.Reason)
+		summary.Status = completionStatus(terminal)
+		summary.Error = publicTerminalError(terminal)
+		summary.Reason = strings.TrimSpace(terminal.TerminationCause)
 		summary.CompletedAt = clone.Time(&ev.Timestamp)
 	}
-	success := ev.Success
+	success := terminal.Outcome == "success"
 	summary.Success = &success
 	if summary.ID == "" {
 		summary.ID = strings.TrimSpace(ev.TurnID)
@@ -324,8 +322,18 @@ func completedTurnSummary(current *TurnSummary, ev turndto.TurnCompleted) TurnSu
 	return summary
 }
 
-func completionStatus(ev turndto.TurnCompleted) string {
-	return terminalstatus.Status(ev.Success, ev.Status, ev.Reason, ev.Error)
+func completionStatus(terminal turndto.TurnTerminalV2) string {
+	if terminal.Outcome == "success" {
+		return "completed"
+	}
+	return strings.TrimSpace(terminal.Outcome)
+}
+
+func publicTerminalError(terminal turndto.TurnTerminalV2) string {
+	if terminal.PublicError == nil {
+		return ""
+	}
+	return strings.TrimSpace(terminal.PublicError.Message)
 }
 
 func chooseString(next, current string) string {

@@ -117,12 +117,16 @@ type productionWailsRuntime struct {
 	transport        *platformrpc.Server
 	bridge           *uiwails.EventBridge
 	eventUnsubs      []func()
+	projectionCancel context.CancelFunc
 	providerDispatch map[string]*unified.EventDispatcher
 }
 
 func (r *productionWailsRuntime) stop() {
 	for _, unsubscribe := range r.eventUnsubs {
 		unsubscribe()
+	}
+	if r.projectionCancel != nil {
+		r.projectionCancel()
 	}
 	r.bridge.Stop()
 }
@@ -133,6 +137,14 @@ func newProductionWailsRuntime(dispatcher *event.Dispatcher, project string) (*p
 	config := &platformconfig.Config{RPCAddr: "127.0.0.1:0"}
 	backend := platformrpc.NewServer(platformrpc.Params{Config: config})
 	providerDispatch := providerDispatchers(dispatcher)
+	projection, _, err := uistate.NewService(nil, nil, nil, nil, nil, nil)
+	if err != nil {
+		return nil, fmt.Errorf("create production uistate projection: %w", err)
+	}
+	projectionCancel := uistate.NewUIStateSubscribers(projection).Spec.Register(dispatcher)
+	if projectionCancel == nil {
+		return nil, fmt.Errorf("register production uistate projection")
+	}
 	backendHandlers := fixtureHandlers(dispatcher, project, providerDispatch)
 	backend.Register(backendHandlers)
 
@@ -165,7 +177,7 @@ func newProductionWailsRuntime(dispatcher *event.Dispatcher, project string) (*p
 	bridge := uiwails.NewEventBridge(dispatcher, lifecycle, slog.Default())
 	bridge.Start()
 	return &productionWailsRuntime{
-		transport: browserTransport, bridge: bridge, eventUnsubs: eventUnsubs, providerDispatch: providerDispatch,
+		transport: browserTransport, bridge: bridge, eventUnsubs: eventUnsubs, projectionCancel: projectionCancel, providerDispatch: providerDispatch,
 	}, nil
 }
 

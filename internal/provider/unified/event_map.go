@@ -2,11 +2,14 @@ package unified
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
 	"log/slog"
 	"reflect"
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/kelindar/event"
 	agentdto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/agent"
@@ -109,7 +112,16 @@ func (d *EventDispatcher) Publish(ev any) {
 	if d == nil {
 		return
 	}
-	if !publishTypedEvent(d.bus, ev) {
+	d.publishTranslatedEvent("typed", ev)
+}
+
+func (d *EventDispatcher) publishTranslatedEvent(rawType string, ev any) {
+	canonicalEvent, err := attachCanonicalTurnTerminal(ev)
+	if err != nil {
+		d.logger.Warn("event dispatcher rejected turn terminal without canonical projection", "raw_type", rawType)
+		return
+	}
+	if !publishTypedEvent(d.bus, canonicalEvent) {
 		d.logger.Warn("event dispatcher received unsupported typed event", "event", ev)
 	}
 }
@@ -128,15 +140,32 @@ func (d *EventDispatcher) Dispatch(raw dto.RawProviderEvent) {
 
 	for _, translator := range translators {
 		translator(raw, func(ev any) {
-			if !publishTypedEvent(d.bus, ev) {
-				d.logger.Warn(
-					"event translator produced unsupported event",
-					"raw_type", raw.EventType,
-					"event", ev,
-				)
-			}
+			d.publishTranslatedEvent(raw.EventType, ev)
 		})
 	}
+}
+
+// attachCanonicalTurnTerminal 让统一 provider dispatcher 在 typed subscriber 之前产出唯一终态真值。
+func attachCanonicalTurnTerminal(ev any) (any, error) {
+	completed, ok := ev.(turndto.TurnCompleted)
+	if !ok {
+		return ev, nil
+	}
+	if _, canonical, err := turndto.CanonicalTurnTerminal(completed); err != nil {
+		return nil, errors.New("invalid canonical turn terminal")
+	} else if canonical {
+		return completed, nil
+	}
+	eventID := fmt.Sprintf("terminal:%s:%s:%s", completed.ThreadID, completed.TurnID, completed.Timestamp.UTC().Format(time.RFC3339Nano))
+	terminal, err := turndto.NewTurnTerminalV2(completed, eventID)
+	if err != nil {
+		return nil, errors.New("turn terminal canonicalization failed")
+	}
+	attached, err := turndto.AttachCanonicalTurnTerminal(completed, terminal)
+	if err != nil {
+		return nil, errors.New("turn terminal attachment failed")
+	}
+	return attached, nil
 }
 
 // publishTypedEvent 根据事件实际类型查找发布器，bus 缺失时视为已处理以支持无事件总线测试。

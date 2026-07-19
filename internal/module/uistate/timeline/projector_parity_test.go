@@ -3,6 +3,7 @@ package timeline_test
 import (
 	"encoding/json"
 	"testing"
+	"time"
 
 	"github.com/kelindar/event"
 	agentdto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/agent"
@@ -237,35 +238,32 @@ func TestRegisterSubscriptions_ErrorParity(t *testing.T) {
 		},
 		Error: "agent failed",
 	})
-	event.Publish(dispatcher, turndto.TurnCompleted{
+	event.Publish(dispatcher, canonicalTimelineTurnCompleted(t, turndto.TurnCompleted{
 		TurnHeader: shared.TurnHeader{
 			AgentHeader: shared.AgentHeader{
-				ThreadHeader: shared.ThreadHeader{ThreadID: "t1"},
+				ThreadHeader: shared.ThreadHeader{EventHeader: shared.EventHeader{Timestamp: time.Now().UTC()}, ThreadID: "t1"},
 				AgentID:      "agent-1",
 			},
 			TurnIDHeader: shared.TurnIDHeader{TurnID: "turn-1"},
 		},
 		Success: false,
+		Status:  "failed",
 		Error:   "turn failed",
-	})
+	}))
 	waitForCondition(t, func() bool {
 		items := svc.GetByThread("t1")
 		errorCount := 0
-		failedTurn := false
 		for _, item := range items {
 			if item.Kind == "error" {
 				errorCount++
 			}
-			if item.Kind == "turn_end" && item.Status == "failed" {
-				failedTurn = true
-			}
 		}
-		return errorCount == 3 && failedTurn
-	}, "expected agent and turn failures to map to error items")
+		return errorCount == 2
+	}, "expected only agent failures to map to timeline error items")
 }
 
-// TestTimelineTurnCompletedSuccessFalseWithoutErrorIsFailed 固定无诊断失败也必须用户可见。
-func TestTimelineTurnCompletedSuccessFalseWithoutErrorIsFailed(t *testing.T) {
+// TestTimelineTurnCompletedDoesNotCreateSecondTerminalItem 锁住 turn/terminal 是唯一 UI 终态 owner。
+func TestTimelineTurnCompletedDoesNotCreateSecondTerminalItem(t *testing.T) {
 	svc := timeline.New(nil, nil, 50)
 	dispatcher := event.NewDispatcher()
 	cancels := timeline.RegisterSubscriptions(dispatcher, svc, nil, nil)
@@ -276,43 +274,35 @@ func TestTimelineTurnCompletedSuccessFalseWithoutErrorIsFailed(t *testing.T) {
 		_ = dispatcher.Close()
 	}()
 
-	event.Publish(dispatcher, turndto.TurnCompleted{
+	event.Publish(dispatcher, canonicalTimelineTurnCompleted(t, turndto.TurnCompleted{
 		TurnHeader: shared.TurnHeader{
 			AgentHeader: shared.AgentHeader{
-				ThreadHeader: shared.ThreadHeader{ThreadID: "t-no-diagnostic"},
+				ThreadHeader: shared.ThreadHeader{EventHeader: shared.EventHeader{Timestamp: time.Now().UTC()}, ThreadID: "t-no-diagnostic"},
 				AgentID:      "agent-1",
 			},
 			TurnIDHeader: shared.TurnIDHeader{TurnID: "turn-no-diagnostic"},
 		},
 		Success: false,
-	})
+		Status:  "failed",
+	}))
 
-	waitForCondition(t, func() bool {
-		for _, item := range svc.GetByThread("t-no-diagnostic") {
-			if item.Kind == "turn_end" {
-				return true
-			}
-		}
-		return false
-	}, "expected failed turn to append a turn_end item")
+	time.Sleep(50 * time.Millisecond)
+	if items := svc.GetByThread("t-no-diagnostic"); len(items) != 0 {
+		t.Fatalf("items = %#v, want no duplicate terminal timeline item", items)
+	}
+}
 
-	items := svc.GetByThread("t-no-diagnostic")
-	turnEndStatus := ""
-	errorText := ""
-	for _, item := range items {
-		switch item.Kind {
-		case "turn_end":
-			turnEndStatus = item.Status
-		case "error":
-			errorText = item.Text
-		}
+func canonicalTimelineTurnCompleted(t *testing.T, completed turndto.TurnCompleted) turndto.TurnCompleted {
+	t.Helper()
+	terminal, err := turndto.NewTurnTerminalV2(completed, "timeline-terminal-event")
+	if err != nil {
+		t.Fatalf("NewTurnTerminalV2() error = %v", err)
 	}
-	if turnEndStatus != "failed" {
-		t.Fatalf("turn_end status = %q from items %#v, want failed", turnEndStatus, items)
+	attached, err := turndto.AttachCanonicalTurnTerminal(completed, terminal)
+	if err != nil {
+		t.Fatalf("AttachCanonicalTurnTerminal() error = %v", err)
 	}
-	if errorText != "turn failed without provider diagnostic" {
-		t.Fatalf("error text = %q from items %#v, want fallback provider diagnostic", errorText, items)
-	}
+	return attached
 }
 
 func TestRegisterSubscriptions_ToolCallDistinctByToolAndCallID(t *testing.T) {
