@@ -16,8 +16,10 @@ import {
   runnerContentEvidence,
   validateBaselineAuditDiff,
 } from './evidence-provenance.mjs';
+import { isAllowedPerformanceBaselinePath } from './performance-baseline-provenance.mjs';
 
 const REPOSITORY_ROOT = resolve(cwd(), '..');
+const FROZEN_PLAN_PATH = 'docs/plans/2026-07-15-frontend-maintainability-error-discoverability-90-plan.md';
 
 describe('evidence provenance', () => {
   it('hashes the exact runner file manifest deterministically', () => {
@@ -76,6 +78,19 @@ describe('evidence provenance', () => {
       .toThrow(/forbidden path/);
     expect(() => validateBaselineAuditDiff(['frontend-app/src/pages/chat/components/ChatActionFailureSink.js']))
       .toThrow(/forbidden path/);
+  });
+
+  it('keeps the exact frozen plan audit path aligned with baseline provenance', () => {
+    expect(validateBaselineAuditDiff([FROZEN_PLAN_PATH])).toEqual([FROZEN_PLAN_PATH]);
+    expect(isAllowedPerformanceBaselinePath(FROZEN_PLAN_PATH)).toBe(true);
+
+    [
+      'docs/plans/2026-07-15-frontend-maintainability-error-discoverability-90-plan-copy.md',
+      'docs/plans/2026-07-15-frontend-maintainability-error-discoverability-90-plan.md.fake',
+    ].forEach((forbiddenPath) => {
+      expect(() => validateBaselineAuditDiff([forbiddenPath])).toThrow(/forbidden path/);
+      expect(isAllowedPerformanceBaselinePath(forbiddenPath)).toBe(false);
+    });
   });
 
   it('separates subject identity from runner identity and records the environment', () => {
