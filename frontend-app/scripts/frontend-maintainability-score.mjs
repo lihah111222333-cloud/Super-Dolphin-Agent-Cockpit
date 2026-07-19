@@ -169,6 +169,9 @@ const performanceEnvironmentKeys = Object.freeze([
   'os', 'cpu', 'totalMemoryBytes', 'loadAverage', 'node', 'npm', 'go',
 ]);
 const MAX_LOAD_AVERAGE_DELTA_PER_LOGICAL_CORE = 0.25;
+const PERFORMANCE_LOAD_WINDOW_POLL_INTERVAL_MS = 5_000;
+const PERFORMANCE_LOAD_WINDOW_MAX_WAIT_MS = 600_000;
+const PERFORMANCE_LOAD_WINDOW_REQUIRED_SAMPLES = 2;
 export function performanceAuditPathAllowed(changedPath) {
   return isAllowedPerformanceBaselinePath(changedPath);
 }
@@ -1200,6 +1203,89 @@ function validateComparableLoadAverage(baselineEnvironment, candidateEnvironment
   }
 }
 
+function performanceLoadTolerance(baselineEnvironment, candidateLogicalCores) {
+  const baselineLogicalCores = baselineEnvironment?.cpu?.logicalCores;
+  if (!Number.isSafeInteger(baselineLogicalCores) || baselineLogicalCores <= 0
+    || !Number.isSafeInteger(candidateLogicalCores) || candidateLogicalCores <= 0) {
+    fail('performance load window requires positive logical CPU counts');
+  }
+  return Math.min(
+    Math.max(1, baselineLogicalCores * MAX_LOAD_AVERAGE_DELTA_PER_LOGICAL_CORE),
+    Math.max(1, candidateLogicalCores * MAX_LOAD_AVERAGE_DELTA_PER_LOGICAL_CORE),
+  );
+}
+
+export async function waitForPerformanceLoadWindow({
+  runnerArgv,
+  runnerCwd,
+  baselineEnvironment = baseline.environment,
+  candidateLogicalCores = os.cpus().length,
+  sampleLoadAverage = () => os.loadavg(),
+  now = () => Date.now(),
+  pause = (milliseconds) => new Promise((resolvePause) => setTimeout(resolvePause, milliseconds)),
+  onRejectedObservation = (observation, remainingMs) => {
+    process.stderr.write(`performance load window waiting: ${JSON.stringify({ observation, remainingMs })}\n`);
+  },
+  pollIntervalMs = PERFORMANCE_LOAD_WINDOW_POLL_INTERVAL_MS,
+  maxWaitMs = PERFORMANCE_LOAD_WINDOW_MAX_WAIT_MS,
+  requiredConsecutiveSamples = PERFORMANCE_LOAD_WINDOW_REQUIRED_SAMPLES,
+} = {}) {
+  if (!Array.isArray(runnerArgv) || runnerArgv.length === 0
+    || typeof runnerCwd !== 'string' || runnerCwd.length === 0
+    || !Array.isArray(baselineEnvironment?.loadAverage) || baselineEnvironment.loadAverage.length !== 3
+    || baselineEnvironment.loadAverage.some((value) => !Number.isFinite(value) || value < 0)
+    || !Number.isSafeInteger(pollIntervalMs) || pollIntervalMs <= 0
+    || !Number.isSafeInteger(maxWaitMs) || maxWaitMs <= 0
+    || !Number.isSafeInteger(requiredConsecutiveSamples) || requiredConsecutiveSamples <= 0) {
+    fail('performance load window configuration is invalid');
+  }
+  const tolerance = performanceLoadTolerance(baselineEnvironment, candidateLogicalCores);
+  const startedAtMs = now();
+  const observations = [];
+  let consecutiveComparableSamples = 0;
+  for (;;) {
+    const observedAtMs = now();
+    const loadAverage = sampleLoadAverage();
+    if (!Array.isArray(loadAverage) || loadAverage.length !== 3
+      || loadAverage.some((value) => !Number.isFinite(value) || value < 0)) {
+      fail('performance load window observation is invalid');
+    }
+    const deltas = baselineEnvironment.loadAverage.map((value, index) => Math.abs(value - loadAverage[index]));
+    const comparable = deltas.every((delta) => delta <= tolerance);
+    consecutiveComparableSamples = comparable ? consecutiveComparableSamples + 1 : 0;
+    const observation = Object.freeze({
+      observedAt: new Date(observedAtMs).toISOString(),
+      loadAverage: Object.freeze([...loadAverage]),
+      deltas: Object.freeze(deltas),
+      comparable,
+      consecutiveComparableSamples,
+    });
+    observations.push(observation);
+    const elapsedMs = observedAtMs - startedAtMs;
+    const audit = (status) => Object.freeze({
+      status,
+      runnerCwd,
+      runnerArgv: Object.freeze([...runnerArgv]),
+      startedAt: new Date(startedAtMs).toISOString(),
+      finishedAt: new Date(observedAtMs).toISOString(),
+      elapsedMs,
+      pollIntervalMs,
+      maxWaitMs,
+      requiredConsecutiveSamples,
+      tolerance,
+      baselineLogicalCores: baselineEnvironment.cpu.logicalCores,
+      candidateLogicalCores,
+      baselineLoadAverage: Object.freeze([...baselineEnvironment.loadAverage]),
+      observations: Object.freeze([...observations]),
+    });
+    if (comparable && consecutiveComparableSamples >= requiredConsecutiveSamples) return audit('READY');
+    if (elapsedMs >= maxWaitMs) return audit('TIMEOUT');
+    const remainingMs = maxWaitMs - elapsedMs;
+    if (!comparable) onRejectedObservation(observation, remainingMs);
+    await pause(Math.min(pollIntervalMs, remainingMs));
+  }
+}
+
 function validateBaseResourceBuild(metric, baseSha, baseTree) {
   const build = metric?.baseBuild;
   exactKeys(build, [
@@ -1911,8 +1997,32 @@ async function executeActualRunner(context, check) {
     }
     fs.rmSync(reportPath, { force: true });
   }
+  const runnerArgv = [command === 'node' ? process.execPath : command, absoluteRunnerPath, ...args];
+  const runnerSha256 = createHash('sha256').update(fs.readFileSync(absoluteRunnerPath)).digest('hex');
+  let loadWindow;
+  if (check.evidenceProtocol === 'performance-budget-json-v1') {
+    loadWindow = await waitForPerformanceLoadWindow({ runnerArgv, runnerCwd: cwd });
+    if (loadWindow.status !== 'READY') {
+      const blocked = {
+        loadWindowTimeout: true,
+        invocation: {
+          cwd,
+          argv: runnerArgv,
+          runnerPath: absoluteRunnerPath,
+          runnerSha256,
+          startedAt: null,
+          finishedAt: null,
+          exitCode: null,
+          signal: null,
+          loadWindow,
+        },
+      };
+      context.evidenceCache.set(cacheKey, blocked);
+      return blocked;
+    }
+  }
   const startedAt = Date.now();
-  const result = await commandResult(command === 'node' ? process.execPath : command, [absoluteRunnerPath, ...args], {
+  const result = await commandResult(runnerArgv[0], runnerArgv.slice(1), {
     cwd,
     timeoutMs: check.timeoutMs,
     env: process.env,
@@ -1944,13 +2054,14 @@ async function executeActualRunner(context, check) {
     finishedAt,
     invocation: {
       cwd,
-      argv: [command === 'node' ? process.execPath : command, absoluteRunnerPath, ...args],
+      argv: runnerArgv,
       runnerPath: absoluteRunnerPath,
-      runnerSha256: createHash('sha256').update(fs.readFileSync(absoluteRunnerPath)).digest('hex'),
+      runnerSha256,
       startedAt: new Date(startedAt).toISOString(),
       finishedAt: new Date(finishedAt).toISOString(),
       exitCode: result.exitCode,
       signal: result.signal,
+      ...(loadWindow ? { loadWindow } : {}),
     },
   };
   context.evidenceCache.set(cacheKey, executed);
@@ -2020,6 +2131,15 @@ async function structuredProbe(context, control, check) {
   if (execution.invalid) {
     return evidenceRecord(context, control, check, {
       status: 'FAIL', exitCode: 1, summary: `target runner must be a regular file: ${execution.runnerPath}`,
+    });
+  }
+  if (execution.loadWindowTimeout) {
+    const { loadWindow } = execution.invocation;
+    return evidenceRecord(context, control, check, {
+      status: 'FAIL',
+      exitCode: 1,
+      summary: `performance load window timed out after ${loadWindow.elapsedMs}ms; tolerance=${loadWindow.tolerance}`,
+      runnerExecution: execution.invocation,
     });
   }
   const { result, report, reportArtifact, startedAt, finishedAt, invocation } = execution;

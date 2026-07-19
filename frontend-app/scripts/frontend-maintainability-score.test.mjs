@@ -13,7 +13,7 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
 import { DESKTOP_FAILURE_SOURCE_PATHS } from './desktop-failure-smoke.mjs';
 import { runManagedCommand } from './managed-command.mjs';
@@ -38,6 +38,7 @@ import {
   structuredRunnerExecutionKey,
   terminalTruthEvidenceStatus,
   validateConfiguration,
+  waitForPerformanceLoadWindow,
   withFrozenDeliveryRunnerFiles,
 } from './frontend-maintainability-score.mjs';
 
@@ -1063,6 +1064,81 @@ describe('frozen scorer target binding', () => {
     expect(new Set(order)).toEqual(new Set(controlIds));
   });
 
+  it('waits for two exact load-window samples and rejects a 4.5001 mutation', async () => {
+    const baselineEnvironment = { cpu: { logicalCores: 18 }, loadAverage: [10, 20, 30] };
+    const samples = [
+      [14.5, 20, 30],
+      [14.5001, 20, 30],
+      [14.5, 20, 30],
+      [14.5, 20, 30],
+    ];
+    const rejected = [];
+    let currentTime = 0;
+    const audit = await waitForPerformanceLoadWindow({
+      runnerArgv: ['node', 'performance-budget-runner.mjs', '--verify'],
+      runnerCwd: '/detached/frontend-app',
+      baselineEnvironment,
+      candidateLogicalCores: 18,
+      sampleLoadAverage: () => samples.shift(),
+      now: () => currentTime,
+      pause: async (milliseconds) => { currentTime += milliseconds; },
+      onRejectedObservation: (observation, remainingMs) => rejected.push({ observation, remainingMs }),
+      pollIntervalMs: 1_000,
+      maxWaitMs: 10_000,
+      requiredConsecutiveSamples: 2,
+    });
+
+    expect(audit).toEqual(expect.objectContaining({
+      status: 'READY',
+      runnerCwd: '/detached/frontend-app',
+      runnerArgv: ['node', 'performance-budget-runner.mjs', '--verify'],
+      elapsedMs: 3_000,
+      tolerance: 4.5,
+      requiredConsecutiveSamples: 2,
+    }));
+    expect(audit.observations.map(({ comparable, consecutiveComparableSamples }) => (
+      [comparable, consecutiveComparableSamples]
+    ))).toEqual([[true, 1], [false, 0], [true, 1], [true, 2]]);
+    expect(audit.observations[1].deltas[0]).toBeCloseTo(4.5001, 4);
+    expect(rejected).toHaveLength(1);
+  });
+
+  it('fails closed after a finite audited load-window timeout', async () => {
+    let currentTime = 0;
+    const rejected = [];
+    const audit = await waitForPerformanceLoadWindow({
+      runnerArgv: ['node', 'performance-budget-runner.mjs', '--verify'],
+      runnerCwd: '/detached/frontend-app',
+      baselineEnvironment: { cpu: { logicalCores: 18 }, loadAverage: [10, 20, 30] },
+      candidateLogicalCores: 18,
+      sampleLoadAverage: () => [14.5001, 20, 30],
+      now: () => currentTime,
+      pause: async (milliseconds) => { currentTime += milliseconds; },
+      onRejectedObservation: (observation, remainingMs) => rejected.push({ observation, remainingMs }),
+      pollIntervalMs: 1_000,
+      maxWaitMs: 2_000,
+      requiredConsecutiveSamples: 2,
+    });
+
+    expect(audit).toEqual(expect.objectContaining({
+      status: 'TIMEOUT', elapsedMs: 2_000, maxWaitMs: 2_000, tolerance: 4.5,
+    }));
+    expect(audit.observations).toHaveLength(3);
+    expect(audit.observations.every(({ comparable }) => comparable === false)).toBe(true);
+    expect(rejected).toHaveLength(2);
+  });
+
+  it('keeps the audited load window before the shared runner command', () => {
+    const source = readFileSync(scorerPath, 'utf8');
+    const executionStart = source.indexOf('async function executeActualRunner');
+    const loadWindowIndex = source.indexOf('loadWindow = await waitForPerformanceLoadWindow', executionStart);
+    const commandIndex = source.indexOf('const result = await commandResult(runnerArgv[0]', executionStart);
+    expect(executionStart).toBeGreaterThanOrEqual(0);
+    expect(loadWindowIndex).toBeGreaterThan(executionStart);
+    expect(commandIndex).toBeGreaterThan(loadWindowIndex);
+    expect(source.slice(loadWindowIndex, commandIndex)).toContain("loadWindow.status !== 'READY'");
+  });
+
   it('does not resolve ignored external dependencies while bootstrapping the frozen scorer', () => {
     const fixture = createFinalCliFixture();
     write('frontend-app/scripts/desktop-failure-smoke.mjs', [
@@ -1230,6 +1306,14 @@ describe('frozen scorer target binding', () => {
       const tmpAlias = detachedTmpAlias();
       const proofRoot = mkdtempSync(join(tmpdir(), 'frontend-maintainability-detached-proof-'));
       const proofPath = join(proofRoot, 'proof.json');
+      const loadAveragePreloadPath = join(proofRoot, 'load-average-preload.mjs');
+      const frozenLoadAverage = JSON.parse(readFileSync(join(scriptRoot, 'frontend-maintainability-baseline.json'), 'utf8'))
+        .environment.loadAverage;
+      writeFileSync(loadAveragePreloadPath, [
+        "import os from 'node:os';",
+        `os.loadavg = () => ${JSON.stringify(frozenLoadAverage)};`,
+        '',
+      ].join('\n'));
       temporaryRepositories.push(proofRoot);
       if (process.platform === 'darwin') {
         expect(tmpAlias).toMatch(/^\/var(?:\/|$)/u);
@@ -1245,14 +1329,18 @@ describe('frozen scorer target binding', () => {
         encoding: 'utf8',
         env: {
           ...process.env,
+          NODE_OPTIONS: [
+            process.env.NODE_OPTIONS,
+            `--import=${pathToFileURL(loadAveragePreloadPath).href}`,
+          ].filter(Boolean).join(' '),
           SCORER_DETACHED_MOUNT_PROOF: proofPath,
           TMPDIR: tmpAlias,
         },
-        timeoutMs: 90_000,
+        timeoutMs: 150_000,
         killGraceMs: 2_000,
       });
 
-      expect(result.status).toBe(1);
+      expect(result.status, `${result.stdout}\n${result.stderr}`).toBe(1);
       expect(result.stdout, result.stderr).toContain(`SCORE_BASE\t${fixture.scoreBaseSha}`);
       expect(result.stdout).toMatch(new RegExp(`^SCORE\\t\\d+\\.\\d\\t${fixture.subjectSha}$`, 'mu'));
       expect(result.stdout).toContain('REPORT\t');
@@ -1278,7 +1366,7 @@ describe('frozen scorer target binding', () => {
     finally {
       execFileSync('git', ['worktree', 'remove', '--force', fixture.subjectRoot], { cwd: fixture.baseRoot });
     }
-  }, 120_000);
+  }, 180_000);
 
   it.each([
     'eslint/bin/eslint.js',
