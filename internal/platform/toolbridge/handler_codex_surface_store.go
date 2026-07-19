@@ -84,7 +84,7 @@ func addSingleMCPToolToSurface(
 	}
 	entry := codexToolEntry{
 		name: canonical, realName: tool.Name, executionKind: "stdio",
-		family: strings.TrimSpace(family), client: client,
+		family: strings.TrimSpace(family), client: client, taskSupport: admitted.taskSupport,
 		compiledSchema: admitted.canonical, authority: admitted.authority,
 	}
 	if err := addSurfaceTool(surface, out, tool, entry); err != nil {
@@ -291,9 +291,10 @@ type mcpSchemaAuthority struct {
 }
 
 type admittedMCPTool struct {
-	tool      mcpdto.MCPTool
-	canonical schema.CanonicalSchema
-	authority *mcpSchemaAuthority
+	tool        mcpdto.MCPTool
+	canonical   schema.CanonicalSchema
+	authority   *mcpSchemaAuthority
+	taskSupport string
 }
 
 type lazyMCPSchemaExecutor struct {
@@ -530,6 +531,10 @@ func (h *Handler) admitMCPTool(
 	authority *mcpSchemaAuthority,
 	tool mcpdto.MCPTool,
 ) (admittedMCPTool, error) {
+	wire, err := decodeMCPToolWire(tool.RawJSON())
+	if err != nil {
+		return admittedMCPTool{}, err
+	}
 	canonical, err := schema.Canonicalize(tool.InputSchema)
 	if err != nil {
 		return admittedMCPTool{}, err
@@ -539,7 +544,10 @@ func (h *Handler) admitMCPTool(
 		return admittedMCPTool{}, err
 	}
 	tool.InputSchema = append(json.RawMessage(nil), canonical.Bytes...)
-	return admittedMCPTool{tool: tool, canonical: canonical, authority: authority}, nil
+	return admittedMCPTool{
+		tool: tool, canonical: canonical, authority: authority,
+		taskSupport: wire.Execution.TaskSupport,
+	}, nil
 }
 
 func handleMCPAdmissionError(
@@ -644,8 +652,9 @@ func (h *Handler) beginMCPAuthority(
 func mcpToolMembership(tools []mcpdto.MCPTool) ([]mcpdto.MCPTool, map[string]string, string, error) {
 	strictTools := make([]mcpdto.MCPTool, 0, len(tools))
 	digests := make(map[string]string, len(tools))
+	identityDigests := make(map[string]string, len(tools))
 	for _, tool := range tools {
-		strictTool, err := decodeStrictRawMCPTool(tool.RawJSON())
+		strictTool, wire, err := decodeStrictRawMCPTool(tool.RawJSON())
 		if err != nil {
 			return nil, nil, "", err
 		}
@@ -654,6 +663,10 @@ func mcpToolMembership(tools []mcpdto.MCPTool) ([]mcpdto.MCPTool, map[string]str
 		}
 		sum := sha256.Sum256(strictTool.InputSchema)
 		digests[strictTool.Name] = hex.EncodeToString(sum[:])
+		identityHash := sha256.New()
+		_, _ = identityHash.Write(strictTool.InputSchema)
+		_, _ = identityHash.Write([]byte("\x00execution.taskSupport=" + wire.Execution.TaskSupport))
+		identityDigests[strictTool.Name] = hex.EncodeToString(identityHash.Sum(nil))
 		strictTools = append(strictTools, strictTool)
 	}
 	names := make([]string, 0, len(digests))
@@ -663,42 +676,38 @@ func mcpToolMembership(tools []mcpdto.MCPTool) ([]mcpdto.MCPTool, map[string]str
 	sort.Strings(names)
 	hash := sha256.New()
 	for _, name := range names {
-		_, _ = hash.Write([]byte(name + "\x00" + digests[name] + "\n"))
+		_, _ = hash.Write([]byte(name + "\x00" + identityDigests[name] + "\n"))
 	}
 	return strictTools, digests, hex.EncodeToString(hash.Sum(nil)), nil
 }
 
 // decodeStrictRawMCPTool 从 raw object 建立唯一 identity，不信任 DTO 宽松投影。
-func decodeStrictRawMCPTool(raw json.RawMessage) (mcpdto.MCPTool, error) {
-	fields, err := decodeRawMCPToolFields(raw)
+func decodeStrictRawMCPTool(raw json.RawMessage) (mcpdto.MCPTool, mcpToolWire, error) {
+	if _, err := decodeRawMCPToolFields(raw); err != nil {
+		return mcpdto.MCPTool{}, mcpToolWire{}, err
+	}
+	wire, err := decodeMCPToolWire(raw)
 	if err != nil {
-		return mcpdto.MCPTool{}, err
+		return mcpdto.MCPTool{}, mcpToolWire{}, err
 	}
 	tool := mcpdto.NewRawTool(raw)
-	if err := decodeRequiredMCPToolString(fields, "name", &tool.Name); err != nil {
-		return mcpdto.MCPTool{}, err
+	tool.Name = wire.Name
+	if wire.Description != nil {
+		tool.Description = *wire.Description
 	}
-	if tool.Name == "" || strings.TrimSpace(tool.Name) != tool.Name {
-		return mcpdto.MCPTool{}, fmt.Errorf("tool name must be a non-empty trimmed string")
-	}
-	if value, ok := fields["description"]; ok {
-		if err := json.Unmarshal(value, &tool.Description); err != nil {
-			return mcpdto.MCPTool{}, fmt.Errorf("tool description must be a string")
-		}
-	}
-	inputSchema, ok := fields["inputSchema"]
-	if !ok {
-		return mcpdto.MCPTool{}, fmt.Errorf("tool %q inputSchema is required", tool.Name)
-	}
-	tool.InputSchema = append(json.RawMessage(nil), inputSchema...)
-	tool.OutputSchema = append(json.RawMessage(nil), fields["outputSchema"]...)
-	return tool, nil
+	tool.InputSchema = append(json.RawMessage(nil), wire.InputSchema...)
+	tool.OutputSchema = append(json.RawMessage(nil), wire.OutputSchema...)
+	return tool, wire, nil
 }
 
 // decodeRawMCPToolFields 逐项读取 raw object，禁止未知键和重复键获权。
 func decodeRawMCPToolFields(raw json.RawMessage) (map[string]json.RawMessage, error) {
 	if len(raw) == 0 {
 		return nil, fmt.Errorf("raw tool object is required")
+	}
+	allowed, err := mcpToolWireFieldSet()
+	if err != nil {
+		return nil, err
 	}
 	decoder := json.NewDecoder(bytes.NewReader(raw))
 	token, err := decoder.Token()
@@ -708,9 +717,9 @@ func decodeRawMCPToolFields(raw json.RawMessage) (map[string]json.RawMessage, er
 	if delimiter, ok := token.(json.Delim); !ok || delimiter != '{' {
 		return nil, fmt.Errorf("raw tool must be an object")
 	}
-	fields := make(map[string]json.RawMessage, 4)
+	fields := make(map[string]json.RawMessage, len(allowed))
 	for decoder.More() {
-		if err := decodeRawMCPToolField(decoder, fields); err != nil {
+		if err := decodeRawMCPToolField(decoder, fields, allowed); err != nil {
 			return nil, err
 		}
 	}
@@ -724,7 +733,11 @@ func decodeRawMCPToolFields(raw json.RawMessage) (map[string]json.RawMessage, er
 }
 
 // decodeRawMCPToolField 校验并保存一个 raw tool 字段。
-func decodeRawMCPToolField(decoder *json.Decoder, fields map[string]json.RawMessage) error {
+func decodeRawMCPToolField(
+	decoder *json.Decoder,
+	fields map[string]json.RawMessage,
+	allowed map[string]struct{},
+) error {
 	keyToken, err := decoder.Token()
 	if err != nil {
 		return fmt.Errorf("decode raw tool key: %w", err)
@@ -733,9 +746,7 @@ func decodeRawMCPToolField(decoder *json.Decoder, fields map[string]json.RawMess
 	if !ok {
 		return fmt.Errorf("raw tool key must be a string")
 	}
-	switch key {
-	case "name", "description", "inputSchema", "outputSchema":
-	default:
+	if _, ok := allowed[key]; !ok {
 		return fmt.Errorf("raw tool contains unknown field %q", key)
 	}
 	if _, duplicate := fields[key]; duplicate {
@@ -746,17 +757,6 @@ func decodeRawMCPToolField(decoder *json.Decoder, fields map[string]json.RawMess
 		return fmt.Errorf("decode raw tool field %q: %w", key, err)
 	}
 	fields[key] = append(json.RawMessage(nil), value...)
-	return nil
-}
-
-func decodeRequiredMCPToolString(fields map[string]json.RawMessage, key string, target *string) error {
-	raw, ok := fields[key]
-	if !ok {
-		return fmt.Errorf("tool %s is required", key)
-	}
-	if err := json.Unmarshal(raw, target); err != nil {
-		return fmt.Errorf("tool %s must be a string", key)
-	}
 	return nil
 }
 
@@ -809,13 +809,38 @@ func (h *Handler) publishMCPSurfaceCurrentCAS(ctx context.Context, surface *code
 	})
 }
 
-// revokeCodexToolSurfaceKeys 撤下 scope 上任何旧或半发布 surface，并关闭其 clients。
-func (h *Handler) revokeCodexToolSurfaceKeys(keys []string) error {
-	var err error
-	for _, surface := range h.takeCodexToolSurfaces(keys) {
-		err = errors.Join(err, surface.Close())
+// snapshotCodexToolSurfaceBindings 捕获准备开始时的 surface 指针，供失败清理做 pointer-CAS。
+func (h *Handler) snapshotCodexToolSurfaceBindings(keys []string) map[string]*codexToolSurface {
+	h.surfaceMu.Lock()
+	defer h.surfaceMu.Unlock()
+	expected := make(map[string]*codexToolSurface, len(keys))
+	for _, key := range keys {
+		expected[key] = h.surfaces[key]
 	}
-	return err
+	return expected
+}
+
+// revokeExpectedCodexToolSurface 只撤下仍指向准备快照或本地代际的 key，并关闭对应 clients。
+func (h *Handler) revokeExpectedCodexToolSurface(expected *codexToolSurface) error {
+	if h == nil || expected == nil {
+		return nil
+	}
+	toClose := map[*codexToolSurface]struct{}{expected: {}}
+	h.surfaceMu.Lock()
+	for _, key := range expected.keys {
+		current := h.surfaces[key]
+		observed := expected.expected[key]
+		if current == expected || observed != nil && current == observed {
+			delete(h.surfaces, key)
+			toClose[current] = struct{}{}
+		}
+	}
+	h.surfaceMu.Unlock()
+	var closeErr error
+	for surface := range toClose {
+		closeErr = errors.Join(closeErr, surface.Close())
+	}
+	return closeErr
 }
 
 func (h *Handler) ensureCodexSurfaceEntryCurrent(ctx context.Context, entry codexToolEntry) error {

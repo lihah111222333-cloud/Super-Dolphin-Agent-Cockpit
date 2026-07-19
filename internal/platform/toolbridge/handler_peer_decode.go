@@ -35,6 +35,7 @@ type mcpClient interface {
 // codexToolSurface 保存一次 Codex thread/start 动态工具面及其底层 MCP client。
 type codexToolSurface struct {
 	keys           []string
+	expected       map[string]*codexToolSurface
 	cwd            string
 	workspaceRoots []string
 	tools          map[string]codexToolEntry
@@ -52,6 +53,7 @@ type codexToolEntry struct {
 	name           string
 	realName       string
 	executionKind  string
+	taskSupport    string
 	family         string
 	inputSchema    json.RawMessage
 	compiledSchema schema.CanonicalSchema
@@ -66,10 +68,12 @@ func (h *Handler) PrepareCodexToolSurface(ctx context.Context, scope contract.Co
 		return nil, err
 	}
 	cwd := normalizeToolCallCWD(scope.CWD)
+	keys := codexSurfaceKeys(scope)
 	surface := &codexToolSurface{
 		cwd:            cwd,
 		workspaceRoots: normalizeToolCallWorkspaceRoots(cwd, scope.WorkspaceRoots),
-		keys:           codexSurfaceKeys(scope),
+		keys:           keys,
+		expected:       h.snapshotCodexToolSurfaceBindings(keys),
 		tools:          map[string]codexToolEntry{},
 		aliases:        map[string]string{},
 		disabledTools:  map[string]string{},
@@ -84,10 +88,10 @@ func (h *Handler) PrepareCodexToolSurface(ctx context.Context, scope contract.Co
 		return nil, err
 	}
 	if err := h.addMCPSurfaceTools(ctx, scope, surface, &out, disabled); err != nil {
-		return nil, joinMCPSurfaceErrors(err, errors.Join(surface.Close(), h.revokeCodexToolSurfaceKeys(surface.keys)))
+		return nil, joinMCPSurfaceErrors(err, h.revokeExpectedCodexToolSurface(surface))
 	}
 	if err := h.publishMCPSurfaceCurrentCAS(ctx, surface); err != nil {
-		return nil, joinMCPSurfaceErrors(err, errors.Join(surface.Close(), h.revokeCodexToolSurfaceKeys(surface.keys)))
+		return nil, joinMCPSurfaceErrors(err, h.revokeExpectedCodexToolSurface(surface))
 	}
 	return out, nil
 }
@@ -540,6 +544,17 @@ func (h *Handler) callCodexSurfaceTool(ctx context.Context, surface *codexToolSu
 	return result, err
 }
 
+// validateCodexSurfaceTaskSupport 在 task augmentation 尚未实现时拒绝 required 工具执行。
+func validateCodexSurfaceTaskSupport(entry codexToolEntry) error {
+	if entry.executionKind == "stdio" && entry.taskSupport == mcpToolTaskSupportRequired {
+		return fmt.Errorf(
+			"toolbridge: MCP tool %q requires task augmentation, which is unavailable",
+			entry.realName,
+		)
+	}
+	return nil
+}
+
 // executeCodexSurfaceEntry 在 authority revision lease 内执行外部 MCP 调用。
 func (h *Handler) executeCodexSurfaceEntry(
 	ctx context.Context,
@@ -552,6 +567,9 @@ func (h *Handler) executeCodexSurfaceEntry(
 	}
 	if entry.executionKind == "skill" {
 		return h.callSkillSurfaceTool(ctx, surface, req)
+	}
+	if err := validateCodexSurfaceTaskSupport(entry); err != nil {
+		return nil, err
 	}
 	if err := h.ensureCodexSurfaceEntryCurrent(ctx, entry); err != nil {
 		return nil, err
