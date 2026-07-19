@@ -23,6 +23,7 @@ const BASELINE_AUDIT_ALLOWED_PATHS = Object.freeze(new Set([
   ...RUNNER_CONTENT_PATHS,
   'docs/doc/codemap/README.md',
   'docs/doc/codemap/ai-index.json',
+  'docs/plans/2026-07-15-frontend-maintainability-error-discoverability-90-plan.md',
   'frontend-app/scripts/chat-history-benchmark.test.mjs',
   'frontend-app/scripts/evidence-provenance.test.mjs',
   'frontend-app/scripts/performance-baseline-provenance.test.mjs',
