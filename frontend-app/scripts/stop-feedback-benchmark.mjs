@@ -1,3 +1,7 @@
+import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { performance } from 'node:perf_hooks';
 import { JSDOM } from 'jsdom';
 import {
@@ -10,8 +14,7 @@ import {
   measurementTrimmedMean,
   median,
 } from './performance-budget-model.mjs';
-import { attachActiveThreadRpcRuntime } from '../src/entities/client/model/threadLifecycleRuntime.js';
-import { ChatActionFeedback } from '../src/pages/chat/components/ChatActionFeedback.js';
+import { ChatActionFeedback as RUNNER_FEEDBACK_PROBE } from '../src/pages/chat/components/ChatActionFeedback.js';
 
 // Eleven observations retain the 80% trimmed mean's outlier rejection without turning DOM commits into a load test.
 const MEASUREMENT_ITERATIONS = 11;
@@ -29,16 +32,24 @@ const STOP_FEEDBACK = Object.freeze({
 });
 const STOP_FEEDBACK_PENDING = Object.freeze({ message: '正在请求停止，尚未确认，任务可能仍在运行', tone: 'info' });
 const STOP_FEEDBACK_COPY = Object.freeze({ noticeTitle: '操作通知' });
+const P03_SUBJECT_CONTENT_PATHS = Object.freeze([
+  'frontend-app/package-lock.json',
+  'frontend-app/package.json',
+  'frontend-app/src/entities/client/model/contractStoreModel.js',
+  'frontend-app/src/entities/client/model/threadLifecycleRuntime.js',
+]);
+const P03_RUNTIME_PATH = 'frontend-app/src/entities/client/model/threadLifecycleRuntime.js';
+const P03_RUNNER_FEEDBACK_PROBE_PATH = 'frontend-app/src/pages/chat/components/ChatActionFeedback.js';
 
 if (typeof globalThis.document === 'undefined') {
   const { window } = new JSDOM('<!doctype html><html><body></body></html>', { pretendToBeVisual: true });
-  Object.assign(globalThis, {
-    HTMLElement: window.HTMLElement,
-    MutationObserver: window.MutationObserver,
-    Node: window.Node,
-    document: window.document,
-    navigator: window.navigator,
-    window,
+  Object.defineProperties(globalThis, {
+    HTMLElement: { configurable: true, writable: true, value: window.HTMLElement },
+    MutationObserver: { configurable: true, writable: true, value: window.MutationObserver },
+    Node: { configurable: true, writable: true, value: window.Node },
+    document: { configurable: true, writable: true, value: window.document },
+    navigator: { configurable: true, writable: true, value: window.navigator },
+    window: { configurable: true, writable: true, value: window },
   });
 }
 
@@ -65,10 +76,66 @@ function stopFeedbackContractForSubject(subjectSha) {
   return subjectSha === FROZEN_PLAN_BASE_SHA ? STOP_FEEDBACK.base : STOP_FEEDBACK.candidate;
 }
 
-function resolveStopFeedbackAttachRuntime(attachRuntime) {
-  if (attachRuntime === undefined) return attachActiveThreadRpcRuntime;
+function subjectContentEvidence(subjectRoot, contentPaths = P03_SUBJECT_CONTENT_PATHS) {
+  if (typeof subjectRoot !== 'string' || subjectRoot.length === 0) throw new TypeError('subjectRoot is required');
+  if (!Array.isArray(contentPaths) || contentPaths.length === 0 || new Set(contentPaths).size !== contentPaths.length) {
+    throw new TypeError('P03 subject content paths must be a non-empty unique array');
+  }
+  const files = contentPaths.map((path) => {
+    const content = readFileSync(resolve(subjectRoot, path));
+    return Object.freeze({ path, sha256: createHash('sha256').update(content).digest('hex') });
+  });
+  const aggregate = createHash('sha256');
+  files.forEach(({ path, sha256 }) => aggregate.update(`${path}\0${sha256}\n`));
+  return Object.freeze({ contentHash: aggregate.digest('hex'), files: Object.freeze(files) });
+}
+
+function resolveRunnerFeedbackProbe(feedbackProbe = RUNNER_FEEDBACK_PROBE) {
+  if (typeof feedbackProbe !== 'function') throw new TypeError('P03 runner feedback probe is required');
+  return feedbackProbe;
+}
+
+async function loadStopFeedbackTarget({
+  feedbackProbe = RUNNER_FEEDBACK_PROBE,
+  subjectRoot,
+  subjectSha,
+  subjectTree,
+}) {
+  if (!/^[0-9a-f]{40}$/.test(subjectSha || '')) {
+    throw new TypeError('subjectSha must be a full 40-character Git SHA');
+  }
+  if (!/^[0-9a-f]{40}$/.test(subjectTree || '')) {
+    throw new TypeError('subjectTree must be a full 40-character Git tree SHA');
+  }
+  const root = resolve(subjectRoot || '');
+  const runtimePath = resolve(root, P03_RUNTIME_PATH);
+  const runtimeModule = await import(/* @vite-ignore */ pathToFileURL(runtimePath).href);
+  if (typeof runtimeModule.attachActiveThreadRpcRuntime !== 'function') {
+    throw new Error(`P03 target runtime does not export attachActiveThreadRpcRuntime: ${P03_RUNTIME_PATH}`);
+  }
+  return Object.freeze({
+    attachRuntime: runtimeModule.attachActiveThreadRpcRuntime,
+    feedbackProbe: resolveRunnerFeedbackProbe(feedbackProbe),
+    provenance: Object.freeze({
+      content: subjectContentEvidence(root),
+      runtimePath: P03_RUNTIME_PATH,
+      subjectSha,
+      subjectTree,
+    }),
+  });
+}
+
+function resolveStopFeedbackAttachRuntime(attachRuntime, target) {
+  if (attachRuntime === undefined) {
+    if (typeof target?.attachRuntime !== 'function') throw new TypeError('P03 target attachRuntime is required');
+    return target.attachRuntime;
+  }
   if (typeof attachRuntime !== 'function') throw new TypeError('attachRuntime must be a function');
   return attachRuntime;
+}
+
+function resolveStopFeedbackComponent(target, feedbackProbe) {
+  return resolveRunnerFeedbackProbe(feedbackProbe ?? target?.feedbackProbe);
 }
 
 function observeFeedbackCommit(host, expected) {
@@ -127,16 +194,19 @@ function unconfirmedInterruptResponse() {
 function createStopFeedbackHarness({
   attachRuntime,
   domMutation,
+  feedbackProbe,
   subjectSha,
+  target,
 } = {}) {
-  const runtimeAttacher = resolveStopFeedbackAttachRuntime(attachRuntime);
+  const runtimeAttacher = resolveStopFeedbackAttachRuntime(attachRuntime, target);
+  const FeedbackComponent = resolveStopFeedbackComponent(target, feedbackProbe);
   const contract = stopFeedbackContractForSubject(subjectSha);
   const mutation = normalizeDOMMutation(domMutation);
   const host = globalThis.document.createElement('div');
   globalThis.document.body.append(host);
   const root = createRoot(host);
   const commitFeedback = (feedback) => {
-    flushSync(() => root.render(React.createElement(ChatActionFeedback, { copy: STOP_FEEDBACK_COPY, feedback })));
+    flushSync(() => root.render(React.createElement(FeedbackComponent, { copy: STOP_FEEDBACK_COPY, feedback })));
   };
   commitFeedback(null);
   let state = {
@@ -226,13 +296,15 @@ function createStopFeedbackHarness({
 
 async function runStopFeedbackBenchmark({
   attachRuntime,
+  feedbackProbe,
   subjectSha,
+  target,
   sampleCount = SAMPLE_COUNT,
   warmupCount = WARMUP_COUNT,
 } = {}) {
   if (sampleCount !== SAMPLE_COUNT) throw new TypeError(`sampleCount must be ${SAMPLE_COUNT}`);
   if (warmupCount !== WARMUP_COUNT) throw new TypeError(`warmupCount must be ${WARMUP_COUNT}`);
-  const harness = createStopFeedbackHarness({ attachRuntime, subjectSha });
+  const harness = createStopFeedbackHarness({ attachRuntime, feedbackProbe, subjectSha, target });
   const measureBatch = async () => {
     const durationsMs = [];
     for (let index = 0; index < MEASUREMENT_ITERATIONS; index += 1) {
@@ -259,7 +331,12 @@ async function runStopFeedbackBenchmark({
     const durationAttemptSamplesMs = durationSamplesMs.map((durationMs) => Object.freeze([durationMs]));
     return Object.freeze({
       metricId: 'P03-feedback-budget',
+      runnerFeedbackProbe: Object.freeze({
+        path: P03_RUNNER_FEEDBACK_PROBE_PATH,
+        source: 'runner',
+      }),
       subjectSha,
+      subjectRuntime: target?.provenance,
       warmupCount,
       sampleCount,
       cases: Object.freeze({
@@ -299,11 +376,19 @@ export {
   FEEDBACK_DURATION_CLOCK,
   FROZEN_PLAN_BASE_SHA,
   MEASUREMENT_ITERATIONS,
+  P03_RUNNER_FEEDBACK_PROBE_PATH,
+  P03_RUNTIME_PATH,
+  P03_SUBJECT_CONTENT_PATHS,
+  RUNNER_FEEDBACK_PROBE,
   STOP_FEEDBACK_PENDING,
   createStopFeedbackHarness,
+  loadStopFeedbackTarget,
   measurementTrimmedMean,
   runStopFeedbackBenchmark,
   resolveStopFeedbackAttachRuntime,
+  resolveStopFeedbackComponent,
+  resolveRunnerFeedbackProbe,
   stopFeedbackContractForSubject,
+  subjectContentEvidence,
   verifyStopFeedbackEvidence,
 };

@@ -16,6 +16,8 @@ const RUNNER_CONTENT_PATHS = Object.freeze([
   'frontend-app/scripts/render-isolation-probe.test.jsx',
   'frontend-app/scripts/resource-budget.mjs',
   'frontend-app/scripts/stop-feedback-benchmark.mjs',
+  'frontend-app/src/entities/client/model/contractStoreModel.js',
+  'frontend-app/src/entities/client/model/threadLifecycleRuntime.js',
   'frontend-app/src/pages/chat/components/ChatActionFeedback.js',
 ]);
 
@@ -31,6 +33,7 @@ const BASELINE_AUDIT_ALLOWED_PATHS = Object.freeze(new Set([
   'frontend-app/scripts/performance-budget-runner.test.mjs',
   'frontend-app/scripts/resource-budget.test.mjs',
   'frontend-app/scripts/stop-feedback-benchmark.test.mjs',
+  'frontend-app/src/entities/client/model/threadLifecycleRuntime.test.js',
 ]));
 
 const BASELINE_AUDIT_ALLOWED_PREFIXES = Object.freeze([

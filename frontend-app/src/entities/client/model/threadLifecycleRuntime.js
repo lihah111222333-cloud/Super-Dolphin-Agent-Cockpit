@@ -6,6 +6,7 @@ export const INTERRUPT_RPC_TIMEOUT_MS = 15_000;
 const INTERRUPT_RPC_TIMEOUT_CODE = 'THREAD_INTERRUPT_RPC_TIMEOUT';
 const INTERRUPT_PENDING_MESSAGE = '正在请求停止，尚未确认，任务可能仍在运行';
 const INTERRUPT_UNCONFIRMED_MESSAGE = '停止未确认，任务可能仍在运行';
+const interruptPendingTimers = new WeakMap();
 function threadActionRequiresActiveTurn(action) { return action === 'thread.interrupt' || action === 'thread.force_complete'; }
 
 export function createStopRequestId() {
@@ -63,6 +64,21 @@ function interruptTimeoutError() {
   return error;
 }
 
+function scheduleInterruptPendingFeedback(request, publishAction, threadId) {
+  const pendingTimer = globalThis.setTimeout(() => {
+    interruptPendingTimers.delete(request);
+    publishAction(INTERRUPT_PENDING_MESSAGE, 'info', { threadId });
+  }, 0);
+  interruptPendingTimers.set(request, pendingTimer);
+}
+
+function clearInterruptPendingFeedback(request) {
+  const pendingTimer = interruptPendingTimers.get(request);
+  if (pendingTimer === undefined) return;
+  globalThis.clearTimeout(pendingTimer);
+  interruptPendingTimers.delete(request);
+}
+
 async function interruptWithinTimeout(rpc, payload) {
   let timeoutId;
   try {
@@ -75,6 +91,7 @@ async function interruptWithinTimeout(rpc, payload) {
   }
   finally {
     globalThis.clearTimeout(timeoutId);
+    clearInterruptPendingFeedback(payload);
   }
 }
 
@@ -159,7 +176,14 @@ function notifyThreadTransportFailure(params) {
 
 export function attachActiveThreadRpcRuntime(runtime, deps) {
   const { activeThreadInterruptTarget, backendThreadIdForState, cleanObject, createRequestId } = deps;
-  const { get, set, requireCwd, notifyAction, addWarning } = runtime;
+  const { get, set, requireCwd, notifyAction: publishAction, addWarning } = runtime;
+  const notifyAction = (message, tone, details) => {
+    if (message === INTERRUPT_PENDING_MESSAGE && tone === 'info' && details?.request) {
+      scheduleInterruptPendingFeedback(details.request, publishAction, details.threadId);
+      return;
+    }
+    publishAction(message, tone, details);
+  };
 
   const runActiveThreadRPC = async (action, rpc, options = {}) => {
     const currentState = get();
@@ -177,7 +201,7 @@ export function attachActiveThreadRpcRuntime(runtime, deps) {
       const payload = threadActionPayload({ action, activeThreadInterruptTarget, activeTurnTarget, cleanObject, createRequestId, currentState, cwd, notifyAction, threadId });
       if (!payload) return { ok: false, threadId, result: null };
       const request = cleanObject(payload);
-      if (action === 'thread.interrupt') notifyAction(INTERRUPT_PENDING_MESSAGE, 'info', { threadId });
+      if (action === 'thread.interrupt') notifyAction(INTERRUPT_PENDING_MESSAGE, 'info', { request, threadId });
       const result = action === 'thread.interrupt'
         ? await interruptWithinTimeout(rpc, request)
         : await rpc(request);

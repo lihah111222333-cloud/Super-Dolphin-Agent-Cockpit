@@ -76,6 +76,11 @@ describe('thread lifecycle runtime', () => {
     });
     expect(cleanObject).toHaveBeenCalledTimes(1);
     expect(runtime.notifyAction).toHaveBeenCalledWith('已发送中断请求', 'success', { threadId: 'thread-1' });
+    expect(runtime.notifyAction).not.toHaveBeenCalledWith(
+      '正在请求停止，尚未确认，任务可能仍在运行',
+      'info',
+      { threadId: 'thread-1' },
+    );
   });
 
   it.each([
@@ -116,6 +121,42 @@ describe('thread lifecycle runtime', () => {
     );
   });
 
+  it.each([
+    ['undefined', undefined],
+    ['null', null],
+    ['zero', 0],
+  ])('preserves a falsy interrupt rejection: %s', async (_name, reason) => {
+    const runtime = createRuntime();
+    const rpc = vi.fn().mockRejectedValue(reason);
+    attachActiveThreadRpcRuntime(runtime, createDeps());
+
+    await expect(runtime.activeThreadRPC('thread.interrupt', rpc)).rejects.toBe(reason);
+    expect(runtime.notifyAction).toHaveBeenCalledWith(
+      '停止未确认，任务可能仍在运行',
+      'warning',
+      { threadId: 'thread-1' },
+    );
+    expect(runtime.notifyAction).not.toHaveBeenCalledWith(
+      '正在请求停止，尚未确认，任务可能仍在运行',
+      'info',
+      { threadId: 'thread-1' },
+    );
+  });
+
+  it('clears both interrupt timers after a quick result', async () => {
+    const clearTimeout = vi.spyOn(globalThis, 'clearTimeout');
+    try {
+      const runtime = createRuntime();
+      attachActiveThreadRpcRuntime(runtime, createDeps());
+
+      await expect(runtime.activeThreadRPC('thread.interrupt', vi.fn().mockResolvedValue(successfulInterruptResult()))).resolves.toBe(true);
+      expect(clearTimeout).toHaveBeenCalledTimes(2);
+    }
+    finally {
+      clearTimeout.mockRestore();
+    }
+  });
+
   it('shows unconfirmed pending feedback while the interrupt RPC waits and times out', async () => {
     vi.useFakeTimers();
     try {
@@ -124,6 +165,7 @@ describe('thread lifecycle runtime', () => {
       attachActiveThreadRpcRuntime(runtime, createDeps());
 
       const pending = runtime.activeThreadRPC('thread.interrupt', rpc);
+      await vi.advanceTimersByTimeAsync(0);
       expect(runtime.notifyAction).toHaveBeenCalledWith(
         '正在请求停止，尚未确认，任务可能仍在运行',
         'info',
@@ -162,6 +204,11 @@ describe('thread lifecycle runtime', () => {
       source: 'ui_stop',
     });
     expect(runtime.notifyAction).toHaveBeenCalledWith('中断当前执行失败，请重试。', 'warning', { threadId: 'thread-1' });
+    expect(runtime.notifyAction).not.toHaveBeenCalledWith(
+      '正在请求停止，尚未确认，任务可能仍在运行',
+      'info',
+      { threadId: 'thread-1' },
+    );
     expect(runtime.notifyAction).not.toHaveBeenCalledWith('已发送中断请求', 'success', { threadId: 'thread-1' });
     expect(runtime.addWarning).toHaveBeenCalledWith('warn', 'thread.interrupt.failed', {
       threadId: 'thread-1',

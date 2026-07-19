@@ -26,7 +26,13 @@ import {
   validateV8HeapEvidence,
   verifyResourceEvidence,
 } from './resource-budget.mjs';
-import { runStopFeedbackBenchmark, verifyStopFeedbackEvidence } from './stop-feedback-benchmark.mjs';
+import {
+  loadStopFeedbackTarget,
+  P03_RUNNER_FEEDBACK_PROBE_PATH,
+  P03_SUBJECT_CONTENT_PATHS,
+  runStopFeedbackBenchmark,
+  verifyStopFeedbackEvidence,
+} from './stop-feedback-benchmark.mjs';
 
 const SCRIPT_PATH = fileURLToPath(import.meta.url);
 const FRONTEND_ROOT = resolve(dirname(SCRIPT_PATH), '..');
@@ -170,6 +176,72 @@ function collectCandidateResourceBudget(options = {}) {
   return Object.freeze({ ...metric, candidateBuild: build });
 }
 
+async function collectDetachedStopFeedbackBudget({
+  subjectSha,
+  subjectTree,
+  repositoryRoot = REPOSITORY_ROOT,
+  execute = execFileSync,
+  loadTarget = loadStopFeedbackTarget,
+  runBenchmark = runStopFeedbackBenchmark,
+} = {}) {
+  requireFullSha(subjectSha, 'P03 subject SHA');
+  requireFullSha(subjectTree, 'P03 subject tree');
+  const temporaryRoot = mkdtempSync(join(tmpdir(), 'frontend-stop-feedback-subject-'));
+  let worktreeAdded = false;
+  try {
+    execute('git', ['worktree', 'add', '--detach', temporaryRoot, subjectSha], {
+      cwd: repositoryRoot, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    worktreeAdded = true;
+    const targetSha = requireFullSha(execute('git', ['rev-parse', 'HEAD'], {
+      cwd: temporaryRoot, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'],
+    }).trim(), 'P03 detached target SHA');
+    const targetTree = requireFullSha(execute('git', ['rev-parse', 'HEAD^{tree}'], {
+      cwd: temporaryRoot, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'],
+    }).trim(), 'P03 detached target tree');
+    const status = execute('git', ['status', '--porcelain', '--untracked-files=all'], {
+      cwd: temporaryRoot, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'],
+    }).trim();
+    if (targetSha !== subjectSha || targetTree !== subjectTree) {
+      throw new Error('P03 detached target Git identity does not match the requested subject');
+    }
+    if (status) throw new Error('P03 detached target worktree must be clean');
+    const frontendRoot = join(temporaryRoot, 'frontend-app');
+    execute('npm', INSTALL_ARGV, {
+      cwd: frontendRoot, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    const postInstallStatus = execute('git', ['status', '--porcelain', '--untracked-files=all'], {
+      cwd: temporaryRoot, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'],
+    }).trim();
+    if (postInstallStatus) throw new Error('P03 detached target worktree changed during npm ci');
+    const target = await loadTarget({
+      subjectRoot: temporaryRoot,
+      subjectSha: targetSha,
+      subjectTree: targetTree,
+    });
+    const metric = await runBenchmark({ subjectSha: targetSha, target });
+    if (metric?.subjectSha !== targetSha || metric.subjectRuntime?.subjectSha !== targetSha) {
+      throw new Error('P03 target benchmark subject provenance mismatch');
+    }
+    return Object.freeze({
+      ...metric,
+      subjectRuntime: Object.freeze({
+        ...metric.subjectRuntime,
+        installArgv: Object.freeze(['npm', ...INSTALL_ARGV]),
+        worktreeClean: true,
+        worktreeStatus: Object.freeze([]),
+      }),
+    });
+  } finally {
+    if (worktreeAdded) {
+      execute('git', ['worktree', 'remove', '--force', temporaryRoot], {
+        cwd: repositoryRoot, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'],
+      });
+    }
+    rmSync(temporaryRoot, { recursive: true, force: true });
+  }
+}
+
 function requireFullSha(value, label) {
   if (!/^[0-9a-f]{40}$/.test(value || '')) {
     throw new TypeError(`${label} must be a full 40-character Git SHA`);
@@ -262,15 +334,22 @@ async function collectPerformanceEvidence({
   subjectSha = currentCommit(),
   resourceBudget,
   collectCandidateResources = collectCandidateResourceBudget,
+  collectStopFeedback = collectDetachedStopFeedbackBudget,
 } = {}) {
   const context = collectEvidenceProvenance({
     repositoryRoot: REPOSITORY_ROOT,
     runnerId: 'frontend-performance-budget',
     subjectSha,
   });
+  if (context.provenance.worktreeClean !== true) {
+    throw new Error('performance evidence requires a clean committed runner worktree');
+  }
   const renderIsolation = collectRenderIsolationEvidence();
   const historyBudget = runChatHistoryBenchmarkSamples({ commit: subjectSha });
-  const feedbackBudget = await runStopFeedbackBenchmark({ subjectSha });
+  const feedbackBudget = await collectStopFeedback({
+    subjectSha,
+    subjectTree: context.subjectTree,
+  });
   const measuredResources = resourceBudget || collectCandidateResources({
     subjectSha,
     subjectTree: context.subjectTree,
@@ -338,6 +417,39 @@ function validateResourceFreezeMetric(metric, subjectSha) {
     throw new Error('P04 resource summary is not recomputable from files');
   }
   validateV8HeapEvidence(metric, 'P04 freeze');
+}
+
+function validateP03SubjectRuntime(metric, subjectSha, subjectTree, runnerProvenance) {
+  const target = metric?.subjectRuntime;
+  if (!target || target.subjectSha !== subjectSha || target.subjectTree !== subjectTree
+    || target.runtimePath !== 'frontend-app/src/entities/client/model/threadLifecycleRuntime.js'
+    || JSON.stringify(target.installArgv) !== JSON.stringify(['npm', ...INSTALL_ARGV])
+    || target.worktreeClean !== true || !Array.isArray(target.worktreeStatus) || target.worktreeStatus.length !== 0
+    || !/^[0-9a-f]{64}$/.test(target.content?.contentHash || '')
+    || !Array.isArray(target.content?.files) || target.content.files.length === 0) {
+    throw new Error('P03 requires detached subject runtime provenance');
+  }
+  const probe = metric.runnerFeedbackProbe;
+  if (probe?.source !== 'runner' || probe.path !== P03_RUNNER_FEEDBACK_PROBE_PATH
+    || !Array.isArray(runnerProvenance?.runnerFiles)
+    || !runnerProvenance.runnerFiles.some(({ path }) => path === P03_RUNNER_FEEDBACK_PROBE_PATH)) {
+    throw new Error('P03 requires runner feedback probe provenance');
+  }
+  const paths = target.content.files.map(({ path }) => path);
+  if (JSON.stringify(paths) !== JSON.stringify(P03_SUBJECT_CONTENT_PATHS)) {
+    throw new Error('P03 subject runtime provenance has an incomplete production closure');
+  }
+  target.content.files.forEach(({ path, sha256 }) => {
+    if (typeof path !== 'string' || !/^[0-9a-f]{64}$/.test(sha256 || '')) {
+      throw new TypeError('P03 subject runtime files require path and SHA-256');
+    }
+  });
+  const contentHash = sha256(target.content.files.map(({ path, sha256: fileHash }) => (
+    `${path}\0${fileHash}\n`
+  )).join(''));
+  if (contentHash !== target.content.contentHash) {
+    throw new Error('P03 subject runtime provenance content hash mismatch');
+  }
 }
 
 function validateBaseResourceBuild(metric, subjectSha, subjectTree) {
@@ -413,6 +525,7 @@ function validateFreezeEvidence(evidence, subjectSha) {
   if (p02?.subjectSha !== subjectSha || p03?.subjectSha !== subjectSha) {
     throw new Error('P02/P03 freeze metric subject mismatch');
   }
+  validateP03SubjectRuntime(p03, subjectSha, evidence.subjectTree, provenance);
   requireFreezeVerifierPass(verifyChatHistoryEvidence(p02, {
     metrics: {
       'P02-history-budget': {
@@ -609,6 +722,22 @@ function verifyPerformanceEvidence(evidence, baseline) {
     verifyStopFeedbackEvidence(evidence.metrics['P03-feedback-budget'], baseline),
     verifyResourceEvidence(evidence.metrics['P04-resource-budget'], baseline),
   ];
+  try {
+    validateP03SubjectRuntime(
+      evidence?.metrics?.['P03-feedback-budget'],
+      evidence?.subjectSha,
+      evidence?.subjectTree,
+      evidence?.provenance,
+    );
+  } catch (error) {
+    verdicts = verdicts.map((verdict) => (verdict.metricId === 'P03-feedback-budget'
+      ? Object.freeze({
+        metricId: verdict.metricId,
+        status: 'NOT_VERIFIED',
+        reason: `P03 detached subject runtime provenance is invalid: ${error.message}`,
+      })
+      : verdict));
+  }
   const baselineRunnerHash = baseline?.provenance?.runnerContentHash;
   const currentRunnerHash = evidence?.provenance?.runnerContentHash;
   if (!baselineRunnerHash || baselineRunnerHash !== currentRunnerHash) {
@@ -810,6 +939,7 @@ export {
   FREEZE_RUN_COUNT,
   buildFrozenPerformanceBaseline,
   collectCandidateResourceBudget,
+  collectDetachedStopFeedbackBudget,
   collectPerformanceEvidence,
   collectRenderIsolationEvidence,
   freezePerformanceBaseline,
@@ -818,6 +948,7 @@ export {
   validateCaseRegistry,
   validateFreezeOutputPath,
   validateFreezePreconditions,
+  validateP03SubjectRuntime,
   verifyPerformanceEvidence,
   writeFrozenBaselineAtomically,
 };
