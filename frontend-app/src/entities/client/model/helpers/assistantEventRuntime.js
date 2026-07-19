@@ -11,6 +11,8 @@ import {
 } from '../runtimeAssistantTimeline.js';
 import { normalizeThreadId } from './threadIdentity.js';
 
+const MAX_PENDING_TURN_TERMINALS = 64;
+
 function entryMatchesTurnRef(entry, turnRef) {
   return !turnRef || (entry.threadId === turnRef.threadId && entry.turnId === turnRef.turnId);
 }
@@ -357,6 +359,46 @@ function replayPendingTurnTerminal(runtime, turnRef, deps) {
   return applyTurnTerminal(runtime, pending.method, pending.payload, deps);
 }
 
+function terminalConflictReason(existing, terminal) {
+  if (existing.eventId === terminal.eventId) return 'event_id_content_mismatch';
+  if (existing.fingerprint === runtimeTerminalFingerprint(terminal)) return 'content_replayed_with_new_event_id';
+  return 'terminal_truth_conflict';
+}
+
+function cachePendingTurnTerminal(runtime, pendingTerminal, deps) {
+  const { method, payload, terminal, threadId, key, fingerprint } = pendingTerminal;
+  const existing = runtime.pendingTurnTerminals.get(key);
+  if (existing) {
+    if (existing.eventId === terminal.eventId && existing.fingerprint === fingerprint) return false;
+    emitRejectedTurnEvent(runtime, deps, 'turn.terminal.conflict', method, {
+      threadId,
+      turnId: terminal.turnId,
+      reason: terminalConflictReason(existing, terminal),
+    });
+    return false;
+  }
+  if (runtime.pendingTurnTerminals.size >= MAX_PENDING_TURN_TERMINALS) {
+    const [evictedKey, evicted] = runtime.pendingTurnTerminals.entries().next().value;
+    runtime.pendingTurnTerminals.delete(evictedKey);
+    runtime.retiredTurnRefs.add(evictedKey);
+    emitRejectedTurnEvent(runtime, deps, 'turn.terminal.pending_evicted', evicted.method, {
+      threadId: evicted.threadId,
+      turnId: evicted.turnId,
+      reason: 'capacity',
+    });
+  }
+  runtime.pendingTurnTerminals.set(key, {
+    method,
+    payload,
+    eventId: terminal.eventId,
+    fingerprint,
+    threadId,
+    turnId: terminal.turnId,
+  });
+  runtime.observedTurnByThread.set(threadId, terminal.turnId);
+  return true;
+}
+
 function applyTurnTerminal(runtime, method, payload, deps) {
   const parsed = parseRuntimeTurnTerminal(payload);
   if (!parsed.value) {
@@ -375,17 +417,12 @@ function applyTurnTerminal(runtime, method, payload, deps) {
   const sealed = runtime.sealedTurnTerminals.get(key);
   if (sealed) {
     if (sealed.eventId === terminal.eventId && sealed.fingerprint === fingerprint) return false;
-    const reason = sealed.eventId === terminal.eventId
-      ? 'event_id_content_mismatch'
-      : sealed.fingerprint === fingerprint
-        ? 'content_replayed_with_new_event_id'
-        : 'terminal_truth_conflict';
     emitRejectedTurnEvent(
       runtime,
       deps,
       'turn.terminal.conflict',
       method,
-      { threadId, turnId: terminal.turnId, reason },
+      { threadId, turnId: terminal.turnId, reason: terminalConflictReason(sealed, terminal) },
     );
     return false;
   }
@@ -397,10 +434,14 @@ function applyTurnTerminal(runtime, method, payload, deps) {
     emitRejectedTurnEvent(runtime, deps, 'turn.terminal.stale', method, { threadId, turnId: terminal.turnId });
     return false;
   }
+  if (runtime.pendingTurnTerminals.has(key)) {
+    cachePendingTurnTerminal(runtime, { method, payload, terminal, threadId, key, fingerprint }, deps);
+    return false;
+  }
   const turnRef = { threadId, turnId: terminal.turnId };
   const timeline = runtime.get().timelinesByThread[threadId] || deps.optionalUiArray();
   if (!terminalPartialItemsAccepted(runtime, timeline, turnRef, terminal)) {
-    runtime.pendingTurnTerminals.set(key, { method, payload });
+    cachePendingTurnTerminal(runtime, { method, payload, terminal, threadId, key, fingerprint }, deps);
     return false;
   }
   runtime.observedTurnByThread.set(threadId, terminal.turnId);
