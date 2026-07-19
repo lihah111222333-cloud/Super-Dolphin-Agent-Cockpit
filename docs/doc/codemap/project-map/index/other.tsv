@@ -580,8 +580,8 @@ scripts/guard_env_test.sh	scripts	other	script	5510	工程自动化、测试守�
 scripts/guard_fix_commits_have_tests_agentic_test.go	scripts	other	go-test	1719	工程自动化、测试守卫、代码地图与开发脚本	scripts,guard,fix,commits,have,tests,agentic,test,工程自动化,测试守卫,代码地图与开发脚本
 scripts/guard_fix_commits_have_tests_guard_test.go	scripts	other	go-test	40054	工程自动化、测试守卫、代码地图与开发脚本	scripts,guard,fix,commits,have,tests,test,工程自动化,测试守卫,代码地图与开发脚本
 scripts/guard_fix_commits_have_tests_helpers_test.go	scripts	other	go-test	24278	工程自动化、测试守卫、代码地图与开发脚本	scripts,guard,fix,commits,have,tests,helpers,test,工程自动化,测试守卫,代码地图与开发脚本
-scripts/guard_fix_commits_have_tests_recovery_test.go	scripts	other	go-test	2192	工程自动化、测试守卫、代码地图与开发脚本	scripts,guard,fix,commits,have,tests,recovery,test,工程自动化,测试守卫,代码地图与开发脚本
-scripts/guard_fix_commits_have_tests.sh	scripts	other	script	10093	工程自动化、测试守卫、代码地图与开发脚本	scripts,guard,fix,commits,have,tests,工程自动化,测试守卫,代码地图与开发脚本
+scripts/guard_fix_commits_have_tests_recovery_test.go	scripts	other	go-test	2652	工程自动化、测试守卫、代码地图与开发脚本	scripts,guard,fix,commits,have,tests,recovery,test,工程自动化,测试守卫,代码地图与开发脚本
+scripts/guard_fix_commits_have_tests.sh	scripts	other	script	10448	工程自动化、测试守卫、代码地图与开发脚本	scripts,guard,fix,commits,have,tests,工程自动化,测试守卫,代码地图与开发脚本
 scripts/hook_node_runtime_guard_test.go	scripts	other	go-test	2712	工程自动化、测试守卫、代码地图与开发脚本	scripts,hook,node,runtime,guard,test,工程自动化,测试守卫,代码地图与开发脚本
 scripts/install_hooks_guard_test.go	scripts	other	go-test	2562	工程自动化、测试守卫、代码地图与开发脚本	scripts,install,hooks,guard,test,工程自动化,测试守卫,代码地图与开发脚本
 scripts/install-hooks.sh	scripts	other	script	797	工程自动化、测试守卫、代码地图与开发脚本	scripts,install,hooks,工程自动化,测试守卫,代码地图与开发脚本

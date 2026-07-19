@@ -107,7 +107,6 @@ fixture_matches_production_dir() {
   parent_package_matches_production_dir "$owner" "$prod_dir" && return 0
   repository_tooling_test_matches_production_dir "$owner" "$prod_dir" && return 0
   frontend_app_integration_test_matches_production_dir "$owner" "$prod_dir" && return 0
-  agent_terminal_integration_test_matches_production_dir "$owner" "$prod_dir" && return 0
   return 1
 }
 
@@ -159,12 +158,12 @@ frontend_app_integration_test_matches_production_dir() {
   return 1
 }
 
-agent_terminal_integration_test_matches_production_dir() {
-  local owner="$1"
-  local prod_dir="$2"
-  [ "$owner" = "cmd/agent-terminal" ] || return 1
-  case "$prod_dir" in
-    internal/app|internal/platform/appupdaterecovery)
+agent_terminal_recovery_test_matches_production_path() {
+  local test_path="$1"
+  local prod_path="$2"
+  [ "$test_path" = "cmd/agent-terminal/main_recovery_test.go" ] || return 1
+  case "$prod_path" in
+    internal/app/recovery_graph.go|internal/platform/appupdaterecovery/rollback_restart.go)
       return 0
       ;;
   esac
@@ -185,8 +184,9 @@ path_mentions_bug_id() {
 
 diff_stream_has_bug_locking_test() {
   local subject="${1:-}"
-  local status path owner prod_dir bug_id
+  local status path owner prod_dir prod_path bug_id
   local prod_dirs=()
+  local prod_paths=()
   local direct_test_owners=()
   local direct_test_paths=()
   local fixture_owners=()
@@ -218,6 +218,7 @@ diff_stream_has_bug_locking_test() {
       fi
       continue
     fi
+    prod_paths+=("$path")
     prod_dirs+=("$(path_dirname "$path")")
   done
   if [ "${#direct_test_paths[@]}" -gt 0 ] && [ -n "$bug_id" ]; then
@@ -225,6 +226,15 @@ diff_stream_has_bug_locking_test() {
       if path_mentions_bug_id "$path" "$bug_id"; then
         return 0
       fi
+    done
+  fi
+  if [ "${#direct_test_paths[@]}" -gt 0 ] && [ "${#prod_paths[@]}" -gt 0 ]; then
+    for path in "${direct_test_paths[@]}"; do
+      for prod_path in "${prod_paths[@]}"; do
+        if agent_terminal_recovery_test_matches_production_path "$path" "$prod_path"; then
+          return 0
+        fi
+      done
     done
   fi
   if [ "${#direct_test_owners[@]}" -gt 0 ] && [ "${#prod_dirs[@]}" -gt 0 ]; then
