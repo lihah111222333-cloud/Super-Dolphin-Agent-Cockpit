@@ -34,6 +34,7 @@ const METRIC_IDS = Object.freeze([
   'P03-feedback-budget',
   'P04-resource-budget',
 ]);
+// Advancing this runner intentionally gives each final baseline freeze a non-empty audited runner delta.
 const FREEZE_RUN_COUNT = 3;
 const P02_MAX_REGRESSION_RATIO = 1.15;
 const P03_MAX_REGRESSION_RATIO = 1.15;

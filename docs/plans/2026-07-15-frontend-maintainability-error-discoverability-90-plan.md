@@ -377,7 +377,7 @@ runner emits SCORE_BASE-schema normalized report with SUBJECT SHA/tree, control,
 
 ---
 
-最终候选冻结：`SCORE_BASE=54d13a8d319442151aa7dc79ce25e653ca4ab13c`；后续 SUBJECT 仅包含本收口记录，评分与总审结论仍以提交绑定的原始证据为准。
+最终候选冻结：`SCORE_BASE=897040582c3daa90138fed1b3607aaa63fb7a66d`；后续 SUBJECT 仅包含本收口记录，评分与总审结论仍以提交绑定的原始证据为准。
 
 ## 8. 停止条件
 
