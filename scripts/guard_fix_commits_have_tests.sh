@@ -107,6 +107,7 @@ fixture_matches_production_dir() {
   parent_package_matches_production_dir "$owner" "$prod_dir" && return 0
   repository_tooling_test_matches_production_dir "$owner" "$prod_dir" && return 0
   frontend_app_integration_test_matches_production_dir "$owner" "$prod_dir" && return 0
+  agent_terminal_integration_test_matches_production_dir "$owner" "$prod_dir" && return 0
   return 1
 }
 
@@ -153,6 +154,18 @@ frontend_app_integration_test_matches_production_dir() {
           return 0
           ;;
       esac
+      ;;
+  esac
+  return 1
+}
+
+agent_terminal_integration_test_matches_production_dir() {
+  local owner="$1"
+  local prod_dir="$2"
+  [ "$owner" = "cmd/agent-terminal" ] || return 1
+  case "$prod_dir" in
+    internal/app|internal/platform/appupdaterecovery)
+      return 0
       ;;
   esac
   return 1
