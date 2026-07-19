@@ -82,6 +82,8 @@ frontend-app/scripts/no-critical-skip.mjs	frontend-app	app-ui	js-source	4897	Rea
 frontend-app/scripts/no-critical-skip.test.mjs	frontend-app	app-ui	js-test	3886	React 前端构建与校验脚本	frontend,app,scripts,no,critical,skip,test,React,前端构建与校验脚本
 frontend-app/scripts/no-silent-async-failure.mjs	frontend-app	app-ui	js-source	6280	React 前端构建与校验脚本	frontend,app,scripts,no,silent,async,failure,React,前端构建与校验脚本
 frontend-app/scripts/no-silent-async-failure.test.mjs	frontend-app	app-ui	js-test	4473	React 前端构建与校验脚本	frontend,app,scripts,no,silent,async,failure,test,React,前端构建与校验脚本
+frontend-app/scripts/performance-baseline-provenance.mjs	frontend-app	app-ui	js-source	6375	React 前端构建与校验脚本	frontend,app,scripts,performance,baseline,provenance,React,前端构建与校验脚本
+frontend-app/scripts/performance-baseline-provenance.test.mjs	frontend-app	app-ui	js-test	4891	React 前端构建与校验脚本	frontend,app,scripts,performance,baseline,provenance,test,React,前端构建与校验脚本
 frontend-app/scripts/performance-budget-config.mjs	frontend-app	app-ui	js-source	292	React 前端构建与校验脚本	frontend,app,scripts,performance,budget,config,React,前端构建与校验脚本
 frontend-app/scripts/performance-budget-model.mjs	frontend-app	app-ui	js-source	16001	React 前端构建与校验脚本	frontend,app,scripts,performance,budget,model,React,前端构建与校验脚本
 frontend-app/scripts/performance-budget-model.test.mjs	frontend-app	app-ui	js-test	7702	React 前端构建与校验脚本	frontend,app,scripts,performance,budget,model,test,React,前端构建与校验脚本
