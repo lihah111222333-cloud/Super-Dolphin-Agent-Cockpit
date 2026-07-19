@@ -21,7 +21,11 @@ import { runChatHistoryBenchmarkSamples, verifyChatHistoryEvidence } from './cha
 import { DEFAULT_BASELINE_PATH } from './performance-budget-config.mjs';
 import { evaluateRenderIsolation, requireSubjectSha } from './performance-budget-model.mjs';
 import { collectEvidenceProvenance } from './evidence-provenance.mjs';
-import { measureFrontendResources, verifyResourceEvidence } from './resource-budget.mjs';
+import {
+  measureFrontendResources,
+  validateV8HeapEvidence,
+  verifyResourceEvidence,
+} from './resource-budget.mjs';
 import { runStopFeedbackBenchmark, verifyStopFeedbackEvidence } from './stop-feedback-benchmark.mjs';
 
 const SCRIPT_PATH = fileURLToPath(import.meta.url);
@@ -299,6 +303,7 @@ function validateResourceFreezeMetric(metric, subjectSha) {
   if (metric.totalBundleBytes !== totalBundleBytes || metric.maxChunkBytes !== maxChunkBytes) {
     throw new Error('P04 resource summary is not recomputable from files');
   }
+  validateV8HeapEvidence(metric, 'P04 freeze');
 }
 
 function validateBaseResourceBuild(metric, subjectSha, subjectTree) {

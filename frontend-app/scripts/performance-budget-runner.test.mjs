@@ -139,6 +139,17 @@ function evidence(subjectSha = SUBJECT_SHA) {
         fileCount: 2,
         totalBundleBytes: 100,
         maxChunkBytes: 50,
+        heapMeasurementClock: 'median(node --expose-gc process.memoryUsage().heapUsed after runtime-asset materialization)',
+        heapSampleCount: 5,
+        heapWarmupCount: 1,
+        heapUsedSamplesBytes: [100, 100, 100, 100, 100],
+        heapUsedMedianBytes: 100,
+        heapEnvironment: {
+          node: 'v25.6.1',
+          v8: '14.1.0',
+          platform: 'darwin',
+          arch: 'arm64',
+        },
         files: [
           { path: 'assets/a.js', bytes: 50 },
           { path: 'assets/Chat.js', bytes: 50 },
@@ -257,6 +268,17 @@ function baseline() {
         maxRegressionRatio: 1.05,
         totalBundleBytes: 100,
         maxChunkBytes: 50,
+        heapMeasurementClock: 'median(node --expose-gc process.memoryUsage().heapUsed after runtime-asset materialization)',
+        heapSampleCount: 5,
+        heapWarmupCount: 1,
+        heapUsedSamplesBytes: [100, 100, 100, 100, 100],
+        heapUsedMedianBytes: 100,
+        heapEnvironment: {
+          node: 'v25.6.1',
+          v8: '14.1.0',
+          platform: 'darwin',
+          arch: 'arm64',
+        },
       },
     },
   };
@@ -345,6 +367,16 @@ describe('performance budget runner registry', () => {
 
     expect(verdict.status).toBe('FAIL');
     expect(verdict.caseResults.find(({ caseId }) => caseId === 'turns-5000-tools-3'))
+      .toEqual(expect.objectContaining({ status: 'FAIL' }));
+  });
+
+  it('fails P04 when the V8 heap measurement exceeds the frozen five percent threshold', () => {
+    const regressed = evidence();
+    regressed.metrics['P04-resource-budget'].heapUsedSamplesBytes = [106, 106, 106, 106, 106];
+    regressed.metrics['P04-resource-budget'].heapUsedMedianBytes = 106;
+    const verdict = verifyPerformanceEvidence(regressed, baseline());
+    expect(verdict.status).toBe('FAIL');
+    expect(verdict.verdicts.find(({ metricId }) => metricId === 'P04-resource-budget'))
       .toEqual(expect.objectContaining({ status: 'FAIL' }));
   });
 });
