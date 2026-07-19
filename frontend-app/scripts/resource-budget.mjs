@@ -9,7 +9,7 @@ import {
 
 const HEAP_SAMPLE_COUNT = 5;
 const HEAP_WARMUP_COUNT = 1;
-const HEAP_MEASUREMENT_CLOCK = 'median(node --expose-gc process.memoryUsage().heapUsed after runtime-asset materialization)';
+const HEAP_MEASUREMENT_CLOCK = 'median(node --expose-gc process.memoryUsage().heapUsed after runtime-asset materialization and post-materialization global.gc())';
 const RUNTIME_ASSET_PATTERN = /\.(?:css|html|js|mjs)$/;
 const HEAP_PROBE_SOURCE = `
 import { readFileSync } from 'node:fs';
@@ -25,6 +25,7 @@ const runtimeAssets = request.runtimeAssetPaths.map((path) => {
   const source = readFileSync(path, 'utf8');
   return Object.freeze({ source, tokens: Object.freeze(source.match(/[A-Za-z_$][\\w$]*/g) || []) });
 });
+global.gc();
 const after = process.memoryUsage().heapUsed;
 if (!Number.isSafeInteger(after - before) || after - before <= 0) {
   throw new Error('V8 heapUsed delta must be a positive safe integer');
