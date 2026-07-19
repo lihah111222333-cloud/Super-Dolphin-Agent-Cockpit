@@ -1,4 +1,4 @@
-.PHONY: build build-plain build-agent-terminal build-agent-terminal-plain frontend-deps frontend-build frontend-app-deps frontend-app-build frontend-embed-verify run run-plain dev-hot run-agent-terminal-debug run-agent-terminal-debug-plain build-peer-binaries package-macos package-linux package-windows test test-deferred test-e2e test-e2e-rpc-runtime vet clean guard code-size-guard guard-shell lsp-diagnostics-check protocol-sync-check rpc-regression-check archtest-map-check archtest-map-refresh codemap-check codemap-refresh project-map-check project-map-refresh capcontract-check capcontract-refresh setup-cgo ui-cover-build ui-cover-run ui-cover-report app-cover-build app-cover-run app-cover-report log-audit p2-audit ida-test-all ida-test-heavy sqlc-generate sqlc-verify sqlc-verify-worktree codex-worktree-ready
+.PHONY: build build-plain build-agent-terminal build-agent-terminal-plain frontend-deps frontend-build frontend-app-deps frontend-app-build frontend-embed-verify run run-plain dev-hot run-agent-terminal-debug run-agent-terminal-debug-plain build-peer-binaries package-macos package-linux package-windows test test-deferred test-e2e test-e2e-rpc-runtime vet clean guard code-size-guard guard-shell actionlint lsp-diagnostics-check protocol-sync-check rpc-regression-check archtest-map-check archtest-map-refresh codemap-check codemap-refresh project-map-check project-map-refresh capcontract-check capcontract-refresh setup-cgo ui-cover-build ui-cover-run ui-cover-report app-cover-build app-cover-run app-cover-report log-audit p2-audit ida-test-all ida-test-heavy sqlc-generate sqlc-verify sqlc-verify-worktree codex-worktree-ready
 
 # Auto-detect macOS version to avoid ld warnings about version mismatch.
 # Override with: make MIN_MACOS_VERSION=15.0 build
@@ -7,7 +7,8 @@ FRIDA_VERSION_FILE ?= build/frida-version.txt
 FRIDA_DEVKIT_VERSION ?= $(shell cat $(FRIDA_VERSION_FILE) 2>/dev/null)
 FRIDA_LDFLAGS ?= -X github.com/multi-agent/go-agent-v2/pkg/idamcp.defaultFridaVersion=$(FRIDA_DEVKIT_VERSION)
 APP_COMMIT ?= $(shell git rev-parse HEAD)
-SCHEMA_BUILD_IDENTITY_LDFLAG := -X github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/toolbridge/schema.buildAppCommit=$(APP_COMMIT)
+SCHEMA_BUILD_IDENTITY_LDFLAG = -X github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/toolbridge/schema.buildAppCommit=$(APP_COMMIT)
+ACTIONLINT_VERSION := v1.7.12
 AGENT_TERMINAL_DEBUG_PORT ?= 4501
 FRONTEND_APP_DIR := frontend-app
 EMBEDDED_FRONTEND_DIR := cmd/agent-terminal/web-dist
@@ -248,6 +249,9 @@ code-size-guard:
 
 guard-shell:
 	./scripts/go_guard_shell.sh
+
+actionlint:
+	go run github.com/rhysd/actionlint/cmd/actionlint@$(ACTIONLINT_VERSION)
 
 lsp-diagnostics-check: frontend-app-build
 	@coverage=$$(mktemp -t lsp-diagnostics-coverage.XXXXXX); \

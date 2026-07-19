@@ -61,7 +61,10 @@ jobs:
       - name: Build
         run: make build-plain
       - name: Test
-        run: ./scripts/test_with_guard.sh $(go list ./...) -count=1 -timeout 180s
+        shell: bash
+        run: |
+          mapfile -t go_packages < <(go list ./cmd/... ./internal/... ./pkg/... ./scripts/...)
+          ./scripts/test_with_guard.sh "${go_packages[@]}" -count=1 -timeout 180s
       - name: Sqlc verify
         run: make sqlc-verify
       - name: Codemap check
@@ -90,6 +93,8 @@ jobs:
           node-version: "20"
           cache: npm
           cache-dependency-path: frontend-app/package-lock.json
+      - name: Lint GitHub Actions workflows
+        run: make actionlint
       - name: Install Linux WebView dependencies
         run: |
           sudo apt-get update
