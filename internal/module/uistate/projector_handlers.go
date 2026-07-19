@@ -414,16 +414,21 @@ func (s *service) applyTurnInterrupted(ev turndto.TurnInterrupted) {
 
 // applyTurnCompleted 将完成事件归档到 recent 列表，并根据结果推导线程状态。
 func (s *service) applyTurnCompleted(ev turndto.TurnCompleted) {
+	terminal, canonical, err := turndto.CanonicalTurnTerminal(ev)
+	if err != nil || !canonical {
+		s.logger.Warn("uistate: ignored turn completion without canonical terminal", "thread_id", ev.ThreadID, "turn_id", ev.TurnID)
+		return
+	}
 	threadID := strings.TrimSpace(ev.ThreadID)
 	agentID := strings.TrimSpace(ev.AgentID)
 	status := ""
 	applyMutation(s, threadID, func() {
-		completed := completedTurnSummary(s.state.ActiveTurn, ev)
+		completed := completedTurnSummary(s.state.ActiveTurn, ev, terminal)
 		s.state.RecentTurns = pushRecentTurn(s.state.RecentTurns, completed, recentTurnLimit)
 		if s.state.ActiveTurn != nil && s.state.ActiveTurn.ID == completed.ID {
 			s.state.ActiveTurn = nil
 		}
-		status = patchStatus(completionThreadStatus(ev))
+		status = patchStatus(completionThreadStatus(terminal))
 		s.clearThreadActivityLocked(threadID)
 		s.state.Threads = upsertThreadSummary(s.state.Threads, ThreadSummary{
 			ID:           threadID,
@@ -439,11 +444,8 @@ func (s *service) applyTurnCompleted(ev turndto.TurnCompleted) {
 	})
 }
 
-func completionThreadStatus(ev turndto.TurnCompleted) string {
-	if strings.EqualFold(strings.TrimSpace(ev.Status), "completed_with_errors") {
-		return "error"
-	}
-	return completionStatus(ev)
+func completionThreadStatus(terminal turndto.TurnTerminalV2) string {
+	return completionStatus(terminal)
 }
 
 // applyTurnResumed 恢复 turn 活动深度，并刷新线程 patch。

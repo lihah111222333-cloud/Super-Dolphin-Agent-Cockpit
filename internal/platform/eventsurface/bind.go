@@ -7,7 +7,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/google/uuid"
 	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
 
 	"github.com/kelindar/event"
@@ -171,15 +170,12 @@ func bindCore(dispatcher *event.Dispatcher, logger *pkglogger.Logger, publish Pu
 
 func publishTurnTerminal(logger *pkglogger.Logger, publish PublishFunc, ev turndto.TurnCompleted) {
 	terminal, canonical, err := turndto.CanonicalTurnTerminal(ev)
-	if err == nil && !canonical {
-		terminal, err = turndto.NewTurnTerminalV2(ev, uuid.NewString())
-	}
-	if err != nil {
+	if err != nil || !canonical {
 		if logger != nil {
-			logger.Error("eventsurface: canonical turn terminal rejected", "error", err, "thread_id", ev.ThreadID, "turn_id", ev.TurnID)
+			logger.Error("eventsurface: missing canonical turn terminal", "thread_id", ev.ThreadID, "turn_id", ev.TurnID)
 			return
 		}
-		pkglogger.Error("eventsurface: canonical turn terminal rejected", "error", err, "thread_id", ev.ThreadID, "turn_id", ev.TurnID)
+		pkglogger.Error("eventsurface: missing canonical turn terminal", "thread_id", ev.ThreadID, "turn_id", ev.TurnID)
 		return
 	}
 	publish(MethodTurnTerminal, terminal)

@@ -178,7 +178,7 @@ func TestTurnCompletedPatchIncludesLastActiveAt(t *testing.T) {
 	_ = mustReceiveThreadPatch(t, got)
 
 	turnHeader.Timestamp = completedAt
-	svc.applyTurnCompleted(turndto.TurnCompleted{TurnHeader: turnHeader, Success: true})
+	svc.applyTurnCompleted(canonicalPatchTurnCompleted(t, turndto.TurnCompleted{TurnHeader: turnHeader, Success: true, Status: "completed"}))
 	patch := mustReceiveThreadPatch(t, got)
 
 	if patch.Source != "turn/completed" || patch.Status != "idle" {
@@ -189,7 +189,7 @@ func TestTurnCompletedPatchIncludesLastActiveAt(t *testing.T) {
 	}
 }
 
-func TestUIStateCompletedWithErrorsDoesNotBecomeCleanIdle(t *testing.T) {
+func TestUIStateCanonicalFailureDoesNotBecomeCleanIdle(t *testing.T) {
 	t.Parallel()
 
 	svc, dispatcher := newPatchTestService(t)
@@ -199,12 +199,12 @@ func TestUIStateCompletedWithErrorsDoesNotBecomeCleanIdle(t *testing.T) {
 	svc.state.Agents = []AgentSummary{{ID: "agent-errors", ThreadID: "thread-errors", State: "running", ThreadStatus: "running"}}
 	svc.state.ActiveTurn = &TurnSummary{ID: "turn-errors", AgentID: "agent-errors", ThreadID: "thread-errors", Status: "running"}
 
-	svc.applyTurnCompleted(turndto.TurnCompleted{
+	svc.applyTurnCompleted(canonicalPatchTurnCompleted(t, turndto.TurnCompleted{
 		TurnHeader: turnHeader,
 		Success:    false,
-		Status:     "completed_with_errors",
+		Status:     "failed",
 		Error:      "tool call call-file/file failed",
-	})
+	}))
 	patch := mustReceiveThreadPatch(t, got)
 
 	if patch.Status != "error" {
@@ -214,8 +214,8 @@ func TestUIStateCompletedWithErrorsDoesNotBecomeCleanIdle(t *testing.T) {
 		t.Fatalf("RecentTurns = %#v, want one failed turn", svc.state.RecentTurns)
 	}
 	recent := svc.state.RecentTurns[0]
-	if recent.Status != "completed_with_errors" || recent.Success == nil || *recent.Success || recent.Error == "" {
-		t.Fatalf("RecentTurns[0] = %#v, want completed_with_errors failure", recent)
+	if recent.Status != "failed" || recent.Success == nil || *recent.Success || recent.Error != "The provider could not complete this turn." {
+		t.Fatalf("RecentTurns[0] = %#v, want canonical public failure", recent)
 	}
 	if svc.state.Threads[0].ThreadStatus != "error" || svc.state.Threads[0].State != "error" {
 		t.Fatalf("Thread state = %#v, want visible error state", svc.state.Threads[0])
@@ -246,7 +246,7 @@ func TestTurnOutputDeltaUpdatesLastMessageWithoutPublishingThreadPatch(t *testin
 	}
 	assertNoThreadPatch(t, got, "turn/outputDelta")
 
-	svc.applyTurnCompleted(turndto.TurnCompleted{TurnHeader: turnHeader, Success: true})
+	svc.applyTurnCompleted(canonicalPatchTurnCompleted(t, turndto.TurnCompleted{TurnHeader: turnHeader, Success: true, Status: "completed"}))
 	patch := mustReceiveThreadPatch(t, got)
 	if patch.Source != "turn/completed" || patch.ThreadID != "thread-stream" {
 		t.Fatalf("completion patch = %#v", patch)
@@ -604,4 +604,17 @@ func mustReceiveThreadPatch(t *testing.T, ch <-chan uidto.UIThreadPatch) uidto.U
 		t.Fatal("expected thread patch")
 		return uidto.UIThreadPatch{}
 	}
+}
+
+func canonicalPatchTurnCompleted(t *testing.T, completed turndto.TurnCompleted) turndto.TurnCompleted {
+	t.Helper()
+	terminal, err := turndto.NewTurnTerminalV2(completed, "patch-terminal-event")
+	if err != nil {
+		t.Fatalf("NewTurnTerminalV2() error = %v", err)
+	}
+	attached, err := turndto.AttachCanonicalTurnTerminal(completed, terminal)
+	if err != nil {
+		t.Fatalf("AttachCanonicalTurnTerminal() error = %v", err)
+	}
+	return attached
 }

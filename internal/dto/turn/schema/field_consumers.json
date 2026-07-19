@@ -183,10 +183,16 @@
       "calls": ["acceptRemoteTurnTerminal", "ProjectRemoteTurnTerminal"]
     },
     {
+      "name": "terminal-canonical-owner",
+      "path": "internal/provider/unified/event_map.go",
+      "symbol": "attachCanonicalTurnTerminal",
+      "calls": ["CanonicalTurnTerminal", "NewTurnTerminalV2", "AttachCanonicalTurnTerminal"]
+    },
+    {
       "name": "terminal-wire-producer",
       "path": "internal/platform/eventsurface/bind.go",
       "symbol": "publishTurnTerminal",
-      "calls": ["CanonicalTurnTerminal", "NewTurnTerminalV2", "publish"],
+      "calls": ["CanonicalTurnTerminal", "publish"],
       "identifiers": ["MethodTurnTerminal"]
     }
   ],

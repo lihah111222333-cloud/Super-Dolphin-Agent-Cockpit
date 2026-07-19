@@ -202,6 +202,7 @@ function enqueueAssistantDelta(runtime, method, payload, deps) {
     delta,
     timestamp: deps.normalizeString(payload.timestamp) || deps.clockNowISO(),
   });
+  replayPendingTurnTerminal(runtime, turnRef, deps);
   scheduleAssistantDeltaFlush(runtime, deps);
   return true;
 }
@@ -348,6 +349,14 @@ function terminalPartialItemsAccepted(runtime, timeline, turnRef, terminal) {
   )) || bufferedItemIds.has(itemId));
 }
 
+function replayPendingTurnTerminal(runtime, turnRef, deps) {
+  const key = runtimeTurnRefKey(turnRef.threadId, turnRef.turnId);
+  const pending = runtime.pendingTurnTerminals.get(key);
+  if (!pending) return false;
+  runtime.pendingTurnTerminals.delete(key);
+  return applyTurnTerminal(runtime, pending.method, pending.payload, deps);
+}
+
 function applyTurnTerminal(runtime, method, payload, deps) {
   const parsed = parseRuntimeTurnTerminal(payload);
   if (!parsed.value) {
@@ -391,8 +400,7 @@ function applyTurnTerminal(runtime, method, payload, deps) {
   const turnRef = { threadId, turnId: terminal.turnId };
   const timeline = runtime.get().timelinesByThread[threadId] || deps.optionalUiArray();
   if (!terminalPartialItemsAccepted(runtime, timeline, turnRef, terminal)) {
-    runtime.addWarning('error', 'turn.terminal.contract_invalid', { eventName: method, threadId, turnId: terminal.turnId, reason: 'partial_item_reference' });
-    runtime.notifyAction('响应契约错误', 'error', { category: 'turn_terminal_contract', threadId });
+    runtime.pendingTurnTerminals.set(key, { method, payload });
     return false;
   }
   runtime.observedTurnByThread.set(threadId, terminal.turnId);
@@ -425,6 +433,9 @@ export function clearTurnRuntimeForThread(runtime, threadId) {
     if (key.startsWith(prefix)) runtime.assistantDeltaBuffers.delete(key);
   }
   if (runtime.assistantDeltaBuffers.size === 0) runtime.clearAssistantDeltaFlushTimer();
+  for (const key of runtime.pendingTurnTerminals.keys()) {
+    if (key.startsWith(prefix)) runtime.pendingTurnTerminals.delete(key);
+  }
   for (const key of runtime.sealedTurnTerminals.keys()) {
     if (key.startsWith(prefix)) runtime.sealedTurnTerminals.delete(key);
   }

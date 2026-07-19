@@ -88,6 +88,7 @@ function createClientStoreRuntime(set, get, { getPreference }) {
     threadMessageGenerations: new Map(),
     threadSyncGenerations: new Map(),
     assistantDeltaBuffers: new Map(),
+    pendingTurnTerminals: new Map(),
     sealedTurnTerminals: new Map(),
     observedTurnByThread: new Map(),
     retiredTurnRefs: new Set(),

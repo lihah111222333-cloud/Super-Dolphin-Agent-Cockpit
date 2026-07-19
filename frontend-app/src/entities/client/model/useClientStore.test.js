@@ -6012,6 +6012,56 @@ function registerBridgeEventHandlersForTest() {
     ]);
   });
 
+  it('replays a canonical terminal after its accepted partial delta arrives out of order', () => {
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'thread-1',
+      timelinesByThread: { 'thread-1': [] },
+    });
+    registerBridgeEventHandlersForTest();
+
+    bridgeCallback({
+      type: 'turn/terminal',
+      payload: {
+        schemaVersion: 2,
+        eventId: 'terminal-out-of-order',
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+        outcome: 'failed',
+        publicError: {
+          code: 'PROVIDER_FAILED',
+          title: '运行失败',
+          message: '提供方未能完成本轮响应',
+          diagnosticId: 'diag-out-of-order',
+          retryable: true,
+          recoveryActions: ['retry'],
+        },
+        partialItemIds: ['partial-1'],
+        occurredAt: '2026-07-16T01:00:00Z',
+      },
+    });
+    expect(useClientStore.getState().timelinesByThread['thread-1']).toEqual([]);
+
+    bridgeCallback({
+      type: 'turn/output/delta',
+      payload: { threadId: 'thread-1', turnId: 'turn-1', itemId: 'partial-1', delta: 'partial answer' },
+    });
+
+    const state = useClientStore.getState();
+    expect(state.timelinesByThread['thread-1']).toEqual([
+      expect.objectContaining({ id: 'partial-1', text: 'partial answer', done: true }),
+      expect.objectContaining({ kind: 'turn_terminal', terminalOutcome: 'failed' }),
+    ]);
+    expect(state.actionNotice).toEqual(expect.objectContaining({
+      tone: 'error',
+      message: expect.stringContaining('提供方未能完成本轮响应'),
+    }));
+    expect(state.warningEntries).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ event: 'turn.terminal.contract_invalid' }),
+    ]));
+  });
+
   it('seals the first terminal and routes conflicting or late turn events to diagnostics', async () => {
     vi.useFakeTimers();
     try {
