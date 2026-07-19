@@ -172,8 +172,38 @@ const MAX_LOAD_AVERAGE_DELTA_PER_LOGICAL_CORE = 0.25;
 const PERFORMANCE_LOAD_WINDOW_POLL_INTERVAL_MS = 5_000;
 const PERFORMANCE_LOAD_WINDOW_MAX_WAIT_MS = 600_000;
 const PERFORMANCE_LOAD_WINDOW_REQUIRED_SAMPLES = 2;
+const frontendPlanPath = 'docs/plans/2026-07-15-frontend-maintainability-error-discoverability-90-plan.md';
+const frontendPlanMaxLines = 500;
+const frontendPlanMaxBytes = 25_600;
 export function performanceAuditPathAllowed(changedPath) {
   return isAllowedPerformanceBaselinePath(changedPath);
+}
+
+export function frontendPlanSizeStatus(content) {
+  if (typeof content !== 'string') fail('frontend plan content must be a string');
+  const bytes = Buffer.byteLength(content);
+  const lines = content.length === 0 ? 0 : content.split('\n').length - Number(content.endsWith('\n'));
+  return {
+    status: bytes <= frontendPlanMaxBytes && lines <= frontendPlanMaxLines ? 'PASS' : 'FAIL',
+    bytes,
+    lines,
+  };
+}
+
+export function assertFrontendPlanSize(repoRoot = frozenRepoRoot) {
+  const planPath = path.join(repoRoot, frontendPlanPath);
+  let content;
+  try {
+    content = fs.readFileSync(planPath, 'utf8');
+  }
+  catch (error) {
+    fail(`frontend plan size guard cannot read ${frontendPlanPath}: ${error.message}`);
+  }
+  const result = frontendPlanSizeStatus(content);
+  if (result.status !== 'PASS') {
+    fail(`frontend plan size exceeds frozen limits: lines=${result.lines}/${frontendPlanMaxLines} bytes=${result.bytes}/${frontendPlanMaxBytes}`);
+  }
+  return result;
 }
 const failureMatrixChecks = Object.freeze({
   'E03-background-health': Object.freeze({ probe: 'backgroundProviderHealth', caseIds: ['FM-18'], testCount: 1 }),
@@ -227,10 +257,32 @@ const plannedLaneAllOfArgv = Object.freeze({
     ['npm', 'test'],
     ['npm', 'run', 'build'],
     ['git', 'diff', '--check', '$SCORE_BASE_SHA', '$SUBJECT_SHA'],
+    ['go', 'test', './scripts', './scripts/ai_maintenance', '-run', '^(TestAIMaintenanceGateVerifiesLocalHookArtifacts|TestAIMaintenanceGateRouteDeletionMutations|TestBuildGatePlanRoutesFrontendBackendAndGeneratedFiles)$', '-count=1'],
+    ['node', 'frontend-app/scripts/frontend-maintainability-score.mjs', '--assert-frontend-plan-size'],
   ],
 });
 const t04FrontendTestCommand = Object.freeze(['npm', 'test']);
 const t04FrontendTestTimeoutMs = 900000;
+const t04HookRouteGuardCommand = Object.freeze([
+  'go', 'test', './scripts', './scripts/ai_maintenance', '-run',
+  '^(TestAIMaintenanceGateVerifiesLocalHookArtifacts|TestAIMaintenanceGateRouteDeletionMutations|TestBuildGatePlanRoutesFrontendBackendAndGeneratedFiles)$',
+  '-count=1',
+]);
+const t04HookRouteGuardCaseIds = Object.freeze([
+  'hook-route-pre-commit-deleted',
+  'hook-route-pre-push-deleted',
+  'hook-route-ai-maintenance-deleted',
+]);
+const t04HookRouteGuardTimeoutMs = 120000;
+const P03_ABSOLUTE_FEEDBACK_LIMIT_MS = 2000;
+const t04FrontendPlanSizeCommand = Object.freeze([
+  'node', 'frontend-app/scripts/frontend-maintainability-score.mjs', '--assert-frontend-plan-size',
+]);
+const t04FrontendPlanSizeCaseIds = Object.freeze([
+  'frontend-plan-size-bytes',
+  'frontend-plan-size-lines',
+]);
+const t04FrontendPlanSizeTimeoutMs = 120000;
 
 function readFrozenJSON(name) {
   return JSON.parse(fs.readFileSync(path.join(frozenScriptRoot, name), 'utf8'));
@@ -1573,7 +1625,8 @@ function recomputePerformanceStatuses(evidence, baselineDocument, context) {
   }
   for (const caseId of performanceCaseIds['P03-feedback-budget']) {
     statuses.set(caseId, current['P03-feedback-budget'].cases[caseId].durationMedianMs
-      <= frozen['P03-feedback-budget'].cases[caseId].durationMedianMs * 1.15);
+      <= frozen['P03-feedback-budget'].cases[caseId].durationMedianMs * 1.15
+      && current['P03-feedback-budget'].cases[caseId].durationMedianMs <= P03_ABSOLUTE_FEEDBACK_LIMIT_MS);
   }
   statuses.set('bundle-total-bytes', current['P04-resource-budget'].totalBundleBytes
     <= frozen['P04-resource-budget'].totalBundleBytes * 1.05);
@@ -2432,6 +2485,20 @@ function validateConfiguredCheck(control, check) {
     && check.timeoutMs !== t04FrontendTestTimeoutMs) {
     fail(`T04 frontend-test timeout must be ${t04FrontendTestTimeoutMs}ms`);
   }
+  if (control.id === 'T04-local-gates'
+    && JSON.stringify(check.argv) === JSON.stringify(t04HookRouteGuardCommand)
+    && (check.cwd !== '.' || check.timeoutMs !== t04HookRouteGuardTimeoutMs
+      || JSON.stringify(check.caseIds) !== JSON.stringify(t04HookRouteGuardCaseIds)
+      || check.testCount !== t04HookRouteGuardCaseIds.length)) {
+    fail('T04 hook-route guard contract differs from frozen contract');
+  }
+  if (control.id === 'T04-local-gates'
+    && JSON.stringify(check.argv) === JSON.stringify(t04FrontendPlanSizeCommand)
+    && (check.cwd !== '.' || check.timeoutMs !== t04FrontendPlanSizeTimeoutMs
+      || JSON.stringify(check.caseIds) !== JSON.stringify(t04FrontendPlanSizeCaseIds)
+      || check.testCount !== t04FrontendPlanSizeCaseIds.length)) {
+    fail('T04 frontend-plan size guard contract differs from frozen contract');
+  }
   if ('status' in check || 'score' in check) fail(`hand-authored check result is forbidden: ${control.id}`);
   if (!Array.isArray(check.caseIds) || check.caseIds.length === 0
     || !Number.isInteger(check.testCount) || check.testCount <= 0) {
@@ -2789,9 +2856,9 @@ export function finalGateFailures(result) {
 
 function parseCLI(args) {
   const mode = args[0];
-  if (!['--validate', '--probe', '--score', '--final'].includes(mode)) fail('unknown scorer mode');
-  if (mode === '--validate') {
-    if (args.length !== 1) fail('--validate does not accept additional arguments');
+  if (!['--validate', '--probe', '--score', '--final', '--assert-frontend-plan-size'].includes(mode)) fail('unknown scorer mode');
+  if (mode === '--validate' || mode === '--assert-frontend-plan-size') {
+    if (args.length !== 1) fail(`${mode} does not accept additional arguments`);
     return { mode };
   }
   let index = 1;
@@ -2828,6 +2895,10 @@ if (process.argv[1] && fs.realpathSync(path.resolve(process.argv[1])) === fs.rea
   if (cli.mode === '--validate') {
     validateConfiguration();
     process.stdout.write('frontend maintainability scorer configuration valid\n');
+  }
+  else if (cli.mode === '--assert-frontend-plan-size') {
+    const result = assertFrontendPlanSize();
+    process.stdout.write(`frontend plan size valid: lines=${result.lines} bytes=${result.bytes}\n`);
   }
   else if (cli.mode === '--probe') {
     process.stdout.write(`${await probeResult(cli.probe, { repoRoot: cli.repo, subjectSha: cli.subject })}\n`);
