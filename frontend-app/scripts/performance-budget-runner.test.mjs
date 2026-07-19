@@ -5,6 +5,7 @@ import {
   readFileSync,
   readdirSync,
   rmSync,
+  writeFileSync,
 } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
@@ -14,6 +15,7 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   FREEZE_RUN_COUNT,
   buildFrozenPerformanceBaseline,
+  collectCandidateResourceBudget,
   freezePerformanceBaseline,
   parseArguments,
   validateCaseRegistry,
@@ -157,6 +159,21 @@ function evidence(subjectSha = SUBJECT_SHA) {
         baseBuild: {
           baseSha: subjectSha,
           baseTree: SUBJECT_TREE,
+          installArgv: ['npm', 'ci'],
+          buildArgv: ['npm', 'run', 'build'],
+          distManifest: [
+            { path: 'assets/a.js', bytes: 50, sha256: 'a'.repeat(64) },
+            { path: 'assets/Chat.js', bytes: 50, sha256: 'b'.repeat(64) },
+          ],
+          distManifestHash: createHash('sha256').update([
+            `assets/a.js\0${50}\0${'a'.repeat(64)}\n`,
+            `assets/Chat.js\0${50}\0${'b'.repeat(64)}\n`,
+          ].join('')).digest('hex'),
+        },
+        candidateBuild: {
+          subjectSha,
+          subjectTree: SUBJECT_TREE,
+          installArgv: ['npm', 'ci'],
           buildArgv: ['npm', 'run', 'build'],
           distManifest: [
             { path: 'assets/a.js', bytes: 50, sha256: 'a'.repeat(64) },
@@ -180,6 +197,7 @@ function freezeEvidence({
   current.generatedAt = generatedAt;
   current.environment.loadAverage = loadAverage;
   current.metrics['P01-render-isolation'].mainPageUpdateCommits = 40;
+  delete current.metrics['P04-resource-budget'].candidateBuild;
   current.provenance = {
     runnerId: 'frontend-performance-budget',
     runnerSha: RUNNER_SHA,
@@ -288,6 +306,65 @@ function registry() {
   return JSON.parse(readFileSync(join(cwd(), 'scripts/frontend-performance-cases.json'), 'utf8'));
 }
 
+describe('candidate detached resource build', () => {
+  it('builds a clean SUBJECT without dist once and binds the measured artifact provenance', () => {
+    const commands = [];
+    let measured = 0;
+    const execute = (command, args, options) => {
+      commands.push([command, ...args]);
+      if (command === 'git' && args[0] === 'worktree' && args[1] === 'add') {
+        mkdirSync(join(args[3], 'frontend-app'), { recursive: true });
+      } else if (command === 'npm' && args[0] === 'ci') {
+        expect(existsSync(join(options.cwd, 'dist'))).toBe(false);
+      } else if (command === 'npm' && args.join(' ') === 'run build') {
+        mkdirSync(join(options.cwd, 'dist', 'assets'), { recursive: true });
+        writeFileSync(join(options.cwd, 'dist', 'index.html'), '<main>candidate</main>');
+        writeFileSync(join(options.cwd, 'dist', 'assets', 'app.js'), 'globalThis.candidate = true;');
+      }
+      return '';
+    };
+    const metric = collectCandidateResourceBudget({
+      subjectSha: SUBJECT_SHA,
+      subjectTree: SUBJECT_TREE,
+      repositoryRoot: '/repository',
+      execute,
+      measureResources: ({ distDir, subjectSha }) => {
+        measured += 1;
+        const files = [
+          { path: 'assets/app.js', bytes: readFileSync(join(distDir, 'assets', 'app.js')).byteLength },
+          { path: 'index.html', bytes: readFileSync(join(distDir, 'index.html')).byteLength },
+        ];
+        return {
+          metricId: 'P04-resource-budget',
+          subjectSha,
+          fileCount: files.length,
+          totalBundleBytes: files.reduce((total, file) => total + file.bytes, 0),
+          maxChunkBytes: Math.max(...files.map(({ bytes }) => bytes)),
+          files,
+        };
+      },
+    });
+
+    expect(measured).toBe(1);
+    expect(commands.map((command) => command.slice(0, 3))).toEqual([
+      ['git', 'worktree', 'add'],
+      ['npm', 'ci'],
+      ['npm', 'run', 'build'].slice(0, 3),
+      ['git', 'worktree', 'remove'],
+    ]);
+    expect(metric.candidateBuild).toEqual(expect.objectContaining({
+      subjectSha: SUBJECT_SHA,
+      subjectTree: SUBJECT_TREE,
+      installArgv: ['npm', 'ci'],
+      buildArgv: ['npm', 'run', 'build'],
+      distManifest: expect.arrayContaining([
+        expect.objectContaining({ path: 'index.html', sha256: expect.stringMatching(/^[0-9a-f]{64}$/) }),
+      ]),
+      distManifestHash: expect.stringMatching(/^[0-9a-f]{64}$/),
+    }));
+  });
+});
+
 describe('performance budget runner registry', () => {
   it('keeps the fixed plan threshold even when a baseline is hand-relaxed', () => {
     const relaxedThreshold = baseline();
@@ -333,6 +410,8 @@ describe('performance budget runner registry', () => {
       status: 'PASS',
       testCount: 13,
     }));
+    expect(verdict.verdicts).toHaveLength(4);
+    expect(verdict.verdicts.every(({ status }) => status === 'PASS')).toBe(true);
     expect(verdict.caseIds).toEqual(registry().cases.map(({ caseId }) => caseId));
 
     const zero = { ...registry(), testCount: 0, cases: [] };

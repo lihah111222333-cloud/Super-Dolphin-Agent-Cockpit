@@ -650,6 +650,17 @@ function performanceEvidence(context, check, metricStatus = 'PASS', overrides = 
         baseBuild: {
           baseSha,
           baseTree,
+          installArgv: ['npm', 'ci'],
+          buildArgv: ['npm', 'run', 'build'],
+          distManifest: baseDistManifest,
+          distManifestHash: baseDistManifestHash,
+        },
+      } : {}),
+      ...(!frozen ? {
+        candidateBuild: {
+          subjectSha,
+          subjectTree: context.subjectTree,
+          installArgv: ['npm', 'ci'],
           buildArgv: ['npm', 'run', 'build'],
           distManifest: baseDistManifest,
           distManifestHash: baseDistManifestHash,
@@ -1973,6 +1984,9 @@ describe('executable evidence registry', () => {
         provenance: { ...valid.evidence.provenance, runnerContentHash: 'f'.repeat(64) },
       },
     }, options)).toBe('FAIL');
+    const forgedCandidateBuild = structuredClone(valid);
+    forgedCandidateBuild.evidence.metrics['P04-resource-budget'].candidateBuild.subjectSha = 'f'.repeat(40);
+    expect(structuredEvidenceStatus(forgedCandidateBuild, options)).toBe('FAIL');
     expect(structuredEvidenceStatus({
       ...valid,
       evidence: {

@@ -1202,8 +1202,11 @@ function validateComparableLoadAverage(baselineEnvironment, candidateEnvironment
 
 function validateBaseResourceBuild(metric, baseSha, baseTree) {
   const build = metric?.baseBuild;
-  exactKeys(build, ['baseSha', 'baseTree', 'buildArgv', 'distManifest', 'distManifestHash'], 'P04 baseline build');
+  exactKeys(build, [
+    'baseSha', 'baseTree', 'installArgv', 'buildArgv', 'distManifest', 'distManifestHash',
+  ], 'P04 baseline build');
   if (build.baseSha !== baseSha || build.baseTree !== baseTree
+    || JSON.stringify(build.installArgv) !== JSON.stringify(['npm', 'ci'])
     || JSON.stringify(build.buildArgv) !== JSON.stringify(['npm', 'run', 'build'])
     || !Array.isArray(build.distManifest) || build.distManifest.length !== metric.files.length
     || !/^[0-9a-f]{64}$/u.test(build.distManifestHash || '')) {
@@ -1219,6 +1222,30 @@ function validateBaseResourceBuild(metric, baseSha, baseTree) {
     `${filePath}\0${bytes}\0${sha256}\n`
   )).join('')).digest('hex');
   if (hash !== build.distManifestHash) fail('P04 baseline dist manifest aggregate hash mismatch');
+}
+
+function validateCandidateResourceBuild(metric, subjectSha, subjectTree) {
+  const build = metric?.candidateBuild;
+  exactKeys(build, [
+    'subjectSha', 'subjectTree', 'installArgv', 'buildArgv', 'distManifest', 'distManifestHash',
+  ], 'P04 candidate build');
+  if (build.subjectSha !== subjectSha || build.subjectTree !== subjectTree
+    || JSON.stringify(build.installArgv) !== JSON.stringify(['npm', 'ci'])
+    || JSON.stringify(build.buildArgv) !== JSON.stringify(['npm', 'run', 'build'])
+    || !Array.isArray(build.distManifest) || build.distManifest.length !== metric.files.length
+    || !/^[0-9a-f]{64}$/u.test(build.distManifestHash || '')) {
+    fail('P04 candidate detached-build provenance is invalid');
+  }
+  const files = metric.files.map(({ path: filePath, bytes }) => `${filePath}\0${bytes}`);
+  const manifest = build.distManifest.map(({ path: filePath, bytes, sha256 }) => {
+    if (!/^[0-9a-f]{64}$/u.test(sha256 || '')) fail('P04 candidate dist manifest hash is invalid');
+    return `${filePath}\0${bytes}`;
+  });
+  exactValue(manifest, files, 'P04 candidate dist manifest');
+  const hash = createHash('sha256').update(build.distManifest.map(({ path: filePath, bytes, sha256 }) => (
+    `${filePath}\0${bytes}\0${sha256}\n`
+  )).join('')).digest('hex');
+  if (hash !== build.distManifestHash) fail('P04 candidate dist manifest aggregate hash mismatch');
 }
 
 function runnerFileSha256(repoRoot, revision, relativePath) {
@@ -1297,6 +1324,11 @@ function validatePerformanceProvenance(evidence, context, check, baselineDocumen
   validateComparableLoadAverage(baselineDocument.environment, evidence.environment);
   validateMeasurementAudit(baselineDocument);
   validateBaseResourceBuild(baselineDocument.metrics['P04-resource-budget'], baseSha, baseTree);
+  validateCandidateResourceBuild(
+    evidence.metrics['P04-resource-budget'],
+    context.subjectSha,
+    context.subjectTree,
+  );
   validateRunnerContent(baselineDocument.provenance, context, check, 'baseline');
   validateRunnerContent(evidence.provenance, context, check, 'candidate');
   if (baselineDocument.provenance.runnerContentHash !== evidence.provenance.runnerContentHash
