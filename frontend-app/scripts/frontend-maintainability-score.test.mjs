@@ -41,7 +41,7 @@ import {
 const scriptRoot = dirname(fileURLToPath(import.meta.url));
 const frozenRepoRoot = resolve(scriptRoot, '..', '..');
 const scorerPath = join(scriptRoot, 'frontend-maintainability-score.mjs');
-const plannedBaseSha = 'b40867229af8e17916c00393639ccb0fcb4bf6fc';
+const plannedBaseSha = '54d13a8d319442151aa7dc79ce25e653ca4ab13c';
 const T05_DELIVERY_EVIDENCE_TEST_TIMEOUT_MS = 30_000;
 const temporaryRepositories = [];
 const addedGovernancePaths = [
