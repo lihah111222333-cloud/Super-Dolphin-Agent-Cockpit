@@ -11,13 +11,16 @@ import {
   median,
 } from './performance-budget-model.mjs';
 import { attachActiveThreadRpcRuntime } from '../src/entities/client/model/threadLifecycleRuntime.js';
+import { ChatActionFeedback } from '../src/pages/chat/components/ChatActionFeedback.js';
 
-const MEASUREMENT_ITERATIONS = 10_001;
+// Eleven observations retain the 80% trimmed mean's outlier rejection without turning DOM commits into a load test.
+const MEASUREMENT_ITERATIONS = 11;
 const DOM_COMMIT_TIMEOUT_MS = 250;
 const STOP_FEEDBACK = Object.freeze({
   confirmed: Object.freeze({ message: '已发送中断请求', tone: 'success' }),
   unconfirmed: Object.freeze({ message: '停止未确认，任务可能仍在运行', tone: 'warning' }),
 });
+const STOP_FEEDBACK_COPY = Object.freeze({ noticeTitle: '操作通知' });
 
 if (typeof globalThis.document === 'undefined') {
   const { window } = new JSDOM('<!doctype html><html><body></body></html>', { pretendToBeVisual: true });
@@ -34,17 +37,6 @@ if (typeof globalThis.document === 'undefined') {
 const React = await import('react');
 const { flushSync } = await import('react-dom');
 const { createRoot } = await import('react-dom/client');
-
-function StopFeedbackOutput({ onReady }) {
-  const [feedback, setFeedback] = React.useState(null);
-  onReady(setFeedback);
-  return feedback
-    ? React.createElement('output', {
-      'data-stop-feedback': feedback.message,
-      'data-stop-feedback-tone': feedback.tone,
-    }, feedback.message)
-    : null;
-}
 
 function normalizeDOMMutation(mutation = {}) {
   if (mutation == null || typeof mutation !== 'object' || Array.isArray(mutation)) {
@@ -68,11 +60,11 @@ function observeFeedbackCommit(host, expected) {
       callback(value);
     };
     const check = () => {
-      const output = host.querySelector('[data-stop-feedback]');
+      const output = host.querySelector('[data-testid="chat-action-feedback"]');
       if (
-        output?.getAttribute('data-stop-feedback') === expected.message
-        && output.getAttribute('data-stop-feedback-tone') === expected.tone
-        && output.textContent === expected.message
+        output?.classList.contains(`is-${expected.tone}`)
+        && output.getAttribute('role') === 'alert'
+        && output.querySelector('span')?.textContent === expected.message
       ) {
         finish(resolve, performance.now());
       }
@@ -115,12 +107,11 @@ function createStopFeedbackHarness({ domMutation } = {}) {
   const mutation = normalizeDOMMutation(domMutation);
   const host = globalThis.document.createElement('div');
   globalThis.document.body.append(host);
-  let setFeedback;
   const root = createRoot(host);
-  flushSync(() => {
-    root.render(React.createElement(StopFeedbackOutput, { onReady: (next) => { setFeedback = next; } }));
-  });
-  if (typeof setFeedback !== 'function') throw new Error('stop feedback React output did not initialize');
+  const commitFeedback = (feedback) => {
+    flushSync(() => root.render(React.createElement(ChatActionFeedback, { copy: STOP_FEEDBACK_COPY, feedback })));
+  };
+  commitFeedback(null);
   let state = {
     activeThreadId: 'thread-performance',
     activeTurnByThread: {
@@ -133,9 +124,6 @@ function createStopFeedbackHarness({ domMutation } = {}) {
     cwd: '/performance/probe',
   };
   const scheduledFeedback = new Set();
-  const commitFeedback = (feedback) => {
-    flushSync(() => setFeedback(feedback));
-  };
   const renderFeedback = (feedback) => {
     if (mutation.mode === 'suppress') return;
     if (mutation.mode === 'delay') {
@@ -176,7 +164,7 @@ function createStopFeedbackHarness({ domMutation } = {}) {
     createRequestId: () => 'performance-stop-request',
   });
   const measureOutcome = async (response, expected, accepted) => {
-    flushSync(() => setFeedback(null));
+    commitFeedback(null);
     const startedAt = performance.now();
     const committedAt = observeFeedbackCommit(host, expected);
     const result = await runtime.activeThreadRPC('thread.interrupt', async () => response);

@@ -67,6 +67,7 @@ it('measures visible stop feedback after warmup with five production-runtime sam
     warmupCount: 1,
   }));
   const stop = evidence.cases['stop-visible-feedback'];
+  expect(MEASUREMENT_ITERATIONS).toBe(11);
   expect(stop.attemptsPerSample).toBe(ATTEMPTS_PER_SAMPLE);
   expect(stop.durationClock).toBe(FEEDBACK_DURATION_CLOCK);
   expect(stop.iterationCount).toBe(MEASUREMENT_ITERATIONS);

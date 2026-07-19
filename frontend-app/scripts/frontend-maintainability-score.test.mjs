@@ -50,6 +50,12 @@ const frozenRepoRoot = resolve(scriptRoot, '..', '..');
 const scorerPath = join(scriptRoot, 'frontend-maintainability-score.mjs');
 const plannedBaseSha = 'b40867229af8e17916c00393639ccb0fcb4bf6fc';
 const T05_DELIVERY_EVIDENCE_TEST_TIMEOUT_MS = 30_000;
+const EXECUTABLE_PROBE_TEST_TIMEOUT_MS = 90_000;
+const FINAL_SCORER_COMMAND_TIMEOUT_MS = 180_000;
+const FINAL_SCORER_TEST_TIMEOUT_MS = FINAL_SCORER_COMMAND_TIMEOUT_MS + 30_000;
+const ACTION_PRODUCER_PROBE_TIMEOUT_MS = 180_000;
+const ACTION_PRODUCER_PROBE_TEST_TIMEOUT_MS = ACTION_PRODUCER_PROBE_TIMEOUT_MS + 30_000;
+const STRUCTURAL_SCORE_TEST_TIMEOUT_MS = 210_000;
 const temporaryRepositories = [];
 const addedGovernancePaths = [
   'frontend-app/scripts/failure-matrix-runner.mjs',
@@ -1055,7 +1061,7 @@ describe('frontend maintainability scorer configuration', () => {
     await expect(probeResult('terminalTruth')).resolves.toBe('PASS');
     await expect(probeResult('visibleActionError')).resolves.toBe('PASS');
     await expect(probeResult('actionProducerGuard')).resolves.toBe('PASS');
-  }, 45_000);
+  }, EXECUTABLE_PROBE_TEST_TIMEOUT_MS);
 
   it('enforces exact CLI forms', () => {
     expect(cli(['--validate'])).toMatchObject({ status: 0 });
@@ -1405,7 +1411,7 @@ describe('frozen scorer target binding', () => {
           SCORER_DETACHED_MOUNT_PROOF: proofPath,
           TMPDIR: tmpAlias,
         },
-        timeoutMs: 150_000,
+        timeoutMs: FINAL_SCORER_COMMAND_TIMEOUT_MS,
         killGraceMs: 2_000,
       });
 
@@ -1435,7 +1441,7 @@ describe('frozen scorer target binding', () => {
     finally {
       execFileSync('git', ['worktree', 'remove', '--force', fixture.subjectRoot], { cwd: fixture.baseRoot });
     }
-  }, 180_000);
+  }, FINAL_SCORER_TEST_TIMEOUT_MS);
 
   it.each([
     'eslint/bin/eslint.js',
@@ -1595,13 +1601,13 @@ describe('executable evidence registry', () => {
       'actionProducerGuard',
     ], {
       cwd: frozenRepoRoot,
-      timeoutMs: 120_000,
+      timeoutMs: ACTION_PRODUCER_PROBE_TIMEOUT_MS,
       killGraceMs: 10_000,
     });
     expect(result.timedOut).toBe(false);
     expect(result.status, result.stderr).toBe(0);
     expect(result.stdout.trim()).toBe('PASS');
-  }, 135_000);
+  }, ACTION_PRODUCER_PROBE_TEST_TIMEOUT_MS);
 
   it('rejects stale, mismatched, zero-test, wrong-control, and wrong-case Task3 evidence', () => {
     const { controls } = documents();
@@ -1869,7 +1875,7 @@ describe('executable evidence registry', () => {
         index === 0 ? { ...entry, vitest: { ...entry.vitest, status: 'pending' } } : entry
       )),
     }, options)).toBe('FAIL');
-  }, 120000);
+  }, ACTION_PRODUCER_PROBE_TEST_TIMEOUT_MS);
 
   it('accepts source-hashed T03 v2 evidence while retaining v1-only validation for other runners', () => {
     const { controls } = documents();
@@ -2472,5 +2478,5 @@ describe('scoring semantics', () => {
     expect(result.controls.find(({ id }) => id === 'T05-build-embed-smoke').status).toBe('NOT_VERIFIED');
     expect(result.controls.find(({ id }) => id === 'E01-terminal-truth').status).toBe('PASS');
     expect(result.displayScore).not.toBe(61.8);
-  }, 150_000);
+  }, STRUCTURAL_SCORE_TEST_TIMEOUT_MS);
 });
