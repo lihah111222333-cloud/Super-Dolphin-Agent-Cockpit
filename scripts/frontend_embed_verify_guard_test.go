@@ -18,6 +18,7 @@ func TestFrontendEmbedVerifyScriptContracts(t *testing.T) {
 		"set -euo pipefail",
 		"cmd/agent-terminal/web-dist",
 		"frontend-app/dist",
+		"frontend-app/required-dist-entries.txt",
 		"git check-ignore",
 		"git ls-files -- cmd/agent-terminal/web-dist",
 		"SUPER_DOLPHIN_FRONTEND_EMBED_TRACKED_ARTIFACT",
@@ -34,8 +35,10 @@ func TestFrontendEmbedVerifyComparesDistAndEmbeddedManifest(t *testing.T) {
 	src := filepath.Join(root, "frontend-app", "dist")
 	dst := filepath.Join(root, "cmd", "agent-terminal", "web-dist")
 	writeFixTestGuardFile(t, root, "frontend-app/dist/index.html", "<html>ok</html>\n")
+	writeFixTestGuardFile(t, root, "frontend-app/dist/recovery.html", "<html>recover</html>\n")
 	writeFixTestGuardFile(t, root, "frontend-app/dist/assets/app.js", "console.log('ok')\n")
 	writeFixTestGuardFile(t, root, "cmd/agent-terminal/web-dist/index.html", "<html>ok</html>\n")
+	writeFixTestGuardFile(t, root, "cmd/agent-terminal/web-dist/recovery.html", "<html>recover</html>\n")
 	writeFixTestGuardFile(t, root, "cmd/agent-terminal/web-dist/assets/app.js", "console.log('ok')\n")
 
 	env := appendWSLEnvKeysWithGitPath(t, append(os.Environ(),
@@ -58,6 +61,29 @@ func TestFrontendEmbedVerifyComparesDistAndEmbeddedManifest(t *testing.T) {
 	}
 	if !strings.Contains(string(output), "frontend embed manifest mismatch") {
 		t.Fatalf("verifier drift output missing manifest mismatch:\n%s", output)
+	}
+}
+
+func TestFrontendEmbedVerifyRejectsMissingRecoveryEntry(t *testing.T) {
+	root := t.TempDir()
+	src := filepath.Join(root, "frontend-app", "dist")
+	dst := filepath.Join(root, "cmd", "agent-terminal", "web-dist")
+	writeFixTestGuardFile(t, root, "frontend-app/dist/index.html", "<html>ok</html>\n")
+	writeFixTestGuardFile(t, root, "cmd/agent-terminal/web-dist/index.html", "<html>ok</html>\n")
+	writeFixTestGuardFile(t, root, "cmd/agent-terminal/web-dist/recovery.html", "<html>recover</html>\n")
+
+	env := appendWSLEnvKeysWithGitPath(t, append(os.Environ(),
+		"SUPER_DOLPHIN_FRONTEND_DIST_DIR="+bashArg("", src),
+		"SUPER_DOLPHIN_FRONTEND_EMBED_DIR="+bashArg("", dst),
+		"SUPER_DOLPHIN_FRONTEND_EMBED_ASSUME_IGNORED=1",
+	), "SUPER_DOLPHIN_FRONTEND_DIST_DIR", "SUPER_DOLPHIN_FRONTEND_EMBED_DIR")
+	output, err := runFrontendEmbedVerify(t, env)
+	if err == nil {
+		t.Fatalf("frontend embed verify accepted dist without recovery.html:\n%s", output)
+	}
+	want := "missing frontend dist required entry recovery.html: " + filepath.Join(src, "recovery.html")
+	if !strings.Contains(string(output), want) {
+		t.Fatalf("frontend embed verify missing recovery diagnostic %q:\n%s", want, output)
 	}
 }
 

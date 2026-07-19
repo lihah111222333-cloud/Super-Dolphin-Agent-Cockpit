@@ -1683,6 +1683,33 @@ resources="$contents/Resources"
 rm -rf "$app" "$dmg_path" "$dmg_path.sha256"
 mkdir -p "$macos" "$resources/bin"
 
+require_frontend_entries() {
+  local directory="$1"
+  local label="$2"
+  local manifest="$root/frontend-app/required-dist-entries.txt"
+  local entry
+  local count=0
+  if [[ ! -f "$manifest" ]]; then
+    echo "frontend required entries manifest is missing: $manifest" >&2
+    exit 1
+  fi
+  while IFS= read -r entry || [[ -n "$entry" ]]; do
+    if [[ -z "$entry" || "$entry" == */* || "$entry" == "." || "$entry" == ".." ]]; then
+      echo "invalid frontend required entry '$entry': $manifest" >&2
+      exit 1
+    fi
+    count=$((count + 1))
+    if [[ ! -f "$directory/$entry" ]]; then
+      echo "$label missing required entry $entry: $directory/$entry" >&2
+      exit 1
+    fi
+  done < "$manifest"
+  if [[ "$count" -eq 0 ]]; then
+    echo "frontend required entries manifest is empty: $manifest" >&2
+    exit 1
+  fi
+}
+
 phase_start "frontend build"
 if [[ "${SUPER_DOLPHIN_SKIP_FRONTEND_BUILD:-}" != "1" ]]; then
   frontend_cache_inputs=(
@@ -1695,6 +1722,7 @@ if [[ "${SUPER_DOLPHIN_SKIP_FRONTEND_BUILD:-}" != "1" ]]; then
     "$root/frontend-app/vite.config.js"
     "$root/frontend-app/index.html"
     "$root/frontend-app/recovery.html"
+    "$root/frontend-app/required-dist-entries.txt"
     "$root/frontend-app/public"
     "$root/frontend-app/src"
     "$root/scripts/package_macos.sh"
@@ -1713,15 +1741,13 @@ if [[ "${SUPER_DOLPHIN_SKIP_FRONTEND_BUILD:-}" != "1" ]]; then
       npm ci
       npm run build
     )
+    require_frontend_entries "$root/frontend-app/dist" "frontend dist"
     phase_cache_save "frontend" "${frontend_cache_outputs[@]}" -- "${frontend_cache_inputs[@]}" "${frontend_cache_paths[@]}"
   fi
-  rsync -a --delete --exclude .gitkeep "$root/frontend-app/dist"/ "$root/cmd/agent-terminal/web-dist"/
-elif [[ ! -f "$root/frontend-app/dist/index.html" ]]; then
-  echo "frontend dist missing; unset SUPER_DOLPHIN_SKIP_FRONTEND_BUILD or run npm run build first" >&2
-  exit 1
-else
-  rsync -a --delete --exclude .gitkeep "$root/frontend-app/dist"/ "$root/cmd/agent-terminal/web-dist"/
 fi
+require_frontend_entries "$root/frontend-app/dist" "frontend dist"
+rsync -a --delete --exclude .gitkeep "$root/frontend-app/dist"/ "$root/cmd/agent-terminal/web-dist"/
+require_frontend_entries "$root/cmd/agent-terminal/web-dist" "embedded frontend dist"
 phase_end
 
 phase_start "go binaries"

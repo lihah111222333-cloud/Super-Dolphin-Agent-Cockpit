@@ -226,9 +226,33 @@ func TestPackageLinuxScriptRequiresFrontendAppDistWhenSkippingBuild(t *testing.T
 	script := readScript(t, "package_linux.sh")
 
 	assertScriptContains(t, script, "SUPER_DOLPHIN_SKIP_FRONTEND_BUILD")
-	assertScriptContains(t, script, "frontend dist missing; unset SUPER_DOLPHIN_SKIP_FRONTEND_BUILD or run npm run build first")
-	assertScriptContains(t, script, "[[ ! -f \"$root/frontend-app/dist/index.html\" ]]")
-	assertScriptOrder(t, script, "[[ ! -f \"$root/frontend-app/dist/index.html\" ]]", "rsync -a --delete --exclude .gitkeep \"$root/frontend-app/dist\"/ \"$root/cmd/agent-terminal/web-dist\"/")
+	assertScriptContains(t, script, "frontend-app/required-dist-entries.txt")
+	assertScriptContains(t, script, "require_frontend_entries \"$root/frontend-app/dist\" \"frontend dist\"")
+	assertScriptContains(t, script, "require_frontend_entries \"$root/cmd/agent-terminal/web-dist\" \"embedded frontend dist\"")
+	assertScriptContains(t, script, "missing required entry $entry")
+	assertScriptOrder(t, script, "require_frontend_entries \"$root/frontend-app/dist\" \"frontend dist\"", "rsync -a --delete --exclude .gitkeep \"$root/frontend-app/dist\"/ \"$root/cmd/agent-terminal/web-dist\"/")
+}
+
+func TestPackageLinuxFrontendGuardRejectsMissingRecoveryEntry(t *testing.T) {
+	root := t.TempDir()
+	writeFixTestGuardFile(t, root, "frontend-app/required-dist-entries.txt", "index.html\nrecovery.html\n")
+	writeFixTestGuardFile(t, root, "frontend-app/dist/index.html", "<html>ok</html>\n")
+	scriptPath, err := filepath.Abs("package_linux.sh")
+	if err != nil {
+		t.Fatalf("Abs(package_linux.sh) error = %v", err)
+	}
+	harness := "source " + bashQuote(bashArg("", scriptPath)) + "\n" +
+		"root=" + bashQuote(bashArg("", root)) + "\n" +
+		"require_frontend_entries \"$root/frontend-app/dist\" \"frontend dist\"\n"
+	cmd := exec.Command("bash", "-c", harness)
+	output, err := cmd.CombinedOutput()
+	if err == nil {
+		t.Fatalf("package Linux frontend guard accepted dist without recovery.html:\n%s", output)
+	}
+	want := "frontend dist missing required entry recovery.html: " + filepath.Join(root, "frontend-app", "dist", "recovery.html")
+	if !strings.Contains(string(output), want) {
+		t.Fatalf("package Linux frontend guard missing diagnostic %q:\n%s", want, output)
+	}
 }
 
 func TestPackageLinuxScriptWritesRuntimeManifestContract(t *testing.T) {

@@ -34,6 +34,10 @@ func TestPackageWindowsScriptBuildsNativeWindowsPackage(t *testing.T) {
 	assertScriptContains(t, script, "Invoke-WindowsGoBuild -Output (Join-Path $Root 'bin/mcp-lsp.exe') -Package './cmd/mcp-lsp' -LdFlags $windowsGuiLdFlags")
 	assertScriptContains(t, script, "Invoke-WindowsGoBuild -Output (Join-Path $Root 'bin/mcp-ida.exe') -Package './cmd/mcp-ida' -LdFlags $windowsGuiLdFlags")
 	assertScriptContains(t, script, "SUPER_DOLPHIN_SKIP_FRONTEND_BUILD")
+	assertScriptContains(t, script, "frontend-app/required-dist-entries.txt")
+	assertScriptContains(t, script, "Assert-RequiredFrontendEntries -Directory (Join-Path $Root 'frontend-app/dist') -Label 'frontend dist'")
+	assertScriptContains(t, script, "Assert-RequiredFrontendEntries -Directory (Join-Path $Root 'cmd/agent-terminal/web-dist') -Label 'embedded frontend dist'")
+	assertScriptContains(t, script, "missing required entry $($entry)")
 	assertScriptContains(t, script, "npm run build")
 	assertScriptContains(t, script, "Copy-DirectoryClean -Source (Join-Path $Root 'frontend-app/dist') -Destination (Join-Path $Root 'cmd/agent-terminal/web-dist') -PreserveNames @('.gitkeep')")
 	assertScriptDoesNotContain(t, script, "Copy-PostgresRuntime")
@@ -45,6 +49,14 @@ func TestPackageWindowsScriptBuildsNativeWindowsPackage(t *testing.T) {
 	assertScriptContains(t, script, "Compress-Archive")
 	assertScriptContains(t, script, "$zipPath = Join-Path $dist \"$AppName-$Version-$Platform.zip\"")
 	assertScriptOrder(t, script, "Build-CurrentFrontendApp", "Invoke-WindowsGoBuild -Output (Join-Path $Root 'bin/agent-terminal.exe') -Package './cmd/agent-terminal' -LdFlags $windowsSchemaLdFlags")
+}
+
+func TestWindowsCrossPlatformSmokeRequiresAllFrontendEntries(t *testing.T) {
+	script := readScript(t, "ci_cross_platform_smoke.ps1")
+	assertScriptContains(t, script, "frontend-app/required-dist-entries.txt")
+	assertScriptContains(t, script, "Assert-RequiredFrontendEntries -Directory $source -Label 'frontend dist'")
+	assertScriptContains(t, script, "Assert-RequiredFrontendEntries -Directory $destination -Label 'embedded frontend dist'")
+	assertScriptContains(t, script, "missing required entry $($entry)")
 }
 
 func TestPackageWindowsWhatIfRunsCrossPlatformValidation(t *testing.T) {

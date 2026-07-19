@@ -11,6 +11,7 @@ SCHEMA_BUILD_IDENTITY_LDFLAG := -X github.com/lihah111222333-cloud/super-dolphin
 AGENT_TERMINAL_DEBUG_PORT ?= 4501
 FRONTEND_APP_DIR := frontend-app
 EMBEDDED_FRONTEND_DIR := cmd/agent-terminal/web-dist
+FRONTEND_REQUIRED_ENTRIES_FILE := $(FRONTEND_APP_DIR)/required-dist-entries.txt
 ifeq ($(OS),Windows_NT)
 NPM ?= npm.cmd
 NPM_INSTALL ?= install --no-audit --no-fund
@@ -62,8 +63,16 @@ frontend-app-deps:
 frontend-app-build: frontend-app-deps
 	cd $(FRONTEND_APP_DIR) && $(NPM) run build
 	test -f $(FRONTEND_APP_DIR)/dist/index.html
+	@while IFS= read -r entry || [ -n "$$entry" ]; do \
+		test -n "$$entry" || { echo "frontend required entries manifest contains an empty entry: $(FRONTEND_REQUIRED_ENTRIES_FILE)" >&2; exit 1; }; \
+		test -f "$(FRONTEND_APP_DIR)/dist/$$entry" || { echo "frontend dist missing required entry $$entry: $(FRONTEND_APP_DIR)/dist/$$entry" >&2; exit 1; }; \
+	done < "$(FRONTEND_REQUIRED_ENTRIES_FILE)"
 	node $(FRONTEND_APP_DIR)/scripts/sync-frontend-dist.mjs
 	test -f $(EMBEDDED_FRONTEND_DIR)/index.html
+	@while IFS= read -r entry || [ -n "$$entry" ]; do \
+		test -n "$$entry" || { echo "frontend required entries manifest contains an empty entry: $(FRONTEND_REQUIRED_ENTRIES_FILE)" >&2; exit 1; }; \
+		test -f "$(EMBEDDED_FRONTEND_DIR)/$$entry" || { echo "embedded frontend dist missing required entry $$entry: $(EMBEDDED_FRONTEND_DIR)/$$entry" >&2; exit 1; }; \
+	done < "$(FRONTEND_REQUIRED_ENTRIES_FILE)"
 
 frontend-embed-verify: frontend-app-build
 	./scripts/frontend_embed_verify.sh
