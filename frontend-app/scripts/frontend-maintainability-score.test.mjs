@@ -42,7 +42,7 @@ import {
 const scriptRoot = dirname(fileURLToPath(import.meta.url));
 const frozenRepoRoot = resolve(scriptRoot, '..', '..');
 const scorerPath = join(scriptRoot, 'frontend-maintainability-score.mjs');
-const plannedBaseSha = '54d13a8d319442151aa7dc79ce25e653ca4ab13c';
+const plannedBaseSha = 'b40867229af8e17916c00393639ccb0fcb4bf6fc';
 const T05_DELIVERY_EVIDENCE_TEST_TIMEOUT_MS = 30_000;
 const temporaryRepositories = [];
 const addedGovernancePaths = [
@@ -229,7 +229,9 @@ function createFinalContractTarget() {
     'frontend-app/scripts/delivery-smoke-runner.mjs',
     'frontend-app/scripts/managed-command.mjs',
     'frontend-app/scripts/evidence-provenance.mjs',
+    'frontend-app/scripts/performance-baseline-provenance.mjs',
     'frontend-app/scripts/performance-budget-model.mjs',
+    'frontend-app/scripts/resource-budget.mjs',
     'frontend-app/scorer-final-subject.txt',
     ...addedGovernancePaths,
   ]);
@@ -244,7 +246,9 @@ function createFinalContractTarget() {
     'delivery-smoke-runner.mjs',
     'managed-command.mjs',
     'evidence-provenance.mjs',
+    'performance-baseline-provenance.mjs',
     'performance-budget-model.mjs',
+    'resource-budget.mjs',
   ]) {
     copyFileSync(join(scriptRoot, name), join(repoRoot, 'frontend-app', 'scripts', name));
   }
@@ -280,7 +284,9 @@ function createFinalCliFixture({ hangFirstProbe = false } = {}) {
     'delivery-smoke-runner.mjs',
     'managed-command.mjs',
     'evidence-provenance.mjs',
+    'performance-baseline-provenance.mjs',
     'performance-budget-model.mjs',
+    'resource-budget.mjs',
   ]) {
     copyFileSync(join(scriptRoot, name), join(baseRoot, 'frontend-app', 'scripts', name));
   }
@@ -548,7 +554,7 @@ function performanceEvidence(context, check, metricStatus = 'PASS', overrides = 
     'P01-render-isolation': ['render-main-page-update-commits', 'render-unrelated-subtree-update-commits', 'render-broad-subscription-mutation-detected'],
     'P02-history-budget': ['turns-200-tools-1', 'turns-200-tools-3', 'turns-1000-tools-1', 'turns-1000-tools-3', 'turns-5000-tools-1', 'turns-5000-tools-3'],
     'P03-feedback-budget': ['stop-visible-feedback'],
-    'P04-resource-budget': ['bundle-total-bytes', 'bundle-max-chunk-bytes'],
+    'P04-resource-budget': ['bundle-total-bytes', 'bundle-max-chunk-bytes', 'heap-used-median-bytes'],
   };
   const caseResults = Object.entries(casesByMetric).flatMap(([metricId, caseIds]) => (
     caseIds.map((caseId) => ({
@@ -653,6 +659,17 @@ function performanceEvidence(context, check, metricStatus = 'PASS', overrides = 
       totalBundleBytes: 100,
       maxChunkBytes: 100,
       files: [{ path: 'assets/index.js', bytes: 100 }],
+      heapMeasurementClock: 'median(node --expose-gc process.memoryUsage().heapUsed after runtime-asset materialization)',
+      heapSampleCount: 5,
+      heapWarmupCount: 1,
+      heapUsedSamplesBytes: [100, 100, 100, 100, 100],
+      heapUsedMedianBytes: 100,
+      heapEnvironment: {
+        node: 'v25.6.1',
+        v8: '14.1.0',
+        platform: 'darwin',
+        arch: 'arm64',
+      },
     },
   });
   const measurementMetricsFor = () => {
@@ -2080,7 +2097,7 @@ describe('executable evidence registry', () => {
       const check = control.allOf.find(({ evidenceProtocol }) => evidenceProtocol === 'performance-budget-json-v1');
       expect(check.runnerFiles).toEqual(auditedRunnerFiles);
     }
-    expect(performanceAuditPathAllowed('frontend-app/package.json')).toBe(true);
+    expect(performanceAuditPathAllowed('frontend-app/package.json')).toBe(false);
   });
 
   it('matches the runner codemap audit allowlist without widening the codemap prefix', () => {

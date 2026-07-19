@@ -326,12 +326,12 @@ describe('performance budget runner registry', () => {
       }));
   });
 
-  it('derives twelve exact current-tree cases and rejects zero, missing, stale, and duplicate registrations', () => {
+  it('derives thirteen exact current-tree cases and rejects zero, missing, stale, and duplicate registrations', () => {
     const currentEvidence = evidence();
     const verdict = verifyPerformanceEvidence(currentEvidence, baseline());
     expect(verdict).toEqual(expect.objectContaining({
       status: 'PASS',
-      testCount: 12,
+      testCount: 13,
     }));
     expect(verdict.caseIds).toEqual(registry().cases.map(({ caseId }) => caseId));
 

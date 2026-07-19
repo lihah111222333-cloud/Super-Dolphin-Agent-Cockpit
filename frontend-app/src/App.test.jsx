@@ -1233,6 +1233,7 @@ async function showAllTraceDashboardEvents() {
     });
 
     afterEach(() => {
+      window.dispatchEvent(new Event('pagehide'));
       window.localStorage.clear();
       document.documentElement.removeAttribute('data-theme');
       document.body.removeAttribute('data-theme');

@@ -627,6 +627,7 @@ function actualEvidenceCases(evidence) {
   for (const [caseId, evidenceKey] of [
     ['bundle-total-bytes', 'totalBundleBytes'],
     ['bundle-max-chunk-bytes', 'maxChunkBytes'],
+    ['heap-used-median-bytes', 'heapUsedMedianBytes'],
   ]) {
     if (Object.hasOwn(metrics['P04-resource-budget'] || {}, evidenceKey)) {
       cases.push({ caseId, metricId: 'P04-resource-budget', evidenceKey });

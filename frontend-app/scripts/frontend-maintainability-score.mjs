@@ -6,8 +6,13 @@ import path from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
 import { FROZEN_T04_T05_EXECUTION_CLOSURE_PATHS } from './frontend-execution-closure.mjs';
+import {
+  assertPerformanceBaselineProvenance,
+  isAllowedPerformanceBaselinePath,
+} from './performance-baseline-provenance.mjs';
 import { productionActionFailureMatrixTitle } from '../src/shared/ui/productionActionFailureMatrixTitles.js';
 import { runManagedCommand, terminateManagedCommands } from './managed-command.mjs';
+import { validateV8HeapEvidence } from './resource-budget.mjs';
 
 const scriptPath = fileURLToPath(import.meta.url);
 const frozenScriptRoot = path.dirname(scriptPath);
@@ -53,7 +58,7 @@ const governancePaths = [
   'internal/ui/wails/bridge.go',
 ];
 const artifactProbes = new Set(['promptHistoryVisibleError', 'criticalTypecheck']);
-const plannedBaseSha = '54d13a8d319442151aa7dc79ce25e653ca4ab13c';
+const plannedBaseSha = 'b40867229af8e17916c00393639ccb0fcb4bf6fc';
 const plannedThresholds = { overall: 90, dimensions: { E: 90, A: 85, C: 85, T: 85, P: 80 } };
 const requiredDoDControls = new Set(['E06-failure-matrix', 'C05-provider-rpc-parity', 'T05-build-embed-smoke', 'P04-resource-budget']);
 const customEvidenceProtocols = new Set([
@@ -145,13 +150,14 @@ const performanceCaseIds = Object.freeze({
   'P01-render-isolation': ['render-main-page-update-commits', 'render-unrelated-subtree-update-commits', 'render-broad-subscription-mutation-detected'],
   'P02-history-budget': ['turns-200-tools-1', 'turns-200-tools-3', 'turns-1000-tools-1', 'turns-1000-tools-3', 'turns-5000-tools-1', 'turns-5000-tools-3'],
   'P03-feedback-budget': ['stop-visible-feedback'],
-  'P04-resource-budget': ['bundle-total-bytes', 'bundle-max-chunk-bytes'],
+  'P04-resource-budget': ['bundle-total-bytes', 'bundle-max-chunk-bytes', 'heap-used-median-bytes'],
 });
 const allPerformanceCaseIds = Object.freeze(Object.values(performanceCaseIds).flat());
 const performanceRunnerFiles = Object.freeze([
   'frontend-app/scripts/chat-history-benchmark.mjs',
   'frontend-app/scripts/evidence-provenance.mjs',
   'frontend-app/scripts/frontend-performance-cases.json',
+  'frontend-app/scripts/performance-baseline-provenance.mjs',
   'frontend-app/scripts/performance-budget-config.mjs',
   'frontend-app/scripts/performance-budget-model.mjs',
   'frontend-app/scripts/performance-budget-runner.mjs',
@@ -163,29 +169,8 @@ const performanceEnvironmentKeys = Object.freeze([
   'os', 'cpu', 'totalMemoryBytes', 'loadAverage', 'node', 'npm', 'go',
 ]);
 const MAX_LOAD_AVERAGE_DELTA_PER_LOGICAL_CORE = 0.25;
-const performanceAuditAllowedPaths = new Set([
-  ...performanceRunnerFiles,
-  'docs/doc/codemap/README.md',
-  'docs/doc/codemap/ai-index.json',
-  'frontend-app/package.json',
-  'frontend-app/scripts/chat-history-benchmark.test.mjs',
-  'frontend-app/scripts/delivery-smoke-runner.mjs',
-  'frontend-app/scripts/delivery-smoke-runner.test.mjs',
-  'frontend-app/scripts/evidence-provenance.test.mjs',
-  'frontend-app/scripts/performance-budget-model.test.mjs',
-  'frontend-app/scripts/performance-budget-runner.test.mjs',
-  'frontend-app/scripts/resource-budget.test.mjs',
-  'frontend-app/scripts/stop-feedback-benchmark.test.mjs',
-  'scripts/ai_maintenance/gate_execution.go',
-  'scripts/ai_maintenance/main.go',
-  'scripts/ai_maintenance/main_test.go',
-  'scripts/sqlc_verify_worktree_guard_test.go',
-]);
-const performanceAuditAllowedPrefixes = Object.freeze(['docs/doc/codemap/project-map/']);
-
 export function performanceAuditPathAllowed(changedPath) {
-  return performanceAuditAllowedPaths.has(changedPath)
-    || performanceAuditAllowedPrefixes.some((prefix) => changedPath.startsWith(prefix));
+  return isAllowedPerformanceBaselinePath(changedPath);
 }
 const failureMatrixChecks = Object.freeze({
   'E03-background-health': Object.freeze({ probe: 'backgroundProviderHealth', caseIds: ['FM-18'], testCount: 1 }),
@@ -1161,6 +1146,11 @@ function validateResourceMetric(metric, subjectSha, label) {
   if (metric.totalBundleBytes !== total || metric.maxChunkBytes !== maximum) {
     fail(`${label} resource summary does not match raw files`);
   }
+  try {
+    validateV8HeapEvidence(metric, label);
+  } catch (error) {
+    fail(error.message);
+  }
 }
 
 function validatePerformanceEnvironment(environment, label) {
@@ -1276,6 +1266,15 @@ function validateRunnerContent(provenance, context, check, label) {
 function validatePerformanceProvenance(evidence, context, check, baselineDocument) {
   const baseSha = baselineDocument.baseSha;
   if (baseSha !== plannedBaseSha) fail('performance baseline does not bind the frozen plan BASE_SHA');
+  try {
+    assertPerformanceBaselineProvenance({
+      repositoryRoot: context.repoRoot,
+      planBaseSha: plannedBaseSha,
+      baselineBaseSha: baseSha,
+    });
+  } catch (error) {
+    fail(`performance baseline provenance rejected: ${error.message}`);
+  }
   if (!baselineDocument.provenance || !baselineDocument.subjectSha || !baselineDocument.subjectTree) {
     notVerified('performance baseline has not been audited against immutable BASE_SHA');
   }
@@ -1462,6 +1461,8 @@ function recomputePerformanceStatuses(evidence, baselineDocument, context) {
     <= frozen['P04-resource-budget'].totalBundleBytes * 1.05);
   statuses.set('bundle-max-chunk-bytes', current['P04-resource-budget'].maxChunkBytes
     <= frozen['P04-resource-budget'].maxChunkBytes * 1.05);
+  statuses.set('heap-used-median-bytes', current['P04-resource-budget'].heapUsedMedianBytes
+    <= frozen['P04-resource-budget'].heapUsedMedianBytes * 1.05);
   return statuses;
 }
 

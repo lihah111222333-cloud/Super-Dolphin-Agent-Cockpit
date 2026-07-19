@@ -9,6 +9,7 @@ const RUNNER_CONTENT_PATHS = Object.freeze([
   'frontend-app/scripts/chat-history-benchmark.mjs',
   'frontend-app/scripts/evidence-provenance.mjs',
   'frontend-app/scripts/frontend-performance-cases.json',
+  'frontend-app/scripts/performance-baseline-provenance.mjs',
   'frontend-app/scripts/performance-budget-config.mjs',
   'frontend-app/scripts/performance-budget-model.mjs',
   'frontend-app/scripts/performance-budget-runner.mjs',
@@ -21,19 +22,13 @@ const BASELINE_AUDIT_ALLOWED_PATHS = Object.freeze(new Set([
   ...RUNNER_CONTENT_PATHS,
   'docs/doc/codemap/README.md',
   'docs/doc/codemap/ai-index.json',
-  'frontend-app/package.json',
   'frontend-app/scripts/chat-history-benchmark.test.mjs',
-  'frontend-app/scripts/delivery-smoke-runner.mjs',
-  'frontend-app/scripts/delivery-smoke-runner.test.mjs',
   'frontend-app/scripts/evidence-provenance.test.mjs',
+  'frontend-app/scripts/performance-baseline-provenance.test.mjs',
   'frontend-app/scripts/performance-budget-model.test.mjs',
   'frontend-app/scripts/performance-budget-runner.test.mjs',
   'frontend-app/scripts/resource-budget.test.mjs',
   'frontend-app/scripts/stop-feedback-benchmark.test.mjs',
-  'scripts/ai_maintenance/gate_execution.go',
-  'scripts/ai_maintenance/main.go',
-  'scripts/ai_maintenance/main_test.go',
-  'scripts/sqlc_verify_worktree_guard_test.go',
 ]));
 
 const BASELINE_AUDIT_ALLOWED_PREFIXES = Object.freeze([

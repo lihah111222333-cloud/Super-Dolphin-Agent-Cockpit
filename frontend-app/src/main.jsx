@@ -192,9 +192,12 @@ const frontendPerformancePressure = startFrontendPerformancePressure({
 });
 
 function cleanupFrontendDiagnostics() {
+  window.removeEventListener('pagehide', cleanupFrontendDiagnostics);
   frontendPerformancePressure.stop();
   cleanupGlobalCrashHandlers();
 }
+
+window.addEventListener('pagehide', cleanupFrontendDiagnostics);
 
 if (import.meta.hot) {
   import.meta.hot.dispose(cleanupFrontendDiagnostics);
