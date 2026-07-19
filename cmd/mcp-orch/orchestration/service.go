@@ -153,15 +153,20 @@ type turnControllerDeps struct {
 
 // turnController owns turn submission and active-turn state transitions.
 type turnController struct {
-	registry           *agentRegistry
-	launcher           AgentLauncher
-	turnStarter        contract.OrchestrationTurnStarter
-	state              turnStatePort
-	rehydrator         turnRuntimeRehydrator
-	stopper            turnStopPort
-	logger             *slog.Logger
-	remoteTerminalMu   sync.Mutex
-	remoteTerminalSeal map[remoteTerminalTurnRef]remoteTerminalTruth
+	registry                        *agentRegistry
+	launcher                        AgentLauncher
+	turnStarter                     contract.OrchestrationTurnStarter
+	state                           turnStatePort
+	rehydrator                      turnRuntimeRehydrator
+	stopper                         turnStopPort
+	logger                          *slog.Logger
+	remoteTerminalMu                sync.Mutex
+	remoteTerminalSeal              map[remoteTerminalTurnRef]remoteTerminalSealEntry
+	remoteTerminalNext              uint64
+	remoteTerminalCapacity          int
+	remoteTerminalEvictions         uint64
+	remoteTerminalLifecycleClears   uint64
+	remoteTerminalLifecycleDeferred uint64
 }
 
 func newTurnController(deps turnControllerDeps) *turnController {
