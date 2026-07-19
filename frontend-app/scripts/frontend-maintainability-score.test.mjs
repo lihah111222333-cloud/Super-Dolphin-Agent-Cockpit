@@ -236,7 +236,7 @@ function createFinalContractTarget() {
   for (const relativePath of DELIVERY_RUNNER_CONTENT_PATHS) copyWorkspaceFile(relativePath, repoRoot);
   for (const relativePath of addedGovernancePaths) copyWorkspaceFile(relativePath, repoRoot);
   write('frontend-app/scorer-final-subject.txt', 'strict descendant\n', repoRoot);
-  git(repoRoot, ['add', '.']);
+  git(repoRoot, ['add', '--sparse', '--all']);
   git(repoRoot, ['commit', '-q', '-m', '测试：建立最终评分后代']);
   return {
     repoRoot,

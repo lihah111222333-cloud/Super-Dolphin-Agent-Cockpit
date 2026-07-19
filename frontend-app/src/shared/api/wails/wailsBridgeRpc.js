@@ -1,5 +1,6 @@
 
 import { METHOD_IDS, FRONTEND_TRACE_RPC_SLOW_MS } from './wailsBridgeConstants.js';
+import { registerFrontendDiagnosticCorrelation } from '../../diagnostics/frontendDiagnosticCorrelation.js';
 import { compactBridgeValuePreview, waitRuntime, writeBridgeDebugLog, writeBridgeLog, writeBridgeSuccessDiagnosticLog } from './wailsBridgeLogRuntime.js';
 import { createTraceContext, currentMonotonicMS, elapsedMS, emitFrontendTraceEvent, resolveClientMeta, safeTraceErrorMessage } from './wailsBridgeTraceEvents.js';
 
@@ -224,6 +225,7 @@ function attachAPITraceToError(error, context) {
   traced.method = method;
   traced.clientKind = clientKind;
   traced.clientRoute = clientRoute;
+  registerFrontendDiagnosticCorrelation(error, trace.traceId);
   return error;
 }
 

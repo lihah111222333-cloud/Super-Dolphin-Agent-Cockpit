@@ -5,7 +5,7 @@ import {
   recordFrontendHealthFailureState,
 } from '../diagnostics/frontendHealthStore.js';
 import { clearVisibleActionFailure, publishVisibleActionFailure } from './actionFailureSink.js';
-import { publicErrorForAction, publicErrorForSink } from './publicError.js';
+import { diagnosticIdFactoryForError, publicErrorForAction, publicErrorForSink } from './publicError.js';
 
 /**
  * @typedef {ReturnType<typeof publicErrorForAction>} PublicError
@@ -81,12 +81,12 @@ function writeHealth(actionId, publicError, options) {
 }
 
 /**
- * @param {{ action: () => unknown, actionId: string, options: RunUIActionOptions }} args
+ * @param {{ action: () => unknown, actionId: string, cause?: unknown, options: RunUIActionOptions }} args
  */
-function reportFailure({ action, actionId, options }) {
+function reportFailure({ action, actionId, cause, options }) {
   const publicError = createSafePublicError({
     actionId,
-    diagnosticIdFactory: options.diagnosticIdFactory,
+    diagnosticIdFactory: diagnosticIdFactoryForError(cause, options.diagnosticIdFactory),
     retryable: options.retryable,
   });
   writeHealth(actionId, publicError, options);
@@ -143,7 +143,7 @@ function executeAction(actionId, action, options, onSuccess) {
       const args = { action, actionId, options };
       void Promise.resolve(result).then(
         (value) => handleActionResolution(value, args, onSuccess),
-        () => reportFailure(args),
+        (cause) => reportFailure({ ...args, cause }),
       );
     } else if (options.rejectFalse && result === false) {
       reportFailure({ action, actionId, options });
@@ -151,8 +151,8 @@ function executeAction(actionId, action, options, onSuccess) {
       onSuccess();
     }
     return result;
-  } catch {
-    reportFailure({ action, actionId, options });
+  } catch (cause) {
+    reportFailure({ action, actionId, cause, options });
     return undefined;
   }
 }
