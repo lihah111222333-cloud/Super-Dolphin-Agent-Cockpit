@@ -16,6 +16,7 @@ const RUNNER_CONTENT_PATHS = Object.freeze([
   'frontend-app/scripts/render-isolation-probe.test.jsx',
   'frontend-app/scripts/resource-budget.mjs',
   'frontend-app/scripts/stop-feedback-benchmark.mjs',
+  'frontend-app/src/pages/chat/components/ChatActionFeedback.js',
 ]);
 
 const BASELINE_AUDIT_ALLOWED_PATHS = Object.freeze(new Set([

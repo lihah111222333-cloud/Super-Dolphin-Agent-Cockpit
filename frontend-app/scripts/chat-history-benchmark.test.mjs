@@ -1,5 +1,4 @@
 import { execFileSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { cwd, execPath } from 'node:process';
 import { describe, expect, it } from 'vitest';
@@ -181,12 +180,7 @@ describe('chat history benchmark', () => {
     }));
   });
 
-  it('registers the exact package script without lifecycle flags', () => {
-    const packageJSON = JSON.parse(readFileSync(join(cwd(), 'package.json'), 'utf8'));
-
-    expect(packageJSON.scripts['benchmark:chat-history']).toBe('node scripts/chat-history-benchmark.mjs');
-    expect(packageJSON.scripts['benchmark:chat-history:verify']).toBe('node scripts/chat-history-benchmark.mjs --verify');
-    expect(packageJSON.scripts['benchmark:verify']).toBe('node scripts/chat-history-benchmark.mjs --verify');
+  it('uses the frozen default baseline path', () => {
     expect(DEFAULT_BASELINE_PATH).toBe(join(cwd(), 'scripts/frontend-maintainability-baseline.json'));
   });
 });

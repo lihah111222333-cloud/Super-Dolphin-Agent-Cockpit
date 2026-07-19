@@ -1,4 +1,12 @@
 import { execFileSync } from 'node:child_process';
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
+import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { cwd } from 'node:process';
 import { describe, expect, it } from 'vitest';
@@ -22,6 +30,26 @@ describe('evidence provenance', () => {
     first.runnerFiles.forEach(({ sha256 }) => expect(sha256).toMatch(/^[0-9a-f]{64}$/));
   });
 
+  it('changes the runner content hash when the audited feedback component changes', () => {
+    const temporaryRoot = mkdtempSync(resolve(tmpdir(), 'runner-content-hash-'));
+    try {
+      for (const runnerPath of RUNNER_CONTENT_PATHS) {
+        const sourcePath = resolve(REPOSITORY_ROOT, runnerPath);
+        const targetPath = resolve(temporaryRoot, runnerPath);
+        mkdirSync(resolve(targetPath, '..'), { recursive: true });
+        writeFileSync(targetPath, readFileSync(sourcePath));
+      }
+      const first = runnerContentEvidence(temporaryRoot);
+      const componentPath = resolve(temporaryRoot, 'frontend-app/src/pages/chat/components/ChatActionFeedback.js');
+      writeFileSync(componentPath, `${readFileSync(componentPath, 'utf8')}\n// hash mutation\n`);
+      const second = runnerContentEvidence(temporaryRoot);
+      expect(first.runnerFiles.map(({ path }) => path)).toContain('frontend-app/src/pages/chat/components/ChatActionFeedback.js');
+      expect(second.runnerContentHash).not.toBe(first.runnerContentHash);
+    } finally {
+      rmSync(temporaryRoot, { recursive: true, force: true });
+    }
+  });
+
   it('rejects duplicate, unsorted, and forbidden baseline audit changes', () => {
     expect(validateBaselineAuditDiff([
       'docs/doc/codemap/README.md',
@@ -32,6 +60,8 @@ describe('evidence provenance', () => {
     ]);
     expect(validateBaselineAuditDiff(['frontend-app/scripts/evidence-provenance.test.mjs']))
       .toEqual(['frontend-app/scripts/evidence-provenance.test.mjs']);
+    expect(validateBaselineAuditDiff(['frontend-app/src/pages/chat/components/ChatActionFeedback.js']))
+      .toEqual(['frontend-app/src/pages/chat/components/ChatActionFeedback.js']);
     expect(() => validateBaselineAuditDiff(['frontend-app/package.json', 'frontend-app/package.json']))
       .toThrow(/exact, unique, and sorted/);
     expect(() => validateBaselineAuditDiff([
@@ -39,6 +69,12 @@ describe('evidence provenance', () => {
       'frontend-app/package.json',
     ])).toThrow(/exact, unique, and sorted/);
     expect(() => validateBaselineAuditDiff(['frontend-app/src/App.jsx']))
+      .toThrow(/forbidden path/);
+    expect(() => validateBaselineAuditDiff(['frontend-app/src/pages/chat/ThreadPage.jsx']))
+      .toThrow(/forbidden path/);
+    expect(() => validateBaselineAuditDiff(['frontend-app/src/pages/chat/ChatPage.jsx']))
+      .toThrow(/forbidden path/);
+    expect(() => validateBaselineAuditDiff(['frontend-app/src/pages/chat/components/ChatActionFailureSink.js']))
       .toThrow(/forbidden path/);
   });
 

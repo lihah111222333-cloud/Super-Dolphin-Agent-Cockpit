@@ -1,23 +1,63 @@
 import { expect, it } from 'vitest';
+import { attachActiveThreadRpcRuntime } from '../src/entities/client/model/threadLifecycleRuntime.js';
 import {
   ATTEMPTS_PER_SAMPLE,
   FEEDBACK_DURATION_CLOCK,
+  FROZEN_PLAN_BASE_SHA,
   MEASUREMENT_ITERATIONS,
+  STOP_FEEDBACK_PENDING,
   createStopFeedbackHarness,
   measurementTrimmedMean,
+  resolveStopFeedbackAttachRuntime,
   runStopFeedbackBenchmark,
+  stopFeedbackContractForSubject,
   verifyStopFeedbackEvidence,
 } from './stop-feedback-benchmark.mjs';
 
 let benchmarkEvidence;
+const CANDIDATE_SUBJECT_SHA = 'c'.repeat(40);
 
 function fullBenchmarkEvidence() {
-  benchmarkEvidence ??= runStopFeedbackBenchmark({ subjectSha: 'a'.repeat(40) });
+  benchmarkEvidence ??= runStopFeedbackBenchmark({
+    attachRuntime: attachBaseRuntime,
+    subjectSha: FROZEN_PLAN_BASE_SHA,
+  });
   return benchmarkEvidence;
 }
 
-it('measures confirmed and timeout-unconfirmed Stop outcomes only after their React DOM output commits', async () => {
-  const harness = createStopFeedbackHarness();
+function attachBaseRuntime(runtime) {
+  runtime.activeThreadRPC = async (action, rpc) => {
+    if (action !== 'thread.interrupt') throw new Error(`unexpected action: ${action}`);
+    const response = await rpc({});
+    if (response.ok) {
+      runtime.notifyAction('已发送中断请求', 'success');
+      return true;
+    }
+    runtime.notifyAction('中断当前执行失败：stop confirmation timed out', 'warning');
+    return false;
+  };
+}
+
+function attachCandidateRuntime(runtime, deps) {
+  runtime.activeThreadRPC = async (action, rpc) => {
+    if (action !== 'thread.interrupt') throw new Error(`unexpected action: ${action}`);
+    if (deps.createRequestId() !== 'performance-stop-request') throw new Error('candidate request id mismatch');
+    runtime.notifyAction(STOP_FEEDBACK_PENDING.message, STOP_FEEDBACK_PENDING.tone);
+    const response = await rpc({});
+    if (response.ok) {
+      runtime.notifyAction('已发送中断请求', 'success');
+      return true;
+    }
+    runtime.notifyAction('停止未确认，任务可能仍在运行', 'warning');
+    return false;
+  };
+}
+
+it('measures BASE confirmed and timeout-unconfirmed Stop outcomes only after their React DOM output commits', async () => {
+  const harness = createStopFeedbackHarness({
+    attachRuntime: attachBaseRuntime,
+    subjectSha: FROZEN_PLAN_BASE_SHA,
+  });
   try {
     await expect(harness.measureConfirmed()).resolves.toBeGreaterThanOrEqual(0);
     await expect(harness.measureUnconfirmed()).resolves.toBeGreaterThanOrEqual(0);
@@ -27,8 +67,80 @@ it('measures confirmed and timeout-unconfirmed Stop outcomes only after their Re
   }
 });
 
+it('keeps the real product runtime as the omitted attachRuntime default', () => {
+  expect(resolveStopFeedbackAttachRuntime()).toBe(attachActiveThreadRpcRuntime);
+  expect(resolveStopFeedbackAttachRuntime(attachCandidateRuntime)).toBe(attachCandidateRuntime);
+  expect(() => resolveStopFeedbackAttachRuntime(null)).toThrow(/attachRuntime must be a function/);
+});
+
+it('binds the immutable BASE subject to the old final contract and every candidate subject to the new final contract', () => {
+  expect(stopFeedbackContractForSubject(FROZEN_PLAN_BASE_SHA)).toEqual({
+    confirmed: { message: '已发送中断请求', tone: 'success' },
+    unconfirmed: { message: '中断当前执行失败：stop confirmation timed out', tone: 'warning' },
+  });
+  expect(stopFeedbackContractForSubject(CANDIDATE_SUBJECT_SHA)).toEqual({
+    confirmed: { message: '已发送中断请求', tone: 'success' },
+    unconfirmed: { message: '停止未确认，任务可能仍在运行', tone: 'warning' },
+  });
+  expect(() => stopFeedbackContractForSubject('HEAD')).toThrow(/full 40-character/);
+});
+
+it('measures the candidate pending-plus-final runtime with the candidate final contract', async () => {
+  const harness = createStopFeedbackHarness({
+    attachRuntime: attachCandidateRuntime,
+    subjectSha: CANDIDATE_SUBJECT_SHA,
+  });
+  try {
+    await expect(harness.measureConfirmed()).resolves.toBeGreaterThanOrEqual(0);
+    await expect(harness.measureUnconfirmed()).resolves.toBeGreaterThanOrEqual(0);
+  }
+  finally {
+    harness.destroy();
+  }
+});
+
+it('fails closed when a candidate runtime emits the BASE final message', async () => {
+  const harness = createStopFeedbackHarness({
+    attachRuntime(runtime) {
+      runtime.activeThreadRPC = async () => {
+        runtime.notifyAction('中断当前执行失败：stop confirmation timed out', 'warning');
+        return false;
+      };
+    },
+    subjectSha: CANDIDATE_SUBJECT_SHA,
+  });
+  try {
+    await expect(harness.measureUnconfirmed()).rejects.toThrow(/unexpected stop feedback/);
+  }
+  finally {
+    harness.destroy();
+  }
+});
+
+it('does not let pending feedback satisfy the final DOM commit', async () => {
+  const harness = createStopFeedbackHarness({
+    attachRuntime(runtime) {
+      runtime.activeThreadRPC = async () => {
+        runtime.notifyAction(STOP_FEEDBACK_PENDING.message, STOP_FEEDBACK_PENDING.tone);
+        return true;
+      };
+    },
+    subjectSha: CANDIDATE_SUBJECT_SHA,
+  });
+  try {
+    await expect(harness.measureConfirmed()).rejects.toThrow(/did not commit to the React DOM: success:已发送中断请求/);
+  }
+  finally {
+    harness.destroy();
+  }
+});
+
 it('fails rather than recording a synchronous notifyAction callback when a DOM mutation suppresses feedback', async () => {
-  const harness = createStopFeedbackHarness({ domMutation: { mode: 'suppress' } });
+  const harness = createStopFeedbackHarness({
+    attachRuntime: attachBaseRuntime,
+    domMutation: { mode: 'suppress' },
+    subjectSha: FROZEN_PLAN_BASE_SHA,
+  });
   try {
     await expect(harness.measureConfirmed()).rejects.toThrow(/did not commit to the React DOM/);
     await expect(harness.measureUnconfirmed()).rejects.toThrow(/did not commit to the React DOM/);
@@ -40,7 +152,11 @@ it('fails rather than recording a synchronous notifyAction callback when a DOM m
 
 it('includes delayed React DOM commits in Stop feedback timing', async () => {
   const delayMs = 25;
-  const harness = createStopFeedbackHarness({ domMutation: { delayMs, mode: 'delay' } });
+  const harness = createStopFeedbackHarness({
+    attachRuntime: attachBaseRuntime,
+    domMutation: { delayMs, mode: 'delay' },
+    subjectSha: FROZEN_PLAN_BASE_SHA,
+  });
   try {
     await expect(harness.measureConfirmed()).resolves.toBeGreaterThanOrEqual(delayMs);
     await expect(harness.measureUnconfirmed()).resolves.toBeGreaterThanOrEqual(delayMs);
@@ -58,7 +174,7 @@ it('uses an 80 percent trimmed mean and rejects invalid timing values', () => {
   expect(() => measurementTrimmedMean([1, 2, 3, 4, -1])).toThrow(/finite non-negative/);
 });
 
-it('measures visible stop feedback after warmup with five production-runtime samples', async () => {
+it('measures visible BASE stop feedback after warmup with five samples', async () => {
   const evidence = await fullBenchmarkEvidence();
 
   expect(evidence).toEqual(expect.objectContaining({

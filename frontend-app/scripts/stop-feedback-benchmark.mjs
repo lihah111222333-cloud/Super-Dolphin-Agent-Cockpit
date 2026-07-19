@@ -16,10 +16,18 @@ import { ChatActionFeedback } from '../src/pages/chat/components/ChatActionFeedb
 // Eleven observations retain the 80% trimmed mean's outlier rejection without turning DOM commits into a load test.
 const MEASUREMENT_ITERATIONS = 11;
 const DOM_COMMIT_TIMEOUT_MS = 250;
+const FROZEN_PLAN_BASE_SHA = 'b40867229af8e17916c00393639ccb0fcb4bf6fc';
 const STOP_FEEDBACK = Object.freeze({
-  confirmed: Object.freeze({ message: '已发送中断请求', tone: 'success' }),
-  unconfirmed: Object.freeze({ message: '停止未确认，任务可能仍在运行', tone: 'warning' }),
+  base: Object.freeze({
+    confirmed: Object.freeze({ message: '已发送中断请求', tone: 'success' }),
+    unconfirmed: Object.freeze({ message: '中断当前执行失败：stop confirmation timed out', tone: 'warning' }),
+  }),
+  candidate: Object.freeze({
+    confirmed: Object.freeze({ message: '已发送中断请求', tone: 'success' }),
+    unconfirmed: Object.freeze({ message: '停止未确认，任务可能仍在运行', tone: 'warning' }),
+  }),
 });
+const STOP_FEEDBACK_PENDING = Object.freeze({ message: '正在请求停止，尚未确认，任务可能仍在运行', tone: 'info' });
 const STOP_FEEDBACK_COPY = Object.freeze({ noticeTitle: '操作通知' });
 
 if (typeof globalThis.document === 'undefined') {
@@ -48,6 +56,19 @@ function normalizeDOMMutation(mutation = {}) {
   if (!Number.isFinite(delayMs) || delayMs < 0) throw new TypeError('domMutation delayMs must be finite and non-negative');
   if (mode !== 'delay' && delayMs !== 0) throw new TypeError('only delay domMutation may set delayMs');
   return Object.freeze({ delayMs, mode });
+}
+
+function stopFeedbackContractForSubject(subjectSha) {
+  if (!/^[0-9a-f]{40}$/.test(subjectSha || '')) {
+    throw new TypeError('subjectSha must be a full 40-character Git SHA');
+  }
+  return subjectSha === FROZEN_PLAN_BASE_SHA ? STOP_FEEDBACK.base : STOP_FEEDBACK.candidate;
+}
+
+function resolveStopFeedbackAttachRuntime(attachRuntime) {
+  if (attachRuntime === undefined) return attachActiveThreadRpcRuntime;
+  if (typeof attachRuntime !== 'function') throw new TypeError('attachRuntime must be a function');
+  return attachRuntime;
 }
 
 function observeFeedbackCommit(host, expected) {
@@ -103,7 +124,13 @@ function unconfirmedInterruptResponse() {
   };
 }
 
-function createStopFeedbackHarness({ domMutation } = {}) {
+function createStopFeedbackHarness({
+  attachRuntime,
+  domMutation,
+  subjectSha,
+} = {}) {
+  const runtimeAttacher = resolveStopFeedbackAttachRuntime(attachRuntime);
+  const contract = stopFeedbackContractForSubject(subjectSha);
   const mutation = normalizeDOMMutation(domMutation);
   const host = globalThis.document.createElement('div');
   globalThis.document.body.append(host);
@@ -140,9 +167,9 @@ function createStopFeedbackHarness({ domMutation } = {}) {
     addWarning() {},
     get: () => state,
     notifyAction(message, tone) {
-      const isPending = message === '正在请求停止，尚未确认，任务可能仍在运行' && tone === 'info';
-      const isConfirmed = message === STOP_FEEDBACK.confirmed.message && tone === STOP_FEEDBACK.confirmed.tone;
-      const isUnconfirmed = message === STOP_FEEDBACK.unconfirmed.message && tone === STOP_FEEDBACK.unconfirmed.tone;
+      const isPending = message === STOP_FEEDBACK_PENDING.message && tone === STOP_FEEDBACK_PENDING.tone;
+      const isConfirmed = message === contract.confirmed.message && tone === contract.confirmed.tone;
+      const isUnconfirmed = message === contract.unconfirmed.message && tone === contract.unconfirmed.tone;
       if (!isPending && !isConfirmed && !isUnconfirmed) throw new Error(`unexpected stop feedback: ${tone}:${message}`);
       renderFeedback({ message, tone });
     },
@@ -151,7 +178,7 @@ function createStopFeedbackHarness({ domMutation } = {}) {
       state = { ...state, ...(typeof patch === 'function' ? patch(state) : patch) };
     },
   };
-  attachActiveThreadRpcRuntime(runtime, {
+  runtimeAttacher(runtime, {
     activeThreadInterruptTarget: (current) => ({
       interruptible: true,
       threadId: current.activeThreadId,
@@ -167,9 +194,14 @@ function createStopFeedbackHarness({ domMutation } = {}) {
     commitFeedback(null);
     const startedAt = performance.now();
     const committedAt = observeFeedbackCommit(host, expected);
-    const result = await runtime.activeThreadRPC('thread.interrupt', async () => response);
-    if (result !== accepted) throw new Error(`stop ${expected.message} branch returned ${result}`);
-    return (await committedAt) - startedAt;
+    try {
+      const result = await runtime.activeThreadRPC('thread.interrupt', async () => response);
+      if (result !== accepted) throw new Error(`stop ${expected.message} branch returned ${result}`);
+      return (await committedAt) - startedAt;
+    } catch (error) {
+      await committedAt.catch(() => undefined);
+      throw error;
+    }
   };
   return {
     destroy() {
@@ -179,10 +211,10 @@ function createStopFeedbackHarness({ domMutation } = {}) {
       host.remove();
     },
     measureConfirmed() {
-      return measureOutcome(confirmedInterruptResponse(), STOP_FEEDBACK.confirmed, true);
+      return measureOutcome(confirmedInterruptResponse(), contract.confirmed, true);
     },
     measureUnconfirmed() {
-      return measureOutcome(unconfirmedInterruptResponse(), STOP_FEEDBACK.unconfirmed, false);
+      return measureOutcome(unconfirmedInterruptResponse(), contract.unconfirmed, false);
     },
     async measure() {
       const confirmedMs = await this.measureConfirmed();
@@ -193,13 +225,14 @@ function createStopFeedbackHarness({ domMutation } = {}) {
 }
 
 async function runStopFeedbackBenchmark({
+  attachRuntime,
   subjectSha,
   sampleCount = SAMPLE_COUNT,
   warmupCount = WARMUP_COUNT,
 } = {}) {
   if (sampleCount !== SAMPLE_COUNT) throw new TypeError(`sampleCount must be ${SAMPLE_COUNT}`);
   if (warmupCount !== WARMUP_COUNT) throw new TypeError(`warmupCount must be ${WARMUP_COUNT}`);
-  const harness = createStopFeedbackHarness();
+  const harness = createStopFeedbackHarness({ attachRuntime, subjectSha });
   const measureBatch = async () => {
     const durationsMs = [];
     for (let index = 0; index < MEASUREMENT_ITERATIONS; index += 1) {
@@ -264,9 +297,13 @@ export {
   ATTEMPTS_PER_SAMPLE,
   DOM_COMMIT_TIMEOUT_MS,
   FEEDBACK_DURATION_CLOCK,
+  FROZEN_PLAN_BASE_SHA,
   MEASUREMENT_ITERATIONS,
+  STOP_FEEDBACK_PENDING,
   createStopFeedbackHarness,
   measurementTrimmedMean,
   runStopFeedbackBenchmark,
+  resolveStopFeedbackAttachRuntime,
+  stopFeedbackContractForSubject,
   verifyStopFeedbackEvidence,
 };

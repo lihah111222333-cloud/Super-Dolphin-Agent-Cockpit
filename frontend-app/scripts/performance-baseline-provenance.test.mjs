@@ -38,8 +38,18 @@ describe('performance baseline provenance', () => {
     ]);
   }));
 
+  it('allows only the exact audited feedback component path', () => withFixtureRepository((repositoryRoot, planBaseSha) => {
+    const baselineBaseSha = commit(repositoryRoot, {
+      'frontend-app/src/pages/chat/components/ChatActionFeedback.js': 'audited component\n',
+    }, 'audited-feedback-component');
+    expect(assertPerformanceBaselineProvenance({ repositoryRoot, planBaseSha, baselineBaseSha }))
+      .toMatchObject({ valid: true, forbiddenPaths: [] });
+  }));
+
   it.each([
     'frontend-app/src/pages/chat/ThreadPage.jsx',
+    'frontend-app/src/pages/chat/ChatPage.jsx',
+    'frontend-app/src/pages/chat/components/ChatActionFailureSink.js',
     'cmd/agent-terminal/main.go',
     'internal/ui/wails/bridge.go',
     'frontend-app/package.json',

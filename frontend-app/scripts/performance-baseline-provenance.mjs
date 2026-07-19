@@ -9,10 +9,6 @@ const PURE_PERFORMANCE_RUNNER_PATHS = Object.freeze(new Set([
   'frontend-app/scripts/chat-history-benchmark.test.mjs',
   'frontend-app/scripts/evidence-provenance.mjs',
   'frontend-app/scripts/evidence-provenance.test.mjs',
-  'frontend-app/scripts/frontend-maintainability-controls.json',
-  'frontend-app/scripts/frontend-maintainability-red-fixtures.json',
-  'frontend-app/scripts/frontend-maintainability-score.mjs',
-  'frontend-app/scripts/frontend-maintainability-score.test.mjs',
   'frontend-app/scripts/frontend-performance-cases.json',
   'frontend-app/scripts/performance-baseline-provenance.mjs',
   'frontend-app/scripts/performance-baseline-provenance.test.mjs',
@@ -26,6 +22,7 @@ const PURE_PERFORMANCE_RUNNER_PATHS = Object.freeze(new Set([
   'frontend-app/scripts/resource-budget.test.mjs',
   'frontend-app/scripts/stop-feedback-benchmark.mjs',
   'frontend-app/scripts/stop-feedback-benchmark.test.mjs',
+  'frontend-app/src/pages/chat/components/ChatActionFeedback.js',
 ]));
 
 const PURE_AUDIT_PATHS = Object.freeze(new Set([
