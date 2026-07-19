@@ -1,8 +1,8 @@
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { afterEach, expect, it } from 'vitest';
-import { measureFrontendResources, verifyResourceEvidence } from './resource-budget.mjs';
+import { HEAP_MEASUREMENT_CLOCK, measureFrontendResources, verifyResourceEvidence } from './resource-budget.mjs';
 
 const temporaryRoots = [];
 
@@ -30,6 +30,20 @@ function resourceFixture(sizes) {
 
 afterEach(() => {
   temporaryRoots.splice(0).forEach((root) => rmSync(root, { recursive: true, force: true }));
+});
+
+it('collects retained heap only after post-materialization garbage collection', () => {
+  const source = readFileSync(resolve('scripts/resource-budget.mjs'), 'utf8');
+  const firstGc = source.indexOf('global.gc();');
+  const materialization = source.indexOf('const runtimeAssets = request.runtimeAssetPaths.map');
+  const secondGc = source.indexOf('global.gc();', firstGc + 1);
+  const afterMeasurement = source.indexOf('const after = process.memoryUsage().heapUsed;', materialization);
+  expect(firstGc).toBeGreaterThanOrEqual(0);
+  expect(materialization).toBeGreaterThan(firstGc);
+  expect(secondGc).toBeGreaterThan(materialization);
+  expect(afterMeasurement).toBeGreaterThan(secondGc);
+  expect(source.indexOf('global.gc();', secondGc + 1)).toBe(-1);
+  expect(HEAP_MEASUREMENT_CLOCK).toContain('post-materialization global.gc()');
 });
 
 it('collects non-zero bundle and maximum chunk evidence', () => {
@@ -63,7 +77,7 @@ it('fails a deliberately enlarged bundle', () => {
         maxRegressionRatio: 1.05,
         totalBundleBytes: 100,
         maxChunkBytes: 90,
-        heapMeasurementClock: 'median(node --expose-gc process.memoryUsage().heapUsed after runtime-asset materialization)',
+        heapMeasurementClock: HEAP_MEASUREMENT_CLOCK,
         heapSampleCount: 5,
         heapWarmupCount: 1,
         heapUsedSamplesBytes: [100, 100, 100, 100, 100],

@@ -20,6 +20,7 @@ import { runManagedCommand } from './managed-command.mjs';
 import { DELIVERY_RUNNER_CONTENT_PATHS } from './delivery-smoke-runner.mjs';
 import { FROZEN_T04_T05_EXECUTION_CLOSURE_PATHS } from './frontend-execution-closure.mjs';
 import { productionActionFailureMatrixTitle } from '../src/shared/ui/productionActionFailureMatrixTitles.js';
+import { HEAP_MEASUREMENT_CLOCK } from './resource-budget.mjs';
 import {
   actionProducerGuardOutputStatus,
   commandEvidenceStatus,
@@ -673,7 +674,7 @@ function performanceEvidence(context, check, metricStatus = 'PASS', overrides = 
       totalBundleBytes: 100,
       maxChunkBytes: 100,
       files: [{ path: 'assets/index.js', bytes: 100 }],
-      heapMeasurementClock: 'median(node --expose-gc process.memoryUsage().heapUsed after runtime-asset materialization)',
+      heapMeasurementClock: HEAP_MEASUREMENT_CLOCK,
       heapSampleCount: 5,
       heapWarmupCount: 1,
       heapUsedSamplesBytes: [100, 100, 100, 100, 100],

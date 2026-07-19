@@ -28,6 +28,7 @@ import {
   CPU_DURATION_CLOCK,
   FEEDBACK_DURATION_CLOCK,
 } from './performance-budget-model.mjs';
+import { HEAP_MEASUREMENT_CLOCK } from './resource-budget.mjs';
 
 const SUBJECT_SHA = 'a'.repeat(40);
 const SUBJECT_TREE = '1'.repeat(40);
@@ -141,7 +142,7 @@ function evidence(subjectSha = SUBJECT_SHA) {
         fileCount: 2,
         totalBundleBytes: 100,
         maxChunkBytes: 50,
-        heapMeasurementClock: 'median(node --expose-gc process.memoryUsage().heapUsed after runtime-asset materialization)',
+        heapMeasurementClock: HEAP_MEASUREMENT_CLOCK,
         heapSampleCount: 5,
         heapWarmupCount: 1,
         heapUsedSamplesBytes: [100, 100, 100, 100, 100],
@@ -286,7 +287,7 @@ function baseline() {
         maxRegressionRatio: 1.05,
         totalBundleBytes: 100,
         maxChunkBytes: 50,
-        heapMeasurementClock: 'median(node --expose-gc process.memoryUsage().heapUsed after runtime-asset materialization)',
+        heapMeasurementClock: HEAP_MEASUREMENT_CLOCK,
         heapSampleCount: 5,
         heapWarmupCount: 1,
         heapUsedSamplesBytes: [100, 100, 100, 100, 100],
