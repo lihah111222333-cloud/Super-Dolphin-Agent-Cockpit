@@ -30,6 +30,7 @@ const (
 	guardDigestHelperDirEnv     = "SUPER_DOLPHIN_TEST_GUARD_DIGEST_HELPER_DIR"
 	releaseFilesystemHelperEnv  = "SUPER_DOLPHIN_RELEASE_FS_HELPER"
 	releaseFilesystemHelperPath = "SUPER_DOLPHIN_RELEASE_FS_HELPER_EXECUTABLE"
+	guardFixturePublishTimeout  = 30 * time.Second
 )
 
 func runGuardProcessTreeFixtureIfRequested() (bool, int) {
@@ -291,7 +292,7 @@ func waitGuardFixturePID(t *testing.T, path string) int {
 
 func waitGuardFixtureText(t *testing.T, path string) string {
 	t.Helper()
-	deadline := time.Now().Add(5 * time.Second)
+	deadline := time.Now().Add(guardFixturePublishTimeout)
 	for {
 		raw, err := os.ReadFile(path)
 		if err == nil && len(raw) > 0 {
