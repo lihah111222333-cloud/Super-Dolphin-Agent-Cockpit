@@ -379,6 +379,20 @@ describe('performance budget runner registry', () => {
     expect(verdict.verdicts.find(({ metricId }) => metricId === 'P04-resource-budget'))
       .toEqual(expect.objectContaining({ status: 'FAIL' }));
   });
+
+  it('emits the required heap verdict when a bundle case has already failed', () => {
+    const regressed = evidence();
+    regressed.metrics['P04-resource-budget'].totalBundleBytes = 106;
+    const verdict = verifyPerformanceEvidence(regressed, baseline());
+
+    expect(verdict.status).toBe('FAIL');
+    expect(verdict.caseResults.filter(({ metricId }) => metricId === 'P04-resource-budget'))
+      .toEqual([
+        expect.objectContaining({ caseId: 'bundle-total-bytes', status: 'FAIL' }),
+        expect.objectContaining({ caseId: 'bundle-max-chunk-bytes', status: 'PASS' }),
+        expect.objectContaining({ caseId: 'heap-used-median-bytes', status: 'PASS' }),
+      ]);
+  });
 });
 
 describe('performance baseline freeze', () => {

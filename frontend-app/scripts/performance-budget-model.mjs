@@ -342,7 +342,7 @@ function evaluateResourceBudget(currentMetric, baselineMetric) {
   if (baselineMetric.maxRegressionRatio !== RESOURCE_REGRESSION_RATIO) {
     return notVerified(metricId, `maxRegressionRatio must equal the plan ratio ${RESOURCE_REGRESSION_RATIO}`);
   }
-  const comparisons = ['totalBundleBytes', 'maxChunkBytes'].map((field) => {
+  const comparisons = ['totalBundleBytes', 'maxChunkBytes', 'heapUsedMedianBytes'].map((field) => {
     const baselineValue = requirePositive(baselineMetric[field], `${metricId}.${field}.baseline`);
     const currentValue = requirePositive(currentMetric[field], `${metricId}.${field}.current`);
     return Object.freeze({

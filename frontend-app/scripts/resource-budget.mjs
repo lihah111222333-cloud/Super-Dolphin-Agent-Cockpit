@@ -156,8 +156,6 @@ function measureFrontendResources({
 
 function verifyResourceEvidence(evidence, baseline) {
   const baselineMetric = baseline?.metrics?.['P04-resource-budget'];
-  const resourceVerdict = evaluateResourceBudget(evidence, baselineMetric);
-  if (resourceVerdict.status !== 'PASS') return resourceVerdict;
   const currentHeap = validateV8HeapEvidence(evidence, 'P04 candidate');
   const baselineHeap = validateV8HeapEvidence(baselineMetric, 'P04 baseline');
   if (JSON.stringify(currentHeap.environment) !== JSON.stringify(baselineHeap.environment)) {
@@ -167,25 +165,7 @@ function verifyResourceEvidence(evidence, baseline) {
       reason: 'P04 V8 heap environment differs from frozen baseline',
     });
   }
-  const heapComparison = Object.freeze({
-    case: 'heapUsedMedianBytes',
-    baseline: baselineHeap.medianBytes,
-    current: currentHeap.medianBytes,
-    threshold: baselineHeap.medianBytes * baselineMetric.maxRegressionRatio,
-  });
-  const comparisons = Object.freeze([...resourceVerdict.comparisons, heapComparison]);
-  return heapComparison.current > heapComparison.threshold
-    ? Object.freeze({
-      metricId: 'P04-resource-budget',
-      status: 'FAIL',
-      reason: '1 resource metric exceeds the frozen budget',
-      comparisons,
-    })
-    : Object.freeze({
-      metricId: 'P04-resource-budget',
-      status: 'PASS',
-      comparisons,
-    });
+  return evaluateResourceBudget(evidence, baselineMetric);
 }
 
 export {

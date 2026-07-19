@@ -198,15 +198,25 @@ describe('performance budget model', () => {
     }, baseline).status).toBe('FAIL');
   });
 
-  it('fails bundle growth above the fixed five percent resource budget', () => {
+  it('fails bundle or heap growth above the fixed five percent resource budget', () => {
     const verdict = evaluateResourceBudget({
       totalBundleBytes: 106,
       maxChunkBytes: 100,
+      heapUsedMedianBytes: 106,
     }, frozenMetric({
       maxRegressionRatio: 1.05,
       totalBundleBytes: 100,
       maxChunkBytes: 100,
+      heapUsedMedianBytes: 100,
     }));
     expect(verdict.status).toBe('FAIL');
+    expect(verdict.comparisons).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        case: 'heapUsedMedianBytes',
+        baseline: 100,
+        current: 106,
+        threshold: 105,
+      }),
+    ]));
   });
 });

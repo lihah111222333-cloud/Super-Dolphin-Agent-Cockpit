@@ -78,6 +78,11 @@ it('fails a deliberately enlarged bundle', () => {
     },
   });
   expect(verdict.status).toBe('FAIL');
+  expect(verdict.comparisons.map(({ case: caseName }) => caseName)).toEqual([
+    'totalBundleBytes',
+    'maxChunkBytes',
+    'heapUsedMedianBytes',
+  ]);
 });
 
 it('rejects zero-byte resource evidence', () => {
