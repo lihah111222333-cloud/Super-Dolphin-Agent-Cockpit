@@ -10,8 +10,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strconv"
 	"slices"
+	"strconv"
 	"testing"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/app"
@@ -216,6 +216,10 @@ func TestAgentTerminalSelectsRecoveryBeforeNormalPreflight(t *testing.T) {
 		selectStartup: func(context.Context) (app.StartupSelection, error) {
 			return app.StartupSelection{Mode: app.StartupModeRecovery}, nil
 		},
+		prepareSchemaFilesystemWorker: func() (func() error, error) {
+			t.Fatal("schema helper prepared in Recovery mode")
+			return nil, nil
+		},
 		runNormal: func(context.Context, app.StartupSelection) error {
 			normalCalls++
 			return nil
@@ -240,7 +244,8 @@ func TestFirstNormalPreflightFailureOpensRecoverySurface(t *testing.T) {
 		selectStartup: func(context.Context) (app.StartupSelection, error) {
 			return app.StartupSelection{Mode: app.StartupModeNormal}, nil
 		},
-		runNormal: func(context.Context, app.StartupSelection) error { return preflightErr },
+		prepareSchemaFilesystemWorker: prepareTestFilesystemHelper,
+		runNormal:                     func(context.Context, app.StartupSelection) error { return preflightErr },
 		runRecovery: func(_ context.Context, selection app.StartupSelection) error {
 			recoveryCalls++
 			if selection.Mode != app.StartupModeRecovery || selection.Projection.Reason != preflightErr.Error() {
@@ -277,8 +282,9 @@ func TestActiveProbationNormalFailureDoesNotOpenRecovery(t *testing.T) {
 		},
 	}
 	err := runAgentTerminal(context.Background(), terminalDeps{
-		selectStartup: func(context.Context) (app.StartupSelection, error) { return selection, nil },
-		runNormal:     func(context.Context, app.StartupSelection) error { return startErr },
+		selectStartup:                 func(context.Context) (app.StartupSelection, error) { return selection, nil },
+		prepareSchemaFilesystemWorker: prepareTestFilesystemHelper,
+		runNormal:                     func(context.Context, app.StartupSelection) error { return startErr },
 		runRecovery: func(context.Context, app.StartupSelection) error {
 			recoveryCalls++
 			return nil
@@ -370,7 +376,10 @@ func TestRunMainParkedWaitFailureRunsCleanup(t *testing.T) {
 	server := &fakeTerminationServer{waitErr: waitErr}
 	exitCode := runMain(t.Context(), func() {}, terminalMainDeps{
 		prepareReleaseFilesystemHelper: prepareTestFilesystemHelper,
-		prepareSchemaFilesystemWorker:  prepareTestFilesystemHelper,
+		prepareSchemaFilesystemWorker: func() (func() error, error) {
+			t.Fatal("schema helper prepared before parked activation")
+			return nil, nil
+		},
 		startTermination: func(context.CancelFunc) (cooperativeTerminationServer, bool, error) {
 			return server, true, nil
 		},
@@ -384,8 +393,8 @@ func TestRunMainParkedWaitFailureRunsCleanup(t *testing.T) {
 	}
 }
 
-func TestRunMainPreparesBothHelpersAndCleansInReverseOrder(t *testing.T) {
-	events := make([]string, 0, 7)
+func TestRunMainStartsTerminationBeforeSchemaPreparation(t *testing.T) {
+	events := make([]string, 0, 8)
 	exitCode := runMain(t.Context(), func() { events = append(events, "stop") }, terminalMainDeps{
 		prepareReleaseFilesystemHelper: recordedHelperPreparation(&events, "prepare-release", "cleanup-release", nil),
 		prepareSchemaFilesystemWorker:  recordedHelperPreparation(&events, "prepare-schema", "cleanup-schema", nil),
@@ -393,23 +402,35 @@ func TestRunMainPreparesBothHelpersAndCleansInReverseOrder(t *testing.T) {
 			events = append(events, "termination")
 			return nil, false, nil
 		},
-		run: func(context.Context, terminalDeps) error {
-			events = append(events, "run")
-			return nil
+		run: runAgentTerminal,
+		terminal: terminalDeps{
+			selectStartup: func(context.Context) (app.StartupSelection, error) {
+				events = append(events, "select")
+				return app.StartupSelection{Mode: app.StartupModeNormal}, nil
+			},
+			runNormal: func(context.Context, app.StartupSelection) error {
+				events = append(events, "run")
+				return nil
+			},
+			runRecovery: func(context.Context, app.StartupSelection) error {
+				t.Fatal("Recovery ran during normal startup")
+				return nil
+			},
 		},
 	})
 	if exitCode != 0 {
 		t.Fatalf("runMain exit = %d, want 0", exitCode)
 	}
-	want := []string{"prepare-release", "prepare-schema", "termination", "run", "cleanup-schema", "cleanup-release", "stop"}
+	want := []string{"prepare-release", "termination", "select", "prepare-schema", "run", "cleanup-schema", "cleanup-release", "stop"}
 	if !slices.Equal(events, want) {
 		t.Fatalf("runMain events = %v, want %v", events, want)
 	}
 }
 
-func TestRunMainSchemaPreparationFailureCleansReleaseAndStopsStartup(t *testing.T) {
-	events := make([]string, 0, 4)
+func TestRunMainSchemaPreparationFailureKeepsTerminationReady(t *testing.T) {
+	events := make([]string, 0, 5)
 	prepareErr := errors.New("schema preparation failed")
+	server := &fakeTerminationServer{}
 	exitCode := runMain(t.Context(), func() { events = append(events, "stop") }, terminalMainDeps{
 		prepareReleaseFilesystemHelper: recordedHelperPreparation(&events, "prepare-release", "cleanup-release", nil),
 		prepareSchemaFilesystemWorker: func() (func() error, error) {
@@ -417,18 +438,31 @@ func TestRunMainSchemaPreparationFailureCleansReleaseAndStopsStartup(t *testing.
 			return nil, prepareErr
 		},
 		startTermination: func(context.CancelFunc) (cooperativeTerminationServer, bool, error) {
-			t.Fatal("termination server started after schema preparation failure")
-			return nil, false, nil
+			events = append(events, "termination")
+			return server, false, nil
 		},
-		run: func(context.Context, terminalDeps) error {
-			t.Fatal("desktop ran after schema preparation failure")
-			return nil
+		run: runAgentTerminal,
+		terminal: terminalDeps{
+			selectStartup: func(context.Context) (app.StartupSelection, error) {
+				return app.StartupSelection{Mode: app.StartupModeNormal}, nil
+			},
+			runNormal: func(context.Context, app.StartupSelection) error {
+				t.Fatal("desktop ran after schema preparation failure")
+				return nil
+			},
+			runRecovery: func(context.Context, app.StartupSelection) error {
+				t.Fatal("Recovery ran after schema preparation failure")
+				return nil
+			},
 		},
 	})
 	if exitCode != 1 {
 		t.Fatalf("runMain exit = %d, want 1", exitCode)
 	}
-	want := []string{"prepare-release", "prepare-schema", "cleanup-release", "stop"}
+	if !server.closed {
+		t.Fatal("termination server was not closed after schema preparation failure")
+	}
+	want := []string{"prepare-release", "termination", "prepare-schema", "cleanup-release", "stop"}
 	if !slices.Equal(events, want) {
 		t.Fatalf("runMain events = %v, want %v", events, want)
 	}
@@ -444,7 +478,14 @@ func TestRunMainHelperCleanupErrorChangesSuccessfulExit(t *testing.T) {
 		startTermination: func(context.CancelFunc) (cooperativeTerminationServer, bool, error) {
 			return nil, false, nil
 		},
-		run: func(context.Context, terminalDeps) error { return nil },
+		run: runAgentTerminal,
+		terminal: terminalDeps{
+			selectStartup: func(context.Context) (app.StartupSelection, error) {
+				return app.StartupSelection{Mode: app.StartupModeNormal}, nil
+			},
+			runNormal:   func(context.Context, app.StartupSelection) error { return nil },
+			runRecovery: func(context.Context, app.StartupSelection) error { return nil },
+		},
 	})
 	if exitCode != 1 {
 		t.Fatalf("runMain cleanup error exit = %d, want 1", exitCode)

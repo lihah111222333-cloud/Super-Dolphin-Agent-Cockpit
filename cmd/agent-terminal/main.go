@@ -22,9 +22,10 @@ import (
 )
 
 type terminalDeps struct {
-	selectStartup func(context.Context) (app.StartupSelection, error)
-	runNormal     func(context.Context, app.StartupSelection) error
-	runRecovery   func(context.Context, app.StartupSelection) error
+	selectStartup                 func(context.Context) (app.StartupSelection, error)
+	prepareSchemaFilesystemWorker func() (func() error, error)
+	runNormal                     func(context.Context, app.StartupSelection) error
+	runRecovery                   func(context.Context, app.StartupSelection) error
 }
 
 type cooperativeTerminationServer interface {
@@ -94,12 +95,6 @@ func runMain(ctx context.Context, stop context.CancelFunc, deps terminalMainDeps
 		return 1
 	}
 	defer func() { exitCode = cleanupFilesystemHelper("release", cleanupReleaseHelper, exitCode) }()
-	cleanupSchemaWorker, err := deps.prepareSchemaFilesystemWorker()
-	if err != nil {
-		pkglogger.Get().Error("agent-terminal schema filesystem worker preparation failed", "error", err)
-		return 1
-	}
-	defer func() { exitCode = cleanupFilesystemHelper("schema", cleanupSchemaWorker, exitCode) }()
 	terminationServer, parked, err := deps.startTermination(stop)
 	if err != nil {
 		pkglogger.Get().Error("agent-terminal termination endpoint failed", "error", err)
@@ -108,6 +103,7 @@ func runMain(ctx context.Context, stop context.CancelFunc, deps terminalMainDeps
 	if terminationServer != nil {
 		defer func() { exitCode = closeTerminationServer(terminationServer, exitCode) }()
 	}
+	deps.terminal.prepareSchemaFilesystemWorker = deps.prepareSchemaFilesystemWorker
 	return executeTerminalMain(ctx, deps, terminationServer, parked)
 }
 
@@ -192,15 +188,7 @@ func runAgentTerminal(ctx context.Context, deps terminalDeps) error {
 	}
 	switch selection.Mode {
 	case app.StartupModeNormal:
-		if err := deps.runNormal(ctx, selection); err != nil {
-			if selection.HasActiveProbation() {
-				return err
-			}
-			selection.Mode = app.StartupModeRecovery
-			selection.Projection.Reason = err.Error()
-			return deps.runRecovery(ctx, selection)
-		}
-		return nil
+		return runNormalStartup(ctx, deps, selection)
 	case app.StartupModeRecovery:
 		return errors.Join(err, deps.runRecovery(ctx, selection))
 	default:
@@ -208,11 +196,40 @@ func runAgentTerminal(ctx context.Context, deps terminalDeps) error {
 	}
 }
 
+// runNormalStartup 仅在 normal 分支启动 schema helper，并在首次普通启动失败时进入 Recovery。
+func runNormalStartup(ctx context.Context, deps terminalDeps, selection app.StartupSelection) (result error) {
+	if deps.prepareSchemaFilesystemWorker == nil {
+		return errors.New("agent-terminal schema filesystem worker is required")
+	}
+	cleanupSchemaWorker, err := deps.prepareSchemaFilesystemWorker()
+	if err != nil {
+		return fmt.Errorf("prepare schema filesystem worker: %w", err)
+	}
+	if cleanupSchemaWorker == nil {
+		return errors.New("schema filesystem worker cleanup is required")
+	}
+	defer func() {
+		if cleanupErr := cleanupSchemaWorker(); cleanupErr != nil {
+			result = errors.Join(result, fmt.Errorf("cleanup schema filesystem worker: %w", cleanupErr))
+		}
+	}()
+	if err := deps.runNormal(ctx, selection); err != nil {
+		if selection.HasActiveProbation() {
+			return err
+		}
+		selection.Mode = app.StartupModeRecovery
+		selection.Projection.Reason = err.Error()
+		return deps.runRecovery(ctx, selection)
+	}
+	return nil
+}
+
 func productionTerminalDeps() terminalDeps {
 	return terminalDeps{
-		selectStartup: selectStartup,
-		runNormal:     runNormalDesktop,
-		runRecovery:   runRecoveryRuntime,
+		selectStartup:                 selectStartup,
+		prepareSchemaFilesystemWorker: app.PrepareSchemaFilesystemWorker,
+		runNormal:                     runNormalDesktop,
+		runRecovery:                   runRecoveryRuntime,
 	}
 }
 
@@ -278,6 +295,10 @@ func selectStartup(ctx context.Context) (app.StartupSelection, error) {
 	if err != nil {
 		return app.StartupSelection{}, err
 	}
+	rollbackLaunch, err := rollbackStartupIsParked(os.Args[1:], launch)
+	if err != nil {
+		return app.StartupSelection{}, err
+	}
 	store, available, err := recoveryStoreForLaunch(launch)
 	if err != nil {
 		return app.StartupSelection{}, err
@@ -301,6 +322,7 @@ func selectStartup(ctx context.Context) (app.StartupSelection, error) {
 			TerminationEndpoint: launch.TerminationEndpoint, TerminationToken: launch.TerminationToken,
 		},
 		ExpectedTransactionID: recovery.TransactionID(launch.TransactionID),
+		RollbackLaunch:        rollbackLaunch,
 		LeaseWait:             2 * time.Second,
 		DigestTimeout:         app.StartupDigestTimeout,
 	})

@@ -8,6 +8,8 @@ import (
 	"reflect"
 	"strings"
 	"time"
+
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/pidregistry"
 )
 
 const maxProbationLeaseTTL = 24 * time.Hour
@@ -30,6 +32,20 @@ type ProbationLeaseRequest struct {
 	OwnerID string
 	Process ProcessIdentity
 	TTL     time.Duration
+}
+
+// TerminateExactProbationProcess 使用持久化协作端点与稳定身份停止 exact candidate。
+func TerminateExactProbationProcess(ctx context.Context, process ProcessIdentity) error {
+	if err := validateProcessIdentity(process); err != nil {
+		return fmt.Errorf("validate exact probation process: %w", err)
+	}
+	return pidregistry.TerminateExactProcess(ctx, pidregistry.StableProcessIdentity{
+		PID:                 process.PID,
+		ProcessStartToken:   process.StartToken,
+		ExecutableIdentity:  process.ExecutableIdentity,
+		TerminationEndpoint: process.TerminationEndpoint,
+		TerminationToken:    process.TerminationToken,
+	})
 }
 
 // AcquireProbationLease 为 exact probation 创建 generation 1 lease。

@@ -107,6 +107,50 @@ func TestSelectStartupRejectsNonPositiveDigestTimeout(t *testing.T) {
 	}
 }
 
+func TestSelectStartupAuthenticatedRolledBackLaunchEntersNormal(t *testing.T) {
+	store, transaction, process := createRolledBackStartup(t)
+	selection, err := SelectStartup(t.Context(), StartupSelectorInput{
+		Store: store, Process: process, ExpectedTransactionID: transaction.Identity.TransactionID,
+		RollbackLaunch: true, DigestTimeout: StartupDigestTimeout,
+	})
+	if err != nil {
+		t.Fatalf("SelectStartup() error = %v", err)
+	}
+	if selection.Mode != StartupModeNormal || selection.Transaction.State != recovery.StateRolledBack {
+		t.Fatalf("selection = %#v, want authenticated rolled_back Normal", selection)
+	}
+}
+
+func TestSelectStartupRolledBackLaunchIdentityMismatchFailsFast(t *testing.T) {
+	store, transaction, process := createRolledBackStartup(t)
+	tests := []struct {
+		name   string
+		mutate func(*StartupSelectorInput)
+	}{
+		{name: "purpose", mutate: func(input *StartupSelectorInput) { input.RollbackLaunch = false }},
+		{name: "transaction", mutate: func(input *StartupSelectorInput) {
+			input.ExpectedTransactionID = recovery.TransactionID(strings.Repeat("f", 32))
+		}},
+		{name: "token", mutate: func(input *StartupSelectorInput) {
+			input.Process.TerminationToken = strings.Repeat("b", 64)
+		}},
+		{name: "process", mutate: func(input *StartupSelectorInput) { input.Process.StartToken += "-mismatch" }},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			input := StartupSelectorInput{
+				Store: store, Process: process, ExpectedTransactionID: transaction.Identity.TransactionID,
+				RollbackLaunch: true, DigestTimeout: StartupDigestTimeout,
+			}
+			test.mutate(&input)
+			selection, err := SelectStartup(t.Context(), input)
+			if err == nil || selection.Mode != StartupModeRecovery {
+				t.Fatalf("SelectStartup() selection=%#v error=%v, want fail-fast Recovery", selection, err)
+			}
+		})
+	}
+}
+
 func TestRecoveryRestoreClosesStableCrashBetweenCallsStates(t *testing.T) {
 	for _, retainBackup := range []bool{false, true} {
 		name := "prepared"
@@ -164,6 +208,75 @@ func TestRecoveryRestoreRollsBackUnclaimedProbation(t *testing.T) {
 	contents, err := os.ReadFile(restored.Paths.Target)
 	if err != nil || string(contents) != "old" {
 		t.Fatalf("restored target contents=%q error=%v", contents, err)
+	}
+}
+
+func TestRecoveryRestoreForeignLeaseStopsExactBeforeRollback(t *testing.T) {
+	store, transaction, foreign := createStartupProbation(t)
+	current := foreign
+	current.PID++
+	runtime, err := NewRecoveryRuntime(StartupSelection{
+		Mode: StartupModeRecovery, Store: store, Transaction: transaction,
+		Projection: projectRecoveryTransaction(transaction, "foreign probation lease"),
+		process:    current,
+	})
+	if err != nil {
+		t.Fatalf("NewRecoveryRuntime() error = %v", err)
+	}
+	stopped := false
+	runtime.Restore.terminateProcess = func(ctx context.Context, process recovery.ProcessIdentity) error {
+		if process != foreign {
+			t.Fatalf("terminate process = %#v, want foreign lease process %#v", process, foreign)
+		}
+		before := mustStartupValue(t, func() (recovery.Transaction, error) {
+			return store.Load(ctx, transaction.Identity)
+		})
+		if before.State != recovery.StateProbation {
+			t.Fatalf("journal state before exact stop = %q, want probation", before.State)
+		}
+		stopped = true
+		return nil
+	}
+	runtime.Restore.restartCallbacks = successfulRecoveryRestartCallbacks
+	restored, err := runtime.Restore.Restore(t.Context())
+	if err != nil {
+		t.Fatalf("Restore() error = %v", err)
+	}
+	if !stopped || restored.State != recovery.StateRolledBack {
+		t.Fatalf("Restore() stopped=%t state=%q, want true/rolled_back", stopped, restored.State)
+	}
+}
+
+func TestRecoveryRestoreForeignLeaseStopFailureLeavesStateUntouched(t *testing.T) {
+	store, transaction, foreign := createStartupProbation(t)
+	current := foreign
+	current.StartToken = "different-current-process"
+	stopErr := errors.New("authenticated exact stop failed")
+	runtime, err := NewRecoveryRuntime(StartupSelection{
+		Mode: StartupModeRecovery, Store: store, Transaction: transaction,
+		Projection: projectRecoveryTransaction(transaction, "foreign probation lease"),
+		process:    current,
+	})
+	if err != nil {
+		t.Fatalf("NewRecoveryRuntime() error = %v", err)
+	}
+	runtime.Restore.terminateProcess = func(context.Context, recovery.ProcessIdentity) error { return stopErr }
+	runtime.Restore.restartCallbacks = successfulRecoveryRestartCallbacks
+	beforeDigest := mustStartupValue(t, func() (string, error) {
+		return recovery.ComputeReleaseDigest(transaction.Paths.Target)
+	})
+	_, err = runtime.Restore.Restore(t.Context())
+	if !errors.Is(err, stopErr) {
+		t.Fatalf("Restore() error = %v, want %v", err, stopErr)
+	}
+	after := mustStartupValue(t, func() (recovery.Transaction, error) {
+		return store.Load(t.Context(), transaction.Identity)
+	})
+	afterDigest := mustStartupValue(t, func() (string, error) {
+		return recovery.ComputeReleaseDigest(transaction.Paths.Target)
+	})
+	if !reflect.DeepEqual(after, transaction) || afterDigest != beforeDigest {
+		t.Fatalf("stop failure mutated recovery state: transaction=%#v digest=%q", after, afterDigest)
 	}
 }
 
@@ -303,6 +416,31 @@ func (fixture *recoveryGuardRestartFixture) launch(
 	return fixture.control(), nil
 }
 
+func createRolledBackStartup(t *testing.T) (*recovery.Store, recovery.Transaction, recovery.ProcessIdentity) {
+	t.Helper()
+	store, transaction := createStableRecoveryTransaction(t, true)
+	transaction = mustStartupValue(t, func() (recovery.Transaction, error) {
+		return store.InstallCandidate(t.Context(), transaction.Identity)
+	})
+	transaction = mustStartupValue(t, func() (recovery.Transaction, error) {
+		return store.RollbackUnclaimedProbation(t.Context(), transaction.Identity)
+	})
+	resolve, launch := successfulRecoveryRestartCallbacks(transaction)
+	transaction = mustStartupValue(t, func() (recovery.Transaction, error) {
+		return store.ConvergeRollbackRestart(t.Context(), transaction.Identity, resolve, launch)
+	})
+	token := transaction.RollbackRestart.LaunchToken
+	process := transaction.RollbackRestart.ACK.Process
+	return store, transaction, recovery.ProcessIdentity{
+		PID: process.PID, StartToken: process.StartToken, ExecutableIdentity: process.ExecutableIdentity,
+		ExecutableSHA256: process.ExecutableSHA256,
+		TerminationEndpoint: filepath.Join(os.TempDir(), fmt.Sprintf(
+			"sd-rr-%s-%s.sock", string(transaction.Identity.TransactionID)[:8], token[:16],
+		)),
+		TerminationToken: token,
+	}
+}
+
 func createStableRecoveryTransaction(t *testing.T, retainBackup bool) (*recovery.Store, recovery.Transaction) {
 	t.Helper()
 	parent := t.TempDir()
@@ -386,7 +524,8 @@ func createStartupProbation(t *testing.T) (*recovery.Store, recovery.Transaction
 	})
 	process := recovery.ProcessIdentity{
 		PID: 42, StartToken: "ready-start", ExecutableIdentity: "/candidate",
-		ExecutableSHA256: candidateDigest,
+		ExecutableSHA256: candidateDigest, TerminationEndpoint: filepath.Join(parent, "candidate.sock"),
+		TerminationToken: strings.Repeat("a", 64),
 	}
 	mustStartupValue(t, func() (recovery.ProbationLease, error) {
 		return store.AcquireProbationLease(context.Background(), identity, recovery.ProbationLeaseRequest{
