@@ -38,9 +38,6 @@ function Resolve-RepoRoot() {
 $Root = Resolve-RepoRoot
 Set-Location -LiteralPath $Root
 
-$BuildCacheDir = Join-Path $Root '.build-cache/phases'
-$CurrentBuildPhaseName = ''
-$CurrentBuildPhaseHash = ''
 
 $AppName = if ($env:APP_NAME) { $env:APP_NAME } else { 'super-dolphin' }
 $Version = if ($env:VERSION) { $env:VERSION } else { '0.1.0' }
@@ -212,48 +209,56 @@ function Get-NPMVersionInput() {
     return $version
 }
 
-function Get-BuildPhaseInputPath() {
-    param([Parameter(Mandatory)][string]$Path)
-    $resolvedRoot = (Resolve-Path -LiteralPath $Root).Path.TrimEnd('\', '/')
-    $resolvedPath = (Resolve-Path -LiteralPath $Path).Path
-    if ($resolvedPath.StartsWith($resolvedRoot, [StringComparison]::OrdinalIgnoreCase)) {
-        return $resolvedPath.Substring($resolvedRoot.Length).TrimStart('\', '/').Replace('\', '/')
-    }
-    return $resolvedPath.Replace('\', '/')
+function Get-GitWorktreeModifiedInput() {
+    $status = ((& git -C $Root status --porcelain=v1 --untracked-files=normal) -join "`n").Trim()
+    if ($LASTEXITCODE -ne 0) { throw 'git status failed while calculating Go binary cache key' }
+    if ($status -ne '') { return 'true' }
+    return 'false'
 }
 
-function Get-BuildPhaseHash() {
+function Invoke-BuildPhaseCache() {
     param(
+        [Parameter(Mandatory)][ValidateSet('restore', 'save')][string]$Action,
+        [Parameter(Mandatory)][string]$Name,
         [Parameter(Mandatory)][string[]]$Paths,
+        [Parameter(Mandatory)][string[]]$Outputs,
         [string[]]$Inputs = @()
     )
-    $lines = [Collections.Generic.List[string]]::new()
+    $arguments = @(
+        'run',
+        './scripts/build_phase_cache',
+        '--action', $Action,
+        '--root', $Root,
+        '--name', $Name
+    )
     foreach ($inputValue in $Inputs) {
-        $lines.Add("input`t$inputValue")
+        $arguments += @('--input', $inputValue)
     }
     foreach ($path in $Paths) {
-        if (Test-Path -LiteralPath $path -PathType Leaf) {
-            $relative = Get-BuildPhaseInputPath -Path $path
-            $lines.Add("file`t$relative`t$(Get-SHA256File $path)")
-            continue
-        }
-        if (-not (Test-Path -LiteralPath $path -PathType Container)) {
-            throw "missing build phase input: $path"
-        }
-        Get-ChildItem -LiteralPath $path -Recurse -File -Force |
-            Sort-Object FullName |
-            ForEach-Object {
-                $relative = Get-BuildPhaseInputPath -Path $_.FullName
-                $lines.Add("file`t$relative`t$(Get-SHA256File $_.FullName)")
-            }
+        $arguments += @('--path', $path)
     }
-    $payload = ($lines | Sort-Object) -join "`n"
-    $bytes = [Text.Encoding]::UTF8.GetBytes($payload)
-    $sha = [Security.Cryptography.SHA256]::Create()
+    foreach ($output in $Outputs) {
+        $arguments += @('--output', $output)
+    }
+    $hostGoEnvironment = @{}
+    foreach ($variableName in @('GOOS', 'GOARCH', 'CGO_ENABLED')) {
+        $hostGoEnvironment[$variableName] = [Environment]::GetEnvironmentVariable($variableName, 'Process')
+        [Environment]::SetEnvironmentVariable($variableName, $null, 'Process')
+    }
+    $cacheLocationPushed = $false
     try {
-        return ([BitConverter]::ToString($sha.ComputeHash($bytes)).Replace('-', '').ToLowerInvariant())
+        Push-Location -LiteralPath $Root
+        $cacheLocationPushed = $true
+        $result = ((& go @arguments) -join "`n").Trim()
+        if ($LASTEXITCODE -ne 0) {
+            throw "build phase cache $Action failed for $Name"
+        }
+        return $result
     } finally {
-        $sha.Dispose()
+        if ($cacheLocationPushed) { Pop-Location }
+        foreach ($variableName in @('GOOS', 'GOARCH', 'CGO_ENABLED')) {
+            [Environment]::SetEnvironmentVariable($variableName, $hostGoEnvironment[$variableName], 'Process')
+        }
     }
 }
 
@@ -261,29 +266,33 @@ function Test-BuildPhaseCache() {
     param(
         [Parameter(Mandatory)][string]$Name,
         [Parameter(Mandatory)][string[]]$Paths,
+        [Parameter(Mandatory)][string[]]$Outputs,
         [string[]]$Inputs = @()
     )
     if ($env:SUPER_DOLPHIN_SKIP_BUILD_CACHE -eq '1') { return $false }
     if ($env:SUPER_DOLPHIN_RELEASE_BUILD -eq '1') { return $false }
-    $hash = Get-BuildPhaseHash -Paths $Paths -Inputs $Inputs
-    $marker = Join-Path (Join-Path $BuildCacheDir $Name) "$hash.ok"
-    if (Test-Path -LiteralPath $marker -PathType Leaf) {
-        Write-Host "==> [$Name] cache hit ($hash), skipping"
+    $result = Invoke-BuildPhaseCache -Action 'restore' -Name $Name -Paths $Paths -Inputs $Inputs -Outputs $Outputs
+    if ($result -eq 'hit') {
+        Write-Host "==> [$Name] shared artifact cache hit, restored"
         return $true
     }
-    $script:CurrentBuildPhaseName = $Name
-    $script:CurrentBuildPhaseHash = $hash
-    return $false
+    if ($result -eq 'miss') { return $false }
+    throw "unexpected build phase cache restore result: $result"
 }
 
 function Save-BuildPhaseCache() {
+    param(
+        [Parameter(Mandatory)][string]$Name,
+        [Parameter(Mandatory)][string[]]$Paths,
+        [Parameter(Mandatory)][string[]]$Outputs,
+        [string[]]$Inputs = @()
+    )
     if ($env:SUPER_DOLPHIN_SKIP_BUILD_CACHE -eq '1') { return }
     if ($env:SUPER_DOLPHIN_RELEASE_BUILD -eq '1') { return }
-    if ($script:CurrentBuildPhaseName.Trim() -eq '' -or $script:CurrentBuildPhaseHash.Trim() -eq '') { return }
-    $phaseDir = Join-Path $BuildCacheDir $script:CurrentBuildPhaseName
-    New-Item -ItemType Directory -Force -Path $phaseDir | Out-Null
-    Remove-Item -Path (Join-Path $phaseDir '*.ok') -Force -ErrorAction SilentlyContinue
-    New-Item -ItemType File -Force -Path (Join-Path $phaseDir "$($script:CurrentBuildPhaseHash).ok") | Out-Null
+    $result = Invoke-BuildPhaseCache -Action 'save' -Name $Name -Paths $Paths -Inputs $Inputs -Outputs $Outputs
+    if ($result -ne 'saved') {
+        throw "unexpected build phase cache save result: $result"
+    }
 }
 
 function Get-PEMachineType() {
@@ -861,21 +870,25 @@ function Build-CurrentFrontendApp() {
             (Join-Path $Root 'frontend-app/package-lock.json'),
             (Join-Path $Root 'frontend-app/vite.config.js'),
             (Join-Path $Root 'frontend-app/index.html'),
+            (Join-Path $Root 'frontend-app/recovery.html'),
             (Join-Path $Root 'frontend-app/public'),
-            (Join-Path $Root 'frontend-app/src')
+            (Join-Path $Root 'frontend-app/src'),
+            (Join-Path $Root 'scripts/package_windows.ps1'),
+            (Join-Path $Root 'scripts/build_phase_cache/main.go')
         )
         $frontendCacheInputs = @(
             "NODE_VERSION=$(Get-NodeVersionInput)",
             "NPM_VERSION=$(Get-NPMVersionInput)"
         )
-        if (-not (Test-BuildPhaseCache -Name 'frontend' -Paths $frontendCachePaths -Inputs $frontendCacheInputs)) {
+        $frontendCacheOutputs = @((Join-Path $Root 'frontend-app/dist'))
+        if (-not (Test-BuildPhaseCache -Name 'frontend' -Paths $frontendCachePaths -Inputs $frontendCacheInputs -Outputs $frontendCacheOutputs)) {
             Push-Location -LiteralPath (Join-Path $Root 'frontend-app')
             try {
                 & npm ci
                 if ($LASTEXITCODE -ne 0) { throw 'npm ci failed' }
                 & npm run build
                 if ($LASTEXITCODE -ne 0) { throw 'npm run build failed' }
-                Save-BuildPhaseCache
+                Save-BuildPhaseCache -Name 'frontend' -Paths $frontendCachePaths -Inputs $frontendCacheInputs -Outputs $frontendCacheOutputs
             } finally {
                 Pop-Location
             }
@@ -1059,15 +1072,39 @@ function Package-WindowsMain() {
         $appCommit = (& git rev-parse HEAD).Trim()
         $schemaBuildIdentityLdFlag = "-X github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/toolbridge/schema.buildAppCommit=$appCommit"
         $windowsSchemaLdFlags = "$windowsGuiLdFlags $schemaBuildIdentityLdFlag"
-        $goInputs = @('GOOS=windows', "GOARCH=$WindowsPackageArch", "GOVERSION=$((& go env GOVERSION).Trim())", "WINDOWS_GUI_LDFLAGS=$windowsGuiLdFlags", "APP_COMMIT=$appCommit")
+        $goInputs = @(
+            'GOOS=windows',
+            "GOARCH=$WindowsPackageArch",
+            "GOVERSION=$((& go env GOVERSION).Trim())",
+            "GOFLAGS=$((& go env GOFLAGS).Trim())",
+            "GOEXPERIMENT=$((& go env GOEXPERIMENT).Trim())",
+            "GOAMD64=$((& go env GOAMD64).Trim())",
+            "GOARM64=$((& go env GOARM64).Trim())",
+            "GOARM=$((& go env GOARM).Trim())",
+            "CC=$((& go env CC).Trim())",
+            "CXX=$((& go env CXX).Trim())",
+            "WINDOWS_GUI_LDFLAGS=$windowsGuiLdFlags",
+            "APP_COMMIT=$appCommit",
+            "VCS_MODIFIED=$(Get-GitWorktreeModifiedInput)"
+        )
         $goBinaryCachePaths = @(
             (Join-Path $Root 'cmd'),
             (Join-Path $Root 'internal'),
             (Join-Path $Root 'pkg'),
             (Join-Path $Root 'go.mod'),
-            (Join-Path $Root 'go.sum')
+            (Join-Path $Root 'go.sum'),
+            (Join-Path $Root 'scripts/package_windows.ps1'),
+            (Join-Path $Root 'scripts/build_phase_cache/main.go')
         )
-        if (-not (Test-BuildPhaseCache -Name 'go-binaries' -Paths $goBinaryCachePaths -Inputs $goInputs)) {
+        $goBinaryCacheOutputs = @(
+            (Join-Path $Root 'bin/agent-terminal.exe'),
+            (Join-Path $Root 'bin/mcp-orch.exe'),
+            (Join-Path $Root 'bin/mcp-lsp.exe'),
+            (Join-Path $Root 'bin/mcp-schema-compiler-helper.exe'),
+            (Join-Path $Root 'bin/mcp-schema-compiler-helper.exe.manifest.json'),
+            (Join-Path $Root 'bin/mcp-ida.exe')
+        )
+        if (-not (Test-BuildPhaseCache -Name 'go-binaries' -Paths $goBinaryCachePaths -Inputs $goInputs -Outputs $goBinaryCacheOutputs)) {
             Invoke-WindowsGoBuild -Output (Join-Path $Root 'bin/mcp-orch.exe') -Package './cmd/mcp-orch' -LdFlags $windowsGuiLdFlags
             Invoke-WindowsGoBuild -Output (Join-Path $Root 'bin/mcp-lsp.exe') -Package './cmd/mcp-lsp' -LdFlags $windowsGuiLdFlags
             Invoke-WindowsGoBuild -Output (Join-Path $Root 'bin/mcp-schema-compiler-helper.exe') -Package './cmd/mcp-schema-compiler-helper' -LdFlags $windowsSchemaLdFlags
@@ -1075,7 +1112,7 @@ function Package-WindowsMain() {
             if ($LASTEXITCODE -ne 0) { throw 'schema helper manifest generation failed' }
             Invoke-WindowsGoBuild -Output (Join-Path $Root 'bin/agent-terminal.exe') -Package './cmd/agent-terminal' -LdFlags $windowsSchemaLdFlags
             Invoke-WindowsGoBuild -Output (Join-Path $Root 'bin/mcp-ida.exe') -Package './cmd/mcp-ida' -LdFlags $windowsGuiLdFlags
-            Save-BuildPhaseCache
+            Save-BuildPhaseCache -Name 'go-binaries' -Paths $goBinaryCachePaths -Inputs $goInputs -Outputs $goBinaryCacheOutputs
         }
     } finally {
         Pop-Location
