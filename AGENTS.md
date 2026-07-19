@@ -81,6 +81,7 @@
 ## 上下文预算卫生
 
 - 优先使用定向 `rg` 搜索和单文件读取，避免大范围目录扫描。
+- 创建子 agent 时禁止继承父级对话上下文；所有子 agent 必须以空上下文启动（例如调用 `spawn_agent` 时显式设置 `fork_turns="none"`），并仅通过任务说明传递完成该子任务所必需的最小信息。
 - 默认不要递归读取或索引 `.build-cache/`、`bin/`、前端 `node_modules/`、前端 `dist/`、`.worktrees/`、`.workspace/`、`.claude/`、`.agent/code_exec/`、`.agent/workspaces/`、`.agnet/report/`、`.agnet/shared/_internal/`、`.agnet/shared/handoff/` 或生成的测试报告。
 - 默认不要递归读取或索引 `docs/archive/**`。只有当用户要求历史报告、旧代理笔记、迁移证据或来源追溯时才使用它。
 - 不要批量加载 `.agents/skills/**`。仓库本地技能是按需选择的参考，不是默认上下文。
