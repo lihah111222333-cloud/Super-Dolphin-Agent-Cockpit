@@ -1,14 +1,47 @@
 package main
 
-import "testing"
+import (
+	"fmt"
+	"strings"
+	"testing"
+)
 
-import "strings"
+func hasShellInvocation(script, command string) bool {
+	for line := range strings.SplitSeq(script, "\n") {
+		if strings.TrimSpace(line) == command {
+			return true
+		}
+	}
+	return false
+}
+
+func validateAIMaintenanceHookRoutes(preCommit, prePush, gateScript string) error {
+	if !hasShellInvocation(preCommit, "run_ai_maintenance_staged_gate") {
+		return fmt.Errorf("pre-commit must invoke the staged AI maintenance gate")
+	}
+	if !strings.Contains(preCommit, "./scripts/ai_maintenance_gates.sh") || !strings.Contains(preCommit, "--changed-file") {
+		return fmt.Errorf("pre-commit must route changed files through ai_maintenance_gates.sh")
+	}
+	if !hasShellInvocation(prePush, "run_ai_maintenance_push_gate") {
+		return fmt.Errorf("pre-push must invoke the push AI maintenance gate")
+	}
+	if !strings.Contains(prePush, "./scripts/ai_maintenance_gates.sh") || !strings.Contains(prePush, "--changed-file") {
+		return fmt.Errorf("pre-push must route changed files through ai_maintenance_gates.sh")
+	}
+	if !strings.Contains(gateScript, "go run ./scripts/ai_maintenance run \"$@\"") {
+		return fmt.Errorf("ai_maintenance_gates.sh must invoke scripts/ai_maintenance run")
+	}
+	return nil
+}
 
 func TestAIMaintenanceGateVerifiesLocalHookArtifacts(t *testing.T) {
 	script := readScript(t, "ai_maintenance_gates.sh")
 	preCommit := readRepoFile(t, "../.githooks/pre-commit")
 	prePush := readRepoFile(t, "../.githooks/pre-push")
 
+	if err := validateAIMaintenanceHookRoutes(preCommit, prePush, script); err != nil {
+		t.Fatal(err)
+	}
 	assertScriptContains(t, script, "go run ./scripts/ai_maintenance run \"$@\"")
 	assertScriptContains(t, preCommit, "run_ai_maintenance_staged_gate")
 	assertScriptContains(t, preCommit, "./scripts/ai_maintenance_gates.sh")
@@ -21,6 +54,45 @@ func TestAIMaintenanceGateVerifiesLocalHookArtifacts(t *testing.T) {
 	assertScriptContains(t, prePush, "--changed-file")
 	if strings.Contains(prePush, "add_capcontract_path") || strings.Contains(prePush, "internal/provider/*") {
 		t.Fatal("pre-push must delegate capcontract routing to the unified AI plan")
+	}
+}
+
+func TestAIMaintenanceGateRouteDeletionMutations(t *testing.T) {
+	script := readScript(t, "ai_maintenance_gates.sh")
+	preCommit := readRepoFile(t, "../.githooks/pre-commit")
+	prePush := readRepoFile(t, "../.githooks/pre-push")
+
+	mutations := []struct {
+		name   string
+		mutate func(*string, *string, *string)
+	}{
+		{
+			name: "pre-commit invocation",
+			mutate: func(preCommit, _, _ *string) {
+				*preCommit = strings.Replace(*preCommit, "\nrun_ai_maintenance_staged_gate\n", "\n", 1)
+			},
+		},
+		{
+			name: "pre-push invocation",
+			mutate: func(_, prePush, _ *string) {
+				*prePush = strings.Replace(*prePush, "\nrun_ai_maintenance_push_gate\n", "\n", 1)
+			},
+		},
+		{
+			name: "ai-maintenance runner",
+			mutate: func(_, _, gateScript *string) {
+				*gateScript = strings.Replace(*gateScript, "go run ./scripts/ai_maintenance run \"$@\"", "", 1)
+			},
+		},
+	}
+	for _, mutation := range mutations {
+		t.Run(mutation.name, func(t *testing.T) {
+			mutatedPreCommit, mutatedPrePush, mutatedScript := preCommit, prePush, script
+			mutation.mutate(&mutatedPreCommit, &mutatedPrePush, &mutatedScript)
+			if err := validateAIMaintenanceHookRoutes(mutatedPreCommit, mutatedPrePush, mutatedScript); err == nil {
+				t.Fatalf("deleting %s route must be rejected", mutation.name)
+			}
+		})
 	}
 }
 

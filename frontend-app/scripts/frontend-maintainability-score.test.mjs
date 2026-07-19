@@ -29,6 +29,7 @@ import {
   createSubjectContract,
   executionControlIds,
   finalGateFailures,
+  frontendPlanSizeStatus,
   inspectTargetRepository,
   persistScoreReport,
   performanceAuditPathAllowed,
@@ -888,6 +889,21 @@ describe('frontend maintainability scorer configuration', () => {
     expect(() => validateConfiguration(t04FrontendTest.controls, t04FrontendTest.fixtures))
       .toThrow('T04 frontend-test timeout must be 900000ms');
 
+    const t04HookRouteGuard = documents();
+    const hookRouteGuard = t04HookRouteGuard.controls.controls.find(({ id }) => id === 'T04-local-gates')
+      .allOf.find(({ argv }) => argv[0] === 'go'
+        && argv.some((argument) => argument.includes('TestAIMaintenanceGateRouteDeletionMutations')));
+    hookRouteGuard.caseIds.pop();
+    expect(() => validateConfiguration(t04HookRouteGuard.controls, t04HookRouteGuard.fixtures))
+      .toThrow('T04 hook-route guard contract differs from frozen contract');
+
+    const t04PlanSizeGuard = documents();
+    const planSizeGuard = t04PlanSizeGuard.controls.controls.find(({ id }) => id === 'T04-local-gates')
+      .allOf.find(({ argv }) => argv.includes('--assert-frontend-plan-size'));
+    planSizeGuard.timeoutMs = 1;
+    expect(() => validateConfiguration(t04PlanSizeGuard.controls, t04PlanSizeGuard.fixtures))
+      .toThrow('T04 frontend-plan size guard contract differs from frozen contract');
+
     const mutableProbe = documents();
     mutableProbe.controls.controls.find(({ id }) => id === 'A02-state-ownership').allOf[0].argv[1] = 'scripts/renamed-guard.mjs';
     expect(() => validateConfiguration(mutableProbe.controls, mutableProbe.fixtures))
@@ -983,6 +999,20 @@ describe('frontend maintainability scorer configuration', () => {
       argv: ['git', 'diff', '--check', '$SCORE_BASE_SHA', '$SUBJECT_SHA'],
       caseIds: ['frontend-diff-check'],
       testCount: 1,
+    });
+    expect(controls.controls.find(({ id }) => id === 'T04-local-gates').allOf[4]).toMatchObject({
+      kind: 'command',
+      cwd: '.',
+      argv: ['go', 'test', './scripts', './scripts/ai_maintenance', '-run', '^(TestAIMaintenanceGateVerifiesLocalHookArtifacts|TestAIMaintenanceGateRouteDeletionMutations|TestBuildGatePlanRoutesFrontendBackendAndGeneratedFiles)$', '-count=1'],
+      caseIds: ['hook-route-pre-commit-deleted', 'hook-route-pre-push-deleted', 'hook-route-ai-maintenance-deleted'],
+      testCount: 3,
+    });
+    expect(controls.controls.find(({ id }) => id === 'T04-local-gates').allOf[5]).toMatchObject({
+      kind: 'command',
+      cwd: '.',
+      argv: ['node', 'frontend-app/scripts/frontend-maintainability-score.mjs', '--assert-frontend-plan-size'],
+      caseIds: ['frontend-plan-size-bytes', 'frontend-plan-size-lines'],
+      testCount: 2,
     });
     expect(JSON.parse(readFileSync(join(scriptRoot, 'frontend-maintainability-baseline.json'), 'utf8')).baseSha)
       .toBe(plannedBaseSha);
@@ -2398,6 +2428,39 @@ describe('scoring semantics', () => {
     expect(controlStatus([{ status: 'PASS' }, { status: 'PASS' }])).toBe('PASS');
     expect(controlStatus([{ status: 'PASS' }, { status: 'NOT_VERIFIED' }])).toBe('NOT_VERIFIED');
     expect(controlStatus([{ status: 'PASS' }, { status: 'FAIL' }])).toBe('FAIL');
+  });
+
+  it('requires P03 feedback to satisfy both the frozen 1.15x ratio and the absolute 2000ms limit', () => {
+    const { controls } = documents();
+    const control = controls.controls.find(({ id }) => id === 'P03-feedback-budget');
+    const check = control.allOf[0];
+    const context = createPerformanceTarget(check.runnerFiles);
+    const now = Date.now();
+    const options = { context, control, check, startedAt: now - 100, finishedAt: now + 100 };
+    const { report, baselineDocument } = performanceEvidence(context, check);
+    const setDuration = (metric, duration) => {
+      const entry = metric.cases['stop-visible-feedback'];
+      entry.durationAttemptSamplesMs = Array.from({ length: 5 }, () => [duration]);
+      entry.durationSamplesMs = Array.from({ length: 5 }, () => duration);
+      entry.durationMedianMs = duration;
+    };
+    const baseline = structuredClone(baselineDocument);
+    setDuration(baseline.metrics['P03-feedback-budget'], 1800);
+    baseline.measurementAudit.reproducibilityRuns.forEach(({ metrics }) => {
+      setDuration(metrics['P03-feedback-budget'], 1800);
+    });
+    const overAbsoluteLimit = structuredClone(report);
+    setDuration(overAbsoluteLimit.evidence.metrics['P03-feedback-budget'], 2001);
+
+    expect(2001).toBeLessThanOrEqual(1800 * 1.15);
+    expect(structuredEvidenceStatus(overAbsoluteLimit, { ...options, baselineDocument: baseline })).toBe('FAIL');
+  }, 60_000);
+
+  it('fails closed when the frontend plan exceeds either frozen size limit', () => {
+    expect(frontendPlanSizeStatus('x'.repeat(25_600))).toMatchObject({ status: 'PASS', bytes: 25_600, lines: 1 });
+    expect(frontendPlanSizeStatus('x'.repeat(25_601))).toMatchObject({ status: 'FAIL', bytes: 25_601 });
+    expect(frontendPlanSizeStatus('x\n'.repeat(501))).toMatchObject({ status: 'FAIL', lines: 501 });
+    expect(frontendPlanSizeStatus(`${'x\n'.repeat(500)}x`)).toMatchObject({ status: 'FAIL', lines: 501 });
   });
 
   it('does not turn zero evidence or confirmed artifact gaps into score', async () => {
