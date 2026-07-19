@@ -23,8 +23,8 @@ test('terminal-failed crosses production Wails application and EventBridge into 
   await expect(page.getByText('桌面 smoke 部分响应')).toBeVisible();
   const terminalAlert = page.locator('.turn-terminal-error');
   await expect(terminalAlert).toBeVisible();
-  await expect(terminalAlert).toContainText('Turn failed');
-  await expect(terminalAlert).toContainText('The provider could not complete this turn.');
+  await expect(terminalAlert).toContainText('本次执行失败');
+  await expect(terminalAlert).toContainText('Provider 未能完成本次执行。');
   await expect(page.locator('.turn-terminal-status')).toHaveCount(0);
   await expect(page.getByTestId('chat-action-feedback')).toHaveClass(/is-error/u);
   await expect(page.getByText('Authorization: Bearer t03-raw-provider-secret-do-not-persist')).toHaveCount(0);

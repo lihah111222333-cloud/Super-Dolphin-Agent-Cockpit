@@ -193,7 +193,7 @@ func canonicalTerminalOutcome(ev TurnCompleted) (string, error) {
 
 func applyTerminalDependencies(terminal *TurnTerminalV2, ev TurnCompleted) {
 	if terminal.Outcome == "failed" {
-		terminal.PublicError = terminalPublicError(terminal.EventID, "PROVIDER_FAILED", "Turn failed", "The provider could not complete this turn.")
+		terminal.PublicError = terminalPublicError(terminal.EventID, "PROVIDER_FAILED", "本次执行失败", "Provider 未能完成本次执行。")
 		return
 	}
 	if terminal.Outcome != "interrupted" && terminal.Outcome != "cancelled" {
@@ -202,7 +202,7 @@ func applyTerminalDependencies(terminal *TurnTerminalV2, ev TurnCompleted) {
 	terminal.TerminationCause = strings.TrimSpace(ev.Reason)
 	terminal.TerminationRequestID = strings.TrimSpace(ev.TerminationRequestID)
 	if terminal.TerminationCause != "user_request" {
-		terminal.PublicError = terminalPublicError(terminal.EventID, "TURN_TERMINATED", "Turn ended", "The provider or system ended this turn.")
+		terminal.PublicError = terminalPublicError(terminal.EventID, "TURN_TERMINATED", "本次执行已结束", "Provider 或系统已结束本次执行。")
 	}
 }
 

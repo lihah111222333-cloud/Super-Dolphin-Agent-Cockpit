@@ -102,12 +102,14 @@ func TestNewTurnTerminalV2PreservesAcceptedPartialItemIDs(t *testing.T) {
 func TestNewTurnTerminalV2AdvertisesOnlyImplementedRecoveryActions(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
-		name   string
-		status string
-		reason string
+		name        string
+		status      string
+		reason      string
+		wantTitle   string
+		wantMessage string
 	}{
-		{name: "provider failure", status: "failed"},
-		{name: "system termination", status: "interrupted", reason: "provider"},
+		{name: "provider failure", status: "failed", wantTitle: "本次执行失败", wantMessage: "Provider 未能完成本次执行。"},
+		{name: "system termination", status: "interrupted", reason: "provider", wantTitle: "本次执行已结束", wantMessage: "Provider 或系统已结束本次执行。"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -124,6 +126,9 @@ func TestNewTurnTerminalV2AdvertisesOnlyImplementedRecoveryActions(t *testing.T)
 			}
 			if terminal.PublicError.Retryable {
 				t.Fatal("terminal public error advertised unavailable retry capability")
+			}
+			if terminal.PublicError.Title != test.wantTitle || terminal.PublicError.Message != test.wantMessage {
+				t.Fatalf("PublicError = (%q, %q), want (%q, %q)", terminal.PublicError.Title, terminal.PublicError.Message, test.wantTitle, test.wantMessage)
 			}
 			if !reflect.DeepEqual(terminal.PublicError.RecoveryActions, []string{"copy_diagnostics"}) {
 				t.Fatalf("RecoveryActions = %#v, want only copy_diagnostics", terminal.PublicError.RecoveryActions)

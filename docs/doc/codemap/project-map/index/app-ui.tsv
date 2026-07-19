@@ -86,7 +86,7 @@ frontend-app/scripts/performance-budget-model.mjs	frontend-app	app-ui	js-source	
 frontend-app/scripts/performance-budget-model.test.mjs	frontend-app	app-ui	js-test	7702	React 前端构建与校验脚本	frontend,app,scripts,performance,budget,model,test,React,前端构建与校验脚本
 frontend-app/scripts/performance-budget-runner.mjs	frontend-app	app-ui	js-source	32171	React 前端构建与校验脚本	frontend,app,scripts,performance,budget,runner,React,前端构建与校验脚本
 frontend-app/scripts/performance-budget-runner.test.mjs	frontend-app	app-ui	js-test	22173	React 前端构建与校验脚本	frontend,app,scripts,performance,budget,runner,test,React,前端构建与校验脚本
-frontend-app/scripts/render-isolation-probe.test.jsx	frontend-app	app-ui	jsx	6076	React 前端构建与校验脚本	frontend,app,scripts,render,isolation,probe,test,React,前端构建与校验脚本
+frontend-app/scripts/render-isolation-probe.test.jsx	frontend-app	app-ui	jsx	6069	React 前端构建与校验脚本	frontend,app,scripts,render,isolation,probe,test,React,前端构建与校验脚本
 frontend-app/scripts/resource-budget.mjs	frontend-app	app-ui	js-source	1695	React 前端构建与校验脚本	frontend,app,scripts,resource,budget,React,前端构建与校验脚本
 frontend-app/scripts/resource-budget.test.mjs	frontend-app	app-ui	js-test	1926	React 前端构建与校验脚本	frontend,app,scripts,resource,budget,test,React,前端构建与校验脚本
 frontend-app/scripts/rpc-contract-audit.mjs	frontend-app	app-ui	js-source	222353	React 前端构建与校验脚本	frontend,app,scripts,rpc,contract,audit,React,前端构建与校验脚本
@@ -601,7 +601,7 @@ frontend-app/src/WorkbenchSidebarProjectTree.test.jsx	frontend-app	app-ui	jsx	44
 frontend-app/src/WorkbenchSidebarThreadModel.js	frontend-app	app-ui	js-source	4275	当前 React/Vite 前端包	frontend,app,src,WorkbenchSidebarThreadModel,当前,React,Vite,前端包
 frontend-app/src/WorkbenchSidebarThreads.jsx	frontend-app	app-ui	jsx	3885	当前 React/Vite 前端包	frontend,app,src,WorkbenchSidebarThreads,当前,React,Vite,前端包
 frontend-app/tests/e2e/business-flows.spec.js	frontend-app	app-ui	js-test	20140	React 前端 Playwright E2E 与视觉回归测试	frontend,app,tests,e2e,business,flows,spec,React,前端,Playwright,E2E,与视觉回归测试
-frontend-app/tests/e2e/desktop-failure.spec.js	frontend-app	app-ui	js-test	4628	React 前端 Playwright E2E 与视觉回归测试	frontend,app,tests,e2e,desktop,failure,spec,React,前端,Playwright,E2E,与视觉回归测试
+frontend-app/tests/e2e/desktop-failure.spec.js	frontend-app	app-ui	js-test	4629	React 前端 Playwright E2E 与视觉回归测试	frontend,app,tests,e2e,desktop,failure,spec,React,前端,Playwright,E2E,与视觉回归测试
 frontend-app/tests/e2e/desktop-ux.spec.js	frontend-app	app-ui	js-test	3384	React 前端 Playwright E2E 与视觉回归测试	frontend,app,tests,e2e,desktop,ux,spec,React,前端,Playwright,E2E,与视觉回归测试
 frontend-app/tests/e2e/desktop-wide.spec.js	frontend-app	app-ui	js-test	11010	React 前端 Playwright E2E 与视觉回归测试	frontend,app,tests,e2e,desktop,wide,spec,React,前端,Playwright,E2E,与视觉回归测试
 frontend-app/tsconfig.contracts.json	frontend-app	app-ui	json	799	当前 React/Vite 前端包	frontend,app,tsconfig,contracts,当前,React,Vite,前端包

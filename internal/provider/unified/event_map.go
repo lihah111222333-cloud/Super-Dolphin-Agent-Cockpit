@@ -280,22 +280,6 @@ func commonTurnHeader(payload map[string]any) shareddto.TurnHeader {
 	}
 }
 
-// rawEventPayload 复制或序列化原始 payload，保证事件 DTO 不共享可变输入缓冲区。
-func rawEventPayload(data any) json.RawMessage {
-	switch typed := data.(type) {
-	case json.RawMessage:
-		return append(json.RawMessage(nil), typed...)
-	case []byte:
-		return append(json.RawMessage(nil), typed...)
-	default:
-		raw, err := json.Marshal(typed)
-		if err != nil {
-			return nil
-		}
-		return raw
-	}
-}
-
 // marshalPreview 把候选字段序列化成可展示摘要，无法编码的值会继续尝试下一个候选。
 func marshalPreview(values ...any) string {
 	for _, value := range values {
