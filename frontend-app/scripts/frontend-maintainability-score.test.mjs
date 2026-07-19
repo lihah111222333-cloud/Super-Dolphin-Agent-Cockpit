@@ -21,6 +21,7 @@ import { DELIVERY_RUNNER_CONTENT_PATHS } from './delivery-smoke-runner.mjs';
 import { FROZEN_T04_T05_EXECUTION_CLOSURE_PATHS } from './frontend-execution-closure.mjs';
 import { productionActionFailureMatrixTitle } from '../src/shared/ui/productionActionFailureMatrixTitles.js';
 import {
+  acceptsNonZeroRunnerExitForValidatedSlice,
   actionProducerGuardOutputStatus,
   commandEvidenceStatus,
   controlStatus,
@@ -1035,6 +1036,43 @@ describe('frontend maintainability scorer configuration', () => {
 });
 
 describe('frozen scorer target binding', () => {
+  it('keeps a validated performance metric PASS when another metric produces the aggregate exit', () => {
+    const { controls } = documents();
+    const performanceCheck = controls.controls.find(({ id }) => id === 'P01-render-isolation').allOf[0];
+    const deliveryCheck = controls.controls.find(({ id }) => id === 'T05-build-embed-smoke').allOf[0];
+
+    expect(acceptsNonZeroRunnerExitForValidatedSlice(
+      performanceCheck,
+      { verdict: { status: 'FAIL' } },
+      2,
+      'PASS',
+    )).toBe(true);
+    expect(acceptsNonZeroRunnerExitForValidatedSlice(
+      performanceCheck,
+      { verdict: { status: 'FAIL' } },
+      1,
+      'PASS',
+    )).toBe(false);
+    expect(acceptsNonZeroRunnerExitForValidatedSlice(
+      performanceCheck,
+      { verdict: { status: 'PASS' } },
+      2,
+      'PASS',
+    )).toBe(false);
+    expect(acceptsNonZeroRunnerExitForValidatedSlice(
+      deliveryCheck,
+      { verdict: { status: 'FAIL' } },
+      2,
+      'PASS',
+    )).toBe(false);
+    expect(acceptsNonZeroRunnerExitForValidatedSlice(
+      performanceCheck,
+      { verdict: { status: 'FAIL' } },
+      2,
+      'FAIL',
+    )).toBe(false);
+  });
+
   it('executes the single cached performance probe before npm test, build, and delivery controls', () => {
     const order = executionControlIds();
     const controlIds = documents().controls.controls.map((control) => control.id);

@@ -2091,6 +2091,13 @@ export function actionProducerGuardOutputStatus(stdout) {
   return 'FAIL';
 }
 
+export function acceptsNonZeroRunnerExitForValidatedSlice(check, report, exitCode, status) {
+  return status === 'PASS'
+    && check.evidenceProtocol === 'performance-budget-json-v1'
+    && exitCode === 2
+    && report?.verdict?.status === 'FAIL';
+}
+
 async function actionProducerGuardProbe(context, control, check) {
   const execution = await executeActualRunner(context, check);
   if (execution.missing) {
@@ -2169,7 +2176,8 @@ async function structuredProbe(context, control, check) {
     });
   }
   recordRawReport(context, check, report, reportArtifact);
-  if (status === 'PASS' && result.exitCode !== 0) {
+  if (status === 'PASS' && result.exitCode !== 0
+    && !acceptsNonZeroRunnerExitForValidatedSlice(check, report, result.exitCode, status)) {
     return evidenceRecord(context, control, check, {
       status: 'FAIL', exitCode: result.exitCode, summary: 'runner reported PASS with a non-zero exit',
       runnerReport: reportArtifact,
