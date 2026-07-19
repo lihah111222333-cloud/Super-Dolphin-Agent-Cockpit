@@ -114,6 +114,14 @@ function cloneSparseRepository(repoRoot, revision, paths) {
   git(repoRoot, ['checkout', '-q', '--detach', revision]);
 }
 
+function createSubjectFrontendSnapshot(context) {
+  const repoRoot = mkdtempSync(join(tmpdir(), 'frontend-maintainability-action-subject-'));
+  temporaryRepositories.push(repoRoot);
+  cloneSparseRepository(repoRoot, context.subjectSha, ['frontend-app']);
+  symlinkSync(join(frozenRepoRoot, 'frontend-app', 'node_modules'), join(repoRoot, 'frontend-app', 'node_modules'));
+  return repoRoot;
+}
+
 function cli(args, cwd = frozenRepoRoot) {
   return spawnSync(process.execPath, [scorerPath, ...args], { cwd, encoding: 'utf8' });
 }
@@ -1303,10 +1311,14 @@ describe('executable evidence registry', () => {
     const check = control.allOf.find(({ evidenceProtocol }) => evidenceProtocol === 'action-production-runtime-report-v1');
     const context = inspectTargetRepository();
     const now = Date.now();
-    const reportRoot = mkdtempSync(join(tmpdir(), 'frontend-action-binding-report-'));
-    temporaryRepositories.push(reportRoot);
-    const reportPath = join(reportRoot, 'report.json');
-    execFileSync(process.execPath, [join(scriptRoot, 'action-producer-guard.mjs'), '--report', reportPath]);
+    const subjectRoot = createSubjectFrontendSnapshot(context);
+    const reportPath = join(subjectRoot, 'action-binding-report.json');
+    const actionProducerGuardPath = realpathSync(join(subjectRoot, 'frontend-app', 'scripts', 'action-producer-guard.mjs'));
+    execFileSync(
+      process.execPath,
+      [actionProducerGuardPath, '--report', reportPath],
+      { cwd: subjectRoot },
+    );
     const report = JSON.parse(readFileSync(reportPath, 'utf8'));
     expect(report).toMatchObject({
       reportKind: 'action-production-binding-structure-v1',

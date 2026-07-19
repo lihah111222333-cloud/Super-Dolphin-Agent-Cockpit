@@ -150,6 +150,7 @@ function createClientStore(set, get) {
     ...createThreadDeleteActions(runtime),
     addWarning: runtime.addWarning,
     addLog: runtime.addLog,
+    getTurnTerminalCacheStats: runtime.getTurnTerminalCacheStats,
     setLogLevel: runtime.setLogLevel,
     toggleSmoothStreaming: () => {
       runtime.set((state) => ({ smoothStreaming: !state.smoothStreaming }));
