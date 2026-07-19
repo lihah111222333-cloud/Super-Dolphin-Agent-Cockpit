@@ -52,13 +52,13 @@ func TestRPCPushSubscribersRegisterCancelAndDeliver(t *testing.T) {
 		t.Fatal("Register returned nil cancel")
 	}
 
-	event.Publish(dispatcher, turndto.TurnCompleted{TurnHeader: rpcPushSubscriberTurnHeader("thread-1", "turn-1", "agent-1")})
+	event.Publish(dispatcher, rpcPushSubscriberTurnCompleted("thread-1", "turn-1", "agent-1"))
 	waitForRPCPushEnqueued(t, worker, 1)
 
 	cancel()
 	cancel()
 
-	event.Publish(dispatcher, turndto.TurnCompleted{TurnHeader: rpcPushSubscriberTurnHeader("thread-1", "turn-after-cancel", "agent-1")})
+	event.Publish(dispatcher, rpcPushSubscriberTurnCompleted("thread-1", "turn-after-cancel", "agent-1"))
 	time.Sleep(50 * time.Millisecond)
 	if got := worker.EnqueuedTotal(); got != 1 {
 		t.Fatalf("EnqueuedTotal after cancel = %d, want 1", got)
@@ -68,10 +68,21 @@ func TestRPCPushSubscribersRegisterCancelAndDeliver(t *testing.T) {
 func rpcPushSubscriberTurnHeader(threadID, turnID, agentID string) shareddto.TurnHeader {
 	return shareddto.TurnHeader{
 		AgentHeader: shareddto.AgentHeader{
-			ThreadHeader: shareddto.ThreadHeader{ThreadID: threadID},
-			AgentID:      agentID,
+			ThreadHeader: shareddto.ThreadHeader{
+				EventHeader: shareddto.EventHeader{Timestamp: time.Date(2026, time.July, 19, 0, 0, 0, 0, time.UTC)},
+				ThreadID:    threadID,
+			},
+			AgentID: agentID,
 		},
 		TurnIDHeader: shareddto.TurnIDHeader{TurnID: turnID},
+	}
+}
+
+func rpcPushSubscriberTurnCompleted(threadID, turnID, agentID string) turndto.TurnCompleted {
+	return turndto.TurnCompleted{
+		TurnHeader: rpcPushSubscriberTurnHeader(threadID, turnID, agentID),
+		Success:    true,
+		Status:     "completed",
 	}
 }
 
