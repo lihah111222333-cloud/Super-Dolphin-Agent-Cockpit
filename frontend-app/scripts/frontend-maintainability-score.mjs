@@ -1848,7 +1848,7 @@ function expandedRunnerArgv(context, check) {
 async function executeActualRunner(context, check) {
   if (!context.evidenceCache) context.evidenceCache = new Map();
   const argv = expandedRunnerArgv(context, check);
-  const cacheKey = JSON.stringify([check.evidenceProtocol, check.cwd, argv, check.reportPath || '']);
+  const cacheKey = structuredRunnerExecutionKey(context, check);
   if (context.evidenceCache.has(cacheKey)) return context.evidenceCache.get(cacheKey);
   const [command, runnerPath, ...args] = argv;
   const cwd = fs.realpathSync(path.resolve(context.repoRoot, check.cwd));
@@ -1923,6 +1923,15 @@ async function executeActualRunner(context, check) {
   };
   context.evidenceCache.set(cacheKey, executed);
   return executed;
+}
+
+export function structuredRunnerExecutionKey(context, check) {
+  return JSON.stringify([
+    check.evidenceProtocol,
+    check.cwd,
+    expandedRunnerArgv(context, check),
+    check.reportPath || '',
+  ]);
 }
 
 export function actionProducerGuardOutputStatus(stdout) {
@@ -2359,12 +2368,38 @@ export function validateConfiguration(config = controls, fixtureDocument = fixtu
   }
   return true;
 }
+function performanceControl(control) {
+  return control.allOf.some((check) => check.evidenceProtocol === 'performance-budget-json-v1');
+}
+
+function executionControls(controlDocument = controls) {
+  const performance = controlDocument.controls.filter(performanceControl);
+  const remaining = controlDocument.controls.filter((control) => !performanceControl(control));
+  return [...performance, ...remaining];
+}
+
+export function executionControlIds(controlDocument = controls) {
+  return executionControls(controlDocument).map((control) => control.id);
+}
+
 async function scoreContext(context, { runCommands }) {
   const executionContext = { ...context, evidenceCache: new Map(), rawReports: new Map() };
+  const preflightEvidence = new Map();
+  if (runCommands) {
+    for (const control of executionControls()) {
+      if (!performanceControl(control)) break;
+      for (const [index, check] of control.allOf.entries()) {
+        preflightEvidence.set(`${control.id}:${index}`, await evaluateCheck(executionContext, control, check, runCommands));
+      }
+    }
+  }
   const scoredControls = [];
   for (const control of controls.controls) {
     const evidence = [];
-    for (const check of control.allOf) evidence.push(await evaluateCheck(executionContext, control, check, runCommands));
+    for (const [index, check] of control.allOf.entries()) {
+      evidence.push(preflightEvidence.get(`${control.id}:${index}`)
+        ?? await evaluateCheck(executionContext, control, check, runCommands));
+    }
     scoredControls.push({
       id: control.id,
       dimension: control.dimension,

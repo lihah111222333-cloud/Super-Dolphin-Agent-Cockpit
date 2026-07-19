@@ -25,6 +25,7 @@ import {
   commandEvidenceStatus,
   controlStatus,
   createSubjectContract,
+  executionControlIds,
   finalGateFailures,
   inspectTargetRepository,
   persistScoreReport,
@@ -34,6 +35,7 @@ import {
   sourceHasCriticalTypecheckGap,
   sourceHasPromptHistoryConsoleOnly,
   structuredEvidenceStatus,
+  structuredRunnerExecutionKey,
   terminalTruthEvidenceStatus,
   validateConfiguration,
   withFrozenDeliveryRunnerFiles,
@@ -1021,6 +1023,35 @@ describe('frontend maintainability scorer configuration', () => {
 });
 
 describe('frozen scorer target binding', () => {
+  it('executes the single cached performance probe before npm test, build, and delivery controls', () => {
+    const order = executionControlIds();
+    const controlIds = documents().controls.controls.map((control) => control.id);
+    const performanceChecks = documents().controls.controls
+      .filter((control) => control.id.startsWith('P0'))
+      .flatMap((control) => control.allOf);
+    const executionKeys = performanceChecks.map((check) => structuredRunnerExecutionKey({
+      scoreBaseSha: 'a'.repeat(40),
+      subjectSha: 'b'.repeat(40),
+    }, check));
+    const firstHeavyControl = Math.min(
+      order.indexOf('T04-local-gates'),
+      order.indexOf('T05-build-embed-smoke'),
+    );
+
+    expect(order.slice(0, 4)).toEqual([
+      'P01-render-isolation',
+      'P02-history-budget',
+      'P03-feedback-budget',
+      'P04-resource-budget',
+    ]);
+    for (const controlId of order.slice(0, 4)) {
+      expect(order.indexOf(controlId)).toBeLessThan(firstHeavyControl);
+    }
+    expect(new Set(executionKeys).size).toBe(1);
+    expect(order).toHaveLength(controlIds.length);
+    expect(new Set(order)).toEqual(new Set(controlIds));
+  });
+
   it('does not resolve ignored external dependencies while bootstrapping the frozen scorer', () => {
     const fixture = createFinalCliFixture();
     write('frontend-app/scripts/desktop-failure-smoke.mjs', [
@@ -1053,6 +1084,8 @@ describe('frozen scorer target binding', () => {
     expect(result.subjectSha).toBe(target.subjectSha);
     expect(result.subjectTree).toBe(target.subjectTree);
     expect(result.controls).toHaveLength(25);
+    expect(result.controls.map((control) => control.id))
+      .toEqual(documents().controls.controls.map((control) => control.id));
     expect(result.controls.every(({ status }) => status !== 'PASS')).toBe(true);
     expect(result.displayScore).toBe(0);
   });
