@@ -423,7 +423,7 @@ frontend-app/src/pages/memory/services/memoryPageService.js	frontend-app	app-ui	
 frontend-app/src/pages/memory/services/memoryPageService.test.js	frontend-app	app-ui	js-test	11139	React 页面与路由级 UI	frontend,app,src,pages,memory,services,memoryPageService,test,React,页面与路由级,UI
 frontend-app/src/pages/observability/ObservabilityPage.css	frontend-app	app-ui	css	11655	React 页面与路由级 UI	frontend,app,src,pages,observability,ObservabilityPage,React,页面与路由级,UI
 frontend-app/src/pages/observability/ObservabilityPage.jsx	frontend-app	app-ui	jsx	30341	React 页面与路由级 UI	frontend,app,src,pages,observability,ObservabilityPage,React,页面与路由级,UI
-frontend-app/src/pages/observability/ObservabilityPage.test.jsx	frontend-app	app-ui	jsx	22429	React 页面与路由级 UI	frontend,app,src,pages,observability,ObservabilityPage,test,React,页面与路由级,UI
+frontend-app/src/pages/observability/ObservabilityPage.test.jsx	frontend-app	app-ui	jsx	22668	React 页面与路由级 UI	frontend,app,src,pages,observability,ObservabilityPage,test,React,页面与路由级,UI
 frontend-app/src/pages/observability/services/observabilityPageService.js	frontend-app	app-ui	js-source	2483	React 页面与路由级 UI	frontend,app,src,pages,observability,services,observabilityPageService,React,页面与路由级,UI
 frontend-app/src/pages/observability/services/observabilityPageService.test.js	frontend-app	app-ui	js-test	3880	React 页面与路由级 UI	frontend,app,src,pages,observability,services,observabilityPageService,test,React,页面与路由级,UI
 frontend-app/src/pages/pageSurfaceManifest.js	frontend-app	app-ui	js-source	2827	React 页面与路由级 UI	frontend,app,src,pages,pageSurfaceManifest,React,页面与路由级,UI

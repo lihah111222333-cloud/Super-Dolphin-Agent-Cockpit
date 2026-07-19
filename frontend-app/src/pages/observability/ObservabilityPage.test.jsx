@@ -488,11 +488,20 @@ describe('ObservabilityPage module', () => {
 
   it('copies a trace id through the backend clipboard bridge', async () => {
     const table = await queryRecentLogs();
+    let resolveClipboardCopy;
+    copyTextToClipboard.mockImplementationOnce(() => new Promise((resolve) => {
+      resolveClipboardCopy = resolve;
+    }));
 
-    fireEvent.click(within(table).getByRole('button', { name: '复制 Trace ID trace-frontend-1' }));
+    const copyButton = within(table).getByRole('button', { name: '复制 Trace ID trace-frontend-1' });
+    fireEvent.click(copyButton);
 
     await waitFor(() => expect(copyTextToClipboard).toHaveBeenCalledWith('trace-frontend-1'));
-    expect(within(table).getByRole('button', { name: '复制 Trace ID trace-frontend-1' })).toHaveTextContent('已复制');
+    expect(copyButton).toHaveTextContent('复制 Trace ID');
+
+    resolveClipboardCopy(true);
+
+    await waitFor(() => expect(copyButton).toHaveTextContent('已复制'));
     expect(getObservabilityTrace).not.toHaveBeenCalled();
   });
 
