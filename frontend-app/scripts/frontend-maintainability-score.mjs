@@ -17,6 +17,7 @@ const frozenRepoRoot = path.resolve(frozenAppRoot, '..');
 const controls = withFrozenDeliveryRunnerFiles(readFrozenJSON('frontend-maintainability-controls.json'));
 const fixtures = readFrozenJSON('frontend-maintainability-red-fixtures.json');
 const baseline = readFrozenJSON('frontend-maintainability-baseline.json');
+const dependencyIntegrity = readFrozenJSON('frontend-maintainability-dependencies.json');
 const frozenControlIDs = new Set(controls.controls.map(({ id }) => id));
 const frozenFixtureIDs = new Set(fixtures.fixtures.map(({ id }) => id));
 const weakCommands = new Set([':', 'echo', 'false', 'true']);
@@ -24,6 +25,7 @@ const governancePaths = [
   'frontend-app/scripts/frontend-maintainability-controls.json',
   'frontend-app/scripts/frontend-maintainability-score.mjs',
   'frontend-app/scripts/frontend-maintainability-baseline.json',
+  'frontend-app/scripts/frontend-maintainability-dependencies.json',
   'frontend-app/scripts/frontend-maintainability-red-fixtures.json',
   'frontend-app/scripts/failure-matrix-runner.mjs',
   'frontend-app/scripts/failure-matrix-cases.json',
@@ -502,6 +504,74 @@ function sameDependencyManifest(leftAppRoot, rightAppRoot) {
   const left = path.join(leftAppRoot, 'package-lock.json');
   const right = path.join(rightAppRoot, 'package-lock.json');
   return fs.existsSync(left) && fs.existsSync(right) && fs.readFileSync(left).equals(fs.readFileSync(right));
+}
+
+function dependencyTreeIntegrity(appRoot) {
+  const nodeModulesRoot = path.join(appRoot, 'node_modules');
+  const rootStat = fs.lstatSync(nodeModulesRoot);
+  if (!rootStat.isDirectory() || rootStat.isSymbolicLink()) {
+    fail(`immutable dependency root must be a physical directory: ${nodeModulesRoot}`);
+  }
+  const aggregate = createHash('sha256');
+  let pathCount = 0;
+  const add = (value) => {
+    aggregate.update(value);
+    aggregate.update('\0');
+  };
+  const visit = (absoluteRoot, relativeRoot = '') => {
+    for (const entry of fs.readdirSync(absoluteRoot).sort()) {
+      const absolutePath = path.join(absoluteRoot, entry);
+      const relativePath = relativeRoot ? `${relativeRoot}/${entry}` : entry;
+      const stat = fs.lstatSync(absolutePath);
+      pathCount += 1;
+      add(relativePath);
+      if (stat.isDirectory()) {
+        add('directory');
+        visit(absolutePath, relativePath);
+      }
+      else if (stat.isFile()) {
+        add('file');
+        aggregate.update(fs.readFileSync(absolutePath));
+        aggregate.update('\0');
+      }
+      else if (stat.isSymbolicLink()) {
+        add('symlink');
+        add(fs.readlinkSync(absolutePath));
+      }
+      else {
+        fail(`unsupported immutable dependency entry: ${relativePath}`);
+      }
+    }
+  };
+  visit(nodeModulesRoot);
+  return {
+    nodeModulesRoot,
+    pathCount,
+    sha256: aggregate.digest('hex'),
+  };
+}
+
+function assertImmutableDependencies(appRoot) {
+  const packageLockPath = path.join(appRoot, 'package-lock.json');
+  if (!fs.existsSync(packageLockPath)) fail(`immutable dependency package-lock is missing: ${packageLockPath}`);
+  const packageLockSha256 = createHash('sha256').update(fs.readFileSync(packageLockPath)).digest('hex');
+  if (packageLockSha256 !== dependencyIntegrity.packageLockSha256) {
+    fail(`immutable dependency package-lock SHA-256 mismatch: ${appRoot}`);
+  }
+  const actual = dependencyTreeIntegrity(appRoot);
+  for (const [relativePath, expectedSha256] of Object.entries(dependencyIntegrity.requiredTools)) {
+    const absolutePath = path.join(actual.nodeModulesRoot, relativePath);
+    if (!fs.existsSync(absolutePath)) fail(`immutable dependency tool is missing: ${relativePath}`);
+    const actualSha256 = createHash('sha256').update(fs.readFileSync(absolutePath)).digest('hex');
+    if (actualSha256 !== expectedSha256) fail(`immutable dependency tool SHA-256 mismatch: ${relativePath}`);
+  }
+  if (actual.pathCount !== dependencyIntegrity.nodeModulesPathCount) {
+    fail(`immutable dependency path count mismatch: ${appRoot}`);
+  }
+  if (actual.sha256 !== dependencyIntegrity.nodeModulesTreeSha256) {
+    fail(`immutable dependency tree SHA-256 mismatch: ${appRoot}`);
+  }
+  return actual;
 }
 
 function dependencyAppRoots(context) {
@@ -2266,6 +2336,23 @@ export function validateConfiguration(config = controls, fixtureDocument = fixtu
   if (baseline.baseSha !== plannedBaseSha || !/^[0-9a-f]{40}$/.test(baseline.planSnapshotSha)) {
     fail('baseline provenance is incomplete');
   }
+  exactKeys(dependencyIntegrity, [
+    'schemaVersion', 'packageLockSha256', 'nodeModulesTreeSha256', 'nodeModulesPathCount', 'requiredTools',
+  ], 'immutable dependency integrity');
+  if (dependencyIntegrity.schemaVersion !== 1
+    || !/^[0-9a-f]{64}$/.test(dependencyIntegrity.packageLockSha256)
+    || !/^[0-9a-f]{64}$/.test(dependencyIntegrity.nodeModulesTreeSha256)
+    || !Number.isSafeInteger(dependencyIntegrity.nodeModulesPathCount)
+    || dependencyIntegrity.nodeModulesPathCount <= 0) {
+    fail('immutable dependency integrity is invalid');
+  }
+  exactSet(Object.keys(dependencyIntegrity.requiredTools || {}), [
+    '@playwright/test/index.js', 'eslint/bin/eslint.js', 'vite/bin/vite.js', 'vitest/vitest.mjs',
+  ], 'immutable dependency required tools');
+  for (const [relativePath, sha256] of Object.entries(dependencyIntegrity.requiredTools)) {
+    if (!relativePath.startsWith('@') && !relativePath.includes('/')) fail('immutable dependency tool path is invalid');
+    if (!/^[0-9a-f]{64}$/.test(sha256)) fail(`immutable dependency tool SHA-256 is invalid: ${relativePath}`);
+  }
   return true;
 }
 async function scoreContext(context, { runCommands }) {
@@ -2339,22 +2426,19 @@ export async function probeResult(probe, { repoRoot = frozenRepoRoot, subjectSha
   return (await evaluateProbe(context, match.control, match.check)).status;
 }
 
-function dependencySource(context) {
-  return dependencyAppRoots(context).find((candidate) => (
-    fs.existsSync(path.join(candidate, 'node_modules', 'vitest', 'vitest.mjs'))
-    && sameDependencyManifest(context.appRoot, candidate)
-  ));
-}
-
-function mountDetachedDependencies(sourceAppRoot, detachedAppRoot) {
-  const sourceNodeModules = path.join(sourceAppRoot, 'node_modules');
+async function installDetachedDependencies(detachedAppRoot) {
   const detachedNodeModules = path.join(detachedAppRoot, 'node_modules');
-  fs.mkdirSync(detachedNodeModules);
-  for (const entry of fs.readdirSync(sourceNodeModules).sort()) {
-    const sourcePath = path.join(sourceNodeModules, entry);
-    const detachedPath = path.join(detachedNodeModules, entry);
-    fs.symlinkSync(sourcePath, detachedPath, fs.statSync(sourcePath).isDirectory() ? 'dir' : 'file');
+  if (fs.existsSync(detachedNodeModules)) fail('detached SUBJECT already contains node_modules before immutable dependency installation');
+  const result = await commandResult('npm', ['ci', '--ignore-scripts', '--no-audit', '--no-fund', '--offline'], {
+    cwd: detachedAppRoot,
+    env: process.env,
+    timeoutMs: 180_000,
+  });
+  if (result.exitCode !== 0 || result.signal || result.timedOut || result.error) {
+    const output = `${result.stdout || ''}${result.stderr || ''}`.trim();
+    fail(`immutable detached dependency installation failed: ${output.slice(-1200) || result.error?.message || `exit ${result.exitCode}`}`);
   }
+  assertImmutableDependencies(detachedAppRoot);
 }
 
 function startDetachedSubjectWatchdog({ leasePath, tempRoot, detachedRoot, repoRoot }) {
@@ -2449,11 +2533,9 @@ async function withDetachedSubject(context, callback) {
       stdio: 'ignore',
     });
     const executionContext = contextForExecution(context, fs.realpathSync(detachedRoot));
-    const dependencies = dependencySource(context);
     const detachedNodeModules = path.join(executionContext.appRoot, 'node_modules');
-    if (dependencies && !fs.existsSync(detachedNodeModules)) {
-      mountDetachedDependencies(dependencies, executionContext.appRoot);
-    }
+    if (fs.existsSync(detachedNodeModules)) fail('detached SUBJECT unexpectedly contains node_modules');
+    await installDetachedDependencies(executionContext.appRoot);
     return await callback(executionContext);
   }
   finally {

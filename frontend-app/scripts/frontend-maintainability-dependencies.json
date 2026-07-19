@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "packageLockSha256": "084d72b804218f71ffe913d937af51d46d1885a01a98a9b5e7a6cedcd57d72f8",
+  "nodeModulesTreeSha256": "9440e4df07c6a95b065bd50975f2035960d5d3dea5624b88492ff89f58e2f587",
+  "nodeModulesPathCount": 33401,
+  "requiredTools": {
+    "eslint/bin/eslint.js": "3c3684eab82da53125a2d4106349ac43cadbb673cbad32566ba25d12df0449c6",
+    "vitest/vitest.mjs": "39db22f579acf5639bbb17a261408debbde03f4692c0c439e77e7f13aeba74d6",
+    "vite/bin/vite.js": "fa03478846d229651a3c6aa64833ba2c6cbf580a798b92bd8f47c7480bafb5d8",
+    "@playwright/test/index.js": "499da5dd8585212108a1443793de31ebc061ca7db02343f107955f261180cdfc"
+  }
+}
