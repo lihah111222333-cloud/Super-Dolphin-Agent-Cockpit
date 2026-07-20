@@ -3,6 +3,7 @@ package appupdate
 import (
 	"context"
 	"crypto/ed25519"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
@@ -244,7 +245,7 @@ func (s *service) Check(ctx context.Context) (CheckResult, error) {
 	if !s.cfg.Enabled {
 		return CheckResult{Enabled: false, Available: false}, nil
 	}
-	failure, exists, err := appupdatefailure.Read(s.cfg.StageDir)
+	failure, exists, err := s.readPreJournalFailure()
 	if err != nil {
 		return CheckResult{}, fmt.Errorf("read app update pre-journal failure: %w", err)
 	}
@@ -272,7 +273,7 @@ func (s *service) Check(ctx context.Context) (CheckResult, error) {
 
 // Download 下载并校验更新产物，成功后写入 stage manifest 供 Install 使用。
 func (s *service) Download(ctx context.Context) (DownloadResult, error) {
-	if err := s.clearPreJournalFailure(); err != nil {
+	if err := s.invalidatePreJournalFailure(); err != nil {
 		return DownloadResult{}, err
 	}
 	payload, artifact, err := s.fetchManifest(ctx)
@@ -311,15 +312,12 @@ func (s *service) Download(ctx context.Context) (DownloadResult, error) {
 
 // Install 读取已暂存的更新记录并启动平台安装命令，成功启动后延迟请求宿主退出。
 func (s *service) Install(ctx context.Context) (InstallResult, error) {
-	return s.install(ctx, true)
+	return s.install(ctx)
 }
 
-// install 启动暂存更新；InstallLatest 已由 Download 清理时可禁止重复 sidecar 写操作。
-func (s *service) install(ctx context.Context, clearFailure bool) (InstallResult, error) {
+// install 启动暂存更新，并为 Darwin helper 建立唯一 pre-journal 代际。
+func (s *service) install(ctx context.Context) (InstallResult, error) {
 	_ = ctx
-	if err := s.prepareInstallRetry(clearFailure); err != nil {
-		return InstallResult{}, err
-	}
 	if s.requestQuit == nil {
 		return InstallResult{}, errors.New("app update request quit callback is not configured")
 	}
@@ -333,7 +331,11 @@ func (s *service) install(ctx context.Context, clearFailure bool) (InstallResult
 	if err := s.verifyInstallGate(staged); err != nil {
 		return InstallResult{}, err
 	}
-	cmd, helper, err := s.installCommand(staged)
+	generation, err := s.beginInstallAttempt(staged)
+	if err != nil {
+		return InstallResult{}, err
+	}
+	cmd, helper, err := s.installCommand(staged, generation)
 	if err != nil {
 		return InstallResult{}, err
 	}
@@ -350,23 +352,58 @@ func (s *service) install(ctx context.Context, clearFailure bool) (InstallResult
 	return InstallResult{Started: true, Helper: helper}, nil
 }
 
-// prepareInstallRetry 只在公开 Install 入口清理一次 sidecar。
-func (s *service) prepareInstallRetry(clearFailure bool) error {
-	if !clearFailure {
-		return nil
+// readPreJournalFailure 仅在 Darwin 更新配置下读取可见 failure 状态。
+func (s *service) readPreJournalFailure() (contract.RecoveryFailure, bool, error) {
+	if runtime.GOOS != "darwin" || updatePlatformOS(s.cfg.Platform) != "darwin" {
+		return contract.RecoveryFailure{}, false, nil
 	}
-	return s.clearPreJournalFailure()
+	if _, err := os.Lstat(s.cfg.StageDir); errors.Is(err, os.ErrNotExist) {
+		return contract.RecoveryFailure{}, false, nil
+	} else if err != nil {
+		return contract.RecoveryFailure{}, false, fmt.Errorf("inspect app update stage dir: %w", err)
+	}
+	return appupdatefailure.ReadFailure(s.cfg.StageDir)
 }
 
-// clearPreJournalFailure 在显式重试入口创建可信 StageDir 并清除旧 sidecar。
-func (s *service) clearPreJournalFailure() error {
+// invalidatePreJournalFailure 仅在 Darwin 显式 Download retry 边界清除所有旧代际。
+func (s *service) invalidatePreJournalFailure() error {
+	if runtime.GOOS != "darwin" || updatePlatformOS(s.cfg.Platform) != "darwin" {
+		return nil
+	}
 	if err := os.MkdirAll(s.cfg.StageDir, 0o700); err != nil {
 		return fmt.Errorf("create app update stage dir: %w", err)
 	}
-	if err := appupdatefailure.Clear(s.cfg.StageDir); err != nil {
-		return fmt.Errorf("clear app update pre-journal failure: %w", err)
+	if err := appupdatefailure.InvalidateAll(s.cfg.StageDir); err != nil {
+		return fmt.Errorf("invalidate app update pre-journal failure: %w", err)
 	}
 	return nil
+}
+
+// beginInstallAttempt 为 Darwin helper 建立 crypto-random generation；其他平台不调用 sidecar。
+func (s *service) beginInstallAttempt(staged selectedUpdate) (string, error) {
+	if runtime.GOOS != "darwin" || updatePlatformOS(staged.Artifact.Platform) != "darwin" {
+		return "", nil
+	}
+	if err := os.MkdirAll(s.cfg.StageDir, 0o700); err != nil {
+		return "", fmt.Errorf("create app update stage dir: %w", err)
+	}
+	generation, err := newPreJournalGeneration()
+	if err != nil {
+		return "", err
+	}
+	if err := appupdatefailure.Begin(s.cfg.StageDir, generation); err != nil {
+		return "", fmt.Errorf("begin app update pre-journal attempt: %w", err)
+	}
+	return generation, nil
+}
+
+// newPreJournalGeneration 生成不可预测的固定长度小写十六进制代际标识。
+func newPreJournalGeneration() (string, error) {
+	var raw [16]byte
+	if _, err := rand.Read(raw[:]); err != nil {
+		return "", fmt.Errorf("generate app update pre-journal generation: %w", err)
+	}
+	return hex.EncodeToString(raw[:]), nil
 }
 
 // InstallLatest 串联 Download 和 Install，确保安装的是当前检查到的最新产物。
@@ -374,7 +411,7 @@ func (s *service) InstallLatest(ctx context.Context) (InstallResult, error) {
 	if _, err := s.Download(ctx); err != nil {
 		return InstallResult{}, err
 	}
-	return s.install(ctx, false)
+	return s.install(ctx)
 }
 
 // scheduleRequestQuit 在短暂延迟后调用 requestQuit，让 RPC 响应先行发出。
@@ -541,11 +578,14 @@ func (s *service) verifyInstallGate(staged selectedUpdate) error {
 }
 
 // installCommand 按平台构造安装命令，macOS 使用 helper，Windows 直接运行安装包。
-func (s *service) installCommand(staged selectedUpdate) (*exec.Cmd, string, error) {
+func (s *service) installCommand(staged selectedUpdate, generation string) (*exec.Cmd, string, error) {
 	artifactPath := selectedArtifactPath(staged)
 	switch updatePlatformOS(staged.Artifact.Platform) {
 	case "darwin":
-		args := []string{"-dmg", artifactPath, "-target", s.cfg.TargetAppPath, "-restart", "-wait-pid", strconv.Itoa(os.Getpid()), "-log", s.helperLogPath()}
+		if err := appupdatefailure.ValidateGeneration(generation); err != nil {
+			return nil, "", err
+		}
+		args := []string{"-dmg", artifactPath, "-target", s.cfg.TargetAppPath, "-restart", "-wait-pid", strconv.Itoa(os.Getpid()), "-log", s.helperLogPath(), "-pre-journal-generation", generation}
 		if s.cfg.AllowUnsigned {
 			args = append(args, "-allow-unsigned")
 		}

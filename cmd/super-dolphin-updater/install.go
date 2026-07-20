@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/appupdatefailure"
 	recovery "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/appupdaterecovery"
 )
 
@@ -37,6 +38,7 @@ type installRequest struct {
 	AllowUnsigned bool
 	WaitPID       int
 	LogPath       string
+	Generation    string
 }
 
 // commandResult 保存外部命令 stdout/stderr。
@@ -161,7 +163,7 @@ func (app updaterApp) installFromMount(ctx context.Context, req installRequest, 
 	if err != nil {
 		return err
 	}
-	transaction, transactional, err := app.replaceTargetAppTransactionContextWithStageDir(ctx, stagedApp, req.TargetAppPath, teamID, req.AllowUnsigned, req.Restart, stageDir)
+	transaction, transactional, err := app.replaceTargetAppTransactionContextWithStageDir(ctx, stagedApp, req.TargetAppPath, teamID, req.AllowUnsigned, req.Restart, stageDir, req.Generation)
 	if err != nil {
 		return err
 	}
@@ -179,10 +181,7 @@ func (app updaterApp) verifyStagedAppForInstall(req installRequest, stagedApp st
 		}
 	}
 	if err := app.verifyAppSignature(stagedApp, teamID, req.AllowUnsigned); err != nil {
-		return "", recordPreJournalFailure(stageDir, fmt.Errorf("verify staged app: %w", err))
-	}
-	if err := clearPreJournalFailure(stageDir); err != nil {
-		return "", err
+		return "", recordPreJournalFailure(stageDir, req.Generation, fmt.Errorf("verify staged app: %w", err))
 	}
 	return teamID, nil
 }
@@ -287,7 +286,7 @@ func validateInstallRequest(req installRequest) error {
 	if err := verifyWritableDir(parent); err != nil {
 		return fmt.Errorf("target parent is not writable: %w", err)
 	}
-	return validateWaitPID(req.WaitPID)
+	return errors.Join(validateWaitPID(req.WaitPID), appupdatefailure.ValidateGeneration(req.Generation))
 }
 
 // validateWaitPID 校验等待退出的 PID 参数。
@@ -578,11 +577,11 @@ func (app updaterApp) replaceTargetAppTransaction(stagedApp string, targetApp st
 
 // replaceTargetAppTransactionContext 将调用方生命周期贯穿候选校验与事务效果。
 func (app updaterApp) replaceTargetAppTransactionContext(ctx context.Context, stagedApp string, targetApp string, expectedTeamID string, allowUnsigned bool, superviseReplacement bool) (recovery.Transaction, bool, error) {
-	return app.replaceTargetAppTransactionContextWithStageDir(ctx, stagedApp, targetApp, expectedTeamID, allowUnsigned, superviseReplacement, "")
+	return app.replaceTargetAppTransactionContextWithStageDir(ctx, stagedApp, targetApp, expectedTeamID, allowUnsigned, superviseReplacement, "", "")
 }
 
 // replaceTargetAppTransactionContextWithStageDir 在生产安装路径中额外约束 pre-journal sidecar 时序。
-func (app updaterApp) replaceTargetAppTransactionContextWithStageDir(ctx context.Context, stagedApp string, targetApp string, expectedTeamID string, allowUnsigned bool, superviseReplacement bool, stageDir string) (recovery.Transaction, bool, error) {
+func (app updaterApp) replaceTargetAppTransactionContextWithStageDir(ctx context.Context, stagedApp string, targetApp string, expectedTeamID string, allowUnsigned bool, superviseReplacement bool, stageDir string, generation string) (recovery.Transaction, bool, error) {
 	if ctx == nil {
 		return recovery.Transaction{}, false, errors.New("replace target app context is required")
 	}
@@ -591,12 +590,15 @@ func (app updaterApp) replaceTargetAppTransactionContextWithStageDir(ctx context
 		return recovery.Transaction{}, false, err
 	}
 	if !targetExists {
+		if err := clearPreJournalFailure(stageDir, generation); err != nil {
+			return recovery.Transaction{}, false, err
+		}
 		return recovery.Transaction{}, false, app.installFirstRelease(stagedApp, targetApp, expectedTeamID, allowUnsigned)
 	}
 	request, packageOwned, err := app.prepareReleaseTransaction(ctx, stagedApp, targetApp, expectedTeamID, allowUnsigned)
 	if err != nil {
 		if stageDir != "" {
-			return recovery.Transaction{}, false, recordPreJournalFailure(stageDir, err)
+			return recovery.Transaction{}, false, recordPreJournalFailure(stageDir, generation, err)
 		}
 		return recovery.Transaction{}, false, err
 	}
@@ -604,15 +606,12 @@ func (app updaterApp) replaceTargetAppTransactionContextWithStageDir(ctx context
 	if err != nil {
 		return recovery.Transaction{}, false, removePreparedCandidate(request.Paths.Staging, err)
 	}
-	if err := clearPreparedPreJournalFailure(stageDir, request.Paths.Staging); err != nil {
+	if err := clearPreparedPreJournalFailure(stageDir, generation, request.Paths.Staging); err != nil {
 		return recovery.Transaction{}, false, err
 	}
 	created, err := store.Create(ctx, request)
 	if err != nil {
 		return recovery.Transaction{}, false, fmt.Errorf("create release transaction: %w", err)
-	}
-	if err := confirmPreJournalFailureAbsent(stageDir); err != nil {
-		return recovery.Transaction{}, false, err
 	}
 	return app.completePreparedReleaseTransaction(ctx, store, created, packageOwned)
 }

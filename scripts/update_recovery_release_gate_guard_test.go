@@ -197,7 +197,7 @@ func TestUpdateRecoveryReleaseGateCIRequiresNativeMacOSAndWindowsEvidence(t *tes
 	}
 	windowsJob := updateRecoveryRequireWorkflowJob(t, workflow, "update-recovery-release-gate-windows")
 	for _, want := range []string{
-		"./scripts/test_with_guard.sh ./cmd/super-dolphin-updater -run 'Test(Guard|ConfigureGuard)' -count=1",
+		"./scripts/test_with_guard.sh ./cmd/super-dolphin-updater ./internal/module/appupdate ./internal/platform/appupdatefailure -count=1",
 		"./scripts/test_with_guard.sh ./cmd/super-dolphin-guard -run 'TestGuard.*(Rollback|Probation|PIDReuse|Termination)' -count=1",
 		"./scripts/test_with_guard.sh ./scripts -run '^TestWindowsPackageVerifierAcceptsRealFixture$' -count=1",
 	} {

@@ -17,13 +17,13 @@ cmd/super-dolphin-release-manifest/main_test.go	cmd	other	go-test	6957	Release m
 cmd/super-dolphin-release-manifest/main.go	cmd	other	go-source	14374	Release manifest generation command	cmd,super,dolphin,release,manifest,main,Release,generation,command
 cmd/super-dolphin-updater/detach_darwin.go	cmd	other	go-source	248	Super-Dolphin updater install and detach command	cmd,super,dolphin,updater,detach,darwin,Super-Dolphin,install,and,command
 cmd/super-dolphin-updater/detach_default.go	cmd	other	go-source	176	Super-Dolphin updater install and detach command	cmd,super,dolphin,updater,detach,default,Super-Dolphin,install,and,command
-cmd/super-dolphin-updater/install_test.go	cmd	other	go-test	21126	Super-Dolphin updater install and detach command	cmd,super,dolphin,updater,install,test,Super-Dolphin,and,detach,command
-cmd/super-dolphin-updater/install.go	cmd	other	go-source	33096	Super-Dolphin updater install and detach command	cmd,super,dolphin,updater,install,Super-Dolphin,and,detach,command
-cmd/super-dolphin-updater/main.go	cmd	other	go-source	9716	Super-Dolphin updater install and detach command	cmd,super,dolphin,updater,main,Super-Dolphin,install,and,detach,command
+cmd/super-dolphin-updater/install_test.go	cmd	other	go-test	22044	Super-Dolphin updater install and detach command	cmd,super,dolphin,updater,install,test,Super-Dolphin,and,detach,command
+cmd/super-dolphin-updater/install.go	cmd	other	go-source	33282	Super-Dolphin updater install and detach command	cmd,super,dolphin,updater,install,Super-Dolphin,and,detach,command
+cmd/super-dolphin-updater/main.go	cmd	other	go-source	9823	Super-Dolphin updater install and detach command	cmd,super,dolphin,updater,main,Super-Dolphin,install,and,detach,command
 cmd/super-dolphin-updater/package_trust_test.go	cmd	other	go-test	5711	Super-Dolphin updater install and detach command	cmd,super,dolphin,updater,package,trust,test,Super-Dolphin,install,and,detach,command
 cmd/super-dolphin-updater/package_trust.go	cmd	other	go-source	16851	Super-Dolphin updater install and detach command	cmd,super,dolphin,updater,package,trust,Super-Dolphin,install,and,detach,command
-cmd/super-dolphin-updater/pre_journal_test.go	cmd	other	go-test	5732	Super-Dolphin updater install and detach command	cmd,super,dolphin,updater,pre,journal,test,Super-Dolphin,install,and,detach,command
-cmd/super-dolphin-updater/pre_journal.go	cmd	other	go-source	2102	Super-Dolphin updater install and detach command	cmd,super,dolphin,updater,pre,journal,Super-Dolphin,install,and,detach,command
+cmd/super-dolphin-updater/pre_journal_test.go	cmd	other	go-test	8205	Super-Dolphin updater install and detach command	cmd,super,dolphin,updater,pre,journal,test,Super-Dolphin,install,and,detach,command
+cmd/super-dolphin-updater/pre_journal.go	cmd	other	go-source	1998	Super-Dolphin updater install and detach command	cmd,super,dolphin,updater,pre,journal,Super-Dolphin,install,and,detach,command
 cmd/super-dolphin-updater/probation_rollback_test.go	cmd	other	go-test	21552	Super-Dolphin updater install and detach command	cmd,super,dolphin,updater,probation,rollback,test,Super-Dolphin,install,and,detach,command
 cmd/super-dolphin-updater/probation.go	cmd	other	go-source	26025	Super-Dolphin updater install and detach command	cmd,super,dolphin,updater,probation,Super-Dolphin,install,and,detach,command
 cmd/super-dolphin-updater/process_guard_unix_test.go	cmd	other	go-test	10225	Super-Dolphin updater install and detach command	cmd,super,dolphin,updater,process,guard,unix,test,Super-Dolphin,install,and,detach,command
@@ -550,7 +550,7 @@ scripts/check_p1_turn_wrappers_guard_test.go	scripts	other	go-test	9307	工程�
 scripts/check_p1_turn_wrappers.go	scripts	other	go-source	5150	工程自动化、测试守卫、代码地图与开发脚本	scripts,check,p1,turn,wrappers,工程自动化,测试守卫,代码地图与开发脚本
 scripts/check-dag-doc-sync.sh	scripts	other	script	4698	工程自动化、测试守卫、代码地图与开发脚本	scripts,check,dag,doc,sync,工程自动化,测试守卫,代码地图与开发脚本
 scripts/ci_commit_guard.sh	scripts	other	script	3332	工程自动化、测试守卫、代码地图与开发脚本	scripts,ci,commit,guard,工程自动化,测试守卫,代码地图与开发脚本
-scripts/ci_cross_platform_smoke.ps1	scripts	other	script	5384	工程自动化、测试守卫、代码地图与开发脚本	scripts,ci,cross,platform,smoke,工程自动化,测试守卫,代码地图与开发脚本
+scripts/ci_cross_platform_smoke.ps1	scripts	other	script	5887	工程自动化、测试守卫、代码地图与开发脚本	scripts,ci,cross,platform,smoke,工程自动化,测试守卫,代码地图与开发脚本
 scripts/ci_workflow_lint_guard_test.go	scripts	other	go-test	866	工程自动化、测试守卫、代码地图与开发脚本	scripts,ci,workflow,lint,guard,test,工程自动化,测试守卫,代码地图与开发脚本
 scripts/code_size_guard_cli_test.go	scripts	other	go-test	8121	工程自动化、测试守卫、代码地图与开发脚本	scripts,code,size,guard,cli,test,工程自动化,测试守卫,代码地图与开发脚本
 scripts/code_size_guard_priority_ssa_guard_test.go	scripts	other	go-test	1453	工程自动化、测试守卫、代码地图与开发脚本	scripts,code,size,guard,priority,ssa,test,工程自动化,测试守卫,代码地图与开发脚本
@@ -617,7 +617,7 @@ scripts/package_macos_video_guard_test.go	scripts	other	go-test	2159	工程自�
 scripts/package_macos.sh	scripts	other	script	60614	工程自动化、测试守卫、代码地图与开发脚本	scripts,package,macos,工程自动化,测试守卫,代码地图与开发脚本
 scripts/package_sqlite_migrations_guard_test.go	scripts	other	go-test	4609	工程自动化、测试守卫、代码地图与开发脚本	scripts,package,sqlite,migrations,guard,test,工程自动化,测试守卫,代码地图与开发脚本
 scripts/package_windows_github_release.ps1	scripts	other	script	330	工程自动化、测试守卫、代码地图与开发脚本	scripts,package,windows,github,release,工程自动化,测试守卫,代码地图与开发脚本
-scripts/package_windows_guard_test.go	scripts	other	go-test	35270	工程自动化、测试守卫、代码地图与开发脚本	scripts,package,windows,guard,test,工程自动化,测试守卫,代码地图与开发脚本
+scripts/package_windows_guard_test.go	scripts	other	go-test	35822	工程自动化、测试守卫、代码地图与开发脚本	scripts,package,windows,guard,test,工程自动化,测试守卫,代码地图与开发脚本
 scripts/package_windows_local.ps1	scripts	other	script	9598	工程自动化、测试守卫、代码地图与开发脚本	scripts,package,windows,local,工程自动化,测试守卫,代码地图与开发脚本
 scripts/package_windows.ps1	scripts	other	script	51832	工程自动化、测试守卫、代码地图与开发脚本	scripts,package,windows,工程自动化,测试守卫,代码地图与开发脚本
 scripts/pre_commit_cleanup_guard_test.go	scripts	other	go-test	1027	工程自动化、测试守卫、代码地图与开发脚本	scripts,pre,commit,cleanup,guard,test,工程自动化,测试守卫,代码地图与开发脚本
@@ -651,7 +651,7 @@ scripts/tests/test_codex_stop_gate_plan.sh	scripts	other	script	10917	工程自�
 scripts/uat-p21.sh	scripts	other	script	9595	工程自动化、测试守卫、代码地图与开发脚本	scripts,uat,p21,工程自动化,测试守卫,代码地图与开发脚本
 scripts/ui-coverage.sh	scripts	other	script	8745	工程自动化、测试守卫、代码地图与开发脚本	scripts,ui,coverage,工程自动化,测试守卫,代码地图与开发脚本
 scripts/update_apiserver_guard_snapshots.js	scripts	other	js-source	1920	工程自动化、测试守卫、代码地图与开发脚本	scripts,update,apiserver,guard,snapshots,工程自动化,测试守卫,代码地图与开发脚本
-scripts/update_recovery_release_gate_guard_test.go	scripts	other	go-test	18425	工程自动化、测试守卫、代码地图与开发脚本	scripts,update,recovery,release,gate,guard,test,工程自动化,测试守卫,代码地图与开发脚本
+scripts/update_recovery_release_gate_guard_test.go	scripts	other	go-test	18456	工程自动化、测试守卫、代码地图与开发脚本	scripts,update,recovery,release,gate,guard,test,工程自动化,测试守卫,代码地图与开发脚本
 scripts/update_recovery_release_gate.sh	scripts	other	script	252	工程自动化、测试守卫、代码地图与开发脚本	scripts,update,recovery,release,gate,工程自动化,测试守卫,代码地图与开发脚本
 scripts/validate_risk_evidence.py	scripts	other	py	7460	工程自动化、测试守卫、代码地图与开发脚本	scripts,validate,risk,evidence,工程自动化,测试守卫,代码地图与开发脚本
 scripts/validate_super_agent_skills_contract_test.go	scripts	other	go-test	3092	工程自动化、测试守卫、代码地图与开发脚本	scripts,validate,super,agent,skills,contract,test,工程自动化,测试守卫,代码地图与开发脚本

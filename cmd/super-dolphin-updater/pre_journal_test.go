@@ -15,6 +15,8 @@ import (
 	recovery "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/appupdaterecovery"
 )
 
+const recoveryTestGeneration = "00112233445566778899aabbccddeeff"
+
 func TestStagedSignatureFailureWritesPreJournalSidecar(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("fixture requires macOS bundle permissions")
@@ -29,10 +31,11 @@ func TestStagedSignatureFailureWritesPreJournalSidecar(t *testing.T) {
 		return commandResult{}, nil
 	}
 	stageDir, dmgPath := testUpdaterStage(t)
+	beginUpdaterAttempt(t, stageDir)
 	mountPoint := t.TempDir()
 	createAppBundle(t, filepath.Join(mountPoint, "Super Dolphin.app"))
 	target := filepath.Join(t.TempDir(), "Super Dolphin.app")
-	err := installFromMount(installRequest{DMGPath: dmgPath, TargetAppPath: target, AllowUnsigned: true}, mountPoint)
+	err := installFromMount(installRequest{DMGPath: dmgPath, TargetAppPath: target, AllowUnsigned: true, Generation: recoveryTestGeneration}, mountPoint)
 	if !errors.Is(err, recovery.ErrUpdateSignatureInvalid) {
 		t.Fatalf("installFromMount() error = %v, want signature failure", err)
 	}
@@ -60,10 +63,11 @@ func TestCopiedSignatureFailureRewritesPreJournalSidecar(t *testing.T) {
 		return commandResult{}, nil
 	}
 	stageDir, dmgPath := testUpdaterStage(t)
+	beginUpdaterAttempt(t, stageDir)
 	mountPoint := t.TempDir()
 	createAppBundle(t, filepath.Join(mountPoint, "Super Dolphin.app"))
 	target := createAppBundle(t, filepath.Join(t.TempDir(), "Super Dolphin.app"))
-	err := installFromMount(installRequest{DMGPath: dmgPath, TargetAppPath: target, AllowUnsigned: true, Restart: true}, mountPoint)
+	err := installFromMount(installRequest{DMGPath: dmgPath, TargetAppPath: target, AllowUnsigned: true, Restart: true, Generation: recoveryTestGeneration}, mountPoint)
 	if !errors.Is(err, recovery.ErrUpdateSignatureInvalid) {
 		t.Fatalf("installFromMount() error = %v, want copied signature failure", err)
 	}
@@ -75,6 +79,7 @@ func TestPreJournalClearFailureBlocksTransactionCreate(t *testing.T) {
 		t.Skip("fixture requires macOS bundle permissions")
 	}
 	stageDir, dmgPath := testUpdaterStage(t)
+	beginUpdaterAttempt(t, stageDir)
 	oldRunCommand := runCommand
 	t.Cleanup(func() { runCommand = oldRunCommand })
 	runCommand = func(_ context.Context, _ time.Duration, name string, args ...string) (commandResult, error) {
@@ -94,8 +99,8 @@ func TestPreJournalClearFailureBlocksTransactionCreate(t *testing.T) {
 	createAppBundle(t, filepath.Join(mountPoint, "Super Dolphin.app"))
 	parent := realUpdaterTempDir(t)
 	target := createAppBundle(t, filepath.Join(parent, "Super Dolphin.app"))
-	err := installFromMount(installRequest{DMGPath: dmgPath, TargetAppPath: target, AllowUnsigned: true, Restart: true}, mountPoint)
-	if err == nil || !strings.Contains(err.Error(), "stage dir is not a regular directory") {
+	err := installFromMount(installRequest{DMGPath: dmgPath, TargetAppPath: target, AllowUnsigned: true, Restart: true, Generation: recoveryTestGeneration}, mountPoint)
+	if err == nil || !strings.Contains(err.Error(), "clear app update pre-journal failure") {
 		t.Fatalf("installFromMount() error = %v, want sidecar clear failure", err)
 	}
 	entries, readErr := os.ReadDir(filepath.Join(parent, updateTransactionDirName))
@@ -110,28 +115,79 @@ func TestTransactionCreateSuccessConfirmsPreJournalSidecarAbsent(t *testing.T) {
 	}
 	stubSuccessfulDitto(t)
 	stageDir, _ := testUpdaterStage(t)
+	beginUpdaterAttempt(t, stageDir)
 	mountPoint := realUpdaterTempDir(t)
 	staged := createAppBundle(t, filepath.Join(mountPoint, "Super Dolphin.app"))
 	target := createAppBundle(t, filepath.Join(realUpdaterTempDir(t), "Super Dolphin.app"))
-	if _, _, err := defaultUpdaterApp().replaceTargetAppTransactionContextWithStageDir(context.Background(), staged, target, "", true, true, stageDir); err != nil {
+	if _, _, err := defaultUpdaterApp().replaceTargetAppTransactionContextWithStageDir(context.Background(), staged, target, "", true, true, stageDir, recoveryTestGeneration); err != nil {
 		t.Fatalf("replaceTargetAppTransactionContextWithStageDir() error = %v", err)
 	}
-	if _, exists, err := appupdatefailure.Read(stageDir); err != nil || exists {
-		t.Fatalf("Read() after Store.Create = (_, %v, %v), want absent", exists, err)
+	if _, exists, err := appupdatefailure.ReadFailure(stageDir); err != nil || exists {
+		t.Fatalf("ReadFailure() after Store.Create = (_, %v, %v), want absent", exists, err)
+	}
+}
+
+func TestPostCreateSidecarCorruptionCannotOverrideJournalFailure(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fixture requires macOS bundle permissions")
+	}
+	stubSuccessfulDitto(t)
+	stageDir, dmgPath := testUpdaterStage(t)
+	beginUpdaterAttempt(t, stageDir)
+	mountPoint := realUpdaterTempDir(t)
+	createAppBundle(t, filepath.Join(mountPoint, "Super Dolphin.app"))
+	target := createAppBundle(t, filepath.Join(realUpdaterTempDir(t), "Super Dolphin.app"))
+	wantErr := errors.New("post-create candidate start failed")
+	app := defaultUpdaterApp()
+	app.startProbationCandidate = func(context.Context, recovery.Transaction) (*candidateHandle, error) {
+		if err := os.Chmod(filepath.Join(stageDir, appupdatefailure.LockFilename), 0o644); err != nil {
+			return nil, err
+		}
+		return nil, wantErr
+	}
+	err := app.installFromMount(context.Background(), installRequest{DMGPath: dmgPath, TargetAppPath: target, AllowUnsigned: true, Restart: true, Generation: recoveryTestGeneration}, mountPoint)
+	if !errors.Is(err, wantErr) || strings.Contains(err.Error(), "pre-journal") || strings.Contains(err.Error(), "sidecar") {
+		t.Fatalf("installFromMount() error = %v, want journal-owned post-create failure", err)
+	}
+}
+
+func TestStoreCreateTailHasNoPreJournalAccess(t *testing.T) {
+	raw, err := os.ReadFile("install.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := string(raw)
+	start := strings.Index(source, "created, err := store.Create")
+	if start < 0 {
+		t.Fatal("transaction create start boundary not found")
+	}
+	tail := source[start:]
+	for _, forbidden := range []string{"appupdatefailure.", "PreJournal", "preJournal", "sidecar"} {
+		if strings.Contains(tail, forbidden) {
+			t.Fatalf("Store.Create tail contains forbidden pre-journal access %q", forbidden)
+		}
 	}
 }
 
 func assertUpdaterSidecar(t *testing.T, stageDir string, code string) {
 	t.Helper()
-	failure, exists, err := appupdatefailure.Read(stageDir)
+	failure, exists, err := appupdatefailure.ReadFailure(stageDir)
 	if err != nil || !exists || failure.Code != code || failure.TransactionID != "" {
 		t.Fatalf("Read() = (%#v, %v, %v), want code %s", failure, exists, err, code)
 	}
 }
 
+func beginUpdaterAttempt(t *testing.T, stageDir string) {
+	t.Helper()
+	if err := appupdatefailure.Begin(stageDir, recoveryTestGeneration); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func testUpdaterDMG(t *testing.T) string {
 	t.Helper()
-	_, dmgPath := testUpdaterStage(t)
+	stageDir, dmgPath := testUpdaterStage(t)
+	beginUpdaterAttempt(t, stageDir)
 	return dmgPath
 }
 
@@ -139,6 +195,9 @@ func testUpdaterStage(t *testing.T) (string, string) {
 	t.Helper()
 	stageDir, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(stageDir, 0o700); err != nil {
 		t.Fatal(err)
 	}
 	dmgPath := filepath.Join(stageDir, "update.dmg")
@@ -152,6 +211,9 @@ func realUpdaterTempDir(t *testing.T) string {
 	t.Helper()
 	path, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(path, 0o700); err != nil {
 		t.Fatal(err)
 	}
 	return path

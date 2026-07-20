@@ -78,6 +78,20 @@ func TestValidateInstallRequestRejectsMissingTargetParent(t *testing.T) {
 	}
 }
 
+func TestValidateInstallRequestRejectsMissingOrInvalidGeneration(t *testing.T) {
+	parent := realUpdaterTempDir(t)
+	dmg := filepath.Join(parent, "Super Dolphin.dmg")
+	if err := os.WriteFile(dmg, []byte("fixture"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, generation := range []string{"", "../../old-attempt"} {
+		err := validateInstallRequest(installRequest{DMGPath: dmg, TargetAppPath: filepath.Join(parent, "Super Dolphin.app"), Generation: generation})
+		if err == nil || !strings.Contains(err.Error(), "generation") {
+			t.Fatalf("validateInstallRequest(generation=%q) error = %v", generation, err)
+		}
+	}
+}
+
 func TestValidateMountedAppAcceptsExpectedBundleShape(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("Windows filesystems do not preserve macOS launcher execute bits in this fixture")
@@ -209,6 +223,7 @@ func TestParseInstallRequestAcceptsLogPathAndWaitPID(t *testing.T) {
 		"-allow-unsigned",
 		"-wait-pid", "123",
 		"-log", "/tmp/updater.log",
+		"-pre-journal-generation", recoveryTestGeneration,
 	})
 	if err != nil {
 		t.Fatalf("parseInstallRequest() error = %v", err)
@@ -218,6 +233,9 @@ func TestParseInstallRequestAcceptsLogPathAndWaitPID(t *testing.T) {
 	}
 	if req.LogPath != "/tmp/updater.log" {
 		t.Fatalf("LogPath = %q, want /tmp/updater.log", req.LogPath)
+	}
+	if req.Generation != recoveryTestGeneration {
+		t.Fatalf("Generation = %q, want %q", req.Generation, recoveryTestGeneration)
 	}
 	if !req.Restart || !req.AllowUnsigned {
 		t.Fatalf("restart/allow unsigned not parsed: %#v", req)
@@ -320,6 +338,7 @@ func TestInstallFromMountWaitsForAppExitBeforeReplacing(t *testing.T) {
 		TargetAppPath: target,
 		WaitPID:       12345,
 		AllowUnsigned: true,
+		Generation:    recoveryTestGeneration,
 	}, mountPoint)
 	if err != nil {
 		t.Fatalf("installFromMount() error = %v", err)
@@ -338,7 +357,7 @@ func TestFirstInstallUsesAtomicPathWithoutRollbackTransaction(t *testing.T) {
 	createAppBundle(t, filepath.Join(mountPoint, "Super Dolphin.app"))
 	parent := t.TempDir()
 	target := filepath.Join(parent, "Super Dolphin.app")
-	if err := installFromMount(installRequest{DMGPath: testUpdaterDMG(t), TargetAppPath: target, AllowUnsigned: true}, mountPoint); err != nil {
+	if err := installFromMount(installRequest{DMGPath: testUpdaterDMG(t), TargetAppPath: target, AllowUnsigned: true, Generation: recoveryTestGeneration}, mountPoint); err != nil {
 		t.Fatalf("installFromMount() error = %v", err)
 	}
 	if err := validateMountedApp(target); err != nil {
@@ -482,6 +501,7 @@ func TestInstallKeepsTargetWhenDittoTimesOutBeforeTransaction(t *testing.T) {
 		TargetAppPath: target,
 		AllowUnsigned: true,
 		Restart:       true,
+		Generation:    recoveryTestGeneration,
 	}, mountPoint)
 	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("installFromMount() error = %v, want ditto timeout", err)

@@ -11,22 +11,14 @@ import (
 )
 
 // clearPreparedPreJournalFailure 在 Store.Create 前清理 sidecar，失败时同时清理 candidate。
-func clearPreparedPreJournalFailure(stageDir string, stagingPath string) error {
+func clearPreparedPreJournalFailure(stageDir string, generation string, stagingPath string) error {
 	if stageDir == "" {
 		return nil
 	}
-	if err := clearPreJournalFailure(stageDir); err != nil {
+	if err := clearPreJournalFailure(stageDir, generation); err != nil {
 		return removePreparedCandidate(stagingPath, err)
 	}
 	return nil
-}
-
-// confirmPreJournalFailureAbsent 在 Store.Create 成功后幂等确认 sidecar 缺席。
-func confirmPreJournalFailureAbsent(stageDir string) error {
-	if stageDir == "" {
-		return nil
-	}
-	return clearPreJournalFailure(stageDir)
 }
 
 // updaterSidecarStageDir 从已验证 DMG 的父目录派生唯一 package-owned StageDir。
@@ -39,15 +31,18 @@ func updaterSidecarStageDir(req installRequest) (string, error) {
 }
 
 // clearPreJournalFailure 在签名成功后和 journal 创建边界前确认 sidecar 缺席。
-func clearPreJournalFailure(stageDir string) error {
-	if err := appupdatefailure.Clear(stageDir); err != nil {
+func clearPreJournalFailure(stageDir string, generation string) error {
+	if stageDir == "" {
+		return nil
+	}
+	if err := appupdatefailure.Clear(stageDir, generation); err != nil {
 		return fmt.Errorf("clear app update pre-journal failure: %w", err)
 	}
 	return nil
 }
 
 // recordPreJournalFailure 仅为明确的签名/完整性失败写入最小 sidecar。
-func recordPreJournalFailure(stageDir string, cause error) error {
+func recordPreJournalFailure(stageDir string, generation string, cause error) error {
 	code := ""
 	switch {
 	case errors.Is(cause, recovery.ErrUpdateSignatureInvalid):
@@ -57,7 +52,7 @@ func recordPreJournalFailure(stageDir string, cause error) error {
 	default:
 		return cause
 	}
-	if err := appupdatefailure.WriteCode(stageDir, code); err != nil {
+	if err := appupdatefailure.FailCode(stageDir, generation, code); err != nil {
 		return errors.Join(cause, fmt.Errorf("write app update pre-journal failure: %w", err))
 	}
 	return cause

@@ -57,6 +57,11 @@ func TestWindowsCrossPlatformSmokeRequiresAllFrontendEntries(t *testing.T) {
 	assertScriptContains(t, script, "Assert-RequiredFrontendEntries -Directory $source -Label 'frontend dist'")
 	assertScriptContains(t, script, "Assert-RequiredFrontendEntries -Directory $destination -Label 'embedded frontend dist'")
 	assertScriptContains(t, script, "missing required entry $($entry)")
+	assertScriptContains(t, script, "Invoke-GoBuild -Output $updater -Package './cmd/super-dolphin-updater'")
+	assertScriptContains(t, script, "./cmd/super-dolphin-updater ./internal/module/appupdate ./internal/platform/appupdatefailure -run $updateSidecarPattern -count=1")
+	for _, family := range []string{"ServiceNeverCallsDarwinSidecarOutsideDarwin", "SidecarIsExplicitlyUnsupportedOutsideDarwin", "ParseInstallRequestAcceptsLogPathAndWaitPID", "ValidateInstallRequestRejectsMissingOrInvalidGeneration"} {
+		assertScriptContains(t, script, family)
+	}
 }
 
 func TestPackageWindowsWhatIfRunsCrossPlatformValidation(t *testing.T) {

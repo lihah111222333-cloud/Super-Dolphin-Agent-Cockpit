@@ -268,10 +268,16 @@ internal/mcpserver/common/tool_error_envelope.go	internal	platform-provider	go-s
 internal/mcpserver/common/tool_payload_log_test.go	internal	platform-provider	go-test	10370	MCP server 公共框架、bootstrap 与 transport	internal,mcpserver,common,tool,payload,log,test,MCP,server,公共框架,bootstrap,与,transport
 internal/mcpserver/common/tool_payload_log.go	internal	platform-provider	go-source	12673	MCP server 公共框架、bootstrap 与 transport	internal,mcpserver,common,tool,payload,log,MCP,server,公共框架,bootstrap,与,transport
 internal/mcpserver/common/tool_result.go	internal	platform-provider	go-source	3299	MCP server 公共框架、bootstrap 与 transport	internal,mcpserver,common,tool,result,MCP,server,公共框架,bootstrap,与,transport
-internal/platform/appupdatefailure/sidecar_test.go	internal	platform-provider	go-test	5194	基础设施层	internal,platform,appupdatefailure,sidecar,test,基础设施层
-internal/platform/appupdatefailure/sidecar.go	internal	platform-provider	go-source	8230	基础设施层	internal,platform,appupdatefailure,sidecar,基础设施层
-internal/platform/appupdatefailure/sync_default.go	internal	platform-provider	go-source	468	基础设施层	internal,platform,appupdatefailure,sync,default,基础设施层
-internal/platform/appupdatefailure/sync_windows.go	internal	platform-provider	go-source	811	基础设施层	internal,platform,appupdatefailure,sync,windows,基础设施层
+internal/platform/appupdatefailure/io_darwin.go	internal	platform-provider	go-source	7651	基础设施层	internal,platform,appupdatefailure,io,darwin,基础设施层
+internal/platform/appupdatefailure/json_darwin.go	internal	platform-provider	go-source	3828	基础设施层	internal,platform,appupdatefailure,json,darwin,基础设施层
+internal/platform/appupdatefailure/json_test.go	internal	platform-provider	go-test	2812	基础设施层	internal,platform,appupdatefailure,json,test,基础设施层
+internal/platform/appupdatefailure/security_test.go	internal	platform-provider	go-test	4251	基础设施层	internal,platform,appupdatefailure,security,test,基础设施层
+internal/platform/appupdatefailure/sidecar_darwin.go	internal	platform-provider	go-source	2521	基础设施层	internal,platform,appupdatefailure,sidecar,darwin,基础设施层
+internal/platform/appupdatefailure/sidecar_stub_test.go	internal	platform-provider	go-test	547	基础设施层	internal,platform,appupdatefailure,sidecar,stub,test,基础设施层
+internal/platform/appupdatefailure/sidecar_stub.go	internal	platform-provider	go-source	801	基础设施层	internal,platform,appupdatefailure,sidecar,stub,基础设施层
+internal/platform/appupdatefailure/sidecar.go	internal	platform-provider	go-source	3125	基础设施层	internal,platform,appupdatefailure,sidecar,基础设施层
+internal/platform/appupdatefailure/state_darwin.go	internal	platform-provider	go-source	1477	基础设施层	internal,platform,appupdatefailure,state,darwin,基础设施层
+internal/platform/appupdatefailure/state_test.go	internal	platform-provider	go-test	4635	基础设施层	internal,platform,appupdatefailure,state,test,基础设施层
 internal/platform/appupdaterecovery/artifact_e2e_test.go	internal	platform-provider	go-test	28176	基础设施层	internal,platform,appupdaterecovery,artifact,e2e,test,基础设施层
 internal/platform/appupdaterecovery/artifact_program_source_test.go	internal	platform-provider	go-test	2904	基础设施层	internal,platform,appupdaterecovery,artifact,program,source,test,基础设施层
 internal/platform/appupdaterecovery/artifact_rollback_cleanup_e2e_test.go	internal	platform-provider	go-test	12440	基础设施层	internal,platform,appupdaterecovery,artifact,rollback,cleanup,e2e,test,基础设施层

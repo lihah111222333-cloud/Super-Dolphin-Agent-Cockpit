@@ -165,7 +165,7 @@ jobs:
       - name: Windows-native update process and package verification
         shell: bash
         run: |
-          ./scripts/test_with_guard.sh ./cmd/super-dolphin-updater -run 'Test(Guard|ConfigureGuard)' -count=1
+          ./scripts/test_with_guard.sh ./cmd/super-dolphin-updater ./internal/module/appupdate ./internal/platform/appupdatefailure -count=1
           ./scripts/test_with_guard.sh ./cmd/super-dolphin-guard -run 'TestGuard.*(Rollback|Probation|PIDReuse|Termination)' -count=1
           ./scripts/test_with_guard.sh ./scripts -run '^TestWindowsPackageVerifierAcceptsRealFixture$' -count=1
 

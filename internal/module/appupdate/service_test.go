@@ -348,6 +348,7 @@ func TestInstallPassesAllowUnsignedToHelper(t *testing.T) {
 		TargetAppPath: "/Applications/Super Dolphin.app",
 		AllowUnsigned: true,
 	}, nil, func() {})
+	seedPreJournalFailure(t, stageDir, "UPDATE_SIGNATURE_INVALID")
 	writeSelectedInstallFixture(t, svc)
 
 	result, err := svc.Install(context.Background())
@@ -368,6 +369,7 @@ func TestInstallPassesAllowUnsignedToHelper(t *testing.T) {
 	if !strings.Contains(string(args), "-wait-pid "+strconv.Itoa(os.Getpid())) {
 		t.Fatalf("helper args = %q, want current process wait pid", string(args))
 	}
+	assertPreJournalFailureHidden(t, stageDir, "Install")
 }
 
 func TestInstallCommandUsesDetachedLauncherForMacHelper(t *testing.T) {
@@ -386,7 +388,7 @@ func TestInstallCommandUsesDetachedLauncherForMacHelper(t *testing.T) {
 		DMGPath:      dmgPath,
 	}
 
-	cmd, gotHelper, err := svc.installCommand(staged)
+	cmd, gotHelper, err := svc.installCommand(staged, recoveryTestGeneration)
 	if err != nil {
 		t.Fatalf("installCommand() error = %v", err)
 	}
@@ -397,7 +399,7 @@ func TestInstallCommandUsesDetachedLauncherForMacHelper(t *testing.T) {
 		t.Fatalf("command path = %q, want shell launcher", cmd.Path)
 	}
 	joinedArgs := strings.Join(cmd.Args, " ")
-	for _, want := range []string{"nohup", helper, "-wait-pid " + strconv.Itoa(os.Getpid()), "-log", "super-dolphin-updater.log"} {
+	for _, want := range []string{"nohup", helper, "-wait-pid " + strconv.Itoa(os.Getpid()), "-log", "super-dolphin-updater.log", "-pre-journal-generation " + recoveryTestGeneration} {
 		if !strings.Contains(joinedArgs, want) {
 			t.Fatalf("command args = %q, want %q", joinedArgs, want)
 		}

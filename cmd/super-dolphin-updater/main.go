@@ -109,6 +109,7 @@ func parseInstallRequest(args []string) (installRequest, error) {
 	flags.BoolVar(&req.AllowUnsigned, "allow-unsigned", false, "allow ad-hoc signed gray test updates without Developer ID")
 	flags.IntVar(&req.WaitPID, "wait-pid", 0, "wait for the current app process to exit before replacement")
 	flags.StringVar(&req.LogPath, "log", "", "path to write detached updater logs")
+	flags.StringVar(&req.Generation, "pre-journal-generation", "", "matching pre-journal sidecar generation")
 	if err := flags.Parse(args); err != nil {
 		return installRequest{}, err
 	}
