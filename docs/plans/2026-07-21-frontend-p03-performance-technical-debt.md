@@ -20,7 +20,8 @@
 - 原始显示分：`97.5`
 - 控制结果：24 个 PASS，唯一失败为 `P03-feedback-budget`
 - 原始最终门禁：`FAIL`，原因是性能维度 `75.0 < 80` 且 P03 未 PASS
-- 报告路径：`.tmp/frontend-maintainability-score/03bd70beaf1763e876119fdc4b43dd41a9ad3b10.json`
+- 原始报告：`docs/plans/evidence/frontend-maintainability-95/03bd70beaf1763e876119fdc4b43dd41a9ad3b10.json`
+- 原始报告 SHA-256：`bfbe80767798ca1935298764fecfd6281da68f86d215f650df792a929c93067e`
 - P03 冻结 median：`0.20801855555570606 ms`
 - P03 最大回归比：`1.15`
 - P03 通过阈值：`0.23922133888906194 ms`
@@ -42,6 +43,8 @@
 - 两个变更文件 LSP diagnostics 无项；
 - 定向测试 4/4 文件、67/67 测试通过；
 - 工作树 `git diff --check` 通过。
+
+版本化验证回执：`docs/plans/evidence/frontend-maintainability-95/p03-isolated-candidate-receipt.md`。
 
 由于没有取得可比 P03 PASS，候选不得合并到本轮集成分支。
 
