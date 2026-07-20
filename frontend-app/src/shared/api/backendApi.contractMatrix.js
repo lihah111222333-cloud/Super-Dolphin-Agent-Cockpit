@@ -1,6 +1,9 @@
 // @ts-check
 
 import { RPC_METHODS } from './backend/backendRpcMethods.js';
+import { createContentContracts } from './backendApi.contractRegistryContent.js';
+import { createOperationsContracts } from './backendApi.contractRegistryOperations.js';
+import { createSystemContracts } from './backendApi.contractRegistrySystem.js';
 
 export const RPC_CONTRACT_LEVELS = Object.freeze({
   P0: 'P0',
@@ -87,10 +90,6 @@ function contract(...contractParts) {
     notes: Object.freeze(notes),
   });
 }
-
-import { createSystemContracts } from './backendApi.contractRegistrySystem.js';
-import { createContentContracts } from './backendApi.contractRegistryContent.js';
-import { createOperationsContracts } from './backendApi.contractRegistryOperations.js';
 
 export const RPC_CONTRACT_REGISTRY = Object.freeze({
   ...createSystemContracts({ contract, tests: TESTS, methods: RPC_METHODS }),
