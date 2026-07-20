@@ -4,7 +4,6 @@ import (
 	"encoding/base64"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 
@@ -12,11 +11,13 @@ import (
 	platformconfig "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/config"
 )
 
+const productionPackageTestPlatform = "darwin-arm64"
+
 func TestProvideConfigUsesPackageOwnedProductionTrust(t *testing.T) {
-	cfg, executable, resources, target, home := productionPackageConfigFixture(t)
+	_, executable, resources, target, home := productionPackageConfigFixture(t)
 	clearUpdateOverrideEnvironment(t)
 	t.Setenv(envSuperDolphinHome, home)
-	got, handled, err := providePackageOwnedConfigForExecutable(cfg, executable)
+	got, handled, err := providePackageOwnedConfigForExecutableOnPlatform(executable, productionPackageTestPlatform)
 	if err != nil {
 		t.Fatalf("ProvideConfig() error = %v", err)
 	}
@@ -32,21 +33,21 @@ func TestProvideConfigUsesPackageOwnedProductionTrust(t *testing.T) {
 }
 
 func TestProvideConfigRejectsProductionUpdateOverride(t *testing.T) {
-	cfg, executable, _, _, home := productionPackageConfigFixture(t)
+	_, executable, _, _, home := productionPackageConfigFixture(t)
 	clearUpdateOverrideEnvironment(t)
 	t.Setenv(envSuperDolphinHome, home)
 	t.Setenv(envUpdateGitHubRepo, "attacker/repo")
-	if _, _, err := providePackageOwnedConfigForExecutable(cfg, executable); err == nil || !strings.Contains(err.Error(), envUpdateGitHubRepo) {
+	if _, _, err := providePackageOwnedConfigForExecutableOnPlatform(executable, productionPackageTestPlatform); err == nil || !strings.Contains(err.Error(), envUpdateGitHubRepo) {
 		t.Fatalf("ProvideConfig() error = %v, want package override rejection", err)
 	}
 }
 
 func TestProvideConfigAllowsExactRuntimeResources(t *testing.T) {
-	cfg, executable, resources, target, home := productionPackageConfigFixture(t)
+	_, executable, resources, target, home := productionPackageConfigFixture(t)
 	clearUpdateOverrideEnvironment(t)
 	t.Setenv(envSuperDolphinHome, home)
 	t.Setenv(envRuntimeResources, resources)
-	got, handled, err := providePackageOwnedConfigForExecutable(cfg, executable)
+	got, handled, err := providePackageOwnedConfigForExecutableOnPlatform(executable, productionPackageTestPlatform)
 	if err != nil {
 		t.Fatalf("providePackageOwnedConfigForExecutable() error = %v", err)
 	}
@@ -56,11 +57,11 @@ func TestProvideConfigAllowsExactRuntimeResources(t *testing.T) {
 }
 
 func TestProvideConfigRejectsForgedRuntimeResources(t *testing.T) {
-	cfg, executable, _, _, home := productionPackageConfigFixture(t)
+	_, executable, _, _, home := productionPackageConfigFixture(t)
 	clearUpdateOverrideEnvironment(t)
 	t.Setenv(envSuperDolphinHome, home)
 	t.Setenv(envRuntimeResources, filepath.Join(t.TempDir(), "forged", "Resources"))
-	if _, _, err := providePackageOwnedConfigForExecutable(cfg, executable); err == nil || !strings.Contains(err.Error(), envRuntimeResources) {
+	if _, _, err := providePackageOwnedConfigForExecutableOnPlatform(executable, productionPackageTestPlatform); err == nil || !strings.Contains(err.Error(), envRuntimeResources) {
 		t.Fatalf("providePackageOwnedConfigForExecutable() error = %v, want forged resources rejection", err)
 	}
 }
@@ -98,7 +99,7 @@ func productionPackageConfigFixture(t *testing.T) (*platformconfig.Config, strin
 	}
 	publicKey, _ := testManifestKeypair(t)
 	trust := recovery.PackageTrust{
-		SchemaVersion: recovery.PackageTrustSchemaVersion, Enabled: true, Production: true, Platform: runtime.GOOS + "-" + runtime.GOARCH,
+		SchemaVersion: recovery.PackageTrustSchemaVersion, Enabled: true, Production: true, Platform: productionPackageTestPlatform,
 		Source:            recovery.UpdateSource{Kind: recovery.UpdateSourceGitHub, Value: testValidGitHubRepo},
 		ManifestPublicKey: base64.StdEncoding.EncodeToString(publicKey), Channel: "gray",
 		SignerPolicy: recovery.PackageSignerPolicyExact, SignerIdentity: "TEAM-A",
