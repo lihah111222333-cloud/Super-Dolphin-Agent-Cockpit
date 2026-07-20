@@ -483,7 +483,6 @@ func TestCompleteRecoveryRestoreProjectionFailureStillQuits(t *testing.T) {
 }
 
 func TestRecoverySurfaceFieldGuard(t *testing.T) {
-	frontend := readRecoveryClientSource(t)
 	projection := app.RecoveryProjection{
 		TransactionID: "transaction-1", AttemptID: "attempt-1", State: recovery.StateProbation,
 		LeasePresent: true, LeaseOwner: "owner-1", LeaseGeneration: 2,
@@ -509,7 +508,7 @@ func TestRecoverySurfaceFieldGuard(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		terminalFields, err := parseRecoveryFields(frontend, guard.terminal)
+		terminalFields, err := parseRecoveryFields(readRecoveryFieldSource(t, guard.terminal), guard.terminal)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -530,21 +529,7 @@ func TestRecoveryFieldGuardsRejectProducerMutations(t *testing.T) {
 		{"recovery_failure_to_wails_frontend", "RECOVERY_FAILURE_FIELDS", "app.RecoveryFailure", reflect.TypeFor[app.RecoveryFailure]()},
 	}
 	for _, test := range tests {
-		fields := make([]reflect.StructField, test.typeOf.NumField(), test.typeOf.NumField()+1)
-		for index := 0; index < test.typeOf.NumField(); index++ {
-			fields[index] = test.typeOf.Field(index)
-		}
-		fields = append(fields, reflect.StructField{Name: "FutureField", Type: reflect.TypeFor[string](), Tag: `json:"future_field"`})
-		mutated := reflect.StructOf(fields)
-		producerFields, err := jsonProducerFields(mutated)
-		if err != nil {
-			t.Fatal(err)
-		}
-		mapperFields, err := jsonMapperFields(reflect.New(mutated).Elem().Interface())
-		if err != nil {
-			t.Fatal(err)
-		}
-		terminalFields, err := parseRecoveryFields(readRecoveryClientSource(t), test.terminal)
+		producerFields, mapperFields, terminalFields, err := mutatedRecoveryFieldChain(t, test.terminal, test.typeOf)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -630,6 +615,53 @@ func readRecoveryClientSource(t *testing.T) string {
 		t.Fatalf("read production Recovery client %s: %v", path, err)
 	}
 	return string(source)
+}
+
+func readRecoveryFieldSource(t *testing.T, constant string) string {
+	t.Helper()
+	if constant != "RECOVERY_FAILURE_FIELDS" {
+		return readRecoveryClientSource(t)
+	}
+	path := filepath.Join("..", "..", "frontend-app", "src", "shared", "recovery", "recoveryFailure.js")
+	source, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read canonical Recovery failure source %s: %v", path, err)
+	}
+	return string(source)
+}
+
+func mutatedRecoveryFieldChain(t *testing.T, terminal string, producer reflect.Type) ([]string, []string, []string, error) {
+	t.Helper()
+	if terminal == "RECOVERY_FAILURE_FIELDS" {
+		producerFields, err := jsonProducerFields(producer)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		mapperFields, err := jsonMapperFields(reflect.New(producer).Elem().Interface())
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		declaration := "const " + terminal + " = Object.freeze(["
+		mutated := strings.Replace(readRecoveryFieldSource(t, terminal), declaration, declaration+"\n  'future_field',", 1)
+		terminalFields, err := parseRecoveryFields(mutated, terminal)
+		return producerFields, mapperFields, terminalFields, err
+	}
+	fields := make([]reflect.StructField, producer.NumField(), producer.NumField()+1)
+	for index := 0; index < producer.NumField(); index++ {
+		fields[index] = producer.Field(index)
+	}
+	fields = append(fields, reflect.StructField{Name: "FutureField", Type: reflect.TypeFor[string](), Tag: `json:"future_field"`})
+	mutated := reflect.StructOf(fields)
+	producerFields, err := jsonProducerFields(mutated)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	mapperFields, err := jsonMapperFields(reflect.New(mutated).Elem().Interface())
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	terminalFields, err := parseRecoveryFields(readRecoveryFieldSource(t, terminal), terminal)
+	return producerFields, mapperFields, terminalFields, err
 }
 
 func parseRecoveryMethodIDs(source string) (map[string]uint32, error) {
