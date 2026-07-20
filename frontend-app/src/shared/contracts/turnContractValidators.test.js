@@ -24,7 +24,7 @@ describe('turn contract validators', () => {
     expect(() => validateTurnRefV1({ threadId: 'thread-1', turnId: 'turn-1', legacy: true })).toThrow('legacy is unknown');
   });
 
-  it('rejects raw PublicError fields and unimplemented recovery actions', () => {
+  it('rejects raw PublicError fields and unsupported recovery actions', () => {
     expect(() => validatePublicErrorV1({ ...publicError, rawCause: 'provider stack' })).toThrow('rawCause is unknown');
     for (const action of ['retry', 'reconnect', 'restart_provider', 'reopen_thread', 'invented']) {
       expect(() => validatePublicErrorV1({ ...publicError, recoveryActions: [action] })).toThrow(`unsupported value ${action}`);
