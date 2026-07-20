@@ -1,7 +1,7 @@
 // @ts-check
 
-import { assertBackendResponseObject, assertOnlyResponseKeys, assertResponseRecord, hasOwn, normalizeString } from './backendResponseValidatorShared.js';
-import { validateSidebarStateResponse as validateRuntimeSidebarStateResponse, validateUIStateResponse as validateRuntimeUIStateResponse } from './backendResponseValidatorsRuntime.js';
+import { assertBackendResponseObject, assertOnlyResponseKeys, assertResponseRecord, hasOwn, normalizeString } from '../backendResponseValidatorShared.js';
+import { validateSidebarStateResponse as validateRuntimeSidebarStateResponse, validateUIStateResponse as validateRuntimeUIStateResponse } from '../backendResponseValidatorsRuntime.js';
 
 const DASHBOARD_DAG_DETAIL_RESPONSE_KEYS = new Set(['dag', 'nodes']);
 const DASHBOARD_DAG_SUMMARY_KEYS = new Set(['id', 'dag_key', 'version', 'title', 'description', 'status', 'created_by', 'metadata', 'trigger', 'cron_expr', 'next_run_at', 'schedule_enabled', 'started_at', 'finished_at', 'created_at', 'updated_at']);

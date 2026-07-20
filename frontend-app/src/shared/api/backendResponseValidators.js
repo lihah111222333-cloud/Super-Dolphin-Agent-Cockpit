@@ -68,7 +68,7 @@ import {
   validateWorkflowTemplateResponse,
   validateWorkflowTemplateSaveResponse,
   validateWorkflowTemplatesListResponse,
-} from './backendResponseValidatorsWorkflow.js';
+} from './validators/backendResponseValidatorsWorkflow.js';
 import {
   assertBackendResponseObject,
   assertOnlyResponseKeys,
