@@ -2,13 +2,17 @@ package main
 
 import (
 	"go/ast"
+	"go/build"
 	"go/parser"
 	"go/token"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
+
+	"gopkg.in/yaml.v3"
 )
 
 type updateRecoveryTestFamily struct {
@@ -22,20 +26,38 @@ type updateRecoveryPackageCoverage struct {
 }
 
 type windowsVerifierInvocationEvidence struct {
-	invokesExec   bool
-	namesVerifier bool
-	skips         bool
+	invokesVerifierCommand bool
+	definesVerifierPath    bool
+	skips                  bool
 }
 
 func (evidence *windowsVerifierInvocationEvidence) Visit(node ast.Node) ast.Visitor {
 	switch value := node.(type) {
 	case *ast.CallExpr:
-		evidence.invokesExec = evidence.invokesExec || updateRecoveryCallMatches(value, "exec", "Command")
+		if updateRecoveryCallMatches(value, "exec", "Command") {
+			evidence.invokesVerifierCommand = evidence.invokesVerifierCommand || updateRecoveryCommandUsesVerifier(value)
+		}
 		evidence.skips = evidence.skips || updateRecoveryCallPrefixMatches(value, "t", "Skip")
-	case *ast.BasicLit:
-		evidence.namesVerifier = evidence.namesVerifier || strings.Contains(value.Value, "verify_packaged_app_windows.ps1")
+	case *ast.AssignStmt:
+		evidence.definesVerifierPath = evidence.definesVerifierPath || updateRecoveryDefinesVerifierPath(value)
 	}
 	return evidence
+}
+
+type updateRecoveryWorkflow struct {
+	Jobs map[string]updateRecoveryWorkflowJob `yaml:"jobs"`
+}
+
+type updateRecoveryWorkflowJob struct {
+	Needs           yaml.Node                    `yaml:"needs"`
+	RunsOn          string                       `yaml:"runs-on"`
+	ContinueOnError bool                         `yaml:"continue-on-error"`
+	Steps           []updateRecoveryWorkflowStep `yaml:"steps"`
+}
+
+type updateRecoveryWorkflowStep struct {
+	Name string `yaml:"name"`
+	Run  string `yaml:"run"`
 }
 
 func updateRecoveryCallMatches(call *ast.CallExpr, receiver, method string) bool {
@@ -48,6 +70,34 @@ func updateRecoveryCallPrefixMatches(call *ast.CallExpr, receiver, methodPrefix 
 	selector, ok := call.Fun.(*ast.SelectorExpr)
 	ident, identOK := selectorXIdent(selector)
 	return ok && identOK && ident.Name == receiver && strings.HasPrefix(selector.Sel.Name, methodPrefix)
+}
+
+func updateRecoveryCommandUsesVerifier(call *ast.CallExpr) bool {
+	if len(call.Args) < 6 {
+		return false
+	}
+	executable, executableOK := call.Args[0].(*ast.Ident)
+	fileFlag, fileFlagOK := call.Args[4].(*ast.BasicLit)
+	verifier, verifierOK := call.Args[5].(*ast.Ident)
+	return executableOK && executable.Name == "powershell" && fileFlagOK && fileFlag.Value == `"-File"` && verifierOK && verifier.Name == "verifier"
+}
+
+func updateRecoveryDefinesVerifierPath(assignment *ast.AssignStmt) bool {
+	if len(assignment.Lhs) != 1 || len(assignment.Rhs) != 1 {
+		return false
+	}
+	ident, ok := assignment.Lhs[0].(*ast.Ident)
+	call, callOK := assignment.Rhs[0].(*ast.CallExpr)
+	if !ok || ident.Name != "verifier" || !callOK || !updateRecoveryCallMatches(call, "filepath", "Join") {
+		return false
+	}
+	for _, argument := range call.Args {
+		literal, literalOK := argument.(*ast.BasicLit)
+		if literalOK && literal.Value == `"verify_packaged_app_windows.ps1"` {
+			return true
+		}
+	}
+	return false
 }
 
 func TestUpdateRecoveryReleaseGateUsesGuardForEveryRequiredPackage(t *testing.T) {
@@ -116,6 +166,17 @@ func TestUpdateRecoveryReleaseGateRequiredTestFamiliesExistAndExecute(t *testing
 	}
 }
 
+func TestUpdateRecoveryPackageTestNamesRejectsIncompatibleBuildTagCoverage(t *testing.T) {
+	dir := t.TempDir()
+	updateRecoveryReleaseGateWriteFile(t, filepath.Join(dir, "package.go"), "package fixture\n", 0o644)
+	updateRecoveryReleaseGateWriteFile(t, filepath.Join(dir, "required_windows_test.go"), "//go:build windows\n\npackage fixture\n\nfunc TestRollbackRestartFakeCoverage(t *testing.T) {}\n", 0o644)
+
+	testNames := updateRecoveryPackageTestNames(t, dir)
+	if updateRecoveryTestFamilyExists(testNames, []string{"RollbackRestart"}) {
+		t.Fatalf("darwin release gate accepted Windows-only fake coverage: %v", testNames)
+	}
+}
+
 func TestUpdateRecoveryReleaseGateIsExposedByMake(t *testing.T) {
 	root := updateRecoveryReleaseGateRepoRoot(t)
 	makefile := updateRecoveryReleaseGateReadFile(t, filepath.Join(root, "Makefile"))
@@ -128,72 +189,75 @@ func TestUpdateRecoveryReleaseGateIsExposedByMake(t *testing.T) {
 
 func TestUpdateRecoveryReleaseGateCIRequiresNativeMacOSAndWindowsEvidence(t *testing.T) {
 	root := updateRecoveryReleaseGateRepoRoot(t)
-	workflow := updateRecoveryReleaseGateReadFile(t, filepath.Join(root, ".github", "workflows", "ci.yml"))
+	workflow := updateRecoveryParseWorkflow(t, filepath.Join(root, ".github", "workflows", "ci.yml"))
 
-	macOSJob := updateRecoveryWorkflowJob(t, workflow, "update-recovery-release-gate-macos")
-	for _, want := range []string{
-		"runs-on: macos-latest",
-		"run: make release-update-gate",
-	} {
-		if !strings.Contains(macOSJob, want) {
-			t.Fatalf("macOS update recovery job missing %q", want)
-		}
+	macOSJob := updateRecoveryRequireWorkflowJob(t, workflow, "update-recovery-release-gate-macos")
+	if macOSJob.RunsOn != "macos-latest" || !updateRecoveryJobRuns(macOSJob, "make release-update-gate") {
+		t.Fatal("macOS update recovery job must run the full release gate on macos-latest")
 	}
-	windowsJob := updateRecoveryWorkflowJob(t, workflow, "update-recovery-release-gate-windows")
+	windowsJob := updateRecoveryRequireWorkflowJob(t, workflow, "update-recovery-release-gate-windows")
 	for _, want := range []string{
-		"runs-on: windows-latest",
 		"./scripts/test_with_guard.sh ./cmd/super-dolphin-updater -run 'Test(Guard|ConfigureGuard)' -count=1",
 		"./scripts/test_with_guard.sh ./cmd/super-dolphin-guard -run 'TestGuard.*(Rollback|Probation|PIDReuse|Termination)' -count=1",
 		"./scripts/test_with_guard.sh ./scripts -run '^TestWindowsPackageVerifierAcceptsRealFixture$' -count=1",
 	} {
-		if !strings.Contains(windowsJob, want) {
+		if !updateRecoveryJobRuns(windowsJob, want) {
 			t.Fatalf("Windows update recovery job missing %q", want)
 		}
 	}
-	crossPlatform := updateRecoveryWorkflowJob(t, workflow, "cross-platform-smoke")
-	if !strings.Contains(crossPlatform, "needs: [commit-guard, update-recovery-release-gate-macos, update-recovery-release-gate-windows]") {
+	if windowsJob.RunsOn != "windows-latest" {
+		t.Fatal("Windows update recovery job must run on windows-latest")
+	}
+	crossPlatform := updateRecoveryRequireWorkflowJob(t, workflow, "cross-platform-smoke")
+	if !slices.Equal(updateRecoveryJobNeeds(t, crossPlatform), []string{"commit-guard", "update-recovery-release-gate-macos", "update-recovery-release-gate-windows"}) {
 		t.Fatal("cross-platform smoke must depend on native macOS and Windows recovery gates")
 	}
 }
 
 func TestUpdateRecoveryReleaseGateCIMarksLinuxAsSupplemental(t *testing.T) {
 	root := updateRecoveryReleaseGateRepoRoot(t)
-	workflow := updateRecoveryReleaseGateReadFile(t, filepath.Join(root, ".github", "workflows", "ci.yml"))
+	workflow := updateRecoveryParseWorkflow(t, filepath.Join(root, ".github", "workflows", "ci.yml"))
 
-	linuxJob := updateRecoveryWorkflowJob(t, workflow, "update-recovery-release-gate-linux-supplemental")
-	for _, want := range []string{
-		"runs-on: ubuntu-latest",
-		"continue-on-error: true",
-		"name: Supplemental Linux update recovery evidence",
-		"run: make release-update-gate",
-	} {
-		if !strings.Contains(linuxJob, want) {
-			t.Fatalf("CI supplemental Linux evidence missing %q", want)
-		}
+	linuxJob := updateRecoveryRequireWorkflowJob(t, workflow, "update-recovery-release-gate-linux-supplemental")
+	if linuxJob.RunsOn != "ubuntu-latest" || !linuxJob.ContinueOnError || !updateRecoveryJobRuns(linuxJob, "make release-update-gate") {
+		t.Fatal("CI Linux update recovery evidence must be supplemental and run the full gate")
+	}
+}
+
+func TestUpdateRecoveryWorkflowCommentsCannotFakeGateEvidence(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "workflow.yml")
+	updateRecoveryReleaseGateWriteFile(t, path, "jobs:\n  native-gate:\n    runs-on: windows-latest\n    # run: make release-update-gate\n    steps:\n      - run: |\n          # make release-update-gate\n          echo unrelated\n", 0o644)
+	workflow := updateRecoveryParseWorkflow(t, path)
+	job := updateRecoveryRequireWorkflowJob(t, workflow, "native-gate")
+	if updateRecoveryJobRuns(job, "make release-update-gate") {
+		t.Fatal("workflow comments must not count as executable release gate evidence")
 	}
 }
 
 func TestSQLitePackagingSmokeDependsOnNativeUpdateRecoveryGates(t *testing.T) {
 	root := updateRecoveryReleaseGateRepoRoot(t)
-	workflow := updateRecoveryReleaseGateReadFile(t, filepath.Join(root, ".github", "workflows", "sqlite-release-gates.yml"))
-	macOSJob := updateRecoveryWorkflowJob(t, workflow, "update-recovery-release-gate-macos")
-	if !strings.Contains(macOSJob, "runs-on: macos-latest") || !strings.Contains(macOSJob, "run: make release-update-gate") {
+	workflow := updateRecoveryParseWorkflow(t, filepath.Join(root, ".github", "workflows", "sqlite-release-gates.yml"))
+	macOSJob := updateRecoveryRequireWorkflowJob(t, workflow, "update-recovery-release-gate-macos")
+	if macOSJob.RunsOn != "macos-latest" || !updateRecoveryJobRuns(macOSJob, "make release-update-gate") {
 		t.Fatal("SQLite release workflow macOS job must run the full update recovery gate")
 	}
-	windowsJob := updateRecoveryWorkflowJob(t, workflow, "update-recovery-release-gate-windows")
-	for _, want := range []string{"runs-on: windows-latest", "TestGuard.*(Rollback|Probation|PIDReuse|Termination)", "TestWindowsPackageVerifierAcceptsRealFixture"} {
-		if !strings.Contains(windowsJob, want) {
+	windowsJob := updateRecoveryRequireWorkflowJob(t, workflow, "update-recovery-release-gate-windows")
+	for _, want := range []string{"TestGuard.*(Rollback|Probation|PIDReuse|Termination)", "TestWindowsPackageVerifierAcceptsRealFixture"} {
+		if !updateRecoveryJobRuns(windowsJob, want) {
 			t.Fatalf("SQLite release workflow Windows gate missing %q", want)
 		}
 	}
-	linuxJob := updateRecoveryWorkflowJob(t, workflow, "update-recovery-release-gate-linux-supplemental")
-	if !strings.Contains(linuxJob, "continue-on-error: true") || !strings.Contains(linuxJob, "run: make release-update-gate") {
+	if windowsJob.RunsOn != "windows-latest" {
+		t.Fatal("SQLite release workflow Windows gate must run on windows-latest")
+	}
+	linuxJob := updateRecoveryRequireWorkflowJob(t, workflow, "update-recovery-release-gate-linux-supplemental")
+	if !linuxJob.ContinueOnError || !updateRecoveryJobRuns(linuxJob, "make release-update-gate") {
 		t.Fatal("SQLite release workflow Linux evidence must remain supplemental")
 	}
-	packagingJob := updateRecoveryWorkflowJob(t, workflow, "sqlite-packaging-smoke")
-	wantNeeds := "needs: [update-recovery-release-gate-macos, update-recovery-release-gate-windows]"
-	if !strings.Contains(packagingJob, wantNeeds) {
-		t.Fatalf("SQLite packaging smoke missing native update recovery dependencies %q", wantNeeds)
+	packagingJob := updateRecoveryRequireWorkflowJob(t, workflow, "sqlite-packaging-smoke")
+	wantNeeds := []string{"update-recovery-release-gate-macos", "update-recovery-release-gate-windows"}
+	if !slices.Equal(updateRecoveryJobNeeds(t, packagingJob), wantNeeds) {
+		t.Fatalf("SQLite packaging smoke missing native update recovery dependencies %v", wantNeeds)
 	}
 }
 
@@ -211,7 +275,7 @@ func TestWindowsPackageVerifierFixtureInvokesRealPowerShellVerifier(t *testing.T
 	}
 	evidence := &windowsVerifierInvocationEvidence{}
 	ast.Walk(evidence, testFunc.Body)
-	if !evidence.invokesExec || !evidence.namesVerifier || evidence.skips {
+	if !evidence.invokesVerifierCommand || !evidence.definesVerifierPath || evidence.skips {
 		t.Fatalf("Windows fixture must invoke the real verifier without skip-success: %+v", evidence)
 	}
 	source := updateRecoveryReleaseGateReadFile(t, path)
@@ -260,15 +324,13 @@ func updateRecoveryRequiredCoverage() []updateRecoveryPackageCoverage {
 }
 
 func updateRecoveryGateCommandContainsPackage(script, packagePath string) bool {
-	for _, line := range strings.Split(script, "\n") {
+	for line := range strings.SplitSeq(script, "\n") {
 		fields := strings.Fields(line)
 		if len(fields) < 2 || fields[0] != "./scripts/test_with_guard.sh" {
 			continue
 		}
-		for _, field := range fields[1:] {
-			if field == packagePath {
-				return true
-			}
+		if slices.Contains(fields[1:], packagePath) {
+			return true
 		}
 	}
 	return false
@@ -276,20 +338,25 @@ func updateRecoveryGateCommandContainsPackage(script, packagePath string) bool {
 
 func updateRecoveryPackageTestNames(t *testing.T, dir string) []string {
 	t.Helper()
-	packages, err := parser.ParseDir(token.NewFileSet(), dir, func(info os.FileInfo) bool {
-		return strings.HasSuffix(info.Name(), "_test.go")
-	}, 0)
+	buildContext := build.Default
+	buildContext.GOOS = "darwin"
+	buildContext.GOARCH = "arm64"
+	buildContext.CgoEnabled = true
+	packageInfo, err := buildContext.ImportDir(dir, build.ImportComment)
 	if err != nil {
-		t.Fatalf("parse tests under %s: %v", dir, err)
+		t.Fatalf("enumerate darwin/arm64 tests under %s: %v", dir, err)
 	}
 	var names []string
-	for _, pkg := range packages {
-		for _, file := range pkg.Files {
-			for _, decl := range file.Decls {
-				fn, ok := decl.(*ast.FuncDecl)
-				if ok && fn.Recv == nil && strings.HasPrefix(fn.Name.Name, "Test") {
-					names = append(names, fn.Name.Name)
-				}
+	testFiles := append(slices.Clone(packageInfo.TestGoFiles), packageInfo.XTestGoFiles...)
+	for _, name := range testFiles {
+		file, parseErr := parser.ParseFile(token.NewFileSet(), filepath.Join(dir, name), nil, 0)
+		if parseErr != nil {
+			t.Fatalf("parse darwin/arm64 test %s: %v", name, parseErr)
+		}
+		for _, decl := range file.Decls {
+			fn, ok := decl.(*ast.FuncDecl)
+			if ok && fn.Recv == nil && strings.HasPrefix(fn.Name.Name, "Test") {
+				names = append(names, fn.Name.Name)
 			}
 		}
 	}
@@ -309,29 +376,53 @@ func updateRecoveryTestFamilyExists(testNames, terms []string) bool {
 	return false
 }
 
-func updateRecoveryWorkflowJob(t *testing.T, workflow, jobName string) string {
+func updateRecoveryParseWorkflow(t *testing.T, path string) updateRecoveryWorkflow {
 	t.Helper()
-	lines := strings.Split(workflow, "\n")
-	marker := "  " + jobName + ":"
-	start := -1
-	for index, line := range lines {
-		if line == marker {
-			start = index
-			break
-		}
+	body, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read workflow %s: %v", path, err)
 	}
-	if start < 0 {
+	var workflow updateRecoveryWorkflow
+	if err := yaml.Unmarshal(body, &workflow); err != nil {
+		t.Fatalf("parse workflow %s: %v", path, err)
+	}
+	return workflow
+}
+
+func updateRecoveryRequireWorkflowJob(t *testing.T, workflow updateRecoveryWorkflow, jobName string) updateRecoveryWorkflowJob {
+	t.Helper()
+	job, ok := workflow.Jobs[jobName]
+	if !ok {
 		t.Fatalf("workflow missing job %s", jobName)
 	}
-	end := len(lines)
-	for index := start + 1; index < len(lines); index++ {
-		line := lines[index]
-		if strings.HasPrefix(line, "  ") && !strings.HasPrefix(line, "    ") && strings.HasSuffix(line, ":") {
-			end = index
-			break
+	return job
+}
+
+func updateRecoveryJobRuns(job updateRecoveryWorkflowJob, required string) bool {
+	for _, step := range job.Steps {
+		for line := range strings.SplitSeq(step.Run, "\n") {
+			trimmed := strings.TrimSpace(line)
+			if !strings.HasPrefix(trimmed, "#") && strings.Contains(trimmed, required) {
+				return true
+			}
 		}
 	}
-	return strings.Join(lines[start:end], "\n")
+	return false
+}
+
+func updateRecoveryJobNeeds(t *testing.T, job updateRecoveryWorkflowJob) []string {
+	t.Helper()
+	if job.Needs.Kind == yaml.ScalarNode {
+		return []string{job.Needs.Value}
+	}
+	if job.Needs.Kind != yaml.SequenceNode {
+		t.Fatalf("workflow job needs must be a scalar or sequence, got YAML node kind %d", job.Needs.Kind)
+	}
+	needs := make([]string, 0, len(job.Needs.Content))
+	for _, node := range job.Needs.Content {
+		needs = append(needs, node.Value)
+	}
+	return needs
 }
 
 func updateRecoveryFindFunction(file *ast.File, name string) *ast.FuncDecl {
