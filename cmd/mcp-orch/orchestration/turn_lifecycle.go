@@ -513,14 +513,18 @@ func canForceIdleAfterTurnTerminal(agent *agentRuntime, turnID string) bool {
 	}
 }
 
-// canRecoverProviderTurnCompletion 限定只恢复同一 agent/thread 的 provider turn id mismatch。
+// canRecoverProviderTurnCompletion 限定只恢复当前本地 turn 已绑定的 provider turn。
 func canRecoverProviderTurnCompletion(agent *agentRuntime, ev turndto.TurnCompleted) bool {
 	if agent == nil {
 		return false
 	}
 	eventTurnID := strings.TrimSpace(ev.TurnID)
 	activeTurnID := strings.TrimSpace(agent.activeTurnID)
+	alias := agent.providerTurnAlias
 	if eventTurnID == "" || activeTurnID == "" || eventTurnID == activeTurnID {
+		return false
+	}
+	if alias.localTurnID != activeTurnID || alias.providerTurnID != eventTurnID {
 		return false
 	}
 	if !agentStateMatches(agent.state, agentdto.StateTurnStarting, agentdto.StateTurnRunning, agentdto.StateAwaitingUserInput) {

@@ -50,7 +50,7 @@ func (s *service) BindActiveTurnID(ctx context.Context, agentID, turnID string) 
 	return s.turns.BindActiveTurnID(ctx, agentID, turnID)
 }
 
-// BindActiveTurnID 把当前 active turn 绑定到 provider 返回的真实 turn ID。
+// BindActiveTurnID 把当前本地 active turn 与 provider 返回的真实 turn ID 成对绑定。
 func (c *turnController) BindActiveTurnID(ctx context.Context, agentID, turnID string) error {
 	turnID = strings.TrimSpace(turnID)
 	if turnID == "" {
@@ -60,10 +60,10 @@ func (c *turnController) BindActiveTurnID(ctx context.Context, agentID, turnID s
 		if agent.activeTurnID == "" {
 			return fmt.Errorf("%w: agent %q has no active turn", errTurnNotActive, agent.id)
 		}
-		if agent.activeTurnID == turnID {
-			return nil
+		agent.providerTurnAlias = providerTurnAlias{
+			localTurnID:    agent.activeTurnID,
+			providerTurnID: turnID,
 		}
-		agent.activeTurnID = turnID
 		agent.updatedAt = resolveEventTime(ctx, agent.updatedAt)
 		return nil
 	})
@@ -154,7 +154,7 @@ func (c *turnController) finishTurnStartSuccess(ctx context.Context, work turnWo
 		}
 	}
 	if lockErr := c.withAgentLocked(work.agentID, func(agent *agentRuntime) error {
-		if agent.activeTurnID != currentTurnID {
+		if agent.activeTurnID != work.turnID {
 			return nil
 		}
 		if err := c.fireOrForceLocked(ctx, agent, agentdto.TriggerTurnAccepted); err != nil {
@@ -174,6 +174,7 @@ func (c *turnController) finishTurnStartFailure(ctx context.Context, work turnWo
 		}
 		agent.lastError = startErr.Error()
 		agent.activeTurnID = ""
+		agent.providerTurnAlias = providerTurnAlias{}
 		if agent.state != agentdto.StateTurnStarting {
 			return nil
 		}

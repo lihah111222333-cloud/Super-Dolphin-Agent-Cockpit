@@ -311,6 +311,11 @@ type recoveryTurnStore interface {
 	taskdag.RecoveryStore
 }
 
+type providerTurnAlias struct {
+	localTurnID    string
+	providerTurnID string
+}
+
 // agentRuntime 持有单个 agent 实例的完整运行时状态，由 agentRegistry.mu 保护读写。
 type agentRuntime struct {
 	id, name, prompt, instructions, parentID, agentType, agentKey, memoryScope, language, cwd string
@@ -321,6 +326,7 @@ type agentRuntime struct {
 	threadID, remoteThreadID, pendingLaunchThreadID                                           string
 	pendingLaunchThreadAt                                                                     time.Time
 	remoteAgentID, requestedAgentID, activeTurnID, lastReport                                 string
+	providerTurnAlias                                                                         providerTurnAlias
 	reportRequesters                                                                          []string
 	lastError                                                                                 string
 	lastReportSeq                                                                             int64

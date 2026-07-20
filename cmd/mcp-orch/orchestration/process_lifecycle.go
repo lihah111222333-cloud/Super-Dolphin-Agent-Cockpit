@@ -83,6 +83,7 @@ func (c *turnController) claimTurnWork(ctx context.Context) []turnWork {
 			agent.threadID = threadID
 		}
 		agent.activeTurnID = turnID
+		agent.providerTurnAlias = providerTurnAlias{}
 		work = append(work, turnWork{
 			agentID:    agent.id,
 			threadID:   submission.ThreadID,

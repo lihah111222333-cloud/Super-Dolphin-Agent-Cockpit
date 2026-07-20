@@ -128,6 +128,7 @@ func (s *service) finalizeActiveTurnLocked(
 		return err
 	}
 	agent.activeTurnID = ""
+	agent.providerTurnAlias = providerTurnAlias{}
 	return nil
 }
 
@@ -146,6 +147,7 @@ func (s *service) forceIdleAfterTurnTerminalLocked(
 	}
 	before := agent.state
 	agent.activeTurnID = ""
+	agent.providerTurnAlias = providerTurnAlias{}
 	if kind.clearError {
 		agent.lastError = ""
 	} else {
@@ -303,6 +305,7 @@ func bindHookThreadLocked(agent *agentRuntime, threadID string) bool {
 func clearTerminalActiveTurnLocked(agent *agentRuntime, nextState string) {
 	if agent != nil && terminalMirroredState(nextState) {
 		agent.activeTurnID = ""
+		agent.providerTurnAlias = providerTurnAlias{}
 	}
 }
 
