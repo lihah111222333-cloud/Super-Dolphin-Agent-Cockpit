@@ -3,10 +3,6 @@
 import { assertBackendResponseObject, assertOnlyResponseKeys, assertResponseRecord, hasOwn, normalizeString } from './backendResponseValidatorShared.js';
 import { validateSidebarStateResponse as validateRuntimeSidebarStateResponse, validateUIStateResponse as validateRuntimeUIStateResponse } from './backendResponseValidatorsRuntime.js';
 
-const MODEL_PROVIDER_REGISTRY_RESPONSE_KEYS = new Set(['activeVendorId', 'vendors']);
-const MODEL_PROVIDER_VENDOR_KEYS = new Set(['id', 'label', 'enabled', 'baseURL', 'envKey', 'codexModelProvider', 'defaultModel', 'codexHome', 'codexInstanceKey', 'budget', 'tokenPool', 'configured', 'maskedEnv', 'envStatus']);
-const MODEL_PROVIDER_BUDGET_KEYS = new Set(['dailyUsd', 'monthlyUsd']);
-const MODEL_PROVIDER_TOKEN_POOL_KEYS = new Set(['priority', 'fallbackVendorId']);
 const DASHBOARD_DAG_DETAIL_RESPONSE_KEYS = new Set(['dag', 'nodes']);
 const DASHBOARD_DAG_SUMMARY_KEYS = new Set(['id', 'dag_key', 'version', 'title', 'description', 'status', 'created_by', 'metadata', 'trigger', 'cron_expr', 'next_run_at', 'schedule_enabled', 'started_at', 'finished_at', 'created_at', 'updated_at']);
 const DASHBOARD_DAG_NODE_KEYS = new Set([

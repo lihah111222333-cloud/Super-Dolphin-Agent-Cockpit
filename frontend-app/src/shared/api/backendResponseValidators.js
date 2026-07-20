@@ -79,6 +79,10 @@ import {
   validateStringFields,
 } from './backendResponseValidatorShared.js';
 
+const MODEL_PROVIDER_REGISTRY_RESPONSE_KEYS = new Set(['activeVendorId', 'vendors']);
+const MODEL_PROVIDER_VENDOR_KEYS = new Set(['id', 'label', 'enabled', 'baseURL', 'envKey', 'codexModelProvider', 'defaultModel', 'codexHome', 'codexInstanceKey', 'budget', 'tokenPool', 'configured', 'maskedEnv', 'envStatus']);
+const MODEL_PROVIDER_BUDGET_KEYS = new Set(['dailyUsd', 'monthlyUsd']);
+const MODEL_PROVIDER_TOKEN_POOL_KEYS = new Set(['priority', 'fallbackVendorId']);
 
 const MCP_SERVER_LIST_RESPONSE_KEYS = new Set(['configPath', 'config_path', 'mcpServers', 'mcp_servers']);
 const MCP_SERVER_STATUS_RESPONSE_KEYS = new Set(['enabled']);
