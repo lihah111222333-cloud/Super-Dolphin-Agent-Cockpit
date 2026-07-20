@@ -84,7 +84,7 @@ internal/store/interaction/store_test.go	internal	store-sql	go-test	17039	应用
 internal/store/interaction/store.go	internal	store-sql	go-source	4298	应用级持久化 store	internal,store,interaction,应用级持久化
 internal/store/mcpserver/lifecycle.go	internal	store-sql	go-source	10706	应用级持久化 store	internal,store,mcpserver,lifecycle,应用级持久化
 internal/store/mcpserver/module.go	internal	store-sql	go-source	550	应用级持久化 store	internal,store,mcpserver,module,应用级持久化
-internal/store/mcpserver/store_test.go	internal	store-sql	go-test	27897	应用级持久化 store	internal,store,mcpserver,test,应用级持久化
+internal/store/mcpserver/store_test.go	internal	store-sql	go-test	27911	应用级持久化 store	internal,store,mcpserver,test,应用级持久化
 internal/store/mcpserver/store.go	internal	store-sql	go-source	23853	应用级持久化 store	internal,store,mcpserver,应用级持久化
 internal/store/module_skillcandidate_test.go	internal	store-sql	go-test	480	应用级持久化 store	internal,store,module,skillcandidate,test,应用级持久化
 internal/store/module.go	internal	store-sql	go-source	3156	应用级持久化 store	internal,store,module,应用级持久化

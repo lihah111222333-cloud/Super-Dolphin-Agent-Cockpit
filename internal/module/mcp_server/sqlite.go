@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
@@ -15,7 +16,8 @@ const (
 	// DefaultSQLiteServerName 是按需开启的本地 SQLite MCP server 名称。
 	DefaultSQLiteServerName = "sqlite"
 
-	defaultSQLitePackage       = "@bytebase/dbhub"
+	defaultSQLitePackage       = "@bytebase/dbhub@0.23.0"
+	unpinnedSQLitePackage      = "@bytebase/dbhub"
 	legacyDefaultSQLitePackage = "@modelcontextprotocol/server-sqlite"
 	brokenSQLitePackage        = "mcp-server-sqlite"
 )
@@ -55,7 +57,7 @@ func (s *service) StartSQLiteServer(ctx context.Context, req StartSQLiteServerRe
 		return StartSQLiteServerResult{}, err
 	}
 	if existing, ok := listed.MCPServers[DefaultSQLiteServerName]; ok {
-		if isLegacyDefaultSQLiteServerConfig(existing) {
+		if isUpgradeableDefaultSQLiteServerConfig(existing, databasePath) {
 			configPath, err := s.replaceDefaultSQLiteServer(ctx, config)
 			if err != nil {
 				return StartSQLiteServerResult{}, err
@@ -142,6 +144,28 @@ func isLegacyDefaultSQLiteServerConfig(config ServerConfig) bool {
 	return legacySQLiteDatabasePath(config.Args) != ""
 }
 
+// isUpgradeableDefaultSQLiteServerConfig 只识别可安全替换的历史默认或精确未固定默认配置。
+func isUpgradeableDefaultSQLiteServerConfig(config ServerConfig, databasePath string) bool {
+	return isLegacyDefaultSQLiteServerConfig(config) || isUnpinnedDefaultSQLiteServerConfig(config, databasePath)
+}
+
+func isUnpinnedDefaultSQLiteServerConfig(config ServerConfig, databasePath string) bool {
+	return config.Transport == "stdio" &&
+		config.Command == "npx" &&
+		len(config.Env) == 0 &&
+		slices.Equal(config.Args, []string{"-y", unpinnedSQLitePackage, "--dsn=" + sqliteDBHubDSN(databasePath)})
+}
+
+// isUnpinnedSQLiteServerConfigCandidate 识别 provider 路径需要进一步绑定受信数据库路径的未固定候选。
+func isUnpinnedSQLiteServerConfigCandidate(config ServerConfig) bool {
+	return config.Transport == "stdio" &&
+		config.Command == "npx" &&
+		len(config.Env) == 0 &&
+		len(config.Args) == 3 &&
+		config.Args[0] == "-y" &&
+		config.Args[1] == unpinnedSQLitePackage
+}
+
 // legacySQLiteDatabasePath 识别可自动转换的 sqlite server 参数并提取数据库路径。
 // 只匹配项目内置默认形态，避免误把用户自定义 server 当作可转换配置。
 func legacySQLiteDatabasePath(args []string) string {
@@ -205,6 +229,39 @@ func (s *service) replaceDefaultSQLiteServer(ctx context.Context, config ServerC
 	}
 	s.configRevision++
 	return mcpServerConfigPath(workspaceRoot), nil
+}
+
+// migrateUnpinnedSQLiteServerConfig 在锁内重读并原子替换精确未固定默认配置。
+func (s *service) migrateUnpinnedSQLiteServerConfig(ctx context.Context, cwd, databasePath string) (ServerConfig, bool, error) {
+	s.configMu.Lock()
+	defer s.configMu.Unlock()
+	workspaceRoot, servers, err := s.resolveWorkspaceServers(ctx, cwd)
+	if err != nil {
+		return ServerConfig{}, false, err
+	}
+	existing, ok := servers[DefaultSQLiteServerName]
+	if !ok || !isUnpinnedDefaultSQLiteServerConfig(existing, databasePath) {
+		return existing, false, nil
+	}
+	config := defaultSQLiteServerConfig(databasePath)
+	config.Enabled = cloneBoolPtr(existing.Enabled)
+	store, err := s.requireStore()
+	if err != nil {
+		return ServerConfig{}, false, err
+	}
+	replaced, err := store.ReplaceServer(ctx, StoreMCPServerConfigParams{
+		WorkspaceRoot: workspaceRoot,
+		Name:          DefaultSQLiteServerName,
+		Config:        config,
+	})
+	if err != nil {
+		return ServerConfig{}, false, err
+	}
+	if !replaced {
+		return ServerConfig{}, false, fmt.Errorf("%w: %s", errServerNotFound, DefaultSQLiteServerName)
+	}
+	s.configRevision++
+	return config, true, nil
 }
 
 // setDefaultSQLiteServerEnabled 只切换默认 sqlite server 的 enabled 状态。

@@ -374,6 +374,53 @@ func TestPackageLinuxVerifierScriptContracts(t *testing.T) {
 	assertScriptDoesNotContain(t, script, "$package_root/migrations")
 }
 
+func TestVerifyPackagedAppLinuxRequiresNode225(t *testing.T) {
+	stage := writeMinimalPackagedLinuxStage(t)
+	writeRuntimeManifest(t, stage, map[string]string{
+		"bundled_codex_path":  "bin/codex",
+		"bundled_gopls_path":  "bin/gopls",
+		"lsp_bundle_path":     "lsp",
+		"lsp_manifest_path":   "lsp/lsp-manifest.json",
+		"model_registry_path": "models.yaml",
+	})
+	nodePath := filepath.Join(stage, "lsp", "node", "bin", "node")
+
+	invalidFixtures := []struct {
+		name  string
+		write func()
+	}{
+		{name: "missing", write: func() {
+			if err := os.Remove(nodePath); err != nil {
+				t.Fatalf("remove packaged Node fixture: %v", err)
+			}
+		}},
+		{name: "not executable", write: func() {
+			writeFile(t, nodePath, "#!/bin/sh\nprintf 'v22.5.0\\n'\n", 0o644)
+		}},
+		{name: "unparseable", write: func() {
+			writePackagedNodeFixture(t, nodePath, "not-a-version")
+		}},
+		{name: "below minimum", write: func() {
+			writePackagedNodeFixture(t, nodePath, "22.4.9")
+		}},
+	}
+	for _, tc := range invalidFixtures {
+		t.Run(tc.name, func(t *testing.T) {
+			tc.write()
+			output, err := runVerifyPackagedAppLinux(t, stage)
+			if err == nil || !strings.Contains(output, "packaged Node.js >= 22.5.0 is required by @bytebase/dbhub@0.23.0") {
+				t.Fatalf("expected packaged Node rejection, err=%v output:\n%s", err, output)
+			}
+		})
+	}
+
+	writePackagedNodeFixture(t, nodePath, "22.5.0")
+	output, err := runVerifyPackagedAppLinux(t, stage)
+	if err != nil {
+		t.Fatalf("expected Node 22.5.0 acceptance, got %v:\n%s", err, output)
+	}
+}
+
 func TestVerifyPackagedAppLinuxChecksBundledBashLanguageServer(t *testing.T) {
 	script := readScript(t, "verify_packaged_app_linux.sh")
 

@@ -165,7 +165,7 @@ func TestStartSQLiteRPCCreatesDefaultNPXConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Dispatch mcpServer/sqlite/start: %v", err)
 	}
-	assertJSONOmitsMCPConfigDetails(t, raw, `"config":`, dbPath, "npx", "@bytebase/dbhub")
+	assertJSONOmitsMCPConfigDetails(t, raw, `"config":`, dbPath, "npx", "@bytebase/dbhub@0.23.0")
 	var got startServerRPCResponse
 	if err := json.Unmarshal(raw, &got); err != nil {
 		t.Fatalf("unmarshal response: %v", err)

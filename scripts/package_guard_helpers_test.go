@@ -448,6 +448,7 @@ func writeMinimalPackagedMacOSApp(t *testing.T) string {
 	} {
 		writeExecutable(t, path)
 	}
+	writePackagedNodeFixture(t, filepath.Join(resources, "lsp", "node", "bin", "node"), "22.5.0")
 	writeFile(t, filepath.Join(resources, "bin", "mcp-schema-compiler-helper.manifest.json"), "{}\n", 0o644)
 	pythonShadow := "#!/bin/sh\necho Packaged Super Dolphin does not bundle a Python interpreter e62\nexit 1\n"
 	writeFile(t, filepath.Join(resources, "lsp", "bin", "python"), pythonShadow, 0o755)
@@ -463,6 +464,14 @@ func writeMinimalPackagedMacOSApp(t *testing.T) string {
 func writeExecutable(t *testing.T, path string) {
 	t.Helper()
 	writeFile(t, path, "#!/bin/sh\nexit 0\n", 0o755)
+}
+
+func writePackagedNodeFixture(t *testing.T, path, version string) {
+	t.Helper()
+	writeFile(t, path, "#!/bin/sh\nprintf 'v%s\\n' "+shellSingleQuoted(version)+"\n", 0o755)
+	if err := os.Chmod(path, 0o755); err != nil {
+		t.Fatalf("chmod packaged Node fixture: %v", err)
+	}
 }
 
 func writeMacOSPackageTrust(t *testing.T, resources string) {
@@ -673,6 +682,7 @@ func writeMinimalPackagedLinuxStage(t *testing.T) string {
 	} {
 		writeExecutable(t, path)
 	}
+	writePackagedNodeFixture(t, filepath.Join(stage, "lsp", "node", "bin", "node"), "22.5.0")
 	writeFile(t, filepath.Join(stage, "bin", "mcp-schema-compiler-helper.manifest.json"), "{}\n", 0o644)
 	pythonShadow := "#!/bin/sh\necho Packaged Super Dolphin does not bundle a Python interpreter >&2\nexit 1\n"
 	writeFile(t, filepath.Join(stage, "lsp", "bin", "python"), pythonShadow, 0o755)

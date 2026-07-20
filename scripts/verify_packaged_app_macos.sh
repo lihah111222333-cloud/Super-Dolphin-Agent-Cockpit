@@ -65,6 +65,25 @@ phase_end() {
   echo "==> [$phase_label] done in ${elapsed}s $(date '+%H:%M:%S')" >&2
 }
 
+verify_packaged_node_version() {
+  local node_path="$resources/lsp/node/bin/node"
+  local version major minor
+  if [[ ! -x "$node_path" ]] || ! version="$("$node_path" --version 2>/dev/null)"; then
+    echo "packaged Node.js >= 22.5.0 is required by @bytebase/dbhub@0.23.0" >&2
+    exit 1
+  fi
+  if [[ ! "$version" =~ ^v?([0-9]+)\.([0-9]+)\.([0-9]+)([-+].*)?$ ]]; then
+    echo "packaged Node.js >= 22.5.0 is required by @bytebase/dbhub@0.23.0" >&2
+    exit 1
+  fi
+  major="${BASH_REMATCH[1]}"
+  minor="${BASH_REMATCH[2]}"
+  if ((major < 22 || (major == 22 && minor < 5))); then
+    echo "packaged Node.js >= 22.5.0 is required by @bytebase/dbhub@0.23.0" >&2
+    exit 1
+  fi
+}
+
 sha256_file() {
   local path="$1"
   if command -v sha256sum >/dev/null 2>&1; then
@@ -792,6 +811,7 @@ fi
 "$resources/bin/mcp-schema-compiler-helper" --verify-package "$resources/bin/mcp-schema-compiler-helper.manifest.json"
 
 verify_runtime_manifest
+verify_packaged_node_version
 if [[ -f "$resources/lsp/lsp-manifest.json" ]] && lsp_manifest_value "$resources/lsp/lsp-manifest.json" "jdtls" path >/dev/null 2>&1; then
   required_execs+=("$resources/bin/jdtls")
 fi

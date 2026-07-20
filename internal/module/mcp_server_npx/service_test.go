@@ -38,7 +38,7 @@ func TestStartSQLiteServerDelegatesToBaseService(t *testing.T) {
 			Config: contract.MCPServerConfig{
 				Transport: "stdio",
 				Command:   "npx",
-				Args:      []string{"-y", "@bytebase/dbhub", "--dsn=sqlite:///" + filepath.ToSlash(dbPath)},
+				Args:      []string{"-y", "@bytebase/dbhub@0.23.0", "--dsn=sqlite:///" + filepath.ToSlash(dbPath)},
 			},
 		},
 	}
@@ -69,7 +69,7 @@ func TestStartSQLiteServerRPCDelegatesToBaseService(t *testing.T) {
 			Config: contract.MCPServerConfig{
 				Transport: "stdio",
 				Command:   "npx",
-				Args:      []string{"-y", "@bytebase/dbhub", "--dsn=sqlite:///" + filepath.ToSlash(dbPath)},
+				Args:      []string{"-y", "@bytebase/dbhub@0.23.0", "--dsn=sqlite:///" + filepath.ToSlash(dbPath)},
 			},
 		},
 	}
@@ -80,7 +80,7 @@ func TestStartSQLiteServerRPCDelegatesToBaseService(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Dispatch(mcpServer/sqlite/start) error = %v", err)
 	}
-	assertNoMCPConfigInRPCResponse(t, raw, `"config":`, "npx", "@bytebase/dbhub", dbPath)
+	assertNoMCPConfigInRPCResponse(t, raw, `"config":`, "npx", "@bytebase/dbhub@0.23.0", dbPath)
 	var got startServerRPCResponse
 	if err := json.Unmarshal(raw, &got); err != nil {
 		t.Fatalf("unmarshal response: %v", err)

@@ -724,7 +724,7 @@ function guardedBackendResponse(method) {
         configPath: '/repo/.agent/mcp_server/config.json',
         serverName: 'sqlite',
         enabled: true,
-        config: { command: 'npx', args: ['@bytebase/dbhub'] },
+        config: { command: 'npx', args: ['@bytebase/dbhub@0.23.0'] },
       }),
     });
 

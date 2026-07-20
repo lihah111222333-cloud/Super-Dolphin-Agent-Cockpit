@@ -60,6 +60,25 @@ phase_end() {
   echo "==> [$phase_label] done in ${elapsed}s $(date '+%H:%M:%S')" >&2
 }
 
+verify_packaged_node_version() {
+  local node_path="$package_root/lsp/node/bin/node"
+  local version major minor
+  if [[ ! -x "$node_path" ]] || ! version="$("$node_path" --version 2>/dev/null)"; then
+    echo "packaged Node.js >= 22.5.0 is required by @bytebase/dbhub@0.23.0" >&2
+    exit 1
+  fi
+  if [[ ! "$version" =~ ^v?([0-9]+)\.([0-9]+)\.([0-9]+)([-+].*)?$ ]]; then
+    echo "packaged Node.js >= 22.5.0 is required by @bytebase/dbhub@0.23.0" >&2
+    exit 1
+  fi
+  major="${BASH_REMATCH[1]}"
+  minor="${BASH_REMATCH[2]}"
+  if ((major < 22 || (major == 22 && minor < 5))); then
+    echo "packaged Node.js >= 22.5.0 is required by @bytebase/dbhub@0.23.0" >&2
+    exit 1
+  fi
+}
+
 sha256_file() {
   local path="$1"
   if command -v sha256sum >/dev/null 2>&1; then
@@ -404,6 +423,7 @@ verify_package_root_links() {
 }
 
 verify_runtime_manifest
+verify_packaged_node_version
 verify_linux_launcher_runtime_env
 
 required_execs=(

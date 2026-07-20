@@ -113,7 +113,7 @@ internal/module/insight/subscribers_test.go	internal	modules	go-test	2603	业务
 internal/module/insight/subscribers.go	internal	modules	go-source	1054	业务模块层	internal,module,insight,subscribers,业务模块层
 internal/module/mcp_server_npx/module.go	internal	modules	go-source	471	业务模块层	internal,module,mcp,server,npx,业务模块层
 internal/module/mcp_server_npx/rpc.go	internal	modules	go-source	3851	业务模块层	internal,module,mcp,server,npx,rpc,业务模块层
-internal/module/mcp_server_npx/service_test.go	internal	modules	go-test	10037	业务模块层	internal,module,mcp,server,npx,service,test,业务模块层
+internal/module/mcp_server_npx/service_test.go	internal	modules	go-test	10058	业务模块层	internal,module,mcp,server,npx,service,test,业务模块层
 internal/module/mcp_server_npx/service.go	internal	modules	go-source	4618	业务模块层	internal,module,mcp,server,npx,service,业务模块层
 internal/module/mcp_server/authority_owner.go	internal	modules	go-source	9038	业务模块层	internal,module,mcp,server,authority,owner,业务模块层
 internal/module/mcp_server/config_helpers.go	internal	modules	go-source	5666	业务模块层	internal,module,mcp,server,config,helpers,业务模块层
@@ -124,12 +124,12 @@ internal/module/mcp_server/lifecycle.go	internal	modules	go-source	11245	业务�
 internal/module/mcp_server/module.go	internal	modules	go-source	615	业务模块层	internal,module,mcp,server,业务模块层
 internal/module/mcp_server/playwright_test.go	internal	modules	go-test	3044	业务模块层	internal,module,mcp,server,playwright,test,业务模块层
 internal/module/mcp_server/playwright.go	internal	modules	go-source	4441	业务模块层	internal,module,mcp,server,playwright,业务模块层
-internal/module/mcp_server/rpc_test.go	internal	modules	go-test	16007	业务模块层	internal,module,mcp,server,rpc,test,业务模块层
+internal/module/mcp_server/rpc_test.go	internal	modules	go-test	16014	业务模块层	internal,module,mcp,server,rpc,test,业务模块层
 internal/module/mcp_server/rpc.go	internal	modules	go-source	10732	业务模块层	internal,module,mcp,server,rpc,业务模块层
-internal/module/mcp_server/service_test.go	internal	modules	go-test	25892	业务模块层	internal,module,mcp,server,service,test,业务模块层
-internal/module/mcp_server/service.go	internal	modules	go-source	23015	业务模块层	internal,module,mcp,server,service,业务模块层
-internal/module/mcp_server/sqlite_test.go	internal	modules	go-test	8293	业务模块层	internal,module,mcp,server,sqlite,test,业务模块层
-internal/module/mcp_server/sqlite.go	internal	modules	go-source	8763	业务模块层	internal,module,mcp,server,sqlite,业务模块层
+internal/module/mcp_server/service_test.go	internal	modules	go-test	25899	业务模块层	internal,module,mcp,server,service,test,业务模块层
+internal/module/mcp_server/service.go	internal	modules	go-source	23955	业务模块层	internal,module,mcp,server,service,业务模块层
+internal/module/mcp_server/sqlite_test.go	internal	modules	go-test	13338	业务模块层	internal,module,mcp,server,sqlite,test,业务模块层
+internal/module/mcp_server/sqlite.go	internal	modules	go-source	10993	业务模块层	internal,module,mcp,server,sqlite,业务模块层
 internal/module/mcp_server/store.go	internal	modules	go-source	383	业务模块层	internal,module,mcp,server,store,业务模块层
 internal/module/memory/auto_dream_e2e_manual_test.go	internal	modules	go-test	5573	memory canonical 管理、UI RPC 与持久化接线	internal,module,memory,auto,dream,e2e,manual,test,canonical,管理,UI,RPC,与持久化接线
 internal/module/memory/auto_dream_intent_test.go	internal	modules	go-test	7438	memory canonical 管理、UI RPC 与持久化接线	internal,module,memory,auto,dream,intent,test,canonical,管理,UI,RPC,与持久化接线
@@ -624,7 +624,7 @@ internal/module/turn/interrupt_service_test.go	internal	modules	go-test	4173	tur
 internal/module/turn/interrupt_service.go	internal	modules	go-source	3930	turn 启动、执行、审批与 provider 调度	internal,module,turn,interrupt,service,启动,执行,审批与,provider,调度
 internal/module/turn/manifest_p2_transport_test.go	internal	modules	go-test	6630	turn 启动、执行、审批与 provider 调度	internal,module,turn,manifest,p2,transport,test,启动,执行,审批与,provider,调度
 internal/module/turn/manifest.go	internal	modules	go-source	5387	turn 启动、执行、审批与 provider 调度	internal,module,turn,manifest,启动,执行,审批与,provider,调度
-internal/module/turn/mcp_server_config_test.go	internal	modules	go-test	4916	turn 启动、执行、审批与 provider 调度	internal,module,turn,mcp,server,config,test,启动,执行,审批与,provider,调度
+internal/module/turn/mcp_server_config_test.go	internal	modules	go-test	4937	turn 启动、执行、审批与 provider 调度	internal,module,turn,mcp,server,config,test,启动,执行,审批与,provider,调度
 internal/module/turn/mcp_server_npx_config_test.go	internal	modules	go-test	834	turn 启动、执行、审批与 provider 调度	internal,module,turn,mcp,server,npx,config,test,启动,执行,审批与,provider,调度
 internal/module/turn/module.go	internal	modules	go-source	2472	turn 启动、执行、审批与 provider 调度	internal,module,turn,启动,执行,审批与,provider,调度
 internal/module/turn/observation_wiring.go	internal	modules	go-source	2040	turn 启动、执行、审批与 provider 调度	internal,module,turn,observation,wiring,启动,执行,审批与,provider,调度
