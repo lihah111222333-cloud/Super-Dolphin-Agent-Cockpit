@@ -9,6 +9,40 @@ import (
 
 var emptyDocumentSymbolRetryDelay = 80 * time.Millisecond
 
+var emptyReferenceRetryDelay = 80 * time.Millisecond
+
+const emptyReferenceRetryAttempts = 25
+
+// waitBeforeEmptyReferenceRetry gives a JS/TS workspace one bounded window to
+// finish its initial project index before a references query is declared empty.
+func waitBeforeEmptyReferenceRetry(ctx context.Context) error {
+	if emptyReferenceRetryDelay <= 0 {
+		return nil
+	}
+	timer := time.NewTimer(emptyReferenceRetryDelay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
+}
+
+func (m *manager) retryEmptyReferences(ctx context.Context, uri, method string, params any, results []protocol.LocationResult) ([]protocol.LocationResult, error) {
+	for attempt := 0; attempt < emptyReferenceRetryAttempts; attempt++ {
+		if err := waitBeforeEmptyReferenceRetry(ctx); err != nil {
+			return nil, err
+		}
+		var err error
+		results, err = m.locationQueryOnce(ctx, uri, method, params)
+		if err != nil || len(results) != 0 {
+			return results, err
+		}
+	}
+	return results, nil
+}
+
 // shouldRetryEmptyDocumentSymbols 只给 JS/TS 空大纲做一次二次请求。
 // 这些语言的服务器冷启动时偶发先返回空数组，其他语言保持原来的请求语义。
 func shouldRetryEmptyDocumentSymbols(languageID string, symbols []protocol.DocumentSymbol) bool {
