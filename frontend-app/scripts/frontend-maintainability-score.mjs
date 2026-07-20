@@ -546,7 +546,7 @@ function sameDependencyManifest(leftAppRoot, rightAppRoot) {
   return fs.existsSync(left) && fs.existsSync(right) && fs.readFileSync(left).equals(fs.readFileSync(right));
 }
 
-function dependencyTreeIntegrity(appRoot) {
+export function dependencyTreeIntegrity(appRoot) {
   const nodeModulesRoot = path.join(appRoot, 'node_modules');
   const rootStat = fs.lstatSync(nodeModulesRoot);
   if (!rootStat.isDirectory() || rootStat.isSymbolicLink()) {
@@ -563,18 +563,24 @@ function dependencyTreeIntegrity(appRoot) {
       const absolutePath = path.join(absoluteRoot, entry);
       const relativePath = relativeRoot ? `${relativeRoot}/${entry}` : entry;
       const stat = fs.lstatSync(absolutePath);
-      pathCount += 1;
-      add(relativePath);
       if (stat.isDirectory()) {
+        const childEntries = fs.readdirSync(absolutePath);
+        if (childEntries.length === 0) continue;
+        pathCount += 1;
+        add(relativePath);
         add('directory');
         visit(absolutePath, relativePath);
       }
       else if (stat.isFile()) {
+        pathCount += 1;
+        add(relativePath);
         add('file');
         aggregate.update(fs.readFileSync(absolutePath));
         aggregate.update('\0');
       }
       else if (stat.isSymbolicLink()) {
+        pathCount += 1;
+        add(relativePath);
         add('symlink');
         add(fs.readlinkSync(absolutePath));
       }
