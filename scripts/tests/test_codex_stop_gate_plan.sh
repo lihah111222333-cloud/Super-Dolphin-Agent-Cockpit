@@ -18,6 +18,28 @@ run_gate_with_input() {
     bash -c "printf '%s\n' \"\$1\" | bash \"\$2\"" _ "${input}" "${gate}"
 }
 
+run_frontend_gate_with_fake_tools() {
+  local fixture="$1"
+  local capture="$2"
+  local lock_dir="$3"
+  local npx_exit="${4:-0}"
+  local fake_bin="${tmp_dir}/fake-bin"
+  mkdir -p "${fake_bin}"
+  cat >"${fake_bin}/npm" <<'EOF'
+#!/usr/bin/env bash
+exit 0
+EOF
+  cat >"${fake_bin}/npx" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >"${CAPTURE_PATH}"
+exit "${FAKE_NPX_EXIT}"
+EOF
+  chmod +x "${fake_bin}/npm" "${fake_bin}/npx"
+  PATH="${fake_bin}:${PATH}" CAPTURE_PATH="${capture}" FAKE_NPX_EXIT="${npx_exit}" \
+    CODEX_STOP_GATE_CHANGED_FILES_FILE="${fixture}" CODEX_STOP_GATE_LOG_DIR="${tmp_dir}/logs" \
+    CODEX_STOP_GATE_LOCK_DIR="${lock_dir}" CODEX_STOP_GATE_NPX_BIN="${fake_bin}/npx" bash "${gate}"
+}
+
 run_go_gate_with_fake_go() {
   local fixture="$1"
   local lock_dir="$2"
@@ -174,6 +196,55 @@ go_list_partial_output="$(run_go_gate_with_fake_go "${module_fixture}" "${go_lis
 assert_has_text "${go_list_partial_output}" '"decision":"block"' "partial go list resolution blocks stop gate"
 assert_has_text "${go_list_partial_output}" 'Super-Dolphin Codex Stop gate failed: changed Go package tests.' "partial go list resolution reports Go stage failure"
 assert_not_contains "${go_list_partial_output}" '{"continue":true}' "partial go list resolution does not continue"
+
+mixed_fixture="${tmp_dir}/mixed.txt"
+cat >"${mixed_fixture}" <<'EOF'
+internal/platform/toolbridge/handler_peer_decode.go
+frontend-app/src/App.jsx
+EOF
+mixed_plan="$(run_plan "${mixed_fixture}")"
+assert_contains "${mixed_plan}" "execution parallel go frontend" "mixed changes run Go and frontend stages in parallel"
+
+frontend_vitest_capture="${tmp_dir}/frontend-vitest-args.txt"
+frontend_gate_lock="${tmp_dir}/frontend-gate.lock"
+frontend_gate_output="$(run_frontend_gate_with_fake_tools "${frontend_fixture}" "${frontend_vitest_capture}" "${frontend_gate_lock}")"
+assert_contains "${frontend_gate_output}" '{"continue":true}' "frontend hook completes with fake tools"
+assert_contains "$(cat "${frontend_vitest_capture}")" "vitest run" "frontend hook preserves Vitest file parallelism"
+if [[ -e "${frontend_gate_lock}" ]]; then
+  printf '[test][FAIL] frontend hook releases its worktree lock\n' >&2
+  exit 1
+fi
+printf '[test][PASS] frontend hook releases its worktree lock\n'
+
+failed_frontend_gate_lock="${tmp_dir}/failed-frontend-gate.lock"
+failed_frontend_gate_output="$(run_frontend_gate_with_fake_tools "${frontend_fixture}" "${frontend_vitest_capture}" "${failed_frontend_gate_lock}" 1)"
+if ! grep -Fq '"reason":"Super-Dolphin Codex Stop gate failed: frontend vitest (frontend-app).' <<< "${failed_frontend_gate_output}"; then
+  printf '[test][FAIL] parallel frontend stage propagates Vitest failure\n%s\n' "${failed_frontend_gate_output}" >&2
+  exit 1
+fi
+printf '[test][PASS] parallel frontend stage propagates Vitest failure\n'
+if [[ -e "${failed_frontend_gate_lock}" ]]; then
+  printf '[test][FAIL] failed frontend hook releases its worktree lock\n' >&2
+  exit 1
+fi
+printf '[test][PASS] failed frontend hook releases its worktree lock\n'
+
+active_gate_lock="${tmp_dir}/active-gate.lock"
+mkdir "${active_gate_lock}"
+printf '%s\n' "$$" >"${active_gate_lock}/pid"
+active_gate_output="$(run_frontend_gate_with_fake_tools "${frontend_fixture}" "${frontend_vitest_capture}" "${active_gate_lock}")"
+assert_contains "${active_gate_output}" "{\"decision\":\"block\",\"reason\":\"Super-Dolphin Codex Stop gate blocked: another gate is active for this worktree (pid $$).\"}" "concurrent frontend hook fails fast"
+
+stale_gate_lock="${tmp_dir}/stale-gate.lock"
+mkdir "${stale_gate_lock}"
+printf '%s\n' "999999" >"${stale_gate_lock}/pid"
+stale_gate_output="$(run_frontend_gate_with_fake_tools "${frontend_fixture}" "${frontend_vitest_capture}" "${stale_gate_lock}")"
+assert_contains "${stale_gate_output}" '{"continue":true}' "frontend hook reclaims a dead-owner lock"
+if [[ -e "${stale_gate_lock}" ]]; then
+  printf '[test][FAIL] reclaimed frontend hook releases its worktree lock\n' >&2
+  exit 1
+fi
+printf '[test][PASS] reclaimed frontend hook releases its worktree lock\n'
 
 ignored_frontend_fixture="${tmp_dir}/ignored-frontend.txt"
 cat >"${ignored_frontend_fixture}" <<'EOF'

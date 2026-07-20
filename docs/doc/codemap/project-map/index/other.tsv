@@ -554,7 +554,7 @@ scripts/code_size_guard_priority_ssa_guard_test.go	scripts	other	go-test	1453	�
 scripts/code_size_guard.go	scripts	other	go-source	16240	工程自动化、测试守卫、代码地图与开发脚本	scripts,code,size,guard,工程自动化,测试守卫,代码地图与开发脚本
 scripts/codemap_index_test.go	scripts	other	go-test	709	工程自动化、测试守卫、代码地图与开发脚本	scripts,codemap,index,test,工程自动化,测试守卫,代码地图与开发脚本
 scripts/codemap_index.go	scripts	other	go-source	16462	工程自动化、测试守卫、代码地图与开发脚本	scripts,codemap,index,工程自动化,测试守卫,代码地图与开发脚本
-scripts/codex_stop_gate.sh	scripts	other	script	11796	工程自动化、测试守卫、代码地图与开发脚本	scripts,codex,stop,gate,工程自动化,测试守卫,代码地图与开发脚本
+scripts/codex_stop_gate.sh	scripts	other	script	16187	工程自动化、测试守卫、代码地图与开发脚本	scripts,codex,stop,gate,工程自动化,测试守卫,代码地图与开发脚本
 scripts/commit_title_enforcement_baseline.txt	scripts	other	txt	41	工程自动化、测试守卫、代码地图与开发脚本	scripts,commit,title,enforcement,baseline,工程自动化,测试守卫,代码地图与开发脚本
 scripts/configure_hook_node_runtime.sh	scripts	other	script	1742	工程自动化、测试守卫、代码地图与开发脚本	scripts,configure,hook,node,runtime,工程自动化,测试守卫,代码地图与开发脚本
 scripts/dag_m3_dogfood_test.py	scripts	other	py	20323	工程自动化、测试守卫、代码地图与开发脚本	scripts,dag,m3,dogfood,test,工程自动化,测试守卫,代码地图与开发脚本
@@ -644,7 +644,7 @@ scripts/sqlite_release_gates/main.go	scripts	other	go-source	2605	工程自动�
 scripts/test_new_ui_desktop_hot.sh	scripts	other	script	1731	工程自动化、测试守卫、代码地图与开发脚本	scripts,test,new,ui,desktop,hot,工程自动化,测试守卫,代码地图与开发脚本
 scripts/test_with_guard.ps1	scripts	other	script	12071	工程自动化、测试守卫、代码地图与开发脚本	scripts,test,with,guard,工程自动化,测试守卫,代码地图与开发脚本
 scripts/test_with_guard.sh	scripts	other	script	3519	工程自动化、测试守卫、代码地图与开发脚本	scripts,test,with,guard,工程自动化,测试守卫,代码地图与开发脚本
-scripts/tests/test_codex_stop_gate_plan.sh	scripts	other	script	10917	工程自动化、测试守卫、代码地图与开发脚本	scripts,tests,test,codex,stop,gate,plan,工程自动化,测试守卫,代码地图与开发脚本
+scripts/tests/test_codex_stop_gate_plan.sh	scripts	other	script	14392	工程自动化、测试守卫、代码地图与开发脚本	scripts,tests,test,codex,stop,gate,plan,工程自动化,测试守卫,代码地图与开发脚本
 scripts/uat-p21.sh	scripts	other	script	9595	工程自动化、测试守卫、代码地图与开发脚本	scripts,uat,p21,工程自动化,测试守卫,代码地图与开发脚本
 scripts/ui-coverage.sh	scripts	other	script	8745	工程自动化、测试守卫、代码地图与开发脚本	scripts,ui,coverage,工程自动化,测试守卫,代码地图与开发脚本
 scripts/update_apiserver_guard_snapshots.js	scripts	other	js-source	1920	工程自动化、测试守卫、代码地图与开发脚本	scripts,update,apiserver,guard,snapshots,工程自动化,测试守卫,代码地图与开发脚本
