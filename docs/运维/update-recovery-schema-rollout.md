@@ -12,6 +12,13 @@
 - 四个 Environment 分别为 `update-recovery-internal-20`、`update-recovery-10-percent`、`update-recovery-30-percent`、`update-recovery-100-percent`；审批人必须核对当前阶段、前驱 run、候选版本、回滚版本、commit、签名公钥指纹和观察窗口。
 - 四个 Environment 必须在首次运行 workflow 前预先创建，并逐一配置 Required reviewers；平台支持时还必须启用 Prevent self-review，并禁止管理员 bypass。GitHub 可能为未预先创建的名称自动建立无保护 Environment，因此任何环境未创建、Required reviewers 未配置或适用的保护未启用都视为发布 blocker，禁止触发 workflow。
 - 只允许从仓库默认分支触发该 workflow；`validate-inputs` 必须在动态 Environment job 之前校验 default branch 和四阶段 allowlist，防止 API 绕过 choice 输入或从任意分支替换 workflow。
+- `validate-inputs` 必须先在 GitHub-hosted runner 上 checkout 默认分支的完整历史，再执行 `git merge-base --is-ancestor build_commit origin/default_branch`；反向 ancestry、浅克隆或在 self-hosted runner 上补做该检查都不构成发布授权。
+
+## 当前部署 blocker
+
+当前仓库 owner 类型为 `User`，GitHub 不提供本方案要求的自定义 runner group；因此本 workflow 当前不可部署、不可用于发布。只有以下三项全部完成后才能触发：仓库迁移到 `Organization`；组织管理员完成 `update-recovery-release` runner group 预检；可信的 `.github/workflows/update-recovery-upgrade-evidence.yml` producer workflow 与两平台真实 attestation 已实际部署并成功运行。`validate-inputs` 通过仓库 REST API 强制要求 `owner.type=Organization`，并要求可信 producer 文件存在；任一不满足都会 fail-fast，不允许只凭 URL、人工口头确认或标签名称继续。
+
+组织管理员必须在触发前使用具备 Actions 管理权限的凭据完成外部 API 预检并保存响应：查询组织 runner groups，确认目标 group 名称为 `update-recovery-release`、`visibility=selected`、selected repositories 仅包含本仓库、`restricted_to_workflows=true`，且 selected workflow 精确为 `owner/repo/.github/workflows/release.yml@refs/heads/<default_branch>`。仓库 `GITHUB_TOKEN` 通常无权读取组织 runner group 管理配置，因此 workflow 不得把 403/404 当作通过或静默降级；管理员预检响应必须作为 Environment 审批证据，由 reviewer 逐项核对。未提供该证据即为发布 blocker。
 
 ## 原生证据与升级矩阵
 
@@ -22,11 +29,13 @@
 | macOS arm64 | `make release-update-gate`；`scripts/package_macos.sh` 的签名、打包与包内验证 | 当前 commit 的 DMG、原生测试日志、打包日志以及当前 commit 的版本无关恢复状态矩阵 metadata |
 | Windows arm64 | updater/appupdate/failure 与 Guard 原生矩阵；`scripts/package_windows.ps1 -Artifact zip` | 当前 commit 的 ZIP、原生测试日志、打包日志以及当前 commit 的版本无关恢复状态矩阵 metadata |
 
-`release-update-gate` 只证明当前 commit 的版本无关恢复状态矩阵，不证明指定 `previous_version -> version` 或 `version -> previous_version` 已真实执行。两种方向必须此前已在真实 macOS arm64 与 Windows arm64 外部 runner 上执行，并分别以不同的、可定位且不可混淆的本仓库 GitHub Actions run 或 artifact URL 填入 `macos_upgrade_matrix_evidence` 与 `windows_upgrade_matrix_evidence`。任一证据缺失、URL 不属于本仓库 Actions run、两 URL 相同，或证据未同时绑定相同 `version`、`build_commit`、`signing_public_key_fingerprint`、`previous_version`，都视为发布 blocker。
+`release-update-gate` 只证明当前 commit 的版本无关恢复状态矩阵，不证明指定 `previous_version -> version` 或 `version -> previous_version` 已真实执行。两种方向必须此前已由固定路径 `.github/workflows/update-recovery-upgrade-evidence.yml` 在真实 macOS arm64 与 Windows arm64 runner 上执行，并分别以不同的本仓库精确 run URL 填入 `macos_upgrade_matrix_evidence` 与 `windows_upgrade_matrix_evidence`；唯一允许的 URL 形态是 `https://github.com/<owner>/<repo>/actions/runs/<正整数>`，禁止 path、query 或 fragment 后缀。
+
+可信 producer 必须分别上传唯一、未过期的 `update-recovery-upgrade-attestation-macos-arm64` 与 `update-recovery-upgrade-attestation-windows-arm64` artifact，根目录只包含一个 `attestation.json`。`validate-inputs` 使用 `actions: read` 调用 GitHub API，验证 run 存在、`conclusion=success`、`head_sha=build_commit`、workflow path 精确匹配 producer，并下载 attestation 核对 `version`、`build_commit`、`signing_public_key_fingerprint`、`previous_version`、`monitoring_window_hours` 完整五元组、平台和双向升级字段。任何 API、下载、解压、唯一性或字段校验失败都立即阻断。当前仓库尚未部署该可信 producer，因此该 contract 是有意 fail-closed 的部署 blocker，不得退化为仅信 URL。
 
 Windows 当前只支持本地 package/verify 证据；`package_windows_github_release.ps1` 对 package-owned publishing 明确 fail-fast unsupported。该限制不得被包装成发布成功，也不得用 macOS 证据替代 Windows 原生证据。
 
-阶段前驱要求：内部 20 台将 `predecessor_evidence` 固定为 `native-arm64-current-run`，并使用本次 macOS/Windows ARM64 artifacts；10% 引用内部阶段完成且观察结束的 GitHub Actions run URL；30% 引用 10% 完成 run；100% 引用 30% 完成 run。Environment reviewer 必须打开百分比阶段的 `predecessor_evidence`，并逐一核对两平台 upgrade matrix URL 均对应相同 `version`、`build_commit`、`signing_public_key_fingerprint` 和 `previous_version`；缺一即阻断审批。
+阶段前驱要求：内部 20 台将 `predecessor_evidence` 固定为 `native-arm64-current-run`，并使用本次 macOS/Windows ARM64 artifacts；10% 引用内部阶段完成且观察结束的精确 run URL；30% 引用 10% 完成 run；100% 引用 30% 完成 run。每个 final stage job 上传 `update-recovery-stage-attestation-<stage>`，绑定 stage 和完整五元组。百分比阶段通过 API 验证前驱 run 成功、`head_sha` 相同、workflow path 精确为 `.github/workflows/release.yml`，并下载唯一、未过期的预期上一阶段 attestation 核对 stage 与完整五元组。Environment reviewer 必须同时核对前驱和两平台证据中的 `version`、`build_commit`、`signing_public_key_fingerprint`、`previous_version`、`monitoring_window_hours`；缺一即阻断审批。
 
 ## 六项停止条件
 
