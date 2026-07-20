@@ -337,6 +337,7 @@ LSP 对某文件类型不支持的能力要记录为证据缺口，不能写成 
 
 ~~~bash
 cd frontend-app
+SCORE_BASE_SHA="$(git -C .. rev-parse HEAD^)"
 SCORE_WORKTREE="$(mktemp -d)/score-base"
 git -C .. worktree add --detach "$SCORE_WORKTREE" "$SCORE_BASE_SHA"
 node "$SCORE_WORKTREE/frontend-app/scripts/frontend-maintainability-score.mjs" --final --repo "$(pwd)/.." --subject "$(git -C .. rev-parse HEAD)"
@@ -377,7 +378,7 @@ runner emits SCORE_BASE-schema normalized report with SUBJECT SHA/tree, control,
 
 ---
 
-最终候选冻结：`SCORE_BASE=f7fe35fbcd56810506826d11f3032b33740a65ef`；后续 SUBJECT 仅包含本收口记录，评分与总审结论仍以提交绑定的原始证据为准。
+最终候选冻结：`SCORE_BASE=27a8c55ebe979545ce7a5585aa18505923c580a6`；SUBJECT 仅含本记录，结论以绑定证据为准。
 
 ## 8. 停止条件
 
