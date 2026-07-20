@@ -551,9 +551,13 @@ frontend-app/src/WorkbenchSidebarProjectTree.jsx	frontend-app	app-ui	jsx	17011	�
 frontend-app/src/WorkbenchSidebarProjectTree.test.jsx	frontend-app	app-ui	jsx	4453	当前 React/Vite 前端包	frontend,app,src,WorkbenchSidebarProjectTree,test,当前,React,Vite,前端包
 frontend-app/src/WorkbenchSidebarThreadModel.js	frontend-app	app-ui	js-source	4258	当前 React/Vite 前端包	frontend,app,src,WorkbenchSidebarThreadModel,当前,React,Vite,前端包
 frontend-app/src/WorkbenchSidebarThreads.jsx	frontend-app	app-ui	jsx	3885	当前 React/Vite 前端包	frontend,app,src,WorkbenchSidebarThreads,当前,React,Vite,前端包
+frontend-app/tests/agentic-harness/agentic-testing-harness.config.ts	frontend-app	app-ui	ts-source	2401	当前 React/Vite 前端包	frontend,app,tests,agentic,harness,testing,config,当前,React,Vite,前端包
+frontend-app/tests/agentic-harness/identity.mjs	frontend-app	app-ui	js-source	1473	当前 React/Vite 前端包	frontend,app,tests,agentic,harness,identity,当前,React,Vite,前端包
+frontend-app/tests/agentic-harness/launch-super-dolphin.mjs	frontend-app	app-ui	js-source	6132	当前 React/Vite 前端包	frontend,app,tests,agentic,harness,launch,super,dolphin,当前,React,Vite,前端包
+frontend-app/tests/agentic-harness/launch-super-dolphin.test.mjs	frontend-app	app-ui	js-test	3179	当前 React/Vite 前端包	frontend,app,tests,agentic,harness,launch,super,dolphin,test,当前,React,Vite,前端包
 frontend-app/tests/e2e/business-flows.spec.js	frontend-app	app-ui	js-test	20140	React 前端 Playwright E2E 与视觉回归测试	frontend,app,tests,e2e,business,flows,spec,React,前端,Playwright,E2E,与视觉回归测试
 frontend-app/tests/e2e/desktop-ux.spec.js	frontend-app	app-ui	js-test	3384	React 前端 Playwright E2E 与视觉回归测试	frontend,app,tests,e2e,desktop,ux,spec,React,前端,Playwright,E2E,与视觉回归测试
 frontend-app/tests/e2e/desktop-wide.spec.js	frontend-app	app-ui	js-test	11010	React 前端 Playwright E2E 与视觉回归测试	frontend,app,tests,e2e,desktop,wide,spec,React,前端,Playwright,E2E,与视觉回归测试
 frontend-app/tsconfig.contracts.json	frontend-app	app-ui	json	391	当前 React/Vite 前端包	frontend,app,tsconfig,contracts,当前,React,Vite,前端包
-frontend-app/vite.config.js	frontend-app	app-ui	js-source	5526	当前 React/Vite 前端包	frontend,app,vite,config,当前,React,Vite,前端包
-frontend-app/vite.config.test.js	frontend-app	app-ui	js-test	4820	当前 React/Vite 前端包	frontend,app,vite,config,test,当前,React,Vite,前端包
+frontend-app/vite.config.js	frontend-app	app-ui	js-source	7769	当前 React/Vite 前端包	frontend,app,vite,config,当前,React,Vite,前端包
+frontend-app/vite.config.test.js	frontend-app	app-ui	js-test	7085	当前 React/Vite 前端包	frontend,app,vite,config,test,当前,React,Vite,前端包
