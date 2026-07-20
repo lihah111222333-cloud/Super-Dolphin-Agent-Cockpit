@@ -4,10 +4,10 @@
   "rules_sources": [
     ".ai-project-map.overrides.json"
   ],
-  "files": 4605,
+  "files": 4607,
   "domains": {
     "docs-agent": 954,
-    "other": 675,
+    "other": 677,
     "app-ui": 558,
     "platform-provider": 1089,
     "orchestration": 391,
@@ -63,8 +63,8 @@
       {
         "key": "other",
         "file": "docs/doc/codemap/project-map/index/other.tsv",
-        "file_count": 675,
-        "size_kb": 132,
+        "file_count": 677,
+        "size_kb": 132.4,
         "desc": "公共库、脚本、测试、配置与其他根级资源"
       }
     ]
@@ -76,7 +76,7 @@
     "frontend-app": 553,
     "internal": 2218,
     "pkg": 30,
-    "scripts": 136,
+    "scripts": 138,
     "sql": 29,
     "test": 9,
     "tests": 1,
