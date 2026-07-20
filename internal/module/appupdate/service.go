@@ -20,6 +20,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
 	platformconfig "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/config"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util/safego"
 	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
@@ -438,7 +439,7 @@ func writeVerifiedArtifact(tmpPath string, body io.Reader, artifact UpdateArtifa
 	}
 	actualSHA := hex.EncodeToString(hash.Sum(nil))
 	if !strings.EqualFold(actualSHA, artifact.SHA256) {
-		return fmt.Errorf("app update artifact sha256 = %s, want %s", actualSHA, artifact.SHA256)
+		return fmt.Errorf("%w: app update artifact sha256 = %s, want %s", contract.ErrUpdateIntegrityInvalid, actualSHA, artifact.SHA256)
 	}
 	return nil
 }

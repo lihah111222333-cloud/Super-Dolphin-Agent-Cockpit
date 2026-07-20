@@ -17,6 +17,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
 	platformconfig "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/config"
 )
 
@@ -241,7 +242,7 @@ func TestDownloadRejectsArtifactSHA256Mismatch(t *testing.T) {
 	}), nil)
 
 	_, err := svc.Download(context.Background())
-	if err == nil || !strings.Contains(err.Error(), "sha256") {
+	if !errors.Is(err, contract.ErrUpdateIntegrityInvalid) {
 		t.Fatalf("Download() error = %v, want sha256 mismatch", err)
 	}
 }
@@ -683,7 +684,7 @@ func TestInstallRejectsTamperedArtifact(t *testing.T) {
 	}
 
 	_, err := svc.Install(context.Background())
-	if err == nil || !strings.Contains(err.Error(), "sha256") {
+	if !errors.Is(err, contract.ErrUpdateIntegrityInvalid) {
 		t.Fatalf("Install() error = %v, want sha256 mismatch rejection", err)
 	}
 }

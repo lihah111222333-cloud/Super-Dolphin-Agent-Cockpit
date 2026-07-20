@@ -279,7 +279,7 @@ func verifyStagedArtifactSHA256(path, want string) error {
 		return fmt.Errorf("hash staged app update artifact: %w", copyErr)
 	}
 	if got := hex.EncodeToString(h.Sum(nil)); !strings.EqualFold(got, want) {
-		return fmt.Errorf("staged app update artifact sha256 = %s, want %s", got, want)
+		return fmt.Errorf("%w: staged app update artifact sha256 = %s, want %s", contract.ErrUpdateIntegrityInvalid, got, want)
 	}
 	return nil
 }

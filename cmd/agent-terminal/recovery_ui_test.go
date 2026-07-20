@@ -328,6 +328,23 @@ func TestRecoveryRetrySurfacesActualAmbiguityWithTransactionID(t *testing.T) {
 	assertRecoveredState(t, state, err)
 }
 
+func TestRecoveryRetrySurfacesActualDigestMismatchInWailsState(t *testing.T) {
+	fixture := newAmbiguousRecoveryFixture(t)
+	mustAgentTerminalNoError(t, os.Rename(filepath.Join(fixture.root, "external-old-release"), fixture.target))
+	mustAgentTerminalNoError(t, os.WriteFile(filepath.Join(fixture.target, "tampered"), []byte("changed"), 0o600))
+	if _, err := fixture.binding.Retry(t.Context()); err == nil || err.Error() != "RECOVERY_OPERATION_FAILED" {
+		t.Fatalf("Retry() error = %v, want fixed Wails boundary error", err)
+	}
+	state, err := fixture.binding.State(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := app.RecoveryFailureForError(app.ErrUpdateIntegrityInvalid, fixture.id)
+	if state.Failure != want {
+		t.Fatalf("State().Failure = %#v, want %#v", state.Failure, want)
+	}
+}
+
 func assertAmbiguousRecoveryState(t *testing.T, state recoverySurfaceState, id recovery.TransactionID) {
 	t.Helper()
 	if state.Failure.TransactionID != string(id) || state.Failure.Code != "UPDATE_TRANSACTION_AMBIGUOUS" {

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strconv"
@@ -14,6 +15,22 @@ import (
 
 	recovery "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/appupdaterecovery"
 )
+
+func TestVerifyAppSignatureClassifiesOnlyExplicitInvalidStatus(t *testing.T) {
+	exitErr := exec.Command("sh", "-c", "exit 1").Run()
+	invalid := updaterApp{runCommand: func(context.Context, time.Duration, string, ...string) (commandResult, error) {
+		return commandResult{}, exitErr
+	}}
+	if err := invalid.verifyAppSignature("/test/app", "", true); !errors.Is(err, recovery.ErrUpdateSignatureInvalid) {
+		t.Fatalf("verifyAppSignature(exit) error = %v, want ErrUpdateSignatureInvalid", err)
+	}
+	infrastructure := updaterApp{runCommand: func(context.Context, time.Duration, string, ...string) (commandResult, error) {
+		return commandResult{}, context.DeadlineExceeded
+	}}
+	if err := infrastructure.verifyAppSignature("/test/app", "", true); errors.Is(err, recovery.ErrUpdateSignatureInvalid) {
+		t.Fatalf("verifyAppSignature(timeout) error = %v, must remain infrastructure failure", err)
+	}
+}
 
 // TestMain 让 updater 测试二进制在 helper 模式下只处理一次 filesystem 请求。
 func TestMain(m *testing.M) {

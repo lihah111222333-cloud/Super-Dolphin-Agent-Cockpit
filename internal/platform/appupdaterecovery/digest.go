@@ -13,6 +13,8 @@ import (
 	"path/filepath"
 	"sort"
 	"sync"
+
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
 )
 
 const releaseDigestChunkSize = 128 << 10
@@ -315,7 +317,7 @@ func verifyRelease(ctx context.Context, path string, identity ReleaseIdentity) e
 		return err
 	}
 	if digest != identity.SHA256 {
-		return fmt.Errorf("release digest at %s = %s, want %s", path, digest, identity.SHA256)
+		return fmt.Errorf("%w: release digest at %s = %s, want %s", contract.ErrUpdateIntegrityInvalid, path, digest, identity.SHA256)
 	}
 	return nil
 }

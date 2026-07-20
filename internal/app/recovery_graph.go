@@ -7,6 +7,7 @@ import (
 	"slices"
 	"sync"
 
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
 	recovery "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/appupdaterecovery"
 )
 
@@ -59,7 +60,7 @@ func (service RecoveryCheckService) Check(ctx context.Context) error {
 		return err
 	}
 	if digest != transaction.Identity.CandidateRelease.SHA256 {
-		return errors.New("Recovery check found candidate digest mismatch")
+		return fmt.Errorf("%w: Recovery check found candidate digest mismatch", contract.ErrUpdateIntegrityInvalid)
 	}
 	return nil
 }

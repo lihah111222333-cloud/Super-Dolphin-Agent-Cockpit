@@ -6,12 +6,26 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
 )
+
+func TestVerifyReleaseClassifiesActualDigestMismatchAsIntegrityFailure(t *testing.T) {
+	path := filepath.Join(canonicalTestTempDir(t), "release")
+	if err := os.WriteFile(path, []byte("actual"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	err := verifyRelease(t.Context(), path, ReleaseIdentity{SHA256: strings.Repeat("0", 64)})
+	if !errors.Is(err, contract.ErrUpdateIntegrityInvalid) {
+		t.Fatalf("verifyRelease() error = %v, want ErrUpdateIntegrityInvalid", err)
+	}
+}
 
 func TestPackageTrustRejectsRuntimeOverrideAndWrongKey(t *testing.T) {
 	trust := testPackageTrust(t, "darwin-arm64")

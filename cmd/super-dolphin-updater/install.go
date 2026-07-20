@@ -491,7 +491,7 @@ func verifyAppSignature(appPath string, expectedTeamID string, allowUnsigned boo
 func (app updaterApp) verifyAppSignature(appPath string, expectedTeamID string, allowUnsigned bool) error {
 	if allowUnsigned {
 		if _, err := app.runUpdaterCommand("codesign", "--verify", "--deep", "--strict", "--verbose=4", appPath); err != nil {
-			return fmt.Errorf("codesign verify failed: %w", commandError(err))
+			return classifySignatureCommandError("codesign verify failed", err)
 		}
 		return nil
 	}
@@ -499,7 +499,7 @@ func (app updaterApp) verifyAppSignature(appPath string, expectedTeamID string, 
 		return errors.New("expected Team ID is required")
 	}
 	if _, err := app.runUpdaterCommand("codesign", "--verify", "--deep", "--strict", "--verbose=4", appPath); err != nil {
-		return fmt.Errorf("codesign verify failed: %w", commandError(err))
+		return classifySignatureCommandError("codesign verify failed", err)
 	}
 	details, err := app.signingDetails(appPath)
 	if err != nil {
@@ -507,16 +507,16 @@ func (app updaterApp) verifyAppSignature(appPath string, expectedTeamID string, 
 	}
 	teamID := parseSigningValue(details, "TeamIdentifier")
 	if teamID == "" {
-		return errors.New("codesign details missing TeamIdentifier")
+		return fmt.Errorf("%w: codesign details missing TeamIdentifier", recovery.ErrUpdateSignatureInvalid)
 	}
 	if teamID != expectedTeamID {
-		return fmt.Errorf("Team ID mismatch: expected %s, got %s", expectedTeamID, teamID)
+		return fmt.Errorf("%w: Team ID mismatch: expected %s, got %s", recovery.ErrUpdateSignatureInvalid, expectedTeamID, teamID)
 	}
 	if !strings.Contains(details, "Authority=Developer ID Application:") {
-		return errors.New("codesign details missing Developer ID Application authority")
+		return fmt.Errorf("%w: codesign details missing Developer ID Application authority", recovery.ErrUpdateSignatureInvalid)
 	}
 	if _, err := app.runUpdaterCommand("spctl", "-a", "-vv", "-t", "execute", appPath); err != nil {
-		return fmt.Errorf("spctl execute assessment failed: %w", commandError(err))
+		return classifySignatureCommandError("spctl execute assessment failed", err)
 	}
 	return nil
 }
@@ -853,4 +853,13 @@ func commandError(err error) error {
 		return fmt.Errorf("%w: %s", err, strings.TrimSpace(string(exitErr.Stderr)))
 	}
 	return err
+}
+
+// classifySignatureCommandError 只把工具明确的非零退出状态归为签名无效；启动、超时等基础设施错误保持原类别。
+func classifySignatureCommandError(operation string, err error) error {
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) {
+		return fmt.Errorf("%w: %s: %v", recovery.ErrUpdateSignatureInvalid, operation, commandError(err))
+	}
+	return fmt.Errorf("%s: %w", operation, commandError(err))
 }

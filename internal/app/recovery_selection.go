@@ -43,6 +43,8 @@ var (
 	ErrUpdateTransactionAmbiguous = contract.ErrUpdateTransactionAmbiguous
 	// ErrUpdateSignatureInvalid 是 app 层暴露给 command 的更新签名哨兵。
 	ErrUpdateSignatureInvalid = contract.ErrUpdateSignatureInvalid
+	// ErrUpdateIntegrityInvalid 是 app 层暴露给 command 的更新完整性哨兵。
+	ErrUpdateIntegrityInvalid = contract.ErrUpdateIntegrityInvalid
 )
 
 // RecoveryProjection 是 Recovery graph 对持久 transaction 的只读投影。
@@ -235,6 +237,9 @@ func RecoveryFailureForError(err error, transactionID recovery.TransactionID) Re
 	case errors.Is(err, contract.ErrUpdateSignatureInvalid):
 		failure, _ := contract.RecoveryFailureForCode("UPDATE_SIGNATURE_INVALID", string(transactionID))
 		return failure
+	case errors.Is(err, contract.ErrUpdateIntegrityInvalid):
+		failure, _ := contract.RecoveryFailureForCode("UPDATE_INTEGRITY_INVALID", string(transactionID))
+		return failure
 	}
 	return RecoveryFailure{}
 }
@@ -246,6 +251,8 @@ func RecoveryReasonForFailure(code string) string {
 		return "Update transaction state is ambiguous; recovery state was preserved."
 	case "UPDATE_SIGNATURE_INVALID":
 		return "Update signature verification failed; recovery state was preserved."
+	case "UPDATE_INTEGRITY_INVALID":
+		return "Update integrity verification failed; recovery state was preserved."
 	default:
 		return "Recovery action is required; state was preserved."
 	}

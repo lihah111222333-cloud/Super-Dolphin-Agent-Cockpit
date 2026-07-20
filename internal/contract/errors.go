@@ -16,6 +16,8 @@ var (
 	ErrUpdateTransactionAmbiguous = errors.New("update transaction state is ambiguous")
 	// ErrUpdateSignatureInvalid 表示更新签名验证失败，必须保留现场并阻断继续执行。
 	ErrUpdateSignatureInvalid = errors.New("update signature is invalid")
+	// ErrUpdateIntegrityInvalid 表示发布物或 helper 摘要与已绑定身份不一致。
+	ErrUpdateIntegrityInvalid = errors.New("update integrity is invalid")
 )
 
 // ErrSkillMissingCWD 是 skill 模块 cwd 缺失错误的跨层哨兵。
@@ -124,6 +126,7 @@ type recoveryFailureSpec struct {
 var recoveryFailureRegistry = map[string]recoveryFailureSpec{
 	"UPDATE_TRANSACTION_AMBIGUOUS":  {action: RecoveryActionPreserveStateExportDiagnostics},
 	"UPDATE_SIGNATURE_INVALID":      {action: RecoveryActionPreserveStateExportDiagnostics},
+	"UPDATE_INTEGRITY_INVALID":      {action: RecoveryActionPreserveStateExportDiagnostics},
 	"MCP_SCHEMA_CAPACITY_EXHAUSTED": {retryable: true, action: RecoveryActionWaitThenRetry},
 	"MCP_SCHEMA_REAP_FAILED":        {action: RecoveryActionRestartApplication},
 	"MCP_SCHEMA_DIGEST_MISMATCH":    {action: RecoveryActionPreserveStateExportDiagnostics},
