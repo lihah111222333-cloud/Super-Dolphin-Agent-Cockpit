@@ -200,6 +200,9 @@ func TestUpdateRecoveryReleaseGateCIRequiresNativeMacOSAndWindowsEvidence(t *tes
 		"./scripts/test_with_guard.sh ./cmd/super-dolphin-updater ./internal/module/appupdate ./internal/platform/appupdatefailure -count=1",
 		"./scripts/test_with_guard.sh ./cmd/super-dolphin-guard -run 'TestGuard.*(Rollback|Probation|PIDReuse|Termination)' -count=1",
 		"./scripts/test_with_guard.sh ./scripts -run '^TestWindowsPackageVerifierAcceptsRealFixture$' -count=1",
+		`GOOS=windows GOARCH=arm64 CGO_ENABLED=0 ./scripts/go_with_guard.sh test -c -o "$RUNNER_TEMP/updater-arm64.test.exe" ./cmd/super-dolphin-updater`,
+		`GOOS=windows GOARCH=arm64 CGO_ENABLED=0 ./scripts/go_with_guard.sh test -c -o "$RUNNER_TEMP/appupdate-arm64.test.exe" ./internal/module/appupdate`,
+		`GOOS=windows GOARCH=arm64 CGO_ENABLED=0 ./scripts/go_with_guard.sh test -c -o "$RUNNER_TEMP/appupdatefailure-arm64.test.exe" ./internal/platform/appupdatefailure`,
 	} {
 		if !updateRecoveryJobRuns(windowsJob, want) {
 			t.Fatalf("Windows update recovery job missing %q", want)

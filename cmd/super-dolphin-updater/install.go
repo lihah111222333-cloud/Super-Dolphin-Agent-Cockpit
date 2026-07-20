@@ -590,10 +590,7 @@ func (app updaterApp) replaceTargetAppTransactionContextWithStageDir(ctx context
 		return recovery.Transaction{}, false, err
 	}
 	if !targetExists {
-		if err := clearPreJournalFailure(stageDir, generation); err != nil {
-			return recovery.Transaction{}, false, err
-		}
-		return recovery.Transaction{}, false, app.installFirstRelease(stagedApp, targetApp, expectedTeamID, allowUnsigned)
+		return recovery.Transaction{}, false, app.installFirstRelease(stagedApp, targetApp, expectedTeamID, allowUnsigned, stageDir, generation)
 	}
 	request, packageOwned, err := app.prepareReleaseTransaction(ctx, stagedApp, targetApp, expectedTeamID, allowUnsigned)
 	if err != nil {
@@ -606,12 +603,18 @@ func (app updaterApp) replaceTargetAppTransactionContextWithStageDir(ctx context
 	if err != nil {
 		return recovery.Transaction{}, false, removePreparedCandidate(request.Paths.Staging, err)
 	}
-	if err := clearPreparedPreJournalFailure(stageDir, generation, request.Paths.Staging); err != nil {
-		return recovery.Transaction{}, false, err
+	preCommitStarted := false
+	preCommit := func() error {
+		preCommitStarted = true
+		return clearPreJournalFailure(stageDir, generation)
 	}
-	created, err := store.Create(ctx, request)
+	created, err := store.CreateWithPreCommit(ctx, request, preCommit)
 	if err != nil {
-		return recovery.Transaction{}, false, fmt.Errorf("create release transaction: %w", err)
+		cause := fmt.Errorf("create release transaction: %w", err)
+		if stageDir != "" && !preCommitStarted {
+			cause = recordPreJournalFailure(stageDir, generation, cause)
+		}
+		return recovery.Transaction{}, false, removePreparedCandidate(request.Paths.Staging, cause)
 	}
 	return app.completePreparedReleaseTransaction(ctx, store, created, packageOwned)
 }
@@ -690,9 +693,15 @@ func retainBackupAfterGuardArmed(ctx context.Context, store *recovery.Store, ide
 }
 
 // installFirstRelease 保留首次安装兼容性：原子替换并显式不创建 rollback transaction。
-func (app updaterApp) installFirstRelease(stagedApp string, targetApp string, expectedTeamID string, allowUnsigned bool) error {
+func (app updaterApp) installFirstRelease(stagedApp string, targetApp string, expectedTeamID string, allowUnsigned bool, stageDir string, generation string) error {
 	_, paths, err := app.prepareReleaseCandidate(stagedApp, targetApp, expectedTeamID, allowUnsigned)
 	if err != nil {
+		if stageDir != "" {
+			return recordPreJournalFailure(stageDir, generation, err)
+		}
+		return err
+	}
+	if err := clearPreparedPreJournalFailure(stageDir, generation, paths.Staging); err != nil {
 		return err
 	}
 	if err := recovery.InstallFirstRelease(paths.Staging, targetApp); err != nil {

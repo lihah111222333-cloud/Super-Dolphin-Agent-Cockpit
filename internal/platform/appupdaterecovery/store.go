@@ -46,6 +46,18 @@ func NewStore(root string) (*Store, error) {
 
 // Create 校验 exact release identity，并原子建立 pending trust 事务。
 func (store *Store) Create(ctx context.Context, req CreateRequest) (transaction Transaction, err error) {
+	return store.create(ctx, req, nil)
+}
+
+// CreateWithPreCommit 在可信 release 已持久化且 journal 尚未发布时执行一次受控提交回调。
+func (store *Store) CreateWithPreCommit(ctx context.Context, req CreateRequest, preCommit func() error) (transaction Transaction, err error) {
+	if preCommit == nil {
+		return Transaction{}, errors.New("update transaction pre-commit callback is required")
+	}
+	return store.create(ctx, req, preCommit)
+}
+
+func (store *Store) create(ctx context.Context, req CreateRequest, preCommit func() error) (transaction Transaction, err error) {
 	if err := requireContext(ctx); err != nil {
 		return Transaction{}, err
 	}
@@ -60,11 +72,11 @@ func (store *Store) Create(ctx context.Context, req CreateRequest) (transaction 
 		return Transaction{}, err
 	}
 	defer generationLock.releaseInto(&err)
-	return store.createLocked(ctx, req)
+	return store.createLocked(ctx, req, preCommit)
 }
 
 // createLocked 在 generation 锁内分配单调序号并持久化新 transaction。
-func (store *Store) createLocked(ctx context.Context, req CreateRequest) (Transaction, error) {
+func (store *Store) createLocked(ctx context.Context, req CreateRequest, preCommit func() error) (Transaction, error) {
 	targetGeneration, err := store.nextTargetGeneration(ctx, req.Paths.Target, req.Identity.TransactionID)
 	if err != nil {
 		return Transaction{}, err
@@ -81,6 +93,11 @@ func (store *Store) createLocked(ctx context.Context, req CreateRequest) (Transa
 		return Transaction{}, ErrTransactionExists
 	} else if !errors.Is(statErr, os.ErrNotExist) {
 		return Transaction{}, fmt.Errorf("inspect update transaction journal: %w", statErr)
+	}
+	if preCommit != nil {
+		if err := preCommit(); err != nil {
+			return Transaction{}, fmt.Errorf("run update transaction pre-commit: %w", err)
+		}
 	}
 	journal := newJournal(req, targetGeneration, store.now())
 	if err := store.writeLocked(journal); err != nil {

@@ -325,10 +325,7 @@ func (s *service) install(ctx context.Context) (InstallResult, error) {
 	if err != nil {
 		return InstallResult{}, err
 	}
-	if err := validateStagedUpdate(staged); err != nil {
-		return InstallResult{}, err
-	}
-	if err := s.verifyInstallGate(staged); err != nil {
+	if err := s.validateInstallSelection(staged); err != nil {
 		return InstallResult{}, err
 	}
 	generation, err := s.beginInstallAttempt(staged)
@@ -350,6 +347,34 @@ func (s *service) install(ctx context.Context) (InstallResult, error) {
 	}
 	s.scheduleRequestQuit()
 	return InstallResult{Started: true, Helper: helper}, nil
+}
+
+func (s *service) validateInstallSelection(staged selectedUpdate) error {
+	if err := validateStagedUpdate(staged); err != nil {
+		return err
+	}
+	if err := s.validateStagedIdentity(staged); err != nil {
+		return err
+	}
+	return s.verifyInstallGate(staged)
+}
+
+// validateStagedIdentity 将 selected-update 绑定到当前配置平台与唯一 stage 产物路径。
+func (s *service) validateStagedIdentity(staged selectedUpdate) error {
+	if staged.Artifact.Platform != s.cfg.Platform {
+		return fmt.Errorf("selected app update platform %q does not match configured platform %q", staged.Artifact.Platform, s.cfg.Platform)
+	}
+	expected, err := stagedArtifactPathFor(s.cfg.StageDir, staged.Artifact)
+	if err != nil {
+		return err
+	}
+	if selectedArtifactPath(staged) != expected {
+		return fmt.Errorf("selected app update artifact path %q does not match staged path %q", selectedArtifactPath(staged), expected)
+	}
+	if updatePlatformOS(staged.Artifact.Platform) == "darwin" && staged.DMGPath != expected {
+		return fmt.Errorf("selected app update dmg path %q does not match staged path %q", staged.DMGPath, expected)
+	}
+	return nil
 }
 
 // readPreJournalFailure 仅在 Darwin 更新配置下读取可见 failure 状态。

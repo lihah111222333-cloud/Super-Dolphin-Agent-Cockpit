@@ -74,6 +74,79 @@ func TestCopiedSignatureFailureRewritesPreJournalSidecar(t *testing.T) {
 	assertUpdaterSidecar(t, stageDir, "UPDATE_SIGNATURE_INVALID")
 }
 
+func TestFirstReleaseCopiedSignatureFailureWritesPreJournalSidecar(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fixture requires macOS bundle permissions")
+	}
+	exitErr := exec.Command("sh", "-c", "exit 1").Run()
+	oldRunCommand := runCommand
+	t.Cleanup(func() { runCommand = oldRunCommand })
+	codesignCalls := 0
+	runCommand = func(_ context.Context, _ time.Duration, name string, args ...string) (commandResult, error) {
+		switch name {
+		case "codesign":
+			codesignCalls++
+			if codesignCalls == 2 {
+				return commandResult{}, exitErr
+			}
+		case "ditto":
+			return commandResult{}, os.Rename(args[0], args[1])
+		}
+		return commandResult{}, nil
+	}
+	stageDir, dmgPath := testUpdaterStage(t)
+	beginUpdaterAttempt(t, stageDir)
+	mountPoint := realUpdaterTempDir(t)
+	createAppBundle(t, filepath.Join(mountPoint, "Super Dolphin.app"))
+	target := filepath.Join(realUpdaterTempDir(t), "Super Dolphin.app")
+	err := installFromMount(installRequest{DMGPath: dmgPath, TargetAppPath: target, AllowUnsigned: true, Restart: true, Generation: recoveryTestGeneration}, mountPoint)
+	if !errors.Is(err, recovery.ErrUpdateSignatureInvalid) {
+		t.Fatalf("installFromMount() error = %v, want copied signature failure", err)
+	}
+	assertUpdaterSidecar(t, stageDir, "UPDATE_SIGNATURE_INVALID")
+}
+
+func TestFirstReleaseClearFailureRemovesCandidateWithoutInstalling(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fixture requires macOS bundle permissions")
+	}
+	stageDir, dmgPath := testUpdaterStage(t)
+	beginUpdaterAttempt(t, stageDir)
+	oldRunCommand := runCommand
+	t.Cleanup(func() { runCommand = oldRunCommand })
+	candidate := ""
+	runCommand = func(_ context.Context, _ time.Duration, name string, args ...string) (commandResult, error) {
+		if name != "ditto" {
+			return commandResult{}, nil
+		}
+		candidate = args[1]
+		if err := os.Rename(args[0], args[1]); err != nil {
+			return commandResult{}, err
+		}
+		realDir := stageDir + "-real"
+		if err := os.Rename(stageDir, realDir); err != nil {
+			return commandResult{}, err
+		}
+		return commandResult{}, os.Symlink(realDir, stageDir)
+	}
+	mountPoint := realUpdaterTempDir(t)
+	createAppBundle(t, filepath.Join(mountPoint, "Super Dolphin.app"))
+	target := filepath.Join(realUpdaterTempDir(t), "Super Dolphin.app")
+	err := installFromMount(installRequest{DMGPath: dmgPath, TargetAppPath: target, AllowUnsigned: true, Restart: true, Generation: recoveryTestGeneration}, mountPoint)
+	if err == nil || !strings.Contains(err.Error(), "clear app update pre-journal failure") {
+		t.Fatalf("installFromMount() error = %v, want sidecar clear failure", err)
+	}
+	if _, statErr := os.Stat(target); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("target stat error = %v, want first release not installed", statErr)
+	}
+	if candidate == "" {
+		t.Fatal("candidate path was not captured")
+	}
+	if _, statErr := os.Stat(candidate); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("candidate stat error = %v, want candidate removed", statErr)
+	}
+}
+
 func TestPreJournalClearFailureBlocksTransactionCreate(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("fixture requires macOS bundle permissions")
@@ -103,9 +176,9 @@ func TestPreJournalClearFailureBlocksTransactionCreate(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "clear app update pre-journal failure") {
 		t.Fatalf("installFromMount() error = %v, want sidecar clear failure", err)
 	}
-	entries, readErr := os.ReadDir(filepath.Join(parent, updateTransactionDirName))
-	if readErr != nil || len(entries) != 0 {
-		t.Fatalf("transaction root entries = %v, error = %v, want no created transaction", entries, readErr)
+	journals, globErr := filepath.Glob(filepath.Join(parent, updateTransactionDirName, "*", "journal.json"))
+	if globErr != nil || len(journals) != 0 {
+		t.Fatalf("transaction journals = %v, error = %v, want none", journals, globErr)
 	}
 }
 
@@ -151,20 +224,24 @@ func TestPostCreateSidecarCorruptionCannotOverrideJournalFailure(t *testing.T) {
 	}
 }
 
-func TestStoreCreateTailHasNoPreJournalAccess(t *testing.T) {
+func TestStoreCreateSuccessTailHasNoPreJournalAccess(t *testing.T) {
 	raw, err := os.ReadFile("install.go")
 	if err != nil {
 		t.Fatal(err)
 	}
 	source := string(raw)
-	start := strings.Index(source, "created, err := store.Create")
+	start := strings.Index(source, "return app.completePreparedReleaseTransaction")
 	if start < 0 {
-		t.Fatal("transaction create start boundary not found")
+		t.Fatal("transaction create success boundary not found")
 	}
-	tail := source[start:]
+	end := strings.Index(source[start:], "\n}")
+	if end < 0 {
+		t.Fatal("transaction create success end boundary not found")
+	}
+	tail := source[start : start+end]
 	for _, forbidden := range []string{"appupdatefailure.", "PreJournal", "preJournal", "sidecar"} {
 		if strings.Contains(tail, forbidden) {
-			t.Fatalf("Store.Create tail contains forbidden pre-journal access %q", forbidden)
+			t.Fatalf("Store.Create success tail contains forbidden pre-journal access %q", forbidden)
 		}
 	}
 }

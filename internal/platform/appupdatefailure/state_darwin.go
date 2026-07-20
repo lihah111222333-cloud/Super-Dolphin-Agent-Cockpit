@@ -8,9 +8,23 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
 )
 
-const maxSize = 4096
+const (
+	maxSize      = 4096
+	statePending = "pending"
+	stateFailure = "failure"
+)
 
 var errGenerationMissing = errors.New("app update pre-journal generation does not match an active attempt")
+
+type record struct {
+	Version       int    `json:"version"`
+	Generation    string `json:"generation"`
+	State         string `json:"state"`
+	Code          string `json:"code"`
+	Retryable     bool   `json:"retryable"`
+	Action        string `json:"action"`
+	TransactionID string `json:"transaction_id"`
+}
 
 func pendingRecord(generation string) record {
 	return record{Version: Version, Generation: generation, State: statePending}

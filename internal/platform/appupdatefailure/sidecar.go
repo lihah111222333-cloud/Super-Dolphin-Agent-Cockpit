@@ -12,24 +12,12 @@ const (
 	Filename     = "pre-journal-failure.json"
 	LockFilename = ".pre-journal-failure.lock"
 	Version      = 2
-	statePending = "pending"
-	stateFailure = "failure"
 )
 
 var (
 	ErrUnsupported    = errors.New("app update pre-journal sidecar is unsupported on this platform")
 	generationPattern = regexp.MustCompile(`^[0-9a-f]{32}$`)
 )
-
-type record struct {
-	Version       int    `json:"version"`
-	Generation    string `json:"generation"`
-	State         string `json:"state"`
-	Code          string `json:"code"`
-	Retryable     bool   `json:"retryable"`
-	Action        string `json:"action"`
-	TransactionID string `json:"transaction_id"`
-}
 
 // Error 仅携带 registry 校验后的恢复元数据跨越 appupdate RPC 边界。
 type Error struct{ failure contract.RecoveryFailure }

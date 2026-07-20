@@ -4,11 +4,101 @@ package appupdatefailure
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
+	"time"
 
+	"golang.org/x/sync/errgroup"
 	"golang.org/x/sys/unix"
 )
+
+func TestSidecarFlockSerializesProcesses(t *testing.T) {
+	if os.Getenv("SUPER_DOLPHIN_SIDECAR_LOCK_CHILD") == "1" {
+		if err := runSidecarLockChild(); err != nil {
+			t.Fatal(err)
+		}
+		return
+	}
+	testSidecarFlockParent(t)
+}
+
+func testSidecarFlockParent(t *testing.T) {
+	t.Helper()
+	stageDir := privateStageDir(t)
+	ready := filepath.Join(t.TempDir(), "ready")
+	release := filepath.Join(t.TempDir(), "release")
+	cmd := exec.Command(os.Args[0], "-test.run=^TestSidecarFlockSerializesProcesses$")
+	cmd.Env = append(os.Environ(),
+		"SUPER_DOLPHIN_SIDECAR_LOCK_CHILD=1",
+		"SUPER_DOLPHIN_SIDECAR_LOCK_STAGE="+stageDir,
+		"SUPER_DOLPHIN_SIDECAR_LOCK_READY="+ready,
+		"SUPER_DOLPHIN_SIDECAR_LOCK_RELEASE="+release,
+	)
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	waitForSidecarTestFile(t, ready)
+	result := make(chan error, 1)
+	var group errgroup.Group
+	group.Go(func() error {
+		result <- Begin(stageDir, testGenerationOld)
+		return nil
+	})
+	select {
+	case err := <-result:
+		t.Fatalf("Begin() returned before subprocess released flock: %v", err)
+	case <-time.After(150 * time.Millisecond):
+	}
+	if err := os.WriteFile(release, []byte("release"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := cmd.Wait(); err != nil {
+		t.Fatalf("lock holder subprocess failed: %v", err)
+	}
+	select {
+	case err := <-result:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Begin() remained blocked after subprocess released flock")
+	}
+	if err := group.Wait(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func runSidecarLockChild() error {
+	stageDir := os.Getenv("SUPER_DOLPHIN_SIDECAR_LOCK_STAGE")
+	ready := os.Getenv("SUPER_DOLPHIN_SIDECAR_LOCK_READY")
+	release := os.Getenv("SUPER_DOLPHIN_SIDECAR_LOCK_RELEASE")
+	return withLockedStageDir(stageDir, func(*lockedStageDir) error {
+		if err := os.WriteFile(ready, []byte("ready"), 0o600); err != nil {
+			return err
+		}
+		for {
+			if _, err := os.Stat(release); err == nil {
+				return nil
+			} else if !os.IsNotExist(err) {
+				return err
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+	})
+}
+
+func waitForSidecarTestFile(t *testing.T, path string) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, err := os.Stat(path); err == nil {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("timed out waiting for %s", path)
+}
 
 func TestSidecarUsesPrivateFiles(t *testing.T) {
 	stageDir := privateStageDir(t)

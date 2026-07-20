@@ -100,7 +100,7 @@ func TestWindowsAuthenticodeProducersReachRPCAsSafeRecoveryData(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			stageDir := appUpdateRealTempDir(t)
-			installer := writeArgsHelperScriptWithName(t, stageDir+"/installer.args", "Super-Dolphin-windows-amd64.exe")
+			installer := writeArgsHelperScriptAt(t, stageDir+"/installer.args", filepath.Join(stageDir, exeFilename))
 			svc := newService(Config{
 				Enabled:           true,
 				StageDir:          stageDir,

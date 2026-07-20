@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/appupdatefailure"
 	platformconfig "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/config"
 )
 
@@ -291,6 +292,7 @@ func TestInstallRequiresRequestQuitBeforeStartingHelper(t *testing.T) {
 		StageDir:      stageDir,
 		HelperPath:    helper,
 		TargetAppPath: "/Applications/Super Dolphin.app",
+		Platform:      "darwin-arm64",
 	}, nil, nil)
 	writeSelectedInstallFixture(t, svc)
 
@@ -316,6 +318,7 @@ func TestInstallIgnoresCanceledContextAfterDetachedHelperStarts(t *testing.T) {
 		StageDir:      stageDir,
 		HelperPath:    helper,
 		TargetAppPath: "/Applications/Super Dolphin.app",
+		Platform:      "darwin-arm64",
 	}, nil, func() {
 		quitCalled <- struct{}{}
 	})
@@ -347,6 +350,7 @@ func TestInstallPassesAllowUnsignedToHelper(t *testing.T) {
 		HelperPath:    helper,
 		TargetAppPath: "/Applications/Super Dolphin.app",
 		AllowUnsigned: true,
+		Platform:      "darwin-arm64",
 	}, nil, func() {})
 	seedPreJournalFailure(t, stageDir, "UPDATE_SIGNATURE_INVALID")
 	writeSelectedInstallFixture(t, svc)
@@ -412,7 +416,7 @@ func TestInstallStartsWindowsInstallerWithSilentFlag(t *testing.T) {
 	}
 	stageDir := appUpdateRealTempDir(t)
 	argsPath := filepath.Join(stageDir, "installer.args")
-	installer := writeArgsHelperScriptWithName(t, argsPath, "Super-Dolphin-windows-amd64.exe")
+	installer := writeArgsHelperScriptAt(t, argsPath, filepath.Join(stageDir, exeFilename))
 	quitCalled := make(chan struct{}, 1)
 	svc := newService(Config{
 		Enabled:           true,
@@ -458,7 +462,7 @@ func TestInstallStartsWindowsInstallerWithSilentFlag(t *testing.T) {
 func TestInstallRejectsWindowsInstallerBeforeStartWhenAuthenticodeGateFails(t *testing.T) {
 	stageDir := appUpdateRealTempDir(t)
 	argsPath := filepath.Join(stageDir, "installer.args")
-	installer := writeArgsHelperScriptWithName(t, argsPath, "Super-Dolphin-windows-amd64.exe")
+	installer := writeArgsHelperScriptAt(t, argsPath, filepath.Join(stageDir, exeFilename))
 	quitCalled := make(chan struct{}, 1)
 	svc := newService(Config{
 		Enabled:           true,
@@ -590,7 +594,11 @@ func writeArgsHelperScript(t *testing.T, argsPath string) string {
 
 func writeArgsHelperScriptWithName(t *testing.T, argsPath, name string) string {
 	t.Helper()
-	helper := filepath.Join(t.TempDir(), name)
+	return writeArgsHelperScriptAt(t, argsPath, filepath.Join(t.TempDir(), name))
+}
+
+func writeArgsHelperScriptAt(t *testing.T, argsPath, helper string) string {
+	t.Helper()
 	tempArgsPath := argsPath + ".tmp"
 	body := "#!/usr/bin/env bash\nprintf '%s\\n' \"$*\" > " + shellQuote(tempArgsPath) + "\n" +
 		"mv " + shellQuote(tempArgsPath) + " " + shellQuote(argsPath) + "\n"
@@ -610,7 +618,7 @@ func shellQuote(value string) string {
 
 func writeSelectedInstallFixture(t *testing.T, svc *service) {
 	t.Helper()
-	dmgPath := filepath.Join(svc.cfg.StageDir, "fixture.dmg")
+	dmgPath := filepath.Join(svc.cfg.StageDir, dmgFilename)
 	writeSelectedInstallFixtureForPlatform(t, svc, "darwin-arm64", dmgPath)
 }
 
@@ -677,10 +685,11 @@ func TestInstallRejectsTamperedArtifact(t *testing.T) {
 		StageDir:      stageDir,
 		HelperPath:    "/bin/echo",
 		TargetAppPath: "/Applications/Super Dolphin.app",
+		Platform:      "darwin-arm64",
 	}, nil, func() {})
 	// Write staged manifest with correct SHA-256, then overwrite artifact with different content.
 	writeSelectedInstallFixture(t, svc)
-	dmgPath := filepath.Join(stageDir, "fixture.dmg")
+	dmgPath := filepath.Join(stageDir, dmgFilename)
 	if err := os.WriteFile(dmgPath, []byte("tampered"), 0o600); err != nil {
 		t.Fatalf("WriteFile(tampered artifact) error = %v", err)
 	}
@@ -688,5 +697,99 @@ func TestInstallRejectsTamperedArtifact(t *testing.T) {
 	_, err := svc.Install(context.Background())
 	if !errors.Is(err, contract.ErrUpdateIntegrityInvalid) {
 		t.Fatalf("Install() error = %v, want sha256 mismatch rejection", err)
+	}
+}
+
+func TestInstallRejectsSelectedPlatformMismatchBeforeAttempt(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("darwin helper launch uses /bin/sh")
+	}
+	stageDir := appUpdateRealTempDir(t)
+	marker := filepath.Join(stageDir, "helper.started")
+	svc := newService(Config{
+		Enabled: true, StageDir: stageDir, Platform: "darwin-arm64",
+		HelperPath: writeHelperScript(t, marker, 0), TargetAppPath: "/Applications/Super Dolphin.app",
+	}, nil, func() {})
+	artifactPath := filepath.Join(stageDir, dmgFilename)
+	writeSelectedInstallFixtureForPlatform(t, svc, "darwin-amd64", artifactPath)
+
+	if _, err := svc.Install(context.Background()); err == nil || !strings.Contains(err.Error(), "platform") {
+		t.Fatalf("Install() error = %v, want selected platform mismatch", err)
+	}
+	assertInstallAttemptNotStarted(t, stageDir, marker)
+}
+
+func TestInstallRejectsSelectedArtifactOutsideStageBeforeAttempt(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("darwin helper launch uses /bin/sh")
+	}
+	stageDir := appUpdateRealTempDir(t)
+	marker := filepath.Join(stageDir, "helper.started")
+	svc := newService(Config{
+		Enabled: true, StageDir: stageDir, Platform: "darwin-arm64",
+		HelperPath: writeHelperScript(t, marker, 0), TargetAppPath: "/Applications/Super Dolphin.app",
+	}, nil, func() {})
+	artifactPath := filepath.Join(appUpdateRealTempDir(t), dmgFilename)
+	writeSelectedInstallFixtureForPlatform(t, svc, "darwin-arm64", artifactPath)
+
+	if _, err := svc.Install(context.Background()); err == nil || !strings.Contains(err.Error(), "artifact path") {
+		t.Fatalf("Install() error = %v, want staged artifact identity mismatch", err)
+	}
+	assertInstallAttemptNotStarted(t, stageDir, marker)
+}
+
+func TestInstallRejectsNonCleanSelectedArtifactAliasBeforeAttempt(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("darwin helper launch uses /bin/sh")
+	}
+	stageDir := appUpdateRealTempDir(t)
+	marker := filepath.Join(stageDir, "helper.started")
+	svc := newService(Config{
+		Enabled: true, StageDir: stageDir, Platform: "darwin-arm64",
+		HelperPath: writeHelperScript(t, marker, 0), TargetAppPath: "/Applications/Super Dolphin.app",
+	}, nil, func() {})
+	artifactPath := stageDir + "/./" + dmgFilename
+	writeSelectedInstallFixtureForPlatform(t, svc, "darwin-arm64", artifactPath)
+
+	if _, err := svc.Install(context.Background()); err == nil || !strings.Contains(err.Error(), "artifact path") {
+		t.Fatalf("Install() error = %v, want non-clean staged artifact rejection", err)
+	}
+	assertInstallAttemptNotStarted(t, stageDir, marker)
+}
+
+func TestInstallRejectsDivergentDarwinDMGPathBeforeAttempt(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("darwin helper launch uses /bin/sh")
+	}
+	stageDir := appUpdateRealTempDir(t)
+	marker := filepath.Join(stageDir, "helper.started")
+	svc := newService(Config{
+		Enabled: true, StageDir: stageDir, Platform: "darwin-arm64",
+		HelperPath: writeHelperScript(t, marker, 0), TargetAppPath: "/Applications/Super Dolphin.app",
+	}, nil, func() {})
+	artifactPath := filepath.Join(stageDir, dmgFilename)
+	writeSelectedInstallFixtureForPlatform(t, svc, "darwin-arm64", artifactPath)
+	staged, err := readSelectedUpdate(svc.stagedManifestPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	staged.DMGPath = filepath.Join(appUpdateRealTempDir(t), dmgFilename)
+	if err := writeSelectedUpdate(svc.stagedManifestPath(), staged); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := svc.Install(context.Background()); err == nil || !strings.Contains(err.Error(), "dmg path") {
+		t.Fatalf("Install() error = %v, want divergent Darwin dmg_path rejection", err)
+	}
+	assertInstallAttemptNotStarted(t, stageDir, marker)
+}
+
+func assertInstallAttemptNotStarted(t *testing.T, stageDir, marker string) {
+	t.Helper()
+	if _, err := os.Stat(marker); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("helper marker stat error = %v, want helper not started", err)
+	}
+	if _, err := os.Stat(filepath.Join(stageDir, appupdatefailure.Filename)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("pre-journal stat error = %v, want generation not begun", err)
 	}
 }
