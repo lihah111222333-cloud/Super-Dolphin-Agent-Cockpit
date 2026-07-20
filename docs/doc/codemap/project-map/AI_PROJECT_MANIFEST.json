@@ -4,10 +4,10 @@
   "rules_sources": [
     ".ai-project-map.overrides.json"
   ],
-  "files": 4635,
+  "files": 4637,
   "domains": {
-    "docs-agent": 954,
-    "other": 682,
+    "docs-agent": 955,
+    "other": 683,
     "app-ui": 563,
     "platform-provider": 1103,
     "orchestration": 391,
@@ -56,15 +56,15 @@
       {
         "key": "docs-agent",
         "file": "docs/doc/codemap/project-map/index/docs-agent.tsv",
-        "file_count": 954,
-        "size_kb": 171.8,
+        "file_count": 955,
+        "size_kb": 172,
         "desc": "代码地图、ADR/决策、计划与 docs 项目知识"
       },
       {
         "key": "other",
         "file": "docs/doc/codemap/project-map/index/other.tsv",
-        "file_count": 682,
-        "size_kb": 133.5,
+        "file_count": 683,
+        "size_kb": 133.7,
         "desc": "公共库、脚本、测试、配置与其他根级资源"
       }
     ]
@@ -72,11 +72,11 @@
   "module_counts": {
     "(root)": 12,
     "cmd": 666,
-    "docs": 946,
+    "docs": 947,
     "frontend-app": 557,
     "internal": 2237,
     "pkg": 30,
-    "scripts": 139,
+    "scripts": 140,
     "sql": 29,
     "test": 9,
     "tests": 1,
