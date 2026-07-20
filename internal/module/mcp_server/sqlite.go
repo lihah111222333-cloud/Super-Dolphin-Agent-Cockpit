@@ -51,52 +51,97 @@ func (s *service) StartSQLiteServer(ctx context.Context, req StartSQLiteServerRe
 	if err != nil {
 		return StartSQLiteServerResult{}, err
 	}
-	config := defaultSQLiteServerConfig(databasePath)
-	listed, err := s.ListServers(ctx)
+	s.configMu.Lock()
+	defer s.configMu.Unlock()
+	return s.startSQLiteServerLocked(ctx, databasePath)
+}
+
+// startSQLiteServerLocked 在同一配置临界区内重读、判定并写入默认 sqlite server。
+func (s *service) startSQLiteServerLocked(ctx context.Context, databasePath string) (StartSQLiteServerResult, error) {
+	workspaceRoot, servers, err := s.resolveWorkspaceServers(ctx, "")
 	if err != nil {
 		return StartSQLiteServerResult{}, err
 	}
-	if existing, ok := listed.MCPServers[DefaultSQLiteServerName]; ok {
-		if isUpgradeableDefaultSQLiteServerConfig(existing, databasePath) {
-			configPath, err := s.replaceDefaultSQLiteServer(ctx, config)
-			if err != nil {
-				return StartSQLiteServerResult{}, err
-			}
-			return StartSQLiteServerResult{
-				ConfigPath: configPath,
-				ServerName: DefaultSQLiteServerName,
-				Added:      false,
-				Enabled:    true,
-				Config:     config,
-			}, nil
-		}
-		if err := s.setDefaultSQLiteServerEnabled(ctx, true); err != nil {
+	store, err := s.requireStore()
+	if err != nil {
+		return StartSQLiteServerResult{}, err
+	}
+	configPath := mcpServerConfigPath(workspaceRoot)
+	config := defaultSQLiteServerConfig(databasePath)
+	if existing, ok := servers[DefaultSQLiteServerName]; ok {
+		return s.startExistingSQLiteServerLocked(ctx, store, workspaceRoot, configPath, databasePath, existing, config)
+	}
+	return s.insertSQLiteServerLocked(ctx, store, workspaceRoot, configPath, config)
+}
+
+// startExistingSQLiteServerLocked 基于锁内快照替换内置配置或启用当前自定义配置。
+func (s *service) startExistingSQLiteServerLocked(
+	ctx context.Context,
+	store MCPServerConfigStore,
+	workspaceRoot string,
+	configPath string,
+	databasePath string,
+	existing ServerConfig,
+	config ServerConfig,
+) (StartSQLiteServerResult, error) {
+	if isUpgradeableDefaultSQLiteServerConfig(existing, databasePath) {
+		replaced, err := store.ReplaceServer(ctx, StoreMCPServerConfigParams{
+			WorkspaceRoot: workspaceRoot,
+			Name:          DefaultSQLiteServerName,
+			Config:        config,
+		})
+		if err != nil {
 			return StartSQLiteServerResult{}, err
 		}
-		existing.Enabled = boolPtr(true)
-		return StartSQLiteServerResult{
-			ConfigPath: listed.ConfigPath,
-			ServerName: DefaultSQLiteServerName,
-			Added:      false,
-			Enabled:    true,
-			Config:     existing,
-		}, nil
+		if !replaced {
+			return StartSQLiteServerResult{}, fmt.Errorf("%w: %s", errServerNotFound, DefaultSQLiteServerName)
+		}
+		s.configRevision++
+		return startedSQLiteServerResult(configPath, config, false), nil
 	}
-	added, err := s.AddServers(ctx, AddServersRequest{
-		MCPServers: map[string]ServerConfig{
-			DefaultSQLiteServerName: config,
-		},
+	updated, err := store.SetServerEnabled(ctx, workspaceRoot, DefaultSQLiteServerName, true)
+	if err != nil {
+		return StartSQLiteServerResult{}, err
+	}
+	if !updated {
+		return StartSQLiteServerResult{}, fmt.Errorf("%w: %s", errServerNotFound, DefaultSQLiteServerName)
+	}
+	s.configRevision++
+	existing.Enabled = boolPtr(true)
+	return startedSQLiteServerResult(configPath, existing, false), nil
+}
+
+// insertSQLiteServerLocked 在锁内确认缺失后插入默认 sqlite server。
+func (s *service) insertSQLiteServerLocked(
+	ctx context.Context,
+	store MCPServerConfigStore,
+	workspaceRoot string,
+	configPath string,
+	config ServerConfig,
+) (StartSQLiteServerResult, error) {
+	inserted, err := store.InsertServer(ctx, StoreMCPServerConfigParams{
+		WorkspaceRoot: workspaceRoot,
+		Name:          DefaultSQLiteServerName,
+		Config:        config,
 	})
 	if err != nil {
 		return StartSQLiteServerResult{}, err
 	}
+	if !inserted {
+		return StartSQLiteServerResult{}, fmt.Errorf("%w: %s", errServerAlreadyExists, DefaultSQLiteServerName)
+	}
+	s.configRevision++
+	return startedSQLiteServerResult(configPath, config, true), nil
+}
+
+func startedSQLiteServerResult(configPath string, config ServerConfig, added bool) StartSQLiteServerResult {
 	return StartSQLiteServerResult{
-		ConfigPath: added.ConfigPath,
+		ConfigPath: configPath,
 		ServerName: DefaultSQLiteServerName,
-		Added:      true,
+		Added:      added,
 		Enabled:    true,
 		Config:     config,
-	}, nil
+	}
 }
 
 // StopSQLiteServer 关闭默认 sqlite MCP server，但保留配置行供后续 start 复用。
@@ -200,54 +245,35 @@ func sqliteDBHubDSN(databasePath string) string {
 	return "sqlite:///" + filepath.ToSlash(path)
 }
 
-// replaceDefaultSQLiteServer 用当前 dbhub 配置替换可自动转换的默认 sqlite server。
-// store 必须原子更新已存在的 exact workspace/name，成功后才推进配置 revision。
-func (s *service) replaceDefaultSQLiteServer(ctx context.Context, config ServerConfig) (string, error) {
-	s.configMu.Lock()
-	defer s.configMu.Unlock()
-	workspaceRoot, servers, err := s.resolveWorkspaceServers(ctx, "")
-	if err != nil {
-		return "", err
-	}
-	if _, ok := servers[DefaultSQLiteServerName]; !ok {
-		return "", fmt.Errorf("%w: %s", errServerNotFound, DefaultSQLiteServerName)
-	}
-	store, err := s.requireStore()
-	if err != nil {
-		return "", err
-	}
-	replaced, err := store.ReplaceServer(ctx, StoreMCPServerConfigParams{
-		WorkspaceRoot: workspaceRoot,
-		Name:          DefaultSQLiteServerName,
-		Config:        config,
-	})
-	if err != nil {
-		return "", err
-	}
-	if !replaced {
-		return "", fmt.Errorf("%w: %s", errServerNotFound, DefaultSQLiteServerName)
-	}
-	s.configRevision++
-	return mcpServerConfigPath(workspaceRoot), nil
+type sqliteConfigMigrationResult struct {
+	Config ServerConfig
+	Exists bool
 }
 
 // migrateUnpinnedSQLiteServerConfig 在锁内重读并原子替换精确未固定默认配置。
-func (s *service) migrateUnpinnedSQLiteServerConfig(ctx context.Context, cwd, databasePath string) (ServerConfig, bool, error) {
+func (s *service) migrateUnpinnedSQLiteServerConfig(
+	ctx context.Context,
+	cwd string,
+	databasePath string,
+) (sqliteConfigMigrationResult, error) {
 	s.configMu.Lock()
 	defer s.configMu.Unlock()
 	workspaceRoot, servers, err := s.resolveWorkspaceServers(ctx, cwd)
 	if err != nil {
-		return ServerConfig{}, false, err
+		return sqliteConfigMigrationResult{}, err
 	}
 	existing, ok := servers[DefaultSQLiteServerName]
-	if !ok || !isUnpinnedDefaultSQLiteServerConfig(existing, databasePath) {
-		return existing, false, nil
+	if !ok {
+		return sqliteConfigMigrationResult{}, nil
+	}
+	if !isUnpinnedDefaultSQLiteServerConfig(existing, databasePath) {
+		return sqliteConfigMigrationResult{Config: existing, Exists: true}, nil
 	}
 	config := defaultSQLiteServerConfig(databasePath)
 	config.Enabled = cloneBoolPtr(existing.Enabled)
 	store, err := s.requireStore()
 	if err != nil {
-		return ServerConfig{}, false, err
+		return sqliteConfigMigrationResult{}, err
 	}
 	replaced, err := store.ReplaceServer(ctx, StoreMCPServerConfigParams{
 		WorkspaceRoot: workspaceRoot,
@@ -255,13 +281,13 @@ func (s *service) migrateUnpinnedSQLiteServerConfig(ctx context.Context, cwd, da
 		Config:        config,
 	})
 	if err != nil {
-		return ServerConfig{}, false, err
+		return sqliteConfigMigrationResult{}, err
 	}
 	if !replaced {
-		return ServerConfig{}, false, fmt.Errorf("%w: %s", errServerNotFound, DefaultSQLiteServerName)
+		return sqliteConfigMigrationResult{}, fmt.Errorf("%w: %s", errServerNotFound, DefaultSQLiteServerName)
 	}
 	s.configRevision++
-	return config, true, nil
+	return sqliteConfigMigrationResult{Config: config, Exists: true}, nil
 }
 
 // setDefaultSQLiteServerEnabled 只切换默认 sqlite server 的 enabled 状态。

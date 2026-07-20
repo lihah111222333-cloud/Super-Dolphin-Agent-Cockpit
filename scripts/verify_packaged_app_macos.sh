@@ -67,11 +67,25 @@ phase_end() {
 
 verify_packaged_node_version() {
   local node_path="$resources/lsp/node/bin/node"
-  local version major minor patch
-  if [[ ! -x "$node_path" ]] || ! version="$("$node_path" --version 2>/dev/null)"; then
+  local version_output version line_count major minor patch
+  if [[ ! -x "$node_path" ]]; then
     echo "packaged Node.js >= 22.5.0 is required by @bytebase/dbhub@0.23.0" >&2
     exit 1
   fi
+  version_output="$(mktemp "${TMPDIR:-/tmp}/super-dolphin-node-version.XXXXXX")"
+  if ! "$node_path" --version >"$version_output" 2>/dev/null; then
+    rm -f "$version_output"
+    echo "packaged Node.js >= 22.5.0 is required by @bytebase/dbhub@0.23.0" >&2
+    exit 1
+  fi
+  line_count="$(awk 'END { print NR }' "$version_output")"
+  if [[ "$line_count" != "1" ]]; then
+    rm -f "$version_output"
+    echo "packaged Node.js >= 22.5.0 is required by @bytebase/dbhub@0.23.0" >&2
+    exit 1
+  fi
+  version="$(sed -n '1p' "$version_output")"
+  rm -f "$version_output"
   version="${version#"${version%%[![:space:]]*}"}"
   version="${version%"${version##*[![:space:]]}"}"
   if [[ ! "$version" =~ ^v([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then

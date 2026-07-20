@@ -595,6 +595,12 @@ func TestVerifyPackagedAppMacOSRequiresNode225(t *testing.T) {
 		{name: "extra text", write: func() {
 			writePackagedNodeFixture(t, nodePath, "22.5.0 extra")
 		}},
+		{name: "leading blank line", write: func() {
+			writePackagedNodeOutputFixture(t, nodePath, "\nv22.5.0\n")
+		}},
+		{name: "trailing blank line", write: func() {
+			writePackagedNodeOutputFixture(t, nodePath, "v22.5.0\n\n")
+		}},
 		{name: "below minimum minor", write: func() {
 			writePackagedNodeFixture(t, nodePath, "22.4.99")
 		}},

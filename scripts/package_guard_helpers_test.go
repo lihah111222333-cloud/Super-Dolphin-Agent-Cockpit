@@ -474,6 +474,14 @@ func writePackagedNodeFixture(t *testing.T, path, version string) {
 	}
 }
 
+func writePackagedNodeOutputFixture(t *testing.T, path, output string) {
+	t.Helper()
+	writeFile(t, path, "#!/bin/sh\nprintf '%s' "+shellSingleQuoted(output)+"\n", 0o755)
+	if err := os.Chmod(path, 0o755); err != nil {
+		t.Fatalf("chmod packaged Node output fixture: %v", err)
+	}
+}
+
 func writeMacOSPackageTrust(t *testing.T, resources string) {
 	t.Helper()
 	helperDigest := func(name string) string {

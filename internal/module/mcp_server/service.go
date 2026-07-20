@@ -319,7 +319,7 @@ type mcpServerConfigProvider struct {
 
 type sqliteConfigMigrationService interface {
 	resolveSQLiteDatabasePath(requested string) (string, error)
-	migrateUnpinnedSQLiteServerConfig(ctx context.Context, cwd, databasePath string) (ServerConfig, bool, error)
+	migrateUnpinnedSQLiteServerConfig(ctx context.Context, cwd, databasePath string) (sqliteConfigMigrationResult, error)
 }
 
 // AsMCPServerConfigProvider 将 Service 适配为 provider 层可消费的 MCPServerConfigProvider。
@@ -347,12 +347,14 @@ func (p mcpServerConfigProvider) ListMCPServerConfigs(ctx context.Context, cwd s
 		if err != nil {
 			return nil, err
 		}
-		migrated, changed, err := p.sqliteMigration.migrateUnpinnedSQLiteServerConfig(ctx, cwd, databasePath)
+		migration, err := p.sqliteMigration.migrateUnpinnedSQLiteServerConfig(ctx, cwd, databasePath)
 		if err != nil {
 			return nil, err
 		}
-		if changed {
-			result.MCPServers[DefaultSQLiteServerName] = migrated
+		if migration.Exists {
+			result.MCPServers[DefaultSQLiteServerName] = migration.Config
+		} else {
+			delete(result.MCPServers, DefaultSQLiteServerName)
 		}
 	}
 	return enabledMCPServersToContract(result.MCPServers), nil

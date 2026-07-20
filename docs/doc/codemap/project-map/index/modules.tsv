@@ -127,9 +127,9 @@ internal/module/mcp_server/playwright.go	internal	modules	go-source	4441	业务�
 internal/module/mcp_server/rpc_test.go	internal	modules	go-test	16014	业务模块层	internal,module,mcp,server,rpc,test,业务模块层
 internal/module/mcp_server/rpc.go	internal	modules	go-source	10732	业务模块层	internal,module,mcp,server,rpc,业务模块层
 internal/module/mcp_server/service_test.go	internal	modules	go-test	25899	业务模块层	internal,module,mcp,server,service,test,业务模块层
-internal/module/mcp_server/service.go	internal	modules	go-source	23955	业务模块层	internal,module,mcp,server,service,业务模块层
-internal/module/mcp_server/sqlite_test.go	internal	modules	go-test	13338	业务模块层	internal,module,mcp,server,sqlite,test,业务模块层
-internal/module/mcp_server/sqlite.go	internal	modules	go-source	10993	业务模块层	internal,module,mcp,server,sqlite,业务模块层
+internal/module/mcp_server/service.go	internal	modules	go-source	24038	业务模块层	internal,module,mcp,server,service,业务模块层
+internal/module/mcp_server/sqlite_test.go	internal	modules	go-test	19004	业务模块层	internal,module,mcp,server,sqlite,test,业务模块层
+internal/module/mcp_server/sqlite.go	internal	modules	go-source	12096	业务模块层	internal,module,mcp,server,sqlite,业务模块层
 internal/module/mcp_server/store.go	internal	modules	go-source	383	业务模块层	internal,module,mcp,server,store,业务模块层
 internal/module/memory/auto_dream_e2e_manual_test.go	internal	modules	go-test	5573	memory canonical 管理、UI RPC 与持久化接线	internal,module,memory,auto,dream,e2e,manual,test,canonical,管理,UI,RPC,与持久化接线
 internal/module/memory/auto_dream_intent_test.go	internal	modules	go-test	7438	memory canonical 管理、UI RPC 与持久化接线	internal,module,memory,auto,dream,intent,test,canonical,管理,UI,RPC,与持久化接线
