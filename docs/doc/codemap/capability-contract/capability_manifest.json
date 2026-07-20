@@ -2731,6 +2731,7 @@
         "internal/contract.ValidateRecoveryFailure",
         "internal/contract.ValidateResumePromptSnapshot",
         "internal/contract.VerificationResult",
+        "internal/contract.WalkErrorTree",
         "internal/contract.WithSkillCWD",
         "internal/contract.WithStartedSignal",
         "internal/contract.WithThreadID",
@@ -2792,6 +2793,8 @@
         "internal/contract.startRuntimeExtrasAlreadyRendered",
         "internal/contract.threadIDKey",
         "internal/contract.toolLifecycleAlreadyPublishedKey",
+        "internal/contract.walkErrorTreeWithin",
+        "internal/contract.walkJoinedErrors",
         "internal/contract.workerRunner",
         "internal/contract/contracttest.SectionInvalidatorConcurrent",
         "internal/provider/claudecli.*driver.Name",
@@ -7328,6 +7331,7 @@
         "internal/contract.ValidateRecoveryFailure",
         "internal/contract.ValidateResumePromptSnapshot",
         "internal/contract.VerificationResult",
+        "internal/contract.WalkErrorTree",
         "internal/contract.WithSkillCWD",
         "internal/contract.WithStartedSignal",
         "internal/contract.WithThreadID",
@@ -7389,6 +7393,8 @@
         "internal/contract.startRuntimeExtrasAlreadyRendered",
         "internal/contract.threadIDKey",
         "internal/contract.toolLifecycleAlreadyPublishedKey",
+        "internal/contract.walkErrorTreeWithin",
+        "internal/contract.walkJoinedErrors",
         "internal/contract.workerRunner",
         "internal/contract/contracttest.SectionInvalidatorConcurrent",
         "internal/provider/claudecli.*driver.Name",
@@ -11925,6 +11931,7 @@
         "internal/contract.ValidateRecoveryFailure",
         "internal/contract.ValidateResumePromptSnapshot",
         "internal/contract.VerificationResult",
+        "internal/contract.WalkErrorTree",
         "internal/contract.WithSkillCWD",
         "internal/contract.WithStartedSignal",
         "internal/contract.WithThreadID",
@@ -11986,6 +11993,8 @@
         "internal/contract.startRuntimeExtrasAlreadyRendered",
         "internal/contract.threadIDKey",
         "internal/contract.toolLifecycleAlreadyPublishedKey",
+        "internal/contract.walkErrorTreeWithin",
+        "internal/contract.walkJoinedErrors",
         "internal/contract.workerRunner",
         "internal/contract/contracttest.SectionInvalidatorConcurrent",
         "internal/provider/claudecli.*driver.Name",
@@ -16525,6 +16534,7 @@
         "internal/contract.ValidateRecoveryFailure",
         "internal/contract.ValidateResumePromptSnapshot",
         "internal/contract.VerificationResult",
+        "internal/contract.WalkErrorTree",
         "internal/contract.WithSkillCWD",
         "internal/contract.WithStartedSignal",
         "internal/contract.WithThreadID",
@@ -16586,6 +16596,8 @@
         "internal/contract.startRuntimeExtrasAlreadyRendered",
         "internal/contract.threadIDKey",
         "internal/contract.toolLifecycleAlreadyPublishedKey",
+        "internal/contract.walkErrorTreeWithin",
+        "internal/contract.walkJoinedErrors",
         "internal/contract.workerRunner",
         "internal/contract/contracttest.SectionInvalidatorConcurrent",
         "internal/provider/claudecli.*driver.Name",
@@ -18413,12 +18425,12 @@
   ],
   "summary": {
     "total_packages": 41,
-    "total_functions": 2252,
+    "total_functions": 2255,
     "total_methods": 1145,
     "total_interfaces": 185,
     "total_interface_methods": 370,
-    "total_exported": 1261,
-    "total_unexported": 2921,
+    "total_exported": 1262,
+    "total_unexported": 2923,
     "total_structs": 600
   },
   "packages": [
@@ -50897,6 +50909,24 @@
           ]
         },
         {
+          "name": "WalkErrorTree",
+          "exported": true,
+          "params": [
+            {
+              "name": "err",
+              "type": "error"
+            },
+            {
+              "name": "visit",
+              "type": "func(error) bool"
+            }
+          ],
+          "returns": [
+            "bool",
+            "bool"
+          ]
+        },
+        {
           "name": "WithSkillCWD",
           "exported": true,
           "params": [
@@ -51600,6 +51630,50 @@
             }
           ],
           "returns": [
+            "bool"
+          ]
+        },
+        {
+          "name": "walkErrorTreeWithin",
+          "exported": false,
+          "params": [
+            {
+              "name": "err",
+              "type": "error"
+            },
+            {
+              "name": "remaining",
+              "type": "*int"
+            },
+            {
+              "name": "visit",
+              "type": "func(error) bool"
+            }
+          ],
+          "returns": [
+            "bool",
+            "bool"
+          ]
+        },
+        {
+          "name": "walkJoinedErrors",
+          "exported": false,
+          "params": [
+            {
+              "name": "children",
+              "type": "[]error"
+            },
+            {
+              "name": "remaining",
+              "type": "*int"
+            },
+            {
+              "name": "visit",
+              "type": "func(error) bool"
+            }
+          ],
+          "returns": [
+            "bool",
             "bool"
           ]
         }

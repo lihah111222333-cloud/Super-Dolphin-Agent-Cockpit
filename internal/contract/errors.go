@@ -118,6 +118,46 @@ type RecoveryFailureCarrier interface {
 	RecoveryFailure() RecoveryFailure
 }
 
+const errorTreeNodeBudget = 64
+
+// WalkErrorTree 按稳定深度优先顺序遍历有界 error/join 树，并报告是否完整遍历。
+func WalkErrorTree(err error, visit func(error) bool) (matched, complete bool) {
+	remaining := errorTreeNodeBudget
+	return walkErrorTreeWithin(err, &remaining, visit)
+}
+
+// walkErrorTreeWithin 在共享预算内遍历单个错误节点及其子树。
+func walkErrorTreeWithin(err error, remaining *int, visit func(error) bool) (bool, bool) {
+	if err == nil {
+		return false, true
+	}
+	if *remaining == 0 {
+		return false, false
+	}
+	*remaining--
+	if visit(err) {
+		return true, true
+	}
+	if joined, ok := err.(interface{ Unwrap() []error }); ok {
+		return walkJoinedErrors(joined.Unwrap(), remaining, visit)
+	}
+	if wrapped, ok := err.(interface{ Unwrap() error }); ok {
+		return walkErrorTreeWithin(wrapped.Unwrap(), remaining, visit)
+	}
+	return false, true
+}
+
+// walkJoinedErrors 按 errors.Join 的原始顺序遍历所有分支。
+func walkJoinedErrors(children []error, remaining *int, visit func(error) bool) (bool, bool) {
+	for _, child := range children {
+		matched, complete := walkErrorTreeWithin(child, remaining, visit)
+		if matched || !complete {
+			return matched, complete
+		}
+	}
+	return false, true
+}
+
 type recoveryFailureSpec struct {
 	retryable bool
 	action    RecoveryAction
@@ -159,12 +199,19 @@ func ValidateRecoveryFailure(failure RecoveryFailure) error {
 
 // RecoveryFailureFromError 从错误链中的显式 carrier 提取并校验恢复元数据。
 func RecoveryFailureFromError(err error) (RecoveryFailure, bool) {
-	var carrier RecoveryFailureCarrier
-	if !errors.As(err, &carrier) || carrier == nil {
-		return RecoveryFailure{}, false
-	}
-	failure := carrier.RecoveryFailure()
-	if failure == (RecoveryFailure{}) || ValidateRecoveryFailure(failure) != nil {
+	var failure RecoveryFailure
+	_, complete := WalkErrorTree(err, func(current error) bool {
+		carrier, ok := current.(RecoveryFailureCarrier)
+		if !ok || failure != (RecoveryFailure{}) {
+			return false
+		}
+		candidate := carrier.RecoveryFailure()
+		if candidate != (RecoveryFailure{}) && ValidateRecoveryFailure(candidate) == nil {
+			failure = candidate
+		}
+		return false
+	})
+	if !complete || failure == (RecoveryFailure{}) {
 		return RecoveryFailure{}, false
 	}
 	return failure, true

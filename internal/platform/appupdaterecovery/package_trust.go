@@ -621,7 +621,7 @@ func loadCapsuleTrust(platform string, transaction Transaction) (PackageTrust, s
 		return PackageTrust{}, "", fmt.Errorf("load recovery capsule trust: %w", err)
 	}
 	if generation != transaction.Trust.PreviousGeneration {
-		return PackageTrust{}, "", fmt.Errorf("stale recovery trust generation = %s, want %s", generation, transaction.Trust.PreviousGeneration)
+		return PackageTrust{}, "", fmt.Errorf("%w: stale recovery trust generation = %s, want %s", contract.ErrUpdateIntegrityInvalid, generation, transaction.Trust.PreviousGeneration)
 	}
 	if trust.SignerIdentity != transaction.Trust.PackageSigner ||
 		trust.UpdaterSHA256 != transaction.Identity.OldHelpers.UpdaterSHA256 ||

@@ -52,9 +52,9 @@ internal/app/orchestration_dag_runtime_adapter_test.go	internal	other	go-test	16
 internal/app/orchestration_dag_runtime_adapter.go	internal	other	go-source	12661	root Fx/app 装配、runner 与 graph closure	internal,app,orchestration,dag,runtime,adapter,root,Fx,装配,runner,与,graph,closure
 internal/app/provider_hooks_contract_test.go	internal	other	go-test	931	root Fx/app 装配、runner 与 graph closure	internal,app,provider,hooks,contract,test,root,Fx,装配,runner,与,graph,closure
 internal/app/recovery_digest_unix_test.go	internal	other	go-test	6221	root Fx/app 装配、runner 与 graph closure	internal,app,recovery,digest,unix,test,root,Fx,装配,runner,与,graph,closure
-internal/app/recovery_graph_test.go	internal	other	go-test	22397	root Fx/app 装配、runner 与 graph closure	internal,app,recovery,graph,test,root,Fx,装配,runner,与,closure
+internal/app/recovery_graph_test.go	internal	other	go-test	23462	root Fx/app 装配、runner 与 graph closure	internal,app,recovery,graph,test,root,Fx,装配,runner,与,closure
 internal/app/recovery_graph.go	internal	other	go-source	10671	root Fx/app 装配、runner 与 graph closure	internal,app,recovery,graph,root,Fx,装配,runner,与,closure
-internal/app/recovery_selection.go	internal	other	go-source	11477	root Fx/app 装配、runner 与 graph closure	internal,app,recovery,selection,root,Fx,装配,runner,与,graph,closure
+internal/app/recovery_selection.go	internal	other	go-source	11517	root Fx/app 装配、runner 与 graph closure	internal,app,recovery,selection,root,Fx,装配,runner,与,graph,closure
 internal/app/runner_test.go	internal	other	go-test	8403	root Fx/app 装配、runner 与 graph closure	internal,app,runner,test,root,Fx,装配,与,graph,closure
 internal/app/runner.go	internal	other	go-source	8049	root Fx/app 装配、runner 与 graph closure	internal,app,runner,root,Fx,装配,与,graph,closure
 internal/app/runtime_reporter_adapter.go	internal	other	go-source	2586	root Fx/app 装配、runner 与 graph closure	internal,app,runtime,reporter,adapter,root,Fx,装配,runner,与,graph,closure
@@ -314,7 +314,7 @@ internal/contract/dag_final_output_test.go	internal	other	go-test	2532	跨模块
 internal/contract/dag_start_response_test.go	internal	other	go-test	1228	跨模块稳定接口、事件和 DTO 边界	internal,contract,dag,start,response,test,跨模块稳定接口,事件和,DTO,边界
 internal/contract/dependency_policy_test.go	internal	other	go-test	6276	跨模块稳定接口、事件和 DTO 边界	internal,contract,dependency,policy,test,跨模块稳定接口,事件和,DTO,边界
 internal/contract/dream.go	internal	other	go-source	2467	跨模块稳定接口、事件和 DTO 边界	internal,contract,dream,跨模块稳定接口,事件和,DTO,边界
-internal/contract/errors.go	internal	other	go-source	7363	跨模块稳定接口、事件和 DTO 边界	internal,contract,errors,跨模块稳定接口,事件和,DTO,边界
+internal/contract/errors.go	internal	other	go-source	8801	跨模块稳定接口、事件和 DTO 边界	internal,contract,errors,跨模块稳定接口,事件和,DTO,边界
 internal/contract/frc.go	internal	other	go-source	2223	跨模块稳定接口、事件和 DTO 边界	internal,contract,frc,跨模块稳定接口,事件和,DTO,边界
 internal/contract/hooks.go	internal	other	go-source	3874	跨模块稳定接口、事件和 DTO 边界	internal,contract,hooks,跨模块稳定接口,事件和,DTO,边界
 internal/contract/insight.go	internal	other	go-source	3160	跨模块稳定接口、事件和 DTO 边界	internal,contract,insight,跨模块稳定接口,事件和,DTO,边界
@@ -332,7 +332,7 @@ internal/contract/prompt_attachment.go	internal	other	go-source	3885	跨模块�
 internal/contract/prompt.go	internal	other	go-source	29310	跨模块稳定接口、事件和 DTO 边界	internal,contract,prompt,跨模块稳定接口,事件和,DTO,边界
 internal/contract/provider.go	internal	other	go-source	16150	跨模块稳定接口、事件和 DTO 边界	internal,contract,provider,跨模块稳定接口,事件和,DTO,边界
 internal/contract/README.md	internal	other	doc	1319	跨模块稳定接口、事件和 DTO 边界	internal,contract,README,跨模块稳定接口,事件和,DTO,边界
-internal/contract/recovery_failure_test.go	internal	other	go-test	1914	跨模块稳定接口、事件和 DTO 边界	internal,contract,recovery,failure,test,跨模块稳定接口,事件和,DTO,边界
+internal/contract/recovery_failure_test.go	internal	other	go-test	4029	跨模块稳定接口、事件和 DTO 边界	internal,contract,recovery,failure,test,跨模块稳定接口,事件和,DTO,边界
 internal/contract/rpc_dispatch.go	internal	other	go-source	327	跨模块稳定接口、事件和 DTO 边界	internal,contract,rpc,dispatch,跨模块稳定接口,事件和,DTO,边界
 internal/contract/rpc_handler.go	internal	other	go-source	1778	跨模块稳定接口、事件和 DTO 边界	internal,contract,rpc,handler,跨模块稳定接口,事件和,DTO,边界
 internal/contract/runner.go	internal	other	go-source	1953	跨模块稳定接口、事件和 DTO 边界	internal,contract,runner,跨模块稳定接口,事件和,DTO,边界

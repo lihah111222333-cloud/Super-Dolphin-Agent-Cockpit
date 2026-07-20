@@ -276,7 +276,39 @@ func TestRecoveryFailureConstrainsTransactionActions(t *testing.T) {
 	}
 }
 
-func TestRecoverySuccessfulRetryClearsSelectorFailure(t *testing.T) {
+func TestRecoveryRPCAuthorizationUsesFailurePolicy(t *testing.T) {
+	tests := []struct {
+		name           string
+		failure        app.RecoveryFailure
+		retryAllowed   bool
+		restoreAllowed bool
+	}{
+		{name: "projection", retryAllowed: true, restoreAllowed: true},
+		{name: "wait then retry", failure: app.RecoveryFailure{Code: "MCP_SCHEMA_CAPACITY_EXHAUSTED", Retryable: true, Action: app.RecoveryActionWaitThenRetry}, retryAllowed: true},
+		{name: "restart", failure: app.RecoveryFailure{Code: "MCP_SCHEMA_REAP_FAILED", Action: app.RecoveryActionRestartApplication}},
+		{name: "preserve", failure: app.RecoveryFailure{Code: "UPDATE_INTEGRITY_INVALID", Action: app.RecoveryActionPreserveStateExportDiagnostics}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			fixture := newAmbiguousRecoveryFixture(t)
+			mustAgentTerminalNoError(t, os.Rename(filepath.Join(fixture.root, "external-old-release"), fixture.target))
+			runtime := mustAgentTerminalValue(t, func() (*app.RecoveryRuntime, error) {
+				return app.NewRecoveryRuntime(app.StartupSelection{
+					Mode: app.StartupModeRecovery, Store: fixture.store, Transaction: fixture.txn,
+					Projection: app.RecoveryProjection{TransactionID: fixture.id, State: recovery.StateBackupPending}, Failure: test.failure,
+				})
+			})
+			binding := &recoveryBinding{runtime: runtime}
+			_, retryErr := binding.requireAvailableAction(t.Context(), "retry")
+			_, restoreErr := binding.requireAvailableAction(t.Context(), "restore")
+			if (retryErr == nil) != test.retryAllowed || (restoreErr == nil) != test.restoreAllowed {
+				t.Fatalf("authorization retry=%v restore=%v, want retry=%v restore=%v", retryErr, restoreErr, test.retryAllowed, test.restoreAllowed)
+			}
+		})
+	}
+}
+
+func TestRecoverySelectorFailureBlocksRetryUntilExplicitlyCleared(t *testing.T) {
 	fixture := newAmbiguousRecoveryFixture(t)
 	if err := os.Rename(filepath.Join(fixture.root, "external-old-release"), fixture.target); err != nil {
 		t.Fatal(err)
@@ -288,9 +320,14 @@ func TestRecoverySuccessfulRetryClearsSelectorFailure(t *testing.T) {
 			Failure:    app.RecoveryFailure{Code: "UPDATE_TRANSACTION_AMBIGUOUS", Action: app.RecoveryActionPreserveStateExportDiagnostics},
 		})
 	})
-	state, err := (&recoveryBinding{runtime: runtime}).Retry(t.Context())
+	binding := &recoveryBinding{runtime: runtime}
+	if _, err := binding.Retry(t.Context()); err == nil {
+		t.Fatal("Retry() bypassed preserve-state selector failure")
+	}
+	runtime.ClearFailure()
+	state, err := binding.Retry(t.Context())
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("Retry() after ClearFailure() error = %v", err)
 	}
 	if state.Failure.Code != "" || runtime.CurrentFailure().Code != "" {
 		t.Fatalf("successful retry retained selector failure: state=%#v runtime=%#v", state.Failure, runtime.CurrentFailure())
@@ -321,11 +358,14 @@ func TestRecoveryRetrySurfacesActualAmbiguityWithTransactionID(t *testing.T) {
 	}
 	assertAmbiguousRecoveryState(t, state, fixture.id)
 	mustAgentTerminalNoError(t, os.Rename(filepath.Join(fixture.root, "external-old-release"), fixture.target))
-	if _, err := binding.Retry(t.Context()); err != nil {
-		t.Fatalf("Retry() after restoring exact target error = %v", err)
+	if _, err := binding.Retry(t.Context()); err == nil {
+		t.Fatal("Retry() bypassed preserved ambiguity after filesystem changed")
 	}
 	state, err = binding.State(t.Context())
-	assertRecoveredState(t, state, err)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertAmbiguousRecoveryState(t, state, fixture.id)
 }
 
 func TestRecoveryRetrySurfacesActualDigestMismatchInWailsState(t *testing.T) {
@@ -352,13 +392,6 @@ func assertAmbiguousRecoveryState(t *testing.T, state recoverySurfaceState, id r
 	}
 	if state.Projection.State != recovery.StateBackupPending || state.LastAction != "state" {
 		t.Fatalf("State() = %#v, want preserved backup_pending journal", state)
-	}
-}
-
-func assertRecoveredState(t *testing.T, state recoverySurfaceState, err error) {
-	t.Helper()
-	if err != nil || state.Failure.Code != "" || state.Projection.State != recovery.StateBackupRetained {
-		t.Fatalf("State() after successful Retry = %#v, error=%v", state, err)
 	}
 }
 

@@ -212,7 +212,7 @@ func validateProbationCandidate(
 		return fmt.Errorf("verify probation candidate: %w", err)
 	}
 	if digest != transaction.Identity.CandidateRelease.SHA256 {
-		return errors.New("probation candidate release digest mismatch")
+		return fmt.Errorf("%w: probation candidate release digest mismatch", contract.ErrUpdateIntegrityInvalid)
 	}
 	return nil
 }

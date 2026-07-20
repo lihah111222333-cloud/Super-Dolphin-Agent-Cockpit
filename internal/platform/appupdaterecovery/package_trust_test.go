@@ -27,6 +27,19 @@ func TestVerifyReleaseClassifiesActualDigestMismatchAsIntegrityFailure(t *testin
 	}
 }
 
+func TestLoadCapsuleTrustClassifiesGenerationMismatchAsIntegrityFailure(t *testing.T) {
+	fixture := newPendingTrustFixture(t)
+	transaction, err := fixture.store.Load(t.Context(), fixture.request.Identity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	transaction.Trust.PreviousGeneration = strings.Repeat("f", 64)
+	_, _, err = loadCapsuleTrust("darwin-arm64", transaction)
+	if !errors.Is(err, contract.ErrUpdateIntegrityInvalid) {
+		t.Fatalf("loadCapsuleTrust() error = %v, want ErrUpdateIntegrityInvalid", err)
+	}
+}
+
 func TestPackageTrustRejectsRuntimeOverrideAndWrongKey(t *testing.T) {
 	trust := testPackageTrust(t, "darwin-arm64")
 	resources := canonicalTestTempDir(t)

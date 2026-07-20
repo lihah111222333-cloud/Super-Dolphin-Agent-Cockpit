@@ -136,40 +136,15 @@ func errorTreeContainsCode(err error, code Code) bool {
 	return count > 0 || !complete
 }
 
-const errorTreeNodeBudget = 64
-
 // errorTreeVisit 以稳定深度优先顺序遍历有界错误树；返回值表示 visitor 是否提前命中。
 func errorTreeVisit(err error, visit func(error) bool) bool {
-	remaining := errorTreeNodeBudget
-	return errorTreeVisitWithin(err, &remaining, visit)
-}
-
-// errorTreeVisitWithin 消耗共享节点预算递归访问错误树，预算耗尽时立即停止。
-func errorTreeVisitWithin(err error, remaining *int, visit func(error) bool) bool {
-	if err == nil || *remaining == 0 {
-		return false
-	}
-	(*remaining)--
-	if visit(err) {
-		return true
-	}
-	if joined, ok := err.(interface{ Unwrap() []error }); ok {
-		for _, child := range joined.Unwrap() {
-			if errorTreeVisitWithin(child, remaining, visit) {
-				return true
-			}
-		}
-		return false
-	}
-	if wrapped, ok := err.(interface{ Unwrap() error }); ok {
-		return errorTreeVisitWithin(wrapped.Unwrap(), remaining, visit)
-	}
-	return false
+	matched, _ := contract.WalkErrorTree(err, visit)
+	return matched
 }
 
 // errorTreeCodeCount 保守统计单链包装与 errors.Join 多分支中的目标诊断实例。
 func errorTreeCodeCount(err error, code Code) (int, bool) {
-	remaining := errorTreeNodeBudget
+	remaining := 64
 	return errorTreeCodeCountWithin(err, code, &remaining)
 }
 

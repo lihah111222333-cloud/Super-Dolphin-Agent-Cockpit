@@ -2,8 +2,9 @@ path	module	domain	type	size_bytes	purpose	search_keys
 cmd/agent-terminal/frontend.go	cmd	app-ui	go-source	824	Wails 桌面 UI、HTTP server、app host 与前端嵌入入口	cmd,agent,terminal,frontend,Wails,桌面,UI,HTTP,server,app,host,与前端嵌入入口
 cmd/agent-terminal/main_recovery_test.go	cmd	app-ui	go-test	25140	Wails 桌面 UI、HTTP server、app host 与前端嵌入入口	cmd,agent,terminal,main,recovery,test,Wails,桌面,UI,HTTP,server,app,host,与前端嵌入入口
 cmd/agent-terminal/main.go	cmd	app-ui	go-source	13802	Wails 桌面 UI、HTTP server、app host 与前端嵌入入口	cmd,agent,terminal,main,Wails,桌面,UI,HTTP,server,app,host,与前端嵌入入口
-cmd/agent-terminal/recovery_ui_test.go	cmd	app-ui	go-test	31299	Wails 桌面 UI、HTTP server、app host 与前端嵌入入口	cmd,agent,terminal,recovery,ui,test,Wails,桌面,UI,HTTP,server,app,host,与前端嵌入入口
-cmd/agent-terminal/recovery_ui.go	cmd	app-ui	go-source	11212	Wails 桌面 UI、HTTP server、app host 与前端嵌入入口	cmd,agent,terminal,recovery,ui,Wails,桌面,UI,HTTP,server,app,host,与前端嵌入入口
+cmd/agent-terminal/recovery_ui_integrity_test.go	cmd	app-ui	go-test	2810	Wails 桌面 UI、HTTP server、app host 与前端嵌入入口	cmd,agent,terminal,recovery,ui,integrity,test,Wails,桌面,UI,HTTP,server,app,host,与前端嵌入入口
+cmd/agent-terminal/recovery_ui_test.go	cmd	app-ui	go-test	33042	Wails 桌面 UI、HTTP server、app host 与前端嵌入入口	cmd,agent,terminal,recovery,ui,test,Wails,桌面,UI,HTTP,server,app,host,与前端嵌入入口
+cmd/agent-terminal/recovery_ui.go	cmd	app-ui	go-source	12085	Wails 桌面 UI、HTTP server、app host 与前端嵌入入口	cmd,agent,terminal,recovery,ui,Wails,桌面,UI,HTTP,server,app,host,与前端嵌入入口
 frontend-app/.env.example	frontend-app	app-ui	example	652	当前 React/Vite 前端包	frontend,app,env,当前,React,Vite,前端包
 frontend-app/.frontend_code_size_guard_baseline_test.json	frontend-app	app-ui	json	76	当前 React/Vite 前端包	frontend,app,code,size,guard,baseline,test,当前,React,Vite,前端包
 frontend-app/.frontend_code_size_guard_baseline.json	frontend-app	app-ui	json	76	当前 React/Vite 前端包	frontend,app,code,size,guard,baseline,当前,React,Vite,前端包
