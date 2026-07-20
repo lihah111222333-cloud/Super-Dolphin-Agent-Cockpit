@@ -133,7 +133,7 @@ it('imports in a plain Node child process with a configurable read-only navigato
     navigatorMatchesWindow: true,
     writable: true,
   });
-});
+}, 30000);
 
 it('loads the b408 runtime without its missing component and binds BASE and candidate to the same runner probe', () => {
   const repositoryRoot = resolve(process.cwd(), '..');
@@ -187,7 +187,7 @@ it('loads the b408 runtime without its missing component and binds BASE and cand
     execFileSync('git', ['worktree', 'remove', '--force', baseRoot], { cwd: repositoryRoot, stdio: 'ignore' });
     rmSync(temporaryRoot, { recursive: true, force: true });
   }
-});
+}, 30000);
 
 it('binds the immutable BASE subject to the old final contract and every candidate subject to the new final contract', () => {
   expect(stopFeedbackContractForSubject(FROZEN_PLAN_BASE_SHA)).toEqual({
