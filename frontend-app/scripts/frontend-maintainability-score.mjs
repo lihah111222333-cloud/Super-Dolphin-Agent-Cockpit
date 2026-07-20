@@ -2819,6 +2819,7 @@ async function withDetachedSubject(context, callback) {
 }
 
 export function persistScoreReport(result, repoRoot) {
+  assertBoundFinalGate(result);
   const reportRoot = path.join(repoRoot, '.tmp', 'frontend-maintainability-score');
   fs.mkdirSync(reportRoot, { recursive: true });
   for (const [kind, artifact] of Object.entries(result.rawReports || {})) {
@@ -2844,6 +2845,11 @@ function printScore(result, reportPath) {
   process.stdout.write(`SCORE_BASE_TREE\t${result.scoreBaseTree}\n`);
   process.stdout.write(`SUBJECT_TREE_RULE\t${result.subjectContract.treeRelation}\n`);
   if (reportPath) process.stdout.write(`REPORT\t${reportPath}\n`);
+  if (result.finalGate) {
+    const suffix = result.finalGate.reasons.length > 0 ? `\t${result.finalGate.reasons.join('; ')}` : '';
+    const write = result.finalGate.status === 'PASS' ? process.stdout.write.bind(process.stdout) : process.stderr.write.bind(process.stderr);
+    write(`FINAL_GATE\t${result.finalGate.status}${suffix}\n`);
+  }
 }
 
 export function finalGateFailures(result) {
@@ -2859,6 +2865,28 @@ export function finalGateFailures(result) {
   const required = result.controls.filter((control) => control.required && control.status !== 'PASS');
   if (required.length > 0) failures.push(`required controls not PASS: ${required.map(({ id }) => id).join(', ')}`);
   return failures;
+}
+
+export function bindFinalGate(result) {
+  const reasons = finalGateFailures(result);
+  const finalGate = {
+    status: reasons.length === 0 ? 'PASS' : 'FAIL',
+    reasons,
+  };
+  return {
+    ...result,
+    finalGate: {
+      ...finalGate,
+      sha256: createHash('sha256').update(JSON.stringify(finalGate)).digest('hex'),
+    },
+  };
+}
+
+function assertBoundFinalGate(result) {
+  const expected = bindFinalGate(result).finalGate;
+  if (JSON.stringify(result.finalGate) !== JSON.stringify(expected)) {
+    fail('finalGate must be calculated and hash-bound before report persistence');
+  }
 }
 
 function parseCLI(args) {
@@ -2927,18 +2955,14 @@ if (process.argv[1] && fs.realpathSync(path.resolve(process.argv[1])) === fs.rea
       requireClean: true,
       requireFinalContract: true,
     });
-    const result = await withDetachedSubject(targetContext, (executionContext) => (
+    const scored = await withDetachedSubject(targetContext, (executionContext) => (
       scoreContext(executionContext, { runCommands: true })
     ));
+    const result = bindFinalGate(scored);
     const reportPath = persistScoreReport(result, targetContext.repoRoot);
     printScore(result, reportPath);
-    const failures = finalGateFailures(result);
-    if (failures.length > 0) {
-      process.stderr.write(`FINAL_GATE\tFAIL\t${failures.join('; ')}\n`);
+    if (result.finalGate.status === 'FAIL') {
       process.exitCode = 1;
-    }
-    else {
-      process.stdout.write('FINAL_GATE\tPASS\n');
     }
   }
   })().catch((error) => {

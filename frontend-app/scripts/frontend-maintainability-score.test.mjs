@@ -24,6 +24,7 @@ import { HEAP_MEASUREMENT_CLOCK } from './resource-budget.mjs';
 import {
   acceptsNonZeroRunnerExitForValidatedSlice,
   actionProducerGuardOutputStatus,
+  bindFinalGate,
   commandEvidenceStatus,
   controlStatus,
   createSubjectContract,
@@ -1922,8 +1923,15 @@ describe('executable evidence registry', () => {
     temporaryRepositories.push(repoRoot);
     const canonical = '{\n  "a": {\n    "b": 1\n  },\n  "z": 2\n}\n';
     const sha256 = createHash('sha256').update(canonical).digest('hex');
-    const result = {
+    const { controls } = documents();
+    const result = bindFinalGate({
       subjectSha: 'a'.repeat(40),
+      displayScore: controls.thresholds.overall,
+      dimensions: Object.fromEntries(Object.entries(controls.thresholds.dimensions).map(([dimension, score]) => [
+        dimension,
+        { score },
+      ])),
+      controls: controls.controls.map((control) => ({ ...control, status: 'PASS' })),
       rawReports: {
         performance: {
           protocol: 'performance-budget-json-v1',
@@ -1936,7 +1944,7 @@ describe('executable evidence registry', () => {
           report: { z: 2, a: { b: 1 } },
         },
       },
-    };
+    });
 
     const reportPath = persistScoreReport(result, repoRoot);
     const rawPath = join(repoRoot, '.tmp/frontend-maintainability-score', `${result.subjectSha}.performance.raw.json`);
@@ -1956,6 +1964,43 @@ describe('executable evidence registry', () => {
     delete summaryOnly.rawReports.performance.report;
     expect(() => persistScoreReport(summaryOnly, repoRoot))
       .toThrow('normalized raw report bytes or SHA-256 changed before persistence');
+  });
+
+  it('binds PASS and FAIL final gates into persisted report hashes', () => {
+    const repoRoot = mkdtempSync(join(tmpdir(), 'frontend-score-final-gate-'));
+    temporaryRepositories.push(repoRoot);
+    const { controls } = documents();
+    const scoreResult = (subjectSha, failingControlId) => bindFinalGate({
+      subjectSha,
+      displayScore: failingControlId ? 0 : controls.thresholds.overall,
+      dimensions: Object.fromEntries(Object.entries(controls.thresholds.dimensions).map(([dimension, score]) => [
+        dimension,
+        { score: failingControlId ? 0 : score },
+      ])),
+      controls: controls.controls.map((control) => ({
+        ...control,
+        status: control.id === failingControlId ? 'FAIL' : 'PASS',
+      })),
+      rawReports: {},
+    });
+
+    for (const [subjectSha, failingControlId, expectedStatus] of [
+      ['b'.repeat(40), undefined, 'PASS'],
+      ['c'.repeat(40), 'P04-resource-budget', 'FAIL'],
+    ]) {
+      const result = scoreResult(subjectSha, failingControlId);
+      const reportPath = persistScoreReport(result, repoRoot);
+      const persisted = JSON.parse(readFileSync(reportPath, 'utf8'));
+
+      expect(persisted.finalGate.status).toBe(expectedStatus);
+      expect(bindFinalGate(persisted).finalGate).toEqual(persisted.finalGate);
+      const tampered = structuredClone(persisted.finalGate);
+      tampered.reasons.push('tampered reason');
+      expect(createHash('sha256').update(JSON.stringify({
+        status: tampered.status,
+        reasons: tampered.reasons,
+      })).digest('hex')).not.toBe(persisted.finalGate.sha256);
+    }
   });
 
   it('derives Task3 control status from each frozen semantic subset', () => {
