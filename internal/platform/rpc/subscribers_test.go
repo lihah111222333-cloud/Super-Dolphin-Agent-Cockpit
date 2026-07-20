@@ -52,13 +52,13 @@ func TestRPCPushSubscribersRegisterCancelAndDeliver(t *testing.T) {
 		t.Fatal("Register returned nil cancel")
 	}
 
-	event.Publish(dispatcher, rpcPushSubscriberTurnCompleted("thread-1", "turn-1", "agent-1"))
+	event.Publish(dispatcher, rpcPushSubscriberTurnCompleted(t, "thread-1", "turn-1", "agent-1"))
 	waitForRPCPushEnqueued(t, worker, 1)
 
 	cancel()
 	cancel()
 
-	event.Publish(dispatcher, rpcPushSubscriberTurnCompleted("thread-1", "turn-after-cancel", "agent-1"))
+	event.Publish(dispatcher, rpcPushSubscriberTurnCompleted(t, "thread-1", "turn-after-cancel", "agent-1"))
 	time.Sleep(50 * time.Millisecond)
 	if got := worker.EnqueuedTotal(); got != 1 {
 		t.Fatalf("EnqueuedTotal after cancel = %d, want 1", got)
@@ -78,12 +78,22 @@ func rpcPushSubscriberTurnHeader(threadID, turnID, agentID string) shareddto.Tur
 	}
 }
 
-func rpcPushSubscriberTurnCompleted(threadID, turnID, agentID string) turndto.TurnCompleted {
-	return turndto.TurnCompleted{
+func rpcPushSubscriberTurnCompleted(t *testing.T, threadID, turnID, agentID string) turndto.TurnCompleted {
+	t.Helper()
+	completed := turndto.TurnCompleted{
 		TurnHeader: rpcPushSubscriberTurnHeader(threadID, turnID, agentID),
 		Success:    true,
 		Status:     "completed",
 	}
+	terminal, err := turndto.NewTurnTerminalV2(completed, "rpc-push-subscriber-"+turnID)
+	if err != nil {
+		t.Fatalf("NewTurnTerminalV2() error = %v", err)
+	}
+	completed, err = turndto.AttachCanonicalTurnTerminal(completed, terminal)
+	if err != nil {
+		t.Fatalf("AttachCanonicalTurnTerminal() error = %v", err)
+	}
+	return completed
 }
 
 func waitForRPCPushEnqueued(t *testing.T, worker *pushNotificationWorker, want int64) {

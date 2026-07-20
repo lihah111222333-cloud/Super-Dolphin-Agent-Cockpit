@@ -575,7 +575,7 @@ internal/platform/rpc/server_test.go	internal	platform-provider	go-test	4404	JSO
 internal/platform/rpc/server_trace_privacy_test.go	internal	platform-provider	go-test	5333	JSON-RPC transport、dispatch、push 与审批框架	internal,platform,rpc,server,trace,privacy,test,JSON-RPC,transport,dispatch,push,与审批框架
 internal/platform/rpc/server.go	internal	platform-provider	go-source	19119	JSON-RPC transport、dispatch、push 与审批框架	internal,platform,rpc,server,JSON-RPC,transport,dispatch,push,与审批框架
 internal/platform/rpc/strict.go	internal	platform-provider	go-source	847	JSON-RPC transport、dispatch、push 与审批框架	internal,platform,rpc,strict,JSON-RPC,transport,dispatch,push,与审批框架
-internal/platform/rpc/subscribers_test.go	internal	platform-provider	go-test	3021	JSON-RPC transport、dispatch、push 与审批框架	internal,platform,rpc,subscribers,test,JSON-RPC,transport,dispatch,push,与审批框架
+internal/platform/rpc/subscribers_test.go	internal	platform-provider	go-test	3388	JSON-RPC transport、dispatch、push 与审批框架	internal,platform,rpc,subscribers,test,JSON-RPC,transport,dispatch,push,与审批框架
 internal/platform/rpc/subscribers.go	internal	platform-provider	go-source	1304	JSON-RPC transport、dispatch、push 与审批框架	internal,platform,rpc,subscribers,JSON-RPC,transport,dispatch,push,与审批框架
 internal/platform/rpc/testdata/golden/transport/payload_encoder_samples.golden.json	internal	platform-provider	json	318	JSON-RPC transport、dispatch、push 与审批框架	internal,platform,rpc,testdata,golden,transport,payload,encoder,samples,JSON-RPC,dispatch,push,与审批框架
 internal/platform/rpc/timer_jitter.go	internal	platform-provider	go-source	393	JSON-RPC transport、dispatch、push 与审批框架	internal,platform,rpc,timer,jitter,JSON-RPC,transport,dispatch,push,与审批框架
