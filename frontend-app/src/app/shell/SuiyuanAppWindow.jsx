@@ -20,7 +20,6 @@ import {
   X,
   HelpCircle,
 } from 'lucide-react';
-import { useClientStore } from '../../entities/client/model/useClientStore.js';
 import { ActivePageContent, PageLoadingFallback } from '../../AppRoutes.jsx';
 import { SidebarProjectTree as ChatSidebarProjectTree } from '../../WorkbenchSidebarProjectTree.jsx';
 import { COLOR_THEMES } from '../appShellModel.js';
@@ -299,7 +298,6 @@ export function SuiyuanAppWindow({ language, shell, shellLayoutStore, shortcutCo
     updateBanner,
   } = shell;
   const { copy, locale, toggleLocale } = language;
-  const routeStore = useClientStore();
   const [currentPageState, setCurrentPageState] = useState({ activePage: store.activePage, workflowView: 'automation' });
   if (currentPageState.activePage !== store.activePage) {
     setCurrentPageState({ activePage: store.activePage, workflowView: 'automation' });
@@ -434,7 +432,7 @@ export function SuiyuanAppWindow({ language, shell, shellLayoutStore, shortcutCo
               <ActivePageContent
                 activePage={store.activePage}
                 copy={copy}
-                store={routeStore}
+                store={store}
                 projectPath={projectPath}
                 memoryRevision={memoryBadge.memoryRevision}
                 setMemoryPageSimilarCount={memoryBadge.setMemoryPageSimilarCount}
