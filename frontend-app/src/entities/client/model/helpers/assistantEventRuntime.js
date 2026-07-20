@@ -170,33 +170,65 @@ function terminalCacheStats(runtime) {
     terminalStates: runtime.turnTerminalStates.size,
     observedTurns: runtime.observedTurnByThread.size,
     retiredTurns: runtime.retiredTurnRefs.size,
-    overflowed: runtime.terminalCacheOverflowed,
   };
 }
 
-function rejectTerminalCacheOverflow(runtime, deps, event, method, turnRef) {
-  runtime.terminalCacheOverflowed = true;
+function rejectTerminalCacheCapacity(runtime, deps, event, method, turnRef) {
   emitRejectedTurnEvent(runtime, deps, event, method, { ...turnRef, reason: 'capacity' });
   return false;
 }
 
-function trackObservedTurn(runtime, deps, event, method, turnRef) {
-  if (runtime.terminalCacheOverflowed) {
-    return rejectTerminalCacheOverflow(runtime, deps, event, method, turnRef);
+function turnRefIsActive(runtime, deps, turnRef) {
+  return deps.activeTurnIdForThread(runtime.get(), turnRef.threadId) === turnRef.turnId;
+}
+
+function observedTurnRefEvictable(runtime, deps, turnRef) {
+  if (turnRefIsActive(runtime, deps, turnRef)) return false;
+  return runtime.turnTerminalStates.get(runtimeTurnRefKey(turnRef.threadId, turnRef.turnId))?.status !== 'pending';
+}
+
+function retainRetiredTurnRef(runtime, deps, turnRef) {
+  const key = runtimeTurnRefKey(turnRef.threadId, turnRef.turnId);
+  if (runtime.retiredTurnRefs.has(key)) return true;
+  if (runtime.retiredTurnRefs.size >= MAX_TRACKED_TURN_TERMINALS) {
+    for (const [retiredKey, retiredTurnRef] of runtime.retiredTurnRefs) {
+      if (turnRefIsActive(runtime, deps, retiredTurnRef)) continue;
+      runtime.retiredTurnRefs.delete(retiredKey);
+      break;
+    }
   }
+  if (runtime.retiredTurnRefs.size >= MAX_TRACKED_TURN_TERMINALS) return false;
+  runtime.retiredTurnRefs.set(key, turnRef);
+  return true;
+}
+
+function evictOldestInactiveObservedTurn(runtime, deps) {
+  for (const [threadId, turnId] of runtime.observedTurnByThread) {
+    const turnRef = { threadId, turnId };
+    if (!observedTurnRefEvictable(runtime, deps, turnRef)) continue;
+    if (!retainRetiredTurnRef(runtime, deps, turnRef)) return false;
+    runtime.turnTerminalStates.delete(runtimeTurnRefKey(threadId, turnId));
+    runtime.observedTurnByThread.delete(threadId);
+    return true;
+  }
+  return false;
+}
+
+function trackObservedTurn(runtime, deps, event, method, turnRef) {
   const observedTurnId = runtime.observedTurnByThread.get(turnRef.threadId);
   if (observedTurnId === turnRef.turnId) return true;
-  if (!observedTurnId && runtime.observedTurnByThread.size >= MAX_TRACKED_TURN_TERMINALS) {
-    return rejectTerminalCacheOverflow(runtime, deps, event, method, turnRef);
+  if (!observedTurnId && runtime.observedTurnByThread.size >= MAX_TRACKED_TURN_TERMINALS
+    && !evictOldestInactiveObservedTurn(runtime, deps)) {
+    return rejectTerminalCacheCapacity(runtime, deps, event, method, turnRef);
   }
   if (observedTurnId) {
-    const retiredKey = runtimeTurnRefKey(turnRef.threadId, observedTurnId);
-    if (!runtime.retiredTurnRefs.has(retiredKey)
-      && runtime.retiredTurnRefs.size >= MAX_TRACKED_TURN_TERMINALS) {
-      return rejectTerminalCacheOverflow(runtime, deps, event, method, turnRef);
+    const observedTurnRef = { threadId: turnRef.threadId, turnId: observedTurnId };
+    if (!observedTurnRefEvictable(runtime, deps, observedTurnRef)
+      || !retainRetiredTurnRef(runtime, deps, observedTurnRef)) {
+      return rejectTerminalCacheCapacity(runtime, deps, event, method, turnRef);
     }
     runtime.turnTerminalStates.delete(runtimeTurnRefKey(turnRef.threadId, observedTurnId));
-    runtime.retiredTurnRefs.set(retiredKey, true);
+    runtime.observedTurnByThread.delete(turnRef.threadId);
   }
   runtime.observedTurnByThread.set(turnRef.threadId, turnRef.turnId);
   return true;
@@ -204,11 +236,9 @@ function trackObservedTurn(runtime, deps, event, method, turnRef) {
 
 function turnEventRejected(runtime, method, turnRef, deps) {
   const key = runtimeTurnRefKey(turnRef.threadId, turnRef.turnId);
-  if (runtime.terminalCacheOverflowed) {
-    rejectTerminalCacheOverflow(runtime, deps, 'turn.event.cache_exhausted', method, turnRef);
-    return true;
-  }
-  if (runtime.turnTerminalStates.get(key)?.status === 'sealed' || runtime.retiredTurnRefs.has(key)) {
+  if (runtime.turnTerminalStates.get(key)?.status === 'sealed'
+    || runtime.retiredTurnRefs.has(key)
+    || terminalTimelineContainsTurn(runtime, deps, turnRef)) {
     emitRejectedTurnEvent(runtime, deps, 'turn.event.late', method, turnRef);
     return true;
   }
@@ -365,6 +395,11 @@ function terminalTimelineItem(terminal) {
   };
 }
 
+function terminalTimelineContainsTurn(runtime, deps, turnRef) {
+  const timeline = runtime.get().timelinesByThread[turnRef.threadId] || deps.optionalUiArray();
+  return timeline.some((item) => item.kind === 'turn_terminal' && item.turnId === turnRef.turnId);
+}
+
 function terminalNotice(terminal, deps) {
   if (terminal.outcome === 'success') return deps.actionNotice('已收到回复', 'success');
   if (terminal.publicError) return deps.actionNotice(`运行失败：${terminal.publicError.message}`, 'error');
@@ -436,15 +471,6 @@ function applyTurnTerminal(runtime, method, payload, deps) {
   }
   const key = runtimeTurnRefKey(threadId, terminal.turnId);
   const fingerprint = runtimeTerminalFingerprint(terminal);
-  if (runtime.terminalCacheOverflowed) {
-    return rejectTerminalCacheOverflow(
-      runtime,
-      deps,
-      'turn.terminal.cache_exhausted',
-      method,
-      { threadId, turnId: terminal.turnId },
-    );
-  }
   const terminalState = runtime.turnTerminalStates.get(key);
   if (terminalState) {
     if (terminalState.eventId === terminal.eventId && terminalState.fingerprint === fingerprint) return false;
@@ -461,7 +487,8 @@ function applyTurnTerminal(runtime, method, payload, deps) {
   const observedTurnId = runtime.observedTurnByThread.get(threadId);
   if ((observedTurnId && observedTurnId !== terminal.turnId)
     || (!observedTurnId && activeTurnId && activeTurnId !== terminal.turnId)
-    || runtime.retiredTurnRefs.has(key)) {
+    || runtime.retiredTurnRefs.has(key)
+    || terminalTimelineContainsTurn(runtime, deps, { threadId, turnId: terminal.turnId })) {
     emitRejectedTurnEvent(runtime, deps, 'turn.terminal.stale', method, { threadId, turnId: terminal.turnId });
     return false;
   }
@@ -516,12 +543,6 @@ export function clearTurnRuntimeForThread(runtime, threadId) {
     if (key.startsWith(prefix)) runtime.retiredTurnRefs.delete(key);
   }
   runtime.observedTurnByThread.delete(threadId);
-  if (runtime.terminalCacheOverflowed
-    && runtime.turnTerminalStates.size < MAX_TRACKED_TURN_TERMINALS
-    && runtime.observedTurnByThread.size < MAX_TRACKED_TURN_TERMINALS
-    && runtime.retiredTurnRefs.size < MAX_TRACKED_TURN_TERMINALS) {
-    runtime.terminalCacheOverflowed = false;
-  }
 }
 
 function relatedThreadTimelineKeys(state, threadId, deps) {
