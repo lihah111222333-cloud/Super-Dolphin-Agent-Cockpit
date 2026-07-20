@@ -1011,7 +1011,14 @@ function validateDesktopFailureReport(report, { context, control, check, started
   const requiredEvidence = {
     'terminal-failed': {
       hops: ['claudecli.raw', 'claudecli.adapter', 'turndto.TurnOutputDelta', 'wails.EventBridge', 'chromium.DOM', 'codexapp.raw', 'codexapp.adapter', 'turndto.TurnCompleted', 'turn/terminal', 'chromium.DOM'],
-      domAssertions: ['partial-response-visible', 'safe-terminal-visible', 'raw-secret-absent'],
+      domAssertions: [
+        'partial-response-visible',
+        'safe-terminal-visible',
+        'raw-secret-absent',
+        'raw-private-path-absent',
+        'raw-stack-absent',
+        'legacy-remote-copy-absent',
+      ],
     },
     'prompt-history-reject': {
       hops: ['wails.rpc', 'thread/promptHistory', 'frontend.action', 'chromium.DOM', 'retry.control', 'wails.rpc', 'chromium.DOM'],

@@ -583,7 +583,7 @@ function desktopFailureEvidence(context, overrides = {}) {
       vite: { argv: ['npm', 'run', 'dev'], cwd: 'frontend-app', exitCode: null, signal: 'SIGTERM', outputSha256: 'd'.repeat(64) },
     },
     cases: [
-      caseEvidence('terminal-failed', ['claudecli.raw', 'claudecli.adapter', 'turndto.TurnOutputDelta', 'wails.EventBridge', 'chromium.DOM', 'codexapp.raw', 'codexapp.adapter', 'turndto.TurnCompleted', 'turn/terminal', 'chromium.DOM'], ['partial-response-visible', 'safe-terminal-visible', 'raw-secret-absent']),
+      caseEvidence('terminal-failed', ['claudecli.raw', 'claudecli.adapter', 'turndto.TurnOutputDelta', 'wails.EventBridge', 'chromium.DOM', 'codexapp.raw', 'codexapp.adapter', 'turndto.TurnCompleted', 'turn/terminal', 'chromium.DOM'], ['partial-response-visible', 'safe-terminal-visible', 'raw-secret-absent', 'raw-private-path-absent', 'raw-stack-absent', 'legacy-remote-copy-absent']),
       caseEvidence('prompt-history-reject', ['wails.rpc', 'thread/promptHistory', 'frontend.action', 'chromium.DOM', 'retry.control', 'wails.rpc', 'chromium.DOM'], ['draft-preserved', 'cursor-preserved', 'retry-click-recovers']),
     ],
     ...overrides,
@@ -1945,6 +1945,14 @@ describe('executable evidence registry', () => {
     expect(Object.isFrozen(DESKTOP_FAILURE_SOURCE_PATHS)).toBe(true);
     expect(structuredEvidenceStatus(t03Report, t03Options)).toBe('PASS');
     expect(structuredEvidenceStatus({ ...t03Report, schemaVersion: 1 }, t03Options)).toBe('FAIL');
+    expect(structuredEvidenceStatus({
+      ...t03Report,
+      cases: t03Report.cases.map((entry) => (
+        entry.caseId === 'terminal-failed'
+          ? { ...entry, domAssertions: entry.domAssertions.slice(0, 3) }
+          : entry
+      )),
+    }, t03Options)).toBe('FAIL');
 
     const t01Control = controls.controls.find(({ id }) => id === 'T01-red-green-regression');
     const t01Check = t01Control.allOf.find(({ evidenceProtocol }) => evidenceProtocol === 'failure-matrix-report-v1');
