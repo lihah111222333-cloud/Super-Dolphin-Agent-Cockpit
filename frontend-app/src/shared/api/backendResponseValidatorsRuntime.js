@@ -149,7 +149,7 @@ function validateRuntimeUIStateResponse(method, response) {
 }
 
 /** @param {string} method @param {unknown} response */
-function validateRuntimeSidebarStateResponse(method, response) {
+export function validateSidebarStateResponse(method, response) {
   const value = assertBackendResponseObject(method, response);
   assertOnlyResponseKeys(method, value, SIDEBAR_STATE_RESPONSE_KEYS, 'body');
   const { activityStatsByThread, ...coreValue } = value;
@@ -570,14 +570,6 @@ function validateWorkflowTemplatesListResponse(method, response) {
   if (!Array.isArray(value.templates)) throw new TypeError(`${method} response body.templates must be an array`);
   /** @type {unknown[]} */ (value.templates).forEach((template, index) => validateWorkflowTemplateSummary(method, template, `body.templates[${index}]`));
   return value;
-}
-
-/**
- * @param {string} method
- * @param {unknown} response
- */
-export function validateSidebarStateResponse(method, response) {
-  return validateRuntimeSidebarStateResponse(method, response);
 }
 
 /**
