@@ -18,6 +18,7 @@ import (
 const (
 	maxSuppressedToolEnds         = 256
 	maxRolloutToolNames           = 256
+	maxTerminalSeals              = 256
 	turnToolFailurePrefix         = "\x00turn_tool_failure\x00"
 	acceptedInterruptRequestIDKey = "\x00accepted_interrupt_request_id\x00"
 )
@@ -104,6 +105,43 @@ func (s *session) finishTurn(raw dto.RawProviderEvent) {
 	h.complete(errors.New(errText))
 }
 
+// claimTerminalSeal records the first canonical terminal for a public thread and turn.
+// A missing live handle is valid for resumed or asynchronous provider events and is not a duplicate.
+func (s *session) claimTerminalSeal(payload map[string]any) bool {
+	key, ok := s.terminalSealKey(payload)
+	if !ok {
+		return true
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.terminalSeals == nil {
+		s.terminalSeals = map[string]struct{}{}
+	}
+	if _, exists := s.terminalSeals[key]; exists {
+		return false
+	}
+	s.terminalSeals[key] = struct{}{}
+	s.terminalSealOrder = append(s.terminalSealOrder, key)
+	for len(s.terminalSealOrder) > maxTerminalSeals {
+		oldest := s.terminalSealOrder[0]
+		s.terminalSealOrder = s.terminalSealOrder[1:]
+		delete(s.terminalSeals, oldest)
+	}
+	return true
+}
+
+func (s *session) terminalSealKey(payload map[string]any) (string, bool) {
+	turnID := strings.TrimSpace(payloadTurnID(payload))
+	threadID := strings.TrimSpace(s.agentID)
+	if threadID == "" {
+		threadID = shared.FirstNonEmpty(payloadAgentID(payload), payloadThreadID(payload))
+	}
+	if threadID == "" || turnID == "" {
+		return "", false
+	}
+	return threadID + "\x00" + turnID, true
+}
+
 // failMalformedTerminalNotification 使用 active handle 的可信身份发布安全失败终态并关闭 handle。
 func (s *session) failMalformedTerminalNotification(method string) {
 	h := s.takeTurn("")
@@ -122,13 +160,18 @@ func (s *session) failMalformedTerminalNotification(method string) {
 	}
 	errText := "terminal contract: malformed terminal payload"
 	outcome := &dto.TerminalOutcome{Status: "failed", ContractError: "malformed terminal payload"}
-	s.dispatch(dto.RawProviderEvent{EventType: "turn/completed", Terminal: outcome, Data: map[string]any{
+	payload := map[string]any{
 		"agent_id":  s.agentID,
 		"thread_id": s.agentID,
 		"turn_id":   turnID,
 		"timestamp": time.Now().UTC().Format(time.RFC3339Nano),
 		"error":     errText,
-	}})
+	}
+	if !s.claimTerminalSeal(payload) {
+		h.complete(errors.New(errText))
+		return
+	}
+	s.dispatch(dto.RawProviderEvent{EventType: "turn/completed", Terminal: outcome, Data: payload})
 	pkglogger.Warn("codexapp: malformed terminal notification failed active turn",
 		"agent_id", s.agentID,
 		"method", method,
@@ -246,7 +289,6 @@ func (s *session) completeSyntheticTurn(turnID, reason, result string, acceptedI
 	if turnID == "" {
 		return
 	}
-	s.suppressTurn(turnID)
 	failures := s.takeTurnToolFailures(turnID)
 	success := len(failures) == 0
 	status := "completed"
@@ -270,14 +312,20 @@ func (s *session) completeSyntheticTurn(turnID, reason, result string, acceptedI
 		payload["result"] = result
 	}
 	outcome := &dto.TerminalOutcome{Success: success, Status: status, Cause: strings.TrimSpace(reason)}
-	s.dispatch(dto.RawProviderEvent{EventType: "turn/completed", Data: payload, Terminal: outcome})
-	if h := s.takeTurn(turnID); h != nil {
-		if !success {
-			h.complete(errors.New(toolFailureSummary(failures)))
-			return
-		}
-		h.complete(nil)
+	if !s.claimTerminalSeal(payload) {
+		return
 	}
+	h := s.takeTurn(turnID)
+	s.suppressTurn(turnID)
+	s.dispatch(dto.RawProviderEvent{EventType: "turn/completed", Data: payload, Terminal: outcome})
+	if h == nil {
+		return
+	}
+	if !success {
+		h.complete(errors.New(toolFailureSummary(failures)))
+		return
+	}
+	h.complete(nil)
 }
 
 type turnToolFailure struct {

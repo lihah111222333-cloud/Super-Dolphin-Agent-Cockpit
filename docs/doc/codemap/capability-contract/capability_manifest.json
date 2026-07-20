@@ -3441,6 +3441,7 @@
         "internal/provider/codexapp.*session.callTransport",
         "internal/provider/codexapp.*session.callTransportWithGuard",
         "internal/provider/codexapp.*session.claimInterruptTarget",
+        "internal/provider/codexapp.*session.claimTerminalSeal",
         "internal/provider/codexapp.*session.clearProcessedApprovals",
         "internal/provider/codexapp.*session.codexToolSurfaceReleaseScope",
         "internal/provider/codexapp.*session.completeAssistantMessageCompleted",
@@ -3488,6 +3489,7 @@
         "internal/provider/codexapp.*session.onInboundMessage",
         "internal/provider/codexapp.*session.onNotification",
         "internal/provider/codexapp.*session.pendingTurnSnapshot",
+        "internal/provider/codexapp.*session.prepareAndSealTerminalNotification",
         "internal/provider/codexapp.*session.prepareToolCall",
         "internal/provider/codexapp.*session.prepareTurnDynamicTools",
         "internal/provider/codexapp.*session.publishToolCallBegin",
@@ -3533,6 +3535,7 @@
         "internal/provider/codexapp.*session.suppressTurn",
         "internal/provider/codexapp.*session.takeTurn",
         "internal/provider/codexapp.*session.takeTurnToolFailures",
+        "internal/provider/codexapp.*session.terminalSealKey",
         "internal/provider/codexapp.*session.toolEndSuppressionPayload",
         "internal/provider/codexapp.*session.trackCodexRolloutToolName",
         "internal/provider/codexapp.*session.updateRuntimeConfigFromPatch",
@@ -8101,6 +8104,7 @@
         "internal/provider/codexapp.*session.callTransport",
         "internal/provider/codexapp.*session.callTransportWithGuard",
         "internal/provider/codexapp.*session.claimInterruptTarget",
+        "internal/provider/codexapp.*session.claimTerminalSeal",
         "internal/provider/codexapp.*session.clearProcessedApprovals",
         "internal/provider/codexapp.*session.codexToolSurfaceReleaseScope",
         "internal/provider/codexapp.*session.completeAssistantMessageCompleted",
@@ -8148,6 +8152,7 @@
         "internal/provider/codexapp.*session.onInboundMessage",
         "internal/provider/codexapp.*session.onNotification",
         "internal/provider/codexapp.*session.pendingTurnSnapshot",
+        "internal/provider/codexapp.*session.prepareAndSealTerminalNotification",
         "internal/provider/codexapp.*session.prepareToolCall",
         "internal/provider/codexapp.*session.prepareTurnDynamicTools",
         "internal/provider/codexapp.*session.publishToolCallBegin",
@@ -8193,6 +8198,7 @@
         "internal/provider/codexapp.*session.suppressTurn",
         "internal/provider/codexapp.*session.takeTurn",
         "internal/provider/codexapp.*session.takeTurnToolFailures",
+        "internal/provider/codexapp.*session.terminalSealKey",
         "internal/provider/codexapp.*session.toolEndSuppressionPayload",
         "internal/provider/codexapp.*session.trackCodexRolloutToolName",
         "internal/provider/codexapp.*session.updateRuntimeConfigFromPatch",
@@ -12761,6 +12767,7 @@
         "internal/provider/codexapp.*session.callTransport",
         "internal/provider/codexapp.*session.callTransportWithGuard",
         "internal/provider/codexapp.*session.claimInterruptTarget",
+        "internal/provider/codexapp.*session.claimTerminalSeal",
         "internal/provider/codexapp.*session.clearProcessedApprovals",
         "internal/provider/codexapp.*session.codexToolSurfaceReleaseScope",
         "internal/provider/codexapp.*session.completeAssistantMessageCompleted",
@@ -12808,6 +12815,7 @@
         "internal/provider/codexapp.*session.onInboundMessage",
         "internal/provider/codexapp.*session.onNotification",
         "internal/provider/codexapp.*session.pendingTurnSnapshot",
+        "internal/provider/codexapp.*session.prepareAndSealTerminalNotification",
         "internal/provider/codexapp.*session.prepareToolCall",
         "internal/provider/codexapp.*session.prepareTurnDynamicTools",
         "internal/provider/codexapp.*session.publishToolCallBegin",
@@ -12853,6 +12861,7 @@
         "internal/provider/codexapp.*session.suppressTurn",
         "internal/provider/codexapp.*session.takeTurn",
         "internal/provider/codexapp.*session.takeTurnToolFailures",
+        "internal/provider/codexapp.*session.terminalSealKey",
         "internal/provider/codexapp.*session.toolEndSuppressionPayload",
         "internal/provider/codexapp.*session.trackCodexRolloutToolName",
         "internal/provider/codexapp.*session.updateRuntimeConfigFromPatch",
@@ -17426,6 +17435,7 @@
         "internal/provider/codexapp.*session.callTransport",
         "internal/provider/codexapp.*session.callTransportWithGuard",
         "internal/provider/codexapp.*session.claimInterruptTarget",
+        "internal/provider/codexapp.*session.claimTerminalSeal",
         "internal/provider/codexapp.*session.clearProcessedApprovals",
         "internal/provider/codexapp.*session.codexToolSurfaceReleaseScope",
         "internal/provider/codexapp.*session.completeAssistantMessageCompleted",
@@ -17473,6 +17483,7 @@
         "internal/provider/codexapp.*session.onInboundMessage",
         "internal/provider/codexapp.*session.onNotification",
         "internal/provider/codexapp.*session.pendingTurnSnapshot",
+        "internal/provider/codexapp.*session.prepareAndSealTerminalNotification",
         "internal/provider/codexapp.*session.prepareToolCall",
         "internal/provider/codexapp.*session.prepareTurnDynamicTools",
         "internal/provider/codexapp.*session.publishToolCallBegin",
@@ -17518,6 +17529,7 @@
         "internal/provider/codexapp.*session.suppressTurn",
         "internal/provider/codexapp.*session.takeTurn",
         "internal/provider/codexapp.*session.takeTurnToolFailures",
+        "internal/provider/codexapp.*session.terminalSealKey",
         "internal/provider/codexapp.*session.toolEndSuppressionPayload",
         "internal/provider/codexapp.*session.trackCodexRolloutToolName",
         "internal/provider/codexapp.*session.updateRuntimeConfigFromPatch",
@@ -18666,11 +18678,11 @@
   "summary": {
     "total_packages": 41,
     "total_functions": 2275,
-    "total_methods": 1177,
+    "total_methods": 1180,
     "total_interfaces": 184,
     "total_interface_methods": 368,
     "total_exported": 1261,
-    "total_unexported": 2986,
+    "total_unexported": 2989,
     "total_structs": 611
   },
   "packages": [
@@ -73377,6 +73389,20 @@
         },
         {
           "receiver": "*session",
+          "name": "claimTerminalSeal",
+          "exported": false,
+          "params": [
+            {
+              "name": "payload",
+              "type": "map[string]any"
+            }
+          ],
+          "returns": [
+            "bool"
+          ]
+        },
+        {
+          "receiver": "*session",
           "name": "clearProcessedApprovals",
           "exported": false
         },
@@ -74051,6 +74077,25 @@
           "exported": false,
           "returns": [
             "*turnReplayState"
+          ]
+        },
+        {
+          "receiver": "*session",
+          "name": "prepareAndSealTerminalNotification",
+          "exported": false,
+          "params": [
+            {
+              "name": "method",
+              "type": "string"
+            },
+            {
+              "name": "params",
+              "type": "json.RawMessage"
+            }
+          ],
+          "returns": [
+            "dto.RawProviderEvent",
+            "bool"
           ]
         },
         {
@@ -74732,6 +74777,21 @@
           ],
           "returns": [
             "*turnHandle"
+          ]
+        },
+        {
+          "receiver": "*session",
+          "name": "terminalSealKey",
+          "exported": false,
+          "params": [
+            {
+              "name": "payload",
+              "type": "map[string]any"
+            }
+          ],
+          "returns": [
+            "string",
+            "bool"
           ]
         },
         {

@@ -53,6 +53,8 @@ type session struct {
 	activeTurnGeneration   uint64
 	interruptRequests      map[string]*interruptRequestClaim
 	pendingTurn            *turnReplayState
+	terminalSeals          map[string]struct{}
+	terminalSealOrder      []string
 	suppressed             map[string]struct{}
 	suppressedToolEnds     map[string]struct{}
 	suppressedToolOrder    []string
@@ -189,6 +191,7 @@ func newSessionWithOptions(
 		ctx:                   ctx,
 		cancel:                cancel,
 		turns:                 map[string]*turnHandle{},
+		terminalSeals:         map[string]struct{}{},
 		suppressed:            map[string]struct{}{},
 		suppressedToolEnds:    map[string]struct{}{},
 		processedApprovals:    map[string]*processedApprovalEntry{},

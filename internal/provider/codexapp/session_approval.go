@@ -594,23 +594,39 @@ func (s *session) onNotification(method string, params json.RawMessage) {
 		return
 	}
 	method = strings.TrimSpace(method)
-	raw := dto.RawProviderEvent{EventType: method, Data: params}
-	if isTurnTerminalEvent(method) {
-		payload := decodeEventPayload(params)
-		clearCodexProviderUserAttribution(payload)
-		outcome := canonicalTurnTerminalOutcome(method, payload)
-		if outcome.ContractError != "" {
-			s.failMalformedTerminalNotification(method)
-			return
-		}
-		s.applyAcceptedInterruptRequest(payload, &outcome)
-		raw.Data = payload
-		raw.Terminal = &outcome
+	raw, accepted := s.prepareAndSealTerminalNotification(method, params)
+	if !accepted {
+		return
 	}
 	if !isApprovalBridgeMethod(method) || s.approvals == nil {
 		s.dispatch(raw)
 	}
 	s.handleNotificationAction(method, params, raw)
+}
+
+// prepareAndSealTerminalNotification attaches the canonical terminal outcome and claims its first-terminal seal.
+// A contract-invalid terminal fails the active turn, while a conflicting sealed terminal is not dispatched again.
+func (s *session) prepareAndSealTerminalNotification(method string, params json.RawMessage) (dto.RawProviderEvent, bool) {
+	raw := dto.RawProviderEvent{EventType: method, Data: params}
+	if !isTurnTerminalEvent(method) {
+		return raw, true
+	}
+	payload := decodeEventPayload(params)
+	clearCodexProviderUserAttribution(payload)
+	outcome := canonicalTurnTerminalOutcome(method, payload)
+	if outcome.ContractError != "" {
+		s.failMalformedTerminalNotification(method)
+		return dto.RawProviderEvent{}, false
+	}
+	s.applyAcceptedInterruptRequest(payload, &outcome)
+	raw.Data = payload
+	raw.Terminal = &outcome
+	if s.claimTerminalSeal(payload) {
+		return raw, true
+	}
+	pkglogger.Warn("codexapp: suppressed duplicate turn terminal event",
+		"agent_id", s.agentID, "method", method)
+	return dto.RawProviderEvent{}, false
 }
 
 func malformedTerminalNotification(method string, params json.RawMessage) bool {

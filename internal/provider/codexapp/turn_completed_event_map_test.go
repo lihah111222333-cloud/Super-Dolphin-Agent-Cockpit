@@ -2,8 +2,10 @@ package codexapp
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/kelindar/event"
 	dto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/provider"
@@ -63,6 +65,115 @@ func TestTurnCompleted_EndToEnd_AccumulatedResult(t *testing.T) {
 	}
 	if completed.Status != "completed" {
 		t.Fatalf("expected status preserved, got %q", completed.Status)
+	}
+}
+
+func TestOnNotificationFirstTerminalWinsBeforeDispatch(t *testing.T) {
+	bus := event.NewDispatcher()
+	defer func() { _ = bus.Close() }()
+	dispatcher := unified.NewEventDispatcher(bus, nil)
+	RegisterTranslators(dispatcher)
+	completedEvents := make(chan turndto.TurnCompleted, 2)
+	cancelSub := event.Subscribe(bus, func(ev turndto.TurnCompleted) {
+		completedEvents <- ev
+	})
+	defer cancelSub()
+
+	h := newTurnHandle("turn-local", "turn-provider")
+	s := &session{
+		agentID:      "agent-public",
+		dispatcher:   dispatcher,
+		turns:        map[string]*turnHandle{"turn-provider": h},
+		activeTurnID: "turn-provider",
+	}
+	s.onNotification("turn/completed", json.RawMessage(`{"turnId":"turn-provider","threadId":"thread-provider","success":true,"status":"completed"}`))
+	s.onNotification("turn/failed", json.RawMessage(`{"turnId":"turn-provider","threadId":"thread-provider","success":false,"status":"failed","error":"late failure"}`))
+
+	select {
+	case completed := <-completedEvents:
+		if !completed.Success || completed.Status != "completed" {
+			t.Fatalf("first terminal = %#v, want completed success", completed)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for first terminal")
+	}
+	select {
+	case duplicate := <-completedEvents:
+		t.Fatalf("conflicting terminal was dispatched: %#v", duplicate)
+	case <-time.After(50 * time.Millisecond):
+	}
+	select {
+	case <-h.Done():
+	default:
+		t.Fatal("first terminal did not finish turn handle")
+	}
+	if err := h.Err(); err != nil {
+		t.Fatalf("turn handle error = %v, want nil", err)
+	}
+}
+
+func TestOnNotificationFirstTerminalWithoutLiveHandleIsDispatchedOnce(t *testing.T) {
+	bus := event.NewDispatcher()
+	defer func() { _ = bus.Close() }()
+	dispatcher := unified.NewEventDispatcher(bus, nil)
+	RegisterTranslators(dispatcher)
+	completedEvents := make(chan turndto.TurnCompleted, 2)
+	cancelSub := event.Subscribe(bus, func(ev turndto.TurnCompleted) {
+		completedEvents <- ev
+	})
+	defer cancelSub()
+
+	s := &session{agentID: "agent-public", dispatcher: dispatcher}
+	s.onNotification("turn/completed", json.RawMessage(`{"turnId":"turn-provider","threadId":"thread-provider","success":true,"status":"completed"}`))
+	s.onNotification("turn/failed", json.RawMessage(`{"turnId":"turn-provider","threadId":"thread-provider","success":false,"status":"failed","error":"late failure"}`))
+
+	select {
+	case completed := <-completedEvents:
+		if !completed.Success || completed.Status != "completed" {
+			t.Fatalf("first terminal = %#v, want completed success", completed)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for first terminal without handle")
+	}
+	select {
+	case duplicate := <-completedEvents:
+		t.Fatalf("conflicting terminal without handle was dispatched: %#v", duplicate)
+	case <-time.After(50 * time.Millisecond):
+	}
+}
+
+func TestTerminalSealCapacityEvictsOldestAndRetainsRecentConflict(t *testing.T) {
+	s := &session{agentID: "agent-public"}
+	for i := range maxTerminalSeals * 2 {
+		payload := map[string]any{"turnId": fmt.Sprintf("turn-%d", i)}
+		if !s.claimTerminalSeal(payload) {
+			t.Fatalf("turn %d was blocked before terminal seal capacity", i)
+		}
+	}
+	if got := len(s.terminalSeals); got != maxTerminalSeals {
+		t.Fatalf("terminal seal count = %d, want %d", got, maxTerminalSeals)
+	}
+	if got := len(s.terminalSealOrder); got != maxTerminalSeals {
+		t.Fatalf("terminal seal order length = %d, want %d", got, maxTerminalSeals)
+	}
+	recentTurnID := fmt.Sprintf("turn-%d", maxTerminalSeals*2-1)
+	if s.claimTerminalSeal(map[string]any{"turnId": recentTurnID}) {
+		t.Fatal("recent conflicting terminal was not rejected")
+	}
+	if !s.claimTerminalSeal(map[string]any{"turnId": "turn-0"}) {
+		t.Fatal("oldest evicted terminal remained permanently latched")
+	}
+}
+
+func TestTerminalSealKeyUsesPublicSessionThreadIdentity(t *testing.T) {
+	s := &session{agentID: "agent-public"}
+	key, ok := s.terminalSealKey(map[string]any{
+		"agentId":  "provider-agent",
+		"threadId": "provider-thread",
+		"turnId":   "turn-provider",
+	})
+	if !ok || key != "agent-public\x00turn-provider" {
+		t.Fatalf("terminal seal key = %q, ok=%v, want public session thread identity", key, ok)
 	}
 }
 
