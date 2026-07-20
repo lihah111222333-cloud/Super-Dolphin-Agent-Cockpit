@@ -30,13 +30,13 @@ type helperLimiter struct {
 
 // helperCapacityTracker 让一个 limiter 槽等待本次操作登记的全部迟到回收。
 type helperCapacityTracker struct {
-	mu          sync.Mutex
-	releaseOnce sync.Once
-	finishOnce  sync.Once
-	release     func()
-	pending     int
-	registered  bool
-	finished    bool
+	mu           sync.Mutex
+	releaseOnce  sync.Once
+	finishOnce   sync.Once
+	release      func()
+	pending      int
+	managedReaps int
+	finished     bool
 }
 
 func newHelperLimiter(limit int) *helperLimiter {
@@ -200,7 +200,7 @@ func (limiter *helperLimiter) run(
 		pending: 1,
 	}
 	result, err := operation(capacity)
-	capacity.finish(errorTreeContainsCode(err, CodeReapFailed))
+	capacity.finish(errorTreeCodeCount(err, CodeReapFailed))
 	return result, err
 }
 
@@ -208,7 +208,7 @@ func (limiter *helperLimiter) run(
 func (tracker *helperCapacityTracker) registerLateReap() func() {
 	tracker.mu.Lock()
 	tracker.pending++
-	tracker.registered = true
+	tracker.managedReaps++
 	tracker.mu.Unlock()
 	var completeOnce sync.Once
 	return func() {
@@ -216,12 +216,12 @@ func (tracker *helperCapacityTracker) registerLateReap() func() {
 	}
 }
 
-// finish 封闭登记窗口；存在无受管确认路径的 reap failure 时永久保留基准引用。
-func (tracker *helperCapacityTracker) finish(reapFailed bool) {
+// finish 封闭登记窗口；错误树中存在未被登记覆盖的 reap failure 时永久保留基准引用。
+func (tracker *helperCapacityTracker) finish(reapFailures int) {
 	tracker.finishOnce.Do(func() {
 		tracker.mu.Lock()
 		tracker.finished = true
-		if reapFailed && !tracker.registered {
+		if reapFailures != tracker.managedReaps {
 			tracker.mu.Unlock()
 			return
 		}

@@ -50,3 +50,27 @@ func TestHelperLimiterReturnsSlotAfterNestedLateReap(t *testing.T) {
 		t.Fatalf("limiter.run() after nested late reap error = %v", err)
 	}
 }
+
+func TestHelperLimiterKeepsSlotForMixedManagedAndUnmanagedReapFailures(t *testing.T) {
+	limiter := newHelperLimiter(1)
+	var completeManagedReap func()
+	managed := newDiagnostic(CodeReapFailed, "managed fixture did not reap", nil)
+	unmanaged := newDiagnostic(CodeReapFailed, "unmanaged fixture did not reap", nil)
+
+	if _, err := limiter.run(context.Background(), func(capacity *helperCapacityTracker) (Result, error) {
+		completeManagedReap = capacity.registerLateReap()
+		return Result{}, errors.Join(managed, unmanaged)
+	}); !errors.Is(err, managed) || !errors.Is(err, unmanaged) {
+		t.Fatalf("limiter.run() error = %v, want both reap failures", err)
+	}
+	completeManagedReap()
+
+	started := false
+	_, err := limiter.run(context.Background(), func(*helperCapacityTracker) (Result, error) {
+		started = true
+		return Result{}, nil
+	})
+	if started || ErrorCode(err) != CodeCapacityExhausted {
+		t.Fatalf("mixed reap failures released capacity: started=%v code=%q error=%v", started, ErrorCode(err), err)
+	}
+}
