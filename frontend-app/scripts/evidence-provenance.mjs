@@ -21,6 +21,8 @@ const RUNNER_CONTENT_PATHS = Object.freeze([
 
 const BASELINE_AUDIT_ALLOWED_PATHS = Object.freeze(new Set([
   ...RUNNER_CONTENT_PATHS,
+  'frontend-app/src/entities/client/model/contractStoreModel.js',
+  'frontend-app/src/entities/client/model/threadLifecycleRuntime.js',
   'docs/doc/codemap/README.md',
   'docs/doc/codemap/ai-index.json',
   'docs/plans/2026-07-15-frontend-maintainability-error-discoverability-90-plan.md',
@@ -31,6 +33,7 @@ const BASELINE_AUDIT_ALLOWED_PATHS = Object.freeze(new Set([
   'frontend-app/scripts/performance-budget-runner.test.mjs',
   'frontend-app/scripts/resource-budget.test.mjs',
   'frontend-app/scripts/stop-feedback-benchmark.test.mjs',
+  'frontend-app/src/entities/client/model/threadLifecycleRuntime.test.js',
 ]));
 
 const BASELINE_AUDIT_ALLOWED_PREFIXES = Object.freeze([

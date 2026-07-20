@@ -1,14 +1,29 @@
+import { execFileSync } from 'node:child_process';
+import {
+  copyFileSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, join, resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { expect, it } from 'vitest';
-import { attachActiveThreadRpcRuntime } from '../src/entities/client/model/threadLifecycleRuntime.js';
 import {
   ATTEMPTS_PER_SAMPLE,
   FEEDBACK_DURATION_CLOCK,
   FROZEN_PLAN_BASE_SHA,
   MEASUREMENT_ITERATIONS,
+  P03_RUNNER_FEEDBACK_PROBE_PATH,
+  P03_SUBJECT_CONTENT_PATHS,
+  RUNNER_FEEDBACK_PROBE,
   STOP_FEEDBACK_PENDING,
   createStopFeedbackHarness,
   measurementTrimmedMean,
   resolveStopFeedbackAttachRuntime,
+  resolveStopFeedbackComponent,
   runStopFeedbackBenchmark,
   stopFeedbackContractForSubject,
   verifyStopFeedbackEvidence,
@@ -21,8 +36,22 @@ function fullBenchmarkEvidence() {
   benchmarkEvidence ??= runStopFeedbackBenchmark({
     attachRuntime: attachBaseRuntime,
     subjectSha: FROZEN_PLAN_BASE_SHA,
+    target: testTarget(),
   });
   return benchmarkEvidence;
+}
+
+function testTarget(attachRuntime = attachBaseRuntime) {
+  return Object.freeze({
+    attachRuntime,
+    feedbackProbe: RUNNER_FEEDBACK_PROBE,
+    provenance: Object.freeze({
+      content: Object.freeze({ contentHash: 'a'.repeat(64), files: Object.freeze([]) }),
+      runtimePath: 'frontend-app/src/entities/client/model/threadLifecycleRuntime.js',
+      subjectSha: FROZEN_PLAN_BASE_SHA,
+      subjectTree: 'b'.repeat(40),
+    }),
+  });
 }
 
 function attachBaseRuntime(runtime) {
@@ -57,6 +86,7 @@ it('measures BASE confirmed and timeout-unconfirmed Stop outcomes only after the
   const harness = createStopFeedbackHarness({
     attachRuntime: attachBaseRuntime,
     subjectSha: FROZEN_PLAN_BASE_SHA,
+    target: testTarget(),
   });
   try {
     await expect(harness.measureConfirmed()).resolves.toBeGreaterThanOrEqual(0);
@@ -67,11 +97,97 @@ it('measures BASE confirmed and timeout-unconfirmed Stop outcomes only after the
   }
 });
 
-it('keeps the real product runtime as the omitted attachRuntime default', () => {
-  expect(resolveStopFeedbackAttachRuntime()).toBe(attachActiveThreadRpcRuntime);
-  expect(resolveStopFeedbackAttachRuntime(attachCandidateRuntime)).toBe(attachCandidateRuntime);
-  expect(() => resolveStopFeedbackAttachRuntime(null)).toThrow(/attachRuntime must be a function/);
+it('requires an explicitly loaded product target instead of defaulting to the runner worktree runtime', () => {
+  expect(resolveStopFeedbackAttachRuntime(undefined, testTarget())).toBe(attachBaseRuntime);
+  expect(resolveStopFeedbackAttachRuntime(attachCandidateRuntime, testTarget())).toBe(attachCandidateRuntime);
+  expect(resolveStopFeedbackComponent(testTarget())).toBe(RUNNER_FEEDBACK_PROBE);
+  expect(() => resolveStopFeedbackAttachRuntime()).toThrow(/target attachRuntime is required/);
+  expect(() => resolveStopFeedbackAttachRuntime(null, testTarget())).toThrow(/attachRuntime must be a function/);
 });
+
+it('imports in a plain Node child process with a configurable read-only navigator getter', () => {
+  const repositoryRoot = resolve(process.cwd(), '..');
+  const loaderUrl = pathToFileURL(resolve(repositoryRoot, 'frontend-app/scripts/stop-feedback-benchmark.mjs')).href;
+  const script = `
+    Object.defineProperty(globalThis, 'navigator', {
+      configurable: true,
+      enumerable: true,
+      get() { return Object.freeze({ source: 'node-read-only' }); },
+    });
+    await import(${JSON.stringify(loaderUrl)});
+    const descriptor = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
+    process.stdout.write(JSON.stringify({
+      configurable: descriptor.configurable,
+      hasDocument: Boolean(globalThis.document),
+      navigatorMatchesWindow: globalThis.navigator === globalThis.window.navigator,
+      writable: descriptor.writable,
+    }));
+  `;
+  const result = JSON.parse(execFileSync(process.execPath, ['--input-type=module', '--eval', script], {
+    cwd: join(repositoryRoot, 'frontend-app'),
+    encoding: 'utf8',
+  }));
+  expect(result).toEqual({
+    configurable: true,
+    hasDocument: true,
+    navigatorMatchesWindow: true,
+    writable: true,
+  });
+}, 30000);
+
+it('loads the b408 runtime without its missing component and binds BASE and candidate to the same runner probe', () => {
+  const repositoryRoot = resolve(process.cwd(), '..');
+  const temporaryRoot = mkdtempSync(join(tmpdir(), 'p03-subject-target-'));
+  const baseRoot = join(temporaryRoot, 'base');
+  const createSubjectRoot = (name, marker) => {
+    const subjectRoot = join(temporaryRoot, name);
+    for (const targetPath of P03_SUBJECT_CONTENT_PATHS) {
+      const source = resolve(repositoryRoot, targetPath);
+      const destination = resolve(subjectRoot, targetPath);
+      mkdirSync(dirname(destination), { recursive: true });
+      copyFileSync(source, destination);
+    }
+    const runtimePath = join(subjectRoot, 'frontend-app/src/entities/client/model/threadLifecycleRuntime.js');
+    writeFileSync(runtimePath, `${readFileSync(runtimePath, 'utf8')}\nexport const p03TargetMarker = '${marker}';\n`);
+    return subjectRoot;
+  };
+  try {
+    const candidateRoot = createSubjectRoot('candidate', 'candidate');
+    execFileSync('git', ['worktree', 'add', '--detach', baseRoot, FROZEN_PLAN_BASE_SHA], {
+      cwd: repositoryRoot,
+      stdio: 'ignore',
+    });
+    expect(() => execFileSync(
+      'git', ['cat-file', '-e', `${FROZEN_PLAN_BASE_SHA}:${P03_RUNNER_FEEDBACK_PROBE_PATH}`],
+      { cwd: repositoryRoot, stdio: 'ignore' },
+    )).toThrow();
+    const loaderUrl = pathToFileURL(resolve(repositoryRoot, 'frontend-app/scripts/stop-feedback-benchmark.mjs')).href;
+    const script = `
+      const { loadStopFeedbackTarget, RUNNER_FEEDBACK_PROBE } = await import(${JSON.stringify(loaderUrl)});
+      const result = await Promise.all([
+        loadStopFeedbackTarget({ feedbackProbe: RUNNER_FEEDBACK_PROBE, subjectRoot: ${JSON.stringify(baseRoot)}, subjectSha: ${JSON.stringify(FROZEN_PLAN_BASE_SHA)}, subjectTree: ${JSON.stringify(execFileSync('git', ['rev-parse', `${FROZEN_PLAN_BASE_SHA}^{tree}`], { cwd: repositoryRoot, encoding: 'utf8' }).trim())} }),
+        loadStopFeedbackTarget({ feedbackProbe: RUNNER_FEEDBACK_PROBE, subjectRoot: ${JSON.stringify(candidateRoot)}, subjectSha: ${JSON.stringify(CANDIDATE_SUBJECT_SHA)}, subjectTree: ${JSON.stringify('2'.repeat(40))} }),
+      ]);
+      process.stdout.write(JSON.stringify(result.map(({ feedbackProbe, provenance }) => ({
+        probeIsRunner: feedbackProbe === RUNNER_FEEDBACK_PROBE,
+        provenance,
+      }))));
+    `;
+    const [base, candidate] = JSON.parse(execFileSync(process.execPath, ['--input-type=module', '--eval', script], {
+      cwd: join(repositoryRoot, 'frontend-app'),
+      encoding: 'utf8',
+    }));
+    expect(base.probeIsRunner).toBe(true);
+    expect(candidate.probeIsRunner).toBe(true);
+    expect(base.provenance.subjectSha).toBe(FROZEN_PLAN_BASE_SHA);
+    expect(candidate.provenance.subjectSha).toBe(CANDIDATE_SUBJECT_SHA);
+    expect(base.provenance.content.files.map(({ path }) => path)).toEqual(P03_SUBJECT_CONTENT_PATHS);
+    expect(candidate.provenance.content.contentHash).not.toBe(base.provenance.content.contentHash);
+  } finally {
+    execFileSync('git', ['worktree', 'remove', '--force', baseRoot], { cwd: repositoryRoot, stdio: 'ignore' });
+    rmSync(temporaryRoot, { recursive: true, force: true });
+  }
+}, 30000);
 
 it('binds the immutable BASE subject to the old final contract and every candidate subject to the new final contract', () => {
   expect(stopFeedbackContractForSubject(FROZEN_PLAN_BASE_SHA)).toEqual({
@@ -89,6 +205,7 @@ it('measures the candidate pending-plus-final runtime with the candidate final c
   const harness = createStopFeedbackHarness({
     attachRuntime: attachCandidateRuntime,
     subjectSha: CANDIDATE_SUBJECT_SHA,
+    target: testTarget(attachCandidateRuntime),
   });
   try {
     await expect(harness.measureConfirmed()).resolves.toBeGreaterThanOrEqual(0);
@@ -108,6 +225,7 @@ it('fails closed when a candidate runtime emits the BASE final message', async (
       };
     },
     subjectSha: CANDIDATE_SUBJECT_SHA,
+    target: testTarget(),
   });
   try {
     await expect(harness.measureUnconfirmed()).rejects.toThrow(/unexpected stop feedback/);
@@ -126,6 +244,7 @@ it('does not let pending feedback satisfy the final DOM commit', async () => {
       };
     },
     subjectSha: CANDIDATE_SUBJECT_SHA,
+    target: testTarget(),
   });
   try {
     await expect(harness.measureConfirmed()).rejects.toThrow(/did not commit to the React DOM: success:已发送中断请求/);
@@ -140,6 +259,7 @@ it('fails rather than recording a synchronous notifyAction callback when a DOM m
     attachRuntime: attachBaseRuntime,
     domMutation: { mode: 'suppress' },
     subjectSha: FROZEN_PLAN_BASE_SHA,
+    target: testTarget(),
   });
   try {
     await expect(harness.measureConfirmed()).rejects.toThrow(/did not commit to the React DOM/);
@@ -156,6 +276,7 @@ it('includes delayed React DOM commits in Stop feedback timing', async () => {
     attachRuntime: attachBaseRuntime,
     domMutation: { delayMs, mode: 'delay' },
     subjectSha: FROZEN_PLAN_BASE_SHA,
+    target: testTarget(),
   });
   try {
     await expect(harness.measureConfirmed()).resolves.toBeGreaterThanOrEqual(delayMs);
