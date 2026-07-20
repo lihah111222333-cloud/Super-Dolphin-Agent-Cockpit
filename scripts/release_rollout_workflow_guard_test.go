@@ -1,8 +1,11 @@
 package main
 
 import (
+	"archive/zip"
 	"maps"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -33,10 +36,20 @@ type releaseRolloutGuardJob struct {
 	RunsOn      yaml.Node         `yaml:"runs-on"`
 	Env         map[string]string `yaml:"env"`
 	Steps       []struct {
-		Uses string         `yaml:"uses"`
-		Run  string         `yaml:"run"`
-		With map[string]any `yaml:"with"`
+		Name  string         `yaml:"name"`
+		Uses  string         `yaml:"uses"`
+		Shell string         `yaml:"shell"`
+		Run   string         `yaml:"run"`
+		With  map[string]any `yaml:"with"`
 	} `yaml:"steps"`
+}
+
+type releaseRolloutStepContract struct {
+	Name        string
+	Uses        string
+	Shell       string
+	RunContains []string
+	With        map[string]any
 }
 
 func TestReleaseRolloutWorkflowRequiresOneApprovedStageAndNativeARM64Evidence(t *testing.T) {
@@ -103,6 +116,7 @@ func TestReleaseRolloutWorkflowRequiresOneApprovedStageAndNativeARM64Evidence(t 
 	}
 	assertReleaseRolloutJobKeys(t, parsed)
 	assertReleaseRolloutJobDAG(t, parsed)
+	assertReleaseRolloutJobSteps(t, parsed)
 	assertReleaseRolloutRunBlocks(t, parsed)
 	assertReleaseRolloutCheckout(t, parsed.Jobs["validate-inputs"])
 }
@@ -121,14 +135,15 @@ func assertReleaseRolloutValidatorContract(t *testing.T, validator string) {
 		"update-recovery-stage-attestation-",
 		"archive_download_url",
 		"monitoring_window_hours",
-		`[[ -f "$UPGRADE_EVIDENCE_WORKFLOW_PATH" ]]`,
+		`[[ ! -f "$UPGRADE_EVIDENCE_WORKFLOW_PATH" ]]`,
 		"release remains fail-closed",
 	} {
 		assertScriptContains(t, validator, contract)
 	}
 	assertScriptDoesNotContain(t, validator, "|| true")
+	assertScriptDoesNotContain(t, validator, "|| release_rollout_fail")
 	ownerCheck := strings.Index(validator, `release_rollout_verify_repository_owner "$output_dir"`)
-	producerCheck := strings.Index(validator, `[[ -f "$UPGRADE_EVIDENCE_WORKFLOW_PATH" ]]`)
+	producerCheck := strings.Index(validator, `[[ ! -f "$UPGRADE_EVIDENCE_WORKFLOW_PATH" ]]`)
 	if ownerCheck < 0 || producerCheck < 0 || ownerCheck > producerCheck {
 		t.Fatal("Organization owner check must fail before the missing producer check")
 	}
@@ -156,6 +171,51 @@ func TestReleaseRolloutEvidenceURLRejectsSuffixesAndSameRun(t *testing.T) {
 	}
 }
 
+func TestReleaseRolloutEvidenceFailuresSurviveAssignments(t *testing.T) {
+	for _, invalid := range []string{
+		"https://github.com/acme/repo/actions/runs/123/",
+		"https://github.com/acme/repo/actions/runs/123?x=1",
+		"https://github.com/acme/repo/actions/runs/123#x",
+		"https://github.com/other/repo/actions/runs/123",
+	} {
+		assertReleaseRolloutBashRejects(t, `captured="$(release_rollout_run_id "$1" "acme/repo")"`, invalid)
+		assertReleaseRolloutMainRejects(t, invalid, true)
+	}
+	assertReleaseRolloutBashRejects(t, `release_rollout_distinct_run_ids "$1" "$1" "acme/repo"`, "https://github.com/acme/repo/actions/runs/123")
+}
+
+func TestReleaseRolloutMissingEnvProducerAndZipEntryFailClosed(t *testing.T) {
+	assertReleaseRolloutMainRejects(t, "https://github.com/acme/repo/actions/runs/123", false)
+	assertReleaseRolloutBashRejects(t, releaseRolloutTestEnv+`; export UPGRADE_EVIDENCE_WORKFLOW_PATH=present; unset VERSION; captured="$(release_rollout_require_env)"`, "unused")
+	archivePath := releaseRolloutWrongEntryArchive(t)
+	outputDir := t.TempDir()
+	assertReleaseRolloutBashRejects(t, `
+export GITHUB_API_URL=https://api.github.test GITHUB_REPOSITORY=acme/repo GITHUB_TOKEN=token TEST_ARCHIVE="$1"
+release_rollout_api_get() {
+  if [[ "$1" == *"/artifacts?"* ]]; then
+    printf '%s\n' '{"artifacts":[{"name":"wanted","expired":false,"archive_download_url":"archive"}]}' > "$2"
+    return 0
+  fi
+  cp "$TEST_ARCHIVE" "$2"
+}
+captured="$(release_rollout_download_attestation 123 wanted "$2")"`, archivePath, outputDir)
+}
+
+func TestReleaseRolloutValidatorIsExecutable(t *testing.T) {
+	info, err := os.Stat("release_rollout_validate.sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm()&0o111 == 0 {
+		t.Fatalf("validator mode = %o, executable bit is required", info.Mode().Perm())
+	}
+}
+
+func TestReleaseRolloutMainCleansEachCallAndPreservesCallerExitTrap(t *testing.T) {
+	assertReleaseRolloutCleanup(t, true)
+	assertReleaseRolloutCleanup(t, false)
+}
+
 func TestReleaseRolloutStructuralGuardRejectsRogueJobAndMissingEnv(t *testing.T) {
 	workflow := readRepoFile(t, "../.github/workflows/release.yml")
 	rogue := workflow + "\n  rogue-dynamic-environment:\n    environment: update-recovery-${{ inputs.stage }}\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo rogue\n"
@@ -168,6 +228,25 @@ func TestReleaseRolloutStructuralGuardRejectsRogueJobAndMissingEnv(t *testing.T)
 	}
 }
 
+func TestReleaseRolloutStructuralGuardRejectsStepMutations(t *testing.T) {
+	workflow := readRepoFile(t, "../.github/workflows/release.yml")
+	extra := strings.Replace(workflow, "\n  package-windows-arm64:\n", "\n      - run: echo rogue\n\n  package-windows-arm64:\n", 1)
+	if releaseRolloutWorkflowStepsMatch(t, extra) {
+		t.Fatal("extra macOS step must be rejected")
+	}
+	swapped := releaseRolloutParseWorkflow(t, workflow)
+	swapped.Jobs["package-macos-arm64"].Steps[3], swapped.Jobs["package-macos-arm64"].Steps[5] = swapped.Jobs["package-macos-arm64"].Steps[5], swapped.Jobs["package-macos-arm64"].Steps[3]
+	if releaseRolloutStepsMatch(swapped.Jobs["package-macos-arm64"], releaseRolloutMacSteps()) {
+		t.Fatal("swapped signing and packaging steps must be rejected")
+	}
+	missing := releaseRolloutParseWorkflow(t, workflow)
+	missingJob := missing.Jobs["package-windows-arm64"]
+	missingJob.Steps = missingJob.Steps[:len(missingJob.Steps)-1]
+	if releaseRolloutStepsMatch(missingJob, releaseRolloutWindowsSteps()) {
+		t.Fatal("missing Windows upload step must be rejected")
+	}
+}
+
 func releaseRolloutRunID(t *testing.T, url, repository string) string {
 	t.Helper()
 	command := exec.Command("bash", "-c", `source ./release_rollout_validate.sh; release_rollout_run_id "$1" "$2"`, "bash", url, repository)
@@ -176,6 +255,102 @@ func releaseRolloutRunID(t *testing.T, url, repository string) string {
 		return ""
 	}
 	return strings.TrimSpace(string(output))
+}
+
+const releaseRolloutTestEnv = `
+export STAGE=internal-20 VERSION=v2 BUILD_COMMIT=0123456789012345678901234567890123456789
+export SIGNING_PUBLIC_KEY_FINGERPRINT=fingerprint PREVIOUS_VERSION=v1 MONITORING_WINDOW_HOURS=8
+export PREDECESSOR_EVIDENCE=native-arm64-current-run GITHUB_REPOSITORY=acme/repo
+export GITHUB_API_URL=https://api.github.test GITHUB_TOKEN=token DEFAULT_BRANCH=main
+export RELEASE_WORKFLOW_PATH=.github/workflows/release.yml
+export MACOS_UPGRADE_MATRIX_EVIDENCE="$1" WINDOWS_UPGRADE_MATRIX_EVIDENCE=https://github.com/acme/repo/actions/runs/456
+`
+
+func assertReleaseRolloutMainRejects(t *testing.T, evidenceURL string, producerExists bool) {
+	t.Helper()
+	producerPath := filepath.Join(t.TempDir(), "update-recovery-upgrade-evidence.yml")
+	if producerExists {
+		if err := os.WriteFile(producerPath, []byte("name: fixture\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	body := releaseRolloutTestEnv + `
+export UPGRADE_EVIDENCE_WORKFLOW_PATH="$2"
+release_rollout_verify_repository_owner() { return 0; }
+release_rollout_verify_run() { return 0; }
+release_rollout_verify_upgrade_attestation() { return 0; }
+release_rollout_verify_predecessor() { return 0; }
+captured="$(release_rollout_main)"`
+	assertReleaseRolloutBashRejects(t, body, evidenceURL, producerPath)
+}
+
+func assertReleaseRolloutBashRejects(t *testing.T, body string, arguments ...string) {
+	t.Helper()
+	commandArguments := append([]string{"-c", "source ./release_rollout_validate.sh; " + body, "bash"}, arguments...)
+	if output, err := exec.Command("bash", commandArguments...).CombinedOutput(); err == nil {
+		t.Fatalf("validator failure path returned success: %s", output)
+	}
+}
+
+func assertReleaseRolloutCleanup(t *testing.T, success bool) {
+	t.Helper()
+	root := t.TempDir()
+	producerPath := filepath.Join(root, "producer.yml")
+	if success {
+		if err := os.WriteFile(producerPath, []byte("name: fixture\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	tempPath := filepath.Join(root, "release-temp")
+	markerPath := filepath.Join(root, "caller-exit-trap")
+	body := releaseRolloutTestEnv + `
+export UPGRADE_EVIDENCE_WORKFLOW_PATH="$2" TEST_TEMP="$3" EXIT_MARKER="$4"
+mktemp() { mkdir "$TEST_TEMP"; printf '%s\n' "$TEST_TEMP"; }
+release_rollout_verify_repository_owner() { return 0; }
+release_rollout_verify_run() { return 0; }
+release_rollout_verify_upgrade_attestation() { return 0; }
+trap 'printf preserved > "$EXIT_MARKER"' EXIT
+`
+	if success {
+		body += `release_rollout_main`
+	} else {
+		body += `if release_rollout_main; then exit 1; fi`
+	}
+	body += `
+[[ ! -e "$TEST_TEMP" ]]
+[[ "$(trap -p EXIT)" == *"EXIT_MARKER"* ]]
+`
+	command := exec.Command("bash", "-c", "source ./release_rollout_validate.sh; "+body, "bash", "https://github.com/acme/repo/actions/runs/123", producerPath, tempPath, markerPath)
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("cleanup contract failed: %v: %s", err, output)
+	}
+	if content, err := os.ReadFile(markerPath); err != nil || string(content) != "preserved" {
+		t.Fatalf("caller EXIT trap marker = %q, err %v", content, err)
+	}
+}
+
+func releaseRolloutWrongEntryArchive(t *testing.T) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "wrong-entry.zip")
+	file, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writer := zip.NewWriter(file)
+	entry, err := writer.Create("wrong.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := entry.Write([]byte("{}")); err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return path
 }
 
 func assertReleaseRolloutInputs(t *testing.T, workflow releaseRolloutGuardWorkflow) {
@@ -223,6 +398,113 @@ func assertReleaseRolloutJobDAG(t *testing.T, workflow releaseRolloutGuardWorkfl
 	for _, stage := range []string{"internal-20", "10-percent", "30-percent", "100-percent"} {
 		assertReleaseRolloutStageBoundary(t, stage, workflow.Jobs["rollout-"+stage])
 	}
+}
+
+func assertReleaseRolloutJobSteps(t *testing.T, workflow releaseRolloutGuardWorkflow) {
+	t.Helper()
+	if !releaseRolloutStepsMatch(workflow.Jobs["package-macos-arm64"], releaseRolloutMacSteps()) {
+		t.Fatal("macOS steps differ from the exact release contract")
+	}
+	if !releaseRolloutStepsMatch(workflow.Jobs["package-windows-arm64"], releaseRolloutWindowsSteps()) {
+		t.Fatal("Windows steps differ from the exact release contract")
+	}
+	for _, stage := range []string{"internal-20", "10-percent", "30-percent", "100-percent"} {
+		if !releaseRolloutStepsMatch(workflow.Jobs["rollout-"+stage], releaseRolloutStageSteps(stage)) {
+			t.Fatalf("stage %s steps differ from the exact release contract", stage)
+		}
+	}
+}
+
+func releaseRolloutMacSteps() []releaseRolloutStepContract {
+	return []releaseRolloutStepContract{
+		{Uses: "actions/checkout@v4", With: map[string]any{"ref": "${{ inputs.build_commit }}", "fetch-depth": 0}},
+		{Uses: "actions/setup-go@v5", With: map[string]any{"go-version-file": "go.mod", "cache": true}},
+		{Name: "Require native macOS arm64 and exact commit", Shell: "bash", RunContains: []string{`[[ "$(uname -m)" == "arm64" ]]`, `[[ "$(git rev-parse HEAD)" == "$BUILD_COMMIT" ]]`}},
+		{Name: "Verify signing public-key fingerprint", Shell: "bash", RunContains: []string{"SUPER_DOLPHIN_UPDATE_PUBLIC_KEY:?", `[[ "$actual" == "$expected" ]]`}},
+		{Name: "Run current-commit version-independent recovery state matrix", Shell: "bash", RunContains: []string{"make release-update-gate", "native-test.log"}},
+		{Name: "Package and verify native macOS arm64 artifact", Shell: "bash", RunContains: []string{"./scripts/package_macos.sh", "package.log"}},
+		{Name: "Record macOS matrix metadata", Shell: "bash", RunContains: []string{"matrix_scope=current-commit-version-independent-recovery-state", "commit=$(git rev-parse HEAD)", "monitoring_window_hours"}},
+		{Uses: "actions/upload-artifact@v4", With: map[string]any{"name": "update-recovery-native-evidence-macos-arm64", "path": "dist/package/macos/Super Dolphin.dmg\n${{ runner.temp }}/update-recovery-evidence\n", "if-no-files-found": "error"}},
+	}
+}
+
+func releaseRolloutWindowsSteps() []releaseRolloutStepContract {
+	return []releaseRolloutStepContract{
+		{Uses: "actions/checkout@v4", With: map[string]any{"ref": "${{ inputs.build_commit }}", "fetch-depth": 0}},
+		{Uses: "actions/setup-go@v5", With: map[string]any{"go-version-file": "go.mod", "cache": true}},
+		{Name: "Require native Windows arm64 and exact commit", Shell: "pwsh", RunContains: []string{"PROCESSOR_ARCHITECTURE -ne 'ARM64'", "git rev-parse HEAD", "BUILD_COMMIT"}},
+		{Name: "Run current-commit Windows recovery state matrix", Shell: "bash", RunContains: []string{"./scripts/test_with_guard.sh ./cmd/super-dolphin-updater", "TestGuard.*(Rollback|Probation|PIDReuse|Termination)", "native-test.log"}},
+		{Name: "Package and verify supported native Windows arm64 zip", Shell: "pwsh", RunContains: []string{"./scripts/package_windows.ps1 -Artifact zip", "package.log"}},
+		{Name: "Record Windows matrix metadata", Shell: "pwsh", RunContains: []string{"matrix_scope=current-commit-version-independent-recovery-state", "git rev-parse HEAD", "monitoring_window_hours"}},
+		{Uses: "actions/upload-artifact@v4", With: map[string]any{"name": "update-recovery-native-evidence-windows-arm64", "path": "dist/package/windows/*.zip\n${{ runner.temp }}/update-recovery-evidence\n", "if-no-files-found": "error"}},
+	}
+}
+
+func releaseRolloutStageSteps(stage string) []releaseRolloutStepContract {
+	return []releaseRolloutStepContract{
+		{Uses: "actions/download-artifact@v4"},
+		{Name: releaseRolloutStageApprovalName(stage), RunContains: []string{stage, "GITHUB_STEP_SUMMARY", releaseRolloutStageIsolationMarker(stage)}},
+		{Name: "Write exact stage attestation", Shell: "bash", RunContains: []string{"super-dolphin/update-recovery-attestation/v1", "SIGNING_PUBLIC_KEY_FINGERPRINT", "MONITORING_WINDOW_HOURS", "attestation.json"}},
+		{Uses: "actions/upload-artifact@v4", With: map[string]any{"name": "${{ env.STAGE_ATTESTATION_NAME }}", "path": "${{ runner.temp }}/stage-attestation/attestation.json", "if-no-files-found": "error"}},
+	}
+}
+
+func releaseRolloutStageApprovalName(stage string) string {
+	switch stage {
+	case "internal-20":
+		return "Approve exactly the internal 20-device stage"
+	case "100-percent":
+		return "Approve exactly the 100 percent stage"
+	default:
+		return "Approve exactly the " + strings.TrimSuffix(stage, "-percent") + " percent stage"
+	}
+}
+
+func releaseRolloutStageIsolationMarker(stage string) string {
+	if stage == "100-percent" {
+		return "this workflow never chains stages"
+	}
+	return "no later stage"
+}
+
+func releaseRolloutStepsMatch(job releaseRolloutGuardJob, want []releaseRolloutStepContract) bool {
+	if len(job.Steps) != len(want) {
+		return false
+	}
+	for index, step := range job.Steps {
+		contract := want[index]
+		if step.Name != contract.Name || step.Uses != contract.Uses || step.Shell != contract.Shell || !maps.Equal(step.With, contract.With) || !releaseRolloutRunContains(step.Run, contract.RunContains) {
+			return false
+		}
+	}
+	return true
+}
+
+func releaseRolloutRunContains(run string, markers []string) bool {
+	if len(markers) == 0 {
+		return run == ""
+	}
+	for _, marker := range markers {
+		if !strings.Contains(run, marker) {
+			return false
+		}
+	}
+	return true
+}
+
+func releaseRolloutWorkflowStepsMatch(t *testing.T, source string) bool {
+	t.Helper()
+	workflow := releaseRolloutParseWorkflow(t, source)
+	return releaseRolloutStepsMatch(workflow.Jobs["package-macos-arm64"], releaseRolloutMacSteps())
+}
+
+func releaseRolloutParseWorkflow(t *testing.T, source string) releaseRolloutGuardWorkflow {
+	t.Helper()
+	var workflow releaseRolloutGuardWorkflow
+	if err := yaml.Unmarshal([]byte(source), &workflow); err != nil {
+		t.Fatalf("parse release rollout workflow: %v", err)
+	}
+	return workflow
 }
 
 func assertReleaseRolloutMacBoundary(t *testing.T, job releaseRolloutGuardJob) {
