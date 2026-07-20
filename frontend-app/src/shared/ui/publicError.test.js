@@ -37,7 +37,7 @@ describe('publicErrorForRemoteTerminal', () => {
       code: 'REMOTE_TERMINAL_FAILED',
       title: '远端执行未完成',
       message: '远端执行未完成，请稍后重试。',
-      diagnosticId: 'remote-terminal-error',
+      diagnosticId: 'diag-remote-terminal-error',
       retryable: false,
       recoveryActions: ['copy_diagnostics'],
     });

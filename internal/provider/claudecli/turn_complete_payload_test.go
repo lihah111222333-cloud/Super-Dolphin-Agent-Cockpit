@@ -138,7 +138,7 @@ func TestDecodeResultEventTerminalTruthReachesTranslatorAndHandle(t *testing.T) 
 
 			handle := newTurnHandle("local-1", "turn-1")
 			s := &session{activeTurn: handle}
-			s.finishTurnFromRaw(events[0])
+			s.finishTurnFromRaw(nil, events[0])
 			<-handle.Done()
 			if (handle.Err() != nil) != test.wantErr {
 				t.Fatalf("handle error = %v, wantErr %v", handle.Err(), test.wantErr)

@@ -69,8 +69,10 @@ const backend = vi.hoisted(() => ({
     bridgeCallback = callback;
     bridgeOptions = options;
     return () => {
-      bridgeCallback = null;
-      bridgeOptions = null;
+      if (bridgeCallback === callback) {
+        bridgeCallback = null;
+        bridgeOptions = null;
+      }
     };
   }),
   onRuntimeReconnect: vi.fn((callback) => {
@@ -112,6 +114,7 @@ vi.mock('../../../shared/api/backendApi.js', async (importOriginal) => {
 });
 
 import { resetClientStoreForTests, setClientStoreClockMillisForTests, useClientStore } from './useClientStore.js';
+import { EVENT_TYPED_WIRE_METHODS } from '../../../shared/api/eventWireMethods.js';
 import * as frontendBreadcrumbs from '../../../shared/diagnostics/frontendBreadcrumbs.js';
 import {
   clearFrontendHealth,
@@ -699,6 +702,42 @@ function registerBridgeEventHandlersForTest() {
       tone: 'error',
     }));
   });
+  it('keeps the complete previous chat scope when setActiveProject RPC fails', async () => {
+    backend.setActiveProject.mockRejectedValueOnce(new Error('project backend offline'));
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      projectScopeCwd: '/repo/app',
+      activeProject: '/repo/app',
+      projects: ['/repo/app', '/repo/other'],
+      activeThreadId: 'thread-old',
+      threads: [{ id: 'thread-old', name: 'Old project thread', provider: 'codex', status: 'running' }],
+      timelinesByThread: { 'thread-old': [{ id: 'old-user', role: 'user', text: 'old cwd message' }] },
+      draft: 'keep this unsent draft',
+      sidebarThreadsByProject: {
+        '/repo/app': [{ id: 'thread-old', name: 'Old project thread', provider: 'codex', status: 'running' }],
+      },
+    });
+
+    await expect(useClientStore.getState().setActiveProjectPath('/repo/other')).rejects.toThrow('project backend offline');
+
+    expect(useClientStore.getState()).toEqual(expect.objectContaining({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      projects: ['/repo/app', '/repo/other'],
+      activeThreadId: 'thread-old',
+      threads: [{ id: 'thread-old', name: 'Old project thread', provider: 'codex', status: 'running' }],
+      timelinesByThread: { 'thread-old': [{ id: 'old-user', role: 'user', text: 'old cwd message' }] },
+      draft: 'keep this unsent draft',
+      sidebarThreadsByProject: {
+        '/repo/app': [{ id: 'thread-old', name: 'Old project thread', provider: 'codex', status: 'running' }],
+      },
+      chatSurfaceLoadingCwd: '',
+    }));
+    expect(useClientStore.getState().actionNotice).toEqual(expect.objectContaining({
+      message: '切换项目失败，请重试。',
+      tone: 'error',
+    }));
+  });
 
   it('opens an independent app window from the selected directory', async () => {
     resetClientStoreForTests({
@@ -926,7 +965,7 @@ function registerBridgeEventHandlersForTest() {
     }));
   });
 
-  it('switches project immediately while the sidebar refresh continues in the background', async () => {
+  it('switches project after backend confirmation while the sidebar refresh continues in the background', async () => {
     const projectChange = deferred();
     const sidebarRefresh = deferred();
     resetClientStoreForTests({
@@ -942,15 +981,26 @@ function registerBridgeEventHandlersForTest() {
     backend.getSidebarState.mockReturnValue(sidebarRefresh.promise);
 
     const switchPromise = useClientStore.getState().setActiveProjectPath('/repo/other');
-    await Promise.resolve();
+    expect(useClientStore.getState()).toEqual(expect.objectContaining({
+      activeProject: '/repo/app',
+      activeThreadId: 'thread-old',
+      chatSurfaceLoadingCwd: '',
+    }));
+    expect(useClientStore.getState().threads).toEqual([
+      expect.objectContaining({ id: 'thread-old', name: 'Old project thread' }),
+    ]);
+    expect(backend.getSidebarState).not.toHaveBeenCalledWith({ cwd: '/repo/other' });
 
+    projectChange.resolve({ projects: ['/repo/app', '/repo/other'], active: '/repo/other' });
+    await vi.waitFor(() => {
+      expect(backend.getSidebarState).toHaveBeenCalledWith({ cwd: '/repo/other' });
+    });
     expect(useClientStore.getState()).toEqual(expect.objectContaining({
       activeProject: '/repo/other',
       activeThreadId: '',
       chatSurfaceLoadingCwd: '/repo/other',
     }));
     expect(useClientStore.getState().threads).toEqual([]);
-    expect(backend.getSidebarState).toHaveBeenCalledWith({ cwd: '/repo/other' });
 
     sidebarRefresh.resolve({
       activeThreadId: 'thread-other',
@@ -999,7 +1049,10 @@ function registerBridgeEventHandlersForTest() {
       });
 
       const switchPromise = useClientStore.getState().setActiveProjectPath('/repo/other');
-      await Promise.resolve();
+      projectChange.resolve({ projects: ['/repo/app', '/repo/other'], active: '/repo/other' });
+      await vi.waitFor(() => {
+        expect(useClientStore.getState().activeProject).toBe('/repo/other');
+      });
       bridgeCallback({
         type: 'ui/thread/patch',
         payload: {
@@ -1019,7 +1072,6 @@ function registerBridgeEventHandlersForTest() {
       expect(JSON.stringify(useClientStore.getState())).not.toContain('old project content');
 
       sidebarRefresh.resolve({ activeThreadId: '', threads: [] });
-      projectChange.resolve({ projects: ['/repo/app', '/repo/other'], active: '/repo/other' });
       await expect(switchPromise).resolves.toBe(true);
     } finally {
       vi.useRealTimers();
@@ -1041,6 +1093,7 @@ function registerBridgeEventHandlersForTest() {
     backend.getSidebarState.mockRejectedValue(new Error(`sidebar refresh failed ${bearerSecret}`));
 
     const switchPromise = useClientStore.getState().setActiveProjectPath('/repo/other');
+    projectChange.resolve({ projects: ['/repo/app', '/repo/other'], active: '/repo/other' });
 
     await vi.waitFor(() => {
       expect(useClientStore.getState().actionNotice).toEqual(expect.objectContaining({
@@ -1057,7 +1110,6 @@ function registerBridgeEventHandlersForTest() {
       }),
     ]));
     expect(JSON.stringify(frontendHealthSnapshot())).not.toContain(bearerSecret);
-    projectChange.resolve({ projects: ['/repo/app', '/repo/other'], active: '/repo/other' });
     await expect(switchPromise).resolves.toBe(true);
   });
 
@@ -1154,9 +1206,10 @@ function registerBridgeEventHandlersForTest() {
     expect(backend.getSidebarState).toHaveBeenCalledTimes(1);
 
     const switchPromise = useClientStore.getState().setActiveProjectPath('/repo/other');
-    await Promise.resolve();
+    await vi.waitFor(() => {
+      expect(backend.getSidebarState).toHaveBeenCalledTimes(2);
+    });
 
-    expect(backend.getSidebarState).toHaveBeenCalledTimes(2);
     expect(useClientStore.getState()).toEqual(expect.objectContaining({
       activeProject: '/repo/other',
       activeThreadId: '',
@@ -6404,7 +6457,7 @@ function registerBridgeEventHandlersForTest() {
     expect(useClientStore.getState().timelinesByThread['thread-1']).toEqual(expect.arrayContaining([
       expect.objectContaining({ kind: 'turn_terminal', turnId: 'turn-65', terminalOutcome: 'success' }),
     ]));
-    expect(useClientStore.getState().getTurnTerminalCacheStats()).toEqual({
+    expect(useClientStore.getState().getTurnTerminalCacheStats()).toMatchObject({
       capacity: 64,
       terminalStates: 1,
       observedTurns: 1,
@@ -6469,14 +6522,14 @@ function registerBridgeEventHandlersForTest() {
       bridgeCallback({ type: 'turn/terminal', payload: pendingTerminal(index) });
     }
 
-    expect(useClientStore.getState().getTurnTerminalCacheStats()).toEqual({
+    expect(useClientStore.getState().getTurnTerminalCacheStats()).toMatchObject({
       capacity: 64,
       terminalStates: 64,
       observedTurns: 64,
       retiredTurns: 0,
     });
     bridgeCallback({ type: 'turn/terminal', payload: pendingTerminal(64) });
-    expect(useClientStore.getState().getTurnTerminalCacheStats()).toEqual({
+    expect(useClientStore.getState().getTurnTerminalCacheStats()).toMatchObject({
       capacity: 64,
       terminalStates: 64,
       observedTurns: 64,
@@ -6504,7 +6557,7 @@ function registerBridgeEventHandlersForTest() {
       expect.objectContaining({ id: 'partial-0', text: 'replayed partial', done: true }),
       expect.objectContaining({ kind: 'turn_terminal', turnId: 'pending-turn-0', terminalOutcome: 'failed' }),
     ]));
-    expect(state.getTurnTerminalCacheStats()).toEqual({
+    expect(state.getTurnTerminalCacheStats()).toMatchObject({
       capacity: 64,
       terminalStates: 64,
       observedTurns: 64,
@@ -6545,7 +6598,7 @@ function registerBridgeEventHandlersForTest() {
       });
     }
 
-    expect(useClientStore.getState().getTurnTerminalCacheStats()).toEqual({
+    expect(useClientStore.getState().getTurnTerminalCacheStats()).toMatchObject({
       capacity: 64,
       terminalStates: 64,
       observedTurns: 64,
@@ -6564,7 +6617,7 @@ function registerBridgeEventHandlersForTest() {
     });
 
     expect(useClientStore.getState().timelinesByThread['active-thread-64']).toBeUndefined();
-    expect(useClientStore.getState().getTurnTerminalCacheStats()).toEqual({
+    expect(useClientStore.getState().getTurnTerminalCacheStats()).toMatchObject({
       capacity: 64,
       terminalStates: 64,
       observedTurns: 64,
@@ -7196,6 +7249,195 @@ function registerBridgeEventHandlersForTest() {
     }
   });
 
+  it('rejects a late canonical terminal from a retired scope subscription', async () => {
+    const callbacks = [];
+    backend.onBridgeEvent.mockImplementation((callback, options = {}) => {
+      callbacks.push(callback);
+      bridgeCallback = callback;
+      bridgeOptions = options;
+      return () => { };
+    });
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      projectScopeCwd: '/repo/app',
+      activeProject: '/repo/app',
+      projects: ['/repo/app', '/repo/other'],
+      activeThreadId: 'thread-1',
+      threads: [{ id: 'thread-1', name: 'A thread', provider: 'codex', status: 'running' }],
+      timelinesByThread: { 'thread-1': [] },
+    });
+    backend.setActiveProject.mockResolvedValue({ projects: ['/repo/app', '/repo/other'], active: '/repo/other' });
+    backend.getSidebarState.mockResolvedValue({ activeThreadId: '', threads: [] });
+    await registerBridgeEventHandlersForTest();
+    const aSubscription = bridgeCallback;
+
+    await expect(useClientStore.getState().setActiveProjectPath('/repo/other')).resolves.toBe(true);
+    await flushPromises();
+    const bSubscription = bridgeCallback;
+    expect(callbacks).toHaveLength(2);
+    useClientStore.setState({
+      cwd: '/repo/other',
+      activeProject: '/repo/other',
+      activeThreadId: 'thread-1',
+      threads: [{ id: 'thread-1', name: 'B thread', provider: 'codex', status: 'running' }],
+      timelinesByThread: { 'thread-1': [] },
+    });
+
+    aSubscription({
+      type: 'turn/terminal',
+      payload: {
+        schemaVersion: 2,
+        eventId: 'terminal-from-a',
+        threadId: 'thread-1',
+        turnId: 'turn-a',
+        outcome: 'success',
+        occurredAt: '2026-07-21T01:00:00Z',
+      },
+    });
+    bSubscription({
+      type: 'turn/terminal',
+      payload: {
+        schemaVersion: 2,
+        eventId: 'terminal-from-b',
+        threadId: 'thread-1',
+        turnId: 'turn-b',
+        outcome: 'success',
+        occurredAt: '2026-07-21T01:00:01Z',
+      },
+    });
+
+    expect(useClientStore.getState().timelinesByThread['thread-1']).toEqual([
+      expect.objectContaining({ kind: 'turn_terminal', turnId: 'turn-b' }),
+    ]);
+    expect(useClientStore.getState().warningEntries).toEqual(expect.arrayContaining([
+      expect.objectContaining({ event: 'bridge.event.scope_stale' }),
+    ]));
+  });
+
+  it('replays an A pending terminal after A-B-A without adding scope to the canonical payload', async () => {
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      projectScopeCwd: '/repo/app',
+      activeProject: '/repo/app',
+      projects: ['/repo/app', '/repo/other'],
+      activeThreadId: 'thread-1',
+      threads: [{ id: 'thread-1', name: 'A thread', provider: 'codex', status: 'running' }],
+      timelinesByThread: { 'thread-1': [] },
+    });
+    backend.setActiveProject
+      .mockResolvedValueOnce({ projects: ['/repo/app', '/repo/other'], active: '/repo/other' })
+      .mockResolvedValueOnce({ projects: ['/repo/app', '/repo/other'], active: '/repo/app' });
+    backend.getSidebarState.mockResolvedValue({ activeThreadId: '', threads: [] });
+    await registerBridgeEventHandlersForTest();
+
+    bridgeCallback({
+      type: 'turn/terminal',
+      payload: {
+        schemaVersion: 2,
+        eventId: 'terminal-a-pending',
+        threadId: 'thread-1',
+        turnId: 'turn-a',
+        outcome: 'failed',
+        publicError: {
+          code: 'PROVIDER_FAILED',
+          title: 'Provider failed',
+          message: 'A terminal arrived before its completed item',
+          diagnosticId: 'diag-a-pending',
+          retryable: false,
+          recoveryActions: [],
+        },
+        partialItemIds: ['a-partial'],
+        occurredAt: '2026-07-21T01:00:00Z',
+      },
+    });
+    await expect(useClientStore.getState().setActiveProjectPath('/repo/other')).resolves.toBe(true);
+    await expect(useClientStore.getState().setActiveProjectPath('/repo/app')).resolves.toBe(true);
+    await flushPromises();
+    useClientStore.setState({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'thread-1',
+      threads: [{ id: 'thread-1', name: 'A thread', provider: 'codex', status: 'running' }],
+      timelinesByThread: { 'thread-1': [] },
+    });
+    bridgeCallback({
+      type: 'item/completed',
+      payload: {
+        threadId: 'thread-1',
+        turnId: 'turn-a',
+        item: { id: 'a-partial', type: 'assistant', content: 'A replayed answer' },
+      },
+    });
+
+    expect(useClientStore.getState().timelinesByThread['thread-1']).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'a-partial', text: 'A replayed answer', done: true }),
+      expect.objectContaining({ kind: 'turn_terminal', turnId: 'turn-a', terminalOutcome: 'failed' }),
+    ]));
+    expect(useClientStore.getState().getTurnTerminalCacheStats()).toMatchObject({
+      scopeCapacity: 8,
+      scopeCount: 2,
+      terminalStates: 1,
+      totalTerminalStates: 1,
+    });
+  });
+
+  it('fails closed without switching scope when the bounded scope ledger is exhausted', async () => {
+    const scopes = ['/repo/app', ...Array.from({ length: 8 }, (_, index) => `/repo/scope-${index + 1}`)];
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      projectScopeCwd: '/repo/app',
+      activeProject: '/repo/app',
+      projects: scopes,
+      activeThreadId: 'thread-1',
+      threads: [{ id: 'thread-1', name: 'Thread', provider: 'codex', status: 'running' }],
+      timelinesByThread: { 'thread-1': [] },
+    });
+    backend.setActiveProject.mockImplementation(({ path }) => Promise.resolve({ projects: scopes, active: path }));
+    backend.getSidebarState.mockResolvedValue({ activeThreadId: '', threads: [] });
+    await registerBridgeEventHandlersForTest();
+
+    for (const scope of scopes.slice(1, 8)) {
+      await expect(useClientStore.getState().setActiveProjectPath(scope)).resolves.toBe(true);
+    }
+    await flushPromises();
+    expect(useClientStore.getState().getTurnTerminalCacheStats()).toMatchObject({ scopeCapacity: 8, scopeCount: 8 });
+
+    const retainedScope = scopes[7];
+    const retainedSubscription = bridgeCallback;
+    await expect(useClientStore.getState().setActiveProjectPath(scopes[8])).rejects.toThrow(
+      'frontend-app: turn terminal scope ledger capacity exhausted',
+    );
+    expect(useClientStore.getState().activeProject).toBe(retainedScope);
+    expect(backend.setActiveProject).toHaveBeenCalledTimes(7);
+    expect(backend.setActiveProject).not.toHaveBeenCalledWith(expect.objectContaining({ path: scopes[8] }));
+
+    useClientStore.setState({
+      activeProject: retainedScope,
+      activeThreadId: 'thread-1',
+      threads: [{ id: 'thread-1', name: 'Thread', provider: 'codex', status: 'running' }],
+      timelinesByThread: { 'thread-1': [] },
+    });
+    retainedSubscription({
+      type: 'turn/terminal',
+      payload: {
+        schemaVersion: 2,
+        eventId: 'terminal-after-scope-exhaustion',
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+        outcome: 'success',
+        occurredAt: '2026-07-21T01:00:00Z',
+      },
+    });
+
+    expect(useClientStore.getState().getTurnTerminalCacheStats()).toMatchObject({ scopeCapacity: 8, scopeCount: 8 });
+    expect(useClientStore.getState().timelinesByThread['thread-1']).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'turn_terminal', turnId: 'turn-1' }),
+    ]));
+    expect(useClientStore.getState().warningEntries).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ event: 'bridge.event.scope_stale' }),
+    ]));
+  });
+
   it('keeps a retired terminal sealed across CWD return and retired-cache eviction without poisoning another scope', async () => {
     resetClientStoreForTests({
       cwd: '/repo/app',
@@ -7287,7 +7529,9 @@ function registerBridgeEventHandlersForTest() {
     }
 
     const switchToOther = useClientStore.getState().setActiveProjectPath('/repo/other');
-    await Promise.resolve();
+    await vi.waitFor(() => {
+      expect(backend.setActiveProject).toHaveBeenCalledTimes(1);
+    });
     useClientStore.setState({
       cwd: '/repo/other',
       activeProject: '/repo/other',
@@ -7306,7 +7550,6 @@ function registerBridgeEventHandlersForTest() {
     bridgeCallback({
       type: 'turn/terminal',
       payload: {
-        cwd: '/repo/other',
         schemaVersion: 2,
         eventId: 'terminal-other-scope-t1',
         threadId: 'thread-1',
@@ -7324,7 +7567,9 @@ function registerBridgeEventHandlersForTest() {
     await expect(switchToOther).resolves.toBe(true);
 
     const switchToApp = useClientStore.getState().setActiveProjectPath('/repo/app');
-    await Promise.resolve();
+    await vi.waitFor(() => {
+      expect(backend.setActiveProject).toHaveBeenCalledTimes(2);
+    });
     useClientStore.setState({
       cwd: '/repo/app',
       activeProject: '/repo/app',
@@ -7335,7 +7580,6 @@ function registerBridgeEventHandlersForTest() {
     bridgeCallback({
       type: 'turn/output/delta',
       payload: {
-        cwd: '/repo/app',
         threadId: 'thread-1',
         turnId: 'turn-1',
         itemId: 'late-t1',
@@ -7552,6 +7796,100 @@ function registerBridgeEventHandlersForTest() {
       expect.objectContaining({ event: 'turn.terminal.contract_invalid' }),
     ]);
     expect(state.timelinesByThread['thread-1']).toEqual([]);
+  });
+
+  it('routes every typed Wails wire method without treating lifecycle events as legacy turn terminals', () => {
+    for (const method of EVENT_TYPED_WIRE_METHODS) {
+      resetClientStoreForTests({
+        cwd: '/repo/app',
+        activeProject: '/repo/app',
+        activeThreadId: 'thread-1',
+        threads: [{ id: 'thread-1', name: 'Existing', provider: 'codex', status: 'running' }],
+        timelinesByThread: { 'thread-1': [] },
+      });
+      registerBridgeEventHandlersForTest();
+
+      bridgeCallback({
+        type: method,
+        payload: method === 'turn/terminal'
+          ? {
+            schemaVersion: 2,
+            eventId: 'typed-wire-terminal',
+            threadId: 'thread-1',
+            turnId: 'turn-1',
+            outcome: 'success',
+            occurredAt: '2026-07-21T01:00:00Z',
+          }
+          : method === 'task/node/statusChanged'
+            ? {
+              dag_key: 'typed-wire-dag',
+              run_key: 'typed-wire-run',
+              node_key: 'typed-wire-node',
+              new_status: 'running',
+            }
+          : {
+            threadId: 'thread-1',
+            turnId: 'turn-1',
+            input_tokens: 1,
+            output_tokens: 1,
+            context_window: 100,
+          },
+      });
+
+      expect(useClientStore.getState().warningEntries.some(
+        (entry) => entry.event === 'turn.terminal.contract_invalid',
+      )).toBe(false);
+    }
+  });
+
+  it.each([
+    ['thread/stopped', 'stopped', { status: 'completed', reason: 'Authorization: Bearer raw-thread-secret' }],
+    ['agent/stopped', 'stopped', { reason: 'Authorization: Bearer raw-agent-secret' }],
+    ['agent/failed', 'error', { error: 'Authorization: Bearer raw-failure-secret /private/agent.log' }],
+  ])('applies %s lifecycle state, refreshes the sidebar, and keeps diagnostics safe', async (method, status, lifecyclePayload) => {
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'thread-1',
+      threads: [{ id: 'thread-1', agentId: 'agent-1', name: 'Existing', provider: 'codex', status: 'running' }],
+      statuses: { 'thread-1': { status: 'running' } },
+      activeTurnByThread: { 'thread-1': { id: 'turn-1', threadId: 'thread-1', status: 'running' } },
+    });
+    backend.getSidebarState.mockResolvedValue({
+      activeThreadId: 'thread-1',
+      threads: [{ id: 'thread-1', agentId: 'agent-1', name: 'Existing', provider: 'codex', status }],
+    });
+    registerBridgeEventHandlersForTest();
+    backend.getSidebarState.mockClear();
+
+    const event = { type: method, payload: { threadId: 'thread-1', agentId: 'agent-1', ...lifecyclePayload } };
+    bridgeCallback(event);
+    bridgeCallback(event);
+    await flushPromises(16);
+
+    const state = useClientStore.getState();
+    expect(state.threads).toEqual([expect.objectContaining({ id: 'thread-1', status })]);
+    expect(state.statuses['thread-1']).toEqual(expect.objectContaining({ status }));
+    expect(state.activeTurnByThread).not.toHaveProperty('thread-1');
+    expect(backend.getSidebarState).toHaveBeenCalledTimes(1);
+    expect(backend.getSidebarState).toHaveBeenCalledWith({ cwd: '/repo/app' });
+    expect(state.warningEntries.some((entry) => entry.event === 'turn.terminal.contract_invalid')).toBe(false);
+
+    if (method === 'agent/failed') {
+      expect(state.actionNotice).toEqual(expect.objectContaining({ message: '代理运行失败', tone: 'error' }));
+      expect(state.warningEntries).toEqual([
+        expect.objectContaining({
+          event: 'agent.lifecycle.failed',
+          level: 'error',
+          occurrenceCount: 1,
+          fields: expect.objectContaining({ agent_id: 'agent-1', reason: 'agent_failed' }),
+        }),
+      ]);
+      expect(state.warningEntries[0].fields).not.toHaveProperty('error');
+      expect(JSON.stringify({ warnings: state.warningEntries, traces: backend.emitFrontendTraceEvent.mock.calls })).not.toMatch(/raw-failure-secret|\/private\/agent\.log/);
+    } else {
+      expect(state.warningEntries).toEqual([]);
+    }
   });
 
   it.each([

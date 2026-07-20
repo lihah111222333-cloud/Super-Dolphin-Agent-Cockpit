@@ -170,27 +170,40 @@ func TestSyntheticAssistantCompletionPreservesToolFailure(t *testing.T) {
 		},
 	})
 	toolEnd := waitToolCallEnd(t, toolEndCh)
-	if toolEnd.Success || toolEnd.Error != "file read failed" {
-		t.Fatalf("ToolCallEnd = %+v, want failed file read", toolEnd)
-	}
+	assertSyntheticToolFailure(t, toolEnd)
 
 	s.completeSyntheticTurn("turn-1", "rollout_assistant_message", "assistant text", nil)
 
 	completed := waitRolloutTurnCompleted(t, completedCh)
+	assertSyntheticFailedCompletion(t, completed, active)
+}
+
+func assertSyntheticToolFailure(t *testing.T, toolEnd tooldto.ToolCallEnd) {
+	t.Helper()
+	if toolEnd.Success || !strings.HasPrefix(toolEnd.Error, "Tool execution failed. Diagnostic ID: ") || strings.Contains(toolEnd.Error, "file read failed") {
+		t.Fatalf("ToolCallEnd = %+v, want failed file read", toolEnd)
+	}
+}
+
+func assertSyntheticFailedCompletion(t *testing.T, completed turndto.TurnCompleted, active *turnHandle) {
+	t.Helper()
 	if completed.Success || completed.Status != "failed" {
 		t.Fatalf("TurnCompleted = %+v, want failed", completed)
 	}
-	for _, want := range []string{"call-file", "file", "file read failed"} {
+	for _, want := range []string{"call-file", "file", "Tool execution failed. Diagnostic ID:"} {
 		if !strings.Contains(completed.Error, want) {
 			t.Fatalf("TurnCompleted.Error = %q, want %q correlation", completed.Error, want)
 		}
+	}
+	if strings.Contains(completed.Error, "file read failed") {
+		t.Fatalf("TurnCompleted.Error = %q, leaked raw tool failure", completed.Error)
 	}
 	if completed.Result != "assistant text" {
 		t.Fatalf("TurnCompleted.Result = %q, want assistant text", completed.Result)
 	}
 	assertTurnDone(t, active, "synthetic completion with tool failure did not complete active turn")
-	if active.Err() == nil || !strings.Contains(active.Err().Error(), "file read failed") {
-		t.Fatalf("turn handle error = %v, want correlated tool failure", active.Err())
+	if active.Err() == nil || !strings.Contains(active.Err().Error(), "Tool execution failed. Diagnostic ID:") || strings.Contains(active.Err().Error(), "file read failed") {
+		t.Fatalf("turn handle error = %v, want public correlated tool failure", active.Err())
 	}
 }
 
@@ -337,9 +350,12 @@ func TestOnNotification_CodexRolloutMCPFileReadEmptySuccessResultFailsWithPathGu
 	if end.Success {
 		t.Fatalf("ToolCallEnd.Success = true, want false for empty file read result: %+v", end)
 	}
-	for _, want := range []string{"missing.md", "does not exist", "outside workspace"} {
-		if !strings.Contains(end.Error, want) {
-			t.Fatalf("ToolCallEnd.Error = %q, want %q", end.Error, want)
+	if !strings.HasPrefix(end.Error, "Tool execution failed. Diagnostic ID: ") {
+		t.Fatalf("ToolCallEnd.Error = %q, want public diagnostic", end.Error)
+	}
+	for _, forbidden := range []string{"missing.md", "does not exist", "outside workspace"} {
+		if strings.Contains(end.Error, forbidden) {
+			t.Fatalf("ToolCallEnd.Error = %q, leaked %q", end.Error, forbidden)
 		}
 	}
 	if strings.Contains(end.Result, `"value":""`) {
@@ -390,8 +406,8 @@ func TestOnNotification_CodexRolloutResponseItemToolResultDispatchesToolEnd(t *t
 	if end.CallID != begin.CallID || end.ToolName != begin.ToolName {
 		t.Fatalf("ToolCallEnd = %+v, want begin key %s/%s", end, begin.CallID, begin.ToolName)
 	}
-	if end.Success || end.Error != "direct mcp failure" {
-		t.Fatalf("ToolCallEnd = %+v, want direct MCP failure", end)
+	if end.Success || !strings.HasPrefix(end.Error, "Tool execution failed. Diagnostic ID: ") || strings.Contains(end.Error, "direct mcp failure") {
+		t.Fatalf("ToolCallEnd = %+v, want public MCP failure diagnostic", end)
 	}
 	if !strings.Contains(end.Result, `"path":"smoke.go"`) || strings.Contains(end.Result, "plain fallback") {
 		t.Fatalf("Result = %q, want structuredContent preview before content text", end.Result)
@@ -463,19 +479,19 @@ func TestOnNotification_CodexRolloutFunctionCallOutputReportsPersistFailure(t *t
 	end := waitToolCallEnd(t, endCh)
 	assertToolCallEndResult(t, end, `{"captured":true}`)
 	assertToolCallEndPersistence(t, end, toolCallEndPersistenceSummary{
-		path:          "/tmp/function-call-output.json",
-		persistError:  "disk full",
-		persistFailed: true,
-		truncated:     true,
-		originalSize:  2048,
+		path:               "/tmp/function-call-output.json",
+		publicPersistError: true,
+		persistFailed:      true,
+		truncated:          true,
+		originalSize:       2048,
 	})
 }
 
 // toolCallEndPersistenceSummary keeps persistence field assertions compact.
 type toolCallEndPersistenceSummary struct {
-	path, persistError       string
-	persistFailed, truncated bool
-	originalSize             int
+	path, persistError                           string
+	publicPersistError, persistFailed, truncated bool
+	originalSize                                 int
 }
 
 // assertToolCallEndResult compares the visible ToolCallEnd result payload.
@@ -496,8 +512,17 @@ func assertToolCallEndPersistence(t *testing.T, end tooldto.ToolCallEnd, want to
 		truncated:     end.Truncated,
 		originalSize:  end.OriginalSize,
 	}
-	if got != want {
+	if got.path != want.path || got.persistFailed != want.persistFailed || got.truncated != want.truncated || got.originalSize != want.originalSize {
 		t.Fatalf("ToolCallEnd persistence fields = %+v, want %+v", got, want)
+	}
+	if want.publicPersistError {
+		if !strings.HasPrefix(got.persistError, "Tool execution failed. Diagnostic ID: ") || strings.Contains(got.persistError, "disk full") {
+			t.Fatalf("ToolCallEnd.PersistError = %q, want public persistence diagnostic", got.persistError)
+		}
+		return
+	}
+	if got.persistError != want.persistError {
+		t.Fatalf("ToolCallEnd.PersistError = %q, want %q", got.persistError, want.persistError)
 	}
 }
 

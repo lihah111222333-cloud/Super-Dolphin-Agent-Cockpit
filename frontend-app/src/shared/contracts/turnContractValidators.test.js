@@ -31,6 +31,16 @@ describe('turn contract validators', () => {
     }
   });
 
+  it('enforces diagnostic ID pattern and maximum length from the generated schema', () => {
+    for (const diagnosticId of [
+      'terminal:thread-1:turn-1:2026-07-21T00:00:00Z',
+      'diag-invalid/slash',
+      `diag-${'a'.repeat(124)}`,
+    ]) {
+      expect(() => validatePublicErrorV1({ ...publicError, diagnosticId })).toThrow();
+    }
+  });
+
   it('enforces terminal outcome-dependent fields', () => {
     expect(() => validateTurnTerminalV2(terminal('success'))).not.toThrow();
     expect(() => validateTurnTerminalV2(terminal('failed'))).toThrow('publicError is required');
@@ -39,5 +49,23 @@ describe('turn contract validators', () => {
     expect(() => validateTurnTerminalV2({ ...terminal('interrupted'), terminationCause: 'user_request', terminationRequestId: 'request-1' })).not.toThrow();
     expect(() => validateTurnTerminalV2({ ...terminal('cancelled'), terminationCause: 'provider', publicError, terminationRequestId: 'request-1' })).toThrow('forbidden contract shape');
     expect(() => validateTurnTerminalV2({ ...terminal('unknown') })).toThrow('unsupported value');
+  });
+
+  it('enforces bounded unique partial item IDs by Unicode code point', () => {
+    expect(() => validateTurnTerminalV2({
+      ...terminal('success'), partialItemIds: Array.from({ length: 128 }, (_, index) => `item-${index}`),
+    })).not.toThrow();
+    expect(() => validateTurnTerminalV2({
+      ...terminal('success'), partialItemIds: Array.from({ length: 129 }, (_, index) => `item-${index}`),
+    })).toThrow('exceeds maximum item count 128');
+    expect(() => validateTurnTerminalV2({
+      ...terminal('success'), partialItemIds: ['item-1', 'item-1'],
+    })).toThrow('contains duplicate item');
+    expect(() => validateTurnTerminalV2({
+      ...terminal('success'), partialItemIds: ['😀'.repeat(256)],
+    })).not.toThrow();
+    expect(() => validateTurnTerminalV2({
+      ...terminal('success'), partialItemIds: ['😀'.repeat(257)],
+    })).toThrow('exceeds maximum length');
   });
 });

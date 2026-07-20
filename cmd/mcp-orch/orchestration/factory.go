@@ -8,7 +8,6 @@ import (
 	"time"
 
 	agentdto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/agent"
-	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/shared"
 )
 
 func resetLaunchState(agent *agentState) {
@@ -75,8 +74,7 @@ func (s *service) commitLaunchFailureLocked(
 		return nil
 	}
 	if agent != nil {
-		values := append(append([]string(nil), details...), launchErr.Error())
-		agent.lastError = shared.FirstTrimmed(values...)
+		agent.lastError = publicOrchestrationError("Agent launch failed.", launchErr)
 		s.logger.Warn("orchestration: launch failure committed",
 			"agent_id", agent.id, "state", agent.state, "error", launchErr,
 			"details", strings.Join(details, "; "))
@@ -93,7 +91,7 @@ func (s *service) commitLaunchFailureLocked(
 func (s *service) commitLaunchSuccessLocked(ctx context.Context, agent *agentState) error {
 	if err := s.fireOrForceLocked(ctx, agent, agentdto.TriggerLaunchSucceeded); err != nil {
 		if agent != nil {
-			agent.lastError = err.Error()
+			agent.lastError = publicOrchestrationError("Agent launch state update failed.", err)
 		}
 		return err
 	}
@@ -198,7 +196,7 @@ func shouldAutoRecoverProcessExitLocked(launcher recoveryLauncherPort, agent *ag
 	}
 	resetProcessExitAutoRecoverWindowLocked(agent, time.Now())
 	if agent.autoRecoverCount >= maxProcessExitAutoRecoveries {
-		agent.lastError = shared.FirstTrimmed(agent.lastError, err.Error()) + "; auto recovery retry limit reached"
+		agent.lastError = publicOrchestrationError("Agent process recovery failed.", err) + "; auto recovery retry limit reached"
 		return false
 	}
 	agent.autoRecoverCount++

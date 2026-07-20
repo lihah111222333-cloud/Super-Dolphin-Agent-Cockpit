@@ -159,6 +159,35 @@ func TestInterruptAgentRunningTurnSettlesIdle(t *testing.T) {
 	}
 }
 
+func TestInterruptAgentReturnsWhenReplacementOwnsActiveTurn(t *testing.T) {
+	launcher := &interruptAgentLauncher{}
+	svc := newInterruptAgentService(launcher, agentdto.StateTurnRunning, "turn-old")
+	launcher.afterInterrupt = func() {
+		if err := svc.registry.withAgentLocked("agent-1", func(agent *agentRuntime) error {
+			agent.remoteThreadID = "thread-replacement"
+			agent.activeTurnID = "turn-replacement"
+			agent.state = agentdto.StateTurnRunning
+			return nil
+		}); err != nil {
+			t.Fatalf("replace interrupted turn: %v", err)
+		}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+
+	result, err := svc.InterruptAgent(ctx, "agent-1", "parent_agent")
+
+	if err != nil {
+		t.Fatalf("InterruptAgent() error = %v", err)
+	}
+	if result.State != string(agentdto.StateTurnRunning) {
+		t.Fatalf("InterruptAgent() state = %q, want replacement running", result.State)
+	}
+	if launcher.interruptCalls != 1 {
+		t.Fatalf("launcher interrupt calls = %d, want 1", launcher.interruptCalls)
+	}
+}
+
 func TestInterruptAgentRejectsIdleAgent(t *testing.T) {
 	launcher := &interruptAgentLauncher{}
 	svc := newInterruptAgentService(launcher, agentdto.StateIdle, "")

@@ -45,6 +45,56 @@ func TestStopInterruptsTurnAndCleansThreadState(t *testing.T) {
 	assertStopInterruptsAndCleansState(t, svc, turns, orch)
 }
 
+func TestStopReturnsInterruptTimeoutAfterRuntimeTeardown(t *testing.T) {
+	t.Parallel()
+
+	calls := []string{}
+	turns := &stubTurnService{interruptErr: context.DeadlineExceeded, calls: &calls}
+	orch := &stubThreadOrchestration{calls: &calls}
+	threadStore := &recordingThreadStore{
+		stubThreadStore: &stubThreadStore{thread: &ThreadRecord{
+			ThreadID: "thread-1",
+			AgentID:  "agent-1",
+			Status:   statusCreated,
+		}},
+		calls: &calls,
+	}
+	stoppedEvents := 0
+	svc := &service{
+		bindingStore: &stubThreadBindingStore{binding: &BindingRecord{
+			AgentID:          "agent-1",
+			Provider:         "codex",
+			ProviderThreadID: "provider-thread-1",
+			CodexThreadID:    "thread-1",
+		}},
+		threadStore:   threadStore,
+		sessions:      &stubThreadSessions{agentID: "agent-1", session: &stubThreadSession{threadID: "thread-1", calls: &calls}, calls: &calls},
+		turns:         turns,
+		orchestration: orch,
+		emitStopped: func(threaddto.Stopped) {
+			stoppedEvents++
+		},
+	}
+
+	err := svc.Stop(context.Background(), "thread-1")
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("Stop() error = %v, want interrupt timeout", err)
+	}
+	assertStopCallPresent(t, calls, "session_close:thread-1", "session close after interrupt timeout")
+	assertStopCallPresent(t, calls, "agent_stop:agent-1", "managed agent stop after interrupt timeout")
+	assertStopCallBefore(t, calls, "turn_interrupt:thread-1:thread_stopped", "session_close:thread-1", "session close")
+	assertStopCallBefore(t, calls, "session_close:thread-1", "agent_stop:agent-1", "managed agent stop")
+	if callIndex(calls, "thread_status:thread-1:stopped") != -1 {
+		t.Fatalf("status calls = %#v, must not persist stopped after interrupt timeout", calls)
+	}
+	if stoppedEvents != 0 {
+		t.Fatalf("stopped events = %d, want none after interrupt timeout", stoppedEvents)
+	}
+	if _, blocked := svc.resumeBlocked.Load("agent-1"); blocked {
+		t.Fatal("resumeBlocked remains after interrupted Stop returned")
+	}
+}
+
 func assertStopInterruptsAndCleansState(t *testing.T, svc *service, turns *stubTurnService, orch *stubThreadOrchestration) {
 	t.Helper()
 	if !reflect.DeepEqual(turns.interruptCalls, []string{"thread-1:thread_stopped"}) {

@@ -113,11 +113,12 @@ func TestNewTurnTerminalV2AdvertisesOnlyImplementedRecoveryActions(t *testing.T)
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
+			eventID := "terminal:thread-1:turn-1:2026-07-17T01:02:03Z"
 			terminal, err := NewTurnTerminalV2(TurnCompleted{
 				TurnHeader: turnHeaderWith(time.Date(2026, 7, 17, 1, 2, 3, 0, time.UTC), "thread-1", "turn-1"),
 				Status:     test.status,
 				Reason:     test.reason,
-			}, "event-local")
+			}, eventID)
 			if err != nil {
 				t.Fatalf("NewTurnTerminalV2() error = %v", err)
 			}
@@ -132,6 +133,9 @@ func TestNewTurnTerminalV2AdvertisesOnlyImplementedRecoveryActions(t *testing.T)
 			}
 			if !reflect.DeepEqual(terminal.PublicError.RecoveryActions, []string{"copy_diagnostics"}) {
 				t.Fatalf("RecoveryActions = %#v, want only copy_diagnostics", terminal.PublicError.RecoveryActions)
+			}
+			if terminal.PublicError.DiagnosticID != diagnosticIDForEventID(eventID) || terminal.PublicError.DiagnosticID == terminal.EventID {
+				t.Fatalf("DiagnosticID = %q, EventID = %q, want independent canonical diagnostic ID", terminal.PublicError.DiagnosticID, terminal.EventID)
 			}
 		})
 	}

@@ -1,7 +1,7 @@
 {
   "agent_id": "agent-codex-contract",
   "call_id": "call-codex-contract",
-  "error": "grep failed",
+  "error": "Tool execution failed. Diagnostic ID: 40ad0a08330512104266f5744779de89c43101f76ddf577180475b678fa5a13d",
   "success": false,
   "thread_id": "agent-codex-contract",
   "timestamp": "2026-07-07T01:02:03Z",

@@ -6,10 +6,17 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/kelindar/event"
+
+	agentdto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/agent"
 	dto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/provider"
 	tooldto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/tool"
+	turndto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/turn"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/claudecli"
 	providershared "github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/shared"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/unified"
 	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
 )
 
@@ -35,6 +42,135 @@ func TestAgentSessionHeaderPrefersAgentIDAsThreadID(t *testing.T) {
 	// SessionID should still be the codex UUID.
 	if got := header.SessionID; got != "019d3595-1444-76d0-adca-e7d9f6b11232" {
 		t.Fatalf("SessionID = %q, want codex UUID", got)
+	}
+}
+
+func TestCodexTimestampProviderErrorForMissingLifecycleAndInvalidTerminal(t *testing.T) {
+	tests := []struct {
+		name     string
+		raw      dto.RawProviderEvent
+		wantCode string
+	}{
+		{
+			name: "missing lifecycle timestamp",
+			raw: dto.RawProviderEvent{EventType: "thread/status/changed", Data: map[string]any{
+				"agentId": "agent-1", "threadId": "thread-1", "sessionId": "session-1", "newState": "idle",
+			}},
+			wantCode: codexMissingTimestampCode,
+		},
+		{
+			name: "invalid terminal timestamp",
+			raw: dto.RawProviderEvent{EventType: "turn/completed", Data: map[string]any{
+				"agentId": "agent-1", "threadId": "thread-1", "sessionId": "session-1", "turnId": "turn-1", "timestamp": "not-a-time",
+			}},
+			wantCode: codexInvalidTimestampCode,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var published []any
+			translateCodexAdapterEvent(tt.raw, func(ev any) { published = append(published, ev) })
+			if len(published) != 2 {
+				t.Fatalf("published events = %#v, want raw provider error and AgentError", published)
+			}
+			if _, ok := published[0].(dto.BusRawProviderEvent); !ok {
+				t.Fatalf("first event type = %T, want BusRawProviderEvent", published[0])
+			}
+			agentErr, ok := published[1].(agentdto.AgentError)
+			if !ok {
+				t.Fatalf("second event type = %T, want AgentError", published[1])
+			}
+			if agentErr.Code != tt.wantCode || !strings.HasPrefix(agentErr.Message, "Provider reported an error. Diagnostic ID:") {
+				t.Fatalf("AgentError = %#v, want timestamp validation code %q", agentErr, tt.wantCode)
+			}
+			if strings.Contains(agentErr.Message, "not-a-time") || strings.Contains(agentErr.Message, "missing timestamp") {
+				t.Fatalf("AgentError leaked raw timestamp failure: %#v", agentErr)
+			}
+		})
+	}
+}
+
+func TestCodexTerminalTimestampUsesProviderValue(t *testing.T) {
+	want, err := time.Parse(time.RFC3339Nano, "2026-07-16T10:11:12.123Z")
+	if err != nil {
+		t.Fatalf("parse fixture timestamp: %v", err)
+	}
+	var published []any
+	translateCodexAdapterEvent(dto.RawProviderEvent{EventType: "turn/completed", Data: map[string]any{
+		"agentId": "agent-1", "threadId": "thread-1", "turnId": "turn-1", "timestamp": want.Format(time.RFC3339Nano), "success": true,
+	}}, func(ev any) { published = append(published, ev) })
+	if len(published) != 1 {
+		t.Fatalf("published events = %#v, want one terminal event", published)
+	}
+	completed, ok := published[0].(turndto.TurnCompleted)
+	if !ok {
+		t.Fatalf("event type = %T, want TurnCompleted", published[0])
+	}
+	if !completed.Timestamp.Equal(want) {
+		t.Fatalf("terminal timestamp = %v, want provider timestamp %v", completed.Timestamp, want)
+	}
+}
+
+func TestCodexTimestampValidationDoesNotRequireToolBeginTimestamp(t *testing.T) {
+	var published []any
+	translateCodexAdapterEvent(dto.RawProviderEvent{EventType: "item/tool/call", Data: map[string]any{
+		"agentId": "agent-1", "threadId": "thread-1", "turnId": "turn-1", "callId": "call-1", "toolName": "Read",
+	}}, func(ev any) { published = append(published, ev) })
+	if len(published) != 1 {
+		t.Fatalf("published events = %#v, want one tool begin event", published)
+	}
+	if _, ok := published[0].(tooldto.ToolCallBegin); !ok {
+		t.Fatalf("event type = %T, want ToolCallBegin", published[0])
+	}
+}
+
+func TestCodexTimestampValidationMatchesClaudeProviderErrors(t *testing.T) {
+	tests := []struct {
+		name     string
+		register func(*unified.EventDispatcher)
+		raw      dto.RawProviderEvent
+		wantCode string
+	}{
+		{
+			name:     "codex missing lifecycle timestamp",
+			register: RegisterTranslators,
+			raw: dto.RawProviderEvent{EventType: "thread/status/changed", Data: map[string]any{
+				"agentId": "agent-1", "threadId": "thread-1", "newState": "idle",
+			}},
+			wantCode: codexMissingTimestampCode,
+		},
+		{
+			name:     "claude missing lifecycle timestamp",
+			register: claudecli.RegisterTranslators,
+			raw: dto.RawProviderEvent{EventType: "system:init", Data: map[string]any{
+				"agent_id": "agent-1", "thread_id": "thread-1", "session_id": "session-1",
+			}},
+			wantCode: "claude_missing_timestamp",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			bus := event.NewDispatcher()
+			defer func() { _ = bus.Close() }()
+			dispatcher := unified.NewEventDispatcher(bus, nil)
+			tt.register(dispatcher)
+			agentErrors := make(chan agentdto.AgentError, 1)
+			cancel := event.Subscribe(bus, func(ev agentdto.AgentError) { agentErrors <- ev })
+			defer cancel()
+			dispatcher.Dispatch(tt.raw)
+			select {
+			case got := <-agentErrors:
+				if got.Code != tt.wantCode ||
+					!strings.HasPrefix(got.Message, "Provider reported an error. Diagnostic ID: ") ||
+					strings.Contains(got.Message, "missing timestamp") {
+					t.Fatalf("AgentError = %#v, want safe diagnostic with code %q", got, tt.wantCode)
+				}
+			case <-time.After(time.Second):
+				t.Fatalf("timed out waiting for provider timestamp error")
+			}
+		})
 	}
 }
 
@@ -98,8 +234,9 @@ func TestTranslateCodexEventRejectsMissingCriticalIDs(t *testing.T) {
 	translateCodexEvent(dto.RawProviderEvent{
 		EventType: "turn/completed",
 		Data: map[string]any{
-			"agentId": "agent-1",
-			"status":  "completed",
+			"agentId":   "agent-1",
+			"status":    "completed",
+			"timestamp": "2026-07-16T10:11:12.123Z",
 		},
 	}, func(ev any) {
 		t.Fatalf("missing turn_id published %#v, want no typed event", ev)
@@ -311,7 +448,7 @@ func TestTranslateToolEventMarksNestedResultFailure(t *testing.T) {
 	if !ok {
 		t.Fatalf("event type = %T, want ToolCallEnd", got[0])
 	}
-	if end.Success || end.Error != "grep failed" {
+	if end.Success || !strings.HasPrefix(end.Error, "Tool execution failed. Diagnostic ID: ") || strings.Contains(end.Error, "grep failed") {
 		t.Fatalf("ToolCallEnd = %+v, want nested result failure", end)
 	}
 }
@@ -567,8 +704,8 @@ func TestTranslateCodexRolloutResponseItemToolResultSupportsDirectMCPResult(t *t
 	if end.CallID != "call-grep" || end.ToolName != "grep" {
 		t.Fatalf("ToolCallEnd = %+v, want call-grep/grep", end)
 	}
-	if end.Success || end.Error != "direct mcp failure" {
-		t.Fatalf("ToolCallEnd = %+v, want direct MCP failure", end)
+	if end.Success || !strings.HasPrefix(end.Error, "Tool execution failed. Diagnostic ID: ") || strings.Contains(end.Error, "direct mcp failure") {
+		t.Fatalf("ToolCallEnd = %+v, want public MCP failure", end)
 	}
 	if !strings.Contains(end.Result, `"matches"`) || strings.Contains(end.Result, "plain text fallback") {
 		t.Fatalf("Result = %q, want structuredContent before content text", end.Result)
@@ -577,20 +714,7 @@ func TestTranslateCodexRolloutResponseItemToolResultSupportsDirectMCPResult(t *t
 
 func TestToolCallEndReportsPersistFailure(t *testing.T) {
 	configureCaptureRuntimeHookForTest(t, func(meta providershared.ToolResultMeta, raw string) (providershared.ToolResultRecord, error) {
-		if meta.CallID != "call-grep" || meta.ToolName != "mcp__lsp__grep" {
-			t.Fatalf("capture meta = %+v, want call-grep/mcp__lsp__grep", meta)
-		}
-		if !strings.Contains(raw, `"matches"`) {
-			t.Fatalf("capture raw = %q, want structured preview", raw)
-		}
-		return providershared.ToolResultRecord{
-			Preview:       `{"captured":true}`,
-			PersistedPath: "/tmp/tool-result.json",
-			PersistFailed: true,
-			PersistError:  "disk full",
-			Truncated:     true,
-			OriginalSize:  1234,
-		}, nil
+		return persistFailureCaptureResult(t, meta, raw)
 	})
 
 	var got []any
@@ -616,6 +740,25 @@ func TestToolCallEndReportsPersistFailure(t *testing.T) {
 		},
 	}, func(ev any) { got = append(got, ev) })
 
+	assertPersistFailureToolEnd(t, got)
+}
+
+func persistFailureCaptureResult(t *testing.T, meta providershared.ToolResultMeta, raw string) (providershared.ToolResultRecord, error) {
+	t.Helper()
+	if meta.CallID != "call-grep" || meta.ToolName != "mcp__lsp__grep" {
+		t.Fatalf("capture meta = %+v, want call-grep/mcp__lsp__grep", meta)
+	}
+	if !strings.Contains(raw, `"matches"`) {
+		t.Fatalf("capture raw = %q, want structured preview", raw)
+	}
+	return providershared.ToolResultRecord{
+		Preview: `{"captured":true}`, PersistedPath: "/tmp/tool-result.json", PersistFailed: true,
+		PersistError: "disk full", Truncated: true, OriginalSize: 1234,
+	}, nil
+}
+
+func assertPersistFailureToolEnd(t *testing.T, got []any) {
+	t.Helper()
 	if len(got) != 1 {
 		t.Fatalf("published events = %d, want 1", len(got))
 	}
@@ -623,18 +766,11 @@ func TestToolCallEndReportsPersistFailure(t *testing.T) {
 	if !ok {
 		t.Fatalf("event type = %T, want ToolCallEnd", got[0])
 	}
-	summary := struct {
-		result, path, persistError string
-		persistFailed, truncated   bool
-		originalSize               int
-	}{end.Result, end.PersistedPath, end.PersistError, end.PersistFailed, end.Truncated, end.OriginalSize}
-	wantSummary := struct {
-		result, path, persistError string
-		persistFailed, truncated   bool
-		originalSize               int
-	}{`{"captured":true}`, "/tmp/tool-result.json", "disk full", true, true, 1234}
-	if summary != wantSummary {
-		t.Fatalf("ToolCallEnd capture fields = %+v, want %+v", summary, wantSummary)
+	if end.Result != `{"captured":true}` || end.PersistedPath != "/tmp/tool-result.json" || !end.PersistFailed || !end.Truncated || end.OriginalSize != 1234 {
+		t.Fatalf("ToolCallEnd capture fields = %+v", end)
+	}
+	if !strings.HasPrefix(end.PersistError, "Tool execution failed. Diagnostic ID: ") || strings.Contains(end.PersistError, "disk full") {
+		t.Fatalf("ToolCallEnd persist error = %q, want public diagnostic", end.PersistError)
 	}
 }
 
@@ -656,8 +792,8 @@ func TestToolCallEndFailsWhenRuntimeCaptureFails(t *testing.T) {
 		t.Fatal("translateToolEvent() ok = false, want ToolCallEnd")
 	}
 	end, ok := ev.(tooldto.ToolCallEnd)
-	if !ok || end.Success || !strings.Contains(end.Error, "capture unavailable") {
-		t.Fatalf("ToolCallEnd = %+v, want explicit capture failure", ev)
+	if !ok || end.Success || !strings.HasPrefix(end.Error, "Tool execution failed. Diagnostic ID: ") || strings.Contains(end.Error, "capture unavailable") {
+		t.Fatalf("ToolCallEnd = %+v, want public capture failure", ev)
 	}
 }
 
@@ -710,7 +846,7 @@ func TestTranslateCodexRolloutMCPToolCallEndMarksToolError(t *testing.T) {
 	if !ok {
 		t.Fatalf("event type = %T, want ToolCallEnd", got[0])
 	}
-	if end.Success || end.Error != "structured output error" {
+	if end.Success || !strings.HasPrefix(end.Error, "Tool execution failed. Diagnostic ID: ") || strings.Contains(end.Error, "structured output error") {
 		t.Fatalf("ToolCallEnd = %+v, want content text error", end)
 	}
 }

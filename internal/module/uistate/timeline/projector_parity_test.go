@@ -2,15 +2,18 @@ package timeline_test
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/kelindar/event"
 	agentdto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/agent"
+	providerdto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/provider"
 	shared "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/shared"
 	tooldto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/tool"
 	turndto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/turn"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/uistate/timeline"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/unified"
 )
 
 func TestRegisterSubscriptions_PlanParity(t *testing.T) {
@@ -70,6 +73,41 @@ func TestRegisterSubscriptions_PlanParity(t *testing.T) {
 	})
 	// Give the dispatcher a brief moment; the timeline must stay at one plan item.
 	assertStableItemCount(t, svc, "t1", 1, "TurnInputReceived should not add a user item to the timeline")
+}
+
+func TestProviderErrorTimelineNeverPersistsRawCause(t *testing.T) {
+	svc := timeline.New(nil, nil, 50)
+	bus := event.NewDispatcher()
+	cancels := timeline.RegisterSubscriptions(bus, svc, nil, nil)
+	defer func() {
+		for _, cancel := range cancels {
+			cancel()
+		}
+		_ = bus.Close()
+	}()
+
+	unified.NewEventDispatcher(bus, nil).Dispatch(providerdto.RawProviderEvent{
+		EventType: "error",
+		Data: map[string]any{
+			"agentId":  "agent-1",
+			"threadId": "t1",
+			"message":  "token=sk-live-secret command=rm -rf /Users/private stack=private.go:42",
+		},
+	})
+
+	waitForCondition(t, func() bool {
+		items := svc.GetByThread("t1")
+		return len(items) == 1 && items[0].Kind == "error"
+	}, "expected public provider error in timeline")
+	item := svc.GetByThread("t1")[0]
+	for _, forbidden := range []string{"sk-live-secret", "rm -rf", "/Users/private", "private.go:42"} {
+		if strings.Contains(item.Text, forbidden) {
+			t.Fatalf("timeline text leaked %q: %s", forbidden, item.Text)
+		}
+	}
+	if !strings.HasPrefix(item.Text, "Provider reported an error. Diagnostic ID: ") {
+		t.Fatalf("timeline text = %q, want public diagnostic", item.Text)
+	}
 }
 
 func TestPlanUpdated_StructuredCodexPayload(t *testing.T) {

@@ -108,14 +108,14 @@ func (r *agentRegistry) withAgentReadLocked(agentID string, fn func(*agentState)
 	return fn(agent)
 }
 
-// remoteTerminalTargetTurnIDLocked returns the active turn for a trusted remote terminal owner.
+// remoteTerminalTargetTurnRefLocked returns the active remote turn identity for a trusted owner.
 // The caller must hold the registry lock.
-func (r *agentRegistry) remoteTerminalTargetTurnIDLocked(agentID string) (string, bool) {
+func (r *agentRegistry) remoteTerminalTargetTurnRefLocked(agentID string) (remoteTurnSubmitRef, bool) {
 	agent, err := r.lookupAgentByIDLocked(agentID)
 	if err != nil {
-		return "", false
+		return remoteTurnSubmitRef{}, false
 	}
-	return strings.TrimSpace(agent.activeTurnID), true
+	return remoteTurnSubmitRef{agentID: agent.id, threadID: strings.TrimSpace(agent.remoteThreadID), launchSeq: agent.launchSeq, provisionalTurnID: strings.TrimSpace(agent.activeTurnID)}, true
 }
 
 func (r *agentRegistry) withAgentReadLockedByAgentID(ctx context.Context, agentID string, fn func(*agentState) error) error {

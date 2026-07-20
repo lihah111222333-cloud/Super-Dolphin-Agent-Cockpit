@@ -2,6 +2,7 @@ package orchestration
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -17,12 +18,19 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-orch/orchestration/processctl"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
 	agentdto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/agent"
+	providerdto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/provider"
+	turndto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/turn"
 	platformstatemachine "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/statemachine"
 )
 
 const submitSessionReadyTimeout = 5 * time.Second
 
 const longWaitLogThreshold = 2 * time.Second
+
+// publicOrchestrationError 将内部错误转换为不含原始原因的公开诊断消息。
+func publicOrchestrationError(summary string, cause error) string {
+	return providerdto.PublicMessageForError(summary, cause)
+}
 
 func buildStatesFromDefinitions(defs []agentdto.TransitionDefinition) []platformstatemachine.StateConfig {
 	permits := make(map[string][]platformstatemachine.Permit, len(agentdto.StateDefinitions))
@@ -43,30 +51,103 @@ func buildStatesFromDefinitions(defs []agentdto.TransitionDefinition) []platform
 }
 
 // BindActiveTurnID 把当前活跃 turn 绑定到 provider 返回的真实 turn ID。
-func (s *service) BindActiveTurnID(ctx context.Context, agentID, turnID string) error {
+func (s *service) BindActiveTurnID(ctx context.Context, agentID, expectedLocalTurnID, providerTurnID string) error {
 	if s == nil || s.turns == nil {
 		return errors.New("turn controller is not configured")
 	}
-	return s.turns.BindActiveTurnID(ctx, agentID, turnID)
+	return s.turns.BindActiveTurnID(ctx, agentID, expectedLocalTurnID, providerTurnID)
 }
 
-// BindActiveTurnID 把当前本地 active turn 与 provider 返回的真实 turn ID 成对绑定。
-func (c *turnController) BindActiveTurnID(ctx context.Context, agentID, turnID string) error {
-	turnID = strings.TrimSpace(turnID)
-	if turnID == "" {
-		return errors.New("turn id is required")
+// BindActiveTurnID 以 expectedLocalTurnID 为代际围栏，拒绝迟到 provider turn 污染后续本地 turn。
+func (c *turnController) BindActiveTurnID(ctx context.Context, agentID, expectedLocalTurnID, providerTurnID string) error {
+	expectedLocalTurnID = strings.TrimSpace(expectedLocalTurnID)
+	providerTurnID = strings.TrimSpace(providerTurnID)
+	if expectedLocalTurnID == "" || providerTurnID == "" {
+		return errors.New("expected local turn id and provider turn id are required")
 	}
 	return c.withAgentLocked(agentID, func(agent *agentRuntime) error {
-		if agent.activeTurnID == "" {
-			return fmt.Errorf("%w: agent %q has no active turn", errTurnNotActive, agent.id)
+		if agent.activeTurnID != expectedLocalTurnID {
+			return fmt.Errorf("%w: agent %q active turn %q does not match expected local turn %q", errTurnNotActive, agent.id, agent.activeTurnID, expectedLocalTurnID)
 		}
 		agent.providerTurnAlias = providerTurnAlias{
-			localTurnID:    agent.activeTurnID,
-			providerTurnID: turnID,
+			localTurnID:    expectedLocalTurnID,
+			providerTurnID: providerTurnID,
 		}
 		agent.updatedAt = resolveEventTime(ctx, agent.updatedAt)
 		return nil
 	})
+}
+
+func (c *turnController) beginProviderTurnStart(work turnWork) {
+	_ = c.withAgentLocked(work.agentID, func(agent *agentRuntime) error {
+		if agent.activeTurnID == work.turnID && agent.state == agentdto.StateTurnStarting {
+			agent.pendingProviderTurnID = work.turnID
+			agent.pendingProviderTerminal = nil
+		}
+		return nil
+	})
+}
+
+func (c *turnController) clearPendingProviderTurnStart(work turnWork) {
+	_ = c.withAgentLocked(work.agentID, func(agent *agentRuntime) error {
+		if agent.pendingProviderTurnID == work.turnID {
+			agent.pendingProviderTurnID = ""
+			agent.pendingProviderTerminal = nil
+		}
+		return nil
+	})
+}
+
+// deferProviderTurnCompletion 仅将无法立即匹配的 provider 终态暂存到同一正在启动的本地 turn。
+// 首个合法终态封存；相同 fingerprint 的重放幂等，冲突终态只记录拒绝证据。
+func (c *turnController) deferProviderTurnCompletion(ev turndto.TurnCompleted) bool {
+	handled := false
+	_ = c.withAgentLocked(ev.AgentID, func(agent *agentRuntime) error {
+		if agent.pendingProviderTurnID == "" || agent.pendingProviderTurnID != agent.activeTurnID ||
+			!turnCompletedEventMatchesAgentThread(agent, ev.ThreadID) || strings.TrimSpace(ev.TurnID) == "" ||
+			strings.TrimSpace(ev.TurnID) == agent.activeTurnID {
+			return nil
+		}
+		if pending := agent.pendingProviderTerminal; pending != nil {
+			if providerTurnCompletionFingerprint(*pending) != providerTurnCompletionFingerprint(ev) {
+				c.log().Warn("orchestration: rejected conflicting pending provider terminal",
+					"agent_id", agent.id, "local_turn_id", agent.pendingProviderTurnID,
+					"provider_turn_id", ev.TurnID)
+			}
+			handled = true
+			return nil
+		}
+		pending := ev
+		agent.pendingProviderTerminal = &pending
+		handled = true
+		return nil
+	})
+	return handled
+}
+
+// providerTurnCompletionFingerprint 为早到 provider 终态的语义字段生成稳定重放判定值。
+func providerTurnCompletionFingerprint(ev turndto.TurnCompleted) [sha256.Size]byte {
+	payload := fmt.Sprintf("%q|%q|%q|%t|%q|%q|%q|%q|%q|%q|%q|%q|%q",
+		ev.AgentID, ev.ThreadID, ev.TurnID, ev.Success, ev.Error, ev.Status, ev.Reason,
+		ev.Result, ev.Summary, ev.Message, ev.StopReason, ev.TerminationRequestID, ev.PartialItemIDs)
+	return sha256.Sum256([]byte(payload))
+}
+
+func (c *turnController) takePendingProviderTurnCompletion(work turnWork, providerTurnID string) *turndto.TurnCompleted {
+	var terminal *turndto.TurnCompleted
+	_ = c.withAgentLocked(work.agentID, func(agent *agentRuntime) error {
+		if agent.pendingProviderTurnID != work.turnID {
+			return nil
+		}
+		pending := agent.pendingProviderTerminal
+		agent.pendingProviderTurnID = ""
+		agent.pendingProviderTerminal = nil
+		if pending != nil && strings.TrimSpace(pending.TurnID) == providerTurnID {
+			terminal = pending
+		}
+		return nil
+	})
+	return terminal
 }
 
 // reconcileReadyStateLocked 在进程已就绪时修正本地状态和队列状态。
@@ -120,6 +201,7 @@ func (c *turnController) startTurnExecution(ctx context.Context, work turnWork) 
 		c.finishTurnStartFailure(ctx, work, errors.New("turn starter is not configured"))
 		return
 	}
+	c.beginProviderTurnStart(work)
 	startedTurnID, err := c.turnStarter.StartTurn(ctx, work.submission)
 	if err != nil {
 		logger.Warn("orchestration: turn execution start failed",
@@ -148,11 +230,13 @@ func (c *turnController) finishTurnStartSuccess(ctx context.Context, work turnWo
 		currentTurnID = work.turnID
 	}
 	if currentTurnID != work.turnID {
-		if err := c.BindActiveTurnID(ctx, work.agentID, currentTurnID); err != nil {
+		if err := c.BindActiveTurnID(ctx, work.agentID, work.turnID, currentTurnID); err != nil {
+			c.clearPendingProviderTurnStart(work)
 			c.log().Warn("orchestration: failed to bind started turn id", "agent_id", work.agentID, "turn_id", currentTurnID, "error", err)
 			return
 		}
 	}
+	pendingTerminal := c.takePendingProviderTurnCompletion(work, currentTurnID)
 	if lockErr := c.withAgentLocked(work.agentID, func(agent *agentRuntime) error {
 		if agent.activeTurnID != work.turnID {
 			return nil
@@ -165,14 +249,18 @@ func (c *turnController) finishTurnStartSuccess(ctx context.Context, work turnWo
 		c.log().Warn("orchestration: finish turn start success lock failed",
 			"agent_id", work.agentID, "turn_id", currentTurnID, "error", lockErr)
 	}
+	if pendingTerminal != nil && c.terminalSink != nil {
+		c.terminalSink.handleBufferedProviderTurnCompletion(ctx, *pendingTerminal)
+	}
 }
 
 func (c *turnController) finishTurnStartFailure(ctx context.Context, work turnWork, startErr error) {
+	c.clearPendingProviderTurnStart(work)
 	if lockErr := c.withAgentLocked(work.agentID, func(agent *agentRuntime) error {
 		if agent.activeTurnID != work.turnID {
 			return nil
 		}
-		agent.lastError = startErr.Error()
+		agent.lastError = publicOrchestrationError("Agent turn failed to start.", startErr)
 		agent.activeTurnID = ""
 		agent.providerTurnAlias = providerTurnAlias{}
 		if agent.state != agentdto.StateTurnStarting {

@@ -4,6 +4,7 @@ import (
 	"strings"
 	"time"
 
+	dto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/provider"
 	shareddto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/shared"
 	tooldto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/tool"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/shared"
@@ -66,14 +67,15 @@ func translateCodexMCPToolCallEnd(payload map[string]any) (any, bool) {
 		success = false
 		errorText = appendProviderRuntimeError(errorText, captureErr)
 	}
+	raw := dto.RawProviderEvent{EventType: "tool.call.end", Data: payload}
 	return tooldto.ToolCallEnd{
 		ToolCallHeader: header,
 		Success:        success,
-		Error:          errorText,
+		Error:          publicToolError(raw, errorText),
 		Result:         result.Preview,
 		PersistedPath:  result.PersistedPath,
 		PersistFailed:  result.PersistFailed,
-		PersistError:   result.PersistError,
+		PersistError:   publicToolError(raw, result.PersistError),
 		Truncated:      result.Truncated,
 		OriginalSize:   result.OriginalSize,
 		ElapsedMS:      codexMCPToolElapsedMS(item),
@@ -95,14 +97,15 @@ func translateCodexFunctionCallOutputEnd(payload map[string]any) (any, bool) {
 		success = false
 		errorText = appendProviderRuntimeError(errorText, captureErr)
 	}
+	raw := dto.RawProviderEvent{EventType: "tool.call.end", Data: payload}
 	return tooldto.ToolCallEnd{
 		ToolCallHeader: header,
 		Success:        success,
-		Error:          errorText,
+		Error:          publicToolError(raw, errorText),
 		Result:         result.Preview,
 		PersistedPath:  result.PersistedPath,
 		PersistFailed:  result.PersistFailed,
-		PersistError:   result.PersistError,
+		PersistError:   publicToolError(raw, result.PersistError),
 		Truncated:      result.Truncated,
 		OriginalSize:   result.OriginalSize,
 	}, true

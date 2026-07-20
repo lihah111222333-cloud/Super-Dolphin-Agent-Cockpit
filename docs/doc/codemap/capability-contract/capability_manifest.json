@@ -140,7 +140,7 @@
         "cmd/mcp-orch/orchestration.*agentRegistry.rLock",
         "cmd/mcp-orch/orchestration.*agentRegistry.rUnlock",
         "cmd/mcp-orch/orchestration.*agentRegistry.rekeyLaunchedAgentLocked",
-        "cmd/mcp-orch/orchestration.*agentRegistry.remoteTerminalTargetTurnIDLocked",
+        "cmd/mcp-orch/orchestration.*agentRegistry.remoteTerminalTargetTurnRefLocked",
         "cmd/mcp-orch/orchestration.*agentRegistry.requestedAgentLaunchInProgressLocked",
         "cmd/mcp-orch/orchestration.*agentRegistry.runtimeAgentSnapshots",
         "cmd/mcp-orch/orchestration.*agentRegistry.stoppedHookThreadSuppressed",
@@ -271,10 +271,13 @@
         "cmd/mcp-orch/orchestration.*remoteLauncher.SupportsPersistedRuntimeRehydrate",
         "cmd/mcp-orch/orchestration.*remoteLauncher.bindRemoteEventSink",
         "cmd/mcp-orch/orchestration.*remoteLauncher.currentEventSink",
+        "cmd/mcp-orch/orchestration.*remoteLauncher.detachClientLocked",
         "cmd/mcp-orch/orchestration.*remoteLauncher.ensureClient",
         "cmd/mcp-orch/orchestration.*remoteLauncher.handleNotify",
+        "cmd/mcp-orch/orchestration.*remoteLauncher.installClientConnection",
+        "cmd/mcp-orch/orchestration.*remoteLauncher.prepareClientConnection",
+        "cmd/mcp-orch/orchestration.*remoteLauncher.prepareHeartbeatLocked",
         "cmd/mcp-orch/orchestration.*remoteLauncher.registerClient",
-        "cmd/mcp-orch/orchestration.*remoteLauncher.startHeartbeatLocked",
         "cmd/mcp-orch/orchestration.*remoteLauncher.stopHeartbeatLocked",
         "cmd/mcp-orch/orchestration.*reportController.GetReport",
         "cmd/mcp-orch/orchestration.*reportController.HandleReportEvent",
@@ -350,6 +353,7 @@
         "cmd/mcp-orch/orchestration.*service.configuredReportApplier",
         "cmd/mcp-orch/orchestration.*service.configuredReportController",
         "cmd/mcp-orch/orchestration.*service.dagFacade",
+        "cmd/mcp-orch/orchestration.*service.deferProviderTurnCompletion",
         "cmd/mcp-orch/orchestration.*service.discardStaleLaunchResult",
         "cmd/mcp-orch/orchestration.*service.ensureRuntimeForPersistedAgent",
         "cmd/mcp-orch/orchestration.*service.ensureTurnStartedLocked",
@@ -364,6 +368,7 @@
         "cmd/mcp-orch/orchestration.*service.forceIdleAfterTurnTerminalLocked",
         "cmd/mcp-orch/orchestration.*service.forkParentForLaunch",
         "cmd/mcp-orch/orchestration.*service.getPersistedArchiveThread",
+        "cmd/mcp-orch/orchestration.*service.handleBufferedProviderTurnCompletion",
         "cmd/mcp-orch/orchestration.*service.handleProcessExit",
         "cmd/mcp-orch/orchestration.*service.handleRemoteTurnCompleted",
         "cmd/mcp-orch/orchestration.*service.handleRemoteTurnInterrupted",
@@ -438,23 +443,32 @@
         "cmd/mcp-orch/orchestration.*turnController.SubmitTurn",
         "cmd/mcp-orch/orchestration.*turnController.acceptRemoteTurnTerminal",
         "cmd/mcp-orch/orchestration.*turnController.agentRunningLocked",
+        "cmd/mcp-orch/orchestration.*turnController.beginProviderTurnStart",
         "cmd/mcp-orch/orchestration.*turnController.beginRemoteTurnSubmit",
+        "cmd/mcp-orch/orchestration.*turnController.bindRemoteTurnIDLocked",
+        "cmd/mcp-orch/orchestration.*turnController.bindRemoteTurnSubmitLocked",
+        "cmd/mcp-orch/orchestration.*turnController.bufferEarlyRemoteTerminalLocked",
         "cmd/mcp-orch/orchestration.*turnController.canSubmitViaLauncher",
         "cmd/mcp-orch/orchestration.*turnController.cancelRemoteTurnSubmit",
         "cmd/mcp-orch/orchestration.*turnController.claimTurnWork",
+        "cmd/mcp-orch/orchestration.*turnController.clearPendingProviderTurnStart",
         "cmd/mcp-orch/orchestration.*turnController.clearRemoteTerminalsForThread",
+        "cmd/mcp-orch/orchestration.*turnController.deferProviderTurnCompletion",
         "cmd/mcp-orch/orchestration.*turnController.enqueueLocalTurnSubmission",
         "cmd/mcp-orch/orchestration.*turnController.ensureTurnAbortableLocked",
         "cmd/mcp-orch/orchestration.*turnController.ensureTurnRunningForUserInputLocked",
         "cmd/mcp-orch/orchestration.*turnController.ensureTurnStartedLocked",
         "cmd/mcp-orch/orchestration.*turnController.evictOldestRemoteTerminalSealLocked",
+        "cmd/mcp-orch/orchestration.*turnController.failPendingRemoteTerminalLocked",
         "cmd/mcp-orch/orchestration.*turnController.finalizeActiveTurnLocked",
         "cmd/mcp-orch/orchestration.*turnController.finishRemoteTurnSubmitFailure",
         "cmd/mcp-orch/orchestration.*turnController.finishRemoteTurnSubmitSuccess",
         "cmd/mcp-orch/orchestration.*turnController.finishTurnStartFailure",
         "cmd/mcp-orch/orchestration.*turnController.finishTurnStartSuccess",
         "cmd/mcp-orch/orchestration.*turnController.fireOrForceLocked",
+        "cmd/mcp-orch/orchestration.*turnController.handleRemoteTurnSubmitError",
         "cmd/mcp-orch/orchestration.*turnController.interruptAgentSnapshot",
+        "cmd/mcp-orch/orchestration.*turnController.interruptRemoteTurnSubmitOrphan",
         "cmd/mcp-orch/orchestration.*turnController.interruptTurn",
         "cmd/mcp-orch/orchestration.*turnController.log",
         "cmd/mcp-orch/orchestration.*turnController.markAwaitingUserInput",
@@ -468,8 +482,10 @@
         "cmd/mcp-orch/orchestration.*turnController.remoteTerminalSealStatsLocked",
         "cmd/mcp-orch/orchestration.*turnController.resolveAwaitingUserInput",
         "cmd/mcp-orch/orchestration.*turnController.routeRemoteTurnTerminal",
+        "cmd/mcp-orch/orchestration.*turnController.routeRemoteTurnTerminalLocked",
         "cmd/mcp-orch/orchestration.*turnController.startTurnExecution",
         "cmd/mcp-orch/orchestration.*turnController.submitAgentReadyState",
+        "cmd/mcp-orch/orchestration.*turnController.takePendingProviderTurnCompletion",
         "cmd/mcp-orch/orchestration.*turnController.takePendingRemoteTerminalsLocked",
         "cmd/mcp-orch/orchestration.*turnController.trySubmitRemoteTurn",
         "cmd/mcp-orch/orchestration.*turnController.turnIDFor",
@@ -581,7 +597,6 @@
         "cmd/mcp-orch/orchestration.StopSpawnedAgentMetrics",
         "cmd/mcp-orch/orchestration.SubmissionQueue",
         "cmd/mcp-orch/orchestration.TurnLifecyclePort",
-        "cmd/mcp-orch/orchestration.TurnLifecyclePort.BindActiveTurnID",
         "cmd/mcp-orch/orchestration.TurnLifecyclePort.embed:turnLifecycleRuntime",
         "cmd/mcp-orch/orchestration.WakeupDispatcher",
         "cmd/mcp-orch/orchestration.WakeupDispatcherConfig",
@@ -815,6 +830,7 @@
         "cmd/mcp-orch/orchestration.mapDAGNodes",
         "cmd/mcp-orch/orchestration.mapDAGSummaries",
         "cmd/mcp-orch/orchestration.mapRuns",
+        "cmd/mcp-orch/orchestration.matchingRemoteTerminals",
         "cmd/mcp-orch/orchestration.materializeArtifactAfterClaim",
         "cmd/mcp-orch/orchestration.materializeSharedfileAfterClaim",
         "cmd/mcp-orch/orchestration.materializeTurnOutputAfterClaim",
@@ -858,6 +874,7 @@
         "cmd/mcp-orch/orchestration.patchAgentExecModel",
         "cmd/mcp-orch/orchestration.pendingLaunchThreadConflicted",
         "cmd/mcp-orch/orchestration.pendingLaunchThreadMatches",
+        "cmd/mcp-orch/orchestration.pendingRemoteTurnSubmit",
         "cmd/mcp-orch/orchestration.permanentClassStrategyAllowed",
         "cmd/mcp-orch/orchestration.persistAddNodeSpecs",
         "cmd/mcp-orch/orchestration.persistDAGPatches",
@@ -894,6 +911,8 @@
         "cmd/mcp-orch/orchestration.processExitReportPort.setProcessExitFallbackReportLocked",
         "cmd/mcp-orch/orchestration.processPID",
         "cmd/mcp-orch/orchestration.providerTurnAlias",
+        "cmd/mcp-orch/orchestration.providerTurnCompletionFingerprint",
+        "cmd/mcp-orch/orchestration.publicOrchestrationError",
         "cmd/mcp-orch/orchestration.publishAgentFailedEvent",
         "cmd/mcp-orch/orchestration.publishAgentLaunchedEvent",
         "cmd/mcp-orch/orchestration.publishAgentRecoveringEvent",
@@ -957,9 +976,12 @@
         "cmd/mcp-orch/orchestration.remoteTerminalSealEntry",
         "cmd/mcp-orch/orchestration.remoteTerminalSealStats",
         "cmd/mcp-orch/orchestration.remoteTerminalTruth",
+        "cmd/mcp-orch/orchestration.remoteTerminalTruthFor",
         "cmd/mcp-orch/orchestration.remoteTerminalTurnRef",
         "cmd/mcp-orch/orchestration.remoteTurnSubmitAttempt",
+        "cmd/mcp-orch/orchestration.remoteTurnSubmitAttempt.ref",
         "cmd/mcp-orch/orchestration.remoteTurnSubmitRef",
+        "cmd/mcp-orch/orchestration.remoteTurnSubmitStillOwned",
         "cmd/mcp-orch/orchestration.replayRecoveredTurn",
         "cmd/mcp-orch/orchestration.reportApplier",
         "cmd/mcp-orch/orchestration.reportApplier.applyReportEventLocked",
@@ -1050,6 +1072,7 @@
         "cmd/mcp-orch/orchestration.turnHeader",
         "cmd/mcp-orch/orchestration.turnLifecycleRuntime",
         "cmd/mcp-orch/orchestration.turnLifecycleRuntime.CompleteTurn",
+        "cmd/mcp-orch/orchestration.turnLifecycleRuntime.deferProviderTurnCompletion",
         "cmd/mcp-orch/orchestration.turnLifecycleRuntime.forceIdleAfterCompletionError",
         "cmd/mcp-orch/orchestration.turnLifecycleRuntime.forceIdleAfterInterruptionError",
         "cmd/mcp-orch/orchestration.turnLifecycleRuntime.forceIdleAfterProviderTurnCompletion",
@@ -1071,6 +1094,8 @@
         "cmd/mcp-orch/orchestration.turnStopPort.stopAgentViaLauncher",
         "cmd/mcp-orch/orchestration.turnTerminalConverged",
         "cmd/mcp-orch/orchestration.turnTerminalConvergedLocked",
+        "cmd/mcp-orch/orchestration.turnTerminalSink",
+        "cmd/mcp-orch/orchestration.turnTerminalSink.handleBufferedProviderTurnCompletion",
         "cmd/mcp-orch/orchestration.turnWork",
         "cmd/mcp-orch/orchestration.updateNodeParams",
         "cmd/mcp-orch/orchestration.updateNodeRequestFromParams",
@@ -2896,7 +2921,6 @@
         "internal/provider/claudecli.*session.finishTurnWithError",
         "internal/provider/claudecli.*session.forceCompleteTarget",
         "internal/provider/claudecli.*session.forceCompleteTurn",
-        "internal/provider/claudecli.*session.forceCompletedTransportIsCurrentLocked",
         "internal/provider/claudecli.*session.handleReceiveExit",
         "internal/provider/claudecli.*session.handleSystemInitRaw",
         "internal/provider/claudecli.*session.installLogWatcherIfCurrent",
@@ -2953,6 +2977,7 @@
         "internal/provider/claudecli.*session.threadReadyState",
         "internal/provider/claudecli.*session.timeoutSilentTurn",
         "internal/provider/claudecli.*session.trackToolEvent",
+        "internal/provider/claudecli.*session.transportFencedLocked",
         "internal/provider/claudecli.*session.turnRawEvent",
         "internal/provider/claudecli.*session.turnRawEventLocked",
         "internal/provider/claudecli.*sessionLogWatcher.dispatchScannedUsage",
@@ -3167,6 +3192,7 @@
         "internal/provider/claudecli.provideDreamExecutorProvider",
         "internal/provider/claudecli.provideDriverFactory",
         "internal/provider/claudecli.providerNativeSkillsDisabledFromMap",
+        "internal/provider/claudecli.publicToolError",
         "internal/provider/claudecli.putRuntimeConfigString",
         "internal/provider/claudecli.putRuntimeConfigStringIfMissing",
         "internal/provider/claudecli.rawBase",
@@ -3719,6 +3745,7 @@
         "internal/provider/codexapp.codexBootstrapProviderName",
         "internal/provider/codexapp.codexCallerStack",
         "internal/provider/codexapp.codexDisabledToolsFromConfig",
+        "internal/provider/codexapp.codexEventRequiresTimestamp",
         "internal/provider/codexapp.codexExecutableFileName",
         "internal/provider/codexapp.codexExecutableFileNameFor",
         "internal/provider/codexapp.codexFunctionCallArgumentsPreview",
@@ -3769,6 +3796,7 @@
         "internal/provider/codexapp.codexSandboxWireJSON",
         "internal/provider/codexapp.codexSupportedPlatformValue",
         "internal/provider/codexapp.codexTerminationPayload",
+        "internal/provider/codexapp.codexTimestampProviderError",
         "internal/provider/codexapp.codexToolItemPayload",
         "internal/provider/codexapp.codexWheelReleasePlatform",
         "internal/provider/codexapp.collectRolloutMetadata",
@@ -4022,6 +4050,7 @@
         "internal/provider/codexapp.provideDreamExecutorProvider",
         "internal/provider/codexapp.provideDriverFactory",
         "internal/provider/codexapp.provideServerPool",
+        "internal/provider/codexapp.publicToolError",
         "internal/provider/codexapp.publishCodexTranslatedEvent",
         "internal/provider/codexapp.putCodexString",
         "internal/provider/codexapp.putDefaultCodexString",
@@ -4137,6 +4166,7 @@
         "internal/provider/codexapp.translateCodexFunctionCallOutputEnd",
         "internal/provider/codexapp.translateCodexMCPToolCallEnd",
         "internal/provider/codexapp.translateCodexRolloutToolEvent",
+        "internal/provider/codexapp.translateToolCallEnd",
         "internal/provider/codexapp.translateToolEvent",
         "internal/provider/codexapp.translateTurnEvent",
         "internal/provider/codexapp.translateTurnTerminalEvent",
@@ -4682,6 +4712,7 @@
         "internal/provider/unified.tokenEventTime",
         "internal/provider/unified.tokensUpdatedEvent",
         "internal/provider/unified.tracedSession",
+        "internal/provider/unified.translateCommonItemEvent",
         "internal/provider/unified.translateCommonRawEvent",
         "internal/provider/unified.typedEventType"
       ]
@@ -4812,7 +4843,7 @@
         "cmd/mcp-orch/orchestration.*agentRegistry.rLock",
         "cmd/mcp-orch/orchestration.*agentRegistry.rUnlock",
         "cmd/mcp-orch/orchestration.*agentRegistry.rekeyLaunchedAgentLocked",
-        "cmd/mcp-orch/orchestration.*agentRegistry.remoteTerminalTargetTurnIDLocked",
+        "cmd/mcp-orch/orchestration.*agentRegistry.remoteTerminalTargetTurnRefLocked",
         "cmd/mcp-orch/orchestration.*agentRegistry.requestedAgentLaunchInProgressLocked",
         "cmd/mcp-orch/orchestration.*agentRegistry.runtimeAgentSnapshots",
         "cmd/mcp-orch/orchestration.*agentRegistry.stoppedHookThreadSuppressed",
@@ -4943,10 +4974,13 @@
         "cmd/mcp-orch/orchestration.*remoteLauncher.SupportsPersistedRuntimeRehydrate",
         "cmd/mcp-orch/orchestration.*remoteLauncher.bindRemoteEventSink",
         "cmd/mcp-orch/orchestration.*remoteLauncher.currentEventSink",
+        "cmd/mcp-orch/orchestration.*remoteLauncher.detachClientLocked",
         "cmd/mcp-orch/orchestration.*remoteLauncher.ensureClient",
         "cmd/mcp-orch/orchestration.*remoteLauncher.handleNotify",
+        "cmd/mcp-orch/orchestration.*remoteLauncher.installClientConnection",
+        "cmd/mcp-orch/orchestration.*remoteLauncher.prepareClientConnection",
+        "cmd/mcp-orch/orchestration.*remoteLauncher.prepareHeartbeatLocked",
         "cmd/mcp-orch/orchestration.*remoteLauncher.registerClient",
-        "cmd/mcp-orch/orchestration.*remoteLauncher.startHeartbeatLocked",
         "cmd/mcp-orch/orchestration.*remoteLauncher.stopHeartbeatLocked",
         "cmd/mcp-orch/orchestration.*reportController.GetReport",
         "cmd/mcp-orch/orchestration.*reportController.HandleReportEvent",
@@ -5022,6 +5056,7 @@
         "cmd/mcp-orch/orchestration.*service.configuredReportApplier",
         "cmd/mcp-orch/orchestration.*service.configuredReportController",
         "cmd/mcp-orch/orchestration.*service.dagFacade",
+        "cmd/mcp-orch/orchestration.*service.deferProviderTurnCompletion",
         "cmd/mcp-orch/orchestration.*service.discardStaleLaunchResult",
         "cmd/mcp-orch/orchestration.*service.ensureRuntimeForPersistedAgent",
         "cmd/mcp-orch/orchestration.*service.ensureTurnStartedLocked",
@@ -5036,6 +5071,7 @@
         "cmd/mcp-orch/orchestration.*service.forceIdleAfterTurnTerminalLocked",
         "cmd/mcp-orch/orchestration.*service.forkParentForLaunch",
         "cmd/mcp-orch/orchestration.*service.getPersistedArchiveThread",
+        "cmd/mcp-orch/orchestration.*service.handleBufferedProviderTurnCompletion",
         "cmd/mcp-orch/orchestration.*service.handleProcessExit",
         "cmd/mcp-orch/orchestration.*service.handleRemoteTurnCompleted",
         "cmd/mcp-orch/orchestration.*service.handleRemoteTurnInterrupted",
@@ -5110,23 +5146,32 @@
         "cmd/mcp-orch/orchestration.*turnController.SubmitTurn",
         "cmd/mcp-orch/orchestration.*turnController.acceptRemoteTurnTerminal",
         "cmd/mcp-orch/orchestration.*turnController.agentRunningLocked",
+        "cmd/mcp-orch/orchestration.*turnController.beginProviderTurnStart",
         "cmd/mcp-orch/orchestration.*turnController.beginRemoteTurnSubmit",
+        "cmd/mcp-orch/orchestration.*turnController.bindRemoteTurnIDLocked",
+        "cmd/mcp-orch/orchestration.*turnController.bindRemoteTurnSubmitLocked",
+        "cmd/mcp-orch/orchestration.*turnController.bufferEarlyRemoteTerminalLocked",
         "cmd/mcp-orch/orchestration.*turnController.canSubmitViaLauncher",
         "cmd/mcp-orch/orchestration.*turnController.cancelRemoteTurnSubmit",
         "cmd/mcp-orch/orchestration.*turnController.claimTurnWork",
+        "cmd/mcp-orch/orchestration.*turnController.clearPendingProviderTurnStart",
         "cmd/mcp-orch/orchestration.*turnController.clearRemoteTerminalsForThread",
+        "cmd/mcp-orch/orchestration.*turnController.deferProviderTurnCompletion",
         "cmd/mcp-orch/orchestration.*turnController.enqueueLocalTurnSubmission",
         "cmd/mcp-orch/orchestration.*turnController.ensureTurnAbortableLocked",
         "cmd/mcp-orch/orchestration.*turnController.ensureTurnRunningForUserInputLocked",
         "cmd/mcp-orch/orchestration.*turnController.ensureTurnStartedLocked",
         "cmd/mcp-orch/orchestration.*turnController.evictOldestRemoteTerminalSealLocked",
+        "cmd/mcp-orch/orchestration.*turnController.failPendingRemoteTerminalLocked",
         "cmd/mcp-orch/orchestration.*turnController.finalizeActiveTurnLocked",
         "cmd/mcp-orch/orchestration.*turnController.finishRemoteTurnSubmitFailure",
         "cmd/mcp-orch/orchestration.*turnController.finishRemoteTurnSubmitSuccess",
         "cmd/mcp-orch/orchestration.*turnController.finishTurnStartFailure",
         "cmd/mcp-orch/orchestration.*turnController.finishTurnStartSuccess",
         "cmd/mcp-orch/orchestration.*turnController.fireOrForceLocked",
+        "cmd/mcp-orch/orchestration.*turnController.handleRemoteTurnSubmitError",
         "cmd/mcp-orch/orchestration.*turnController.interruptAgentSnapshot",
+        "cmd/mcp-orch/orchestration.*turnController.interruptRemoteTurnSubmitOrphan",
         "cmd/mcp-orch/orchestration.*turnController.interruptTurn",
         "cmd/mcp-orch/orchestration.*turnController.log",
         "cmd/mcp-orch/orchestration.*turnController.markAwaitingUserInput",
@@ -5140,8 +5185,10 @@
         "cmd/mcp-orch/orchestration.*turnController.remoteTerminalSealStatsLocked",
         "cmd/mcp-orch/orchestration.*turnController.resolveAwaitingUserInput",
         "cmd/mcp-orch/orchestration.*turnController.routeRemoteTurnTerminal",
+        "cmd/mcp-orch/orchestration.*turnController.routeRemoteTurnTerminalLocked",
         "cmd/mcp-orch/orchestration.*turnController.startTurnExecution",
         "cmd/mcp-orch/orchestration.*turnController.submitAgentReadyState",
+        "cmd/mcp-orch/orchestration.*turnController.takePendingProviderTurnCompletion",
         "cmd/mcp-orch/orchestration.*turnController.takePendingRemoteTerminalsLocked",
         "cmd/mcp-orch/orchestration.*turnController.trySubmitRemoteTurn",
         "cmd/mcp-orch/orchestration.*turnController.turnIDFor",
@@ -5253,7 +5300,6 @@
         "cmd/mcp-orch/orchestration.StopSpawnedAgentMetrics",
         "cmd/mcp-orch/orchestration.SubmissionQueue",
         "cmd/mcp-orch/orchestration.TurnLifecyclePort",
-        "cmd/mcp-orch/orchestration.TurnLifecyclePort.BindActiveTurnID",
         "cmd/mcp-orch/orchestration.TurnLifecyclePort.embed:turnLifecycleRuntime",
         "cmd/mcp-orch/orchestration.WakeupDispatcher",
         "cmd/mcp-orch/orchestration.WakeupDispatcherConfig",
@@ -5487,6 +5533,7 @@
         "cmd/mcp-orch/orchestration.mapDAGNodes",
         "cmd/mcp-orch/orchestration.mapDAGSummaries",
         "cmd/mcp-orch/orchestration.mapRuns",
+        "cmd/mcp-orch/orchestration.matchingRemoteTerminals",
         "cmd/mcp-orch/orchestration.materializeArtifactAfterClaim",
         "cmd/mcp-orch/orchestration.materializeSharedfileAfterClaim",
         "cmd/mcp-orch/orchestration.materializeTurnOutputAfterClaim",
@@ -5530,6 +5577,7 @@
         "cmd/mcp-orch/orchestration.patchAgentExecModel",
         "cmd/mcp-orch/orchestration.pendingLaunchThreadConflicted",
         "cmd/mcp-orch/orchestration.pendingLaunchThreadMatches",
+        "cmd/mcp-orch/orchestration.pendingRemoteTurnSubmit",
         "cmd/mcp-orch/orchestration.permanentClassStrategyAllowed",
         "cmd/mcp-orch/orchestration.persistAddNodeSpecs",
         "cmd/mcp-orch/orchestration.persistDAGPatches",
@@ -5566,6 +5614,8 @@
         "cmd/mcp-orch/orchestration.processExitReportPort.setProcessExitFallbackReportLocked",
         "cmd/mcp-orch/orchestration.processPID",
         "cmd/mcp-orch/orchestration.providerTurnAlias",
+        "cmd/mcp-orch/orchestration.providerTurnCompletionFingerprint",
+        "cmd/mcp-orch/orchestration.publicOrchestrationError",
         "cmd/mcp-orch/orchestration.publishAgentFailedEvent",
         "cmd/mcp-orch/orchestration.publishAgentLaunchedEvent",
         "cmd/mcp-orch/orchestration.publishAgentRecoveringEvent",
@@ -5629,9 +5679,12 @@
         "cmd/mcp-orch/orchestration.remoteTerminalSealEntry",
         "cmd/mcp-orch/orchestration.remoteTerminalSealStats",
         "cmd/mcp-orch/orchestration.remoteTerminalTruth",
+        "cmd/mcp-orch/orchestration.remoteTerminalTruthFor",
         "cmd/mcp-orch/orchestration.remoteTerminalTurnRef",
         "cmd/mcp-orch/orchestration.remoteTurnSubmitAttempt",
+        "cmd/mcp-orch/orchestration.remoteTurnSubmitAttempt.ref",
         "cmd/mcp-orch/orchestration.remoteTurnSubmitRef",
+        "cmd/mcp-orch/orchestration.remoteTurnSubmitStillOwned",
         "cmd/mcp-orch/orchestration.replayRecoveredTurn",
         "cmd/mcp-orch/orchestration.reportApplier",
         "cmd/mcp-orch/orchestration.reportApplier.applyReportEventLocked",
@@ -5722,6 +5775,7 @@
         "cmd/mcp-orch/orchestration.turnHeader",
         "cmd/mcp-orch/orchestration.turnLifecycleRuntime",
         "cmd/mcp-orch/orchestration.turnLifecycleRuntime.CompleteTurn",
+        "cmd/mcp-orch/orchestration.turnLifecycleRuntime.deferProviderTurnCompletion",
         "cmd/mcp-orch/orchestration.turnLifecycleRuntime.forceIdleAfterCompletionError",
         "cmd/mcp-orch/orchestration.turnLifecycleRuntime.forceIdleAfterInterruptionError",
         "cmd/mcp-orch/orchestration.turnLifecycleRuntime.forceIdleAfterProviderTurnCompletion",
@@ -5743,6 +5797,8 @@
         "cmd/mcp-orch/orchestration.turnStopPort.stopAgentViaLauncher",
         "cmd/mcp-orch/orchestration.turnTerminalConverged",
         "cmd/mcp-orch/orchestration.turnTerminalConvergedLocked",
+        "cmd/mcp-orch/orchestration.turnTerminalSink",
+        "cmd/mcp-orch/orchestration.turnTerminalSink.handleBufferedProviderTurnCompletion",
         "cmd/mcp-orch/orchestration.turnWork",
         "cmd/mcp-orch/orchestration.updateNodeParams",
         "cmd/mcp-orch/orchestration.updateNodeRequestFromParams",
@@ -7568,7 +7624,6 @@
         "internal/provider/claudecli.*session.finishTurnWithError",
         "internal/provider/claudecli.*session.forceCompleteTarget",
         "internal/provider/claudecli.*session.forceCompleteTurn",
-        "internal/provider/claudecli.*session.forceCompletedTransportIsCurrentLocked",
         "internal/provider/claudecli.*session.handleReceiveExit",
         "internal/provider/claudecli.*session.handleSystemInitRaw",
         "internal/provider/claudecli.*session.installLogWatcherIfCurrent",
@@ -7625,6 +7680,7 @@
         "internal/provider/claudecli.*session.threadReadyState",
         "internal/provider/claudecli.*session.timeoutSilentTurn",
         "internal/provider/claudecli.*session.trackToolEvent",
+        "internal/provider/claudecli.*session.transportFencedLocked",
         "internal/provider/claudecli.*session.turnRawEvent",
         "internal/provider/claudecli.*session.turnRawEventLocked",
         "internal/provider/claudecli.*sessionLogWatcher.dispatchScannedUsage",
@@ -7839,6 +7895,7 @@
         "internal/provider/claudecli.provideDreamExecutorProvider",
         "internal/provider/claudecli.provideDriverFactory",
         "internal/provider/claudecli.providerNativeSkillsDisabledFromMap",
+        "internal/provider/claudecli.publicToolError",
         "internal/provider/claudecli.putRuntimeConfigString",
         "internal/provider/claudecli.putRuntimeConfigStringIfMissing",
         "internal/provider/claudecli.rawBase",
@@ -8391,6 +8448,7 @@
         "internal/provider/codexapp.codexBootstrapProviderName",
         "internal/provider/codexapp.codexCallerStack",
         "internal/provider/codexapp.codexDisabledToolsFromConfig",
+        "internal/provider/codexapp.codexEventRequiresTimestamp",
         "internal/provider/codexapp.codexExecutableFileName",
         "internal/provider/codexapp.codexExecutableFileNameFor",
         "internal/provider/codexapp.codexFunctionCallArgumentsPreview",
@@ -8441,6 +8499,7 @@
         "internal/provider/codexapp.codexSandboxWireJSON",
         "internal/provider/codexapp.codexSupportedPlatformValue",
         "internal/provider/codexapp.codexTerminationPayload",
+        "internal/provider/codexapp.codexTimestampProviderError",
         "internal/provider/codexapp.codexToolItemPayload",
         "internal/provider/codexapp.codexWheelReleasePlatform",
         "internal/provider/codexapp.collectRolloutMetadata",
@@ -8694,6 +8753,7 @@
         "internal/provider/codexapp.provideDreamExecutorProvider",
         "internal/provider/codexapp.provideDriverFactory",
         "internal/provider/codexapp.provideServerPool",
+        "internal/provider/codexapp.publicToolError",
         "internal/provider/codexapp.publishCodexTranslatedEvent",
         "internal/provider/codexapp.putCodexString",
         "internal/provider/codexapp.putDefaultCodexString",
@@ -8809,6 +8869,7 @@
         "internal/provider/codexapp.translateCodexFunctionCallOutputEnd",
         "internal/provider/codexapp.translateCodexMCPToolCallEnd",
         "internal/provider/codexapp.translateCodexRolloutToolEvent",
+        "internal/provider/codexapp.translateToolCallEnd",
         "internal/provider/codexapp.translateToolEvent",
         "internal/provider/codexapp.translateTurnEvent",
         "internal/provider/codexapp.translateTurnTerminalEvent",
@@ -9354,6 +9415,7 @@
         "internal/provider/unified.tokenEventTime",
         "internal/provider/unified.tokensUpdatedEvent",
         "internal/provider/unified.tracedSession",
+        "internal/provider/unified.translateCommonItemEvent",
         "internal/provider/unified.translateCommonRawEvent",
         "internal/provider/unified.typedEventType"
       ]
@@ -9484,7 +9546,7 @@
         "cmd/mcp-orch/orchestration.*agentRegistry.rLock",
         "cmd/mcp-orch/orchestration.*agentRegistry.rUnlock",
         "cmd/mcp-orch/orchestration.*agentRegistry.rekeyLaunchedAgentLocked",
-        "cmd/mcp-orch/orchestration.*agentRegistry.remoteTerminalTargetTurnIDLocked",
+        "cmd/mcp-orch/orchestration.*agentRegistry.remoteTerminalTargetTurnRefLocked",
         "cmd/mcp-orch/orchestration.*agentRegistry.requestedAgentLaunchInProgressLocked",
         "cmd/mcp-orch/orchestration.*agentRegistry.runtimeAgentSnapshots",
         "cmd/mcp-orch/orchestration.*agentRegistry.stoppedHookThreadSuppressed",
@@ -9615,10 +9677,13 @@
         "cmd/mcp-orch/orchestration.*remoteLauncher.SupportsPersistedRuntimeRehydrate",
         "cmd/mcp-orch/orchestration.*remoteLauncher.bindRemoteEventSink",
         "cmd/mcp-orch/orchestration.*remoteLauncher.currentEventSink",
+        "cmd/mcp-orch/orchestration.*remoteLauncher.detachClientLocked",
         "cmd/mcp-orch/orchestration.*remoteLauncher.ensureClient",
         "cmd/mcp-orch/orchestration.*remoteLauncher.handleNotify",
+        "cmd/mcp-orch/orchestration.*remoteLauncher.installClientConnection",
+        "cmd/mcp-orch/orchestration.*remoteLauncher.prepareClientConnection",
+        "cmd/mcp-orch/orchestration.*remoteLauncher.prepareHeartbeatLocked",
         "cmd/mcp-orch/orchestration.*remoteLauncher.registerClient",
-        "cmd/mcp-orch/orchestration.*remoteLauncher.startHeartbeatLocked",
         "cmd/mcp-orch/orchestration.*remoteLauncher.stopHeartbeatLocked",
         "cmd/mcp-orch/orchestration.*reportController.GetReport",
         "cmd/mcp-orch/orchestration.*reportController.HandleReportEvent",
@@ -9694,6 +9759,7 @@
         "cmd/mcp-orch/orchestration.*service.configuredReportApplier",
         "cmd/mcp-orch/orchestration.*service.configuredReportController",
         "cmd/mcp-orch/orchestration.*service.dagFacade",
+        "cmd/mcp-orch/orchestration.*service.deferProviderTurnCompletion",
         "cmd/mcp-orch/orchestration.*service.discardStaleLaunchResult",
         "cmd/mcp-orch/orchestration.*service.ensureRuntimeForPersistedAgent",
         "cmd/mcp-orch/orchestration.*service.ensureTurnStartedLocked",
@@ -9708,6 +9774,7 @@
         "cmd/mcp-orch/orchestration.*service.forceIdleAfterTurnTerminalLocked",
         "cmd/mcp-orch/orchestration.*service.forkParentForLaunch",
         "cmd/mcp-orch/orchestration.*service.getPersistedArchiveThread",
+        "cmd/mcp-orch/orchestration.*service.handleBufferedProviderTurnCompletion",
         "cmd/mcp-orch/orchestration.*service.handleProcessExit",
         "cmd/mcp-orch/orchestration.*service.handleRemoteTurnCompleted",
         "cmd/mcp-orch/orchestration.*service.handleRemoteTurnInterrupted",
@@ -9782,23 +9849,32 @@
         "cmd/mcp-orch/orchestration.*turnController.SubmitTurn",
         "cmd/mcp-orch/orchestration.*turnController.acceptRemoteTurnTerminal",
         "cmd/mcp-orch/orchestration.*turnController.agentRunningLocked",
+        "cmd/mcp-orch/orchestration.*turnController.beginProviderTurnStart",
         "cmd/mcp-orch/orchestration.*turnController.beginRemoteTurnSubmit",
+        "cmd/mcp-orch/orchestration.*turnController.bindRemoteTurnIDLocked",
+        "cmd/mcp-orch/orchestration.*turnController.bindRemoteTurnSubmitLocked",
+        "cmd/mcp-orch/orchestration.*turnController.bufferEarlyRemoteTerminalLocked",
         "cmd/mcp-orch/orchestration.*turnController.canSubmitViaLauncher",
         "cmd/mcp-orch/orchestration.*turnController.cancelRemoteTurnSubmit",
         "cmd/mcp-orch/orchestration.*turnController.claimTurnWork",
+        "cmd/mcp-orch/orchestration.*turnController.clearPendingProviderTurnStart",
         "cmd/mcp-orch/orchestration.*turnController.clearRemoteTerminalsForThread",
+        "cmd/mcp-orch/orchestration.*turnController.deferProviderTurnCompletion",
         "cmd/mcp-orch/orchestration.*turnController.enqueueLocalTurnSubmission",
         "cmd/mcp-orch/orchestration.*turnController.ensureTurnAbortableLocked",
         "cmd/mcp-orch/orchestration.*turnController.ensureTurnRunningForUserInputLocked",
         "cmd/mcp-orch/orchestration.*turnController.ensureTurnStartedLocked",
         "cmd/mcp-orch/orchestration.*turnController.evictOldestRemoteTerminalSealLocked",
+        "cmd/mcp-orch/orchestration.*turnController.failPendingRemoteTerminalLocked",
         "cmd/mcp-orch/orchestration.*turnController.finalizeActiveTurnLocked",
         "cmd/mcp-orch/orchestration.*turnController.finishRemoteTurnSubmitFailure",
         "cmd/mcp-orch/orchestration.*turnController.finishRemoteTurnSubmitSuccess",
         "cmd/mcp-orch/orchestration.*turnController.finishTurnStartFailure",
         "cmd/mcp-orch/orchestration.*turnController.finishTurnStartSuccess",
         "cmd/mcp-orch/orchestration.*turnController.fireOrForceLocked",
+        "cmd/mcp-orch/orchestration.*turnController.handleRemoteTurnSubmitError",
         "cmd/mcp-orch/orchestration.*turnController.interruptAgentSnapshot",
+        "cmd/mcp-orch/orchestration.*turnController.interruptRemoteTurnSubmitOrphan",
         "cmd/mcp-orch/orchestration.*turnController.interruptTurn",
         "cmd/mcp-orch/orchestration.*turnController.log",
         "cmd/mcp-orch/orchestration.*turnController.markAwaitingUserInput",
@@ -9812,8 +9888,10 @@
         "cmd/mcp-orch/orchestration.*turnController.remoteTerminalSealStatsLocked",
         "cmd/mcp-orch/orchestration.*turnController.resolveAwaitingUserInput",
         "cmd/mcp-orch/orchestration.*turnController.routeRemoteTurnTerminal",
+        "cmd/mcp-orch/orchestration.*turnController.routeRemoteTurnTerminalLocked",
         "cmd/mcp-orch/orchestration.*turnController.startTurnExecution",
         "cmd/mcp-orch/orchestration.*turnController.submitAgentReadyState",
+        "cmd/mcp-orch/orchestration.*turnController.takePendingProviderTurnCompletion",
         "cmd/mcp-orch/orchestration.*turnController.takePendingRemoteTerminalsLocked",
         "cmd/mcp-orch/orchestration.*turnController.trySubmitRemoteTurn",
         "cmd/mcp-orch/orchestration.*turnController.turnIDFor",
@@ -9925,7 +10003,6 @@
         "cmd/mcp-orch/orchestration.StopSpawnedAgentMetrics",
         "cmd/mcp-orch/orchestration.SubmissionQueue",
         "cmd/mcp-orch/orchestration.TurnLifecyclePort",
-        "cmd/mcp-orch/orchestration.TurnLifecyclePort.BindActiveTurnID",
         "cmd/mcp-orch/orchestration.TurnLifecyclePort.embed:turnLifecycleRuntime",
         "cmd/mcp-orch/orchestration.WakeupDispatcher",
         "cmd/mcp-orch/orchestration.WakeupDispatcherConfig",
@@ -10159,6 +10236,7 @@
         "cmd/mcp-orch/orchestration.mapDAGNodes",
         "cmd/mcp-orch/orchestration.mapDAGSummaries",
         "cmd/mcp-orch/orchestration.mapRuns",
+        "cmd/mcp-orch/orchestration.matchingRemoteTerminals",
         "cmd/mcp-orch/orchestration.materializeArtifactAfterClaim",
         "cmd/mcp-orch/orchestration.materializeSharedfileAfterClaim",
         "cmd/mcp-orch/orchestration.materializeTurnOutputAfterClaim",
@@ -10202,6 +10280,7 @@
         "cmd/mcp-orch/orchestration.patchAgentExecModel",
         "cmd/mcp-orch/orchestration.pendingLaunchThreadConflicted",
         "cmd/mcp-orch/orchestration.pendingLaunchThreadMatches",
+        "cmd/mcp-orch/orchestration.pendingRemoteTurnSubmit",
         "cmd/mcp-orch/orchestration.permanentClassStrategyAllowed",
         "cmd/mcp-orch/orchestration.persistAddNodeSpecs",
         "cmd/mcp-orch/orchestration.persistDAGPatches",
@@ -10238,6 +10317,8 @@
         "cmd/mcp-orch/orchestration.processExitReportPort.setProcessExitFallbackReportLocked",
         "cmd/mcp-orch/orchestration.processPID",
         "cmd/mcp-orch/orchestration.providerTurnAlias",
+        "cmd/mcp-orch/orchestration.providerTurnCompletionFingerprint",
+        "cmd/mcp-orch/orchestration.publicOrchestrationError",
         "cmd/mcp-orch/orchestration.publishAgentFailedEvent",
         "cmd/mcp-orch/orchestration.publishAgentLaunchedEvent",
         "cmd/mcp-orch/orchestration.publishAgentRecoveringEvent",
@@ -10301,9 +10382,12 @@
         "cmd/mcp-orch/orchestration.remoteTerminalSealEntry",
         "cmd/mcp-orch/orchestration.remoteTerminalSealStats",
         "cmd/mcp-orch/orchestration.remoteTerminalTruth",
+        "cmd/mcp-orch/orchestration.remoteTerminalTruthFor",
         "cmd/mcp-orch/orchestration.remoteTerminalTurnRef",
         "cmd/mcp-orch/orchestration.remoteTurnSubmitAttempt",
+        "cmd/mcp-orch/orchestration.remoteTurnSubmitAttempt.ref",
         "cmd/mcp-orch/orchestration.remoteTurnSubmitRef",
+        "cmd/mcp-orch/orchestration.remoteTurnSubmitStillOwned",
         "cmd/mcp-orch/orchestration.replayRecoveredTurn",
         "cmd/mcp-orch/orchestration.reportApplier",
         "cmd/mcp-orch/orchestration.reportApplier.applyReportEventLocked",
@@ -10394,6 +10478,7 @@
         "cmd/mcp-orch/orchestration.turnHeader",
         "cmd/mcp-orch/orchestration.turnLifecycleRuntime",
         "cmd/mcp-orch/orchestration.turnLifecycleRuntime.CompleteTurn",
+        "cmd/mcp-orch/orchestration.turnLifecycleRuntime.deferProviderTurnCompletion",
         "cmd/mcp-orch/orchestration.turnLifecycleRuntime.forceIdleAfterCompletionError",
         "cmd/mcp-orch/orchestration.turnLifecycleRuntime.forceIdleAfterInterruptionError",
         "cmd/mcp-orch/orchestration.turnLifecycleRuntime.forceIdleAfterProviderTurnCompletion",
@@ -10415,6 +10500,8 @@
         "cmd/mcp-orch/orchestration.turnStopPort.stopAgentViaLauncher",
         "cmd/mcp-orch/orchestration.turnTerminalConverged",
         "cmd/mcp-orch/orchestration.turnTerminalConvergedLocked",
+        "cmd/mcp-orch/orchestration.turnTerminalSink",
+        "cmd/mcp-orch/orchestration.turnTerminalSink.handleBufferedProviderTurnCompletion",
         "cmd/mcp-orch/orchestration.turnWork",
         "cmd/mcp-orch/orchestration.updateNodeParams",
         "cmd/mcp-orch/orchestration.updateNodeRequestFromParams",
@@ -12240,7 +12327,6 @@
         "internal/provider/claudecli.*session.finishTurnWithError",
         "internal/provider/claudecli.*session.forceCompleteTarget",
         "internal/provider/claudecli.*session.forceCompleteTurn",
-        "internal/provider/claudecli.*session.forceCompletedTransportIsCurrentLocked",
         "internal/provider/claudecli.*session.handleReceiveExit",
         "internal/provider/claudecli.*session.handleSystemInitRaw",
         "internal/provider/claudecli.*session.installLogWatcherIfCurrent",
@@ -12297,6 +12383,7 @@
         "internal/provider/claudecli.*session.threadReadyState",
         "internal/provider/claudecli.*session.timeoutSilentTurn",
         "internal/provider/claudecli.*session.trackToolEvent",
+        "internal/provider/claudecli.*session.transportFencedLocked",
         "internal/provider/claudecli.*session.turnRawEvent",
         "internal/provider/claudecli.*session.turnRawEventLocked",
         "internal/provider/claudecli.*sessionLogWatcher.dispatchScannedUsage",
@@ -12511,6 +12598,7 @@
         "internal/provider/claudecli.provideDreamExecutorProvider",
         "internal/provider/claudecli.provideDriverFactory",
         "internal/provider/claudecli.providerNativeSkillsDisabledFromMap",
+        "internal/provider/claudecli.publicToolError",
         "internal/provider/claudecli.putRuntimeConfigString",
         "internal/provider/claudecli.putRuntimeConfigStringIfMissing",
         "internal/provider/claudecli.rawBase",
@@ -13063,6 +13151,7 @@
         "internal/provider/codexapp.codexBootstrapProviderName",
         "internal/provider/codexapp.codexCallerStack",
         "internal/provider/codexapp.codexDisabledToolsFromConfig",
+        "internal/provider/codexapp.codexEventRequiresTimestamp",
         "internal/provider/codexapp.codexExecutableFileName",
         "internal/provider/codexapp.codexExecutableFileNameFor",
         "internal/provider/codexapp.codexFunctionCallArgumentsPreview",
@@ -13113,6 +13202,7 @@
         "internal/provider/codexapp.codexSandboxWireJSON",
         "internal/provider/codexapp.codexSupportedPlatformValue",
         "internal/provider/codexapp.codexTerminationPayload",
+        "internal/provider/codexapp.codexTimestampProviderError",
         "internal/provider/codexapp.codexToolItemPayload",
         "internal/provider/codexapp.codexWheelReleasePlatform",
         "internal/provider/codexapp.collectRolloutMetadata",
@@ -13366,6 +13456,7 @@
         "internal/provider/codexapp.provideDreamExecutorProvider",
         "internal/provider/codexapp.provideDriverFactory",
         "internal/provider/codexapp.provideServerPool",
+        "internal/provider/codexapp.publicToolError",
         "internal/provider/codexapp.publishCodexTranslatedEvent",
         "internal/provider/codexapp.putCodexString",
         "internal/provider/codexapp.putDefaultCodexString",
@@ -13481,6 +13572,7 @@
         "internal/provider/codexapp.translateCodexFunctionCallOutputEnd",
         "internal/provider/codexapp.translateCodexMCPToolCallEnd",
         "internal/provider/codexapp.translateCodexRolloutToolEvent",
+        "internal/provider/codexapp.translateToolCallEnd",
         "internal/provider/codexapp.translateToolEvent",
         "internal/provider/codexapp.translateTurnEvent",
         "internal/provider/codexapp.translateTurnTerminalEvent",
@@ -14026,6 +14118,7 @@
         "internal/provider/unified.tokenEventTime",
         "internal/provider/unified.tokensUpdatedEvent",
         "internal/provider/unified.tracedSession",
+        "internal/provider/unified.translateCommonItemEvent",
         "internal/provider/unified.translateCommonRawEvent",
         "internal/provider/unified.typedEventType"
       ]
@@ -14156,7 +14249,7 @@
         "cmd/mcp-orch/orchestration.*agentRegistry.rLock",
         "cmd/mcp-orch/orchestration.*agentRegistry.rUnlock",
         "cmd/mcp-orch/orchestration.*agentRegistry.rekeyLaunchedAgentLocked",
-        "cmd/mcp-orch/orchestration.*agentRegistry.remoteTerminalTargetTurnIDLocked",
+        "cmd/mcp-orch/orchestration.*agentRegistry.remoteTerminalTargetTurnRefLocked",
         "cmd/mcp-orch/orchestration.*agentRegistry.requestedAgentLaunchInProgressLocked",
         "cmd/mcp-orch/orchestration.*agentRegistry.runtimeAgentSnapshots",
         "cmd/mcp-orch/orchestration.*agentRegistry.stoppedHookThreadSuppressed",
@@ -14287,10 +14380,13 @@
         "cmd/mcp-orch/orchestration.*remoteLauncher.SupportsPersistedRuntimeRehydrate",
         "cmd/mcp-orch/orchestration.*remoteLauncher.bindRemoteEventSink",
         "cmd/mcp-orch/orchestration.*remoteLauncher.currentEventSink",
+        "cmd/mcp-orch/orchestration.*remoteLauncher.detachClientLocked",
         "cmd/mcp-orch/orchestration.*remoteLauncher.ensureClient",
         "cmd/mcp-orch/orchestration.*remoteLauncher.handleNotify",
+        "cmd/mcp-orch/orchestration.*remoteLauncher.installClientConnection",
+        "cmd/mcp-orch/orchestration.*remoteLauncher.prepareClientConnection",
+        "cmd/mcp-orch/orchestration.*remoteLauncher.prepareHeartbeatLocked",
         "cmd/mcp-orch/orchestration.*remoteLauncher.registerClient",
-        "cmd/mcp-orch/orchestration.*remoteLauncher.startHeartbeatLocked",
         "cmd/mcp-orch/orchestration.*remoteLauncher.stopHeartbeatLocked",
         "cmd/mcp-orch/orchestration.*reportController.GetReport",
         "cmd/mcp-orch/orchestration.*reportController.HandleReportEvent",
@@ -14366,6 +14462,7 @@
         "cmd/mcp-orch/orchestration.*service.configuredReportApplier",
         "cmd/mcp-orch/orchestration.*service.configuredReportController",
         "cmd/mcp-orch/orchestration.*service.dagFacade",
+        "cmd/mcp-orch/orchestration.*service.deferProviderTurnCompletion",
         "cmd/mcp-orch/orchestration.*service.discardStaleLaunchResult",
         "cmd/mcp-orch/orchestration.*service.ensureRuntimeForPersistedAgent",
         "cmd/mcp-orch/orchestration.*service.ensureTurnStartedLocked",
@@ -14380,6 +14477,7 @@
         "cmd/mcp-orch/orchestration.*service.forceIdleAfterTurnTerminalLocked",
         "cmd/mcp-orch/orchestration.*service.forkParentForLaunch",
         "cmd/mcp-orch/orchestration.*service.getPersistedArchiveThread",
+        "cmd/mcp-orch/orchestration.*service.handleBufferedProviderTurnCompletion",
         "cmd/mcp-orch/orchestration.*service.handleProcessExit",
         "cmd/mcp-orch/orchestration.*service.handleRemoteTurnCompleted",
         "cmd/mcp-orch/orchestration.*service.handleRemoteTurnInterrupted",
@@ -14454,23 +14552,32 @@
         "cmd/mcp-orch/orchestration.*turnController.SubmitTurn",
         "cmd/mcp-orch/orchestration.*turnController.acceptRemoteTurnTerminal",
         "cmd/mcp-orch/orchestration.*turnController.agentRunningLocked",
+        "cmd/mcp-orch/orchestration.*turnController.beginProviderTurnStart",
         "cmd/mcp-orch/orchestration.*turnController.beginRemoteTurnSubmit",
+        "cmd/mcp-orch/orchestration.*turnController.bindRemoteTurnIDLocked",
+        "cmd/mcp-orch/orchestration.*turnController.bindRemoteTurnSubmitLocked",
+        "cmd/mcp-orch/orchestration.*turnController.bufferEarlyRemoteTerminalLocked",
         "cmd/mcp-orch/orchestration.*turnController.canSubmitViaLauncher",
         "cmd/mcp-orch/orchestration.*turnController.cancelRemoteTurnSubmit",
         "cmd/mcp-orch/orchestration.*turnController.claimTurnWork",
+        "cmd/mcp-orch/orchestration.*turnController.clearPendingProviderTurnStart",
         "cmd/mcp-orch/orchestration.*turnController.clearRemoteTerminalsForThread",
+        "cmd/mcp-orch/orchestration.*turnController.deferProviderTurnCompletion",
         "cmd/mcp-orch/orchestration.*turnController.enqueueLocalTurnSubmission",
         "cmd/mcp-orch/orchestration.*turnController.ensureTurnAbortableLocked",
         "cmd/mcp-orch/orchestration.*turnController.ensureTurnRunningForUserInputLocked",
         "cmd/mcp-orch/orchestration.*turnController.ensureTurnStartedLocked",
         "cmd/mcp-orch/orchestration.*turnController.evictOldestRemoteTerminalSealLocked",
+        "cmd/mcp-orch/orchestration.*turnController.failPendingRemoteTerminalLocked",
         "cmd/mcp-orch/orchestration.*turnController.finalizeActiveTurnLocked",
         "cmd/mcp-orch/orchestration.*turnController.finishRemoteTurnSubmitFailure",
         "cmd/mcp-orch/orchestration.*turnController.finishRemoteTurnSubmitSuccess",
         "cmd/mcp-orch/orchestration.*turnController.finishTurnStartFailure",
         "cmd/mcp-orch/orchestration.*turnController.finishTurnStartSuccess",
         "cmd/mcp-orch/orchestration.*turnController.fireOrForceLocked",
+        "cmd/mcp-orch/orchestration.*turnController.handleRemoteTurnSubmitError",
         "cmd/mcp-orch/orchestration.*turnController.interruptAgentSnapshot",
+        "cmd/mcp-orch/orchestration.*turnController.interruptRemoteTurnSubmitOrphan",
         "cmd/mcp-orch/orchestration.*turnController.interruptTurn",
         "cmd/mcp-orch/orchestration.*turnController.log",
         "cmd/mcp-orch/orchestration.*turnController.markAwaitingUserInput",
@@ -14484,8 +14591,10 @@
         "cmd/mcp-orch/orchestration.*turnController.remoteTerminalSealStatsLocked",
         "cmd/mcp-orch/orchestration.*turnController.resolveAwaitingUserInput",
         "cmd/mcp-orch/orchestration.*turnController.routeRemoteTurnTerminal",
+        "cmd/mcp-orch/orchestration.*turnController.routeRemoteTurnTerminalLocked",
         "cmd/mcp-orch/orchestration.*turnController.startTurnExecution",
         "cmd/mcp-orch/orchestration.*turnController.submitAgentReadyState",
+        "cmd/mcp-orch/orchestration.*turnController.takePendingProviderTurnCompletion",
         "cmd/mcp-orch/orchestration.*turnController.takePendingRemoteTerminalsLocked",
         "cmd/mcp-orch/orchestration.*turnController.trySubmitRemoteTurn",
         "cmd/mcp-orch/orchestration.*turnController.turnIDFor",
@@ -14597,7 +14706,6 @@
         "cmd/mcp-orch/orchestration.StopSpawnedAgentMetrics",
         "cmd/mcp-orch/orchestration.SubmissionQueue",
         "cmd/mcp-orch/orchestration.TurnLifecyclePort",
-        "cmd/mcp-orch/orchestration.TurnLifecyclePort.BindActiveTurnID",
         "cmd/mcp-orch/orchestration.TurnLifecyclePort.embed:turnLifecycleRuntime",
         "cmd/mcp-orch/orchestration.WakeupDispatcher",
         "cmd/mcp-orch/orchestration.WakeupDispatcherConfig",
@@ -14831,6 +14939,7 @@
         "cmd/mcp-orch/orchestration.mapDAGNodes",
         "cmd/mcp-orch/orchestration.mapDAGSummaries",
         "cmd/mcp-orch/orchestration.mapRuns",
+        "cmd/mcp-orch/orchestration.matchingRemoteTerminals",
         "cmd/mcp-orch/orchestration.materializeArtifactAfterClaim",
         "cmd/mcp-orch/orchestration.materializeSharedfileAfterClaim",
         "cmd/mcp-orch/orchestration.materializeTurnOutputAfterClaim",
@@ -14874,6 +14983,7 @@
         "cmd/mcp-orch/orchestration.patchAgentExecModel",
         "cmd/mcp-orch/orchestration.pendingLaunchThreadConflicted",
         "cmd/mcp-orch/orchestration.pendingLaunchThreadMatches",
+        "cmd/mcp-orch/orchestration.pendingRemoteTurnSubmit",
         "cmd/mcp-orch/orchestration.permanentClassStrategyAllowed",
         "cmd/mcp-orch/orchestration.persistAddNodeSpecs",
         "cmd/mcp-orch/orchestration.persistDAGPatches",
@@ -14910,6 +15020,8 @@
         "cmd/mcp-orch/orchestration.processExitReportPort.setProcessExitFallbackReportLocked",
         "cmd/mcp-orch/orchestration.processPID",
         "cmd/mcp-orch/orchestration.providerTurnAlias",
+        "cmd/mcp-orch/orchestration.providerTurnCompletionFingerprint",
+        "cmd/mcp-orch/orchestration.publicOrchestrationError",
         "cmd/mcp-orch/orchestration.publishAgentFailedEvent",
         "cmd/mcp-orch/orchestration.publishAgentLaunchedEvent",
         "cmd/mcp-orch/orchestration.publishAgentRecoveringEvent",
@@ -14973,9 +15085,12 @@
         "cmd/mcp-orch/orchestration.remoteTerminalSealEntry",
         "cmd/mcp-orch/orchestration.remoteTerminalSealStats",
         "cmd/mcp-orch/orchestration.remoteTerminalTruth",
+        "cmd/mcp-orch/orchestration.remoteTerminalTruthFor",
         "cmd/mcp-orch/orchestration.remoteTerminalTurnRef",
         "cmd/mcp-orch/orchestration.remoteTurnSubmitAttempt",
+        "cmd/mcp-orch/orchestration.remoteTurnSubmitAttempt.ref",
         "cmd/mcp-orch/orchestration.remoteTurnSubmitRef",
+        "cmd/mcp-orch/orchestration.remoteTurnSubmitStillOwned",
         "cmd/mcp-orch/orchestration.replayRecoveredTurn",
         "cmd/mcp-orch/orchestration.reportApplier",
         "cmd/mcp-orch/orchestration.reportApplier.applyReportEventLocked",
@@ -15066,6 +15181,7 @@
         "cmd/mcp-orch/orchestration.turnHeader",
         "cmd/mcp-orch/orchestration.turnLifecycleRuntime",
         "cmd/mcp-orch/orchestration.turnLifecycleRuntime.CompleteTurn",
+        "cmd/mcp-orch/orchestration.turnLifecycleRuntime.deferProviderTurnCompletion",
         "cmd/mcp-orch/orchestration.turnLifecycleRuntime.forceIdleAfterCompletionError",
         "cmd/mcp-orch/orchestration.turnLifecycleRuntime.forceIdleAfterInterruptionError",
         "cmd/mcp-orch/orchestration.turnLifecycleRuntime.forceIdleAfterProviderTurnCompletion",
@@ -15087,6 +15203,8 @@
         "cmd/mcp-orch/orchestration.turnStopPort.stopAgentViaLauncher",
         "cmd/mcp-orch/orchestration.turnTerminalConverged",
         "cmd/mcp-orch/orchestration.turnTerminalConvergedLocked",
+        "cmd/mcp-orch/orchestration.turnTerminalSink",
+        "cmd/mcp-orch/orchestration.turnTerminalSink.handleBufferedProviderTurnCompletion",
         "cmd/mcp-orch/orchestration.turnWork",
         "cmd/mcp-orch/orchestration.updateNodeParams",
         "cmd/mcp-orch/orchestration.updateNodeRequestFromParams",
@@ -16915,7 +17033,6 @@
         "internal/provider/claudecli.*session.finishTurnWithError",
         "internal/provider/claudecli.*session.forceCompleteTarget",
         "internal/provider/claudecli.*session.forceCompleteTurn",
-        "internal/provider/claudecli.*session.forceCompletedTransportIsCurrentLocked",
         "internal/provider/claudecli.*session.handleReceiveExit",
         "internal/provider/claudecli.*session.handleSystemInitRaw",
         "internal/provider/claudecli.*session.installLogWatcherIfCurrent",
@@ -16972,6 +17089,7 @@
         "internal/provider/claudecli.*session.threadReadyState",
         "internal/provider/claudecli.*session.timeoutSilentTurn",
         "internal/provider/claudecli.*session.trackToolEvent",
+        "internal/provider/claudecli.*session.transportFencedLocked",
         "internal/provider/claudecli.*session.turnRawEvent",
         "internal/provider/claudecli.*session.turnRawEventLocked",
         "internal/provider/claudecli.*sessionLogWatcher.dispatchScannedUsage",
@@ -17187,6 +17305,7 @@
         "internal/provider/claudecli.provideDreamExecutorProvider",
         "internal/provider/claudecli.provideDriverFactory",
         "internal/provider/claudecli.providerNativeSkillsDisabledFromMap",
+        "internal/provider/claudecli.publicToolError",
         "internal/provider/claudecli.putRuntimeConfigString",
         "internal/provider/claudecli.putRuntimeConfigStringIfMissing",
         "internal/provider/claudecli.rawBase",
@@ -17740,6 +17859,7 @@
         "internal/provider/codexapp.codexBootstrapProviderName",
         "internal/provider/codexapp.codexCallerStack",
         "internal/provider/codexapp.codexDisabledToolsFromConfig",
+        "internal/provider/codexapp.codexEventRequiresTimestamp",
         "internal/provider/codexapp.codexExecutableFileName",
         "internal/provider/codexapp.codexExecutableFileNameFor",
         "internal/provider/codexapp.codexFunctionCallArgumentsPreview",
@@ -17790,6 +17910,7 @@
         "internal/provider/codexapp.codexSandboxWireJSON",
         "internal/provider/codexapp.codexSupportedPlatformValue",
         "internal/provider/codexapp.codexTerminationPayload",
+        "internal/provider/codexapp.codexTimestampProviderError",
         "internal/provider/codexapp.codexToolItemPayload",
         "internal/provider/codexapp.codexWheelReleasePlatform",
         "internal/provider/codexapp.collectRolloutMetadata",
@@ -18046,6 +18167,7 @@
         "internal/provider/codexapp.provideDreamExecutorProvider",
         "internal/provider/codexapp.provideDriverFactory",
         "internal/provider/codexapp.provideServerPool",
+        "internal/provider/codexapp.publicToolError",
         "internal/provider/codexapp.publishCodexTranslatedEvent",
         "internal/provider/codexapp.putCodexString",
         "internal/provider/codexapp.putDefaultCodexString",
@@ -18160,6 +18282,7 @@
         "internal/provider/codexapp.translateCodexFunctionCallOutputEnd",
         "internal/provider/codexapp.translateCodexMCPToolCallEnd",
         "internal/provider/codexapp.translateCodexRolloutToolEvent",
+        "internal/provider/codexapp.translateToolCallEnd",
         "internal/provider/codexapp.translateToolEvent",
         "internal/provider/codexapp.translateTurnEvent",
         "internal/provider/codexapp.translateTurnTerminalEvent",
@@ -18706,6 +18829,7 @@
         "internal/provider/unified.tokenEventTime",
         "internal/provider/unified.tokensUpdatedEvent",
         "internal/provider/unified.tracedSession",
+        "internal/provider/unified.translateCommonItemEvent",
         "internal/provider/unified.translateCommonRawEvent",
         "internal/provider/unified.typedEventType"
       ]
@@ -18713,13 +18837,13 @@
   ],
   "summary": {
     "total_packages": 41,
-    "total_functions": 2275,
-    "total_methods": 1187,
-    "total_interfaces": 184,
-    "total_interface_methods": 368,
+    "total_functions": 2286,
+    "total_methods": 1204,
+    "total_interfaces": 185,
+    "total_interface_methods": 369,
     "total_exported": 1261,
-    "total_unexported": 2998,
-    "total_structs": 613
+    "total_unexported": 3028,
+    "total_structs": 614
   },
   "packages": [
     {
@@ -22133,6 +22257,23 @@
           ]
         },
         {
+          "name": "matchingRemoteTerminals",
+          "exported": false,
+          "params": [
+            {
+              "name": "terminals",
+              "type": "[]turndto.TurnTerminalV2"
+            },
+            {
+              "name": "turnID",
+              "type": "string"
+            }
+          ],
+          "returns": [
+            "[]turndto.TurnTerminalV2"
+          ]
+        },
+        {
           "name": "materializeArtifactAfterClaim",
           "exported": false,
           "params": [
@@ -23317,6 +23458,36 @@
           ]
         },
         {
+          "name": "providerTurnCompletionFingerprint",
+          "exported": false,
+          "params": [
+            {
+              "name": "ev",
+              "type": "turndto.TurnCompleted"
+            }
+          ],
+          "returns": [
+            "[]byte"
+          ]
+        },
+        {
+          "name": "publicOrchestrationError",
+          "exported": false,
+          "params": [
+            {
+              "name": "summary",
+              "type": "string"
+            },
+            {
+              "name": "cause",
+              "type": "error"
+            }
+          ],
+          "returns": [
+            "string"
+          ]
+        },
+        {
           "name": "publishAgentFailedEvent",
           "exported": false,
           "params": [
@@ -23719,6 +23890,37 @@
           "exported": false,
           "returns": [
             "string"
+          ]
+        },
+        {
+          "name": "remoteTerminalTruthFor",
+          "exported": false,
+          "params": [
+            {
+              "name": "terminal",
+              "type": "turndto.TurnTerminalV2"
+            }
+          ],
+          "returns": [
+            "remoteTerminalTruth",
+            "error"
+          ]
+        },
+        {
+          "name": "remoteTurnSubmitStillOwned",
+          "exported": false,
+          "params": [
+            {
+              "name": "agent",
+              "type": "*agentRuntime"
+            },
+            {
+              "name": "attempt",
+              "type": "remoteTurnSubmitAttempt"
+            }
+          ],
+          "returns": [
+            "bool"
           ]
         },
         {
@@ -26889,7 +27091,7 @@
         },
         {
           "receiver": "*agentRegistry",
-          "name": "remoteTerminalTargetTurnIDLocked",
+          "name": "remoteTerminalTargetTurnRefLocked",
           "exported": false,
           "params": [
             {
@@ -26898,7 +27100,7 @@
             }
           ],
           "returns": [
-            "string",
+            "remoteTurnSubmitRef",
             "bool"
           ]
         },
@@ -29287,6 +29489,14 @@
         },
         {
           "receiver": "*remoteLauncher",
+          "name": "detachClientLocked",
+          "exported": false,
+          "returns": [
+            "*jrpc2.Client"
+          ]
+        },
+        {
+          "receiver": "*remoteLauncher",
           "name": "ensureClient",
           "exported": false,
           "params": [
@@ -29313,26 +29523,37 @@
         },
         {
           "receiver": "*remoteLauncher",
-          "name": "registerClient",
+          "name": "installClientConnection",
           "exported": false,
           "params": [
             {
-              "name": "ctx",
-              "type": "context.Context"
+              "name": "next",
+              "type": "*jrpc2.Client"
             },
             {
-              "name": "client",
-              "type": "*jrpc2.Client"
+              "name": "reg",
+              "type": "mcpdto.RegisterResponse"
             }
           ],
           "returns": [
-            "mcpdto.RegisterResponse",
+            "*jrpc2.Client",
             "error"
           ]
         },
         {
           "receiver": "*remoteLauncher",
-          "name": "startHeartbeatLocked",
+          "name": "prepareClientConnection",
+          "exported": false,
+          "returns": [
+            "*jrpc2.Client",
+            "*jrpc2.Client",
+            "string",
+            "error"
+          ]
+        },
+        {
+          "receiver": "*remoteLauncher",
+          "name": "prepareHeartbeatLocked",
           "exported": false,
           "params": [
             {
@@ -29343,6 +29564,32 @@
               "name": "reg",
               "type": "mcpdto.RegisterResponse"
             }
+          ],
+          "returns": [
+            "func()"
+          ]
+        },
+        {
+          "receiver": "*remoteLauncher",
+          "name": "registerClient",
+          "exported": false,
+          "params": [
+            {
+              "name": "ctx",
+              "type": "context.Context"
+            },
+            {
+              "name": "client",
+              "type": "*jrpc2.Client"
+            },
+            {
+              "name": "instanceID",
+              "type": "string"
+            }
+          ],
+          "returns": [
+            "mcpdto.RegisterResponse",
+            "error"
           ]
         },
         {
@@ -29947,7 +30194,11 @@
               "type": "string"
             },
             {
-              "name": "turnID",
+              "name": "expectedLocalTurnID",
+              "type": "string"
+            },
+            {
+              "name": "providerTurnID",
               "type": "string"
             }
           ],
@@ -30769,6 +31020,20 @@
         },
         {
           "receiver": "*service",
+          "name": "deferProviderTurnCompletion",
+          "exported": false,
+          "params": [
+            {
+              "name": "ev",
+              "type": "turndto.TurnCompleted"
+            }
+          ],
+          "returns": [
+            "bool"
+          ]
+        },
+        {
+          "receiver": "*service",
           "name": "discardStaleLaunchResult",
           "exported": false,
           "params": [
@@ -31092,6 +31357,21 @@
           "returns": [
             "*PersistedThread",
             "error"
+          ]
+        },
+        {
+          "receiver": "*service",
+          "name": "handleBufferedProviderTurnCompletion",
+          "exported": false,
+          "params": [
+            {
+              "name": "ctx",
+              "type": "context.Context"
+            },
+            {
+              "name": "ev",
+              "type": "turndto.TurnCompleted"
+            }
           ]
         },
         {
@@ -32328,7 +32608,11 @@
               "type": "string"
             },
             {
-              "name": "turnID",
+              "name": "expectedLocalTurnID",
+              "type": "string"
+            },
+            {
+              "name": "providerTurnID",
               "type": "string"
             }
           ],
@@ -32443,6 +32727,17 @@
         },
         {
           "receiver": "*turnController",
+          "name": "beginProviderTurnStart",
+          "exported": false,
+          "params": [
+            {
+              "name": "work",
+              "type": "turnWork"
+            }
+          ]
+        },
+        {
+          "receiver": "*turnController",
           "name": "beginRemoteTurnSubmit",
           "exported": false,
           "params": [
@@ -32452,6 +32747,79 @@
             }
           ],
           "returns": [
+            "error"
+          ]
+        },
+        {
+          "receiver": "*turnController",
+          "name": "bindRemoteTurnIDLocked",
+          "exported": false,
+          "params": [
+            {
+              "name": "ctx",
+              "type": "context.Context"
+            },
+            {
+              "name": "agent",
+              "type": "*agentRuntime"
+            },
+            {
+              "name": "turnID",
+              "type": "string"
+            }
+          ],
+          "returns": [
+            "error"
+          ]
+        },
+        {
+          "receiver": "*turnController",
+          "name": "bindRemoteTurnSubmitLocked",
+          "exported": false,
+          "params": [
+            {
+              "name": "ctx",
+              "type": "context.Context"
+            },
+            {
+              "name": "attempt",
+              "type": "remoteTurnSubmitAttempt"
+            },
+            {
+              "name": "remoteTurnID",
+              "type": "string"
+            },
+            {
+              "name": "pending",
+              "type": "[]turndto.TurnTerminalV2"
+            }
+          ],
+          "returns": [
+            "[]turndto.TurnTerminalV2",
+            "error"
+          ]
+        },
+        {
+          "receiver": "*turnController",
+          "name": "bufferEarlyRemoteTerminalLocked",
+          "exported": false,
+          "params": [
+            {
+              "name": "ref",
+              "type": "remoteTurnSubmitRef"
+            },
+            {
+              "name": "pending",
+              "type": "pendingRemoteTurnSubmit"
+            },
+            {
+              "name": "terminal",
+              "type": "turndto.TurnTerminalV2"
+            }
+          ],
+          "returns": [
+            "bool",
+            "bool",
             "error"
           ]
         },
@@ -32500,6 +32868,17 @@
         },
         {
           "receiver": "*turnController",
+          "name": "clearPendingProviderTurnStart",
+          "exported": false,
+          "params": [
+            {
+              "name": "work",
+              "type": "turnWork"
+            }
+          ]
+        },
+        {
+          "receiver": "*turnController",
           "name": "clearRemoteTerminalsForThread",
           "exported": false,
           "params": [
@@ -32510,6 +32889,20 @@
           ],
           "returns": [
             "remoteTerminalSealStats"
+          ]
+        },
+        {
+          "receiver": "*turnController",
+          "name": "deferProviderTurnCompletion",
+          "exported": false,
+          "params": [
+            {
+              "name": "ev",
+              "type": "turndto.TurnCompleted"
+            }
+          ],
+          "returns": [
+            "bool"
           ]
         },
         {
@@ -32606,6 +32999,30 @@
         },
         {
           "receiver": "*turnController",
+          "name": "failPendingRemoteTerminalLocked",
+          "exported": false,
+          "params": [
+            {
+              "name": "ref",
+              "type": "remoteTurnSubmitRef"
+            },
+            {
+              "name": "pending",
+              "type": "pendingRemoteTurnSubmit"
+            },
+            {
+              "name": "err",
+              "type": "error"
+            }
+          ],
+          "returns": [
+            "bool",
+            "bool",
+            "error"
+          ]
+        },
+        {
+          "receiver": "*turnController",
           "name": "finalizeActiveTurnLocked",
           "exported": false,
           "params": [
@@ -32668,7 +33085,8 @@
             }
           ],
           "returns": [
-            "[]turndto.TurnTerminalV2"
+            "[]turndto.TurnTerminalV2",
+            "error"
           ]
         },
         {
@@ -32733,6 +33151,28 @@
         },
         {
           "receiver": "*turnController",
+          "name": "handleRemoteTurnSubmitError",
+          "exported": false,
+          "params": [
+            {
+              "name": "ctx",
+              "type": "context.Context"
+            },
+            {
+              "name": "attempt",
+              "type": "remoteTurnSubmitAttempt"
+            },
+            {
+              "name": "submitErr",
+              "type": "error"
+            }
+          ],
+          "returns": [
+            "error"
+          ]
+        },
+        {
+          "receiver": "*turnController",
           "name": "interruptAgentSnapshot",
           "exported": false,
           "params": [
@@ -32744,6 +33184,25 @@
           "returns": [
             "AgentStateResult",
             "string",
+            "string",
+            "error"
+          ]
+        },
+        {
+          "receiver": "*turnController",
+          "name": "interruptRemoteTurnSubmitOrphan",
+          "exported": false,
+          "params": [
+            {
+              "name": "attempt",
+              "type": "remoteTurnSubmitAttempt"
+            },
+            {
+              "name": "remoteTurnID",
+              "type": "string"
+            }
+          ],
+          "returns": [
             "error"
           ]
         },
@@ -32929,6 +33388,26 @@
         },
         {
           "receiver": "*turnController",
+          "name": "routeRemoteTurnTerminalLocked",
+          "exported": false,
+          "params": [
+            {
+              "name": "ref",
+              "type": "remoteTurnSubmitRef"
+            },
+            {
+              "name": "terminal",
+              "type": "turndto.TurnTerminalV2"
+            }
+          ],
+          "returns": [
+            "bool",
+            "bool",
+            "error"
+          ]
+        },
+        {
+          "receiver": "*turnController",
           "name": "routeRemoteTurnTerminal",
           "exported": false,
           "params": [
@@ -32983,6 +33462,24 @@
         },
         {
           "receiver": "*turnController",
+          "name": "takePendingProviderTurnCompletion",
+          "exported": false,
+          "params": [
+            {
+              "name": "work",
+              "type": "turnWork"
+            },
+            {
+              "name": "providerTurnID",
+              "type": "string"
+            }
+          ],
+          "returns": [
+            "*turndto.TurnCompleted"
+          ]
+        },
+        {
+          "receiver": "*turnController",
           "name": "takePendingRemoteTerminalsLocked",
           "exported": false,
           "params": [
@@ -32992,7 +33489,7 @@
             }
           ],
           "returns": [
-            "[]turndto.TurnTerminalV2"
+            "pendingRemoteTurnSubmit"
           ]
         },
         {
@@ -33194,6 +33691,14 @@
           "returns": [
             "int",
             "error"
+          ]
+        },
+        {
+          "receiver": "remoteTurnSubmitAttempt",
+          "name": "ref",
+          "exported": false,
+          "returns": [
+            "remoteTurnSubmitRef"
           ]
         }
       ],
@@ -33940,28 +34445,6 @@
         {
           "name": "TurnLifecyclePort",
           "exported": true,
-          "methods": [
-            {
-              "name": "BindActiveTurnID",
-              "params": [
-                {
-                  "name": "ctx",
-                  "type": "context.Context"
-                },
-                {
-                  "name": "agentID",
-                  "type": "string"
-                },
-                {
-                  "name": "turnID",
-                  "type": "string"
-                }
-              ],
-              "returns": [
-                "error"
-              ]
-            }
-          ],
           "embeds": [
             "turnLifecycleRuntime"
           ]
@@ -34718,6 +35201,18 @@
               ]
             },
             {
+              "name": "deferProviderTurnCompletion",
+              "params": [
+                {
+                  "name": "ev",
+                  "type": "turndto.TurnCompleted"
+                }
+              ],
+              "returns": [
+                "bool"
+              ]
+            },
+            {
               "name": "forceIdleAfterCompletionError",
               "params": [
                 {
@@ -35002,6 +35497,25 @@
               ]
             }
           ]
+        },
+        {
+          "name": "turnTerminalSink",
+          "exported": false,
+          "methods": [
+            {
+              "name": "handleBufferedProviderTurnCompletion",
+              "params": [
+                {
+                  "name": "ctx",
+                  "type": "context.Context"
+                },
+                {
+                  "name": "ev",
+                  "type": "turndto.TurnCompleted"
+                }
+              ]
+            }
+          ]
         }
       ],
       "structs": [
@@ -35211,6 +35725,10 @@
         },
         {
           "name": "partitionedOps",
+          "exported": false
+        },
+        {
+          "name": "pendingRemoteTurnSubmit",
           "exported": false
         },
         {
@@ -59630,6 +60148,23 @@
           ]
         },
         {
+          "name": "publicToolError",
+          "exported": false,
+          "params": [
+            {
+              "name": "raw",
+              "type": "dto.RawProviderEvent"
+            },
+            {
+              "name": "cause",
+              "type": "string"
+            }
+          ],
+          "returns": [
+            "string"
+          ]
+        },
+        {
           "name": "putRuntimeConfigStringIfMissing",
           "exported": false,
           "params": [
@@ -62211,6 +62746,10 @@
           "exported": false,
           "params": [
             {
+              "name": "tr",
+              "type": "*transport"
+            },
+            {
               "name": "raw",
               "type": "dto.RawProviderEvent"
             }
@@ -62264,14 +62803,6 @@
               "name": "turnID",
               "type": "string"
             }
-          ]
-        },
-        {
-          "receiver": "*session",
-          "name": "forceCompletedTransportIsCurrentLocked",
-          "exported": false,
-          "returns": [
-            "bool"
           ]
         },
         {
@@ -63059,6 +63590,14 @@
               "name": "raw",
               "type": "dto.RawProviderEvent"
             }
+          ]
+        },
+        {
+          "receiver": "*session",
+          "name": "transportFencedLocked",
+          "exported": false,
+          "returns": [
+            "bool"
           ]
         },
         {
@@ -64659,6 +65198,19 @@
           ]
         },
         {
+          "name": "codexEventRequiresTimestamp",
+          "exported": false,
+          "params": [
+            {
+              "name": "eventType",
+              "type": "string"
+            }
+          ],
+          "returns": [
+            "bool"
+          ]
+        },
+        {
           "name": "codexExecutableFileNameFor",
           "exported": false,
           "params": [
@@ -65073,6 +65625,21 @@
             "map[string]any",
             "string",
             "string"
+          ]
+        },
+        {
+          "name": "codexTimestampProviderError",
+          "exported": false,
+          "params": [
+            {
+              "name": "raw",
+              "type": "dto.RawProviderEvent"
+            }
+          ],
+          "returns": [
+            "dto.RawProviderEvent",
+            "agentdto.AgentError",
+            "bool"
           ]
         },
         {
@@ -68389,6 +68956,23 @@
           ]
         },
         {
+          "name": "publicToolError",
+          "exported": false,
+          "params": [
+            {
+              "name": "raw",
+              "type": "dto.RawProviderEvent"
+            },
+            {
+              "name": "cause",
+              "type": "string"
+            }
+          ],
+          "returns": [
+            "string"
+          ]
+        },
+        {
           "name": "publishCodexTranslatedEvent",
           "exported": false,
           "params": [
@@ -69900,6 +70484,24 @@
         },
         {
           "name": "translateCodexRolloutToolEvent",
+          "exported": false,
+          "params": [
+            {
+              "name": "eventType",
+              "type": "string"
+            },
+            {
+              "name": "payload",
+              "type": "map[string]any"
+            }
+          ],
+          "returns": [
+            "any",
+            "bool"
+          ]
+        },
+        {
+          "name": "translateToolCallEnd",
           "exported": false,
           "params": [
             {
@@ -82356,6 +82958,28 @@
           ],
           "returns": [
             "uidto.UITokensUpdated",
+            "bool"
+          ]
+        },
+        {
+          "name": "translateCommonItemEvent",
+          "exported": false,
+          "params": [
+            {
+              "name": "raw",
+              "type": "dto.RawProviderEvent"
+            },
+            {
+              "name": "payload",
+              "type": "map[string]any"
+            },
+            {
+              "name": "rawType",
+              "type": "string"
+            }
+          ],
+          "returns": [
+            "any",
             "bool"
           ]
         },

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
+	dto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/provider"
 	shareddto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/shared"
 	tooldto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/tool"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/codexapp/resultguard"
@@ -162,6 +163,7 @@ func (s *session) publishToolCallBegin(call preparedToolCall) {
 	})
 }
 
+// publishToolCallEnd 捕获工具结果并只向事件总线发布安全错误与有界预览。
 func (s *session) publishToolCallEnd(call preparedToolCall, result any, callErr error) {
 	if s == nil || s.dispatcher == nil {
 		return
@@ -175,19 +177,28 @@ func (s *session) publishToolCallEnd(call preparedToolCall, result any, callErr 
 		success = false
 		errorText = appendProviderRuntimeError(errorText, captureErr)
 	}
+	if !success && strings.TrimSpace(errorText) == "" {
+		errorText = "tool execution failed"
+	}
+	raw := dto.RawProviderEvent{EventType: "tool.call.end", Data: map[string]any{
+		"params":        call.params.Params,
+		"result":        result,
+		"error":         errorText,
+		"persist_error": record.PersistError,
+	}}
 	ev := tooldto.ToolCallEnd{
 		ToolCallHeader: header,
 		Success:        success,
 		Result:         record.Preview,
 		PersistedPath:  record.PersistedPath,
 		PersistFailed:  record.PersistFailed,
-		PersistError:   record.PersistError,
+		PersistError:   publicToolError(raw, record.PersistError),
 		Truncated:      record.Truncated,
 		OriginalSize:   record.OriginalSize,
 		ElapsedMS:      time.Since(call.started).Milliseconds(),
 	}
 	if !success {
-		ev.Error = errorText
+		ev.Error = publicToolError(raw, errorText)
 	}
 	s.dispatcher.Publish(ev)
 }

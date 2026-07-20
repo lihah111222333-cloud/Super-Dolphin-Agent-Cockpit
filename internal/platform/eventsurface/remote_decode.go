@@ -18,11 +18,8 @@ const (
 	remotePublicErrorCodeFallback  = "REMOTE_TERMINAL_FAILED"
 	remotePublicErrorTitle         = "Remote terminal error"
 	remotePublicErrorMessage       = "Remote terminal error"
-	remoteDiagnosticIDFallback     = "remote-terminal-error"
-	remoteDiagnosticIDPrefix       = "diag-"
-	remoteDiagnosticIDMaxLength    = 128
+	remoteDiagnosticIDFallback     = "diag-remote-terminal-error"
 	remotePublicErrorCodeMaxLength = 64
-	remoteDiagnosticIDAlphabet     = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_."
 	remotePublicErrorCodeAlphabet  = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_"
 )
 
@@ -78,17 +75,15 @@ func isSafeRemotePublicErrorCode(value string) bool {
 	return value != "" && len(value) <= remotePublicErrorCodeMaxLength && containsOnly(value, remotePublicErrorCodeAlphabet)
 }
 
-// safeRemoteDiagnosticID 保留受限关联标识，其余输入替换为固定占位符。
+// safeRemoteDiagnosticID 通过 canonical PublicErrorV1 schema 保留安全关联标识。
 func safeRemoteDiagnosticID(value string) string {
-	if isSafeRemoteDiagnosticID(value) {
+	if err := turndto.ValidatePublicErrorV1(turndto.PublicErrorV1{
+		Code: remotePublicErrorCodeFallback, Title: remotePublicErrorTitle, Message: remotePublicErrorMessage,
+		DiagnosticID: value, Retryable: false, RecoveryActions: []string{},
+	}); err == nil {
 		return value
 	}
 	return remoteDiagnosticIDFallback
-}
-
-// isSafeRemoteDiagnosticID 验证关联标识的固定前缀、长度和字符集合。
-func isSafeRemoteDiagnosticID(value string) bool {
-	return strings.HasPrefix(value, remoteDiagnosticIDPrefix) && len(value) > len(remoteDiagnosticIDPrefix) && len(value) <= remoteDiagnosticIDMaxLength && containsOnly(value, remoteDiagnosticIDAlphabet)
 }
 
 // containsOnly 验证文本的每个字符都属于调用方提供的受限字符集合。

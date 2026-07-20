@@ -13,7 +13,9 @@ var generatedSchemas = map[string]string{
       "type": "string"
     },
     "diagnosticId": {
+      "maxLength": 128,
       "minLength": 1,
+      "pattern": "^diag-[A-Za-z0-9_.-]{1,123}$",
       "type": "string"
     },
     "message": {
@@ -243,9 +245,11 @@ var generatedSchemas = map[string]string{
     },
     "partialItemIds": {
       "items": {
+        "maxLength": 256,
         "minLength": 1,
         "type": "string"
       },
+      "maxItems": 128,
       "type": "array",
       "uniqueItems": true
     },

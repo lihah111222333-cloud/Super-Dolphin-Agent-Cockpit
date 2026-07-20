@@ -25,6 +25,13 @@ function createRuntime(overrides = {}) {
     eventInitializationGeneration: 0,
     eventInitializationState: 'idle',
     pendingRuntimeSubscriptions: new Set(),
+    bridgeScopeRebindGeneration: 0,
+    pendingBridgeScopeRebind: null,
+    bridgeEventScopeGeneration: 0,
+    assistantEventScope: '/repo/app',
+    currentChatCwd: vi.fn(() => '/repo/app'),
+    assertAssistantEventScopeCapacity: vi.fn(),
+    activateAssistantEventScope: vi.fn(),
     addWarning: vi.fn(),
     get: vi.fn(() => ({ activeThreadId: '', bootstrapStatus: 'ready' })),
     handleBridgeEvent: vi.fn(),
@@ -243,6 +250,57 @@ describe('runtime slice event lifecycle', () => {
     expect(runtime.pendingRuntimeSubscriptions).toHaveLength(0);
     expect(bridgeUnsubscribe).toHaveBeenCalledTimes(1);
     expect(reconnectUnsubscribe).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps the old bridge callback live until the replacement subscription is ready', async () => {
+    const replacementReady = deferred();
+    const oldUnsubscribe = vi.fn();
+    const replacementUnsubscribe = vi.fn();
+    let oldHandler;
+    let replacementHandler;
+    let runtime;
+    runtime = createRuntime({
+      activateAssistantEventScope: vi.fn((scope) => {
+        runtime.assistantEventScope = scope;
+      }),
+    });
+    const actions = createRuntimeSlice(runtime, createDeps({
+      onBridgeEvent: vi.fn()
+        .mockImplementationOnce((handler) => {
+          oldHandler = handler;
+          return { ready: Promise.resolve(true), unsubscribe: oldUnsubscribe };
+        })
+        .mockImplementationOnce((handler) => {
+          replacementHandler = handler;
+          return { ready: replacementReady.promise, unsubscribe: replacementUnsubscribe };
+        }),
+      onRuntimeReconnect: vi.fn(() => ({ ready: Promise.resolve(true), unsubscribe: vi.fn() })),
+    }));
+
+    await actions.initializeEvents();
+    const rebinding = actions.rebindBridgeEventScope('/repo/other');
+    await Promise.resolve();
+
+    expect(oldUnsubscribe).not.toHaveBeenCalled();
+    oldHandler({ type: 'turn/terminal', payload: { eventId: 'during-rebind-old' } });
+    replacementHandler({ type: 'turn/terminal', payload: { eventId: 'during-rebind-new' } });
+    expect(runtime.handleBridgeEvent).toHaveBeenCalledTimes(1);
+    expect(runtime.handleBridgeEvent).toHaveBeenLastCalledWith(expect.objectContaining({
+      payload: expect.objectContaining({ eventId: 'during-rebind-old' }),
+    }));
+
+    replacementReady.resolve(true);
+    await expect(rebinding).resolves.toBe(true);
+
+    expect(runtime.assistantEventScope).toBe('/repo/other');
+    expect(runtime.bridgeEventScopeGeneration).toBe(1);
+    expect(oldUnsubscribe).toHaveBeenCalledTimes(1);
+    oldHandler({ type: 'turn/terminal', payload: { eventId: 'after-rebind-old' } });
+    replacementHandler({ type: 'turn/terminal', payload: { eventId: 'after-rebind-new' } });
+    expect(runtime.handleBridgeEvent).toHaveBeenCalledTimes(2);
+    expect(runtime.handleBridgeEvent).toHaveBeenLastCalledWith(expect.objectContaining({
+      payload: expect.objectContaining({ eventId: 'after-rebind-new' }),
+    }));
   });
 });
 

@@ -133,6 +133,10 @@ type turnStatePort interface {
 	ensureTurnStartedLocked(ctx context.Context, agent *agentRuntime, trigger agentdto.AgentTrigger, states ...agentdto.AgentState) error
 }
 
+type turnTerminalSink interface {
+	handleBufferedProviderTurnCompletion(ctx context.Context, ev turndto.TurnCompleted)
+}
+
 type turnRuntimeRehydrator interface {
 	ensureRuntimeForPersistedAgent(ctx context.Context, agentID string)
 }
@@ -142,13 +146,14 @@ type turnStopPort interface {
 }
 
 type turnControllerDeps struct {
-	registry    *agentRegistry
-	launcher    AgentLauncher
-	turnStarter contract.OrchestrationTurnStarter
-	state       turnStatePort
-	rehydrator  turnRuntimeRehydrator
-	stopper     turnStopPort
-	logger      *slog.Logger
+	registry     *agentRegistry
+	launcher     AgentLauncher
+	turnStarter  contract.OrchestrationTurnStarter
+	state        turnStatePort
+	terminalSink turnTerminalSink
+	rehydrator   turnRuntimeRehydrator
+	stopper      turnStopPort
+	logger       *slog.Logger
 }
 
 // turnController owns turn submission and active-turn state transitions.
@@ -157,6 +162,7 @@ type turnController struct {
 	launcher                        AgentLauncher
 	turnStarter                     contract.OrchestrationTurnStarter
 	state                           turnStatePort
+	terminalSink                    turnTerminalSink
 	rehydrator                      turnRuntimeRehydrator
 	stopper                         turnStopPort
 	logger                          *slog.Logger
@@ -167,20 +173,21 @@ type turnController struct {
 	remoteTerminalEvictions         uint64
 	remoteTerminalLifecycleClears   uint64
 	remoteTerminalLifecycleDeferred uint64
-	pendingRemoteTurnSubmits        map[remoteTurnSubmitRef][]turndto.TurnTerminalV2
+	pendingRemoteTurnSubmits        map[remoteTurnSubmitRef]pendingRemoteTurnSubmit
 	pendingRemoteTerminalCount      int
 	pendingRemoteTerminalCapacity   int
 }
 
 func newTurnController(deps turnControllerDeps) *turnController {
 	return &turnController{
-		registry:    deps.registry,
-		launcher:    deps.launcher,
-		turnStarter: deps.turnStarter,
-		state:       deps.state,
-		rehydrator:  deps.rehydrator,
-		stopper:     deps.stopper,
-		logger:      deps.logger,
+		registry:     deps.registry,
+		launcher:     deps.launcher,
+		turnStarter:  deps.turnStarter,
+		state:        deps.state,
+		terminalSink: deps.terminalSink,
+		rehydrator:   deps.rehydrator,
+		stopper:      deps.stopper,
+		logger:       deps.logger,
 	}
 }
 
@@ -328,8 +335,9 @@ type agentRuntime struct {
 	state                                                                                     agentdto.AgentState
 	threadID, remoteThreadID, pendingLaunchThreadID                                           string
 	pendingLaunchThreadAt                                                                     time.Time
-	remoteAgentID, requestedAgentID, activeTurnID, lastReport                                 string
+	remoteAgentID, requestedAgentID, activeTurnID, pendingProviderTurnID, lastReport          string
 	providerTurnAlias                                                                         providerTurnAlias
+	pendingProviderTerminal                                                                   *turndto.TurnCompleted
 	reportRequesters                                                                          []string
 	lastError                                                                                 string
 	lastReportSeq                                                                             int64
@@ -387,13 +395,14 @@ func NewService(
 		SvcStopper: svc,
 	})
 	svc.turns = newTurnController(turnControllerDeps{
-		registry:    registry,
-		launcher:    lifecycle.launcher,
-		turnStarter: turnStarter,
-		state:       svc,
-		rehydrator:  svc,
-		stopper:     svc,
-		logger:      logger,
+		registry:     registry,
+		launcher:     lifecycle.launcher,
+		turnStarter:  turnStarter,
+		state:        svc,
+		terminalSink: svc,
+		rehydrator:   svc,
+		stopper:      svc,
+		logger:       logger,
 	})
 	svc.reports = newReportController(reportControllerDeps{
 		registry: registry,
@@ -469,13 +478,13 @@ func ProvideServiceResult(p serviceParams) serviceResult {
 	}
 }
 
-// RegisterTurnLifecycle 注册 turn started/completed/interrupted 事件订阅。
+// RegisterTurnLifecycle 注册 turn completed/interrupted 事件订阅。
+// provider TurnStarted 不携带可校验的本地代际，只能由 StartTurn 返回值在本地围栏内绑定。
 // 订阅在 fx OnStop 时取消，避免 service 停止后继续推进状态机。
 func RegisterTurnLifecycle(lc fx.Lifecycle, dispatcher *event.Dispatcher, runtime TurnLifecyclePort, logger *slog.Logger) {
 	if logger == nil {
 		logger = pkglogger.Get()
 	}
-	startedCancel := func() {}
 	completedCancel := func() {}
 	interruptedCancel := func() {}
 	var (
@@ -485,15 +494,6 @@ func RegisterTurnLifecycle(lc fx.Lifecycle, dispatcher *event.Dispatcher, runtim
 	lc.Append(fx.Hook{
 		OnStart: func(context.Context) error {
 			lifecycleCtx, lifecycleCancel = context.WithCancel(context.Background())
-			startedCancel = bus.ResilientSubscribe(dispatcher, func(ev turndto.TurnStarted) {
-				if lifecycleCtx.Err() != nil {
-					return
-				}
-				ctx := withEventTime(lifecycleCtx, ev.Timestamp)
-				if err := runtime.BindActiveTurnID(ctx, ev.AgentID, ev.TurnID); err != nil && !errors.Is(err, errAgentNotFound) && !errors.Is(err, errTurnNotActive) {
-					logger.Warn("orchestration: failed to bind active turn id", "agent_id", ev.AgentID, "turn_id", ev.TurnID, "error", err)
-				}
-			}, logger)
 			// completion 事件会直接推进状态机；订阅随 lifecycleCtx 取消，避免服务停止后继续写状态。
 			completedCancel = bus.ResilientSubscribe(dispatcher, func(ev turndto.TurnCompleted) {
 				if lifecycleCtx.Err() != nil {
@@ -514,7 +514,6 @@ func RegisterTurnLifecycle(lc fx.Lifecycle, dispatcher *event.Dispatcher, runtim
 			if lifecycleCancel != nil {
 				lifecycleCancel()
 			}
-			startedCancel()
 			completedCancel()
 			interruptedCancel()
 			return nil

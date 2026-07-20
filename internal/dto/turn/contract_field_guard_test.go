@@ -84,6 +84,7 @@ var requiredJSTerminalChainNames = []string{
 	"terminal-timeline-render",
 	"terminal-public-error-clipboard-sink",
 	"terminal-public-error-diagnostic-projection",
+	"terminal-public-error-diagnostic-schema-sanitizer",
 }
 
 type consumerRegistry struct {
@@ -166,6 +167,15 @@ func TestTurnContractFieldGuardFailsFirst(t *testing.T) {
 			t.Fatal("canonical republish mutation did not change production source")
 		}
 		assertGuardFailure(t, validateConsumerRegistry(root, registry, map[string]string{path: mutated}), "missing call CanonicalTurnTerminal")
+	})
+	t.Run("missing Wails terminal payload serialization", func(t *testing.T) {
+		path := "internal/ui/wails/bridge.go"
+		source := readRepositorySource(t, root, path)
+		mutated := strings.Replace(source, "payloadToMap(notification.Payload)", "missingPayloadToMap(notification.Payload)", 1)
+		if mutated == source {
+			t.Fatal("Wails bridge mutation did not change production source")
+		}
+		assertGuardFailure(t, validateConsumerRegistry(root, registry, map[string]string{path: mutated}), "terminal-wails-bridge missing call payloadToMap")
 	})
 }
 

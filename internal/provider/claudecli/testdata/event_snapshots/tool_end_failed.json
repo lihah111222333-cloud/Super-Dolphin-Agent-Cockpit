@@ -1,7 +1,7 @@
 {
   "agent_id": "agent-contract",
   "call_id": "call-contract",
-  "error": "read failed",
+  "error": "Tool execution failed. Diagnostic ID: b3aee02db4d7c11c5da5e82759c1058a4849ed0dcef7ef42fa56a5ac729069d9",
   "success": false,
   "thread_id": "thread-contract",
   "timestamp": "2026-04-13T00:00:00Z",

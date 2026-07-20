@@ -112,6 +112,34 @@ func TestForceCompleteLateResultCannotFinishReplacementTurn(t *testing.T) {
 	assertTurnStaysOpen(t, newHandle)
 }
 
+func TestTerminalResultLateDuplicateCannotFinishReplacementTurn(t *testing.T) {
+	s, old, next, launched := newForceCompleteReplacementRaceSession(t)
+	defer old.finish()
+	defer next.finish()
+
+	oldHandle, err := s.StartTurn(context.Background(), turnRequest("claude-old"))
+	if err != nil {
+		t.Fatalf("first StartTurn() error = %v", err)
+	}
+	emitLateOldResult(t, old)
+	select {
+	case <-oldHandle.Done():
+	case <-time.After(time.Second):
+		t.Fatal("terminal result did not finish the old turn")
+	}
+	s.mu.Lock()
+	fenced := s.fencedTransport == old.tr
+	s.mu.Unlock()
+	if !fenced {
+		t.Fatal("normal terminal did not fence its transport")
+	}
+
+	newHandle := startReplacementTurn(t, s, launched)
+	emitLateOldResult(t, old)
+	emitLateOldResult(t, old)
+	assertTurnStaysOpen(t, newHandle)
+}
+
 func newForceCompleteReplacementRaceSession(t *testing.T) (*session, *scriptedTransport, *scriptedTransport, <-chan struct{}) {
 	t.Helper()
 	old := newScriptedTransport()
@@ -171,7 +199,7 @@ func startReplacementTurn(t *testing.T, s *session, launched <-chan struct{}) in
 	select {
 	case <-launched:
 	case <-time.After(time.Second):
-		t.Fatal("replacement turn reused the force-completed transport")
+		t.Fatal("replacement turn reused the fenced transport")
 	}
 	return handle
 }

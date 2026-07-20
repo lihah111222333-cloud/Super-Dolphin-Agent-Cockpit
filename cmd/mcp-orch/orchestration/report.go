@@ -253,7 +253,7 @@ func (c *reportController) setNoReportFallbackLocked(ctx context.Context, agent 
 	if agent == nil || strings.TrimSpace(agent.lastReport) != "" {
 		return nil
 	}
-	setReportLocked(ctx, agent, noReportFallbackText(string(agent.state), agent.lastError))
+	setReportLocked(ctx, agent, noReportFallbackText(string(agent.state), publicOrchestrationError("Agent ended without a report.", errors.New(agent.lastError))))
 	if err := c.persistAgentReportFileAndGC(ctx, agentReportFileRecordFromRuntime(agent)); err != nil {
 		return err
 	}
@@ -265,7 +265,7 @@ func (c *reportController) setNoReportFallbackLocked(ctx context.Context, agent 
 func (c *reportController) applyReportEventLocked(ctx context.Context, agent *agentRuntime, eventType string, data json.RawMessage, report string) (ReportEventResult, error) {
 	terminal := isTerminalReportEvent(eventType, data)
 	if report == "" && terminal && strings.TrimSpace(agent.lastReport) == "" {
-		report = noReportFallbackText(string(agent.state), agent.lastError)
+		report = noReportFallbackText(string(agent.state), publicOrchestrationError("Agent ended without a report.", errors.New(agent.lastError)))
 	}
 	if report != "" {
 		setReportLocked(ctx, agent, report)

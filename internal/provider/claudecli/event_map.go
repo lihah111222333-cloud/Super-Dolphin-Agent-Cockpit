@@ -123,7 +123,7 @@ func claudeAgentErrorFromRaw(raw dto.RawProviderEvent) agentdto.AgentError {
 	return agentdto.AgentError{
 		AgentSessionHeader: agentSessionHeader(raw.Data),
 		RawType:            raw.EventType,
-		Message:            dataString(raw.Data, "message"),
+		Message:            raw.PublicMessage("Provider reported an error."),
 		Code:               dataString(raw.Data, "code"),
 		Payload:            raw.SafePayload(),
 	}
@@ -172,7 +172,7 @@ func translateAgentEvent(raw dto.RawProviderEvent) (any, bool) {
 	case "agent:failed":
 		return agentdto.AgentFailed{
 			AgentSessionHeader: agentSessionHeader(raw.Data),
-			Error:              dataString(raw.Data, "error"),
+			Error:              raw.PublicMessage("Agent failed."),
 		}, true
 	default:
 		return nil, false
@@ -281,20 +281,30 @@ func translateToolEvent(raw dto.RawProviderEvent) (any, bool) {
 			success = false
 			errorText = appendProviderRuntimeError(errorText, captureErr)
 		}
+		if !success && strings.TrimSpace(errorText) == "" {
+			errorText = "provider reported a tool failure"
+		}
 		return tooldto.ToolCallEnd{
 			ToolCallHeader: header,
 			Success:        success,
-			Error:          errorText,
+			Error:          publicToolError(raw, errorText),
 			Result:         result.Preview,
 			PersistedPath:  result.PersistedPath,
 			PersistFailed:  result.PersistFailed,
-			PersistError:   result.PersistError,
+			PersistError:   publicToolError(raw, result.PersistError),
 			Truncated:      result.Truncated,
 			OriginalSize:   result.OriginalSize,
 		}, true
 	default:
 		return nil, false
 	}
+}
+
+func publicToolError(raw dto.RawProviderEvent, cause string) string {
+	if strings.TrimSpace(cause) == "" {
+		return ""
+	}
+	return raw.PublicMessage("Tool execution failed.")
 }
 
 // appendProviderRuntimeError 保留 provider 原始失败，并附加运行时依赖错误。

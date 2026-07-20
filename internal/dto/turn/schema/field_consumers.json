@@ -16,11 +16,13 @@
       "goType": { "path": "internal/dto/turn/terminal.go", "symbol": "PublicErrorV1" },
       "goValidator": { "path": "internal/dto/turn/contract_validator.go", "symbol": "ValidatePublicErrorV1" },
       "goConsumers": [
-        { "path": "internal/dto/turn/terminal.go", "symbol": "NewTurnTerminalV2", "calls": "ValidatePublicErrorV1" }
+        { "path": "internal/dto/turn/terminal.go", "symbol": "NewTurnTerminalV2", "calls": "ValidatePublicErrorV1" },
+        { "path": "internal/platform/eventsurface/remote_decode.go", "symbol": "safeRemoteDiagnosticID", "calls": "ValidatePublicErrorV1" }
       ],
       "jsValidator": { "path": "frontend-app/src/shared/contracts/turnContractValidators.js", "symbol": "validatePublicErrorV1" },
       "jsConsumers": [
-        { "path": "frontend-app/src/shared/contracts/turnContractValidators.js", "symbol": "validateTurnTerminalV2", "calls": "validatePublicErrorV1" }
+        { "path": "frontend-app/src/shared/contracts/turnContractValidators.js", "symbol": "validateTurnTerminalV2", "calls": "validatePublicErrorV1" },
+        { "path": "frontend-app/src/shared/ui/publicError.js", "symbol": "safeRemoteDiagnosticId", "calls": "validatePublicErrorV1" }
       ]
     },
     "TurnTerminalV2": {
@@ -52,6 +54,13 @@
       "symbol": "cloneTurnTerminalV2",
       "calls": ["cloneStrings"],
       "identifiers": ["SchemaVersion", "EventID", "ThreadID", "TurnID", "Outcome", "TerminationCause", "TerminationRequestID", "PublicError", "PartialItemIDs", "OccurredAt", "Code", "Title", "Message", "DiagnosticID", "Retryable", "RecoveryActions"]
+    },
+    {
+      "name": "canonical-terminal-diagnostic-id",
+      "path": "internal/dto/turn/terminal.go",
+      "symbol": "terminalPublicError",
+      "calls": ["diagnosticIDForEventID"],
+      "identifiers": ["DiagnosticID"]
     },
     {
       "name": "canonical-terminal-attachment",
@@ -177,6 +186,12 @@
       "calls": ["ValidateTurnTerminalV2", "AttachCanonicalTurnTerminal"]
     },
     {
+      "name": "remote-terminal-diagnostic-sanitizer",
+      "path": "internal/platform/eventsurface/remote_decode.go",
+      "symbol": "safeRemoteDiagnosticID",
+      "calls": ["ValidatePublicErrorV1"]
+    },
+    {
       "name": "remote-terminal-first-truth-seal",
       "path": "cmd/mcp-orch/orchestration/launcher.go",
       "symbol": "handleRemoteTurnTerminal",
@@ -194,6 +209,12 @@
       "symbol": "publishTurnTerminal",
       "calls": ["CanonicalTurnTerminal", "publish"],
       "identifiers": ["MethodTurnTerminal"]
+    },
+    {
+      "name": "terminal-wails-bridge",
+      "path": "internal/ui/wails/bridge.go",
+      "symbol": "publish",
+      "calls": ["ExpandNotifications", "payloadToMap", "EmitEvent"]
     }
   ],
   "goConstants": [
@@ -253,6 +274,12 @@
       "path": "frontend-app/src/pages/chat/thread/TimelineMessage.jsx",
       "symbol": "terminalDiagnosticText",
       "memberPaths": ["error.diagnosticId", "error.code", "error.title", "error.message"]
+    },
+    {
+      "name": "terminal-public-error-diagnostic-schema-sanitizer",
+      "path": "frontend-app/src/shared/ui/publicError.js",
+      "symbol": "safeRemoteDiagnosticId",
+      "calls": ["validatePublicErrorV1"]
     }
   ],
   "jsMappers": [

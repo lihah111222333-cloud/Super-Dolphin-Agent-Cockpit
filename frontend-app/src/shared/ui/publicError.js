@@ -1,6 +1,7 @@
 // @ts-check
 
 import { frontendDiagnosticCorrelationForError } from '../diagnostics/frontendDiagnosticCorrelation.js';
+import { validatePublicErrorV1 } from '../contracts/turnContractValidators.js';
 
 /** @typedef {{ code: string, title: string, message: string }} PublicErrorCopy */
 /** @typedef {{ code?: unknown, diagnosticId?: unknown, recoveryActions?: unknown }} RemoteTerminalError */
@@ -92,7 +93,19 @@ export function publicErrorForAction(actionId, { diagnosticIdFactory = defaultDi
 /** @param {unknown} diagnosticId @returns {string} */
 function safeRemoteDiagnosticId(diagnosticId) {
   const value = typeof diagnosticId === 'string' ? diagnosticId : '';
-  return /^diag-[A-Za-z0-9_.-]{1,123}$/.test(value) ? value : 'remote-terminal-error';
+  try {
+    validatePublicErrorV1({
+      code: 'REMOTE_TERMINAL_FAILED',
+      title: 'Remote terminal error',
+      message: 'Remote terminal error',
+      diagnosticId: value,
+      retryable: false,
+      recoveryActions: [],
+    });
+    return value;
+  } catch {
+    return 'diag-remote-terminal-error';
+  }
 }
 
 /** @param {unknown} recoveryActions */

@@ -17,13 +17,14 @@ import (
 )
 
 const (
-	transportReadyTimeout        = 30 * time.Second
-	transportShutdownGracePeriod = 3 * time.Second
-	transportKillWaitTimeout     = 5 * time.Second
-	transportStderrLimitBytes    = 8 * 1024
-	transportConnectRetryDelay   = 150 * time.Millisecond
-	transportConnectRetryMaxWait = time.Second
-	transportHealthPingTimeout   = time.Second
+	transportReadyTimeout         = 30 * time.Second
+	transportShutdownGracePeriod  = 3 * time.Second
+	transportKillWaitTimeout      = 5 * time.Second
+	transportStderrLimitBytes     = 8 * 1024
+	transportInboundFrameMaxBytes = 4 * 1024 * 1024
+	transportConnectRetryDelay    = 150 * time.Millisecond
+	transportConnectRetryMaxWait  = time.Second
+	transportHealthPingTimeout    = time.Second
 )
 
 var errConnectRetryPending = errors.New("codexapp: connect retry pending")

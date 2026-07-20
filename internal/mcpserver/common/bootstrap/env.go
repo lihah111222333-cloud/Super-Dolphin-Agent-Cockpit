@@ -208,7 +208,7 @@ func normalizeRegisterResponse(resp *mcp.RegisterResponse, instanceID string) (*
 
 // validateProtocolVersion 校验服务端协议版本是否与客户端期望版本匹配。
 func validateProtocolVersion(version string) error {
-	version = strings.TrimSpace(version)
+	version = mcp.NormalizeProtocolVersion(version)
 	if version == mcp.ProtocolVersion {
 		return nil
 	}

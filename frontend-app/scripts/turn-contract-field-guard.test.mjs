@@ -11,6 +11,7 @@ const mapperPath = 'frontend-app/src/shared/api/backend/backendApiFactoryThread.
 const runtimePath = 'frontend-app/src/entities/client/model/runtimeAssistantTimeline.js';
 const terminalRuntimePath = 'frontend-app/src/entities/client/model/helpers/assistantEventRuntime.js';
 const timelineMessagePath = 'frontend-app/src/pages/chat/thread/TimelineMessage.jsx';
+const publicErrorPath = 'frontend-app/src/shared/ui/publicError.js';
 const registryPath = 'internal/dto/turn/schema/field_consumers.json';
 const barrelPath = 'frontend-app/src/shared/contracts/turnContractBarrel.js';
 
@@ -106,6 +107,16 @@ describe('turn contract production field guard', () => {
       repoRoot,
       sourceOverrides: new Map([[timelineMessagePath, mutated]]),
     })).toThrow('terminal-public-error-clipboard-sink retains forbidden member path error.diagnosticId');
+  });
+
+  it('fails when terminal diagnostic sanitizer stops using the generated validator', () => {
+    const source = read(publicErrorPath);
+    const mutated = source.replace('validatePublicErrorV1({', 'missingValidatePublicErrorV1({');
+    expect(mutated).not.toBe(source);
+    expect(() => validateTurnContractFieldGuard({
+      repoRoot,
+      sourceOverrides: new Map([[publicErrorPath, mutated]]),
+    })).toThrow('frontend-app/src/shared/ui/publicError.js:safeRemoteDiagnosticId missing call validatePublicErrorV1');
   });
 
   it('fails when the Stop mapper drops expectedTurnId', () => {

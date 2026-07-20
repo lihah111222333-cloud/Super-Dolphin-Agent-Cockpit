@@ -216,12 +216,16 @@ func translateCommonRawEvent(raw dto.RawProviderEvent, publish func(ev any)) {
 	if isRetryProgressRawError(rawType, payload) {
 		return
 	}
+	if itemEvent, ok := translateCommonItemEvent(raw, payload, rawType); ok {
+		publish(itemEvent)
+		return
+	}
 	switch {
 	case isWarningRawType(rawType):
 		publish(agentdto.AgentWarning{
 			AgentSessionHeader: commonAgentSessionHeader(payload),
 			RawType:            rawType,
-			Message:            shared.FirstNonEmpty(stringValue(payload, "message", "warning", "reason"), stringValue(nestedMap(payload, "error"), "message")),
+			Message:            raw.PublicMessage("Provider reported a warning."),
 			Code:               stringValue(payload, "code"),
 			Payload:            raw.SafePayload(),
 		})
@@ -229,7 +233,7 @@ func translateCommonRawEvent(raw dto.RawProviderEvent, publish func(ev any)) {
 		publish(agentdto.AgentError{
 			AgentSessionHeader: commonAgentSessionHeader(payload),
 			RawType:            rawType,
-			Message:            shared.FirstNonEmpty(stringValue(payload, "message", "error", "reason"), stringValue(nestedMap(payload, "error"), "message")),
+			Message:            raw.PublicMessage("Provider reported an error."),
 			Code:               stringValue(payload, "code"),
 			Recoverable:        boolValue(payload, "recoverable", "willRetry", "will_retry"),
 			Payload:            raw.SafePayload(),
@@ -247,32 +251,41 @@ func translateCommonRawEvent(raw dto.RawProviderEvent, publish func(ev any)) {
 			RawType:    rawType,
 			Payload:    raw.SafePayload(),
 		})
-	case isItemStartedRawType(rawType):
-		publish(turndto.ItemStarted{
-			TurnHeader: commonTurnHeader(payload),
-			RawType:    rawType,
-			ItemType:   shared.FirstNonEmpty(stringValue(payload, "type"), stringValue(nestedMap(payload, "item"), "type")),
-			Command:    shared.FirstNonEmpty(stringValue(payload, "command"), stringValue(nestedMap(payload, "item"), "command")),
-			File:       shared.FirstNonEmpty(stringValue(payload, "file", "path"), stringValue(nestedMap(payload, "item"), "file", "path")),
-			ToolName:   shared.FirstNonEmpty(stringValue(payload, "toolName", "tool_name", "tool"), stringValue(nestedMap(payload, "item"), "toolName", "tool_name", "tool")),
-			CallID:     shared.FirstNonEmpty(stringValue(payload, "callId", "call_id"), stringValue(nestedMap(payload, "item"), "callId", "call_id")),
-			Payload:    raw.SafePayload(),
-		})
-	case isItemCompletedRawType(rawType):
-		publish(turndto.ItemCompleted{
-			TurnHeader: commonTurnHeader(payload),
-			RawType:    rawType,
-			ItemType:   shared.FirstNonEmpty(stringValue(payload, "type"), stringValue(nestedMap(payload, "item"), "type")),
-			Command:    shared.FirstNonEmpty(stringValue(payload, "command"), stringValue(nestedMap(payload, "item"), "command")),
-			File:       shared.FirstNonEmpty(stringValue(payload, "file", "path"), stringValue(nestedMap(payload, "item"), "file", "path")),
-			ToolName:   shared.FirstNonEmpty(stringValue(payload, "toolName", "tool_name", "tool"), stringValue(nestedMap(payload, "item"), "toolName", "tool_name", "tool")),
-			CallID:     shared.FirstNonEmpty(stringValue(payload, "callId", "call_id"), stringValue(nestedMap(payload, "item"), "callId", "call_id")),
-			ExitCode:   firstIntValue(payload, "exitCode", "exit_code"),
-			Success:    !hasErrorPayload(payload),
-			Error:      shared.FirstNonEmpty(stringValue(payload, "error", "message", "reason"), stringValue(nestedMap(payload, "error"), "message")),
-			Payload:    raw.SafePayload(),
-		})
 	}
+}
+
+// translateCommonItemEvent 构造 provider 通用 item 生命周期事件并公开化失败原因。
+func translateCommonItemEvent(raw dto.RawProviderEvent, payload map[string]any, rawType string) (any, bool) {
+	item := nestedMap(payload, "item")
+	if isItemStartedRawType(rawType) {
+		return turndto.ItemStarted{
+			TurnHeader: commonTurnHeader(payload), RawType: rawType,
+			ItemType: shared.FirstNonEmpty(stringValue(payload, "type"), stringValue(item, "type")),
+			Command:  shared.FirstNonEmpty(stringValue(payload, "command"), stringValue(item, "command")),
+			File:     shared.FirstNonEmpty(stringValue(payload, "file", "path"), stringValue(item, "file", "path")),
+			ToolName: shared.FirstNonEmpty(stringValue(payload, "toolName", "tool_name", "tool"), stringValue(item, "toolName", "tool_name", "tool")),
+			CallID:   shared.FirstNonEmpty(stringValue(payload, "callId", "call_id"), stringValue(item, "callId", "call_id")),
+			Payload:  raw.SafePayload(),
+		}, true
+	}
+	if !isItemCompletedRawType(rawType) {
+		return nil, false
+	}
+	failed := hasErrorPayload(payload)
+	itemError := ""
+	if failed {
+		itemError = raw.PublicMessage("Provider item failed.")
+	}
+	return turndto.ItemCompleted{
+		TurnHeader: commonTurnHeader(payload), RawType: rawType,
+		ItemType: shared.FirstNonEmpty(stringValue(payload, "type"), stringValue(item, "type")),
+		Command:  shared.FirstNonEmpty(stringValue(payload, "command"), stringValue(item, "command")),
+		File:     shared.FirstNonEmpty(stringValue(payload, "file", "path"), stringValue(item, "file", "path")),
+		ToolName: shared.FirstNonEmpty(stringValue(payload, "toolName", "tool_name", "tool"), stringValue(item, "toolName", "tool_name", "tool")),
+		CallID:   shared.FirstNonEmpty(stringValue(payload, "callId", "call_id"), stringValue(item, "callId", "call_id")),
+		ExitCode: firstIntValue(payload, "exitCode", "exit_code"), Success: !failed,
+		Error: itemError, Payload: raw.SafePayload(),
+	}, true
 }
 
 // commonAgentSessionHeader 从 provider payload 中提取 agent/session 头，兼容 camelCase 和 snake_case。

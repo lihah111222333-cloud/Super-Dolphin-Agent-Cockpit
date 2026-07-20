@@ -19,6 +19,7 @@ import (
 
 type turnLifecycleRuntime interface {
 	CompleteTurn(ctx context.Context, agentID, turnID string, success bool, errMsg string) error
+	deferProviderTurnCompletion(ev turndto.TurnCompleted) bool
 	interruptTurn(ctx context.Context, agentID, turnID, reason string) error
 	forceIdleAfterCompletionError(ctx context.Context, agentID string, turnID string, success bool, errMsg string) (bool, error)
 	forceIdleAfterProviderTurnCompletion(ctx context.Context, ev turndto.TurnCompleted) (bool, error)
@@ -30,7 +31,6 @@ type turnLifecycleRuntime interface {
 // TurnLifecyclePort is the narrow runtime consumed by fx turn lifecycle hooks.
 type TurnLifecyclePort interface {
 	turnLifecycleRuntime
-	BindActiveTurnID(ctx context.Context, agentID, turnID string) error
 }
 
 // ApprovalLifecyclePort is the narrow runtime consumed by fx approval lifecycle hooks.
@@ -54,6 +54,9 @@ func handleTurnCompletedEventWithCtx(runtime turnLifecycleRuntime, logger *slog.
 		return
 	}
 	err := runtime.CompleteTurn(ctx, ev.AgentID, ev.TurnID, ev.Success, ev.Error)
+	if errors.Is(err, errTurnNotActive) && runtime.deferProviderTurnCompletion(ev) {
+		return
+	}
 	if settleIgnoredTurnCompletion(runtime, logger, ev, startedAt, err) {
 		return
 	}
@@ -67,6 +70,17 @@ func handleTurnCompletedEventWithCtx(runtime turnLifecycleRuntime, logger *slog.
 	logTurnTerminalProgress(logger, "orchestration: turn completed event recovery attempted",
 		ev.AgentID, ev.ThreadID, ev.TurnID, startedAt, recoverErr)
 	logTurnCompletionFailure(logger, ev, err, recovered, recoverErr)
+}
+
+func (s *service) deferProviderTurnCompletion(ev turndto.TurnCompleted) bool {
+	if s == nil || s.turns == nil {
+		return false
+	}
+	return s.turns.deferProviderTurnCompletion(ev)
+}
+
+func (s *service) handleBufferedProviderTurnCompletion(ctx context.Context, ev turndto.TurnCompleted) {
+	handleTurnCompletedEventWithCtx(s, s.logger, ev, ctx)
 }
 
 // prepareTurnCompletedEvent 统一 completion 事件的上下文、时间和日志入口。

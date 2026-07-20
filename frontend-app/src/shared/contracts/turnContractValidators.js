@@ -14,7 +14,10 @@ import { generatedSchemas } from './turnContracts.generated.js';
  *   additionalProperties?: boolean,
  *   items?: JSONSchema,
  *   uniqueItems?: boolean,
+ *   maxItems?: number,
  *   minLength?: number,
+ *   maxLength?: number,
+ *   pattern?: string,
  *   if?: JSONSchema,
  *   then?: JSONSchema,
  *   else?: JSONSchema,
@@ -72,8 +75,15 @@ function validateSchema(schema, value, path, depth) {
   }
   if (isRecord(value)) validateObject(schema, value, path, depth + 1);
   if (Array.isArray(value)) validateArray(schema, value, path, depth + 1);
-  if (typeof value === 'string' && schema.minLength && value.length < schema.minLength) {
+  const stringLength = typeof value === 'string' ? [...value].length : 0;
+  if (typeof value === 'string' && schema.minLength && stringLength < schema.minLength) {
     throw new TypeError(`${path} must not be empty`);
+  }
+  if (typeof value === 'string' && schema.maxLength && stringLength > schema.maxLength) {
+    throw new TypeError(`${path} exceeds maximum length`);
+  }
+  if (typeof value === 'string' && schema.pattern && !(new RegExp(schema.pattern)).test(value)) {
+    throw new TypeError(`${path} does not match required pattern`);
   }
 }
 
@@ -124,6 +134,9 @@ function requiredFields(schema, path) {
 
 /** @param {JSONSchema} schema @param {unknown[]} value @param {string} path @param {number} depth */
 function validateArray(schema, value, path, depth) {
+  if (schema.maxItems !== undefined && value.length > schema.maxItems) {
+    throw new TypeError(`${path} exceeds maximum item count ${schema.maxItems}`);
+  }
   if (schema.uniqueItems && new Set(value.map((item) => JSON.stringify(item))).size !== value.length) {
     throw new TypeError(`${path} contains duplicate item`);
   }

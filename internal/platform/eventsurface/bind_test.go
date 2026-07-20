@@ -157,6 +157,10 @@ func TestDecodeRemoteTurnTerminalRejectsUnknownFields(t *testing.T) {
 			raw:  `{"schemaVersion":2,"eventId":"event-2","threadId":"thread-1","turnId":"turn-1","outcome":"failed","publicError":{"code":"FAILED","title":"Failed","message":"failed","diagnosticId":"diag-1","retryable":false,"recoveryActions":[],"extra":"forbidden"},"occurredAt":"2026-07-17T01:02:03Z"}`,
 		},
 		{
+			name: "unsafe diagnostic ID",
+			raw:  `{"schemaVersion":2,"eventId":"terminal:thread-1:turn-1:2026-07-17T01:02:03Z","threadId":"thread-1","turnId":"turn-1","outcome":"failed","publicError":{"code":"FAILED","title":"Failed","message":"failed","diagnosticId":"terminal:thread-1:turn-1:2026-07-17T01:02:03Z","retryable":false,"recoveryActions":[]},"occurredAt":"2026-07-17T01:02:03Z"}`,
+		},
+		{
 			name: "partial item id typo",
 			raw:  `{"schemaVersion":2,"eventId":"event-3","threadId":"thread-1","turnId":"turn-1","outcome":"success","partialItemId":["item-1"],"occurredAt":"2026-07-17T01:02:03Z"}`,
 		},
@@ -263,7 +267,7 @@ func TestRemoteTurnTerminalPublishPreservesSanitizedCanonicalPayload(t *testing.
 			name: "failed with public error and partial items",
 			terminal: turndto.TurnTerminalV2{
 				SchemaVersion: 2,
-				EventID:       "event-failed",
+				EventID:       "terminal:thread-1:turn-1:2026-07-17T01:02:03.456Z",
 				ThreadID:      "thread-1",
 				TurnID:        "turn-1",
 				Outcome:       "failed",
@@ -271,7 +275,7 @@ func TestRemoteTurnTerminalPublishPreservesSanitizedCanonicalPayload(t *testing.
 					Code:            "PROVIDER_FAILED",
 					Title:           "Turn failed",
 					Message:         "provider unavailable",
-					DiagnosticID:    "diag-1",
+					DiagnosticID:    "diag-remote-roundtrip-1",
 					Retryable:       false,
 					RecoveryActions: []string{"copy_diagnostics"},
 				},

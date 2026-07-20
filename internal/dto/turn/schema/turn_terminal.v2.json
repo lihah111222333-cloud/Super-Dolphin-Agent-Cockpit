@@ -14,7 +14,7 @@
     "terminationCause": { "type": "string", "enum": ["user_request", "provider", "system"] },
     "terminationRequestId": { "type": "string", "minLength": 1 },
     "publicError": { "$ref": "PublicErrorV1" },
-    "partialItemIds": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
+    "partialItemIds": { "type": "array", "maxItems": 128, "uniqueItems": true, "items": { "type": "string", "minLength": 1, "maxLength": 256 } },
     "occurredAt": { "type": "string", "minLength": 1 }
   },
   "allOf": [

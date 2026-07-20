@@ -315,7 +315,7 @@ func (s *service) stopThreadRuntime(
 		"caller", archiveCallerStack(),
 	)
 	releaseResume := s.blockResumeForAgentUntilDurable(stopState.agentID)
-	s.interruptStoppingThread(ctx, stopState.agentID, source)
+	interruptErr := s.interruptStoppingThread(ctx, stopState.agentID, source)
 	localSessionGone := false
 	if err := s.closeSessionForAgent(ctx, stopState.agentID); err != nil {
 		if !errors.Is(err, errLocalSessionAlreadyGone) {
@@ -324,7 +324,7 @@ func (s *service) stopThreadRuntime(
 				"agent_id", stopState.agentID,
 				"error", err,
 			)
-			return nil, err
+			return nil, errors.Join(interruptErr, err)
 		}
 		localSessionGone = true
 	}
@@ -335,24 +335,41 @@ func (s *service) stopThreadRuntime(
 			"agent_id", stopState.agentID,
 			"error", err,
 		)
-		return nil, err
+		return nil, errors.Join(interruptErr, err)
+	}
+	if interruptErr != nil {
+		releaseResume()
+		return nil, interruptErr
 	}
 	return releaseResume, nil
 }
 
 // interruptStoppingThread 在停止 provider 前尝试中断活跃 turn。
-// 中断失败只记录 warning，后续 provider 停止仍继续执行，保证 stop 请求最终收束运行时资源。
-func (s *service) interruptStoppingThread(ctx context.Context, agentID, source string) {
+// 中断失败会在运行时收束完成后返回，避免将不完整的停止报告为成功。
+func (s *service) interruptStoppingThread(ctx context.Context, agentID, source string) error {
 	if s.turns == nil {
-		return
+		return nil
 	}
-	session, err := s.lookupSession(agentID)
-	if err != nil || session == nil {
-		return
+	if s.sessions == nil {
+		return nil
 	}
-	if err := s.turns.InterruptActiveTurn(ctx, session, source); err != nil && s.logger != nil {
-		s.logger.Warn("thread stop: interrupt active turn failed", "agent_id", agentID, "error", err)
+	session, err := s.sessions.GetSession(strings.TrimSpace(agentID))
+	switch {
+	case errors.Is(err, contract.ErrSessionNotFound):
+		session = nil
+	case err != nil:
+		return fmt.Errorf("lookup stopping session: %w", err)
 	}
+	if session == nil {
+		return nil
+	}
+	if err := s.turns.InterruptActiveTurn(ctx, session, source); err != nil {
+		if s.logger != nil {
+			s.logger.Warn("thread stop: interrupt active turn failed", "agent_id", agentID, "error", err)
+		}
+		return err
+	}
+	return nil
 }
 
 func bindingAgentID(binding *threadBindingStoreRecord) string {

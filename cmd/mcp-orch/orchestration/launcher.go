@@ -72,7 +72,7 @@ func (l *localLauncher) Launch(ctx context.Context, agent *agentRuntime, _ Launc
 		append(contract.ScrubDatabaseEnv(os.Environ()), contract.ScrubDatabaseEnv(agent.env)...),
 	)
 	if err != nil {
-		agent.lastError = err.Error()
+		agent.lastError = publicOrchestrationError("Agent process failed to start.", err)
 		return LaunchResult{}, err
 	}
 	now := resolveEventTime(ctx, agent.updatedAt)
@@ -130,6 +130,7 @@ type remoteLauncher struct {
 	eventSink       remoteLauncherEventSink
 	instanceID      string
 	heartbeatCancel context.CancelFunc
+	closed          bool
 }
 
 const remoteLauncherBinaryName = "mcp-orch-remote-launcher"
@@ -142,33 +143,77 @@ func NewRemoteLauncher(addr string) AgentLauncher {
 
 // ensureClient 懒加载或复用 jrpc2 客户端连接，断开后自动重连。
 func (r *remoteLauncher) ensureClient(ctx context.Context) (*jrpc2.Client, error) {
-	if r == nil || strings.TrimSpace(r.addr) == "" {
-		return nil, errors.New("remote launcher rpc addr is required")
+	client, previous, instanceID, err := r.prepareClientConnection()
+	if err != nil || client != nil {
+		return client, err
 	}
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	client := r.client
-	if client != nil && !client.IsStopped() {
-		return client, nil
+	if previous != nil {
+		_ = previous.Close()
 	}
-	r.stopHeartbeatLocked()
-	if client != nil {
-		_ = client.Close()
-	}
-	r.client = nil
 	raw, err := new(net.Dialer).DialContext(ctx, "tcp", r.addr)
 	if err != nil {
 		return nil, err
 	}
 	next := jrpc2.NewClient(channel.Line(raw, raw), &jrpc2.ClientOptions{OnNotify: r.handleNotify})
-	reg, err := r.registerClient(ctx, next)
+	reg, err := r.registerClient(ctx, next, instanceID)
 	if err != nil {
 		_ = next.Close()
 		return nil, err
 	}
+	return r.installClientConnection(next, reg)
+}
+
+// prepareClientConnection 在锁内复用健康连接，或冻结一次新的连接尝试。
+func (r *remoteLauncher) prepareClientConnection() (client, previous *jrpc2.Client, instanceID string, err error) {
+	if r == nil || strings.TrimSpace(r.addr) == "" {
+		return nil, nil, "", errors.New("remote launcher rpc addr is required")
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.closed {
+		return nil, nil, "", errors.New("remote launcher is closed")
+	}
+	if current := r.client; current != nil && !current.IsStopped() {
+		return current, nil, "", nil
+	}
+	previous = r.detachClientLocked()
+	instanceID = strings.TrimSpace(r.instanceID)
+	if instanceID == "" {
+		instanceID = shared.NewID("mcp_orch_remote_launcher")
+		r.instanceID = instanceID
+	}
+	return nil, previous, instanceID, nil
+}
+
+// installClientConnection 在锁内提交已注册连接，并关闭并发竞争产生的冗余连接。
+func (r *remoteLauncher) installClientConnection(next *jrpc2.Client, reg mcpdto.RegisterResponse) (*jrpc2.Client, error) {
+	r.mu.Lock()
+	if r.closed {
+		r.mu.Unlock()
+		_ = next.Close()
+		return nil, errors.New("remote launcher is closed")
+	}
+	if current := r.client; current != nil && !current.IsStopped() {
+		r.mu.Unlock()
+		_ = next.Close()
+		return current, nil
+	}
+	stale := r.detachClientLocked()
 	r.client = next
-	r.startHeartbeatLocked(next, reg)
+	startHeartbeat := r.prepareHeartbeatLocked(next, reg)
+	r.mu.Unlock()
+	if stale != nil {
+		_ = stale.Close()
+	}
+	startHeartbeat()
 	return next, nil
+}
+
+func (r *remoteLauncher) detachClientLocked() *jrpc2.Client {
+	r.stopHeartbeatLocked()
+	client := r.client
+	r.client = nil
+	return client
 }
 func rpcCall[T any](ctx context.Context, r *remoteLauncher, method string, params any) (out T, err error) {
 	callCtx, cancel := platformconfig.WithRPCRequestTimeout(ctx)
@@ -180,20 +225,26 @@ func rpcCall[T any](ctx context.Context, r *remoteLauncher, method string, param
 	return out, err
 }
 
-// registerClient 向 remote launcher 注册本实例并校验租约信息。
-// 缺少 session token 或返回空 lease 会立即失败，避免心跳落到匿名连接。
-func (r *remoteLauncher) registerClient(ctx context.Context, client *jrpc2.Client) (mcpdto.RegisterResponse, error) {
+// registerClient 向 remote launcher 注册本实例并校验协议和租约信息。
+// 缺少 session token、协议或 lease 会立即失败，避免心跳落到未认证连接。
+func (r *remoteLauncher) registerClient(ctx context.Context, client *jrpc2.Client, instanceID string) (mcpdto.RegisterResponse, error) {
 	token := remoteLauncherSessionToken()
 	if token == "" {
 		return mcpdto.RegisterResponse{}, errors.New("remote launcher requires GO_AGENT_CTL_SESSION_TOKEN or GO_AGENT_MCP_SESSION_TOKEN")
 	}
-	r.instanceID = shared.FirstTrimmed(r.instanceID, shared.NewID("mcp_orch_remote_launcher"))
 	callCtx, cancel := platformconfig.WithRPCRequestTimeout(ctx)
 	defer cancel()
 	var resp mcpdto.RegisterResponse
-	req := mcpdto.RegisterRequest{InstanceID: r.instanceID, BinaryName: remoteLauncherBinaryName, PID: os.Getpid(), SessionToken: token, ClientKind: mcpdto.ClientKindCustom, PeerKind: mcpdto.PeerKindTool}
+	req := mcpdto.RegisterRequest{InstanceID: instanceID, BinaryName: remoteLauncherBinaryName, PID: os.Getpid(), SessionToken: token, ClientKind: mcpdto.ClientKindCustom, PeerKind: mcpdto.PeerKindTool}
 	if err := client.CallResult(callCtx, mcpdto.MethodRegister, req, &resp); err != nil {
 		return mcpdto.RegisterResponse{}, err
+	}
+	resp.ServerProtocolVersion = mcpdto.NormalizeProtocolVersion(resp.ServerProtocolVersion)
+	if resp.ServerProtocolVersion == "" {
+		return mcpdto.RegisterResponse{}, errors.New("remote launcher: register response missing server protocol version")
+	}
+	if resp.ServerProtocolVersion != mcpdto.ProtocolVersion {
+		return mcpdto.RegisterResponse{}, fmt.Errorf("remote launcher: incompatible server protocol version %q", resp.ServerProtocolVersion)
 	}
 	resp.InstanceID = shared.FirstTrimmed(resp.InstanceID, req.InstanceID)
 	if resp.Generation == 0 {
@@ -211,7 +262,7 @@ func remoteLauncherSessionToken() string {
 	return strings.TrimSpace(os.Getenv("GO_AGENT_MCP_SESSION_TOKEN"))
 }
 
-func (r *remoteLauncher) startHeartbeatLocked(client *jrpc2.Client, reg mcpdto.RegisterResponse) {
+func (r *remoteLauncher) prepareHeartbeatLocked(client *jrpc2.Client, reg mcpdto.RegisterResponse) func() {
 	r.stopHeartbeatLocked()
 	ctx, cancel := context.WithCancel(context.Background())
 	r.heartbeatCancel = cancel
@@ -220,9 +271,11 @@ func (r *remoteLauncher) startHeartbeatLocked(client *jrpc2.Client, reg mcpdto.R
 	if interval <= 0 {
 		interval = remoteLauncherInterval
 	}
-	safego.Go(ctx, nil, "mcp-orch.remoteLauncher.heartbeat", func(runCtx context.Context) {
-		remoteLauncherHeartbeat(runCtx, client, lease, interval)
-	})
+	return func() {
+		safego.Go(ctx, nil, "mcp-orch.remoteLauncher.heartbeat", func(runCtx context.Context) {
+			remoteLauncherHeartbeat(runCtx, client, lease, interval)
+		})
+	}
 }
 func (r *remoteLauncher) stopHeartbeatLocked() {
 	if r.heartbeatCancel != nil {
@@ -467,14 +520,13 @@ func (r *remoteLauncher) SupportsPersistedRuntimeRehydrate() bool {
 // Close 关闭启动器并释放后台资源。
 func (r *remoteLauncher) Close() error {
 	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.stopHeartbeatLocked()
-	if r.client == nil {
+	r.closed = true
+	client := r.detachClientLocked()
+	r.mu.Unlock()
+	if client == nil {
 		return nil
 	}
-	err := r.client.Close()
-	r.client = nil
-	return err
+	return client.Close()
 }
 
 type remoteLauncherEventSink interface {
@@ -623,12 +675,11 @@ func (c *turnController) acceptRemoteTurnTerminal(terminal turndto.TurnTerminalV
 	if c == nil {
 		return remoteTerminalAcceptance{}, errors.New("turn controller is required")
 	}
-	encoded, err := json.Marshal(terminal)
+	truth, err := remoteTerminalTruthFor(terminal)
 	if err != nil {
-		return remoteTerminalAcceptance{}, fmt.Errorf("marshal remote terminal fingerprint: %w", err)
+		return remoteTerminalAcceptance{}, err
 	}
 	ref := remoteTerminalTurnRef{threadID: terminal.ThreadID, turnID: terminal.TurnID}
-	truth := remoteTerminalTruth{eventID: terminal.EventID, fingerprint: sha256.Sum256(encoded)}
 	c.remoteTerminalMu.Lock()
 	defer c.remoteTerminalMu.Unlock()
 	if c.remoteTerminalSeal == nil {
@@ -654,6 +705,14 @@ func (c *turnController) acceptRemoteTurnTerminal(terminal turndto.TurnTerminalV
 		return remoteTerminalAcceptance{}, nil
 	}
 	return remoteTerminalAcceptance{}, fmt.Errorf("remote terminal truth conflict: first_event_id=%q conflicting_event_id=%q", first.truth.eventID, truth.eventID)
+}
+
+func remoteTerminalTruthFor(terminal turndto.TurnTerminalV2) (remoteTerminalTruth, error) {
+	encoded, err := json.Marshal(terminal)
+	if err != nil {
+		return remoteTerminalTruth{}, fmt.Errorf("marshal remote terminal fingerprint: %w", err)
+	}
+	return remoteTerminalTruth{eventID: terminal.EventID, fingerprint: sha256.Sum256(encoded)}, nil
 }
 
 func (c *turnController) remoteTerminalSealLimitLocked() int {

@@ -477,8 +477,8 @@ func TestOnInboundMessage_ToolCall_DispatchesStructuredFailureEnd(t *testing.T) 
 	if end.Success {
 		t.Fatalf("ToolCallEnd success = true, want false for structured tool failure")
 	}
-	if !strings.Contains(end.Error, "tool failed") {
-		t.Fatalf("ToolCallEnd error = %q, want structured failure text", end.Error)
+	if !strings.HasPrefix(end.Error, "Tool execution failed. Diagnostic ID: ") || strings.Contains(end.Error, "tool failed") {
+		t.Fatalf("ToolCallEnd error = %q, want public structured failure diagnostic", end.Error)
 	}
 }
 
@@ -519,8 +519,8 @@ func TestOnInboundMessage_ToolCall_ResultSuccessFalseDispatchesFailedLifecycle(t
 	if end.Success {
 		t.Fatalf("ToolCallEnd success = true, result = %s", end.Result)
 	}
-	if end.Error != "lsp peer unavailable" {
-		t.Fatalf("ToolCallEnd error = %q, want lsp peer unavailable", end.Error)
+	if !strings.HasPrefix(end.Error, "Tool execution failed. Diagnostic ID: ") || strings.Contains(end.Error, "lsp peer unavailable") {
+		t.Fatalf("ToolCallEnd error = %q, want public tool failure diagnostic", end.Error)
 	}
 }
 

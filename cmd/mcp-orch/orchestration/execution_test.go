@@ -207,8 +207,8 @@ func TestStartTurnExecutionReturnsSessionWaitErrorAfterSubmitWait(t *testing.T) 
 	if agent.activeTurnID != "" {
 		t.Fatalf("activeTurnID = %q, want empty after wait failure", agent.activeTurnID)
 	}
-	if agent.lastError != want.Error() {
-		t.Fatalf("lastError = %q, want %q", agent.lastError, want.Error())
+	if !strings.HasPrefix(agent.lastError, "Agent turn failed to start. Diagnostic ID: ") || strings.Contains(agent.lastError, want.Error()) {
+		t.Fatalf("lastError = %q, want public turn-start diagnostic", agent.lastError)
 	}
 }
 

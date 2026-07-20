@@ -8,38 +8,21 @@ function shouldRegisterProject(target, previousActiveProject, visibleProjects) {
   return target !== '.' && (previousActiveProject === '.' || !visibleProjects.includes(target));
 }
 
-function optimisticProjectList(target, visibleProjects, previousProjects) {
-  if (target === '.' || visibleProjects.includes(target)) return previousProjects;
-  return [...new Set([...previousProjects, target])];
-}
-
 function projectCwdForSelection(project, cwd) {
   return project && project !== '.' ? project : cwd;
 }
 
-function restoreActiveProject(runtime, previousActiveProject, previousProjects) {
-  runtime.set({
-    activeProject: previousActiveProject,
-    projects: previousProjects,
-    chatSurfaceLoadingCwd: '',
-  });
+async function rebindConfirmedProjectScope(runtime, normalizePath, projects, cwd, requestedCwd) {
+  const confirmedCwd = projectCwdForSelection(normalizePath(projects?.active), cwd);
+  if (confirmedCwd !== requestedCwd) await runtime.rebindBridgeEventScope(confirmedCwd);
+  return confirmedCwd;
 }
 
-async function registerProjectIfNeeded(runtime, deps, context, isCurrentIntent) {
+async function registerProjectIfNeeded(deps, context, isCurrentIntent) {
   if (!shouldRegisterProject(context.target, context.previousActiveProject, context.visibleProjects)) return true;
-  const addedProjects = await deps.addProject({ cwd: context.cwd, path: context.target });
+  await deps.addProject({ cwd: context.cwd, path: context.target });
   if (!isCurrentIntent()) return false;
-  runtime.applyProjects(addedProjects, context.cwd);
   return true;
-}
-
-function refreshSelectedProjectIfChanged(runtime, deps, context) {
-  const selectedProject = deps.normalizePath(runtime.get().activeProject);
-  const selectedCwd = projectCwdForSelection(selectedProject, context.cwd);
-  if (selectedCwd === context.optimisticCwd) return;
-  runtime.refreshChatSurfaceForCwdInBackground(selectedCwd, {
-    preserveActiveThreadId: context.preserveActiveThreadId,
-  });
 }
 
 async function addAndActivateSelectedProject(runtime, deps, scopeCwd, selected) {
@@ -55,9 +38,42 @@ function pickerSeedProject(runtime, normalizePath, scopeCwd) {
   return activeProject && activeProject !== '.' ? activeProject : scopeCwd;
 }
 
-function createSetActiveProjectPathAction(runtime, deps) {
+async function runActiveProjectSwitch(runtime, deps, context) {
+  const { cwd, isCurrentIntent, preserveActiveThreadId, target } = context;
   const { normalizePath, projectShortLabel, setActiveProject } = deps;
+  if (!isCurrentIntent()) return false;
+  const previousActiveProject = normalizePath(runtime.get().activeProject);
+  try {
+    void runtime.saveActiveComposerDraft();
+    const visibleProjects = projectVisiblePaths(runtime, normalizePath);
+    const registered = await registerProjectIfNeeded(
+      deps,
+      { cwd, target, previousActiveProject, visibleProjects },
+      isCurrentIntent,
+    );
+    if (!registered || !isCurrentIntent()) return false;
+    const requestedCwd = projectCwdForSelection(target, cwd);
+    await runtime.rebindBridgeEventScope(requestedCwd);
+    const projects = await setActiveProject({ cwd, path: target });
+    if (!isCurrentIntent()) return false;
+    const confirmedCwd = await rebindConfirmedProjectScope(runtime, normalizePath, projects, cwd, requestedCwd);
+    runtime.applyProjects(projects, cwd);
+    runtime.refreshChatSurfaceForCwdInBackground(confirmedCwd, { preserveActiveThreadId });
+    runtime.notifyAction(`已切换项目：${projectShortLabel(target)}`, 'success');
+    return true;
+  }
+  catch (error) {
+    if (!isCurrentIntent()) return false;
+    runtime.notifyAction('切换项目失败，请重试。', 'error');
+    runtime.addWarning('error', 'project.set_active.failed', { path: target, error: 'action failure; see Health diagnostic ID' });
+    throw error;
+  }
+}
+
+function createSetActiveProjectPathAction(runtime, deps) {
+  const { normalizePath } = deps;
   let switchGeneration = 0;
+  let switchTail = Promise.resolve();
   return async (path, options = {}) => {
     const target = normalizePath(path);
     if (!target) return false;
@@ -65,36 +81,15 @@ function createSetActiveProjectPathAction(runtime, deps) {
     const generation = ++switchGeneration;
     const isCurrentIntent = () => generation === switchGeneration;
     const preserveActiveThreadId = options.preserveActiveThreadId === true;
-    const previousActiveProject = normalizePath(runtime.get().activeProject);
-    const previousProjects = Array.isArray(runtime.get().projects) ? [...runtime.get().projects] : [];
-    try {
-      void runtime.saveActiveComposerDraft();
-      const visibleProjects = projectVisiblePaths(runtime, normalizePath);
-      const registered = await registerProjectIfNeeded(
-        runtime,
-        deps,
-        { cwd, target, previousActiveProject, visibleProjects },
-        isCurrentIntent,
-      );
-      if (!registered || !isCurrentIntent()) return false;
-      const optimisticProjects = optimisticProjectList(target, visibleProjects, previousProjects);
-      runtime.set({ projects: optimisticProjects, activeProject: target });
-      const optimisticCwd = projectCwdForSelection(target, cwd);
-      runtime.refreshChatSurfaceForCwdInBackground(optimisticCwd, { preserveActiveThreadId });
-      const projects = await setActiveProject({ cwd, path: target });
-      if (!isCurrentIntent()) return false;
-      runtime.applyProjects(projects, cwd);
-      refreshSelectedProjectIfChanged(runtime, { normalizePath }, { cwd, optimisticCwd, preserveActiveThreadId });
-      runtime.notifyAction(`已切换项目：${projectShortLabel(target)}`, 'success');
-      return true;
-    }
-    catch (error) {
-      if (!isCurrentIntent()) return false;
-      restoreActiveProject(runtime, previousActiveProject, previousProjects);
-      runtime.notifyAction('切换项目失败，请重试。', 'error');
-      runtime.addWarning('error', 'project.set_active.failed', { path: target, error: 'action failure; see Health diagnostic ID' });
-      throw error;
-    }
+    const runSwitch = () => runActiveProjectSwitch(runtime, deps, {
+      cwd,
+      isCurrentIntent,
+      preserveActiveThreadId,
+      target,
+    });
+    const pending = switchTail.then(runSwitch, runSwitch);
+    switchTail = pending.catch(() => undefined);
+    return pending;
   };
 }
 
@@ -111,6 +106,7 @@ function createAddProjectFromPickerAction(runtime, deps) {
         return false;
       }
       await addAndActivateSelectedProject(runtime, deps, scopeCwd, selected);
+      await runtime.rebindBridgeEventScope(selected);
       runtime.refreshChatSurfaceForCwdInBackground(selected);
       runtime.notifyAction(`已添加项目：${projectShortLabel(selected)}`, 'success');
       return true;

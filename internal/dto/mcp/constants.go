@@ -2,6 +2,8 @@
 // 供 agent-terminal、mcp-orch、mcp-lsp 等各端共享，不含业务逻辑。
 package mcp
 
+import "strings"
+
 const (
 	// ctl/* 控制协议方法名。
 	MethodRegister        = "ctl/register"
@@ -81,3 +83,8 @@ const (
 	HookDecisionReject   = "reject"
 	HookDecisionEscalate = "escalate"
 )
+
+// NormalizeProtocolVersion 将控制协议版本归一化为可比较的标识。
+func NormalizeProtocolVersion(version string) string {
+	return strings.TrimSpace(version)
+}

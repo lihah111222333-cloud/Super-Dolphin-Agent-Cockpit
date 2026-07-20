@@ -27,10 +27,10 @@ func TestLoadSchemaRejectsUnsupportedKeywordsRecursively(t *testing.T) {
 		mutate  func(map[string]any)
 	}{
 		{
-			name:    "pattern in property",
-			keyword: "pattern",
+			name:    "format in property",
+			keyword: "format",
 			mutate: func(schema map[string]any) {
-				property(schema, "name")["pattern"] = "^turn-"
+				property(schema, "name")["format"] = "uuid"
 			},
 		},
 		{
@@ -91,6 +91,27 @@ func TestLoadSchemaRejectsMalformedSupportedKeywords(t *testing.T) {
 				property(schema, "name")["minLength"] = float64(2)
 			},
 			want: "only supports the exact value 1",
+		},
+		{
+			name: "maxLength is not an integer",
+			mutate: func(schema map[string]any) {
+				property(schema, "name")["maxLength"] = 1.5
+			},
+			want: "maxLength must be a non-negative integer",
+		},
+		{
+			name: "maxItems is negative",
+			mutate: func(schema map[string]any) {
+				property(schema, "values")["maxItems"] = float64(-1)
+			},
+			want: "maxItems must be a non-negative integer",
+		},
+		{
+			name: "noncanonical pattern",
+			mutate: func(schema map[string]any) {
+				property(schema, "name")["pattern"] = "^turn-"
+			},
+			want: "only supports the canonical diagnostic ID pattern",
 		},
 		{
 			name: "schema additional properties",

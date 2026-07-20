@@ -9,7 +9,12 @@
     "code": { "type": "string", "minLength": 1 },
     "title": { "type": "string", "minLength": 1 },
     "message": { "type": "string", "minLength": 1 },
-    "diagnosticId": { "type": "string", "minLength": 1 },
+    "diagnosticId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^diag-[A-Za-z0-9_.-]{1,123}$"
+    },
     "retryable": { "type": "boolean" },
     "recoveryActions": {
       "type": "array",

@@ -13,6 +13,70 @@ import { publicErrorForRemoteTerminal } from '../../../../shared/ui/publicError.
 import { normalizeThreadId } from './threadIdentity.js';
 
 const MAX_TRACKED_TURN_TERMINALS = 64;
+const MAX_TRACKED_TURN_TERMINAL_SCOPES = 8;
+const RETIRED_TURN_FILTER_WORDS = 256;
+const RETIRED_TURN_FILTER_BITS = RETIRED_TURN_FILTER_WORDS * 32;
+
+function createTurnTerminalLedger(runtime) {
+  return {
+    assistantDeltaBuffers: runtime?.assistantDeltaBuffers || new Map(),
+    turnTerminalStates: runtime?.turnTerminalStates || new Map(),
+    observedTurnByThread: runtime?.observedTurnByThread || new Map(),
+    retiredTurnRefs: runtime?.retiredTurnRefs || new Map(),
+    retiredTurnFilter: runtime?.retiredTurnFilter || new Uint32Array(RETIRED_TURN_FILTER_WORDS),
+  };
+}
+
+function assertTurnTerminalLedgerCapacity(runtime, scope) {
+  if (!scope || scope === '.') throw new Error('frontend-app: active chat CWD is required for turn terminal ledger');
+  if (!runtime.assistantEventLedgersByScope.has(scope)
+    && runtime.assistantEventLedgersByScope.size >= MAX_TRACKED_TURN_TERMINAL_SCOPES) {
+    throw new Error('frontend-app: turn terminal scope ledger capacity exhausted');
+  }
+}
+
+function activateTurnTerminalLedger(runtime, scope) {
+  assertTurnTerminalLedgerCapacity(runtime, scope);
+  let ledger = runtime.assistantEventLedgersByScope.get(scope);
+  if (!ledger) {
+    ledger = createTurnTerminalLedger(runtime.assistantEventScope ? null : runtime);
+    runtime.assistantEventLedgersByScope.set(scope, ledger);
+  }
+  runtime.assistantEventScope = scope;
+  runtime.assistantDeltaBuffers = ledger.assistantDeltaBuffers;
+  runtime.turnTerminalStates = ledger.turnTerminalStates;
+  runtime.observedTurnByThread = ledger.observedTurnByThread;
+  runtime.retiredTurnRefs = ledger.retiredTurnRefs;
+  runtime.retiredTurnFilter = ledger.retiredTurnFilter;
+  return ledger;
+}
+
+function retiredTurnHash(key, seed) {
+  let hash = seed >>> 0;
+  for (let index = 0; index < key.length; index += 1) {
+    hash = Math.imul(hash ^ key.charCodeAt(index), 16777619) >>> 0;
+  }
+  return hash;
+}
+
+function retiredTurnFilterIndexes(key) {
+  const first = retiredTurnHash(key, 2166136261);
+  const second = retiredTurnHash(key, 2246822519) | 1;
+  return [0, 1, 2, 3].map((offset) => (first + Math.imul(offset, second)) >>> 0)
+    .map((hash) => hash % RETIRED_TURN_FILTER_BITS);
+}
+
+function rememberRetiredTurn(runtime, key) {
+  for (const index of retiredTurnFilterIndexes(key)) {
+    runtime.retiredTurnFilter[index >>> 5] |= (1 << (index & 31));
+  }
+}
+
+function retiredTurnRemembered(runtime, key) {
+  return retiredTurnFilterIndexes(key).every((index) => (
+    runtime.retiredTurnFilter[index >>> 5] & (1 << (index & 31))
+  ) !== 0);
+}
 
 function entryMatchesTurnRef(entry, turnRef) {
   return !turnRef || (entry.threadId === turnRef.threadId && entry.turnId === turnRef.turnId);
@@ -22,10 +86,6 @@ function drainAssistantDeltaEntries(runtime, deps, turnRef) {
   if (runtime.assistantDeltaBuffers.size === 0) return null;
   const entries = [];
   for (const [key, entry] of runtime.assistantDeltaBuffers.entries()) {
-    if (entry.scopeEpoch !== runtime.assistantEventScopeEpoch) {
-      runtime.assistantDeltaBuffers.delete(key);
-      continue;
-    }
     if (!entryMatchesTurnRef(entry, turnRef)) continue;
     entries.push(entry);
     runtime.assistantDeltaBuffers.delete(key);
@@ -135,7 +195,6 @@ function setAssistantDeltaBuffer(runtime, method, entry) {
     method: existing?.method || method,
     delta: appendAssistantDeltaText(existing?.delta, entry.delta),
     timestamp: existing?.timestamp || entry.timestamp,
-    scopeEpoch: runtime.assistantEventScopeEpoch,
   });
 }
 
@@ -173,33 +232,30 @@ function canonicalTurnEventRef(runtime, method, payload) {
 }
 
 function terminalCacheStats(runtime) {
+  let terminalStates = 0;
+  let observedTurns = 0;
+  let retiredTurns = 0;
+  for (const ledger of runtime.assistantEventLedgersByScope.values()) {
+    terminalStates += ledger.turnTerminalStates.size;
+    observedTurns += ledger.observedTurnByThread.size;
+    retiredTurns += ledger.retiredTurnRefs.size;
+  }
   return {
     capacity: MAX_TRACKED_TURN_TERMINALS,
     terminalStates: runtime.turnTerminalStates.size,
     observedTurns: runtime.observedTurnByThread.size,
     retiredTurns: runtime.retiredTurnRefs.size,
+    scopeCapacity: MAX_TRACKED_TURN_TERMINAL_SCOPES,
+    scopeCount: runtime.assistantEventLedgersByScope.size,
+    totalTerminalStates: terminalStates,
+    totalObservedTurns: observedTurns,
+    totalRetiredTurns: retiredTurns,
   };
 }
 
-function turnArchiveScope(runtime) {
-  const scope = runtime.currentChatCwd();
-  if (!scope || scope === '.') throw new Error('frontend-app: active chat CWD is required for turn terminal archive');
-  return scope;
-}
-
-function archivedRetiredTurnRefs(runtime) {
-  const scope = turnArchiveScope(runtime);
-  let refs = runtime.retiredTurnRefsByScope.get(scope);
-  if (!refs) {
-    refs = new Set();
-    runtime.retiredTurnRefsByScope.set(scope, refs);
-  }
-  return refs;
-}
-
 function archivedTurnRef(runtime, turnRef) {
-  const refs = runtime.retiredTurnRefsByScope.get(turnArchiveScope(runtime));
-  return refs?.has(runtimeTurnRefKey(turnRef.threadId, turnRef.turnId)) === true;
+  const key = runtimeTurnRefKey(turnRef.threadId, turnRef.turnId);
+  return runtime.retiredTurnRefs.has(key) || retiredTurnRemembered(runtime, key);
 }
 
 function rejectTerminalCacheCapacity(runtime, deps, event, method, turnRef) {
@@ -229,6 +285,7 @@ function retirePendingObservedTurnForActiveTurn(runtime, deps, observedTurnRef, 
 function retainRetiredTurnRef(runtime, deps, turnRef) {
   const key = runtimeTurnRefKey(turnRef.threadId, turnRef.turnId);
   if (runtime.retiredTurnRefs.has(key)) return true;
+  rememberRetiredTurn(runtime, key);
   if (runtime.retiredTurnRefs.size >= MAX_TRACKED_TURN_TERMINALS) {
     for (const [retiredKey, retiredTurnRef] of runtime.retiredTurnRefs) {
       if (turnRefIsActive(runtime, deps, retiredTurnRef)) continue;
@@ -238,7 +295,6 @@ function retainRetiredTurnRef(runtime, deps, turnRef) {
   }
   if (runtime.retiredTurnRefs.size >= MAX_TRACKED_TURN_TERMINALS) return false;
   runtime.retiredTurnRefs.set(key, turnRef);
-  archivedRetiredTurnRefs(runtime).add(key);
   return true;
 }
 
@@ -589,22 +645,13 @@ export function clearTurnRuntimeForThread(runtime, threadId) {
   for (const key of runtime.retiredTurnRefs.keys()) {
     if (key.startsWith(prefix)) runtime.retiredTurnRefs.delete(key);
   }
-  const archived = runtime.retiredTurnRefsByScope.get(turnArchiveScope(runtime));
-  if (archived) {
-    for (const key of archived) {
-      if (key.startsWith(prefix)) archived.delete(key);
-    }
-  }
   runtime.observedTurnByThread.delete(threadId);
 }
 
-function invalidateAssistantEventRuntime(runtime) {
+function activateAssistantEventScope(runtime, scope) {
   runtime.assistantEventScopeEpoch += 1;
-  runtime.assistantDeltaBuffers.clear();
-  runtime.turnTerminalStates.clear();
-  runtime.observedTurnByThread.clear();
-  runtime.retiredTurnRefs.clear();
   runtime.clearAssistantDeltaFlushTimer();
+  activateTurnTerminalLedger(runtime, scope);
 }
 
 function relatedThreadTimelineKeys(state, threadId, deps) {
@@ -636,7 +683,8 @@ export function attachAssistantEventRuntime(runtime, deps) {
     enqueueReasoningDelta: (method, payload) => enqueueReasoningDelta(runtime, method, payload, deps),
     enqueueCommandOutputDelta: (method, payload) => enqueueCommandOutputDelta(runtime, method, payload, deps),
     clearTurnRuntimeForThread: (threadId) => clearTurnRuntimeForThread(runtime, threadId),
-    invalidateAssistantEventRuntime: () => invalidateAssistantEventRuntime(runtime),
+    assertAssistantEventScopeCapacity: (scope) => assertTurnTerminalLedgerCapacity(runtime, scope),
+    activateAssistantEventScope: (scope) => activateAssistantEventScope(runtime, scope),
     getTurnTerminalCacheStats: () => terminalCacheStats(runtime),
     reconcileObservedTurnWithActiveTurn: (threadId) => reconcileObservedTurnWithActiveTurn(runtime, threadId, deps),
     finalizeActiveAssistantMessages: (turnRef) => finalizeActiveAssistantMessages(runtime, turnRef, deps),

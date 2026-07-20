@@ -155,8 +155,8 @@ func TestRegisterTranslatorsPublishesProviderErrorForMissingEventTimestamp(t *te
 	if got.AgentID != "agent-1" || got.ThreadID != "thread-1" || got.Code != "claude_missing_timestamp" {
 		t.Fatalf("AgentError = %#v, want agent/thread and missing timestamp code", got)
 	}
-	if !strings.Contains(got.Message, "missing timestamp") {
-		t.Fatalf("AgentError.Message = %q, want missing timestamp", got.Message)
+	if !strings.HasPrefix(got.Message, "Provider reported an error. Diagnostic ID: ") || strings.Contains(got.Message, "missing timestamp") {
+		t.Fatalf("AgentError.Message = %q, want public diagnostic", got.Message)
 	}
 	select {
 	case ev := <-runtimes:
@@ -197,8 +197,8 @@ func TestRegisterTranslatorsPublishesProviderErrorForInvalidToolTimestamp(t *tes
 	if got.Code != "claude_invalid_timestamp" {
 		t.Fatalf("AgentError.Code = %q, want claude_invalid_timestamp", got.Code)
 	}
-	if !strings.Contains(got.Message, "invalid timestamp") {
-		t.Fatalf("AgentError.Message = %q, want invalid timestamp", got.Message)
+	if !strings.HasPrefix(got.Message, "Provider reported an error. Diagnostic ID: ") || strings.Contains(got.Message, "invalid timestamp") {
+		t.Fatalf("AgentError.Message = %q, want public diagnostic", got.Message)
 	}
 	select {
 	case ev := <-toolEnds:
@@ -217,7 +217,7 @@ func TestToolCallEndReportsPersistFailure(t *testing.T) {
 		t.Fatal("translateToolEvent() ok=false, want ToolCallEnd")
 	}
 	end, ok := ev.(tooldto.ToolCallEnd)
-	if !ok || end.Result != "captured" || !end.PersistFailed || end.PersistError != "disk full" {
+	if !ok || end.Result != "captured" || !end.PersistFailed || !strings.HasPrefix(end.PersistError, "Tool execution failed. Diagnostic ID: ") || strings.Contains(end.PersistError, "disk full") {
 		t.Fatalf("ToolCallEnd = %+v, want persist failure fields", ev)
 	}
 }
@@ -240,8 +240,8 @@ func TestToolCallEndFailsWhenRuntimeCaptureFails(t *testing.T) {
 		t.Fatal("translateToolEvent() ok = false, want ToolCallEnd")
 	}
 	end, ok := ev.(tooldto.ToolCallEnd)
-	if !ok || end.Success || !strings.Contains(end.Error, "capture unavailable") {
-		t.Fatalf("ToolCallEnd = %+v, want explicit capture failure", ev)
+	if !ok || end.Success || !strings.HasPrefix(end.Error, "Tool execution failed. Diagnostic ID: ") || strings.Contains(end.Error, "capture unavailable") {
+		t.Fatalf("ToolCallEnd = %+v, want public capture failure", ev)
 	}
 }
 

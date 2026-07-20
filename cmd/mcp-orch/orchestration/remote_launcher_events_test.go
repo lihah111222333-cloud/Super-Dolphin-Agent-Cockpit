@@ -88,6 +88,168 @@ func TestRemoteLauncher_HeartbeatKeepsControlLeaseAlive(t *testing.T) {
 	}
 }
 
+func TestRemoteLauncher_RejectsInvalidRegisterProtocolBeforeHeartbeatOrThreadStart(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		version string
+		want    string
+	}{
+		{name: "missing", want: "missing server protocol version"},
+		{name: "mismatch", version: "ctl/v0", want: "incompatible server protocol version"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("GO_AGENT_CTL_SESSION_TOKEN", "session-secret")
+			var heartbeats atomic.Int32
+			var threadStarts atomic.Int32
+			addr, _ := startRPCServer(t, handler.Map{
+				mcpdto.MethodRegister: handler.New(func(_ context.Context, req mcpdto.RegisterRequest) (mcpdto.RegisterResponse, error) {
+					resp := launcherRegisterResponse(req, 5)
+					resp.ServerProtocolVersion = tc.version
+					return resp, nil
+				}),
+				mcpdto.MethodHeartbeat: handler.New(func(_ context.Context, _ mcpdto.HeartbeatRequest) (mcpdto.HeartbeatResponse, error) {
+					heartbeats.Add(1)
+					return mcpdto.HeartbeatResponse{OK: true}, nil
+				}),
+				launcherwire.MethodThreadStart: handler.New(func(_ context.Context, _ map[string]any) (map[string]any, error) {
+					threadStarts.Add(1)
+					return map[string]any{"thread": map[string]any{"id": "thread-1"}}, nil
+				}),
+			})
+			launcher := NewRemoteLauncher(addr).(*remoteLauncher)
+			t.Cleanup(func() { _ = launcher.Close() })
+
+			_, err := launcher.Launch(context.Background(), &agentRuntime{id: "agent-1"}, LaunchRequest{Command: []string{"ignored"}})
+			require.ErrorContains(t, err, tc.want)
+			require.Zero(t, heartbeats.Load(), "invalid registration must not start heartbeat")
+			require.Zero(t, threadStarts.Load(), "invalid registration must not start thread RPC")
+		})
+	}
+}
+
+func TestRemoteLauncher_NormalizesRegisterProtocolVersion(t *testing.T) {
+	t.Setenv("GO_AGENT_CTL_SESSION_TOKEN", "session-secret")
+	var threadStarts atomic.Int32
+	addr, _ := startRPCServer(t, handler.Map{
+		mcpdto.MethodRegister: handler.New(func(_ context.Context, req mcpdto.RegisterRequest) (mcpdto.RegisterResponse, error) {
+			resp := launcherRegisterResponse(req, 60000)
+			resp.ServerProtocolVersion = "  ctl/v1  "
+			return resp, nil
+		}),
+		launcherwire.MethodThreadStart: handler.New(func(_ context.Context, _ map[string]any) (map[string]any, error) {
+			threadStarts.Add(1)
+			return map[string]any{"thread": map[string]any{"id": "thread-1"}}, nil
+		}),
+	})
+	launcher := NewRemoteLauncher(addr).(*remoteLauncher)
+	t.Cleanup(func() { _ = launcher.Close() })
+
+	_, err := launcher.Launch(context.Background(), &agentRuntime{id: "agent-1"}, LaunchRequest{Command: []string{"ignored"}})
+	require.NoError(t, err)
+	require.Equal(t, int32(1), threadStarts.Load())
+}
+
+func TestRemoteLauncher_RegistrationNotificationDoesNotDeadlock(t *testing.T) {
+	t.Setenv("GO_AGENT_CTL_SESSION_TOKEN", "session-secret")
+	notified := make(chan struct{}, 1)
+	addr, _ := startPushRPCServer(t, handler.Map{
+		mcpdto.MethodRegister: handler.New(func(ctx context.Context, req mcpdto.RegisterRequest) (mcpdto.RegisterResponse, error) {
+			server := jrpc2.ServerFromContext(ctx)
+			require.NoError(t, server.Notify(context.Background(), eventsurface.MethodTurnTerminal, turndto.TurnTerminalV2{
+				SchemaVersion: 2,
+				EventID:       "00000000-1111-4222-8333-444444444444",
+				ThreadID:      "thread-1",
+				TurnID:        "turn-1",
+				Outcome:       "success",
+				OccurredAt:    "2026-07-21T00:00:00Z",
+			}))
+			return launcherRegisterResponse(req, 60000), nil
+		}),
+		launcherwire.MethodThreadStart: handler.New(func(_ context.Context, _ map[string]any) (map[string]any, error) {
+			return map[string]any{"thread": map[string]any{"id": "thread-1"}}, nil
+		}),
+	})
+	launcher := NewRemoteLauncher(addr).(*remoteLauncher)
+	launcher.bindRemoteEventSink(remoteLauncherEventSinkFunc(func(context.Context, turndto.TurnTerminalV2) {
+		notified <- struct{}{}
+	}))
+	t.Cleanup(func() { _ = launcher.Close() })
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	_, err := launcher.Launch(ctx, &agentRuntime{id: "agent-1"}, LaunchRequest{Command: []string{"ignored"}})
+	require.NoError(t, err)
+	select {
+	case <-notified:
+	case <-time.After(time.Second):
+		t.Fatal("registration notification was not delivered")
+	}
+}
+
+func TestRemoteLauncher_CloseDoesNotDeadlockWithInFlightNotification(t *testing.T) {
+	t.Setenv("GO_AGENT_CTL_SESSION_TOKEN", "session-secret")
+	entered := make(chan struct{}, 1)
+	release := make(chan struct{})
+	addr, _ := startPushRPCServer(t, handler.Map{
+		launcherwire.MethodThreadStart: handler.New(func(_ context.Context, _ map[string]any) (map[string]any, error) {
+			return map[string]any{"thread": map[string]any{"id": "thread-1"}}, nil
+		}),
+		launcherwire.MethodTurnStart: handler.New(func(ctx context.Context, _ map[string]any) (map[string]any, error) {
+			server := jrpc2.ServerFromContext(ctx)
+			require.NoError(t, server.Notify(context.Background(), eventsurface.MethodTurnTerminal, turndto.TurnTerminalV2{
+				SchemaVersion: 2,
+				EventID:       "11111111-2222-4333-8444-555555555555",
+				ThreadID:      "thread-1",
+				TurnID:        "turn-1",
+				Outcome:       "success",
+				OccurredAt:    "2026-07-21T00:00:00Z",
+			}))
+			return map[string]any{"turn_id": "turn-1"}, nil
+		}),
+	})
+	launcher := NewRemoteLauncher(addr).(*remoteLauncher)
+	launcher.bindRemoteEventSink(remoteLauncherEventSinkFunc(func(context.Context, turndto.TurnTerminalV2) {
+		entered <- struct{}{}
+		<-release
+	}))
+	t.Cleanup(func() { _ = launcher.Close() })
+	released := false
+	defer func() {
+		if !released {
+			close(release)
+		}
+	}()
+
+	_, err := launcher.Launch(context.Background(), &agentRuntime{id: "agent-1"}, LaunchRequest{Command: []string{"ignored"}})
+	require.NoError(t, err)
+	goroutines := newTestGoroutineGroup(t)
+	submitDone := make(chan error, 1)
+	goroutines.Go(func() {
+		_, err := launcher.SubmitTurn(context.Background(), &agentRuntime{remoteThreadID: "thread-1"}, TurnSubmission{})
+		submitDone <- err
+	})
+	select {
+	case <-entered:
+	case <-time.After(time.Second):
+		t.Fatal("notification did not enter event sink")
+	}
+	closeDone := make(chan error, 1)
+	goroutines.Go(func() { closeDone <- launcher.Close() })
+	close(release)
+	released = true
+	select {
+	case err := <-closeDone:
+		require.NoError(t, err)
+	case <-time.After(time.Second):
+		t.Fatal("Close deadlocked with in-flight notification")
+	}
+	select {
+	case <-submitDone:
+	case <-time.After(time.Second):
+		t.Fatal("SubmitTurn did not return after notification release")
+	}
+}
+
 func TestRemoteLauncher_TurnCompletedNotificationClearsRemoteBusyState(t *testing.T) {
 	t.Setenv("GO_AGENT_CTL_SESSION_TOKEN", "session-secret")
 	addr, _ := startPushRPCServer(t, handler.Map{
@@ -244,10 +406,9 @@ func TestRemoteTerminalSealCapacityKeepsTargetChangedProtection(t *testing.T) {
 	agent.state = agentdto.StateTurnRunning
 	agent.activeTurnID = "remote-turn-2"
 
-	eviction, err := svc.turns.acceptRemoteTurnTerminal(remoteTerminalFixture("thread-other", "remote-turn-other"))
-	require.NoError(t, err)
-	require.True(t, eviction.accepted)
-	svc.turns.releaseRemoteTurnTerminal(eviction)
+	svc.handleRemoteTurnTerminal(context.Background(), remoteTerminalFixture("thread-1", "remote-turn-2"))
+	agent.state = agentdto.StateTurnRunning
+	agent.activeTurnID = "remote-turn-3"
 
 	conflict := first
 	conflict.EventID = "event-conflicting-old-turn"
@@ -265,7 +426,7 @@ func TestRemoteTerminalSealCapacityKeepsTargetChangedProtection(t *testing.T) {
 	snapshot, err := svc.Snapshot(context.Background(), agent.id)
 	require.NoError(t, err)
 	require.Equal(t, string(agentdto.StateTurnRunning), snapshot.State)
-	require.Equal(t, "remote-turn-2", snapshot.ActiveTurnID)
+	require.Equal(t, "remote-turn-3", snapshot.ActiveTurnID)
 	stats := svc.turns.remoteTerminalSealStats()
 	require.LessOrEqual(t, stats.Entries, 1)
 	require.Equal(t, uint64(1), stats.CapacityEvictions)
@@ -285,10 +446,6 @@ func TestRemoteTerminalSealBoundedPressureAndLifecycleCleanup(t *testing.T) {
 	require.Zero(t, stats.InFlight)
 	require.Equal(t, uint64(120), stats.CapacityEvictions)
 
-	evicted, err := controller.acceptRemoteTurnTerminal(remoteTerminalFixture("thread-pressure", "turn-000"))
-	require.NoError(t, err)
-	require.True(t, evicted.accepted)
-	controller.releaseRemoteTurnTerminal(evicted)
 	duplicate, err := controller.acceptRemoteTurnTerminal(remoteTerminalFixture("thread-pressure", "turn-127"))
 	require.NoError(t, err)
 	require.False(t, duplicate.accepted)
@@ -349,6 +506,153 @@ func TestRemoteTerminalSealRejectsCapacityExhaustedByInFlightTerminals(t *testin
 	controller.releaseRemoteTurnTerminal(first)
 	controller.releaseRemoteTurnTerminal(second)
 }
+
+func TestRemoteTerminalIdleDoesNotAcceptUnownedTerminal(t *testing.T) {
+	svc := NewService(silentLogger(), event.NewDispatcher(), nil, nil, nil, nil)
+	agent := svc.newAgentLocked("agent-1")
+	agent.state = agentdto.StateIdle
+	agent.remoteThreadID = "thread-1"
+	svc.registry.agents[agent.id] = agent
+
+	svc.handleRemoteTurnTerminal(context.Background(), remoteTerminalFixture("thread-1", "old-turn"))
+
+	snapshot, err := svc.Snapshot(context.Background(), agent.id)
+	require.NoError(t, err)
+	require.Equal(t, string(agentdto.StateIdle), snapshot.State)
+	require.Empty(t, snapshot.ActiveTurnID)
+	require.Zero(t, svc.turns.remoteTerminalSealStats().Entries)
+}
+
+func TestSubmitRemoteTurnDriftInterruptsImmutableOrphanSnapshot(t *testing.T) {
+	launcher := &remoteTurnFenceLauncher{turnID: "remote-accepted"}
+	svc := NewService(silentLogger(), event.NewDispatcher(), launcher, nil, nil, nil)
+	agent := svc.newAgentLocked("agent-1")
+	agent.state = agentdto.StateIdle
+	agent.remoteThreadID = "thread-old"
+	agent.launchSeq = 7
+	svc.registry.agents[agent.id] = agent
+	launcher.onSubmit = func(snapshot *agentRuntime) {
+		svc.registry.withAgentLocked(agent.id, func(current *agentRuntime) error {
+			current.remoteThreadID = "thread-replacement"
+			current.launchSeq++
+			current.activeTurnID = "replacement-turn"
+			current.state = agentdto.StateTurnRunning
+			return nil
+		})
+		launcher.submitThread = snapshot.remoteThreadID
+		launcher.submitLaunchSeq = snapshot.launchSeq
+	}
+
+	err := svc.SubmitTurn(context.Background(), TurnSubmission{AgentID: agent.id, Inputs: []shareddto.InputItem{{Type: "text", Content: "work"}}})
+	require.ErrorContains(t, err, "remote turn submit drift")
+	require.Equal(t, "thread-old", launcher.submitThread)
+	require.Equal(t, uint64(7), launcher.submitLaunchSeq)
+	require.Equal(t, "thread-old", launcher.interruptThread)
+	require.Equal(t, "remote-accepted", launcher.interruptTurn)
+	snapshot, snapErr := svc.Snapshot(context.Background(), agent.id)
+	require.NoError(t, snapErr)
+	require.Equal(t, "thread-replacement", snapshot.ThreadID)
+	require.Equal(t, "replacement-turn", snapshot.ActiveTurnID)
+}
+
+func TestSubmitRemoteTurnEarlyTerminalCapacityFailsAndInterrupts(t *testing.T) {
+	launcher := &remoteTurnFenceLauncher{turnID: "remote-accepted"}
+	svc := NewService(silentLogger(), event.NewDispatcher(), launcher, nil, nil, nil)
+	svc.turns.pendingRemoteTerminalCapacity = 1
+	agent := svc.newAgentLocked("agent-1")
+	agent.state = agentdto.StateIdle
+	agent.remoteThreadID = "thread-1"
+	agent.launchSeq = 1
+	svc.registry.agents[agent.id] = agent
+	launcher.onSubmit = func(_ *agentRuntime) {
+		first := remoteTerminalFixture("thread-1", "remote-accepted")
+		_, buffered, routeErr := svc.turns.routeRemoteTurnTerminal(agent.id, first)
+		require.NoError(t, routeErr)
+		require.True(t, buffered)
+		_, buffered, routeErr = svc.turns.routeRemoteTurnTerminal(agent.id, first)
+		require.NoError(t, routeErr)
+		require.True(t, buffered)
+		second := remoteTerminalFixture("thread-1", "remote-other")
+		second.EventID = "event-second"
+		_, _, routeErr = svc.turns.routeRemoteTurnTerminal(agent.id, second)
+		require.EqualError(t, routeErr, "pending remote terminal reconciliation capacity exhausted")
+	}
+
+	err := svc.SubmitTurn(context.Background(), TurnSubmission{AgentID: agent.id, Inputs: []shareddto.InputItem{{Type: "text", Content: "work"}}})
+	require.ErrorContains(t, err, "pending remote terminal reconciliation capacity exhausted")
+	require.Equal(t, "thread-1", launcher.interruptThread)
+	require.Equal(t, "remote-accepted", launcher.interruptTurn)
+	snapshot, snapErr := svc.Snapshot(context.Background(), agent.id)
+	require.NoError(t, snapErr)
+	require.Equal(t, string(agentdto.StateIdle), snapshot.State)
+	require.Empty(t, snapshot.ActiveTurnID)
+	require.Zero(t, svc.turns.pendingRemoteTerminalCount)
+}
+
+func TestSubmitRemoteTurnBuffersMatchingProvisionalTerminalUntilRPCReturns(t *testing.T) {
+	launcher := &remoteTurnFenceLauncher{}
+	svc := NewService(silentLogger(), event.NewDispatcher(), launcher, nil, nil, nil)
+	agent := svc.newAgentLocked("agent-1")
+	agent.state = agentdto.StateIdle
+	agent.remoteThreadID = "thread-1"
+	agent.launchSeq = 1
+	svc.registry.agents[agent.id] = agent
+	launcher.onSubmit = func(snapshot *agentRuntime) {
+		launcher.turnID = snapshot.activeTurnID
+		terminal := remoteTerminalFixture(snapshot.remoteThreadID, snapshot.activeTurnID)
+		deliver, buffered, routeErr := svc.turns.routeRemoteTurnTerminal(agent.id, terminal)
+		require.NoError(t, routeErr)
+		require.False(t, deliver)
+		require.True(t, buffered)
+	}
+
+	err := svc.SubmitTurn(context.Background(), TurnSubmission{
+		AgentID: agent.id,
+		Inputs:  []shareddto.InputItem{{Type: "text", Content: "work"}},
+	})
+	require.NoError(t, err)
+	snapshot, snapErr := svc.Snapshot(context.Background(), agent.id)
+	require.NoError(t, snapErr)
+	require.Equal(t, string(agentdto.StateIdle), snapshot.State)
+	require.Empty(t, snapshot.ActiveTurnID)
+	require.Empty(t, launcher.interruptTurn)
+}
+
+type remoteTurnFenceLauncher struct {
+	turnID          string
+	submitThread    string
+	submitLaunchSeq uint64
+	interruptThread string
+	interruptTurn   string
+	onSubmit        func(*agentRuntime)
+}
+
+func (l *remoteTurnFenceLauncher) Launch(context.Context, *agentRuntime, LaunchRequest) (LaunchResult, error) {
+	return LaunchResult{}, nil
+}
+
+func (l *remoteTurnFenceLauncher) Fork(context.Context, *agentRuntime, *agentRuntime, LaunchRequest) (LaunchResult, error) {
+	return LaunchResult{}, nil
+}
+
+func (l *remoteTurnFenceLauncher) Stop(context.Context, *agentRuntime) error { return nil }
+
+func (l *remoteTurnFenceLauncher) Archive(context.Context, *agentRuntime) error { return nil }
+
+func (l *remoteTurnFenceLauncher) Interrupt(_ context.Context, agent *agentRuntime, _ string) error {
+	l.interruptThread = agent.remoteThreadID
+	l.interruptTurn = agent.activeTurnID
+	return nil
+}
+
+func (l *remoteTurnFenceLauncher) SubmitTurn(_ context.Context, agent *agentRuntime, _ TurnSubmission) (string, error) {
+	if l.onSubmit != nil {
+		l.onSubmit(agent)
+	}
+	return l.turnID, nil
+}
+
+func (l *remoteTurnFenceLauncher) IsRunning(context.Context, *agentRuntime) bool { return true }
 
 func remoteTerminalFixture(threadID, turnID string) turndto.TurnTerminalV2 {
 	return turndto.TurnTerminalV2{
@@ -415,4 +719,10 @@ func launcherRegisterResponse(req mcpdto.RegisterRequest, heartbeatIntervalMs in
 		ServerProtocolVersion: mcpdto.ProtocolVersion,
 		ConfigVersion:         1,
 	}
+}
+
+type remoteLauncherEventSinkFunc func(context.Context, turndto.TurnTerminalV2)
+
+func (f remoteLauncherEventSinkFunc) handleRemoteTurnTerminal(ctx context.Context, terminal turndto.TurnTerminalV2) {
+	f(ctx, terminal)
 }

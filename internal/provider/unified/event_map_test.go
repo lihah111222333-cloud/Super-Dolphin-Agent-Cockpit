@@ -79,11 +79,11 @@ func TestEventDispatcherDispatchesCommonErrorEvents(t *testing.T) {
 		gotWarn = ev.(agentdto.AgentWarning)
 	})
 
-	if gotErr.AgentID != "agent-1" || gotErr.Message != "boom" || !gotErr.Recoverable {
+	if gotErr.AgentID != "agent-1" || !strings.HasPrefix(gotErr.Message, "Provider reported an error. Diagnostic ID: ") || strings.Contains(gotErr.Message, "boom") || !gotErr.Recoverable {
 		raw, _ := json.Marshal(gotErr)
 		t.Fatalf("agent error = %s", raw)
 	}
-	if gotWarn.AgentID != "agent-1" || gotWarn.Message != "heads up" {
+	if gotWarn.AgentID != "agent-1" || !strings.HasPrefix(gotWarn.Message, "Provider reported a warning. Diagnostic ID: ") || strings.Contains(gotWarn.Message, "heads up") {
 		raw, _ := json.Marshal(gotWarn)
 		t.Fatalf("agent warning = %s", raw)
 	}
@@ -129,17 +129,25 @@ func TestCommonErrorPayloadUsesSafeProviderMetadata(t *testing.T) {
 		EventType: "error",
 		Data: map[string]any{
 			"agentId":  "agent-1",
-			"message":  "boom",
+			"message":  "token=sk-live-secret command=/Users/private stack=private.go:42",
 			"password": "hunter2",
 		},
 	}, func(ev any) {
 		gotErr = ev.(agentdto.AgentError)
 	})
 	text := string(gotErr.Payload)
-	for _, forbidden := range []string{"hunter2", "password"} {
+	for _, forbidden := range []string{"hunter2", "password", "sk-live-secret", "/Users/private", "private.go:42"} {
 		if strings.Contains(text, forbidden) {
 			t.Fatalf("AgentError payload leaked %q: %s", forbidden, text)
 		}
+	}
+	for _, forbidden := range []string{"sk-live-secret", "/Users/private", "private.go:42"} {
+		if strings.Contains(gotErr.Message, forbidden) {
+			t.Fatalf("AgentError message leaked %q: %s", forbidden, gotErr.Message)
+		}
+	}
+	if !strings.Contains(gotErr.Message, "Diagnostic ID: ") {
+		t.Fatalf("AgentError message missing diagnostic ID: %s", gotErr.Message)
 	}
 	for _, want := range []string{"payload_sha256", "payload_size_bytes"} {
 		if !strings.Contains(text, want) {

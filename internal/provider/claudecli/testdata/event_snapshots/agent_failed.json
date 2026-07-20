@@ -1,6 +1,6 @@
 {
   "agent_id": "agent-contract",
-  "error": "provider failed",
+  "error": "Agent failed. Diagnostic ID: e59e06f019d6e3fb4b1d904a8fa2e722e2b18db518d08519e371d5bd007a7b86",
   "thread_id": "thread-contract",
   "timestamp": "2026-04-13T00:00:00Z"
 }

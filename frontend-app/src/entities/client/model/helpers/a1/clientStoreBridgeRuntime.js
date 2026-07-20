@@ -35,6 +35,29 @@ function tokenUsageByThreadPatch(state, threadId, usage) {
   };
 }
 
+function lifecycleStatePatch(state, threadId, status) {
+  const threads = state.threads.map((thread) => (
+    threadMatchesIdentifier(thread, threadId) ? { ...thread, status } : thread
+  ));
+  const previousStatus = state.statuses[threadId]?.status;
+  const hasActiveTurn = Boolean(state.activeTurnByThread[threadId]);
+  const hasThreadStatusChange = state.threads.some((thread) => (
+    threadMatchesIdentifier(thread, threadId) && thread.status !== status
+  ));
+  if (!hasActiveTurn && previousStatus === status && !hasThreadStatusChange) return {};
+
+  const activeTurnByThread = { ...state.activeTurnByThread };
+  delete activeTurnByThread[threadId];
+  return {
+    threads,
+    statuses: {
+      ...state.statuses,
+      [threadId]: { ...state.statuses[threadId], status },
+    },
+    activeTurnByThread,
+  };
+}
+
 function bridgePatchFromPayload(method, payload, threadId) {
   return {
     ...bridgePatchData(method, payload, threadId, {
@@ -156,6 +179,44 @@ function attachBridgePatchRuntime(runtime) {
   Object.assign(runtime, { applyBridgePatch });
 }
 
+function attachBridgeLifecycleRuntime(runtime) {
+  const {
+    set,
+    get,
+    addWarning,
+    refreshActiveChatSidebarInBackground,
+    bridgeThreadIdForPayload,
+    notifyAction,
+  } = runtime;
+
+  const handleBridgeLifecycleEvent = (method, eventName, payload) => {
+    if (eventName !== 'thread/stopped' && eventName !== 'agent/stopped' && eventName !== 'agent/failed') {
+      return false;
+    }
+
+    const status = eventName === 'agent/failed' ? 'error' : 'stopped';
+    const threadId = bridgeThreadIdForPayload(payload);
+    const statePatch = threadId ? lifecycleStatePatch(get(), threadId, status) : optionalUiObject();
+    const stateChanged = Object.keys(statePatch).length > 0;
+    if (stateChanged) {
+      set(statePatch);
+      refreshActiveChatSidebarInBackground();
+    }
+    if (eventName === 'agent/failed' && stateChanged) {
+      addWarning('error', 'agent.lifecycle.failed', {
+        eventName: method,
+        threadId,
+        agent_id: normalizeString(payload.agentId || payload.agent_id),
+        reason: 'agent_failed',
+      });
+      notifyAction('代理运行失败', 'error', { category: 'agent_lifecycle' });
+    }
+    return true;
+  };
+
+  Object.assign(runtime, { handleBridgeLifecycleEvent });
+}
+
 function attachBridgeEventRuntime(runtime) {
   /*
    * bridge event handler 只负责分流：刷新标记、thread patch、delta、结束事件。
@@ -164,7 +225,6 @@ function attachBridgeEventRuntime(runtime) {
   const {
     set,
     addWarning,
-    refreshActiveChatSidebarInBackground,
     applyBridgePatch,
     enqueueAssistantDelta,
     enqueueReasoningDelta,
@@ -174,6 +234,7 @@ function attachBridgeEventRuntime(runtime) {
     applyTurnTerminal,
     bridgeThreadIdForPayload,
     notifyAction,
+    handleBridgeLifecycleEvent,
   } = runtime;
 
   const handleBridgeEvent = (evt) => {
@@ -194,7 +255,7 @@ function attachBridgeEventRuntime(runtime) {
       return;
     }
     if (eventName === 'ui/sidebar/changed') {
-      refreshActiveChatSidebarInBackground();
+      runtime.refreshActiveChatSidebarInBackground();
       return;
     }
     if (method === 'ui/thread/patch') {
@@ -224,11 +285,12 @@ function attachBridgeEventRuntime(runtime) {
       applyTurnTerminal(method, payload);
       return;
     }
-    if (eventName === 'agent/failed' || eventName === 'turn/completed' || eventName === 'turn/interrupted' || eventName === 'agent/stopped' || eventName === 'thread/stopped') {
+    if (eventName === 'turn/completed' || eventName === 'turn/interrupted') {
       addWarning('error', 'turn.terminal.contract_invalid', { eventName: method, reason: 'legacy_terminal_event' });
       notifyAction('响应契约错误', 'error', { category: 'turn_terminal_contract' });
       return;
     }
+    if (handleBridgeLifecycleEvent(method, eventName, payload)) return;
     if (eventName === 'thread/tokenusage/updated') {
       const threadId = bridgeThreadIdForPayload(payload);
       const usage = normalizeTokenUsage(payload);
@@ -264,6 +326,7 @@ function bridgeParseFailureWarningFields(payload = {}) {
 export {
   attachBridgeEventRuntime,
   attachBridgeIdentityRuntime,
+  attachBridgeLifecycleRuntime,
   attachBridgePatchRuntime,
   bridgePatchFromPayload,
   bridgeParseFailureWarningFields,

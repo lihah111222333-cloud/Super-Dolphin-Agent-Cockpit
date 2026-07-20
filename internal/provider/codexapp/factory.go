@@ -408,6 +408,7 @@ func (s *session) failRecovery(reason string, err error) error {
 		Data: map[string]any{
 			"agentId":     strings.TrimSpace(s.agentID),
 			"threadId":    s.ThreadID(),
+			"timestamp":   time.Now().UTC().Format(time.RFC3339Nano),
 			"error":       strings.TrimSpace(reason),
 			"recoverable": true,
 		},

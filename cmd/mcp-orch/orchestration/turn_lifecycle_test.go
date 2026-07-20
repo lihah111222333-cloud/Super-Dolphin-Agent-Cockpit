@@ -133,7 +133,7 @@ func TestHandleTurnCompletedEventSettlesProviderTurnIDMismatch(t *testing.T) {
 	agent.activeTurnID = localTurnID
 	agent.reportRequesters = []string{"parent-1"}
 	svc.registry.agents[agent.id] = agent
-	if err := svc.BindActiveTurnID(context.Background(), agent.id, providerTurnID); err != nil {
+	if err := svc.BindActiveTurnID(context.Background(), agent.id, localTurnID, providerTurnID); err != nil {
 		t.Fatalf("BindActiveTurnID() error = %v", err)
 	}
 	if agent.activeTurnID != localTurnID {
@@ -176,7 +176,7 @@ func TestHandleTurnCompletedEventIgnoresStaleProviderTurnAfterReuse(t *testing.T
 	agent.threadID = "thread-1"
 	agent.activeTurnID = "local-turn-1"
 	svc.registry.agents[agent.id] = agent
-	if err := svc.BindActiveTurnID(context.Background(), agent.id, "provider-turn-1"); err != nil {
+	if err := svc.BindActiveTurnID(context.Background(), agent.id, "local-turn-1", "provider-turn-1"); err != nil {
 		t.Fatalf("BindActiveTurnID() error = %v", err)
 	}
 
@@ -201,6 +201,126 @@ func TestHandleTurnCompletedEventIgnoresStaleProviderTurnAfterReuse(t *testing.T
 	}
 	if agent.activeTurnID != currentTurnID {
 		t.Fatalf("activeTurnID = %q, want current turn %q after stale completion", agent.activeTurnID, currentTurnID)
+	}
+}
+
+func TestRegisterTurnLifecycleDoesNotBindUnfencedTurnStarted(t *testing.T) {
+	t.Parallel()
+
+	dispatcher := event.NewDispatcher()
+	t.Cleanup(func() { _ = dispatcher.Close() })
+	svc := NewService(silentLogger(), dispatcher, nil, nil, nil, nil)
+	startTurnLifecycle(t, dispatcher, svc)
+	agent := svc.newAgentLocked("agent-1")
+	agent.state = agentdto.StateTurnStarting
+	agent.threadID = "thread-1"
+	agent.activeTurnID = "local-turn-b"
+	svc.registry.agents[agent.id] = agent
+
+	before := readAgentSnapshot(t, svc, agent.id)
+	event.Publish(dispatcher, startedEvent("agent-1", "thread-1", "provider-turn-a"))
+	assertAgentUpdatedAtStays(t, svc, agent.id, before.updatedAt)
+	snapshot := readAgentSnapshot(t, svc, agent.id)
+	if snapshot.activeTurnID != "local-turn-b" {
+		t.Fatalf("activeTurnID = %q, want local-turn-b", snapshot.activeTurnID)
+	}
+	var alias providerTurnAlias
+	if err := svc.registry.withAgentReadLocked(agent.id, func(agent *agentRuntime) error {
+		alias = agent.providerTurnAlias
+		return nil
+	}); err != nil {
+		t.Fatalf("read provider turn alias: %v", err)
+	}
+	if alias != (providerTurnAlias{}) {
+		t.Fatalf("providerTurnAlias = %#v, want zero after unfenced started", alias)
+	}
+}
+
+func TestTurnCompletedBeforeProviderStartResponseReplaysSameLocalTurn(t *testing.T) {
+	t.Parallel()
+
+	svc := NewService(silentLogger(), event.NewDispatcher(), nil, nil, nil, nil)
+	agent := svc.newAgentLocked("agent-1")
+	agent.state = agentdto.StateTurnStarting
+	agent.threadID = "thread-1"
+	agent.activeTurnID = "local-turn-a"
+	svc.registry.agents[agent.id] = agent
+	work := turnWork{agentID: agent.id, threadID: agent.threadID, turnID: agent.activeTurnID}
+
+	svc.turns.beginProviderTurnStart(work)
+	handleTurnCompletedEvent(svc, silentLogger(), completedEvent("agent-1", "thread-1", "provider-turn-a", true, ""))
+	if agent.pendingProviderTerminal == nil {
+		t.Fatal("pendingProviderTerminal = nil, want terminal buffered until provider start response")
+	}
+
+	svc.turns.finishTurnStartSuccess(context.Background(), work, "provider-turn-a")
+	if agent.state != agentdto.StateIdle {
+		t.Fatalf("agent.state = %q, want %q", agent.state, agentdto.StateIdle)
+	}
+	if agent.activeTurnID != "" {
+		t.Fatalf("activeTurnID = %q, want empty", agent.activeTurnID)
+	}
+	if agent.pendingProviderTerminal != nil || agent.pendingProviderTurnID != "" {
+		t.Fatalf("pending provider state = id:%q terminal:%#v, want cleared", agent.pendingProviderTurnID, agent.pendingProviderTerminal)
+	}
+}
+
+func TestTurnCompletedBeforeProviderStartResponsePreservesFirstTerminal(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name   string
+		second func(turndto.TurnCompleted) turndto.TurnCompleted
+	}{
+		{
+			name: "duplicate",
+			second: func(first turndto.TurnCompleted) turndto.TurnCompleted {
+				return first
+			},
+		},
+		{
+			name: "conflict",
+			second: func(first turndto.TurnCompleted) turndto.TurnCompleted {
+				conflicting := first
+				conflicting.Success = true
+				conflicting.Error = ""
+				return conflicting
+			},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			svc := NewService(silentLogger(), event.NewDispatcher(), nil, nil, nil, nil)
+			agent := svc.newAgentLocked("agent-1")
+			agent.state = agentdto.StateTurnStarting
+			agent.threadID = "thread-1"
+			agent.activeTurnID = "local-turn-a"
+			svc.registry.agents[agent.id] = agent
+			work := turnWork{agentID: agent.id, threadID: agent.threadID, turnID: agent.activeTurnID}
+			first := completedEvent("agent-1", "thread-1", "provider-turn-a", false, "first terminal")
+
+			svc.turns.beginProviderTurnStart(work)
+			handleTurnCompletedEvent(svc, silentLogger(), first)
+			handleTurnCompletedEvent(svc, silentLogger(), tc.second(first))
+			if agent.pendingProviderTerminal == nil {
+				t.Fatal("pendingProviderTerminal = nil, want first terminal retained")
+			}
+			if agent.pendingProviderTerminal.Success || agent.pendingProviderTerminal.Error != "first terminal" {
+				t.Fatalf("pendingProviderTerminal = %#v, want first terminal", agent.pendingProviderTerminal)
+			}
+
+			svc.turns.finishTurnStartSuccess(context.Background(), work, "provider-turn-a")
+			snapshot := readAgentSnapshot(t, svc, agent.id)
+			if snapshot.state != string(agentdto.StateIdle) {
+				t.Fatalf("agent.state = %q, want %q", snapshot.state, agentdto.StateIdle)
+			}
+			if snapshot.activeTurnID != "" {
+				t.Fatalf("activeTurnID = %q, want empty", snapshot.activeTurnID)
+			}
+			if snapshot.lastError != "first terminal" {
+				t.Fatalf("lastError = %q, want first terminal", snapshot.lastError)
+			}
+		})
 	}
 }
 
@@ -609,6 +729,18 @@ func TestLogTurnCompletionFailureKeepsUnexpectedErrorsWarn(t *testing.T) {
 
 func completedEvent(agentID, threadID, turnID string, success bool, errMsg string) turndto.TurnCompleted {
 	return completedEventAt(agentID, threadID, turnID, success, errMsg, time.Now())
+}
+
+func startedEvent(agentID, threadID, turnID string) turndto.TurnStarted {
+	return turndto.TurnStarted{
+		TurnHeader: shared.TurnHeader{
+			AgentHeader: shared.AgentHeader{
+				ThreadHeader: shared.ThreadHeader{ThreadID: threadID},
+				AgentID:      agentID,
+			},
+			TurnIDHeader: shared.TurnIDHeader{TurnID: turnID},
+		},
+	}
 }
 
 func completedEventAt(agentID, threadID, turnID string, success bool, errMsg string, timestamp time.Time) turndto.TurnCompleted {

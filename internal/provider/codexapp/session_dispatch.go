@@ -340,7 +340,13 @@ func (s *session) completeSyntheticTurn(turnID, reason, result string, acceptedI
 	if !success {
 		status = "failed"
 	}
-	payload := map[string]any{"turnId": turnID, "success": success, "status": status, "reason": strings.TrimSpace(reason)}
+	payload := map[string]any{
+		"turnId":    turnID,
+		"timestamp": time.Now().UTC().Format(time.RFC3339Nano),
+		"success":   success,
+		"status":    status,
+		"reason":    strings.TrimSpace(reason),
+	}
 	if len(acceptedItemIDs) > 0 {
 		payload["accepted_partial_item_ids"] = slices.Clone(acceptedItemIDs)
 	}
@@ -403,9 +409,10 @@ func (s *session) recordDirectToolFailure(eventType string, payload map[string]a
 		return
 	}
 	header := buildToolCallHeader(payload)
-	success, errorText := toolEventEndOutcome(eventType, payload)
+	success, _ := toolEventEndOutcome(eventType, payload)
 	if !success {
-		s.recordTurnToolFailure(header, errorText)
+		raw := dto.RawProviderEvent{EventType: eventType, Data: payload}
+		s.recordTurnToolFailure(header, raw.PublicMessage("Tool execution failed."))
 	}
 }
 

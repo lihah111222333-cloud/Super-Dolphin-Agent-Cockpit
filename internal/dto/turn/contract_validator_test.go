@@ -1,6 +1,9 @@
 package turn
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestValidateTurnRefV1RejectsMissingAndUnknownFields(t *testing.T) {
 	t.Parallel()
@@ -36,6 +39,19 @@ func TestValidatePublicErrorV1RejectsUnsafeAndUnimplementedRecoveryFields(t *tes
 			}
 		})
 	}
+	for _, diagnosticID := range []string{
+		"terminal:thread-1:turn-1:2026-07-21T00:00:00Z",
+		"diag-invalid/slash",
+		"diag-" + strings.Repeat("a", 124),
+	} {
+		t.Run(diagnosticID, func(t *testing.T) {
+			value := publicErrorFixture()
+			value["diagnosticId"] = diagnosticID
+			if err := ValidatePublicErrorV1(value); err == nil {
+				t.Fatalf("PublicErrorV1 accepted invalid diagnostic ID %q", diagnosticID)
+			}
+		})
+	}
 }
 
 func TestValidateTurnTerminalV2OutcomeRules(t *testing.T) {
@@ -57,6 +73,36 @@ func TestValidateTurnTerminalV2OutcomeRules(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			err := ValidateTurnTerminalV2(test.value)
+			if (err != nil) != test.wantErr {
+				t.Fatalf("ValidateTurnTerminalV2() error = %v, wantErr %v", err, test.wantErr)
+			}
+		})
+	}
+}
+
+func TestValidateTurnTerminalV2PartialItemIDBoundsAndUniqueness(t *testing.T) {
+	t.Parallel()
+	maxItemID := strings.Repeat("x", 256)
+	maxItems := make([]any, 128)
+	for index := range maxItems {
+		maxItems[index] = string(rune(index + 1))
+	}
+	tooManyItems := append(append([]any(nil), maxItems...), string(rune(129)))
+	for _, test := range []struct {
+		name    string
+		items   []any
+		wantErr bool
+	}{
+		{name: "boundary", items: []any{maxItemID}, wantErr: false},
+		{name: "maximum item count", items: maxItems, wantErr: false},
+		{name: "item too long", items: []any{maxItemID + "x"}, wantErr: true},
+		{name: "too many items", items: tooManyItems, wantErr: true},
+		{name: "duplicate item", items: []any{"item-1", "item-1"}, wantErr: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			value := terminalFixture("success")
+			value["partialItemIds"] = test.items
+			err := ValidateTurnTerminalV2(value)
 			if (err != nil) != test.wantErr {
 				t.Fatalf("ValidateTurnTerminalV2() error = %v, wantErr %v", err, test.wantErr)
 			}

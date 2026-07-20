@@ -32,7 +32,7 @@ import {
 import { hasOwn } from './clientStoreThreadModel.js';
 import { buildSnapshotState, mergeRuntimeResultEntries, runtimeResultEntryFromRPCDone } from './clientStoreSnapshotModel.js';
 import { actionNotice, actionNoticeRuntimeFields } from './clientStoreSendModel.js';
-import { attachBridgeEventRuntime, attachBridgeIdentityRuntime, attachBridgePatchRuntime } from './clientStoreBridgeRuntime.js';
+import { attachBridgeEventRuntime, attachBridgeIdentityRuntime, attachBridgeLifecycleRuntime, attachBridgePatchRuntime } from './clientStoreBridgeRuntime.js';
 import { attachSidebarRuntime } from './clientStoreSidebarRuntime.js';
 
 function clearedChatSurfaceState(state, activeThreadId, cwd) {
@@ -80,6 +80,8 @@ function createClientStoreRuntime(set, get, { getPreference }) {
     eventInitializationGeneration: 0,
     eventInitializationState: 'idle',
     pendingRuntimeSubscriptions: new Set(),
+    bridgeScopeRebindGeneration: 0,
+    pendingBridgeScopeRebind: null,
     sequencesByThread: new Map(),
     patchGenerationsByThread: new Map(),
     composerDrafts: new Map(),
@@ -91,7 +93,10 @@ function createClientStoreRuntime(set, get, { getPreference }) {
     turnTerminalStates: new Map(),
     observedTurnByThread: new Map(),
     retiredTurnRefs: new Map(),
-    retiredTurnRefsByScope: new Map(),
+    retiredTurnFilter: new Uint32Array(256),
+    assistantEventLedgersByScope: new Map(),
+    assistantEventScope: '',
+    bridgeEventScopeGeneration: 0,
     assistantDeltaFlushTimer: null,
     assistantEventScopeEpoch: 0,
     sidebarRefreshSeq: 0,
@@ -116,6 +121,7 @@ function createClientStoreRuntime(set, get, { getPreference }) {
   });
   attachNotificationRuntime(runtime);
   attachBridgeIdentityRuntime(runtime);
+  attachBridgeLifecycleRuntime(runtime);
   attachAssistantEventRuntime(runtime, {
     ASSISTANT_DELTA_FLUSH_MS,
     activeTurnIdForThread,
@@ -263,7 +269,9 @@ function attachScopeRuntime(runtime) {
   const clearChatSurfaceForCwdSwitch = (cwdValue = '', options = {}) => {
     const cwd = normalizePath(cwdValue);
     const preserveActiveThreadId = options.preserveActiveThreadId === true;
-    runtime.invalidateAssistantEventRuntime();
+    if (runtime.assistantEventScope !== cwd) {
+      throw new Error('frontend-app: bridge scope must be rebound before clearing the chat surface');
+    }
     sequencesByThread.clear();
     patchGenerationsByThread.clear();
     threadMessageGenerations.clear();

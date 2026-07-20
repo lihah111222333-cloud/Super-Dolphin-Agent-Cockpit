@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"os"
 	"os/exec"
@@ -31,6 +32,70 @@ import (
 type localCodexHelper struct {
 	logPath      string
 	childPIDPath string
+}
+
+func TestTransportConnectOnceCapsInboundFrame(t *testing.T) {
+	t.Run("boundary", func(t *testing.T) { assertInboundFrameLimit(t, transportInboundFrameMaxBytes, false) })
+	t.Run("oversized", func(t *testing.T) { assertInboundFrameLimit(t, transportInboundFrameMaxBytes+1, true) })
+}
+
+func assertInboundFrameLimit(t *testing.T, size int, wantErr bool) {
+	t.Helper()
+	server, serverWrite := newInboundFrameServer(size)
+	defer server.Close()
+
+	transport := &transport{serverURL: "ws" + strings.TrimPrefix(server.URL, "http")}
+	if err := transport.connectOnce(context.Background()); err != nil {
+		t.Fatalf("connectOnce() error = %v", err)
+	}
+	defer transport.closeSocket()
+	ws := transport.currentWS()
+	if ws == nil {
+		t.Fatal("connectOnce() did not retain websocket")
+	}
+	if err := ws.SetReadDeadline(time.Now().Add(time.Second)); err != nil {
+		t.Fatalf("SetReadDeadline() error = %v", err)
+	}
+	_, payload, err := ws.ReadMessage()
+	if (err != nil) != wantErr {
+		t.Fatalf("ReadMessage() error = %v, wantErr %v", err, wantErr)
+	}
+	if !wantErr {
+		assertInboundPayloadLength(t, payload, size)
+	}
+	if wantErr {
+		transport.closeSocket()
+	}
+	assertInboundFrameServerWrite(t, <-serverWrite, wantErr)
+}
+
+func newInboundFrameServer(size int) (*httptest.Server, <-chan error) {
+	serverWrite := make(chan error, 1)
+	upgrader := websocket.Upgrader{ReadBufferSize: 1024, WriteBufferSize: 1024}
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		conn, err := upgrader.Upgrade(writer, request, nil)
+		if err != nil {
+			serverWrite <- err
+			return
+		}
+		defer conn.Close()
+		serverWrite <- conn.WriteMessage(websocket.TextMessage, []byte(strings.Repeat("x", size)))
+	}))
+	return server, serverWrite
+}
+
+func assertInboundPayloadLength(t *testing.T, payload []byte, size int) {
+	t.Helper()
+	if len(payload) != size {
+		t.Fatalf("ReadMessage() payload length = %d, want %d", len(payload), size)
+	}
+}
+
+func assertInboundFrameServerWrite(t *testing.T, err error, allowFailure bool) {
+	t.Helper()
+	if err != nil && !allowFailure {
+		t.Fatalf("server WriteMessage() error = %v", err)
+	}
 }
 
 func TestTransportSpawnLocalWaitsForReady(t *testing.T) {

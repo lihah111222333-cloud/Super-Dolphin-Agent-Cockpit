@@ -166,9 +166,10 @@ func (c *lifecycleController) recordProcessExitError(eventBus *event.Dispatcher,
 	if err == nil {
 		return
 	}
-	agent.lastError = err.Error()
+	publicMessage := publicOrchestrationError("Agent process exited unexpectedly.", err)
+	agent.lastError = publicMessage
 	if !agent.stopRequested {
-		emitEvent(eventBus, eventTypeAgentFailed, eventAgentID(agent), agent, err.Error(), true)
+		emitEvent(eventBus, eventTypeAgentFailed, eventAgentID(agent), agent, publicMessage, true)
 	}
 }
 

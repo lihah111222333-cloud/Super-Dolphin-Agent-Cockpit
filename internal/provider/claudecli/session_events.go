@@ -160,7 +160,7 @@ func (s *session) applyRaw(tr *transport, raw dto.RawProviderEvent) {
 		s.dispatch(raw)
 	}
 	if shouldFinishTurnRaw(raw) {
-		s.finishTurnFromRaw(raw)
+		s.finishTurnFromRaw(tr, raw)
 	}
 }
 
@@ -242,9 +242,17 @@ func (s *session) isCurrentTransport(tr *transport) bool {
 	return s.transport == tr
 }
 
-// finishTurnFromRaw 只用 canonical outcome 收口 active handle，不重新读取 raw success/status。
-func (s *session) finishTurnFromRaw(raw dto.RawProviderEvent) {
+// finishTurnFromRaw 只用 canonical outcome 收口对应 transport 的 active handle，不重新读取 raw success/status。
+// Claude result 没有稳定的 per-turn 身份，terminal 后必须 fence transport，避免迟到输出归属下一 turn。
+func (s *session) finishTurnFromRaw(tr *transport, raw dto.RawProviderEvent) {
 	s.mu.Lock()
+	if s.transport != tr || currentTurnID(s.activeTurn) != dataString(raw.Data, "turn_id") {
+		s.mu.Unlock()
+		return
+	}
+	if tr != nil {
+		s.fencedTransport = tr
+	}
 	handle := s.takeActiveTurnLocked()
 	s.mu.Unlock()
 	if handle == nil {

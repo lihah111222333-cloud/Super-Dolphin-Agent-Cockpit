@@ -19,6 +19,7 @@ const requiredTerminalChainNames = [
   'terminal-timeline-render',
   'terminal-public-error-clipboard-sink',
   'terminal-public-error-diagnostic-projection',
+  'terminal-public-error-diagnostic-schema-sanitizer',
 ];
 
 export function validateTurnContractFieldGuard({ repoRoot = defaultRepoRoot, sourceOverrides = new Map() } = {}) {

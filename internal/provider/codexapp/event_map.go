@@ -72,6 +72,11 @@ func buildToolApprovalHeader(payload map[string]any) shareddto.ToolApprovalHeade
 // translateCodexEvent 把 Codex app-server raw event 分派到 agent、turn、tool 三类统一事件。
 // 未识别事件只在排除 token usage、重试进度和已知噪声后告警，避免日志被高频流事件淹没。
 func translateCodexEvent(raw dto.RawProviderEvent, publish func(ev any)) {
+	if rawErr, agentErr, ok := codexTimestampProviderError(raw); ok {
+		publish(dto.BusRawProviderEvent{Event: rawErr})
+		publish(agentErr)
+		return
+	}
 	eventType := strings.TrimSpace(raw.EventType)
 	payload, err := decodeRawEventPayload(raw.Data)
 	if err != nil {
@@ -101,6 +106,74 @@ func translateCodexEvent(raw dto.RawProviderEvent, publish func(ev any)) {
 	if shouldWarnUnknownRawEvent(eventType, payload) {
 		pkglogger.Get().Warn("codexapp: unknown raw event", "raw_type", eventType, "payload_metadata", raw.SanitizedCopy().Data)
 	}
+}
+
+const (
+	codexMissingTimestampCode = "codex_missing_timestamp"
+	codexInvalidTimestampCode = "codex_invalid_timestamp"
+)
+
+var codexLifecycleEventsRequiringTimestamp = map[string]struct{}{
+	"thread/started":        {},
+	"session.configured":    {},
+	"agent:launched":        {},
+	"thread/status/changed": {},
+	"shutdown.complete":     {},
+	"shutdown_complete":     {},
+	"recovery.attempt":      {},
+	"connection.dead":       {},
+	"turn/started":          {},
+	"turn.started":          {},
+}
+
+// codexTimestampProviderError 对会生成生命周期或终态记录的坏时间显式返回 provider error。
+func codexTimestampProviderError(raw dto.RawProviderEvent) (dto.RawProviderEvent, agentdto.AgentError, bool) {
+	if !codexEventRequiresTimestamp(raw.EventType) {
+		return dto.RawProviderEvent{}, agentdto.AgentError{}, false
+	}
+	payload, err := decodeRawEventPayload(raw.Data)
+	if err != nil {
+		return dto.RawProviderEvent{}, agentdto.AgentError{}, false
+	}
+	rawTimestamp := stringValue(payload, "timestamp", "ts", "createdAt", "created_at")
+	if rawTimestamp != "" && !shared.ParseRFC3339Loose(rawTimestamp).IsZero() {
+		return dto.RawProviderEvent{}, agentdto.AgentError{}, false
+	}
+	code := codexMissingTimestampCode
+	message := "codexapp: provider event missing timestamp"
+	if rawTimestamp != "" {
+		code = codexInvalidTimestampCode
+		message = "codexapp: provider event invalid timestamp"
+	}
+	errorPayload := map[string]any{
+		"agentId":           payloadAgentID(payload),
+		"threadId":          payloadThreadID(payload),
+		"sessionId":         stringValue(payload, "sessionId", "session_id"),
+		"turnId":            stringValue(payload, "turnId", "turn_id"),
+		"callId":            stringValue(payload, "callId", "call_id"),
+		"toolName":          stringValue(payload, "toolName", "tool_name"),
+		"timestamp":         time.Now().UTC().Format(time.RFC3339Nano),
+		"code":              code,
+		"message":           message + ": " + strings.TrimSpace(raw.EventType),
+		"source_event_type": strings.TrimSpace(raw.EventType),
+		"raw_timestamp":     strings.TrimSpace(rawTimestamp),
+	}
+	rawErr := dto.RawProviderEvent{EventType: "error", Data: errorPayload}
+	return rawErr, agentdto.AgentError{
+		AgentSessionHeader: buildAgentSessionHeader(errorPayload),
+		RawType:            rawErr.EventType,
+		Message:            rawErr.PublicMessage("Provider reported an error."),
+		Code:               code,
+		Payload:            rawErr.SafePayload(),
+	}, true
+}
+
+func codexEventRequiresTimestamp(eventType string) bool {
+	if isTurnTerminalEvent(eventType) {
+		return true
+	}
+	_, ok := codexLifecycleEventsRequiringTimestamp[strings.TrimSpace(eventType)]
+	return ok
 }
 
 func publishCodexTranslatedEvent(eventType string, ev any, publish func(ev any)) {
@@ -550,34 +623,7 @@ func translateToolEvent(eventType string, payload map[string]any) (any, bool) {
 			ArgumentsPreview: providershared.SafeToolArgumentsPreviewString(jsonPreview(payload, "arguments", "args")),
 		}, true
 	case "item/completed", "tool.call.end":
-		if !looksLikeToolCall(payload) {
-			return nil, false
-		}
-		header := buildToolCallHeader(payload)
-		success, errorText := toolEventEndOutcome(eventType, payload)
-		result, captureErr := providershared.CaptureToolResult(providershared.ToolResultMeta{
-			ThreadID:  header.ThreadID,
-			TurnID:    header.TurnID,
-			CallID:    header.CallID,
-			ToolName:  header.ToolName,
-			Timestamp: eventTime(payload),
-		}, jsonPreview(payload, "result", "content"))
-		if captureErr != nil {
-			success = false
-			errorText = appendProviderRuntimeError(errorText, captureErr)
-		}
-		return tooldto.ToolCallEnd{
-			ToolCallHeader: header,
-			Success:        success,
-			Error:          errorText,
-			Result:         result.Preview,
-			PersistedPath:  result.PersistedPath,
-			PersistFailed:  result.PersistFailed,
-			PersistError:   result.PersistError,
-			Truncated:      result.Truncated,
-			OriginalSize:   result.OriginalSize,
-			ElapsedMS:      int64Value(payload, "elapsedMs", "elapsed_ms"),
-		}, true
+		return translateToolCallEnd(eventType, payload)
 	case "approval/resolved", "tool.approval.resolved":
 		return tooldto.ToolApprovalResolved{
 			ToolApprovalHeader: buildToolApprovalHeader(payload),
@@ -596,6 +642,46 @@ func translateToolEvent(eventType string, payload map[string]any) (any, bool) {
 	default:
 		return nil, false
 	}
+}
+
+// translateToolCallEnd 捕获工具结果，并将执行及持久化失败转换为安全公开消息。
+func translateToolCallEnd(eventType string, payload map[string]any) (any, bool) {
+	if !looksLikeToolCall(payload) {
+		return nil, false
+	}
+	header := buildToolCallHeader(payload)
+	success, errorText := toolEventEndOutcome(eventType, payload)
+	raw := dto.RawProviderEvent{EventType: eventType, Data: payload}
+	result, captureErr := providershared.CaptureToolResult(providershared.ToolResultMeta{
+		ThreadID: header.ThreadID, TurnID: header.TurnID, CallID: header.CallID,
+		ToolName: header.ToolName, Timestamp: eventTime(payload),
+	}, jsonPreview(payload, "result", "content"))
+	if captureErr != nil {
+		success = false
+		errorText = appendProviderRuntimeError(errorText, captureErr)
+	}
+	if !success && strings.TrimSpace(errorText) == "" {
+		errorText = "tool execution failed"
+	}
+	return tooldto.ToolCallEnd{
+		ToolCallHeader: header,
+		Success:        success,
+		Error:          publicToolError(raw, errorText),
+		Result:         result.Preview,
+		PersistedPath:  result.PersistedPath,
+		PersistFailed:  result.PersistFailed,
+		PersistError:   publicToolError(raw, result.PersistError),
+		Truncated:      result.Truncated,
+		OriginalSize:   result.OriginalSize,
+		ElapsedMS:      int64Value(payload, "elapsedMs", "elapsed_ms"),
+	}, true
+}
+
+func publicToolError(raw dto.RawProviderEvent, cause string) string {
+	if strings.TrimSpace(cause) == "" {
+		return ""
+	}
+	return raw.PublicMessage("Tool execution failed.")
 }
 
 // appendProviderRuntimeError 保留 provider 原始失败，并附加运行时依赖错误。
@@ -757,5 +843,5 @@ func eventTime(payload map[string]any) time.Time {
 			return parsed
 		}
 	}
-	return time.Now()
+	return time.Time{}
 }

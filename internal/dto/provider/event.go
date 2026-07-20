@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"sort"
 	"strings"
 
@@ -42,6 +43,24 @@ func (e RawProviderEvent) SafePayload() json.RawMessage {
 		return nil
 	}
 	return raw
+}
+
+// PublicMessage 返回受控的用户摘要和稳定诊断 ID，不暴露原始 provider 载荷。
+func (e RawProviderEvent) PublicMessage(summary string) string {
+	return publicMessage(summary, rawProviderPayloadBytes(e.Data))
+}
+
+// PublicMessageForError 将本地错误转换为受控公开消息，原始错误只参与诊断 ID 计算。
+func PublicMessageForError(summary string, err error) string {
+	if err == nil {
+		return publicMessage(summary, nil)
+	}
+	return publicMessage(summary, []byte(err.Error()))
+}
+
+func publicMessage(summary string, raw []byte) string {
+	sum := sha256.Sum256(raw)
+	return fmt.Sprintf("%s Diagnostic ID: %s", strings.TrimSpace(summary), hex.EncodeToString(sum[:]))
 }
 
 func (e RawProviderEvent) safeMetadata() map[string]any {

@@ -89,8 +89,8 @@ func TestOnNotificationFirstTerminalWinsBeforeDispatch(t *testing.T) {
 		turns:        map[string]*turnHandle{"turn-provider": h},
 		activeTurnID: "turn-provider",
 	}
-	s.onNotification("turn/completed", json.RawMessage(`{"turnId":"turn-provider","threadId":"thread-provider","success":true,"status":"completed"}`))
-	s.onNotification("turn/failed", json.RawMessage(`{"turnId":"turn-provider","threadId":"thread-provider","success":false,"status":"failed","error":"late failure"}`))
+	s.onNotification("turn/completed", json.RawMessage(`{"turnId":"turn-provider","threadId":"thread-provider","timestamp":"2026-07-16T10:11:12.123Z","success":true,"status":"completed"}`))
+	s.onNotification("turn/failed", json.RawMessage(`{"turnId":"turn-provider","threadId":"thread-provider","timestamp":"2026-07-16T10:11:12.123Z","success":false,"status":"failed","error":"late failure"}`))
 
 	select {
 	case completed := <-completedEvents:
@@ -127,8 +127,8 @@ func TestOnNotificationFirstTerminalWithoutLiveHandleIsDispatchedOnce(t *testing
 	defer cancelSub()
 
 	s := &session{agentID: "agent-public", dispatcher: dispatcher}
-	s.onNotification("turn/completed", json.RawMessage(`{"turnId":"turn-provider","threadId":"thread-provider","success":true,"status":"completed"}`))
-	s.onNotification("turn/failed", json.RawMessage(`{"turnId":"turn-provider","threadId":"thread-provider","success":false,"status":"failed","error":"late failure"}`))
+	s.onNotification("turn/completed", json.RawMessage(`{"turnId":"turn-provider","threadId":"thread-provider","timestamp":"2026-07-16T10:11:12.123Z","success":true,"status":"completed"}`))
+	s.onNotification("turn/failed", json.RawMessage(`{"turnId":"turn-provider","threadId":"thread-provider","timestamp":"2026-07-16T10:11:12.123Z","success":false,"status":"failed","error":"late failure"}`))
 
 	select {
 	case completed := <-completedEvents:
@@ -609,20 +609,6 @@ func TestOnNotification_UnattributableMalformedTerminalFailsConnectionWithoutFor
 	}
 	if _, ok := s.turns["T-unattributable"]; ok {
 		t.Fatal("connection failure retained active turn handle")
-	}
-}
-
-func assertMalformedTerminalHasNoRawLeak(t *testing.T, encoded []byte) {
-	t.Helper()
-	if strings.Contains(string(encoded), "raw-secret") || strings.Contains(string(encoded), "raw-turn") || strings.Contains(string(encoded), "raw-agent") {
-		t.Fatalf("surface terminal leaked raw payload: %s", encoded)
-	}
-}
-
-func assertMalformedHandleError(t *testing.T, err error) {
-	t.Helper()
-	if err == nil || err.Error() != "terminal contract: malformed terminal payload" {
-		t.Fatalf("handle error = %v, want canonical contract failure", err)
 	}
 }
 

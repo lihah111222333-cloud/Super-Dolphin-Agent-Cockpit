@@ -348,8 +348,8 @@ func assertSyntheticToolEnd(t *testing.T, toolEnds <-chan tooldto.ToolCallEnd) {
 		if ev.Success {
 			t.Fatalf("ToolCallEnd.Success = true, want false")
 		}
-		if !strings.Contains(ev.Error, "ui_stop") {
-			t.Fatalf("ToolCallEnd.Error = %q, want ui_stop context", ev.Error)
+		if !strings.HasPrefix(ev.Error, "Tool execution failed. Diagnostic ID: ") || strings.Contains(ev.Error, "ui_stop") {
+			t.Fatalf("ToolCallEnd.Error = %q, want public diagnostic", ev.Error)
 		}
 	case <-time.After(time.Second):
 		t.Fatal("Interrupt() did not dispatch synthetic ToolCallEnd")

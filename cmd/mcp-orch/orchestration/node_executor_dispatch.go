@@ -10,8 +10,11 @@ import (
 	"time"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-orch/orchestration/nodeexec"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-orch/orchestration/sharedfilemeta"
+	sharedfilestore "github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-orch/store/sharedfile"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/cmd/mcp-orch/store/taskdag"
 	platformconfig "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/config"
+	platformdb "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/db"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/runtimesafe"
 	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
 )
@@ -24,6 +27,62 @@ const (
 // NodeLifecycleHooks 是注入 node executor 的生产 hook 集合。
 // 命名类型让 fx 能区分生产 hook map 和测试临时 map；hook 只能观察/通知，不能决定节点状态。
 type NodeLifecycleHooks map[nodeexec.HookPoint]nodeexec.HookHandler
+
+type storeSharedFileReaderAdapter struct {
+	store sharedfilestore.Reader
+}
+
+// NewStoreSharedFileReader 把 sharedfile reader 适配为节点执行器读取端口。
+func NewStoreSharedFileReader(store sharedfilestore.Reader) nodeexec.SharedFileReader {
+	if store == nil {
+		return nil
+	}
+	return &storeSharedFileReaderAdapter{store: store}
+}
+
+// ReadSharedFile 把不存在的共享文件映射为 exists=false，其余 store 错误保持可见。
+func (a *storeSharedFileReaderAdapter) ReadSharedFile(ctx context.Context, path string) (string, bool, error) {
+	if a == nil || a.store == nil {
+		return "", false, errors.New("store sharedfile reader: nil receiver")
+	}
+	file, err := a.store.Get(ctx, path)
+	if err != nil {
+		if errors.Is(err, platformdb.ErrNotFound) {
+			return "", false, nil
+		}
+		return "", false, fmt.Errorf("store sharedfile reader: get %q: %w", path, err)
+	}
+	if file == nil {
+		return "", false, nil
+	}
+	return file.Content, true, nil
+}
+
+type storeSharedFileWriterAdapter struct {
+	store sharedfilestore.Store
+	*sharedfilemeta.StoreWriter
+}
+
+const sharedFileWriterUpdatedBy = "node-router"
+
+// NewStoreSharedFileWriter 把 sharedfile store 适配为节点执行器写入端口。
+func NewStoreSharedFileWriter(store sharedfilestore.Store) nodeexec.SharedFileWriter {
+	if store == nil {
+		return nil
+	}
+	return &storeSharedFileWriterAdapter{store: store, StoreWriter: sharedfilemeta.NewStoreWriter(store)}
+}
+
+// WriteSharedFile 以节点执行器稳定身份写入共享文件。
+func (a *storeSharedFileWriterAdapter) WriteSharedFile(ctx context.Context, path, content string) error {
+	if a == nil || a.store == nil {
+		return errors.New("store sharedfile writer: nil receiver")
+	}
+	if _, err := a.store.Upsert(ctx, sharedfilestore.UpsertParams{Path: path, Content: content, UpdatedBy: sharedFileWriterUpdatedBy}); err != nil {
+		return fmt.Errorf("store sharedfile writer: upsert %q: %w", path, err)
+	}
+	return nil
+}
 
 type loggingNodeLifecycleHook struct {
 	logger *slog.Logger

@@ -287,6 +287,7 @@ func (s *session) failNonRecoverableConnection(reason string) {
 		Data: map[string]any{
 			"agentId":     strings.TrimSpace(s.agentID),
 			"threadId":    s.ThreadID(),
+			"timestamp":   time.Now().UTC().Format(time.RFC3339Nano),
 			"error":       safeReason.Message,
 			"errorCode":   safeReason.Code,
 			"recoverable": false,
@@ -345,10 +346,11 @@ func (s *session) dispatchRecoveryAttempt(reason string, attempt int32) {
 	s.dispatch(dto.RawProviderEvent{
 		EventType: "recovery.attempt",
 		Data: map[string]any{
-			"agentId":  strings.TrimSpace(s.agentID),
-			"threadId": s.ThreadID(),
-			"reason":   strings.TrimSpace(reason),
-			"attempt":  attempt,
+			"agentId":   strings.TrimSpace(s.agentID),
+			"threadId":  s.ThreadID(),
+			"timestamp": time.Now().UTC().Format(time.RFC3339Nano),
+			"reason":    strings.TrimSpace(reason),
+			"attempt":   attempt,
 		},
 	})
 }

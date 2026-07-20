@@ -131,6 +131,7 @@ func (t *transport) connectOnce(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	conn.SetReadLimit(transportInboundFrameMaxBytes)
 	t.setWS(conn)
 	return nil
 }

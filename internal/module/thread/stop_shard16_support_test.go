@@ -174,6 +174,7 @@ func (stubThreadSessionUnusedMethods) ForceStop() error { return nil }
 
 type stubTurnService struct {
 	interruptCalls []string
+	interruptErr   error
 	cleanupCalls   []string
 	cleanupErrors  map[string]error
 	calls          *[]string
@@ -182,7 +183,7 @@ type stubTurnService struct {
 func (s *stubTurnService) InterruptActiveTurn(_ context.Context, session contract.Session, source string) error {
 	s.interruptCalls = append(s.interruptCalls, session.ThreadID()+":"+source)
 	recordCall(s.calls, "turn_interrupt:"+session.ThreadID()+":"+source)
-	return nil
+	return s.interruptErr
 }
 func (s *stubTurnService) CleanupThread(_ context.Context, threadID, reason string) error {
 	s.cleanupCalls = append(s.cleanupCalls, threadID+":"+reason)

@@ -34,7 +34,9 @@ async function initializeRuntimeEventSubscriptions(runtime, deps, retryBootstrap
     if (generation !== runtime.eventInitializationGeneration) {
       throw new Error('runtime event initialization superseded');
     }
-    bridgeSubscription = trackRuntimeSubscription(runtime, onBridgeEvent(runtime.handleBridgeEvent, {
+    const initialScope = currentChatScope(runtime);
+    if (initialScope && initialScope !== '.') runtime.activateAssistantEventScope?.(initialScope);
+    bridgeSubscription = trackRuntimeSubscription(runtime, onBridgeEvent(scopedBridgeEventHandler(runtime), {
       escalateCallbackError: (_error, evt) => isDagNodeStatusBridgeEvent(evt),
     }), 'runtime.bridge.subscribe', generation);
     reconnectSubscription = trackRuntimeSubscription(runtime, onRuntimeReconnect(() => runBackgroundAction(
@@ -104,11 +106,56 @@ function createLifecycleActions(runtime, deps) {
     return initialization;
   };
 
+  const rebindBridgeEventScope = async (scope) => {
+    let normalizedScope = scope;
+    if (!normalizedScope) normalizedScope = currentChatScope(runtime);
+    runtime.assertAssistantEventScopeCapacity?.(normalizedScope);
+    const rebindGeneration = runtime.bridgeScopeRebindGeneration + 1;
+    const bridgeEventScopeGeneration = runtime.bridgeEventScopeGeneration + 1;
+    runtime.bridgeScopeRebindGeneration = rebindGeneration;
+    runtime.pendingBridgeScopeRebind?.unsubscribe();
+    const subscription = trackRuntimeSubscription(
+      runtime,
+      deps.onBridgeEvent(scopedBridgeEventHandler(runtime, {
+        scope: normalizedScope,
+        generation: bridgeEventScopeGeneration,
+        rebindGeneration,
+        silentBeforeCommit: true,
+      }), {
+        escalateCallbackError: (_error, evt) => deps.isDagNodeStatusBridgeEvent(evt),
+      }),
+      'runtime.bridge.subscribe',
+      runtime.eventInitializationGeneration,
+    );
+    runtime.pendingBridgeScopeRebind = subscription;
+    try {
+      await subscription.ready;
+      if (rebindGeneration !== runtime.bridgeScopeRebindGeneration) {
+        throw new Error('runtime bridge scope rebind superseded');
+      }
+      const previousBridgeUnsubscribe = runtime.bridgeUnsubscribe;
+      const bridgeUnsubscribe = subscription.commit();
+      runtime.activateAssistantEventScope?.(normalizedScope);
+      runtime.bridgeEventScopeGeneration = bridgeEventScopeGeneration;
+      runtime.bridgeUnsubscribe = bridgeUnsubscribe;
+      runtime.pendingBridgeScopeRebind = null;
+      previousBridgeUnsubscribe?.();
+      return true;
+    }
+    catch (error) {
+      subscription.unsubscribe();
+      if (runtime.pendingBridgeScopeRebind === subscription) runtime.pendingBridgeScopeRebind = null;
+      throw error;
+    }
+  };
+
   const destroy = () => {
     runtime.eventInitializationGeneration += 1;
     runtime.eventInitializationPromise = null;
     runtime.eventInitializationState = 'idle';
     clearPendingRuntimeSubscriptions(runtime);
+    runtime.pendingBridgeScopeRebind?.unsubscribe();
+    runtime.pendingBridgeScopeRebind = null;
     clearRuntimeUnsubscribe(runtime, 'bridgeUnsubscribe');
     clearRuntimeUnsubscribe(runtime, 'reconnectUnsubscribe');
     runtime.sequencesByThread.clear();
@@ -122,11 +169,34 @@ function createLifecycleActions(runtime, deps) {
     runtime.turnTerminalStates?.clear();
     runtime.observedTurnByThread?.clear();
     runtime.retiredTurnRefs?.clear();
-    runtime.retiredTurnRefsByScope?.clear();
+    runtime.assistantEventLedgersByScope?.clear();
     runtime.sidebarRefreshSeq += 1;
   };
 
-  return { initializeEvents, destroy };
+  Object.assign(runtime, { rebindBridgeEventScope });
+  return { initializeEvents, rebindBridgeEventScope, destroy };
+}
+
+function scopedBridgeEventHandler(runtime, options = {}) {
+  const generation = options.generation ?? runtime.bridgeEventScopeGeneration;
+  let scope = options.scope ?? runtime.assistantEventScope;
+  if (!scope) scope = currentChatScope(runtime);
+  const rebindGeneration = options.rebindGeneration ?? 0;
+  return (event) => {
+    if (rebindGeneration && rebindGeneration !== runtime.bridgeScopeRebindGeneration) return;
+    if (generation !== runtime.bridgeEventScopeGeneration || scope !== runtime.assistantEventScope) {
+      if (options.silentBeforeCommit) return;
+      runtime.addWarning('warn', 'bridge.event.scope_stale', { scope, generation });
+      return;
+    }
+    runtime.handleBridgeEvent(event);
+  };
+}
+
+function currentChatScope(runtime) {
+  const scope = runtime.currentChatCwd?.();
+  if (typeof scope !== 'string') return '';
+  return scope;
 }
 
 function publishThreadSyncFailure(runtime, syncOptions, id, _error) {
@@ -166,6 +236,9 @@ function createBootstrapActions(runtime, deps) {
       const windowCwd = normalizePath(windowSnapshot.cwd);
       const scopedCwd = windowCwd || cwd;
       const bootstrapPage = normalizeBootstrapPage(windowSnapshot.page);
+      if (runtime.assistantEventScope !== scopedCwd) {
+        await runtime.rebindBridgeEventScope(scopedCwd);
+      }
       const activeProvider = requireActiveProviderPreference(
         await getPreference({
           cwd: scopedCwd,

@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"reflect"
+	"regexp"
+	"unicode/utf8"
 )
 
 // ValidateTurnRefV1 严格验证 canonical turn 身份且拒绝未知字段。
@@ -87,9 +89,30 @@ func validateScalar(schema map[string]any, value any, path string) error {
 		return fmt.Errorf("%s must be a %s", path, requiredType)
 	}
 	if text, ok := value.(string); ok {
-		if minLength, ok := schema["minLength"].(float64); ok && len(text) < int(minLength) {
-			return fmt.Errorf("%s must not be empty", path)
-		}
+		return validateStringConstraints(schema, text, path)
+	}
+	return nil
+}
+
+// validateStringConstraints 执行生成 schema 中已声明的字符串长度和模式约束。
+func validateStringConstraints(schema map[string]any, text, path string) error {
+	length := utf8.RuneCountInString(text)
+	if minLength, ok := schema["minLength"].(float64); ok && length < int(minLength) {
+		return fmt.Errorf("%s must not be empty", path)
+	}
+	if maxLength, ok := schema["maxLength"].(float64); ok && length > int(maxLength) {
+		return fmt.Errorf("%s exceeds maximum length %d", path, int(maxLength))
+	}
+	pattern, ok := schema["pattern"].(string)
+	if !ok {
+		return nil
+	}
+	expression, err := regexp.Compile(pattern)
+	if err != nil {
+		return fmt.Errorf("%s has invalid pattern: %w", path, err)
+	}
+	if !expression.MatchString(text) {
+		return fmt.Errorf("%s does not match required pattern", path)
 	}
 	return nil
 }
@@ -234,13 +257,12 @@ func validateKnownFields(schema map[string]any, value, properties map[string]any
 
 // validateArray 验证去重要求并把元素交给其唯一 items schema。
 func validateArray(name string, schema map[string]any, value []any, path string, depth int) error {
+	if maxItems, ok := schema["maxItems"].(float64); ok && len(value) > int(maxItems) {
+		return fmt.Errorf("%s exceeds maximum item count %d", path, int(maxItems))
+	}
 	if unique, ok := schema["uniqueItems"].(bool); ok && unique {
-		for left := range value {
-			for right := left + 1; right < len(value); right++ {
-				if jsonValuesEqual(value[left], value[right]) {
-					return fmt.Errorf("%s contains duplicate item", path)
-				}
-			}
+		if err := validateUniqueItems(value, path); err != nil {
+			return err
 		}
 	}
 	itemSchema, ok := schema["items"].(map[string]any)
@@ -253,6 +275,40 @@ func validateArray(name string, schema map[string]any, value []any, path string,
 		}
 	}
 	return nil
+}
+
+// validateUniqueItems preserves JSON structural equality with one stable key per item.
+func validateUniqueItems(values []any, path string) error {
+	seen := make(map[string]struct{}, len(values))
+	for _, value := range values {
+		key, err := uniqueJSONKey(value)
+		if err != nil {
+			return fmt.Errorf("%s unique item: %w", path, err)
+		}
+		if _, exists := seen[key]; exists {
+			return fmt.Errorf("%s contains duplicate item", path)
+		}
+		seen[key] = struct{}{}
+	}
+	return nil
+}
+
+func uniqueJSONKey(value any) (string, error) {
+	switch typed := value.(type) {
+	case string:
+		return "string:" + typed, nil
+	case bool:
+		if typed {
+			return "bool:true", nil
+		}
+		return "bool:false", nil
+	default:
+		encoded, err := json.Marshal(value)
+		if err != nil {
+			return "", err
+		}
+		return string(encoded), nil
+	}
 }
 
 func matchesType(name string, value any) bool {

@@ -620,7 +620,7 @@ func (c *recoveryController) notifyRecoveryFailure(ctx context.Context, agentID 
 	}
 	return c.registry.withAgentLocked(agentID, func(agent *agentRuntime) error {
 		if strings.TrimSpace(agent.lastReport) == "" {
-			agent.lastError = strings.TrimSpace(recoverErr.Error())
+			agent.lastError = publicOrchestrationError("Agent recovery failed.", recoverErr)
 			return c.reports.setNoReportFallbackLocked(ctx, agent)
 		}
 		return nil

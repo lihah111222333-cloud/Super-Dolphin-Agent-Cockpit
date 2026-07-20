@@ -116,6 +116,10 @@ func assertFailureMatrixWailsEnvelope(t *testing.T, envelope map[string]any, ter
 	if payload["outcome"] != "failed" || payload["eventId"] != terminal.EventID {
 		t.Fatalf("Wails bridge terminal = %#v, want canonical failed terminal", payload)
 	}
+	publicError, ok := payload["publicError"].(map[string]any)
+	if !ok || publicError["diagnosticId"] != terminal.PublicError.DiagnosticID {
+		t.Fatalf("Wails bridge diagnostic ID = %#v, want %q", publicError, terminal.PublicError.DiagnosticID)
+	}
 	partial, ok := payload["partialItemIds"].([]any)
 	if !ok || len(partial) != 1 || partial[0] != "partial-1" {
 		t.Fatalf("Wails bridge partialItemIds = %#v, want [partial-1]", payload["partialItemIds"])

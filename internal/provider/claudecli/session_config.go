@@ -218,7 +218,7 @@ func (s *session) forceCompleteTarget(providerID string) (*transport, *turnHandl
 }
 
 // forceCompleteTurn 在确认 active turn 未漂移后发布完成事件。
-// 被强制收口的 transport 不能再承载新 turn，否则迟到 result 会被错误归属给新 handle。
+// 已收口 turn 的 transport 不能再承载新 turn，否则迟到 result 会被错误归属给新 handle。
 func (s *session) forceCompleteTurn(tr *transport, target *turnHandle, turnID string) {
 	if target == nil || turnID == "" {
 		return
@@ -234,7 +234,7 @@ func (s *session) forceCompleteTurn(tr *transport, target *turnHandle, turnID st
 	}
 	s.suppressedTurns[turnID] = struct{}{}
 	if tr != nil && s.transport == tr {
-		s.forceCompletedTransport = tr
+		s.fencedTransport = tr
 	}
 	complete = s.turnRawEventLocked("turn:complete", turnID, map[string]any{
 		"success": true,

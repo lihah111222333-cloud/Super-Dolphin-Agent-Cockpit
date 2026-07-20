@@ -231,8 +231,8 @@ func TestRecoverWithoutReplayWritesFallbackReport(t *testing.T) {
 	if err := svc.Recover(context.Background(), agent.id); err != nil {
 		t.Fatalf("Recover() error = %v", err)
 	}
-	if !strings.Contains(agent.lastReport, "process crashed") || !strings.Contains(agent.lastReport, "without producing a turn report") {
-		t.Fatalf("agent.lastReport = %q, want no-replay fallback with crash detail", agent.lastReport)
+	if !strings.Contains(agent.lastReport, "without producing a turn report") || !strings.Contains(agent.lastReport, "Agent ended without a report. Diagnostic ID:") || strings.Contains(agent.lastReport, "process crashed") {
+		t.Fatalf("agent.lastReport = %q, want public no-replay fallback", agent.lastReport)
 	}
 	if len(agent.reportRequesters) != 0 {
 		t.Fatalf("agent.reportRequesters = %v, want drained", agent.reportRequesters)

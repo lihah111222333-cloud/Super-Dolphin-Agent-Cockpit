@@ -78,8 +78,8 @@ func TestProcessExitFailureWithoutReportWritesFallbackReport(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetReport() error = %v", err)
 	}
-	if got.State != string(agentdto.StateFailed) || !strings.Contains(got.Report, "process crashed") {
-		t.Fatalf("GetReport() = %#v, want failed-state fallback carrying exit error", got)
+	if got.State != string(agentdto.StateFailed) || !strings.Contains(got.Report, "Agent ended without a report. Diagnostic ID: ") || strings.Contains(got.Report, "process crashed") {
+		t.Fatalf("GetReport() = %#v, want failed-state fallback carrying public diagnostic", got)
 	}
 }
 

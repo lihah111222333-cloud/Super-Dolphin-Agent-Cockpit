@@ -118,8 +118,8 @@ func dispatcherWiringGuardCases() []dispatcherWiringGuardCase {
 			},
 		},
 		{
-			name: "sharedfile_adapter.go bridges store.Store to nodeexec ports",
-			path: filepath.Join("cmd", "mcp-orch", "orchestration", "sharedfile_adapter.go"),
+			name: "node_executor_dispatch.go bridges store.Store to nodeexec ports",
+			path: filepath.Join("cmd", "mcp-orch", "orchestration", "node_executor_dispatch.go"),
 			mustHave: []string{
 				// Reader 适配器：store/sharedfile.Reader → nodeexec.SharedFileReader
 				"func NewStoreSharedFileReader",

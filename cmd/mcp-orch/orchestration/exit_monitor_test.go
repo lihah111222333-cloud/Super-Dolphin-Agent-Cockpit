@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os/exec"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -279,6 +280,34 @@ func TestProcessExitStateMachine(t *testing.T) {
 	svc.handleProcessExit(context.Background(), "agent-5", 5, nil)
 	if len(cleaner.removeGeneration) != 1 {
 		t.Fatalf("session cleanup calls after stale = %d, want 1", len(cleaner.removeGeneration))
+	}
+}
+
+func TestProcessExitErrorPublicizesStateAndEvent(t *testing.T) {
+	t.Parallel()
+	svc, dispatcher, _ := newP3TestService(t)
+	defer func() { _ = dispatcher.Close() }()
+	agent := svc.newAgentLocked("agent-public")
+	raw := errors.New("token=sk-live-secret command=rm -rf /Users/private stack=private.go:42")
+	got := make(chan agentdto.AgentFailed, 1)
+	cancel := event.Subscribe(dispatcher, func(ev agentdto.AgentFailed) { got <- ev })
+	defer cancel()
+
+	svc.lifecycle.recordProcessExitError(dispatcher, agent, raw)
+	select {
+	case ev := <-got:
+		for _, text := range []string{agent.lastError, ev.Error} {
+			for _, forbidden := range []string{"sk-live-secret", "rm -rf", "/Users/private", "private.go:42"} {
+				if strings.Contains(text, forbidden) {
+					t.Fatalf("public process-exit message leaked %q: %s", forbidden, text)
+				}
+			}
+			if !strings.HasPrefix(text, "Agent process exited unexpectedly. Diagnostic ID: ") {
+				t.Fatalf("public process-exit message = %q", text)
+			}
+		}
+	case <-time.After(time.Second):
+		t.Fatal("AgentFailed was not published")
 	}
 }
 

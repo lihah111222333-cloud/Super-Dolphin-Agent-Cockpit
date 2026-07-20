@@ -2,6 +2,7 @@ package turn
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -206,9 +207,14 @@ func applyTerminalDependencies(terminal *TurnTerminalV2, ev TurnCompleted) {
 	}
 }
 
-func terminalPublicError(diagnosticID, code, title, message string) *PublicErrorV1 {
+func terminalPublicError(eventID, code, title, message string) *PublicErrorV1 {
 	return &PublicErrorV1{
-		Code: code, Title: title, Message: message, DiagnosticID: diagnosticID,
+		Code: code, Title: title, Message: message, DiagnosticID: diagnosticIDForEventID(eventID),
 		Retryable: false, RecoveryActions: []string{"copy_diagnostics"},
 	}
+}
+
+func diagnosticIDForEventID(eventID string) string {
+	digest := sha256.Sum256([]byte(eventID))
+	return fmt.Sprintf("diag-%x", digest)
 }

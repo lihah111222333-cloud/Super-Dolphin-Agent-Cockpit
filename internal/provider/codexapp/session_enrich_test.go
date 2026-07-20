@@ -155,9 +155,12 @@ func TestPublishToolCallEnd_FileReadEmptySuccessResultFailsWithPathGuidance(t *t
 	if end.Success {
 		t.Fatalf("ToolCallEnd.Success = true, want false for empty file read result: %+v", end)
 	}
-	for _, want := range []string{"missing.md", "does not exist", "outside workspace"} {
-		if !strings.Contains(end.Error, want) {
-			t.Fatalf("ToolCallEnd.Error = %q, want %q", end.Error, want)
+	if !strings.HasPrefix(end.Error, "Tool execution failed. Diagnostic ID: ") {
+		t.Fatalf("ToolCallEnd.Error = %q, want public diagnostic", end.Error)
+	}
+	for _, forbidden := range []string{"missing.md", "does not exist", "outside workspace"} {
+		if strings.Contains(end.Error, forbidden) {
+			t.Fatalf("ToolCallEnd.Error = %q, leaked %q", end.Error, forbidden)
 		}
 	}
 	if strings.Contains(end.Result, `"success":true`) {

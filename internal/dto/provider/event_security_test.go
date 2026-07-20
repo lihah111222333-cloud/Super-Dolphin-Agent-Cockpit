@@ -2,6 +2,7 @@ package provider
 
 import (
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 )
@@ -34,6 +35,27 @@ func TestRawProviderEventSanitizedCopyRemovesSecretPayload(t *testing.T) {
 	for _, want := range []string{"session_id", "session-1", "thread_id", "thread-1", "payload_size_bytes", "payload_sha256", "payload_field_names"} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("sanitized raw event missing %q: %s", want, text)
+		}
+	}
+}
+
+func TestPublicMessageExcludesRawCausesAndPreservesDiagnosticID(t *testing.T) {
+	raw := RawProviderEvent{Data: map[string]any{
+		"token":   "sk-live-secret",
+		"command": "rm -rf /Users/private/workspace",
+		"stack":   "panic at private.go:42",
+	}}
+	for _, message := range []string{
+		raw.PublicMessage("Provider reported an error."),
+		PublicMessageForError("Agent process exited unexpectedly.", errors.New("token=sk-live-secret command=/Users/private/workspace stack=private.go:42")),
+	} {
+		for _, forbidden := range []string{"sk-live-secret", "rm -rf", "/Users/private", "private.go:42"} {
+			if strings.Contains(message, forbidden) {
+				t.Fatalf("public message leaked %q: %s", forbidden, message)
+			}
+		}
+		if !strings.Contains(message, "Diagnostic ID: ") {
+			t.Fatalf("public message is missing diagnostic correlation: %s", message)
 		}
 	}
 }

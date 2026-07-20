@@ -245,8 +245,8 @@ func TestLauncherRecoveryWithoutReplayWritesFallbackReport(t *testing.T) {
 	if agent.state != agentdto.StateIdle || agent.activeTurnID != "" {
 		t.Fatalf("agent after no-replay launcher recovery = state:%q active:%q, want idle with no active turn", agent.state, agent.activeTurnID)
 	}
-	if !strings.Contains(agent.lastReport, "remote process crashed") || !strings.Contains(agent.lastReport, "without producing a turn report") {
-		t.Fatalf("agent.lastReport = %q, want no-replay fallback with crash detail", agent.lastReport)
+	if !strings.Contains(agent.lastReport, "without producing a turn report") || !strings.Contains(agent.lastReport, "Agent ended without a report. Diagnostic ID:") || strings.Contains(agent.lastReport, "remote process crashed") {
+		t.Fatalf("agent.lastReport = %q, want public no-replay fallback", agent.lastReport)
 	}
 	if len(agent.reportRequesters) != 0 {
 		t.Fatalf("agent.reportRequesters = %v, want drained", agent.reportRequesters)
@@ -644,13 +644,13 @@ func containsString(values []string, want string) bool {
 	return slices.Contains(values, want)
 }
 
-func assertFailedRecoveryFallback(t *testing.T, agent *agentRuntime, wantDetail string) {
+func assertFailedRecoveryFallback(t *testing.T, agent *agentRuntime, forbiddenDetail string) {
 	t.Helper()
 	if agent.state != agentdto.StateFailed {
 		t.Fatalf("agent.state = %q, want failed", agent.state)
 	}
-	if !strings.Contains(agent.lastReport, wantDetail) || !strings.Contains(agent.lastReport, "without producing a turn report") {
-		t.Fatalf("agent.lastReport = %q, want fallback containing %q", agent.lastReport, wantDetail)
+	if !strings.Contains(agent.lastReport, "without producing a turn report") || !strings.Contains(agent.lastReport, "Agent ended without a report. Diagnostic ID:") || strings.Contains(agent.lastReport, forbiddenDetail) {
+		t.Fatalf("agent.lastReport = %q, want public recovery fallback", agent.lastReport)
 	}
 	if len(agent.reportRequesters) != 0 {
 		t.Fatalf("agent.reportRequesters = %v, want drained", agent.reportRequesters)

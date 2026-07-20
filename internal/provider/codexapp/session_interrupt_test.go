@@ -354,7 +354,7 @@ func handleInterruptServerMessage(
 func writeInterruptTerminalNotification(conn *websocket.Conn) bool {
 	notification := map[string]any{
 		"jsonrpc": "2.0", "method": "turn/aborted",
-		"params": map[string]any{"threadId": "thread-1", "turnId": "turn-1"},
+		"params": map[string]any{"threadId": "thread-1", "turnId": "turn-1", "timestamp": "2026-07-16T10:11:12.123Z"},
 	}
 	return conn.WriteJSON(notification) == nil
 }

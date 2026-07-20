@@ -2,6 +2,8 @@ package claudecli
 
 import (
 	"context"
+	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -12,6 +14,21 @@ import (
 	uidto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/ui"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/unified"
 )
+
+func TestRestartFailureStatusPublicizesCause(t *testing.T) {
+	status, header, details := restartFailureStatus(errors.New("token=secret /private/provider.log"))
+	if status != "error" || header != "Claude 重启失败" {
+		t.Fatalf("restartFailureStatus() = (%q, %q, %q)", status, header, details)
+	}
+	if !strings.Contains(details, "Diagnostic ID:") {
+		t.Fatalf("details = %q, want diagnostic ID", details)
+	}
+	for _, secret := range []string{"token=secret", "/private/provider.log"} {
+		if strings.Contains(details, secret) {
+			t.Fatalf("details leaked %q: %q", secret, details)
+		}
+	}
+}
 
 func TestRestartIfNeededLockedPublishesRestartStatusPatch(t *testing.T) {
 	bus := event.NewDispatcher()

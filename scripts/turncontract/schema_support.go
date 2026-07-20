@@ -7,6 +7,7 @@ import (
 )
 
 const canonicalSchemaDialect = "https://json-schema.org/draft/2020-12/schema"
+const diagnosticIDPattern = "^diag-[A-Za-z0-9_.-]{1,123}$"
 
 type schemaPosition uint8
 
@@ -26,8 +27,11 @@ var supportedSchemaKeywords = map[string]struct{}{
 	"enum":                 {},
 	"if":                   {},
 	"items":                {},
+	"maxItems":             {},
+	"maxLength":            {},
 	"minLength":            {},
 	"not":                  {},
+	"pattern":              {},
 	"properties":           {},
 	"required":             {},
 	"then":                 {},
@@ -167,8 +171,8 @@ func validateConditionalSiblings(node map[string]any, path string) error {
 // validateTypeKeywordContext 阻断与已声明类型不相容且会被运行时忽略的约束。
 func validateTypeKeywordContext(node map[string]any, path string) error {
 	requiredType, _ := node["type"].(string)
-	if _, ok := node["minLength"]; ok && requiredType != "string" {
-		return fmt.Errorf("%s.minLength requires type string", path)
+	if hasAnyKeyword(node, "minLength", "maxLength", "pattern") && requiredType != "string" {
+		return fmt.Errorf("%s string constraints require type string", path)
 	}
 	if hasAnyKeyword(node, "properties", "required", "additionalProperties") && requiredType != "" && requiredType != "object" {
 		return fmt.Errorf("%s uses object keywords with type %s", path, requiredType)
@@ -190,7 +194,13 @@ func validateScalarKeywords(node map[string]any, path string) error {
 	if err := validateEnumKeyword(node, path); err != nil {
 		return err
 	}
-	return validateMinLengthKeyword(node, path)
+	if err := validateMinLengthKeyword(node, path); err != nil {
+		return err
+	}
+	if err := validateMaxLengthKeyword(node, path); err != nil {
+		return err
+	}
+	return validatePatternKeyword(node, path)
 }
 
 func validateTypeKeyword(node map[string]any, path string) error {
@@ -231,6 +241,26 @@ func validateMinLengthKeyword(node map[string]any, path string) error {
 		minLength, ok := rawMinLength.(float64)
 		if !ok || minLength != 1 {
 			return fmt.Errorf("%s.minLength only supports the exact value 1", path)
+		}
+	}
+	return nil
+}
+
+func validatePatternKeyword(node map[string]any, path string) error {
+	if rawPattern, ok := node["pattern"]; ok {
+		pattern, ok := rawPattern.(string)
+		if !ok || pattern != diagnosticIDPattern {
+			return fmt.Errorf("%s.pattern only supports the canonical diagnostic ID pattern", path)
+		}
+	}
+	return nil
+}
+
+func validateMaxLengthKeyword(node map[string]any, path string) error {
+	if rawMaxLength, ok := node["maxLength"]; ok {
+		maxLength, ok := rawMaxLength.(float64)
+		if !ok || maxLength < 0 || maxLength != float64(int(maxLength)) {
+			return fmt.Errorf("%s.maxLength must be a non-negative integer", path)
 		}
 	}
 	return nil
@@ -302,6 +332,9 @@ func validatePropertiesKeyword(node map[string]any, path string, references map[
 
 // validateArrayKeywords 校验数组约束，并限定 uniqueItems 的双端等价元素类型。
 func validateArrayKeywords(node map[string]any, path string, references map[string]struct{}) error {
+	if err := validateMaxItemsKeyword(node, path); err != nil {
+		return err
+	}
 	if rawUnique, ok := node["uniqueItems"]; ok {
 		unique, ok := rawUnique.(bool)
 		if !ok {
@@ -320,6 +353,16 @@ func validateArrayKeywords(node map[string]any, path string, references map[stri
 		return fmt.Errorf("%s.items must be a schema object", path)
 	}
 	return validateSchemaNode(items, path+".items", schemaPositionGeneral, references)
+}
+
+func validateMaxItemsKeyword(node map[string]any, path string) error {
+	if rawMaxItems, ok := node["maxItems"]; ok {
+		maxItems, ok := rawMaxItems.(float64)
+		if !ok || maxItems < 0 || maxItems != float64(int(maxItems)) {
+			return fmt.Errorf("%s.maxItems must be a non-negative integer", path)
+		}
+	}
+	return nil
 }
 
 // validateCompositionKeywords 校验组合关键字并递归进入其 schema 分支。
