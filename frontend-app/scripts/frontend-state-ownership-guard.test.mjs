@@ -17,7 +17,7 @@ describe('frontend state ownership guard', () => {
   it('[A02-production] validates production writers against the exact registry', () => {
     expect(validateFrontendStateOwnership({ root: appRoot })).toEqual({
       'action-failure-health': expect.objectContaining({ writerCount: 3 }),
-      'public-error-diagnostics': expect.objectContaining({ writerCount: 1 }),
+      'public-error-diagnostics': expect.objectContaining({ writerCount: 3 }),
       'terminal-truth': expect.objectContaining({ writerCount: 1 }),
     });
 

@@ -1,9 +1,22 @@
 import { firstOptionalPresent } from '../../contractStoreModel.js';
+import { recordFrontendHealth } from '../../../../../shared/diagnostics/frontendHealthStore.js';
+import { diagnosticIdFactoryForError, publicErrorForAction } from '../../../../../shared/ui/publicError.js';
 import {
   buildForkKickoffInput,
   FORK_KICKOFF_PROMPT,
 } from '../threadFork.js';
 import { markForkKickoffFailedState } from '../../threadForkState.js';
+
+const FORK_SHARED_FILES_FAILURE_MESSAGE = '共享文件列表暂时不可用，请稍后重试。';
+const FORK_SUBMIT_FAILURE_MESSAGE = '创建继承对话失败，请稍后重试。';
+const FORK_KICKOFF_FAILURE_MESSAGE = '已创建继承对话，但开场消息暂时无法发送。';
+
+function recordForkFailure(actionId, error) {
+  const publicError = publicErrorForAction(actionId, {
+    diagnosticIdFactory: diagnosticIdFactoryForError(error),
+  });
+  recordFrontendHealth({ actionId, publicError });
+}
 
 function optionalUiArray() {
   return [];
@@ -27,13 +40,13 @@ function forkDraftSharedFilesLoadedState(latest, sourceThreadId, availableShared
   };
 }
 
-function forkDraftSharedFilesFailedState(latest, sourceThreadId, message) {
+function forkDraftSharedFilesFailedState(latest, sourceThreadId) {
   if (latest.forkDraft.sourceThreadId !== sourceThreadId) return {};
   return {
     forkDraft: {
       ...latest.forkDraft,
       loadingSharedFiles: false,
-      error: `共享文件列表加载失败：${message}`,
+      error: FORK_SHARED_FILES_FAILURE_MESSAGE,
     },
   };
 }
@@ -49,14 +62,14 @@ function forkDraftSubmittingState(latest) {
   };
 }
 
-function forkDraftSubmitFailedState(latest, actionNotice, message) {
+function forkDraftSubmitFailedState(latest, actionNotice) {
   return {
     forkDraft: {
       ...latest.forkDraft,
       submitting: false,
-      error: message,
+      error: FORK_SUBMIT_FAILURE_MESSAGE,
     },
-    actionNotice: actionNotice(`创建继承对话失败：${message}`, 'error'),
+    actionNotice: actionNotice(FORK_SUBMIT_FAILURE_MESSAGE, 'error'),
   };
 }
 
@@ -84,9 +97,9 @@ async function loadForkDraftSharedFiles(runtime, deps, sourceThreadId) {
 }
 
 function reportForkDraftSharedFilesFailure(runtime, sourceThreadId, error) {
-  const message = error.message || String(error);
-  runtime.set((latest) => forkDraftSharedFilesFailedState(latest, sourceThreadId, message));
-  runtime.addWarning('warn', 'thread.fork.shared_files.failed', { threadId: sourceThreadId, error: message });
+  runtime.set((latest) => forkDraftSharedFilesFailedState(latest, sourceThreadId));
+  runtime.addWarning('warn', 'thread.fork.shared_files.failed', { threadId: sourceThreadId, error });
+  recordForkFailure('thread.fork.open', error);
 }
 
 async function loadForkKickoffContext(runtime, deps, sourceThreadId, draft) {
@@ -138,12 +151,12 @@ async function sendForkKickoff(runtime, deps, cwd, threadId, input) {
     });
   }
   catch (kickoffError) {
-    const message = kickoffError.message || String(kickoffError);
     runtime.set((current) => ({
-      ...markForkKickoffFailedState(current, threadId, message),
-      actionNotice: deps.actionNotice(`已创建继承对话，但开场消息发送失败：${message}`, 'warning'),
+      ...markForkKickoffFailedState(current, threadId, FORK_KICKOFF_FAILURE_MESSAGE),
+      actionNotice: deps.actionNotice(FORK_KICKOFF_FAILURE_MESSAGE, 'warning'),
     }));
-    runtime.addWarning('warn', 'thread.fork.kickoff.failed', { threadId, error: message });
+    runtime.addWarning('warn', 'thread.fork.kickoff.failed', { threadId, error: kickoffError });
+    recordForkFailure('thread.fork.submit', kickoffError);
   }
 }
 
@@ -211,8 +224,7 @@ function createSubmitForkThreadAction(runtime, deps) {
     }
     catch (error) {
       if (!newThreadId) {
-        const message = error.message || String(error);
-        runtime.set((latest) => forkDraftSubmitFailedState(latest, deps.actionNotice, message));
+        runtime.set((latest) => forkDraftSubmitFailedState(latest, deps.actionNotice));
       }
       throw error;
     }
