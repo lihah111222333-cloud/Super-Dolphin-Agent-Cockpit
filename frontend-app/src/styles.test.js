@@ -45,6 +45,7 @@ const cssFiles = [
 
 const mainSource = readFileSync(path.join(cwd(), 'src/main.jsx'), 'utf8');
 const appSource = readFileSync(path.join(cwd(), 'src/App.jsx'), 'utf8');
+const suiyuanAppWindowSource = readFileSync(path.join(cwd(), 'src/app/shell/SuiyuanAppWindow.jsx'), 'utf8');
 const indexSource = readFileSync(path.join(cwd(), 'index.html'), 'utf8');
 const mainCssImports = [...mainSource.matchAll(/^import '\.\/([^']+\.css)';$/gm)].map((match) => `src/${match[1]}`);
 const cssSources = new Map(cssFiles.map((file) => {
@@ -1629,15 +1630,17 @@ describe('workbench shell styles', () => {
   });
 
   it('keeps the primary product nav while nesting projects under Chat', () => {
-    expect(appSource).toContain('<ChatSidebarProjectTree');
-    expect(appSource).not.toContain('<SidebarTaskSummary');
-    expect(appSource).toContain("label: 'Chat'");
-    expect(appSource).toContain("label: 'Plugins'");
-    expect(appSource).toContain("label: 'Automation'");
-    expect(appSource).toContain("label: 'Roles'");
-    expect(appSource).toContain("label: 'Files'");
-    expect(appSource).toContain("label: 'Memory'");
-    expect(appSource).toContain("label: 'Logs'");
+    expect(appSource).toContain("import { SuiyuanAppWindow } from './app/shell/SuiyuanAppWindow.jsx';");
+    expect(appSource).toContain('<SuiyuanAppWindow');
+    expect(suiyuanAppWindowSource).toContain('<ChatSidebarProjectTree');
+    expect(suiyuanAppWindowSource).not.toContain('<SidebarTaskSummary');
+    expect(suiyuanAppWindowSource).toContain("label: 'Chat'");
+    expect(suiyuanAppWindowSource).toContain("label: 'Plugins'");
+    expect(suiyuanAppWindowSource).toContain("label: 'Automation'");
+    expect(suiyuanAppWindowSource).toContain("label: 'Roles'");
+    expect(suiyuanAppWindowSource).toContain("label: 'Files'");
+    expect(suiyuanAppWindowSource).toContain("label: 'Memory'");
+    expect(suiyuanAppWindowSource).toContain("label: 'Logs'");
   });
 
   it('exposes a mobile workbench drawer so settings remains reachable', () => {
