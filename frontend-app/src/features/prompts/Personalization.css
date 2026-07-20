@@ -1,93 +1,250 @@
+/* 个性化页 Stitch 重设计：中性页头 + 白色统计卡片 + 白色表单/导入卡片。
+   本文件在 cascade 中最晚加载，负责覆盖 PagePrimitivesPolish 的基础布局与
+   styles.css 的 fusion-surface 卡片底，全部颜色走主题 token。 */
+
+/* 概览区退化为透明容器：标题与卡片直接落在页面底色上。 */
 .personalization-overview {
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  background: var(--surface);
-  padding: 20px;
-  box-shadow: 0 4px 12px color-mix(in srgb, var(--text-pri) 2%, transparent);
-  transition: all 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  margin-bottom: 24px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  padding: 0;
 }
 
-.personalization-overview:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 8px 20px color-mix(in srgb, var(--text-pri) 4%, transparent);
-  border-color: var(--border-strong);
-}
-
-.personalization-overview-hero .fusion-surface-glass dt {
+/* 页头行：左侧标题/副标题，右侧统计卡片；grid 列布局沿用基础层，不做改动。 */
+.personalization-overview-hero {
+  align-items: center;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
   color: var(--text-pri);
-  font-weight: 500;
+  padding: 0;
 }
 
-.personalization-overview-hero .fusion-surface-glass dd {
-  color: var(--ink);
-  font-weight: 700;
+.personalization-overview-copy span {
+  color: var(--text-muted);
+  font-size: var(--suiyuan-text-label-xs-size, 11px);
+  font-weight: 650;
+  letter-spacing: 0.08em;
+  line-height: var(--suiyuan-text-label-xs-line, 14px);
+  opacity: 1;
+  text-transform: uppercase;
+}
+
+.personalization-overview-copy h2 {
+  color: var(--text-pri);
+  font-size: var(--suiyuan-text-headline-size, 24px);
+  font-weight: 500;
+  line-height: var(--suiyuan-text-headline-line, 32px);
+}
+
+.personalization-overview-copy p {
+  color: var(--text-sec);
+  font-size: var(--suiyuan-text-body-size, 14px);
+  line-height: var(--suiyuan-text-body-line, 22px);
+  opacity: 1;
+}
+
+/* 统计卡片：白底（深色主题为抬升暗色面）、细边框、16px 圆角、深色文字。 */
+.personalization-overview dl {
+  gap: 12px;
 }
 
 .personalization-overview dl div {
-  border-radius: 8px !important;
-  border: 1px solid var(--border) !important;
-  background: var(--surface) !important;
-  padding: 12px 14px !important;
-  transition: all 0.25s cubic-bezier(0.2, 0.8, 0.2, 1);
+  display: grid;
+  align-content: center;
+  gap: 2px;
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--suiyuan-radius-card, 16px);
+  background: var(--surface);
+  padding: 14px 16px;
 }
 
-.personalization-overview dl div:hover {
-  transform: scale(1.03);
-  border-color: var(--accent);
-  box-shadow: 0 4px 12px color-mix(in srgb, var(--accent) 8%, transparent);
+.personalization-overview-hero .fusion-surface-glass dt {
+  color: var(--text-muted);
+  font-size: var(--suiyuan-text-label-xs-size, 11px);
+  font-weight: 650;
+  letter-spacing: 0.06em;
+  line-height: var(--suiyuan-text-label-xs-line, 14px);
+  opacity: 1;
+  text-transform: uppercase;
 }
 
+.personalization-overview-hero .fusion-surface-glass dd {
+  margin: 2px 0 0;
+  color: var(--text-pri);
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1.25;
+}
+
+/* 个人资料 / 导入记忆：白色 16px 卡片，平静的细边框，无悬浮位移。 */
 .personalization-profile-card {
-  border-radius: 12px !important;
-  border: 1px solid var(--border) !important;
-  background: var(--surface) !important;
-  padding: 24px !important;
-  box-shadow: 0 4px 12px color-mix(in srgb, var(--text-pri) 2%, transparent);
-  transition: all 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
+  min-width: 0;
+  gap: 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--suiyuan-radius-card, 16px);
+  background: var(--surface);
+  box-shadow: none;
+  padding: 24px;
 }
 
-.personalization-profile-card:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 10px 24px color-mix(in srgb, var(--text-pri) 5%, transparent);
-  border-color: var(--border-strong);
+.personalization-profile-card header {
+  align-items: center;
 }
 
+.personalization-profile-card header h3 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-pri);
+  font-size: 16px;
+  font-weight: 650;
+}
+
+.personalization-profile-icon {
+  flex: 0 0 auto;
+  color: var(--primary);
+}
+
+/* 状态 chip（已接入 / 等待项目等）：中性小药丸。 */
+.personalization-profile-card header span {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--text-sec);
+  font-size: var(--suiyuan-text-label-xs-size, 11px);
+  font-weight: 600;
+  line-height: var(--suiyuan-text-label-xs-line, 14px);
+  opacity: 1;
+  padding: 3px 10px;
+  white-space: nowrap;
+}
+
+/* 表单：昵称/职业两列，长文本字段占满整行。 */
+.personalization-form-grid {
+  gap: 14px;
+}
+
+.personalization-form-grid label {
+  color: var(--text-muted);
+  font-size: var(--suiyuan-text-label-size, 12px);
+  font-weight: 650;
+  letter-spacing: 0.02em;
+}
+
+.personalization-form-grid label:has(> textarea) {
+  grid-column: 1 / -1;
+}
+
+.personalization-form-grid input,
+.personalization-form-grid textarea {
+  border: 1px solid var(--border);
+  border-radius: var(--suiyuan-radius-control, 8px);
+  background: var(--surface-2);
+  color: var(--text-pri);
+  font-size: var(--suiyuan-text-body-size, 14px);
+  line-height: var(--suiyuan-text-body-line, 22px);
+  padding: 10px 12px;
+}
+
+.personalization-form-grid textarea {
+  min-height: 96px;
+  resize: vertical;
+}
+
+.personalization-form-grid input:focus,
+.personalization-form-grid textarea:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 2px var(--primary-soft);
+  outline: none;
+}
+
+/* 禁用字段保持明确可辨的引导样式（虚线边框 + 更浅的底）。 */
 .personalization-form-grid input:disabled,
 .personalization-form-grid textarea:disabled {
-  background: var(--surface-2) !important;
-  border: 1px dashed var(--border-strong) !important;
-  color: var(--text-sec) !important;
+  border: 1px dashed var(--border-strong);
+  background: var(--surface-3);
+  color: var(--text-sec);
   cursor: not-allowed;
-  opacity: 0.85;
-  border-radius: 6px !important;
-  transition: all 0.25s ease;
 }
 
-.personalization-form-grid input:disabled:hover,
-.personalization-form-grid textarea:disabled:hover {
-  border-color: var(--accent) !important;
-  background: var(--surface-3) !important;
+/* 暖橙主操作药丸：保存个人资料左对齐，导入记忆在卡片底部居中。 */
+.personalization-profile-card > button,
+.suiyuan-import-memory-content button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  justify-self: start;
+  min-height: 40px;
+  border: 1px solid var(--primary-action-border);
+  border-radius: 999px;
+  background: var(--primary-action-bg);
+  color: var(--primary-action-text);
+  cursor: pointer;
+  font-size: var(--suiyuan-text-body-size, 14px);
+  font-weight: 650;
+  padding: 0 22px;
+  transition: background var(--transition), border-color var(--transition);
+}
+
+.personalization-profile-card > button:hover:not(:disabled),
+.suiyuan-import-memory-content button:hover:not(:disabled) {
+  border-color: var(--primary-action-border);
+  background: var(--primary-action-bg-hover);
 }
 
 .personalization-profile-card button:disabled {
-  background: color-mix(in srgb, var(--text-pri) 6%, transparent) !important;
-  border: 1px solid var(--border) !important;
-  color: var(--text-muted) !important;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text-muted);
   cursor: not-allowed;
-  border-radius: 24px !important;
-  font-weight: 600;
-  padding: 12px 24px !important;
-  transition: all 0.25s ease;
 }
 
-/* ==========================================================================
-   Figure 2: Sidebar New Chat Alignment
-   ========================================================================== */
+/* 导入记忆卡片：图标在顶部，标题居中，按钮落在卡片底部。 */
+.suiyuan-import-memory-content {
+  gap: 14px;
+}
 
+.suiyuan-import-memory-icon {
+  box-sizing: content-box;
+  flex: 0 0 auto;
+  border-radius: 12px;
+  background: var(--suiyuan-primary-fixed);
+  color: var(--primary);
+  padding: 10px;
+}
+
+.suiyuan-import-memory-content h3 {
+  color: var(--text-pri);
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.suiyuan-import-memory-content p {
+  color: var(--text-sec);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.suiyuan-import-memory-content button {
+  align-self: center;
+}
+
+/* 字段级校验错误（role=alert）。 */
 .personalization-field-error {
   display: block;
   margin-top: 4px;
   color: var(--error);
-  font-size: 12px;
+  font-size: var(--suiyuan-text-label-size, 12px);
   line-height: 1.35;
 }

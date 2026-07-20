@@ -82,6 +82,15 @@ const SUIYUAN_NAV_ITEMS = Object.freeze([
   { id: 'memory', label: 'Memory', labelKey: 'memory', icon: Brain },
   { id: 'observability', label: 'Logs', labelKey: 'observability', icon: Database },
 ]);
+
+// 移动端底部导航：仅保留核心目的地，完整导航仍由抽屉侧栏提供。
+const SUIYUAN_MOBILE_NAV_ITEMS = Object.freeze([
+  { id: 'chat', labelKey: 'chatShort', icon: MessageSquareText },
+  { id: 'skills', labelKey: 'skillsShort', icon: Puzzle },
+  { id: 'prompts', labelKey: 'promptsShort', icon: CircleUserRound },
+  { id: 'memory', labelKey: 'memoryShort', icon: Brain },
+  { id: 'settings', labelKey: 'settings', icon: SettingsIcon },
+]);
 function appShortcutPlatform() {
   if (typeof navigator === 'undefined') throw new Error('browser shortcut platform is unavailable');
   const browserPlatform = `${String(navigator.platform)} ${String(navigator.userAgent)}`.toLowerCase();
@@ -526,6 +535,31 @@ function SuiyuanSidebar({ copy, projectPath, sidebar, store }) {
   );
 }
 
+function SuiyuanMobileNav({ activePage, copy, setActivePage }) {
+  return (
+    <nav className="suiyuan-mobile-nav" data-testid="mobile-nav" aria-label={copy.workbench.mobileNavAriaLabel}>
+      {SUIYUAN_MOBILE_NAV_ITEMS.map((item) => {
+        const Icon = item.icon;
+        const active = activePage === item.id;
+        const label = copy.nav[item.labelKey] || copy.nav[item.id] || item.id;
+        return (
+          <button
+            key={item.id}
+            type="button"
+            className={`suiyuan-mobile-nav-item${active ? ' active' : ''}`}
+            onClick={() => setActivePage(item.id)}
+            aria-label={label}
+            aria-current={active ? 'page' : undefined}
+          >
+            <Icon size={20} aria-hidden="true" />
+            <span>{label}</span>
+          </button>
+        );
+      })}
+    </nav>
+  );
+}
+
 function useAppShellState(store, skipBootstrap) {
   const appStore = useClientStore();
   const routeBootstrapPending = !skipBootstrap && !['ready', 'failed'].includes(store.bootstrapStatus);
@@ -640,7 +674,7 @@ function AppWindow({ language, shell, shellLayoutStore, shortcutController, stor
   });
   useAppCommandDispatcher({ runtime: commandRuntime });
   return (
-    <div className={`sa-window suiyuan-shell${sidebarOpen ? ' sidebar-open' : ' sidebar-collapsed'}`} data-command-palette-open={paletteOpen} data-theme={theme} data-testid="frontend-app">
+    <div className={`sa-window suiyuan-shell${sidebarOpen ? ' sidebar-open' : ' sidebar-collapsed'}`} data-command-palette-open={paletteOpen} data-brand="suiyuan" data-theme={theme} data-testid="frontend-app">
       {shortcutController?.status === 'error' ? (
         <output role="alert" data-testid="shortcut-config-error">{shortcutController.error}</output>
       ) : null}
@@ -721,6 +755,7 @@ function AppWindow({ language, shell, shellLayoutStore, shortcutController, stor
           </div>
         </main>
       </div>
+      <SuiyuanMobileNav activePage={store.activePage} copy={copy} setActivePage={setActivePageFromSidebar} />
       <AppCommandPalette copy={copy.commands} onClose={() => setPaletteOpen(false)} open={paletteOpen} runtime={commandRuntime} />
     </div>
   );

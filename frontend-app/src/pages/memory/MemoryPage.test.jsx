@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MemoryPage } from './MemoryPage.jsx';
 import { normalizeMemorySnapshot } from '../../adapters/memoryAdapter.js';
 import { fetchMemoryDashboard, upsertMemoryEntry } from './services/memoryPageService.js';
+import { APP_COPY } from '../../shared/i18n/appI18n.js';
 
 const backend = vi.hoisted(() => ({
   deleteMemoryEntry: vi.fn(),
@@ -93,6 +94,35 @@ async function flushPromises(count = 6) {
 describe('MemoryPage module export', () => {
   it('exports the memory page component', () => {
     expect(MemoryPage).toBeTypeOf('function');
+  });
+});
+
+describe('MemoryPage hero copy', () => {
+  it('renders the zh hero title and subtitle from the memory copy contract', async () => {
+    renderMemoryPage();
+
+    expect(await screen.findByText('暂无记忆')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: '记忆中心' })).toBeInTheDocument();
+    expect(screen.getByText('管理并观察 AI 的上下文记忆留存。')).toBeInTheDocument();
+  });
+
+  it('renders the en hero title and subtitle from the memory copy contract', async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false },
+        mutations: { retry: false },
+      },
+    });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryPage copy={APP_COPY.en.memory} projectPath="/repo/app" />
+      </QueryClientProvider>,
+    );
+
+    expect(await screen.findByText('No Memories Yet')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Memory' })).toBeInTheDocument();
+    expect(screen.getByText("Manage and observe your AI's contextual retention.")).toBeInTheDocument();
+    expect(screen.queryByText('管理并观察 AI 的上下文记忆留存。')).not.toBeInTheDocument();
   });
 });
 

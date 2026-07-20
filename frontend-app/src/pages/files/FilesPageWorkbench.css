@@ -14,19 +14,17 @@
 .file-row {
   background: var(--surface) !important;
   border: 1px solid var(--border) !important;
-  border-radius: 16px !important;
+  border-radius: var(--suiyuan-radius-card) !important;
   padding: 20px !important;
   display: flex;
   flex-direction: column;
-  --file-row-shadow: 0 1px 3px rgba(0, 0, 0, 0.02);
-  box-shadow: var(--file-row-shadow);
+  box-shadow: none;
   transition: all 150ms ease;
 }
 
 .file-row:hover {
   border-color: var(--border-strong) !important;
-  --file-row-shadow-hover: 0 4px 12px rgba(0, 0, 0, 0.04);
-  box-shadow: var(--file-row-shadow-hover);
+  box-shadow: var(--suiyuan-card-shadow);
 }
 
 .file-row header {
@@ -71,21 +69,9 @@
 }
 
 .file-row.is-final-output header span {
-  --final-badge-bg: rgba(16, 185, 129, 0.08);
-  --final-badge-border: rgba(16, 185, 129, 0.2);
-  --final-badge-color: #10b981;
-  background: var(--final-badge-bg) !important;
-  border-color: var(--final-badge-border) !important;
-  color: var(--final-badge-color) !important;
-}
-
-.file-row:not(.is-final-output) header span {
-  --work-badge-bg: rgba(59, 130, 246, 0.08);
-  --work-badge-border: rgba(59, 130, 246, 0.2);
-  --work-badge-color: #3b82f6;
-  background: var(--work-badge-bg) !important;
-  border-color: var(--work-badge-border) !important;
-  color: var(--work-badge-color) !important;
+  background: color-mix(in srgb, var(--success) 8%, var(--surface)) !important;
+  border-color: color-mix(in srgb, var(--success) 45%, var(--border)) !important;
+  color: var(--success) !important;
 }
 
 .file-row p {
@@ -96,7 +82,7 @@
 
 .file-path-container {
   background: var(--surface-2);
-  border-radius: 8px;
+  border-radius: var(--suiyuan-radius-control);
   padding: 6px 12px;
   margin-bottom: 12px;
   border: 1px solid var(--border);
@@ -174,22 +160,21 @@
   border-color: var(--border-strong);
 }
 
+.file-row-actions button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
 .file-row-actions button.text-danger {
-  --danger-color: #ef4444;
-  --danger-border: rgba(239, 68, 68, 0.2);
-  --danger-bg: rgba(239, 68, 68, 0.04);
-  color: var(--danger-color) !important;
-  border-color: var(--danger-border) !important;
-  background: var(--danger-bg) !important;
+  color: var(--error) !important;
+  border-color: color-mix(in srgb, var(--error) 30%, var(--border)) !important;
+  background: color-mix(in srgb, var(--error) 6%, var(--surface)) !important;
 }
 
 .file-row-actions button.text-danger:hover {
-  --danger-bg-hover: rgba(239, 68, 68, 0.08);
-  --danger-color-hover: #ef4444;
-  --danger-border-hover: #ef4444;
-  background: var(--danger-bg-hover) !important;
-  border-color: var(--danger-border-hover) !important;
-  color: var(--danger-color-hover) !important;
+  background: color-mix(in srgb, var(--error) 10%, var(--surface)) !important;
+  border-color: color-mix(in srgb, var(--error) 55%, var(--border)) !important;
+  color: var(--error) !important;
 }
 
 

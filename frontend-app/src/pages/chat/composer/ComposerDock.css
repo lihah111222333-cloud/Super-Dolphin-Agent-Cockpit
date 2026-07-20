@@ -58,10 +58,11 @@
   --primary-soft: var(--suiyuan-primary-fixed);
   --info: var(--suiyuan-primary);
   --blue: var(--suiyuan-primary);
-  --primary-action-bg: var(--suiyuan-primary);
+  /* 暗色发送圆钮：饱和主色底 + 近白箭头（Stitch 设计） */
+  --primary-action-bg: var(--suiyuan-primary-container);
   --primary-action-bg-hover: var(--suiyuan-primary-deep);
-  --primary-action-border: var(--suiyuan-primary);
-  --primary-action-text: var(--suiyuan-background);
+  --primary-action-border: var(--suiyuan-primary-container);
+  --primary-action-text: var(--suiyuan-inverse-surface);
   --primary-action-shadow: var(--suiyuan-input-shadow);
   background: linear-gradient(
     to top,
@@ -69,6 +70,14 @@
     color-mix(in srgb, var(--bg) 96%, transparent) 64%,
     transparent 100%
   );
+}
+
+/* 暗色浮动 composer 的附件/图片按钮按设计保持无底色纯图标 */
+.sa-window[data-theme="dark"] .composer.composer--floating[data-file-drop-target] .composer-attach,
+.sa-window[data-theme="dark"] .composer.composer--floating[data-file-drop-target] .composer-attach-image {
+  border-color: transparent;
+  background: transparent;
+  color: var(--text-muted);
 }
 
 .sa-window .composer.composer--floating[data-file-drop-target] {
@@ -195,7 +204,7 @@
   margin: 0 auto;
   border: 1px solid var(--line);
   border-color: var(--line);
-  border-radius: 20px;
+  border-radius: var(--suiyuan-radius-input);
   background: var(--surface);
   box-shadow: var(--suiyuan-input-shadow), var(--suiyuan-input-highlight);
 }
@@ -209,7 +218,7 @@
   margin: 0 auto;
   padding: 0;
   border: 1px solid color-mix(in srgb, var(--line) 82%, var(--surface));
-  border-radius: 20px;
+  border-radius: var(--suiyuan-radius-input);
   background: var(--suiyuan-surface-lowest, var(--surface));
   box-shadow: var(--suiyuan-input-shadow), var(--suiyuan-input-highlight);
   overflow: visible;
@@ -244,7 +253,7 @@
 }
 
 .sa-window[data-theme="light"] .conversation--intro .composer-disclaimer {
-  color: var(--suiyuan-secondary-fixed-dim);
+  color: var(--suiyuan-on-surface-variant);
 }
 
 .sa-window[data-theme="dark"] .composer.composer--floating[data-file-drop-target] .composer-card {
@@ -284,7 +293,7 @@
   padding: 18px 20px 12px;
   border: 0;
   border-bottom: 1px solid var(--border);
-  border-radius: 20px 20px 0 0;
+  border-radius: var(--suiyuan-radius-input) var(--suiyuan-radius-input) 0 0;
   background: transparent;
   color: var(--text-pri);
   font-size: 15px;

@@ -20,9 +20,30 @@
   --suiyuan-primary-deep: #792b00;
   --suiyuan-primary-fixed: #ffdbcd;
   --suiyuan-primary-fixed-dim: #ffb597;
+  --suiyuan-primary-container: #c84d05;
+  --suiyuan-inverse-surface: #30312c;
+  --suiyuan-inverse-on-surface: #f2f1ea;
   --suiyuan-sidebar-width: 280px;
   --suiyuan-content-max-width: 1100px;
   --suiyuan-gutter: 24px;
+  --suiyuan-page-margin: 32px;
+  --suiyuan-mobile-padding: 16px;
+  --suiyuan-radius-card: 16px;
+  --suiyuan-radius-input: 24px;
+  --suiyuan-radius-control: 8px;
+  --suiyuan-text-display-size: 40px;
+  --suiyuan-text-display-line: 52px;
+  --suiyuan-text-headline-size: 24px;
+  --suiyuan-text-headline-line: 32px;
+  --suiyuan-text-body-large-size: 18px;
+  --suiyuan-text-body-large-line: 28px;
+  --suiyuan-text-body-size: 14px;
+  --suiyuan-text-body-line: 22px;
+  --suiyuan-text-label-size: 12px;
+  --suiyuan-text-label-line: 16px;
+  --suiyuan-text-label-xs-size: 11px;
+  --suiyuan-text-label-xs-line: 14px;
+  --suiyuan-mobile-nav-height: 64px;
   --suiyuan-card-shadow: 0 20px 40px -10px rgba(0, 0, 0, 0.05);
   --suiyuan-input-shadow: 0 8px 30px rgba(0, 0, 0, 0.04);
   --suiyuan-input-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.82);
@@ -81,15 +102,16 @@
   --text: var(--text-pri);
   --font-cjk: Inter, Outfit, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Segoe UI", sans-serif;
   --suiyuan-switch-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
-  --suiyuan-fusion-bg: linear-gradient(135deg, #a03b00, #ffb597);
+  /* Luminous Minimalist: fusion 表面统一为中性暖色卡片，禁止廉价渐变。 */
+  --suiyuan-fusion-bg: var(--surface);
   --suiyuan-fusion-border: var(--border);
-  --suiyuan-fusion-color: #ffffff;
-  --suiyuan-fusion-shadow: 0 10px 30px rgba(160, 59, 0, 0.15);
-  --suiyuan-beta-bg: rgba(255, 255, 255, 0.2);
-  --suiyuan-beta-color: #ffffff;
-  --suiyuan-fusion-btn-bg: #ffffff;
-  --suiyuan-fusion-btn-color: #a03b00;
-  --suiyuan-fusion-btn-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  --suiyuan-fusion-color: var(--text-pri);
+  --suiyuan-fusion-shadow: var(--suiyuan-card-shadow);
+  --suiyuan-beta-bg: var(--surface-2);
+  --suiyuan-beta-color: var(--text-sec);
+  --suiyuan-fusion-btn-bg: var(--primary-action-bg);
+  --suiyuan-fusion-btn-color: var(--primary-action-text);
+  --suiyuan-fusion-btn-shadow: none;
   /* MCP 工具卡片：浅色主题下使用统一深灰底，保证白色文字对比度 */
   --mcp-card-bg: #34362f;
   --mcp-card-bg-hover: #3d4037;
@@ -155,14 +177,16 @@
   --purple: var(--primary);
   --text: var(--text-pri);
   --suiyuan-switch-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
-  --suiyuan-fusion-bg: linear-gradient(135deg, #1e1f1b, #2a2c27);
-  --suiyuan-fusion-border: #3d3e3a;
+  --suiyuan-inverse-surface: #f2f1ea;
+  --suiyuan-inverse-on-surface: #30312c;
+  --suiyuan-fusion-bg: var(--surface-2);
+  --suiyuan-fusion-border: var(--border);
   --suiyuan-fusion-color: var(--text-pri);
   --suiyuan-fusion-shadow: none;
-  --suiyuan-beta-bg: rgba(255, 181, 151, 0.15);
-  --suiyuan-beta-color: var(--primary);
-  --suiyuan-fusion-btn-bg: var(--primary);
-  --suiyuan-fusion-btn-color: var(--primary-ink);
+  --suiyuan-beta-bg: var(--surface-3);
+  --suiyuan-beta-color: var(--text-sec);
+  --suiyuan-fusion-btn-bg: var(--primary-action-bg);
+  --suiyuan-fusion-btn-color: var(--primary-action-text);
   --suiyuan-fusion-btn-shadow: none;
   /* MCP 工具卡片：深色主题下使用比页面稍亮的暗灰底，文字保持近白 */
   --mcp-card-bg: #242620;
@@ -218,7 +242,7 @@ select {
 .fusion-surface {
   background: var(--suiyuan-fusion-bg);
   border: 1px solid var(--suiyuan-fusion-border);
-  border-radius: 16px;
+  border-radius: var(--suiyuan-radius-card);
   box-shadow: var(--suiyuan-fusion-shadow);
   color: var(--suiyuan-fusion-color);
   padding: 24px;
@@ -226,15 +250,15 @@ select {
 
 .fusion-surface-glass {
   background: var(--suiyuan-beta-bg);
-  color: inherit;
-  border: 1px solid var(--suiyuan-beta-bg);
+  color: var(--text-pri);
+  border: 1px solid var(--line);
   border-radius: 12px;
 }
 
 .fusion-toolbar {
   background: var(--suiyuan-fusion-bg);
   border: 1px solid var(--suiyuan-fusion-border);
-  border-radius: 16px;
+  border-radius: var(--suiyuan-radius-card);
   box-shadow: var(--suiyuan-fusion-shadow);
   color: var(--suiyuan-fusion-color);
   padding: 12px 18px;
@@ -247,7 +271,7 @@ select {
   background: var(--surface);
   border: 1px solid var(--line);
   color: var(--ink);
-  border-radius: 16px;
+  border-radius: var(--suiyuan-radius-input);
   padding: 0 12px;
   height: 36px;
 }
@@ -264,17 +288,18 @@ select {
   align-items: center;
   justify-content: center;
   gap: 6px;
-  transition: opacity 150ms ease;
+  transition: background 150ms ease, opacity 150ms ease;
 }
 
 .suiyuan-btn-fusion:hover:not(:disabled) {
-  opacity: 0.9;
+  background: var(--primary-action-bg-hover);
+  opacity: 1;
 }
 
 .suiyuan-btn-fusion-ghost {
   background: var(--suiyuan-beta-bg);
-  color: inherit;
-  border: none;
+  color: var(--text-pri);
+  border: 1px solid var(--line);
   border-radius: 999px;
   padding: 6px 16px;
   font-weight: 600;
@@ -286,5 +311,5 @@ select {
 }
 
 .suiyuan-btn-fusion-ghost:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--suiyuan-beta-bg) 80%, white 20%);
+  background: var(--surface-3);
 }
