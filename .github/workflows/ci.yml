@@ -166,7 +166,8 @@ jobs:
         shell: bash
         run: |
           ./scripts/test_with_guard.sh ./cmd/super-dolphin-updater -run 'Test(Guard|ConfigureGuard)' -count=1
-          ./scripts/test_with_guard.sh ./scripts -run 'Test(PackageWindows|VerifyPackagedAppWindows)' -count=1
+          ./scripts/test_with_guard.sh ./cmd/super-dolphin-guard -run 'TestGuard.*(Rollback|Probation|PIDReuse|Termination)' -count=1
+          ./scripts/test_with_guard.sh ./scripts -run '^TestWindowsPackageVerifierAcceptsRealFixture$' -count=1
 
   update-recovery-release-gate-linux-supplemental:
     needs: commit-guard

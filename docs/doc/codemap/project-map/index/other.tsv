@@ -648,14 +648,15 @@ scripts/tests/test_codex_stop_gate_plan.sh	scripts	other	script	10917	工程自�
 scripts/uat-p21.sh	scripts	other	script	9595	工程自动化、测试守卫、代码地图与开发脚本	scripts,uat,p21,工程自动化,测试守卫,代码地图与开发脚本
 scripts/ui-coverage.sh	scripts	other	script	8745	工程自动化、测试守卫、代码地图与开发脚本	scripts,ui,coverage,工程自动化,测试守卫,代码地图与开发脚本
 scripts/update_apiserver_guard_snapshots.js	scripts	other	js-source	1920	工程自动化、测试守卫、代码地图与开发脚本	scripts,update,apiserver,guard,snapshots,工程自动化,测试守卫,代码地图与开发脚本
-scripts/update_recovery_release_gate_guard_test.go	scripts	other	go-test	3392	工程自动化、测试守卫、代码地图与开发脚本	scripts,update,recovery,release,gate,guard,test,工程自动化,测试守卫,代码地图与开发脚本
-scripts/update_recovery_release_gate.sh	scripts	other	script	184	工程自动化、测试守卫、代码地图与开发脚本	scripts,update,recovery,release,gate,工程自动化,测试守卫,代码地图与开发脚本
+scripts/update_recovery_release_gate_guard_test.go	scripts	other	go-test	14305	工程自动化、测试守卫、代码地图与开发脚本	scripts,update,recovery,release,gate,guard,test,工程自动化,测试守卫,代码地图与开发脚本
+scripts/update_recovery_release_gate.sh	scripts	other	script	252	工程自动化、测试守卫、代码地图与开发脚本	scripts,update,recovery,release,gate,工程自动化,测试守卫,代码地图与开发脚本
 scripts/validate_risk_evidence.py	scripts	other	py	7460	工程自动化、测试守卫、代码地图与开发脚本	scripts,validate,risk,evidence,工程自动化,测试守卫,代码地图与开发脚本
 scripts/validate_super_agent_skills_contract_test.go	scripts	other	go-test	3092	工程自动化、测试守卫、代码地图与开发脚本	scripts,validate,super,agent,skills,contract,test,工程自动化,测试守卫,代码地图与开发脚本
 scripts/validate_super_agent_skills.py	scripts	other	py	14869	工程自动化、测试守卫、代码地图与开发脚本	scripts,validate,super,agent,skills,工程自动化,测试守卫,代码地图与开发脚本
 scripts/verify_packaged_app_linux.sh	scripts	other	script	18011	工程自动化、测试守卫、代码地图与开发脚本	scripts,verify,packaged,app,linux,工程自动化,测试守卫,代码地图与开发脚本
 scripts/verify_packaged_app_macos.sh	scripts	other	script	26294	工程自动化、测试守卫、代码地图与开发脚本	scripts,verify,packaged,app,macos,工程自动化,测试守卫,代码地图与开发脚本
 scripts/verify_packaged_app_windows.ps1	scripts	other	script	20498	工程自动化、测试守卫、代码地图与开发脚本	scripts,verify,packaged,app,windows,工程自动化,测试守卫,代码地图与开发脚本
+scripts/windows_package_verifier_fixture_windows_test.go	scripts	other	go-test	7208	工程自动化、测试守卫、代码地图与开发脚本	scripts,windows,package,verifier,fixture,test,工程自动化,测试守卫,代码地图与开发脚本
 scripts/windows_test_helpers_test.go	scripts	other	go-test	317	工程自动化、测试守卫、代码地图与开发脚本	scripts,windows,test,helpers,工程自动化,测试守卫,代码地图与开发脚本
 test/fixtures/p21/cron/README.md	test	other	doc	789	Repository test fixtures	test,fixtures,p21,cron,README,Repository
 test/fixtures/p21/prompt-injection/samples.txt	test	other	txt	798	Repository test fixtures	test,fixtures,p21,prompt,injection,samples,Repository
