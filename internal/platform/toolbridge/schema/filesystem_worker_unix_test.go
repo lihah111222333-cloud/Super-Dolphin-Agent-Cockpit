@@ -497,6 +497,55 @@ func TestTerminateProcessTreeSignalsLeasedGroup(t *testing.T) {
 	}
 }
 
+func TestStopAndReapLateWaitResultReleasesLimiterCapacity(t *testing.T) {
+	cmd, guard := startGuardedUnixTestProcess(t, "sleep 30")
+	releaseWaitResult := make(chan struct{})
+	released := false
+	defer func() {
+		if !released {
+			close(releaseWaitResult)
+		}
+	}()
+	guard.beforeWaitResultPublish = func() {
+		<-releaseWaitResult
+	}
+	waitResult := make(chan error, 1)
+	safego.Go(context.Background(), nil, "toolbridge.schema-late-reap-test.wait", func(context.Context) {
+		waitResult <- waitGuardedProcess(cmd, guard)
+	})
+	limiter := newHelperLimiter(1)
+	if _, err := limiter.run(context.Background(), func(releaseAfterReap func()) (Result, error) {
+		return Result{}, stopAndReap(
+			cmd,
+			guard,
+			waitResult,
+			CodeTimeout,
+			"fixture timed out",
+			context.DeadlineExceeded,
+			releaseAfterReap,
+		)
+	}); ErrorCode(err) != CodeReapFailed {
+		t.Fatalf("limiter.run() code = %q, want %q; error=%v", ErrorCode(err), CodeReapFailed, err)
+	}
+	started := false
+	if _, err := limiter.run(context.Background(), func(func()) (Result, error) {
+		started = true
+		return Result{}, nil
+	}); ErrorCode(err) != CodeCapacityExhausted {
+		t.Fatalf("capacity code = %q, want %q; error=%v", ErrorCode(err), CodeCapacityExhausted, err)
+	}
+	if started {
+		t.Fatal("operation started before the original Wait result confirmed exit")
+	}
+	close(releaseWaitResult)
+	released = true
+	if _, err := limiter.run(context.Background(), func(func()) (Result, error) {
+		return Result{}, nil
+	}); err != nil {
+		t.Fatalf("limiter.run() after original Wait result error = %v", err)
+	}
+}
+
 func TestWaitPublishBarrierLeasesGroupAcrossPIDReuseWindow(t *testing.T) {
 	cmd, guard := startGuardedUnixTestProcess(t, "sleep 0.05")
 	waitCompleted := make(chan struct{})
@@ -524,7 +573,7 @@ func TestWaitPublishBarrierLeasesGroupAcrossPIDReuseWindow(t *testing.T) {
 	safego.Go(ctx, nil, "toolbridge.schema-wait-publish-barrier-test", func(context.Context) {
 		_, err := waitFilesystemWorker(
 			ctx, ctx, filesystemWorkerSweep, cmd, guard,
-			&boundedBuffer{limit: 64}, &boundedBuffer{limit: 64}, 0,
+			&boundedBuffer{limit: 64}, &boundedBuffer{limit: 64}, 0, nil,
 		)
 		result <- err
 	})

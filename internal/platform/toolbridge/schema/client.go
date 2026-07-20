@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/pidregistry"
@@ -134,8 +135,8 @@ func (client *Client) Execute(ctx context.Context, invocation Invocation, fence 
 	if err := fence(operationCtx, FenceBeforeLaunch, identity); err != nil {
 		return Result{}, newDiagnostic(CodeGenerationStale, "authority changed before helper launch", err)
 	}
-	return globalHelperLimiter.run(operationCtx, func() (Result, error) {
-		return client.executeProcess(ctx, operationCtx, request, identity, fence)
+	return globalHelperLimiter.run(operationCtx, func(releaseAfterReap func()) (Result, error) {
+		return client.executeProcess(ctx, operationCtx, request, identity, fence, releaseAfterReap)
 	})
 }
 
@@ -146,6 +147,7 @@ func (client *Client) executeProcess(
 	request protocolRequest,
 	identity FenceIdentity,
 	fence FenceHook,
+	releaseAfterReap func(),
 ) (result Result, resultErr error) {
 	encodedRequest, err := json.Marshal(request)
 	if err != nil {
@@ -157,7 +159,7 @@ func (client *Client) executeProcess(
 	if err := operationContextError(parentCtx, operationCtx); err != nil {
 		return Result{}, err
 	}
-	raw, err := client.executeInFilesystemWorker(parentCtx, operationCtx, encodedRequest)
+	raw, err := client.executeInFilesystemWorker(parentCtx, operationCtx, encodedRequest, releaseAfterReap)
 	if err != nil {
 		return Result{}, err
 	}
@@ -175,13 +177,22 @@ func operationContextError(parentCtx, operationCtx context.Context) error {
 }
 
 // run 获取一个全局 helper 槽，并仅在已确认没有未回收进程时归还。
-func (limiter *helperLimiter) run(ctx context.Context, operation func() (Result, error)) (Result, error) {
+func (limiter *helperLimiter) run(
+	ctx context.Context,
+	operation func(releaseAfterReap func()) (Result, error),
+) (Result, error) {
 	if err := limiter.acquire(ctx); err != nil {
 		return Result{}, err
 	}
-	result, err := operation()
+	var releaseOnce sync.Once
+	release := func() {
+		releaseOnce.Do(func() {
+			<-limiter.slots
+		})
+	}
+	result, err := operation(release)
 	if !errorTreeContainsCode(err, CodeReapFailed) {
-		<-limiter.slots
+		release()
 	}
 	return result, err
 }
@@ -282,6 +293,7 @@ func resultFromResponse(response protocolResponse) Result {
 	return result
 }
 
+// stopAndReap 终止并限时回收进程；超时后仅在原 Wait 迟到确认退出时释放容量。
 func stopAndReap(
 	cmd *exec.Cmd,
 	guard *processGuard,
@@ -289,6 +301,7 @@ func stopAndReap(
 	code Code,
 	message string,
 	cause error,
+	releaseAfterReap func(),
 ) error {
 	terminateErr := terminateProcessTree(cmd, guard)
 	timer := time.NewTimer(reapDeadline)
@@ -302,6 +315,12 @@ func stopAndReap(
 		return newDiagnostic(code, message, cause)
 	case <-timer.C:
 		closeErr := closeProcessGuard(guard)
+		if releaseAfterReap != nil {
+			safego.Go(context.Background(), nil, "toolbridge.schema-helper.late-reap", func(context.Context) {
+				<-waitResult
+				releaseAfterReap()
+			})
+		}
 		return newDiagnostic(
 			CodeReapFailed,
 			"schema helper was not reaped within one second",
