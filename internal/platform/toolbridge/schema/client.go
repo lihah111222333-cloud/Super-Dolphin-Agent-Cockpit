@@ -28,6 +28,17 @@ type helperLimiter struct {
 	slots chan struct{}
 }
 
+// helperCapacityTracker 让一个 limiter 槽等待本次操作登记的全部迟到回收。
+type helperCapacityTracker struct {
+	mu          sync.Mutex
+	releaseOnce sync.Once
+	finishOnce  sync.Once
+	release     func()
+	pending     int
+	registered  bool
+	finished    bool
+}
+
 func newHelperLimiter(limit int) *helperLimiter {
 	return &helperLimiter{slots: make(chan struct{}, limit)}
 }
@@ -135,8 +146,8 @@ func (client *Client) Execute(ctx context.Context, invocation Invocation, fence 
 	if err := fence(operationCtx, FenceBeforeLaunch, identity); err != nil {
 		return Result{}, newDiagnostic(CodeGenerationStale, "authority changed before helper launch", err)
 	}
-	return globalHelperLimiter.run(operationCtx, func(releaseAfterReap func()) (Result, error) {
-		return client.executeProcess(ctx, operationCtx, request, identity, fence, releaseAfterReap)
+	return globalHelperLimiter.run(operationCtx, func(capacity *helperCapacityTracker) (Result, error) {
+		return client.executeProcess(ctx, operationCtx, request, identity, fence, capacity)
 	})
 }
 
@@ -147,7 +158,7 @@ func (client *Client) executeProcess(
 	request protocolRequest,
 	identity FenceIdentity,
 	fence FenceHook,
-	releaseAfterReap func(),
+	capacity *helperCapacityTracker,
 ) (result Result, resultErr error) {
 	encodedRequest, err := json.Marshal(request)
 	if err != nil {
@@ -159,7 +170,7 @@ func (client *Client) executeProcess(
 	if err := operationContextError(parentCtx, operationCtx); err != nil {
 		return Result{}, err
 	}
-	raw, err := client.executeInFilesystemWorker(parentCtx, operationCtx, encodedRequest, releaseAfterReap)
+	raw, err := client.executeInFilesystemWorker(parentCtx, operationCtx, encodedRequest, capacity)
 	if err != nil {
 		return Result{}, err
 	}
@@ -179,22 +190,64 @@ func operationContextError(parentCtx, operationCtx context.Context) error {
 // run 获取一个全局 helper 槽，并仅在已确认没有未回收进程时归还。
 func (limiter *helperLimiter) run(
 	ctx context.Context,
-	operation func(releaseAfterReap func()) (Result, error),
+	operation func(capacity *helperCapacityTracker) (Result, error),
 ) (Result, error) {
 	if err := limiter.acquire(ctx); err != nil {
 		return Result{}, err
 	}
-	var releaseOnce sync.Once
-	release := func() {
-		releaseOnce.Do(func() {
-			<-limiter.slots
-		})
+	capacity := &helperCapacityTracker{
+		release: func() { <-limiter.slots },
+		pending: 1,
 	}
-	result, err := operation(release)
-	if !errorTreeContainsCode(err, CodeReapFailed) {
-		release()
-	}
+	result, err := operation(capacity)
+	capacity.finish(errorTreeContainsCode(err, CodeReapFailed))
 	return result, err
+}
+
+// registerLateReap 为一个尚未确认退出的进程登记独立引用，并返回幂等完成函数。
+func (tracker *helperCapacityTracker) registerLateReap() func() {
+	tracker.mu.Lock()
+	tracker.pending++
+	tracker.registered = true
+	tracker.mu.Unlock()
+	var completeOnce sync.Once
+	return func() {
+		completeOnce.Do(tracker.completeLateReap)
+	}
+}
+
+// finish 封闭登记窗口；存在无受管确认路径的 reap failure 时永久保留基准引用。
+func (tracker *helperCapacityTracker) finish(reapFailed bool) {
+	tracker.finishOnce.Do(func() {
+		tracker.mu.Lock()
+		tracker.finished = true
+		if reapFailed && !tracker.registered {
+			tracker.mu.Unlock()
+			return
+		}
+		tracker.pending--
+		shouldRelease := tracker.pending == 0
+		tracker.mu.Unlock()
+		if shouldRelease {
+			tracker.releaseCapacity()
+		}
+	})
+}
+
+// completeLateReap 结清一个迟到回收引用，并在操作已结束且引用清零时释放容量。
+func (tracker *helperCapacityTracker) completeLateReap() {
+	tracker.mu.Lock()
+	tracker.pending--
+	shouldRelease := tracker.finished && tracker.pending == 0
+	tracker.mu.Unlock()
+	if shouldRelease {
+		tracker.releaseCapacity()
+	}
+}
+
+// releaseCapacity 保证一个 limiter 槽最多归还一次。
+func (tracker *helperCapacityTracker) releaseCapacity() {
+	tracker.releaseOnce.Do(tracker.release)
 }
 
 func (limiter *helperLimiter) acquire(ctx context.Context) error {
@@ -301,7 +354,7 @@ func stopAndReap(
 	code Code,
 	message string,
 	cause error,
-	releaseAfterReap func(),
+	capacity *helperCapacityTracker,
 ) error {
 	terminateErr := terminateProcessTree(cmd, guard)
 	timer := time.NewTimer(reapDeadline)
@@ -315,10 +368,11 @@ func stopAndReap(
 		return newDiagnostic(code, message, cause)
 	case <-timer.C:
 		closeErr := closeProcessGuard(guard)
-		if releaseAfterReap != nil {
+		if capacity != nil {
+			completeLateReap := capacity.registerLateReap()
 			safego.Go(context.Background(), nil, "toolbridge.schema-helper.late-reap", func(context.Context) {
 				<-waitResult
-				releaseAfterReap()
+				completeLateReap()
 			})
 		}
 		return newDiagnostic(

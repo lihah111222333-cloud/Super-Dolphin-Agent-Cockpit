@@ -497,8 +497,7 @@ func TestTerminateProcessTreeSignalsLeasedGroup(t *testing.T) {
 	}
 }
 
-func TestStopAndReapLateWaitResultReleasesLimiterCapacity(t *testing.T) {
-	cmd, guard := startGuardedUnixTestProcess(t, "sleep 30")
+func TestCleanupWorkerLateReapReleasesLimiterCapacity(t *testing.T) {
 	releaseWaitResult := make(chan struct{})
 	released := false
 	defer func() {
@@ -506,43 +505,93 @@ func TestStopAndReapLateWaitResultReleasesLimiterCapacity(t *testing.T) {
 			close(releaseWaitResult)
 		}
 	}()
-	guard.beforeWaitResultPublish = func() {
-		<-releaseWaitResult
-	}
-	waitResult := make(chan error, 1)
-	safego.Go(context.Background(), nil, "toolbridge.schema-late-reap-test.wait", func(context.Context) {
-		waitResult <- waitGuardedProcess(cmd, guard)
-	})
+	operationCtx, cancel := context.WithCancel(context.Background())
 	limiter := newHelperLimiter(1)
-	if _, err := limiter.run(context.Background(), func(releaseAfterReap func()) (Result, error) {
-		return Result{}, stopAndReap(
-			cmd,
-			guard,
-			waitResult,
-			CodeTimeout,
-			"fixture timed out",
-			context.DeadlineExceeded,
-			releaseAfterReap,
+	if _, err := limiter.run(context.Background(), func(capacity *helperCapacityTracker) (Result, error) {
+		_, runErr := runFilesystemWorkerWithAttacher(
+			context.Background(), operationCtx, "ignored",
+			func(string) *exec.Cmd { return exec.Command("sleep", "30") },
+			nil, filesystemWorkerRequest{Version: filesystemWorkerVersion, Operation: filesystemWorkerCleanup},
+			nil, 0,
+			func(cmd *exec.Cmd, guard *processGuard) error {
+				if err := attachProcessGuard(cmd, guard); err != nil {
+					return err
+				}
+				guard.beforeWaitResultPublish = func() { <-releaseWaitResult }
+				cancel()
+				return nil
+			},
+			capacity,
 		)
+		return Result{}, runErr
 	}); ErrorCode(err) != CodeReapFailed {
 		t.Fatalf("limiter.run() code = %q, want %q; error=%v", ErrorCode(err), CodeReapFailed, err)
 	}
-	started := false
-	if _, err := limiter.run(context.Background(), func(func()) (Result, error) {
-		started = true
-		return Result{}, nil
-	}); ErrorCode(err) != CodeCapacityExhausted {
-		t.Fatalf("capacity code = %q, want %q; error=%v", ErrorCode(err), CodeCapacityExhausted, err)
-	}
-	if started {
-		t.Fatal("operation started before the original Wait result confirmed exit")
-	}
+	assertLimiterCapacityExhausted(t, limiter, "before cleanup late reap")
 	close(releaseWaitResult)
 	released = true
-	if _, err := limiter.run(context.Background(), func(func()) (Result, error) {
+	if _, err := limiter.run(context.Background(), func(*helperCapacityTracker) (Result, error) {
 		return Result{}, nil
 	}); err != nil {
-		t.Fatalf("limiter.run() after original Wait result error = %v", err)
+		t.Fatalf("limiter.run() after cleanup late reap error = %v", err)
+	}
+}
+
+func TestLimiterWaitsForMainAndCleanupLateReaps(t *testing.T) {
+	mainCmd, mainGuard := startGuardedUnixTestProcess(t, "sleep 30")
+	cleanupCmd, cleanupGuard := startGuardedUnixTestProcess(t, "sleep 30")
+	mainRelease := make(chan struct{})
+	cleanupRelease := make(chan struct{})
+	mainReleased, cleanupReleased := false, false
+	defer func() {
+		if !mainReleased {
+			close(mainRelease)
+		}
+		if !cleanupReleased {
+			close(cleanupRelease)
+		}
+	}()
+	lateWait := func(cmd *exec.Cmd, guard *processGuard, release <-chan struct{}) <-chan error {
+		guard.beforeWaitResultPublish = func() { <-release }
+		result := make(chan error, 1)
+		safego.Go(context.Background(), nil, "toolbridge.schema-multiple-late-reaps-test.wait", func(context.Context) {
+			result <- waitGuardedProcess(cmd, guard)
+		})
+		return result
+	}
+	mainWait := lateWait(mainCmd, mainGuard, mainRelease)
+	cleanupWait := lateWait(cleanupCmd, cleanupGuard, cleanupRelease)
+	limiter := newHelperLimiter(1)
+	_, err := limiter.run(context.Background(), func(capacity *helperCapacityTracker) (Result, error) {
+		mainErr := stopAndReap(mainCmd, mainGuard, mainWait, CodeTimeout, "main timed out", context.DeadlineExceeded, capacity)
+		cleanupErr := stopAndReap(cleanupCmd, cleanupGuard, cleanupWait, CodeTimeout, "cleanup timed out", context.DeadlineExceeded, capacity)
+		return Result{}, errors.Join(mainErr, cleanupErr)
+	})
+	if !errorTreeContainsCode(err, CodeReapFailed) {
+		t.Fatalf("combined worker error = %v, want %q", err, CodeReapFailed)
+	}
+	assertLimiterCapacityExhausted(t, limiter, "before either late reap")
+	close(mainRelease)
+	mainReleased = true
+	assertLimiterCapacityExhausted(t, limiter, "after only main late reap")
+	close(cleanupRelease)
+	cleanupReleased = true
+	if _, err := limiter.run(context.Background(), func(*helperCapacityTracker) (Result, error) {
+		return Result{}, nil
+	}); err != nil {
+		t.Fatalf("limiter.run() after all late reaps error = %v", err)
+	}
+}
+
+func assertLimiterCapacityExhausted(t *testing.T, limiter *helperLimiter, stage string) {
+	t.Helper()
+	started := false
+	_, err := limiter.run(context.Background(), func(*helperCapacityTracker) (Result, error) {
+		started = true
+		return Result{}, nil
+	})
+	if started || ErrorCode(err) != CodeCapacityExhausted {
+		t.Fatalf("%s: operation started=%v code=%q error=%v", stage, started, ErrorCode(err), err)
 	}
 }
 
