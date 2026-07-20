@@ -577,6 +577,7 @@ function validateWorkflowTemplatesListResponse(method, response) {
  * @param {unknown} response
  */
 function validateSidebarStateResponse(method, response) {
+export function validateSidebarStateResponse(method, response) {
   return validateRuntimeSidebarStateResponse(method, response);
 }
 
@@ -585,6 +586,7 @@ function validateSidebarStateResponse(method, response) {
  * @param {unknown} response
  */
 function validateUIStateResponse(method, response) {
+export function validateUIStateResponse(method, response) {
   const value = assertBackendResponseObject(method, response);
   let runtimeValue = value;
   if (!hasOwn(value, 'token_usage') && hasOwn(value, 'tokenUsage')) {
@@ -633,8 +635,6 @@ export {
   validateDashboardDagDetailResponse,
   validateDashboardDagRunResponse,
   validateDashboardDagRunsResponse,
-  validateSidebarStateResponse,
-  validateUIStateResponse,
   validateWorkflowTemplateDraftResponse,
   validateWorkflowTemplateResponse,
   validateWorkflowTemplateSaveResponse,
