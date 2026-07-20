@@ -972,10 +972,10 @@ internal/provider/codexapp/server_pool.go	internal	platform-provider	go-source	1
 internal/provider/codexapp/session_approval_restore_test.go	internal	platform-provider	go-test	3765	Codex app/server provider 集成	internal,provider,codexapp,session,approval,restore,test,Codex,app,server,集成
 internal/provider/codexapp/session_approval_shard02_test.go	internal	platform-provider	go-test	24510	Codex app/server provider 集成	internal,provider,codexapp,session,approval,shard02,test,Codex,app,server,集成
 internal/provider/codexapp/session_approval_test.go	internal	platform-provider	go-test	15043	Codex app/server provider 集成	internal,provider,codexapp,session,approval,test,Codex,app,server,集成
-internal/provider/codexapp/session_approval.go	internal	platform-provider	go-source	26824	Codex app/server provider 集成	internal,provider,codexapp,session,approval,Codex,app,server,集成
+internal/provider/codexapp/session_approval.go	internal	platform-provider	go-source	26840	Codex app/server provider 集成	internal,provider,codexapp,session,approval,Codex,app,server,集成
 internal/provider/codexapp/session_config_test.go	internal	platform-provider	go-test	1787	Codex app/server provider 集成	internal,provider,codexapp,session,config,test,Codex,app,server,集成
 internal/provider/codexapp/session_dispatch_context_window_test.go	internal	platform-provider	go-test	2857	Codex app/server provider 集成	internal,provider,codexapp,session,dispatch,context,window,test,Codex,app,server,集成
-internal/provider/codexapp/session_dispatch.go	internal	platform-provider	go-source	25006	Codex app/server provider 集成	internal,provider,codexapp,session,dispatch,Codex,app,server,集成
+internal/provider/codexapp/session_dispatch.go	internal	platform-provider	go-source	26637	Codex app/server provider 集成	internal,provider,codexapp,session,dispatch,Codex,app,server,集成
 internal/provider/codexapp/session_enrich_test.go	internal	platform-provider	go-test	10969	Codex app/server provider 集成	internal,provider,codexapp,session,enrich,test,Codex,app,server,集成
 internal/provider/codexapp/session_enrich.go	internal	platform-provider	go-source	15572	Codex app/server provider 集成	internal,provider,codexapp,session,enrich,Codex,app,server,集成
 internal/provider/codexapp/session_history_strict_test.go	internal	platform-provider	go-test	471	Codex app/server provider 集成	internal,provider,codexapp,session,history,strict,test,Codex,app,server,集成
@@ -1014,7 +1014,7 @@ internal/provider/codexapp/transport_port_race_test.go	internal	platform-provide
 internal/provider/codexapp/transport_process_env_test.go	internal	platform-provider	go-test	2478	Codex app/server provider 集成	internal,provider,codexapp,transport,process,env,test,Codex,app,server,集成
 internal/provider/codexapp/transport_process.go	internal	platform-provider	go-source	11663	Codex app/server provider 集成	internal,provider,codexapp,transport,process,Codex,app,server,集成
 internal/provider/codexapp/transport.go	internal	platform-provider	go-source	12676	Codex app/server provider 集成	internal,provider,codexapp,transport,Codex,app,server,集成
-internal/provider/codexapp/turn_completed_event_map_test.go	internal	platform-provider	go-test	21384	Codex app/server provider 集成	internal,provider,codexapp,turn,completed,event,map,test,Codex,app,server,集成
+internal/provider/codexapp/turn_completed_event_map_test.go	internal	platform-provider	go-test	23507	Codex app/server provider 集成	internal,provider,codexapp,turn,completed,event,map,test,Codex,app,server,集成
 internal/provider/codexapp/turn_output_accumulator_test.go	internal	platform-provider	go-test	4045	Codex app/server provider 集成	internal,provider,codexapp,turn,output,accumulator,test,Codex,app,server,集成
 internal/provider/codexapp/turn_output_sniff_test.go	internal	platform-provider	go-test	6819	Codex app/server provider 集成	internal,provider,codexapp,turn,output,sniff,test,Codex,app,server,集成
 internal/provider/contracttest/acceptance_test.go	internal	platform-provider	go-test	3220	AI provider 集成层	internal,provider,contracttest,acceptance,test,AI,集成层

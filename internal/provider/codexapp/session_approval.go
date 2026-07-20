@@ -578,7 +578,7 @@ func (s *session) onNotification(method string, params json.RawMessage) {
 		return
 	}
 	if malformedTerminalNotification(terminalMethod, params) {
-		s.failMalformedTerminalNotification(terminalMethod)
+		s.failMalformedTerminalNotification(terminalMethod, params)
 		return
 	}
 	// 先合并流式输出，再判断是否抑制终态事件，确保 forceComplete 路径仍能释放累积结果。
@@ -615,7 +615,7 @@ func (s *session) prepareAndSealTerminalNotification(method string, params json.
 	clearCodexProviderUserAttribution(payload)
 	outcome := canonicalTurnTerminalOutcome(method, payload)
 	if outcome.ContractError != "" {
-		s.failMalformedTerminalNotification(method)
+		s.failMalformedTerminalNotification(method, params)
 		return dto.RawProviderEvent{}, false
 	}
 	s.applyAcceptedInterruptRequest(payload, &outcome)

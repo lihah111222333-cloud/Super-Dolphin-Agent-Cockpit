@@ -142,9 +142,29 @@ func (s *session) terminalSealKey(payload map[string]any) (string, bool) {
 	return threadID + "\x00" + turnID, true
 }
 
-// failMalformedTerminalNotification 使用 active handle 的可信身份发布安全失败终态并关闭 handle。
-func (s *session) failMalformedTerminalNotification(method string) {
-	h := s.takeTurn("")
+// failMalformedTerminalNotification 只关闭可证明属于 active TurnRef 的 malformed terminal。
+// 无法归因的 terminal 是连接契约错误，不能伪造当前 turn 的 terminal identity。
+func (s *session) failMalformedTerminalNotification(method string, params json.RawMessage) {
+	rawTurnID := strings.TrimSpace(payloadTurnID(decodeEventPayload(params)))
+	if rawTurnID == "" {
+		pkglogger.Warn("codexapp: malformed terminal notification without turn identity",
+			"agent_id", s.agentID,
+			"method", method,
+			"thread_id", s.ThreadID(),
+		)
+		s.failNonRecoverableConnection("terminal contract: malformed terminal payload")
+		return
+	}
+	h, matched := s.takeActiveTurnIfMatches(rawTurnID)
+	if !matched {
+		pkglogger.Warn("codexapp: dropped stale malformed terminal notification",
+			"agent_id", s.agentID,
+			"method", method,
+			"thread_id", s.ThreadID(),
+			"turn_identity", "stale",
+		)
+		return
+	}
 	if h == nil {
 		pkglogger.Warn("codexapp: malformed terminal notification without active turn",
 			"agent_id", s.agentID,
@@ -179,6 +199,31 @@ func (s *session) failMalformedTerminalNotification(method string) {
 		"turn_id", turnID,
 	)
 	h.complete(errors.New(errText))
+}
+
+// takeActiveTurnIfMatches 仅在原始 turn 身份属于当前 TurnRef 时原子地领取并回收 active handle。
+func (s *session) takeActiveTurnIfMatches(rawTurnID string) (*turnHandle, bool) {
+	rawTurnID = strings.TrimSpace(rawTurnID)
+	s.mu.Lock()
+	turnID := s.activeTurnID
+	h := s.turns[turnID]
+	matched := h != nil && rawTurnID != "" && (rawTurnID == turnID ||
+		rawTurnID == strings.TrimSpace(h.ProviderID()) || rawTurnID == strings.TrimSpace(h.LocalID()))
+	if !matched {
+		s.mu.Unlock()
+		return nil, false
+	}
+	delete(s.turns, turnID)
+	delete(s.interruptRequests, turnID)
+	s.setActiveTurnLocked("")
+	if s.pendingTurn != nil && s.pendingTurn.handle == h {
+		s.pendingTurn = nil
+	}
+	s.mu.Unlock()
+	// 将身份核验和回收保持在同一个 session 锁临界区，避免旧 terminal 与新 active turn 交叉归因。
+	s.dropTurnOutputAccumulator(turnID)
+	s.discardTurnToolFailures(turnID)
+	return h, true
 }
 
 func (s *session) takeTurn(turnID string) *turnHandle {

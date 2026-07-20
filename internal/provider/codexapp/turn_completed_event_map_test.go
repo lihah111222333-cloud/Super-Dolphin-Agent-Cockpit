@@ -1,8 +1,10 @@
 package codexapp
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"strings"
 	"testing"
 	"time"
@@ -12,6 +14,7 @@ import (
 	turndto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/turn"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/eventsurface"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/unified"
+	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
 )
 
 // sniffAndTranslate 解码 sniffTurnOutput 改写后的参数，并转成 TurnCompleted DTO。
@@ -455,11 +458,9 @@ func TestOnNotification_MalformedTerminalFailsActiveTurnExactlyOnceWithoutPayloa
 		method string
 		params json.RawMessage
 	}{
-		{name: "invalid JSON", method: "turn/completed", params: json.RawMessage(`{"turnId":"T-malformed","prompt":"raw-secret"`)},
-		{name: "missing turn identity", method: "turn.failed", params: json.RawMessage(`{"threadId":"thread-public","prompt":"raw-secret"}`)},
-		{name: "missing outcome", method: "turn/completed", params: json.RawMessage(`{"turnId":"raw-turn","prompt":"raw-secret"}`)},
-		{name: "unknown outcome", method: "turn/completed", params: json.RawMessage(`{"turnId":"raw-turn","success":false,"status":"raw-secret"}`)},
-		{name: "conflicting outcome", method: "turn/completed", params: json.RawMessage(`{"turnId":"raw-turn","success":true,"status":"failed","prompt":"raw-secret"}`)},
+		{name: "missing outcome", method: "turn/completed", params: json.RawMessage(`{"turnId":"T-malformed","prompt":"raw-secret"}`)},
+		{name: "unknown outcome", method: "turn/completed", params: json.RawMessage(`{"turnId":"T-malformed","success":false,"status":"raw-secret"}`)},
+		{name: "conflicting outcome", method: "turn/completed", params: json.RawMessage(`{"turnId":"T-malformed","success":true,"status":"failed","prompt":"raw-secret"}`)},
 	}
 
 	for _, tt := range tests {
@@ -500,7 +501,7 @@ func TestOnNotification_MalformedTerminalFailsActiveTurnExactlyOnceWithoutPayloa
 	}
 }
 
-func TestOnNotification_MalformedOutcomeUsesActiveIdentityAcrossEventSurface(t *testing.T) {
+func TestOnNotification_StaleMalformedOutcomeDoesNotFinishActiveTurn(t *testing.T) {
 	tests := []struct {
 		name   string
 		params json.RawMessage
@@ -511,12 +512,12 @@ func TestOnNotification_MalformedOutcomeUsesActiveIdentityAcrossEventSurface(t *
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assertCodexMalformedOutcomeAcrossEventSurface(t, tt.params)
+			assertStaleMalformedTerminalDoesNotFinishActiveTurn(t, tt.params)
 		})
 	}
 }
 
-func assertCodexMalformedOutcomeAcrossEventSurface(t *testing.T, params json.RawMessage) {
+func assertStaleMalformedTerminalDoesNotFinishActiveTurn(t *testing.T, params json.RawMessage) {
 	t.Helper()
 	bus := event.NewDispatcher()
 	defer func() { _ = bus.Close() }()
@@ -533,20 +534,81 @@ func assertCodexMalformedOutcomeAcrossEventSurface(t *testing.T, params json.Raw
 	h := newTurnHandle("local-trusted", "T-trusted")
 	s := &session{agentID: "trusted-agent", dispatcher: dispatcher, turns: map[string]*turnHandle{"T-trusted": h}, activeTurnID: "T-trusted"}
 	s.onNotification("turn/completed", params)
-	terminal := <-surface
-	assertTrustedMalformedTerminal(t, terminal)
-	encoded, err := json.Marshal(terminal)
-	if err != nil {
-		t.Fatalf("marshal surface terminal: %v", err)
+	select {
+	case terminal := <-surface:
+		t.Fatalf("stale malformed terminal published as current turn: %#v", terminal)
+	default:
 	}
-	assertMalformedTerminalHasNoRawLeak(t, encoded)
-	assertMalformedHandleError(t, h.Err())
+	select {
+	case <-h.Done():
+		t.Fatalf("stale malformed terminal finished active turn: %v", h.Err())
+	default:
+	}
+	if s.activeTurnID != "T-trusted" {
+		t.Fatalf("activeTurnID = %q, want retained", s.activeTurnID)
+	}
+	if s.turns["T-trusted"] != h {
+		t.Fatal("stale malformed terminal removed active turn handle")
+	}
 }
 
-func assertTrustedMalformedTerminal(t *testing.T, terminal turndto.TurnTerminalV2) {
-	t.Helper()
-	if terminal.ThreadID != "trusted-agent" || terminal.TurnID != "T-trusted" || terminal.Outcome != "failed" {
-		t.Fatalf("surface terminal = %#v, want trusted failed identity", terminal)
+func TestOnNotification_StaleMalformedTerminalDoesNotLeakRawTurnIDToLogs(t *testing.T) {
+	const rawTurnID = "sk-live-token-1234567890/private/stack"
+	var logs bytes.Buffer
+	runtime := pkglogger.NewRuntime(pkglogger.RuntimeConfig{Mode: pkglogger.Production, Level: slog.LevelInfo})
+	runtime.InitWithConsoleWriter(&logs)
+	previous := pkglogger.InstallRuntime(runtime)
+	t.Cleanup(func() { pkglogger.InstallRuntime(previous) })
+
+	h := newTurnHandle("local-trusted", "T-trusted")
+	s := &session{agentID: "trusted-agent", turns: map[string]*turnHandle{"T-trusted": h}, activeTurnID: "T-trusted"}
+	s.onNotification("turn/completed", json.RawMessage(`{"turnId":"`+rawTurnID+`","prompt":"raw-secret"}`))
+
+	if strings.Contains(logs.String(), rawTurnID) || strings.Contains(logs.String(), "sk-live-token") || strings.Contains(logs.String(), "/private/stack") {
+		t.Fatalf("stale terminal log leaked raw turn identity: %s", logs.String())
+	}
+	if s.activeTurnID != "T-trusted" || s.turns["T-trusted"] != h {
+		t.Fatal("stale malformed terminal changed active turn state")
+	}
+}
+
+func TestTakeActiveTurnIfMatchesRequiresLiveHandle(t *testing.T) {
+	s := &session{turns: map[string]*turnHandle{}, activeTurnID: "T-inconsistent"}
+
+	h, matched := s.takeActiveTurnIfMatches("T-inconsistent")
+
+	if matched || h != nil {
+		t.Fatalf("takeActiveTurnIfMatches() = (%#v, %t), want (nil, false)", h, matched)
+	}
+	if s.activeTurnID != "T-inconsistent" {
+		t.Fatalf("activeTurnID = %q, want retained", s.activeTurnID)
+	}
+}
+
+func TestOnNotification_UnattributableMalformedTerminalFailsConnectionWithoutForgingTurn(t *testing.T) {
+	h := newTurnHandle("local-unattributable", "T-unattributable")
+	s := &session{
+		agentID:      "trusted-agent",
+		turns:        map[string]*turnHandle{"T-unattributable": h},
+		activeTurnID: "T-unattributable",
+	}
+	s.threadID.Store("trusted-thread")
+
+	s.onNotification("turn/completed", json.RawMessage(`{"prompt":"raw-secret"`))
+
+	select {
+	case <-h.Done():
+		if h.Err() == nil {
+			t.Fatal("unattributable malformed terminal completed without connection failure")
+		}
+	default:
+		t.Fatal("unattributable malformed terminal did not fail connection")
+	}
+	if s.activeTurnID != "" {
+		t.Fatalf("activeTurnID = %q, want cleared by connection failure", s.activeTurnID)
+	}
+	if _, ok := s.turns["T-unattributable"]; ok {
+		t.Fatal("connection failure retained active turn handle")
 	}
 }
 

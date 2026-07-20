@@ -1,6 +1,6 @@
 {
   "version": "1.0",
-  "generated_at": "2026-07-19",
+  "generated_at": "2026-07-21",
   "roots": [
     "cmd/mcp-orch/orchestration",
     "cmd/mcp-orch/tools",
@@ -3534,6 +3534,7 @@
         "internal/provider/codexapp.*session.sniffTurnOutput",
         "internal/provider/codexapp.*session.suppressToolEnd",
         "internal/provider/codexapp.*session.suppressTurn",
+        "internal/provider/codexapp.*session.takeActiveTurnIfMatches",
         "internal/provider/codexapp.*session.takeTurn",
         "internal/provider/codexapp.*session.takeTurnToolFailures",
         "internal/provider/codexapp.*session.terminalSealKey",
@@ -8198,6 +8199,7 @@
         "internal/provider/codexapp.*session.sniffTurnOutput",
         "internal/provider/codexapp.*session.suppressToolEnd",
         "internal/provider/codexapp.*session.suppressTurn",
+        "internal/provider/codexapp.*session.takeActiveTurnIfMatches",
         "internal/provider/codexapp.*session.takeTurn",
         "internal/provider/codexapp.*session.takeTurnToolFailures",
         "internal/provider/codexapp.*session.terminalSealKey",
@@ -12862,6 +12864,7 @@
         "internal/provider/codexapp.*session.sniffTurnOutput",
         "internal/provider/codexapp.*session.suppressToolEnd",
         "internal/provider/codexapp.*session.suppressTurn",
+        "internal/provider/codexapp.*session.takeActiveTurnIfMatches",
         "internal/provider/codexapp.*session.takeTurn",
         "internal/provider/codexapp.*session.takeTurnToolFailures",
         "internal/provider/codexapp.*session.terminalSealKey",
@@ -17531,6 +17534,7 @@
         "internal/provider/codexapp.*session.sniffTurnOutput",
         "internal/provider/codexapp.*session.suppressToolEnd",
         "internal/provider/codexapp.*session.suppressTurn",
+        "internal/provider/codexapp.*session.takeActiveTurnIfMatches",
         "internal/provider/codexapp.*session.takeTurn",
         "internal/provider/codexapp.*session.takeTurnToolFailures",
         "internal/provider/codexapp.*session.terminalSealKey",
@@ -18682,11 +18686,11 @@
   "summary": {
     "total_packages": 41,
     "total_functions": 2275,
-    "total_methods": 1180,
+    "total_methods": 1181,
     "total_interfaces": 184,
     "total_interface_methods": 368,
     "total_exported": 1261,
-    "total_unexported": 2990,
+    "total_unexported": 2991,
     "total_structs": 612
   },
   "packages": [
@@ -73720,6 +73724,10 @@
             {
               "name": "method",
               "type": "string"
+            },
+            {
+              "name": "params",
+              "type": "json.RawMessage"
             }
           ]
         },
@@ -74757,6 +74765,21 @@
               "name": "turnID",
               "type": "string"
             }
+          ]
+        },
+        {
+          "receiver": "*session",
+          "name": "takeActiveTurnIfMatches",
+          "exported": false,
+          "params": [
+            {
+              "name": "rawTurnID",
+              "type": "string"
+            }
+          ],
+          "returns": [
+            "*turnHandle",
+            "bool"
           ]
         },
         {
