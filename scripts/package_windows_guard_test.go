@@ -471,6 +471,7 @@ func TestPackageWindowsValidatesLSPManifestLanguages(t *testing.T) {
 
 func TestVerifyPackagedAppWindowsScriptContracts(t *testing.T) {
 	script := readScript(t, "verify_packaged_app_windows.ps1")
+	verifyNode := functionBody(t, script, "Verify-PackagedNodeVersion")
 
 	assertScriptContains(t, script, "runtime-manifest.json")
 	assertScriptContains(t, script, "codex-manifest.json")
@@ -509,11 +510,15 @@ func TestVerifyPackagedAppWindowsScriptContracts(t *testing.T) {
 	assertScriptContains(t, script, "function Verify-PackagedNodeVersion()")
 	assertScriptContains(t, script, "Join-Path $PackageRoot 'lsp/node/node.exe'")
 	assertScriptContains(t, script, "packaged Node.js >= 22.5.0 is required by @bytebase/dbhub@0.23.0")
-	assertScriptContains(t, script, "$patch = [int]$Matches[3]")
-	assertScriptContains(t, script, "[System.Version]::new($major, $minor, $patch) -lt [System.Version]::new(22, 5, 0)")
-	assertScriptContains(t, script, "$LASTEXITCODE -ne 0")
-	assertScriptContains(t, script, "'^v(\\d+)\\.(\\d+)\\.(\\d+)$'")
-	assertScriptDoesNotContain(t, script, "(?:[-+].*)?")
+	assertScriptContains(t, verifyNode, "[string[]]$versionLines = @(& $nodePath --version 2>$null)")
+	assertScriptContains(t, verifyNode, "$versionLines.Count -ne 1")
+	assertScriptContains(t, verifyNode, "$version = $versionLines[0].Trim()")
+	assertScriptDoesNotContain(t, verifyNode, "Select-Object -First 1")
+	assertScriptContains(t, verifyNode, "$patch = [int]$Matches[3]")
+	assertScriptContains(t, verifyNode, "[System.Version]::new($major, $minor, $patch) -lt [System.Version]::new(22, 5, 0)")
+	assertScriptContains(t, verifyNode, "$LASTEXITCODE -ne 0")
+	assertScriptContains(t, verifyNode, "'^v(\\d+)\\.(\\d+)\\.(\\d+)$'")
+	assertScriptDoesNotContain(t, verifyNode, "(?:[-+].*)?")
 	assertScriptContains(t, script, "Verify-PackagedNodeVersion -PackageRoot $packageRoot")
 	assertScriptDoesNotContain(t, script, "Get-Command node")
 }

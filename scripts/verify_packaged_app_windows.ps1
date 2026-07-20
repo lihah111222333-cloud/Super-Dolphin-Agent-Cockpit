@@ -65,14 +65,15 @@ function Verify-PackagedNodeVersion() {
         throw $errorMessage
     }
     try {
-        $version = [string](& $nodePath --version 2>$null | Select-Object -First 1)
-        if ($LASTEXITCODE -ne 0) {
+        [string[]]$versionLines = @(& $nodePath --version 2>$null)
+        if ($LASTEXITCODE -ne 0 -or $versionLines.Count -ne 1) {
             throw $errorMessage
         }
+        $version = $versionLines[0].Trim()
     } catch {
         throw $errorMessage
     }
-    if ($version.Trim() -notmatch '^v(\d+)\.(\d+)\.(\d+)$') {
+    if ($version -notmatch '^v(\d+)\.(\d+)\.(\d+)$') {
         throw $errorMessage
     }
     try {
