@@ -200,7 +200,8 @@ func (limiter *helperLimiter) run(
 		pending: 1,
 	}
 	result, err := operation(capacity)
-	capacity.finish(errorTreeCodeCount(err, CodeReapFailed))
+	reapFailures, complete := errorTreeCodeCount(err, CodeReapFailed)
+	capacity.finish(reapFailures, complete)
 	return result, err
 }
 
@@ -216,12 +217,12 @@ func (tracker *helperCapacityTracker) registerLateReap() func() {
 	}
 }
 
-// finish 封闭登记窗口；错误树中存在未被登记覆盖的 reap failure 时永久保留基准引用。
-func (tracker *helperCapacityTracker) finish(reapFailures int) {
+// finish 封闭登记窗口；错误树不完整或存在未被登记覆盖的 reap failure 时永久保留基准引用。
+func (tracker *helperCapacityTracker) finish(reapFailures int, complete bool) {
 	tracker.finishOnce.Do(func() {
 		tracker.mu.Lock()
 		tracker.finished = true
-		if reapFailures != tracker.managedReaps {
+		if !complete || reapFailures != tracker.managedReaps {
 			tracker.mu.Unlock()
 			return
 		}

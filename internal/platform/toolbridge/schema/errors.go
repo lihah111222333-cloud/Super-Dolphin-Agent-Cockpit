@@ -125,28 +125,46 @@ func ErrorCode(err error) Code {
 
 // errorTreeContainsCode 递归检查单链包装与 errors.Join 多分支中的目标诊断码。
 func errorTreeContainsCode(err error, code Code) bool {
-	return errorTreeCodeCount(err, code) > 0
+	count, complete := errorTreeCodeCount(err, code)
+	return count > 0 || !complete
 }
 
+const errorTreeNodeBudget = 64
+
 // errorTreeCodeCount 保守统计单链包装与 errors.Join 多分支中的目标诊断实例。
-func errorTreeCodeCount(err error, code Code) int {
+func errorTreeCodeCount(err error, code Code) (int, bool) {
+	remaining := errorTreeNodeBudget
+	return errorTreeCodeCountWithin(err, code, &remaining)
+}
+
+// errorTreeCodeCountWithin 在共享节点预算内遍历，避免循环或恶意深链阻塞调用方。
+func errorTreeCodeCountWithin(err error, code Code, remaining *int) (int, bool) {
 	if err == nil {
-		return 0
+		return 0, true
 	}
+	if *remaining == 0 {
+		return 0, false
+	}
+	*remaining = *remaining - 1
 	count := 0
 	if diagnostic, ok := err.(*Diagnostic); ok && diagnostic != nil && diagnostic.Code == code {
 		count++
 	}
 	if joined, ok := err.(interface{ Unwrap() []error }); ok {
 		for _, child := range joined.Unwrap() {
-			count += errorTreeCodeCount(child, code)
+			childCount, complete := errorTreeCodeCountWithin(child, code, remaining)
+			count += childCount
+			if !complete {
+				return count, false
+			}
 		}
-		return count
+		return count, true
 	}
 	if wrapped, ok := err.(interface{ Unwrap() error }); ok {
-		count += errorTreeCodeCount(wrapped.Unwrap(), code)
+		childCount, complete := errorTreeCodeCountWithin(wrapped.Unwrap(), code, remaining)
+		return count + childCount, complete
 	}
-	return count
+	return count, true
 }
 
 func isKnownCode(code Code) bool {
