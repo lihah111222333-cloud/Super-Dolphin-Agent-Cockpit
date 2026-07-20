@@ -583,8 +583,23 @@ func TestVerifyPackagedAppMacOSRequiresNode225(t *testing.T) {
 		{name: "unparseable", write: func() {
 			writePackagedNodeFixture(t, nodePath, "not-a-version")
 		}},
-		{name: "below minimum", write: func() {
-			writePackagedNodeFixture(t, nodePath, "22.4.9")
+		{name: "release candidate", write: func() {
+			writePackagedNodeFixture(t, nodePath, "22.5.0-rc.1")
+		}},
+		{name: "arbitrary suffix", write: func() {
+			writePackagedNodeFixture(t, nodePath, "22.5.0-not semver")
+		}},
+		{name: "build metadata", write: func() {
+			writePackagedNodeFixture(t, nodePath, "22.5.0+build")
+		}},
+		{name: "extra text", write: func() {
+			writePackagedNodeFixture(t, nodePath, "22.5.0 extra")
+		}},
+		{name: "below minimum minor", write: func() {
+			writePackagedNodeFixture(t, nodePath, "22.4.99")
+		}},
+		{name: "below minimum major", write: func() {
+			writePackagedNodeFixture(t, nodePath, "21.99.99")
 		}},
 	}
 	for _, tc := range invalidFixtures {
@@ -597,10 +612,14 @@ func TestVerifyPackagedAppMacOSRequiresNode225(t *testing.T) {
 		})
 	}
 
-	writePackagedNodeFixture(t, nodePath, "22.5.0")
-	output, err := runVerifyPackagedAppMacOS(t, app)
-	if err != nil {
-		t.Fatalf("expected Node 22.5.0 acceptance, got %v:\n%s", err, output)
+	for _, version := range []string{"22.5.0", "22.5.1", "23.0.0"} {
+		t.Run("accept "+version, func(t *testing.T) {
+			writePackagedNodeFixture(t, nodePath, version)
+			output, err := runVerifyPackagedAppMacOS(t, app)
+			if err != nil {
+				t.Fatalf("expected Node %s acceptance, got %v:\n%s", version, err, output)
+			}
+		})
 	}
 }
 

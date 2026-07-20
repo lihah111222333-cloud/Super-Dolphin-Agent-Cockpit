@@ -67,18 +67,21 @@ phase_end() {
 
 verify_packaged_node_version() {
   local node_path="$resources/lsp/node/bin/node"
-  local version major minor
+  local version major minor patch
   if [[ ! -x "$node_path" ]] || ! version="$("$node_path" --version 2>/dev/null)"; then
     echo "packaged Node.js >= 22.5.0 is required by @bytebase/dbhub@0.23.0" >&2
     exit 1
   fi
-  if [[ ! "$version" =~ ^v?([0-9]+)\.([0-9]+)\.([0-9]+)([-+].*)?$ ]]; then
+  version="${version#"${version%%[![:space:]]*}"}"
+  version="${version%"${version##*[![:space:]]}"}"
+  if [[ ! "$version" =~ ^v([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
     echo "packaged Node.js >= 22.5.0 is required by @bytebase/dbhub@0.23.0" >&2
     exit 1
   fi
-  major="${BASH_REMATCH[1]}"
-  minor="${BASH_REMATCH[2]}"
-  if ((major < 22 || (major == 22 && minor < 5))); then
+  major=$((10#${BASH_REMATCH[1]}))
+  minor=$((10#${BASH_REMATCH[2]}))
+  patch=$((10#${BASH_REMATCH[3]}))
+  if ((major < 22 || (major == 22 && (minor < 5 || (minor == 5 && patch < 0))))); then
     echo "packaged Node.js >= 22.5.0 is required by @bytebase/dbhub@0.23.0" >&2
     exit 1
   fi

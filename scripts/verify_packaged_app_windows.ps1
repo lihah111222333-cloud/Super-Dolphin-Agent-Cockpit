@@ -72,12 +72,17 @@ function Verify-PackagedNodeVersion() {
     } catch {
         throw $errorMessage
     }
-    if ($version.Trim() -notmatch '^v?(\d+)\.(\d+)\.(\d+)(?:[-+].*)?$') {
+    if ($version.Trim() -notmatch '^v(\d+)\.(\d+)\.(\d+)$') {
         throw $errorMessage
     }
-    $major = [int]$Matches[1]
-    $minor = [int]$Matches[2]
-    if ($major -lt 22 -or ($major -eq 22 -and $minor -lt 5)) {
+    try {
+        $major = [int]$Matches[1]
+        $minor = [int]$Matches[2]
+        $patch = [int]$Matches[3]
+    } catch {
+        throw $errorMessage
+    }
+    if ([System.Version]::new($major, $minor, $patch) -lt [System.Version]::new(22, 5, 0)) {
         throw $errorMessage
     }
 }

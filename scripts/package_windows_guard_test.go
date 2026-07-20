@@ -509,9 +509,11 @@ func TestVerifyPackagedAppWindowsScriptContracts(t *testing.T) {
 	assertScriptContains(t, script, "function Verify-PackagedNodeVersion()")
 	assertScriptContains(t, script, "Join-Path $PackageRoot 'lsp/node/node.exe'")
 	assertScriptContains(t, script, "packaged Node.js >= 22.5.0 is required by @bytebase/dbhub@0.23.0")
-	assertScriptContains(t, script, "$major -lt 22 -or ($major -eq 22 -and $minor -lt 5)")
+	assertScriptContains(t, script, "$patch = [int]$Matches[3]")
+	assertScriptContains(t, script, "[System.Version]::new($major, $minor, $patch) -lt [System.Version]::new(22, 5, 0)")
 	assertScriptContains(t, script, "$LASTEXITCODE -ne 0")
-	assertScriptContains(t, script, "'^v?(\\d+)\\.(\\d+)\\.(\\d+)(?:[-+].*)?$'")
+	assertScriptContains(t, script, "'^v(\\d+)\\.(\\d+)\\.(\\d+)$'")
+	assertScriptDoesNotContain(t, script, "(?:[-+].*)?")
 	assertScriptContains(t, script, "Verify-PackagedNodeVersion -PackageRoot $packageRoot")
 	assertScriptDoesNotContain(t, script, "Get-Command node")
 }
