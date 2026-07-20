@@ -27,6 +27,7 @@ import {
   commandEvidenceStatus,
   controlStatus,
   createSubjectContract,
+  dependencyTreeIntegrity,
   executionControlIds,
   finalGateFailures,
   frontendPlanSizeStatus,
@@ -147,6 +148,23 @@ function detachedTmpAlias() {
     ? canonical.replace(/^\/private\/var/u, '/var')
     : tmpdir();
 }
+
+it('normalizes empty immutable dependency directories while retaining file integrity', () => {
+  const appRoot = mkdtempSync(join(tmpdir(), 'frontend-maintainability-dependency-tree-'));
+  temporaryRepositories.push(appRoot);
+  const nodeModulesRoot = join(appRoot, 'node_modules');
+  const toolPath = join(nodeModulesRoot, 'fixture', 'tool.js');
+  mkdirSync(dirname(toolPath), { recursive: true });
+  writeFileSync(toolPath, 'export const version = 1;\n');
+
+  const original = dependencyTreeIntegrity(appRoot);
+  mkdirSync(join(nodeModulesRoot, '@empty-scope'));
+
+  expect(dependencyTreeIntegrity(appRoot)).toEqual(original);
+
+  writeFileSync(toolPath, 'export const version = 2;\n');
+  expect(dependencyTreeIntegrity(appRoot)).not.toEqual(original);
+});
 
 function write(relativePath, content, repoRoot) {
   const target = join(repoRoot, relativePath);
