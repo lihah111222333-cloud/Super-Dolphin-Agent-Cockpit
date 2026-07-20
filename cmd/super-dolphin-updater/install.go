@@ -143,6 +143,10 @@ func (app updaterApp) installFromMount(ctx context.Context, req installRequest, 
 	if err := app.validate(); err != nil {
 		return err
 	}
+	stageDir, err := updaterSidecarStageDir(req)
+	if err != nil {
+		return err
+	}
 	stagedApp, err := findMountedApp(mountPoint)
 	if err != nil {
 		return err
@@ -153,22 +157,34 @@ func (app updaterApp) installFromMount(ctx context.Context, req installRequest, 
 	if err := app.waitForRequestedProcess(req); err != nil {
 		return err
 	}
+	teamID, err := app.verifyStagedAppForInstall(req, stagedApp, stageDir)
+	if err != nil {
+		return err
+	}
+	transaction, transactional, err := app.replaceTargetAppTransactionContextWithStageDir(ctx, stagedApp, req.TargetAppPath, teamID, req.AllowUnsigned, req.Restart, stageDir)
+	if err != nil {
+		return err
+	}
+	return app.completeInstalledRelease(ctx, req, transaction, transactional)
+}
+
+// verifyStagedAppForInstall 校验初始候选，并在结果边界写入或清除 sidecar。
+func (app updaterApp) verifyStagedAppForInstall(req installRequest, stagedApp string, stageDir string) (string, error) {
 	teamID := ""
 	if !req.AllowUnsigned {
 		var err error
 		teamID, err = app.expectedTeamID(req.TargetAppPath)
 		if err != nil {
-			return err
+			return "", err
 		}
 	}
 	if err := app.verifyAppSignature(stagedApp, teamID, req.AllowUnsigned); err != nil {
-		return fmt.Errorf("verify staged app: %w", err)
+		return "", recordPreJournalFailure(stageDir, fmt.Errorf("verify staged app: %w", err))
 	}
-	transaction, transactional, err := app.replaceTargetAppTransactionContext(ctx, stagedApp, req.TargetAppPath, teamID, req.AllowUnsigned, req.Restart)
-	if err != nil {
-		return err
+	if err := clearPreJournalFailure(stageDir); err != nil {
+		return "", err
 	}
-	return app.completeInstalledRelease(ctx, req, transaction, transactional)
+	return teamID, nil
 }
 
 // completeInstalledRelease 将首次安装重启与 transaction probation 监督分流。
@@ -562,6 +578,11 @@ func (app updaterApp) replaceTargetAppTransaction(stagedApp string, targetApp st
 
 // replaceTargetAppTransactionContext 将调用方生命周期贯穿候选校验与事务效果。
 func (app updaterApp) replaceTargetAppTransactionContext(ctx context.Context, stagedApp string, targetApp string, expectedTeamID string, allowUnsigned bool, superviseReplacement bool) (recovery.Transaction, bool, error) {
+	return app.replaceTargetAppTransactionContextWithStageDir(ctx, stagedApp, targetApp, expectedTeamID, allowUnsigned, superviseReplacement, "")
+}
+
+// replaceTargetAppTransactionContextWithStageDir 在生产安装路径中额外约束 pre-journal sidecar 时序。
+func (app updaterApp) replaceTargetAppTransactionContextWithStageDir(ctx context.Context, stagedApp string, targetApp string, expectedTeamID string, allowUnsigned bool, superviseReplacement bool, stageDir string) (recovery.Transaction, bool, error) {
 	if ctx == nil {
 		return recovery.Transaction{}, false, errors.New("replace target app context is required")
 	}
@@ -574,15 +595,24 @@ func (app updaterApp) replaceTargetAppTransactionContext(ctx context.Context, st
 	}
 	request, packageOwned, err := app.prepareReleaseTransaction(ctx, stagedApp, targetApp, expectedTeamID, allowUnsigned)
 	if err != nil {
+		if stageDir != "" {
+			return recovery.Transaction{}, false, recordPreJournalFailure(stageDir, err)
+		}
 		return recovery.Transaction{}, false, err
 	}
 	store, err := recovery.NewStore(filepath.Join(filepath.Dir(targetApp), updateTransactionDirName))
 	if err != nil {
 		return recovery.Transaction{}, false, removePreparedCandidate(request.Paths.Staging, err)
 	}
+	if err := clearPreparedPreJournalFailure(stageDir, request.Paths.Staging); err != nil {
+		return recovery.Transaction{}, false, err
+	}
 	created, err := store.Create(ctx, request)
 	if err != nil {
 		return recovery.Transaction{}, false, fmt.Errorf("create release transaction: %w", err)
+	}
+	if err := confirmPreJournalFailureAbsent(stageDir); err != nil {
+		return recovery.Transaction{}, false, err
 	}
 	return app.completePreparedReleaseTransaction(ctx, store, created, packageOwned)
 }

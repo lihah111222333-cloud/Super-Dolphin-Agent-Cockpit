@@ -163,7 +163,7 @@ func TestCheckMapsErrNoUpdateToUnavailable(t *testing.T) {
 	publicKey, privateKey := testManifestKeypair(t)
 	payload := testManifestPayload()
 	rawManifest := signTestManifest(t, privateKey, payload)
-	svc := newService(testServiceConfig(publicKey, t.TempDir(), "1.2.3"), httpClientFor(map[string][]byte{
+	svc := newService(testServiceConfig(publicKey, appUpdateRealTempDir(t), "1.2.3"), httpClientFor(map[string][]byte{
 		"https://updates.example.test/manifest.json": rawManifest,
 	}), nil)
 
@@ -201,7 +201,7 @@ func TestDownloadVerifiesArtifactAndWritesSelectedUpdate(t *testing.T) {
 	payload.Artifacts[0].Size = int64(len(artifactBody))
 	payload.Artifacts[0].SHA256 = sha256Hex(artifactBody)
 	rawManifest := signTestManifest(t, privateKey, payload)
-	stageDir := t.TempDir()
+	stageDir := appUpdateRealTempDir(t)
 	svc := newService(testServiceConfig(publicKey, stageDir, "1.2.2"), httpClientFor(map[string][]byte{
 		"https://updates.example.test/manifest.json":                rawManifest,
 		"https://updates.example.com/Super-Dolphin-1.2.3-arm64.dmg": artifactBody,
@@ -236,7 +236,7 @@ func TestDownloadRejectsArtifactSHA256Mismatch(t *testing.T) {
 	payload.Artifacts[0].Size = 3
 	payload.Artifacts[0].SHA256 = strings.Repeat("0", 64)
 	rawManifest := signTestManifest(t, privateKey, payload)
-	svc := newService(testServiceConfig(publicKey, t.TempDir(), "1.2.2"), httpClientFor(map[string][]byte{
+	svc := newService(testServiceConfig(publicKey, appUpdateRealTempDir(t), "1.2.2"), httpClientFor(map[string][]byte{
 		"https://updates.example.test/manifest.json":                rawManifest,
 		"https://updates.example.com/Super-Dolphin-1.2.3-arm64.dmg": []byte("dmg"),
 	}), nil)
@@ -254,7 +254,7 @@ func TestAppUpdateDownloadRejectsBodyLargerThanManifestSize(t *testing.T) {
 	payload.Artifacts[0].Size = 3
 	payload.Artifacts[0].SHA256 = sha256Hex(artifactBody[:3])
 	rawManifest := signTestManifest(t, privateKey, payload)
-	stageDir := t.TempDir()
+	stageDir := appUpdateRealTempDir(t)
 	body := &trackedReadCloser{data: artifactBody, maxChunk: 1}
 	svc := newService(testServiceConfig(publicKey, stageDir, "1.2.2"), &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
 		switch req.URL.String() {
@@ -283,7 +283,7 @@ func TestAppUpdateDownloadRejectsBodyLargerThanManifestSize(t *testing.T) {
 }
 
 func TestInstallRequiresRequestQuitBeforeStartingHelper(t *testing.T) {
-	stageDir := t.TempDir()
+	stageDir := appUpdateRealTempDir(t)
 	marker := filepath.Join(stageDir, "helper.started")
 	helper := writeHelperScript(t, marker, 0)
 	svc := newService(Config{
@@ -307,7 +307,7 @@ func TestInstallIgnoresCanceledContextAfterDetachedHelperStarts(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("darwin helper launch uses /bin/sh")
 	}
-	stageDir := t.TempDir()
+	stageDir := appUpdateRealTempDir(t)
 	marker := filepath.Join(stageDir, "helper.started")
 	helper := writeHelperScript(t, marker, 200*time.Millisecond)
 	quitCalled := make(chan struct{}, 1)
@@ -338,7 +338,7 @@ func TestInstallPassesAllowUnsignedToHelper(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("darwin helper launch uses /bin/sh")
 	}
-	stageDir := t.TempDir()
+	stageDir := appUpdateRealTempDir(t)
 	argsPath := filepath.Join(stageDir, "helper.args")
 	helper := writeArgsHelperScript(t, argsPath)
 	svc := newService(Config{
@@ -371,7 +371,7 @@ func TestInstallPassesAllowUnsignedToHelper(t *testing.T) {
 }
 
 func TestInstallCommandUsesDetachedLauncherForMacHelper(t *testing.T) {
-	stageDir := t.TempDir()
+	stageDir := appUpdateRealTempDir(t)
 	helper := filepath.Join(stageDir, "helper.sh")
 	svc := newService(Config{
 		Enabled:       true,
@@ -408,7 +408,7 @@ func TestInstallStartsWindowsInstallerWithSilentFlag(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("test uses a shell-script fixture with .exe name")
 	}
-	stageDir := t.TempDir()
+	stageDir := appUpdateRealTempDir(t)
 	argsPath := filepath.Join(stageDir, "installer.args")
 	installer := writeArgsHelperScriptWithName(t, argsPath, "Super-Dolphin-windows-amd64.exe")
 	quitCalled := make(chan struct{}, 1)
@@ -454,7 +454,7 @@ func TestInstallStartsWindowsInstallerWithSilentFlag(t *testing.T) {
 }
 
 func TestInstallRejectsWindowsInstallerBeforeStartWhenAuthenticodeGateFails(t *testing.T) {
-	stageDir := t.TempDir()
+	stageDir := appUpdateRealTempDir(t)
 	argsPath := filepath.Join(stageDir, "installer.args")
 	installer := writeArgsHelperScriptWithName(t, argsPath, "Super-Dolphin-windows-amd64.exe")
 	quitCalled := make(chan struct{}, 1)
@@ -669,7 +669,7 @@ func waitForSignal(t *testing.T, signal <-chan struct{}, name string) {
 }
 
 func TestInstallRejectsTamperedArtifact(t *testing.T) {
-	stageDir := t.TempDir()
+	stageDir := appUpdateRealTempDir(t)
 	svc := newService(Config{
 		Enabled:       true,
 		StageDir:      stageDir,

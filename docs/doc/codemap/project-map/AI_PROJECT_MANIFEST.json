@@ -4,12 +4,12 @@
   "rules_sources": [
     ".ai-project-map.overrides.json"
   ],
-  "files": 4620,
+  "files": 4626,
   "domains": {
     "docs-agent": 954,
-    "other": 679,
+    "other": 681,
     "app-ui": 563,
-    "platform-provider": 1092,
+    "platform-provider": 1096,
     "orchestration": 391,
     "modules": 737,
     "store-sql": 204
@@ -42,8 +42,8 @@
       {
         "key": "platform-provider",
         "file": "docs/doc/codemap/project-map/index/platform-provider.tsv",
-        "file_count": 1092,
-        "size_kb": 201.4,
+        "file_count": 1096,
+        "size_kb": 202,
         "desc": "基础设施与 provider 集成：RPC、hooks、toolbridge、Claude/Codex/统一 provider"
       },
       {
@@ -63,18 +63,18 @@
       {
         "key": "other",
         "file": "docs/doc/codemap/project-map/index/other.tsv",
-        "file_count": 679,
-        "size_kb": 132.9,
+        "file_count": 681,
+        "size_kb": 133.3,
         "desc": "公共库、脚本、测试、配置与其他根级资源"
       }
     ]
   },
   "module_counts": {
     "(root)": 12,
-    "cmd": 663,
+    "cmd": 665,
     "docs": 946,
     "frontend-app": 557,
-    "internal": 2225,
+    "internal": 2229,
     "pkg": 30,
     "scripts": 139,
     "sql": 29,

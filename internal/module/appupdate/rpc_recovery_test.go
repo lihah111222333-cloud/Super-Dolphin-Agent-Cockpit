@@ -6,11 +6,14 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/creachadair/jrpc2"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/appupdatefailure"
 	platformconfig "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/config"
 	platformrpc "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/rpc"
 	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
@@ -60,7 +63,7 @@ func TestManifestSignatureProducerReachesRPCAsSafeRecoveryData(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	svc := newService(testServiceConfig(publicKey, t.TempDir(), "1.2.2"), httpClientFor(map[string][]byte{
+	svc := newService(testServiceConfig(publicKey, appUpdateRealTempDir(t), "1.2.2"), httpClientFor(map[string][]byte{
 		"https://updates.example.test/manifest.json": tampered,
 	}), nil)
 
@@ -74,7 +77,7 @@ func TestArtifactIntegrityProducerReachesRPCAsSafeRecoveryData(t *testing.T) {
 	payload.Artifacts[0].Size = 3
 	payload.Artifacts[0].SHA256 = strings.Repeat("0", 64)
 	manifest := signTestManifest(t, privateKey, payload)
-	svc := newService(testServiceConfig(publicKey, t.TempDir(), "1.2.2"), httpClientFor(map[string][]byte{
+	svc := newService(testServiceConfig(publicKey, appUpdateRealTempDir(t), "1.2.2"), httpClientFor(map[string][]byte{
 		"https://updates.example.test/manifest.json": manifest,
 		"https://updates.example.test/update.dmg":    []byte("dmg"),
 	}), nil)
@@ -94,7 +97,7 @@ func TestWindowsAuthenticodeProducersReachRPCAsSafeRecoveryData(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			stageDir := t.TempDir()
+			stageDir := appUpdateRealTempDir(t)
 			installer := writeArgsHelperScriptWithName(t, stageDir+"/installer.args", "Super-Dolphin-windows-amd64.exe")
 			svc := newService(Config{
 				Enabled:           true,
@@ -109,6 +112,51 @@ func TestWindowsAuthenticodeProducersReachRPCAsSafeRecoveryData(t *testing.T) {
 			writeSelectedInstallFixtureForPlatform(t, svc, "windows-amd64", installer)
 
 			assertUpdateRecoveryRPCError(t, dispatchUpdateRPCService(t, "app/update/install", svc), "UPDATE_SIGNATURE_INVALID")
+		})
+	}
+}
+
+func TestPreJournalSidecarReachesCheckRPCAsSafeRecoveryData(t *testing.T) {
+	stageDir := appUpdateRealTempDir(t)
+	failure, _ := contract.RecoveryFailureForCode("UPDATE_SIGNATURE_INVALID", "")
+	if err := appupdatefailure.Write(stageDir, failure); err != nil {
+		t.Fatal(err)
+	}
+	svc := newService(Config{Enabled: true, StageDir: stageDir}, nil, nil)
+
+	assertUpdateRecoveryRPCError(t, dispatchUpdateRPCService(t, "app/update/check", svc), "UPDATE_SIGNATURE_INVALID")
+}
+
+func TestMalformedPreJournalSidecarFailsCheckRPCGenerically(t *testing.T) {
+	stageDir := appUpdateRealTempDir(t)
+	path := filepath.Join(stageDir, appupdatefailure.Filename)
+	if err := os.WriteFile(path, []byte(`{"version":1,"code":"UPDATE_SIGNATURE_INVALID","retryable":false,"action":"preserve_state_export_diagnostics","transaction_id":"","raw_output":"secret"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	err := dispatchUpdateRPCService(t, "app/update/check", newService(Config{Enabled: true, StageDir: stageDir}, nil, nil))
+	var rpcErr *jrpc2.Error
+	if !errors.As(err, &rpcErr) || rpcErr.Message != "app update request failed" || len(rpcErr.Data) != 0 {
+		t.Fatalf("Dispatch(check) error = %#v, want generic failure", err)
+	}
+}
+
+func TestExplicitUpdateRetriesClearStalePreJournalSidecar(t *testing.T) {
+	for _, operation := range []string{"download", "install"} {
+		t.Run(operation, func(t *testing.T) {
+			stageDir := appUpdateRealTempDir(t)
+			failure, _ := contract.RecoveryFailureForCode("UPDATE_INTEGRITY_INVALID", "")
+			if err := appupdatefailure.Write(stageDir, failure); err != nil {
+				t.Fatal(err)
+			}
+			svc := newService(Config{Enabled: true, StageDir: stageDir}, nil, func() {})
+			if operation == "download" {
+				_, _ = svc.Download(context.Background())
+			} else {
+				_, _ = svc.Install(context.Background())
+			}
+			if _, exists, err := appupdatefailure.Read(stageDir); err != nil || exists {
+				t.Fatalf("Read() after %s retry = (_, %v, %v), want absent", operation, exists, err)
+			}
 		})
 	}
 }
@@ -175,4 +223,13 @@ func appUpdateMapsEqual(got, want map[string]any) bool {
 
 func fmtSecretError(sentinel error) error {
 	return errors.Join(sentinel, errors.New("secret path /Users/alice/update.dmg and helper output"))
+}
+
+func appUpdateRealTempDir(t *testing.T) string {
+	t.Helper()
+	stageDir, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return stageDir
 }

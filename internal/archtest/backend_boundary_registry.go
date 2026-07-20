@@ -724,6 +724,7 @@ func commandNarrowAllowPolicies(patterns backendBoundaryPatterns) []BoundaryImpo
 		"internal/platform/runtimeenv",
 	}, "detached Guard transaction and frozen environment seam")...)
 	policies = append(policies, boundaryPolicies(owner, patterns.updater, []string{
+		"internal/platform/appupdatefailure",
 		"internal/platform/appupdaterecovery",
 		"internal/platform/pidregistry",
 		"internal/platform/runtimeenv",

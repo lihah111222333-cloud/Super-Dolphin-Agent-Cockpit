@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/appupdatefailure"
 	platformconfig "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/config"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util/safego"
 	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
@@ -243,6 +244,17 @@ func (s *service) Check(ctx context.Context) (CheckResult, error) {
 	if !s.cfg.Enabled {
 		return CheckResult{Enabled: false, Available: false}, nil
 	}
+	failure, exists, err := appupdatefailure.Read(s.cfg.StageDir)
+	if err != nil {
+		return CheckResult{}, fmt.Errorf("read app update pre-journal failure: %w", err)
+	}
+	if exists {
+		recoveryErr, err := appupdatefailure.NewError(failure)
+		if err != nil {
+			return CheckResult{}, fmt.Errorf("construct app update pre-journal failure: %w", err)
+		}
+		return CheckResult{}, recoveryErr
+	}
 	payload, artifact, err := s.fetchManifest(ctx)
 	if errors.Is(err, ErrNoUpdate) {
 		return CheckResult{Enabled: true, Available: false}, nil
@@ -260,12 +272,12 @@ func (s *service) Check(ctx context.Context) (CheckResult, error) {
 
 // Download 下载并校验更新产物，成功后写入 stage manifest 供 Install 使用。
 func (s *service) Download(ctx context.Context) (DownloadResult, error) {
+	if err := s.clearPreJournalFailure(); err != nil {
+		return DownloadResult{}, err
+	}
 	payload, artifact, err := s.fetchManifest(ctx)
 	if err != nil {
 		return DownloadResult{}, err
-	}
-	if err := os.MkdirAll(s.cfg.StageDir, 0o700); err != nil {
-		return DownloadResult{}, fmt.Errorf("create app update stage dir: %w", err)
 	}
 	artifactPath, err := stagedArtifactPathFor(s.cfg.StageDir, artifact)
 	if err != nil {
@@ -299,7 +311,15 @@ func (s *service) Download(ctx context.Context) (DownloadResult, error) {
 
 // Install 读取已暂存的更新记录并启动平台安装命令，成功启动后延迟请求宿主退出。
 func (s *service) Install(ctx context.Context) (InstallResult, error) {
+	return s.install(ctx, true)
+}
+
+// install 启动暂存更新；InstallLatest 已由 Download 清理时可禁止重复 sidecar 写操作。
+func (s *service) install(ctx context.Context, clearFailure bool) (InstallResult, error) {
 	_ = ctx
+	if err := s.prepareInstallRetry(clearFailure); err != nil {
+		return InstallResult{}, err
+	}
 	if s.requestQuit == nil {
 		return InstallResult{}, errors.New("app update request quit callback is not configured")
 	}
@@ -330,12 +350,31 @@ func (s *service) Install(ctx context.Context) (InstallResult, error) {
 	return InstallResult{Started: true, Helper: helper}, nil
 }
 
+// prepareInstallRetry 只在公开 Install 入口清理一次 sidecar。
+func (s *service) prepareInstallRetry(clearFailure bool) error {
+	if !clearFailure {
+		return nil
+	}
+	return s.clearPreJournalFailure()
+}
+
+// clearPreJournalFailure 在显式重试入口创建可信 StageDir 并清除旧 sidecar。
+func (s *service) clearPreJournalFailure() error {
+	if err := os.MkdirAll(s.cfg.StageDir, 0o700); err != nil {
+		return fmt.Errorf("create app update stage dir: %w", err)
+	}
+	if err := appupdatefailure.Clear(s.cfg.StageDir); err != nil {
+		return fmt.Errorf("clear app update pre-journal failure: %w", err)
+	}
+	return nil
+}
+
 // InstallLatest 串联 Download 和 Install，确保安装的是当前检查到的最新产物。
 func (s *service) InstallLatest(ctx context.Context) (InstallResult, error) {
 	if _, err := s.Download(ctx); err != nil {
 		return InstallResult{}, err
 	}
-	return s.Install(ctx)
+	return s.install(ctx, false)
 }
 
 // scheduleRequestQuit 在短暂延迟后调用 requestQuit，让 RPC 响应先行发出。

@@ -16,7 +16,7 @@ func TestCheckFetchesGitHubLatestReleaseManifestForCurrentPlatform(t *testing.T)
 	publicKey, privateKey := testManifestKeypair(t)
 	payload := testGitHubManifestPayload(t, []byte("signed dmg bytes"), "darwin-arm64")
 	rawManifest := signTestManifest(t, privateKey, payload)
-	svc := newService(testGitHubServiceConfig(publicKey, t.TempDir(), "1.2.2", "darwin-arm64"), httpClientFor(map[string][]byte{
+	svc := newService(testGitHubServiceConfig(publicKey, appUpdateRealTempDir(t), "1.2.2", "darwin-arm64"), httpClientFor(map[string][]byte{
 		testGitHubAPIURL(): []byte(testGitHubReleaseJSON(t, "v1.2.3", payload.Artifacts[0], "darwin-arm64")),
 		testGitHubReleaseAssetURL(
 			"v1.2.3",
@@ -40,7 +40,7 @@ func TestCheckFetchesGitHubLatestReleaseManifestForWindowsEXE(t *testing.T) {
 	publicKey, privateKey := testManifestKeypair(t)
 	payload := testGitHubManifestPayload(t, []byte("signed exe bytes"), "windows-amd64")
 	rawManifest := signTestManifest(t, privateKey, payload)
-	svc := newService(testGitHubServiceConfig(publicKey, t.TempDir(), "1.2.2", "windows-amd64"), httpClientFor(map[string][]byte{
+	svc := newService(testGitHubServiceConfig(publicKey, appUpdateRealTempDir(t), "1.2.2", "windows-amd64"), httpClientFor(map[string][]byte{
 		testGitHubAPIURL(): []byte(testGitHubReleaseJSON(t, "v1.2.3", payload.Artifacts[0], "windows-amd64")),
 		testGitHubReleaseAssetURL(
 			"v1.2.3",
@@ -63,7 +63,7 @@ func TestCheckFetchesGitHubLatestReleaseManifestForWindowsEXE(t *testing.T) {
 func TestCheckRejectsGitHubReleaseMissingPlatformManifest(t *testing.T) {
 	publicKey, _ := testManifestKeypair(t)
 	artifact := testGitHubArtifact([]byte("signed dmg bytes"), "darwin-arm64")
-	svc := newService(testGitHubServiceConfig(publicKey, t.TempDir(), "1.2.2", "darwin-arm64"), httpClientFor(map[string][]byte{
+	svc := newService(testGitHubServiceConfig(publicKey, appUpdateRealTempDir(t), "1.2.2", "darwin-arm64"), httpClientFor(map[string][]byte{
 		testGitHubAPIURL(): []byte(testGitHubReleaseJSONWithoutManifest(t, "v1.2.3", artifact)),
 	}), nil)
 
@@ -75,7 +75,7 @@ func TestCheckRejectsGitHubReleaseMissingPlatformManifest(t *testing.T) {
 
 func TestCheckRejectsGitHubReleaseMissingPlatformArtifact(t *testing.T) {
 	publicKey, _ := testManifestKeypair(t)
-	svc := newService(testGitHubServiceConfig(publicKey, t.TempDir(), "1.2.2", "windows-amd64"), httpClientFor(map[string][]byte{
+	svc := newService(testGitHubServiceConfig(publicKey, appUpdateRealTempDir(t), "1.2.2", "windows-amd64"), httpClientFor(map[string][]byte{
 		testGitHubAPIURL(): []byte(testGitHubReleaseJSONForAssets(t, []map[string]any{
 			githubAssetMap(
 				"Super-Dolphin-darwin-arm64.dmg",
@@ -103,7 +103,7 @@ func TestCheckRejectsGitHubReleaseAssetDigestMismatch(t *testing.T) {
 	payload := testGitHubManifestPayload(t, []byte("signed dmg bytes"), "darwin-arm64")
 	rawManifest := signTestManifest(t, privateKey, payload)
 	releaseJSON := testGitHubReleaseJSONWithArtifactDigest(t, "v1.2.3", payload.Artifacts[0], "darwin-arm64", strings.Repeat("0", 64))
-	svc := newService(testGitHubServiceConfig(publicKey, t.TempDir(), "1.2.2", "darwin-arm64"), httpClientFor(map[string][]byte{
+	svc := newService(testGitHubServiceConfig(publicKey, appUpdateRealTempDir(t), "1.2.2", "darwin-arm64"), httpClientFor(map[string][]byte{
 		testGitHubAPIURL(): []byte(releaseJSON),
 		testGitHubReleaseAssetURL(
 			"v1.2.3",
@@ -122,7 +122,7 @@ func TestCheckRejectsGitHubReleaseAssetSizeMismatch(t *testing.T) {
 	payload := testGitHubManifestPayload(t, []byte("signed dmg bytes"), "darwin-arm64")
 	rawManifest := signTestManifest(t, privateKey, payload)
 	releaseJSON := testGitHubReleaseJSONWithArtifactSize(t, "v1.2.3", payload.Artifacts[0], "darwin-arm64", payload.Artifacts[0].Size+1)
-	svc := newService(testGitHubServiceConfig(publicKey, t.TempDir(), "1.2.2", "darwin-arm64"), httpClientFor(map[string][]byte{
+	svc := newService(testGitHubServiceConfig(publicKey, appUpdateRealTempDir(t), "1.2.2", "darwin-arm64"), httpClientFor(map[string][]byte{
 		testGitHubAPIURL(): []byte(releaseJSON),
 		testGitHubReleaseAssetURL(
 			"v1.2.3",

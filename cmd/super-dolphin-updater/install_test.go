@@ -316,6 +316,7 @@ func TestInstallFromMountWaitsForAppExitBeforeReplacing(t *testing.T) {
 	target := filepath.Join(t.TempDir(), "Super Dolphin.app")
 
 	err := installFromMount(installRequest{
+		DMGPath:       testUpdaterDMG(t),
 		TargetAppPath: target,
 		WaitPID:       12345,
 		AllowUnsigned: true,
@@ -337,7 +338,7 @@ func TestFirstInstallUsesAtomicPathWithoutRollbackTransaction(t *testing.T) {
 	createAppBundle(t, filepath.Join(mountPoint, "Super Dolphin.app"))
 	parent := t.TempDir()
 	target := filepath.Join(parent, "Super Dolphin.app")
-	if err := installFromMount(installRequest{TargetAppPath: target, AllowUnsigned: true}, mountPoint); err != nil {
+	if err := installFromMount(installRequest{DMGPath: testUpdaterDMG(t), TargetAppPath: target, AllowUnsigned: true}, mountPoint); err != nil {
 		t.Fatalf("installFromMount() error = %v", err)
 	}
 	if err := validateMountedApp(target); err != nil {
@@ -477,6 +478,7 @@ func TestInstallKeepsTargetWhenDittoTimesOutBeforeTransaction(t *testing.T) {
 	dittoDest := stubRunCommandWithTimedOutDitto(t)
 
 	err := installFromMount(installRequest{
+		DMGPath:       testUpdaterDMG(t),
 		TargetAppPath: target,
 		AllowUnsigned: true,
 		Restart:       true,
