@@ -29,6 +29,7 @@ import {
   syncThemeDOM,
 } from './app/appShellModel.js';
 import { SuiyuanAppWindow } from './app/shell/SuiyuanAppWindow.jsx';
+import { appShortcutPlatform } from './app/shell/appShortcutPlatform.js';
 import { updateVersionFromResult } from './app/shell/appUpdateVersion.js';
 import { createShellLayoutStore } from './app/shell/model/useShellLayoutStore.js';
 import { appCommandPreferencePort } from './app/commands/appCommandPreferencePort.js';
@@ -45,17 +46,6 @@ const UPDATE_BANNER_DISMISSED_PREFIX = 'super-dolphin-update-dismissed:';
 const DASHBOARD_QUERY_GC_MS = 10 * 60_000;
 
 export const APP_PROFILER_ID = 'App';
-
-function appShortcutPlatform() {
-  if (typeof navigator === 'undefined') throw new Error('browser shortcut platform is unavailable');
-  const browserPlatform = `${String(navigator.platform)} ${String(navigator.userAgent)}`.toLowerCase();
-  if (browserPlatform.includes('mac')) return 'darwin';
-  if (browserPlatform.includes('win')) return 'win32';
-  if (browserPlatform.includes('linux')) return 'linux';
-  const runtimePlatform = globalThis.process?.platform;
-  if (['darwin', 'linux', 'win32'].includes(runtimePlatform)) return runtimePlatform;
-  throw new Error(`unsupported browser shortcut platform: ${browserPlatform || 'unknown'}`);
-}
 
 function appPageFromLocation() {
   if (typeof window === 'undefined') return 'chat';
@@ -337,7 +327,7 @@ function ConfiguredAppWindow({ language, shortcutCwd, ...props }) {
     registry: APP_COMMAND_REGISTRY,
     setPreference: appCommandPreferencePort.setPreference,
   });
-  return <SuiyuanAppWindow {...props} language={language} shortcutController={shortcutController} getShortcutPlatform={appShortcutPlatform} />;
+  return <SuiyuanAppWindow {...props} language={language} shortcutController={shortcutController} />;
 }
 
 function AppWindowShortcutBoundary({ language, shell, shellLayoutStore, store }) {

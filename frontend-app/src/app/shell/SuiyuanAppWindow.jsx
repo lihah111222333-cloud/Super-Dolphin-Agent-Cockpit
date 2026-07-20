@@ -32,6 +32,7 @@ import { APP_BRAND_NAME, APP_COPY } from '../../shared/i18n/appI18n.js';
 import { runUIAction } from '../../shared/ui/runUIAction.js';
 import { ActionFailureSink } from '../../shared/ui/actionFailureSink.jsx';
 import suiyuanBrandIcon from '../../assets/suiyuan-brand-icon.png';
+import { appShortcutPlatform } from './appShortcutPlatform.js';
 import { updateVersionFromResult } from './appUpdateVersion.js';
 
 const SUIYUAN_NAV_ITEMS = Object.freeze([
@@ -248,7 +249,7 @@ function SuiyuanMobileNav({ activePage, copy, setActivePage }) {
 }
 
 function useBoundAppCommandRuntime(options) {
-  const { copy, getShortcutPlatform, overrides, setActivePage, setPaletteOpen, setSidebarOpen, startNewChat, store } = options;
+  const { copy, overrides, setActivePage, setPaletteOpen, setSidebarOpen, startNewChat, store } = options;
   return useMemo(() => (overrides ? createAppCommandRuntime({
       registry: APP_COMMAND_REGISTRY,
       bindings: {
@@ -271,8 +272,8 @@ function useBoundAppCommandRuntime(options) {
         },
       },
       overrides,
-      platform: getShortcutPlatform(),
-    }) : undefined), [copy, getShortcutPlatform, overrides, setActivePage, setPaletteOpen, setSidebarOpen, startNewChat, store]);
+      platform: appShortcutPlatform(),
+    }) : undefined), [copy, overrides, setActivePage, setPaletteOpen, setSidebarOpen, startNewChat, store]);
 }
 
 function AppCommandPalette({ copy, onClose, open, runtime }) {
@@ -288,7 +289,64 @@ function AppCommandPalette({ copy, onClose, open, runtime }) {
   );
 }
 
-export function SuiyuanAppWindow({ language, shell, shellLayoutStore, shortcutController, getShortcutPlatform, store }) {
+function SuiyuanTopAppBar({ copy, currentPageLabel, locale, controls }) {
+  const {
+    isDark,
+    setActivePage,
+    themeLabel,
+    toggleLocale,
+    toggleTheme,
+  } = controls;
+  const ThemeIcon = isDark ? Sun : Moon;
+  return (
+    <header className="suiyuan-top-appbar" aria-label="Suiyuan app bar">
+      <div className="suiyuan-appbar-title">
+        <span>{copy.currentPagePrefix}</span>
+        <h1>{currentPageLabel}</h1>
+      </div>
+      <div className="suiyuan-appbar-actions" aria-label="Workspace actions">
+        <button
+          type="button"
+          className="suiyuan-icon-action"
+          aria-label={copy.workbench.notifications}
+          title={copy.workbench.notifications}
+          onClick={() => setActivePage('observability')}
+        >
+          <Bell size={15} aria-hidden="true" />
+        </button>
+        <button
+          type="button"
+          className="suiyuan-icon-action"
+          aria-label={copy.workbench.history}
+          title={copy.workbench.history}
+          onClick={() => setActivePage('chat')}
+        >
+          <Clock3 size={15} aria-hidden="true" />
+        </button>
+        <button
+          type="button"
+          className="suiyuan-icon-action"
+          aria-label={`${copy.workbench.switchThemePrefix}${themeLabel}`}
+          title={themeLabel}
+          onClick={toggleTheme}
+        >
+          <ThemeIcon size={15} aria-hidden="true" />
+        </button>
+        <button
+          type="button"
+          className="suiyuan-locale-action"
+          aria-label={copy.switchLanguage}
+          title={copy.switchLanguage}
+          onClick={toggleLocale}
+        >
+          {locale.toUpperCase()}
+        </button>
+      </div>
+    </header>
+  );
+}
+
+export function SuiyuanAppWindow({ language, shell, shellLayoutStore, shortcutController, store }) {
   const {
     memoryBadge,
     projectPath,
@@ -318,7 +376,6 @@ export function SuiyuanAppWindow({ language, shell, shellLayoutStore, shortcutCo
   const activeLabel = appPageTitleLabel(store.activePage, copy);
   const currentPageLabel = currentPageLabelOverride || activeLabel;
   const isDark = theme === COLOR_THEMES.dark;
-  const ThemeIcon = isDark ? Sun : Moon;
   const themeLabel = isDark ? copy.workbench.dayMode : copy.workbench.nightMode;
   const closeSidebar = useCallback(() => setSidebarOpen(false), []);
   const setActivePageFromSidebar = useCallback((page) => {
@@ -338,7 +395,6 @@ export function SuiyuanAppWindow({ language, shell, shellLayoutStore, shortcutCo
   }, [setActivePageFromSidebar, store]);
   const commandRuntime = useBoundAppCommandRuntime({
     copy: copy.commands,
-    getShortcutPlatform,
     overrides: shortcutController?.status === 'ready' ? shortcutController.validatedOverrides : undefined,
     setActivePage: setActivePageFromSidebar,
     setPaletteOpen,
@@ -395,38 +451,18 @@ export function SuiyuanAppWindow({ language, shell, shellLayoutStore, shortcutCo
           store={store}
         />
         <main className="sa-main suiyuan-main">
-          <header className="suiyuan-top-appbar" aria-label="Suiyuan app bar">
-            <div className="suiyuan-appbar-title">
-              <span>{copy.currentPagePrefix}</span>
-              <h1>{currentPageLabel}</h1>
-            </div>
-            <div className="suiyuan-appbar-actions" aria-label="Workspace actions">
-              <button
-                type="button"
-                className="suiyuan-icon-action"
-                aria-label={copy.workbench.notifications}
-                title={copy.workbench.notifications}
-                onClick={() => setActivePageFromSidebar('observability')}
-              >
-                <Bell size={15} aria-hidden="true" />
-              </button>
-              <button
-                type="button"
-                className="suiyuan-icon-action"
-                aria-label={copy.workbench.history}
-                title={copy.workbench.history}
-                onClick={() => setActivePageFromSidebar('chat')}
-              >
-                <Clock3 size={15} aria-hidden="true" />
-              </button>
-              <button type="button" className="suiyuan-icon-action" aria-label={`${copy.workbench.switchThemePrefix}${themeLabel}`} title={themeLabel} onClick={toggleTheme}>
-                <ThemeIcon size={15} aria-hidden="true" />
-              </button>
-              <button type="button" className="suiyuan-locale-action" aria-label={copy.switchLanguage} title={copy.switchLanguage} onClick={toggleLocale}>
-                {locale.toUpperCase()}
-              </button>
-            </div>
-          </header>
+          <SuiyuanTopAppBar
+            copy={copy}
+            currentPageLabel={currentPageLabel}
+            locale={locale}
+            controls={{
+              isDark,
+              setActivePage: setActivePageFromSidebar,
+              themeLabel,
+              toggleLocale,
+              toggleTheme,
+            }}
+          />
           <AppUpdateBanner copy={copy.update} updateBanner={updateBanner} />
           <div className="suiyuan-main-canvas">
             <Suspense fallback={<PageLoadingFallback />}>
