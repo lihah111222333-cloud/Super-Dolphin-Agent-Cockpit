@@ -1,4 +1,6 @@
 import { systemClockMillis, parseRequiredJsonObject } from './contractStoreModel.js';
+import React from 'react';
+import { cleanup, render, screen } from '@testing-library/react';
 import { beforeEach, expect, it, vi } from 'vitest';
 
 function optionalUiArray() {
@@ -111,6 +113,12 @@ vi.mock('../../../shared/api/backendApi.js', async (importOriginal) => {
 
 import { resetClientStoreForTests, setClientStoreClockMillisForTests, useClientStore } from './useClientStore.js';
 import * as frontendBreadcrumbs from '../../../shared/diagnostics/frontendBreadcrumbs.js';
+import {
+  clearFrontendHealth,
+  frontendHealthSnapshot,
+  resetFrontendHealthForTest,
+} from '../../../shared/diagnostics/frontendHealthStore.js';
+import { ForkDraftCard } from '../../../pages/chat/composer/ForkDraftCard.jsx';
 
 function diagnosticBreadcrumbs() {
   return frontendBreadcrumbs.snapshotFrontendBreadcrumbsForTests().map(({ actionCode, routeId, phase }) => ({
@@ -153,8 +161,11 @@ function registerBridgeEventHandlersForTest() {
 }
 
   beforeEach(() => {
+    cleanup();
     vi.clearAllMocks();
     frontendBreadcrumbs.resetFrontendBreadcrumbsForTests?.();
+    resetFrontendHealthForTest();
+    clearFrontendHealth();
     bridgeCallback = null;
     bridgeOptions = null;
     runtimeReconnectCallback = null;
@@ -954,6 +965,41 @@ function registerBridgeEventHandlersForTest() {
     expect(useClientStore.getState().activeThreadId).toBe('');
     expect(useClientStore.getState().chatSurfaceLoadingCwd).toBe('');
 
+    projectChange.resolve({ projects: ['/repo/app', '/repo/other'], active: '/repo/other' });
+    await expect(switchPromise).resolves.toBe(true);
+  });
+
+  it('publishes a safe notice and Health diagnostic when project session refresh fails', async () => {
+    const bearerSecret = 'Bearer sk-frontend-session-refresh-secret-123456';
+    const projectChange = deferred();
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      projectScopeCwd: '/repo/app',
+      activeProject: '/repo/app',
+      projects: ['/repo/app', '/repo/other'],
+      activeThreadId: 'thread-old',
+      threads: [{ id: 'thread-old', name: 'Old project thread', provider: 'codex', status: 'running' }],
+    });
+    backend.setActiveProject.mockReturnValue(projectChange.promise);
+    backend.getSidebarState.mockRejectedValue(new Error(`sidebar refresh failed ${bearerSecret}`));
+
+    const switchPromise = useClientStore.getState().setActiveProjectPath('/repo/other');
+
+    await vi.waitFor(() => {
+      expect(useClientStore.getState().actionNotice).toEqual(expect.objectContaining({
+        message: '刷新会话列表失败，请稍后重试。',
+        tone: 'error',
+      }));
+    });
+    expect(JSON.stringify(useClientStore.getState().actionNotice)).not.toContain(bearerSecret);
+    expect(JSON.stringify(useClientStore.getState().warningEntries)).not.toContain(bearerSecret);
+    expect(frontendHealthSnapshot()).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        actionId: 'sidebar.project-threads.load',
+        diagnosticId: expect.any(String),
+      }),
+    ]));
+    expect(JSON.stringify(frontendHealthSnapshot())).not.toContain(bearerSecret);
     projectChange.resolve({ projects: ['/repo/app', '/repo/other'], active: '/repo/other' });
     await expect(switchPromise).resolves.toBe(true);
   });
@@ -4026,6 +4072,7 @@ function registerBridgeEventHandlersForTest() {
   });
 
   it('runs a pending sidebar refresh after an in-flight refresh rejects', async () => {
+    const bearerSecret = 'Bearer sk-frontend-sidebar-secret-123456';
     const failedRefresh = deferred();
     const retryRefresh = deferred();
     resetClientStoreForTests({
@@ -4043,7 +4090,7 @@ function registerBridgeEventHandlersForTest() {
     bridgeCallback({ type: 'ui/sidebar/changed', payload: { revision: 3 } });
 
     expect(backend.getSidebarState).toHaveBeenCalledTimes(1);
-    failedRefresh.reject(new Error('sidebar refresh failed'));
+    failedRefresh.reject(new Error(`sidebar refresh failed ${bearerSecret}`));
 
     await vi.waitFor(() => {
       expect(backend.getSidebarState).toHaveBeenCalledTimes(2);
@@ -4065,6 +4112,15 @@ function registerBridgeEventHandlersForTest() {
       level: 'error',
       event: 'thread.sidebar.refresh.failed',
     }));
+    expect(JSON.stringify(useClientStore.getState().actionNotice)).not.toContain(bearerSecret);
+    expect(JSON.stringify(useClientStore.getState().warningEntries)).not.toContain(bearerSecret);
+    expect(frontendHealthSnapshot()).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        actionId: 'sidebar.project-threads.load',
+        diagnosticId: expect.any(String),
+      }),
+    ]));
+    expect(JSON.stringify(frontendHealthSnapshot())).not.toContain(bearerSecret);
     expect(backend.getSidebarState).toHaveBeenCalledTimes(2);
   });
 
@@ -4510,6 +4566,7 @@ function registerBridgeEventHandlersForTest() {
   });
 
   it('marks inherited fork kickoff failure as partial instead of a full working success', async () => {
+    const bearerSecret = 'Bearer sk-frontend-fork-kickoff-secret-123456';
     resetClientStoreForTests({
       cwd: '/repo/app',
       activeProject: '/repo/app',
@@ -4526,21 +4583,21 @@ function registerBridgeEventHandlersForTest() {
       thread: { id: 'thread-fork', forkedFrom: 'thread-1' },
       kickoffState: 'created_only',
     });
-    backend.startTurn.mockRejectedValue(new Error('turn/start failed'));
+    backend.startTurn.mockRejectedValue(new Error(`turn/start failed ${bearerSecret}`));
 
     await expect(useClientStore.getState().openForkDraft()).resolves.toBe(true);
     await expect(useClientStore.getState().submitForkThread()).resolves.toBe('thread-fork');
 
     const state = useClientStore.getState();
     expect(state.actionNotice).toEqual(expect.objectContaining({
-      message: expect.stringContaining('开场消息发送失败'),
+      message: '已创建继承对话，但开场消息暂时无法发送。',
       tone: 'warning',
     }));
     expect(state.threads[0]).toEqual(expect.objectContaining({
       id: 'thread-fork',
       status: '需要操作',
       forkKickoffStatus: 'failed',
-      forkKickoffError: 'turn/start failed',
+      forkKickoffError: '已创建继承对话，但开场消息暂时无法发送。',
     }));
     expect(state.timelinesByThread['thread-fork'] || optionalUiArray()).not.toEqual(expect.arrayContaining([
       expect.objectContaining({
@@ -4548,6 +4605,43 @@ function registerBridgeEventHandlersForTest() {
         optimistic: true,
       }),
     ]));
+    expect(JSON.stringify(state.actionNotice)).not.toContain(bearerSecret);
+    expect(JSON.stringify(state.warningEntries)).not.toContain(bearerSecret);
+    expect(frontendHealthSnapshot()).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        actionId: 'thread.fork.submit',
+        diagnosticId: expect.any(String),
+      }),
+    ]));
+    expect(JSON.stringify(frontendHealthSnapshot())).not.toContain(bearerSecret);
+  });
+
+  it('keeps shared-file loading failures out of fork draft state, rendered feedback, and Health', async () => {
+    const bearerSecret = 'Bearer sk-frontend-fork-shared-files-secret-123456';
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'thread-1',
+      threads: [{ id: 'thread-1', name: 'Existing thread', provider: 'codex', status: 'idle' }],
+    });
+    backend.listSharedFiles.mockRejectedValue(new Error(`shared files unavailable ${bearerSecret}`));
+
+    await expect(useClientStore.getState().openForkDraft()).resolves.toBe(true);
+
+    const state = useClientStore.getState();
+    expect(state.forkDraft.error).toBe('共享文件列表暂时不可用，请稍后重试。');
+    expect(JSON.stringify(state.forkDraft)).not.toContain(bearerSecret);
+    expect(JSON.stringify(state.warningEntries)).not.toContain(bearerSecret);
+    expect(frontendHealthSnapshot()).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        actionId: 'thread.fork.open',
+        diagnosticId: expect.any(String),
+      }),
+    ]));
+    expect(JSON.stringify(frontendHealthSnapshot())).not.toContain(bearerSecret);
+    render(React.createElement(ForkDraftCard, { store: state }));
+    expect(screen.getByRole('alert')).toHaveTextContent('共享文件列表暂时不可用，请稍后重试。');
+    expect(document.body.textContent).not.toContain(bearerSecret);
   });
 
   it('sends selected shared files as canonical filecontent kickoff input', async () => {
@@ -4624,6 +4718,7 @@ function registerBridgeEventHandlersForTest() {
   });
 
   it('does not fall back to thread/start when canonical fork fails', async () => {
+    const bearerSecret = 'Bearer sk-frontend-fork-submit-secret-123456';
     resetClientStoreForTests({
       cwd: '/repo/app',
       activeProject: '/repo/app',
@@ -4631,7 +4726,7 @@ function registerBridgeEventHandlersForTest() {
       threads: [{ id: 'thread-1', name: 'Existing thread', provider: 'codex', status: 'idle' }],
       timelinesByThread: { 'thread-1': [] },
     });
-    backend.forkThread.mockRejectedValue(new Error('thread/fork unsupported'));
+    backend.forkThread.mockRejectedValue(new Error(`thread/fork unsupported ${bearerSecret}`));
 
     await useClientStore.getState().openForkDraft();
     await expect(useClientStore.getState().submitForkThread()).rejects.toThrow('thread/fork unsupported');
@@ -4640,6 +4735,12 @@ function registerBridgeEventHandlersForTest() {
     expect(backend.startTurn).not.toHaveBeenCalled();
     expect(useClientStore.getState().activeThreadId).toBe('thread-1');
     expect(useClientStore.getState().forkDraft.open).toBe(true);
+    expect(useClientStore.getState().forkDraft.error).toBe('创建继承对话失败，请稍后重试。');
+    expect(JSON.stringify(useClientStore.getState().forkDraft)).not.toContain(bearerSecret);
+    expect(JSON.stringify(useClientStore.getState().actionNotice)).not.toContain(bearerSecret);
+    render(React.createElement(ForkDraftCard, { store: useClientStore.getState() }));
+    expect(screen.getByRole('alert')).toHaveTextContent('创建继承对话失败，请稍后重试。');
+    expect(document.body.textContent).not.toContain(bearerSecret);
   });
 
 

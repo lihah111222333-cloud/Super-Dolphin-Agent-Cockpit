@@ -1,6 +1,18 @@
 import { getSidebarState } from '../../../../../shared/api/backendApi.js';
+import { recordFrontendHealth } from '../../../../../shared/diagnostics/frontendHealthStore.js';
+import { diagnosticIdFactoryForError, publicErrorForAction } from '../../../../../shared/ui/publicError.js';
 import { normalizePath } from './clientStoreUtils.js';
 import { actionNotice } from './clientStoreSendModel.js';
+
+const SIDEBAR_REFRESH_FAILURE_MESSAGE = '刷新会话列表失败，请稍后重试。';
+
+function recordSidebarRefreshFailure(error) {
+  const actionId = 'sidebar.project-threads.load';
+  const publicError = publicErrorForAction(actionId, {
+    diagnosticIdFactory: diagnosticIdFactoryForError(error),
+  });
+  recordFrontendHealth({ actionId, publicError });
+}
 
 function refreshEntryIsCurrent(runtime, cwd, refreshEntry) {
   return !refreshEntry.cancelled && runtime.sidebarRefreshesByCwd.get(cwd) === refreshEntry;
@@ -31,10 +43,10 @@ function chatSurfaceLoadedPatch(state, cwd) {
   };
 }
 
-function chatSurfaceRefreshFailedPatch(state, cwd, error) {
+function chatSurfaceRefreshFailedPatch(state, cwd) {
   return {
     chatSurfaceLoadingCwd: state.chatSurfaceLoadingCwd === cwd ? '' : state.chatSurfaceLoadingCwd,
-    actionNotice: actionNotice(`刷新会话列表失败：${error.message}`, 'error'),
+    actionNotice: actionNotice(SIDEBAR_REFRESH_FAILURE_MESSAGE, 'error'),
   };
 }
 
@@ -53,25 +65,25 @@ function applySidebarSnapshot(runtime, cwd, options, sidebar) {
 
 function handleSidebarRefreshFailure(runtime, cwd, options, error) {
   if (options.clearSurface) {
-    runtime.set((state) => chatSurfaceRefreshFailedPatch(state, cwd, error));
+    runtime.set((state) => chatSurfaceRefreshFailedPatch(state, cwd));
   }
-  runtime.addWarning('error', 'thread.sidebar.refresh.failed', { cwd, error: error.message });
+  runtime.addWarning('error', 'thread.sidebar.refresh.failed', { cwd, error });
+  recordSidebarRefreshFailure(error);
 }
 
-function performSidebarRefreshForCwd(runtime, cwd, options, refreshEntry) {
+async function performSidebarRefreshForCwd(runtime, cwd, options, refreshEntry) {
   const seq = ++runtime.sidebarRefreshSeq;
   maybeApplyCachedSidebar(runtime, cwd, options);
-  return getSidebarState({ cwd })
-    .then((sidebar) => {
-      if (!refreshEntryIsCurrent(runtime, cwd, refreshEntry)) return;
-      if (!refreshSeqIsCurrent(runtime, cwd, seq)) return;
-      applySidebarSnapshot(runtime, cwd, options, sidebar);
-    })
-    .catch((error) => {
-      if (!refreshEntryIsCurrent(runtime, cwd, refreshEntry)) return;
-      if (!refreshSeqIsCurrent(runtime, cwd, seq)) return;
-      handleSidebarRefreshFailure(runtime, cwd, options, error);
-    });
+  try {
+    const sidebar = await getSidebarState({ cwd });
+    if (!refreshEntryIsCurrent(runtime, cwd, refreshEntry)) return;
+    if (!refreshSeqIsCurrent(runtime, cwd, seq)) return;
+    applySidebarSnapshot(runtime, cwd, options, sidebar);
+  } catch (error) {
+    if (!refreshEntryIsCurrent(runtime, cwd, refreshEntry)) return;
+    if (!refreshSeqIsCurrent(runtime, cwd, seq)) return;
+    handleSidebarRefreshFailure(runtime, cwd, options, error);
+  }
 }
 
 function runSidebarRefreshEntry(runtime, cwd, refreshEntry, options) {

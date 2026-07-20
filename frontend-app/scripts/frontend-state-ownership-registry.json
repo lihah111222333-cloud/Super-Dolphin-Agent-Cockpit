@@ -41,7 +41,7 @@
       ]
     },
     "public-error-diagnostics": {
-      "description": "Validated PublicError attached to the canonical terminal timeline item.",
+      "description": "Validated PublicError projected to the terminal timeline item and frontend Health.",
       "sourceRoot": "src/entities/client/model",
       "consumerRoot": "src",
       "properties": [
@@ -53,6 +53,16 @@
           "key": "src/entities/client/model/helpers/assistantEventRuntime.js:terminalTimelineItem:object-property:publicError",
           "value": "terminal.publicError",
           "role": "owner"
+        },
+        {
+          "key": "src/entities/client/model/helpers/a1/clientStoreSidebarRuntime.js:recordSidebarRefreshFailure:object-property:publicError",
+          "value": "publicError",
+          "role": "projector"
+        },
+        {
+          "key": "src/entities/client/model/helpers/a2Slice/forkSliceActions.js:recordForkFailure:object-property:publicError",
+          "value": "publicError",
+          "role": "projector"
         }
       ],
       "consumers": [
