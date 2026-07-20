@@ -2533,7 +2533,10 @@
         "internal/contract.ReadOnlyCodexNativeDeniedTools",
         "internal/contract.ReadOnlyNonOrchestrationDeniedTools",
         "internal/contract.RecoveryFailure",
+        "internal/contract.RecoveryFailureCarrier",
+        "internal/contract.RecoveryFailureCarrier.RecoveryFailure",
         "internal/contract.RecoveryFailureForCode",
+        "internal/contract.RecoveryFailureFromError",
         "internal/contract.RegisteredDependencyAbsencePolicies",
         "internal/contract.RememberReportRequest",
         "internal/contract.RememberReportRequestResult",
@@ -7127,7 +7130,10 @@
         "internal/contract.ReadOnlyCodexNativeDeniedTools",
         "internal/contract.ReadOnlyNonOrchestrationDeniedTools",
         "internal/contract.RecoveryFailure",
+        "internal/contract.RecoveryFailureCarrier",
+        "internal/contract.RecoveryFailureCarrier.RecoveryFailure",
         "internal/contract.RecoveryFailureForCode",
+        "internal/contract.RecoveryFailureFromError",
         "internal/contract.RegisteredDependencyAbsencePolicies",
         "internal/contract.RememberReportRequest",
         "internal/contract.RememberReportRequestResult",
@@ -11721,7 +11727,10 @@
         "internal/contract.ReadOnlyCodexNativeDeniedTools",
         "internal/contract.ReadOnlyNonOrchestrationDeniedTools",
         "internal/contract.RecoveryFailure",
+        "internal/contract.RecoveryFailureCarrier",
+        "internal/contract.RecoveryFailureCarrier.RecoveryFailure",
         "internal/contract.RecoveryFailureForCode",
+        "internal/contract.RecoveryFailureFromError",
         "internal/contract.RegisteredDependencyAbsencePolicies",
         "internal/contract.RememberReportRequest",
         "internal/contract.RememberReportRequestResult",
@@ -16318,7 +16327,10 @@
         "internal/contract.ReadOnlyCodexNativeDeniedTools",
         "internal/contract.ReadOnlyNonOrchestrationDeniedTools",
         "internal/contract.RecoveryFailure",
+        "internal/contract.RecoveryFailureCarrier",
+        "internal/contract.RecoveryFailureCarrier.RecoveryFailure",
         "internal/contract.RecoveryFailureForCode",
+        "internal/contract.RecoveryFailureFromError",
         "internal/contract.RegisteredDependencyAbsencePolicies",
         "internal/contract.RememberReportRequest",
         "internal/contract.RememberReportRequestResult",
@@ -18401,11 +18413,11 @@
   ],
   "summary": {
     "total_packages": 41,
-    "total_functions": 2251,
+    "total_functions": 2252,
     "total_methods": 1145,
-    "total_interfaces": 184,
-    "total_interface_methods": 369,
-    "total_exported": 1259,
+    "total_interfaces": 185,
+    "total_interface_methods": 370,
+    "total_exported": 1261,
     "total_unexported": 2921,
     "total_structs": 600
   },
@@ -50578,6 +50590,20 @@
           ]
         },
         {
+          "name": "RecoveryFailureFromError",
+          "exported": true,
+          "params": [
+            {
+              "name": "err",
+              "type": "error"
+            }
+          ],
+          "returns": [
+            "RecoveryFailure",
+            "bool"
+          ]
+        },
+        {
           "name": "RegisteredDependencyAbsencePolicies",
           "exported": true,
           "returns": [
@@ -54589,6 +54615,18 @@
               "returns": [
                 "json.RawMessage",
                 "error"
+              ]
+            }
+          ]
+        },
+        {
+          "name": "RecoveryFailureCarrier",
+          "exported": true,
+          "methods": [
+            {
+              "name": "RecoveryFailure",
+              "returns": [
+                "RecoveryFailure"
               ]
             }
           ]

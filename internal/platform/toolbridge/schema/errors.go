@@ -237,6 +237,14 @@ func (err *safeRecoveryError) Unwrap() error {
 	return err.cause
 }
 
+// RecoveryFailure 返回已校验的最小恢复元数据，供 provider 边界结构化透传。
+func (err *safeRecoveryError) RecoveryFailure() contract.RecoveryFailure {
+	if err == nil {
+		return contract.RecoveryFailure{}
+	}
+	return err.failure
+}
+
 // RecoveryFailure 把需要用户干预的 schema 错误映射为最小安全元数据。
 func RecoveryFailure(err error) (contract.RecoveryFailure, bool) {
 	if safe, ok := err.(*safeRecoveryError); ok && safe != nil {

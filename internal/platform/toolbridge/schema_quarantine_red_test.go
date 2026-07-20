@@ -458,7 +458,7 @@ func TestTask4BSchemaAdmissionErrorRedactsRecoverySecrets(t *testing.T) {
 	assertTask4BSafeRecoveryError(t, err, schema.CodeProtocolViolation)
 }
 
-func TestTask4BSchemaRuntimeValidationErrorRedactsRecoverySecrets(t *testing.T) {
+func TestTask4BSchemaRuntimeValidationFailureReachesProviderAsStructuredResult(t *testing.T) {
 	owner := newTask4BAuthorityOwner()
 	executor := &task4BSchemaExecutor{}
 	client := &task4BMCPClient{tools: []mcpdto.MCPTool{task4BTool("unsafe", `{"type":"object"}`)}}
@@ -471,13 +471,56 @@ func TestTask4BSchemaRuntimeValidationErrorRedactsRecoverySecrets(t *testing.T) 
 	executor.failCodes = map[string]schema.Code{"unsafe": schema.CodeReapFailed}
 	executor.failText = task4BRecoverySecret()
 	executor.mu.Unlock()
-	surface := h.lookupCodexToolSurface(ToolCallRequest{ThreadID: "task4b-thread"})
-	_, err = h.callCodexSurfaceTool(
-		context.Background(), surface, ToolCallRequest{Name: tools[0].Name, Arguments: json.RawMessage(`{}`)},
-	)
-	assertTask4BSafeRecoveryError(t, err, schema.CodeReapFailed)
+	result, err := h.HandleToolCall(context.Background(), contract.ToolCallRawMessage{Params: mustRawJSON(t, map[string]any{
+		"name": tools[0].Name, "arguments": json.RawMessage(`{}`), "agentId": "task4b-agent", "threadId": "task4b-thread",
+	})})
+	if err != nil {
+		t.Fatalf("HandleToolCall() error = %v, want provider-visible recovery result", err)
+	}
+	assertTask4BProviderRecoveryResult(t, result, schema.CodeReapFailed)
 	if client.callCount() != 0 {
 		t.Fatalf("unsafe schema call reached MCP client %d times", client.callCount())
+	}
+}
+
+func TestTask4BUnknownRuntimeValidationFailureStillReturnsError(t *testing.T) {
+	owner := newTask4BAuthorityOwner()
+	executor := &task4BSchemaExecutor{}
+	client := &task4BMCPClient{tools: []mcpdto.MCPTool{task4BTool("unsafe", `{"type":"object"}`)}}
+	h := task4BHandler(owner, executor, client)
+	tools, err := h.PrepareCodexToolSurface(context.Background(), task4BScope(task4BExternalBinary("external")))
+	if err != nil {
+		t.Fatalf("PrepareCodexToolSurface() error = %v", err)
+	}
+	executor.mu.Lock()
+	executor.failCodes = map[string]schema.Code{"unsafe": schema.CodeArgumentInvalid}
+	executor.mu.Unlock()
+	result, err := h.HandleToolCall(context.Background(), contract.ToolCallRawMessage{Params: mustRawJSON(t, map[string]any{
+		"name": tools[0].Name, "arguments": json.RawMessage(`{}`), "agentId": "task4b-agent", "threadId": "task4b-thread",
+	})})
+	got, _ := result.(*ToolCallResult)
+	if err == nil || got != nil {
+		t.Fatalf("HandleToolCall() = %#v, %v, want unknown error to fail fast", result, err)
+	}
+}
+
+func assertTask4BProviderRecoveryResult(t *testing.T, result any, code schema.Code) {
+	t.Helper()
+	got, ok := result.(*ToolCallResult)
+	if !ok || got.Success || len(got.ContentItems) != 1 || got.ContentItems[0].Text != "Recovery action is required. Sensitive diagnostics remain preserved internally." {
+		t.Fatalf("HandleToolCall() result = %#v, want fixed safe failure", result)
+	}
+	var failure contract.RecoveryFailure
+	if err := json.Unmarshal(got.StructuredContent, &failure); err != nil {
+		t.Fatalf("decode structuredContent %q: %v", got.StructuredContent, err)
+	}
+	want, _ := contract.RecoveryFailureForCode(string(code), "")
+	if failure != want {
+		t.Fatalf("structuredContent = %#v, want %#v", failure, want)
+	}
+	var fields map[string]any
+	if err := json.Unmarshal(got.StructuredContent, &fields); err != nil || len(fields) != 4 {
+		t.Fatalf("structuredContent fields = %#v, err=%v, want exactly four", fields, err)
 	}
 }
 

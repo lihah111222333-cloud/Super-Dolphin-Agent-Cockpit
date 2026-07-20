@@ -111,6 +111,11 @@ type RecoveryFailure struct {
 	TransactionID string         `json:"transaction_id"`
 }
 
+// RecoveryFailureCarrier 由安全错误实现，用结构化元数据跨越错误边界，禁止调用方解析错误字符串。
+type RecoveryFailureCarrier interface {
+	RecoveryFailure() RecoveryFailure
+}
+
 type recoveryFailureSpec struct {
 	retryable bool
 	action    RecoveryAction
@@ -147,4 +152,17 @@ func ValidateRecoveryFailure(failure RecoveryFailure) error {
 		return fmt.Errorf("recovery failure semantics conflict for code %q", failure.Code)
 	}
 	return nil
+}
+
+// RecoveryFailureFromError 从错误链中的显式 carrier 提取并校验恢复元数据。
+func RecoveryFailureFromError(err error) (RecoveryFailure, bool) {
+	var carrier RecoveryFailureCarrier
+	if !errors.As(err, &carrier) || carrier == nil {
+		return RecoveryFailure{}, false
+	}
+	failure := carrier.RecoveryFailure()
+	if failure == (RecoveryFailure{}) || ValidateRecoveryFailure(failure) != nil {
+		return RecoveryFailure{}, false
+	}
+	return failure, true
 }

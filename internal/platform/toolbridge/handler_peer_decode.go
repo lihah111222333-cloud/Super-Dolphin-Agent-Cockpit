@@ -534,14 +534,29 @@ func (h *Handler) callCodexSurfaceTool(ctx context.Context, surface *codexToolSu
 			return result, err
 		}
 	}
-	err = h.validateCodexSurfaceEntryArguments(ctx, entry, req.Arguments)
-	if err != nil {
-		return nil, err
+	var validationDone bool
+	result, err, validationDone = h.validateCodexSurfaceEntryResult(ctx, entry, req.Arguments)
+	if validationDone {
+		return result, err
 	}
 	req.Name = entry.realName
 	req = h.injectManagedLaunchContext(ctx, req)
 	result, err = h.executeCodexSurfaceEntry(ctx, surface, entry, req)
 	return result, err
+}
+
+// validateCodexSurfaceEntryResult 把已知 schema 恢复失败转换成 provider 可见结果，未知错误继续冒泡。
+func (h *Handler) validateCodexSurfaceEntryResult(
+	ctx context.Context, entry codexToolEntry, arguments json.RawMessage,
+) (*ToolCallResult, error, bool) {
+	err := h.validateCodexSurfaceEntryArguments(ctx, entry, arguments)
+	if err == nil {
+		return nil, nil, false
+	}
+	if recoveryResult, ok := toolCallRecoveryFailureResult(err); ok {
+		return recoveryResult, nil, true
+	}
+	return nil, err, true
 }
 
 // validateCodexSurfaceTaskSupport 在 task augmentation 尚未实现时拒绝 required 工具执行。
