@@ -7,11 +7,11 @@ import { checkAppUpdate, installLatestAppUpdate } from './shared/api/backendApi.
 import { requiredAppStoragePort } from './shared/api/browser/browserStorage.js';
 import { UITestMCPShell } from './devtools/UITestMCPShell.jsx';
 import {
-	dashboardQueryKey,
-	errorMessage,
-	firstPresentText,
-	optionalSettingsCwd,
-	useDashboardFocusInvalidation,
+  dashboardQueryKey,
+  errorMessage,
+  firstPresentText,
+  optionalSettingsCwd,
+  useDashboardFocusInvalidation,
 } from './pages/shared/pageShared.js';
 import { memoryPageService } from './pages/memory/services/memoryPageService.js';
 import { APP_COPY, APP_LANGUAGE_STORAGE_KEY, initialAppLocale } from './shared/i18n/appI18n.js';
@@ -20,14 +20,14 @@ import { requiredOverlayRoot } from './shared/ui/OverlayPortal.jsx';
 import './AppChrome.css';
 import './AppShell.css';
 import {
-	COLOR_THEMES,
-	appPageFromPathname,
-	appRouteForPage,
-	normalizeAppPathname,
-	selectAppShellStore,
-	THEME_STORAGE_KEY,
-	getStoredTheme,
-	syncThemeDOM,
+  COLOR_THEMES,
+  appPageFromPathname,
+  appRouteForPage,
+  normalizeAppPathname,
+  selectAppShellStore,
+  THEME_STORAGE_KEY,
+  getStoredTheme,
+  syncThemeDOM,
 } from './app/appShellModel.js';
 import { SuiyuanAppWindow } from './app/shell/SuiyuanAppWindow.jsx';
 import { createShellLayoutStore } from './app/shell/model/useShellLayoutStore.js';
@@ -47,343 +47,342 @@ const DASHBOARD_QUERY_GC_MS = 10 * 60_000;
 export const APP_PROFILER_ID = 'App';
 
 function appShortcutPlatform() {
-	if (typeof navigator === 'undefined') throw new Error('browser shortcut platform is unavailable');
-	const browserPlatform = `${String(navigator.platform)} ${String(navigator.userAgent)}`.toLowerCase();
-	if (browserPlatform.includes('mac')) return 'darwin';
-	if (browserPlatform.includes('win')) return 'win32';
-	if (browserPlatform.includes('linux')) return 'linux';
-	const runtimePlatform = globalThis.process?.platform;
-	if (['darwin', 'linux', 'win32'].includes(runtimePlatform)) return runtimePlatform;
-	throw new Error(`unsupported browser shortcut platform: ${browserPlatform || 'unknown'}`);
+  if (typeof navigator === 'undefined') throw new Error('browser shortcut platform is unavailable');
+  const browserPlatform = `${String(navigator.platform)} ${String(navigator.userAgent)}`.toLowerCase();
+  if (browserPlatform.includes('mac')) return 'darwin';
+  if (browserPlatform.includes('win')) return 'win32';
+  if (browserPlatform.includes('linux')) return 'linux';
+  const runtimePlatform = globalThis.process?.platform;
+  if (['darwin', 'linux', 'win32'].includes(runtimePlatform)) return runtimePlatform;
+  throw new Error(`unsupported browser shortcut platform: ${browserPlatform || 'unknown'}`);
 }
 
-
 function appPageFromLocation() {
-	if (typeof window === 'undefined') return 'chat';
-	return appPageFromPathname(window.location?.pathname) || 'chat';
+  if (typeof window === 'undefined') return 'chat';
+  return appPageFromPathname(window.location?.pathname) || 'chat';
 }
 
 function hasExplicitAppPageRoute() {
-	if (typeof window === 'undefined') return false;
-	const path = normalizeAppPathname(window.location?.pathname);
-	return path !== '/' && Boolean(appPageFromPathname(path));
+  if (typeof window === 'undefined') return false;
+  const path = normalizeAppPathname(window.location?.pathname);
+  return path !== '/' && Boolean(appPageFromPathname(path));
 }
 
 function useColorTheme() {
-	const [theme, setTheme] = useState(() => getStoredTheme());
+  const [theme, setTheme] = useState(() => getStoredTheme());
 
-	const toggleTheme = useCallback(() => {
-		setTheme((current) => {
-			const next = current === COLOR_THEMES.dark ? COLOR_THEMES.light : COLOR_THEMES.dark;
-			requiredAppStoragePort('theme storage').set(THEME_STORAGE_KEY, next);
-			return next;
-		});
-	}, []);
+  const toggleTheme = useCallback(() => {
+    setTheme((current) => {
+      const next = current === COLOR_THEMES.dark ? COLOR_THEMES.light : COLOR_THEMES.dark;
+      requiredAppStoragePort('theme storage').set(THEME_STORAGE_KEY, next);
+      return next;
+    });
+  }, []);
 
-	useLayoutEffect(() => {
-		syncThemeDOM(theme);
-	}, [theme]);
+  useLayoutEffect(() => {
+    syncThemeDOM(theme);
+  }, [theme]);
 
-	return { theme, toggleTheme };
+  return { theme, toggleTheme };
 }
 
 function useAppLanguage() {
-	const [locale, setLocale] = useState(initialAppLocale);
-	const copy = APP_COPY[locale] || APP_COPY.zh;
-	const toggleLocale = useCallback(() => {
-		setLocale((current) => {
-			const next = current === 'zh' ? 'en' : 'zh';
-			requiredAppStoragePort('language storage').set(APP_LANGUAGE_STORAGE_KEY, next);
-			return next;
-		});
-	}, []);
-	return { copy, locale, toggleLocale };
+  const [locale, setLocale] = useState(initialAppLocale);
+  const copy = APP_COPY[locale] || APP_COPY.zh;
+  const toggleLocale = useCallback(() => {
+    setLocale((current) => {
+      const next = current === 'zh' ? 'en' : 'zh';
+      requiredAppStoragePort('language storage').set(APP_LANGUAGE_STORAGE_KEY, next);
+      return next;
+    });
+  }, []);
+  return { copy, locale, toggleLocale };
 }
 
 function createDashboardQueryClient() {
-	return new QueryClient({
-		defaultOptions: {
-			queries: {
-				gcTime: DASHBOARD_QUERY_GC_MS,
-				retry: false,
-				staleTime: DASHBOARD_QUERY_STALE_MS,
-				refetchOnMount: 'always',
-				refetchOnWindowFocus: 'always',
-			},
-		},
-	});
+  return new QueryClient({
+    defaultOptions: {
+      queries: {
+        gcTime: DASHBOARD_QUERY_GC_MS,
+        retry: false,
+        staleTime: DASHBOARD_QUERY_STALE_MS,
+        refetchOnMount: 'always',
+        refetchOnWindowFocus: 'always',
+      },
+    },
+  });
 }
 
 function memorySimilarGroupCount(response) {
-	const groups = response?.overview?.health?.similarGroups;
-	return Array.isArray(groups) ? groups.length : 0;
+  const groups = response?.overview?.health?.similarGroups;
+  return Array.isArray(groups) ? groups.length : 0;
 }
 
 function memoryBadgeQueryKey(memoryCwd) {
-	return ['memory-badge', memoryCwd];
+  return ['memory-badge', memoryCwd];
 }
 
 function useLatestValueRef(value) {
-	const ref = useRef(value);
-	useEffect(() => {
-		ref.current = value;
-	}, [value]);
-	return ref;
+  const ref = useRef(value);
+  useEffect(() => {
+    ref.current = value;
+  }, [value]);
+  return ref;
 }
 
 function useRoutePopStateSync({ activePageRef, explicitRouteRef, setActivePage, suppressNextPushRef }) {
-	useEffect(() => {
-		const locationPage = appPageFromLocation();
-		if (explicitRouteRef.current && locationPage && locationPage !== activePageRef.current) {
-			suppressNextPushRef.current = true;
-			setActivePage(locationPage);
-		}
-		const onPopState = () => {
-			const nextPage = appPageFromLocation();
-			suppressNextPushRef.current = true;
-			setActivePage(nextPage);
-		};
-		window.addEventListener('popstate', onPopState);
-		return () => window.removeEventListener('popstate', onPopState);
-	}, [activePageRef, explicitRouteRef, setActivePage, suppressNextPushRef]);
+  useEffect(() => {
+    const locationPage = appPageFromLocation();
+    if (explicitRouteRef.current && locationPage && locationPage !== activePageRef.current) {
+      suppressNextPushRef.current = true;
+      setActivePage(locationPage);
+    }
+    const onPopState = () => {
+      const nextPage = appPageFromLocation();
+      suppressNextPushRef.current = true;
+      setActivePage(nextPage);
+    };
+    window.addEventListener('popstate', onPopState);
+    return () => window.removeEventListener('popstate', onPopState);
+  }, [activePageRef, explicitRouteRef, setActivePage, suppressNextPushRef]);
 }
 
 function useRoutePushSync({ activePage, routeBootstrapPending, setActivePage }) {
-	const initializedRef = useRef(false);
-	const explicitRouteRef = useRef(null);
-	if (explicitRouteRef.current === null) {
-		explicitRouteRef.current = hasExplicitAppPageRoute();
-	}
-	const suppressNextPushRef = useRef(false);
-	const activePageRef = useLatestValueRef(activePage);
-	useRoutePopStateSync({ activePageRef, explicitRouteRef, setActivePage, suppressNextPushRef });
-	useEffect(() => {
-		if (!initializedRef.current) return;
-		const locationPage = appPageFromLocation();
-		if (explicitRouteRef.current && locationPage) {
-			if (locationPage !== activePage) {
-				suppressNextPushRef.current = true;
-				setActivePage(locationPage);
-				return;
-			}
-			if (routeBootstrapPending) return;
-			explicitRouteRef.current = false;
-		}
+  const initializedRef = useRef(false);
+  const explicitRouteRef = useRef(null);
+  if (explicitRouteRef.current === null) {
+    explicitRouteRef.current = hasExplicitAppPageRoute();
+  }
+  const suppressNextPushRef = useRef(false);
+  const activePageRef = useLatestValueRef(activePage);
+  useRoutePopStateSync({ activePageRef, explicitRouteRef, setActivePage, suppressNextPushRef });
+  useEffect(() => {
+    if (!initializedRef.current) return;
+    const locationPage = appPageFromLocation();
+    if (explicitRouteRef.current && locationPage) {
+      if (locationPage !== activePage) {
+        suppressNextPushRef.current = true;
+        setActivePage(locationPage);
+        return;
+      }
+      if (routeBootstrapPending) return;
+      explicitRouteRef.current = false;
+    }
 
-		if (suppressNextPushRef.current) {
-			suppressNextPushRef.current = false;
-			return;
-		}
+    if (suppressNextPushRef.current) {
+      suppressNextPushRef.current = false;
+      return;
+    }
 
-		const nextPath = appRouteForPage(activePage);
-		if (normalizeAppPathname(window.location?.pathname) === normalizeAppPathname(nextPath)) return;
-		window.history.pushState({ activePage }, '', nextPath);
-	}, [activePage, routeBootstrapPending, setActivePage]);
-	useEffect(() => {
-		initializedRef.current = true;
-	}, []);
+    const nextPath = appRouteForPage(activePage);
+    if (normalizeAppPathname(window.location?.pathname) === normalizeAppPathname(nextPath)) return;
+    window.history.pushState({ activePage }, '', nextPath);
+  }, [activePage, routeBootstrapPending, setActivePage]);
+  useEffect(() => {
+    initializedRef.current = true;
+  }, []);
 }
 
 function useActivePageHistory(activePage, setActivePage, routeBootstrapPending = false) {
-	useRoutePushSync({ activePage, routeBootstrapPending, setActivePage });
+  useRoutePushSync({ activePage, routeBootstrapPending, setActivePage });
 }
 
 async function loadMemoryBadgeDashboard({ addWarning, memoryCwd }) {
-	try {
-		return await memoryPageService.loadBadgeDashboard(memoryCwd);
-	} catch (cause) {
-		addWarning('warn', 'memory.badge.refresh.failed', { error: 'background action failure; see Health diagnostic ID' });
-		throw cause;
-	}
+  try {
+    return await memoryPageService.loadBadgeDashboard(memoryCwd);
+  } catch (cause) {
+    addWarning('warn', 'memory.badge.refresh.failed', { error: 'background action failure; see Health diagnostic ID' });
+    throw cause;
+  }
 }
 
 function useMemoryBadgeState(store, projectPath) {
-	const queryClient = useQueryClient();
-	const addWarning = store.addWarning;
-	const memoryRevision = Number(store.memoryRevision || 0);
-	const memoryCwd = optionalSettingsCwd(projectPath);
-	const [memoryPageSimilarState, setMemoryPageSimilarState] = useState({ page: store.activePage, cwd: memoryCwd, count: null });
-	if (memoryPageSimilarState.page !== store.activePage || memoryPageSimilarState.cwd !== memoryCwd) {
-		setMemoryPageSimilarState({ page: store.activePage, cwd: memoryCwd, count: null });
-	}
-	const setMemoryPageSimilarCount = useCallback((count) => {
-		setMemoryPageSimilarState((current) => ({ ...current, count }));
-	}, []);
-	useDashboardFocusInvalidation(memoryCwd, 'memory');
-	const { data: memoryBadgeData } = useQuery({
-		queryKey: memoryBadgeQueryKey(memoryCwd),
-		queryFn: () => runBackgroundAction('memory.badge.load', () => loadMemoryBadgeDashboard({ addWarning, memoryCwd })),
-		enabled: Boolean(memoryCwd),
-		select: memorySimilarGroupCount,
-	});
-	const memorySimilarCount = Math.max(0, Number(memoryBadgeData) || 0);
-	const memoryPageSimilarCount = (
-		memoryPageSimilarState.page === store.activePage && memoryPageSimilarState.cwd === memoryCwd
-			? memoryPageSimilarState.count
-			: null
-	);
+  const queryClient = useQueryClient();
+  const addWarning = store.addWarning;
+  const memoryRevision = Number(store.memoryRevision || 0);
+  const memoryCwd = optionalSettingsCwd(projectPath);
+  const [memoryPageSimilarState, setMemoryPageSimilarState] = useState({ page: store.activePage, cwd: memoryCwd, count: null });
+  if (memoryPageSimilarState.page !== store.activePage || memoryPageSimilarState.cwd !== memoryCwd) {
+    setMemoryPageSimilarState({ page: store.activePage, cwd: memoryCwd, count: null });
+  }
+  const setMemoryPageSimilarCount = useCallback((count) => {
+    setMemoryPageSimilarState((current) => ({ ...current, count }));
+  }, []);
+  useDashboardFocusInvalidation(memoryCwd, 'memory');
+  const { data: memoryBadgeData } = useQuery({
+    queryKey: memoryBadgeQueryKey(memoryCwd),
+    queryFn: () => runBackgroundAction('memory.badge.load', () => loadMemoryBadgeDashboard({ addWarning, memoryCwd })),
+    enabled: Boolean(memoryCwd),
+    select: memorySimilarGroupCount,
+  });
+  const memorySimilarCount = Math.max(0, Number(memoryBadgeData) || 0);
+  const memoryPageSimilarCount = (
+    memoryPageSimilarState.page === store.activePage && memoryPageSimilarState.cwd === memoryCwd
+      ? memoryPageSimilarState.count
+      : null
+  );
 
-	useEffect(() => {
-		if (!memoryCwd || memoryRevision <= 0) return;
-		void queryClient.invalidateQueries({ queryKey: dashboardQueryKey(memoryCwd, 'memory') });
-	}, [memoryCwd, memoryRevision, queryClient]);
+  useEffect(() => {
+    if (!memoryCwd || memoryRevision <= 0) return;
+    void queryClient.invalidateQueries({ queryKey: dashboardQueryKey(memoryCwd, 'memory') });
+  }, [memoryCwd, memoryRevision, queryClient]);
 
-	return {
-		memoryRevision,
-		memorySimilarCount: memoryPageSimilarCount ?? memorySimilarCount,
-		setMemoryPageSimilarCount,
-	};
+  return {
+    memoryRevision,
+    memorySimilarCount: memoryPageSimilarCount ?? memorySimilarCount,
+    setMemoryPageSimilarCount,
+  };
 }
 
 function useAppBootstrap(bootstrap, skipBootstrap) {
-	useEffect(() => {
-		if (skipBootstrap) return undefined;
-		runBackgroundAction('app.bootstrap.background', bootstrap);
-		return undefined;
-	}, [bootstrap, skipBootstrap]);
+  useEffect(() => {
+    if (skipBootstrap) return undefined;
+    runBackgroundAction('app.bootstrap.background', bootstrap);
+    return undefined;
+  }, [bootstrap, skipBootstrap]);
 }
 
 function updateVersionFromResult(result) {
-	return firstPresentText(result?.version, result?.artifact?.version);
+  return firstPresentText(result?.version, result?.artifact?.version);
 }
 
 function updateDismissedKey(version) {
-	return `${UPDATE_BANNER_DISMISSED_PREFIX}${version}`;
+  return `${UPDATE_BANNER_DISMISSED_PREFIX}${version}`;
 }
 
 function updateDismissed(version) {
-	return version && requiredAppStoragePort('update banner storage').get(updateDismissedKey(version)) === '1';
+  return version && requiredAppStoragePort('update banner storage').get(updateDismissedKey(version)) === '1';
 }
 
 async function runAppUpdateCheck({ isCancelled, setState }) {
-	setState((current) => (current.update ? current : { ...current, status: 'checking' }));
-	try {
-		const result = await checkAppUpdate();
-		if (isCancelled() || !result?.enabled || !result?.available) return;
-		const version = updateVersionFromResult(result);
-		if (updateDismissed(version)) return;
-		setState({ status: 'available', update: { ...result, version }, message: '' });
-	} catch (error) {
-		if (!isCancelled()) console.info('[frontend-app] background update check failed', error);
-	} finally {
-		if (!isCancelled()) {
-			setState((current) => (current.status === 'checking' ? { ...current, status: 'idle' } : current));
-		}
-	}
+  setState((current) => (current.update ? current : { ...current, status: 'checking' }));
+  try {
+    const result = await checkAppUpdate();
+    if (isCancelled() || !result?.enabled || !result?.available) return;
+    const version = updateVersionFromResult(result);
+    if (updateDismissed(version)) return;
+    setState({ status: 'available', update: { ...result, version }, message: '' });
+  } catch (error) {
+    if (!isCancelled()) console.info('[frontend-app] background update check failed', error);
+  } finally {
+    if (!isCancelled()) {
+      setState((current) => (current.status === 'checking' ? { ...current, status: 'idle' } : current));
+    }
+  }
 }
 
 function useAppUpdateBanner(skipBootstrap) {
-	const [state, setState] = useState({ status: 'idle', update: null, message: '' });
+  const [state, setState] = useState({ status: 'idle', update: null, message: '' });
 
-	useEffect(() => {
-		if (skipBootstrap) return undefined;
-		let cancelled = false;
-		const timer = window.setTimeout(() => {
-			void runAppUpdateCheck({ isCancelled: () => cancelled, setState });
-		}, UPDATE_CHECK_DELAY_MS);
-		return () => {
-			cancelled = true;
-			window.clearTimeout(timer);
-		};
-	}, [skipBootstrap]);
+  useEffect(() => {
+    if (skipBootstrap) return undefined;
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      void runAppUpdateCheck({ isCancelled: () => cancelled, setState });
+    }, UPDATE_CHECK_DELAY_MS);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [skipBootstrap]);
 
-	const dismiss = useCallback(() => {
-		setState((current) => {
-			const version = updateVersionFromResult(current.update);
-			if (version) requiredAppStoragePort('update banner storage').set(updateDismissedKey(version), '1');
-			return { status: 'dismissed', update: null, message: '' };
-		});
-	}, []);
+  const dismiss = useCallback(() => {
+    setState((current) => {
+      const version = updateVersionFromResult(current.update);
+      if (version) requiredAppStoragePort('update banner storage').set(updateDismissedKey(version), '1');
+      return { status: 'dismissed', update: null, message: '' };
+    });
+  }, []);
 
-	const install = useCallback(async () => {
-		setState((current) => ({ ...current, status: 'installing', message: '' }));
-		try {
-			const result = await installLatestAppUpdate();
-			setState((current) => ({ ...current, status: 'installing', message: result?.started === false ? '安装没有启动，请稍后重试。' : '安装程序已启动，请按提示完成更新。' }));
-		} catch (error) {
-			setState((current) => ({ ...current, status: 'available', message: `更新失败：${errorMessage(error)}` }));
-		}
-	}, []);
+  const install = useCallback(async () => {
+    setState((current) => ({ ...current, status: 'installing', message: '' }));
+    try {
+      const result = await installLatestAppUpdate();
+      setState((current) => ({ ...current, status: 'installing', message: result?.started === false ? '安装没有启动，请稍后重试。' : '安装程序已启动，请按提示完成更新。' }));
+    } catch (error) {
+      setState((current) => ({ ...current, status: 'available', message: `更新失败：${errorMessage(error)}` }));
+    }
+  }, []);
 
-	return {
-		update: state.update,
-		status: state.status,
-		message: state.message,
-		dismiss,
-		install,
-	};
+  return {
+    update: state.update,
+    status: state.status,
+    message: state.message,
+    dismiss,
+    install,
+  };
 }
 
 function useAppShellState(store, skipBootstrap) {
-	const routeBootstrapPending = !skipBootstrap && !['ready', 'failed'].includes(store.bootstrapStatus);
-	useActivePageHistory(store.activePage, store.setActivePage, routeBootstrapPending);
-	useAppBootstrap(store.bootstrap, skipBootstrap);
-	const projectPath = store.activeProject && store.activeProject !== '.' ? store.activeProject : store.cwd || '未选择项目';
-	const memoryBadge = useMemoryBadgeState(store, projectPath);
-	const { theme, toggleTheme } = useColorTheme();
-	const [rightPanelOpen, setRightPanelOpen] = useState(false);
-	const updateBanner = useAppUpdateBanner(skipBootstrap);
-	return { memoryBadge, projectPath, theme, toggleTheme, rightPanelOpen, setRightPanelOpen, updateBanner };
+  const routeBootstrapPending = !skipBootstrap && !['ready', 'failed'].includes(store.bootstrapStatus);
+  useActivePageHistory(store.activePage, store.setActivePage, routeBootstrapPending);
+  useAppBootstrap(store.bootstrap, skipBootstrap);
+  const projectPath = store.activeProject && store.activeProject !== '.' ? store.activeProject : store.cwd || '未选择项目';
+  const memoryBadge = useMemoryBadgeState(store, projectPath);
+  const { theme, toggleTheme } = useColorTheme();
+  const [rightPanelOpen, setRightPanelOpen] = useState(false);
+  const updateBanner = useAppUpdateBanner(skipBootstrap);
+  return { memoryBadge, projectPath, theme, toggleTheme, rightPanelOpen, setRightPanelOpen, updateBanner };
 }
 
 function shortcutSettingsCwd(store) {
-	const cwd = store.activeProject && store.activeProject !== '.' ? store.activeProject : store.cwd;
-	if (cwd === '') return '';
-	if (typeof cwd !== 'string' || cwd.trim() !== cwd) throw new Error('shortcut settings cwd is required');
-	return cwd;
+  const cwd = store.activeProject && store.activeProject !== '.' ? store.activeProject : store.cwd;
+  if (cwd === '') return '';
+  if (typeof cwd !== 'string' || cwd.trim() !== cwd) throw new Error('shortcut settings cwd is required');
+  return cwd;
 }
 
 function ConfiguredAppWindow({ language, shortcutCwd, ...props }) {
-	const shortcutController = useShortcutSettings({
-		copy: language.copy.commands,
-		cwd: shortcutCwd,
-		getPreference: appCommandPreferencePort.getPreference,
-		platform: appShortcutPlatform(),
-		registry: APP_COMMAND_REGISTRY,
-		setPreference: appCommandPreferencePort.setPreference,
-	});
-	return <SuiyuanAppWindow {...props} language={language} shortcutController={shortcutController} getShortcutPlatform={appShortcutPlatform} />;
+  const shortcutController = useShortcutSettings({
+    copy: language.copy.commands,
+    cwd: shortcutCwd,
+    getPreference: appCommandPreferencePort.getPreference,
+    platform: appShortcutPlatform(),
+    registry: APP_COMMAND_REGISTRY,
+    setPreference: appCommandPreferencePort.setPreference,
+  });
+  return <SuiyuanAppWindow {...props} language={language} shortcutController={shortcutController} getShortcutPlatform={appShortcutPlatform} />;
 }
 
 function AppWindowShortcutBoundary({ language, shell, shellLayoutStore, store }) {
-	const shortcutCwd = shortcutSettingsCwd(store);
-	return <ConfiguredAppWindow language={language} shell={shell} shellLayoutStore={shellLayoutStore} shortcutCwd={shortcutCwd} store={store} />;
+  const shortcutCwd = shortcutSettingsCwd(store);
+  return <ConfiguredAppWindow language={language} shell={shell} shellLayoutStore={shellLayoutStore} shortcutCwd={shortcutCwd} store={store} />;
 }
 
 function AppShell({ shellLayoutStorage, skipBootstrap = false, uiTestMCPMode = false }) {
-	const store = useClientStore(useShallow(selectAppShellStore));
-	const shell = useAppShellState(store, skipBootstrap || uiTestMCPMode);
-	const language = useAppLanguage();
-	const [shellLayoutStore] = useState(() => createShellLayoutStore({
-		storage: shellLayoutStorage === undefined
-			? requiredAppStoragePort('shell layout storage')
-			: shellLayoutStorage,
-	}));
-	const overlayRoot = requiredOverlayRoot();
-	useLayoutEffect(() => {
-		overlayRoot.setAttribute('data-theme', shell.theme);
-		return () => {
-			if (overlayRoot.getAttribute('data-theme') === shell.theme) {
-				overlayRoot.removeAttribute('data-theme');
-			}
-		};
-	}, [overlayRoot, shell.theme]);
-	return (
-		<UNSAFE_PortalProvider getContainer={() => overlayRoot}>
-			{uiTestMCPMode
-				? <UITestMCPShell />
-				: <AppWindowShortcutBoundary language={language} shell={shell} shellLayoutStore={shellLayoutStore} store={store} />}
-		</UNSAFE_PortalProvider>
-	);
+  const store = useClientStore(useShallow(selectAppShellStore));
+  const shell = useAppShellState(store, skipBootstrap || uiTestMCPMode);
+  const language = useAppLanguage();
+  const [shellLayoutStore] = useState(() => createShellLayoutStore({
+    storage: shellLayoutStorage === undefined
+      ? requiredAppStoragePort('shell layout storage')
+      : shellLayoutStorage,
+  }));
+  const overlayRoot = requiredOverlayRoot();
+  useLayoutEffect(() => {
+    overlayRoot.setAttribute('data-theme', shell.theme);
+    return () => {
+      if (overlayRoot.getAttribute('data-theme') === shell.theme) {
+        overlayRoot.removeAttribute('data-theme');
+      }
+    };
+  }, [overlayRoot, shell.theme]);
+  return (
+    <UNSAFE_PortalProvider getContainer={() => overlayRoot}>
+      {uiTestMCPMode
+        ? <UITestMCPShell />
+        : <AppWindowShortcutBoundary language={language} shell={shell} shellLayoutStore={shellLayoutStore} store={store} />}
+    </UNSAFE_PortalProvider>
+  );
 }
 
 function App(props) {
-	const [queryClient] = useState(createDashboardQueryClient);
-	return (
-		<QueryClientProvider client={queryClient}>
-			<AppShell {...props} />
-		</QueryClientProvider>
-	);
+  const [queryClient] = useState(createDashboardQueryClient);
+  return (
+    <QueryClientProvider client={queryClient}>
+      <AppShell {...props} />
+    </QueryClientProvider>
+  );
 }
 
 export default App;
