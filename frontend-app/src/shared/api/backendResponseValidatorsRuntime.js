@@ -576,7 +576,6 @@ function validateWorkflowTemplatesListResponse(method, response) {
  * @param {string} method
  * @param {unknown} response
  */
-function validateSidebarStateResponse(method, response) {
 export function validateSidebarStateResponse(method, response) {
   return validateRuntimeSidebarStateResponse(method, response);
 }
@@ -585,7 +584,6 @@ export function validateSidebarStateResponse(method, response) {
  * @param {string} method
  * @param {unknown} response
  */
-function validateUIStateResponse(method, response) {
 export function validateUIStateResponse(method, response) {
   const value = assertBackendResponseObject(method, response);
   let runtimeValue = value;
