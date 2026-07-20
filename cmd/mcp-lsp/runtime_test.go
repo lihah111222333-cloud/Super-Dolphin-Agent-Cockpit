@@ -105,6 +105,32 @@ func TestNewManagerRegistersDocumentLanguageAdapters(t *testing.T) {
 	}
 }
 
+func TestSetupInstallerPrefersNPMGlobalBinaryOverPNPMCommandShim(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("test uses POSIX npm and pnpm command shims")
+	}
+	prefix := t.TempDir()
+	shadowBin := filepath.Join(prefix, "shadow-bin")
+	npmPrefix := filepath.Join(prefix, "npm-prefix")
+	shadowBinary := filepath.Join(shadowBin, "vscode-markdown-language-server")
+	globalBinary := filepath.Join(npmPrefix, "bin", "vscode-markdown-language-server")
+	writeRuntimeExecutable(t, shadowBinary, "#!/bin/sh\nexit 9\n# cmd-shim-target=/invalid/pnpm/markdown-server\n")
+	writeRuntimeExecutable(t, globalBinary, "#!/bin/sh\nexit 0\n")
+	writeRuntimeExecutable(t, filepath.Join(shadowBin, "npm"), "#!/bin/sh\nprintf '%s\\n' '"+npmPrefix+"'\n")
+	t.Setenv("PATH", shadowBin)
+
+	result, err := setupInstaller().EnsureInstalledDetailed(
+		lspinstaller.WithToolCallInstallCheckOnly(context.Background()),
+		"markdown",
+	)
+	if err != nil {
+		t.Fatalf("EnsureInstalledDetailed(markdown) error = %v", err)
+	}
+	if result.Path != globalBinary {
+		t.Fatalf("EnsureInstalledDetailed(markdown).Path = %q, want npm global binary %q", result.Path, globalBinary)
+	}
+}
+
 func TestNewManagerUsesPlatformLSPConfig(t *testing.T) {
 	declareTestDependencyBootstrap(t)
 	root := runtimeCanonicalTempDir(t)
@@ -281,6 +307,16 @@ func writeRuntimeTestFile(t *testing.T, path, body string) {
 	}
 	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
 		t.Fatalf("write %s: %v", path, err)
+	}
+}
+
+func writeRuntimeExecutable(t *testing.T, path, body string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("mkdir %s: %v", filepath.Dir(path), err)
+	}
+	if err := os.WriteFile(path, []byte(body), 0o755); err != nil {
+		t.Fatalf("write executable %s: %v", path, err)
 	}
 }
 
