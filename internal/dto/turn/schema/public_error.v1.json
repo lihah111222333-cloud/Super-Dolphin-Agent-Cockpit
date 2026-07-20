@@ -16,7 +16,7 @@
       "uniqueItems": true,
       "items": {
         "type": "string",
-        "enum": ["retry", "reconnect", "restart_provider", "reopen_thread", "copy_diagnostics"]
+        "enum": ["copy_diagnostics"]
       }
     }
   }
