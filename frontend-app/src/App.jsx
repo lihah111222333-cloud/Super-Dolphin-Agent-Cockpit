@@ -9,7 +9,6 @@ import { UITestMCPShell } from './devtools/UITestMCPShell.jsx';
 import {
   dashboardQueryKey,
   errorMessage,
-  firstPresentText,
   optionalSettingsCwd,
   useDashboardFocusInvalidation,
 } from './pages/shared/pageShared.js';
@@ -30,6 +29,7 @@ import {
   syncThemeDOM,
 } from './app/appShellModel.js';
 import { SuiyuanAppWindow } from './app/shell/SuiyuanAppWindow.jsx';
+import { updateVersionFromResult } from './app/shell/appUpdateVersion.js';
 import { createShellLayoutStore } from './app/shell/model/useShellLayoutStore.js';
 import { appCommandPreferencePort } from './app/commands/appCommandPreferencePort.js';
 import { APP_COMMAND_REGISTRY } from './app/commands/appCommandRegistry.js';
@@ -240,10 +240,6 @@ function useAppBootstrap(bootstrap, skipBootstrap) {
     runBackgroundAction('app.bootstrap.background', bootstrap);
     return undefined;
   }, [bootstrap, skipBootstrap]);
-}
-
-function updateVersionFromResult(result) {
-  return firstPresentText(result?.version, result?.artifact?.version);
 }
 
 function updateDismissedKey(version) {

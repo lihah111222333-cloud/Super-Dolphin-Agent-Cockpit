@@ -27,11 +27,12 @@ import { APP_COMMAND_IDS, APP_COMMAND_REGISTRY } from '../commands/appCommandReg
 import { createAppCommandRuntime } from '../commands/appCommandRuntime.js';
 import { useAppCommandDispatcher } from '../commands/useAppCommandDispatcher.js';
 import { CommandPalette } from '../../features/command-palette/ui/CommandPalette.jsx';
-import { errorMessage, firstPresentText, textValue } from '../../pages/shared/pageShared.js';
+import { errorMessage, textValue } from '../../pages/shared/pageShared.js';
 import { APP_BRAND_NAME, APP_COPY } from '../../shared/i18n/appI18n.js';
 import { runUIAction } from '../../shared/ui/runUIAction.js';
 import { ActionFailureSink } from '../../shared/ui/actionFailureSink.jsx';
 import suiyuanBrandIcon from '../../assets/suiyuan-brand-icon.png';
+import { updateVersionFromResult } from './appUpdateVersion.js';
 
 const SUIYUAN_NAV_ITEMS = Object.freeze([
   { id: 'chat', label: 'Chat', labelKey: 'chat', icon: MessageSquareText },
