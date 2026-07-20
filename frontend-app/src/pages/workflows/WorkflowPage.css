@@ -33,7 +33,7 @@
 .enterprise-workflow-templates {
   margin: 16px 16px 0;
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--suiyuan-radius-card);
   background: var(--surface);
   padding: 16px;
   outline: none;
@@ -41,7 +41,7 @@
 
 .enterprise-workflow-templates:focus-visible {
   border-color: var(--border-strong);
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent-2) 28%, transparent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 16%, transparent);
 }
 
 .enterprise-template-heading {
@@ -107,7 +107,7 @@
 .enterprise-template-filters select {
   min-height: 34px;
   border: 1px solid var(--line);
-  border-radius: 7px;
+  border-radius: var(--suiyuan-radius-control);
   background: var(--surface);
   color: var(--text-pri);
   padding: 0 10px;
@@ -149,8 +149,8 @@
   display: grid;
   place-items: center;
   border: 1px solid var(--line);
-  border-radius: 8px;
-  color: var(--accent-2);
+  border-radius: var(--suiyuan-radius-control);
+  color: var(--text-sec);
   background: var(--surface);
 }
 
@@ -221,7 +221,7 @@
 .enterprise-template-format select {
   min-height: 34px;
   border: 1px solid var(--line);
-  border-radius: 7px;
+  border-radius: var(--suiyuan-radius-control);
   background: var(--surface);
   color: var(--text-pri);
   padding: 0 10px;
@@ -242,7 +242,7 @@
 .enterprise-template-workbench {
   margin: 12px 16px 0;
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--suiyuan-radius-card);
   background: var(--surface);
   padding: 16px;
 }
@@ -342,7 +342,7 @@
   width: 100%;
   min-height: 36px;
   border: 1px solid var(--line);
-  border-radius: 7px;
+  border-radius: var(--suiyuan-radius-control);
   background: var(--surface);
   color: var(--text-pri);
   padding: 8px 10px;
@@ -376,7 +376,7 @@
   align-items: center;
   justify-content: center;
   border: 1px dashed var(--line);
-  border-radius: 7px;
+  border-radius: var(--suiyuan-radius-control);
   color: var(--text-muted);
   background: var(--surface-2);
 }
@@ -413,7 +413,7 @@
 .enterprise-template-preview-head > span {
   border: 1px solid var(--line);
   border-radius: 999px;
-  color: var(--accent-2);
+  color: var(--text-sec);
   font-size: 11px;
   font-weight: 800;
   padding: 5px 9px;
@@ -474,8 +474,8 @@
 
 .enterprise-template-preview-nodes b {
   border-radius: 999px;
-  background: color-mix(in srgb, var(--accent-2) 10%, var(--surface));
-  color: var(--accent-2);
+  background: var(--surface-2);
+  color: var(--text-sec);
   font-size: 11px;
   padding: 4px 7px;
 }
@@ -483,8 +483,8 @@
 .enterprise-design-progress {
   margin: 12px 16px 0;
   border: 1px solid color-mix(in srgb, var(--accent-2) 35%, var(--line));
-  border-radius: var(--radius);
-  background: linear-gradient(135deg, color-mix(in srgb, var(--accent-2) 9%, var(--surface)), color-mix(in srgb, var(--success) 8%, var(--surface)));
+  border-radius: var(--suiyuan-radius-card);
+  background: color-mix(in srgb, var(--accent-2) 7%, var(--surface));
   padding: 14px;
 }
 
@@ -516,7 +516,7 @@
   border: 1px solid var(--line);
   border-radius: 999px;
   background: var(--surface);
-  color: var(--accent-2);
+  color: var(--text-sec);
   padding: 5px 10px;
   font-size: 12px;
   font-weight: 800;
@@ -582,7 +582,7 @@
   min-height: 0;
   overflow: auto;
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--suiyuan-radius-card);
   background: var(--surface);
   padding: 12px;
 }
@@ -670,10 +670,10 @@
 .workflow-file-row code {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 13px;
-  color: var(--accent-2);
+  color: var(--text-sec);
   background: var(--surface-code);
   padding: 6px 12px;
-  border-radius: var(--radius-sm);
+  border-radius: var(--suiyuan-radius-control);
   border: 1px solid var(--line);
   max-width: 100%;
   overflow-x: auto;
@@ -885,19 +885,20 @@
 .dag-run-list-toggle {
   min-height: 42px;
   border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  background: color-mix(in srgb, var(--accent-2) 8%, var(--surface));
-  color: var(--accent-2);
+  border-radius: var(--suiyuan-radius-control);
+  background: var(--surface);
+  color: var(--text-sec);
   font-weight: 700;
 }
 
 .dag-run-list-toggle:hover {
-  border-color: color-mix(in srgb, var(--accent-2) 55%, var(--border));
-  background: color-mix(in srgb, var(--accent-2) 12%, var(--surface));
+  border-color: var(--border-strong);
+  background: var(--surface-2);
+  color: var(--text-pri);
 }
 
 .dag-run-list-toggle:focus-visible {
-  outline: 2px solid color-mix(in srgb, var(--accent-2) 72%, transparent);
+  outline: 2px solid var(--focus-ring);
   outline-offset: 2px;
 }
 
@@ -940,7 +941,7 @@
 }
 
 .workflow-stage-group-head em {
-  color: var(--accent-2);
+  color: var(--text-sec);
   font-style: normal;
   white-space: nowrap;
 }
@@ -967,7 +968,7 @@
 .workflow-stage-node:hover,
 .workflow-stage-node:focus-visible {
   border-color: var(--border-strong);
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent-2) 18%, transparent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 16%, transparent);
 }
 
 .workflow-stage-node strong {
@@ -1013,7 +1014,7 @@
 .workflow-stage-operation > span {
   display: inline-block;
   margin-bottom: 8px;
-  color: var(--accent-2);
+  color: var(--text-muted);
   font-size: 11px;
   font-weight: 800;
 }

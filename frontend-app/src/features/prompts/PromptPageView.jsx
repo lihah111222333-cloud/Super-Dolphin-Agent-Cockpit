@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'; import React, { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react'; import { Dialog, Modal, ModalOverlay, Radio, RadioGroup } from 'react-aria-components'; import { z } from 'zod';
-import { CheckCircle2, File, FileText, Upload } from 'lucide-react'; import {
+import { CheckCircle2, File, FileText, Upload, User } from 'lucide-react'; import {
 commitPromptIntent, copyTextToClipboard, deletePrompt, discardPromptIntent, draftPromptIntent, dryRunPromptIntent, getDashboardPrompts, getPersonalizationProfile, getPreference, getPrompt, listPromptAssets, savePersonalizationProfile, setPreference, writePrompt,
 } from '../../pages/prompts/services/promptPageService.js'; import { APP_COPY } from '../../shared/i18n/appI18n.js';
 import { firstPresentText, parseStrictJsonValue, rawTextValue } from '../../pages/shared/pageShared.js'; import './PromptPageView.css';
@@ -328,7 +328,7 @@ const fieldError = (key) => (profileErrors[key] ? <span className="personalizati
   <div className="personalization-overview-content personalization-profile-grid">
     <section className="personalization-profile-card" aria-label={copy.profile}>
       <header>
-        <h3>{copy.profile}</h3>
+        <h3><User size={18} className="personalization-profile-icon" /> {copy.profile}</h3>
         <span>{profileStatus}</span>
       </header>
       <div className="personalization-form-grid">

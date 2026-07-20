@@ -440,7 +440,7 @@
   margin: 0 auto;
   border: 1px solid var(--line);
   border-color: var(--line);
-  border-radius: 20px;
+  border-radius: var(--suiyuan-radius-input);
   background: var(--surface);
   box-shadow: var(--suiyuan-input-shadow), var(--suiyuan-input-highlight);
   overflow: visible;
@@ -466,6 +466,7 @@
   height: 76px;
   min-height: 76px;
   padding: 18px 20px 12px;
+  border-radius: var(--suiyuan-radius-input) var(--suiyuan-radius-input) 0 0;
 }
 
 .composer textarea::placeholder {

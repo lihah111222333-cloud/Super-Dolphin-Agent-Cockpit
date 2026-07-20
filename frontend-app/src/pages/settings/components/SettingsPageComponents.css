@@ -29,8 +29,8 @@
   justify-content: space-between;
   gap: 12px;
   border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: var(--surface-2);
+  border-radius: var(--suiyuan-radius-control);
+  background: var(--surface);
   padding: 9px 11px;
 }
 
@@ -160,9 +160,9 @@
   width: 100%;
   min-height: 120px;
   resize: vertical;
-  border-radius: var(--radius-sm);
+  border-radius: var(--suiyuan-radius-control);
   border: 1px solid var(--border);
-  background: var(--surface-2);
+  background: var(--surface);
   color: var(--text-pri);
   font-family: var(--font-cjk);
   font-size: 12px;
@@ -286,17 +286,22 @@
   gap: 3px;
   min-width: 150px;
   border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: var(--surface-2);
+  border-radius: var(--suiyuan-radius-control);
+  background: var(--surface);
   color: var(--text-pri);
   padding: 8px 10px;
   text-align: left;
   cursor: pointer;
 }
 
+.settings-model-provider-list button:hover {
+  border-color: var(--border-strong);
+  background: var(--surface-2);
+}
+
 .settings-model-provider-list button.is-selected {
   border-color: var(--border-strong);
-  background: color-mix(in srgb, var(--primary) 9%, var(--surface-2));
+  background: color-mix(in srgb, var(--primary) 9%, var(--surface));
 }
 
 .settings-model-provider-list span {
@@ -332,9 +337,9 @@
 
 .settings-stall-input {
   width: 100px;
-  background: var(--surface-2);
+  background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
+  border-radius: var(--suiyuan-radius-control);
   color: var(--text-pri);
   font-family: var(--font-cjk);
   font-size: 13px;
@@ -379,8 +384,8 @@
   align-items: center;
   padding: 5px 8px;
   border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: color-mix(in srgb, var(--surface-2) 82%, transparent);
+  border-radius: var(--suiyuan-radius-control);
+  background: var(--surface);
   font-size: 11px;
   color: var(--text-sec);
 }

@@ -1,8 +1,8 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'; import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { AlertTriangle, ChevronDown, MemoryStick, Plus, Search } from 'lucide-react'; import { FocusTrapDialog } from '../../shared/ui/FocusTrapDialog.jsx'; import { APP_BRAND_NAME, APP_COPY } from '../../shared/i18n/appI18n.js';
+import { Activity, AlertTriangle, ChevronDown, Layers, MemoryStick, Plus, Search, Sparkles } from 'lucide-react'; import { FocusTrapDialog } from '../../shared/ui/FocusTrapDialog.jsx'; import { APP_BRAND_NAME, APP_COPY } from '../../shared/i18n/appI18n.js';
 import { deleteMemoryEntry, fetchMemoryDashboard, getMemoryConsolidationStatus, getMemoryEntry, ignoreMemorySimilarity, mergeMemoryEntries, setMemoryAutoDreamIntent, startConsolidateMemorySimilarities, upsertMemoryEntry } from './services/memoryPageService.js';
 import { dashboardQueryErrorState, dashboardQueryKey, errorMessage, firstPresentText, firstText, memoryHealth, memoryNoticeText, optionalSettingsCwd, queryHasSnapshot, sharedFileTimestamp, textValue, optionalTimestampMillis } from '../shared/pageShared.js';
-import { PageHeader, Panel } from '../shared/pageComponents.jsx'; import './MemoryPage.css';
+import { Panel } from '../shared/pageComponents.jsx'; import './MemoryPage.css';
 const MEMORY_CONSOLIDATION_POLL_MS = 2000;
 const MEMORY_CONSOLIDATION_MAX_POLLS = 180;
 const MEMORY_CATEGORY_KEYS = Object.freeze(['preference', 'project', 'all']);
@@ -168,8 +168,12 @@ groups={model.derived.similarGroups} setExpanded={model.setSimilarExpanded} simi
 <MemoryTabs activeCategory={model.activeCategory} categoryCounts={model.derived.categoryCounts} copy={copy} setActiveCategory={model.setActiveCategory} /> <MemoryCardsSection copy={copy} dashboard={model.dashboard} deletion={model.deletion} editor={model.editor}
 searchText={model.searchText} visibleEntries={model.derived.visibleEntries} /> <MemoryModals deletion={model.deletion} editor={model.editor} similarity={model.similarity} /> </section> ); }
 function MemoryPageHeader({ copy }) {
+  // 共享 PageHeader 的 h1 会被 app shell 隐藏，这里用页面内 hero 提供可见标题与副标题。
   return (
-    <PageHeader icon={MemoryStick} title={copy.title} />
+    <header className="memory-hero">
+      <h1 className="memory-hero-title">{copy.title}</h1>
+      <p className="memory-hero-subtitle">{copy.subtitle}</p>
+    </header>
   );
 }
 function MemoryToolbar(props) {
@@ -205,9 +209,9 @@ function MemoryCreateMenu({ copy, onCreate }) { return ( <div role="menu" aria-l
 function MemoryStats({ autoDream, categoryCounts, copy, disabled, health }) {
   return (
     <div className="memory-stats">
-      <Panel className="memory-overview-panel" title={copy.overview}>
+      <Panel className="memory-overview-panel" title={<><Layers size={13} aria-hidden="true" />{copy.overview}</>}>
         <div className="memory-overview-content">
-          <strong className="big memory-overview-total">{categoryCounts.all}</strong>
+          <strong className="memory-overview-total">{categoryCounts.all}</strong>
           <div className="memory-overview-breakdown" aria-label={copy.overview}>
             <span><span className="orange-dot" />{categoryCounts.preference} {copy.preference}</span>
             <span><span className="green-dot" />{categoryCounts.project} {copy.project}</span>
@@ -220,19 +224,20 @@ function MemoryStats({ autoDream, categoryCounts, copy, disabled, health }) {
   );
 }
 function MemoryHealthPanel({ copy, health }) { const prefPercent = memoryHealthPercent(health.preferenceCount, health.maxPerCategory); const projPercent = memoryHealthPercent(health.projectCount, health.maxPerCategory); return (
-<Panel className="memory-health-panel" title={copy.health}> <p>{copy.preference} <meter value={health.preferenceCount} max={health.maxPerCategory} /> {health.preferenceCount} / {health.maxPerCategory}</p>
+<Panel className="memory-health-panel" title={<><Activity size={13} aria-hidden="true" />{copy.health}</>}> <p>{copy.preference} <meter value={health.preferenceCount} max={health.maxPerCategory} /> {health.preferenceCount} / {health.maxPerCategory}</p>
 <div className={'memory-health-track ' + memoryHealthClass(prefPercent)}><span style={{ width: String(prefPercent) + '%' }} /></div> <p>{copy.project} <meter value={health.projectCount} max={health.maxPerCategory} /> {health.projectCount} / {health.maxPerCategory}</p>
 <div className={'memory-health-track ' + memoryHealthClass(projPercent)}><span style={{ width: String(projPercent) + '%' }} /></div> <p><span className="green-dot" /> {copy.healthy}</p> </Panel> ); }
 function MemoryAutoDreamPanel({ autoDream, copy, disabled }) {
   return (
-    <Panel className="memory-auto-dream-panel" title={copy.autoDream}>
+    <Panel className="memory-auto-dream-panel" title={<><Sparkles size={13} aria-hidden="true" />{copy.autoDream}</>}>
       <div className="memory-auto-dream-content">
         <p className="memory-auto-dream-status">
           <span className={autoDream.enabled ? 'green-dot' : 'orange-dot'} /> {autoDream.enabled ? copy.autoDreamOn : copy.autoDreamOff}
         </p>
         <small className="memory-auto-dream-description">{copy.autoDreamDescription}</small>
-        <button type="button" className="memory-auto-dream-toggle" aria-disabled={disabled || undefined} title={disabled ? '请先选择项目' : undefined} onClick={() => { void autoDream.toggleAutoDream(); }} disabled={autoDream.toggling}>
-          {autoDream.enabled ? copy.disable : copy.enable}
+        <button type="button" className={'memory-auto-dream-toggle suiyuan-switch-btn' + (autoDream.enabled ? ' active' : '')} aria-disabled={disabled || undefined} title={disabled ? '请先选择项目' : undefined} onClick={() => { void autoDream.toggleAutoDream(); }} disabled={autoDream.toggling}>
+          <span className="suiyuan-switch-track" aria-hidden="true"><span className="suiyuan-switch-thumb" /></span>
+          <span className="memory-auto-dream-toggle-text">{autoDream.enabled ? copy.disable : copy.enable}</span>
         </button>
         {autoDream.pendingRestart ? <small className="memory-pending">{copy.pendingRestart}</small> : null}
       </div>

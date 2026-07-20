@@ -298,7 +298,11 @@
   background: var(--suiyuan-primary);
   color: var(--primary-action-text);
   box-shadow: none;
-  opacity: 0.8;
+}
+
+.sa-window[data-theme="light"] .suiyuan-new-chat:hover,
+.sa-window[data-theme="light"] .suiyuan-new-chat:focus-visible {
+  background: var(--suiyuan-primary-container);
 }
 
 .sa-window[data-theme="light"] .suiyuan-nav-item,
@@ -309,7 +313,7 @@
 .sa-window[data-theme="light"] .suiyuan-nav-item.active,
 .sa-window[data-theme="light"] .suiyuan-footer-item.active {
   color: var(--suiyuan-primary);
-  background: color-mix(in srgb, var(--suiyuan-primary-fixed) 10%, transparent);
+  background: color-mix(in srgb, var(--suiyuan-primary-fixed) 55%, transparent);
 }
 
 .sa-window[data-theme="light"] .suiyuan-sidebar-footer {
@@ -474,6 +478,10 @@
   margin-left: 0;
 }
 
+.suiyuan-mobile-nav {
+  display: none;
+}
+
 @media (max-width: 920px) {
   .sa-body.suiyuan-shell-body {
     grid-template-columns: minmax(0, 1fr);
@@ -511,6 +519,69 @@
 
   .suiyuan-appbar-actions {
     gap: 4px;
+  }
+
+  .suiyuan-main-canvas {
+    padding-bottom: calc(var(--suiyuan-mobile-nav-height) + env(safe-area-inset-bottom, 0px));
+  }
+
+  .suiyuan-mobile-nav {
+    position: fixed;
+    inset: auto 0 0 0;
+    z-index: var(--z-local-sticky);
+    display: flex;
+    align-items: stretch;
+    justify-content: space-around;
+    gap: 2px;
+    min-height: var(--suiyuan-mobile-nav-height);
+    padding: 6px 8px calc(6px + env(safe-area-inset-bottom, 0px));
+    background: var(--surface);
+    border-top: 1px solid var(--line);
+  }
+
+  .sa-window.sidebar-open .suiyuan-mobile-nav {
+    display: none;
+  }
+
+  .suiyuan-mobile-nav-item {
+    flex: 1 1 0;
+    min-width: 0;
+    display: inline-flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 3px;
+    border: 0;
+    border-radius: var(--suiyuan-radius-control);
+    background: transparent;
+    color: var(--text-sec);
+    padding: 4px 2px;
+    font-size: var(--suiyuan-text-label-xs-size);
+    font-weight: 600;
+    line-height: var(--suiyuan-text-label-xs-line);
+    cursor: pointer;
+  }
+
+  .suiyuan-mobile-nav-item span {
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .suiyuan-mobile-nav-item:hover,
+  .suiyuan-mobile-nav-item:focus-visible {
+    color: var(--text-pri);
+    background: var(--surface-2);
+  }
+
+  .suiyuan-mobile-nav-item.active {
+    color: var(--primary);
+    background: var(--primary-soft);
+  }
+
+  .sa-window .composer.composer--floating[data-file-drop-target] {
+    bottom: calc(var(--suiyuan-mobile-nav-height) + env(safe-area-inset-bottom, 0px));
   }
 }
 
