@@ -164,6 +164,7 @@ const performanceRunnerFiles = Object.freeze([
   'frontend-app/scripts/render-isolation-probe.test.jsx',
   'frontend-app/scripts/resource-budget.mjs',
   'frontend-app/scripts/stop-feedback-benchmark.mjs',
+  'frontend-app/src/pages/chat/components/ChatActionFeedback.js',
 ]);
 const performanceEnvironmentKeys = Object.freeze([
   'os', 'cpu', 'totalMemoryBytes', 'loadAverage', 'node', 'npm', 'go',

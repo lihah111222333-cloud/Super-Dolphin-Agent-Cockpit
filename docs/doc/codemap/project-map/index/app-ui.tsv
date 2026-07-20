@@ -68,12 +68,12 @@ frontend-app/scripts/frontend-dependency-direction-guard.mjs	frontend-app	app-ui
 frontend-app/scripts/frontend-dependency-direction-guard.test.mjs	frontend-app	app-ui	js-test	8128	React 前端构建与校验脚本	frontend,app,scripts,dependency,direction,guard,test,React,前端构建与校验脚本
 frontend-app/scripts/frontend-dependency-direction-registry.json	frontend-app	app-ui	json	4878	React 前端构建与校验脚本	frontend,app,scripts,dependency,direction,registry,React,前端构建与校验脚本
 frontend-app/scripts/frontend-execution-closure.mjs	frontend-app	app-ui	js-source	2539	React 前端构建与校验脚本	frontend,app,scripts,execution,closure,React,前端构建与校验脚本
-frontend-app/scripts/frontend-maintainability-baseline.json	frontend-app	app-ui	json	292626	React 前端构建与校验脚本	frontend,app,scripts,maintainability,baseline,React,前端构建与校验脚本
-frontend-app/scripts/frontend-maintainability-controls.json	frontend-app	app-ui	json	27421	React 前端构建与校验脚本	frontend,app,scripts,maintainability,controls,React,前端构建与校验脚本
+frontend-app/scripts/frontend-maintainability-baseline.json	frontend-app	app-ui	json	298146	React 前端构建与校验脚本	frontend,app,scripts,maintainability,baseline,React,前端构建与校验脚本
+frontend-app/scripts/frontend-maintainability-controls.json	frontend-app	app-ui	json	27677	React 前端构建与校验脚本	frontend,app,scripts,maintainability,controls,React,前端构建与校验脚本
 frontend-app/scripts/frontend-maintainability-dependencies.json	frontend-app	app-ui	json	651	React 前端构建与校验脚本	frontend,app,scripts,maintainability,dependencies,React,前端构建与校验脚本
 frontend-app/scripts/frontend-maintainability-red-fixtures.json	frontend-app	app-ui	json	2433	React 前端构建与校验脚本	frontend,app,scripts,maintainability,red,fixtures,React,前端构建与校验脚本
-frontend-app/scripts/frontend-maintainability-score.mjs	frontend-app	app-ui	js-source	142829	React 前端构建与校验脚本	frontend,app,scripts,maintainability,score,React,前端构建与校验脚本
-frontend-app/scripts/frontend-maintainability-score.test.mjs	frontend-app	app-ui	js-test	113701	React 前端构建与校验脚本	frontend,app,scripts,maintainability,score,test,React,前端构建与校验脚本
+frontend-app/scripts/frontend-maintainability-score.mjs	frontend-app	app-ui	js-source	142895	React 前端构建与校验脚本	frontend,app,scripts,maintainability,score,React,前端构建与校验脚本
+frontend-app/scripts/frontend-maintainability-score.test.mjs	frontend-app	app-ui	js-test	114122	React 前端构建与校验脚本	frontend,app,scripts,maintainability,score,test,React,前端构建与校验脚本
 frontend-app/scripts/frontend-performance-cases.json	frontend-app	app-ui	json	1589	React 前端构建与校验脚本	frontend,app,scripts,performance,cases,React,前端构建与校验脚本
 frontend-app/scripts/frontend-state-ownership-guard.mjs	frontend-app	app-ui	js-source	25954	React 前端构建与校验脚本	frontend,app,scripts,state,ownership,guard,React,前端构建与校验脚本
 frontend-app/scripts/frontend-state-ownership-guard.test.mjs	frontend-app	app-ui	js-test	8229	React 前端构建与校验脚本	frontend,app,scripts,state,ownership,guard,test,React,前端构建与校验脚本

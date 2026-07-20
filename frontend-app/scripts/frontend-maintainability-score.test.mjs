@@ -2300,12 +2300,19 @@ describe('executable evidence registry', () => {
       'utf8',
     ));
     const auditedRunnerFiles = baselineDocument.provenance.runnerFiles.map(({ path }) => path);
+    const nonRunnerFiles = [
+      'frontend-app/package.json',
+      'frontend-app/src/entities/client/model/contractStoreModel.js',
+      'frontend-app/src/entities/client/model/threadLifecycleRuntime.js',
+    ];
 
-    expect(auditedRunnerFiles).not.toContain('frontend-app/package.json');
+    expect(auditedRunnerFiles).toContain('frontend-app/src/pages/chat/components/ChatActionFeedback.js');
+    for (const path of nonRunnerFiles) expect(auditedRunnerFiles).not.toContain(path);
     for (const controlId of ['P01-render-isolation', 'P02-history-budget', 'P03-feedback-budget', 'P04-resource-budget']) {
       const control = controls.controls.find(({ id }) => id === controlId);
       const check = control.allOf.find(({ evidenceProtocol }) => evidenceProtocol === 'performance-budget-json-v1');
       expect(check.runnerFiles).toEqual(auditedRunnerFiles);
+      for (const path of nonRunnerFiles) expect(check.runnerFiles).not.toContain(path);
     }
     expect(performanceAuditPathAllowed('frontend-app/package.json')).toBe(false);
   });
