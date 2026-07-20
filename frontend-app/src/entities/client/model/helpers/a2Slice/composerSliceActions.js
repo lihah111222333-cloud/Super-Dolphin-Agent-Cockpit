@@ -261,7 +261,8 @@ async function rollbackFailedSendDraft(runtime, deps, activeRequest, threadId, e
   runtime.set((state) => deps.rollbackSendDraftState(state, activeRequest, error, { createdThreadId }));
   if (shouldCacheFailedDraft) deps.saveFailedSendDraftSnapshot(runtime, activeRequest);
   await deps.deleteProvisionalThreadAfterSendFailure(createdThreadId, runtime.addWarning);
-  runtime.addWarning('error', 'thread.send.failed', { error: error.message });
+  const displayMessage = deps.recoveryActionMessageFromRPCError(error) || error.message;
+  runtime.addWarning('error', 'thread.send.failed', { error: displayMessage });
 }
 
 function createSendDraftAction(runtime, deps) {

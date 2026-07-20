@@ -552,7 +552,7 @@ internal/platform/rpc/codec.go	internal	platform-provider	go-source	681	JSON-RPC
 internal/platform/rpc/control_rpc_auth_test.go	internal	platform-provider	go-test	1819	JSON-RPC transport、dispatch、push 与审批框架	internal,platform,rpc,control,auth,test,JSON-RPC,transport,dispatch,push,与审批框架
 internal/platform/rpc/control_rpc_auth.go	internal	platform-provider	go-source	5901	JSON-RPC transport、dispatch、push 与审批框架	internal,platform,rpc,control,auth,JSON-RPC,transport,dispatch,push,与审批框架
 internal/platform/rpc/errors_helper.go	internal	platform-provider	go-source	1338	JSON-RPC transport、dispatch、push 与审批框架	internal,platform,rpc,errors,helper,JSON-RPC,transport,dispatch,push,与审批框架
-internal/platform/rpc/errors.go	internal	platform-provider	go-source	1478	JSON-RPC transport、dispatch、push 与审批框架	internal,platform,rpc,errors,JSON-RPC,transport,dispatch,push,与审批框架
+internal/platform/rpc/errors.go	internal	platform-provider	go-source	1983	JSON-RPC transport、dispatch、push 与审批框架	internal,platform,rpc,errors,JSON-RPC,transport,dispatch,push,与审批框架
 internal/platform/rpc/factory.go	internal	platform-provider	go-source	3993	JSON-RPC transport、dispatch、push 与审批框架	internal,platform,rpc,factory,JSON-RPC,transport,dispatch,push,与审批框架
 internal/platform/rpc/field_guard_test.go	internal	platform-provider	go-test	897	JSON-RPC transport、dispatch、push 与审批框架	internal,platform,rpc,field,guard,test,JSON-RPC,transport,dispatch,push,与审批框架
 internal/platform/rpc/field_guard.go	internal	platform-provider	go-source	2119	JSON-RPC transport、dispatch、push 与审批框架	internal,platform,rpc,field,guard,JSON-RPC,transport,dispatch,push,与审批框架
@@ -568,6 +568,7 @@ internal/platform/rpc/push_worker.go	internal	platform-provider	go-source	8370	J
 internal/platform/rpc/push.go	internal	platform-provider	go-source	11002	JSON-RPC transport、dispatch、push 与审批框架	internal,platform,rpc,push,JSON-RPC,transport,dispatch,与审批框架
 internal/platform/rpc/ready_file_test.go	internal	platform-provider	go-test	5680	JSON-RPC transport、dispatch、push 与审批框架	internal,platform,rpc,ready,file,test,JSON-RPC,transport,dispatch,push,与审批框架
 internal/platform/rpc/ready_file.go	internal	platform-provider	go-source	3746	JSON-RPC transport、dispatch、push 与审批框架	internal,platform,rpc,ready,file,JSON-RPC,transport,dispatch,push,与审批框架
+internal/platform/rpc/recovery_error_test.go	internal	platform-provider	go-test	2276	JSON-RPC transport、dispatch、push 与审批框架	internal,platform,rpc,recovery,error,test,JSON-RPC,transport,dispatch,push,与审批框架
 internal/platform/rpc/runner_provider.go	internal	platform-provider	go-source	320	JSON-RPC transport、dispatch、push 与审批框架	internal,platform,rpc,runner,provider,JSON-RPC,transport,dispatch,push,与审批框架
 internal/platform/rpc/safe_log_summary.go	internal	platform-provider	go-source	2911	JSON-RPC transport、dispatch、push 与审批框架	internal,platform,rpc,safe,log,summary,JSON-RPC,transport,dispatch,push,与审批框架
 internal/platform/rpc/server_minimal_test.go	internal	platform-provider	go-test	8234	JSON-RPC transport、dispatch、push 与审批框架	internal,platform,rpc,server,minimal,test,JSON-RPC,transport,dispatch,push,与审批框架
@@ -761,6 +762,7 @@ internal/platform/toolbridge/proxy_peer_down_test.go	internal	platform-provider	
 internal/platform/toolbridge/proxy_runner_test.go	internal	platform-provider	go-test	5161	provider 与 MCP tools 桥接	internal,platform,toolbridge,proxy,runner,test,provider,与,MCP,tools,桥接
 internal/platform/toolbridge/proxy_runner.go	internal	platform-provider	go-source	3178	provider 与 MCP tools 桥接	internal,platform,toolbridge,proxy,runner,provider,与,MCP,tools,桥接
 internal/platform/toolbridge/proxy.go	internal	platform-provider	go-source	19444	provider 与 MCP tools 桥接	internal,platform,toolbridge,proxy,provider,与,MCP,tools,桥接
+internal/platform/toolbridge/recovery_driver_integration_test.go	internal	platform-provider	go-test	5022	provider 与 MCP tools 桥接	internal,platform,toolbridge,recovery,driver,integration,test,provider,与,MCP,tools,桥接
 internal/platform/toolbridge/schema_quarantine_red_test.go	internal	platform-provider	go-test	29828	provider 与 MCP tools 桥接	internal,platform,toolbridge,schema,quarantine,red,test,provider,与,MCP,tools,桥接
 internal/platform/toolbridge/schema_validation_test.go	internal	platform-provider	go-test	4566	provider 与 MCP tools 桥接	internal,platform,toolbridge,schema,validation,test,provider,与,MCP,tools,桥接
 internal/platform/toolbridge/schema/attach_failure_test.go	internal	platform-provider	go-test	9421	provider 与 MCP tools 桥接	internal,platform,toolbridge,schema,attach,failure,test,provider,与,MCP,tools,桥接
@@ -912,6 +914,7 @@ internal/provider/codexapp/driver_pool_resume_test.go	internal	platform-provider
 internal/provider/codexapp/driver_pool_routing_lifecycle_test.go	internal	platform-provider	go-test	2721	Codex app/server provider 集成	internal,provider,codexapp,driver,pool,routing,lifecycle,test,Codex,app,server,集成
 internal/provider/codexapp/driver_pool_routing_test.go	internal	platform-provider	go-test	31522	Codex app/server provider 集成	internal,provider,codexapp,driver,pool,routing,test,Codex,app,server,集成
 internal/provider/codexapp/driver_pool_routing.go	internal	platform-provider	go-source	23622	Codex app/server provider 集成	internal,provider,codexapp,driver,pool,routing,Codex,app,server,集成
+internal/provider/codexapp/driver_recovery_failure_test.go	internal	platform-provider	go-test	2323	Codex app/server provider 集成	internal,provider,codexapp,driver,recovery,failure,test,Codex,app,server,集成
 internal/provider/codexapp/driver_resume_snapshot_test.go	internal	platform-provider	go-test	1118	Codex app/server provider 集成	internal,provider,codexapp,driver,resume,snapshot,test,Codex,app,server,集成
 internal/provider/codexapp/driver_session_helpers_test.go	internal	platform-provider	go-test	14363	Codex app/server provider 集成	internal,provider,codexapp,driver,session,helpers,test,Codex,app,server,集成
 internal/provider/codexapp/driver_session_test.go	internal	platform-provider	go-test	31886	Codex app/server provider 集成	internal,provider,codexapp,driver,session,test,Codex,app,server,集成

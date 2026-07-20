@@ -4,14 +4,14 @@
   "rules_sources": [
     ".ai-project-map.overrides.json"
   ],
-  "files": 4613,
+  "files": 4619,
   "domains": {
     "docs-agent": 954,
     "other": 679,
-    "app-ui": 561,
-    "platform-provider": 1089,
+    "app-ui": 563,
+    "platform-provider": 1092,
     "orchestration": 391,
-    "modules": 735,
+    "modules": 736,
     "store-sql": 204
   },
   "index_files": {
@@ -21,8 +21,8 @@
       {
         "key": "app-ui",
         "file": "docs/doc/codemap/project-map/index/app-ui.tsv",
-        "file_count": 561,
-        "size_kb": 114.5,
+        "file_count": 563,
+        "size_kb": 114.9,
         "desc": "桌面应用、Wails host、React/Vite 前端与 UI 测试"
       },
       {
@@ -35,15 +35,15 @@
       {
         "key": "modules",
         "file": "docs/doc/codemap/project-map/index/modules.tsv",
-        "file_count": 735,
-        "size_kb": 143.1,
+        "file_count": 736,
+        "size_kb": 143.3,
         "desc": "业务模块层：dashboard、memory、prompt、skill、thread、turn、uistate 等"
       },
       {
         "key": "platform-provider",
         "file": "docs/doc/codemap/project-map/index/platform-provider.tsv",
-        "file_count": 1089,
-        "size_kb": 200.7,
+        "file_count": 1092,
+        "size_kb": 201.4,
         "desc": "基础设施与 provider 集成：RPC、hooks、toolbridge、Claude/Codex/统一 provider"
       },
       {
@@ -73,8 +73,8 @@
     "(root)": 12,
     "cmd": 663,
     "docs": 946,
-    "frontend-app": 555,
-    "internal": 2220,
+    "frontend-app": 557,
+    "internal": 2224,
     "pkg": 30,
     "scripts": 139,
     "sql": 29,

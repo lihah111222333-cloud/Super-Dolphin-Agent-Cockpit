@@ -1,3 +1,5 @@
+import { RECOVERY_FAILURE_FIELDS, normalizeRecoveryFailure } from '../../shared/recovery/recoveryFailure.js';
+
 const RECOVERY_MODE = "recovery";
 
 const RECOVERY_METHOD_IDS = Object.freeze({
@@ -19,19 +21,6 @@ const RECOVERY_ACTION_FIELDS = Object.freeze([
   'check',
   'retry',
   'restore',
-]);
-
-const RECOVERY_FAILURE_FIELDS = Object.freeze([
-  'code',
-  'retryable',
-  'action',
-  'transaction_id',
-]);
-
-const RECOVERY_FAILURE_ACTIONS = Object.freeze([
-  "wait_then_retry",
-  "restart_application",
-  "preserve_state_export_diagnostics",
 ]);
 
 const RECOVERY_PROJECTION_FIELDS = Object.freeze([
@@ -69,39 +58,6 @@ function requireExactFields(value, fields, owner) {
       `Recovery ${owner} fields must exactly match ${expected.join(",")}`,
     );
   }
-}
-
-function normalizeRecoveryFailure(failure) {
-  if (!failure || typeof failure !== "object" || Array.isArray(failure)) {
-    throw new TypeError("Recovery failure must be an object");
-  }
-  requireExactFields(failure, RECOVERY_FAILURE_FIELDS, "failure");
-  const code = requireString(failure.code, "failure.code");
-  const action = requireString(failure.action, "failure.action");
-  const retryable = requireBoolean(failure.retryable, "failure.retryable");
-  const transactionId = requireString(
-    failure.transaction_id,
-    "failure.transaction_id",
-  );
-  if (
-    code === "" ? action !== "" : !RECOVERY_FAILURE_ACTIONS.includes(action)
-  ) {
-    throw new TypeError("Recovery failure action is unsupported");
-  }
-  if (code === "" && (retryable || transactionId !== "")) {
-    throw new TypeError("Recovery empty failure fields are inconsistent");
-  }
-  if (code !== "" && retryable !== (action === "wait_then_retry")) {
-    throw new TypeError(
-      "Recovery failure retryability is inconsistent with its action",
-    );
-  }
-  return Object.freeze({
-    code,
-    retryable,
-    action,
-    transactionId,
-  });
 }
 
 function normalizeRecoveryState(value) {

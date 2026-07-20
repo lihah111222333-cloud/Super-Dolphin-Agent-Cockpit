@@ -33,3 +33,18 @@ func ErrInvalidParams(msg string) error { return rpcError(CodeInvalidParams, msg
 
 // ErrMethodNotFound 构造方法不存在 RPC 错误。
 func ErrMethodNotFound(msg string) error { return rpcError(CodeMethodNotFound, msg) }
+
+// RecoveryActionError 将受控恢复失败转换为不携带底层原因的 RPC 错误。
+func RecoveryActionError(err error) (error, bool) {
+	failure, ok := contract.RecoveryFailureFromError(err)
+	if !ok {
+		return nil, false
+	}
+	data := map[string]any{
+		"code":           failure.Code,
+		"retryable":      failure.Retryable,
+		"action":         string(failure.Action),
+		"transaction_id": failure.TransactionID,
+	}
+	return rpcErrorData(CodeInvalidState, "recovery action is required", data), true
+}
