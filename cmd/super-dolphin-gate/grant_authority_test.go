@@ -5,6 +5,7 @@ import (
 	"crypto/ed25519"
 	"database/sql"
 	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"sync/atomic"
@@ -25,6 +26,32 @@ func TestProductionActionGrantConfigFieldRegistryIsComplete(t *testing.T) {
 	assertProductionFields(t, reflect.TypeFor[productionActionGrantPrivateKey](), map[string]string{
 		"PrivateKey": "owner-only Ed25519 private key",
 	})
+}
+
+func TestCoordinatorStoreRejectsLegacyJobSchemaBeforeReadsOrWrites(t *testing.T) {
+	database, err := sql.Open("sqlite", "file:"+filepath.Join(t.TempDir(), "legacy.db")+"?_pragma=busy_timeout(5000)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	if _, err := database.Exec(`CREATE TABLE coordinator_jobs (
+		enqueue_sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+		invocation_id TEXT NOT NULL UNIQUE,
+		job_id TEXT NOT NULL UNIQUE,
+		repository_root TEXT NOT NULL,
+		plan_json BLOB NOT NULL,
+		profile TEXT NOT NULL,
+		job_source_tree_sha TEXT NOT NULL,
+		state TEXT NOT NULL,
+		submitted_at TEXT NOT NULL
+	)`); err != nil {
+		t.Fatal(err)
+	}
+	err = ensureCoordinatorSchemas(context.Background(), database)
+	if err == nil || !strings.Contains(err.Error(), "legacy coordinator_jobs schema requires rebuild") ||
+		!strings.Contains(err.Error(), "entrypoint") {
+		t.Fatalf("legacy coordinator schema error = %v", err)
+	}
 }
 
 func TestProductionActionGrantAuthorityRequiresOwnerOnlyDistinctKey(t *testing.T) {
@@ -281,7 +308,7 @@ func newActionGrantTestFixture(t *testing.T) *actionGrantTestFixture {
 	store := openActionGrantTestStore(t, path)
 	submit := actionGrantTestSubmit(t)
 	receiptFixture := newHookReceiptFixture(t, submit, "job-action-grant")
-	persistActionGrantReceipt(t, store, submit, receiptFixture.receipt)
+	receipt := persistActionGrantReceipt(t, store, submit, receiptFixture)
 	publicKey, privateKey, err := ed25519.GenerateKey(nil)
 	if err != nil {
 		t.Fatal(err)
@@ -302,7 +329,7 @@ func newActionGrantTestFixture(t *testing.T) *actionGrantTestFixture {
 	}
 	fixture := &actionGrantTestFixture{
 		path: path, store: store, signer: signer, verifier: verifier,
-		receiptAuthority: receiptFixture.authority, receipt: receiptFixture.receipt,
+		receiptAuthority: receiptFixture.authority, receipt: receipt,
 		privateKey: privateKey, publicKey: publicKey, signerIdentity: identity,
 		adapter: adapter, submit: submit, now: time.Date(2026, time.July, 17, 12, 0, 0, 0, time.UTC),
 	}
@@ -370,42 +397,61 @@ func openActionGrantTestStore(t *testing.T, path string) *coordinatorStore {
 	if err := ensureCoordinatorActionGrantSchema(context.Background(), database); err != nil {
 		t.Fatal(err)
 	}
+	if err := ensureCoordinatorShardSchema(context.Background(), database); err != nil {
+		t.Fatal(err)
+	}
 	database.SetMaxOpenConns(8)
-	return &coordinatorStore{db: database}
+	return &coordinatorStore{db: database, now: time.Now}
 }
 
 func persistActionGrantReceipt(
 	t *testing.T,
 	store *coordinatorStore,
 	submit gatehook.SubmitRequest,
-	receipt gatecontract.ResultReceipt,
-) {
+	fixture hookReceiptFixture,
+) gatecontract.ResultReceipt {
 	t.Helper()
+	ctx := context.Background()
 	plan, err := gatecontract.BuildGatePlan(submit.Profile, submit.Source)
 	if err != nil {
 		t.Fatal(err)
 	}
 	jobID := "job-action-grant"
-	if _, err := store.createJob(
-		context.Background(), receipt.InvocationID, jobID, submit.Repository.WorktreeRoot,
-		plan, localci.PromotionCandidatePlan{},
-	); err != nil {
+	record, err := store.createJob(
+		ctx, fixture.receipt.InvocationID, jobID, submit.Repository.WorktreeRoot,
+		plan, localci.PromotionCandidatePlan{}, submissionAuthority{
+			Entrypoint: submit.Entrypoint, Owner: authorityOwnerForHook(submit),
+			Attestation: authorityAttestationForHook(submit),
+		},
+	)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if err := store.startJob(context.Background(), jobID); err != nil {
+	if err := store.startJob(ctx, jobID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.db.ExecContext(
-		context.Background(), "UPDATE coordinator_jobs SET removal_proof_digest = ? WHERE job_id = ?",
-		coordinatorDigest("e"), jobID,
-	); err != nil {
+	if err := store.recordImageProvenance(ctx, jobID, record.JobSourceTreeSHA); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.finishJob(
-		context.Background(), jobID, jobStatePassed, receipt.GateResults, "", &receipt,
-	); err != nil {
+	set, err := gatecontract.BuildContainerShardSet(
+		plan, fixture.receipt.Image.PlatformManifestDigest, fixture.receipt.Image.ConfigDigest,
+	)
+	if err != nil {
 		t.Fatal(err)
 	}
+	if err := store.createContainerShardSet(ctx, jobID, set); err != nil {
+		t.Fatal(err)
+	}
+	persistCoordinatorShardLifecycles(t, store, record, set)
+	record, err = store.job(ctx, jobID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	receipt := buildDurableCoordinatorReceipt(t, record, fixture.signer)
+	if err := store.finishJob(ctx, jobID, jobStatePassed, receipt.GateResults, "", &receipt); err != nil {
+		t.Fatal(err)
+	}
+	return receipt
 }
 
 func actionGrantTestSubmit(t *testing.T) gatehook.SubmitRequest {

@@ -126,3 +126,77 @@ func closeFileAfterError(file *os.File, cause error, action string) error {
 	}
 	return cause
 }
+
+// validateStatePathIdentity 在 SQLite 写入前复核父目录和数据库文件仍是初始安全对象。
+func (s *schedulerState) validateStatePathIdentity() error {
+	if s == nil || s.stateInfo == nil || s.parentInfo == nil {
+		return errors.New("scheduler state path identity changed: initial identity is unavailable")
+	}
+	if err := s.validateStateParentIdentity(); err != nil {
+		return err
+	}
+	return s.validateStateFileIdentity()
+}
+
+// validateStateParentIdentity 拒绝运行期间被替换、链接或放宽权限的父目录。
+func (s *schedulerState) validateStateParentIdentity() error {
+	parentInfo, err := os.Lstat(s.parentPath)
+	if err != nil {
+		return fmt.Errorf("scheduler state path identity changed: lstat parent: %w", err)
+	}
+	if parentInfo.Mode()&os.ModeSymlink != 0 || !parentInfo.IsDir() || !os.SameFile(parentInfo, s.parentInfo) {
+		return errors.New("scheduler state path identity changed: parent directory was replaced")
+	}
+	if err := validatePrivateOwnerAndMode(parentInfo, s.ownerUID, true); err != nil {
+		return fmt.Errorf("scheduler state path identity changed: parent directory: %w", err)
+	}
+	return nil
+}
+
+// validateStateFileIdentity 以 no-follow 打开数据库，并在关闭前核验其路径身份。
+func (s *schedulerState) validateStateFileIdentity() error {
+	stateFile, _, err := openSchedulerFileNoFollow(s.statePath, s.ownerUID, true)
+	if err != nil {
+		return fmt.Errorf("scheduler state path identity changed: open database without following links: %w", err)
+	}
+	if err := s.validateOpenedStateFileIdentity(stateFile); err != nil {
+		return closeFileAfterError(stateFile, err, "close scheduler state identity handle")
+	}
+	if err := stateFile.Close(); err != nil {
+		return fmt.Errorf("scheduler state path identity changed: close database identity handle: %w", err)
+	}
+	return nil
+}
+
+// validateOpenedStateFileIdentity 校验安全打开的描述符、路径与初始数据库是同一私有 regular file。
+func (s *schedulerState) validateOpenedStateFileIdentity(stateFile *os.File) error {
+	stateInfo, err := stateFile.Stat()
+	if err != nil {
+		return fmt.Errorf("scheduler state path identity changed: fstat database: %w", err)
+	}
+	if !stateInfo.Mode().IsRegular() {
+		return errors.New("scheduler state path identity changed: database descriptor is not regular")
+	}
+	if err := validatePrivateOwnerAndMode(stateInfo, s.ownerUID, false); err != nil {
+		return fmt.Errorf("scheduler state path identity changed: database descriptor: %w", err)
+	}
+	return s.validateStateFilePathIdentity(stateInfo)
+}
+
+// validateStateFilePathIdentity 确认 descriptor 对应的路径未被链接、替换或重新绑定。
+func (s *schedulerState) validateStateFilePathIdentity(stateInfo os.FileInfo) error {
+	pathInfo, err := os.Lstat(s.statePath)
+	if err != nil {
+		return fmt.Errorf("scheduler state path identity changed: lstat database after secure open: %w", err)
+	}
+	if pathInfo.Mode()&os.ModeSymlink != 0 || !pathInfo.Mode().IsRegular() {
+		return errors.New("scheduler state path identity changed: database path is not a regular non-symlink file")
+	}
+	if !os.SameFile(stateInfo, pathInfo) {
+		return errors.New("scheduler state path identity changed: database path changed after secure open")
+	}
+	if !os.SameFile(stateInfo, s.stateInfo) {
+		return errors.New("scheduler state path identity changed: database file was replaced")
+	}
+	return nil
+}

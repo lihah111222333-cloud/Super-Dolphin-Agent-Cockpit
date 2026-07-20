@@ -9,6 +9,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
+	"net/url"
 	"path"
 	"slices"
 	"sort"
@@ -91,22 +93,6 @@ type buildInputManifest struct {
 	Inputs        []string `json:"inputs"`
 }
 
-type toolchainLock struct {
-	SchemaVersion      string            `json:"schema_version"`
-	BuildKitVersion    string            `json:"buildkit_version"`
-	DockerfileFrontend string            `json:"dockerfile_frontend"`
-	SourceDateEpoch    string            `json:"source_date_epoch"`
-	TargetPlatforms    []string          `json:"target_platforms"`
-	BaseImages         []lockedBaseImage `json:"base_images"`
-	DependencySources  []string          `json:"dependency_sources"`
-	NetworkPolicy      string            `json:"network_policy"`
-}
-
-type lockedBaseImage struct {
-	Name      string `json:"name"`
-	Reference string `json:"reference"`
-}
-
 type preparedCandidate struct {
 	result       CandidateResult
 	buildRequest BuildKitBuildRequest
@@ -180,8 +166,15 @@ func prepareCandidate(request CandidateRequest) (preparedCandidate, error) {
 	if err != nil {
 		return preparedCandidate{}, err
 	}
+	runtimeImage, err := loadRuntimeDepsImageIdentity(closureByPath, request.Platform)
+	if err != nil {
+		return preparedCandidate{}, err
+	}
 	dockerfile := closureByPath[manifest.Dockerfile].Data
-	arguments := lockedBuildArguments(lock.BaseImages, lock.SourceDateEpoch)
+	arguments := lockedBuildArguments([]lockedBaseImage{{
+		Name:      "RUNTIME_DEPS_IMAGE",
+		Reference: runtimeImage.Registry + "@" + runtimeImage.PlatformManifestDigest,
+	}}, lock.SourceDateEpoch)
 	if err := validateCandidateDockerfile(dockerfile, arguments, closureByPath, entriesByPath); err != nil {
 		return preparedCandidate{}, err
 	}
@@ -342,8 +335,8 @@ func validateToolchainLock(lock toolchainLock, closure map[string]sourceexport.T
 	if err := validateToolchainVersions(lock); err != nil {
 		return err
 	}
-	if err := validateSortedUnique("target platforms", lock.TargetPlatforms); err != nil {
-		return err
+	if !slices.Equal(lock.TargetPlatforms, runtimeDepsPlatforms) {
+		return errors.New("target platforms must be exactly linux/amd64 and linux/arm64")
 	}
 	if !containsString(lock.TargetPlatforms, platform) {
 		return fmt.Errorf("target platform %q is not locked", platform)
@@ -352,38 +345,6 @@ func validateToolchainLock(lock toolchainLock, closure map[string]sourceexport.T
 		return err
 	}
 	return validateLockedDependencies(lock, closure)
-}
-
-func validateToolchainVersions(lock toolchainLock) error {
-	if lock.SchemaVersion != "1" {
-		return fmt.Errorf("toolchain schema version %q is unsupported", lock.SchemaVersion)
-	}
-	if lock.BuildKitVersion == "" {
-		return errors.New("BuildKit version is required")
-	}
-	if lock.DockerfileFrontend != "builtin:dockerfile.v1" {
-		return errors.New("Dockerfile frontend must be the locked builtin:dockerfile.v1 frontend")
-	}
-	if err := validateSourceDateEpoch(lock.SourceDateEpoch); err != nil {
-		return err
-	}
-	return nil
-}
-
-// validateLockedDependencies 校验依赖真值文件和受限构建网络策略。
-func validateLockedDependencies(lock toolchainLock, closure map[string]sourceexport.TreeEntry) error {
-	if err := validateSortedUnique("dependency sources", lock.DependencySources); err != nil {
-		return err
-	}
-	for _, dependency := range lock.DependencySources {
-		if _, exists := closure[dependency]; !exists {
-			return fmt.Errorf("locked dependency source %q is outside the input closure", dependency)
-		}
-	}
-	if lock.NetworkPolicy != "none" && lock.NetworkPolicy != "locked-dependencies" {
-		return fmt.Errorf("network policy %q is not permitted", lock.NetworkPolicy)
-	}
-	return nil
 }
 
 // validateLockedBaseImages 校验有序 Build ARG 与不可变基础镜像引用。
@@ -402,7 +363,49 @@ func validateLockedBaseImages(images []lockedBaseImage) error {
 		if err := validateImmutableReference("base image "+image.Name, image.Reference); err != nil {
 			return err
 		}
+		if err := validateRemoteImageReference(image.Reference); err != nil {
+			return fmt.Errorf("base image %s: %w", image.Name, err)
+		}
 		previous = image.Name
+	}
+	return nil
+}
+
+func validateRemoteImageReference(reference string) error {
+	registry, _, found := strings.Cut(reference, "/")
+	if !found || registry == "" {
+		return nil
+	}
+	return validateRemoteRegistryHost(registry)
+}
+
+func validateRemoteImageRegistry(repository string) error {
+	registry, name, found := strings.Cut(repository, "/")
+	if !found || registry == "" || name == "" {
+		return errors.New("runtime dependency image registry must include a repository path")
+	}
+	return validateRuntimeDepsRegistryHost(registry)
+}
+
+// validateRemoteRegistryHost 校验注册表主机有效且不指向回环地址。
+func validateRemoteRegistryHost(registry string) error {
+	parsed, err := url.Parse("https://" + registry)
+	if err != nil || parsed.Hostname() == "" {
+		return errors.New("image registry host is invalid")
+	}
+	hostname := strings.ToLower(strings.TrimSuffix(parsed.Hostname(), "."))
+	ip := net.ParseIP(hostname)
+	if hostname == "localhost" || strings.HasSuffix(hostname, ".localhost") || ip != nil && ip.IsLoopback() {
+		return errors.New("loopback image registries are forbidden for cross-platform truth images")
+	}
+	return nil
+}
+
+// validateRuntimeDepsRegistryHost 仅接受不带显式端口的规范 GHCR 主机。
+func validateRuntimeDepsRegistryHost(registry string) error {
+	parsed, err := url.Parse("https://" + registry)
+	if err != nil || parsed.Host != "ghcr.io" {
+		return errors.New("runtime dependency image registry must use canonical ghcr.io host without an explicit port")
 	}
 	return nil
 }
@@ -452,15 +455,53 @@ func validateCandidateDockerfile(data []byte, arguments []BuildArgument, closure
 	}
 	lockedDefaults := make(map[string]string, len(arguments))
 	for _, argument := range arguments {
+		if argument.Name == "RUNTIME_DEPS_IMAGE" {
+			continue
+		}
 		lockedDefaults[argument.Name] = argument.Value
 	}
 	if err := validateLockedImageArgumentDefaults(lines, lockedDefaults); err != nil {
+		return err
+	}
+	if err := validateRuntimeDepsImageArgument(lines); err != nil {
 		return err
 	}
 	if err := validateDockerfileFrom(lines, arguments); err != nil {
 		return err
 	}
 	return validateDockerfileCopies(lines, closure, allEntries)
+}
+
+// validateRuntimeDepsImageArgument 要求首个 FROM 前唯一声明无默认值的运行时依赖镜像参数。
+func validateRuntimeDepsImageArgument(lines []string) error {
+	declared := false
+	for _, line := range lines {
+		fields := strings.Fields(line)
+		if len(fields) == 0 {
+			continue
+		}
+		if strings.EqualFold(fields[0], "FROM") {
+			break
+		}
+		if !strings.EqualFold(fields[0], "ARG") {
+			continue
+		}
+		name, value, hasDefault := strings.Cut(strings.TrimSpace(line[len(fields[0]):]), "=")
+		if strings.TrimSpace(name) != "RUNTIME_DEPS_IMAGE" {
+			continue
+		}
+		if declared {
+			return errors.New("Dockerfile ARG RUNTIME_DEPS_IMAGE is declared more than once before FROM")
+		}
+		if hasDefault || value != "" {
+			return errors.New("Dockerfile ARG RUNTIME_DEPS_IMAGE must not have a static default")
+		}
+		declared = true
+	}
+	if !declared {
+		return errors.New("Dockerfile must declare ARG RUNTIME_DEPS_IMAGE without a default before FROM")
+	}
+	return nil
 }
 
 // logicalDockerfileLines 规范化 Dockerfile 续行并拒绝不完整输入。

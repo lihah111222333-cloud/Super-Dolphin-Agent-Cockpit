@@ -692,6 +692,11 @@ func DiscoverRunnableGoTests(path string) ([]string, error) {
 	return discoverRunnableGoTests(path, nil)
 }
 
+// DiscoverRunnableGoTestsFromSource 忽略当前平台的构建约束并返回源码中的顶层 Test 函数名。
+func DiscoverRunnableGoTestsFromSource(path string) ([]string, error) {
+	return parseRunnableGoTests(path)
+}
+
 // discoverRunnableGoTests 在当前 GOFLAGS 与 guard 专项标签合并后的构建上下文中发现测试。
 func discoverRunnableGoTests(path string, additionalTags []string) ([]string, error) {
 	buildContext, err := currentGoBuildContext(additionalTags)
@@ -705,6 +710,10 @@ func discoverRunnableGoTests(path string, additionalTags []string) ([]string, er
 	if !matched {
 		return nil, nil
 	}
+	return parseRunnableGoTests(path)
+}
+
+func parseRunnableGoTests(path string) ([]string, error) {
 	fset := token.NewFileSet()
 	file, err := parser.ParseFile(fset, path, nil, 0)
 	if err != nil {

@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"os"
 	"reflect"
+	"slices"
+	"strings"
 	"testing"
 
 	"golang.org/x/sync/errgroup"
@@ -128,6 +130,81 @@ func TestSchedulerServiceThreeSlotsFourthQueuedAndConcurrentCalls(t *testing.T) 
 	assertServiceState(t, scheduler, "job-4", WorkloadStatusQueued)
 }
 
+func TestSchedulerCompleteRejectsChangedStatePathBeforeLeaseMutation(t *testing.T) {
+	t.Parallel()
+	assertSchedulerCompletionRejectsChangedStatePath(t, "remove-recreate", removeAndRecreateSchedulerStatePath)
+}
+
+func TestSchedulerCompleteRejectsSymlinkedStatePathBeforeLeaseMutation(t *testing.T) {
+	t.Parallel()
+	assertSchedulerCompletionRejectsChangedStatePath(t, "replace-symlink", replaceSchedulerStatePathWithSymlink)
+}
+
+func assertSchedulerCompletionRejectsChangedStatePath(t *testing.T, name string, changePath func(*testing.T, string)) {
+	t.Helper()
+	ctx := context.Background()
+	config := newSchedulerServiceConfig(t, name)
+	identity, err := newDaemonIdentity(config.Endpoint, config.TLSFingerprint, config.DaemonID, config.OwnerUID)
+	if err != nil {
+		t.Fatalf("derive scheduler identity: %v", err)
+	}
+	_, statePath, err := deriveSchedulerRuntimePaths(config.runtimeRoot, identity)
+	if err != nil {
+		t.Fatalf("derive scheduler state path: %v", err)
+	}
+	scheduler := mustOpenSchedulerService(t, ctx, config)
+	defer closeSchedulerService(t, scheduler)
+	mustServiceEnqueue(t, scheduler, WorkloadRequest{
+		ID: "job", InvocationID: "inv-1", EnqueueSequence: 1, Kind: WorkloadKindJob,
+	})
+	assertSingleReservation(t, scheduler, "job")
+
+	changePath(t, statePath)
+	err = scheduler.Complete(ctx, "job", WorkloadStatusPassed)
+	if !errors.Is(err, ErrSchedulerPersistence) {
+		t.Fatalf("Complete() error=%v, want scheduler persistence failure", err)
+	}
+	if !strings.Contains(err.Error(), "scheduler state path identity changed") {
+		t.Errorf("Complete() error=%v, want explicit state path identity failure before SQLite mutation", err)
+	}
+	assertSchedulerStateUnchangedAfterRejectedCompletion(t, scheduler)
+}
+
+func removeAndRecreateSchedulerStatePath(t *testing.T, statePath string) {
+	t.Helper()
+	if err := os.Remove(statePath); err != nil {
+		t.Fatalf("remove live scheduler state path: %v", err)
+	}
+	if err := os.WriteFile(statePath, nil, privateSchedulerFileMode); err != nil {
+		t.Fatalf("replace scheduler state path: %v", err)
+	}
+}
+
+func replaceSchedulerStatePathWithSymlink(t *testing.T, statePath string) {
+	t.Helper()
+	targetPath := statePath + ".replacement"
+	if err := os.WriteFile(targetPath, nil, privateSchedulerFileMode); err != nil {
+		t.Fatalf("write scheduler symlink target: %v", err)
+	}
+	if err := os.Remove(statePath); err != nil {
+		t.Fatalf("remove live scheduler state path: %v", err)
+	}
+	if err := os.Symlink(targetPath, statePath); err != nil {
+		t.Fatalf("replace scheduler state path with symlink: %v", err)
+	}
+}
+
+func assertSchedulerStateUnchangedAfterRejectedCompletion(t *testing.T, scheduler *Scheduler) {
+	t.Helper()
+	snapshot, err := scheduler.Snapshot()
+	if err != nil {
+		t.Fatalf("Snapshot() after rejected completion: %v", err)
+	}
+	if len(snapshot.Workloads) != 1 || snapshot.Workloads[0].Status != WorkloadStatusStarted || len(snapshot.Leases) != 1 {
+		t.Fatalf("snapshot after rejected completion = %#v, want started workload with retained lease", snapshot)
+	}
+}
+
 func TestSchedulerServiceRejectsUnknownAndDuplicateInput(t *testing.T) {
 	t.Parallel()
 
@@ -137,6 +214,7 @@ func TestSchedulerServiceRejectsUnknownAndDuplicateInput(t *testing.T) {
 	cases := []WorkloadRequest{
 		{InvocationID: "inv", EnqueueSequence: 1, Kind: WorkloadKindJob},
 		{ID: "job", InvocationID: "inv", EnqueueSequence: 1, Kind: "unknown"},
+		{ID: "shard", InvocationID: "inv", EnqueueSequence: 1, Kind: WorkloadKindShard},
 		{ID: "job", InvocationID: "inv", EnqueueSequence: 1, Kind: WorkloadKindJob, Dependencies: []string{"dep", "dep"}},
 		{ID: "job", InvocationID: "inv", EnqueueSequence: 1, Kind: WorkloadKindJob, Dependencies: []string{"missing"}},
 	}
@@ -154,21 +232,30 @@ func TestWorkloadRequestMapsEveryFieldAndCopiesDependencies(t *testing.T) {
 	t.Parallel()
 	request := WorkloadRequest{
 		ID: "job", InvocationID: "inv", EnqueueSequence: 7, Subsequence: 3,
-		Kind: WorkloadKindJob, ServiceCount: 1, Dependencies: []string{"dependency"},
+		Kind: WorkloadKindShard, ServiceCount: 1, GroupIdentity: "group", GroupSize: 2,
+		ShardIdentities: []string{"shard-0", "shard-1"}, Dependencies: []string{"dependency"},
 	}
 	spec, err := request.toSpec()
 	if err != nil {
 		t.Fatalf("map request: %v", err)
 	}
-	if spec.id != "job" || spec.invocationID != "inv" || spec.enqueueSeq != 7 || spec.subSeq != 3 {
-		t.Fatalf("identity or sequence fields were not mapped: %+v", spec)
-	}
-	if spec.kind != workloadJob || spec.serviceCount != 1 || !reflect.DeepEqual(spec.dependencies, []workloadID{"dependency"}) {
-		t.Fatalf("kind, service, or dependency fields were not mapped: %+v", spec)
-	}
+	assertMappedWorkloadSpec(t, spec)
 	request.Dependencies[0] = "mutated"
-	if spec.dependencies[0] != "dependency" {
-		t.Fatalf("mapped dependencies share request backing storage: %v", spec.dependencies)
+	request.ShardIdentities[0] = "mutated"
+	if spec.dependencies[0] != "dependency" || spec.shardIDs[0] != "shard-0" {
+		t.Fatalf("mapped slices share request backing storage: %+v", spec)
+	}
+}
+
+func assertMappedWorkloadSpec(t *testing.T, spec workloadSpec) {
+	t.Helper()
+	want := workloadSpec{
+		id: "job", invocationID: "inv", enqueueSeq: 7, subSeq: 3,
+		kind: workloadShard, serviceCount: 1, groupID: "group", groupSize: 2,
+		shardIDs: []string{"shard-0", "shard-1"}, dependencies: []workloadID{"dependency"},
+	}
+	if !reflect.DeepEqual(spec, want) {
+		t.Fatalf("mapped spec=%+v want=%+v", spec, want)
 	}
 }
 
@@ -207,29 +294,219 @@ func TestSchedulerServiceGangAndSnapshotAreDeepCopies(t *testing.T) {
 	}
 }
 
-func TestSchedulerServiceFieldRegistry(t *testing.T) {
+func TestSchedulerServiceShardGroupFailureBarrierRecoversAndCompletes(t *testing.T) {
 	t.Parallel()
-	assertSchedulerStructFields(t, reflect.TypeOf(SchedulerConfig{}), []string{
-		"Endpoint", "TLSFingerprint", "DaemonID", "OwnerUID",
-	})
-	assertSchedulerStructFields(t, reflect.TypeOf(WorkloadRequest{}), []string{
-		"ID", "InvocationID", "EnqueueSequence", "Subsequence", "Kind", "ServiceCount", "Dependencies",
-	})
-	assertSchedulerStructFields(t, reflect.TypeOf(Lease{}), []string{"ID", "WorkloadID", "Kind"})
-	assertSchedulerStructFields(t, reflect.TypeOf(WorkloadReservation{}), []string{"WorkloadID", "Leases"})
-	assertSchedulerStructFields(t, reflect.TypeOf(WorkloadSnapshot{}), []string{"Request", "Status"})
-	assertSchedulerStructFields(t, reflect.TypeOf(SchedulerSnapshot{}), []string{"Workloads", "Leases"})
+	ctx := context.Background()
+	config := newSchedulerServiceConfig(t, "group-recovery")
+	scheduler := mustOpenSchedulerService(t, ctx, config)
+	request := testServiceShardGroupRequest()
+	startFailingServiceShardGroup(t, ctx, scheduler, request)
+	closeSchedulerService(t, scheduler)
+	assertRecoveredServiceShardGroup(t, ctx, config, request)
 }
 
-func assertSchedulerStructFields(t *testing.T, structType reflect.Type, want []string) {
+func TestSchedulerServiceReconcileRecoveryPreservesCancellingShardGroup(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	scheduler := mustOpenSchedulerService(t, ctx, newSchedulerServiceConfig(t, "reconcile-cancelling-group"))
+	defer closeSchedulerService(t, scheduler)
+	request := testServiceShardGroupRequest()
+	startFailingServiceShardGroup(t, ctx, scheduler, request)
+	if err := scheduler.ReconcileRecovery(ctx, []RecoveryWorkload{{Request: request, Status: WorkloadStatusCancelling}}); err != nil {
+		t.Fatalf("reconcile cancelling shard group: %v", err)
+	}
+	assertServiceState(t, scheduler, request.ID, WorkloadStatusCancelling)
+	assertSnapshotCounts(t, scheduler, 1, 3)
+}
+
+func TestSchedulerServiceReconcileRecoveryRejectsStartedToCancellingPromotion(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	scheduler := mustOpenSchedulerService(t, ctx, newSchedulerServiceConfig(t, "reject-started-cancelling"))
+	defer closeSchedulerService(t, scheduler)
+	request := testServiceShardGroupRequest()
+	mustServiceEnqueue(t, scheduler, request)
+	assertSingleReservation(t, scheduler, request.ID)
+	if err := scheduler.ReconcileRecovery(ctx, []RecoveryWorkload{{Request: request, Status: WorkloadStatusCancelling}}); err == nil {
+		t.Fatal("reconcile promoted started shard group to cancelling")
+	}
+	assertServiceState(t, scheduler, request.ID, WorkloadStatusStarted)
+	assertSnapshotCounts(t, scheduler, 1, 3)
+}
+
+func TestSchedulerServiceReconcileRecoveryRejectsOrphanShardGroup(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	scheduler := mustOpenSchedulerService(t, ctx, newSchedulerServiceConfig(t, "reject-orphan-shard-group"))
+	defer closeSchedulerService(t, scheduler)
+	request := testServiceShardGroupRequest()
+	mustServiceEnqueue(t, scheduler, request)
+	if err := scheduler.ReconcileRecovery(ctx, nil); err == nil {
+		t.Fatal("reconcile accepted orphan shard group")
+	}
+	assertServiceState(t, scheduler, request.ID, WorkloadStatusQueued)
+}
+
+func TestSchedulerServiceReconcileRecoveryRestoresBuild(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	scheduler := mustOpenSchedulerService(t, ctx, newSchedulerServiceConfig(t, "recover-build"))
+	defer closeSchedulerService(t, scheduler)
+	request := WorkloadRequest{ID: "build", InvocationID: "invocation", EnqueueSequence: 1, Kind: WorkloadKindBuild}
+	if err := scheduler.ReconcileRecovery(ctx, []RecoveryWorkload{{Request: request, Status: WorkloadStatusQueued}}); err != nil {
+		t.Fatalf("reconcile build: %v", err)
+	}
+	assertServiceState(t, scheduler, request.ID, WorkloadStatusQueued)
+}
+
+func TestSchedulerServiceReconcileRecoveryRejectsService(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	scheduler := mustOpenSchedulerService(t, ctx, newSchedulerServiceConfig(t, "reject-recovery-service"))
+	defer closeSchedulerService(t, scheduler)
+	request := WorkloadRequest{ID: "unsupported", InvocationID: "invocation", EnqueueSequence: 1, Kind: WorkloadKindService}
+	err := scheduler.ReconcileRecovery(ctx, []RecoveryWorkload{{Request: request, Status: WorkloadStatusQueued}})
+	if !errors.Is(err, ErrInvalidSchedulerInput) {
+		t.Fatalf("reconcile service error=%v want=%v", err, ErrInvalidSchedulerInput)
+	}
+	if _, err := scheduler.State(request.ID); !errors.Is(err, ErrWorkloadNotFound) {
+		t.Fatalf("rejected service recovery committed state: %v", err)
+	}
+}
+
+func testServiceShardGroupRequest() WorkloadRequest {
+	return WorkloadRequest{
+		ID: "group", InvocationID: "invocation", EnqueueSequence: 1,
+		Kind: WorkloadKindShard, ServiceCount: 2,
+		GroupIdentity: "group-identity", GroupSize: 3,
+		ShardIdentities: []string{"shard-0", "shard-1", "shard-2"},
+		Dependencies:    []string{},
+	}
+}
+
+func startFailingServiceShardGroup(
+	t *testing.T,
+	ctx context.Context,
+	scheduler *Scheduler,
+	request WorkloadRequest,
+) {
 	t.Helper()
-	got := make([]string, structType.NumField())
-	for index := range structType.NumField() {
-		got[index] = structType.Field(index).Name
+	mustServiceEnqueue(t, scheduler, request)
+	reservations, err := scheduler.ReserveRunnable(ctx)
+	if err != nil {
+		t.Fatalf("reserve shard group: %v", err)
 	}
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("%s fields=%v want=%v", structType.Name(), got, want)
+	if len(reservations) != 1 || reservations[0].GroupIdentity != request.GroupIdentity {
+		t.Fatalf("reservation group binding=%+v", reservations)
 	}
+	siblings, err := scheduler.ReportShardFailure(ctx, request.ID, request.GroupIdentity, "shard-1")
+	if err != nil {
+		t.Fatalf("report shard failure: %v", err)
+	}
+	if !slices.Equal(siblings, []string{"shard-0", "shard-2"}) {
+		t.Fatalf("cancel siblings=%v", siblings)
+	}
+	assertServiceState(t, scheduler, request.ID, WorkloadStatusCancelling)
+	assertSnapshotCounts(t, scheduler, 1, 3)
+}
+
+func assertRecoveredServiceShardGroup(
+	t *testing.T,
+	ctx context.Context,
+	config schedulerServiceTestConfig,
+	request WorkloadRequest,
+) {
+	t.Helper()
+	recovered := mustOpenSchedulerService(t, ctx, config)
+	defer closeSchedulerService(t, recovered)
+	assertServiceState(t, recovered, request.ID, WorkloadStatusCancelling)
+	snapshot, err := recovered.Snapshot()
+	if err != nil {
+		t.Fatalf("snapshot recovered group: %v", err)
+	}
+	if !reflect.DeepEqual(snapshot.Workloads[0].Request, request) || len(snapshot.Leases) != 3 {
+		t.Fatalf("recovered group identity drifted: %+v", snapshot)
+	}
+	siblings, err := recovered.ReportShardFailure(ctx, request.ID, request.GroupIdentity, "shard-1")
+	if err != nil {
+		t.Fatalf("retry persisted shard failure after lost response: %v", err)
+	}
+	if !slices.Equal(siblings, []string{"shard-0", "shard-2"}) {
+		t.Fatalf("retried cancel siblings=%v", siblings)
+	}
+	if _, err := recovered.ReportShardFailure(ctx, request.ID, request.GroupIdentity, "shard-2"); err == nil {
+		t.Fatal("conflicting failed shard retry was accepted")
+	}
+	if err := recovered.CompleteGroup(ctx, request.ID, request.GroupIdentity, WorkloadStatusPassed); err == nil {
+		t.Fatal("cancelling group completed as passed")
+	}
+	assertServiceState(t, recovered, request.ID, WorkloadStatusCancelling)
+	assertSnapshotCounts(t, recovered, 1, 3)
+	if err := recovered.CompleteGroup(ctx, request.ID, request.GroupIdentity, WorkloadStatusFailed); err != nil {
+		t.Fatalf("complete recovered group: %v", err)
+	}
+	assertSnapshotCounts(t, recovered, 1, 0)
+}
+
+func TestSchedulerServiceGroupIdentityAndQueuedCancellationFailClosed(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	scheduler := mustOpenSchedulerService(t, ctx, newSchedulerServiceConfig(t, "group-cancel"))
+	defer closeSchedulerService(t, scheduler)
+	request := WorkloadRequest{
+		ID: "group", InvocationID: "invocation", EnqueueSequence: 1,
+		Kind: WorkloadKindShard, GroupIdentity: "group-identity",
+		GroupSize: 1, ShardIdentities: []string{"shard-0"},
+	}
+	mustServiceEnqueue(t, scheduler, request)
+	if err := scheduler.CancelGroup(ctx, request.ID, "unknown"); err == nil {
+		t.Fatal("unknown group identity was accepted")
+	}
+	if err := scheduler.Complete(ctx, request.ID, WorkloadStatusFailed); err == nil {
+		t.Fatal("standalone completion accepted grouped workload")
+	}
+	if err := scheduler.CancelGroup(ctx, request.ID, request.GroupIdentity); err != nil {
+		t.Fatalf("cancel queued group: %v", err)
+	}
+	assertServiceState(t, scheduler, request.ID, WorkloadStatusCancelled)
+}
+
+func TestSchedulerServiceGroupFailureCannotBypassCancellationBarrier(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	scheduler := mustOpenSchedulerService(t, ctx, newSchedulerServiceConfig(t, "group-failure-barrier"))
+	defer closeSchedulerService(t, scheduler)
+	request := testServiceShardGroupRequest()
+	mustServiceEnqueue(t, scheduler, request)
+	if _, err := scheduler.ReserveRunnable(ctx); err != nil {
+		t.Fatalf("reserve shard group: %v", err)
+	}
+	for _, status := range []WorkloadStatus{WorkloadStatusFailed, WorkloadStatusInfraFailed, WorkloadStatusCancelled} {
+		if err := scheduler.CompleteGroup(ctx, request.ID, request.GroupIdentity, status); err == nil {
+			t.Fatalf("started group completed directly as %s", status)
+		}
+		assertServiceState(t, scheduler, request.ID, WorkloadStatusStarted)
+		assertSnapshotCounts(t, scheduler, 1, 3)
+	}
+}
+
+func TestSchedulerServiceFieldRegistry(t *testing.T) {
+	t.Parallel()
+	assertSchedulerStructFields(t, reflect.TypeFor[SchedulerConfig](), []string{
+		"Endpoint", "TLSFingerprint", "DaemonID", "OwnerUID",
+	})
+	assertSchedulerStructFields(t, reflect.TypeFor[WorkloadRequest](), []string{
+		"ID", "InvocationID", "EnqueueSequence", "Subsequence", "Kind", "ServiceCount",
+		"GroupIdentity", "GroupSize", "ShardIdentities", "Dependencies",
+	})
+	assertSchedulerStructFields(t, reflect.TypeFor[Lease](), []string{
+		"ID", "WorkloadID", "Kind", "GroupIdentity", "ShardIdentity",
+	})
+	assertSchedulerStructFields(t, reflect.TypeFor[WorkloadReservation](), []string{
+		"WorkloadID", "GroupIdentity", "Leases",
+	})
+	assertSchedulerStructFields(t, reflect.TypeFor[WorkloadSnapshot](), []string{"Request", "Status"})
+	assertSchedulerStructFields(t, reflect.TypeFor[SchedulerSnapshot](), []string{"Workloads", "Leases"})
 }
 
 type schedulerServiceTestConfig struct {

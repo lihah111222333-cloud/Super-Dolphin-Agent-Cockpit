@@ -520,8 +520,7 @@ func TestProductionBootstrapExternalControllerProtocolProducesVerifiableAttestat
 		t.Skip("macOS codesign is unavailable")
 	}
 	fixture := newProductionTestFixture(t)
-	home := privateProductionBootstrapDirectory(t)
-	t.Setenv("HOME", home)
+	home, _, _ := configureProductionHostDockerCommandTest(t)
 	root := installProductionBootstrapTestController(t, &fixture)
 	key := productionBootstrapControllerTestKey{
 		Signer: root.BootstrapSigner, PrivateKey: base64.StdEncoding.EncodeToString(fixture.privateKey),

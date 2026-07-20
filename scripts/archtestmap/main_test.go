@@ -63,13 +63,29 @@ type suite struct{}
 func (suite) TestMethod(t *check.T) {}
 `)
 	writeTestFile(t, root, "internal/archtest/empty_test.go", "package archtest\n")
+	writeTestFile(t, root, "internal/archtest/platform_darwin_test.go", `//go:build darwin
+
+package archtest
+
+import "testing"
+
+func TestDarwin(t *testing.T) {}
+`)
+	writeTestFile(t, root, "internal/archtest/platform_linux_test.go", `//go:build linux
+
+package archtest
+
+import "testing"
+
+func TestLinux(t *testing.T) {}
+`)
 
 	stats, err := collectArchtestStats(root)
 	if err != nil {
 		t.Fatalf("collect stats: %v", err)
 	}
-	if stats.Tests != 2 || stats.Files != 2 {
-		t.Fatalf("stats = %#v, want 2 tests across 2 files", stats)
+	if stats.Tests != 4 || stats.Files != 4 {
+		t.Fatalf("stats = %#v, want 4 tests across 4 files", stats)
 	}
 }
 

@@ -267,7 +267,7 @@ func collectArchtestStatEntry(base, path string, entry fs.DirEntry, walkErr erro
 	if entry.IsDir() || !strings.HasSuffix(entry.Name(), "_test.go") {
 		return nil
 	}
-	names, err := archtest.DiscoverRunnableGoTests(path)
+	names, err := archtest.DiscoverRunnableGoTestsFromSource(path)
 	if err != nil {
 		return fmt.Errorf("parse %s: %w", path, err)
 	}

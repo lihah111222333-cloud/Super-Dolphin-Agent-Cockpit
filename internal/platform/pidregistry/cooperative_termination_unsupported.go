@@ -1,4 +1,4 @@
-//go:build !darwin
+//go:build !darwin && !linux
 
 package pidregistry
 
@@ -6,40 +6,40 @@ import (
 	"context"
 )
 
-// CooperativeTerminationServer 是非 Darwin 平台的 fail-closed 占位类型。
+// CooperativeTerminationServer 是非 Darwin/Linux 平台的 fail-closed 占位类型。
 type CooperativeTerminationServer struct{}
 
-// StartCooperativeTerminationServer 在非 Darwin 平台保持 fail-closed。
+// StartCooperativeTerminationServer 在非 Darwin/Linux 平台保持 fail-closed。
 func StartCooperativeTerminationServer(string, string, func()) (*CooperativeTerminationServer, error) {
 	return nil, ErrExactProcessTerminationUnsupported
 }
 
-// StartParkedCooperativeTerminationServer 在非 Darwin 平台保持 fail-closed。
+// StartParkedCooperativeTerminationServer 在非 Darwin/Linux 平台保持 fail-closed。
 func StartParkedCooperativeTerminationServer(string, string, func()) (*CooperativeTerminationServer, error) {
 	return nil, ErrExactProcessTerminationUnsupported
 }
 
-// WaitForActivation 在非 Darwin 平台保持 fail-closed。
+// WaitForActivation 在非 Darwin/Linux 平台保持 fail-closed。
 func (server *CooperativeTerminationServer) WaitForActivation(context.Context) error {
 	return ErrExactProcessTerminationUnsupported
 }
 
-// CaptureCooperativeEndpointIdentity 在非 Darwin 平台保持 fail-closed。
+// CaptureCooperativeEndpointIdentity 在非 Darwin/Linux 平台保持 fail-closed。
 func CaptureCooperativeEndpointIdentity(string) (CooperativeEndpointIdentity, error) {
 	return CooperativeEndpointIdentity{}, ErrExactProcessTerminationUnsupported
 }
 
-// CleanupCooperativeTerminationEndpoint 在非 Darwin 平台保持 fail-closed。
+// CleanupCooperativeTerminationEndpoint 在非 Darwin/Linux 平台保持 fail-closed。
 func CleanupCooperativeTerminationEndpoint(string) error {
 	return ErrExactProcessTerminationUnsupported
 }
 
-// CleanupCooperativeTerminationEndpointInstance 在非 Darwin 平台保持 fail-closed。
+// CleanupCooperativeTerminationEndpointInstance 在非 Darwin/Linux 平台保持 fail-closed。
 func CleanupCooperativeTerminationEndpointInstance(string, CooperativeEndpointIdentity) error {
 	return ErrExactProcessTerminationUnsupported
 }
 
-// CleanupStaleCooperativeTerminationEndpoint 在非 Darwin 平台保持 fail-closed。
+// CleanupStaleCooperativeTerminationEndpoint 在非 Darwin/Linux 平台保持 fail-closed。
 func CleanupStaleCooperativeTerminationEndpoint(context.Context, string) error {
 	return ErrExactProcessTerminationUnsupported
 }

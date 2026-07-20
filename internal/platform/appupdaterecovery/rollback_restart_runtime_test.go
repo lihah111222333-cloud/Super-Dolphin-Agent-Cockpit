@@ -447,7 +447,10 @@ func TestRollbackRestartResolverCleanupUsesFrozenExactContract(t *testing.T) {
 }
 
 func fixtureCooperativeEndpointIdentity() pidregistry.CooperativeEndpointIdentity {
-	return pidregistry.CooperativeEndpointIdentity{Device: 1, Inode: 2, UID: uint32(os.Geteuid()), Mode: 0o140600}
+	return pidregistry.CooperativeEndpointIdentity{
+		Device: 1, Inode: 2, UID: uint32(os.Geteuid()), Mode: 0o140600,
+		CreationTimeSec: 1, CreationTimeNsec: 2,
+	}
 }
 
 func startRollbackRuntimeChild(t *testing.T) *exec.Cmd {

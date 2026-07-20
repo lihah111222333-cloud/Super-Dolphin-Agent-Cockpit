@@ -1,217 +1,63 @@
 name: CI
+
 on:
   push:
     branches: [main]
-  pull_request:
-    branches: [main]
+  pull_request_target:
+    types: [opened, synchronize, reopened]
 
 permissions:
   contents: read
-
-env:
-  SUPER_DOLPHIN_GUARD_FAIL_ON_DRIFT: "1"
+  id-token: write
 
 jobs:
-  commit-guard:
+  truth-image-gates:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 75
+    env:
+      SUPER_DOLPHIN_GUARD_FAIL_ON_DRIFT: "1"
+      GATE_EVENT_SHA: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.sha || github.sha }}
+      GATE_EVENT_REF: ${{ github.event_name == 'pull_request_target' && format('refs/pull/{0}/head', github.event.pull_request.number) || github.ref }}
+      GATE_EVENT_REPOSITORY: ${{ github.repository }}
+      SUPER_DOLPHIN_GATE_WORKFLOW_OIDC_AUDIENCE: super-dolphin-gate-workflow
     steps:
-      - uses: actions/checkout@v4
+      # pull_request_target evaluates this fixed base workflow. The checked-out
+      # head is mounted as data only; no candidate workflow or script is invoked.
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
-          fetch-depth: 0
-      - name: Commit guard
+          ref: ${{ github.event_name == 'pull_request_target' && format('refs/pull/{0}/head', github.event.pull_request.number) || github.sha }}
+          path: candidate
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Trusted bootstrap coordinator
         env:
-          GITHUB_BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          GITHUB_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-          GITHUB_EVENT_BEFORE: ${{ github.event.before }}
-        run: ./scripts/ci_commit_guard.sh
-
-  build-and-test:
-    needs: commit-guard
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-          cache: true
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-          cache: npm
-          cache-dependency-path: frontend-app/package-lock.json
-      - name: Install Linux WebView dependencies
+          SUPER_DOLPHIN_GATE_BOOTSTRAP_IMAGE: ${{ secrets.SUPER_DOLPHIN_GATE_BOOTSTRAP_IMAGE }}
+          SUPER_DOLPHIN_GATE_AUTHORITY_BUNDLE_B64: ${{ secrets.SUPER_DOLPHIN_GATE_AUTHORITY_BUNDLE_B64 }}
         run: |
-          sudo apt-get update
-          sudo apt-get install -y pkg-config libgtk-3-dev libwebkit2gtk-4.1-dev
-      - name: Install mcp-lsp test dependencies
-        run: |
-          go install golang.org/x/tools/gopls@latest
-          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
-          rustup component add rust-analyzer
-      - name: Prepare embedded frontend assets
-        run: make frontend-app-build
-      - name: Frontend embed verify
-        run: make frontend-embed-verify
-      - name: Vet
-        run: make vet
-      - name: Build
-        run: make build-plain
-      - name: Test
-        shell: bash
-        run: |
-          mapfile -t go_packages < <(go list ./cmd/... ./internal/... ./pkg/... ./scripts/...)
-          ./scripts/test_with_guard.sh "${go_packages[@]}" -count=1 -timeout 180s
-      - name: Sqlc verify
-        run: make sqlc-verify
-      - name: Codemap check
-        run: make codemap-check
-      - name: Project map check
-        run: make project-map-check
-      - name: Capability contract check
-        run: make capcontract-check
-      - name: Validate skills
-        run: python3 scripts/validate_super_agent_skills.py
-
-  lint:
-    needs: commit-guard
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-          cache: true
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-          cache: npm
-          cache-dependency-path: frontend-app/package-lock.json
-      - name: Lint GitHub Actions workflows
-        run: make actionlint
-      - name: Install Linux WebView dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y pkg-config libgtk-3-dev libwebkit2gtk-4.1-dev
-      - name: Prepare embedded frontend assets
-        run: make frontend-app-build
-      - name: golangci-lint
-        uses: golangci/golangci-lint-action@v9
-        with:
-          version: v2.12.2
-          args: --new-from-rev=origin/main --timeout=5m
-
-  frontend-app:
-    needs: commit-guard
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-          cache: npm
-          cache-dependency-path: frontend-app/package-lock.json
-      - name: Install frontend-app dependencies
-        working-directory: frontend-app
-        run: npm ci
-      - name: Lint frontend-app
-        working-directory: frontend-app
-        run: npm run lint
-      - name: Test frontend-app
-        working-directory: frontend-app
-        run: npm test
-      - name: Build frontend-app
-        working-directory: frontend-app
-        run: npm run build
-      - name: Frontend embed verify
-        run: make frontend-embed-verify
-
-  update-recovery-release-gate-macos:
-    needs: commit-guard
-    runs-on: macos-latest
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-          cache: true
-      - name: Full macOS update recovery release gate
-        run: make release-update-gate
-
-  update-recovery-release-gate-windows:
-    needs: commit-guard
-    runs-on: windows-latest
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-          cache: true
-      - name: Windows-native update process and package verification
-        shell: bash
-        run: |
-          ./scripts/test_with_guard.sh ./cmd/super-dolphin-updater ./internal/module/appupdate ./internal/platform/appupdatefailure -count=1
-          ./scripts/test_with_guard.sh ./cmd/super-dolphin-guard -run 'TestGuard.*(Rollback|Probation|PIDReuse|Termination)' -count=1
-          ./scripts/test_with_guard.sh ./scripts -run '^TestWindowsPackageVerifierAcceptsRealFixture$' -count=1
-          GOOS=windows GOARCH=arm64 CGO_ENABLED=0 ./scripts/go_with_guard.sh test -c -o "$RUNNER_TEMP/updater-arm64.test.exe" ./cmd/super-dolphin-updater
-          GOOS=windows GOARCH=arm64 CGO_ENABLED=0 ./scripts/go_with_guard.sh test -c -o "$RUNNER_TEMP/appupdate-arm64.test.exe" ./internal/module/appupdate
-          GOOS=windows GOARCH=arm64 CGO_ENABLED=0 ./scripts/go_with_guard.sh test -c -o "$RUNNER_TEMP/appupdatefailure-arm64.test.exe" ./internal/platform/appupdatefailure
-
-  update-recovery-release-gate-linux-supplemental:
-    needs: commit-guard
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    continue-on-error: true
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-          cache: true
-      - name: Supplemental Linux update recovery evidence
-        run: make release-update-gate
-
-  cross-platform-smoke:
-    needs: [commit-guard, update-recovery-release-gate-macos, update-recovery-release-gate-windows]
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 25
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [windows-latest, macos-latest]
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-          cache: true
-      - name: Capability contract check
-        shell: pwsh
-        run: go run ./scripts/capcontract --check
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-          cache: npm
-          cache-dependency-path: frontend-app/package-lock.json
-      - name: Cross-platform desktop and sidecar smoke
-        shell: pwsh
-        run: ./scripts/ci_cross_platform_smoke.ps1
+          set -euo pipefail
+          image_repository="${SUPER_DOLPHIN_GATE_BOOTSTRAP_IMAGE%@sha256:*}"
+          if [[ ! "$SUPER_DOLPHIN_GATE_BOOTSTRAP_IMAGE" =~ ^[^[:space:]@]+@sha256:[[:xdigit:]]{64}$ ]] || [[ "${image_repository##*/}" == *:* ]]; then
+            echo "immutable bootstrap image digest is required" >&2
+            exit 1
+          fi
+          runtime_root="$(mktemp -d "${RUNNER_TEMP:?}/super-dolphin-gate-runtime.XXXXXX")"
+          trap 'rm -rf "$runtime_root"' EXIT
+          chmod 700 "$runtime_root"
+          docker pull --platform=linux/amd64 "$SUPER_DOLPHIN_GATE_BOOTSTRAP_IMAGE"
+          docker run --rm \
+            --cpus=4 \
+            --memory=8g \
+            --mount type=bind,source=/var/run/docker.sock,target=/var/run/docker.sock \
+            --mount type=bind,source="$GITHUB_WORKSPACE/candidate",target=/workspace/super-dolphin-checkout,readonly \
+            --mount type=bind,source="$runtime_root",target="$runtime_root" \
+            --workdir /workspace/super-dolphin-checkout \
+            --env SUPER_DOLPHIN_GATE_AUTHORITY_BUNDLE_B64 \
+            --env SUPER_DOLPHIN_GATE_WORKFLOW_RUNTIME_ROOT="$runtime_root" \
+            --env SUPER_DOLPHIN_GATE_WORKFLOW_OIDC_AUDIENCE \
+            --env ACTIONS_ID_TOKEN_REQUEST_URL \
+            --env ACTIONS_ID_TOKEN_REQUEST_TOKEN \
+            "$SUPER_DOLPHIN_GATE_BOOTSTRAP_IMAGE" workflow-host \
+            --repository-root /workspace/super-dolphin-checkout \
+            --event-repository "$GATE_EVENT_REPOSITORY" \
+            --event-ref "$GATE_EVENT_REF" \
+            --event-sha "$GATE_EVENT_SHA"

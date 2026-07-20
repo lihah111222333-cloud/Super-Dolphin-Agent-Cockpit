@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -136,24 +137,12 @@ func newProductionActionGrantService(
 	if err != nil {
 		return nil, err
 	}
-	path, err := canonicalProductionFile("action grant private key", config.ActionGrantAuthority.PrivateKeyFile)
+	privateKey, err := loadProductionActionGrantPrivateKey(config)
 	if err != nil {
 		return nil, err
 	}
-	data, err := readProductionCoordinatorConfig(path)
-	if err != nil {
-		return nil, fmt.Errorf("read action grant private key: %w", err)
-	}
-	var encoded productionActionGrantPrivateKey
-	if err := gatecontract.DecodeStrictJSON(data, &encoded); err != nil {
-		return nil, fmt.Errorf("decode action grant private key: %w", err)
-	}
-	privateKey, err := base64.StdEncoding.Strict().DecodeString(encoded.PrivateKey)
-	if err != nil || len(privateKey) != ed25519.PrivateKeySize {
-		return nil, errors.New("action grant private key must be canonical base64 Ed25519")
-	}
 	signer, err := newEd25519ActionGrantSigner(
-		config.ActionGrantAuthority.Signer, ed25519.PrivateKey(privateKey), publicKey,
+		config.ActionGrantAuthority.Signer, privateKey, publicKey,
 	)
 	if err != nil {
 		return nil, err
@@ -173,6 +162,35 @@ func newProductionActionGrantService(
 		store, signer, verifier, receiptAuthority, adapter,
 		time.Duration(config.ActionGrantAuthority.TTLSeconds)*time.Second, time.Now,
 	)
+}
+
+// loadProductionActionGrantPrivateKey 解码独立 production owner 私钥并确认其与配置的 ActionGrant 验证公钥匹配。
+func loadProductionActionGrantPrivateKey(config productionCoordinatorConfig) (ed25519.PrivateKey, error) {
+	publicKey, err := decodeActionGrantPublicKey(config.ActionGrantAuthority.PublicKey)
+	if err != nil {
+		return nil, err
+	}
+	path, err := canonicalProductionFile("action grant private key", config.ActionGrantAuthority.PrivateKeyFile)
+	if err != nil {
+		return nil, err
+	}
+	data, err := readProductionCoordinatorConfig(path)
+	if err != nil {
+		return nil, fmt.Errorf("read action grant private key: %w", err)
+	}
+	var encoded productionActionGrantPrivateKey
+	if err := gatecontract.DecodeStrictJSON(data, &encoded); err != nil {
+		return nil, fmt.Errorf("decode action grant private key: %w", err)
+	}
+	privateKey, err := base64.StdEncoding.Strict().DecodeString(encoded.PrivateKey)
+	if err != nil || len(privateKey) != ed25519.PrivateKeySize {
+		return nil, errors.New("action grant private key must be canonical base64 Ed25519")
+	}
+	key := ed25519.PrivateKey(privateKey)
+	if !key.Public().(ed25519.PublicKey).Equal(publicKey) {
+		return nil, errors.New("action grant Ed25519 private and public keys do not match")
+	}
+	return append(ed25519.PrivateKey(nil), key...), nil
 }
 
 func decodeActionGrantPublicKey(encoded string) (ed25519.PublicKey, error) {
@@ -486,4 +504,148 @@ func actionGrantID(request gatecontract.GrantRequest) (string, error) {
 	}
 	digest := sha256.Sum256(encoded)
 	return fmt.Sprintf("grant-%x", digest), nil
+}
+
+const coordinatorActionGrantSchema = `
+CREATE TABLE IF NOT EXISTS coordinator_action_grants (
+ grant_id TEXT PRIMARY KEY,
+ request_nonce TEXT NOT NULL UNIQUE,
+ receipt_id TEXT NOT NULL,
+ state TEXT NOT NULL,
+ expires_at TEXT NOT NULL,
+ grant_json BLOB NOT NULL
+);`
+
+var errActionGrantNotFound = errors.New("action grant not found")
+
+// ensureCoordinatorActionGrantSchema 创建并核对 durable grant 状态表及 receipt 索引，未知表结构直接失败。
+func ensureCoordinatorActionGrantSchema(ctx context.Context, db *sql.DB) error {
+	if _, err := db.ExecContext(ctx, coordinatorActionGrantSchema); err != nil {
+		return fmt.Errorf("initialize coordinator action grant SQLite: %w", err)
+	}
+	rows, err := db.QueryContext(ctx, "PRAGMA table_info(coordinator_action_grants)")
+	if err != nil {
+		return fmt.Errorf("inspect coordinator action grant schema: %w", err)
+	}
+	columns := make(map[string]bool)
+	for rows.Next() {
+		var columnID, notNull, primaryKey int
+		var name, columnType string
+		var defaultValue sql.NullString
+		if err := rows.Scan(&columnID, &name, &columnType, &notNull, &defaultValue, &primaryKey); err != nil {
+			return errors.Join(fmt.Errorf("scan coordinator action grant schema: %w", err), rows.Close())
+		}
+		columns[name] = true
+	}
+	if err := errors.Join(rows.Err(), rows.Close()); err != nil {
+		return fmt.Errorf("read coordinator action grant schema: %w", err)
+	}
+	for _, required := range []string{"grant_id", "request_nonce", "receipt_id", "state", "expires_at", "grant_json"} {
+		if !columns[required] {
+			return fmt.Errorf("coordinator action grant schema missing column %q", required)
+		}
+	}
+	if _, err := db.ExecContext(ctx, `CREATE INDEX IF NOT EXISTS coordinator_action_grants_receipt
+ON coordinator_action_grants(receipt_id)`); err != nil {
+		return fmt.Errorf("create coordinator action grant receipt index: %w", err)
+	}
+	return nil
+}
+
+func (store *coordinatorStore) issueActionGrant(ctx context.Context, grant gatecontract.ActionGrant) (gatecontract.ActionGrant, bool, error) {
+	encoded, err := encodeStoredActionGrant(grant)
+	if err != nil {
+		return gatecontract.ActionGrant{}, false, err
+	}
+	result, err := store.db.ExecContext(ctx, `INSERT INTO coordinator_action_grants (
+grant_id, request_nonce, receipt_id, state, expires_at, grant_json
+) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(request_nonce) DO NOTHING`,
+		grant.GrantID, grant.Request.RequestNonce, grant.Request.ReceiptID, grant.State,
+		grant.ExpiresAt.Format(time.RFC3339Nano), encoded,
+	)
+	if err != nil {
+		return gatecontract.ActionGrant{}, false, fmt.Errorf("persist issued action grant: %w", err)
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return gatecontract.ActionGrant{}, false, fmt.Errorf("read action grant insert result: %w", err)
+	}
+	if rows == 1 {
+		return grant, true, nil
+	}
+	existing, err := store.actionGrantByNonce(ctx, grant.Request.RequestNonce)
+	return existing, false, err
+}
+
+func (store *coordinatorStore) actionGrantByID(ctx context.Context, grantID string) (gatecontract.ActionGrant, error) {
+	return scanStoredActionGrant(store.db.QueryRowContext(ctx, `SELECT grant_id, request_nonce,
+receipt_id, state, expires_at, grant_json FROM coordinator_action_grants WHERE grant_id = ?`, grantID))
+}
+
+func (store *coordinatorStore) actionGrantByNonce(ctx context.Context, nonce string) (gatecontract.ActionGrant, error) {
+	return scanStoredActionGrant(store.db.QueryRowContext(ctx, `SELECT grant_id, request_nonce,
+receipt_id, state, expires_at, grant_json FROM coordinator_action_grants WHERE request_nonce = ?`, nonce))
+}
+
+// transitionActionGrant 以 issued 状态为 compare-and-swap 前置条件，持久化唯一终态及其新签名。
+func (store *coordinatorStore) transitionActionGrant(ctx context.Context, from gatecontract.ActionGrantState, next gatecontract.ActionGrant) (gatecontract.ActionGrant, error) {
+	encoded, err := encodeStoredActionGrant(next)
+	if err != nil {
+		return gatecontract.ActionGrant{}, err
+	}
+	result, err := store.db.ExecContext(ctx, `UPDATE coordinator_action_grants
+SET state = ?, expires_at = ?, grant_json = ? WHERE grant_id = ? AND state = ?`,
+		next.State, next.ExpiresAt.Format(time.RFC3339Nano), encoded, next.GrantID, from,
+	)
+	if err != nil {
+		return gatecontract.ActionGrant{}, fmt.Errorf("transition action grant: %w", err)
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return gatecontract.ActionGrant{}, fmt.Errorf("read action grant transition result: %w", err)
+	}
+	if rows != 1 {
+		current, loadErr := store.actionGrantByID(ctx, next.GrantID)
+		if loadErr != nil {
+			return gatecontract.ActionGrant{}, errors.Join(errors.New("action grant transition lost compare-and-swap"), loadErr)
+		}
+		return current, fmt.Errorf("action grant is already %s", current.State)
+	}
+	return next, nil
+}
+
+func encodeStoredActionGrant(grant gatecontract.ActionGrant) ([]byte, error) {
+	if err := grant.Validate(); err != nil {
+		return nil, fmt.Errorf("validate stored action grant: %w", err)
+	}
+	encoded, err := json.Marshal(grant)
+	if err != nil {
+		return nil, fmt.Errorf("encode stored action grant: %w", err)
+	}
+	return encoded, nil
+}
+
+// scanStoredActionGrant 严格解码授权载荷，并核对 SQL 索引列、过期时间与 canonical 签名内容未漂移。
+func scanStoredActionGrant(row *sql.Row) (gatecontract.ActionGrant, error) {
+	var grantID, nonce, receiptID, state, expiresAt string
+	var encoded []byte
+	if err := row.Scan(&grantID, &nonce, &receiptID, &state, &expiresAt, &encoded); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return gatecontract.ActionGrant{}, errActionGrantNotFound
+		}
+		return gatecontract.ActionGrant{}, fmt.Errorf("scan stored action grant: %w", err)
+	}
+	var grant gatecontract.ActionGrant
+	if err := gatecontract.DecodeStrictJSON(encoded, &grant); err != nil {
+		return gatecontract.ActionGrant{}, fmt.Errorf("decode stored action grant: %w", err)
+	}
+	parsedExpiry, err := time.Parse(time.RFC3339Nano, expiresAt)
+	if err != nil {
+		return gatecontract.ActionGrant{}, fmt.Errorf("parse stored action grant expiry: %w", err)
+	}
+	if grant.GrantID != grantID || grant.Request.RequestNonce != nonce ||
+		grant.Request.ReceiptID != receiptID || string(grant.State) != state || !grant.ExpiresAt.Equal(parsedExpiry) {
+		return gatecontract.ActionGrant{}, errors.New("stored action grant columns drifted from canonical payload")
+	}
+	return grant, nil
 }

@@ -71,7 +71,7 @@ func TestTruthImageEnsurerBuildsChangedInputAndAwaitsTrustedRef(t *testing.T) {
 	baseTree := readOnlyImageTree(t, candidateEntries(validCandidateDockerfile()))
 	baseInputs := mustResolveGateImageInputs(t, baseTree)
 	changedEntries := cloneTreeEntries(baseTree.Entries)
-	changeEntry(t, changedEntries, "go.mod", "module example.invalid/changed\n")
+	changeCandidateInput(t, changedEntries, "go.mod", "module example.invalid/changed\n")
 	changedTree := readOnlyImageTree(t, changedEntries)
 	accepted := acceptedImageRecordForEnsure(baseTree.Source.SourceTreeSHA, baseInputs.ImageInputDigest)
 
@@ -108,7 +108,7 @@ func TestTruthImageEnsurerBuildFailureKeepsAcceptedRecord(t *testing.T) {
 	inputs := mustResolveGateImageInputs(t, tree)
 	accepted := acceptedImageRecordForEnsure(tree.Source.SourceTreeSHA, inputs.ImageInputDigest)
 	changedEntries := cloneTreeEntries(tree.Entries)
-	changeEntry(t, changedEntries, "go.mod", "module example.invalid/failure\n")
+	changeCandidateInput(t, changedEntries, "go.mod", "module example.invalid/failure\n")
 	changedTree := readOnlyImageTree(t, changedEntries)
 	loader := &acceptedImageLoaderStub{record: accepted}
 	runner := &recordingBuildKitRunner{err: errors.New("build failed")}

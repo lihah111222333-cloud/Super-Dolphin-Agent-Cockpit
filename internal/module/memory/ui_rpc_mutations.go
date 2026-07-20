@@ -185,13 +185,21 @@ func upsertUIMemoryEntry(ctx context.Context, deps memoryHandlerDeps, req uiMemo
 			errDurableMemorySaveFailed, err, "target", target, "name", writeReq.Name)
 	}
 	invalidateDurableMemorySections(deps.Sections)
-	entry, relPath, err := readUIMemoryEntryByName(root, writeReq.Name)
+	entry, relPath, err := readUIMemoryUpsertResult(root, target, req.ExistingPath, writeReq.Name)
 	if err != nil {
 		return UIMemoryEntryDetail{}, redactIfPathBearing(deps.Logger, "durable_memory_read_back",
 			errDurableMemoryReadFailed, err, "target", target, "name", writeReq.Name)
 	}
 	publishUIMemoryChanged(deps, "upsert")
 	return toUIMemoryEntryDetail(target, root, relPath, entry), nil
+}
+
+// readUIMemoryUpsertResult 在更新时按已验证路径回读，避免重复名称把响应指向另一条记忆。
+func readUIMemoryUpsertResult(root, target, existingPath, name string) (MemoryEntry, string, error) {
+	if strings.TrimSpace(existingPath) != "" {
+		return readUIMemoryEntryByPath(root, target, existingPath)
+	}
+	return readUIMemoryEntryByName(root, name)
 }
 
 // applyUIMemoryUpsert 执行实际写盘；更新时禁止改名和改类型，避免旧路径与索引语义漂移。

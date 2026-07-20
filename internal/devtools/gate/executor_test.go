@@ -13,28 +13,155 @@ import (
 	"testing"
 )
 
-func TestFullTreeWhitespaceGateRealGitGreenAndRed(t *testing.T) {
-	t.Run("green", func(t *testing.T) {
-		source := newExecutorGitSnapshot(t, map[string]string{"clean.txt": "clean\n"})
-		config := newTestExecutorConfig(t, source)
-		if err := executeProgram(context.Background(), config, GateIDWhitespaceCheck, ExecutorPrograms()[GateIDWhitespaceCheck]); err != nil {
-			t.Fatalf("execute whitespace gate: %v", err)
-		}
-		assertDirectoryEmpty(t, config.workRoot)
-	})
+func TestStandaloneReleaseAttestationFailsBeforeWorkspaceExecution(t *testing.T) {
+	var output bytes.Buffer
+	config := executorConfig{
+		sourcePath: "unreachable-source", workRoot: "unreachable-work", searchPath: "unreachable-path",
+		runtimeSeedRoot: "unreachable-seed", runtimeSeedManifest: "unreachable-manifest",
+		expectedUID: os.Geteuid(), stdout: &output, stderr: &output,
+	}
+	err := executeProgram(context.Background(), config, GateIDReleaseLayeredCheck,
+		ExecutorPrograms()[GateIDReleaseLayeredCheck])
+	if err == nil || !strings.Contains(err.Error(), "requires canonical prerequisites from the plan executor") {
+		t.Fatalf("standalone release attestation error = %v", err)
+	}
+	if output.Len() != 0 {
+		t.Fatalf("standalone release attestation executed workspace output: %q", output.String())
+	}
+}
 
-	t.Run("red includes unchanged base file", func(t *testing.T) {
-		source := newExecutorGitSnapshot(t, map[string]string{"old.txt": "trailing  \n"})
-		runGit(t, source, "update-ref", baseSourceRef, "HEAD")
-		writeTestFile(t, filepath.Join(source, "new.txt"), "clean\n", 0o600)
-		commitExecutorSnapshot(t, source, "head")
-		config := newTestExecutorConfig(t, source)
-		err := executeProgram(context.Background(), config, GateIDWhitespaceCheck, ExecutorPrograms()[GateIDWhitespaceCheck])
-		if err == nil {
-			t.Fatal("full-tree whitespace gate unexpectedly passed trailing whitespace outside the base range")
+func TestExecuteExecutorRoutesShardToPlanExecutor(t *testing.T) {
+	var output bytes.Buffer
+	err := ExecuteExecutor(context.Background(), []string{
+		"run-shard", "--profile", "invalid", "--plan-digest", "sha256:" + strings.Repeat("a", 64),
+		"--gates", string(GateIDWhitespaceCheck),
+	}, &output, &output)
+	if err == nil || !strings.Contains(err.Error(), "unsupported gate profile") {
+		t.Fatalf("run-shard dispatch error = %v", err)
+	}
+}
+
+func TestWhitespaceGateRejectsChangedTrailingWhitespace(t *testing.T) {
+	source := newExecutorGitSnapshot(t, map[string]string{"changed.txt": "clean\n"})
+	runGit(t, source, "update-ref", baseSourceRef, "HEAD")
+	writeTestFile(t, filepath.Join(source, "changed.txt"), "trailing  \n", 0o600)
+	commitExecutorSnapshot(t, source, "introduce trailing whitespace")
+	assertWhitespaceGateFails(t, source, "trusted-range whitespace check")
+}
+
+func TestWhitespaceGateIgnoresUnchangedLegacyWhitespace(t *testing.T) {
+	source := newExecutorGitSnapshot(t, map[string]string{"legacy.txt": "trailing  \n"})
+	runGit(t, source, "update-ref", baseSourceRef, "HEAD")
+	writeTestFile(t, filepath.Join(source, "changed.txt"), "clean\n", 0o600)
+	commitExecutorSnapshot(t, source, "clean change")
+	config := newTestExecutorConfig(t, source)
+	if err := executeProgram(context.Background(), config, GateIDWhitespaceCheck, ExecutorPrograms()[GateIDWhitespaceCheck]); err != nil {
+		t.Fatalf("execute trusted-range whitespace gate: %v", err)
+	}
+	assertDirectoryEmpty(t, config.workRoot)
+}
+
+func TestWhitespaceGateMissingBaseScansWholeTree(t *testing.T) {
+	source := newExecutorGitSnapshot(t, map[string]string{"legacy.txt": "trailing  \n"})
+	assertWhitespaceGateFails(t, source, "trusted-range whitespace check")
+}
+
+func TestWhitespaceGateRejectsNonCommitBase(t *testing.T) {
+	source := newExecutorGitSnapshot(t, map[string]string{"clean.txt": "clean\n"})
+	runGit(t, source, "update-ref", baseSourceRef, "HEAD^{tree}")
+	assertWhitespaceGateFails(t, source, "resolve trusted whitespace base commit")
+}
+
+func assertWhitespaceGateFails(t *testing.T, source string, want string) {
+	t.Helper()
+	config := newTestExecutorConfig(t, source)
+	err := executeProgram(context.Background(), config, GateIDWhitespaceCheck, ExecutorPrograms()[GateIDWhitespaceCheck])
+	if err == nil || !strings.Contains(err.Error(), want) {
+		t.Fatalf("whitespace gate error = %v, want containing %q", err, want)
+	}
+	assertDirectoryEmpty(t, config.workRoot)
+}
+
+func TestExecutorCleansReadOnlyGoModuleCache(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		exitLine string
+		wantErr  bool
+	}{
+		{name: "success", exitLine: "exit 0"},
+		{name: "gate failure remains primary", exitLine: "exit 23", wantErr: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			script := "#!/bin/sh\nset -eu\nmkdir -p \"$GOMODCACHE/example\"\nprintf data > \"$GOMODCACHE/example/module.go\"\nchmod 0555 \"$GOMODCACHE/example\"\n" + test.exitLine + "\n"
+			source := newExecutorGitSnapshot(t, map[string]string{"cache.sh": script})
+			if err := os.Chmod(filepath.Join(source, "cache.sh"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			commitExecutorSnapshot(t, source, "executable cache fixture")
+			config := newTestExecutorConfig(t, source)
+			program := ExecutorProgram{
+				Strategy:      ExecutorStrategyCommands,
+				Steps:         []ExecutorStep{{Argv: []string{"./cache.sh"}}},
+				RequiredPaths: []string{"cache.sh"},
+			}
+			err := executeProgram(context.Background(), config, GateIDBackendTestWithGuard, program)
+			if test.wantErr && (err == nil || !strings.Contains(err.Error(), "exit status 23")) {
+				t.Fatalf("gate error = %v, want exit status 23", err)
+			}
+			if !test.wantErr && err != nil {
+				t.Fatalf("execute cache fixture: %v", err)
+			}
+			if err != nil && strings.Contains(err.Error(), "remove executor workspace") {
+				t.Fatalf("cleanup error obscured gate result: %v", err)
+			}
+			assertDirectoryEmpty(t, config.workRoot)
+		})
+	}
+}
+
+func TestExecutorSequentialGatesDoNotRetainPriorCache(t *testing.T) {
+	script := "#!/bin/sh\nset -eu\ntest ! -e \"$GOCACHE/previous-gate\"\nprintf data > \"$GOCACHE/previous-gate\"\n"
+	source := newExecutorGitSnapshot(t, map[string]string{"cache.sh": script})
+	if err := os.Chmod(filepath.Join(source, "cache.sh"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	commitExecutorSnapshot(t, source, "sequential cache fixture")
+	config := newTestExecutorConfig(t, source)
+	program := ExecutorProgram{
+		Strategy:      ExecutorStrategyCommands,
+		Steps:         []ExecutorStep{{Argv: []string{"./cache.sh"}}},
+		RequiredPaths: []string{"cache.sh"},
+	}
+	for run := range 2 {
+		if err := executeProgram(context.Background(), config, GateIDBackendTestWithGuard, program); err != nil {
+			t.Fatalf("sequential gate run %d: %v", run, err)
 		}
 		assertDirectoryEmpty(t, config.workRoot)
+	}
+}
+
+func TestRaceProgramRunsBoundedBackendOnlyInEachFreshExecutorWorkspace(t *testing.T) {
+	guardScript := "#!/bin/sh\nset -eu\ntest \"$1\" = --race-only\nfor arg in \"$@\"; do test \"$arg\" != --; test \"$arg\" != ./cmd/...; done\ntest \"$GOFLAGS\" = -p=1\ntest \"$GOMAXPROCS\" = 1\ntest \"$GOMEMLIMIT\" = 1GiB\ntest ! -e frontend-app/node_modules\ntest ! -e cmd/agent-terminal/web-dist/index.html\n"
+	source := newExecutorGitSnapshot(t, map[string]string{
+		"go.sum":                             "module sum\n",
+		"scripts/check_nested_go_modules.sh": "#!/bin/sh\nexit 0\n",
+		"scripts/test_with_guard.sh":         guardScript,
 	})
+	if err := os.Chmod(filepath.Join(source, "scripts", "test_with_guard.sh"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	commitExecutorSnapshot(t, source, "race backend workspace fixture")
+
+	program := ExecutorPrograms()[GateIDBackendTestGuardWithRace]
+	program.NeedsGoSeed = false
+
+	config := newTestExecutorConfig(t, source)
+	for run := range 2 {
+		if err := executeProgram(context.Background(), config, GateIDBackendTestGuardWithRace, program); err != nil {
+			t.Fatalf("execute fresh race workspace %d: %v", run, err)
+		}
+		assertDirectoryEmpty(t, config.workRoot)
+	}
 }
 
 func TestExecutorWorkspaceCopiesCompleteGitSnapshotAndPreservesModes(t *testing.T) {
@@ -49,21 +176,34 @@ func TestExecutorWorkspaceCopiesCompleteGitSnapshotAndPreservesModes(t *testing.
 		t.Fatalf("prepareExecutorWorkspace: %v", err)
 	}
 	t.Cleanup(func() { _ = cleanupExecutorWorkspace(layout) })
-	if info, err := os.Stat(filepath.Join(layout.sourceCopy, ".git")); err != nil || !info.IsDir() {
-		t.Fatalf("writable copy does not preserve .git directory: %v", err)
-	}
+	requireExecutorDirectory(t, filepath.Join(layout.sourceCopy, ".git"), 0)
+	requireExecutorDirectory(t, filepath.Join(layout.home, ".codex"), 0o700)
 	runGit(t, layout.sourceCopy, "rev-parse", "--verify", materializedSourceRef+"^{commit}")
-	sourceInfo, err := os.Stat(filepath.Join(source, "script.sh"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	copyInfo, err := os.Stat(filepath.Join(layout.sourceCopy, "script.sh"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	sourceInfo := mustExecutorFileInfo(t, filepath.Join(source, "script.sh"))
+	copyInfo := mustExecutorFileInfo(t, filepath.Join(layout.sourceCopy, "script.sh"))
 	if copyInfo.Mode().Perm() != sourceInfo.Mode().Perm() {
 		t.Fatalf("copied mode = %o, want %o", copyInfo.Mode().Perm(), sourceInfo.Mode().Perm())
 	}
+}
+
+func requireExecutorDirectory(t *testing.T, path string, mode os.FileMode) {
+	t.Helper()
+	info, err := os.Stat(path)
+	if err != nil || !info.IsDir() {
+		t.Fatalf("executor directory %q is unavailable: info=%v err=%v", path, info, err)
+	}
+	if mode != 0 && info.Mode().Perm() != mode {
+		t.Fatalf("executor directory %q mode = %o, want %o", path, info.Mode().Perm(), mode)
+	}
+}
+
+func mustExecutorFileInfo(t *testing.T, path string) os.FileInfo {
+	t.Helper()
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return info
 }
 
 func TestExecutorRejectsGitSnapshotTamper(t *testing.T) {
@@ -166,15 +306,21 @@ func TestExecutorEnvironmentIsClosedAndWritable(t *testing.T) {
 	environment := executorEnvironment(layout, executorSearchPath)
 	joined := "\n" + strings.Join(environment, "\n") + "\n"
 	for _, want := range []string{
-		"\nGOFLAGS=-mod=vendor -buildvcs=false\n",
 		"\nHOME=/workspace/work/home\n",
 		"\nGOCACHE=/workspace/work/go-cache\n",
 		"\nGOMODCACHE=/workspace/work/go-mod-cache\n",
+		"\nGOPROXY=file:///opt/super-dolphin-gate/runtime/go-proxy\n",
 		"\nGOTMPDIR=/workspace/work/tmp\n",
 		"\nnpm_config_cache=/workspace/work/npm-cache\n",
+		"\nPLAYWRIGHT_BROWSERS_PATH=/opt/super-dolphin-gate/runtime/frontend/node_modules/.cache/ms-playwright\n",
 	} {
 		if !strings.Contains(joined, want) {
 			t.Errorf("executor environment missing %q", strings.TrimSpace(want))
+		}
+	}
+	for _, forbidden := range []string{"\nGIT_CONFIG_GLOBAL=", "\nGOFLAGS=", "\nGOWORK="} {
+		if strings.Contains(joined, forbidden) {
+			t.Errorf("executor environment leaks child-process policy %q", strings.TrimSpace(forbidden))
 		}
 	}
 	if strings.Contains(joined, "SECRET") {
@@ -205,6 +351,68 @@ func TestExecutorDoesNotInheritHostEnvironmentAndPropagatesExitCode(t *testing.T
 	err = executeProgram(context.Background(), config, GateID("test:probe"), program)
 	if code := ExecutorExitCode(err); code != 7 {
 		t.Fatalf("executor exit code = %d, want 7; err=%v", code, err)
+	}
+}
+
+func TestExecutorStepPassesOnlyAllowedResourceBounds(t *testing.T) {
+	tests := []struct {
+		name       string
+		step       func([]string) ExecutorStep
+		goFlags    string
+		goMaxProc  string
+		goMemLimit string
+	}{
+		{name: "normal backend", step: normalGoExecutorStep, goFlags: "-p=2", goMaxProc: "2", goMemLimit: "1GiB"},
+		{name: "release race", step: raceGoExecutorStep, goFlags: "-p=1", goMaxProc: "1", goMemLimit: "1GiB"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			probe := fmt.Sprintf("#!/bin/sh\n[ \"$GOFLAGS\" = %q ] || exit 8\n[ \"$GOMAXPROCS\" = %q ] || exit 9\n[ \"$GOMEMLIMIT\" = %q ] || exit 10\n[ -z \"${LEAK_ME+x}\" ] || exit 11\n", test.goFlags, test.goMaxProc, test.goMemLimit)
+			source := newExecutorGitSnapshot(t, map[string]string{"probe": probe})
+			if err := os.Chmod(filepath.Join(source, "probe"), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			commitExecutorSnapshot(t, source, "resource-bound probe")
+			config := newTestExecutorConfig(t, source)
+			t.Setenv("LEAK_ME", "must-not-leak")
+			program := ExecutorProgram{
+				Strategy: ExecutorStrategyCommands,
+				Steps:    []ExecutorStep{test.step([]string{"./probe"})},
+			}
+			if err := executeProgram(context.Background(), config, GateID("test:resource-bounds"), program); err != nil {
+				t.Fatalf("execute resource-bound probe: %v", err)
+			}
+		})
+	}
+}
+
+func TestExecutorStepEnvironmentFailsClosed(t *testing.T) {
+	tests := []struct {
+		name        string
+		environment []string
+	}{
+		{name: "incomplete normal profile", environment: []string{"GOFLAGS=-p=1"}},
+		{name: "incomplete race profile", environment: []string{"GOMAXPROCS=2"}},
+		{name: "mixed profiles", environment: []string{"GOFLAGS=-p=2", "GOMAXPROCS=3"}},
+		{name: "unregistered package parallelism", environment: []string{"GOFLAGS=-p=3", "GOMAXPROCS=3"}},
+		{name: "unregistered runtime parallelism", environment: []string{"GOFLAGS=-p=1", "GOMAXPROCS=5"}},
+		{name: "unrelated override", environment: []string{"DOCKER_HOST="}},
+		{name: "duplicate", environment: []string{"GOFLAGS=-p=1", "GOFLAGS=-p=1"}},
+		{name: "malformed", environment: []string{"GOFLAGS"}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			program := commandProgram([]string{"go", "version"})
+			program.Steps[0].Environment = test.environment
+			if err := validateExecutorProgram(program); err == nil {
+				t.Fatalf("validateExecutorProgram accepted environment %q", test.environment)
+			}
+		})
+	}
+	for _, environment := range []string{"GOFLAGS=-trimpath", "GOMAXPROCS=4", "GOMEMLIMIT=9GiB"} {
+		if _, err := mergeExecutorStepEnvironment([]string{environment}, raceGoExecutorStep([]string{"go"}).Environment); err == nil {
+			t.Fatalf("step environment overrode executor-owned key %q", environment)
+		}
 	}
 }
 
@@ -288,6 +496,23 @@ func TestRunChangedDiagnosticsDeletionOnlySkipsBeforeToolResolution(t *testing.T
 	}
 	if !strings.Contains(stderr.String(), "deleted=1") {
 		t.Fatalf("skip audit = %q, want deleted=1", stderr.String())
+	}
+}
+
+func TestRunChangedDiagnosticsEmptyTrustedRangeIsLegalSkip(t *testing.T) {
+	source := newExecutorGitSnapshot(t, map[string]string{"internal/unchanged.go": "package unchanged\n"})
+	runGit(t, source, "update-ref", baseSourceRef, "HEAD")
+	gitPath, err := exec.LookPath("git")
+	if err != nil {
+		t.Skip("git is required")
+	}
+	var stderr bytes.Buffer
+	err = runChangedDiagnostics(context.Background(), gitPath, source, os.Environ(), filepath.Join(source, "missing-bin"), ioDiscard{}, &stderr)
+	if err != nil {
+		t.Fatalf("runChangedDiagnostics empty trusted range: %v", err)
+	}
+	if !strings.Contains(stderr.String(), "candidates=0") {
+		t.Fatalf("skip audit = %q, want candidates=0", stderr.String())
 	}
 }
 

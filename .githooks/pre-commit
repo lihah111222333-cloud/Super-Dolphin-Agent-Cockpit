@@ -7,4 +7,40 @@ if [[ -z "$gate_bin" || ! -x "$gate_bin" ]]; then
   exit 1
 fi
 
-exec "$gate_bin" hook pre-commit
+if ! "$gate_bin" closure check; then
+  printf '%s\n' 'pre-commit blocked: gate-image closure verification failed for the staged tree.' >&2
+  exit 1
+fi
+
+while IFS= read -r variable; do
+  [[ -n "$variable" ]] && unset "$variable"
+done < <(git rev-parse --local-env-vars)
+
+umask 077
+gate_output_file=$(mktemp "${TMPDIR:-/tmp}/super-dolphin-precommit.XXXXXX")
+cleanup_output() {
+  rm -f "$gate_output_file"
+}
+trap cleanup_output EXIT HUP INT TERM
+
+set +e
+"$gate_bin" hook pre-commit >"$gate_output_file" 2>&1
+hook_rc=$?
+set -e
+if [[ "$hook_rc" -eq 0 ]]; then
+  cat "$gate_output_file"
+  exit 0
+fi
+cat "$gate_output_file" >&2
+if [[ "$hook_rc" -ne 13 ]]; then
+  exit "$hook_rc"
+fi
+
+job_id=$(sed -nE 's/.*job=(job-[0-9a-f]+).*/\1/p' "$gate_output_file" | tail -n 1)
+if [[ ! "$job_id" =~ ^job-[0-9a-f]{32}$ ]]; then
+  printf '%s\n' 'pre-commit blocked: queued coordinator response did not contain one valid job id.' >&2
+  exit 1
+fi
+cleanup_output
+trap - EXIT HUP INT TERM
+exec "$gate_bin" wait --job "$job_id"

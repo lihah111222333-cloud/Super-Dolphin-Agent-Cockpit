@@ -1,7 +1,6 @@
 # .githooks — 项目级 git client hook
 
-仓库共享的 git 客户端钩子，在**本地** `git commit` / `git push` 时自动跑代码检查。
-跟 GitHub Actions / 任何远端 CI 完全无关，纯本地工作流约束。
+仓库共享的 git 客户端钩子，在**本地** `git commit` / `git push` 时自动提交受信 gate coordinator；它们与 GitHub Actions 复用同一套 truth-image / receipt 契约，但仍只拦截本地 Git action。
 
 ## 一次性激活
 
@@ -22,121 +21,43 @@ make install-hooks
 
 | Hook | 触发 | 做什么 | 大约耗时 |
 |---|---|---|---|
-| `pre-commit` | `git commit` | 从 staged index 快照按计划刷新并 stage 代码地图生成物；拒绝 partial index、staged/worktree 不一致和代码提交夹带的额外 worktree 输入；再由 AI maintenance 按变更面执行后端快速守卫/包测试或前端 lint、架构门禁和定向测试 | 普通后端变更只测直接包和一级反向依赖；前端构建与性能验证延后到 push；可缓存绿色 gate 绑定同一 staged tree，空白检查不缓存 |
+| `pre-commit` | `git commit` | 对当前 staged tree 实际执行不可缓存的 `gate-image-closure:check`，随后调用受信 `super-dolphin-gate hook pre-commit` 并同步等待 durable job 终态 | closure check + 完整容器 gate |
 | `commit-msg` | `git commit` | 要求提交标题包含中文；提交正文如果存在也必须包含中文；提交主题属于 `fix` / `hotfix` / `bugfix` / `修复` 时，要求同一提交修改锁定 bug 的测试、fixture、golden 或 snapshot | <1 秒 |
-| `pre-push` | `git push` | 只允许推送当前 `HEAD`；检查中文提交与 fix 测试；AI maintenance 补跑其余 archtest、nilness 和独立 `-race` 风险面；单提交且 tree 相同时可复用 pre-commit 的共同绿色 gate；skill 保留独立路径门禁 | 视变更面而定 |
+| `pre-push` | `git push` | 将 Git 的每条精确 ref update 规范化后交给受信 `super-dolphin-gate hook pre-push`；通过后才消费绑定该 ref update 的一次性 push grant | coordinator queue + 真实容器 gate |
 
-`pre-commit` 先从 staged index 导出临时快照并生成 AI maintenance plan。只有命中生成输入时才刷新对应的 codemap、project-map 或 capability contract；project-map 的影响面与生成器索引根一致，路径或文件大小变化不会被漏掉。刷新成功的 codemap/project-map 在同一 staged tree 上标记为已预验证，不再紧接着重复跑等价 check。随后 hook 拒绝 partial commit 临时 index 与真实 index 不一致、任意 staged 非删除文件与 worktree 不一致，以及代码/门禁提交存在额外未暂存或未跟踪输入；Go 格式和受影响包预检完成后，AI maintenance 会在由最终 staged tree 展开的临时 linked worktree 中运行，原工作区在长门禁期间的编辑不会进入本轮验证输入。
+`pre-commit` 先运行 `git write-tree`，再把该 exact tree 交给已安装 `super-dolphin-gate closure check` 内建 verifier。verifier 只从 Git tree object 提取输入，不编译或执行工作树源码。CLI 缺失、tree 解析失败或检查失败都会在提交前 fail closed。该检查不是旧 AI-maintenance plan 的旁路描述，也不会依赖容器完成后才补记证据。
 
-绿色 gate 缓存位于 `.build-cache/ai-maintenance-gates/`，有效期 10 分钟。后端测试、推送级 archtest、race、nilness、LSP diagnostics、前端 lint/test/embed、project-map、capcontract、SQLC 和 AI maintenance 自测均可缓存；`codemap:check` 与空白检查仍每次真实执行。指纹绑定不可变 Git tree、隔离 index、变更计划（不含仅在 push 追加的 gate 名）、工具链和稳定环境；命中前以及发布 marker 前都会重新计算。pre-push 仅在恰好推送一个提交、tracked worktree/index 干净且 `HEAD^{tree}` 与 cache scope 一致时传入同一缓存，其他范围一律真实执行，不把不可比较输入当成绿色。
+通过 closure witness 后，thin hook 只调用受信 gate CLI。CLI 为本次 Git action 生成新的 delivery identity，规范化 staged tree 或 pre-push ref update，然后把 entrypoint、authority owner、attestation、plan 和 source 绑定为 durable coordinator job。pre-commit 收到 queued/running 状态后立即以严格解析出的 job id 调用 `wait --job`，直到终态才把控制权交还 Git；重复同一 delivery 复用该 invocation，新的 hook action 即使 tree/range 相同也会生成新的 invocation，并得到新的 fresh-container execution。
 
-`commit-msg` 要求标题包含中文，正文如果存在也必须包含中文，并用提交主题识别 fix 类提交。普通后端 pre-commit 只运行代码守卫、三项规范架构事实测试、直接变更包及其一级生产/测试反向依赖；Go 模块、archtest 或代码守卫/wrapper 变更仍走完整面。`pre-push` 再追加其余 archtest、nilness 和登记并发包的独立 `-race` lane，不再把普通测试和 race 合并后重复执行。copylocks 也只覆盖本次命中的 provider/platform/thread 包。前端 pre-commit 按路径分类：生产脚本运行 lint、架构门禁、关键类型检查和定向测试；测试文件不触发 embed；样式和静态资源不触发 JS lint；普通文档不触发前端命令。Vite build、embed 和性能验证只在 push 范围命中其真实输入时运行。`frontend:embed-verify` 包含唯一一次 build，且 `npm run build` 是同步嵌入产物的唯一 owner，Make 不再重复同步。capcontract 由 AI plan 统一路由，skill mirror 保留独立路径门禁。两个 hook 都不执行 `gosec` 或前端 e2e；安全扫描保持在 hook 之外按需显式执行。
+协调器持久化 job 后由 owner scheduler 执行 canonical plan；每个 CI action/job 的 canonical plan 在一个 fresh `PlanExecution` container 中运行，passed 状态必须带签名 receipt。receipt 重新绑定 entrypoint、authority owner、source、plan、image generation 和 container evidence；只有 release receipt 还会绑定 owner-signed attestation，普通 hook receipt 不携带该 release attestation。release profile 只接受 `release` authoritative entrypoint 的已验签 owner attestation；普通 `super-dolphin-gate submit --profile release` 会被拒绝，不能伪造 release authority。
 
-## 前端门禁健康检查
+`pre-push` 不复用 pre-commit 的 delivery identity；它为本次 action 的每个 ref update 建立 exact range job，并在签名 receipt 匹配后才签发/消费单次 git.push grant。`commit-msg` 仍负责中文标题/正文与 fix 测试证据。
 
-`make frontend-gate-health` 执行前端 gate-plan 路由矩阵、npm/Make/AI runner 调用图、死亡目标、直接/间接调用环和单次构建同步 owner 的回归检查。它是夜间完整巡检的快速防腐入口，不替代交付前的完整前端验证：
+## Truth-image CI 契约
 
-```bash
-make frontend-gate-health
-cd frontend-app
-npm run lint
-npm test
-npm run build
-```
+- `pre-commit` 以及手工 `make ci-l0`、`make ci-l1`、`make ci-l2-claude` 都以 `git write-tree` 取得的 staged tree 为唯一检查对象；release（`make ci-l3-release`）先拒绝 staged tree 与 `HEAD^{tree}` 不一致的状态，再检查这个 exact commit。GitHub Actions 将 event SHA 作为 exact commit 导入受信镜像后检查，候选 checkout 仅作只读数据，不能执行候选 workflow 或脚本。
+- truth-image 输入变更会自动构建新的候选镜像；候选只带 provenance，在 trusted ref 提升前不能作为可运行镜像。非镜像输入的普通源码变更复用已接受的不可变镜像。
+- 每个 CI action/job 都从已接受的 truth image fork 一个 fresh、隔离的 Docker `PlanExecution`。本地 owner scheduler 最多并发 3 个任务，超出的任务按 FIFO 排队；每任务固定 4 CPU、8 GiB，Docker 总预算约 25 GiB。普通任务时限 10 分钟，release 任务 30 分钟。
+- 不存在独立的 GitHub `commit-guard` 旁路。缺少受信 CLI、source/commit 不匹配、镜像或 receipt/provenance 校验失败、超时或任何 gate 失败都会 fail closed；本地提交信息与 fix 测试证据仍由 `commit-msg` 的两个直接 guards 检查。正文为空允许；正文一旦存在，纯英文正文会失败。
 
-调用图检查会解析 `package.json` 中的 `npm run` 边、Make target 依赖和 recipe 中的 npm/Make 边，并显式登记 AI frontend runner 的动态调用边；未知 npm 目标、死亡节点或任意环都会 Fail-Fast。
+## 入口与失败语义
 
-CI 也会在 `.github/workflows/ci.yml` 的 `commit-guard` job 中运行 `scripts/ci_commit_guard.sh`：它按 GitHub `pull_request` / `push` 事件解析提交范围，先复用 `scripts/guard_commit_titles.sh --range` 要求范围内每个 commit 的标题包含中文，且非空正文也包含中文，再复用 `scripts/guard_fix_commits_have_tests.sh --range` 拦截未安装 hook 或绕过 hook 后进入 PR / main 的 fix 类提交。正文为空允许；正文一旦存在，纯英文正文会失败。
+- `pre-commit` 的入口是先执行 `super-dolphin-gate closure check`，再执行 `super-dolphin-gate hook pre-commit`；CLI 返回异步状态时，hook 必须继续执行 `super-dolphin-gate wait --job <job-id>`。closure、提交或等待任一入口失败都会拒绝提交。
+- `pre-push` 的入口是 `super-dolphin-gate hook pre-push <remote-name> <remote-url>`。它将 Git 传入的远端名称、URL 与 ref updates 交给 coordinator；缺少受信 CLI、参数不完整、job 未取得匹配 receipt 或 push grant 都会拒绝推送。
+- `commit-msg` 仍直接执行 `scripts/guard_commit_titles.sh --message <message-file>` 与 `scripts/guard_fix_commits_have_tests.sh --cached <message-file>`。它拒绝不符合中文标题/正文规则或缺少 fix 测试证据的提交。
 
-## 跳过钩子（仅限紧急）
+thin hook 不直接运行 gofmt、go vet、包测试、前端检查、codemap/project-map 刷新或 AI-maintenance plan。它们只由 canonical gate plan 在对应 coordinator job 的 fresh container 中执行；不要把本地 hook 输出当成这些旧入口的结果。
 
-> ⚠️ **仓库规约 `docs/1/会话习惯.md` §10.12«禁止 bypass pre-commit hook»明文禁止常态 bypass。**
-> `--no-verify` 是 git 自带的逃生口，仅允许在以下场景使用：
->
-> 1. 机器坏了 / hook 本身有 bug 拦不住你（此时也请同步报告 hook 作者）
-> 2. 紧急 hot-fix 必须立刻 push，上线后补上错过的检查
-> 3. WIP 分支推 fork 让同事看，然后马上修
->
-> **常态用 `--no-verify` = 违反仓库规约**。
-
-```bash
-git commit --no-verify -m "..."   # 跳 pre-commit
-git push --no-verify              # 跳 pre-push
-```
-
-## 失败示例
-
-### gofmt 拦下
-
-```
-[pre-commit] gofmt...
-❌ 以下文件未格式化：
-internal/foo/bar.go
-
-  一键修复（自动处理空格/中文路径）：
-  gofmt -w internal/foo/bar.go
-
-  ⚠️  紧急 bypass（违反仓库规约 docs/1/会话习惯.md §10.12«禁止 bypass pre-commit hook»，需事后补检查）：git commit --no-verify
-```
-
-直接复制底下的命令跑，再 `git add -u` 重新 commit。
-
-### staged / worktree 不一致拦下
-
-```
-❌ 以下 staged Go 影响包内的 .go 文件还有未暂存或未跟踪 worktree 改动：
-  internal/foo/bar.go
-
-  请先 git add 这些文件，或还原/删除未暂存改动。
-  否则 gofmt/go vet/go test 检查的不是将被提交的内容。
-```
-
-先 `git add internal/foo/bar.go`，或还原未暂存改动后重新 commit。
-
-如果看到“staged .go 文件在 worktree 中不存在”，通常是 `git add new.go` 后又 `rm new.go` 的 AD 状态；请 `git restore --staged new.go` 或恢复文件后重新 `git add`。
-
-### go vet 拦下
-
-```
-[pre-commit] go vet...
-./bar.go:42:2: unreachable code
-❌ go vet 失败
-  ⚠️  紧急 bypass（违反仓库规约 docs/1/会话习惯.md §10.12«禁止 bypass pre-commit hook»、需事后补检查）：git commit --no-verify
-```
-
-按报告改代码，重新 commit。
-
-### fix 缺少锁定 bug 测试
-
-```
-[commit-msg] fix-test guard...
-❌ fix 提交缺少锁定 bug 的测试
-  subject: fix: repair parser panic
-  规则: fix/hotfix/bugfix/修复 提交必须在同一提交修改测试、fixture、golden 或 snapshot。
-```
-
-给同一个提交补上能复现并锁定该 bug 的 `*_test.go`、`*.test.ts`、`*.test.mjs`、`tests/**`、`testdata/**`、`fixtures/**`、`golden/**` 或 snapshot 变更后重新 commit。
-`frontend-app/src/**` 的 UI 修复也可以用同提交的 `frontend-app/scripts/*.test.mjs` 集成/契约测试锁定。
-
-### pre-push（AI maintenance 变更面门禁失败）
-
-```
-[pre-push] AI maintenance gates...
-FAIL  github.com/.../internal/app    0.5s
-
-ai-maintenance: execute gate plan: exit status 1
-```
-
-`pre-push` 会拒绝 `local_sha != HEAD` 的显式 ref 推送；本地未提交、未暂存或未跟踪内容不属于本次 push range，不会阻断 pre-push。失败时查看 AI maintenance 输出中的首个失败 gate。
+这些门禁不支持绕过。受信 CLI、closure、coordinator job、receipt 或 push grant 失败时，必须修复失败原因后重新执行对应 Git action。
 
 ## 诊断
 
 | 现象 | 检查命令 |
 |---|---|
-| commit 一直被拒看不懂错误 | `bash .githooks/pre-commit` 直接跑一遍看完整输出；fix-test 规则可用 `bash .githooks/commit-msg .git/COMMIT_EDITMSG` 复现 |
+| commit 被 closure 或 coordinator 拒绝 | `bash .githooks/pre-commit` 查看受信 CLI、closure 或 job 输出 |
+| push 被拒绝 | `bash .githooks/pre-push <remote-name> <remote-url>`，并保留 Git 提供的 ref-update 输入以复核 coordinator receipt/grant |
+| 提交信息检查失败 | `bash .githooks/commit-msg .git/COMMIT_EDITMSG` |
 | 想确认 hook 装没装 | `git config --get core.hooksPath`（应输出 `.githooks`） |
-| 怀疑 hook 没执行 | `git commit -v` 看完整流程；或临时 `git commit --no-verify` 比对 |
-| build/test 时看到"git hooks 未装"提示 | 跑一次 `make install-hooks` |
 
 ## FAQ
 
@@ -148,21 +69,9 @@ ai-maintenance: execute gate plan: exit status 1
 git config --get core.hooksPath
 ```
 
-### 为什么第一次很慢？
-
-冷启时 Go/Node 仍需要重建缓存。普通提交优先走快速架构事实测试、直接包与一级反向依赖；10 分钟内同一不可变 tree 的可缓存绿色 gate 可复用。单提交 pre-push 可继承相同 tree 的共同结果，再只补推送级风险面；多提交、新分支或 tracked 状态不一致时不复用。任何实际执行的 codemap/project-map 非零退出仍会直接阻断，不存在软绿。
-
-### 清了 GOCACHE 会怎样？
-
-`go clean -cache -testcache` 或系统清理缓存后，下一次 hook 会回到冷启耗时，这是正常现象，不代表 hook 卡死。
-
 ### rebase / cherry-pick / merge / revert 中间提交会怎样？
 
-`pre-commit` / `commit-msg` 不覆盖所有 sequencer 自动产生的中间提交；这是 Git 客户端 hook 的结构性限制。`pre-push` 会在最终 push 前要求每个非删除 ref 的 `local_sha` 等于当前 `HEAD`，再检查本次 push 范围内所有 fix commits 都带锁定 bug 的测试，最后由 AI maintenance 单次执行受影响变更面的门禁。
-
-### Linux 能用吗？
-
-脚本只依赖 bash、git、go、make 和 POSIX 常见工具；没有用 `flock` / `timeout`。当前主验证环境是 macOS bash 3.2 + BSD `mktemp`，Linux bash 一般可用。路径枚举使用 `git diff --cached --name-status -z`，可正确处理空格/中文路径；首次接入请先跑 `make install-hooks && bash .githooks/pre-commit` 自检。
+`pre-commit` / `commit-msg` 不覆盖所有 sequencer 自动产生的中间提交；这是 Git 客户端 hook 的结构性限制。最终 push 时，`pre-push` 会为每个 ref update 建立新的 coordinator delivery，并只在匹配的签名 receipt 与一次性 push grant 存在时放行。
 
 ## 卸载
 
@@ -171,16 +80,6 @@ git config --unset core.hooksPath
 ```
 
 重新激活就 `make install-hooks`。
-
-## 设计要点
-
-- **本地工作流约束**：只在你的电脑上跑，不影响远端仓库或他人
-- **同事不装即裸推**：core.hooksPath 仅本机生效。要让所有人都用，需要每个人各自 `make install-hooks`
-- **fix 必须带回归测试**：`fix` / `hotfix` / `bugfix` / `修复` 提交必须在同一提交修改测试、fixture、golden 或 snapshot；commit-msg 拦当前提交，pre-push 拦历史补推
-- **rebase / amend 也跑**：交互式人工提交会跑；sequencer 自动中间提交不保证由 pre-commit / commit-msg 拦截，最终由 pre-push 兜底
-- **环境降噪**：pre-commit / pre-push 都固定清空 `GOFLAGS` 并清理 Git hook 环境，使同 tree 的 Go 门禁与缓存指纹可比较
-- **CI 可短路 hook 检查提示**：`MAKE_HOOK_CHECK=0 make build` 可关闭 build 末尾的本地 hooksPath 提示，避免 CI 日志噪声
-- **失败信息不自动进 agent 上下文**：你需要复制错误给 agent，让 agent 改
 
 ## 修改钩子内容
 

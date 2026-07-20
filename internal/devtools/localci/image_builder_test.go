@@ -3,6 +3,8 @@ package localci
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"os"
@@ -13,6 +15,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/sourceexport"
 )
 
@@ -62,6 +65,35 @@ func TestEnsureCandidateUsesDeterministicInputClosure(t *testing.T) {
 	}
 	if !bytes.Equal(firstRunner.requests[0].ContextTar, secondRunner.requests[0].ContextTar) {
 		t.Fatal("canonical build context changed after source entry reorder")
+	}
+}
+
+func TestPrepareCandidateSelectsRuntimeDepsImageForRequestedPlatform(t *testing.T) {
+	for _, test := range []struct {
+		platform string
+		digest   string
+	}{
+		{platform: "linux/amd64", digest: digest("2")},
+		{platform: "linux/arm64", digest: digest("5")},
+	} {
+		t.Run(test.platform, func(t *testing.T) {
+			request := candidateRequest(candidateEntries(validCandidateDockerfile()), digest("f"), digest("e"))
+			request.Platform = test.platform
+			prepared, err := prepareCandidate(request)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, argument := range prepared.buildRequest.BuildArguments {
+				if argument.Name == "RUNTIME_DEPS_IMAGE" {
+					want := "ghcr.io/super-dolphin/runtime-deps@" + test.digest
+					if argument.Value != want {
+						t.Fatalf("runtime dependency image = %q, want %q", argument.Value, want)
+					}
+					return
+				}
+			}
+			t.Fatal("BuildKit request omitted the requested platform runtime dependency image")
+		})
 	}
 }
 
@@ -234,7 +266,7 @@ func TestEnsureCandidateRebuildsChangedSource(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	changeEntry(t, entries, "go.mod", "module example.invalid/changed\n")
+	changeCandidateInput(t, entries, "go.mod", "module example.invalid/changed\n")
 	changed, err := builder.EnsureCandidate(context.Background(), candidateRequest(entries, built.InputDigest, digest("9")))
 	if err != nil {
 		t.Fatal(err)
@@ -297,11 +329,9 @@ func TestEnsureCandidateRejectsUnknownManifestField(t *testing.T) {
 	assertCandidateRejectedBeforeBuild(t, entries)
 }
 
-func TestEnsureCandidateRejectsMissingOrDriftedBaseImageArgDefault(t *testing.T) {
-	missingDefault := strings.Replace(validCandidateDockerfile(), "ARG GO_IMAGE="+lockedGoImageReference(), "ARG GO_IMAGE", 1)
-	assertRejectedDockerfile(t, missingDefault)
-	driftedDefault := strings.Replace(validCandidateDockerfile(), lockedGoImageReference(), "golang@"+digest("c"), 1)
-	assertRejectedDockerfile(t, driftedDefault)
+func TestEnsureCandidateRejectsStaticRuntimeDepsImageArgDefault(t *testing.T) {
+	staticDefault := strings.Replace(validCandidateDockerfile(), "ARG RUNTIME_DEPS_IMAGE\n", "ARG RUNTIME_DEPS_IMAGE=ghcr.io/super-dolphin/runtime-deps@"+digest("c")+"\n", 1)
+	assertRejectedDockerfile(t, staticDefault)
 }
 
 func TestEnsureCandidateRejectsMissingOrDriftedSourceDateEpoch(t *testing.T) {
@@ -311,11 +341,107 @@ func TestEnsureCandidateRejectsMissingOrDriftedSourceDateEpoch(t *testing.T) {
 	assertRejectedDockerfile(t, driftedDefault)
 
 	missingLock := candidateEntries(validCandidateDockerfile())
-	replaceEntryText(t, missingLock, toolchainLockPath, "  \"source_date_epoch\": \"0\",\n", "")
+	replaceCandidateInputText(t, missingLock, toolchainLockPath, "  \"source_date_epoch\": \"0\",\n", "")
 	assertCandidateRejectedBeforeBuild(t, missingLock)
 	nonCanonicalLock := candidateEntries(validCandidateDockerfile())
-	replaceEntryText(t, nonCanonicalLock, toolchainLockPath, "\"source_date_epoch\": \"0\"", "\"source_date_epoch\": \"00\"")
+	replaceCandidateInputText(t, nonCanonicalLock, toolchainLockPath, "\"source_date_epoch\": \"0\"", "\"source_date_epoch\": \"00\"")
 	assertCandidateRejectedBeforeBuild(t, nonCanonicalLock)
+}
+
+func TestEnsureCandidateRejectsMissingDriftedOrUnclosedRuntimeDepsLock(t *testing.T) {
+	missingField := candidateEntries(validCandidateDockerfile())
+	replaceCandidateInputText(t, missingField, toolchainLockPath, "  \"runtime_deps_lock\": \"build/gate/runtime-deps.lock\",\n", "")
+	assertCandidateRejectedBeforeBuild(t, missingField)
+
+	driftedPath := candidateEntries(validCandidateDockerfile())
+	replaceCandidateInputText(t, driftedPath, toolchainLockPath, runtimeDepsLockPath, "build/gate/runtime-deps.other.lock")
+	assertCandidateRejectedBeforeBuild(t, driftedPath)
+
+	outsideClosure := candidateEntries(validCandidateDockerfile())
+	outsideClosure = slices.DeleteFunc(outsideClosure, func(entry sourceexport.TreeEntry) bool {
+		return entry.Path == runtimeDepsLockPath
+	})
+	assertCandidateRejectedBeforeBuild(t, outsideClosure)
+}
+
+func TestPrepareCandidateAcceptsRuntimeDepsSchema3Closure(t *testing.T) {
+	if _, err := prepareCandidate(candidateRequest(candidateEntries(validCandidateDockerfile()), digest("f"), digest("e"))); err != nil {
+		t.Fatalf("schema3 runtime dependency closure: %v", err)
+	}
+}
+
+func TestPrepareCandidateRejectsRuntimeDepsCrossPlatformIdentityTampering(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		mutate func(*testing.T, map[string]any)
+	}{
+		{name: "authenticated pull policy", mutate: func(_ *testing.T, lock map[string]any) { lock["registry_pull_policy"] = "authenticated" }},
+		{name: "private DNS registry", mutate: func(t *testing.T, lock map[string]any) {
+			runtimeDepsLockImage(t, lock, 0)["registry"] = "runtime-deps.corp.internal/runtime-deps"
+		}},
+		{name: "public non-GHCR registry", mutate: func(t *testing.T, lock map[string]any) {
+			runtimeDepsLockImage(t, lock, 0)["registry"] = "registry.example.com/runtime-deps"
+		}},
+		{name: "explicit registry port", mutate: func(t *testing.T, lock map[string]any) {
+			runtimeDepsLockImage(t, lock, 0)["registry"] = "ghcr.io:443/runtime-deps"
+		}},
+		{name: "uppercase registry host", mutate: func(t *testing.T, lock map[string]any) {
+			runtimeDepsLockImage(t, lock, 0)["registry"] = "GHCR.io/runtime-deps"
+		}},
+		{name: "trailing-dot registry host", mutate: func(t *testing.T, lock map[string]any) {
+			runtimeDepsLockImage(t, lock, 0)["registry"] = "ghcr.io./runtime-deps"
+		}},
+		{name: "repository mismatch", mutate: func(t *testing.T, lock map[string]any) {
+			runtimeDepsLockImage(t, lock, 1)["registry"] = "registry.example.invalid/other"
+		}},
+		{name: "index mismatch", mutate: func(t *testing.T, lock map[string]any) {
+			runtimeDepsLockImage(t, lock, 1)["oci_index_digest"] = digest("8")
+		}},
+		{name: "duplicate manifest", mutate: func(t *testing.T, lock map[string]any) {
+			runtimeDepsLockImage(t, lock, 1)["platform_manifest_digest"] = runtimeDepsLockImage(t, lock, 0)["platform_manifest_digest"]
+		}},
+		{name: "duplicate config", mutate: func(t *testing.T, lock map[string]any) {
+			runtimeDepsLockImage(t, lock, 1)["config_digest"] = runtimeDepsLockImage(t, lock, 0)["config_digest"]
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			entries := candidateEntries(validCandidateDockerfile())
+			mutateRuntimeDepsLockDocument(t, entries, func(lock map[string]any) { test.mutate(t, lock) })
+			assertCandidateRejectedBeforeBuild(t, entries)
+		})
+	}
+}
+
+func TestPrepareCandidateRejectsLegacyIncompleteAndDriftedRuntimeDepsInputs(t *testing.T) {
+	legacy := candidateEntries(validCandidateDockerfile())
+	replaceEntryText(t, legacy, runtimeDepsLockPath, `"schema_version":"3"`, `"schema_version":"1"`)
+	assertCandidateRejectedBeforeBuild(t, legacy)
+
+	missingGoMod := candidateEntries(validCandidateDockerfile())
+	mutateRuntimeDepsLock(t, missingGoMod, func(inputs map[string]any) { delete(inputs, "go_mod_sha256") })
+	assertCandidateRejectedBeforeBuild(t, missingGoMod)
+
+	unknownInput := candidateEntries(validCandidateDockerfile())
+	mutateRuntimeDepsLock(t, unknownInput, func(inputs map[string]any) { inputs["ignored_sha256"] = digest("9") })
+	assertCandidateRejectedBeforeBuild(t, unknownInput)
+
+	driftedNilnessRunner := candidateEntries(validCandidateDockerfile())
+	changeEntry(t, driftedNilnessRunner, "internal/devtools/nilnessrunner/runner.go", "package nilnessrunner\n// drift\n")
+	assertCandidateRejectedBeforeBuild(t, driftedNilnessRunner)
+
+	driftedNilnessGuard := candidateEntries(validCandidateDockerfile())
+	changeEntry(t, driftedNilnessGuard, "scripts/nilness_guard.go", "package main\n// drift\n")
+	assertCandidateRejectedBeforeBuild(t, driftedNilnessGuard)
+}
+
+func TestEnsureCandidateRejectsMissingOrDriftedSqruffArtifactLock(t *testing.T) {
+	missingDigest := candidateEntries(validCandidateDockerfile())
+	replaceCandidateInputText(t, missingDigest, toolchainLockPath, "d96a06daca2a214eb0b6c07b2821e9cdb1379086041bcca6f8bab031b6eb8026", "")
+	assertCandidateRejectedBeforeBuild(t, missingDigest)
+
+	driftedURL := candidateEntries(validCandidateDockerfile())
+	replaceCandidateInputText(t, driftedURL, toolchainLockPath, "/releases/download/v0.38.0/", "/releases/latest/download/")
+	assertCandidateRejectedBeforeBuild(t, driftedURL)
 }
 
 func TestSourceDateEpochBindsCandidateInputAndBuildRequest(t *testing.T) {
@@ -324,7 +450,7 @@ func TestSourceDateEpochBindsCandidateInputAndBuildRequest(t *testing.T) {
 		t.Fatal(err)
 	}
 	changedEntries := candidateEntries(strings.Replace(validCandidateDockerfile(), "ARG SOURCE_DATE_EPOCH=0", "ARG SOURCE_DATE_EPOCH=1", 1))
-	replaceEntryText(t, changedEntries, toolchainLockPath, "\"source_date_epoch\": \"0\"", "\"source_date_epoch\": \"1\"")
+	replaceCandidateInputText(t, changedEntries, toolchainLockPath, "\"source_date_epoch\": \"0\"", "\"source_date_epoch\": \"1\"")
 	second, err := prepareCandidate(candidateRequest(changedEntries, digest("f"), digest("e")))
 	if err != nil {
 		t.Fatal(err)
@@ -367,6 +493,16 @@ func TestTrackedBuildConfigurationMatchesProducerFields(t *testing.T) {
 		t.Fatal("tracked toolchain lock has no base image producer")
 	}
 	assertJSONFieldsMatchProducer(t, baseImages[0], lockedBaseImage{})
+	assertJSONFieldsMatchProducer(t, rawLock["runtime_tools"], lockedRuntimeTools{})
+
+	runtimeLockData := readRepoFile(t, runtimeDepsLockPath)
+	assertJSONFieldsMatchProducer(t, runtimeLockData, runtimeDepsLock{})
+	var rawRuntimeLock map[string]json.RawMessage
+	if err := json.Unmarshal(runtimeLockData, &rawRuntimeLock); err != nil {
+		t.Fatal(err)
+	}
+	assertJSONFieldsMatchProducer(t, rawRuntimeLock["inputs"], runtimeDepsInputs{})
+	assertJSONFieldsMatchProducer(t, rawRuntimeLock["paths"], runtimeDepsPaths{})
 }
 
 func candidateRequest(entries []sourceexport.TreeEntry, acceptedInput string, acceptedImage string) CandidateRequest {
@@ -388,11 +524,23 @@ func candidateEntries(dockerfile string) []sourceexport.TreeEntry {
   "dockerfile": "build/gate/Dockerfile",
   "inputs": [
     "build/gate/Dockerfile",
+    "build/gate/cmd/runtime-seed-manifest/main.go",
     "build/gate/inputs.json",
+    "build/gate/runtime-deps.Dockerfile",
+    "build/gate/runtime-deps.lock",
+    "build/gate/runtime-lsp/package-lock.json",
+    "build/gate/runtime-proxy/go.mod",
+    "build/gate/runtime-proxy/go.sum",
+    "build/gate/runtime-tools/go.mod",
+    "build/gate/runtime-tools/go.sum",
     "build/gate/toolchain.lock",
     "cmd/super-dolphin-gate/main.go",
+    "frontend-app/package-lock.json",
     "go.mod",
-    "go.sum"
+    "go.sum",
+    "internal/devtools/gate/executor_seed.go",
+    "internal/devtools/nilnessrunner/runner.go",
+    "scripts/nilness_guard.go"
   ]
 }`
 	toolchain := `{
@@ -400,27 +548,101 @@ func candidateEntries(dockerfile string) []sourceexport.TreeEntry {
   "buildkit_version": "v0.26.2",
   "dockerfile_frontend": "builtin:dockerfile.v1",
   "source_date_epoch": "0",
-  "target_platforms": ["linux/arm64"],
+  "target_platforms": ["linux/amd64", "linux/arm64"],
   "base_images": [{"name":"GO_IMAGE","reference":"golang@sha256:` + strings.Repeat("b", 64) + `"}],
   "dependency_sources": ["go.sum"],
+  "runtime_deps_lock": "build/gate/runtime-deps.lock",
+  "runtime_tools": {
+    "node_version": "v24.18.0",
+    "npm_version": "11.16.0",
+			"python_version": "3.11.2",
+			"ripgrep": "/opt/super-dolphin-gate/runtime/bin/rg@13.0.0-4+b2",
+			"sqruff": "/opt/super-dolphin-gate/runtime/bin/sqruff@0.38.0",
+			"sqruff_artifacts": [{"platform":"linux/amd64","url":"https://github.com/quarylabs/sqruff/releases/download/v0.38.0/sqruff-linux-x86_64-musl.tar.gz","sha256":"d96a06daca2a214eb0b6c07b2821e9cdb1379086041bcca6f8bab031b6eb8026"},{"platform":"linux/arm64","url":"https://github.com/quarylabs/sqruff/releases/download/v0.38.0/sqruff-linux-aarch64-musl.tar.gz","sha256":"7e1abca59aeb3a0899a78be36dbfd4002db2ce6754835250beeea2fab95f5abf"}],
+    "gopls": "golang.org/x/tools/gopls@v0.22.0",
+    "sqlc": "github.com/sqlc-dev/sqlc/cmd/sqlc@v1.30.0",
+    "npm_lsp_packages": ["bash-language-server@5.6.0"]
+  },
   "network_policy": "locked-dependencies"
 }`
-	return []sourceexport.TreeEntry{
-		contextEntry("go.sum", "100644", "sum\n"),
-		contextEntry("build/gate/toolchain.lock", "100644", toolchain+"\n"),
+	inputs := map[string]string{
+		"build/gate/runtime-deps.Dockerfile": "FROM scratch\n",
+		"build/gate/toolchain.lock":          toolchain + "\n",
+		"go.mod":                             "module example.invalid/gate\n",
+		"go.sum":                             "sum\n",
+		"internal/devtools/nilnessrunner/runner.go":    "package nilnessrunner\n",
+		"scripts/nilness_guard.go":                     "package main\n",
+		"frontend-app/package-lock.json":               "{}\n",
+		"build/gate/runtime-lsp/package-lock.json":     "{}\n",
+		"build/gate/runtime-proxy/go.mod":              "module example.invalid/proxy\n",
+		"build/gate/runtime-proxy/go.sum":              "proxy sum\n",
+		"build/gate/runtime-tools/go.mod":              "module example.invalid/tools\n",
+		"build/gate/runtime-tools/go.sum":              "tools sum\n",
+		"build/gate/cmd/runtime-seed-manifest/main.go": "package main\n",
+		"internal/devtools/gate/executor_seed.go":      "package gate\n",
+	}
+	entries := []sourceexport.TreeEntry{
+		contextEntry("build/gate/runtime-deps.lock", "100644", testRuntimeDepsLock(inputs)),
 		contextEntry("cmd/super-dolphin-gate/main.go", "100644", "package main\n"),
 		contextEntry("build/gate/Dockerfile", "100644", dockerfile),
-		contextEntry("go.mod", "100644", "module example.invalid/gate\n"),
 		contextEntry("build/gate/inputs.json", "100644", manifest+"\n"),
+	}
+	for _, path := range runtimeDepsTestInputPaths() {
+		entries = append(entries, contextEntry(path, "100644", inputs[path]))
+	}
+	return entries
+}
+
+func testRuntimeDepsLock(files map[string]string) string {
+	lock := runtimeDepsLock{
+		SchemaVersion: "3", RegistryPullPolicy: "anonymous",
+		Images: []runtimeDepsImage{
+			{Platform: "linux/amd64", Image: gate.ImageIdentity{Registry: "ghcr.io/super-dolphin/runtime-deps", OCIIndexDigest: digest("1"), PlatformManifestDigest: digest("2"), ConfigDigest: digest("3"), RootFSDiffIDs: []string{digest("4")}, OS: "linux", Architecture: "amd64"}, ImageSize: 1},
+			{Platform: "linux/arm64", Image: gate.ImageIdentity{Registry: "ghcr.io/super-dolphin/runtime-deps", OCIIndexDigest: digest("1"), PlatformManifestDigest: digest("5"), ConfigDigest: digest("6"), RootFSDiffIDs: []string{digest("7")}, OS: "linux", Architecture: "arm64"}, ImageSize: 1},
+		},
+		Inputs: runtimeDepsInputs{
+			Dockerfile:    contentDigest(files["build/gate/runtime-deps.Dockerfile"]),
+			ToolchainLock: contentDigest(files["build/gate/toolchain.lock"]),
+			GoMod:         contentDigest(files["go.mod"]), GoSum: contentDigest(files["go.sum"]),
+			NilnessRunner:       contentDigest(files["internal/devtools/nilnessrunner/runner.go"]),
+			NilnessGuard:        contentDigest(files["scripts/nilness_guard.go"]),
+			FrontendPackageLock: contentDigest(files["frontend-app/package-lock.json"]),
+			LSPPackageLock:      contentDigest(files["build/gate/runtime-lsp/package-lock.json"]),
+			ProxyGoMod:          contentDigest(files["build/gate/runtime-proxy/go.mod"]),
+			ProxyGoSum:          contentDigest(files["build/gate/runtime-proxy/go.sum"]),
+			ToolsGoMod:          contentDigest(files["build/gate/runtime-tools/go.mod"]),
+			ToolsGoSum:          contentDigest(files["build/gate/runtime-tools/go.sum"]),
+			ManifestBuilder:     contentDigest(files["build/gate/cmd/runtime-seed-manifest/main.go"]),
+			ManifestAPI:         contentDigest(files["internal/devtools/gate/executor_seed.go"]),
+		},
+		Paths: canonicalRuntimeDepsPaths(),
+	}
+	data, _ := json.Marshal(lock)
+	return string(data) + "\n"
+}
+
+func runtimeDepsTestInputPaths() []string {
+	return []string{
+		"build/gate/runtime-deps.Dockerfile", "build/gate/toolchain.lock", "go.mod", "go.sum",
+		"internal/devtools/nilnessrunner/runner.go", "scripts/nilness_guard.go",
+		"frontend-app/package-lock.json", "build/gate/runtime-lsp/package-lock.json",
+		"build/gate/runtime-proxy/go.mod", "build/gate/runtime-proxy/go.sum",
+		"build/gate/runtime-tools/go.mod", "build/gate/runtime-tools/go.sum",
+		"build/gate/cmd/runtime-seed-manifest/main.go", "internal/devtools/gate/executor_seed.go",
 	}
 }
 
+func contentDigest(content string) string {
+	sum := sha256.Sum256([]byte(content))
+	return "sha256:" + hex.EncodeToString(sum[:])
+}
+
 func validCandidateDockerfile() string {
-	return "ARG GO_IMAGE=" + lockedGoImageReference() + "\nARG SOURCE_DATE_EPOCH=0\nFROM ${GO_IMAGE} AS build\nCOPY go.mod go.sum ./\nCOPY cmd/super-dolphin-gate/main.go ./cmd/super-dolphin-gate/main.go\nRUN --network=none go build -o /out/gate ./cmd/super-dolphin-gate\nFROM scratch\nCOPY --from=build /out/gate /gate\nENTRYPOINT [\"/gate\"]\n"
+	return "ARG RUNTIME_DEPS_IMAGE\nARG SOURCE_DATE_EPOCH=0\nFROM ${RUNTIME_DEPS_IMAGE} AS build\nCOPY go.mod go.sum ./\nCOPY cmd/super-dolphin-gate/main.go ./cmd/super-dolphin-gate/main.go\nRUN --network=none go build -o /out/gate ./cmd/super-dolphin-gate\nFROM scratch\nCOPY --from=build /out/gate /gate\nENTRYPOINT [\"/gate\"]\n"
 }
 
 func forwardStageDockerfile() string {
-	return "ARG GO_IMAGE=" + lockedGoImageReference() + "\nARG SOURCE_DATE_EPOCH=0\nFROM ${GO_IMAGE} AS build\nCOPY --from=later /tool /tool\nFROM scratch AS later\nCOPY --from=build /out/gate /gate\nENTRYPOINT [\"/gate\"]\n"
+	return "ARG RUNTIME_DEPS_IMAGE\nARG SOURCE_DATE_EPOCH=0\nFROM ${RUNTIME_DEPS_IMAGE} AS build\nCOPY --from=later /tool /tool\nFROM scratch AS later\nCOPY --from=build /out/gate /gate\nENTRYPOINT [\"/gate\"]\n"
 }
 
 func lockedGoImageReference() string {
@@ -496,6 +718,87 @@ func changeEntry(t *testing.T, entries []sourceexport.TreeEntry, name string, co
 		return
 	}
 	t.Fatalf("entry %q not found", name)
+}
+
+func changeCandidateInput(t *testing.T, entries []sourceexport.TreeEntry, name string, content string) {
+	t.Helper()
+	changeEntry(t, entries, name, content)
+	refreshRuntimeDepsLock(t, entries)
+}
+
+func replaceCandidateInputText(t *testing.T, entries []sourceexport.TreeEntry, name string, oldText string, newText string) {
+	t.Helper()
+	replaceEntryText(t, entries, name, oldText, newText)
+	refreshRuntimeDepsLock(t, entries)
+}
+
+func refreshRuntimeDepsLock(t *testing.T, entries []sourceexport.TreeEntry) {
+	t.Helper()
+	files := make(map[string]string, len(runtimeDepsTestInputPaths()))
+	for _, path := range runtimeDepsTestInputPaths() {
+		files[path] = string(candidateEntry(t, entries, path).Data)
+	}
+	changeEntry(t, entries, runtimeDepsLockPath, testRuntimeDepsLock(files))
+}
+
+func candidateEntry(t *testing.T, entries []sourceexport.TreeEntry, name string) sourceexport.TreeEntry {
+	t.Helper()
+	for _, entry := range entries {
+		if entry.Path == name {
+			return entry
+		}
+	}
+	t.Fatalf("entry %q not found", name)
+	return sourceexport.TreeEntry{}
+}
+
+func mutateRuntimeDepsLock(t *testing.T, entries []sourceexport.TreeEntry, mutate func(map[string]any)) {
+	t.Helper()
+	mutateRuntimeDepsLockDocument(t, entries, func(document map[string]any) {
+		inputs, ok := document["inputs"].(map[string]any)
+		if !ok {
+			t.Fatal("runtime dependency lock inputs are not an object")
+		}
+		mutate(inputs)
+	})
+}
+
+func mutateRuntimeDepsLockDocument(t *testing.T, entries []sourceexport.TreeEntry, mutate func(map[string]any)) {
+	t.Helper()
+	for _, entry := range entries {
+		if entry.Path != runtimeDepsLockPath {
+			continue
+		}
+		var document map[string]any
+		if err := json.Unmarshal(entry.Data, &document); err != nil {
+			t.Fatal(err)
+		}
+		mutate(document)
+		data, err := json.Marshal(document)
+		if err != nil {
+			t.Fatal(err)
+		}
+		changeEntry(t, entries, runtimeDepsLockPath, string(data)+"\n")
+		return
+	}
+	t.Fatal("runtime dependency lock fixture is missing")
+}
+
+func runtimeDepsLockImage(t *testing.T, document map[string]any, index int) map[string]any {
+	t.Helper()
+	images, ok := document["images"].([]any)
+	if !ok || index < 0 || index >= len(images) {
+		t.Fatal("runtime dependency lock images are invalid")
+	}
+	entry, ok := images[index].(map[string]any)
+	if !ok {
+		t.Fatal("runtime dependency lock image entry is invalid")
+	}
+	identity, ok := entry["image"].(map[string]any)
+	if !ok {
+		t.Fatal("runtime dependency image identity is invalid")
+	}
+	return identity
 }
 
 func replaceEntryText(t *testing.T, entries []sourceexport.TreeEntry, name string, oldText string, newText string) {

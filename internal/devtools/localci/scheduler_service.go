@@ -43,6 +43,7 @@ const (
 	WorkloadKindBuild   WorkloadKind = "build"
 	WorkloadKindService WorkloadKind = "service"
 	WorkloadKindJob     WorkloadKind = "job"
+	WorkloadKindShard   WorkloadKind = "shard"
 )
 
 // WorkloadStatus 是 scheduler 对外可见的严格状态集合。
@@ -54,6 +55,8 @@ const (
 	WorkloadStatusPassed      WorkloadStatus = "passed"
 	WorkloadStatusFailed      WorkloadStatus = "failed"
 	WorkloadStatusInfraFailed WorkloadStatus = "infra_failed"
+	WorkloadStatusCancelling  WorkloadStatus = "cancelling"
+	WorkloadStatusCancelled   WorkloadStatus = "cancelled"
 )
 
 // WorkloadRequest 是加入 owner-local queue 所需的最小调度输入。
@@ -64,20 +67,26 @@ type WorkloadRequest struct {
 	Subsequence     uint32       `json:"subsequence"`
 	Kind            WorkloadKind `json:"kind"`
 	ServiceCount    int          `json:"service_count"`
+	GroupIdentity   string       `json:"group_identity"`
+	GroupSize       int          `json:"group_size"`
+	ShardIdentities []string     `json:"shard_identities"`
 	Dependencies    []string     `json:"dependencies"`
 }
 
 // Lease 描述一次进程内 slot 占用。
 type Lease struct {
-	ID         string       `json:"id"`
-	WorkloadID string       `json:"workload_id"`
-	Kind       WorkloadKind `json:"kind"`
+	ID            string       `json:"id"`
+	WorkloadID    string       `json:"workload_id"`
+	Kind          WorkloadKind `json:"kind"`
+	GroupIdentity string       `json:"group_identity"`
+	ShardIdentity string       `json:"shard_identity"`
 }
 
 // WorkloadReservation 描述一个 workload 原子取得的全部 slot。
 type WorkloadReservation struct {
-	WorkloadID string  `json:"workload_id"`
-	Leases     []Lease `json:"leases"`
+	WorkloadID    string  `json:"workload_id"`
+	GroupIdentity string  `json:"group_identity"`
+	Leases        []Lease `json:"leases"`
 }
 
 // WorkloadSnapshot 是 workload 输入与当前状态的深拷贝视图。
@@ -338,6 +347,9 @@ func (s *Scheduler) Complete(ctx context.Context, id string, status WorkloadStat
 		return err
 	}
 	candidate := cloneSchedulerKernel(s.kernel)
+	if node := candidate.nodes[workloadID(workloadIDValue)]; node != nil && node.spec.groupID != "" {
+		return fmt.Errorf("%w: grouped workload requires CompleteGroup", ErrInvalidSchedulerInput)
+	}
 	if err := candidate.complete(workloadID(workloadIDValue), terminalState); err != nil {
 		return fmt.Errorf("%w: complete workload: %w", ErrSchedulerState, err)
 	}
@@ -438,6 +450,7 @@ func reconcileRecoveryWorkload(
 	return created || stateChanged, err
 }
 
+// validateRecoveryWorkload 只允许持久 build、job 与 shard 恢复，service 必须由当前 owner 重新建立。
 func validateRecoveryWorkload(
 	expected RecoveryWorkload,
 	seen map[workloadID]struct{},
@@ -446,8 +459,8 @@ func validateRecoveryWorkload(
 	if err != nil {
 		return workloadSpec{}, "", err
 	}
-	if spec.kind != workloadJob {
-		return workloadSpec{}, "", fmt.Errorf("%w: recovery workload %q is not a job", ErrInvalidSchedulerInput, spec.id)
+	if spec.kind != workloadBuild && spec.kind != workloadJob && spec.kind != workloadShard {
+		return workloadSpec{}, "", fmt.Errorf("%w: recovery workload %q has unsupported kind %d", ErrInvalidSchedulerInput, spec.id, spec.kind)
 	}
 	if _, duplicate := seen[spec.id]; duplicate {
 		return workloadSpec{}, "", fmt.Errorf("%w: duplicate recovery workload %q", ErrInvalidSchedulerInput, spec.id)
@@ -473,6 +486,12 @@ func recoveryNode(candidate *schedulerKernel, spec workloadSpec) (*workloadNode,
 
 // applyRecoveryState 收敛状态时同步释放不再属于 started workload 的 lease。
 func applyRecoveryState(candidate *schedulerKernel, node *workloadNode, desired workloadState) (bool, error) {
+	if desired == stateCancelling {
+		if node.state != stateCancelling {
+			return false, fmt.Errorf("%w: recovery workload %q is %q, want existing cancelling", ErrSchedulerState, node.spec.id, node.state)
+		}
+		return false, nil
+	}
 	if desired == stateStarted {
 		if node.state != stateStarted {
 			return false, fmt.Errorf("%w: recovery workload %q is %q, want started", ErrSchedulerState, node.spec.id, node.state)
@@ -501,8 +520,9 @@ func releaseRecoveryLeases(candidate *schedulerKernel, id workloadID) {
 func rejectOrphanRecoveryJobs(candidate *schedulerKernel, seen map[workloadID]struct{}) error {
 	for id, node := range candidate.nodes {
 		_, expected := seen[id]
-		if node.spec.kind == workloadJob && !expected {
-			return fmt.Errorf("%w: scheduler contains orphan recovery job %q", ErrSchedulerState, id)
+		recoverable := node.spec.kind == workloadJob || node.spec.kind == workloadShard
+		if recoverable && !expected {
+			return fmt.Errorf("%w: scheduler contains orphan recovery workload %q", ErrSchedulerState, id)
 		}
 	}
 	return nil
@@ -514,6 +534,8 @@ func importRecoveryStatus(status WorkloadStatus) (workloadState, error) {
 		return stateQueued, nil
 	case WorkloadStatusStarted:
 		return stateStarted, nil
+	case WorkloadStatusCancelling:
+		return stateCancelling, nil
 	default:
 		return importTerminalStatus(status)
 	}
@@ -543,6 +565,7 @@ func (s *Scheduler) commitCandidate(ctx context.Context, candidate *schedulerKer
 	return nil
 }
 
+// toSpec 将公开 DTO 严格映射到不共享 slice 的 kernel 输入。
 func (request WorkloadRequest) toSpec() (workloadSpec, error) {
 	id, err := validatePublicID("workload ID", request.ID)
 	if err != nil {
@@ -567,35 +590,11 @@ func (request WorkloadRequest) toSpec() (workloadSpec, error) {
 		subSeq:       request.Subsequence,
 		kind:         kind,
 		serviceCount: request.ServiceCount,
+		groupID:      request.GroupIdentity,
+		groupSize:    request.GroupSize,
+		shardIDs:     append([]string(nil), request.ShardIdentities...),
 		dependencies: dependencies,
 	}, nil
-}
-
-func validatePublicID(field, value string) (string, error) {
-	if value == "" || strings.TrimSpace(value) != value {
-		return "", fmt.Errorf("%w: %s must be non-empty without surrounding whitespace", ErrInvalidSchedulerInput, field)
-	}
-	return value, nil
-}
-
-func importDependencies(owner string, values []string) ([]workloadID, error) {
-	dependencies := make([]workloadID, len(values))
-	seen := make(map[string]struct{}, len(values))
-	for index, value := range values {
-		dependency, err := validatePublicID("dependency ID", value)
-		if err != nil {
-			return nil, err
-		}
-		if dependency == owner {
-			return nil, fmt.Errorf("%w: workload %q depends on itself", ErrInvalidSchedulerInput, owner)
-		}
-		if _, exists := seen[dependency]; exists {
-			return nil, fmt.Errorf("%w: duplicate dependency %q", ErrInvalidSchedulerInput, dependency)
-		}
-		seen[dependency] = struct{}{}
-		dependencies[index] = workloadID(dependency)
-	}
-	return dependencies, nil
 }
 
 func importKind(kind WorkloadKind) (workloadKind, error) {
@@ -606,6 +605,8 @@ func importKind(kind WorkloadKind) (workloadKind, error) {
 		return workloadService, nil
 	case WorkloadKindJob:
 		return workloadJob, nil
+	case WorkloadKindShard:
+		return workloadShard, nil
 	default:
 		return 0, fmt.Errorf("%w: unknown workload kind %q", ErrInvalidSchedulerInput, kind)
 	}
@@ -619,6 +620,8 @@ func exportKind(kind workloadKind) (WorkloadKind, error) {
 		return WorkloadKindService, nil
 	case workloadJob:
 		return WorkloadKindJob, nil
+	case workloadShard:
+		return WorkloadKindShard, nil
 	default:
 		return "", fmt.Errorf("%w: unknown kernel workload kind %d", ErrSchedulerState, kind)
 	}
@@ -632,6 +635,8 @@ func importTerminalStatus(status WorkloadStatus) (workloadState, error) {
 		return stateFailed, nil
 	case WorkloadStatusInfraFailed:
 		return stateInfraFailed, nil
+	case WorkloadStatusCancelled:
+		return stateCancelled, nil
 	default:
 		return "", fmt.Errorf("%w: completion status %q is not terminal", ErrInvalidSchedulerInput, status)
 	}
@@ -650,6 +655,10 @@ func exportStatus(state workloadState) (WorkloadStatus, error) {
 		return WorkloadStatusFailed, nil
 	case stateInfraFailed:
 		return WorkloadStatusInfraFailed, nil
+	case stateCancelling:
+		return WorkloadStatusCancelling, nil
+	case stateCancelled:
+		return WorkloadStatusCancelled, nil
 	default:
 		return "", fmt.Errorf("%w: unknown kernel workload state %q", ErrSchedulerState, state)
 	}
@@ -664,7 +673,11 @@ func cloneSchedulerKernel(source *schedulerKernel) *schedulerKernel {
 	for id, node := range source.nodes {
 		spec := node.spec
 		spec.dependencies = append([]workloadID(nil), node.spec.dependencies...)
-		clone.nodes[id] = &workloadNode{spec: spec, state: node.state, gangBypasses: node.gangBypasses}
+		spec.shardIDs = append([]string(nil), node.spec.shardIDs...)
+		clone.nodes[id] = &workloadNode{
+			spec: spec, state: node.state,
+			failedShardID: node.failedShardID, gangBypasses: node.gangBypasses,
+		}
 	}
 	maps.Copy(clone.leases, source.leases)
 	return clone
@@ -677,7 +690,7 @@ func exportReservations(values []reservation) ([]WorkloadReservation, error) {
 		if err != nil {
 			return nil, err
 		}
-		result[index] = WorkloadReservation{WorkloadID: string(value.workloadID), Leases: leases}
+		result[index] = WorkloadReservation{WorkloadID: string(value.workloadID), GroupIdentity: value.groupID, Leases: leases}
 	}
 	return result, nil
 }
@@ -689,7 +702,7 @@ func exportLeases(values []slotLease) ([]Lease, error) {
 		if err != nil {
 			return nil, err
 		}
-		result[index] = Lease{ID: value.id, WorkloadID: string(value.workloadID), Kind: kind}
+		result[index] = Lease{ID: value.id, WorkloadID: string(value.workloadID), Kind: kind, GroupIdentity: value.groupID, ShardIdentity: value.shardID}
 	}
 	return result, nil
 }
@@ -716,7 +729,7 @@ func exportSnapshot(kernel *schedulerKernel) (SchedulerSnapshot, error) {
 		if err != nil {
 			return SchedulerSnapshot{}, err
 		}
-		leases[index] = Lease{ID: lease.id, WorkloadID: string(lease.workloadID), Kind: kind}
+		leases[index] = Lease{ID: lease.id, WorkloadID: string(lease.workloadID), Kind: kind, GroupIdentity: lease.groupID, ShardIdentity: lease.shardID}
 	}
 	return SchedulerSnapshot{Workloads: workloads, Leases: leases}, nil
 }
@@ -741,6 +754,9 @@ func exportWorkload(node *workloadNode) (WorkloadSnapshot, error) {
 		Subsequence:     node.spec.subSeq,
 		Kind:            kind,
 		ServiceCount:    node.spec.serviceCount,
+		GroupIdentity:   node.spec.groupID,
+		GroupSize:       node.spec.groupSize,
+		ShardIdentities: append([]string(nil), node.spec.shardIDs...),
 		Dependencies:    dependencies,
 	}, Status: status}, nil
 }

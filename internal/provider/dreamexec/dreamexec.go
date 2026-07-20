@@ -84,6 +84,7 @@ func (realCommander) RunWithPolicy(ctx context.Context, binary string, args []st
 	}
 
 	cmd := exec.CommandContext(ctx, binary, args...)
+	configureDreamCommandCancellation(cmd)
 	cmd.Env = dreamCommandEnv(policy)
 	cmd.Stdin = strings.NewReader(input)
 

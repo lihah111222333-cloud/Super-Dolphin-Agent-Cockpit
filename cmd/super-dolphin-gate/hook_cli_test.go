@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	gateclosure "github.com/lihah111222333-cloud/super-dolphin-agent/build/gate/closure"
 	gatecontract "github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gatehook"
 )
@@ -36,6 +37,42 @@ func TestPreCommitHookBindsStagedIndexAndReturnsActionableQueuedStatus(t *testin
 	}
 	if coordinator.grantCount != 0 {
 		t.Fatalf("pre-commit issued %d action grants", coordinator.grantCount)
+	}
+}
+
+func TestClosureVerifierIgnoresUnavailableWorktreeGeneratorSource(t *testing.T) {
+	repository := strings.TrimSpace(runHookTestGit(t, mustWorkingDirectory(t), "rev-parse", "--show-toplevel"))
+	tree := strings.TrimSpace(runHookTestGit(t, repository, "write-tree"))
+	generator := filepath.Join(repository, "build", "gate", "cmd", "generate-closure", "main.go")
+	backup := generator + ".closure-test-backup"
+	if err := os.Rename(generator, backup); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Rename(backup, generator) })
+	if err := gateclosure.CheckTree(repository, tree); err != nil {
+		t.Fatalf("compiled closure verifier depended on unavailable worktree generator: %v", err)
+	}
+	hook, err := os.ReadFile(filepath.Join(repository, ".githooks", "pre-commit"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(hook, []byte("go run")) {
+		t.Fatal("thin pre-commit hook executes go run")
+	}
+}
+
+func TestGitHookActionsWithSameTreeUseDistinctDeliveryInvocations(t *testing.T) {
+	repository := newHookTestRepository(t)
+	coordinator := &recordingHookCoordinator{}
+	for range 2 {
+		if err := runHookWithConnector(
+			[]string{"pre-commit"}, bytes.NewReader(nil), &bytes.Buffer{}, repository, hookTestConnector(coordinator),
+		); err == nil || !strings.Contains(err.Error(), "status: super-dolphin-gate status --job") {
+			t.Fatalf("runHookWithConnector() error = %v", err)
+		}
+	}
+	if len(coordinator.submits) != 2 || coordinator.submits[0].Invocation == coordinator.submits[1].Invocation {
+		t.Fatalf("same-tree hook actions reused invocation identities: %#v", coordinator.submits)
 	}
 }
 
@@ -227,6 +264,7 @@ func TestGitHookInvalidQueuedStatusIncludesJobActions(t *testing.T) {
 
 type recordingHookCoordinator struct {
 	lastSubmit      gatehook.SubmitRequest
+	submits         []gatehook.SubmitRequest
 	submitCount     int
 	statusCount     int
 	queuePosition   int
@@ -241,6 +279,7 @@ func (coordinator *recordingHookCoordinator) Submit(
 	request gatehook.SubmitRequest,
 ) (gatehook.JobStatus, error) {
 	coordinator.lastSubmit = request
+	coordinator.submits = append(coordinator.submits, request)
 	coordinator.submitCount++
 	return coordinator.status(request.Source.SourceTreeSHA), nil
 }

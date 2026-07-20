@@ -48,7 +48,7 @@ func writeCLIError(stderr io.Writer, commandErr error) error {
 // dispatchCLI 将固定命令面分派到 plan 或未接线 scheduler 边界。
 func dispatchCLI(args []string, stdout io.Writer) error {
 	if len(args) == 0 {
-		return protocolError("subcommand is required (plan, submit, run, status, wait, receipt verify, grant, provision)")
+		return protocolError("subcommand is required (plan, submit, workflow, workflow-host, run, status, wait, logs, receipt verify, grant, provision)")
 	}
 	switch args[0] {
 	case "plan":
@@ -59,6 +59,8 @@ func dispatchCLI(args []string, stdout io.Writer) error {
 		return runProductionBootstrapControllerCLI(args[1:], os.Stdin, stdout)
 	case "provision":
 		return runProductionProvisionCLI(args[1:], stdout)
+	case "closure":
+		return runClosureCheck(args[1:])
 	default:
 		return dispatchCoordinatorCLI(args, stdout)
 	}
@@ -69,6 +71,20 @@ func dispatchCoordinatorCLI(args []string, stdout io.Writer) error {
 	switch args[0] {
 	case "submit":
 		return runSubmit(args[1:], stdout)
+	case "_production-launcher":
+		return runProductionLauncherCLI(args[1:], stdout)
+	case "workflow":
+		return runWorkflow(args[1:], stdout)
+	case "workflow-host":
+		return runWorkflowHost(args[1:], stdout)
+	default:
+		return dispatchCoordinatorOperationsCLI(args, stdout)
+	}
+}
+
+// dispatchCoordinatorOperationsCLI 分派运行、查询、日志、owner、receipt 与 grant 子命令，并保留未知命令的协议错误。
+func dispatchCoordinatorOperationsCLI(args []string, stdout io.Writer) error {
+	switch args[0] {
 	case "run":
 		if _, err := parseRequiredFlag("run", "job-token", args[1:]); err != nil {
 			return err
@@ -78,6 +94,8 @@ func dispatchCoordinatorCLI(args []string, stdout io.Writer) error {
 		return runStatus(args[1:], stdout)
 	case "wait":
 		return runWait(args[1:], stdout)
+	case "logs":
+		return runLogs(args[1:], stdout)
 	case "_owner":
 		return runOwnerProcess(args[1:], stdout)
 	case "receipt":

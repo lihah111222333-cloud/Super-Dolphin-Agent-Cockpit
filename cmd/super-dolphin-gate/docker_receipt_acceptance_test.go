@@ -54,8 +54,8 @@ func TestRealDockerResultProducesVerifiableSignedReceiptAcceptance(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	execution := runDockerReceiptAcceptancePlan(t, runner, fixture, plan)
-	execution.Accepted = signedDockerReceiptAcceptedRecord(t, plan, fixture)
+	accepted := signedDockerReceiptAcceptedRecord(t, plan, fixture)
+	execution := runDockerReceiptAcceptancePlan(t, runner, fixture, plan, accepted)
 	receipt, verifier := signDockerReceiptAcceptance(t, plan, execution)
 	if err := verifier.VerifyResultReceipt(receipt); err != nil {
 		t.Fatalf("verify real Docker result receipt: %v", err)
@@ -152,26 +152,39 @@ func runDockerReceiptAcceptancePlan(
 	runner *localci.FreshContainerRunner,
 	fixture dockerReceiptAcceptanceFixture,
 	plan gatecontract.GatePlan,
+	accepted gatecontract.AcceptedImageRecord,
 ) receiptExecution {
 	t.Helper()
-	execution := receiptExecution{Deadline: time.Now().UTC().Add(10 * time.Minute)}
-	for index, gateSpec := range plan.Gates {
-		source := filepath.Join(fixture.trustedSourceRoot, "gate-"+acceptanceIndex(index))
+	set, err := gatecontract.BuildContainerShardSet(plan, accepted.Image.PlatformManifestDigest, accepted.Image.ConfigDigest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().UTC().Add(10 * time.Minute)
+	receipts := make([]gatecontract.ContainerShardReceipt, 0, len(set.Shards))
+	for _, shard := range set.Shards {
+		source := filepath.Join(fixture.trustedSourceRoot, "shard-"+acceptanceIndex(int(shard.Index)))
 		if err := os.Mkdir(source, 0o700); err != nil {
 			t.Fatal(err)
 		}
 		result, err := runner.RunFreshContainer(context.Background(), localci.FreshContainerRequest{
 			Image: fixture.image, ImageTruth: fixture.truth,
 			SourceTreeSHA: fixture.jobSourceTree, SourceSnapshotDir: source,
-			Profile: plan.Profile, Plan: plan, GateID: gateSpec.ID, Deadline: execution.Deadline,
+			Profile: plan.Profile, Plan: plan, ShardGateIDs: shard.GateIDs, ShardIdentity: shard.IdentityDigest,
+			Deadline: deadline, ClaimDeadline: func(context.Context, time.Time) (time.Time, error) { return deadline, nil },
 			ContainerLabels: map[string]string{"super-dolphin.acceptance": "signed-receipt"},
 		})
 		if err != nil {
-			t.Fatalf("run real Docker receipt gate %s: %v", gateSpec.ID, err)
+			t.Fatalf("run real Docker receipt shard %d: %v", shard.Index, err)
 		}
-		if err := execution.appendResult(result); err != nil {
-			t.Fatalf("append real Docker receipt gate %s: %v", gateSpec.ID, err)
-		}
+		receipts = append(receipts, shardReceipt(shard, result))
+	}
+	aggregate, err := gatecontract.AggregateContainerShards(set, receipts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	execution, err := shardReceiptExecution(accepted, set, receipts, aggregate)
+	if err != nil {
+		t.Fatal(err)
 	}
 	return execution
 }
@@ -229,6 +242,7 @@ func signDockerReceiptAcceptance(
 	receipt, err := buildPassedResultReceipt(coordinatorJobRecord{
 		InvocationID: "docker-acceptance-invocation", JobID: "docker-acceptance-job",
 		Plan: plan, Profile: plan.Profile, JobSourceTreeSHA: plan.Source.SourceTreeSHA,
+		Authority: manualSubmissionAuthority(),
 	}, execution, signer)
 	if err != nil {
 		t.Fatal(err)

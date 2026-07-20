@@ -25,9 +25,19 @@ import (
 )
 
 const (
-	protocolVersion                  = "2024-11-05"
-	parallelDiagnosticsFileThreshold = 512
+	protocolVersion               = "2024-11-05"
+	diagnosticsShardFileThreshold = 512
+	diagnosticsAttempts           = 2
+	diagnosticsRetryDelay         = 5 * time.Second
 )
+
+type retryableDiagnosticsError struct{ err error }
+
+// Error 返回底层可重试诊断错误。
+func (e *retryableDiagnosticsError) Error() string { return e.err.Error() }
+
+// Unwrap 保留底层错误链。
+func (e *retryableDiagnosticsError) Unwrap() error { return e.err }
 
 type stringFlags []string
 
@@ -50,23 +60,39 @@ type options struct {
 }
 
 type coverageArtifact struct {
-	Files             []string        `json:"files"`
-	TrackedCandidates int             `json:"tracked_candidates"`
-	Inspected         int             `json:"inspected"`
-	Skipped           []skippedTarget `json:"skipped,omitempty"`
-	SkippedCount      int             `json:"skipped_count"`
-	Diagnostics       int             `json:"diagnostics"`
+	Files             []string                `json:"files"`
+	TrackedCandidates int                     `json:"tracked_candidates"`
+	Inspected         int                     `json:"inspected"`
+	TargetCompiles    []targetCompileEvidence `json:"target_compiles,omitempty"`
+	Skipped           []skippedTarget         `json:"skipped,omitempty"`
+	SkippedCount      int                     `json:"skipped_count"`
+	Diagnostics       int                     `json:"diagnostics"`
 }
 
 type skippedTarget struct {
 	File   string `json:"file"`
 	Reason string `json:"reason"`
+	GOOS   string `json:"goos,omitempty"`
+	GOARCH string `json:"goarch,omitempty"`
 }
 
 type targetSelection struct {
-	files      []string
-	candidates int
-	skipped    []skippedTarget
+	files          []string
+	candidates     int
+	targetCompiles []targetCompileTarget
+	skipped        []skippedTarget
+}
+
+type targetCompileTarget struct {
+	File   string
+	GOOS   string
+	GOARCH string
+}
+
+type targetCompileEvidence struct {
+	File   string `json:"file"`
+	GOOS   string `json:"goos"`
+	GOARCH string `json:"goarch"`
 }
 
 type rpcResponse struct {
@@ -141,8 +167,14 @@ func run(parent context.Context, opts options) error {
 	if err != nil {
 		return err
 	}
-	if skip, selectionErr := validateTargetSelection(selection); skip || selectionErr != nil {
-		return selectionErr
+	if err := validateTargetSelection(selection); err != nil {
+		return err
+	}
+	if err := compileTargetConstrainedFiles(parent, root, opts.timeout, selection.targetCompiles); err != nil {
+		return err
+	}
+	if len(selection.files) == 0 {
+		return emitCoverage(opts.output, selection)
 	}
 	if len(opts.peer) == 0 || strings.TrimSpace(opts.peer[0]) == "" {
 		return errors.New("mcp-lsp peer command is required")
@@ -165,44 +197,89 @@ func resolveRepositoryRoot(path string) (string, error) {
 	return root, nil
 }
 
-func validateTargetSelection(selection targetSelection) (bool, error) {
-	if len(selection.files) == 0 && len(selection.skipped) > 0 {
-		fmt.Fprintf(os.Stderr, "lsp diagnostics skip: candidates=%d inspected=0 skipped=%d reason=host-build-constraints\n", selection.candidates, len(selection.skipped))
-		return true, nil
-	}
+func validateTargetSelection(selection targetSelection) error {
 	if len(selection.files) == 0 {
-		return false, errors.New("no diagnostic targets are supported by the configured LSP adapters")
+		if len(selection.targetCompiles) > 0 {
+			return nil
+		}
+		return errors.New("no diagnostic targets are supported by the configured LSP adapters")
 	}
-	return false, nil
+	return nil
+}
+
+// compileTargetConstrainedFiles 为当前 host 排除的变更 Go 文件保留目标平台编译证据。
+func compileTargetConstrainedFiles(parent context.Context, root string, timeout time.Duration, targets []targetCompileTarget) error {
+	if len(targets) == 0 {
+		return nil
+	}
+	ctx, cancel := platformconfig.WithTimeout(parent, timeout)
+	defer cancel()
+	outputRoot, err := os.MkdirTemp("", "super-dolphin-lsp-target-")
+	if err != nil {
+		return fmt.Errorf("create target compile directory: %w", err)
+	}
+	defer os.RemoveAll(outputRoot)
+	seen := make(map[string]bool, len(targets))
+	for index, target := range targets {
+		packageDir := filepath.ToSlash(filepath.Dir(target.File))
+		key := packageDir + "|" + target.GOOS + "|" + target.GOARCH
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		command := exec.CommandContext(ctx, "go", "test", "-c", "-o", filepath.Join(outputRoot, fmt.Sprintf("%d.test", index)), ".")
+		command.Dir = filepath.Join(root, filepath.FromSlash(packageDir))
+		command.Env = append(os.Environ(), "GOOS="+target.GOOS, "GOARCH="+target.GOARCH)
+		output, runErr := command.CombinedOutput()
+		if runErr != nil {
+			return fmt.Errorf("target compile %s (GOOS=%s GOARCH=%s): %w\n%s", target.File, target.GOOS, target.GOARCH, runErr, output)
+		}
+	}
+	return nil
 }
 
 func collectDiagnostics(parent context.Context, root string, opts options, files []string) error {
 	ctx, cancel := platformconfig.WithTimeout(parent, opts.timeout)
 	defer cancel()
 	shards := diagnosticShards(files)
-	if len(shards) == 1 {
-		return collectDiagnosticShard(ctx, root, opts.peer, shards[0])
-	}
-	errorsByShard := make(chan error, len(shards))
-	var workers sync.WaitGroup
 	for _, shard := range shards {
-		shard := shard
-		workers.Go(func() {
-			err := collectDiagnosticShard(ctx, root, opts.peer, shard)
-			if err != nil {
-				cancel()
-			}
-			errorsByShard <- err
-		})
+		if err := collectDiagnosticShard(ctx, root, opts.peer, shard); err != nil {
+			return err
+		}
 	}
-	workers.Wait()
-	close(errorsByShard)
-	return preferredShardError(errorsByShard)
+	return nil
 }
 
-// diagnosticShards 对全仓大集合启用两个完整 peer，会话内仍按稳定路径串行诊断。
+// diagnosticShards 将全仓大集合拆成顺序 peer，限制语言服务器峰值内存。
 func diagnosticShards(files []string) [][]string {
-	if len(files) < parallelDiagnosticsFileThreshold {
+	groups := map[string][]string{}
+	for _, file := range files {
+		group := diagnosticLanguageGroup(file)
+		groups[group] = append(groups[group], file)
+	}
+	var shards [][]string
+	for _, group := range []string{"go", "javascript", "other"} {
+		shards = append(shards, splitDiagnosticGroup(groups[group])...)
+	}
+	return shards
+}
+
+func diagnosticLanguageGroup(file string) string {
+	switch strings.ToLower(filepath.Ext(file)) {
+	case ".go":
+		return "go"
+	case ".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs":
+		return "javascript"
+	default:
+		return "other"
+	}
+}
+
+func splitDiagnosticGroup(files []string) [][]string {
+	if len(files) == 0 {
+		return nil
+	}
+	if len(files) < diagnosticsShardFileThreshold {
 		return [][]string{files}
 	}
 	middle := (len(files) + 1) / 2
@@ -219,11 +296,35 @@ func collectDiagnosticShard(ctx context.Context, root string, peer, files []stri
 		return diagnosticShardError(ctx, err)
 	}
 	for _, file := range files {
-		if err := client.diagnostics(ctx, root, file); err != nil {
+		if err := diagnosticsWithRetry(ctx, diagnosticsAttempts, diagnosticsRetryDelay, func() error {
+			return client.diagnostics(ctx, root, file)
+		}); err != nil {
 			return diagnosticShardError(ctx, fmt.Errorf("diagnostics %s: %w", file, err))
 		}
 	}
 	return nil
+}
+
+// diagnosticsWithRetry 仅重试 peer 明确声明可重试的诊断错误。
+func diagnosticsWithRetry(ctx context.Context, attempts int, delay time.Duration, call func() error) error {
+	for attempt := 1; attempt <= attempts; attempt++ {
+		err := call()
+		if err == nil {
+			return nil
+		}
+		var retryable *retryableDiagnosticsError
+		if !errors.As(err, &retryable) || attempt == attempts {
+			return err
+		}
+		timer := time.NewTimer(delay)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return context.Cause(ctx)
+		case <-timer.C:
+		}
+	}
+	return errors.New("diagnostics retry attempts must be positive")
 }
 
 // diagnosticShardError 将兄弟分片触发的进程退出归一为取消，避免遮蔽首个真实失败。
@@ -234,28 +335,16 @@ func diagnosticShardError(ctx context.Context, err error) error {
 	return err
 }
 
-// preferredShardError 优先返回真实分片失败，避免并发取消错误遮蔽根因。
-func preferredShardError(results <-chan error) error {
-	var selected error
-	for err := range results {
-		if err == nil {
-			continue
-		}
-		if selected == nil || (isContextError(selected) && !isContextError(err)) {
-			selected = err
-		}
-	}
-	return selected
-}
-
-func isContextError(err error) bool {
-	return errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)
-}
-
 func emitCoverage(output string, selection targetSelection) error {
 	coverage := coverageArtifact{
-		Files: selection.files, TrackedCandidates: selection.candidates, Inspected: len(selection.files),
-		Skipped: selection.skipped, SkippedCount: len(selection.skipped), Diagnostics: 0,
+		Files: selection.files, TrackedCandidates: selection.candidates,
+		Inspected: len(selection.files) + len(selection.targetCompiles),
+		Skipped:   selection.skipped, SkippedCount: len(selection.skipped), Diagnostics: 0,
+	}
+	for _, target := range selection.targetCompiles {
+		coverage.TargetCompiles = append(coverage.TargetCompiles, targetCompileEvidence{
+			File: target.File, GOOS: target.GOOS, GOARCH: target.GOARCH,
+		})
 	}
 	if output != "" {
 		if err := writeCoverageAtomically(output, coverage); err != nil {
@@ -293,6 +382,9 @@ func diagnosticTargets(root string, opts options) (targetSelection, error) {
 		if skipped != nil {
 			selection.candidates++
 			selection.skipped = append(selection.skipped, *skipped)
+			selection.targetCompiles = append(selection.targetCompiles, targetCompileTarget{
+				File: skipped.File, GOOS: skipped.GOOS, GOARCH: skipped.GOARCH,
+			})
 		}
 		if include {
 			selection.candidates++
@@ -358,14 +450,56 @@ func (p targetPolicy) classify(root, raw string, seen map[string]bool) (string, 
 	if languageID != "go" {
 		return rel, nil, true, nil
 	}
+	return p.classifyGoTarget(abs, rel)
+}
+
+// classifyGoTarget 将 Go 文件裁决为宿主诊断、standalone 诊断、目标平台编译或 fail-closed 拒绝。
+func (p targetPolicy) classifyGoTarget(abs string, rel string) (string, *skippedTarget, bool, error) {
 	matched, err := p.buildContext.MatchFile(filepath.Dir(abs), filepath.Base(abs))
 	if err != nil {
 		return "", nil, false, fmt.Errorf("match host build constraints for %s: %w", rel, err)
 	}
 	if !matched {
-		return "", &skippedTarget{File: rel, Reason: "host-build-constraints"}, false, nil
+		source, readErr := os.ReadFile(abs)
+		if readErr != nil {
+			return "", nil, false, fmt.Errorf("read host-excluded Go target %s: %w", rel, readErr)
+		}
+		if multilsp.IsDefaultGoStandaloneMainSource(string(source)) {
+			return rel, nil, true, nil
+		}
+		target, targetErr := matchingTargetBuildContext(filepath.Dir(abs), filepath.Base(abs))
+		if targetErr != nil {
+			return "", nil, false, fmt.Errorf("resolve target build constraints for %s: %w", rel, targetErr)
+		}
+		if target == nil {
+			return "", nil, false, fmt.Errorf("changed Go file %s is excluded by host build constraints and has no supported target platform", rel)
+		}
+		return "", &skippedTarget{File: rel, Reason: "host-build-constraints", GOOS: target.GOOS, GOARCH: target.GOARCH}, false, nil
 	}
 	return rel, nil, true, nil
+}
+
+func matchingTargetBuildContext(directory string, name string) (*targetCompileTarget, error) {
+	for _, target := range []targetCompileTarget{
+		{GOOS: "windows", GOARCH: "amd64"},
+		{GOOS: "windows", GOARCH: "arm64"},
+		{GOOS: "darwin", GOARCH: "arm64"},
+		{GOOS: "darwin", GOARCH: "amd64"},
+		{GOOS: "linux", GOARCH: "amd64"},
+		{GOOS: "linux", GOARCH: "arm64"},
+	} {
+		context := build.Default
+		context.GOOS = target.GOOS
+		context.GOARCH = target.GOARCH
+		matched, err := context.MatchFile(directory, name)
+		if err != nil {
+			return nil, err
+		}
+		if matched {
+			return &target, nil
+		}
+	}
+	return nil, nil
 }
 
 // supportedTarget 拒绝缺失、非普通文件、symlink 和 registry 未支持的语言路径。
@@ -443,6 +577,7 @@ func (b *lockedBuffer) String() string {
 
 func startPeer(ctx context.Context, root string, peer []string) (*peerClient, error) {
 	cmd := exec.CommandContext(ctx, peer[0], peer[1:]...)
+	configurePeerCommandCancellation(cmd)
 	cmd.Dir = root
 	cmd.Env = peerEnvironment(root)
 	stdin, err := cmd.StdinPipe()
@@ -473,9 +608,9 @@ func peerEnvironment(root string) []string {
 		"GO_AGENT_LSP_ROOT": true, "GO_AGENT_LSP_ROOTS": true, "GO_AGENT_CTL_RPC_ADDR": true,
 		"GO_AGENT_PEER_MODE": true, "PROJECT_ROOT": true, "SUPER_DOLPHIN_RUNTIME_MODE": true,
 		"SUPER_DOLPHIN_RUNTIME_RESOURCES_DIR": true, "SUPER_DOLPHIN_LSP_BUNDLE_DIR": true,
-		"SUPER_DOLPHIN_LSP_MANIFEST": true,
+		"SUPER_DOLPHIN_LSP_MANIFEST": true, "GOMEMLIMIT": true, "GOMAXPROCS": true, "NODE_OPTIONS": true,
 	}
-	env := make([]string, 0, len(os.Environ())+6)
+	env := make([]string, 0, len(os.Environ())+9)
 	for _, entry := range os.Environ() {
 		key, _, _ := strings.Cut(entry, "=")
 		if !skip[key] {
@@ -490,6 +625,9 @@ func peerEnvironment(root string) []string {
 		"SUPER_DOLPHIN_RUNTIME_MODE=dev",
 		"SUPER_DOLPHIN_RUNTIME_RESOURCES_DIR="+root,
 		"SUPER_DOLPHIN_DEPENDENCY_PROFILE=production",
+		"GOMEMLIMIT=3GiB",
+		"GOMAXPROCS=4",
+		"NODE_OPTIONS=--max-old-space-size=1024",
 	)
 }
 
@@ -525,7 +663,7 @@ func (c *peerClient) diagnostics(ctx context.Context, root, file string) error {
 		return fmt.Errorf("decode tool result: %w", err)
 	}
 	if result.IsError {
-		return fmt.Errorf("tool error: %s", toolText(result))
+		return diagnosticsToolError(result)
 	}
 	var payload diagnosticsPayload
 	if err := json.Unmarshal(result.StructuredContent, &payload); err != nil {
@@ -541,6 +679,16 @@ func (c *peerClient) diagnostics(ctx context.Context, root, file string) error {
 		return fmt.Errorf("found %d Error/Warning/Information/Hint diagnostics: %s", payload.Total, toolText(result))
 	}
 	return nil
+}
+
+// diagnosticsToolError 按 peer 的显式元数据区分临时错误和永久错误。
+func diagnosticsToolError(result toolResult) error {
+	text := toolText(result)
+	err := fmt.Errorf("tool error: %s", text)
+	if strings.Contains(text, "Retryable: yes") {
+		return &retryableDiagnosticsError{err: err}
+	}
+	return err
 }
 
 func validateDiagnosticsMeta(message string) error {
@@ -607,8 +755,12 @@ func (c *peerClient) receive(ctx context.Context, wantID int) (json.RawMessage, 
 
 func (c *peerClient) close() {
 	_ = c.stdin.Close()
-	if c.cmd.Process != nil {
-		_ = c.cmd.Process.Kill()
+	if c.cmd.Cancel != nil {
+		_ = c.cmd.Cancel()
+	}
+	select {
+	case <-c.waiting:
+	case <-time.After(time.Second):
 	}
 }
 
@@ -639,9 +791,11 @@ func writeCoverageAtomically(path string, coverage coverageArtifact) error {
 
 // validateCoverage 拒绝空 coverage、漏文件和候选计数不闭合。
 func validateCoverage(coverage coverageArtifact) error {
-	if coverage.Inspected == 0 || len(coverage.Files) == 0 ||
-		coverage.Inspected != len(coverage.Files) || coverage.SkippedCount != len(coverage.Skipped) ||
-		coverage.TrackedCandidates != coverage.Inspected+coverage.SkippedCount {
+	if coverage.Inspected == 0 ||
+		coverage.Inspected != len(coverage.Files)+len(coverage.TargetCompiles) ||
+		coverage.SkippedCount != len(coverage.Skipped) ||
+		coverage.TrackedCandidates != len(coverage.Files)+coverage.SkippedCount ||
+		len(coverage.TargetCompiles) > coverage.SkippedCount {
 		return errors.New("refusing to write empty or incomplete diagnostics coverage")
 	}
 	return nil

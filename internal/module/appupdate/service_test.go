@@ -139,6 +139,7 @@ func TestProvideConfigDerivesPackagedUpdatePaths(t *testing.T) {
 	t.Setenv(envUpdateManifestURL, "https://updates.example.test/manifest.json")
 	t.Setenv(envUpdatePublicKey, base64.StdEncoding.EncodeToString(publicKey))
 	t.Setenv(envUpdateChannel, "gray")
+	t.Setenv(envUpdatePlatform, "darwin-arm64")
 	t.Setenv(envRuntimeResources, resources)
 	t.Setenv(envSuperDolphinHome, home)
 

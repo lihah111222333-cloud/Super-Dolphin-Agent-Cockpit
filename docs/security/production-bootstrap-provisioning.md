@@ -82,6 +82,8 @@ authority bundle 使用严格 JSON：
 
 并发首次 submit 共享同一仓库外锁；只有赢家执行 controller，其他调用读取同一 generation 1。任何 root/key/digest/codesign/runner/container/record 漂移都失败，且不会回退到宿主 Go、npm、make 或 candidate CLI。
 
+后续可信树改变镜像输入时，owner 先把包含 source entries 的 build intent 持久化到仓库外 candidate state，再由 scheduler 构建并晋升新 immutable image。该 JSON snapshot 上限为 128 MiB；超过上限会在构建前 fail-closed，不会截断、跳过文件或复用旧镜像。
+
 ## 外部前置与残余边界
 
 - Docker Desktop、目标 runner manifest、baseline remote 和 candidate registry 必须在执行前可达。runner 不接收私钥或宿主 credential 文件，因此 baseline remote 必须允许无交互只读访问，candidate registry 必须允许该外部 builder 身份推送；凭据型 registry 需要发布方提供 Docker/BuildKit 外部身份方案，当前 provision 不会伪造一个。

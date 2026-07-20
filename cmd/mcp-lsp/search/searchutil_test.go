@@ -375,10 +375,10 @@ func TestFilterAndCapSearchMatchesExcludesWorkspaceNoisePaths(t *testing.T) {
 	root := t.TempDir()
 	keep := filepath.Join(root, "src", "keep.go")
 	matches := []SearchMatch{
-		{AbsPath: filepath.Join(root, ".build-cache", "skip.go"), File: ".build-cache/skip.go", Line: 1, Col: 1, Text: "needle"},
-		{AbsPath: filepath.Join(root, ".workspace", "skip.go"), File: ".workspace/skip.go", Line: 1, Col: 1, Text: "needle"},
-		{AbsPath: filepath.Join(root, "node_modules", "skip.go"), File: "node_modules/skip.go", Line: 1, Col: 1, Text: "needle"},
-		{AbsPath: keep, File: "src/keep.go", Line: 1, Col: 1, Text: "needle"},
+		{AbsPath: filepath.Join(root, ".build-cache", "skip.go"), SearchRoot: root, File: ".build-cache/skip.go", Line: 1, Col: 1, Text: "needle"},
+		{AbsPath: filepath.Join(root, ".workspace", "skip.go"), SearchRoot: root, File: ".workspace/skip.go", Line: 1, Col: 1, Text: "needle"},
+		{AbsPath: filepath.Join(root, "node_modules", "skip.go"), SearchRoot: root, File: "node_modules/skip.go", Line: 1, Col: 1, Text: "needle"},
+		{AbsPath: keep, SearchRoot: root, File: "src/keep.go", Line: 1, Col: 1, Text: "needle"},
 	}
 
 	filtered, total, truncated := FilterAndCapSearchMatches(matches, 0)

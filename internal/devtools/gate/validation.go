@@ -470,39 +470,6 @@ func (r GrantRequest) validateAudience() error {
 	}
 }
 
-// Validate 校验单个 gate 的进程结果与摘要闭包。
-func (r GateResult) Validate() error {
-	if strings.TrimSpace(r.GateID) == "" {
-		return errors.New("gate_id is required")
-	}
-	if r.StartedAt.IsZero() || r.CompletedAt.Before(r.StartedAt) {
-		return errors.New("gate result timestamps are invalid")
-	}
-	if err := validateGateExit(r.Status, r.ExitCode); err != nil {
-		return err
-	}
-	if err := validateDigest("argv_digest", r.ArgvDigest); err != nil {
-		return err
-	}
-	return validateDigest("log_digest", r.LogDigest)
-}
-
-func validateGateExit(status GateStatus, exitCode int) error {
-	switch status {
-	case GateStatusPassed:
-		if exitCode != 0 {
-			return errors.New("passed gate must have zero exit_code")
-		}
-	case GateStatusFailed:
-		if exitCode == 0 {
-			return errors.New("failed gate must have non-zero exit_code")
-		}
-	default:
-		return fmt.Errorf("unsupported gate status %q", status)
-	}
-	return nil
-}
-
 // Validate 校验证据类型与不可变摘要。
 func (e Evidence) Validate() error {
 	switch e.Kind {
@@ -520,6 +487,16 @@ func (e ContainerEvidence) Validate() error {
 	}
 	if err := validateDigest("host_config_digest", e.HostConfigDigest); err != nil {
 		return err
+	}
+	resourceDigest, err := e.ResourceWitness.Digest()
+	if err != nil {
+		return fmt.Errorf("resource_witness: %w", err)
+	}
+	if err := validateDigest("resource_witness_digest", e.ResourceWitnessDigest); err != nil {
+		return err
+	}
+	if resourceDigest != e.ResourceWitnessDigest {
+		return errors.New("resource_witness_digest does not match resource_witness")
 	}
 	if err := validateDigest("network_policy_digest", e.NetworkPolicyDigest); err != nil {
 		return err
@@ -549,6 +526,9 @@ func (r ResultReceipt) validate(requireSignature bool) error {
 	if err := r.validateResults(); err != nil {
 		return err
 	}
+	if err := r.validatePassedShardReceipt(); err != nil {
+		return err
+	}
 	if err := r.Container.Validate(); err != nil {
 		return err
 	}
@@ -557,10 +537,16 @@ func (r ResultReceipt) validate(requireSignature bool) error {
 
 // validateIdentity 校验 receipt schema、主身份、source 与可选签名字段。
 func (r ResultReceipt) validateIdentity(requireSignature bool) error {
-	if r.SchemaVersion != 1 {
+	if r.SchemaVersion != ResultReceiptSchemaVersion {
 		return fmt.Errorf("unsupported result receipt schema_version %d", r.SchemaVersion)
 	}
-	values := map[string]string{"receipt_id": r.ReceiptID, "repo_id": r.RepoID, "invocation_id": r.InvocationID}
+	if r.Status != ResultStatusPassed {
+		return fmt.Errorf("result receipt schema v2 only signs passed status, got %q", r.Status)
+	}
+	values := map[string]string{
+		"receipt_id": r.ReceiptID, "repo_id": r.RepoID, "invocation_id": r.InvocationID,
+		"entrypoint": string(r.Entrypoint), "authority_owner": string(r.AuthorityOwner),
+	}
 	if requireSignature {
 		values["signature"] = r.Signature
 	}
@@ -572,7 +558,7 @@ func (r ResultReceipt) validateIdentity(requireSignature bool) error {
 	if err := r.Source.Validate(); err != nil {
 		return fmt.Errorf("receipt source: %w", err)
 	}
-	return nil
+	return validateResultReceiptAuthority(r)
 }
 
 func (r ResultReceipt) validateExecutionIdentity() error {
@@ -592,7 +578,7 @@ func (r ResultReceipt) validateExecutionIdentity() error {
 
 // validateTimeline 校验 receipt generation、截止时间与终态枚举。
 func (r ResultReceipt) validateTimeline() error {
-	if r.Generation == 0 || r.StartedAt.IsZero() || r.CompletedAt.Before(r.StartedAt) || !r.Deadline.After(r.StartedAt) || r.CompletedAt.After(r.Deadline) {
+	if r.Generation == 0 || r.StartedAt.IsZero() || r.CompletedAt.Before(r.StartedAt) || !r.Deadline.After(r.StartedAt) {
 		return errors.New("receipt generation or timestamps are invalid")
 	}
 	switch r.Status {

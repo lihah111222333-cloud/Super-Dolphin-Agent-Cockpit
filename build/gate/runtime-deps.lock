@@ -1,0 +1,111 @@
+{
+  "schema_version": "3",
+  "registry_pull_policy": "anonymous",
+  "images": [
+    {
+      "platform": "linux/amd64",
+      "image": {
+        "registry": "ghcr.io/lihah111222333-cloud/super-dolphin-runtime-deps",
+        "oci_index_digest": "sha256:a080b03094c8fbdeb8a124f9b8c9a1182bc433e4a6fb64c9e4abb8267ed53980",
+        "platform_manifest_digest": "sha256:6755532376f724893c719d5bba8f52cea0e9ef544818642657a585ad1e794fd3",
+        "config_digest": "sha256:ffaec1397e1d0098ab57d5a10177139461bc804df97e54a284d7c38a835197b6",
+        "rootfs_diff_ids": [
+          "sha256:f2c42f900cb3b12d5456f76b4fa6454a52df3981323d3a1b1a17fe4c4955ab4a",
+          "sha256:d13007d6a3979078792cbc2afff5c74eb1a14f5a02394f6cae0a873a0752c104",
+          "sha256:af68230260cdbb7ac206fc2f95bf67c1a75ebdcf3e4014accffd3c8bcb478e15",
+          "sha256:959f706d48a9c4a27101297f3267548a4d01379be4ab9d9aa1611995cd2c69b6",
+          "sha256:033cd45a45cca6a35cb4d690c95b811b4661364d4a1f99a0f9785d49eda8bc63",
+          "sha256:8671d9648160bd233590fe219d1fbdaa74ea2dcedcdcbd6a6e5fecf5a590a83a",
+          "sha256:5f70bf18a086007016e948b04aed3b82103a36bea41755b6cddfaf10ace3c6ef",
+          "sha256:d3e787f340b93c78de4722935044686ae1cca7a448f2a48a32c595c3edba67d4",
+          "sha256:344ae9a21b1c852375d6e5d96150687c6900ed572932a98222167b8eb9603797",
+          "sha256:139a0ea403a1b2afc8be8d3416cb29510613ae00ddc1525084f6284dd170e02a",
+          "sha256:1f20561f2ce7dfbba001f95eb76ba6bd7190a4c1e2887bcac2460290ed35a15f",
+          "sha256:1219aa3519c9544fcc79a985bbee7a695ae37963ca70afab7268ab49a1623e63",
+          "sha256:5d573e2444a8595c35d6b5f30516ee8925ec02885d2a2465d706587096e9f66a",
+          "sha256:0e5ea52fa734002ea0d4dba56a25f8e78e8fd760020f330111a3731ed835d9d0",
+          "sha256:dad3acb49eb38044774e3153780fc8cbd0fe9d0535522745f492dcdbce1470d0",
+          "sha256:6d476b0cedd43e4f35489852d71e97ba3ff3c44313c09c5ddec90cb8074bff3c",
+          "sha256:265c1e8ca28478d46cd9cbdce52573509c69726b02829fc641aec34e37794549",
+          "sha256:051331cd19ed62bd56e87b0e01cb3892a0e86b390ba7f2635065e515d85dacb4",
+          "sha256:64dd0bf194a851f808619fb8cab8ea41b5d5c4a0b8d9d47f636031f8d9d672e6",
+          "sha256:bd51569509bbcef349389a7e63bd25b60d45b8df3ee23d3b6b4d2496ae5d4b56",
+          "sha256:5f70bf18a086007016e948b04aed3b82103a36bea41755b6cddfaf10ace3c6ef",
+          "sha256:5f70bf18a086007016e948b04aed3b82103a36bea41755b6cddfaf10ace3c6ef"
+        ],
+        "os": "linux",
+        "architecture": "amd64"
+      },
+      "image_size_bytes": 1723706366
+    },
+    {
+      "platform": "linux/arm64",
+      "image": {
+        "registry": "ghcr.io/lihah111222333-cloud/super-dolphin-runtime-deps",
+        "oci_index_digest": "sha256:a080b03094c8fbdeb8a124f9b8c9a1182bc433e4a6fb64c9e4abb8267ed53980",
+        "platform_manifest_digest": "sha256:5a184b7388c081d63d50d98454a3f0aa5d6252360c6480ac4197b3ce6f152f33",
+        "config_digest": "sha256:7ba8b576fb4f2b99351beb1637f08720989cd26ec17c0018c798014b418e1b76",
+        "rootfs_diff_ids": [
+          "sha256:e18c028dc018533df422ccc01673b0c502b71c91718e329fc32823cd987c35b1",
+          "sha256:8efeade7480506727e403a70a6af55ff20fcbf157ba333a276f11bc9148f641c",
+          "sha256:18fcbe5c6364b23bfa01fef8ecf474d48921f9640ceffe5b8bc1d996f138eb63",
+          "sha256:debc386bcedbddab44d1f23513c07fb9e175f8d1b4331a1df4afa0b1bb9676c0",
+          "sha256:28fd8b5d89238feec4841a53d475df7ea1114068b51edea6f95ff4b28b492616",
+          "sha256:efca39d0fba19860a9a80159349eb3a7cb1c37a1390956887ce9da3e4fa9a961",
+          "sha256:5f70bf18a086007016e948b04aed3b82103a36bea41755b6cddfaf10ace3c6ef",
+          "sha256:c036beba06c8037e1d1edfb61872b80212d90e8998ffcc6e7ae56cb56757c6b1",
+          "sha256:2aabdc3f0e6df34c5a9ddf0e5b24a2c1d7325c296548ac39f3f3b5efac9c7a95",
+          "sha256:55b49e3f14f41f6def51f031b0469588543d29240836935b92f94162e50e08fb",
+          "sha256:5667db741a764df0bb63c7822cb2a2be4bb83d288513171b9774b3b712c111c9",
+          "sha256:644b1f3c9ac4a76b8bb2908fd8b7ec7b194aa15f475c49f853cc9c87d60fcdeb",
+          "sha256:b37431e1388c317d27a16e600ebd40e23f05bc23c0bfe126ba33124b17a01530",
+          "sha256:581926f405a0cb2dee7436f1c7730075d2ca538ff02a5f6a59cadfc437e633a1",
+          "sha256:8fbd20cc46958e0b41aca308cd606bec3ad4055867d3228533e7190930adcaa7",
+          "sha256:d9504743b4fdf5379830cdbdeb2aa5e4f14f42093135ef9aea3cad6efec4c5b8",
+          "sha256:1b2d554163281e2374ffd3c9424f2d55e75256d203dbdd8d7504493ff1b6c193",
+          "sha256:c3fb321ad2a21e22d79ea4f30c08ecf9f03e861b57ce26d4d72f259aaf065bf8",
+          "sha256:49dd5a6c8b871166d45a1b31aba19264d8d41613d3cf5b828d067111b53b3cd4",
+          "sha256:1f91a0d8819d53c2b0f8178d50ab39bac5bf04aa2c981eb1b51a7238cf0d6d7d",
+          "sha256:5f70bf18a086007016e948b04aed3b82103a36bea41755b6cddfaf10ace3c6ef",
+          "sha256:5f70bf18a086007016e948b04aed3b82103a36bea41755b6cddfaf10ace3c6ef"
+        ],
+        "os": "linux",
+        "architecture": "arm64"
+      },
+      "image_size_bytes": 1739063436
+    }
+  ],
+  "inputs": {
+    "dockerfile_sha256": "sha256:df4d734d1cbfc6380e5193924780e99c82ed9aba3f7b699f2da1871c1f18bd93",
+    "toolchain_lock_sha256": "sha256:21114a9fc60dbb36bae349d3eb91bd4583060f38b651613f98af208545ce97db",
+    "go_mod_sha256": "sha256:9f4aea0fd1a670a04d55cc30a53ba509f86ae34773ba59fbfd526322d556733d",
+    "go_sum_sha256": "sha256:71781753bbeb956c9ee9ac4db329e6bf9697630e00daa85e3d0cb0f355991c36",
+    "nilness_runner_sha256": "sha256:95dc872b202a527293eb57887ddb8fb4caf0a9f6ec5169fd17cbff99f74e8b9d",
+    "nilness_guard_sha256": "sha256:b85f7ca92e06a6783898751dd969328ba9fcdf234f6727680b5e0d60536acd46",
+    "frontend_package_lock_sha256": "sha256:4bd250812b4e8eacbc97ba4191aa8b4b5aba8958687783d31e31233a074cef73",
+    "lsp_package_lock_sha256": "sha256:f46be2baa736bd8c47bfe8a038f3fdda6a09353a97c46af46df5105df448b54f",
+    "proxy_go_mod_sha256": "sha256:cba6f12730b8a3765b3b1ff9e596f64af325d36d651dd4933893792e928963a4",
+    "proxy_go_sum_sha256": "sha256:0c367de5a9f3090cb8f06556d9a1997a84e1c6081f7c46b9ad9650e3178dc224",
+    "tools_go_mod_sha256": "sha256:0ec976eb6535030c1a1e71a2d2ceca79a725f237811e61019234882a168baeb5",
+    "tools_go_sum_sha256": "sha256:a39fb064967f9807c3f517f5cfd2e82931198f04ea8b03cfc3d7c46fbadfd937",
+    "manifest_builder_sha256": "sha256:f21d502d1a048a0a6e3293034889bc353a6c5367089d60fb322d34bc94683af5",
+    "manifest_api_sha256": "sha256:62b04f2ee38f84eea9e0e4bb46e60b8c0ce07f8276a4ef611effc18f0c5507ae"
+  },
+  "paths": {
+    "manifest": "/opt/super-dolphin-gate/runtime/manifest.json",
+    "vendor": "/opt/super-dolphin-gate/runtime/vendor",
+    "go_module_proxy": "/opt/super-dolphin-gate/runtime/go-proxy",
+    "frontend_node_modules": "/opt/super-dolphin-gate/runtime/frontend/node_modules",
+    "playwright_browsers": "/opt/super-dolphin-gate/runtime/frontend/node_modules/.cache/ms-playwright",
+    "lsp_node_modules": "/opt/super-dolphin-gate/runtime/lsp/node_modules",
+    "sqlc": "/opt/super-dolphin-gate/runtime/bin/sqlc",
+    "ripgrep": "/opt/super-dolphin-gate/runtime/bin/rg",
+    "sqruff": "/opt/super-dolphin-gate/runtime/bin/sqruff",
+    "gopls": "/usr/local/bin/gopls",
+    "go": "/usr/local/go/bin/go",
+    "node": "/usr/local/bin/node",
+    "npm": "/usr/local/bin/npm",
+    "git": "/usr/bin/git",
+    "make": "/usr/bin/make"
+  }
+}

@@ -3,6 +3,7 @@ package gate
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"slices"
 	"strings"
@@ -57,29 +58,30 @@ func TestParseExecutorCommandFailsClosed(t *testing.T) {
 }
 
 func TestParseExecutorCommandReturnsDefensiveProgramCopy(t *testing.T) {
-	args := []string{"run", "--gate", string(GateIDFrontendLint)}
+	args := []string{"run", "--gate", string(GateIDBackendTestGuardWithRace)}
 	id, first, err := ParseExecutorCommand(args)
 	if err != nil {
 		t.Fatalf("ParseExecutorCommand: %v", err)
 	}
-	if id != GateIDFrontendLint {
-		t.Fatalf("gate id = %q, want %q", id, GateIDFrontendLint)
+	if id != GateIDBackendTestGuardWithRace {
+		t.Fatalf("gate id = %q, want %q", id, GateIDBackendTestGuardWithRace)
 	}
 	first.Steps[0].Argv[0] = "mutated"
+	first.Steps[0].Environment[0] = "mutated"
 	_, second, err := ParseExecutorCommand(args)
 	if err != nil {
 		t.Fatalf("ParseExecutorCommand second call: %v", err)
 	}
-	if slices.Equal(first.Steps[0].Argv, second.Steps[0].Argv) {
+	if slices.Equal(first.Steps[0].Argv, second.Steps[0].Argv) || slices.Equal(first.Steps[0].Environment, second.Steps[0].Environment) {
 		t.Fatal("executor program mutation leaked into the canonical table")
 	}
 }
 
-func TestReleaseExecutorUsesCanonicalLayeredTargetWithoutClaudeOverride(t *testing.T) {
+func TestReleaseExecutorUsesSameProcessAttestationWithoutCommands(t *testing.T) {
 	program := ExecutorPrograms()[GateIDReleaseLayeredCheck]
-	want := []string{"make", "ci-l3-release"}
-	if len(program.Steps) != 1 || !slices.Equal(program.Steps[0].Argv, want) {
-		t.Fatalf("release executor argv = %v, want %v", program.Steps, want)
+	if program.Strategy != ExecutorStrategyReleaseAttestation || len(program.Steps) != 0 ||
+		program.NeedsGoSeed || program.NeedsFrontendSeed || len(program.RequiredPaths) != 0 {
+		t.Fatalf("release attestation must be a command-free plan-executor strategy: %#v", program)
 	}
 }
 
@@ -96,11 +98,38 @@ func TestSQLCExecutorUsesPinnedRuntimeBinary(t *testing.T) {
 	}
 }
 
+func TestBackendProgramBuildsFrontendEmbedInsideFreshContainer(t *testing.T) {
+	backend := ExecutorPrograms()[GateIDBackendTestWithGuard]
+	if !backend.NeedsGoSeed || !backend.NeedsFrontendSeed {
+		t.Fatalf("backend gate seed contract = go:%t frontend:%t", backend.NeedsGoSeed, backend.NeedsFrontendSeed)
+	}
+	wantBuild := ExecutorStep{Directory: "frontend-app", Argv: []string{"npm", "run", "build"}}
+	wantTest := ExecutorStep{
+		Argv:        []string{"./scripts/test_with_guard.sh", "--canonical-backend", "./cmd/...", "./internal/...", "./pkg/...", "./scripts/..."},
+		Environment: []string{"GOFLAGS=-p=2", "GOMAXPROCS=2", "GOMEMLIMIT=1GiB"},
+	}
+	if len(backend.Steps) != 2 || !reflect.DeepEqual(backend.Steps[0], wantBuild) ||
+		!reflect.DeepEqual(backend.Steps[1], wantTest) {
+		t.Fatalf("backend gate does not build its immutable frontend embed before canonical tests: %#v", backend.Steps)
+	}
+}
+
 func TestRaceAndFrontendProgramsUsePinnedRuntimeInputs(t *testing.T) {
 	programs := ExecutorPrograms()
 	race := programs[GateIDBackendTestGuardWithRace]
-	if len(race.Steps) != 1 || !slices.Contains(race.Steps[0].Argv, "--with-race") || slices.Contains(race.Steps[0].Argv, "make") {
-		t.Fatalf("race executor is not a real guard+race command: %v", race.Steps)
+	if !race.NeedsGoSeed {
+		t.Fatal("race gate does not require the lock-bound Go seed")
+	}
+	if race.NeedsFrontendSeed {
+		t.Fatal("race gate must not install or build frontend inputs")
+	}
+	wantRaceArgv := append([]string{"./scripts/test_with_guard.sh", "--race-only"}, RaceSensitivePackagePatterns()...)
+	wantRaceArgv = append(wantRaceArgv, "-timeout=180s")
+	wantRaceSteps := []ExecutorStep{
+		{Argv: wantRaceArgv, Environment: []string{"GOFLAGS=-p=1", "GOMAXPROCS=1", "GOMEMLIMIT=1GiB"}},
+	}
+	if !reflect.DeepEqual(race.Steps, wantRaceSteps) {
+		t.Fatalf("race executor is not bounded to registered concurrency surfaces: %#v", race.Steps)
 	}
 	for _, id := range []GateID{GateIDFrontendLint, GateIDFrontendTest, GateIDFrontendBuild} {
 		program := programs[id]
@@ -115,6 +144,36 @@ func TestRaceAndFrontendProgramsUsePinnedRuntimeInputs(t *testing.T) {
 	}
 	if programs[GateIDLSPChangedDiagnostics].Strategy != ExecutorStrategyChangedDiagnostics {
 		t.Fatal("LSP gate does not derive changed targets from snapshot Git truth")
+	}
+}
+
+func TestBackendRaceExecutorUsesOnlyRegisteredPackages(t *testing.T) {
+	argv := ExecutorPrograms()[GateIDBackendTestGuardWithRace].Steps[0].Argv
+	if slices.Contains(argv, "--") {
+		t.Fatalf("race executor argv includes a duplicate normal-test segment: %v", argv)
+	}
+	packages := argv[2 : len(argv)-1]
+	if !slices.Equal(packages, RaceSensitivePackagePatterns()) {
+		t.Fatalf("race executor argv registry drifted: packages=%v", packages)
+	}
+}
+
+func TestRaceSensitivePackageAndPathRegistriesStayAligned(t *testing.T) {
+	patterns := RaceSensitivePackagePatterns()
+	prefixes := RaceSensitivePathPrefixes()
+	if len(patterns) == 0 || len(patterns) != len(prefixes) {
+		t.Fatalf("race registry lengths = patterns:%d prefixes:%d", len(patterns), len(prefixes))
+	}
+	for index, prefix := range prefixes {
+		exactPackage := "./" + strings.TrimSuffix(prefix, "/")
+		recursivePackage := "./" + prefix + "..."
+		if prefix == "" || !strings.HasSuffix(prefix, "/") ||
+			(patterns[index] != exactPackage && patterns[index] != recursivePackage) {
+			t.Fatalf("race registry entry %d = pattern:%q prefix:%q", index, patterns[index], prefix)
+		}
+	}
+	if slices.Contains(patterns, "./cmd/...") || slices.Contains(patterns, "./cmd/agent-terminal/...") {
+		t.Fatalf("race registry includes agent-terminal through an unbounded command pattern: %v", patterns)
 	}
 }
 

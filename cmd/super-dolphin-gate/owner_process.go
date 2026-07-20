@@ -35,9 +35,14 @@ func (executableOwnerStarter) StartCoordinatorOwner(ctx context.Context, checkpo
 	args := []string{
 		"_owner", "--identity-key", checkpoint.IdentityKey,
 	}
-	command := exec.CommandContext(ctx, executable, args...)
+	command := newCoordinatorOwnerCommand(executable, args...)
 	command.Stderr = os.Stderr
 	return startCoordinatorOwnerCommand(ctx, command)
+}
+
+// newCoordinatorOwnerCommand 让 daemon 生命周期独立于有界握手 context。
+func newCoordinatorOwnerCommand(executable string, args ...string) *exec.Cmd {
+	return exec.Command(executable, args...)
 }
 
 // startCoordinatorOwnerCommand 在调用方 deadline 内启动、校验握手并移交 owner 子进程。

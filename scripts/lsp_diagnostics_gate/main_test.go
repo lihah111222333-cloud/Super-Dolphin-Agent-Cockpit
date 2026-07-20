@@ -3,9 +3,9 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -84,7 +84,7 @@ func TestDiagnosticShardsKeepSmallSetsSingleAndSplitLargeSetsCompletely(t *testi
 	if shards := diagnosticShards(small); len(shards) != 1 || strings.Join(shards[0], ",") != "a.go,b.go" {
 		t.Fatalf("small shards = %#v, want one unchanged shard", shards)
 	}
-	large := make([]string, parallelDiagnosticsFileThreshold+1)
+	large := make([]string, diagnosticsShardFileThreshold+1)
 	for i := range large {
 		large[i] = fmt.Sprintf("%04d.go", i)
 	}
@@ -98,6 +98,35 @@ func TestDiagnosticShardsKeepSmallSetsSingleAndSplitLargeSetsCompletely(t *testi
 	}
 }
 
+func TestDiagnosticShardsSeparateLanguageServerFamilies(t *testing.T) {
+	files := []string{"a.go", "b.ts", "c.json", "d.go", "e.jsx", "f.yaml"}
+	shards := diagnosticShards(files)
+	if len(shards) != 3 {
+		t.Fatalf("language shards = %#v, want 3", shards)
+	}
+	want := []string{"a.go,d.go", "b.ts,e.jsx", "c.json,f.yaml"}
+	for index := range want {
+		if got := strings.Join(shards[index], ","); got != want[index] {
+			t.Fatalf("language shard %d = %q, want %q", index, got, want[index])
+		}
+	}
+}
+
+func TestPeerEnvironmentPinsLanguageServerMemoryBudgets(t *testing.T) {
+	t.Setenv("GOMEMLIMIT", "99GiB")
+	t.Setenv("GOMAXPROCS", "99")
+	t.Setenv("NODE_OPTIONS", "--max-old-space-size=99999")
+	env := map[string]string{}
+	for _, entry := range peerEnvironment(t.TempDir()) {
+		key, value, _ := strings.Cut(entry, "=")
+		env[key] = value
+	}
+	if env["GOMEMLIMIT"] != "3GiB" || env["GOMAXPROCS"] != "4" ||
+		env["NODE_OPTIONS"] != "--max-old-space-size=1024" {
+		t.Fatalf("peer resource environment = %#v", env)
+	}
+}
+
 func TestDiagnosticShardErrorPreservesRealFailureAndNormalizesSiblingExit(t *testing.T) {
 	realFailure := fmt.Errorf("diagnostics broken.go: invalid syntax")
 	ctx, cancel := context.WithCancel(context.Background())
@@ -105,12 +134,48 @@ func TestDiagnosticShardErrorPreservesRealFailureAndNormalizesSiblingExit(t *tes
 	if got := diagnosticShardError(ctx, fmt.Errorf("peer exited: signal killed")); got != context.Canceled {
 		t.Fatalf("sibling exit = %v, want context canceled", got)
 	}
-	results := make(chan error, 2)
-	results <- realFailure
-	results <- context.Canceled
-	close(results)
-	if got := preferredShardError(results); got != realFailure {
-		t.Fatalf("preferred error = %v, want %v", got, realFailure)
+	if got := diagnosticShardError(context.Background(), realFailure); got != realFailure {
+		t.Fatalf("real failure = %v, want %v", got, realFailure)
+	}
+}
+
+func TestDiagnosticsWithRetryRetriesOnlyExplicitRetryableErrors(t *testing.T) {
+	t.Run("retryable then success", func(t *testing.T) {
+		calls := 0
+		err := diagnosticsWithRetry(context.Background(), 2, 0, func() error {
+			calls++
+			if calls == 1 {
+				return &retryableDiagnosticsError{err: errors.New("temporary timeout")}
+			}
+			return nil
+		})
+		if err != nil || calls != 2 {
+			t.Fatalf("diagnosticsWithRetry() = (%v, calls=%d), want success after 2 calls", err, calls)
+		}
+	})
+
+	t.Run("permanent error", func(t *testing.T) {
+		calls := 0
+		want := errors.New("diagnostic failure")
+		err := diagnosticsWithRetry(context.Background(), 2, 0, func() error {
+			calls++
+			return want
+		})
+		if !errors.Is(err, want) || calls != 1 {
+			t.Fatalf("diagnosticsWithRetry() = (%v, calls=%d), want permanent failure after 1 call", err, calls)
+		}
+	})
+}
+
+func TestDiagnosticsToolErrorRecognizesExplicitRetryableMarker(t *testing.T) {
+	var result toolResult
+	err := json.Unmarshal([]byte(`{"content":[{"text":"Tool error\nRetryable: yes"}],"isError":true}`), &result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var retryable *retryableDiagnosticsError
+	if err := diagnosticsToolError(result); !errors.As(err, &retryable) {
+		t.Fatalf("diagnosticsToolError() = %v, want retryable diagnostics error", err)
 	}
 }
 
@@ -121,7 +186,7 @@ func TestDiagnosticTargetsAllUsesTrackedFilesActualAdaptersAndNoisePolicy(t *tes
 	writeTestFile(t, filepath.Join(root, "asset.bin"), "not source\n")
 	writeTestFile(t, filepath.Join(root, "node_modules", "ignored.go"), "package ignored\n")
 	writeTestFile(t, filepath.Join(root, "only_windows.go"), "//go:build windows\n\npackage a\n")
-	writeTestFile(t, filepath.Join(root, "tag_excluded.go"), "//go:build never_enabled_lsp_gate\n\npackage a\n")
+	writeTestFile(t, filepath.Join(root, "standalone_ignore.go"), "//go:build ignore\n\npackage main\n\nfunc main() {}\n")
 	git := func(args ...string) {
 		t.Helper()
 		cmd := exec.Command("git", args...)
@@ -131,17 +196,17 @@ func TestDiagnosticTargetsAllUsesTrackedFilesActualAdaptersAndNoisePolicy(t *tes
 		}
 	}
 	git("init", "-q")
-	git("add", "-f", "a.go", "config.json", "asset.bin", "node_modules/ignored.go", "only_windows.go", "tag_excluded.go")
+	git("add", "-f", "a.go", "config.json", "asset.bin", "node_modules/ignored.go", "only_windows.go", "standalone_ignore.go")
 
 	selection, err := diagnosticTargets(root, options{all: true})
 	if err != nil {
 		t.Fatal(err)
 	}
-	wantFiles := "a.go,config.json"
-	wantSkipped := "only_windows.go,tag_excluded.go"
+	wantFiles := "a.go,config.json,standalone_ignore.go"
+	wantSkipped := "only_windows.go"
 	if runtime.GOOS == "windows" {
-		wantFiles = "a.go,config.json,only_windows.go"
-		wantSkipped = "tag_excluded.go"
+		wantFiles = "a.go,config.json,only_windows.go,standalone_ignore.go"
+		wantSkipped = ""
 	}
 	if got := strings.Join(selection.files, ","); got != wantFiles {
 		t.Fatalf("targets = %q, want %q", got, wantFiles)
@@ -159,47 +224,129 @@ func TestDiagnosticTargetsAllUsesTrackedFilesActualAdaptersAndNoisePolicy(t *tes
 	if selection.candidates != len(selection.files)+len(selection.skipped) {
 		t.Fatalf("candidate accounting = %#v", selection)
 	}
+	assertWindowsTargetCompileSelection(t, selection)
 }
 
-func TestCollectHostExcludedOnlyAuditsSkipWithoutArtifact(t *testing.T) {
-	root := t.TempDir()
-	writeTestFile(t, filepath.Join(root, "tag_excluded.go"), "//go:build never_enabled_lsp_gate\n\npackage a\n")
-	output := filepath.Join(root, "coverage.json")
-	stderr := captureCollectorStderr(t, func() error {
-		return run(context.Background(), options{
-			root: root, files: []string{"tag_excluded.go"}, output: output,
-			peer: []string{os.Args[0], "-test.run=TestDiagnosticsFakePeer", "--", "success"},
-		})
-	})
-	if want := "lsp diagnostics skip: candidates=1 inspected=0 skipped=1 reason=host-build-constraints\n"; stderr != want {
-		t.Fatalf("stderr = %q, want %q", stderr, want)
-	}
-	if _, err := os.Stat(output); !os.IsNotExist(err) {
-		t.Fatalf("coverage artifact exists after skip: %v", err)
-	}
-}
-
-func captureCollectorStderr(t *testing.T, run func() error) string {
+func assertWindowsTargetCompileSelection(t *testing.T, selection targetSelection) {
 	t.Helper()
-	reader, writer, err := os.Pipe()
+	if runtime.GOOS == "windows" {
+		return
+	}
+	if got := selection.targetCompiles; len(got) != 1 || got[0].File != "only_windows.go" || got[0].GOOS != "windows" {
+		t.Fatalf("target compile selection = %#v", got)
+	}
+}
+
+func TestDiagnosticTargetsIncludesOnlyCanonicalGoplsStandaloneIgnoreMain(t *testing.T) {
+	root := t.TempDir()
+	writeTestFile(t, filepath.Join(root, "standalone.go"), "//go:build ignore\n\npackage main\n\nfunc main() {}\n")
+
+	selection, err := diagnosticTargets(root, options{files: []string{"standalone.go"}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	original := os.Stderr
-	os.Stderr = writer
-	defer func() { os.Stderr = original }()
-	runErr := run()
-	if closeErr := writer.Close(); closeErr != nil {
-		t.Fatal(closeErr)
+	if got, want := strings.Join(selection.files, ","), "standalone.go"; got != want {
+		t.Fatalf("diagnostics targets = %q, want %q", got, want)
 	}
-	data, readErr := io.ReadAll(reader)
-	if readErr != nil {
-		t.Fatal(readErr)
+	if len(selection.skipped) != 0 {
+		t.Fatalf("standalone diagnostics unexpectedly skipped targets = %#v", selection.skipped)
 	}
-	if runErr != nil {
-		t.Fatalf("run error = %v", runErr)
+}
+
+func TestCollectCanonicalGoplsStandaloneIgnoreMainRunsDiagnostics(t *testing.T) {
+	root := t.TempDir()
+	writeTestFile(t, filepath.Join(root, "standalone.go"), "//go:build ignore\n\npackage main\n\nfunc main() {}\n")
+	output := filepath.Join(root, "coverage.json")
+
+	err := run(context.Background(), options{
+		root: root, files: []string{"standalone.go"}, output: output,
+		peer: []string{os.Args[0], "-test.run=TestDiagnosticsFakePeer", "--", "polluted"},
+	})
+	if err == nil || !strings.Contains(err.Error(), "found 1 Error/Warning/Information/Hint diagnostics") {
+		t.Fatalf("standalone diagnostics error = %v, want propagated diagnostics failure", err)
 	}
-	return string(data)
+	if _, err := os.Stat(output); !os.IsNotExist(err) {
+		t.Fatalf("coverage artifact exists after standalone diagnostics failure: %v", err)
+	}
+}
+
+func TestCollectUnknownBuildConstraintFailsClosed(t *testing.T) {
+	root := t.TempDir()
+	writeTestFile(t, filepath.Join(root, "tag_excluded.go"), "//go:build never_enabled_lsp_gate\n\npackage a\n")
+	output := filepath.Join(root, "coverage.json")
+	err := run(context.Background(), options{
+		root: root, files: []string{"tag_excluded.go"}, output: output,
+		peer: []string{os.Args[0], "-test.run=TestDiagnosticsFakePeer", "--", "success"},
+	})
+	if err == nil || !strings.Contains(err.Error(), "has no supported target platform") {
+		t.Fatalf("run error = %v, want fail-closed target-platform error", err)
+	}
+	if _, err := os.Stat(output); !os.IsNotExist(err) {
+		t.Fatalf("coverage artifact exists after failed target resolution: %v", err)
+	}
+}
+
+func TestActualStagedWindowsGateFileGetsTargetCompileEvidence(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows source is host-visible on Windows")
+	}
+	root := lspDiagnosticsGateRepoRoot(t)
+	target := stagedWindowsTargetCompile(t, root)
+	coverage := runStagedWindowsTargetCompile(t, root, target)
+	assertStagedWindowsTargetCompileCoverage(t, coverage, target)
+}
+
+func lspDiagnosticsGateRepoRoot(t *testing.T) string {
+	t.Helper()
+	root, err := filepath.Abs(filepath.Join("..", ".."))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return root
+}
+
+func stagedWindowsTargetCompile(t *testing.T, root string) targetCompileTarget {
+	t.Helper()
+	selection, err := diagnosticTargets(root, options{files: []string{"internal/devtools/gate/executor_signal_windows.go"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(selection.files) != 0 || len(selection.targetCompiles) != 1 {
+		t.Fatalf("Windows target selection = %#v", selection)
+	}
+	target := selection.targetCompiles[0]
+	if target.File != "internal/devtools/gate/executor_signal_windows.go" || target.GOOS != "windows" {
+		t.Fatalf("Windows target compile = %#v", target)
+	}
+	return target
+}
+
+func runStagedWindowsTargetCompile(t *testing.T, root string, target targetCompileTarget) coverageArtifact {
+	t.Helper()
+	output := filepath.Join(t.TempDir(), "coverage.json")
+	if err := run(context.Background(), options{
+		root: root, files: []string{target.File}, output: output, timeout: 2 * time.Minute,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var coverage coverageArtifact
+	if err := json.Unmarshal(data, &coverage); err != nil {
+		t.Fatal(err)
+	}
+	return coverage
+}
+
+func assertStagedWindowsTargetCompileCoverage(t *testing.T, coverage coverageArtifact, target targetCompileTarget) {
+	t.Helper()
+	if coverage.Inspected != 1 || len(coverage.Files) != 0 || len(coverage.TargetCompiles) != 1 ||
+		coverage.TargetCompiles[0].File != target.File || coverage.TrackedCandidates != 1 ||
+		coverage.SkippedCount != 1 {
+		t.Fatalf("Windows target coverage = %#v", coverage)
+	}
 }
 
 func TestCollectUnsupportedOnlyFailsAndKeepsArtifact(t *testing.T) {

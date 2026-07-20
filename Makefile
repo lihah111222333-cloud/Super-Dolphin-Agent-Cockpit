@@ -326,33 +326,20 @@ _hook_check:
 	fi
 
 ci-l0:
-	@echo "[ci-l0] quick gate (no real Claude CLI)"
-	@go list ./pkg/... >/dev/null
-	$(TEST_WITH_GUARD) ./internal/provider/claudecli/... -count=1
-	$(TEST_WITH_GUARD) ./internal/platform/runner/... ./internal/app/... -count=1
-	$(TEST_WITH_GUARD) ./internal/platform/rpc/... -count=1
+	@./scripts/ci_truth_image_gate.sh local-fast
 
 ci-l1:
-	@echo "[ci-l1] extended unit regression"
-	$(TEST_WITH_GUARD) $$(go list $(GO_PACKAGE_PATTERNS) | grep -v -E '/(provider/claudecli|provider/codexapp)$$') -count=1
-	@echo "[ci-l1] deferred E2E packages (sequential)"
-	$(TEST_WITH_GUARD) $(DEFERRED_TEST_PKGS) -count=1 -p 1 -timeout 120s
+	@./scripts/ci_truth_image_gate.sh push
 
 test-deferred:
 	@echo "=== deferred E2E packages only (sequential, -p 1) ==="
 	$(TEST_WITH_GUARD) $(DEFERRED_TEST_PKGS) -race -count=1 -p 1 -timeout 120s -v
 
 ci-l2-claude:
-	@echo "[ci-l2-claude] conditional integration (integration_claude)"
-	@if [ -n "$(CLAUDE_CLI_BIN)" ] && [ -x "$(CLAUDE_CLI_BIN)" ]; then \
-		echo "[ci-l2-claude] using CLAUDE_CLI_BIN=$(CLAUDE_CLI_BIN)"; \
-		CLAUDE_CLI_BIN="$(CLAUDE_CLI_BIN)" $(TEST_WITH_GUARD) -tags=integration_claude ./internal/platform/rpc/... ./internal/platform/runner/... ./internal/app/... -count=1; \
-	else \
-		echo "[ci-l2-claude] SKIP: CLAUDE_CLI_BIN is empty or not executable"; \
-	fi
+	@./scripts/ci_truth_image_gate.sh remote-required
 
-ci-l3-release: ci-l0 ci-l1 ci-l2-claude
-	@echo "[ci-l3-release] all layered gates finished"
+ci-l3-release:
+	@./scripts/ci_truth_image_gate.sh release
 
 # ---------------------------------------------------------------------------
 # sqlc — generate typed query code from each sqlc.yaml schema/query snapshot.

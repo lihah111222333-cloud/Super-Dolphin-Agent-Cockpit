@@ -9,9 +9,147 @@ import (
 	"testing"
 )
 
-func TestGuardRaceModeUsesShortTestScope(t *testing.T) {
+func TestGuardRaceOnlyModeUsesShortTestScope(t *testing.T) {
 	body := readScript(t, "test_with_guard.sh")
-	assertScriptContains(t, body, `run_go_test "$real_go" "${race_packages[@]}" -race -short -count=1`)
+	assertScriptContains(t, body, `run_go_test "$real_go" "$@" -race -short -count=1`)
+}
+
+func TestGuardRaceOnlyModeRunsGuardsAndOneRaceInvocation(t *testing.T) {
+	result := runTestWithGuardFakeGo(t, "--race-only", "./internal/devtools/gate")
+	if result.err != nil {
+		t.Fatalf("race-only guard failed: %v: %s", result.err, result.output)
+	}
+	for _, required := range []string{
+		"run ./scripts/code_size_guard.go",
+		"test ./internal/archtest -count=1",
+		"vet -copylocks ./internal/provider/... ./internal/platform/... ./internal/module/thread/...",
+		"list ./...",
+	} {
+		if !strings.Contains(result.invocations, required) {
+			t.Errorf("race-only mode omitted guard invocation %q:\n%s", required, result.invocations)
+		}
+	}
+	target := "test ./internal/devtools/gate -race -short -count=1"
+	if strings.Count(result.invocations, "test ./internal/devtools/gate") != 1 || !strings.Contains(result.invocations, target) {
+		t.Fatalf("race-only target invocation is not unique or canonical:\n%s", result.invocations)
+	}
+}
+
+func TestCanonicalBackendModeExcludesOnlyExactArchtestPackage(t *testing.T) {
+	result := runTestWithGuardFakeGoWithListOutput(t, strings.Join([]string{
+		"example.test/cmd/control",
+		"example.test/internal/archtest",
+		"example.test/internal/archtest/child",
+		"example.test/pkg/api",
+		"example.test/scripts/tool",
+	}, "\n"), "--canonical-backend", "./cmd/...", "./internal/...", "./pkg/...", "./scripts/...")
+	if result.err != nil {
+		t.Fatalf("canonical backend guard failed: %v: %s", result.err, result.output)
+	}
+	if !strings.Contains(result.invocations, "list ./cmd/... ./internal/... ./pkg/... ./scripts/...") {
+		t.Fatalf("canonical backend mode did not resolve the complete package target set:\n%s", result.invocations)
+	}
+	if !strings.Contains(result.invocations, "test ./internal/archtest -count=1") {
+		t.Fatalf("canonical backend mode omitted the full archtest guard:\n%s", result.invocations)
+	}
+	want := "test example.test/cmd/control example.test/internal/archtest/child example.test/pkg/api example.test/scripts/tool -count=1 -timeout=180s"
+	if !strings.Contains(result.invocations, want) {
+		t.Fatalf("canonical backend package set missing %q:\n%s", want, result.invocations)
+	}
+	if strings.Contains(result.invocations, "test example.test/internal/archtest ") {
+		t.Fatalf("canonical backend mode reran exact archtest package:\n%s", result.invocations)
+	}
+}
+
+func TestCanonicalBackendModeAllowsArchtestOnlyBecauseGuardAlreadyCoveredIt(t *testing.T) {
+	result := runTestWithGuardFakeGoWithListOutput(t, "example.test/internal/archtest", "--canonical-backend", "./internal/archtest")
+	if result.err != nil {
+		t.Fatalf("archtest-only canonical backend guard failed: %v: %s", result.err, result.output)
+	}
+	if !strings.Contains(result.invocations, "test ./internal/archtest -count=1") {
+		t.Fatalf("archtest-only canonical backend mode omitted the guard coverage:\n%s", result.invocations)
+	}
+	if strings.Contains(result.invocations, "test example.test/internal/archtest ") {
+		t.Fatalf("archtest-only canonical backend mode repeated the covered package:\n%s", result.invocations)
+	}
+}
+
+func TestCanonicalBackendModeFailsClosedForInvalidTargetsAndEmptyResolution(t *testing.T) {
+	for _, target := range []string{"-count=1", "./internal/../cmd/...", "./internal/..hidden", "./internal/arch test"} {
+		t.Run(target, func(t *testing.T) {
+			invalid := runTestWithGuardFakeGo(t, "--canonical-backend", "./internal/...", target)
+			if invalid.err == nil || !strings.Contains(invalid.output, "rejects non-backend package target") {
+				t.Fatalf("invalid canonical target result = %v, output = %q", invalid.err, invalid.output)
+			}
+			if invalid.invocations != "" {
+				t.Fatalf("invalid canonical target invoked go before rejection:\n%s", invalid.invocations)
+			}
+		})
+	}
+
+	empty := runTestWithGuardFakeGoWithListOutput(t, "", "--canonical-backend", "./internal/...")
+	if empty.err == nil || !strings.Contains(empty.output, "resolved no packages") {
+		t.Fatalf("empty canonical package resolution result = %v, output = %q", empty.err, empty.output)
+	}
+	if !strings.Contains(empty.invocations, "list ./internal/...") || strings.Contains(empty.invocations, "test ./internal/archtest -count=1") {
+		t.Fatalf("empty canonical package resolution did not fail before guards:\n%s", empty.invocations)
+	}
+}
+
+func TestTestWithGuardProductionDockerE2ETimeoutContract(t *testing.T) {
+	normalHook := captureTestWithGuardGoTestInvocation(
+		t,
+		"./cmd/super-dolphin-gate",
+		"-run", "^TestProductionProvisionBootstrapOwnerHookDockerE2E$",
+		"-count=1",
+	)
+	if !strings.Contains(normalHook, "-timeout=15m") || strings.Contains(normalHook, "-timeout=40m") {
+		t.Fatalf("normal Docker E2E go test invocation = %q, want only -timeout=15m", normalHook)
+	}
+
+	release := captureTestWithGuardGoTestInvocation(
+		t,
+		"./cmd/super-dolphin-gate",
+		"-run", "^TestProductionProvisionBootstrapOwnerReleaseCLIDockerE2E$",
+		"-count=1",
+	)
+	if !strings.Contains(release, "-timeout=40m") {
+		t.Fatalf("release Docker E2E go test invocation = %q, want -timeout=40m", release)
+	}
+
+	ordinary := captureTestWithGuardGoTestInvocation(
+		t,
+		"./cmd/super-dolphin-gate",
+		"-run", "^TestProductionProvisionExecutionDeadlineObservation$",
+		"-count=1",
+	)
+	if strings.Contains(ordinary, "-timeout") {
+		t.Fatalf("ordinary go test invocation unexpectedly changed timeout: %q", ordinary)
+	}
+
+	nearMiss := captureTestWithGuardGoTestInvocation(
+		t, "./cmd/super-dolphin-gate",
+		"-run", "^TestProductionProvisionBootstrapOwnerHookDockerE2EExtra$",
+		"-count=1",
+	)
+	if strings.Contains(nearMiss, "-timeout") {
+		t.Fatalf("near-miss Docker test unexpectedly received a wrapper timeout: %q", nearMiss)
+	}
+
+	for _, target := range []string{
+		"^TestProductionProvisionBootstrapOwnerHookDockerE2E$",
+		"^TestProductionProvisionBootstrapOwnerReleaseCLIDockerE2E$",
+	} {
+		blocked := runTestWithGuardFakeGo(
+			t, "./cmd/super-dolphin-gate", "-run", target, "-count=1", "-timeout=10m",
+		)
+		if blocked.err == nil || !strings.Contains(blocked.output, "timeout is wrapper-owned") {
+			t.Fatalf("explicit timeout for %s error = %v, output = %q", target, blocked.err, blocked.output)
+		}
+		if strings.Contains(blocked.invocations, "test ./cmd/super-dolphin-gate ") {
+			t.Fatalf("target %s executed despite conflicting timeout:\n%s", target, blocked.invocations)
+		}
+	}
 }
 
 func TestCodeSizeGuardSingleGoFileIsQuietWhenClean(t *testing.T) {
@@ -254,6 +392,68 @@ func runTestWithGuardCLI(t *testing.T, goFile string) codeSizeGuardCLIResult {
 	}
 	t.Fatalf("run test_with_guard.sh: %v", err)
 	return result
+}
+
+func captureTestWithGuardGoTestInvocation(t *testing.T, args ...string) string {
+	t.Helper()
+	result := runTestWithGuardFakeGo(t, args...)
+	if result.err != nil {
+		t.Fatalf("run test_with_guard.sh with fake go: %v: %s", result.err, result.output)
+	}
+	for invocation := range strings.SplitSeq(strings.TrimSpace(result.invocations), "\n") {
+		if strings.Contains(invocation, "test ./cmd/super-dolphin-gate ") &&
+			strings.Contains(invocation, args[2]) {
+			return invocation
+		}
+	}
+	t.Fatalf("target go test invocation not found in log:\n%s", result.invocations)
+	return ""
+}
+
+type testWithGuardFakeGoResult struct {
+	invocations string
+	output      string
+	err         error
+}
+
+func runTestWithGuardFakeGo(t *testing.T, args ...string) testWithGuardFakeGoResult {
+	t.Helper()
+	return runTestWithGuardFakeGoWithListOutput(t, "example.test/internal/archtest", args...)
+}
+
+func runTestWithGuardFakeGoWithListOutput(t *testing.T, listOutput string, args ...string) testWithGuardFakeGoResult {
+	t.Helper()
+	root := t.TempDir()
+	fakeGo := filepath.Join(root, "fake-go")
+	logPath := filepath.Join(root, "go-invocations.log")
+	script := "#!/usr/bin/env bash\n" +
+		"printf '%s ' \"$@\" >> \"$FAKE_GO_LOG\"\n" +
+		"printf '\\n' >> \"$FAKE_GO_LOG\"\n" +
+		"if [[ \"$1\" == list ]]; then printf '%s\\n' \"$FAKE_GO_LIST_OUTPUT\"; fi\n"
+	if err := os.WriteFile(fakeGo, []byte(script), 0o700); err != nil {
+		t.Fatalf("write fake go: %v", err)
+	}
+	cmd := exec.Command("bash", append([]string{"scripts/test_with_guard.sh"}, args...)...)
+	cmd.Dir = ".."
+	environment := upsertEnv(os.Environ(), "REAL_GO_BIN", bashAbsolutePath(fakeGo))
+	environment = upsertEnv(environment, "FAKE_GO_LOG", bashAbsolutePath(logPath))
+	environment = upsertEnv(environment, "FAKE_GO_LIST_OUTPUT", listOutput)
+	environment = upsertEnv(environment, "SUPER_DOLPHIN_GATE_PRODUCTION_DOCKER_E2E", "1")
+	cmd.Env = appendWSLEnvKeysWithGitWorktree(
+		t, environment, "REAL_GO_BIN", "FAKE_GO_LOG", "FAKE_GO_LIST_OUTPUT", "SUPER_DOLPHIN_GATE_PRODUCTION_DOCKER_E2E",
+	)
+	output, runErr := cmd.CombinedOutput()
+	data, err := os.ReadFile(logPath)
+	if os.IsNotExist(err) {
+		data = nil
+	} else if err != nil {
+		t.Fatalf("read fake go log: %v", err)
+	}
+	return testWithGuardFakeGoResult{
+		invocations: string(data),
+		output:      strings.TrimSpace(string(output)),
+		err:         runErr,
+	}
 }
 
 func writeGuardFixture(t *testing.T, content string) string {

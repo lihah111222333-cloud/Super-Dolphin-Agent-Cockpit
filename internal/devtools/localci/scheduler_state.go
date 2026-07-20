@@ -3,26 +3,36 @@ package localci
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
 	_ "modernc.org/sqlite"
 )
 
-const schedulerSchemaVersion = 1
+const schedulerSchemaVersion = 2
 
 var (
-	errRecoveryUnproved  = errors.New("running workload could not be proved alive during recovery")
-	errHandshakeConsumed = errors.New("opaque handshake token was already consumed")
-	errHandshakeExpired  = errors.New("opaque handshake token expired")
+	errRecoveryUnproved             = errors.New("running workload could not be proved alive during recovery")
+	errHandshakeConsumed            = errors.New("opaque handshake token was already consumed")
+	errHandshakeExpired             = errors.New("opaque handshake token expired")
+	errSchedulerSchemaV1Unsupported = errors.New("scheduler schema v1 is unsupported; automatic migration to v2 is disabled")
 )
 
 type schedulerState struct {
-	db        *sql.DB
-	daemonKey string
-	now       func() time.Time
+	db         *sql.DB
+	daemonKey  string
+	statePath  string
+	stateInfo  os.FileInfo
+	parentPath string
+	parentInfo os.FileInfo
+	ownerUID   int
+	now        func() time.Time
 }
 
 type queueState interface {
@@ -55,6 +65,8 @@ var (
 type observedLease struct {
 	id         string
 	workloadID workloadID
+	groupID    string
+	shardID    string
 }
 
 type outboxEvent struct {
@@ -89,6 +101,15 @@ func openSchedulerState(
 	if err != nil {
 		return nil, fmt.Errorf("validate scheduler state file: %w", err)
 	}
+	stateInfo, err := stateFile.Stat()
+	if err != nil {
+		return nil, closeFileAfterError(stateFile, err, "close scheduler state validation handle after stat failure")
+	}
+	parentPath := filepath.Dir(statePath)
+	parentInfo, err := os.Lstat(parentPath)
+	if err != nil {
+		return nil, closeFileAfterError(stateFile, err, "close scheduler state validation handle after parent stat failure")
+	}
 	if err := stateFile.Close(); err != nil {
 		return nil, fmt.Errorf("close scheduler state validation handle: %w", err)
 	}
@@ -97,7 +118,12 @@ func openSchedulerState(
 		return nil, fmt.Errorf("open scheduler state: %w", err)
 	}
 	db.SetMaxOpenConns(1)
-	state := &schedulerState{db: db, daemonKey: identity.key, now: time.Now}
+	state := &schedulerState{
+		db: db, daemonKey: identity.key,
+		statePath: statePath, stateInfo: stateInfo,
+		parentPath: parentPath, parentInfo: parentInfo,
+		ownerUID: identity.ownerUID, now: time.Now,
+	}
 	if err := state.prepare(ctx); err != nil {
 		if closeErr := db.Close(); closeErr != nil {
 			return nil, errors.Join(err, fmt.Errorf("close invalid scheduler state: %w", closeErr))
@@ -127,67 +153,6 @@ func (s *schedulerState) prepare(ctx context.Context) error {
 	return validateSchedulerSchema(ctx, s.db, s.daemonKey)
 }
 
-func schedulerDatabaseEmpty(ctx context.Context, db *sql.DB) (bool, error) {
-	var count int
-	err := db.QueryRowContext(
-		ctx,
-		"SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'",
-	).Scan(&count)
-	if err != nil {
-		return false, fmt.Errorf("inspect scheduler schema: %w", err)
-	}
-	return count == 0, nil
-}
-
-func createSchedulerSchema(ctx context.Context, db *sql.DB, daemonKey string) (retErr error) {
-	tx, err := db.BeginTx(ctx, nil)
-	if err != nil {
-		return fmt.Errorf("begin scheduler schema creation: %w", err)
-	}
-	defer rollbackTransaction(tx, &retErr, "scheduler schema creation")
-	if _, err := tx.ExecContext(ctx, schedulerSchemaSQL); err != nil {
-		return fmt.Errorf("create scheduler schema: %w", err)
-	}
-	if _, err := tx.ExecContext(
-		ctx,
-		"INSERT INTO scheduler_schema (id, version, daemon_key) VALUES (1, ?, ?)",
-		schedulerSchemaVersion,
-		daemonKey,
-	); err != nil {
-		return fmt.Errorf("record scheduler schema identity: %w", err)
-	}
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("commit scheduler schema creation: %w", err)
-	}
-	return nil
-}
-
-// validateSchedulerSchema 拒绝版本、daemon key 或 SQLite 完整性漂移。
-func validateSchedulerSchema(ctx context.Context, db *sql.DB, daemonKey string) error {
-	var version int
-	var storedDaemonKey string
-	if err := db.QueryRowContext(
-		ctx,
-		"SELECT version, daemon_key FROM scheduler_schema WHERE id = 1",
-	).Scan(&version, &storedDaemonKey); err != nil {
-		return fmt.Errorf("read scheduler schema identity: %w", err)
-	}
-	if version != schedulerSchemaVersion {
-		return fmt.Errorf("scheduler schema version %d does not match required %d", version, schedulerSchemaVersion)
-	}
-	if storedDaemonKey != daemonKey {
-		return errors.New("scheduler state daemon identity mismatch")
-	}
-	var integrity string
-	if err := db.QueryRowContext(ctx, "PRAGMA integrity_check").Scan(&integrity); err != nil {
-		return fmt.Errorf("check scheduler state integrity: %w", err)
-	}
-	if integrity != "ok" {
-		return fmt.Errorf("scheduler state integrity check failed: %s", integrity)
-	}
-	return nil
-}
-
 const schedulerSchemaSQL = `
 CREATE TABLE scheduler_schema (
 	id INTEGER PRIMARY KEY CHECK (id = 1),
@@ -201,7 +166,11 @@ CREATE TABLE scheduler_workloads (
 	sub_seq INTEGER NOT NULL CHECK (sub_seq >= 0),
 	kind INTEGER NOT NULL,
 	service_count INTEGER NOT NULL CHECK (service_count >= 0),
+	group_identity TEXT NOT NULL,
+	group_size INTEGER NOT NULL CHECK (group_size >= 0 AND group_size <= 3),
+	shard_identities BLOB NOT NULL,
 	status TEXT NOT NULL,
+	failed_shard_identity TEXT NOT NULL,
 	gang_bypasses INTEGER NOT NULL CHECK (gang_bypasses >= 0)
 );
 CREATE TABLE scheduler_dependencies (
@@ -212,7 +181,9 @@ CREATE TABLE scheduler_dependencies (
 CREATE TABLE scheduler_leases (
 	id TEXT PRIMARY KEY,
 	workload_id TEXT NOT NULL REFERENCES scheduler_workloads(id) ON DELETE CASCADE,
-	kind INTEGER NOT NULL
+	kind INTEGER NOT NULL,
+	group_identity TEXT NOT NULL,
+	shard_identity TEXT NOT NULL
 );
 CREATE TABLE scheduler_outbox (
 	subscriber_id TEXT NOT NULL,
@@ -237,101 +208,6 @@ CREATE TABLE scheduler_handshake_tokens (
 	consumed_at INTEGER
 );
 `
-
-// saveKernel 将 queue、DAG 与 lease 作为一个 daemon 快照原子持久化。
-func (s *schedulerState) saveKernel(ctx context.Context, kernel *schedulerKernel) (retErr error) {
-	if kernel == nil || kernel.identity.key != s.daemonKey {
-		return errors.New("scheduler kernel daemon identity mismatch")
-	}
-	if err := kernel.validateDAG(); err != nil {
-		return err
-	}
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return fmt.Errorf("begin scheduler snapshot: %w", err)
-	}
-	defer rollbackTransaction(tx, &retErr, "scheduler snapshot")
-	if err := clearSchedulerSnapshot(ctx, tx); err != nil {
-		return err
-	}
-	if err := insertSchedulerNodes(ctx, tx, kernel); err != nil {
-		return err
-	}
-	if err := insertSchedulerDependencies(ctx, tx, kernel); err != nil {
-		return err
-	}
-	if err := insertSchedulerLeases(ctx, tx, kernel); err != nil {
-		return err
-	}
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("commit scheduler snapshot: %w", err)
-	}
-	return nil
-}
-
-func clearSchedulerSnapshot(ctx context.Context, tx *sql.Tx) error {
-	for _, table := range []string{"scheduler_dependencies", "scheduler_leases", "scheduler_workloads"} {
-		if _, err := tx.ExecContext(ctx, "DELETE FROM "+table); err != nil {
-			return fmt.Errorf("clear %s: %w", table, err)
-		}
-	}
-	return nil
-}
-
-func insertSchedulerNodes(ctx context.Context, tx *sql.Tx, kernel *schedulerKernel) error {
-	const query = `INSERT INTO scheduler_workloads
-		(id, invocation_id, enqueue_seq, sub_seq, kind, service_count, status, gang_bypasses)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
-	for _, node := range kernel.nodes {
-		if _, err := tx.ExecContext(
-			ctx,
-			query,
-			node.spec.id,
-			node.spec.invocationID,
-			node.spec.enqueueSeq,
-			node.spec.subSeq,
-			node.spec.kind,
-			node.spec.serviceCount,
-			node.state,
-			node.gangBypasses,
-		); err != nil {
-			return fmt.Errorf("persist workload %q: %w", node.spec.id, err)
-		}
-	}
-	return nil
-}
-
-// insertSchedulerDependencies 在 workload 全部存在后写入 DAG 边。
-func insertSchedulerDependencies(ctx context.Context, tx *sql.Tx, kernel *schedulerKernel) error {
-	for _, node := range kernel.nodes {
-		for _, dependencyID := range node.spec.dependencies {
-			if _, err := tx.ExecContext(
-				ctx,
-				"INSERT INTO scheduler_dependencies (workload_id, dependency_id) VALUES (?, ?)",
-				node.spec.id,
-				dependencyID,
-			); err != nil {
-				return fmt.Errorf("persist dependency %q -> %q: %w", node.spec.id, dependencyID, err)
-			}
-		}
-	}
-	return nil
-}
-
-func insertSchedulerLeases(ctx context.Context, tx *sql.Tx, kernel *schedulerKernel) error {
-	for _, lease := range kernel.leases {
-		if _, err := tx.ExecContext(
-			ctx,
-			"INSERT INTO scheduler_leases (id, workload_id, kind) VALUES (?, ?, ?)",
-			lease.id,
-			lease.workloadID,
-			lease.kind,
-		); err != nil {
-			return fmt.Errorf("persist lease %q: %w", lease.id, err)
-		}
-	}
-	return nil
-}
 
 // loadKernel 恢复 queue、DAG 与 lease，并在返回前验证全部容量不变量。
 func (s *schedulerState) loadKernel(
@@ -363,7 +239,9 @@ func (s *schedulerState) loadKernel(
 // loadNodes 恢复 workload 基础字段，依赖与 lease 在后续阶段装载。
 func (s *schedulerState) loadNodes(ctx context.Context, kernel *schedulerKernel) (retErr error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT
-		id, invocation_id, enqueue_seq, sub_seq, kind, service_count, status, gang_bypasses
+		id, invocation_id, enqueue_seq, sub_seq, kind, service_count,
+		group_identity, group_size, shard_identities, status,
+		failed_shard_identity, gang_bypasses
 		FROM scheduler_workloads`)
 	if err != nil {
 		return fmt.Errorf("query scheduler workloads: %w", err)
@@ -373,6 +251,8 @@ func (s *schedulerState) loadNodes(ctx context.Context, kernel *schedulerKernel)
 		var spec workloadSpec
 		var state workloadState
 		var bypasses int
+		var failedShardID string
+		var shardIdentities []byte
 		if err := rows.Scan(
 			&spec.id,
 			&spec.invocationID,
@@ -380,15 +260,23 @@ func (s *schedulerState) loadNodes(ctx context.Context, kernel *schedulerKernel)
 			&spec.subSeq,
 			&spec.kind,
 			&spec.serviceCount,
+			&spec.groupID,
+			&spec.groupSize,
+			&shardIdentities,
 			&state,
+			&failedShardID,
 			&bypasses,
 		); err != nil {
 			return fmt.Errorf("scan scheduler workload: %w", err)
+		}
+		if err := json.Unmarshal(shardIdentities, &spec.shardIDs); err != nil {
+			return fmt.Errorf("decode workload %q shard identities: %w", spec.id, err)
 		}
 		if err := kernel.enqueue(spec); err != nil {
 			return fmt.Errorf("restore workload %q: %w", spec.id, err)
 		}
 		kernel.nodes[spec.id].state = state
+		kernel.nodes[spec.id].failedShardID = failedShardID
 		kernel.nodes[spec.id].gangBypasses = bypasses
 	}
 	if err := rows.Err(); err != nil {
@@ -427,14 +315,17 @@ func (s *schedulerState) loadDependencies(ctx context.Context, kernel *scheduler
 
 // loadLeases 恢复统一容量 lease 并拒绝未知 owner 与重复 ID。
 func (s *schedulerState) loadLeases(ctx context.Context, kernel *schedulerKernel) (retErr error) {
-	rows, err := s.db.QueryContext(ctx, "SELECT id, workload_id, kind FROM scheduler_leases")
+	rows, err := s.db.QueryContext(
+		ctx,
+		"SELECT id, workload_id, kind, group_identity, shard_identity FROM scheduler_leases",
+	)
 	if err != nil {
 		return fmt.Errorf("query scheduler leases: %w", err)
 	}
 	defer closeRows(rows, &retErr, "scheduler lease rows")
 	for rows.Next() {
 		var lease slotLease
-		if err := rows.Scan(&lease.id, &lease.workloadID, &lease.kind); err != nil {
+		if err := rows.Scan(&lease.id, &lease.workloadID, &lease.kind, &lease.groupID, &lease.shardID); err != nil {
 			return fmt.Errorf("scan scheduler lease: %w", err)
 		}
 		if _, exists := kernel.nodes[lease.workloadID]; !exists {
@@ -460,9 +351,10 @@ func validateRecoveredKernel(kernel *schedulerKernel) error {
 		return fmt.Errorf("restored lease count %d exceeds capacity", len(kernel.leases))
 	}
 	leaseCounts := make(map[workloadID]int, len(kernel.nodes))
+	seenShards := make(map[string]struct{}, len(kernel.leases))
 	for _, lease := range kernel.leases {
-		if !lease.kind.valid() {
-			return fmt.Errorf("restored lease %q has invalid kind %d", lease.id, lease.kind)
+		if err := validateRecoveredLease(kernel, lease, seenShards); err != nil {
+			return err
 		}
 		leaseCounts[lease.workloadID]++
 	}
@@ -477,9 +369,36 @@ func validateRecoveredKernel(kernel *schedulerKernel) error {
 	return nil
 }
 
+// validateRecoveredLease 校验 lease owner、group 与 shard identity 的完整绑定。
+func validateRecoveredLease(kernel *schedulerKernel, lease slotLease, seenShards map[string]struct{}) error {
+	if !lease.kind.valid() {
+		return fmt.Errorf("restored lease %q has invalid kind %d", lease.id, lease.kind)
+	}
+	node, exists := kernel.nodes[lease.workloadID]
+	if !exists || lease.groupID != node.spec.groupID {
+		return fmt.Errorf("restored lease %q has unknown owner or group identity", lease.id)
+	}
+	if node.spec.groupID == "" {
+		if lease.shardID != "" {
+			return fmt.Errorf("standalone lease %q has shard identity", lease.id)
+		}
+		return nil
+	}
+	if !slices.Contains(node.spec.shardIDs, lease.shardID) {
+		return fmt.Errorf("restored lease %q has unknown shard identity", lease.id)
+	}
+	key := lease.groupID + "\x00" + lease.shardID
+	if _, duplicate := seenShards[key]; duplicate {
+		return fmt.Errorf("restored duplicate shard lease identity %q", lease.shardID)
+	}
+	seenShards[key] = struct{}{}
+	return nil
+}
+
+// validateRecoveredNode 校验恢复 workload 的状态、lease 数量与失败 shard 屏障。
 func validateRecoveredNode(id workloadID, node *workloadNode, leaseCount int) error {
 	expected := 0
-	if node.state == stateStarted {
+	if node.state == stateStarted || node.state == stateCancelling {
 		expected = 1 + node.spec.serviceCount
 	}
 	if !validWorkloadState(node.state) {
@@ -488,11 +407,20 @@ func validateRecoveredNode(id workloadID, node *workloadNode, leaseCount int) er
 	if leaseCount != expected {
 		return fmt.Errorf("workload %q restored lease count %d does not match %d", id, leaseCount, expected)
 	}
+	if node.state == stateCancelling {
+		if node.spec.groupID == "" || !slices.Contains(node.spec.shardIDs, node.failedShardID) {
+			return fmt.Errorf("cancelling workload %q has no valid persisted failed shard identity", id)
+		}
+		return nil
+	}
+	if node.failedShardID != "" {
+		return fmt.Errorf("workload %q has failed shard identity outside cancelling state", id)
+	}
 	return nil
 }
 
 func validWorkloadState(state workloadState) bool {
-	return state == stateQueued || state == stateStarted || state.terminal()
+	return state == stateQueued || state == stateStarted || state == stateCancelling || state.terminal()
 }
 
 // reconcileLeases 先拒绝未知或重复观察，再原子隔离无法证明的 running workload。
@@ -521,7 +449,10 @@ func (s *schedulerState) reconcileLeases(ctx context.Context, observed []observe
 }
 
 func (s *schedulerState) persistedLeases(ctx context.Context) (result map[string]observedLease, retErr error) {
-	rows, err := s.db.QueryContext(ctx, "SELECT id, workload_id FROM scheduler_leases")
+	rows, err := s.db.QueryContext(
+		ctx,
+		"SELECT id, workload_id, group_identity, shard_identity FROM scheduler_leases",
+	)
 	if err != nil {
 		return nil, fmt.Errorf("query persisted leases: %w", err)
 	}
@@ -529,7 +460,7 @@ func (s *schedulerState) persistedLeases(ctx context.Context) (result map[string
 	result = make(map[string]observedLease)
 	for rows.Next() {
 		var lease observedLease
-		if err := rows.Scan(&lease.id, &lease.workloadID); err != nil {
+		if err := rows.Scan(&lease.id, &lease.workloadID, &lease.groupID, &lease.shardID); err != nil {
 			return nil, fmt.Errorf("scan persisted lease: %w", err)
 		}
 		result[lease.id] = lease
@@ -540,6 +471,7 @@ func (s *schedulerState) persistedLeases(ctx context.Context) (result map[string
 	return result, nil
 }
 
+// validateObservedLeases 拒绝未知、重复或 identity binding 漂移的运行中 lease。
 func validateObservedLeases(
 	observed []observedLease,
 	persisted map[string]observedLease,
@@ -553,8 +485,10 @@ func validateObservedLeases(
 		if !exists {
 			return nil, fmt.Errorf("unknown observed lease %q", lease.id)
 		}
-		if expected.workloadID != lease.workloadID {
-			return nil, fmt.Errorf("observed lease %q owner mismatch", lease.id)
+		if expected.workloadID != lease.workloadID ||
+			expected.groupID != lease.groupID ||
+			expected.shardID != lease.shardID {
+			return nil, fmt.Errorf("observed lease %q identity binding mismatch", lease.id)
 		}
 		observedIDs[lease.id] = struct{}{}
 	}
@@ -574,10 +508,11 @@ func (s *schedulerState) markRecoveryFailed(
 	for workloadID := range workloadIDs {
 		result, err := tx.ExecContext(
 			ctx,
-			"UPDATE scheduler_workloads SET status = ? WHERE id = ? AND status = ?",
+			"UPDATE scheduler_workloads SET status = ?, failed_shard_identity = '' WHERE id = ? AND status IN (?, ?)",
 			stateInfraFailed,
 			workloadID,
 			stateStarted,
+			stateCancelling,
 		)
 		if err != nil {
 			return fmt.Errorf("mark workload %q infra failed: %w", workloadID, err)

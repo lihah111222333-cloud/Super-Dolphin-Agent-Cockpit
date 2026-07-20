@@ -12,7 +12,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"reflect"
 	"strconv"
 	"strings"
 
@@ -37,6 +36,7 @@ type SourceMaterializationManifest struct {
 	SourceTreeSHA         string               `json:"source_tree_sha"`
 	MaterializedCommitSHA string               `json:"materialized_commit_sha"`
 	SyntheticCommitSHA    string               `json:"synthetic_commit_sha,omitempty"`
+	TrustedBaseCommitSHA  string               `json:"trusted_base_commit_sha,omitempty"`
 	BundleDigest          string               `json:"bundle_digest"`
 	ObjectFormat          gate.GitObjectFormat `json:"object_format"`
 }
@@ -260,11 +260,15 @@ func inspectCommitPlan(ctx context.Context, repoRoot string, commitSHA string, e
 	if err != nil {
 		return sourcePlan{}, err
 	}
-	tree, _, err := parseCommitObject(commit, expectedTree)
+	tree, parents, err := parseCommitObject(commit, expectedTree)
 	if err != nil {
 		return sourcePlan{}, err
 	}
-	return sourcePlan{roots: []string{commitSHA}, tree: tree, commit: commitSHA}, nil
+	plan := sourcePlan{roots: []string{commitSHA}, tree: tree, commit: commitSHA}
+	if len(parents) == 1 {
+		plan.baseCommit = parents[0]
+	}
+	return plan, nil
 }
 
 // inspectTreePlan 复核显式 tree 与可选 parent commit，不读取 index 或 HEAD。
@@ -290,7 +294,12 @@ func inspectTreePlan(ctx context.Context, repoRoot string, source *gate.TreeSour
 		}
 		roots = append(roots, source.ParentCommitSHA)
 	}
-	return sourcePlan{roots: roots, tree: source.SHA, syntheticParentSHA: source.ParentCommitSHA}, nil
+	return sourcePlan{
+		roots:              roots,
+		tree:               source.SHA,
+		baseCommit:         source.ParentCommitSHA,
+		syntheticParentSHA: source.ParentCommitSHA,
+	}, nil
 }
 
 // inspectRangePlan 复核 range 的 head/base 对象类型与 head tree。
@@ -330,20 +339,32 @@ func readSourceObject(ctx context.Context, repoRoot string, oid string) (sourceO
 
 // parseSourceObjectOutput 严格分离 cat-file header、payload 与单个终止换行。
 func parseSourceObjectOutput(output []byte, oid string) (sourceObject, error) {
-	headerEnd := bytes.IndexByte(output, '\n')
-	if headerEnd < 0 {
-		return sourceObject{}, errors.New("git cat-file output is missing header terminator")
-	}
-	kind, size, err := parseSourceObjectHeader(output[:headerEnd], oid)
+	object, consumed, err := parseSourceObjectPrefix(output, oid)
 	if err != nil {
 		return sourceObject{}, err
 	}
+	if consumed != len(output) {
+		return sourceObject{}, errors.New("git cat-file returned trailing output")
+	}
+	return object, nil
+}
+
+// parseSourceObjectPrefix 从 batch 输出前缀严格读取一个对象，并返回消费字节数。
+func parseSourceObjectPrefix(output []byte, oid string) (sourceObject, int, error) {
+	headerEnd := bytes.IndexByte(output, '\n')
+	if headerEnd < 0 {
+		return sourceObject{}, 0, errors.New("git cat-file output is missing header terminator")
+	}
+	kind, size, err := parseSourceObjectHeader(output[:headerEnd], oid)
+	if err != nil {
+		return sourceObject{}, 0, err
+	}
 	dataStart := headerEnd + 1
 	dataEnd := dataStart + size
-	if dataEnd < dataStart || len(output) != dataEnd+1 || output[dataEnd] != '\n' {
-		return sourceObject{}, errors.New("git cat-file returned truncated or trailing output")
+	if dataEnd < dataStart || dataEnd >= len(output) || output[dataEnd] != '\n' {
+		return sourceObject{}, 0, errors.New("git cat-file returned truncated output")
 	}
-	return sourceObject{oid: oid, kind: kind, data: bytes.Clone(output[dataStart:dataEnd])}, nil
+	return sourceObject{oid: oid, kind: kind, data: bytes.Clone(output[dataStart:dataEnd])}, dataEnd + 1, nil
 }
 
 // parseSourceObjectHeader 拒绝 missing、OID 漂移和不可表示的对象大小。
@@ -468,37 +489,6 @@ func prepareBundleRefs(ctx context.Context, bareRoot string, commit string, base
 	return verifyObjectClosure(ctx, bareRoot, commits...)
 }
 
-func verifyObjectClosure(ctx context.Context, bareRoot string, commits ...string) error {
-	args := []string{"fsck", "--full", "--strict", "--no-reflogs", "--"}
-	output, err := runGitOutput(ctx, bareRoot, nil, append(args, commits...)...)
-	return rejectGitOutput(output, err, "verify source object closure")
-}
-
-func createSourceBundle(ctx context.Context, bareRoot string, bundlePath string, includeBase bool) error {
-	args := []string{"bundle", "create", bundlePath, "--end-of-options", sourceBundleRef}
-	if includeBase {
-		args = append(args, sourceBundleBaseRef)
-	}
-	output, err := runGitOutput(ctx, bareRoot, nil, args...)
-	if err := rejectGitOutput(output, err, "create source bundle"); err != nil {
-		return err
-	}
-	if err := os.Chmod(bundlePath, privateSourceFileMode); err != nil {
-		return fmt.Errorf("protect source bundle: %w", err)
-	}
-	return nil
-}
-
-func rejectGitOutput(output []byte, err error, action string) error {
-	if err != nil {
-		return fmt.Errorf("%s: %w", action, err)
-	}
-	if len(output) != 0 {
-		return fmt.Errorf("%s returned unexpected output: %s", action, strings.TrimSpace(string(output)))
-	}
-	return nil
-}
-
 func buildSourceManifest(bundlePath string, spec gate.SourceSpec, plan sourcePlan) (SourceMaterializationManifest, error) {
 	digest, err := digestSourceFile(bundlePath)
 	if err != nil {
@@ -509,6 +499,7 @@ func buildSourceManifest(bundlePath string, spec gate.SourceSpec, plan sourcePla
 		Source:                spec,
 		SourceTreeSHA:         plan.tree,
 		MaterializedCommitSHA: plan.commit,
+		TrustedBaseCommitSHA:  plan.baseCommit,
 		BundleDigest:          digest,
 		ObjectFormat:          spec.ObjectFormat,
 	}
@@ -531,6 +522,9 @@ func (manifest SourceMaterializationManifest) Validate() error {
 		!validDigest(manifest.BundleDigest) {
 		return errors.New("source manifest identity or digest is invalid")
 	}
+	if manifest.TrustedBaseCommitSHA != "" && !validOID(manifest.TrustedBaseCommitSHA, manifest.ObjectFormat) {
+		return errors.New("source manifest trusted base commit is invalid")
+	}
 	return validateManifestCommitIdentity(manifest)
 }
 
@@ -552,6 +546,25 @@ func validateManifestCommitIdentity(manifest SourceMaterializationManifest) erro
 	}
 	if manifest.Source.Kind != gate.SourceKindTree && manifest.SyntheticCommitSHA != "" {
 		return errors.New("non-tree manifest must not contain synthetic commit")
+	}
+	return validateManifestTrustedBase(manifest)
+}
+
+// validateManifestTrustedBase 约束显式 base 只来自 SourceSpec 或 commit 的真实单 parent。
+func validateManifestTrustedBase(manifest SourceMaterializationManifest) error {
+	switch manifest.Source.Kind {
+	case gate.SourceKindRange:
+		if manifest.Source.Range.BaseKind == gate.BaseKindCommit &&
+			manifest.TrustedBaseCommitSHA != manifest.Source.Range.BaseSHA {
+			return errors.New("range manifest trusted base does not match SourceSpec")
+		}
+		if manifest.Source.Range.BaseKind != gate.BaseKindCommit && manifest.TrustedBaseCommitSHA != "" {
+			return errors.New("empty-tree range manifest must not contain a trusted base")
+		}
+	case gate.SourceKindTree:
+		if manifest.TrustedBaseCommitSHA != manifest.Source.Tree.ParentCommitSHA {
+			return errors.New("tree manifest trusted base does not match SourceSpec")
+		}
 	}
 	return nil
 }
@@ -626,82 +639,6 @@ func publishSourceArtifacts(outputRoot string, stageBundle string, stageManifest
 	return SourceMaterialization{BundlePath: bundlePath, ManifestPath: manifestPath, Manifest: manifest}, nil
 }
 
-// importAndVerifyBundle 在新建 bare repo 中导入 bundle 并复核广告 ref 与对象闭包。
-func importAndVerifyBundle(ctx context.Context, bundlePath string, tempParent string, manifest SourceMaterializationManifest) (err error) {
-	importRoot, err := os.MkdirTemp(tempParent, ".source-import-")
-	if err != nil {
-		return fmt.Errorf("create source import root: %w", err)
-	}
-	defer func() { err = errors.Join(err, removeSourceTemp(importRoot)) }()
-	if err := os.Chmod(importRoot, privateSourceDirMode); err != nil {
-		return fmt.Errorf("protect source import root: %w", err)
-	}
-	bareRoot := filepath.Join(importRoot, "verify.git")
-	if err := initBareRepository(ctx, importRoot, bareRoot, manifest.ObjectFormat); err != nil {
-		return err
-	}
-	if _, err := runGitOutput(ctx, bareRoot, nil, "bundle", "verify", bundlePath); err != nil {
-		return fmt.Errorf("verify source bundle: %w", err)
-	}
-	output, err := runGitOutput(ctx, bareRoot, nil, "bundle", "unbundle", bundlePath)
-	if err != nil {
-		return fmt.Errorf("import source bundle: %w", err)
-	}
-	if string(output) != expectedBundleRefs(manifest) {
-		return errors.New("source bundle advertised unexpected or trailing refs")
-	}
-	return verifyImportedSource(ctx, bareRoot, manifest)
-}
-
-func expectedBundleRefs(manifest SourceMaterializationManifest) string {
-	head := fmt.Sprintf("%s %s\n", manifest.MaterializedCommitSHA, sourceBundleRef)
-	if base := rangeBaseCommit(manifest); base != "" {
-		return head + fmt.Sprintf("%s %s\n", base, sourceBundleBaseRef)
-	}
-	return head
-}
-
-// verifyImportedSource 复核 bundle 中 head、可选 range base 及其完整对象闭包。
-func verifyImportedSource(ctx context.Context, bareRoot string, manifest SourceMaterializationManifest) error {
-	object, err := readSourceObject(ctx, bareRoot, manifest.MaterializedCommitSHA)
-	if err != nil {
-		return err
-	}
-	_, parents, err := parseCommitObject(object, manifest.SourceTreeSHA)
-	if err != nil {
-		return err
-	}
-	if err := verifyImportedSyntheticParent(manifest, parents); err != nil {
-		return err
-	}
-	commits := []string{manifest.MaterializedCommitSHA}
-	if base := rangeBaseCommit(manifest); base != "" {
-		object, err := readSourceObject(ctx, bareRoot, base)
-		if err != nil || object.kind != "commit" {
-			return errors.Join(errors.New("imported range base is not a commit"), err)
-		}
-		commits = append(commits, base)
-	}
-	return verifyObjectClosure(ctx, bareRoot, commits...)
-}
-
-func rangeBaseCommit(manifest SourceMaterializationManifest) string {
-	if manifest.Source.Kind == gate.SourceKindRange && manifest.Source.Range.BaseKind == gate.BaseKindCommit {
-		return manifest.Source.Range.BaseSHA
-	}
-	return ""
-}
-
-func verifyImportedSyntheticParent(manifest SourceMaterializationManifest, parents []string) error {
-	if manifest.Source.Kind != gate.SourceKindTree || manifest.Source.Tree.ParentCommitSHA == "" {
-		return nil
-	}
-	if len(parents) != 1 || parents[0] != manifest.Source.Tree.ParentCommitSHA {
-		return errors.New("imported synthetic commit parent does not match SourceSpec")
-	}
-	return nil
-}
-
 // validateCanonicalDirectory 拒绝非绝对、非 canonical、链接或公开输出目录。
 func validateCanonicalDirectory(path string, private bool) error {
 	if !validCanonicalPath(path) {
@@ -772,9 +709,10 @@ func validDigest(value string) bool {
 // validOID 校验对象格式、长度、小写十六进制并拒绝全零 OID。
 func validOID(value string, format gate.GitObjectFormat) bool {
 	want := 0
-	if format == gate.GitObjectFormatSHA1 {
+	switch format {
+	case gate.GitObjectFormatSHA1:
 		want = 40
-	} else if format == gate.GitObjectFormatSHA256 {
+	case gate.GitObjectFormatSHA256:
 		want = 64
 	}
 	_, err := hex.DecodeString(value)
@@ -849,20 +787,6 @@ func sourceGitEnvironment() []string {
 		"GIT_COMMITTER_DATE=2000-01-01T00:00:00Z",
 		"LC_ALL=C",
 	)
-}
-
-// interfaceValueIsNil 识别接口本身为空以及接口内承载的 typed nil。
-func interfaceValueIsNil(value any) bool {
-	if value == nil {
-		return true
-	}
-	reflected := reflect.ValueOf(value)
-	switch reflected.Kind() {
-	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Pointer, reflect.Slice:
-		return reflected.IsNil()
-	default:
-		return false
-	}
 }
 
 func closeSourceFile(file *os.File, cause error) error {

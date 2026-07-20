@@ -22,7 +22,8 @@ const (
 	promotionCandidateSchemaVersion uint32 = 1
 	promotionCandidateStateName            = "promotion-candidates.json"
 	promotionCandidateLockName             = "promotion-candidates.lock"
-	promotionCandidateMaxBytes             = 64 << 20
+	// SourceEntries use JSON base64 encoding, so the durable snapshot needs headroom above the raw tree-byte limit exercised by this repository.
+	promotionCandidateMaxBytes = 128 << 20
 )
 
 var (

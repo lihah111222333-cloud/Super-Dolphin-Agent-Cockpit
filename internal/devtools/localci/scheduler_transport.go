@@ -13,6 +13,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	platformconfig "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/config"
 )
 
 const (
@@ -240,7 +242,7 @@ func (o *SchedulerOwner) Serve(ctx context.Context) error {
 	if err := o.beginServe(); err != nil {
 		return err
 	}
-	stop := context.AfterFunc(ctx, o.closeNetwork)
+	stop := context.AfterFunc(ctx, o.closeListener)
 	defer stop()
 	for {
 		conn, err := o.listener.Accept()
@@ -254,12 +256,22 @@ func (o *SchedulerOwner) Serve(ctx context.Context) error {
 	}
 }
 
-func (o *SchedulerOwner) acceptError(ctx context.Context, err error) error {
-	if ctx.Err() != nil {
-		return ctx.Err()
+// closeListener 阻止新连接进入，同时让已接收请求完成持久化与响应。
+func (o *SchedulerOwner) closeListener() {
+	o.mu.Lock()
+	listener := o.listener
+	o.mu.Unlock()
+	if listener != nil {
+		_ = listener.Close()
 	}
+}
+
+func (o *SchedulerOwner) acceptError(ctx context.Context, err error) error {
 	if serveErr := o.currentServeError(); serveErr != nil {
 		return serveErr
+	}
+	if ctx.Err() != nil {
+		return ctx.Err()
 	}
 	if o.isClosed() || errors.Is(err, net.ErrClosed) {
 		return ErrSchedulerClosed
@@ -328,6 +340,9 @@ func (o *SchedulerOwner) serveConnection(ctx context.Context, conn net.Conn) {
 
 // serveFrame 处理一条完整 frame，任一 framing/JSON/I/O 失败都关闭该连接。
 func (o *SchedulerOwner) serveFrame(ctx context.Context, conn net.Conn) bool {
+	if ctx.Err() != nil {
+		return false
+	}
 	if o.nowFunc == nil {
 		o.recordServeError(errors.New("scheduler owner clock is required"))
 		return false
@@ -347,7 +362,15 @@ func (o *SchedulerOwner) serveFrame(ctx context.Context, conn net.Conn) bool {
 		_ = writeSchedulerFrame(conn, schedulerFailureResponse("", err))
 		return false
 	}
-	return writeSchedulerFrame(conn, o.dispatch(ctx, request)) == nil
+	requestCtx, cancel := schedulerRequestContext(ctx)
+	defer cancel()
+	return writeSchedulerFrame(conn, o.dispatch(requestCtx, request)) == nil
+}
+
+// schedulerRequestContext gives an accepted durable operation a fixed bound
+// while owner cancellation stops the listener and the next frame loop.
+func schedulerRequestContext(parent context.Context) (context.Context, context.CancelFunc) {
+	return platformconfig.WithTimeout(context.WithoutCancel(parent), schedulerTransportIOWait)
 }
 
 func (o *SchedulerOwner) recordServeError(err error) {
@@ -388,6 +411,14 @@ func (o *SchedulerOwner) dispatch(ctx context.Context, request schedulerWireRequ
 	}
 	result, err := o.executeSchedulerMethod(ctx, request.Method, params)
 	if err != nil {
+		if errors.Is(err, ErrSchedulerPersistence) {
+			o.recordServeError(fmt.Errorf(
+				"scheduler request %q (%s) persistence failed: %w",
+				request.RequestID,
+				request.Method,
+				err,
+			))
+		}
 		return schedulerFailureResponse(request.RequestID, err)
 	}
 	payload, err := json.Marshal(result)
@@ -407,6 +438,10 @@ func decodeSchedulerMethodParams(method string, payload json.RawMessage) (any, e
 		target = &schedulerEmptyParams{}
 	case schedulerMethodComplete:
 		target = &schedulerCompleteParams{}
+	case schedulerMethodCompleteGroup, schedulerMethodCancelGroup:
+		target = &schedulerGroupParams{}
+	case schedulerMethodReportShardFailure:
+		target = &schedulerShardFailureParams{}
 	case schedulerMethodState:
 		target = &schedulerStateParams{}
 	default:
@@ -430,6 +465,26 @@ func (o *SchedulerOwner) executeSchedulerMethod(ctx context.Context, method stri
 	case schedulerMethodComplete:
 		request := params.(*schedulerCompleteParams)
 		return schedulerEmptyParams{}, o.scheduler.Complete(ctx, request.WorkloadID, request.Status)
+	case schedulerMethodCompleteGroup:
+		request := params.(*schedulerGroupParams)
+		return schedulerEmptyParams{}, o.scheduler.CompleteGroup(
+			ctx,
+			request.WorkloadID,
+			request.GroupIdentity,
+			request.Status,
+		)
+	case schedulerMethodCancelGroup:
+		request := params.(*schedulerGroupParams)
+		return schedulerEmptyParams{}, o.scheduler.CancelGroup(ctx, request.WorkloadID, request.GroupIdentity)
+	case schedulerMethodReportShardFailure:
+		request := params.(*schedulerShardFailureParams)
+		identities, err := o.scheduler.ReportShardFailure(
+			ctx,
+			request.WorkloadID,
+			request.GroupIdentity,
+			request.ShardIdentity,
+		)
+		return schedulerShardFailureResult{CancelShardIdentities: identities}, err
 	case schedulerMethodState:
 		request := params.(*schedulerStateParams)
 		status, err := o.scheduler.State(request.WorkloadID)
@@ -531,6 +586,40 @@ func (c *SchedulerClient) Complete(ctx context.Context, id string, status Worklo
 	return c.call(ctx, schedulerMethodComplete, params, &schedulerEmptyParams{})
 }
 
+// ReportShardFailure 持久化 group 取消屏障并返回 sibling identities。
+func (c *SchedulerClient) ReportShardFailure(
+	ctx context.Context,
+	id string,
+	groupIdentity string,
+	shardIdentity string,
+) ([]string, error) {
+	params := schedulerShardFailureParams{
+		WorkloadID: id, GroupIdentity: groupIdentity, ShardIdentity: shardIdentity,
+	}
+	var result schedulerShardFailureResult
+	if err := c.call(ctx, schedulerMethodReportShardFailure, params, &result); err != nil {
+		return nil, err
+	}
+	return result.CancelShardIdentities, nil
+}
+
+// CompleteGroup 在 sibling 已停止后通过 owner transport 释放整组 lease。
+func (c *SchedulerClient) CompleteGroup(
+	ctx context.Context,
+	id string,
+	groupIdentity string,
+	status WorkloadStatus,
+) error {
+	params := schedulerGroupParams{WorkloadID: id, GroupIdentity: groupIdentity, Status: status}
+	return c.call(ctx, schedulerMethodCompleteGroup, params, &schedulerEmptyParams{})
+}
+
+// CancelGroup 通过 owner transport 取消未运行 group。
+func (c *SchedulerClient) CancelGroup(ctx context.Context, id string, groupIdentity string) error {
+	params := schedulerGroupParams{WorkloadID: id, GroupIdentity: groupIdentity}
+	return c.call(ctx, schedulerMethodCancelGroup, params, &schedulerEmptyParams{})
+}
+
 // State 通过 owner transport 读取 workload 状态。
 func (c *SchedulerClient) State(ctx context.Context, id string) (WorkloadStatus, error) {
 	var result schedulerStateResult
@@ -547,6 +636,16 @@ func (c *SchedulerClient) Snapshot(ctx context.Context) (SchedulerSnapshot, erro
 		return SchedulerSnapshot{}, err
 	}
 	return result.Snapshot, nil
+}
+
+// Available 报告客户端是否仍持有存活 transport；I/O 或 framing 失败会先丢弃连接，调用方可直接重连。
+func (c *SchedulerClient) Available() bool {
+	if c == nil {
+		return false
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return !c.closed && c.conn != nil
 }
 
 func (c *SchedulerClient) call(ctx context.Context, method string, params any, result any) error {
@@ -591,23 +690,36 @@ func (c *SchedulerClient) callRequest(ctx context.Context, request schedulerWire
 	}
 	defer clearDeadline()
 	if err := writeSchedulerFrame(c.conn, request); err != nil {
+		c.discardConnectionLocked()
 		return schedulerClientIOError(ctx, "write request", err)
 	}
 	payload, err := readSchedulerFrame(c.conn)
 	if err != nil {
+		c.discardConnectionLocked()
 		return schedulerClientIOError(ctx, "read response", err)
 	}
 	var response schedulerWireResponse
 	if err := decodeStrictSchedulerJSON(payload, &response); err != nil {
+		c.discardConnectionLocked()
 		return err
 	}
 	if err := validateSchedulerWireResponse(response, request.RequestID); err != nil {
+		c.discardConnectionLocked()
 		return err
 	}
 	if response.Error != nil {
 		return schedulerErrorFromWire(response.Error)
 	}
 	return decodeStrictSchedulerJSON(response.Result, result)
+}
+
+// discardConnectionLocked prevents a late response from being read as a later
+// request's frame. c.mu must be held by the caller.
+func (c *SchedulerClient) discardConnectionLocked() {
+	if c.conn != nil {
+		_ = c.conn.Close()
+		c.conn = nil
+	}
 }
 
 // setSchedulerCallDeadline 同时绑定固定 I/O 上限和更早的调用 context deadline。

@@ -20,3 +20,15 @@ func schedulerFileOwnerUID(os.FileInfo) (int, error) {
 func openSchedulerFileNoFollow(string, int, bool) (*os.File, bool, error) {
 	return nil, false, errSchedulerPlatformUnsupported
 }
+
+func lockSchedulerFile(*os.File) error {
+	return errSchedulerPlatformUnsupported
+}
+
+func unlockSchedulerFile(*os.File) error {
+	return errSchedulerPlatformUnsupported
+}
+
+func schedulerLockAlreadyOwned(error) bool {
+	return false
+}

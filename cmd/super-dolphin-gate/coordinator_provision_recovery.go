@@ -195,7 +195,7 @@ func verifyProductionProvisionDirectoryIdentity(path string, info os.FileInfo) e
 
 func productionProvisionLauncherData(configPath string, controllerPath string) []byte {
 	return []byte("#!/bin/sh\nSUPER_DOLPHIN_GATE_PRODUCTION_CONFIG=" + shellQuoteProductionProvision(configPath) +
-		" exec " + shellQuoteProductionProvision(controllerPath) + " \"$@\"\n")
+		" exec " + shellQuoteProductionProvision(controllerPath) + " _production-launcher \"$@\"\n")
 }
 
 // inspectProductionProvisionLauncher 只把 absent 或逐字节匹配当前闭包的 launcher 视为可恢复状态。

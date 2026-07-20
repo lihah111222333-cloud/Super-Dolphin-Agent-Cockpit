@@ -13,6 +13,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
 )
@@ -290,6 +291,7 @@ type containerInspectDocument struct {
 }
 
 type containerHostConfig struct {
+	Init           bool              `json:"Init"`
 	NanoCPUs       int64             `json:"NanoCpus"`
 	Memory         int64             `json:"Memory"`
 	PidsLimit      int64             `json:"PidsLimit"`
@@ -306,6 +308,7 @@ type containerHostConfig struct {
 }
 
 type canonicalHostConfig struct {
+	Init            bool
 	ImageReference  string
 	ConfigDigest    string
 	Command         []string
@@ -328,31 +331,58 @@ type canonicalHostConfig struct {
 	LogOptions      map[string]string
 }
 
+// createdContainerEvidence carries bounded evidence derived from the verified inspect document.
+type createdContainerEvidence struct {
+	hostConfigDigest      string
+	resourceWitness       gate.ContainerResourceWitness
+	resourceWitnessDigest string
+	inspectDigest         string
+}
+
+// ExpectedFreshContainerResourceWitness 返回生产 fresh-container 的固定资源合同。
+func ExpectedFreshContainerResourceWitness() gate.ContainerResourceWitness {
+	return gate.ContainerResourceWitness{
+		SchemaVersion: gate.ContainerResourceWitnessSchemaVersion,
+		NanoCPUs:      4_000_000_000,
+		MemoryBytes:   8 * 1024 * 1024 * 1024,
+		PidsLimit:     512,
+	}
+}
+
 // inspectCreatedContainer 在启动前复验容器身份、命令、资源和隔离配置。
-func (runner *FreshContainerRunner) inspectCreatedContainer(ctx context.Context, containerID string, imageReference string, configDigest string, sourceDirectory string, command []string, labels map[string]string) (string, string, error) {
+func (runner *FreshContainerRunner) inspectCreatedContainer(ctx context.Context, containerID string, imageReference string, configDigest string, sourceDirectory string, command []string, labels map[string]string) (createdContainerEvidence, error) {
+	var evidence createdContainerEvidence
 	document, err := runner.inspectContainer(ctx, containerID)
 	if err != nil {
-		return "", "", err
+		return evidence, err
 	}
 	canonical, err := runner.validateContainerContract(document, containerID, imageReference, configDigest, sourceDirectory, command)
 	if err != nil {
-		return "", "", err
+		return evidence, err
 	}
 	if err := validateExpectedContainerLabels(document, labels); err != nil {
-		return "", "", err
+		return evidence, err
 	}
 	if document.State == nil || document.State.Status != "created" || document.State.Running {
-		return "", "", errors.New("new gate container is not in created state")
+		return evidence, errors.New("new gate container is not in created state")
 	}
-	hostDigest, err := digestJSON(canonical)
+	evidence.hostConfigDigest, err = digestJSON(canonical)
 	if err != nil {
-		return "", "", fmt.Errorf("digest gate host config: %w", err)
+		return createdContainerEvidence{}, fmt.Errorf("digest gate host config: %w", err)
 	}
-	inspectDigest, err := digestJSON(document)
+	evidence.resourceWitness = gate.ContainerResourceWitness{
+		SchemaVersion: gate.ContainerResourceWitnessSchemaVersion,
+		NanoCPUs:      canonical.NanoCPUs, MemoryBytes: canonical.Memory, PidsLimit: canonical.PidsLimit,
+	}
+	evidence.resourceWitnessDigest, err = evidence.resourceWitness.Digest()
 	if err != nil {
-		return "", "", fmt.Errorf("digest created gate container inspect: %w", err)
+		return createdContainerEvidence{}, fmt.Errorf("digest gate resource witness: %w", err)
 	}
-	return hostDigest, inspectDigest, nil
+	evidence.inspectDigest, err = digestJSON(document)
+	if err != nil {
+		return createdContainerEvidence{}, fmt.Errorf("digest created gate container inspect: %w", err)
+	}
+	return evidence, nil
 }
 
 // validateContainerContract 校验 inspect 观测值并生成 host config 摘要输入。
@@ -374,6 +404,7 @@ func (runner *FreshContainerRunner) validateContainerContract(document container
 		return canonical, err
 	}
 	canonical = canonicalHostConfig{
+		Init:           true,
 		ImageReference: imageReference, ConfigDigest: configDigest, Command: append([]string(nil), command...), User: document.Config.User,
 		NanoCPUs: host.NanoCPUs, Memory: host.Memory, PidsLimit: host.PidsLimit, ReadonlyRootfs: host.ReadonlyRootfs,
 		CapDrop: sortedStrings(host.CapDrop), NoNewPrivileges: true, SeccompDigest: runner.docker.seccompDigest,
@@ -416,14 +447,33 @@ func validateExpectedContainerLabels(document containerInspectDocument, labels m
 
 // validateContainerHostIsolation 校验资源、安全和 network none 合同。
 func validateContainerHostIsolation(host *containerHostConfig) error {
-	if host.NanoCPUs != 4_000_000_000 || host.Memory != 8*1024*1024*1024 || host.PidsLimit != 512 || !host.ReadonlyRootfs {
-		return errors.New("gate container resource or readonly contract drifted")
+	if err := validateContainerResourceIsolation(host); err != nil {
+		return err
 	}
-	if !equalStringSet(host.CapDrop, []string{"ALL"}) || host.NetworkMode != noContainerNetwork || host.StorageOpt["size"] != "10G" {
-		return errors.New("gate container capability, network, or storage contract drifted")
+	if err := validateContainerCapabilityIsolation(host); err != nil {
+		return err
 	}
 	if !slices.Contains(host.SecurityOpt, "no-new-privileges") || !containsSeccomp(host.SecurityOpt) {
 		return errors.New("gate container security options drifted")
+	}
+	return nil
+}
+
+// validateContainerResourceIsolation 校验 init、固定资源上限与只读根文件系统合同。
+func validateContainerResourceIsolation(host *containerHostConfig) error {
+	expected := ExpectedFreshContainerResourceWitness()
+	if !host.Init || host.NanoCPUs != expected.NanoCPUs || host.Memory != expected.MemoryBytes ||
+		host.PidsLimit != expected.PidsLimit || !host.ReadonlyRootfs {
+		return errors.New("gate container resource or readonly contract drifted")
+	}
+	return nil
+}
+
+// validateContainerCapabilityIsolation 校验 capability、断网和可写层配额合同。
+func validateContainerCapabilityIsolation(host *containerHostConfig) error {
+	if !equalStringSet(host.CapDrop, []string{"ALL"}) ||
+		host.NetworkMode != noContainerNetwork || host.StorageOpt["size"] != "10G" {
+		return errors.New("gate container capability, network, or storage contract drifted")
 	}
 	return nil
 }
@@ -476,23 +526,31 @@ func containsRequiredEnvironment(observed, required []string) bool {
 	return true
 }
 
-// inspectFinishedContainer 复验终态容器身份、退出码和完成时间。
-func (runner *FreshContainerRunner) inspectFinishedContainer(parentContext context.Context, containerID string, imageReference string, configDigest string, exitCode int) (string, error) {
+// inspectFinishedContainer 复验终态容器身份、退出码并返回 Docker 记录的退出时刻。
+func (runner *FreshContainerRunner) inspectFinishedContainer(parentContext context.Context, containerID string, imageReference string, configDigest string, exitCode int) (string, time.Time, error) {
 	output, err := runner.runCleanup(parentContext, "inspect", "--type=container", containerID)
 	if err != nil {
-		return "", fmt.Errorf("inspect finished gate container: %w", err)
+		return "", time.Time{}, fmt.Errorf("inspect finished gate container: %w", err)
 	}
 	var document containerInspectDocument
 	if err := decodeSingleInspect(output, &document); err != nil {
-		return "", fmt.Errorf("decode finished gate container inspect: %w", err)
+		return "", time.Time{}, fmt.Errorf("decode finished gate container inspect: %w", err)
 	}
 	if err := validateFinishedContainerIdentity(document, containerID, imageReference, configDigest); err != nil {
-		return "", err
+		return "", time.Time{}, err
+	}
+	exitedAt, err := time.Parse(time.RFC3339Nano, document.State.FinishedAt)
+	if err != nil {
+		return "", time.Time{}, fmt.Errorf("parse finished gate container completion time: %w", err)
+	}
+	if exitedAt.IsZero() {
+		return "", time.Time{}, errors.New("finished gate container completion time is zero")
 	}
 	if err := validateFinishedContainerState(document, exitCode); err != nil {
-		return "", err
+		return "", exitedAt.UTC(), err
 	}
-	return digestJSON(document)
+	digest, err := digestJSON(document)
+	return digest, exitedAt.UTC(), err
 }
 
 // validateFinishedContainerIdentity 校验终态容器仍绑定原始镜像身份。
@@ -522,8 +580,14 @@ func validateFinishedContainerState(document containerInspectDocument, exitCode 
 	if state.Status != "exited" || state.Running || state.ExitCode != exitCode {
 		return errors.New("finished gate container exit state drifted")
 	}
-	if state.OOMKilled || state.Error != "" || state.FinishedAt == "" {
-		return errors.New("finished gate container terminal evidence drifted")
+	if state.OOMKilled {
+		return errors.New("finished gate container was OOM-killed")
+	}
+	if state.Error != "" {
+		return errors.New("finished gate container runtime error is non-empty")
+	}
+	if state.FinishedAt == "" {
+		return errors.New("finished gate container completion time is empty")
 	}
 	return nil
 }

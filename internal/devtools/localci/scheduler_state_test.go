@@ -3,6 +3,7 @@
 package localci
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"errors"
@@ -46,6 +47,78 @@ func TestSchedulerStateRejectsSchemaVersionDrift(t *testing.T) {
 	identity := mustDaemonIdentity(t, "daemon-state")
 	if _, err := openSchedulerState(ctx, path, identity); err == nil {
 		t.Fatal("expected schema version drift to fail")
+	}
+}
+
+func TestSchedulerStateRejectsV1WithoutModifyingDatabase(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	path := filepath.Join(canonicalPrivateTempDir(t), "state-v1.db")
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatalf("open v1 fixture: %v", err)
+	}
+	if _, err := db.ExecContext(ctx, `
+		CREATE TABLE scheduler_schema (
+			id INTEGER PRIMARY KEY CHECK (id = 1),
+			version INTEGER NOT NULL,
+			daemon_key TEXT NOT NULL
+		);
+		CREATE TABLE legacy_marker (value TEXT NOT NULL);
+		INSERT INTO scheduler_schema (id, version, daemon_key) VALUES (1, 1, 'legacy-daemon');
+		INSERT INTO legacy_marker (value) VALUES ('unchanged');
+	`); err != nil {
+		t.Fatalf("create v1 fixture: %v", err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatalf("close v1 fixture: %v", err)
+	}
+	if err := os.Chmod(path, 0o600); err != nil {
+		t.Fatalf("set v1 fixture mode: %v", err)
+	}
+	before, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read v1 fixture before open: %v", err)
+	}
+	identity := mustDaemonIdentity(t, "daemon-v2")
+	_, err = openSchedulerState(ctx, path, identity)
+	if !errors.Is(err, errSchedulerSchemaV1Unsupported) {
+		t.Fatalf("open v1 error=%v want=%v", err, errSchedulerSchemaV1Unsupported)
+	}
+	if err.Error() != errSchedulerSchemaV1Unsupported.Error() {
+		t.Fatalf("open v1 reason=%q want=%q", err, errSchedulerSchemaV1Unsupported)
+	}
+	after, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read v1 fixture after rejection: %v", err)
+	}
+	if !bytes.Equal(after, before) {
+		t.Fatal("v1 scheduler database changed while being rejected")
+	}
+	assertV1SchedulerFixtureUnchanged(t, ctx, path)
+}
+
+func assertV1SchedulerFixtureUnchanged(t *testing.T, ctx context.Context, path string) {
+	t.Helper()
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatalf("reopen rejected v1 fixture: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := db.Close(); err != nil {
+			t.Errorf("close rejected v1 fixture: %v", err)
+		}
+	})
+	var version int
+	var marker string
+	if err := db.QueryRowContext(ctx, "SELECT version FROM scheduler_schema WHERE id = 1").Scan(&version); err != nil {
+		t.Fatalf("read rejected v1 version: %v", err)
+	}
+	if err := db.QueryRowContext(ctx, "SELECT value FROM legacy_marker").Scan(&marker); err != nil {
+		t.Fatalf("read rejected v1 marker: %v", err)
+	}
+	if version != 1 || marker != "unchanged" {
+		t.Fatalf("rejected v1 fixture version=%d marker=%q", version, marker)
 	}
 }
 
@@ -104,6 +177,69 @@ func TestSchedulerStateRestoresQueueAndLeases(t *testing.T) {
 	}
 	if len(restored.leases) != 1 {
 		t.Fatalf("restored leases=%d want=1", len(restored.leases))
+	}
+}
+
+func TestSchedulerStateRejectsRecoveredShardGroupIdentityDrift(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name   string
+		mutate func(*testing.T, *schedulerState)
+	}{
+		{
+			name: "missing-group",
+			mutate: func(t *testing.T, state *schedulerState) {
+				execSchedulerTestSQL(t, state, "UPDATE scheduler_workloads SET group_identity = ''")
+			},
+		},
+		{
+			name: "unknown-shard",
+			mutate: func(t *testing.T, state *schedulerState) {
+				execSchedulerTestSQL(t, state, "UPDATE scheduler_leases SET shard_identity = 'unknown' WHERE shard_identity = 'shard-1'")
+			},
+		},
+		{
+			name: "duplicate-shard",
+			mutate: func(t *testing.T, state *schedulerState) {
+				execSchedulerTestSQL(t, state, "UPDATE scheduler_leases SET shard_identity = 'shard-0' WHERE shard_identity = 'shard-1'")
+			},
+		},
+		{
+			name: "missing-failed-shard",
+			mutate: func(t *testing.T, state *schedulerState) {
+				execSchedulerTestSQL(t, state, "UPDATE scheduler_workloads SET status = 'cancelling'")
+			},
+		},
+		{
+			name: "unknown-failed-shard",
+			mutate: func(t *testing.T, state *schedulerState) {
+				execSchedulerTestSQL(t, state, "UPDATE scheduler_workloads SET status = 'cancelling', failed_shard_identity = 'unknown'")
+			},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			ctx := context.Background()
+			state, kernel := newTestSchedulerState(t, "group-drift-"+test.name)
+			mustEnqueue(t, kernel, testShardGroupSpec(3))
+			if _, err := kernel.reserveRunnable(); err != nil {
+				t.Fatalf("reserve group: %v", err)
+			}
+			if err := state.saveKernel(ctx, kernel); err != nil {
+				t.Fatalf("save group: %v", err)
+			}
+			test.mutate(t, state)
+			if _, err := state.loadKernel(ctx, kernel.identity); err == nil {
+				t.Fatal("drifted group identity recovered successfully")
+			}
+		})
+	}
+}
+
+func execSchedulerTestSQL(t *testing.T, state *schedulerState, query string) {
+	t.Helper()
+	if _, err := state.db.ExecContext(context.Background(), query); err != nil {
+		t.Fatalf("mutate scheduler state: %v", err)
 	}
 }
 
@@ -239,7 +375,7 @@ func TestSchedulerOutboxConcurrentAckKeepsMaximumCursor(t *testing.T) {
 	cleanupSchedulerState(t, state)
 	seedOutboxEvents(t, ctx, state)
 
-	for round := 0; round < 32; round++ {
+	for round := range 32 {
 		resetOutboxCursor(t, ctx, state, round)
 		assertConcurrentOutboxAckRound(t, ctx, state, round)
 	}
@@ -274,7 +410,6 @@ func assertConcurrentOutboxAckRound(
 	start := make(chan struct{})
 	var group errgroup.Group
 	for _, sequence := range []uint64{2, 3} {
-		sequence := sequence
 		group.Go(func() error {
 			<-start
 			err := state.ackOutbox(ctx, "subscriber-1", "inv-1", sequence)

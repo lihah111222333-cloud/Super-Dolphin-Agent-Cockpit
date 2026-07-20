@@ -2,6 +2,8 @@ package localci
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -10,9 +12,266 @@ import (
 	"strings"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/sourceexport"
 )
 
 const buildxProvenanceType = "https://mobyproject.org/buildkit@v1"
+
+const runtimeDepsLockPath = "build/gate/runtime-deps.lock"
+
+type toolchainLock struct {
+	SchemaVersion      string             `json:"schema_version"`
+	BuildKitVersion    string             `json:"buildkit_version"`
+	DockerfileFrontend string             `json:"dockerfile_frontend"`
+	SourceDateEpoch    string             `json:"source_date_epoch"`
+	TargetPlatforms    []string           `json:"target_platforms"`
+	BaseImages         []lockedBaseImage  `json:"base_images"`
+	DependencySources  []string           `json:"dependency_sources"`
+	RuntimeDepsLock    string             `json:"runtime_deps_lock"`
+	RuntimeTools       lockedRuntimeTools `json:"runtime_tools"`
+	NetworkPolicy      string             `json:"network_policy"`
+}
+
+type lockedRuntimeTools struct {
+	NodeVersion     string                 `json:"node_version"`
+	NPMVersion      string                 `json:"npm_version"`
+	PythonVersion   string                 `json:"python_version"`
+	Ripgrep         string                 `json:"ripgrep"`
+	Sqruff          string                 `json:"sqruff"`
+	SqruffArtifacts []lockedSqruffArtifact `json:"sqruff_artifacts"`
+	Gopls           string                 `json:"gopls"`
+	SQLC            string                 `json:"sqlc"`
+	NPMPackages     []string               `json:"npm_lsp_packages"`
+}
+
+type lockedSqruffArtifact struct {
+	Platform string `json:"platform"`
+	URL      string `json:"url"`
+	SHA256   string `json:"sha256"`
+}
+
+type runtimeDepsImage struct {
+	Platform  string             `json:"platform"`
+	Image     gate.ImageIdentity `json:"image"`
+	ImageSize int64              `json:"image_size_bytes"`
+}
+
+var runtimeDepsPlatforms = []string{"linux/amd64", "linux/arm64"}
+
+type lockedBaseImage struct {
+	Name      string `json:"name"`
+	Reference string `json:"reference"`
+}
+
+// validateToolchainVersions 校验工具链 schema、BuildKit 前端和确定性时间戳。
+func validateToolchainVersions(lock toolchainLock) error {
+	if lock.SchemaVersion != "1" {
+		return fmt.Errorf("toolchain schema version %q is unsupported", lock.SchemaVersion)
+	}
+	if lock.BuildKitVersion == "" {
+		return errors.New("BuildKit version is required")
+	}
+	if lock.DockerfileFrontend != "builtin:dockerfile.v1" {
+		return errors.New("Dockerfile frontend must be the locked builtin:dockerfile.v1 frontend")
+	}
+	if err := validateSourceDateEpoch(lock.SourceDateEpoch); err != nil {
+		return err
+	}
+	return nil
+}
+
+// loadRuntimeDepsImageIdentity 严格解码运行时依赖锁并返回已验证的平台镜像身份。
+func loadRuntimeDepsImageIdentity(closure map[string]sourceexport.TreeEntry, platform string) (gate.ImageIdentity, error) {
+	entry, exists := closure[runtimeDepsLockPath]
+	if !exists {
+		return gate.ImageIdentity{}, fmt.Errorf("candidate input closure is missing %s", runtimeDepsLockPath)
+	}
+	var lock runtimeDepsLock
+	if err := decodeStrictJSON(entry.Data, &lock); err != nil {
+		return gate.ImageIdentity{}, fmt.Errorf("decode runtime dependencies lock: %w", err)
+	}
+	if err := validateRuntimeDepsLock(lock, platform, closure); err != nil {
+		return gate.ImageIdentity{}, err
+	}
+	for _, image := range lock.Images {
+		if image.Platform == platform {
+			return image.Image, nil
+		}
+	}
+	return gate.ImageIdentity{}, fmt.Errorf("runtime dependencies image for target %q is not locked", platform)
+}
+
+// validateRuntimeDepsLock 校验 schema、OCI 身份、目标平台和必需元数据。
+func validateRuntimeDepsLock(lock runtimeDepsLock, platform string, closure map[string]sourceexport.TreeEntry) error {
+	if err := validateRuntimeDepsLockHeader(lock); err != nil {
+		return err
+	}
+	if err := validateRuntimeDepsImages(lock.Images); err != nil {
+		return err
+	}
+	if !slices.Contains(runtimeDepsPlatforms, platform) {
+		return fmt.Errorf("runtime dependencies target platform %q is unsupported", platform)
+	}
+	return validateRuntimeDepsClosure(lock, closure)
+}
+
+// validateRuntimeDepsLockHeader 约束 schema3、匿名拉取策略和固定双平台镜像数量。
+func validateRuntimeDepsLockHeader(lock runtimeDepsLock) error {
+	if lock.SchemaVersion != "3" {
+		return fmt.Errorf("runtime dependencies lock schema version %q is unsupported", lock.SchemaVersion)
+	}
+	if lock.RegistryPullPolicy != "anonymous" {
+		return fmt.Errorf("runtime dependencies registry pull policy %q is unsupported", lock.RegistryPullPolicy)
+	}
+	if len(lock.Images) != len(runtimeDepsPlatforms) {
+		return fmt.Errorf("runtime dependencies image count = %d, want %d", len(lock.Images), len(runtimeDepsPlatforms))
+	}
+	return nil
+}
+
+// validateRuntimeDepsImages 校验双平台镜像共享 repository/index 且摘要互不重复。
+func validateRuntimeDepsImages(images []runtimeDepsImage) error {
+	repository := images[0].Image.Registry
+	indexDigest := images[0].Image.OCIIndexDigest
+	manifestDigests := make(map[string]struct{}, len(images))
+	configDigests := make(map[string]struct{}, len(images))
+	for index, expectedPlatform := range runtimeDepsPlatforms {
+		if err := validateRuntimeDepsImage(images[index], expectedPlatform, index, repository, indexDigest, manifestDigests, configDigests); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// validateRuntimeDepsImage 校验单个平台镜像身份、共享来源和正向镜像大小。
+func validateRuntimeDepsImage(image runtimeDepsImage, expectedPlatform string, index int, repository string, indexDigest string, manifestDigests map[string]struct{}, configDigests map[string]struct{}) error {
+	if image.Platform != expectedPlatform {
+		return fmt.Errorf("runtime dependencies image platform %q at index %d, want %q", image.Platform, index, expectedPlatform)
+	}
+	if err := image.Image.Validate(); err != nil {
+		return fmt.Errorf("validate runtime dependencies image identity for %s: %w", expectedPlatform, err)
+	}
+	if err := validateRemoteImageRegistry(image.Image.Registry); err != nil {
+		return fmt.Errorf("validate runtime dependencies image registry for %s: %w", expectedPlatform, err)
+	}
+	if image.Image.Registry != repository || image.Image.OCIIndexDigest != indexDigest {
+		return errors.New("runtime dependency platforms must share one registry repository and OCI index digest")
+	}
+	if err := recordRuntimeDepsImageDigests(image.Image, manifestDigests, configDigests); err != nil {
+		return err
+	}
+	if image.ImageSize <= 0 {
+		return fmt.Errorf("runtime dependencies image size for %s must be positive", expectedPlatform)
+	}
+	return validateRuntimeDepsPlatform(image.Image, expectedPlatform)
+}
+
+// recordRuntimeDepsImageDigests 拒绝平台 manifest 与 config 摘要重复。
+func recordRuntimeDepsImageDigests(image gate.ImageIdentity, manifestDigests map[string]struct{}, configDigests map[string]struct{}) error {
+	if _, exists := manifestDigests[image.PlatformManifestDigest]; exists {
+		return errors.New("runtime dependency platform manifest digest is duplicated")
+	}
+	manifestDigests[image.PlatformManifestDigest] = struct{}{}
+	if _, exists := configDigests[image.ConfigDigest]; exists {
+		return errors.New("runtime dependency config digest is duplicated")
+	}
+	configDigests[image.ConfigDigest] = struct{}{}
+	return nil
+}
+
+// validateRuntimeDepsPlatform 将 OCI 平台身份严格绑定到候选目标平台。
+func validateRuntimeDepsPlatform(image gate.ImageIdentity, platform string) error {
+	actual := image.OS + "/" + image.Architecture
+	if actual != platform || image.Variant != "" {
+		return fmt.Errorf("runtime dependencies image platform %q does not match target %q", actual, platform)
+	}
+	return nil
+}
+
+// validateLockedDependencies 校验依赖真值文件、工具版本和受限构建网络策略。
+func validateLockedDependencies(lock toolchainLock, closure map[string]sourceexport.TreeEntry) error {
+	if err := validateRuntimeDepsLockBinding(lock.RuntimeDepsLock, closure); err != nil {
+		return err
+	}
+	if err := validateLockedRuntimeTools(lock.RuntimeTools); err != nil {
+		return err
+	}
+	if err := validateDependencySources(lock.DependencySources, closure); err != nil {
+		return err
+	}
+	return validateLockedNetworkPolicy(lock.NetworkPolicy)
+}
+
+// validateRuntimeDepsLockBinding 要求唯一规范锁路径属于候选输入闭包。
+func validateRuntimeDepsLockBinding(path string, closure map[string]sourceexport.TreeEntry) error {
+	if path != runtimeDepsLockPath {
+		return fmt.Errorf("runtime dependencies lock must be %q", runtimeDepsLockPath)
+	}
+	if _, exists := closure[runtimeDepsLockPath]; !exists {
+		return fmt.Errorf("runtime dependencies lock %q is outside the input closure", runtimeDepsLockPath)
+	}
+	return nil
+}
+
+// validateLockedRuntimeTools 要求每个工具版本和 LSP npm 包均被显式锁定。
+func validateLockedRuntimeTools(tools lockedRuntimeTools) error {
+	if tools.NodeVersion == "" || tools.NPMVersion == "" || tools.PythonVersion == "" ||
+		tools.Ripgrep == "" || tools.Sqruff == "" || tools.Gopls == "" || tools.SQLC == "" {
+		return errors.New("runtime tool versions must all be locked")
+	}
+	if err := validateLockedSqruffArtifacts(tools); err != nil {
+		return err
+	}
+	return validateSortedUnique("runtime npm LSP packages", tools.NPMPackages)
+}
+
+// validateLockedSqruffArtifact 将 SQL diagnostics 工具绑定到规范 release 和归档摘要。
+func validateLockedSqruffArtifacts(tools lockedRuntimeTools) error {
+	if len(tools.SqruffArtifacts) != len(runtimeDepsPlatforms) {
+		return errors.New("sqruff artifacts must contain exactly linux/amd64 and linux/arm64")
+	}
+	for index, platform := range runtimeDepsPlatforms {
+		artifact := tools.SqruffArtifacts[index]
+		if artifact.Platform != platform {
+			return fmt.Errorf("sqruff artifact platform %q at index %d, want %q", artifact.Platform, index, platform)
+		}
+		wantURL := "https://github.com/quarylabs/sqruff/releases/download/v0.38.0/sqruff-linux-"
+		if platform == "linux/amd64" {
+			wantURL += "x86_64-musl.tar.gz"
+		} else {
+			wantURL += "aarch64-musl.tar.gz"
+		}
+		if artifact.URL != wantURL || len(artifact.SHA256) != sha256.Size*2 {
+			return fmt.Errorf("sqruff artifact for %s is not canonically locked", platform)
+		}
+		decoded, err := hex.DecodeString(artifact.SHA256)
+		if err != nil || hex.EncodeToString(decoded) != artifact.SHA256 {
+			return fmt.Errorf("sqruff artifact SHA-256 for %s is not canonical", platform)
+		}
+	}
+	return nil
+}
+
+// validateDependencySources 要求有序依赖源全部属于候选输入闭包。
+func validateDependencySources(dependencies []string, closure map[string]sourceexport.TreeEntry) error {
+	if err := validateSortedUnique("dependency sources", dependencies); err != nil {
+		return err
+	}
+	for _, dependency := range dependencies {
+		if _, exists := closure[dependency]; !exists {
+			return fmt.Errorf("locked dependency source %q is outside the input closure", dependency)
+		}
+	}
+	return nil
+}
+
+// validateLockedNetworkPolicy 只接受离线或已锁定依赖网络策略。
+func validateLockedNetworkPolicy(policy string) error {
+	if policy != "none" && policy != "locked-dependencies" {
+		return fmt.Errorf("network policy %q is not permitted", policy)
+	}
+	return nil
+}
 
 // buildxMetadata 固化 docker buildx --metadata-file 的受支持顶层字段。
 type buildxMetadata struct {
@@ -207,241 +466,6 @@ func validateBuildxDescriptor(descriptor buildxDescriptor, platformValue string)
 func rawJSONPresent(value json.RawMessage) bool {
 	trimmed := strings.TrimSpace(string(value))
 	return trimmed != "" && trimmed != "null"
-}
-
-var (
-	// ErrTruthImageBootstrapTrustRoot reports that no signed accepted image exists.
-	ErrTruthImageBootstrapTrustRoot = errors.New("truth image bootstrap trust root is not installed")
-	// ErrTruthImageAwaitingTrustedRef keeps a built candidate non-runnable until trusted promotion.
-	ErrTruthImageAwaitingTrustedRef = errors.New("truth image candidate is awaiting trusted ref promotion")
-)
-
-// TruthImageEnsureStatus 表示受信不可变镜像是否可以执行本次 job。
-type TruthImageEnsureStatus string
-
-const (
-	TruthImageEnsureAccepted           TruthImageEnsureStatus = "accepted"
-	TruthImageEnsureAwaitingTrustedRef TruthImageEnsureStatus = "awaiting_trusted_ref"
-)
-
-// AcceptedImageLoader 只暴露已验签 accepted image 的读取能力。
-type AcceptedImageLoader interface {
-	Load(context.Context) (gate.AcceptedImageRecord, error)
-}
-
-// CandidateImageBuilder 是现有候选镜像构建器的窄接口。
-type CandidateImageBuilder interface {
-	EnsureCandidate(context.Context, CandidateRequest) (CandidateResult, error)
-}
-
-// TruthImageEnsureRequest 将提交 job tree 绑定到规范镜像输入。
-type TruthImageEnsureRequest struct {
-	Tree         ReadOnlyGitTree
-	PolicyDigest string
-	Platform     string
-}
-
-// TruthImageEnsureResult 分离 job provenance 与镜像 build provenance；仅 accepted 状态携带 Image。
-type TruthImageEnsureResult struct {
-	Status                          TruthImageEnsureStatus
-	SubmittedJobSourceTree          string
-	AcceptedImageBuildSourceTree    string
-	CandidateImageBuildSourceTree   string
-	PolicyDigest                    string
-	ImageSchemaVersion              string
-	ImageInputDigest                string
-	ContextDigest                   string
-	InputManifestDigest             string
-	ToolchainDigest                 string
-	DockerfileDigest                string
-	CandidatePlatformManifestDigest string
-	Image                           gate.ImageIdentity
-}
-
-// TruthImageEnsurer 复用 accepted 镜像，或构建不可运行且不晋升状态的候选镜像。
-type TruthImageEnsurer struct {
-	accepted AcceptedImageLoader
-	builder  CandidateImageBuilder
-}
-
-// NewTruthImageEnsurer 创建不持有签名能力且 fail-fast 的镜像 authority adapter。
-func NewTruthImageEnsurer(accepted AcceptedImageLoader, builder CandidateImageBuilder) (*TruthImageEnsurer, error) {
-	if interfaceValueIsNil(accepted) {
-		return nil, errors.New("accepted image loader is required")
-	}
-	if interfaceValueIsNil(builder) {
-		return nil, errors.New("candidate image builder is required")
-	}
-	return &TruthImageEnsurer{accepted: accepted, builder: builder}, nil
-}
-
-// EnsureImage 仅为已受信 accepted record 返回可运行镜像身份。
-func (ensurer *TruthImageEnsurer) EnsureImage(ctx context.Context, request TruthImageEnsureRequest) (TruthImageEnsureResult, error) {
-	if err := validateTruthImageEnsureCall(ensurer, ctx); err != nil {
-		return TruthImageEnsureResult{}, err
-	}
-	accepted, err := loadAcceptedTruthImage(ctx, ensurer.accepted)
-	if err != nil {
-		return TruthImageEnsureResult{}, err
-	}
-	inputs, err := ResolveGateImageInputs(request.Tree, request.PolicyDigest, request.Platform)
-	if err != nil {
-		return TruthImageEnsureResult{}, err
-	}
-	if inputs.ImageInputDigest == accepted.ImageInputDigest && inputs.PolicyDigest == accepted.PolicyDigest {
-		return acceptedTruthImageResult(inputs, accepted)
-	}
-	candidate, err := ensurer.builder.EnsureCandidate(ctx, candidateRequestFromInputs(inputs, accepted))
-	if err != nil {
-		return TruthImageEnsureResult{}, fmt.Errorf("ensure truth image candidate: %w", err)
-	}
-	if err := validateCandidateInputs(inputs, accepted, candidate); err != nil {
-		return TruthImageEnsureResult{}, err
-	}
-	return truthImageResultFromCandidate(inputs, accepted, candidate)
-}
-
-// acceptedTruthImageResult 只从已验签 record 构造 runnable identity。
-func acceptedTruthImageResult(
-	inputs GateImageInputs,
-	accepted gate.AcceptedImageRecord,
-) (TruthImageEnsureResult, error) {
-	candidate := candidateResultFromInputs(inputs, accepted.Image.PlatformManifestDigest)
-	result := truthImageResult(inputs, accepted, candidate)
-	result.Status = TruthImageEnsureAccepted
-	result.Image = cloneImageIdentity(accepted.Image)
-	if err := result.Validate(); err != nil {
-		return TruthImageEnsureResult{}, err
-	}
-	return result, nil
-}
-
-// truthImageResultFromCandidate 保持 built candidate 非 runnable 并返回 awaiting 哨兵。
-func truthImageResultFromCandidate(
-	inputs GateImageInputs,
-	accepted gate.AcceptedImageRecord,
-	candidate CandidateResult,
-) (TruthImageEnsureResult, error) {
-	result := truthImageResult(inputs, accepted, candidate)
-	if candidate.Built {
-		result.Status = TruthImageEnsureAwaitingTrustedRef
-		result.CandidateImageBuildSourceTree = candidate.SourceTreeSHA
-		result.CandidatePlatformManifestDigest = candidate.ImageDigest
-		if err := result.Validate(); err != nil {
-			return TruthImageEnsureResult{}, err
-		}
-		return result, ErrTruthImageAwaitingTrustedRef
-	}
-	return acceptedTruthImageResult(inputs, accepted)
-}
-
-func candidateResultFromInputs(inputs GateImageInputs, imageDigest string) CandidateResult {
-	return CandidateResult{
-		SourceTreeSHA: inputs.SubmittedSourceTree, InputDigest: inputs.ImageInputDigest,
-		ContextDigest: inputs.ContextDigest, InputManifestDigest: inputs.InputManifestDigest,
-		ToolchainDigest: inputs.ToolchainDigest, DockerfileDigest: inputs.DockerfileDigest,
-		ImageDigest: imageDigest,
-	}
-}
-
-func validateTruthImageEnsureCall(ensurer *TruthImageEnsurer, ctx context.Context) error {
-	if ensurer == nil || interfaceValueIsNil(ensurer.accepted) || interfaceValueIsNil(ensurer.builder) {
-		return errors.New("truth image ensurer is not configured")
-	}
-	if ctx == nil {
-		return errors.New("truth image ensure context is required")
-	}
-	return ctx.Err()
-}
-
-func loadAcceptedTruthImage(ctx context.Context, loader AcceptedImageLoader) (gate.AcceptedImageRecord, error) {
-	accepted, err := loader.Load(ctx)
-	if errors.Is(err, ErrAcceptedImageStateNotFound) {
-		return gate.AcceptedImageRecord{}, ErrTruthImageBootstrapTrustRoot
-	}
-	if err != nil {
-		return gate.AcceptedImageRecord{}, fmt.Errorf("load accepted truth image: %w", err)
-	}
-	return accepted, nil
-}
-
-// validateCandidateInputs 阻断 resolver 与 builder 之间的任何摘要或复用身份漂移。
-func validateCandidateInputs(inputs GateImageInputs, accepted gate.AcceptedImageRecord, candidate CandidateResult) error {
-	if candidate.SourceTreeSHA != inputs.SubmittedSourceTree || candidate.InputDigest != inputs.ImageInputDigest {
-		return errors.New("candidate image source or input digest drifted from resolved Git inputs")
-	}
-	if candidate.ContextDigest != inputs.ContextDigest || candidate.InputManifestDigest != inputs.InputManifestDigest {
-		return errors.New("candidate image context or manifest digest drifted from resolved Git inputs")
-	}
-	if candidate.ToolchainDigest != inputs.ToolchainDigest || candidate.DockerfileDigest != inputs.DockerfileDigest {
-		return errors.New("candidate image toolchain or Dockerfile digest drifted from resolved Git inputs")
-	}
-	if !candidate.Built && candidate.ImageDigest != accepted.Image.PlatformManifestDigest {
-		return errors.New("reused candidate image digest does not match accepted immutable identity")
-	}
-	return nil
-}
-
-func candidateRequestFromInputs(inputs GateImageInputs, accepted gate.AcceptedImageRecord) CandidateRequest {
-	return CandidateRequest{
-		SourceTreeSHA: inputs.SubmittedSourceTree, PolicyDigest: inputs.PolicyDigest,
-		ImageSchemaVersion: inputs.ImageSchemaVersion, SourceEntries: cloneTreeEntries(inputs.SourceEntries),
-		Platform: inputs.Platform, AcceptedInputDigest: accepted.ImageInputDigest,
-		AcceptedPolicyDigest: accepted.PolicyDigest,
-		AcceptedImageDigest:  accepted.Image.PlatformManifestDigest,
-	}
-}
-
-func truthImageResult(inputs GateImageInputs, accepted gate.AcceptedImageRecord, candidate CandidateResult) TruthImageEnsureResult {
-	return TruthImageEnsureResult{
-		SubmittedJobSourceTree:       inputs.SubmittedSourceTree,
-		AcceptedImageBuildSourceTree: accepted.SourceTree,
-		PolicyDigest:                 inputs.PolicyDigest,
-		ImageSchemaVersion:           inputs.ImageSchemaVersion,
-		ImageInputDigest:             candidate.InputDigest, ContextDigest: candidate.ContextDigest,
-		InputManifestDigest: candidate.InputManifestDigest, ToolchainDigest: candidate.ToolchainDigest,
-		DockerfileDigest: candidate.DockerfileDigest,
-	}
-}
-
-// Validate 在 coordinator 边界拒绝含糊的 runnable/awaiting 状态。
-func (result TruthImageEnsureResult) Validate() error {
-	if err := validateTruthImageResultIdentity(result); err != nil {
-		return err
-	}
-	switch result.Status {
-	case TruthImageEnsureAccepted:
-		if result.CandidateImageBuildSourceTree != "" || result.CandidatePlatformManifestDigest != "" {
-			return errors.New("accepted truth image result contains candidate authority")
-		}
-		return result.Image.Validate()
-	case TruthImageEnsureAwaitingTrustedRef:
-		if result.CandidateImageBuildSourceTree == "" || result.CandidatePlatformManifestDigest == "" {
-			return errors.New("awaiting truth image result is missing candidate provenance")
-		}
-		if result.Image.Registry != "" {
-			return errors.New("awaiting truth image result must not expose a runnable image")
-		}
-		return nil
-	default:
-		return fmt.Errorf("unsupported truth image ensure status %q", result.Status)
-	}
-}
-
-func validateTruthImageResultIdentity(result TruthImageEnsureResult) error {
-	values := []string{
-		result.SubmittedJobSourceTree, result.AcceptedImageBuildSourceTree,
-		result.PolicyDigest, result.ImageSchemaVersion,
-	}
-	if slices.Contains(values, "") {
-		return errors.New("truth image result is missing job or accepted build provenance")
-	}
-	return nil
-}
-
-func cloneImageIdentity(identity gate.ImageIdentity) gate.ImageIdentity {
-	identity.RootFSDiffIDs = append([]string(nil), identity.RootFSDiffIDs...)
-	return identity
 }
 
 // DockerCandidateIdentityResolver derives a complete identity from the host Docker content store.

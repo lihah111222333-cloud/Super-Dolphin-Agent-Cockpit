@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	gateexecutor "github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
 )
 
 type dockerRunnerStub struct {
@@ -20,6 +22,20 @@ type dockerRunnerStub struct {
 	createOutput string
 	kill         error
 	remove       error
+}
+
+func TestBuildGateResultUsesCanonicalArgvDigest(t *testing.T) {
+	command := []string{"/usr/local/bin/super-dolphin-gate-executor", "run", "--gate", "backend:test_with_guard"}
+	result, err := buildGateResult(gateexecutor.GateIDBackendTestWithGuard, command, FreshContainerResult{
+		Status: gateexecutor.ResultStatusPassed,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	const want = "sha256:20a5b5dbfb5d3b8cffd7fcb1d7a7cd463eaa94340261313bbd1d73ceeb02cc18"
+	if result.ArgvDigest != want {
+		t.Fatalf("gate argv digest = %q, want %q", result.ArgvDigest, want)
+	}
 }
 
 func (stub *dockerRunnerStub) Run(ctx context.Context, args ...string) (string, error) {
@@ -77,6 +93,7 @@ func TestDockerExecutorAppliesIsolationAndResourceContract(t *testing.T) {
 		"--workdir=/workspace/work", "--env=HOME=/workspace/work/home", "--env=TMPDIR=/workspace/work/tmp",
 		"--env=GOCACHE=/workspace/work/go-cache", "--env=GOMODCACHE=/workspace/work/go-mod-cache",
 		"--env=npm_config_cache=/workspace/work/npm-cache", "--env=XDG_CACHE_HOME=/workspace/work/xdg-cache",
+		"--env=PLAYWRIGHT_BROWSERS_PATH=/opt/super-dolphin-gate/runtime/frontend/node_modules/.cache/ms-playwright",
 		"--log-driver=local", "--log-opt=max-size=10m", "--log-opt=max-file=3",
 		"--entrypoint=/usr/local/bin/super-dolphin-gate-executor", "registry.local/gate@" + digest("1"), "run",
 	}
@@ -86,6 +103,34 @@ func TestDockerExecutorAppliesIsolationAndResourceContract(t *testing.T) {
 	wantLifecycle := [][]string{{"start", testContainerID}, {"wait", testContainerID}, {"rm", "--force", testContainerID}}
 	if !reflect.DeepEqual(runner.calls[1:], wantLifecycle) {
 		t.Fatalf("lifecycle calls = %#v, want %#v", runner.calls[1:], wantLifecycle)
+	}
+}
+
+func TestRaceExecutorIsBoundedForFixedContainerResources(t *testing.T) {
+	if workloadLogicalCPUs != 4 || workloadMemoryGiB != 8 {
+		t.Fatalf("workload resource contract = %d CPU/%d GiB, want 4 CPU/8 GiB", workloadLogicalCPUs, workloadMemoryGiB)
+	}
+	program := gateexecutor.ExecutorPrograms()[gateexecutor.GateIDBackendTestGuardWithRace]
+	if len(program.Steps) != 1 {
+		t.Fatalf("race executor steps = %d, want one bounded backend step", len(program.Steps))
+	}
+	if !reflect.DeepEqual(program.Steps[0].Environment, []string{"GOFLAGS=-p=1", "GOMAXPROCS=1", "GOMEMLIMIT=1GiB"}) {
+		t.Fatalf("race executor environment = %v, want 8 GiB resource bounds", program.Steps[0].Environment)
+	}
+}
+
+func TestFreshContainerLogEvidenceIsBoundedAndCopied(t *testing.T) {
+	input := []byte("failure\n")
+	got, err := validateFreshContainerLogLimit(input, MaxFreshContainerLogBytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	input[0] = 'X'
+	if string(got) != "failure\n" {
+		t.Fatalf("validated log aliases caller memory: %q", got)
+	}
+	if _, err := validateFreshContainerLogLimit(make([]byte, MaxFreshContainerLogBytes+1), MaxFreshContainerLogBytes); err == nil {
+		t.Fatal("validateFreshContainerLogLimit() accepted oversized output")
 	}
 }
 
@@ -137,12 +182,12 @@ func (stub *dockerExitRunnerStub) Run(ctx context.Context, args ...string) (stri
 
 func TestDockerExecutorCleanupBoundaries(t *testing.T) {
 	for _, test := range []struct {
-		name     string
-		runner   *dockerRunnerStub
-		wantTail [][]string
+		name   string
+		runner *dockerRunnerStub
+		assert func(*testing.T, containerLifecycleEvidence, [][]string)
 	}{
-		{name: "create failure", runner: &dockerRunnerStub{create: errors.New("create failed")}, wantTail: [][]string{{"create"}}},
-		{name: "start failure", runner: &dockerRunnerStub{start: errors.New("start failed")}, wantTail: [][]string{{"start", testContainerID}, {"rm", "--force", testContainerID}}},
+		{name: "create failure", runner: &dockerRunnerStub{create: errors.New("create failed")}, assert: assertCreateFailureCleanup},
+		{name: "start failure", runner: &dockerRunnerStub{start: errors.New("start failed")}, assert: assertStartFailureCleanup},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			seccomp, trustedRoot, sourceDir := dockerFixture(t)
@@ -154,19 +199,32 @@ func TestDockerExecutorCleanupBoundaries(t *testing.T) {
 			if err == nil {
 				t.Fatal("Run() accepted lifecycle failure")
 			}
-			if test.name == "create failure" {
-				if len(test.runner.calls) != 1 || test.runner.calls[0][0] != "create" {
-					t.Fatalf("create failure calls = %#v", test.runner.calls)
-				}
-				return
-			}
-			if !evidence.Removed {
-				t.Fatalf("start failure evidence = %#v", evidence)
-			}
-			if !reflect.DeepEqual(test.runner.calls[len(test.runner.calls)-2:], test.wantTail) {
-				t.Fatalf("cleanup calls = %#v, want tail %#v", test.runner.calls, test.wantTail)
-			}
+			test.assert(t, evidence, test.runner.calls)
 		})
+	}
+}
+
+func assertCreateFailureCleanup(t *testing.T, evidence containerLifecycleEvidence, calls [][]string) {
+	t.Helper()
+	if !evidence.Removed {
+		t.Fatalf("create failure evidence = %#v", evidence)
+	}
+	if len(calls) != 2 {
+		t.Fatalf("create failure calls = %#v", calls)
+	}
+	if calls[0][0] != "create" || !reflect.DeepEqual(calls[1], []string{"rm", "--force", testContainerID}) {
+		t.Fatalf("create failure calls = %#v", calls)
+	}
+}
+
+func assertStartFailureCleanup(t *testing.T, evidence containerLifecycleEvidence, calls [][]string) {
+	t.Helper()
+	if !evidence.Removed {
+		t.Fatalf("start failure evidence = %#v", evidence)
+	}
+	wantTail := [][]string{{"start", testContainerID}, {"rm", "--force", testContainerID}}
+	if !reflect.DeepEqual(calls[len(calls)-2:], wantTail) {
+		t.Fatalf("cleanup calls = %#v, want tail %#v", calls, wantTail)
 	}
 }
 

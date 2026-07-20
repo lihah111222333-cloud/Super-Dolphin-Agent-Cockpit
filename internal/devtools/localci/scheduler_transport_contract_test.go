@@ -29,14 +29,17 @@ func schedulerPublicDTOJSONCases() []schedulerTransportJSONCase {
 			want: map[string]string{
 				"ID": "id", "InvocationID": "invocation_id", "EnqueueSequence": "enqueue_sequence",
 				"Subsequence": "subsequence", "Kind": "kind", "ServiceCount": "service_count",
+				"GroupIdentity": "group_identity", "GroupSize": "group_size",
+				"ShardIdentities": "shard_identities",
 				"Dependencies": "dependencies",
 			},
 		},
 		{name: "Lease", value: Lease{}, want: map[string]string{
 			"ID": "id", "WorkloadID": "workload_id", "Kind": "kind",
+			"GroupIdentity": "group_identity", "ShardIdentity": "shard_identity",
 		}},
 		{name: "WorkloadReservation", value: WorkloadReservation{}, want: map[string]string{
-			"WorkloadID": "workload_id", "Leases": "leases",
+			"WorkloadID": "workload_id", "GroupIdentity": "group_identity", "Leases": "leases",
 		}},
 		{name: "WorkloadSnapshot", value: WorkloadSnapshot{}, want: map[string]string{
 			"Request": "request", "Status": "status",
@@ -64,6 +67,15 @@ func schedulerWireDTOJSONCases() []schedulerTransportJSONCase {
 		}},
 		{name: "schedulerCompleteParams", value: schedulerCompleteParams{}, want: map[string]string{
 			"WorkloadID": "workload_id", "Status": "status",
+		}},
+		{name: "schedulerGroupParams", value: schedulerGroupParams{}, want: map[string]string{
+			"WorkloadID": "workload_id", "GroupIdentity": "group_identity", "Status": "status",
+		}},
+		{name: "schedulerShardFailureParams", value: schedulerShardFailureParams{}, want: map[string]string{
+			"WorkloadID": "workload_id", "GroupIdentity": "group_identity", "ShardIdentity": "shard_identity",
+		}},
+		{name: "schedulerShardFailureResult", value: schedulerShardFailureResult{}, want: map[string]string{
+			"CancelShardIdentities": "cancel_shard_identities",
 		}},
 		{name: "schedulerStateParams", value: schedulerStateParams{}, want: map[string]string{
 			"WorkloadID": "workload_id",

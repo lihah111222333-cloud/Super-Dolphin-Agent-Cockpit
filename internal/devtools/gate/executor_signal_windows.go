@@ -13,3 +13,7 @@ func configureCommandCancellation(command *exec.Cmd) {
 	}
 	command.WaitDelay = 5 * time.Second
 }
+
+func runConfiguredCommand(command *exec.Cmd) error {
+	return command.Run()
+}

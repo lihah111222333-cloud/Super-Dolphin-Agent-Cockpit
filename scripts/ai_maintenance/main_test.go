@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -294,6 +295,61 @@ func TestBuildGatePlanRoutesGateInfrastructureToOwnedChecks(t *testing.T) {
 	}
 }
 
+func TestGateImageClosureCheckBindsStagedIndexTree(t *testing.T) {
+	root := t.TempDir()
+	runGateImageClosureGit(t, root, "init")
+	path := filepath.Join(root, "tracked.txt")
+	if err := os.WriteFile(path, []byte("staged\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	runGateImageClosureGit(t, root, "add", "tracked.txt")
+	wantTree := strings.TrimSpace(runGateImageClosureGit(t, root, "write-tree"))
+	if err := os.WriteFile(path, []byte("unstaged\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	gotTree, err := resolveGateImageClosureTree(root)
+	if err != nil {
+		t.Fatalf("resolveGateImageClosureTree() error = %v", err)
+	}
+	if gotTree != wantTree {
+		t.Fatalf("resolved tree = %q, want staged index tree %q", gotTree, wantTree)
+	}
+	wantArgs := []string{"run", "./build/gate/cmd/generate-closure", "-tree", wantTree, "-check"}
+	if gotArgs := gateImageClosureCheckArgs(gotTree); !slices.Equal(gotArgs, wantArgs) {
+		t.Fatalf("closure check args = %q, want %q", gotArgs, wantArgs)
+	}
+	if _, err := resolveGateImageClosureTree(t.TempDir()); err == nil {
+		t.Fatal("resolveGateImageClosureTree() accepted a non-Git directory")
+	}
+}
+
+func TestGateImageClosureCheckIsStagedOnly(t *testing.T) {
+	base := mustBuildGatePlan(t, []string{"internal/devtools/gate/contracts.go"})
+	staged := gatePlanForExecutionScope(base, gateExecutionScope{diffCached: true})
+	assertStringSetContains(t, staged.RequiredGates, "gate-image-closure:check")
+
+	for name, scope := range map[string]gateExecutionScope{
+		"unscoped":   {},
+		"push range": {diffRanges: []string{"HEAD~1..HEAD"}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			plan := gatePlanForExecutionScope(base, scope)
+			assertStringSetOmits(t, plan.RequiredGates, "gate-image-closure:check")
+		})
+	}
+}
+
+func runGateImageClosureGit(t *testing.T, directory string, args ...string) string {
+	t.Helper()
+	commandArgs := append([]string{"-C", directory}, args...)
+	output, err := exec.Command("git", commandArgs...).CombinedOutput()
+	if err != nil {
+		t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, output)
+	}
+	return string(output)
+}
+
 func TestBuildGatePlanRoutesSQLCAndGoModuleInputs(t *testing.T) {
 	tests := []struct {
 		path        string
@@ -474,6 +530,7 @@ func TestGatePlanProducerMatchesRunnerAndEvidenceRegistries(t *testing.T) {
 			producerGates[gate] = true
 		}
 	}
+	producerGates["gate-image-closure:check"] = true
 
 	runners := gateRunners(gatePlan{}, gateExecutionScope{})
 	assertRegistryMatchesProducer(t, producerGates, runners, "runner", "diff:whitespace")

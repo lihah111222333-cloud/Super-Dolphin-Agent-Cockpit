@@ -16,7 +16,136 @@ import (
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/sourceexport"
+	platformconfig "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/config"
 )
+
+const (
+	maxReadOnlyGitTreeEntries = 100_000
+	maxReadOnlyGitTreeBytes   = 512 << 20
+	terminalLifecycleAttempts = 3
+	terminalLifecycleRetry    = 10 * time.Millisecond
+)
+
+// BoundedCleanupContext 从已取消的执行上下文派生仍受限时长的 CI 清理上下文。
+func BoundedCleanupContext(parent context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {
+	return platformconfig.WithTimeout(context.WithoutCancel(parent), timeout)
+}
+
+// BoundedOperationContext 为调用方保留取消链并附加固定操作上限。
+func BoundedOperationContext(parent context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {
+	return platformconfig.WithTimeout(parent, timeout)
+}
+
+// statusForContext 将执行上下文终态映射为公开容器结果状态。
+func statusForContext(err error) gate.ResultStatus {
+	if errors.Is(err, context.Canceled) {
+		return gate.ResultStatusCancelled
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return gate.ResultStatusTimeout
+	}
+	return gate.ResultStatusInfraFailed
+}
+
+// runCleanup 以独立有界上下文执行 Docker 证据收尾动作。
+func (runner *FreshContainerRunner) runCleanup(parentContext context.Context, args ...string) (string, error) {
+	cleanupContext, cancel := BoundedCleanupContext(parentContext, 30*time.Second)
+	defer cancel()
+	return runner.docker.runner.Run(cleanupContext, args...)
+}
+
+// emitCleanupLifecycle 为每个终态持久化动作在执行完成后创建独立且不可继承取消的时限。
+func (runner *FreshContainerRunner) emitCleanupLifecycle(
+	parent context.Context,
+	request FreshContainerRequest,
+	result FreshContainerResult,
+	phase FreshContainerLifecyclePhase,
+) error {
+	ctx, cancel := BoundedCleanupContext(parent, runner.lifecycleCleanupTimeout)
+	defer cancel()
+	var lastErr error
+	for attempt := range terminalLifecycleAttempts {
+		if err := runner.emitLifecycle(ctx, request, result, phase); err == nil {
+			return nil
+		} else {
+			lastErr = err
+		}
+		if attempt+1 == terminalLifecycleAttempts {
+			break
+		}
+		select {
+		case <-ctx.Done():
+			return errors.Join(lastErr, ctx.Err())
+		case <-time.After(terminalLifecycleRetry):
+		}
+	}
+	return fmt.Errorf("persist terminal container lifecycle after %d attempts: %w", terminalLifecycleAttempts, lastErr)
+}
+
+// validateFreshContainerLifecycleEvent 约束非终态、可信退出与无观测清理的时钟边界。
+func validateFreshContainerLifecycleEvent(event FreshContainerLifecycleEvent, status gate.ResultStatus) error {
+	switch event.Phase {
+	case FreshContainerPhasePrepared, FreshContainerPhaseCreating, FreshContainerPhaseCreated,
+		FreshContainerPhaseStarting, FreshContainerPhaseStarted:
+		if !event.ExitedAt.IsZero() {
+			return errors.New("non-terminal container lifecycle exited_at must be zero")
+		}
+	case FreshContainerPhaseExited:
+		return validateObservedLifecycleExit(event, status)
+	case FreshContainerPhaseRemovalPending:
+		return validateRemovalPendingLifecycle(event, status)
+	case FreshContainerPhaseRemoved:
+		return validateRemovedLifecycleExit(event, status)
+	default:
+		return fmt.Errorf("unsupported container lifecycle phase %q", event.Phase)
+	}
+	return nil
+}
+
+// validateRemovalPendingLifecycle records only an intent; it never accepts a removal proof before Docker confirms absence.
+func validateRemovalPendingLifecycle(event FreshContainerLifecycleEvent, status gate.ResultStatus) error {
+	if !event.ExitedAt.IsZero() {
+		return validateObservedLifecycleExit(event, status)
+	}
+	if status != gate.ResultStatusInfraFailed {
+		return errors.New("pending removal lifecycle is missing trusted exited_at")
+	}
+	if strings.TrimSpace(event.ContainerID) == "" {
+		return errors.New("pending removal lifecycle requires container identity")
+	}
+	if event.RemovalProofDigest != "" {
+		return errors.New("pending removal lifecycle must not carry a removal proof")
+	}
+	return nil
+}
+
+// validateObservedLifecycleExit 校验 Docker 终态 inspect 提供的退出时钟。
+func validateObservedLifecycleExit(event FreshContainerLifecycleEvent, status gate.ResultStatus) error {
+	if event.ExitedAt.IsZero() || event.CompletedAt.Before(event.ExitedAt) {
+		return errors.New("terminal container lifecycle timing is invalid")
+	}
+	if status == gate.ResultStatusTimeout && (event.Deadline.IsZero() || event.ExitedAt.Before(event.Deadline)) {
+		return errors.New("timeout container lifecycle exited before deadline")
+	}
+	return nil
+}
+
+// validateRemovedLifecycleExit 仅允许未观察到进程终态的 pre-start 或 unproved 清理省略退出时刻。
+func validateRemovedLifecycleExit(event FreshContainerLifecycleEvent, status gate.ResultStatus) error {
+	if !event.ExitedAt.IsZero() {
+		return validateObservedLifecycleExit(event, status)
+	}
+	if status != gate.ResultStatusInfraFailed || event.ExitCode != -1 {
+		return errors.New("removed container lifecycle is missing trusted exited_at")
+	}
+	if strings.TrimSpace(event.ContainerID) == "" {
+		return errors.New("removed container lifecycle without exited_at requires container identity")
+	}
+	if err := validateDigest("removal proof digest", event.RemovalProofDigest); err != nil {
+		return fmt.Errorf("removed container lifecycle without exited_at: %w", err)
+	}
+	return nil
+}
 
 type canonicalContext struct {
 	Tar           []byte
@@ -46,7 +175,7 @@ func buildCanonicalContext(sourceEntries []sourceexport.TreeEntry) (canonicalCon
 		}
 		header := &tar.Header{
 			Name: entry.Path, Mode: mode, Size: int64(len(entry.Data)), Typeflag: tar.TypeReg,
-			ModTime: time.Unix(0, 0), Uid: 0, Gid: 0, Format: tar.FormatUSTAR,
+			ModTime: time.Unix(0, 0), Uid: 0, Gid: 0, Format: tar.FormatPAX,
 		}
 		if err := writer.WriteHeader(header); err != nil {
 			return canonicalContext{}, fmt.Errorf("write canonical header %q: %w", entry.Path, err)
@@ -455,17 +584,66 @@ func loadReadOnlyTreeEntries(ctx context.Context, repoRoot string, treeOID strin
 		if parseErr != nil {
 			return nil, parseErr
 		}
-		object, readErr := readSourceObject(ctx, repoRoot, entry.Hash)
-		if readErr != nil {
-			return nil, readErr
-		}
-		if object.kind != "blob" {
-			return nil, fmt.Errorf("read-only Git tree entry %q is %q, want blob", entry.Path, object.kind)
-		}
-		entry.Data = append([]byte(nil), object.data...)
 		entries = append(entries, entry)
 	}
+	return loadReadOnlyTreeBlobs(ctx, repoRoot, entries)
+}
+
+// loadReadOnlyTreeBlobs 以单个 cat-file batch 进程读取去重 blob，并严格验证顺序和总字节数。
+func loadReadOnlyTreeBlobs(ctx context.Context, repoRoot string, entries []sourceexport.TreeEntry) ([]sourceexport.TreeEntry, error) {
+	if len(entries) > maxReadOnlyGitTreeEntries {
+		return nil, fmt.Errorf("read-only Git tree entry count %d exceeds limit %d", len(entries), maxReadOnlyGitTreeEntries)
+	}
+	if len(entries) == 0 {
+		return entries, nil
+	}
+	unique := make([]string, 0, len(entries))
+	seen := make(map[string]struct{}, len(entries))
+	for _, entry := range entries {
+		if _, exists := seen[entry.Hash]; exists {
+			continue
+		}
+		seen[entry.Hash] = struct{}{}
+		unique = append(unique, entry.Hash)
+	}
+	output, err := runGitOutput(ctx, repoRoot, strings.NewReader(strings.Join(unique, "\n")+"\n"), "cat-file", "--batch")
+	if err != nil {
+		return nil, fmt.Errorf("read 0/%d read-only Git tree blobs: %w", len(unique), err)
+	}
+	blobs, err := parseReadOnlyTreeBlobBatch(output, unique)
+	if err != nil {
+		return nil, err
+	}
+	for index := range entries {
+		entries[index].Data = blobs[entries[index].Hash]
+	}
 	return entries, nil
+}
+
+// parseReadOnlyTreeBlobBatch 严格消费所有预期对象，拒绝类型、大小、顺序或尾随输出漂移。
+func parseReadOnlyTreeBlobBatch(output []byte, expected []string) (map[string][]byte, error) {
+	blobs := make(map[string][]byte, len(expected))
+	offset := 0
+	total := 0
+	for index, oid := range expected {
+		object, consumed, err := parseSourceObjectPrefix(output[offset:], oid)
+		if err != nil {
+			return nil, fmt.Errorf("read %d/%d read-only Git tree blobs: %w", index, len(expected), err)
+		}
+		if object.kind != "blob" {
+			return nil, fmt.Errorf("read-only Git tree object %s is %q, want blob", oid, object.kind)
+		}
+		total += len(object.data)
+		if total > maxReadOnlyGitTreeBytes {
+			return nil, fmt.Errorf("read-only Git tree bytes %d exceed limit %d", total, maxReadOnlyGitTreeBytes)
+		}
+		blobs[oid] = object.data
+		offset += consumed
+	}
+	if offset != len(output) {
+		return nil, errors.New("read-only Git tree cat-file returned trailing output")
+	}
+	return blobs, nil
 }
 
 func parseReadOnlyTreeEntry(record []byte) (sourceexport.TreeEntry, error) {
@@ -480,4 +658,82 @@ func parseReadOnlyTreeEntry(record []byte) (sourceexport.TreeEntry, error) {
 	return sourceexport.TreeEntry{
 		Path: string(path), Mode: string(fields[0]), Hash: string(fields[2]),
 	}, nil
+}
+
+// CleanupUnprovedFreshContainer 对无法接管的旧容器执行 kill、wait、remove。
+func (runner *FreshContainerRunner) CleanupUnprovedFreshContainer(
+	ctx context.Context,
+	request FreshContainerCleanupRequest,
+) (FreshContainerResult, error) {
+	recovery := FreshContainerRecoveryRequest{
+		ContainerID: request.ContainerID, ContainerLabels: request.ContainerLabels,
+		ImageReference: request.ImageReference, ConfigDigest: request.ConfigDigest,
+		SourceSnapshotDir: request.SourceSnapshotDir, Command: request.Command,
+		Profile: request.Profile, GateID: request.GateID, LifecycleHook: request.LifecycleHook,
+	}
+	result := FreshContainerResult{Status: gate.ResultStatusInfraFailed, ImageReference: request.ImageReference, ExitCode: -1}
+	container := newContainerRequest(recovery.ImageReference, recovery.SourceSnapshotDir, recovery.Command, recovery.Profile == gate.ProfileRelease, recovery.ContainerLabels)
+	if ctx == nil || runner == nil || runner.docker == nil {
+		return result, errors.New("cleanup runner and context are required")
+	}
+	if err := runner.docker.validateContainerRequest(container); err != nil {
+		return result, err
+	}
+	if request.RemovalPending {
+		return runner.replayPendingRemoval(ctx, recovery, result)
+	}
+	containerID, err := runner.resolveRecoveryContainer(ctx, recovery)
+	if err != nil {
+		return result, err
+	}
+	result.setContainerID(containerID)
+	document, err := runner.inspectContainer(ctx, containerID)
+	if err == nil {
+		err = runner.validateRecoveryContainerIdentity(document, recovery)
+	}
+	return runner.terminateUnprovedRecovery(ctx, recovery, result, err)
+}
+
+// replayPendingRemoval 重放删除意图，并在 Docker 证明容器消失后提交最终证明。
+func (runner *FreshContainerRunner) replayPendingRemoval(
+	ctx context.Context,
+	recovery FreshContainerRecoveryRequest,
+	result FreshContainerResult,
+) (FreshContainerResult, error) {
+	if recovery.ContainerID == "" {
+		return result, errors.New("pending removal requires a durable container ID")
+	}
+	output, err := runner.runCleanup(ctx, "ps", "--all", "--no-trunc", "--filter=id="+recovery.ContainerID, "--format={{.ID}}")
+	if err != nil {
+		return result, fmt.Errorf("replay pending removal proof: %w", err)
+	}
+	if strings.TrimSpace(output) != "" {
+		return runner.removePendingContainer(ctx, recovery, result)
+	}
+	result.setContainerID(recovery.ContainerID)
+	result.Container.Removed = true
+	result.RemovalProofDigest = digestBytes([]byte("removed\n" + result.Container.ContainerID + "\n"))
+	result.Evidence = append(result.Evidence, gate.Evidence{Kind: gate.EvidenceKindDocker, Digest: result.RemovalProofDigest})
+	request := freshContainerRequestForRecovery(recovery)
+	if err := runner.emitCleanupLifecycle(ctx, request, result, FreshContainerPhaseRemoved); err != nil {
+		return result, err
+	}
+	return result, nil
+}
+
+// removePendingContainer 仅在持久身份与现存容器完全一致时继续删除。
+func (runner *FreshContainerRunner) removePendingContainer(
+	ctx context.Context,
+	recovery FreshContainerRecoveryRequest,
+	result FreshContainerResult,
+) (FreshContainerResult, error) {
+	result.setContainerID(recovery.ContainerID)
+	document, err := runner.inspectContainer(ctx, recovery.ContainerID)
+	if err != nil {
+		return result, fmt.Errorf("inspect pending removal container: %w", err)
+	}
+	if err := runner.validateRecoveryContainerIdentity(document, recovery); err != nil {
+		return result, fmt.Errorf("validate pending removal container identity: %w", err)
+	}
+	return runner.terminateUnprovedRecovery(ctx, recovery, result, nil)
 }

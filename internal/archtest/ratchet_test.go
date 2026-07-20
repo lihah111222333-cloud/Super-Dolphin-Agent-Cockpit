@@ -17,7 +17,8 @@ func TestGuardHookModeFailsOnBaselineOrFreezeDrift(t *testing.T) {
 	)
 	assertGuardModeFileContains(t, root, ".githooks/pre-commit",
 		"command -v super-dolphin-gate",
-		`exec "$gate_bin" hook pre-commit`,
+		`"$gate_bin" hook pre-commit >"$gate_output_file" 2>&1`,
+		`exec "$gate_bin" wait --job "$job_id"`,
 	)
 	assertGuardModeFileExcludes(t, root, ".githooks/pre-commit",
 		"SUPER_DOLPHIN_GUARD_FAIL_ON_DRIFT",
@@ -41,12 +42,12 @@ func TestGuardHookModeFailsOnBaselineOrFreezeDrift(t *testing.T) {
 	)
 	assertGuardModeFileContains(t, root, ".github/workflows/ci.yml",
 		"SUPER_DOLPHIN_GUARD_FAIL_ON_DRIFT: \"1\"",
-		"make codemap-check",
-		"make project-map-check",
+		"truth-image-gates:",
+		"workflow-host",
 	)
 }
 
-func TestCapabilityContractCIChecksLinuxMacOSAndWindows(t *testing.T) {
+func TestCapabilityContractCIUsesTruthImageCoordinator(t *testing.T) {
 	root := findRepoRootForGuardModeTest(t)
 	workflowPath := filepath.Join(root, ".github", "workflows", "ci.yml")
 	data, err := os.ReadFile(workflowPath)
@@ -54,22 +55,14 @@ func TestCapabilityContractCIChecksLinuxMacOSAndWindows(t *testing.T) {
 		t.Fatalf("read CI workflow: %v", err)
 	}
 	workflow := string(data)
-	buildJob := strings.Index(workflow, "  build-and-test:")
-	crossJob := strings.Index(workflow, "  cross-platform-smoke:")
-	if buildJob < 0 || crossJob <= buildJob {
-		t.Fatalf("CI workflow job order is invalid: build=%d cross=%d", buildJob, crossJob)
+	for _, want := range []string{"truth-image-gates:", "Trusted bootstrap coordinator", "workflow-host"} {
+		if !strings.Contains(workflow, want) {
+			t.Fatalf("truth-image CI missing %q", want)
+		}
 	}
-	if !strings.Contains(workflow[buildJob:crossJob], "run: make capcontract-check") {
-		t.Fatal("Linux build-and-test job must run make capcontract-check")
-	}
-	crossPlatform := workflow[crossJob:]
-	for _, want := range []string{
-		"os: [windows-latest, macos-latest]",
-		"shell: pwsh",
-		"run: go run ./scripts/capcontract --check",
-	} {
-		if !strings.Contains(crossPlatform, want) {
-			t.Fatalf("cross-platform-smoke missing %q", want)
+	for _, forbidden := range []string{"make capcontract-check", "go run ./scripts/capcontract", "ci_cross_platform_smoke.ps1"} {
+		if strings.Contains(workflow, forbidden) {
+			t.Fatalf("workflow bypasses coordinator with %q", forbidden)
 		}
 	}
 }

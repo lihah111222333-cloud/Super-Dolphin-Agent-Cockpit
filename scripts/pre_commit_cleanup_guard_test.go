@@ -32,7 +32,7 @@ func TestPreCommitCleanupFailureFailsHook(t *testing.T) {
 	if err == nil {
 		t.Fatalf("pre-commit cleanup failure succeeded:\n%s", out)
 	}
-	assertOutputContainsAll(t, out, "pre-commit cleanup failed", "pre-commit cleanup verification failed")
+	assertOutputContainsAll(t, out, "fixture closure verified staged tree", "pre-commit cleanup failed", "pre-commit cleanup verification failed")
 }
 
 func TestPreCommitGateFailureCleansSyntheticWorktree(t *testing.T) {

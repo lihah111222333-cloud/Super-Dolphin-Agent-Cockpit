@@ -1,16 +1,15 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"reflect"
+	"sync"
 	"time"
 
 	gatecontract "github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
@@ -23,6 +22,9 @@ CREATE TABLE IF NOT EXISTS coordinator_jobs (
  invocation_id TEXT NOT NULL UNIQUE,
  job_id TEXT NOT NULL UNIQUE,
  repository_root TEXT NOT NULL,
+ entrypoint TEXT NOT NULL,
+ authority_owner TEXT NOT NULL,
+ authority_attestation TEXT NOT NULL DEFAULT '',
  plan_json BLOB NOT NULL,
  profile TEXT NOT NULL,
  job_source_tree_sha TEXT NOT NULL,
@@ -33,6 +35,7 @@ CREATE TABLE IF NOT EXISTS coordinator_jobs (
  submitted_at TEXT NOT NULL,
  started_at TEXT,
  deadline_at TEXT,
+ container_exited_at TEXT,
  completed_at TEXT,
  active_gate_id TEXT NOT NULL DEFAULT '',
  container_phase TEXT NOT NULL DEFAULT '',
@@ -40,6 +43,10 @@ CREATE TABLE IF NOT EXISTS coordinator_jobs (
  container_labels_json BLOB,
  container_image_reference TEXT NOT NULL DEFAULT '',
  container_config_digest TEXT NOT NULL DEFAULT '',
+ container_host_config_digest TEXT NOT NULL DEFAULT '',
+ container_resource_witness_json BLOB,
+ container_resource_witness_digest TEXT NOT NULL DEFAULT '',
+ container_resource_witness_verified INTEGER NOT NULL DEFAULT 0,
  source_snapshot_dir TEXT NOT NULL DEFAULT '',
  removal_proof_digest TEXT NOT NULL DEFAULT '',
  gate_results_json BLOB,
@@ -49,37 +56,46 @@ CREATE TABLE IF NOT EXISTS coordinator_jobs (
 );`
 
 type coordinatorStore struct {
-	db *sql.DB
+	db              *sql.DB
+	now             func() time.Time
+	shardDeadlineMu sync.Mutex
 }
 
 type coordinatorJobRecord struct {
-	InvocationID                 string
-	JobID                        string
-	EnqueueSequence              uint64
-	RepositoryRoot               string
-	Plan                         gatecontract.GatePlan
-	Profile                      gatecontract.Profile
-	JobSourceTreeSHA             string
-	ImageProvenanceSourceTreeSHA string
-	SchedulerSubsequence         uint32
-	SchedulerDependencies        []string
-	State                        jobState
-	SubmittedAt                  time.Time
-	StartedAt                    *time.Time
-	Deadline                     *time.Time
-	CompletedAt                  *time.Time
-	ActiveGateID                 gatecontract.GateID
-	ContainerPhase               localci.FreshContainerLifecyclePhase
-	ContainerID                  string
-	ContainerLabels              map[string]string
-	ContainerImageReference      string
-	ContainerConfigDigest        string
-	SourceSnapshotDir            string
-	RemovalProofDigest           string
-	GateResults                  []gatecontract.GateResult
-	ReceiptID                    string
-	Receipt                      *gatecontract.ResultReceipt
-	Error                        string
+	InvocationID                     string
+	JobID                            string
+	EnqueueSequence                  uint64
+	RepositoryRoot                   string
+	Authority                        submissionAuthority
+	Plan                             gatecontract.GatePlan
+	Profile                          gatecontract.Profile
+	JobSourceTreeSHA                 string
+	ImageProvenanceSourceTreeSHA     string
+	SchedulerSubsequence             uint32
+	SchedulerDependencies            []string
+	State                            jobState
+	SubmittedAt                      time.Time
+	StartedAt                        *time.Time
+	Deadline                         *time.Time
+	ContainerExitedAt                *time.Time
+	CompletedAt                      *time.Time
+	ActiveGateID                     gatecontract.GateID
+	ContainerPhase                   localci.FreshContainerLifecyclePhase
+	ContainerID                      string
+	ContainerLabels                  map[string]string
+	ContainerImageReference          string
+	ContainerConfigDigest            string
+	ContainerHostConfigDigest        string
+	ContainerResourceWitness         *gatecontract.ContainerResourceWitness
+	ContainerResourceWitnessDigest   string
+	ContainerResourceWitnessVerified bool
+	SourceSnapshotDir                string
+	RemovalProofDigest               string
+	GateResults                      []gatecontract.GateResult
+	ReceiptID                        string
+	Receipt                          *gatecontract.ResultReceipt
+	Error                            string
+	ContainerShards                  []coordinatorShardRecord
 }
 
 // openCoordinatorStore 打开 daemon identity 专属 SQLite，并补齐 recovery 与 receipt schema。
@@ -102,17 +118,17 @@ func openCoordinatorStore(
 	if _, err := db.ExecContext(ctx, coordinatorStoreSchema); err != nil {
 		return nil, errors.Join(fmt.Errorf("initialize coordinator SQLite: %w", err), db.Close())
 	}
-	if err := ensureCoordinatorReceiptSchema(ctx, db); err != nil {
+	if err := ensureCoordinatorSchemas(ctx, db); err != nil {
 		return nil, errors.Join(err, db.Close())
 	}
-	if err := ensureCoordinatorActionGrantSchema(ctx, db); err != nil {
+	if err := ensureCoordinatorShardAdmissionSchema(ctx, db); err != nil {
 		return nil, errors.Join(err, db.Close())
 	}
-	if err := ensureCoordinatorRecoverySchema(ctx, db); err != nil {
-		return nil, errors.Join(err, db.Close())
+	if err := os.Chmod(path, 0o600); err != nil {
+		return nil, errors.Join(fmt.Errorf("protect coordinator SQLite: %w", err), db.Close())
 	}
 	db.SetMaxOpenConns(1)
-	return &coordinatorStore{db: db}, nil
+	return &coordinatorStore{db: db, now: time.Now}, nil
 }
 
 // ensureCoordinatorReceiptSchema 校验 receipt 列完整存在，拒绝旧 schema 静默运行。
@@ -180,6 +196,7 @@ func (store *coordinatorStore) createJob(
 	repositoryRoot string,
 	plan gatecontract.GatePlan,
 	candidatePlan localci.PromotionCandidatePlan,
+	authority submissionAuthority,
 ) (coordinatorJobRecord, error) {
 	planJSON, err := json.Marshal(plan)
 	if err != nil {
@@ -195,9 +212,10 @@ func (store *coordinatorStore) createJob(
 	}
 	now := time.Now().UTC()
 	result, err := store.db.ExecContext(ctx, `INSERT INTO coordinator_jobs (
-invocation_id, job_id, repository_root, plan_json, profile, job_source_tree_sha,
+invocation_id, job_id, repository_root, entrypoint, authority_owner, authority_attestation, plan_json, profile, job_source_tree_sha,
 scheduler_subsequence, scheduler_dependencies_json, state, submitted_at
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, invocationID, jobID, repositoryRoot, planJSON, plan.Profile,
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, invocationID, jobID, repositoryRoot,
+		authority.Entrypoint, authority.Owner, authority.Attestation, planJSON, plan.Profile,
 		plan.Source.SourceTreeSHA, subsequence, dependenciesJSON, jobStateQueued, now.Format(time.RFC3339Nano))
 	if err != nil {
 		return coordinatorJobRecord{}, fmt.Errorf("persist coordinator invocation/job: %w", err)
@@ -208,7 +226,7 @@ scheduler_subsequence, scheduler_dependencies_json, state, submitted_at
 	}
 	return coordinatorJobRecord{
 		InvocationID: invocationID, JobID: jobID, EnqueueSequence: uint64(sequence),
-		RepositoryRoot: repositoryRoot, Plan: plan, Profile: plan.Profile,
+		RepositoryRoot: repositoryRoot, Authority: authority, Plan: plan, Profile: plan.Profile,
 		JobSourceTreeSHA: plan.Source.SourceTreeSHA, SchedulerSubsequence: subsequence,
 		SchedulerDependencies: dependencies, State: jobStateQueued, SubmittedAt: now,
 	}, nil
@@ -228,42 +246,71 @@ func schedulerMetadataForCandidatePlan(plan localci.PromotionCandidatePlan) (uin
 }
 
 func (store *coordinatorStore) job(ctx context.Context, jobID string) (coordinatorJobRecord, error) {
-	row := store.db.QueryRowContext(ctx, `SELECT invocation_id, job_id, enqueue_sequence, repository_root,
+	row := store.db.QueryRowContext(ctx, `SELECT invocation_id, job_id, enqueue_sequence, repository_root, entrypoint, authority_owner, authority_attestation,
 plan_json, profile, job_source_tree_sha, image_provenance_source_tree_sha, state, submitted_at,
  scheduler_subsequence, scheduler_dependencies_json,
-started_at, deadline_at, completed_at, active_gate_id, container_phase, container_id,
-container_labels_json, container_image_reference, container_config_digest, source_snapshot_dir,
+started_at, deadline_at, container_exited_at, completed_at, active_gate_id, container_phase, container_id,
+container_labels_json, container_image_reference, container_config_digest, container_host_config_digest,
+container_resource_witness_json, container_resource_witness_digest, container_resource_witness_verified, source_snapshot_dir,
 removal_proof_digest, gate_results_json, receipt_id, receipt_json, error_text FROM coordinator_jobs WHERE job_id = ?`, jobID)
 	record, err := scanCoordinatorJob(row, jobID)
-	return requireCoordinatorPassedReceipt(record, err)
+	return store.completeCoordinatorJobRead(ctx, record, err)
 }
 
 func (store *coordinatorStore) jobByInvocation(
 	ctx context.Context,
 	invocationID string,
 ) (coordinatorJobRecord, error) {
-	row := store.db.QueryRowContext(ctx, `SELECT invocation_id, job_id, enqueue_sequence, repository_root,
+	row := store.db.QueryRowContext(ctx, `SELECT invocation_id, job_id, enqueue_sequence, repository_root, entrypoint, authority_owner, authority_attestation,
 plan_json, profile, job_source_tree_sha, image_provenance_source_tree_sha, state, submitted_at,
  scheduler_subsequence, scheduler_dependencies_json,
-started_at, deadline_at, completed_at, active_gate_id, container_phase, container_id,
-container_labels_json, container_image_reference, container_config_digest, source_snapshot_dir,
+started_at, deadline_at, container_exited_at, completed_at, active_gate_id, container_phase, container_id,
+container_labels_json, container_image_reference, container_config_digest, container_host_config_digest,
+container_resource_witness_json, container_resource_witness_digest, container_resource_witness_verified, source_snapshot_dir,
 removal_proof_digest, gate_results_json, receipt_id, receipt_json, error_text FROM coordinator_jobs WHERE invocation_id = ?`, invocationID)
 	record, err := scanCoordinatorJob(row, invocationID)
-	return requireCoordinatorPassedReceipt(record, err)
+	return store.completeCoordinatorJobRead(ctx, record, err)
 }
 
 func (store *coordinatorStore) jobByReceiptID(
 	ctx context.Context,
 	receiptID string,
 ) (coordinatorJobRecord, error) {
-	row := store.db.QueryRowContext(ctx, `SELECT invocation_id, job_id, enqueue_sequence, repository_root,
+	row := store.db.QueryRowContext(ctx, `SELECT invocation_id, job_id, enqueue_sequence, repository_root, entrypoint, authority_owner, authority_attestation,
 plan_json, profile, job_source_tree_sha, image_provenance_source_tree_sha, state, submitted_at,
  scheduler_subsequence, scheduler_dependencies_json,
-started_at, deadline_at, completed_at, active_gate_id, container_phase, container_id,
-container_labels_json, container_image_reference, container_config_digest, source_snapshot_dir,
+started_at, deadline_at, container_exited_at, completed_at, active_gate_id, container_phase, container_id,
+container_labels_json, container_image_reference, container_config_digest, container_host_config_digest,
+container_resource_witness_json, container_resource_witness_digest, container_resource_witness_verified, source_snapshot_dir,
 removal_proof_digest, gate_results_json, receipt_id, receipt_json, error_text FROM coordinator_jobs WHERE receipt_id = ?`, receiptID)
 	record, err := scanCoordinatorJob(row, receiptID)
-	return requireCoordinatorPassedReceipt(record, err)
+	return store.completeCoordinatorJobRead(ctx, record, err)
+}
+
+// completeCoordinatorJobRead 补全 job 的分片记录，并校验容器模式及已签发 receipt。
+func (store *coordinatorStore) completeCoordinatorJobRead(
+	ctx context.Context,
+	record coordinatorJobRecord,
+	err error,
+) (coordinatorJobRecord, error) {
+	record, err = requireCoordinatorPassedReceipt(record, err)
+	if err != nil {
+		return coordinatorJobRecord{}, err
+	}
+	shards, err := store.containerShards(ctx, record.JobID)
+	if err != nil {
+		return coordinatorJobRecord{}, err
+	}
+	record.ContainerShards = shards
+	if err := validateCoordinatorContainerMode(record); err != nil {
+		return coordinatorJobRecord{}, err
+	}
+	if record.Receipt != nil {
+		if err := validateStoredResultReceipt(record); err != nil {
+			return coordinatorJobRecord{}, err
+		}
+	}
+	return record, nil
 }
 
 // requireCoordinatorPassedReceipt 阻止普通读取暴露缺少权威 receipt 的 passed。
@@ -280,7 +327,11 @@ func requireCoordinatorPassedReceipt(
 	return record, nil
 }
 
+// startJob 以 queued CAS 占有执行权；execution clock 由首次 Starting lifecycle 固化。
 func (store *coordinatorStore) startJob(ctx context.Context, jobID string) error {
+	if store == nil || store.db == nil {
+		return errors.New("coordinator store start dependencies are required")
+	}
 	result, err := store.db.ExecContext(ctx, `UPDATE coordinator_jobs SET state = ?
 WHERE job_id = ? AND state = ?`, jobStateStarted, jobID, jobStateQueued)
 	if err != nil {
@@ -396,8 +447,17 @@ func (store *coordinatorStore) persistCoordinatorCompletion(
 ) (sql.Result, error) {
 	result, err := store.db.ExecContext(ctx, `UPDATE coordinator_jobs SET state = ?, completed_at = ?,
 gate_results_json = ?, receipt_id = ?, receipt_json = ?, error_text = ?
-WHERE job_id = ? AND state IN (?, ?)`, state, completedAt.Format(time.RFC3339Nano),
-		resultJSON, receiptID, receiptJSON, errorText, jobID, jobStateQueued, jobStateStarted)
+WHERE job_id = ? AND state IN (?, ?)
+AND (? NOT IN (?, ?, ?, ?) OR (
+  (NOT EXISTS (SELECT 1 FROM coordinator_job_shards WHERE coordinator_job_shards.job_id = coordinator_jobs.job_id)
+   AND container_exited_at IS NOT NULL)
+  OR
+  ((SELECT COUNT(*) FROM coordinator_job_shards WHERE coordinator_job_shards.job_id = coordinator_jobs.job_id) = ?
+   AND NOT EXISTS (SELECT 1 FROM coordinator_job_shards
+                   WHERE coordinator_job_shards.job_id = coordinator_jobs.job_id AND exited_at IS NULL))
+))`, state, completedAt.Format(time.RFC3339Nano),
+		resultJSON, receiptID, receiptJSON, errorText, jobID, jobStateQueued, jobStateStarted,
+		state, jobStatePassed, jobStateFailed, jobStateCancelled, jobStateTimeout, gatecontract.MaxContainerShards)
 	if err != nil {
 		return nil, fmt.Errorf("persist coordinator terminal state: %w", err)
 	}
@@ -419,333 +479,4 @@ func (store *coordinatorStore) validateIdempotentCompletion(
 		return nil
 	}
 	return errors.Join(fmt.Errorf("%w: terminal write was not idempotent", errCoordinatorState), loadErr)
-}
-
-// scanCoordinatorJob 严格恢复 plan、时间和结果字段，不接受持久化漂移。
-type coordinatorRowScanner interface {
-	Scan(...any) error
-}
-
-// scanCoordinatorJob 严格解码数据库行并执行完整持久字段守卫。
-func scanCoordinatorJob(row coordinatorRowScanner, jobID string) (coordinatorJobRecord, error) {
-	var record coordinatorJobRecord
-	var planJSON, schedulerDependenciesJSON, resultsJSON, containerLabelsJSON, receiptJSON []byte
-	var profile, state, submitted, activeGateID, containerPhase string
-	var started, deadline, completed, receiptID sql.NullString
-	err := row.Scan(&record.InvocationID, &record.JobID, &record.EnqueueSequence, &record.RepositoryRoot,
-		&planJSON, &profile, &record.JobSourceTreeSHA, &record.ImageProvenanceSourceTreeSHA,
-		&state, &submitted, &record.SchedulerSubsequence, &schedulerDependenciesJSON,
-		&started, &deadline, &completed, &activeGateID, &containerPhase,
-		&record.ContainerID, &containerLabelsJSON, &record.ContainerImageReference,
-		&record.ContainerConfigDigest, &record.SourceSnapshotDir, &record.RemovalProofDigest,
-		&resultsJSON, &receiptID, &receiptJSON, &record.Error)
-	if errors.Is(err, sql.ErrNoRows) {
-		return coordinatorJobRecord{}, fmt.Errorf("%w: %q", errCoordinatorNotFound, jobID)
-	}
-	if err != nil {
-		return coordinatorJobRecord{}, fmt.Errorf("read coordinator job: %w", err)
-	}
-	record.Profile, record.State = gatecontract.Profile(profile), jobState(state)
-	record.ActiveGateID = gatecontract.GateID(activeGateID)
-	record.ContainerPhase = localci.FreshContainerLifecyclePhase(containerPhase)
-	if err := decodeCoordinatorJSON(schedulerDependenciesJSON, &record.SchedulerDependencies); err != nil {
-		return coordinatorJobRecord{}, fmt.Errorf("decode persisted scheduler dependencies: %w", err)
-	}
-	if err := decodeOptionalCoordinatorJSON(containerLabelsJSON, &record.ContainerLabels); err != nil {
-		return coordinatorJobRecord{}, fmt.Errorf("decode persisted container labels: %w", err)
-	}
-	return decodeScannedCoordinatorJob(
-		record, planJSON, resultsJSON, receiptJSON, submitted, started, deadline, completed, receiptID,
-	)
-}
-
-// decodeScannedCoordinatorJob 严格解码 scan 已取得的结构化字段。
-func decodeScannedCoordinatorJob(
-	record coordinatorJobRecord,
-	planJSON []byte,
-	resultsJSON []byte,
-	receiptJSON []byte,
-	submitted string,
-	started sql.NullString,
-	deadline sql.NullString,
-	completed sql.NullString,
-	receiptID sql.NullString,
-) (coordinatorJobRecord, error) {
-	if err := gatecontract.DecodeStrictJSON(planJSON, &record.Plan); err != nil {
-		return coordinatorJobRecord{}, fmt.Errorf("decode persisted coordinator plan: %w", err)
-	}
-	if err := decodeCoordinatorTimes(&record, submitted, started, deadline, completed); err != nil {
-		return coordinatorJobRecord{}, err
-	}
-	if err := decodeCoordinatorGateResults(&record, resultsJSON); err != nil {
-		return coordinatorJobRecord{}, err
-	}
-	if err := decodeCoordinatorStoredReceipt(&record, receiptID, receiptJSON); err != nil {
-		return coordinatorJobRecord{}, err
-	}
-	if err := validateCoordinatorRecord(record); err != nil {
-		return coordinatorJobRecord{}, err
-	}
-	return record, nil
-}
-
-// decodeCoordinatorGateResults 解码可选的逐 gate 结果数组。
-func decodeCoordinatorGateResults(record *coordinatorJobRecord, resultsJSON []byte) error {
-	if len(resultsJSON) == 0 {
-		return nil
-	}
-	if err := decodeCoordinatorJSON(resultsJSON, &record.GateResults); err != nil {
-		return fmt.Errorf("decode persisted gate results: %w", err)
-	}
-	return nil
-}
-
-// decodeCoordinatorStoredReceipt 校验双列完整性并严格解码可选 receipt。
-func decodeCoordinatorStoredReceipt(
-	record *coordinatorJobRecord,
-	receiptID sql.NullString,
-	receiptJSON []byte,
-) error {
-	if receiptID.Valid != (len(receiptJSON) > 0) {
-		return fmt.Errorf("%w: persisted receipt columns are incomplete", errCoordinatorState)
-	}
-	if !receiptID.Valid {
-		return nil
-	}
-	var receipt gatecontract.ResultReceipt
-	if err := decodeCoordinatorJSON(receiptJSON, &receipt); err != nil {
-		return fmt.Errorf("decode persisted result receipt: %w", err)
-	}
-	record.ReceiptID, record.Receipt = receiptID.String, &receipt
-	return nil
-}
-
-func decodeCoordinatorJSON(payload []byte, target any) error {
-	decoder := json.NewDecoder(bytes.NewReader(payload))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(target); err != nil {
-		return err
-	}
-	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
-		return errors.New("coordinator JSON contains trailing data")
-	}
-	return nil
-}
-
-func decodeOptionalCoordinatorJSON(payload []byte, target any) error {
-	if len(payload) == 0 {
-		return nil
-	}
-	return decodeCoordinatorJSON(payload, target)
-}
-
-func decodeCoordinatorTimes(record *coordinatorJobRecord, submitted string, started, deadline, completed sql.NullString) error {
-	var err error
-	record.SubmittedAt, err = time.Parse(time.RFC3339Nano, submitted)
-	if err != nil {
-		return fmt.Errorf("parse coordinator submitted_at: %w", err)
-	}
-	if record.StartedAt, err = parseCoordinatorTime(started); err != nil {
-		return err
-	}
-	if record.Deadline, err = parseCoordinatorTime(deadline); err != nil {
-		return err
-	}
-	record.CompletedAt, err = parseCoordinatorTime(completed)
-	return err
-}
-
-// validateCoordinatorRecord 拒绝 plan、profile、tree 或状态字段的任何持久化漂移。
-func validateCoordinatorRecord(record coordinatorJobRecord) error {
-	validators := []func(coordinatorJobRecord) error{
-		validateCoordinatorIdentity,
-		validateCoordinatorPlanState,
-		validateCoordinatorRecordState,
-		validateCoordinatorClock,
-		validateCoordinatorContainer,
-	}
-	for _, validate := range validators {
-		if err := validate(record); err != nil {
-			return err
-		}
-	}
-	if record.Receipt == nil {
-		return nil
-	}
-	return validateStoredResultReceipt(record)
-}
-
-// validateCoordinatorIdentity 校验持久化 invocation 与 job 主身份。
-func validateCoordinatorIdentity(record coordinatorJobRecord) error {
-	if record.InvocationID == "" || record.JobID == "" || record.EnqueueSequence == 0 {
-		return fmt.Errorf("%w: persisted invocation/job identity is incomplete", errCoordinatorState)
-	}
-	return nil
-}
-
-// validateCoordinatorPlanState 校验 plan 派生字段及可识别的 job 状态。
-func validateCoordinatorPlanState(record coordinatorJobRecord) error {
-	if err := record.Plan.Validate(); err != nil {
-		return fmt.Errorf("%w: persisted plan is invalid: %v", errCoordinatorState, err)
-	}
-	if record.Profile != record.Plan.Profile || record.JobSourceTreeSHA != record.Plan.Source.SourceTreeSHA {
-		return fmt.Errorf("%w: persisted job fields drifted from plan", errCoordinatorState)
-	}
-	return nil
-}
-
-// validateCoordinatorRecordState 校验状态枚举及 passed/receipt 不变量。
-func validateCoordinatorRecordState(record coordinatorJobRecord) error {
-	if record.State != jobStateQueued && record.State != jobStateStarted && !record.State.terminal() {
-		return fmt.Errorf("%w: unknown persisted job state %q", errCoordinatorState, record.State)
-	}
-	if err := validateCoordinatorSchedulerMetadata(record); err != nil {
-		return err
-	}
-	return nil
-}
-
-// validateStoredResultReceipt 校验持久化 receipt 与当前 durable job 完全一致。
-func validateStoredResultReceipt(record coordinatorJobRecord) error {
-	receipt := record.Receipt
-	if receipt == nil || receipt.ReceiptID != record.ReceiptID || receipt.ReceiptID != resultReceiptID(record.JobID) {
-		return fmt.Errorf("%w: persisted receipt identity does not match job", errCoordinatorState)
-	}
-	if err := receipt.Validate(); err != nil {
-		return fmt.Errorf("%w: persisted receipt is invalid: %v", errCoordinatorState, err)
-	}
-	if storedResultReceiptDrifted(record, receipt) {
-		return fmt.Errorf("%w: persisted receipt drifted from coordinator job", errCoordinatorState)
-	}
-	return validateStoredReceiptCompletion(record, receipt)
-}
-
-// storedResultReceiptDrifted 比较 receipt 中所有 job 侧权威绑定。
-func storedResultReceiptDrifted(
-	record coordinatorJobRecord,
-	receipt *gatecontract.ResultReceipt,
-) bool {
-	return receipt.InvocationID != record.InvocationID || !reflect.DeepEqual(receipt.Source, record.Plan.Source) ||
-		receipt.PlanDigest != record.Plan.PlanDigest || receipt.PolicyDigest != record.Plan.PolicyDigest ||
-		!reflect.DeepEqual(receipt.GateResults, record.GateResults) ||
-		receipt.Status != gatecontract.ResultStatusPassed
-}
-
-// validateStoredReceiptCompletion 校验 terminal 完成时间与 receipt 时间一致。
-func validateStoredReceiptCompletion(
-	record coordinatorJobRecord,
-	receipt *gatecontract.ResultReceipt,
-) error {
-	if record.CompletedAt == nil || !record.CompletedAt.Equal(receipt.CompletedAt) {
-		return fmt.Errorf("%w: persisted receipt completion time drifted from job", errCoordinatorState)
-	}
-	return nil
-}
-
-// validateCoordinatorSchedulerMetadata 仅接受无依赖 job 或单一 build 前驱。
-func validateCoordinatorSchedulerMetadata(record coordinatorJobRecord) error {
-	if record.SchedulerSubsequence == 0 && len(record.SchedulerDependencies) == 0 {
-		return nil
-	}
-	if record.SchedulerSubsequence != 1 || len(record.SchedulerDependencies) != 1 ||
-		record.SchedulerDependencies[0] == "" {
-		return fmt.Errorf("%w: persisted scheduler build dependency is invalid", errCoordinatorState)
-	}
-	return nil
-}
-
-func receiptsEqual(left, right *gatecontract.ResultReceipt) bool {
-	if left == nil || right == nil {
-		return left == nil && right == nil
-	}
-	return reflect.DeepEqual(*left, *right)
-}
-
-// validateCoordinatorClock 校验首次启动时钟成对存在且未被重算。
-func validateCoordinatorClock(record coordinatorJobRecord) error {
-	if (record.StartedAt == nil) != (record.Deadline == nil) {
-		return fmt.Errorf("%w: persisted started_at and deadline_at are incomplete", errCoordinatorState)
-	}
-	if record.StartedAt != nil && !record.Deadline.Equal(record.StartedAt.Add(coordinatorTimeout(record.Profile))) {
-		return fmt.Errorf("%w: persisted deadline drifted from first start", errCoordinatorState)
-	}
-	if record.State == jobStateQueued && (record.ContainerPhase != "" || record.StartedAt != nil) {
-		return fmt.Errorf("%w: queued job contains execution lifecycle state", errCoordinatorState)
-	}
-	return nil
-}
-
-// validateCoordinatorContainer 校验生命周期身份、阶段与销毁证明。
-func validateCoordinatorContainer(record coordinatorJobRecord) error {
-	if record.ContainerPhase != "" {
-		if !completeCoordinatorContainerIdentity(record) {
-			return fmt.Errorf("%w: persisted container identity is incomplete", errCoordinatorState)
-		}
-		if !knownCoordinatorContainerPhase(record.ContainerPhase) {
-			return fmt.Errorf("%w: unknown persisted container phase %q", errCoordinatorState, record.ContainerPhase)
-		}
-	}
-	if record.ContainerPhase == localci.FreshContainerPhaseRemoved && record.RemovalProofDigest == "" {
-		return fmt.Errorf("%w: removed container lacks removal proof", errCoordinatorState)
-	}
-	if record.State == jobStatePassed && record.RemovalProofDigest == "" {
-		return fmt.Errorf("%w: passed job lacks removal proof", errCoordinatorState)
-	}
-	return nil
-}
-
-func completeCoordinatorContainerIdentity(record coordinatorJobRecord) bool {
-	return record.ActiveGateID != "" && len(record.ContainerLabels) > 0 &&
-		record.ContainerImageReference != "" && record.ContainerConfigDigest != "" &&
-		record.SourceSnapshotDir != ""
-}
-
-func knownCoordinatorContainerPhase(phase localci.FreshContainerLifecyclePhase) bool {
-	_, exists := map[localci.FreshContainerLifecyclePhase]struct{}{
-		localci.FreshContainerPhasePrepared: {}, localci.FreshContainerPhaseCreated: {},
-		localci.FreshContainerPhaseStarting: {}, localci.FreshContainerPhaseStarted: {},
-		localci.FreshContainerPhaseExited: {}, localci.FreshContainerPhaseRemoved: {},
-	}[phase]
-	return exists
-}
-
-func parseCoordinatorTime(value sql.NullString) (*time.Time, error) {
-	if !value.Valid {
-		return nil, nil
-	}
-	parsed, err := time.Parse(time.RFC3339Nano, value.String)
-	if err != nil {
-		return nil, fmt.Errorf("parse coordinator timestamp: %w", err)
-	}
-	return &parsed, nil
-}
-
-func requireOneCoordinatorRow(result sql.Result, action string) error {
-	rows, err := result.RowsAffected()
-	if err != nil {
-		return fmt.Errorf("%s rows affected: %w", action, err)
-	}
-	if rows != 1 {
-		return fmt.Errorf("%w: %s changed %d rows", errCoordinatorState, action, rows)
-	}
-	return nil
-}
-
-func (record coordinatorJobRecord) status() jobStatus {
-	return jobStatus{
-		InvocationID: record.InvocationID, JobID: record.JobID, EnqueueSequence: record.EnqueueSequence,
-		State: record.State, Profile: record.Profile, JobSourceTreeSHA: record.JobSourceTreeSHA,
-		ImageProvenanceSourceTreeSHA: record.ImageProvenanceSourceTreeSHA,
-		SubmittedAt:                  record.SubmittedAt, StartedAt: record.StartedAt, CompletedAt: record.CompletedAt,
-		GateResults: append([]gatecontract.GateResult(nil), record.GateResults...), Error: record.Error,
-		ReceiptID: record.ReceiptID,
-		Terminal:  record.State.terminal(),
-	}
-}
-
-func (store *coordinatorStore) close() error {
-	if store == nil || store.db == nil {
-		return nil
-	}
-	return store.db.Close()
 }

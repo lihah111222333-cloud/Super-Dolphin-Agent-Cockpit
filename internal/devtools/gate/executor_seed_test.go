@@ -3,12 +3,15 @@ package gate
 import (
 	"bytes"
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
 )
+
+const runtimeProxyFixtureSum = "github.com/kelindar/event v1.5.2 h1:qtgssZqMh/QQMCIxlbx4wU3DoMHOrJXKdiZhphJ4YbY=\n"
 
 func TestInstallRuntimeSeedsBindsLocksAndPreventsOverwrite(t *testing.T) {
 	source := realTempDir(t)
@@ -170,6 +173,11 @@ func TestRuntimeSeedManifestPublicAPIRoundTrip(t *testing.T) {
 		t.Fatalf("decoded manifest = %+v, want %+v", decoded, manifest)
 	}
 	assertRuntimeSeedManifestFields(t, manifest)
+	missingProxy := manifest
+	missingProxy.ModuleProxyTreeSHA256 = ""
+	if err := EncodeRuntimeSeedManifest(io.Discard, missingProxy); err == nil {
+		t.Fatal("EncodeRuntimeSeedManifest unexpectedly accepted a missing module proxy digest")
+	}
 }
 
 func assertRuntimeSeedManifestFields(t *testing.T, manifest RuntimeSeedManifest) {
@@ -218,6 +226,26 @@ func TestRuntimeSeedManifestRejectsUnknownFieldsAndSeedTamper(t *testing.T) {
 	if err := manifest.Validate(source, runtimeRoot); err == nil {
 		t.Fatal("RuntimeSeedManifest.Validate unexpectedly accepted seed tamper")
 	}
+	if err := os.Remove(filepath.Join(runtimeRoot, "bin", "sqruff")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := BuildRuntimeSeedManifest(source, runtimeRoot); err == nil {
+		t.Fatal("BuildRuntimeSeedManifest unexpectedly accepted missing sqruff")
+	}
+}
+
+func TestRuntimeSeedManifestRejectsMissingLockedModuleZip(t *testing.T) {
+	source := realTempDir(t)
+	writeTestFile(t, filepath.Join(source, "go.sum"), "module sum\n", 0o600)
+	writeTestFile(t, filepath.Join(source, "frontend-app", "package-lock.json"), "{\"lockfileVersion\":3}\n", 0o600)
+	runtimeRoot, _ := writeRuntimeSeedFixture(t, source)
+	zipPath := filepath.Join(runtimeRoot, "go-proxy", "github.com", "kelindar", "event", "@v", "v1.5.2.zip")
+	if err := os.Remove(zipPath); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := BuildRuntimeSeedManifest(source, runtimeRoot); err == nil || !strings.Contains(err.Error(), ".zip") {
+		t.Fatalf("BuildRuntimeSeedManifest missing zip error = %v", err)
+	}
 }
 
 func TestRuntimeSeedDigestRejectsEscapingSymlinkChain(t *testing.T) {
@@ -237,30 +265,37 @@ func TestRuntimeSeedDigestRejectsEscapingSymlinkChain(t *testing.T) {
 
 func writeRuntimeSeedFixture(t *testing.T, source string) (string, string) {
 	t.Helper()
+	proxyLockPath := filepath.Join(source, "build", "gate", "runtime-proxy", "go.sum")
+	writeTestFile(t, proxyLockPath, runtimeProxyFixtureSum, 0o600)
 	runtimeRoot := realTempDir(t)
 	vendorRoot := filepath.Join(runtimeRoot, "vendor")
+	moduleProxyRoot := filepath.Join(runtimeRoot, "go-proxy")
 	nodeModulesRoot := filepath.Join(runtimeRoot, "frontend", "node_modules")
 	writeTestFile(t, filepath.Join(vendorRoot, "modules.txt"), "# modules\n", 0o600)
+	proxyVersionRoot := filepath.Join(moduleProxyRoot, "github.com", "kelindar", "event", "@v")
+	writeTestFile(t, filepath.Join(proxyVersionRoot, "list"), "v1.5.2\n", 0o600)
+	writeTestFile(t, filepath.Join(proxyVersionRoot, "v1.5.2.info"), "{}\n", 0o600)
+	writeTestFile(t, filepath.Join(proxyVersionRoot, "v1.5.2.mod"), "module github.com/kelindar/event\n", 0o600)
+	writeTestFile(t, filepath.Join(proxyVersionRoot, "v1.5.2.zip"), "fixture zip\n", 0o600)
+	writeTestFile(t, filepath.Join(proxyVersionRoot, "v1.5.2.ziphash"), strings.Fields(runtimeProxyFixtureSum)[2]+"\n", 0o600)
 	writeTestFile(t, filepath.Join(nodeModulesRoot, "tool", "index.js"), "export {}\n", 0o600)
-	goSumDigest, err := fileSHA256(filepath.Join(source, "go.sum"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	packageLockDigest, err := fileSHA256(filepath.Join(source, "frontend-app", "package-lock.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	vendorDigest, err := RuntimeSeedTreeDigest(vendorRoot)
-	if err != nil {
-		t.Fatal(err)
-	}
-	nodeModulesDigest, err := RuntimeSeedTreeDigest(nodeModulesRoot)
-	if err != nil {
-		t.Fatal(err)
-	}
+	ripgrepPath := filepath.Join(runtimeRoot, "bin", "rg")
+	writeTestFile(t, ripgrepPath, "fixture ripgrep\n", 0o700)
+	sqruffPath := filepath.Join(runtimeRoot, "bin", "sqruff")
+	writeTestFile(t, sqruffPath, "fixture sqruff\n", 0o700)
+	goSumDigest := mustRuntimeSeedFileDigest(t, filepath.Join(source, "go.sum"))
+	packageLockDigest := mustRuntimeSeedFileDigest(t, filepath.Join(source, "frontend-app", "package-lock.json"))
+	vendorDigest := mustRuntimeSeedTreeDigest(t, vendorRoot)
+	moduleProxyDigest := mustRuntimeSeedTreeDigest(t, moduleProxyRoot)
+	nodeModulesDigest := mustRuntimeSeedTreeDigest(t, nodeModulesRoot)
+	ripgrepDigest := mustRuntimeSeedFileDigest(t, ripgrepPath)
+	sqruffDigest := mustRuntimeSeedFileDigest(t, sqruffPath)
+	proxyLockDigest := mustRuntimeSeedFileDigest(t, proxyLockPath)
 	manifest := RuntimeSeedManifest{
 		SchemaVersion: RuntimeSeedSchemaVersion, GoSumSHA256: goSumDigest, VendorTreeSHA256: vendorDigest,
+		ModuleProxyLockSHA256: proxyLockDigest, ModuleProxyTreeSHA256: moduleProxyDigest,
 		PackageLockSHA256: packageLockDigest, NodeModulesTreeSHA256: nodeModulesDigest,
+		RipgrepSHA256: ripgrepDigest, SqruffSHA256: sqruffDigest,
 	}
 	encoded, err := json.Marshal(manifest)
 	if err != nil {
@@ -271,4 +306,22 @@ func writeRuntimeSeedFixture(t *testing.T, source string) (string, string) {
 		t.Fatal(err)
 	}
 	return runtimeRoot, manifestPath
+}
+
+func mustRuntimeSeedFileDigest(t *testing.T, path string) string {
+	t.Helper()
+	digest, err := fileSHA256(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return digest
+}
+
+func mustRuntimeSeedTreeDigest(t *testing.T, path string) string {
+	t.Helper()
+	digest, err := RuntimeSeedTreeDigest(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return digest
 }

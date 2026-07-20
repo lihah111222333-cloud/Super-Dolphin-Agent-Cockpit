@@ -1,9 +1,14 @@
 package localci
 
 import (
+	"fmt"
 	"maps"
 	"reflect"
+	"slices"
+	"sync"
 	"testing"
+
+	"golang.org/x/sync/errgroup"
 )
 
 func TestDaemonIdentityNormalizesContextAliases(t *testing.T) {
@@ -381,6 +386,251 @@ func TestSchedulerRejectsOversizedGang(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("expected oversized gang to fail")
+	}
+}
+
+func TestSchedulerShardGroupExactAdmissionCapacityOneTwoThree(t *testing.T) {
+	t.Parallel()
+	for size := 1; size <= maxActiveWorkloads; size++ {
+		t.Run(fmt.Sprintf("capacity-%d", size), func(t *testing.T) {
+			kernel := newTestSchedulerKernel(t)
+			spec := testShardGroupSpec(size)
+			mustEnqueue(t, kernel, spec)
+			reservations, err := kernel.reserveRunnable()
+			if err != nil {
+				t.Fatalf("reserve group size %d: %v", size, err)
+			}
+			if len(reservations) != 1 || len(reservations[0].leases) != size {
+				t.Fatalf("reservations=%+v want one atomic %d-slot group", reservations, size)
+			}
+			for index, lease := range reservations[0].leases {
+				if lease.groupID != spec.groupID || lease.shardID != spec.shardIDs[index] {
+					t.Fatalf("lease[%d]=%+v identity binding drifted", index, lease)
+				}
+			}
+		})
+	}
+}
+
+func TestSchedulerShardGroupIdentityFailsClosed(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name   string
+		mutate func(*workloadSpec)
+	}{
+		{name: "missing-group", mutate: func(spec *workloadSpec) { spec.groupID = "" }},
+		{name: "missing-shard", mutate: func(spec *workloadSpec) { spec.shardIDs[1] = "" }},
+		{name: "duplicate-shard", mutate: func(spec *workloadSpec) { spec.shardIDs[1] = spec.shardIDs[0] }},
+		{name: "size-mismatch", mutate: func(spec *workloadSpec) { spec.groupSize = 1 }},
+		{name: "wrong-kind", mutate: func(spec *workloadSpec) { spec.kind = workloadJob }},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			kernel := newTestSchedulerKernel(t)
+			spec := testShardGroupSpec(3)
+			test.mutate(&spec)
+			if err := kernel.enqueue(spec); err == nil {
+				t.Fatal("invalid shard group was accepted")
+			}
+		})
+	}
+	kernel := newTestSchedulerKernel(t)
+	first := testShardGroupSpec(2)
+	mustEnqueue(t, kernel, first)
+	second := testShardGroupSpec(2)
+	second.id = "other"
+	second.invocationID = "other-invocation"
+	if err := kernel.enqueue(second); err == nil {
+		t.Fatal("duplicate group identity was accepted")
+	}
+}
+
+func TestSchedulerShardFailureCancellationBarrierRetainsCapacity(t *testing.T) {
+	t.Parallel()
+	kernel := newTestSchedulerKernel(t)
+	spec := testShardGroupSpec(3)
+	mustEnqueue(t, kernel, spec)
+	if _, err := kernel.reserveRunnable(); err != nil {
+		t.Fatalf("reserve group: %v", err)
+	}
+	siblings, err := kernel.reportShardFailure(spec.id, spec.groupID, spec.shardIDs[1])
+	if err != nil {
+		t.Fatalf("report shard failure: %v", err)
+	}
+	if !slices.Equal(siblings, []string{spec.shardIDs[0], spec.shardIDs[2]}) {
+		t.Fatalf("siblings=%v", siblings)
+	}
+	if kernel.state(spec.id) != stateCancelling || len(kernel.leases) != 3 {
+		t.Fatalf("cancellation barrier released capacity early: state=%s leases=%d", kernel.state(spec.id), len(kernel.leases))
+	}
+	if err := kernel.completeGroup(spec.id, stateFailed); err != nil {
+		t.Fatalf("complete cancelled group: %v", err)
+	}
+	if len(kernel.leases) != 0 {
+		t.Fatalf("completed group retained %d leases", len(kernel.leases))
+	}
+}
+
+func TestSchedulerShardGroupConcurrentPeakIsThree(t *testing.T) {
+	t.Parallel()
+	kernel := newTestSchedulerKernel(t)
+	spec := testShardGroupSpec(3)
+	mustEnqueue(t, kernel, spec)
+	mustEnqueue(t, kernel, workloadSpec{
+		id: "later", invocationID: "later-invocation", enqueueSeq: 2, kind: workloadJob,
+	})
+	reservations, err := kernel.reserveRunnable()
+	if err != nil {
+		t.Fatalf("reserve group: %v", err)
+	}
+	peak, err := runConcurrentTestLeases(reservations[0].leases)
+	if err != nil {
+		t.Fatalf("run concurrent leases: %v", err)
+	}
+	if peak != maxActiveWorkloads {
+		t.Fatalf("concurrent peak=%d want=%d", peak, maxActiveWorkloads)
+	}
+	if queued, err := kernel.reserveRunnable(); err != nil || len(queued) != 0 {
+		t.Fatalf("fourth workload admitted while group active: reservations=%+v err=%v", queued, err)
+	}
+	if err := kernel.complete(spec.id, statePassed); err != nil {
+		t.Fatalf("complete group: %v", err)
+	}
+	next, err := kernel.reserveRunnable()
+	if err != nil {
+		t.Fatalf("reserve fourth workload: %v", err)
+	}
+	assertReservationIDs(t, next, "later")
+}
+
+func runConcurrentTestLeases(leases []slotLease) (int, error) {
+	started := make(chan struct{}, len(leases))
+	release := make(chan struct{})
+	var group errgroup.Group
+	var mu sync.Mutex
+	running, peak := 0, 0
+	for range leases {
+		group.Go(func() error {
+			mu.Lock()
+			running++
+			peak = max(peak, running)
+			mu.Unlock()
+			started <- struct{}{}
+			<-release
+			mu.Lock()
+			running--
+			mu.Unlock()
+			return nil
+		})
+	}
+	for range leases {
+		<-started
+	}
+	close(release)
+	if err := group.Wait(); err != nil {
+		return 0, err
+	}
+	return peak, nil
+}
+
+func TestSchedulerGroupCompletionStateMatrix(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name           string
+		fromCancelling bool
+		terminal       workloadState
+		wantError      bool
+	}{
+		{name: "started-passed", terminal: statePassed},
+		{name: "started-failed", terminal: stateFailed, wantError: true},
+		{name: "started-infra-failed", terminal: stateInfraFailed, wantError: true},
+		{name: "started-cancelled", terminal: stateCancelled, wantError: true},
+		{name: "cancelling-passed", fromCancelling: true, terminal: statePassed, wantError: true},
+		{name: "cancelling-failed", fromCancelling: true, terminal: stateFailed},
+		{name: "cancelling-infra-failed", fromCancelling: true, terminal: stateInfraFailed},
+		{name: "cancelling-cancelled", fromCancelling: true, terminal: stateCancelled},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			runGroupCompletionTransitionCase(t, test.fromCancelling, test.terminal, test.wantError)
+		})
+	}
+}
+
+func runGroupCompletionTransitionCase(
+	t *testing.T,
+	fromCancelling bool,
+	terminal workloadState,
+	wantError bool,
+) {
+	t.Helper()
+	kernel := newTestSchedulerKernel(t)
+	mustEnqueue(t, kernel, testShardGroupSpec(3))
+	if _, err := kernel.reserveRunnable(); err != nil {
+		t.Fatalf("reserve group: %v", err)
+	}
+	if fromCancelling {
+		if _, err := kernel.reportShardFailure("group", "group-identity", "shard-1"); err != nil {
+			t.Fatalf("establish cancellation barrier: %v", err)
+		}
+	}
+	err := kernel.completeGroup("group", terminal)
+	if (err != nil) != wantError {
+		t.Fatalf("completeGroup error=%v wantError=%v", err, wantError)
+	}
+	if wantError {
+		assertRejectedGroupCompletion(t, kernel, fromCancelling)
+		return
+	}
+	if got := kernel.state("group"); got != terminal || len(kernel.leases) != 0 {
+		t.Fatalf("completed transition state=%s leases=%d want=%s/0", got, len(kernel.leases), terminal)
+	}
+}
+
+func assertRejectedGroupCompletion(t *testing.T, kernel *schedulerKernel, fromCancelling bool) {
+	t.Helper()
+	wantState := stateStarted
+	if fromCancelling {
+		wantState = stateCancelling
+	}
+	if got := kernel.state("group"); got != wantState || len(kernel.leases) != 3 {
+		t.Fatalf("rejected transition state=%s leases=%d want=%s/3", got, len(kernel.leases), wantState)
+	}
+}
+
+func TestSchedulerShardFailureRetryIsStable(t *testing.T) {
+	t.Parallel()
+	kernel := newTestSchedulerKernel(t)
+	mustEnqueue(t, kernel, testShardGroupSpec(3))
+	if _, err := kernel.reserveRunnable(); err != nil {
+		t.Fatalf("reserve group: %v", err)
+	}
+	want := []string{"shard-0", "shard-2"}
+	for attempt := 1; attempt <= 2; attempt++ {
+		got, err := kernel.reportShardFailure("group", "group-identity", "shard-1")
+		if err != nil {
+			t.Fatalf("report shard failure attempt %d: %v", attempt, err)
+		}
+		if !slices.Equal(got, want) {
+			t.Fatalf("attempt %d siblings=%v want=%v", attempt, got, want)
+		}
+	}
+	if _, err := kernel.reportShardFailure("group", "group-identity", "shard-2"); err == nil {
+		t.Fatal("conflicting failed shard retry was accepted")
+	}
+	if kernel.nodes["group"].failedShardID != "shard-1" || len(kernel.leases) != 3 {
+		t.Fatalf("failure barrier drifted: %+v leases=%d", kernel.nodes["group"], len(kernel.leases))
+	}
+}
+
+func testShardGroupSpec(size int) workloadSpec {
+	shardIDs := make([]string, size)
+	for index := range shardIDs {
+		shardIDs[index] = fmt.Sprintf("shard-%d", index)
+	}
+	return workloadSpec{
+		id: "group", invocationID: "invocation", enqueueSeq: 1, kind: workloadShard,
+		serviceCount: size - 1, groupID: "group-identity", groupSize: size, shardIDs: shardIDs,
 	}
 }
 

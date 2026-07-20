@@ -131,7 +131,7 @@ func TestRealCommander_StdoutExceedsMaxReportsError(t *testing.T) {
 	skipIfWindows(t)
 	c := NewRealCommander()
 	// 输出 200 字节，max=10
-	_, err := c.Run(context.Background(), "sh", []string{"-c", "printf 'x%.0s' {1..200}"}, "", 10)
+	_, err := c.Run(context.Background(), "sh", []string{"-c", "head -c 200 /dev/zero | tr '\\000' x"}, "", 10)
 	if err == nil {
 		t.Fatalf("expected stdout overflow error, got nil")
 	}

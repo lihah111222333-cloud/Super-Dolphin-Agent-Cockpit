@@ -188,16 +188,17 @@ func runGates(args []string) error {
 	if err != nil {
 		return err
 	}
+	executionScope, err := newGateExecutionScope(*diffCached, diffRanges)
+	if err != nil {
+		return err
+	}
+	plan = gatePlanForExecutionScope(plan, executionScope)
 	if *printPlan {
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetIndent("", "  ")
 		return enc.Encode(plan)
 	}
 	if err := validateOptionalEvidence(*evidencePath, plan); err != nil {
-		return err
-	}
-	executionScope, err := newGateExecutionScope(*diffCached, diffRanges)
-	if err != nil {
 		return err
 	}
 	return executeGatePlanWithCache(plan, cache, executionScope)
@@ -256,6 +257,14 @@ func applyPrevalidatedMapGates(plan gatePlan, gates []string, diffCached, pushGa
 		fmt.Fprintf(os.Stderr, "[ai-maintenance] prevalidated gate=%s scope=%s\n", gate, cacheScope[:12])
 	}
 	return plan, nil
+}
+
+func gatePlanForExecutionScope(plan gatePlan, scope gateExecutionScope) gatePlan {
+	if scope.diffCached {
+		plan.RequiredGates = appendOrderedGate(plan.RequiredGates, "gate-image-closure:check")
+		plan.RequiredGates = orderGateNames(plan.RequiredGates)
+	}
+	return plan
 }
 
 // filterDeferredE2E 在显式要求时从计划中移除延迟 Provider E2E 包。
@@ -684,6 +693,7 @@ func gateEvidenceCommandFragments() map[string][]string {
 		"capcontract:check":            {"make capcontract-check"},
 		"turncontract:verify":          {"go run ./scripts/turncontract --verify", "go test ./internal/dto/turn -run ^TestTurnContractFieldGuard", "node frontend-app/scripts/turn-contract-field-guard.mjs"},
 		"frontend:static-guards":       {"npm run guard:architecture"},
+		"gate-image-closure:check":     {"go run ./build/gate/cmd/generate-closure", "-tree", "-check"},
 		"frontend:lint":                {"npm run lint"},
 		"frontend:typecheck-contracts": {"npm run typecheck:contracts"},
 		"frontend:changed-tests":       {"npx vitest run"},

@@ -1,12 +1,14 @@
 package localci
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
 	"fmt"
 	"net/url"
 	"path"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -101,10 +103,11 @@ const (
 	workloadBuild workloadKind = iota + 1
 	workloadService
 	workloadJob
+	workloadShard
 )
 
 func (k workloadKind) valid() bool {
-	return k >= workloadBuild && k <= workloadJob
+	return k >= workloadBuild && k <= workloadShard
 }
 
 type workloadState string
@@ -115,10 +118,12 @@ const (
 	statePassed      workloadState = "passed"
 	stateFailed      workloadState = "failed"
 	stateInfraFailed workloadState = "infra_failed"
+	stateCancelling  workloadState = "cancelling"
+	stateCancelled   workloadState = "cancelled"
 )
 
 func (s workloadState) terminal() bool {
-	return s == statePassed || s == stateFailed || s == stateInfraFailed
+	return s == statePassed || s == stateFailed || s == stateInfraFailed || s == stateCancelled
 }
 
 type workloadSpec struct {
@@ -128,23 +133,30 @@ type workloadSpec struct {
 	subSeq       uint32
 	kind         workloadKind
 	serviceCount int
+	groupID      string
+	groupSize    int
+	shardIDs     []string
 	dependencies []workloadID
 }
 
 type workloadNode struct {
-	spec         workloadSpec
-	state        workloadState
-	gangBypasses int
+	spec          workloadSpec
+	state         workloadState
+	failedShardID string
+	gangBypasses  int
 }
 
 type slotLease struct {
 	id         string
 	workloadID workloadID
 	kind       workloadKind
+	groupID    string
+	shardID    string
 }
 
 type reservation struct {
 	workloadID workloadID
+	groupID    string
 	leases     []slotLease
 }
 
@@ -167,6 +179,24 @@ func newSchedulerKernel(identity daemonIdentity) (*schedulerKernel, error) {
 
 // enqueue 校验 owner-local workload 并将其加入统一 FIFO。
 func (s *schedulerKernel) enqueue(spec workloadSpec) error {
+	if err := validateWorkloadSpec(spec); err != nil {
+		return err
+	}
+	if err := s.validateGroupSpec(spec); err != nil {
+		return err
+	}
+	if _, exists := s.nodes[spec.id]; exists {
+		return fmt.Errorf("duplicate workload ID %q", spec.id)
+	}
+	dependencies := append([]workloadID(nil), spec.dependencies...)
+	spec.dependencies = dependencies
+	spec.shardIDs = append([]string(nil), spec.shardIDs...)
+	s.nodes[spec.id] = &workloadNode{spec: spec, state: stateQueued}
+	return nil
+}
+
+// validateWorkloadSpec 校验所有 standalone 与 grouped workload 的共享输入。
+func validateWorkloadSpec(spec workloadSpec) error {
 	if strings.TrimSpace(string(spec.id)) == "" {
 		return errors.New("workload ID is required")
 	}
@@ -182,18 +212,67 @@ func (s *schedulerKernel) enqueue(spec workloadSpec) error {
 	if spec.serviceCount < 0 {
 		return errors.New("service count must be non-negative")
 	}
-	if spec.kind != workloadJob && spec.serviceCount != 0 {
+	if spec.kind != workloadJob && spec.kind != workloadShard && spec.serviceCount != 0 {
 		return errors.New("only a job workload can own a service gang")
 	}
 	if 1+spec.serviceCount > maxActiveWorkloads {
 		return fmt.Errorf("workload gang requires %d slots, maximum is %d", 1+spec.serviceCount, maxActiveWorkloads)
 	}
-	if _, exists := s.nodes[spec.id]; exists {
-		return fmt.Errorf("duplicate workload ID %q", spec.id)
+	return nil
+}
+
+// validateGroupSpec 验证显式 group header、shard identity 集合与全局唯一性。
+func (s *schedulerKernel) validateGroupSpec(spec workloadSpec) error {
+	grouped := spec.groupID != "" || spec.groupSize != 0 || len(spec.shardIDs) != 0
+	if !grouped {
+		if spec.kind == workloadShard {
+			return errors.New("shard workload requires explicit group identity")
+		}
+		return nil
 	}
-	dependencies := append([]workloadID(nil), spec.dependencies...)
-	spec.dependencies = dependencies
-	s.nodes[spec.id] = &workloadNode{spec: spec, state: stateQueued}
+	if err := validateGroupHeader(spec); err != nil {
+		return err
+	}
+	if err := validateShardIdentities(spec.shardIDs); err != nil {
+		return err
+	}
+	return s.rejectDuplicateGroupIdentity(spec.groupID)
+}
+
+// validateGroupHeader 校验 group 类型、容量与 identity 数量一致。
+func validateGroupHeader(spec workloadSpec) error {
+	if spec.kind != workloadShard || spec.groupID == "" {
+		return errors.New("shard group requires shard kind and group identity")
+	}
+	if spec.groupSize < 1 || spec.groupSize > maxActiveWorkloads || spec.groupSize != 1+spec.serviceCount {
+		return errors.New("shard group size must exactly match its reserved slots within capacity")
+	}
+	if len(spec.shardIDs) != spec.groupSize {
+		return errors.New("shard group identities do not exactly cover group size")
+	}
+	return nil
+}
+
+func validateShardIdentities(shardIDs []string) error {
+	seen := make(map[string]struct{}, len(shardIDs))
+	for _, shardID := range shardIDs {
+		if strings.TrimSpace(shardID) == "" || strings.TrimSpace(shardID) != shardID {
+			return errors.New("shard identity is required without surrounding whitespace")
+		}
+		if _, duplicate := seen[shardID]; duplicate {
+			return fmt.Errorf("duplicate shard identity %q", shardID)
+		}
+		seen[shardID] = struct{}{}
+	}
+	return nil
+}
+
+func (s *schedulerKernel) rejectDuplicateGroupIdentity(groupID string) error {
+	for _, node := range s.nodes {
+		if node.spec.groupID == groupID {
+			return fmt.Errorf("duplicate group identity %q", groupID)
+		}
+	}
 	return nil
 }
 
@@ -280,21 +359,29 @@ func (s *schedulerKernel) reserve(node *workloadNode) (reservation, error) {
 		return reservation{}, fmt.Errorf("workload %q does not fit available capacity", node.spec.id)
 	}
 	leases := make([]slotLease, 0, required)
-	for i := 0; i < node.spec.serviceCount; i++ {
+	for i := range required {
+		kind := workloadService
+		leaseID := fmt.Sprintf("%s/service/%d", node.spec.id, i)
+		if i == 0 {
+			kind = node.spec.kind
+			leaseID = fmt.Sprintf("%s/%d", node.spec.id, kind)
+			if node.spec.groupID != "" {
+				leaseID = fmt.Sprintf("%s/shard", node.spec.id)
+			}
+		}
+		shardID := ""
+		if node.spec.groupID != "" {
+			shardID = node.spec.shardIDs[i]
+		}
 		lease := slotLease{
-			id:         fmt.Sprintf("%s/service/%d", node.spec.id, i+1),
+			id:         leaseID,
 			workloadID: node.spec.id,
-			kind:       workloadService,
+			kind:       kind,
+			groupID:    node.spec.groupID,
+			shardID:    shardID,
 		}
 		leases = append(leases, lease)
 	}
-	primaryKind := node.spec.kind
-	lease := slotLease{
-		id:         fmt.Sprintf("%s/%d", node.spec.id, primaryKind),
-		workloadID: node.spec.id,
-		kind:       primaryKind,
-	}
-	leases = append(leases, lease)
 	for _, item := range leases {
 		if _, exists := s.leases[item.id]; exists {
 			return reservation{}, fmt.Errorf("duplicate slot lease %q", item.id)
@@ -304,10 +391,10 @@ func (s *schedulerKernel) reserve(node *workloadNode) (reservation, error) {
 		s.leases[item.id] = item
 	}
 	node.state = stateStarted
-	return reservation{workloadID: node.spec.id, leases: leases}, nil
+	return reservation{workloadID: node.spec.id, groupID: node.spec.groupID, leases: leases}, nil
 }
 
-// complete 只接受已启动 workload 的终态，并在零修改检查后归还全部 slot。
+// complete 只接受已启动 standalone workload 的终态。
 func (s *schedulerKernel) complete(id workloadID, terminalState workloadState) error {
 	node, exists := s.nodes[id]
 	if !exists {
@@ -319,16 +406,46 @@ func (s *schedulerKernel) complete(id workloadID, terminalState workloadState) e
 	if !terminalState.terminal() {
 		return fmt.Errorf("workload %q completion state %q is not terminal", id, terminalState)
 	}
+	return s.releaseLeasesAndComplete(node, terminalState)
+}
+
+// completeGroup 强制失败 group 先经过 durable cancellation barrier。
+func (s *schedulerKernel) completeGroup(id workloadID, terminalState workloadState) error {
+	node, exists := s.nodes[id]
+	if !exists {
+		return fmt.Errorf("unknown group workload %q", id)
+	}
+	if !terminalState.terminal() {
+		return fmt.Errorf("group workload %q completion state %q is not terminal", id, terminalState)
+	}
+	switch node.state {
+	case stateStarted:
+		if terminalState != statePassed {
+			return fmt.Errorf("group workload %q failure must establish the cancellation barrier first", id)
+		}
+	case stateCancelling:
+		if terminalState == statePassed {
+			return fmt.Errorf("cancelling group workload %q cannot complete as passed", id)
+		}
+	case stateQueued, statePassed, stateFailed, stateInfraFailed, stateCancelled:
+		return fmt.Errorf("group workload %q cannot complete from state %q", id, node.state)
+	default:
+		return fmt.Errorf("group workload %q has invalid state %q", id, node.state)
+	}
+	return s.releaseLeasesAndComplete(node, terminalState)
+}
+
+func (s *schedulerKernel) releaseLeasesAndComplete(node *workloadNode, terminalState workloadState) error {
 	leaseIDs := make([]string, 0, 1+node.spec.serviceCount)
 	for leaseID, lease := range s.leases {
-		if lease.workloadID == id {
+		if lease.workloadID == node.spec.id {
 			leaseIDs = append(leaseIDs, leaseID)
 		}
 	}
 	if len(leaseIDs) != 1+node.spec.serviceCount {
 		return fmt.Errorf(
 			"workload %q lease count %d does not match expected %d",
-			id,
+			node.spec.id,
 			len(leaseIDs),
 			1+node.spec.serviceCount,
 		)
@@ -337,7 +454,180 @@ func (s *schedulerKernel) complete(id workloadID, terminalState workloadState) e
 		delete(s.leases, leaseID)
 	}
 	node.state = terminalState
+	node.failedShardID = ""
 	return nil
+}
+
+// reportShardFailure 验证失败 shard 后持久化 group 取消屏障。
+func (s *schedulerKernel) reportShardFailure(id workloadID, groupID string, shardID string) ([]string, error) {
+	node, exists := s.nodes[id]
+	if !exists {
+		return nil, fmt.Errorf("unknown group workload %q", id)
+	}
+	if node.spec.groupID == "" || node.spec.groupID != groupID {
+		return nil, errors.New("group identity is missing, unknown, or mismatched")
+	}
+	if !slices.Contains(node.spec.shardIDs, shardID) {
+		return nil, errors.New("shard identity is unknown for group")
+	}
+	switch node.state {
+	case stateStarted:
+		node.failedShardID = shardID
+		node.state = stateCancelling
+	case stateCancelling:
+		if node.failedShardID != shardID {
+			return nil, fmt.Errorf("group failure already recorded for shard %q", node.failedShardID)
+		}
+	default:
+		return nil, fmt.Errorf("group workload %q cannot report failure from state %q", id, node.state)
+	}
+	siblings := make([]string, 0, len(node.spec.shardIDs)-1)
+	for _, identity := range node.spec.shardIDs {
+		if identity != node.failedShardID {
+			siblings = append(siblings, identity)
+		}
+	}
+	return siblings, nil
+}
+
+func (s *schedulerKernel) cancelGroup(id workloadID, groupID string) error {
+	node, exists := s.nodes[id]
+	if !exists || node.state != stateQueued {
+		return fmt.Errorf("group workload %q is not queued", id)
+	}
+	if node.spec.groupID == "" || node.spec.groupID != groupID {
+		return errors.New("group identity is missing, unknown, or mismatched")
+	}
+	node.state = stateCancelled
+	return nil
+}
+
+// ReportShardFailure 持久化取消屏障并返回必须停止的同组 shard identity。
+func (s *Scheduler) ReportShardFailure(
+	ctx context.Context,
+	id string,
+	groupIdentity string,
+	shardIdentity string,
+) ([]string, error) {
+	workload, err := validatePublicID("workload ID", id)
+	if err != nil {
+		return nil, err
+	}
+	group, err := validatePublicID("group identity", groupIdentity)
+	if err != nil {
+		return nil, err
+	}
+	shard, err := validatePublicID("shard identity", shardIdentity)
+	if err != nil {
+		return nil, err
+	}
+	if ctx == nil {
+		return nil, fmt.Errorf("%w: context is required", ErrInvalidSchedulerInput)
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.ensureOpen(); err != nil {
+		return nil, err
+	}
+	candidate := cloneSchedulerKernel(s.kernel)
+	siblings, err := candidate.reportShardFailure(workloadID(workload), group, shard)
+	if err != nil {
+		return nil, fmt.Errorf("%w: report shard failure: %w", ErrSchedulerState, err)
+	}
+	if err := s.commitCandidate(ctx, candidate); err != nil {
+		return nil, err
+	}
+	return siblings, nil
+}
+
+// CompleteGroup 在调用方停止全部 sibling 后原子释放整组 lease。
+func (s *Scheduler) CompleteGroup(
+	ctx context.Context,
+	id string,
+	groupIdentity string,
+	status WorkloadStatus,
+) error {
+	workload, err := validatePublicID("workload ID", id)
+	if err != nil {
+		return err
+	}
+	group, err := validatePublicID("group identity", groupIdentity)
+	if err != nil {
+		return err
+	}
+	terminalState, err := importTerminalStatus(status)
+	if err != nil {
+		return err
+	}
+	if ctx == nil {
+		return fmt.Errorf("%w: context is required", ErrInvalidSchedulerInput)
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.ensureOpen(); err != nil {
+		return err
+	}
+	candidate := cloneSchedulerKernel(s.kernel)
+	node := candidate.nodes[workloadID(workload)]
+	if node == nil || node.spec.groupID == "" || node.spec.groupID != group {
+		return fmt.Errorf("%w: group identity is missing, unknown, or mismatched", ErrInvalidSchedulerInput)
+	}
+	if err := candidate.completeGroup(workloadID(workload), terminalState); err != nil {
+		return fmt.Errorf("%w: complete group: %w", ErrSchedulerState, err)
+	}
+	return s.commitCandidate(ctx, candidate)
+}
+
+// CancelGroup 只取消尚未取得任何 lease 的完整 group。
+func (s *Scheduler) CancelGroup(ctx context.Context, id string, groupIdentity string) error {
+	workload, err := validatePublicID("workload ID", id)
+	if err != nil {
+		return err
+	}
+	group, err := validatePublicID("group identity", groupIdentity)
+	if err != nil {
+		return err
+	}
+	if ctx == nil {
+		return fmt.Errorf("%w: context is required", ErrInvalidSchedulerInput)
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.ensureOpen(); err != nil {
+		return err
+	}
+	candidate := cloneSchedulerKernel(s.kernel)
+	if err := candidate.cancelGroup(workloadID(workload), group); err != nil {
+		return fmt.Errorf("%w: cancel group: %w", ErrSchedulerState, err)
+	}
+	return s.commitCandidate(ctx, candidate)
+}
+
+func validatePublicID(field, value string) (string, error) {
+	if value == "" || strings.TrimSpace(value) != value {
+		return "", fmt.Errorf("%w: %s must be non-empty without surrounding whitespace", ErrInvalidSchedulerInput, field)
+	}
+	return value, nil
+}
+
+func importDependencies(owner string, values []string) ([]workloadID, error) {
+	dependencies := make([]workloadID, len(values))
+	seen := make(map[string]struct{}, len(values))
+	for index, value := range values {
+		dependency, err := validatePublicID("dependency ID", value)
+		if err != nil {
+			return nil, err
+		}
+		if dependency == owner {
+			return nil, fmt.Errorf("%w: workload %q depends on itself", ErrInvalidSchedulerInput, owner)
+		}
+		if _, exists := seen[dependency]; exists {
+			return nil, fmt.Errorf("%w: duplicate dependency %q", ErrInvalidSchedulerInput, dependency)
+		}
+		seen[dependency] = struct{}{}
+		dependencies[index] = workloadID(dependency)
+	}
+	return dependencies, nil
 }
 
 func (s *schedulerKernel) state(id workloadID) workloadState {

@@ -13,19 +13,21 @@ func TestFilterAndCapSearchMatchesCapsEachFileWithoutDroppingOtherFiles(t *testi
 	matches := make([]SearchMatch, 0, 61)
 	for line := 1; line <= 60; line++ {
 		matches = append(matches, SearchMatch{
-			AbsPath: large,
-			File:    "00-large.txt",
-			Line:    line,
-			Col:     1,
-			Text:    "needle large " + strconv.Itoa(line),
+			AbsPath:    large,
+			SearchRoot: root,
+			File:       "00-large.txt",
+			Line:       line,
+			Col:        1,
+			Text:       "needle large " + strconv.Itoa(line),
 		})
 	}
 	matches = append(matches, SearchMatch{
-		AbsPath: small,
-		File:    "zz-small.txt",
-		Line:    1,
-		Col:     1,
-		Text:    "needle small",
+		AbsPath:    small,
+		SearchRoot: root,
+		File:       "zz-small.txt",
+		Line:       1,
+		Col:        1,
+		Text:       "needle small",
 	})
 
 	filtered, total, truncated := FilterAndCapSearchMatches(matches, 50)

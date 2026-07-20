@@ -34,7 +34,7 @@ func TestResolveGateImageInputsIsDeterministicAndIgnoresOrdinarySource(t *testin
 func TestResolveGateImageInputsChangesForDeclaredInput(t *testing.T) {
 	entries := candidateEntries(validCandidateDockerfile())
 	base := mustResolveGateImageInputs(t, readOnlyImageTree(t, entries))
-	changeEntry(t, entries, "go.mod", "module example.invalid/changed\n")
+	changeCandidateInput(t, entries, "go.mod", "module example.invalid/changed\n")
 	changed := mustResolveGateImageInputs(t, readOnlyImageTree(t, entries))
 	if changed.ImageInputDigest == base.ImageInputDigest || changed.ContextDigest == base.ContextDigest {
 		t.Fatal("declared image input change did not alter canonical digests")

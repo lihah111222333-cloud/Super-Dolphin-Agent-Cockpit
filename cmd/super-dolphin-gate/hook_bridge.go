@@ -183,8 +183,28 @@ func (bridge *hookCoordinatorBridge) Submit(
 		RepositoryRoot: request.Repository.WorktreeRoot,
 		Plan:           plan,
 		InvocationID:   invocationID,
+		Entrypoint:     request.Entrypoint, AuthorityOwner: authorityOwnerForHook(request),
+		AuthorityAttestation: authorityAttestationForHook(request),
 	})
 	return bridge.adaptCoordinatorHookStatus(ctx, status, submitErr, request.Source.SourceTreeSHA)
+}
+
+func authorityOwnerForHook(request gatehook.SubmitRequest) gatecontract.CIEntrypointOwner {
+	for _, entrypoint := range gatecontract.CIEntrypointRegistry() {
+		if entrypoint.ID == request.Entrypoint {
+			return entrypoint.Owner
+		}
+	}
+	return ""
+}
+
+func authorityAttestationForHook(request gatehook.SubmitRequest) string {
+	for _, entrypoint := range gatecontract.CIEntrypointRegistry() {
+		if entrypoint.ID == request.Entrypoint && entrypoint.Authoritative {
+			return request.Invocation.Key
+		}
+	}
+	return ""
 }
 
 // Status 按 invocation 和活动 worktree 查询 coordinator 状态。
@@ -317,6 +337,8 @@ func resultReceiptMatchesHookStatus(
 ) bool {
 	return status.ReceiptID == receipt.ReceiptID &&
 		receipt.ReceiptID == resultReceiptID(status.JobID) &&
+		receipt.SchemaVersion == gatecontract.ResultReceiptSchemaVersion &&
+		len(receipt.ShardReceipts) == gatecontract.MaxContainerShards &&
 		receipt.InvocationID == status.InvocationID &&
 		receipt.Source.SourceTreeSHA == status.JobSourceTreeSHA &&
 		receipt.Source.SourceTreeSHA == expectedTree &&

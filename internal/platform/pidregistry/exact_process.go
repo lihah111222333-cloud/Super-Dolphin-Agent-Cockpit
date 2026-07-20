@@ -27,10 +27,12 @@ var (
 
 // CooperativeEndpointIdentity 绑定一次 Unix endpoint 发布实例。
 type CooperativeEndpointIdentity struct {
-	Device uint64
-	Inode  uint64
-	UID    uint32
-	Mode   uint32
+	Device           uint64
+	Inode            uint64
+	UID              uint32
+	Mode             uint32
+	CreationTimeSec  int64
+	CreationTimeNsec int64
 }
 
 // StableProcessIdentity 是跨 PID reuse 稳定的内核进程身份。

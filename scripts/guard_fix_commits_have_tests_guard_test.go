@@ -487,7 +487,7 @@ func TestCICommitGuardRejectsBodyWithoutChinese(t *testing.T) {
 	assertOutputOmitsAll(t, out, "[ci-commit-guard] fix-test guard")
 }
 
-func TestCIWorkflowRunsCommitGuard(t *testing.T) {
+func TestCIWorkflowRunsTruthImageCoordinator(t *testing.T) {
 	workflow := locateFixTestGuardRepoFile(t, ".github/workflows/ci.yml")
 	data, err := os.ReadFile(workflow)
 	if err != nil {
@@ -496,14 +496,15 @@ func TestCIWorkflowRunsCommitGuard(t *testing.T) {
 
 	content := string(data)
 	assertOutputContainsAll(t, content,
-		"commit-guard:",
-		"fetch-depth: 0",
-		"GITHUB_BASE_SHA: ${{ github.event.pull_request.base.sha }}",
-		"GITHUB_HEAD_SHA: ${{ github.event.pull_request.head.sha }}",
-		"GITHUB_EVENT_BEFORE: ${{ github.event.before }}",
-		"./scripts/ci_commit_guard.sh",
-		"needs: commit-guard",
+		"truth-image-gates:",
+		"pull_request_target:",
+		"fetch-depth: 1",
+		"persist-credentials: false",
+		"SUPER_DOLPHIN_GATE_BOOTSTRAP_IMAGE",
+		"SUPER_DOLPHIN_GATE_AUTHORITY_BUNDLE_B64",
+		"workflow-host",
 	)
+	assertOutputOmitsAll(t, content, "./scripts/ci_commit_guard.sh", "make ", "go test", "npm ")
 }
 
 func TestCIWorkflowDoesNotExcludeProductionPackages(t *testing.T) {

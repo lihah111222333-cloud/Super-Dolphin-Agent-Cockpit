@@ -44,6 +44,7 @@ func validateCopiedSnapshot(ctx context.Context, gitBinary string, sourceCopy st
 	return nil
 }
 
+// runFullTreeWhitespace 对可信 base 到 HEAD 的对象变更执行空白检查；缺失 base 时保守扫描整树。
 func runFullTreeWhitespace(
 	ctx context.Context,
 	gitBinary string,
@@ -52,19 +53,39 @@ func runFullTreeWhitespace(
 	stdout io.Writer,
 	stderr io.Writer,
 ) error {
-	emptyTree, err := gitLineWithInput(ctx, gitBinary, sourceCopy, environment, bytes.NewReader(nil), "hash-object", "-t", "tree", "--stdin")
+	base, err := trustedWhitespaceBase(ctx, gitBinary, sourceCopy, environment)
 	if err != nil {
-		return fmt.Errorf("resolve empty Git tree: %w", err)
+		return err
 	}
 	step := resolvedStep{
 		directory: sourceCopy,
-		argv:      []string{"git", "diff", "--check", emptyTree, "HEAD", "--"},
+		argv:      []string{"git", "diff", "--check", base, "HEAD", "--"},
 		binary:    gitBinary,
 	}
 	if err := runResolvedStep(ctx, step, environment, stdout, stderr); err != nil {
-		return fmt.Errorf("full-tree whitespace check: %w", err)
+		return fmt.Errorf("trusted-range whitespace check: %w", err)
 	}
 	return nil
+}
+
+// trustedWhitespaceBase 只接受可解析为 commit 的显式 base ref，并为确实缺失的 ref 返回空树。
+func trustedWhitespaceBase(ctx context.Context, gitBinary string, sourceCopy string, environment []string) (string, error) {
+	_, found, err := gitOptionalLine(ctx, gitBinary, sourceCopy, environment, "show-ref", "--hash", baseSourceRef)
+	if err != nil {
+		return "", fmt.Errorf("inspect trusted whitespace base ref: %w", err)
+	}
+	if found {
+		base, err := gitLine(ctx, gitBinary, sourceCopy, environment, "rev-parse", "--verify", baseSourceRef+"^{commit}")
+		if err != nil {
+			return "", fmt.Errorf("resolve trusted whitespace base commit: %w", err)
+		}
+		return base, nil
+	}
+	emptyTree, err := gitLineWithInput(ctx, gitBinary, sourceCopy, environment, bytes.NewReader(nil), "hash-object", "-t", "tree", "--stdin")
+	if err != nil {
+		return "", fmt.Errorf("resolve conservative whitespace base: %w", err)
+	}
+	return emptyTree, nil
 }
 
 // runChangedDiagnostics 只把可信 Git 范围内仍存在的受支持源码送入 LSP 门禁。
@@ -131,9 +152,6 @@ func trustedChangedDiagnostics(
 	selection, err := selectChangedDiagnostics(sourceCopy, output)
 	if err != nil {
 		return changedDiagnosticsSelection{}, err
-	}
-	if selection.candidates == 0 {
-		return changedDiagnosticsSelection{}, errors.New("trusted Git range is empty")
 	}
 	return selection, nil
 }
@@ -213,7 +231,7 @@ func gitOptionalLine(
 	var stderr bytes.Buffer
 	command.Stdout = &stdout
 	command.Stderr = &stderr
-	err := command.Run()
+	err := runConfiguredCommand(command)
 	if exitError, ok := err.(*exec.ExitError); ok && exitError.ExitCode() == 1 && stdout.Len() == 0 && stderr.Len() == 0 {
 		return "", false, nil
 	}
@@ -267,7 +285,7 @@ func gitOutput(
 	var stderr bytes.Buffer
 	command.Stdout = &stdout
 	command.Stderr = &stderr
-	if err := command.Run(); err != nil {
+	if err := runConfiguredCommand(command); err != nil {
 		return nil, fmt.Errorf("git %q: %w: %s", args, err, strings.TrimSpace(stderr.String()))
 	}
 	return stdout.Bytes(), nil

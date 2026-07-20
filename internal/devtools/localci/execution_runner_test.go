@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -23,8 +24,15 @@ type freshDockerRunnerStub struct {
 	waitForCancel bool
 	waitErr       error
 	waitCalls     int
+	waitExitCode  int
+	oomKilled     bool
+	logOutput     string
 	removeErr     error
+	psOutput      string
+	createErr     error
+	startErr      error
 	containerID   string
+	finishedAt    string
 }
 
 func (stub *freshDockerRunnerStub) Run(ctx context.Context, args ...string) (string, error) {
@@ -53,16 +61,22 @@ func (stub *freshDockerRunnerStub) runPrimary(ctx context.Context, command strin
 }
 
 func (stub *freshDockerRunnerStub) runLifecycle(command string) (string, error) {
-	if command == "start" || command == "kill" {
+	if command == "start" {
+		return "", stub.startErr
+	}
+	if command == "kill" {
 		return "", nil
 	}
 	switch command {
 	case "logs":
+		if stub.logOutput != "" {
+			return stub.logOutput, nil
+		}
 		return "2026-07-16T00:00:00Z gate output\n", nil
 	case "rm":
 		return "", stub.removeErr
 	case "ps":
-		return "", nil
+		return stub.psOutput, nil
 	default:
 		return "", errors.New("unexpected lifecycle Docker command")
 	}
@@ -72,7 +86,7 @@ func (stub *freshDockerRunnerStub) runCreate() (string, error) {
 	if stub.containerID == "" {
 		stub.containerID = testContainerID
 	}
-	return stub.containerID + "\n", nil
+	return stub.containerID + "\n", stub.createErr
 }
 
 func (stub *freshDockerRunnerStub) runWait(ctx context.Context) (string, error) {
@@ -86,6 +100,9 @@ func (stub *freshDockerRunnerStub) runWait(ctx context.Context) (string, error) 
 	}
 	if stub.waitForCancel || stub.waitErr != nil {
 		return "137\n", nil
+	}
+	if stub.waitExitCode != 0 {
+		return fmt.Sprintf("%d\n", stub.waitExitCode), nil
 	}
 	return "0\n", nil
 }
@@ -127,7 +144,7 @@ func (stub *freshDockerRunnerStub) imageInspectJSON() string {
 }
 
 func (stub *freshDockerRunnerStub) containerInspectJSON(finished bool) string {
-	command, err := commandFromPlan(stub.request.Plan, stub.request.GateID)
+	command, err := stub.containerCommand()
 	if err != nil {
 		stub.t.Fatal(err)
 	}
@@ -137,22 +154,29 @@ func (stub *freshDockerRunnerStub) containerInspectJSON(finished bool) string {
 	if finished {
 		status = "exited"
 		finishedAt = "2026-07-16T00:00:01Z"
+		if stub.finishedAt != "" {
+			finishedAt = stub.finishedAt
+		}
 		if stub.waitForCancel || stub.waitErr != nil {
 			exitCode = 137
+		} else if stub.waitExitCode != 0 {
+			exitCode = stub.waitExitCode
 		}
 	}
 	document := map[string]any{
 		"Id": stub.containerID, "Image": stub.request.Image.PlatformManifestDigest, "Path": command[0], "Args": command[1:],
 		"Config": map[string]any{
 			"Image": stub.request.Image.Registry + "@" + stub.request.Image.PlatformManifestDigest, "User": "65532:65532",
-			"WorkingDir": "/workspace/work",
+			"WorkingDir": "/workspace/work", "Labels": stub.request.ContainerLabels,
 			"Env": []string{
 				"HOME=/workspace/work/home", "TMPDIR=/workspace/work/tmp", "GOCACHE=/workspace/work/go-cache",
 				"GOMODCACHE=/workspace/work/go-mod-cache", "npm_config_cache=/workspace/work/npm-cache",
 				"XDG_CACHE_HOME=/workspace/work/xdg-cache",
+				"PLAYWRIGHT_BROWSERS_PATH=/opt/super-dolphin-gate/runtime/frontend/node_modules/.cache/ms-playwright",
 			},
 		},
 		"HostConfig": map[string]any{
+			"Init":     true,
 			"NanoCpus": int64(4_000_000_000), "Memory": int64(8 * 1024 * 1024 * 1024), "PidsLimit": int64(512),
 			"ReadonlyRootfs": true, "CapDrop": []string{"ALL"}, "SecurityOpt": []string{"no-new-privileges", "seccomp=/fixture/seccomp.json"},
 			"NetworkMode": "none", "StorageOpt": map[string]string{"size": "10G"},
@@ -163,9 +187,13 @@ func (stub *freshDockerRunnerStub) containerInspectJSON(finished bool) string {
 			"LogConfig": map[string]any{"Type": "local", "Config": map[string]string{"max-size": "10m", "max-file": "3"}},
 		},
 		"Mounts": []map[string]any{{"Type": "bind", "Source": stub.request.SourceSnapshotDir, "Destination": "/workspace/source", "RW": false}},
-		"State":  map[string]any{"Status": status, "Running": false, "ExitCode": exitCode, "OOMKilled": false, "Error": "", "FinishedAt": finishedAt},
+		"State":  map[string]any{"Status": status, "Running": false, "ExitCode": exitCode, "OOMKilled": stub.oomKilled, "Error": "", "FinishedAt": finishedAt},
 	}
 	return marshalInspect(stub.t, stub.mustMarshal(document))
+}
+
+func (stub *freshDockerRunnerStub) containerCommand() ([]string, error) {
+	return freshContainerCommand(stub.request)
 }
 
 func (stub *freshDockerRunnerStub) mustMarshal(value any) json.RawMessage {
@@ -212,6 +240,7 @@ func assertFreshContainerEvidence(t *testing.T, result FreshContainerResult) {
 	if err := result.Container.Validate(); err != nil {
 		t.Fatalf("container evidence: %v", err)
 	}
+	assertContainerResourceWitness(t, result.Container)
 	for _, evidence := range result.Evidence {
 		if err := evidence.Validate(); err != nil {
 			t.Fatalf("evidence %#v: %v", evidence, err)
@@ -220,6 +249,39 @@ func assertFreshContainerEvidence(t *testing.T, result FreshContainerResult) {
 	if err := result.GateResult.Validate(); err != nil {
 		t.Fatalf("gate result: %v", err)
 	}
+	wantExitedAt := time.Date(2026, 7, 16, 0, 0, 1, 0, time.UTC)
+	if !result.ExitedAt.Equal(wantExitedAt) {
+		t.Fatalf("container exited at %s, want %s", result.ExitedAt, wantExitedAt)
+	}
+}
+
+func assertContainerResourceWitness(t *testing.T, container gate.ContainerEvidence) {
+	t.Helper()
+	want := ExpectedFreshContainerResourceWitness()
+	digest, err := want.Digest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if container.ResourceWitness != want || container.ResourceWitnessDigest != digest {
+		t.Fatalf("resource witness=%+v digest=%q", container.ResourceWitness, container.ResourceWitnessDigest)
+	}
+}
+
+func TestRunFreshContainerOOMKeepsVerifiedResourceWitnessAfterRemoval(t *testing.T) {
+	runner, stub, request := freshContainerFixture(t)
+	stub.waitExitCode = 137
+	stub.oomKilled = true
+	result, err := runner.RunFreshContainer(context.Background(), request)
+	if err == nil || !strings.Contains(err.Error(), "OOM-killed") {
+		t.Fatalf("RunFreshContainer() error = %v", err)
+	}
+	if result.Status != gate.ResultStatusInfraFailed || !result.Container.Removed {
+		t.Fatalf("result status=%q removed=%v", result.Status, result.Container.Removed)
+	}
+	if result.ExitedAt.IsZero() || result.RemovalProofDigest == "" {
+		t.Fatalf("OOM terminal evidence exited_at=%s removal_proof=%q", result.ExitedAt, result.RemovalProofDigest)
+	}
+	assertContainerResourceWitness(t, result.Container)
 }
 
 func TestRunFreshContainerRejectsImageInspectDriftBeforeCreate(t *testing.T) {
@@ -283,23 +345,6 @@ func TestRunFreshContainerRejectsTagInjectionAndSourceTreeMismatch(t *testing.T)
 	}
 }
 
-func TestRunFreshContainerTimeoutKillsAndRemoves(t *testing.T) {
-	runner, stub, request := freshContainerFixture(t)
-	stub.waitForCancel = true
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
-	defer cancel()
-	result, err := runner.RunFreshContainer(ctx, request)
-	if !errors.Is(err, context.DeadlineExceeded) || result.Status != gate.ResultStatusTimeout {
-		t.Fatalf("result = %#v, err = %v", result, err)
-	}
-	if !result.Killed || !result.Container.Removed || result.KillProofDigest == "" || result.GateResult != nil {
-		t.Fatalf("timeout result = %#v", result)
-	}
-	if !calledDockerCommand(stub.calls, "kill", testContainerID) || !calledDockerCommand(stub.calls, "rm", "--force", testContainerID) {
-		t.Fatalf("Docker calls = %#v", stub.calls)
-	}
-}
-
 func TestRunFreshContainerWaitTransportErrorIsInfrastructureFailure(t *testing.T) {
 	runner, stub, request := freshContainerFixture(t)
 	stub.waitErr = errors.New("Docker daemon transport failed")
@@ -327,6 +372,44 @@ func TestRunFreshContainerRemovalFailureCannotPass(t *testing.T) {
 	}
 }
 
+func TestRunFreshContainerCreateIDErrorPersistsRemovedWithoutFabricatedExit(t *testing.T) {
+	runner, stub, request := freshContainerFixture(t)
+	stub.createErr = errors.New("create response interrupted")
+	events := make([]FreshContainerLifecycleEvent, 0, 3)
+	request.LifecycleHook = func(_ context.Context, event FreshContainerLifecycleEvent) error {
+		events = append(events, event)
+		return nil
+	}
+
+	result, err := runner.RunFreshContainer(context.Background(), request)
+	if err == nil || result.Container.ContainerID != testContainerID || !result.Container.Removed || result.RemovalProofDigest == "" {
+		t.Fatalf("result=%#v err=%v", result, err)
+	}
+	assertCleanupWithoutObservedExit(t, events, FreshContainerPhaseCreated)
+	if !result.ExitedAt.IsZero() {
+		t.Fatalf("create cleanup fabricated exited_at %s", result.ExitedAt)
+	}
+}
+
+func TestRunFreshContainerStartErrorPersistsRemovedWithoutFabricatedExit(t *testing.T) {
+	runner, stub, request := freshContainerFixture(t)
+	stub.startErr = errors.New("start failed before process execution")
+	events := make([]FreshContainerLifecycleEvent, 0, 6)
+	request.LifecycleHook = func(_ context.Context, event FreshContainerLifecycleEvent) error {
+		events = append(events, event)
+		return nil
+	}
+
+	result, err := runner.RunFreshContainer(context.Background(), request)
+	if err == nil || result.Status != gate.ResultStatusInfraFailed || !result.Container.Removed || result.RemovalProofDigest == "" {
+		t.Fatalf("result=%#v err=%v", result, err)
+	}
+	assertCleanupWithoutObservedExit(t, events, FreshContainerPhaseStarting)
+	if !result.ExitedAt.IsZero() {
+		t.Fatalf("start cleanup fabricated exited_at %s", result.ExitedAt)
+	}
+}
+
 type nilFreshDockerRunner struct{}
 
 func (*nilFreshDockerRunner) Run(context.Context, ...string) (string, error) { return "", nil }
@@ -351,8 +434,12 @@ func TestFreshContainerRequestFieldRegistryIsComplete(t *testing.T) {
 		"Image": "identity and derived digest reference", "ImageTruth": "truth label verification",
 		"SourceTreeSHA": "plan and image source binding", "SourceSnapshotDir": "private readonly mount",
 		"Profile": "plan binding and timeout", "Plan": "canonical command closure", "GateID": "plan command selection",
+		"PlanExecution":   "single-container canonical plan execution",
+		"ShardGateIDs":    "exact canonical shard command and report coverage",
+		"ShardIdentity":   "coordinator binding for one exact canonical shard",
 		"ContainerLabels": "durable coordinator and Docker identity binding",
-		"Deadline":        "original first-start deadline", "LifecycleHook": "durable crash-point transitions",
+		"Deadline":        "original first-start deadline", "ClaimDeadline": "durable shared shard execution clock",
+		"LifecycleHook": "durable crash-point transitions",
 	})
 	assertRegisteredFields(t, reflect.TypeFor[FreshContainerImageTruth](), map[string]string{
 		"PolicyDigest":       "policy label",
@@ -360,6 +447,298 @@ func TestFreshContainerRequestFieldRegistryIsComplete(t *testing.T) {
 		"InputDigest":        "input label",
 		"ToolchainDigest":    "toolchain label", "SchemaVersion": "schema label",
 	})
+}
+
+func TestFreshContainerLifecycleEventFieldRegistryIsComplete(t *testing.T) {
+	assertRegisteredFields(t, reflect.TypeFor[FreshContainerLifecycleEvent](), map[string]string{
+		"Phase": "lifecycle transition", "ContainerID": "durable container identity",
+		"ImageReference": "immutable image reference", "ConfigDigest": "image config identity",
+		"HostConfigDigest": "host isolation evidence", "ResourceWitness": "resource limits evidence",
+		"ResourceWitnessDigest": "resource evidence digest", "SourceSnapshotDir": "readonly source mount",
+		"StartedAt": "execution clock", "Deadline": "execution deadline",
+		"ExitedAt": "Docker terminal inspect time", "CompletedAt": "bounded evidence completion time",
+		"ExitCode": "terminal process status", "RemovalProofDigest": "container removal proof",
+	})
+}
+
+func TestPlanContainerCommandAndReportAreExactAndUnique(t *testing.T) {
+	_, _, source := canonicalDockerFixture(t)
+	request := validFreshContainerRequest(t, source)
+	request.PlanExecution = true
+	request.GateID = request.Plan.Gates[0].ID
+	command, err := validateFreshContainerRequest(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, err := gate.PlanExecutorArgv(request.Plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(command, want) {
+		t.Fatalf("plan container command = %v, want %v", command, want)
+	}
+	report := validPlanReport(request.Plan)
+	for index := range report.Gates {
+		report.Gates[index].Log = []byte(strings.Repeat("timestamped Docker chunk evidence\n", 200))
+		report.Gates[index].LogDigest = digestBytes(report.Gates[index].Log)
+	}
+	logOutput := timestampedPlanReportLog(t, report)
+	result := FreshContainerResult{ExitCode: 0, LogOutput: logOutput}
+	if err := collectPlanGateResults(&result, request); err != nil {
+		t.Fatalf("collect canonical plan report: %v", err)
+	}
+	if len(result.PlanGateResults) != len(request.Plan.Gates) {
+		t.Fatalf("collected plan results = %d, want %d", len(result.PlanGateResults), len(request.Plan.Gates))
+	}
+	failedReport := validPlanReport(request.Plan)
+	failedReport.Gates[0].Status = gate.ResultStatusFailed
+	failedReport.Gates[0].ExitCode = 1
+	failedLog := timestampedPlanReportLog(t, failedReport)
+	failedResult := FreshContainerResult{ExitCode: 1, LogOutput: failedLog}
+	if err := collectPlanGateResults(&failedResult, request); err != nil || len(failedResult.PlanGateResults) != len(request.Plan.Gates) {
+		t.Fatalf("collect failed plan report: results=%d err=%v", len(failedResult.PlanGateResults), err)
+	}
+	result.LogOutput = append(append([]byte(nil), logOutput...), logOutput...)
+	if err := collectPlanGateResults(&result, request); err == nil {
+		t.Fatal("collector accepted duplicate plan report prefix")
+	}
+}
+
+func TestShardContainerCommandAndReportAreExact(t *testing.T) {
+	_, _, source := canonicalDockerFixture(t)
+	request := canonicalShardRequest(t, validFreshContainerRequest(t, source))
+	command, err := validateFreshContainerRequest(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, err := gate.ContainerShardExecutorArgv(request.Plan, request.ShardGateIDs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(command, want) {
+		t.Fatalf("shard container command = %v, want %v", command, want)
+	}
+	report := canonicalShardReport(request, []byte(strings.Repeat("timestamped shard Docker evidence\n", 200)))
+	result := FreshContainerResult{ExitCode: 0, LogOutput: timestampedPlanReportLog(t, report)}
+	if err := collectPlanGateResults(&result, request); err != nil {
+		t.Fatalf("collect shard plan report: %v", err)
+	}
+	if len(result.PlanGateResults) != len(request.ShardGateIDs) {
+		t.Fatalf("collected shard results = %d, want %d", len(result.PlanGateResults), len(request.ShardGateIDs))
+	}
+}
+
+func TestRunFreshContainerShardCollectsCanonicalReport(t *testing.T) {
+	runner, stub, request := freshContainerFixture(t)
+	request = canonicalShardRequest(t, request)
+	stub.request = request
+
+	report := canonicalShardReport(request, []byte(strings.Repeat("canonical shard Docker evidence\n", MaxFreshContainerLogBytes/48)))
+	stub.logOutput = string(timestampedPlanReportLog(t, report))
+	if len(stub.logOutput) <= MaxFreshContainerLogBytes {
+		t.Fatalf("shard report log = %d bytes, want more than single-gate limit %d", len(stub.logOutput), MaxFreshContainerLogBytes)
+	}
+
+	result, err := runner.RunFreshContainer(context.Background(), request)
+	if err != nil {
+		t.Fatalf("RunFreshContainer() shard error = %v", err)
+	}
+	if result.Status != gate.ResultStatusPassed || result.GateResult != nil {
+		t.Fatalf("shard container result = %#v", result)
+	}
+	if len(result.PlanGateResults) != len(request.ShardGateIDs) {
+		t.Fatalf("shard plan results = %d, want %d", len(result.PlanGateResults), len(request.ShardGateIDs))
+	}
+	for index, id := range request.ShardGateIDs {
+		gateResult := result.PlanGateResults[index].GateResult
+		if gateResult.GateID != string(id) {
+			t.Fatalf("shard gate result %d = %q, want %q", index, gateResult.GateID, id)
+		}
+		if err := gateResult.Validate(); err != nil {
+			t.Fatalf("shard gate result %q: %v", id, err)
+		}
+	}
+}
+
+func TestRunFreshContainerCancelledShardCollectsTerminalCoverage(t *testing.T) {
+	runner, stub, request := freshContainerFixture(t)
+	request = canonicalShardRequest(t, request)
+	ctx, cancel := context.WithCancel(context.Background())
+	observed := make([]terminalLifecycleObservation, 0, 2)
+	request.LifecycleHook = observeCancelledTerminalLifecycle(cancel, &observed)
+	stub.request = request
+	stub.waitForCancel = true
+	defer cancel()
+
+	result, err := runner.RunFreshContainer(ctx, request)
+	assertCancelledShardTerminalCoverage(t, result, err, request)
+	assertTerminalLifecycle(t, observed, result)
+}
+
+func TestRunFreshContainerCancelledShardRejectsForgedReport(t *testing.T) {
+	runner, stub, request := freshContainerFixture(t)
+	request = canonicalShardRequest(t, request)
+	ctx, cancel := context.WithCancel(context.Background())
+	request.LifecycleHook = cancelOnStarted(cancel)
+	stub.request = request
+	stub.waitForCancel = true
+	report := canonicalShardReport(request, []byte(strings.Repeat("forged shard report\n", MaxFreshContainerLogBytes/48)))
+	report.PlanDigest = digest("f")
+	stub.logOutput = string(timestampedPlanReportLog(t, report))
+	defer cancel()
+
+	result, err := runner.RunFreshContainer(ctx, request)
+	assertCancelledShardForgedReportRejected(t, result, err)
+}
+
+func canonicalShardRequest(t *testing.T, request FreshContainerRequest) FreshContainerRequest {
+	t.Helper()
+	set, err := gate.BuildContainerShardSet(request.Plan, digest("a"), digest("b"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	request.ShardGateIDs = append([]gate.GateID(nil), set.Shards[0].GateIDs...)
+	request.ShardIdentity = set.Shards[0].IdentityDigest
+	request.ClaimDeadline = func(_ context.Context, started time.Time) (time.Time, error) {
+		return started.Add(time.Minute), nil
+	}
+	return request
+}
+
+func canonicalShardReport(request FreshContainerRequest, log []byte) gate.PlanExecutionReport {
+	report := validPlanReport(request.Plan)
+	byID := make(map[gate.GateID]gate.PlanGateExecution, len(report.Gates))
+	for _, execution := range report.Gates {
+		byID[execution.GateID] = execution
+	}
+	report.Gates = report.Gates[:0]
+	for _, id := range request.ShardGateIDs {
+		execution := byID[id]
+		execution.Log = append([]byte(nil), log...)
+		execution.LogDigest = digestBytes(execution.Log)
+		report.Gates = append(report.Gates, execution)
+	}
+	return report
+}
+
+func cancelOnStarted(cancel context.CancelFunc) FreshContainerLifecycleHook {
+	return func(_ context.Context, event FreshContainerLifecycleEvent) error {
+		if event.Phase == FreshContainerPhaseStarted {
+			cancel()
+		}
+		return nil
+	}
+}
+
+func assertCancelledShardTerminalCoverage(t *testing.T, result FreshContainerResult, runErr error, request FreshContainerRequest) {
+	t.Helper()
+	if !errors.Is(runErr, context.Canceled) || result.Status != gate.ResultStatusCancelled || !result.Killed || !result.Container.Removed {
+		t.Fatalf("cancelled shard result = %#v, err = %v", result, runErr)
+	}
+	if len(result.PlanGateResults) != len(request.ShardGateIDs) {
+		t.Fatalf("cancelled shard results = %d, want %d", len(result.PlanGateResults), len(request.ShardGateIDs))
+	}
+	for index, id := range request.ShardGateIDs {
+		assertCancelledShardGate(t, result.PlanGateResults[index], id, result.LogDigest)
+	}
+}
+
+func assertCancelledShardGate(t *testing.T, observed FreshPlanGateResult, id gate.GateID, rawLogDigest string) {
+	t.Helper()
+	if observed.GateResult.GateID != string(id) || observed.Status != gate.ResultStatusCancelled || observed.GateResult.ExitCode != -1 {
+		t.Fatalf("cancelled shard gate %q = %#v", id, observed)
+	}
+	if !strings.Contains(string(observed.LogOutput), rawLogDigest) || observed.GateResult.LogDigest != digestBytes(observed.LogOutput) {
+		t.Fatalf("cancelled shard log evidence = %#v", observed)
+	}
+	if err := observed.GateResult.Validate(); err != nil {
+		t.Fatalf("cancelled shard gate %q: %v", id, err)
+	}
+}
+
+func assertCancelledShardForgedReportRejected(t *testing.T, result FreshContainerResult, runErr error) {
+	t.Helper()
+	if runErr == nil || result.Status != gate.ResultStatusInfraFailed || !result.Killed || !result.Container.Removed {
+		t.Fatalf("forged cancelled shard result = %#v, err = %v", result, runErr)
+	}
+	if len(result.PlanGateResults) != 0 {
+		t.Fatalf("forged cancelled shard gate results = %#v", result.PlanGateResults)
+	}
+}
+
+func TestPlanReportCancelledGateRoundTrip(t *testing.T) {
+	_, _, source := canonicalDockerFixture(t)
+	request := validFreshContainerRequest(t, source)
+	request.PlanExecution = true
+	request.GateID = request.Plan.Gates[0].ID
+	report := validPlanReport(request.Plan)
+	report.Gates[0].Status = gate.ResultStatusFailed
+	report.Gates[0].ExitCode = 2
+	report.Gates[1].Status = gate.ResultStatusCancelled
+	report.Gates[1].ExitCode = -1
+	result := FreshContainerResult{ExitCode: 2, LogOutput: timestampedPlanReportLog(t, report)}
+	if err := collectPlanGateResults(&result, request); err != nil {
+		t.Fatalf("collect cancelled plan report: %v", err)
+	}
+	if got := result.PlanGateResults[1]; got.Status != gate.ResultStatusCancelled ||
+		got.GateResult.Status != gate.GateStatusCancelled || got.GateResult.ExitCode != -1 {
+		t.Fatalf("cancelled plan result roundtrip = %#v", got)
+	}
+}
+
+func TestPlanContainerCodeFailureRemainsFailedWithValidTerminalEvidence(t *testing.T) {
+	runner, stub, request := freshContainerFixture(t)
+	request.PlanExecution = true
+	request.GateID = request.Plan.Gates[0].ID
+	report := validPlanReport(request.Plan)
+	report.Gates[0].Status = gate.ResultStatusFailed
+	report.Gates[0].ExitCode = 2
+	report.Gates[0].Log = []byte("project map drifted\n")
+	report.Gates[0].LogDigest = digestBytes(report.Gates[0].Log)
+	stub.request = request
+	stub.waitExitCode = 2
+	stub.logOutput = string(timestampedPlanReportLog(t, report))
+	result, err := runner.RunFreshContainer(context.Background(), request)
+	if err == nil || !strings.Contains(err.Error(), "exited with code 2") {
+		t.Fatalf("failed plan error = %v", err)
+	}
+	if result.Status != gate.ResultStatusFailed || !result.Container.Removed || len(result.PlanGateResults) != len(request.Plan.Gates) {
+		t.Fatalf("failed plan result = %#v", result)
+	}
+	if result.PlanGateResults[0].Status != gate.ResultStatusFailed || result.PlanGateResults[0].GateResult.ExitCode != 2 {
+		t.Fatalf("failed plan gate result = %#v", result.PlanGateResults[0])
+	}
+}
+
+func validPlanReport(plan gate.GatePlan) gate.PlanExecutionReport {
+	now := time.Now().UTC()
+	report := gate.PlanExecutionReport{SchemaVersion: 1, Profile: plan.Profile, PlanDigest: plan.PlanDigest}
+	for _, spec := range plan.Gates {
+		log := []byte("passed " + string(spec.ID) + "\n")
+		digest := digestBytes(log)
+		report.Gates = append(report.Gates, gate.PlanGateExecution{
+			GateID: spec.ID, Status: gate.ResultStatusPassed, ExitCode: 0,
+			StartedAt: now, CompletedAt: now.Add(time.Millisecond),
+			Log: log, LogDigest: digest,
+		})
+	}
+	return report
+}
+
+func timestampedPlanReportLog(t *testing.T, report gate.PlanExecutionReport) []byte {
+	t.Helper()
+	chunks, err := gate.EncodePlanExecutionReportChunks(report)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(chunks) < 2 {
+		t.Fatalf("plan report chunks = %d, want timestamped split", len(chunks))
+	}
+	var output []byte
+	for _, chunk := range chunks {
+		output = append(output, []byte("2026-07-18T00:00:00.000000000Z "+chunk+"\n")...)
+	}
+	return output
 }
 
 func assertRegisteredFields(t *testing.T, producer reflect.Type, consumerRegistry map[string]string) {

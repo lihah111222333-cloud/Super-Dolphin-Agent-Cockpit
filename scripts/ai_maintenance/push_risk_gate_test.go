@@ -34,6 +34,14 @@ func TestConcurrencyPrimitiveRecognizesXSyncPackages(t *testing.T) {
 	}
 }
 
+func TestGateExecutorConcurrencyRunsPushRacePackage(t *testing.T) {
+	t.Parallel()
+	got := affectedRacePackages([]string{"internal/devtools/gate/executor_plan.go"})
+	if len(got) != 1 || got[0] != "./internal/devtools/gate" {
+		t.Fatalf("gate executor race packages = %v", got)
+	}
+}
+
 func missingRaceRegistryFiles(t *testing.T, root, scanRoot string) []string {
 	t.Helper()
 	var missing []string

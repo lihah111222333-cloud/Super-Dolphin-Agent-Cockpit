@@ -34,6 +34,7 @@ var containerRuntimeEnvironment = []string{
 	"GOMODCACHE=/workspace/work/go-mod-cache",
 	"npm_config_cache=/workspace/work/npm-cache",
 	"XDG_CACHE_HOME=/workspace/work/xdg-cache",
+	"PLAYWRIGHT_BROWSERS_PATH=/opt/super-dolphin-gate/runtime/frontend/node_modules/.cache/ms-playwright",
 }
 
 type dockerDaemonCapacityInspector struct {
@@ -329,17 +330,24 @@ func (executor *dockerExecutor) wait(runContext context.Context, parentContext c
 	return evidence, nil
 }
 
+// create 仅在 Docker 输出唯一规范 container ID 时返回，保留可验证 ID 以便失败后清理。
 func (executor *dockerExecutor) create(ctx context.Context, request containerRequest) (string, error) {
 	createOutput, err := executor.runner.Run(ctx, executor.createArgs(request)...)
-	if err != nil {
-		return "", fmt.Errorf("create gate container: %w", err)
-	}
 	fields := strings.Fields(createOutput)
 	if len(fields) == 0 || !isContainerID(fields[0]) {
+		if err != nil {
+			return "", errors.Join(fmt.Errorf("create gate container: %w", err), errors.New("docker create returned no verifiable container ID"))
+		}
 		return "", errors.New("docker create returned no verifiable container ID")
 	}
 	if len(fields) != 1 {
+		if err != nil {
+			return fields[0], errors.Join(fmt.Errorf("create gate container: %w", err), errors.New("docker create returned trailing output after container ID"))
+		}
 		return fields[0], errors.New("docker create returned trailing output after container ID")
+	}
+	if err != nil {
+		return fields[0], fmt.Errorf("create gate container: %w", err)
 	}
 	return fields[0], nil
 }

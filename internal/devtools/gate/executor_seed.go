@@ -1,6 +1,7 @@
 package gate
 
 import (
+	"bufio"
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
@@ -12,19 +13,26 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
+
+	"golang.org/x/mod/module"
 )
 
 // RuntimeSeedSchemaVersion is the shared image-builder/executor manifest schema.
-const RuntimeSeedSchemaVersion = 1
+const RuntimeSeedSchemaVersion = 5
 
 // RuntimeSeedManifest binds immutable runtime seeds to repository lock files.
 type RuntimeSeedManifest struct {
 	SchemaVersion         uint32 `json:"schema_version"`
 	GoSumSHA256           string `json:"go_sum_sha256"`
 	VendorTreeSHA256      string `json:"vendor_tree_sha256"`
+	ModuleProxyLockSHA256 string `json:"module_proxy_lock_sha256"`
+	ModuleProxyTreeSHA256 string `json:"module_proxy_tree_sha256"`
 	PackageLockSHA256     string `json:"package_lock_sha256"`
 	NodeModulesTreeSHA256 string `json:"node_modules_tree_sha256"`
+	RipgrepSHA256         string `json:"ripgrep_sha256"`
+	SqruffSHA256          string `json:"sqruff_sha256"`
 }
 
 // installRuntimeSeeds 按门禁需要校验 manifest 后安装锁文件绑定的依赖种子。
@@ -37,6 +45,10 @@ func installRuntimeSeeds(config executorConfig, layout executorLayout, program E
 		return err
 	}
 	if program.NeedsGoSeed {
+		proxyLock := filepath.Join(layout.sourceCopy, "build", "gate", "runtime-proxy", "go.sum")
+		if err := validateBoundRuntimeFile(proxyLock, manifest.ModuleProxyLockSHA256); err != nil {
+			return fmt.Errorf("validate Go module proxy lock: %w", err)
+		}
 		if err := installBoundSeed(
 			filepath.Join(layout.sourceCopy, "go.sum"), manifest.GoSumSHA256,
 			filepath.Join(config.runtimeSeedRoot, "vendor"), manifest.VendorTreeSHA256,
@@ -53,6 +65,18 @@ func installRuntimeSeeds(config executorConfig, layout executorLayout, program E
 		); err != nil {
 			return fmt.Errorf("install frontend runtime seed: %w", err)
 		}
+	}
+	return nil
+}
+
+// validateBoundRuntimeFile 校验候选快照中的运行时锁文件与镜像清单一致。
+func validateBoundRuntimeFile(path string, expectedDigest string) error {
+	digest, err := fileSHA256(path)
+	if err != nil {
+		return err
+	}
+	if digest != expectedDigest {
+		return errors.New("runtime seed source lock digest does not match snapshot")
 	}
 	return nil
 }
@@ -109,7 +133,10 @@ func (manifest RuntimeSeedManifest) validateShape() error {
 	}
 	for name, digest := range map[string]string{
 		"go_sum_sha256": manifest.GoSumSHA256, "vendor_tree_sha256": manifest.VendorTreeSHA256,
-		"package_lock_sha256": manifest.PackageLockSHA256, "node_modules_tree_sha256": manifest.NodeModulesTreeSHA256,
+		"module_proxy_lock_sha256": manifest.ModuleProxyLockSHA256,
+		"module_proxy_tree_sha256": manifest.ModuleProxyTreeSHA256,
+		"package_lock_sha256":      manifest.PackageLockSHA256, "node_modules_tree_sha256": manifest.NodeModulesTreeSHA256,
+		"ripgrep_sha256": manifest.RipgrepSHA256, "sqruff_sha256": manifest.SqruffSHA256,
 	} {
 		if !validSHA256Digest(digest) {
 			return fmt.Errorf("runtime seed manifest %s is invalid", name)
@@ -140,14 +167,113 @@ func BuildRuntimeSeedManifest(snapshotRoot string, runtimeRoot string) (RuntimeS
 	if err != nil {
 		return RuntimeSeedManifest{}, err
 	}
+	moduleProxyLock, moduleProxy, err := runtimeModuleProxyDigests(snapshotPath, runtimePath)
+	if err != nil {
+		return RuntimeSeedManifest{}, err
+	}
 	nodeModules, err := RuntimeSeedTreeDigest(filepath.Join(runtimePath, "frontend", "node_modules"))
 	if err != nil {
 		return RuntimeSeedManifest{}, err
 	}
+	ripgrep, err := fileSHA256(filepath.Join(runtimePath, "bin", "rg"))
+	if err != nil {
+		return RuntimeSeedManifest{}, fmt.Errorf("digest ripgrep: %w", err)
+	}
+	sqruff, err := fileSHA256(filepath.Join(runtimePath, "bin", "sqruff"))
+	if err != nil {
+		return RuntimeSeedManifest{}, fmt.Errorf("digest sqruff: %w", err)
+	}
 	return RuntimeSeedManifest{
 		SchemaVersion: RuntimeSeedSchemaVersion, GoSumSHA256: goSum, VendorTreeSHA256: vendor,
+		ModuleProxyLockSHA256: moduleProxyLock, ModuleProxyTreeSHA256: moduleProxy,
 		PackageLockSHA256: packageLock, NodeModulesTreeSHA256: nodeModules,
+		RipgrepSHA256: ripgrep, SqruffSHA256: sqruff,
 	}, nil
+}
+
+// runtimeModuleProxyDigests 验证完整 file proxy 后计算锁文件与种子树摘要。
+func runtimeModuleProxyDigests(snapshotPath string, runtimePath string) (string, string, error) {
+	proxyLockPath := filepath.Join(snapshotPath, "build", "gate", "runtime-proxy", "go.sum")
+	proxyRoot := filepath.Join(runtimePath, "go-proxy")
+	if err := validateLockedModuleProxy(proxyLockPath, proxyRoot); err != nil {
+		return "", "", err
+	}
+	lockDigest, err := fileSHA256(proxyLockPath)
+	if err != nil {
+		return "", "", fmt.Errorf("digest runtime module proxy lock: %w", err)
+	}
+	treeDigest, err := RuntimeSeedTreeDigest(proxyRoot)
+	if err != nil {
+		return "", "", err
+	}
+	return lockDigest, treeDigest, nil
+}
+
+// validateLockedModuleProxy 验证专用 go.sum 中每个完整模块摘要都有可离线读取的 file proxy 条目。
+func validateLockedModuleProxy(lockPath string, proxyRoot string) error {
+	file, err := os.Open(lockPath)
+	if err != nil {
+		return fmt.Errorf("open runtime module proxy lock: %w", err)
+	}
+	defer file.Close()
+	scanner := bufio.NewScanner(file)
+	locked := 0
+	for scanner.Scan() {
+		fields := strings.Fields(scanner.Text())
+		if len(fields) != 3 || strings.HasSuffix(fields[1], "/go.mod") {
+			continue
+		}
+		if err := validateLockedModuleProxyEntry(proxyRoot, fields[0], fields[1], fields[2]); err != nil {
+			return err
+		}
+		locked++
+	}
+	if err := scanner.Err(); err != nil {
+		return fmt.Errorf("read runtime module proxy lock: %w", err)
+	}
+	if locked == 0 {
+		return errors.New("runtime module proxy lock has no complete module checksums")
+	}
+	return nil
+}
+
+// validateLockedModuleProxyEntry 验证单个锁定 module/version 的完整 file proxy 协议文件。
+func validateLockedModuleProxyEntry(proxyRoot string, modulePath string, version string, checksum string) error {
+	escapedPath, err := module.EscapePath(modulePath)
+	if err != nil {
+		return fmt.Errorf("escape runtime module proxy path %q: %w", modulePath, err)
+	}
+	escapedVersion, err := module.EscapeVersion(version)
+	if err != nil {
+		return fmt.Errorf("escape runtime module proxy version %q: %w", version, err)
+	}
+	versionRoot := filepath.Join(proxyRoot, filepath.FromSlash(escapedPath), "@v")
+	for _, suffix := range []string{".info", ".mod", ".zip", ".ziphash"} {
+		if err := requireRegularRuntimeSeedFile(filepath.Join(versionRoot, escapedVersion+suffix)); err != nil {
+			return fmt.Errorf("runtime module proxy %s@%s%s: %w", modulePath, version, suffix, err)
+		}
+	}
+	zipHash, err := os.ReadFile(filepath.Join(versionRoot, escapedVersion+".ziphash"))
+	if err != nil || strings.TrimSpace(string(zipHash)) != checksum {
+		return fmt.Errorf("runtime module proxy %s@%s zip checksum does not match lock", modulePath, version)
+	}
+	list, err := os.ReadFile(filepath.Join(versionRoot, "list"))
+	if err != nil || !slices.Contains(slices.Collect(strings.SplitSeq(string(list), "\n")), version) {
+		return fmt.Errorf("runtime module proxy %s@%s is absent from version list", modulePath, version)
+	}
+	return nil
+}
+
+// requireRegularRuntimeSeedFile 拒绝缺失文件、目录和符号链接。
+func requireRegularRuntimeSeedFile(path string) error {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return err
+	}
+	if !info.Mode().IsRegular() {
+		return errors.New("path is not a regular file")
+	}
+	return nil
 }
 
 // Validate 重算锁文件与种子树摘要，确认清单未漂移。

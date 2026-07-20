@@ -15,8 +15,6 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gatehook"
 )
 
-const managedGitHookInvocationID = "super-dolphin-managed-git-hook-v1"
-
 func runHook(args []string, input io.Reader, stdout io.Writer) error {
 	cwd, err := os.Getwd()
 	if err != nil {
@@ -42,26 +40,41 @@ func runHookWithConnector(
 		}
 		return runCodexHook(input, stdout, connector)
 	}
+	return runGitHookWithConnector(args, input, stdout, cwd, connector)
+}
+
+// runGitHookWithConnector 为一次 Git hook action 生成独立 delivery identity 后执行适配器。
+func runGitHookWithConnector(
+	args []string,
+	input io.Reader,
+	stdout io.Writer,
+	cwd string,
+	connector hookCoordinatorConnector,
+) error {
+	deliveryID, err := newHookDeliveryID()
+	if err != nil {
+		return infrastructureError("create hook delivery identity: %v", err)
+	}
 	return withHookCoordinator(context.Background(), connector, func(ctx context.Context, coordinator hookCoordinator) error {
 		switch args[0] {
 		case "pre-commit":
 			if len(args) != 1 {
 				return protocolError("pre-commit hook accepts no adapter arguments")
 			}
-			return runPreCommitHook(ctx, cwd, stdout, coordinator)
+			return runPreCommitHook(ctx, cwd, stdout, coordinator, deliveryID)
 		case "pre-push":
 			if len(args) != 3 || strings.TrimSpace(args[1]) == "" || strings.TrimSpace(args[2]) == "" {
 				return protocolError("pre-push hook requires exact remote name and URL arguments")
 			}
-			return runPrePushHook(ctx, cwd, input, stdout, coordinator, args[2])
+			return runPrePushHook(ctx, cwd, input, stdout, coordinator, args[2], deliveryID)
 		default:
 			return protocolError("unsupported hook adapter %q", args[0])
 		}
 	})
 }
 
-func runPreCommitHook(ctx context.Context, cwd string, stdout io.Writer, coordinator gatehook.Coordinator) error {
-	request, err := gatehook.NormalizePreCommit(ctx, cwd, managedGitHookInvocationID)
+func runPreCommitHook(ctx context.Context, cwd string, stdout io.Writer, coordinator gatehook.Coordinator, deliveryID string) error {
+	request, err := gatehook.NormalizePreCommit(ctx, cwd, deliveryID)
 	if err != nil {
 		return sourceError("normalize staged index tree: %v", err)
 	}
@@ -80,8 +93,9 @@ func runPrePushHook(
 	stdout io.Writer,
 	coordinator gatehook.Coordinator,
 	remoteURL string,
+	deliveryID string,
 ) error {
-	requests, err := gatehook.NormalizePrePush(ctx, cwd, managedGitHookInvocationID, input)
+	requests, err := gatehook.NormalizePrePush(ctx, cwd, deliveryID, input)
 	if err != nil {
 		return sourceError("normalize pre-push refs: %v", err)
 	}
@@ -111,6 +125,15 @@ func runPrePushHook(
 		}
 	}
 	return nil
+}
+
+// newHookDeliveryID 为一次真实 Git hook action 分配不可预测的 delivery identity。
+func newHookDeliveryID() (string, error) {
+	entropy := make([]byte, 32)
+	if _, err := io.ReadFull(rand.Reader, entropy); err != nil {
+		return "", fmt.Errorf("read hook delivery entropy: %w", err)
+	}
+	return "delivery:v1:" + hex.EncodeToString(entropy), nil
 }
 
 // newActionGrantAttemptID 为一次 pre-push invocation 创建不可预测的共同授权边界。

@@ -7,7 +7,7 @@
 > [!IMPORTANT]
 > **Maintainer declaration: 100% AI-written original code and project-authored documentation, human-directed, repository-guarded.** Product code, test code, and project-owned documentation are written or refactored by AI agents. Humans retain ownership of product intent, architecture decisions, credentials, and releases. Authorship does not imply infallibility: every accepted change remains subject to repository-owned evidence and gates. Upstream legal and community texts retain their original attribution.
 
-**Local-first delivery enforcement.** Routine commit and push acceptance is enforced by versioned [Git hooks](.githooks/README.md), without depending on paid GitHub-hosted CI. `pre-commit` checks the staged snapshot, AI-maintenance rules, the full repository guard, and affected code; `commit-msg` requires regression evidence for fix commits; `pre-push` validates the current-`HEAD` push range, runs affected package and contract checks, applies nilness analysis to affected Go packages, and runs race tests for registered concurrent surfaces. Deferred Provider E2E, `gosec`/security scans, and release checks remain explicit separate gates rather than being overstated as part of the routine hook path.
+**Truth-image delivery enforcement.** Versioned [Git hooks](.githooks/README.md), manual `make ci-l0`, `make ci-l1`, and `make ci-l2-claude`, release, and GitHub Actions all submit to the same fail-closed coordinator. `pre-commit` and the manual L0-L2 commands check the exact staged tree; release and GitHub Actions check the exact commit. A change to a truth-image input automatically builds a candidate image, but it is not runnable until a trusted ref promotes it; ordinary source changes reuse the accepted immutable image. Every CI action then forks a fresh, isolated Docker `PlanExecution` from that truth image. The local scheduler runs at most three tasks concurrently and queues later work FIFO; each task is capped at 4 CPU and 8 GiB, so the Docker budget is about 25 GiB overall. Normal jobs time out after 10 minutes and release jobs after 30 minutes. Missing trusted CLI or provenance, image drift, queue/receipt failure, or a failed gate rejects the action rather than falling back. `commit-msg` continues to require Chinese commit text and fix-test evidence.
 
 Super Dolphin Agent is a **production-grade, AI-native vibe-coding engineering system and multi-agent development control plane**. It combines a local desktop runtime, MCP orchestration, multi-language LSP navigation, provider integrations, persistent workflows, and machine-enforced engineering boundaries in one working reference implementation.
 
@@ -260,7 +260,7 @@ These commands validate architecture rules, guard behavior, generated navigation
 
 | Metric | Value |
 |--------|-------|
-| Architecture Tests | <!-- BEGIN GENERATED ARCHTEST STATS -->Source AST: 328 runnable `Test*` functions across 123 `_test.go` files in `internal/archtest`<!-- END GENERATED ARCHTEST STATS --> |
+| Architecture Tests | <!-- BEGIN GENERATED ARCHTEST STATS -->Source AST: 342 runnable `Test*` functions across 125 `_test.go` files in `internal/archtest`<!-- END GENERATED ARCHTEST STATS --> |
 | Architecture rules | [Generated backend boundary map](docs/doc/codemap/13-archtest-boundaries.md) |
 | Test coverage | Recompute from a current test run; no static percentage is claimed |
 | CI | [GitHub Actions](.github/workflows/ci.yml) |

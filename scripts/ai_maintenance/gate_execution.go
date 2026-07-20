@@ -114,6 +114,9 @@ func gateRunners(plan gatePlan, executionScope gateExecutionScope) map[string]ga
 		"frontend:static-guards": {run: func() error {
 			return runCommand("frontend-app", "npm", "run", "guard:architecture")
 		}},
+		"gate-image-closure:check": {run: func() error {
+			return runGateImageClosureCheck(".")
+		}},
 		"frontend:lint":                cacheable(func() error { return runCommand("frontend-app", "npm", "run", "lint") }),
 		"frontend:typecheck-contracts": {run: func() error { return runCommand("frontend-app", "npm", "run", "typecheck:contracts") }},
 		"frontend:changed-tests":       cacheable(func() error { return runFrontendChangedTests(plan) }),
@@ -218,6 +221,41 @@ func existingDiagnosticFiles(files []string) (existing []string, deleted int, er
 		existing = append(existing, file)
 	}
 	return existing, deleted, nil
+}
+
+func runGateImageClosureCheck(directory string) error {
+	tree, err := resolveGateImageClosureTree(directory)
+	if err != nil {
+		return err
+	}
+	return runCommand("", "go", gateImageClosureCheckArgs(tree)...)
+}
+
+// resolveGateImageClosureTree derives the canonical closure input from the exact Git index tree.
+func resolveGateImageClosureTree(directory string) (string, error) {
+	output, err := exec.Command("git", "-C", directory, "write-tree").CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("resolve gate image closure staged tree: %w\n%s", err, output)
+	}
+	tree := strings.TrimSpace(string(output))
+	invalidHex := strings.IndexFunc(tree, func(value rune) bool {
+		return (value < '0' || value > '9') && (value < 'a' || value > 'f')
+	}) >= 0
+	if (len(tree) != 40 && len(tree) != 64) || invalidHex {
+		return "", fmt.Errorf("resolve gate image closure staged tree: invalid object ID %q", tree)
+	}
+	verified, err := exec.Command("git", "-C", directory, "rev-parse", "--verify", tree+"^{tree}").CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("verify gate image closure staged tree: %w\n%s", err, verified)
+	}
+	if strings.TrimSpace(string(verified)) != tree {
+		return "", errors.New("verify gate image closure staged tree: object ID drifted")
+	}
+	return tree, nil
+}
+
+func gateImageClosureCheckArgs(tree string) []string {
+	return []string{"run", "./build/gate/cmd/generate-closure", "-tree", tree, "-check"}
 }
 
 func backendTestWithGuardArgs(plan gatePlan) ([]string, error) {

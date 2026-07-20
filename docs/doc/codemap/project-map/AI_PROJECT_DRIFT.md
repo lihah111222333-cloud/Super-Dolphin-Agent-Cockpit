@@ -2,16 +2,16 @@
 
 > 状态：**OK**
 >
-> 已索引文件：4804
+> 已索引文件：5007
 >
-> 未细分职责文件：14
+> 未细分职责文件：76
 
 ## 1. 漂移指标
 
 | 指标 | 当前值 |
 |---|---:|
-| 未细分职责文件数 | 14 |
-| 未细分职责占比 | 0.29% |
+| 未细分职责文件数 | 76 |
+| 未细分职责占比 | 1.52% |
 | 最大未细分职责占比阈值 | 5.00% |
 
 ## 2. 漂移告警
@@ -22,7 +22,7 @@
 
 | 模块 | 文件数 |
 |---|---:|
-| `cmd` | 12 |
+| `cmd` | 74 |
 | `internal` | 2 |
 
 ## 4. 样例文件
@@ -37,10 +37,46 @@
 - `cmd/codex-worktree-setup/setup_test.go`
 - `cmd/codex-worktree-setup/worktree_integration_test.go`
 - `cmd/mcp-schema-compiler-helper/main.go`
-- `cmd/super-dolphin-guard/main.go`
-- `cmd/super-dolphin-guard/main_test.go`
-- `internal/e2e/rpc_runtime/doc_test.go`
-- `internal/e2e/rpc_runtime/runtime_e2e_test.go`
+- `cmd/super-dolphin-gate-executor/main.go`
+- `cmd/super-dolphin-gate-executor/main_test.go`
+- `cmd/super-dolphin-gate/coordinator_bootstrap.go`
+- `cmd/super-dolphin-gate/coordinator_bootstrap_container.go`
+- `cmd/super-dolphin-gate/coordinator_bootstrap_controller.go`
+- `cmd/super-dolphin-gate/coordinator_bootstrap_docker_test.go`
+- `cmd/super-dolphin-gate/coordinator_bootstrap_execution.go`
+- `cmd/super-dolphin-gate/coordinator_bootstrap_root.go`
+- `cmd/super-dolphin-gate/coordinator_bootstrap_runner.go`
+- `cmd/super-dolphin-gate/coordinator_bootstrap_test.go`
+- `cmd/super-dolphin-gate/coordinator_cli.go`
+- `cmd/super-dolphin-gate/coordinator_cli_wait_test.go`
+- `cmd/super-dolphin-gate/coordinator_container_exit_test.go`
+- `cmd/super-dolphin-gate/coordinator_deferred_test.go`
+- `cmd/super-dolphin-gate/coordinator_logs_test.go`
+- `cmd/super-dolphin-gate/coordinator_owner.go`
+- `cmd/super-dolphin-gate/coordinator_owner_deadline_test.go`
+- `cmd/super-dolphin-gate/coordinator_plan_test.go`
+- `cmd/super-dolphin-gate/coordinator_production.go`
+- `cmd/super-dolphin-gate/coordinator_production_config.go`
+- `cmd/super-dolphin-gate/coordinator_production_fixture_test.go`
+- `cmd/super-dolphin-gate/coordinator_production_test.go`
+- `cmd/super-dolphin-gate/coordinator_promotion.go`
+- `cmd/super-dolphin-gate/coordinator_provision.go`
+- `cmd/super-dolphin-gate/coordinator_provision_docker_test.go`
+- `cmd/super-dolphin-gate/coordinator_provision_e2e_optin_test.go`
+- `cmd/super-dolphin-gate/coordinator_provision_failure_logs_test.go`
+- `cmd/super-dolphin-gate/coordinator_provision_publish_darwin.go`
+- `cmd/super-dolphin-gate/coordinator_provision_publish_unsupported.go`
+- `cmd/super-dolphin-gate/coordinator_provision_recovery.go`
+- `cmd/super-dolphin-gate/coordinator_provision_recovery_test.go`
+- `cmd/super-dolphin-gate/coordinator_provision_release_docker_test.go`
+- `cmd/super-dolphin-gate/coordinator_provision_test.go`
+- `cmd/super-dolphin-gate/coordinator_receipt_fixture_test.go`
+- `cmd/super-dolphin-gate/coordinator_recovery.go`
+- `cmd/super-dolphin-gate/coordinator_recovery_plan_test.go`
+- `cmd/super-dolphin-gate/coordinator_recovery_shards.go`
+- `cmd/super-dolphin-gate/coordinator_recovery_store.go`
+- `cmd/super-dolphin-gate/coordinator_resource_witness_test.go`
+- `cmd/super-dolphin-gate/coordinator_runtime.go`
 
 ## 5. 修复方式
 

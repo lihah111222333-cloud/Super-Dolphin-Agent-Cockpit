@@ -10,7 +10,7 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/sourceexport"
 )
 
-const unrelatedBusinessSource = "internal/module/appupdate/service.go"
+const unrelatedBusinessSource = "docs/README.md"
 
 func TestTrackedGateClosureTriggersCandidateOnlyForDeclaredInputs(t *testing.T) {
 	entries := trackedGateClosureEntries(t)

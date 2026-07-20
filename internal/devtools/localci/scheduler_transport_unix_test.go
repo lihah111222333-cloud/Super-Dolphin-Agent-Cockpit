@@ -56,6 +56,93 @@ func TestSchedulerTransportTwoClientsShareSlots(t *testing.T) {
 	assertSchedulerSocketPrivate(t, running.owner.socketPath, config.OwnerUID)
 }
 
+func TestSchedulerTransportShardTerminalMethods(t *testing.T) {
+	root := schedulerTransportTestRoot(t)
+	config := schedulerTransportTestConfig("shard-terminal")
+	startSchedulerTransportOwner(t, root, config)
+	client := mustDialSchedulerTransport(t, root, config)
+	ctx := context.Background()
+	assertSchedulerTransportShardFailure(t, client, ctx)
+	assertSchedulerTransportShardCancellation(t, client, ctx)
+}
+
+func assertSchedulerTransportShardFailure(t *testing.T, client *SchedulerClient, ctx context.Context) {
+	t.Helper()
+	request := testServiceShardGroupRequest()
+	if err := client.Enqueue(ctx, request); err != nil {
+		t.Fatalf("enqueue shard group: %v", err)
+	}
+	reservations, err := client.ReserveRunnable(ctx)
+	if err != nil {
+		t.Fatalf("reserve shard group: %v", err)
+	}
+	if len(reservations) != 1 {
+		t.Fatalf("reserve shard group count=%d", len(reservations))
+	}
+	if reservations[0].GroupIdentity != request.GroupIdentity {
+		t.Fatalf("reserve shard group identity=%q", reservations[0].GroupIdentity)
+	}
+	siblings, err := client.ReportShardFailure(ctx, request.ID, request.GroupIdentity, "shard-1")
+	if err != nil {
+		t.Fatalf("report shard failure through transport: %v", err)
+	}
+	if len(siblings) != 2 {
+		t.Fatalf("cancel sibling count=%d", len(siblings))
+	}
+	if siblings[0] != "shard-0" || siblings[1] != "shard-2" {
+		t.Fatalf("cancel siblings=%v", siblings)
+	}
+	if err := client.CompleteGroup(ctx, request.ID, request.GroupIdentity, WorkloadStatusFailed); err != nil {
+		t.Fatalf("complete shard group through transport: %v", err)
+	}
+	assertSchedulerTransportTerminalState(t, client, ctx, request.ID, WorkloadStatusFailed)
+	assertSchedulerTransportNoLeases(t, client, ctx)
+}
+
+func assertSchedulerTransportShardCancellation(t *testing.T, client *SchedulerClient, ctx context.Context) {
+	t.Helper()
+	request := WorkloadRequest{
+		ID: "cancel-group", InvocationID: "invocation", EnqueueSequence: 2,
+		Kind: WorkloadKindShard, GroupIdentity: "cancel-identity",
+		GroupSize: 1, ShardIdentities: []string{"cancel-shard"},
+	}
+	if err := client.Enqueue(ctx, request); err != nil {
+		t.Fatalf("enqueue cancellable shard group: %v", err)
+	}
+	if err := client.CancelGroup(ctx, request.ID, request.GroupIdentity); err != nil {
+		t.Fatalf("cancel shard group through transport: %v", err)
+	}
+	assertSchedulerTransportTerminalState(t, client, ctx, request.ID, WorkloadStatusCancelled)
+}
+
+func assertSchedulerTransportTerminalState(
+	t *testing.T,
+	client *SchedulerClient,
+	ctx context.Context,
+	workloadID string,
+	want WorkloadStatus,
+) {
+	t.Helper()
+	status, err := client.State(ctx, workloadID)
+	if err != nil {
+		t.Fatalf("scheduler state: %v", err)
+	}
+	if status != want {
+		t.Fatalf("scheduler workload status=%q want=%q", status, want)
+	}
+}
+
+func assertSchedulerTransportNoLeases(t *testing.T, client *SchedulerClient, ctx context.Context) {
+	t.Helper()
+	snapshot, err := client.Snapshot(ctx)
+	if err != nil {
+		t.Fatalf("scheduler snapshot: %v", err)
+	}
+	if len(snapshot.Leases) != 0 {
+		t.Fatalf("terminal group leases=%+v", snapshot.Leases)
+	}
+}
+
 func TestSchedulerTransportRejectsSecondOwnerAndInvalidFacadeInput(t *testing.T) {
 	root := schedulerTransportTestRoot(t)
 	config := schedulerTransportTestConfig("single-owner")
@@ -167,6 +254,52 @@ func TestSchedulerTransportConcurrentClients(t *testing.T) {
 	if len(snapshot.Workloads) != 48 {
 		t.Fatalf("workloads=%d want=48", len(snapshot.Workloads))
 	}
+}
+
+func TestSchedulerTransportOwnerShutdownDoesNotCancelInflightPersistence(t *testing.T) {
+	root := schedulerTransportTestRoot(t)
+	config := schedulerTransportTestConfig("shutdown-inflight")
+	running := startSchedulerTransportOwner(t, root, config)
+	client := mustDialSchedulerTransport(t, root, config)
+	request := schedulerTransportJob("shutdown-job", 1)
+	if err := client.Enqueue(context.Background(), request); err != nil {
+		t.Fatalf("enqueue workload: %v", err)
+	}
+	reservations, err := client.ReserveRunnable(context.Background())
+	if err != nil || len(reservations) != 1 {
+		t.Fatalf("reserve workload: reservations=%v error=%v", reservations, err)
+	}
+
+	persistenceStarted := make(chan struct{})
+	releasePersistence := make(chan struct{})
+	injected := errors.New("injected durable persistence failure")
+	running.owner.scheduler.saveKernel = func(ctx context.Context, _ *schedulerKernel) error {
+		close(persistenceStarted)
+		<-releasePersistence
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		return injected
+	}
+	group := errgroup.Group{}
+	group.Go(func() error {
+		return client.Complete(context.Background(), request.ID, WorkloadStatusPassed)
+	})
+	<-persistenceStarted
+	running.cancel()
+	close(releasePersistence)
+	err = group.Wait()
+	if !errors.Is(err, ErrSchedulerPersistence) || errors.Is(err, context.Canceled) {
+		t.Fatalf("Complete() error=%v, want durable persistence failure without cancellation", err)
+	}
+	running.once.Do(func() {
+		running.cancel()
+		running.err = errors.Join(running.owner.Close(), running.group.Wait())
+	})
+	if !errors.Is(running.err, injected) || errors.Is(running.err, context.Canceled) {
+		t.Fatalf("owner evidence=%v, want underlying persistence failure without cancellation", running.err)
+	}
+	running.err = nil
 }
 
 func TestSchedulerTransportRejectsMalformedRequests(t *testing.T) {

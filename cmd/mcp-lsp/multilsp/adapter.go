@@ -238,7 +238,7 @@ func goBuildTagsForTarget(cwd, target string) ([]string, error) {
 		return nil, fmt.Errorf("read Go build tags: %w", err)
 	}
 	source := string(data)
-	if isDefaultGoStandaloneMainSource(source) {
+	if IsDefaultGoStandaloneMainSource(source) {
 		return nil, nil
 	}
 	return goBuildTagsFromSource(source)
@@ -279,8 +279,8 @@ func goBuildTagsFromSource(source string) ([]string, error) {
 	return sortedGoBuildTags(tags), nil
 }
 
-// isDefaultGoStandaloneMainSource 识别由 gopls 默认 standaloneTags 管理的独立 main 文件。
-func isDefaultGoStandaloneMainSource(source string) bool {
+// IsDefaultGoStandaloneMainSource 识别由 gopls 默认 standaloneTags 管理的独立 main 文件。
+func IsDefaultGoStandaloneMainSource(source string) bool {
 	if !isGoMainPackageSource(source) {
 		return false
 	}

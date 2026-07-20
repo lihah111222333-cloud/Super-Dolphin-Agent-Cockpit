@@ -13,7 +13,7 @@ internal/module/appupdate/rpc.go	internal	modules	go-source	3949	业务模块层
 internal/module/appupdate/service_operation_test.go	internal	modules	go-test	7855	业务模块层	internal,module,appupdate,service,operation,test,业务模块层
 internal/module/appupdate/service_sidecar_stub_test.go	internal	modules	go-test	776	业务模块层	internal,module,appupdate,service,sidecar,stub,test,业务模块层
 internal/module/appupdate/service_test_helpers_test.go	internal	modules	go-test	6044	业务模块层	internal,module,appupdate,service,test,helpers,业务模块层
-internal/module/appupdate/service_test.go	internal	modules	go-test	29303	业务模块层	internal,module,appupdate,service,test,业务模块层
+internal/module/appupdate/service_test.go	internal	modules	go-test	29348	业务模块层	internal,module,appupdate,service,test,业务模块层
 internal/module/appupdate/service.go	internal	modules	go-source	32470	业务模块层	internal,module,appupdate,service,业务模块层
 internal/module/appupdate/stage_io.go	internal	modules	go-source	15690	业务模块层	internal,module,appupdate,stage,io,业务模块层
 internal/module/appupdate/windows_signature_test.go	internal	modules	go-test	1416	业务模块层	internal,module,appupdate,windows,signature,test,业务模块层
@@ -288,7 +288,7 @@ internal/module/memory/ui_rpc_merge_delete_failure_unix_test.go	internal	modules
 internal/module/memory/ui_rpc_merge_delete_failure_windows_test.go	internal	modules	go-test	641	memory canonical 管理、UI RPC 与持久化接线	internal,module,memory,ui,rpc,merge,delete,failure,windows,test,canonical,管理,UI,RPC,与持久化接线
 internal/module/memory/ui_rpc_merge_partial_failure_test.go	internal	modules	go-test	5632	memory canonical 管理、UI RPC 与持久化接线	internal,module,memory,ui,rpc,merge,partial,failure,test,canonical,管理,UI,RPC,与持久化接线
 internal/module/memory/ui_rpc_merge_shared_shard19_test.go	internal	modules	go-test	23514	memory canonical 管理、UI RPC 与持久化接线	internal,module,memory,ui,rpc,merge,shared,shard19,test,canonical,管理,UI,RPC,与持久化接线
-internal/module/memory/ui_rpc_mutations.go	internal	modules	go-source	30547	memory canonical 管理、UI RPC 与持久化接线	internal,module,memory,ui,rpc,mutations,canonical,管理,UI,RPC,与持久化接线
+internal/module/memory/ui_rpc_mutations.go	internal	modules	go-source	30950	memory canonical 管理、UI RPC 与持久化接线	internal,module,memory,ui,rpc,mutations,canonical,管理,UI,RPC,与持久化接线
 internal/module/memory/ui_rpc_test.go	internal	modules	go-test	34626	memory canonical 管理、UI RPC 与持久化接线	internal,module,memory,ui,rpc,test,canonical,管理,UI,RPC,与持久化接线
 internal/module/memory/ui_rpc.go	internal	modules	go-source	32119	memory canonical 管理、UI RPC 与持久化接线	internal,module,memory,ui,rpc,canonical,管理,UI,RPC,与持久化接线
 internal/module/notify/module.go	internal	modules	go-source	3219	业务模块层	internal,module,notify,业务模块层
@@ -678,7 +678,7 @@ internal/module/turn/thread_cleanup.go	internal	modules	go-source	1155	turn 启�
 internal/module/turn/tool_result_budget.go	internal	modules	go-source	7018	turn 启动、执行、审批与 provider 调度	internal,module,turn,tool,result,budget,启动,执行,审批与,provider,调度
 internal/module/turn/tool_result_lifecycle_unit_test.go	internal	modules	go-test	1522	turn 启动、执行、审批与 provider 调度	internal,module,turn,tool,result,lifecycle,unit,test,启动,执行,审批与,provider,调度
 internal/module/turn/tool_result_lifecycle.go	internal	modules	go-source	4948	turn 启动、执行、审批与 provider 调度	internal,module,turn,tool,result,lifecycle,启动,执行,审批与,provider,调度
-internal/module/turn/tool_result_storage_test.go	internal	modules	go-test	6083	turn 启动、执行、审批与 provider 调度	internal,module,turn,tool,result,storage,test,启动,执行,审批与,provider,调度
+internal/module/turn/tool_result_storage_test.go	internal	modules	go-test	6121	turn 启动、执行、审批与 provider 调度	internal,module,turn,tool,result,storage,test,启动,执行,审批与,provider,调度
 internal/module/turn/tool_result_storage.go	internal	modules	go-source	3575	turn 启动、执行、审批与 provider 调度	internal,module,turn,tool,result,storage,启动,执行,审批与,provider,调度
 internal/module/turn/tracing_lifecycle_test.go	internal	modules	go-test	5649	turn 启动、执行、审批与 provider 调度	internal,module,turn,tracing,lifecycle,test,启动,执行,审批与,provider,调度
 internal/module/turn/tracker_states.go	internal	modules	go-source	3257	turn 启动、执行、审批与 provider 调度	internal,module,turn,tracker,states,启动,执行,审批与,provider,调度

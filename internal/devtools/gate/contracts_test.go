@@ -163,7 +163,7 @@ func TestCanonicalContractsStrictRoundTrip(t *testing.T) {
 		validImageIdentity(),
 		validTrustedRunnerIdentity(),
 		validGrantRequest(now),
-		validResultReceipt(now),
+		validResultReceipt(t, now),
 		validActionGrant(now),
 		validAcceptedImageRecord(now),
 		validPromotionRecord(now),
@@ -199,6 +199,7 @@ func TestContractFieldCoverageDetectsMissingAndStale(t *testing.T) {
 		{producer: reflect.TypeFor[SourceSpec](), registration: sourceSpecConsumerRegistration()},
 		{producer: reflect.TypeFor[GrantRequest](), registration: grantRequestConsumerRegistration()},
 		{producer: reflect.TypeFor[ResultReceipt](), registration: resultReceiptConsumerRegistration()},
+		{producer: reflect.TypeFor[ContainerShardReceipt](), registration: containerShardReceiptConsumerRegistration()},
 		{producer: reflect.TypeFor[ActionGrant](), registration: actionGrantConsumerRegistration()},
 		{producer: reflect.TypeFor[AcceptedImageRecord](), registration: acceptedImageRecordConsumerRegistration()},
 		{producer: reflect.TypeFor[PromotionRecord](), registration: promotionRecordConsumerRegistration()},
@@ -225,7 +226,7 @@ func TestContractFieldCoverageDetectsMissingAndStale(t *testing.T) {
 
 func TestResultReceiptCanonicalEd25519VerificationRejectsTampering(t *testing.T) {
 	t.Parallel()
-	receipt := validResultReceipt(time.Date(2026, 7, 16, 12, 0, 0, 0, time.UTC))
+	receipt := validResultReceipt(t, time.Date(2026, 7, 16, 12, 0, 0, 0, time.UTC))
 	publicKey, privateKey, err := ed25519.GenerateKey(nil)
 	if err != nil {
 		t.Fatal(err)
@@ -263,6 +264,12 @@ func TestResultReceiptCanonicalEd25519VerificationRejectsTampering(t *testing.T)
 		}},
 		{name: "container", mutate: func(value *ResultReceipt) {
 			value.Container.HostConfigDigest = "sha256:" + strings.Repeat("c", 64)
+		}},
+		{name: "resource_witness", mutate: func(value *ResultReceipt) {
+			value.Container.ResourceWitness.MemoryBytes++
+		}},
+		{name: "resource_witness_digest", mutate: func(value *ResultReceipt) {
+			value.Container.ResourceWitnessDigest = "sha256:" + strings.Repeat("d", 64)
 		}},
 	}
 	for _, test := range tests {
@@ -378,10 +385,13 @@ func grantRequestConsumerRegistration() fieldConsumerRegistration {
 func resultReceiptConsumerRegistration() fieldConsumerRegistration {
 	return fieldConsumerRegistration{
 		Fields: []string{
+			"authority_attestation",
+			"authority_owner",
 			"completed_at",
 			"container",
 			"deadline",
 			"evidence",
+			"entrypoint",
 			"gate_results",
 			"generation",
 			"image",
@@ -392,6 +402,7 @@ func resultReceiptConsumerRegistration() fieldConsumerRegistration {
 			"repo_id",
 			"runner",
 			"schema_version",
+			"shard_receipts",
 			"signature",
 			"signer",
 			"source",
@@ -400,6 +411,18 @@ func resultReceiptConsumerRegistration() fieldConsumerRegistration {
 		},
 		Owner:    "internal/devtools/gate ResultReceipt signing boundary",
 		Evidence: "strict JSON roundtrip and Validate before signing or verification",
+	}
+}
+
+func containerShardReceiptConsumerRegistration() fieldConsumerRegistration {
+	return fieldConsumerRegistration{
+		Fields: []string{
+			"completed_at", "container", "container_id", "deadline", "exited_at", "gate_executions",
+			"removal_proof_digest", "removed", "resource_witness", "resource_witness_digest",
+			"shard", "started_at", "status",
+		},
+		Owner:    "internal/devtools/gate ResultReceipt shard signing boundary",
+		Evidence: "stable JSON fields, canonical shard validation, aggregation, and Ed25519 tamper rejection",
 	}
 }
 
@@ -537,28 +560,92 @@ func validGrantRequest(now time.Time) GrantRequest {
 	}
 }
 
-func validResultReceipt(now time.Time) ResultReceipt {
-	return ResultReceipt{
-		SchemaVersion: 1,
-		ReceiptID:     "receipt-1",
-		RepoID:        "repo-1",
-		InvocationID:  "invocation-1",
-		Source:        validRangeSourceSpec(),
-		PlanDigest:    testDigest,
-		PolicyDigest:  testDigest,
-		Runner:        validTrustedRunnerIdentity(),
-		Image:         validImageIdentity(),
-		Generation:    1,
-		StartedAt:     now,
-		CompletedAt:   now.Add(time.Minute),
-		Deadline:      now.Add(10 * time.Minute),
-		Status:        ResultStatusPassed,
-		GateResults:   []GateResult{{GateID: "go-test", Status: GateStatusPassed, ExitCode: 0, StartedAt: now, CompletedAt: now.Add(time.Minute), ArgvDigest: testDigest, LogDigest: testDigest}},
-		Evidence:      []Evidence{{Kind: EvidenceKindProcess, Digest: testDigest}},
-		Container:     ContainerEvidence{ContainerID: "container-1", NetworkID: "network-1", HostConfigDigest: testDigest, NetworkPolicyDigest: testDigest, Removed: true, NetworkRemoved: true},
-		Signer:        validTrustedRunnerIdentity().Signer,
-		Signature:     "signature",
+func validResultReceipt(t *testing.T, now time.Time) ResultReceipt {
+	t.Helper()
+	return validResultReceiptForProfile(t, now, ProfileLocalFast)
+}
+
+func validResultReceiptForProfile(t *testing.T, now time.Time, profile Profile) ResultReceipt {
+	t.Helper()
+	plan, err := BuildGatePlan(profile, registryTestSource())
+	if err != nil {
+		t.Fatal(err)
 	}
+	image := validImageIdentity()
+	image.PlatformManifestDigest = shardTestDigest('a')
+	image.ConfigDigest = shardTestDigest('b')
+	set, err := BuildContainerShardSet(plan, image.PlatformManifestDigest, image.ConfigDigest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	shards := successfulShardReceipts(t, set)
+	retimeSuccessfulShardReceipts(shards, now)
+	aggregated, err := aggregateFixtureShardResults(set, shards, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	container, err := aggregateResultReceiptContainer(shards)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return ResultReceipt{
+		SchemaVersion:  ResultReceiptSchemaVersion,
+		ReceiptID:      "receipt-1",
+		RepoID:         "repo-1",
+		InvocationID:   "invocation-1",
+		Entrypoint:     CIEntrypointManualCLI,
+		AuthorityOwner: CIEntrypointOwnerManualCLI,
+		Source:         plan.Source,
+		PlanDigest:     plan.PlanDigest,
+		PolicyDigest:   plan.PolicyDigest,
+		Runner:         validTrustedRunnerIdentity(),
+		Image:          image,
+		Generation:     1,
+		StartedAt:      now,
+		CompletedAt:    now.Add(time.Minute),
+		Deadline:       now.Add(10 * time.Minute),
+		Status:         ResultStatusPassed,
+		GateResults:    fixtureGateResults(aggregated),
+		ShardReceipts:  shards,
+		Evidence:       []Evidence{{Kind: EvidenceKindProcess, Digest: testDigest}},
+		Container:      container,
+		Signer:         validTrustedRunnerIdentity().Signer,
+		Signature:      "signature",
+	}
+}
+
+func retimeSuccessfulShardReceipts(receipts []ContainerShardReceipt, now time.Time) {
+	for shardIndex := range receipts {
+		receipts[shardIndex].StartedAt = now
+		receipts[shardIndex].ExitedAt = now.Add(30 * time.Second)
+		receipts[shardIndex].CompletedAt = now.Add(time.Minute)
+		receipts[shardIndex].Deadline = now.Add(10 * time.Minute)
+		for gateIndex := range receipts[shardIndex].GateExecutions {
+			receipts[shardIndex].GateExecutions[gateIndex].StartedAt = now
+			receipts[shardIndex].GateExecutions[gateIndex].CompletedAt = now.Add(time.Second)
+		}
+	}
+}
+
+func aggregateFixtureShardResults(set ContainerShardSet, receipts []ContainerShardReceipt, now time.Time) ([]PlanGateExecution, error) {
+	calls := 0
+	clock := func() time.Time {
+		calls++
+		return now.Add(2*time.Minute + time.Duration(calls-1)*time.Nanosecond)
+	}
+	return aggregateContainerShardsWithClock(set, receipts, clock)
+}
+
+func fixtureGateResults(executions []PlanGateExecution) []GateResult {
+	results := make([]GateResult, len(executions))
+	for index, execution := range executions {
+		results[index] = GateResult{
+			GateID: string(execution.GateID), Status: GateStatusPassed, ExitCode: execution.ExitCode,
+			StartedAt: execution.StartedAt, CompletedAt: execution.CompletedAt,
+			ArgvDigest: execution.ArgvDigest, LogDigest: execution.LogDigest,
+		}
+	}
+	return results
 }
 
 func validActionGrant(now time.Time) ActionGrant {

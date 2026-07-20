@@ -27,6 +27,9 @@ func prepareExecutorWorkspace(config executorConfig) (executorLayout, error) {
 			return executorLayout{}, errors.Join(fmt.Errorf("create executor directory: %w", err), cleanupExecutorWorkspace(layout))
 		}
 	}
+	if err := os.Mkdir(filepath.Join(layout.home, ".codex"), 0o700); err != nil {
+		return executorLayout{}, errors.Join(fmt.Errorf("create executor Codex home: %w", err), cleanupExecutorWorkspace(layout))
+	}
 	return layout, nil
 }
 
@@ -210,9 +213,39 @@ func cleanupExecutorWorkspace(layout executorLayout) error {
 	}
 	var cleanupErr error
 	for _, path := range []string{layout.runRoot, layout.home, layout.tmp, layout.goCache, layout.goModCache, layout.npmCache, layout.xdgCache} {
-		if err := os.RemoveAll(path); err != nil {
+		if err := removeExecutorWorkspacePath(path); err != nil {
 			cleanupErr = errors.Join(cleanupErr, fmt.Errorf("remove executor workspace path %q: %w", path, err))
 		}
 	}
 	return cleanupErr
+}
+
+// removeExecutorWorkspacePath 恢复私有缓存目录的所有者写权限后严格删除该路径。
+func removeExecutorWorkspacePath(path string) error {
+	if err := makeExecutorDirectoriesRemovable(path); err != nil {
+		return err
+	}
+	return os.RemoveAll(path)
+}
+
+// makeExecutorDirectoriesRemovable 只修改目录权限，不跟随缓存中的符号链接。
+func makeExecutorDirectoriesRemovable(root string) error {
+	if _, err := os.Lstat(root); errors.Is(err, fs.ErrNotExist) {
+		return nil
+	} else if err != nil {
+		return err
+	}
+	return filepath.WalkDir(root, func(path string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if !entry.IsDir() {
+			return nil
+		}
+		info, err := entry.Info()
+		if err != nil {
+			return err
+		}
+		return os.Chmod(path, info.Mode().Perm()|0o700)
+	})
 }

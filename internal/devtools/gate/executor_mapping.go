@@ -14,12 +14,65 @@ const (
 	ExecutorStrategyChangedDiagnostics ExecutorStrategy = "changed-diagnostics"
 	ExecutorStrategyFullTreeWhitespace ExecutorStrategy = "full-tree-whitespace"
 	ExecutorStrategySQLCVerify         ExecutorStrategy = "sqlc-verify"
+	ExecutorStrategyReleaseAttestation ExecutorStrategy = "release-attestation"
 )
 
 // ExecutorStep is one shell-free command in a gate program.
 type ExecutorStep struct {
-	Directory string
-	Argv      []string
+	Directory   string
+	Argv        []string
+	Environment []string
+}
+
+const (
+	executorNormalGoFlagsResourceBound    = "GOFLAGS=-p=2"
+	executorNormalGoMaxProcsResourceBound = "GOMAXPROCS=2"
+	executorRaceGoFlagsResourceBound      = "GOFLAGS=-p=1"
+	executorRaceGoMaxProcsResourceBound   = "GOMAXPROCS=1"
+	executorGoMemoryLimitResourceBound    = "GOMEMLIMIT=1GiB"
+)
+
+var raceSensitiveSurfaces = []struct {
+	packagePattern string
+	pathPrefix     string
+}{
+	{packagePattern: "./cmd/mcp-ida/...", pathPrefix: "cmd/mcp-ida/"},
+	{packagePattern: "./cmd/mcp-lsp/...", pathPrefix: "cmd/mcp-lsp/"},
+	{packagePattern: "./cmd/mcp-orch/...", pathPrefix: "cmd/mcp-orch/"},
+	{packagePattern: "./cmd/agent-terminal", pathPrefix: "cmd/agent-terminal/"},
+	{packagePattern: "./cmd/super-dolphin-gate/...", pathPrefix: "cmd/super-dolphin-gate/"},
+	{packagePattern: "./cmd/super-dolphin-updater", pathPrefix: "cmd/super-dolphin-updater/"},
+	{packagePattern: "./internal/app/...", pathPrefix: "internal/app/"},
+	{packagePattern: "./internal/contract/...", pathPrefix: "internal/contract/"},
+	{packagePattern: "./internal/devtools/gate/...", pathPrefix: "internal/devtools/gate/"},
+	{packagePattern: "./internal/devtools/localci/...", pathPrefix: "internal/devtools/localci/"},
+	{packagePattern: "./internal/mcpserver/...", pathPrefix: "internal/mcpserver/"},
+	{packagePattern: "./internal/module/...", pathPrefix: "internal/module/"},
+	{packagePattern: "./internal/platform/...", pathPrefix: "internal/platform/"},
+	{packagePattern: "./internal/provider/...", pathPrefix: "internal/provider/"},
+	{packagePattern: "./internal/store/...", pathPrefix: "internal/store/"},
+	{packagePattern: "./internal/ui/...", pathPrefix: "internal/ui/"},
+	{packagePattern: "./internal/util/...", pathPrefix: "internal/util/"},
+	{packagePattern: "./pkg/...", pathPrefix: "pkg/"},
+	{packagePattern: "./scripts/lsp_diagnostics_gate/...", pathPrefix: "scripts/lsp_diagnostics_gate/"},
+}
+
+// RaceSensitivePackagePatterns 返回已登记的生产并发包范围。
+func RaceSensitivePackagePatterns() []string {
+	patterns := make([]string, len(raceSensitiveSurfaces))
+	for index, surface := range raceSensitiveSurfaces {
+		patterns[index] = surface.packagePattern
+	}
+	return patterns
+}
+
+// RaceSensitivePathPrefixes 返回并发包登记表对应的文件前缀。
+func RaceSensitivePathPrefixes() []string {
+	prefixes := make([]string, len(raceSensitiveSurfaces))
+	for index, surface := range raceSensitiveSurfaces {
+		prefixes[index] = surface.pathPrefix
+	}
+	return prefixes
 }
 
 // ExecutorProgram is the immutable command mapping for one canonical GateID.
@@ -49,18 +102,20 @@ var executorPrograms = map[GateID]ExecutorProgram{
 	GateIDFrontendEmbedVerify: withFrontendSeed(requirePaths(commandProgram(
 		[]string{"make", "frontend-embed-verify"},
 	), "Makefile", "scripts/frontend_embed_verify.sh")),
-	GateIDBackendTestWithGuard: withGoSeed(requirePaths(commandProgram(
-		[]string{"./scripts/test_with_guard.sh", "./cmd/...", "./internal/...", "./pkg/...", "./scripts/...", "-count=1", "-timeout=180s"},
-	), "scripts/test_with_guard.sh")),
-	GateIDLSPChangedDiagnostics: withFrontendSeed(withGoSeed(ExecutorProgram{
+	GateIDBackendTestWithGuard: withFrontendSeed(withGoSeed(requirePaths(ExecutorProgram{
+		Strategy: ExecutorStrategyCommands,
+		Steps: []ExecutorStep{
+			{Directory: "frontend-app", Argv: []string{"npm", "run", "build"}},
+			normalGoExecutorStep([]string{"./scripts/test_with_guard.sh", "--canonical-backend", "./cmd/...", "./internal/...", "./pkg/...", "./scripts/..."}),
+		},
+	}, "frontend-app/package.json", "frontend-app/package-lock.json", "scripts/test_with_guard.sh", "scripts/check_nested_go_modules.sh"))),
+	GateIDLSPChangedDiagnostics: requireExecutables(withFrontendSeed(withGoSeed(ExecutorProgram{
 		Strategy: ExecutorStrategyChangedDiagnostics,
 		RequiredPaths: []string{
 			"scripts/lsp_diagnostics_gate/main.go",
 		},
-	})),
-	GateIDBackendTestGuardWithRace: withGoSeed(requirePaths(commandProgram(
-		[]string{"./scripts/test_with_guard.sh", "--with-race", "./cmd/...", "./internal/...", "./pkg/...", "./scripts/...", "--", "./cmd/...", "./internal/...", "./pkg/...", "./scripts/...", "-count=1", "-timeout=180s"},
-	), "scripts/test_with_guard.sh")),
+	})), ExecutorSqruffBinaryPath),
+	GateIDBackendTestGuardWithRace: backendRaceExecutorProgram(),
 	GateIDBackendNilness: withGoSeed(requirePaths(commandProgram(
 		[]string{"go", "run", "./scripts/nilness_guard.go", "-test=false", "--", "./..."},
 	), "scripts/nilness_guard.go")),
@@ -80,9 +135,7 @@ var executorPrograms = map[GateID]ExecutorProgram{
 		Strategy:      ExecutorStrategyFullTreeWhitespace,
 		RequiredPaths: []string{".git"},
 	},
-	GateIDReleaseLayeredCheck: withGoSeed(requirePaths(commandProgram(
-		[]string{"make", "ci-l3-release"},
-	), "Makefile", "scripts/test_with_guard.sh")),
+	GateIDReleaseLayeredCheck: {Strategy: ExecutorStrategyReleaseAttestation},
 }
 
 // ParseExecutorCommand 只接受 run --gate <canonical GateID> 这一种调用形态。
@@ -139,13 +192,61 @@ func withFrontendSeed(program ExecutorProgram) ExecutorProgram {
 	return program
 }
 
+func backendRaceExecutorProgram() ExecutorProgram {
+	packages := RaceSensitivePackagePatterns()
+	argv := append([]string{"./scripts/test_with_guard.sh", "--race-only"}, packages...)
+	argv = append(argv, "-timeout=180s")
+	return withGoSeed(requirePaths(ExecutorProgram{
+		Strategy: ExecutorStrategyCommands,
+		Steps:    []ExecutorStep{raceGoExecutorStep(argv)},
+	}, "scripts/test_with_guard.sh", "scripts/check_nested_go_modules.sh"))
+}
+
+func normalGoExecutorStep(argv []string) ExecutorStep {
+	return goExecutorStep(argv, []string{
+		executorNormalGoFlagsResourceBound,
+		executorNormalGoMaxProcsResourceBound,
+		executorGoMemoryLimitResourceBound,
+	})
+}
+
+func raceGoExecutorStep(argv []string) ExecutorStep {
+	return goExecutorStep(argv, []string{
+		executorRaceGoFlagsResourceBound,
+		executorRaceGoMaxProcsResourceBound,
+		executorGoMemoryLimitResourceBound,
+	})
+}
+
+func goExecutorStep(argv []string, environment []string) ExecutorStep {
+	return ExecutorStep{
+		Argv:        slices.Clone(argv),
+		Environment: slices.Clone(environment),
+	}
+}
+
+// isAllowedExecutorStepEnvironment 将 Go 资源上限限制为完整、不可混配的 profile。
+func isAllowedExecutorStepEnvironment(environment []string) bool {
+	return slices.Equal(environment, []string{
+		executorNormalGoFlagsResourceBound,
+		executorNormalGoMaxProcsResourceBound,
+		executorGoMemoryLimitResourceBound,
+	}) || slices.Equal(environment, []string{
+		executorRaceGoFlagsResourceBound,
+		executorRaceGoMaxProcsResourceBound,
+		executorGoMemoryLimitResourceBound,
+	})
+}
+
 func cloneExecutorProgram(program ExecutorProgram) ExecutorProgram {
 	cloned := program
 	cloned.RequiredPaths = slices.Clone(program.RequiredPaths)
 	cloned.RequiredExecutables = slices.Clone(program.RequiredExecutables)
 	cloned.Steps = make([]ExecutorStep, len(program.Steps))
 	for index, step := range program.Steps {
-		cloned.Steps[index] = ExecutorStep{Directory: step.Directory, Argv: slices.Clone(step.Argv)}
+		cloned.Steps[index] = ExecutorStep{
+			Directory: step.Directory, Argv: slices.Clone(step.Argv), Environment: slices.Clone(step.Environment),
+		}
 	}
 	return cloned
 }

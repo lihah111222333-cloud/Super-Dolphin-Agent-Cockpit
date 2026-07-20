@@ -462,6 +462,11 @@ func writePreviousDMGApps(t *testing.T, count int, signers ...string) string {
 func writePreviousDMGInspectionTools(t *testing.T, binDir string) {
 	t.Helper()
 	scripts := map[string]string{
+		"uname": `#!/usr/bin/env bash
+set -euo pipefail
+[[ "${1:-}" == "-s" ]]
+printf 'Darwin\n'
+`,
 		"hdiutil": `#!/usr/bin/env bash
 set -euo pipefail
 if [[ "${1:-}" == "attach" ]]; then

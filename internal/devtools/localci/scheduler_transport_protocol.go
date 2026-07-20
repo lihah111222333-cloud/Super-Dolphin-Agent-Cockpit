@@ -11,17 +11,20 @@ import (
 )
 
 const (
-	schedulerProtocolVersion      = 1
+	schedulerProtocolVersion      = 2
 	schedulerMaxFrameBytes        = 1 << 20
 	schedulerMaxRequestIDBytes    = 128
 	schedulerMinRequestIDBytes    = 16
 	schedulerReplayWindowCapacity = 4096
 
-	schedulerMethodEnqueue  = "enqueue"
-	schedulerMethodReserve  = "reserve"
-	schedulerMethodComplete = "complete"
-	schedulerMethodState    = "state"
-	schedulerMethodSnapshot = "snapshot"
+	schedulerMethodEnqueue            = "enqueue"
+	schedulerMethodReserve            = "reserve"
+	schedulerMethodComplete           = "complete"
+	schedulerMethodState              = "state"
+	schedulerMethodSnapshot           = "snapshot"
+	schedulerMethodReportShardFailure = "report_shard_failure"
+	schedulerMethodCompleteGroup      = "complete_group"
+	schedulerMethodCancelGroup        = "cancel_group"
 )
 
 var (
@@ -62,6 +65,22 @@ type schedulerEnqueueParams struct {
 type schedulerCompleteParams struct {
 	WorkloadID string         `json:"workload_id"`
 	Status     WorkloadStatus `json:"status"`
+}
+
+type schedulerGroupParams struct {
+	WorkloadID    string         `json:"workload_id"`
+	GroupIdentity string         `json:"group_identity"`
+	Status        WorkloadStatus `json:"status"`
+}
+
+type schedulerShardFailureParams struct {
+	WorkloadID    string `json:"workload_id"`
+	GroupIdentity string `json:"group_identity"`
+	ShardIdentity string `json:"shard_identity"`
+}
+
+type schedulerShardFailureResult struct {
+	CancelShardIdentities []string `json:"cancel_shard_identities"`
 }
 
 type schedulerStateParams struct {
@@ -192,7 +211,8 @@ func validSchedulerRequestIDCharacter(character rune) bool {
 func validSchedulerMethod(method string) bool {
 	switch method {
 	case schedulerMethodEnqueue, schedulerMethodReserve, schedulerMethodComplete,
-		schedulerMethodState, schedulerMethodSnapshot:
+		schedulerMethodState, schedulerMethodSnapshot, schedulerMethodReportShardFailure,
+		schedulerMethodCompleteGroup, schedulerMethodCancelGroup:
 		return true
 	default:
 		return false

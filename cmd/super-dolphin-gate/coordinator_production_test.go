@@ -263,10 +263,8 @@ func TestProductionBareTrustedRefPromotesBuiltCandidateWithRealEd25519(t *testin
 
 func commitProductionCandidate(t *testing.T, fixture productionTestFixture) (string, localci.ReadOnlyGitTree) {
 	t.Helper()
-	if err := os.WriteFile(filepath.Join(fixture.sourceRepo, "go.mod"), []byte("module example.invalid/promoted\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	runProductionGit(t, fixture.sourceRepo, "add", "--", "go.mod")
+	changeProductionBuildInput(t, fixture.sourceRepo, "go.mod", "module example.invalid/promoted\n")
+	runProductionGit(t, fixture.sourceRepo, "add", "--", "go.mod", "build/gate/runtime-deps.lock")
 	runProductionGit(t, fixture.sourceRepo, "-c", "user.name=Test", "-c", "user.email=test@example.invalid", "commit", "-qm", "candidate")
 	candidateCommit := productionGitLine(t, fixture.sourceRepo, "rev-parse", "HEAD^{commit}")
 	candidateTree := productionGitLine(t, fixture.sourceRepo, "rev-parse", "HEAD^{tree}")
@@ -361,45 +359,6 @@ func assertProductionCandidatePromoted(t *testing.T, fixture productionCandidate
 	if err != nil || result.Status != localci.TruthImageEnsureAccepted ||
 		result.Image.PlatformManifestDigest != productionDigest("8") {
 		t.Fatalf("EnsureImage(after promotion) = %+v, err=%v", result, err)
-	}
-}
-
-func TestProductionSourceMaterializerUsesGitObjectSnapshot(t *testing.T) {
-	fixture := newProductionTestFixture(t)
-	if err := os.WriteFile(filepath.Join(fixture.sourceRepo, "trusted.txt"), []byte("tampered checkout\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	gitPath, err := exec.LookPath("git")
-	if err != nil {
-		t.Fatal(err)
-	}
-	outputParent, err := filepath.EvalSymlinks(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	outputRoot := filepath.Join(outputParent, "job")
-	materializer := &productionSourceMaterializer{gitPath: gitPath}
-	result, err := materializer.Materialize(context.Background(), sourceMaterializeRequest{
-		RepositoryRoot: fixture.sourceRepo, OutputRoot: outputRoot, Source: productionSourceSpec(fixture),
-	})
-	if err != nil {
-		t.Fatalf("Materialize() error = %v", err)
-	}
-	data, err := os.ReadFile(filepath.Join(result.SnapshotDir, "trusted.txt"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := string(data); got != "trusted object content\n" {
-		t.Fatalf("snapshot content = %q", got)
-	}
-	if result.SourceTreeSHA != fixture.tree {
-		t.Fatalf("SourceTreeSHA = %s, want %s", result.SourceTreeSHA, fixture.tree)
-	}
-	if err := result.Cleanup(); err != nil {
-		t.Fatalf("Cleanup() error = %v", err)
-	}
-	if _, err := os.Stat(outputRoot); !os.IsNotExist(err) {
-		t.Fatalf("output root still exists: %v", err)
 	}
 }
 
@@ -736,37 +695,6 @@ func productionSourceSpec(fixture productionTestFixture) gatecontract.SourceSpec
 	return gatecontract.SourceSpec{
 		Kind: gatecontract.SourceKindCommit, ObjectFormat: gatecontract.GitObjectFormatSHA1,
 		Commit: &gatecontract.CommitSource{SHA: fixture.commit}, SourceTreeSHA: fixture.tree,
-	}
-}
-
-func writeProductionBuildInputs(t *testing.T, repository string) {
-	t.Helper()
-	files := map[string]string{
-		"go.mod":                         "module example.invalid/gate\n",
-		"go.sum":                         "sum\n",
-		"cmd/super-dolphin-gate/main.go": "package main\n",
-		"build/gate/Dockerfile": "ARG GO_IMAGE=golang@sha256:" + strings.Repeat("b", 64) + "\n" +
-			"ARG SOURCE_DATE_EPOCH=0\nFROM ${GO_IMAGE} AS build\nARG SOURCE_DATE_EPOCH\nCOPY go.mod go.sum ./\n" +
-			"COPY cmd/super-dolphin-gate/main.go ./cmd/super-dolphin-gate/main.go\n" +
-			"RUN --network=none go build -o /out/gate ./cmd/super-dolphin-gate\n" +
-			"FROM scratch\nCOPY --from=build /out/gate /gate\nENTRYPOINT [\"/gate\"]\n",
-		"build/gate/inputs.json": "{\n  \"schema_version\": \"1\",\n  \"dockerfile\": \"build/gate/Dockerfile\",\n" +
-			"  \"inputs\": [\"build/gate/Dockerfile\", \"build/gate/inputs.json\", \"build/gate/toolchain.lock\", " +
-			"\"cmd/super-dolphin-gate/main.go\", \"go.mod\", \"go.sum\"]\n}\n",
-		"build/gate/toolchain.lock": "{\n  \"schema_version\": \"1\",\n  \"buildkit_version\": \"v0.26.2\",\n" +
-			"  \"dockerfile_frontend\": \"builtin:dockerfile.v1\",\n  \"source_date_epoch\": \"0\",\n" +
-			"  \"target_platforms\": [\"linux/arm64\"],\n" +
-			"  \"base_images\": [{\"name\":\"GO_IMAGE\",\"reference\":\"golang@sha256:" + strings.Repeat("b", 64) + "\"}],\n" +
-			"  \"dependency_sources\": [\"go.sum\"],\n  \"network_policy\": \"locked-dependencies\"\n}\n",
-	}
-	for path, data := range files {
-		absolute := filepath.Join(repository, filepath.FromSlash(path))
-		if err := os.MkdirAll(filepath.Dir(absolute), 0o700); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(absolute, []byte(data), 0o600); err != nil {
-			t.Fatal(err)
-		}
 	}
 }
 

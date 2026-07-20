@@ -546,11 +546,9 @@ func runProductionBootstrapControllerCommand(
 	privateKeyFile string,
 	requestData []byte,
 ) (productionBootstrapAttestation, error) {
-	command := exec.CommandContext(ctx, executable, "bootstrap", "--protocol-version=1")
-	command.Stdin = bytes.NewReader(append(requestData, '\n'))
-	command.Env = []string{
-		"HOME=" + os.Getenv("HOME"), "PATH=" + os.Getenv("PATH"), "LC_ALL=C",
-		productionBootstrapControllerKeyEnv + "=" + privateKeyFile,
+	command, err := productionBootstrapControllerCommand(ctx, executable, privateKeyFile, requestData)
+	if err != nil {
+		return productionBootstrapAttestation{}, err
 	}
 	stdout := &productionBootstrapLimitedBuffer{limit: productionBootstrapOutputMaxBytes}
 	stderr := &productionBootstrapLimitedBuffer{limit: productionBootstrapStderrMaxBytes}
@@ -569,6 +567,22 @@ func runProductionBootstrapControllerCommand(
 		return productionBootstrapAttestation{}, fmt.Errorf("decode production bootstrap controller attestation: %w", err)
 	}
 	return attestation, nil
+}
+
+func productionBootstrapControllerCommand(
+	ctx context.Context,
+	executable string,
+	privateKeyFile string,
+	requestData []byte,
+) (*exec.Cmd, error) {
+	environment, err := productionHostDockerCLIEnvironment()
+	if err != nil {
+		return nil, fmt.Errorf("prepare production bootstrap controller command: %w", err)
+	}
+	command := exec.CommandContext(ctx, executable, "bootstrap", "--protocol-version=1")
+	command.Stdin = bytes.NewReader(append(requestData, '\n'))
+	command.Env = append(environment, productionBootstrapControllerKeyEnv+"="+privateKeyFile)
+	return command, nil
 }
 
 type productionBootstrapLimitedBuffer struct {
@@ -768,47 +782,4 @@ func validateProductionBootstrapContainerLabels(
 		}
 	}
 	return nil
-}
-
-// CleanupStaleContainers 在持有 bootstrap 锁时按 root/repo labels 清理 crash residue。
-func (productionBootstrapHostRuntime) CleanupStaleContainers(
-	ctx context.Context,
-	root productionBootstrapRoot,
-	rootDigest string,
-) error {
-	output, err := productionBootstrapDocker(
-		ctx, "ps", "-aq", "--filter", "label="+productionBootstrapRootLabel+"="+rootDigest,
-		"--filter", "label="+productionBootstrapRepoLabel+"="+root.RepoID,
-	)
-	if err != nil {
-		return err
-	}
-	for line := range strings.SplitSeq(strings.TrimSpace(string(output)), "\n") {
-		containerID := strings.TrimSpace(line)
-		if containerID == "" {
-			continue
-		}
-		if err := removeProductionBootstrapContainer(ctx, containerID); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func removeProductionBootstrapContainer(ctx context.Context, containerID string) error {
-	if strings.TrimSpace(containerID) == "" {
-		return nil
-	}
-	_, err := productionBootstrapDocker(ctx, "rm", "-f", containerID)
-	return err
-}
-
-func productionBootstrapDocker(ctx context.Context, args ...string) ([]byte, error) {
-	command := exec.CommandContext(ctx, "docker", args...)
-	command.Env = []string{"HOME=" + os.Getenv("HOME"), "PATH=" + os.Getenv("PATH"), "LC_ALL=C"}
-	output, err := command.CombinedOutput()
-	if err != nil {
-		return nil, fmt.Errorf("production bootstrap docker %s: %w: %s", args[0], err, strings.TrimSpace(string(output)))
-	}
-	return output, nil
 }

@@ -4465,6 +4465,7 @@
         "internal/provider/dreamexec.applyCodexUsage",
         "internal/provider/dreamexec.claudeEnvelope",
         "internal/provider/dreamexec.codexJSONLEvent",
+        "internal/provider/dreamexec.configureDreamCommandCancellation",
         "internal/provider/dreamexec.decodeCodexJSONLEvent",
         "internal/provider/dreamexec.dreamCommandEnv",
         "internal/provider/dreamexec.extractDreamJSONObject",
@@ -9232,6 +9233,7 @@
         "internal/provider/dreamexec.applyCodexUsage",
         "internal/provider/dreamexec.claudeEnvelope",
         "internal/provider/dreamexec.codexJSONLEvent",
+        "internal/provider/dreamexec.configureDreamCommandCancellation",
         "internal/provider/dreamexec.decodeCodexJSONLEvent",
         "internal/provider/dreamexec.dreamCommandEnv",
         "internal/provider/dreamexec.extractDreamJSONObject",
@@ -13999,6 +14001,7 @@
         "internal/provider/dreamexec.applyCodexUsage",
         "internal/provider/dreamexec.claudeEnvelope",
         "internal/provider/dreamexec.codexJSONLEvent",
+        "internal/provider/dreamexec.configureDreamCommandCancellation",
         "internal/provider/dreamexec.decodeCodexJSONLEvent",
         "internal/provider/dreamexec.dreamCommandEnv",
         "internal/provider/dreamexec.extractDreamJSONObject",
@@ -18774,6 +18777,7 @@
         "internal/provider/dreamexec.applyCodexUsage",
         "internal/provider/dreamexec.claudeEnvelope",
         "internal/provider/dreamexec.codexJSONLEvent",
+        "internal/provider/dreamexec.configureDreamCommandCancellation",
         "internal/provider/dreamexec.decodeCodexJSONLEvent",
         "internal/provider/dreamexec.dreamCommandEnv",
         "internal/provider/dreamexec.extractDreamJSONObject",
@@ -19093,12 +19097,12 @@
   ],
   "summary": {
     "total_packages": 41,
-    "total_functions": 2318,
+    "total_functions": 2319,
     "total_methods": 1229,
     "total_interfaces": 186,
     "total_interface_methods": 370,
     "total_exported": 1265,
-    "total_unexported": 3087,
+    "total_unexported": 3088,
     "total_structs": 619
   },
   "packages": [
@@ -80782,6 +80786,16 @@
             {
               "name": "usage",
               "type": "*TokenUsage"
+            }
+          ]
+        },
+        {
+          "name": "configureDreamCommandCancellation",
+          "exported": false,
+          "params": [
+            {
+              "name": "command",
+              "type": "*exec.Cmd"
             }
           ]
         },

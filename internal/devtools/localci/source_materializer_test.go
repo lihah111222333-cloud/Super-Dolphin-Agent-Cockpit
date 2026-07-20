@@ -35,6 +35,36 @@ func TestMaterializeSourceCommitRoundTrip(t *testing.T) {
 	if result.Manifest.SourceTreeSHA != firstTree {
 		t.Fatalf("source tree = %s, want %s", result.Manifest.SourceTreeSHA, firstTree)
 	}
+	imported := newSourceTestRepository(t)
+	advertised := imported.output(t, nil, "bundle", "unbundle", result.BundlePath)
+	if bytes.Contains(advertised, []byte(sourceBundleBaseRef)) {
+		t.Fatalf("parentless commit bundle forged a trusted base: %q", advertised)
+	}
+}
+
+func TestMaterializeSourceCommitAdvertisesSingleParentAsTrustedBase(t *testing.T) {
+	repo := newSourceTestRepository(t)
+	baseTree := repo.writeTree(t, "base")
+	base := repo.commitTree(t, baseTree, "")
+	candidateTree := repo.writeTree(t, "candidate")
+	candidate := repo.commitTree(t, candidateTree, base)
+
+	spec := gate.SourceSpec{
+		Kind:          gate.SourceKindCommit,
+		ObjectFormat:  gate.GitObjectFormatSHA1,
+		Commit:        &gate.CommitSource{SHA: candidate},
+		SourceTreeSHA: candidateTree,
+	}
+	result := materializeAndVerify(t, repo.root, spec)
+	if result.Manifest.TrustedBaseCommitSHA != base {
+		t.Fatalf("manifest trusted base = %q, want %q", result.Manifest.TrustedBaseCommitSHA, base)
+	}
+	imported := newSourceTestRepository(t)
+	advertised := imported.output(t, nil, "bundle", "unbundle", result.BundlePath)
+	wantBaseRef := base + " " + sourceBundleBaseRef + "\n"
+	if !bytes.Contains(advertised, []byte(wantBaseRef)) {
+		t.Fatalf("commit bundle refs = %q, want trusted base %q", advertised, wantBaseRef)
+	}
 }
 
 func TestMaterializeSourceRangeRoundTrip(t *testing.T) {
@@ -143,9 +173,32 @@ func TestMaterializeSourceDanglingStagedTreeCreatesSyntheticCommitWithoutReposit
 	if result.Manifest.SyntheticCommitSHA == "" || result.Manifest.SyntheticCommitSHA == parent {
 		t.Fatalf("synthetic commit = %q, parent = %q", result.Manifest.SyntheticCommitSHA, parent)
 	}
+	imported := newSourceTestRepository(t)
+	advertised := imported.output(t, nil, "bundle", "unbundle", result.BundlePath)
+	wantBaseRef := parent + " " + sourceBundleBaseRef + "\n"
+	if !bytes.Contains(advertised, []byte(wantBaseRef)) {
+		t.Fatalf("tree bundle refs = %q, want trusted base %q", advertised, wantBaseRef)
+	}
 	refsAfter := repo.output(t, nil, "for-each-ref", "--format=%(refname) %(objectname)")
 	if !bytes.Equal(refsBefore, refsAfter) {
 		t.Fatalf("real repository refs changed:\nbefore: %s\nafter: %s", refsBefore, refsAfter)
+	}
+}
+
+func TestMaterializeSourceTreeWithoutParentDoesNotAdvertiseBase(t *testing.T) {
+	repo := newSourceTestRepository(t)
+	tree := repo.writeTree(t, "parentless tree")
+	spec := gate.SourceSpec{
+		Kind:          gate.SourceKindTree,
+		ObjectFormat:  gate.GitObjectFormatSHA1,
+		Tree:          &gate.TreeSource{SHA: tree},
+		SourceTreeSHA: tree,
+	}
+	result := materializeAndVerify(t, repo.root, spec)
+	imported := newSourceTestRepository(t)
+	advertised := imported.output(t, nil, "bundle", "unbundle", result.BundlePath)
+	if bytes.Contains(advertised, []byte(sourceBundleBaseRef)) {
+		t.Fatalf("parentless tree bundle forged a trusted base: %q", advertised)
 	}
 }
 
@@ -174,6 +227,15 @@ func TestMaterializeSourceRejectsTreeMismatchAndWrongObjectType(t *testing.T) {
 				Kind:          gate.SourceKindCommit,
 				ObjectFormat:  gate.GitObjectFormatSHA1,
 				Commit:        &gate.CommitSource{SHA: blob},
+				SourceTreeSHA: tree,
+			},
+		},
+		{
+			name: "blob used as tree parent",
+			spec: gate.SourceSpec{
+				Kind:          gate.SourceKindTree,
+				ObjectFormat:  gate.GitObjectFormatSHA1,
+				Tree:          &gate.TreeSource{SHA: tree, ParentCommitSHA: blob},
 				SourceTreeSHA: tree,
 			},
 		},

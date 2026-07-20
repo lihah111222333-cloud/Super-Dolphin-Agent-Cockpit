@@ -3,11 +3,9 @@
 package main
 
 import (
-	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/typednil"
-	"golang.org/x/tools/go/analysis/multichecker"
-	"golang.org/x/tools/go/analysis/passes/nilness"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/nilnessrunner"
 )
 
 func main() {
-	multichecker.Main(nilness.Analyzer, typednil.Analyzer)
+	nilnessrunner.Main()
 }

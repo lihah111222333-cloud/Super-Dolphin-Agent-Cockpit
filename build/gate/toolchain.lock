@@ -4,16 +4,56 @@
   "dockerfile_frontend": "builtin:dockerfile.v1",
   "source_date_epoch": "0",
   "target_platforms": [
+    "linux/amd64",
     "linux/arm64"
   ],
   "base_images": [
     {
       "name": "GO_IMAGE",
-      "reference": "golang@sha256:1ecb7edf62a0408027bd5729dfd6b1b8766e578e8df93995b225dfd0944eb651"
+      "reference": "docker.io/library/golang@sha256:1ecb7edf62a0408027bd5729dfd6b1b8766e578e8df93995b225dfd0944eb651"
+    },
+    {
+      "name": "NODE_IMAGE",
+      "reference": "docker.io/library/node@sha256:5711a0d445a1af54af9589066c646df387d1831a608226f4cd694fc59e745059"
     }
   ],
   "dependency_sources": [
+    "build/gate/runtime-lsp/package-lock.json",
+    "build/gate/runtime-proxy/go.mod",
+    "build/gate/runtime-proxy/go.sum",
+    "build/gate/runtime-tools/go.mod",
+    "build/gate/runtime-tools/go.sum",
+    "frontend-app/package-lock.json",
     "go.sum"
   ],
+  "runtime_deps_lock": "build/gate/runtime-deps.lock",
+  "runtime_tools": {
+    "node_version": "v24.18.0",
+    "npm_version": "11.16.0",
+    "python_version": "3.11.2",
+    "ripgrep": "/opt/super-dolphin-gate/runtime/bin/rg@13.0.0-4+b2",
+    "sqruff": "/opt/super-dolphin-gate/runtime/bin/sqruff@0.38.0",
+    "sqruff_artifacts": [
+      {
+        "platform": "linux/amd64",
+        "url": "https://github.com/quarylabs/sqruff/releases/download/v0.38.0/sqruff-linux-x86_64-musl.tar.gz",
+        "sha256": "d96a06daca2a214eb0b6c07b2821e9cdb1379086041bcca6f8bab031b6eb8026"
+      },
+      {
+        "platform": "linux/arm64",
+        "url": "https://github.com/quarylabs/sqruff/releases/download/v0.38.0/sqruff-linux-aarch64-musl.tar.gz",
+        "sha256": "7e1abca59aeb3a0899a78be36dbfd4002db2ce6754835250beeea2fab95f5abf"
+      }
+    ],
+    "gopls": "golang.org/x/tools/gopls@v0.22.0",
+    "sqlc": "github.com/sqlc-dev/sqlc/cmd/sqlc@v1.30.0",
+    "npm_lsp_packages": [
+      "bash-language-server@5.6.0",
+      "pyright@1.1.411",
+      "typescript-language-server@5.3.0",
+      "typescript@5.9.3",
+      "vscode-langservers-extracted@4.10.0"
+    ]
+  },
   "network_policy": "none"
 }

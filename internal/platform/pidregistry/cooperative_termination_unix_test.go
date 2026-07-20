@@ -1,4 +1,4 @@
-//go:build darwin
+//go:build darwin || linux
 
 package pidregistry
 
@@ -654,10 +654,12 @@ func runReplacementPeerChild() {
 func TestCooperativeEndpointIdentityFieldGuard(t *testing.T) {
 	identityType := reflect.TypeFor[CooperativeEndpointIdentity]()
 	want := map[string]reflect.Kind{
-		"Device": reflect.Uint64,
-		"Inode":  reflect.Uint64,
-		"UID":    reflect.Uint32,
-		"Mode":   reflect.Uint32,
+		"Device":           reflect.Uint64,
+		"Inode":            reflect.Uint64,
+		"UID":              reflect.Uint32,
+		"Mode":             reflect.Uint32,
+		"CreationTimeSec":  reflect.Int64,
+		"CreationTimeNsec": reflect.Int64,
 	}
 	if identityType.NumField() != len(want) {
 		t.Fatalf("endpoint identity field count = %d, want %d", identityType.NumField(), len(want))

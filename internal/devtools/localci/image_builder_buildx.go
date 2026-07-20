@@ -177,7 +177,7 @@ func (runner *DockerBuildxRunner) commandArgs(request BuildKitBuildRequest, meta
 	if useCache {
 		args = append(args, "--cache-from=type=local,src="+cachePath)
 	}
-	args = append(args, "--cache-to=type=local,dest="+cachePath+",mode=max")
+	args = append(args, "--cache-to=type=local,dest="+cachePath+",mode=min")
 	for _, argument := range request.BuildArguments {
 		args = append(args, "--build-arg="+argument.Name+"="+argument.Value)
 	}

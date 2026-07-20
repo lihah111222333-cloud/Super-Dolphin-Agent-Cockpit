@@ -4,7 +4,7 @@
 
 ## 阅读边界提示
 
-- **01 / frontend**：当前且唯一的前端源码在 `frontend-app/`；`cmd/agent-terminal/web-dist/` 仅是 Go embed 构建产物同步目录。前端页面修改优先看 `frontend-app` 与 `01-terminal-ui-react.md`。全局双主题 token 在 `frontend-app/src/styles.css`，并经 `frontend-app/src/app/antdTheme.js` 映射到 Ant Design / Ant Design X 主题（`ConfigProvider`/`XProvider`）。
+- **01 / frontend**：当前且唯一的前端源码在 `frontend-app/`；`cmd/agent-terminal/web-dist/` 仅是 Go embed 构建产物同步目录。前端页面修改优先看 `frontend-app` 与 `01-terminal-ui-react.md`。
 - **02**：先看 sidecar / registry / bootstrap / tools 暴露；不展开 `internal/module/{memory,prompt,thread}` 的内部组装链。
 - **03**：`cmd/mcp-lsp` 是 generic multi-language LSP peer；阅读时按通用多语言 LSP peer 入口处理，不把它收窄成单一语言服务。
 - **07**：先看 `internal/module` 的职责切面、消费面与入口边界；07 已拆成读侧/写侧两份子卷。

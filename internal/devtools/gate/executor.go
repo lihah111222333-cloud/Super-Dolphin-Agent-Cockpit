@@ -18,6 +18,9 @@ const (
 	ExecutorRuntimeSeedRoot         = "/opt/super-dolphin-gate/runtime"
 	ExecutorRuntimeSeedManifestPath = ExecutorRuntimeSeedRoot + "/manifest.json"
 	ExecutorSQLCBinaryPath          = ExecutorRuntimeSeedRoot + "/bin/sqlc"
+	ExecutorSqruffBinaryPath        = ExecutorRuntimeSeedRoot + "/bin/sqruff"
+	executorPlaywrightBrowsersPath  = ExecutorRuntimeSeedRoot + "/frontend/node_modules/.cache/ms-playwright"
+	executorGoModuleProxy           = "file://" + ExecutorRuntimeSeedRoot + "/go-proxy"
 	executorUID                     = 65532
 	executorSearchPath              = "/usr/local/go/bin:/usr/local/bin:/usr/bin:/bin"
 )
@@ -47,15 +50,19 @@ type executorLayout struct {
 }
 
 type resolvedStep struct {
-	directory string
-	argv      []string
-	binary    string
+	directory   string
+	argv        []string
+	binary      string
+	environment []string
 }
 
 // ExecuteExecutor 严格解析一个规范门禁并在隔离的可写快照中执行。
 func ExecuteExecutor(ctx context.Context, args []string, stdout io.Writer, stderr io.Writer) error {
 	if ctx == nil || stdout == nil || stderr == nil {
 		return errors.New("executor context and output streams are required")
+	}
+	if len(args) > 0 && isPlanExecutorCommand(args[0]) {
+		return ExecutePlanExecutor(ctx, args, stdout, stderr)
 	}
 	id, program, err := ParseExecutorCommand(args)
 	if err != nil {
@@ -92,6 +99,9 @@ func executeProgram(ctx context.Context, config executorConfig, id GateID, progr
 	}
 	if err := validateExecutorProgram(program); err != nil {
 		return fmt.Errorf("gate %q executor program: %w", id, err)
+	}
+	if program.Strategy == ExecutorStrategyReleaseAttestation {
+		return errors.New("release attestation requires canonical prerequisites from the plan executor")
 	}
 	layout, err := prepareExecutorWorkspace(config)
 	if err != nil {
@@ -186,7 +196,8 @@ func validateExecutorStrategy(program ExecutorProgram) error {
 		if len(program.Steps) == 0 {
 			return errors.New("command strategy has no steps")
 		}
-	case ExecutorStrategyChangedDiagnostics, ExecutorStrategyFullTreeWhitespace, ExecutorStrategySQLCVerify:
+	case ExecutorStrategyChangedDiagnostics, ExecutorStrategyFullTreeWhitespace, ExecutorStrategySQLCVerify,
+		ExecutorStrategyReleaseAttestation:
 		if len(program.Steps) != 0 {
 			return errors.New("built-in strategy must not declare command steps")
 		}
@@ -201,8 +212,19 @@ func validateExecutorSteps(steps []ExecutorStep) error {
 		if len(step.Argv) == 0 || step.Argv[0] == "" {
 			return fmt.Errorf("step %d has no command", index)
 		}
+		if err := validateExecutorStepEnvironment(step.Environment); err != nil {
+			return fmt.Errorf("step %d environment: %w", index, err)
+		}
 	}
 	return nil
+}
+
+// validateExecutorStepEnvironment 只接受已登记的完整 Go 资源 profile。
+func validateExecutorStepEnvironment(environment []string) error {
+	if len(environment) == 0 || isAllowedExecutorStepEnvironment(environment) {
+		return nil
+	}
+	return errors.New("environment profile is not an allowed resource bound")
 }
 
 func validateRequiredPaths(paths []string) error {
@@ -256,7 +278,10 @@ func resolveExecutorSteps(searchPath string, sourceCopy string, program Executor
 		if err != nil {
 			return nil, fmt.Errorf("executor step %d: %w", index, err)
 		}
-		steps[index] = resolvedStep{directory: directory, argv: append([]string(nil), step.Argv...), binary: binary}
+		steps[index] = resolvedStep{
+			directory: directory, argv: append([]string(nil), step.Argv...), binary: binary,
+			environment: append([]string(nil), step.Environment...),
+		}
 	}
 	return steps, nil
 }
@@ -347,10 +372,39 @@ func runResolvedStep(ctx context.Context, step resolvedStep, environment []strin
 	configureCommandCancellation(command)
 	command.Args[0] = step.argv[0]
 	command.Dir = step.directory
-	command.Env = append([]string(nil), environment...)
+	stepEnvironment, err := mergeExecutorStepEnvironment(environment, step.environment)
+	if err != nil {
+		return err
+	}
+	command.Env = stepEnvironment
 	command.Stdout = stdout
 	command.Stderr = stderr
-	return command.Run()
+	return runConfiguredCommand(command)
+}
+
+// mergeExecutorStepEnvironment 合并已验证资源上限并拒绝覆盖 executor 环境。
+func mergeExecutorStepEnvironment(environment []string, stepEnvironment []string) ([]string, error) {
+	if err := validateExecutorStepEnvironment(stepEnvironment); err != nil {
+		return nil, err
+	}
+	keys := make(map[string]bool, len(environment)+len(stepEnvironment))
+	for _, assignment := range environment {
+		name, _, ok := strings.Cut(assignment, "=")
+		if !ok || name == "" || keys[name] {
+			return nil, errors.New("executor environment is malformed or duplicated")
+		}
+		keys[name] = true
+	}
+	merged := append([]string(nil), environment...)
+	for _, assignment := range stepEnvironment {
+		name, _, _ := strings.Cut(assignment, "=")
+		if keys[name] {
+			return nil, fmt.Errorf("step environment duplicates executor key %q", name)
+		}
+		keys[name] = true
+		merged = append(merged, assignment)
+	}
+	return merged, nil
 }
 
 func validateProgramInputs(sourceCopy string, program ExecutorProgram) error {
@@ -368,12 +422,13 @@ func validateProgramInputs(sourceCopy string, program ExecutorProgram) error {
 
 func executorEnvironment(layout executorLayout, searchPath string) []string {
 	return []string{
-		"CI=true", "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_NOSYSTEM=1", "GIT_OPTIONAL_LOCKS=0", "GIT_TERMINAL_PROMPT=0",
-		"GOCACHE=" + layout.goCache, "GOENV=off", "GOFLAGS=-mod=vendor -buildvcs=false", "GOMODCACHE=" + layout.goModCache,
-		"GOPROXY=off", "GOSUMDB=off", "GOTOOLCHAIN=local", "GOWORK=off",
+		"CI=true", "GIT_CONFIG_NOSYSTEM=1", "GIT_OPTIONAL_LOCKS=0", "GIT_TERMINAL_PROMPT=0",
+		"GOCACHE=" + layout.goCache, "GOENV=off", "GOMODCACHE=" + layout.goModCache,
+		"GOPROXY=" + executorGoModuleProxy, "GOSUMDB=off", "GOTOOLCHAIN=local",
 		"GOTMPDIR=" + layout.tmp, "HOME=" + layout.home, "LANG=C.UTF-8", "LC_ALL=C.UTF-8",
 		"NPM_CONFIG_AUDIT=false", "NPM_CONFIG_FUND=false", "NPM_CONFIG_UPDATE_NOTIFIER=false",
 		"npm_config_cache=" + layout.npmCache, "npm_config_offline=true", "npm_config_userconfig=/dev/null",
+		"PLAYWRIGHT_BROWSERS_PATH=" + executorPlaywrightBrowsersPath,
 		"PATH=" + searchPath, "TMPDIR=" + layout.tmp, "TZ=UTC", "XDG_CACHE_HOME=" + layout.xdgCache,
 	}
 }

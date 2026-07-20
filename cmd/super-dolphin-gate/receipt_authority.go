@@ -9,11 +9,9 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
-	"slices"
 	"time"
 
 	gatecontract "github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
-	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/localci"
 )
 
 type resultReceiptSigner interface {
@@ -165,6 +163,9 @@ func validateCurrentAcceptedReceipt(
 	receipt gatecontract.ResultReceipt,
 	accepted gatecontract.AcceptedImageRecord,
 ) error {
+	if receipt.SchemaVersion != gatecontract.ResultReceiptSchemaVersion || len(receipt.ShardReceipts) != gatecontract.MaxContainerShards {
+		return errors.New("result receipt must use the canonical v2 three-shard schema")
+	}
 	if receipt.RepoID != accepted.RepoID || receipt.PolicyDigest != accepted.PolicyDigest ||
 		receipt.Generation != accepted.Generation ||
 		!reflect.DeepEqual(receipt.Image, accepted.Image) ||
@@ -203,108 +204,21 @@ func (verifier *ed25519ResultReceiptVerifier) VerifyResultReceipt(receipt gateco
 }
 
 type receiptExecution struct {
-	Accepted    gatecontract.AcceptedImageRecord
-	Results     []gatecontract.GateResult
-	Evidence    []gatecontract.Evidence
-	Containers  []gatecontract.ContainerEvidence
-	StartedAt   time.Time
-	CompletedAt time.Time
-	Deadline    time.Time
+	Accepted                    gatecontract.AcceptedImageRecord
+	Results                     []gatecontract.GateResult
+	Evidence                    []gatecontract.Evidence
+	Containers                  []gatecontract.ContainerEvidence
+	ContainerObserved           bool
+	ContainerRemovalProven      bool
+	ContainerRemovalProofDigest string
+	StartedAt                   time.Time
+	CompletedAt                 time.Time
+	Deadline                    time.Time
+	ShardSet                    *gatecontract.ContainerShardSet
+	ShardReceipts               []gatecontract.ContainerShardReceipt
 }
 
-// appendResult 校验并累计一个真实 fresh-container 执行结果。
-func (execution *receiptExecution) appendResult(result localci.FreshContainerResult) error {
-	if err := validateFreshReceiptResult(result); err != nil {
-		return err
-	}
-	processDigest, containerDigest, err := receiptExecutionDigests(result)
-	if err != nil {
-		return err
-	}
-	if err := execution.recordReceiptTimeline(result); err != nil {
-		return err
-	}
-	execution.Results = append(execution.Results, *result.GateResult)
-	execution.Evidence = append(execution.Evidence, result.Evidence...)
-	execution.Evidence = append(execution.Evidence,
-		gatecontract.Evidence{Kind: gatecontract.EvidenceKindProcess, Digest: processDigest},
-		gatecontract.Evidence{Kind: gatecontract.EvidenceKindDocker, Digest: containerDigest},
-	)
-	execution.Containers = append(execution.Containers, result.Container)
-	return nil
-}
-
-// validateFreshReceiptResult 校验 gate、容器、时间线和直接证据闭包。
-func validateFreshReceiptResult(result localci.FreshContainerResult) error {
-	if result.GateResult == nil {
-		return errors.New("fresh container result is missing gate result")
-	}
-	if err := result.Container.Validate(); err != nil {
-		return fmt.Errorf("fresh container evidence: %w", err)
-	}
-	if err := validateFreshReceiptTimeline(result); err != nil {
-		return err
-	}
-	return validateFreshReceiptEvidence(result)
-}
-
-// validateFreshReceiptTimeline 校验容器和 GateResult 的时间线完全一致。
-func validateFreshReceiptTimeline(result localci.FreshContainerResult) error {
-	if result.StartedAt.IsZero() || result.CompletedAt.Before(result.StartedAt) ||
-		!result.Deadline.After(result.StartedAt) || result.CompletedAt.After(result.Deadline) {
-		return errors.New("fresh container result timeline is incomplete")
-	}
-	if result.GateResult.LogDigest != result.LogDigest ||
-		!result.GateResult.StartedAt.Equal(result.StartedAt) ||
-		!result.GateResult.CompletedAt.Equal(result.CompletedAt) {
-		return errors.New("fresh container gate result drifted from execution evidence")
-	}
-	return nil
-}
-
-// validateFreshReceiptEvidence 校验日志和 removal proof 均直接可追溯。
-func validateFreshReceiptEvidence(result localci.FreshContainerResult) error {
-	if !slices.Contains(result.Evidence, gatecontract.Evidence{
-		Kind: gatecontract.EvidenceKindLog, Digest: result.LogDigest,
-	}) || !slices.Contains(result.Evidence, gatecontract.Evidence{
-		Kind: gatecontract.EvidenceKindDocker, Digest: result.RemovalProofDigest,
-	}) {
-		return errors.New("fresh container result is missing log or removal evidence")
-	}
-	if result.RemovalProofDigest != containerRemovalProofDigest(result.Container.ContainerID) {
-		return errors.New("fresh container removal proof does not bind the container identity")
-	}
-	return nil
-}
-
-// receiptExecutionDigests 生成 process 与 container 的规范证据摘要。
-func receiptExecutionDigests(result localci.FreshContainerResult) (string, string, error) {
-	processDigest, err := canonicalReceiptDigest(*result.GateResult)
-	if err != nil {
-		return "", "", err
-	}
-	containerDigest, err := canonicalReceiptDigest(result.Container)
-	if err != nil {
-		return "", "", err
-	}
-	return processDigest, containerDigest, nil
-}
-
-// recordReceiptTimeline 累计 job 时间线并阻断越过 coordinator deadline。
-func (execution *receiptExecution) recordReceiptTimeline(result localci.FreshContainerResult) error {
-	if len(execution.Results) == 0 {
-		execution.StartedAt = result.StartedAt
-		if execution.Deadline.IsZero() {
-			execution.Deadline = result.Deadline
-		}
-	}
-	if result.Deadline.After(execution.Deadline) {
-		return errors.New("fresh container deadline exceeds coordinator job deadline")
-	}
-	execution.CompletedAt = result.CompletedAt
-	return nil
-}
-
+// buildPassedResultReceipt 将 durable submission authority 一并签入 passed receipt。
 func buildPassedResultReceipt(
 	record coordinatorJobRecord,
 	execution receiptExecution,
@@ -321,15 +235,18 @@ func buildPassedResultReceipt(
 		return gatecontract.ResultReceipt{}, err
 	}
 	receipt := gatecontract.ResultReceipt{
-		SchemaVersion: 1, ReceiptID: resultReceiptID(record.JobID),
+		SchemaVersion: gatecontract.ResultReceiptSchemaVersion, ReceiptID: resultReceiptID(record.JobID),
 		RepoID: execution.Accepted.RepoID, InvocationID: record.InvocationID,
-		Source: record.Plan.Source, PlanDigest: record.Plan.PlanDigest, PolicyDigest: record.Plan.PolicyDigest,
+		Entrypoint: record.Authority.Entrypoint, AuthorityOwner: record.Authority.Owner,
+		AuthorityAttestation: record.Authority.Attestation,
+		Source:               record.Plan.Source, PlanDigest: record.Plan.PlanDigest, PolicyDigest: record.Plan.PolicyDigest,
 		Runner: execution.Accepted.Runner, Image: execution.Accepted.Image,
 		Generation: execution.Accepted.Generation,
 		StartedAt:  execution.StartedAt, CompletedAt: execution.CompletedAt, Deadline: execution.Deadline,
 		Status:      gatecontract.ResultStatusPassed,
 		GateResults: append([]gatecontract.GateResult(nil), execution.Results...),
 		Evidence:    append([]gatecontract.Evidence(nil), execution.Evidence...), Container: container,
+		ShardReceipts: cloneContainerShardReceipts(execution.ShardReceipts),
 	}
 	return signer.SignResultReceipt(receipt)
 }
@@ -342,16 +259,76 @@ func validatePassedReceiptExecution(record coordinatorJobRecord, execution recei
 	if execution.Accepted.PolicyDigest != record.Plan.PolicyDigest {
 		return errors.New("accepted image policy digest does not match job plan")
 	}
-	if len(execution.Results) != len(record.Plan.Gates) || len(execution.Containers) != len(record.Plan.Gates) {
-		return errors.New("passed execution does not cover every planned gate and container")
+	if execution.ShardSet == nil {
+		return errors.New("passed execution must contain the canonical three container shards")
 	}
-	for index, gateSpec := range record.Plan.Gates {
-		if execution.Results[index].GateID != string(gateSpec.ID) ||
-			execution.Results[index].Status != gatecontract.GateStatusPassed {
-			return fmt.Errorf("passed execution gate %d does not match plan", index)
+	return validatePassedShardReceiptExecution(record, execution)
+}
+
+// validatePassedShardReceiptExecution 要求 passed 三 shard receipt 的身份、聚合和容器证据完全一致。
+func validatePassedShardReceiptExecution(record coordinatorJobRecord, execution receiptExecution) error {
+	set := *execution.ShardSet
+	if err := validatePassedShardSetIdentity(record, execution, set); err != nil {
+		return err
+	}
+	if err := validatePassedShardEvidenceCardinality(execution, set); err != nil {
+		return err
+	}
+	aggregated, err := gatecontract.AggregateContainerShards(set, execution.ShardReceipts)
+	if err != nil || len(aggregated) != len(record.Plan.Gates) {
+		return errors.New("passed shard execution does not have trusted aggregate gates")
+	}
+	if err := validatePassedShardAggregateResults(execution.Results, aggregated); err != nil {
+		return err
+	}
+	return validatePassedShardContainerEvidence(execution, set)
+}
+
+// validatePassedShardSetIdentity 校验 durable plan、source 与 accepted image 的单一绑定。
+func validatePassedShardSetIdentity(record coordinatorJobRecord, execution receiptExecution, set gatecontract.ContainerShardSet) error {
+	if err := set.Validate(); err != nil || set.PlanDigest != record.Plan.PlanDigest || set.SourceTreeSHA != record.JobSourceTreeSHA {
+		return errors.New("passed shard execution identity drifted")
+	}
+	if set.AcceptedManifestDigest != execution.Accepted.Image.PlatformManifestDigest ||
+		set.AcceptedConfigDigest != execution.Accepted.Image.ConfigDigest {
+		return errors.New("passed shard execution accepted image drifted")
+	}
+	return nil
+}
+
+func validatePassedShardEvidenceCardinality(execution receiptExecution, set gatecontract.ContainerShardSet) error {
+	if len(set.Shards) != gatecontract.MaxContainerShards || len(execution.ShardReceipts) != len(set.Shards) ||
+		len(execution.Containers) != len(set.Shards) {
+		return errors.New("passed shard execution does not contain the exact three containers")
+	}
+	return nil
+}
+
+func validatePassedShardAggregateResults(results []gatecontract.GateResult, aggregated []gatecontract.PlanGateExecution) error {
+	if len(results) != len(aggregated) {
+		return errors.New("passed shard receipt gate count drifted")
+	}
+	for index, result := range results {
+		want := gateResultFromPlanExecution(aggregated[index])
+		if result != want {
+			return errors.New("passed shard receipt gate order drifted")
 		}
 	}
 	return nil
+}
+
+func validatePassedShardContainerEvidence(execution receiptExecution, set gatecontract.ContainerShardSet) error {
+	for index, receipt := range execution.ShardReceipts {
+		if execution.Containers[index] != receipt.Container || !reflect.DeepEqual(receipt.Shard, set.Shards[index]) {
+			return errors.New("passed shard container evidence drifted")
+		}
+	}
+	return nil
+}
+
+func gateResultFromPlanExecution(result gatecontract.PlanGateExecution) gatecontract.GateResult {
+	return gatecontract.GateResult{GateID: string(result.GateID), Status: gateStatusForResult(result.Status),
+		ExitCode: result.ExitCode, StartedAt: result.StartedAt, CompletedAt: result.CompletedAt, ArgvDigest: result.ArgvDigest, LogDigest: result.LogDigest}
 }
 
 // aggregateContainerEvidence 汇总各 gate 容器身份并要求 removal proof 完整一致。
@@ -359,10 +336,8 @@ func aggregateContainerEvidence(containers []gatecontract.ContainerEvidence) (ga
 	if len(containers) == 0 {
 		return gatecontract.ContainerEvidence{}, errors.New("container evidence is required")
 	}
-	for index := range containers {
-		if err := containers[index].Validate(); err != nil {
-			return gatecontract.ContainerEvidence{}, fmt.Errorf("container evidence %d: %w", index, err)
-		}
+	if err := validateContainerEvidenceSet(containers); err != nil {
+		return gatecontract.ContainerEvidence{}, err
 	}
 	allDigest, err := canonicalReceiptDigest(containers)
 	if err != nil {
@@ -384,9 +359,25 @@ func aggregateContainerEvidence(containers []gatecontract.ContainerEvidence) (ga
 	}
 	return gatecontract.ContainerEvidence{
 		ContainerID: "aggregate:" + allDigest, NetworkID: "aggregate:" + allDigest,
-		HostConfigDigest: hostDigest, NetworkPolicyDigest: networkDigest,
-		Removed: true, NetworkRemoved: true,
+		HostConfigDigest: hostDigest,
+		ResourceWitness:  containers[0].ResourceWitness, ResourceWitnessDigest: containers[0].ResourceWitnessDigest,
+		NetworkPolicyDigest: networkDigest,
+		Removed:             true, NetworkRemoved: true,
 	}, nil
+}
+
+// validateContainerEvidenceSet 校验每个容器证据及统一的资源 witness。
+func validateContainerEvidenceSet(containers []gatecontract.ContainerEvidence) error {
+	for index := range containers {
+		if err := containers[index].Validate(); err != nil {
+			return fmt.Errorf("container evidence %d: %w", index, err)
+		}
+		if index > 0 && (!reflect.DeepEqual(containers[index].ResourceWitness, containers[0].ResourceWitness) ||
+			containers[index].ResourceWitnessDigest != containers[0].ResourceWitnessDigest) {
+			return errors.New("container resource witnesses are inconsistent")
+		}
+	}
+	return nil
 }
 
 func canonicalReceiptDigest(value any) (string, error) {
@@ -408,6 +399,7 @@ func resultReceiptID(jobID string) string {
 	return fmt.Sprintf("receipt-%x", digest)
 }
 
+// cloneResultReceipt 深拷贝回执中可变的切片和指针，避免调用方修改已签名内容。
 func cloneResultReceipt(receipt gatecontract.ResultReceipt) gatecontract.ResultReceipt {
 	if receipt.Source.Commit != nil {
 		commit := *receipt.Source.Commit
@@ -424,5 +416,19 @@ func cloneResultReceipt(receipt gatecontract.ResultReceipt) gatecontract.ResultR
 	receipt.Image.RootFSDiffIDs = append([]string(nil), receipt.Image.RootFSDiffIDs...)
 	receipt.GateResults = append([]gatecontract.GateResult(nil), receipt.GateResults...)
 	receipt.Evidence = append([]gatecontract.Evidence(nil), receipt.Evidence...)
+	receipt.ShardReceipts = cloneContainerShardReceipts(receipt.ShardReceipts)
 	return receipt
+}
+
+// cloneContainerShardReceipts 深拷贝逐片配置、门禁执行与日志字节，保留容器证据值。
+func cloneContainerShardReceipts(receipts []gatecontract.ContainerShardReceipt) []gatecontract.ContainerShardReceipt {
+	cloned := append([]gatecontract.ContainerShardReceipt(nil), receipts...)
+	for index := range cloned {
+		cloned[index].Shard.GateIDs = append([]gatecontract.GateID(nil), cloned[index].Shard.GateIDs...)
+		cloned[index].GateExecutions = append([]gatecontract.PlanGateExecution(nil), cloned[index].GateExecutions...)
+		for executionIndex := range cloned[index].GateExecutions {
+			cloned[index].GateExecutions[executionIndex].Log = append([]byte(nil), cloned[index].GateExecutions[executionIndex].Log...)
+		}
+	}
+	return cloned
 }

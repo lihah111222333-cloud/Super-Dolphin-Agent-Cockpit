@@ -49,6 +49,7 @@ func TestToolResultPersistFailurePropagatesToProviderRecord(t *testing.T) {
 		t.Fatalf("WriteFile(%q): %v", homeFile, err)
 	}
 	t.Setenv("HOME", homeFile)
+	t.Setenv("XDG_CACHE_HOME", homeFile)
 	ResetToolResultScope("thread-persist-fail", "turn-persist-fail")
 
 	raw := strings.Repeat("x", toolResultPersistThresholdChars+32)

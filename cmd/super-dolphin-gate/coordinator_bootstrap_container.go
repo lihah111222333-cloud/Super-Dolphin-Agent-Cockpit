@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -101,6 +102,53 @@ func validateProductionBootstrapContainerHost(host *struct {
 		return errors.New("production bootstrap container host policy drifted")
 	}
 	return nil
+}
+
+// CleanupStaleContainers 在持有 bootstrap 锁时按 root/repo labels 清理 crash residue。
+func (productionBootstrapHostRuntime) CleanupStaleContainers(
+	ctx context.Context,
+	root productionBootstrapRoot,
+	rootDigest string,
+) error {
+	output, err := productionBootstrapDocker(
+		ctx, "ps", "-aq", "--filter", "label="+productionBootstrapRootLabel+"="+rootDigest,
+		"--filter", "label="+productionBootstrapRepoLabel+"="+root.RepoID,
+	)
+	if err != nil {
+		return err
+	}
+	for line := range strings.SplitSeq(strings.TrimSpace(string(output)), "\n") {
+		containerID := strings.TrimSpace(line)
+		if containerID == "" {
+			continue
+		}
+		if err := removeProductionBootstrapContainer(ctx, containerID); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// removeProductionBootstrapContainer 删除一次性 bootstrap Docker 容器。
+func removeProductionBootstrapContainer(ctx context.Context, containerID string) error {
+	if strings.TrimSpace(containerID) == "" {
+		return nil
+	}
+	_, err := productionBootstrapDocker(ctx, "rm", "-f", containerID)
+	return err
+}
+
+// productionBootstrapDocker 在统一命令边界执行 bootstrap Docker 操作。
+func productionBootstrapDocker(ctx context.Context, args ...string) ([]byte, error) {
+	command, err := productionHostDockerCommand(ctx, args...)
+	if err != nil {
+		return nil, fmt.Errorf("prepare production bootstrap Docker command: %w", err)
+	}
+	output, err := command.CombinedOutput()
+	if err != nil {
+		return nil, fmt.Errorf("production bootstrap docker %s: %w: %s", args[0], err, strings.TrimSpace(string(output)))
+	}
+	return output, nil
 }
 
 func validateProductionBootstrapContainerState(document productionBootstrapContainerInspect) error {

@@ -1,11 +1,16 @@
 package sourceexport
 
 import (
+	"bytes"
 	"context"
+	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 )
 
 func TestLoadGitTreeReadsCommittedBlobsAndModes(t *testing.T) {
@@ -68,6 +73,119 @@ func TestValidateTreeEntriesRejectsCaseCollisionAndSubmodule(t *testing.T) {
 			assertErrorCode(t, validateTreeEntries(tt.entries), tt.code)
 		})
 	}
+}
+
+func TestLoadTreeEntryDataUsesOneBatchAndReusesDuplicateOID(t *testing.T) {
+	const (
+		firstOID  = "1111111111111111111111111111111111111111"
+		secondOID = "2222222222222222222222222222222222222222"
+	)
+	entries := make([]TreeEntry, 5_000)
+	for index := range entries {
+		oid := firstOID
+		if index%2 != 0 {
+			oid = secondOID
+		}
+		entries[index] = TreeEntry{Path: "file", Mode: "100644", Hash: oid}
+	}
+	runner := &gitTreeRunnerStub{batchOutput: []byte(
+		firstOID + " blob 3\none\n" +
+			secondOID + " blob 3\ntwo\n",
+	)}
+
+	if err := loadTreeEntryData(context.Background(), runner, "/repo", entries); err != nil {
+		t.Fatalf("loadTreeEntryData() error = %v", err)
+	}
+	if runner.batchCalls != 1 {
+		t.Fatalf("batch calls = %d, want 1", runner.batchCalls)
+	}
+	if got, want := string(runner.batchInput), firstOID+"\n"+secondOID+"\n"; got != want {
+		t.Fatalf("batch input = %q, want %q", got, want)
+	}
+	if string(entries[0].Data) != "one" || string(entries[1].Data) != "two" {
+		t.Fatalf("entry data = %q, %q", entries[0].Data, entries[1].Data)
+	}
+	if &entries[0].Data[0] != &entries[2].Data[0] {
+		t.Fatal("duplicate OID did not reuse validated blob data")
+	}
+}
+
+func TestParseGitBlobBatchRejectsProtocolDrift(t *testing.T) {
+	const oid = "1111111111111111111111111111111111111111"
+	tests := []struct {
+		name   string
+		output string
+	}{
+		{name: "OID", output: strings.Repeat("2", 40) + " blob 3\none\n"},
+		{name: "type", output: oid + " tree 3\none\n"},
+		{name: "size", output: oid + " blob 4\none\n"},
+		{name: "terminator", output: oid + " blob 3\none!"},
+		{name: "trailing", output: oid + " blob 3\none\nextra"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if _, err := parseGitBlobBatch([]byte(test.output), []string{oid}); err == nil {
+				t.Fatal("parseGitBlobBatch() accepted malformed batch output")
+			}
+		})
+	}
+}
+
+func TestLoadTreeEntryDataHonorsContextCancellation(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	runner := &gitTreeRunnerStub{batch: func(ctx context.Context, _ []byte) ([]byte, error) {
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}}
+	entries := []TreeEntry{{Path: "file", Mode: "100644", Hash: strings.Repeat("1", 40)}}
+	started := time.Now()
+	err := loadTreeEntryData(ctx, runner, "/repo", entries)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("loadTreeEntryData() error = %v, want deadline exceeded", err)
+	}
+	if elapsed := time.Since(started); elapsed > time.Second {
+		t.Fatalf("context cancellation took %s", elapsed)
+	}
+}
+
+func TestLoadTreeEntryDataRejectsEntryAndByteLimits(t *testing.T) {
+	runner := &gitTreeRunnerStub{}
+	entries := make([]TreeEntry, maxGitTreeEntries+1)
+	if err := loadTreeEntryData(context.Background(), runner, "/repo", entries); err == nil {
+		t.Fatal("loadTreeEntryData() accepted excessive entry count")
+	}
+	if runner.batchCalls != 0 {
+		t.Fatalf("batch calls after entry limit = %d, want 0", runner.batchCalls)
+	}
+	oid := strings.Repeat("1", 40)
+	output := []byte(oid + " blob " + fmt.Sprint(maxGitTreeBytes+1) + "\n")
+	if _, err := parseGitBlobBatch(output, []string{oid}); err == nil {
+		t.Fatal("parseGitBlobBatch() accepted excessive blob size")
+	}
+}
+
+type gitTreeRunnerStub struct {
+	batch       func(context.Context, []byte) ([]byte, error)
+	batchOutput []byte
+	batchInput  []byte
+	batchCalls  int
+}
+
+func (runner *gitTreeRunnerStub) Run(context.Context, string, ...string) ([]byte, error) {
+	return nil, errors.New("unexpected non-batch Git command")
+}
+
+func (runner *gitTreeRunnerStub) RunBatch(ctx context.Context, _ string, input []byte, _ int64, args ...string) ([]byte, error) {
+	if strings.Join(args, " ") != "cat-file --batch" {
+		return nil, errors.New("unexpected batch Git command")
+	}
+	runner.batchCalls++
+	runner.batchInput = bytes.Clone(input)
+	if runner.batch != nil {
+		return runner.batch(ctx, input)
+	}
+	return bytes.Clone(runner.batchOutput), nil
 }
 
 func newGitTreeFixture(t *testing.T) string {

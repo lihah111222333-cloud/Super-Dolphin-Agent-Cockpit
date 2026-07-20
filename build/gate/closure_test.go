@@ -1,33 +1,25 @@
 package gateclosure_test
 
 import (
-	"archive/tar"
 	"bufio"
 	"bytes"
-	"compress/gzip"
 	"encoding/json"
-	"errors"
-	"fmt"
-	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"slices"
 	"sort"
 	"strings"
 	"testing"
-	"time"
 )
 
 const (
-	dockerfilePath = "build/gate/Dockerfile"
-	manifestPath   = "build/gate/inputs.json"
-	toolchainPath  = "build/gate/toolchain.lock"
-	vendorPath     = "build/gate/vendor.tar.gz"
+	dockerfilePath       = "build/gate/Dockerfile"
+	manifestPath         = "build/gate/inputs.json"
+	toolchainPath        = "build/gate/toolchain.lock"
+	runtimeDepsLockPath  = "build/gate/runtime-deps.lock"
+	runtimeDepsBuildPath = "build/gate/runtime-deps.Dockerfile"
 )
-
-var gateTargets = []string{"./cmd/super-dolphin-gate", "./internal/devtools/gatehook"}
 
 type manifest struct {
 	SchemaVersion string   `json:"schema_version"`
@@ -35,99 +27,144 @@ type manifest struct {
 	Inputs        []string `json:"inputs"`
 }
 
-type packageModule struct {
-	Main bool
-}
-
-type listedPackage struct {
-	Dir        string
-	Standard   bool
-	Module     *packageModule
-	GoFiles    []string
-	SFiles     []string
-	SysoFiles  []string
-	EmbedFiles []string
-}
-
-func TestGateImageManifestIsExactLinuxBuildClosure(t *testing.T) {
+func TestTruthImageClosureUsesImmutableRuntimeAndRealExecutor(t *testing.T) {
 	root := repositoryRoot(t)
 	tracked := readManifest(t, root)
-	localFiles := listLocalBuildFiles(t, root)
-	wanted := []string{dockerfilePath, manifestPath, toolchainPath, vendorPath, "go.mod", "go.sum"}
-	wanted = append(wanted, localFiles...)
-	sort.Strings(wanted)
-	if !slices.Equal(tracked.Inputs, wanted) {
-		t.Fatalf("tracked gate inputs drifted from Linux build closure\ntracked-only: %v\nmissing: %v", difference(tracked.Inputs, wanted), difference(wanted, tracked.Inputs))
+	if tracked.SchemaVersion != "1" || tracked.Dockerfile != dockerfilePath || !sort.StringsAreSorted(tracked.Inputs) {
+		t.Fatalf("invalid truth image manifest identity: %+v", tracked)
 	}
-	if tracked.SchemaVersion != "1" || tracked.Dockerfile != dockerfilePath {
-		t.Fatalf("unexpected tracked manifest identity: %+v", tracked)
+	for _, required := range []string{
+		"cmd/super-dolphin-gate-executor/main.go",
+		"internal/devtools/gate/executor.go",
+		"internal/devtools/gate/executor_mapping.go",
+		"internal/devtools/gate/resource_witness.go",
+		"build/gate/cmd/runtime-seed-manifest/main.go",
+		toolchainPath, runtimeDepsLockPath, runtimeDepsBuildPath,
+	} {
+		if !slices.Contains(tracked.Inputs, required) {
+			t.Fatalf("truth image closure is missing %s", required)
+		}
 	}
-
-	dockerSources := parseDockerSources(t, filepath.Join(root, dockerfilePath))
-	wantedDockerSources := append([]string{"go.mod", "go.sum", vendorPath}, localFiles...)
-	sort.Strings(wantedDockerSources)
-	if !slices.Equal(dockerSources, wantedDockerSources) {
-		t.Fatalf("Dockerfile sources drifted from declared build sources\nDocker-only: %v\nmissing: %v", difference(dockerSources, wantedDockerSources), difference(wantedDockerSources, dockerSources))
+	for _, name := range tracked.Inputs {
+		if strings.Contains(name, "node_modules") || strings.HasSuffix(name, ".tar.gz") || strings.Contains(name, "runtime-tools-vendor") {
+			t.Fatalf("large dependency payload entered Git closure: %s", name)
+		}
+		info, err := os.Lstat(filepath.Join(root, filepath.FromSlash(name)))
+		if err != nil || !info.Mode().IsRegular() {
+			t.Fatalf("closure input %s is not a regular file: %v", name, err)
+		}
 	}
 }
 
-func TestGateImageLocksSourceDateEpoch(t *testing.T) {
+func TestTruthDockerfileIsOfflineAndDigestOnly(t *testing.T) {
+	root := repositoryRoot(t)
+	data, err := os.ReadFile(filepath.Join(root, dockerfilePath))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(data)
+	for _, required := range []string{
+		"ARG RUNTIME_DEPS_IMAGE\n",
+		"FROM ${RUNTIME_DEPS_IMAGE} AS build\nUSER root",
+		"/usr/local/bin/super-dolphin-runtime-seed verify",
+		"go build -mod=vendor -trimpath -buildvcs=false -o /out/super-dolphin-gate-executor",
+		"COPY --from=build /out/super-dolphin-gate-executor /usr/local/bin/super-dolphin-gate-executor",
+	} {
+		if !strings.Contains(text, required) {
+			t.Fatalf("truth Dockerfile is missing %q", required)
+		}
+	}
+	if !dockerfileCopiesSource(t, data, "internal/devtools/gate/resource_witness.go") {
+		t.Fatal("truth Dockerfile COPY closure is missing internal/devtools/gate/resource_witness.go")
+	}
+	for _, forbidden := range []string{"runtime-deps:latest", "runtime-node.tar", "runtime-tools.tar", "vendor.tar.gz", "npm ci", "go mod download"} {
+		if strings.Contains(text, forbidden) {
+			t.Fatalf("truth Dockerfile contains forbidden fallback %q", forbidden)
+		}
+	}
+	if strings.Contains(text, "127.0.0.1:5000") || strings.Contains(text, "localhost:") {
+		t.Fatal("truth Dockerfile must receive its runtime dependency image from the platform-bound build request")
+	}
+	scanner := bufio.NewScanner(bytes.NewReader(data))
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if strings.HasPrefix(line, "RUN ") && !strings.HasPrefix(line, "RUN --network=none ") {
+			t.Fatalf("truth Dockerfile has network-capable RUN: %s", line)
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestRuntimeDependencyRefreshInputsAreSmallLocks(t *testing.T) {
 	root := repositoryRoot(t)
 	data, err := os.ReadFile(filepath.Join(root, toolchainPath))
 	if err != nil {
 		t.Fatal(err)
 	}
 	var lock struct {
-		SourceDateEpoch string `json:"source_date_epoch"`
+		RuntimeDepsLock   string   `json:"runtime_deps_lock"`
+		DependencySources []string `json:"dependency_sources"`
+		NetworkPolicy     string   `json:"network_policy"`
 	}
-	if err := json.Unmarshal(data, &lock); err != nil {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&lock); err == nil {
+		t.Fatal("partial toolchain schema unexpectedly decoded with unknown-field rejection")
+	}
+	var document map[string]any
+	if err := json.Unmarshal(data, &document); err != nil {
 		t.Fatal(err)
 	}
-	if lock.SourceDateEpoch != "0" {
-		t.Fatalf("source_date_epoch = %q, want canonical Unix epoch", lock.SourceDateEpoch)
+	if document["runtime_deps_lock"] != runtimeDepsLockPath || document["network_policy"] != "none" {
+		t.Fatalf("toolchain runtime boundary drifted: %+v", document)
 	}
-
-	dockerfile, err := os.ReadFile(filepath.Join(root, dockerfilePath))
-	if err != nil {
-		t.Fatal(err)
-	}
-	declaration := "ARG SOURCE_DATE_EPOCH=" + lock.SourceDateEpoch + "\n"
-	firstFrom := bytes.Index(dockerfile, []byte("FROM "))
-	declarationIndex := bytes.Index(dockerfile, []byte(declaration))
-	if declarationIndex < 0 || firstFrom < 0 || declarationIndex > firstFrom {
-		t.Fatalf("Dockerfile must declare %q before its first FROM", strings.TrimSpace(declaration))
-	}
-	for _, required := range []string{
-		"FROM ${GO_IMAGE} AS build\nARG SOURCE_DATE_EPOCH\n",
-		"touch -d \"@${SOURCE_DATE_EPOCH}\" /out/super-dolphin-gate",
-	} {
-		if !bytes.Contains(dockerfile, []byte(required)) {
-			t.Fatalf("Dockerfile is missing deterministic artifact timestamp contract %q", required)
+	for _, name := range []string{"go.sum", "frontend-app/package-lock.json", "build/gate/runtime-lsp/package-lock.json", "build/gate/runtime-proxy/go.mod", "build/gate/runtime-proxy/go.sum", "build/gate/runtime-tools/go.mod", "build/gate/runtime-tools/go.sum"} {
+		if !slices.Contains(asStrings(t, document["dependency_sources"]), name) {
+			t.Fatalf("toolchain dependency sources are missing %s", name)
 		}
 	}
 }
 
-func TestGateVendorArchiveIsCanonicalAndBuildsOffline(t *testing.T) {
+func TestRuntimeDependencyRefreshInstallsLockedChromiumOnlyInRefreshImage(t *testing.T) {
 	root := repositoryRoot(t)
-	tracked := readManifest(t, root)
-	temporaryRoot := t.TempDir()
-	for _, name := range tracked.Inputs {
-		if strings.HasPrefix(name, "build/gate/") {
-			continue
-		}
-		copyRegularFile(t, filepath.Join(root, filepath.FromSlash(name)), filepath.Join(temporaryRoot, filepath.FromSlash(name)))
-	}
-	extractCanonicalVendor(t, filepath.Join(root, vendorPath), filepath.Join(temporaryRoot, "vendor"))
-
-	environment := append(os.Environ(), "GOWORK=off", "GOOS=linux", "GOARCH=arm64", "CGO_ENABLED=0", "GOTOOLCHAIN=local", "GOPROXY=off", "GOSUMDB=off")
-	runCommand(t, temporaryRoot, environment, "go", "test", "-mod=vendor", "-run", "^$", "./internal/devtools/gatehook")
-	runCommand(t, temporaryRoot, environment, "go", "build", "-mod=vendor", "-trimpath", "-buildvcs=false", "-o", filepath.Join(temporaryRoot, "super-dolphin-gate"), "./cmd/super-dolphin-gate")
-	info, err := os.Stat(filepath.Join(temporaryRoot, "super-dolphin-gate"))
+	data, err := os.ReadFile(filepath.Join(root, runtimeDepsBuildPath))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if info.Size() == 0 || info.Mode()&0o111 == 0 {
-		t.Fatalf("offline gate binary is not executable: mode=%s size=%d", info.Mode(), info.Size())
+	text := string(data)
+	for _, required := range []string{
+		"go mod download all",
+		"cd /src/build/gate/runtime-proxy",
+		"github.com/kelindar/event/@v/v1.5.2.zip",
+		"grep -Fxq v1.5.2",
+		"cp -a \"$(go env GOMODCACHE)/cache/download/.\" /out/go-proxy/",
+		"./node_modules/.bin/playwright install chromium",
+		"/opt/super-dolphin-gate/runtime/frontend/node_modules/.cache/ms-playwright",
+		"playwright install-deps chromium",
+		"apt-get install -y --no-install-recommends ripgrep=13.0.0-4+b2",
+		"COPY --from=ripgrep-seed /out/bin/rg /runtime/bin/rg",
+		"COPY --from=repository-vendor /out/go-proxy /runtime/go-proxy",
+		"COPY --from=repository-vendor /out/go-proxy /opt/super-dolphin-gate/runtime/go-proxy",
+		"COPY --from=ripgrep-seed /out/bin/rg /opt/super-dolphin-gate/runtime/bin/rg",
+		"libgtk-3-dev libwebkit2gtk-4.1-dev libsoup-3.0-dev pkg-config",
+		"pkg-config --exists gtk+-3.0 webkit2gtk-4.1 gio-unix-2.0 libsoup-3.0",
+		"test \"$(rg --version | head -n 1)\" = \"ripgrep 13.0.0\"",
+		"USER 65532:65532",
+		"RUN --network=none node -e",
+		"GOPROXY=file:///opt/super-dolphin-gate/runtime/go-proxy",
+	} {
+		if !strings.Contains(text, required) {
+			t.Fatalf("runtime dependency Dockerfile is missing %q", required)
+		}
+	}
+	truth, err := os.ReadFile(filepath.Join(root, dockerfilePath))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(truth), "playwright install") || strings.Contains(string(truth), "apt-get") {
+		t.Fatal("ordinary truth image build attempts to install browser dependencies")
 	}
 }
 
@@ -142,6 +179,28 @@ func repositoryRoot(t *testing.T) string {
 		t.Fatal(err)
 	}
 	return root
+}
+
+func dockerfileCopiesSource(t *testing.T, data []byte, source string) bool {
+	t.Helper()
+	scanner := bufio.NewScanner(bytes.NewReader(data))
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if !strings.HasPrefix(line, "COPY [") {
+			continue
+		}
+		var paths []string
+		if err := json.Unmarshal([]byte(strings.TrimPrefix(line, "COPY ")), &paths); err != nil {
+			t.Fatalf("decode Dockerfile JSON COPY %q: %v", line, err)
+		}
+		if slices.Contains(paths, source) {
+			return true
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		t.Fatal(err)
+	}
+	return false
 }
 
 func readManifest(t *testing.T, root string) manifest {
@@ -159,193 +218,19 @@ func readManifest(t *testing.T, root string) manifest {
 	return value
 }
 
-func listLocalBuildFiles(t *testing.T, root string) []string {
+func asStrings(t *testing.T, value any) []string {
 	t.Helper()
-	arguments := append([]string{"list", "-mod=mod", "-deps", "-json"}, gateTargets...)
-	command := exec.Command("go", arguments...)
-	command.Dir = root
-	command.Env = append(os.Environ(), "GOWORK=off", "GOOS=linux", "GOARCH=arm64", "CGO_ENABLED=0", "GOTOOLCHAIN=local")
-	output, err := command.Output()
-	if err != nil {
-		t.Fatalf("go list gate closure: %v", commandError(err))
+	items, ok := value.([]any)
+	if !ok {
+		t.Fatalf("value is not an array: %T", value)
 	}
-	decoder := json.NewDecoder(bytes.NewReader(output))
-	files := make(map[string]struct{})
-	for {
-		var pkg listedPackage
-		if err := decoder.Decode(&pkg); errors.Is(err, io.EOF) {
-			break
-		} else if err != nil {
-			t.Fatal(err)
+	result := make([]string, len(items))
+	for index, item := range items {
+		text, ok := item.(string)
+		if !ok {
+			t.Fatalf("array item is not a string: %T", item)
 		}
-		if pkg.Standard || pkg.Module == nil || !pkg.Module.Main {
-			continue
-		}
-		packageFiles := append([]string{}, pkg.GoFiles...)
-		packageFiles = append(packageFiles, pkg.SFiles...)
-		packageFiles = append(packageFiles, pkg.SysoFiles...)
-		packageFiles = append(packageFiles, pkg.EmbedFiles...)
-		for _, name := range packageFiles {
-			absolute := filepath.Join(pkg.Dir, filepath.FromSlash(name))
-			relative, err := filepath.Rel(root, absolute)
-			if err != nil || relative == "." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
-				t.Fatalf("build file %q escapes repository", absolute)
-			}
-			files[filepath.ToSlash(relative)] = struct{}{}
-		}
-	}
-	return sortedKeys(files)
-}
-
-func parseDockerSources(t *testing.T, path string) []string {
-	t.Helper()
-	file, err := os.Open(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer file.Close()
-	var sources []string
-	scanner := bufio.NewScanner(file)
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		switch {
-		case strings.HasPrefix(line, "COPY ["):
-			var paths []string
-			if err := json.Unmarshal([]byte(strings.TrimPrefix(line, "COPY ")), &paths); err != nil || len(paths) < 2 {
-				t.Fatalf("invalid JSON COPY %q: %v", line, err)
-			}
-			sources = append(sources, paths[:len(paths)-1]...)
-		case strings.HasPrefix(line, "COPY --from="):
-			continue
-		case strings.HasPrefix(line, "COPY "):
-			t.Fatalf("non-JSON local COPY is forbidden: %s", line)
-		case strings.HasPrefix(line, "ADD "):
-			fields := strings.Fields(line)
-			if len(fields) != 3 || fields[1] == "." || strings.ContainsAny(fields[1], "*?[") {
-				t.Fatalf("non-canonical ADD is forbidden: %s", line)
-			}
-			sources = append(sources, fields[1])
-		}
-	}
-	if err := scanner.Err(); err != nil {
-		t.Fatal(err)
-	}
-	sort.Strings(sources)
-	return sources
-}
-
-func extractCanonicalVendor(t *testing.T, archivePath string, destination string) {
-	t.Helper()
-	file, err := os.Open(archivePath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer file.Close()
-	gzipReader, err := gzip.NewReader(file)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer gzipReader.Close()
-	reader := tar.NewReader(gzipReader)
-	previous := ""
-	count := 0
-	for {
-		header, err := reader.Next()
-		if errors.Is(err, io.EOF) {
-			break
-		}
-		if err != nil {
-			t.Fatal(err)
-		}
-		if header.Typeflag != tar.TypeReg || header.Name == "" || filepath.IsAbs(header.Name) || filepath.ToSlash(filepath.Clean(header.Name)) != header.Name || strings.HasPrefix(header.Name, "../") {
-			t.Fatalf("vendor archive contains non-canonical entry %q type=%d", header.Name, header.Typeflag)
-		}
-		if previous != "" && header.Name <= previous {
-			t.Fatalf("vendor archive is not sorted: %q after %q", header.Name, previous)
-		}
-		if !header.ModTime.Equal(time.Unix(0, 0)) || header.Uid != 0 || header.Gid != 0 || header.Mode != 0o644 || header.Linkname != "" {
-			t.Fatalf("vendor archive metadata is not canonical for %q", header.Name)
-		}
-		previous = header.Name
-		count++
-		target := filepath.Join(destination, filepath.FromSlash(header.Name))
-		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
-			t.Fatal(err)
-		}
-		output, err := os.OpenFile(target, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
-		if err != nil {
-			t.Fatal(err)
-		}
-		_, copyErr := io.Copy(output, reader)
-		closeErr := output.Close()
-		if copyErr != nil || closeErr != nil {
-			t.Fatalf("extract %s: copy=%v close=%v", header.Name, copyErr, closeErr)
-		}
-	}
-	if count == 0 {
-		t.Fatal("vendor archive is empty")
-	}
-}
-
-func copyRegularFile(t *testing.T, source string, destination string) {
-	t.Helper()
-	info, err := os.Lstat(source)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !info.Mode().IsRegular() {
-		t.Fatalf("build input %s is not a regular file", source)
-	}
-	data, err := os.ReadFile(source)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.MkdirAll(filepath.Dir(destination), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(destination, data, info.Mode().Perm()); err != nil {
-		t.Fatal(err)
-	}
-}
-
-func runCommand(t *testing.T, directory string, environment []string, name string, arguments ...string) {
-	t.Helper()
-	command := exec.Command(name, arguments...)
-	command.Dir = directory
-	command.Env = environment
-	output, err := command.CombinedOutput()
-	if err != nil {
-		t.Fatalf("%s %s: %v\n%s", name, strings.Join(arguments, " "), err, output)
-	}
-}
-
-func commandError(err error) error {
-	var exitError *exec.ExitError
-	if errors.As(err, &exitError) {
-		return fmt.Errorf("%w: %s", err, strings.TrimSpace(string(exitError.Stderr)))
-	}
-	return err
-}
-
-func difference(left []string, right []string) []string {
-	rightSet := make(map[string]struct{}, len(right))
-	for _, value := range right {
-		rightSet[value] = struct{}{}
-	}
-	var result []string
-	for _, value := range left {
-		if _, exists := rightSet[value]; !exists {
-			result = append(result, value)
-		}
+		result[index] = text
 	}
 	return result
-}
-
-func sortedKeys(values map[string]struct{}) []string {
-	keys := make([]string, 0, len(values))
-	for key := range values {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
-	return keys
 }

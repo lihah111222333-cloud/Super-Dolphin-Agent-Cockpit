@@ -1,3 +1,5 @@
+//go:build unix
+
 package localci
 
 import (
@@ -291,7 +293,7 @@ func newPromotionPlanFixture(t *testing.T) promotionPlanFixture {
 	accepted.Runner.PolicyDigest = accepted.PolicyDigest
 	cryptoFixture.sign(t, &accepted)
 	changedEntries := cloneTreeEntries(baseTree.Entries)
-	changeEntry(t, changedEntries, "go.mod", "module example.invalid/promotion\n")
+	changeCandidateInput(t, changedEntries, "go.mod", "module example.invalid/promotion\n")
 	changedTree := readOnlyImageTree(t, changedEntries)
 	createdAt := time.Now().UTC().Truncate(time.Second)
 	return promotionPlanFixture{

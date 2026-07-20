@@ -398,6 +398,7 @@ func localBuildxSmokeRequest(t *testing.T) BuildKitBuildRequest {
 	replaceEntryText(t, entries, toolchainLockPath, lockedGoImageReference(), reference)
 	changeEntry(t, entries, "go.sum", "")
 	changeEntry(t, entries, "cmd/super-dolphin-gate/main.go", "package main\n\nfunc main() {}\n")
+	refreshRuntimeDepsLock(t, entries)
 	prepared, err := prepareCandidate(candidateRequest(entries, digest("f"), digest("e")))
 	if err != nil {
 		t.Fatal(err)
@@ -454,7 +455,7 @@ func assertFixedBuildxArgs(t *testing.T, args []string, request BuildKitBuildReq
 	}
 	assertFixedBuildxTagAndCache(t, args, request)
 	assertBuildxArgumentOrder(t, args, request)
-	cacheArgument := "--cache-to=type=local,dest=" + filepath.Join(root, "cache", strings.TrimPrefix(request.CacheNamespace, "sha256:")) + ",mode=max"
+	cacheArgument := "--cache-to=type=local,dest=" + filepath.Join(root, "cache", strings.TrimPrefix(request.CacheNamespace, "sha256:")) + ",mode=min"
 	if !slices.Contains(args, cacheArgument) {
 		t.Fatalf("buildx cache namespace is not isolated: %v", args)
 	}

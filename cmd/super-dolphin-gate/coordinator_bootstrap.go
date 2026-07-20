@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"slices"
 	"strings"
 
@@ -29,6 +30,95 @@ type productionBootstrapRuntime interface {
 
 // productionDockerBootstrapRunnerVerifier 只执行固定 docker image inspect，不启动 gate 或容器。
 type productionDockerBootstrapRunnerVerifier struct{}
+
+// productionHostDockerCommand 为宿主 Docker CLI 构造最小且显式绑定 config 的环境。
+func productionHostDockerCommand(ctx context.Context, args ...string) (*exec.Cmd, error) {
+	if ctx == nil {
+		return nil, errors.New("production host Docker context is required")
+	}
+	if len(args) == 0 {
+		return nil, errors.New("production host Docker command is required")
+	}
+	environment, err := productionHostDockerCLIEnvironment()
+	if err != nil {
+		return nil, err
+	}
+	command := exec.CommandContext(ctx, "docker", args...)
+	command.Env = environment
+	return command, nil
+}
+
+// productionHostDockerCLIEnvironment 只传递已验证的宿主 Docker CLI 必需环境。
+func productionHostDockerCLIEnvironment() ([]string, error) {
+	if err := validateProductionHostDockerOverrides(); err != nil {
+		return nil, err
+	}
+	home, err := productionHostDockerHome()
+	if err != nil {
+		return nil, err
+	}
+	configDir, err := productionHostDockerConfig(home)
+	if err != nil {
+		return nil, err
+	}
+	path, err := productionHostDockerPath()
+	if err != nil {
+		return nil, err
+	}
+	return []string{"HOME=" + home, "PATH=" + path, "LC_ALL=C", "DOCKER_CONFIG=" + configDir}, nil
+}
+
+func validateProductionHostDockerOverrides() error {
+	for _, name := range []string{
+		"DOCKER_HOST", "DOCKER_CONTEXT", "DOCKER_TLS", "DOCKER_TLS_VERIFY", "DOCKER_CERT_PATH",
+	} {
+		if _, exists := os.LookupEnv(name); exists {
+			return fmt.Errorf("%s override is not allowed for production host Docker CLI", name)
+		}
+	}
+	return nil
+}
+
+// productionHostDockerHome 校验 HOME 为真实、规范且不经过符号链接的宿主目录。
+func productionHostDockerHome() (string, error) {
+	home, exists := os.LookupEnv("HOME")
+	if !exists || home == "" || strings.TrimSpace(home) != home ||
+		!filepath.IsAbs(home) || filepath.Clean(home) != home {
+		return "", errors.New("production host Docker HOME must be canonical and absolute")
+	}
+	resolvedHome, err := filepath.EvalSymlinks(home)
+	if err != nil || resolvedHome != home {
+		return "", errors.Join(errors.New("production host Docker HOME must be a real non-symlink directory"), err)
+	}
+	homeInfo, err := os.Lstat(home)
+	if err != nil || !homeInfo.IsDir() {
+		return "", errors.Join(errors.New("production host Docker HOME must be a directory"), err)
+	}
+	return home, nil
+}
+
+func productionHostDockerConfig(home string) (string, error) {
+	configDir, configured := os.LookupEnv("DOCKER_CONFIG")
+	if configured && configDir == "" {
+		return "", errors.New("production host Docker DOCKER_CONFIG must not be empty when set")
+	}
+	if !configured {
+		configDir = filepath.Join(home, ".docker")
+	}
+	canonicalConfig, err := canonicalProductionDirectory(configDir)
+	if err != nil {
+		return "", fmt.Errorf("validate production host Docker config: %w", err)
+	}
+	return canonicalConfig, nil
+}
+
+func productionHostDockerPath() (string, error) {
+	path, exists := os.LookupEnv("PATH")
+	if !exists || path == "" || strings.ContainsAny(path, "\x00\r\n") {
+		return "", errors.New("production host Docker PATH is required and canonical")
+	}
+	return path, nil
+}
 
 // productionBootstrapImageInspect 固化 Docker inspect 中参与 runner identity 判定的字段。
 type productionBootstrapImageInspect struct {
@@ -199,8 +289,10 @@ func (productionDockerBootstrapRunnerVerifier) VerifyRunner(
 		return fmt.Errorf("validate production bootstrap runner identity: %w", err)
 	}
 	reference := expected.Registry + "@" + expected.PlatformManifestDigest
-	command := exec.CommandContext(ctx, "docker", "image", "inspect", reference)
-	command.Env = []string{"HOME=" + os.Getenv("HOME"), "PATH=" + os.Getenv("PATH"), "LC_ALL=C"}
+	command, err := productionHostDockerCommand(ctx, "image", "inspect", reference)
+	if err != nil {
+		return fmt.Errorf("prepare production bootstrap runner Docker command: %w", err)
+	}
 	output, err := command.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("inspect production bootstrap runner: %w: %s", err, strings.TrimSpace(string(output)))

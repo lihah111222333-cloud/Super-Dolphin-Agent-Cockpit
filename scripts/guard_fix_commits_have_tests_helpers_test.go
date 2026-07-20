@@ -219,6 +219,7 @@ func preparePreCommitGateFixture(t *testing.T) string {
 	copyFixTestGuardRepoFile(t, root, ".githooks/pre-commit", 0o755)
 	copyFixTestGuardRepoFile(t, root, "scripts/configure_hook_node_runtime.sh", 0o755)
 	copyFixTestGuardRepoFile(t, root, "scripts/refresh_generated_artifacts.sh", 0o755)
+	writePreCommitFixtureGateCLI(t, root)
 	writePreCommitFakeCodeGuardScript(t, root)
 	writeFakeAIMaintenanceGateScript(t, root)
 	writePreCommitFakeAIMaintenancePlanner(t, root)
@@ -227,6 +228,119 @@ func preparePreCommitGateFixture(t *testing.T) string {
 	runFixTestGuardGit(t, root, "add", ".githooks/pre-commit", ".gitignore", "scripts/configure_hook_node_runtime.sh", "scripts/refresh_generated_artifacts.sh", "scripts/test_with_guard.sh", "scripts/guard_fix_commits_have_tests.sh", "scripts/ai_maintenance_gates.sh", "scripts/ai_maintenance/main.go", "go.mod", "Makefile")
 	runFixTestGuardGit(t, root, "commit", "-m", "chore: 安装 precommit fixture")
 	return root
+}
+
+const preCommitFixtureGateCLIScript = `#!/usr/bin/env bash
+set -euo pipefail
+
+repository_root=$(git rev-parse --show-toplevel)
+fixture_tmp=
+fixture_worktree=
+
+cleanup() {
+  local original_status=${1:-0}
+  local cleanup_status=0
+  if [ -n "$fixture_worktree" ]; then
+    if ! git -C "$repository_root" worktree remove --force "$fixture_worktree"; then
+      printf '%s\n' 'pre-commit cleanup failed: fixture staged worktree' >&2
+      cleanup_status=1
+    fi
+    if [ -e "$fixture_worktree" ] || git -C "$repository_root" worktree list --porcelain | grep -Fqx "worktree $fixture_worktree"; then
+      printf '%s\n' 'pre-commit cleanup verification failed: fixture staged worktree remains' >&2
+      cleanup_status=1
+    fi
+  fi
+  if [ -n "$fixture_tmp" ]; then
+    if ! rmdir "$fixture_tmp"; then
+      printf '%s\n' 'pre-commit cleanup failed: fixture temporary directory' >&2
+      cleanup_status=1
+    fi
+    if [ -e "$fixture_tmp" ]; then
+      printf '%s\n' 'pre-commit cleanup verification failed: fixture temporary directory remains' >&2
+      cleanup_status=1
+    fi
+  fi
+  if [ "$original_status" -ne 0 ]; then
+    return "$original_status"
+  fi
+  return "$cleanup_status"
+}
+
+finish_cleanup() {
+  local status=$1
+  trap - EXIT INT TERM HUP
+  cleanup "$status"
+}
+
+trap 'status=$?; finish_cleanup "$status"; exit $?' EXIT
+trap 'finish_cleanup 130; exit $?' INT
+trap 'finish_cleanup 143; exit $?' TERM
+trap 'finish_cleanup 129; exit $?' HUP
+
+case "${1:-}" in
+  closure)
+    if [ "$#" -ne 2 ] || [ "$2" != "check" ]; then
+      printf 'fixture gate: closure subcommand must be check\n' >&2
+      exit 64
+    fi
+    tree=$(git write-tree)
+    if [ -z "$tree" ]; then
+      printf 'fixture gate: staged tree is empty\n' >&2
+      exit 1
+    fi
+    git rev-parse --verify "$tree^{tree}" >/dev/null
+    printf 'fixture closure verified staged tree %s\n' "$tree"
+    ;;
+  hook)
+    if [ "$#" -ne 2 ] || [ "$2" != "pre-commit" ]; then
+      printf 'fixture gate: only hook pre-commit is supported\n' >&2
+      exit 64
+    fi
+    if [ -n "${GIT_DIR:-}" ] || [ -n "${GIT_WORK_TREE:-}" ]; then
+      printf 'fixture gate: hook inherited repository-local Git environment\n' >&2
+      exit 1
+    fi
+    fixture_tmp=$(mktemp -d "${TMPDIR:-/tmp}/pre-commit-fixture.XXXXXX")
+    fixture_worktree="$fixture_tmp/worktree"
+    git -C "$repository_root" worktree add --quiet --detach --no-checkout "$fixture_worktree" HEAD
+    tree=$(git -C "$repository_root" write-tree)
+    git -C "$fixture_worktree" read-tree "$tree"
+    git -C "$fixture_worktree" checkout-index -a
+    cd "$fixture_worktree"
+    if grep -qs 'go:embed all:web-dist' cmd/agent-terminal/*.go 2>/dev/null && [ ! -f cmd/agent-terminal/web-dist/index.html ]; then
+      mkdir -p cmd/agent-terminal/web-dist
+      printf '%s\n' '<!doctype html><title>staged snapshot</title>' >cmd/agent-terminal/web-dist/index.html
+    fi
+    if [ -n "${GATE_ASSERT_RELATIVE_PATH:-}" ]; then
+      grep -Fq "${GATE_ASSERT_CONTENT:?}" "$GATE_ASSERT_RELATIVE_PATH"
+    fi
+    if [ -d cmd/agent-terminal ]; then
+      printf '%s\n' '[pre-commit] go vet (staged snapshot)...'
+      go vet ./cmd/agent-terminal
+    fi
+    printf '%s\n' 'pre-commit OK'
+    if [ -n "${GATE_FORCE_CLEANUP_FAILURE:-}" ]; then
+      chmod 0500 "${TMPDIR:-/tmp}"
+    fi
+    ;;
+  *)
+    printf 'fixture gate: unsupported command %s\n' "${1:-}" >&2
+    exit 64
+    ;;
+esac
+`
+
+// writePreCommitFixtureGateCLI provides only the strict command surface needed
+// by the staged-worktree regression fixture, without relying on a host CLI.
+func writePreCommitFixtureGateCLI(t *testing.T, root string) {
+	t.Helper()
+	path := filepath.Join(root, ".pre-commit-fixture-bin", "super-dolphin-gate")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("mkdir fixture gate CLI directory: %v", err)
+	}
+	if err := os.WriteFile(path, []byte(preCommitFixtureGateCLIScript), 0o755); err != nil {
+		t.Fatalf("write fixture gate CLI: %v", err)
+	}
 }
 
 func writeFakeAIMaintenanceGateScript(t *testing.T, root string) {
@@ -390,9 +504,21 @@ func TestPreCommitCreatesDeterministicEmbedPlaceholderFromStagedSnapshot(t *test
 			if err != nil {
 				t.Fatalf("pre-commit embed placeholder failed: %v\n%s", err, out)
 			}
-			assertOutputContainsAll(t, out, "go vet (staged snapshot)", "pre-commit OK")
+			assertOutputContainsAll(t, out, "fixture closure verified staged tree", "go vet (staged snapshot)", "pre-commit OK")
 		})
 	}
+}
+
+func TestPreCommitFixtureGateRejectsUnsupportedClosureCommand(t *testing.T) {
+	root := preparePreCommitGateFixture(t)
+	gate := filepath.Join(root, ".pre-commit-fixture-bin", "super-dolphin-gate")
+	cmd := exec.Command(gate, "closure", "verify")
+	cmd.Dir = root
+	out, err := cmd.CombinedOutput()
+	if err == nil {
+		t.Fatalf("fixture gate accepted unsupported closure command:\n%s", out)
+	}
+	assertOutputContainsAll(t, string(out), "fixture gate: closure subcommand must be check")
 }
 
 func prePushStdin(base, head string) string {
@@ -449,12 +575,27 @@ func preCommitCommand(t *testing.T, root string, extra map[string]string) *exec.
 	env := make([]string, 0, len(os.Environ())+len(extra))
 	for _, item := range os.Environ() {
 		key, _, _ := strings.Cut(item, "=")
+		if key == "PATH" {
+			continue
+		}
 		if _, replaced := extra[key]; !replaced {
 			env = append(env, item)
 		}
 	}
+	pathValue := os.Getenv("PATH")
+	if value, ok := extra["PATH"]; ok {
+		pathValue = value
+	}
+	fixtureBin := filepath.Join(root, ".pre-commit-fixture-bin")
+	if info, err := os.Stat(filepath.Join(fixtureBin, "super-dolphin-gate")); err != nil || !info.Mode().IsRegular() || info.Mode()&0o111 == 0 {
+		t.Fatalf("pre-commit fixture gate CLI is unavailable: %v", err)
+	}
+	env = append(env, "PATH="+bashArg("", fixtureBin)+":"+pathValue)
 	keys := []string{"PATH"}
 	for key, value := range extra {
+		if key == "PATH" {
+			continue
+		}
 		env = append(env, key+"="+value)
 		keys = append(keys, key)
 	}

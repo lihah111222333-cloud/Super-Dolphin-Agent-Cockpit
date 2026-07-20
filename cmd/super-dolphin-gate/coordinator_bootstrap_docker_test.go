@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -14,7 +15,6 @@ import (
 	"slices"
 	"strings"
 	"testing"
-	"time"
 
 	gatecontract "github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
 )
@@ -333,12 +333,243 @@ func verifyProductionBootstrapDockerContainer(
 
 func runBootstrapDocker(t *testing.T, args ...string) string {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), coordinatorTimeout(gatecontract.ProfileLocalFast))
 	defer cancel()
 	command := exec.CommandContext(ctx, "docker", args...)
 	output, err := command.CombinedOutput()
 	if err != nil {
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			t.Fatalf("docker stage %q exceeded normal profile deadline %s: %s", args[0], coordinatorTimeout(gatecontract.ProfileLocalFast), strings.TrimSpace(string(output)))
+		}
 		t.Fatalf("docker %s: %v: %s", strings.Join(args, " "), err, strings.TrimSpace(string(output)))
 	}
 	return string(output)
+}
+
+func TestProductionHostDockerCommandPreservesExplicitConfigAcrossHomeIsolation(t *testing.T) {
+	home, configDir, path := configureProductionHostDockerCommandTest(t)
+	command, err := productionHostDockerCommand(context.Background(), "context", "show")
+	if err != nil {
+		t.Fatalf("productionHostDockerCommand() error = %v", err)
+	}
+	want := []string{"HOME=" + home, "PATH=" + path, "LC_ALL=C", "DOCKER_CONFIG=" + configDir}
+	if !slices.Equal(command.Env, want) {
+		t.Fatalf("Docker command environment = %#v, want %#v", command.Env, want)
+	}
+}
+
+func TestProductionHostDockerCommandResolvesDefaultConfigFromHome(t *testing.T) {
+	home, _, path := configureProductionHostDockerCommandTest(t)
+	configDir := filepath.Join(home, ".docker")
+	if err := os.Mkdir(configDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	unsetProductionHostDockerTestEnvironment(t, "DOCKER_CONFIG")
+	command, err := productionHostDockerCommand(context.Background(), "context", "show")
+	if err != nil {
+		t.Fatalf("productionHostDockerCommand() error = %v", err)
+	}
+	want := []string{"HOME=" + home, "PATH=" + path, "LC_ALL=C", "DOCKER_CONFIG=" + configDir}
+	if !slices.Equal(command.Env, want) {
+		t.Fatalf("Docker command environment = %#v, want %#v", command.Env, want)
+	}
+}
+
+func TestProductionHostDockerCommandRejectsDangerousOverrides(t *testing.T) {
+	for _, name := range []string{"DOCKER_HOST", "DOCKER_CONTEXT", "DOCKER_TLS", "DOCKER_TLS_VERIFY", "DOCKER_CERT_PATH"} {
+		t.Run(name, func(t *testing.T) {
+			for _, test := range []struct {
+				name  string
+				value string
+			}{
+				{name: "empty", value: ""},
+				{name: "non-empty", value: "forbidden"},
+			} {
+				t.Run(test.name, func(t *testing.T) {
+					configureProductionHostDockerCommandTest(t)
+					t.Setenv(name, test.value)
+					if _, err := productionHostDockerCommand(context.Background(), "version"); err == nil ||
+						!strings.Contains(err.Error(), name+" override is not allowed") {
+						t.Fatalf("productionHostDockerCommand() error = %v", err)
+					}
+				})
+			}
+		})
+	}
+}
+
+func TestProductionHostDockerCommandRejectsInvalidConfig(t *testing.T) {
+	target := canonicalProductionHostDockerTestDirectory(t, t.TempDir())
+	if err := os.Chmod(target, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	symlink := filepath.Join(canonicalProductionHostDockerTestDirectory(t, t.TempDir()), "docker-config")
+	if err := os.Symlink(target, symlink); err != nil {
+		t.Fatal(err)
+	}
+	public := canonicalProductionHostDockerTestDirectory(t, t.TempDir())
+	if err := os.Chmod(public, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		name   string
+		config string
+		want   string
+	}{
+		{name: "empty", config: "", want: "must not be empty"},
+		{name: "relative", config: "relative/.docker", want: "canonical and absolute"},
+		{name: "non canonical", config: target + "/../" + filepath.Base(target), want: "canonical and absolute"},
+		{name: "symlink", config: symlink, want: "must not traverse symlinks"},
+		{name: "public", config: public, want: "must be private"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			configureProductionHostDockerCommandTest(t)
+			t.Setenv("DOCKER_CONFIG", test.config)
+			if _, err := productionHostDockerCommand(context.Background(), "version"); err == nil ||
+				!strings.Contains(err.Error(), test.want) {
+				t.Fatalf("productionHostDockerCommand() error = %v, want %q", err, test.want)
+			}
+		})
+	}
+}
+
+func TestProductionHostDockerCallersRejectDangerousOverrides(t *testing.T) {
+	configureProductionHostDockerCommandTest(t)
+	t.Setenv("DOCKER_HOST", "unix:///private/forbidden.sock")
+	identity := gatecontract.ImageIdentity{
+		Registry:       "registry.example.invalid/bootstrap-runner",
+		OCIIndexDigest: productionDigest("1"), PlatformManifestDigest: productionDigest("2"),
+		ConfigDigest: productionDigest("3"), RootFSDiffIDs: []string{productionDigest("4")},
+		OS: "linux", Architecture: "arm64",
+	}
+	for _, call := range []struct {
+		name string
+		run  func() error
+	}{
+		{
+			name: "verify runner",
+			run: func() error {
+				return (productionDockerBootstrapRunnerVerifier{}).VerifyRunner(context.Background(), identity)
+			},
+		},
+		{
+			name: "bootstrap docker",
+			run: func() error {
+				_, err := productionBootstrapDocker(context.Background(), "version")
+				return err
+			},
+		},
+	} {
+		t.Run(call.name, func(t *testing.T) {
+			if err := call.run(); err == nil || !strings.Contains(err.Error(), "DOCKER_HOST override is not allowed") {
+				t.Fatalf("production Docker caller error = %v", err)
+			}
+		})
+	}
+}
+
+func TestProductionBootstrapControllerCommandPreservesExplicitDockerConfig(t *testing.T) {
+	home, configDir, path := configureProductionHostDockerCommandTest(t)
+	privateKeyFile := filepath.Join(home, "bootstrap-controller-key.json")
+	command, err := productionBootstrapControllerCommand(
+		context.Background(), filepath.Join(home, "controller"), privateKeyFile, []byte("{}"),
+	)
+	if err != nil {
+		t.Fatalf("productionBootstrapControllerCommand() error = %v", err)
+	}
+	want := []string{
+		"HOME=" + home,
+		"PATH=" + path,
+		"LC_ALL=C",
+		"DOCKER_CONFIG=" + configDir,
+		productionBootstrapControllerKeyEnv + "=" + privateKeyFile,
+	}
+	if !slices.Equal(command.Env, want) {
+		t.Fatalf("controller command environment = %#v, want %#v", command.Env, want)
+	}
+}
+
+func TestProductionBootstrapControllerCommandRejectsDockerEnvironmentBeforeExecution(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		configure func(*testing.T)
+		want      string
+	}{
+		{
+			name: "empty dangerous override",
+			configure: func(t *testing.T) {
+				t.Setenv("DOCKER_HOST", "")
+			},
+			want: "DOCKER_HOST override is not allowed",
+		},
+		{
+			name: "invalid config",
+			configure: func(t *testing.T) {
+				t.Setenv("DOCKER_CONFIG", "relative/.docker")
+			},
+			want: "validate production host Docker config",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			home, _, _ := configureProductionHostDockerCommandTest(t)
+			test.configure(t)
+			privateKeyFile := filepath.Join(home, "private-key-must-not-leak")
+			_, err := runProductionBootstrapControllerCommand(
+				context.Background(), filepath.Join(home, "missing-controller"), privateKeyFile, []byte("{}"),
+			)
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("runProductionBootstrapControllerCommand() error = %v, want %q", err, test.want)
+			}
+			if strings.Contains(err.Error(), privateKeyFile) {
+				t.Fatalf("controller preparation error leaked private key path: %v", err)
+			}
+		})
+	}
+}
+
+func configureProductionHostDockerCommandTest(t *testing.T) (string, string, string) {
+	t.Helper()
+	for _, name := range []string{"DOCKER_HOST", "DOCKER_CONTEXT", "DOCKER_TLS", "DOCKER_TLS_VERIFY", "DOCKER_CERT_PATH"} {
+		unsetProductionHostDockerTestEnvironment(t, name)
+	}
+	home := canonicalProductionHostDockerTestDirectory(t, t.TempDir())
+	configDir := canonicalProductionHostDockerTestDirectory(t, t.TempDir())
+	if err := os.Chmod(configDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	path := os.Getenv("PATH")
+	if path == "" {
+		t.Fatal("PATH is required")
+	}
+	t.Setenv("HOME", home)
+	t.Setenv("DOCKER_CONFIG", configDir)
+	return home, configDir, path
+}
+
+func canonicalProductionHostDockerTestDirectory(t *testing.T, path string) string {
+	t.Helper()
+	canonical, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return canonical
+}
+
+func unsetProductionHostDockerTestEnvironment(t *testing.T, name string) {
+	t.Helper()
+	value, exists := os.LookupEnv(name)
+	if err := os.Unsetenv(name); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		var err error
+		if exists {
+			err = os.Setenv(name, value)
+		} else {
+			err = os.Unsetenv(name)
+		}
+		if err != nil {
+			t.Errorf("restore %s: %v", name, err)
+		}
+	})
 }

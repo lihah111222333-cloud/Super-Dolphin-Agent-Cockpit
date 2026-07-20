@@ -154,10 +154,10 @@ cmd/mcp-lsp/search/fileutil_test.go	cmd	platform-provider	go-test	1269	文件搜
 cmd/mcp-lsp/search/fileutil.go	cmd	platform-provider	go-source	14805	文件搜索与 grep 搜索工具实现	cmd,mcp,lsp,search,fileutil,文件搜索与,grep,搜索工具实现
 cmd/mcp-lsp/search/language_inference_test.go	cmd	platform-provider	go-test	2326	文件搜索与 grep 搜索工具实现	cmd,mcp,lsp,search,language,inference,test,文件搜索与,grep,搜索工具实现
 cmd/mcp-lsp/search/process.go	cmd	platform-provider	go-source	282	文件搜索与 grep 搜索工具实现	cmd,mcp,lsp,search,process,文件搜索与,grep,搜索工具实现
-cmd/mcp-lsp/search/searchutil_cap_test.go	cmd	platform-provider	go-test	2460	文件搜索与 grep 搜索工具实现	cmd,mcp,lsp,search,searchutil,cap,test,文件搜索与,grep,搜索工具实现
+cmd/mcp-lsp/search/searchutil_cap_test.go	cmd	platform-provider	go-test	2531	文件搜索与 grep 搜索工具实现	cmd,mcp,lsp,search,searchutil,cap,test,文件搜索与,grep,搜索工具实现
 cmd/mcp-lsp/search/searchutil_cap.go	cmd	platform-provider	go-source	531	文件搜索与 grep 搜索工具实现	cmd,mcp,lsp,search,searchutil,cap,文件搜索与,grep,搜索工具实现
 cmd/mcp-lsp/search/searchutil_limit_test.go	cmd	platform-provider	go-test	3357	文件搜索与 grep 搜索工具实现	cmd,mcp,lsp,search,searchutil,limit,test,文件搜索与,grep,搜索工具实现
-cmd/mcp-lsp/search/searchutil_test.go	cmd	platform-provider	go-test	24038	文件搜索与 grep 搜索工具实现	cmd,mcp,lsp,search,searchutil,test,文件搜索与,grep,搜索工具实现
+cmd/mcp-lsp/search/searchutil_test.go	cmd	platform-provider	go-test	24110	文件搜索与 grep 搜索工具实现	cmd,mcp,lsp,search,searchutil,test,文件搜索与,grep,搜索工具实现
 cmd/mcp-lsp/search/searchutil.go	cmd	platform-provider	go-source	25984	文件搜索与 grep 搜索工具实现	cmd,mcp,lsp,search,searchutil,文件搜索与,grep,搜索工具实现
 cmd/mcp-lsp/search/windows_hidden_process_guard_test.go	cmd	platform-provider	go-test	1012	文件搜索与 grep 搜索工具实现	cmd,mcp,lsp,search,windows,hidden,process,guard,test,文件搜索与,grep,搜索工具实现
 cmd/mcp-lsp/sidecar_runtime_inheritance_test.go	cmd	platform-provider	go-test	2195	代码智能/LSP MCP peer	cmd,mcp,lsp,sidecar,runtime,inheritance,test,代码智能,LSP,MCP,peer
@@ -300,7 +300,7 @@ internal/platform/appupdaterecovery/package_trust_state_matrix_test.go	internal	
 internal/platform/appupdaterecovery/package_trust_test.go	internal	platform-provider	go-test	12153	基础设施层	internal,platform,appupdaterecovery,package,trust,test,基础设施层
 internal/platform/appupdaterecovery/package_trust.go	internal	platform-provider	go-source	27204	基础设施层	internal,platform,appupdaterecovery,package,trust,基础设施层
 internal/platform/appupdaterecovery/probation.go	internal	platform-provider	go-source	11527	基础设施层	internal,platform,appupdaterecovery,probation,基础设施层
-internal/platform/appupdaterecovery/rollback_restart_runtime_test.go	internal	platform-provider	go-test	20180	基础设施层	internal,platform,appupdaterecovery,rollback,restart,runtime,test,基础设施层
+internal/platform/appupdaterecovery/rollback_restart_runtime_test.go	internal	platform-provider	go-test	20229	基础设施层	internal,platform,appupdaterecovery,rollback,restart,runtime,test,基础设施层
 internal/platform/appupdaterecovery/rollback_restart_runtime.go	internal	platform-provider	go-source	25576	基础设施层	internal,platform,appupdaterecovery,rollback,restart,runtime,基础设施层
 internal/platform/appupdaterecovery/rollback_restart_test.go	internal	platform-provider	go-test	29499	基础设施层	internal,platform,appupdaterecovery,rollback,restart,test,基础设施层
 internal/platform/appupdaterecovery/rollback_restart_wait_unix.go	internal	platform-provider	go-source	725	基础设施层	internal,platform,appupdaterecovery,rollback,restart,wait,unix,基础设施层
@@ -532,16 +532,20 @@ internal/platform/observability/stack_test.go	internal	platform-provider	go-test
 internal/platform/observability/stack.go	internal	platform-provider	go-source	1821	基础设施层	internal,platform,observability,stack,基础设施层
 internal/platform/pdftext/extractor_test.go	internal	platform-provider	go-test	5948	基础设施层	internal,platform,pdftext,extractor,test,基础设施层
 internal/platform/pdftext/extractor.go	internal	platform-provider	go-source	9813	基础设施层	internal,platform,pdftext,extractor,基础设施层
-internal/platform/pidregistry/cooperative_termination_darwin_test.go	internal	platform-provider	go-test	22507	基础设施层	internal,platform,pidregistry,cooperative,termination,darwin,test,基础设施层
-internal/platform/pidregistry/cooperative_termination_darwin.go	internal	platform-provider	go-source	19660	基础设施层	internal,platform,pidregistry,cooperative,termination,darwin,基础设施层
-internal/platform/pidregistry/cooperative_termination_unsupported.go	internal	platform-provider	go-source	2221	基础设施层	internal,platform,pidregistry,cooperative,termination,unsupported,基础设施层
-internal/platform/pidregistry/exact_process.go	internal	platform-provider	go-source	9638	基础设施层	internal,platform,pidregistry,exact,process,基础设施层
+internal/platform/pidregistry/cooperative_termination_darwin.go	internal	platform-provider	go-source	525	基础设施层	internal,platform,pidregistry,cooperative,termination,darwin,基础设施层
+internal/platform/pidregistry/cooperative_termination_linux.go	internal	platform-provider	go-source	1592	基础设施层	internal,platform,pidregistry,cooperative,termination,linux,基础设施层
+internal/platform/pidregistry/cooperative_termination_unix_test.go	internal	platform-provider	go-test	22630	基础设施层	internal,platform,pidregistry,cooperative,termination,unix,test,基础设施层
+internal/platform/pidregistry/cooperative_termination_unix.go	internal	platform-provider	go-source	20814	基础设施层	internal,platform,pidregistry,cooperative,termination,unix,基础设施层
+internal/platform/pidregistry/cooperative_termination_unsupported.go	internal	platform-provider	go-source	2279	基础设施层	internal,platform,pidregistry,cooperative,termination,unsupported,基础设施层
+internal/platform/pidregistry/exact_process.go	internal	platform-provider	go-source	9726	基础设施层	internal,platform,pidregistry,exact,process,基础设施层
 internal/platform/pidregistry/file_owner_unix.go	internal	platform-provider	go-source	251	基础设施层	internal,platform,pidregistry,file,owner,unix,基础设施层
 internal/platform/pidregistry/file_owner_windows.go	internal	platform-provider	go-source	511	基础设施层	internal,platform,pidregistry,file,owner,windows,基础设施层
 internal/platform/pidregistry/find_argument_darwin_test.go	internal	platform-provider	go-test	1855	基础设施层	internal,platform,pidregistry,find,argument,darwin,test,基础设施层
 internal/platform/pidregistry/find_argument_darwin.go	internal	platform-provider	go-source	2948	基础设施层	internal,platform,pidregistry,find,argument,darwin,基础设施层
+internal/platform/pidregistry/find_argument_linux_test.go	internal	platform-provider	go-test	2134	基础设施层	internal,platform,pidregistry,find,argument,linux,test,基础设施层
+internal/platform/pidregistry/find_argument_linux.go	internal	platform-provider	go-source	2338	基础设施层	internal,platform,pidregistry,find,argument,linux,基础设施层
 internal/platform/pidregistry/find_argument_test.go	internal	platform-provider	go-test	2621	基础设施层	internal,platform,pidregistry,find,argument,test,基础设施层
-internal/platform/pidregistry/find_argument_unsupported.go	internal	platform-provider	go-source	343	基础设施层	internal,platform,pidregistry,find,argument,unsupported,基础设施层
+internal/platform/pidregistry/find_argument_unsupported.go	internal	platform-provider	go-source	353	基础设施层	internal,platform,pidregistry,find,argument,unsupported,基础设施层
 internal/platform/pidregistry/find_argument.go	internal	platform-provider	go-source	6014	基础设施层	internal,platform,pidregistry,find,argument,基础设施层
 internal/platform/pidregistry/pidregistry_provenance_unix_test.go	internal	platform-provider	go-test	2845	基础设施层	internal,platform,pidregistry,provenance,unix,test,基础设施层
 internal/platform/pidregistry/pidregistry_test.go	internal	platform-provider	go-test	7555	基础设施层	internal,platform,pidregistry,test,基础设施层
@@ -1053,10 +1057,12 @@ internal/provider/contracttest/testdata/event_snapshots/valid.json	internal	plat
 internal/provider/contracttest/testdata/prompt_snapshots/empty.json	internal	platform-provider	json	1	AI provider 集成层	internal,provider,contracttest,testdata,prompt,snapshots,empty,AI,集成层
 internal/provider/contracttest/testdata/prompt_snapshots/generated_marker.json	internal	platform-provider	json	24	AI provider 集成层	internal,provider,contracttest,testdata,prompt,snapshots,generated,marker,AI,集成层
 internal/provider/contracttest/testdata/prompt_snapshots/valid.json	internal	platform-provider	json	372	AI provider 集成层	internal,provider,contracttest,testdata,prompt,snapshots,valid,AI,集成层
-internal/provider/dreamexec/dreamexec_test.go	internal	platform-provider	go-test	19050	AI provider 集成层	internal,provider,dreamexec,test,AI,集成层
-internal/provider/dreamexec/dreamexec.go	internal	platform-provider	go-source	12575	AI provider 集成层	internal,provider,dreamexec,AI,集成层
+internal/provider/dreamexec/dreamexec_test.go	internal	platform-provider	go-test	19063	AI provider 集成层	internal,provider,dreamexec,test,AI,集成层
+internal/provider/dreamexec/dreamexec.go	internal	platform-provider	go-source	12615	AI provider 集成层	internal,provider,dreamexec,AI,集成层
 internal/provider/dreamexec/parse_test.go	internal	platform-provider	go-test	8840	AI provider 集成层	internal,provider,dreamexec,parse,test,AI,集成层
 internal/provider/dreamexec/parse.go	internal	platform-provider	go-source	11863	AI provider 集成层	internal,provider,dreamexec,parse,AI,集成层
+internal/provider/dreamexec/process_unix.go	internal	platform-provider	go-source	422	AI provider 集成层	internal,provider,dreamexec,process,unix,AI,集成层
+internal/provider/dreamexec/process_windows.go	internal	platform-provider	go-source	241	AI provider 集成层	internal,provider,dreamexec,process,windows,AI,集成层
 internal/provider/e2e/claude_mcp_test.go	internal	platform-provider	go-test	4342	AI provider 集成层	internal,provider,e2e,claude,mcp,test,AI,集成层
 internal/provider/e2e/codex_mcp_test.go	internal	platform-provider	go-test	20799	AI provider 集成层	internal,provider,e2e,codex,mcp,test,AI,集成层
 internal/provider/e2e/doc.go	internal	platform-provider	go-source	604	AI provider 集成层	internal,provider,e2e,doc,AI,集成层
