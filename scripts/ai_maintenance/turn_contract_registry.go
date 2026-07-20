@@ -12,11 +12,12 @@ import (
 const turnContractRegistryPath = "internal/dto/turn/schema/field_consumers.json"
 
 type turnContractRegistry struct {
-	Version     int                           `json:"version"`
-	Schemas     map[string]turnContractSchema `json:"schemas"`
-	GoChains    []turnContractLocator         `json:"goChains"`
-	GoConstants []turnContractLocator         `json:"goConstants"`
-	JSMappers   []turnContractLocator         `json:"jsMappers"`
+	Version          int                           `json:"version"`
+	Schemas          map[string]turnContractSchema `json:"schemas"`
+	GoChains         []turnContractLocator         `json:"goChains"`
+	GoConstants      []turnContractLocator         `json:"goConstants"`
+	JSMappers        []turnContractLocator         `json:"jsMappers"`
+	JSTerminalChains []turnContractLocator         `json:"jsTerminalChains"`
 }
 
 type turnContractSchema struct {
@@ -66,6 +67,7 @@ func loadTurnContractPaths(repoRoot string) (map[string]bool, error) {
 		{label: "goChains", locators: registry.GoChains},
 		{label: "goConstants", locators: registry.GoConstants},
 		{label: "jsMappers", locators: registry.JSMappers},
+		{label: "jsTerminalChains", locators: registry.JSTerminalChains},
 	}
 	for _, collection := range collections {
 		if err := addTurnContractLocators(paths, collection.locators, collection.label); err != nil {

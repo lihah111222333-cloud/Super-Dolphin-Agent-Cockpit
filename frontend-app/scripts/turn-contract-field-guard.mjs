@@ -12,6 +12,14 @@ const appRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const defaultRepoRoot = path.resolve(appRoot, '..');
 const registryRelativePath = 'internal/dto/turn/schema/field_consumers.json';
 const validatorRelativePath = 'frontend-app/src/shared/contracts/turnContractValidators.js';
+const requiredTerminalChainNames = [
+  'terminal-runtime-dispatch',
+  'terminal-public-error-projection',
+  'terminal-public-error-notice',
+  'terminal-timeline-render',
+  'terminal-public-error-clipboard-sink',
+  'terminal-public-error-diagnostic-projection',
+];
 
 export function validateTurnContractFieldGuard({ repoRoot = defaultRepoRoot, sourceOverrides = new Map() } = {}) {
   const schemas = canonicalSchemas(repoRoot, sourceOverrides);
@@ -50,6 +58,7 @@ export function validateTurnContractFieldGuard({ repoRoot = defaultRepoRoot, sou
   if (!Array.isArray(registry.jsMappers) || registry.jsMappers.length === 0) {
     throw new Error('consumer registry must contain JS mapper chains');
   }
+  validateJSTerminalChains(repoRoot, sourceOverrides, registry.jsTerminalChains);
   const mapperNames = new Set();
   for (const mapper of registry.jsMappers) {
     if (!mapper?.name || mapperNames.has(mapper.name)) throw new Error(`JS mapper has blank or duplicate name ${mapper?.name ?? ''}`);
@@ -58,6 +67,61 @@ export function validateTurnContractFieldGuard({ repoRoot = defaultRepoRoot, sou
     validateMapperSource(source, mapper);
   }
   return { schemaCount: schemas.size, mapperCount: registry.jsMappers.length };
+}
+
+function validateJSTerminalChains(repoRoot, sourceOverrides, chains) {
+  if (!Array.isArray(chains) || chains.length === 0) {
+    throw new Error('consumer registry must contain JS terminal chains');
+  }
+  assertExactSet('JS terminal chain registry', [...requiredTerminalChainNames].sort(), chains.map((chain) => chain?.name).sort());
+  const names = new Set();
+  for (const chain of chains) {
+    if (!isRecord(chain) || typeof chain.name !== 'string' || !chain.name || names.has(chain.name)) {
+      throw new Error(`JS terminal chain has blank or duplicate name ${chain?.name ?? ''}`);
+    }
+    names.add(chain.name);
+    validateJavaScriptLocator(repoRoot, chain);
+    const resolved = resolveJSFunction(repoRoot, sourceOverrides, chain);
+    const evidence = functionEvidence(resolved.fn);
+    validateRequiredEvidence(chain, 'call', chain.calls, evidence.calls);
+    validateRequiredEvidence(chain, 'call argument', chain.callArguments, evidence.callArguments);
+    validateForbiddenEvidence(chain, 'member path', chain.forbiddenMemberPaths, evidence.memberPaths);
+    validateRequiredEvidence(chain, 'member path', chain.memberPaths, evidence.memberPaths);
+    validateForbiddenEvidence(chain, 'projection', chain.forbiddenProjections, evidence.projections);
+    validateRequiredEvidence(chain, 'call member path', chain.callMemberPaths, evidence.callMemberPaths);
+    validateExactProjections(chain, evidence.projections);
+    validateRequiredEvidence(chain, 'JSX prop', chain.jsxProps, evidence.jsxProps);
+  }
+}
+
+function validateForbiddenEvidence(chain, kind, forbidden, actual) {
+  if (forbidden === undefined) return;
+  if (!Array.isArray(forbidden)) throw new Error(`JS terminal chain ${chain.name} forbidden ${kind} registration must be an array`);
+  for (const value of forbidden) {
+    if (typeof value !== 'string' || !value) throw new Error(`JS terminal chain ${chain.name} forbidden ${kind} registration contains a blank value`);
+    if (actual.has(value)) throw new Error(`JS terminal chain ${chain.name} retains forbidden ${kind} ${value}`);
+  }
+}
+
+function validateRequiredEvidence(chain, kind, expected, actual) {
+  if (expected === undefined) return;
+  if (!Array.isArray(expected)) throw new Error(`JS terminal chain ${chain.name} ${kind} registration must be an array`);
+  for (const value of expected) {
+    if (typeof value !== 'string' || !value || !actual.has(value)) {
+      throw new Error(`JS terminal chain ${chain.name} missing ${kind} ${value}`);
+    }
+  }
+}
+
+function validateExactProjections(chain, actual) {
+  if (chain.projections === undefined) return;
+  if (!isRecord(chain.projections) || Object.keys(chain.projections).length === 0) {
+    throw new Error(`JS terminal chain ${chain.name} projections registration must be a non-empty object`);
+  }
+  for (const [target, source] of Object.entries(chain.projections)) {
+    const projection = `${target}=${source}`;
+    if (!actual.has(projection)) throw new Error(`JS terminal chain ${chain.name} missing projection ${projection}`);
+  }
 }
 
 function discoverJSValidatorConsumers(repoRoot, sourceOverrides, targetSchemas, resolveValidatorExports) {
@@ -498,6 +562,11 @@ function collectNamedValue(owner, value, functions) {
     collectNamedObjectMethods(owner, value, functions);
     return;
   }
+  if (value?.type === 'CallExpression') {
+    const functionArguments = value.arguments.filter(isFunctionNode);
+    if (functionArguments.length === 1) functions.push({ symbol: owner, body: functionArguments[0].body });
+    return;
+  }
   if (value?.type === 'ClassExpression') collectNamedClassMethods(owner, value, functions);
 }
 
@@ -627,10 +696,24 @@ function validateCallLocators(repoRoot, locators, extension, label) {
 }
 
 function resolveJSFunction(repoRoot, sourceOverrides, locator) {
-  validateLocatorShape(repoRoot, locator, '.js');
+  validateJavaScriptLocator(repoRoot, locator);
   const source = readRepositorySource(repoRoot, locator.path, sourceOverrides);
   const ast = parseModule(source, locator.path);
   return { ast, fn: findFunction(ast, locator.symbol, locator.path) };
+}
+
+function validateJavaScriptLocator(repoRoot, locator) {
+  if (!isRecord(locator) || typeof locator.path !== 'string' || typeof locator.symbol !== 'string' || !locator.symbol.trim()) {
+    throw new Error('source locator is incomplete');
+  }
+  const normalized = path.posix.normalize(locator.path);
+  if (!locator.path || path.isAbsolute(locator.path) || normalized !== locator.path || normalized.startsWith('../')) {
+    throw new Error(`locator path ${locator.path} must be normalized and repository-confined`);
+  }
+  if (!/\.(?:js|jsx)$/.test(locator.path)) throw new Error(`locator path ${locator.path} must end with .js or .jsx`);
+  const absolutePath = path.join(repoRoot, locator.path);
+  const info = fs.lstatSync(absolutePath);
+  if (!info.isFile() || info.isSymbolicLink()) throw new Error(`locator path ${locator.path} is not a regular file`);
 }
 
 function validateLocatorShape(repoRoot, locator, extension) {
@@ -695,6 +778,75 @@ function functionHasValidatorCall(
     if (target?.symbol === locator.calls) found = true;
   });
   return found;
+}
+
+function functionEvidence(fn) {
+  const calls = new Set();
+  const memberPaths = new Set();
+  const callArguments = new Set();
+  const callMemberPaths = new Set();
+  const projections = new Set();
+  const jsxProps = new Set();
+  walkNode(fn.body, (node) => {
+    if (node.type === 'CallExpression') {
+      const name = calleeName(node.callee);
+      if (name) calls.add(name);
+      const argument = expressionPath(node.arguments[0]);
+      if (name && argument) callArguments.add(`${name}=${argument}`);
+    }
+    if (node.type === 'MemberExpression' || node.type === 'OptionalMemberExpression') {
+      const memberPath = memberExpressionPath(node);
+      if (memberPath) memberPaths.add(memberPath);
+      const sanitizedMemberPath = callMemberPath(node);
+      if (sanitizedMemberPath) callMemberPaths.add(sanitizedMemberPath);
+    }
+    if (node.type === 'ObjectProperty' && !node.computed) {
+      const target = staticPropertyName(node);
+      const source = memberExpressionPath(node.value);
+      if (target && source) projections.add(`${target}=${source}`);
+    }
+    if (node.type === 'JSXOpeningElement') {
+      const element = jsxElementName(node.name);
+      if (!element) return;
+      for (const attribute of node.attributes) {
+        if (attribute.type !== 'JSXAttribute' || attribute.name?.type !== 'JSXIdentifier') continue;
+        const expression = attribute.value?.type === 'JSXExpressionContainer' ? attribute.value.expression : undefined;
+        if (expression?.type === 'Identifier') jsxProps.add(`${element}:${attribute.name.name}=${expression.name}`);
+      }
+    }
+  });
+  return { calls, memberPaths, callArguments, callMemberPaths, projections, jsxProps };
+}
+
+function expressionPath(node) {
+  if (node?.type === 'Identifier') return node.name;
+  if (node?.type !== 'MemberExpression' && node?.type !== 'OptionalMemberExpression') return '';
+  const object = expressionPath(node.object);
+  const property = memberPropertyName(node);
+  return object && property ? `${object}.${property}` : '';
+}
+
+function memberExpressionPath(node) {
+  return expressionPath(node);
+}
+
+function callMemberPath(node) {
+  if (node?.type !== 'MemberExpression' && node?.type !== 'OptionalMemberExpression') return '';
+  if (node.object?.type !== 'CallExpression') return '';
+  const callee = calleeName(node.object.callee);
+  const argument = expressionPath(node.object.arguments[0]);
+  const property = memberPropertyName(node);
+  return callee && argument && property ? `${callee}(${argument}).${property}` : '';
+}
+
+function jsxElementName(node) {
+  if (node?.type === 'JSXIdentifier') return node.name;
+  if (node?.type === 'JSXMemberExpression') {
+    const object = jsxElementName(node.object);
+    const property = jsxElementName(node.property);
+    return object && property ? `${object}.${property}` : '';
+  }
+  return '';
 }
 
 function deriveRequiredAliasMappings(fn) {

@@ -204,6 +204,57 @@
       "value": "turn/terminal"
     }
   ],
+  "jsTerminalChains": [
+    {
+      "name": "terminal-runtime-dispatch",
+      "path": "frontend-app/src/entities/client/model/helpers/assistantEventRuntime.js",
+      "symbol": "applyTurnTerminal",
+      "calls": ["parseRuntimeTurnTerminal", "terminalTimelineItem", "terminalNotice"]
+    },
+    {
+      "name": "terminal-public-error-projection",
+      "path": "frontend-app/src/entities/client/model/helpers/assistantEventRuntime.js",
+      "symbol": "terminalTimelineItem",
+      "calls": ["publicErrorForRemoteTerminal"],
+      "memberPaths": ["terminal.publicError"],
+      "callArguments": ["publicErrorForRemoteTerminal=terminal.publicError"],
+      "projections": { "publicError": "publicError" },
+      "forbiddenMemberPaths": ["terminal.publicError.code", "terminal.publicError.diagnosticId", "terminal.publicError.message", "terminal.publicError.recoveryActions", "terminal.publicError.title"],
+      "forbiddenProjections": ["publicError=terminal.publicError"]
+    },
+    {
+      "name": "terminal-public-error-notice",
+      "path": "frontend-app/src/entities/client/model/helpers/assistantEventRuntime.js",
+      "symbol": "terminalNotice",
+      "calls": ["actionNotice", "publicErrorForRemoteTerminal"],
+      "memberPaths": ["terminal.publicError"],
+      "callArguments": ["publicErrorForRemoteTerminal=terminal.publicError"],
+      "callMemberPaths": ["publicErrorForRemoteTerminal(terminal.publicError).message"],
+      "forbiddenMemberPaths": ["terminal.publicError.code", "terminal.publicError.diagnosticId", "terminal.publicError.message", "terminal.publicError.recoveryActions", "terminal.publicError.title"]
+    },
+    {
+      "name": "terminal-timeline-render",
+      "path": "frontend-app/src/pages/chat/thread/TimelineMessage.jsx",
+      "symbol": "TimelineMessage",
+      "memberPaths": ["message.publicError"],
+      "jsxProps": ["TerminalPublicError:error=error"]
+    },
+    {
+      "name": "terminal-public-error-clipboard-sink",
+      "path": "frontend-app/src/pages/chat/thread/TimelineMessage.jsx",
+      "symbol": "TerminalPublicError",
+      "calls": ["copyTextToClipboard", "publicErrorForRemoteTerminal", "terminalDiagnosticText"],
+      "memberPaths": ["publicError.diagnosticId", "publicError.recoveryActions"],
+      "callArguments": ["publicErrorForRemoteTerminal=error", "terminalDiagnosticText=publicError"],
+      "forbiddenMemberPaths": ["error.code", "error.diagnosticId", "error.message", "error.recoveryActions", "error.title"]
+    },
+    {
+      "name": "terminal-public-error-diagnostic-projection",
+      "path": "frontend-app/src/pages/chat/thread/TimelineMessage.jsx",
+      "symbol": "terminalDiagnosticText",
+      "memberPaths": ["error.diagnosticId", "error.code", "error.title", "error.message"]
+    }
+  ],
   "jsMappers": [
     {
       "name": "turn-interrupt-identity",

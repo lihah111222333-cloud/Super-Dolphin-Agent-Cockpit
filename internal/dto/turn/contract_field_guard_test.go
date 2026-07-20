@@ -63,12 +63,36 @@ type jsMapperRegistry struct {
 	Fields map[string]mapperFieldRegistry `json:"fields"`
 }
 
+type jsTerminalChainLocator struct {
+	Name                 string            `json:"name"`
+	Path                 string            `json:"path"`
+	Symbol               string            `json:"symbol"`
+	Calls                []string          `json:"calls"`
+	MemberPaths          []string          `json:"memberPaths"`
+	CallArguments        []string          `json:"callArguments"`
+	CallMemberPaths      []string          `json:"callMemberPaths"`
+	ForbiddenMemberPaths []string          `json:"forbiddenMemberPaths"`
+	ForbiddenProjections []string          `json:"forbiddenProjections"`
+	Projections          map[string]string `json:"projections"`
+	JSXProps             []string          `json:"jsxProps"`
+}
+
+var requiredJSTerminalChainNames = []string{
+	"terminal-runtime-dispatch",
+	"terminal-public-error-projection",
+	"terminal-public-error-notice",
+	"terminal-timeline-render",
+	"terminal-public-error-clipboard-sink",
+	"terminal-public-error-diagnostic-projection",
+}
+
 type consumerRegistry struct {
-	Version     int                            `json:"version"`
-	Schemas     map[string]schemaRegistryEntry `json:"schemas"`
-	GoChains    []goChainLocator               `json:"goChains"`
-	GoConstants []goConstantLocator            `json:"goConstants"`
-	JSMappers   []jsMapperRegistry             `json:"jsMappers"`
+	Version          int                            `json:"version"`
+	Schemas          map[string]schemaRegistryEntry `json:"schemas"`
+	GoChains         []goChainLocator               `json:"goChains"`
+	GoConstants      []goConstantLocator            `json:"goConstants"`
+	JSTerminalChains []jsTerminalChainLocator       `json:"jsTerminalChains"`
+	JSMappers        []jsMapperRegistry             `json:"jsMappers"`
 }
 
 // TestTurnContractFieldGuard derives producer fields from canonical schemas and Go JSON tags,
@@ -178,6 +202,9 @@ func validateRegistryChains(root string, registry consumerRegistry, overrides ma
 		return err
 	}
 	if err := validateGoConstants(root, registry.GoConstants, overrides); err != nil {
+		return err
+	}
+	if err := validateJSTerminalChains(root, registry.JSTerminalChains); err != nil {
 		return err
 	}
 	return validateJSMapperRegistry(root, registry.JSMappers)
@@ -307,6 +334,55 @@ func validateJSMapperRegistry(root string, mappers []jsMapperRegistry) error {
 	for _, mapper := range mappers {
 		if err := validateJSMapper(root, mapper, seen); err != nil {
 			return err
+		}
+	}
+	return nil
+}
+
+func validateJSTerminalChains(root string, chains []jsTerminalChainLocator) error {
+	if len(chains) == 0 {
+		return fmt.Errorf("consumer registry has no JS terminal chains")
+	}
+	seen := map[string]bool{}
+	registered := make([]string, 0, len(chains))
+	for _, chain := range chains {
+		if strings.TrimSpace(chain.Name) == "" || seen[chain.Name] {
+			return fmt.Errorf("JS terminal chain has blank or duplicate name %q", chain.Name)
+		}
+		seen[chain.Name] = true
+		registered = append(registered, chain.Name)
+		if err := validateJSSourceLocator(root, sourceLocator{Path: chain.Path, Symbol: chain.Symbol}); err != nil {
+			return fmt.Errorf("JS terminal chain %s: %w", chain.Name, err)
+		}
+		if err := validateJSTerminalChainContract(chain); err != nil {
+			return fmt.Errorf("JS terminal chain %s: %w", chain.Name, err)
+		}
+	}
+	return assertExactConsumerSet("JS terminal chain registry", requiredJSTerminalChainNames, registered)
+}
+
+func validateJSTerminalChainContract(chain jsTerminalChainLocator) error {
+	for _, requirement := range []struct {
+		name   string
+		values []string
+	}{
+		{name: "calls", values: chain.Calls},
+		{name: "member paths", values: chain.MemberPaths},
+		{name: "call arguments", values: chain.CallArguments},
+		{name: "call member paths", values: chain.CallMemberPaths},
+		{name: "forbidden member paths", values: chain.ForbiddenMemberPaths},
+		{name: "forbidden projections", values: chain.ForbiddenProjections},
+		{name: "JSX props", values: chain.JSXProps},
+	} {
+		for _, value := range requirement.values {
+			if strings.TrimSpace(value) == "" {
+				return fmt.Errorf("%s contains a blank value", requirement.name)
+			}
+		}
+	}
+	for target, source := range chain.Projections {
+		if strings.TrimSpace(target) == "" || strings.TrimSpace(source) == "" {
+			return fmt.Errorf("projections contains a blank target or source")
 		}
 	}
 	return nil
@@ -542,6 +618,27 @@ func repositorySource(root, relativePath string, overrides map[string]string) (s
 func validateSourceLocator(root string, locator sourceLocator, extension string) error {
 	if err := validateLocator(locator, extension); err != nil {
 		return err
+	}
+	path := filepath.Join(root, filepath.FromSlash(locator.Path))
+	info, err := os.Lstat(path)
+	if err != nil {
+		return fmt.Errorf("stat %s: %w", locator.Path, err)
+	}
+	if !info.Mode().IsRegular() {
+		return fmt.Errorf("locator path %s is not a regular file", locator.Path)
+	}
+	return nil
+}
+
+func validateJSSourceLocator(root string, locator sourceLocator) error {
+	if err := validateRelativePath(locator.Path); err != nil {
+		return err
+	}
+	if strings.TrimSpace(locator.Symbol) == "" {
+		return fmt.Errorf("locator symbol is blank")
+	}
+	if extension := filepath.Ext(locator.Path); extension != ".js" && extension != ".jsx" {
+		return fmt.Errorf("locator path %s must end with .js or .jsx", locator.Path)
 	}
 	path := filepath.Join(root, filepath.FromSlash(locator.Path))
 	info, err := os.Lstat(path)

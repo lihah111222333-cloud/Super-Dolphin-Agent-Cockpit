@@ -9,12 +9,103 @@ import { validateTurnContractFieldGuard } from './turn-contract-field-guard.mjs'
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const mapperPath = 'frontend-app/src/shared/api/backend/backendApiFactoryThread.js';
 const runtimePath = 'frontend-app/src/entities/client/model/runtimeAssistantTimeline.js';
+const terminalRuntimePath = 'frontend-app/src/entities/client/model/helpers/assistantEventRuntime.js';
+const timelineMessagePath = 'frontend-app/src/pages/chat/thread/TimelineMessage.jsx';
 const registryPath = 'internal/dto/turn/schema/field_consumers.json';
 const barrelPath = 'frontend-app/src/shared/contracts/turnContractBarrel.js';
 
 describe('turn contract production field guard', () => {
   it('resolves canonical schemas, production validators, consumers, and mapper fields', () => {
     expect(validateTurnContractFieldGuard({ repoRoot })).toEqual({ schemaCount: 3, mapperCount: 1 });
+  });
+
+  it('fails when the terminal consumer-chain registry is missing a required downstream sink', () => {
+    const registry = JSON.parse(read(registryPath));
+    registry.jsTerminalChains = registry.jsTerminalChains.filter((chain) => chain.name !== 'terminal-public-error-clipboard-sink');
+    expect(() => validateTurnContractFieldGuard({
+      repoRoot,
+      sourceOverrides: new Map([[registryPath, JSON.stringify(registry)]]),
+    })).toThrow('JS terminal chain registry missing=terminal-public-error-clipboard-sink');
+  });
+
+  it('fails when a terminal consumer-chain registry symbol is stale', () => {
+    const registry = JSON.parse(read(registryPath));
+    const chain = registry.jsTerminalChains.find((entry) => entry.name === 'terminal-public-error-projection');
+    chain.symbol = 'missingTerminalTimelineItem';
+    expect(() => validateTurnContractFieldGuard({
+      repoRoot,
+      sourceOverrides: new Map([[registryPath, JSON.stringify(registry)]]),
+    })).toThrow('resolved 0 production functions');
+  });
+
+  it('fails when the terminal notice implementation is renamed without its registry', () => {
+    const source = read(terminalRuntimePath);
+    const mutated = source.replace('function terminalNotice(terminal, deps) {', 'function renamedTerminalNotice(terminal, deps) {');
+    expect(mutated).not.toBe(source);
+    expect(() => validateTurnContractFieldGuard({
+      repoRoot,
+      sourceOverrides: new Map([[terminalRuntimePath, mutated]]),
+    })).toThrow('resolved 0 production functions');
+  });
+
+  it('fails when terminal projection deletes the public-error resolver', () => {
+    const source = read(terminalRuntimePath);
+    const mutated = source.replace('const publicError = terminal.publicError ? publicErrorForRemoteTerminal(terminal.publicError) : null;', 'const publicError = terminal.publicError;');
+    expect(mutated).not.toBe(source);
+    expect(() => validateTurnContractFieldGuard({
+      repoRoot,
+      sourceOverrides: new Map([[terminalRuntimePath, mutated]]),
+    })).toThrow('terminal-public-error-projection missing call publicErrorForRemoteTerminal');
+  });
+
+  it('fails when terminal projection restores the raw public-error sink', () => {
+    const source = read(terminalRuntimePath);
+    const mutated = source.replace('...(publicError ? { publicError } : {}),', '...(terminal.publicError ? { publicError: terminal.publicError } : {}),');
+    expect(mutated).not.toBe(source);
+    expect(() => validateTurnContractFieldGuard({
+      repoRoot,
+      sourceOverrides: new Map([[terminalRuntimePath, mutated]]),
+    })).toThrow('terminal-public-error-projection retains forbidden projection publicError=terminal.publicError');
+  });
+
+  it('fails when terminal notice restores the raw public-error message sink', () => {
+    const source = read(terminalRuntimePath);
+    const mutated = source.replace('publicErrorForRemoteTerminal(terminal.publicError).message', '(publicErrorForRemoteTerminal(terminal.publicError), terminal.publicError.message)');
+    expect(mutated).not.toBe(source);
+    expect(() => validateTurnContractFieldGuard({
+      repoRoot,
+      sourceOverrides: new Map([[terminalRuntimePath, mutated]]),
+    })).toThrow('terminal-public-error-notice retains forbidden member path terminal.publicError.message');
+  });
+
+  it('fails when timeline rendering stops projecting publicError into its error boundary', () => {
+    const source = read(timelineMessagePath);
+    const mutated = source.replace('const error = message.publicError;', 'const error = message.legacyPublicError;');
+    expect(mutated).not.toBe(source);
+    expect(() => validateTurnContractFieldGuard({
+      repoRoot,
+      sourceOverrides: new Map([[timelineMessagePath, mutated]]),
+    })).toThrow('terminal-timeline-render missing member path message.publicError');
+  });
+
+  it('fails when terminal clipboard restores the raw public-error input', () => {
+    const source = read(timelineMessagePath);
+    const mutated = source.replace('terminalDiagnosticText(publicError)', 'terminalDiagnosticText(error)');
+    expect(mutated).not.toBe(source);
+    expect(() => validateTurnContractFieldGuard({
+      repoRoot,
+      sourceOverrides: new Map([[timelineMessagePath, mutated]]),
+    })).toThrow('terminal-public-error-clipboard-sink missing call argument terminalDiagnosticText=publicError');
+  });
+
+  it('fails when terminal clipboard reads a raw diagnostic field', () => {
+    const source = read(timelineMessagePath);
+    const mutated = source.replace('publicError.diagnosticId', 'error.diagnosticId');
+    expect(mutated).not.toBe(source);
+    expect(() => validateTurnContractFieldGuard({
+      repoRoot,
+      sourceOverrides: new Map([[timelineMessagePath, mutated]]),
+    })).toThrow('terminal-public-error-clipboard-sink retains forbidden member path error.diagnosticId');
   });
 
   it('fails when the Stop mapper drops expectedTurnId', () => {
