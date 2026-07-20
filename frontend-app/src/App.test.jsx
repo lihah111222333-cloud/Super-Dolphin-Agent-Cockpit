@@ -961,9 +961,10 @@ async function showAllTraceDashboardEvents() {
     expect(screen.getByTestId('app-sidebar')).toHaveClass('is-open');
 
     fireEvent.click(within(screen.getByTestId('app-sidebar')).getByRole('button', { name: '设置' }));
-    await screen.findByTestId('settings-page');
+    expect(document.querySelector('.suiyuan-appbar-title h1')).toHaveTextContent('设置');
+    expect(within(screen.getByTestId('app-sidebar')).getByRole('button', { name: '设置' })).toHaveClass('active');
     expect(shell).not.toHaveClass('sidebar-open');
-  }, 10_000);
+  });
 
   it('uses the custom brand icon only in the sidebar brand area', async () => {
     render(<App />);
