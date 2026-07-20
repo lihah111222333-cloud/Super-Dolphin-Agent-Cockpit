@@ -75,7 +75,23 @@ func TestDefinitelyUnpublishedCreateFailurePhasesRetainMatchingSignal(t *testing
 	}
 }
 
-func TestMismatchedCreateErrorDoesNotRetainCandidate(t *testing.T) {
+func TestNonExactNonzeroCreateErrorPreservesPublicationUnknown(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		result func(recovery.CreateRequest) recovery.Transaction
+	}{
+		{name: "mismatched prepared", result: mismatchedPreparedCreateResult},
+		{name: "partial identity", result: partialCreateResult},
+		{name: "forged state", result: forgedStateCreateResult},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			testNonExactNonzeroCreateError(t, tc.result)
+		})
+	}
+}
+
+func testNonExactNonzeroCreateError(t *testing.T, result func(recovery.CreateRequest) recovery.Transaction) {
+	t.Helper()
 	stubSuccessfulDitto(t)
 	stageDir, _ := testUpdaterStage(t)
 	beginUpdaterAttempt(t, stageDir)
@@ -86,23 +102,23 @@ func TestMismatchedCreateErrorDoesNotRetainCandidate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	wantErr := errors.New("mismatched published transaction")
+	wantErr := errors.New("untrusted nonzero create result")
 	helperStarted := false
 	app := defaultUpdaterApp()
 	app.createRecoveryTransaction = func(_ *recovery.Store, _ context.Context, req recovery.CreateRequest) (recovery.Transaction, error) {
-		return mismatchedPreparedCreateResult(req), wantErr
+		return result(req), wantErr
 	}
 	app.startProbationCandidate = func(context.Context, recovery.Transaction) (*candidateHandle, error) {
 		helperStarted = true
 		return nil, errors.New("unexpected helper start")
 	}
-	_, _, err = app.replaceTargetAppTransactionContextWithStageDir(
+	created, _, err := app.replaceTargetAppTransactionContextWithStageDir(
 		context.Background(), staged, target, "", true, true, stageDir, recoveryTestGeneration,
 	)
-	if !errors.Is(err, wantErr) {
-		t.Fatalf("replaceTargetAppTransactionContextWithStageDir() error = %v, want %v", err, wantErr)
+	if !errors.Is(err, wantErr) || created != (recovery.Transaction{}) {
+		t.Fatalf("replaceTargetAppTransactionContextWithStageDir() = (%+v, _, %v), want zero transaction and %v", created, err, wantErr)
 	}
-	assertJournalPublicationFailureState(t, stageDir, parent, target, beforeDigest, helperStarted)
+	assertUnknownCreateErrorState(t, stageDir, parent, target, beforeDigest, helperStarted)
 }
 
 func mismatchedPreparedCreateResult(req recovery.CreateRequest) recovery.Transaction {
@@ -111,6 +127,36 @@ func mismatchedPreparedCreateResult(req recovery.CreateRequest) recovery.Transac
 	return recovery.Transaction{
 		Identity: req.Identity, Paths: req.Paths, State: recovery.StatePrepared, Trust: req.Trust,
 		TargetGeneration: 1, Revision: 1, CreatedAt: createdAt, UpdatedAt: createdAt,
+	}
+}
+
+func partialCreateResult(req recovery.CreateRequest) recovery.Transaction {
+	return recovery.Transaction{Identity: recovery.Identity{TransactionID: req.Identity.TransactionID}}
+}
+
+func forgedStateCreateResult(req recovery.CreateRequest) recovery.Transaction {
+	return recovery.Transaction{Identity: req.Identity, Paths: req.Paths, State: recovery.StateCommitted}
+}
+
+func assertUnknownCreateErrorState(t *testing.T, stageDir string, parent string, target string, beforeDigest string, helperStarted bool) {
+	t.Helper()
+	if helperStarted {
+		t.Fatal("probation helper started for publication-unknown Create error")
+	}
+	if _, exists, err := appupdatefailure.ReadFailure(stageDir); err != nil || exists {
+		t.Fatalf("ReadFailure() after publication-unknown Create error = (_, %v, %v), want pending sidecar hidden", exists, err)
+	}
+	journals, err := filepath.Glob(filepath.Join(parent, updateTransactionDirName, "*", "journal.json"))
+	if err != nil || len(journals) != 0 {
+		t.Fatalf("transaction journals = %v, error = %v, want none", journals, err)
+	}
+	candidates, err := filepath.Glob(filepath.Join(parent, ".Super Dolphin.staging-*.app"))
+	if err != nil || len(candidates) != 1 {
+		t.Fatalf("prepared candidates = %v, error = %v, want one", candidates, err)
+	}
+	assertTargetDigestUnchanged(t, target, beforeDigest, "publication-unknown Create error")
+	if err := appupdatefailure.Clear(stageDir, recoveryTestGeneration); err != nil {
+		t.Fatalf("Clear() after publication-unknown Create error = %v, want preserved pending sidecar", err)
 	}
 }
 

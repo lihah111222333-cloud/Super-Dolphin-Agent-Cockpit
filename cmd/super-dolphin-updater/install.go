@@ -613,8 +613,8 @@ func (app updaterApp) replaceTargetAppTransactionContextWithStageDir(ctx context
 	created, err := app.createRecoveryTransaction(store, ctx, request)
 	if err != nil {
 		cause := fmt.Errorf("create release transaction: %w", err)
-		if exactPreparedCreateResult(created, request) {
-			return created, false, cause
+		if preserved, preserve := conservativeCreateErrorResult(created, request); preserve {
+			return preserved, false, cause
 		}
 		cause = recordStoreCreateFailure(stageDir, generation, cause)
 		return recovery.Transaction{}, false, removePreparedCandidate(request.Paths.Staging, cause)
@@ -623,6 +623,14 @@ func (app updaterApp) replaceTargetAppTransactionContextWithStageDir(ctx context
 		return created, false, err
 	}
 	return app.completePreparedReleaseTransaction(ctx, store, created, packageOwned)
+}
+
+// conservativeCreateErrorResult 将不可信的非零结果降为零值，但保留 publication-unknown 现场。
+func conservativeCreateErrorResult(transaction recovery.Transaction, request recovery.CreateRequest) (recovery.Transaction, bool) {
+	if exactPreparedCreateResult(transaction, request) {
+		return transaction, true
+	}
+	return recovery.Transaction{}, transaction != (recovery.Transaction{})
 }
 
 // exactPreparedCreateResult 仅接受 Store.Create 对当前请求返回的完整 prepared 结果。
