@@ -1,8 +1,6 @@
 // @ts-check
 
-import { RPC_METHODS } from './backend/backendRpcMethods.js';
-
-/** @typedef {typeof RPC_METHODS} Methods */
+/** @typedef {typeof import('./backend/backendRpcMethods.js').RPC_METHODS} Methods */
 /**
  * @typedef {{
  *   API: string,
