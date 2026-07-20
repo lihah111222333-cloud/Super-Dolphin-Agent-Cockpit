@@ -40,6 +40,7 @@ type StartupSelection struct {
 	Store       *recovery.Store
 	Transaction recovery.Transaction
 	Projection  RecoveryProjection
+	process     recovery.ProcessIdentity
 }
 
 // StartupSelectorInput 汇总 early selector 的 journal 与 exact process contract。
@@ -47,6 +48,7 @@ type StartupSelectorInput struct {
 	Store                 *recovery.Store
 	Process               recovery.ProcessIdentity
 	ExpectedTransactionID recovery.TransactionID
+	RollbackLaunch        bool
 	LeaseWait             time.Duration
 	// DigestTimeout 允许测试缩短真实 timer；生产调用方必须传 StartupDigestTimeout。
 	DigestTimeout time.Duration
@@ -62,15 +64,17 @@ func SelectStartup(ctx context.Context, input StartupSelectorInput) (StartupSele
 	}
 	transaction, found, err := discoverStartupTransaction(ctx, input)
 	if err != nil {
-		return recoverySelection(input.Store, transaction, err), err
+		return recoverySelection(input, transaction, err), err
 	}
 	if !found {
-		return StartupSelection{Mode: StartupModeNormal, Store: input.Store}, nil
+		return StartupSelection{Mode: StartupModeNormal, Store: input.Store, process: input.Process}, nil
 	}
 	if err := validateStartupTransaction(ctx, transaction, input); err != nil {
-		return recoverySelection(input.Store, transaction, err), err
+		return recoverySelection(input, transaction, err), err
 	}
-	return StartupSelection{Mode: StartupModeNormal, Store: input.Store, Transaction: transaction}, nil
+	return StartupSelection{
+		Mode: StartupModeNormal, Store: input.Store, Transaction: transaction, process: input.Process,
+	}, nil
 }
 
 // HasActiveProbation 表示 selector 已返回带 exact lease 的 candidate probation。
@@ -102,7 +106,8 @@ func discoverStartupTransaction(ctx context.Context, input StartupSelectorInput)
 		return recovery.Transaction{}, false, err
 	}
 	if !found && input.ExpectedTransactionID != "" {
-		return recovery.Transaction{}, false, errors.New("expected probation transaction is missing")
+		transaction, err = input.Store.LoadByID(ctx, input.ExpectedTransactionID)
+		return transaction, err == nil, err
 	}
 	if found && transaction.State == recovery.StateProbation && !transaction.Probation.LeasePresent && input.LeaseWait > 0 {
 		transaction, err = waitForProbationLease(ctx, input)
@@ -110,11 +115,25 @@ func discoverStartupTransaction(ctx context.Context, input StartupSelectorInput)
 	return transaction, found, err
 }
 
+// validateStartupTransaction 按启动目的严格验证 probation candidate 或已激活 rollback 进程。
 func validateStartupTransaction(ctx context.Context, transaction recovery.Transaction, input StartupSelectorInput) error {
 	if input.ExpectedTransactionID != "" && transaction.Identity.TransactionID != input.ExpectedTransactionID {
-		return errors.New("probation transaction identity does not match launch contract")
+		return errors.New("startup transaction identity does not match launch contract")
 	}
-	return validateProbationCandidate(ctx, transaction, input.Process, input.DigestTimeout)
+	switch transaction.State {
+	case recovery.StateProbation:
+		if input.RollbackLaunch {
+			return errors.New("rollback launch cannot target active probation")
+		}
+		return validateProbationCandidate(ctx, transaction, input.Process, input.DigestTimeout)
+	case recovery.StateRolledBack:
+		if !input.RollbackLaunch {
+			return errors.New("rolled_back transaction requires authenticated rollback launch")
+		}
+		return recovery.ValidateActivatedRollbackLaunch(transaction, input.Process)
+	default:
+		return fmt.Errorf("active transaction state %q requires Recovery", transaction.State)
+	}
 }
 
 // waitForProbationLease 在 candidate 先于 updater lease 落盘启动时做有界阻塞。
@@ -172,9 +191,11 @@ func validateProbationCandidate(
 	return nil
 }
 
-func recoverySelection(store *recovery.Store, transaction recovery.Transaction, cause error) StartupSelection {
+func recoverySelection(input StartupSelectorInput, transaction recovery.Transaction, cause error) StartupSelection {
 	projection := projectRecoveryTransaction(transaction, cause.Error())
-	return StartupSelection{Mode: StartupModeRecovery, Store: store, Transaction: transaction, Projection: projection}
+	return StartupSelection{
+		Mode: StartupModeRecovery, Store: input.Store, Transaction: transaction, Projection: projection, process: input.Process,
+	}
 }
 
 func projectRecoveryTransaction(transaction recovery.Transaction, reason string) RecoveryProjection {

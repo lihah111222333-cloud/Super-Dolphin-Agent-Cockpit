@@ -11,6 +11,7 @@
     "collapse": "折叠侧栏",
     "tools": "工作台工具",
     "ariaLabel": "燧元 工作台",
+    "mobileNavAriaLabel": "主要导航",
     "search": "搜索",
     "newChat": "新对话",
     "notifications": "通知",
@@ -58,12 +59,14 @@
   },
   "nav": {
     "chat": "聊天页面",
+    "chatShort": "聊天",
     "skills": "插件与技能",
     "skillsShort": "插件",
     "prompts": "提示词",
     "promptsShort": "定制角色",
     "workflows": "自动化",
     "memory": "记忆中心",
+    "memoryShort": "记忆",
     "files": "共享文件",
     "observability": "链路追踪",
     "settings": "设置"
@@ -505,6 +508,7 @@
   },
   "memory": {
     "title": "记忆中心",
+    "subtitle": "管理并观察 AI 的上下文记忆留存。",
     "search": "搜索记忆",
     "searchPlaceholder": "搜索记忆标题 / 内容",
     "new": "新建",

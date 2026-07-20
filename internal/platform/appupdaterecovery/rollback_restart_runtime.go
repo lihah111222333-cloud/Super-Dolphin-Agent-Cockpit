@@ -304,25 +304,76 @@ func prepareRollbackRestartControl(
 }
 
 func rollbackRestartRecoveryLaunch(ctx context.Context, transaction Transaction, token, executable string) (runtimeenv.RecoveryLaunch, error) {
-	if !validLowerHex(token, rollbackLaunchTokenBytes*2) {
-		return runtimeenv.RecoveryLaunch{}, errors.New("rollback restart launch token must be 64 lowercase hex characters")
-	}
-	transactionID := string(transaction.Identity.TransactionID)
-	if !validLowerHex(transactionID, transactionIDBytes*2) {
-		return runtimeenv.RecoveryLaunch{}, errors.New("rollback restart transaction ID is invalid")
+	endpoint, err := rollbackRestartTerminationEndpoint(transaction.Identity.TransactionID, token)
+	if err != nil {
+		return runtimeenv.RecoveryLaunch{}, err
 	}
 	digest, err := ComputeReleaseDigestContext(ctx, executable)
 	if err != nil {
 		return runtimeenv.RecoveryLaunch{}, fmt.Errorf("digest rollback restart executable: %w", err)
 	}
-	endpoint := filepath.Join(os.TempDir(), fmt.Sprintf(
-		"sd-rr-%s-%s.sock", transactionID[:8], token[:rollbackRestartEndpointNameBytes],
-	))
 	return runtimeenv.RecoveryLaunch{
-		TransactionRoot: TransactionRootForTarget(transaction.Paths.Target), TransactionID: transactionID,
+		TransactionRoot:    TransactionRootForTarget(transaction.Paths.Target),
+		TransactionID:      string(transaction.Identity.TransactionID),
 		ExecutableIdentity: filepath.Clean(executable), ExecutableSHA256: digest,
-		TerminationEndpoint: filepath.Clean(endpoint), TerminationToken: token, ContractPresent: true,
+		TerminationEndpoint: endpoint, TerminationToken: token, ContractPresent: true,
 	}, nil
+}
+
+// ValidateActivatedRollbackLaunch 认证 rolled_back journal、durable token、ACK 与当前旧版本进程的完整 tuple。
+func ValidateActivatedRollbackLaunch(transaction Transaction, process ProcessIdentity) error {
+	if transaction.State != StateRolledBack {
+		return fmt.Errorf("rollback launch transaction state %q is not rolled_back", transaction.State)
+	}
+	if !transaction.RollbackRestart.IntentPresent || !transaction.RollbackRestart.ACKPresent {
+		return errors.New("rollback launch transaction is missing durable intent or ACK")
+	}
+	if err := validateProcessIdentity(process); err != nil {
+		return fmt.Errorf("validate activated rollback process: %w", err)
+	}
+	token := transaction.RollbackRestart.LaunchToken
+	if process.TerminationToken != token || transaction.RollbackRestart.ACK.LaunchToken != token {
+		return errors.New("activated rollback launch token does not match journal")
+	}
+	return validateActivatedRollbackProcess(transaction, process, token)
+}
+
+// validateActivatedRollbackProcess 核对 endpoint、ACK 进程与已恢复旧 release 身份。
+func validateActivatedRollbackProcess(transaction Transaction, process ProcessIdentity, token string) error {
+	endpoint, err := rollbackRestartTerminationEndpoint(transaction.Identity.TransactionID, token)
+	if err != nil {
+		return err
+	}
+	if process.TerminationEndpoint != endpoint {
+		return errors.New("activated rollback termination endpoint does not match journal")
+	}
+	expectedProcess := transaction.RollbackRestart.ACK.Process
+	if expectedProcess != (RollbackRestartProcess{
+		PID: process.PID, StartToken: process.StartToken,
+		ExecutableIdentity: process.ExecutableIdentity, ExecutableSHA256: process.ExecutableSHA256,
+	}) {
+		return errors.New("activated rollback process identity does not match journal ACK")
+	}
+	executable := filepath.Join(transaction.Paths.Target, "Contents", "MacOS", "agent-terminal")
+	if process.ExecutableIdentity != filepath.Clean(executable) {
+		return errors.New("activated rollback executable does not match restored release")
+	}
+	return nil
+}
+
+// rollbackRestartTerminationEndpoint 从持久 transaction/token 唯一派生协作终止端点。
+func rollbackRestartTerminationEndpoint(transactionID TransactionID, token string) (string, error) {
+	if !validLowerHex(token, rollbackLaunchTokenBytes*2) {
+		return "", errors.New("rollback restart launch token must be 64 lowercase hex characters")
+	}
+	id := string(transactionID)
+	if !validLowerHex(id, transactionIDBytes*2) {
+		return "", errors.New("rollback restart transaction ID is invalid")
+	}
+	endpoint := filepath.Join(os.TempDir(), fmt.Sprintf(
+		"sd-rr-%s-%s.sock", id[:8], token[:rollbackRestartEndpointNameBytes],
+	))
+	return filepath.Clean(endpoint), nil
 }
 
 func cleanupStaleRollbackRestartEndpoint(ctx context.Context, endpoint string) error {

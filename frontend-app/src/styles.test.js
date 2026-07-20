@@ -282,7 +282,7 @@ describe('layer token and overlay host contract', () => {
     expect(mainCssImports[0]).toBe(LAYER_TOKENS_FILE);
   });
 
-  it('keeps all 42 active z-index declarations in 12 files on exact known token references', () => {
+  it('keeps all 43 active z-index declarations in 12 files on exact known token references', () => {
     const declarations = activeZIndexDeclarations();
     const files = [...new Set(declarations.map((declaration) => declaration.file))].sort();
     const invalid = declarations.filter((declaration) => {
@@ -290,7 +290,7 @@ describe('layer token and overlay host contract', () => {
       return !match || !EXPECTED_Z_INDEX_TOKENS.has(match[1]);
     });
 
-    expect(declarations).toHaveLength(42);
+    expect(declarations).toHaveLength(43);
     expect(files).toEqual(EXPECTED_Z_INDEX_FILES);
     expect(invalid).toEqual([]);
   });
@@ -528,7 +528,7 @@ describe('composer layout styles', () => {
     const disabledSend = declarationsFor('.composer .send:disabled');
 
     expect(floatingCard.background).toBe('var(--surface)');
-    expect(floatingCard['border-radius']).toBe('20px');
+    expect(floatingCard['border-radius']).toBe('var(--suiyuan-radius-input)');
     expect(floatingCard['box-shadow']).toContain('var(--suiyuan-input-shadow)');
     expect(textarea.padding).toBe('18px 20px 12px');
     expect(meta['min-height']).toBe('48px');
@@ -1278,7 +1278,7 @@ describe('conversation content column styles', () => {
     expect(floating['--composer-floating-max-width']).toBe('800px');
     expect(floating['--composer-floating-bottom-gap']).toBe('22px');
     expect(sharedCard.padding).toBe('0');
-    expect(sharedCard['border-radius']).toBe('20px');
+    expect(sharedCard['border-radius']).toBe('var(--suiyuan-radius-input)');
     expect(sharedTextarea.height).toBe('76px');
     expect(sharedTextarea['min-height']).toBe('76px');
     expect(sharedMeta['min-height']).toBe('48px');
@@ -1322,7 +1322,7 @@ describe('conversation content column styles', () => {
     expect(lightModel.background).toBe('color-mix(in srgb, var(--suiyuan-primary-fixed) 10%, transparent)');
     expect(disabledSend.background).toBe('var(--suiyuan-primary)');
     expect(disabledSend.color).toBe('var(--on-accent)');
-    expect(disclaimer.color).toBe('var(--suiyuan-secondary-fixed-dim)');
+    expect(disclaimer.color).toBe('var(--suiyuan-on-surface-variant)');
     expect(disclaimer.margin).toBeUndefined();
     expect(disclaimer['font-weight']).toBeUndefined();
     expect(disclaimer['line-height']).toBeUndefined();
@@ -1336,7 +1336,7 @@ describe('conversation content column styles', () => {
     const composerCard = declarationsFor('.sa-window[data-theme="dark"] .composer.composer--floating[data-file-drop-target] .composer-card');
 
     expect(intro.background).toContain('var(--suiyuan-surface-bright)');
-    expect(darkCard.background).toContain('var(--suiyuan-surface-lowest)');
+    expect(darkCard.background).toContain('var(--suiyuan-surface-low)');
     expect(composerBackdrop.background).toContain('var(--bg)');
     expect(composerCard.background).toContain('var(--suiyuan-surface-low)');
     expect(composerCard['border-color']).toContain('var(--suiyuan-outline-variant)');
@@ -1373,14 +1373,14 @@ describe('conversation content column styles', () => {
     expect(spotlightInner.height).toBe('auto');
     expect(logoTile.display).toBe('none');
     expect(introTitle.margin).toBe('0');
-    expect(introTitle['font-weight']).toBe('650');
+    expect(introTitle['font-weight']).toBe('600');
     expect(introSubtitle.display).toBe('none');
     expect(suggestions.width).toBe('min(900px, 100%)');
     expect(suggestions['margin-top']).toBe('48px');
     expect(suggestions['margin-bottom']).toBe('128px');
     expect(card['min-height']).toBe('174px');
     expect(card.gap).toBe('8px');
-    expect(card['border-color']).toBe('var(--suiyuan-surface-variant)');
+    expect(card['border-color']).toBe('var(--suiyuan-outline-variant)');
     expect(card.padding).toBe('24px');
     expect(cardIcon.width).toBe('36px');
     expect(cardIcon.height).toBe('36px');
@@ -1390,9 +1390,9 @@ describe('conversation content column styles', () => {
     expect(cardTitle.margin).toBe('8px 0 0');
     expect(cardTitle['font-weight']).toBe('700');
     expect(cardDescription['min-height']).toBe('0');
-    expect(cardDescription.color).toBe('var(--suiyuan-secondary)');
-    expect(cardDescription['font-weight']).toBe('500');
-    expect(cardDescription['line-height']).toBe('16px');
+    expect(cardDescription.color).toBe('var(--suiyuan-on-surface-variant)');
+    expect(cardDescription['font-weight']).toBe('400');
+    expect(cardDescription['line-height']).toBe('var(--suiyuan-text-body-line)');
     expect(darkSpotlight.inset).toBeUndefined();
     expect(darkSpotlight.padding).toBeUndefined();
     expect(darkTitle['font-weight']).toBeUndefined();
@@ -1467,6 +1467,27 @@ describe('workbench shell styles', () => {
       expect(main.background).toBe('var(--bg)');
     });
 
+    it('renders the mobile bottom navigation as a fixed bar and keeps content clear of it', () => {
+      const desktopNav = topLevelDeclarationsFor('.suiyuan-mobile-nav');
+      const mobileNav = mediaDeclarationFor('(max-width: 920px)', '.suiyuan-mobile-nav', 'position');
+      const drawerOpenNav = mediaDeclarationFor('(max-width: 920px)', '.sa-window.sidebar-open .suiyuan-mobile-nav', 'display');
+      const navItem = mediaDeclarationFor('(max-width: 920px)', '.suiyuan-mobile-nav-item', 'flex-direction');
+      const activeItem = mediaDeclarationFor('(max-width: 920px)', '.suiyuan-mobile-nav-item.active', 'color');
+      const mainCanvas = mediaDeclarationFor('(max-width: 920px)', '.suiyuan-main-canvas', 'padding-bottom');
+      const floatingComposer = mediaDeclarationFor('(max-width: 920px)', '.sa-window .composer.composer--floating[data-file-drop-target]', 'bottom');
+
+      expect(desktopNav.display).toBe('none');
+      expect(mobileNav.position).toBe('fixed');
+      expect(mobileNav.inset).toBe('auto 0 0 0');
+      expect(mobileNav['z-index']).toBe('var(--z-local-sticky)');
+      expect(mobileNav.display).toBe('flex');
+      expect(drawerOpenNav.display).toBe('none');
+      expect(navItem['flex-direction']).toBe('column');
+      expect(activeItem.color).toBe('var(--primary)');
+      expect(mainCanvas['padding-bottom']).toBe('calc(var(--suiyuan-mobile-nav-height) + env(safe-area-inset-bottom, 0px))');
+      expect(floatingComposer.bottom).toBe('calc(var(--suiyuan-mobile-nav-height) + env(safe-area-inset-bottom, 0px))');
+    });
+
     it('keeps the light sidebar on the dark-mode geometry', () => {
       const sharedSidebar = topLevelDeclarationsFor('.app-sidebar.suiyuan-sidebar');
       const sharedBrand = topLevelDeclarationsFor('.suiyuan-brand-block');
@@ -1522,7 +1543,7 @@ describe('workbench shell styles', () => {
       }
       expect(lightNewChat.background).toBe('var(--suiyuan-primary)');
       expect(lightNewChat['box-shadow']).toBe('none');
-      expect(lightNewChat.opacity).toBe('0.8');
+      expect(lightNewChat.opacity).toBeUndefined();
       expect(activeNav.color).toBe('var(--suiyuan-primary)');
       expect(activeNav['font-weight']).toBeUndefined();
       expect(activeIndicator.inset).toBeUndefined();
@@ -1559,12 +1580,12 @@ describe('workbench shell styles', () => {
       const createButton = declarationsFor('.memory-page .memory-create-button');
       const createMenu = declarationsFor('.memory-page .memory-create-menu');
 
-      expect(stats['grid-template-columns']).toBe('repeat(2, minmax(280px, 1fr))');
-      expect(panel['border-radius']).toBe('8px');
+      expect(stats['grid-template-columns']).toBe('repeat(3, minmax(0, 1fr))');
+      expect(panel['border-radius']).toBe('var(--suiyuan-radius-card)');
       expect(overviewChip['border-radius']).toBe('999px');
       expect(autoToggle['grid-column']).toBe('2');
       expect(createButton.background).toBe('var(--primary-action-bg)');
-      expect(createButton['border-radius']).toBe('8px');
+      expect(createButton['border-radius']).toBe('999px');
       expect(createMenu.left).toBe('0');
       expect(createMenu.right).toBe('auto');
       expect(createMenu.width).toBe('max-content');
@@ -2138,9 +2159,10 @@ describe('fusion surface redesign contracts', () => {
     const overview = topLevelDeclarationsFor('.personalization-overview');
     const hero = topLevelDeclarationsFor('.personalization-overview-hero');
 
-    // contract: overview must not have fusion bg
+    // contract: overview must not have fusion bg; it sits transparently on the page
+    // canvas so the header copy and the white stat cards read as separate objects.
     expect(overview.background).not.toContain('color-mix(in srgb, var(--orange)');
-    expect(overview.background).toBe('var(--surface)');
+    expect(overview.background).toBe('transparent');
 
     // contract: hero has specific grid
     expect(hero.display).toBe('grid');

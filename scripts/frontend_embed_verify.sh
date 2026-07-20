@@ -6,6 +6,7 @@ cd "$ROOT_DIR"
 
 dist_dir="${SUPER_DOLPHIN_FRONTEND_DIST_DIR:-frontend-app/dist}"
 embed_dir="${SUPER_DOLPHIN_FRONTEND_EMBED_DIR:-cmd/agent-terminal/web-dist}"
+required_entries_file="${SUPER_DOLPHIN_FRONTEND_REQUIRED_ENTRIES_FILE:-frontend-app/required-dist-entries.txt}"
 
 if [[ "${SUPER_DOLPHIN_FRONTEND_EMBED_TRACKED_ARTIFACT:-0}" == "1" ]]; then
   echo "tracked frontend embed artifacts are out of scope for this lane" >&2
@@ -17,6 +18,26 @@ require_file() {
   local label="$2"
   if [[ ! -f "$path" ]]; then
     echo "missing $label: $path" >&2
+    exit 1
+  fi
+}
+
+require_frontend_entries() {
+  local directory="$1"
+  local label="$2"
+  local entry
+  local count=0
+  require_file "$required_entries_file" "frontend required entries manifest"
+  while IFS= read -r entry || [[ -n "$entry" ]]; do
+    if [[ -z "$entry" || "$entry" == */* || "$entry" == "." || "$entry" == ".." ]]; then
+      echo "invalid frontend required entry '$entry': $required_entries_file" >&2
+      exit 1
+    fi
+    count=$((count + 1))
+    require_file "$directory/$entry" "$label required entry $entry"
+  done < "$required_entries_file"
+  if [[ "$count" -eq 0 ]]; then
+    echo "frontend required entries manifest is empty: $required_entries_file" >&2
     exit 1
   fi
 }
@@ -59,8 +80,8 @@ if [[ "${SUPER_DOLPHIN_FRONTEND_EMBED_ASSUME_IGNORED:-0}" != "1" ]]; then
   fi
 fi
 
-require_file "$dist_dir/index.html" "frontend dist index"
-require_file "$embed_dir/index.html" "embedded frontend index"
+require_frontend_entries "$dist_dir" "frontend dist"
+require_frontend_entries "$embed_dir" "embedded frontend dist"
 
 dist_manifest="$(mktemp -t frontend-dist-manifest.XXXXXX)"
 embed_manifest="$(mktemp -t frontend-embed-manifest.XXXXXX)"

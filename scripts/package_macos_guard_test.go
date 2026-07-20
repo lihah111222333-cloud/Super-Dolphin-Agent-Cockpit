@@ -236,6 +236,10 @@ func TestPackageMacOSScriptEmbedsNewFrontendApp(t *testing.T) {
 	script := readScript(t, "package_macos.sh")
 
 	assertScriptContains(t, script, "cd \"$root/frontend-app\"")
+	assertScriptContains(t, script, "frontend-app/required-dist-entries.txt")
+	assertScriptContains(t, script, "require_frontend_entries \"$root/frontend-app/dist\" \"frontend dist\"")
+	assertScriptContains(t, script, "require_frontend_entries \"$root/cmd/agent-terminal/web-dist\" \"embedded frontend dist\"")
+	assertScriptContains(t, script, "missing required entry $entry")
 	assertScriptContains(t, script, "rsync -a --delete --exclude .gitkeep \"$root/frontend-app/dist\"/ \"$root/cmd/agent-terminal/web-dist\"/")
 	assertScriptContains(t, script, "make APP_COMMIT=\"$app_commit\" build-peer-binaries")
 	assertScriptContains(t, script, "go build -ldflags \"$schema_build_identity_ldflag\" -o bin/agent-terminal ./cmd/agent-terminal")

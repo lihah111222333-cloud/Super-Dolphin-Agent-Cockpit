@@ -863,6 +863,40 @@ function Write-RuntimeManifest() {
     Write-Utf8NoBom -Path (Join-Path $BundleRoot 'runtime-manifest.json') -Content (($manifest | ConvertTo-Json -Depth 3) + "`n")
 }
 
+function Get-RequiredFrontendEntries() {
+    $manifest = Join-Path $Root 'frontend-app/required-dist-entries.txt'
+    if (-not (Test-Path -LiteralPath $manifest -PathType Leaf)) {
+        throw "frontend required entries manifest is missing: $manifest"
+    }
+    $entries = @(Get-Content -LiteralPath $manifest)
+    if ($entries.Count -eq 0) {
+        throw "frontend required entries manifest is empty: $manifest"
+    }
+    $seen = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
+    foreach ($entry in $entries) {
+        if ($entry -notmatch '^[A-Za-z0-9][A-Za-z0-9._-]*$') {
+            throw "invalid frontend required entry '$entry': $manifest"
+        }
+        if (-not $seen.Add($entry)) {
+            throw "duplicate frontend required entry '$entry': $manifest"
+        }
+    }
+    return $entries
+}
+
+function Assert-RequiredFrontendEntries() {
+    param(
+        [Parameter(Mandatory)][string]$Directory,
+        [Parameter(Mandatory)][string]$Label
+    )
+    foreach ($entry in (Get-RequiredFrontendEntries)) {
+        $entryPath = Join-Path $Directory $entry
+        if (-not (Test-Path -LiteralPath $entryPath -PathType Leaf)) {
+            throw "$Label missing required entry $($entry): $entryPath"
+        }
+    }
+}
+
 function Build-CurrentFrontendApp() {
     if ($env:SUPER_DOLPHIN_SKIP_FRONTEND_BUILD -ne '1') {
         $frontendCachePaths = @(
@@ -871,6 +905,7 @@ function Build-CurrentFrontendApp() {
             (Join-Path $Root 'frontend-app/vite.config.js'),
             (Join-Path $Root 'frontend-app/index.html'),
             (Join-Path $Root 'frontend-app/recovery.html'),
+            (Join-Path $Root 'frontend-app/required-dist-entries.txt'),
             (Join-Path $Root 'frontend-app/public'),
             (Join-Path $Root 'frontend-app/src'),
             (Join-Path $Root 'scripts/package_windows.ps1'),
@@ -888,18 +923,16 @@ function Build-CurrentFrontendApp() {
                 if ($LASTEXITCODE -ne 0) { throw 'npm ci failed' }
                 & npm run build
                 if ($LASTEXITCODE -ne 0) { throw 'npm run build failed' }
+                Assert-RequiredFrontendEntries -Directory (Join-Path $Root 'frontend-app/dist') -Label 'frontend dist'
                 Save-BuildPhaseCache -Name 'frontend' -Paths $frontendCachePaths -Inputs $frontendCacheInputs -Outputs $frontendCacheOutputs
             } finally {
                 Pop-Location
             }
         }
-    } elseif (-not (Test-Path -LiteralPath (Join-Path $Root 'frontend-app/dist/index.html') -PathType Leaf)) {
-        throw 'frontend dist missing; unset SUPER_DOLPHIN_SKIP_FRONTEND_BUILD or run npm run build first'
     }
-    if (-not (Test-Path -LiteralPath (Join-Path $Root 'frontend-app/dist/index.html') -PathType Leaf)) {
-        throw "frontend dist missing after build: $(Join-Path $Root 'frontend-app/dist/index.html')"
-    }
+    Assert-RequiredFrontendEntries -Directory (Join-Path $Root 'frontend-app/dist') -Label 'frontend dist'
     Copy-DirectoryClean -Source (Join-Path $Root 'frontend-app/dist') -Destination (Join-Path $Root 'cmd/agent-terminal/web-dist') -PreserveNames @('.gitkeep')
+    Assert-RequiredFrontendEntries -Directory (Join-Path $Root 'cmd/agent-terminal/web-dist') -Label 'embedded frontend dist'
 }
 
 function Write-RunScripts() {

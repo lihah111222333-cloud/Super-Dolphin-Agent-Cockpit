@@ -41,12 +41,44 @@ function Assert-RepoChildPath() {
     }
 }
 
+function Get-RequiredFrontendEntries() {
+    $manifest = Join-Path $Root 'frontend-app/required-dist-entries.txt'
+    if (-not (Test-Path -LiteralPath $manifest -PathType Leaf)) {
+        throw "frontend required entries manifest is missing: $manifest"
+    }
+    $entries = @(Get-Content -LiteralPath $manifest)
+    if ($entries.Count -eq 0) {
+        throw "frontend required entries manifest is empty: $manifest"
+    }
+    $seen = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
+    foreach ($entry in $entries) {
+        if ($entry -notmatch '^[A-Za-z0-9][A-Za-z0-9._-]*$') {
+            throw "invalid frontend required entry '$entry': $manifest"
+        }
+        if (-not $seen.Add($entry)) {
+            throw "duplicate frontend required entry '$entry': $manifest"
+        }
+    }
+    return $entries
+}
+
+function Assert-RequiredFrontendEntries() {
+    param(
+        [Parameter(Mandatory)][string]$Directory,
+        [Parameter(Mandatory)][string]$Label
+    )
+    foreach ($entry in (Get-RequiredFrontendEntries)) {
+        $entryPath = Join-Path $Directory $entry
+        if (-not (Test-Path -LiteralPath $entryPath -PathType Leaf)) {
+            throw "$Label missing required entry $($entry): $entryPath"
+        }
+    }
+}
+
 function Copy-FrontendAppDistToEmbed() {
     $source = Join-Path $Root 'frontend-app/dist'
     $destination = Join-Path $Root 'cmd/agent-terminal/web-dist'
-    if (-not (Test-Path -LiteralPath (Join-Path $source 'index.html') -PathType Leaf)) {
-        throw "frontend-app/dist/index.html is missing before embed copy"
-    }
+    Assert-RequiredFrontendEntries -Directory $source -Label 'frontend dist'
     Assert-RepoChildPath -Label 'embedded frontend dist' -Path $destination
     if (Test-Path -LiteralPath $destination) {
         Get-ChildItem -LiteralPath $destination -Force | Where-Object { $_.Name -ne '.gitkeep' } | Remove-Item -Recurse -Force
@@ -54,9 +86,7 @@ function Copy-FrontendAppDistToEmbed() {
         New-Item -ItemType Directory -Force -Path $destination | Out-Null
     }
     Get-ChildItem -LiteralPath $source -Force | Copy-Item -Destination $destination -Recurse -Force
-    if (-not (Test-Path -LiteralPath (Join-Path $destination 'index.html') -PathType Leaf)) {
-        throw "cmd/agent-terminal/web-dist/index.html is missing after embed copy"
-    }
+    Assert-RequiredFrontendEntries -Directory $destination -Label 'embedded frontend dist'
 }
 
 function Invoke-GoBuild() {

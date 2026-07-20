@@ -21,7 +21,7 @@ cmd/mcp-lsp/fx.go	cmd	platform-provider	go-source	17194	代码智能/LSP MCP pee
 cmd/mcp-lsp/http_runner_test.go	cmd	platform-provider	go-test	3596	代码智能/LSP MCP peer	cmd,mcp,lsp,http,runner,test,代码智能,LSP,MCP,peer
 cmd/mcp-lsp/http_runner.go	cmd	platform-provider	go-source	3364	代码智能/LSP MCP peer	cmd,mcp,lsp,http,runner,代码智能,LSP,MCP,peer
 cmd/mcp-lsp/installer/installer_test.go	cmd	platform-provider	go-test	10238	代码智能/LSP MCP peer	cmd,mcp,lsp,installer,test,代码智能,LSP,MCP,peer
-cmd/mcp-lsp/installer/installer.go	cmd	platform-provider	go-source	14802	代码智能/LSP MCP peer	cmd,mcp,lsp,installer,代码智能,LSP,MCP,peer
+cmd/mcp-lsp/installer/installer.go	cmd	platform-provider	go-source	17167	代码智能/LSP MCP peer	cmd,mcp,lsp,installer,代码智能,LSP,MCP,peer
 cmd/mcp-lsp/installer/windows_hidden_process_guard_test.go	cmd	platform-provider	go-test	1026	代码智能/LSP MCP peer	cmd,mcp,lsp,installer,windows,hidden,process,guard,test,代码智能,LSP,MCP,peer
 cmd/mcp-lsp/internal/hiddenexec/process_default.go	cmd	platform-provider	go-source	178	代码智能/LSP MCP peer	cmd,mcp,lsp,internal,hiddenexec,process,default,代码智能,LSP,MCP,peer
 cmd/mcp-lsp/internal/hiddenexec/process_windows_test.go	cmd	platform-provider	go-test	553	代码智能/LSP MCP peer	cmd,mcp,lsp,internal,hiddenexec,process,windows,test,代码智能,LSP,MCP,peer
@@ -40,7 +40,7 @@ cmd/mcp-lsp/lsp_binary_mjs_tools_e2e_test.go	cmd	platform-provider	go-test	13327
 cmd/mcp-lsp/lsp_binary_multilang_diagnostics_e2e_test.go	cmd	platform-provider	go-test	23083	代码智能/LSP MCP peer	cmd,mcp,lsp,binary,multilang,diagnostics,e2e,test,代码智能,LSP,MCP,peer
 cmd/mcp-lsp/lsp_binary_python_red_e2e_test.go	cmd	platform-provider	go-test	19982	代码智能/LSP MCP peer	cmd,mcp,lsp,binary,python,red,e2e,test,代码智能,LSP,MCP,peer
 cmd/mcp-lsp/lsp_binary_real_autoinstall_e2e_test.go	cmd	platform-provider	go-test	10449	代码智能/LSP MCP peer	cmd,mcp,lsp,binary,real,autoinstall,e2e,test,代码智能,LSP,MCP,peer
-cmd/mcp-lsp/lsp_binary_real_tools_e2e_test.go	cmd	platform-provider	go-test	6541	代码智能/LSP MCP peer	cmd,mcp,lsp,binary,real,tools,e2e,test,代码智能,LSP,MCP,peer
+cmd/mcp-lsp/lsp_binary_real_tools_e2e_test.go	cmd	platform-provider	go-test	15935	代码智能/LSP MCP peer	cmd,mcp,lsp,binary,real,tools,e2e,test,代码智能,LSP,MCP,peer
 cmd/mcp-lsp/lsp_binary_residual_test.go	cmd	platform-provider	go-test	21660	代码智能/LSP MCP peer	cmd,mcp,lsp,binary,residual,test,代码智能,LSP,MCP,peer
 cmd/mcp-lsp/lsp_binary_shell_e2e_test.go	cmd	platform-provider	go-test	7455	代码智能/LSP MCP peer	cmd,mcp,lsp,binary,shell,e2e,test,代码智能,LSP,MCP,peer
 cmd/mcp-lsp/lsp_binary_sql_auto_install_e2e_test.go	cmd	platform-provider	go-test	13373	代码智能/LSP MCP peer	cmd,mcp,lsp,binary,sql,auto,install,e2e,test,代码智能,LSP,MCP,peer
@@ -107,8 +107,8 @@ cmd/mcp-lsp/multilsp/manager_retry.go	cmd	platform-provider	go-source	5561	多�
 cmd/mcp-lsp/multilsp/manager_symbols_code_action_test.go	cmd	platform-provider	go-test	18929	多语言 LSP manager、transport 与缓存	cmd,mcp,lsp,multilsp,manager,symbols,code,action,test,多语言,LSP,transport,与缓存
 cmd/mcp-lsp/multilsp/manager_symbols_fallback_large_yaml_test.go	cmd	platform-provider	go-test	449	多语言 LSP manager、transport 与缓存	cmd,mcp,lsp,multilsp,manager,symbols,fallback,large,yaml,test,多语言,LSP,transport,与缓存
 cmd/mcp-lsp/multilsp/manager_symbols_fallback.go	cmd	platform-provider	go-source	11083	多语言 LSP manager、transport 与缓存	cmd,mcp,lsp,multilsp,manager,symbols,fallback,多语言,LSP,transport,与缓存
-cmd/mcp-lsp/multilsp/manager_symbols_retry.go	cmd	platform-provider	go-source	1617	多语言 LSP manager、transport 与缓存	cmd,mcp,lsp,multilsp,manager,symbols,retry,多语言,LSP,transport,与缓存
-cmd/mcp-lsp/multilsp/manager_symbols.go	cmd	platform-provider	go-source	19544	多语言 LSP manager、transport 与缓存	cmd,mcp,lsp,multilsp,manager,symbols,多语言,LSP,transport,与缓存
+cmd/mcp-lsp/multilsp/manager_symbols_retry.go	cmd	platform-provider	go-source	2632	多语言 LSP manager、transport 与缓存	cmd,mcp,lsp,multilsp,manager,symbols,retry,多语言,LSP,transport,与缓存
+cmd/mcp-lsp/multilsp/manager_symbols.go	cmd	platform-provider	go-source	20238	多语言 LSP manager、transport 与缓存	cmd,mcp,lsp,multilsp,manager,symbols,多语言,LSP,transport,与缓存
 cmd/mcp-lsp/multilsp/manager.go	cmd	platform-provider	go-source	21497	多语言 LSP manager、transport 与缓存	cmd,mcp,lsp,multilsp,manager,多语言,LSP,transport,与缓存
 cmd/mcp-lsp/multilsp/multi_cwd_e2e_assertions_test.go	cmd	platform-provider	go-test	11679	多语言 LSP manager、transport 与缓存	cmd,mcp,lsp,multilsp,multi,cwd,e2e,assertions,test,多语言,LSP,manager,transport,与缓存
 cmd/mcp-lsp/multilsp/multi_cwd_e2e_helpers_test.go	cmd	platform-provider	go-test	7519	多语言 LSP manager、transport 与缓存	cmd,mcp,lsp,multilsp,multi,cwd,e2e,helpers,test,多语言,LSP,manager,transport,与缓存
@@ -130,9 +130,9 @@ cmd/mcp-lsp/multilsp/test_goroutine_group_test.go	cmd	platform-provider	go-test	
 cmd/mcp-lsp/multilsp/test_permissions_unix_test.go	cmd	platform-provider	go-test	343	多语言 LSP manager、transport 与缓存	cmd,mcp,lsp,multilsp,test,permissions,unix,多语言,LSP,manager,transport,与缓存
 cmd/mcp-lsp/multilsp/test_permissions_windows_test.go	cmd	platform-provider	go-test	887	多语言 LSP manager、transport 与缓存	cmd,mcp,lsp,multilsp,test,permissions,windows,多语言,LSP,manager,transport,与缓存
 cmd/mcp-lsp/multilsp/transport_compat.go	cmd	platform-provider	go-source	2827	多语言 LSP manager、transport 与缓存	cmd,mcp,lsp,multilsp,transport,compat,多语言,LSP,manager,与缓存
-cmd/mcp-lsp/multilsp/transport_conn.go	cmd	platform-provider	go-source	7617	多语言 LSP manager、transport 与缓存	cmd,mcp,lsp,multilsp,transport,conn,多语言,LSP,manager,与缓存
+cmd/mcp-lsp/multilsp/transport_conn.go	cmd	platform-provider	go-source	7895	多语言 LSP manager、transport 与缓存	cmd,mcp,lsp,multilsp,transport,conn,多语言,LSP,manager,与缓存
 cmd/mcp-lsp/multilsp/transport_request_context_test.go	cmd	platform-provider	go-test	6195	多语言 LSP manager、transport 与缓存	cmd,mcp,lsp,multilsp,transport,request,context,test,多语言,LSP,manager,与缓存
-cmd/mcp-lsp/multilsp/transport_responder_drain_test.go	cmd	platform-provider	go-test	3978	多语言 LSP manager、transport 与缓存	cmd,mcp,lsp,multilsp,transport,responder,drain,test,多语言,LSP,manager,与缓存
+cmd/mcp-lsp/multilsp/transport_responder_drain_test.go	cmd	platform-provider	go-test	4477	多语言 LSP manager、transport 与缓存	cmd,mcp,lsp,multilsp,transport,responder,drain,test,多语言,LSP,manager,与缓存
 cmd/mcp-lsp/multilsp/transport.go	cmd	platform-provider	go-source	9660	多语言 LSP manager、transport 与缓存	cmd,mcp,lsp,multilsp,transport,多语言,LSP,manager,与缓存
 cmd/mcp-lsp/multilsp/typescript_fallback_test.go	cmd	platform-provider	go-test	7537	多语言 LSP manager、transport 与缓存	cmd,mcp,lsp,multilsp,typescript,fallback,test,多语言,LSP,manager,transport,与缓存
 cmd/mcp-lsp/multilsp/typescript_navigation_fallback_test.go	cmd	platform-provider	go-test	6638	多语言 LSP manager、transport 与缓存	cmd,mcp,lsp,multilsp,typescript,navigation,fallback,test,多语言,LSP,manager,transport,与缓存
@@ -144,7 +144,7 @@ cmd/mcp-lsp/protocol/methods.go	cmd	platform-provider	go-source	1778	代码智�
 cmd/mcp-lsp/protocol/notification.go	cmd	platform-provider	go-source	2388	代码智能/LSP MCP peer	cmd,mcp,lsp,protocol,notification,代码智能,LSP,MCP,peer
 cmd/mcp-lsp/protocol/types.go	cmd	platform-provider	go-source	15171	代码智能/LSP MCP peer	cmd,mcp,lsp,protocol,types,代码智能,LSP,MCP,peer
 cmd/mcp-lsp/runtime_bind_test.go	cmd	platform-provider	go-test	1619	代码智能/LSP MCP peer	cmd,mcp,lsp,runtime,bind,test,代码智能,LSP,MCP,peer
-cmd/mcp-lsp/runtime_test.go	cmd	platform-provider	go-test	25712	代码智能/LSP MCP peer	cmd,mcp,lsp,runtime,test,代码智能,LSP,MCP,peer
+cmd/mcp-lsp/runtime_test.go	cmd	platform-provider	go-test	27173	代码智能/LSP MCP peer	cmd,mcp,lsp,runtime,test,代码智能,LSP,MCP,peer
 cmd/mcp-lsp/runtime.go	cmd	platform-provider	go-source	28975	代码智能/LSP MCP peer	cmd,mcp,lsp,runtime,代码智能,LSP,MCP,peer
 cmd/mcp-lsp/schema_test.go	cmd	platform-provider	go-test	3730	代码智能/LSP MCP peer	cmd,mcp,lsp,schema,test,代码智能,LSP,MCP,peer
 cmd/mcp-lsp/schema.go	cmd	platform-provider	go-source	9754	代码智能/LSP MCP peer	cmd,mcp,lsp,schema,代码智能,LSP,MCP,peer
@@ -288,9 +288,9 @@ internal/platform/appupdaterecovery/machine.go	internal	platform-provider	go-sou
 internal/platform/appupdaterecovery/package_trust_state_matrix_test.go	internal	platform-provider	go-test	9264	基础设施层	internal,platform,appupdaterecovery,package,trust,state,matrix,test,基础设施层
 internal/platform/appupdaterecovery/package_trust_test.go	internal	platform-provider	go-test	11095	基础设施层	internal,platform,appupdaterecovery,package,trust,test,基础设施层
 internal/platform/appupdaterecovery/package_trust.go	internal	platform-provider	go-source	26890	基础设施层	internal,platform,appupdaterecovery,package,trust,基础设施层
-internal/platform/appupdaterecovery/probation.go	internal	platform-provider	go-source	10803	基础设施层	internal,platform,appupdaterecovery,probation,基础设施层
+internal/platform/appupdaterecovery/probation.go	internal	platform-provider	go-source	11527	基础设施层	internal,platform,appupdaterecovery,probation,基础设施层
 internal/platform/appupdaterecovery/rollback_restart_runtime_test.go	internal	platform-provider	go-test	18180	基础设施层	internal,platform,appupdaterecovery,rollback,restart,runtime,test,基础设施层
-internal/platform/appupdaterecovery/rollback_restart_runtime.go	internal	platform-provider	go-source	22568	基础设施层	internal,platform,appupdaterecovery,rollback,restart,runtime,基础设施层
+internal/platform/appupdaterecovery/rollback_restart_runtime.go	internal	platform-provider	go-source	24942	基础设施层	internal,platform,appupdaterecovery,rollback,restart,runtime,基础设施层
 internal/platform/appupdaterecovery/rollback_restart_test.go	internal	platform-provider	go-test	29499	基础设施层	internal,platform,appupdaterecovery,rollback,restart,test,基础设施层
 internal/platform/appupdaterecovery/rollback_restart_wait_unix.go	internal	platform-provider	go-source	725	基础设施层	internal,platform,appupdaterecovery,rollback,restart,wait,unix,基础设施层
 internal/platform/appupdaterecovery/rollback_restart_wait_windows.go	internal	platform-provider	go-source	218	基础设施层	internal,platform,appupdaterecovery,rollback,restart,wait,windows,基础设施层
@@ -707,7 +707,7 @@ internal/platform/toolbridge/dependency_contract_test.go	internal	platform-provi
 internal/platform/toolbridge/diff_fallback_test.go	internal	platform-provider	go-test	2880	provider 与 MCP tools 桥接	internal,platform,toolbridge,diff,fallback,test,provider,与,MCP,tools,桥接
 internal/platform/toolbridge/diff_fallback.go	internal	platform-provider	go-source	5226	provider 与 MCP tools 桥接	internal,platform,toolbridge,diff,fallback,provider,与,MCP,tools,桥接
 internal/platform/toolbridge/diff_gen.go	internal	platform-provider	go-source	2794	provider 与 MCP tools 桥接	internal,platform,toolbridge,diff,gen,provider,与,MCP,tools,桥接
-internal/platform/toolbridge/handler_codex_surface_store.go	internal	platform-provider	go-source	28634	provider 与 MCP tools 桥接	internal,platform,toolbridge,handler,codex,surface,store,provider,与,MCP,tools,桥接
+internal/platform/toolbridge/handler_codex_surface_store.go	internal	platform-provider	go-source	29376	provider 与 MCP tools 桥接	internal,platform,toolbridge,handler,codex,surface,store,provider,与,MCP,tools,桥接
 internal/platform/toolbridge/handler_dag_launch_test.go	internal	platform-provider	go-test	2466	provider 与 MCP tools 桥接	internal,platform,toolbridge,handler,dag,launch,test,provider,与,MCP,tools,桥接
 internal/platform/toolbridge/handler_dag_launch.go	internal	platform-provider	go-source	3821	provider 与 MCP tools 桥接	internal,platform,toolbridge,handler,dag,launch,provider,与,MCP,tools,桥接
 internal/platform/toolbridge/handler_host_tools.go	internal	platform-provider	go-source	24944	provider 与 MCP tools 桥接	internal,platform,toolbridge,handler,host,tools,provider,与,MCP,桥接
@@ -717,7 +717,7 @@ internal/platform/toolbridge/handler_log.go	internal	platform-provider	go-source
 internal/platform/toolbridge/handler_managed_launch.go	internal	platform-provider	go-source	9788	provider 与 MCP tools 桥接	internal,platform,toolbridge,handler,managed,launch,provider,与,MCP,tools,桥接
 internal/platform/toolbridge/handler_peer_decode_helpers.go	internal	platform-provider	go-source	25440	provider 与 MCP tools 桥接	internal,platform,toolbridge,handler,peer,decode,helpers,provider,与,MCP,tools,桥接
 internal/platform/toolbridge/handler_peer_decode_skill_collision_test.go	internal	platform-provider	go-test	4225	provider 与 MCP tools 桥接	internal,platform,toolbridge,handler,peer,decode,skill,collision,test,provider,与,MCP,tools,桥接
-internal/platform/toolbridge/handler_peer_decode.go	internal	platform-provider	go-source	29960	provider 与 MCP tools 桥接	internal,platform,toolbridge,handler,peer,decode,provider,与,MCP,tools,桥接
+internal/platform/toolbridge/handler_peer_decode.go	internal	platform-provider	go-source	30525	provider 与 MCP tools 桥接	internal,platform,toolbridge,handler,peer,decode,provider,与,MCP,tools,桥接
 internal/platform/toolbridge/handler_proxy_timeout_test.go	internal	platform-provider	go-test	2280	provider 与 MCP tools 桥接	internal,platform,toolbridge,handler,proxy,timeout,test,provider,与,MCP,tools,桥接
 internal/platform/toolbridge/handler_response.go	internal	platform-provider	go-source	525	provider 与 MCP tools 桥接	internal,platform,toolbridge,handler,response,provider,与,MCP,tools,桥接
 internal/platform/toolbridge/handler_runtime_test.go	internal	platform-provider	go-test	11038	provider 与 MCP tools 桥接	internal,platform,toolbridge,handler,runtime,test,provider,与,MCP,tools,桥接
@@ -753,7 +753,7 @@ internal/platform/toolbridge/p4_s3c_compat_fallback_test.go	internal	platform-pr
 internal/platform/toolbridge/persistent_subagent_flow_test.go	internal	platform-provider	go-test	10763	provider 与 MCP tools 桥接	internal,platform,toolbridge,persistent,subagent,flow,test,provider,与,MCP,tools,桥接
 internal/platform/toolbridge/phase1_diff_test.go	internal	platform-provider	go-test	14720	provider 与 MCP tools 桥接	internal,platform,toolbridge,phase1,diff,test,provider,与,MCP,tools,桥接
 internal/platform/toolbridge/ports.go	internal	platform-provider	go-source	4392	provider 与 MCP tools 桥接	internal,platform,toolbridge,ports,provider,与,MCP,tools,桥接
-internal/platform/toolbridge/protocol_contract.go	internal	platform-provider	go-source	6586	provider 与 MCP tools 桥接	internal,platform,toolbridge,protocol,contract,provider,与,MCP,tools,桥接
+internal/platform/toolbridge/protocol_contract.go	internal	platform-provider	go-source	12050	provider 与 MCP tools 桥接	internal,platform,toolbridge,protocol,contract,provider,与,MCP,tools,桥接
 internal/platform/toolbridge/proxy_auth_test.go	internal	platform-provider	go-test	1212	provider 与 MCP tools 桥接	internal,platform,toolbridge,proxy,auth,test,provider,与,MCP,tools,桥接
 internal/platform/toolbridge/proxy_lifecycle_test.go	internal	platform-provider	go-test	9023	provider 与 MCP tools 桥接	internal,platform,toolbridge,proxy,lifecycle,test,provider,与,MCP,tools,桥接
 internal/platform/toolbridge/proxy_notification_test.go	internal	platform-provider	go-test	3392	provider 与 MCP tools 桥接	internal,platform,toolbridge,proxy,notification,test,provider,与,MCP,tools,桥接
@@ -761,7 +761,7 @@ internal/platform/toolbridge/proxy_peer_down_test.go	internal	platform-provider	
 internal/platform/toolbridge/proxy_runner_test.go	internal	platform-provider	go-test	5161	provider 与 MCP tools 桥接	internal,platform,toolbridge,proxy,runner,test,provider,与,MCP,tools,桥接
 internal/platform/toolbridge/proxy_runner.go	internal	platform-provider	go-source	3178	provider 与 MCP tools 桥接	internal,platform,toolbridge,proxy,runner,provider,与,MCP,tools,桥接
 internal/platform/toolbridge/proxy.go	internal	platform-provider	go-source	19444	provider 与 MCP tools 桥接	internal,platform,toolbridge,proxy,provider,与,MCP,tools,桥接
-internal/platform/toolbridge/schema_quarantine_red_test.go	internal	platform-provider	go-test	18304	provider 与 MCP tools 桥接	internal,platform,toolbridge,schema,quarantine,red,test,provider,与,MCP,tools,桥接
+internal/platform/toolbridge/schema_quarantine_red_test.go	internal	platform-provider	go-test	25467	provider 与 MCP tools 桥接	internal,platform,toolbridge,schema,quarantine,red,test,provider,与,MCP,tools,桥接
 internal/platform/toolbridge/schema_validation_test.go	internal	platform-provider	go-test	4566	provider 与 MCP tools 桥接	internal,platform,toolbridge,schema,validation,test,provider,与,MCP,tools,桥接
 internal/platform/toolbridge/schema/attach_failure_test.go	internal	platform-provider	go-test	9416	provider 与 MCP tools 桥接	internal,platform,toolbridge,schema,attach,failure,test,provider,与,MCP,tools,桥接
 internal/platform/toolbridge/schema/canonical.go	internal	platform-provider	go-source	18359	provider 与 MCP tools 桥接	internal,platform,toolbridge,schema,canonical,provider,与,MCP,tools,桥接

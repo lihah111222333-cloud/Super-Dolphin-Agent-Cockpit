@@ -103,6 +103,113 @@ if ! ${PRINT_PLAN} && hook_stop_active; then
   exit 0
 fi
 
+STOP_GATE_LOCK_DIR="${CODEX_STOP_GATE_LOCK_DIR:-${REPO_ROOT}/.codex/stop-gate.lock}"
+ACTIVE_STAGE_PIDS=()
+
+terminate_process_tree() {
+  local parent="$1"
+  if ! kill -STOP "${parent}" 2>/dev/null; then
+    return
+  fi
+  local child
+  while IFS= read -r child; do
+    [[ -z "${child}" ]] && continue
+    terminate_process_tree "${child}"
+  done < <(pgrep -P "${parent}" 2>/dev/null || true)
+  kill -TERM "${parent}" 2>/dev/null || true
+  kill -CONT "${parent}" 2>/dev/null || true
+}
+
+release_gate_lock() {
+  if ((BASH_SUBSHELL != 0)); then
+    return
+  fi
+  local owner_pid=""
+  if [[ -r "${STOP_GATE_LOCK_DIR}/pid" ]]; then
+    IFS= read -r owner_pid <"${STOP_GATE_LOCK_DIR}/pid" || true
+  fi
+  if [[ "${owner_pid}" == "$$" ]]; then
+    rm -f -- "${STOP_GATE_LOCK_DIR}/pid"
+    rmdir -- "${STOP_GATE_LOCK_DIR}" 2>/dev/null || true
+  fi
+}
+
+release_gate_resources() {
+  if ((BASH_SUBSHELL != 0)); then
+    return
+  fi
+  local pid
+  if [[ "${#ACTIVE_STAGE_PIDS[@]}" -gt 0 ]]; then
+    for pid in "${ACTIVE_STAGE_PIDS[@]}"; do
+      if kill -0 "${pid}" 2>/dev/null; then
+        terminate_process_tree "${pid}"
+      fi
+    done
+  fi
+  release_gate_lock
+}
+
+record_gate_lock_owner() {
+  if ! printf '%s\n' "$$" >"${STOP_GATE_LOCK_DIR}/pid"; then
+    rmdir -- "${STOP_GATE_LOCK_DIR}" 2>/dev/null || true
+    emit_block "Super-Dolphin Codex Stop gate blocked: cannot record lock ownership at ${STOP_GATE_LOCK_DIR}."
+    return 1
+  fi
+  trap release_gate_resources EXIT
+}
+
+acquire_gate_lock() {
+  if mkdir "${STOP_GATE_LOCK_DIR}" 2>/dev/null; then
+    record_gate_lock_owner
+    return
+  fi
+
+  local owner_pid=""
+  if [[ -r "${STOP_GATE_LOCK_DIR}/pid" ]]; then
+    IFS= read -r owner_pid <"${STOP_GATE_LOCK_DIR}/pid" || true
+  fi
+  if [[ "${owner_pid}" =~ ^[0-9]+$ ]] && kill -0 "${owner_pid}" 2>/dev/null; then
+    emit_block "Super-Dolphin Codex Stop gate blocked: another gate is active for this worktree (pid ${owner_pid})."
+    return 1
+  fi
+  if [[ ! "${owner_pid}" =~ ^[0-9]+$ ]]; then
+    emit_block "Super-Dolphin Codex Stop gate blocked: stale or invalid lock at ${STOP_GATE_LOCK_DIR}."
+    return 1
+  fi
+
+  local reclaim_dir="${STOP_GATE_LOCK_DIR}.reclaim"
+  if ! mkdir "${reclaim_dir}" 2>/dev/null; then
+    emit_block "Super-Dolphin Codex Stop gate blocked: dead-owner lock recovery is already active for ${STOP_GATE_LOCK_DIR}."
+    return 1
+  fi
+
+  local confirmed_owner=""
+  if [[ -r "${STOP_GATE_LOCK_DIR}/pid" ]]; then
+    IFS= read -r confirmed_owner <"${STOP_GATE_LOCK_DIR}/pid" || true
+  fi
+  if [[ "${confirmed_owner}" != "${owner_pid}" ]] || kill -0 "${confirmed_owner}" 2>/dev/null; then
+    rmdir -- "${reclaim_dir}" 2>/dev/null || true
+    emit_block "Super-Dolphin Codex Stop gate blocked: lock ownership changed while reclaiming ${STOP_GATE_LOCK_DIR}."
+    return 1
+  fi
+
+  rm -f -- "${STOP_GATE_LOCK_DIR}/pid"
+  if ! rmdir -- "${STOP_GATE_LOCK_DIR}" 2>/dev/null || ! mkdir "${STOP_GATE_LOCK_DIR}" 2>/dev/null; then
+    rmdir -- "${reclaim_dir}" 2>/dev/null || true
+    emit_block "Super-Dolphin Codex Stop gate blocked: cannot reclaim dead-owner lock at ${STOP_GATE_LOCK_DIR}."
+    return 1
+  fi
+  if ! record_gate_lock_owner; then
+    rmdir -- "${reclaim_dir}" 2>/dev/null || true
+    return 1
+  fi
+  rmdir -- "${reclaim_dir}" 2>/dev/null || true
+}
+
+if ! ${PRINT_PLAN} && ! acquire_gate_lock; then
+  exit 0
+fi
+
 changed_files() {
   if [[ -n "${CODEX_STOP_GATE_CHANGED_FILES_FILE:-}" ]]; then
     sed '/^[[:space:]]*$/d' "${CODEX_STOP_GATE_CHANGED_FILES_FILE}"
@@ -378,6 +485,10 @@ if ${PRINT_PLAN}; then
     printf 'capcontract_check make capcontract-check\n'
     printed=true
   fi
+  if { [[ -n "${GO_PKGS}" ]] || ${HAS_GO_GUARD}; } && [[ -n "${FRONTEND_PROJECTS}" ]]; then
+    printf 'execution parallel go frontend\n'
+    printed=true
+  fi
   if ! ${printed}; then
     printf 'none\n'
   fi
@@ -390,44 +501,93 @@ printf '%s\n' "${CHANGED_FILES}" >>"${LOG_FILE}" 2>/dev/null || true
 
 FAILURES=()
 
-go_package_filter_failed=false
-if [[ -n "${GO_PKGS}" ]]; then
-  if ! GO_PKGS="$(filter_active_go_packages "${GO_PKGS}")"; then
-    go_package_filter_failed=true
-    GO_PKGS=""
-    FAILURES+=("changed Go package tests")
+run_go_stage() {
+  if [[ -n "${GO_PKGS}" ]]; then
+    if ! GO_PKGS="$(filter_active_go_packages "${GO_PKGS}")"; then
+      return 1
+    fi
   fi
-fi
-if [[ -n "${GO_PKGS}" ]]; then
-  go_args=()
-  while IFS= read -r pkg; do
-    [[ -z "${pkg}" ]] && continue
-    go_args+=("${pkg}")
-  done <<< "${GO_PKGS}"
-  if ! run_cmd "changed Go package tests" ./scripts/test_with_guard.sh "${go_args[@]}" -count=1; then
-    FAILURES+=("changed Go package tests")
+  if [[ -n "${GO_PKGS}" ]]; then
+    local go_args=()
+    local pkg
+    while IFS= read -r pkg; do
+      [[ -z "${pkg}" ]] && continue
+      go_args+=("${pkg}")
+    done <<< "${GO_PKGS}"
+    run_cmd "changed Go package tests" ./scripts/test_with_guard.sh "${go_args[@]}" -count=1
+    return
   fi
-elif ${HAS_GO_GUARD} && ! ${go_package_filter_failed}; then
-  if ! run_cmd "Go code guard" ./scripts/test_with_guard.sh --guard-only; then
-    FAILURES+=("Go code guard")
+  if ${HAS_GO_GUARD}; then
+    run_cmd "Go code guard" ./scripts/test_with_guard.sh --guard-only
   fi
-fi
+}
 
-if [[ -n "${FRONTEND_PROJECTS}" ]]; then
+run_frontend_stage() {
+  local status=0
+  local project
   while IFS= read -r project; do
     [[ -z "${project}" ]] && continue
     if [[ ! -f "${project}/package.json" ]]; then
       log "missing package.json: ${project}/package.json"
-      FAILURES+=("frontend project tests")
+      status=$((status | 4))
       continue
     fi
     if ! run_cmd "frontend size guard (${project})" run_frontend_size_guard "${project}"; then
-      FAILURES+=("frontend size guard (${project})")
+      status=$((status | 1))
     fi
     if ! run_cmd "frontend vitest (${project})" run_frontend_vitest "${project}"; then
-      FAILURES+=("frontend vitest (${project})")
+      status=$((status | 2))
     fi
   done <<< "${FRONTEND_PROJECTS}"
+  return "${status}"
+}
+
+go_stage_pid=""
+frontend_stage_pid=""
+if [[ -n "${GO_PKGS}" ]] || ${HAS_GO_GUARD}; then
+  run_go_stage &
+  go_stage_pid=$!
+  ACTIVE_STAGE_PIDS+=("${go_stage_pid}")
+fi
+if [[ -n "${FRONTEND_PROJECTS}" ]]; then
+  run_frontend_stage &
+  frontend_stage_pid=$!
+  ACTIVE_STAGE_PIDS+=("${frontend_stage_pid}")
+fi
+
+go_stage_status=0
+frontend_stage_status=0
+if [[ -n "${go_stage_pid}" ]]; then
+  if wait "${go_stage_pid}"; then
+    go_stage_status=0
+  else
+    go_stage_status=$?
+  fi
+fi
+if [[ -n "${frontend_stage_pid}" ]]; then
+  if wait "${frontend_stage_pid}"; then
+    frontend_stage_status=0
+  else
+    frontend_stage_status=$?
+  fi
+fi
+ACTIVE_STAGE_PIDS=()
+
+if ((go_stage_status != 0)); then
+  if [[ -n "${GO_PKGS}" ]]; then
+    FAILURES+=("changed Go package tests")
+  else
+    FAILURES+=("Go code guard")
+  fi
+fi
+if ((frontend_stage_status & 4)); then
+  FAILURES+=("frontend project tests")
+fi
+if ((frontend_stage_status & 1)); then
+  FAILURES+=("frontend size guard (${FRONTEND_PROJECT})")
+fi
+if ((frontend_stage_status & 2)); then
+  FAILURES+=("frontend vitest (${FRONTEND_PROJECT})")
 fi
 
 if ${HAS_HOOK_TEST}; then

@@ -962,9 +962,10 @@ async function showAllTraceDashboardEvents() {
     expect(screen.getByTestId('app-sidebar')).toHaveClass('is-open');
 
     fireEvent.click(within(screen.getByTestId('app-sidebar')).getByRole('button', { name: '设置' }));
-    await screen.findByTestId('settings-page');
+    expect(document.querySelector('.suiyuan-appbar-title h1')).toHaveTextContent('设置');
+    expect(within(screen.getByTestId('app-sidebar')).getByRole('button', { name: '设置' })).toHaveClass('active');
     expect(shell).not.toHaveClass('sidebar-open');
-  }, 10_000);
+  });
 
   it('uses the custom brand icon only in the sidebar brand area', async () => {
     render(<App />);
@@ -1590,6 +1591,29 @@ async function toggleInlineTraceFromRecentLogs(table) {
       '设置',
     ]);
     expect(within(screen.getByTestId('app-sidebar')).queryByRole('button', { name: 'Support' })).not.toBeInTheDocument();
+  });
+
+  it('renders the mobile bottom navigation with core destinations and active state', async () => {
+    render(<App skipBootstrap />);
+
+    const mobileNav = screen.getByTestId('mobile-nav');
+    expect(mobileNav).toHaveAttribute('aria-label', '主要导航');
+    const items = within(mobileNav).getAllByRole('button');
+    expect(items.map((button) => button.textContent)).toEqual(['聊天', '插件', '定制角色', '记忆', '设置']);
+    expect(items.map((button) => button.querySelector('svg')?.classList.value)).toEqual([
+      expect.stringContaining('lucide-message-square-text'),
+      expect.stringContaining('lucide-puzzle'),
+      expect.stringContaining('lucide-circle-user-round'),
+      expect.stringContaining('lucide-brain'),
+      expect.stringContaining('lucide-settings'),
+    ]);
+    expect(within(mobileNav).getByRole('button', { name: '聊天' })).toHaveAttribute('aria-current', 'page');
+
+    fireEvent.click(within(mobileNav).getByRole('button', { name: '记忆' }));
+
+    await waitFor(() => expect(window.location.pathname).toBe('/memory'));
+    expect(within(mobileNav).getByRole('button', { name: '记忆' })).toHaveAttribute('aria-current', 'page');
+    expect(within(mobileNav).getByRole('button', { name: '聊天' })).not.toHaveAttribute('aria-current');
   });
 
   it('uses the current URL path as the active page on boot', async () => {

@@ -745,6 +745,33 @@ write_runtime_manifest() {
 JSON
 }
 
+require_frontend_entries() {
+  local directory="$1"
+  local label="$2"
+  local manifest="$root/frontend-app/required-dist-entries.txt"
+  local entry
+  local count=0
+  if [[ ! -f "$manifest" ]]; then
+    echo "frontend required entries manifest is missing: $manifest" >&2
+    exit 1
+  fi
+  while IFS= read -r entry || [[ -n "$entry" ]]; do
+    if [[ -z "$entry" || "$entry" == */* || "$entry" == "." || "$entry" == ".." ]]; then
+      echo "invalid frontend required entry '$entry': $manifest" >&2
+      exit 1
+    fi
+    count=$((count + 1))
+    if [[ ! -f "$directory/$entry" ]]; then
+      echo "$label missing required entry $entry: $directory/$entry" >&2
+      exit 1
+    fi
+  done < "$manifest"
+  if [[ "$count" -eq 0 ]]; then
+    echo "frontend required entries manifest is empty: $manifest" >&2
+    exit 1
+  fi
+}
+
 build_current_frontend_app() {
   if [[ "${SUPER_DOLPHIN_SKIP_FRONTEND_BUILD:-}" != "1" ]]; then
     frontend_cache_inputs=(
@@ -757,6 +784,7 @@ build_current_frontend_app() {
       "$root/frontend-app/vite.config.js"
       "$root/frontend-app/index.html"
       "$root/frontend-app/recovery.html"
+      "$root/frontend-app/required-dist-entries.txt"
       "$root/frontend-app/public"
       "$root/frontend-app/src"
       "$root/scripts/package_linux.sh"
@@ -775,22 +803,14 @@ build_current_frontend_app() {
         npm ci
         npm run build
       )
+      require_frontend_entries "$root/frontend-app/dist" "frontend dist"
       phase_cache_save "frontend" "${frontend_cache_outputs[@]}" -- "${frontend_cache_inputs[@]}" "${frontend_cache_paths[@]}"
     fi
-  elif [[ ! -f "$root/frontend-app/dist/index.html" ]]; then
-    echo "frontend dist missing; unset SUPER_DOLPHIN_SKIP_FRONTEND_BUILD or run npm run build first" >&2
-    exit 1
   fi
 
-  if [[ ! -f "$root/frontend-app/dist/index.html" ]]; then
-    echo "frontend dist missing after build: $root/frontend-app/dist/index.html" >&2
-    exit 1
-  fi
+  require_frontend_entries "$root/frontend-app/dist" "frontend dist"
   rsync -a --delete --exclude .gitkeep "$root/frontend-app/dist"/ "$root/cmd/agent-terminal/web-dist"/
-  if [[ ! -f "$root/cmd/agent-terminal/web-dist/index.html" ]]; then
-    echo "embedded frontend dist missing after sync: $root/cmd/agent-terminal/web-dist/index.html" >&2
-    exit 1
-  fi
+  require_frontend_entries "$root/cmd/agent-terminal/web-dist" "embedded frontend dist"
 }
 
 package_linux_main() {

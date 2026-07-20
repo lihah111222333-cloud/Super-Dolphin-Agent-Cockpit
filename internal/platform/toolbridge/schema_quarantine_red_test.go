@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"strings"
 	"sync"
 	"testing"
 
@@ -274,6 +275,12 @@ func (c *task4BMCPClient) callCount() int {
 	return c.calls
 }
 
+func (c *task4BMCPClient) closeCount() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.closed
+}
+
 func task4BExternalBinary(name string) providerdto.MCPBinary {
 	return providerdto.MCPBinary{Name: name, TrustedServerID: name, Command: []string{"/test/" + name}}
 }
@@ -304,12 +311,15 @@ func task4BHandler(owner *task4BAuthorityOwner, executor *task4BSchemaExecutor, 
 func TestTask4BRawIdentityRejectsAmbiguousObjects(t *testing.T) {
 	t.Parallel()
 	cases := map[string]string{
-		"duplicate name":   `{"name":"first","name":"last","inputSchema":{"type":"object"}}`,
-		"unknown field":    `{"name":"tool","extra":true,"inputSchema":{"type":"object"}}`,
-		"missing name":     `{"inputSchema":{"type":"object"}}`,
-		"non-string name":  `{"name":42,"inputSchema":{"type":"object"}}`,
-		"missing schema":   `{"name":"tool"}`,
-		"duplicate schema": `{"name":"tool","inputSchema":true,"inputSchema":{"type":"object"}}`,
+		"duplicate name":    `{"name":"first","name":"last","inputSchema":{"type":"object"}}`,
+		"unknown field":     `{"name":"tool","extra":true,"inputSchema":{"type":"object"}}`,
+		"missing name":      `{"inputSchema":{"type":"object"}}`,
+		"non-string name":   `{"name":42,"inputSchema":{"type":"object"}}`,
+		"missing schema":    `{"name":"tool"}`,
+		"duplicate schema":  `{"name":"tool","inputSchema":true,"inputSchema":{"type":"object"}}`,
+		"unknown execution": `{"name":"tool","inputSchema":{"type":"object"},"execution":{"extra":true}}`,
+		"duplicate support": `{"name":"tool","inputSchema":{"type":"object"},"execution":{"taskSupport":"optional","taskSupport":"required"}}`,
+		"invalid support":   `{"name":"tool","inputSchema":{"type":"object"},"execution":{"taskSupport":"sometimes"}}`,
 	}
 	for name, raw := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -460,6 +470,167 @@ func TestTask4BRepairThenRebreakUpdatesSurfaceAndQuarantine(t *testing.T) {
 	current = []mcpdto.MCPTool{task4BTool("repairable", `true`)}
 	if tools := prepare(); len(tools) != 0 || len(owner.quarantineFor(binary.Name)) != 1 {
 		t.Fatalf("rebroken tools/quarantine = %+v/%#v", tools, owner.quarantineFor(binary.Name))
+	}
+}
+
+func TestMCP20251125ToolWireFieldGuard(t *testing.T) {
+	got, err := mcpToolWireFieldSet()
+	if err != nil {
+		t.Fatalf("mcpToolWireFieldSet() error = %v", err)
+	}
+	want := map[string]struct{}{
+		"name": {}, "title": {}, "description": {}, "icons": {},
+		"inputSchema": {}, "outputSchema": {}, "annotations": {},
+		"_meta": {}, "execution": {},
+	}
+	if !maps.Equal(got, want) {
+		t.Fatalf("MCP Tool wire fields = %#v, want %#v", got, want)
+	}
+}
+
+func TestMCP20251125ToolFieldsAdmitAndTaskSupportFailsClosed(t *testing.T) {
+	legalTool := func(taskSupport string) mcpdto.MCPTool {
+		raw := fmt.Sprintf(`{"name":"modern","title":"Modern Tool","description":"modern fixture","icons":[{"src":"https://example.test/icon.png","mimeType":"image/png","sizes":["48x48"]}],"inputSchema":{"type":"object","additionalProperties":false},"outputSchema":{"type":"object"},"annotations":{"title":"Modern annotation","readOnlyHint":true,"destructiveHint":false,"idempotentHint":true,"openWorldHint":false},"_meta":{"com.example/cache-key":"v1"},"execution":{"taskSupport":%q}}`, taskSupport)
+		return mcpdto.NewRawTool(json.RawMessage(raw))
+	}
+	for _, taskSupport := range []string{"forbidden", "optional"} {
+		t.Run(taskSupport, func(t *testing.T) {
+			owner := newTask4BAuthorityOwner()
+			executor := &task4BSchemaExecutor{}
+			client := &task4BMCPClient{tools: []mcpdto.MCPTool{legalTool(taskSupport)}}
+			h := task4BHandler(owner, executor, client)
+			tools, err := h.PrepareCodexToolSurface(context.Background(), task4BScope(task4BExternalBinary("external")))
+			if err != nil {
+				t.Fatalf("PrepareCodexToolSurface() error = %v", err)
+			}
+			surface := h.lookupCodexToolSurface(ToolCallRequest{ThreadID: "task4b-thread"})
+			if _, err := h.callCodexSurfaceTool(context.Background(), surface, ToolCallRequest{Name: tools[0].Name, Arguments: json.RawMessage(`{}`)}); err != nil {
+				t.Fatalf("callCodexSurfaceTool() error = %v", err)
+			}
+			if client.callCount() != 1 {
+				t.Fatalf("client calls = %d, want normal call", client.callCount())
+			}
+		})
+	}
+	owner := newTask4BAuthorityOwner()
+	executor := &task4BSchemaExecutor{}
+	client := &task4BMCPClient{tools: []mcpdto.MCPTool{legalTool("required")}}
+	h := task4BHandler(owner, executor, client)
+	tools, err := h.PrepareCodexToolSurface(context.Background(), task4BScope(task4BExternalBinary("external")))
+	if err != nil {
+		t.Fatalf("PrepareCodexToolSurface(required) error = %v", err)
+	}
+	surface := h.lookupCodexToolSurface(ToolCallRequest{ThreadID: "task4b-thread"})
+	_, err = h.callCodexSurfaceTool(context.Background(), surface, ToolCallRequest{Name: tools[0].Name, Arguments: json.RawMessage(`{}`)})
+	if err == nil || !strings.Contains(err.Error(), "task augmentation") {
+		t.Fatalf("callCodexSurfaceTool(required) error = %v, want task augmentation fail-closed", err)
+	}
+	if client.callCount() != 0 {
+		t.Fatalf("required client calls = %d, want 0", client.callCount())
+	}
+}
+
+func TestMCP20251125ExecutionChangesMembershipButMetadataDoesNotAuthorize(t *testing.T) {
+	tool := func(execution, annotation string) mcpdto.MCPTool {
+		raw := fmt.Sprintf(`{"name":"semantic","inputSchema":{"type":"object"},"annotations":{"title":%q},"_meta":{"com.example/note":%q},"execution":{"taskSupport":%q}}`, annotation, annotation, execution)
+		return mcpdto.NewRawTool(json.RawMessage(raw))
+	}
+	_, _, forbiddenDigest, err := mcpToolMembership([]mcpdto.MCPTool{tool("forbidden", "first")})
+	if err != nil {
+		t.Fatalf("mcpToolMembership(forbidden) error = %v", err)
+	}
+	_, _, optionalDigest, err := mcpToolMembership([]mcpdto.MCPTool{tool("optional", "first")})
+	if err != nil {
+		t.Fatalf("mcpToolMembership(optional) error = %v", err)
+	}
+	_, _, metadataDigest, err := mcpToolMembership([]mcpdto.MCPTool{tool("forbidden", "changed")})
+	if err != nil {
+		t.Fatalf("mcpToolMembership(metadata) error = %v", err)
+	}
+	if forbiddenDigest == optionalDigest {
+		t.Fatal("execution.taskSupport mutation did not change membership identity")
+	}
+	if forbiddenDigest != metadataDigest {
+		t.Fatal("annotations/_meta changed authority identity")
+	}
+}
+
+type task4BPrepareBarrierExecutor struct {
+	mu      sync.Mutex
+	calls   int
+	started chan struct{}
+	release chan struct{}
+	inner   task4BSchemaExecutor
+}
+
+func (e *task4BPrepareBarrierExecutor) Execute(
+	ctx context.Context,
+	invocation schema.Invocation,
+	fence schema.FenceHook,
+) (schema.Result, error) {
+	e.mu.Lock()
+	e.calls++
+	first := e.calls == 1
+	e.mu.Unlock()
+	if first {
+		close(e.started)
+		select {
+		case <-e.release:
+		case <-ctx.Done():
+			return schema.Result{}, ctx.Err()
+		}
+	}
+	return e.inner.Execute(ctx, invocation, fence)
+}
+
+func TestStalePrepareFailureDoesNotRevokeNewGenerationSurface(t *testing.T) {
+	owner := newTask4BAuthorityOwner()
+	executor := &task4BPrepareBarrierExecutor{started: make(chan struct{}), release: make(chan struct{})}
+	clientA := &task4BMCPClient{tools: []mcpdto.MCPTool{task4BTool("tool_a", `{"type":"object"}`)}}
+	clientB := &task4BMCPClient{tools: []mcpdto.MCPTool{task4BTool("tool_b", `{"type":"object"}`)}}
+	clients := []mcpClient{clientA, clientB}
+	var factoryMu sync.Mutex
+	h := &Handler{
+		authorityOwner: owner,
+		schemaExecutor: executor,
+		stdioClientFactory: func(context.Context, providerdto.MCPBinary) (mcpClient, error) {
+			factoryMu.Lock()
+			defer factoryMu.Unlock()
+			client := clients[0]
+			clients = clients[1:]
+			return client, nil
+		},
+	}
+	scope := task4BScope(task4BExternalBinary("external"))
+	errA := make(chan error, 1)
+	safego.Go(context.Background(), nil, "toolbridge.stale-prepare-a", func(context.Context) {
+		_, err := h.PrepareCodexToolSurface(context.Background(), scope)
+		errA <- err
+	})
+	<-executor.started
+	toolsB, err := h.PrepareCodexToolSurface(context.Background(), scope)
+	if err != nil {
+		t.Fatalf("PrepareCodexToolSurface(B) error = %v", err)
+	}
+	close(executor.release)
+	if err := <-errA; err == nil {
+		t.Fatal("PrepareCodexToolSurface(A) error = nil, want stale authority failure")
+	}
+	surface := h.lookupCodexToolSurface(ToolCallRequest{ThreadID: "task4b-thread"})
+	if surface == nil {
+		t.Fatal("new generation surface was revoked by stale prepare cleanup")
+	}
+	if clientB.closeCount() != 0 {
+		t.Fatalf("new generation client close count = %d, want 0", clientB.closeCount())
+	}
+	if _, err := h.callCodexSurfaceTool(context.Background(), surface, ToolCallRequest{Name: toolsB[0].Name, Arguments: json.RawMessage(`{}`)}); err != nil {
+		t.Fatalf("new generation tool call error = %v", err)
+	}
+	if clientB.callCount() != 1 {
+		t.Fatalf("new generation client calls = %d, want 1", clientB.callCount())
+	}
+	if clientA.closeCount() != 1 {
+		t.Fatalf("stale local client close count = %d, want 1", clientA.closeCount())
 	}
 }
 

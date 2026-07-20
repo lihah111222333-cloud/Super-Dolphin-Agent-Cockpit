@@ -1,160 +1,177 @@
-.datasource-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px;
+/* 数据源导入区：中性虚线上传卡（与 MCP“注册技能工具”卡同一套虚线语言），
+   去除 fusion 白卡阴影，保持上传图标、标题、提示与主操作导入按钮。 */
+.datasource-container .suiyuan-upload-card {
+  box-shadow: none;
+  padding: 20px 24px;
 }
 
-.datasource-header h1 {
-  font-size: 30px;
-  line-height: 1.15;
-  font-weight: 760;
-  color: var(--text-pri);
-  margin: 0;
+.datasource-container .suiyuan-upload-card .mcp-tool-icon.add-new {
+  background: var(--surface-3);
+  color: var(--primary);
 }
 
-.datasource-subtitle {
-  font-size: 14px;
-  color: var(--text-sec);
-  margin: 8px 0 0;
-}
-
-.datasource-icon-button,
-.datasource-actions button {
-  width: 34px;
-  height: 34px;
+.datasource-container .suiyuan-upload-card .selected-path {
+  display: inline-block;
+  margin-top: 4px;
+  padding: 3px 8px;
+  border: 1px solid var(--line);
   border-radius: 6px;
-  border: 1px solid var(--border);
-  background: var(--surface);
+  background: var(--surface-3);
   color: var(--text-sec);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.datasource-container .suiyuan-upload-card .mcp-tool-actions .suiyuan-btn-fusion {
+  min-height: 40px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--primary-action-bg);
+  color: var(--primary-action-text);
+  font-size: 13px;
+  font-weight: 600;
+  padding: 0 20px;
+}
+
+.datasource-container .suiyuan-upload-card .mcp-tool-actions .suiyuan-btn-fusion:hover:not(:disabled) {
+  background: var(--primary-action-bg-hover);
+  color: var(--primary-action-text);
+}
+
+.datasource-container .refresh-btn-compact {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  width: 34px;
+  height: 34px;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  color: var(--text-sec);
+  flex-shrink: 0;
 }
 
-.datasource-icon-button:hover,
-.datasource-actions button:hover {
-  color: var(--text-pri);
+.datasource-container .refresh-btn-compact:hover:not(:disabled) {
   border-color: var(--border-strong);
-  background: var(--surface-2);
+  color: var(--text-pri);
 }
 
-.datasource-import-row {
+/* 数据源卡片网格：与技能库一致的暖色浅底卡片语言。 */
+.datasource-grid-wrap {
+  width: 100%;
+}
+
+.datasource-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 12px;
-  align-items: end;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 14px;
 }
 
-.datasource-path-field,
-.datasource-form-grid label {
+.datasource-card {
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr) auto;
+  grid-template-areas:
+    "icon body status"
+    "icon body actions";
+  column-gap: 12px;
+  row-gap: 10px;
+  align-items: start;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: var(--suiyuan-radius-card);
+  padding: 16px;
+  transition: border-color var(--transition), box-shadow var(--transition);
+}
+
+.datasource-card:hover {
+  border-color: var(--border-strong);
+  box-shadow: var(--suiyuan-card-shadow);
+}
+
+.datasource-card-icon {
+  grid-area: icon;
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  background: var(--surface-3);
+  color: var(--primary);
+}
+
+.datasource-card-body {
+  grid-area: body;
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.datasource-card-body h3 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 650;
+  line-height: 1.35;
+  color: var(--text-pri);
+  overflow-wrap: anywhere;
+}
+
+.datasource-card-path {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}
+
+.datasource-card-meta {
   display: flex;
-  flex-direction: column;
+  flex-wrap: wrap;
+  align-items: center;
   gap: 6px;
   font-size: 12px;
-  font-weight: 650;
-  color: var(--text-sec);
+  color: var(--text-muted);
 }
 
-.datasource-path-field input,
-.datasource-form-grid input {
-  width: 100%;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--surface);
-  color: var(--text-pri);
-  font-size: 14px;
-  padding: 10px 12px;
-  outline: none;
+.datasource-card-meta .dot {
+  color: var(--text-subtle);
 }
 
-.datasource-path-field input[readonly] {
-  cursor: default;
+.datasource-card > .datasource-status {
+  grid-area: status;
+  justify-self: end;
+  align-self: start;
 }
 
-.datasource-path-field input:focus,
-.datasource-form-grid input:focus {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent);
+.datasource-card-actions {
+  grid-area: actions;
+  display: flex;
+  gap: 6px;
+  justify-self: end;
+  align-self: end;
 }
 
-.datasource-import-row button {
-  height: 40px;
-  border-radius: 6px;
-  padding: 0 14px;
+.datasource-card-actions button {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-}
-
-.datasource-notice,
-.datasource-error {
-  margin: 0;
-  border-radius: 6px;
-  padding: 10px 12px;
-  font-size: 13px;
-}
-
-.datasource-notice {
-  color: var(--success);
-  background: color-mix(in srgb, var(--success) 8%, var(--surface));
-  border: 1px solid color-mix(in srgb, var(--success) 24%, transparent);
-}
-
-.datasource-error {
-  color: var(--danger);
-  background: color-mix(in srgb, var(--danger) 8%, var(--surface));
-  border: 1px solid color-mix(in srgb, var(--danger) 24%, transparent);
-}
-
-.datasource-table-wrap {
-  overflow-x: auto;
-  border: 1px solid var(--border);
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--line);
   border-radius: 8px;
   background: var(--surface);
-}
-
-.datasource-table {
-  width: 100%;
-  border-collapse: collapse;
-  min-width: 760px;
-}
-
-.datasource-table th,
-.datasource-table td {
-  padding: 12px 14px;
-  border-bottom: 1px solid var(--border);
-  text-align: left;
-  vertical-align: middle;
-  font-size: 13px;
-}
-
-.datasource-table th {
-  color: var(--text-muted);
-  background: var(--surface-2);
-  font-weight: 700;
-}
-
-.datasource-table tbody tr:last-child td {
-  border-bottom: 0;
-}
-
-.datasource-file-cell {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 180px;
-  color: var(--text-pri);
-  font-weight: 650;
-}
-
-.datasource-path-text {
-  display: inline-block;
-  max-width: 360px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
   color: var(--text-sec);
+  cursor: pointer;
+  transition: border-color var(--transition), color var(--transition), background var(--transition);
+}
+
+.datasource-card-actions button:hover {
+  border-color: var(--border-strong);
+  color: var(--text-pri);
+  background: var(--surface-3);
+}
+
+.datasource-card-actions button.danger:hover {
+  border-color: color-mix(in srgb, var(--error) 45%, var(--border));
+  background: color-mix(in srgb, var(--error) 8%, var(--surface));
 }
 
 .datasource-status {
@@ -167,28 +184,14 @@
   border: 1px solid transparent;
 }
 
-.datasource-status-ready {
-  color: var(--success);
-  background: color-mix(in srgb, var(--success) 8%, var(--surface));
-  border-color: color-mix(in srgb, var(--success) 24%, transparent);
-}
-
-.datasource-status-pending {
-  color: var(--warning);
-  background: color-mix(in srgb, var(--warning) 10%, var(--surface));
-  border-color: color-mix(in srgb, var(--warning) 24%, transparent);
-}
-
-.datasource-status-failed {
+.datasource-error {
+  margin: 0;
+  border-radius: 6px;
+  padding: 10px 12px;
+  font-size: 13px;
   color: var(--danger);
   background: color-mix(in srgb, var(--danger) 8%, var(--surface));
-  border-color: color-mix(in srgb, var(--danger) 24%, transparent);
-}
-
-.datasource-actions {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
+  border: 1px solid color-mix(in srgb, var(--danger) 24%, transparent);
 }
 
 .datasource-modal {
@@ -249,6 +252,31 @@
   margin: 12px 0 18px;
 }
 
+.datasource-form-grid label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 650;
+  color: var(--text-sec);
+}
+
+.datasource-form-grid input {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text-pri);
+  font-size: 14px;
+  padding: 10px 12px;
+  outline: none;
+}
+
+.datasource-form-grid input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
 .datasource-delete-target {
   margin: 10px 0 18px;
   padding: 10px 12px;
@@ -260,18 +288,6 @@
 }
 
 @media (max-width: 720px) {
-  .datasource-header,
-  .datasource-import-row {
-    grid-template-columns: 1fr;
-    flex-direction: column;
-    align-items: stretch;
-  }
-
-  .datasource-import-row button,
-  .datasource-icon-button {
-    width: 100%;
-  }
-
   .datasource-detail-grid,
   .datasource-form-grid {
     grid-template-columns: 1fr;

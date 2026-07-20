@@ -99,6 +99,129 @@ func TestMcpLSPBinaryRealTypeScriptLanguageServerUsesSixReadOnlyTools_E2E(t *tes
 	}
 }
 
+// TestMcpLSPBinaryJavaScriptReactExportReferences_E2E guards the JS/JSX
+// cross-module export path used by the frontend chat components. In
+// particular, references requested at the exported declaration must include
+// consumers in .jsx files rather than silently returning an empty result.
+func TestMcpLSPBinaryJavaScriptReactExportReferences_E2E(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping mcp-lsp binary e2e test in short mode")
+	}
+	if runtime.GOOS == "windows" {
+		t.Skip("test uses POSIX PATH isolation")
+	}
+
+	binary := buildMcpLSPBinaryForTest(t)
+	root := t.TempDir()
+	npmPrefix := t.TempDir()
+	npmBin := filepath.Join(npmPrefix, "bin")
+	if err := os.MkdirAll(npmBin, 0o755); err != nil {
+		t.Fatalf("mkdir npm prefix bin: %v", err)
+	}
+	toolBin := symlinkHostToolsForRealToolsE2E(t, "node", "npm")
+	path := npmBin + string(os.PathListSeparator) + toolBin + string(os.PathListSeparator) + "/usr/bin:/bin"
+	componentTarget, pageTarget, testTarget := writeRealJavaScriptReactReferencesFixture(t, root)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel()
+	client := startMcpLSPBinaryForTestWithEnv(t, ctx, binary, root, t.TempDir(), []string{
+		"PATH=" + path,
+		"NPM_CONFIG_PREFIX=" + npmPrefix,
+	})
+	defer client.close(t)
+	client.call(t, "initialize", map[string]any{"protocolVersion": "2024-11-05"})
+
+	diagnostics := client.callTool(t, "file", map[string]any{
+		"action":      "diagnostics",
+		"file_path":   componentTarget,
+		"language_id": "javascript",
+	})
+	requireMCPToolSuccess(t, client, diagnostics, "real javascript react file diagnostics")
+	requireRealToolsInstalledBinaries(t, npmBin, []string{"typescript-language-server"})
+	requireRealTypeScriptModule(t, npmPrefix)
+
+	references := client.callTool(t, "xref", map[string]any{
+		"action":              "references",
+		"pos":                 componentTarget + ":1:17",
+		"language_id":         "javascript",
+		"include_declaration": false,
+		"max_results":         10,
+	})
+	requireMCPToolSuccess(t, client, references, "real javascript react export references")
+	requireGroupedLocationTotal(t, references.Result.StructuredContent, 4, "real javascript react export references")
+	requireToolResultContains(t, references, filepath.Base(pageTarget), "real javascript react export references")
+	requireToolResultContains(t, references, filepath.Base(testTarget), "real javascript react export references")
+}
+
+// TestMcpLSPBinaryFrontendLanguageExportReferences_E2E covers every
+// JavaScript/TypeScript language ID routed to typescript-language-server.
+func TestMcpLSPBinaryFrontendLanguageExportReferences_E2E(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping mcp-lsp binary e2e test in short mode")
+	}
+	if runtime.GOOS == "windows" {
+		t.Skip("test uses POSIX PATH isolation")
+	}
+
+	for _, tc := range []struct {
+		name       string
+		languageID string
+		ext        string
+	}{
+		{name: "javascriptreact", languageID: "javascriptreact", ext: ".jsx"},
+		{name: "typescript", languageID: "typescript", ext: ".ts"},
+		{name: "typescriptreact", languageID: "typescriptreact", ext: ".tsx"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			runRealFrontendLanguageExportReferencesE2E(t, tc.languageID, tc.ext)
+		})
+	}
+}
+
+func runRealFrontendLanguageExportReferencesE2E(t *testing.T, languageID, ext string) {
+	t.Helper()
+	binary := buildMcpLSPBinaryForTest(t)
+	root := t.TempDir()
+	npmPrefix := t.TempDir()
+	npmBin := filepath.Join(npmPrefix, "bin")
+	if err := os.MkdirAll(npmBin, 0o755); err != nil {
+		t.Fatalf("mkdir npm prefix bin: %v", err)
+	}
+	toolBin := symlinkHostToolsForRealToolsE2E(t, "node", "npm")
+	path := npmBin + string(os.PathListSeparator) + toolBin + string(os.PathListSeparator) + "/usr/bin:/bin"
+	componentTarget, pageTarget, testTarget := writeRealFrontendLanguageReferencesFixture(t, root, ext)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel()
+	client := startMcpLSPBinaryForTestWithEnv(t, ctx, binary, root, t.TempDir(), []string{
+		"PATH=" + path,
+		"NPM_CONFIG_PREFIX=" + npmPrefix,
+	})
+	defer client.close(t)
+	client.call(t, "initialize", map[string]any{"protocolVersion": "2024-11-05"})
+
+	diagnostics := client.callTool(t, "file", map[string]any{
+		"action":      "diagnostics",
+		"file_path":   componentTarget,
+		"language_id": languageID,
+	})
+	requireMCPToolSuccess(t, client, diagnostics, "real frontend language diagnostics")
+	requireRealToolsInstalledBinaries(t, npmBin, []string{"typescript-language-server"})
+	requireRealTypeScriptModule(t, npmPrefix)
+
+	references := client.callTool(t, "xref", map[string]any{
+		"action":              "references",
+		"pos":                 componentTarget + ":1:17",
+		"language_id":         languageID,
+		"include_declaration": false,
+		"max_results":         10,
+	})
+	requireMCPToolSuccess(t, client, references, "real frontend language export references")
+	requireGroupedLocationTotal(t, references.Result.StructuredContent, 4, "real frontend language export references")
+	requireToolResultContains(t, references, filepath.Base(pageTarget), "real frontend language export references")
+	requireToolResultContains(t, references, filepath.Base(testTarget), "real frontend language export references")
+}
+
 func requireRealTypeScriptModule(t *testing.T, npmPrefix string) {
 	t.Helper()
 	tsserverPath := filepath.Join(npmPrefix, "lib", "node_modules", "typescript", "lib", "tsserver.js")
@@ -152,6 +275,7 @@ func writeRealTypeScriptToolsFixture(t *testing.T, root string) (string, string)
   },
   "include": ["src/**/*.ts"]
 }
+
 `
 	if err := os.WriteFile(filepath.Join(root, "tsconfig.json"), []byte(tsconfig), 0o600); err != nil {
 		t.Fatalf("write tsconfig.json: %v", err)
@@ -193,4 +317,102 @@ console.log(answer, toolNeedle);
 		t.Fatalf("write consumer.ts: %v", err)
 	}
 	return mathTarget, consumerTarget
+}
+
+func writeRealJavaScriptReactReferencesFixture(t *testing.T, root string) (string, string, string) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(root, "package.json"), []byte(`{"name":"real-jsx-references-e2e","private":true}`+"\n"), 0o600); err != nil {
+		t.Fatalf("write package.json: %v", err)
+	}
+	jsconfig := `{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "allowJs": true,
+    "checkJs": false,
+    "jsx": "react-jsx",
+    "noEmit": true
+  },
+  "include": ["src/**/*.js", "src/**/*.jsx"]
+}
+`
+	if err := os.WriteFile(filepath.Join(root, "jsconfig.json"), []byte(jsconfig), 0o600); err != nil {
+		t.Fatalf("write jsconfig.json: %v", err)
+	}
+	src := filepath.Join(root, "src")
+	if err := os.MkdirAll(src, 0o755); err != nil {
+		t.Fatalf("mkdir src: %v", err)
+	}
+	componentTarget := filepath.Join(src, "ChatActionFeedback.js")
+	if err := os.WriteFile(componentTarget, []byte("export function ChatActionFeedback() { return null; }\n"), 0o600); err != nil {
+		t.Fatalf("write ChatActionFeedback.js: %v", err)
+	}
+	pageTarget := filepath.Join(src, "ChatPage.jsx")
+	pageSource := "import { ChatActionFeedback } from './ChatActionFeedback.js';\n\nexport function ChatPage() { return <ChatActionFeedback />; }\n"
+	if err := os.WriteFile(pageTarget, []byte(pageSource), 0o600); err != nil {
+		t.Fatalf("write ChatPage.jsx: %v", err)
+	}
+	testTarget := filepath.Join(src, "ChatActionFeedback.test.jsx")
+	testSource := "import { ChatActionFeedback } from './ChatActionFeedback.js';\n\nexport const fixture = <ChatActionFeedback />;\n"
+	if err := os.WriteFile(testTarget, []byte(testSource), 0o600); err != nil {
+		t.Fatalf("write ChatActionFeedback.test.jsx: %v", err)
+	}
+	return componentTarget, pageTarget, testTarget
+}
+
+func writeRealFrontendLanguageReferencesFixture(t *testing.T, root, ext string) (string, string, string) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(root, "package.json"), []byte(`{"name":"real-frontend-language-references-e2e","private":true}`+"\n"), 0o600); err != nil {
+		t.Fatalf("write package.json: %v", err)
+	}
+	config := `{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "allowJs": true,
+    "checkJs": false,
+    "jsx": "react-jsx",
+    "noEmit": true
+  },
+  "include": ["src/**/*"]
+}
+`
+	configName := map[string]string{
+		".jsx": "jsconfig.json",
+		".ts":  "tsconfig.json",
+		".tsx": "tsconfig.json",
+	}[ext]
+	if err := os.WriteFile(filepath.Join(root, configName), []byte(config), 0o600); err != nil {
+		t.Fatalf("write %s: %v", configName, err)
+	}
+	src := filepath.Join(root, "src")
+	if err := os.MkdirAll(src, 0o755); err != nil {
+		t.Fatalf("mkdir src: %v", err)
+	}
+	componentTarget := filepath.Join(src, "ChatActionFeedback"+ext)
+	componentSource := map[string]string{
+		".jsx": "export function ChatActionFeedback() { return <output />; }\n",
+		".ts":  "export function ChatActionFeedback() { return null; }\n",
+		".tsx": "export function ChatActionFeedback() { return <output />; }\n",
+	}[ext]
+	if err := os.WriteFile(componentTarget, []byte(componentSource), 0o600); err != nil {
+		t.Fatalf("write component: %v", err)
+	}
+	pageTarget := filepath.Join(src, "ChatPage"+ext)
+	pageSource := "import { ChatActionFeedback } from './ChatActionFeedback" + ext + "';\n\nexport function ChatPage() { return <ChatActionFeedback />; }\n"
+	testSource := "import { ChatActionFeedback } from './ChatActionFeedback" + ext + "';\n\nexport const fixture = <ChatActionFeedback />;\n"
+	if ext == ".ts" {
+		pageSource = "import { ChatActionFeedback } from './ChatActionFeedback.ts';\n\nexport const feedback = ChatActionFeedback();\n"
+		testSource = "import { ChatActionFeedback } from './ChatActionFeedback.ts';\n\nexport const fixture = ChatActionFeedback();\n"
+	}
+	if err := os.WriteFile(pageTarget, []byte(pageSource), 0o600); err != nil {
+		t.Fatalf("write page: %v", err)
+	}
+	testTarget := filepath.Join(src, "ChatActionFeedback.test"+ext)
+	if err := os.WriteFile(testTarget, []byte(testSource), 0o600); err != nil {
+		t.Fatalf("write test: %v", err)
+	}
+	return componentTarget, pageTarget, testTarget
 }

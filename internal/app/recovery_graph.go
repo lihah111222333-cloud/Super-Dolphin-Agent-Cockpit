@@ -86,6 +86,7 @@ func (service RecoveryRetryService) Retry(ctx context.Context) (recovery.Transac
 type RecoveryRestoreService struct {
 	selection        StartupSelection
 	restartCallbacks func(recovery.Transaction) (recovery.RollbackRestartResolver, recovery.RollbackRestartLauncher)
+	terminateProcess func(context.Context, recovery.ProcessIdentity) error
 }
 
 // Restore 区分无 lease 的 pre-probation 恢复与 current probation lease 回滚，并收敛唯一旧版本启动。
@@ -94,6 +95,10 @@ func (service RecoveryRestoreService) Restore(ctx context.Context) (recovery.Tra
 		return recovery.Transaction{}, errors.New("Recovery restore restart callbacks are required")
 	}
 	transaction, err := service.currentTransaction(ctx)
+	if err != nil {
+		return recovery.Transaction{}, err
+	}
+	transaction, err = service.stopForeignProbation(ctx, transaction)
 	if err != nil {
 		return recovery.Transaction{}, err
 	}
@@ -111,6 +116,33 @@ func (service RecoveryRestoreService) currentTransaction(ctx context.Context) (r
 		return recovery.Transaction{}, errors.New("Recovery transaction is unavailable or ambiguous")
 	}
 	return service.selection.Store.LoadRollbackRestartCurrent(ctx, service.selection.Transaction.Identity)
+}
+
+// stopForeignProbation 在任何 journal 或 bundle 变更前认证终止非当前 Recovery 进程持有的 candidate。
+func (service RecoveryRestoreService) stopForeignProbation(
+	ctx context.Context,
+	transaction recovery.Transaction,
+) (recovery.Transaction, error) {
+	if transaction.State != recovery.StateProbation || !transaction.Probation.LeasePresent ||
+		transaction.Probation.Lease.Process == service.selection.process {
+		return transaction, nil
+	}
+	if service.terminateProcess == nil {
+		return recovery.Transaction{}, errors.New("Recovery exact probation terminator is required")
+	}
+	lease := transaction.Probation.Lease
+	if err := service.terminateProcess(ctx, lease.Process); err != nil {
+		return recovery.Transaction{}, fmt.Errorf("terminate foreign probation process: %w", err)
+	}
+	current, err := service.currentTransaction(ctx)
+	if err != nil {
+		return recovery.Transaction{}, err
+	}
+	if current.State != recovery.StateProbation || !current.Probation.LeasePresent ||
+		current.Probation.Lease != lease {
+		return recovery.Transaction{}, errors.New("probation lease changed after exact process termination")
+	}
+	return current, nil
 }
 
 // rollback 将 current exact transaction 推进到 rolled_back，已完成状态保持幂等。
@@ -168,6 +200,7 @@ func NewRecoveryRuntime(selection StartupSelection) (*RecoveryRuntime, error) {
 		Retry: RecoveryRetryService{selection: selection},
 		Restore: RecoveryRestoreService{
 			selection: selection, restartCallbacks: recovery.RollbackRestartCallbacks,
+			terminateProcess: recovery.TerminateExactProbationProcess,
 		},
 		selection: selection,
 	}, nil

@@ -14,19 +14,17 @@
 .prompt-card {
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 16px;
+  border-radius: var(--suiyuan-radius-card, 16px);
+  box-shadow: none;
+  color: var(--text-pri);
   padding: 20px;
   display: flex;
   flex-direction: column;
-  --prompt-card-shadow: 0 1px 3px rgba(0, 0, 0, 0.02);
-  box-shadow: var(--prompt-card-shadow);
-  transition: all 150ms ease;
+  transition: border-color var(--transition);
 }
 
 .prompt-card:hover {
   border-color: var(--border-strong);
-  --prompt-card-shadow-hover: 0 4px 12px rgba(0, 0, 0, 0.04);
-  box-shadow: var(--prompt-card-shadow-hover);
 }
 
 .prompt-card-head {
@@ -68,12 +66,9 @@
 }
 
 .prompt-badges span.active {
-  --active-badge-bg: rgba(109, 40, 217, 0.08);
-  --active-badge-border: rgba(109, 40, 217, 0.2);
-  --active-badge-color: var(--primary);
-  background: var(--active-badge-bg) !important;
-  border-color: var(--active-badge-border) !important;
-  color: var(--active-badge-color) !important;
+  background: var(--accent-soft);
+  border-color: var(--primary);
+  color: var(--primary);
 }
 
 .prompt-card-desc {
@@ -102,12 +97,8 @@
   line-height: 1.5;
   color: var(--text-sec);
   margin: 0 0 16px 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  display: -webkit-box;
-  line-clamp: 3;
-  -webkit-line-clamp: 3;
-  -webkit-box-orient: vertical;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
 }
 
 .prompt-card-actions {
@@ -150,64 +141,46 @@
   border-color: var(--border);
 }
 
-/* Premium Dialog Styling for Prompts */
+/* 提示词弹窗：中性暖色 token 表面（替代旧的米色硬编码）。 */
 .prompt-editor-modal,
 .prompt-wizard-modal {
-  --beige-bg: #fbf9f4;
-  --beige-border: rgba(28, 27, 24, 0.12);
-  --beige-shadow: 0 20px 50px rgba(28, 27, 24, 0.15);
-  --beige-text: #1c1b18;
-  background: var(--beige-bg) !important;
-  border: 1px solid var(--beige-border) !important;
+  background: var(--surface) !important;
+  border: 1px solid var(--border) !important;
   border-radius: 20px !important;
-  box-shadow: var(--beige-shadow) !important;
-  color: var(--beige-text) !important;
+  box-shadow: var(--shadow) !important;
+  color: var(--text-pri) !important;
 }
 
 .prompt-modal-overlay {
-  --overlay-bg: rgba(28, 27, 24, 0.4);
-  background: var(--overlay-bg) !important;
+  background: var(--overlay) !important;
 }
 
 .prompt-editor-modal h2,
 .prompt-wizard-modal h2 {
-  --title-color: #1c1b18;
-  color: var(--title-color) !important;
+  color: var(--text-pri) !important;
 }
 
 .prompt-editor-grid label,
 .prompt-wizard-input {
-  --label-color: #1c1b18;
-  color: var(--label-color) !important;
+  color: var(--text-pri) !important;
 }
 
 .prompt-editor-grid input,
 .prompt-editor-grid textarea,
 .prompt-wizard-input textarea {
-  --input-bg: #ffffff;
-  --input-border: rgba(28, 27, 24, 0.15);
-  --input-text: #1c1b18;
-  background: var(--input-bg) !important;
-  border: 1px solid var(--input-border) !important;
-  color: var(--input-text) !important;
+  background: var(--surface) !important;
+  border: 1px solid var(--border) !important;
+  color: var(--text-pri) !important;
 }
 
 .prompt-editor-grid input:focus,
 .prompt-editor-grid textarea:focus,
 .prompt-wizard-input textarea:focus {
-  --focus-border: rgba(28, 27, 24, 0.4);
-  --focus-shadow: 0 0 0 2px rgba(28, 27, 24, 0.05);
-  border-color: var(--focus-border) !important;
-  box-shadow: var(--focus-shadow) !important;
+  border-color: var(--primary) !important;
+  box-shadow: 0 0 0 2px var(--primary-soft) !important;
 }
 
 .prompt-preview-readonly {
-  --readonly-bg: #f5f2eb;
-  --readonly-color: #59564d;
-  background: var(--readonly-bg) !important;
-  color: var(--readonly-color) !important;
+  background: var(--surface-2) !important;
+  color: var(--text-sec) !important;
 }
-
-/* ==========================================================================
-   插件广场 (Plugins Square) Redesign & Styling
-   ========================================================================== */

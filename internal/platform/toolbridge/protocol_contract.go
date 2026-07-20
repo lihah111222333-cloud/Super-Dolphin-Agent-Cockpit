@@ -3,7 +3,10 @@ package toolbridge
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
+	"reflect"
 	"strings"
 
 	mcpdto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/mcp"
@@ -39,6 +42,176 @@ const (
 	ProxyMethodToolsList  = "tools/list"
 	ProxyMethodToolsCall  = "tools/call"
 )
+
+const (
+	mcpToolTaskSupportForbidden = "forbidden"
+	mcpToolTaskSupportOptional  = "optional"
+	mcpToolTaskSupportRequired  = "required"
+)
+
+type mcpToolWire struct {
+	Name         string                     `json:"name"`
+	Title        *string                    `json:"title,omitempty"`
+	Description  *string                    `json:"description,omitempty"`
+	Icons        []mcpToolIcon              `json:"icons,omitempty"`
+	InputSchema  json.RawMessage            `json:"inputSchema"`
+	OutputSchema json.RawMessage            `json:"outputSchema,omitempty"`
+	Annotations  *mcpToolAnnotations        `json:"annotations,omitempty"`
+	Meta         map[string]json.RawMessage `json:"_meta,omitempty"`
+	Execution    *mcpToolExecution          `json:"execution,omitempty"`
+}
+
+type mcpToolIcon struct {
+	Src      string   `json:"src"`
+	MIMEType string   `json:"mimeType,omitempty"`
+	Sizes    []string `json:"sizes,omitempty"`
+}
+
+type mcpToolAnnotations struct {
+	Title           *string `json:"title,omitempty"`
+	ReadOnlyHint    *bool   `json:"readOnlyHint,omitempty"`
+	DestructiveHint *bool   `json:"destructiveHint,omitempty"`
+	IdempotentHint  *bool   `json:"idempotentHint,omitempty"`
+	OpenWorldHint   *bool   `json:"openWorldHint,omitempty"`
+}
+
+type mcpToolExecution struct {
+	TaskSupport string `json:"taskSupport,omitempty"`
+}
+
+func mcpToolWireFieldSet() (map[string]struct{}, error) {
+	toolType := reflect.TypeFor[mcpToolWire]()
+	fields := make(map[string]struct{}, toolType.NumField())
+	for index := range toolType.NumField() {
+		tag, _, _ := strings.Cut(toolType.Field(index).Tag.Get("json"), ",")
+		if tag == "" || tag == "-" {
+			return nil, fmt.Errorf("toolbridge: MCP tool wire field %q lacks a JSON contract", toolType.Field(index).Name)
+		}
+		if _, duplicate := fields[tag]; duplicate {
+			return nil, fmt.Errorf("toolbridge: MCP tool wire JSON field %q is duplicated", tag)
+		}
+		fields[tag] = struct{}{}
+	}
+	return fields, nil
+}
+
+// decodeMCPToolWire 严格解码 MCP 2025-11-25 Tool，并规范 taskSupport 默认值。
+func decodeMCPToolWire(raw json.RawMessage) (mcpToolWire, error) {
+	var tool mcpToolWire
+	if err := decodeStrictMCPJSON(raw, &tool); err != nil {
+		return mcpToolWire{}, fmt.Errorf("decode MCP 2025-11-25 tool: %w", err)
+	}
+	if strings.TrimSpace(tool.Name) == "" || strings.TrimSpace(tool.Name) != tool.Name {
+		return mcpToolWire{}, fmt.Errorf("tool name must be a non-empty trimmed string")
+	}
+	if len(bytes.TrimSpace(tool.InputSchema)) == 0 {
+		return mcpToolWire{}, fmt.Errorf("tool %q inputSchema is required", tool.Name)
+	}
+	for index, icon := range tool.Icons {
+		if strings.TrimSpace(icon.Src) == "" {
+			return mcpToolWire{}, fmt.Errorf("tool %q icon %d src is required", tool.Name, index)
+		}
+	}
+	if tool.Execution == nil {
+		tool.Execution = &mcpToolExecution{TaskSupport: mcpToolTaskSupportForbidden}
+	} else if tool.Execution.TaskSupport == "" {
+		tool.Execution.TaskSupport = mcpToolTaskSupportForbidden
+	}
+	switch tool.Execution.TaskSupport {
+	case mcpToolTaskSupportForbidden, mcpToolTaskSupportOptional, mcpToolTaskSupportRequired:
+	default:
+		return mcpToolWire{}, fmt.Errorf("tool %q execution.taskSupport %q is invalid", tool.Name, tool.Execution.TaskSupport)
+	}
+	return tool, nil
+}
+
+func decodeStrictMCPJSON(raw json.RawMessage, target any) error {
+	if err := rejectDuplicateMCPJSONKeys(raw); err != nil {
+		return err
+	}
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(target); err != nil {
+		return err
+	}
+	var trailing json.RawMessage
+	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
+		if err == nil {
+			return fmt.Errorf("contains trailing JSON")
+		}
+		return err
+	}
+	return nil
+}
+
+func rejectDuplicateMCPJSONKeys(raw json.RawMessage) error {
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	if err := validateUniqueMCPJSONValue(decoder); err != nil {
+		return err
+	}
+	var trailing json.RawMessage
+	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
+		if err == nil {
+			return fmt.Errorf("contains trailing JSON")
+		}
+		return err
+	}
+	return nil
+}
+
+// validateUniqueMCPJSONValue 递归检查对象键唯一性，覆盖 Tool 的嵌套结构。
+func validateUniqueMCPJSONValue(decoder *json.Decoder) error {
+	token, err := decoder.Token()
+	if err != nil {
+		return err
+	}
+	delimiter, ok := token.(json.Delim)
+	if !ok {
+		return nil
+	}
+	switch delimiter {
+	case '{':
+		return validateUniqueMCPJSONObject(decoder)
+	case '[':
+		return validateUniqueMCPJSONArray(decoder)
+	default:
+		return fmt.Errorf("unexpected JSON delimiter %q", delimiter)
+	}
+}
+
+// validateUniqueMCPJSONObject 检查当前对象层级与所有嵌套值的字段唯一性。
+func validateUniqueMCPJSONObject(decoder *json.Decoder) error {
+	seen := map[string]struct{}{}
+	for decoder.More() {
+		keyToken, err := decoder.Token()
+		if err != nil {
+			return err
+		}
+		key, ok := keyToken.(string)
+		if !ok {
+			return fmt.Errorf("object key must be a string")
+		}
+		if _, duplicate := seen[key]; duplicate {
+			return fmt.Errorf("contains duplicate field %q", key)
+		}
+		seen[key] = struct{}{}
+		if err := validateUniqueMCPJSONValue(decoder); err != nil {
+			return err
+		}
+	}
+	_, err := decoder.Token()
+	return err
+}
+
+func validateUniqueMCPJSONArray(decoder *json.Decoder) error {
+	for decoder.More() {
+		if err := validateUniqueMCPJSONValue(decoder); err != nil {
+			return err
+		}
+	}
+	_, err := decoder.Token()
+	return err
+}
 
 // storePeerToolInputSchemas 记录已发布给 proxy/Codex 的 peer schema，供后续 tools/call 预校验使用。
 func (h *Handler) storePeerToolInputSchemas(clientKind string, tools []mcpdto.MCPTool) {
