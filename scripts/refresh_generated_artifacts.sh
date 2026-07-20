@@ -4,12 +4,13 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 mode="all"
 check=0
+list_outputs=0
 extra_args=()
 
 usage() {
   cat <<'EOF'
 Usage:
-  scripts/refresh_generated_artifacts.sh [all|codemap|project-map|capcontract] [--check] [--repo PATH] [-- EXTRA_ARGS...]
+  scripts/refresh_generated_artifacts.sh [all|codemap|project-map|capcontract] [--check|--list-outputs] [--repo PATH] [-- EXTRA_ARGS...]
 
 Modes:
   all          Refresh or check all generated codemap, project-map, and capability-contract artifacts.
@@ -19,6 +20,9 @@ Modes:
 
 Options:
   --check      Run read-only stale checks instead of refreshing files.
+  --list-outputs
+               Print the generated output ownership contract as KIND<TAB>PATH.
+               KIND is file for one path or tree for an owned directory.
   --repo PATH  Run from a specific repository root.
   --           Forward remaining arguments to project-map via PROJECT_MAP_ARGS.
 EOF
@@ -33,6 +37,10 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --check)
       check=1
+      shift
+      ;;
+    --list-outputs)
+      list_outputs=1
       shift
       ;;
     --repo)
@@ -59,6 +67,55 @@ while [ $# -gt 0 ]; do
       ;;
   esac
 done
+
+list_codemap_outputs() {
+  printf '%s\n' \
+    $'file\tREADME.md' \
+    $'file\tdocs/doc/codemap/13-archtest-boundaries.md' \
+    $'file\tdocs/doc/codemap/README.md' \
+    $'file\tdocs/doc/codemap/ai-index.json'
+}
+
+list_capcontract_outputs() {
+  printf '%s\n' $'file\tdocs/doc/codemap/capability-contract/capability_manifest.json'
+}
+
+list_project_map_outputs() {
+  printf '%s\n' $'tree\tdocs/doc/codemap/project-map'
+}
+
+list_owned_outputs() {
+  case "$mode" in
+    all)
+      list_codemap_outputs
+      list_capcontract_outputs
+      list_project_map_outputs
+      ;;
+    codemap)
+      list_codemap_outputs
+      ;;
+    capcontract)
+      list_capcontract_outputs
+      ;;
+    project-map)
+      list_project_map_outputs
+      ;;
+    *)
+      echo "Unknown mode: $mode" >&2
+      usage >&2
+      return 2
+      ;;
+  esac
+}
+
+if [ "$list_outputs" -eq 1 ]; then
+  if [ "$check" -eq 1 ] || [ ${#extra_args[@]} -gt 0 ]; then
+    echo "--list-outputs cannot be combined with --check or forwarded arguments" >&2
+    exit 2
+  fi
+  list_owned_outputs
+  exit 0
+fi
 
 run_make() {
   (

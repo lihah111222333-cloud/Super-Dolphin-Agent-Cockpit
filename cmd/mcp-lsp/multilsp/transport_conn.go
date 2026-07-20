@@ -249,14 +249,21 @@ func (t *transport) takeStdin() io.WriteCloser {
 	return stdin
 }
 
+// readFailure 在 stdout EOF 时等待子进程退出，确保 stderr 与退出码进入最终错误。
 func (t *transport) readFailure(err error) error {
 	if t.closed.Load() {
 		return ErrTransportClosed
 	}
-	if waitErr := t.waitErr(); waitErr != nil {
-		if errors.Is(err, io.EOF) {
+	if errors.Is(err, io.EOF) {
+		if exitErr := t.waitForExit(defaultShutdownTimeout); exitErr != nil {
+			return errors.Join(err, exitErr)
+		}
+		if waitErr := t.waitErr(); waitErr != nil {
 			return waitErr
 		}
+		return err
+	}
+	if waitErr := t.waitErr(); waitErr != nil {
 		return errors.Join(err, waitErr)
 	}
 	return err

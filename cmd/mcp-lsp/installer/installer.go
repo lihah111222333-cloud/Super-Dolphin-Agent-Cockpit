@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"os/exec"
@@ -98,7 +99,10 @@ const (
 	InstallStatusInstalledPath     InstallStatus = "installed_path"
 	InstallStatusInstalledFallback InstallStatus = "installed_fallback"
 	defaultInstallTimeout                        = 10 * time.Minute
+	commandShimProbeLimit                        = 64 << 10
 )
+
+const commandShimTargetMarker = "# cmd-shim-target="
 
 // InstallResult 返回语言服务二进制解析后的路径、语言和来源状态。
 type InstallResult struct {
@@ -165,27 +169,16 @@ func (p *Provider) EnsureInstalledDetailed(ctx context.Context, lang string) (In
 
 	result := InstallResult{Lang: lang, Binary: cfg.BinaryName}
 
-	// 先解析 PATH 中已有二进制，但必须通过健康检查和伴随工具校验。
-	var pathErr error
+	// 先解析已安装候选；pnpm shell shim 前优先检查 npm 的规范全局安装目录。
+	candidates, pathErr := installedBinaryCandidates(ctx, cfg)
 	var readinessErr error
-	if path, err := exec.LookPath(cfg.BinaryName); err == nil {
-		if err := validateBinaryReadiness(ctx, path, cfg); err == nil {
-			result.Path = path
+	for _, candidate := range candidates {
+		if err := validateBinaryReadiness(ctx, candidate.path, cfg); err == nil {
+			result.Path = candidate.path
 			result.Status = InstallStatusPathFound
 			return result, nil
 		} else {
-			readinessErr = err
-		}
-	} else {
-		pathErr = err
-	}
-	if path, ok := postInstallBinaryPath(ctx, cfg); ok {
-		if err := validateBinaryReadiness(ctx, path, cfg); err == nil {
-			result.Path = path
-			result.Status = InstallStatusPathFound
-			return result, nil
-		} else {
-			readinessErr = err
+			readinessErr = errors.Join(readinessErr, err)
 		}
 	}
 
@@ -296,27 +289,62 @@ func (p *Provider) runInstallCommand(ctx context.Context, lang string, cfg Insta
 // resolveInstalledBinary 复验安装结果并返回最终二进制路径。
 // 安装命令成功但 PATH 或 go install fallback 不可用时必须报错，不能伪装成功。
 func (p *Provider) resolveInstalledBinary(ctx, installCtx context.Context, cfg InstallerConfig, result InstallResult) (InstallResult, error) {
-	// 安装后重新解析路径并复验主二进制和伴随工具，避免报告“已安装”但运行时仍不可用。
-	if path, err := exec.LookPath(cfg.BinaryName); err == nil {
-		if err := validateBinaryReadiness(ctx, path, cfg); err != nil {
-			return InstallResult{}, fmt.Errorf("auto-install succeeded but LSP binary %s is not usable: %w", cfg.BinaryName, err)
+	// 安装后重新解析所有候选并复验，避免 PATH 中的旧 pnpm shim 遮蔽刚安装的 npm 全局二进制。
+	candidates, pathErr := installedBinaryCandidates(installCtx, cfg)
+	var readinessErr error
+	for _, candidate := range candidates {
+		if err := validateBinaryReadiness(ctx, candidate.path, cfg); err != nil {
+			readinessErr = errors.Join(readinessErr, err)
+			continue
 		}
-		result.Path = path
+		result.Path = candidate.path
 		result.Status = InstallStatusInstalledPath
+		if candidate.fallback {
+			result.Status = InstallStatusInstalledFallback
+		}
 		p.logResolvedBinary(result)
 		return result, nil
 	}
-	if path, ok := postInstallBinaryPath(installCtx, cfg); ok {
-		if err := validateBinaryReadiness(ctx, path, cfg); err != nil {
-			return InstallResult{}, fmt.Errorf("auto-install succeeded but LSP binary %s is not usable: %w", cfg.BinaryName, err)
-		}
-		result.Path = path
-		result.Status = InstallStatusInstalledFallback
-		p.logResolvedBinary(result)
-		return result, nil
+	if readinessErr != nil {
+		return InstallResult{}, fmt.Errorf("auto-install succeeded but LSP binary %s is not usable: %w", cfg.BinaryName, readinessErr)
+	}
+	if pathErr != nil {
+		return InstallResult{}, fmt.Errorf("auto-install succeeded but binary %s is still not found in PATH: %w", cfg.BinaryName, pathErr)
 	}
 
 	return InstallResult{}, fmt.Errorf("auto-install succeeded but binary %s is still not found in PATH", cfg.BinaryName)
+}
+
+type installedBinaryCandidate struct {
+	path     string
+	fallback bool
+}
+
+// installedBinaryCandidates 解析 PATH 与安装器规范目录；pnpm shim 被 npm 全局路径优先遮蔽。
+func installedBinaryCandidates(ctx context.Context, cfg InstallerConfig) ([]installedBinaryCandidate, error) {
+	path, pathErr := exec.LookPath(cfg.BinaryName)
+	fallbackPath, fallbackOK := postInstallBinaryPath(ctx, cfg)
+	_, pathIsShim := commandShimTarget(path)
+	candidates := make([]installedBinaryCandidate, 0, 2)
+	appendCandidate := func(candidate installedBinaryCandidate) {
+		if candidate.path == "" {
+			return
+		}
+		for _, current := range candidates {
+			if filepath.Clean(current.path) == filepath.Clean(candidate.path) {
+				return
+			}
+		}
+		candidates = append(candidates, candidate)
+	}
+	if pathIsShim && fallbackOK {
+		appendCandidate(installedBinaryCandidate{path: fallbackPath, fallback: true})
+	}
+	appendCandidate(installedBinaryCandidate{path: path})
+	if fallbackOK {
+		appendCandidate(installedBinaryCandidate{path: fallbackPath, fallback: true})
+	}
+	return candidates, pathErr
 }
 
 // installCommandContext 为单次自动安装套上本层 deadline。
@@ -395,8 +423,15 @@ func (p *Provider) logResolvedBinary(result InstallResult) {
 	)
 }
 
+// postInstallBinaryPath 返回安装命令对应规范目录中的目标二进制路径。
 func postInstallBinaryPath(ctx context.Context, cfg InstallerConfig) (string, bool) {
 	switch filepath.Base(strings.TrimSpace(cfg.InstallCmd)) {
+	case "npm", "npm.cmd":
+		dir := npmInstallBinDir(ctx, cfg.InstallCmd)
+		if dir == "" {
+			return "", false
+		}
+		return executableInDir(dir, cfg.BinaryName)
 	case "go", "go.exe":
 		dir := goInstallBinDir(ctx, cfg.InstallCmd)
 		if dir == "" {
@@ -412,6 +447,44 @@ func postInstallBinaryPath(ctx context.Context, cfg InstallerConfig) (string, bo
 	default:
 		return "", false
 	}
+}
+
+func npmInstallBinDir(ctx context.Context, npmCmd string) string {
+	out, err := hiddenexec.CommandContext(ctx, npmCmd, "prefix", "-g").Output()
+	if err != nil {
+		return ""
+	}
+	prefix := strings.TrimSpace(string(out))
+	if prefix == "" {
+		return ""
+	}
+	if runtime.GOOS == "windows" {
+		return prefix
+	}
+	return filepath.Join(prefix, "bin")
+}
+
+// commandShimTarget 读取 pnpm 生成的 shell shim 目标，不执行 shim 或目标文件。
+func commandShimTarget(path string) (string, bool) {
+	file, err := os.Open(strings.TrimSpace(path))
+	if err != nil {
+		return "", false
+	}
+	defer file.Close()
+	data, err := io.ReadAll(io.LimitReader(file, commandShimProbeLimit))
+	if err != nil {
+		return "", false
+	}
+	index := strings.LastIndex(string(data), commandShimTargetMarker)
+	if index < 0 {
+		return "", false
+	}
+	target := string(data[index+len(commandShimTargetMarker):])
+	if lineEnd := strings.IndexAny(target, "\r\n"); lineEnd >= 0 {
+		target = target[:lineEnd]
+	}
+	target = strings.TrimSpace(target)
+	return target, target != "" && filepath.IsAbs(target)
 }
 
 func cargoInstallBinDir() string {

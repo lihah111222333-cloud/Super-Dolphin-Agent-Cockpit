@@ -3,6 +3,8 @@ package multilsp
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"io"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -107,5 +109,23 @@ func TestTransportSpawnResponderRegistersWithWaitGroup(t *testing.T) {
 	}
 	if !drainStarted.Load() {
 		t.Fatalf("drainResponders goroutine did not run")
+	}
+}
+
+func TestTransportReadFailureWaitsForProcessErrorOnEOF(t *testing.T) {
+	tr := newTestTransport()
+	want := errors.New("markdown server exited: missing vscode-uri")
+	goroutines := newTestGoroutineGroup(t)
+	goroutines.Go(func() {
+		time.Sleep(20 * time.Millisecond)
+		tr.doneMu.Lock()
+		tr.doneErr = want
+		tr.doneMu.Unlock()
+		close(tr.done)
+	})
+
+	got := tr.readFailure(io.EOF)
+	if !errors.Is(got, want) {
+		t.Fatalf("readFailure(io.EOF) = %v, want process error %v", got, want)
 	}
 }

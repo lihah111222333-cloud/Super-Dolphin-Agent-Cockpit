@@ -33,7 +33,7 @@ func TestDesktopBuildAndRunTargetsBuildCurrentPeerArtifacts(t *testing.T) {
 	assertScriptContains(t, makefile, "run: frontend-build build-peer-binaries")
 	assertScriptContains(t, makefile, "run-plain: frontend-build build-peer-binaries")
 	assertScriptContains(t, makefile, "build-peer-binaries:\n\t@mkdir -p bin")
-	assertScriptContains(t, makefile, "SCHEMA_BUILD_IDENTITY_LDFLAG := -X github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/toolbridge/schema.buildAppCommit=$(APP_COMMIT)")
+	assertScriptContains(t, makefile, "SCHEMA_BUILD_IDENTITY_LDFLAG = -X github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/toolbridge/schema.buildAppCommit=$(APP_COMMIT)")
 	assertScriptContains(t, makefile, "go build -ldflags \"$(SCHEMA_BUILD_IDENTITY_LDFLAG)\" -o \"$$tmp\" ./cmd/mcp-schema-compiler-helper")
 	assertScriptContains(t, makefile, "go build -ldflags \"$(SCHEMA_BUILD_IDENTITY_LDFLAG)\" -o bin/agent-terminal ./cmd/agent-terminal")
 	assertScriptContains(t, makefile, "-app-commit \"$(APP_COMMIT)\"")
