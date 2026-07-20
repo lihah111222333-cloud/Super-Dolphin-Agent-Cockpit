@@ -25,6 +25,7 @@ import {
 } from 'lucide-react';
 import { useClientStore } from './entities/client/model/useClientStore.js';
 import { checkAppUpdate, installLatestAppUpdate } from './shared/api/backendApi.js';
+import { recoveryActionMessageFromRPCError } from './shared/recovery/recoveryFailure.js';
 import { requiredAppStoragePort } from './shared/api/browser/browserStorage.js';
 import { UITestMCPShell } from './devtools/UITestMCPShell.jsx';
 import { ActivePageContent, PageLoadingFallback } from './AppRoutes.jsx';
@@ -327,7 +328,11 @@ async function runAppUpdateCheck({ isCancelled, setState }) {
     if (updateDismissed(version)) return;
     setState({ status: 'available', update: { ...result, version }, message: '' });
   } catch (error) {
-    if (!isCancelled()) console.info('[frontend-app] background update check failed', error);
+    if (!isCancelled()) {
+      const recoveryMessage = recoveryActionMessageFromRPCError(error);
+      if (recoveryMessage) setState({ status: 'recovery', update: null, message: recoveryMessage });
+      else console.info('[frontend-app] background update check failed');
+    }
   } finally {
     if (!isCancelled()) {
       setState((current) => (current.status === 'checking' ? { ...current, status: 'idle' } : current));
@@ -364,7 +369,8 @@ function useAppUpdateBanner(skipBootstrap) {
       const result = await installLatestAppUpdate();
       setState((current) => ({ ...current, status: 'installing', message: result?.started === false ? '安装没有启动，请稍后重试。' : '安装程序已启动，请按提示完成更新。' }));
     } catch (error) {
-      setState((current) => ({ ...current, status: 'available', message: `更新失败：${errorMessage(error)}` }));
+      const recoveryMessage = recoveryActionMessageFromRPCError(error);
+      setState((current) => ({ ...current, status: 'available', message: recoveryMessage || `更新失败：${errorMessage(error)}` }));
     }
   }, []);
 
@@ -386,24 +392,25 @@ function uiActionOptions(store) {
 }
 
 function AppUpdateBanner({ copy = APP_COPY.zh.update, updateBanner }) {
-  if (!updateBanner?.update) return null;
+  if (!updateBanner?.update && !updateBanner?.message) return null;
   const version = updateVersionFromResult(updateBanner.update);
   const installing = updateBanner.status === 'installing';
+  const recoveryOnly = !updateBanner.update;
   return (
-    <section className="app-update-banner" data-testid="app-update-banner" role="status">
+    <section className="app-update-banner" data-testid="app-update-banner" role={recoveryOnly ? 'alert' : 'status'}>
       <div className="app-update-copy">
-        <strong>{copy.available}{version ? ` ${version}` : ''}</strong>
-        <span>{copy.description}</span>
+        <strong>{recoveryOnly ? '更新需要处理' : `${copy.available}${version ? ` ${version}` : ''}`}</strong>
+        {!recoveryOnly ? <span>{copy.description}</span> : null}
         {updateBanner.message ? <small>{updateBanner.message}</small> : null}
       </div>
-      <div className="app-update-actions">
+      {!recoveryOnly ? <div className="app-update-actions">
         <button type="button" className="app-update-primary" onClick={updateBanner.install} disabled={installing}>
           {installing ? copy.installing : copy.install}
         </button>
         <button type="button" className="app-update-secondary" onClick={updateBanner.dismiss} disabled={installing}>
           {copy.dismiss}
         </button>
-      </div>
+      </div> : null}
     </section>
   );
 }

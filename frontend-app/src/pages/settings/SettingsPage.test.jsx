@@ -372,6 +372,27 @@ describe('SettingsPage app update entry', () => {
     expect(screen.queryByTestId('settings-update-install-button')).not.toBeInTheDocument();
   });
 
+  it('shows a fixed recovery action for typed update integrity failures', async () => {
+    const secret = 'PowerShell publisher output C:\\Users\\alice\\update.exe';
+    const failure = new Error(secret);
+    failure.data = {
+      code: 'UPDATE_INTEGRITY_INVALID',
+      retryable: false,
+      action: 'preserve_state_export_diagnostics',
+      transaction_id: '',
+    };
+    backend.checkAppUpdate.mockRejectedValueOnce(failure);
+
+    renderSettingsPage();
+    fireEvent.click(await screen.findByTestId('settings-update-check-button'));
+
+    await waitFor(() => {
+      const notice = screen.getByTestId('settings-update-notice');
+      expect(notice).toHaveTextContent('更新完整性校验失败，请保持现场并导出诊断信息。');
+      expect(notice).not.toHaveTextContent(secret);
+    });
+  });
+
   it('shows install failures and allows retry', async () => {
     backend.checkAppUpdate.mockResolvedValueOnce({ enabled: true, available: true, version: 'v1.2.4' });
     backend.installLatestAppUpdate
@@ -393,6 +414,30 @@ describe('SettingsPage app update entry', () => {
     await waitFor(() => {
       expect(backend.installLatestAppUpdate).toHaveBeenCalledTimes(2);
       expect(screen.queryByTestId('settings-update-install-button')).not.toBeInTheDocument();
+    });
+  });
+
+  it('redacts typed integrity details from install failures and keeps retry available', async () => {
+    backend.checkAppUpdate.mockResolvedValueOnce({ enabled: true, available: true, version: 'v1.2.4' });
+    const secret = 'PowerShell output C:\\Users\\alice\\update.exe';
+    const failure = new Error(secret);
+    failure.data = {
+      code: 'UPDATE_INTEGRITY_INVALID',
+      retryable: false,
+      action: 'preserve_state_export_diagnostics',
+      transaction_id: '',
+    };
+    backend.installLatestAppUpdate.mockRejectedValueOnce(failure);
+
+    renderSettingsPage();
+    fireEvent.click(await screen.findByTestId('settings-update-check-button'));
+    fireEvent.click(await screen.findByTestId('settings-update-install-button'));
+
+    await waitFor(() => {
+      const notice = screen.getByTestId('settings-update-notice');
+      expect(notice).toHaveTextContent('更新完整性校验失败，请保持现场并导出诊断信息。');
+      expect(notice).not.toHaveTextContent(secret);
+      expect(screen.getByTestId('settings-update-install-button')).toBeEnabled();
     });
   });
 });

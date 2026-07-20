@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { recoveryActionMessageFromRPCError } from '../../shared/recovery/recoveryFailure.js';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { APP_COPY } from '../../shared/i18n/appI18n.js';
 import { firstPresentText } from '../shared/pageShared.js';
@@ -71,7 +72,8 @@ function useSettingsRuntime(cwd, copy) {
     },
     onError: (mutationError) => {
       setUpdateInfo(null);
-      setUpdateNotice({ level: 'error', message: copy.update.checkFailed + (mutationError?.message || mutationError) });
+      const recoveryMessage = recoveryActionMessageFromRPCError(mutationError);
+      setUpdateNotice({ level: 'error', message: recoveryMessage || copy.update.checkFailed + (mutationError?.message || mutationError) });
     },
     retry: false,
   });
@@ -90,7 +92,8 @@ function useSettingsRuntime(cwd, copy) {
     onError: (mutationError, _variables, context) => {
       setUpdateInfo(context?.pendingInfo || null);
       setUpdateInstalled(false);
-      setUpdateNotice({ level: 'error', message: copy.update.installFailed + (mutationError?.message || mutationError) });
+      const recoveryMessage = recoveryActionMessageFromRPCError(mutationError);
+      setUpdateNotice({ level: 'error', message: recoveryMessage || copy.update.installFailed + (mutationError?.message || mutationError) });
     },
     retry: false,
   });

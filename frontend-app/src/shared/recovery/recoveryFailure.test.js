@@ -19,6 +19,20 @@ describe('recovery failure RPC contract', () => {
     expect(recoveryActionMessageFromRPCError(error)).toBe(message);
   });
 
+  it.each(['UPDATE_SIGNATURE_INVALID', 'UPDATE_INTEGRITY_INVALID'])(
+    'maps %s to the fixed update recovery action',
+    (code) => {
+      const error = new Error('secret codesign output at /Applications/Super Dolphin.app');
+      error.data = {
+        code,
+        retryable: false,
+        action: 'preserve_state_export_diagnostics',
+        transaction_id: '',
+      };
+      expect(recoveryActionMessageFromRPCError(error)).toBe('更新完整性校验失败，请保持现场并导出诊断信息。');
+    },
+  );
+
   it('rejects extra, unknown, or inconsistent fields without exposing the backend message', () => {
     const malformed = new Error('secret backend detail');
     malformed.data = {

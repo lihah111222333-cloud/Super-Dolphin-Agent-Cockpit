@@ -655,6 +655,34 @@ function guardedBackendResponse(method) {
     expect(typeof installLatestAppUpdate).toBe('function');
   });
 
+  it('rejects malformed app update recovery data with a fixed generic error', async () => {
+    const secret = 'secret helper output at /Users/alice/update.dmg';
+    const failure = new Error(secret);
+    failure.data = {
+      code: 'UPDATE_SIGNATURE_INVALID',
+      retryable: false,
+      action: 'preserve_state_export_diagnostics',
+      transaction_id: '',
+      raw_output: secret,
+    };
+    const api = createBackendApi({ callAPI: vi.fn().mockRejectedValue(failure) });
+
+    await expect(api.checkAppUpdate()).rejects.toThrow('请求失败，恢复信息无效。');
+  });
+
+  it('preserves valid app update recovery data for fixed UI mapping', async () => {
+    const failure = new Error('secret verifier output');
+    failure.data = {
+      code: 'UPDATE_SIGNATURE_INVALID',
+      retryable: false,
+      action: 'preserve_state_export_diagnostics',
+      transaction_id: '',
+    };
+    const api = createBackendApi({ callAPI: vi.fn().mockRejectedValue(failure) });
+
+    await expect(api.installLatestAppUpdate()).rejects.toBe(failure);
+  });
+
   it('rejects malformed app update install responses', async () => {
     const invalidResponses = [
       {},

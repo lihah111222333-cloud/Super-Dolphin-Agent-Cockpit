@@ -7,8 +7,9 @@ internal/module/appupdate/module.go	internal	modules	go-source	533	业务模块�
 internal/module/appupdate/package_trust_test.go	internal	modules	go-test	11484	业务模块层	internal,module,appupdate,package,trust,test,业务模块层
 internal/module/appupdate/package_trust_tool.go	internal	modules	go-source	3996	业务模块层	internal,module,appupdate,package,trust,tool,业务模块层
 internal/module/appupdate/package_trust.go	internal	modules	go-source	5987	业务模块层	internal,module,appupdate,package,trust,业务模块层
+internal/module/appupdate/rpc_recovery_test.go	internal	modules	go-test	7126	业务模块层	internal,module,appupdate,rpc,recovery,test,业务模块层
 internal/module/appupdate/rpc_test.go	internal	modules	go-test	2346	业务模块层	internal,module,appupdate,rpc,test,业务模块层
-internal/module/appupdate/rpc.go	internal	modules	go-source	1874	业务模块层	internal,module,appupdate,rpc,业务模块层
+internal/module/appupdate/rpc.go	internal	modules	go-source	3949	业务模块层	internal,module,appupdate,rpc,业务模块层
 internal/module/appupdate/service_test.go	internal	modules	go-test	23690	业务模块层	internal,module,appupdate,service,test,业务模块层
 internal/module/appupdate/service.go	internal	modules	go-source	26394	业务模块层	internal,module,appupdate,service,业务模块层
 internal/module/appupdate/windows_signature_test.go	internal	modules	go-test	1416	业务模块层	internal,module,appupdate,windows,signature,test,业务模块层

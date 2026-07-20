@@ -21,6 +21,12 @@ const RECOVERY_ACTION_MESSAGES = Object.freeze({
   preserve_state_export_diagnostics: '工具完整性异常，请保留当前状态并导出诊断信息。',
 });
 
+const RECOVERY_CODE_MESSAGES = Object.freeze({
+  UPDATE_TRANSACTION_AMBIGUOUS: '更新状态无法安全确认，请保持现场并导出诊断信息。',
+  UPDATE_SIGNATURE_INVALID: '更新完整性校验失败，请保持现场并导出诊断信息。',
+  UPDATE_INTEGRITY_INVALID: '更新完整性校验失败，请保持现场并导出诊断信息。',
+});
+
 const RECOVERY_FAILURE_ACTIONS = Object.freeze(Object.keys(RECOVERY_ACTION_MESSAGES));
 
 const INVALID_RECOVERY_DATA_MESSAGE = '请求失败，恢复信息无效。';
@@ -73,7 +79,7 @@ function recoveryActionMessageFromRPCError(error) {
   try {
     const failure = normalizeRecoveryFailure(error.data);
     if (!failure.code) return INVALID_RECOVERY_DATA_MESSAGE;
-    return RECOVERY_ACTION_MESSAGES[failure.action] || INVALID_RECOVERY_DATA_MESSAGE;
+    return RECOVERY_CODE_MESSAGES[failure.code] || RECOVERY_ACTION_MESSAGES[failure.action] || INVALID_RECOVERY_DATA_MESSAGE;
   }
   catch {
     return INVALID_RECOVERY_DATA_MESSAGE;
