@@ -2,6 +2,7 @@ import { memo, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { CheckCircle2, Copy, File } from 'lucide-react';
 import { isApprovalMessage } from '../../../features/approval/model/approvalDecision.js';
 import { runUIAction } from '../../../shared/ui/runUIAction.js';
+import { publicErrorForRemoteTerminal } from '../../../shared/ui/publicError.js';
 import { useSmoothStreamingText } from '../hooks/useSmoothStreamingText.js';
 import { ChatApprovalMessage } from './ChatApprovalMessage.jsx';
 import { AssistantMessageActions, ReasoningTrace } from './ChatReasoningTrace.jsx';
@@ -34,15 +35,15 @@ function terminalDiagnosticText(error) {
 }
 
 function TerminalPublicError({ error }) {
+  const publicError = publicErrorForRemoteTerminal(error);
   const [copyState, setCopyState] = useState('idle');
   const resetTimerRef = useRef(null);
   useEffect(() => () => {
     if (resetTimerRef.current) window.clearTimeout(resetTimerRef.current);
   }, []);
-  const diagnosticId = safeDiagnosticField(error?.diagnosticId);
+  const diagnosticId = safeDiagnosticField(publicError.diagnosticId);
   const canCopyDiagnostics = diagnosticId.length > 0
-    && Array.isArray(error?.recoveryActions)
-    && error.recoveryActions.includes(COPY_DIAGNOSTICS_ACTION);
+    && publicError.recoveryActions.includes(COPY_DIAGNOSTICS_ACTION);
   const scheduleReset = (delay) => {
     if (resetTimerRef.current) window.clearTimeout(resetTimerRef.current);
     resetTimerRef.current = window.setTimeout(() => {
@@ -53,7 +54,7 @@ function TerminalPublicError({ error }) {
   const copyDiagnostics = () => runUIAction('turn.terminal.copy-diagnostics', async () => {
     setCopyState('copying');
     try {
-      await copyTextToClipboard(terminalDiagnosticText(error));
+      await copyTextToClipboard(terminalDiagnosticText(publicError));
       setCopyState('copied');
       scheduleReset(1800);
     } catch (copyError) {
@@ -68,8 +69,8 @@ function TerminalPublicError({ error }) {
   if (copyState === 'failed') copyLabel = '\u590d\u5236\u5931\u8d25\uff0c\u8bf7\u91cd\u8bd5';
   return (
     <div role="alert" className="turn-terminal-error">
-      <strong>{error.title}</strong>
-      <span>{error.message}</span>
+      <strong>{publicError.title}</strong>
+      <span>{publicError.message}</span>
       {diagnosticId ? <code className="turn-terminal-diagnostic-id">{'\u8bca\u65ad ID\uff1a'}{diagnosticId}</code> : null}
       {canCopyDiagnostics ? (
         <div className="turn-terminal-actions" aria-label={'\u7ec8\u6001\u9519\u8bef\u6062\u590d\u64cd\u4f5c'}>

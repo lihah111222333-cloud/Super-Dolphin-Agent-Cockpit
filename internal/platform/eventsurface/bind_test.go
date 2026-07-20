@@ -172,7 +172,88 @@ func TestDecodeRemoteTurnTerminalRejectsUnknownFields(t *testing.T) {
 	}
 }
 
-func TestRemoteTurnTerminalPublishPreservesCanonicalPayload(t *testing.T) {
+const remotePublicErrorLeakFixture = "provider-token=secret-value /private/agent/config.go\nstack: remote failure"
+
+func TestDecodeRemoteTurnTerminalSanitizesUntrustedPublicError(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name     string
+		code     string
+		wantCode string
+	}{
+		{name: "known code", code: "PROVIDER_FAILED", wantCode: "PROVIDER_FAILED"},
+		{name: "unknown safe code", code: "REMOTE_SECRET_FAILURE", wantCode: "REMOTE_SECRET_FAILURE"},
+		{name: "unsafe code", code: "provider-token=secret-value", wantCode: remotePublicErrorCodeFallback},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			terminal, err := DecodeRemoteTurnTerminal(jsonValueDecoder(t, remoteTerminalWithPublicError(test.code)))
+			if err != nil {
+				t.Fatalf("DecodeRemoteTurnTerminal() error = %v", err)
+			}
+			assertSanitizedRemotePublicError(t, terminal.PublicError, test.wantCode)
+		})
+	}
+}
+
+// remoteTerminalWithPublicError 构造包含不可信公开错误字段的远端终态夹具。
+func remoteTerminalWithPublicError(code string) turndto.TurnTerminalV2 {
+	return turndto.TurnTerminalV2{
+		SchemaVersion: 2,
+		EventID:       "event-public-error",
+		ThreadID:      "thread-1",
+		TurnID:        "turn-1",
+		Outcome:       "failed",
+		PublicError: &turndto.PublicErrorV1{
+			Code:            code,
+			Title:           remotePublicErrorLeakFixture,
+			Message:         remotePublicErrorLeakFixture,
+			DiagnosticID:    "diag-remote-1",
+			Retryable:       true,
+			RecoveryActions: []string{},
+		},
+		OccurredAt: "2026-07-20T01:02:03Z",
+	}
+}
+
+// assertSanitizedRemotePublicError 锁定远端边界只输出固定 wire 占位符。
+func assertSanitizedRemotePublicError(t *testing.T, got *turndto.PublicErrorV1, wantCode string) {
+	t.Helper()
+	if got == nil {
+		t.Fatal("DecodeRemoteTurnTerminal() public error = nil")
+	}
+	if got.Code != wantCode {
+		t.Fatalf("public error code = %q, want %q", got.Code, wantCode)
+	}
+	if got.DiagnosticID != "diag-remote-1" {
+		t.Fatalf("diagnostic ID = %q, want safe remote ID", got.DiagnosticID)
+	}
+	if got.Title != remotePublicErrorTitle || got.Message != remotePublicErrorMessage {
+		t.Fatalf("wire copy = %#v, want fixed non-display placeholders", got)
+	}
+	if got.Retryable || len(got.RecoveryActions) != 0 {
+		t.Fatalf("unsafe recovery metadata survived sanitization: %#v", got)
+	}
+	assertNoRemotePublicErrorLeak(t, got.Title)
+	assertNoRemotePublicErrorLeak(t, got.Message)
+	assertNoRemotePublicErrorLeak(t, got.DiagnosticID)
+}
+
+// assertNoRemotePublicErrorLeak 拒绝 token、私有路径和堆栈片段进入公开字段。
+func assertNoRemotePublicErrorLeak(t *testing.T, value string) {
+	t.Helper()
+	if strings.Contains(value, "secret-value") {
+		t.Fatalf("remote public error leaked secret: %q", value)
+	}
+	if strings.Contains(value, "/private/") {
+		t.Fatalf("remote public error leaked private path: %q", value)
+	}
+	if strings.Contains(value, "stack:") {
+		t.Fatalf("remote public error leaked stack: %q", value)
+	}
+}
+
+func TestRemoteTurnTerminalPublishPreservesSanitizedCanonicalPayload(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
 		name     string
@@ -234,8 +315,10 @@ func TestRemoteTurnTerminalPublishPreservesCanonicalPayload(t *testing.T) {
 			if !ok {
 				t.Fatalf("published payload type = %T, want TurnTerminalV2", published.payload)
 			}
-			if !reflect.DeepEqual(got, test.terminal) {
-				t.Fatalf("published terminal = %#v, want exact input %#v", got, test.terminal)
+			want := test.terminal
+			want.PublicError = sanitizeRemotePublicError(test.terminal.PublicError)
+			if !reflect.DeepEqual(got, want) {
+				t.Fatalf("published terminal = %#v, want sanitized input %#v", got, want)
 			}
 		})
 	}

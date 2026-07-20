@@ -9,6 +9,7 @@ import {
   runtimeAssistantFallbackId,
   runtimeTurnRefKey,
 } from '../runtimeAssistantTimeline.js';
+import { publicErrorForRemoteTerminal } from '../../../../shared/ui/publicError.js';
 import { normalizeThreadId } from './threadIdentity.js';
 
 const MAX_TRACKED_TURN_TERMINALS = 64;
@@ -382,13 +383,14 @@ function applyAssistantCompletion(runtime, method, payload, deps) {
 }
 
 function terminalTimelineItem(terminal) {
+  const publicError = terminal.publicError ? publicErrorForRemoteTerminal(terminal.publicError) : null;
   return {
     id: `turn-terminal-${terminal.eventId}`,
     role: 'assistant',
     kind: 'turn_terminal',
     terminalOutcome: terminal.outcome,
     ...(terminal.terminationCause ? { terminationCause: terminal.terminationCause } : {}),
-    ...(terminal.publicError ? { publicError: terminal.publicError } : {}),
+    ...(publicError ? { publicError } : {}),
     time: terminal.occurredAt,
     done: true,
     turnId: terminal.turnId,
@@ -402,7 +404,7 @@ function terminalTimelineContainsTurn(runtime, deps, turnRef) {
 
 function terminalNotice(terminal, deps) {
   if (terminal.outcome === 'success') return deps.actionNotice('已收到回复', 'success');
-  if (terminal.publicError) return deps.actionNotice(`运行失败：${terminal.publicError.message}`, 'error');
+  if (terminal.publicError) return deps.actionNotice(`运行失败：${publicErrorForRemoteTerminal(terminal.publicError).message}`, 'error');
   if (terminal.outcome === 'cancelled') return deps.actionNotice('本轮已取消', 'info');
   return deps.actionNotice('本轮已中断', 'info');
 }

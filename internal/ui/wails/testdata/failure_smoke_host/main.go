@@ -37,7 +37,7 @@ const (
 	smokeItemID          = "assistant-stream-" + smokeTurnID
 	smokePromptHopTurnID = "turn-prompt-history-wails-hop"
 	smokePromptHopText   = "prompt history production Wails hop"
-	rawProviderSecret    = "Authorization: Bearer t03-raw-provider-secret-do-not-persist"
+	rawProviderSecret    = "Authorization: Bearer t03-raw-provider-secret-do-not-persist /private/provider/config.yaml\nstack: provider failure\n本次执行失败\nProvider 未能完成本次执行。"
 )
 
 type triggerParams struct {

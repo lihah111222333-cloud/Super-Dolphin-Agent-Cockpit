@@ -46,7 +46,7 @@ export const DESKTOP_FAILURE_CASES = Object.freeze([
 const DESKTOP_FAILURE_REPORT_REQUIREMENTS = Object.freeze({
   'terminal-failed': Object.freeze({
     hops: Object.freeze(['claudecli.raw', 'claudecli.adapter', 'turndto.TurnOutputDelta', 'wails.EventBridge', 'chromium.DOM', 'codexapp.raw', 'codexapp.adapter', 'turndto.TurnCompleted', 'turn/terminal', 'chromium.DOM']),
-    domAssertions: Object.freeze(['partial-response-visible', 'safe-terminal-visible', 'raw-secret-absent']),
+    domAssertions: Object.freeze(['partial-response-visible', 'safe-terminal-visible', 'raw-secret-absent', 'raw-private-path-absent', 'raw-stack-absent', 'legacy-remote-copy-absent']),
   }),
   'prompt-history-reject': Object.freeze({
     hops: Object.freeze(['wails.rpc', 'thread/promptHistory', 'frontend.action', 'chromium.DOM', 'retry.control', 'wails.rpc', 'chromium.DOM']),

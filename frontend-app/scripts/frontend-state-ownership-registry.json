@@ -12,6 +12,7 @@
     "A02-reassigned-binding",
     "A02-deleted-writer",
     "A02-mapper-drift",
+    "A02-public-error-sanitized-writer",
     "A02-new-consumer",
     "A02-stale-consumer",
     "A02-zero-tests",
@@ -51,7 +52,7 @@
       "writers": [
         {
           "key": "src/entities/client/model/helpers/assistantEventRuntime.js:terminalTimelineItem:object-property:publicError",
-          "value": "terminal.publicError",
+          "value": "publicError",
           "role": "owner"
         },
         {

@@ -87,8 +87,8 @@ function localScreenshotPath(separator) {
           terminalOutcome: 'failed',
           publicError: {
             code: 'PROVIDER_FAILED',
-            title: '运行失败',
-            message: '本轮执行失败',
+            title: 'provider-token=secret-value',
+            message: 'TypeError: /private/agent/config.go\nstack: remote failure',
             diagnosticId: 'diag-terminal-1',
             retryable: false,
             recoveryActions: ['copy_diagnostics'],
@@ -100,17 +100,18 @@ function localScreenshotPath(separator) {
       />
     );
 
-    expect(screen.getByRole('alert')).toHaveTextContent('运行失败');
-    expect(screen.getByRole('alert')).toHaveTextContent('本轮执行失败');
+    expect(screen.getByRole('alert')).toHaveTextContent('提供方暂不可用');
+    expect(screen.getByRole('alert')).toHaveTextContent('提供方未能完成本轮请求，请稍后重试。');
     expect(screen.getByRole('alert')).toHaveTextContent('诊断 ID：diag-terminal-1');
     expect(screen.queryByRole('button', { name: /重试/ })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '复制诊断信息 diag-terminal-1' }));
     await waitFor(() => expect(copyTextToClipboard).toHaveBeenCalledWith([
       'Diagnostic ID: diag-terminal-1',
       'Code: PROVIDER_FAILED',
-      'Title: 运行失败',
-      'Message: 本轮执行失败',
+      'Title: 提供方暂不可用',
+      'Message: 提供方未能完成本轮请求，请稍后重试。',
     ].join('\n')));
+    expect(screen.getByRole('alert')).not.toHaveTextContent(/secret-value|\/private\/|stack:/);
     expect(screen.getByRole('button', { name: '复制诊断信息 diag-terminal-1' })).toHaveTextContent('已复制');
 
     rerender(
@@ -135,9 +136,9 @@ function localScreenshotPath(separator) {
   it('shows copy failure feedback and omits actions the terminal did not advertise', async () => {
     copyTextToClipboard.mockRejectedValueOnce(new Error('clipboard unavailable'));
     const error = {
-      code: 'TURN_TERMINATED',
-      title: '执行已结束',
-      message: '系统结束了本轮执行',
+      code: 'REMOTE_SECRET_FAILURE',
+      title: 'provider-token=secret-value',
+      message: 'TypeError: /private/agent/config.go\nstack: remote failure',
       diagnosticId: 'diag-terminal-2',
       retryable: false,
       recoveryActions: ['copy_diagnostics'],
@@ -151,6 +152,8 @@ function localScreenshotPath(separator) {
 
     fireEvent.click(screen.getByRole('button', { name: '复制诊断信息 diag-terminal-2' }));
     await waitFor(() => expect(screen.getByRole('button', { name: '复制诊断信息 diag-terminal-2' })).toHaveTextContent('复制失败，请重试'));
+    expect(screen.getByRole('alert')).toHaveTextContent('远端执行未完成');
+    expect(screen.getByRole('alert')).not.toHaveTextContent(/secret-value|\/private\/|stack:/);
 
     rerender(
       <TimelineMessage

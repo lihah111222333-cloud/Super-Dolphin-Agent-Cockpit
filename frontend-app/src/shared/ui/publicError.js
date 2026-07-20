@@ -2,6 +2,9 @@
 
 import { frontendDiagnosticCorrelationForError } from '../diagnostics/frontendDiagnosticCorrelation.js';
 
+/** @typedef {{ code: string, title: string, message: string }} PublicErrorCopy */
+/** @typedef {{ code?: unknown, diagnosticId?: unknown, recoveryActions?: unknown }} RemoteTerminalError */
+
 const ACTION_PUBLIC_ERRORS = Object.freeze({
   'prompt-history.previous': Object.freeze({
     code: 'PROMPT_HISTORY_UNAVAILABLE',
@@ -15,7 +18,30 @@ const ACTION_PUBLIC_ERRORS = Object.freeze({
   }),
 });
 
-/** @typedef {{ code: string, title: string, message: string }} PublicErrorCopy */
+/** @type {Readonly<Record<string, Readonly<PublicErrorCopy>>>} */
+const REMOTE_TERMINAL_PUBLIC_ERRORS = Object.freeze({
+  PROVIDER_FAILED: Object.freeze({
+    code: 'PROVIDER_FAILED',
+    title: '提供方暂不可用',
+    message: '提供方未能完成本轮请求，请稍后重试。',
+  }),
+  TURN_TERMINATED: Object.freeze({
+    code: 'TURN_TERMINATED',
+    title: '本轮已结束',
+    message: '本轮执行已结束。',
+  }),
+  FAILED: Object.freeze({
+    code: 'FAILED',
+    title: '本轮未完成',
+    message: '本轮执行未完成，请稍后重试。',
+  }),
+});
+
+const REMOTE_TERMINAL_FALLBACK = Object.freeze({
+  code: 'REMOTE_TERMINAL_FAILED',
+  title: '远端执行未完成',
+  message: '远端执行未完成，请稍后重试。',
+});
 
 /** @param {() => string} factory @returns {string} */
 function requiredDiagnosticId(factory) {
@@ -60,6 +86,38 @@ export function publicErrorForAction(actionId, { diagnosticIdFactory = defaultDi
     diagnosticId: requiredDiagnosticId(diagnosticIdFactory),
     retryable: Boolean(retryable),
     recoveryActions: retryable ? Object.freeze(['retry']) : Object.freeze([]),
+  });
+}
+
+/** @param {unknown} diagnosticId @returns {string} */
+function safeRemoteDiagnosticId(diagnosticId) {
+  const value = typeof diagnosticId === 'string' ? diagnosticId : '';
+  return /^diag-[A-Za-z0-9_.-]{1,123}$/.test(value) ? value : 'remote-terminal-error';
+}
+
+/** @param {unknown} recoveryActions */
+function safeRemoteRecoveryActions(recoveryActions) {
+  return Array.isArray(recoveryActions) && recoveryActions.includes('copy_diagnostics')
+    ? Object.freeze(['copy_diagnostics'])
+    : Object.freeze([]);
+}
+
+/** @param {unknown} remoteError */
+export function publicErrorForRemoteTerminal(remoteError) {
+  const remote = /** @type {RemoteTerminalError} */ (
+    typeof remoteError === 'object' && remoteError !== null ? remoteError : {}
+  );
+  const code = typeof remote.code === 'string'
+    ? remote.code
+    : '';
+  const copy = Object.hasOwn(REMOTE_TERMINAL_PUBLIC_ERRORS, code)
+    ? REMOTE_TERMINAL_PUBLIC_ERRORS[code]
+    : REMOTE_TERMINAL_FALLBACK;
+  return Object.freeze({
+    ...copy,
+    diagnosticId: safeRemoteDiagnosticId(remote.diagnosticId),
+    retryable: false,
+    recoveryActions: safeRemoteRecoveryActions(remote.recoveryActions),
   });
 }
 

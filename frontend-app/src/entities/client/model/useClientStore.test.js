@@ -6080,8 +6080,8 @@ function registerBridgeEventHandlersForTest() {
         outcome: 'failed',
         publicError: {
           code: 'PROVIDER_FAILED',
-          title: '运行失败',
-          message: '提供方未能完成本轮响应',
+          title: 'provider-token=secret-value',
+          message: 'TypeError: /private/agent/config.go\nstack: remote failure',
           diagnosticId: 'diag-failed-1',
           retryable: false,
           recoveryActions: [],
@@ -6093,7 +6093,7 @@ function registerBridgeEventHandlersForTest() {
     const state = useClientStore.getState();
     expect(state.actionNotice).toEqual(expect.objectContaining({
       tone: 'error',
-      message: expect.stringContaining('提供方未能完成本轮响应'),
+      message: '运行失败：提供方未能完成本轮请求，请稍后重试。',
     }));
     expect(state.actionNotice.tone).not.toBe('success');
     expect(state.timelinesByThread['thread-1']).toEqual([
@@ -6101,9 +6101,14 @@ function registerBridgeEventHandlersForTest() {
       expect.objectContaining({
         kind: 'turn_terminal',
         terminalOutcome: 'failed',
-        publicError: expect.objectContaining({ diagnosticId: 'diag-failed-1' }),
+        publicError: expect.objectContaining({
+          code: 'PROVIDER_FAILED',
+          title: '提供方暂不可用',
+          diagnosticId: 'diag-failed-1',
+        }),
       }),
     ]);
+    expect(JSON.stringify({ notice: state.actionNotice, timeline: state.timelinesByThread['thread-1'] })).not.toMatch(/secret-value|\/private\/|stack:/);
     expect(state.warningEntries).toEqual([
       expect.objectContaining({
         level: 'error',
@@ -6156,7 +6161,7 @@ function registerBridgeEventHandlersForTest() {
     ]);
     expect(state.actionNotice).toEqual(expect.objectContaining({
       tone: 'error',
-      message: expect.stringContaining('提供方未能完成本轮响应'),
+      message: expect.stringContaining('提供方未能完成本轮请求，请稍后重试。'),
     }));
     expect(state.warningEntries).not.toEqual(expect.arrayContaining([
       expect.objectContaining({ event: 'turn.terminal.contract_invalid' }),

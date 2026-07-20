@@ -3,7 +3,7 @@ import { expect, test } from '@playwright/test';
 test('terminal-failed crosses production Wails application and EventBridge into real DOM', {
   annotation: [
     { type: 't03-hops', description: JSON.stringify(['claudecli.raw', 'claudecli.adapter', 'turndto.TurnOutputDelta', 'wails.EventBridge', 'chromium.DOM', 'codexapp.raw', 'codexapp.adapter', 'turndto.TurnCompleted', 'turn/terminal', 'chromium.DOM']) },
-    { type: 't03-dom-assertions', description: JSON.stringify(['partial-response-visible', 'safe-terminal-visible', 'raw-secret-absent']) },
+    { type: 't03-dom-assertions', description: JSON.stringify(['partial-response-visible', 'safe-terminal-visible', 'raw-secret-absent', 'raw-private-path-absent', 'raw-stack-absent', 'legacy-remote-copy-absent']) },
   ],
 }, async ({ page }, testInfo) => {
   const pageErrors = [];
@@ -23,16 +23,21 @@ test('terminal-failed crosses production Wails application and EventBridge into 
   await expect(page.getByText('桌面 smoke 部分响应')).toBeVisible();
   const terminalAlert = page.locator('.turn-terminal-error');
   await expect(terminalAlert).toBeVisible();
-  await expect(terminalAlert).toContainText('本次执行失败');
-  await expect(terminalAlert).toContainText('Provider 未能完成本次执行。');
+  await expect(terminalAlert).toContainText('提供方暂不可用');
+  await expect(terminalAlert).toContainText('提供方未能完成本轮请求，请稍后重试。');
   await expect(page.locator('.turn-terminal-status')).toHaveCount(0);
   await expect(page.getByTestId('chat-action-feedback')).toHaveClass(/is-error/u);
-  await expect(page.getByText('Authorization: Bearer t03-raw-provider-secret-do-not-persist')).toHaveCount(0);
+  const body = page.locator('body');
+  await expect(body).not.toContainText('Authorization: Bearer t03-raw-provider-secret-do-not-persist');
+  await expect(body).not.toContainText('/private/provider/config.yaml');
+  await expect(body).not.toContainText('stack: provider failure');
+  await expect(body).not.toContainText('本次执行失败');
+  await expect(body).not.toContainText('Provider 未能完成本次执行。');
   expect(pageErrors).toEqual([]);
   await testInfo.attach('t03-execution-evidence', {
     body: JSON.stringify({
       hops: ['claudecli.raw', 'claudecli.adapter', 'turndto.TurnOutputDelta', 'wails.EventBridge', 'chromium.DOM', 'codexapp.raw', 'codexapp.adapter', 'turndto.TurnCompleted', 'turn/terminal', 'chromium.DOM'],
-      domAssertions: ['partial-response-visible', 'safe-terminal-visible', 'raw-secret-absent'],
+      domAssertions: ['partial-response-visible', 'safe-terminal-visible', 'raw-secret-absent', 'raw-private-path-absent', 'raw-stack-absent', 'legacy-remote-copy-absent'],
     }),
     contentType: 'application/json',
   });

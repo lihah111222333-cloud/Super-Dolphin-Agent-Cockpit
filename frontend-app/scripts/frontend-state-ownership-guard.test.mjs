@@ -162,6 +162,17 @@ describe('frontend state ownership guard', () => {
     })).toThrow('value=terminal.terminationCause');
   });
 
+  it('[A02-public-error-sanitized-writer] rejects the raw terminal public error writer', () => {
+    const mutated = clone(registry);
+    const writer = mutated.states['public-error-diagnostics'].writers.find(
+      (entry) => entry.key === 'src/entities/client/model/helpers/assistantEventRuntime.js:terminalTimelineItem:object-property:publicError',
+    );
+    expect(writer).toBeDefined();
+    writer.value = 'terminal.publicError';
+    expect(() => validateFrontendStateOwnership({ root: appRoot, registry: mutated }))
+      .toThrow('value=terminal.publicError');
+  });
+
   it('[A02-new-consumer] rejects a newly discovered reverse consumer missing from the registry', () => {
     const source = `${read(terminalWriterPath)}
       export function readTerminalOutcome(state) {

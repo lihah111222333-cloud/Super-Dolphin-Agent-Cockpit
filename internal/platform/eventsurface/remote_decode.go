@@ -3,6 +3,7 @@ package eventsurface
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -12,6 +13,18 @@ import (
 
 // RemoteParamDecoder 抽象 JSON-RPC 参数解码函数，便于同一解码逻辑复用到不同远端事件。
 type RemoteParamDecoder func(any) error
+
+const (
+	remotePublicErrorCodeFallback  = "REMOTE_TERMINAL_FAILED"
+	remotePublicErrorTitle         = "Remote terminal error"
+	remotePublicErrorMessage       = "Remote terminal error"
+	remoteDiagnosticIDFallback     = "remote-terminal-error"
+	remoteDiagnosticIDPrefix       = "diag-"
+	remoteDiagnosticIDMaxLength    = 128
+	remotePublicErrorCodeMaxLength = 64
+	remoteDiagnosticIDAlphabet     = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_."
+	remotePublicErrorCodeAlphabet  = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_"
+)
 
 // DecodeRemoteTurnTerminal 解码并严格验证 canonical turn/terminal，不推断 owner 身份。
 func DecodeRemoteTurnTerminal(decode RemoteParamDecoder) (turndto.TurnTerminalV2, error) {
@@ -25,7 +38,67 @@ func DecodeRemoteTurnTerminal(decode RemoteParamDecoder) (turndto.TurnTerminalV2
 	if _, err := time.Parse(time.RFC3339Nano, terminal.OccurredAt); err != nil {
 		return turndto.TurnTerminalV2{}, fmt.Errorf("remote turn terminal occurredAt: %w", err)
 	}
+	terminal.PublicError = sanitizeRemotePublicError(terminal.PublicError)
 	return terminal, nil
+}
+
+// sanitizeRemotePublicError 清除远端展示文本，仅保留受限的机器可读字段。
+func sanitizeRemotePublicError(remote *turndto.PublicErrorV1) *turndto.PublicErrorV1 {
+	if remote == nil {
+		return nil
+	}
+	return &turndto.PublicErrorV1{
+		Code:            safeRemotePublicErrorCode(remote.Code),
+		Title:           remotePublicErrorTitle,
+		Message:         remotePublicErrorMessage,
+		DiagnosticID:    safeRemoteDiagnosticID(remote.DiagnosticID),
+		Retryable:       false,
+		RecoveryActions: safeRemoteRecoveryActions(remote.RecoveryActions),
+	}
+}
+
+// safeRemoteRecoveryActions 只保留前端已实现的固定恢复动作。
+func safeRemoteRecoveryActions(actions []string) []string {
+	if slices.Contains(actions, "copy_diagnostics") {
+		return []string{"copy_diagnostics"}
+	}
+	return []string{}
+}
+
+// safeRemotePublicErrorCode 保留受限机器码，未知展示语义由前端 registry 决定。
+func safeRemotePublicErrorCode(value string) string {
+	if isSafeRemotePublicErrorCode(value) {
+		return value
+	}
+	return remotePublicErrorCodeFallback
+}
+
+// isSafeRemotePublicErrorCode 验证远端机器码不包含可显示的自由文本。
+func isSafeRemotePublicErrorCode(value string) bool {
+	return value != "" && len(value) <= remotePublicErrorCodeMaxLength && containsOnly(value, remotePublicErrorCodeAlphabet)
+}
+
+// safeRemoteDiagnosticID 保留受限关联标识，其余输入替换为固定占位符。
+func safeRemoteDiagnosticID(value string) string {
+	if isSafeRemoteDiagnosticID(value) {
+		return value
+	}
+	return remoteDiagnosticIDFallback
+}
+
+// isSafeRemoteDiagnosticID 验证关联标识的固定前缀、长度和字符集合。
+func isSafeRemoteDiagnosticID(value string) bool {
+	return strings.HasPrefix(value, remoteDiagnosticIDPrefix) && len(value) > len(remoteDiagnosticIDPrefix) && len(value) <= remoteDiagnosticIDMaxLength && containsOnly(value, remoteDiagnosticIDAlphabet)
+}
+
+// containsOnly 验证文本的每个字符都属于调用方提供的受限字符集合。
+func containsOnly(value, alphabet string) bool {
+	for _, character := range value {
+		if !strings.ContainsRune(alphabet, character) {
+			return false
+		}
+	}
+	return true
 }
 
 // ProjectRemoteTurnTerminal 把 canonical 终态投影为内部事件；ownerAgentID 必须由 consumer 的运行时映射提供。
