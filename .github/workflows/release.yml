@@ -36,6 +36,14 @@ on:
         description: Native evidence for internal-20 or prior-stage run URL for percentage stages
         required: true
         type: string
+      macos_upgrade_matrix_evidence:
+        description: This repository's Actions run URL for real macOS previous-to-current and current-to-previous evidence
+        required: true
+        type: string
+      windows_upgrade_matrix_evidence:
+        description: This repository's Actions run URL for real Windows previous-to-current and current-to-previous evidence
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -56,18 +64,30 @@ jobs:
       PREVIOUS_VERSION: ${{ inputs.previous_version }}
       MONITORING_WINDOW_HOURS: ${{ inputs.monitoring_window_hours }}
       PREDECESSOR_EVIDENCE: ${{ inputs.predecessor_evidence }}
+      MACOS_UPGRADE_MATRIX_EVIDENCE: ${{ inputs.macos_upgrade_matrix_evidence }}
+      WINDOWS_UPGRADE_MATRIX_EVIDENCE: ${{ inputs.windows_upgrade_matrix_evidence }}
+      DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+      GITHUB_REPOSITORY: ${{ github.repository }}
     steps:
       - name: Reject missing or blank release authority
         shell: bash
         run: |
           set -euo pipefail
-          for name in VERSION BUILD_COMMIT SIGNING_PUBLIC_KEY_FINGERPRINT PREVIOUS_VERSION MONITORING_WINDOW_HOURS PREDECESSOR_EVIDENCE; do
+          for name in VERSION BUILD_COMMIT SIGNING_PUBLIC_KEY_FINGERPRINT PREVIOUS_VERSION MONITORING_WINDOW_HOURS PREDECESSOR_EVIDENCE MACOS_UPGRADE_MATRIX_EVIDENCE WINDOWS_UPGRADE_MATRIX_EVIDENCE; do
             value="${!name}"
             if [[ -z "${value//[[:space:]]/}" ]]; then
               echo "$name input is blank after trimming whitespace" >&2
               exit 1
             fi
           done
+          case "$STAGE" in
+            internal-20|10-percent|30-percent|100-percent) ;;
+            *) echo "unsupported rollout stage: $STAGE" >&2; exit 1 ;;
+          esac
+          if ! [[ "$GITHUB_REF" == "refs/heads/$DEFAULT_BRANCH" ]]; then
+            echo "release workflow must run from the repository default branch" >&2
+            exit 1
+          fi
           if [[ ! "$BUILD_COMMIT" =~ ^[0-9a-fA-F]{40}$ ]]; then
             echo "build_commit must be a full 40-character commit SHA" >&2
             exit 1
@@ -92,17 +112,29 @@ jobs:
             echo "percentage-stage predecessor_evidence must be a GitHub Actions run URL" >&2
             exit 1
           fi
+          if [[ ! "$MACOS_UPGRADE_MATRIX_EVIDENCE" =~ ^https://github.com/$GITHUB_REPOSITORY/actions/runs/[0-9]+([/?#].*)?$ || ! "$WINDOWS_UPGRADE_MATRIX_EVIDENCE" =~ ^https://github.com/$GITHUB_REPOSITORY/actions/runs/[0-9]+([/?#].*)?$ ]]; then
+            echo "upgrade matrix evidence must be a GitHub Actions run or artifact URL from this repository" >&2
+            exit 1
+          fi
+          if [[ "$MACOS_UPGRADE_MATRIX_EVIDENCE" == "$WINDOWS_UPGRADE_MATRIX_EVIDENCE" ]]; then
+            echo "macOS and Windows upgrade matrix evidence must differ" >&2
+            exit 1
+          fi
 
   package-macos-arm64:
     needs: validate-inputs
     environment: update-recovery-${{ inputs.stage }}
-    runs-on: [self-hosted, macOS, ARM64, update-recovery-release]
+    runs-on:
+      group: update-recovery-release
+      labels: [self-hosted, macOS, ARM64, update-recovery-release]
     timeout-minutes: 90
     env:
       VERSION: ${{ inputs.version }}
       BUILD_COMMIT: ${{ inputs.build_commit }}
       PREVIOUS_VERSION: ${{ inputs.previous_version }}
       MONITORING_WINDOW_HOURS: ${{ inputs.monitoring_window_hours }}
+      MACOS_UPGRADE_MATRIX_EVIDENCE: ${{ inputs.macos_upgrade_matrix_evidence }}
+      WINDOWS_UPGRADE_MATRIX_EVIDENCE: ${{ inputs.windows_upgrade_matrix_evidence }}
       SUPER_DOLPHIN_RELEASE_PROFILE: gray
       CODESIGN_IDENTITY: ${{ secrets.CODESIGN_IDENTITY }}
       NOTARY_PROFILE: ${{ secrets.NOTARY_PROFILE }}
@@ -132,7 +164,7 @@ jobs:
           actual="$(printf '%s' "$trimmed" | shasum -a 256 | awk '{print $1}')"
           expected="$(printf '%s' "${EXPECTED_PUBLIC_KEY_FINGERPRINT}" | tr '[:upper:]' '[:lower:]' | tr -d ':[:space:]')"
           [[ "$actual" == "$expected" ]]
-      - name: Run native update and recovery upgrade matrix
+      - name: Run current-commit version-independent recovery state matrix
         shell: bash
         run: |
           set -euo pipefail
@@ -149,10 +181,13 @@ jobs:
           set -euo pipefail
           {
             echo "platform=macos-arm64"
-            echo "upgrade=$PREVIOUS_VERSION -> $VERSION"
-            echo "rollback=$VERSION -> $PREVIOUS_VERSION"
+            echo "matrix_scope=current-commit-version-independent-recovery-state"
+            echo "candidate_version=$VERSION"
+            echo "previous_version_reference=$PREVIOUS_VERSION"
             echo "commit=$(git rev-parse HEAD)"
             echo "monitoring_window_hours=$MONITORING_WINDOW_HOURS"
+            echo "macos_upgrade_matrix_evidence=$MACOS_UPGRADE_MATRIX_EVIDENCE"
+            echo "windows_upgrade_matrix_evidence=$WINDOWS_UPGRADE_MATRIX_EVIDENCE"
           } > "$RUNNER_TEMP/update-recovery-evidence/matrix-metadata.txt"
       - uses: actions/upload-artifact@v4
         with:
@@ -164,13 +199,17 @@ jobs:
 
   package-windows-arm64:
     needs: [validate-inputs, package-macos-arm64]
-    runs-on: [self-hosted, Windows, ARM64, update-recovery-release]
+    runs-on:
+      group: update-recovery-release
+      labels: [self-hosted, Windows, ARM64, update-recovery-release]
     timeout-minutes: 90
     env:
       VERSION: ${{ inputs.version }}
       BUILD_COMMIT: ${{ inputs.build_commit }}
       PREVIOUS_VERSION: ${{ inputs.previous_version }}
       MONITORING_WINDOW_HOURS: ${{ inputs.monitoring_window_hours }}
+      MACOS_UPGRADE_MATRIX_EVIDENCE: ${{ inputs.macos_upgrade_matrix_evidence }}
+      WINDOWS_UPGRADE_MATRIX_EVIDENCE: ${{ inputs.windows_upgrade_matrix_evidence }}
       SUPER_DOLPHIN_WINDOWS_ARCH: arm64
     steps:
       - uses: actions/checkout@v4
@@ -187,7 +226,7 @@ jobs:
           $ErrorActionPreference = 'Stop'
           if ($env:PROCESSOR_ARCHITECTURE -ne 'ARM64') { throw 'native Windows ARM64 runner is required' }
           if ((git rev-parse HEAD).Trim() -ne $env:BUILD_COMMIT) { throw 'checked out commit differs from build_commit' }
-      - name: Run native Windows updater and recovery matrix
+      - name: Run current-commit Windows recovery state matrix
         shell: bash
         run: |
           set -euo pipefail
@@ -210,10 +249,13 @@ jobs:
           New-Item -ItemType Directory -Force -Path $evidence | Out-Null
           @(
             'platform=windows-arm64'
-            "upgrade=$env:PREVIOUS_VERSION -> $env:VERSION"
-            "rollback=$env:VERSION -> $env:PREVIOUS_VERSION"
+            'matrix_scope=current-commit-version-independent-recovery-state'
+            "candidate_version=$env:VERSION"
+            "previous_version_reference=$env:PREVIOUS_VERSION"
             "commit=$((git rev-parse HEAD).Trim())"
             "monitoring_window_hours=$env:MONITORING_WINDOW_HOURS"
+            "macos_upgrade_matrix_evidence=$env:MACOS_UPGRADE_MATRIX_EVIDENCE"
+            "windows_upgrade_matrix_evidence=$env:WINDOWS_UPGRADE_MATRIX_EVIDENCE"
             'package_owned_publishing=unsupported'
           ) | Set-Content -LiteralPath (Join-Path $evidence 'matrix-metadata.txt') -Encoding utf8
       - uses: actions/upload-artifact@v4
@@ -230,10 +272,15 @@ jobs:
     runs-on: ubuntu-latest
     env:
       PREDECESSOR_EVIDENCE: ${{ inputs.predecessor_evidence }}
+      MACOS_UPGRADE_MATRIX_EVIDENCE: ${{ inputs.macos_upgrade_matrix_evidence }}
+      WINDOWS_UPGRADE_MATRIX_EVIDENCE: ${{ inputs.windows_upgrade_matrix_evidence }}
     steps:
       - uses: actions/download-artifact@v4
       - name: Approve exactly the internal 20-device stage
-        run: echo "internal-20 authorized; no later stage is started by this run" >> "$GITHUB_STEP_SUMMARY"
+        run: |
+          printf '%s\n' "internal-20 authorized; no later stage is started by this run" \
+            "macOS upgrade evidence: $MACOS_UPGRADE_MATRIX_EVIDENCE" \
+            "Windows upgrade evidence: $WINDOWS_UPGRADE_MATRIX_EVIDENCE" >> "$GITHUB_STEP_SUMMARY"
 
   rollout-10-percent:
     if: ${{ inputs.stage == '10-percent' }}
@@ -241,10 +288,15 @@ jobs:
     runs-on: ubuntu-latest
     env:
       PREDECESSOR_EVIDENCE: ${{ inputs.predecessor_evidence }}
+      MACOS_UPGRADE_MATRIX_EVIDENCE: ${{ inputs.macos_upgrade_matrix_evidence }}
+      WINDOWS_UPGRADE_MATRIX_EVIDENCE: ${{ inputs.windows_upgrade_matrix_evidence }}
     steps:
       - uses: actions/download-artifact@v4
       - name: Approve exactly the 10 percent stage
-        run: echo "10-percent authorized from $PREDECESSOR_EVIDENCE; no later stage is started by this run" >> "$GITHUB_STEP_SUMMARY"
+        run: |
+          printf '%s\n' "10-percent authorized from $PREDECESSOR_EVIDENCE; no later stage is started by this run" \
+            "macOS upgrade evidence: $MACOS_UPGRADE_MATRIX_EVIDENCE" \
+            "Windows upgrade evidence: $WINDOWS_UPGRADE_MATRIX_EVIDENCE" >> "$GITHUB_STEP_SUMMARY"
 
   rollout-30-percent:
     if: ${{ inputs.stage == '30-percent' }}
@@ -252,10 +304,15 @@ jobs:
     runs-on: ubuntu-latest
     env:
       PREDECESSOR_EVIDENCE: ${{ inputs.predecessor_evidence }}
+      MACOS_UPGRADE_MATRIX_EVIDENCE: ${{ inputs.macos_upgrade_matrix_evidence }}
+      WINDOWS_UPGRADE_MATRIX_EVIDENCE: ${{ inputs.windows_upgrade_matrix_evidence }}
     steps:
       - uses: actions/download-artifact@v4
       - name: Approve exactly the 30 percent stage
-        run: echo "30-percent authorized from $PREDECESSOR_EVIDENCE; no later stage is started by this run" >> "$GITHUB_STEP_SUMMARY"
+        run: |
+          printf '%s\n' "30-percent authorized from $PREDECESSOR_EVIDENCE; no later stage is started by this run" \
+            "macOS upgrade evidence: $MACOS_UPGRADE_MATRIX_EVIDENCE" \
+            "Windows upgrade evidence: $WINDOWS_UPGRADE_MATRIX_EVIDENCE" >> "$GITHUB_STEP_SUMMARY"
 
   rollout-100-percent:
     if: ${{ inputs.stage == '100-percent' }}
@@ -263,7 +320,12 @@ jobs:
     runs-on: ubuntu-latest
     env:
       PREDECESSOR_EVIDENCE: ${{ inputs.predecessor_evidence }}
+      MACOS_UPGRADE_MATRIX_EVIDENCE: ${{ inputs.macos_upgrade_matrix_evidence }}
+      WINDOWS_UPGRADE_MATRIX_EVIDENCE: ${{ inputs.windows_upgrade_matrix_evidence }}
     steps:
       - uses: actions/download-artifact@v4
       - name: Approve exactly the 100 percent stage
-        run: echo "100-percent authorized from $PREDECESSOR_EVIDENCE; this workflow never chains stages" >> "$GITHUB_STEP_SUMMARY"
+        run: |
+          printf '%s\n' "100-percent authorized from $PREDECESSOR_EVIDENCE; this workflow never chains stages" \
+            "macOS upgrade evidence: $MACOS_UPGRADE_MATRIX_EVIDENCE" \
+            "Windows upgrade evidence: $WINDOWS_UPGRADE_MATRIX_EVIDENCE" >> "$GITHUB_STEP_SUMMARY"
