@@ -613,6 +613,9 @@ func (app updaterApp) replaceTargetAppTransactionContextWithStageDir(ctx context
 	created, err := app.createRecoveryTransaction(store, ctx, request)
 	if err != nil {
 		cause := fmt.Errorf("create release transaction: %w", err)
+		if exactPreparedCreateResult(created, request) {
+			return created, false, cause
+		}
 		cause = recordStoreCreateFailure(stageDir, generation, cause)
 		return recovery.Transaction{}, false, removePreparedCandidate(request.Paths.Staging, cause)
 	}
@@ -620,6 +623,16 @@ func (app updaterApp) replaceTargetAppTransactionContextWithStageDir(ctx context
 		return created, false, err
 	}
 	return app.completePreparedReleaseTransaction(ctx, store, created, packageOwned)
+}
+
+// exactPreparedCreateResult 仅接受 Store.Create 对当前请求返回的完整 prepared 结果。
+func exactPreparedCreateResult(transaction recovery.Transaction, request recovery.CreateRequest) bool {
+	return transaction.Identity == request.Identity && transaction.Paths == request.Paths &&
+		transaction.State == recovery.StatePrepared && transaction.Trust == request.Trust &&
+		transaction.Probation == (recovery.ProbationRecord{}) &&
+		transaction.RollbackRestart == (recovery.RollbackRestartRecord{}) &&
+		transaction.TargetGeneration > 0 && transaction.Revision == 1 &&
+		transaction.CreatedAt != "" && transaction.UpdatedAt == transaction.CreatedAt
 }
 
 // completePreparedReleaseTransaction 发布 capsule、建立 Guard fence 并安装 candidate。

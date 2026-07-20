@@ -18,11 +18,11 @@ cmd/super-dolphin-release-manifest/main.go	cmd	other	go-source	14374	Release man
 cmd/super-dolphin-updater/detach_darwin.go	cmd	other	go-source	248	Super-Dolphin updater install and detach command	cmd,super,dolphin,updater,detach,darwin,Super-Dolphin,install,and,command
 cmd/super-dolphin-updater/detach_default.go	cmd	other	go-source	176	Super-Dolphin updater install and detach command	cmd,super,dolphin,updater,detach,default,Super-Dolphin,install,and,command
 cmd/super-dolphin-updater/install_test.go	cmd	other	go-test	22044	Super-Dolphin updater install and detach command	cmd,super,dolphin,updater,install,test,Super-Dolphin,and,detach,command
-cmd/super-dolphin-updater/install.go	cmd	other	go-source	33950	Super-Dolphin updater install and detach command	cmd,super,dolphin,updater,install,Super-Dolphin,and,detach,command
+cmd/super-dolphin-updater/install.go	cmd	other	go-source	34700	Super-Dolphin updater install and detach command	cmd,super,dolphin,updater,install,Super-Dolphin,and,detach,command
 cmd/super-dolphin-updater/main.go	cmd	other	go-source	9823	Super-Dolphin updater install and detach command	cmd,super,dolphin,updater,main,Super-Dolphin,install,and,detach,command
 cmd/super-dolphin-updater/package_trust_test.go	cmd	other	go-test	5711	Super-Dolphin updater install and detach command	cmd,super,dolphin,updater,package,trust,test,Super-Dolphin,install,and,detach,command
 cmd/super-dolphin-updater/package_trust.go	cmd	other	go-source	16851	Super-Dolphin updater install and detach command	cmd,super,dolphin,updater,package,trust,Super-Dolphin,install,and,detach,command
-cmd/super-dolphin-updater/pre_journal_order_darwin_test.go	cmd	other	go-test	5882	Super-Dolphin updater install and detach command	cmd,super,dolphin,updater,pre,journal,order,darwin,test,Super-Dolphin,install,and,detach,command
+cmd/super-dolphin-updater/pre_journal_order_darwin_test.go	cmd	other	go-test	10050	Super-Dolphin updater install and detach command	cmd,super,dolphin,updater,pre,journal,order,darwin,test,Super-Dolphin,install,and,detach,command
 cmd/super-dolphin-updater/pre_journal_test.go	cmd	other	go-test	12551	Super-Dolphin updater install and detach command	cmd,super,dolphin,updater,pre,journal,test,Super-Dolphin,install,and,detach,command
 cmd/super-dolphin-updater/pre_journal.go	cmd	other	go-source	2646	Super-Dolphin updater install and detach command	cmd,super,dolphin,updater,pre,journal,Super-Dolphin,install,and,detach,command
 cmd/super-dolphin-updater/probation_rollback_test.go	cmd	other	go-test	21552	Super-Dolphin updater install and detach command	cmd,super,dolphin,updater,probation,rollback,test,Super-Dolphin,install,and,detach,command

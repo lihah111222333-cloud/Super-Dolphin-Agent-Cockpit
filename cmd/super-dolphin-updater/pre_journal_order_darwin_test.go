@@ -14,11 +14,103 @@ import (
 
 const replacementGeneration = "ffeeddccbbaa99887766554433221100"
 
-func TestJournalPublicationFailurePhasesRetainMatchingSignal(t *testing.T) {
-	for _, phase := range []string{"journal temp", "journal write", "journal fsync", "journal rename"} {
+func TestCommittedCreateErrorRetainsJournalAndCandidate(t *testing.T) {
+	stubSuccessfulDitto(t)
+	stageDir, _ := testUpdaterStage(t)
+	beginUpdaterAttempt(t, stageDir)
+	staged := createAppBundle(t, filepath.Join(realUpdaterTempDir(t), "Super Dolphin.app"))
+	parent := realUpdaterTempDir(t)
+	target := createAppBundle(t, filepath.Join(parent, "Super Dolphin.app"))
+	beforeDigest, err := recovery.ComputeReleaseDigest(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantErr := errors.New("generation unlock failed after journal publication")
+	helperStarted := false
+	app := defaultUpdaterApp()
+	app.createRecoveryTransaction = func(store *recovery.Store, ctx context.Context, req recovery.CreateRequest) (recovery.Transaction, error) {
+		created, createErr := store.Create(ctx, req)
+		if createErr != nil {
+			return recovery.Transaction{}, createErr
+		}
+		return created, wantErr
+	}
+	app.startProbationCandidate = func(context.Context, recovery.Transaction) (*candidateHandle, error) {
+		helperStarted = true
+		return nil, errors.New("unexpected helper start")
+	}
+	_, _, err = app.replaceTargetAppTransactionContextWithStageDir(
+		context.Background(), staged, target, "", true, true, stageDir, recoveryTestGeneration,
+	)
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("replaceTargetAppTransactionContextWithStageDir() error = %v, want %v", err, wantErr)
+	}
+	assertCommittedCreateErrorState(t, stageDir, parent, target, beforeDigest, helperStarted)
+}
+
+func assertCommittedCreateErrorState(t *testing.T, stageDir string, parent string, target string, beforeDigest string, helperStarted bool) {
+	t.Helper()
+	if helperStarted {
+		t.Fatal("probation helper started after committed Create error")
+	}
+	if _, exists, err := appupdatefailure.ReadFailure(stageDir); err != nil || exists {
+		t.Fatalf("ReadFailure() after committed Create error = (_, %v, %v), want pending sidecar hidden", exists, err)
+	}
+	journals, err := filepath.Glob(filepath.Join(parent, updateTransactionDirName, "*", "journal.json"))
+	if err != nil || len(journals) != 1 {
+		t.Fatalf("transaction journals = %v, error = %v, want one", journals, err)
+	}
+	candidates, err := filepath.Glob(filepath.Join(parent, ".Super Dolphin.staging-*.app"))
+	if err != nil || len(candidates) != 1 {
+		t.Fatalf("prepared candidates = %v, error = %v, want one", candidates, err)
+	}
+	assertTargetDigestUnchanged(t, target, beforeDigest, "committed Create error")
+}
+
+func TestDefinitelyUnpublishedCreateFailurePhasesRetainMatchingSignal(t *testing.T) {
+	for _, phase := range []string{"journal temp", "journal write", "journal pre-rename fsync", "journal rename failure"} {
 		t.Run(phase, func(t *testing.T) {
 			testJournalPublicationFailurePhase(t, phase)
 		})
+	}
+}
+
+func TestMismatchedCreateErrorDoesNotRetainCandidate(t *testing.T) {
+	stubSuccessfulDitto(t)
+	stageDir, _ := testUpdaterStage(t)
+	beginUpdaterAttempt(t, stageDir)
+	staged := createAppBundle(t, filepath.Join(realUpdaterTempDir(t), "Super Dolphin.app"))
+	parent := realUpdaterTempDir(t)
+	target := createAppBundle(t, filepath.Join(parent, "Super Dolphin.app"))
+	beforeDigest, err := recovery.ComputeReleaseDigest(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantErr := errors.New("mismatched published transaction")
+	helperStarted := false
+	app := defaultUpdaterApp()
+	app.createRecoveryTransaction = func(_ *recovery.Store, _ context.Context, req recovery.CreateRequest) (recovery.Transaction, error) {
+		return mismatchedPreparedCreateResult(req), wantErr
+	}
+	app.startProbationCandidate = func(context.Context, recovery.Transaction) (*candidateHandle, error) {
+		helperStarted = true
+		return nil, errors.New("unexpected helper start")
+	}
+	_, _, err = app.replaceTargetAppTransactionContextWithStageDir(
+		context.Background(), staged, target, "", true, true, stageDir, recoveryTestGeneration,
+	)
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("replaceTargetAppTransactionContextWithStageDir() error = %v, want %v", err, wantErr)
+	}
+	assertJournalPublicationFailureState(t, stageDir, parent, target, beforeDigest, helperStarted)
+}
+
+func mismatchedPreparedCreateResult(req recovery.CreateRequest) recovery.Transaction {
+	const createdAt = "2026-07-21T00:00:00Z"
+	req.Identity.TransactionID = recovery.TransactionID(replacementGeneration)
+	return recovery.Transaction{
+		Identity: req.Identity, Paths: req.Paths, State: recovery.StatePrepared, Trust: req.Trust,
+		TargetGeneration: 1, Revision: 1, CreatedAt: createdAt, UpdatedAt: createdAt,
 	}
 }
 

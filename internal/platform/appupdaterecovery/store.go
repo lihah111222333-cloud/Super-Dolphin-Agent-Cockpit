@@ -45,6 +45,7 @@ func NewStore(root string) (*Store, error) {
 }
 
 // Create 校验 exact release identity，并原子建立 pending trust 事务。
+// 返回 error 时，零事务表示 journal 已确认未发布；非零事务表示 journal 已发布或无法确认未发布。
 func (store *Store) Create(ctx context.Context, req CreateRequest) (transaction Transaction, err error) {
 	if err := requireContext(ctx); err != nil {
 		return Transaction{}, err
@@ -59,7 +60,12 @@ func (store *Store) Create(ctx context.Context, req CreateRequest) (transaction 
 	if err != nil {
 		return Transaction{}, err
 	}
-	defer generationLock.releaseInto(&err)
+	defer func() {
+		generationLock.releaseInto(&err)
+		if transaction.Identity.TransactionID != "" {
+			err = errors.Join(err, store.runAfterEffect(StatePrepared))
+		}
+	}()
 	return store.createLocked(ctx, req)
 }
 
@@ -84,9 +90,26 @@ func (store *Store) createLocked(ctx context.Context, req CreateRequest) (Transa
 	}
 	journal := newJournal(req, targetGeneration, store.now())
 	if err := store.writeLocked(journal); err != nil {
-		return Transaction{}, err
+		return store.resolveCreateWriteError(journal, err)
 	}
 	return journal.transaction(), nil
+}
+
+// resolveCreateWriteError 只在精确 journal 确认缺席时返回零事务；存在或无法证明缺席时返回非零结果。
+func (store *Store) resolveCreateWriteError(journal journalPayload, cause error) (Transaction, error) {
+	attempted := journal.transaction()
+	loaded, err := store.loadExactLocked(journal.Identity)
+	if err == nil {
+		published := loaded.transaction()
+		if published != attempted {
+			return attempted, errors.Join(cause, errors.New("published update transaction differs from attempted journal"))
+		}
+		return published, cause
+	}
+	if errors.Is(err, os.ErrNotExist) {
+		return Transaction{}, cause
+	}
+	return attempted, errors.Join(cause, fmt.Errorf("confirm update transaction publication: %w", err))
 }
 
 // persistCreateReleases 校验 old/candidate identity，并在建 journal 前持久化 staging。
