@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { Bot, Code2, FileText, Sailboat, Sparkles } from 'lucide-react';
 import {
   activeThreadForStore,
@@ -204,15 +204,12 @@ function ChatPage(props) {
   const canUseProjectActions = canUseProjectActionsForStore(store);
   const runtimeProject = runtimeProjectPath(store.activeProject, projectPath);
   const codePreview = useCodePreviewController({ projectPath: runtimeProject, projects: store.projects });
-  const [approvalNotice, setApprovalNotice] = useState('');
   const messageActions = useMemo(() => ({
     onFileRef: codePreview.openFileRef,
     onOpenPath: codePreview.openLocalPath,
     onCitation: (payload) => handleTimelineCitationAction(payload, { store, openFileRef: codePreview.openFileRef }),
     onApproval: (message, approved) => store.respondApproval?.(message, approved),
-    // 审批失败时由 ChatApprovalMessage 调用，通知 UI 显示错误
-    onError: (_event, detail) => { setApprovalNotice(detail || copy.approvalFailed); },
-  }), [codePreview.openFileRef, codePreview.openLocalPath, copy.approvalFailed, store]);
+  }), [codePreview.openFileRef, codePreview.openLocalPath, store]);
   const shellRightPanelWidth = useShellLayoutStore(shellLayoutStore, selectRightPanelWidth);
   const setShellRightPanelWidth = useShellLayoutStore(shellLayoutStore, selectSetRightPanelWidth);
   const viewportWidth = useViewportWidth();
@@ -254,11 +251,6 @@ function ChatPage(props) {
         <ChatPageHeader copy={copy} store={store} projectPath={projectPath} rightPanelOpen={rightPanelOpen} setRightPanelOpen={setRightPanelOpen} />
       ) : null}
       <ChatActionFeedback copy={copy} feedback={headerFeedback} />
-      {approvalNotice ? (
-        <output className="approval-action-feedback" role="alert" data-testid="approval-action-feedback">
-          {approvalNotice}
-        </output>
-      ) : null}
       <div ref={chatLayoutRef} className="chat-layout" data-testid="chat-layout" style={{ gridTemplateColumns: layoutColumns }}>
         {introMode ? <ChatIntroSpotlight copy={copy} onSuggestion={prefillIntroSuggestion} /> : null}
         <ThreadRail copy={copy} store={store} />

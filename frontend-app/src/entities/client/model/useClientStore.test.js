@@ -6225,6 +6225,62 @@ function registerBridgeEventHandlersForTest() {
     ]));
   });
 
+  it('replays a pending terminal after item completion replaces its missing partial item', () => {
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'thread-1',
+      timelinesByThread: { 'thread-1': [] },
+    });
+    registerBridgeEventHandlersForTest();
+
+    bridgeCallback({
+      type: 'turn/terminal',
+      payload: {
+        schemaVersion: 2,
+        eventId: 'terminal-before-completion',
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+        outcome: 'failed',
+        publicError: {
+          code: 'PROVIDER_FAILED',
+          title: 'Provider failed',
+          message: 'The provider failed after producing a partial response',
+          diagnosticId: 'diag-before-completion',
+          retryable: false,
+          recoveryActions: [],
+        },
+        partialItemIds: ['partial-1'],
+        occurredAt: '2026-07-21T01:00:00Z',
+      },
+    });
+    bridgeCallback({
+      type: 'item/completed',
+      payload: {
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+        item: { id: 'partial-1', type: 'agentMessage', text: 'final partial response' },
+      },
+    });
+    bridgeCallback({
+      type: 'item/completed',
+      payload: {
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+        item: { id: 'partial-1', type: 'agentMessage', text: 'final partial response' },
+      },
+    });
+
+    const terminalItems = useClientStore.getState().timelinesByThread['thread-1']
+      .filter((item) => item.kind === 'turn_terminal');
+    expect(useClientStore.getState().timelinesByThread['thread-1']).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'partial-1', text: 'final partial response', done: true, turnId: 'turn-1' }),
+    ]));
+    expect(terminalItems).toEqual([
+      expect.objectContaining({ terminalOutcome: 'failed', turnId: 'turn-1' }),
+    ]);
+  });
+
   it('keeps the first pending terminal truth when a conflicting terminal arrives before its delta', () => {
     resetClientStoreForTests({
       cwd: '/repo/app',
@@ -7106,6 +7162,164 @@ function registerBridgeEventHandlersForTest() {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it('keeps a retired terminal sealed across CWD return and retired-cache eviction without poisoning another scope', async () => {
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      projectScopeCwd: '/repo/app',
+      activeProject: '/repo/app',
+      projects: ['/repo/app', '/repo/other'],
+      activeThreadId: 'thread-1',
+      timelinesByThread: { 'thread-1': [] },
+    });
+    const otherProjectChange = deferred();
+    const otherSidebarRefresh = deferred();
+    const appProjectChange = deferred();
+    const appSidebarRefresh = deferred();
+    backend.setActiveProject
+      .mockReturnValueOnce(otherProjectChange.promise)
+      .mockReturnValueOnce(appProjectChange.promise);
+    backend.getSidebarState
+      .mockReturnValueOnce(otherSidebarRefresh.promise)
+      .mockReturnValueOnce(appSidebarRefresh.promise);
+    registerBridgeEventHandlersForTest();
+
+    bridgeCallback({
+      type: 'turn/terminal',
+      payload: {
+        schemaVersion: 2,
+        eventId: 'terminal-pending-t1',
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+        outcome: 'failed',
+        publicError: {
+          code: 'PROVIDER_FAILED',
+          title: 'Provider failed',
+          message: 'T1 failed before its partial output arrived',
+          diagnosticId: 'diag-pending-t1',
+          retryable: false,
+          recoveryActions: [],
+        },
+        partialItemIds: ['t1-partial'],
+        occurredAt: '2026-07-21T01:00:00Z',
+      },
+    });
+    bridgeCallback({
+      type: 'ui/thread/patch',
+      payload: {
+        threadId: 'thread-1',
+        sequence: '1',
+        status: 'running',
+        activeTurn: { id: 'turn-2', status: 'running' },
+      },
+    });
+    bridgeCallback({
+      type: 'turn/output/delta',
+      payload: { threadId: 'thread-1', turnId: 'turn-2', itemId: 't2-partial', delta: 'T2 partial' },
+    });
+    bridgeCallback({
+      type: 'turn/terminal',
+      payload: {
+        schemaVersion: 2,
+        eventId: 'terminal-t2',
+        threadId: 'thread-1',
+        turnId: 'turn-2',
+        outcome: 'success',
+        occurredAt: '2026-07-21T01:00:01Z',
+      },
+    });
+    useClientStore.setState({ activeTurnByThread: {} });
+
+    for (let index = 3; index < 68; index++) {
+      bridgeCallback({
+        type: 'turn/output/delta',
+        payload: {
+          threadId: 'thread-1',
+          turnId: `turn-${index}`,
+          itemId: `partial-${index}`,
+          delta: `turn ${index}`,
+        },
+      });
+      bridgeCallback({
+        type: 'turn/terminal',
+        payload: {
+          schemaVersion: 2,
+          eventId: `terminal-${index}`,
+          threadId: 'thread-1',
+          turnId: `turn-${index}`,
+          outcome: 'success',
+          occurredAt: '2026-07-21T01:00:01Z',
+        },
+      });
+    }
+
+    const switchToOther = useClientStore.getState().setActiveProjectPath('/repo/other');
+    await Promise.resolve();
+    useClientStore.setState({
+      cwd: '/repo/other',
+      activeProject: '/repo/other',
+      activeThreadId: 'thread-1',
+      threads: [{ id: 'thread-1', name: 'Other project thread', provider: 'codex', status: 'running' }],
+      timelinesByThread: { 'thread-1': [] },
+    });
+    await useClientStore.getState().deleteStaleThreads(['thread-1']);
+    useClientStore.setState({
+      cwd: '/repo/other',
+      activeProject: '/repo/other',
+      activeThreadId: 'thread-1',
+      threads: [{ id: 'thread-1', name: 'Other project thread', provider: 'codex', status: 'running' }],
+      timelinesByThread: { 'thread-1': [] },
+    });
+    bridgeCallback({
+      type: 'turn/terminal',
+      payload: {
+        cwd: '/repo/other',
+        schemaVersion: 2,
+        eventId: 'terminal-other-scope-t1',
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+        outcome: 'success',
+        occurredAt: '2026-07-21T01:00:02Z',
+      },
+    });
+    expect(useClientStore.getState().warningEntries).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ event: 'turn.terminal.stale', fields: expect.objectContaining({ turn_id: 'turn-1' }) }),
+    ]));
+    await useClientStore.getState().deleteStaleThreads(['thread-1']);
+    otherSidebarRefresh.resolve({ activeThreadId: '', threads: [] });
+    otherProjectChange.resolve({ projects: ['/repo/app', '/repo/other'], active: '/repo/other' });
+    await expect(switchToOther).resolves.toBe(true);
+
+    const switchToApp = useClientStore.getState().setActiveProjectPath('/repo/app');
+    await Promise.resolve();
+    useClientStore.setState({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'thread-1',
+      threads: [{ id: 'thread-1', name: 'App project thread', provider: 'codex', status: 'running' }],
+      timelinesByThread: { 'thread-1': [] },
+    });
+    bridgeCallback({
+      type: 'turn/output/delta',
+      payload: {
+        cwd: '/repo/app',
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+        itemId: 'late-t1',
+        delta: 'late T1 content',
+      },
+    });
+
+    expect(useClientStore.getState().timelinesByThread['thread-1']).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'late-t1' }),
+    ]));
+    expect(useClientStore.getState().warningEntries).toEqual(expect.arrayContaining([
+      expect.objectContaining({ event: 'turn.event.late', fields: expect.objectContaining({ turn_id: 'turn-1' }) }),
+    ]));
+    appSidebarRefresh.resolve({ activeThreadId: '', threads: [] });
+    appProjectChange.resolve({ projects: ['/repo/app', '/repo/other'], active: '/repo/app' });
+    await expect(switchToApp).resolves.toBe(true);
   });
 
   it('does not flush or finalize a newer buffered turn when an older terminal arrives before the active-turn patch', async () => {

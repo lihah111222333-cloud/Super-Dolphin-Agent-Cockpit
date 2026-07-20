@@ -181,6 +181,27 @@ function terminalCacheStats(runtime) {
   };
 }
 
+function turnArchiveScope(runtime) {
+  const scope = runtime.currentChatCwd();
+  if (!scope || scope === '.') throw new Error('frontend-app: active chat CWD is required for turn terminal archive');
+  return scope;
+}
+
+function archivedRetiredTurnRefs(runtime) {
+  const scope = turnArchiveScope(runtime);
+  let refs = runtime.retiredTurnRefsByScope.get(scope);
+  if (!refs) {
+    refs = new Set();
+    runtime.retiredTurnRefsByScope.set(scope, refs);
+  }
+  return refs;
+}
+
+function archivedTurnRef(runtime, turnRef) {
+  const refs = runtime.retiredTurnRefsByScope.get(turnArchiveScope(runtime));
+  return refs?.has(runtimeTurnRefKey(turnRef.threadId, turnRef.turnId)) === true;
+}
+
 function rejectTerminalCacheCapacity(runtime, deps, event, method, turnRef) {
   emitRejectedTurnEvent(runtime, deps, event, method, { ...turnRef, reason: 'capacity' });
   return false;
@@ -217,6 +238,7 @@ function retainRetiredTurnRef(runtime, deps, turnRef) {
   }
   if (runtime.retiredTurnRefs.size >= MAX_TRACKED_TURN_TERMINALS) return false;
   runtime.retiredTurnRefs.set(key, turnRef);
+  archivedRetiredTurnRefs(runtime).add(key);
   return true;
 }
 
@@ -260,7 +282,7 @@ function trackObservedTurn(runtime, deps, event, method, turnRef) {
 function turnEventRejected(runtime, method, turnRef, deps) {
   const key = runtimeTurnRefKey(turnRef.threadId, turnRef.turnId);
   if (runtime.turnTerminalStates.get(key)?.status === 'sealed'
-    || runtime.retiredTurnRefs.has(key)
+    || archivedTurnRef(runtime, turnRef)
     || terminalTimelineContainsTurn(runtime, deps, turnRef)) {
     emitRejectedTurnEvent(runtime, deps, 'turn.event.late', method, turnRef);
     return true;
@@ -401,6 +423,7 @@ function applyAssistantCompletion(runtime, method, payload, deps) {
       }, ...state.activityEntries].slice(0, 120),
     };
   });
+  replayPendingTurnTerminal(runtime, turnRef, deps);
   return true;
 }
 
@@ -511,7 +534,7 @@ function applyTurnTerminal(runtime, method, payload, deps) {
   const observedTurnId = runtime.observedTurnByThread.get(threadId);
   if ((observedTurnId && observedTurnId !== terminal.turnId)
     || (!observedTurnId && activeTurnId && activeTurnId !== terminal.turnId)
-    || runtime.retiredTurnRefs.has(key)
+    || archivedTurnRef(runtime, { threadId, turnId: terminal.turnId })
     || terminalTimelineContainsTurn(runtime, deps, { threadId, turnId: terminal.turnId })) {
     emitRejectedTurnEvent(runtime, deps, 'turn.terminal.stale', method, { threadId, turnId: terminal.turnId });
     return false;
@@ -565,6 +588,12 @@ export function clearTurnRuntimeForThread(runtime, threadId) {
   }
   for (const key of runtime.retiredTurnRefs.keys()) {
     if (key.startsWith(prefix)) runtime.retiredTurnRefs.delete(key);
+  }
+  const archived = runtime.retiredTurnRefsByScope.get(turnArchiveScope(runtime));
+  if (archived) {
+    for (const key of archived) {
+      if (key.startsWith(prefix)) archived.delete(key);
+    }
   }
   runtime.observedTurnByThread.delete(threadId);
 }

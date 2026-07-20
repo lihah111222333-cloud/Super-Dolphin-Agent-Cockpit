@@ -8,14 +8,7 @@ function ChatApprovalMessage({ message, actions, formatTime }) {
   const confirmApproval = typeof actions?.onApproval === 'function'
     ? async (choice) => {
         const submission = approvalSubmissionFor(request, choice);
-        try {
-          return await actions.onApproval(submission, submission.approved);
-        }
-        catch (error) {
-          const messageText = error instanceof Error ? error.message : String(error);
-          actions.onError?.('approval.failed', messageText);
-          throw error instanceof Error ? error : new Error(messageText);
-        }
+        return actions.onApproval(submission, submission.approved);
       }
     : undefined;
 

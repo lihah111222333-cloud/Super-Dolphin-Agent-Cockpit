@@ -91,6 +91,7 @@ function createClientStoreRuntime(set, get, { getPreference }) {
     turnTerminalStates: new Map(),
     observedTurnByThread: new Map(),
     retiredTurnRefs: new Map(),
+    retiredTurnRefsByScope: new Map(),
     assistantDeltaFlushTimer: null,
     assistantEventScopeEpoch: 0,
     sidebarRefreshSeq: 0,

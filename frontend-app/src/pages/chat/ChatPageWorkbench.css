@@ -62,19 +62,6 @@
   flex: 0 0 auto;
 }
 
-.approval-action-feedback {
-  display: block;
-  max-width: min(680px, calc(100% - 40px));
-  margin: 0 max(20px, calc((100% - 900px) / 2)) 10px;
-  padding: 10px 12px;
-  border: 1px solid color-mix(in srgb, var(--error) 52%, var(--border));
-  border-radius: 8px;
-  background: color-mix(in srgb, var(--error) 10%, var(--surface));
-  color: var(--error);
-  font-size: 13px;
-  line-height: 1.35;
-}
-
 .chat-action-toast {
   position: fixed;
   top: 76px;
