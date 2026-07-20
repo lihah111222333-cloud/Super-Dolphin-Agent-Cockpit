@@ -17,7 +17,7 @@ func TestValidateTurnRefV1RejectsMissingAndUnknownFields(t *testing.T) {
 	}
 }
 
-func TestValidatePublicErrorV1RejectsUnsafeUnknownFields(t *testing.T) {
+func TestValidatePublicErrorV1RejectsUnsafeAndUnimplementedRecoveryFields(t *testing.T) {
 	t.Parallel()
 	valid := publicErrorFixture()
 	if err := ValidatePublicErrorV1(valid); err != nil {
@@ -26,6 +26,15 @@ func TestValidatePublicErrorV1RejectsUnsafeUnknownFields(t *testing.T) {
 	valid["rawCause"] = "provider stack"
 	if err := ValidatePublicErrorV1(valid); err == nil {
 		t.Fatal("PublicErrorV1 accepted rawCause")
+	}
+	for _, action := range []string{"retry", "reconnect", "restart_provider", "reopen_thread", "invented"} {
+		t.Run(action, func(t *testing.T) {
+			value := publicErrorFixture()
+			value["recoveryActions"] = []string{action}
+			if err := ValidatePublicErrorV1(value); err == nil {
+				t.Fatalf("PublicErrorV1 accepted unsupported recovery action %q", action)
+			}
+		})
 	}
 }
 
@@ -58,7 +67,7 @@ func TestValidateTurnTerminalV2OutcomeRules(t *testing.T) {
 func publicErrorFixture() map[string]any {
 	return map[string]any{
 		"code": "PROVIDER_FAILED", "title": "Provider failed", "message": "Try again.",
-		"diagnosticId": "diag-1", "retryable": true, "recoveryActions": []string{"retry"},
+		"diagnosticId": "diag-1", "retryable": false, "recoveryActions": []string{"copy_diagnostics"},
 	}
 }
 

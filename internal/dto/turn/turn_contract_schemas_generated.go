@@ -23,10 +23,6 @@ var generatedSchemas = map[string]string{
     "recoveryActions": {
       "items": {
         "enum": [
-          "retry",
-          "reconnect",
-          "restart_provider",
-          "reopen_thread",
           "copy_diagnostics"
         ],
         "type": "string"

@@ -94,7 +94,7 @@ describe('runtimeAssistantTimeline', () => {
       turnId: 'turn-1',
       outcome: 'failed',
       occurredAt: '2026-07-16T01:00:00Z',
-      publicError: { code: 'FAILED', title: '运行失败', message: '本轮执行失败', diagnosticId: 'diag-1', retryable: true, recoveryActions: ['retry'] },
+      publicError: { code: 'FAILED', title: '运行失败', message: '本轮执行失败', diagnosticId: 'diag-1', retryable: false, recoveryActions: ['copy_diagnostics'] },
     };
     const parsed = parseRuntimeTurnTerminal(terminal);
     expect(parsed.value).toBeDefined();
@@ -108,8 +108,8 @@ describe('runtimeAssistantTimeline', () => {
       ...parsed.value,
       eventId: 'terminal-duplicate',
       publicError: {
-        recoveryActions: ['retry'],
-        retryable: true,
+        recoveryActions: ['copy_diagnostics'],
+        retryable: false,
         diagnosticId: 'diag-1',
         message: '本轮执行失败',
         title: '运行失败',

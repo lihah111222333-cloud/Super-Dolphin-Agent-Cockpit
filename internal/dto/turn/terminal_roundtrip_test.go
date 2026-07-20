@@ -21,8 +21,8 @@ func TestCanonicalTurnTerminalRoundTripPreservesAllFieldsAndCopies(t *testing.T)
 			Title:           "Turn failed",
 			Message:         "provider unavailable",
 			DiagnosticID:    "diag-1",
-			Retryable:       true,
-			RecoveryActions: []string{"retry", "copy_diagnostics"},
+			Retryable:       false,
+			RecoveryActions: []string{"copy_diagnostics"},
 		},
 		PartialItemIDs: []string{"item-1", "item-2"},
 		OccurredAt:     "2026-07-17T01:02:03.456Z",
@@ -35,7 +35,7 @@ func TestCanonicalTurnTerminalRoundTripPreservesAllFieldsAndCopies(t *testing.T)
 		t.Fatalf("AttachCanonicalTurnTerminal() error = %v", err)
 	}
 	terminal.PublicError.Message = "mutated source"
-	terminal.PublicError.RecoveryActions[0] = "reconnect"
+	terminal.PublicError.RecoveryActions[0] = "source-mutation"
 	terminal.PartialItemIDs[0] = "mutated-item"
 
 	got, ok, err := CanonicalTurnTerminal(attached)
@@ -45,7 +45,7 @@ func TestCanonicalTurnTerminalRoundTripPreservesAllFieldsAndCopies(t *testing.T)
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("canonical roundtrip = %#v, want %#v", got, want)
 	}
-	got.PublicError.RecoveryActions[0] = "restart_provider"
+	got.PublicError.RecoveryActions[0] = "copy-mutation"
 	got.PartialItemIDs[0] = "mutated-copy"
 	gotAgain, ok, err := CanonicalTurnTerminal(attached)
 	if err != nil || !ok || !reflect.DeepEqual(gotAgain, want) {
