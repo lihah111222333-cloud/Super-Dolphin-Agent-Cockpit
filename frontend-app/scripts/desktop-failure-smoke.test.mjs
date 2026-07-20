@@ -9,6 +9,11 @@ import {
   validateDesktopFailureCases,
   validateDesktopFailureReport,
 } from './desktop-failure-smoke.mjs';
+import {
+  DESKTOP_FAILURE_REPORT_REQUIREMENTS,
+  DESKTOP_FAILURE_SMOKE_COMMAND,
+  DESKTOP_FAILURE_SOURCE_PATHS,
+} from './desktop-failure-contract.mjs';
 
 describe('desktop failure smoke contract', () => {
   it('keeps both Go/Wails to real DOM failure cases runnable', () => {
@@ -38,7 +43,7 @@ describe('desktop failure smoke contract', () => {
   });
 
   it('fails fast on missing, duplicate, stale, zero-count, or partial reports', () => {
-    const command = ['node', 'scripts/desktop-failure-smoke.mjs'];
+    const command = DESKTOP_FAILURE_SMOKE_COMMAND;
     const caseEvidence = (caseId, hops, domAssertions) => ({
       caseId, result: 'GREEN', command,
       hops,
@@ -52,12 +57,7 @@ describe('desktop failure smoke contract', () => {
       testCount: 2,
       status: 'covered',
       blockedCases: [],
-      sourceHashes: Object.fromEntries([
-        'frontend-app/scripts/desktop-failure-smoke.mjs', 'frontend-app/tests/e2e/desktop-failure.spec.js',
-        'frontend-app/playwright.failure.config.js', 'frontend-app/package.json', 'frontend-app/src/shared/api/wailsBridge.js',
-        'internal/ui/wails/testdata/failure_smoke_host/main.go', 'internal/provider/claudecli/event_map.go',
-        'internal/provider/codexapp/event_map.go', 'internal/provider/unified/event_map.go', 'internal/ui/wails/bridge.go',
-      ].map((sourcePath) => [sourcePath, 'a'.repeat(64)])),
+      sourceHashes: Object.fromEntries(DESKTOP_FAILURE_SOURCE_PATHS.map((sourcePath) => [sourcePath, 'a'.repeat(64)])),
       execution: {
         goBuild: { argv: ['go', 'build'], cwd: '.', exitCode: 0, signal: null, outputSha256: 'a'.repeat(64) },
         playwright: { argv: ['playwright', 'test'], cwd: 'frontend-app', exitCode: 0, signal: null, outputSha256: 'b'.repeat(64), testCount: 2 },
@@ -65,8 +65,8 @@ describe('desktop failure smoke contract', () => {
         vite: { argv: ['npm', 'run', 'dev'], cwd: 'frontend-app', exitCode: null, signal: 'SIGTERM', outputSha256: 'd'.repeat(64) },
       },
       cases: [
-        caseEvidence('terminal-failed', ['claudecli.raw', 'claudecli.adapter', 'turndto.TurnOutputDelta', 'wails.EventBridge', 'chromium.DOM', 'codexapp.raw', 'codexapp.adapter', 'turndto.TurnCompleted', 'turn/terminal', 'chromium.DOM'], ['partial-response-visible', 'safe-terminal-visible', 'raw-secret-absent', 'raw-private-path-absent', 'raw-stack-absent', 'legacy-remote-copy-absent']),
-        caseEvidence('prompt-history-reject', ['wails.rpc', 'thread/promptHistory', 'frontend.action', 'chromium.DOM', 'retry.control', 'wails.rpc', 'chromium.DOM'], ['draft-preserved', 'cursor-preserved', 'retry-click-recovers']),
+        caseEvidence('terminal-failed', DESKTOP_FAILURE_REPORT_REQUIREMENTS['terminal-failed'].hops, DESKTOP_FAILURE_REPORT_REQUIREMENTS['terminal-failed'].domAssertions),
+        caseEvidence('prompt-history-reject', DESKTOP_FAILURE_REPORT_REQUIREMENTS['prompt-history-reject'].hops, DESKTOP_FAILURE_REPORT_REQUIREMENTS['prompt-history-reject'].domAssertions),
       ],
     };
     expect(validateDesktopFailureReport(valid)).toBe(valid);
@@ -84,6 +84,9 @@ describe('desktop failure smoke contract', () => {
     const noRecoveryAssertion = structuredClone(valid);
     noRecoveryAssertion.cases[1].domAssertions = ['draft-preserved', 'cursor-preserved', 'summary-only'];
     expect(() => validateDesktopFailureReport(noRecoveryAssertion)).toThrow(/case evidence/);
+    const addedAssertion = structuredClone(valid);
+    addedAssertion.cases[0].domAssertions.push('unfrozen-assertion');
+    expect(() => validateDesktopFailureReport(addedAssertion)).toThrow(/case evidence/);
     const fakeExecution = structuredClone(valid);
     fakeExecution.execution.playwright.exitCode = 1;
     expect(() => validateDesktopFailureReport(fakeExecution)).toThrow(/command execution/);
@@ -91,7 +94,7 @@ describe('desktop failure smoke contract', () => {
     partialExecution.execution.playwright.testCount = 1;
     expect(() => validateDesktopFailureReport(partialExecution)).toThrow(/command execution/);
     const removedFrozenSource = structuredClone(valid);
-    delete removedFrozenSource.sourceHashes['internal/provider/unified/event_map.go'];
+    delete removedFrozenSource.sourceHashes['frontend-app/scripts/desktop-failure-contract.mjs'];
     expect(() => validateDesktopFailureReport(removedFrozenSource)).toThrow(/source-hashed/);
     expect(() => validateDesktopFailureReport({ ...valid, raw: 't03-raw-provider-secret-do-not-persist' })).toThrow(/leaked raw provider secret/);
   });

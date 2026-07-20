@@ -90,10 +90,25 @@ func TestRemoteLauncher_HeartbeatKeepsControlLeaseAlive(t *testing.T) {
 
 func TestRemoteLauncher_TurnCompletedNotificationClearsRemoteBusyState(t *testing.T) {
 	t.Setenv("GO_AGENT_CTL_SESSION_TOKEN", "session-secret")
-	notify := make(chan *jrpc2.Server, 1)
 	addr, _ := startPushRPCServer(t, handler.Map{
 		"turn/start": handler.New(func(ctx context.Context, _ map[string]any) (map[string]any, error) {
-			notify <- jrpc2.ServerFromContext(ctx)
+			server := jrpc2.ServerFromContext(ctx)
+			require.NoError(t, server.Notify(context.Background(), eventsurface.MethodTurnTerminal, turndto.TurnTerminalV2{
+				SchemaVersion: 2,
+				EventID:       "00000000-1111-4222-8333-444444444444",
+				ThreadID:      "thread-1",
+				TurnID:        "stale-remote-turn",
+				Outcome:       "success",
+				OccurredAt:    "2026-07-16T10:11:11.123Z",
+			}))
+			require.NoError(t, server.Notify(context.Background(), eventsurface.MethodTurnTerminal, turndto.TurnTerminalV2{
+				SchemaVersion: 2,
+				EventID:       "11111111-2222-4333-8444-555555555555",
+				ThreadID:      "thread-1",
+				TurnID:        "remote-turn-1",
+				Outcome:       "success",
+				OccurredAt:    "2026-07-16T10:11:12.123Z",
+			}))
 			return map[string]any{"turn_id": "remote-turn-1"}, nil
 		}),
 	})
@@ -120,23 +135,6 @@ func TestRemoteLauncher_TurnCompletedNotificationClearsRemoteBusyState(t *testin
 		Inputs:  []shareddto.InputItem{{Type: "text", Content: "hi"}},
 	})
 	require.NoError(t, err)
-	require.Equal(t, agentdto.StateTurnRunning, agent.state)
-	require.Equal(t, "remote-turn-1", agent.activeTurnID)
-
-	var server *jrpc2.Server
-	select {
-	case server = <-notify:
-	case <-time.After(time.Second):
-		t.Fatal("turn/start handler did not capture server")
-	}
-	require.NoError(t, server.Notify(context.Background(), eventsurface.MethodTurnTerminal, turndto.TurnTerminalV2{
-		SchemaVersion: 2,
-		EventID:       "11111111-2222-4333-8444-555555555555",
-		ThreadID:      "thread-1",
-		TurnID:        "remote-turn-1",
-		Outcome:       "success",
-		OccurredAt:    "2026-07-16T10:11:12.123Z",
-	}))
 
 	require.Eventually(t, func() bool {
 		snapshot, err := svc.Snapshot(context.Background(), "agent-1")

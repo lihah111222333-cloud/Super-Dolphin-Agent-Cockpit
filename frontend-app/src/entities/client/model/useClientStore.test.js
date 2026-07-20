@@ -969,6 +969,63 @@ function registerBridgeEventHandlersForTest() {
     await expect(switchPromise).resolves.toBe(true);
   });
 
+  it('invalidates assistant buffers on a CWD switch before timer or stale patch flushes can repopulate the chat', async () => {
+    vi.useFakeTimers();
+    try {
+      const projectChange = deferred();
+      const sidebarRefresh = deferred();
+      resetClientStoreForTests({
+        cwd: '/repo/app',
+        projectScopeCwd: '/repo/app',
+        activeProject: '/repo/app',
+        projects: ['/repo/app', '/repo/other'],
+        activeThreadId: 'thread-old',
+        threads: [{ id: 'thread-old', name: 'Old project thread', provider: 'codex', status: 'running' }],
+        timelinesByThread: { 'thread-old': [] },
+      });
+      backend.setActiveProject.mockReturnValue(projectChange.promise);
+      backend.getSidebarState.mockReturnValue(sidebarRefresh.promise);
+      registerBridgeEventHandlersForTest();
+
+      bridgeCallback({
+        type: 'turn/output/delta',
+        payload: {
+          cwd: '/repo/app',
+          threadId: 'thread-old',
+          turnId: 'turn-old',
+          itemId: 'old-partial',
+          delta: 'old project content',
+        },
+      });
+
+      const switchPromise = useClientStore.getState().setActiveProjectPath('/repo/other');
+      await Promise.resolve();
+      bridgeCallback({
+        type: 'ui/thread/patch',
+        payload: {
+          cwd: '/repo/app',
+          threadId: 'thread-old',
+          sequence: '1',
+          activeTurn: { id: 'turn-old', status: 'running' },
+        },
+      });
+      await flushAssistantDeltaBatch();
+
+      expect(useClientStore.getState()).toEqual(expect.objectContaining({
+        activeProject: '/repo/other',
+        activeThreadId: '',
+        timelinesByThread: {},
+      }));
+      expect(JSON.stringify(useClientStore.getState())).not.toContain('old project content');
+
+      sidebarRefresh.resolve({ activeThreadId: '', threads: [] });
+      projectChange.resolve({ projects: ['/repo/app', '/repo/other'], active: '/repo/other' });
+      await expect(switchPromise).resolves.toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('publishes a safe notice and Health diagnostic when project session refresh fails', async () => {
     const bearerSecret = 'Bearer sk-frontend-session-refresh-secret-123456';
     const projectChange = deferred();
@@ -6968,6 +7025,84 @@ function registerBridgeEventHandlersForTest() {
       ]));
       expect(state.actionNotice).toEqual(expect.objectContaining({ message: '已收到回复', tone: 'success' }));
       expect(state.warningEntries).toEqual([]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('retires a pending T1 terminal for an authoritative T2 patch while keeping T1 late events tombstoned', async () => {
+    vi.useFakeTimers();
+    try {
+      resetClientStoreForTests({
+        cwd: '/repo/app',
+        activeProject: '/repo/app',
+        activeThreadId: 'thread-1',
+        timelinesByThread: { 'thread-1': [] },
+      });
+      registerBridgeEventHandlersForTest();
+
+      bridgeCallback({
+        type: 'turn/terminal',
+        payload: {
+          schemaVersion: 2,
+          eventId: 'terminal-pending-t1',
+          threadId: 'thread-1',
+          turnId: 'turn-1',
+          outcome: 'failed',
+          publicError: {
+            code: 'PROVIDER_FAILED',
+            title: 'Provider failed',
+            message: 'T1 failed before its partial output arrived',
+            diagnosticId: 'diag-pending-t1',
+            retryable: false,
+            recoveryActions: [],
+          },
+          partialItemIds: ['t1-partial'],
+          occurredAt: '2026-07-21T01:00:00Z',
+        },
+      });
+      bridgeCallback({
+        type: 'ui/thread/patch',
+        payload: {
+          threadId: 'thread-1',
+          sequence: '1',
+          status: 'running',
+          activeTurn: { id: 'turn-2', status: 'running' },
+        },
+      });
+      bridgeCallback({
+        type: 'turn/output/delta',
+        payload: { threadId: 'thread-1', turnId: 'turn-2', itemId: 't2-partial', delta: 'T2 partial' },
+      });
+      bridgeCallback({
+        type: 'turn/terminal',
+        payload: {
+          schemaVersion: 2,
+          eventId: 'terminal-t2',
+          threadId: 'thread-1',
+          turnId: 'turn-2',
+          outcome: 'success',
+          occurredAt: '2026-07-21T01:00:01Z',
+        },
+      });
+      bridgeCallback({
+        type: 'turn/output/delta',
+        payload: { threadId: 'thread-1', turnId: 'turn-1', itemId: 't1-late', delta: 'late T1 content' },
+      });
+      await flushAssistantDeltaBatch();
+
+      const state = useClientStore.getState();
+      expect(state.timelinesByThread['thread-1']).toEqual(expect.arrayContaining([
+        expect.objectContaining({ id: 't2-partial', text: 'T2 partial', done: true, turnId: 'turn-2' }),
+        expect.objectContaining({ kind: 'turn_terminal', turnId: 'turn-2', terminalOutcome: 'success' }),
+      ]));
+      expect(state.timelinesByThread['thread-1']).not.toEqual(expect.arrayContaining([
+        expect.objectContaining({ kind: 'turn_terminal', turnId: 'turn-1' }),
+        expect.objectContaining({ text: 'late T1 content' }),
+      ]));
+      expect(state.warningEntries).toEqual(expect.arrayContaining([
+        expect.objectContaining({ event: 'turn.event.late', fields: expect.objectContaining({ turn_id: 'turn-1' }) }),
+      ]));
     } finally {
       vi.useRealTimers();
     }

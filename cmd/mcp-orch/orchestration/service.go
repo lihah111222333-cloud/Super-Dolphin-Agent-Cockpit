@@ -167,6 +167,9 @@ type turnController struct {
 	remoteTerminalEvictions         uint64
 	remoteTerminalLifecycleClears   uint64
 	remoteTerminalLifecycleDeferred uint64
+	pendingRemoteTurnSubmits        map[remoteTurnSubmitRef][]turndto.TurnTerminalV2
+	pendingRemoteTerminalCount      int
+	pendingRemoteTerminalCapacity   int
 }
 
 func newTurnController(deps turnControllerDeps) *turnController {
@@ -677,7 +680,11 @@ func (s *service) SubmitTurn(ctx context.Context, req TurnSubmission) error {
 	if s == nil || s.turns == nil {
 		return errors.New("turn controller is not configured")
 	}
-	return s.turns.SubmitTurn(ctx, req)
+	terminals, err := s.turns.SubmitTurn(ctx, req)
+	for _, terminal := range terminals {
+		s.handleRemoteTurnTerminal(ctx, terminal)
+	}
+	return err
 }
 
 // ListAgents 合并内存 runtime 和持久化 thread 快照后排序返回。

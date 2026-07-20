@@ -111,8 +111,8 @@ function attachBridgePatchRuntime(runtime) {
   const { set, bridgeThreadIdForPayload, reconcileObservedTurnWithActiveTurn } = runtime;
   const { sequencesByThread, patchGenerationsByThread } = runtime;
 
-  const applyBridgePatch = (method, payload) => {
-    const threadId = bridgeThreadIdForPayload(payload);
+  const applyBridgePatch = (method, payload, knownThreadId = '') => {
+    const threadId = knownThreadId || bridgeThreadIdForPayload(payload);
     if (!threadId) return;
 
     const generation = normalizeString(payload.generation || payload.epoch);
@@ -198,8 +198,10 @@ function attachBridgeEventRuntime(runtime) {
       return;
     }
     if (method === 'ui/thread/patch') {
+      const threadId = bridgeThreadIdForPayload(payload);
+      if (!threadId) return;
       flushAssistantDeltasNow();
-      applyBridgePatch(method, payload);
+      applyBridgePatch(method, payload, threadId);
       return;
     }
     if (isAssistantMessageDeltaEvent(eventName, payload)) {

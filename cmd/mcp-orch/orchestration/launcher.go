@@ -541,8 +541,7 @@ func (s *service) handleRemoteTurnTerminal(ctx context.Context, terminal turndto
 		pkglogger.Warn("orchestration: remote terminal owner lookup failed", "thread_id", terminal.ThreadID, "turn_id", terminal.TurnID, "error", err)
 		return
 	}
-	if !s.registry.remoteTerminalTargetsCurrentTurn(ownerAgentID, terminal.TurnID) {
-		pkglogger.Info("orchestration: stale remote terminal ignored after target changed", "agent_id", ownerAgentID, "thread_id", terminal.ThreadID, "turn_id", terminal.TurnID)
+	if !s.routeRemoteTurnTerminal(ownerAgentID, terminal) {
 		return
 	}
 	acceptance, err := s.turns.acceptRemoteTurnTerminal(terminal)
@@ -564,6 +563,23 @@ func (s *service) handleRemoteTurnTerminal(ctx context.Context, terminal turndto
 		return
 	}
 	s.handleRemoteTurnCompleted(ctx, ev)
+}
+
+// routeRemoteTurnTerminal 按当前 active turn 或受限的启动期缓冲决定是否接收远端终态。
+func (s *service) routeRemoteTurnTerminal(ownerAgentID string, terminal turndto.TurnTerminalV2) bool {
+	deliver, buffered, routeErr := s.turns.routeRemoteTurnTerminal(ownerAgentID, terminal)
+	if routeErr != nil {
+		pkglogger.Warn("orchestration: remote terminal reconciliation rejected", "agent_id", ownerAgentID, "thread_id", terminal.ThreadID, "turn_id", terminal.TurnID, "error", routeErr)
+		return false
+	}
+	if buffered {
+		return false
+	}
+	if !deliver {
+		pkglogger.Info("orchestration: stale remote terminal ignored after target changed", "agent_id", ownerAgentID, "thread_id", terminal.ThreadID, "turn_id", terminal.TurnID)
+		return false
+	}
+	return true
 }
 
 type remoteTerminalTurnRef struct {

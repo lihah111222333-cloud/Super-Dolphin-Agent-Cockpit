@@ -15,7 +15,10 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
-import { DESKTOP_FAILURE_SOURCE_PATHS } from './desktop-failure-smoke.mjs';
+import {
+  DESKTOP_FAILURE_REPORT_REQUIREMENTS,
+  DESKTOP_FAILURE_SOURCE_PATHS,
+} from './desktop-failure-contract.mjs';
 import { runManagedCommand } from './managed-command.mjs';
 import { DELIVERY_RUNNER_CONTENT_PATHS } from './delivery-smoke-runner.mjs';
 import { FROZEN_T04_T05_EXECUTION_CLOSURE_PATHS } from './frontend-execution-closure.mjs';
@@ -80,6 +83,7 @@ const addedGovernancePaths = [
   'internal/provider/codexapp/failure_matrix_test.go',
   'internal/provider/claudecli/failure_matrix_test.go',
   'internal/module/turn/interrupt_rpc_test.go',
+  'frontend-app/scripts/desktop-failure-contract.mjs',
   'frontend-app/scripts/desktop-failure-smoke.mjs',
   'frontend-app/tests/e2e/desktop-failure.spec.js',
   'frontend-app/playwright.failure.config.js',
@@ -583,8 +587,8 @@ function desktopFailureEvidence(context, overrides = {}) {
       vite: { argv: ['npm', 'run', 'dev'], cwd: 'frontend-app', exitCode: null, signal: 'SIGTERM', outputSha256: 'd'.repeat(64) },
     },
     cases: [
-      caseEvidence('terminal-failed', ['claudecli.raw', 'claudecli.adapter', 'turndto.TurnOutputDelta', 'wails.EventBridge', 'chromium.DOM', 'codexapp.raw', 'codexapp.adapter', 'turndto.TurnCompleted', 'turn/terminal', 'chromium.DOM'], ['partial-response-visible', 'safe-terminal-visible', 'raw-secret-absent', 'raw-private-path-absent', 'raw-stack-absent', 'legacy-remote-copy-absent']),
-      caseEvidence('prompt-history-reject', ['wails.rpc', 'thread/promptHistory', 'frontend.action', 'chromium.DOM', 'retry.control', 'wails.rpc', 'chromium.DOM'], ['draft-preserved', 'cursor-preserved', 'retry-click-recovers']),
+      caseEvidence('terminal-failed', DESKTOP_FAILURE_REPORT_REQUIREMENTS['terminal-failed'].hops, DESKTOP_FAILURE_REPORT_REQUIREMENTS['terminal-failed'].domAssertions),
+      caseEvidence('prompt-history-reject', DESKTOP_FAILURE_REPORT_REQUIREMENTS['prompt-history-reject'].hops, DESKTOP_FAILURE_REPORT_REQUIREMENTS['prompt-history-reject'].domAssertions),
     ],
     ...overrides,
   };
@@ -1003,7 +1007,7 @@ describe('frontend maintainability scorer configuration', () => {
     delete missingDesktopSources.controls.controls.find(({ id }) => id === 'T03-wails-integration')
       .allOf.find(({ probe }) => probe === 'desktopFailureSmoke').sourcePaths;
     expect(() => validateConfiguration(missingDesktopSources.controls, missingDesktopSources.fixtures))
-      .toThrow('desktop failure smoke report contract differs from frozen contract');
+      .toThrow('desktop failure smoke sourcePaths differs from frozen contract');
 
     const mutablePerformanceCLI = documents();
     mutablePerformanceCLI.controls.controls.find(({ id }) => id === 'P02-history-budget')
@@ -1039,6 +1043,7 @@ describe('frontend maintainability scorer configuration', () => {
     const desktopFailureCheck = controls.controls.find(({ id }) => id === 'T03-wails-integration')
       .allOf.find(({ probe }) => probe === 'desktopFailureSmoke');
     expect(desktopFailureCheck.sourcePaths).toEqual(DESKTOP_FAILURE_SOURCE_PATHS);
+    expect(FROZEN_T04_T05_EXECUTION_CLOSURE_PATHS).toContain('frontend-app/scripts/desktop-failure-contract.mjs');
     expect(JSON.stringify(controls)).not.toContain('notImplemented');
     expect(JSON.stringify(controls)).not.toMatch(/frontend-[a-z-]+-evidence\.mjs/u);
     expect(controls.controls.find(({ id }) => id === 'E06-failure-matrix').allOf[0].argv)
@@ -1935,13 +1940,18 @@ describe('executable evidence registry', () => {
 
   it('accepts source-hashed T03 v2 evidence while retaining v1-only validation for other runners', () => {
     const { controls } = documents();
-    const context = inspectTargetRepository();
+    const target = createFinalContractTarget();
+    const context = inspectTargetRepository({
+      repoRoot: target.repoRoot,
+      subjectSha: target.subjectSha,
+      requireClean: true,
+    });
     const now = Date.now();
     const t03Control = controls.controls.find(({ id }) => id === 'T03-wails-integration');
     const t03Check = t03Control.allOf.find(({ evidenceProtocol }) => evidenceProtocol === 'desktop-failure-report-v1');
     const t03Options = { context, control: t03Control, check: t03Check, startedAt: now - 100, finishedAt: now + 100 };
     const t03Report = desktopFailureEvidence(context);
-    expect(DESKTOP_FAILURE_SOURCE_PATHS).toHaveLength(10);
+    expect(DESKTOP_FAILURE_SOURCE_PATHS).toHaveLength(11);
     expect(Object.isFrozen(DESKTOP_FAILURE_SOURCE_PATHS)).toBe(true);
     expect(structuredEvidenceStatus(t03Report, t03Options)).toBe('PASS');
     expect(structuredEvidenceStatus({ ...t03Report, schemaVersion: 1 }, t03Options)).toBe('FAIL');
@@ -1953,6 +1963,17 @@ describe('executable evidence registry', () => {
           : entry
       )),
     }, t03Options)).toBe('FAIL');
+    expect(structuredEvidenceStatus({
+      ...t03Report,
+      cases: t03Report.cases.map((entry) => (
+        entry.caseId === 'prompt-history-reject'
+          ? { ...entry, domAssertions: [...entry.domAssertions, 'unfrozen-assertion'] }
+          : entry
+      )),
+    }, t03Options)).toBe('FAIL');
+    const missingContractSource = structuredClone(t03Report);
+    delete missingContractSource.sourceHashes['frontend-app/scripts/desktop-failure-contract.mjs'];
+    expect(structuredEvidenceStatus(missingContractSource, t03Options)).toBe('FAIL');
 
     const t01Control = controls.controls.find(({ id }) => id === 'T01-red-green-regression');
     const t01Check = t01Control.allOf.find(({ evidenceProtocol }) => evidenceProtocol === 'failure-matrix-report-v1');

@@ -22,12 +22,16 @@ function drainAssistantDeltaEntries(runtime, deps, turnRef) {
   if (runtime.assistantDeltaBuffers.size === 0) return null;
   const entries = [];
   for (const [key, entry] of runtime.assistantDeltaBuffers.entries()) {
+    if (entry.scopeEpoch !== runtime.assistantEventScopeEpoch) {
+      runtime.assistantDeltaBuffers.delete(key);
+      continue;
+    }
     if (!entryMatchesTurnRef(entry, turnRef)) continue;
     entries.push(entry);
     runtime.assistantDeltaBuffers.delete(key);
   }
-  if (entries.length === 0) return null;
   if (runtime.assistantDeltaBuffers.size === 0) runtime.clearAssistantDeltaFlushTimer();
+  if (entries.length === 0) return null;
   return {
     entries,
     flushTime: deps.clockNowISO(),
@@ -110,7 +114,9 @@ function flushAssistantDeltaBuffers(runtime, deps, turnRef) {
 
 function scheduleAssistantDeltaFlush(runtime, deps) {
   if (runtime.assistantDeltaFlushTimer) return;
+  const scopeEpoch = runtime.assistantEventScopeEpoch;
   runtime.assistantDeltaFlushTimer = setTimeout(() => {
+    if (scopeEpoch !== runtime.assistantEventScopeEpoch) return;
     runtime.assistantDeltaFlushTimer = null;
     flushAssistantDeltaBuffers(runtime, deps);
   }, deps.ASSISTANT_DELTA_FLUSH_MS);
@@ -129,6 +135,7 @@ function setAssistantDeltaBuffer(runtime, method, entry) {
     method: existing?.method || method,
     delta: appendAssistantDeltaText(existing?.delta, entry.delta),
     timestamp: existing?.timestamp || entry.timestamp,
+    scopeEpoch: runtime.assistantEventScopeEpoch,
   });
 }
 
@@ -188,6 +195,16 @@ function observedTurnRefEvictable(runtime, deps, turnRef) {
   return runtime.turnTerminalStates.get(runtimeTurnRefKey(turnRef.threadId, turnRef.turnId))?.status !== 'pending';
 }
 
+function retirePendingObservedTurnForActiveTurn(runtime, deps, observedTurnRef, activeTurnRef) {
+  const observedKey = runtimeTurnRefKey(observedTurnRef.threadId, observedTurnRef.turnId);
+  if (runtime.turnTerminalStates.get(observedKey)?.status !== 'pending') return false;
+  if (!turnRefIsActive(runtime, deps, activeTurnRef)) return false;
+  if (!retainRetiredTurnRef(runtime, deps, observedTurnRef)) return false;
+  runtime.turnTerminalStates.delete(observedKey);
+  runtime.observedTurnByThread.delete(observedTurnRef.threadId);
+  return true;
+}
+
 function retainRetiredTurnRef(runtime, deps, turnRef) {
   const key = runtimeTurnRefKey(turnRef.threadId, turnRef.turnId);
   if (runtime.retiredTurnRefs.has(key)) return true;
@@ -224,12 +241,17 @@ function trackObservedTurn(runtime, deps, event, method, turnRef) {
   }
   if (observedTurnId) {
     const observedTurnRef = { threadId: turnRef.threadId, turnId: observedTurnId };
-    if (!observedTurnRefEvictable(runtime, deps, observedTurnRef)
-      || !retainRetiredTurnRef(runtime, deps, observedTurnRef)) {
+    if (!observedTurnRefEvictable(runtime, deps, observedTurnRef)) {
+      if (!retirePendingObservedTurnForActiveTurn(runtime, deps, observedTurnRef, turnRef)) {
+        return rejectTerminalCacheCapacity(runtime, deps, event, method, turnRef);
+      }
+    } else if (!retainRetiredTurnRef(runtime, deps, observedTurnRef)) {
       return rejectTerminalCacheCapacity(runtime, deps, event, method, turnRef);
     }
-    runtime.turnTerminalStates.delete(runtimeTurnRefKey(turnRef.threadId, observedTurnId));
-    runtime.observedTurnByThread.delete(turnRef.threadId);
+    if (runtime.observedTurnByThread.get(turnRef.threadId) === observedTurnId) {
+      runtime.turnTerminalStates.delete(runtimeTurnRefKey(turnRef.threadId, observedTurnId));
+      runtime.observedTurnByThread.delete(turnRef.threadId);
+    }
   }
   runtime.observedTurnByThread.set(turnRef.threadId, turnRef.turnId);
   return true;
@@ -547,6 +569,15 @@ export function clearTurnRuntimeForThread(runtime, threadId) {
   runtime.observedTurnByThread.delete(threadId);
 }
 
+function invalidateAssistantEventRuntime(runtime) {
+  runtime.assistantEventScopeEpoch += 1;
+  runtime.assistantDeltaBuffers.clear();
+  runtime.turnTerminalStates.clear();
+  runtime.observedTurnByThread.clear();
+  runtime.retiredTurnRefs.clear();
+  runtime.clearAssistantDeltaFlushTimer();
+}
+
 function relatedThreadTimelineKeys(state, threadId, deps) {
   const keys = new Set([threadId]);
   const addKey = (value) => {
@@ -576,6 +607,7 @@ export function attachAssistantEventRuntime(runtime, deps) {
     enqueueReasoningDelta: (method, payload) => enqueueReasoningDelta(runtime, method, payload, deps),
     enqueueCommandOutputDelta: (method, payload) => enqueueCommandOutputDelta(runtime, method, payload, deps),
     clearTurnRuntimeForThread: (threadId) => clearTurnRuntimeForThread(runtime, threadId),
+    invalidateAssistantEventRuntime: () => invalidateAssistantEventRuntime(runtime),
     getTurnTerminalCacheStats: () => terminalCacheStats(runtime),
     reconcileObservedTurnWithActiveTurn: (threadId) => reconcileObservedTurnWithActiveTurn(runtime, threadId, deps),
     finalizeActiveAssistantMessages: (turnRef) => finalizeActiveAssistantMessages(runtime, turnRef, deps),

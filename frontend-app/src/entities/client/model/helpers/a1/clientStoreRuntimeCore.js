@@ -92,6 +92,7 @@ function createClientStoreRuntime(set, get, { getPreference }) {
     observedTurnByThread: new Map(),
     retiredTurnRefs: new Map(),
     assistantDeltaFlushTimer: null,
+    assistantEventScopeEpoch: 0,
     sidebarRefreshSeq: 0,
     bootstrapRetryAfterReconnect: false,
   };
@@ -261,6 +262,7 @@ function attachScopeRuntime(runtime) {
   const clearChatSurfaceForCwdSwitch = (cwdValue = '', options = {}) => {
     const cwd = normalizePath(cwdValue);
     const preserveActiveThreadId = options.preserveActiveThreadId === true;
+    runtime.invalidateAssistantEventRuntime();
     sequencesByThread.clear();
     patchGenerationsByThread.clear();
     threadMessageGenerations.clear();

@@ -7,6 +7,12 @@ import process from 'node:process';
 import { fileURLToPath } from 'node:url';
 import { FROZEN_T04_T05_EXECUTION_CLOSURE_PATHS } from './frontend-execution-closure.mjs';
 import {
+  DESKTOP_FAILURE_CASE_IDS,
+  DESKTOP_FAILURE_REPORT_REQUIREMENTS,
+  DESKTOP_FAILURE_SMOKE_COMMAND,
+  DESKTOP_FAILURE_SOURCE_PATHS,
+} from './desktop-failure-contract.mjs';
+import {
   assertPerformanceBaselineProvenance,
   isAllowedPerformanceBaselinePath,
 } from './performance-baseline-provenance.mjs';
@@ -1008,25 +1014,8 @@ function validateDesktopFailureReport(report, { context, control, check, started
     fail('desktop failure execution evidence is incomplete');
   }
   if (!Array.isArray(report.cases) || report.cases.length !== check.caseIds.length) fail('desktop failure summary-only report is forbidden');
-  const requiredEvidence = {
-    'terminal-failed': {
-      hops: ['claudecli.raw', 'claudecli.adapter', 'turndto.TurnOutputDelta', 'wails.EventBridge', 'chromium.DOM', 'codexapp.raw', 'codexapp.adapter', 'turndto.TurnCompleted', 'turn/terminal', 'chromium.DOM'],
-      domAssertions: [
-        'partial-response-visible',
-        'safe-terminal-visible',
-        'raw-secret-absent',
-        'raw-private-path-absent',
-        'raw-stack-absent',
-        'legacy-remote-copy-absent',
-      ],
-    },
-    'prompt-history-reject': {
-      hops: ['wails.rpc', 'thread/promptHistory', 'frontend.action', 'chromium.DOM', 'retry.control', 'wails.rpc', 'chromium.DOM'],
-      domAssertions: ['draft-preserved', 'cursor-preserved', 'retry-click-recovers'],
-    },
-  };
   for (const [index, evidence] of report.cases.entries()) {
-    const expectedEvidence = requiredEvidence[check.caseIds[index]];
+    const expectedEvidence = DESKTOP_FAILURE_REPORT_REQUIREMENTS[check.caseIds[index]];
     if (evidence?.caseId !== check.caseIds[index] || evidence.result !== 'GREEN'
       || JSON.stringify(evidence.command) !== JSON.stringify(check.argv)
       || JSON.stringify(evidence.hops) !== JSON.stringify(expectedEvidence.hops)
@@ -2446,8 +2435,9 @@ function validateStructuredCheck(control, check) {
     if (control.id !== 'T03-wails-integration' || check.probe !== 'desktopFailureSmoke') {
       fail(`invalid desktop failure smoke control: ${control.id}`);
     }
-    exact(check.argv, ['node', 'scripts/desktop-failure-smoke.mjs'], 'desktop failure smoke argv');
-    exact(check.caseIds, ['terminal-failed', 'prompt-history-reject'], 'desktop failure smoke caseIds');
+    exact(check.argv, DESKTOP_FAILURE_SMOKE_COMMAND, 'desktop failure smoke argv');
+    exact(check.caseIds, DESKTOP_FAILURE_CASE_IDS, 'desktop failure smoke caseIds');
+    exact(check.sourcePaths, DESKTOP_FAILURE_SOURCE_PATHS, 'desktop failure smoke sourcePaths');
     if (check.reportPath !== '.tmp/desktop-failure-smoke/report.json' || check.testCount !== 2
       || !Array.isArray(check.sourcePaths) || check.sourcePaths.length === 0
       || new Set(check.sourcePaths).size !== check.sourcePaths.length

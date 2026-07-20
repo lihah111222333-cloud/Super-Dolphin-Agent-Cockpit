@@ -7,22 +7,18 @@ import path from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 import { chromium } from '@playwright/test';
+import {
+  DESKTOP_FAILURE_CASE_IDS,
+  DESKTOP_FAILURE_REPORT_REQUIREMENTS,
+  DESKTOP_FAILURE_SMOKE_COMMAND,
+  DESKTOP_FAILURE_SOURCE_PATHS,
+} from './desktop-failure-contract.mjs';
+
+export { DESKTOP_FAILURE_SOURCE_PATHS } from './desktop-failure-contract.mjs';
 
 const DEFAULT_BACKEND_ADDR = '127.0.0.1:4514';
 const DEFAULT_VITE_URL = 'http://127.0.0.1:5178';
 const DEFAULT_TIMEOUT_MS = 180000;
-export const DESKTOP_FAILURE_SOURCE_PATHS = Object.freeze([
-  'frontend-app/scripts/desktop-failure-smoke.mjs',
-  'frontend-app/tests/e2e/desktop-failure.spec.js',
-  'frontend-app/playwright.failure.config.js',
-  'frontend-app/package.json',
-  'frontend-app/src/shared/api/wailsBridge.js',
-  'internal/ui/wails/testdata/failure_smoke_host/main.go',
-  'internal/provider/claudecli/event_map.go',
-  'internal/provider/codexapp/event_map.go',
-  'internal/provider/unified/event_map.go',
-  'internal/ui/wails/bridge.go',
-]);
 
 export const DESKTOP_FAILURE_CASES = Object.freeze([
   Object.freeze({
@@ -43,20 +39,10 @@ export const DESKTOP_FAILURE_CASES = Object.freeze([
   }),
 ]);
 
-const DESKTOP_FAILURE_REPORT_REQUIREMENTS = Object.freeze({
-  'terminal-failed': Object.freeze({
-    hops: Object.freeze(['claudecli.raw', 'claudecli.adapter', 'turndto.TurnOutputDelta', 'wails.EventBridge', 'chromium.DOM', 'codexapp.raw', 'codexapp.adapter', 'turndto.TurnCompleted', 'turn/terminal', 'chromium.DOM']),
-    domAssertions: Object.freeze(['partial-response-visible', 'safe-terminal-visible', 'raw-secret-absent', 'raw-private-path-absent', 'raw-stack-absent', 'legacy-remote-copy-absent']),
-  }),
-  'prompt-history-reject': Object.freeze({
-    hops: Object.freeze(['wails.rpc', 'thread/promptHistory', 'frontend.action', 'chromium.DOM', 'retry.control', 'wails.rpc', 'chromium.DOM']),
-    domAssertions: Object.freeze(['draft-preserved', 'cursor-preserved', 'retry-click-recovers']),
-  }),
-});
-
 export function validateDesktopFailureCases(cases = DESKTOP_FAILURE_CASES) {
   const ids = cases.map((entry) => entry.caseId);
-  if (ids.length !== 2 || new Set(ids).size !== 2 || ids[0] !== 'terminal-failed' || ids[1] !== 'prompt-history-reject') {
+  if (ids.length !== DESKTOP_FAILURE_CASE_IDS.length || new Set(ids).size !== ids.length
+    || ids.some((caseId, index) => caseId !== DESKTOP_FAILURE_CASE_IDS[index])) {
     throw new Error(`desktop failure caseIds exact diff failed: ${JSON.stringify(ids)}`);
   }
   const terminal = cases[0];
@@ -180,9 +166,9 @@ async function buildDesktopFailureReport(config, gitImpl, executions) {
     subjectTreeSha: (await git(['rev-parse', 'HEAD^{tree}'])).trim(),
     controlId: 'T03-wails-integration',
     cwd: config.repoRoot,
-    argv: ['node', 'scripts/desktop-failure-smoke.mjs'],
-    caseIds: ['terminal-failed', 'prompt-history-reject'],
-    testCount: 2,
+    argv: DESKTOP_FAILURE_SMOKE_COMMAND,
+    caseIds: DESKTOP_FAILURE_CASE_IDS,
+    testCount: DESKTOP_FAILURE_CASE_IDS.length,
     status: 'covered',
     blockedCases: [],
     sourceHashes,
@@ -246,7 +232,7 @@ function playwrightCaseResults(output) {
     for (const child of suite.suites || []) walk(child);
   };
   for (const suite of report.suites || []) walk(suite);
-  if (cases.length !== DESKTOP_FAILURE_CASES.length || cases.some(({ status }) => status !== 'passed')) {
+  if (cases.length !== DESKTOP_FAILURE_CASE_IDS.length || cases.some(({ status }) => status !== 'passed')) {
     throw new Error('Playwright desktop failure cases did not produce two passed results');
   }
   return cases;
@@ -315,7 +301,7 @@ export function validateDesktopFailureReport(report) {
   for (const [index, evidence] of report.cases.entries()) {
     const requirement = DESKTOP_FAILURE_REPORT_REQUIREMENTS[expected[index]];
     if (evidence?.caseId !== expected[index] || evidence.result !== 'GREEN'
-      || JSON.stringify(evidence.command) !== JSON.stringify(['node', 'scripts/desktop-failure-smoke.mjs'])
+      || JSON.stringify(evidence.command) !== JSON.stringify(DESKTOP_FAILURE_SMOKE_COMMAND)
       || JSON.stringify(evidence.hops) !== JSON.stringify(requirement.hops)
       || JSON.stringify(evidence.domAssertions) !== JSON.stringify(requirement.domAssertions)
       || !Array.isArray(evidence.secretAssertions) || evidence.secretAssertions.length !== 2

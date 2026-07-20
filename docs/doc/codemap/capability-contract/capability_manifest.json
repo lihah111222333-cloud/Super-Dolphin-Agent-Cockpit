@@ -140,7 +140,7 @@
         "cmd/mcp-orch/orchestration.*agentRegistry.rLock",
         "cmd/mcp-orch/orchestration.*agentRegistry.rUnlock",
         "cmd/mcp-orch/orchestration.*agentRegistry.rekeyLaunchedAgentLocked",
-        "cmd/mcp-orch/orchestration.*agentRegistry.remoteTerminalTargetsCurrentTurn",
+        "cmd/mcp-orch/orchestration.*agentRegistry.remoteTerminalTargetTurnIDLocked",
         "cmd/mcp-orch/orchestration.*agentRegistry.requestedAgentLaunchInProgressLocked",
         "cmd/mcp-orch/orchestration.*agentRegistry.runtimeAgentSnapshots",
         "cmd/mcp-orch/orchestration.*agentRegistry.stoppedHookThreadSuppressed",
@@ -403,6 +403,7 @@
         "cmd/mcp-orch/orchestration.*service.rekeyLaunchedAgentLocked",
         "cmd/mcp-orch/orchestration.*service.resolveAwaitingUserInput",
         "cmd/mcp-orch/orchestration.*service.resolvePersistedArchiveTarget",
+        "cmd/mcp-orch/orchestration.*service.routeRemoteTurnTerminal",
         "cmd/mcp-orch/orchestration.*service.runnerLifecycleController",
         "cmd/mcp-orch/orchestration.*service.runtimeForkParentForLaunch",
         "cmd/mcp-orch/orchestration.*service.setStateChangedFallbackReportLocked",
@@ -437,7 +438,9 @@
         "cmd/mcp-orch/orchestration.*turnController.SubmitTurn",
         "cmd/mcp-orch/orchestration.*turnController.acceptRemoteTurnTerminal",
         "cmd/mcp-orch/orchestration.*turnController.agentRunningLocked",
+        "cmd/mcp-orch/orchestration.*turnController.beginRemoteTurnSubmit",
         "cmd/mcp-orch/orchestration.*turnController.canSubmitViaLauncher",
+        "cmd/mcp-orch/orchestration.*turnController.cancelRemoteTurnSubmit",
         "cmd/mcp-orch/orchestration.*turnController.claimTurnWork",
         "cmd/mcp-orch/orchestration.*turnController.clearRemoteTerminalsForThread",
         "cmd/mcp-orch/orchestration.*turnController.enqueueLocalTurnSubmission",
@@ -455,6 +458,7 @@
         "cmd/mcp-orch/orchestration.*turnController.interruptTurn",
         "cmd/mcp-orch/orchestration.*turnController.log",
         "cmd/mcp-orch/orchestration.*turnController.markAwaitingUserInput",
+        "cmd/mcp-orch/orchestration.*turnController.pendingRemoteTerminalLimitLocked",
         "cmd/mcp-orch/orchestration.*turnController.prepareInterruptAgent",
         "cmd/mcp-orch/orchestration.*turnController.prepareRemoteTurnSubmit",
         "cmd/mcp-orch/orchestration.*turnController.reconcileReadyStateLocked",
@@ -463,8 +467,10 @@
         "cmd/mcp-orch/orchestration.*turnController.remoteTerminalSealStats",
         "cmd/mcp-orch/orchestration.*turnController.remoteTerminalSealStatsLocked",
         "cmd/mcp-orch/orchestration.*turnController.resolveAwaitingUserInput",
+        "cmd/mcp-orch/orchestration.*turnController.routeRemoteTurnTerminal",
         "cmd/mcp-orch/orchestration.*turnController.startTurnExecution",
         "cmd/mcp-orch/orchestration.*turnController.submitAgentReadyState",
+        "cmd/mcp-orch/orchestration.*turnController.takePendingRemoteTerminalsLocked",
         "cmd/mcp-orch/orchestration.*turnController.trySubmitRemoteTurn",
         "cmd/mcp-orch/orchestration.*turnController.turnIDFor",
         "cmd/mcp-orch/orchestration.*turnController.turnTerminalConverged",
@@ -953,6 +959,7 @@
         "cmd/mcp-orch/orchestration.remoteTerminalTruth",
         "cmd/mcp-orch/orchestration.remoteTerminalTurnRef",
         "cmd/mcp-orch/orchestration.remoteTurnSubmitAttempt",
+        "cmd/mcp-orch/orchestration.remoteTurnSubmitRef",
         "cmd/mcp-orch/orchestration.replayRecoveredTurn",
         "cmd/mcp-orch/orchestration.reportApplier",
         "cmd/mcp-orch/orchestration.reportApplier.applyReportEventLocked",
@@ -4805,7 +4812,7 @@
         "cmd/mcp-orch/orchestration.*agentRegistry.rLock",
         "cmd/mcp-orch/orchestration.*agentRegistry.rUnlock",
         "cmd/mcp-orch/orchestration.*agentRegistry.rekeyLaunchedAgentLocked",
-        "cmd/mcp-orch/orchestration.*agentRegistry.remoteTerminalTargetsCurrentTurn",
+        "cmd/mcp-orch/orchestration.*agentRegistry.remoteTerminalTargetTurnIDLocked",
         "cmd/mcp-orch/orchestration.*agentRegistry.requestedAgentLaunchInProgressLocked",
         "cmd/mcp-orch/orchestration.*agentRegistry.runtimeAgentSnapshots",
         "cmd/mcp-orch/orchestration.*agentRegistry.stoppedHookThreadSuppressed",
@@ -5068,6 +5075,7 @@
         "cmd/mcp-orch/orchestration.*service.rekeyLaunchedAgentLocked",
         "cmd/mcp-orch/orchestration.*service.resolveAwaitingUserInput",
         "cmd/mcp-orch/orchestration.*service.resolvePersistedArchiveTarget",
+        "cmd/mcp-orch/orchestration.*service.routeRemoteTurnTerminal",
         "cmd/mcp-orch/orchestration.*service.runnerLifecycleController",
         "cmd/mcp-orch/orchestration.*service.runtimeForkParentForLaunch",
         "cmd/mcp-orch/orchestration.*service.setStateChangedFallbackReportLocked",
@@ -5102,7 +5110,9 @@
         "cmd/mcp-orch/orchestration.*turnController.SubmitTurn",
         "cmd/mcp-orch/orchestration.*turnController.acceptRemoteTurnTerminal",
         "cmd/mcp-orch/orchestration.*turnController.agentRunningLocked",
+        "cmd/mcp-orch/orchestration.*turnController.beginRemoteTurnSubmit",
         "cmd/mcp-orch/orchestration.*turnController.canSubmitViaLauncher",
+        "cmd/mcp-orch/orchestration.*turnController.cancelRemoteTurnSubmit",
         "cmd/mcp-orch/orchestration.*turnController.claimTurnWork",
         "cmd/mcp-orch/orchestration.*turnController.clearRemoteTerminalsForThread",
         "cmd/mcp-orch/orchestration.*turnController.enqueueLocalTurnSubmission",
@@ -5120,6 +5130,7 @@
         "cmd/mcp-orch/orchestration.*turnController.interruptTurn",
         "cmd/mcp-orch/orchestration.*turnController.log",
         "cmd/mcp-orch/orchestration.*turnController.markAwaitingUserInput",
+        "cmd/mcp-orch/orchestration.*turnController.pendingRemoteTerminalLimitLocked",
         "cmd/mcp-orch/orchestration.*turnController.prepareInterruptAgent",
         "cmd/mcp-orch/orchestration.*turnController.prepareRemoteTurnSubmit",
         "cmd/mcp-orch/orchestration.*turnController.reconcileReadyStateLocked",
@@ -5128,8 +5139,10 @@
         "cmd/mcp-orch/orchestration.*turnController.remoteTerminalSealStats",
         "cmd/mcp-orch/orchestration.*turnController.remoteTerminalSealStatsLocked",
         "cmd/mcp-orch/orchestration.*turnController.resolveAwaitingUserInput",
+        "cmd/mcp-orch/orchestration.*turnController.routeRemoteTurnTerminal",
         "cmd/mcp-orch/orchestration.*turnController.startTurnExecution",
         "cmd/mcp-orch/orchestration.*turnController.submitAgentReadyState",
+        "cmd/mcp-orch/orchestration.*turnController.takePendingRemoteTerminalsLocked",
         "cmd/mcp-orch/orchestration.*turnController.trySubmitRemoteTurn",
         "cmd/mcp-orch/orchestration.*turnController.turnIDFor",
         "cmd/mcp-orch/orchestration.*turnController.turnTerminalConverged",
@@ -5618,6 +5631,7 @@
         "cmd/mcp-orch/orchestration.remoteTerminalTruth",
         "cmd/mcp-orch/orchestration.remoteTerminalTurnRef",
         "cmd/mcp-orch/orchestration.remoteTurnSubmitAttempt",
+        "cmd/mcp-orch/orchestration.remoteTurnSubmitRef",
         "cmd/mcp-orch/orchestration.replayRecoveredTurn",
         "cmd/mcp-orch/orchestration.reportApplier",
         "cmd/mcp-orch/orchestration.reportApplier.applyReportEventLocked",
@@ -9470,7 +9484,7 @@
         "cmd/mcp-orch/orchestration.*agentRegistry.rLock",
         "cmd/mcp-orch/orchestration.*agentRegistry.rUnlock",
         "cmd/mcp-orch/orchestration.*agentRegistry.rekeyLaunchedAgentLocked",
-        "cmd/mcp-orch/orchestration.*agentRegistry.remoteTerminalTargetsCurrentTurn",
+        "cmd/mcp-orch/orchestration.*agentRegistry.remoteTerminalTargetTurnIDLocked",
         "cmd/mcp-orch/orchestration.*agentRegistry.requestedAgentLaunchInProgressLocked",
         "cmd/mcp-orch/orchestration.*agentRegistry.runtimeAgentSnapshots",
         "cmd/mcp-orch/orchestration.*agentRegistry.stoppedHookThreadSuppressed",
@@ -9733,6 +9747,7 @@
         "cmd/mcp-orch/orchestration.*service.rekeyLaunchedAgentLocked",
         "cmd/mcp-orch/orchestration.*service.resolveAwaitingUserInput",
         "cmd/mcp-orch/orchestration.*service.resolvePersistedArchiveTarget",
+        "cmd/mcp-orch/orchestration.*service.routeRemoteTurnTerminal",
         "cmd/mcp-orch/orchestration.*service.runnerLifecycleController",
         "cmd/mcp-orch/orchestration.*service.runtimeForkParentForLaunch",
         "cmd/mcp-orch/orchestration.*service.setStateChangedFallbackReportLocked",
@@ -9767,7 +9782,9 @@
         "cmd/mcp-orch/orchestration.*turnController.SubmitTurn",
         "cmd/mcp-orch/orchestration.*turnController.acceptRemoteTurnTerminal",
         "cmd/mcp-orch/orchestration.*turnController.agentRunningLocked",
+        "cmd/mcp-orch/orchestration.*turnController.beginRemoteTurnSubmit",
         "cmd/mcp-orch/orchestration.*turnController.canSubmitViaLauncher",
+        "cmd/mcp-orch/orchestration.*turnController.cancelRemoteTurnSubmit",
         "cmd/mcp-orch/orchestration.*turnController.claimTurnWork",
         "cmd/mcp-orch/orchestration.*turnController.clearRemoteTerminalsForThread",
         "cmd/mcp-orch/orchestration.*turnController.enqueueLocalTurnSubmission",
@@ -9785,6 +9802,7 @@
         "cmd/mcp-orch/orchestration.*turnController.interruptTurn",
         "cmd/mcp-orch/orchestration.*turnController.log",
         "cmd/mcp-orch/orchestration.*turnController.markAwaitingUserInput",
+        "cmd/mcp-orch/orchestration.*turnController.pendingRemoteTerminalLimitLocked",
         "cmd/mcp-orch/orchestration.*turnController.prepareInterruptAgent",
         "cmd/mcp-orch/orchestration.*turnController.prepareRemoteTurnSubmit",
         "cmd/mcp-orch/orchestration.*turnController.reconcileReadyStateLocked",
@@ -9793,8 +9811,10 @@
         "cmd/mcp-orch/orchestration.*turnController.remoteTerminalSealStats",
         "cmd/mcp-orch/orchestration.*turnController.remoteTerminalSealStatsLocked",
         "cmd/mcp-orch/orchestration.*turnController.resolveAwaitingUserInput",
+        "cmd/mcp-orch/orchestration.*turnController.routeRemoteTurnTerminal",
         "cmd/mcp-orch/orchestration.*turnController.startTurnExecution",
         "cmd/mcp-orch/orchestration.*turnController.submitAgentReadyState",
+        "cmd/mcp-orch/orchestration.*turnController.takePendingRemoteTerminalsLocked",
         "cmd/mcp-orch/orchestration.*turnController.trySubmitRemoteTurn",
         "cmd/mcp-orch/orchestration.*turnController.turnIDFor",
         "cmd/mcp-orch/orchestration.*turnController.turnTerminalConverged",
@@ -10283,6 +10303,7 @@
         "cmd/mcp-orch/orchestration.remoteTerminalTruth",
         "cmd/mcp-orch/orchestration.remoteTerminalTurnRef",
         "cmd/mcp-orch/orchestration.remoteTurnSubmitAttempt",
+        "cmd/mcp-orch/orchestration.remoteTurnSubmitRef",
         "cmd/mcp-orch/orchestration.replayRecoveredTurn",
         "cmd/mcp-orch/orchestration.reportApplier",
         "cmd/mcp-orch/orchestration.reportApplier.applyReportEventLocked",
@@ -14135,7 +14156,7 @@
         "cmd/mcp-orch/orchestration.*agentRegistry.rLock",
         "cmd/mcp-orch/orchestration.*agentRegistry.rUnlock",
         "cmd/mcp-orch/orchestration.*agentRegistry.rekeyLaunchedAgentLocked",
-        "cmd/mcp-orch/orchestration.*agentRegistry.remoteTerminalTargetsCurrentTurn",
+        "cmd/mcp-orch/orchestration.*agentRegistry.remoteTerminalTargetTurnIDLocked",
         "cmd/mcp-orch/orchestration.*agentRegistry.requestedAgentLaunchInProgressLocked",
         "cmd/mcp-orch/orchestration.*agentRegistry.runtimeAgentSnapshots",
         "cmd/mcp-orch/orchestration.*agentRegistry.stoppedHookThreadSuppressed",
@@ -14398,6 +14419,7 @@
         "cmd/mcp-orch/orchestration.*service.rekeyLaunchedAgentLocked",
         "cmd/mcp-orch/orchestration.*service.resolveAwaitingUserInput",
         "cmd/mcp-orch/orchestration.*service.resolvePersistedArchiveTarget",
+        "cmd/mcp-orch/orchestration.*service.routeRemoteTurnTerminal",
         "cmd/mcp-orch/orchestration.*service.runnerLifecycleController",
         "cmd/mcp-orch/orchestration.*service.runtimeForkParentForLaunch",
         "cmd/mcp-orch/orchestration.*service.setStateChangedFallbackReportLocked",
@@ -14432,7 +14454,9 @@
         "cmd/mcp-orch/orchestration.*turnController.SubmitTurn",
         "cmd/mcp-orch/orchestration.*turnController.acceptRemoteTurnTerminal",
         "cmd/mcp-orch/orchestration.*turnController.agentRunningLocked",
+        "cmd/mcp-orch/orchestration.*turnController.beginRemoteTurnSubmit",
         "cmd/mcp-orch/orchestration.*turnController.canSubmitViaLauncher",
+        "cmd/mcp-orch/orchestration.*turnController.cancelRemoteTurnSubmit",
         "cmd/mcp-orch/orchestration.*turnController.claimTurnWork",
         "cmd/mcp-orch/orchestration.*turnController.clearRemoteTerminalsForThread",
         "cmd/mcp-orch/orchestration.*turnController.enqueueLocalTurnSubmission",
@@ -14450,6 +14474,7 @@
         "cmd/mcp-orch/orchestration.*turnController.interruptTurn",
         "cmd/mcp-orch/orchestration.*turnController.log",
         "cmd/mcp-orch/orchestration.*turnController.markAwaitingUserInput",
+        "cmd/mcp-orch/orchestration.*turnController.pendingRemoteTerminalLimitLocked",
         "cmd/mcp-orch/orchestration.*turnController.prepareInterruptAgent",
         "cmd/mcp-orch/orchestration.*turnController.prepareRemoteTurnSubmit",
         "cmd/mcp-orch/orchestration.*turnController.reconcileReadyStateLocked",
@@ -14458,8 +14483,10 @@
         "cmd/mcp-orch/orchestration.*turnController.remoteTerminalSealStats",
         "cmd/mcp-orch/orchestration.*turnController.remoteTerminalSealStatsLocked",
         "cmd/mcp-orch/orchestration.*turnController.resolveAwaitingUserInput",
+        "cmd/mcp-orch/orchestration.*turnController.routeRemoteTurnTerminal",
         "cmd/mcp-orch/orchestration.*turnController.startTurnExecution",
         "cmd/mcp-orch/orchestration.*turnController.submitAgentReadyState",
+        "cmd/mcp-orch/orchestration.*turnController.takePendingRemoteTerminalsLocked",
         "cmd/mcp-orch/orchestration.*turnController.trySubmitRemoteTurn",
         "cmd/mcp-orch/orchestration.*turnController.turnIDFor",
         "cmd/mcp-orch/orchestration.*turnController.turnTerminalConverged",
@@ -14948,6 +14975,7 @@
         "cmd/mcp-orch/orchestration.remoteTerminalTruth",
         "cmd/mcp-orch/orchestration.remoteTerminalTurnRef",
         "cmd/mcp-orch/orchestration.remoteTurnSubmitAttempt",
+        "cmd/mcp-orch/orchestration.remoteTurnSubmitRef",
         "cmd/mcp-orch/orchestration.replayRecoveredTurn",
         "cmd/mcp-orch/orchestration.reportApplier",
         "cmd/mcp-orch/orchestration.reportApplier.applyReportEventLocked",
@@ -18686,12 +18714,12 @@
   "summary": {
     "total_packages": 41,
     "total_functions": 2275,
-    "total_methods": 1181,
+    "total_methods": 1187,
     "total_interfaces": 184,
     "total_interface_methods": 368,
     "total_exported": 1261,
-    "total_unexported": 2991,
-    "total_structs": 612
+    "total_unexported": 2998,
+    "total_structs": 613
   },
   "packages": [
     {
@@ -26861,19 +26889,16 @@
         },
         {
           "receiver": "*agentRegistry",
-          "name": "remoteTerminalTargetsCurrentTurn",
+          "name": "remoteTerminalTargetTurnIDLocked",
           "exported": false,
           "params": [
             {
               "name": "agentID",
               "type": "string"
-            },
-            {
-              "name": "turnID",
-              "type": "string"
             }
           ],
           "returns": [
+            "string",
             "bool"
           ]
         },
@@ -31834,6 +31859,24 @@
         },
         {
           "receiver": "*service",
+          "name": "routeRemoteTurnTerminal",
+          "exported": false,
+          "params": [
+            {
+              "name": "ownerAgentID",
+              "type": "string"
+            },
+            {
+              "name": "terminal",
+              "type": "turndto.TurnTerminalV2"
+            }
+          ],
+          "returns": [
+            "bool"
+          ]
+        },
+        {
+          "receiver": "*service",
           "name": "runnerLifecycleController",
           "exported": false,
           "returns": [
@@ -32361,6 +32404,7 @@
             }
           ],
           "returns": [
+            "[]turndto.TurnTerminalV2",
             "error"
           ]
         },
@@ -32399,6 +32443,20 @@
         },
         {
           "receiver": "*turnController",
+          "name": "beginRemoteTurnSubmit",
+          "exported": false,
+          "params": [
+            {
+              "name": "attempt",
+              "type": "remoteTurnSubmitAttempt"
+            }
+          ],
+          "returns": [
+            "error"
+          ]
+        },
+        {
+          "receiver": "*turnController",
           "name": "canSubmitViaLauncher",
           "exported": false,
           "params": [
@@ -32413,6 +32471,17 @@
           ],
           "returns": [
             "bool"
+          ]
+        },
+        {
+          "receiver": "*turnController",
+          "name": "cancelRemoteTurnSubmit",
+          "exported": false,
+          "params": [
+            {
+              "name": "attempt",
+              "type": "remoteTurnSubmitAttempt"
+            }
           ]
         },
         {
@@ -32597,6 +32666,9 @@
               "name": "remoteTurnID",
               "type": "string"
             }
+          ],
+          "returns": [
+            "[]turndto.TurnTerminalV2"
           ]
         },
         {
@@ -32733,6 +32805,14 @@
         },
         {
           "receiver": "*turnController",
+          "name": "pendingRemoteTerminalLimitLocked",
+          "exported": false,
+          "returns": [
+            "int"
+          ]
+        },
+        {
+          "receiver": "*turnController",
           "name": "prepareInterruptAgent",
           "exported": false,
           "params": [
@@ -32849,6 +32929,26 @@
         },
         {
           "receiver": "*turnController",
+          "name": "routeRemoteTurnTerminal",
+          "exported": false,
+          "params": [
+            {
+              "name": "agentID",
+              "type": "string"
+            },
+            {
+              "name": "terminal",
+              "type": "turndto.TurnTerminalV2"
+            }
+          ],
+          "returns": [
+            "bool",
+            "bool",
+            "error"
+          ]
+        },
+        {
+          "receiver": "*turnController",
           "name": "startTurnExecution",
           "exported": false,
           "params": [
@@ -32883,6 +32983,20 @@
         },
         {
           "receiver": "*turnController",
+          "name": "takePendingRemoteTerminalsLocked",
+          "exported": false,
+          "params": [
+            {
+              "name": "ref",
+              "type": "remoteTurnSubmitRef"
+            }
+          ],
+          "returns": [
+            "[]turndto.TurnTerminalV2"
+          ]
+        },
+        {
+          "receiver": "*turnController",
           "name": "trySubmitRemoteTurn",
           "exported": false,
           "params": [
@@ -32901,6 +33015,7 @@
           ],
           "returns": [
             "bool",
+            "[]turndto.TurnTerminalV2",
             "error"
           ]
         },
@@ -35152,6 +35267,10 @@
         },
         {
           "name": "remoteTurnSubmitAttempt",
+          "exported": false
+        },
+        {
+          "name": "remoteTurnSubmitRef",
           "exported": false
         },
         {
