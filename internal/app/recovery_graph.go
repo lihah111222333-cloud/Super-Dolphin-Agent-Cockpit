@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"sync"
 
 	recovery "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/appupdaterecovery"
 )
@@ -179,6 +180,8 @@ type RecoveryRuntime struct {
 	Retry     RecoveryRetryService
 	Restore   RecoveryRestoreService
 	selection StartupSelection
+	failureMu sync.RWMutex
+	failure   RecoveryFailure
 }
 
 // RecoverySurface 是 Recovery-only transport/UI 的阻塞生命周期。
@@ -203,6 +206,7 @@ func NewRecoveryRuntime(selection StartupSelection) (*RecoveryRuntime, error) {
 			terminateProcess: recovery.TerminateExactProbationProcess,
 		},
 		selection: selection,
+		failure:   selection.Failure,
 	}, nil
 }
 
@@ -241,11 +245,23 @@ func (runtime *RecoveryRuntime) CurrentFailure() RecoveryFailure {
 	if runtime == nil {
 		return RecoveryFailure{}
 	}
-	failure := runtime.selection.Failure
+	runtime.failureMu.RLock()
+	failure := runtime.failure
+	runtime.failureMu.RUnlock()
 	if failure.Code != "" && failure.TransactionID == "" {
 		failure.TransactionID = string(runtime.selection.Transaction.Identity.TransactionID)
 	}
 	return failure
+}
+
+// ClearFailure 在显式恢复动作成功后清空 selector failure，避免后续 State 重新暴露旧失败。
+func (runtime *RecoveryRuntime) ClearFailure() {
+	if runtime == nil {
+		return
+	}
+	runtime.failureMu.Lock()
+	runtime.failure = RecoveryFailure{}
+	runtime.failureMu.Unlock()
 }
 
 func requireRecoveryTransaction(ctx context.Context, selection StartupSelection) (recovery.Transaction, error) {

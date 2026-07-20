@@ -123,7 +123,7 @@ describe("RecoveryApp", () => {
 
   it.each([
     ["wait_then_retry", "Retry"],
-    ["restart_application", "Restart App"],
+    ["restart_application", "Show Manual Restart Steps"],
     [
       "preserve_state_export_diagnostics",
       "Preserve State & Export Diagnostics",
@@ -131,7 +131,6 @@ describe("RecoveryApp", () => {
   ])(
     "renders an explicit %s recovery action without running it automatically",
     async (action, label) => {
-      const onRestartRequested = vi.fn();
       const exportDiagnostics = vi.fn();
       const client = {
         state: vi.fn().mockResolvedValue(
@@ -151,19 +150,22 @@ describe("RecoveryApp", () => {
       render(
         <RecoveryApp
           client={client}
-          onRestartRequested={onRestartRequested}
           exportDiagnostics={exportDiagnostics}
         />,
       );
       const button = await screen.findByRole("button", { name: label });
       expect(client.retry).not.toHaveBeenCalled();
-      expect(onRestartRequested).not.toHaveBeenCalled();
       expect(exportDiagnostics).not.toHaveBeenCalled();
       fireEvent.click(button);
       if (action === "wait_then_retry")
         await waitFor(() => expect(client.retry).toHaveBeenCalledTimes(1));
-      if (action === "restart_application")
-        expect(onRestartRequested).toHaveBeenCalledTimes(1);
+      if (action === "restart_application") {
+        expect(
+          screen.getByText(
+            "Quit and reopen Super Dolphin manually. Recovery state will remain preserved.",
+          ),
+        ).toBeVisible();
+      }
       if (action === "preserve_state_export_diagnostics") {
         expect(exportDiagnostics).toHaveBeenCalledWith({
           code: "SAFE_FAILURE",
@@ -227,4 +229,5 @@ describe("RecoveryApp", () => {
     );
     expect(screen.queryByText(secret)).not.toBeInTheDocument();
   });
+
 });

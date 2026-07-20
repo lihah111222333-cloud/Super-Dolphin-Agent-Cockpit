@@ -2533,6 +2533,7 @@
         "internal/contract.ReadOnlyCodexNativeDeniedTools",
         "internal/contract.ReadOnlyNonOrchestrationDeniedTools",
         "internal/contract.RecoveryFailure",
+        "internal/contract.RecoveryFailureForCode",
         "internal/contract.RegisteredDependencyAbsencePolicies",
         "internal/contract.RememberReportRequest",
         "internal/contract.RememberReportRequestResult",
@@ -2724,6 +2725,7 @@
         "internal/contract.UpdateNodeStatusRequest",
         "internal/contract.UpsertDatasourceDocumentParams",
         "internal/contract.ValidateLaunchCWD",
+        "internal/contract.ValidateRecoveryFailure",
         "internal/contract.ValidateResumePromptSnapshot",
         "internal/contract.VerificationResult",
         "internal/contract.WithSkillCWD",
@@ -2769,6 +2771,7 @@
         "internal/contract.orderedUserContextKeys",
         "internal/contract.promoteManifestEnv",
         "internal/contract.recoverCall",
+        "internal/contract.recoveryFailureSpec",
         "internal/contract.removeManifestDatabaseEnv",
         "internal/contract.renderUserContextSection",
         "internal/contract.requireCodexString",
@@ -7124,6 +7127,7 @@
         "internal/contract.ReadOnlyCodexNativeDeniedTools",
         "internal/contract.ReadOnlyNonOrchestrationDeniedTools",
         "internal/contract.RecoveryFailure",
+        "internal/contract.RecoveryFailureForCode",
         "internal/contract.RegisteredDependencyAbsencePolicies",
         "internal/contract.RememberReportRequest",
         "internal/contract.RememberReportRequestResult",
@@ -7315,6 +7319,7 @@
         "internal/contract.UpdateNodeStatusRequest",
         "internal/contract.UpsertDatasourceDocumentParams",
         "internal/contract.ValidateLaunchCWD",
+        "internal/contract.ValidateRecoveryFailure",
         "internal/contract.ValidateResumePromptSnapshot",
         "internal/contract.VerificationResult",
         "internal/contract.WithSkillCWD",
@@ -7360,6 +7365,7 @@
         "internal/contract.orderedUserContextKeys",
         "internal/contract.promoteManifestEnv",
         "internal/contract.recoverCall",
+        "internal/contract.recoveryFailureSpec",
         "internal/contract.removeManifestDatabaseEnv",
         "internal/contract.renderUserContextSection",
         "internal/contract.requireCodexString",
@@ -11715,6 +11721,7 @@
         "internal/contract.ReadOnlyCodexNativeDeniedTools",
         "internal/contract.ReadOnlyNonOrchestrationDeniedTools",
         "internal/contract.RecoveryFailure",
+        "internal/contract.RecoveryFailureForCode",
         "internal/contract.RegisteredDependencyAbsencePolicies",
         "internal/contract.RememberReportRequest",
         "internal/contract.RememberReportRequestResult",
@@ -11906,6 +11913,7 @@
         "internal/contract.UpdateNodeStatusRequest",
         "internal/contract.UpsertDatasourceDocumentParams",
         "internal/contract.ValidateLaunchCWD",
+        "internal/contract.ValidateRecoveryFailure",
         "internal/contract.ValidateResumePromptSnapshot",
         "internal/contract.VerificationResult",
         "internal/contract.WithSkillCWD",
@@ -11951,6 +11959,7 @@
         "internal/contract.orderedUserContextKeys",
         "internal/contract.promoteManifestEnv",
         "internal/contract.recoverCall",
+        "internal/contract.recoveryFailureSpec",
         "internal/contract.removeManifestDatabaseEnv",
         "internal/contract.renderUserContextSection",
         "internal/contract.requireCodexString",
@@ -16309,6 +16318,7 @@
         "internal/contract.ReadOnlyCodexNativeDeniedTools",
         "internal/contract.ReadOnlyNonOrchestrationDeniedTools",
         "internal/contract.RecoveryFailure",
+        "internal/contract.RecoveryFailureForCode",
         "internal/contract.RegisteredDependencyAbsencePolicies",
         "internal/contract.RememberReportRequest",
         "internal/contract.RememberReportRequestResult",
@@ -16500,6 +16510,7 @@
         "internal/contract.UpdateNodeStatusRequest",
         "internal/contract.UpsertDatasourceDocumentParams",
         "internal/contract.ValidateLaunchCWD",
+        "internal/contract.ValidateRecoveryFailure",
         "internal/contract.ValidateResumePromptSnapshot",
         "internal/contract.VerificationResult",
         "internal/contract.WithSkillCWD",
@@ -16545,6 +16556,7 @@
         "internal/contract.orderedUserContextKeys",
         "internal/contract.promoteManifestEnv",
         "internal/contract.recoverCall",
+        "internal/contract.recoveryFailureSpec",
         "internal/contract.removeManifestDatabaseEnv",
         "internal/contract.renderUserContextSection",
         "internal/contract.requireCodexString",
@@ -18389,13 +18401,13 @@
   ],
   "summary": {
     "total_packages": 41,
-    "total_functions": 2249,
+    "total_functions": 2251,
     "total_methods": 1145,
     "total_interfaces": 184,
     "total_interface_methods": 369,
-    "total_exported": 1257,
-    "total_unexported": 2920,
-    "total_structs": 599
+    "total_exported": 1259,
+    "total_unexported": 2921,
+    "total_structs": 600
   },
   "packages": [
     {
@@ -50548,6 +50560,24 @@
           ]
         },
         {
+          "name": "RecoveryFailureForCode",
+          "exported": true,
+          "params": [
+            {
+              "name": "code",
+              "type": "string"
+            },
+            {
+              "name": "transactionID",
+              "type": "string"
+            }
+          ],
+          "returns": [
+            "RecoveryFailure",
+            "bool"
+          ]
+        },
+        {
           "name": "RegisteredDependencyAbsencePolicies",
           "exported": true,
           "returns": [
@@ -50808,6 +50838,19 @@
             {
               "name": "parentID",
               "type": "string"
+            }
+          ],
+          "returns": [
+            "error"
+          ]
+        },
+        {
+          "name": "ValidateRecoveryFailure",
+          "exported": true,
+          "params": [
+            {
+              "name": "failure",
+              "type": "RecoveryFailure"
             }
           ],
           "returns": [
@@ -56585,6 +56628,10 @@
         },
         {
           "name": "finalOutputMetadataEnvelope",
+          "exported": false
+        },
+        {
+          "name": "recoveryFailureSpec",
           "exported": false
         },
         {

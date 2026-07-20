@@ -13,14 +13,42 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/app"
 	recovery "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/appupdaterecovery"
+	platformrunner "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/runner"
 )
 
 type fakeRecoveryApplication struct {
 	run  func() error
 	quit func()
+}
+
+type recoveryBindingStateActor struct {
+	binding *recoveryBinding
+	done    chan<- error
+}
+
+func (actor recoveryBindingStateActor) Run(ctx context.Context) error {
+	_, err := actor.binding.State(ctx)
+	actor.done <- err
+	return err
+}
+
+type recoveryBindingBarrierActor struct {
+	binding *recoveryBinding
+	done    <-chan error
+}
+
+func (actor recoveryBindingBarrierActor) Run(ctx context.Context) error {
+	select {
+	case err := <-actor.done:
+		return fmt.Errorf("State returned before action barrier was released: %w", err)
+	case <-time.After(50 * time.Millisecond):
+	}
+	actor.binding.actionMu.Unlock()
+	return <-actor.done
 }
 
 func (app fakeRecoveryApplication) Run() error { return app.run() }
@@ -145,6 +173,8 @@ func TestRecoverySurfaceExposesOnlySafeFailureMetadata(t *testing.T) {
 
 type ambiguousRecoveryFixture struct {
 	binding *recoveryBinding
+	store   *recovery.Store
+	txn     recovery.Transaction
 	root    string
 	target  string
 	id      recovery.TransactionID
@@ -192,14 +222,98 @@ func newAmbiguousRecoveryFixture(t *testing.T) ambiguousRecoveryFixture {
 			Projection: app.RecoveryProjection{TransactionID: id, State: recovery.StateBackupPending},
 		})
 	})
-	return ambiguousRecoveryFixture{binding: &recoveryBinding{runtime: runtime}, root: root, target: target, id: id}
+	return ambiguousRecoveryFixture{binding: &recoveryBinding{runtime: runtime}, store: store, txn: transaction, root: root, target: target, id: id}
+}
+
+func TestRecoveryWailsMethodsReturnOnlyFixedSafeErrors(t *testing.T) {
+	methods := []struct {
+		name string
+		call func(*recoveryBinding) error
+	}{
+		{name: "state", call: func(binding *recoveryBinding) error { _, err := binding.State(t.Context()); return err }},
+		{name: "check", call: func(binding *recoveryBinding) error { _, err := binding.Check(t.Context()); return err }},
+		{name: "retry", call: func(binding *recoveryBinding) error { _, err := binding.Retry(t.Context()); return err }},
+		{name: "restore", call: func(binding *recoveryBinding) error { _, err := binding.Restore(t.Context()); return err }},
+	}
+	for _, method := range methods {
+		t.Run(method.name, func(t *testing.T) {
+			fixture := newAmbiguousRecoveryFixture(t)
+			journalRoot := recovery.TransactionRootForTarget(fixture.target)
+			if err := os.RemoveAll(journalRoot); err != nil {
+				t.Fatal(err)
+			}
+			err := method.call(fixture.binding)
+			if err == nil || err.Error() != "RECOVERY_OPERATION_FAILED" {
+				t.Fatalf("Wails %s error = %q, want fixed safe error", method.name, err)
+			}
+			if strings.Contains(err.Error(), journalRoot) || strings.Contains(err.Error(), fixture.root) {
+				t.Fatalf("Wails %s leaked journal path in %q", method.name, err)
+			}
+		})
+	}
+}
+
+func TestRecoveryFailureConstrainsTransactionActions(t *testing.T) {
+	projection := app.RecoveryProjection{
+		TransactionID: "transaction-1", AttemptID: "attempt-1", State: recovery.StateCommitPending, CandidateSHA256: "digest",
+	}
+	tests := []struct {
+		name    string
+		failure app.RecoveryFailure
+		want    recoveryActionAvailability
+	}{
+		{name: "retryable", failure: app.RecoveryFailure{Code: "MCP_SCHEMA_CAPACITY_EXHAUSTED", Retryable: true, Action: app.RecoveryActionWaitThenRetry}, want: recoveryActionAvailability{Retry: true}},
+		{name: "restart", failure: app.RecoveryFailure{Code: "MCP_SCHEMA_REAP_FAILED", Action: app.RecoveryActionRestartApplication}},
+		{name: "export", failure: app.RecoveryFailure{Code: "UPDATE_SIGNATURE_INVALID", Action: app.RecoveryActionPreserveStateExportDiagnostics}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			state := newRecoverySurfaceStateWithFailure(projection, "state", test.failure)
+			if state.Actions != test.want {
+				t.Fatalf("actions = %#v, want %#v", state.Actions, test.want)
+			}
+		})
+	}
+}
+
+func TestRecoverySuccessfulRetryClearsSelectorFailure(t *testing.T) {
+	fixture := newAmbiguousRecoveryFixture(t)
+	if err := os.Rename(filepath.Join(fixture.root, "external-old-release"), fixture.target); err != nil {
+		t.Fatal(err)
+	}
+	runtime := mustAgentTerminalValue(t, func() (*app.RecoveryRuntime, error) {
+		return app.NewRecoveryRuntime(app.StartupSelection{
+			Mode: app.StartupModeRecovery, Store: fixture.store, Transaction: fixture.txn,
+			Projection: app.RecoveryProjection{TransactionID: fixture.id, State: recovery.StateBackupPending},
+			Failure:    app.RecoveryFailure{Code: "UPDATE_TRANSACTION_AMBIGUOUS", Action: app.RecoveryActionPreserveStateExportDiagnostics},
+		})
+	})
+	state, err := (&recoveryBinding{runtime: runtime}).Retry(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.Failure.Code != "" || runtime.CurrentFailure().Code != "" {
+		t.Fatalf("successful retry retained selector failure: state=%#v runtime=%#v", state.Failure, runtime.CurrentFailure())
+	}
+}
+
+func TestRecoveryBindingSerializesConcurrentSurfaceCalls(t *testing.T) {
+	fixture := newAmbiguousRecoveryFixture(t)
+	fixture.binding.actionMu.Lock()
+	done := make(chan error, 1)
+	if err := platformrunner.RunGroup(t.Context(), []platformrunner.Runner{
+		recoveryBindingStateActor{binding: fixture.binding, done: done},
+		recoveryBindingBarrierActor{binding: fixture.binding, done: done},
+	}, platformrunner.GroupOptions{}); err != nil && !errors.Is(err, context.Canceled) {
+		t.Fatal(err)
+	}
 }
 
 func TestRecoveryRetrySurfacesActualAmbiguityWithTransactionID(t *testing.T) {
 	fixture := newAmbiguousRecoveryFixture(t)
 	binding := fixture.binding
-	if _, err := binding.Retry(t.Context()); !errors.Is(err, app.ErrUpdateTransactionAmbiguous) {
-		t.Fatalf("Retry() error = %v, want ErrUpdateTransactionAmbiguous", err)
+	if _, err := binding.Retry(t.Context()); err == nil || err.Error() != "RECOVERY_OPERATION_FAILED" {
+		t.Fatalf("Retry() error = %v, want fixed Wails boundary error", err)
 	}
 	state, err := binding.State(t.Context())
 	if err != nil {

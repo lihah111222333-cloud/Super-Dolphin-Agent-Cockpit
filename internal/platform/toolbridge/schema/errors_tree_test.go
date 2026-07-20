@@ -232,3 +232,51 @@ func assertNoSchemaRecoverySecret(t *testing.T, err error) {
 		}
 	}
 }
+
+func TestSafeRecoveryErrorRebuildsOuterJoinWithoutSiblingLeak(t *testing.T) {
+	secret := errors.New("sibling token=sk-outer-secret /Users/alice/private.db")
+	safe := SafeRecoveryError(newDiagnostic(CodeCapacityExhausted, "capacity secret", nil))
+	outer := errors.Join(secret, fmt.Errorf("nested: %w", safe))
+
+	got := SafeRecoveryError(outer)
+	if got == outer {
+		t.Fatal("SafeRecoveryError() returned the outer join unchanged")
+	}
+	if got.Error() != string(CodeCapacityExhausted) {
+		t.Fatalf("SafeRecoveryError() = %q, want stable code", got)
+	}
+	assertNoSchemaRecoverySecret(t, got)
+}
+
+func TestRecoveryFailureTraversalIsBounded(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+	}{
+		{name: "cycle", err: &delayedCyclicError{}},
+		{name: "non-comparable", err: nonComparableUnwrapError{children: []error{newDiagnostic(CodeReapFailed, "secret", nil)}}},
+		{name: "deep", err: deeplyWrappedSchemaError(128, newDiagnostic(CodeDigestMismatch, "secret", nil))},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			done := make(chan struct{})
+			safego.Go(t.Context(), nil, "schema-recovery-bounded-traversal-test", func(context.Context) {
+				defer close(done)
+				_, _ = RecoveryFailure(test.err)
+				_ = ErrorCode(test.err)
+			})
+			select {
+			case <-done:
+			case <-time.After(300 * time.Millisecond):
+				t.Fatal("recovery classification exceeded bounded traversal deadline")
+			}
+		})
+	}
+}
+
+func deeplyWrappedSchemaError(depth int, cause error) error {
+	for range depth {
+		cause = fmt.Errorf("wrapped: %w", cause)
+	}
+	return cause
+}

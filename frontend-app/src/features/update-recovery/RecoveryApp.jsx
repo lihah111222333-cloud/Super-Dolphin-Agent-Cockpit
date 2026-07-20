@@ -8,6 +8,8 @@ import {
   Siren,
 } from "lucide-react";
 
+import { exportRecoveryDiagnostics } from "./recoveryDiagnostics.js";
+
 const EMPTY_STATE = Object.freeze({
   status: "loading",
   value: null,
@@ -18,18 +20,6 @@ const GENERIC_ACTION_ERROR =
 
 function fieldValue(value) {
   return value === "" ? "None" : value;
-}
-
-function defaultExportDiagnostics(failure) {
-  const blob = new Blob([JSON.stringify(failure, null, 2)], {
-    type: "application/json",
-  });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = "super-dolphin-recovery-diagnostics.json";
-  link.click();
-  URL.revokeObjectURL(url);
 }
 
 function safeFailurePayload(failure) {
@@ -67,7 +57,7 @@ function RecoveryFailureAction({ failure, busy, onRestart, onExport }) {
   if (failure.action === "restart_application") {
     actionButton = (
       <button type="button" onClick={onRestart} disabled={busy}>
-        <Power size={18} /> Restart App
+        <Power size={18} /> Show Manual Restart Steps
       </button>
     );
   } else if (failure.action === "preserve_state_export_diagnostics") {
@@ -123,8 +113,7 @@ function RecoveryFooter(props) {
 function RecoveryApp({
   client,
   confirmRestore = window.confirm,
-  onRestartRequested,
-  exportDiagnostics = defaultExportDiagnostics,
+  exportDiagnostics = exportRecoveryDiagnostics,
 }) {
   const [view, setView] = useState(EMPTY_STATE);
   const [activeAction, setActiveAction] = useState("state");
@@ -160,14 +149,10 @@ function RecoveryApp({
   const busy = view.status === "loading";
   const statusLabel = recoveryStatusLabel(busy, failure, projection);
   const restart = useCallback(() => {
-    if (onRestartRequested) {
-      onRestartRequested();
-      return;
-    }
     setRestartInstruction(
       "Quit and reopen Super Dolphin manually. Recovery state will remain preserved.",
     );
-  }, [onRestartRequested]);
+  }, []);
   const exportFailure = useCallback(() => {
     if (failure?.code) exportDiagnostics(safeFailurePayload(failure));
   }, [exportDiagnostics, failure]);

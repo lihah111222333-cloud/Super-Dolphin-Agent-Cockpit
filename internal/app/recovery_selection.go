@@ -230,15 +230,11 @@ func recoverySelection(input StartupSelectorInput, transaction recovery.Transact
 func RecoveryFailureForError(err error, transactionID recovery.TransactionID) RecoveryFailure {
 	switch {
 	case errors.Is(err, contract.ErrUpdateTransactionAmbiguous):
-		return RecoveryFailure{
-			Code: "UPDATE_TRANSACTION_AMBIGUOUS", Action: RecoveryActionPreserveStateExportDiagnostics,
-			TransactionID: string(transactionID),
-		}
+		failure, _ := contract.RecoveryFailureForCode("UPDATE_TRANSACTION_AMBIGUOUS", string(transactionID))
+		return failure
 	case errors.Is(err, contract.ErrUpdateSignatureInvalid):
-		return RecoveryFailure{
-			Code: "UPDATE_SIGNATURE_INVALID", Action: RecoveryActionPreserveStateExportDiagnostics,
-			TransactionID: string(transactionID),
-		}
+		failure, _ := contract.RecoveryFailureForCode("UPDATE_SIGNATURE_INVALID", string(transactionID))
+		return failure
 	}
 	return RecoveryFailure{}
 }

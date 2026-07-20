@@ -767,8 +767,8 @@ internal/platform/toolbridge/schema/attach_failure_test.go	internal	platform-pro
 internal/platform/toolbridge/schema/canonical.go	internal	platform-provider	go-source	18359	provider 与 MCP tools 桥接	internal,platform,toolbridge,schema,canonical,provider,与,MCP,tools,桥接
 internal/platform/toolbridge/schema/client.go	internal	platform-provider	go-source	14851	provider 与 MCP tools 桥接	internal,platform,toolbridge,schema,client,provider,与,MCP,tools,桥接
 internal/platform/toolbridge/schema/compiler.go	internal	platform-provider	go-source	5199	provider 与 MCP tools 桥接	internal,platform,toolbridge,schema,compiler,provider,与,MCP,tools,桥接
-internal/platform/toolbridge/schema/errors_tree_test.go	internal	platform-provider	go-test	7972	provider 与 MCP tools 桥接	internal,platform,toolbridge,schema,errors,tree,test,provider,与,MCP,tools,桥接
-internal/platform/toolbridge/schema/errors.go	internal	platform-provider	go-source	7332	provider 与 MCP tools 桥接	internal,platform,toolbridge,schema,errors,provider,与,MCP,tools,桥接
+internal/platform/toolbridge/schema/errors_tree_test.go	internal	platform-provider	go-test	9549	provider 与 MCP tools 桥接	internal,platform,toolbridge,schema,errors,tree,test,provider,与,MCP,tools,桥接
+internal/platform/toolbridge/schema/errors.go	internal	platform-provider	go-source	8240	provider 与 MCP tools 桥接	internal,platform,toolbridge,schema,errors,provider,与,MCP,tools,桥接
 internal/platform/toolbridge/schema/filesystem_worker_client.go	internal	platform-provider	go-source	14542	provider 与 MCP tools 桥接	internal,platform,toolbridge,schema,filesystem,worker,client,provider,与,MCP,tools,桥接
 internal/platform/toolbridge/schema/filesystem_worker_nonunix_test.go	internal	platform-provider	go-test	99	provider 与 MCP tools 桥接	internal,platform,toolbridge,schema,filesystem,worker,nonunix,test,provider,与,MCP,tools,桥接
 internal/platform/toolbridge/schema/filesystem_worker_unix_test.go	internal	platform-provider	go-test	26551	provider 与 MCP tools 桥接	internal,platform,toolbridge,schema,filesystem,worker,unix,test,provider,与,MCP,tools,桥接
