@@ -147,7 +147,7 @@ func TestFirstReleaseClearFailureRemovesCandidateWithoutInstalling(t *testing.T)
 	}
 }
 
-func TestPreJournalClearFailureBlocksTransactionCreate(t *testing.T) {
+func TestPreJournalClearFailureRetainsPreparedTransaction(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("fixture requires macOS bundle permissions")
 	}
@@ -172,13 +172,39 @@ func TestPreJournalClearFailureBlocksTransactionCreate(t *testing.T) {
 	createAppBundle(t, filepath.Join(mountPoint, "Super Dolphin.app"))
 	parent := realUpdaterTempDir(t)
 	target := createAppBundle(t, filepath.Join(parent, "Super Dolphin.app"))
-	err := installFromMount(installRequest{DMGPath: dmgPath, TargetAppPath: target, AllowUnsigned: true, Restart: true, Generation: recoveryTestGeneration}, mountPoint)
-	if err == nil || !strings.Contains(err.Error(), "clear app update pre-journal failure") {
-		t.Fatalf("installFromMount() error = %v, want sidecar clear failure", err)
+	beforeDigest, digestErr := recovery.ComputeReleaseDigest(target)
+	if digestErr != nil {
+		t.Fatal(digestErr)
+	}
+	helperStarted := false
+	app := defaultUpdaterApp()
+	app.startProbationCandidate = func(context.Context, recovery.Transaction) (*candidateHandle, error) {
+		helperStarted = true
+		return nil, errors.New("unexpected helper start")
+	}
+	err := app.installFromMount(context.Background(), installRequest{DMGPath: dmgPath, TargetAppPath: target, AllowUnsigned: true, Restart: true, Generation: recoveryTestGeneration}, mountPoint)
+	assertPreJournalClearFailureOutcome(t, err, helperStarted, parent, target, beforeDigest)
+}
+
+func assertPreJournalClearFailureOutcome(t *testing.T, installErr error, helperStarted bool, parent string, target string, beforeDigest string) {
+	t.Helper()
+	if installErr == nil || !strings.Contains(installErr.Error(), "clear app update pre-journal failure") {
+		t.Fatalf("installFromMount() error = %v, want sidecar clear failure", installErr)
+	}
+	if helperStarted {
+		t.Fatal("probation helper started after pre-journal Clear failure")
 	}
 	journals, globErr := filepath.Glob(filepath.Join(parent, updateTransactionDirName, "*", "journal.json"))
-	if globErr != nil || len(journals) != 0 {
-		t.Fatalf("transaction journals = %v, error = %v, want none", journals, globErr)
+	if globErr != nil || len(journals) != 1 {
+		t.Fatalf("transaction journals = %v, error = %v, want one recoverable journal", journals, globErr)
+	}
+	candidates, globErr := filepath.Glob(filepath.Join(parent, ".Super Dolphin.staging-*.app"))
+	if globErr != nil || len(candidates) != 1 {
+		t.Fatalf("prepared candidates = %v, error = %v, want one recoverable candidate", candidates, globErr)
+	}
+	afterDigest, digestErr := recovery.ComputeReleaseDigest(target)
+	if digestErr != nil || afterDigest != beforeDigest {
+		t.Fatalf("target digest after Clear failure = %q, %v, want unchanged %q", afterDigest, digestErr, beforeDigest)
 	}
 }
 
@@ -224,25 +250,17 @@ func TestPostCreateSidecarCorruptionCannotOverrideJournalFailure(t *testing.T) {
 	}
 }
 
-func TestStoreCreateSuccessTailHasNoPreJournalAccess(t *testing.T) {
+func TestExistingTargetPublishesJournalBeforeClearingPreJournalState(t *testing.T) {
 	raw, err := os.ReadFile("install.go")
 	if err != nil {
 		t.Fatal(err)
 	}
 	source := string(raw)
-	start := strings.Index(source, "return app.completePreparedReleaseTransaction")
-	if start < 0 {
-		t.Fatal("transaction create success boundary not found")
-	}
-	end := strings.Index(source[start:], "\n}")
-	if end < 0 {
-		t.Fatal("transaction create success end boundary not found")
-	}
-	tail := source[start : start+end]
-	for _, forbidden := range []string{"appupdatefailure.", "PreJournal", "preJournal", "sidecar"} {
-		if strings.Contains(tail, forbidden) {
-			t.Fatalf("Store.Create success tail contains forbidden pre-journal access %q", forbidden)
-		}
+	createAt := strings.Index(source, "app.createRecoveryTransaction(store, ctx, request)")
+	clearAt := strings.Index(source, "clearPreJournalFailure(stageDir, generation)")
+	completeAt := strings.Index(source, "return app.completePreparedReleaseTransaction")
+	if createAt < 0 || clearAt < 0 || completeAt < 0 || !(createAt < clearAt && clearAt < completeAt) {
+		t.Fatalf("existing-target order create=%d clear=%d complete=%d, want journal -> Clear -> helper", createAt, clearAt, completeAt)
 	}
 }
 

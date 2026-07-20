@@ -7,9 +7,9 @@
   "files": 4634,
   "domains": {
     "docs-agent": 954,
-    "other": 681,
+    "other": 682,
     "app-ui": 563,
-    "platform-provider": 1103,
+    "platform-provider": 1102,
     "orchestration": 391,
     "modules": 738,
     "store-sql": 204
@@ -42,8 +42,8 @@
       {
         "key": "platform-provider",
         "file": "docs/doc/codemap/project-map/index/platform-provider.tsv",
-        "file_count": 1103,
-        "size_kb": 203.2,
+        "file_count": 1102,
+        "size_kb": 203,
         "desc": "基础设施与 provider 集成：RPC、hooks、toolbridge、Claude/Codex/统一 provider"
       },
       {
@@ -63,18 +63,18 @@
       {
         "key": "other",
         "file": "docs/doc/codemap/project-map/index/other.tsv",
-        "file_count": 681,
-        "size_kb": 133.3,
+        "file_count": 682,
+        "size_kb": 133.5,
         "desc": "公共库、脚本、测试、配置与其他根级资源"
       }
     ]
   },
   "module_counts": {
     "(root)": 12,
-    "cmd": 665,
+    "cmd": 666,
     "docs": 946,
     "frontend-app": 557,
-    "internal": 2237,
+    "internal": 2236,
     "pkg": 30,
     "scripts": 139,
     "sql": 29,

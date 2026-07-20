@@ -58,6 +58,7 @@ type probationOwnerIDFactory func() (string, error)
 type probationLeaseAcquirer func(*recovery.Store, context.Context, recovery.Identity, recovery.ProbationLeaseRequest) (recovery.ProbationLease, error)
 type probationGuardStarter func(context.Context, recovery.Transaction, bool, func() error) error
 type probationSupervisorFactory func(recovery.ProbationSupervisorConfig) (*recovery.ProbationSupervisor, error)
+type recoveryTransactionCreator func(*recovery.Store, context.Context, recovery.CreateRequest) (recovery.Transaction, error)
 
 // updaterApp 显式携带 updater 的可替换系统依赖，避免安装流程依赖隐式全局状态。
 type updaterApp struct {
@@ -71,6 +72,7 @@ type updaterApp struct {
 	acquireProbationLease          probationLeaseAcquirer
 	startProbationGuard            probationGuardStarter
 	newProbationSupervisor         probationSupervisorFactory
+	createRecoveryTransaction      recoveryTransactionCreator
 }
 
 func defaultUpdaterApp() updaterApp {
@@ -85,6 +87,7 @@ func defaultUpdaterApp() updaterApp {
 		acquireProbationLease:          (*recovery.Store).AcquireProbationLease,
 		startProbationGuard:            startDetachedGuard,
 		newProbationSupervisor:         recovery.NewProbationSupervisor,
+		createRecoveryTransaction:      (*recovery.Store).Create,
 	}
 }
 
@@ -104,6 +107,9 @@ func (app updaterApp) validate() error {
 	}
 	if app.rollbackRestartCallbackFactory == nil {
 		return errors.New("updater rollback restart callback factory is required")
+	}
+	if app.createRecoveryTransaction == nil {
+		return errors.New("updater recovery transaction creator is required")
 	}
 	return nil
 }
@@ -601,20 +607,17 @@ func (app updaterApp) replaceTargetAppTransactionContextWithStageDir(ctx context
 	}
 	store, err := recovery.NewStore(filepath.Join(filepath.Dir(targetApp), updateTransactionDirName))
 	if err != nil {
-		return recovery.Transaction{}, false, removePreparedCandidate(request.Paths.Staging, err)
+		cause := recordStoreCreateFailure(stageDir, generation, err)
+		return recovery.Transaction{}, false, removePreparedCandidate(request.Paths.Staging, cause)
 	}
-	preCommitStarted := false
-	preCommit := func() error {
-		preCommitStarted = true
-		return clearPreJournalFailure(stageDir, generation)
-	}
-	created, err := store.CreateWithPreCommit(ctx, request, preCommit)
+	created, err := app.createRecoveryTransaction(store, ctx, request)
 	if err != nil {
 		cause := fmt.Errorf("create release transaction: %w", err)
-		if stageDir != "" && !preCommitStarted {
-			cause = recordPreJournalFailure(stageDir, generation, cause)
-		}
+		cause = recordStoreCreateFailure(stageDir, generation, cause)
 		return recovery.Transaction{}, false, removePreparedCandidate(request.Paths.Staging, cause)
+	}
+	if err := clearPreJournalFailure(stageDir, generation); err != nil {
+		return created, false, err
 	}
 	return app.completePreparedReleaseTransaction(ctx, store, created, packageOwned)
 }

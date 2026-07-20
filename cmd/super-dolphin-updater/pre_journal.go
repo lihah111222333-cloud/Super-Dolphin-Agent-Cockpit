@@ -10,7 +10,7 @@ import (
 	recovery "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/appupdaterecovery"
 )
 
-// clearPreparedPreJournalFailure 在 Store.Create 前清理 sidecar，失败时同时清理 candidate。
+// clearPreparedPreJournalFailure 在首次安装发布 target 前清理 sidecar，失败时同时清理 candidate。
 func clearPreparedPreJournalFailure(stageDir string, generation string, stagingPath string) error {
 	if stageDir == "" {
 		return nil
@@ -30,7 +30,7 @@ func updaterSidecarStageDir(req installRequest) (string, error) {
 	return stageDir, nil
 }
 
-// clearPreJournalFailure 在签名成功后和 journal 创建边界前确认 sidecar 缺席。
+// clearPreJournalFailure 仅删除 matching generation；调用方决定首次安装或 journal 发布后的安全边界。
 func clearPreJournalFailure(stageDir string, generation string) error {
 	if stageDir == "" {
 		return nil
@@ -53,6 +53,18 @@ func recordPreJournalFailure(stageDir string, generation string, cause error) er
 		return cause
 	}
 	if err := appupdatefailure.FailCode(stageDir, generation, code); err != nil {
+		return errors.Join(cause, fmt.Errorf("write app update pre-journal failure: %w", err))
+	}
+	return cause
+}
+
+// recordStoreCreateFailure 将 journal 发布前的 Store 故障收敛为 matching-generation 安全恢复信号。
+// UPDATE_INTEGRITY_INVALID 在此表示保守阻断，而不是断言包摘要已被判定不一致；sidecar 协议只允许两类无事务安全码。
+func recordStoreCreateFailure(stageDir string, generation string, cause error) error {
+	if stageDir == "" {
+		return cause
+	}
+	if err := appupdatefailure.FailCode(stageDir, generation, "UPDATE_INTEGRITY_INVALID"); err != nil {
 		return errors.Join(cause, fmt.Errorf("write app update pre-journal failure: %w", err))
 	}
 	return cause
