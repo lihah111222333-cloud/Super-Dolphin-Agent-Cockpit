@@ -219,6 +219,10 @@ func runNormalStartup(ctx context.Context, deps terminalDeps, selection app.Star
 		}
 		selection.Mode = app.StartupModeRecovery
 		selection.Projection.Reason = err.Error()
+		selection.Failure = app.RecoveryFailureForError(err, selection.Projection.TransactionID)
+		if selection.Failure.Code != "" {
+			selection.Projection.Reason = app.RecoveryReasonForFailure(selection.Failure.Code)
+		}
 		return deps.runRecovery(ctx, selection)
 	}
 	return nil

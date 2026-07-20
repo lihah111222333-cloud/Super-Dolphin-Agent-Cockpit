@@ -15,10 +15,14 @@ import (
 	"os"
 	"strconv"
 	"strings"
+
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
 )
 
 // ErrNoUpdate 表示 manifest 版本不高于当前版本，没有可安装更新。
 var ErrNoUpdate = errors.New("no update available")
+
+var errInvalidManifestSignature = errors.New("invalid manifest signature")
 
 // ManifestPayload 是签名 manifest 中参与签名的更新元数据。
 type ManifestPayload struct {
@@ -98,14 +102,14 @@ func decodeSignedManifest(raw []byte) (SignedManifest, error) {
 func verifyManifestSignature(signed SignedManifest, publicKey []byte) error {
 	signature, err := base64.StdEncoding.DecodeString(signed.Signature)
 	if err != nil {
-		return fmt.Errorf("decode app update signature: %w", err)
+		return fmt.Errorf("%w: decode app update signature: %w", contract.ErrUpdateSignatureInvalid, err)
 	}
 	canonicalPayload, err := json.Marshal(signed.Payload)
 	if err != nil {
 		return fmt.Errorf("canonicalize app update payload: %w", err)
 	}
 	if !ed25519.Verify(ed25519.PublicKey(publicKey), canonicalPayload, signature) {
-		return errors.New("verify app update signature: invalid signature")
+		return fmt.Errorf("%w: verify app update signature: %w", contract.ErrUpdateSignatureInvalid, errInvalidManifestSignature)
 	}
 	return nil
 }

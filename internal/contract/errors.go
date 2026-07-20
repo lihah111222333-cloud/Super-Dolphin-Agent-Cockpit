@@ -10,6 +10,13 @@ var (
 	ErrSessionNotFound = errors.New("session not found")
 )
 
+var (
+	// ErrUpdateTransactionAmbiguous 表示更新 journal 的意图无法与文件系统状态唯一收敛。
+	ErrUpdateTransactionAmbiguous = errors.New("update transaction state is ambiguous")
+	// ErrUpdateSignatureInvalid 表示更新签名验证失败，必须保留现场并阻断继续执行。
+	ErrUpdateSignatureInvalid = errors.New("update signature is invalid")
+)
+
 // ErrSkillMissingCWD 是 skill 模块 cwd 缺失错误的跨层哨兵。
 // platform/toolbridge 等低层消费者用 errors.Is 匹配它，不需要导入 skill 模块。
 var ErrSkillMissingCWD = errors.New("cwd is required")
@@ -80,4 +87,25 @@ type CacheKeepaliveBindingLookup interface {
 // CacheKeepaliveThreadLookup 隔离 cache keepalive 对 thread store 的只读需求。
 type CacheKeepaliveThreadLookup interface {
 	GetCacheKeepaliveThreadByID(ctx context.Context, threadID string) (*CacheKeepaliveThreadRef, error)
+}
+
+// RecoveryAction 是失败后允许展示给用户的显式安全动作。
+type RecoveryAction string
+
+const (
+	// RecoveryActionWaitThenRetry 要求等待当前操作收敛后再显式重试。
+	RecoveryActionWaitThenRetry RecoveryAction = "wait_then_retry"
+	// RecoveryActionRestartApplication 要求用户显式退出并重新启动应用。
+	RecoveryActionRestartApplication RecoveryAction = "restart_application"
+	// RecoveryActionPreserveStateExportDiagnostics 要求保留状态并显式导出诊断。
+	RecoveryActionPreserveStateExportDiagnostics RecoveryAction = "preserve_state_export_diagnostics"
+)
+
+// RecoveryFailure 是跨后端与恢复 UI 的最小安全失败元数据。
+// 字段必须保持精确，禁止加入原始错误、路径、凭据或 helper 输出。
+type RecoveryFailure struct {
+	Code          string         `json:"code"`
+	Retryable     bool           `json:"retryable"`
+	Action        RecoveryAction `json:"action"`
+	TransactionID string         `json:"transaction_id"`
 }

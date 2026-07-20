@@ -232,7 +232,20 @@ func (runtime *RecoveryRuntime) CurrentProjection(ctx context.Context) (Recovery
 	if err != nil {
 		return RecoveryProjection{}, err
 	}
-	return projectRecoveryTransaction(transaction, runtime.selection.Projection.Reason), nil
+	projection := projectRecoveryTransaction(transaction, runtime.selection.Projection.Reason)
+	return projection, nil
+}
+
+// CurrentFailure 返回 selector 保存的安全失败元数据，不暴露原始错误。
+func (runtime *RecoveryRuntime) CurrentFailure() RecoveryFailure {
+	if runtime == nil {
+		return RecoveryFailure{}
+	}
+	failure := runtime.selection.Failure
+	if failure.Code != "" && failure.TransactionID == "" {
+		failure.TransactionID = string(runtime.selection.Transaction.Identity.TransactionID)
+	}
+	return failure
 }
 
 func requireRecoveryTransaction(ctx context.Context, selection StartupSelection) (recovery.Transaction, error) {

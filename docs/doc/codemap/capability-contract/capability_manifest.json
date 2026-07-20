@@ -2532,6 +2532,7 @@
         "internal/contract.ReadOnlyAgentDeniedTools",
         "internal/contract.ReadOnlyCodexNativeDeniedTools",
         "internal/contract.ReadOnlyNonOrchestrationDeniedTools",
+        "internal/contract.RecoveryFailure",
         "internal/contract.RegisteredDependencyAbsencePolicies",
         "internal/contract.RememberReportRequest",
         "internal/contract.RememberReportRequestResult",
@@ -7122,6 +7123,7 @@
         "internal/contract.ReadOnlyAgentDeniedTools",
         "internal/contract.ReadOnlyCodexNativeDeniedTools",
         "internal/contract.ReadOnlyNonOrchestrationDeniedTools",
+        "internal/contract.RecoveryFailure",
         "internal/contract.RegisteredDependencyAbsencePolicies",
         "internal/contract.RememberReportRequest",
         "internal/contract.RememberReportRequestResult",
@@ -11712,6 +11714,7 @@
         "internal/contract.ReadOnlyAgentDeniedTools",
         "internal/contract.ReadOnlyCodexNativeDeniedTools",
         "internal/contract.ReadOnlyNonOrchestrationDeniedTools",
+        "internal/contract.RecoveryFailure",
         "internal/contract.RegisteredDependencyAbsencePolicies",
         "internal/contract.RememberReportRequest",
         "internal/contract.RememberReportRequestResult",
@@ -16305,6 +16308,7 @@
         "internal/contract.ReadOnlyAgentDeniedTools",
         "internal/contract.ReadOnlyCodexNativeDeniedTools",
         "internal/contract.ReadOnlyNonOrchestrationDeniedTools",
+        "internal/contract.RecoveryFailure",
         "internal/contract.RegisteredDependencyAbsencePolicies",
         "internal/contract.RememberReportRequest",
         "internal/contract.RememberReportRequestResult",
@@ -18389,9 +18393,9 @@
     "total_methods": 1145,
     "total_interfaces": 184,
     "total_interface_methods": 369,
-    "total_exported": 1256,
+    "total_exported": 1257,
     "total_unexported": 2920,
-    "total_structs": 598
+    "total_structs": 599
   },
   "packages": [
     {
@@ -56373,6 +56377,10 @@
         },
         {
           "name": "PromptSection",
+          "exported": true
+        },
+        {
+          "name": "RecoveryFailure",
           "exported": true
         },
         {

@@ -3,6 +3,8 @@ package schema
 import (
 	"errors"
 	"fmt"
+
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
 )
 
 // InitializationFailureClass 控制 lazy schema 初始化失败是否可缓存。
@@ -178,4 +180,61 @@ func isKnownCode(code Code) bool {
 	default:
 		return false
 	}
+}
+
+type safeRecoveryError struct {
+	failure contract.RecoveryFailure
+	cause   error
+}
+
+// Error 只返回稳定 code，禁止把内部 helper 诊断带到调用边界。
+func (err *safeRecoveryError) Error() string {
+	if err == nil {
+		return ""
+	}
+	return err.failure.Code
+}
+
+// Unwrap 仅供内部 errors.Is/As 与诊断分类保留根因。
+func (err *safeRecoveryError) Unwrap() error {
+	if err == nil {
+		return nil
+	}
+	return err.cause
+}
+
+// RecoveryFailure 把需要用户干预的 schema 错误映射为最小安全元数据。
+func RecoveryFailure(err error) (contract.RecoveryFailure, bool) {
+	var safe *safeRecoveryError
+	if errors.As(err, &safe) && safe != nil {
+		return safe.failure, true
+	}
+	code := ErrorCode(err)
+	switch code {
+	case CodeCapacityExhausted:
+		return schemaRecoveryFailure(code, true, contract.RecoveryActionWaitThenRetry), true
+	case CodeReapFailed:
+		return schemaRecoveryFailure(code, false, contract.RecoveryActionRestartApplication), true
+	case CodeDigestMismatch, CodeProtocolViolation:
+		return schemaRecoveryFailure(code, false, contract.RecoveryActionPreserveStateExportDiagnostics), true
+	default:
+		return contract.RecoveryFailure{}, false
+	}
+}
+
+func schemaRecoveryFailure(code Code, retryable bool, action contract.RecoveryAction) contract.RecoveryFailure {
+	return contract.RecoveryFailure{Code: string(code), Retryable: retryable, Action: action}
+}
+
+// SafeRecoveryError 保留内部错误链，但只向边界返回稳定 code。
+func SafeRecoveryError(err error) error {
+	failure, ok := RecoveryFailure(err)
+	if !ok {
+		return err
+	}
+	var safe *safeRecoveryError
+	if errors.As(err, &safe) {
+		return err
+	}
+	return &safeRecoveryError{failure: failure, cause: err}
 }

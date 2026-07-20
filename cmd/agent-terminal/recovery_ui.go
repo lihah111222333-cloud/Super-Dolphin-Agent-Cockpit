@@ -25,11 +25,13 @@ type recoverySurfaceState struct {
 	Projection app.RecoveryProjection     `json:"projection"`
 	LastAction string                     `json:"last_action"`
 	Actions    recoveryActionAvailability `json:"actions"`
+	Failure    app.RecoveryFailure        `json:"failure"`
 }
 
 type recoveryBinding struct {
 	runtime *app.RecoveryRuntime
 	effects recoveryEffects
+	failure atomic.Pointer[app.RecoveryFailure]
 }
 
 type recoveryEffects struct {
@@ -89,6 +91,7 @@ func (binding *recoveryBinding) Check(ctx context.Context) (recoverySurfaceState
 	if err := runtime.Check.Check(ctx); err != nil {
 		return recoverySurfaceState{}, err
 	}
+	binding.failure.Store(nil)
 	return binding.stateAfter(ctx, "check")
 }
 
@@ -99,8 +102,17 @@ func (binding *recoveryBinding) Retry(ctx context.Context) (recoverySurfaceState
 		return recoverySurfaceState{}, err
 	}
 	if _, err := runtime.Retry.Retry(ctx); err != nil {
+		projection, projectionErr := runtime.CurrentProjection(ctx)
+		if projectionErr != nil {
+			return recoverySurfaceState{}, errors.Join(err, projectionErr)
+		}
+		failure := app.RecoveryFailureForError(err, projection.TransactionID)
+		if failure.Code != "" {
+			binding.failure.Store(&failure)
+		}
 		return recoverySurfaceState{}, err
 	}
+	binding.failure.Store(nil)
 	return binding.stateAfter(ctx, "retry")
 }
 
@@ -110,9 +122,13 @@ func (binding *recoveryBinding) Restore(ctx context.Context) (recoverySurfaceSta
 	if err != nil {
 		return recoverySurfaceState{}, err
 	}
-	return completeRecoveryRestore(ctx, recoveryRestoreOps{
+	state, err := completeRecoveryRestore(ctx, recoveryRestoreOps{
 		Restore: runtime.Restore.Restore, Projection: runtime.CurrentProjection, Quit: binding.effects.Quit,
 	})
+	if err == nil {
+		binding.failure.Store(nil)
+	}
+	return state, err
 }
 
 // completeRecoveryRestore 等待 transaction-owned rollback/restart 收敛成功后刷新状态并退出 Recovery。
@@ -133,6 +149,7 @@ func completeRecoveryRestore(ctx context.Context, ops recoveryRestoreOps) (recov
 	return state, nil
 }
 
+// stateAfter 刷新 exact journal，并仅合并同一 transaction 的内存失败元数据。
 func (binding *recoveryBinding) stateAfter(ctx context.Context, action string) (recoverySurfaceState, error) {
 	runtime, err := binding.recoveryRuntime()
 	if err != nil {
@@ -142,14 +159,29 @@ func (binding *recoveryBinding) stateAfter(ctx context.Context, action string) (
 	if err != nil {
 		return recoverySurfaceState{}, err
 	}
-	return newRecoverySurfaceState(projection, action), nil
+	if failure := binding.failure.Load(); failure != nil {
+		if failure.TransactionID == "" || failure.TransactionID == string(projection.TransactionID) {
+			return newRecoverySurfaceStateWithFailure(projection, action, *failure), nil
+		}
+		binding.failure.Store(nil)
+	}
+	return newRecoverySurfaceStateWithFailure(projection, action, runtime.CurrentFailure()), nil
 }
 
 func newRecoverySurfaceState(projection app.RecoveryProjection, action string) recoverySurfaceState {
+	return newRecoverySurfaceStateWithFailure(projection, action, app.RecoveryFailure{})
+}
+
+func newRecoverySurfaceStateWithFailure(projection app.RecoveryProjection, action string, failure app.RecoveryFailure) recoverySurfaceState {
 	actions := recoveryActionsFor(projection)
+	projection.Reason = "Recovery action is required; sensitive diagnostics remain preserved internally."
+	if failure.Code != "" {
+		failure.TransactionID = string(projection.TransactionID)
+		projection.Reason = app.RecoveryReasonForFailure(failure.Code)
+	}
 	return recoverySurfaceState{
 		Mode: app.StartupModeRecovery, Projection: projection, LastAction: action,
-		Actions: actions,
+		Actions: actions, Failure: failure,
 	}
 }
 

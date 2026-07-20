@@ -89,11 +89,160 @@ func TestRecoveryBindingStateExposesTypedRecoveryMode(t *testing.T) {
 	if err != nil {
 		t.Fatalf("State() error = %v", err)
 	}
-	if state.Mode != app.StartupModeRecovery || state.Projection.Reason != "normal preflight failed" || state.LastAction != "state" {
+	if state.Mode != app.StartupModeRecovery || state.Projection.Reason != "Recovery action is required; sensitive diagnostics remain preserved internally." || state.LastAction != "state" {
 		t.Fatalf("State() = %#v", state)
 	}
 	if state.Actions != (recoveryActionAvailability{}) {
 		t.Fatalf("normal-preflight Recovery actions = %#v, want unavailable", state.Actions)
+	}
+}
+
+func TestRecoverySurfaceRedactsUnknownFailureReason(t *testing.T) {
+	secret := "postgres://admin:password@localhost/db PRIVATE KEY sk-live-secret /Users/alice/private.db stdout stderr"
+	state := newRecoverySurfaceState(app.RecoveryProjection{Reason: secret}, "state")
+	raw, err := json.Marshal(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, leaked := range []string{"postgres://", "PRIVATE KEY", "sk-live-secret", "/Users/alice", "stdout", "stderr"} {
+		if strings.Contains(string(raw), leaked) {
+			t.Fatalf("unknown Recovery failure leaked %q in %s", leaked, raw)
+		}
+	}
+}
+
+func TestRecoverySurfaceExposesOnlySafeFailureMetadata(t *testing.T) {
+	secret := "postgres://admin:password@localhost/db PRIVATE KEY sk-live-secret /Users/alice/private.db"
+	projection := app.RecoveryProjection{
+		TransactionID: "transaction-1",
+		Reason:        "update failed: " + secret,
+	}
+	state := newRecoverySurfaceStateWithFailure(projection, "state", app.RecoveryFailure{
+		Code: "UPDATE_SIGNATURE_INVALID", Action: app.RecoveryActionPreserveStateExportDiagnostics,
+	})
+	if state.Failure.TransactionID != "transaction-1" || state.Failure.Code != "UPDATE_SIGNATURE_INVALID" {
+		t.Fatalf("failure = %#v", state.Failure)
+	}
+	raw, err := json.Marshal(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, leaked := range []string{"postgres://", "PRIVATE KEY", "sk-live-secret", "/Users/alice"} {
+		if strings.Contains(string(raw), leaked) {
+			t.Fatalf("Recovery state leaked %q in %s", leaked, raw)
+		}
+	}
+	var payload struct {
+		Failure map[string]any `json:"failure"`
+	}
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		t.Fatal(err)
+	}
+	if len(payload.Failure) != 4 {
+		t.Fatalf("failure fields = %v, want exactly four", payload.Failure)
+	}
+}
+
+type ambiguousRecoveryFixture struct {
+	binding *recoveryBinding
+	root    string
+	target  string
+	id      recovery.TransactionID
+}
+
+func newAmbiguousRecoveryFixture(t *testing.T) ambiguousRecoveryFixture {
+	t.Helper()
+	root := mustAgentTerminalValue(t, func() (string, error) { return filepath.EvalSymlinks(t.TempDir()) })
+	target := filepath.Join(root, "Super Dolphin.app")
+	id := mustAgentTerminalValue(t, recovery.NewTransactionID)
+	paths := mustAgentTerminalValue(t, func() (recovery.Paths, error) { return recovery.PathsFor(target, id) })
+	artifact := buildAgentTerminalRollbackArtifact(t)
+	writeAgentTerminalRelease(t, target, "old", artifact)
+	writeAgentTerminalRelease(t, paths.Staging, "candidate", artifact)
+	oldDigest := mustAgentTerminalValue(t, func() (string, error) { return recovery.ComputeReleaseDigest(target) })
+	candidateDigest := mustAgentTerminalValue(t, func() (string, error) { return recovery.ComputeReleaseDigest(paths.Staging) })
+	store := mustAgentTerminalValue(t, func() (*recovery.Store, error) {
+		return recovery.NewStore(recovery.TransactionRootForTarget(target))
+	})
+	identity := recovery.Identity{
+		TransactionID: id, AttemptID: "recovery-ambiguity",
+		OldRelease:       recovery.ReleaseIdentity{SHA256: oldDigest, SignerIdentity: "TEAM-OLD"},
+		CandidateRelease: recovery.ReleaseIdentity{SHA256: candidateDigest, SignerIdentity: "TEAM-NEW"},
+		OldHelpers:       agentTerminalHelperIdentity("old"),
+		CandidateHelpers: agentTerminalHelperIdentity("candidate"),
+		UpdaterProcess: recovery.ProcessIdentity{
+			PID: 101, StartToken: "ambiguity-updater", ExecutableIdentity: "/test/updater",
+			ExecutableSHA256: agentTerminalDigest("updater"),
+		},
+	}
+	transaction := mustAgentTerminalValue(t, func() (recovery.Transaction, error) {
+		return store.Create(t.Context(), recovery.CreateRequest{
+			Identity: identity, Paths: paths,
+			Trust: recovery.TrustGeneration{PreviousGeneration: "old", Generation: "candidate", PackageSigner: "TEAM-NEW", State: recovery.TrustPending},
+		})
+	})
+	mustAgentTerminalNoError(t, os.Rename(target, filepath.Join(root, "external-old-release")))
+	if _, err := store.RetainBackup(t.Context(), transaction.Identity); !errors.Is(err, app.ErrUpdateTransactionAmbiguous) {
+		t.Fatalf("RetainBackup() error = %v, want ErrUpdateTransactionAmbiguous", err)
+	}
+	transaction = mustAgentTerminalValue(t, func() (recovery.Transaction, error) { return store.Load(t.Context(), identity) })
+	runtime := mustAgentTerminalValue(t, func() (*app.RecoveryRuntime, error) {
+		return app.NewRecoveryRuntime(app.StartupSelection{
+			Mode: app.StartupModeRecovery, Store: store, Transaction: transaction,
+			Projection: app.RecoveryProjection{TransactionID: id, State: recovery.StateBackupPending},
+		})
+	})
+	return ambiguousRecoveryFixture{binding: &recoveryBinding{runtime: runtime}, root: root, target: target, id: id}
+}
+
+func TestRecoveryRetrySurfacesActualAmbiguityWithTransactionID(t *testing.T) {
+	fixture := newAmbiguousRecoveryFixture(t)
+	binding := fixture.binding
+	if _, err := binding.Retry(t.Context()); !errors.Is(err, app.ErrUpdateTransactionAmbiguous) {
+		t.Fatalf("Retry() error = %v, want ErrUpdateTransactionAmbiguous", err)
+	}
+	state, err := binding.State(t.Context())
+	if err != nil {
+		t.Fatalf("State() error = %v", err)
+	}
+	assertAmbiguousRecoveryState(t, state, fixture.id)
+	mustAgentTerminalNoError(t, os.Rename(filepath.Join(fixture.root, "external-old-release"), fixture.target))
+	if _, err := binding.Retry(t.Context()); err != nil {
+		t.Fatalf("Retry() after restoring exact target error = %v", err)
+	}
+	state, err = binding.State(t.Context())
+	assertRecoveredState(t, state, err)
+}
+
+func assertAmbiguousRecoveryState(t *testing.T, state recoverySurfaceState, id recovery.TransactionID) {
+	t.Helper()
+	if state.Failure.TransactionID != string(id) || state.Failure.Code != "UPDATE_TRANSACTION_AMBIGUOUS" {
+		t.Fatalf("State() failure = %#v", state.Failure)
+	}
+	if state.Projection.State != recovery.StateBackupPending || state.LastAction != "state" {
+		t.Fatalf("State() = %#v, want preserved backup_pending journal", state)
+	}
+}
+
+func assertRecoveredState(t *testing.T, state recoverySurfaceState, err error) {
+	t.Helper()
+	if err != nil || state.Failure.Code != "" || state.Projection.State != recovery.StateBackupRetained {
+		t.Fatalf("State() after successful Retry = %#v, error=%v", state, err)
+	}
+}
+
+func TestRecoveryBindingDoesNotCrossTransactionFailureMetadata(t *testing.T) {
+	runtime := mustAgentTerminalValue(t, func() (*app.RecoveryRuntime, error) {
+		return app.NewRecoveryRuntime(app.StartupSelection{
+			Mode:       app.StartupModeRecovery,
+			Projection: app.RecoveryProjection{TransactionID: "transaction-new", Reason: "internal"},
+		})
+	})
+	binding := &recoveryBinding{runtime: runtime}
+	binding.failure.Store(&app.RecoveryFailure{Code: "UPDATE_TRANSACTION_AMBIGUOUS", TransactionID: "transaction-old"})
+	state, err := binding.State(t.Context())
+	if err != nil || state.Failure.Code != "" {
+		t.Fatalf("State() = %#v, error=%v, want no stale failure", state, err)
 	}
 }
 
@@ -185,6 +334,7 @@ func TestRecoverySurfaceFieldGuard(t *testing.T) {
 		{"recovery_state_to_wails_frontend", "RECOVERY_STATE_FIELDS", reflect.TypeFor[recoverySurfaceState](), state},
 		{"recovery_actions_to_wails_frontend", "RECOVERY_ACTION_FIELDS", reflect.TypeFor[recoveryActionAvailability](), state.Actions},
 		{"recovery_projection_to_wails_frontend", "RECOVERY_PROJECTION_FIELDS", reflect.TypeFor[app.RecoveryProjection](), state.Projection},
+		{"recovery_failure_to_wails_frontend", "RECOVERY_FAILURE_FIELDS", reflect.TypeFor[app.RecoveryFailure](), state.Failure},
 	}
 	for _, guard := range guards {
 		producerFields, err := jsonProducerFields(guard.producer)
@@ -213,6 +363,7 @@ func TestRecoveryFieldGuardsRejectProducerMutations(t *testing.T) {
 		{"recovery_state_to_wails_frontend", "RECOVERY_STATE_FIELDS", "main.recoverySurfaceState", reflect.TypeFor[recoverySurfaceState]()},
 		{"recovery_actions_to_wails_frontend", "RECOVERY_ACTION_FIELDS", "main.recoveryActionAvailability", reflect.TypeFor[recoveryActionAvailability]()},
 		{"recovery_projection_to_wails_frontend", "RECOVERY_PROJECTION_FIELDS", "app.RecoveryProjection", reflect.TypeFor[app.RecoveryProjection]()},
+		{"recovery_failure_to_wails_frontend", "RECOVERY_FAILURE_FIELDS", "app.RecoveryFailure", reflect.TypeFor[app.RecoveryFailure]()},
 	}
 	for _, test := range tests {
 		fields := make([]reflect.StructField, test.typeOf.NumField(), test.typeOf.NumField()+1)

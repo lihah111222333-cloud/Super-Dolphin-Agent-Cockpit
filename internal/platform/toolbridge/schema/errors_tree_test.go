@@ -2,11 +2,14 @@ package schema
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util/safego"
 )
 
@@ -161,5 +164,71 @@ func assertHelperLimiterFailClosed(t *testing.T, limiter *helperLimiter, stage s
 	})
 	if started || ErrorCode(err) != CodeCapacityExhausted {
 		t.Fatalf("%s released capacity: started=%v code=%q error=%v", stage, started, ErrorCode(err), err)
+	}
+}
+
+func TestSchemaRecoveryFailureMappingIsStableAndSafe(t *testing.T) {
+	secret := "stderr=postgres://admin:password@localhost/private key=-----BEGIN PRIVATE KEY----- token=sk-live-secret /Users/alice/private.db"
+	tests := []struct {
+		name          string
+		code          Code
+		wantRetryable bool
+		wantAction    contract.RecoveryAction
+	}{
+		{name: "capacity exhausted", code: CodeCapacityExhausted, wantRetryable: true, wantAction: contract.RecoveryActionWaitThenRetry},
+		{name: "reap failed", code: CodeReapFailed, wantAction: contract.RecoveryActionRestartApplication},
+		{name: "digest mismatch", code: CodeDigestMismatch, wantAction: contract.RecoveryActionPreserveStateExportDiagnostics},
+		{name: "protocol violation", code: CodeProtocolViolation, wantAction: contract.RecoveryActionPreserveStateExportDiagnostics},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			assertSchemaRecoveryFailureCase(t, test.code, test.wantRetryable, test.wantAction, secret)
+		})
+	}
+}
+
+func assertSchemaRecoveryFailureCase(
+	t *testing.T, code Code, wantRetryable bool, wantAction contract.RecoveryAction, secret string,
+) {
+	t.Helper()
+	unsafeErr := newDiagnostic(code, secret, errors.New(secret))
+	failure, ok := RecoveryFailure(unsafeErr)
+	if !ok {
+		t.Fatalf("RecoveryFailure() ok = false for %q", code)
+	}
+	want := contract.RecoveryFailure{Code: string(code), Retryable: wantRetryable, Action: wantAction}
+	if failure != want {
+		t.Fatalf("RecoveryFailure() = %#v, want %#v", failure, want)
+	}
+	assertRecoveryFailureWireFields(t, failure)
+	safeErr := SafeRecoveryError(unsafeErr)
+	assertNoSchemaRecoverySecret(t, safeErr)
+	mapped, ok := RecoveryFailure(safeErr)
+	if !ok || mapped != failure {
+		t.Fatalf("wrapped RecoveryFailure() = %#v, %v; want %#v, true", mapped, ok, failure)
+	}
+}
+
+func assertRecoveryFailureWireFields(t *testing.T, failure contract.RecoveryFailure) {
+	t.Helper()
+	raw, err := json.Marshal(failure)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var fields map[string]any
+	if err := json.Unmarshal(raw, &fields); err != nil {
+		t.Fatal(err)
+	}
+	if len(fields) != 4 {
+		t.Fatalf("recovery metadata fields = %v, want exactly four", fields)
+	}
+}
+
+func assertNoSchemaRecoverySecret(t *testing.T, err error) {
+	t.Helper()
+	for _, leaked := range []string{"postgres://", "PRIVATE KEY", "sk-live-secret", "/Users/alice", "stderr="} {
+		if strings.Contains(err.Error(), leaked) {
+			t.Fatalf("SafeRecoveryError() leaked %q in %q", leaked, err)
+		}
 	}
 }

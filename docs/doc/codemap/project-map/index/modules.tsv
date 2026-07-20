@@ -1,8 +1,8 @@
 path	module	domain	type	size_bytes	purpose	search_keys
 internal/module/appupdate/github_release_test.go	internal	modules	go-test	9168	业务模块层	internal,module,appupdate,github,release,test,业务模块层
 internal/module/appupdate/github_release.go	internal	modules	go-source	9752	业务模块层	internal,module,appupdate,github,release,业务模块层
-internal/module/appupdate/manifest_test.go	internal	modules	go-test	7045	业务模块层	internal,module,appupdate,manifest,test,业务模块层
-internal/module/appupdate/manifest.go	internal	modules	go-source	9424	业务模块层	internal,module,appupdate,manifest,业务模块层
+internal/module/appupdate/manifest_test.go	internal	modules	go-test	8176	业务模块层	internal,module,appupdate,manifest,test,业务模块层
+internal/module/appupdate/manifest.go	internal	modules	go-source	9668	业务模块层	internal,module,appupdate,manifest,业务模块层
 internal/module/appupdate/module.go	internal	modules	go-source	533	业务模块层	internal,module,appupdate,业务模块层
 internal/module/appupdate/package_trust_test.go	internal	modules	go-test	11484	业务模块层	internal,module,appupdate,package,trust,test,业务模块层
 internal/module/appupdate/package_trust_tool.go	internal	modules	go-source	3996	业务模块层	internal,module,appupdate,package,trust,tool,业务模块层
