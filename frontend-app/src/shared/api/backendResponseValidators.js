@@ -54,21 +54,19 @@ import {
 } from './backendResponseValidatorsCore.js';
 import {
   validateCronListResponse,
-  validateThreadPromptHistoryResponse,
-  validateThreadRecoverResponse,
-  validateToolbridgeToolsListResponse,
-} from './backendResponseValidatorsRuntime.js';
-import {
   validateDashboardDagDetailResponse,
   validateDashboardDagRunResponse,
   validateDashboardDagRunsResponse,
   validateSidebarStateResponse,
+  validateThreadPromptHistoryResponse,
+  validateThreadRecoverResponse,
+  validateToolbridgeToolsListResponse,
   validateUIStateResponse,
   validateWorkflowTemplateDraftResponse,
   validateWorkflowTemplateResponse,
   validateWorkflowTemplateSaveResponse,
   validateWorkflowTemplatesListResponse,
-} from './validators/backendResponseValidatorsWorkflow.js';
+} from './backendResponseValidatorsRuntime.js';
 import {
   assertBackendResponseObject,
   assertOnlyResponseKeys,
