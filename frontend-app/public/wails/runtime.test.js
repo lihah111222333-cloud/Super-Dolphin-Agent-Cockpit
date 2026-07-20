@@ -313,6 +313,40 @@ describe('development Wails runtime shim', () => {
     await expect(selectionPromise).resolves.toEqual(['/tmp/selected.txt']);
   });
 
+  it('allows turn/start cold session establishment to exceed the short RPC timeout', async () => {
+    vi.useFakeTimers();
+    const sockets = [];
+    const telemetry = vi.fn();
+    window.__AO_WAILS_RUNTIME_TELEMETRY__ = telemetry;
+    vi.stubGlobal('WebSocket', createTestWebSocketClass(sockets));
+
+    const runtime = await importFreshRuntimeShim();
+    const turnStartPromise = runtime.Call.ByID(1391035622, 'turn/start', {
+      cwd: '/workspace',
+      input: [{ type: 'text', text: 'hello' }],
+      threadId: 'thread-1',
+    });
+    const turnStartOutcome = turnStartPromise.then(
+      (value) => ({ status: 'resolved', value }),
+      (error) => ({ status: 'rejected', error }),
+    );
+    sockets[0].open();
+    await Promise.resolve();
+    const request = JSON.parse(sockets[0].sent[0]);
+
+    await vi.advanceTimersByTimeAsync(30_001);
+    expect(telemetry).not.toHaveBeenCalledWith(expect.objectContaining({
+      phase: 'runtime.rpc.timeout',
+      method: 'turn/start',
+    }));
+
+    sockets[0].receive({ jsonrpc: '2.0', id: request.id, result: { turnId: 'turn-1' } });
+    await expect(turnStartOutcome).resolves.toEqual({
+      status: 'resolved',
+      value: { turnId: 'turn-1' },
+    });
+  });
+
   it('emits failure telemetry and clears pending calls on websocket close', async () => {
     const sockets = [];
     const telemetry = vi.fn();

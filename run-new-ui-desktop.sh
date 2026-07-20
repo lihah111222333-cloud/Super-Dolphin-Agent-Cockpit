@@ -21,6 +21,31 @@ elif [ "$#" -ne 0 ]; then
   exit 1
 fi
 
+resolve_application_commit_identity() {
+  APP_COMMIT="$(git -C "$PROJECT_DIR" rev-parse --verify HEAD 2>/dev/null)" || {
+    echo "❌ cannot resolve the application commit identity from $PROJECT_DIR" >&2
+    exit 1
+  }
+  case "$APP_COMMIT" in
+    ''|*[!0-9a-f]*)
+      echo "❌ invalid application commit identity resolved from $PROJECT_DIR" >&2
+      exit 1
+      ;;
+  esac
+  SCHEMA_BUILD_IDENTITY_LDFLAG="-X github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/toolbridge/schema.buildAppCommit=$APP_COMMIT"
+}
+PROJECT_WORKTREE_ID="$(printf '%s' "$PROJECT_DIR" | git -C "$PROJECT_DIR" hash-object --stdin)" || {
+  echo "❌ cannot derive the development runtime identity from $PROJECT_DIR" >&2
+  exit 1
+}
+case "$PROJECT_WORKTREE_ID" in
+  ''|*[!0-9a-f]*)
+    echo "❌ invalid development runtime identity derived from $PROJECT_DIR" >&2
+    exit 1
+    ;;
+esac
+PROJECT_WORKTREE_ID="${PROJECT_WORKTREE_ID:0:12}"
+
 ensure_dev_control_session_token() {
   if [ -n "${GO_AGENT_CTL_SESSION_TOKEN:-}" ]; then
     return 0
@@ -163,9 +188,20 @@ peer_binary_stale() {
   return 1
 }
 
+schema_helper_package_current() {
+  local helper="$PROJECT_DIR/bin/mcp-schema-compiler-helper"
+  local manifest="$helper.manifest.json"
+  [ -x "$helper" ] || return 1
+  [ -f "$manifest" ] || return 1
+  grep -Eq '"app_commit"[[:space:]]*:[[:space:]]*"'"$APP_COMMIT"'"' "$manifest"
+}
+
 ensure_peer_binaries() {
   local peer_dir="${GO_AGENT_PEER_BIN_DIR:-$PROJECT_DIR}"
   local needs_rebuild=0
+  if ! schema_helper_package_current; then
+    needs_rebuild=1
+  fi
   for bin in mcp-orch mcp-lsp; do
     if [ ! -x "$peer_dir/$bin" ]; then
       needs_rebuild=1
@@ -265,7 +301,11 @@ rebuild_peer_binaries() {
   local peer_dir="${GO_AGENT_PEER_BIN_DIR:-$PROJECT_DIR}"
   mkdir -p "$peer_dir"
   echo "  → building peer binaries for new UI desktop: $peer_dir"
-  (cd "$PROJECT_DIR" && go build -o "$peer_dir/mcp-orch" ./cmd/mcp-orch/ && go build -o "$peer_dir/mcp-lsp" ./cmd/mcp-lsp/)
+  (cd "$PROJECT_DIR" && make APP_COMMIT="$APP_COMMIT" build-peer-binaries)
+  if [ "$peer_dir" != "$PROJECT_DIR/bin" ]; then
+    cp "$PROJECT_DIR/bin/mcp-orch" "$peer_dir/mcp-orch"
+    cp "$PROJECT_DIR/bin/mcp-lsp" "$peer_dir/mcp-lsp"
+  fi
 }
 
 wait_for_http() {
@@ -623,7 +663,7 @@ start_desktop_backend() {
     echo
     echo "===== desktop backend start $(date -u '+%Y-%m-%dT%H:%M:%SZ') ====="
   } >>"$SUPER_DOLPHIN_BACKEND_LOG"
-  (cd "$PROJECT_DIR" && go run ./cmd/agent-terminal >>"$SUPER_DOLPHIN_BACKEND_LOG" 2>&1) &
+  (cd "$PROJECT_DIR" && go run -ldflags "$SCHEMA_BUILD_IDENTITY_LDFLAG" ./cmd/agent-terminal >>"$SUPER_DOLPHIN_BACKEND_LOG" 2>&1) &
   DESKTOP_PID=$!
   echo "  → desktop backend started (PID: $DESKTOP_PID)"
 }
@@ -790,6 +830,7 @@ SUPER_DOLPHIN_HOT_MIN_POLL_INTERVAL="1"
 SUPER_DOLPHIN_HOT_MAX_WATCH_PATHS_LIMIT="64"
 SUPER_DOLPHIN_HOT_MAX_WATCH_FILES_LIMIT="20000"
 validate_backend_hot_reload_config
+resolve_application_commit_identity
 SUPER_DOLPHIN_RUNTIME_MODE="${SUPER_DOLPHIN_RUNTIME_MODE:-dev}"
 SUPER_DOLPHIN_RUNTIME_RESOURCES_DIR="${SUPER_DOLPHIN_RUNTIME_RESOURCES_DIR:-$PROJECT_DIR}"
 SUPER_DOLPHIN_DEV_ENTRYPOINT="${SUPER_DOLPHIN_DEV_ENTRYPOINT:-run-new-ui-desktop.sh}"
@@ -800,7 +841,7 @@ if [ -z "$SUPER_DOLPHIN_DEPENDENCY_PROFILE" ]; then
   echo "❌ SUPER_DOLPHIN_DEPENDENCY_PROFILE must not be empty" >&2
   exit 1
 fi
-SUPER_DOLPHIN_HOME="${SUPER_DOLPHIN_HOME:-/tmp/sd-new-ui-${USER:-user}/super-dolphin-home}"
+SUPER_DOLPHIN_HOME="${SUPER_DOLPHIN_HOME:-/tmp/sd-new-ui-${USER:-user}/worktree-$PROJECT_WORKTREE_ID}"
 SUPER_DOLPHIN_BACKEND_LOG="${SUPER_DOLPHIN_BACKEND_LOG:-$PROJECT_DIR/.tmp/run-new-ui-desktop/backend.log}"
 SUPER_DOLPHIN_FRONTEND_LOG="${SUPER_DOLPHIN_FRONTEND_LOG:-$PROJECT_DIR/.tmp/run-new-ui-desktop/frontend.log}"
 SUPER_DOLPHIN_DEV_PROVIDER="${SUPER_DOLPHIN_DEV_PROVIDER:-codex}"

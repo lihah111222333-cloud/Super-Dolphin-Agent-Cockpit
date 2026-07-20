@@ -1,7 +1,6 @@
 ---
 name: 全量项目地图生成
-description: "仅当用户明确点名 `全量项目地图生成` 技能时使用。"
-disable_model_invocation: true
+description: 当在 super-agent-v3 中生成、更新或校验 docs/doc/codemap 项目地图、AI index 或能力清单时使用。
 aliases: ["@全量项目地图生成", "@codemap"]
 ---
 

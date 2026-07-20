@@ -1469,6 +1469,30 @@ function registerBridgeEventHandlersForTest() {
     expect(useClientStore.getState().warningEntries.filter((entry) => entry.event === 'thread.config.get.failed')).toHaveLength(1);
   });
 
+  it('releases the timeline loading state and exposes a stalled history sync failure', async () => {
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'thread-1',
+      threads: [{ id: 'thread-1', name: 'Thread 1', provider: 'codex', status: 'idle' }],
+    });
+    const timeout = new Error('ui/state/get timed out after 10000ms');
+    timeout.name = 'BridgeRPCTimeoutError';
+    backend.getThreadState.mockRejectedValueOnce(timeout);
+
+    await expect(useClientStore.getState().syncThreadState('thread-1')).resolves.toBe(false);
+
+    const state = useClientStore.getState();
+    expect(state.threadStateLoadingByThread['thread-1']).toBe(false);
+    expect(state.actionNotice).toEqual(expect.objectContaining({
+      message: '同步会话失败：ui/state/get timed out after 10000ms',
+      tone: 'error',
+    }));
+    expect(state.warningEntries).toEqual(expect.arrayContaining([
+      expect.objectContaining({ event: 'thread.sync.failed' }),
+    ]));
+  });
+
   it('never sends unknown runtime agent ids to thread-scoped RPCs', async () => {
     resetClientStoreForTests({
       cwd: '/repo/app',

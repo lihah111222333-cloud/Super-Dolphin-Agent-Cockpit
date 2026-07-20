@@ -315,6 +315,7 @@ const UPDATE_RPC_TIMEOUT_MS = 900_000;
 const INTERACTIVE_RPC_TIMEOUT_MS = 900_000;
 const LONG_RPC_TIMEOUT_MS = 120_000;
 const SHORT_RPC_TIMEOUT_MS = 30_000;
+const SESSION_ESTABLISHMENT_RPC_METHODS = new Set(['turn/start']);
 const DREAM_RPC_PATTERNS = ['prompt-intents/draft'];
 const UPDATE_RPC_PATTERNS = ['app/update/download', 'app/update/installlatest'];
 const INTERACTIVE_RPC_PATTERNS = ['ui/selectfiles', 'ui/selectprojectdir', 'ui/selectprojectdirs', 'ui/selectdatasourceimportfile'];
@@ -322,6 +323,7 @@ const LONG_RPC_PATTERNS = ['compact', 'summary', 'memory', 'dream', 'extract', '
 
 function rpcTimeoutMs(methodName) {
   const lower = methodName.toLowerCase();
+  if (SESSION_ESTABLISHMENT_RPC_METHODS.has(lower)) return LONG_RPC_TIMEOUT_MS;
   for (const pattern of DREAM_RPC_PATTERNS) {
     if (lower.includes(pattern)) return DREAM_RPC_TIMEOUT_MS;
   }

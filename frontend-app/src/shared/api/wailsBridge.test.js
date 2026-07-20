@@ -443,6 +443,48 @@ describe('wails bridge warning logs', () => {
     expect(errorEvents).not.toContain('bridge.call.failed');
   });
 
+  it.each(['thread/messages', 'ui/state/get'])(
+    'fails a stalled %s history sync RPC instead of remaining pending forever',
+    async (method) => {
+      vi.useFakeTimers();
+      try {
+        const byID = vi.fn(() => new Promise(() => {}));
+        vi.doMock(runtimeModule, () => ({
+          Call: { ByID: byID },
+          Events: { On: vi.fn() },
+        }));
+        const { callAPI } = await import('./wailsBridge.js');
+
+        const rpcOutcome = callAPI(method, {
+          cwd: '/workspace',
+          threadId: 'thread-1',
+        }).then(
+          () => ({ status: 'resolved' }),
+          (error) => ({ status: 'rejected', error }),
+        );
+        const testDeadline = new Promise((resolve) => {
+          setTimeout(() => resolve({ status: 'still-pending' }), 10_001);
+        });
+        const outcome = Promise.race([rpcOutcome, testDeadline]);
+
+        await vi.advanceTimersByTimeAsync(10_001);
+
+        await expect(outcome).resolves.toMatchObject({
+          status: 'rejected',
+          error: {
+            name: 'BridgeRPCTimeoutError',
+            method,
+            timeoutMs: 10_000,
+          },
+        });
+        expect(byID.mock.calls.filter(([, calledMethod]) => calledMethod === method)).toHaveLength(1);
+      }
+      finally {
+        vi.useRealTimers();
+      }
+    },
+  );
+
   it('records failed backend RPC details with a serializable error message', async () => {
     const error = new Error('backend unavailable');
     error.code = 'ECONNREFUSED';
