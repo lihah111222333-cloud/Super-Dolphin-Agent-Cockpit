@@ -64,6 +64,12 @@ func TestWindowsCrossPlatformSmokeRequiresAllFrontendEntries(t *testing.T) {
 	}
 }
 
+func TestGoWithGuardUsesHostToolchainForCrossCompileGuards(t *testing.T) {
+	script := readScript(t, "go_with_guard.sh")
+	assertScriptContains(t, script, "unset GOOS GOARCH CGO_ENABLED")
+	assertScriptOrder(t, script, "unset GOOS GOARCH CGO_ENABLED", `run_guard "$real_go"`)
+}
+
 func TestPackageWindowsWhatIfRunsCrossPlatformValidation(t *testing.T) {
 	pwsh, err := exec.LookPath("pwsh")
 	if err != nil {
