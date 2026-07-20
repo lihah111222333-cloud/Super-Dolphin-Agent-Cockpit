@@ -122,7 +122,6 @@ function createLifecycleActions(runtime, deps) {
     runtime.turnTerminalStates?.clear();
     runtime.observedTurnByThread?.clear();
     runtime.retiredTurnRefs?.clear();
-    runtime.terminalCacheOverflowed = false;
     runtime.sidebarRefreshSeq += 1;
   };
 

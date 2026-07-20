@@ -6117,14 +6117,79 @@ function registerBridgeEventHandlersForTest() {
     ]));
   });
 
-  it('keeps terminal cache state bounded, fails closed on exhaustion, and recovers after lifecycle cleanup', async () => {
+  it('rejects the oldest late event after sequential turns exceed tombstone capacity', () => {
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'thread-1',
+      threads: [{ id: 'thread-1', name: 'Thread 1', provider: 'codex', status: 'running' }],
+      timelinesByThread: { 'thread-1': [] },
+    });
+    registerBridgeEventHandlersForTest();
+
+    for (let index = 0; index <= 65; index++) {
+      bridgeCallback({
+        type: 'turn/output/delta',
+        payload: {
+          threadId: 'thread-1',
+          turnId: `turn-${index}`,
+          itemId: `item-${index}`,
+          delta: `answer ${index}`,
+        },
+      });
+      bridgeCallback({
+        type: 'turn/terminal',
+        payload: {
+          schemaVersion: 2,
+          eventId: `terminal-${index}`,
+          threadId: 'thread-1',
+          turnId: `turn-${index}`,
+          outcome: 'success',
+          occurredAt: '2026-07-20T01:00:00Z',
+        },
+      });
+    }
+
+    expect(useClientStore.getState().timelinesByThread['thread-1']).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'turn_terminal', turnId: 'turn-65', terminalOutcome: 'success' }),
+    ]));
+    expect(useClientStore.getState().getTurnTerminalCacheStats()).toEqual({
+      capacity: 64,
+      terminalStates: 1,
+      observedTurns: 1,
+      retiredTurns: 64,
+    });
+
+    bridgeCallback({
+      type: 'turn/output/delta',
+      payload: {
+        threadId: 'thread-1',
+        turnId: 'turn-0',
+        itemId: 'late-item',
+        delta: 'late mutation',
+      },
+    });
+
+    const state = useClientStore.getState();
+    expect(state.timelinesByThread['thread-1']).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'late-item' }),
+    ]));
+    expect(state.warningEntries).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        event: 'turn.event.late',
+        fields: expect.objectContaining({ turn_id: 'turn-0' }),
+      }),
+    ]));
+  });
+
+  it('keeps pending terminals replayable and fails closed when they fill capacity', () => {
     resetClientStoreForTests({
       cwd: '/repo/app',
       activeProject: '/repo/app',
       activeThreadId: 'pending-thread-0',
-      threads: Array.from({ length: 195 }, (_, index) => ({
+      threads: Array.from({ length: 65 }, (_, index) => ({
         id: `pending-thread-${index}`,
-        name: `Thread ${index}`,
+        name: `Pending ${index}`,
         provider: 'codex',
         status: 'running',
       })),
@@ -6146,10 +6211,10 @@ function registerBridgeEventHandlersForTest() {
         recoveryActions: [],
       },
       partialItemIds: [`partial-${index}`],
-      occurredAt: '2026-07-19T01:00:00Z',
+      occurredAt: '2026-07-20T01:00:00Z',
     });
 
-    for (let index = 0; index < 195; index++) {
+    for (let index = 0; index < 64; index++) {
       bridgeCallback({ type: 'turn/terminal', payload: pendingTerminal(index) });
     }
 
@@ -6158,126 +6223,123 @@ function registerBridgeEventHandlersForTest() {
       terminalStates: 64,
       observedTurns: 64,
       retiredTurns: 0,
-      overflowed: true,
+    });
+    bridgeCallback({ type: 'turn/terminal', payload: pendingTerminal(64) });
+    expect(useClientStore.getState().getTurnTerminalCacheStats()).toEqual({
+      capacity: 64,
+      terminalStates: 64,
+      observedTurns: 64,
+      retiredTurns: 0,
     });
     expect(useClientStore.getState().warningEntries).toEqual(expect.arrayContaining([
       expect.objectContaining({
         event: 'turn.terminal.cache_exhausted',
-        threadId: 'pending-thread-64',
         fields: expect.objectContaining({ turn_id: 'pending-turn-64', reason: 'capacity' }),
       }),
     ]));
+
     bridgeCallback({
-      type: 'turn/terminal',
+      type: 'turn/output/delta',
       payload: {
-        schemaVersion: 2,
-        eventId: 'exhausted-terminal-replayed-as-success',
-        threadId: 'pending-thread-64',
-        turnId: 'pending-turn-64',
-        outcome: 'success',
-        occurredAt: '2026-07-19T01:00:02Z',
+        threadId: 'pending-thread-0',
+        turnId: 'pending-turn-0',
+        itemId: 'partial-0',
+        delta: 'replayed partial',
       },
     });
 
-    let state = useClientStore.getState();
-    expect(state.timelinesByThread['pending-thread-0']).toEqual([]);
-    expect(state.actionNotice).toBeNull();
-    expect(state.getTurnTerminalCacheStats()).toEqual(expect.objectContaining({
-      terminalStates: 64,
-      observedTurns: 64,
-      retiredTurns: 0,
-      overflowed: true,
-    }));
-
-    await useClientStore.getState().deleteStaleThreads(['pending-thread-0']);
-    useClientStore.setState((current) => ({
-      activeThreadId: 'recovered-thread',
-      threads: [...current.threads, { id: 'recovered-thread', name: 'Recovered', provider: 'codex', status: 'running' }],
-      timelinesByThread: { ...current.timelinesByThread, 'recovered-thread': [] },
-      actionNotice: null,
-    }));
-    expect(useClientStore.getState().getTurnTerminalCacheStats()).toEqual(expect.objectContaining({
-      terminalStates: 63,
-      observedTurns: 63,
-      retiredTurns: 0,
-      overflowed: false,
-    }));
-
-    bridgeCallback({
-      type: 'turn/terminal',
-      payload: {
-        schemaVersion: 2,
-        eventId: 'recovered-terminal-success',
-        threadId: 'recovered-thread',
-        turnId: 'recovered-turn',
-        outcome: 'success',
-        occurredAt: '2026-07-19T01:00:03Z',
-      },
-    });
-
-    state = useClientStore.getState();
-    expect(state.timelinesByThread['recovered-thread']).toEqual([
-      expect.objectContaining({ kind: 'turn_terminal', terminalOutcome: 'success', turnId: 'recovered-turn' }),
-    ]);
+    const state = useClientStore.getState();
+    expect(state.timelinesByThread['pending-thread-0']).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'partial-0', text: 'replayed partial', done: true }),
+      expect.objectContaining({ kind: 'turn_terminal', turnId: 'pending-turn-0', terminalOutcome: 'failed' }),
+    ]));
     expect(state.getTurnTerminalCacheStats()).toEqual({
       capacity: 64,
       terminalStates: 64,
       observedTurns: 64,
       retiredTurns: 0,
-      overflowed: false,
     });
   });
 
-  it('bounds retired turn references before later terminal events can project', () => {
+  it('does not evict active turn references when terminal capacity is full', () => {
     resetClientStoreForTests({
       cwd: '/repo/app',
       activeProject: '/repo/app',
-      activeThreadId: 'thread-1',
-      threads: [{ id: 'thread-1', name: 'Thread 1', provider: 'codex', status: 'running' }],
-      timelinesByThread: { 'thread-1': [] },
+      activeThreadId: 'active-thread-0',
+      activeTurnByThread: Object.fromEntries(Array.from({ length: 65 }, (_, index) => [
+        `active-thread-${index}`,
+        { id: `active-turn-${index}`, status: 'running' },
+      ])),
+      threads: Array.from({ length: 65 }, (_, index) => ({
+        id: `active-thread-${index}`,
+        name: `Active ${index}`,
+        provider: 'codex',
+        status: 'running',
+      })),
+      timelinesByThread: { 'active-thread-0': [] },
     });
     registerBridgeEventHandlersForTest();
 
-    for (let index = 0; index <= 65; index++) {
+    for (let index = 0; index < 64; index++) {
       bridgeCallback({
-        type: 'turn/output/delta',
+        type: 'turn/terminal',
         payload: {
-          threadId: 'thread-1',
-          turnId: `retired-turn-${index}`,
-          itemId: `retired-item-${index}`,
-          delta: `partial ${index}`,
+          schemaVersion: 2,
+          eventId: `active-terminal-${index}`,
+          threadId: `active-thread-${index}`,
+          turnId: `active-turn-${index}`,
+          outcome: 'success',
+          occurredAt: '2026-07-20T01:00:00Z',
         },
       });
     }
 
     expect(useClientStore.getState().getTurnTerminalCacheStats()).toEqual({
       capacity: 64,
-      terminalStates: 0,
-      observedTurns: 1,
-      retiredTurns: 64,
-      overflowed: true,
+      terminalStates: 64,
+      observedTurns: 64,
+      retiredTurns: 0,
     });
     bridgeCallback({
       type: 'turn/terminal',
       payload: {
         schemaVersion: 2,
-        eventId: 'retired-overflow-success',
-        threadId: 'thread-1',
-        turnId: 'retired-turn-65',
+        eventId: 'active-terminal-64',
+        threadId: 'active-thread-64',
+        turnId: 'active-turn-64',
         outcome: 'success',
-        occurredAt: '2026-07-19T01:00:04Z',
+        occurredAt: '2026-07-20T01:00:00Z',
       },
     });
 
-    expect(useClientStore.getState().timelinesByThread['thread-1']).not.toEqual(expect.arrayContaining([
-      expect.objectContaining({ kind: 'turn_terminal' }),
+    expect(useClientStore.getState().timelinesByThread['active-thread-64']).toBeUndefined();
+    expect(useClientStore.getState().getTurnTerminalCacheStats()).toEqual({
+      capacity: 64,
+      terminalStates: 64,
+      observedTurns: 64,
+      retiredTurns: 0,
+    });
+    bridgeCallback({
+      type: 'turn/terminal',
+      payload: {
+        schemaVersion: 2,
+        eventId: 'active-terminal-conflict-0',
+        threadId: 'active-thread-0',
+        turnId: 'active-turn-0',
+        outcome: 'success',
+        occurredAt: '2026-07-20T01:00:01Z',
+      },
+    });
+    expect(useClientStore.getState().warningEntries).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        event: 'turn.terminal.cache_exhausted',
+        fields: expect.objectContaining({ turn_id: 'active-turn-64', reason: 'capacity' }),
+      }),
+      expect.objectContaining({
+        event: 'turn.terminal.conflict',
+        fields: expect.objectContaining({ turn_id: 'active-turn-0' }),
+      }),
     ]));
-    expect(useClientStore.getState().getTurnTerminalCacheStats()).toEqual(expect.objectContaining({
-      terminalStates: 0,
-      observedTurns: 1,
-      retiredTurns: 64,
-      overflowed: true,
-    }));
   });
 
   it('seals the first terminal and routes conflicting or late turn events to diagnostics', async () => {

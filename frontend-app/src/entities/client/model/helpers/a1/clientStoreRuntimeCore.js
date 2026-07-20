@@ -91,7 +91,6 @@ function createClientStoreRuntime(set, get, { getPreference }) {
     turnTerminalStates: new Map(),
     observedTurnByThread: new Map(),
     retiredTurnRefs: new Map(),
-    terminalCacheOverflowed: false,
     assistantDeltaFlushTimer: null,
     sidebarRefreshSeq: 0,
     bootstrapRetryAfterReconnect: false,
