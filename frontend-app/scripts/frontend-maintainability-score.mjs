@@ -171,7 +171,7 @@ const performanceEnvironmentKeys = Object.freeze([
 ]);
 const MAX_LOAD_AVERAGE_DELTA_PER_LOGICAL_CORE = 0.25;
 const PERFORMANCE_LOAD_WINDOW_POLL_INTERVAL_MS = 5_000;
-const PERFORMANCE_LOAD_WINDOW_MAX_WAIT_MS = 600_000;
+const PERFORMANCE_LOAD_WINDOW_MAX_WAIT_MS = 1_200_000;
 const PERFORMANCE_LOAD_WINDOW_REQUIRED_SAMPLES = 2;
 const frontendPlanPath = 'docs/plans/2026-07-15-frontend-maintainability-error-discoverability-90-plan.md';
 const frontendPlanMaxLines = 500;

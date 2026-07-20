@@ -1221,12 +1221,13 @@ describe('frozen scorer target binding', () => {
     expect(rejected).toHaveLength(2);
   });
 
-  it('keeps the audited load window before the shared runner command', () => {
+  it('keeps the audited 20-minute load window before the shared runner command', () => {
     const source = readFileSync(scorerPath, 'utf8');
     const executionStart = source.indexOf('async function executeActualRunner');
     const loadWindowIndex = source.indexOf('loadWindow = await waitForPerformanceLoadWindow', executionStart);
     const commandIndex = source.indexOf('const result = await commandResult(runnerArgv[0]', executionStart);
     expect(executionStart).toBeGreaterThanOrEqual(0);
+    expect(source).toContain('const PERFORMANCE_LOAD_WINDOW_MAX_WAIT_MS = 1_200_000;');
     expect(loadWindowIndex).toBeGreaterThan(executionStart);
     expect(commandIndex).toBeGreaterThan(loadWindowIndex);
     expect(source.slice(loadWindowIndex, commandIndex)).toContain("loadWindow.status !== 'READY'");
