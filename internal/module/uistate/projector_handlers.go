@@ -335,7 +335,7 @@ func (s *service) applyTurnStarted(ev turndto.TurnStarted) {
 	agentID := strings.TrimSpace(ev.AgentID)
 	duplicate := false
 	applyMutation(s, threadID, func() {
-		if turnID != "" && s.recentTurnExistsLocked(turnID) {
+		if turnID != "" && s.recentTurnExistsLocked(TurnSummary{ID: turnID, ThreadID: threadID, AgentID: agentID}) {
 			duplicate = true
 			return
 		}
@@ -380,9 +380,13 @@ func (s *service) applyTurnInterrupted(ev turndto.TurnInterrupted) {
 	turnID := strings.TrimSpace(ev.TurnID)
 	threadID := strings.TrimSpace(ev.ThreadID)
 	agentID := strings.TrimSpace(ev.AgentID)
+	matchesActiveTurn := false
+	projectTerminal := false
 	applyMutation(s, threadID, func() {
 		startedAt := (*time.Time)(nil)
-		if s.state.ActiveTurn != nil && strings.TrimSpace(s.state.ActiveTurn.ID) == turnID {
+		matchesActiveTurn = sameActiveTurnIdentity(s.state.ActiveTurn, turnID, threadID, agentID)
+		projectTerminal = s.state.ActiveTurn == nil || matchesActiveTurn
+		if matchesActiveTurn {
 			startedAt = clone.Time(s.state.ActiveTurn.StartedAt)
 			s.state.ActiveTurn = nil
 		}
@@ -397,6 +401,9 @@ func (s *service) applyTurnInterrupted(ev turndto.TurnInterrupted) {
 				CompletedAt: clone.Time(&ev.Timestamp),
 			}, recentTurnLimit)
 		}
+		if !projectTerminal {
+			return
+		}
 		s.clearThreadActivityLocked(threadID)
 		s.state.Threads = upsertThreadSummary(s.state.Threads, ThreadSummary{
 			ID:           threadID,
@@ -406,6 +413,9 @@ func (s *service) applyTurnInterrupted(ev turndto.TurnInterrupted) {
 		})
 		s.clearThreadOverlayLocked(threadID, "")
 	}, func() uidto.UIThreadPatch {
+		if !projectTerminal {
+			return uidto.UIThreadPatch{}
+		}
 		patch := s.sortedThreadPatchLocked(threadID, "turn/interrupted")
 		applyPatchStatus(&patch, "idle")
 		return patch
@@ -422,12 +432,21 @@ func (s *service) applyTurnCompleted(ev turndto.TurnCompleted) {
 	threadID := strings.TrimSpace(ev.ThreadID)
 	agentID := strings.TrimSpace(ev.AgentID)
 	status := ""
+	matchesActiveTurn := false
+	projectTerminal := false
 	applyMutation(s, threadID, func() {
-		completed := completedTurnSummary(s.state.ActiveTurn, ev, terminal)
-		s.state.RecentTurns = pushRecentTurn(s.state.RecentTurns, completed, recentTurnLimit)
-		if s.state.ActiveTurn != nil && s.state.ActiveTurn.ID == completed.ID {
-			s.state.ActiveTurn = nil
+		matchesActiveTurn = sameActiveTurnIdentity(s.state.ActiveTurn, ev.TurnID, threadID, agentID)
+		projectTerminal = s.state.ActiveTurn == nil || matchesActiveTurn
+		var activeTurn *TurnSummary
+		if matchesActiveTurn {
+			activeTurn = s.state.ActiveTurn
 		}
+		completed := completedTurnSummary(activeTurn, ev, terminal)
+		s.state.RecentTurns = pushRecentTurn(s.state.RecentTurns, completed, recentTurnLimit)
+		if !projectTerminal {
+			return
+		}
+		s.state.ActiveTurn = nil
 		status = patchStatus(completionThreadStatus(terminal))
 		s.clearThreadActivityLocked(threadID)
 		s.state.Threads = upsertThreadSummary(s.state.Threads, ThreadSummary{
@@ -438,10 +457,22 @@ func (s *service) applyTurnCompleted(ev turndto.TurnCompleted) {
 		})
 		s.clearThreadOverlayLocked(threadID, "")
 	}, func() uidto.UIThreadPatch {
+		if !projectTerminal {
+			return uidto.UIThreadPatch{}
+		}
 		patch := s.sortedThreadPatchLocked(threadID, "turn/completed")
 		applyPatchStatus(&patch, status)
 		return patch
 	})
+}
+
+func sameActiveTurnIdentity(active *TurnSummary, turnID, threadID, agentID string) bool {
+	if active == nil || strings.TrimSpace(active.ID) != strings.TrimSpace(turnID) {
+		return false
+	}
+	activeThreadID := canonicalRecentTurnThreadID(*active)
+	eventThreadID := canonicalRecentTurnThreadID(TurnSummary{ThreadID: threadID, AgentID: agentID})
+	return activeThreadID != "" && activeThreadID == eventThreadID
 }
 
 func completionThreadStatus(terminal turndto.TurnTerminalV2) string {

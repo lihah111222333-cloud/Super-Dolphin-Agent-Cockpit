@@ -78,14 +78,13 @@ func (s *service) agentLifecycleLocked(agentID string) string {
 	return ""
 }
 
-// recentTurnExistsLocked 判断 recent turn 列表中是否已有指定 turn。
-func (s *service) recentTurnExistsLocked(turnID string) bool {
-	turnID = strings.TrimSpace(turnID)
-	if turnID == "" {
+// recentTurnExistsLocked 判断 recent turn 列表中是否已有同一 canonical thread 的 turn。
+func (s *service) recentTurnExistsLocked(next TurnSummary) bool {
+	if strings.TrimSpace(next.ID) == "" {
 		return false
 	}
 	for _, item := range s.state.RecentTurns {
-		if item.ID == turnID {
+		if sameRecentTurnIdentity(item, next) {
 			return true
 		}
 	}

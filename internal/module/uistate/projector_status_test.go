@@ -555,3 +555,116 @@ func TestApplyTurnStartedClearsLastMessageRegression(t *testing.T) {
 	}
 	t.Fatal("expected thread-stream to exist")
 }
+
+func TestApplyTurnStartedAllowsSameTurnIDOnDistinctCanonicalThreads(t *testing.T) {
+	t.Parallel()
+
+	svc := newProjectionTestService(t)
+	svc.state.RecentTurns = []TurnSummary{{
+		ID:       "turn-shared",
+		ThreadID: "thread-finished",
+		Status:   "completed",
+	}}
+
+	header := testAgentSessionHeader("thread-active", "agent-active")
+	svc.applyTurnStarted(turndto.TurnStarted{TurnHeader: testTurnHeader(header, "turn-shared")})
+
+	svc.mu.RLock()
+	defer svc.mu.RUnlock()
+	if svc.state.ActiveTurn == nil || svc.state.ActiveTurn.ID != "turn-shared" || svc.state.ActiveTurn.ThreadID != "thread-active" {
+		t.Fatalf("active turn = %#v, want turn-shared on thread-active", svc.state.ActiveTurn)
+	}
+	if svc.activityByThread["thread-active"] == nil {
+		t.Fatalf("activityByThread = %#v, want active thread activity", svc.activityByThread)
+	}
+}
+
+func TestStaleTurnCompletedDoesNotOverwriteCurrentProjection(t *testing.T) {
+	t.Parallel()
+
+	assertStaleTurnTerminalPreservesCurrentProjection(t, func(svc *service, header sharedto.TurnHeader) {
+		svc.applyTurnCompleted(canonicalPatchTurnCompleted(t, turndto.TurnCompleted{
+			TurnHeader: header,
+			Success:    true,
+			Status:     "completed",
+		}))
+	})
+}
+
+func TestStaleTurnInterruptedDoesNotOverwriteCurrentProjection(t *testing.T) {
+	t.Parallel()
+
+	assertStaleTurnTerminalPreservesCurrentProjection(t, func(svc *service, header sharedto.TurnHeader) {
+		svc.applyTurnInterrupted(turndto.TurnInterrupted{
+			TurnHeader: header,
+			Reason:     "late interrupt",
+		})
+	})
+}
+
+func assertStaleTurnTerminalPreservesCurrentProjection(t *testing.T, apply func(*service, sharedto.TurnHeader)) {
+	t.Helper()
+
+	dispatcher := event.NewDispatcher()
+	t.Cleanup(func() { _ = dispatcher.Close() })
+	svc := newProjectionTestService(t)
+	svc.bindDispatcher(dispatcher)
+	patches := subscribeThreadPatch(t, dispatcher)
+	header := testAgentSessionHeader("thread-active", "agent-active")
+	svc.applyTurnStarted(turndto.TurnStarted{TurnHeader: testTurnHeader(header, "turn-active")})
+	_ = mustReceiveThreadPatch(t, patches)
+
+	svc.mu.Lock()
+	svc.state.Threads = []ThreadSummary{{
+		ID:              "thread-active",
+		AgentID:         "agent-active",
+		State:           "running",
+		ThreadStatus:    "running",
+		OverlayType:     overlayTypeTerminalWait,
+		OverlayText:     "等待终端输入",
+		OverlayPriority: overlayPriorityTerminalWait,
+	}}
+	svc.mu.Unlock()
+
+	apply(svc, testTurnHeader(header, "turn-stale"))
+	assertNoThreadPatch(t, patches, "stale turn terminal")
+
+	svc.mu.RLock()
+	defer svc.mu.RUnlock()
+	assertCurrentActiveTurn(t, svc.state.ActiveTurn)
+	assertCurrentThreadActivity(t, svc.activityByThread["thread-active"])
+	assertCurrentThreadProjection(t, svc.state.Threads)
+	assertStaleTerminalRecentTurn(t, svc.state.RecentTurns)
+}
+
+func assertCurrentActiveTurn(t *testing.T, activeTurn *TurnSummary) {
+	t.Helper()
+
+	if activeTurn == nil || activeTurn.ID != "turn-active" || activeTurn.ThreadID != "thread-active" {
+		t.Fatalf("active turn = %#v, want current active turn preserved", activeTurn)
+	}
+}
+
+func assertCurrentThreadActivity(t *testing.T, activity *threadActivity) {
+	t.Helper()
+
+	if activity == nil || activity.turnDepth != 1 {
+		t.Fatalf("current thread activity = %#v, want active turn depth", activity)
+	}
+}
+
+func assertCurrentThreadProjection(t *testing.T, threads []ThreadSummary) {
+	t.Helper()
+
+	if len(threads) != 1 || threads[0].ThreadStatus != "running" || threads[0].OverlayType != overlayTypeTerminalWait {
+		t.Fatalf("current thread projection = %#v, want running thread with terminal overlay", threads)
+	}
+}
+
+func assertStaleTerminalRecentTurn(t *testing.T, recentTurns []TurnSummary) {
+	t.Helper()
+
+	if len(recentTurns) != 1 || recentTurns[0].ID != "turn-stale" {
+		t.Fatalf("recent turns = %#v, want independent stale terminal record", recentTurns)
+	}
+}
