@@ -237,6 +237,17 @@
       ]
     },
     {
+      "actionId": "memory.dashboard.retry",
+      "producerCount": 1,
+      "kind": "user",
+      "owner": "memory/query",
+      "visibleSink": "ActionFailureSink",
+      "healthSink": "frontendHealthStore",
+      "errorSources": [
+        "promise-reject"
+      ]
+    },
+    {
       "actionId": "memory.entry.delete",
       "producerCount": 1,
       "kind": "user",

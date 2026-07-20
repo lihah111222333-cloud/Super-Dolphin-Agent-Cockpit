@@ -18,8 +18,13 @@ const backend = vi.hoisted(() => ({
   startConsolidateMemorySimilarities: vi.fn(),
   upsertMemoryEntry: vi.fn(),
 }));
+const actionRunner = vi.hoisted(() => ({
+  runBackgroundAction: vi.fn((_actionId, callback) => callback()),
+  runUIAction: vi.fn((_actionId, callback) => callback()),
+}));
 
 vi.mock('./services/memoryPageService.js', () => backend);
+vi.mock('../../shared/ui/runUIAction.js', () => actionRunner);
 
 function memorySnapshot({ privateEntries = [], similarGroups = [], similarityDegraded, teamEntries = [], autoDream = {} } = {}) {
   return {
@@ -161,6 +166,20 @@ describe('MemoryPage dashboard loading', () => {
     expect(screen.queryByText('默认中文')).not.toBeInTheDocument();
     expect(screen.getByText('DAG 规范')).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: '项目 1' })).toHaveAttribute('aria-selected', 'true');
+  });
+
+  it('routes a visible memory sync retry through its stable user action', async () => {
+    fetchMemoryDashboard
+      .mockRejectedValueOnce(new Error('memory service unavailable'))
+      .mockResolvedValue(normalizeMemorySnapshot(memorySnapshot()));
+
+    renderMemoryPage();
+
+    fireEvent.click(await screen.findByRole('button', { name: '重试同步' }));
+
+    await waitFor(() => {
+      expect(actionRunner.runUIAction).toHaveBeenCalledWith('memory.dashboard.retry', expect.any(Function));
+    });
   });
 });
 

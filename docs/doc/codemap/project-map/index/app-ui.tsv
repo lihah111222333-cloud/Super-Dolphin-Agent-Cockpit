@@ -8,8 +8,8 @@ frontend-app/.env.example	frontend-app	app-ui	example	652	当前 React/Vite 前�
 frontend-app/.frontend_code_size_guard_baseline_test.json	frontend-app	app-ui	json	76	当前 React/Vite 前端包	frontend,app,code,size,guard,baseline,test,当前,React,Vite,前端包
 frontend-app/.frontend_code_size_guard_baseline.json	frontend-app	app-ui	json	76	当前 React/Vite 前端包	frontend,app,code,size,guard,baseline,当前,React,Vite,前端包
 frontend-app/.gitignore	frontend-app	app-ui	file	30	当前 React/Vite 前端包	frontend,app,当前,React,Vite,前端包
-frontend-app/config/action-producer-registry.json	frontend-app	app-ui	json	50335	当前 React/Vite 前端包	frontend,app,config,action,producer,registry,当前,React,Vite,前端包
-frontend-app/config/action-producer-test-matrix.json	frontend-app	app-ui	json	145033	当前 React/Vite 前端包	frontend,app,config,action,producer,test,matrix,当前,React,Vite,前端包
+frontend-app/config/action-producer-registry.json	frontend-app	app-ui	json	50613	当前 React/Vite 前端包	frontend,app,config,action,producer,registry,当前,React,Vite,前端包
+frontend-app/config/action-producer-test-matrix.json	frontend-app	app-ui	json	145813	当前 React/Vite 前端包	frontend,app,config,action,producer,test,matrix,当前,React,Vite,前端包
 frontend-app/eslint.config.js	frontend-app	app-ui	js-source	857	当前 React/Vite 前端包	frontend,app,eslint,config,当前,React,Vite,前端包
 frontend-app/index.html	frontend-app	app-ui	html	391	当前 React/Vite 前端包	frontend,app,index,当前,React,Vite,前端包
 frontend-app/jsconfig.json	frontend-app	app-ui	json	421	当前 React/Vite 前端包	frontend,app,jsconfig,当前,React,Vite,前端包
@@ -26,8 +26,8 @@ frontend-app/public/wails/runtime.test.js	frontend-app	app-ui	js-test	17803	当�
 frontend-app/README.md	frontend-app	app-ui	doc	1427	当前 React/Vite 前端包	frontend,app,README,当前,React,Vite,前端包
 frontend-app/recovery.html	frontend-app	app-ui	html	367	当前 React/Vite 前端包	frontend,app,recovery,当前,React,Vite,前端包
 frontend-app/required-dist-entries.txt	frontend-app	app-ui	txt	25	当前 React/Vite 前端包	frontend,app,required,dist,entries,当前,React,Vite,前端包
-frontend-app/scripts/action-producer-guard.mjs	frontend-app	app-ui	js-source	34680	React 前端构建与校验脚本	frontend,app,scripts,action,producer,guard,React,前端构建与校验脚本
-frontend-app/scripts/action-producer-guard.selftest.mjs	frontend-app	app-ui	js-source	10030	React 前端构建与校验脚本	frontend,app,scripts,action,producer,guard,selftest,React,前端构建与校验脚本
+frontend-app/scripts/action-producer-guard.mjs	frontend-app	app-ui	js-source	36814	React 前端构建与校验脚本	frontend,app,scripts,action,producer,guard,React,前端构建与校验脚本
+frontend-app/scripts/action-producer-guard.selftest.mjs	frontend-app	app-ui	js-source	11355	React 前端构建与校验脚本	frontend,app,scripts,action,producer,guard,selftest,React,前端构建与校验脚本
 frontend-app/scripts/action-production-runtime-runner.mjs	frontend-app	app-ui	js-source	11030	React 前端构建与校验脚本	frontend,app,scripts,action,production,runtime,runner,React,前端构建与校验脚本
 frontend-app/scripts/agentic-e2e-discovery.mjs	frontend-app	app-ui	js-source	6036	React 前端构建与校验脚本	frontend,app,scripts,agentic,e2e,discovery,React,前端构建与校验脚本
 frontend-app/scripts/agentic-e2e-goals.mjs	frontend-app	app-ui	js-source	7632	React 前端构建与校验脚本	frontend,app,scripts,agentic,e2e,goals,React,前端构建与校验脚本
@@ -73,8 +73,8 @@ frontend-app/scripts/frontend-maintainability-baseline.json	frontend-app	app-ui	
 frontend-app/scripts/frontend-maintainability-controls.json	frontend-app	app-ui	json	27677	React 前端构建与校验脚本	frontend,app,scripts,maintainability,controls,React,前端构建与校验脚本
 frontend-app/scripts/frontend-maintainability-dependencies.json	frontend-app	app-ui	json	651	React 前端构建与校验脚本	frontend,app,scripts,maintainability,dependencies,React,前端构建与校验脚本
 frontend-app/scripts/frontend-maintainability-red-fixtures.json	frontend-app	app-ui	json	2433	React 前端构建与校验脚本	frontend,app,scripts,maintainability,red,fixtures,React,前端构建与校验脚本
-frontend-app/scripts/frontend-maintainability-score.mjs	frontend-app	app-ui	js-source	143952	React 前端构建与校验脚本	frontend,app,scripts,maintainability,score,React,前端构建与校验脚本
-frontend-app/scripts/frontend-maintainability-score.test.mjs	frontend-app	app-ui	js-test	116974	React 前端构建与校验脚本	frontend,app,scripts,maintainability,score,test,React,前端构建与校验脚本
+frontend-app/scripts/frontend-maintainability-score.mjs	frontend-app	app-ui	js-source	144082	React 前端构建与校验脚本	frontend,app,scripts,maintainability,score,React,前端构建与校验脚本
+frontend-app/scripts/frontend-maintainability-score.test.mjs	frontend-app	app-ui	js-test	119318	React 前端构建与校验脚本	frontend,app,scripts,maintainability,score,test,React,前端构建与校验脚本
 frontend-app/scripts/frontend-performance-cases.json	frontend-app	app-ui	json	1589	React 前端构建与校验脚本	frontend,app,scripts,performance,cases,React,前端构建与校验脚本
 frontend-app/scripts/frontend-state-ownership-guard.mjs	frontend-app	app-ui	js-source	25954	React 前端构建与校验脚本	frontend,app,scripts,state,ownership,guard,React,前端构建与校验脚本
 frontend-app/scripts/frontend-state-ownership-guard.test.mjs	frontend-app	app-ui	js-test	8229	React 前端构建与校验脚本	frontend,app,scripts,state,ownership,guard,test,React,前端构建与校验脚本
@@ -420,8 +420,8 @@ frontend-app/src/pages/files/services/filesPageService.js	frontend-app	app-ui	js
 frontend-app/src/pages/files/services/filesPageService.test.js	frontend-app	app-ui	js-test	5466	React 页面与路由级 UI	frontend,app,src,pages,files,services,filesPageService,test,React,页面与路由级,UI
 frontend-app/src/pages/importSurfaceGuard.test-helper.js	frontend-app	app-ui	js-source	5930	React 页面与路由级 UI	frontend,app,src,pages,importSurfaceGuard,test,helper,React,页面与路由级,UI
 frontend-app/src/pages/memory/MemoryPage.css	frontend-app	app-ui	css	12158	React 页面与路由级 UI	frontend,app,src,pages,memory,MemoryPage,React,页面与路由级,UI
-frontend-app/src/pages/memory/MemoryPage.jsx	frontend-app	app-ui	jsx	49334	React 页面与路由级 UI	frontend,app,src,pages,memory,MemoryPage,React,页面与路由级,UI
-frontend-app/src/pages/memory/MemoryPage.test.jsx	frontend-app	app-ui	jsx	22948	React 页面与路由级 UI	frontend,app,src,pages,memory,MemoryPage,test,React,页面与路由级,UI
+frontend-app/src/pages/memory/MemoryPage.jsx	frontend-app	app-ui	jsx	49371	React 页面与路由级 UI	frontend,app,src,pages,memory,MemoryPage,React,页面与路由级,UI
+frontend-app/src/pages/memory/MemoryPage.test.jsx	frontend-app	app-ui	jsx	23694	React 页面与路由级 UI	frontend,app,src,pages,memory,MemoryPage,test,React,页面与路由级,UI
 frontend-app/src/pages/memory/services/memoryPageService.js	frontend-app	app-ui	js-source	5432	React 页面与路由级 UI	frontend,app,src,pages,memory,services,memoryPageService,React,页面与路由级,UI
 frontend-app/src/pages/memory/services/memoryPageService.test.js	frontend-app	app-ui	js-test	11139	React 页面与路由级 UI	frontend,app,src,pages,memory,services,memoryPageService,test,React,页面与路由级,UI
 frontend-app/src/pages/observability/ObservabilityPage.css	frontend-app	app-ui	css	11846	React 页面与路由级 UI	frontend,app,src,pages,observability,ObservabilityPage,React,页面与路由级,UI

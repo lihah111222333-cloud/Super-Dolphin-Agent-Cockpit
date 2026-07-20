@@ -202,6 +202,17 @@
       "actionId": "memory.dashboard.load"
     },
     {
+      "caseId": "a.producer.memory.dashboard.retry",
+      "layer": "A",
+      "actionId": "memory.dashboard.retry"
+    },
+    {
+      "caseId": "b.memory.dashboard.retry",
+      "layer": "B",
+      "file": "src/pages/memory/MemoryPage.test.jsx",
+      "testName": "routes a visible memory sync retry through its stable user action"
+    },
+    {
       "caseId": "a.producer.memory.entry.delete",
       "layer": "A",
       "actionId": "memory.entry.delete"
@@ -1309,6 +1320,14 @@
         "b.wrapper.promise-reject",
         "b.wrapper.sink-failure",
         "c.invalid-response-validator"
+      ]
+    },
+    {
+      "actionId": "memory.dashboard.retry",
+      "errorSource": "promise-reject",
+      "evidence": [
+        "a.producer.memory.dashboard.retry",
+        "b.memory.dashboard.retry"
       ]
     },
     {
@@ -5585,6 +5604,15 @@
       "sourcePath": "src/features/approval/ui/ApprovalDecisionShelf.jsx",
       "testFile": "src/features/approval/ui/ApprovalDecisionShelf.test.jsx",
       "testName": "matrix:FM-24 layer:frontend retains the selected choice after failure and allows an explicit retry"
+    }
+  ],
+  "uiEntrypoints": [
+    {
+      "actionId": "memory.dashboard.retry",
+      "sourcePath": "src/pages/memory/MemoryPage.jsx",
+      "component": "MemorySyncError",
+      "event": "onClick",
+      "handler": "onRefresh"
     }
   ]
 }

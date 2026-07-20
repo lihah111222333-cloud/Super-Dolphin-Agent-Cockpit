@@ -42,6 +42,7 @@ import {
   structuredEvidenceStatus,
   structuredRunnerExecutionKey,
   terminalTruthEvidenceStatus,
+  t02ActionCoverageContract,
   validateConfiguration,
   waitForPerformanceLoadWindow,
   withFrozenDeliveryRunnerFiles,
@@ -137,6 +138,15 @@ function createSubjectFrontendSnapshot(context) {
     timeout: 180_000,
   });
   return repoRoot;
+}
+
+function createStagedSubjectFrontendSnapshot() {
+  const parent = git(frozenRepoRoot, ['rev-parse', 'HEAD']);
+  const tree = git(frozenRepoRoot, ['write-tree']);
+  const subjectSha = execFileSync('git', [
+    'commit-tree', tree, '-p', parent, '-m', 'test: staged action coverage subject',
+  ], { cwd: frozenRepoRoot, encoding: 'utf8' }).trim();
+  return createSubjectFrontendSnapshot({ subjectSha });
 }
 
 function cli(args, cwd = frozenRepoRoot) {
@@ -876,6 +886,20 @@ afterEach(() => {
 }, 30_000);
 
 describe('frontend maintainability scorer configuration', () => {
+  it('derives T02 executable counts from the action registry and matrix', () => {
+    const contract = t02ActionCoverageContract();
+    const t02 = documents().controls.controls.find(({ id }) => id === 'T02-critical-action-coverage');
+    const matrixCheck = t02.allOf.find(({ argv }) => argv.includes('src/shared/ui/productionActionFailureMatrix.test.js'));
+    const runtimeCheck = t02.allOf.find(({ evidenceProtocol }) => evidenceProtocol === 'action-production-runtime-report-v1');
+
+    expect(contract.actionIds).toEqual(contract.registry.coveredProducers.map(({ actionId }) => actionId));
+    expect(contract.errorSourceCaseCount).toBe(contract.registry.coveredProducers
+      .reduce((sum, entry) => sum + entry.errorSources.length, 0));
+    expect(contract.matrix.cells).toHaveLength(contract.errorSourceCaseCount);
+    expect(matrixCheck.testCount).toBe(contract.errorSourceCaseCount);
+    expect(runtimeCheck.testCount).toBe(contract.errorSourceCaseCount);
+  });
+
   it('rejects hand-authored PASS, weak or mutable probes, threshold drift, fixtures drift, and zero-test evidence', () => {
     expect(validateConfiguration()).toBe(true);
 
@@ -952,6 +976,18 @@ describe('frontend maintainability scorer configuration', () => {
       .allOf[1].argv[1] = 'scripts/mutable-runner.mjs';
     expect(() => validateConfiguration(mutableFutureRunner.controls, mutableFutureRunner.fixtures))
       .toThrow('action producer argv differs from frozen contract');
+
+    const staleT02MatrixCount = documents();
+    staleT02MatrixCount.controls.controls.find(({ id }) => id === 'T02-critical-action-coverage')
+      .allOf.find(({ argv }) => argv.includes('src/shared/ui/productionActionFailureMatrix.test.js')).testCount -= 1;
+    expect(() => validateConfiguration(staleT02MatrixCount.controls, staleT02MatrixCount.fixtures))
+      .toThrow('T02 configured layer counts differ from registry/matrix-derived exact counts');
+
+    const staleT02RuntimeCount = documents();
+    staleT02RuntimeCount.controls.controls.find(({ id }) => id === 'T02-critical-action-coverage')
+      .allOf.find(({ evidenceProtocol }) => evidenceProtocol === 'action-production-runtime-report-v1').testCount -= 1;
+    expect(() => validateConfiguration(staleT02RuntimeCount.controls, staleT02RuntimeCount.fixtures))
+      .toThrow('action production binding report contract differs from frozen contract');
 
     const optionalDoD = documents();
     optionalDoD.controls.controls.find(({ id }) => id === 'E06-failure-matrix').required = false;
@@ -1703,9 +1739,8 @@ describe('executable evidence registry', () => {
     const { controls } = documents();
     const control = controls.controls.find(({ id }) => id === 'T02-critical-action-coverage');
     const check = control.allOf.find(({ evidenceProtocol }) => evidenceProtocol === 'action-production-runtime-report-v1');
-    const context = inspectTargetRepository();
-    const now = Date.now();
-    const subjectRoot = createSubjectFrontendSnapshot(context);
+    const subjectRoot = createStagedSubjectFrontendSnapshot();
+    const context = inspectTargetRepository({ repoRoot: subjectRoot, requireClean: true });
     const reportPath = join(subjectRoot, 'action-binding-report.json');
     const actionProducerGuardPath = realpathSync(join(subjectRoot, 'frontend-app', 'scripts', 'action-producer-guard.mjs'));
     execFileSync(
@@ -1721,8 +1756,8 @@ describe('executable evidence registry', () => {
     report.controlId = 'T02-critical-action-coverage';
     report.status = 'covered';
     report.schemaVersion = 2;
-    const matrix = JSON.parse(readFileSync(join(frozenRepoRoot, 'frontend-app/config/action-producer-test-matrix.json'), 'utf8'));
-    const registry = JSON.parse(readFileSync(join(frozenRepoRoot, 'frontend-app/config/action-producer-registry.json'), 'utf8'));
+    const matrix = JSON.parse(readFileSync(join(context.appRoot, 'config/action-producer-test-matrix.json'), 'utf8'));
+    const registry = JSON.parse(readFileSync(join(context.appRoot, 'config/action-producer-registry.json'), 'utf8'));
     report.structuralActionCount = report.actionIds.length;
     report.errorSourceCaseCount = matrix.cells.length;
     report.runtimeEvidenceScope = 'five-semantic-class-anchors';
@@ -1816,6 +1851,7 @@ describe('executable evidence registry', () => {
     expect(report.structuralActionCount).toBe(registry.coveredProducers.length);
     expect(report.runtimeAnchorCount).toBe(5);
     expect(report.runtimeAnchorCount).toBeLessThan(report.bindingCount);
+    const now = Date.now();
     report.generatedAt = new Date(now).toISOString();
     const options = { context, control, check, startedAt: now - 100, finishedAt: now + 100 };
     expect(structuredEvidenceStatus(report, options)).toBe('PASS');

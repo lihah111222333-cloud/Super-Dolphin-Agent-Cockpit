@@ -289,6 +289,20 @@ function readFrozenJSON(name) {
   return JSON.parse(fs.readFileSync(path.join(frozenScriptRoot, name), 'utf8'));
 }
 
+export function t02ActionCoverageContract() {
+  const registry = JSON.parse(fs.readFileSync(path.join(frozenAppRoot, 'config/action-producer-registry.json'), 'utf8'));
+  const matrix = JSON.parse(fs.readFileSync(path.join(frozenAppRoot, 'config/action-producer-test-matrix.json'), 'utf8'));
+  if (!Array.isArray(registry.coveredProducers) || !Array.isArray(matrix.cells)) {
+    fail('T02 action coverage sources are invalid');
+  }
+  return {
+    actionIds: registry.coveredProducers.map(({ actionId }) => actionId),
+    errorSourceCaseCount: registry.coveredProducers.reduce((sum, entry) => sum + entry.errorSources.length, 0),
+    matrix,
+    registry,
+  };
+}
+
 export function withFrozenDeliveryRunnerFiles(config) {
   return {
     ...config,
@@ -1771,14 +1785,11 @@ function validateActionProductionBindingReport(report, { context, control, check
     || !Array.isArray(report.bindings) || report.bindings.length === 0) {
     fail('T02 action production binding report is incomplete');
   }
-  const registry = JSON.parse(fs.readFileSync(path.join(frozenAppRoot, 'config/action-producer-registry.json'), 'utf8'));
-  const matrix = JSON.parse(fs.readFileSync(path.join(frozenAppRoot, 'config/action-producer-test-matrix.json'), 'utf8'));
+  const { actionIds: expectedActionIds, errorSourceCaseCount: expectedErrorSourceCaseCount, matrix, registry } = t02ActionCoverageContract();
   if (!Array.isArray(registry.coveredProducers) || !Array.isArray(registry.exemptions)
     || registry.exemptions.length !== 0) {
     fail('T02 frozen action registry must have covered producers and zero exemptions');
   }
-  const expectedActionIds = registry.coveredProducers.map(({ actionId }) => actionId);
-  const expectedErrorSourceCaseCount = registry.coveredProducers.reduce((sum, entry) => sum + entry.errorSources.length, 0);
   if (!Array.isArray(matrix.runtimeBindings)) fail('T02 production runtime binding matrix is missing');
   exactValue(matrix.runtimeBindings, criticalRuntimeAnchors, 'T02 frozen runtime anchor contracts');
   const runtimeAnchors = new Map(matrix.runtimeBindings.map((entry) => [entry.actionId, entry]));
@@ -2407,7 +2418,8 @@ function validateStructuredCheck(control, check) {
       'node', 'frontend-app/scripts/action-production-runtime-runner.mjs',
     ], 'action production binding argv');
     exact(check.caseIds, criticalRuntimeActionIds, 'action production binding caseIds');
-    if (check.cwd !== '.' || check.reportPath !== '.tmp/action-producer/runtime-report.json' || check.testCount !== 382) {
+    if (check.cwd !== '.' || check.reportPath !== '.tmp/action-producer/runtime-report.json'
+      || check.testCount !== t02ActionCoverageContract().errorSourceCaseCount) {
       fail(`action production binding report contract differs from frozen contract: ${control.id}`);
     }
     return;
@@ -2542,9 +2554,7 @@ function validateConfiguredControl(config, control, seen) {
 }
 
 function validateT02DerivedLayerCounts(config) {
-  const registry = JSON.parse(fs.readFileSync(path.join(frozenAppRoot, 'config/action-producer-registry.json'), 'utf8'));
-  const matrix = JSON.parse(fs.readFileSync(path.join(frozenAppRoot, 'config/action-producer-test-matrix.json'), 'utf8'));
-  const expectedMatrixCount = registry.coveredProducers.reduce((sum, entry) => sum + entry.errorSources.length, 0);
+  const { errorSourceCaseCount: expectedMatrixCount, matrix } = t02ActionCoverageContract();
   if (!Array.isArray(matrix.cells) || matrix.cells.length !== expectedMatrixCount) {
     fail('T02 producer/error-source matrix count differs from the registry-derived exact set');
   }

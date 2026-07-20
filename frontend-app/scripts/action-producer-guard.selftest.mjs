@@ -8,6 +8,7 @@ const semanticFamilies = [
   'approval-pending', 'background-reconnect', 'file', 'invalid-response-validator', 'mcp',
   'prompt-history', 'settings-save', 'skill', 'thread-mutation',
 ];
+const fixtureRoots = new Set();
 
 function fixture(source = `
   import { startThread } from './shared/api/backendApi.js';
@@ -15,6 +16,7 @@ function fixture(source = `
   runUIAction('fixture.action', () => startThread());
 `) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'action-producer-guard-'));
+  fixtureRoots.add(root);
   fs.mkdirSync(path.join(root, 'src/shared/api'), { recursive: true });
   fs.mkdirSync(path.join(root, 'src/shared/ui'), { recursive: true });
   fs.writeFileSync(path.join(root, 'src/shared/ui/runUIAction.js'), 'export function runUIAction() {}\nexport function runBackgroundAction() {}');
@@ -29,6 +31,12 @@ function fixture(source = `
   fs.writeFileSync(path.join(root, 'src/action.js'), source);
   fs.writeFileSync(path.join(root, 'src/action.test.js'), "import './action.js';\nit('reports the failure', () => {});\nit('validates the semantic path', () => {});");
   return root;
+}
+
+function cleanupFixtures() {
+  for (const root of fixtureRoots) fs.rmSync(root, { recursive: true, force: true });
+  fixtureRoots.clear();
+  assert.equal(fixtureRoots.size, 0, 'all mkdtemp fixtures must be released');
 }
 
 function coveredRegistry(overrides = {}) {
@@ -82,6 +90,7 @@ function matrix(overrides = {}) {
       testFile: 'src/action.test.js',
       testName: 'reports the failure',
     }],
+    uiEntrypoints: [],
     ...overrides,
   };
 }
@@ -90,6 +99,7 @@ function expectFailure(run, text) {
   assert.throws(run, (error) => error.message.includes(text));
 }
 
+try {
 {
   const root = fixture();
   const result = runActionProducerGuard({ root, registry: coveredRegistry(), testMatrix: matrix(), today: '2026-07-17' });
@@ -209,6 +219,28 @@ function expectFailure(run, text) {
     runUIAction('fixture.action', () => startThread(), { rejectFalse: true });
   `);
   expectFailure(() => runActionProducerGuard({ root, registry: coveredRegistry(), testMatrix: matrix(), today: '2026-07-17' }), 'rejectFalse requires unsuccessful-result');
+}
+
+{
+  const root = fixture(`
+    import { startThread } from './shared/api/backendApi.js';
+    import { runUIAction } from './shared/ui/runUIAction.js';
+    function FixtureRetry({ retry }) { return <button onClick={() => { void runUIAction('fixture.action', retry); }}>retry</button>; }
+    startThread();
+  `);
+  const uiEntrypoints = [{
+    actionId: 'fixture.action', sourcePath: 'src/action.js', component: 'FixtureRetry', event: 'onClick', handler: 'retry',
+  }];
+  runActionProducerGuard({ root, registry: coveredRegistry(), testMatrix: matrix({ uiEntrypoints }), today: '2026-07-17' });
+  fs.writeFileSync(path.join(root, 'src/action.js'), fs.readFileSync(path.join(root, 'src/action.js'), 'utf8').replace("runUIAction('fixture.action', retry)", 'retry()'));
+  expectFailure(
+    () => runActionProducerGuard({ root, registry: coveredRegistry(), testMatrix: matrix({ uiEntrypoints }), today: '2026-07-17' }),
+    'UI entrypoint has no canonical user action binding',
+  );
+}
+
+} finally {
+  cleanupFixtures();
 }
 
 process.stdout.write('action producer guard tests passed\n');

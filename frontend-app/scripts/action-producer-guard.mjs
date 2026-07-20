@@ -101,6 +101,20 @@ function callbackBinding(node) {
   };
 }
 
+function uiEntrypointBinding(callPath) {
+  let component = '';
+  let event = '';
+  for (let current = callPath; current; current = current.parentPath) {
+    const node = current.node;
+    if (!event && node?.type === 'JSXAttribute' && node.name?.type === 'JSXIdentifier' && /^on[A-Z]/.test(node.name.name)) {
+      event = node.name.name;
+    }
+    if (!component && node?.type === 'FunctionDeclaration' && node.id?.name) component = node.id.name;
+    if (component && event) return { component, event };
+  }
+  return undefined;
+}
+
 const genericActionHandlers = new Set(['runUIAction', 'runBackgroundAction']);
 
 export function mutateProductionBindingsSource(source, bindings) {
@@ -272,6 +286,7 @@ function discoverActionProducers(root = ROOT) {
           || callback.handlers.every((handler) => genericActionHandlers.has(handler))) {
           problems.push(`${relative}:${callPath.node.loc?.start.line || 0} ${actionId.value} requires an action-specific production callback`);
         } else {
+          const uiEntrypoint = uiEntrypointBinding(callPath);
           bindings.push({
             actionId: actionId.value,
             kind: actionKind,
@@ -283,6 +298,7 @@ function discoverActionProducers(root = ROOT) {
             callbackStart: callPath.node.arguments[1].start,
             callbackEnd: callPath.node.arguments[1].end,
             sourceSha256: createHash('sha256').update(fs.readFileSync(file)).digest('hex'),
+            uiEntrypoint,
           });
         }
         const options = callPath.node.arguments[2];
@@ -455,6 +471,34 @@ function validateRuntimeBindings(root, discovery, matrix, problems) {
   }
 }
 
+function validateUiEntrypoints(discovery, matrix, problems) {
+  if (!Array.isArray(matrix.uiEntrypoints)) {
+    problems.push('action producer uiEntrypoints must be an array');
+    return;
+  }
+  const expected = new Set();
+  for (const anchor of matrix.uiEntrypoints) {
+    if (!anchor || typeof anchor.actionId !== 'string' || typeof anchor.sourcePath !== 'string'
+      || typeof anchor.component !== 'string' || typeof anchor.event !== 'string'
+      || typeof anchor.handler !== 'string') {
+      problems.push('action producer UI entrypoint anchor is invalid');
+      continue;
+    }
+    const key = [anchor.actionId, anchor.sourcePath, anchor.component, anchor.event, anchor.handler].join('\n');
+    if (expected.has(key)) problems.push(`duplicate UI entrypoint anchor: ${anchor.actionId}`);
+    expected.add(key);
+    const binding = discovery.bindings.find((entry) => (
+      entry.actionId === anchor.actionId
+      && entry.kind === 'user'
+      && entry.sourcePath === anchor.sourcePath
+      && entry.uiEntrypoint?.component === anchor.component
+      && entry.uiEntrypoint?.event === anchor.event
+      && entry.handlers.includes(anchor.handler)
+    ));
+    if (!binding) problems.push(`${anchor.actionId} UI entrypoint has no canonical user action binding`);
+  }
+}
+
 function validateCoveredContracts(covered, problems) {
   for (const entry of covered) {
     if (!['user', 'background'].includes(entry.kind)) problems.push(`${entry.actionId} has invalid producer kind`);
@@ -527,7 +571,7 @@ function validateEvidenceCases(root, discovery, matrix, problems) {
 }
 
 function validateProducerErrorMatrix(registry, discovery, matrix, cases, problems) {
-  if (matrix.schemaVersion !== 2 || !Array.isArray(matrix.cells) || !Array.isArray(matrix.cases) || !Array.isArray(matrix.rpcCallsites)) {
+  if (matrix.schemaVersion !== 2 || !Array.isArray(matrix.cells) || !Array.isArray(matrix.cases) || !Array.isArray(matrix.rpcCallsites) || !Array.isArray(matrix.uiEntrypoints)) {
     problems.push('action producer test matrix schema is invalid');
     return;
   }
@@ -646,13 +690,15 @@ export function runActionProducerGuard({ root = ROOT, registry = loadRegistry(),
   const matrixShapeValid = testMatrix.schemaVersion === 2
     && Array.isArray(testMatrix.cells)
     && Array.isArray(testMatrix.cases)
-    && Array.isArray(testMatrix.rpcCallsites);
+    && Array.isArray(testMatrix.rpcCallsites)
+    && Array.isArray(testMatrix.uiEntrypoints);
   if (!matrixShapeValid) problems.push('action producer test matrix schema is invalid');
   const cases = matrixShapeValid ? validateEvidenceCases(root, discovery, testMatrix, problems) : new Map();
   if (matrixShapeValid) {
     validateProducerErrorMatrix(registry, discovery, testMatrix, cases, problems);
     validateRpcCallsites(root, registry, testMatrix, problems);
     validateRuntimeBindings(root, discovery, testMatrix, problems);
+    validateUiEntrypoints(discovery, testMatrix, problems);
   }
   validateExemptions(registry.exemptions, today, problems);
   const expectedBindingCount = [...discovery.counts.values()].reduce((sum, count) => sum + count, 0);
@@ -660,10 +706,14 @@ export function runActionProducerGuard({ root = ROOT, registry = loadRegistry(),
     problems.push(`production action binding count mismatch: discovered=${expectedBindingCount} bound=${discovery.bindings.length}`);
   }
   if (problems.length > 0) throw new Error(`action producer guard failed:\n- ${problems.join('\n- ')}`);
-  const bindings = discovery.bindings.map((binding) => ({
-    ...binding,
-    guardMutationDetection: productionBindingGuardMutationDetection(binding, root),
-  }));
+  const bindings = discovery.bindings.map((entry) => {
+    const binding = { ...entry };
+    delete binding.uiEntrypoint;
+    return {
+      ...binding,
+      guardMutationDetection: productionBindingGuardMutationDetection(binding, root),
+    };
+  });
   return {
     covered: registry.coveredProducers.length,
     discovered: discovery.counts.size,
