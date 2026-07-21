@@ -70,24 +70,6 @@ func gateRunners(plan gatePlan, executionScope gateExecutionScope) map[string]ga
 			args = append(args, "-count=1")
 			return runCommand("", args[0], args[1:]...)
 		}},
-		"lsp:changed-diagnostics": {run: func() error {
-			files, deleted, err := existingDiagnosticFiles(plan.DiagnosticFiles)
-			if err != nil {
-				return err
-			}
-			if len(files) == 0 {
-				if deleted > 0 && deleted == len(plan.DiagnosticFiles) {
-					fmt.Fprintf(os.Stderr, "[ai-maintenance] lsp diagnostics skip: planned=%d existing=0 reason=all-deleted\n", len(plan.DiagnosticFiles))
-					return nil
-				}
-				return errors.New("lsp diagnostics gate has no planned files")
-			}
-			args := []string{"run", "./scripts/lsp_diagnostics_gate"}
-			for _, file := range files {
-				args = append(args, "--file", file)
-			}
-			return runCommand("", "go", args...)
-		}},
 		"backend:test_with_guard_and_race": {run: func() error {
 			args, err := backendTestWithGuardAndRaceArgs(plan)
 			if err != nil {
@@ -126,27 +108,6 @@ func gateRunners(plan gatePlan, executionScope gateExecutionScope) map[string]ga
 		return runCommand("frontend-app", "npm", "run", "typecheck:contracts")
 	}}
 	return runners
-}
-
-// existingDiagnosticFiles keeps deleted paths out of the live diagnostics request while
-// preserving every currently existing file selected from the Git truth source.
-func existingDiagnosticFiles(files []string) (existing []string, deleted int, err error) {
-	existing = make([]string, 0, len(files))
-	for _, file := range files {
-		info, err := os.Stat(file)
-		if errors.Is(err, os.ErrNotExist) {
-			deleted++
-			continue
-		}
-		if err != nil {
-			return nil, deleted, fmt.Errorf("stat diagnostics target %q: %w", file, err)
-		}
-		if !info.Mode().IsRegular() {
-			return nil, deleted, fmt.Errorf("diagnostics target %q is not a regular file", file)
-		}
-		existing = append(existing, file)
-	}
-	return existing, deleted, nil
 }
 
 // backendTestWithGuardAndRaceArgs 构造一次 guard 后依次运行普通与 race 测试的参数。

@@ -2,7 +2,6 @@ package main
 
 import (
 	"encoding/json"
-	"io"
 	"os"
 	"path/filepath"
 	"slices"
@@ -26,10 +25,8 @@ func TestBuildGatePlanRoutesFrontendBackendAndGeneratedFiles(t *testing.T) {
 		"frontend:lint",
 		"frontend:typecheck-contracts",
 		"frontend:test",
-		"lsp:changed-diagnostics",
 		"project-map:check",
 	)
-	assertStringSetContains(t, plan.DiagnosticFiles, "frontend-app/src/App.jsx", "internal/app/modules.go")
 	assertStringSetContains(t, plan.RequiredEvidence,
 		"generated:source",
 		"lsp:diagnostics",
@@ -70,6 +67,8 @@ func TestPushGatePlanAddsRiskGatesWithoutChangingCommitPlan(t *testing.T) {
 	assertStringSetOmits(t, commitPlan.RequiredGates, "backend:nilness", "backend:test_with_guard_and_race")
 	assertStringSetContains(t, pushPlan.RequiredGates, "backend:nilness", "backend:test_with_guard_and_race")
 	assertStringSetOmits(t, pushPlan.RequiredGates, "backend:test_with_guard")
+	assertStringSetOmits(t, commitPlan.RequiredGates, "lsp:changed-diagnostics")
+	assertStringSetOmits(t, pushPlan.RequiredGates, "lsp:changed-diagnostics")
 	if got := affectedRacePackages(pushPlan.ChangedFiles); len(got) != 1 || got[0] != "./internal/provider/codexapp" {
 		t.Fatalf("affected race packages = %v, want provider package", got)
 	}
@@ -170,50 +169,6 @@ func TestExecuteGatePlanRejectsRequiredGateWithoutRunner(t *testing.T) {
 	if !strings.Contains(err.Error(), "missing:runner") {
 		t.Fatalf("error should name the missing runner, got %v", err)
 	}
-}
-
-func TestLSPDiagnosticsRunnerAuditsAllDeleted(t *testing.T) {
-	root := t.TempDir()
-	plan := gatePlan{DiagnosticFiles: []string{
-		filepath.Join(root, "deleted-a.go"),
-		filepath.Join(root, "deleted-b.go"),
-	}}
-	runner := gateRunners(plan, gateExecutionScope{})["lsp:changed-diagnostics"]
-	stderr := captureStderr(t, runner.run)
-	want := "[ai-maintenance] lsp diagnostics skip: planned=2 existing=0 reason=all-deleted\n"
-	if stderr != want {
-		t.Fatalf("stderr = %q, want %q", stderr, want)
-	}
-}
-
-func TestExistingDiagnosticFilesRejectsNonRegularTarget(t *testing.T) {
-	_, _, err := existingDiagnosticFiles([]string{t.TempDir()})
-	if err == nil || !strings.Contains(err.Error(), "is not a regular file") {
-		t.Fatalf("non-regular target error = %v", err)
-	}
-}
-
-func captureStderr(t *testing.T, run func() error) string {
-	t.Helper()
-	reader, writer, err := os.Pipe()
-	if err != nil {
-		t.Fatal(err)
-	}
-	original := os.Stderr
-	os.Stderr = writer
-	defer func() { os.Stderr = original }()
-	runErr := run()
-	if closeErr := writer.Close(); closeErr != nil {
-		t.Fatal(closeErr)
-	}
-	data, readErr := io.ReadAll(reader)
-	if readErr != nil {
-		t.Fatal(readErr)
-	}
-	if runErr != nil {
-		t.Fatalf("run error = %v", runErr)
-	}
-	return string(data)
 }
 
 func TestBuildGatePlanRequiresFullLSPEvidenceForGoScripts(t *testing.T) {

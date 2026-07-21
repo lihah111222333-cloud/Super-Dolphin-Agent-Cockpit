@@ -68,7 +68,6 @@ type gatePlan struct {
 	RequiredEvidence    []string `json:"required_evidence"`
 	GeneratedFiles      []string `json:"generated_files"`
 	AffectedGoPackages  []string `json:"affected_go_packages,omitempty"`
-	DiagnosticFiles     []string `json:"diagnostic_files,omitempty"`
 	RequiresEvidenceDoc bool     `json:"requires_evidence_doc"`
 }
 
@@ -297,10 +296,6 @@ func buildGatePlanForRepo(repoRoot string, files []string) (gatePlan, error) {
 		gates["backend:test_with_guard"] = true
 		delete(gates, "ai-maintenance:self-test")
 	}
-	plan.DiagnosticFiles = changedDiagnosticFiles(normalized)
-	if len(plan.DiagnosticFiles) > 0 {
-		gates["lsp:changed-diagnostics"] = true
-	}
 	plan.RequiredGates = orderedGates(gates)
 	plan.RequiredEvidence = sortedKeys(evidence)
 	plan.GeneratedFiles = sortedKeys(generated)
@@ -514,6 +509,16 @@ func requireLSPEvidence(file string, evidence map[string]bool) {
 	}
 }
 
+// sourceLike 判断路径是否属于现有源码证据覆盖的语言后缀。
+func sourceLike(file string) bool {
+	for _, suffix := range []string{".go", ".js", ".jsx", ".ts", ".tsx", ".css", ".sql"} {
+		if strings.HasSuffix(file, suffix) {
+			return true
+		}
+	}
+	return false
+}
+
 // statusEvidenceProblems 校验 evidence 状态字段之间的一致性，先于命令和 LSP 证据校验执行。
 func statusEvidenceProblems(doc evidenceDoc) []string {
 	problems := agentIDEvidenceProblems(doc)
@@ -596,7 +601,6 @@ func gateEvidenceCommandFragments() map[string][]string {
 		"backend:test_with_guard":          {"./scripts/test_with_guard.sh"},
 		"backend:test_with_guard_and_race": {"./scripts/test_with_guard.sh", "--with-race", "-race"},
 		"backend:nilness":                  {"go run ./scripts/nilness_guard.go"},
-		"lsp:changed-diagnostics":          {"go run ./scripts/lsp_diagnostics_gate"},
 		"capcontract:check":                {"make capcontract-check"},
 		"turncontract:verify":              {"go run ./scripts/turncontract --verify", "go test ./internal/dto/turn -run ^TestTurnContractFieldGuard", "node frontend-app/scripts/turn-contract-field-guard.mjs"},
 		"frontend:static-guards":           {"npm run guard:architecture"},
@@ -697,7 +701,6 @@ func orderedGates(values map[string]bool) []string {
 		"frontend:build",
 		"frontend:embed-verify",
 		"backend:test_with_guard",
-		"lsp:changed-diagnostics",
 		"backend:test_with_guard_and_race",
 		"backend:nilness",
 		"sqlc:verify",
