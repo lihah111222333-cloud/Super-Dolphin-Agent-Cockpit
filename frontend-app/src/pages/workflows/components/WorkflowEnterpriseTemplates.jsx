@@ -3,7 +3,8 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { runBackgroundAction, runUIAction } from '../../../shared/ui/runUIAction.js';
 import { textValue } from '../../shared/pageShared.js';
 import { getWorkflowTemplate, rollbackWorkflowTemplate } from '../services/workflowPageService.js';
-import { EnterpriseTemplateForm, enterpriseTemplateContractError } from './WorkflowEnterpriseTemplateForm.jsx';
+import { EnterpriseTemplateForm } from './WorkflowEnterpriseTemplateForm.jsx';
+import { enterpriseTemplateContractError } from './WorkflowEnterpriseTemplateContract.js';
 import {
   enterpriseOutputTypes,
   enterpriseRollbackVersion,

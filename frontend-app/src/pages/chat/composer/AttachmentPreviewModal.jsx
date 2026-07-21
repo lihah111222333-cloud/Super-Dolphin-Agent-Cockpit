@@ -1,6 +1,6 @@
 import React from 'react';
 import { File, Trash2, X } from 'lucide-react';
-import { attachmentDisplayName } from '../../../entities/client/model/composerAttachments.js';
+import { attachmentDisplayName } from '../../../entities/client/model/composer/composerAttachments.js';
 import { FocusTrapDialog } from '../../../shared/ui/FocusTrapDialog.jsx';
 import { resolveAttachmentImageSrc } from '../thread/timelineMessageModel.js';
 

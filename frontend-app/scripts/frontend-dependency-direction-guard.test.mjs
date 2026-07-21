@@ -13,9 +13,9 @@ const appRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const registry = JSON.parse(fs.readFileSync(path.join(appRoot, 'scripts/frontend-dependency-direction-registry.json'), 'utf8'));
 
 describe('frontend dependency direction guard', () => {
-  it('[A03-production] validates the production graph and exact expiring exemptions', () => {
+  it('[A03-production] validates the production graph with zero exemptions', () => {
     expect(validateFrontendDependencyDirection({ root: appRoot, today: '2026-07-17' }))
-      .toEqual(expect.objectContaining({ exemptionCount: 5, layerCount: 8 }));
+      .toEqual(expect.objectContaining({ exemptionCount: 0, layerCount: 8 }));
   });
 
   it('[A03-upward-import] rejects a shared-to-feature upward import', () => {
@@ -120,22 +120,29 @@ describe('frontend dependency direction guard', () => {
   });
 
   it('[A03-exemption-drift] rejects both missing and stale exemption entries', () => {
+    const sources = new Map([
+      ['src/shared/unsafe.js', "import { feature } from '../features/feature.js';"],
+      ['src/features/feature.js', 'export const feature = true;'],
+    ]);
+    const expected = {
+      from: 'src/shared/unsafe.js',
+      kind: 'import',
+      specifier: '../features/feature.js',
+      to: 'src/features/feature.js',
+      expiresOn: '2026-08-31',
+      owner: 'frontend-architecture',
+      reason: 'Narrow fixture exemption.',
+    };
     const missing = clone(registry);
-    missing.exemptions = missing.exemptions.slice(1);
-    expect(() => validateFrontendDependencyDirection({ root: appRoot, registry: missing, today: '2026-07-17' }))
+    missing.exemptions = [];
+    expect(() => validateFrontendDependencyDirection({ root: appRoot, registry: missing, sources, today: '2026-07-17' }))
       .toThrow('violations=');
 
     const stale = clone(registry);
-    stale.exemptions.push({
-      from: 'src/shared/fake.js',
-      kind: 'import',
-      specifier: '../pages/fake.js',
-      to: 'src/pages/fake.js',
-      expiresOn: '2026-08-31',
-      owner: 'frontend-architecture',
-      reason: 'Fixture stale exemption.',
-    });
-    expect(() => validateFrontendDependencyDirection({ root: appRoot, registry: stale, today: '2026-07-17' }))
+    stale.exemptions = [expected];
+    expect(() => validateFrontendDependencyDirection({ root: appRoot, registry: stale, sources: new Map([
+      ['src/shared/safe.js', 'export const safe = true;'],
+    ]), today: '2026-07-17' }))
       .toThrow('stale=');
   });
 

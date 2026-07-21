@@ -1,5 +1,5 @@
-import { normalizeConfigText, normalizeProviderKey } from '../../shared/pageShared.js';
-import { MODEL_DEFAULTS_BY_PROVIDER, firstConfigText, isClaudeOpusFamilyModel, modelSelectorDerivedState } from './composerModelSelectorDerived.js';
+import { MODEL_DEFAULTS_BY_PROVIDER, isClaudeOpusFamilyModel, normalizeConfigText, normalizeProviderKey } from '../../../shared/model/providerCatalog.js';
+import { firstConfigText, modelSelectorDerivedState } from './composerModelSelectorDerived.js';
 
 function activeThreadComposerConfig(store, activeThreadId) {
   return activeThreadId ? store.threadConfigByThread?.[activeThreadId] : null;

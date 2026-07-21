@@ -16,7 +16,7 @@ import {
 import { memoryPageService } from './pages/memory/services/memoryPageService.js';
 import { APP_COPY, APP_LANGUAGE_STORAGE_KEY, initialAppLocale } from './shared/i18n/appI18n.js';
 import { runBackgroundAction } from './shared/ui/runUIAction.js';
-import { requiredOverlayRoot } from './shared/ui/OverlayPortal.jsx';
+import { requiredOverlayRoot } from './shared/ui/overlayPortalRoot.js';
 import './AppChrome.css';
 import './AppShell.css';
 import {
@@ -32,7 +32,7 @@ import {
 import { SuiyuanAppWindow } from './app/shell/SuiyuanAppWindow.jsx';
 import { appShortcutPlatform } from './app/shell/appShortcutPlatform.js';
 import { updateVersionFromResult } from './app/shell/appUpdateVersion.js';
-import { createShellLayoutStore } from './app/shell/model/useShellLayoutStore.js';
+import { createShellLayoutStore } from './shared/model/useShellLayoutStore.js';
 import { appCommandPreferencePort } from './app/commands/appCommandPreferencePort.js';
 import { APP_COMMAND_REGISTRY } from './app/commands/appCommandRegistry.js';
 import { useShortcutSettings } from './features/shortcut-settings/hooks/useShortcutSettings.js';
@@ -250,11 +250,15 @@ async function runAppUpdateCheck({ isCancelled, setState }) {
     if (updateDismissed(version)) return;
     setState({ status: 'available', update: { ...result, version }, message: '' });
   } catch (error) {
-    if (!isCancelled()) {
-      const recoveryMessage = recoveryActionMessageFromRPCError(error);
-      if (recoveryMessage) setState({ status: 'recovery', update: null, message: recoveryMessage });
-      else console.info('[frontend-app] background update check failed');
+    if (isCancelled()) return;
+    const recoveryMessage = recoveryActionMessageFromRPCError(error);
+    if (recoveryMessage) {
+      setState({ status: 'recovery', update: null, message: recoveryMessage });
+      return;
     }
+    setState((current) => (current.status === 'checking'
+      ? { ...current, status: 'failed', message: '' }
+      : current));
   } finally {
     if (!isCancelled()) {
       setState((current) => (current.status === 'checking' ? { ...current, status: 'idle' } : current));
@@ -289,7 +293,11 @@ function useAppUpdateBanner(skipBootstrap) {
     setState((current) => ({ ...current, status: 'installing', message: '' }));
     try {
       const result = await installLatestAppUpdate();
-      setState((current) => ({ ...current, status: 'installing', message: result?.started === false ? '安装没有启动，请稍后重试。' : '安装程序已启动，请按提示完成更新。' }));
+      setState((current) => ({
+        ...current,
+        status: 'installing',
+        message: result?.started === false ? '安装没有启动，请稍后重试。' : '安装程序已启动，请按提示完成更新。',
+      }));
     } catch (error) {
       const recoveryMessage = recoveryActionMessageFromRPCError(error);
       setState((current) => ({ ...current, status: 'available', message: recoveryMessage || `更新失败：${errorMessage(error)}` }));

@@ -8,9 +8,12 @@ import {
   threadOpenHistoryFallbackItems } from './helpers/threadHistoryTimeline.js';
 
 describe('threadHistoryTimeline', () => {
-  it('extracts object metadata and ignores invalid values', () => {
+  it('accepts only object metadata from thread/messages history', () => {
     expect(extractHistoryMetadata({ metadata: { input: [] } })).toEqual({ input: [] });
-    expect(extractHistoryMetadata({ metadata: '{"input":[]}' })).toBeNull();
+    expect(() => extractHistoryMetadata({ metadata: '{"input":[]}' })).toThrow('thread/messages message metadata must be an object');
+    expect(() => extractHistoryMetadata({ metadata: '{' })).toThrow('thread/messages message metadata must be an object');
+    expect(() => extractHistoryMetadata({ metadata: [] })).toThrow('thread/messages message metadata must be an object');
+    expect(() => extractHistoryMetadata({ metadata: false })).toThrow('thread/messages message metadata must be an object');
     expect(extractHistoryMetadata({ metadata: null })).toBeNull();
   });
 

@@ -6,7 +6,7 @@ import { UILogRefreshButton } from './UILogRefreshButton.jsx';
 import './UILogCard.css';
 import { runUIAction } from '../../../shared/ui/runUIAction.js';
 
-function UILogCard({ copy, loadLogs, store }) {
+function UILogCard({ copy, loadLogs, logEntries, logLevel, setLogLevel }) {
   const logsCopy = copy.logs;
   const [remoteLogs, setRemoteLogs] = useState([]);
   const [logError, setLogError] = useState('');
@@ -23,14 +23,14 @@ function UILogCard({ copy, loadLogs, store }) {
       setRefreshing(false);
     }
   }, { retryable: true }), [loadLogs, logsCopy]);
-  const localLogs = store.logEntries ? store.logEntries.slice(0, 14) : [];
+  const localLogs = logEntries ? logEntries.slice(0, 14) : [];
   const logList = remoteLogs.length > 0 ? remoteLogs : localLogs;
   return (
     <>
       <div className="section-header">{logsCopy.title}</div>
       <div className="data-card-vue settings-log-card" data-testid="settings-log-card">
-        <div className="data-row-vue"><strong>{logsCopy.level}</strong><span>{store.logLevel}</span></div>
-        <UILogLevelRow logsCopy={logsCopy} store={store} />
+        <div className="data-row-vue"><strong>{logsCopy.level}</strong><span>{logLevel}</span></div>
+        <UILogLevelRow logsCopy={logsCopy} store={{ logLevel, setLogLevel }} />
         <UILogRefreshButton logsCopy={logsCopy} onRefresh={refreshLogs} refreshing={refreshing} />
         {logError ? <SettingsPromptNotice notice={{ level: 'error', message: logError }} testId="settings-log-notice" /> : null}
         <UILogList logList={logList} logsCopy={logsCopy} />

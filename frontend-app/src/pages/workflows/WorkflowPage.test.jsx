@@ -1,7 +1,6 @@
 import { act, fireEvent, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import {
-  WorkflowPage,
   backend,
   CancelledError,
   deferred,
@@ -15,7 +14,8 @@ import {
   workflowRunMetadataWithFinalFile,
   workflowRunMetadataWithoutFinalOutput,
   agentExecFixture,
-} from './WorkflowPage.testSupport.jsx';
+} from './WorkflowPage.testSupport.js';
+import { WorkflowPage } from './WorkflowPage.jsx';
 
   beforeEach(() => {
   vi.clearAllMocks();

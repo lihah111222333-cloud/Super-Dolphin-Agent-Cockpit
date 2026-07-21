@@ -1,30 +1,18 @@
-import { appendCurrentModelOption, canonicalizeModelValue, modelOptionFor, normalizeConfigText, normalizeProviderKey } from '../../shared/pageShared.js';
+import {
+  appendCurrentModelOption,
+  canonicalizeModelValue,
+  effortOptionsForProvider,
+  isClaudeOpusFamilyModel,
+  MODEL_DEFAULTS_BY_PROVIDER,
+  modelOptionFor,
+  normalizeConfigText,
+  normalizeProviderKey,
+} from '../../../shared/model/providerCatalog.js';
 
 const EFFORT_OPTIONS_BY_PROVIDER = Object.freeze({
-  codex: Object.freeze([
-    { value: 'xhigh', label: '超高' },
-    { value: 'high', label: '高' },
-    { value: 'medium', label: '中' },
-    { value: 'low', label: '低' },
-    { value: 'none', label: '关闭' },
-  ]),
-  claude: Object.freeze([
-    { value: 'max', label: 'max' },
-    { value: 'high', label: 'high' },
-    { value: 'medium', label: 'medium' },
-    { value: 'low', label: 'low' },
-  ]),
+  codex: Object.freeze(effortOptionsForProvider('codex', { xhigh: '超高', high: '高', medium: '中', low: '低', none: '关闭' })),
+  claude: Object.freeze(effortOptionsForProvider('claude')),
 });
-
-const MODEL_DEFAULTS_BY_PROVIDER = Object.freeze({
-  codex: Object.freeze({ model: 'gpt-5.5', effort: 'xhigh' }),
-  claude: Object.freeze({ model: 'sonnet', effort: 'high' }),
-});
-
-function isClaudeOpusFamilyModel(model) {
-  const normalized = normalizeConfigText(model).toLowerCase();
-  return normalized === 'best' || normalized.includes('opus');
-}
 
 function localizedEffortOption(option, copy) {
   const label = copy?.modelEffortLabels?.[option.value];
@@ -107,8 +95,6 @@ function modelSelectorDerivedState(options) {
 }
 
 export {
-  MODEL_DEFAULTS_BY_PROVIDER,
   firstConfigText,
-  isClaudeOpusFamilyModel,
   modelSelectorDerivedState,
 };

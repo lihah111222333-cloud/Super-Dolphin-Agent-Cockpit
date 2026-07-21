@@ -8,6 +8,7 @@ import {
   importSpecifiers,
   NON_LITERAL_DYNAMIC_IMPORT,
   NON_LITERAL_REQUIRE,
+  staticImportSpecifiers,
 } from './importSurfaceGuard.test-helper.js';
 import { pageSurfaceManifest } from './pageSurfaceManifest.js';
 
@@ -34,6 +35,27 @@ function resolveEntryImport(entry, specifier) {
   if (!specifier.startsWith('.')) return '';
   const resolved = path.normalize(path.join(path.dirname(entry), specifier));
   return resolved.split(path.sep).join('/');
+}
+
+function entryReachesService(entry, serviceEntry, featureRoot, visited = new Set()) {
+  if (visited.has(entry)) return false;
+  visited.add(entry);
+  const imports = staticImportSpecifiers(read(entry))
+    .map((specifier) => resolveEntryImport(entry, specifier));
+  if (imports.includes(serviceEntry)) return true;
+
+  return imports
+    .filter((specifier) => (
+      specifier.startsWith(featureRoot)
+      && /\.[jt]sx?$/.test(specifier)
+      && exists(specifier)
+    ))
+    .some((specifier) => entryReachesService(
+      specifier,
+      serviceEntry,
+      featureRoot,
+      visited,
+    ));
 }
 
 function parseModule(source) {
@@ -230,14 +252,12 @@ describe('page surface manifest', () => {
     expect(violations).toEqual([]);
   });
 
-  it('declares a feature service boundary for every page entry', () => {
+  it('declares a reachable feature service boundary for every page entry', () => {
     const missing = [];
     for (const [feature, surface] of Object.entries(pageSurfaceManifest)) {
-      const entrySource = read(surface.entry);
-      const imports = importSpecifiers(entrySource)
-        .map((specifier) => resolveEntryImport(surface.entry, specifier));
-      if (!imports.includes(surface.serviceEntry)) {
-        missing.push(`${feature}:${surface.entry} does not import ${surface.serviceEntry}`);
+      const featureRoot = `${path.posix.dirname(surface.entry)}/`;
+      if (!entryReachesService(surface.entry, surface.serviceEntry, featureRoot)) {
+        missing.push(`${feature}:${surface.entry} does not reach ${surface.serviceEntry}`);
       }
     }
     expect(missing).toEqual([]);

@@ -1,8 +1,8 @@
 import { optionalTextField } from '../contractStoreModel.js';
+import { preferredAssistantTimelineItem } from './timeline/timelineRuntimeContent.js';
 import {
   compactTimelineText,
   dedupeAssistantTimelineItems,
-  preferredAssistantTimelineItem,
   sameRuntimeAssistantContentLoose,
   sameTimelineContent,
   sameTimelineContentCompact,

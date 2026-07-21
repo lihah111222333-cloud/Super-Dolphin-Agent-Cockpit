@@ -1,8 +1,9 @@
 import React from 'react';
 import { Brain, CircleUserRound, FolderOpen, Moon, PanelLeftClose, Puzzle, RefreshCw, Search, Settings as SettingsIcon, SquarePlus, Sun } from 'lucide-react';
-import { errorMessage, textValue } from './pages/shared/pageShared.js';
+import { textValue } from './pages/shared/pageShared.js';
 import { ProjectSelector } from './pages/chat/components/ProjectSelector.jsx';
 import { runUIAction } from './shared/ui/runUIAction.js';
+import { uiActionWarningOptions } from './shared/ui/uiActionWarningOptions.js';
 import { SidebarProjectTree, SidebarTaskSummary } from './WorkbenchSidebarProjectTree.jsx';
 import { APP_BRAND_NAME, APP_COPY } from './shared/i18n/appI18n.js';
 import suiyuanBrandIcon from './assets/suiyuan-brand-icon.png';
@@ -23,14 +24,6 @@ const secondaryNavItems = [
   { id: 'memory', labelKey: 'memory', icon: Brain },
   { id: 'observability', labelKey: 'observability', icon: Search },
 ];
-
-function uiActionOptions(store) {
-  return {
-    onError: (error) => {
-      store?.addWarning?.('error', 'ui.action.failed', { error: errorMessage(error) });
-    },
-  };
-}
 
 function SidebarNavButton({ activePage, badgeCount, copy, item, setActivePage }) {
   const Icon = item.icon;
@@ -79,7 +72,7 @@ export function WorkbenchSidebar({
   memorySimilarCount = 0,
   onCloseSidebar,
 }) {
-  const actionOptions = uiActionOptions(store);
+  const actionOptions = uiActionWarningOptions(store);
   const memoryBadgeCount = Math.max(0, Number(memorySimilarCount) || 0);
   const isDark = theme === COLOR_THEMES.dark;
   const ThemeIcon = isDark ? Sun : Moon;

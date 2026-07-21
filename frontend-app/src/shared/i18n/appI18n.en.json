@@ -76,7 +76,10 @@
     "description": "Update to the latest version for new features and fixes.",
     "install": "Update now",
     "installing": "Updating…",
-    "dismiss": "Later"
+    "dismiss": "Later",
+    "checkFailedTitle": "Update check is temporarily unavailable",
+    "checkFailedDescription": "We could not check for updates. Please try again later.",
+    "close": "Close"
   },
   "chat": {
     "introTitle": "What should we build in 燧元?",

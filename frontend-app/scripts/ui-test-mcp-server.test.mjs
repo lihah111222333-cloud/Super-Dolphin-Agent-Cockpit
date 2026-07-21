@@ -213,6 +213,9 @@ describe('UI test MCP server lifecycle and protocol', () => {
       id: 5,
       error: { code: -32602 },
     });
+
+    expect(await server.handleMessage({ jsonrpc: '2.0', method: 'unknown/method' })).toBeNull();
+    expect(await server.handleMessage({ jsonrpc: '2.0', method: 'ping', params: { extra: true } })).toBeNull();
   });
 
   it('lists exact tools with strict input schemas from the contract', async () => {
@@ -441,6 +444,13 @@ describe('UI test MCP server lifecycle and protocol', () => {
       id: null,
       error: { code: -32700 },
     });
+
+    stdout.clear();
+    await server.processChunk(Buffer.from('{"jsonrpc":"2.0","method":"unknown/method"}\n'));
+    expect(stdout.text()).toBe('');
+
+    await server.processChunk(Buffer.from('{"jsonrpc":"2.0","method":"ping","params":{"extra":true}}\n'));
+    expect(stdout.text()).toBe('');
   });
 
   it('cleans up Playwright resources on shutdown, exit, EOF, signals, and startup failure', async () => {

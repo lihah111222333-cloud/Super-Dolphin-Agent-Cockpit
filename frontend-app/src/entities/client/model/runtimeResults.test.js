@@ -1,7 +1,7 @@
 import { optionalTextField, normalizeOptionalTextField, parseRequiredTimestamp } from './contractStoreModel.js';
 import { describe, expect, it } from 'vitest';
 import { createRuntimeResultHelpers, ContractError } from './runtimeResults.js';
-import { compactSafeDiagnosticPreview } from '../../../shared/api/safeDiagnosticPreview.js';
+import { compactSafeDiagnosticPreview } from '../../../shared/api/support/safeDiagnosticPreview.js';
 
 const helpers = createRuntimeResultHelpers({
   normalizeString: (value) => normalizeOptionalTextField(value),

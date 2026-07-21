@@ -11,7 +11,8 @@ import {
   resetVisibleActionFailureForTest,
   visibleActionFailureSnapshot,
 } from '../../../shared/ui/actionFailureSink.js';
-import { ComposerDock, shouldNavigatePromptHistory } from './ComposerDock.jsx';
+import { ComposerDock } from './ComposerDock.jsx';
+import { shouldNavigatePromptHistory } from './promptHistoryNavigation.js';
 
 function createComposer(overrides = {}) {
   return {

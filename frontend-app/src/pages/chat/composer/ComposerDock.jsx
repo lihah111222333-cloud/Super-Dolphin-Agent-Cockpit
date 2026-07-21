@@ -11,6 +11,7 @@ import { ComposerAttachments } from './ComposerAttachments.jsx';
 import { ComposerMeta } from './ComposerMeta.jsx';
 import { ComposerTextarea } from './ComposerTextarea.jsx';
 import { ForkDraftCard } from './ForkDraftCard.jsx';
+import { shouldNavigatePromptHistory as navigatePromptHistory } from './promptHistoryNavigation.js';
 import { runUIAction } from '../model/chatUiActions.js';
 import './ComposerDock.css';
 
@@ -53,19 +54,6 @@ function useComposerSendKeyHandler({ canSend, composer, sendMessage }) {
   };
 }
 
-function shouldNavigatePromptHistory(event, textarea, direction) {
-  const expectedKey = direction === 'previous' ? 'ArrowUp' : direction === 'next' ? 'ArrowDown' : '';
-  if (!expectedKey || event.key !== expectedKey || event.defaultPrevented) return false;
-  if (event.shiftKey || event.metaKey || event.ctrlKey || event.altKey) return false;
-  const keyCode = Number(event.keyCode || event.which || 0);
-  if (event.isComposing || event.nativeEvent?.isComposing || keyCode === 229) return false;
-  if (!textarea || typeof textarea.value !== 'string') return false;
-  const { selectionStart, selectionEnd, value } = textarea;
-  if (!Number.isInteger(selectionStart) || selectionStart !== selectionEnd) return false;
-  if (direction === 'previous') return value.lastIndexOf('\n', selectionStart - 1) === -1;
-  return value.indexOf('\n', selectionStart) === -1;
-}
-
 function runPromptHistoryAction(direction, promptHistory) {
   if (direction === 'previous') {
     return runUIAction('prompt-history.previous', () => promptHistory.previous(), { retryable: true });
@@ -77,7 +65,7 @@ function useComposerKeyHandler({ canSend, composer, promptHistory, sendMessage }
   const handleSendKey = useComposerSendKeyHandler({ canSend, composer, sendMessage });
   return (event) => {
     const direction = event.key === 'ArrowUp' ? 'previous' : event.key === 'ArrowDown' ? 'next' : '';
-    if (direction && !composer.isComposing() && shouldNavigatePromptHistory(event, event.currentTarget, direction)) {
+    if (direction && !composer.isComposing() && navigatePromptHistory(event, event.currentTarget, direction)) {
       event.preventDefault();
       runPromptHistoryAction(direction, promptHistory);
       return;
@@ -239,5 +227,4 @@ function ComposerPreviewModal({ composer }) {
   );
 }
 
-// eslint-disable-next-line react-refresh/only-export-components
-export { ComposerDock, shouldNavigatePromptHistory };
+export { ComposerDock };

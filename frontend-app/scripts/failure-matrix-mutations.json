@@ -12,7 +12,7 @@
     {
       "id": "accept-stale-frontend-turn-events",
       "layer": "frontend",
-      "sourcePath": "frontend-app/src/entities/client/model/helpers/assistantEventRuntime.js",
+      "sourcePath": "frontend-app/src/entities/client/model/helpers/assistantEventRuntime/turnLifecycle.js",
       "search": "if (activeTurnId && activeTurnId !== turnRef.turnId) {",
       "replacement": "if (false) {",
       "caseIds": ["FM-04"]

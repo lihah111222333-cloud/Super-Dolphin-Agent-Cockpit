@@ -102,6 +102,7 @@ describe('ChatApprovalMessage', () => {
         messageActions={{ onApproval: vi.fn() }}
         store={{
           addComposerCapability: vi.fn(),
+          bootstrapStatus: 'ready',
           clearComposer: vi.fn(),
           composerCapabilities: [],
           newThread: vi.fn(),
@@ -125,6 +126,44 @@ describe('ChatApprovalMessage', () => {
 
     expect(screen.getAllByText('Fallback resolved')).toHaveLength(2);
     expect(screen.getByText('审批结果已提交')).toBeInTheDocument();
+  });
+
+  it('keeps default project actions and empty attachments when Conversation props are omitted', () => {
+    renderWithQueryClient(
+      <Conversation
+        messages={[]}
+        sending={false}
+        activeThreadId="thread-1"
+        activeThread={{ id: 'thread-1', status: 'idle' }}
+        statusEntry={null}
+        activeTurn={null}
+        timelineBlocked={false}
+        messageActions={{ onApproval: vi.fn() }}
+        store={{
+          addComposerCapability: vi.fn(),
+          bootstrapStatus: 'ready',
+          clearComposer: vi.fn(),
+          composerCapabilities: [],
+          newThread: vi.fn(),
+          notifyAction: vi.fn(),
+          reconcileComposerCapabilities: vi.fn(),
+          removeComposerCapability: vi.fn(),
+          smoothStreaming: false,
+        }}
+        draft=""
+        setDraft={vi.fn()}
+        sendMessage={vi.fn()}
+        attachPaths={vi.fn()}
+        attachDroppedFiles={vi.fn()}
+        removeAttachment={vi.fn()}
+        selectFiles={vi.fn()}
+        projectPath="/tmp/project"
+        modelThreadId="thread-1"
+      />,
+    );
+
+    expect(screen.getByRole('button', { name: '添加文件' })).toBeEnabled();
+    expect(screen.queryByRole('button', { name: /预览附件/ })).not.toBeInTheDocument();
   });
 
   it('fails closed before rendering malformed approval request ids', () => {

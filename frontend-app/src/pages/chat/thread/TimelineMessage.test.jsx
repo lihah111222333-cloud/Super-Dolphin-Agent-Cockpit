@@ -1,7 +1,7 @@
 import React from 'react';
 import { readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { expect, it, vi } from 'vitest';
 import { TimelineLoadingPlaceholder, TimelineMessage, UserMessageAttachments } from './TimelineMessage.jsx';
 import { resolveAttachmentImageSrc } from './timelineMessageModel.js';
@@ -74,6 +74,157 @@ function localScreenshotPath(separator) {
     );
 
     expect(screen.queryByText('\u601d\u8003\u4e2d')).not.toBeInTheDocument();
+  });
+
+  it('stops animation frames after catching up and restarts them for a later streaming token', async () => {
+    const animationFrameCallbacks = [];
+    const requestAnimationFrameSpy = vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => {
+      animationFrameCallbacks.push(callback);
+      return animationFrameCallbacks.length;
+    });
+    const cancelAnimationFrameSpy = vi.spyOn(window, 'cancelAnimationFrame').mockImplementation(() => {});
+    const initialText = '已经追平';
+    const fullText = '已经追平，继续输出';
+    const nextTokenText = '已经追平，继续输出新的 token';
+
+    try {
+      const { rerender } = render(
+        <TimelineMessage
+          message={{ id: 'assistant-idle', role: 'assistant', text: initialText, time: '2026-06-15T08:00:00Z', done: false }}
+          activeThreadId="thread-1"
+          smoothStreaming
+          formatTime={formatTime}
+        />,
+      );
+      expect(requestAnimationFrameSpy).not.toHaveBeenCalled();
+
+      rerender(
+        <TimelineMessage
+          message={{ id: 'assistant-idle', role: 'assistant', text: fullText, time: '2026-06-15T08:00:00Z', done: false }}
+          activeThreadId="thread-1"
+          smoothStreaming
+          formatTime={formatTime}
+        />,
+      );
+      for (let index = 0; index < 32 && !screen.queryByText(fullText); index += 1) {
+        const callback = animationFrameCallbacks.shift();
+        expect(callback).toBeTypeOf('function');
+        await act(async () => {
+          callback(16);
+        });
+      }
+      expect(screen.getByText(fullText)).toBeInTheDocument();
+      const framesAtCatchup = requestAnimationFrameSpy.mock.calls.length;
+      expect(requestAnimationFrameSpy).toHaveBeenCalledTimes(framesAtCatchup);
+      expect(animationFrameCallbacks).toHaveLength(0);
+
+      rerender(
+        <TimelineMessage
+          message={{ id: 'assistant-idle', role: 'assistant', text: nextTokenText, time: '2026-06-15T08:00:00Z', done: false }}
+          activeThreadId="thread-1"
+          smoothStreaming
+          formatTime={formatTime}
+        />,
+      );
+      expect(requestAnimationFrameSpy).toHaveBeenCalledTimes(framesAtCatchup + 1);
+      expect(animationFrameCallbacks).toHaveLength(1);
+    }
+    finally {
+      requestAnimationFrameSpy.mockRestore();
+      cancelAnimationFrameSpy.mockRestore();
+    }
+  });
+
+  it('cancels a pending frame when reduced motion becomes active', () => {
+    const originalMatchMedia = window.matchMedia;
+    let onChange;
+    const query = {
+      matches: false,
+      addEventListener: vi.fn((event, callback) => {
+        if (event === 'change') onChange = callback;
+      }),
+      removeEventListener: vi.fn(),
+    };
+    window.matchMedia = vi.fn(() => query);
+    const requestAnimationFrameSpy = vi.spyOn(window, 'requestAnimationFrame').mockImplementation(() => 1);
+    const cancelAnimationFrameSpy = vi.spyOn(window, 'cancelAnimationFrame').mockImplementation(() => {});
+
+    try {
+      const baseMessage = { id: 'assistant-reduced-motion', role: 'assistant', text: '我', time: '2026-06-15T08:00:00Z', done: false };
+      const { rerender } = render(
+        <TimelineMessage message={baseMessage} activeThreadId="thread-1" smoothStreaming formatTime={formatTime} />,
+      );
+      rerender(
+        <TimelineMessage message={{ ...baseMessage, text: '我继续' }} activeThreadId="thread-1" smoothStreaming formatTime={formatTime} />,
+      );
+      expect(requestAnimationFrameSpy).toHaveBeenCalledTimes(1);
+
+      query.matches = true;
+      act(() => onChange());
+      expect(cancelAnimationFrameSpy).toHaveBeenCalledWith(1);
+    }
+    finally {
+      requestAnimationFrameSpy.mockRestore();
+      cancelAnimationFrameSpy.mockRestore();
+      window.matchMedia = originalMatchMedia;
+    }
+  });
+
+  it('cancels pending streaming frames when the stream key changes or the message unmounts', () => {
+    const callbacks = [];
+    const requestAnimationFrameSpy = vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => {
+      callbacks.push(callback);
+      return callbacks.length;
+    });
+    const cancelAnimationFrameSpy = vi.spyOn(window, 'cancelAnimationFrame').mockImplementation(() => {});
+
+    try {
+      const baseMessage = { id: 'assistant-cleanup', role: 'assistant', text: '我', time: '2026-06-15T08:00:00Z', done: false };
+      const { rerender, unmount } = render(
+        <TimelineMessage
+          message={baseMessage}
+          activeThreadId="thread-1"
+          smoothStreaming
+          formatTime={formatTime}
+        />,
+      );
+
+      rerender(
+        <TimelineMessage
+          message={{ ...baseMessage, text: '我继续' }}
+          activeThreadId="thread-1"
+          smoothStreaming
+          formatTime={formatTime}
+        />,
+      );
+      expect(requestAnimationFrameSpy).toHaveBeenCalledTimes(1);
+
+      rerender(
+        <TimelineMessage
+          message={{ ...baseMessage, text: '我继续' }}
+          activeThreadId="thread-2"
+          smoothStreaming
+          formatTime={formatTime}
+        />,
+      );
+      expect(cancelAnimationFrameSpy).toHaveBeenCalledWith(1);
+
+      rerender(
+        <TimelineMessage
+          message={{ ...baseMessage, text: '我继续输出' }}
+          activeThreadId="thread-2"
+          smoothStreaming
+          formatTime={formatTime}
+        />,
+      );
+      expect(requestAnimationFrameSpy).toHaveBeenCalledTimes(2);
+      unmount();
+      expect(cancelAnimationFrameSpy).toHaveBeenCalledWith(2);
+    }
+    finally {
+      requestAnimationFrameSpy.mockRestore();
+      cancelAnimationFrameSpy.mockRestore();
+    }
   });
 
   it('renders failed terminals with executable diagnostics copy and user cancellation as neutral status', async () => {

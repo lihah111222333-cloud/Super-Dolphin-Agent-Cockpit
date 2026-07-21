@@ -2,6 +2,7 @@ import React from 'react';
 import { cleanup, render, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { OverlayPortal } from './OverlayPortal.jsx';
+import { requiredOverlayRoot } from './overlayPortalRoot.js';
 
 let caller;
 let overlayHost;
@@ -24,6 +25,10 @@ afterEach(() => {
 });
 
 describe('OverlayPortal', () => {
+  it('uses the canonical required overlay host locator', () => {
+    expect(requiredOverlayRoot()).toBe(overlayHost);
+  });
+
   it('mounts children only in the unique overlay host and cleans them on unmount', () => {
     const view = render(
       <OverlayPortal>

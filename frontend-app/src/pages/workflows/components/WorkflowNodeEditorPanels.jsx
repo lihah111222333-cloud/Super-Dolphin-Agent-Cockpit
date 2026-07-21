@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useReducer, useState } from 'react';
-import { appendCurrentModelOption, firstText, textValue } from '../../shared/pageShared.js';
+import { appendCurrentModelOption } from '../../../shared/model/providerCatalog.js';
+import { firstText, textValue } from '../../shared/pageShared.js';
 import { FocusTrapDialog } from '../../../shared/ui/FocusTrapDialog.jsx';
 import { Panel } from '../../shared/pageComponents.jsx';
 import { DAG_WEEKDAY_OPTIONS, cronExprFromSchedule, scheduleLabelFromState, scheduleStateFromCron } from '../services/workflowScheduleModel.js';

@@ -39,6 +39,7 @@ export function useSmoothStreamingText(text, { enabled = false, streamKey = '' }
   const [state, setState] = useState(() => ({ streamKey, visibleText: targetText }));
   const frameRef = useRef(0);
   const targetTextRef = useRef(targetText);
+  const stateRef = useRef({ streamKey, visibleText: targetText });
 
   useEffect(() => {
     targetTextRef.current = targetText;
@@ -52,8 +53,10 @@ export function useSmoothStreamingText(text, { enabled = false, streamKey = '' }
   useEffect(() => () => cancelAnimationFrameRef(frameRef), []);
 
   useEffect(() => {
-    setState({ streamKey, visibleText: targetText });
-  }, [streamKey]); // eslint-disable-line react-hooks/exhaustive-deps
+    const nextState = { streamKey, visibleText: targetTextRef.current };
+    stateRef.current = nextState;
+    setState(nextState);
+  }, [streamKey]);
 
   useEffect(() => {
     if (!enabled || reducedMotion) {
@@ -66,18 +69,32 @@ export function useSmoothStreamingText(text, { enabled = false, streamKey = '' }
     const tick = () => {
       if (!active) return;
 
-      setState((current) => nextStreamingState({ current, latestTarget: targetTextRef.current, streamKey }));
+      const nextState = nextStreamingState({
+        current: stateRef.current,
+        latestTarget: targetTextRef.current,
+        streamKey,
+      });
+      if (nextState === stateRef.current) {
+        frameRef.current = 0;
+        return;
+      }
 
+      stateRef.current = nextState;
+      setState(nextState);
+      if (nextState.visibleText === targetTextRef.current) {
+        frameRef.current = 0;
+        return;
+      }
       frameRef.current = window.requestAnimationFrame(tick);
     };
 
-    frameRef.current = window.requestAnimationFrame(tick);
+    tick();
 
     return () => {
       active = false;
       cancelAnimationFrameRef(frameRef);
     };
-  }, [enabled, reducedMotion, streamKey]);
+  }, [enabled, reducedMotion, streamKey, targetText]);
 
   return visibleText;
 }

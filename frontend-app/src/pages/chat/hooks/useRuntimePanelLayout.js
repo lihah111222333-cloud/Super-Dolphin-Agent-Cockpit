@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 const RESIZER_KEY_STEP = 16;
 const RUNTIME_TOOLBAR_HEIGHT = 67;
@@ -60,6 +60,7 @@ function useRuntimePanelLayout() {
    */
   const [viewportHeight, setViewportHeight] = useState(currentViewportHeight);
   const [activityPanelHeight, setActivityPanelHeight] = useState(() => clampActivityPanelHeight(ACTIVITY_PANEL_DEFAULT_HEIGHT));
+  const resizeDisposerRef = useRef(null);
   const activityPanelMax = activityPanelMaxHeight(viewportHeight);
   useEffect(() => {
     let frameId = null;
@@ -78,9 +79,14 @@ function useRuntimePanelLayout() {
       if (frameId) window.cancelAnimationFrame(frameId);
     };
   }, []);
+  useEffect(() => () => {
+    resizeDisposerRef.current?.();
+    resizeDisposerRef.current = null;
+  }, []);
   const beginActivityPanelResize = (event, inputType = 'pointer') => {
     event.preventDefault();
     if (inputType === 'pointer') event.currentTarget?.setPointerCapture?.(event.pointerId);
+    resizeDisposerRef.current?.();
     const startY = event.clientY;
     const startHeight = activityPanelHeight;
     const moveEventName = inputType === 'mouse' ? 'mousemove' : 'pointermove';
@@ -92,15 +98,28 @@ function useRuntimePanelLayout() {
       latestHeight = nextHeight;
       if (panelEl) panelEl.style.setProperty('--activity-panel-height', `${nextHeight}px`);
     };
-    const stop = () => {
+    let disposed = false;
+    const dispose = (commitHeight = false) => {
+      if (disposed) return;
+      disposed = true;
       window.removeEventListener(moveEventName, move);
-      window.removeEventListener(stopEventName, stop);
-      if (inputType === 'pointer') window.removeEventListener('pointercancel', stop);
-      setActivityPanelHeight(latestHeight);
+      window.removeEventListener(stopEventName, finish);
+      if (inputType === 'pointer') window.removeEventListener('pointercancel', cancel);
+      window.removeEventListener('blur', cancel);
+      if (resizeDisposerRef.current === dispose) resizeDisposerRef.current = null;
+      if (commitHeight) {
+        setActivityPanelHeight(latestHeight);
+      } else if (panelEl) {
+        panelEl.style.setProperty('--activity-panel-height', `${startHeight}px`);
+      }
     };
+    const finish = () => dispose(true);
+    const cancel = () => dispose(false);
+    resizeDisposerRef.current = dispose;
     window.addEventListener(moveEventName, move);
-    window.addEventListener(stopEventName, stop);
-    if (inputType === 'pointer') window.addEventListener('pointercancel', stop);
+    window.addEventListener(stopEventName, finish);
+    if (inputType === 'pointer') window.addEventListener('pointercancel', cancel);
+    window.addEventListener('blur', cancel);
   };
   const handleActivityPanelResizeKeyDown = (event) => {
     if (event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return;

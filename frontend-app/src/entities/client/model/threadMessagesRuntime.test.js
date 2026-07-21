@@ -2,9 +2,35 @@ import { describe, expect, it } from 'vitest';
 import {
   applyThreadHistoryFallbackPatch,
   applyThreadMessageItemsPatch,
+  attachThreadMessagesRuntime,
   createThreadMessagePageFetcher,
   markThreadMessagesReadyPatch,
   threadHistoryInitialPageTracePayload } from './threadMessagesRuntime.js';
+
+function createThreadMessagesRuntimeHarness(getThreadMessages) {
+  let state = {
+    timelinesByThread: { 'thread-1': [] },
+    threadTimelineReadyByThread: {},
+    threadMessagePaginationByThread: {
+      'thread-1': { hasMore: true, nextBefore: 'older-cursor', loading: false },
+    },
+  };
+  const warnings = [];
+  const runtime = {
+    get: () => state,
+    set: (updater) => {
+      state = { ...state, ...updater(state) };
+    },
+    addWarning: (...args) => warnings.push(args),
+    threadMessageGenerations: new Map(),
+  };
+  attachThreadMessagesRuntime(runtime, {
+    backendThreadIdForState: (_state, threadId) => threadId,
+    emitFrontendTraceEvent: () => {},
+    getThreadMessages,
+  });
+  return { runtime, warnings, getState: () => state };
+}
 
 describe('threadMessagesRuntime', () => {
   it('marks a thread timeline ready while preserving active visible items', () => {
@@ -88,9 +114,10 @@ describe('threadMessagesRuntime', () => {
       getThreadMessages: async (params) => {
         expect(params).toEqual({ threadId: 'thread-1', limit: 300, before: '10' });
         return {
-          messages: [{ id: 12, role: 'user', text: 'hello', created_at: '2026-06-15T01:00:00Z' }],
-          has_more: true,
-          next_before: '11',
+          messages: [{ id: 12, agentId: '', role: 'user', eventType: '', method: '', content: 'hello', createdAt: '2026-06-15T01:00:00Z' }],
+          total: 1,
+          hasMore: true,
+          nextBefore: '11',
         };
       },
       nowMillis: (() => {
@@ -103,10 +130,64 @@ describe('threadMessagesRuntime', () => {
     });
 
     await expect(fetchThreadMessagePage('thread-1', '10')).resolves.toMatchObject({
-      messages: [{ id: 12, role: 'user', text: 'hello', created_at: '2026-06-15T01:00:00Z' }],
+      messages: [{ id: 12, agentId: '', role: 'user', eventType: '', method: '', content: 'hello', createdAt: '2026-06-15T01:00:00Z' }],
       items: [{ id: '12', role: 'user', kind: 'user', text: 'hello', time: '2026-06-15T01:00:00Z', done: true }],
       meta: { hasMore: true, nextBefore: '11' },
       durationMs: 25,
     });
+  });
+
+  it('fails fast when a thread/messages response omits messages or makes it non-array', async () => {
+    for (const response of [{}, { messages: {} }]) {
+      const fetchThreadMessagePage = createThreadMessagePageFetcher({
+        getThreadMessages: async () => response,
+      });
+      await expect(fetchThreadMessagePage('thread-1')).rejects.toThrow();
+    }
+  });
+
+  it('keeps initial and older history state intact when messages has an invalid response shape', async () => {
+    for (const response of [undefined, {}, { messages: null }, { messages: {} }]) {
+      const initial = createThreadMessagesRuntimeHarness(async () => response);
+      await initial.runtime.loadThreadMessages('thread-1', {
+        historyFallback: [{ id: 'fallback', role: 'assistant', kind: 'assistant', text: 'fallback', done: true }],
+      });
+      expect(initial.warnings).toHaveLength(1);
+      expect(initial.warnings[0]).toMatchObject(['error', 'thread.messages.failed', { threadId: 'thread-1' }]);
+      expect(initial.getState().timelinesByThread['thread-1']).toEqual([]);
+      expect(initial.getState().threadTimelineReadyByThread['thread-1']).toBeUndefined();
+      expect(initial.getState().threadMessagePaginationByThread['thread-1']).toMatchObject({
+        hasMore: true,
+        nextBefore: 'older-cursor',
+        loading: false,
+      });
+
+      const older = createThreadMessagesRuntimeHarness(async () => response);
+      await expect(older.runtime.loadOlderThreadMessages('thread-1')).resolves.toBe(false);
+      expect(older.warnings).toHaveLength(1);
+      expect(older.warnings[0]).toMatchObject(['error', 'thread.messages.failed', { threadId: 'thread-1' }]);
+      expect(older.getState().threadTimelineReadyByThread['thread-1']).toBeUndefined();
+      expect(older.getState().threadMessagePaginationByThread['thread-1']).toMatchObject({
+        hasMore: true,
+        nextBefore: 'older-cursor',
+        loading: false,
+      });
+    }
+  });
+
+  it('surfaces invalid history metadata through the initial-load failure path', async () => {
+    const harness = createThreadMessagesRuntimeHarness(async () => ({
+      messages: [{ id: 'bad-metadata', role: 'user', content: 'hello', metadata: '{"input":[]}' }],
+    }));
+
+    await harness.runtime.loadThreadMessages('thread-1');
+
+    expect(harness.warnings).toHaveLength(1);
+    expect(harness.warnings[0]).toMatchObject(['error', 'thread.messages.failed', {
+      threadId: 'thread-1',
+      error: 'thread/messages message metadata must be an object',
+    }]);
+    expect(harness.getState().timelinesByThread['thread-1']).toEqual([]);
+    expect(harness.getState().threadTimelineReadyByThread['thread-1']).toBeUndefined();
   });
 });

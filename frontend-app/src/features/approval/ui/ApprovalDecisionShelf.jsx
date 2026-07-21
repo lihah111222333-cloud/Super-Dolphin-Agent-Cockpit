@@ -1,5 +1,5 @@
 import { useLayoutEffect, useRef, useState } from 'react';
-import { approvalIdentityKey } from '../../../shared/api/approvalRequestId.js';
+import { approvalIdentityKey } from '../../../shared/api/support/approvalRequestId.js';
 import { approvalSubmissionFor } from '../model/approvalDecision.js';
 import { runUIAction } from '../../../shared/ui/runUIAction.js';
 

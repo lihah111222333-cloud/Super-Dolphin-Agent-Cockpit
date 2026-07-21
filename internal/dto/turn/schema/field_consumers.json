@@ -228,13 +228,13 @@
   "jsTerminalChains": [
     {
       "name": "terminal-runtime-dispatch",
-      "path": "frontend-app/src/entities/client/model/helpers/assistantEventRuntime.js",
+      "path": "frontend-app/src/entities/client/model/helpers/assistantEventRuntime/turnLifecycle.js",
       "symbol": "applyTurnTerminal",
       "calls": ["parseRuntimeTurnTerminal", "terminalTimelineItem", "terminalNotice"]
     },
     {
       "name": "terminal-public-error-projection",
-      "path": "frontend-app/src/entities/client/model/helpers/assistantEventRuntime.js",
+      "path": "frontend-app/src/entities/client/model/helpers/assistantEventRuntime/turnLifecycle.js",
       "symbol": "terminalTimelineItem",
       "calls": ["publicErrorForRemoteTerminal"],
       "memberPaths": ["terminal.publicError"],
@@ -245,7 +245,7 @@
     },
     {
       "name": "terminal-public-error-notice",
-      "path": "frontend-app/src/entities/client/model/helpers/assistantEventRuntime.js",
+      "path": "frontend-app/src/entities/client/model/helpers/assistantEventRuntime/turnLifecycle.js",
       "symbol": "terminalNotice",
       "calls": ["actionNotice", "publicErrorForRemoteTerminal"],
       "memberPaths": ["terminal.publicError"],

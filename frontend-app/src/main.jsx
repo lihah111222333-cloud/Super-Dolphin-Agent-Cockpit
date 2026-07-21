@@ -22,7 +22,7 @@ import './pages/memory/MemoryPage.css';
 import './pages/settings/SettingsPage.css';
 import './pages/observability/ObservabilityPage.css';
 import './shared/styles/PagePrimitivesLate.css';
-import './features/prompts/PromptPageView.css';
+import './pages/prompts/PromptPageView.css';
 import './pages/settings/components/SettingsPageComponents.css';
 
 // Late polish layers intentionally override earlier page modules.

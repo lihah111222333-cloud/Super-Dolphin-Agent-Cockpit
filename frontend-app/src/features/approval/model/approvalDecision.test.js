@@ -8,7 +8,7 @@ import approvalDecisionSource from './approvalDecision.js?raw';
 
 describe('approvalDecision', () => {
   it('reuses the shared strict approval identity helper without creating another parser', () => {
-    expect(approvalDecisionSource).toContain("from '../../../shared/api/approvalRequestId.js'");
+    expect(approvalDecisionSource).toContain("from '../../../shared/api/support/approvalRequestId.js'");
     expect(approvalDecisionSource).toContain('requireApprovalIdentity(');
     expect(approvalDecisionSource).toContain('approvalIdentityFromFields(');
     expect(approvalDecisionSource).not.toMatch(/parseInt|parseFloat|Number\s*\(/);

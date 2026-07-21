@@ -1,7 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
-import { createShellLayoutStore } from './useShellLayoutStore.js';
-import { rightPanelWidthSchema } from './shellLayoutSchema.js';
-import shellLayoutStoreSource from './useShellLayoutStore.js?raw';
+import { createShellLayoutStore as createLegacyShellLayoutStore } from './useShellLayoutStore.js';
+import { createShellLayoutStore } from '../../../shared/model/useShellLayoutStore.js';
+import { rightPanelWidthSchema } from '../../../shared/model/shellLayoutSchema.js';
+import legacyShellLayoutStoreSource from './useShellLayoutStore.js?raw';
+import shellLayoutStoreSource from '../../../shared/model/useShellLayoutStore.js?raw';
 
 function createStorage(initialValue = null) {
   let storedValue = initialValue;
@@ -28,6 +30,11 @@ function expectRightPanelWidthValidationFailure(run) {
 }
 
 describe('createShellLayoutStore', () => {
+  it('keeps the old shell path as a compatibility re-export of the shared owner', () => {
+    expect(createLegacyShellLayoutStore).toBe(createShellLayoutStore);
+    expect(legacyShellLayoutStoreSource).toBe("export { createShellLayoutStore, useShellLayoutStore } from '../../../shared/model/useShellLayoutStore.js';\n");
+  });
+
   it('uses the injected scalar port without JSON parsing or a global singleton contract', () => {
     expect(shellLayoutStoreSource).not.toContain('JSON.parse');
     expect(shellLayoutStoreSource).not.toContain('window.localStorage');

@@ -11,13 +11,13 @@ import {
 
 const appRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const registry = JSON.parse(fs.readFileSync(path.join(appRoot, 'scripts/frontend-state-ownership-registry.json'), 'utf8'));
-const terminalWriterPath = 'src/entities/client/model/helpers/assistantEventRuntime.js';
+const terminalWriterPath = 'src/entities/client/model/helpers/assistantEventRuntime/turnLifecycle.js';
 
 describe('frontend state ownership guard', () => {
   it('[A02-production] validates production writers against the exact registry', () => {
     expect(validateFrontendStateOwnership({ root: appRoot })).toEqual({
       'action-failure-health': expect.objectContaining({ writerCount: 3 }),
-      'public-error-diagnostics': expect.objectContaining({ writerCount: 3 }),
+      'public-error-diagnostics': expect.objectContaining({ writerCount: 2 }),
       'terminal-truth': expect.objectContaining({ writerCount: 1 }),
     });
 
@@ -165,7 +165,7 @@ describe('frontend state ownership guard', () => {
   it('[A02-public-error-sanitized-writer] rejects the raw terminal public error writer', () => {
     const mutated = clone(registry);
     const writer = mutated.states['public-error-diagnostics'].writers.find(
-      (entry) => entry.key === 'src/entities/client/model/helpers/assistantEventRuntime.js:terminalTimelineItem:object-property:publicError',
+      (entry) => entry.key === 'src/entities/client/model/helpers/assistantEventRuntime/turnLifecycle.js:terminalTimelineItem:object-property:publicError',
     );
     expect(writer).toBeDefined();
     writer.value = 'terminal.publicError';

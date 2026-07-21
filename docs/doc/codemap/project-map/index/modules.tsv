@@ -522,8 +522,8 @@ internal/module/thread/handoff_test.go	internal	modules	go-test	7921	thread star
 internal/module/thread/handoff.go	internal	modules	go-source	3566	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,handoff,start,resume,fork,stop,生命周期与绑定真相源
 internal/module/thread/handoffrender/text_test.go	internal	modules	go-test	1088	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,handoffrender,text,test,start,resume,fork,stop,生命周期与绑定真相源
 internal/module/thread/handoffrender/text.go	internal	modules	go-source	1524	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,handoffrender,text,start,resume,fork,stop,生命周期与绑定真相源
-internal/module/thread/history_test.go	internal	modules	go-test	15967	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,history,test,start,resume,fork,stop,生命周期与绑定真相源
-internal/module/thread/history.go	internal	modules	go-source	24554	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,history,start,resume,fork,stop,生命周期与绑定真相源
+internal/module/thread/history_test.go	internal	modules	go-test	16479	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,history,test,start,resume,fork,stop,生命周期与绑定真相源
+internal/module/thread/history.go	internal	modules	go-source	24598	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,history,start,resume,fork,stop,生命周期与绑定真相源
 internal/module/thread/keepalive_filter_test.go	internal	modules	go-test	2535	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,keepalive,filter,test,start,resume,fork,stop,生命周期与绑定真相源
 internal/module/thread/launch_intent_idempotency_test.go	internal	modules	go-test	19541	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,launch,intent,idempotency,test,start,resume,fork,stop,生命周期与绑定真相源
 internal/module/thread/launch_intent_terminal_test.go	internal	modules	go-test	1976	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,launch,intent,terminal,test,start,resume,fork,stop,生命周期与绑定真相源

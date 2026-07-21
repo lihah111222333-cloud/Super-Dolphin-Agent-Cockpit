@@ -1,5 +1,5 @@
 import { resolveThreadIdentity } from '../../../../shared/api/backendApi.js';
-import { basename } from '../composerAttachments.js';
+import { basename } from '../composer/composerAttachments.js';
 import { normalizeBackendThreadId } from './threadIdentity.js';
 import { threadOpenHistoryFallbackItems } from './threadHistoryTimeline.js';
 import { createThreadOpenCoordinator } from '../thread-open/threadOpenCoordinator.js';

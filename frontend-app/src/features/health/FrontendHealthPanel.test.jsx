@@ -1,16 +1,41 @@
 import React from 'react';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
-import { afterEach, beforeEach, expect, it } from 'vitest';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+
+const healthSubscription = vi.hoisted(() => ({
+  listeners: new Set(),
+  unsubscribe: vi.fn(),
+}));
+
+vi.mock('../../shared/diagnostics/frontendHealthStore.js', async (importOriginal) => {
+  const actual = await importOriginal();
+  return {
+    ...actual,
+    subscribeFrontendHealth: vi.fn((listener) => {
+      healthSubscription.listeners.add(listener);
+      const unsubscribe = actual.subscribeFrontendHealth(listener);
+      return () => {
+        healthSubscription.listeners.delete(listener);
+        healthSubscription.unsubscribe();
+        unsubscribe();
+      };
+    }),
+  };
+});
+
 import {
   frontendHealthStateSnapshot,
   recordFrontendHealth,
   resetFrontendHealthForTest,
+  subscribeFrontendHealth,
 } from '../../shared/diagnostics/frontendHealthStore.js';
 import { FrontendHealthPanel } from './FrontendHealthPanel.jsx';
 
 beforeEach(() => {
   window.localStorage.clear();
   resetFrontendHealthForTest();
+  healthSubscription.listeners.clear();
+  healthSubscription.unsubscribe.mockClear();
 });
 
 it('renders an explicit safe persistence failure state', () => {
@@ -42,6 +67,39 @@ it('renders an explicit safe persistence failure state', () => {
 });
 
 afterEach(cleanup);
+
+it('unsubscribes from Health updates after StrictMode unmount', () => {
+  const { unmount } = render(
+    <React.StrictMode>
+      <FrontendHealthPanel />
+    </React.StrictMode>,
+  );
+
+  expect(healthSubscription.listeners.size).toBe(1);
+  expect(healthSubscription.unsubscribe).toHaveBeenCalledTimes(1);
+
+  unmount();
+
+  expect(healthSubscription.listeners.size).toBe(0);
+  expect(healthSubscription.unsubscribe).toHaveBeenCalledTimes(2);
+
+  const storeEmit = vi.fn();
+  const stopObserving = subscribeFrontendHealth(storeEmit);
+  recordFrontendHealth({
+    actionId: 'fixture.after-unmount',
+    publicError: {
+      code: 'UI_ACTION_FAILED',
+      title: '操作未完成',
+      message: '操作失败，当前页面状态已保留。',
+      diagnosticId: 'diagnostic-after-unmount',
+    },
+  });
+
+  expect(storeEmit).toHaveBeenCalledTimes(1);
+  expect(healthSubscription.listeners.size).toBe(1);
+  stopObserving();
+  expect(healthSubscription.listeners.size).toBe(0);
+});
 
 it('renders persistent safe Health fields and never exposes a raw error field', () => {
   const rawCause = 'provider payload token=secret /Users/private/path';

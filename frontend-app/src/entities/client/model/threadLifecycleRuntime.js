@@ -17,13 +17,6 @@ export function createStopRequestId() {
   return requestId;
 }
 
-function interruptFailureMessage(result) {
-  for (const value of [result?.error, result?.message, result?.reason, result?.status, result?.mode]) {
-    const message = normalizeOptionalTextField(value); if (message) return message;
-  }
-  throw new Error('thread.interrupt ok:false response message is required');
-}
-
 function interruptResponseContractError(field) {
   const error = new TypeError(`thread.interrupt response contract violation: ${field}`);
   error.code = 'THREAD_INTERRUPT_RESPONSE_CONTRACT';
@@ -37,25 +30,124 @@ function requireInterruptResponseText(result, field, expected) {
   }
 }
 
-function validateInterruptSuccessResponse(result, request) {
+function requireInterruptResponseNonEmptyText(result, field) {
+  if (typeof result[field] !== 'string' || result[field] === '') throw interruptResponseContractError(field);
+}
+
+const INTERRUPT_RESPONSE_FIELDS = new Set(['ok', 'accepted', 'requestId', 'expectedTurnId', 'errorCode', 'turnId', 'status', 'confirmed', 'mode', 'interruptSent', 'stateBefore', 'stateAfter', 'waitedMs', 'activeObserved']);
+
+function requireInterruptResponseBoolean(result, field, expected) {
+  if (result[field] !== expected) throw interruptResponseContractError(field);
+}
+
+function requireInterruptResponseInteger(result, field) {
+  if (!Number.isInteger(result[field]) || result[field] < 0) throw interruptResponseContractError(field);
+}
+
+function requireInterruptResponseObservation(result) {
+  requireInterruptResponseInteger(result, 'waitedMs');
+  requireInterruptResponseBoolean(result, 'activeObserved', true);
+}
+
+function rejectInterruptResponseObservation(result) {
+  if (Object.hasOwn(result, 'waitedMs') || Object.hasOwn(result, 'activeObserved')) throw interruptResponseContractError('observation');
+}
+
+function assertInterruptResponseFields(result) {
+  for (const field of Object.keys(result)) {
+    if (!INTERRUPT_RESPONSE_FIELDS.has(field)) throw interruptResponseContractError(`unknown ${field}`);
+  }
+}
+
+function requireAcceptedInterruptIdentity(result, request) {
+  requireInterruptResponseText(result, 'expectedTurnId', request.expectedTurnId);
+  requireInterruptResponseText(result, 'requestId', request.requestId);
+  requireInterruptResponseText(result, 'turnId', request.expectedTurnId);
+}
+
+function validateAcceptedInterruptResult(result, request) {
+  requireInterruptResponseBoolean(result, 'accepted', true);
+  if (Object.hasOwn(result, 'errorCode')) throw interruptResponseContractError('errorCode');
+  requireAcceptedInterruptIdentity(result, request);
+  if (result.mode === 'interrupt_confirmed') {
+    requireInterruptResponseBoolean(result, 'ok', true);
+    requireInterruptResponseText(result, 'status', 'interrupted');
+    requireInterruptResponseBoolean(result, 'confirmed', true);
+    requireInterruptResponseBoolean(result, 'interruptSent', true);
+    requireInterruptResponseText(result, 'stateBefore', 'running');
+    requireInterruptResponseText(result, 'stateAfter', 'idle');
+    return requireInterruptResponseObservation(result);
+  }
+  if (result.mode === 'interrupt_terminal_completed') {
+    requireInterruptResponseBoolean(result, 'ok', true);
+    requireInterruptResponseText(result, 'status', 'completed');
+    requireInterruptResponseBoolean(result, 'confirmed', false);
+    requireInterruptResponseBoolean(result, 'interruptSent', true);
+    requireInterruptResponseText(result, 'stateBefore', 'running');
+    requireInterruptResponseText(result, 'stateAfter', 'idle');
+    return requireInterruptResponseObservation(result);
+  }
+  if (result.mode === 'interrupt_terminal_failed') {
+    requireInterruptResponseBoolean(result, 'ok', true);
+    if (!['failed', 'stalled'].includes(result.status)) throw interruptResponseContractError('status');
+    requireInterruptResponseBoolean(result, 'confirmed', false);
+    requireInterruptResponseBoolean(result, 'interruptSent', true);
+    requireInterruptResponseText(result, 'stateBefore', 'running');
+    requireInterruptResponseText(result, 'stateAfter', 'error');
+    return requireInterruptResponseObservation(result);
+  }
+  if (result.mode === 'interrupt_timeout') {
+    requireInterruptResponseBoolean(result, 'ok', false);
+    if (!['running', 'interrupting'].includes(result.status)) throw interruptResponseContractError('status');
+    requireInterruptResponseBoolean(result, 'confirmed', true);
+    requireInterruptResponseBoolean(result, 'interruptSent', true);
+    requireInterruptResponseText(result, 'stateBefore', 'running');
+    requireInterruptResponseText(result, 'stateAfter', 'running');
+    return requireInterruptResponseObservation(result);
+  }
+  if (result.mode === 'no_active_turn') {
+    requireInterruptResponseBoolean(result, 'ok', true);
+    requireInterruptResponseNonEmptyText(result, 'status');
+    requireInterruptResponseBoolean(result, 'confirmed', false);
+    requireInterruptResponseBoolean(result, 'interruptSent', false);
+    if (result.stateBefore !== result.stateAfter || !['running', 'idle', 'error'].includes(result.stateBefore)) throw interruptResponseContractError('state');
+    return rejectInterruptResponseObservation(result);
+  }
+  throw interruptResponseContractError('mode');
+}
+
+function validateInterruptRejectedResult(result, request) {
+  requireInterruptResponseBoolean(result, 'accepted', false);
+  requireInterruptResponseText(result, 'expectedTurnId', request.expectedTurnId);
+  requireInterruptResponseBoolean(result, 'confirmed', false);
+  requireInterruptResponseBoolean(result, 'interruptSent', false);
+  rejectInterruptResponseObservation(result);
+  if (result.mode === 'not_applied') {
+    requireInterruptResponseBoolean(result, 'ok', false);
+    requireInterruptResponseText(result, 'errorCode', 'NOT_APPLIED');
+    if (Object.hasOwn(result, 'requestId')) requireInterruptResponseNonEmptyText(result, 'requestId');
+    requireInterruptResponseText(result, 'turnId', request.expectedTurnId);
+    requireInterruptResponseNonEmptyText(result, 'status');
+    requireInterruptResponseText(result, 'stateBefore', 'running');
+    return requireInterruptResponseText(result, 'stateAfter', 'running');
+  }
+  if (result.errorCode !== 'TARGET_CHANGED') throw interruptResponseContractError('errorCode');
+  requireInterruptResponseBoolean(result, 'ok', false);
+  requireInterruptResponseText(result, 'requestId', request.requestId);
+  if (result.mode !== '' || result.stateBefore !== '' || result.stateAfter !== '') throw interruptResponseContractError('target changed state');
+  const hasTurn = Object.hasOwn(result, 'turnId');
+  const hasStatus = Object.hasOwn(result, 'status');
+  if (hasTurn !== hasStatus) throw interruptResponseContractError('target snapshot');
+  if (hasTurn && (typeof result.turnId !== 'string' || result.turnId === '' || result.turnId === request.expectedTurnId || typeof result.status !== 'string' || result.status === '')) throw interruptResponseContractError('target snapshot');
+}
+
+function validateInterruptResponse(result, request) {
   if (result == null || typeof result !== 'object' || Array.isArray(result)) {
     throw interruptResponseContractError('object');
   }
-  if (result.ok !== true) throw interruptResponseContractError('ok');
-  if (result.accepted !== true) throw interruptResponseContractError('accepted');
-  requireInterruptResponseText(result, 'requestId', request.requestId);
-  requireInterruptResponseText(result, 'expectedTurnId', request.expectedTurnId);
-  requireInterruptResponseText(result, 'turnId', request.expectedTurnId);
-  requireInterruptResponseText(result, 'status', 'interrupted');
-  requireInterruptResponseText(result, 'mode', 'interrupt_confirmed');
-  requireInterruptResponseText(result, 'stateBefore', 'running');
-  requireInterruptResponseText(result, 'stateAfter', 'idle');
-  if (result.confirmed !== true) throw interruptResponseContractError('confirmed');
-  if (result.interruptSent !== true) throw interruptResponseContractError('interruptSent');
-  if (result.activeObserved !== true) throw interruptResponseContractError('activeObserved');
-  if (!Number.isInteger(result.waitedMs) || result.waitedMs < 0) {
-    throw interruptResponseContractError('waitedMs');
-  }
+  assertInterruptResponseFields(result);
+  if (result.accepted === true) return validateAcceptedInterruptResult(result, request);
+  return validateInterruptRejectedResult(result, request);
 }
 
 function interruptTimeoutError() {
@@ -123,10 +215,19 @@ function threadActionPayload(params) {
 function notifyThreadActionFailure(params) {
   const { action, addWarning, notifyAction, result, threadId } = params;
   if (action === 'thread.interrupt' && result?.ok === false) {
-    interruptFailureMessage(result);
     if (result.mode === 'interrupt_timeout') {
       notifyAction(INTERRUPT_UNCONFIRMED_MESSAGE, 'warning', { threadId });
       addWarning('warn', `${action}.unconfirmed`, { threadId, error: 'stop confirmation timed out; see Health diagnostic ID' });
+      return true;
+    }
+    if (result.mode === 'not_applied') {
+      notifyAction('中断未应用，请重试。', 'warning', { threadId });
+      addWarning('warn', `${action}.not_applied`, { threadId, error: 'stop was not applied; see Health diagnostic ID' });
+      return true;
+    }
+    if (result.errorCode === 'TARGET_CHANGED') {
+      notifyAction('当前任务已切换，请重试。', 'warning', { threadId });
+      addWarning('warn', `${action}.target_changed`, { threadId, error: 'stop target changed; see Health diagnostic ID' });
       return true;
     }
     notifyAction('中断当前执行失败，请重试。', 'warning', { threadId });
@@ -205,8 +306,8 @@ export function attachActiveThreadRpcRuntime(runtime, deps) {
       const result = action === 'thread.interrupt'
         ? await interruptWithinTimeout(rpc, request)
         : await rpc(request);
+      if (action === 'thread.interrupt') validateInterruptResponse(result, request);
       if (notifyThreadActionFailure({ action, addWarning, notifyAction, result, threadId })) return { ok: false, threadId, result };
-      if (action === 'thread.interrupt') validateInterruptSuccessResponse(result, request);
       return { ok: true, threadId, result };
     }
     catch (error) {

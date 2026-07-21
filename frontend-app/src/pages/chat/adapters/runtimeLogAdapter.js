@@ -1,4 +1,4 @@
-import { compactSafeDiagnosticPreview, safeDiagnosticPreviewValue } from '../../../shared/api/safeDiagnosticPreview.js';
+import { compactSafeDiagnosticPreview, safeDiagnosticPreviewValue } from '../../../shared/api/support/safeDiagnosticPreview.js';
 import { parseStrictJsonValue, requireTimestampMillis } from '../../shared/pageShared.js';
 
 const RUNTIME_LOG_DETAIL_LIMIT = 1600;

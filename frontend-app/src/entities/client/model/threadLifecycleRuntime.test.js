@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { attachActiveThreadRpcRuntime, INTERRUPT_RPC_TIMEOUT_MS } from './threadLifecycleRuntime.js';
 
 function successfulInterruptResult(overrides = {}) {
-  return {
+  return Object.fromEntries(Object.entries({
     ok: true,
     accepted: true,
     requestId: 'stop-request-1',
@@ -17,7 +17,11 @@ function successfulInterruptResult(overrides = {}) {
     waitedMs: 1,
     activeObserved: true,
     ...overrides,
-  };
+  }).filter(([, value]) => value !== undefined));
+}
+
+function omitKeys(result, keys) {
+  return Object.fromEntries(Object.entries(result).filter(([key]) => !keys.includes(key)));
 }
 
 function createRuntime(overrides = {}) {
@@ -187,10 +191,57 @@ describe('thread lifecycle runtime', () => {
     }
   });
 
+  it.each([
+    ['confirmed', successfulInterruptResult(), true, '已发送中断请求'],
+    ['terminal completed', successfulInterruptResult({ status: 'completed', confirmed: false, mode: 'interrupt_terminal_completed' }), true, '已发送中断请求'],
+    ['terminal failed', successfulInterruptResult({ status: 'failed', confirmed: false, mode: 'interrupt_terminal_failed', stateAfter: 'error' }), true, '已发送中断请求'],
+    ['timeout', successfulInterruptResult({ ok: false, status: 'running', confirmed: true, mode: 'interrupt_timeout', stateAfter: 'running' }), false, '停止未确认，任务可能仍在运行'],
+    ['accepted no-active replay', successfulInterruptResult({ status: 'running', confirmed: false, mode: 'no_active_turn', interruptSent: false, stateAfter: 'running', waitedMs: undefined, activeObserved: undefined }), true, '已发送中断请求'],
+    ['not applied without request id', successfulInterruptResult({ ok: false, accepted: false, requestId: undefined, errorCode: 'NOT_APPLIED', status: 'running', confirmed: false, mode: 'not_applied', interruptSent: false, stateAfter: 'running', waitedMs: undefined, activeObserved: undefined }), false, '中断未应用，请重试。'],
+    ['not applied with other accepted request id', successfulInterruptResult({ ok: false, accepted: false, requestId: 'stop-request-other', errorCode: 'NOT_APPLIED', status: 'running', confirmed: false, mode: 'not_applied', interruptSent: false, stateAfter: 'running', waitedMs: undefined, activeObserved: undefined }), false, '中断未应用，请重试。'],
+    ['target changed with replacement', successfulInterruptResult({ ok: false, accepted: false, errorCode: 'TARGET_CHANGED', turnId: 'turn-2', status: 'running', confirmed: false, mode: '', interruptSent: false, stateBefore: '', stateAfter: '', waitedMs: undefined, activeObserved: undefined }), false, '当前任务已切换，请重试。'],
+    ['target changed without active turn', successfulInterruptResult({ ok: false, accepted: false, errorCode: 'TARGET_CHANGED', turnId: undefined, status: undefined, confirmed: false, mode: '', interruptSent: false, stateBefore: '', stateAfter: '', waitedMs: undefined, activeObserved: undefined }), false, '当前任务已切换，请重试。'],
+  ])('handles Go interrupt JSON branch %s', async (_name, response, expected, notice) => {
+    const runtime = createRuntime();
+    attachActiveThreadRpcRuntime(runtime, createDeps());
+    await expect(runtime.activeThreadRPC('thread.interrupt', vi.fn().mockResolvedValue(response))).resolves.toBe(expected);
+    expect(runtime.notifyAction).toHaveBeenCalledWith(notice, expected ? 'success' : 'warning', { threadId: 'thread-1' });
+  });
+
+  it.each([
+    ['unknown field', successfulInterruptResult({ extra: true })], ['accepted missing', omitKeys(successfulInterruptResult(), ['accepted'])], ['accepted type', successfulInterruptResult({ accepted: 'yes' })], ['mode type', successfulInterruptResult({ mode: 1 })], ['wait missing', omitKeys(successfulInterruptResult(), ['waitedMs'])], ['wait negative', successfulInterruptResult({ waitedMs: -1 })], ['observed false', successfulInterruptResult({ activeObserved: false })], ['accepted error', successfulInterruptResult({ errorCode: 'bad' })], ['expected mismatch', successfulInterruptResult({ expectedTurnId: 'wrong' })], ['request mismatch', successfulInterruptResult({ requestId: 'wrong' })], ['turn mismatch', successfulInterruptResult({ turnId: 'wrong' })], ['timeout transition', successfulInterruptResult({ ok: false, status: 'running', confirmed: true, mode: 'interrupt_timeout', stateAfter: 'idle' })],
+  ])('rejects malformed interrupt response before warning: %s', async (_name, response) => {
+    const runtime = createRuntime();
+    attachActiveThreadRpcRuntime(runtime, createDeps());
+    await expect(runtime.activeThreadRPC('thread.interrupt', vi.fn().mockResolvedValue(response))).rejects.toThrow(/response contract violation/);
+    expect(runtime.notifyAction).not.toHaveBeenCalledWith('中断当前执行失败，请重试。', 'warning', { threadId: 'thread-1' });
+  });
+
+  it.each([
+    ['not applied empty request id', successfulInterruptResult({ ok: false, accepted: false, requestId: '', errorCode: 'NOT_APPLIED', status: 'running', confirmed: false, mode: 'not_applied', interruptSent: false, stateAfter: 'running', waitedMs: undefined, activeObserved: undefined })],
+    ['not applied request id type', successfulInterruptResult({ ok: false, accepted: false, requestId: 1, errorCode: 'NOT_APPLIED', status: 'running', confirmed: false, mode: 'not_applied', interruptSent: false, stateAfter: 'running', waitedMs: undefined, activeObserved: undefined })],
+    ['not applied state after idle', successfulInterruptResult({ ok: false, accepted: false, requestId: undefined, errorCode: 'NOT_APPLIED', status: 'running', confirmed: false, mode: 'not_applied', interruptSent: false, stateAfter: 'idle', waitedMs: undefined, activeObserved: undefined })],
+    ['target changed only turn', successfulInterruptResult({ ok: false, accepted: false, errorCode: 'TARGET_CHANGED', turnId: 'turn-2', status: undefined, confirmed: false, mode: '', interruptSent: false, stateBefore: '', stateAfter: '', waitedMs: undefined, activeObserved: undefined })],
+    ['target changed only status', successfulInterruptResult({ ok: false, accepted: false, errorCode: 'TARGET_CHANGED', turnId: undefined, status: 'running', confirmed: false, mode: '', interruptSent: false, stateBefore: '', stateAfter: '', waitedMs: undefined, activeObserved: undefined })],
+    ['target changed current turn', successfulInterruptResult({ ok: false, accepted: false, errorCode: 'TARGET_CHANGED', turnId: 'turn-1', status: 'running', confirmed: false, mode: '', interruptSent: false, stateBefore: '', stateAfter: '', waitedMs: undefined, activeObserved: undefined })],
+    ['target changed request mismatch', successfulInterruptResult({ ok: false, accepted: false, requestId: 'wrong', errorCode: 'TARGET_CHANGED', turnId: undefined, status: undefined, confirmed: false, mode: '', interruptSent: false, stateBefore: '', stateAfter: '', waitedMs: undefined, activeObserved: undefined })],
+    ['target changed unexpected mode', successfulInterruptResult({ ok: false, accepted: false, errorCode: 'TARGET_CHANGED', turnId: undefined, status: undefined, confirmed: false, mode: 'unexpected', interruptSent: false, stateBefore: '', stateAfter: '', waitedMs: undefined, activeObserved: undefined })],
+    ['target changed nonempty state before', successfulInterruptResult({ ok: false, accepted: false, errorCode: 'TARGET_CHANGED', turnId: undefined, status: undefined, confirmed: false, mode: '', interruptSent: false, stateBefore: 'running', stateAfter: '', waitedMs: undefined, activeObserved: undefined })],
+  ])('rejects malformed rejected interrupt response: %s', async (_name, response) => {
+    const runtime = createRuntime();
+    attachActiveThreadRpcRuntime(runtime, createDeps());
+    await expect(runtime.activeThreadRPC('thread.interrupt', vi.fn().mockResolvedValue(response))).rejects.toThrow(/response contract violation/);
+  });
+
   it('reports interrupt ok:false as warning without showing success', async () => {
     const runtime = createRuntime();
     const deps = createDeps();
-    const rpc = vi.fn().mockResolvedValue({ ok: false, error: 'turn already completed' });
+    const rpc = vi.fn().mockResolvedValue({
+      ok: false, accepted: true, requestId: 'stop-request-1', expectedTurnId: 'turn-1',
+      turnId: 'turn-1', status: 'running', confirmed: true, mode: 'interrupt_timeout',
+      interruptSent: true, stateBefore: 'running', stateAfter: 'running', waitedMs: 1,
+      activeObserved: true,
+    });
     attachActiveThreadRpcRuntime(runtime, deps);
 
     await expect(runtime.activeThreadRPC('thread.interrupt', rpc)).resolves.toBe(false);
@@ -203,19 +254,17 @@ describe('thread lifecycle runtime', () => {
       requestId: 'stop-request-1',
       source: 'ui_stop',
     });
-    expect(runtime.notifyAction).toHaveBeenCalledWith('中断当前执行失败，请重试。', 'warning', { threadId: 'thread-1' });
+    expect(runtime.notifyAction).toHaveBeenCalledWith('停止未确认，任务可能仍在运行', 'warning', { threadId: 'thread-1' });
     expect(runtime.notifyAction).not.toHaveBeenCalledWith(
       '正在请求停止，尚未确认，任务可能仍在运行',
       'info',
       { threadId: 'thread-1' },
     );
     expect(runtime.notifyAction).not.toHaveBeenCalledWith('已发送中断请求', 'success', { threadId: 'thread-1' });
-    expect(runtime.addWarning).toHaveBeenCalledWith('warn', 'thread.interrupt.failed', {
+    expect(runtime.addWarning).toHaveBeenCalledWith('warn', 'thread.interrupt.unconfirmed', {
       threadId: 'thread-1',
-      error: 'action failure; see Health diagnostic ID',
+      error: 'stop confirmation timed out; see Health diagnostic ID',
     });
-    expect(JSON.stringify(runtime.notifyAction.mock.calls)).not.toContain('turn already completed');
-    expect(JSON.stringify(runtime.addWarning.mock.calls)).not.toContain('turn already completed');
   });
 
   it('does not interrupt when the active target is not interruptible', async () => {

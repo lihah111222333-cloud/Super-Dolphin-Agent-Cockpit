@@ -34,7 +34,7 @@ import {
   threadMatchesCwdScope,
   threadMatchesIdentifier,
 } from './clientStoreRuntimeThreadModel.js';
-import { composerScopeCwd } from '../../composerAttachments.js';
+import { composerScopeCwd } from '../../composer/composerAttachments.js';
 import { normalizeBackendThreadId, normalizeThreadId } from '../threadIdentity.js';
 
 const runtimeResultHelpers = createRuntimeResultHelpers({
@@ -232,6 +232,7 @@ function mergeSnapshotTimelineItems(existingTimeline, ready, items = []) {
   const visibleExistingTimeline = existingTimeline.filter(isVisibleTimelineItem);
   const normalizedItems = items.map(normalizeTimelineItem);
   const visibleItems = normalizedItems.filter(isVisibleTimelineItem);
+  if (!ready) return visibleItems;
   if (visibleItems.length === 0 && ready) return visibleExistingTimeline;
   return mergeTimelineItems(visibleExistingTimeline, visibleItems, { preserveExistingVisible: true });
 }

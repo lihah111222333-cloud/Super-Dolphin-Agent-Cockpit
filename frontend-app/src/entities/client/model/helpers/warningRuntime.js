@@ -1,5 +1,5 @@
 import { optionalTextField, systemClockMillis, currentIsoTimestamp } from '../contractStoreModel.js';
-import { safeDiagnosticPreviewValue } from '../../../../shared/api/safeDiagnosticPreview.js';
+import { safeDiagnosticPreviewValue } from '../../../../shared/api/support/safeDiagnosticPreview.js';
 
 const MAX_WARNING_ENTRIES = 300;
 

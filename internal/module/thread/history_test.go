@@ -2,6 +2,7 @@ package thread
 
 import (
 	"context"
+	"encoding/json"
 	"reflect"
 	"strings"
 	"testing"
@@ -13,6 +14,19 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/shared"
 	bindingstore "github.com/lihah111222333-cloud/super-dolphin-agent/internal/store/binding"
 )
+
+func TestPendingLaunchMessagesPageMarshalsCompleteEmptyEnvelope(t *testing.T) {
+	t.Parallel()
+
+	result := dto.ThreadMessagesResult{Messages: []dto.Message{}, Total: 0, HasMore: false, NextBefore: ""}
+	wire, err := json.Marshal(result)
+	if err != nil {
+		t.Fatalf("Marshal(ThreadMessagesResult) error = %v", err)
+	}
+	if got, want := string(wire), `{"messages":[],"total":0,"hasMore":false,"nextBefore":""}`; got != want {
+		t.Fatalf("pending launch messages wire = %s, want %s", got, want)
+	}
+}
 
 func TestReadMessagesSupportsTimestampCursorCompatibility(t *testing.T) {
 	t.Parallel()

@@ -44,6 +44,30 @@ function lineNumberForNode(sourceFile, node) {
   return sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile)).line + 1;
 }
 
+function isExecutableModuleReference(node) {
+  if (ts.isExportDeclaration(node)) {
+    if (node.isTypeOnly) return false;
+    if (!node.exportClause || !ts.isNamedExports(node.exportClause)) return true;
+    if (node.exportClause.elements.length === 0) return true;
+    return node.exportClause.elements.some((element) => !element.isTypeOnly);
+  }
+  if (!ts.isImportDeclaration(node)) return false;
+  const clause = node.importClause;
+  if (!clause) return true;
+  if (clause.phaseModifier === ts.SyntaxKind.TypeKeyword) return false;
+  if (clause.name || !clause.namedBindings || ts.isNamespaceImport(clause.namedBindings)) return true;
+  if (clause.namedBindings.elements.length === 0) return true;
+  return clause.namedBindings.elements.some((element) => !element.isTypeOnly);
+}
+
+function discoverableTestModulePath(node) {
+  const moduleSpecifier = node.moduleSpecifier;
+  if (!isExecutableModuleReference(node) || !moduleSpecifier || !ts.isStringLiteralLike(moduleSpecifier)) return '';
+  const modulePath = moduleSpecifier.text;
+  if (modulePath.includes('?') || modulePath.includes('#')) return '';
+  return /\.(test|spec)\.[cm]?[jt]sx?$/.test(modulePath) ? modulePath : '';
+}
+
 function isTestApiIdentifier(node) {
   return ts.isIdentifier(node) && ['describe', 'it', 'test'].includes(node.text);
 }
@@ -85,7 +109,7 @@ function skippedTestName(node) {
   return { name: '<unparseable>', parseError: true };
 }
 
-export function skippedTestsInSource(relFile, source) {
+function analyzeTestSource(relFile, source) {
   const sourceFile = ts.createSourceFile(
     relFile,
     source,
@@ -100,6 +124,7 @@ export function skippedTestsInSource(relFile, source) {
   }
 
   const skips = [];
+  const discoverableTestImports = [];
 
   function visit(node) {
     if (ts.isCallExpression(node) && isSkippedTestCall(node)) {
@@ -111,26 +136,49 @@ export function skippedTestsInSource(relFile, source) {
         parseError,
       });
     }
+    const modulePath = discoverableTestModulePath(node);
+    if (modulePath) {
+      discoverableTestImports.push({
+        file: relFile,
+        line: lineNumberForNode(sourceFile, node),
+        modulePath,
+      });
+    }
     ts.forEachChild(node, visit);
   }
 
   visit(sourceFile);
-  return skips;
+  return { discoverableTestImports, skips };
 }
 
-export function criticalSkipViolationsFromSources(sources) {
-  const violations = [];
+export function skippedTestsInSource(relFile, source) {
+  return analyzeTestSource(relFile, source).skips;
+}
+
+export function discoverableTestImportsInSource(relFile, source) {
+  return analyzeTestSource(relFile, source).discoverableTestImports;
+}
+
+export function testSourceViolationsFromSources(sources) {
+  const criticalSkips = [];
+  const discoverableTestImports = [];
   for (const [relFile, source] of sources.entries()) {
-    for (const skip of skippedTestsInSource(relFile, source)) {
+    const findings = analyzeTestSource(relFile, source);
+    discoverableTestImports.push(...findings.discoverableTestImports);
+    for (const skip of findings.skips) {
       if (skip.parseError || criticalPattern.test(skip.name) || criticalPattern.test(skip.file)) {
-        violations.push(skip);
+        criticalSkips.push(skip);
       }
     }
   }
-  return violations;
+  return { criticalSkips, discoverableTestImports };
 }
 
-export function collectCriticalSkipViolations({ root = appRoot, roots = CRITICAL_SKIP_ROOTS } = {}) {
+export function criticalSkipViolationsFromSources(sources) {
+  return testSourceViolationsFromSources(sources).criticalSkips;
+}
+
+export function collectTestSourceViolations({ root = appRoot, roots = CRITICAL_SKIP_ROOTS } = {}) {
   const sources = new Map();
   for (const sourceRootName of roots) {
     const sourceRoot = path.join(root, sourceRootName);
@@ -139,18 +187,29 @@ export function collectCriticalSkipViolations({ root = appRoot, roots = CRITICAL
       sources.set(relFile, fs.readFileSync(file, 'utf8'));
     }
   }
-  return criticalSkipViolationsFromSources(sources);
+  return testSourceViolationsFromSources(sources);
+}
+
+export function collectCriticalSkipViolations(options) {
+  return collectTestSourceViolations(options).criticalSkips;
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  const violations = collectCriticalSkipViolations();
-  if (violations.length > 0) {
+  const { criticalSkips, discoverableTestImports } = collectTestSourceViolations();
+  if (criticalSkips.length > 0) {
     console.error('critical .skip guard failed:');
-    for (const violation of violations) {
+    for (const violation of criticalSkips) {
       console.error(`- ${violation.file}:${violation.line} :: ${violation.name}`);
     }
-    process.exit(1);
   }
+  if (discoverableTestImports.length > 0) {
+    console.error('discoverable test import guard failed:');
+    for (const violation of discoverableTestImports) {
+      console.error(`- ${violation.file}:${violation.line} imports ${violation.modulePath}`);
+    }
+  }
+  if (criticalSkips.length > 0 || discoverableTestImports.length > 0) process.exit(1);
 
-  console.log('critical .skip guard passed: no critical skips (0 found)');
+  process.stdout.write('critical .skip guard passed: no critical skips (0 found)\n');
+  process.stdout.write('discoverable test import guard passed: no duplicate registrations (0 found)\n');
 }

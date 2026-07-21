@@ -19,6 +19,8 @@ export function createRuntimeSlice(runtime, deps) {
     ...createLifecycleActions(runtime, deps),
     ...createBootstrapActions(runtime, deps),
     ...createThreadSyncActions(runtime, deps),
+    refreshSidebarSnapshotForCwdInBackground: (cwd) => runtime.refreshSidebarSnapshotForCwdInBackground(cwd),
+    refreshActiveChatSidebarInBackground: () => runtime.refreshActiveChatSidebarInBackground(),
   };
 }
 

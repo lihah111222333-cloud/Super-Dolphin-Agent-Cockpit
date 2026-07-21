@@ -24,8 +24,6 @@
     "guard:dependency-direction": "node scripts/frontend-dependency-direction-guard.mjs",
     "guard:architecture": "npm run guard:state-ownership && npm run guard:dependency-direction",
     "guard:action-producers": "node scripts/action-producer-guard.selftest.mjs && node scripts/action-producer-guard.mjs",
-    "score:maintainability": "node scripts/frontend-maintainability-score.mjs --score --run",
-    "score:maintainability:validate": "node scripts/frontend-maintainability-score.mjs --validate",
     "benchmark:chat-history": "node scripts/chat-history-benchmark.mjs",
     "benchmark:chat-history:verify": "node scripts/chat-history-benchmark.mjs --verify",
     "benchmark:verify": "node scripts/chat-history-benchmark.mjs --verify",
@@ -37,7 +35,7 @@
     "lint": "eslint .",
     "preview": "vite preview --host 127.0.0.1 --port 4175",
     "test": "npm run test:hook",
-    "test:hook": "npm run guard:critical-skip && npm run typecheck:contracts && npm run audit:rpc-contracts && vitest run --no-file-parallelism --maxWorkers=1",
+    "test:hook": "npm run guard:critical-skip && npm run typecheck:contracts && npm run audit:rpc-contracts && vitest run --maxWorkers=2",
     "mcp:ui-test": "node scripts/ui-test-mcp-server.mjs",
     "mcp:ui-test:acceptance": "node scripts/ui-test-mcp-acceptance.mjs",
     "mcp:ui-test:scenario": "node scripts/ui-test-mcp-scenario.mjs"

@@ -27,5 +27,9 @@ export function requiredAppStoragePort(label = 'app storage') {
     remove(key) {
       storage.removeItem(key);
     },
+    clear() {
+      if (typeof storage.clear !== 'function') throw new Error(`${label} clear is unavailable`);
+      storage.clear();
+    },
   };
 }

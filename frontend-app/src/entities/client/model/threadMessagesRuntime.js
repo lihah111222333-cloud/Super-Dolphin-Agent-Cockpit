@@ -110,11 +110,11 @@ export function createThreadMessagePageFetcher({ getThreadMessages, nowMillis = 
   return async function fetchThreadMessagePage(id, before = '') {
     const startedAt = nowMillis();
     const res = await getThreadMessages(messagePageParams(id, before));
-    const page = Array.isArray(res?.messages) ? res.messages : [];
+    const page = res.messages;
     return {
       messages: page,
       items: normalizeThreadMessageItems(page),
-      meta: normalizeThreadMessagesPageMeta(res, page),
+      meta: normalizeThreadMessagesPageMeta(res),
       durationMs: nowMillis() - startedAt,
     };
   };

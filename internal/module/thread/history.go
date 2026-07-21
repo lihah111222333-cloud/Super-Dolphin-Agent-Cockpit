@@ -61,7 +61,7 @@ func (s *service) ReadMessages(ctx context.Context, threadID string, limit int, 
 		return dto.ThreadMessagesResult{}, err
 	}
 	if pendingLaunch {
-		return dto.ThreadMessagesResult{Messages: nil, Total: 0}, nil
+		return dto.ThreadMessagesResult{Messages: []dto.Message{}, Total: 0, HasMore: false, NextBefore: ""}, nil
 	}
 	binding, err := s.resolveBinding(ctx, threadID)
 	if err != nil {
