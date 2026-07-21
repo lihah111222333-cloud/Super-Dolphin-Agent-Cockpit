@@ -54,7 +54,8 @@ ensure_dev_control_session_token() {
     export GO_AGENT_CTL_SESSION_TOKEN="$GO_AGENT_MCP_SESSION_TOKEN"
     return 0
   fi
-  export GO_AGENT_CTL_SESSION_TOKEN="dev-new-ui-$(date +%s)-$$"
+  GO_AGENT_CTL_SESSION_TOKEN="dev-new-ui-$(date +%s)-$$"
+  export GO_AGENT_CTL_SESSION_TOKEN
 }
 
 ensure_dev_codex_cli() {
