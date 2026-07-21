@@ -623,6 +623,42 @@ func (s *codexToolSurface) Close() error {
 	return s.closeErr
 }
 
+// revokeExpectedCodexToolSurface 只撤下仍指向准备快照或本地代际的 key，并关闭对应 clients。
+func (h *Handler) revokeExpectedCodexToolSurface(expected *codexToolSurface) error {
+	if h == nil || expected == nil {
+		return nil
+	}
+	h.surfaceMu.Lock()
+	toClose := h.revokeExpectedCodexToolSurfacesLocked(expected)
+	h.surfaceMu.Unlock()
+
+	var closeErr error
+	for surface := range toClose {
+		closeErr = errors.Join(closeErr, surface.Close())
+	}
+	return closeErr
+}
+
+// revokeExpectedCodexToolSurfacesLocked 在锁内收集匹配代际并清除仍指向它们的全部 key。
+func (h *Handler) revokeExpectedCodexToolSurfacesLocked(expected *codexToolSurface) map[*codexToolSurface]struct{} {
+	toClose := map[*codexToolSurface]struct{}{expected: {}}
+	for _, key := range expected.keys {
+		current := h.surfaces[key]
+		observed := expected.expected[key]
+		if current == expected || observed != nil && current == observed {
+			toClose[current] = struct{}{}
+		}
+	}
+	for surface := range toClose {
+		for _, key := range surface.keys {
+			if h.surfaces[key] == surface {
+				delete(h.surfaces, key)
+			}
+		}
+	}
+	return toClose
+}
+
 func joinMCPSurfaceErrors(primaryErr, closeErr error) error {
 	if closeErr == nil {
 		return primaryErr
