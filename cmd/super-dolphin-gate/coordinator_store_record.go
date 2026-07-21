@@ -465,26 +465,40 @@ func (record coordinatorJobRecord) status() jobStatus {
 	return jobStatus{InvocationID: record.InvocationID, JobID: record.JobID, EnqueueSequence: record.EnqueueSequence, State: record.State, Profile: record.Profile, JobSourceTreeSHA: record.JobSourceTreeSHA, ImageProvenanceSourceTreeSHA: record.ImageProvenanceSourceTreeSHA, SubmittedAt: record.SubmittedAt, StartedAt: record.StartedAt, CompletedAt: record.CompletedAt, GateResults: append([]gatecontract.GateResult(nil), record.GateResults...), Error: record.Error, ContainerHostConfigDigest: hostDigest, ContainerResourceWitness: witness, ContainerResourceWitnessDigest: witnessDigest, ContainerResourceWitnessVerified: witnessVerified, ReceiptID: record.ReceiptID, Terminal: record.State.terminal()}
 }
 
-// statusResourceWitness 仅在每个分片均已验证时投影一致的资源契约。
+// statusResourceWitness 仅在每个分片均已验证时投影一致的资源契约；host config 仅在全部相同时投影。
 func (record coordinatorJobRecord) statusResourceWitness() (string, *gatecontract.ContainerResourceWitness, string, bool) {
 	if len(record.ContainerShards) == 0 {
 		return record.ContainerHostConfigDigest, record.ContainerResourceWitness,
 			record.ContainerResourceWitnessDigest, record.ContainerResourceWitnessVerified
 	}
 	first := record.ContainerShards[0]
-	if !first.ContainerResourceWitnessVerified || first.ContainerResourceWitness == nil {
+	if !first.ContainerResourceWitnessVerified || first.ContainerResourceWitness == nil ||
+		first.ContainerResourceWitnessDigest == "" {
 		return "", nil, "", false
 	}
+	hostDigest := first.ContainerHostConfigDigest
 	for _, shard := range record.ContainerShards[1:] {
-		if !shard.ContainerResourceWitnessVerified || shard.ContainerResourceWitness == nil ||
-			shard.ContainerHostConfigDigest != first.ContainerHostConfigDigest ||
-			shard.ContainerResourceWitnessDigest != first.ContainerResourceWitnessDigest ||
-			*shard.ContainerResourceWitness != *first.ContainerResourceWitness {
+		if !shardsShareVerifiedResourceWitness(first, shard) {
 			return "", nil, "", false
+		}
+		if shard.ContainerHostConfigDigest != first.ContainerHostConfigDigest {
+			hostDigest = ""
 		}
 	}
 	witness := *first.ContainerResourceWitness
-	return first.ContainerHostConfigDigest, &witness, first.ContainerResourceWitnessDigest, true
+	return hostDigest, &witness, first.ContainerResourceWitnessDigest, true
+}
+
+// shardsShareVerifiedResourceWitness 仅在两片都已验证且资源 witness 与摘要完全一致时返回 true。
+func shardsShareVerifiedResourceWitness(first, shard coordinatorShardRecord) bool {
+	return first.ContainerResourceWitnessVerified &&
+		first.ContainerResourceWitness != nil &&
+		first.ContainerResourceWitnessDigest != "" &&
+		shard.ContainerResourceWitnessVerified &&
+		shard.ContainerResourceWitness != nil &&
+		shard.ContainerResourceWitnessDigest != "" &&
+		shard.ContainerResourceWitnessDigest == first.ContainerResourceWitnessDigest &&
+		*shard.ContainerResourceWitness == *first.ContainerResourceWitness
 }
 
 func (store *coordinatorStore) close() error {

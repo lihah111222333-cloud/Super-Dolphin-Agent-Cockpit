@@ -34,35 +34,62 @@ func TestCoordinatorOOMTerminalPersistsVerifiedResourceWitnessAfterRemoval(t *te
 	assertTransportedResourceWitness(t, transported, witness, digest)
 }
 
-func TestCoordinatorShardStatusAggregatesOnlyCommonVerifiedResourceWitness(t *testing.T) {
+func TestCoordinatorShardStatusAggregatesCommonVerifiedResourceWitnessWithoutSingularHostDigest(t *testing.T) {
 	witness, digest := testContainerResourceWitness()
-	record := coordinatorJobRecord{ContainerShards: make([]coordinatorShardRecord, 3)}
-	for index := range record.ContainerShards {
-		copy := witness
-		record.ContainerShards[index] = coordinatorShardRecord{
-			ContainerHostConfigDigest: coordinatorDigest("5"), ContainerResourceWitness: &copy,
-			ContainerResourceWitnessDigest: digest, ContainerResourceWitnessVerified: true,
+	newRecord := func() coordinatorJobRecord {
+		record := coordinatorJobRecord{ContainerShards: make([]coordinatorShardRecord, 3)}
+		hostDigests := []string{coordinatorDigest("1"), coordinatorDigest("2"), coordinatorDigest("3")}
+		for index := range record.ContainerShards {
+			copy := witness
+			record.ContainerShards[index] = coordinatorShardRecord{
+				ContainerHostConfigDigest: hostDigests[index], ContainerResourceWitness: &copy,
+				ContainerResourceWitnessDigest: digest, ContainerResourceWitnessVerified: true,
+			}
 		}
+		return record
 	}
-	status := record.status()
-	want := resourceWitnessEvidence{Witness: &witness, Digest: digest, HostDigest: coordinatorDigest("5"), Verified: true}
+
+	status := newRecord().status()
+	want := resourceWitnessEvidence{Witness: &witness, Digest: digest, Verified: true}
 	got := resourceWitnessEvidence{Witness: status.ContainerResourceWitness, Digest: status.ContainerResourceWitnessDigest,
 		HostDigest: status.ContainerHostConfigDigest, Verified: status.ContainerResourceWitnessVerified}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("aggregated shard resource evidence = %+v, want %+v", got, want)
 	}
 
-	record.ContainerShards[1].ContainerResourceWitnessVerified = false
-	status = record.status()
-	if status.ContainerResourceWitnessVerified || status.ContainerResourceWitness != nil ||
-		status.ContainerResourceWitnessDigest != "" || status.ContainerHostConfigDigest != "" {
-		t.Fatalf("status exposed partially verified shard resource evidence: %+v", status)
+	record := newRecord()
+	commonHostDigest := coordinatorDigest("5")
+	for index := range record.ContainerShards {
+		record.ContainerShards[index].ContainerHostConfigDigest = commonHostDigest
 	}
-	record.ContainerShards[1].ContainerResourceWitnessVerified = true
-	record.ContainerShards[1].ContainerResourceWitness.PidsLimit++
-	status = record.status()
-	if status.ContainerResourceWitnessVerified || status.ContainerResourceWitness != nil {
-		t.Fatalf("status aggregated inconsistent shard resource evidence: %+v", status)
+	if status := record.status(); status.ContainerHostConfigDigest != commonHostDigest {
+		t.Fatalf("aggregated common host digest = %q, want %q", status.ContainerHostConfigDigest, commonHostDigest)
+	}
+
+	tests := []struct {
+		name   string
+		mutate func(*coordinatorJobRecord)
+	}{
+		{name: "unverified shard", mutate: func(record *coordinatorJobRecord) {
+			record.ContainerShards[1].ContainerResourceWitnessVerified = false
+		}},
+		{name: "mismatched witness digest", mutate: func(record *coordinatorJobRecord) {
+			record.ContainerShards[1].ContainerResourceWitnessDigest = coordinatorDigest("4")
+		}},
+		{name: "mismatched witness", mutate: func(record *coordinatorJobRecord) {
+			record.ContainerShards[1].ContainerResourceWitness.PidsLimit++
+		}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			record := newRecord()
+			test.mutate(&record)
+			status := record.status()
+			if status.ContainerResourceWitnessVerified || status.ContainerResourceWitness != nil ||
+				status.ContainerResourceWitnessDigest != "" || status.ContainerHostConfigDigest != "" {
+				t.Fatalf("status exposed inconsistent shard resource evidence: %+v", status)
+			}
+		})
 	}
 }
 
