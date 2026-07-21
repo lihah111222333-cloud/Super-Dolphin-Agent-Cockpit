@@ -324,16 +324,7 @@ func validateImageBuilderEntry(builder *ImageBuilder, ctx context.Context) error
 
 // buildKitRunnerIsNil 识别接口本身为空以及接口内承载的各类 typed nil。
 func buildKitRunnerIsNil(runner BuildKitRunner) bool {
-	if runner == nil {
-		return true
-	}
-	value := reflect.ValueOf(runner)
-	switch value.Kind() {
-	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Pointer, reflect.Slice:
-		return value.IsNil()
-	default:
-		return false
-	}
+	return interfaceValueIsNil(runner)
 }
 
 var (
@@ -675,6 +666,14 @@ func (controller *PromotionController) PromoteReady(ctx context.Context) error {
 		}
 	}
 	return nil
+}
+
+// PromoteCandidate 在 owner recovery 中完成调用方已精确证明的持久候选。
+func (controller *PromotionController) PromoteCandidate(ctx context.Context, candidate PromotionCandidate) error {
+	if err := controller.validateCall(ctx); err != nil {
+		return err
+	}
+	return controller.promoteCandidate(ctx, candidate)
 }
 
 // promoteCandidate 在精确 trusted tip 与 CAS 合同同时满足时签名并晋升。

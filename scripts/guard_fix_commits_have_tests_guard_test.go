@@ -520,10 +520,3 @@ func TestCIWorkflowDoesNotExcludeProductionPackages(t *testing.T) {
 		}
 	}
 }
-
-type prePushScopeFixture struct {
-	root    string
-	base    string
-	logPath string
-	binDir  string
-}

@@ -82,13 +82,14 @@ type capturingFreshContainerRunner struct {
 
 type productionBuildKitRunnerStub struct {
 	digest string
+	err    error
 }
 
 func (runner productionBuildKitRunnerStub) Build(
 	context.Context,
 	localci.BuildKitBuildRequest,
 ) (string, error) {
-	return runner.digest, nil
+	return runner.digest, runner.err
 }
 
 type productionCandidateIdentityResolverStub struct{}

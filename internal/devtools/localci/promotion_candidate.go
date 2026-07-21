@@ -23,7 +23,8 @@ const (
 	promotionCandidateStateName            = "promotion-candidates.json"
 	promotionCandidateLockName             = "promotion-candidates.lock"
 	// SourceEntries use JSON base64 encoding, so the durable snapshot needs headroom above the raw tree-byte limit exercised by this repository.
-	promotionCandidateMaxBytes = 128 << 20
+	promotionCandidateMaxBytes          = 128 << 20
+	promotionCandidateFailureWriteLimit = 30 * time.Second
 )
 
 var (
@@ -38,6 +39,7 @@ type PromotionCandidateStatus string
 const (
 	PromotionCandidateQueued   PromotionCandidateStatus = "queued"
 	PromotionCandidateBuilding PromotionCandidateStatus = "building"
+	PromotionCandidateFailed   PromotionCandidateStatus = "build_failed"
 	PromotionCandidateAwaiting PromotionCandidateStatus = "awaiting_trusted_ref"
 	PromotionCandidatePromoted PromotionCandidateStatus = "promoted"
 )
@@ -194,14 +196,14 @@ func (s *PromotionCandidateStore) ExecuteBuild(
 	}
 	result, err := builder.EnsureCandidate(ctx, candidate.BuildRequest)
 	if err != nil {
-		return fmt.Errorf("build scheduled promotion candidate: %w", err)
+		return s.failBuild(ctx, workloadID, fmt.Errorf("build scheduled promotion candidate: %w", err))
 	}
 	if !result.Built {
-		return errors.New("scheduled promotion candidate unexpectedly reused an accepted image")
+		return s.failBuild(ctx, workloadID, errors.New("scheduled promotion candidate unexpectedly reused an accepted image"))
 	}
 	identity, err := resolver.ResolveCandidateIdentity(ctx, candidate, result)
 	if err != nil {
-		return err
+		return s.failBuild(ctx, workloadID, err)
 	}
 	return s.completeBuild(ctx, workloadID, result, identity)
 }
@@ -272,7 +274,7 @@ func (s *PromotionCandidateStore) createOrReuse(ctx context.Context, candidate P
 		return PromotionCandidate{}, err
 	}
 	for _, existing := range snapshot.Candidates {
-		if samePromotionCandidateIntent(existing, candidate) && existing.Status != PromotionCandidatePromoted &&
+		if samePromotionCandidateIntent(existing, candidate) && existing.statusIsActive() &&
 			existing.ExpiresAt.After(candidate.CreatedAt) {
 			return clonePromotionCandidate(existing), nil
 		}
@@ -647,7 +649,7 @@ func (candidate PromotionCandidate) validateBuildBinding() error {
 // validateStatus 阻断 awaiting 前的 runnable identity 与非法晋升状态。
 func (candidate PromotionCandidate) validateStatus() error {
 	switch candidate.Status {
-	case PromotionCandidateQueued, PromotionCandidateBuilding:
+	case PromotionCandidateQueued, PromotionCandidateBuilding, PromotionCandidateFailed:
 		return candidate.validateUnbuiltStatus()
 	case PromotionCandidateAwaiting, PromotionCandidatePromoted:
 		return candidate.validateBuiltStatus()
@@ -656,7 +658,13 @@ func (candidate PromotionCandidate) validateStatus() error {
 	}
 }
 
-// validateUnbuiltStatus 阻断 queued/building candidate 携带任何 artifact 或签名时间。
+// statusIsActive 仅允许仍可由既有 scheduler identity 处理的候选被同输入复用。
+func (candidate PromotionCandidate) statusIsActive() bool {
+	return candidate.Status == PromotionCandidateQueued || candidate.Status == PromotionCandidateBuilding ||
+		candidate.Status == PromotionCandidateAwaiting
+}
+
+// validateUnbuiltStatus 阻断 queued、building 或 build_failed candidate 携带任何 artifact 或签名时间。
 func (candidate PromotionCandidate) validateUnbuiltStatus() error {
 	if candidate.PlatformManifestDigest != "" || candidate.Image.Registry != "" || candidate.PromotionAcceptedAt != nil {
 		return errors.New("unbuilt promotion candidate contains runnable or promotion state")

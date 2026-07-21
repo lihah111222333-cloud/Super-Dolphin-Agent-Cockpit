@@ -15,128 +15,6 @@ const fixTestGuardGitTimeout = 5 * time.Second
 
 const commitTitleEnforcementBaselinePath = "scripts/commit_title_enforcement_baseline.txt"
 
-func newPrePushScopeFixture(t *testing.T) prePushScopeFixture {
-	t.Helper()
-	root := preparePrePushScopeRepo(t)
-	logPath := filepath.Join(t.TempDir(), "hook-scope.log")
-	return prePushScopeFixture{
-		root:    root,
-		base:    strings.TrimSpace(runFixTestGuardGitOutput(t, root, "rev-parse", "HEAD")),
-		logPath: logPath,
-		binDir:  writePrePushScopeFakeBins(t, logPath),
-	}
-}
-
-func (f prePushScopeFixture) run(t *testing.T, head string) string {
-	t.Helper()
-	out, err := runPrePushScopeHook(t, f.root, prePushStdin(f.base, head), f.binDir, f.logPath)
-	if err != nil {
-		t.Fatalf("pre-push failed: %v\n%s", err, out)
-	}
-	return out
-}
-
-func (f prePushScopeFixture) log(t *testing.T) string {
-	t.Helper()
-	return readPrePushScopeLog(t, f.logPath)
-}
-
-func assertPrePushGoOnlyScope(t *testing.T) {
-	t.Helper()
-	fixture := newPrePushScopeFixture(t)
-	head := commitPrePushGoOnlyChange(t, fixture.root)
-	out := fixture.run(t, head)
-	assertOutputContainsAll(t, out, "[pre-push] AI maintenance gates", "pre-push OK")
-	assertOutputOmitsAll(t, out, "frontend-app tests")
-	log := fixture.log(t)
-	assertOutputContainsAll(t, log, "ai-maintenance --skip-deferred-e2e --changed-file go.mod --changed-file internal/app/app.go")
-	assertOutputContainsAll(t, log, "--cache-dir .build-cache/ai-maintenance-gates", "--cache-max-age 10m", "--cache-scope")
-	assertOutputOmitsAll(t, log, "go-test ", "node ", "npx ", "npm ")
-}
-
-// markPrePushFixtureGoModChanged 保留 canonical 依赖，只让 go.mod 出现在待推送变更范围内。
-func markPrePushFixtureGoModChanged(t *testing.T, root string) {
-	t.Helper()
-	path := filepath.Join(root, "go.mod")
-	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("read fixture go.mod: %v", err)
-	}
-	writeFixTestGuardFile(t, root, "go.mod", string(data)+"\n// pre-push scope fixture change\n")
-}
-
-func commitPrePushGoOnlyChange(t *testing.T, root string) string {
-	t.Helper()
-	markPrePushFixtureGoModChanged(t, root)
-	writeFixTestGuardFile(t, root, "internal/app/app.go", "package app\n\nfunc App() {}\n")
-	runFixTestGuardGit(t, root, "add", "go.mod", "internal/app/app.go")
-	runFixTestGuardGit(t, root, "commit", "-m", "chore: 更新 app package")
-	return strings.TrimSpace(runFixTestGuardGitOutput(t, root, "rev-parse", "HEAD"))
-}
-
-func assertPrePushExcludesDeferredE2EScope(t *testing.T) {
-	t.Helper()
-	fixture := newPrePushScopeFixture(t)
-	head := commitPrePushMixedFastAndDeferredE2EChange(t, fixture.root)
-	out := fixture.run(t, head)
-	assertOutputContainsAll(t, out, "[pre-push] AI maintenance gates", "pre-push OK")
-	log := fixture.log(t)
-	assertOutputContainsAll(t, log, "ai-maintenance --skip-deferred-e2e --changed-file go.mod --changed-file internal/app/app.go --changed-file internal/provider/claudecli/provider.go --changed-file internal/provider/codexapp/provider.go")
-	assertOutputOmitsAll(t, log, "go-test ")
-}
-
-func commitPrePushMixedFastAndDeferredE2EChange(t *testing.T, root string) string {
-	t.Helper()
-	markPrePushFixtureGoModChanged(t, root)
-	writeFixTestGuardFile(t, root, "internal/app/app.go", "package app\n\nfunc App() {}\n")
-	writeFixTestGuardFile(t, root, "internal/provider/claudecli/provider.go", "package claudecli\n")
-	writeFixTestGuardFile(t, root, "internal/provider/codexapp/provider.go", "package codexapp\n")
-	runFixTestGuardGit(t, root, "add", "go.mod", "internal/app/app.go", "internal/provider/claudecli/provider.go", "internal/provider/codexapp/provider.go")
-	runFixTestGuardGit(t, root, "commit", "-m", "chore: 更新 provider package")
-	return strings.TrimSpace(runFixTestGuardGitOutput(t, root, "rev-parse", "HEAD"))
-}
-
-func assertPrePushFrontendAppOnlyScope(t *testing.T) {
-	t.Helper()
-	fixture := newPrePushScopeFixture(t)
-	head := commitPrePushFrontendAppOnlyChange(t, fixture.root)
-	out := fixture.run(t, head)
-	assertOutputContainsAll(t, out, "[pre-push] AI maintenance gates", "pre-push OK")
-	assertOutputOmitsAll(t, out, "go package tests")
-	log := fixture.log(t)
-	assertOutputContainsAll(t, log, "ai-maintenance --skip-deferred-e2e --changed-file frontend-app/package.json --changed-file frontend-app/src/App.jsx")
-	assertOutputOmitsAll(t, log, "npm ", "go-test ", "node ", "npx ")
-}
-
-func commitPrePushFrontendAppOnlyChange(t *testing.T, root string) string {
-	t.Helper()
-	writeFixTestGuardFile(t, root, "frontend-app/package.json", "{}\n")
-	writeFixTestGuardFile(t, root, "frontend-app/src/App.jsx", "export const App = () => null\n")
-	runFixTestGuardGit(t, root, "add", "frontend-app")
-	runFixTestGuardGit(t, root, "commit", "-m", "chore: 更新 frontend app")
-	return strings.TrimSpace(runFixTestGuardGitOutput(t, root, "rev-parse", "HEAD"))
-}
-
-func assertPrePushDocsOnlyScope(t *testing.T) {
-	t.Helper()
-	fixture := newPrePushScopeFixture(t)
-	head := commitPrePushDocsOnlyChange(t, fixture.root)
-	out := fixture.run(t, head)
-	assertOutputOmitsAll(t, out, "go package tests", "frontend-app tests")
-	assertOutputContainsAll(t, out, "[pre-push] AI maintenance gates", "pre-push OK")
-	log := fixture.log(t)
-	assertOutputContainsAll(t, log, "ai-maintenance --skip-deferred-e2e --changed-file docs/readme.md")
-	assertOutputOmitsAll(t, log, "go-test", "npm ", "node ", "npx ")
-}
-
-func commitPrePushDocsOnlyChange(t *testing.T, root string) string {
-	t.Helper()
-	writeFixTestGuardFile(t, root, "docs/readme.md", "docs only\n")
-	runFixTestGuardGit(t, root, "add", "docs/readme.md")
-	runFixTestGuardGit(t, root, "commit", "-m", "docs: 更新 guide")
-	return strings.TrimSpace(runFixTestGuardGitOutput(t, root, "rev-parse", "HEAD"))
-}
-
 func assertOutputContainsAll(t *testing.T, output string, parts ...string) {
 	t.Helper()
 	for _, want := range parts {
@@ -178,30 +56,6 @@ func prepareFixTestGuardRepo(t *testing.T) string {
 	runFixTestGuardGit(t, root, "add", "README.md")
 	runFixTestGuardGit(t, root, "commit", "-m", "chore: init")
 	return root
-}
-
-func preparePrePushScopeRepo(t *testing.T) string {
-	t.Helper()
-	root := prepareFixTestGuardRepo(t)
-	copyFixTestGuardRepoFile(t, root, ".githooks/pre-push", 0o755)
-	copyFixTestGuardRepoFile(t, root, "scripts/configure_hook_node_runtime.sh", 0o755)
-	copyFixTestGuardRepoFile(t, root, "go.mod", 0o644)
-	copyCommitTitleGuard(t, root, "")
-	writePrePushFakeGoTestScript(t, root)
-	writeFakeAIMaintenanceGateScript(t, root)
-	copyFixTestGuardRepoFile(t, root, "scripts/ai_maintenance/deferred_e2e_packages.txt", 0o644)
-	runFixTestGuardGit(t, root, "add", ".githooks/pre-push", "scripts/configure_hook_node_runtime.sh", "go.mod", "scripts/guard_commit_titles.sh", commitTitleEnforcementBaselinePath, "scripts/guard_fix_commits_have_tests.sh", "scripts/test_with_guard.sh", "scripts/ai_maintenance_gates.sh", "scripts/ai_maintenance/deferred_e2e_packages.txt")
-	runFixTestGuardGit(t, root, "commit", "-m", "chore: install pre-push scope fixture")
-	return root
-}
-
-func writePrePushFakeGoTestScript(t *testing.T, root string) {
-	t.Helper()
-	content := "#!/usr/bin/env bash\nset -e\nprintf 'go-test %s skip-gosec=%s\\n' \"$*\" \"${SUPER_DOLPHIN_GITHOOK_SKIP_GOSEC:-}\" >>\"$HOOK_SCOPE_LOG\"\nprintf 'fake go package test %s\\n' \"$*\"\n"
-	path := filepath.Join(root, "scripts", "test_with_guard.sh")
-	if err := os.WriteFile(path, []byte(content), 0o755); err != nil {
-		t.Fatalf("write fake test_with_guard.sh: %v", err)
-	}
 }
 
 func writePreCommitFakeCodeGuardScript(t *testing.T, root string) {
@@ -761,15 +615,6 @@ func runCommitMsgHook(t *testing.T, root, msgFile string) (string, error) {
 	cmd.Dir = root
 	out, err := cmd.CombinedOutput()
 	return string(out), err
-}
-
-func readPrePushScopeLog(t *testing.T, logPath string) string {
-	t.Helper()
-	data, err := os.ReadFile(logPath)
-	if err != nil {
-		t.Fatalf("read log: %v", err)
-	}
-	return string(data)
 }
 
 func copyFixTestGuardRepoFile(t *testing.T, root, path string, mode os.FileMode) {

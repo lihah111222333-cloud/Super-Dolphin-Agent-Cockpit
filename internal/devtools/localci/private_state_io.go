@@ -261,6 +261,132 @@ func syncAcceptedImageRoot(root string) error {
 	return nil
 }
 
+// Candidate 按调度 workload 标识读取单个持久化候选。
+func (s *PromotionCandidateStore) Candidate(ctx context.Context, workloadID string) (PromotionCandidate, error) {
+	if err := s.validateCall(ctx); err != nil {
+		return PromotionCandidate{}, err
+	}
+	if workloadID == "" {
+		return PromotionCandidate{}, errors.New("promotion candidate workload is required")
+	}
+	snapshot, err := s.candidateSnapshot(ctx)
+	if err != nil {
+		return PromotionCandidate{}, err
+	}
+	for _, candidate := range snapshot.Candidates {
+		if candidate.WorkloadID == workloadID {
+			return clonePromotionCandidate(candidate), nil
+		}
+	}
+	return PromotionCandidate{}, ErrPromotionCandidateNotFound
+}
+
+// CandidateForTrustedCommit 返回唯一绑定到目标 trusted tip 的持久化候选。
+func (s *PromotionCandidateStore) CandidateForTrustedCommit(ctx context.Context, repoID, trustedRef, trustedCommit string) (PromotionCandidate, error) {
+	if err := s.validateCall(ctx); err != nil {
+		return PromotionCandidate{}, err
+	}
+	if repoID == "" || trustedRef == "" || trustedCommit == "" {
+		return PromotionCandidate{}, errors.New("promotion candidate trusted identity is required")
+	}
+	snapshot, err := s.candidateSnapshot(ctx)
+	if err != nil {
+		return PromotionCandidate{}, err
+	}
+	return uniqueCandidateForTrustedCommit(snapshot.Candidates, repoID, trustedRef, trustedCommit)
+}
+
+func (s *PromotionCandidateStore) candidateSnapshot(ctx context.Context) (promotionCandidateSnapshot, error) {
+	lock, err := s.acquireLock(ctx)
+	if err != nil {
+		return promotionCandidateSnapshot{}, err
+	}
+	defer lock.close()
+	return s.loadLocked()
+}
+
+// failBuild 使用有界清理上下文把已开始的构建固定为终态，禁止复用其 scheduler identity。
+func (s *PromotionCandidateStore) failBuild(ctx context.Context, workloadID string, buildErr error) error {
+	cleanupCtx, cancel := BoundedCleanupContext(ctx, promotionCandidateFailureWriteLimit)
+	defer cancel()
+	err := s.mutate(cleanupCtx, workloadID, func(candidate *PromotionCandidate) error {
+		if candidate.Status != PromotionCandidateBuilding {
+			return fmt.Errorf("%w: candidate %q cannot fail from %q", ErrPromotionCandidateState, candidate.CandidateID, candidate.Status)
+		}
+		candidate.Status = PromotionCandidateFailed
+		return nil
+	})
+	if err != nil {
+		return errors.Join(buildErr, fmt.Errorf("persist failed promotion candidate: %w", err))
+	}
+	return buildErr
+}
+
+// uniqueCandidateForTrustedCommit 优先唯一活跃候选，并严格验证失败历史的恢复权威绑定。
+func uniqueCandidateForTrustedCommit(candidates []PromotionCandidate, repoID, trustedRef, trustedCommit string) (PromotionCandidate, error) {
+	matches := matchingCandidatesForTrustedCommit(candidates, repoID, trustedRef, trustedCommit)
+	active, found, err := uniqueActiveCandidate(matches)
+	if err != nil || found {
+		return active, err
+	}
+	return consistentFailedCandidate(matches)
+}
+
+func matchingCandidatesForTrustedCommit(candidates []PromotionCandidate, repoID, trustedRef, trustedCommit string) []PromotionCandidate {
+	matches := make([]PromotionCandidate, 0, len(candidates))
+	for _, candidate := range candidates {
+		if candidate.RepoID == repoID && candidate.TrustedRef == trustedRef && candidate.TrustedCommit == trustedCommit {
+			matches = append(matches, clonePromotionCandidate(candidate))
+		}
+	}
+	return matches
+}
+
+func uniqueActiveCandidate(candidates []PromotionCandidate) (PromotionCandidate, bool, error) {
+	var active *PromotionCandidate
+	for i := range candidates {
+		if !candidates[i].statusIsActive() {
+			continue
+		}
+		if active != nil {
+			return PromotionCandidate{}, false, errors.New("promotion candidate trusted commit is ambiguous")
+		}
+		active = &candidates[i]
+	}
+	if active == nil {
+		return PromotionCandidate{}, false, nil
+	}
+	return *active, true, nil
+}
+
+// consistentFailedCandidate 确保全部失败历史绑定同一恢复权威，并确定性返回首条记录。
+func consistentFailedCandidate(candidates []PromotionCandidate) (PromotionCandidate, error) {
+	var failed *PromotionCandidate
+	for i := range candidates {
+		if candidates[i].Status != PromotionCandidateFailed {
+			continue
+		}
+		if failed == nil {
+			failed = &candidates[i]
+			continue
+		}
+		if !sameFailedCandidateRecoveryAuthority(*failed, candidates[i]) {
+			return PromotionCandidate{}, errors.New("promotion candidate trusted commit is ambiguous")
+		}
+	}
+	if failed == nil {
+		return PromotionCandidate{}, ErrPromotionCandidateNotFound
+	}
+	return *failed, nil
+}
+
+func sameFailedCandidateRecoveryAuthority(left, right PromotionCandidate) bool {
+	return left.SourceTree == right.SourceTree &&
+		left.PreviousTrustedCommit == right.PreviousTrustedCommit &&
+		left.ExpectedAcceptedRecordDigest == right.ExpectedAcceptedRecordDigest &&
+		left.ExpectedAcceptedGeneration == right.ExpectedAcceptedGeneration
+}
+
 func removeAcceptedImageTemp(path string) error {
 	if path == "" {
 		return nil

@@ -63,11 +63,19 @@ func newProductionImageServices(
 	}
 	provisionCtx, cancel := localci.BoundedOperationContext(ctx, coordinatorProvisioningTimeout)
 	defer cancel()
+	if err := recoverInterruptedProductionCandidate(
+		provisionCtx, promotion, time.Duration(config.PromotionPollMillis)*time.Millisecond,
+	); err != nil {
+		return nil, nil, nil, fmt.Errorf("recover interrupted production candidate: %w", err)
+	}
 	record, err := loadOrBootstrapProductionAcceptedImage(
 		provisionCtx, config, promotion, productionBootstrapHostRuntime{},
 	)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("load production accepted image within provisioning timeout: %w", err)
+	}
+	if err := promotion.authority.verifyRecord(provisionCtx, record); err != nil {
+		return nil, nil, nil, err
 	}
 	if err := validateAcceptedPlatform(record.Image, config.Platform); err != nil {
 		return nil, nil, nil, err
@@ -85,7 +93,8 @@ func newProductionImageServices(
 		return nil, nil, nil, err
 	}
 	buildService := &productionCandidateBuildService{
-		store: promotion.candidates, builder: builder, resolver: localci.NewDockerCandidateIdentityResolver(),
+		store: promotion.candidates, accepted: promotion.accepted, authority: promotion.authority,
+		builder: builder, resolver: localci.NewDockerCandidateIdentityResolver(),
 	}
 	watcher, err := localci.NewPromotionController(
 		promotion.candidates, promotion.state, promotion.authority, promotion.signer,
@@ -95,6 +104,115 @@ func newProductionImageServices(
 		return nil, nil, nil, err
 	}
 	return &productionImageEnsurer{truth: truth, platform: config.Platform}, buildService, watcher, nil
+}
+
+// recoverInterruptedProductionCandidate 仅恢复能精确证明继承 signed accepted record 的候选。
+func recoverInterruptedProductionCandidate(
+	ctx context.Context,
+	promotion *productionPromotionAuthority,
+	poll time.Duration,
+) error {
+	accepted, candidate, recoverable, err := promotion.interruptedCandidate(ctx)
+	if err != nil || !recoverable {
+		return err
+	}
+	switch candidate.Status {
+	case localci.PromotionCandidateAwaiting:
+		return promotion.promoteRecoveredCandidate(ctx, poll, candidate)
+	case localci.PromotionCandidateQueued, localci.PromotionCandidateBuilding, localci.PromotionCandidateFailed:
+		return promotion.authority.restoreAcceptedTrustedRef(
+			ctx, accepted.TrustedCommit, candidate.TrustedCommit, candidate.SourceTree,
+		)
+	default:
+		return errors.New("interrupted candidate has an unrecoverable promotion status")
+	}
+}
+
+// interruptedCandidate 读取 trusted tip 漂移并只返回与当前 accepted record 精确衔接的候选。
+func (promotion *productionPromotionAuthority) interruptedCandidate(
+	ctx context.Context,
+) (gatecontract.AcceptedImageRecord, localci.PromotionCandidate, bool, error) {
+	if err := promotion.validateRecovery(); err != nil {
+		return gatecontract.AcceptedImageRecord{}, localci.PromotionCandidate{}, false, err
+	}
+	accepted, present, err := promotion.acceptedForRecovery(ctx)
+	if err != nil || !present {
+		return gatecontract.AcceptedImageRecord{}, localci.PromotionCandidate{}, false, err
+	}
+	candidate, found, err := promotion.candidateForInterruptedTip(ctx, accepted)
+	if err != nil || !found {
+		return gatecontract.AcceptedImageRecord{}, localci.PromotionCandidate{}, false, err
+	}
+	if err := validateInterruptedCandidate(accepted, candidate); err != nil {
+		return gatecontract.AcceptedImageRecord{}, localci.PromotionCandidate{}, false, err
+	}
+	return accepted, candidate, true, nil
+}
+
+// validateRecovery 确保恢复路径具备完成严格校验和原子状态变更所需的全部 authority。
+func (promotion *productionPromotionAuthority) validateRecovery() error {
+	if promotion == nil || promotion.state == nil || promotion.authority == nil || promotion.candidates == nil || promotion.signer == nil {
+		return errors.New("production promotion recovery is not configured")
+	}
+	return nil
+}
+
+func (promotion *productionPromotionAuthority) acceptedForRecovery(
+	ctx context.Context,
+) (gatecontract.AcceptedImageRecord, bool, error) {
+	accepted, err := promotion.state.Load(ctx)
+	if errors.Is(err, localci.ErrAcceptedImageStateNotFound) {
+		return gatecontract.AcceptedImageRecord{}, false, nil
+	}
+	if err != nil {
+		return gatecontract.AcceptedImageRecord{}, false, err
+	}
+	return accepted, true, nil
+}
+
+func (promotion *productionPromotionAuthority) candidateForInterruptedTip(
+	ctx context.Context,
+	accepted gatecontract.AcceptedImageRecord,
+) (localci.PromotionCandidate, bool, error) {
+	tip, err := promotion.authority.trustedTip(ctx)
+	if err != nil || tip == accepted.TrustedCommit {
+		return localci.PromotionCandidate{}, false, err
+	}
+	candidate, err := promotion.candidates.CandidateForTrustedCommit(ctx, accepted.RepoID, accepted.TrustedRef, tip)
+	if errors.Is(err, localci.ErrPromotionCandidateNotFound) {
+		return localci.PromotionCandidate{}, false, nil
+	}
+	if err != nil {
+		return localci.PromotionCandidate{}, false, err
+	}
+	return candidate, true, nil
+}
+
+func validateInterruptedCandidate(accepted gatecontract.AcceptedImageRecord, candidate localci.PromotionCandidate) error {
+	expectedDigest, err := gatecontract.AcceptedImageRecordDigest(accepted)
+	if err != nil {
+		return fmt.Errorf("digest interrupted accepted image: %w", err)
+	}
+	if candidate.PreviousTrustedCommit != accepted.TrustedCommit ||
+		candidate.ExpectedAcceptedRecordDigest != expectedDigest ||
+		candidate.ExpectedAcceptedGeneration != accepted.Generation {
+		return errors.New("interrupted candidate does not exactly extend the signed accepted image")
+	}
+	return nil
+}
+
+func (promotion *productionPromotionAuthority) promoteRecoveredCandidate(
+	ctx context.Context,
+	poll time.Duration,
+	candidate localci.PromotionCandidate,
+) error {
+	controller, err := localci.NewPromotionController(
+		promotion.candidates, promotion.state, promotion.authority, promotion.signer, poll,
+	)
+	if err != nil {
+		return err
+	}
+	return controller.PromoteCandidate(ctx, candidate)
 }
 
 func newProductionAcceptedImageLoader(
@@ -423,6 +541,38 @@ func (authority *productionGitAuthority) advanceTrustedRef(
 		return err
 	} else if tip != candidateCommit {
 		return errors.New("trusted ref did not advance to staged-tree promotion commit")
+	}
+	return nil
+}
+
+// restoreAcceptedTrustedRef 仅以精确 CAS 回滚已持久化但未完成构建的 staged candidate。
+func (authority *productionGitAuthority) restoreAcceptedTrustedRef(
+	ctx context.Context,
+	acceptedCommit string,
+	candidateCommit string,
+	tree string,
+) error {
+	if err := authority.verifyTreeBackedCommit(ctx, candidateCommit, tree, acceptedCommit); err != nil {
+		return err
+	}
+	tip, err := authority.trustedTip(ctx)
+	if err != nil {
+		return err
+	}
+	switch tip {
+	case acceptedCommit:
+		return nil
+	case candidateCommit:
+		if err := authority.run(ctx, "update-ref", authority.trustedRef, acceptedCommit, candidateCommit); err != nil {
+			return err
+		}
+	default:
+		return errors.New("trusted ref changed before interrupted candidate rollback")
+	}
+	if tip, err := authority.trustedTip(ctx); err != nil {
+		return err
+	} else if tip != acceptedCommit {
+		return errors.New("trusted ref did not roll back to accepted image commit")
 	}
 	return nil
 }

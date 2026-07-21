@@ -174,13 +174,7 @@ func (planner *productionCandidateSubmissionPlanner) PlanCandidate(
 		return localci.PromotionCandidatePlan{}, err
 	}
 	plan, err := planner.persistCandidatePlan(ctx, tree, accepted, trustedCommit, request.Plan.PolicyDigest)
-	if err != nil || !managedTreeCommit || !plan.BuildRequired {
-		return plan, err
-	}
-	if err := planner.authority.advanceTrustedRef(ctx, accepted.TrustedCommit, trustedCommit, tree.Source.SourceTreeSHA); err != nil {
-		return localci.PromotionCandidatePlan{}, err
-	}
-	return plan, nil
+	return plan, err
 }
 
 // validateConfiguration 仅接受完整生产依赖，避免提升路径在缺失 authority 时继续执行。
@@ -288,17 +282,59 @@ func promotionCommitFromSource(source gatecontract.SourceSpec) (string, error) {
 }
 
 type productionCandidateBuildService struct {
-	store    *localci.PromotionCandidateStore
-	builder  localci.CandidateImageBuilder
-	resolver localci.CandidateImageIdentityResolver
+	store     *localci.PromotionCandidateStore
+	accepted  *productionAcceptedImageLoader
+	authority *productionGitAuthority
+	builder   localci.CandidateImageBuilder
+	resolver  localci.CandidateImageIdentityResolver
 }
 
-// ExecuteBuild 执行 scheduler 已授予 slot 的唯一 candidate build。
+// ExecuteBuild 持久化候选镜像后才推进 canonical trusted ref。
 func (service *productionCandidateBuildService) ExecuteBuild(ctx context.Context, workloadID string) error {
-	if service == nil || service.store == nil {
+	if service == nil || service.store == nil || service.accepted == nil || service.authority == nil {
 		return errors.New("production candidate build service is not configured")
 	}
-	return service.store.ExecuteBuild(ctx, workloadID, service.builder, service.resolver)
+	candidate, err := service.store.Candidate(ctx, workloadID)
+	if err != nil {
+		return err
+	}
+	if candidate.Status != localci.PromotionCandidateAwaiting {
+		if err := service.store.ExecuteBuild(ctx, workloadID, service.builder, service.resolver); err != nil {
+			return err
+		}
+		candidate, err = service.store.Candidate(ctx, workloadID)
+		if err != nil {
+			return err
+		}
+	}
+	if candidate.Status != localci.PromotionCandidateAwaiting {
+		return errors.New("candidate build did not persist an awaiting promotion artifact")
+	}
+	return service.advanceBuiltCandidate(ctx, candidate)
+}
+
+// advanceBuiltCandidate 仅把完整落盘且精确衔接 accepted record 的候选推进到 trusted ref。
+func (service *productionCandidateBuildService) advanceBuiltCandidate(
+	ctx context.Context,
+	candidate localci.PromotionCandidate,
+) error {
+	accepted, err := service.accepted.Load(ctx)
+	if err != nil {
+		return err
+	}
+	expectedDigest, err := gatecontract.AcceptedImageRecordDigest(accepted)
+	if err != nil {
+		return fmt.Errorf("digest current accepted image: %w", err)
+	}
+	if candidate.RepoID != accepted.RepoID || candidate.TrustedRef != accepted.TrustedRef ||
+		candidate.PreviousTrustedCommit != accepted.TrustedCommit ||
+		candidate.ExpectedAcceptedRecordDigest != expectedDigest ||
+		candidate.ExpectedAcceptedGeneration != accepted.Generation {
+		return errors.New("built candidate does not exactly extend the accepted image authority")
+	}
+	return service.authority.advanceTrustedRef(
+		ctx, accepted.TrustedCommit, candidate.TrustedCommit, candidate.SourceTree,
+	)
 }
 
 // ObserveTrustedRef 只读取配置的外部 bare ref 精确 tip 与 tree。

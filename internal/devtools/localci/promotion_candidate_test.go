@@ -91,6 +91,96 @@ func TestPromotionControllerBuildAwaitingTrustedRefAndCASPromotion(t *testing.T)
 	assertPromotionFixtureCompleted(t, fixture)
 }
 
+func TestPromotionCandidateBuildFailureGetsFreshWorkload(t *testing.T) {
+	fixture := newPromotionPlanFixture(t)
+	first := mustPromotionCandidatePlan(t, fixture)
+	failing := mustPromotionCandidateBuilder(t, &recordingBuildKitRunner{err: errors.New("broken pipe")})
+	if err := fixture.store.ExecuteBuild(context.Background(), first.WorkloadID, failing, promotionIdentityResolverStub{}); err == nil {
+		t.Fatal("ExecuteBuild() accepted builder failure")
+	}
+	assertPromotionCandidateStatus(t, fixture.store, first.WorkloadID, PromotionCandidateFailed)
+	second := mustPromotionCandidatePlan(t, fixture)
+	if second.WorkloadID == first.WorkloadID {
+		t.Fatalf("replacement workload reused terminal identity %q", first.WorkloadID)
+	}
+	builder := mustPromotionCandidateBuilder(t, &recordingBuildKitRunner{digest: digest("8")})
+	if err := fixture.store.ExecuteBuild(context.Background(), second.WorkloadID, builder, promotionIdentityResolverStub{}); err != nil {
+		t.Fatal(err)
+	}
+	assertPromotionCandidateStatus(t, fixture.store, second.WorkloadID, PromotionCandidateAwaiting)
+}
+
+func TestUniqueCandidateForTrustedCommitRecoverySelection(t *testing.T) {
+	failed := promotionCandidateForTrustedCommit(PromotionCandidateFailed, "failed")
+	awaiting := promotionCandidateForTrustedCommit(PromotionCandidateAwaiting, "awaiting")
+	incompatible := promotionCandidateForTrustedCommit(PromotionCandidateFailed, "incompatible")
+	incompatible.SourceTree = "other-tree"
+	candidate, err := uniqueCandidateForTrustedCommit(
+		[]PromotionCandidate{failed, incompatible, awaiting}, awaiting.RepoID, awaiting.TrustedRef, awaiting.TrustedCommit,
+	)
+	if err != nil || candidate.WorkloadID != awaiting.WorkloadID {
+		t.Fatalf("failed history selected %+v, err=%v", candidate, err)
+	}
+	queued := promotionCandidateForTrustedCommit(PromotionCandidateQueued, "queued")
+	if _, err := uniqueCandidateForTrustedCommit(
+		[]PromotionCandidate{queued, awaiting}, awaiting.RepoID, awaiting.TrustedRef, awaiting.TrustedCommit,
+	); err == nil {
+		t.Fatal("multiple active candidates were accepted")
+	}
+	candidate, err = uniqueCandidateForTrustedCommit(
+		[]PromotionCandidate{failed}, failed.RepoID, failed.TrustedRef, failed.TrustedCommit,
+	)
+	if err != nil || candidate.WorkloadID != failed.WorkloadID {
+		t.Fatalf("only failed candidate = %+v, err=%v", candidate, err)
+	}
+	matchingFailure := promotionCandidateForTrustedCommit(PromotionCandidateFailed, "matching-failure")
+	candidate, err = uniqueCandidateForTrustedCommit(
+		[]PromotionCandidate{failed, matchingFailure}, failed.RepoID, failed.TrustedRef, failed.TrustedCommit,
+	)
+	if err != nil || candidate.WorkloadID != failed.WorkloadID {
+		t.Fatalf("consistent failed candidates = %+v, err=%v", candidate, err)
+	}
+	if _, err := uniqueCandidateForTrustedCommit(
+		[]PromotionCandidate{failed, incompatible}, failed.RepoID, failed.TrustedRef, failed.TrustedCommit,
+	); err == nil {
+		t.Fatal("incompatible failed recovery authorities were accepted")
+	}
+}
+
+func promotionCandidateForTrustedCommit(status PromotionCandidateStatus, workloadID string) PromotionCandidate {
+	return PromotionCandidate{
+		WorkloadID: workloadID, RepoID: "repo", TrustedRef: "refs/heads/main", TrustedCommit: "commit",
+		SourceTree: "tree", PreviousTrustedCommit: "previous", ExpectedAcceptedRecordDigest: "accepted",
+		ExpectedAcceptedGeneration: 1, Status: status,
+	}
+}
+
+func mustPromotionCandidatePlan(t *testing.T, fixture promotionPlanFixture) PromotionCandidatePlan {
+	t.Helper()
+	plan, err := fixture.store.Plan(context.Background(), fixture.accepted, fixture.request)
+	if err != nil || !plan.BuildRequired {
+		t.Fatalf("Plan() = %+v, err=%v", plan, err)
+	}
+	return plan
+}
+
+func mustPromotionCandidateBuilder(t *testing.T, runner BuildKitRunner) *ImageBuilder {
+	t.Helper()
+	builder, err := NewImageBuilder(runner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return builder
+}
+
+func assertPromotionCandidateStatus(t *testing.T, store *PromotionCandidateStore, workloadID string, want PromotionCandidateStatus) {
+	t.Helper()
+	candidate, err := store.Candidate(context.Background(), workloadID)
+	if err != nil || candidate.Status != want {
+		t.Fatalf("candidate %q = %+v, err=%v, want status %q", workloadID, candidate, err, want)
+	}
+}
+
 func assertPromotionWaitsAtAcceptedTip(t *testing.T, fixture *promotionTestFixture) {
 	t.Helper()
 	if err := fixture.controller.PromoteReady(context.Background()); err != nil {
