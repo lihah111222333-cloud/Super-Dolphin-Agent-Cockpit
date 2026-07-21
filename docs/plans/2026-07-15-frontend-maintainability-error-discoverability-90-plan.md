@@ -1,8 +1,12 @@
 # 前端可维护性与错误可发现性 90 分提升计划（桌面版）
 
-> **状态：** PROPOSED / docs-only execution plan
+> **状态：** IMPLEMENTED / final review pending / performance NOT_VERIFIED
 >
-> **同步基线：** main 与 origin/main 均为 b40867229af8e17916c00393639ccb0fcb4bf6fc
+> **评分基线：** `SCORE_BASE_SHA=fe64840a7bd55471175dc358cc8eb1e3869832a7`（冻结 `origin/main`）
+>
+> **实现提交：** `IMPLEMENTATION_SHA=9729f7f1eb964fbff385510d7840c138829a52f1`
+>
+> **性能暂停：** 2026-07-21 起按控制器指令停止 P01-P04、benchmark 和 `frontend-maintainability --final`。恢复前性能证据、最终分数与“达到 90 分”结论均保持 `NOT_VERIFIED`；功能门禁与代码审查可继续。
 >
 > **产品边界：** 单机桌面应用。运行边界是 React、Wails、Go 后端和本机 provider 进程，不按分布式系统设计。
 >
@@ -83,7 +87,7 @@
 | 性能 | P03-feedback-budget | 25 | yes | 本地轻门禁有冻结的反馈阈值 |
 | 性能 | P04-resource-budget | 20 | score | bundle、chunk、heap 有冻结上限 |
 
-Task 0 在 `frontend-app/scripts/` 创建唯一 controls/baseline JSON 和 scorer。每项 `allOf[]` 固定 `cwd+argv[]+timeout`、结构化 `caseIds+testCount` 或 metric/threshold，并与事实 exact diff；手填 PASS、弱命令、零测试、case 未命中及 missing/duplicate/stale/unknown 均为 NOT_VERIFIED。
+Task 0 在 `frontend-app/scripts/` 创建唯一 controls/baseline JSON 和 scorer。`allOf[]` 冻结 `cwd+argv[]+timeout`、`caseIds+testCount` 或 metric/threshold；手填 PASS、弱命令、零测试、case 未命中及 missing/duplicate/stale/unknown 均为 NOT_VERIFIED。
 
 必需 control 全 PASS 为 86.25；再完成 E06+T05 为 92.75；Task 3 还要求 C05，完整路径为 95.0。只认 scorer，不得预填或用加分补偿错误维度低于 90。
 
@@ -101,31 +105,13 @@ Task 0 在 `frontend-app/scripts/` 创建唯一 controls/baseline JSON 和 score
 
 ---
 
-## 3. 最新代码上的已确认问题
+## 3. 历史初始 RED（已取代）
 
-以下事实来自同步基线 b4086722 的复查。
+这是 `b40867229af8e17916c00393639ccb0fcb4bf6fc` 的历史初始 RED，非当前事实；后续提交已取代它。Task0 必须对冻结的 `SUBJECT_SHA` 重新取证。
 
-### 3.1 失败 turn 仍可显示为成功
+历史 RED 有两条：provider failed 经 Go/Wails/client timeline 被误报 success；Prompt History RPC 失败只写 console。实现必须保留 partial、draft、selection 和 cursor，显示安全错误并提供安全 retry。历史门禁缺口包括可省略 `runUIAction.onError`、关键 JS/JSX 未严格检查、mock 代替真实 smoke、P02/P04 未冻结和 LSP Information 未清零。
 
-当前链路：provider failed → Go/Wails completion → clientStoreBridgeRuntime → runtimeAssistantCompletion → applyAssistantCompletion → 无条件 success notice。
-
-落点：`assistantEventRuntime.js:212`、client bridge/timeline、`internal/provider/codexapp`、event surface。partial 可保留，失败不能变成功。
-
-### 3.2 Prompt History 失败仍只写 console
-
-当前链路：ComposerDock ArrowUp/Down → runUIAction → RPC/validator 抛错 → 默认 console.error，且没有 onError。
-
-关键落点是 `ComposerDock.jsx:69`、`runUIAction.js:1`、`features/prompt-history` 和 `shared/api/backend`。失败必须保留草稿/光标，显示安全错误并提供安全 retry。
-
-### 3.3 历史审查中仍有效的门禁缺口
-
-- no-silent-async-failure 尚未阻断可省略 `runUIAction.onError` 导致的 console-only、默认空值和假成功。
-- `tsconfig.contracts.json` 的 `checkJs:false`、`strict:false` 不能证明 C04 关键 JS/JSX 已检查。
-- mock 回归不能替代 provider/Wails 失败到 DOM 的真实 smoke。
-- 未冻结阈值前，chat-history 的 P02/P04 只能是 NOT_VERIFIED。
-- `internal/provider/codexapp/factory.go:99 unusedfunc` Information 必须清零。
-
-本节没有给当前分数。Task 0 必须在实施提交上重新运行全部基线命令和 scorer。
+本节不提供当前分数或当前缺口结论。
 
 ---
 
@@ -220,18 +206,18 @@ Stop 不需要分布式 watchdog 或跨服务事务。本计划只要求：
 
 ### Task 0：重新建立基线
 
-**目标：** 在最新 clean worktree 上得到真实分数和确定性 RED。
+**目标：** 在冻结 `SCORE_BASE_SHA` 与显式 `SUBJECT_SHA` 上得到真实分数和确定性 RED。
 
 执行：
 
-1. 记录 BASE_SHA、Node/npm/Go 版本和工作树状态。
+1. 记录 `SCORE_BASE_SHA`、`SUBJECT_SHA`、Node/npm/Go 版本和工作树状态。
 2. 用 LSP 定位两条已确认 blocker 的定义、引用、调用链和 diagnostics。
 3. 运行 frontend lint/test/build、相关 Go 测试和 embed verify。
-4. Task-0 独立提交先冻结 controls/scorer/baseline schema，记 SCORE_BASE_SHA；当 P01-P04 runner 尚不存在时，metric 必须保持 `NOT_VERIFIED`，不得手填数值。Task 4 的 runner 经主 Agent 初审后、候选评分前，必须在隔离 worktree 中以不可变 BASE_SHA 为 subject，使用同一审计 runner 版本回测并冻结 baseline artifact；artifact 记录 BASE_SHA、runner SHA/tree、Node/npm/Go 与 OS/CPU、raw samples 和中位数。P04 必须在新建的 BASE detached worktree 从不存在的 `dist/` 开始执行固定 `npm ci` 和 `npm run build`，绑定 BASE tree、build argv、每个 dist 文件的路径/字节/内容哈希及聚合 manifest hash；runner worktree 的 ignored `dist/` 不能成为证据来源。候选版本必须用同一 runner 与环境比较，禁止候选自比候选；OS/CPU/工具链必须精确相同，三项 load average 的每项差异不得超过双方 logical CPU cores 的四分之一（最小 1），超出即 `FAIL`。P01：预热后 20 次无关 store 更新，候选主页面与无关 subtree update commit 各执行绝对门限 ≤1；BASE 的原始计数只作审计证据，不得放宽该绝对门限，并由 mutation probe 证明宽订阅可被检测。P02：对同一 history 的 production selector 与 direct-slice reference 采用交替顺序的配对 CPU block，冻结 5 次样本的归一化比率中位数，候选不得超过 BASE 对应比率的 115%。P03 为同机预热后 5 次绝对时长中位数 +15%；P04 ≤基线 105%。修复不得放宽 controls/scorer/baseline schema 或阈值公式。
+4. 冻结 controls/scorer/baseline schema；未审计 P01-P04=`NOT_VERIFIED`。候选前在无 `dist/` 的 BASE worktree 用同一 runner/环境回测，记录 tree、runner、toolchain、OS/CPU 和原始样本。P04 固定 clean build 与 manifest/hash；ignored `dist/` 无效。load 差异超过 logical CPU 的 1/4（至少 1）即 `FAIL`。P01 两类 commit 均 ≤1 且 mutation probe 有效；P02 ≤BASE 115%；P03 ≤BASE +15%；P04 ≤BASE 105%。禁止放宽。
 5. 增加 RED：failed+partial 假成功；Stop accepted 后继续 failed；Claude interrupted 无 completed；Codex completed 的 cancelled/interrupted/failed/unknown 与 success 缺失/false；T1→T2 late event；冲突 terminal；Stop target-changed；provider cancel 伪装 user cancel；Prompt History console-only；action/scorer missing/stale/零测试。
 6. scorer 输出当前 control 状态和分数；不手填 61.8 或其他历史值。
 
-**出口：** RED/scorer fixtures 稳定失败；SCORE_BASE_SHA 的 allOf 映射保持冻结。P01-P04 可在 runner 尚未审计时维持 `NOT_VERIFIED`，但其 BASE_SHA baseline artifact 必须在 Task 4 候选评分前补齐并经主 Agent 初审；最终三名全新 reviewer 同时审查 scorer、baseline provenance 与预算公式。
+**出口：** RED/scorer fixtures 稳定失败，allOf 冻结。P01-P04 可暂为 `NOT_VERIFIED`，但候选评分前必须补齐 BASE artifact 并经主 Agent 初审；最终三名全新 reviewer 审查 scorer、provenance、预算公式。
 
 ### Task 1：修复 terminal truth
 
@@ -335,15 +321,32 @@ LSP 对某文件类型不支持的能力要记录为证据缺口，不能写成 
 
 ### 6.2 前端完成门禁
 
+> **当前暂停：** 下列最终评分命令仅保留为恢复后的执行合同。性能暂停期间禁止运行；P01-P04 和最终评分不得由历史结果、局部功能门禁或人工判断替代。
+
 ~~~bash
 cd frontend-app
-SCORE_BASE_SHA="$(git -C .. rev-parse HEAD^)"
-SCORE_WORKTREE="$(mktemp -d)/score-base"
-git -C .. worktree add --detach "$SCORE_WORKTREE" "$SCORE_BASE_SHA"
-node "$SCORE_WORKTREE/frontend-app/scripts/frontend-maintainability-score.mjs" --final --repo "$(pwd)/.." --subject "$(git -C .. rev-parse HEAD)"
+set -eu
+: "${SUBJECT_SHA:?set an immutable commit SHA}"
+: "${TARGET_REF:?set an immutable commit or target ref}"
+die() { printf '%s\n' "$*" >&2; exit 1; }
+SCORE_BASE_SHA="fe64840a7bd55471175dc358cc8eb1e3869832a7"
+REPO="$(git -C .. rev-parse --show-toplevel)"
+git -C "$REPO" rev-parse --verify "${SCORE_BASE_SHA}^{commit}" >/dev/null
+SUBJECT_SHA="$(git -C "$REPO" rev-parse --verify "${SUBJECT_SHA}^{commit}")"
+TARGET_SHA="$(git -C "$REPO" rev-parse --verify "${TARGET_REF}^{commit}")"
+WORKTREE_SHA="$(git -C "$REPO" rev-parse --verify HEAD^{commit})"
+git -C "$REPO" merge-base --is-ancestor "$SCORE_BASE_SHA" "$SUBJECT_SHA" || die "score base is not an ancestor of subject"
+[ "$TARGET_SHA" = "$SUBJECT_SHA" ] || die "target ref mismatch"
+[ "$WORKTREE_SHA" = "$SUBJECT_SHA" ] || die "worktree mismatch"
+git -C "$REPO" diff --quiet && git -C "$REPO" diff --cached --quiet
+[ -z "$(git -C "$REPO" ls-files --others --exclude-standard)" ] || die "worktree has untracked files"
+SCORE_WORKTREE="$(mktemp -d "${TMPDIR:-/tmp}/score-base.XXXXXX")"
+trap 'git -C "$REPO" worktree remove --force "$SCORE_WORKTREE"' EXIT
+git -C "$REPO" worktree add --detach "$SCORE_WORKTREE" "$SCORE_BASE_SHA"
+node "$SCORE_WORKTREE/frontend-app/scripts/frontend-maintainability-score.mjs" --final --repo "$REPO" --subject "$SUBJECT_SHA"
 ~~~
 
-`--final` 从 SCORE_BASE worktree 启动；加载 SUBJECT JS 前，用 Git plumbing 确认严格祖先和完整治理闭包逐字节相同。仅接受 clean HEAD，在新 detached worktree 跑 exact command/case、写新结果；tree 漂移、相关 untracked、零测试、结果复用均失败。命令集含 lint/test/typecheck/RPC audit/build、benchmark、真实 smoke、embed、目标 Go tests、diff-check；`--changed` 不能产出 90 分。
+调用者显式传入冻结 `SUBJECT_SHA` 与 `TARGET_REF`；后者可为不可变 commit/ref，仅校验解析为 subject，非 `main`。不得用 `HEAD`/`HEAD^` 选择评分对象。仅接受固定 `SCORE_BASE_SHA` 是 subject 祖先、clean worktree 为 subject。`--final` 从 BASE worktree 对 subject 跑 exact command/case；tree 漂移、零测试、结果复用或 `--changed` 均失败。
 
 ### 6.3 桌面验收
 
@@ -378,7 +381,7 @@ runner emits SCORE_BASE-schema normalized report with SUBJECT SHA/tree, control,
 
 ---
 
-最终候选冻结：`SCORE_BASE=27a8c55ebe979545ce7a5585aa18505923c580a6`；SUBJECT 仅含本记录，结论以绑定证据为准。
+当前功能实现冻结为 `IMPLEMENTATION_SHA=9729f7f1eb964fbff385510d7840c138829a52f1`。最终候选仍仅由恢复评分时调用者的 `SUBJECT_SHA` 冻结；不得将本文提交 SHA 写回本文，结论只认第 6.2 节的新鲜证据。性能暂停期间不存在已验证的最终候选。
 
 ## 8. 停止条件
 
@@ -399,7 +402,7 @@ runner emits SCORE_BASE-schema normalized report with SUBJECT SHA/tree, control,
 
 ## 9. Definition of Done
 
-- [ ] BASE/SCORE_BASE/SUBJECT_SHA 与 tree 已记录；final 由 SCORE_BASE scorer 启动，在 clean committed HEAD 的临时 worktree 执行。
+- [ ] 固定 `SCORE_BASE_SHA`、显式 `SUBJECT_SHA`/`TARGET_REF` 与 tree 已记录；final 由 SCORE_BASE scorer 在当前 clean subject worktree 执行。（性能暂停，`NOT_VERIFIED`）
 - [ ] 25 项 allOf 的 command/case/threshold 与本轮事实 exact match，零测试/手填/旧结果均失败。
 - [ ] TurnRef 贯穿 delta/item/terminal，首终态不可改写；Stop/Claude/Codex exact terminal fixtures 全绿。
 - [ ] failed/interrupted/cancelled 永远不产生 success notice。
@@ -414,8 +417,8 @@ runner emits SCORE_BASE-schema normalized report with SUBJECT SHA/tree, control,
 - [ ] 修改文件 LSP diagnostics 四级 severity 为 0；不支持能力已记录。
 - [ ] frontend lint、test、build 全部通过。
 - [ ] 相关 Go 测试、frontend embed verify 和 git diff --check 通过。
-- [ ] P01 同时满足绝对 render 线与不回退；history/feedback/resource 通过 SCORE_BASE 公式，完整治理闭包未改。
-- [ ] 三名全新 reviewer 对同一冻结对象均无 open P0/P1。
-- [ ] 错误维度不低于 90，其他维度达到最低线，总分不低于 90。
+- [ ] P01 同时满足绝对 render 线与不回退；history/feedback/resource 通过 SCORE_BASE 公式，完整治理闭包未改。（性能暂停，`NOT_VERIFIED`）
+- [ ] 三名全新 reviewer 对同一冻结对象均无 open P0/P1/P2。
+- [ ] 错误维度不低于 90，其他维度达到最低线，总分不低于 90。（最终评分暂停，`NOT_VERIFIED`）
 - [ ] 最终报告明确区分“计划达标”和“当前实现实际达标”。
 - [ ] diff 只包含授权范围，未覆盖任何用户已有非目标改动。
