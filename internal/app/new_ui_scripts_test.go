@@ -58,7 +58,9 @@ func TestNewUIDesktopScriptContract(t *testing.T) {
 		`case "$VITE_DEV_HOST" in`,
 		`fail_if_port_busy "$VITE_DEV_HOST:$VITE_DEV_PORT"`,
 		`npm run dev -- --host "$VITE_DEV_HOST" --port "$VITE_DEV_PORT" --strictPort`,
-		`go run ./cmd/agent-terminal`,
+		`APP_COMMIT="$(git -C "$PROJECT_DIR" rev-parse --verify HEAD 2>/dev/null)"`,
+		`SCHEMA_BUILD_IDENTITY_LDFLAG="-X github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/toolbridge/schema.buildAppCommit=$APP_COMMIT"`,
+		`go run -ldflags "$SCHEMA_BUILD_IDENTITY_LDFLAG" ./cmd/agent-terminal`,
 		`start_desktop_backend`,
 		`cleanup`,
 	}
@@ -93,7 +95,7 @@ func TestNewUIDesktopScriptWaitsForFrontendBeforeBackend(t *testing.T) {
 		`print_frontend_log_tail`,
 		`wait_for_any_process_exit`,
 		`CLEANUP_DONE`,
-		`go run ./cmd/agent-terminal >>"$SUPER_DOLPHIN_BACKEND_LOG" 2>&1`,
+		`go run -ldflags "$SCHEMA_BUILD_IDENTITY_LDFLAG" ./cmd/agent-terminal >>"$SUPER_DOLPHIN_BACKEND_LOG" 2>&1`,
 		`npm run dev -- --host "$VITE_DEV_HOST" --port "$VITE_DEV_PORT" --strictPort >"$SUPER_DOLPHIN_FRONTEND_LOG" 2>&1`,
 	}
 	for _, want := range required {
@@ -134,10 +136,15 @@ func TestNewUIDesktopScriptRebuildsStalePeerBinaries(t *testing.T) {
 	text := readRootScript(t, "../../run-new-ui-desktop.sh")
 
 	required := []string{
+		`schema_helper_package_current()`,
+		`local helper="$PROJECT_DIR/bin/mcp-schema-compiler-helper"`,
+		`local manifest="$helper.manifest.json"`,
+		`grep -Eq '"app_commit"[[:space:]]*:[[:space:]]*"'"$APP_COMMIT"'"' "$manifest"`,
 		`peer_binary_stale()`,
 		`find "$path" -type f \( -name '*.go' -o -name 'go.mod' -o -name 'go.sum' -o -name '*.yaml' -o -name '*.yml' \) -newer "$bin" -print -quit`,
 		`peer_binary_stale "$peer_dir/mcp-orch" cmd/mcp-orch internal pkg go.mod go.sum`,
 		`peer_binary_stale "$peer_dir/mcp-lsp" cmd/mcp-lsp internal pkg go.mod go.sum`,
+		`make APP_COMMIT="$APP_COMMIT" build-peer-binaries`,
 		`rebuild_peer_binaries`,
 	}
 	for _, want := range required {
@@ -146,6 +153,7 @@ func TestNewUIDesktopScriptRebuildsStalePeerBinaries(t *testing.T) {
 		}
 	}
 	assertTextOrder(t, text, `peer_binary_stale()`, `ensure_peer_binaries()`)
+	assertTextOrder(t, text, `schema_helper_package_current()`, `ensure_peer_binaries()`)
 	assertTextOrder(t, text, `if [ ! -x "$peer_dir/$bin" ]; then`, `peer_binary_stale "$peer_dir/mcp-orch"`)
 	assertTextOrder(t, text, `peer_binary_stale "$peer_dir/mcp-orch"`, `peer_binary_stale "$peer_dir/mcp-lsp"`)
 	assertTextOrder(t, text, `peer_binary_stale "$peer_dir/mcp-lsp"`, `rebuild_peer_binaries`)
@@ -381,11 +389,13 @@ func TestNewUIDesktopScriptUsesSQLiteWithoutPostgresRuntime(t *testing.T) {
 	}
 }
 
-func TestNewUIDesktopScriptUsesShortDevHome(t *testing.T) {
+func TestNewUIDesktopScriptUsesShortWorktreeIsolatedDevHome(t *testing.T) {
 	text := readRootScript(t, "../../run-new-ui-desktop.sh")
 
 	required := []string{
-		`SUPER_DOLPHIN_HOME="${SUPER_DOLPHIN_HOME:-/tmp/sd-new-ui-${USER:-user}/super-dolphin-home}"`,
+		`PROJECT_WORKTREE_ID="$(printf '%s' "$PROJECT_DIR" | git -C "$PROJECT_DIR" hash-object --stdin)"`,
+		`PROJECT_WORKTREE_ID="${PROJECT_WORKTREE_ID:0:12}"`,
+		`SUPER_DOLPHIN_HOME="${SUPER_DOLPHIN_HOME:-/tmp/sd-new-ui-${USER:-user}/worktree-$PROJECT_WORKTREE_ID}"`,
 		`export SUPER_DOLPHIN_HOME`,
 		`mkdir -p "$(dirname "$SUPER_DOLPHIN_BACKEND_LOG")" "$(dirname "$SUPER_DOLPHIN_FRONTEND_LOG")" "$SUPER_DOLPHIN_HOME"`,
 	}
@@ -394,7 +404,7 @@ func TestNewUIDesktopScriptUsesShortDevHome(t *testing.T) {
 			t.Fatalf("run-new-ui-desktop.sh missing %q", want)
 		}
 	}
-	assertTextOrder(t, text, `SUPER_DOLPHIN_HOME="${SUPER_DOLPHIN_HOME:-/tmp/sd-new-ui-${USER:-user}/super-dolphin-home}"`, "\nensure_dev_control_session_token\nensure_sqlite_runtime")
+	assertTextOrder(t, text, `SUPER_DOLPHIN_HOME="${SUPER_DOLPHIN_HOME:-/tmp/sd-new-ui-${USER:-user}/worktree-$PROJECT_WORKTREE_ID}"`, "\nensure_dev_control_session_token\nensure_sqlite_runtime")
 	assertTextOrder(t, text, `export SUPER_DOLPHIN_HOME`, "\nensure_dev_control_session_token\nensure_sqlite_runtime")
 }
 

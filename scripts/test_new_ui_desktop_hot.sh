@@ -49,7 +49,13 @@ assert_contains "$DESKTOP_SCRIPT" "SUPER_DOLPHIN_HOT_WATCH_PATHS"
 assert_contains "$DESKTOP_SCRIPT" 'SUPER_DOLPHIN_HOT_WATCH_PATHS="cmd internal pkg sql go.mod go.sum sqlc.yaml"'
 assert_not_contains "$DESKTOP_SCRIPT" 'SUPER_DOLPHIN_HOT_WATCH_PATHS="cmd internal pkg migrations sql go.mod go.sum sqlc.yaml"'
 assert_contains "$DESKTOP_SCRIPT" ".tmp/run-new-ui-desktop/hot-peers"
-assert_contains "$DESKTOP_SCRIPT" "go run ./cmd/agent-terminal"
+assert_contains "$DESKTOP_SCRIPT" 'APP_COMMIT="$(git -C "$PROJECT_DIR" rev-parse --verify HEAD 2>/dev/null)"'
+assert_contains "$DESKTOP_SCRIPT" 'SCHEMA_BUILD_IDENTITY_LDFLAG="-X github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/toolbridge/schema.buildAppCommit=$APP_COMMIT"'
+assert_contains "$DESKTOP_SCRIPT" 'go run -ldflags "$SCHEMA_BUILD_IDENTITY_LDFLAG" ./cmd/agent-terminal'
+assert_contains "$DESKTOP_SCRIPT" 'PROJECT_WORKTREE_ID="$(printf '\''%s'\'' "$PROJECT_DIR" | git -C "$PROJECT_DIR" hash-object --stdin)"'
+assert_contains "$DESKTOP_SCRIPT" 'SUPER_DOLPHIN_HOME="${SUPER_DOLPHIN_HOME:-/tmp/sd-new-ui-${USER:-user}/worktree-$PROJECT_WORKTREE_ID}"'
+assert_contains "$DESKTOP_SCRIPT" 'make APP_COMMIT="$APP_COMMIT" build-peer-binaries'
+assert_contains "$DESKTOP_SCRIPT" 'schema_helper_package_current'
 assert_contains "$DESKTOP_SCRIPT" "npm run dev"
 
 echo "✅ new UI desktop hot reload script contract ok"

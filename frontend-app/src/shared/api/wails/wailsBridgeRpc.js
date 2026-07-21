@@ -11,6 +11,40 @@ import { createTraceContext, currentMonotonicMS, elapsedMS, emitFrontendTraceEve
 let bridgeRequestSeq = 0;
 let rpcRequestSeq = 0;
 
+const THREAD_HISTORY_SYNC_RPC_TIMEOUT_MS = 10_000;
+/** @type {Set<string>} */
+const THREAD_HISTORY_SYNC_RPC_METHODS = new Set([
+  'thread/messages',
+  'ui/state/get',
+]);
+
+class BridgeRPCTimeoutError extends Error {
+  /** @param {string} method @param {number} timeoutMs */
+  constructor(method, timeoutMs) {
+    super(`${method} timed out after ${timeoutMs}ms`);
+    this.name = 'BridgeRPCTimeoutError';
+    this.code = 'BRIDGE_RPC_TIMEOUT';
+    this.method = method;
+    this.timeoutMs = timeoutMs;
+  }
+}
+
+/** @param {string} method @param {() => Promise<unknown>} invoke */
+async function invokeAPIWithDeadline(method, invoke) {
+  if (!THREAD_HISTORY_SYNC_RPC_METHODS.has(method)) return invoke();
+
+  /** @type {ReturnType<typeof setTimeout> | undefined} */
+  let timeoutID;
+  const timeout = new Promise((_, reject) => {
+    timeoutID = setTimeout(() => {
+      reject(new BridgeRPCTimeoutError(method, THREAD_HISTORY_SYNC_RPC_TIMEOUT_MS));
+    }, THREAD_HISTORY_SYNC_RPC_TIMEOUT_MS);
+  });
+  return Promise.race([invoke(), timeout]).finally(() => {
+    if (timeoutID !== undefined) clearTimeout(timeoutID);
+  });
+}
+
 /** @param {unknown} methodID @param {unknown[]} args @param {{ logRuntimeUnavailable?: boolean, logFailure?: boolean }} options */
 async function invokeRuntimeByID(methodID, args = [], options = {}) {
   const reqId = ++bridgeRequestSeq;
@@ -242,10 +276,12 @@ async function callAPI(method, params = {}) {
 
   let result;
   try {
-    result = await invokeRuntimeByID(METHOD_IDS.CALL_API, [rpcMethod, payload], {
-      logFailure: false,
-      logRuntimeUnavailable: false,
-    });
+    result = await invokeAPIWithDeadline(rpcMethod, () => (
+      invokeRuntimeByID(METHOD_IDS.CALL_API, [rpcMethod, payload], {
+        logFailure: false,
+        logRuntimeUnavailable: false,
+      })
+    ));
   }
   catch (error) {
     // 误判防护：callAPI 附加 trace 后继续抛出错误，不吞掉 backend/runtime 失败。
@@ -278,6 +314,7 @@ async function sendFrontendLogBatch(entries) {
 
 
 export {
+  BridgeRPCTimeoutError, THREAD_HISTORY_SYNC_RPC_TIMEOUT_MS,
   invokeRuntimeByID, callByID, normalizeAPIMethod, normalizeAPIPayload, createAPITrace, buildAPIPayload,
   logAPIStart, logAPIDone, logAPIFailed, attachAPITraceToError, callAPI, sendFrontendLogBatch,
 };

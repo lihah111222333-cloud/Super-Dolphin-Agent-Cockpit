@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 
@@ -169,6 +170,27 @@ func TestSkillMirrorPublisherBlocksManualOnlyCanonicalSelfMirror(t *testing.T) {
 	}
 	assertConflictReportItem(t, report.Conflicts, "codex:project:repo", SkillProviderCodex, skillScopeProject, "manual-only", "project/manual-only", skillConflictManualOnlySelfMirror)
 	assertMissing(t, filepath.Join(target.Root, skillMirrorManifestFile))
+}
+
+func TestRepositoryProjectSkillsRemainCodexSelfMirrorCompatible(t *testing.T) {
+	repositoryRoot, err := filepath.Abs(filepath.Join("..", "..", ".."))
+	if err != nil {
+		t.Fatalf("resolve repository root: %v", err)
+	}
+	records, err := newCanonicalStore("").scan(repositoryRoot)
+	if err != nil {
+		t.Fatalf("scan repository canonical skills: %v", err)
+	}
+	var manualOnly []string
+	for _, record := range records {
+		if record.Scope == skillScopeProject && record.info.DisableModelInvocation {
+			manualOnly = append(manualOnly, record.Name)
+		}
+	}
+	sort.Strings(manualOnly)
+	if len(manualOnly) != 0 {
+		t.Fatalf("repository project skills block Codex canonical self mirror: %v", manualOnly)
+	}
 }
 
 func TestSkillMirrorPublisherDoesNotOverwriteUnmanagedOrDriftedMirrors(t *testing.T) {

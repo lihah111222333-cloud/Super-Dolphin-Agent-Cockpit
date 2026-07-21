@@ -430,23 +430,7 @@ func (m *managerStructure) Symbols(absPath string) ([]protocol.DocumentSymbol, e
 	return m.DocumentSymbol(context.Background(), fileURIFromPath(absPath))
 }
 
-// locationQuery 查询位置型 LSP 方法，并为冷启动的 JS/TS 引用请求提供有限索引等待窗口。
 func (m *manager) locationQuery(ctx context.Context, uri, method string, params any) ([]protocol.LocationResult, error) {
-	results, err := m.locationQueryOnce(ctx, uri, method, params)
-	if err != nil || method != protocol.MethodReferences || len(results) != 0 {
-		return results, err
-	}
-	ref, err := m.resolveDocumentRef(ctx, uri, "")
-	if err != nil {
-		return nil, fmt.Errorf("resolve reference document: %w", err)
-	}
-	if !isJSTSDocumentSymbolFallbackLanguage(ref.languageID) {
-		return results, nil
-	}
-	return m.retryEmptyReferences(ctx, uri, method, params, results)
-}
-
-func (m *manager) locationQueryOnce(ctx context.Context, uri, method string, params any) ([]protocol.LocationResult, error) {
 	return requestDocument(ctx, m, uri, method,
 		func(ref documentRef) any {
 			return normalizeLocationParams(params, ref.uri)

@@ -483,6 +483,65 @@ describe('wails bridge warning logs', () => {
     expect(JSON.stringify([visibleFailure, healthFailure])).not.toContain(rawCause);
   });
 
+  it.each(['thread/messages', 'ui/state/get'])(
+    'fails a stalled %s history sync RPC instead of remaining pending forever',
+    async (method) => {
+      vi.useFakeTimers();
+      try {
+        const byID = vi.fn(() => new Promise(() => {}));
+        vi.doMock(runtimeModule, () => ({
+          Call: { ByID: byID },
+          Events: { On: vi.fn() },
+        }));
+        const { callAPI, registerBridgeLogStore } = await import('./wailsBridge.js');
+        const { frontendDiagnosticCorrelationForError } = await import('../diagnostics/frontendDiagnosticCorrelation.js');
+        const logs = captureBridgeLogs(registerBridgeLogStore);
+
+        const rpcOutcome = callAPI(method, {
+          cwd: '/workspace',
+          threadId: 'thread-1',
+        }).then(
+          () => ({ status: 'resolved' }),
+          (error) => ({ status: 'rejected', error }),
+        );
+        const testDeadline = new Promise((resolve) => {
+          setTimeout(() => resolve({ status: 'still-pending' }), 10_001);
+        });
+        const outcome = Promise.race([rpcOutcome, testDeadline]);
+
+        await vi.advanceTimersByTimeAsync(10_001);
+
+        const resolvedOutcome = await outcome;
+        expect(resolvedOutcome).toMatchObject({
+          status: 'rejected',
+          error: {
+            name: 'BridgeRPCTimeoutError',
+            code: 'BRIDGE_RPC_TIMEOUT',
+            method,
+            timeoutMs: 10_000,
+          },
+        });
+        const rejected = resolvedOutcome.error;
+        const failure = logs.find((entry) => entry.event === 'api.rpc.failed');
+        expect(failure.fields).toEqual(expect.objectContaining({
+          method,
+          trace_id: rejected.traceId,
+          error: expect.objectContaining({
+            name: 'BridgeRPCTimeoutError',
+            code: 'BRIDGE_RPC_TIMEOUT',
+            message: `${method} timed out after 10000ms`,
+          }),
+        }));
+        expect(frontendDiagnosticCorrelationForError(rejected)).toBe(rejected.traceId);
+        expect(rejected).toMatchObject({ method, timeoutMs: 10_000 });
+        expect(byID.mock.calls.filter(([, calledMethod]) => calledMethod === method)).toHaveLength(1);
+      }
+      finally {
+        vi.useRealTimers();
+      }
+    },
+  );
+
   it('records failed backend RPC details with a serializable error message', async () => {
     const error = new Error('backend unavailable');
     error.code = 'ECONNREFUSED';
