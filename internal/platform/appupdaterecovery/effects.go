@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
 )
 
 // InstallFirstRelease 持久化并原子安装首次发布，不创建回滚事务。
@@ -55,7 +57,7 @@ func reconcileBackupEffect(ctx context.Context, journal journalPayload) error {
 	case !targetExists && backupExists:
 		return verifyRelease(ctx, journal.Paths.Backup, journal.Identity.OldRelease)
 	default:
-		return fmt.Errorf("backup intent has ambiguous filesystem state: target=%v backup=%v", targetExists, backupExists)
+		return fmt.Errorf("%w: backup intent target=%v backup=%v", contract.ErrUpdateTransactionAmbiguous, targetExists, backupExists)
 	}
 }
 
@@ -78,7 +80,7 @@ func reconcileInstallEffect(ctx context.Context, journal journalPayload) error {
 	case targetExists && !stagingExists:
 		return verifyRelease(ctx, journal.Paths.Target, journal.Identity.CandidateRelease)
 	default:
-		return fmt.Errorf("install intent has ambiguous filesystem state: target=%v staging=%v", targetExists, stagingExists)
+		return fmt.Errorf("%w: install intent target=%v staging=%v", contract.ErrUpdateTransactionAmbiguous, targetExists, stagingExists)
 	}
 }
 

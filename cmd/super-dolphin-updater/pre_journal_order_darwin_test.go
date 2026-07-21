@@ -1,0 +1,281 @@
+//go:build darwin
+
+package main
+
+import (
+	"context"
+	"errors"
+	"path/filepath"
+	"testing"
+
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/appupdatefailure"
+	recovery "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/appupdaterecovery"
+)
+
+const replacementGeneration = "ffeeddccbbaa99887766554433221100"
+
+func TestCommittedCreateErrorRetainsJournalAndCandidate(t *testing.T) {
+	stubSuccessfulDitto(t)
+	stageDir, _ := testUpdaterStage(t)
+	beginUpdaterAttempt(t, stageDir)
+	staged := createAppBundle(t, filepath.Join(realUpdaterTempDir(t), "Super Dolphin.app"))
+	parent := realUpdaterTempDir(t)
+	target := createAppBundle(t, filepath.Join(parent, "Super Dolphin.app"))
+	beforeDigest, err := recovery.ComputeReleaseDigest(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantErr := errors.New("generation unlock failed after journal publication")
+	helperStarted := false
+	app := defaultUpdaterApp()
+	app.createRecoveryTransaction = func(store *recovery.Store, ctx context.Context, req recovery.CreateRequest) (recovery.Transaction, error) {
+		created, createErr := store.Create(ctx, req)
+		if createErr != nil {
+			return recovery.Transaction{}, createErr
+		}
+		return created, wantErr
+	}
+	app.startProbationCandidate = func(context.Context, recovery.Transaction) (*candidateHandle, error) {
+		helperStarted = true
+		return nil, errors.New("unexpected helper start")
+	}
+	_, _, err = app.replaceTargetAppTransactionContextWithStageDir(
+		context.Background(), staged, target, "", true, true, stageDir, recoveryTestGeneration,
+	)
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("replaceTargetAppTransactionContextWithStageDir() error = %v, want %v", err, wantErr)
+	}
+	assertCommittedCreateErrorState(t, stageDir, parent, target, beforeDigest, helperStarted)
+}
+
+func assertCommittedCreateErrorState(t *testing.T, stageDir string, parent string, target string, beforeDigest string, helperStarted bool) {
+	t.Helper()
+	if helperStarted {
+		t.Fatal("probation helper started after committed Create error")
+	}
+	if _, exists, err := appupdatefailure.ReadFailure(stageDir); err != nil || exists {
+		t.Fatalf("ReadFailure() after committed Create error = (_, %v, %v), want pending sidecar hidden", exists, err)
+	}
+	journals, err := filepath.Glob(filepath.Join(parent, updateTransactionDirName, "*", "journal.json"))
+	if err != nil || len(journals) != 1 {
+		t.Fatalf("transaction journals = %v, error = %v, want one", journals, err)
+	}
+	candidates, err := filepath.Glob(filepath.Join(parent, ".Super Dolphin.staging-*.app"))
+	if err != nil || len(candidates) != 1 {
+		t.Fatalf("prepared candidates = %v, error = %v, want one", candidates, err)
+	}
+	assertTargetDigestUnchanged(t, target, beforeDigest, "committed Create error")
+}
+
+func TestDefinitelyUnpublishedCreateFailurePhasesRetainMatchingSignal(t *testing.T) {
+	for _, phase := range []string{"journal temp", "journal write", "journal pre-rename fsync", "journal rename failure"} {
+		t.Run(phase, func(t *testing.T) {
+			testJournalPublicationFailurePhase(t, phase)
+		})
+	}
+}
+
+func TestNonExactNonzeroCreateErrorPreservesPublicationUnknown(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		result func(recovery.CreateRequest) recovery.Transaction
+	}{
+		{name: "mismatched prepared", result: mismatchedPreparedCreateResult},
+		{name: "partial identity", result: partialCreateResult},
+		{name: "forged state", result: forgedStateCreateResult},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			testNonExactNonzeroCreateError(t, tc.result)
+		})
+	}
+}
+
+func testNonExactNonzeroCreateError(t *testing.T, result func(recovery.CreateRequest) recovery.Transaction) {
+	t.Helper()
+	stubSuccessfulDitto(t)
+	stageDir, _ := testUpdaterStage(t)
+	beginUpdaterAttempt(t, stageDir)
+	staged := createAppBundle(t, filepath.Join(realUpdaterTempDir(t), "Super Dolphin.app"))
+	parent := realUpdaterTempDir(t)
+	target := createAppBundle(t, filepath.Join(parent, "Super Dolphin.app"))
+	beforeDigest, err := recovery.ComputeReleaseDigest(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantErr := errors.New("untrusted nonzero create result")
+	helperStarted := false
+	app := defaultUpdaterApp()
+	app.createRecoveryTransaction = func(_ *recovery.Store, _ context.Context, req recovery.CreateRequest) (recovery.Transaction, error) {
+		return result(req), wantErr
+	}
+	app.startProbationCandidate = func(context.Context, recovery.Transaction) (*candidateHandle, error) {
+		helperStarted = true
+		return nil, errors.New("unexpected helper start")
+	}
+	created, _, err := app.replaceTargetAppTransactionContextWithStageDir(
+		context.Background(), staged, target, "", true, true, stageDir, recoveryTestGeneration,
+	)
+	if !errors.Is(err, wantErr) || created != (recovery.Transaction{}) {
+		t.Fatalf("replaceTargetAppTransactionContextWithStageDir() = (%+v, _, %v), want zero transaction and %v", created, err, wantErr)
+	}
+	assertUnknownCreateErrorState(t, stageDir, parent, target, beforeDigest, helperStarted)
+}
+
+func mismatchedPreparedCreateResult(req recovery.CreateRequest) recovery.Transaction {
+	const createdAt = "2026-07-21T00:00:00Z"
+	req.Identity.TransactionID = recovery.TransactionID(replacementGeneration)
+	return recovery.Transaction{
+		Identity: req.Identity, Paths: req.Paths, State: recovery.StatePrepared, Trust: req.Trust,
+		TargetGeneration: 1, Revision: 1, CreatedAt: createdAt, UpdatedAt: createdAt,
+	}
+}
+
+func partialCreateResult(req recovery.CreateRequest) recovery.Transaction {
+	return recovery.Transaction{Identity: recovery.Identity{TransactionID: req.Identity.TransactionID}}
+}
+
+func forgedStateCreateResult(req recovery.CreateRequest) recovery.Transaction {
+	return recovery.Transaction{Identity: req.Identity, Paths: req.Paths, State: recovery.StateCommitted}
+}
+
+func assertUnknownCreateErrorState(t *testing.T, stageDir string, parent string, target string, beforeDigest string, helperStarted bool) {
+	t.Helper()
+	if helperStarted {
+		t.Fatal("probation helper started for publication-unknown Create error")
+	}
+	if _, exists, err := appupdatefailure.ReadFailure(stageDir); err != nil || exists {
+		t.Fatalf("ReadFailure() after publication-unknown Create error = (_, %v, %v), want pending sidecar hidden", exists, err)
+	}
+	journals, err := filepath.Glob(filepath.Join(parent, updateTransactionDirName, "*", "journal.json"))
+	if err != nil || len(journals) != 0 {
+		t.Fatalf("transaction journals = %v, error = %v, want none", journals, err)
+	}
+	candidates, err := filepath.Glob(filepath.Join(parent, ".Super Dolphin.staging-*.app"))
+	if err != nil || len(candidates) != 1 {
+		t.Fatalf("prepared candidates = %v, error = %v, want one", candidates, err)
+	}
+	assertTargetDigestUnchanged(t, target, beforeDigest, "publication-unknown Create error")
+	if err := appupdatefailure.Clear(stageDir, recoveryTestGeneration); err != nil {
+		t.Fatalf("Clear() after publication-unknown Create error = %v, want preserved pending sidecar", err)
+	}
+}
+
+func testJournalPublicationFailurePhase(t *testing.T, phase string) {
+	t.Helper()
+	stubSuccessfulDitto(t)
+	stageDir, _ := testUpdaterStage(t)
+	beginUpdaterAttempt(t, stageDir)
+	staged := createAppBundle(t, filepath.Join(realUpdaterTempDir(t), "Super Dolphin.app"))
+	parent := realUpdaterTempDir(t)
+	target := createAppBundle(t, filepath.Join(parent, "Super Dolphin.app"))
+	beforeDigest, err := recovery.ComputeReleaseDigest(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantErr := errors.New(phase + " failed")
+	helperStarted := false
+	app := defaultUpdaterApp()
+	app.createRecoveryTransaction = func(*recovery.Store, context.Context, recovery.CreateRequest) (recovery.Transaction, error) {
+		return recovery.Transaction{}, wantErr
+	}
+	app.startProbationCandidate = func(context.Context, recovery.Transaction) (*candidateHandle, error) {
+		helperStarted = true
+		return nil, errors.New("unexpected helper start")
+	}
+	_, _, err = app.replaceTargetAppTransactionContextWithStageDir(
+		context.Background(), staged, target, "", true, true, stageDir, recoveryTestGeneration,
+	)
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("replaceTargetAppTransactionContextWithStageDir() error = %v, want %v", err, wantErr)
+	}
+	assertJournalPublicationFailureState(t, stageDir, parent, target, beforeDigest, helperStarted)
+}
+
+func assertJournalPublicationFailureState(t *testing.T, stageDir string, parent string, target string, beforeDigest string, helperStarted bool) {
+	t.Helper()
+	if helperStarted {
+		t.Fatal("probation helper started after journal publication failure")
+	}
+	failure, exists, err := appupdatefailure.ReadFailure(stageDir)
+	if err != nil || !exists || failure.Code != "UPDATE_INTEGRITY_INVALID" {
+		t.Fatalf("ReadFailure() = (%#v, %v, %v), want matching integrity failure", failure, exists, err)
+	}
+	journals, err := filepath.Glob(filepath.Join(parent, updateTransactionDirName, "*", "journal.json"))
+	if err != nil || len(journals) != 0 {
+		t.Fatalf("transaction journals = %v, error = %v, want none", journals, err)
+	}
+	candidates, err := filepath.Glob(filepath.Join(parent, ".Super Dolphin.staging-*.app"))
+	if err != nil || len(candidates) != 0 {
+		t.Fatalf("prepared candidates = %v, error = %v, want none", candidates, err)
+	}
+	assertTargetDigestUnchanged(t, target, beforeDigest, "journal failure")
+}
+
+func assertTargetDigestUnchanged(t *testing.T, target string, beforeDigest string, operation string) {
+	t.Helper()
+	afterDigest, err := recovery.ComputeReleaseDigest(target)
+	if err != nil || afterDigest != beforeDigest {
+		t.Fatalf("target digest after %s = %q, %v, want unchanged %q", operation, afterDigest, err, beforeDigest)
+	}
+}
+
+func TestCrashBetweenJournalAndClearRecoversFromJournal(t *testing.T) {
+	stageDir, target, created, storeRoot := createPreparedJournalWithPendingSidecar(t)
+	if _, exists, err := appupdatefailure.ReadFailure(stageDir); err != nil || exists {
+		t.Fatalf("ReadFailure() before simulated crash = (_, %v, %v), want pending hidden", exists, err)
+	}
+	reopened, err := recovery.NewStore(storeRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	selected, found, err := reopened.SelectForTarget(context.Background(), target)
+	if err != nil || !found || selected.Identity != created.Identity || selected.State != recovery.StatePrepared {
+		t.Fatalf("SelectForTarget() = (%+v, %v, %v), want prepared journal %+v", selected, found, err, created.Identity)
+	}
+}
+
+func TestClearGenerationMismatchPreservesNewSidecarAndOldJournal(t *testing.T) {
+	stageDir, target, created, storeRoot := createPreparedJournalWithPendingSidecar(t)
+	if err := appupdatefailure.Begin(stageDir, replacementGeneration); err != nil {
+		t.Fatal(err)
+	}
+	if err := clearPreJournalFailure(stageDir, recoveryTestGeneration); err == nil {
+		t.Fatal("clearPreJournalFailure(old generation) error = nil, want mismatch")
+	}
+	if err := appupdatefailure.FailCode(stageDir, replacementGeneration, "UPDATE_INTEGRITY_INVALID"); err != nil {
+		t.Fatalf("FailCode(new generation) error = %v, want new sidecar preserved", err)
+	}
+	assertUpdaterSidecar(t, stageDir, "UPDATE_INTEGRITY_INVALID")
+	reopened, err := recovery.NewStore(storeRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	selected, found, err := reopened.SelectForTarget(context.Background(), target)
+	if err != nil || !found || selected.Identity != created.Identity {
+		t.Fatalf("SelectForTarget() = (%+v, %v, %v), want old journal %+v", selected, found, err, created.Identity)
+	}
+}
+
+func createPreparedJournalWithPendingSidecar(t *testing.T) (string, string, recovery.Transaction, string) {
+	t.Helper()
+	stubSuccessfulDitto(t)
+	stageDir, _ := testUpdaterStage(t)
+	beginUpdaterAttempt(t, stageDir)
+	staged := createAppBundle(t, filepath.Join(realUpdaterTempDir(t), "Super Dolphin.app"))
+	parent := realUpdaterTempDir(t)
+	target := createAppBundle(t, filepath.Join(parent, "Super Dolphin.app"))
+	request, _, err := defaultUpdaterApp().prepareReleaseTransaction(context.Background(), staged, target, "", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	storeRoot := filepath.Join(parent, updateTransactionDirName)
+	store, err := recovery.NewStore(storeRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	created, err := store.Create(context.Background(), request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return stageDir, target, created, storeRoot
+}

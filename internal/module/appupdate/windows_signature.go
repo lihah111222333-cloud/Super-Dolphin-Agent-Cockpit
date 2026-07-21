@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
 	platformconfig "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/config"
 )
 
@@ -80,7 +81,7 @@ if ($null -ne $cert) {
 		return fmt.Errorf("verify Windows installer Authenticode signature timed out: %w", ctx.Err())
 	}
 	if err != nil {
-		return fmt.Errorf("verify Windows installer Authenticode signature: %w: %s", err, strings.TrimSpace(string(output)))
+		return windowsSignatureCommandFailure(err)
 	}
 	var sig authenticodeSignature
 	if err := json.Unmarshal(output, &sig); err != nil {
@@ -89,21 +90,26 @@ if ($null -ne $cert) {
 	return validateAuthenticodeSignature(sig, publisher, thumbprint)
 }
 
+// windowsSignatureCommandFailure 保留基础设施错误类型，但不附带 PowerShell 原始输出。
+func windowsSignatureCommandFailure(err error) error {
+	return fmt.Errorf("verify Windows installer Authenticode signature: %w", err)
+}
+
 // validateAuthenticodeSignature 比对 PowerShell 返回的签名状态和证书字段。
 func validateAuthenticodeSignature(sig authenticodeSignature, publisher, thumbprint string) error {
 	if !strings.EqualFold(strings.TrimSpace(sig.Status), "Valid") {
-		return fmt.Errorf("Windows installer Authenticode status = %q, want Valid", sig.Status)
+		return fmt.Errorf("%w: Windows installer Authenticode status is not Valid", contract.ErrUpdateSignatureInvalid)
 	}
 	if !strings.Contains(
 		strings.ToLower(strings.TrimSpace(sig.Subject)),
 		strings.ToLower(strings.TrimSpace(publisher)),
 	) {
-		return fmt.Errorf("Windows installer publisher %q does not match expected publisher %q", sig.Subject, publisher)
+		return fmt.Errorf("%w: Windows installer publisher does not match expected publisher", contract.ErrUpdateSignatureInvalid)
 	}
 	actualThumbprint := normalizeCertificateThumbprint(sig.Thumbprint)
 	expectedThumbprint := normalizeCertificateThumbprint(thumbprint)
 	if actualThumbprint == "" || !strings.EqualFold(actualThumbprint, expectedThumbprint) {
-		return fmt.Errorf("Windows installer certificate thumbprint = %q, want %q", sig.Thumbprint, thumbprint)
+		return fmt.Errorf("%w: Windows installer certificate thumbprint does not match", contract.ErrUpdateSignatureInvalid)
 	}
 	return nil
 }

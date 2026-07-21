@@ -65,6 +65,42 @@ phase_end() {
   echo "==> [$phase_label] done in ${elapsed}s $(date '+%H:%M:%S')" >&2
 }
 
+verify_packaged_node_version() {
+  local node_path="$resources/lsp/node/bin/node"
+  local version_output version line_count major minor patch
+  if [[ ! -x "$node_path" ]]; then
+    echo "packaged Node.js >= 22.5.0 is required by @bytebase/dbhub@0.23.0" >&2
+    exit 1
+  fi
+  version_output="$(mktemp "${TMPDIR:-/tmp}/super-dolphin-node-version.XXXXXX")"
+  if ! "$node_path" --version >"$version_output" 2>/dev/null; then
+    rm -f "$version_output"
+    echo "packaged Node.js >= 22.5.0 is required by @bytebase/dbhub@0.23.0" >&2
+    exit 1
+  fi
+  line_count="$(awk 'END { print NR }' "$version_output")"
+  if [[ "$line_count" != "1" ]]; then
+    rm -f "$version_output"
+    echo "packaged Node.js >= 22.5.0 is required by @bytebase/dbhub@0.23.0" >&2
+    exit 1
+  fi
+  version="$(sed -n '1p' "$version_output")"
+  rm -f "$version_output"
+  version="${version#"${version%%[![:space:]]*}"}"
+  version="${version%"${version##*[![:space:]]}"}"
+  if [[ ! "$version" =~ ^v([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+    echo "packaged Node.js >= 22.5.0 is required by @bytebase/dbhub@0.23.0" >&2
+    exit 1
+  fi
+  major=$((10#${BASH_REMATCH[1]}))
+  minor=$((10#${BASH_REMATCH[2]}))
+  patch=$((10#${BASH_REMATCH[3]}))
+  if ((major < 22 || (major == 22 && (minor < 5 || (minor == 5 && patch < 0))))); then
+    echo "packaged Node.js >= 22.5.0 is required by @bytebase/dbhub@0.23.0" >&2
+    exit 1
+  fi
+}
+
 sha256_file() {
   local path="$1"
   if command -v sha256sum >/dev/null 2>&1; then
@@ -792,6 +828,7 @@ fi
 "$resources/bin/mcp-schema-compiler-helper" --verify-package "$resources/bin/mcp-schema-compiler-helper.manifest.json"
 
 verify_runtime_manifest
+verify_packaged_node_version
 if [[ -f "$resources/lsp/lsp-manifest.json" ]] && lsp_manifest_value "$resources/lsp/lsp-manifest.json" "jdtls" path >/dev/null 2>&1; then
   required_execs+=("$resources/bin/jdtls")
 fi

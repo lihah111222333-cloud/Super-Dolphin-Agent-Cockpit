@@ -313,13 +313,20 @@ func (s *service) DeleteServer(ctx context.Context, req DeleteServerRequest) (De
 }
 
 type mcpServerConfigProvider struct {
-	svc Service
+	svc             Service
+	sqliteMigration sqliteConfigMigrationService
+}
+
+type sqliteConfigMigrationService interface {
+	resolveSQLiteDatabasePath(requested string) (string, error)
+	migrateUnpinnedSQLiteServerConfig(ctx context.Context, cwd, databasePath string) (sqliteConfigMigrationResult, error)
 }
 
 // AsMCPServerConfigProvider 将 Service 适配为 provider 层可消费的 MCPServerConfigProvider。
 // 适配器只暴露 enabled 配置，避免 provider 拉起已关闭的 server。
 func AsMCPServerConfigProvider(svc Service) contract.MCPServerConfigProvider {
-	return mcpServerConfigProvider{svc: svc}
+	migration, _ := svc.(sqliteConfigMigrationService)
+	return mcpServerConfigProvider{svc: svc, sqliteMigration: migration}
 }
 
 // ListMCPServerConfigs 返回指定 cwd 下 provider 可启动的 MCP server 配置。
@@ -331,6 +338,24 @@ func (p mcpServerConfigProvider) ListMCPServerConfigs(ctx context.Context, cwd s
 	result, err := p.svc.ListServersForCWD(ctx, cwd)
 	if err != nil {
 		return nil, err
+	}
+	if sqliteConfig, ok := result.MCPServers[DefaultSQLiteServerName]; ok && isUnpinnedSQLiteServerConfigCandidate(sqliteConfig) {
+		if p.sqliteMigration == nil {
+			return nil, errors.New("mcp server sqlite config migration is not configured")
+		}
+		databasePath, err := p.sqliteMigration.resolveSQLiteDatabasePath("")
+		if err != nil {
+			return nil, err
+		}
+		migration, err := p.sqliteMigration.migrateUnpinnedSQLiteServerConfig(ctx, cwd, databasePath)
+		if err != nil {
+			return nil, err
+		}
+		if migration.Exists {
+			result.MCPServers[DefaultSQLiteServerName] = migration.Config
+		} else {
+			delete(result.MCPServers, DefaultSQLiteServerName)
+		}
 	}
 	return enabledMCPServersToContract(result.MCPServers), nil
 }

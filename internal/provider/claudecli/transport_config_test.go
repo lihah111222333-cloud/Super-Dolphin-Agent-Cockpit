@@ -262,7 +262,7 @@ func TestWriteManifestConfigIncludesAllowedNPXSQLiteStdioServer(t *testing.T) {
 		Command: []string{
 			"npx",
 			"-y",
-			"@bytebase/dbhub",
+			"@bytebase/dbhub@0.23.0",
 			"--dsn=" + dsn,
 		},
 	}}}
@@ -288,7 +288,7 @@ func TestWriteManifestConfigIncludesAllowedNPXSQLiteStdioServer(t *testing.T) {
 		t.Fatalf("sqlite server = %#v, want npx command", server)
 	}
 	args, _ := server["args"].([]any)
-	if len(args) != 3 || args[1] != "@bytebase/dbhub" || args[2] != "--dsn="+dsn {
+	if len(args) != 3 || args[1] != "@bytebase/dbhub@0.23.0" || args[2] != "--dsn="+dsn {
 		t.Fatalf("sqlite args = %#v, want dbhub sqlite npx package", args)
 	}
 }

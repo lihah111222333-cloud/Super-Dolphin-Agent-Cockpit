@@ -4,14 +4,14 @@
   "rules_sources": [
     ".ai-project-map.overrides.json"
   ],
-  "files": 4718,
+  "files": 4752,
   "domains": {
-    "docs-agent": 957,
-    "other": 694,
-    "app-ui": 637,
-    "platform-provider": 1098,
+    "docs-agent": 958,
+    "other": 704,
+    "app-ui": 642,
+    "platform-provider": 1112,
     "orchestration": 391,
-    "modules": 737,
+    "modules": 741,
     "store-sql": 204
   },
   "index_files": {
@@ -21,8 +21,8 @@
       {
         "key": "app-ui",
         "file": "docs/doc/codemap/project-map/index/app-ui.tsv",
-        "file_count": 637,
-        "size_kb": 129.5,
+        "file_count": 642,
+        "size_kb": 130.6,
         "desc": "桌面应用、Wails host、React/Vite 前端与 UI 测试"
       },
       {
@@ -35,15 +35,15 @@
       {
         "key": "modules",
         "file": "docs/doc/codemap/project-map/index/modules.tsv",
-        "file_count": 737,
-        "size_kb": 143.5,
+        "file_count": 741,
+        "size_kb": 144.2,
         "desc": "业务模块层：dashboard、memory、prompt、skill、thread、turn、uistate 等"
       },
       {
         "key": "platform-provider",
         "file": "docs/doc/codemap/project-map/index/platform-provider.tsv",
-        "file_count": 1098,
-        "size_kb": 202.5,
+        "file_count": 1112,
+        "size_kb": 205,
         "desc": "基础设施与 provider 集成：RPC、hooks、toolbridge、Claude/Codex/统一 provider"
       },
       {
@@ -56,27 +56,27 @@
       {
         "key": "docs-agent",
         "file": "docs/doc/codemap/project-map/index/docs-agent.tsv",
-        "file_count": 957,
-        "size_kb": 172.6,
+        "file_count": 958,
+        "size_kb": 172.7,
         "desc": "代码地图、ADR/决策、计划与 docs 项目知识"
       },
       {
         "key": "other",
         "file": "docs/doc/codemap/project-map/index/other.tsv",
-        "file_count": 694,
-        "size_kb": 135.6,
+        "file_count": 704,
+        "size_kb": 137.8,
         "desc": "公共库、脚本、测试、配置与其他根级资源"
       }
     ]
   },
   "module_counts": {
     "(root)": 12,
-    "cmd": 662,
-    "docs": 949,
-    "frontend-app": 632,
-    "internal": 2245,
+    "cmd": 666,
+    "docs": 950,
+    "frontend-app": 636,
+    "internal": 2264,
     "pkg": 30,
-    "scripts": 140,
+    "scripts": 146,
     "sql": 29,
     "test": 9,
     "tests": 1,
@@ -232,7 +232,7 @@
   ],
   "drift": {
     "status": "OK",
-    "unknown_ratio": 0.003,
+    "unknown_ratio": 0.0029,
     "unknown_files": 14,
     "thresholds": {
       "max_unknown_ratio": 0.05

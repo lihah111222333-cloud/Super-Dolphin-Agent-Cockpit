@@ -230,6 +230,12 @@ func preparePreCommitGateFixture(t *testing.T) string {
 func writeFakeAIMaintenanceGateScript(t *testing.T, root string) {
 	t.Helper()
 	content := "#!/usr/bin/env bash\nset -e\nprintf 'fake ai maintenance gate %s\\n' \"$*\"\nprintf 'gate-worktree=%s\\n' \"$PWD\"\nif [ -n \"${GATE_MUTATE_ORIGINAL_PATH:-}\" ]; then\n  printf 'mutated during gate\\n' >\"$GATE_MUTATE_ORIGINAL_PATH\"\nfi\nif [ -n \"${GATE_ASSERT_RELATIVE_PATH:-}\" ]; then\n  grep -Fq \"${GATE_ASSERT_CONTENT:?}\" \"$GATE_ASSERT_RELATIVE_PATH\"\nfi\nif [ -n \"${GIT_INDEX_FILE:-}\" ]; then\n  printf 'gate-index=%s gate-tree=%s\\n' \"$GIT_INDEX_FILE\" \"$(git write-tree)\"\nfi\nif [ -n \"${GATE_ASSERT_WORKTREE_INDEX:-}\" ]; then\n  cache_tree=$(git write-tree)\n  worktree_tree=$(unset GIT_INDEX_FILE; git write-tree)\n  printf 'cache-tree=%s worktree-tree=%s\\n' \"$cache_tree\" \"$worktree_tree\"\n  [ \"$cache_tree\" = \"$worktree_tree\" ]\nfi\nif [ -n \"${GATE_ASSERT_NODE_MODULES_COPY:-}\" ]; then\n  [ -d frontend-app/node_modules ]\n  [ ! -L frontend-app/node_modules ]\n  [ -x frontend-app/node_modules/.bin/vite ]\nfi\nif [ -n \"${GATE_FORCE_CLEANUP_FAILURE:-}\" ]; then\n  chmod 0500 \"$TMPDIR\"\nfi\nif [ -n \"${HOOK_SCOPE_LOG:-}\" ]; then\n  printf 'soft-generated=%s ai-maintenance %s\\n' \"${SUPER_DOLPHIN_PRE_PUSH_SOFT_GENERATED_DRIFT:-}\" \"$*\" >>\"$HOOK_SCOPE_LOG\"\nfi\n"
+	content = strings.Replace(
+		content,
+		"printf 'gate-worktree=%s\\n' \"$PWD\"\n",
+		"printf 'gate-worktree=%s\\n' \"$PWD\"\nprintf 'gate-head-parents=%s\\n' \"$(git rev-list --parents -n 1 HEAD)\"\n",
+		1,
+	)
 	path := filepath.Join(root, "scripts", "ai_maintenance_gates.sh")
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatalf("mkdir fake ai maintenance gate dir: %v", err)

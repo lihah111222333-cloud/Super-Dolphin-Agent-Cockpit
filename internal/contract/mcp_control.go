@@ -28,7 +28,7 @@ type MCPServerConfig struct {
 const RuntimeMCPTrustedServerIDKey = "trustedServerId"
 
 const (
-	runtimeMCPSQLitePackage       = "@bytebase/dbhub"
+	runtimeMCPSQLitePackage       = "@bytebase/dbhub@0.23.0"
 	runtimeMCPLegacySQLitePackage = "@modelcontextprotocol/server-sqlite"
 	runtimeMCPBrokenSQLitePackage = "mcp-server-sqlite"
 	runtimeMCPPlaywrightPackage   = "@playwright/mcp@latest"

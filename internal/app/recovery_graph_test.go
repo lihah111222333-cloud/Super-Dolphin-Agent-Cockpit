@@ -94,6 +94,28 @@ func TestSelectStartupDoesNotRecordHealthyACKBeforeReady(t *testing.T) {
 	}
 }
 
+func TestSelectStartupProbationDigestMismatchCarriesIntegrityFailureIntoRuntime(t *testing.T) {
+	store, transaction, process := createStartupProbation(t)
+	if err := os.WriteFile(transaction.Paths.Target, []byte("tampered candidate"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	selection, err := SelectStartup(t.Context(), StartupSelectorInput{
+		Store: store, Process: process, ExpectedTransactionID: transaction.Identity.TransactionID,
+		LeaseWait: time.Second, DigestTimeout: StartupDigestTimeout,
+	})
+	if !errors.Is(err, ErrUpdateIntegrityInvalid) {
+		t.Fatalf("SelectStartup() error = %v, want ErrUpdateIntegrityInvalid", err)
+	}
+	want := RecoveryFailureForError(ErrUpdateIntegrityInvalid, transaction.Identity.TransactionID)
+	if selection.Failure != want {
+		t.Fatalf("selection failure = %#v, want %#v", selection.Failure, want)
+	}
+	runtime := mustStartupValue(t, func() (*RecoveryRuntime, error) { return NewRecoveryRuntime(selection) })
+	if runtime.CurrentFailure() != want {
+		t.Fatalf("runtime failure = %#v, want %#v", runtime.CurrentFailure(), want)
+	}
+}
+
 func TestSelectStartupRejectsNonPositiveDigestTimeout(t *testing.T) {
 	store, transaction, process := createStartupProbation(t)
 	for _, digestTimeout := range []time.Duration{0, -time.Second} {

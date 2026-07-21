@@ -706,19 +706,19 @@ func TestSchemaCompilerCapacityWaitIsBounded(t *testing.T) {
 	}
 }
 
-func TestSchemaCompilerReapFailurePermanentlyConsumesCapacity(t *testing.T) {
-	limiter := newHelperLimiter(maxLiveHelpers)
-	reapFailed := func() (Result, error) {
+func TestSchemaCompilerLateReapReturnsCapacity(t *testing.T) {
+	limiter := newHelperLimiter(1)
+	var completeLateReap func()
+	reapFailed := func(capacity *helperCapacityTracker) (Result, error) {
+		completeLateReap = capacity.registerLateReap()
 		return Result{}, newDiagnostic(CodeReapFailed, "fixture did not reap", nil)
 	}
-	for range maxLiveHelpers {
-		if _, err := limiter.run(context.Background(), reapFailed); ErrorCode(err) != CodeReapFailed {
-			t.Fatalf("limiter.run() code = %q, want %q; error=%v", ErrorCode(err), CodeReapFailed, err)
-		}
+	if _, err := limiter.run(context.Background(), reapFailed); ErrorCode(err) != CodeReapFailed {
+		t.Fatalf("limiter.run() code = %q, want %q; error=%v", ErrorCode(err), CodeReapFailed, err)
 	}
 	started := false
 	startedAt := time.Now()
-	_, err := limiter.run(context.Background(), func() (Result, error) {
+	_, err := limiter.run(context.Background(), func(*helperCapacityTracker) (Result, error) {
 		started = true
 		return Result{}, nil
 	})
@@ -730,6 +730,16 @@ func TestSchemaCompilerReapFailurePermanentlyConsumesCapacity(t *testing.T) {
 	}
 	if elapsed := time.Since(startedAt); elapsed > capacityWait+250*time.Millisecond {
 		t.Fatalf("fail-closed capacity wait took %v", elapsed)
+	}
+	if completeLateReap == nil {
+		t.Fatal("late reap release callback was not provided")
+	}
+	completeLateReap()
+	completeLateReap()
+	if _, err := limiter.run(context.Background(), func(*helperCapacityTracker) (Result, error) {
+		return Result{}, nil
+	}); err != nil {
+		t.Fatalf("limiter.run() after late reap error = %v", err)
 	}
 }
 

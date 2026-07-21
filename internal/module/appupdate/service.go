@@ -3,6 +3,7 @@ package appupdate
 import (
 	"context"
 	"crypto/ed25519"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
@@ -20,6 +21,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/appupdatefailure"
 	platformconfig "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/config"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util/safego"
 	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
@@ -242,6 +245,17 @@ func (s *service) Check(ctx context.Context) (CheckResult, error) {
 	if !s.cfg.Enabled {
 		return CheckResult{Enabled: false, Available: false}, nil
 	}
+	failure, exists, err := s.readPreJournalFailure()
+	if err != nil {
+		return CheckResult{}, fmt.Errorf("read app update pre-journal failure: %w", err)
+	}
+	if exists {
+		recoveryErr, err := appupdatefailure.NewError(failure)
+		if err != nil {
+			return CheckResult{}, fmt.Errorf("construct app update pre-journal failure: %w", err)
+		}
+		return CheckResult{}, recoveryErr
+	}
 	payload, artifact, err := s.fetchManifest(ctx)
 	if errors.Is(err, ErrNoUpdate) {
 		return CheckResult{Enabled: true, Available: false}, nil
@@ -259,12 +273,12 @@ func (s *service) Check(ctx context.Context) (CheckResult, error) {
 
 // Download 下载并校验更新产物，成功后写入 stage manifest 供 Install 使用。
 func (s *service) Download(ctx context.Context) (DownloadResult, error) {
+	if err := s.invalidatePreJournalFailure(); err != nil {
+		return DownloadResult{}, err
+	}
 	payload, artifact, err := s.fetchManifest(ctx)
 	if err != nil {
 		return DownloadResult{}, err
-	}
-	if err := os.MkdirAll(s.cfg.StageDir, 0o700); err != nil {
-		return DownloadResult{}, fmt.Errorf("create app update stage dir: %w", err)
 	}
 	artifactPath, err := stagedArtifactPathFor(s.cfg.StageDir, artifact)
 	if err != nil {
@@ -298,6 +312,11 @@ func (s *service) Download(ctx context.Context) (DownloadResult, error) {
 
 // Install 读取已暂存的更新记录并启动平台安装命令，成功启动后延迟请求宿主退出。
 func (s *service) Install(ctx context.Context) (InstallResult, error) {
+	return s.install(ctx)
+}
+
+// install 启动暂存更新，并为 Darwin helper 建立唯一 pre-journal 代际。
+func (s *service) install(ctx context.Context) (InstallResult, error) {
 	_ = ctx
 	if s.requestQuit == nil {
 		return InstallResult{}, errors.New("app update request quit callback is not configured")
@@ -306,13 +325,14 @@ func (s *service) Install(ctx context.Context) (InstallResult, error) {
 	if err != nil {
 		return InstallResult{}, err
 	}
-	if err := validateStagedUpdate(staged); err != nil {
+	if err := s.validateInstallSelection(staged); err != nil {
 		return InstallResult{}, err
 	}
-	if err := s.verifyInstallGate(staged); err != nil {
+	generation, err := s.beginInstallAttempt(staged)
+	if err != nil {
 		return InstallResult{}, err
 	}
-	cmd, helper, err := s.installCommand(staged)
+	cmd, helper, err := s.installCommand(staged, generation)
 	if err != nil {
 		return InstallResult{}, err
 	}
@@ -329,12 +349,94 @@ func (s *service) Install(ctx context.Context) (InstallResult, error) {
 	return InstallResult{Started: true, Helper: helper}, nil
 }
 
+func (s *service) validateInstallSelection(staged selectedUpdate) error {
+	if err := validateStagedUpdate(staged); err != nil {
+		return err
+	}
+	if err := s.validateStagedIdentity(staged); err != nil {
+		return err
+	}
+	return s.verifyInstallGate(staged)
+}
+
+// validateStagedIdentity 将 selected-update 绑定到当前配置平台与唯一 stage 产物路径。
+func (s *service) validateStagedIdentity(staged selectedUpdate) error {
+	if staged.Artifact.Platform != s.cfg.Platform {
+		return fmt.Errorf("selected app update platform %q does not match configured platform %q", staged.Artifact.Platform, s.cfg.Platform)
+	}
+	expected, err := stagedArtifactPathFor(s.cfg.StageDir, staged.Artifact)
+	if err != nil {
+		return err
+	}
+	if selectedArtifactPath(staged) != expected {
+		return fmt.Errorf("selected app update artifact path %q does not match staged path %q", selectedArtifactPath(staged), expected)
+	}
+	if updatePlatformOS(staged.Artifact.Platform) == "darwin" && staged.DMGPath != expected {
+		return fmt.Errorf("selected app update dmg path %q does not match staged path %q", staged.DMGPath, expected)
+	}
+	return nil
+}
+
+// readPreJournalFailure 仅在 Darwin 更新配置下读取可见 failure 状态。
+func (s *service) readPreJournalFailure() (contract.RecoveryFailure, bool, error) {
+	if runtime.GOOS != "darwin" || updatePlatformOS(s.cfg.Platform) != "darwin" {
+		return contract.RecoveryFailure{}, false, nil
+	}
+	if _, err := os.Lstat(s.cfg.StageDir); errors.Is(err, os.ErrNotExist) {
+		return contract.RecoveryFailure{}, false, nil
+	} else if err != nil {
+		return contract.RecoveryFailure{}, false, fmt.Errorf("inspect app update stage dir: %w", err)
+	}
+	return appupdatefailure.ReadFailure(s.cfg.StageDir)
+}
+
+// invalidatePreJournalFailure 仅在 Darwin 显式 Download retry 边界清除所有旧代际。
+func (s *service) invalidatePreJournalFailure() error {
+	if runtime.GOOS != "darwin" || updatePlatformOS(s.cfg.Platform) != "darwin" {
+		return nil
+	}
+	if err := os.MkdirAll(s.cfg.StageDir, 0o700); err != nil {
+		return fmt.Errorf("create app update stage dir: %w", err)
+	}
+	if err := appupdatefailure.InvalidateAll(s.cfg.StageDir); err != nil {
+		return fmt.Errorf("invalidate app update pre-journal failure: %w", err)
+	}
+	return nil
+}
+
+// beginInstallAttempt 为 Darwin helper 建立 crypto-random generation；其他平台不调用 sidecar。
+func (s *service) beginInstallAttempt(staged selectedUpdate) (string, error) {
+	if runtime.GOOS != "darwin" || updatePlatformOS(staged.Artifact.Platform) != "darwin" {
+		return "", nil
+	}
+	if err := os.MkdirAll(s.cfg.StageDir, 0o700); err != nil {
+		return "", fmt.Errorf("create app update stage dir: %w", err)
+	}
+	generation, err := newPreJournalGeneration()
+	if err != nil {
+		return "", err
+	}
+	if err := appupdatefailure.Begin(s.cfg.StageDir, generation); err != nil {
+		return "", fmt.Errorf("begin app update pre-journal attempt: %w", err)
+	}
+	return generation, nil
+}
+
+// newPreJournalGeneration 生成不可预测的固定长度小写十六进制代际标识。
+func newPreJournalGeneration() (string, error) {
+	var raw [16]byte
+	if _, err := rand.Read(raw[:]); err != nil {
+		return "", fmt.Errorf("generate app update pre-journal generation: %w", err)
+	}
+	return hex.EncodeToString(raw[:]), nil
+}
+
 // InstallLatest 串联 Download 和 Install，确保安装的是当前检查到的最新产物。
 func (s *service) InstallLatest(ctx context.Context) (InstallResult, error) {
 	if _, err := s.Download(ctx); err != nil {
 		return InstallResult{}, err
 	}
-	return s.Install(ctx)
+	return s.install(ctx)
 }
 
 // scheduleRequestQuit 在短暂延迟后调用 requestQuit，让 RPC 响应先行发出。
@@ -438,7 +540,7 @@ func writeVerifiedArtifact(tmpPath string, body io.Reader, artifact UpdateArtifa
 	}
 	actualSHA := hex.EncodeToString(hash.Sum(nil))
 	if !strings.EqualFold(actualSHA, artifact.SHA256) {
-		return fmt.Errorf("app update artifact sha256 = %s, want %s", actualSHA, artifact.SHA256)
+		return fmt.Errorf("%w: app update artifact sha256 = %s, want %s", contract.ErrUpdateIntegrityInvalid, actualSHA, artifact.SHA256)
 	}
 	return nil
 }
@@ -501,11 +603,14 @@ func (s *service) verifyInstallGate(staged selectedUpdate) error {
 }
 
 // installCommand 按平台构造安装命令，macOS 使用 helper，Windows 直接运行安装包。
-func (s *service) installCommand(staged selectedUpdate) (*exec.Cmd, string, error) {
+func (s *service) installCommand(staged selectedUpdate, generation string) (*exec.Cmd, string, error) {
 	artifactPath := selectedArtifactPath(staged)
 	switch updatePlatformOS(staged.Artifact.Platform) {
 	case "darwin":
-		args := []string{"-dmg", artifactPath, "-target", s.cfg.TargetAppPath, "-restart", "-wait-pid", strconv.Itoa(os.Getpid()), "-log", s.helperLogPath()}
+		if err := appupdatefailure.ValidateGeneration(generation); err != nil {
+			return nil, "", err
+		}
+		args := []string{"-dmg", artifactPath, "-target", s.cfg.TargetAppPath, "-restart", "-wait-pid", strconv.Itoa(os.Getpid()), "-log", s.helperLogPath(), "-pre-journal-generation", generation}
 		if s.cfg.AllowUnsigned {
 			args = append(args, "-allow-unsigned")
 		}

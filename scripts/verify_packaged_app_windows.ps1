@@ -57,6 +57,37 @@ function Infer-WindowsPackagePlatform() {
     }
 }
 
+function Verify-PackagedNodeVersion() {
+    param([Parameter(Mandatory)][string]$PackageRoot)
+    $errorMessage = 'packaged Node.js >= 22.5.0 is required by @bytebase/dbhub@0.23.0'
+    $nodePath = Join-Path $PackageRoot 'lsp/node/node.exe'
+    if (-not (Test-Path -LiteralPath $nodePath -PathType Leaf)) {
+        throw $errorMessage
+    }
+    try {
+        [string[]]$versionLines = @(& $nodePath --version 2>$null)
+        if ($LASTEXITCODE -ne 0 -or $versionLines.Count -ne 1) {
+            throw $errorMessage
+        }
+        $version = $versionLines[0].Trim()
+    } catch {
+        throw $errorMessage
+    }
+    if ($version -notmatch '^v(\d+)\.(\d+)\.(\d+)$') {
+        throw $errorMessage
+    }
+    try {
+        $major = [int]$Matches[1]
+        $minor = [int]$Matches[2]
+        $patch = [int]$Matches[3]
+    } catch {
+        throw $errorMessage
+    }
+    if ([System.Version]::new($major, $minor, $patch) -lt [System.Version]::new(22, 5, 0)) {
+        throw $errorMessage
+    }
+}
+
 function Get-PEMachineType() {
     param([Parameter(Mandatory)][string]$Path)
     if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
@@ -461,6 +492,7 @@ try {
     Verify-RequiredFiles -PackageRoot $packageRoot
     Verify-UpdateEnv -PackageRoot $packageRoot
     Verify-RuntimeManifest -PackageRoot $packageRoot
+    Verify-PackagedNodeVersion -PackageRoot $packageRoot
     Assert-PackageNativeArchitecture -PackageRoot $packageRoot
     Verify-CodexManifest -PackageRoot $packageRoot
     Verify-LSPManifest -PackageRoot $packageRoot

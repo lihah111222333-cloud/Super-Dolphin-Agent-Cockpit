@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
 	recovery "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/appupdaterecovery"
 	platformconfig "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/config"
 )
@@ -20,6 +21,30 @@ const (
 	StartupModeRecovery StartupMode = "recovery"
 	// StartupDigestTimeout 是生产启动摘要 helper 的唯一 deadline 配置。
 	StartupDigestTimeout = 15 * time.Second
+)
+
+// RecoveryAction 是恢复界面允许展示的显式安全动作。
+type RecoveryAction = contract.RecoveryAction
+
+// RecoveryFailure 是 Wails 恢复界面的最小安全失败元数据。
+type RecoveryFailure = contract.RecoveryFailure
+
+const (
+	// RecoveryActionWaitThenRetry 要求用户等待后显式重试。
+	RecoveryActionWaitThenRetry = contract.RecoveryActionWaitThenRetry
+	// RecoveryActionRestartApplication 要求用户显式重启应用。
+	RecoveryActionRestartApplication = contract.RecoveryActionRestartApplication
+	// RecoveryActionPreserveStateExportDiagnostics 要求保留现场并导出诊断。
+	RecoveryActionPreserveStateExportDiagnostics = contract.RecoveryActionPreserveStateExportDiagnostics
+)
+
+var (
+	// ErrUpdateTransactionAmbiguous 是 app 层暴露给 command 的更新歧义哨兵。
+	ErrUpdateTransactionAmbiguous = contract.ErrUpdateTransactionAmbiguous
+	// ErrUpdateSignatureInvalid 是 app 层暴露给 command 的更新签名哨兵。
+	ErrUpdateSignatureInvalid = contract.ErrUpdateSignatureInvalid
+	// ErrUpdateIntegrityInvalid 是 app 层暴露给 command 的更新完整性哨兵。
+	ErrUpdateIntegrityInvalid = contract.ErrUpdateIntegrityInvalid
 )
 
 // RecoveryProjection 是 Recovery graph 对持久 transaction 的只读投影。
@@ -40,6 +65,7 @@ type StartupSelection struct {
 	Store       *recovery.Store
 	Transaction recovery.Transaction
 	Projection  RecoveryProjection
+	Failure     RecoveryFailure
 	process     recovery.ProcessIdentity
 }
 
@@ -186,15 +212,49 @@ func validateProbationCandidate(
 		return fmt.Errorf("verify probation candidate: %w", err)
 	}
 	if digest != transaction.Identity.CandidateRelease.SHA256 {
-		return errors.New("probation candidate release digest mismatch")
+		return fmt.Errorf("%w: probation candidate release digest mismatch", contract.ErrUpdateIntegrityInvalid)
 	}
 	return nil
 }
 
 func recoverySelection(input StartupSelectorInput, transaction recovery.Transaction, cause error) StartupSelection {
 	projection := projectRecoveryTransaction(transaction, cause.Error())
+	failure := RecoveryFailureForError(cause, transaction.Identity.TransactionID)
+	if failure.Code != "" {
+		projection.Reason = RecoveryReasonForFailure(failure.Code)
+	}
 	return StartupSelection{
-		Mode: StartupModeRecovery, Store: input.Store, Transaction: transaction, Projection: projection, process: input.Process,
+		Mode: StartupModeRecovery, Store: input.Store, Transaction: transaction, Projection: projection, Failure: failure, process: input.Process,
+	}
+}
+
+// RecoveryFailureForError 将已知失败映射为稳定的四字段安全元数据。
+func RecoveryFailureForError(err error, transactionID recovery.TransactionID) RecoveryFailure {
+	switch {
+	case errors.Is(err, contract.ErrUpdateTransactionAmbiguous):
+		failure, _ := contract.RecoveryFailureForCode("UPDATE_TRANSACTION_AMBIGUOUS", string(transactionID))
+		return failure
+	case errors.Is(err, contract.ErrUpdateSignatureInvalid):
+		failure, _ := contract.RecoveryFailureForCode("UPDATE_SIGNATURE_INVALID", string(transactionID))
+		return failure
+	case errors.Is(err, contract.ErrUpdateIntegrityInvalid):
+		failure, _ := contract.RecoveryFailureForCode("UPDATE_INTEGRITY_INVALID", string(transactionID))
+		return failure
+	}
+	return RecoveryFailure{}
+}
+
+// RecoveryReasonForFailure 返回 failure code 对应的稳定安全文案。
+func RecoveryReasonForFailure(code string) string {
+	switch code {
+	case "UPDATE_TRANSACTION_AMBIGUOUS":
+		return "Update transaction state is ambiguous; recovery state was preserved."
+	case "UPDATE_SIGNATURE_INVALID":
+		return "Update signature verification failed; recovery state was preserved."
+	case "UPDATE_INTEGRITY_INVALID":
+		return "Update integrity verification failed; recovery state was preserved."
+	default:
+		return "Recovery action is required; state was preserved."
 	}
 }
 

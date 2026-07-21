@@ -171,6 +171,7 @@ func cloneTask4BStrings(source map[string]string) map[string]string {
 type task4BSchemaExecutor struct {
 	mu        sync.Mutex
 	failCodes map[string]schema.Code
+	failText  string
 	calls     []schema.Invocation
 }
 
@@ -182,6 +183,7 @@ func (e *task4BSchemaExecutor) Execute(
 	e.mu.Lock()
 	e.calls = append(e.calls, invocation)
 	code := e.failCodes[invocation.ToolName]
+	message := e.failText
 	e.mu.Unlock()
 	identity := schema.FenceIdentity{
 		ServerID:            invocation.ServerID,
@@ -193,7 +195,10 @@ func (e *task4BSchemaExecutor) Execute(
 		return schema.Result{}, err
 	}
 	if code != "" {
-		return schema.Result{}, &schema.Diagnostic{Code: code, Message: "task4b injected failure"}
+		if message == "" {
+			message = "task4b injected failure"
+		}
+		return schema.Result{}, &schema.Diagnostic{Code: code, Message: message}
 	}
 	if err := validateTask4BArguments(invocation); err != nil {
 		return schema.Result{}, err
@@ -441,6 +446,101 @@ func TestTask4BAuthorityStaleBeforeCallSkipsValidatorAndClient(t *testing.T) {
 	}
 	if executor.operationCount(schema.OperationValidate) != 0 || client.callCount() != 0 {
 		t.Fatal("stale call reached validator or client")
+	}
+}
+
+func TestTask4BSchemaAdmissionErrorRedactsRecoverySecrets(t *testing.T) {
+	secret := task4BRecoverySecret()
+	authority := &mcpSchemaAuthority{token: contract.MCPToolAuthority{ServerID: "external"}}
+	err := handleMCPAdmissionError(
+		authority, "unsafe", &schema.Diagnostic{Code: schema.CodeProtocolViolation, Message: secret}, map[string]string{},
+	)
+	assertTask4BSafeRecoveryError(t, err, schema.CodeProtocolViolation)
+}
+
+func TestTask4BSchemaRuntimeValidationFailureReachesProviderAsStructuredResult(t *testing.T) {
+	owner := newTask4BAuthorityOwner()
+	executor := &task4BSchemaExecutor{}
+	client := &task4BMCPClient{tools: []mcpdto.MCPTool{task4BTool("unsafe", `{"type":"object"}`)}}
+	h := task4BHandler(owner, executor, client)
+	tools, err := h.PrepareCodexToolSurface(context.Background(), task4BScope(task4BExternalBinary("external")))
+	if err != nil {
+		t.Fatalf("PrepareCodexToolSurface() error = %v", err)
+	}
+	executor.mu.Lock()
+	executor.failCodes = map[string]schema.Code{"unsafe": schema.CodeReapFailed}
+	executor.failText = task4BRecoverySecret()
+	executor.mu.Unlock()
+	result, err := h.HandleToolCall(context.Background(), contract.ToolCallRawMessage{Params: mustRawJSON(t, map[string]any{
+		"name": tools[0].Name, "arguments": json.RawMessage(`{}`), "agentId": "task4b-agent", "threadId": "task4b-thread",
+	})})
+	if err != nil {
+		t.Fatalf("HandleToolCall() error = %v, want provider-visible recovery result", err)
+	}
+	assertTask4BProviderRecoveryResult(t, result, schema.CodeReapFailed)
+	if client.callCount() != 0 {
+		t.Fatalf("unsafe schema call reached MCP client %d times", client.callCount())
+	}
+}
+
+func TestTask4BUnknownRuntimeValidationFailureStillReturnsError(t *testing.T) {
+	owner := newTask4BAuthorityOwner()
+	executor := &task4BSchemaExecutor{}
+	client := &task4BMCPClient{tools: []mcpdto.MCPTool{task4BTool("unsafe", `{"type":"object"}`)}}
+	h := task4BHandler(owner, executor, client)
+	tools, err := h.PrepareCodexToolSurface(context.Background(), task4BScope(task4BExternalBinary("external")))
+	if err != nil {
+		t.Fatalf("PrepareCodexToolSurface() error = %v", err)
+	}
+	executor.mu.Lock()
+	executor.failCodes = map[string]schema.Code{"unsafe": schema.CodeArgumentInvalid}
+	executor.mu.Unlock()
+	result, err := h.HandleToolCall(context.Background(), contract.ToolCallRawMessage{Params: mustRawJSON(t, map[string]any{
+		"name": tools[0].Name, "arguments": json.RawMessage(`{}`), "agentId": "task4b-agent", "threadId": "task4b-thread",
+	})})
+	got, _ := result.(*ToolCallResult)
+	if err == nil || got != nil {
+		t.Fatalf("HandleToolCall() = %#v, %v, want unknown error to fail fast", result, err)
+	}
+}
+
+func assertTask4BProviderRecoveryResult(t *testing.T, result any, code schema.Code) {
+	t.Helper()
+	got, ok := result.(*ToolCallResult)
+	if !ok || got.Success || len(got.ContentItems) != 1 || got.ContentItems[0].Text != "Recovery action is required. Sensitive diagnostics remain preserved internally." {
+		t.Fatalf("HandleToolCall() result = %#v, want fixed safe failure", result)
+	}
+	var failure contract.RecoveryFailure
+	if err := json.Unmarshal(got.StructuredContent, &failure); err != nil {
+		t.Fatalf("decode structuredContent %q: %v", got.StructuredContent, err)
+	}
+	want, _ := contract.RecoveryFailureForCode(string(code), "")
+	if failure != want {
+		t.Fatalf("structuredContent = %#v, want %#v", failure, want)
+	}
+	var fields map[string]any
+	if err := json.Unmarshal(got.StructuredContent, &fields); err != nil || len(fields) != 4 {
+		t.Fatalf("structuredContent fields = %#v, err=%v, want exactly four", fields, err)
+	}
+}
+
+func task4BRecoverySecret() string {
+	return "stdout=/Users/alice/private.db stderr=postgres://admin:password@localhost/db PRIVATE KEY sk-live-secret"
+}
+
+func assertTask4BSafeRecoveryError(t *testing.T, err error, code schema.Code) {
+	t.Helper()
+	if err == nil {
+		t.Fatal("schema boundary error = nil")
+	}
+	failure, ok := schema.RecoveryFailure(err)
+	if !ok || failure.Code != string(code) {
+		t.Fatalf("RecoveryFailure() = %#v, %v; want code %q", failure, ok, code)
+	}
+	for _, secret := range []string{"stdout=", "stderr=", "postgres://", "PRIVATE KEY", "sk-live-secret", "/Users/alice"} {
+		if strings.Contains(err.Error(), secret) {
+			t.Fatalf("schema boundary error leaked %q in %q", secret, err)
+		}
 	}
 }
 

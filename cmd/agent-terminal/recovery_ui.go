@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io/fs"
 	"net/http"
+	"sync"
 	"sync/atomic"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/app"
@@ -25,11 +26,14 @@ type recoverySurfaceState struct {
 	Projection app.RecoveryProjection     `json:"projection"`
 	LastAction string                     `json:"last_action"`
 	Actions    recoveryActionAvailability `json:"actions"`
+	Failure    app.RecoveryFailure        `json:"failure"`
 }
 
 type recoveryBinding struct {
-	runtime *app.RecoveryRuntime
-	effects recoveryEffects
+	runtime  *app.RecoveryRuntime
+	effects  recoveryEffects
+	failure  atomic.Pointer[app.RecoveryFailure]
+	actionMu sync.Mutex
 }
 
 type recoveryEffects struct {
@@ -77,42 +81,77 @@ func (actor recoveryQuitActor) Run(ctx context.Context) error {
 
 // State 返回 Recovery mode 与 exact journal 的 typed projection。
 func (binding *recoveryBinding) State(ctx context.Context) (recoverySurfaceState, error) {
-	return binding.stateAfter(ctx, "state")
+	binding.actionMu.Lock()
+	defer binding.actionMu.Unlock()
+	state, err := binding.stateAfter(ctx, "state")
+	return state, recoveryWailsError(err)
 }
 
 // Check 校验 current candidate 后返回刷新后的 Recovery state。
 func (binding *recoveryBinding) Check(ctx context.Context) (recoverySurfaceState, error) {
+	binding.actionMu.Lock()
+	defer binding.actionMu.Unlock()
 	runtime, err := binding.requireAvailableAction(ctx, "check")
 	if err != nil {
-		return recoverySurfaceState{}, err
+		return recoverySurfaceState{}, recoveryWailsError(err)
 	}
 	if err := runtime.Check.Check(ctx); err != nil {
-		return recoverySurfaceState{}, err
+		return recoverySurfaceState{}, recoveryWailsError(err)
 	}
-	return binding.stateAfter(ctx, "check")
+	binding.failure.Store(nil)
+	runtime.ClearFailure()
+	state, err := binding.stateAfter(ctx, "check")
+	return state, recoveryWailsError(err)
 }
 
 // Retry 重放 exact journal intent 后返回刷新后的 Recovery state。
 func (binding *recoveryBinding) Retry(ctx context.Context) (recoverySurfaceState, error) {
+	binding.actionMu.Lock()
+	defer binding.actionMu.Unlock()
 	runtime, err := binding.requireAvailableAction(ctx, "retry")
 	if err != nil {
-		return recoverySurfaceState{}, err
+		return recoverySurfaceState{}, recoveryWailsError(err)
 	}
 	if _, err := runtime.Retry.Retry(ctx); err != nil {
-		return recoverySurfaceState{}, err
+		projection, projectionErr := runtime.CurrentProjection(ctx)
+		if projectionErr != nil {
+			return recoverySurfaceState{}, recoveryWailsError(projectionErr)
+		}
+		failure := app.RecoveryFailureForError(err, projection.TransactionID)
+		if failure.Code != "" {
+			binding.failure.Store(&failure)
+		}
+		return recoverySurfaceState{}, recoveryWailsError(err)
 	}
-	return binding.stateAfter(ctx, "retry")
+	binding.failure.Store(nil)
+	runtime.ClearFailure()
+	state, err := binding.stateAfter(ctx, "retry")
+	return state, recoveryWailsError(err)
 }
 
 // Restore 使用 current lease 显式恢复旧 release，并返回刷新后的 state。
 func (binding *recoveryBinding) Restore(ctx context.Context) (recoverySurfaceState, error) {
+	binding.actionMu.Lock()
+	defer binding.actionMu.Unlock()
 	runtime, err := binding.requireAvailableAction(ctx, "restore")
 	if err != nil {
-		return recoverySurfaceState{}, err
+		return recoverySurfaceState{}, recoveryWailsError(err)
 	}
-	return completeRecoveryRestore(ctx, recoveryRestoreOps{
+	state, err := completeRecoveryRestore(ctx, recoveryRestoreOps{
 		Restore: runtime.Restore.Restore, Projection: runtime.CurrentProjection, Quit: binding.effects.Quit,
 	})
+	if err == nil {
+		binding.failure.Store(nil)
+		runtime.ClearFailure()
+	}
+	return state, recoveryWailsError(err)
+}
+
+func recoveryWailsError(err error) error {
+	if err == nil {
+		return nil
+	}
+	return errors.New("RECOVERY_OPERATION_FAILED")
 }
 
 // completeRecoveryRestore 等待 transaction-owned rollback/restart 收敛成功后刷新状态并退出 Recovery。
@@ -133,6 +172,7 @@ func completeRecoveryRestore(ctx context.Context, ops recoveryRestoreOps) (recov
 	return state, nil
 }
 
+// stateAfter 刷新 exact journal，并仅合并同一 transaction 的内存失败元数据。
 func (binding *recoveryBinding) stateAfter(ctx context.Context, action string) (recoverySurfaceState, error) {
 	runtime, err := binding.recoveryRuntime()
 	if err != nil {
@@ -142,14 +182,40 @@ func (binding *recoveryBinding) stateAfter(ctx context.Context, action string) (
 	if err != nil {
 		return recoverySurfaceState{}, err
 	}
-	return newRecoverySurfaceState(projection, action), nil
+	failure := binding.currentFailureForProjection(runtime, projection)
+	return newRecoverySurfaceStateWithFailure(projection, action, failure), nil
 }
 
 func newRecoverySurfaceState(projection app.RecoveryProjection, action string) recoverySurfaceState {
-	actions := recoveryActionsFor(projection)
+	return newRecoverySurfaceStateWithFailure(projection, action, app.RecoveryFailure{})
+}
+
+func newRecoverySurfaceStateWithFailure(projection app.RecoveryProjection, action string, failure app.RecoveryFailure) recoverySurfaceState {
+	actions := recoveryActionsForFailure(projection, failure)
+	projection.Reason = "Recovery action is required; sensitive diagnostics remain preserved internally."
+	if failure.Code != "" {
+		failure.TransactionID = string(projection.TransactionID)
+		projection.Reason = app.RecoveryReasonForFailure(failure.Code)
+	}
 	return recoverySurfaceState{
 		Mode: app.StartupModeRecovery, Projection: projection, LastAction: action,
-		Actions: actions,
+		Actions: actions, Failure: failure,
+	}
+}
+
+// recoveryActionsForFailure 是 Recovery UI 展示与 Wails RPC 授权共用的唯一策略。
+func recoveryActionsForFailure(projection app.RecoveryProjection, failure app.RecoveryFailure) recoveryActionAvailability {
+	actions := recoveryActionsFor(projection)
+	if failure.Code == "" {
+		return actions
+	}
+	switch failure.Action {
+	case app.RecoveryActionWaitThenRetry:
+		return recoveryActionAvailability{Retry: failure.Retryable && actions.Retry}
+	case app.RecoveryActionRestartApplication, app.RecoveryActionPreserveStateExportDiagnostics:
+		return recoveryActionAvailability{}
+	default:
+		return recoveryActionAvailability{}
 	}
 }
 
@@ -187,12 +253,31 @@ func (binding *recoveryBinding) requireAvailableAction(ctx context.Context, acti
 	if err != nil {
 		return nil, err
 	}
-	available := recoveryActionsFor(projection)
+	failure := binding.currentFailureForProjection(runtime, projection)
+	available := recoveryActionsForFailure(projection, failure)
 	allowed := map[string]bool{"check": available.Check, "retry": available.Retry, "restore": available.Restore}
 	if enabled, known := allowed[action]; !known || !enabled {
 		return nil, fmt.Errorf("Recovery action %q is unavailable for transaction state %q", action, projection.State)
 	}
 	return runtime, nil
+}
+
+// currentFailureForProjection 只返回与当前 transaction 匹配的 failure；调用方必须持有 actionMu。
+func (binding *recoveryBinding) currentFailureForProjection(
+	runtime *app.RecoveryRuntime, projection app.RecoveryProjection,
+) app.RecoveryFailure {
+	transactionID := string(projection.TransactionID)
+	if failure := binding.failure.Load(); failure != nil {
+		if failure.TransactionID == "" || failure.TransactionID == transactionID {
+			return *failure
+		}
+		binding.failure.Store(nil)
+	}
+	failure := runtime.CurrentFailure()
+	if failure.Code == "" || failure.TransactionID != "" && failure.TransactionID != transactionID {
+		return app.RecoveryFailure{}
+	}
+	return failure
 }
 
 func (binding *recoveryBinding) recoveryRuntime() (*app.RecoveryRuntime, error) {

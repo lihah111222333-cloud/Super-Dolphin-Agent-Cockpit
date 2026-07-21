@@ -38,7 +38,7 @@ func TestConfigMCPBinariesAcceptsNPXSQLiteStdioServer(t *testing.T) {
 					"command":         "npx",
 					"args": []any{
 						"-y",
-						"@bytebase/dbhub",
+						"@bytebase/dbhub@0.23.0",
 						"--dsn=" + dsn,
 					},
 				},
@@ -51,7 +51,7 @@ func TestConfigMCPBinariesAcceptsNPXSQLiteStdioServer(t *testing.T) {
 	if len(got) != 1 || got[0].Name != "sqlite" || got[0].Command[0] != "npx" {
 		t.Fatalf("binaries = %#v, want sqlite npx stdio binary", got)
 	}
-	if len(got[0].Command) != 4 || got[0].Command[2] != "@bytebase/dbhub" || got[0].Command[3] != "--dsn="+dsn {
+	if len(got[0].Command) != 4 || got[0].Command[2] != "@bytebase/dbhub@0.23.0" || got[0].Command[3] != "--dsn="+dsn {
 		t.Fatalf("sqlite command = %#v, want dbhub sqlite npx package", got[0].Command)
 	}
 }

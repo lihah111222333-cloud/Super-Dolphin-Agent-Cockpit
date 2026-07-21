@@ -558,7 +558,7 @@ func handleMCPAdmissionError(
 ) error {
 	code := schema.ErrorCode(err)
 	if authority.token.Managed || !mcpSchemaErrorQuarantinable(code) {
-		return fmt.Errorf("toolbridge: MCP server %q tool %q schema admission: %w", authority.token.ServerID, toolName, err)
+		return fmt.Errorf("toolbridge: MCP server %q tool %q schema admission: %w", authority.token.ServerID, toolName, schema.SafeRecoveryError(err))
 	}
 	quarantined[toolName] = string(code)
 	return nil
@@ -613,7 +613,7 @@ func (h *Handler) validateMCPToolCall(
 		Arguments:           arguments,
 	}, h.mcpAuthorityFence(entry.authority))
 	if err != nil {
-		return err
+		return schema.SafeRecoveryError(err)
 	}
 	if !result.ArgumentsValid {
 		return fmt.Errorf("toolbridge: MCP tool %q arguments rejected by schema helper", entry.realName)

@@ -7,6 +7,8 @@ import (
 	"encoding/json"
 	"errors"
 	"testing"
+
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
 )
 
 func TestVerifySignedManifestAcceptsValidManifest(t *testing.T) {
@@ -54,8 +56,34 @@ func TestVerifySignedManifestRejectsTampering(t *testing.T) {
 		Platform:       "darwin-arm64",
 		CurrentVersion: "1.2.2",
 	})
-	if err == nil {
-		t.Fatal("VerifySignedManifest() error = nil, want signature failure")
+	if !errors.Is(err, contract.ErrUpdateSignatureInvalid) {
+		t.Fatalf("VerifySignedManifest() error = %v, want ErrUpdateSignatureInvalid", err)
+	}
+	if !errors.Is(err, errInvalidManifestSignature) {
+		t.Fatalf("VerifySignedManifest() error = %v, want invalid-signature root cause", err)
+	}
+}
+
+func TestVerifySignedManifestClassifiesSignatureDecodeFailure(t *testing.T) {
+	publicKey, privateKey := testManifestKeypair(t)
+	var signed SignedManifest
+	if err := json.Unmarshal(signTestManifest(t, privateKey, testManifestPayload()), &signed); err != nil {
+		t.Fatal(err)
+	}
+	signed.Signature = "not-base64%%%"
+	raw, err := json.Marshal(signed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _, err = VerifySignedManifest(raw, VerifyOptions{
+		PublicKey: publicKey, AppID: "super-dolphin", Channel: "stable", Platform: "darwin-arm64", CurrentVersion: "1.2.2",
+	})
+	if !errors.Is(err, contract.ErrUpdateSignatureInvalid) {
+		t.Fatalf("VerifySignedManifest() error = %v, want ErrUpdateSignatureInvalid", err)
+	}
+	var decodeErr base64.CorruptInputError
+	if !errors.As(err, &decodeErr) {
+		t.Fatalf("VerifySignedManifest() error = %v, want base64 root cause", err)
 	}
 }
 

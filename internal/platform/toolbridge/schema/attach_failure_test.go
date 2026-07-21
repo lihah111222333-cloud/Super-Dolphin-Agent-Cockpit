@@ -86,7 +86,7 @@ func TestFilesystemWorkerInternalAttachFailuresReapTreeAndRemoveSnapshot(t *test
 
 			_, err := runFilesystemWorkerWithAttacher(
 				context.Background(), context.Background(), os.Args[0], fixture.command, nil,
-				request, nil, 0, fixture.attach,
+				request, nil, 0, fixture.attach, nil,
 			)
 			if ErrorCode(err) != CodeProcessStartFailed ||
 				errorTreeContainsCode(err, CodeReapFailed) ||

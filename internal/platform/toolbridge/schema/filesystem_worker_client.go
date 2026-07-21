@@ -44,10 +44,15 @@ func verifyHelperPackageInWorker(ctx context.Context, config ClientConfig) ([]by
 	setFilesystemWorkerDeadline(ctx, &request)
 	return runFilesystemWorker(ctx, ctx, config.FilesystemWorkerPath, func(path string) *exec.Cmd {
 		return exec.Command(path)
-	}, nil, request, nil, maxHelperBytes)
+	}, nil, request, nil, maxHelperBytes, nil)
 }
 
-func (client *Client) executeInFilesystemWorker(parentCtx, operationCtx context.Context, encodedRequest []byte) ([]byte, error) {
+func (client *Client) executeInFilesystemWorker(
+	parentCtx context.Context,
+	operationCtx context.Context,
+	encodedRequest []byte,
+	capacity *helperCapacityTracker,
+) ([]byte, error) {
 	snapshot, err := newFilesystemSnapshotIdentity(client.helperGOOS, client.ownerIdentity)
 	if err != nil {
 		return nil, newDiagnostic(CodeProcessStartFailed, "create schema snapshot cleanup identity", err)
@@ -61,7 +66,7 @@ func (client *Client) executeInFilesystemWorker(parentCtx, operationCtx context.
 	payload := io.MultiReader(bytes.NewReader(client.helperImage), bytes.NewReader(encodedRequest))
 	return runFilesystemWorker(
 		parentCtx, operationCtx, client.filesystemWorkerPath, client.workerCommand, client.workerEnv,
-		request, payload, maxStdoutBytes,
+		request, payload, maxStdoutBytes, capacity,
 	)
 }
 
@@ -81,6 +86,7 @@ func runFilesystemWorker(
 	request filesystemWorkerRequest,
 	payload io.Reader,
 	maxPayload int,
+	capacity *helperCapacityTracker,
 ) ([]byte, error) {
 	return runFilesystemWorkerWithAttacher(
 		parentCtx,
@@ -92,6 +98,7 @@ func runFilesystemWorker(
 		payload,
 		maxPayload,
 		attachProcessGuard,
+		capacity,
 	)
 }
 
@@ -106,6 +113,7 @@ func runFilesystemWorkerWithAttacher(
 	payload io.Reader,
 	maxPayload int,
 	attacher processGuardAttacher,
+	capacity *helperCapacityTracker,
 ) ([]byte, error) {
 	if attacher == nil {
 		return nil, TransientInitializationError(
@@ -146,7 +154,7 @@ func runFilesystemWorkerWithAttacher(
 	}
 	if err := attacher(cmd, guard); err != nil {
 		return nil, TransientInitializationError(
-			cleanupFilesystemWorkerAfterAttachFailure(workerPath, command, request, cmd, guard, err),
+			cleanupFilesystemWorkerAfterAttachFailure(workerPath, command, request, cmd, guard, err, capacity),
 		)
 	}
 	result, runErr := waitFilesystemWorker(
@@ -158,6 +166,7 @@ func runFilesystemWorkerWithAttacher(
 		stdout,
 		stderr,
 		maxPayload,
+		capacity,
 	)
 	if request.Operation != filesystemWorkerExecute {
 		return result, runErr
@@ -166,6 +175,7 @@ func runFilesystemWorkerWithAttacher(
 		workerPath,
 		command,
 		request.Snapshot,
+		capacity,
 	)
 	if cleanupErr != nil {
 		return nil, errors.Join(runErr, cleanupErr)
@@ -181,12 +191,13 @@ func cleanupFilesystemWorkerAfterAttachFailure(
 	cmd *exec.Cmd,
 	guard *processGuard,
 	attachErr error,
+	capacity *helperCapacityTracker,
 ) error {
 	processErr := cleanupUnattachedProcessTree(cmd, guard, attachErr)
 	if request.Operation != filesystemWorkerExecute || errorTreeContainsCode(processErr, CodeReapFailed) {
 		return processErr
 	}
-	cleanupErr := cleanupFilesystemSnapshotWithWorker(workerPath, command, request.Snapshot)
+	cleanupErr := cleanupFilesystemSnapshotWithWorker(workerPath, command, request.Snapshot, capacity)
 	return errors.Join(processErr, cleanupErr)
 }
 
@@ -194,6 +205,7 @@ func cleanupFilesystemSnapshotWithWorker(
 	workerPath string,
 	command func(string) *exec.Cmd,
 	snapshot filesystemSnapshotIdentity,
+	capacity *helperCapacityTracker,
 ) error {
 	ctx, cancel := platformconfig.WithTimeout(context.Background(), filesystemSnapshotCleanupTimeout)
 	defer cancel()
@@ -203,7 +215,7 @@ func cleanupFilesystemSnapshotWithWorker(
 		Snapshot:  snapshot,
 	}
 	setFilesystemWorkerDeadline(ctx, &request)
-	_, err := runFilesystemWorker(ctx, ctx, workerPath, command, nil, request, nil, 0)
+	_, err := runFilesystemWorker(ctx, ctx, workerPath, command, nil, request, nil, 0, capacity)
 	if err != nil {
 		return fmt.Errorf("bounded schema snapshot cleanup failed: %w", err)
 	}
@@ -227,6 +239,7 @@ func sweepFilesystemSnapshotsWithWorker(workerPath string) error {
 		request,
 		nil,
 		0,
+		nil,
 	)
 	if err != nil {
 		return fmt.Errorf("sweep stale schema snapshots through bounded worker: %w", err)
@@ -244,6 +257,7 @@ func waitFilesystemWorker(
 	stdout *boundedBuffer,
 	stderr *boundedBuffer,
 	maxPayload int,
+	capacity *helperCapacityTracker,
 ) ([]byte, error) {
 	waitResult := make(chan error, 1)
 	safego.Go(operationCtx, nil, "toolbridge.schema-filesystem-worker.wait", func(context.Context) {
@@ -260,7 +274,7 @@ func waitFilesystemWorker(
 		default:
 		}
 		code, message, cause := filesystemWorkerStopReason(parentCtx, operationCtx)
-		return nil, stopAndReap(cmd, guard, waitResult, code, message, cause)
+		return nil, stopAndReap(cmd, guard, waitResult, code, message, cause, capacity)
 	}
 }
 

@@ -74,6 +74,7 @@
     "src/shared/diagnostics/frontendDiagnosticCorrelation.js",
     "src/shared/diagnostics/frontendHealthStore.js",
     "src/shared/diagnostics/safeLogFields.js",
+    "src/shared/recovery/recoveryFailure.js",
     "src/shared/ui/actionFailureSink.js",
     "src/shared/ui/publicError.js",
     "src/shared/ui/runUIAction.js"

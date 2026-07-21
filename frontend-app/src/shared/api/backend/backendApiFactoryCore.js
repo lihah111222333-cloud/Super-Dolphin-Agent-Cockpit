@@ -18,6 +18,7 @@ import {
 } from '../wailsBridge.js';
 import { RPC_METHODS } from './backendRpcMethods.js';
 import { createBackendResponseValidators } from '../backendResponseValidators.js';
+import { INVALID_RECOVERY_DATA_MESSAGE, normalizeRecoveryFailure } from '../../recovery/recoveryFailure.js';
 import {
   assertPlainObject,
   normalizeString,
@@ -178,11 +179,29 @@ function createConfigProjectApi(callBackend) {
 /** @param {BackendCaller} callBackend */
 function createAppUpdateApi(callBackend) {
   return {
-    checkAppUpdate: () => callBackend(RPC_METHODS.APP_UPDATE_CHECK, {}),
-    downloadAppUpdate: () => callBackend(RPC_METHODS.APP_UPDATE_DOWNLOAD, {}),
-    installAppUpdate: () => callBackend(RPC_METHODS.APP_UPDATE_INSTALL, {}),
-    installLatestAppUpdate: () => callBackend(RPC_METHODS.APP_UPDATE_INSTALL_LATEST, {}),
+    checkAppUpdate: () => callAppUpdateRPC(callBackend, RPC_METHODS.APP_UPDATE_CHECK),
+    downloadAppUpdate: () => callAppUpdateRPC(callBackend, RPC_METHODS.APP_UPDATE_DOWNLOAD),
+    installAppUpdate: () => callAppUpdateRPC(callBackend, RPC_METHODS.APP_UPDATE_INSTALL),
+    installLatestAppUpdate: () => callAppUpdateRPC(callBackend, RPC_METHODS.APP_UPDATE_INSTALL_LATEST),
   };
+}
+
+/** @param {BackendCaller} callBackend @param {string} method @returns {Promise<unknown>} */
+async function callAppUpdateRPC(callBackend, method) {
+  try {
+    return await callBackend(method, {});
+  }
+  catch (error) {
+    if (!error || typeof error !== 'object' || !hasOwn(error, 'data')) throw error;
+    const rpcError = /** @type {Record<string, unknown>} */ (error);
+    try {
+      normalizeRecoveryFailure(rpcError.data);
+    }
+    catch {
+      throw new Error(INVALID_RECOVERY_DATA_MESSAGE);
+    }
+    throw error;
+  }
 }
 
 /** @param {BackendCaller} callBackend */

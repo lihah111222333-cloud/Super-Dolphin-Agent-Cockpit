@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strconv"
@@ -14,6 +15,22 @@ import (
 
 	recovery "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/appupdaterecovery"
 )
+
+func TestVerifyAppSignatureClassifiesOnlyExplicitInvalidStatus(t *testing.T) {
+	exitErr := exec.Command("sh", "-c", "exit 1").Run()
+	invalid := updaterApp{runCommand: func(context.Context, time.Duration, string, ...string) (commandResult, error) {
+		return commandResult{}, exitErr
+	}}
+	if err := invalid.verifyAppSignature("/test/app", "", true); !errors.Is(err, recovery.ErrUpdateSignatureInvalid) {
+		t.Fatalf("verifyAppSignature(exit) error = %v, want ErrUpdateSignatureInvalid", err)
+	}
+	infrastructure := updaterApp{runCommand: func(context.Context, time.Duration, string, ...string) (commandResult, error) {
+		return commandResult{}, context.DeadlineExceeded
+	}}
+	if err := infrastructure.verifyAppSignature("/test/app", "", true); errors.Is(err, recovery.ErrUpdateSignatureInvalid) {
+		t.Fatalf("verifyAppSignature(timeout) error = %v, must remain infrastructure failure", err)
+	}
+}
 
 // TestMain 让 updater 测试二进制在 helper 模式下只处理一次 filesystem 请求。
 func TestMain(m *testing.M) {
@@ -58,6 +75,20 @@ func TestValidateInstallRequestRejectsMissingTargetParent(t *testing.T) {
 
 	if err == nil || !strings.Contains(err.Error(), "target parent") {
 		t.Fatalf("validateInstallRequest() error = %v, want target parent error", err)
+	}
+}
+
+func TestValidateInstallRequestRejectsMissingOrInvalidGeneration(t *testing.T) {
+	parent := realUpdaterTempDir(t)
+	dmg := filepath.Join(parent, "Super Dolphin.dmg")
+	if err := os.WriteFile(dmg, []byte("fixture"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, generation := range []string{"", "../../old-attempt"} {
+		err := validateInstallRequest(installRequest{DMGPath: dmg, TargetAppPath: filepath.Join(parent, "Super Dolphin.app"), Generation: generation})
+		if err == nil || !strings.Contains(err.Error(), "generation") {
+			t.Fatalf("validateInstallRequest(generation=%q) error = %v", generation, err)
+		}
 	}
 }
 
@@ -192,6 +223,7 @@ func TestParseInstallRequestAcceptsLogPathAndWaitPID(t *testing.T) {
 		"-allow-unsigned",
 		"-wait-pid", "123",
 		"-log", "/tmp/updater.log",
+		"-pre-journal-generation", recoveryTestGeneration,
 	})
 	if err != nil {
 		t.Fatalf("parseInstallRequest() error = %v", err)
@@ -201,6 +233,9 @@ func TestParseInstallRequestAcceptsLogPathAndWaitPID(t *testing.T) {
 	}
 	if req.LogPath != "/tmp/updater.log" {
 		t.Fatalf("LogPath = %q, want /tmp/updater.log", req.LogPath)
+	}
+	if req.Generation != recoveryTestGeneration {
+		t.Fatalf("Generation = %q, want %q", req.Generation, recoveryTestGeneration)
 	}
 	if !req.Restart || !req.AllowUnsigned {
 		t.Fatalf("restart/allow unsigned not parsed: %#v", req)
@@ -299,9 +334,11 @@ func TestInstallFromMountWaitsForAppExitBeforeReplacing(t *testing.T) {
 	target := filepath.Join(t.TempDir(), "Super Dolphin.app")
 
 	err := installFromMount(installRequest{
+		DMGPath:       testUpdaterDMG(t),
 		TargetAppPath: target,
 		WaitPID:       12345,
 		AllowUnsigned: true,
+		Generation:    recoveryTestGeneration,
 	}, mountPoint)
 	if err != nil {
 		t.Fatalf("installFromMount() error = %v", err)
@@ -320,7 +357,7 @@ func TestFirstInstallUsesAtomicPathWithoutRollbackTransaction(t *testing.T) {
 	createAppBundle(t, filepath.Join(mountPoint, "Super Dolphin.app"))
 	parent := t.TempDir()
 	target := filepath.Join(parent, "Super Dolphin.app")
-	if err := installFromMount(installRequest{TargetAppPath: target, AllowUnsigned: true}, mountPoint); err != nil {
+	if err := installFromMount(installRequest{DMGPath: testUpdaterDMG(t), TargetAppPath: target, AllowUnsigned: true, Generation: recoveryTestGeneration}, mountPoint); err != nil {
 		t.Fatalf("installFromMount() error = %v", err)
 	}
 	if err := validateMountedApp(target); err != nil {
@@ -460,9 +497,11 @@ func TestInstallKeepsTargetWhenDittoTimesOutBeforeTransaction(t *testing.T) {
 	dittoDest := stubRunCommandWithTimedOutDitto(t)
 
 	err := installFromMount(installRequest{
+		DMGPath:       testUpdaterDMG(t),
 		TargetAppPath: target,
 		AllowUnsigned: true,
 		Restart:       true,
+		Generation:    recoveryTestGeneration,
 	}, mountPoint)
 	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("installFromMount() error = %v, want ditto timeout", err)

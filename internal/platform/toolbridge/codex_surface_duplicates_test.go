@@ -22,7 +22,7 @@ func TestPrepareCodexToolSurfaceNamespacesExternalDuplicateToolName(t *testing.T
 		CWD:              "/repo",
 		Manifest: providerdto.MCPManifest{Binaries: []providerdto.MCPBinary{
 			{Name: "playwright", Command: []string{"npx", "@playwright/mcp@latest"}},
-			{Name: "sqlite", Command: []string{"npx", "-y", "@bytebase/dbhub", "--dsn=sqlite:///tmp/app.db"}},
+			{Name: "sqlite", Command: []string{"npx", "-y", "@bytebase/dbhub@0.23.0", "--dsn=sqlite:///tmp/app.db"}},
 		}},
 	})
 	if err != nil {

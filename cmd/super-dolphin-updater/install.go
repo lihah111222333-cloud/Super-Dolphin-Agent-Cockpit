@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/appupdatefailure"
 	recovery "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/appupdaterecovery"
 )
 
@@ -37,6 +38,7 @@ type installRequest struct {
 	AllowUnsigned bool
 	WaitPID       int
 	LogPath       string
+	Generation    string
 }
 
 // commandResult 保存外部命令 stdout/stderr。
@@ -56,6 +58,7 @@ type probationOwnerIDFactory func() (string, error)
 type probationLeaseAcquirer func(*recovery.Store, context.Context, recovery.Identity, recovery.ProbationLeaseRequest) (recovery.ProbationLease, error)
 type probationGuardStarter func(context.Context, recovery.Transaction, bool, func() error) error
 type probationSupervisorFactory func(recovery.ProbationSupervisorConfig) (*recovery.ProbationSupervisor, error)
+type recoveryTransactionCreator func(*recovery.Store, context.Context, recovery.CreateRequest) (recovery.Transaction, error)
 
 // updaterApp 显式携带 updater 的可替换系统依赖，避免安装流程依赖隐式全局状态。
 type updaterApp struct {
@@ -69,6 +72,7 @@ type updaterApp struct {
 	acquireProbationLease          probationLeaseAcquirer
 	startProbationGuard            probationGuardStarter
 	newProbationSupervisor         probationSupervisorFactory
+	createRecoveryTransaction      recoveryTransactionCreator
 }
 
 func defaultUpdaterApp() updaterApp {
@@ -83,6 +87,7 @@ func defaultUpdaterApp() updaterApp {
 		acquireProbationLease:          (*recovery.Store).AcquireProbationLease,
 		startProbationGuard:            startDetachedGuard,
 		newProbationSupervisor:         recovery.NewProbationSupervisor,
+		createRecoveryTransaction:      (*recovery.Store).Create,
 	}
 }
 
@@ -102,6 +107,9 @@ func (app updaterApp) validate() error {
 	}
 	if app.rollbackRestartCallbackFactory == nil {
 		return errors.New("updater rollback restart callback factory is required")
+	}
+	if app.createRecoveryTransaction == nil {
+		return errors.New("updater recovery transaction creator is required")
 	}
 	return nil
 }
@@ -143,6 +151,10 @@ func (app updaterApp) installFromMount(ctx context.Context, req installRequest, 
 	if err := app.validate(); err != nil {
 		return err
 	}
+	stageDir, err := updaterSidecarStageDir(req)
+	if err != nil {
+		return err
+	}
 	stagedApp, err := findMountedApp(mountPoint)
 	if err != nil {
 		return err
@@ -153,22 +165,31 @@ func (app updaterApp) installFromMount(ctx context.Context, req installRequest, 
 	if err := app.waitForRequestedProcess(req); err != nil {
 		return err
 	}
+	teamID, err := app.verifyStagedAppForInstall(req, stagedApp, stageDir)
+	if err != nil {
+		return err
+	}
+	transaction, transactional, err := app.replaceTargetAppTransactionContextWithStageDir(ctx, stagedApp, req.TargetAppPath, teamID, req.AllowUnsigned, req.Restart, stageDir, req.Generation)
+	if err != nil {
+		return err
+	}
+	return app.completeInstalledRelease(ctx, req, transaction, transactional)
+}
+
+// verifyStagedAppForInstall 校验初始候选，并在结果边界写入或清除 sidecar。
+func (app updaterApp) verifyStagedAppForInstall(req installRequest, stagedApp string, stageDir string) (string, error) {
 	teamID := ""
 	if !req.AllowUnsigned {
 		var err error
 		teamID, err = app.expectedTeamID(req.TargetAppPath)
 		if err != nil {
-			return err
+			return "", err
 		}
 	}
 	if err := app.verifyAppSignature(stagedApp, teamID, req.AllowUnsigned); err != nil {
-		return fmt.Errorf("verify staged app: %w", err)
+		return "", recordPreJournalFailure(stageDir, req.Generation, fmt.Errorf("verify staged app: %w", err))
 	}
-	transaction, transactional, err := app.replaceTargetAppTransactionContext(ctx, stagedApp, req.TargetAppPath, teamID, req.AllowUnsigned, req.Restart)
-	if err != nil {
-		return err
-	}
-	return app.completeInstalledRelease(ctx, req, transaction, transactional)
+	return teamID, nil
 }
 
 // completeInstalledRelease 将首次安装重启与 transaction probation 监督分流。
@@ -271,7 +292,7 @@ func validateInstallRequest(req installRequest) error {
 	if err := verifyWritableDir(parent); err != nil {
 		return fmt.Errorf("target parent is not writable: %w", err)
 	}
-	return validateWaitPID(req.WaitPID)
+	return errors.Join(validateWaitPID(req.WaitPID), appupdatefailure.ValidateGeneration(req.Generation))
 }
 
 // validateWaitPID 校验等待退出的 PID 参数。
@@ -491,7 +512,7 @@ func verifyAppSignature(appPath string, expectedTeamID string, allowUnsigned boo
 func (app updaterApp) verifyAppSignature(appPath string, expectedTeamID string, allowUnsigned bool) error {
 	if allowUnsigned {
 		if _, err := app.runUpdaterCommand("codesign", "--verify", "--deep", "--strict", "--verbose=4", appPath); err != nil {
-			return fmt.Errorf("codesign verify failed: %w", commandError(err))
+			return classifySignatureCommandError("codesign verify failed", err)
 		}
 		return nil
 	}
@@ -499,7 +520,7 @@ func (app updaterApp) verifyAppSignature(appPath string, expectedTeamID string, 
 		return errors.New("expected Team ID is required")
 	}
 	if _, err := app.runUpdaterCommand("codesign", "--verify", "--deep", "--strict", "--verbose=4", appPath); err != nil {
-		return fmt.Errorf("codesign verify failed: %w", commandError(err))
+		return classifySignatureCommandError("codesign verify failed", err)
 	}
 	details, err := app.signingDetails(appPath)
 	if err != nil {
@@ -507,16 +528,16 @@ func (app updaterApp) verifyAppSignature(appPath string, expectedTeamID string, 
 	}
 	teamID := parseSigningValue(details, "TeamIdentifier")
 	if teamID == "" {
-		return errors.New("codesign details missing TeamIdentifier")
+		return fmt.Errorf("%w: codesign details missing TeamIdentifier", recovery.ErrUpdateSignatureInvalid)
 	}
 	if teamID != expectedTeamID {
-		return fmt.Errorf("Team ID mismatch: expected %s, got %s", expectedTeamID, teamID)
+		return fmt.Errorf("%w: Team ID mismatch: expected %s, got %s", recovery.ErrUpdateSignatureInvalid, expectedTeamID, teamID)
 	}
 	if !strings.Contains(details, "Authority=Developer ID Application:") {
-		return errors.New("codesign details missing Developer ID Application authority")
+		return fmt.Errorf("%w: codesign details missing Developer ID Application authority", recovery.ErrUpdateSignatureInvalid)
 	}
 	if _, err := app.runUpdaterCommand("spctl", "-a", "-vv", "-t", "execute", appPath); err != nil {
-		return fmt.Errorf("spctl execute assessment failed: %w", commandError(err))
+		return classifySignatureCommandError("spctl execute assessment failed", err)
 	}
 	return nil
 }
@@ -562,6 +583,11 @@ func (app updaterApp) replaceTargetAppTransaction(stagedApp string, targetApp st
 
 // replaceTargetAppTransactionContext 将调用方生命周期贯穿候选校验与事务效果。
 func (app updaterApp) replaceTargetAppTransactionContext(ctx context.Context, stagedApp string, targetApp string, expectedTeamID string, allowUnsigned bool, superviseReplacement bool) (recovery.Transaction, bool, error) {
+	return app.replaceTargetAppTransactionContextWithStageDir(ctx, stagedApp, targetApp, expectedTeamID, allowUnsigned, superviseReplacement, "", "")
+}
+
+// replaceTargetAppTransactionContextWithStageDir 在生产安装路径中额外约束 pre-journal sidecar 时序。
+func (app updaterApp) replaceTargetAppTransactionContextWithStageDir(ctx context.Context, stagedApp string, targetApp string, expectedTeamID string, allowUnsigned bool, superviseReplacement bool, stageDir string, generation string) (recovery.Transaction, bool, error) {
 	if ctx == nil {
 		return recovery.Transaction{}, false, errors.New("replace target app context is required")
 	}
@@ -570,21 +596,51 @@ func (app updaterApp) replaceTargetAppTransactionContext(ctx context.Context, st
 		return recovery.Transaction{}, false, err
 	}
 	if !targetExists {
-		return recovery.Transaction{}, false, app.installFirstRelease(stagedApp, targetApp, expectedTeamID, allowUnsigned)
+		return recovery.Transaction{}, false, app.installFirstRelease(stagedApp, targetApp, expectedTeamID, allowUnsigned, stageDir, generation)
 	}
 	request, packageOwned, err := app.prepareReleaseTransaction(ctx, stagedApp, targetApp, expectedTeamID, allowUnsigned)
 	if err != nil {
+		if stageDir != "" {
+			return recovery.Transaction{}, false, recordPreJournalFailure(stageDir, generation, err)
+		}
 		return recovery.Transaction{}, false, err
 	}
 	store, err := recovery.NewStore(filepath.Join(filepath.Dir(targetApp), updateTransactionDirName))
 	if err != nil {
-		return recovery.Transaction{}, false, removePreparedCandidate(request.Paths.Staging, err)
+		cause := recordStoreCreateFailure(stageDir, generation, err)
+		return recovery.Transaction{}, false, removePreparedCandidate(request.Paths.Staging, cause)
 	}
-	created, err := store.Create(ctx, request)
+	created, err := app.createRecoveryTransaction(store, ctx, request)
 	if err != nil {
-		return recovery.Transaction{}, false, fmt.Errorf("create release transaction: %w", err)
+		cause := fmt.Errorf("create release transaction: %w", err)
+		if preserved, preserve := conservativeCreateErrorResult(created, request); preserve {
+			return preserved, false, cause
+		}
+		cause = recordStoreCreateFailure(stageDir, generation, cause)
+		return recovery.Transaction{}, false, removePreparedCandidate(request.Paths.Staging, cause)
+	}
+	if err := clearPreJournalFailure(stageDir, generation); err != nil {
+		return created, false, err
 	}
 	return app.completePreparedReleaseTransaction(ctx, store, created, packageOwned)
+}
+
+// conservativeCreateErrorResult 将不可信的非零结果降为零值，但保留 publication-unknown 现场。
+func conservativeCreateErrorResult(transaction recovery.Transaction, request recovery.CreateRequest) (recovery.Transaction, bool) {
+	if exactPreparedCreateResult(transaction, request) {
+		return transaction, true
+	}
+	return recovery.Transaction{}, transaction != (recovery.Transaction{})
+}
+
+// exactPreparedCreateResult 仅接受 Store.Create 对当前请求返回的完整 prepared 结果。
+func exactPreparedCreateResult(transaction recovery.Transaction, request recovery.CreateRequest) bool {
+	return transaction.Identity == request.Identity && transaction.Paths == request.Paths &&
+		transaction.State == recovery.StatePrepared && transaction.Trust == request.Trust &&
+		transaction.Probation == (recovery.ProbationRecord{}) &&
+		transaction.RollbackRestart == (recovery.RollbackRestartRecord{}) &&
+		transaction.TargetGeneration > 0 && transaction.Revision == 1 &&
+		transaction.CreatedAt != "" && transaction.UpdatedAt == transaction.CreatedAt
 }
 
 // completePreparedReleaseTransaction 发布 capsule、建立 Guard fence 并安装 candidate。
@@ -661,9 +717,15 @@ func retainBackupAfterGuardArmed(ctx context.Context, store *recovery.Store, ide
 }
 
 // installFirstRelease 保留首次安装兼容性：原子替换并显式不创建 rollback transaction。
-func (app updaterApp) installFirstRelease(stagedApp string, targetApp string, expectedTeamID string, allowUnsigned bool) error {
+func (app updaterApp) installFirstRelease(stagedApp string, targetApp string, expectedTeamID string, allowUnsigned bool, stageDir string, generation string) error {
 	_, paths, err := app.prepareReleaseCandidate(stagedApp, targetApp, expectedTeamID, allowUnsigned)
 	if err != nil {
+		if stageDir != "" {
+			return recordPreJournalFailure(stageDir, generation, err)
+		}
+		return err
+	}
+	if err := clearPreparedPreJournalFailure(stageDir, generation, paths.Staging); err != nil {
 		return err
 	}
 	if err := recovery.InstallFirstRelease(paths.Staging, targetApp); err != nil {
@@ -853,4 +915,13 @@ func commandError(err error) error {
 		return fmt.Errorf("%w: %s", err, strings.TrimSpace(string(exitErr.Stderr)))
 	}
 	return err
+}
+
+// classifySignatureCommandError 只把工具明确的非零退出状态归为签名无效；启动、超时等基础设施错误保持原类别。
+func classifySignatureCommandError(operation string, err error) error {
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) {
+		return fmt.Errorf("%w: %s: %v", recovery.ErrUpdateSignatureInvalid, operation, commandError(err))
+	}
+	return fmt.Errorf("%s: %w", operation, commandError(err))
 }

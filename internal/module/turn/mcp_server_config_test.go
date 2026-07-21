@@ -59,7 +59,7 @@ func TestPrepareTurnSkipsDisabledConfiguredMCPServers(t *testing.T) {
 		"sqlite": {
 			Transport: "stdio",
 			Command:   "npx",
-			Args:      []string{"-y", "@bytebase/dbhub", "--dsn=sqlite:////tmp/super-dolphin.db"},
+			Args:      []string{"-y", "@bytebase/dbhub@0.23.0", "--dsn=sqlite:////tmp/super-dolphin.db"},
 			Enabled:   turnBoolPtr(false),
 		},
 	}}
@@ -109,14 +109,14 @@ func TestMergeTurnConfiguredMCPServersKeepsStdioConfigWhenNameAlreadyPresent(t *
 		"sqlite": {
 			Transport: "stdio",
 			Command:   "npx",
-			Args:      []string{"-y", "@bytebase/dbhub", "--dsn=sqlite:///tmp/super-dolphin.db"},
+			Args:      []string{"-y", "@bytebase/dbhub@0.23.0", "--dsn=sqlite:///tmp/super-dolphin.db"},
 		},
 	})
 	require.NoError(t, err)
 
 	require.Contains(t, got.Servers, "sqlite")
 	require.Equal(t, "npx", got.ServerConfigs["sqlite"].Command)
-	require.Equal(t, []string{"-y", "@bytebase/dbhub", "--dsn=sqlite:///tmp/super-dolphin.db"}, got.ServerConfigs["sqlite"].Args)
+	require.Equal(t, []string{"-y", "@bytebase/dbhub@0.23.0", "--dsn=sqlite:///tmp/super-dolphin.db"}, got.ServerConfigs["sqlite"].Args)
 }
 
 type staticTurnMCPServerConfigProvider struct {
