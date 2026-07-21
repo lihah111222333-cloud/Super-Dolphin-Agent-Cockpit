@@ -310,7 +310,7 @@ verify_staged_go_inputs() (
 )
 
 create_staged_gate_worktree() {
-  local cache_scope=$1 base_commit empty_tree
+  local cache_scope=$1 base_commit empty_tree merge_head
   if ! base_commit=$(run_go_without_git_env git rev-parse --verify HEAD 2>/dev/null); then
     if ! empty_tree=$(run_go_without_git_env git hash-object -t tree /dev/null); then
       echo "❌ 无法创建首次提交门禁的 empty tree" >&2
@@ -318,6 +318,14 @@ create_staged_gate_worktree() {
     fi
     if ! base_commit=$(printf 'pre-commit empty base\n' | run_go_without_git_env git commit-tree "$empty_tree"); then
       echo "❌ 无法创建首次提交门禁的临时 base commit" >&2
+      exit 1
+    fi
+  fi
+
+  if merge_head=$(run_go_without_git_env git rev-parse --verify MERGE_HEAD 2>/dev/null); then
+    if ! base_commit=$(printf 'pre-commit staged merge snapshot\n' | \
+      run_go_without_git_env git commit-tree "$cache_scope" -p "$base_commit" -p "$merge_head"); then
+      echo "❌ 无法创建 staged merge 门禁的临时提交" >&2
       exit 1
     fi
   fi

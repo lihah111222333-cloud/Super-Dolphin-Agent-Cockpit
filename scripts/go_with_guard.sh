@@ -45,7 +45,10 @@ main() {
   fi
   case "$1" in
     test|build|vet)
-      run_guard "$real_go"
+      (
+        unset GOOS GOARCH CGO_ENABLED
+        run_guard "$real_go"
+      )
       ;;
   esac
 

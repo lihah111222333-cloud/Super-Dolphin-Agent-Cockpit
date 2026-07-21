@@ -8,9 +8,12 @@ import (
 	"reflect"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util/safego"
 )
 
 func TestStartSQLiteServerAddsDefaultNPXConfigAndEnablesIt(t *testing.T) {
@@ -136,6 +139,246 @@ func TestStartSQLiteServerMigratesLegacyNPXPackageConfig(t *testing.T) {
 	}
 }
 
+func TestStartSQLiteServerMigratesExactUnpinnedDBHubDefault(t *testing.T) {
+	store := newMemoryMCPServerStore()
+	project := t.TempDir()
+	dbPath := filepath.Join(project, "super-dolphin.db")
+	t.Chdir(project)
+	store.seed(project, DefaultSQLiteServerName, ServerConfig{
+		Transport: "stdio",
+		Command:   "npx",
+		Args:      []string{"-y", "@bytebase/dbhub", "--dsn=" + sqliteDBHubDSN(dbPath)},
+		Enabled:   boolPtr(false),
+	})
+	svc := newServiceWithStoreAndSQLitePath(store, dbPath)
+
+	got, err := svc.StartSQLiteServer(context.Background(), StartSQLiteServerRequest{})
+	if err != nil {
+		t.Fatalf("StartSQLiteServer() error = %v", err)
+	}
+	if got.Added || !got.Enabled {
+		t.Fatalf("StartSQLiteServer() = %#v, want migrated enabled sqlite", got)
+	}
+	assertStartedSQLiteServerConfig(t, store.servers[project][DefaultSQLiteServerName], dbPath)
+	if svc.configRevision != 1 {
+		t.Fatalf("config revision = %d, want 1 after atomic replacement", svc.configRevision)
+	}
+}
+
+func TestStartSQLiteServerDoesNotOverwriteConcurrentCustomReplacement(t *testing.T) {
+	baseStore := newMemoryMCPServerStore()
+	store := newFirstListBarrierMCPServerStore(baseStore)
+	project := t.TempDir()
+	dbPath := filepath.Join(project, "super-dolphin.db")
+	t.Chdir(project)
+	baseStore.seed(project, DefaultSQLiteServerName, ServerConfig{
+		Transport: "stdio",
+		Command:   "npx",
+		Args:      []string{"-y", unpinnedSQLitePackage, "--dsn=" + sqliteDBHubDSN(dbPath)},
+		Enabled:   boolPtr(true),
+	})
+	svc := newServiceWithStoreAndSQLitePath(store, dbPath)
+	custom := ServerConfig{
+		Transport: "http",
+		URL:       "https://custom.example.test/mcp",
+		Enabled:   boolPtr(false),
+	}
+
+	startDone := make(chan error, 1)
+	safego.Go(context.Background(), nil, "mcp-server.test-start-sqlite", func(ctx context.Context) {
+		_, err := svc.StartSQLiteServer(ctx, StartSQLiteServerRequest{})
+		startDone <- err
+	})
+	<-store.firstListReady
+
+	mutationStarted := make(chan struct{})
+	mutationDone := make(chan error, 1)
+	safego.Go(context.Background(), nil, "mcp-server.test-replace-sqlite", func(ctx context.Context) {
+		close(mutationStarted)
+		mutationDone <- replaceDefaultSQLiteServerWithCustom(ctx, svc, custom)
+	})
+	<-mutationStarted
+
+	var mutationErr error
+	mutationCompletedBeforeRelease := false
+	select {
+	case mutationErr = <-mutationDone:
+		mutationCompletedBeforeRelease = true
+	case <-time.After(250 * time.Millisecond):
+	}
+	close(store.releaseFirstList)
+	if err := <-startDone; err != nil {
+		t.Fatalf("StartSQLiteServer() error = %v", err)
+	}
+	if !mutationCompletedBeforeRelease {
+		mutationErr = <-mutationDone
+	}
+	if mutationErr != nil {
+		t.Fatalf("replace default sqlite with custom config: %v", mutationErr)
+	}
+	if got := baseStore.servers[project][DefaultSQLiteServerName]; !reflect.DeepEqual(got, custom) {
+		t.Fatalf("stored config = %#v, want concurrent custom config %#v", got, custom)
+	}
+}
+
+func TestStartSQLiteServerDoesNotMigrateCustomizedDBHubConfig(t *testing.T) {
+	project := t.TempDir()
+	dbPath := filepath.Join(project, "super-dolphin.db")
+	otherDBPath := filepath.Join(project, "other.db")
+	tests := []struct {
+		name   string
+		config ServerConfig
+	}{
+		{name: "different dsn", config: ServerConfig{Transport: "stdio", Command: "npx", Args: []string{"-y", "@bytebase/dbhub", "--dsn=" + sqliteDBHubDSN(otherDBPath)}}},
+		{name: "extra env", config: ServerConfig{Transport: "stdio", Command: "npx", Args: []string{"-y", "@bytebase/dbhub", "--dsn=" + sqliteDBHubDSN(dbPath)}, Env: map[string]string{"CUSTOM": "1"}}},
+		{name: "extra arg", config: ServerConfig{Transport: "stdio", Command: "npx", Args: []string{"-y", "@bytebase/dbhub", "--dsn=" + sqliteDBHubDSN(dbPath), "--custom"}}},
+		{name: "latest", config: ServerConfig{Transport: "stdio", Command: "npx", Args: []string{"-y", "@bytebase/dbhub@latest", "--dsn=" + sqliteDBHubDSN(dbPath)}}},
+		{name: "other version", config: ServerConfig{Transport: "stdio", Command: "npx", Args: []string{"-y", "@bytebase/dbhub@0.22.0", "--dsn=" + sqliteDBHubDSN(dbPath)}}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			store := newMemoryMCPServerStore()
+			original := tc.config
+			original.Enabled = boolPtr(false)
+			store.seed(project, DefaultSQLiteServerName, original)
+			svc := newServiceWithStoreAndSQLitePath(store, dbPath)
+			t.Chdir(project)
+
+			got, err := svc.StartSQLiteServer(context.Background(), StartSQLiteServerRequest{})
+			if err != nil {
+				t.Fatalf("StartSQLiteServer() error = %v", err)
+			}
+			stored := store.servers[project][DefaultSQLiteServerName]
+			if !slices.Equal(stored.Args, original.Args) || !reflect.DeepEqual(stored.Env, original.Env) {
+				t.Fatalf("custom config migrated: got %#v, want args/env from %#v", stored, original)
+			}
+			if got.Config.Args[1] != original.Args[1] {
+				t.Fatalf("returned custom package = %q, want %q", got.Config.Args[1], original.Args[1])
+			}
+		})
+	}
+}
+
+func TestMCPServerConfigProviderAtomicallyMigratesExactUnpinnedDBHubDefault(t *testing.T) {
+	store := newMemoryMCPServerStore()
+	project := t.TempDir()
+	dbPath := filepath.Join(project, "super-dolphin.db")
+	store.seed(project, DefaultSQLiteServerName, ServerConfig{
+		Transport: "stdio",
+		Command:   "npx",
+		Args:      []string{"-y", "@bytebase/dbhub", "--dsn=" + sqliteDBHubDSN(dbPath)},
+		Enabled:   boolPtr(true),
+	})
+	svc := newServiceWithStoreAndSQLitePath(store, dbPath)
+
+	got, err := AsMCPServerConfigProvider(svc).ListMCPServerConfigs(context.Background(), project)
+	if err != nil {
+		t.Fatalf("ListMCPServerConfigs() error = %v", err)
+	}
+	assertStartedSQLiteServerConfig(t, got[DefaultSQLiteServerName], dbPath)
+	assertStartedSQLiteServerConfig(t, store.servers[project][DefaultSQLiteServerName], dbPath)
+	if svc.configRevision != 1 {
+		t.Fatalf("config revision = %d, want 1 after provider migration", svc.configRevision)
+	}
+}
+
+func TestMCPServerConfigProviderUsesLockedCurrentSQLiteSnapshot(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		replace    bool
+		wantExists bool
+	}{
+		{name: "custom replacement", replace: true, wantExists: true},
+		{name: "deleted", replace: false, wantExists: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			baseStore := newMemoryMCPServerStore()
+			store := newFirstListBarrierMCPServerStore(baseStore)
+			project := t.TempDir()
+			dbPath := filepath.Join(project, "super-dolphin.db")
+			t.Chdir(project)
+			baseStore.seed(project, DefaultSQLiteServerName, ServerConfig{
+				Transport: "stdio",
+				Command:   "npx",
+				Args:      []string{"-y", unpinnedSQLitePackage, "--dsn=" + sqliteDBHubDSN(dbPath)},
+				Enabled:   boolPtr(true),
+			})
+			svc := newServiceWithStoreAndSQLitePath(store, dbPath)
+			provider := AsMCPServerConfigProvider(svc)
+			custom := ServerConfig{
+				Transport: "http",
+				URL:       "https://custom.example.test/mcp",
+				Enabled:   boolPtr(true),
+			}
+
+			result := make(chan struct {
+				configs map[string]contract.MCPServerConfig
+				err     error
+			}, 1)
+			safego.Go(context.Background(), nil, "mcp-server.test-provider-sqlite", func(ctx context.Context) {
+				configs, err := provider.ListMCPServerConfigs(ctx, project)
+				result <- struct {
+					configs map[string]contract.MCPServerConfig
+					err     error
+				}{configs: configs, err: err}
+			})
+			<-store.firstListReady
+
+			if _, err := svc.DeleteServer(context.Background(), DeleteServerRequest{ServerName: DefaultSQLiteServerName}); err != nil {
+				t.Fatalf("DeleteServer() error = %v", err)
+			}
+			if tc.replace {
+				if _, err := svc.AddServers(context.Background(), AddServersRequest{
+					MCPServers: map[string]ServerConfig{DefaultSQLiteServerName: custom},
+				}); err != nil {
+					t.Fatalf("AddServers() error = %v", err)
+				}
+			}
+			close(store.releaseFirstList)
+
+			got := <-result
+			if got.err != nil {
+				t.Fatalf("ListMCPServerConfigs() error = %v", got.err)
+			}
+			config, exists := got.configs[DefaultSQLiteServerName]
+			if exists != tc.wantExists {
+				t.Fatalf("sqlite config exists = %v, want %v; configs=%#v", exists, tc.wantExists, got.configs)
+			}
+			if tc.wantExists && (config.Transport != custom.Transport || config.URL != custom.URL) {
+				t.Fatalf("sqlite config = %#v, want locked current custom config %#v", config, custom)
+			}
+		})
+	}
+}
+
+func TestMCPServerConfigProviderFailedUnpinnedMigrationPreservesConfigAndRevision(t *testing.T) {
+	store := newMemoryMCPServerStore()
+	project := t.TempDir()
+	dbPath := filepath.Join(project, "super-dolphin.db")
+	unpinned := ServerConfig{
+		Transport: "stdio",
+		Command:   "npx",
+		Args:      []string{"-y", "@bytebase/dbhub", "--dsn=" + sqliteDBHubDSN(dbPath)},
+		Enabled:   boolPtr(true),
+	}
+	store.seed(project, DefaultSQLiteServerName, unpinned)
+	injectedErr := errors.New("injected provider replace failure")
+	store.replaceErr = injectedErr
+	svc := newServiceWithStoreAndSQLitePath(store, dbPath)
+	svc.configRevision = 9
+
+	_, err := AsMCPServerConfigProvider(svc).ListMCPServerConfigs(context.Background(), project)
+	if !errors.Is(err, injectedErr) {
+		t.Fatalf("ListMCPServerConfigs() error = %v, want injected replacement failure", err)
+	}
+	if svc.configRevision != 9 {
+		t.Fatalf("config revision = %d, want unchanged 9", svc.configRevision)
+	}
+	if got := store.servers[project][DefaultSQLiteServerName]; !reflect.DeepEqual(got, unpinned) {
+		t.Fatalf("stored config = %#v, want unchanged %#v", got, unpinned)
+	}
+}
+
 func TestStartSQLiteServerFailedLegacyReplacementPreservesConfigAndRevision(t *testing.T) {
 	store := newMemoryMCPServerStore()
 	project := t.TempDir()
@@ -227,11 +470,56 @@ func assertStartedSQLiteServerConfig(t *testing.T, server ServerConfig, dbPath s
 	if server.Transport != "stdio" || server.Command != "npx" {
 		t.Fatalf("stored sqlite server = %#v, want stdio npx", server)
 	}
-	wantArgs := []string{"-y", "@bytebase/dbhub", "--dsn=" + sqliteDBHubDSN(dbPath)}
+	wantArgs := []string{"-y", "@bytebase/dbhub@0.23.0", "--dsn=" + sqliteDBHubDSN(dbPath)}
 	if !slices.Equal(server.Args, wantArgs) {
 		t.Fatalf("stored sqlite args = %#v, want %#v", server.Args, wantArgs)
 	}
 	if server.Enabled == nil || !*server.Enabled {
 		t.Fatalf("stored sqlite enabled = %#v, want true", server.Enabled)
 	}
+}
+
+type firstListBarrierMCPServerStore struct {
+	MCPServerConfigStore
+	firstListReady   chan struct{}
+	releaseFirstList chan struct{}
+	blockFirstList   sync.Once
+}
+
+func newFirstListBarrierMCPServerStore(store MCPServerConfigStore) *firstListBarrierMCPServerStore {
+	return &firstListBarrierMCPServerStore{
+		MCPServerConfigStore: store,
+		firstListReady:       make(chan struct{}),
+		releaseFirstList:     make(chan struct{}),
+	}
+}
+
+func (s *firstListBarrierMCPServerStore) ListServers(ctx context.Context, workspaceRoot string) (map[string]ServerConfig, error) {
+	servers, err := s.MCPServerConfigStore.ListServers(ctx, workspaceRoot)
+	if err != nil {
+		return nil, err
+	}
+	block := false
+	s.blockFirstList.Do(func() {
+		block = true
+		close(s.firstListReady)
+	})
+	if block {
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-s.releaseFirstList:
+		}
+	}
+	return servers, nil
+}
+
+func replaceDefaultSQLiteServerWithCustom(ctx context.Context, svc *service, custom ServerConfig) error {
+	if _, err := svc.DeleteServer(ctx, DeleteServerRequest{ServerName: DefaultSQLiteServerName}); err != nil {
+		return err
+	}
+	_, err := svc.AddServers(ctx, AddServersRequest{
+		MCPServers: map[string]ServerConfig{DefaultSQLiteServerName: custom},
+	})
+	return err
 }

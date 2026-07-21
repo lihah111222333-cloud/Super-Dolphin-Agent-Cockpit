@@ -16,6 +16,8 @@ import (
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
 )
 
 const (
@@ -559,10 +561,10 @@ func loadExactTransactionTrust(ctx context.Context, path, platform string, relea
 		return PackageTrust{}, "", err
 	}
 	if actualGeneration != generation {
-		return PackageTrust{}, "", fmt.Errorf("stale transaction trust generation = %s, want %s", actualGeneration, generation)
+		return PackageTrust{}, "", fmt.Errorf("%w: stale transaction trust generation = %s, want %s", contract.ErrUpdateIntegrityInvalid, actualGeneration, generation)
 	}
 	if trust.SignerIdentity != signer {
-		return PackageTrust{}, "", fmt.Errorf("transaction trust signer = %q, want %q", trust.SignerIdentity, signer)
+		return PackageTrust{}, "", fmt.Errorf("%w: transaction trust signer = %q, want %q", contract.ErrUpdateIntegrityInvalid, trust.SignerIdentity, signer)
 	}
 	if err := verifyReleaseHelpers(ctx, path, trust, helpers); err != nil {
 		return PackageTrust{}, "", err
@@ -589,7 +591,7 @@ func verifyReleaseHelpers(ctx context.Context, release string, trust PackageTrus
 		return fmt.Errorf("digest transaction Guard helper: %w", err)
 	}
 	if updater != trust.UpdaterSHA256 || updater != helpers.UpdaterSHA256 || guard != trust.GuardSHA256 || guard != helpers.GuardSHA256 {
-		return errors.New("transaction release helper identity mismatch")
+		return fmt.Errorf("%w: transaction release helper identity mismatch", contract.ErrUpdateIntegrityInvalid)
 	}
 	return nil
 }
@@ -606,7 +608,7 @@ func verifyRecoveryCapsule(ctx context.Context, platform string, transaction Tra
 		return fmt.Errorf("verify recovery capsule Guard: %w", err)
 	}
 	if updaterDigest != transaction.Identity.OldHelpers.UpdaterSHA256 || guardDigest != transaction.Identity.OldHelpers.GuardSHA256 {
-		return errors.New("recovery capsule helper identity mismatch")
+		return fmt.Errorf("%w: recovery capsule helper identity mismatch", contract.ErrUpdateIntegrityInvalid)
 	}
 	_, _, err = loadCapsuleTrust(platform, transaction)
 	return err
@@ -619,12 +621,12 @@ func loadCapsuleTrust(platform string, transaction Transaction) (PackageTrust, s
 		return PackageTrust{}, "", fmt.Errorf("load recovery capsule trust: %w", err)
 	}
 	if generation != transaction.Trust.PreviousGeneration {
-		return PackageTrust{}, "", fmt.Errorf("stale recovery trust generation = %s, want %s", generation, transaction.Trust.PreviousGeneration)
+		return PackageTrust{}, "", fmt.Errorf("%w: stale recovery trust generation = %s, want %s", contract.ErrUpdateIntegrityInvalid, generation, transaction.Trust.PreviousGeneration)
 	}
 	if trust.SignerIdentity != transaction.Trust.PackageSigner ||
 		trust.UpdaterSHA256 != transaction.Identity.OldHelpers.UpdaterSHA256 ||
 		trust.GuardSHA256 != transaction.Identity.OldHelpers.GuardSHA256 {
-		return PackageTrust{}, "", errors.New("recovery capsule trust identity mismatch")
+		return PackageTrust{}, "", fmt.Errorf("%w: recovery capsule trust identity mismatch", contract.ErrUpdateIntegrityInvalid)
 	}
 	return trust, generation, nil
 }

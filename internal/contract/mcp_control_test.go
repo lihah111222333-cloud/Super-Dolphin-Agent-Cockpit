@@ -50,3 +50,25 @@ func TestValidateRuntimeStdioCommandRejectsRemovedPostgresCommand(t *testing.T) 
 		t.Fatalf("ValidateRuntimeStdioCommand() error = %v, want removed postgres command rejection", err)
 	}
 }
+
+func TestValidateRuntimeStdioCommandAllowsPinnedSQLiteDefault(t *testing.T) {
+	t.Parallel()
+	dbPath := filepath.Join(t.TempDir(), "super-dolphin.db")
+	err := DefaultRuntimeMCPPolicy().ValidateRuntimeStdioCommand("npx", []string{"-y", "@bytebase/dbhub@0.23.0", "--dsn=" + runtimeSQLiteDBHubDSN(dbPath)}, dbPath)
+	if err != nil {
+		t.Fatalf("ValidateRuntimeStdioCommand() error = %v", err)
+	}
+}
+
+func TestValidateRuntimeStdioCommandRejectsUnpinnedOrDifferentSQLitePackages(t *testing.T) {
+	t.Parallel()
+	dbPath := filepath.Join(t.TempDir(), "super-dolphin.db")
+	for _, pkg := range []string{"@bytebase/dbhub", "@bytebase/dbhub@latest", "@bytebase/dbhub@0.22.0"} {
+		t.Run(pkg, func(t *testing.T) {
+			err := DefaultRuntimeMCPPolicy().ValidateRuntimeStdioCommand("npx", []string{"-y", pkg, "--dsn=" + runtimeSQLiteDBHubDSN(dbPath)}, dbPath)
+			if err == nil {
+				t.Fatalf("ValidateRuntimeStdioCommand() error = nil, want %q rejection", pkg)
+			}
+		})
+	}
+}

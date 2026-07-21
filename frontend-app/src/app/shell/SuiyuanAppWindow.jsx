@@ -83,24 +83,25 @@ function uiActionOptions(store) {
 }
 
 function AppUpdateBanner({ copy = APP_COPY.zh.update, updateBanner }) {
-  if (!updateBanner?.update) return null;
+  if (!updateBanner?.update && !updateBanner?.message) return null;
   const version = updateVersionFromResult(updateBanner.update);
   const installing = updateBanner.status === 'installing';
+  const recoveryOnly = !updateBanner.update;
   return (
-    <section className="app-update-banner" data-testid="app-update-banner" role="status">
+    <section className="app-update-banner" data-testid="app-update-banner" role={recoveryOnly ? 'alert' : 'status'}>
       <div className="app-update-copy">
-        <strong>{copy.available}{version ? ` ${version}` : ''}</strong>
-        <span>{copy.description}</span>
+        <strong>{recoveryOnly ? '更新需要处理' : `${copy.available}${version ? ` ${version}` : ''}`}</strong>
+        {!recoveryOnly ? <span>{copy.description}</span> : null}
         {updateBanner.message ? <small>{updateBanner.message}</small> : null}
       </div>
-      <div className="app-update-actions">
+      {!recoveryOnly ? <div className="app-update-actions">
         <button type="button" className="app-update-primary" onClick={updateBanner.install} disabled={installing}>
           {installing ? copy.installing : copy.install}
         </button>
         <button type="button" className="app-update-secondary" onClick={updateBanner.dismiss} disabled={installing}>
           {copy.dismiss}
         </button>
-      </div>
+      </div> : null}
     </section>
   );
 }

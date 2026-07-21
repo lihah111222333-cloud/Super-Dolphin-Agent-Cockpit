@@ -4,6 +4,7 @@ import { UNSAFE_PortalProvider } from 'react-aria';
 import { useShallow } from 'zustand/react/shallow';
 import { useClientStore } from './entities/client/model/useClientStore.js';
 import { checkAppUpdate, installLatestAppUpdate } from './shared/api/backendApi.js';
+import { recoveryActionMessageFromRPCError } from './shared/recovery/recoveryFailure.js';
 import { requiredAppStoragePort } from './shared/api/browser/browserStorage.js';
 import { UITestMCPShell } from './devtools/UITestMCPShell.jsx';
 import {
@@ -249,7 +250,11 @@ async function runAppUpdateCheck({ isCancelled, setState }) {
     if (updateDismissed(version)) return;
     setState({ status: 'available', update: { ...result, version }, message: '' });
   } catch (error) {
-    if (!isCancelled()) console.info('[frontend-app] background update check failed', error);
+    if (!isCancelled()) {
+      const recoveryMessage = recoveryActionMessageFromRPCError(error);
+      if (recoveryMessage) setState({ status: 'recovery', update: null, message: recoveryMessage });
+      else console.info('[frontend-app] background update check failed');
+    }
   } finally {
     if (!isCancelled()) {
       setState((current) => (current.status === 'checking' ? { ...current, status: 'idle' } : current));
@@ -286,7 +291,8 @@ function useAppUpdateBanner(skipBootstrap) {
       const result = await installLatestAppUpdate();
       setState((current) => ({ ...current, status: 'installing', message: result?.started === false ? '安装没有启动，请稍后重试。' : '安装程序已启动，请按提示完成更新。' }));
     } catch (error) {
-      setState((current) => ({ ...current, status: 'available', message: `更新失败：${errorMessage(error)}` }));
+      const recoveryMessage = recoveryActionMessageFromRPCError(error);
+      setState((current) => ({ ...current, status: 'available', message: recoveryMessage || `更新失败：${errorMessage(error)}` }));
     }
   }, []);
 

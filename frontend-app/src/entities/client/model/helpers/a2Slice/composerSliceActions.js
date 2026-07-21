@@ -263,7 +263,8 @@ async function rollbackFailedSendDraft(runtime, deps, activeRequest, threadId, e
   runtime.set((state) => deps.rollbackSendDraftState(state, activeRequest, error, { createdThreadId }));
   if (shouldCacheFailedDraft) deps.saveFailedSendDraftSnapshot(runtime, activeRequest);
   await deps.deleteProvisionalThreadAfterSendFailure(createdThreadId, runtime.addWarning);
-  runtime.addWarning('error', 'thread.send.failed', { error: 'action failure; see Health diagnostic ID' });
+  const displayMessage = deps.recoveryActionMessageFromRPCError(error) || 'action failure; see Health diagnostic ID';
+  runtime.addWarning('error', 'thread.send.failed', { error: displayMessage });
 }
 
 function createSendDraftAction(runtime, deps) {

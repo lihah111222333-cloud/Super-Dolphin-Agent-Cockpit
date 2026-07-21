@@ -395,19 +395,36 @@ func waitRollbackRestartEndpoint(
 	ctx context.Context,
 	exact pidregistry.StableProcessIdentity,
 ) (pidregistry.CooperativeEndpointIdentity, error) {
+	return waitRollbackRestartEndpointWithOperations(
+		ctx,
+		exact,
+		pidregistry.CaptureCooperativeEndpointIdentity,
+		pidregistry.ProbeExactProcessEndpointInstance,
+	)
+}
+
+// waitRollbackRestartEndpointWithOperations 在有界等待内重新捕获并认证瞬时切换的发布端点。
+func waitRollbackRestartEndpointWithOperations(
+	ctx context.Context,
+	exact pidregistry.StableProcessIdentity,
+	capture func(string) (pidregistry.CooperativeEndpointIdentity, error),
+	probe func(context.Context, pidregistry.StableProcessIdentity, pidregistry.CooperativeEndpointIdentity) error,
+) (pidregistry.CooperativeEndpointIdentity, error) {
 	ticker := time.NewTicker(rollbackRestartEndpointPoll)
 	defer ticker.Stop()
 	for {
 		if err := rollbackRestartContextError(ctx); err != nil {
 			return pidregistry.CooperativeEndpointIdentity{}, err
 		}
-		endpointIdentity, err := pidregistry.CaptureCooperativeEndpointIdentity(exact.TerminationEndpoint)
+		endpointIdentity, err := capture(exact.TerminationEndpoint)
 		if err == nil {
-			err = pidregistry.ProbeExactProcessEndpointInstance(ctx, exact, endpointIdentity)
+			err = probe(ctx, exact, endpointIdentity)
 		}
 		if err == nil {
 			return endpointIdentity, nil
-		} else if !errors.Is(err, os.ErrNotExist) && !errors.Is(err, pidregistry.ErrCooperativeEndpointNotReady) {
+		} else if !errors.Is(err, os.ErrNotExist) &&
+			!errors.Is(err, pidregistry.ErrCooperativeEndpointNotReady) &&
+			!errors.Is(err, pidregistry.ErrCooperativeEndpointIdentityMismatch) {
 			return pidregistry.CooperativeEndpointIdentity{}, fmt.Errorf("authenticate rollback restart termination endpoint: %w", err)
 		}
 		select {

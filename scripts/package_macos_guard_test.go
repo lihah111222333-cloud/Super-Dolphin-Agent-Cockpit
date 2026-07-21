@@ -548,7 +548,7 @@ func TestVerifyPackagedAppMacOSTypeScriptLSPExecutableCheckPassesUnderCleanPath(
 	resources := filepath.Join(app, "Contents", "Resources")
 	nodePath := filepath.Join(resources, "lsp", "node", "bin", "node")
 	serverPath := filepath.Join(resources, "lsp", "bin", "typescript-language-server")
-	writeFile(t, nodePath, "#!/bin/sh\necho bundled-node\nexit 0\n", 0o755)
+	writePackagedNodeFixture(t, nodePath, "22.5.0")
 	writeFile(t, serverPath, "#!/bin/sh\nnode_path=\"$(command -v node || true)\"\nexpected="+shellSingleQuoted(nodePath)+"\nif [ \"$node_path\" != \"$expected\" ]; then\n  echo \"expected bundled node $expected, got ${node_path:-<missing>}\" >&2\n  exit 42\nfi\n\"$node_path\" --version >/dev/null\nexit 0\n", 0o755)
 	writeLSPManifest(t, resources)
 	writeDefaultMacOSRuntimeManifest(t, resources)
@@ -559,6 +559,73 @@ func TestVerifyPackagedAppMacOSTypeScriptLSPExecutableCheckPassesUnderCleanPath(
 	}
 	if !strings.Contains(output, "LSP server executable verified: typescript-language-server") {
 		t.Fatalf("expected TypeScript LSP executable check to pass under clean PATH, got:\n%s", output)
+	}
+}
+
+func TestVerifyPackagedAppMacOSRequiresNode225(t *testing.T) {
+	app := writeMinimalPackagedMacOSApp(t)
+	resources := filepath.Join(app, "Contents", "Resources")
+	writeDefaultMacOSRuntimeManifest(t, resources)
+	nodePath := filepath.Join(resources, "lsp", "node", "bin", "node")
+
+	invalidFixtures := []struct {
+		name  string
+		write func()
+	}{
+		{name: "missing", write: func() {
+			if err := os.Remove(nodePath); err != nil {
+				t.Fatalf("remove packaged Node fixture: %v", err)
+			}
+		}},
+		{name: "not executable", write: func() {
+			writeFile(t, nodePath, "#!/bin/sh\nprintf 'v22.5.0\\n'\n", 0o644)
+		}},
+		{name: "unparseable", write: func() {
+			writePackagedNodeFixture(t, nodePath, "not-a-version")
+		}},
+		{name: "release candidate", write: func() {
+			writePackagedNodeFixture(t, nodePath, "22.5.0-rc.1")
+		}},
+		{name: "arbitrary suffix", write: func() {
+			writePackagedNodeFixture(t, nodePath, "22.5.0-not semver")
+		}},
+		{name: "build metadata", write: func() {
+			writePackagedNodeFixture(t, nodePath, "22.5.0+build")
+		}},
+		{name: "extra text", write: func() {
+			writePackagedNodeFixture(t, nodePath, "22.5.0 extra")
+		}},
+		{name: "leading blank line", write: func() {
+			writePackagedNodeOutputFixture(t, nodePath, "\nv22.5.0\n")
+		}},
+		{name: "trailing blank line", write: func() {
+			writePackagedNodeOutputFixture(t, nodePath, "v22.5.0\n\n")
+		}},
+		{name: "below minimum minor", write: func() {
+			writePackagedNodeFixture(t, nodePath, "22.4.99")
+		}},
+		{name: "below minimum major", write: func() {
+			writePackagedNodeFixture(t, nodePath, "21.99.99")
+		}},
+	}
+	for _, tc := range invalidFixtures {
+		t.Run(tc.name, func(t *testing.T) {
+			tc.write()
+			output, err := runVerifyPackagedAppMacOS(t, app)
+			if err == nil || !strings.Contains(output, "packaged Node.js >= 22.5.0 is required by @bytebase/dbhub@0.23.0") {
+				t.Fatalf("expected packaged Node rejection, err=%v output:\n%s", err, output)
+			}
+		})
+	}
+
+	for _, version := range []string{"22.5.0", "22.5.1", "23.0.0"} {
+		t.Run("accept "+version, func(t *testing.T) {
+			writePackagedNodeFixture(t, nodePath, version)
+			output, err := runVerifyPackagedAppMacOS(t, app)
+			if err != nil {
+				t.Fatalf("expected Node %s acceptance, got %v:\n%s", version, err, output)
+			}
+		})
 	}
 }
 

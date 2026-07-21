@@ -57,6 +57,17 @@ func TestWindowsCrossPlatformSmokeRequiresAllFrontendEntries(t *testing.T) {
 	assertScriptContains(t, script, "Assert-RequiredFrontendEntries -Directory $source -Label 'frontend dist'")
 	assertScriptContains(t, script, "Assert-RequiredFrontendEntries -Directory $destination -Label 'embedded frontend dist'")
 	assertScriptContains(t, script, "missing required entry $($entry)")
+	assertScriptContains(t, script, "Invoke-GoBuild -Output $updater -Package './cmd/super-dolphin-updater'")
+	assertScriptContains(t, script, "./cmd/super-dolphin-updater ./internal/module/appupdate ./internal/platform/appupdatefailure -run $updateSidecarPattern -count=1")
+	for _, family := range []string{"ServiceNeverCallsDarwinSidecarOutsideDarwin", "SidecarIsExplicitlyUnsupportedOutsideDarwin", "ParseInstallRequestAcceptsLogPathAndWaitPID", "ValidateInstallRequestRejectsMissingOrInvalidGeneration"} {
+		assertScriptContains(t, script, family)
+	}
+}
+
+func TestGoWithGuardUsesHostToolchainForCrossCompileGuards(t *testing.T) {
+	script := readScript(t, "go_with_guard.sh")
+	assertScriptContains(t, script, "unset GOOS GOARCH CGO_ENABLED")
+	assertScriptOrder(t, script, "unset GOOS GOARCH CGO_ENABLED", `run_guard "$real_go"`)
 }
 
 func TestPackageWindowsWhatIfRunsCrossPlatformValidation(t *testing.T) {
@@ -471,6 +482,7 @@ func TestPackageWindowsValidatesLSPManifestLanguages(t *testing.T) {
 
 func TestVerifyPackagedAppWindowsScriptContracts(t *testing.T) {
 	script := readScript(t, "verify_packaged_app_windows.ps1")
+	verifyNode := functionBody(t, script, "Verify-PackagedNodeVersion")
 
 	assertScriptContains(t, script, "runtime-manifest.json")
 	assertScriptContains(t, script, "codex-manifest.json")
@@ -506,6 +518,20 @@ func TestVerifyPackagedAppWindowsScriptContracts(t *testing.T) {
 	assertScriptContains(t, script, "function Expected-LSPServerSpecs()")
 	assertScriptContains(t, script, "$profile.Trim() -eq 'full'")
 	assertScriptContains(t, script, "Expected-LSPServerSpecs -Manifest $manifest")
+	assertScriptContains(t, script, "function Verify-PackagedNodeVersion()")
+	assertScriptContains(t, script, "Join-Path $PackageRoot 'lsp/node/node.exe'")
+	assertScriptContains(t, script, "packaged Node.js >= 22.5.0 is required by @bytebase/dbhub@0.23.0")
+	assertScriptContains(t, verifyNode, "[string[]]$versionLines = @(& $nodePath --version 2>$null)")
+	assertScriptContains(t, verifyNode, "$versionLines.Count -ne 1")
+	assertScriptContains(t, verifyNode, "$version = $versionLines[0].Trim()")
+	assertScriptDoesNotContain(t, verifyNode, "Select-Object -First 1")
+	assertScriptContains(t, verifyNode, "$patch = [int]$Matches[3]")
+	assertScriptContains(t, verifyNode, "[System.Version]::new($major, $minor, $patch) -lt [System.Version]::new(22, 5, 0)")
+	assertScriptContains(t, verifyNode, "$LASTEXITCODE -ne 0")
+	assertScriptContains(t, verifyNode, "'^v(\\d+)\\.(\\d+)\\.(\\d+)$'")
+	assertScriptDoesNotContain(t, verifyNode, "(?:[-+].*)?")
+	assertScriptContains(t, script, "Verify-PackagedNodeVersion -PackageRoot $packageRoot")
+	assertScriptDoesNotContain(t, script, "Get-Command node")
 }
 
 func TestVerifyPackagedAppWindowsUsesTarForZipExtraction(t *testing.T) {

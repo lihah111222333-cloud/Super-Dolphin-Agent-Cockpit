@@ -2,7 +2,11 @@ package appupdaterecovery
 
 import (
 	"context"
+	"errors"
+	"path/filepath"
 	"testing"
+
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
 )
 
 func TestSelectForTargetUsesGenerationAcrossClockRollback(t *testing.T) {
@@ -62,5 +66,16 @@ func TestCreateAllocatesMonotonicTargetGeneration(t *testing.T) {
 	}
 	if transaction.TargetGeneration != 2 {
 		t.Fatalf("second target generation = %d, want 2", transaction.TargetGeneration)
+	}
+}
+
+func TestReconcileBackupEffectClassifiesAmbiguousState(t *testing.T) {
+	root := t.TempDir()
+	err := reconcileBackupEffect(context.Background(), journalPayload{Paths: Paths{
+		Target: filepath.Join(root, "missing-target"),
+		Backup: filepath.Join(root, "missing-backup"),
+	}})
+	if !errors.Is(err, contract.ErrUpdateTransactionAmbiguous) {
+		t.Fatalf("reconcileBackupEffect() error = %v, want ErrUpdateTransactionAmbiguous", err)
 	}
 }

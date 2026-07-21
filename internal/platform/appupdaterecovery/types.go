@@ -8,12 +8,21 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
+
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
 )
 
 const transactionIDBytes = 16
 
 // ErrIdentityMismatch 表示调用方提供的 exact identity 与持久 journal 不一致。
 var ErrIdentityMismatch = errors.New("update transaction identity mismatch")
+
+var (
+	// ErrUpdateSignatureInvalid 供 updater command 边界分类明确的签名验证失败。
+	ErrUpdateSignatureInvalid = contract.ErrUpdateSignatureInvalid
+	// ErrUpdateIntegrityInvalid 供 updater command 边界分类明确的摘要验证失败。
+	ErrUpdateIntegrityInvalid = contract.ErrUpdateIntegrityInvalid
+)
 
 // TransactionID 唯一标识一次 release 更新事务。
 type TransactionID string

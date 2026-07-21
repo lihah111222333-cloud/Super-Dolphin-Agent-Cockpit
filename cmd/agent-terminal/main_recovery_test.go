@@ -238,7 +238,7 @@ func TestAgentTerminalSelectsRecoveryBeforeNormalPreflight(t *testing.T) {
 }
 
 func TestFirstNormalPreflightFailureOpensRecoverySurface(t *testing.T) {
-	preflightErr := errors.New("first normal preflight failed")
+	preflightErr := fmt.Errorf("first normal preflight failed: %w", app.ErrUpdateSignatureInvalid)
 	recoveryCalls := 0
 	err := runAgentTerminal(context.Background(), terminalDeps{
 		selectStartup: func(context.Context) (app.StartupSelection, error) {
@@ -248,8 +248,12 @@ func TestFirstNormalPreflightFailureOpensRecoverySurface(t *testing.T) {
 		runNormal:                     func(context.Context, app.StartupSelection) error { return preflightErr },
 		runRecovery: func(_ context.Context, selection app.StartupSelection) error {
 			recoveryCalls++
-			if selection.Mode != app.StartupModeRecovery || selection.Projection.Reason != preflightErr.Error() {
+			if selection.Mode != app.StartupModeRecovery || selection.Projection.Reason != "Update signature verification failed; recovery state was preserved." {
 				t.Fatalf("Recovery selection = %#v", selection)
+			}
+			if selection.Failure.Code != "UPDATE_SIGNATURE_INVALID" ||
+				selection.Failure.Action != app.RecoveryActionPreserveStateExportDiagnostics {
+				t.Fatalf("Recovery failure = %#v", selection.Failure)
 			}
 			return nil
 		},

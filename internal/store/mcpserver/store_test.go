@@ -494,7 +494,7 @@ func TestConfigStorePersistsEnabledState(t *testing.T) {
 		Config: contract.MCPServerConfig{
 			Transport: "stdio",
 			Command:   "npx",
-			Args:      []string{"-y", "@bytebase/dbhub", "--dsn=sqlite:///" + filepath.ToSlash(filepath.Join(workspaceRoot, "super-dolphin.db"))},
+			Args:      []string{"-y", "@bytebase/dbhub@0.23.0", "--dsn=sqlite:///" + filepath.ToSlash(filepath.Join(workspaceRoot, "super-dolphin.db"))},
 		},
 	}); err != nil {
 		t.Fatalf("InsertServer() error = %v", err)
@@ -660,7 +660,7 @@ func atomicityReplacementMCPServerConfig() contract.MCPServerConfig {
 	return contract.MCPServerConfig{
 		Transport: "stdio",
 		Command:   "npx",
-		Args:      []string{"-y", "@bytebase/dbhub", "--dsn=sqlite:///replacement.db"},
+		Args:      []string{"-y", "@bytebase/dbhub@0.23.0", "--dsn=sqlite:///replacement.db"},
 		Env:       map[string]string{"DBHUB_LOG_LEVEL": "error"},
 		Enabled:   boolPtr(true),
 	}

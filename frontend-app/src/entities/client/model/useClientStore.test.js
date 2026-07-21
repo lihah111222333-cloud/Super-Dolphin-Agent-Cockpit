@@ -4257,6 +4257,35 @@ function registerBridgeEventHandlersForTest() {
     }));
   });
 
+  it('shows a fixed recovery action without retaining backend details', async () => {
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: '',
+      draft: 'Keep this draft',
+    });
+    const secret = 'secret MCP stderr at /private/workspace';
+    const recoveryError = new Error(secret);
+    recoveryError.data = {
+      code: 'MCP_SCHEMA_REAP_FAILED',
+      retryable: false,
+      action: 'restart_application',
+      transaction_id: '',
+    };
+    backend.startThread.mockRejectedValue(recoveryError);
+
+    await expect(useClientStore.getState().sendDraft()).rejects.toThrow(secret);
+
+    const state = useClientStore.getState();
+    expect(state.error).toBe('工具恢复失败，请重启应用后重试。');
+    expect(state.actionNotice).toEqual(expect.objectContaining({
+      message: '工具恢复失败，请重启应用后重试。',
+      tone: 'error',
+      category: 'send',
+    }));
+    expect(JSON.stringify(state)).not.toContain(secret);
+  });
+
   it('clears text, attachments, and capabilities after a successful send', async () => {
     resetClientStoreForTests({
       cwd: '/repo/app',

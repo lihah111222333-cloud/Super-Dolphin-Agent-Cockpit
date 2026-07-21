@@ -1,0 +1,429 @@
+name: Guarded update recovery rollout
+
+on:
+  workflow_dispatch:
+    inputs:
+      stage:
+        description: Execute exactly one rollout stage
+        required: true
+        type: choice
+        options:
+          - internal-20
+          - 10-percent
+          - 30-percent
+          - 100-percent
+      version:
+        description: Candidate version
+        required: true
+        type: string
+      build_commit:
+        description: Exact candidate Git commit
+        required: true
+        type: string
+      signing_public_key_fingerprint:
+        description: SHA-256 of the trimmed signing public-key value
+        required: true
+        type: string
+      previous_version:
+        description: Rollback version
+        required: true
+        type: string
+      monitoring_window_hours:
+        description: Approved monitoring window in hours
+        required: true
+        type: string
+      predecessor_evidence:
+        description: Native evidence for internal-20 or prior-stage run URL for percentage stages
+        required: true
+        type: string
+      macos_upgrade_matrix_evidence:
+        description: This repository's Actions run URL for real macOS previous-to-current and current-to-previous evidence
+        required: true
+        type: string
+      windows_upgrade_matrix_evidence:
+        description: This repository's Actions run URL for real Windows previous-to-current and current-to-previous evidence
+        required: true
+        type: string
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: update-recovery-rollout-${{ inputs.version }}-${{ inputs.stage }}
+  cancel-in-progress: false
+
+jobs:
+  validate-inputs:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      STAGE: ${{ inputs.stage }}
+      VERSION: ${{ inputs.version }}
+      BUILD_COMMIT: ${{ inputs.build_commit }}
+      SIGNING_PUBLIC_KEY_FINGERPRINT: ${{ inputs.signing_public_key_fingerprint }}
+      PREVIOUS_VERSION: ${{ inputs.previous_version }}
+      MONITORING_WINDOW_HOURS: ${{ inputs.monitoring_window_hours }}
+      PREDECESSOR_EVIDENCE: ${{ inputs.predecessor_evidence }}
+      MACOS_UPGRADE_MATRIX_EVIDENCE: ${{ inputs.macos_upgrade_matrix_evidence }}
+      WINDOWS_UPGRADE_MATRIX_EVIDENCE: ${{ inputs.windows_upgrade_matrix_evidence }}
+      DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+      GITHUB_REPOSITORY: ${{ github.repository }}
+      GITHUB_API_URL: ${{ github.api_url }}
+      GITHUB_TOKEN: ${{ github.token }}
+      RELEASE_WORKFLOW_PATH: .github/workflows/release.yml
+      UPGRADE_EVIDENCE_WORKFLOW_PATH: .github/workflows/update-recovery-upgrade-evidence.yml
+    steps:
+      - name: Reject missing or blank release authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          for name in VERSION BUILD_COMMIT SIGNING_PUBLIC_KEY_FINGERPRINT PREVIOUS_VERSION MONITORING_WINDOW_HOURS PREDECESSOR_EVIDENCE MACOS_UPGRADE_MATRIX_EVIDENCE WINDOWS_UPGRADE_MATRIX_EVIDENCE; do
+            value="${!name}"
+            if [[ -z "${value//[[:space:]]/}" ]]; then
+              echo "$name input is blank after trimming whitespace" >&2
+              exit 1
+            fi
+          done
+          case "$STAGE" in
+            internal-20|10-percent|30-percent|100-percent) ;;
+            *) echo "unsupported rollout stage: $STAGE" >&2; exit 1 ;;
+          esac
+          if ! [[ "$GITHUB_REF" == "refs/heads/$DEFAULT_BRANCH" ]]; then
+            echo "release workflow must run from the repository default branch" >&2
+            exit 1
+          fi
+          if [[ ! "$BUILD_COMMIT" =~ ^[0-9a-fA-F]{40}$ ]]; then
+            echo "build_commit must be a full 40-character commit SHA" >&2
+            exit 1
+          fi
+          if [[ "$VERSION" == "$PREVIOUS_VERSION" ]]; then
+            echo "version and previous_version must differ" >&2
+            exit 1
+          fi
+          if [[ ! "$MONITORING_WINDOW_HOURS" =~ ^[0-9]+$ ]]; then
+            echo "monitoring_window_hours must be an integer" >&2
+            exit 1
+          fi
+          if [[ "$STAGE" != "internal-20" && "$MONITORING_WINDOW_HOURS" -lt 8 ]]; then
+            echo "monitoring_window_hours must be an integer >= 8 for percentage stages" >&2
+            exit 1
+          fi
+          if [[ "$STAGE" == "internal-20" && "$PREDECESSOR_EVIDENCE" != "native-arm64-current-run" ]]; then
+            echo "internal-20 predecessor_evidence must be native-arm64-current-run" >&2
+            exit 1
+          fi
+          if [[ "$MACOS_UPGRADE_MATRIX_EVIDENCE" == "$WINDOWS_UPGRADE_MATRIX_EVIDENCE" ]]; then
+            echo "macOS and Windows upgrade matrix evidence must differ" >&2
+            exit 1
+          fi
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 0
+      - name: Require candidate commit in default-branch history
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin "refs/heads/$DEFAULT_BRANCH:refs/remotes/origin/$DEFAULT_BRANCH"
+          git merge-base --is-ancestor "$BUILD_COMMIT" "origin/$DEFAULT_BRANCH"
+      - name: Verify repository ownership and external attestations
+        shell: bash
+        run: ./scripts/release_rollout_validate.sh
+
+  package-macos-arm64:
+    needs: validate-inputs
+    environment: update-recovery-${{ inputs.stage }}
+    runs-on:
+      group: update-recovery-release
+      labels: [self-hosted, macOS, ARM64, update-recovery-release]
+    timeout-minutes: 90
+    env:
+      VERSION: ${{ inputs.version }}
+      BUILD_COMMIT: ${{ inputs.build_commit }}
+      PREVIOUS_VERSION: ${{ inputs.previous_version }}
+      MONITORING_WINDOW_HOURS: ${{ inputs.monitoring_window_hours }}
+      MACOS_UPGRADE_MATRIX_EVIDENCE: ${{ inputs.macos_upgrade_matrix_evidence }}
+      WINDOWS_UPGRADE_MATRIX_EVIDENCE: ${{ inputs.windows_upgrade_matrix_evidence }}
+      SUPER_DOLPHIN_RELEASE_PROFILE: gray
+      CODESIGN_IDENTITY: ${{ secrets.CODESIGN_IDENTITY }}
+      NOTARY_PROFILE: ${{ secrets.NOTARY_PROFILE }}
+      SUPER_DOLPHIN_UPDATE_PUBLIC_KEY: ${{ secrets.SUPER_DOLPHIN_UPDATE_PUBLIC_KEY }}
+      EXPECTED_PUBLIC_KEY_FINGERPRINT: ${{ inputs.signing_public_key_fingerprint }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.build_commit }}
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Require native macOS arm64 and exact commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$(uname -m)" == "arm64" ]]
+          [[ "$(git rev-parse HEAD)" == "$BUILD_COMMIT" ]]
+      - name: Verify signing public-key fingerprint
+        shell: bash
+        run: |
+          set -euo pipefail
+          : "${SUPER_DOLPHIN_UPDATE_PUBLIC_KEY:?SUPER_DOLPHIN_UPDATE_PUBLIC_KEY is required}"
+          trimmed="$(printf '%s' "${SUPER_DOLPHIN_UPDATE_PUBLIC_KEY}" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
+          actual="$(printf '%s' "$trimmed" | shasum -a 256 | awk '{print $1}')"
+          expected="$(printf '%s' "${EXPECTED_PUBLIC_KEY_FINGERPRINT}" | tr '[:upper:]' '[:lower:]' | tr -d ':[:space:]')"
+          [[ "$actual" == "$expected" ]]
+      - name: Run current-commit version-independent recovery state matrix
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/update-recovery-evidence"
+          make release-update-gate 2>&1 | tee "$RUNNER_TEMP/update-recovery-evidence/native-test.log"
+      - name: Package and verify native macOS arm64 artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./scripts/package_macos.sh 2>&1 | tee "$RUNNER_TEMP/update-recovery-evidence/package.log"
+      - name: Record macOS matrix metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          {
+            echo "platform=macos-arm64"
+            echo "matrix_scope=current-commit-version-independent-recovery-state"
+            echo "candidate_version=$VERSION"
+            echo "previous_version_reference=$PREVIOUS_VERSION"
+            echo "commit=$(git rev-parse HEAD)"
+            echo "monitoring_window_hours=$MONITORING_WINDOW_HOURS"
+            echo "macos_upgrade_matrix_evidence=$MACOS_UPGRADE_MATRIX_EVIDENCE"
+            echo "windows_upgrade_matrix_evidence=$WINDOWS_UPGRADE_MATRIX_EVIDENCE"
+          } > "$RUNNER_TEMP/update-recovery-evidence/matrix-metadata.txt"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: update-recovery-native-evidence-macos-arm64
+          path: |
+            dist/package/macos/Super Dolphin.dmg
+            ${{ runner.temp }}/update-recovery-evidence
+          if-no-files-found: error
+
+  package-windows-arm64:
+    needs: [validate-inputs, package-macos-arm64]
+    runs-on:
+      group: update-recovery-release
+      labels: [self-hosted, Windows, ARM64, update-recovery-release]
+    timeout-minutes: 90
+    env:
+      VERSION: ${{ inputs.version }}
+      BUILD_COMMIT: ${{ inputs.build_commit }}
+      PREVIOUS_VERSION: ${{ inputs.previous_version }}
+      MONITORING_WINDOW_HOURS: ${{ inputs.monitoring_window_hours }}
+      MACOS_UPGRADE_MATRIX_EVIDENCE: ${{ inputs.macos_upgrade_matrix_evidence }}
+      WINDOWS_UPGRADE_MATRIX_EVIDENCE: ${{ inputs.windows_upgrade_matrix_evidence }}
+      SUPER_DOLPHIN_WINDOWS_ARCH: arm64
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.build_commit }}
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Require native Windows arm64 and exact commit
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ($env:PROCESSOR_ARCHITECTURE -ne 'ARM64') { throw 'native Windows ARM64 runner is required' }
+          if ((git rev-parse HEAD).Trim() -ne $env:BUILD_COMMIT) { throw 'checked out commit differs from build_commit' }
+      - name: Run current-commit Windows recovery state matrix
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/update-recovery-evidence"
+          {
+            ./scripts/test_with_guard.sh ./cmd/super-dolphin-updater ./internal/module/appupdate ./internal/platform/appupdatefailure -count=1
+            ./scripts/test_with_guard.sh ./cmd/super-dolphin-guard -run 'TestGuard.*(Rollback|Probation|PIDReuse|Termination)' -count=1
+            ./scripts/test_with_guard.sh ./scripts -run '^TestWindowsPackageVerifierAcceptsRealFixture$' -count=1
+          } 2>&1 | tee "$RUNNER_TEMP/update-recovery-evidence/native-test.log"
+      - name: Package and verify supported native Windows arm64 zip
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & ./scripts/package_windows.ps1 -Artifact zip *>&1 | Tee-Object -FilePath (Join-Path $env:RUNNER_TEMP 'update-recovery-evidence/package.log')
+      - name: Record Windows matrix metadata
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $evidence = Join-Path $env:RUNNER_TEMP 'update-recovery-evidence'
+          New-Item -ItemType Directory -Force -Path $evidence | Out-Null
+          @(
+            'platform=windows-arm64'
+            'matrix_scope=current-commit-version-independent-recovery-state'
+            "candidate_version=$env:VERSION"
+            "previous_version_reference=$env:PREVIOUS_VERSION"
+            "commit=$((git rev-parse HEAD).Trim())"
+            "monitoring_window_hours=$env:MONITORING_WINDOW_HOURS"
+            "macos_upgrade_matrix_evidence=$env:MACOS_UPGRADE_MATRIX_EVIDENCE"
+            "windows_upgrade_matrix_evidence=$env:WINDOWS_UPGRADE_MATRIX_EVIDENCE"
+            'package_owned_publishing=unsupported'
+          ) | Set-Content -LiteralPath (Join-Path $evidence 'matrix-metadata.txt') -Encoding utf8
+      - uses: actions/upload-artifact@v4
+        with:
+          name: update-recovery-native-evidence-windows-arm64
+          path: |
+            dist/package/windows/*.zip
+            ${{ runner.temp }}/update-recovery-evidence
+          if-no-files-found: error
+
+  rollout-internal-20:
+    if: ${{ inputs.stage == 'internal-20' }}
+    needs: [validate-inputs, package-macos-arm64, package-windows-arm64]
+    runs-on: ubuntu-latest
+    env:
+      STAGE: internal-20
+      VERSION: ${{ inputs.version }}
+      BUILD_COMMIT: ${{ inputs.build_commit }}
+      SIGNING_PUBLIC_KEY_FINGERPRINT: ${{ inputs.signing_public_key_fingerprint }}
+      PREVIOUS_VERSION: ${{ inputs.previous_version }}
+      MONITORING_WINDOW_HOURS: ${{ inputs.monitoring_window_hours }}
+      PREDECESSOR_EVIDENCE: ${{ inputs.predecessor_evidence }}
+      MACOS_UPGRADE_MATRIX_EVIDENCE: ${{ inputs.macos_upgrade_matrix_evidence }}
+      WINDOWS_UPGRADE_MATRIX_EVIDENCE: ${{ inputs.windows_upgrade_matrix_evidence }}
+      STAGE_ATTESTATION_NAME: update-recovery-stage-attestation-internal-20
+    steps:
+      - uses: actions/download-artifact@v4
+      - name: Approve exactly the internal 20-device stage
+        run: |
+          printf '%s\n' "internal-20 authorized; no later stage is started by this run" \
+            "macOS upgrade evidence: $MACOS_UPGRADE_MATRIX_EVIDENCE" \
+            "Windows upgrade evidence: $WINDOWS_UPGRADE_MATRIX_EVIDENCE" >> "$GITHUB_STEP_SUMMARY"
+      - name: Write exact stage attestation
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/stage-attestation"
+          jq -n --arg stage "$STAGE" --arg version "$VERSION" --arg build_commit "$BUILD_COMMIT" \
+            --arg signing_public_key_fingerprint "$SIGNING_PUBLIC_KEY_FINGERPRINT" --arg previous_version "$PREVIOUS_VERSION" \
+            --arg monitoring_window_hours "$MONITORING_WINDOW_HOURS" \
+            '{schema:"super-dolphin/update-recovery-attestation/v1",kind:"rollout-stage",stage:$stage,version:$version,build_commit:$build_commit,signing_public_key_fingerprint:$signing_public_key_fingerprint,previous_version:$previous_version,monitoring_window_hours:$monitoring_window_hours}' \
+            > "$RUNNER_TEMP/stage-attestation/attestation.json"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.STAGE_ATTESTATION_NAME }}
+          path: ${{ runner.temp }}/stage-attestation/attestation.json
+          if-no-files-found: error
+
+  rollout-10-percent:
+    if: ${{ inputs.stage == '10-percent' }}
+    needs: [validate-inputs, package-macos-arm64, package-windows-arm64]
+    runs-on: ubuntu-latest
+    env:
+      STAGE: 10-percent
+      VERSION: ${{ inputs.version }}
+      BUILD_COMMIT: ${{ inputs.build_commit }}
+      SIGNING_PUBLIC_KEY_FINGERPRINT: ${{ inputs.signing_public_key_fingerprint }}
+      PREVIOUS_VERSION: ${{ inputs.previous_version }}
+      MONITORING_WINDOW_HOURS: ${{ inputs.monitoring_window_hours }}
+      PREDECESSOR_EVIDENCE: ${{ inputs.predecessor_evidence }}
+      MACOS_UPGRADE_MATRIX_EVIDENCE: ${{ inputs.macos_upgrade_matrix_evidence }}
+      WINDOWS_UPGRADE_MATRIX_EVIDENCE: ${{ inputs.windows_upgrade_matrix_evidence }}
+      STAGE_ATTESTATION_NAME: update-recovery-stage-attestation-10-percent
+    steps:
+      - uses: actions/download-artifact@v4
+      - name: Approve exactly the 10 percent stage
+        run: |
+          printf '%s\n' "10-percent authorized from $PREDECESSOR_EVIDENCE; no later stage is started by this run" \
+            "macOS upgrade evidence: $MACOS_UPGRADE_MATRIX_EVIDENCE" \
+            "Windows upgrade evidence: $WINDOWS_UPGRADE_MATRIX_EVIDENCE" >> "$GITHUB_STEP_SUMMARY"
+      - name: Write exact stage attestation
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/stage-attestation"
+          jq -n --arg stage "$STAGE" --arg version "$VERSION" --arg build_commit "$BUILD_COMMIT" \
+            --arg signing_public_key_fingerprint "$SIGNING_PUBLIC_KEY_FINGERPRINT" --arg previous_version "$PREVIOUS_VERSION" \
+            --arg monitoring_window_hours "$MONITORING_WINDOW_HOURS" \
+            '{schema:"super-dolphin/update-recovery-attestation/v1",kind:"rollout-stage",stage:$stage,version:$version,build_commit:$build_commit,signing_public_key_fingerprint:$signing_public_key_fingerprint,previous_version:$previous_version,monitoring_window_hours:$monitoring_window_hours}' \
+            > "$RUNNER_TEMP/stage-attestation/attestation.json"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.STAGE_ATTESTATION_NAME }}
+          path: ${{ runner.temp }}/stage-attestation/attestation.json
+          if-no-files-found: error
+
+  rollout-30-percent:
+    if: ${{ inputs.stage == '30-percent' }}
+    needs: [validate-inputs, package-macos-arm64, package-windows-arm64]
+    runs-on: ubuntu-latest
+    env:
+      STAGE: 30-percent
+      VERSION: ${{ inputs.version }}
+      BUILD_COMMIT: ${{ inputs.build_commit }}
+      SIGNING_PUBLIC_KEY_FINGERPRINT: ${{ inputs.signing_public_key_fingerprint }}
+      PREVIOUS_VERSION: ${{ inputs.previous_version }}
+      MONITORING_WINDOW_HOURS: ${{ inputs.monitoring_window_hours }}
+      PREDECESSOR_EVIDENCE: ${{ inputs.predecessor_evidence }}
+      MACOS_UPGRADE_MATRIX_EVIDENCE: ${{ inputs.macos_upgrade_matrix_evidence }}
+      WINDOWS_UPGRADE_MATRIX_EVIDENCE: ${{ inputs.windows_upgrade_matrix_evidence }}
+      STAGE_ATTESTATION_NAME: update-recovery-stage-attestation-30-percent
+    steps:
+      - uses: actions/download-artifact@v4
+      - name: Approve exactly the 30 percent stage
+        run: |
+          printf '%s\n' "30-percent authorized from $PREDECESSOR_EVIDENCE; no later stage is started by this run" \
+            "macOS upgrade evidence: $MACOS_UPGRADE_MATRIX_EVIDENCE" \
+            "Windows upgrade evidence: $WINDOWS_UPGRADE_MATRIX_EVIDENCE" >> "$GITHUB_STEP_SUMMARY"
+      - name: Write exact stage attestation
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/stage-attestation"
+          jq -n --arg stage "$STAGE" --arg version "$VERSION" --arg build_commit "$BUILD_COMMIT" \
+            --arg signing_public_key_fingerprint "$SIGNING_PUBLIC_KEY_FINGERPRINT" --arg previous_version "$PREVIOUS_VERSION" \
+            --arg monitoring_window_hours "$MONITORING_WINDOW_HOURS" \
+            '{schema:"super-dolphin/update-recovery-attestation/v1",kind:"rollout-stage",stage:$stage,version:$version,build_commit:$build_commit,signing_public_key_fingerprint:$signing_public_key_fingerprint,previous_version:$previous_version,monitoring_window_hours:$monitoring_window_hours}' \
+            > "$RUNNER_TEMP/stage-attestation/attestation.json"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.STAGE_ATTESTATION_NAME }}
+          path: ${{ runner.temp }}/stage-attestation/attestation.json
+          if-no-files-found: error
+
+  rollout-100-percent:
+    if: ${{ inputs.stage == '100-percent' }}
+    needs: [validate-inputs, package-macos-arm64, package-windows-arm64]
+    runs-on: ubuntu-latest
+    env:
+      STAGE: 100-percent
+      VERSION: ${{ inputs.version }}
+      BUILD_COMMIT: ${{ inputs.build_commit }}
+      SIGNING_PUBLIC_KEY_FINGERPRINT: ${{ inputs.signing_public_key_fingerprint }}
+      PREVIOUS_VERSION: ${{ inputs.previous_version }}
+      MONITORING_WINDOW_HOURS: ${{ inputs.monitoring_window_hours }}
+      PREDECESSOR_EVIDENCE: ${{ inputs.predecessor_evidence }}
+      MACOS_UPGRADE_MATRIX_EVIDENCE: ${{ inputs.macos_upgrade_matrix_evidence }}
+      WINDOWS_UPGRADE_MATRIX_EVIDENCE: ${{ inputs.windows_upgrade_matrix_evidence }}
+      STAGE_ATTESTATION_NAME: update-recovery-stage-attestation-100-percent
+    steps:
+      - uses: actions/download-artifact@v4
+      - name: Approve exactly the 100 percent stage
+        run: |
+          printf '%s\n' "100-percent authorized from $PREDECESSOR_EVIDENCE; this workflow never chains stages" \
+            "macOS upgrade evidence: $MACOS_UPGRADE_MATRIX_EVIDENCE" \
+            "Windows upgrade evidence: $WINDOWS_UPGRADE_MATRIX_EVIDENCE" >> "$GITHUB_STEP_SUMMARY"
+      - name: Write exact stage attestation
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/stage-attestation"
+          jq -n --arg stage "$STAGE" --arg version "$VERSION" --arg build_commit "$BUILD_COMMIT" \
+            --arg signing_public_key_fingerprint "$SIGNING_PUBLIC_KEY_FINGERPRINT" --arg previous_version "$PREVIOUS_VERSION" \
+            --arg monitoring_window_hours "$MONITORING_WINDOW_HOURS" \
+            '{schema:"super-dolphin/update-recovery-attestation/v1",kind:"rollout-stage",stage:$stage,version:$version,build_commit:$build_commit,signing_public_key_fingerprint:$signing_public_key_fingerprint,previous_version:$previous_version,monitoring_window_hours:$monitoring_window_hours}' \
+            > "$RUNNER_TEMP/stage-attestation/attestation.json"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.STAGE_ATTESTATION_NAME }}
+          path: ${{ runner.temp }}/stage-attestation/attestation.json
+          if-no-files-found: error

@@ -1208,6 +1208,29 @@ async function showAllTraceDashboardEvents() {
     expect(backend.checkAppUpdate).toHaveBeenCalledTimes(1);
   });
 
+  it('shows a fixed recovery banner when the background update signature check fails', async () => {
+    vi.useFakeTimers();
+    const secret = 'codesign output /Applications/Super Dolphin.app';
+    const failure = new Error(secret);
+    failure.data = {
+      code: 'UPDATE_SIGNATURE_INVALID',
+      retryable: false,
+      action: 'preserve_state_export_diagnostics',
+      transaction_id: '',
+    };
+    backend.checkAppUpdate.mockRejectedValueOnce(failure);
+
+    render(<App />);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2100);
+    });
+
+    const banner = screen.getByTestId('app-update-banner');
+    expect(banner).toHaveTextContent('更新完整性校验失败，请保持现场并导出诊断信息。');
+    expect(banner).not.toHaveTextContent(secret);
+    expect(screen.queryByRole('button', { name: '立即更新' })).not.toBeInTheDocument();
+  });
+
   it('starts installing the latest update from the main update banner', async () => {
     vi.useFakeTimers();
     backend.checkAppUpdate.mockResolvedValueOnce({ enabled: true, available: true, version: '0.1.1' });
@@ -1224,6 +1247,33 @@ async function showAllTraceDashboardEvents() {
     });
     expect(backend.installLatestAppUpdate).toHaveBeenCalledTimes(1);
     expect(screen.getByText('安装程序已启动，请按提示完成更新。')).toBeInTheDocument();
+  });
+
+  it('redacts typed integrity details when update installation fails', async () => {
+    vi.useFakeTimers();
+    backend.checkAppUpdate.mockResolvedValueOnce({ enabled: true, available: true, version: '0.1.1' });
+    const secret = 'codesign output /Applications/Super Dolphin.app';
+    const failure = new Error(secret);
+    failure.data = {
+      code: 'UPDATE_SIGNATURE_INVALID',
+      retryable: false,
+      action: 'preserve_state_export_diagnostics',
+      transaction_id: '',
+    };
+    backend.installLatestAppUpdate.mockRejectedValueOnce(failure);
+
+    render(<App />);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2100);
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: '立即更新' }));
+      await Promise.resolve();
+    });
+
+    const banner = screen.getByTestId('app-update-banner');
+    expect(banner).toHaveTextContent('更新完整性校验失败，请保持现场并导出诊断信息。');
+    expect(banner).not.toHaveTextContent(secret);
   });
 
   describe('theme cold start and switching behavior', () => {

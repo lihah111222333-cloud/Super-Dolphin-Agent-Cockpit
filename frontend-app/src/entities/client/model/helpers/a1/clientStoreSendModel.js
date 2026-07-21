@@ -2,6 +2,7 @@
 import { firstOptionalPresent, optionalTextField } from '../../contractStoreModel.js';
 import { deleteThread as deleteThreadRPC, listSharedFiles, recoverThread, readSharedFile, saveClipboardImage, selectFiles, setPreference, setThreadConfig } from '../../../../../shared/api/backendApi.js';
 import { sessionApi } from '../../../../../shared/api/sessionApi.js';
+import { recoveryActionMessageFromRPCError } from '../../../../../shared/recovery/recoveryFailure.js';
 import { appendUniqueAttachments, attachmentKey, buildTurnInput, createImageFileAttachment, droppedFilePath, fileListOf, fileLooksImage, normalizeAttachment, normalizeFileAttachment } from '../../composerAttachments.js';
 import {
   addComposerCapability,
@@ -108,6 +109,7 @@ const composerActionDeps = {
     promotedDraftThreadState,
     resolveLaunchPreferences,
     rollbackSendDraftState,
+    recoveryActionMessageFromRPCError,
     saveFailedSendDraftSnapshot,
     sendRollbackRestoresVisibleComposer,
     startNewDraftThread,
@@ -332,7 +334,8 @@ function promotedDraftThreadState(state, request, started) {
   };
 }
 
-function rollbackSendDraftState(state, request, _error, options = {}) {
+function rollbackSendDraftState(state, request, error, options = {}) {
+  const displayMessage = recoveryActionMessageFromRPCError(error) || '发送失败，请重试。';
   const createdThreadId = normalizeString(options.createdThreadId);
   const localDeleteIds = !request.previousThreadId
     ? [request.provisionalThreadId, createdThreadId].filter(Boolean)
@@ -371,8 +374,8 @@ function rollbackSendDraftState(state, request, _error, options = {}) {
     sidebarThreadsByProject: createdThreadId
       ? mapSidebarThreadCache(state, (threads) => threads.filter((thread) => thread.id !== createdThreadId))
       : state.sidebarThreadsByProject,
-    error: '发送失败，请重试。',
-    actionNotice: actionNotice('发送失败，请重试。', 'error', 'send'),
+    error: displayMessage,
+    actionNotice: actionNotice(displayMessage, 'error', 'send'),
   };
 }
 
@@ -552,6 +555,7 @@ export {
   optimisticSendThreads,
   promotedDraftThreadState,
   rollbackSendDraftState,
+  recoveryActionMessageFromRPCError,
   saveFailedSendDraftSnapshot,
   saveGlobalComposerModelConfig,
   saveThreadComposerModelConfig,

@@ -127,7 +127,7 @@ func TestStartTurnAdvertisesDynamicToolsFromTurnMCPManifest(t *testing.T) {
 		Inputs:   []dto.InputItem{{Type: "text", Content: "select now()"}},
 		MCP: dto.MCPManifest{Binaries: []dto.MCPBinary{{
 			Name:    "sqlite",
-			Command: []string{"npx", "-y", "@bytebase/dbhub", "--dsn=sqlite:///tmp/test.db"},
+			Command: []string{"npx", "-y", "@bytebase/dbhub@0.23.0", "--dsn=sqlite:///tmp/test.db"},
 		}}},
 	})
 	if err != nil {

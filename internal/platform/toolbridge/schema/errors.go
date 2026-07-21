@@ -3,6 +3,8 @@ package schema
 import (
 	"errors"
 	"fmt"
+
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
 )
 
 // InitializationFailureClass 控制 lazy schema 初始化失败是否可缓存。
@@ -116,33 +118,64 @@ func newDiagnostic(code Code, message string, cause error) error {
 
 // ErrorCode 从错误链提取稳定诊断码。
 func ErrorCode(err error) Code {
-	var diagnostic *Diagnostic
-	if errors.As(err, &diagnostic) {
-		return diagnostic.Code
-	}
-	return ""
+	var code Code
+	errorTreeVisit(err, func(current error) bool {
+		diagnostic, ok := current.(*Diagnostic)
+		if ok && diagnostic != nil {
+			code = diagnostic.Code
+			return true
+		}
+		return false
+	})
+	return code
 }
 
 // errorTreeContainsCode 递归检查单链包装与 errors.Join 多分支中的目标诊断码。
 func errorTreeContainsCode(err error, code Code) bool {
+	count, complete := errorTreeCodeCount(err, code)
+	return count > 0 || !complete
+}
+
+// errorTreeVisit 以稳定深度优先顺序遍历有界错误树；返回值表示 visitor 是否提前命中。
+func errorTreeVisit(err error, visit func(error) bool) bool {
+	matched, _ := contract.WalkErrorTree(err, visit)
+	return matched
+}
+
+// errorTreeCodeCount 保守统计单链包装与 errors.Join 多分支中的目标诊断实例。
+func errorTreeCodeCount(err error, code Code) (int, bool) {
+	remaining := 64
+	return errorTreeCodeCountWithin(err, code, &remaining)
+}
+
+// errorTreeCodeCountWithin 在共享节点预算内遍历，避免循环或恶意深链阻塞调用方。
+func errorTreeCodeCountWithin(err error, code Code, remaining *int) (int, bool) {
 	if err == nil {
-		return false
+		return 0, true
 	}
+	if *remaining == 0 {
+		return 0, false
+	}
+	*remaining = *remaining - 1
+	count := 0
 	if diagnostic, ok := err.(*Diagnostic); ok && diagnostic != nil && diagnostic.Code == code {
-		return true
+		count++
 	}
 	if joined, ok := err.(interface{ Unwrap() []error }); ok {
 		for _, child := range joined.Unwrap() {
-			if errorTreeContainsCode(child, code) {
-				return true
+			childCount, complete := errorTreeCodeCountWithin(child, code, remaining)
+			count += childCount
+			if !complete {
+				return count, false
 			}
 		}
-		return false
+		return count, true
 	}
 	if wrapped, ok := err.(interface{ Unwrap() error }); ok {
-		return errorTreeContainsCode(wrapped.Unwrap(), code)
+		childCount, complete := errorTreeCodeCountWithin(wrapped.Unwrap(), code, remaining)
+		return count + childCount, complete
 	}
-	return false
+	return count, true
 }
 
 func isKnownCode(code Code) bool {
@@ -156,4 +189,73 @@ func isKnownCode(code Code) bool {
 	default:
 		return false
 	}
+}
+
+type safeRecoveryError struct {
+	failure contract.RecoveryFailure
+	cause   error
+}
+
+// Error 只返回稳定 code，禁止把内部 helper 诊断带到调用边界。
+func (err *safeRecoveryError) Error() string {
+	if err == nil {
+		return ""
+	}
+	return err.failure.Code
+}
+
+// Unwrap 仅供内部 errors.Is/As 与诊断分类保留根因。
+func (err *safeRecoveryError) Unwrap() error {
+	if err == nil {
+		return nil
+	}
+	return err.cause
+}
+
+// RecoveryFailure 返回已校验的最小恢复元数据，供 provider 边界结构化透传。
+func (err *safeRecoveryError) RecoveryFailure() contract.RecoveryFailure {
+	if err == nil {
+		return contract.RecoveryFailure{}
+	}
+	return err.failure
+}
+
+// RecoveryFailure 把需要用户干预的 schema 错误映射为最小安全元数据。
+func RecoveryFailure(err error) (contract.RecoveryFailure, bool) {
+	if safe, ok := err.(*safeRecoveryError); ok && safe != nil {
+		return safe.failure, true
+	}
+	var failure contract.RecoveryFailure
+	found := errorTreeVisit(err, func(current error) bool {
+		if safe, ok := current.(*safeRecoveryError); ok && safe != nil {
+			failure = safe.failure
+			return true
+		}
+		diagnostic, ok := current.(*Diagnostic)
+		if !ok || diagnostic == nil {
+			return false
+		}
+		mapped, recoverable := schemaRecoveryFailureForCode(diagnostic.Code)
+		if recoverable {
+			failure = mapped
+		}
+		return recoverable
+	})
+	return failure, found
+}
+
+func schemaRecoveryFailureForCode(code Code) (contract.RecoveryFailure, bool) {
+	return contract.RecoveryFailureForCode(string(code), "")
+}
+
+// SafeRecoveryError 保留内部错误链，但只向边界返回稳定 code。
+func SafeRecoveryError(err error) error {
+	if _, ok := err.(*safeRecoveryError); ok {
+		return err
+	}
+	failure, ok := RecoveryFailure(err)
+	if !ok {
+		return err
+	}
+	return &safeRecoveryError{failure: failure, cause: err}
 }

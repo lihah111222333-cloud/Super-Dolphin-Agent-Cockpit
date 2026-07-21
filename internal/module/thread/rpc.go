@@ -103,6 +103,9 @@ func newStartHandler(svc Service) handler.Func {
 		logStartRPCReceived(p, cfg)
 		result, err := svc.Start(ctx, buildStartRequestFromParams(p, cfg))
 		if err != nil {
+			if recoveryErr, ok := platformrpc.RecoveryActionError(err); ok {
+				return nil, recoveryErr
+			}
 			return nil, err
 		}
 		return buildStartResponse(result), nil

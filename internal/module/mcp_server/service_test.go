@@ -575,7 +575,7 @@ func TestMCPServerConfigProviderSkipsDisabledRows(t *testing.T) {
 	store.seed(project, "disabled-sqlite", ServerConfig{
 		Transport: "stdio",
 		Command:   "npx",
-		Args:      []string{"-y", "@bytebase/dbhub", "--dsn=sqlite:///" + filepath.ToSlash(filepath.Join(project, "super-dolphin.db"))},
+		Args:      []string{"-y", "@bytebase/dbhub@0.23.0", "--dsn=sqlite:///" + filepath.ToSlash(filepath.Join(project, "super-dolphin.db"))},
 		Enabled:   boolPtr(false),
 	})
 

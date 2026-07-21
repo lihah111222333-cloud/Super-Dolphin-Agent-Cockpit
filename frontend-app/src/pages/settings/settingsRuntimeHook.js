@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { recoveryActionMessageFromRPCError } from '../../shared/recovery/recoveryFailure.js';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { APP_COPY } from '../../shared/i18n/appI18n.js';
 import { firstPresentText } from '../shared/pageShared.js';
@@ -72,9 +73,10 @@ function useSettingsRuntime(cwd, copy) {
     onSuccess: (info) => {
       applyCheckedAppUpdateInfo({ copy, info, setUpdateInfo, setUpdateNotice });
     },
-    onError: (_mutationError) => {
+    onError: (mutationError) => {
       setUpdateInfo(null);
-      setUpdateNotice({ level: 'error', message: copy.update.checkFailed });
+      const recoveryMessage = recoveryActionMessageFromRPCError(mutationError);
+      setUpdateNotice({ level: 'error', message: recoveryMessage || copy.update.checkFailed });
     },
     retry: false,
   });
@@ -90,10 +92,11 @@ function useSettingsRuntime(cwd, copy) {
       setUpdateInstalled(true);
       setUpdateNotice({ level: 'info', message: context?.installingMessage || copy.update.installing });
     },
-    onError: (_mutationError, _variables, context) => {
+    onError: (mutationError, _variables, context) => {
       setUpdateInfo(context?.pendingInfo || null);
       setUpdateInstalled(false);
-      setUpdateNotice({ level: 'error', message: copy.update.installFailed });
+      const recoveryMessage = recoveryActionMessageFromRPCError(mutationError);
+      setUpdateNotice({ level: 'error', message: recoveryMessage || copy.update.installFailed });
     },
     retry: false,
   });

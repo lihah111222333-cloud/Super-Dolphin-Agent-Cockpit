@@ -11,6 +11,53 @@ permissions:
   contents: read
 
 jobs:
+  update-recovery-release-gate-macos:
+    runs-on: macos-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Full macOS update recovery release gate
+        run: make release-update-gate
+
+  update-recovery-release-gate-windows:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Windows-native update recovery and package verification
+        shell: bash
+        run: |
+          ./scripts/test_with_guard.sh ./cmd/super-dolphin-updater -run 'Test(Guard|ConfigureGuard)' -count=1
+          ./scripts/test_with_guard.sh ./cmd/super-dolphin-guard -run 'TestGuard.*(Rollback|Probation|PIDReuse|Termination)' -count=1
+          ./scripts/test_with_guard.sh ./scripts -run '^TestWindowsPackageVerifierAcceptsRealFixture$' -count=1
+
+  update-recovery-release-gate-linux-supplemental:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Supplemental Linux update recovery evidence
+        run: make release-update-gate
+
   sqlite-release-gates:
     runs-on: ubuntu-latest
     timeout-minutes: 90
@@ -41,6 +88,7 @@ jobs:
           include-hidden-files: true
 
   sqlite-packaging-smoke:
+    needs: [update-recovery-release-gate-macos, update-recovery-release-gate-windows]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     strategy:

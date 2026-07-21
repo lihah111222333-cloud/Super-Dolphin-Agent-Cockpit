@@ -126,13 +126,18 @@ New-Item -ItemType Directory -Force -Path (Join-Path $Root 'bin') | Out-Null
 $mcpOrch = Resolve-BinaryPath -Name 'mcp-orch'
 $mcpLSP = Resolve-BinaryPath -Name 'mcp-lsp'
 $agentTerminal = Resolve-BinaryPath -Name 'agent-terminal'
+$updater = Resolve-BinaryPath -Name 'super-dolphin-updater'
 
 Invoke-GoBuild -Output $mcpOrch -Package './cmd/mcp-orch'
 Invoke-GoBuild -Output $mcpLSP -Package './cmd/mcp-lsp'
 Invoke-GoBuild -Output $agentTerminal -Package './cmd/agent-terminal'
+Invoke-GoBuild -Output $updater -Package './cmd/super-dolphin-updater'
 
 $sidecarPattern = 'Test(MCPToolsListIncludesPromptRecall|HandleScopedToolsCallWithCallerUsesTrustedScope|LSPToolManifestsExposeShortNames|ToolsListHidesSemanticLSPToolsWhenLanguageServersUnavailable)$'
 Invoke-GuardedGoTest ./cmd/mcp-orch ./cmd/mcp-lsp -run $sidecarPattern -count=1
 
 $cleanupPattern = 'Test(DiscoverProcessesReturnsBothMaps|FilterOrphanMCPProcessesSkipsPeerWithLiveParent|CleanOrphanedMCPProcessesSkipsSelf|KillMCPProcessRefusesPID1)$'
 Invoke-GuardedGoTest ./internal/provider/codexapp -run $cleanupPattern -count=1
+
+$updateSidecarPattern = 'Test(ServiceNeverCallsDarwinSidecarOutsideDarwin|SidecarIsExplicitlyUnsupportedOutsideDarwin|ParseInstallRequestAcceptsLogPathAndWaitPID|ValidateInstallRequestRejectsMissingOrInvalidGeneration)$'
+Invoke-GuardedGoTest ./cmd/super-dolphin-updater ./internal/module/appupdate ./internal/platform/appupdatefailure -run $updateSidecarPattern -count=1

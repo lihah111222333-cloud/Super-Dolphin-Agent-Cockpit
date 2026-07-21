@@ -48,6 +48,61 @@ func TestRollbackRestartReadinessRetriesRefusedPublishedEndpoint(t *testing.T) {
 	assertRollbackRestartEndpointReady(t, ctx, result, endpoint)
 }
 
+func TestRollbackRestartReadinessRetriesEndpointIdentityTransition(t *testing.T) {
+	first := pidregistry.CooperativeEndpointIdentity{Device: 1, Inode: 1, UID: 1, Mode: 0o600}
+	second := pidregistry.CooperativeEndpointIdentity{Device: 1, Inode: 2, UID: 1, Mode: 0o600}
+	captures := 0
+	probes := 0
+	ctx, cancel := context.WithTimeout(t.Context(), 5*rollbackRestartEndpointPoll)
+	defer cancel()
+
+	identity, err := waitRollbackRestartEndpointWithOperations(
+		ctx,
+		pidregistry.StableProcessIdentity{TerminationEndpoint: "/tmp/replaced.sock"},
+		func(string) (pidregistry.CooperativeEndpointIdentity, error) {
+			captures++
+			if captures == 1 {
+				return first, nil
+			}
+			return second, nil
+		},
+		func(context.Context, pidregistry.StableProcessIdentity, pidregistry.CooperativeEndpointIdentity) error {
+			probes++
+			if probes == 1 {
+				return pidregistry.ErrCooperativeEndpointIdentityMismatch
+			}
+			return nil
+		},
+	)
+	if err != nil {
+		t.Fatalf("wait for transitioned rollback endpoint: %v", err)
+	}
+	if identity != second {
+		t.Fatalf("ready endpoint identity = %+v, want %+v", identity, second)
+	}
+	if captures != 2 || probes != 2 {
+		t.Fatalf("capture/probe attempts = %d/%d, want 2/2", captures, probes)
+	}
+}
+
+func TestRollbackRestartReadinessIdentityTransitionHonorsDeadline(t *testing.T) {
+	ctx, cancel := context.WithTimeout(t.Context(), 3*rollbackRestartEndpointPoll)
+	defer cancel()
+	_, err := waitRollbackRestartEndpointWithOperations(
+		ctx,
+		pidregistry.StableProcessIdentity{TerminationEndpoint: "/tmp/replaced.sock"},
+		func(string) (pidregistry.CooperativeEndpointIdentity, error) {
+			return pidregistry.CooperativeEndpointIdentity{Device: 1, Inode: 1, UID: 1, Mode: 0o600}, nil
+		},
+		func(context.Context, pidregistry.StableProcessIdentity, pidregistry.CooperativeEndpointIdentity) error {
+			return pidregistry.ErrCooperativeEndpointIdentityMismatch
+		},
+	)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("wait error = %v, want deadline exceeded", err)
+	}
+}
+
 type rollbackEndpointWaitResult struct {
 	endpoint pidregistry.CooperativeEndpointIdentity
 	err      error

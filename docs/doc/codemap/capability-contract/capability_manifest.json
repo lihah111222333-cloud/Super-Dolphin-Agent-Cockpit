@@ -2557,6 +2557,11 @@
         "internal/contract.ReadOnlyAgentDeniedTools",
         "internal/contract.ReadOnlyCodexNativeDeniedTools",
         "internal/contract.ReadOnlyNonOrchestrationDeniedTools",
+        "internal/contract.RecoveryFailure",
+        "internal/contract.RecoveryFailureCarrier",
+        "internal/contract.RecoveryFailureCarrier.RecoveryFailure",
+        "internal/contract.RecoveryFailureForCode",
+        "internal/contract.RecoveryFailureFromError",
         "internal/contract.RegisteredDependencyAbsencePolicies",
         "internal/contract.RememberReportRequest",
         "internal/contract.RememberReportRequestResult",
@@ -2748,8 +2753,10 @@
         "internal/contract.UpdateNodeStatusRequest",
         "internal/contract.UpsertDatasourceDocumentParams",
         "internal/contract.ValidateLaunchCWD",
+        "internal/contract.ValidateRecoveryFailure",
         "internal/contract.ValidateResumePromptSnapshot",
         "internal/contract.VerificationResult",
+        "internal/contract.WalkErrorTree",
         "internal/contract.WithSkillCWD",
         "internal/contract.WithStartedSignal",
         "internal/contract.WithThreadID",
@@ -2793,6 +2800,7 @@
         "internal/contract.orderedUserContextKeys",
         "internal/contract.promoteManifestEnv",
         "internal/contract.recoverCall",
+        "internal/contract.recoveryFailureSpec",
         "internal/contract.removeManifestDatabaseEnv",
         "internal/contract.renderUserContextSection",
         "internal/contract.requireCodexString",
@@ -2810,6 +2818,8 @@
         "internal/contract.startRuntimeExtrasAlreadyRendered",
         "internal/contract.threadIDKey",
         "internal/contract.toolLifecycleAlreadyPublishedKey",
+        "internal/contract.walkErrorTreeWithin",
+        "internal/contract.walkJoinedErrors",
         "internal/contract.workerRunner",
         "internal/contract/contracttest.SectionInvalidatorConcurrent",
         "internal/provider/claudecli.*driver.Name",
@@ -7229,6 +7239,11 @@
         "internal/contract.ReadOnlyAgentDeniedTools",
         "internal/contract.ReadOnlyCodexNativeDeniedTools",
         "internal/contract.ReadOnlyNonOrchestrationDeniedTools",
+        "internal/contract.RecoveryFailure",
+        "internal/contract.RecoveryFailureCarrier",
+        "internal/contract.RecoveryFailureCarrier.RecoveryFailure",
+        "internal/contract.RecoveryFailureForCode",
+        "internal/contract.RecoveryFailureFromError",
         "internal/contract.RegisteredDependencyAbsencePolicies",
         "internal/contract.RememberReportRequest",
         "internal/contract.RememberReportRequestResult",
@@ -7420,8 +7435,10 @@
         "internal/contract.UpdateNodeStatusRequest",
         "internal/contract.UpsertDatasourceDocumentParams",
         "internal/contract.ValidateLaunchCWD",
+        "internal/contract.ValidateRecoveryFailure",
         "internal/contract.ValidateResumePromptSnapshot",
         "internal/contract.VerificationResult",
+        "internal/contract.WalkErrorTree",
         "internal/contract.WithSkillCWD",
         "internal/contract.WithStartedSignal",
         "internal/contract.WithThreadID",
@@ -7465,6 +7482,7 @@
         "internal/contract.orderedUserContextKeys",
         "internal/contract.promoteManifestEnv",
         "internal/contract.recoverCall",
+        "internal/contract.recoveryFailureSpec",
         "internal/contract.removeManifestDatabaseEnv",
         "internal/contract.renderUserContextSection",
         "internal/contract.requireCodexString",
@@ -7482,6 +7500,8 @@
         "internal/contract.startRuntimeExtrasAlreadyRendered",
         "internal/contract.threadIDKey",
         "internal/contract.toolLifecycleAlreadyPublishedKey",
+        "internal/contract.walkErrorTreeWithin",
+        "internal/contract.walkJoinedErrors",
         "internal/contract.workerRunner",
         "internal/contract/contracttest.SectionInvalidatorConcurrent",
         "internal/provider/claudecli.*driver.Name",
@@ -11901,6 +11921,11 @@
         "internal/contract.ReadOnlyAgentDeniedTools",
         "internal/contract.ReadOnlyCodexNativeDeniedTools",
         "internal/contract.ReadOnlyNonOrchestrationDeniedTools",
+        "internal/contract.RecoveryFailure",
+        "internal/contract.RecoveryFailureCarrier",
+        "internal/contract.RecoveryFailureCarrier.RecoveryFailure",
+        "internal/contract.RecoveryFailureForCode",
+        "internal/contract.RecoveryFailureFromError",
         "internal/contract.RegisteredDependencyAbsencePolicies",
         "internal/contract.RememberReportRequest",
         "internal/contract.RememberReportRequestResult",
@@ -12092,8 +12117,10 @@
         "internal/contract.UpdateNodeStatusRequest",
         "internal/contract.UpsertDatasourceDocumentParams",
         "internal/contract.ValidateLaunchCWD",
+        "internal/contract.ValidateRecoveryFailure",
         "internal/contract.ValidateResumePromptSnapshot",
         "internal/contract.VerificationResult",
+        "internal/contract.WalkErrorTree",
         "internal/contract.WithSkillCWD",
         "internal/contract.WithStartedSignal",
         "internal/contract.WithThreadID",
@@ -12137,6 +12164,7 @@
         "internal/contract.orderedUserContextKeys",
         "internal/contract.promoteManifestEnv",
         "internal/contract.recoverCall",
+        "internal/contract.recoveryFailureSpec",
         "internal/contract.removeManifestDatabaseEnv",
         "internal/contract.renderUserContextSection",
         "internal/contract.requireCodexString",
@@ -12154,6 +12182,8 @@
         "internal/contract.startRuntimeExtrasAlreadyRendered",
         "internal/contract.threadIDKey",
         "internal/contract.toolLifecycleAlreadyPublishedKey",
+        "internal/contract.walkErrorTreeWithin",
+        "internal/contract.walkJoinedErrors",
         "internal/contract.workerRunner",
         "internal/contract/contracttest.SectionInvalidatorConcurrent",
         "internal/provider/claudecli.*driver.Name",
@@ -16576,6 +16606,11 @@
         "internal/contract.ReadOnlyAgentDeniedTools",
         "internal/contract.ReadOnlyCodexNativeDeniedTools",
         "internal/contract.ReadOnlyNonOrchestrationDeniedTools",
+        "internal/contract.RecoveryFailure",
+        "internal/contract.RecoveryFailureCarrier",
+        "internal/contract.RecoveryFailureCarrier.RecoveryFailure",
+        "internal/contract.RecoveryFailureForCode",
+        "internal/contract.RecoveryFailureFromError",
         "internal/contract.RegisteredDependencyAbsencePolicies",
         "internal/contract.RememberReportRequest",
         "internal/contract.RememberReportRequestResult",
@@ -16767,8 +16802,10 @@
         "internal/contract.UpdateNodeStatusRequest",
         "internal/contract.UpsertDatasourceDocumentParams",
         "internal/contract.ValidateLaunchCWD",
+        "internal/contract.ValidateRecoveryFailure",
         "internal/contract.ValidateResumePromptSnapshot",
         "internal/contract.VerificationResult",
+        "internal/contract.WalkErrorTree",
         "internal/contract.WithSkillCWD",
         "internal/contract.WithStartedSignal",
         "internal/contract.WithThreadID",
@@ -16812,6 +16849,7 @@
         "internal/contract.orderedUserContextKeys",
         "internal/contract.promoteManifestEnv",
         "internal/contract.recoverCall",
+        "internal/contract.recoveryFailureSpec",
         "internal/contract.removeManifestDatabaseEnv",
         "internal/contract.renderUserContextSection",
         "internal/contract.requireCodexString",
@@ -16829,6 +16867,8 @@
         "internal/contract.startRuntimeExtrasAlreadyRendered",
         "internal/contract.threadIDKey",
         "internal/contract.toolLifecycleAlreadyPublishedKey",
+        "internal/contract.walkErrorTreeWithin",
+        "internal/contract.walkJoinedErrors",
         "internal/contract.workerRunner",
         "internal/contract/contracttest.SectionInvalidatorConcurrent",
         "internal/provider/claudecli.*driver.Name",
@@ -18713,13 +18753,13 @@
   ],
   "summary": {
     "total_packages": 41,
-    "total_functions": 2275,
+    "total_functions": 2281,
     "total_methods": 1187,
-    "total_interfaces": 184,
-    "total_interface_methods": 368,
-    "total_exported": 1261,
-    "total_unexported": 2998,
-    "total_structs": 613
+    "total_interfaces": 185,
+    "total_interface_methods": 369,
+    "total_exported": 1267,
+    "total_unexported": 3001,
+    "total_structs": 615
   },
   "packages": [
     {
@@ -51123,6 +51163,38 @@
           ]
         },
         {
+          "name": "RecoveryFailureForCode",
+          "exported": true,
+          "params": [
+            {
+              "name": "code",
+              "type": "string"
+            },
+            {
+              "name": "transactionID",
+              "type": "string"
+            }
+          ],
+          "returns": [
+            "RecoveryFailure",
+            "bool"
+          ]
+        },
+        {
+          "name": "RecoveryFailureFromError",
+          "exported": true,
+          "params": [
+            {
+              "name": "err",
+              "type": "error"
+            }
+          ],
+          "returns": [
+            "RecoveryFailure",
+            "bool"
+          ]
+        },
+        {
           "name": "RegisteredDependencyAbsencePolicies",
           "exported": true,
           "returns": [
@@ -51390,6 +51462,19 @@
           ]
         },
         {
+          "name": "ValidateRecoveryFailure",
+          "exported": true,
+          "params": [
+            {
+              "name": "failure",
+              "type": "RecoveryFailure"
+            }
+          ],
+          "returns": [
+            "error"
+          ]
+        },
+        {
           "name": "ValidateResumePromptSnapshot",
           "exported": true,
           "params": [
@@ -51400,6 +51485,24 @@
           ],
           "returns": [
             "error"
+          ]
+        },
+        {
+          "name": "WalkErrorTree",
+          "exported": true,
+          "params": [
+            {
+              "name": "err",
+              "type": "error"
+            },
+            {
+              "name": "visit",
+              "type": "func(error) bool"
+            }
+          ],
+          "returns": [
+            "bool",
+            "bool"
           ]
         },
         {
@@ -52106,6 +52209,50 @@
             }
           ],
           "returns": [
+            "bool"
+          ]
+        },
+        {
+          "name": "walkErrorTreeWithin",
+          "exported": false,
+          "params": [
+            {
+              "name": "err",
+              "type": "error"
+            },
+            {
+              "name": "remaining",
+              "type": "*int"
+            },
+            {
+              "name": "visit",
+              "type": "func(error) bool"
+            }
+          ],
+          "returns": [
+            "bool",
+            "bool"
+          ]
+        },
+        {
+          "name": "walkJoinedErrors",
+          "exported": false,
+          "params": [
+            {
+              "name": "children",
+              "type": "[]error"
+            },
+            {
+              "name": "remaining",
+              "type": "*int"
+            },
+            {
+              "name": "visit",
+              "type": "func(error) bool"
+            }
+          ],
+          "returns": [
+            "bool",
             "bool"
           ]
         }
@@ -55126,6 +55273,18 @@
           ]
         },
         {
+          "name": "RecoveryFailureCarrier",
+          "exported": true,
+          "methods": [
+            {
+              "name": "RecoveryFailure",
+              "returns": [
+                "RecoveryFailure"
+              ]
+            }
+          ]
+        },
+        {
           "name": "Runner",
           "exported": true,
           "methods": [
@@ -56955,6 +57114,10 @@
           "exported": true
         },
         {
+          "name": "RecoveryFailure",
+          "exported": true
+        },
+        {
           "name": "RememberReportRequest",
           "exported": true
         },
@@ -57156,6 +57319,10 @@
         },
         {
           "name": "finalOutputMetadataEnvelope",
+          "exported": false
+        },
+        {
+          "name": "recoveryFailureSpec",
           "exported": false
         },
         {
