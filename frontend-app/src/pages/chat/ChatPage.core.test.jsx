@@ -4,6 +4,8 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import { expect, it, vi } from 'vitest';
 import { TestChatPageWrapper, createActiveThreadStore, createFakeStore, createShellLayoutTestHarness, getThreadCardByName } from './__tests__/chatPageTestSupport.js';
 import { APP_COPY } from '../../shared/i18n/appI18n.js';
+import { resetVisibleActionFailureForTest } from '../../shared/ui/actionFailureSink.js';
+import { ActionFailureSink } from '../../shared/ui/actionFailureSink.jsx';
 
 function installTimelineMetrics(timeline) {
   let scrollHeight = 1000;
@@ -147,6 +149,7 @@ function approvalMessage(requestId, status = 'pending', overrides = {}) {
   });
 
   it('shows approval action failures as a visible alert', async () => {
+    const rawCause = 'approval backend offline token=secret';
     const store = createActiveThreadStore([
       {
         id: 'approval-1',
@@ -161,18 +164,25 @@ function approvalMessage(requestId, status = 'pending', overrides = {}) {
         time: '2026-06-15T08:00:00Z',
       },
     ], {
-      respondApproval: vi.fn().mockRejectedValue(new Error('approval backend offline')),
+      respondApproval: vi.fn().mockRejectedValue(new Error(rawCause)),
     });
 
-    render(<TestChatPageWrapper store={store} projectPath="/repo/app" />);
+    resetVisibleActionFailureForTest();
+    render(
+      <>
+        <TestChatPageWrapper store={store} projectPath="/repo/app" />
+        <ActionFailureSink />
+      </>,
+    );
     fireEvent.click(screen.getByRole('button', { name: '同意' }));
     fireEvent.click(screen.getByRole('button', { name: '确认选择' }));
 
-    const alert = await screen.findByTestId('approval-action-feedback');
+    const alert = await screen.findByTestId('global-action-failure');
     expect(alert).toHaveAttribute('role', 'alert');
-    expect(alert).toHaveClass('approval-action-feedback');
-    expect(alert).not.toHaveClass('sr-only');
-    expect(alert).toHaveTextContent('approval backend offline');
+    expect(alert).toHaveClass('global-action-failure');
+    expect(alert).toHaveTextContent('操作失败，当前页面状态已保留。');
+    expect(alert).toHaveTextContent('诊断 ID：');
+    expect(alert).not.toHaveTextContent(rawCause);
   });
 
   it.each([
@@ -394,6 +404,26 @@ function approvalMessage(requestId, status = 'pending', overrides = {}) {
     expect(screen.getByRole('button', { name: '正在重新连接后端' })).toBeDisabled();
     expect(screen.getByRole('button', { name: '发送消息' })).toBeDisabled();
     expect(screen.getByRole('button', { name: '添加文件' })).toBeDisabled();
+  });
+
+  it('renders a persisted shell layout width without rewriting storage', () => {
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1980 });
+    const shellLayout = createShellLayoutTestHarness('480.5');
+    const store = createActiveThreadStore([]);
+
+    render(
+      <TestChatPageWrapper
+        rightPanelOpen
+        shellLayoutStore={shellLayout.store}
+        store={store}
+        projectPath="/repo/app"
+      />,
+    );
+
+    expect(screen.getByTestId('chat-layout')).toHaveStyle({
+      gridTemplateColumns: 'minmax(0, 1fr) 6px 480.5px',
+    });
+    expect(shellLayout.storage.set).not.toHaveBeenCalled();
   });
 
   it('renders an active thread timeline, sends through the store, and opens the runtime panel', async () => {

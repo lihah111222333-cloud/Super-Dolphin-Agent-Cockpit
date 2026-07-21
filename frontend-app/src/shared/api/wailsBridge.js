@@ -3,14 +3,16 @@
 // public 目录里的 Wails runtime 只能由浏览器原生加载，避免 Vite 注入 ?import 后拦截。
 const WAILS_RUNTIME_MODULE = '/wails/runtime.js';
 
+/** @param {string} modulePath */
 function nativeImportModule(modulePath) {
   return import(/* @vite-ignore */ modulePath);
 }
 
-// source-contract: nativeImportModule(WAILS_RUNTIME_MODULE)
-void nativeImportModule;
-void WAILS_RUNTIME_MODULE;
+function loadWailsRuntime() {
+  return nativeImportModule(WAILS_RUNTIME_MODULE);
+}
 
+export { loadWailsRuntime };
 export { registerBridgeLogStore } from './wails/wailsBridgeLogRuntime.js';
 export { normalizeRuntimeEventEnvelope, emitFrontendTraceEvent } from './wails/wailsBridgeTraceEvents.js';
 export { callAPI, sendFrontendLogBatch } from './wails/wailsBridgeRpc.js';

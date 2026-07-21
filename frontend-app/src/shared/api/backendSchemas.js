@@ -1,10 +1,13 @@
 import { z } from 'zod';
 
+/** @typedef {Record<string, unknown>} SchemaRecord */
+
 const memorySectionSchema = z.object({
   entries: z.array(z.unknown()),
 }).passthrough();
 const modelProviderVendorSchema = z.object({}).passthrough();
 const wireTimestampSchema = z.string().datetime({ offset: true });
+/** @type {import('zod').ZodType<unknown>} */
 const jsonValueSchema = z.lazy(() => z.union([
   z.string(),
   z.number().finite(),
@@ -177,10 +180,12 @@ const MEMORY_TYPE_INFO = Object.freeze({
   reference: { category: 'project', label: '项目' },
 });
 
+/** @param {unknown} value @returns {string} */
 function schemaTextValue(value) {
   return value === null || value === undefined ? '' : value.toString().trim();
 }
 
+/** @param {...unknown} values @returns {string} */
 function schemaFirstText(...values) {
   for (const value of values) {
     const text = schemaTextValue(value);
@@ -189,13 +194,20 @@ function schemaFirstText(...values) {
   return '';
 }
 
+/** @param {unknown} value @param {number} fallback @returns {number} */
 function schemaNumberValue(value, fallback = 0) {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
+/** @param {unknown} value @returns {value is SchemaRecord} */
+function isSchemaRecord(value) {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+/** @param {unknown} value @returns {SchemaRecord} */
 function schemaObjectValue(value) {
-  return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+  return isSchemaRecord(value) ? value : {};
 }
 
 const sharedFileDetailTextSchema = z.preprocess(
@@ -285,35 +297,45 @@ const observabilityResultSchema = z.object({
   events: value.events,
 }));
 
+/** @param {unknown} section @param {string} target @returns {string} */
 function memorySectionError(section, target) {
-  if (!section || typeof section !== 'object' || Array.isArray(section) || !Array.isArray(section.entries)) {
+  if (!isSchemaRecord(section) || !Array.isArray(section.entries)) {
     return `memory ${target} entries must be an array`;
   }
   return '';
 }
 
+/** @param {string} type */
+function memoryTypeInfo(type) {
+  if (!Object.prototype.hasOwnProperty.call(MEMORY_TYPE_INFO, type)) return undefined;
+  return MEMORY_TYPE_INFO[/** @type {keyof typeof MEMORY_TYPE_INFO} */ (type)];
+}
+
+/** @param {unknown} raw @param {number} index @param {string} target @returns {string} */
 function memoryEntryError(raw, index, target) {
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+  if (!isSchemaRecord(raw)) {
     return `memory ${target} entry ${index} must be an object`;
   }
   const path = schemaTextValue(raw.path);
   if (!path) return `memory ${target} entry ${index} path is required`;
   const type = schemaTextValue(raw.type).toLowerCase();
-  if (!MEMORY_TYPE_INFO[type]) return `memory ${target} entry ${index} type is unsupported: ${type || '(empty)'}`;
+  if (!memoryTypeInfo(type)) return `memory ${target} entry ${index} type is unsupported: ${type || '(empty)'}`;
   const name = schemaFirstText(raw.name, raw.title);
   if (!name) return `memory ${target} entry ${index} name is required`;
   return '';
 }
 
+/** @param {unknown} raw @param {number} index @param {string} target @returns {(string | number)[]} */
 function memoryEntryIssuePath(raw, index, target) {
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return [target, 'entries', index];
+  if (!isSchemaRecord(raw)) return [target, 'entries', index];
   if (!schemaTextValue(raw.path)) return [target, 'entries', index, 'path'];
   const type = schemaTextValue(raw.type).toLowerCase();
-  if (!MEMORY_TYPE_INFO[type]) return [target, 'entries', index, 'type'];
+  if (!memoryTypeInfo(type)) return [target, 'entries', index, 'type'];
   if (!schemaFirstText(raw.name, raw.title)) return [target, 'entries', index, 'name'];
   return [target, 'entries', index];
 }
 
+/** @param {unknown} section @param {string} target @param {import('zod').RefinementCtx} context */
 function validateMemorySection(section, target, context) {
   const sectionError = memorySectionError(section, target);
   if (sectionError) {
@@ -324,7 +346,8 @@ function validateMemorySection(section, target, context) {
     });
     return;
   }
-  section.entries.forEach((raw, index) => {
+  const entries = /** @type {unknown[]} */ (/** @type {SchemaRecord} */ (section).entries);
+  entries.forEach((raw, index) => {
     const entryError = memoryEntryError(raw, index, target);
     if (entryError) {
       context.addIssue({
@@ -336,13 +359,16 @@ function validateMemorySection(section, target, context) {
   });
 }
 
+/** @param {unknown} raw @param {number} index @param {string} target */
 function normalizeMemoryEntry(raw, index, target) {
   const entryError = memoryEntryError(raw, index, target);
   if (entryError) throw new Error(entryError);
-  const path = schemaTextValue(raw.path);
-  const type = schemaTextValue(raw.type).toLowerCase();
-  const typeInfo = MEMORY_TYPE_INFO[type];
-  const name = schemaFirstText(raw.name, raw.title);
+  const entry = /** @type {SchemaRecord} */ (raw);
+  const path = schemaTextValue(entry.path);
+  const type = schemaTextValue(entry.type).toLowerCase();
+  const typeInfo = memoryTypeInfo(type);
+  if (!typeInfo) throw new Error(`memory ${target} entry ${index} type is unsupported: ${type || '(empty)'}`);
+  const name = schemaFirstText(entry.name, entry.title);
   return {
     id: `${target}:${path}:${index}`,
     target,
@@ -351,19 +377,21 @@ function normalizeMemoryEntry(raw, index, target) {
     category: typeInfo.category,
     tag: typeInfo.label,
     name,
-    title: schemaFirstText(raw.title, raw.name),
-    description: schemaFirstText(raw.description, raw.summary),
-    preview: schemaFirstText(raw.preview, raw.content, raw.text),
-    updatedAt: schemaFirstText(raw.updatedAt, raw.updated_at, raw.createdAt, raw.created_at),
-    source: schemaTextValue(raw.source),
-    raw,
+    title: schemaFirstText(entry.title, entry.name),
+    description: schemaFirstText(entry.description, entry.summary),
+    preview: schemaFirstText(entry.preview, entry.content, entry.text),
+    updatedAt: schemaFirstText(entry.updatedAt, entry.updated_at, entry.createdAt, entry.created_at),
+    source: schemaTextValue(entry.source),
+    raw: entry,
   };
 }
 
+/** @param {unknown} section @param {string} target */
 function normalizeMemorySection(section, target) {
   const sectionError = memorySectionError(section, target);
   if (sectionError) throw new Error(sectionError);
-  return section.entries.map((item, index) => normalizeMemoryEntry(item, index, target));
+  const entries = /** @type {unknown[]} */ (/** @type {SchemaRecord} */ (section).entries);
+  return entries.map((item, index) => normalizeMemoryEntry(item, index, target));
 }
 
 const memorySnapshotSchema = z.object({
@@ -385,6 +413,7 @@ const memorySnapshotSchema = z.object({
  * SkillTool wire DTO 的单一事实源：skills/tools/list 与 skills/tools/create/update
  * 的响应都复用 skillToolRecordSchema，禁止维护两套字段规则。
  */
+/** @param {string} message */
 const nonEmptyWireString = (message) => z.string().refine((value) => value.trim() !== '', { message });
 
 const skillToolRecordSchema = z.object({
@@ -402,66 +431,79 @@ const skillToolsListResponseSchema = z.object({
   tools: z.array(skillToolRecordSchema),
 }).strict();
 
+/** @param {unknown} response */
 function parseSkillToolMutationResponse(response) {
   return parseSchema('skill tool mutation', skillToolRecordSchema, response);
 }
 
+/** @param {unknown} response */
 function parseSkillToolsListResponse(response) {
   return parseSchema('skill tools list', skillToolsListResponseSchema, response);
 }
 
+/** @param {unknown} raw @param {number} index @returns {string} */
 function sharedFileItemError(raw, index) {
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+  if (!isSchemaRecord(raw)) {
     return `shared file item ${index} must be an object`;
   }
   if (!schemaFirstText(raw.path)) return `shared file item ${index} path is required`;
   return '';
 }
 
+/** @param {unknown} raw @param {number} index */
 function normalizeSharedFileItem(raw, index) {
   const itemError = sharedFileItemError(raw, index);
   if (itemError) throw new Error(itemError);
-  const path = schemaFirstText(raw.path);
+  const item = /** @type {SchemaRecord} */ (raw);
+  const path = schemaFirstText(item.path);
   return {
     id: `${path}:${index}`,
     path,
-    content: schemaFirstText(raw.content),
-    updatedBy: schemaFirstText(raw.updated_by, raw.updatedBy),
-    updatedAt: schemaFirstText(raw.updated_at, raw.updatedAt),
-    createdAt: schemaFirstText(raw.created_at, raw.createdAt),
+    content: schemaFirstText(item.content),
+    updatedBy: schemaFirstText(item.updated_by, item.updatedBy),
+    updatedAt: schemaFirstText(item.updated_at, item.updatedAt),
+    createdAt: schemaFirstText(item.created_at, item.createdAt),
   };
 }
 
+/** @param {unknown} item @returns {string} */
 function finalOutputRefPath(item) {
   if (typeof item === 'string') return schemaTextValue(item);
-  if (!item || typeof item !== 'object' || Array.isArray(item)) return '';
-  return schemaFirstText(item.path, item.sharedfile?.path, item.sharedFile?.path, item.shared_file?.path);
+  if (!isSchemaRecord(item)) return '';
+  const sharedfile = schemaObjectValue(item.sharedfile);
+  const sharedFile = schemaObjectValue(item.sharedFile);
+  const sharedFileSnake = schemaObjectValue(item.shared_file);
+  return schemaFirstText(item.path, sharedfile.path, sharedFile.path, sharedFileSnake.path);
 }
 
+/** @param {unknown} item @param {number} index @returns {string} */
 function finalOutputRefError(item, index) {
   if (typeof item === 'string') {
     return schemaTextValue(item) ? '' : `final output ref ${index} path is required`;
   }
-  if (!item || typeof item !== 'object' || Array.isArray(item)) {
+  if (!isSchemaRecord(item)) {
     return `final output ref ${index} must be an object`;
   }
   return finalOutputRefPath(item) ? '' : `final output ref ${index} path is required`;
 }
 
+/** @param {unknown} item @param {number} index */
 function normalizeFinalOutputRef(item, index) {
   const refError = finalOutputRefError(item, index);
   if (refError) throw new Error(refError);
   if (typeof item === 'string') {
     return { path: schemaTextValue(item), runKey: '', dagKey: '', sourceNodeKey: '' };
   }
+  const ref = /** @type {SchemaRecord} */ (item);
   return {
-    path: finalOutputRefPath(item),
-    runKey: schemaFirstText(item.runKey, item.run_key),
-    dagKey: schemaFirstText(item.dagKey, item.dag_key),
-    sourceNodeKey: schemaFirstText(item.sourceNodeKey, item.source_node_key),
+    path: finalOutputRefPath(ref),
+    runKey: schemaFirstText(ref.runKey, ref.run_key),
+    dagKey: schemaFirstText(ref.dagKey, ref.dag_key),
+    sourceNodeKey: schemaFirstText(ref.sourceNodeKey, ref.source_node_key),
   };
 }
 
+/** @param {unknown} value @returns {string} */
 function finalOutputRefsError(value) {
   if (value === undefined) return '';
   if (!Array.isArray(value)) return 'shared files dashboard finalOutputRefs must be an array';
@@ -472,16 +514,18 @@ function finalOutputRefsError(value) {
   return '';
 }
 
+/** @param {unknown} value */
 function normalizeFinalOutputRefs(value) {
   if (value === undefined) return [];
   const refsError = finalOutputRefsError(value);
   if (refsError) throw new Error(refsError);
-  return value.map((item, index) => normalizeFinalOutputRef(item, index));
+  return /** @type {unknown[]} */ (value).map((item, index) => normalizeFinalOutputRef(item, index));
 }
 
+/** @param {unknown} value @returns {string} */
 function sharedFileRetentionError(value) {
   if (value === undefined) return '';
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+  if (!isSchemaRecord(value)) {
     return 'shared files dashboard sharedFileRetention must be an object';
   }
   if (!Array.isArray(value.items)) {
@@ -489,7 +533,7 @@ function sharedFileRetentionError(value) {
   }
   for (let index = 0; index < value.items.length; index += 1) {
     const item = value.items[index];
-    if (!item || typeof item !== 'object' || Array.isArray(item)) {
+    if (!isSchemaRecord(item)) {
       return `shared file retention item ${index} must be an object`;
     }
     if (!schemaTextValue(item.path)) return `shared file retention item ${index} path is required`;
@@ -497,22 +541,24 @@ function sharedFileRetentionError(value) {
   return '';
 }
 
+/** @param {unknown} value */
 function normalizeSharedFileRetention(value) {
   if (value === undefined) {
     return { items: [], protectedCount: 0, cleanupCandidateCount: 0 };
   }
   const retentionError = sharedFileRetentionError(value);
   if (retentionError) throw new Error(retentionError);
+  const retention = /** @type {SchemaRecord & { items: SchemaRecord[] }} */ (value);
   return {
-    items: value.items.map((item) => ({
+    items: retention.items.map((item) => ({
       path: schemaTextValue(item.path),
       protected: Boolean(item.protected),
       cleanupCandidate: Boolean(item.cleanupCandidate ?? item.cleanup_candidate),
       reason: schemaTextValue(item.reason),
       finalOutput: item.finalOutput || item.final_output || null,
     })),
-    protectedCount: schemaNumberValue(value.protectedCount ?? value.protected_count, 0),
-    cleanupCandidateCount: schemaNumberValue(value.cleanupCandidateCount ?? value.cleanup_candidate_count, 0),
+    protectedCount: schemaNumberValue(retention.protectedCount ?? retention.protected_count, 0),
+    cleanupCandidateCount: schemaNumberValue(retention.cleanupCandidateCount ?? retention.cleanup_candidate_count, 0),
   };
 }
 
@@ -530,7 +576,7 @@ const sharedFilesDashboardSchema = z.object({
     });
     return;
   }
-  const files = Array.isArray(value.files) ? value.files : value.memory;
+  const files = /** @type {unknown[]} */ (Array.isArray(value.files) ? value.files : value.memory);
   files.forEach((item, index) => {
     const itemError = sharedFileItemError(item, index);
     if (itemError) {
@@ -559,6 +605,7 @@ const sharedFilesDashboardSchema = z.object({
   }
 }).transform((value) => {
   const files = Array.isArray(value.files) ? value.files : value.memory;
+  if (!files) throw new TypeError('shared files dashboard response files must be an array');
   return {
     files: files.map((item, index) => normalizeSharedFileItem(item, index)),
     finalOutputRefs: normalizeFinalOutputRefs(value.finalOutputRefs),
@@ -585,11 +632,13 @@ const modelProviderRegistrySchema = z.object({
   vendors: z.array(modelProviderVendorSchema),
 }).passthrough();
 
+/** @param {import('zod').ZodIssue | undefined} issue @returns {string} */
 function issuePath(issue) {
   const path = Array.isArray(issue?.path) ? issue.path : [];
   return path.map((part) => part.toString()).join('.');
 }
 
+/** @param {string} label @param {import('zod').ZodIssue | undefined} issue @returns {string} */
 function formatIssue(label, issue) {
   const path = issuePath(issue);
   if (label === 'shared file detail' && path === 'path') {
@@ -598,7 +647,7 @@ function formatIssue(label, issue) {
   if (label === 'observability response') {
     if (path === 'events') return 'observability response events must be an array';
     const eventIndex = issue?.path?.[0] === 'events' && Number.isInteger(issue.path[1]) ? issue.path[1] : null;
-    if (eventIndex !== null) return `observability response event[${eventIndex}] must be an object`;
+    if (eventIndex !== null) return `observability response event[${String(eventIndex)}] must be an object`;
     return 'observability response must be an object';
   }
   if (label === 'memory snapshot') {
@@ -626,6 +675,13 @@ function formatIssue(label, issue) {
   return `${label} ${issue?.message ?? 'response is invalid'}`;
 }
 
+/**
+ * @template T
+ * @param {string} label
+ * @param {import('zod').ZodType<T>} schema
+ * @param {unknown} response
+ * @returns {T}
+ */
 function parseSchema(label, schema, response) {
   const result = schema.safeParse(response);
   if (!result.success) {
@@ -634,26 +690,38 @@ function parseSchema(label, schema, response) {
   return result.data;
 }
 
+/** @param {unknown} response */
 function parseObservabilityResultResponse(response) {
   return parseSchema('observability response', observabilityResultSchema, response);
 }
 
+/** @param {unknown} response */
 function parseMemorySnapshotResponse(response) {
   return parseSchema('memory snapshot', memorySnapshotSchema, response);
 }
 
+/** @param {unknown} response */
 function parseSharedFilesDashboardResponse(response) {
   return parseSchema('shared files dashboard', sharedFilesDashboardSchema, response);
 }
 
+/** @param {unknown} response */
 function parseSharedFileDetailResponse(response) {
   return parseSchema('shared file detail', sharedFileDetailResponseSchema, response);
 }
 
+/** @param {unknown} response */
 function parseModelProviderRegistryResponse(response) {
   return parseSchema('model provider registry', modelProviderRegistrySchema, response);
 }
 
+/**
+ * @template T
+ * @param {string} label
+ * @param {import('zod').ZodType<T>} schema
+ * @param {unknown} response
+ * @returns {T}
+ */
 function parseExactSchema(label, schema, response) {
   const result = schema.safeParse(response);
   if (result.success) return result.data;
@@ -662,21 +730,21 @@ function parseExactSchema(label, schema, response) {
   throw new TypeError(`${label}${path ? ` ${path}` : ''} ${issue.message}`);
 }
 
-const parseMemoryEntryDetailResponse = (response) => parseExactSchema('memory entry detail', memoryEntryDetailResponseSchema, response);
-const parseMemoryEntryDeleteResponse = (response) => parseExactSchema('memory entry delete', memoryEntryDeleteResponseSchema, response);
-const parseMemoryAutoDreamIntentResponse = (response) => parseExactSchema('memory auto dream intent', memoryAutoDreamIntentResponseSchema, response);
-const parseMemorySimilarityIgnoreResponse = (response) => parseExactSchema('memory similarity ignore', memorySimilarityIgnoreResponseSchema, response);
-const parseMemoryConsolidationJobResponse = (response) => parseExactSchema('memory consolidation job', memoryConsolidationJobResponseSchema, response);
-const parseSharedFileDeleteResponse = (response) => parseExactSchema('shared file delete', sharedFileDeleteResponseSchema, response);
-const parseWorkflowMaterialWriteResponse = (response) => parseExactSchema('workflow material write', workflowMaterialWriteResponseSchema, response);
-const parsePromptAssetsResponse = (response) => parseExactSchema('prompt assets', promptAssetsResponseSchema, response);
-const parseDashboardPromptsResponse = (response) => parseExactSchema('dashboard prompts', dashboardPromptsResponseSchema, response);
-const parsePromptDetailResponse = (response) => parseExactSchema('prompt detail', promptDetailResponseSchema, response);
-const parsePromptIntentDraftResponse = (response) => parseExactSchema('prompt intent draft', promptIntentDraftResponseSchema, response);
-const parsePromptIntentCommitResponse = (response) => parseExactSchema('prompt intent commit', promptIntentCommitResponseSchema, response);
-const parsePromptIntentDiscardResponse = (response) => parseExactSchema('prompt intent discard', promptIntentDiscardResponseSchema, response);
-const parsePromptIntentDryRunResponse = (response) => parseExactSchema('prompt intent dry run', promptIntentDryRunResponseSchema, response);
-const parsePersonalizationProfileResponse = (response) => parseExactSchema('personalization profile', personalizationProfileResponseSchema, response);
+const parseMemoryEntryDetailResponse = (/** @type {unknown} */ response) => parseExactSchema('memory entry detail', memoryEntryDetailResponseSchema, response);
+const parseMemoryEntryDeleteResponse = (/** @type {unknown} */ response) => parseExactSchema('memory entry delete', memoryEntryDeleteResponseSchema, response);
+const parseMemoryAutoDreamIntentResponse = (/** @type {unknown} */ response) => parseExactSchema('memory auto dream intent', memoryAutoDreamIntentResponseSchema, response);
+const parseMemorySimilarityIgnoreResponse = (/** @type {unknown} */ response) => parseExactSchema('memory similarity ignore', memorySimilarityIgnoreResponseSchema, response);
+const parseMemoryConsolidationJobResponse = (/** @type {unknown} */ response) => parseExactSchema('memory consolidation job', memoryConsolidationJobResponseSchema, response);
+const parseSharedFileDeleteResponse = (/** @type {unknown} */ response) => parseExactSchema('shared file delete', sharedFileDeleteResponseSchema, response);
+const parseWorkflowMaterialWriteResponse = (/** @type {unknown} */ response) => parseExactSchema('workflow material write', workflowMaterialWriteResponseSchema, response);
+const parsePromptAssetsResponse = (/** @type {unknown} */ response) => parseExactSchema('prompt assets', promptAssetsResponseSchema, response);
+const parseDashboardPromptsResponse = (/** @type {unknown} */ response) => parseExactSchema('dashboard prompts', dashboardPromptsResponseSchema, response);
+const parsePromptDetailResponse = (/** @type {unknown} */ response) => parseExactSchema('prompt detail', promptDetailResponseSchema, response);
+const parsePromptIntentDraftResponse = (/** @type {unknown} */ response) => parseExactSchema('prompt intent draft', promptIntentDraftResponseSchema, response);
+const parsePromptIntentCommitResponse = (/** @type {unknown} */ response) => parseExactSchema('prompt intent commit', promptIntentCommitResponseSchema, response);
+const parsePromptIntentDiscardResponse = (/** @type {unknown} */ response) => parseExactSchema('prompt intent discard', promptIntentDiscardResponseSchema, response);
+const parsePromptIntentDryRunResponse = (/** @type {unknown} */ response) => parseExactSchema('prompt intent dry run', promptIntentDryRunResponseSchema, response);
+const parsePersonalizationProfileResponse = (/** @type {unknown} */ response) => parseExactSchema('personalization profile', personalizationProfileResponseSchema, response);
 
 export {
   MEMORY_TYPE_INFO,

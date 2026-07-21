@@ -1,5 +1,3 @@
-// @ts-nocheck
-
 export const RPC_METHODS = Object.freeze({
   CONFIG_READ: 'config/read',
   CONFIG_LSP_PROMPT_HINT_READ: 'config/lspPromptHint/read',

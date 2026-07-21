@@ -436,11 +436,51 @@ describe('wails bridge warning logs', () => {
     const { callAPI, registerBridgeLogStore } = await import('./wailsBridge.js');
     const logs = captureBridgeLogs(registerBridgeLogStore);
 
-    await expect(callAPI('thread/config/get', { threadId: 'thread-1' })).rejects.toThrow('backend unavailable');
+    const rejected = await callAPI('thread/config/get', { threadId: 'thread-1' }).catch((cause) => cause);
+    expect(rejected).toBe(error);
+    expect(rejected).toMatchObject({
+      traceId: expect.stringMatching(/^[0-9a-f]{32}$/),
+      trace_id: expect.stringMatching(/^[0-9a-f]{32}$/),
+      reqId: expect.any(Number),
+      req_id: expect.any(Number),
+    });
 
     const errorEvents = logs.filter((entry) => entry.level === 'error').map((entry) => entry.event);
     expect(errorEvents).toEqual(['api.rpc.failed']);
     expect(errorEvents).not.toContain('bridge.call.failed');
+    const failure = logs.find((entry) => entry.event === 'api.rpc.failed');
+    expect(failure.fields).toEqual(expect.objectContaining({
+      trace_id: rejected.traceId,
+      req_id: rejected.reqId,
+    }));
+  });
+
+  it('uses the logged RPC trace for visible and Health diagnostics without exposing the provider cause', async () => {
+    const rawCause = 'provider token=secret';
+    const error = new Error(rawCause);
+    const healthSink = vi.fn();
+    const visibleFailureSink = vi.fn();
+    vi.doMock(runtimeModule, () => ({
+      Call: { ByID: vi.fn().mockRejectedValue(error) },
+      Events: { On: vi.fn() },
+    }));
+    const { callAPI, registerBridgeLogStore } = await import('./wailsBridge.js');
+    const { runUIAction } = await import('../ui/runUIAction.js');
+    const logs = captureBridgeLogs(registerBridgeLogStore);
+
+    const result = runUIAction('fixture.bridge-correlation', () => callAPI('thread/config/get', { threadId: 'thread-1' }), {
+      healthSink,
+      visibleFailureSink,
+    });
+    await expect(result).rejects.toBe(error);
+    await waitFor(() => expect(visibleFailureSink).toHaveBeenCalledTimes(1));
+
+    const rpcFailure = logs.find((entry) => entry.event === 'api.rpc.failed');
+    const visibleFailure = visibleFailureSink.mock.calls[0][0].publicError;
+    const healthFailure = healthSink.mock.calls[0][0].publicError;
+    expect(visibleFailure.diagnosticId).toBe(rpcFailure.fields.trace_id);
+    expect(healthFailure.diagnosticId).toBe(rpcFailure.fields.trace_id);
+    expect(JSON.stringify([visibleFailure, healthFailure])).not.toContain(rawCause);
   });
 
   it('records failed backend RPC details with a serializable error message', async () => {

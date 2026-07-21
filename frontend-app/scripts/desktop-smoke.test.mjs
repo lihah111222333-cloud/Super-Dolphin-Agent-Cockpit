@@ -4,6 +4,8 @@ import {
   buildFrontendFailureEvent,
   buildJSONRPCRequest,
   buildThreadStartParams,
+  buildTurnInterruptParams,
+  buildWebSocketOptions,
   buildWebSocketURL,
   packageScriptIncludesSmoke,
   smokeConfig,
@@ -14,6 +16,23 @@ describe('desktop smoke command', () => {
     expect(buildWebSocketURL('127.0.0.1:4512')).toBe('ws://127.0.0.1:4512/wails/ws');
     expect(buildWebSocketURL('http://127.0.0.1:4512')).toBe('ws://127.0.0.1:4512/wails/ws');
     expect(buildWebSocketURL('wss://example.test/custom')).toBe('wss://example.test/custom');
+  });
+
+  it('builds same-origin websocket headers with the explicit Wails token', () => {
+    expect(buildWebSocketOptions('ws://127.0.0.1:4512/wails/ws', 'token-1')).toEqual({
+      headers: {
+        Cookie: 'super_dolphin_wails_ws=token-1',
+        Origin: 'http://127.0.0.1:4512',
+      },
+    });
+    expect(() => buildWebSocketOptions('ws://127.0.0.1:4512/wails/ws', '')).toThrow(/non-empty/);
+    expect(() => buildWebSocketOptions('ws://127.0.0.1:4512/wails/ws', 'bad;token')).toThrow(/cookie-safe/);
+  });
+
+  it('binds one generated websocket token into the desktop smoke config', () => {
+    expect(smokeConfig({}, '/repo/app', () => 'generated-token').wsToken).toBe('generated-token');
+    expect(smokeConfig({ SUPER_DOLPHIN_WAILS_WS_TOKEN: 'configured-token' }, '/repo/app', () => 'unused').wsToken)
+      .toBe('configured-token');
   });
 
   it('builds json-rpc websocket requests with object params', () => {
@@ -28,6 +47,22 @@ describe('desktop smoke command', () => {
   it('keeps provider-spawning turn smoke opt-in', () => {
     expect(smokeConfig({}, '/repo/app').runTurnPath).toBe(false);
     expect(smokeConfig({ SUPER_DOLPHIN_DESKTOP_SMOKE_TURN: '1' }, '/repo/app').runTurnPath).toBe(true);
+  });
+
+  it('carries the accepted turn identity and a unique request id into interrupt', () => {
+    expect(buildTurnInterruptParams(
+      'thread-1',
+      { turn_id: 'turn-1' },
+      () => 'request-1',
+    )).toEqual({
+      thread_id: 'thread-1',
+      expected_turn_id: 'turn-1',
+      request_id: 'request-1',
+      source: 'desktop_smoke',
+    });
+    expect(() => buildTurnInterruptParams('thread-1', {}, () => 'request-1')).toThrow(/turn_id/);
+    expect(() => buildTurnInterruptParams('thread-1', { turn_id: 'turn-1' }, () => '')).toThrow(/request_id/);
+    expect(() => buildTurnInterruptParams('', { turn_id: 'turn-1' }, () => 'request-1')).toThrow(/thread_id/);
   });
 
   it('prepares the Go embed frontend by default', () => {

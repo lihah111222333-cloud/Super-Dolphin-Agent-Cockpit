@@ -1,5 +1,6 @@
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
@@ -14,13 +15,7 @@ import {
 } from './frontend-code-size-guard.mjs';
 
 const appRoot = process.cwd();
-const baselinePath = path.join(appRoot, '.frontend_code_size_guard_baseline.json');
-const baselineTestPath = path.join(appRoot, '.frontend_code_size_guard_baseline_test.json');
-const guardScriptPath = path.join(appRoot, 'scripts/frontend-code-size-guard.mjs');
-
-function toRel(filePath) {
-  return path.relative(appRoot, filePath).split(path.sep).join('/');
-}
+const guardScriptSourcePath = path.join(appRoot, 'scripts/frontend-code-size-guard.mjs');
 
 function sourceWithEffectiveLines(lineCount) {
   return Array.from({ length: lineCount }, (_, index) => `const value${index} = ${index};`).join('\n');
@@ -42,34 +37,32 @@ function frozenFileLengthMetrics(lines) {
   };
 }
 
-function readIfExists(filePath) {
-  return fs.existsSync(filePath) ? fs.readFileSync(filePath, 'utf8') : null;
-}
-
-function restoreFile(filePath, content) {
-  if (content === null) fs.rmSync(filePath, { force: true });
-  else fs.writeFileSync(filePath, content, 'utf8');
-}
-
 function runGuardWithFixture({ currentLines, frozenLines }) {
-  const fixtureDir = fs.mkdtempSync(path.join(appRoot, '.tmp-code-size-guard-'));
-  const sourcePath = path.join(fixtureDir, 'fixture.js');
-  const relFile = toRel(sourcePath);
-  const prodBaseline = readIfExists(baselinePath);
-  const testBaseline = readIfExists(baselineTestPath);
+  const fixtureRoot = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'frontend-code-size-guard-')));
+  const fixtureSourceDir = path.join(fixtureRoot, 'src');
+  const fixtureScriptDir = path.join(fixtureRoot, 'scripts');
+  const fixtureGuardScriptPath = path.join(fixtureScriptDir, 'frontend-code-size-guard.mjs');
+  const fixtureBaselinePath = path.join(fixtureRoot, '.frontend_code_size_guard_baseline.json');
+  const fixtureBaselineTestPath = path.join(fixtureRoot, '.frontend_code_size_guard_baseline_test.json');
+  const sourcePath = path.join(fixtureSourceDir, 'fixture.js');
+  const relFile = 'src/fixture.js';
 
   try {
+    fs.mkdirSync(fixtureSourceDir, { recursive: true });
+    fs.mkdirSync(fixtureScriptDir, { recursive: true });
+    fs.symlinkSync(path.join(appRoot, 'node_modules'), path.join(fixtureRoot, 'node_modules'), 'dir');
+    fs.copyFileSync(guardScriptSourcePath, fixtureGuardScriptPath);
     fs.writeFileSync(sourcePath, sourceWithEffectiveLines(currentLines), 'utf8');
     const files = frozenLines === undefined ? {} : { [relFile]: frozenFileLengthMetrics(frozenLines) };
-    fs.writeFileSync(baselinePath, `${JSON.stringify(baselineData(files), null, 2)}\n`, 'utf8');
-    fs.writeFileSync(baselineTestPath, `${JSON.stringify(baselineData(), null, 2)}\n`, 'utf8');
+    fs.writeFileSync(fixtureBaselinePath, `${JSON.stringify(baselineData(files), null, 2)}\n`, 'utf8');
+    fs.writeFileSync(fixtureBaselineTestPath, `${JSON.stringify(baselineData(), null, 2)}\n`, 'utf8');
 
     const result = spawnSync(process.execPath, [
-      guardScriptPath,
+      fixtureGuardScriptPath,
       '--dir',
-      toRel(fixtureDir),
+      'src',
     ], {
-      cwd: appRoot,
+      cwd: fixtureRoot,
       encoding: 'utf8',
     });
     if (result.error) throw result.error;
@@ -78,9 +71,7 @@ function runGuardWithFixture({ currentLines, frozenLines }) {
       output: `${result.stdout}${result.stderr}`,
     };
   } finally {
-    restoreFile(baselinePath, prodBaseline);
-    restoreFile(baselineTestPath, testBaseline);
-    fs.rmSync(fixtureDir, { recursive: true, force: true });
+    fs.rmSync(fixtureRoot, { recursive: true, force: true });
   }
 }
 
@@ -200,7 +191,7 @@ describe('frontend code size guard', () => {
       frozenLines: FRONTEND_CODE_SIZE_LIMITS.maxFileLines + 3,
     });
 
-    expect(result.status).toBe(0);
+    expect(result.status, result.output).toBe(0);
     expect(result.output).not.toContain('[file-length]');
   });
 
@@ -210,7 +201,7 @@ describe('frontend code size guard', () => {
       frozenLines: FRONTEND_CODE_SIZE_LIMITS.maxFileLines + 1,
     });
 
-    expect(result.status).toBe(1);
+    expect(result).toEqual(expect.objectContaining({ status: 1 }));
     expect(result.output).toContain('[freeze/file-length]');
     expect(result.output).not.toContain('[file-length] 文件有效代码');
   });
@@ -221,7 +212,7 @@ describe('frontend code size guard', () => {
       frozenLines: undefined,
     });
 
-    expect(result.status).toBe(1);
+    expect(result).toEqual(expect.objectContaining({ status: 1 }));
     expect(result.output).toContain('[file-length]');
     expect(result.output).not.toContain('[freeze/file-length]');
   });

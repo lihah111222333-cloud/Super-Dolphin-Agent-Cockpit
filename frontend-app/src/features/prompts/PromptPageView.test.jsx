@@ -352,7 +352,8 @@ describe('PromptPageView module', () => {
     fireEvent.change(within(overview).getByLabelText('职业'), { target: { value: '架构师' } });
     fireEvent.click(within(overview).getByRole('button', { name: '保存个人资料' }));
 
-    expect(await screen.findByText(/ui\/personalization\/profile\/save/)).toBeInTheDocument();
+    expect(await screen.findByText('个人资料保存失败，请重试。')).toBeInTheDocument();
+    expect(document.body.textContent).not.toContain('ui/personalization/profile/save');
     expect(screen.queryByText('个人资料已保存')).not.toBeInTheDocument();
   });
 
@@ -429,7 +430,8 @@ describe('PromptPageView backend wiring', () => {
 
     renderPromptPage();
 
-    expect(await screen.findByText(/invalid UI preference response for settings.activePromptKey/)).toBeInTheDocument();
+    expect(await screen.findByText('同步失败，显示的是上次成功的数据。')).toBeInTheDocument();
+    expect(document.body.textContent).not.toContain('invalid UI preference response');
     expect(screen.queryByText('main/reviewer')).not.toBeInTheDocument();
   });
 
@@ -643,7 +645,8 @@ describe('PromptPageView backend wiring', () => {
 
     renderPromptPage();
 
-    expect(await screen.findByRole('alert')).toHaveTextContent('ui/prompt-assets/list');
+    expect(await screen.findByRole('alert')).toHaveTextContent('加载提示词失败，请重试。');
+    expect(document.body.textContent).not.toContain('ui/prompt-assets/list');
     expect(screen.queryByText('代码审查专家')).not.toBeInTheDocument();
     expect(backend.getDashboardPrompts).not.toHaveBeenCalled();
   });
@@ -960,7 +963,8 @@ describe('PromptPageView backend wiring', () => {
     fireEvent.click(screen.getByRole('button', { name: '确认保存' }));
 
     const wizard = await screen.findByRole('dialog', { name: '添加给 AI 的内容' });
-    expect(await within(wizard).findByText(/ui\/prompt-intents\/commit/)).toBeInTheDocument();
+    expect(await within(wizard).findByText('保存失败，请重试。')).toBeInTheDocument();
+    expect(document.body.textContent).not.toContain('ui/prompt-intents/commit');
     expect(within(wizard).getByRole('button', { name: '确认保存' })).toBeEnabled();
     expect(screen.queryByText('已保存，可在新对话中被 AI 发现和使用')).not.toBeInTheDocument();
   });

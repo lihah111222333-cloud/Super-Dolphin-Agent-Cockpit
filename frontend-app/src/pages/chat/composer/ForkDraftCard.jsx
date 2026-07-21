@@ -20,7 +20,7 @@ function ForkDraftCard({ store }) {
           className="fork-draft-close"
           aria-label="关闭继承对话草稿"
           disabled={draft.submitting}
-          onClick={() => runUIAction(() => store.closeForkDraft?.())}
+          onClick={() => runUIAction('thread.fork.close', () => store.closeForkDraft?.())}
         >
           <X size={14} />
         </button>
@@ -36,7 +36,7 @@ function ForkDraftCard({ store }) {
               aria-label={`选择共享文件 ${file.path}`}
               checked={selected.has(file.path)}
               disabled={draft.submitting}
-              onChange={() => runUIAction(() => store.toggleForkDraftSharedFile?.(file.path))}
+              onChange={() => runUIAction('thread.fork.file.toggle', () => store.toggleForkDraftSharedFile?.(file.path))}
             />
             <FileText size={14} />
             <span>{file.path}</span>
@@ -44,8 +44,8 @@ function ForkDraftCard({ store }) {
         ))}
       </div>
       <div className="fork-draft-actions">
-        <button type="button" disabled={draft.submitting} onClick={() => runUIAction(() => store.closeForkDraft?.())}>取消</button>
-        <button type="button" className="fork-draft-submit" disabled={draft.submitting} onClick={() => runUIAction(() => store.submitForkThread?.())}>
+        <button type="button" disabled={draft.submitting} onClick={() => runUIAction('thread.fork.close', () => store.closeForkDraft?.())}>取消</button>
+        <button type="button" className="fork-draft-submit" disabled={draft.submitting} onClick={() => runUIAction('thread.fork.submit', () => store.submitForkThread?.())}>
           {draft.submitting ? '创建中...' : '创建继承对话'}
         </button>
       </div>

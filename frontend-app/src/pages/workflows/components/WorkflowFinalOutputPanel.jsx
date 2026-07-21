@@ -3,6 +3,7 @@ import { finalOutputKind, finalOutputPath } from '../adapters/workflowDisplayAda
 import { Panel } from '../../shared/pageComponents.jsx';
 import { parseStrictJsonValue } from '../../shared/pageShared.js';
 import { previewUrlFromResponse } from './workflowPreviewUrl.js';
+import { runBackgroundAction, runUIAction } from '../../../shared/ui/runUIAction.js';
 
 function normalizedText(value) {
   return value == null ? '' : String(value);
@@ -57,6 +58,14 @@ async function loadWorkflowMediaPreview(outputPath, previewFile) {
   return previewUrlFromResponse(await previewFile({ path: outputPath }));
 }
 
+async function readWorkflowOutput(readFile, outputPath) {
+  return readFile({ path: outputPath });
+}
+
+async function openWorkflowOutput(openFile, outputPath) {
+  return openFile({ path: outputPath });
+}
+
 function WorkflowInlinePreviewText({ text }) {
   const fallback = '当前运行尚未标记最终结果。';
   if (!text) return <span className="workflow-inline-preview-empty">{fallback}</span>;
@@ -82,18 +91,19 @@ function WorkflowFinalOutputPanel({ finalOutput, previewText, readFile, openFile
   const mediaKindLabel = isVideo ? '视频' : '图片';
   const formattedContent = useMemo(() => formatWorkflowFileContent(fileContent), [fileContent]);
 
-  const loadMediaPreview = async () => {
-    if (!outputPath || !isMedia) return;
-    setPreviewing(true);
+  const loadMediaPreview = () => {
+    if (!outputPath || !isMedia) return undefined;
+    return runUIAction('workflow.output.preview', async () => { setPreviewing(true);
     setPreviewError('');
     try {
       setMediaPreview(await loadWorkflowMediaPreview(outputPath, previewFile));
     } catch (err) {
       setMediaPreview(null);
-      setPreviewError(`无法生成最终结果预览：${err?.message || String(err)}`);
+      setPreviewError('无法生成最终结果预览，请重试。');
+      throw err;
     } finally {
       setPreviewing(false);
-    }
+    } });
   };
 
   useEffect(() => {
@@ -108,47 +118,49 @@ function WorkflowFinalOutputPanel({ finalOutput, previewText, readFile, openFile
         if (!active) return;
         setMediaPreview(preview);
       } catch (err) {
-        if (!active) return;
-        setPreviewError(`无法生成最终结果预览：${err?.message || String(err)}`);
+        if (active) setPreviewError('无法生成最终结果预览，请查看 Health。');
+        throw err;
       } finally {
         if (active) setPreviewing(false);
       }
     };
-    void load();
+    runBackgroundAction('workflow.output.preview.load', load);
     return () => {
       active = false;
     };
   }, [isMedia, outputPath, previewFile]);
 
-  const readFinalOutput = async () => {
-    if (!outputPath) return;
+  const readFinalOutput = () => {
+    if (!outputPath) return undefined;
     setOpenError('');
     if (fileContent) {
       setFileContent('');
-      return;
+      return undefined;
     }
-    setReading(true);
+    return runUIAction('workflow.output.read', async () => { setReading(true);
     setFileError('');
     try {
-      const response = await readFile({ path: outputPath });
+      const response = await readWorkflowOutput(readFile, outputPath);
       setFileContent(normalizedText(response?.content));
-    } catch {
+    } catch (error) {
       setFileError('无法读取最终结果文件，请稍后重试。');
+      throw error;
     } finally {
       setReading(false);
-    }
+    } });
   };
-  const openFinalOutput = async () => {
-    if (!outputPath) return;
-    setOpening(true);
+  const openFinalOutput = () => {
+    if (!outputPath) return undefined;
+    return runUIAction('workflow.output.open', async () => { setOpening(true);
     setOpenError('');
     try {
-      await openFile({ path: outputPath });
+      await openWorkflowOutput(openFile, outputPath);
     } catch (err) {
-      setOpenError(`打开最终结果文件失败：${err?.message || String(err)}`);
+      setOpenError('打开最终结果文件失败，请重试。');
+      throw err;
     } finally {
       setOpening(false);
-    }
+    } });
   };
 
   return (

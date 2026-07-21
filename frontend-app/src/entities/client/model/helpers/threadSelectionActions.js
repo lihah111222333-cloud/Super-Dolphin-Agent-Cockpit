@@ -85,12 +85,15 @@ async function openThreadById(runtime, threadId, options, deps, coordinator) {
     resolved = await resolveThreadIdentity({ cwd, threadId: requestedId });
   } catch (error) {
     if (!clearResolveLoading(runtime, requestedId, selectionIntent, coordinator)) return false;
-    return runtime.notifyRPCFailure('打开会话', 'thread.open.resolve.failed', error, { threadId: requestedId, source });
+    runtime.notifyRPCFailure('打开会话', 'thread.open.resolve.failed', error, { threadId: requestedId, source });
+    throw error;
   }
   const resolvedThread = resolvedThreadForOpen(runtime, requestedId, resolved, deps);
   if (!resolvedThread.id || !deps.threadMatchesIdentifier(resolvedThread, requestedId)) {
     if (!clearResolveLoading(runtime, requestedId, selectionIntent, coordinator)) return false;
-    return runtime.notifyRPCFailure('打开会话', 'thread.open.resolve.invalid', new Error('thread/resolve returned a different or empty thread id'), { threadId: requestedId, source });
+    const error = new Error('thread/resolve returned a different or empty thread id');
+    runtime.notifyRPCFailure('打开会话', 'thread.open.resolve.invalid', error, { threadId: requestedId, source });
+    throw error;
   }
   return openResolvedThread(runtime, {
     requestedId,
@@ -130,7 +133,8 @@ async function openResolvedThread(runtime, context, deps, coordinator) {
   } catch (error) {
     runtime.set((state) => ({ threadStateLoadingByThread: setThreadLoading(state, id, false) }));
     if (!coordinator.isCurrent(selectionIntent)) return false;
-    return runtime.notifyRPCFailure('打开会话', 'thread.open.failed', error, { threadId: id, source });
+    runtime.notifyRPCFailure('打开会话', 'thread.open.failed', error, { threadId: id, source });
+    throw error;
   }
   return coordinator.isCurrent(selectionIntent);
 }
@@ -204,7 +208,8 @@ async function activateExistingThread(runtime, context, deps, coordinator) {
   } catch (error) {
     runtime.set((state) => ({ threadStateLoadingByThread: setThreadLoading(state, id, false) }));
     if (!coordinator.isCurrent(selectionIntent)) return false;
-    return runtime.notifyRPCFailure('切换会话', 'thread.select.failed', error, { threadId: id });
+    runtime.notifyRPCFailure('切换会话', 'thread.select.failed', error, { threadId: id });
+    throw error;
   }
   return coordinator.isCurrent(selectionIntent);
 }

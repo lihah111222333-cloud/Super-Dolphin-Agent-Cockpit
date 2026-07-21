@@ -44,6 +44,7 @@ const SENSITIVE_PREVIEW_KEYS = new Set([
   'workspace_roots',
 ]);
 
+/** @param {unknown} key @returns {string} */
 function normalizePreviewKey(key) {
   if (key === undefined || key === null) return '';
   return String(key)
@@ -52,18 +53,21 @@ function normalizePreviewKey(key) {
     .toLowerCase();
 }
 
+/** @param {unknown} value @returns {value is Record<string, unknown>} */
 function isPlainPreviewObject(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
   const proto = Object.getPrototypeOf(value);
   return proto === Object.prototype || proto === null;
 }
 
+/** @param {unknown} key @returns {boolean} */
 function isSensitivePreviewKey(key) {
   const normalized = normalizePreviewKey(key);
   if (SENSITIVE_PREVIEW_KEYS.has(normalized)) return true;
   return normalized.split('_').some((part) => SENSITIVE_PREVIEW_KEY_TOKENS.has(part));
 }
 
+/** @param {unknown} value @returns {unknown} */
 function assertDiagnosticPreviewJSONShape(value) {
   if (
     value === null
@@ -77,11 +81,12 @@ function assertDiagnosticPreviewJSONShape(value) {
   throw error;
 }
 
+/** @param {string} value @param {string} label @returns {unknown} */
 export function parseStrictDiagnosticPreviewJSON(value, label) {
   try {
     return assertDiagnosticPreviewJSONShape(JSON.parse(value));
   } catch (error) {
-    if (error?.name === 'SafeDiagnosticPreviewJSONShapeError') throw error;
+    if (error instanceof Error && error.name === 'SafeDiagnosticPreviewJSONShapeError') throw error;
     const parseError = new Error(`${label} JSON parse failed`);
     parseError.name = 'SafeDiagnosticPreviewJSONParseError';
     parseError.cause = error;
@@ -89,6 +94,7 @@ export function parseStrictDiagnosticPreviewJSON(value, label) {
   }
 }
 
+/** @param {unknown} value @returns {unknown} */
 function parsePreviewJSONText(value) {
   if (typeof value !== 'string') return value;
   const text = value.trim();
@@ -97,6 +103,7 @@ function parsePreviewJSONText(value) {
   return parseStrictDiagnosticPreviewJSON(text, 'safe diagnostic preview');
 }
 
+/** @param {unknown} value @param {WeakSet<object>} seen @returns {unknown} */
 export function safeDiagnosticPreviewValue(value, seen = new WeakSet()) {
   if (value === null || value === undefined) return value;
   if (typeof value === 'string') return SAFE_DIAGNOSTIC_PREVIEW_REDACTED;
@@ -114,6 +121,7 @@ export function safeDiagnosticPreviewValue(value, seen = new WeakSet()) {
   }
   if (!isPlainPreviewObject(value)) return SAFE_DIAGNOSTIC_PREVIEW_REDACTED;
 
+  /** @type {Record<string, unknown>} */
   const out = {};
   for (const [key, item] of Object.entries(value)) {
     if (isSensitivePreviewKey(key)) continue;
@@ -123,6 +131,7 @@ export function safeDiagnosticPreviewValue(value, seen = new WeakSet()) {
   return out;
 }
 
+/** @param {unknown} value @param {number} limit @param {{ parseJsonStrings?: boolean }} options @returns {string} */
 export function compactSafeDiagnosticPreview(value, limit, options = {}) {
   if (!Number.isInteger(limit) || limit <= 0) {
     throw new Error('safe diagnostic preview limit must be a positive integer');

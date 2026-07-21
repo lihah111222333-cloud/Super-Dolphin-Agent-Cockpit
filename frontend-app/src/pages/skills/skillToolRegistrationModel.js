@@ -117,6 +117,7 @@ export function useSkillToolRegistration({ createTool, listTools, projectPath, q
       await queryClient.invalidateQueries({ queryKey: skillToolsQueryKey(cwd) });
     } catch (error) {
       setSaveError(`注册工具失败：${errorMessage(error)}`);
+      throw error;
     } finally {
       setToolSaving(false);
     }

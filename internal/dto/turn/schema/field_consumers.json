@@ -1,0 +1,270 @@
+{
+  "version": 2,
+  "schemas": {
+    "TurnRefV1": {
+      "goType": { "path": "internal/dto/turn/terminal.go", "symbol": "TurnRefV1" },
+      "goValidator": { "path": "internal/dto/turn/contract_validator.go", "symbol": "ValidateTurnRefV1" },
+      "goConsumers": [
+        { "path": "internal/dto/turn/terminal.go", "symbol": "NewTurnTerminalV2", "calls": "ValidateTurnRefV1" }
+      ],
+      "jsValidator": { "path": "frontend-app/src/shared/contracts/turnContractValidators.js", "symbol": "validateTurnRefV1" },
+      "jsConsumers": [
+        { "path": "frontend-app/src/entities/client/model/runtimeAssistantTimeline.js", "symbol": "parseRuntimeTurnRef", "calls": "validateTurnRefV1" }
+      ]
+    },
+    "PublicErrorV1": {
+      "goType": { "path": "internal/dto/turn/terminal.go", "symbol": "PublicErrorV1" },
+      "goValidator": { "path": "internal/dto/turn/contract_validator.go", "symbol": "ValidatePublicErrorV1" },
+      "goConsumers": [
+        { "path": "internal/dto/turn/terminal.go", "symbol": "NewTurnTerminalV2", "calls": "ValidatePublicErrorV1" }
+      ],
+      "jsValidator": { "path": "frontend-app/src/shared/contracts/turnContractValidators.js", "symbol": "validatePublicErrorV1" },
+      "jsConsumers": [
+        { "path": "frontend-app/src/shared/contracts/turnContractValidators.js", "symbol": "validateTurnTerminalV2", "calls": "validatePublicErrorV1" }
+      ]
+    },
+    "TurnTerminalV2": {
+      "goType": { "path": "internal/dto/turn/terminal.go", "symbol": "TurnTerminalV2" },
+      "goValidator": { "path": "internal/dto/turn/contract_validator.go", "symbol": "ValidateTurnTerminalV2" },
+      "goConsumers": [
+        { "path": "internal/dto/turn/terminal.go", "symbol": "NewTurnTerminalV2", "calls": "ValidateTurnTerminalV2" },
+        { "path": "internal/dto/turn/terminal.go", "symbol": "AttachCanonicalTurnTerminal", "calls": "ValidateTurnTerminalV2" },
+        { "path": "internal/dto/turn/terminal.go", "symbol": "CanonicalTurnTerminal", "calls": "ValidateTurnTerminalV2" },
+        { "path": "internal/platform/eventsurface/remote_decode.go", "symbol": "DecodeRemoteTurnTerminal", "calls": "ValidateTurnTerminalV2" },
+        { "path": "internal/platform/eventsurface/remote_decode.go", "symbol": "ProjectRemoteTurnTerminal", "calls": "ValidateTurnTerminalV2" }
+      ],
+      "jsValidator": { "path": "frontend-app/src/shared/contracts/turnContractValidators.js", "symbol": "validateTurnTerminalV2" },
+      "jsConsumers": [
+        { "path": "frontend-app/src/entities/client/model/runtimeAssistantTimeline.js", "symbol": "parseRuntimeTurnTerminal", "calls": "validateTurnTerminalV2" }
+      ]
+    }
+  },
+  "goChains": [
+    {
+      "name": "strict-remote-terminal-decoder",
+      "path": "internal/dto/turn/terminal.go",
+      "symbol": "UnmarshalJSON",
+      "calls": ["DisallowUnknownFields"]
+    },
+    {
+      "name": "canonical-terminal-deep-copy",
+      "path": "internal/dto/turn/terminal.go",
+      "symbol": "cloneTurnTerminalV2",
+      "calls": ["cloneStrings"],
+      "identifiers": ["SchemaVersion", "EventID", "ThreadID", "TurnID", "Outcome", "TerminationCause", "TerminationRequestID", "PublicError", "PartialItemIDs", "OccurredAt", "Code", "Title", "Message", "DiagnosticID", "Retryable", "RecoveryActions"]
+    },
+    {
+      "name": "canonical-terminal-attachment",
+      "path": "internal/dto/turn/terminal.go",
+      "symbol": "AttachCanonicalTurnTerminal",
+      "calls": ["ValidateTurnTerminalV2", "validateTerminalIdentity", "cloneTurnTerminalV2"]
+    },
+    {
+      "name": "canonical-terminal-read",
+      "path": "internal/dto/turn/terminal.go",
+      "symbol": "CanonicalTurnTerminal",
+      "calls": ["ValidateTurnTerminalV2", "validateTerminalIdentity", "cloneTurnTerminalV2"]
+    },
+    {
+      "name": "claude-result-terminal-producer",
+      "path": "internal/provider/claudecli/session_events.go",
+      "symbol": "decodeResultEvent",
+      "strings": ["turn:complete", "success", "status"]
+    },
+    {
+      "name": "claude-failure-terminal-producer",
+      "path": "internal/provider/claudecli/factory.go",
+      "symbol": "finishTurnWithError",
+      "strings": ["turn:complete", "success", "status"]
+    },
+    {
+      "name": "claude-interrupt-terminal-producer",
+      "path": "internal/provider/claudecli/session.go",
+      "symbol": "interruptTerminalFields",
+      "strings": ["termination_cause", "termination_request_id"]
+    },
+    {
+      "name": "codex-synthetic-terminal-producer",
+      "path": "internal/provider/codexapp/session_dispatch.go",
+      "symbol": "completeSyntheticTurn",
+      "strings": ["turn/completed", "success", "status"]
+    },
+    {
+      "name": "codex-interrupt-terminal-producer",
+      "path": "internal/provider/codexapp/session_dispatch.go",
+      "symbol": "applyAcceptedInterruptRequest",
+      "strings": ["termination_cause", "termination_request_id"]
+    },
+    {
+      "name": "codex-accepted-assistant-item-producer",
+      "path": "internal/provider/codexapp/session_approval.go",
+      "symbol": "completeAssistantMessageCompleted",
+      "calls": ["acceptedAssistantItemIDs", "completeSyntheticTurn"]
+    },
+    {
+      "name": "codex-accepted-partial-item-injection",
+      "path": "internal/provider/codexapp/session_dispatch.go",
+      "symbol": "completeSyntheticTurn",
+      "strings": ["accepted_partial_item_ids"]
+    },
+    {
+      "name": "codex-accepted-partial-item-mapper",
+      "path": "internal/provider/codexapp/event_map.go",
+      "symbol": "translateTurnTerminalEvent",
+      "calls": ["acceptedPartialItemIDs"],
+      "identifiers": ["PartialItemIDs"]
+    },
+    {
+      "name": "raw-terminal-parser",
+      "path": "internal/provider/shared/terminal_outcome.go",
+      "symbol": "ResolveRawTerminalOutcome",
+      "calls": ["resolveRawTerminalDependencies"],
+      "strings": ["success", "status"]
+    },
+    {
+      "name": "raw-terminal-dependencies",
+      "path": "internal/provider/shared/terminal_outcome.go",
+      "symbol": "resolveRawTerminalDependencies",
+      "calls": ["ResolveRawTermination"]
+    },
+    {
+      "name": "raw-termination-parser",
+      "path": "internal/provider/shared/terminal_outcome.go",
+      "symbol": "ResolveRawTermination",
+      "calls": ["terminalStringAlias"],
+      "strings": ["termination_cause", "terminationCause", "termination_request_id", "terminationRequestId"]
+    },
+    {
+      "name": "claude-terminal-adapter",
+      "path": "internal/provider/claudecli/session_events.go",
+      "symbol": "attachClaudeTerminalOutcome",
+      "calls": ["ResolveRawTerminalOutcome", "ResolveRawTermination"]
+    },
+    {
+      "name": "claude-terminal-consumer",
+      "path": "internal/provider/claudecli/event_map.go",
+      "symbol": "translateTurnEvent",
+      "calls": ["claudeCanonicalTerminal"]
+    },
+    {
+      "name": "claude-runtime-terminal-consumer",
+      "path": "internal/provider/claudecli/session_events.go",
+      "symbol": "finishTurnFromRaw",
+      "identifiers": ["Terminal", "Success", "Status"]
+    },
+    {
+      "name": "codex-terminal-consumer",
+      "path": "internal/provider/codexapp/factory.go",
+      "symbol": "resolveTurnTerminalOutcome",
+      "calls": ["resolveCompletedTerminalOutcome", "resolveExplicitTerminationOutcome"]
+    },
+    {
+      "name": "codex-completed-terminal-consumer",
+      "path": "internal/provider/codexapp/factory.go",
+      "symbol": "resolveCompletedTerminalOutcome",
+      "calls": ["ResolveRawTerminalOutcome"]
+    },
+    {
+      "name": "codex-explicit-terminal-consumer",
+      "path": "internal/provider/codexapp/factory.go",
+      "symbol": "resolveExplicitTerminationOutcome",
+      "calls": ["ResolveRawTermination"]
+    },
+    {
+      "name": "remote-terminal-canonical-projection",
+      "path": "internal/platform/eventsurface/remote_decode.go",
+      "symbol": "ProjectRemoteTurnTerminal",
+      "calls": ["ValidateTurnTerminalV2", "AttachCanonicalTurnTerminal"]
+    },
+    {
+      "name": "remote-terminal-first-truth-seal",
+      "path": "cmd/mcp-orch/orchestration/launcher.go",
+      "symbol": "handleRemoteTurnTerminal",
+      "calls": ["acceptRemoteTurnTerminal", "ProjectRemoteTurnTerminal"]
+    },
+    {
+      "name": "terminal-canonical-owner",
+      "path": "internal/provider/unified/event_map.go",
+      "symbol": "attachCanonicalTurnTerminal",
+      "calls": ["CanonicalTurnTerminal", "NewTurnTerminalV2", "AttachCanonicalTurnTerminal"]
+    },
+    {
+      "name": "terminal-wire-producer",
+      "path": "internal/platform/eventsurface/bind.go",
+      "symbol": "publishTurnTerminal",
+      "calls": ["CanonicalTurnTerminal", "publish"],
+      "identifiers": ["MethodTurnTerminal"]
+    }
+  ],
+  "goConstants": [
+    {
+      "name": "terminal-wire-method",
+      "path": "internal/platform/eventsurface/bind.go",
+      "symbol": "MethodTurnTerminal",
+      "value": "turn/terminal"
+    }
+  ],
+  "jsTerminalChains": [
+    {
+      "name": "terminal-runtime-dispatch",
+      "path": "frontend-app/src/entities/client/model/helpers/assistantEventRuntime.js",
+      "symbol": "applyTurnTerminal",
+      "calls": ["parseRuntimeTurnTerminal", "terminalTimelineItem", "terminalNotice"]
+    },
+    {
+      "name": "terminal-public-error-projection",
+      "path": "frontend-app/src/entities/client/model/helpers/assistantEventRuntime.js",
+      "symbol": "terminalTimelineItem",
+      "calls": ["publicErrorForRemoteTerminal"],
+      "memberPaths": ["terminal.publicError"],
+      "callArguments": ["publicErrorForRemoteTerminal=terminal.publicError"],
+      "projections": { "publicError": "publicError" },
+      "forbiddenMemberPaths": ["terminal.publicError.code", "terminal.publicError.diagnosticId", "terminal.publicError.message", "terminal.publicError.recoveryActions", "terminal.publicError.title"],
+      "forbiddenProjections": ["publicError=terminal.publicError"]
+    },
+    {
+      "name": "terminal-public-error-notice",
+      "path": "frontend-app/src/entities/client/model/helpers/assistantEventRuntime.js",
+      "symbol": "terminalNotice",
+      "calls": ["actionNotice", "publicErrorForRemoteTerminal"],
+      "memberPaths": ["terminal.publicError"],
+      "callArguments": ["publicErrorForRemoteTerminal=terminal.publicError"],
+      "callMemberPaths": ["publicErrorForRemoteTerminal(terminal.publicError).message"],
+      "forbiddenMemberPaths": ["terminal.publicError.code", "terminal.publicError.diagnosticId", "terminal.publicError.message", "terminal.publicError.recoveryActions", "terminal.publicError.title"]
+    },
+    {
+      "name": "terminal-timeline-render",
+      "path": "frontend-app/src/pages/chat/thread/TimelineMessage.jsx",
+      "symbol": "TimelineMessage",
+      "memberPaths": ["message.publicError"],
+      "jsxProps": ["TerminalPublicError:error=error"]
+    },
+    {
+      "name": "terminal-public-error-clipboard-sink",
+      "path": "frontend-app/src/pages/chat/thread/TimelineMessage.jsx",
+      "symbol": "TerminalPublicError",
+      "calls": ["copyTextToClipboard", "publicErrorForRemoteTerminal", "terminalDiagnosticText"],
+      "memberPaths": ["publicError.diagnosticId", "publicError.recoveryActions"],
+      "callArguments": ["publicErrorForRemoteTerminal=error", "terminalDiagnosticText=publicError"],
+      "forbiddenMemberPaths": ["error.code", "error.diagnosticId", "error.message", "error.recoveryActions", "error.title"]
+    },
+    {
+      "name": "terminal-public-error-diagnostic-projection",
+      "path": "frontend-app/src/pages/chat/thread/TimelineMessage.jsx",
+      "symbol": "terminalDiagnosticText",
+      "memberPaths": ["error.diagnosticId", "error.code", "error.title", "error.message"]
+    }
+  ],
+  "jsMappers": [
+    {
+      "name": "turn-interrupt-identity",
+      "path": "frontend-app/src/shared/api/backend/backendApiFactoryThread.js",
+      "symbol": "turnInterruptPayload",
+      "fields": {
+        "threadId": { "aliases": ["threadId", "thread_id", "threadID"], "wire": "thread_id" },
+        "expectedTurnId": { "aliases": ["expectedTurnId", "expected_turn_id"], "wire": "expected_turn_id" },
+        "requestId": { "aliases": ["requestId", "request_id"], "wire": "request_id" }
+      }
+    }
+  ]
+}

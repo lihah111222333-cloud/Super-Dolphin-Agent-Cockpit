@@ -86,7 +86,7 @@ export function WorkbenchSidebar({
   const themeLabel = isDark ? copy.workbench.dayMode : copy.workbench.nightMode;
   const startNewChat = () => {
     setActivePage('chat');
-    runUIAction(() => store?.newThread?.(), actionOptions);
+    runUIAction('thread.new', () => store?.newThread?.(), actionOptions);
   };
 
   return (

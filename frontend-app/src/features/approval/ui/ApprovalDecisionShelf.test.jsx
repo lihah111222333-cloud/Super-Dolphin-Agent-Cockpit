@@ -1,8 +1,9 @@
 import React from 'react';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApprovalDecisionShelf } from './ApprovalDecisionShelf.jsx';
 import approvalShelfSource from './ApprovalDecisionShelf.jsx?raw';
+import { frontendHealthSnapshot, resetFrontendHealthForTest } from '../../../shared/diagnostics/frontendHealthStore.js';
 
 const pendingRequest = {
   sessionScope: 'session-scope-a',
@@ -22,6 +23,10 @@ function deferred() {
 }
 
 describe('ApprovalDecisionShelf', () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+    resetFrontendHealthForTest();
+  });
   it('keeps selection separate from explicit confirmation', async () => {
     const onConfirm = vi.fn().mockResolvedValue(true);
     render(<ApprovalDecisionShelf request={pendingRequest} onConfirm={onConfirm} />);
@@ -147,7 +152,7 @@ describe('ApprovalDecisionShelf', () => {
     expect(onConfirm).toHaveBeenLastCalledWith('reject');
   });
 
-  it('retains the selected choice after failure and allows an explicit retry', async () => {
+  it('matrix:FM-24 layer:frontend retains the selected choice after failure and allows an explicit retry', async () => {
     const onConfirm = vi.fn()
       .mockRejectedValueOnce(new Error('approval unavailable'))
       .mockResolvedValueOnce(true);
@@ -157,7 +162,12 @@ describe('ApprovalDecisionShelf', () => {
     fireEvent.click(reject);
     fireEvent.click(screen.getByRole('button', { name: '确认选择' }));
 
-    expect(await screen.findByRole('alert')).toHaveTextContent('approval unavailable');
+    expect(await screen.findByRole('alert')).toHaveTextContent('操作失败，当前页面状态已保留。');
+    expect(screen.getByRole('alert')).not.toHaveTextContent('approval unavailable');
+    expect(frontendHealthSnapshot()).toEqual(expect.arrayContaining([
+      expect.objectContaining({ actionId: 'approval.respond' }),
+    ]));
+    expect(JSON.stringify(frontendHealthSnapshot())).not.toContain('approval unavailable');
     expect(reject).toHaveAttribute('aria-pressed', 'true');
     expect(screen.getByRole('button', { name: '确认选择' })).toBeEnabled();
 

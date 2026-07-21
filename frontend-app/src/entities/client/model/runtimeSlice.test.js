@@ -1,5 +1,6 @@
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { getPreference } from '../../../shared/api/backendApi.js';
+import { frontendHealthSnapshot, resetFrontendHealthForTest } from '../../../shared/diagnostics/frontendHealthStore.js';
 import { createRuntimeSlice } from './runtimeSlice.js';
 
 vi.mock('../../../shared/api/backendApi.js', () => ({
@@ -49,7 +50,44 @@ function createDeps(overrides = {}) {
   };
 }
 
+beforeEach(() => {
+  window.localStorage.clear();
+  resetFrontendHealthForTest();
+});
+
 describe('runtime slice event lifecycle', () => {
+  it('matrix:FM-18 layer:frontend persists reconnect bootstrap failure in Health and permits recovery', async () => {
+    const rawCause = 'provider reconnect token=secret';
+    let reconnectHandler;
+    let bootstrapFails = true;
+    const bootstrap = vi.fn(() => (
+      bootstrapFails ? Promise.reject(new Error(rawCause)) : Promise.resolve(true)
+    ));
+    const runtime = createRuntime({
+      get: vi.fn(() => ({ activeThreadId: '', bootstrap, bootstrapStatus: 'failed' })),
+    });
+    const actions = createRuntimeSlice(runtime, createDeps({
+      onRuntimeReconnect: vi.fn((handler) => {
+        reconnectHandler = handler;
+        return { ready: Promise.resolve(true), unsubscribe: vi.fn() };
+      }),
+    }));
+
+    await actions.initializeEvents();
+    reconnectHandler();
+    await vi.waitFor(() => {
+      expect(frontendHealthSnapshot()).toEqual(expect.arrayContaining([
+        expect.objectContaining({ actionId: 'provider.reconnect.bootstrap' }),
+      ]));
+    });
+    expect(JSON.stringify(frontendHealthSnapshot())).not.toContain(rawCause);
+
+    bootstrapFails = false;
+    reconnectHandler();
+    await vi.waitFor(() => expect(bootstrap).toHaveBeenCalledTimes(2));
+    expect(reconnectHandler).toEqual(expect.any(Function));
+  });
+
   it('shares one promise and commits two subscriptions atomically', async () => {
     const bridge = deferred();
     const reconnect = deferred();

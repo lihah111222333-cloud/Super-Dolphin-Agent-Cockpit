@@ -1,0 +1,85 @@
+{
+  "schemaVersion": 1,
+  "surfaces": {
+    "actionFeedback": [
+      "src/pages/chat/runtime/RuntimeDiffView.jsx"
+    ],
+    "terminalPublicError": [
+      "src/shared/contracts/turnContractValidators.js"
+    ],
+    "diagnostics": [
+      "src/shared/diagnostics/safeLogFields.js"
+    ],
+    "uiAction": [
+      "src/shared/ui/runUIAction.js"
+    ],
+    "promptHistory": [
+      "src/features/prompt-history/model/promptHistoryController.js"
+    ],
+    "storeBridge": [
+      "src/entities/client/model/helpers/bridgeRevision.js"
+    ],
+    "rpcAdapter": [
+      "src/shared/api/backend/backendApiFactoryThread.js",
+      "src/shared/api/backend/backendApiCommon.js"
+    ],
+    "providerPreference": [
+      "src/entities/client/model/helpers/providerPreferences.js"
+    ]
+  },
+  "entrypoints": [
+    "src/entities/client/model/helpers/bridgeRevision.js",
+    "src/entities/client/model/helpers/providerPreferences.js",
+    "src/features/prompt-history/model/promptHistoryController.js",
+    "src/pages/chat/runtime/RuntimeDiffView.jsx",
+    "src/shared/api/backend/backendApiFactoryThread.js",
+    "src/shared/api/backend/backendApiCommon.js",
+    "src/shared/contracts/turnContractValidators.js",
+    "src/shared/diagnostics/safeLogFields.js",
+    "src/shared/ui/runUIAction.js"
+  ],
+  "productionFiles": [
+    "src/entities/client/model/contractStoreModel.js",
+    "src/entities/client/model/helpers/bridgeRevision.js",
+    "src/entities/client/model/helpers/providerPreferences.js",
+    "src/features/prompt-history/model/promptHistoryController.js",
+    "src/pages/chat/runtime/RuntimeDiffView.jsx",
+    "src/shared/api/approvalRequestId.js",
+    "src/shared/api/backend/backendApiCommon.js",
+    "src/shared/api/backend/backendApiFactoryCore.js",
+    "src/shared/api/backend/backendApiFactoryOps.js",
+    "src/shared/api/backend/backendApiFactoryThread.js",
+    "src/shared/api/backend/backendApiPayloadCore.js",
+    "src/shared/api/backend/backendApiPayloadWorkflow.js",
+    "src/shared/api/backend/backendApiPayloads.js",
+    "src/shared/api/backend/backendRpcMethods.js",
+    "src/shared/api/backendResponseValidatorShared.js",
+    "src/shared/api/backendResponseValidators.js",
+    "src/shared/api/backendResponseValidatorsCore.js",
+    "src/shared/api/backendResponseValidatorsRuntime.js",
+    "src/shared/api/backendSchemas.js",
+    "src/shared/api/bridgeSafeLogFields.js",
+    "src/shared/api/browser/browserStorage.js",
+    "src/shared/api/safeDiagnosticPreview.js",
+    "src/shared/api/wails/sharedFilePreviewContract.js",
+    "src/shared/api/wails/wailsBridgeClipboardEvents.js",
+    "src/shared/api/wails/wailsBridgeConstants.js",
+    "src/shared/api/wails/wailsBridgeLogRuntime.js",
+    "src/shared/api/wails/wailsBridgeNativeFiles.js",
+    "src/shared/api/wails/wailsBridgeRpc.js",
+    "src/shared/api/wails/wailsBridgeTraceEvents.js",
+    "src/shared/api/wailsBridge.js",
+    "src/shared/contracts/turnContractValidators.js",
+    "src/shared/contracts/turnContracts.generated.js",
+    "src/shared/diagnostics/frontendDiagnosticCorrelation.js",
+    "src/shared/diagnostics/frontendHealthStore.js",
+    "src/shared/diagnostics/safeLogFields.js",
+    "src/shared/recovery/recoveryFailure.js",
+    "src/shared/ui/actionFailureSink.js",
+    "src/shared/ui/publicError.js",
+    "src/shared/ui/runUIAction.js"
+  ],
+  "testFiles": [
+    "scripts/contracts-typecheck-guard.test.mjs"
+  ]
+}

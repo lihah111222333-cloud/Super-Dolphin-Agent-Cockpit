@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MemoryPage } from './MemoryPage.jsx';
 import { normalizeMemorySnapshot } from '../../adapters/memoryAdapter.js';
 import { fetchMemoryDashboard, upsertMemoryEntry } from './services/memoryPageService.js';
+import { APP_COPY } from '../../shared/i18n/appI18n.js';
 
 const backend = vi.hoisted(() => ({
   deleteMemoryEntry: vi.fn(),
@@ -17,8 +18,13 @@ const backend = vi.hoisted(() => ({
   startConsolidateMemorySimilarities: vi.fn(),
   upsertMemoryEntry: vi.fn(),
 }));
+const actionRunner = vi.hoisted(() => ({
+  runBackgroundAction: vi.fn((_actionId, callback) => callback()),
+  runUIAction: vi.fn((_actionId, callback) => callback()),
+}));
 
 vi.mock('./services/memoryPageService.js', () => backend);
+vi.mock('../../shared/ui/runUIAction.js', () => actionRunner);
 
 function memorySnapshot({ privateEntries = [], similarGroups = [], similarityDegraded, teamEntries = [], autoDream = {} } = {}) {
   return {
@@ -96,6 +102,35 @@ describe('MemoryPage module export', () => {
   });
 });
 
+describe('MemoryPage hero copy', () => {
+  it('renders the zh hero title and subtitle from the memory copy contract', async () => {
+    renderMemoryPage();
+
+    expect(await screen.findByText('暂无记忆')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: '记忆中心' })).toBeInTheDocument();
+    expect(screen.getByText('管理并观察 AI 的上下文记忆留存。')).toBeInTheDocument();
+  });
+
+  it('renders the en hero title and subtitle from the memory copy contract', async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false },
+        mutations: { retry: false },
+      },
+    });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryPage copy={APP_COPY.en.memory} projectPath="/repo/app" />
+      </QueryClientProvider>,
+    );
+
+    expect(await screen.findByText('No Memories Yet')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Memory' })).toBeInTheDocument();
+    expect(screen.getByText("Manage and observe your AI's contextual retention.")).toBeInTheDocument();
+    expect(screen.queryByText('管理并观察 AI 的上下文记忆留存。')).not.toBeInTheDocument();
+  });
+});
+
 describe('MemoryPage dashboard loading', () => {
   it('loads memory dashboard entries through memory service', async () => {
     fetchMemoryDashboard.mockResolvedValue(normalizeMemorySnapshot(memorySnapshot({
@@ -131,6 +166,20 @@ describe('MemoryPage dashboard loading', () => {
     expect(screen.queryByText('默认中文')).not.toBeInTheDocument();
     expect(screen.getByText('DAG 规范')).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: '项目 1' })).toHaveAttribute('aria-selected', 'true');
+  });
+
+  it('routes a visible memory sync retry through its stable user action', async () => {
+    fetchMemoryDashboard
+      .mockRejectedValueOnce(new Error('memory service unavailable'))
+      .mockResolvedValue(normalizeMemorySnapshot(memorySnapshot()));
+
+    renderMemoryPage();
+
+    fireEvent.click(await screen.findByRole('button', { name: '重试同步' }));
+
+    await waitFor(() => {
+      expect(actionRunner.runUIAction).toHaveBeenCalledWith('memory.dashboard.retry', expect.any(Function));
+    });
   });
 });
 
@@ -469,7 +518,8 @@ describe('MemoryPage consolidation polling', () => {
 
 		renderMemoryPage();
 
-		expect(await screen.findByText(/memory health similarityDegraded must be a boolean/)).toBeInTheDocument();
+		expect(await screen.findByText('读取记忆失败，请重试。')).toBeInTheDocument();
+		expect(screen.queryByText(/similarityDegraded must be a boolean/)).not.toBeInTheDocument();
 		expect(screen.queryByRole('button', { name: '一键整合全部' })).not.toBeInTheDocument();
 		expect(backend.startConsolidateMemorySimilarities).not.toHaveBeenCalled();
 	});
@@ -540,7 +590,7 @@ describe('MemoryPage consolidation polling', () => {
       }
     });
 
-    expect(screen.getByText('智能整合仍在进行，请稍后查看结果')).toBeInTheDocument();
+    expect(screen.getByText('智能整合仍在进行，请稍后查看结果。')).toBeInTheDocument();
   }, 10_000);
 
   it('treats a succeeded consolidation status without result as an error', async () => {
@@ -553,7 +603,8 @@ describe('MemoryPage consolidation polling', () => {
 
     await startMergeAllPolling(mergeAll);
 
-    expect(await screen.findByText('智能整合失败：智能整合完成但没有返回结果')).toBeInTheDocument();
+    expect(await screen.findByText('智能整合失败，请查看 Health 诊断 ID。')).toBeInTheDocument();
+    expect(screen.queryByText(/没有返回结果/)).not.toBeInTheDocument();
   });
 
   it('invalidates the memory dashboard when consolidation succeeds with a result', async () => {

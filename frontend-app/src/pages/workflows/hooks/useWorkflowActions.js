@@ -1,5 +1,6 @@
 import { useCallback, useRef } from 'react';
-import { errorMessage, firstText, objectValue, textValue } from '../../shared/pageShared.js';
+import { runBackgroundAction, runUIAction } from '../../../shared/ui/runUIAction.js';
+import { firstText, objectValue, textValue } from '../../shared/pageShared.js';
 import {
   applyDagOps,
   createAndStartDag,
@@ -30,7 +31,8 @@ const workflowActionFacade = Object.freeze({ applyDagOps, dispatchDagNode, termi
 
 function workflowRefreshNotice(message, refreshError) {
   if (!refreshError) return message;
-  return `${message}，但刷新状态失败：${errorMessage(refreshError)}`;
+  runBackgroundAction('workflow.refresh-after-action', () => Promise.reject(refreshError));
+  return `${message}，但刷新状态失败，请手动刷新。`;
 }
 
 async function refreshWorkflowListResult(list, fallbackItems) {
@@ -82,7 +84,17 @@ function useWorkflowActions(options) {
   const dispatchNode = useDispatchDagNodeAction({ actionState, derived, list, notices, refresh });
   const createAndStartTemplate = useCreateAndStartTemplateAction({ actionState, list, notices, refresh, workflowCwd });
   const startDesignFlow = useStartDesignFlowAction({ actionState, notices, setDesignSession, store, workflowCwd });
-  return { confirmDeleteDAG, createAndStartTemplate, dispatchNode, runSelectedDag, saveAgentNode, saveSchedule, startDesignFlow, stopSelectedDag, toggleScheduleEnabled };
+  return {
+    confirmDeleteDAG: (...args) => runUIAction('workflow.delete', () => confirmDeleteDAG(...args)),
+    createAndStartTemplate: (...args) => runUIAction('workflow.template.create-start', () => createAndStartTemplate(...args)),
+    dispatchNode: (...args) => runUIAction('workflow.node.dispatch', () => dispatchNode(...args)),
+    runSelectedDag: (...args) => runUIAction('workflow.run', () => runSelectedDag(...args)),
+    saveAgentNode: (...args) => runUIAction('workflow.node.save', () => saveAgentNode(...args)),
+    saveSchedule: (...args) => runUIAction('workflow.schedule.save', () => saveSchedule(...args)),
+    startDesignFlow: (...args) => runUIAction('workflow.design.start', () => startDesignFlow(...args)),
+    stopSelectedDag: (...args) => runUIAction('workflow.stop', () => stopSelectedDag(...args)),
+    toggleScheduleEnabled: (...args) => runUIAction('workflow.schedule.toggle', () => toggleScheduleEnabled(...args)),
+  };
 }
 
 function useRunSelectedDagAction({ actionState, derived, list, notices, refresh }) {
@@ -114,7 +126,8 @@ function useRunSelectedDagAction({ actionState, derived, list, notices, refresh 
       } else {
         intent.pending = false;
       }
-      actionState.setError('启动自动化失败：' + errorMessage(err));
+      actionState.setError('启动自动化失败，请重试。');
+      throw err;
     } finally {
       actionState.setActioning('');
     }
@@ -145,7 +158,8 @@ export async function stopSelectedDagAction({ actionState, derived, facade, noti
     const refreshResult = await refreshWorkflowAfterAction({ ...refreshContext, targetDagKey });
     notices.showTaskNotice(workflowRefreshNotice('已停止运行', refreshResult.error), targetDagKey);
   } catch (err) {
-    actionState.setError('停止运行失败：' + errorMessage(err));
+    actionState.setError('停止运行失败，请重试。');
+    throw err;
   } finally {
     actionState.setActioning('');
   }
@@ -173,7 +187,8 @@ function useDeleteDagAction({ actionState, derived, list, notices, selection }) 
       selection.setSelectedDagKey(nextWorkflowSelectionKey(nextItems, selection.activeCategory));
       notices.showTaskNotice(workflowRefreshNotice('已删除 ' + (target?.title || targetKey), refreshResult.error), targetKey);
     } catch (err) {
-      actionState.setError('删除自动化失败：' + errorMessage(err));
+      actionState.setError('删除自动化失败，请重试。');
+      throw err;
     } finally {
       actionState.setActioning('');
     }
@@ -225,7 +240,8 @@ export async function saveScheduleAction(
     const refreshResult = await refreshWorkflowAfterAction({ ...refreshContext, targetDagKey });
     notices.showTaskNotice(workflowRefreshNotice('已保存定时任务', refreshResult.error), targetDagKey);
   } catch (err) {
-    actionState.setError('保存定时任务失败：' + errorMessage(err));
+    actionState.setError('保存定时任务失败，请重试。');
+    throw err;
   } finally {
     actionState.setActioning('');
   }
@@ -247,7 +263,8 @@ function useToggleScheduleAction({ actionState, derived, list, notices, refresh 
       const refreshResult = await refreshWorkflowAfterAction({ list, refresh, targetDagKey });
       notices.showTaskNotice(workflowRefreshNotice(enabled ? '已启用自动运行' : '已暂停自动运行', refreshResult.error), targetDagKey);
     } catch (err) {
-      actionState.setError('切换自动运行失败：' + errorMessage(err));
+      actionState.setError('切换自动运行失败，请重试。');
+      throw err;
     } finally {
       actionState.setActioning('');
     }
@@ -269,7 +286,8 @@ function useSaveAgentNodeAction({ actionState, derived, notices, refresh }) {
       const refreshError = await refreshWorkflowDetailResult(refresh, targetDagKey);
       notices.showTaskNotice(workflowRefreshNotice('已保存步骤 ' + node.title, refreshError), targetDagKey);
     } catch (err) {
-      actionState.setError('保存步骤失败：' + errorMessage(err));
+      actionState.setError('保存步骤失败，请重试。');
+      throw err;
     } finally {
       actionState.setSavingNodeKey('');
     }
@@ -316,7 +334,8 @@ export async function dispatchDagNodeAction(
     const refreshResult = await refreshWorkflowAfterAction({ ...refreshContext, targetDagKey });
     notices.showTaskNotice(workflowRefreshNotice(`已派发步骤 ${node.title || node.nodeKey}`, refreshResult.error), targetDagKey);
   } catch (err) {
-    actionState.setError('派发节点失败：' + errorMessage(err));
+    actionState.setError('派发节点失败，请重试。');
+    throw err;
   } finally {
     actionState.setDispatchingNodeKey('');
   }
@@ -348,8 +367,8 @@ function useCreateAndStartTemplateAction({ actionState, list, notices, refresh, 
       notices.showTaskNotice(workflowRefreshNotice(message, refreshResult.error), dagKey);
       return { ok: true, dagKey, runKey, warning };
     } catch (err) {
-      actionState.setError('创建模板工作流失败：' + errorMessage(err));
-      return { ok: false, error: errorMessage(err) };
+      actionState.setError('创建模板工作流失败，请重试。');
+      throw err;
     } finally {
       actionState.setActioning('');
     }
@@ -415,14 +434,15 @@ function useStartDesignFlowAction({ actionState, notices, setDesignSession, stor
       }
       await navigateToWorkflowThread(store, threadId, selectionSnapshot);
     } catch (err) {
-      actionState.setError((template ? '启动政企模板失败：' : '启动 AI 设计流程失败：') + errorMessage(err));
+      actionState.setError(template ? '启动政企模板失败，请重试。' : '启动 AI 设计流程失败，请重试。');
       if (isEnterpriseTemplate) {
-        const failed = workflowTemplateDesignPatch('', 'failed', '启动政企模板失败：' + errorMessage(err));
+        const failed = workflowTemplateDesignPatch('', 'failed', '启动政企模板失败，请重试。');
         setDesignSession?.(enterpriseDesignSessionSnapshot(template, failed));
       } else if (stayOnWorkflow) {
-        const failed = workflowTemplateDesignPatch('', 'failed', '启动 AI 设计流程失败：' + errorMessage(err));
+        const failed = workflowTemplateDesignPatch('', 'failed', '启动 AI 设计流程失败，请重试。');
         setDesignSession?.(freeDesignSessionSnapshot(failed));
       }
+      throw err;
     } finally {
       actionState.setActioning('');
     }
@@ -502,10 +522,10 @@ async function submitEnterpriseTemplateDesignBrief(actionState, setDesignSession
     setDesignSession?.(enterpriseDesignSessionSnapshot(template, submitted));
     return true;
   } catch (err) {
-    actionState.setError('发送政企模板需求失败：' + errorMessage(err));
-    const failed = workflowTemplateDesignPatch(threadId, 'failed', '发送政企模板需求失败：' + errorMessage(err));
+    actionState.setError('发送政企模板需求失败，请重试。');
+    const failed = workflowTemplateDesignPatch(threadId, 'failed', '发送政企模板需求失败，请重试。');
     setDesignSession?.(enterpriseDesignSessionSnapshot(template, failed));
-    return false;
+    throw err;
   }
 }
 

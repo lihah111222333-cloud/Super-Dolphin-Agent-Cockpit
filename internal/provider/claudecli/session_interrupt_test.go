@@ -15,6 +15,7 @@ import (
 	dto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/provider"
 	tooldto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/tool"
 	turndto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/turn"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/pidregistry"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/unified"
 )
 
@@ -200,6 +201,112 @@ func TestInterruptHungCLIKillsAndAllowsNextTurn(t *testing.T) {
 	runInterruptRestartScenario(t, "trap '' INT; while :; do sleep 1; done")
 }
 
+func TestInterruptCleanupFailureRetainsTurnAndPIDWithoutUserTerminal(t *testing.T) {
+	t.Run("settle error", func(t *testing.T) {
+		assertInterruptCleanupFailureRetainsOwnership(t, func(*transport) error {
+			return errors.New("injected settle failure")
+		})
+	})
+	t.Run("signal error", func(t *testing.T) {
+		assertInterruptCleanupFailureRetainsOwnership(t, func(tr *transport) error {
+			tr.signal = func(sig processSig) error {
+				if sig == sigInterrupt {
+					return errors.New("injected signal failure")
+				}
+				return tr.signalProcessNative(sig)
+			}
+			return settleInterruptedTransportWithTimeout(tr, 50*time.Millisecond)
+		})
+	})
+}
+
+func assertInterruptCleanupFailureRetainsOwnership(t *testing.T, settle func(*transport) error) {
+	t.Helper()
+	bus := event.NewDispatcher()
+	defer func() { _ = bus.Close() }()
+	dispatcher := unified.NewEventDispatcher(bus, nil)
+	RegisterTranslators(dispatcher)
+	terminals := make(chan turndto.TurnCompleted, 1)
+	cancelTerminal := event.Subscribe(bus, func(ev turndto.TurnCompleted) { terminals <- ev })
+	defer cancelTerminal()
+
+	tr := newInterruptTestTransport(t, "while :; do sleep 1; done")
+	reg := pidregistry.New()
+	if err := registerTransportPID(reg, tr, "agent-interrupt-failure"); err != nil {
+		t.Fatalf("register transport PID: %v", err)
+	}
+	t.Cleanup(func() { unregisterTransportPID(reg, tr) })
+	handle := newTurnHandle("local-failure", "turn-failure")
+	cleanupCalled := false
+	s := &session{
+		agentID: "agent-interrupt-failure", threadID: "thread-interrupt-failure", publicThreadID: "thread-public",
+		sessionID: "session-interrupt-failure", transport: tr, cleanup: func() { cleanupCalled = true },
+		pidRegistry: reg, activeTurn: handle, suppressedTurns: map[string]struct{}{},
+		eventDispatcher: dispatcher, settleTransport: settle,
+	}
+
+	err := s.Interrupt(context.Background(), dto.InterruptRequest{Source: "ui_stop", RequestID: "request-A"})
+	if err == nil {
+		t.Fatal("Interrupt() error = nil, want cleanup failure")
+	}
+	assertFailedInterruptOwnership(t, s, tr, handle, cleanupCalled)
+	assertFailedInterruptHasNoTerminal(t, terminals, handle)
+}
+
+func assertFailedInterruptOwnership(t *testing.T, s *session, tr *transport, handle *turnHandle, cleanupCalled bool) {
+	t.Helper()
+	gotTransport, gotHandle := sessionStateForInterruptTest(s)
+	if gotTransport != tr || gotHandle != handle || s.interrupting {
+		t.Fatalf("failed interrupt ownership: transport=%p handle=%p interrupting=%v", gotTransport, gotHandle, s.interrupting)
+	}
+	if cleanupCalled {
+		t.Fatal("cleanup callback ran after failed interrupt")
+	}
+	if !containsPID(currentRegistryChildPIDs(t, "claude-cli"), tr.cmd.Process.Pid) {
+		t.Fatalf("PID %d is no longer managed after failed interrupt", tr.cmd.Process.Pid)
+	}
+}
+
+func assertFailedInterruptHasNoTerminal(t *testing.T, terminals <-chan turndto.TurnCompleted, handle *turnHandle) {
+	t.Helper()
+	select {
+	case terminal := <-terminals:
+		t.Fatalf("failed interrupt published terminal: %#v", terminal)
+	case <-time.After(100 * time.Millisecond):
+	}
+	select {
+	case <-handle.Done():
+		t.Fatalf("failed interrupt completed active handle: %v", handle.Err())
+	default:
+	}
+}
+
+func TestInterruptTargetChangedLeavesActiveTurnUntouched(t *testing.T) {
+	t.Parallel()
+
+	active := newTurnHandle("local-2", "turn-2")
+	cleanupCalls := 0
+	s := &session{
+		activeTurn:      active,
+		activeToolCalls: map[string]string{"call-2": "lsp_read"},
+		suppressedTurns: map[string]struct{}{},
+		cleanup:         func() { cleanupCalls++ },
+	}
+	err := s.Interrupt(context.Background(), dto.InterruptRequest{TurnID: "turn-1", Source: "ui_stop"})
+	if !errors.Is(err, contract.ErrInterruptTargetChanged) {
+		t.Fatalf("Interrupt() error = %v, want target changed", err)
+	}
+	_, gotActive := sessionStateForInterruptTest(s)
+	if gotActive != active || cleanupCalls != 0 || len(s.suppressedTurns) != 0 || len(s.activeToolCalls) != 1 {
+		t.Fatalf("target-changed side effects: active=%p cleanup=%d suppressed=%v tools=%v", gotActive, cleanupCalls, s.suppressedTurns, s.activeToolCalls)
+	}
+	select {
+	case <-active.Done():
+		t.Fatal("target-changed interrupt finished the replacement turn")
+	default:
+	}
+}
+
 func TestInterruptDispatchesSyntheticToolEnd(t *testing.T) {
 	bus := event.NewDispatcher()
 	defer func() { _ = bus.Close() }()
@@ -207,10 +314,10 @@ func TestInterruptDispatchesSyntheticToolEnd(t *testing.T) {
 	RegisterTranslators(dispatcher)
 
 	toolEnds := make(chan tooldto.ToolCallEnd, 1)
-	turnInterrupted := make(chan turndto.TurnInterrupted, 1)
+	turnInterrupted := make(chan turndto.TurnCompleted, 1)
 	cancelTool := event.Subscribe(bus, func(ev tooldto.ToolCallEnd) { toolEnds <- ev })
 	defer cancelTool()
-	cancelTurn := event.Subscribe(bus, func(ev turndto.TurnInterrupted) { turnInterrupted <- ev })
+	cancelTurn := event.Subscribe(bus, func(ev turndto.TurnCompleted) { turnInterrupted <- ev })
 	defer cancelTurn()
 
 	s := &session{
@@ -223,7 +330,7 @@ func TestInterruptDispatchesSyntheticToolEnd(t *testing.T) {
 		suppressedTurns: map[string]struct{}{},
 		eventDispatcher: dispatcher,
 	}
-	if err := s.Interrupt(context.Background(), dto.InterruptRequest{Source: "ui_stop"}); err != nil {
+	if err := s.Interrupt(context.Background(), dto.InterruptRequest{Source: "ui_stop", RequestID: "stop-1"}); err != nil {
 		t.Fatalf("Interrupt() error = %v", err)
 	}
 
@@ -249,15 +356,15 @@ func assertSyntheticToolEnd(t *testing.T, toolEnds <-chan tooldto.ToolCallEnd) {
 	}
 }
 
-func assertTurnInterrupted(t *testing.T, turnInterrupted <-chan turndto.TurnInterrupted) {
+func assertTurnInterrupted(t *testing.T, turnInterrupted <-chan turndto.TurnCompleted) {
 	t.Helper()
 	select {
 	case ev := <-turnInterrupted:
-		if ev.TurnID != "turn-1" {
-			t.Fatalf("TurnInterrupted.TurnID = %q, want turn-1", ev.TurnID)
+		if ev.TurnID != "turn-1" || ev.Success || ev.Status != "interrupted" || ev.Reason != "user_request" || ev.TerminationRequestID != "stop-1" {
+			t.Fatalf("TurnCompleted = %#v, want accepted user interruption", ev)
 		}
 	case <-time.After(time.Second):
-		t.Fatal("Interrupt() did not dispatch TurnInterrupted")
+		t.Fatal("Interrupt() did not dispatch terminal interruption")
 	}
 }
 

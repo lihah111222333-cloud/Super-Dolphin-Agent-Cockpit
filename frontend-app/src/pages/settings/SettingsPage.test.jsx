@@ -352,7 +352,8 @@ describe('SettingsPage app update entry', () => {
     fireEvent.click(screen.getByTestId('settings-update-check-button'));
 
     await waitFor(() => {
-      expect(screen.getByTestId('settings-update-notice')).toHaveTextContent('检查更新失败：manifest unavailable');
+      expect(screen.getByTestId('settings-update-notice')).toHaveTextContent('检查更新失败');
+      expect(screen.getByTestId('settings-update-notice')).not.toHaveTextContent('manifest unavailable');
       expect(screen.getByTestId('settings-update-notice')).toHaveAttribute('role', 'alert');
       expect(screen.queryByTestId('settings-update-install-button')).not.toBeInTheDocument();
     });
@@ -366,7 +367,8 @@ describe('SettingsPage app update entry', () => {
     fireEvent.click(await screen.findByTestId('settings-update-check-button'));
 
     await waitFor(() => {
-      expect(screen.getByTestId('settings-update-notice')).toHaveTextContent('检查更新失败：GitHub release missing update manifest asset Super-Dolphin-darwin-arm64.update.json');
+      expect(screen.getByTestId('settings-update-notice')).toHaveTextContent('检查更新失败');
+      expect(screen.getByTestId('settings-update-notice')).not.toHaveTextContent('GitHub release');
       expect(screen.getByTestId('settings-update-notice')).toHaveAttribute('role', 'alert');
     });
     expect(screen.queryByTestId('settings-update-install-button')).not.toBeInTheDocument();
@@ -405,7 +407,8 @@ describe('SettingsPage app update entry', () => {
     fireEvent.click(await screen.findByTestId('settings-update-install-button'));
 
     await waitFor(() => {
-      expect(screen.getByTestId('settings-update-notice')).toHaveTextContent('安装更新失败：permission denied');
+      expect(screen.getByTestId('settings-update-notice')).toHaveTextContent('安装更新失败');
+      expect(screen.getByTestId('settings-update-notice')).not.toHaveTextContent('permission denied');
       expect(screen.getByTestId('settings-update-install-button')).toBeEnabled();
     });
 
@@ -500,7 +503,8 @@ describe('SettingsPage provider migration', () => {
 
     renderSettingsPage();
 
-    expect(await screen.findByRole('alert')).toHaveTextContent('invalid UI preference response for settings.provider.active');
+    expect(await screen.findByRole('alert')).toHaveTextContent('读取运行时偏好失败，请重试。');
+    expect(screen.queryByText(/invalid UI preference response/)).not.toBeInTheDocument();
     expect(screen.getByRole('combobox', { name: 'Active Provider' })).toHaveValue('codex');
   });
 
@@ -515,7 +519,8 @@ describe('SettingsPage provider migration', () => {
 
     renderSettingsPage();
 
-    expect(await screen.findByRole('alert')).toHaveTextContent(`invalid UI preference response for ${key}`);
+    expect(await screen.findByRole('alert')).toHaveTextContent('读取运行时偏好失败，请重试。');
+    expect(screen.queryByText(/invalid UI preference response/)).not.toBeInTheDocument();
     expect(screen.getByLabelText(controlName)).toHaveValue(defaultValue);
   });
 
@@ -525,7 +530,8 @@ describe('SettingsPage provider migration', () => {
 
     renderSettingsPage();
 
-    expect(await screen.findByText(/invalid UI preference response for settings.showInjectedPromptInChat/)).toBeInTheDocument();
+    expect(await screen.findByText(/加载聊天注入显示开关失败/)).toBeInTheDocument();
+    expect(screen.queryByText(/invalid UI preference response/)).not.toBeInTheDocument();
     expect(screen.getByTestId('settings-show-injected-toggle-input')).not.toBeChecked();
   });
 
@@ -691,7 +697,8 @@ describe('SettingsPage provider migration', () => {
     renderSettingsPage();
 
     const activeProvider = await screen.findByRole('combobox', { name: 'Active Provider' });
-    expect(await screen.findByRole('alert')).toHaveTextContent('invalid UI preference response for settings.provider.active');
+    expect(await screen.findByRole('alert')).toHaveTextContent('读取运行时偏好失败，请重试。');
+    expect(screen.queryByText(/invalid UI preference response/)).not.toBeInTheDocument();
     expect(activeProvider).toHaveValue('codex');
     expect(backend.setPreference).not.toHaveBeenCalledWith(expect.objectContaining({
       key: 'settings.provider.active',
@@ -1043,7 +1050,8 @@ describe('SettingsPage video settings', () => {
 
     expect(await screen.findByTestId('settings-video-card')).toBeInTheDocument();
     await waitFor(() => {
-      expect(screen.getByTestId('settings-video-notice')).toHaveTextContent('读取视频 API Key 失败：credential store unavailable');
+      expect(screen.getByTestId('settings-video-notice')).toHaveTextContent('读取视频 API Key 失败');
+      expect(screen.getByTestId('settings-video-notice')).not.toHaveTextContent('credential store unavailable');
       expect(screen.getByTestId('settings-video-notice')).toHaveAttribute('role', 'alert');
     });
     expect(backend.callBackend).not.toHaveBeenCalled();
@@ -1062,20 +1070,24 @@ describe('SettingsPage video settings', () => {
     expect(backend.callBackend).not.toHaveBeenCalled();
   });
 
-  it('shows save failures from the named video facade method', async () => {
-    backend.setVideoApiKey.mockRejectedValueOnce(new Error('credential store unavailable'));
+  describe('matrix:FM-23 layer:frontend', () => {
+    it('shows save failures from the named video facade method', async () => {
+      backend.setVideoApiKey.mockRejectedValueOnce(new Error('credential store unavailable'));
 
-    renderSettingsPage();
+      renderSettingsPage();
 
-    const card = await screen.findByTestId('settings-video-card');
-    fireEvent.change(within(card).getByLabelText('API Key'), { target: { value: 'sk-test-video-key' } });
-    fireEvent.click(within(card).getByRole('button', { name: '保存' }));
+      const card = await screen.findByTestId('settings-video-card');
+      fireEvent.change(within(card).getByLabelText('API Key'), { target: { value: 'sk-test-video-key' } });
+      fireEvent.click(within(card).getByRole('button', { name: '保存' }));
 
-    await waitFor(() => {
-      expect(screen.getByTestId('settings-video-notice')).toHaveTextContent('保存失败：credential store unavailable');
-      expect(screen.getByTestId('settings-video-notice')).toHaveAttribute('role', 'alert');
+      await waitFor(() => {
+        expect(screen.getByTestId('settings-video-notice')).toHaveTextContent('保存失败');
+        expect(screen.getByTestId('settings-video-notice')).not.toHaveTextContent('credential store unavailable');
+        expect(screen.getByTestId('settings-video-notice')).toHaveAttribute('role', 'alert');
+      });
+      expect(within(card).getByLabelText('API Key')).toHaveValue('sk-test-video-key');
+      expect(backend.setVideoApiKey).toHaveBeenCalledWith({ apiKey: 'sk-test-video-key' });
+      expect(backend.callBackend).not.toHaveBeenCalled();
     });
-    expect(backend.setVideoApiKey).toHaveBeenCalledWith({ apiKey: 'sk-test-video-key' });
-    expect(backend.callBackend).not.toHaveBeenCalled();
   });
 });

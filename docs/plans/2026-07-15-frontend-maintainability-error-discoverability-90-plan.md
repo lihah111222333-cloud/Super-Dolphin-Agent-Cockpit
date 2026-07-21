@@ -74,8 +74,8 @@
 | 契约 | C04-critical-typecheck | 15 | yes | 关键 JS/JSX 纳入真实 typecheck |
 | 契约 | C05-provider-rpc-parity | 15 | score | provider、event surface、frontend 合法/非法矩阵 |
 | 测试 | T01-red-green-regression | 25 | yes | 每个生产 blocker 先 RED 后 GREEN |
-| 测试 | T02-critical-action-coverage | 25 | yes | 每个 actionId 的可达错误源都有失败测试 |
-| 测试 | T03-wails-integration | 20 | yes | Go/Wails 到真实 DOM 的失败链路 |
+| 测试 | T02-critical-action-coverage | 25 | yes | Task 2 |
+| 测试 | T03-wails-integration | 20 | yes | Task 3 |
 | 测试 | T04-local-gates | 15 | yes | pre-commit/pre-push 或等价 CI 门禁 |
 | 测试 | T05-build-embed-smoke | 15 | score | build、embed、桌面启动 smoke |
 | 性能 | P01-render-isolation | 30 | yes | 无关 store 更新不使主页面大面积重渲染 |
@@ -103,7 +103,7 @@ Task 0 在 `frontend-app/scripts/` 创建唯一 controls/baseline JSON 和 score
 
 ## 3. 最新代码上的已确认问题
 
-以下事实已在同步基线 b4086722 上重新检查；它们不是历史猜测。
+以下事实来自同步基线 b4086722 的复查。
 
 ### 3.1 失败 turn 仍可显示为成功
 
@@ -119,11 +119,11 @@ Task 0 在 `frontend-app/scripts/` 创建唯一 controls/baseline JSON 和 score
 
 ### 3.3 历史审查中仍有效的门禁缺口
 
-- no-silent-async-failure 主要拦空 catch/显式丢错；`runUIAction.onError` 可省略，尚不能完整阻断 console-only、默认空值和假成功。
-- `tsconfig.contracts.json` 当前仍是 `checkJs:false`、`strict:false`；命令绿色不能证明 C04 的关键 JS/JSX 已被真实检查。
-- agentic/desktop-wide/business-flow 可复用导航与 mock 回归，但不能替代真实 provider/Wails 失败到 DOM；现有 smoke 尚未强制覆盖该链。
-- chat-history benchmark 只测 duration/heap，未设阈值；Task 0 冻结预算前 P02/P04 只能是 NOT_VERIFIED。
-- LSP 当前报告 `internal/provider/codexapp/factory.go:99 unusedfunc` Information；Task 1 触及该包，完成门禁前必须清零。
+- no-silent-async-failure 尚未阻断可省略 `runUIAction.onError` 导致的 console-only、默认空值和假成功。
+- `tsconfig.contracts.json` 的 `checkJs:false`、`strict:false` 不能证明 C04 关键 JS/JSX 已检查。
+- mock 回归不能替代 provider/Wails 失败到 DOM 的真实 smoke。
+- 未冻结阈值前，chat-history 的 P02/P04 只能是 NOT_VERIFIED。
+- `internal/provider/codexapp/factory.go:99 unusedfunc` Information 必须清零。
 
 本节没有给当前分数。Task 0 必须在实施提交上重新运行全部基线命令和 scorer。
 
@@ -227,11 +227,11 @@ Stop 不需要分布式 watchdog 或跨服务事务。本计划只要求：
 1. 记录 BASE_SHA、Node/npm/Go 版本和工作树状态。
 2. 用 LSP 定位两条已确认 blocker 的定义、引用、调用链和 diagnostics。
 3. 运行 frontend lint/test/build、相关 Go 测试和 embed verify。
-4. Task-0 独立提交冻结 controls/runner/baseline，记 SCORE_BASE_SHA（父为 BASE_SHA）。P01：预热后 20 次无关 store 更新，主页面与无关 subtree update commit 各 ≤1 且不高于基线；P02/P03 为同机预热后 5 次中位数 +15%；P04 ≤基线 105%。修复不得改三文件。
+4. Task-0 独立提交先冻结 controls/scorer/baseline schema，记 SCORE_BASE_SHA；当 P01-P04 runner 尚不存在时，metric 必须保持 `NOT_VERIFIED`，不得手填数值。Task 4 的 runner 经主 Agent 初审后、候选评分前，必须在隔离 worktree 中以不可变 BASE_SHA 为 subject，使用同一审计 runner 版本回测并冻结 baseline artifact；artifact 记录 BASE_SHA、runner SHA/tree、Node/npm/Go 与 OS/CPU、raw samples 和中位数。P04 必须在新建的 BASE detached worktree 从不存在的 `dist/` 开始执行固定 `npm ci` 和 `npm run build`，绑定 BASE tree、build argv、每个 dist 文件的路径/字节/内容哈希及聚合 manifest hash；runner worktree 的 ignored `dist/` 不能成为证据来源。候选版本必须用同一 runner 与环境比较，禁止候选自比候选；OS/CPU/工具链必须精确相同，三项 load average 的每项差异不得超过双方 logical CPU cores 的四分之一（最小 1），超出即 `FAIL`。P01：预热后 20 次无关 store 更新，候选主页面与无关 subtree update commit 各执行绝对门限 ≤1；BASE 的原始计数只作审计证据，不得放宽该绝对门限，并由 mutation probe 证明宽订阅可被检测。P02：对同一 history 的 production selector 与 direct-slice reference 采用交替顺序的配对 CPU block，冻结 5 次样本的归一化比率中位数，候选不得超过 BASE 对应比率的 115%。P03 为同机预热后 5 次绝对时长中位数 +15%；P04 ≤基线 105%。修复不得放宽 controls/scorer/baseline schema 或阈值公式。
 5. 增加 RED：failed+partial 假成功；Stop accepted 后继续 failed；Claude interrupted 无 completed；Codex completed 的 cancelled/interrupted/failed/unknown 与 success 缺失/false；T1→T2 late event；冲突 terminal；Stop target-changed；provider cancel 伪装 user cancel；Prompt History console-only；action/scorer missing/stale/零测试。
 6. scorer 输出当前 control 状态和分数；不手填 61.8 或其他历史值。
 
-**出口：** RED/scorer fixtures 稳定失败；两名全新 reviewer 认可 SCORE_BASE_SHA 的 allOf 映射与预算后，才开始产品修复。
+**出口：** RED/scorer fixtures 稳定失败；SCORE_BASE_SHA 的 allOf 映射保持冻结。P01-P04 可在 runner 尚未审计时维持 `NOT_VERIFIED`，但其 BASE_SHA baseline artifact 必须在 Task 4 候选评分前补齐并经主 Agent 初审；最终三名全新 reviewer 同时审查 scorer、baseline provenance 与预算公式。
 
 ### Task 1：修复 terminal truth
 
@@ -271,9 +271,9 @@ Stop 不需要分布式 watchdog 或跨服务事务。本计划只要求：
 
 **实现要求：**
 
-- 每个用户 action 通过 wrapper 携带 actionId，并有 visible failure sink；每个可达错误源都有生产路径测试。
-- background failure 有持久 health sink。
-- producer set、registry 与测试 cells 做 missing/stale exact diff；合并类别不能计覆盖率。
+- T02-1：AST exact-diff producer callsites→actionId/kind/sink via source+binding；dynamic/unparsed/missing/stale/dup/count drift FAIL。
+- T02-2：exact-diff all `producer×reachable errorSource` cells；each fails into user-visible or background persistent Health；zero/wrapper/category invalid。
+- T02-3：detached-mutate real component/service error projection in `prompt-history/approval-pending/settings-save/thread-mutation/background-reconnect`；original test RED，config/fixture-only invalid。Proves 5≠161/all；L1/2 retain per-action visibility。
 - retry 只重试同一用户意图，不重复成功副作用。
 - onError 自身异常也必须进入 health，不能递归吞错。
 - exemptions 有边界和过期时间。
@@ -302,19 +302,13 @@ Stop 不需要分布式 watchdog 或跨服务事务。本计划只要求：
 | approval action reject | decision 保持 pending，错误可见 |
 | 匹配 user cancel / provider 自发 cancel | 前者中性；后者必须安全错误 |
 
-证据分三层：
-
-1. 单元测试：mapper、validator、store 和组件。
-2. Go/Wails 集成测试：真实 event/RPC 边界。
-3. 桌面 smoke：新增 `frontend-app/scripts/desktop-failure-smoke.mjs`/`smoke:desktop:failure`，至少验证 terminal-failed 和 prompt-history-reject 从 Go/Wails 到真实 DOM。
-
-现有 agentic E2E 可复用，但 mock-only 结果不能替代第 2、3 层。
+T03 PASS iff each `terminal-failed`/`prompt-history-reject` runs Go injection→`NewWailsApplication`→`App`→lifecycle→`EventBridge`→frontend→real DOM and reports hops+DOM；bypass or separate Go+mock stitching/splitting FAILS。
 
 **出口：** E06、C05、T03 PASS。
 
 ### Task 4：维护性、性能与交付
 
-- 锁定 allOf：A02=ownership guard；A03=dependency guard；C04=strict typecheck+exact listFiles；T02=producer×errorSource 与实际 case exact diff；T03=两条真实 DOM case；T04=路由/失败注入；T05=build+embed+start/failure smoke。
+- 锁定 allOf：A02=ownership guard；A03=dependency guard；C04=strict typecheck+exact listFiles；T02=Task 2；T03=Task 3；T04=路由/失败注入；T05=build+embed+start/failure smoke。
 - 清理重复 outcome/error 推导；以 `frontend-state-ownership-guard.mjs` 和 `frontend-dependency-direction-guard.mjs` 分别锁唯一 writer 与层级 import。
 - 将 terminal/PublicError/action 的 producer 与反向 consumer discovery 接入 field/drift guard。
 - 让 `tsconfig.contracts.json` 对真实关键 JS/JSX 启用 checkJs/strict 并用 listFiles guard 防漏文件。
@@ -343,54 +337,48 @@ LSP 对某文件类型不支持的能力要记录为证据缺口，不能写成 
 
 ~~~bash
 cd frontend-app
+SCORE_BASE_SHA="$(git -C .. rev-parse HEAD^)"
 SCORE_WORKTREE="$(mktemp -d)/score-base"
 git -C .. worktree add --detach "$SCORE_WORKTREE" "$SCORE_BASE_SHA"
 node "$SCORE_WORKTREE/frontend-app/scripts/frontend-maintainability-score.mjs" --final --repo "$(pwd)/.." --subject "$(git -C .. rev-parse HEAD)"
 ~~~
 
-`--final` 从 SCORE_BASE worktree 启动；加载 SUBJECT JS 前，用 Git plumbing 确认严格祖先和三项治理文件逐字节相同。仅接受 clean HEAD，在新 detached worktree 跑 exact command/case、写新结果；tree 漂移、相关 untracked、零测试、结果复用均失败。命令集含 lint/test/typecheck/RPC audit/build、benchmark、真实 smoke、embed、目标 Go tests、diff-check；`--changed` 不能产出 90 分。
+`--final` 从 SCORE_BASE worktree 启动；加载 SUBJECT JS 前，用 Git plumbing 确认严格祖先和完整治理闭包逐字节相同。仅接受 clean HEAD，在新 detached worktree 跑 exact command/case、写新结果；tree 漂移、相关 untracked、零测试、结果复用均失败。命令集含 lint/test/typecheck/RPC audit/build、benchmark、真实 smoke、embed、目标 Go tests、diff-check；`--changed` 不能产出 90 分。
 
 ### 6.3 桌面验收
 
-- primary desktop platform 上运行 terminal-failed 和 prompt-history-reject smoke。
-- DOM 断言包括 visible error、无 success notice、状态保留、safe recovery 和无 raw cause。
-- mock navigation 测试可以补充覆盖，但不能独立满足 T03。
+- T03 按 Task 3；DOM: visible/no-success/state/recovery/no-raw。
 - 本计划不要求外部签名、远程 evaluator 或跨平台发布证明。
 - 若本次变更实际修改打包/跨平台代码，再按现有发布流程追加对应平台验证。
 
 ### 6.4 证据记录
 
-每条证据记录 SCORE_BASE/SUBJECT_SHA、SUBJECT_TREE_SHA、controlId、cwd/argv、caseIds/testCount 或 metric/threshold、exit code、摘要、报告路径、时间和环境。
-
-scorer 只接受同一 SUBJECT_SHA 的本地结构化结果并派生状态；不要求签名/hash 链/外部证明服务，测试输出和 Git 提交是审计面。
+runner emits SCORE_BASE-schema normalized report with SUBJECT SHA/tree, control, argv, case/metric, exit/env。Scorer embeds it or persists exact bytes+path and recomputes `sha256`；summary-only/unreadable/hash missing/mismatch/cross-SHA/reuse = NOT_VERIFIED。
 
 ---
 
 ## 7. 对抗复审
 
-每一轮使用两名此前未参与过的智能体，审查同一个冻结文档 SHA 和代码 SHA：
+最终轮使用三名此前未参与的智能体，只读审查同一冻结文档 SHA、代码 SHA 和 dirty 边界：
 
 - Reviewer A：源码、终态、错误出口、字段链和 fail-fast。
 - Reviewer B：计划可执行性、评分、测试成本、桌面产品边界和文档复杂度。
+- Reviewer C：基线 provenance、门禁覆盖、集成冲突和发布就绪度。
 
 规则：
 
-- 两名 reviewer 都只审不改，分别给出 P0/P1/P2。
-- P0/P1 必须修复后再换两名全新 reviewer。
-- P2 带 owner 保留，除非会使分数低于门槛；每项 finding 必须有锚点、最小反例和最小修复。
-- 同一轮开始与结束都记录文档 SHA、代码 SHA 和 dirty 边界。
-- 历史 finding 必须映射到当前规则/测试，或因单机产品边界明确记为 N/A；不得靠删段落静默关闭。
-- 不把“还可以更严格”本身当作 finding；必须证明会导致错误不可见、错误成功、维护性回退或评分失真。
+- 三名 reviewer 分别给出带锚点、最小反例和修复的 P0/P1/P2；P0/P1 修复后必须更换三名全新 reviewer。
+- P2 带 owner 保留，除非导致低于门槛；历史 finding 必须映射到当前规则/测试或明确 N/A。
+- “还可以更严格”不单独成项，必须证明会造成错误不可见、错误成功、维护性回退或评分失真。
 
 ### 7.1 文档体积门禁
 
-- 本计划目标不超过 500 行、25 KiB。
-- 新规则优先更新现有段落，不重复粘贴完整状态机。
-- 详细 case 放入测试表或测试代码。
-- 单机桌面不引入分布式术语和证明链。
-- 若实现需要新的大协议，单独建 ADR/计划并说明真实触发条件。
+- 计划不超过 500 行、25 KiB；规则就地改，细节留在测试，不重复状态机或单机不需的分布式证明。
+- 新的大协议单独建 ADR/计划并写明触发条件。
 
 ---
+
+最终候选冻结：`SCORE_BASE=27a8c55ebe979545ce7a5585aa18505923c580a6`；SUBJECT 仅含本记录，结论以绑定证据为准。
 
 ## 8. 停止条件
 
@@ -398,12 +386,10 @@ scorer 只接受同一 SUBJECT_SHA 的本地结构化结果并派生状态；不
 
 - 为通过测试需要默认成功、空 catch、吞错或 console-only。
 - terminal outcome 仍有两个 owner，或首终态能被冲突 terminal/late delta 改写。
-- 生产 action 与 registry/test 存在 missing/stale，或关键用户 action 无 visible sink。
+- T02/T03 违反 Task 2/3。
 - background failure 无可持续查看入口。
 - 非法 contract 可进入 store 或 DOM。
 - raw sensitive error 进入 DOM。
-- 测试只能通过直写 store/DOM，无法经过生产 mapper 或 Wails 边界。
-- mock-only 被当作真实桌面失败证明。
 - 需要扩大 baseline、降低 coverage 或放宽性能阈值才能过门禁。
 - LSP diagnostics 存在 Error、Warning、Information 或 Hint。
 - 当前复审仍有 open P0/P1。
@@ -420,17 +406,16 @@ scorer 只接受同一 SUBJECT_SHA 的本地结构化结果并派生状态；不
 - [ ] partial output 与失败状态可以同时展示。
 - [ ] Prompt History 失败可见，draft/cursor 保持，retry 安全。
 - [ ] RPC matrix + AST producer set 与 critical-ui-actions registry missing/stale 为 0。
-- [ ] 每个直接 actionId 的可达错误源都有 visible failure 测试。
+- [ ] Task 2/3/6.4 PASS；5≠161/all，SHA-256 PASS。
 - [ ] background failure 进入 Health/Diagnostics。
 - [ ] PublicError 在 wire/store/notice/Health/DOM 均不泄漏 raw cause、token、命令、堆栈或敏感路径。
 - [ ] recovery action 只在能力真实存在时展示。
 - [ ] 最小失败矩阵全部通过。
-- [ ] 至少两条真实 Go/Wails 到 DOM 的失败 smoke 通过。
 - [ ] 修改文件 LSP diagnostics 四级 severity 为 0；不支持能力已记录。
 - [ ] frontend lint、test、build 全部通过。
 - [ ] 相关 Go 测试、frontend embed verify 和 git diff --check 通过。
-- [ ] P01 同时满足绝对 render 线与不回退；history/feedback/resource 通过 SCORE_BASE 公式，三项治理文件未改。
-- [ ] 两名全新 reviewer 对同一冻结对象均无 open P0/P1。
+- [ ] P01 同时满足绝对 render 线与不回退；history/feedback/resource 通过 SCORE_BASE 公式，完整治理闭包未改。
+- [ ] 三名全新 reviewer 对同一冻结对象均无 open P0/P1。
 - [ ] 错误维度不低于 90，其他维度达到最低线，总分不低于 90。
 - [ ] 最终报告明确区分“计划达标”和“当前实现实际达标”。
 - [ ] diff 只包含授权范围，未覆盖任何用户已有非目标改动。

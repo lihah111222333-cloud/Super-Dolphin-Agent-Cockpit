@@ -1,6 +1,7 @@
 import { RECOVERY_FAILURE_FIELDS, normalizeRecoveryFailure } from '../../shared/recovery/recoveryFailure.js';
+import { loadWailsRuntime } from '../../shared/api/wailsBridge.js';
 
-const RECOVERY_MODE = "recovery";
+const RECOVERY_MODE = 'recovery';
 
 const RECOVERY_METHOD_IDS = Object.freeze({
   state: 2428597088,
@@ -126,11 +127,6 @@ function normalizeRecoveryState(value) {
       reason: requireString(projection.reason, "projection.reason"),
     }),
   });
-}
-
-async function loadWailsRuntime() {
-  const modulePath = "/wails/runtime.js";
-  return import(/* @vite-ignore */ modulePath);
 }
 
 function createRecoveryClient(runtimeLoader = loadWailsRuntime) {

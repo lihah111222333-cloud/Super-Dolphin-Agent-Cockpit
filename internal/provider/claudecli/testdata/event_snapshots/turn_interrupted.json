@@ -1,6 +1,9 @@
 {
   "agent_id": "agent-contract",
-  "reason": "user_interrupt",
+  "error": "user_interrupt",
+  "reason": "provider",
+  "status": "interrupted",
+  "success": false,
   "thread_id": "thread-contract",
   "timestamp": "2026-04-13T00:00:00Z",
   "turn_id": "turn-contract"

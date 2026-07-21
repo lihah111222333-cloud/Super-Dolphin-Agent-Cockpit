@@ -420,17 +420,19 @@ func interruptAndWait(
 	active activeTurn,
 	threadID string,
 	source string,
+	requestID string,
 	wait func() error,
 ) (bool, error) {
 	if err := session.Interrupt(ctx, dto.InterruptRequest{
-		ThreadID: threadID,
-		TurnID:   activeProviderID(active),
-		Source:   strings.TrimSpace(source),
+		ThreadID:  threadID,
+		TurnID:    activeProviderID(active),
+		Source:    strings.TrimSpace(source),
+		RequestID: strings.TrimSpace(requestID),
 	}); err != nil {
 		return false, err
 	}
-	if tracker == nil || !tracker.MarkInterruptRequested(active.localID) {
-		return false, nil
+	if tracker != nil && !tracker.MarkInterruptRequested(active.localID) {
+		return true, nil
 	}
 	if wait == nil {
 		return true, nil
@@ -452,8 +454,15 @@ func activeProviderID(active activeTurn) string {
 }
 
 // buildInterruptResult 将 TurnStatus 和 turnInterruptEnvelope 组装为 RPC 层的 turnInterruptResult。
-func buildInterruptResult(status TurnStatus, envelope turnInterruptEnvelope) turnInterruptResult {
-	result := turnInterruptResult{OK: true, TurnID: status.LocalID, Status: status.State}
+func buildInterruptResult(status TurnStatus, envelope turnInterruptEnvelope, expectedTurnID, requestID string, accepted bool) turnInterruptResult {
+	result := turnInterruptResult{
+		OK:             true,
+		Accepted:       accepted,
+		RequestID:      strings.TrimSpace(requestID),
+		ExpectedTurnID: strings.TrimSpace(expectedTurnID),
+		TurnID:         status.LocalID,
+		Status:         status.State,
+	}
 	if envelope.mode == "" {
 		envelope = buildTurnInterruptEnvelope(status.State, status.State, false, false, 0, false)
 	}
@@ -472,10 +481,29 @@ func buildInterruptResult(status TurnStatus, envelope turnInterruptEnvelope) tur
 }
 
 // buildInterruptFailureResult 构造 ok=false 的中断结果，用于中断失败或超时路径。
-func buildInterruptFailureResult(status TurnStatus, envelope turnInterruptEnvelope) turnInterruptResult {
-	result := buildInterruptResult(status, envelope)
+func buildInterruptFailureResult(status TurnStatus, envelope turnInterruptEnvelope, expectedTurnID, requestID string, accepted bool) turnInterruptResult {
+	result := buildInterruptResult(status, envelope, expectedTurnID, requestID, accepted)
 	result.OK = false
 	return result
+}
+
+// buildInterruptNotAppliedResult 保留 provider 未应用 stop 的可辨识失败语义。
+func buildInterruptNotAppliedResult(status TurnStatus, envelope turnInterruptEnvelope, expectedTurnID, requestID string) turnInterruptResult {
+	result := buildInterruptResult(status, envelope, expectedTurnID, requestID, false)
+	result.OK = false
+	result.ErrorCode = "NOT_APPLIED"
+	return result
+}
+
+func buildInterruptTargetChangedResult(status TurnStatus, expectedTurnID, requestID string) turnInterruptResult {
+	return turnInterruptResult{
+		Accepted:       false,
+		RequestID:      strings.TrimSpace(requestID),
+		ExpectedTurnID: strings.TrimSpace(expectedTurnID),
+		TurnID:         status.LocalID,
+		Status:         status.State,
+		ErrorCode:      "TARGET_CHANGED",
+	}
 }
 
 // normalizePrepareSkillRefs 合并 selected、selectedRefs 和 derived 三路技能来源，去重后返回最终 SkillRef 列表。

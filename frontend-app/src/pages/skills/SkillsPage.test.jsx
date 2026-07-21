@@ -3,6 +3,7 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { SkillsPage } from './SkillsPage.jsx';
+import { frontendHealthSnapshot, resetFrontendHealthForTest } from '../../shared/diagnostics/frontendHealthStore.js';
 
 const backend = vi.hoisted(() => ({
   applySkillResolution: vi.fn(),
@@ -72,6 +73,7 @@ function getOverviewMetric(overview, label) {
 }
 
 beforeEach(() => {
+  resetFrontendHealthForTest();
   vi.clearAllMocks();
   backend.getDashboardPage.mockResolvedValue({
     skills: [{
@@ -595,9 +597,11 @@ describe('SkillsPage backend migration', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /数据源|Data Sources/ }));
 
-    expect(await screen.findByRole('alert')).toHaveTextContent(
-      '操作失败：datasourceV2/list response.documents must be an array',
-    );
+    expect(await screen.findByRole('alert')).toHaveTextContent('操作失败：读取数据源失败，请重试。');
+    expect(screen.queryByText(/response\.documents/)).not.toBeInTheDocument();
+    expect(frontendHealthSnapshot()).toEqual(expect.arrayContaining([
+      expect.objectContaining({ actionId: 'datasource.documents.load' }),
+    ]));
     expect(backend.listDatasourceDocuments).toHaveBeenCalledWith({ limit: 200 });
   });
 
@@ -624,9 +628,8 @@ describe('SkillsPage backend migration', () => {
     fireEvent.click(screen.getByTestId('datasource-view-101'));
 
     const detailDialog = await screen.findByRole('dialog', { name: '数据源详情' });
-    expect(await within(detailDialog).findByRole('alert')).toHaveTextContent(
-      '操作失败：datasourceV2/get returned hasMore without chunks',
-    );
+    expect(await within(detailDialog).findByRole('alert')).toHaveTextContent('操作失败：读取详情失败，请重试。');
+    expect(within(detailDialog).queryByText(/hasMore without chunks/)).not.toBeInTheDocument();
     expect(backend.listDatasourceChunks).not.toHaveBeenCalled();
   });
 
@@ -681,9 +684,8 @@ describe('SkillsPage backend migration', () => {
       renderSkillsPage();
       openSkillTools();
 
-      expect(await screen.findByRole('alert')).toHaveTextContent(
-        `skills dashboard response item 0 is missing ${field}`,
-      );
+      expect(await screen.findByRole('alert')).toHaveTextContent('读取技能失败，请重试。');
+      expect(screen.getByRole('alert')).not.toHaveTextContent(`missing ${field}`);
       expect(screen.queryByRole('heading', { name: '后端' })).not.toBeInTheDocument();
     });
   });
@@ -694,9 +696,7 @@ describe('SkillsPage backend migration', () => {
     renderSkillsPage();
     openSkillTools();
 
-    expect(await screen.findByRole('alert')).toHaveTextContent(
-      'skills dashboard response skills must be an array',
-    );
+    expect(await screen.findByRole('alert')).toHaveTextContent('读取技能失败，请重试。');
     expect(screen.queryByRole('heading', { name: '后端' })).not.toBeInTheDocument();
   });
 
@@ -728,9 +728,7 @@ describe('SkillsPage backend migration', () => {
     openSkillTools();
 
     expect(await screen.findByRole('heading', { name: '后端' })).toBeInTheDocument();
-    expect(await screen.findByRole('alert')).toHaveTextContent(
-      'skill resolutions response items must be an array',
-    );
+    expect(await screen.findByRole('alert')).toHaveTextContent('读取技能冲突失败，请重试。');
   });
 
   it('does not report zero conflicts when conflict sync has not succeeded', async () => {
@@ -743,7 +741,8 @@ describe('SkillsPage backend migration', () => {
     const conflictMetric = getOverviewMetric(overview, '待处理冲突');
     expect(within(conflictMetric).getByText('待确认')).toBeInTheDocument();
     expect(within(conflictMetric).queryByText('0')).not.toBeInTheDocument();
-    expect(await screen.findByRole('alert')).toHaveTextContent('读取技能冲突失败：resolver offline');
+    expect(await screen.findByRole('alert')).toHaveTextContent('读取技能冲突失败，请重试。');
+    expect(screen.getByRole('alert')).not.toHaveTextContent('resolver offline');
   });
 
   it('keeps conflict status unresolved while project context is pending', async () => {
@@ -885,9 +884,7 @@ describe('SkillsPage backend migration', () => {
     expect(await screen.findByText('请先确认将要写入的位置，确认应用后才会修改文件。')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '确认应用' }));
 
-    expect(await screen.findByRole('alert')).toHaveTextContent(
-      'SKILLS_LOCAL_RESOLUTION_APPLY response.partialFailure must be a boolean',
-    );
+    expect(await screen.findByRole('alert')).toHaveTextContent('应用技能冲突处理失败，请重试。');
     expect(screen.queryByText('已处理技能冲突')).not.toBeInTheDocument();
   });
 
@@ -904,9 +901,7 @@ describe('SkillsPage backend migration', () => {
     const dialog = await screen.findByRole('dialog', { name: '编辑技能' });
     fireEvent.click(within(dialog).getByRole('button', { name: '帮我生成' }));
 
-    expect(await screen.findByRole('alert')).toHaveTextContent(
-      '生成简介失败：SKILLS_LOCAL_SUMMARY response.description must be a string',
-    );
+    expect(await screen.findByRole('alert')).toHaveTextContent('生成简介失败，请重试。');
     expect(within(dialog).queryByRole('button', { name: '使用此简介' })).not.toBeInTheDocument();
   });
 

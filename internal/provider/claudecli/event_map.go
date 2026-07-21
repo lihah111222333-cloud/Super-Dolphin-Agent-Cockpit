@@ -21,7 +21,12 @@ func RegisterTranslators(dispatcher *unified.EventDispatcher) {
 	if dispatcher == nil {
 		return
 	}
-	dispatcher.Register(translateClaudeEvent)
+	dispatcher.Register(translateClaudeAdapterEvent)
+}
+
+// translateClaudeAdapterEvent 为绕过 session 的合法 raw producer 幂等附加 canonical outcome。
+func translateClaudeAdapterEvent(raw dto.RawProviderEvent, publish func(ev any)) {
+	translateClaudeEvent(attachClaudeTerminalOutcome(raw), publish)
 }
 
 // translateClaudeEvent 按 UI token、状态、agent、turn、tool 的顺序翻译并发布事件。
@@ -200,32 +205,57 @@ func translateTurnEvent(raw dto.RawProviderEvent) (any, bool) {
 			Delta:      delta,
 		}, true
 	case "turn:interrupted":
-		return turndto.TurnInterrupted{
-			TurnHeader: turnHeader(raw.Data),
-			Reason:     dataString(raw.Data, "reason"),
+		outcome := claudeCanonicalTerminal(raw.Terminal)
+		return turndto.TurnCompleted{
+			TurnHeader:           turnHeader(raw.Data),
+			Success:              outcome.Success,
+			Status:               outcome.Status,
+			Reason:               outcome.Cause,
+			Error:                dataString(raw.Data, "reason"),
+			TerminationRequestID: outcome.RequestID,
 		}, true
 	case "turn:complete":
 		header := turnHeader(raw.Data)
-		success := dataBool(raw.Data, "success")
+		outcome := claudeCanonicalTerminal(raw.Terminal)
 		errorText := dataString(raw.Data, "error")
+		if outcome.ContractError != "" && errorText == "" {
+			errorText += "terminal contract: " + outcome.ContractError
+		}
 		if err := providershared.ResetToolResultScope(header.ThreadID, header.TurnID); err != nil {
-			success = false
+			outcome.Success = false
+			outcome.Status = "failed"
+			outcome.Cause = ""
 			errorText = appendProviderRuntimeError(errorText, err)
 		}
 		return turndto.TurnCompleted{
-			TurnHeader: header,
-			Success:    success,
-			Error:      errorText,
-			Status:     dataString(raw.Data, "status"),
-			Reason:     dataString(raw.Data, "reason"),
-			Result:     dataString(raw.Data, "result"),
-			Summary:    dataString(raw.Data, "summary"),
-			Message:    dataString(raw.Data, "message"),
-			StopReason: dataString(raw.Data, "stop_reason"),
+			TurnHeader:           header,
+			Success:              outcome.Success,
+			Error:                errorText,
+			Status:               outcome.Status,
+			Reason:               terminalReason(outcome.Cause, dataString(raw.Data, "reason")),
+			TerminationRequestID: outcome.RequestID,
+			Result:               dataString(raw.Data, "result"),
+			Summary:              dataString(raw.Data, "summary"),
+			Message:              dataString(raw.Data, "message"),
+			StopReason:           dataString(raw.Data, "stop_reason"),
 		}, true
 	default:
 		return nil, false
 	}
+}
+
+func claudeCanonicalTerminal(terminal *dto.TerminalOutcome) dto.TerminalOutcome {
+	if terminal != nil {
+		return *terminal
+	}
+	return dto.TerminalOutcome{Status: "failed", ContractError: "missing canonical terminal outcome"}
+}
+
+func terminalReason(cause, rawReason string) string {
+	if strings.TrimSpace(cause) != "" {
+		return cause
+	}
+	return strings.TrimSpace(rawReason)
 }
 
 // translateToolEvent 翻译工具开始/结束事件，并把大结果交给共享结果捕获器。

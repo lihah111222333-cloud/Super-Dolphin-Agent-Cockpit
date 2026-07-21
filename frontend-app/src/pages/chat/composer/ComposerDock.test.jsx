@@ -2,6 +2,15 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import React, { useState } from 'react';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
+import {
+  frontendHealthSnapshot,
+  frontendHealthStateSnapshot,
+  resetFrontendHealthForTest,
+} from '../../../shared/diagnostics/frontendHealthStore.js';
+import {
+  resetVisibleActionFailureForTest,
+  visibleActionFailureSnapshot,
+} from '../../../shared/ui/actionFailureSink.js';
 import { ComposerDock, shouldNavigatePromptHistory } from './ComposerDock.jsx';
 
 function createComposer(overrides = {}) {
@@ -209,6 +218,43 @@ describe('ComposerDock', () => {
     fireEvent.keyDown(textarea, { key: 'ArrowDown' });
     await waitFor(() => expect(textarea).toHaveValue('unfinished'));
     expect(sendMessage).not.toHaveBeenCalled();
+  });
+
+  it('publishes rejected prompt history when Health storage contains malformed JSON without an unhandled rejection', async () => {
+    window.localStorage.clear();
+    window.localStorage.setItem('super-dolphin.frontend-health.v1', '{invalid');
+    resetFrontendHealthForTest();
+    resetVisibleActionFailureForTest();
+    const rawSecret = 'provider token=secret /Users/private/path';
+    const unhandled = vi.fn();
+    window.addEventListener('unhandledrejection', unhandled);
+
+    try {
+      renderDock({
+        ...baseProps,
+        composer: createComposer(),
+        fetchPromptHistory: vi.fn().mockRejectedValue(new Error(rawSecret)),
+        store: createStore(),
+      });
+      const textarea = screen.getByRole('combobox', { name: '输入给 Agent 的内容' });
+      textarea.setSelectionRange(0, 0);
+      fireEvent.keyDown(textarea, { key: 'ArrowUp' });
+
+      await waitFor(() => expect(visibleActionFailureSnapshot()).toEqual(expect.objectContaining({
+        actionId: 'prompt-history.previous',
+      })));
+      expect(frontendHealthSnapshot()).toEqual(expect.arrayContaining([
+        expect.objectContaining({ actionId: 'prompt-history.previous' }),
+      ]));
+      expect(frontendHealthStateSnapshot().persistence).toEqual(expect.objectContaining({
+        status: 'failed', code: 'HEALTH_PERSISTENCE_FAILED',
+      }));
+      expect(JSON.stringify(frontendHealthStateSnapshot())).not.toContain(rawSecret);
+      await Promise.resolve();
+      expect(unhandled).not.toHaveBeenCalled();
+    } finally {
+      window.removeEventListener('unhandledrejection', unhandled);
+    }
   });
 
   it.each(['create', 'delete', 'archive', 'rename'])(

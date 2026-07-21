@@ -25,10 +25,12 @@ function restoreActiveProject(runtime, previousActiveProject, previousProjects) 
   });
 }
 
-async function registerProjectIfNeeded(runtime, deps, context) {
-  if (!shouldRegisterProject(context.target, context.previousActiveProject, context.visibleProjects)) return;
+async function registerProjectIfNeeded(runtime, deps, context, isCurrentIntent) {
+  if (!shouldRegisterProject(context.target, context.previousActiveProject, context.visibleProjects)) return true;
   const addedProjects = await deps.addProject({ cwd: context.cwd, path: context.target });
+  if (!isCurrentIntent()) return false;
   runtime.applyProjects(addedProjects, context.cwd);
+  return true;
 }
 
 function refreshSelectedProjectIfChanged(runtime, deps, context) {
@@ -55,32 +57,43 @@ function pickerSeedProject(runtime, normalizePath, scopeCwd) {
 
 function createSetActiveProjectPathAction(runtime, deps) {
   const { normalizePath, projectShortLabel, setActiveProject } = deps;
+  let switchGeneration = 0;
   return async (path, options = {}) => {
     const target = normalizePath(path);
     if (!target) return false;
     const cwd = runtime.requireProjectScopeCwd('project.setActive');
+    const generation = ++switchGeneration;
+    const isCurrentIntent = () => generation === switchGeneration;
     const preserveActiveThreadId = options.preserveActiveThreadId === true;
     const previousActiveProject = normalizePath(runtime.get().activeProject);
     const previousProjects = Array.isArray(runtime.get().projects) ? [...runtime.get().projects] : [];
     try {
       void runtime.saveActiveComposerDraft();
       const visibleProjects = projectVisiblePaths(runtime, normalizePath);
-      await registerProjectIfNeeded(runtime, deps, { cwd, target, previousActiveProject, visibleProjects });
+      const registered = await registerProjectIfNeeded(
+        runtime,
+        deps,
+        { cwd, target, previousActiveProject, visibleProjects },
+        isCurrentIntent,
+      );
+      if (!registered || !isCurrentIntent()) return false;
       const optimisticProjects = optimisticProjectList(target, visibleProjects, previousProjects);
       runtime.set({ projects: optimisticProjects, activeProject: target });
       const optimisticCwd = projectCwdForSelection(target, cwd);
       runtime.refreshChatSurfaceForCwdInBackground(optimisticCwd, { preserveActiveThreadId });
       const projects = await setActiveProject({ cwd, path: target });
+      if (!isCurrentIntent()) return false;
       runtime.applyProjects(projects, cwd);
       refreshSelectedProjectIfChanged(runtime, { normalizePath }, { cwd, optimisticCwd, preserveActiveThreadId });
       runtime.notifyAction(`已切换项目：${projectShortLabel(target)}`, 'success');
       return true;
     }
     catch (error) {
+      if (!isCurrentIntent()) return false;
       restoreActiveProject(runtime, previousActiveProject, previousProjects);
-      runtime.notifyAction(`切换项目失败：${error.message}`, 'error');
-      runtime.addWarning('error', 'project.set_active.failed', { path: target, error: error.message });
-      return false;
+      runtime.notifyAction('切换项目失败，请重试。', 'error');
+      runtime.addWarning('error', 'project.set_active.failed', { path: target, error: 'action failure; see Health diagnostic ID' });
+      throw error;
     }
   };
 }
@@ -103,9 +116,9 @@ function createAddProjectFromPickerAction(runtime, deps) {
       return true;
     }
     catch (error) {
-      runtime.notifyAction(`添加项目失败：${error.message}`, 'error');
-      runtime.addWarning('error', 'project.add.failed', { path: selected, error: error.message });
-      return false;
+      runtime.notifyAction('添加项目失败，请重试。', 'error');
+      runtime.addWarning('error', 'project.add.failed', { path: selected, error: 'action failure; see Health diagnostic ID' });
+      throw error;
     }
   };
 }
@@ -127,9 +140,9 @@ function createOpenNewWindowAction(runtime, deps) {
       return true;
     }
     catch (error) {
-      runtime.notifyAction(`打开新窗口失败：${error.message}`, 'error');
-      runtime.addWarning('error', 'ui.open_new_window.failed', { path: selected, error: error.message });
-      return false;
+      runtime.notifyAction('打开新窗口失败，请重试。', 'error');
+      runtime.addWarning('error', 'ui.open_new_window.failed', { path: selected, error: 'action failure; see Health diagnostic ID' });
+      throw error;
     }
   };
 }
@@ -147,9 +160,9 @@ function createRemoveProjectPathAction(runtime, deps) {
       return true;
     }
     catch (error) {
-      runtime.notifyAction(`移除项目失败：${error.message}`, 'error');
-      runtime.addWarning('error', 'project.remove.failed', { path: target, error: error.message });
-      return false;
+      runtime.notifyAction('移除项目失败，请重试。', 'error');
+      runtime.addWarning('error', 'project.remove.failed', { path: target, error: 'action failure; see Health diagnostic ID' });
+      throw error;
     }
   };
 }

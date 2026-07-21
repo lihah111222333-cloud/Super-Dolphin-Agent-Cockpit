@@ -28,6 +28,24 @@ var aiMaintenanceFiles = map[string]bool{
 	"scripts/test_with_guard.sh":                 true,
 }
 
+var turnContractInfrastructureFiles = map[string]bool{
+	"scripts/turncontract/main.go":                                 true,
+	"frontend-app/package.json":                                    true,
+	"frontend-app/scripts/turn-contract-field-guard.mjs":           true,
+	"frontend-app/scripts/turn-contract-field-guard.test.mjs":      true,
+	"frontend-app/src/shared/contracts/turnContracts.generated.js": true,
+}
+
+var frontendStaticGuardFiles = map[string]bool{
+	"frontend-app/package.json":                                         true,
+	"frontend-app/scripts/frontend-state-ownership-registry.json":       true,
+	"frontend-app/scripts/frontend-state-ownership-guard.mjs":           true,
+	"frontend-app/scripts/frontend-state-ownership-guard.test.mjs":      true,
+	"frontend-app/scripts/frontend-dependency-direction-registry.json":  true,
+	"frontend-app/scripts/frontend-dependency-direction-guard.mjs":      true,
+	"frontend-app/scripts/frontend-dependency-direction-guard.test.mjs": true,
+}
+
 var coreBackendGatePackages = []string{
 	"./cmd/mcp-lsp",
 	"./cmd/mcp-orch",
@@ -256,6 +274,10 @@ func buildGatePlanForRepo(repoRoot string, files []string) (gatePlan, error) {
 	if err != nil {
 		return gatePlan{}, fmt.Errorf("load capability-contract path rules: %w", err)
 	}
+	turnContractPaths, err := loadTurnContractPaths(repoRoot)
+	if err != nil {
+		return gatePlan{}, err
+	}
 	normalized := normalizeFiles(files)
 	plan := gatePlan{ChangedFiles: normalized}
 	gates := map[string]bool{"diff:whitespace": true}
@@ -263,7 +285,7 @@ func buildGatePlanForRepo(repoRoot string, files []string) (gatePlan, error) {
 	generated := map[string]bool{}
 	backendChanged := false
 	for _, file := range normalized {
-		backendFile, err := applyFileGateRules(file, capabilityRules, gates, evidence, generated)
+		backendFile, err := applyFileGateRules(file, capabilityRules, turnContractPaths, gates, evidence, generated)
 		if err != nil {
 			return gatePlan{}, err
 		}
@@ -290,7 +312,7 @@ func buildGatePlanForRepo(repoRoot string, files []string) (gatePlan, error) {
 }
 
 // applyFileGateRules 汇总单个路径触发的命令 gate 和证据要求，并返回它是否属于 Go/后端验证面。
-func applyFileGateRules(file string, capabilityRules capcontract.PathRules, gates, evidence, generated map[string]bool) (bool, error) {
+func applyFileGateRules(file string, capabilityRules capcontract.PathRules, turnContractPaths, gates, evidence, generated map[string]bool) (bool, error) {
 	backendChanged := applySourceGateRules(file, gates, evidence)
 	if err := applyCapabilityContractGateRules(file, capabilityRules, gates, evidence, generated); err != nil {
 		return false, err
@@ -306,6 +328,12 @@ func applyFileGateRules(file string, capabilityRules capcontract.PathRules, gate
 	}
 	if sqlcRelevant(file) {
 		gates["sqlc:verify"] = true
+	}
+	if turnContractRelevant(file, turnContractPaths) {
+		gates["turncontract:verify"] = true
+	}
+	if frontendStaticGuardRelevant(file) {
+		gates["frontend:static-guards"] = true
 	}
 	if codemapRelevant(file) {
 		gates["codemap:check"] = true
@@ -354,6 +382,31 @@ func sqlcRelevant(file string) bool {
 		strings.HasPrefix(file, "internal/store/")
 }
 
+// turnContractRelevant 覆盖 canonical schema、基础设施以及 registry 派生的完整生产消费链。
+func turnContractRelevant(file string, turnContractPaths map[string]bool) bool {
+	if strings.HasSuffix(file, "_test.go") {
+		return false
+	}
+	return strings.HasPrefix(file, "internal/dto/turn/") || turnContractPaths[file] || turnContractProductionGo(file)
+}
+
+// frontendStaticGuardRelevant 覆盖 guard 自身与全部生产前端输入，防止新增 writer 或反向依赖绕过定向门禁。
+func frontendStaticGuardRelevant(file string) bool {
+	return strings.HasPrefix(file, "frontend-app/src/") || frontendStaticGuardFiles[file]
+}
+
+func turnContractProductionGo(file string) bool {
+	if !strings.HasSuffix(file, ".go") || strings.HasSuffix(file, "_test.go") {
+		return false
+	}
+	for _, prefix := range []string{"cmd/", "internal/", "pkg/", "scripts/"} {
+		if strings.HasPrefix(file, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
 // aiMaintenanceRelevant 识别会改变本 gate 自身行为的文件，触发自测避免 workflow/script 空绿。
 func aiMaintenanceRelevant(file string) bool {
 	return aiMaintenanceFiles[file] ||
@@ -383,9 +436,13 @@ func applyGateInfrastructureRules(file string, gates map[string]bool) bool {
 	return false
 }
 
+// applySourceGateRules 根据生产源码路径补充必须执行的门禁和 LSP 证据要求。
 func applySourceGateRules(file string, gates, evidence map[string]bool) bool {
 	switch {
 	case strings.HasPrefix(file, "frontend-app/"):
+		if criticalTypecheckRelevant(file) {
+			gates["frontend:typecheck-contracts"] = true
+		}
 		gates["frontend:lint"] = true
 		gates["frontend:test"] = true
 		gates["frontend:build"] = true
@@ -399,6 +456,16 @@ func applySourceGateRules(file string, gates, evidence map[string]bool) bool {
 		return true
 	}
 	return false
+}
+
+// criticalTypecheckRelevant 判断变更是否会影响关键前端严格类型检查闭包。
+func criticalTypecheckRelevant(file string) bool {
+	return file == "frontend-app/tsconfig.contracts.json" ||
+		file == "frontend-app/scripts/critical-typecheck-files.json" ||
+		file == "frontend-app/scripts/critical-typecheck-guard.mjs" ||
+		file == "frontend-app/scripts/contracts-typecheck-guard.test.mjs" ||
+		(strings.HasPrefix(file, "frontend-app/src/") &&
+			(strings.HasSuffix(file, ".js") || strings.HasSuffix(file, ".jsx")))
 }
 
 // affectedGoPackages 合并稳定后端回归包与 diff 命中的 Go 包，并避免 archtest 被守卫包装器重复执行。
@@ -531,7 +598,10 @@ func gateEvidenceCommandFragments() map[string][]string {
 		"backend:nilness":                  {"go run ./scripts/nilness_guard.go"},
 		"lsp:changed-diagnostics":          {"go run ./scripts/lsp_diagnostics_gate"},
 		"capcontract:check":                {"make capcontract-check"},
+		"turncontract:verify":              {"go run ./scripts/turncontract --verify", "go test ./internal/dto/turn -run ^TestTurnContractFieldGuard", "node frontend-app/scripts/turn-contract-field-guard.mjs"},
+		"frontend:static-guards":           {"npm run guard:architecture"},
 		"frontend:lint":                    {"npm run lint"},
+		"frontend:typecheck-contracts":     {"npm run typecheck:contracts"},
 		"frontend:test":                    {"npm test"},
 		"frontend:build":                   {"npm run build"},
 		"frontend:embed-verify":            {"make frontend-embed-verify"},
@@ -615,10 +685,14 @@ func sortedKeys(values map[string]bool) []string {
 	return out
 }
 
+// orderedGates 按稳定顺序输出已启用门禁，并把未知门禁保留在末尾。
 func orderedGates(values map[string]bool) []string {
 	order := []string{
 		"ai-maintenance:self-test",
+		"turncontract:verify",
+		"frontend:static-guards",
 		"frontend:lint",
+		"frontend:typecheck-contracts",
 		"frontend:test",
 		"frontend:build",
 		"frontend:embed-verify",

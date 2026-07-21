@@ -1,0 +1,149 @@
+{
+  "schemaVersion": 1,
+  "cases": [
+    {
+      "caseId": "FM-01",
+      "subject": "terminal failed with partial output",
+      "status": "covered",
+      "requiredLayers": ["frontend", "go-wails"]
+    },
+    {
+      "caseId": "FM-02",
+      "subject": "terminal failed without partial output",
+      "status": "covered",
+      "requiredLayers": ["frontend"]
+    },
+    {
+      "caseId": "FM-03",
+      "subject": "conflicting success cannot replace first failed terminal",
+      "status": "covered",
+      "requiredLayers": ["frontend"]
+    },
+    {
+      "caseId": "FM-04",
+      "subject": "late T1 events cannot mutate active T2",
+      "status": "covered",
+      "requiredLayers": ["frontend"]
+    },
+    {
+      "caseId": "FM-05",
+      "subject": "unknown outcome is a visible contract error",
+      "status": "covered",
+      "requiredLayers": ["frontend"]
+    },
+    {
+      "caseId": "FM-06",
+      "subject": "missing terminal field is a visible contract error",
+      "status": "covered",
+      "requiredLayers": ["frontend"]
+    },
+    {
+      "caseId": "FM-07",
+      "subject": "accepted stop followed by provider failure remains failed",
+      "status": "covered",
+      "requiredLayers": ["go-codex"]
+    },
+    {
+      "caseId": "FM-08",
+      "subject": "Claude interruption is terminal without completed",
+      "status": "covered",
+      "requiredLayers": ["go-claude"]
+    },
+    {
+      "caseId": "FM-09",
+      "subject": "Codex cancelled maps to non-success",
+      "status": "covered",
+      "requiredLayers": ["go-codex"]
+    },
+    {
+      "caseId": "FM-10",
+      "subject": "Codex interrupted maps to non-success",
+      "status": "covered",
+      "requiredLayers": ["go-codex"]
+    },
+    {
+      "caseId": "FM-11",
+      "subject": "Codex failed maps to non-success",
+      "status": "covered",
+      "requiredLayers": ["go-codex"]
+    },
+    {
+      "caseId": "FM-12",
+      "subject": "Codex unknown status maps to contract failure",
+      "status": "covered",
+      "requiredLayers": ["go-codex"]
+    },
+    {
+      "caseId": "FM-13",
+      "subject": "Codex missing success maps to contract failure",
+      "status": "covered",
+      "requiredLayers": ["go-codex"]
+    },
+    {
+      "caseId": "FM-14",
+      "subject": "Codex false success with completed status is rejected",
+      "status": "covered",
+      "requiredLayers": ["go-codex"]
+    },
+    {
+      "caseId": "FM-15",
+      "subject": "provider NOT_APPLIED keeps the original turn active",
+      "status": "covered",
+      "requiredLayers": ["go-turn"]
+    },
+    {
+      "caseId": "FM-16",
+      "subject": "interrupt target change has zero provider side effects",
+      "status": "covered",
+      "requiredLayers": ["go-turn"]
+    },
+    {
+      "caseId": "FM-17",
+      "subject": "stop feedback timeout stays visibly unconfirmed",
+      "status": "covered",
+      "requiredLayers": ["go-turn"]
+    },
+    {
+      "caseId": "FM-18",
+      "subject": "provider disconnect is persisted in Health with reconnect recovery",
+      "status": "covered",
+      "requiredLayers": ["frontend"]
+    },
+    {
+      "caseId": "FM-19",
+      "subject": "matched user cancellation is neutral and request attributed",
+      "status": "covered",
+      "requiredLayers": ["frontend", "go-codex"]
+    },
+    {
+      "caseId": "FM-20",
+      "subject": "provider cancellation cannot masquerade as user cancellation",
+      "status": "covered",
+      "requiredLayers": ["frontend", "go-codex"]
+    },
+    {
+      "caseId": "FM-21",
+      "subject": "prompt history RPC rejection preserves draft and exposes error",
+      "status": "covered",
+      "requiredLayers": ["frontend"]
+    },
+    {
+      "caseId": "FM-22",
+      "subject": "prompt history invalid response preserves cursor and fails fast",
+      "status": "covered",
+      "requiredLayers": ["frontend"]
+    },
+    {
+      "caseId": "FM-23",
+      "subject": "settings save rejection preserves edited values and exposes error",
+      "status": "covered",
+      "requiredLayers": ["frontend"]
+    },
+    {
+      "caseId": "FM-24",
+      "subject": "approval rejection leaves decision pending and exposes error",
+      "status": "covered",
+      "requiredLayers": ["frontend"]
+    }
+  ]
+}

@@ -54,7 +54,7 @@ function ThreadRail({ copy = APP_COPY.zh.chat, store }) {
         onNewThread={store.newThread}
         onCleanConfirm={() => {
           setConfirmCleanMode(false);
-          runUIAction(() => store.deleteStaleThreads(staleThreadIds));
+          runUIAction('thread.delete', () => store.deleteStaleThreads(staleThreadIds));
         }}
         onCleanMode={() => setConfirmCleanMode(true)}
         onCancelClean={() => setConfirmCleanMode(false)}
@@ -90,7 +90,7 @@ function ThreadRail({ copy = APP_COPY.zh.chat, store }) {
             onCancelDelete={() => setDeletingThreadId('')}
             onConfirmDelete={() => {
               setDeletingThreadId('');
-              runUIAction(() => store.deleteStaleThreads([thread.id]));
+              runUIAction('thread.delete', () => store.deleteStaleThreads([thread.id]));
             }}
           />
         ))}

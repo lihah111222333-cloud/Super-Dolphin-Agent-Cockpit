@@ -153,13 +153,23 @@ type turnControllerDeps struct {
 
 // turnController owns turn submission and active-turn state transitions.
 type turnController struct {
-	registry    *agentRegistry
-	launcher    AgentLauncher
-	turnStarter contract.OrchestrationTurnStarter
-	state       turnStatePort
-	rehydrator  turnRuntimeRehydrator
-	stopper     turnStopPort
-	logger      *slog.Logger
+	registry                        *agentRegistry
+	launcher                        AgentLauncher
+	turnStarter                     contract.OrchestrationTurnStarter
+	state                           turnStatePort
+	rehydrator                      turnRuntimeRehydrator
+	stopper                         turnStopPort
+	logger                          *slog.Logger
+	remoteTerminalMu                sync.Mutex
+	remoteTerminalSeal              map[remoteTerminalTurnRef]remoteTerminalSealEntry
+	remoteTerminalNext              uint64
+	remoteTerminalCapacity          int
+	remoteTerminalEvictions         uint64
+	remoteTerminalLifecycleClears   uint64
+	remoteTerminalLifecycleDeferred uint64
+	pendingRemoteTurnSubmits        map[remoteTurnSubmitRef][]turndto.TurnTerminalV2
+	pendingRemoteTerminalCount      int
+	pendingRemoteTerminalCapacity   int
 }
 
 func newTurnController(deps turnControllerDeps) *turnController {
@@ -304,6 +314,11 @@ type recoveryTurnStore interface {
 	taskdag.RecoveryStore
 }
 
+type providerTurnAlias struct {
+	localTurnID    string
+	providerTurnID string
+}
+
 // agentRuntime 持有单个 agent 实例的完整运行时状态，由 agentRegistry.mu 保护读写。
 type agentRuntime struct {
 	id, name, prompt, instructions, parentID, agentType, agentKey, memoryScope, language, cwd string
@@ -314,6 +329,7 @@ type agentRuntime struct {
 	threadID, remoteThreadID, pendingLaunchThreadID                                           string
 	pendingLaunchThreadAt                                                                     time.Time
 	remoteAgentID, requestedAgentID, activeTurnID, lastReport                                 string
+	providerTurnAlias                                                                         providerTurnAlias
 	reportRequesters                                                                          []string
 	lastError                                                                                 string
 	lastReportSeq                                                                             int64
@@ -664,7 +680,11 @@ func (s *service) SubmitTurn(ctx context.Context, req TurnSubmission) error {
 	if s == nil || s.turns == nil {
 		return errors.New("turn controller is not configured")
 	}
-	return s.turns.SubmitTurn(ctx, req)
+	terminals, err := s.turns.SubmitTurn(ctx, req)
+	for _, terminal := range terminals {
+		s.handleRemoteTurnTerminal(ctx, terminal)
+	}
+	return err
 }
 
 // ListAgents 合并内存 runtime 和持久化 thread 快照后排序返回。

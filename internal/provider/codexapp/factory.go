@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"net/url"
 	"runtime"
 	"strconv"
@@ -16,6 +17,7 @@ import (
 	turndto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/turn"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/rpc"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/shared"
+	providershared "github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/shared"
 	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
 )
 
@@ -96,14 +98,6 @@ func hasAnyKey(payload map[string]any, keys ...string) bool {
 	return false
 }
 
-func decodeJSONMap(raw []byte) map[string]any {
-	var payload map[string]any
-	if len(raw) == 0 || json.Unmarshal(raw, &payload) != nil || len(payload) == 0 {
-		return nil
-	}
-	return payload
-}
-
 func requireThreadID(s *session, explicit ...string) (string, error) {
 	values := make([]string, 0, len(explicit)+1)
 	values = append(values, explicit...)
@@ -178,6 +172,7 @@ func normalizedTurnOutputStream(payload map[string]any, fallback string) string 
 func isTurnTerminalEvent(method string) bool {
 	switch strings.TrimSpace(method) {
 	case "turn/completed", "turn.completed",
+		"turn/interrupted", "turn.interrupted",
 		"turn/aborted", "turn.aborted",
 		"turn/failed", "turn.failed",
 		"turn/error", "turn.error":
@@ -198,9 +193,100 @@ func isMessageStreamDeltaEvent(method string) bool {
 	}
 }
 
-// turnTerminalSuccess 从 terminal method 和 payload 中判断本轮是否成功结束。
-// method 中的 aborted/failed/error 优先于 payload success，缺省状态按成功兼容旧 Codex 事件。
-func turnTerminalSuccess(method string, payload map[string]any) bool {
+type turnTerminalOutcome struct {
+	success       bool
+	status        string
+	reason        string
+	requestID     string
+	contractError string
+}
+
+// resolveTurnTerminalOutcome 在 adapter 边界唯一映射 Codex 原始终态，并对缺失或矛盾字段 fail-fast。
+func resolveTurnTerminalOutcome(method string, payload map[string]any) turnTerminalOutcome {
+	normalizedMethod := strings.ToLower(strings.TrimSpace(method))
+	switch {
+	case strings.Contains(normalizedMethod, "interrupted"):
+		return resolveExplicitTerminationOutcome("interrupted", payload)
+	case strings.Contains(normalizedMethod, "aborted"):
+		return resolveExplicitTerminationOutcome("cancelled", payload)
+	case strings.Contains(normalizedMethod, "failed"), strings.Contains(normalizedMethod, "error"):
+		return turnTerminalOutcome{status: "failed", reason: stringValue(payload, "reason")}
+	}
+	return resolveCompletedTerminalOutcome(payload)
+}
+
+func canonicalTurnTerminalOutcome(method string, payload map[string]any) dto.TerminalOutcome {
+	outcome := resolveTurnTerminalOutcome(method, payload)
+	return dto.TerminalOutcome{
+		Success:       outcome.success,
+		Status:        outcome.status,
+		Cause:         outcome.reason,
+		RequestID:     outcome.requestID,
+		ContractError: outcome.contractError,
+	}
+}
+
+func resolveExplicitTerminationOutcome(status string, payload map[string]any) turnTerminalOutcome {
+	sanitized, acceptedRequestID, contractError := codexTerminationPayload(payload)
+	if contractError != "" {
+		return turnTerminalOutcome{status: "failed", contractError: contractError}
+	}
+	termination := providershared.ResolveRawTermination(sanitized, "provider")
+	if termination.ContractError != "" {
+		return turnTerminalOutcome{status: "failed", contractError: termination.ContractError}
+	}
+	if acceptedRequestID != "" && termination.Cause != "system" {
+		termination.Cause = "user_request"
+		termination.RequestID = acceptedRequestID
+	}
+	return turnTerminalOutcome{status: status, reason: termination.Cause, requestID: termination.RequestID}
+}
+
+// resolveCompletedTerminalOutcome 校验 completed 事件的 success/status 配对，避免失败默认为成功。
+func resolveCompletedTerminalOutcome(payload map[string]any) turnTerminalOutcome {
+	sanitized, acceptedRequestID, contractError := codexTerminationPayload(payload)
+	if contractError != "" {
+		return turnTerminalOutcome{status: "failed", contractError: contractError}
+	}
+	resolved := providershared.ResolveRawTerminalOutcome(sanitized)
+	if resolved.ContractError == "" && acceptedRequestID != "" &&
+		(resolved.Status == "interrupted" || resolved.Status == "cancelled") && resolved.Cause != "system" {
+		resolved.Cause = "user_request"
+		resolved.RequestID = acceptedRequestID
+	}
+	reason := resolved.Cause
+	if reason == "" {
+		reason = stringValue(payload, "reason")
+	}
+	return turnTerminalOutcome{
+		success:       resolved.Success,
+		status:        resolved.Status,
+		reason:        reason,
+		requestID:     resolved.RequestID,
+		contractError: resolved.ContractError,
+	}
+}
+
+// codexTerminationPayload 移除 provider 无权生产的用户 Stop 归因，仅保留 session 注入的私有 claim。
+func codexTerminationPayload(payload map[string]any) (map[string]any, string, string) {
+	sanitized := make(map[string]any, len(payload))
+	maps.Copy(sanitized, payload)
+	acceptedRequestID := ""
+	if value, exists := sanitized[acceptedInterruptRequestIDKey]; exists {
+		attribution, ok := value.(acceptedInterruptAttribution)
+		if !ok || strings.TrimSpace(attribution.requestID) == "" ||
+			strings.TrimSpace(attribution.turnID) != strings.TrimSpace(payloadTurnID(payload)) {
+			return nil, "", "accepted interrupt request id is missing or non-string"
+		}
+		acceptedRequestID = strings.TrimSpace(attribution.requestID)
+	}
+	delete(sanitized, acceptedInterruptRequestIDKey)
+	clearCodexProviderUserAttribution(sanitized)
+	return sanitized, acceptedRequestID, ""
+}
+
+// toolEventRawSuccess 保留工具事件兼容判定；turn terminal 禁止调用。
+func toolEventRawSuccess(method string, payload map[string]any) bool {
 	normalizedMethod := strings.ToLower(strings.TrimSpace(method))
 	if strings.Contains(normalizedMethod, "aborted") ||
 		strings.Contains(normalizedMethod, "failed") ||

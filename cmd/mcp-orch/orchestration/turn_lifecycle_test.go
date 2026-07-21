@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"os/exec"
 	"strings"
 	"testing"
 	"time"
@@ -127,14 +128,22 @@ func TestHandleTurnCompletedEventSettlesProviderTurnIDMismatch(t *testing.T) {
 	agent := svc.newAgentLocked("agent-1")
 	agent.state = agentdto.StateTurnRunning
 	agent.threadID = "agent-1"
-	agent.activeTurnID = "turn_1781685566961_2c3add7bb73076e1"
+	localTurnID := "turn_1781685566961_2c3add7bb73076e1"
+	providerTurnID := "019ed4bc-3f5d-74e3-a0c9-8c252c550c46"
+	agent.activeTurnID = localTurnID
 	agent.reportRequesters = []string{"parent-1"}
 	svc.registry.agents[agent.id] = agent
+	if err := svc.BindActiveTurnID(context.Background(), agent.id, providerTurnID); err != nil {
+		t.Fatalf("BindActiveTurnID() error = %v", err)
+	}
+	if agent.activeTurnID != localTurnID {
+		t.Fatalf("activeTurnID = %q, want local turn %q after provider binding", agent.activeTurnID, localTurnID)
+	}
 
 	ev := completedEventAt(
 		"agent-1",
 		"agent-1",
-		"019ed4bc-3f5d-74e3-a0c9-8c252c550c46",
+		providerTurnID,
 		true,
 		"",
 		time.Unix(1781685693, 0).UTC(),
@@ -155,6 +164,43 @@ func TestHandleTurnCompletedEventSettlesProviderTurnIDMismatch(t *testing.T) {
 	}
 	if got.Metadata != nil && len(got.Metadata.RequesterIDs) != 0 {
 		t.Fatalf("GetReport().Metadata.RequesterIDs = %#v, want drained", got.Metadata.RequesterIDs)
+	}
+}
+
+func TestHandleTurnCompletedEventIgnoresStaleProviderTurnAfterReuse(t *testing.T) {
+	t.Parallel()
+
+	svc := NewService(silentLogger(), event.NewDispatcher(), nil, nil, nil, nil)
+	agent := svc.newAgentLocked("agent-1")
+	agent.state = agentdto.StateTurnRunning
+	agent.threadID = "thread-1"
+	agent.activeTurnID = "local-turn-1"
+	svc.registry.agents[agent.id] = agent
+	if err := svc.BindActiveTurnID(context.Background(), agent.id, "provider-turn-1"); err != nil {
+		t.Fatalf("BindActiveTurnID() error = %v", err)
+	}
+
+	// The first generation has settled; a new local claim must discard its provider alias.
+	agent.activeTurnID = ""
+	agent.state = agentdto.StateTurnQueued
+	agent.cmd = &exec.Cmd{}
+	agent.queue.Enqueue(TurnSubmission{AgentID: agent.id, ThreadID: agent.threadID})
+	work := svc.claimTurnWork(context.Background())
+	if len(work) != 1 {
+		t.Fatalf("claimTurnWork() produced %d items, want 1", len(work))
+	}
+	currentTurnID := agent.activeTurnID
+	if currentTurnID == "" || currentTurnID == "provider-turn-1" {
+		t.Fatalf("activeTurnID = %q, want a new local turn", currentTurnID)
+	}
+
+	handleTurnCompletedEvent(svc, silentLogger(), completedEvent("agent-1", "thread-1", "provider-turn-1", true, ""))
+
+	if agent.state != agentdto.StateTurnStarting {
+		t.Fatalf("agent.state = %q, want %q after stale completion", agent.state, agentdto.StateTurnStarting)
+	}
+	if agent.activeTurnID != currentTurnID {
+		t.Fatalf("activeTurnID = %q, want current turn %q after stale completion", agent.activeTurnID, currentTurnID)
 	}
 }
 

@@ -21,14 +21,17 @@
 }
 
 .shared-files-overview-copy span {
-  opacity: 0.8;
-  font-size: 12px;
+  color: var(--text-muted);
+  font-size: var(--suiyuan-text-label-size);
+  line-height: var(--suiyuan-text-label-line);
 }
 
 .shared-files-overview-copy h2 {
   margin: 0;
-  font-size: 18px;
-  font-weight: 650;
+  color: var(--text-pri);
+  font-size: var(--suiyuan-text-headline-size);
+  font-weight: 500;
+  line-height: var(--suiyuan-text-headline-line);
 }
 
 .shared-files-overview dl {
@@ -44,8 +47,9 @@
 }
 
 .shared-files-overview dt {
-  opacity: 0.8;
-  font-size: 12px;
+  color: var(--text-muted);
+  font-size: var(--suiyuan-text-label-size);
+  line-height: var(--suiyuan-text-label-line);
 }
 
 .shared-files-overview dd {
@@ -70,10 +74,15 @@
   align-items: center;
   gap: 8px;
   border: 1px solid var(--border);
-  border-radius: var(--radius-md, 8px);
+  border-radius: var(--suiyuan-radius-input);
   background: var(--surface);
   color: var(--text-muted);
   padding: 0 12px;
+}
+
+.shared-files-search:focus-within {
+  border-color: var(--border-strong);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 16%, transparent);
 }
 
 .shared-files-search input {
@@ -91,10 +100,15 @@
   min-height: 40px;
   padding: 0 12px;
   border: 1px solid var(--border);
-  border-radius: var(--radius-md, 8px);
+  border-radius: var(--suiyuan-radius-control);
   background: var(--surface);
   color: var(--text-pri);
   outline: 0;
+}
+
+.shared-files-toolbar select:focus-visible {
+  border-color: var(--border-strong);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 16%, transparent);
 }
 
 @media (max-width: 640px) {
@@ -109,9 +123,17 @@
   margin: 8px 0;
 }
 
+.file-intro h2 {
+  color: var(--text-pri);
+  font-size: var(--suiyuan-text-headline-size);
+  font-weight: 500;
+  line-height: var(--suiyuan-text-headline-line);
+}
+
 .file-intro p {
   color: var(--text-sec);
-  font-size: 22px;
+  font-size: var(--suiyuan-text-body-size);
+  line-height: var(--suiyuan-text-body-line);
 }
 
 .shared-files-tabs {
@@ -253,7 +275,7 @@
   grid-template-columns: 90px minmax(0, 1fr);
   row-gap: 6px;
   border: 1px solid var(--line);
-  border-radius: 7px;
+  border-radius: var(--suiyuan-radius-control);
   background: var(--surface-2);
   margin: 0 0 14px;
   padding: 12px;
@@ -263,7 +285,7 @@
   max-height: 52vh;
   overflow: auto;
   border: 1px solid var(--line);
-  border-radius: 7px;
+  border-radius: var(--suiyuan-radius-control);
   background: var(--surface-code);
   padding: 14px;
   color: var(--text-sec);

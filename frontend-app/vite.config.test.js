@@ -1,7 +1,14 @@
 import { readFileSync } from 'node:fs';
 import process from 'node:process';
 import { describe, expect, it } from 'vitest';
-import { createFrontendViteConfig } from './vite.config.js';
+import {
+  ATH_BUILD_IDENTITY_HEADER,
+  ATH_HEALTH_PATH,
+  ATH_NONCE_HEADER,
+  ATH_SOURCE_ROOT_HEADER,
+  agenticHarnessIdentityPlugin,
+  createFrontendViteConfig,
+} from './vite.config.js';
 
 const packageJson = JSON.parse(readFileSync('package.json', 'utf8'));
 
@@ -94,6 +101,10 @@ describe('frontend vite watch config', () => {
 });
 
 describe('frontend vite build budget', () => {
+  it('uses the minifier proven against the frozen resource budget', () => {
+    expect(createFrontendViteConfig({}).build.minify).toBe('terser');
+  });
+
   it('builds isolated normal and Recovery entry points', () => {
     const input = createFrontendViteConfig({}).build.rolldownOptions.input;
     expect(input.main).toMatch(/index\.html$/);
@@ -126,5 +137,54 @@ describe('frontend vite ui test MCP gate', () => {
       { VITE_SUPER_DOLPHIN_UI_TEST_MCP: '0', NODE_ENV: 'production' },
       { command: 'serve', mode: 'development' },
     )).toThrow(/production builds/);
+  });
+});
+
+describe('frontend vite agentic harness identity gate', () => {
+  const harnessEnv = {
+    ATH_TARGET_NONCE: 'A'.repeat(43),
+    SUPER_DOLPHIN_ATH_SOURCE_ROOT: '/tmp/super-dolphin-source',
+    SUPER_DOLPHIN_ATH_BUILD_IDENTITY: 'git:0123456789abcdef',
+  };
+
+  it('serves exact nonce and identity only on the harness health path', () => {
+    const plugin = agenticHarnessIdentityPlugin(harnessEnv, { command: 'serve', mode: 'development' });
+    const handlers = [];
+    const headers = {};
+    let body = '';
+    plugin.configureServer({ middlewares: { use(handler) { handlers.push(handler); } } });
+    const response = {
+      statusCode: 0,
+      setHeader(name, value) { headers[name] = value; },
+      end(value) { body = String(value); },
+    };
+    handlers[0]({ url: ATH_HEALTH_PATH }, response, () => {
+      throw new Error('health middleware unexpectedly delegated');
+    });
+    expect(response.statusCode).toBe(200);
+    expect(headers[ATH_NONCE_HEADER]).toBe(harnessEnv.ATH_TARGET_NONCE);
+    expect(headers[ATH_SOURCE_ROOT_HEADER]).toBe(harnessEnv.SUPER_DOLPHIN_ATH_SOURCE_ROOT);
+    expect(headers[ATH_BUILD_IDENTITY_HEADER]).toBe(harnessEnv.SUPER_DOLPHIN_ATH_BUILD_IDENTITY);
+    expect(JSON.parse(body)).toEqual({
+      ok: true,
+      sourceRoot: harnessEnv.SUPER_DOLPHIN_ATH_SOURCE_ROOT,
+      buildIdentity: harnessEnv.SUPER_DOLPHIN_ATH_BUILD_IDENTITY,
+    });
+  });
+
+  it('is absent normally and fails fast for partial, malformed, or production identity', () => {
+    expect(agenticHarnessIdentityPlugin({}, { command: 'serve', mode: 'development' })).toBeUndefined();
+    expect(() => agenticHarnessIdentityPlugin(
+      { ATH_TARGET_NONCE: harnessEnv.ATH_TARGET_NONCE },
+      { command: 'serve', mode: 'development' },
+    )).toThrow(/SUPER_DOLPHIN_ATH_SOURCE_ROOT/);
+    expect(() => agenticHarnessIdentityPlugin(
+      { ...harnessEnv, ATH_TARGET_NONCE: 'short' },
+      { command: 'serve', mode: 'development' },
+    )).toThrow(/256-bit base64url/);
+    expect(() => agenticHarnessIdentityPlugin(
+      harnessEnv,
+      { command: 'build', mode: 'production' },
+    )).toThrow(/dev\/test-only/);
   });
 });

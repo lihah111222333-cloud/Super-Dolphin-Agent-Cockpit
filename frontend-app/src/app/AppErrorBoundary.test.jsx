@@ -27,6 +27,7 @@ describe('AppErrorBoundary', () => {
     expect(mainSource.match(/startFrontendPerformancePressure\(/g)).toHaveLength(1);
     expect(mainSource).toContain('cleanupGlobalCrashHandlers()');
     expect(mainSource).toContain('frontendPerformancePressure.stop()');
+    expect(mainSource).toContain("window.addEventListener('pagehide', cleanupFrontendDiagnostics)");
     expect(mainSource).toContain('import.meta.hot.dispose(cleanupFrontendDiagnostics)');
     expect(mainSource).toContain("console.error('frontend.performance.reporter_contract_failed')");
     expect(mainSource).not.toContain('console.error(error)');

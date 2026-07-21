@@ -38,14 +38,17 @@ const BRIDGE_LOG_FORBIDDEN_KEYS = new Set([
 
 export const BRIDGE_REDACTED_VALUE = '[redacted]';
 
+/** @param {unknown} key */
 export function normalizeBridgeLogFieldKey(key) {
   return normalizeSafeLogFieldKey(key);
 }
 
+/** @param {unknown} key */
 export function isForbiddenBridgeLogKey(key) {
   return isSafeLogForbiddenKey(key, { forbiddenKeys: BRIDGE_LOG_FORBIDDEN_KEYS });
 }
 
+/** @param {unknown} fields */
 export function safeBridgeLogFields(fields) {
   return safeLogFields(fields, {
     forbiddenKeys: BRIDGE_LOG_FORBIDDEN_KEYS,

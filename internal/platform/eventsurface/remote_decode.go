@@ -1,9 +1,11 @@
 package eventsurface
 
 import (
-	"encoding/json"
 	"errors"
+	"fmt"
+	"slices"
 	"strings"
+	"time"
 
 	shareddto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/shared"
 	turndto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/turn"
@@ -12,50 +14,134 @@ import (
 // RemoteParamDecoder 抽象 JSON-RPC 参数解码函数，便于同一解码逻辑复用到不同远端事件。
 type RemoteParamDecoder func(any) error
 
-// DecodeRemoteTurnCompleted 解码远端 turn completed 事件。
-// agent_id 是事件路由必需字段，缺失时立即返回错误。
-func DecodeRemoteTurnCompleted(decode RemoteParamDecoder) (turndto.TurnCompleted, error) {
-	var ev turndto.TurnCompleted
-	if err := decode(&ev); err != nil {
-		return turndto.TurnCompleted{}, err
+const (
+	remotePublicErrorCodeFallback  = "REMOTE_TERMINAL_FAILED"
+	remotePublicErrorTitle         = "Remote terminal error"
+	remotePublicErrorMessage       = "Remote terminal error"
+	remoteDiagnosticIDFallback     = "remote-terminal-error"
+	remoteDiagnosticIDPrefix       = "diag-"
+	remoteDiagnosticIDMaxLength    = 128
+	remotePublicErrorCodeMaxLength = 64
+	remoteDiagnosticIDAlphabet     = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_."
+	remotePublicErrorCodeAlphabet  = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_"
+)
+
+// DecodeRemoteTurnTerminal 解码并严格验证 canonical turn/terminal，不推断 owner 身份。
+func DecodeRemoteTurnTerminal(decode RemoteParamDecoder) (turndto.TurnTerminalV2, error) {
+	var terminal turndto.TurnTerminalV2
+	if err := decode(&terminal); err != nil {
+		return turndto.TurnTerminalV2{}, err
 	}
-	if strings.TrimSpace(ev.AgentID) == "" {
-		return turndto.TurnCompleted{}, errors.New("remote turn completed missing agent_id")
+	if err := turndto.ValidateTurnTerminalV2(terminal); err != nil {
+		return turndto.TurnTerminalV2{}, fmt.Errorf("remote turn terminal contract: %w", err)
 	}
-	return ev, nil
+	if _, err := time.Parse(time.RFC3339Nano, terminal.OccurredAt); err != nil {
+		return turndto.TurnTerminalV2{}, fmt.Errorf("remote turn terminal occurredAt: %w", err)
+	}
+	terminal.PublicError = sanitizeRemotePublicError(terminal.PublicError)
+	return terminal, nil
 }
 
-// DecodeRemoteTurnInterrupted 解码远端 turn interrupted 事件。
-// 先尝试新 DTO 形状，失败后兼容旧 map 载荷；两种路径都必须得到 agent_id。
-func DecodeRemoteTurnInterrupted(decode RemoteParamDecoder) (turndto.TurnInterrupted, error) {
-	var ev turndto.TurnInterrupted
-	if err := decode(&ev); err == nil && strings.TrimSpace(ev.AgentID) != "" {
-		return ev, nil
+// sanitizeRemotePublicError 清除远端展示文本，仅保留受限的机器可读字段。
+func sanitizeRemotePublicError(remote *turndto.PublicErrorV1) *turndto.PublicErrorV1 {
+	if remote == nil {
+		return nil
 	}
-	var payload map[string]json.RawMessage
-	if err := decode(&payload); err != nil {
-		return turndto.TurnInterrupted{}, err
+	return &turndto.PublicErrorV1{
+		Code:            safeRemotePublicErrorCode(remote.Code),
+		Title:           remotePublicErrorTitle,
+		Message:         remotePublicErrorMessage,
+		DiagnosticID:    safeRemoteDiagnosticID(remote.DiagnosticID),
+		Retryable:       false,
+		RecoveryActions: safeRemoteRecoveryActions(remote.RecoveryActions),
 	}
-	ev.TurnHeader = shareddto.TurnHeader{
-		AgentHeader: shareddto.AgentHeader{
-			ThreadHeader: shareddto.ThreadHeader{ThreadID: remoteEventString(payload, "thread_id", "threadId")},
-			AgentID:      remoteEventString(payload, "agent_id", "agentId"),
-		},
-		TurnIDHeader: shareddto.TurnIDHeader{TurnID: remoteEventString(payload, "turn_id", "turnId")},
-	}
-	ev.Reason = remoteEventString(payload, "reason")
-	if strings.TrimSpace(ev.AgentID) == "" {
-		return turndto.TurnInterrupted{}, errors.New("remote turn interrupted missing agent_id")
-	}
-	return ev, nil
 }
 
-func remoteEventString(payload map[string]json.RawMessage, keys ...string) string {
-	for _, key := range keys {
-		var value string
-		if err := json.Unmarshal(payload[key], &value); err == nil && strings.TrimSpace(value) != "" {
-			return strings.TrimSpace(value)
+// safeRemoteRecoveryActions 只保留前端已实现的固定恢复动作。
+func safeRemoteRecoveryActions(actions []string) []string {
+	if slices.Contains(actions, "copy_diagnostics") {
+		return []string{"copy_diagnostics"}
+	}
+	return []string{}
+}
+
+// safeRemotePublicErrorCode 保留受限机器码，未知展示语义由前端 registry 决定。
+func safeRemotePublicErrorCode(value string) string {
+	if isSafeRemotePublicErrorCode(value) {
+		return value
+	}
+	return remotePublicErrorCodeFallback
+}
+
+// isSafeRemotePublicErrorCode 验证远端机器码不包含可显示的自由文本。
+func isSafeRemotePublicErrorCode(value string) bool {
+	return value != "" && len(value) <= remotePublicErrorCodeMaxLength && containsOnly(value, remotePublicErrorCodeAlphabet)
+}
+
+// safeRemoteDiagnosticID 保留受限关联标识，其余输入替换为固定占位符。
+func safeRemoteDiagnosticID(value string) string {
+	if isSafeRemoteDiagnosticID(value) {
+		return value
+	}
+	return remoteDiagnosticIDFallback
+}
+
+// isSafeRemoteDiagnosticID 验证关联标识的固定前缀、长度和字符集合。
+func isSafeRemoteDiagnosticID(value string) bool {
+	return strings.HasPrefix(value, remoteDiagnosticIDPrefix) && len(value) > len(remoteDiagnosticIDPrefix) && len(value) <= remoteDiagnosticIDMaxLength && containsOnly(value, remoteDiagnosticIDAlphabet)
+}
+
+// containsOnly 验证文本的每个字符都属于调用方提供的受限字符集合。
+func containsOnly(value, alphabet string) bool {
+	for _, character := range value {
+		if !strings.ContainsRune(alphabet, character) {
+			return false
 		}
 	}
-	return ""
+	return true
+}
+
+// ProjectRemoteTurnTerminal 把 canonical 终态投影为内部事件；ownerAgentID 必须由 consumer 的运行时映射提供。
+func ProjectRemoteTurnTerminal(terminal turndto.TurnTerminalV2, ownerAgentID string) (turndto.TurnCompleted, error) {
+	ownerAgentID = strings.TrimSpace(ownerAgentID)
+	if ownerAgentID == "" {
+		return turndto.TurnCompleted{}, errors.New("remote turn terminal owner agent id is required")
+	}
+	if err := turndto.ValidateTurnTerminalV2(terminal); err != nil {
+		return turndto.TurnCompleted{}, fmt.Errorf("remote turn terminal contract: %w", err)
+	}
+	timestamp, err := time.Parse(time.RFC3339Nano, terminal.OccurredAt)
+	if err != nil {
+		return turndto.TurnCompleted{}, fmt.Errorf("remote turn terminal occurredAt: %w", err)
+	}
+	return turndto.AttachCanonicalTurnTerminal(remoteTurnCompleted(terminal, timestamp, ownerAgentID), terminal)
+}
+
+func remoteTurnCompleted(terminal turndto.TurnTerminalV2, timestamp time.Time, ownerAgentID string) turndto.TurnCompleted {
+	errorText := ""
+	if terminal.PublicError != nil {
+		errorText = terminal.PublicError.Message
+	}
+	return turndto.TurnCompleted{
+		TurnHeader: shareddto.TurnHeader{
+			AgentHeader: shareddto.AgentHeader{
+				ThreadHeader: shareddto.ThreadHeader{EventHeader: shareddto.EventHeader{Timestamp: timestamp}, ThreadID: terminal.ThreadID},
+				AgentID:      ownerAgentID,
+			},
+			TurnIDHeader: shareddto.TurnIDHeader{TurnID: terminal.TurnID},
+		},
+		Success:              terminal.Outcome == "success",
+		Status:               remoteTerminalStatus(terminal.Outcome),
+		Reason:               terminal.TerminationCause,
+		Error:                errorText,
+		TerminationRequestID: terminal.TerminationRequestID,
+		PartialItemIDs:       append([]string(nil), terminal.PartialItemIDs...),
+	}
+}
+
+func remoteTerminalStatus(outcome string) string {
+	if outcome == "success" {
+		return "completed"
+	}
+	return outcome
 }

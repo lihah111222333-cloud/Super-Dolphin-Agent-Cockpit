@@ -70,6 +70,10 @@ func (s *service) ArchiveAgent(ctx context.Context, agentID string) (ArchiveOutc
 		}
 		return outcome, errAgentNotFound
 	}
+	sealStats := remoteTerminalSealStats{}
+	if s.turns != nil {
+		sealStats = s.turns.clearRemoteTerminalsForThread(target.threadID)
+	}
 	pkglogger.Info("archive: ArchiveAgent done",
 		"agent_id", agentID,
 		"binding_found", target.bindingFound,
@@ -77,7 +81,10 @@ func (s *service) ArchiveAgent(ctx context.Context, agentID string) (ArchiveOutc
 		"archived", archived,
 		"runtime_stopped", outcome.RuntimeStopped,
 		"thread_archived", outcome.ThreadArchived,
-		"binding_archived", outcome.BindingArchived)
+		"binding_archived", outcome.BindingArchived,
+		"remote_terminal_seal_entries", sealStats.Entries,
+		"remote_terminal_seal_lifecycle_clears", sealStats.LifecycleClears,
+		"remote_terminal_seal_lifecycle_deferred", sealStats.LifecycleDeferred)
 	return outcome, nil
 }
 

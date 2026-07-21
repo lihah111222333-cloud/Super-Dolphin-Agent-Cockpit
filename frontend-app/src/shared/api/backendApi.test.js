@@ -2105,7 +2105,8 @@ function guardedBackendResponse(method) {
     expectInvalidInputDoesNotCall(callAPI, () => api.interruptTurn({
       cwd: '/repo/app',
       threadId: 'thread-1',
-      turnId: 'turn-1',
+      expectedTurnId: 'turn-1',
+      requestId: 'stop-request-1',
       source: 'ui_stop',
       surprise: true,
     }), 'turn/interrupt: unsupported payload field surprise');
@@ -2237,13 +2238,21 @@ function guardedBackendResponse(method) {
     const callAPI = vi.fn((method) => Promise.resolve(guardedBackendResponse(method)));
     const api = createBackendApi({ callAPI });
 
-    await api.interruptTurn({ cwd: '/repo/app', threadId: 'thread-1', turnId: 'turn-1', source: 'ui_stop' });
+    await api.interruptTurn({
+      cwd: '/repo/app',
+      threadId: 'thread-1',
+      expectedTurnId: 'turn-1',
+      requestId: 'stop-request-1',
+      source: 'ui_stop',
+    });
     await api.forceCompleteTurn({ cwd: '/repo/app', threadId: 'thread-1' });
     await api.compactThread({ cwd: '/repo/app', threadId: 'thread-1' });
     await api.recoverThread({ cwd: '/repo/app', threadId: 'thread-1' });
 
     expect(callAPI).toHaveBeenNthCalledWith(1, RPC_METHODS.TURN_INTERRUPT, {
       thread_id: 'thread-1',
+      expected_turn_id: 'turn-1',
+      request_id: 'stop-request-1',
       source: 'ui_stop',
     });
     expect(callAPI).toHaveBeenNthCalledWith(2, RPC_METHODS.TURN_FORCE_COMPLETE, {
@@ -2372,13 +2381,32 @@ function guardedBackendResponse(method) {
     const callAPI = vi.fn().mockResolvedValue(response);
     const api = createBackendApi({ callAPI });
 
-    await expect(api.interruptTurn({ cwd: '/repo/app', threadId: 'thread-1', turnId: 'turn-1', source: 'ui_stop' }))
+    await expect(api.interruptTurn({
+      cwd: '/repo/app',
+      threadId: 'thread-1',
+      expectedTurnId: 'turn-1',
+      requestId: 'stop-request-1',
+      source: 'ui_stop',
+    }))
       .resolves.toEqual(response);
 
     expect(callAPI).toHaveBeenCalledWith(RPC_METHODS.TURN_INTERRUPT, {
       thread_id: 'thread-1',
+      expected_turn_id: 'turn-1',
+      request_id: 'stop-request-1',
       source: 'ui_stop',
     });
+  });
+
+  it.each([
+    [{ cwd: '/repo/app', threadId: 'thread-1', requestId: 'stop-request-1', source: 'ui_stop' }, 'expectedTurnId is required'],
+    [{ cwd: '/repo/app', threadId: 'thread-1', expectedTurnId: 'turn-1', source: 'ui_stop' }, 'requestId is required'],
+    [{ cwd: '/repo/app', threadId: 'thread-1', expectedTurnId: 'turn-1', requestId: '', source: 'ui_stop' }, 'requestId is required'],
+  ])('rejects incomplete stop identity before turn/interrupt transport', (payload, message) => {
+    const callAPI = vi.fn();
+    const api = createBackendApi({ callAPI });
+
+    expectInvalidInputDoesNotCall(callAPI, () => api.interruptTurn(payload), `turn/interrupt: ${message}`);
   });
 
   it('fails fast before cwd-scoped RPCs when cwd is missing', () => {

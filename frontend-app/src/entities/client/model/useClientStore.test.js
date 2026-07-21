@@ -1,8 +1,28 @@
 import { systemClockMillis, parseRequiredJsonObject } from './contractStoreModel.js';
+import React from 'react';
+import { cleanup, render, screen } from '@testing-library/react';
 import { beforeEach, expect, it, vi } from 'vitest';
 
 function optionalUiArray() {
   return [];
+}
+
+function interruptSuccessResult({ expectedTurnId, requestId }) {
+  return {
+    ok: true,
+    accepted: true,
+    requestId,
+    expectedTurnId,
+    turnId: expectedTurnId,
+    status: 'interrupted',
+    confirmed: true,
+    mode: 'interrupt_confirmed',
+    interruptSent: true,
+    stateBefore: 'running',
+    stateAfter: 'idle',
+    waitedMs: 1,
+    activeObserved: true,
+  };
 }
 
 let bridgeCallback;
@@ -93,6 +113,12 @@ vi.mock('../../../shared/api/backendApi.js', async (importOriginal) => {
 
 import { resetClientStoreForTests, setClientStoreClockMillisForTests, useClientStore } from './useClientStore.js';
 import * as frontendBreadcrumbs from '../../../shared/diagnostics/frontendBreadcrumbs.js';
+import {
+  clearFrontendHealth,
+  frontendHealthSnapshot,
+  resetFrontendHealthForTest,
+} from '../../../shared/diagnostics/frontendHealthStore.js';
+import { ForkDraftCard } from '../../../pages/chat/composer/ForkDraftCard.jsx';
 
 function diagnosticBreadcrumbs() {
   return frontendBreadcrumbs.snapshotFrontendBreadcrumbsForTests().map(({ actionCode, routeId, phase }) => ({
@@ -135,8 +161,11 @@ function registerBridgeEventHandlersForTest() {
 }
 
   beforeEach(() => {
+    cleanup();
     vi.clearAllMocks();
     frontendBreadcrumbs.resetFrontendBreadcrumbsForTests?.();
+    resetFrontendHealthForTest();
+    clearFrontendHealth();
     bridgeCallback = null;
     bridgeOptions = null;
     runtimeReconnectCallback = null;
@@ -169,7 +198,9 @@ function registerBridgeEventHandlersForTest() {
     }[key] ?? null));
     backend.archiveThread.mockResolvedValue({ ok: true });
     backend.unarchiveThread.mockResolvedValue({ ok: true });
+    backend.interruptTurn.mockImplementation((params) => Promise.resolve(interruptSuccessResult(params)));
     backend.forceCompleteTurn.mockResolvedValue({ confirmed: true });
+    backend.recoverThread.mockResolvedValue({ recovered: true });
     backend.respondApproval.mockResolvedValue(null);
     backend.deleteThread.mockResolvedValue({ ok: true });
     backend.getThreadConfig.mockResolvedValue({
@@ -199,7 +230,7 @@ function registerBridgeEventHandlersForTest() {
       throw new Error('storage denied');
     });
     try {
-      useClientStore.getState().setLogLevel('error');
+      expect(() => useClientStore.getState().setLogLevel('error')).toThrow('storage denied');
 
       const state = useClientStore.getState();
       expect(state.logLevel).toBe('info');
@@ -236,13 +267,14 @@ function registerBridgeEventHandlersForTest() {
   it('classifies composer file selection failures as attachment errors', async () => {
     backend.selectFiles.mockRejectedValue(new Error('picker unavailable'));
 
-    await expect(useClientStore.getState().selectFilesForComposer()).resolves.toEqual([]);
+    await expect(useClientStore.getState().selectFilesForComposer()).rejects.toThrow('picker unavailable');
 
     expect(useClientStore.getState().actionNotice).toEqual(expect.objectContaining({
       category: 'attachment',
-      message: 'picker unavailable',
+      message: '选择附件失败，请重试。',
       tone: 'error',
     }));
+    expect(JSON.stringify(useClientStore.getState().actionNotice)).not.toContain('picker unavailable');
   });
 
   it('bootstraps through config, window, projects, and sidebar without blocking on thread snapshot', async () => {
@@ -385,7 +417,7 @@ function registerBridgeEventHandlersForTest() {
 
     const retryPromise = useClientStore.getState().bootstrap();
     expect(useClientStore.getState().bootstrapStatus).toBe('loading');
-    expect(useClientStore.getState().error).toBe('event bridge unavailable');
+    expect(useClientStore.getState().error).toBe('连接后端失败，请重试。');
 
     retryConfig.resolve({ cwd: '/repo/app' });
     await retryPromise;
@@ -459,7 +491,7 @@ function registerBridgeEventHandlersForTest() {
     expect(backend.readConfig).not.toHaveBeenCalled();
     expect(backend.getWindowBootstrap).not.toHaveBeenCalled();
     expect(useClientStore.getState().bootstrapStatus).toBe('failed');
-    expect(useClientStore.getState().error).toBe('runtime.reconnect.subscribe unavailable');
+    expect(useClientStore.getState().error).toBe('连接后端失败，请重试。');
   });
 
   it('preserves a live bridge status over a stale bootstrap sidebar snapshot', async () => {
@@ -658,12 +690,12 @@ function registerBridgeEventHandlersForTest() {
       projects: ['/repo/app', '/repo/other'],
     });
 
-    await expect(useClientStore.getState().setActiveProjectPath('/repo/other')).resolves.toBe(false);
+    await expect(useClientStore.getState().setActiveProjectPath('/repo/other')).rejects.toThrow('project backend offline');
 
     expect(useClientStore.getState().activeProject).toBe('/repo/app');
     expect(useClientStore.getState().projects).toEqual(['/repo/app', '/repo/other']);
     expect(useClientStore.getState().actionNotice).toEqual(expect.objectContaining({
-      message: '切换项目失败：project backend offline',
+      message: '切换项目失败，请重试。',
       tone: 'error',
     }));
   });
@@ -933,6 +965,98 @@ function registerBridgeEventHandlersForTest() {
     expect(useClientStore.getState().activeThreadId).toBe('');
     expect(useClientStore.getState().chatSurfaceLoadingCwd).toBe('');
 
+    projectChange.resolve({ projects: ['/repo/app', '/repo/other'], active: '/repo/other' });
+    await expect(switchPromise).resolves.toBe(true);
+  });
+
+  it('invalidates assistant buffers on a CWD switch before timer or stale patch flushes can repopulate the chat', async () => {
+    vi.useFakeTimers();
+    try {
+      const projectChange = deferred();
+      const sidebarRefresh = deferred();
+      resetClientStoreForTests({
+        cwd: '/repo/app',
+        projectScopeCwd: '/repo/app',
+        activeProject: '/repo/app',
+        projects: ['/repo/app', '/repo/other'],
+        activeThreadId: 'thread-old',
+        threads: [{ id: 'thread-old', name: 'Old project thread', provider: 'codex', status: 'running' }],
+        timelinesByThread: { 'thread-old': [] },
+      });
+      backend.setActiveProject.mockReturnValue(projectChange.promise);
+      backend.getSidebarState.mockReturnValue(sidebarRefresh.promise);
+      registerBridgeEventHandlersForTest();
+
+      bridgeCallback({
+        type: 'turn/output/delta',
+        payload: {
+          cwd: '/repo/app',
+          threadId: 'thread-old',
+          turnId: 'turn-old',
+          itemId: 'old-partial',
+          delta: 'old project content',
+        },
+      });
+
+      const switchPromise = useClientStore.getState().setActiveProjectPath('/repo/other');
+      await Promise.resolve();
+      bridgeCallback({
+        type: 'ui/thread/patch',
+        payload: {
+          cwd: '/repo/app',
+          threadId: 'thread-old',
+          sequence: '1',
+          activeTurn: { id: 'turn-old', status: 'running' },
+        },
+      });
+      await flushAssistantDeltaBatch();
+
+      expect(useClientStore.getState()).toEqual(expect.objectContaining({
+        activeProject: '/repo/other',
+        activeThreadId: '',
+        timelinesByThread: {},
+      }));
+      expect(JSON.stringify(useClientStore.getState())).not.toContain('old project content');
+
+      sidebarRefresh.resolve({ activeThreadId: '', threads: [] });
+      projectChange.resolve({ projects: ['/repo/app', '/repo/other'], active: '/repo/other' });
+      await expect(switchPromise).resolves.toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('publishes a safe notice and Health diagnostic when project session refresh fails', async () => {
+    const bearerSecret = 'Bearer sk-frontend-session-refresh-secret-123456';
+    const projectChange = deferred();
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      projectScopeCwd: '/repo/app',
+      activeProject: '/repo/app',
+      projects: ['/repo/app', '/repo/other'],
+      activeThreadId: 'thread-old',
+      threads: [{ id: 'thread-old', name: 'Old project thread', provider: 'codex', status: 'running' }],
+    });
+    backend.setActiveProject.mockReturnValue(projectChange.promise);
+    backend.getSidebarState.mockRejectedValue(new Error(`sidebar refresh failed ${bearerSecret}`));
+
+    const switchPromise = useClientStore.getState().setActiveProjectPath('/repo/other');
+
+    await vi.waitFor(() => {
+      expect(useClientStore.getState().actionNotice).toEqual(expect.objectContaining({
+        message: '刷新会话列表失败，请稍后重试。',
+        tone: 'error',
+      }));
+    });
+    expect(JSON.stringify(useClientStore.getState().actionNotice)).not.toContain(bearerSecret);
+    expect(JSON.stringify(useClientStore.getState().warningEntries)).not.toContain(bearerSecret);
+    expect(frontendHealthSnapshot()).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        actionId: 'sidebar.project-threads.load',
+        diagnosticId: expect.any(String),
+      }),
+    ]));
+    expect(JSON.stringify(frontendHealthSnapshot())).not.toContain(bearerSecret);
     projectChange.resolve({ projects: ['/repo/app', '/repo/other'], active: '/repo/other' });
     await expect(switchPromise).resolves.toBe(true);
   });
@@ -3508,7 +3632,7 @@ function registerBridgeEventHandlersForTest() {
     await expect(useClientStore.getState().openThreadById('thread-a', {
       source: 'sidebar',
       selectionIntent: intentA,
-    })).resolves.toBe(false);
+    })).rejects.toThrow('current resolve failed');
 
     expect(useClientStore.getState().threadStateLoadingByThread['thread-a']).toBe(false);
   });
@@ -3808,7 +3932,7 @@ function registerBridgeEventHandlersForTest() {
     expect(useClientStore.getState().workflowRevision).toBe(0);
   });
 
-  it('[regression] completes agent timeline streaming when turn/completed arrives without cwd', async () => {
+  it('[regression] completes agent timeline streaming when the canonical terminal arrives without cwd', async () => {
     resetClientStoreForTests({
       cwd: '/repo/app',
       activeProject: '/repo/app',
@@ -3816,19 +3940,21 @@ function registerBridgeEventHandlersForTest() {
       threads: [{ id: 'agent-douyin', name: 'Douyin agent', provider: 'codex', status: 'running' }],
       timelinesByThread: {
         'agent-douyin': [
-          { id: 'assistant-stream-turn1', role: 'assistant', text: '正在流式输出...', done: false }
+          { id: 'assistant-stream-turn1', role: 'assistant', text: '正在流式输出...', done: false, turnId: 'turn1' }
         ]
       }
     });
     registerBridgeEventHandlersForTest();
 
     bridgeCallback({
-      type: 'turn/completed',
+      type: 'turn/terminal',
       payload: {
+        schemaVersion: 2,
+        eventId: 'terminal-turn1',
         threadId: 'agent-douyin',
-        agentId: 'agent-douyin',
         turnId: 'turn1',
-        success: true
+        outcome: 'success',
+        occurredAt: '2026-07-16T01:00:00Z',
       }
     });
 
@@ -4003,6 +4129,7 @@ function registerBridgeEventHandlersForTest() {
   });
 
   it('runs a pending sidebar refresh after an in-flight refresh rejects', async () => {
+    const bearerSecret = 'Bearer sk-frontend-sidebar-secret-123456';
     const failedRefresh = deferred();
     const retryRefresh = deferred();
     resetClientStoreForTests({
@@ -4020,7 +4147,7 @@ function registerBridgeEventHandlersForTest() {
     bridgeCallback({ type: 'ui/sidebar/changed', payload: { revision: 3 } });
 
     expect(backend.getSidebarState).toHaveBeenCalledTimes(1);
-    failedRefresh.reject(new Error('sidebar refresh failed'));
+    failedRefresh.reject(new Error(`sidebar refresh failed ${bearerSecret}`));
 
     await vi.waitFor(() => {
       expect(backend.getSidebarState).toHaveBeenCalledTimes(2);
@@ -4042,6 +4169,15 @@ function registerBridgeEventHandlersForTest() {
       level: 'error',
       event: 'thread.sidebar.refresh.failed',
     }));
+    expect(JSON.stringify(useClientStore.getState().actionNotice)).not.toContain(bearerSecret);
+    expect(JSON.stringify(useClientStore.getState().warningEntries)).not.toContain(bearerSecret);
+    expect(frontendHealthSnapshot()).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        actionId: 'sidebar.project-threads.load',
+        diagnosticId: expect.any(String),
+      }),
+    ]));
+    expect(JSON.stringify(frontendHealthSnapshot())).not.toContain(bearerSecret);
     expect(backend.getSidebarState).toHaveBeenCalledTimes(2);
   });
 
@@ -4516,6 +4652,7 @@ function registerBridgeEventHandlersForTest() {
   });
 
   it('marks inherited fork kickoff failure as partial instead of a full working success', async () => {
+    const bearerSecret = 'Bearer sk-frontend-fork-kickoff-secret-123456';
     resetClientStoreForTests({
       cwd: '/repo/app',
       activeProject: '/repo/app',
@@ -4532,21 +4669,21 @@ function registerBridgeEventHandlersForTest() {
       thread: { id: 'thread-fork', forkedFrom: 'thread-1' },
       kickoffState: 'created_only',
     });
-    backend.startTurn.mockRejectedValue(new Error('turn/start failed'));
+    backend.startTurn.mockRejectedValue(new Error(`turn/start failed ${bearerSecret}`));
 
     await expect(useClientStore.getState().openForkDraft()).resolves.toBe(true);
     await expect(useClientStore.getState().submitForkThread()).resolves.toBe('thread-fork');
 
     const state = useClientStore.getState();
     expect(state.actionNotice).toEqual(expect.objectContaining({
-      message: expect.stringContaining('开场消息发送失败'),
+      message: '已创建继承对话，但开场消息暂时无法发送。',
       tone: 'warning',
     }));
     expect(state.threads[0]).toEqual(expect.objectContaining({
       id: 'thread-fork',
       status: '需要操作',
       forkKickoffStatus: 'failed',
-      forkKickoffError: 'turn/start failed',
+      forkKickoffError: '已创建继承对话，但开场消息暂时无法发送。',
     }));
     expect(state.timelinesByThread['thread-fork'] || optionalUiArray()).not.toEqual(expect.arrayContaining([
       expect.objectContaining({
@@ -4554,6 +4691,43 @@ function registerBridgeEventHandlersForTest() {
         optimistic: true,
       }),
     ]));
+    expect(JSON.stringify(state.actionNotice)).not.toContain(bearerSecret);
+    expect(JSON.stringify(state.warningEntries)).not.toContain(bearerSecret);
+    expect(frontendHealthSnapshot()).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        actionId: 'thread.fork.submit',
+        diagnosticId: expect.any(String),
+      }),
+    ]));
+    expect(JSON.stringify(frontendHealthSnapshot())).not.toContain(bearerSecret);
+  });
+
+  it('keeps shared-file loading failures out of fork draft state, rendered feedback, and Health', async () => {
+    const bearerSecret = 'Bearer sk-frontend-fork-shared-files-secret-123456';
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'thread-1',
+      threads: [{ id: 'thread-1', name: 'Existing thread', provider: 'codex', status: 'idle' }],
+    });
+    backend.listSharedFiles.mockRejectedValue(new Error(`shared files unavailable ${bearerSecret}`));
+
+    await expect(useClientStore.getState().openForkDraft()).resolves.toBe(true);
+
+    const state = useClientStore.getState();
+    expect(state.forkDraft.error).toBe('共享文件列表暂时不可用，请稍后重试。');
+    expect(JSON.stringify(state.forkDraft)).not.toContain(bearerSecret);
+    expect(JSON.stringify(state.warningEntries)).not.toContain(bearerSecret);
+    expect(frontendHealthSnapshot()).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        actionId: 'thread.fork.open',
+        diagnosticId: expect.any(String),
+      }),
+    ]));
+    expect(JSON.stringify(frontendHealthSnapshot())).not.toContain(bearerSecret);
+    render(React.createElement(ForkDraftCard, { store: state }));
+    expect(screen.getByRole('alert')).toHaveTextContent('共享文件列表暂时不可用，请稍后重试。');
+    expect(document.body.textContent).not.toContain(bearerSecret);
   });
 
   it('sends selected shared files as canonical filecontent kickoff input', async () => {
@@ -4630,6 +4804,7 @@ function registerBridgeEventHandlersForTest() {
   });
 
   it('does not fall back to thread/start when canonical fork fails', async () => {
+    const bearerSecret = 'Bearer sk-frontend-fork-submit-secret-123456';
     resetClientStoreForTests({
       cwd: '/repo/app',
       activeProject: '/repo/app',
@@ -4637,7 +4812,7 @@ function registerBridgeEventHandlersForTest() {
       threads: [{ id: 'thread-1', name: 'Existing thread', provider: 'codex', status: 'idle' }],
       timelinesByThread: { 'thread-1': [] },
     });
-    backend.forkThread.mockRejectedValue(new Error('thread/fork unsupported'));
+    backend.forkThread.mockRejectedValue(new Error(`thread/fork unsupported ${bearerSecret}`));
 
     await useClientStore.getState().openForkDraft();
     await expect(useClientStore.getState().submitForkThread()).rejects.toThrow('thread/fork unsupported');
@@ -4646,6 +4821,12 @@ function registerBridgeEventHandlersForTest() {
     expect(backend.startTurn).not.toHaveBeenCalled();
     expect(useClientStore.getState().activeThreadId).toBe('thread-1');
     expect(useClientStore.getState().forkDraft.open).toBe(true);
+    expect(useClientStore.getState().forkDraft.error).toBe('创建继承对话失败，请稍后重试。');
+    expect(JSON.stringify(useClientStore.getState().forkDraft)).not.toContain(bearerSecret);
+    expect(JSON.stringify(useClientStore.getState().actionNotice)).not.toContain(bearerSecret);
+    render(React.createElement(ForkDraftCard, { store: useClientStore.getState() }));
+    expect(screen.getByRole('alert')).toHaveTextContent('创建继承对话失败，请稍后重试。');
+    expect(document.body.textContent).not.toContain(bearerSecret);
   });
 
 
@@ -5151,6 +5332,7 @@ function registerBridgeEventHandlersForTest() {
           text: 'ok',
           done: false,
           runtime: true,
+          turnId: 'turn-1',
           time: '2026-05-30T00:01:00Z',
         }],
       },
@@ -5275,6 +5457,7 @@ function registerBridgeEventHandlersForTest() {
           id: 'assistant-from-patch',
           kind: 'assistant',
           text: '你是指：\n\n1. 页面/应用里没有内容了？\n2. 某个文件被清空了？',
+          turnId: 'turn-1',
           createdAt: '2026-05-30T00:01:00Z',
         }],
       },
@@ -5323,6 +5506,7 @@ function registerBridgeEventHandlersForTest() {
           id: 'assistant-part-1',
           kind: 'assistant',
           text: 'hello',
+          turnId: 'turn-1',
           createdAt: '2026-05-30T00:01:00Z',
         }],
       },
@@ -5353,6 +5537,7 @@ function registerBridgeEventHandlersForTest() {
           id: 'assistant-part-2',
           kind: 'assistant',
           text: 'world',
+          turnId: 'turn-1',
           createdAt: '2026-05-30T00:01:02Z',
         }],
       },
@@ -5521,7 +5706,7 @@ function registerBridgeEventHandlersForTest() {
     ]);
   });
 
-  it('replaces a shorter runtime assistant completion when turn completion carries the full answer', () => {
+  it('replaces a shorter runtime assistant completion when item completion carries the full answer', () => {
     resetClientStoreForTests({
       cwd: '/repo/app',
       activeProject: '/repo/app',
@@ -5547,7 +5732,7 @@ function registerBridgeEventHandlersForTest() {
       },
     });
     bridgeCallback({
-      method: 'turn/completed',
+      method: 'item/completed',
       payload: {
         threadId: 'thread-1',
         turnId: 'turn-1',
@@ -5737,21 +5922,24 @@ function registerBridgeEventHandlersForTest() {
       },
     });
 
-    // 2. Double-channel turn/completed event with _threadPatch
+    // 2. Item completion and backend snapshot arrive on independent channels.
     bridgeCallback({
-      type: 'turn/completed',
+      type: 'ui/thread/patch',
+      payload: {
+        threadId: 'thread-1',
+        sequence: '2',
+        timelineItems: [
+          { id: 'user-1', role: 'user', text: 'say ok', done: true },
+          { id: 'msg-final', role: 'assistant', text: 'ok', done: true, turnId: 'turn-1' },
+        ],
+      },
+    });
+    bridgeCallback({
+      type: 'item/completed',
       payload: {
         threadId: 'thread-1',
         turnId: 'turn-1',
-        result: 'ok',
-        _threadPatch: {
-          threadId: 'thread-1',
-          sequence: '2',
-          timelineItems: [
-            { id: 'user-1', role: 'user', text: 'say ok', done: true },
-            { id: 'msg-final', role: 'assistant', text: 'ok', done: true }
-          ]
-        }
+        item: { id: 'msg-final', type: 'agentMessage', text: 'ok' },
       },
     });
 
@@ -5947,53 +6135,1455 @@ function registerBridgeEventHandlersForTest() {
     ]);
   });
 
-  it('routes agent failed bridge events into visible warning and action notice state', () => {
+  it('never publishes success before a failed terminal after item completion', () => {
     resetClientStoreForTests({
       cwd: '/repo/app',
       activeProject: '/repo/app',
       activeThreadId: 'thread-1',
       timelinesByThread: {
-        'thread-1': [{ id: 'assistant-open', role: 'assistant', text: 'partial', status: 'running' }],
+        'thread-1': [{ id: 'assistant-open', role: 'assistant', text: 'partial', status: 'running', turnId: 'turn-1' }],
       },
     });
     registerBridgeEventHandlersForTest();
 
     bridgeCallback({
-      type: 'agent/failed',
+      type: 'item/completed',
       payload: {
         threadId: 'thread-1',
-        agentId: 'agent-1',
         turnId: 'turn-1',
-        traceId: 'trace-1',
-        error: 'boom',
-        recoverable: false,
-        path: '/repo/app/private.txt',
+        item: { id: 'assistant-open', role: 'assistant', text: 'partial' },
+      },
+    });
+    expect(useClientStore.getState().actionNotice).toBeNull();
+
+    bridgeCallback({
+      type: 'turn/terminal',
+      payload: {
+        schemaVersion: 2,
+        eventId: 'terminal-failed-1',
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+        outcome: 'failed',
+        publicError: {
+          code: 'PROVIDER_FAILED',
+          title: 'provider-token=secret-value',
+          message: 'TypeError: /private/agent/config.go\nstack: remote failure',
+          diagnosticId: 'diag-failed-1',
+          retryable: false,
+          recoveryActions: [],
+        },
+        occurredAt: '2026-07-16T01:00:00Z',
       },
     });
 
     const state = useClientStore.getState();
     expect(state.actionNotice).toEqual(expect.objectContaining({
       tone: 'error',
-      message: expect.stringContaining('boom'),
-      error: 'boom',
-      recoverable: false,
+      message: '运行失败：提供方未能完成本轮请求，请稍后重试。',
     }));
-    expect(state.warningEntries).toEqual([
+    expect(state.actionNotice.tone).not.toBe('success');
+    expect(state.timelinesByThread['thread-1']).toEqual([
+      expect.objectContaining({ id: 'assistant-open', text: 'partial', done: true }),
       expect.objectContaining({
-        level: 'error',
-        event: 'agent/failed',
-        threadId: 'thread-1',
-        fields: expect.objectContaining({
-          threadId: 'thread-1',
-          agent_id: 'agent-1',
-          turn_id: 'turn-1',
-          trace_id: 'trace-1',
-          error: '[redacted]',
-          recoverable: false,
+        kind: 'turn_terminal',
+        terminalOutcome: 'failed',
+        publicError: expect.objectContaining({
+          code: 'PROVIDER_FAILED',
+          title: '提供方暂不可用',
+          diagnosticId: 'diag-failed-1',
         }),
       }),
     ]);
-    expect(state.warningEntries[0].fields).not.toHaveProperty('path');
+    expect(JSON.stringify({ notice: state.actionNotice, timeline: state.timelinesByThread['thread-1'] })).not.toMatch(/secret-value|\/private\/|stack:/);
+    expect(state.warningEntries).toEqual([
+      expect.objectContaining({
+        level: 'error',
+        event: 'turn.terminal.failed',
+        threadId: 'thread-1',
+      }),
+    ]);
+  });
+
+  it('replays a canonical terminal after its accepted partial delta arrives out of order', () => {
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'thread-1',
+      timelinesByThread: { 'thread-1': [] },
+    });
+    registerBridgeEventHandlersForTest();
+
+    bridgeCallback({
+      type: 'turn/terminal',
+      payload: {
+        schemaVersion: 2,
+        eventId: 'terminal-out-of-order',
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+        outcome: 'failed',
+        publicError: {
+          code: 'PROVIDER_FAILED',
+          title: '运行失败',
+          message: '提供方未能完成本轮响应',
+          diagnosticId: 'diag-out-of-order',
+          retryable: false,
+          recoveryActions: ['copy_diagnostics'],
+        },
+        partialItemIds: ['partial-1'],
+        occurredAt: '2026-07-16T01:00:00Z',
+      },
+    });
+    expect(useClientStore.getState().timelinesByThread['thread-1']).toEqual([]);
+
+    bridgeCallback({
+      type: 'turn/output/delta',
+      payload: { threadId: 'thread-1', turnId: 'turn-1', itemId: 'partial-1', delta: 'partial answer' },
+    });
+
+    const state = useClientStore.getState();
+    expect(state.timelinesByThread['thread-1']).toEqual([
+      expect.objectContaining({ id: 'partial-1', text: 'partial answer', done: true }),
+      expect.objectContaining({ kind: 'turn_terminal', terminalOutcome: 'failed' }),
+    ]);
+    expect(state.actionNotice).toEqual(expect.objectContaining({
+      tone: 'error',
+      message: expect.stringContaining('提供方未能完成本轮请求，请稍后重试。'),
+    }));
+    expect(state.warningEntries).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ event: 'turn.terminal.contract_invalid' }),
+    ]));
+  });
+
+  it('replays a pending terminal after item completion replaces its missing partial item', () => {
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'thread-1',
+      timelinesByThread: { 'thread-1': [] },
+    });
+    registerBridgeEventHandlersForTest();
+
+    bridgeCallback({
+      type: 'turn/terminal',
+      payload: {
+        schemaVersion: 2,
+        eventId: 'terminal-before-completion',
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+        outcome: 'failed',
+        publicError: {
+          code: 'PROVIDER_FAILED',
+          title: 'Provider failed',
+          message: 'The provider failed after producing a partial response',
+          diagnosticId: 'diag-before-completion',
+          retryable: false,
+          recoveryActions: [],
+        },
+        partialItemIds: ['partial-1'],
+        occurredAt: '2026-07-21T01:00:00Z',
+      },
+    });
+    bridgeCallback({
+      type: 'item/completed',
+      payload: {
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+        item: { id: 'partial-1', type: 'agentMessage', text: 'final partial response' },
+      },
+    });
+    bridgeCallback({
+      type: 'item/completed',
+      payload: {
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+        item: { id: 'partial-1', type: 'agentMessage', text: 'final partial response' },
+      },
+    });
+
+    const terminalItems = useClientStore.getState().timelinesByThread['thread-1']
+      .filter((item) => item.kind === 'turn_terminal');
+    expect(useClientStore.getState().timelinesByThread['thread-1']).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'partial-1', text: 'final partial response', done: true, turnId: 'turn-1' }),
+    ]));
+    expect(terminalItems).toEqual([
+      expect.objectContaining({ terminalOutcome: 'failed', turnId: 'turn-1' }),
+    ]);
+  });
+
+  it('keeps the first pending terminal truth when a conflicting terminal arrives before its delta', () => {
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'thread-1',
+      timelinesByThread: { 'thread-1': [] },
+    });
+    registerBridgeEventHandlersForTest();
+
+    bridgeCallback({
+      type: 'turn/terminal',
+      payload: {
+        schemaVersion: 2,
+        eventId: 'terminal-first-pending',
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+        outcome: 'failed',
+        publicError: {
+          code: 'PROVIDER_FAILED',
+          title: '运行失败',
+          message: '首个终态失败',
+          diagnosticId: 'diag-first-pending',
+          retryable: false,
+          recoveryActions: [],
+        },
+        partialItemIds: ['partial-1'],
+        occurredAt: '2026-07-19T01:00:00Z',
+      },
+    });
+    bridgeCallback({
+      type: 'turn/terminal',
+      payload: {
+        schemaVersion: 2,
+        eventId: 'terminal-conflicting-pending',
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+        outcome: 'success',
+        occurredAt: '2026-07-19T01:00:01Z',
+      },
+    });
+    bridgeCallback({
+      type: 'turn/output/delta',
+      payload: { threadId: 'thread-1', turnId: 'turn-1', itemId: 'partial-1', delta: 'partial answer' },
+    });
+
+    const state = useClientStore.getState();
+    expect(state.timelinesByThread['thread-1']).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'turn_terminal', terminalOutcome: 'failed' }),
+    ]));
+    expect(state.actionNotice).toEqual(expect.objectContaining({ tone: 'error' }));
+    expect(state.warningEntries).toEqual(expect.arrayContaining([
+      expect.objectContaining({ event: 'turn.terminal.conflict' }),
+    ]));
+  });
+
+  it('rejects the oldest late event after sequential turns exceed tombstone capacity', () => {
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'thread-1',
+      threads: [{ id: 'thread-1', name: 'Thread 1', provider: 'codex', status: 'running' }],
+      timelinesByThread: { 'thread-1': [] },
+    });
+    registerBridgeEventHandlersForTest();
+
+    for (let index = 0; index <= 65; index++) {
+      bridgeCallback({
+        type: 'turn/output/delta',
+        payload: {
+          threadId: 'thread-1',
+          turnId: `turn-${index}`,
+          itemId: `item-${index}`,
+          delta: `answer ${index}`,
+        },
+      });
+      bridgeCallback({
+        type: 'turn/terminal',
+        payload: {
+          schemaVersion: 2,
+          eventId: `terminal-${index}`,
+          threadId: 'thread-1',
+          turnId: `turn-${index}`,
+          outcome: 'success',
+          occurredAt: '2026-07-20T01:00:00Z',
+        },
+      });
+    }
+
+    expect(useClientStore.getState().timelinesByThread['thread-1']).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'turn_terminal', turnId: 'turn-65', terminalOutcome: 'success' }),
+    ]));
+    expect(useClientStore.getState().getTurnTerminalCacheStats()).toEqual({
+      capacity: 64,
+      terminalStates: 1,
+      observedTurns: 1,
+      retiredTurns: 64,
+    });
+
+    bridgeCallback({
+      type: 'turn/output/delta',
+      payload: {
+        threadId: 'thread-1',
+        turnId: 'turn-0',
+        itemId: 'late-item',
+        delta: 'late mutation',
+      },
+    });
+
+    const state = useClientStore.getState();
+    expect(state.timelinesByThread['thread-1']).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'late-item' }),
+    ]));
+    expect(state.warningEntries).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        event: 'turn.event.late',
+        fields: expect.objectContaining({ turn_id: 'turn-0' }),
+      }),
+    ]));
+  });
+
+  it('keeps pending terminals replayable and fails closed when they fill capacity', () => {
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'pending-thread-0',
+      threads: Array.from({ length: 65 }, (_, index) => ({
+        id: `pending-thread-${index}`,
+        name: `Pending ${index}`,
+        provider: 'codex',
+        status: 'running',
+      })),
+      timelinesByThread: { 'pending-thread-0': [] },
+    });
+    registerBridgeEventHandlersForTest();
+    const pendingTerminal = (index) => ({
+      schemaVersion: 2,
+      eventId: `pending-terminal-${index}`,
+      threadId: `pending-thread-${index}`,
+      turnId: `pending-turn-${index}`,
+      outcome: 'failed',
+      publicError: {
+        code: 'PROVIDER_FAILED',
+        title: '运行失败',
+        message: `第 ${index} 个缺失部分响应`,
+        diagnosticId: `diag-pending-${index}`,
+        retryable: false,
+        recoveryActions: [],
+      },
+      partialItemIds: [`partial-${index}`],
+      occurredAt: '2026-07-20T01:00:00Z',
+    });
+
+    for (let index = 0; index < 64; index++) {
+      bridgeCallback({ type: 'turn/terminal', payload: pendingTerminal(index) });
+    }
+
+    expect(useClientStore.getState().getTurnTerminalCacheStats()).toEqual({
+      capacity: 64,
+      terminalStates: 64,
+      observedTurns: 64,
+      retiredTurns: 0,
+    });
+    bridgeCallback({ type: 'turn/terminal', payload: pendingTerminal(64) });
+    expect(useClientStore.getState().getTurnTerminalCacheStats()).toEqual({
+      capacity: 64,
+      terminalStates: 64,
+      observedTurns: 64,
+      retiredTurns: 0,
+    });
+    expect(useClientStore.getState().warningEntries).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        event: 'turn.terminal.cache_exhausted',
+        fields: expect.objectContaining({ turn_id: 'pending-turn-64', reason: 'capacity' }),
+      }),
+    ]));
+
+    bridgeCallback({
+      type: 'turn/output/delta',
+      payload: {
+        threadId: 'pending-thread-0',
+        turnId: 'pending-turn-0',
+        itemId: 'partial-0',
+        delta: 'replayed partial',
+      },
+    });
+
+    const state = useClientStore.getState();
+    expect(state.timelinesByThread['pending-thread-0']).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'partial-0', text: 'replayed partial', done: true }),
+      expect.objectContaining({ kind: 'turn_terminal', turnId: 'pending-turn-0', terminalOutcome: 'failed' }),
+    ]));
+    expect(state.getTurnTerminalCacheStats()).toEqual({
+      capacity: 64,
+      terminalStates: 64,
+      observedTurns: 64,
+      retiredTurns: 0,
+    });
+  });
+
+  it('does not evict active turn references when terminal capacity is full', () => {
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'active-thread-0',
+      activeTurnByThread: Object.fromEntries(Array.from({ length: 65 }, (_, index) => [
+        `active-thread-${index}`,
+        { id: `active-turn-${index}`, status: 'running' },
+      ])),
+      threads: Array.from({ length: 65 }, (_, index) => ({
+        id: `active-thread-${index}`,
+        name: `Active ${index}`,
+        provider: 'codex',
+        status: 'running',
+      })),
+      timelinesByThread: { 'active-thread-0': [] },
+    });
+    registerBridgeEventHandlersForTest();
+
+    for (let index = 0; index < 64; index++) {
+      bridgeCallback({
+        type: 'turn/terminal',
+        payload: {
+          schemaVersion: 2,
+          eventId: `active-terminal-${index}`,
+          threadId: `active-thread-${index}`,
+          turnId: `active-turn-${index}`,
+          outcome: 'success',
+          occurredAt: '2026-07-20T01:00:00Z',
+        },
+      });
+    }
+
+    expect(useClientStore.getState().getTurnTerminalCacheStats()).toEqual({
+      capacity: 64,
+      terminalStates: 64,
+      observedTurns: 64,
+      retiredTurns: 0,
+    });
+    bridgeCallback({
+      type: 'turn/terminal',
+      payload: {
+        schemaVersion: 2,
+        eventId: 'active-terminal-64',
+        threadId: 'active-thread-64',
+        turnId: 'active-turn-64',
+        outcome: 'success',
+        occurredAt: '2026-07-20T01:00:00Z',
+      },
+    });
+
+    expect(useClientStore.getState().timelinesByThread['active-thread-64']).toBeUndefined();
+    expect(useClientStore.getState().getTurnTerminalCacheStats()).toEqual({
+      capacity: 64,
+      terminalStates: 64,
+      observedTurns: 64,
+      retiredTurns: 0,
+    });
+    bridgeCallback({
+      type: 'turn/terminal',
+      payload: {
+        schemaVersion: 2,
+        eventId: 'active-terminal-conflict-0',
+        threadId: 'active-thread-0',
+        turnId: 'active-turn-0',
+        outcome: 'success',
+        occurredAt: '2026-07-20T01:00:01Z',
+      },
+    });
+    expect(useClientStore.getState().warningEntries).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        event: 'turn.terminal.cache_exhausted',
+        fields: expect.objectContaining({ turn_id: 'active-turn-64', reason: 'capacity' }),
+      }),
+      expect.objectContaining({
+        event: 'turn.terminal.conflict',
+        fields: expect.objectContaining({ turn_id: 'active-turn-0' }),
+      }),
+    ]));
+  });
+
+  it('seals the first terminal and routes conflicting or late turn events to diagnostics', async () => {
+    vi.useFakeTimers();
+    try {
+      resetClientStoreForTests({
+        cwd: '/repo/app',
+        activeProject: '/repo/app',
+        activeThreadId: 'thread-1',
+        threads: [{ id: 'thread-1', name: 'Thread 1', provider: 'codex', status: 'running' }],
+        timelinesByThread: { 'thread-1': [] },
+      });
+      registerBridgeEventHandlersForTest();
+
+      bridgeCallback({
+        type: 'turn/output/delta',
+        payload: { threadId: 'thread-1', turnId: 'turn-1', itemId: 'partial-1', delta: 'partial answer' },
+      });
+      const firstTerminal = {
+        type: 'turn/terminal',
+        payload: {
+          schemaVersion: 2,
+          eventId: 'terminal-first',
+          threadId: 'thread-1',
+          turnId: 'turn-1',
+          outcome: 'failed',
+          publicError: {
+            code: 'FAILED',
+            title: '运行失败',
+            message: '本轮执行失败',
+            diagnosticId: 'diag-first',
+            retryable: false,
+            recoveryActions: ['copy_diagnostics'],
+          },
+          partialItemIds: ['partial-1'],
+          occurredAt: '2026-07-16T01:00:00Z',
+        },
+      };
+      bridgeCallback(firstTerminal);
+      backend.emitFrontendTraceEvent.mockClear();
+      bridgeCallback(firstTerminal);
+      expect(backend.emitFrontendTraceEvent).not.toHaveBeenCalled();
+      bridgeCallback({
+        type: 'turn/terminal',
+        payload: {
+          schemaVersion: 2,
+          eventId: 'terminal-first',
+          threadId: 'thread-1',
+          turnId: 'turn-1',
+          outcome: 'success',
+          occurredAt: '2026-07-16T01:00:01Z',
+        },
+      });
+      bridgeCallback({
+        ...firstTerminal,
+        payload: {
+          ...firstTerminal.payload,
+          eventId: 'terminal-replayed-content',
+        },
+      });
+      bridgeCallback({
+        type: 'turn/terminal',
+        payload: {
+          schemaVersion: 2,
+          eventId: 'terminal-conflict',
+          threadId: 'thread-1',
+          turnId: 'turn-1',
+          outcome: 'success',
+          occurredAt: '2026-07-16T01:00:01Z',
+        },
+      });
+      bridgeCallback({
+        type: 'turn/output/delta',
+        payload: { threadId: 'thread-1', turnId: 'turn-2', itemId: 'partial-2', delta: 'next turn' },
+      });
+      bridgeCallback({
+        type: 'turn/output/delta',
+        payload: {
+          threadId: 'thread-1',
+          turnId: 'turn-1',
+          itemId: 'partial-late',
+          delta: 'late mutation token=super-secret-value',
+        },
+      });
+      await flushAssistantDeltaBatch();
+
+      const state = useClientStore.getState();
+      expect(state.actionNotice.tone).toBe('error');
+      expect(state.timelinesByThread['thread-1']).toEqual([
+        expect.objectContaining({ id: 'partial-1', text: 'partial answer', done: true }),
+        expect.objectContaining({ terminalOutcome: 'failed' }),
+        expect.objectContaining({ id: 'partial-2', text: 'next turn', done: false }),
+      ]);
+      expect(state.timelinesByThread['thread-1']).not.toEqual(expect.arrayContaining([
+        expect.objectContaining({ text: expect.stringContaining('late mutation') }),
+      ]));
+      expect(state.warningEntries).toEqual([
+        expect.objectContaining({
+          event: 'turn.event.late',
+          threadId: 'thread-1',
+          fields: expect.objectContaining({ eventName: 'turn/output/delta', turn_id: 'turn-1' }),
+          occurrenceCount: 1,
+        }),
+        expect.objectContaining({
+          event: 'turn.terminal.conflict',
+          threadId: 'thread-1',
+          fields: expect.objectContaining({ eventName: 'turn/terminal', turn_id: 'turn-1' }),
+          occurrenceCount: 3,
+        }),
+        expect.objectContaining({ event: 'turn.terminal.failed' }),
+      ]);
+      expect(JSON.stringify(state.warningEntries)).not.toContain('super-secret-value');
+      expect(JSON.stringify(backend.emitFrontendTraceEvent.mock.calls)).not.toContain('super-secret-value');
+      expect(backend.emitFrontendTraceEvent).toHaveBeenCalledWith(expect.objectContaining({
+        phase: 'frontend.turn_event.rejected',
+        method: 'turn.terminal.conflict',
+        thread_id: 'thread-1',
+        turn_id: 'turn-1',
+      }));
+      expect(backend.emitFrontendTraceEvent).toHaveBeenCalledWith(expect.objectContaining({
+        phase: 'frontend.turn_event.rejected',
+        method: 'turn.event.late',
+        thread_id: 'thread-1',
+        turn_id: 'turn-1',
+      }));
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('rejects a stale terminal when a newer turn is active without changing UI truth', () => {
+    const actionNotice = { message: '新一轮仍在运行', tone: 'info' };
+    const timeline = [
+      { id: 'turn-1-answer', role: 'assistant', text: 'older answer', done: true, turnId: 'turn-1' },
+      { id: 'turn-2-answer', role: 'assistant', text: 'new answer', done: false, turnId: 'turn-2' },
+    ];
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'thread-1',
+      activeTurnByThread: { 'thread-1': { id: 'turn-2', status: 'running' } },
+      actionNotice,
+      timelinesByThread: { 'thread-1': timeline },
+    });
+    registerBridgeEventHandlersForTest();
+
+    bridgeCallback({
+      type: 'turn/terminal',
+      payload: {
+        schemaVersion: 2,
+        eventId: 'terminal-stale-turn-1',
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+        outcome: 'success',
+        occurredAt: '2026-07-16T01:00:00Z',
+      },
+    });
+
+    const state = useClientStore.getState();
+    expect(state.timelinesByThread['thread-1']).toBe(timeline);
+    expect(state.actionNotice).toBe(actionNotice);
+    expect(state.timelinesByThread['thread-1'][1]).toEqual(expect.objectContaining({ done: false, turnId: 'turn-2' }));
+    expect(state.warningEntries).toEqual([
+      expect.objectContaining({
+        event: 'turn.terminal.stale',
+        fields: expect.objectContaining({ eventName: 'turn/terminal', turn_id: 'turn-1' }),
+        occurrenceCount: 1,
+      }),
+    ]);
+    expect(state.activityEntries).toEqual([]);
+    expect(backend.emitFrontendTraceEvent).toHaveBeenCalledWith(expect.objectContaining({
+      phase: 'frontend.turn_event.rejected',
+      method: 'turn.terminal.stale',
+      thread_id: 'thread-1',
+      turn_id: 'turn-1',
+    }));
+  });
+
+  it('rejects item completion after the same turn is sealed', () => {
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'thread-1',
+      timelinesByThread: {
+        'thread-1': [{ id: 'assistant-turn-1', role: 'assistant', text: 'sealed answer', done: false, turnId: 'turn-1' }],
+      },
+    });
+    registerBridgeEventHandlersForTest();
+
+    bridgeCallback({
+      type: 'turn/terminal',
+      payload: {
+        schemaVersion: 2,
+        eventId: 'terminal-turn-1',
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+        outcome: 'success',
+        occurredAt: '2026-07-16T01:00:00Z',
+      },
+    });
+    const sealedTimeline = useClientStore.getState().timelinesByThread['thread-1'];
+    const sealedNotice = useClientStore.getState().actionNotice;
+
+    bridgeCallback({
+      type: 'item/completed',
+      payload: {
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+        item: { id: 'assistant-turn-1', type: 'assistant', text: 'late replacement' },
+      },
+    });
+
+    const state = useClientStore.getState();
+    expect(state.timelinesByThread['thread-1']).toBe(sealedTimeline);
+    expect(state.actionNotice).toBe(sealedNotice);
+    expect(state.warningEntries).toEqual([
+      expect.objectContaining({
+        event: 'turn.event.late',
+        fields: expect.objectContaining({ eventName: 'item/completed', turn_id: 'turn-1' }),
+        occurrenceCount: 1,
+      }),
+    ]);
+    expect(backend.emitFrontendTraceEvent).toHaveBeenCalledWith(expect.objectContaining({
+      phase: 'frontend.turn_event.rejected',
+      method: 'turn.event.late',
+      thread_id: 'thread-1',
+      turn_id: 'turn-1',
+    }));
+  });
+
+  it.each([
+    ['assistant delta', { type: 'turn/output/delta', payload: { threadId: 'thread-1', itemId: 'assistant-open', delta: 'late text' } }],
+    ['reasoning delta', { type: 'item/reasoning/textDelta', payload: { threadId: 'thread-1', delta: 'late thought' } }],
+    ['command output', { type: 'item/commandExecution/outputDelta', payload: { threadId: 'thread-1', delta: 'late output' } }],
+    ['item completion', { type: 'item/completed', payload: { threadId: 'thread-1', item: { id: 'assistant-open', type: 'assistant', text: 'late final' } } }],
+  ])('rejects %s without a canonical TurnRef before mutating UI state', async (_label, event) => {
+    vi.useFakeTimers();
+    try {
+      const actionNotice = { message: '保持原状态', tone: 'info' };
+      const timeline = [{ id: 'assistant-open', role: 'assistant', kind: 'command', text: 'existing', done: false, turnId: 'turn-1' }];
+      const activityEntries = [{ id: 'existing-activity', method: 'existing', threadId: 'thread-1' }];
+      resetClientStoreForTests({
+        cwd: '/repo/app',
+        activeProject: '/repo/app',
+        activeThreadId: 'thread-1',
+        actionNotice,
+        activityEntries,
+        timelinesByThread: { 'thread-1': timeline },
+      });
+      registerBridgeEventHandlersForTest();
+
+      bridgeCallback(event);
+      await flushAssistantDeltaBatch();
+
+      const state = useClientStore.getState();
+      expect(state.timelinesByThread['thread-1']).toBe(timeline);
+      expect(state.actionNotice).toBe(actionNotice);
+      expect(state.activityEntries).toBe(activityEntries);
+      expect(state.warningEntries).toEqual([
+        expect.objectContaining({ level: 'error', event: 'turn.event.contract_invalid' }),
+      ]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('rejects every sealed turn event through telemetry without mutating UI state', async () => {
+    vi.useFakeTimers();
+    try {
+      resetClientStoreForTests({
+        cwd: '/repo/app',
+        activeProject: '/repo/app',
+        activeThreadId: 'thread-1',
+        timelinesByThread: {
+          'thread-1': [
+            { id: 'assistant-turn-1', role: 'assistant', kind: 'assistant', text: 'answer', done: false, turnId: 'turn-1' },
+            { id: 'command-turn-1', role: 'assistant', kind: 'command', text: 'command', done: false, turnId: 'turn-1' },
+          ],
+        },
+      });
+      registerBridgeEventHandlersForTest();
+      bridgeCallback({
+        type: 'turn/terminal',
+        payload: {
+          schemaVersion: 2,
+          eventId: 'terminal-sealed-turn-1',
+          threadId: 'thread-1',
+          turnId: 'turn-1',
+          outcome: 'success',
+          occurredAt: '2026-07-16T01:00:00Z',
+        },
+      });
+      const sealedState = useClientStore.getState();
+      const timeline = sealedState.timelinesByThread['thread-1'];
+      const actionNotice = sealedState.actionNotice;
+      const activityEntries = sealedState.activityEntries;
+      backend.emitFrontendTraceEvent.mockClear();
+
+      bridgeCallback({ type: 'turn/output/delta', payload: { threadId: 'thread-1', turnId: 'turn-1', itemId: 'assistant-turn-1', delta: 'late assistant' } });
+      bridgeCallback({ type: 'item/reasoning/textDelta', payload: { threadId: 'thread-1', turnId: 'turn-1', delta: 'late thought' } });
+      bridgeCallback({ type: 'item/commandExecution/outputDelta', payload: { threadId: 'thread-1', turnId: 'turn-1', delta: 'late output' } });
+      bridgeCallback({ type: 'item/completed', payload: { threadId: 'thread-1', turnId: 'turn-1', item: { id: 'assistant-turn-1', type: 'assistant', text: 'late final' } } });
+      await flushAssistantDeltaBatch();
+
+      const state = useClientStore.getState();
+      expect(state.timelinesByThread['thread-1']).toBe(timeline);
+      expect(state.actionNotice).toBe(actionNotice);
+      expect(state.activityEntries).toBe(activityEntries);
+      expect(state.warningEntries).toEqual([
+        expect.objectContaining({
+          event: 'turn.event.late',
+          fields: expect.objectContaining({ eventName: 'item/completed', turn_id: 'turn-1' }),
+          occurrenceCount: 4,
+        }),
+      ]);
+      expect(backend.emitFrontendTraceEvent.mock.calls.filter(([payload]) => (
+        payload.phase === 'frontend.turn_event.rejected'
+      ))).toHaveLength(4);
+      expect(backend.emitFrontendTraceEvent.mock.calls.filter(([payload]) => (
+        payload.phase === 'frontend.warning' && payload.method === 'turn.event.late'
+      ))).toHaveLength(4);
+      expect(backend.emitFrontendTraceEvent).toHaveBeenCalledWith(expect.objectContaining({
+        phase: 'frontend.turn_event.rejected',
+        method: 'turn.event.late',
+        thread_id: 'thread-1',
+        turn_id: 'turn-1',
+      }));
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it.each([
+    ['assistant delta', { type: 'turn/output/delta', payload: { threadId: 'thread-1', turnId: 'turn-1', itemId: 'late-turn-1', delta: 'late answer' } }],
+    ['item completion', { type: 'item/completed', payload: { threadId: 'thread-1', turnId: 'turn-1', item: { id: 'late-turn-1', type: 'assistant', text: 'late final' } } }],
+  ])('rejects stale %s when the active turn is authoritative', async (_label, event) => {
+    vi.useFakeTimers();
+    try {
+      const activeTurn = { id: 'turn-2', status: 'running' };
+      const actionNotice = { message: 'T2 正在运行', tone: 'info' };
+      const activityEntries = [{ id: 'existing-activity', method: 'turn/started', threadId: 'thread-1' }];
+      const warningEntries = [];
+      const timeline = [{ id: 'turn-2-open', role: 'assistant', kind: 'assistant', text: 'current', done: false, turnId: 'turn-2' }];
+      resetClientStoreForTests({
+        cwd: '/repo/app',
+        activeProject: '/repo/app',
+        activeThreadId: 'thread-1',
+        activeTurnByThread: { 'thread-1': activeTurn },
+        actionNotice,
+        activityEntries,
+        warningEntries,
+        timelinesByThread: { 'thread-1': timeline },
+      });
+      registerBridgeEventHandlersForTest();
+
+      bridgeCallback(event);
+      await flushAssistantDeltaBatch();
+
+      const state = useClientStore.getState();
+      expect(state.timelinesByThread['thread-1']).toBe(timeline);
+      expect(state.actionNotice).toBe(actionNotice);
+      expect(state.activityEntries).toBe(activityEntries);
+      expect(state.warningEntries).toEqual([
+        expect.objectContaining({
+          event: 'turn.event.stale',
+          fields: expect.objectContaining({ eventName: event.type, turn_id: 'turn-1' }),
+          occurrenceCount: 1,
+        }),
+      ]);
+      expect(state.activeTurnByThread['thread-1']).toBe(activeTurn);
+      expect(backend.emitFrontendTraceEvent).toHaveBeenCalledWith(expect.objectContaining({
+        phase: 'frontend.turn_event.rejected',
+        method: 'turn.event.stale',
+        thread_id: 'thread-1',
+        turn_id: 'turn-1',
+      }));
+
+      bridgeCallback({
+        type: 'turn/terminal',
+        payload: {
+          schemaVersion: 2,
+          eventId: `terminal-turn-2-after-${event.type}`,
+          threadId: 'thread-1',
+          turnId: 'turn-2',
+          outcome: 'success',
+          occurredAt: '2026-07-16T01:00:00Z',
+        },
+      });
+      expect(useClientStore.getState().timelinesByThread['thread-1']).toEqual(expect.arrayContaining([
+        expect.objectContaining({ kind: 'turn_terminal', turnId: 'turn-2', terminalOutcome: 'success' }),
+      ]));
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it.each(['success', 'failed'])('retires an observed turn when a patch selects T2 and rejects stale T1 %s terminals without mutation', async (outcome) => {
+    vi.useFakeTimers();
+    try {
+      resetClientStoreForTests({
+        cwd: '/repo/app',
+        activeProject: '/repo/app',
+        activeThreadId: 'thread-1',
+        actionNotice: { message: 'T1 is streaming', tone: 'info' },
+        timelinesByThread: { 'thread-1': [] },
+      });
+      registerBridgeEventHandlersForTest();
+
+      bridgeCallback({
+        type: 'turn/output/delta',
+        payload: { threadId: 'thread-1', turnId: 'turn-1', itemId: 'turn-1-open', delta: 'T1 partial' },
+      });
+      bridgeCallback({
+        type: 'ui/thread/patch',
+        payload: {
+          threadId: 'thread-1',
+          sequence: '1',
+          status: 'running',
+          activeTurn: { id: 'turn-2', status: 'running' },
+        },
+      });
+
+      const beforeTerminal = useClientStore.getState();
+      const timeline = beforeTerminal.timelinesByThread['thread-1'];
+      const actionNotice = beforeTerminal.actionNotice;
+      const activityEntries = beforeTerminal.activityEntries;
+
+      bridgeCallback({
+        type: 'turn/terminal',
+        payload: {
+          schemaVersion: 2,
+          eventId: `terminal-stale-turn-1-${outcome}`,
+          threadId: 'thread-1',
+          turnId: 'turn-1',
+          outcome,
+          ...(outcome === 'failed' ? {
+            publicError: {
+              code: 'PROVIDER_FAILED',
+              title: 'Provider failed',
+              message: 'T1 failed',
+              diagnosticId: 'diag-stale-turn-1',
+              retryable: false,
+              recoveryActions: [],
+            },
+          } : {}),
+          occurredAt: '2026-07-18T01:00:00Z',
+        },
+      });
+      await flushAssistantDeltaBatch();
+
+      const state = useClientStore.getState();
+      expect(state.timelinesByThread['thread-1']).toBe(timeline);
+      expect(state.actionNotice).toBe(actionNotice);
+      expect(state.activityEntries).toBe(activityEntries);
+      expect(state.timelinesByThread['thread-1']).toEqual(expect.arrayContaining([
+        expect.objectContaining({ id: 'turn-1-open', text: 'T1 partial', done: false, turnId: 'turn-1' }),
+      ]));
+      expect(state.timelinesByThread['thread-1']).not.toEqual(expect.arrayContaining([
+        expect.objectContaining({ kind: 'turn_terminal', turnId: 'turn-1' }),
+      ]));
+      expect(state.warningEntries).toEqual([
+        expect.objectContaining({
+          event: 'turn.terminal.stale',
+          fields: expect.objectContaining({ eventName: 'turn/terminal', turn_id: 'turn-1' }),
+          occurrenceCount: 1,
+        }),
+      ]);
+      expect(backend.emitFrontendTraceEvent).toHaveBeenCalledWith(expect.objectContaining({
+        phase: 'frontend.turn_event.rejected',
+        method: 'turn.terminal.stale',
+        thread_id: 'thread-1',
+        turn_id: 'turn-1',
+      }));
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('accepts T2 first terminal after a patch retires the observed T1 turn', async () => {
+    vi.useFakeTimers();
+    try {
+      resetClientStoreForTests({
+        cwd: '/repo/app',
+        activeProject: '/repo/app',
+        activeThreadId: 'thread-1',
+        timelinesByThread: { 'thread-1': [] },
+      });
+      registerBridgeEventHandlersForTest();
+
+      bridgeCallback({
+        type: 'turn/output/delta',
+        payload: { threadId: 'thread-1', turnId: 'turn-1', itemId: 'turn-1-open', delta: 'T1 partial' },
+      });
+      bridgeCallback({
+        type: 'ui/thread/patch',
+        payload: {
+          threadId: 'thread-1',
+          sequence: '1',
+          status: 'running',
+          activeTurn: { id: 'turn-2', status: 'running' },
+        },
+      });
+      bridgeCallback({
+        type: 'turn/terminal',
+        payload: {
+          schemaVersion: 2,
+          eventId: 'terminal-active-turn-2',
+          threadId: 'thread-1',
+          turnId: 'turn-2',
+          outcome: 'success',
+          occurredAt: '2026-07-18T01:00:01Z',
+        },
+      });
+      await flushAssistantDeltaBatch();
+
+      const state = useClientStore.getState();
+      expect(state.timelinesByThread['thread-1']).toEqual(expect.arrayContaining([
+        expect.objectContaining({ id: 'turn-1-open', text: 'T1 partial', done: false, turnId: 'turn-1' }),
+        expect.objectContaining({ kind: 'turn_terminal', turnId: 'turn-2', terminalOutcome: 'success' }),
+      ]));
+      expect(state.actionNotice).toEqual(expect.objectContaining({ message: '已收到回复', tone: 'success' }));
+      expect(state.warningEntries).toEqual([]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('retires a pending T1 terminal for an authoritative T2 patch while keeping T1 late events tombstoned', async () => {
+    vi.useFakeTimers();
+    try {
+      resetClientStoreForTests({
+        cwd: '/repo/app',
+        activeProject: '/repo/app',
+        activeThreadId: 'thread-1',
+        timelinesByThread: { 'thread-1': [] },
+      });
+      registerBridgeEventHandlersForTest();
+
+      bridgeCallback({
+        type: 'turn/terminal',
+        payload: {
+          schemaVersion: 2,
+          eventId: 'terminal-pending-t1',
+          threadId: 'thread-1',
+          turnId: 'turn-1',
+          outcome: 'failed',
+          publicError: {
+            code: 'PROVIDER_FAILED',
+            title: 'Provider failed',
+            message: 'T1 failed before its partial output arrived',
+            diagnosticId: 'diag-pending-t1',
+            retryable: false,
+            recoveryActions: [],
+          },
+          partialItemIds: ['t1-partial'],
+          occurredAt: '2026-07-21T01:00:00Z',
+        },
+      });
+      bridgeCallback({
+        type: 'ui/thread/patch',
+        payload: {
+          threadId: 'thread-1',
+          sequence: '1',
+          status: 'running',
+          activeTurn: { id: 'turn-2', status: 'running' },
+        },
+      });
+      bridgeCallback({
+        type: 'turn/output/delta',
+        payload: { threadId: 'thread-1', turnId: 'turn-2', itemId: 't2-partial', delta: 'T2 partial' },
+      });
+      bridgeCallback({
+        type: 'turn/terminal',
+        payload: {
+          schemaVersion: 2,
+          eventId: 'terminal-t2',
+          threadId: 'thread-1',
+          turnId: 'turn-2',
+          outcome: 'success',
+          occurredAt: '2026-07-21T01:00:01Z',
+        },
+      });
+      bridgeCallback({
+        type: 'turn/output/delta',
+        payload: { threadId: 'thread-1', turnId: 'turn-1', itemId: 't1-late', delta: 'late T1 content' },
+      });
+      await flushAssistantDeltaBatch();
+
+      const state = useClientStore.getState();
+      expect(state.timelinesByThread['thread-1']).toEqual(expect.arrayContaining([
+        expect.objectContaining({ id: 't2-partial', text: 'T2 partial', done: true, turnId: 'turn-2' }),
+        expect.objectContaining({ kind: 'turn_terminal', turnId: 'turn-2', terminalOutcome: 'success' }),
+      ]));
+      expect(state.timelinesByThread['thread-1']).not.toEqual(expect.arrayContaining([
+        expect.objectContaining({ kind: 'turn_terminal', turnId: 'turn-1' }),
+        expect.objectContaining({ text: 'late T1 content' }),
+      ]));
+      expect(state.warningEntries).toEqual(expect.arrayContaining([
+        expect.objectContaining({ event: 'turn.event.late', fields: expect.objectContaining({ turn_id: 'turn-1' }) }),
+      ]));
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('keeps a retired terminal sealed across CWD return and retired-cache eviction without poisoning another scope', async () => {
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      projectScopeCwd: '/repo/app',
+      activeProject: '/repo/app',
+      projects: ['/repo/app', '/repo/other'],
+      activeThreadId: 'thread-1',
+      timelinesByThread: { 'thread-1': [] },
+    });
+    const otherProjectChange = deferred();
+    const otherSidebarRefresh = deferred();
+    const appProjectChange = deferred();
+    const appSidebarRefresh = deferred();
+    backend.setActiveProject
+      .mockReturnValueOnce(otherProjectChange.promise)
+      .mockReturnValueOnce(appProjectChange.promise);
+    backend.getSidebarState
+      .mockReturnValueOnce(otherSidebarRefresh.promise)
+      .mockReturnValueOnce(appSidebarRefresh.promise);
+    registerBridgeEventHandlersForTest();
+
+    bridgeCallback({
+      type: 'turn/terminal',
+      payload: {
+        schemaVersion: 2,
+        eventId: 'terminal-pending-t1',
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+        outcome: 'failed',
+        publicError: {
+          code: 'PROVIDER_FAILED',
+          title: 'Provider failed',
+          message: 'T1 failed before its partial output arrived',
+          diagnosticId: 'diag-pending-t1',
+          retryable: false,
+          recoveryActions: [],
+        },
+        partialItemIds: ['t1-partial'],
+        occurredAt: '2026-07-21T01:00:00Z',
+      },
+    });
+    bridgeCallback({
+      type: 'ui/thread/patch',
+      payload: {
+        threadId: 'thread-1',
+        sequence: '1',
+        status: 'running',
+        activeTurn: { id: 'turn-2', status: 'running' },
+      },
+    });
+    bridgeCallback({
+      type: 'turn/output/delta',
+      payload: { threadId: 'thread-1', turnId: 'turn-2', itemId: 't2-partial', delta: 'T2 partial' },
+    });
+    bridgeCallback({
+      type: 'turn/terminal',
+      payload: {
+        schemaVersion: 2,
+        eventId: 'terminal-t2',
+        threadId: 'thread-1',
+        turnId: 'turn-2',
+        outcome: 'success',
+        occurredAt: '2026-07-21T01:00:01Z',
+      },
+    });
+    useClientStore.setState({ activeTurnByThread: {} });
+
+    for (let index = 3; index < 68; index++) {
+      bridgeCallback({
+        type: 'turn/output/delta',
+        payload: {
+          threadId: 'thread-1',
+          turnId: `turn-${index}`,
+          itemId: `partial-${index}`,
+          delta: `turn ${index}`,
+        },
+      });
+      bridgeCallback({
+        type: 'turn/terminal',
+        payload: {
+          schemaVersion: 2,
+          eventId: `terminal-${index}`,
+          threadId: 'thread-1',
+          turnId: `turn-${index}`,
+          outcome: 'success',
+          occurredAt: '2026-07-21T01:00:01Z',
+        },
+      });
+    }
+
+    const switchToOther = useClientStore.getState().setActiveProjectPath('/repo/other');
+    await Promise.resolve();
+    useClientStore.setState({
+      cwd: '/repo/other',
+      activeProject: '/repo/other',
+      activeThreadId: 'thread-1',
+      threads: [{ id: 'thread-1', name: 'Other project thread', provider: 'codex', status: 'running' }],
+      timelinesByThread: { 'thread-1': [] },
+    });
+    await useClientStore.getState().deleteStaleThreads(['thread-1']);
+    useClientStore.setState({
+      cwd: '/repo/other',
+      activeProject: '/repo/other',
+      activeThreadId: 'thread-1',
+      threads: [{ id: 'thread-1', name: 'Other project thread', provider: 'codex', status: 'running' }],
+      timelinesByThread: { 'thread-1': [] },
+    });
+    bridgeCallback({
+      type: 'turn/terminal',
+      payload: {
+        cwd: '/repo/other',
+        schemaVersion: 2,
+        eventId: 'terminal-other-scope-t1',
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+        outcome: 'success',
+        occurredAt: '2026-07-21T01:00:02Z',
+      },
+    });
+    expect(useClientStore.getState().warningEntries).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ event: 'turn.terminal.stale', fields: expect.objectContaining({ turn_id: 'turn-1' }) }),
+    ]));
+    await useClientStore.getState().deleteStaleThreads(['thread-1']);
+    otherSidebarRefresh.resolve({ activeThreadId: '', threads: [] });
+    otherProjectChange.resolve({ projects: ['/repo/app', '/repo/other'], active: '/repo/other' });
+    await expect(switchToOther).resolves.toBe(true);
+
+    const switchToApp = useClientStore.getState().setActiveProjectPath('/repo/app');
+    await Promise.resolve();
+    useClientStore.setState({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'thread-1',
+      threads: [{ id: 'thread-1', name: 'App project thread', provider: 'codex', status: 'running' }],
+      timelinesByThread: { 'thread-1': [] },
+    });
+    bridgeCallback({
+      type: 'turn/output/delta',
+      payload: {
+        cwd: '/repo/app',
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+        itemId: 'late-t1',
+        delta: 'late T1 content',
+      },
+    });
+
+    expect(useClientStore.getState().timelinesByThread['thread-1']).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'late-t1' }),
+    ]));
+    expect(useClientStore.getState().warningEntries).toEqual(expect.arrayContaining([
+      expect.objectContaining({ event: 'turn.event.late', fields: expect.objectContaining({ turn_id: 'turn-1' }) }),
+    ]));
+    appSidebarRefresh.resolve({ activeThreadId: '', threads: [] });
+    appProjectChange.resolve({ projects: ['/repo/app', '/repo/other'], active: '/repo/app' });
+    await expect(switchToApp).resolves.toBe(true);
+  });
+
+  it('does not flush or finalize a newer buffered turn when an older terminal arrives before the active-turn patch', async () => {
+    vi.useFakeTimers();
+    try {
+      const actionNotice = { message: '旧轮仍显示运行中', tone: 'info' };
+      const timeline = [{ id: 'turn-1-open', role: 'assistant', kind: 'assistant', text: 'old', done: false, turnId: 'turn-1' }];
+      const activityEntries = [];
+      resetClientStoreForTests({
+        cwd: '/repo/app',
+        activeProject: '/repo/app',
+        activeThreadId: 'thread-1',
+        actionNotice,
+        activityEntries,
+        timelinesByThread: { 'thread-1': timeline },
+      });
+      registerBridgeEventHandlersForTest();
+
+      bridgeCallback({
+        type: 'turn/output/delta',
+        payload: { threadId: 'thread-1', turnId: 'turn-2', itemId: 'turn-2-open', delta: 'new turn' },
+      });
+      bridgeCallback({
+        type: 'turn/terminal',
+        payload: {
+          schemaVersion: 2,
+          eventId: 'terminal-late-turn-1',
+          threadId: 'thread-1',
+          turnId: 'turn-1',
+          outcome: 'success',
+          occurredAt: '2026-07-16T01:00:00Z',
+        },
+      });
+
+      const beforeFlush = useClientStore.getState();
+      expect(beforeFlush.timelinesByThread['thread-1']).toBe(timeline);
+      expect(beforeFlush.actionNotice).toBe(actionNotice);
+      expect(beforeFlush.activityEntries).toBe(activityEntries);
+      expect(beforeFlush.warningEntries).toEqual([
+        expect.objectContaining({
+          event: 'turn.terminal.stale',
+          fields: expect.objectContaining({ eventName: 'turn/terminal', turn_id: 'turn-1' }),
+          occurrenceCount: 1,
+        }),
+      ]);
+      expect(backend.emitFrontendTraceEvent).toHaveBeenCalledWith(expect.objectContaining({
+        phase: 'frontend.turn_event.rejected',
+        method: 'turn.terminal.stale',
+        turn_id: 'turn-1',
+      }));
+
+      await flushAssistantDeltaBatch();
+      expect(useClientStore.getState().timelinesByThread['thread-1']).toEqual([
+        expect.objectContaining({ id: 'turn-1-open', done: false, turnId: 'turn-1' }),
+        expect.objectContaining({ id: 'turn-2-open', done: false, turnId: 'turn-2' }),
+      ]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('cleans a pending terminal when a thread lifecycle ends', async () => {
+    vi.useFakeTimers();
+    try {
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'thread-1',
+      threads: [{ id: 'thread-1', name: 'Thread 1', provider: 'codex', status: 'running' }],
+      timelinesByThread: { 'thread-1': [] },
+    });
+    registerBridgeEventHandlersForTest();
+    bridgeCallback({
+      type: 'turn/terminal',
+      payload: {
+        schemaVersion: 2,
+        eventId: 'terminal-before-delete-without-delta',
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+        outcome: 'failed',
+        publicError: {
+          code: 'PROVIDER_FAILED',
+          title: '运行失败',
+          message: '删除前缺失部分响应',
+          diagnosticId: 'diag-before-delete',
+          retryable: false,
+          recoveryActions: [],
+        },
+        partialItemIds: ['partial-1'],
+        occurredAt: '2026-07-19T01:00:00Z',
+      },
+    });
+
+    await useClientStore.getState().deleteStaleThreads(['thread-1']);
+    useClientStore.setState({
+      activeThreadId: 'thread-1',
+      threads: [{ id: 'thread-1', name: 'Recreated', provider: 'codex', status: 'running' }],
+      timelinesByThread: { 'thread-1': [] },
+      actionNotice: null,
+      activityEntries: [],
+      warningEntries: [],
+    });
+    bridgeCallback({
+      type: 'turn/output/delta',
+      payload: { threadId: 'thread-1', turnId: 'turn-1', itemId: 'partial-1', delta: 'new lifecycle partial' },
+    });
+    await flushAssistantDeltaBatch();
+
+    const state = useClientStore.getState();
+    expect(state.timelinesByThread['thread-1']).toEqual([
+      expect.objectContaining({ id: 'partial-1', text: 'new lifecycle partial', done: false }),
+    ]);
+    expect(state.timelinesByThread['thread-1']).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'turn_terminal' }),
+    ]));
+    expect(state.actionNotice).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('evicts sealed terminal state when a thread lifecycle ends', async () => {
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'thread-1',
+      threads: [{ id: 'thread-1', name: 'Thread 1', provider: 'codex', status: 'running' }],
+      timelinesByThread: { 'thread-1': [] },
+    });
+    registerBridgeEventHandlersForTest();
+    const terminal = {
+      type: 'turn/terminal',
+      payload: {
+        schemaVersion: 2,
+        eventId: 'terminal-before-delete',
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+        outcome: 'success',
+        occurredAt: '2026-07-16T01:00:00Z',
+      },
+    };
+    bridgeCallback(terminal);
+
+    await useClientStore.getState().deleteStaleThreads(['thread-1']);
+    useClientStore.setState({
+      activeThreadId: 'thread-1',
+      activeTurnByThread: { 'thread-1': { id: 'turn-2', status: 'running' } },
+      threads: [{ id: 'thread-1', name: 'Recreated', provider: 'codex', status: 'running' }],
+      timelinesByThread: { 'thread-1': [] },
+      actionNotice: null,
+      activityEntries: [],
+      warningEntries: [],
+    });
+    backend.emitFrontendTraceEvent.mockClear();
+
+    bridgeCallback(terminal);
+
+    expect(useClientStore.getState()).toMatchObject({
+      actionNotice: null,
+      activityEntries: [],
+      warningEntries: [
+        expect.objectContaining({
+          event: 'turn.terminal.stale',
+          fields: expect.objectContaining({ eventName: 'turn/terminal', turn_id: 'turn-1' }),
+          occurrenceCount: 1,
+        }),
+      ],
+      timelinesByThread: { 'thread-1': [] },
+    });
+    expect(backend.emitFrontendTraceEvent).toHaveBeenCalledWith(expect.objectContaining({
+      phase: 'frontend.turn_event.rejected',
+      method: 'turn.terminal.stale',
+      thread_id: 'thread-1',
+      turn_id: 'turn-1',
+    }));
+  });
+
+  it('rejects legacy or malformed terminal payloads into a visible contract error sink', () => {
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'thread-1',
+      timelinesByThread: { 'thread-1': [] },
+    });
+    registerBridgeEventHandlersForTest();
+
+    bridgeCallback({
+      type: 'turn/completed',
+      payload: { threadId: 'thread-1', turnId: 'turn-1', success: true },
+    });
+
+    const state = useClientStore.getState();
+    expect(state.actionNotice).toEqual(expect.objectContaining({
+      tone: 'error',
+      message: '响应契约错误',
+    }));
+    expect(state.warningEntries).toEqual([
+      expect.objectContaining({ event: 'turn.terminal.contract_invalid' }),
+    ]);
+    expect(state.timelinesByThread['thread-1']).toEqual([]);
+  });
+
+  it.each([
+    ['cancelled', '本轮已取消'],
+    ['interrupted', '本轮已中断'],
+  ])('keeps a user-requested %s terminal visibly non-successful', (outcome, message) => {
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'thread-1',
+      timelinesByThread: { 'thread-1': [] },
+    });
+    registerBridgeEventHandlersForTest();
+
+    bridgeCallback({
+      type: 'turn/terminal',
+      payload: {
+        schemaVersion: 2,
+        eventId: `terminal-${outcome}-1`,
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+        outcome,
+        terminationCause: 'user_request',
+        terminationRequestId: 'stop-1',
+        occurredAt: '2026-07-16T01:00:00Z',
+      },
+    });
+
+    const state = useClientStore.getState();
+    expect(state.actionNotice).toEqual(expect.objectContaining({ tone: 'info', message }));
+    expect(state.actionNotice.tone).not.toBe('success');
+    expect(state.timelinesByThread['thread-1']).toEqual([
+      expect.objectContaining({ kind: 'turn_terminal', terminalOutcome: outcome }),
+    ]);
+    expect(state.warningEntries).toEqual([]);
   });
 
   it('routes malformed bridge event parse failures into visible warnings', () => {
@@ -6599,7 +8189,13 @@ function registerBridgeEventHandlersForTest() {
     await useClientStore.getState().renameThread('thread-1', 'Renamed');
     await useClientStore.getState().archiveThread('thread-1', true);
 
-    expect(backend.interruptTurn).toHaveBeenCalledWith({ cwd: '/repo/app', threadId: 'thread-1', source: 'ui_stop' });
+    expect(backend.interruptTurn).toHaveBeenCalledWith({
+      cwd: '/repo/app',
+      threadId: 'thread-1',
+      expectedTurnId: 'turn-1',
+      requestId: expect.any(String),
+      source: 'ui_stop',
+    });
     expect(backend.forceCompleteTurn).toHaveBeenCalledWith({ cwd: '/repo/app', threadId: 'thread-1' });
     expect(backend.compactThread).toHaveBeenCalledWith({ cwd: '/repo/app', threadId: 'thread-1' });
     expect(backend.recoverThread).toHaveBeenCalledWith({ cwd: '/repo/app', threadId: 'thread-1' });
@@ -6631,7 +8227,7 @@ function registerBridgeEventHandlersForTest() {
 
     expect(backend.forceCompleteTurn).toHaveBeenCalledWith({ cwd: '/repo/app', threadId: 'thread-1' });
     expect(useClientStore.getState().actionNotice).toEqual(expect.objectContaining({
-      message: '强制完成当前执行失败：force_complete_target_not_found',
+      message: '强制完成当前执行失败，请重试。',
       tone: 'warning',
     }));
     expect(useClientStore.getState().warningEntries).toContainEqual(expect.objectContaining({
@@ -6688,7 +8284,7 @@ function registerBridgeEventHandlersForTest() {
       });
 
       await expect(useClientStore.getState().respondApproval(approvalItem(11), true))
-        .resolves.toBe(false);
+        .rejects.toThrow('approval/respond response must be null');
 
       expect(useClientStore.getState().actionNotice).not.toEqual(expect.objectContaining({
         message: '审批结果已提交',
@@ -6748,7 +8344,7 @@ function registerBridgeEventHandlersForTest() {
     expect(backend.respondApproval).not.toHaveBeenCalled();
     expect(diagnosticBreadcrumbs()).toEqual([]);
     expect(useClientStore.getState().actionNotice).toEqual(expect.objectContaining({
-      message: '审批提交失败：approval decision must be a boolean',
+      message: '审批提交失败，请重试。',
       tone: 'error',
     }));
     expect(useClientStore.getState().warningEntries).toContainEqual(expect.objectContaining({
@@ -6860,7 +8456,7 @@ function registerBridgeEventHandlersForTest() {
     });
     backend.respondApproval.mockResolvedValueOnce({ ok: false });
 
-    await expect(useClientStore.getState().respondApproval(approvalItem(11), true)).resolves.toBe(false);
+    await expect(useClientStore.getState().respondApproval(approvalItem(11), true)).rejects.toThrow('approval/respond response must be null');
     expect(diagnosticBreadcrumbs()).toEqual([
       { actionCode: 'approval.submit', routeId: 'chat', phase: 'start' },
       { actionCode: 'approval.submit', routeId: 'chat', phase: 'failure' },
@@ -6868,7 +8464,7 @@ function registerBridgeEventHandlersForTest() {
 
     frontendBreadcrumbs.resetFrontendBreadcrumbsForTests();
     backend.respondApproval.mockRejectedValueOnce(new Error('private failure /Users/alice'));
-    await expect(useClientStore.getState().respondApproval(approvalItem(12), false)).resolves.toBe(false);
+    await expect(useClientStore.getState().respondApproval(approvalItem(12), false)).rejects.toThrow('private failure');
     expect(diagnosticBreadcrumbs()).toEqual([
       { actionCode: 'approval.submit', routeId: 'chat', phase: 'start' },
       { actionCode: 'approval.submit', routeId: 'chat', phase: 'failure' },
@@ -7073,10 +8669,16 @@ function registerBridgeEventHandlersForTest() {
 
     await expect(useClientStore.getState().interruptActiveThread()).resolves.toBe(true);
 
-    expect(backend.interruptTurn).toHaveBeenCalledWith({ cwd: '/repo/app', threadId: 'agent_123', source: 'ui_stop' });
+    expect(backend.interruptTurn).toHaveBeenCalledWith({
+      cwd: '/repo/app',
+      threadId: 'agent_123',
+      expectedTurnId: 'turn-123',
+      requestId: expect.any(String),
+      source: 'ui_stop',
+    });
   });
 
-  it('surfaces recover RPC failures without throwing an unhandled action error', async () => {
+  it('surfaces recover RPC failures to the unified action boundary', async () => {
     backend.recoverThread.mockRejectedValueOnce(new Error('orchestration: service not configured'));
     resetClientStoreForTests({
       cwd: '/repo/app',
@@ -7085,11 +8687,11 @@ function registerBridgeEventHandlersForTest() {
       threads: [{ id: 'thread-1', name: '运行线程', provider: 'codex', status: 'running' }],
     });
 
-    await expect(useClientStore.getState().recoverActiveThread()).resolves.toBe(false);
+    await expect(useClientStore.getState().recoverActiveThread()).rejects.toThrow('orchestration: service not configured');
 
     expect(backend.recoverThread).toHaveBeenCalledWith({ cwd: '/repo/app', threadId: 'thread-1' });
     expect(useClientStore.getState().actionNotice).toEqual(expect.objectContaining({
-      message: '恢复连接失败：orchestration: service not configured',
+      message: '恢复连接失败，请重试。',
       tone: 'error',
     }));
     expect(useClientStore.getState().warningEntries.at(-1)).toEqual(expect.objectContaining({
@@ -7220,7 +8822,7 @@ function registerBridgeEventHandlersForTest() {
       threads: [{ id: 'thread-1', name: '后端线程', provider: 'codex', status: 'idle', archived: false }],
     });
 
-    await expect(useClientStore.getState().archiveThread('thread-1', true)).resolves.toBe(false);
+    await expect(useClientStore.getState().archiveThread('thread-1', true)).rejects.toThrow('orchestration: service not configured');
 
     expect(backend.archiveThread).toHaveBeenCalledWith({ threadId: 'thread-1' });
     expect(backend.setPreference).not.toHaveBeenCalledWith(expect.objectContaining({
@@ -7229,7 +8831,7 @@ function registerBridgeEventHandlersForTest() {
     expect(useClientStore.getState().threads[0]).toEqual(expect.objectContaining({ archived: false, status: 'idle' }));
     expect(useClientStore.getState().threadArchiveLoadingByThread['thread-1']).toBe(false);
     expect(useClientStore.getState().actionNotice).toEqual(expect.objectContaining({
-      message: '归档会话失败：orchestration: service not configured',
+      message: '归档会话失败，请重试。',
       tone: 'error',
     }));
     expect(useClientStore.getState().warningEntries.at(-1)).toEqual(expect.objectContaining({
@@ -7247,7 +8849,7 @@ function registerBridgeEventHandlersForTest() {
       threads: [{ id: 'thread-1', name: '后端线程', provider: 'codex', status: 'idle', archived: false }],
     });
 
-    await expect(useClientStore.getState().archiveThread('thread-1', true)).resolves.toBe(true);
+    await expect(useClientStore.getState().archiveThread('thread-1', true)).rejects.toThrow('preference backend offline');
 
     expect(backend.archiveThread).toHaveBeenCalledWith({ threadId: 'thread-1' });
     expect(backend.setPreference).toHaveBeenCalledWith({
@@ -7261,7 +8863,7 @@ function registerBridgeEventHandlersForTest() {
     }));
     expect(useClientStore.getState().activeThreadId).toBe('');
     expect(useClientStore.getState().actionNotice).toEqual(expect.objectContaining({
-      message: '归档偏好保存失败：preference backend offline',
+      message: '归档偏好保存失败，请重试。',
       tone: 'error',
     }));
     expect(useClientStore.getState().warningEntries.at(-1)).toEqual(expect.objectContaining({
@@ -7279,11 +8881,11 @@ function registerBridgeEventHandlersForTest() {
       threads: [{ id: 'thread-1', name: '旧名称', provider: 'codex', status: 'idle' }],
     });
 
-    await expect(useClientStore.getState().renameThread('thread-1', '新名称')).resolves.toBe(false);
+    await expect(useClientStore.getState().renameThread('thread-1', '新名称')).rejects.toThrow('name backend offline');
 
     expect(useClientStore.getState().threads[0]).toEqual(expect.objectContaining({ name: '旧名称' }));
     expect(useClientStore.getState().actionNotice).toEqual(expect.objectContaining({
-      message: '重命名会话失败：name backend offline',
+      message: '重命名会话失败，请重试。',
       tone: 'error',
     }));
     expect(useClientStore.getState().warningEntries.at(-1)).toEqual(expect.objectContaining({
@@ -7301,11 +8903,11 @@ function registerBridgeEventHandlersForTest() {
       threads: [{ id: 'thread-1', name: '后端线程', provider: 'codex', status: 'idle', pinned: false, pinnedAt: 0 }],
     });
 
-    await expect(useClientStore.getState().toggleThreadPin('thread-1')).resolves.toBe(false);
+    await expect(useClientStore.getState().toggleThreadPin('thread-1')).rejects.toThrow('preference backend offline');
 
     expect(useClientStore.getState().threads[0]).toEqual(expect.objectContaining({ pinned: false, pinnedAt: 0 }));
     expect(useClientStore.getState().actionNotice).toEqual(expect.objectContaining({
-      message: '置顶会话失败：preference backend offline',
+      message: '置顶会话失败，请重试。',
       tone: 'error',
     }));
     expect(useClientStore.getState().warningEntries.at(-1)).toEqual(expect.objectContaining({
@@ -7339,6 +8941,32 @@ function registerBridgeEventHandlersForTest() {
       message: '已删除 1 个无用会话',
       tone: 'success',
     }));
+  });
+
+  it('commits successful thread deletions but rejects a partial failure for the action boundary', async () => {
+    resetClientStoreForTests({
+      cwd: '/repo/app',
+      activeProject: '/repo/app',
+      activeThreadId: 'thread-ok',
+      threads: [
+        { id: 'thread-ok', name: '可删除', provider: 'codex', status: 'archived', archived: true },
+        { id: 'thread-failed', name: '删除失败', provider: 'codex', status: 'archived', archived: true },
+      ],
+    });
+    const rawFailure = new Error('raw delete provider failure');
+    backend.deleteThread
+      .mockResolvedValueOnce({ ok: true })
+      .mockRejectedValueOnce(rawFailure);
+
+    await expect(useClientStore.getState().deleteStaleThreads(['thread-ok', 'thread-failed']))
+      .rejects.toThrow('1 thread delete action(s) failed');
+
+    expect(useClientStore.getState().threads.map((thread) => thread.id)).toEqual(['thread-failed']);
+    expect(useClientStore.getState().actionNotice).toEqual(expect.objectContaining({
+      message: '已删除 1 个无用会话，1 个失败',
+      tone: 'warning',
+    }));
+    expect(JSON.stringify(useClientStore.getState().actionNotice)).not.toContain('raw delete');
   });
 
   it('preserves the reference of equivalent timeline items during bridge patch merges', async () => {
@@ -7390,7 +9018,7 @@ function registerBridgeEventHandlersForTest() {
     expect(updatedTimeline[0].done).toBe(false);
   });
 
-  it('returns true when archiveThread succeeds but setPreference fails', async () => {
+  it('keeps the backend archive result but rejects when its preference write fails', async () => {
     backend.setPreference.mockRejectedValueOnce(new Error('preference write error'));
     resetClientStoreForTests({
       cwd: '/repo/app',
@@ -7399,8 +9027,7 @@ function registerBridgeEventHandlersForTest() {
       threads: [{ id: 'thread-1', name: 'Thread 1', provider: 'codex', status: 'idle', archived: false }],
     });
 
-    const result = await useClientStore.getState().archiveThread('thread-1', true);
-    expect(result).toBe(true); // 必须是 true，即便 preference 报错
+    await expect(useClientStore.getState().archiveThread('thread-1', true)).rejects.toThrow('preference write error');
     expect(useClientStore.getState().threads[0].archived).toBe(true);
   });
 
@@ -7505,7 +9132,7 @@ function registerBridgeEventHandlersForTest() {
     expect(useClientStore.getState().threads.find(t => t.id === 'thread-B').archived).toBe(true);
 
     // Resolve A (which fails)
-    await promiseA;
+    await expect(promiseA).rejects.toThrow('Archiving A failed');
 
     // A should be rolled back to active (archived = false)
     expect(useClientStore.getState().threads.find(t => t.id === 'thread-A').archived).toBe(false);

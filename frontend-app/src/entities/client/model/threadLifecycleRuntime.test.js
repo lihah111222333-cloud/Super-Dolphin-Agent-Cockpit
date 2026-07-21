@@ -1,5 +1,24 @@
 import { describe, expect, it, vi } from 'vitest';
-import { attachActiveThreadRpcRuntime } from './threadLifecycleRuntime.js';
+import { attachActiveThreadRpcRuntime, INTERRUPT_RPC_TIMEOUT_MS } from './threadLifecycleRuntime.js';
+
+function successfulInterruptResult(overrides = {}) {
+  return {
+    ok: true,
+    accepted: true,
+    requestId: 'stop-request-1',
+    expectedTurnId: 'turn-1',
+    turnId: 'turn-1',
+    status: 'interrupted',
+    confirmed: true,
+    mode: 'interrupt_confirmed',
+    interruptSent: true,
+    stateBefore: 'running',
+    stateAfter: 'idle',
+    waitedMs: 1,
+    activeObserved: true,
+    ...overrides,
+  };
+}
 
 function createRuntime(overrides = {}) {
   return {
@@ -25,11 +44,12 @@ function createStatefulRuntime(initialState) {
 
 function createDeps(overrides = {}) {
   return {
-    activeThreadInterruptTarget: vi.fn(() => ({ threadId: 'thread-1', interruptible: true })),
+    activeThreadInterruptTarget: vi.fn(() => ({ threadId: 'thread-1', turnId: 'turn-1', interruptible: true })),
     backendThreadIdForState: vi.fn((_state, threadId) => threadId),
     cleanObject: (payload) => Object.fromEntries(
       Object.entries(payload).filter(([, value]) => value !== undefined && value !== ''),
     ),
+    createRequestId: vi.fn(() => 'stop-request-1'),
     ...overrides,
   };
 }
@@ -37,15 +57,134 @@ function createDeps(overrides = {}) {
 describe('thread lifecycle runtime', () => {
   it('sends interrupt with explicit ui_stop source', async () => {
     const runtime = createRuntime();
-    const deps = createDeps();
-    const rpc = vi.fn().mockResolvedValue({ ok: true });
+    const cleanObject = vi.fn((payload) => Object.fromEntries(
+      Object.entries(payload).filter(([, value]) => value !== undefined && value !== ''),
+    ));
+    const deps = createDeps({ cleanObject });
+    const rpc = vi.fn().mockResolvedValue(successfulInterruptResult());
     attachActiveThreadRpcRuntime(runtime, deps);
 
     await expect(runtime.activeThreadRPC('thread.interrupt', rpc)).resolves.toBe(true);
 
     expect(rpc).toHaveBeenCalledTimes(1);
-    expect(rpc).toHaveBeenCalledWith({ cwd: '/repo/app', threadId: 'thread-1', source: 'ui_stop' });
+    expect(rpc).toHaveBeenCalledWith({
+      cwd: '/repo/app',
+      threadId: 'thread-1',
+      expectedTurnId: 'turn-1',
+      requestId: 'stop-request-1',
+      source: 'ui_stop',
+    });
+    expect(cleanObject).toHaveBeenCalledTimes(1);
     expect(runtime.notifyAction).toHaveBeenCalledWith('已发送中断请求', 'success', { threadId: 'thread-1' });
+    expect(runtime.notifyAction).not.toHaveBeenCalledWith(
+      '正在请求停止，尚未确认，任务可能仍在运行',
+      'info',
+      { threadId: 'thread-1' },
+    );
+  });
+
+  it.each([
+    ['null', null],
+    ['empty object', {}],
+    ['missing accepted', successfulInterruptResult({ accepted: undefined })],
+  ])('fails fast for malformed interrupt response: %s', async (_name, response) => {
+    const runtime = createRuntime();
+    const rpc = vi.fn().mockResolvedValue(response);
+    attachActiveThreadRpcRuntime(runtime, createDeps());
+
+    await expect(runtime.activeThreadRPC('thread.interrupt', rpc)).rejects.toThrow(/response contract violation/);
+    expect(runtime.notifyAction).toHaveBeenCalledWith(
+      '停止未确认，任务可能仍在运行',
+      'warning',
+      { threadId: 'thread-1' },
+    );
+    expect(runtime.notifyAction).not.toHaveBeenCalledWith('已发送中断请求', 'success', { threadId: 'thread-1' });
+  });
+
+  it.each([
+    ['requestId', { requestId: 'another-request' }],
+    ['requestId type', { requestId: 1 }],
+    ['requestId surrounding whitespace', { requestId: ' stop-request-1 ' }],
+    ['expectedTurnId', { expectedTurnId: 'another-turn' }],
+    ['turnId target', { turnId: 'another-turn' }],
+    ['mode', { mode: 'interrupt_timeout' }],
+  ])('rejects interrupt response with mismatched %s', async (_name, overrides) => {
+    const runtime = createRuntime();
+    const rpc = vi.fn().mockResolvedValue(successfulInterruptResult(overrides));
+    attachActiveThreadRpcRuntime(runtime, createDeps());
+
+    await expect(runtime.activeThreadRPC('thread.interrupt', rpc)).rejects.toThrow(/response contract violation/);
+    expect(runtime.notifyAction).toHaveBeenCalledWith(
+      '停止未确认，任务可能仍在运行',
+      'warning',
+      { threadId: 'thread-1' },
+    );
+  });
+
+  it.each([
+    ['undefined', undefined],
+    ['null', null],
+    ['zero', 0],
+  ])('preserves a falsy interrupt rejection: %s', async (_name, reason) => {
+    const runtime = createRuntime();
+    const rpc = vi.fn().mockRejectedValue(reason);
+    attachActiveThreadRpcRuntime(runtime, createDeps());
+
+    await expect(runtime.activeThreadRPC('thread.interrupt', rpc)).rejects.toBe(reason);
+    expect(runtime.notifyAction).toHaveBeenCalledWith(
+      '停止未确认，任务可能仍在运行',
+      'warning',
+      { threadId: 'thread-1' },
+    );
+    expect(runtime.notifyAction).not.toHaveBeenCalledWith(
+      '正在请求停止，尚未确认，任务可能仍在运行',
+      'info',
+      { threadId: 'thread-1' },
+    );
+  });
+
+  it('clears both interrupt timers after a quick result', async () => {
+    const clearTimeout = vi.spyOn(globalThis, 'clearTimeout');
+    try {
+      const runtime = createRuntime();
+      attachActiveThreadRpcRuntime(runtime, createDeps());
+
+      await expect(runtime.activeThreadRPC('thread.interrupt', vi.fn().mockResolvedValue(successfulInterruptResult()))).resolves.toBe(true);
+      expect(clearTimeout).toHaveBeenCalledTimes(2);
+    }
+    finally {
+      clearTimeout.mockRestore();
+    }
+  });
+
+  it('shows unconfirmed pending feedback while the interrupt RPC waits and times out', async () => {
+    vi.useFakeTimers();
+    try {
+      const runtime = createRuntime();
+      const rpc = vi.fn(() => new Promise(() => {}));
+      attachActiveThreadRpcRuntime(runtime, createDeps());
+
+      const pending = runtime.activeThreadRPC('thread.interrupt', rpc);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(runtime.notifyAction).toHaveBeenCalledWith(
+        '正在请求停止，尚未确认，任务可能仍在运行',
+        'info',
+        { threadId: 'thread-1' },
+      );
+
+      const timedOut = expect(pending).rejects.toMatchObject({ code: 'THREAD_INTERRUPT_RPC_TIMEOUT' });
+      await vi.advanceTimersByTimeAsync(INTERRUPT_RPC_TIMEOUT_MS);
+      await timedOut;
+      expect(runtime.notifyAction).toHaveBeenCalledWith(
+        '停止未确认，任务可能仍在运行',
+        'warning',
+        { threadId: 'thread-1' },
+      );
+      expect(runtime.notifyAction).not.toHaveBeenCalledWith('已发送中断请求', 'success', { threadId: 'thread-1' });
+    }
+    finally {
+      vi.useRealTimers();
+    }
   });
 
   it('reports interrupt ok:false as warning without showing success', async () => {
@@ -57,13 +196,26 @@ describe('thread lifecycle runtime', () => {
     await expect(runtime.activeThreadRPC('thread.interrupt', rpc)).resolves.toBe(false);
 
     expect(rpc).toHaveBeenCalledTimes(1);
-    expect(rpc).toHaveBeenCalledWith({ cwd: '/repo/app', threadId: 'thread-1', source: 'ui_stop' });
-    expect(runtime.notifyAction).toHaveBeenCalledWith('中断当前执行失败：turn already completed', 'warning', { threadId: 'thread-1' });
+    expect(rpc).toHaveBeenCalledWith({
+      cwd: '/repo/app',
+      threadId: 'thread-1',
+      expectedTurnId: 'turn-1',
+      requestId: 'stop-request-1',
+      source: 'ui_stop',
+    });
+    expect(runtime.notifyAction).toHaveBeenCalledWith('中断当前执行失败，请重试。', 'warning', { threadId: 'thread-1' });
+    expect(runtime.notifyAction).not.toHaveBeenCalledWith(
+      '正在请求停止，尚未确认，任务可能仍在运行',
+      'info',
+      { threadId: 'thread-1' },
+    );
     expect(runtime.notifyAction).not.toHaveBeenCalledWith('已发送中断请求', 'success', { threadId: 'thread-1' });
     expect(runtime.addWarning).toHaveBeenCalledWith('warn', 'thread.interrupt.failed', {
       threadId: 'thread-1',
-      error: 'turn already completed',
+      error: 'action failure; see Health diagnostic ID',
     });
+    expect(JSON.stringify(runtime.notifyAction.mock.calls)).not.toContain('turn already completed');
+    expect(JSON.stringify(runtime.addWarning.mock.calls)).not.toContain('turn already completed');
   });
 
   it('does not interrupt when the active target is not interruptible', async () => {
@@ -71,13 +223,40 @@ describe('thread lifecycle runtime', () => {
     const deps = createDeps({
       activeThreadInterruptTarget: vi.fn(() => ({ threadId: 'thread-1', interruptible: false })),
     });
-    const rpc = vi.fn().mockResolvedValue({ ok: true });
+    const rpc = vi.fn().mockResolvedValue(successfulInterruptResult());
     attachActiveThreadRpcRuntime(runtime, deps);
 
     await expect(runtime.activeThreadRPC('thread.interrupt', rpc)).resolves.toBe(false);
 
     expect(rpc).not.toHaveBeenCalled();
     expect(runtime.notifyAction).toHaveBeenCalledWith('当前没有可中断任务', 'warning', { threadId: 'thread-1' });
+    expect(deps.createRequestId).not.toHaveBeenCalled();
+  });
+
+  it('generates one unique request id at each accepted user stop boundary', async () => {
+    const runtime = createRuntime();
+    const deps = createDeps({
+      createRequestId: vi.fn()
+        .mockReturnValueOnce('stop-request-1')
+        .mockReturnValueOnce('stop-request-2'),
+    });
+    const rpc = vi.fn()
+      .mockResolvedValueOnce(successfulInterruptResult({ requestId: 'stop-request-1' }))
+      .mockResolvedValueOnce(successfulInterruptResult({ requestId: 'stop-request-2' }));
+    attachActiveThreadRpcRuntime(runtime, deps);
+
+    await expect(runtime.activeThreadRPC('thread.interrupt', rpc)).resolves.toBe(true);
+    await expect(runtime.activeThreadRPC('thread.interrupt', rpc)).resolves.toBe(true);
+
+    expect(deps.createRequestId).toHaveBeenCalledTimes(2);
+    expect(rpc).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      expectedTurnId: 'turn-1',
+      requestId: 'stop-request-1',
+    }));
+    expect(rpc).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      expectedTurnId: 'turn-1',
+      requestId: 'stop-request-2',
+    }));
   });
 
   it('records warning when backend lifecycle rpc fails', async () => {
@@ -86,13 +265,13 @@ describe('thread lifecycle runtime', () => {
     const rpc = vi.fn().mockRejectedValue(new Error('backend offline'));
     attachActiveThreadRpcRuntime(runtime, deps);
 
-    await expect(runtime.activeThreadRPC('thread.compact', rpc)).resolves.toBe(false);
+    await expect(runtime.activeThreadRPC('thread.compact', rpc)).rejects.toThrow('backend offline');
 
     expect(rpc).toHaveBeenCalledWith({ cwd: '/repo/app', threadId: 'thread-1' });
-    expect(runtime.notifyAction).toHaveBeenCalledWith('压缩上下文失败：backend offline', 'error', { threadId: 'thread-1' });
+    expect(runtime.notifyAction).toHaveBeenCalledWith('压缩上下文失败，请重试。', 'error', { threadId: 'thread-1' });
     expect(runtime.addWarning).toHaveBeenCalledWith('error', 'thread.compact.failed', {
       threadId: 'thread-1',
-      error: 'backend offline',
+      error: 'action failure; see Health diagnostic ID',
     });
   });
 

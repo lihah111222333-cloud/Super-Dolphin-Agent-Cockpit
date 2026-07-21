@@ -21,6 +21,11 @@ func TestArchiveAgentMarksPersistedThreadAndBindingArchivedWhenRuntimeMissing(t 
 	svc := NewService(silentLogger(), nil, nil, nil, nil, nil)
 	svc.lifecycle.agentThreads = threads
 	svc.lifecycle.agentBindings = bindings
+	acceptance, err := svc.turns.acceptRemoteTurnTerminal(remoteTerminalFixture("provider-thread-1", "turn-1"))
+	if err != nil {
+		t.Fatalf("acceptRemoteTurnTerminal() error = %v", err)
+	}
+	svc.turns.releaseRemoteTurnTerminal(acceptance)
 
 	if _, err := svc.ArchiveAgent(context.Background(), " agent-1 "); err != nil {
 		t.Fatalf("ArchiveAgent() error = %v", err)
@@ -30,6 +35,10 @@ func TestArchiveAgentMarksPersistedThreadAndBindingArchivedWhenRuntimeMissing(t 
 	}
 	if bindings.archived.AgentID != "agent-1" || !bindings.archived.Archived {
 		t.Fatalf("binding archive update = %#v, want agent-1 archived", bindings.archived)
+	}
+	stats := svc.turns.remoteTerminalSealStats()
+	if stats.Entries != 0 || stats.LifecycleClears != 1 {
+		t.Fatalf("remote terminal archive cleanup = %+v, want zero entries and one lifecycle clear", stats)
 	}
 }
 

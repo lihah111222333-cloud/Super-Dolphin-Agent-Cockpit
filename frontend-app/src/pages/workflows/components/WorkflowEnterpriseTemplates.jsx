@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { errorMessage, textValue } from '../../shared/pageShared.js';
+import { runBackgroundAction, runUIAction } from '../../../shared/ui/runUIAction.js';
+import { textValue } from '../../shared/pageShared.js';
 import { getWorkflowTemplate, rollbackWorkflowTemplate } from '../services/workflowPageService.js';
 import { EnterpriseTemplateForm, enterpriseTemplateContractError } from './WorkflowEnterpriseTemplateForm.jsx';
 import {
@@ -37,7 +38,7 @@ function EnterpriseWorkflowTemplates({ onSelectTemplate, sectionRef, selectedTem
     return true;
   }), [filters, templates]);
   const updateFilter = (key, value) => setFilters((current) => ({ ...current, [key]: value }));
-  const rollbackTemplate = async (template) => {
+  const rollbackTemplate = (template) => runUIAction('workflow.template.rollback', async () => {
     const templateId = enterpriseTemplateId(template);
     const version = enterpriseRollbackVersion(template);
     if (!templateId || !version) return;
@@ -49,11 +50,11 @@ function EnterpriseWorkflowTemplates({ onSelectTemplate, sectionRef, selectedTem
         queryClient.invalidateQueries({ queryKey: ['workflow-template-detail', templateId] }),
       ]);
     } catch (err) {
-      setRollbackState({ target: '', error: '回滚模板失败：' + errorMessage(err) });
-      return;
+      setRollbackState({ target: '', error: '回滚模板失败，请重试。' });
+      throw err;
     }
     setRollbackState({ target: '', error: '' });
-  };
+  });
   return (
     <section
       ref={sectionRef}
@@ -210,14 +211,14 @@ function EnterpriseTemplateWorkbench({ onAdjustTemplate, onStartTemplate, select
     isPending,
   } = useQuery({
     queryKey: ['workflow-template-detail', selectedTemplateId],
-    queryFn: () => getWorkflowTemplate({ templateId: selectedTemplateId }),
+    queryFn: () => runBackgroundAction('workflow.template-detail.load', () => getWorkflowTemplate({ templateId: selectedTemplateId })),
     enabled: Boolean(selectedTemplateId),
   });
   const template = data?.template || null;
 
   if (!selectedTemplateId) return null;
   if (isPending) return <section className="enterprise-template-workbench"><p>正在加载模板详情。</p></section>;
-  if (error) return <p className="danger-text" role="alert">加载模板详情失败：{errorMessage(error)}</p>;
+  if (error) return <p className="danger-text" role="alert">加载模板详情失败，请重试。</p>;
   if (!template) return null;
   const contractError = enterpriseTemplateContractError(template);
   if (contractError) return <p className="danger-text" role="alert">模板契约错误：{contractError}</p>;

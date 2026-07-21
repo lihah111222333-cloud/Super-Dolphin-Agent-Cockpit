@@ -3,9 +3,9 @@ package codexapp
 import (
 	"encoding/json"
 	"errors"
-	"fmt"
 	"slices"
 	"strings"
+	"time"
 
 	dto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/provider"
 	shareddto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/shared"
@@ -16,10 +16,17 @@ import (
 )
 
 const (
-	maxSuppressedToolEnds = 256
-	maxRolloutToolNames   = 256
-	turnToolFailurePrefix = "\x00turn_tool_failure\x00"
+	maxSuppressedToolEnds         = 256
+	maxRolloutToolNames           = 256
+	maxTerminalSeals              = 256
+	turnToolFailurePrefix         = "\x00turn_tool_failure\x00"
+	acceptedInterruptRequestIDKey = "\x00accepted_interrupt_request_id\x00"
 )
+
+type acceptedInterruptAttribution struct {
+	turnID    string
+	requestID string
+}
 
 // dispatch 统一发出 Codex provider 事件，并在发送前修正宿主可见身份。
 // Codex rollout 事件可能携带 provider 内部 UUID，这里会改写为宿主 agentID 以避免 UI 出现幽灵线程。
@@ -67,10 +74,12 @@ func (s *session) remapEventIdentity(eventType string, payload map[string]any, h
 	payload["thread_id"] = hostAgentID
 }
 
-// finishTurn 根据 provider 终态事件关闭本地 turn handle。
-// optimistic=true 表示外层已确认成功；否则会从 payload 提取错误文本并转成 handle error。
-func (s *session) finishTurn(params json.RawMessage, optimistic bool) {
-	payload := decodeEventPayload(params)
+// finishTurn 只消费 adapter 已解析的 canonical outcome，禁止重新判定 raw success/status。
+func (s *session) finishTurn(raw dto.RawProviderEvent) {
+	if raw.Terminal == nil {
+		return
+	}
+	payload := decodeAnyPayload(raw.Data)
 	turnID := payloadTurnID(payload)
 	if turnID == "" {
 		return
@@ -83,7 +92,7 @@ func (s *session) finishTurn(params json.RawMessage, optimistic bool) {
 		stringValue(payload, "error", "message", "reason"),
 		stringValue(nestedValue(payload, "error"), "message"),
 	))
-	if errText == "" && optimistic {
+	if errText == "" && raw.Terminal.Success {
 		h.complete(nil)
 		return
 	}
@@ -96,8 +105,66 @@ func (s *session) finishTurn(params json.RawMessage, optimistic bool) {
 	h.complete(errors.New(errText))
 }
 
-func (s *session) failMalformedTerminalNotification(method string) {
-	h := s.takeTurn("")
+// claimTerminalSeal records the first canonical terminal for a public thread and turn.
+// A missing live handle is valid for resumed or asynchronous provider events and is not a duplicate.
+func (s *session) claimTerminalSeal(payload map[string]any) bool {
+	key, ok := s.terminalSealKey(payload)
+	if !ok {
+		return true
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.terminalSeals == nil {
+		s.terminalSeals = map[string]struct{}{}
+	}
+	if _, exists := s.terminalSeals[key]; exists {
+		return false
+	}
+	s.terminalSeals[key] = struct{}{}
+	s.terminalSealOrder = append(s.terminalSealOrder, key)
+	for len(s.terminalSealOrder) > maxTerminalSeals {
+		oldest := s.terminalSealOrder[0]
+		s.terminalSealOrder = s.terminalSealOrder[1:]
+		delete(s.terminalSeals, oldest)
+	}
+	return true
+}
+
+func (s *session) terminalSealKey(payload map[string]any) (string, bool) {
+	turnID := strings.TrimSpace(payloadTurnID(payload))
+	threadID := strings.TrimSpace(s.agentID)
+	if threadID == "" {
+		threadID = shared.FirstNonEmpty(payloadAgentID(payload), payloadThreadID(payload))
+	}
+	if threadID == "" || turnID == "" {
+		return "", false
+	}
+	return threadID + "\x00" + turnID, true
+}
+
+// failMalformedTerminalNotification 只关闭可证明属于 active TurnRef 的 malformed terminal。
+// 无法归因的 terminal 是连接契约错误，不能伪造当前 turn 的 terminal identity。
+func (s *session) failMalformedTerminalNotification(method string, params json.RawMessage) {
+	rawTurnID := strings.TrimSpace(payloadTurnID(decodeEventPayload(params)))
+	if rawTurnID == "" {
+		pkglogger.Warn("codexapp: malformed terminal notification without turn identity",
+			"agent_id", s.agentID,
+			"method", method,
+			"thread_id", s.ThreadID(),
+		)
+		s.failNonRecoverableConnection("terminal contract: malformed terminal payload")
+		return
+	}
+	h, matched := s.takeActiveTurnIfMatches(rawTurnID)
+	if !matched {
+		pkglogger.Warn("codexapp: dropped stale malformed terminal notification",
+			"agent_id", s.agentID,
+			"method", method,
+			"thread_id", s.ThreadID(),
+			"turn_identity", "stale",
+		)
+		return
+	}
 	if h == nil {
 		pkglogger.Warn("codexapp: malformed terminal notification without active turn",
 			"agent_id", s.agentID,
@@ -108,10 +175,23 @@ func (s *session) failMalformedTerminalNotification(method string) {
 	}
 
 	turnID := strings.TrimSpace(h.ProviderID())
-	errText := fmt.Sprintf("malformed terminal notification: method=%s turn_id=%s", method, turnID)
-	if threadID := s.ThreadID(); threadID != "" {
-		errText += " thread_id=" + threadID
+	if turnID == "" {
+		turnID = strings.TrimSpace(h.LocalID())
 	}
+	errText := "terminal contract: malformed terminal payload"
+	outcome := &dto.TerminalOutcome{Status: "failed", ContractError: "malformed terminal payload"}
+	payload := map[string]any{
+		"agent_id":  s.agentID,
+		"thread_id": s.agentID,
+		"turn_id":   turnID,
+		"timestamp": time.Now().UTC().Format(time.RFC3339Nano),
+		"error":     errText,
+	}
+	if !s.claimTerminalSeal(payload) {
+		h.complete(errors.New(errText))
+		return
+	}
+	s.dispatch(dto.RawProviderEvent{EventType: "turn/completed", Terminal: outcome, Data: payload})
 	pkglogger.Warn("codexapp: malformed terminal notification failed active turn",
 		"agent_id", s.agentID,
 		"method", method,
@@ -121,6 +201,31 @@ func (s *session) failMalformedTerminalNotification(method string) {
 	h.complete(errors.New(errText))
 }
 
+// takeActiveTurnIfMatches 仅在原始 turn 身份属于当前 TurnRef 时原子地领取并回收 active handle。
+func (s *session) takeActiveTurnIfMatches(rawTurnID string) (*turnHandle, bool) {
+	rawTurnID = strings.TrimSpace(rawTurnID)
+	s.mu.Lock()
+	turnID := s.activeTurnID
+	h := s.turns[turnID]
+	matched := h != nil && rawTurnID != "" && (rawTurnID == turnID ||
+		rawTurnID == strings.TrimSpace(h.ProviderID()) || rawTurnID == strings.TrimSpace(h.LocalID()))
+	if !matched {
+		s.mu.Unlock()
+		return nil, false
+	}
+	delete(s.turns, turnID)
+	delete(s.interruptRequests, turnID)
+	s.setActiveTurnLocked("")
+	if s.pendingTurn != nil && s.pendingTurn.handle == h {
+		s.pendingTurn = nil
+	}
+	s.mu.Unlock()
+	// 将身份核验和回收保持在同一个 session 锁临界区，避免旧 terminal 与新 active turn 交叉归因。
+	s.dropTurnOutputAccumulator(turnID)
+	s.discardTurnToolFailures(turnID)
+	return h, true
+}
+
 func (s *session) takeTurn(turnID string) *turnHandle {
 	s.mu.Lock()
 	if turnID == "" {
@@ -128,8 +233,9 @@ func (s *session) takeTurn(turnID string) *turnHandle {
 	}
 	h := s.turns[turnID]
 	delete(s.turns, turnID)
+	delete(s.interruptRequests, turnID)
 	if turnID == s.activeTurnID {
-		s.activeTurnID = ""
+		s.setActiveTurnLocked("")
 	}
 	if s.pendingTurn != nil && s.pendingTurn.handle == h {
 		s.pendingTurn = nil
@@ -139,6 +245,68 @@ func (s *session) takeTurn(turnID string) *turnHandle {
 	s.dropTurnOutputAccumulator(turnID)
 	s.discardTurnToolFailures(turnID)
 	return h
+}
+
+// applyAcceptedInterruptRequest 消费同一 active TurnRef 的 Stop claim。
+// pending 表示请求已进入 wire；此时先到达的终态本身就是 provider 接受请求的证明。
+func (s *session) applyAcceptedInterruptRequest(payload map[string]any, outcome *dto.TerminalOutcome) bool {
+	if outcome == nil || outcome.ContractError != "" ||
+		(outcome.Status != "interrupted" && outcome.Status != "cancelled") || outcome.Cause == "system" {
+		return false
+	}
+	turnID := strings.TrimSpace(payloadTurnID(payload))
+	if turnID == "" {
+		return false
+	}
+	s.mu.Lock()
+	claim := s.consumeInterruptClaimLocked(turnID)
+	s.mu.Unlock()
+	if claim == nil {
+		return false
+	}
+	requestID := strings.TrimSpace(claim.requestID)
+	if requestID == "" {
+		return false
+	}
+	outcome.Cause = "user_request"
+	outcome.RequestID = requestID
+	payload["termination_cause"] = outcome.Cause
+	payload["termination_request_id"] = outcome.RequestID
+	return true
+}
+
+// clearCodexProviderUserAttribution 清除 raw provider 无权声明的 Stop request 归因。
+func clearCodexProviderUserAttribution(payload map[string]any) bool {
+	changed := false
+	for _, key := range []string{"termination_request_id", "terminationRequestId"} {
+		if _, exists := payload[key]; exists {
+			delete(payload, key)
+			changed = true
+		}
+	}
+	for _, key := range []string{"termination_cause", "terminationCause"} {
+		if cause, ok := payload[key].(string); ok && strings.TrimSpace(cause) == "user_request" {
+			delete(payload, key)
+			changed = true
+		}
+	}
+	return changed
+}
+
+// consumeInterruptClaimLocked 仅消费与当前 active turn 代际一致且已进入 wire 的 claim。
+func (s *session) consumeInterruptClaimLocked(turnID string) *interruptRequestClaim {
+	claim := s.interruptRequests[turnID]
+	if claim == nil || claim.turnID != turnID {
+		return nil
+	}
+	if claim.generation != s.activeTurnGeneration || turnID != strings.TrimSpace(s.activeTurnID) {
+		return nil
+	}
+	if claim.state != interruptRequestPending && claim.state != interruptRequestAccepted {
+		return nil
+	}
+	claim.state = interruptRequestConsumed
+	return claim
 }
 
 func (s *session) forceCompleteTargetTurnID(providerID string) (string, bool) {
@@ -156,24 +324,26 @@ func (s *session) forceCompleteTargetTurnID(providerID string) (string, bool) {
 }
 
 func (s *session) forceCompleteTurn(turnID string) {
-	s.completeSyntheticTurn(turnID, "force_complete", "")
+	s.completeSyntheticTurn(turnID, "force_complete", "", nil)
 }
 
 // completeSyntheticTurn 在 Codex 只给出 assistant message 时合成 turn 终态。
-// 若同一 active turn 已记录工具失败，终态必须标为 completed_with_errors，避免 UI 误显示干净完成。
-func (s *session) completeSyntheticTurn(turnID, reason, result string) {
+// 若同一 active turn 已记录工具失败，终态必须标为 failed，避免 UI 误显示干净完成。
+func (s *session) completeSyntheticTurn(turnID, reason, result string, acceptedItemIDs []string) {
 	turnID = strings.TrimSpace(turnID)
 	if turnID == "" {
 		return
 	}
-	s.suppressTurn(turnID)
 	failures := s.takeTurnToolFailures(turnID)
 	success := len(failures) == 0
 	status := "completed"
 	if !success {
-		status = "completed_with_errors"
+		status = "failed"
 	}
 	payload := map[string]any{"turnId": turnID, "success": success, "status": status, "reason": strings.TrimSpace(reason)}
+	if len(acceptedItemIDs) > 0 {
+		payload["accepted_partial_item_ids"] = slices.Clone(acceptedItemIDs)
+	}
 	if !success {
 		payload["error"] = toolFailureSummary(failures)
 		payload["tool_failure_count"] = len(failures)
@@ -186,14 +356,21 @@ func (s *session) completeSyntheticTurn(turnID, reason, result string) {
 	if result != "" {
 		payload["result"] = result
 	}
-	s.dispatch(dto.RawProviderEvent{EventType: "turn/completed", Data: payload})
-	if h := s.takeTurn(turnID); h != nil {
-		if !success {
-			h.complete(errors.New(toolFailureSummary(failures)))
-			return
-		}
-		h.complete(nil)
+	outcome := &dto.TerminalOutcome{Success: success, Status: status, Cause: strings.TrimSpace(reason)}
+	if !s.claimTerminalSeal(payload) {
+		return
 	}
+	h := s.takeTurn(turnID)
+	s.suppressTurn(turnID)
+	s.dispatch(dto.RawProviderEvent{EventType: "turn/completed", Data: payload, Terminal: outcome})
+	if h == nil {
+		return
+	}
+	if !success {
+		h.complete(errors.New(toolFailureSummary(failures)))
+		return
+	}
+	h.complete(nil)
 }
 
 type turnToolFailure struct {
@@ -618,7 +795,7 @@ func (s *session) rolloutEndToolName(callID string, item map[string]any) string 
 // toolEventEndOutcome 从工具结束事件中推导成功状态和错误文本。
 // 顶层错误优先，嵌套 result 若声明失败也会覆盖 success，保证 UI 看到真实失败。
 func toolEventEndOutcome(eventType string, payload map[string]any) (bool, string) {
-	success := turnTerminalSuccess(eventType, payload)
+	success := toolEventRawSuccess(eventType, payload)
 	errorText := stringValue(payload, "error", "message", "reason")
 	if errorText != "" {
 		success = false
@@ -663,7 +840,8 @@ func (s *session) failTurns(err error) {
 	s.mu.Lock()
 	turns := s.turns
 	s.turns = map[string]*turnHandle{}
-	s.activeTurnID = ""
+	s.setActiveTurnLocked("")
+	s.interruptRequests = nil
 	s.pendingTurn = nil
 	s.mu.Unlock()
 	// 失败所有 turn 时同步丢弃 providerID 对应的输出累积器，避免关闭后残留大文本缓冲。

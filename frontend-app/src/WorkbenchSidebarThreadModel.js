@@ -104,7 +104,7 @@ export function useSidebarThreadActions(store, options = {}) {
     event?.stopPropagation?.();
     if (!threadId) return;
     setDeletingThreadId('');
-    runUIAction(async () => {
+    runUIAction('thread.delete', async () => {
       const result = await store?.deleteStaleThreads?.([threadId]);
       if (!result || result.deleted > 0) onDeleteThreads?.([threadId]);
     }, uiActionOptions(store));

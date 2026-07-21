@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { firstPresentText } from '../shared/pageShared.js';
 import { settingsPageService } from './services/settingsPageService.js';
 import { PROVIDER_LABELS, isCurrentPreferenceRequest } from './settingsPageRuntime.js';
+import { runBackgroundAction, runUIAction } from '../../shared/ui/runUIAction.js';
 
 const { readBuiltinTools, writeBuiltinTool } = settingsPageService;
 
@@ -19,11 +20,11 @@ function useBuiltinToolsSettings(cwd, copy) {
     return () => loadRequestSeq.current === requestSeq;
   }, []);
   const applyPayload = useCallback((payload) => setTools(normalizeBuiltinTools(payload)), []);
-  const load = useCallback(() => loadBuiltinTools({ applyPayload, copy, cwd, isCurrent: nextLoadRequest(), setLoading, setNotice }), [applyPayload, copy, cwd, nextLoadRequest]);
-  const toggleTool = useCallback((tool) => toggleBuiltinTool({ applyPayload, copy, cwd, savingIds, setNotice, setSavingIds, setTools, tool }), [applyPayload, copy, cwd, savingIds]);
+  const load = useCallback(() => runUIAction('settings.builtin.load', () => loadBuiltinTools({ applyPayload, copy, cwd, isCurrent: nextLoadRequest(), setLoading, setNotice }), { retryable: true }), [applyPayload, copy, cwd, nextLoadRequest]);
+  const toggleTool = useCallback((tool) => runUIAction('settings.builtin.toggle', () => toggleBuiltinTool({ applyPayload, copy, cwd, savingIds, setNotice, setSavingIds, setTools, tool })), [applyPayload, copy, cwd, savingIds]);
   const toggleGroup = useCallback((key) => setExpandedGroups((prev) => ({ ...prev, [key]: !prev[key] })), []);
   const groups = useMemo(() => builtinToolGroups(tools, builtinsCopy), [builtinsCopy, tools]);
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => { runBackgroundAction('settings.builtin.bootstrap', () => loadBuiltinTools({ applyPayload, copy, cwd, isCurrent: nextLoadRequest(), setLoading, setNotice })); }, [applyPayload, copy, cwd, nextLoadRequest]);
   return {
     expandedGroups,
     filteredCount: tools.filter((tool) => tool.replacedBy || !tool.enabled).length,
@@ -83,7 +84,8 @@ async function loadBuiltinTools(state) {
       setNotice({ level: 'info', message: '' });
     }
   } catch (error) {
-    if (isCurrentPreferenceRequest(isCurrent)) setNotice({ level: 'error', message: copy.builtins.loadFailed + (error?.message || error) });
+    if (isCurrentPreferenceRequest(isCurrent)) setNotice({ level: 'error', message: copy.builtins.loadFailed });
+    throw error;
   } finally {
     if (isCurrentPreferenceRequest(isCurrent)) setLoading(false);
   }
@@ -100,7 +102,8 @@ async function toggleBuiltinTool(state) {
     setNotice({ level: 'info', message: (tool.label || tool.id) + ' ' + (nextEnabled ? copy.builtins.enabledSuffix : copy.builtins.disabledSuffix) });
   } catch (error) {
     setTools((prev) => prev.map((item) => (item.id === tool.id ? { ...item, enabled: !nextEnabled } : item)));
-    setNotice({ level: 'error', message: copy.builtins.saveFailed + (error?.message || error) });
+    setNotice({ level: 'error', message: copy.builtins.saveFailed });
+    throw error;
   } finally {
     setSavingIds((prev) => ({ ...prev, [tool.id]: false }));
   }

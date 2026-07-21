@@ -13,9 +13,9 @@ function createSelectFilesForComposerAction(runtime, deps) {
       return attachments;
     }
     catch (error) {
-      runtime.notifyAction(error.message || String(error), 'error', { category: 'attachment' });
-      runtime.addWarning('error', 'attachments.select.failed', { error: error.message || String(error) });
-      return [];
+      runtime.notifyAction('选择附件失败，请重试。', 'error', { category: 'attachment' });
+      runtime.addWarning('error', 'attachments.select.failed', { error: 'action failure; see Health diagnostic ID' });
+      throw error;
     }
   };
 }
@@ -145,7 +145,7 @@ function createSaveComposerModelConfigAction(runtime, deps) {
     const target = await composerModelConfigTarget(config, state, runtime.get().loadThreadConfig);
     if (target.threadId && !target.threadConfig) {
       runtime.notifyAction('线程配置加载失败，无法保存模型配置', 'error', { threadId: target.threadId });
-      return false;
+      throw new TypeError('thread config is required for composer model save');
     }
     if (target.threadConfig?.supportsThreadOverride) {
       return saveThreadComposerModelConfig(target, runtime.set, runtime.addWarning);
@@ -173,7 +173,8 @@ function createRestoreComposerModelInheritanceAction(runtime, deps) {
       return true;
     }
     catch (error) {
-      return runtime.notifyRPCFailure('恢复线程模型继承', 'thread.config.restore.failed', error, { threadId });
+      runtime.notifyRPCFailure('恢复线程模型继承', 'thread.config.restore.failed', error, { threadId });
+      throw error;
     }
   };
 }
@@ -203,7 +204,8 @@ function createSaveComposerModelProviderAction(runtime, deps) {
       return true;
     }
     catch (error) {
-      return runtime.notifyRPCFailure('模型渠道保存', 'provider.model_provider.save.failed', error, { provider: 'codex' });
+      runtime.notifyRPCFailure('模型渠道保存', 'provider.model_provider.save.failed', error, { provider: 'codex' });
+      throw error;
     }
   };
 }
@@ -261,7 +263,7 @@ async function rollbackFailedSendDraft(runtime, deps, activeRequest, threadId, e
   runtime.set((state) => deps.rollbackSendDraftState(state, activeRequest, error, { createdThreadId }));
   if (shouldCacheFailedDraft) deps.saveFailedSendDraftSnapshot(runtime, activeRequest);
   await deps.deleteProvisionalThreadAfterSendFailure(createdThreadId, runtime.addWarning);
-  const displayMessage = deps.recoveryActionMessageFromRPCError(error) || error.message;
+  const displayMessage = deps.recoveryActionMessageFromRPCError(error) || 'action failure; see Health diagnostic ID';
   runtime.addWarning('error', 'thread.send.failed', { error: displayMessage });
 }
 

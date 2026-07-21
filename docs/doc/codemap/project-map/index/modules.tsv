@@ -617,15 +617,16 @@ internal/module/turn/assembler.go	internal	modules	go-source	8840	turn 启动、
 internal/module/turn/contract.go	internal	modules	go-source	7953	turn 启动、执行、审批与 provider 调度	internal,module,turn,contract,启动,执行,审批与,provider,调度
 internal/module/turn/expanded_state_test.go	internal	modules	go-test	10133	turn 启动、执行、审批与 provider 调度	internal,module,turn,expanded,state,test,启动,执行,审批与,provider,调度
 internal/module/turn/expanded_state.go	internal	modules	go-source	9667	turn 启动、执行、审批与 provider 调度	internal,module,turn,expanded,state,启动,执行,审批与,provider,调度
-internal/module/turn/factory.go	internal	modules	go-source	23580	turn 启动、执行、审批与 provider 调度	internal,module,turn,factory,启动,执行,审批与,provider,调度
+internal/module/turn/factory.go	internal	modules	go-source	24714	turn 启动、执行、审批与 provider 调度	internal,module,turn,factory,启动,执行,审批与,provider,调度
 internal/module/turn/feedback_proposer_test.go	internal	modules	go-test	1236	turn 启动、执行、审批与 provider 调度	internal,module,turn,feedback,proposer,test,启动,执行,审批与,provider,调度
 internal/module/turn/feedback_proposer.go	internal	modules	go-source	2186	turn 启动、执行、审批与 provider 调度	internal,module,turn,feedback,proposer,启动,执行,审批与,provider,调度
 internal/module/turn/frc_config.go	internal	modules	go-source	1980	turn 启动、执行、审批与 provider 调度	internal,module,turn,frc,config,启动,执行,审批与,provider,调度
 internal/module/turn/frc_lifecycle_test.go	internal	modules	go-test	3096	turn 启动、执行、审批与 provider 调度	internal,module,turn,frc,lifecycle,test,启动,执行,审批与,provider,调度
-internal/module/turn/interrupt_envelope.go	internal	modules	go-source	3852	turn 启动、执行、审批与 provider 调度	internal,module,turn,interrupt,envelope,启动,执行,审批与,provider,调度
-internal/module/turn/interrupt_rpc_test.go	internal	modules	go-test	10978	turn 启动、执行、审批与 provider 调度	internal,module,turn,interrupt,rpc,test,启动,执行,审批与,provider,调度
+internal/module/turn/interrupt_atomic_test.go	internal	modules	go-test	13100	turn 启动、执行、审批与 provider 调度	internal,module,turn,interrupt,atomic,test,启动,执行,审批与,provider,调度
+internal/module/turn/interrupt_envelope.go	internal	modules	go-source	4637	turn 启动、执行、审批与 provider 调度	internal,module,turn,interrupt,envelope,启动,执行,审批与,provider,调度
+internal/module/turn/interrupt_rpc_test.go	internal	modules	go-test	18999	turn 启动、执行、审批与 provider 调度	internal,module,turn,interrupt,rpc,test,启动,执行,审批与,provider,调度
 internal/module/turn/interrupt_service_test.go	internal	modules	go-test	4173	turn 启动、执行、审批与 provider 调度	internal,module,turn,interrupt,service,test,启动,执行,审批与,provider,调度
-internal/module/turn/interrupt_service.go	internal	modules	go-source	3930	turn 启动、执行、审批与 provider 调度	internal,module,turn,interrupt,service,启动,执行,审批与,provider,调度
+internal/module/turn/interrupt_service.go	internal	modules	go-source	4751	turn 启动、执行、审批与 provider 调度	internal,module,turn,interrupt,service,启动,执行,审批与,provider,调度
 internal/module/turn/manifest_p2_transport_test.go	internal	modules	go-test	6630	turn 启动、执行、审批与 provider 调度	internal,module,turn,manifest,p2,transport,test,启动,执行,审批与,provider,调度
 internal/module/turn/manifest.go	internal	modules	go-source	5387	turn 启动、执行、审批与 provider 调度	internal,module,turn,manifest,启动,执行,审批与,provider,调度
 internal/module/turn/mcp_server_config_test.go	internal	modules	go-test	4937	turn 启动、执行、审批与 provider 调度	internal,module,turn,mcp,server,config,test,启动,执行,审批与,provider,调度
@@ -648,9 +649,9 @@ internal/module/turn/prompt_context.go	internal	modules	go-source	3630	turn 启�
 internal/module/turn/redaction_test.go	internal	modules	go-test	6183	turn 启动、执行、审批与 provider 调度	internal,module,turn,redaction,test,启动,执行,审批与,provider,调度
 internal/module/turn/redaction.go	internal	modules	go-source	4105	turn 启动、执行、审批与 provider 调度	internal,module,turn,redaction,启动,执行,审批与,provider,调度
 internal/module/turn/rpc_helpers_test.go	internal	modules	go-test	12352	turn 启动、执行、审批与 provider 调度	internal,module,turn,rpc,helpers,test,启动,执行,审批与,provider,调度
-internal/module/turn/rpc_helpers.go	internal	modules	go-source	19839	turn 启动、执行、审批与 provider 调度	internal,module,turn,rpc,helpers,启动,执行,审批与,provider,调度
+internal/module/turn/rpc_helpers.go	internal	modules	go-source	20949	turn 启动、执行、审批与 provider 调度	internal,module,turn,rpc,helpers,启动,执行,审批与,provider,调度
 internal/module/turn/rpc_types_test.go	internal	modules	go-test	8289	turn 启动、执行、审批与 provider 调度	internal,module,turn,rpc,types,test,启动,执行,审批与,provider,调度
-internal/module/turn/rpc_types.go	internal	modules	go-source	23182	turn 启动、执行、审批与 provider 调度	internal,module,turn,rpc,types,启动,执行,审批与,provider,调度
+internal/module/turn/rpc_types.go	internal	modules	go-source	24150	turn 启动、执行、审批与 provider 调度	internal,module,turn,rpc,types,启动,执行,审批与,provider,调度
 internal/module/turn/rpc.go	internal	modules	go-source	1037	turn 启动、执行、审批与 provider 调度	internal,module,turn,rpc,启动,执行,审批与,provider,调度
 internal/module/turn/runtime_config_contract_test.go	internal	modules	go-test	3113	turn 启动、执行、审批与 provider 调度	internal,module,turn,runtime,config,contract,test,启动,执行,审批与,provider,调度
 internal/module/turn/service_dedupe_store_test.go	internal	modules	go-test	9117	turn 启动、执行、审批与 provider 调度	internal,module,turn,service,dedupe,store,test,启动,执行,审批与,provider,调度
@@ -667,7 +668,7 @@ internal/module/turn/skill_extractor.go	internal	modules	go-source	11950	turn �
 internal/module/turn/skills_test.go	internal	modules	go-test	12420	turn 启动、执行、审批与 provider 调度	internal,module,turn,skills,test,启动,执行,审批与,provider,调度
 internal/module/turn/skills.go	internal	modules	go-source	14684	turn 启动、执行、审批与 provider 调度	internal,module,turn,skills,启动,执行,审批与,provider,调度
 internal/module/turn/test_msg/send_text_test.go	internal	modules	go-test	5499	turn 启动、执行、审批与 provider 调度	internal,module,turn,test,msg,send,text,启动,执行,审批与,provider,调度
-internal/module/turn/thread_cleanup.go	internal	modules	go-source	1151	turn 启动、执行、审批与 provider 调度	internal,module,turn,thread,cleanup,启动,执行,审批与,provider,调度
+internal/module/turn/thread_cleanup.go	internal	modules	go-source	1155	turn 启动、执行、审批与 provider 调度	internal,module,turn,thread,cleanup,启动,执行,审批与,provider,调度
 internal/module/turn/tool_result_budget.go	internal	modules	go-source	7018	turn 启动、执行、审批与 provider 调度	internal,module,turn,tool,result,budget,启动,执行,审批与,provider,调度
 internal/module/turn/tool_result_lifecycle_unit_test.go	internal	modules	go-test	1522	turn 启动、执行、审批与 provider 调度	internal,module,turn,tool,result,lifecycle,unit,test,启动,执行,审批与,provider,调度
 internal/module/turn/tool_result_lifecycle.go	internal	modules	go-source	4948	turn 启动、执行、审批与 provider 调度	internal,module,turn,tool,result,lifecycle,启动,执行,审批与,provider,调度
@@ -676,7 +677,7 @@ internal/module/turn/tool_result_storage.go	internal	modules	go-source	3575	turn
 internal/module/turn/tracing_lifecycle_test.go	internal	modules	go-test	5649	turn 启动、执行、审批与 provider 调度	internal,module,turn,tracing,lifecycle,test,启动,执行,审批与,provider,调度
 internal/module/turn/tracker_states.go	internal	modules	go-source	3257	turn 启动、执行、审批与 provider 调度	internal,module,turn,tracker,states,启动,执行,审批与,provider,调度
 internal/module/turn/tracker_test.go	internal	modules	go-test	8109	turn 启动、执行、审批与 provider 调度	internal,module,turn,tracker,test,启动,执行,审批与,provider,调度
-internal/module/turn/tracker.go	internal	modules	go-source	14800	turn 启动、执行、审批与 provider 调度	internal,module,turn,tracker,启动,执行,审批与,provider,调度
+internal/module/turn/tracker.go	internal	modules	go-source	19232	turn 启动、执行、审批与 provider 调度	internal,module,turn,tracker,启动,执行,审批与,provider,调度
 internal/module/turn/trajectory_collector_test.go	internal	modules	go-test	8795	turn 启动、执行、审批与 provider 调度	internal,module,turn,trajectory,collector,test,启动,执行,审批与,provider,调度
 internal/module/turn/trajectory_collector.go	internal	modules	go-source	12942	turn 启动、执行、审批与 provider 调度	internal,module,turn,trajectory,collector,启动,执行,审批与,provider,调度
 internal/module/uistate/arch_guard_test.go	internal	modules	go-test	1145	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,arch,guard,test,UI,事件投影,sidebar,timeline,状态
@@ -687,14 +688,14 @@ internal/module/uistate/config_rpc.go	internal	modules	go-source	14500	UI 事件
 internal/module/uistate/contract_facade.go	internal	modules	go-source	1075	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,contract,facade,UI,事件投影,sidebar,timeline,状态
 internal/module/uistate/diff_state_test.go	internal	modules	go-test	7164	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,diff,state,test,UI,事件投影,sidebar,timeline,状态
 internal/module/uistate/diff_state.go	internal	modules	go-source	7841	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,diff,state,UI,事件投影,sidebar,timeline,状态
-internal/module/uistate/factory.go	internal	modules	go-source	3961	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,factory,UI,事件投影,sidebar,timeline,状态
+internal/module/uistate/factory.go	internal	modules	go-source	3986	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,factory,UI,事件投影,sidebar,timeline,状态
 internal/module/uistate/model_providers_test.go	internal	modules	go-test	11269	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,model,providers,test,UI,事件投影,sidebar,timeline,状态
 internal/module/uistate/model_providers_wire_test.go	internal	modules	go-test	3940	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,model,providers,wire,test,UI,事件投影,sidebar,timeline,状态
 internal/module/uistate/model_providers.go	internal	modules	go-source	14905	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,model,providers,UI,事件投影,sidebar,timeline,状态
 internal/module/uistate/module_runtime_test.go	internal	modules	go-test	7181	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,runtime,test,UI,事件投影,sidebar,timeline,状态
 internal/module/uistate/module.go	internal	modules	go-source	7519	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,UI,事件投影,sidebar,timeline,状态
 internal/module/uistate/overlay_test.go	internal	modules	go-test	14320	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,overlay,test,UI,事件投影,sidebar,timeline,状态
-internal/module/uistate/patch_test.go	internal	modules	go-test	21296	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,patch,test,UI,事件投影,sidebar,timeline,状态
+internal/module/uistate/patch_test.go	internal	modules	go-test	21872	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,patch,test,UI,事件投影,sidebar,timeline,状态
 internal/module/uistate/patch_timeline.go	internal	modules	go-source	4604	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,patch,timeline,UI,事件投影,sidebar,状态
 internal/module/uistate/patch.go	internal	modules	go-source	17531	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,patch,UI,事件投影,sidebar,timeline,状态
 internal/module/uistate/persistence_port.go	internal	modules	go-source	1604	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,persistence,port,UI,事件投影,sidebar,timeline,状态
@@ -702,9 +703,9 @@ internal/module/uistate/phase2_stats_patch_pending_test.go	internal	modules	go-t
 internal/module/uistate/preferences_event_test.go	internal	modules	go-test	1355	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,preferences,event,test,UI,事件投影,sidebar,timeline,状态
 internal/module/uistate/preferences_runtime_contract_test.go	internal	modules	go-test	6827	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,preferences,runtime,contract,test,UI,事件投影,sidebar,timeline,状态
 internal/module/uistate/preferences.go	internal	modules	go-source	16602	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,preferences,UI,事件投影,sidebar,timeline,状态
-internal/module/uistate/projector_handlers.go	internal	modules	go-source	18348	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,projector,handlers,UI,事件投影,sidebar,timeline,状态
-internal/module/uistate/projector_status_test.go	internal	modules	go-test	19064	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,projector,status,test,UI,事件投影,sidebar,timeline,状态
-internal/module/uistate/projector.go	internal	modules	go-source	13791	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,projector,UI,事件投影,sidebar,timeline,状态
+internal/module/uistate/projector_handlers.go	internal	modules	go-source	19545	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,projector,handlers,UI,事件投影,sidebar,timeline,状态
+internal/module/uistate/projector_status_test.go	internal	modules	go-test	22812	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,projector,status,test,UI,事件投影,sidebar,timeline,状态
+internal/module/uistate/projector.go	internal	modules	go-source	13914	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,projector,UI,事件投影,sidebar,timeline,状态
 internal/module/uistate/projects_concurrency_test.go	internal	modules	go-test	2855	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,projects,concurrency,test,UI,事件投影,sidebar,timeline,状态
 internal/module/uistate/projects_test.go	internal	modules	go-test	5241	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,projects,test,UI,事件投影,sidebar,timeline,状态
 internal/module/uistate/projects.go	internal	modules	go-source	6822	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,projects,UI,事件投影,sidebar,timeline,状态
@@ -714,11 +715,13 @@ internal/module/uistate/service.go	internal	modules	go-source	17227	UI 事件投
 internal/module/uistate/sidebar_clone_contract_test.go	internal	modules	go-test	3898	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,sidebar,clone,contract,test,UI,事件投影,timeline,状态
 internal/module/uistate/sidebar_compat.go	internal	modules	go-source	13572	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,sidebar,compat,UI,事件投影,timeline,状态
 internal/module/uistate/sidebar_test.go	internal	modules	go-test	25101	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,sidebar,test,UI,事件投影,timeline,状态
-internal/module/uistate/snapshot_helpers.go	internal	modules	go-source	12110	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,snapshot,helpers,UI,事件投影,sidebar,timeline,状态
+internal/module/uistate/snapshot_helpers_test.go	internal	modules	go-test	2026	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,snapshot,helpers,test,UI,事件投影,sidebar,timeline,状态
+internal/module/uistate/snapshot_helpers.go	internal	modules	go-source	12895	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,snapshot,helpers,UI,事件投影,sidebar,timeline,状态
 internal/module/uistate/state_json_test.go	internal	modules	go-test	2004	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,state,json,test,UI,事件投影,sidebar,timeline,状态
 internal/module/uistate/state.go	internal	modules	go-source	20248	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,state,UI,事件投影,sidebar,timeline,状态
 internal/module/uistate/subscribers_test.go	internal	modules	go-test	3402	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,subscribers,test,UI,事件投影,sidebar,timeline,状态
 internal/module/uistate/subscribers.go	internal	modules	go-source	1266	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,subscribers,UI,事件投影,sidebar,timeline,状态
+internal/module/uistate/terminal_projection_test.go	internal	modules	go-test	3624	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,terminal,projection,test,UI,事件投影,sidebar,timeline,状态
 internal/module/uistate/terminalstatus/status_test.go	internal	modules	go-test	1234	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,terminalstatus,status,test,UI,事件投影,sidebar,timeline,状态
 internal/module/uistate/terminalstatus/status.go	internal	modules	go-source	351	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,terminalstatus,status,UI,事件投影,sidebar,timeline,状态
 internal/module/uistate/timeline/approval_identity_test.go	internal	modules	go-test	3451	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,timeline,approval,identity,test,UI,事件投影,sidebar,状态
@@ -726,11 +729,11 @@ internal/module/uistate/timeline/argument_preview_sanitizer_test.go	internal	mod
 internal/module/uistate/timeline/merge.go	internal	modules	go-source	1848	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,timeline,merge,UI,事件投影,sidebar,状态
 internal/module/uistate/timeline/phase2_projector_pending_helpers_test.go	internal	modules	go-test	3123	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,timeline,phase2,projector,pending,helpers,test,UI,事件投影,sidebar,状态
 internal/module/uistate/timeline/phase2_projector_pending_test.go	internal	modules	go-test	19903	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,timeline,phase2,projector,pending,test,UI,事件投影,sidebar,状态
-internal/module/uistate/timeline/projector_parity_test.go	internal	modules	go-test	12444	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,timeline,projector,parity,test,UI,事件投影,sidebar,状态
+internal/module/uistate/timeline/projector_parity_test.go	internal	modules	go-test	12463	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,timeline,projector,parity,test,UI,事件投影,sidebar,状态
 internal/module/uistate/timeline/projector_parity.go	internal	modules	go-source	21915	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,timeline,projector,parity,UI,事件投影,sidebar,状态
-internal/module/uistate/timeline/projector.go	internal	modules	go-source	14535	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,timeline,projector,UI,事件投影,sidebar,状态
+internal/module/uistate/timeline/projector.go	internal	modules	go-source	13576	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,timeline,projector,UI,事件投影,sidebar,状态
 internal/module/uistate/timeline/timeline_guard_shard06_test.go	internal	modules	go-test	16837	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,timeline,guard,shard06,test,UI,事件投影,sidebar,状态
-internal/module/uistate/timeline/timeline_test.go	internal	modules	go-test	11551	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,timeline,test,UI,事件投影,sidebar,状态
+internal/module/uistate/timeline/timeline_test.go	internal	modules	go-test	11453	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,timeline,test,UI,事件投影,sidebar,状态
 internal/module/uistate/timeline/timeline.go	internal	modules	go-source	9514	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,timeline,UI,事件投影,sidebar,状态
 internal/module/uistate/tracing_test.go	internal	modules	go-test	5722	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,tracing,test,UI,事件投影,sidebar,timeline,状态
 internal/module/workflowtemplate/module.go	internal	modules	go-source	3127	业务模块层	internal,module,workflowtemplate,业务模块层

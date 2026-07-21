@@ -139,6 +139,7 @@ export function normalizeTimelineItem(item) {
   const approvalIdentity = normalizedKind === 'approval'
     ? approvalIdentityFromFields(item, 'timeline approval')
     : null;
+  const turnId = normalizeString(item?.turnId);
   return {
     id: normalizeString(firstFieldValue(item, TIMELINE_ID_KEYS)) || `${normalizedRole}-${systemClockMillis()}`,
     role: normalizedRole,
@@ -157,6 +158,7 @@ export function normalizeTimelineItem(item) {
     done: normalizeTimelineDone(item, status),
     optimistic: Boolean(item?.optimistic),
     elapsedMs: normalizeTimelineElapsedMs(item),
+    ...(turnId ? { turnId } : {}),
   };
 }
 
@@ -398,7 +400,12 @@ export function preferredAssistantTimelineItem(existingItem, incomingItem) {
 }
 
 function assistantDuplicateIndices(output, item, lastUserIndex) {
-  return output.map((candidate, index) => ({ candidate, index })).filter(({ candidate, index }) => index > lastUserIndex && candidate?.role === 'assistant' && sameTimelineDuplicateContent(candidate, item)).map(({ index }) => index).reverse();
+  return output.map((candidate, index) => ({ candidate, index })).filter(({ candidate, index }) => (
+    index > lastUserIndex
+    && candidate?.role === 'assistant'
+    && candidate?.turnId === item?.turnId
+    && sameTimelineDuplicateContent(candidate, item)
+  )).map(({ index }) => index).reverse();
 }
 
 function compactOutputAfterAssistantMerge(output, lastUserIndex, duplicateIndices) {
@@ -441,7 +448,8 @@ function dedupeAssistantTimelineItems(items = []) {
       continue;
     }
 
-    if (item.id && seenIds.has(item.id)) continue;
+    const itemIdentity = item.id && item.turnId ? `${item.turnId}\u0000${item.id}` : '';
+    if (itemIdentity && seenIds.has(itemIdentity)) continue;
 
     const duplicateIndices = assistantDuplicateIndices(output, item, lastUserIndex);
     if (duplicateIndices.length > 0) {
@@ -450,7 +458,7 @@ function dedupeAssistantTimelineItems(items = []) {
     }
 
     output.push(item);
-    if (item.id) seenIds.add(item.id);
+    if (itemIdentity) seenIds.add(itemIdentity);
   }
 
   return output;

@@ -11,6 +11,7 @@ import chatPageSource from './pages/chat/ChatPage.jsx?raw';
 import chatWorkbenchLayoutSource from './pages/chat/hooks/useChatWorkbenchLayout.js?raw';
 import { rightPanelDefaultWidth, rightPanelMaxWidth, threadRailTargetWidth } from './pages/chat/model/chatWorkbenchLayoutModel.js';
 import { resetClientStoreForTests, useClientStore } from './entities/client/model/useClientStore.js';
+import { frontendHealthSnapshot, resetFrontendHealthForTest } from './shared/diagnostics/frontendHealthStore.js';
 import { normalizeMemorySnapshot as normalizeMemorySnapshotForFacade } from './adapters/memoryAdapter.js';
 import mermaid from 'mermaid';
 
@@ -648,6 +649,7 @@ beforeEach(mockCronDefaults);
 beforeEach(mockSkillDefaults);
 beforeEach(mockSharedFileDefaults);
 beforeEach(mockSettingsAndThreadDefaults);
+beforeEach(resetFrontendHealthForTest);
 afterEach(() => {
   cleanup();
   document.querySelectorAll('#overlay-root').forEach((node) => node.remove());
@@ -752,15 +754,14 @@ it('renders the persisted shell layout width through the real chat layout', asyn
   const storage = createShellLayoutStorage('480.5');
 
   render(<App shellLayoutStorage={storage} />);
+  fireEvent.click(await screen.findByRole('button', { name: '显示侧边栏' }));
   await waitForBackendThreadHeading();
-  fireEvent.click(screen.getByRole('button', { name: '显示侧边栏' }));
 
   expect(screen.getByTestId('chat-layout')).toHaveStyle({
     gridTemplateColumns: 'minmax(0, 1fr) 6px 480.5px',
   });
   expect(storage.set).not.toHaveBeenCalled();
 }, 15000);
-
 it.each([
   ['read', (storage) => storage.get.mockImplementation(() => { throw new Error('private shell layout read'); })],
   ['first write', (storage) => storage.set.mockImplementation(() => { throw new Error('private shell layout write'); })],
@@ -961,9 +962,10 @@ async function showAllTraceDashboardEvents() {
     expect(screen.getByTestId('app-sidebar')).toHaveClass('is-open');
 
     fireEvent.click(within(screen.getByTestId('app-sidebar')).getByRole('button', { name: '设置' }));
-    await screen.findByTestId('settings-page');
+    expect(document.querySelector('.suiyuan-appbar-title h1')).toHaveTextContent('设置');
+    expect(within(screen.getByTestId('app-sidebar')).getByRole('button', { name: '设置' })).toHaveClass('active');
     expect(shell).not.toHaveClass('sidebar-open');
-  }, 10_000);
+  });
 
   it('uses the custom brand icon only in the sidebar brand area', async () => {
     render(<App />);
@@ -1282,6 +1284,7 @@ async function showAllTraceDashboardEvents() {
     });
 
     afterEach(() => {
+      window.dispatchEvent(new Event('pagehide'));
       window.localStorage.clear();
       document.documentElement.removeAttribute('data-theme');
       document.body.removeAttribute('data-theme');
@@ -1640,6 +1643,29 @@ async function toggleInlineTraceFromRecentLogs(table) {
     expect(within(screen.getByTestId('app-sidebar')).queryByRole('button', { name: 'Support' })).not.toBeInTheDocument();
   });
 
+  it('renders the mobile bottom navigation with core destinations and active state', async () => {
+    render(<App skipBootstrap />);
+
+    const mobileNav = screen.getByTestId('mobile-nav');
+    expect(mobileNav).toHaveAttribute('aria-label', '主要导航');
+    const items = within(mobileNav).getAllByRole('button');
+    expect(items.map((button) => button.textContent)).toEqual(['聊天', '插件', '定制角色', '记忆', '设置']);
+    expect(items.map((button) => button.querySelector('svg')?.classList.value)).toEqual([
+      expect.stringContaining('lucide-message-square-text'),
+      expect.stringContaining('lucide-puzzle'),
+      expect.stringContaining('lucide-circle-user-round'),
+      expect.stringContaining('lucide-brain'),
+      expect.stringContaining('lucide-settings'),
+    ]);
+    expect(within(mobileNav).getByRole('button', { name: '聊天' })).toHaveAttribute('aria-current', 'page');
+
+    fireEvent.click(within(mobileNav).getByRole('button', { name: '记忆' }));
+
+    await waitFor(() => expect(window.location.pathname).toBe('/memory'));
+    expect(within(mobileNav).getByRole('button', { name: '记忆' })).toHaveAttribute('aria-current', 'page');
+    expect(within(mobileNav).getByRole('button', { name: '聊天' })).not.toHaveAttribute('aria-current');
+  });
+
   it('uses the current URL path as the active page on boot', async () => {
     window.history.pushState({}, '', '/dags');
     backend.getWindowBootstrap.mockResolvedValueOnce({ snapshot: { page: 'chat' } });
@@ -1742,7 +1768,12 @@ async function toggleInlineTraceFromRecentLogs(table) {
 
     render(<App />);
 
-    expect(await screen.findByText('连接后端失败：runtime shim: failed to connect ws://127.0.0.1:5175/wails/ws')).toBeInTheDocument();
+    expect(await screen.findByText('连接后端失败：连接后端失败，请重试。')).toBeInTheDocument();
+    expect(screen.queryByText(/127\.0\.0\.1/)).not.toBeInTheDocument();
+    expect(frontendHealthSnapshot()).toEqual(expect.arrayContaining([
+      expect.objectContaining({ actionId: 'app.bootstrap.background' }),
+    ]));
+    expect(JSON.stringify(frontendHealthSnapshot())).not.toContain('127.0.0.1');
   });
 
   it('does not expose provider switching when no project cwd is available', async () => {
@@ -1853,6 +1884,8 @@ async function toggleInlineTraceFromRecentLogs(table) {
     await waitFor(() => expect(backend.interruptTurn).toHaveBeenCalledWith({
       cwd: '/repo/app',
       threadId: 'agent_123',
+      expectedTurnId: 'turn-123',
+      requestId: expect.any(String),
       source: 'ui_stop',
     }));
   });
@@ -4394,7 +4427,13 @@ async function toggleInlineTraceFromRecentLogs(table) {
         providerThreadId: 'provider-thread-1',
         provider: 'codex',
       }));
-      expect(backend.interruptTurn).toHaveBeenCalledWith({ cwd: '/repo/app', threadId: 'thread-1', source: 'ui_stop' });
+      expect(backend.interruptTurn).toHaveBeenCalledWith(expect.objectContaining({
+        cwd: '/repo/app',
+        threadId: 'thread-1',
+        expectedTurnId: expect.any(String),
+        requestId: expect.any(String),
+        source: 'ui_stop',
+      }));
       expect(backend.forceCompleteTurn).toHaveBeenCalledWith({ cwd: '/repo/app', threadId: 'thread-1' });
       expect(backend.recoverThread).toHaveBeenCalledWith({ cwd: '/repo/app', threadId: 'thread-1' });
       expect(backend.archiveThread).not.toHaveBeenCalled();
@@ -4449,7 +4488,13 @@ async function toggleInlineTraceFromRecentLogs(table) {
 
     await waitFor(() => {
       expect(interruptActiveThread).toHaveBeenCalledTimes(1);
-      expect(backend.interruptTurn).toHaveBeenCalledWith({ cwd: '/repo/app', threadId: 'thread-1', source: 'ui_stop' });
+      expect(backend.interruptTurn).toHaveBeenCalledWith(expect.objectContaining({
+        cwd: '/repo/app',
+        threadId: 'thread-1',
+        expectedTurnId: expect.any(String),
+        requestId: expect.any(String),
+        source: 'ui_stop',
+      }));
     });
   });
 
@@ -4747,7 +4792,8 @@ async function toggleInlineTraceFromRecentLogs(table) {
     fireEvent.click(screen.getByLabelText('复制当前线程'));
 
     await waitFor(() => {
-      expect(screen.getByTestId('chat-action-feedback')).toHaveTextContent('复制失败：clipboard copy failed: native ui/copyText returned ok=false: clipboard not available in headless mode');
+      expect(screen.getByTestId('chat-action-feedback')).toHaveTextContent('复制失败，请重试。');
+      expect(screen.getByTestId('chat-action-feedback')).not.toHaveTextContent('headless mode');
       expect(JSON.parse(backend.copyTextToClipboard.mock.calls[0][0])).toEqual(expect.objectContaining({
         agentId: 'agent-1',
         providerThreadId: 'provider-thread-1',
@@ -5599,7 +5645,12 @@ async function toggleInlineTraceFromRecentLogs(table) {
     });
 
     expect(screen.getByText('代码审查专家')).toBeInTheDocument();
-    expect(await screen.findByRole('alert')).toHaveTextContent('同步失败，显示的是上次成功的数据：prompt backend offline');
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent('同步失败，显示的是上次成功的数据。');
+    expect(alert).not.toHaveTextContent('prompt backend offline');
+    expect(frontendHealthSnapshot()).toEqual(expect.arrayContaining([
+      expect.objectContaining({ actionId: 'prompt.assets.load', diagnosticId: expect.any(String) }),
+    ]));
 
     prompts = [{
       ...canonicalPromptRPCItem(),
@@ -5657,7 +5708,11 @@ async function toggleInlineTraceFromRecentLogs(table) {
 
     expect(await screen.findByText('代码审查专家')).toBeInTheDocument();
     const alert = await screen.findByRole('alert');
-    expect(alert).toHaveTextContent('同步失败，显示的是上次成功的数据：active prompt preference offline');
+    expect(alert).toHaveTextContent('同步失败，显示的是上次成功的数据。');
+    expect(alert).not.toHaveTextContent('active prompt preference offline');
+    expect(frontendHealthSnapshot()).toEqual(expect.arrayContaining([
+      expect.objectContaining({ actionId: 'prompt.active.load', diagnosticId: expect.any(String) }),
+    ]));
 
     activePreferenceFails = false;
     fireEvent.click(within(alert).getByRole('button', { name: '重试同步' }));
@@ -5677,8 +5732,11 @@ async function toggleInlineTraceFromRecentLogs(table) {
     fireEvent.click(screen.getByLabelText('提示词'));
 
     const alert = await screen.findByRole('alert');
-    expect(alert).toHaveTextContent('加载提示词失败');
-    expect(alert).toHaveTextContent('prompt backend offline');
+    expect(alert).toHaveTextContent('加载提示词失败，请重试。');
+    expect(alert).not.toHaveTextContent('prompt backend offline');
+    expect(frontendHealthSnapshot()).toEqual(expect.arrayContaining([
+      expect.objectContaining({ actionId: 'prompt.assets.load', diagnosticId: expect.any(String) }),
+    ]));
     expect(screen.queryByText('暂无内容')).not.toBeInTheDocument();
 
     backend.listPromptAssets.mockResolvedValueOnce({
@@ -6296,7 +6354,12 @@ async function createGeneratedPromptIntent() {
     });
 
     expect(screen.getByText('遵守 TDD')).toBeInTheDocument();
-    expect(await screen.findByRole('alert')).toHaveTextContent('同步失败，显示的是上次成功的数据：memory backend offline');
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent('同步记忆失败，当前显示上次成功数据。');
+    expect(alert).not.toHaveTextContent('memory backend offline');
+    expect(frontendHealthSnapshot()).toEqual(expect.arrayContaining([
+      expect.objectContaining({ actionId: 'memory.dashboard.load', diagnosticId: expect.any(String) }),
+    ]));
 
     entries = [{
       name: 'review-style',
@@ -6345,7 +6408,11 @@ async function createGeneratedPromptIntent() {
     fireEvent.click(screen.getByLabelText('记忆中心'));
 
     const alert = await screen.findByRole('alert');
-    expect(alert).toHaveTextContent('memory backend offline');
+    expect(alert).toHaveTextContent('读取记忆失败，请重试。');
+    expect(alert).not.toHaveTextContent('memory backend offline');
+    expect(frontendHealthSnapshot()).toEqual(expect.arrayContaining([
+      expect.objectContaining({ actionId: 'memory.dashboard.load', diagnosticId: expect.any(String) }),
+    ]));
     expect(screen.queryByText('暂无记忆')).not.toBeInTheDocument();
 
     failMemory = false;
@@ -7088,7 +7155,12 @@ async function continueChatFromFinalSharedFile() {
     });
 
     expect(screen.getByText('final.md')).toBeInTheDocument();
-    expect(await screen.findByRole('alert')).toHaveTextContent('同步失败，显示的是上次成功的数据：shared files backend offline');
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent('同步共享文件失败，当前显示上次成功数据。');
+    expect(alert).not.toHaveTextContent('shared files backend offline');
+    expect(frontendHealthSnapshot()).toEqual(expect.arrayContaining([
+      expect.objectContaining({ actionId: 'file.dashboard.load', diagnosticId: expect.any(String) }),
+    ]));
 
     memoryFiles = [{
       path: 'scratch/notes.md',
@@ -7110,7 +7182,11 @@ async function continueChatFromFinalSharedFile() {
     fireEvent.click(screen.getByLabelText('共享文件'));
 
     const alert = await screen.findByRole('alert');
-    expect(alert).toHaveTextContent('加载共享文件失败：shared files backend offline');
+    expect(alert).toHaveTextContent('加载共享文件失败，请重试。');
+    expect(alert).not.toHaveTextContent('shared files backend offline');
+    expect(frontendHealthSnapshot()).toEqual(expect.arrayContaining([
+      expect.objectContaining({ actionId: 'file.dashboard.load', diagnosticId: expect.any(String) }),
+    ]));
     expect(screen.queryByText('还没有文件产物')).not.toBeInTheDocument();
 
     backend.listSharedFiles.mockResolvedValueOnce({
@@ -7397,7 +7473,12 @@ async function continueChatFromFinalSharedFile() {
     });
 
     expect(screen.getAllByText('流程 A').length).toBeGreaterThanOrEqual(1);
-    expect(await screen.findByRole('alert')).toHaveTextContent('同步失败，显示的是上次成功的数据：workflow backend offline');
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent('同步自动化失败，当前显示上次成功数据。');
+    expect(alert).not.toHaveTextContent('workflow backend offline');
+    expect(frontendHealthSnapshot()).toEqual(expect.arrayContaining([
+      expect.objectContaining({ actionId: 'workflow.dashboard.load', diagnosticId: expect.any(String) }),
+    ]));
 
     dags = [{
       dag_key: 'flow-b',
@@ -7453,7 +7534,9 @@ async function continueChatFromFinalSharedFile() {
       bridgeCallback?.({ type: 'task/node/statusChanged', payload: { dag_key: 'flow-a', run_key: 'run-a', node_key: 'step', new_status: 'running' } });
       await Promise.resolve();
     });
-    expect(await screen.findByRole('alert')).toHaveTextContent('同步失败，显示的是上次成功的数据：workflow backend offline');
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent('同步自动化失败，当前显示上次成功数据。');
+    expect(alert).not.toHaveTextContent('workflow backend offline');
 
     dags = [{
       dag_key: 'flow-b',
@@ -7521,7 +7604,8 @@ async function continueChatFromFinalSharedFile() {
       await Promise.resolve();
     });
     const alert = await screen.findByRole('alert');
-    expect(alert).toHaveTextContent('workflow backend offline');
+    expect(alert).toHaveTextContent('同步自动化失败，当前显示上次成功数据。');
+    expect(alert).not.toHaveTextContent('workflow backend offline');
     await waitFor(() => expect(backend.getDagDetail).toHaveBeenCalledTimes(1));
 
     fireEvent.click(within(alert).getByRole('button', { name: '重试同步' }));
@@ -7543,7 +7627,9 @@ async function continueChatFromFinalSharedFile() {
       runRefresh.resolve({ run: runningDag.latest_run, nodes: [node] });
     });
 
-    expect(await screen.findByRole('alert')).toHaveTextContent('detail backend offline');
+    const detailAlert = await screen.findByRole('alert');
+    expect(detailAlert).toHaveTextContent('同步自动化失败，当前显示上次成功数据。');
+    expect(detailAlert).not.toHaveTextContent('detail backend offline');
   });
 
   it('shows a retryable blocking error instead of an empty workflow state on initial load failure', async () => {
@@ -7566,7 +7652,11 @@ async function continueChatFromFinalSharedFile() {
     fireEvent.click(screen.getByLabelText('自动化'));
 
     const alert = await screen.findByRole('alert');
-    expect(alert).toHaveTextContent('加载自动化失败：workflow backend offline');
+    expect(alert).toHaveTextContent('加载自动化失败，请重试。');
+    expect(alert).not.toHaveTextContent('workflow backend offline');
+    expect(frontendHealthSnapshot()).toEqual(expect.arrayContaining([
+      expect.objectContaining({ actionId: 'workflow.dashboard.load', diagnosticId: expect.any(String) }),
+    ]));
     expect(screen.queryByText('无任务')).not.toBeInTheDocument();
 
     backend.getDashboardPage.mockImplementation(({ page }) => (

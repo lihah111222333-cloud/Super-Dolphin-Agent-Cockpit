@@ -11,7 +11,6 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
 	tooldto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/tool"
 	turndto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/turn"
-	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/module/uistate/terminalstatus"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/observability"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util"
 	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
@@ -69,45 +68,14 @@ func turnStartedHandler(svc Service, onUpdated func(string)) func(turndto.TurnSt
 	}
 }
 
-// turnCompletedHandler 追加 turn 结束标记，并在失败时补一条 error item。
-// 对话消息不再由 timeline 投影，避免 live 与历史消息 RPC 产生两套 ID。
-func turnCompletedHandler(svc Service, onUpdated func(string)) func(turndto.TurnCompleted) {
+// turnCompletedHandler 只验证终态来自 canonical owner。
+// UI 终态由 turn/terminal 事件独占，避免 timeline patch 覆盖 canonical terminal 行。
+func turnCompletedHandler(_ Service, _ func(string)) func(turndto.TurnCompleted) {
 	return func(ev turndto.TurnCompleted) {
-		threadID := strings.TrimSpace(ev.ThreadID)
-		if threadID == "" {
+		_, canonical, err := turndto.CanonicalTurnTerminal(ev)
+		if err != nil || !canonical {
 			return
 		}
-		agentID := strings.TrimSpace(ev.AgentID)
-		turnID := strings.TrimSpace(ev.TurnID)
-		status := terminalstatus.Status(ev.Success, ev.Status, ev.Reason, ev.Error)
-		svc.Append(threadID, agentID, Item{
-			ID:      timelineID("turn-end", turnID),
-			Kind:    "turn_end",
-			Status:  status,
-			AgentID: agentID,
-			TurnID:  turnID,
-		})
-		if status == "failed" {
-			diagnostic := util.FirstNonEmpty(
-				strings.TrimSpace(ev.Error),
-				strings.TrimSpace(ev.Reason),
-				strings.TrimSpace(ev.Result),
-				strings.TrimSpace(ev.Summary),
-			)
-			if diagnostic == "" {
-				diagnostic = "turn failed without provider diagnostic"
-			}
-			appendErrorItem(
-				svc,
-				threadID,
-				agentID,
-				turnID,
-				timelineID("error", "turn", turnID),
-				diagnostic,
-				ev.Timestamp.Format("2006-01-02T15:04:05Z07:00"),
-			)
-		}
-		emitTimelineUpdated(onUpdated, threadID)
 	}
 }
 

@@ -151,7 +151,7 @@ async function runDashboardCommandAction(runtime, card) {
     runtime.set((state) => rollbackDashboardCommandState(state, request, error, createdThreadId));
     if (shouldCacheFailedDraft) saveFailedSendDraftSnapshot(runtime, request);
     await deleteProvisionalThreadAfterSendFailure(createdThreadId, runtime.addWarning);
-    runtime.addWarning('error', 'dashboard.command.send.failed', { error: error.message });
+    runtime.addWarning('error', 'dashboard.command.send.failed', { error: 'action failure; see Health diagnostic ID' });
     throw error;
   }
 }
@@ -190,10 +190,9 @@ function approvalSubmitIsInFlight(runtime, identityKey) {
   return runtime.get().approvalSubmitByIdentity?.[identityKey]?.inFlight === true;
 }
 
-function warnApprovalFailed(runtime, requestId, decision, error) {
-  const message = error?.message || String(error);
-  runtime.notifyAction(`审批提交失败：${message}`, 'error', { requestId });
-  runtime.addWarning('error', 'timeline.approval.respond.failed', { requestId, approved: decision, error: message });
+function warnApprovalFailed(runtime, requestId, decision, _error) {
+  runtime.notifyAction('审批提交失败，请重试。', 'error', { requestId });
+  runtime.addWarning('error', 'timeline.approval.respond.failed', { requestId, approved: decision, error: 'action failure; see Health diagnostic ID' });
 }
 
 async function respondApprovalAction(runtime, deps, item, approved) {
@@ -230,8 +229,7 @@ async function respondApprovalAction(runtime, deps, item, approved) {
   catch (error) {
     deps.recordApproval(approvalSubmitIsTimeout(error) ? 'timeout' : 'failure');
     warnApprovalFailed(runtime, requestId, decision, error);
-    if (approvalSubmitIsTimeout(error)) throw error;
-    return false;
+    throw error;
   }
   finally {
     runtime.set((state) => clearApprovalSubmitPatch(state, identityKey));
@@ -259,9 +257,9 @@ async function resolveThreadCopyIdentity(runtime, preparedClipboardWrite, cwd, t
   }
   catch (error) {
     preparedClipboardWrite?.cancel?.(error);
-    runtime.notifyAction(`复制失败：线程信息接口调用失败：${error.message || String(error)}`, 'warning', { threadId });
-    runtime.addWarning('warn', 'thread.identity.resolve.failed', { threadId, error: error.message || String(error) });
-    return null;
+    runtime.notifyAction('复制失败：线程信息暂时不可用，请重试。', 'warning', { threadId });
+    runtime.addWarning('warn', 'thread.identity.resolve.failed', { threadId, error: 'action failure; see Health diagnostic ID' });
+    throw error;
   }
 }
 
@@ -270,7 +268,7 @@ function validateThreadCopyIdentity(runtime, preparedClipboardWrite, identity, t
   preparedClipboardWrite?.cancel?.();
   runtime.notifyAction('复制失败：线程信息接口返回值不是 JSON 对象', 'warning', { threadId });
   runtime.addWarning('warn', 'thread.identity.resolve.invalid', { threadId });
-  return false;
+  throw new TypeError('thread/resolve response must be a JSON object');
 }
 
 async function copyActiveThreadInfoAction(runtime) {
@@ -301,9 +299,9 @@ async function copyActiveThreadInfoAction(runtime) {
     return true;
   }
   catch (error) {
-    runtime.notifyAction(`复制失败：${error.message || String(error)}`, 'warning', { threadId });
-    runtime.addWarning('warn', 'thread.copy.clipboard.failed', { threadId, error: error.message || String(error) });
-    return false;
+    runtime.notifyAction('复制失败，请重试。', 'warning', { threadId });
+    runtime.addWarning('warn', 'thread.copy.clipboard.failed', { threadId, error: 'action failure; see Health diagnostic ID' });
+    throw error;
   }
 }
 
@@ -360,7 +358,8 @@ async function renameThreadAction(runtime, threadId, name) {
     return true;
   }
   catch (error) {
-    return runtime.notifyRPCFailure('重命名会话', 'thread.rename.failed', error, { threadId: id });
+    runtime.notifyRPCFailure('重命名会话', 'thread.rename.failed', error, { threadId: id });
+    throw error;
   }
 }
 
@@ -381,7 +380,8 @@ async function toggleThreadPinAction(runtime, threadId) {
     return true;
   }
   catch (error) {
-    return runtime.notifyRPCFailure(pinned ? '取消置顶会话' : '置顶会话', 'thread.pin.failed', error, { threadId: id });
+    runtime.notifyRPCFailure(pinned ? '取消置顶会话' : '置顶会话', 'thread.pin.failed', error, { threadId: id });
+    throw error;
   }
 }
 
@@ -417,14 +417,14 @@ async function applyThreadArchiveRPC(id, archived) {
   await unarchiveThreadRPC({ threadId: id });
 }
 
-function archiveFailureNotice(archived, message) {
+function archiveFailureNotice(archived, _message) {
   const action = archived ? '归档' : '恢复';
-  return actionNotice(`${action}会话失败：${message}`, 'error');
+  return actionNotice(`${action}会话失败，请重试。`, 'error');
 }
 
-function archivePreferenceFailureNotice(archived, message) {
+function archivePreferenceFailureNotice(archived, _message) {
   const action = archived ? '归档' : '恢复';
-  return actionNotice(`${action}偏好保存失败：${message}`, 'error');
+  return actionNotice(`${action}偏好保存失败，请重试。`, 'error');
 }
 
 async function archiveThreadAction(runtime, threadId, archived) {
@@ -455,8 +455,8 @@ async function archiveThreadAction(runtime, threadId, archived) {
       originalActiveThreadId,
       actionNotice: archiveFailureNotice(archived, message),
     }));
-    runtime.addWarning('error', `thread.${archived ? 'archive' : 'unarchive'}.failed`, { threadId: id, error: message });
-    return false;
+    runtime.addWarning('error', `thread.${archived ? 'archive' : 'unarchive'}.failed`, { threadId: id, error: 'action failure; see Health diagnostic ID' });
+    throw error;
   }
 
   runtime.set((state) => threadArchiveLoadingClearedPatch(state, id));
@@ -466,8 +466,8 @@ async function archiveThreadAction(runtime, threadId, archived) {
   catch (error) {
     const message = error?.message || String(error);
     runtime.set({ actionNotice: archivePreferenceFailureNotice(archived, message) });
-    runtime.addWarning('error', `thread.${archived ? 'archive' : 'unarchive'}.preference.failed`, { threadId: id, error: message });
-    return true;
+    runtime.addWarning('error', `thread.${archived ? 'archive' : 'unarchive'}.preference.failed`, { threadId: id, error: 'action failure; see Health diagnostic ID' });
+    throw error;
   }
 
   runtime.set({
@@ -491,6 +491,7 @@ function normalizedDeleteThreadIds(runtime, threadIds) {
 async function deleteThreadsById(runtime, ids) {
   const deletedIds = [];
   const failedIds = [];
+  const failureCauses = [];
   for (const id of ids) {
     try {
       await deleteThreadRPC({ threadId: id });
@@ -498,10 +499,11 @@ async function deleteThreadsById(runtime, ids) {
     }
     catch (error) {
       failedIds.push(id);
-      runtime.addWarning('warn', 'thread.delete.failed', { threadId: id, error: error.message || String(error) });
+      failureCauses.push(error);
+      runtime.addWarning('warn', 'thread.delete.failed', { threadId: id, error: 'action failure; see Health diagnostic ID' });
     }
   }
-  return { deletedIds, failedIds };
+  return { deletedIds, failedIds, failureCauses };
 }
 
 function clearArchivedPreference(cwd, id) {
@@ -537,14 +539,18 @@ async function deleteStaleThreadsAction(runtime, threadIds) {
   const ids = normalizedDeleteThreadIds(runtime, threadIds);
   if (ids.length === 0) return { deleted: 0, failed: 0 };
   const cwd = runtime.requireCwd('thread.delete');
-  const { deletedIds, failedIds } = await deleteThreadsById(runtime, ids);
+  const { deletedIds, failedIds, failureCauses } = await deleteThreadsById(runtime, ids);
   if (deletedIds.length > 0) {
-    await Promise.all(deletedIds.map((id) => clearArchivedPreference(cwd, id)));
+    deletedIds.forEach((id) => runtime.clearTurnRuntimeForThread(id));
     runtime.set((state) => deletedThreadsPatch(state, deletedIds, failedIds));
+    await Promise.all(deletedIds.map((id) => clearArchivedPreference(cwd, id)));
   } else {
     runtime.set({
       actionNotice: actionNotice(`删除无用会话失败：${failedIds.length} 个失败`, 'error'),
     });
+  }
+  if (failureCauses.length > 0) {
+    throw new AggregateError(failureCauses, `${failureCauses.length} thread delete action(s) failed`);
   }
   return { deleted: deletedIds.length, failed: failedIds.length };
 }

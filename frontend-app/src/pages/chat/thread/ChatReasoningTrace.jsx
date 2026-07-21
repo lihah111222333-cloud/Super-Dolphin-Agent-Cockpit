@@ -4,6 +4,7 @@ import { APP_COPY } from '../../../shared/i18n/appI18n.js';
 import { copyTextToClipboard } from '../services/chatCodeService.js';
 import { MessageContent } from '../markdown/MarkdownMessage.jsx';
 import { currentTimestampMs, trimmedText } from '../markdown/markdownMessageModel.js';
+import { runUIAction } from '../../../shared/ui/runUIAction.js';
 import {
   durationLabelFromMs,
   parsePlanItems,
@@ -54,17 +55,18 @@ function AssistantMessageActions({ copy = APP_COPY.zh.chat, text }) {
       setCopyState('idle');
     }, delay);
   };
-  const copyOutput = async () => {
-    if (!canCopy) return;
-    try {
+  const copyOutput = () => {
+    if (!canCopy) return undefined;
+    return runUIAction('message.output.copy', async () => { try {
       await copyTextToClipboard(copyableText);
       setCopyState('copied');
       scheduleReset(1800);
     }
-    catch {
+    catch (error) {
       setCopyState('failed');
       scheduleReset(2200);
-    }
+      throw error;
+    } }, { retryable: true });
   };
   if (!canCopy) return null;
   const copied = copyState === 'copied';

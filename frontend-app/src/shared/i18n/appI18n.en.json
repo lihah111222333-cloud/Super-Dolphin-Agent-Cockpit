@@ -11,6 +11,7 @@
     "collapse": "Collapse sidebar",
     "tools": "Workbench tools",
     "ariaLabel": "燧元 Workbench",
+    "mobileNavAriaLabel": "Primary navigation",
     "search": "Search",
     "newChat": "New chat",
     "notifications": "Notifications",
@@ -58,12 +59,14 @@
   },
   "nav": {
     "chat": "Chat",
+    "chatShort": "Chat",
     "skills": "Plugins and Skills",
     "skillsShort": "Plugins",
     "prompts": "Prompts",
     "promptsShort": "Roles",
     "workflows": "Automation",
     "memory": "Memory",
+    "memoryShort": "Memory",
     "files": "Shared Files",
     "observability": "Traces",
     "settings": "Settings"
@@ -505,6 +508,7 @@
   },
   "memory": {
     "title": "Memory",
+    "subtitle": "Manage and observe your AI's contextual retention.",
     "search": "Search memories",
     "searchPlaceholder": "Search titles or content",
     "new": "New",

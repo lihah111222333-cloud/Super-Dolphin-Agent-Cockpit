@@ -8,11 +8,16 @@ import {
   runtimeAssistantCompletion,
   runtimeAssistantFallbackId,
   runtimeAssistantStreamId,
+  parseRuntimeTurnRef,
+  parseRuntimeTurnTerminal,
+  runtimeTerminalFingerprint,
+  runtimeTurnRefKey,
   runtimeTurnId } from './runtimeAssistantTimeline.js';
 
 describe('runtimeAssistantTimeline', () => {
   it('normalizes runtime assistant ids and fallback ids', () => {
-    expect(runtimeTurnId({ turn_id: 'turn-1' })).toBe('turn-1');
+    expect(runtimeTurnId({ turnId: 'turn-1' })).toBe('turn-1');
+    expect(runtimeTurnId({ turn_id: 'turn-legacy' })).toBe('');
     expect(runtimeAssistantStreamId({ turnId: 'turn-1' })).toBe('assistant-stream-turn-1');
     expect(runtimeAssistantFallbackId({ turnId: 'turn-1' }, {
       runtimeThreadIdentifier: () => 'thread-ignored',
@@ -44,7 +49,7 @@ describe('runtimeAssistantTimeline', () => {
 
   it('builds assistant completion items from runtime payloads', () => {
     expect(runtimeAssistantCompletion({
-      turn_id: 'turn-1',
+      turnId: 'turn-1',
       timestamp: '2026-06-15T01:00:00Z',
       item: { type: 'agent_message', content: { text: 'final answer' } },
     }, {
@@ -60,6 +65,7 @@ describe('runtimeAssistantTimeline', () => {
         done: true,
         optimistic: false,
         runtime: true,
+        turnId: 'turn-1',
       },
       explicitId: false,
       streamId: 'assistant-stream-turn-1',
@@ -77,31 +83,83 @@ describe('runtimeAssistantTimeline', () => {
     expect(appendAssistantDeltaText('hello world', 'world')).toBe('hello world');
     expect(appendAssistantDeltaText('hello', 'hello world')).toBe('hello world');
     expect(appendAssistantDeltaText('hello wor', 'world')).toBe('hello world');
-    expect(assistantDeltaBufferKey('thread', 'item')).toBe('thread\u0000item');
+    expect(assistantDeltaBufferKey('thread', 'item', 'turn')).toBe('thread\u0000turn\u0000item');
+  });
+
+  it('uses the canonical terminal validator and produces stable turn keys', () => {
+    const terminal = {
+      schemaVersion: 2,
+      eventId: 'terminal-1',
+      threadId: 'thread-1',
+      turnId: 'turn-1',
+      outcome: 'failed',
+      occurredAt: '2026-07-16T01:00:00Z',
+      publicError: { code: 'FAILED', title: '运行失败', message: '本轮执行失败', diagnosticId: 'diag-1', retryable: false, recoveryActions: ['copy_diagnostics'] },
+    };
+    const parsed = parseRuntimeTurnTerminal(terminal);
+    expect(parsed.value).toBeDefined();
+    expect(parseRuntimeTurnRef({ threadId: 'thread-1', turnId: 'turn-1', itemId: 'item-1' })).toEqual({
+      value: { threadId: 'thread-1', turnId: 'turn-1' },
+    });
+    expect(parseRuntimeTurnRef({ threadId: 'thread-1', turn_id: 'turn-legacy' })).toEqual({ error: 'canonical_turn_ref_contract' });
+    expect(runtimeTurnRefKey('thread-1', 'turn-1')).toBe('thread-1\u0000turn-1');
+    expect(runtimeTerminalFingerprint(parsed.value)).toContain('failed');
+    expect(runtimeTerminalFingerprint(parsed.value)).toBe(runtimeTerminalFingerprint({
+      ...parsed.value,
+      eventId: 'terminal-duplicate',
+      publicError: {
+        recoveryActions: ['copy_diagnostics'],
+        retryable: false,
+        diagnosticId: 'diag-1',
+        message: '本轮执行失败',
+        title: '运行失败',
+        code: 'FAILED',
+      },
+    }));
+    expect(parseRuntimeTurnTerminal({ ...terminal, outcome: 'unknown' })).toEqual({ error: 'canonical_terminal_contract' });
+    const { eventId: _missingEventId, ...missingEventId } = terminal;
+    expect(parseRuntimeTurnTerminal(missingEventId)).toEqual({ error: 'canonical_terminal_contract' });
+    expect(parseRuntimeTurnTerminal({ ...terminal, outcome: 'success', publicError: undefined, success: true })).toEqual({ error: 'canonical_terminal_contract' });
   });
 
   it('merges final completion into a matching stream item', () => {
     const merged = mergeRuntimeAssistantCompletion([
       { id: 'u1', role: 'user', kind: 'user', text: 'question', time: '2026-06-15T01:00:00Z' },
-      { id: 'assistant-stream-turn-1', role: 'assistant', kind: 'assistant', text: 'answer', done: false, runtime: true, time: '2026-06-15T01:00:01Z' },
+      { id: 'assistant-stream-turn-1', role: 'assistant', kind: 'assistant', text: 'answer', done: false, runtime: true, turnId: 'turn-1', time: '2026-06-15T01:00:01Z' },
     ], {
-      item: { id: 'assistant-final-turn-1', role: 'assistant', kind: 'assistant', text: 'answer', done: true, runtime: true, time: '2026-06-15T01:00:02Z' },
+      item: { id: 'assistant-final-turn-1', role: 'assistant', kind: 'assistant', text: 'answer', done: true, runtime: true, turnId: 'turn-1', time: '2026-06-15T01:00:02Z' },
       explicitId: false,
       streamId: 'assistant-stream-turn-1',
     });
 
     expect(merged).toEqual([
       { id: 'u1', role: 'user', kind: 'user', text: 'question', time: '2026-06-15T01:00:00Z' },
-      { id: 'assistant-final-turn-1', role: 'assistant', kind: 'assistant', text: 'answer', done: true, runtime: true, time: '2026-06-15T01:00:02Z' },
+      { id: 'assistant-final-turn-1', role: 'assistant', kind: 'assistant', text: 'answer', done: true, runtime: true, turnId: 'turn-1', time: '2026-06-15T01:00:02Z' },
+    ]);
+  });
+
+  it('keeps completion merge and reused item ids isolated by TurnRef', () => {
+    const merged = mergeRuntimeAssistantCompletion([
+      { id: 'shared-id', role: 'assistant', kind: 'assistant', text: 'turn one', done: true, runtime: true, turnId: 'turn-1', time: '2026-06-15T01:00:01Z' },
+      { id: 'shared-id', role: 'assistant', kind: 'assistant', text: 'turn two partial', done: false, runtime: true, turnId: 'turn-2', time: '2026-06-15T01:00:02Z' },
+    ], {
+      item: { id: 'shared-id', role: 'assistant', kind: 'assistant', text: 'turn two final', done: true, runtime: true, turnId: 'turn-2', time: '2026-06-15T01:00:03Z' },
+      explicitId: true,
+      streamId: 'assistant-stream-turn-2',
+    });
+
+    expect(merged).toEqual([
+      expect.objectContaining({ id: 'shared-id', text: 'turn one', turnId: 'turn-1' }),
+      expect.objectContaining({ id: 'shared-id', text: 'turn two final', turnId: 'turn-2', done: true }),
     ]);
   });
 
   it('deduplicates a later runtime completion against an existing done assistant item', () => {
     const merged = mergeRuntimeAssistantCompletion([
       { id: 'u1', role: 'user', kind: 'user', text: 'question', time: '2026-06-15T01:00:00Z' },
-      { id: 'a1', role: 'assistant', kind: 'assistant', text: 'short answer', done: true, runtime: true, time: '2026-06-15T01:00:01Z' },
+      { id: 'a1', role: 'assistant', kind: 'assistant', text: 'short answer', done: true, runtime: true, turnId: 'turn-1', time: '2026-06-15T01:00:01Z' },
     ], {
-      item: { id: 'a2', role: 'assistant', kind: 'assistant', text: 'short answer', done: true, runtime: true, time: '2026-06-15T01:00:02Z' },
+      item: { id: 'a2', role: 'assistant', kind: 'assistant', text: 'short answer', done: true, runtime: true, turnId: 'turn-1', time: '2026-06-15T01:00:02Z' },
       explicitId: true,
       streamId: '',
     });
@@ -113,10 +171,10 @@ describe('runtimeAssistantTimeline', () => {
   it('marks split stream items done when the accumulated text matches completion text', () => {
     const merged = mergeRuntimeAssistantCompletion([
       { id: 'u1', role: 'user', kind: 'user', text: 'question', time: '2026-06-15T01:00:00Z' },
-      { id: 'a1', role: 'assistant', kind: 'assistant', text: 'hello ', done: false, runtime: true, time: '2026-06-15T01:00:01Z' },
-      { id: 'a2', role: 'assistant', kind: 'assistant', text: 'world', done: false, runtime: true, time: '2026-06-15T01:00:02Z' },
+      { id: 'a1', role: 'assistant', kind: 'assistant', text: 'hello ', done: false, runtime: true, turnId: 'turn-1', time: '2026-06-15T01:00:01Z' },
+      { id: 'a2', role: 'assistant', kind: 'assistant', text: 'world', done: false, runtime: true, turnId: 'turn-1', time: '2026-06-15T01:00:02Z' },
     ], {
-      item: { id: 'final', role: 'assistant', kind: 'assistant', text: 'hello world', done: true, runtime: true, time: '2026-06-15T01:00:03Z' },
+      item: { id: 'final', role: 'assistant', kind: 'assistant', text: 'hello world', done: true, runtime: true, turnId: 'turn-1', time: '2026-06-15T01:00:03Z' },
       explicitId: false,
       streamId: '',
     });

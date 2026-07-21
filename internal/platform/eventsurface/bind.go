@@ -40,10 +40,11 @@ func captureBindStack() string {
 }
 
 const (
-	MethodUIStateChanged           = "ui/state/changed"
-	MethodTurnStarted              = "turn/started"
-	MethodTurnCompleted            = "turn/completed"
-	MethodTurnInterrupted          = "turn/interrupted"
+	MethodUIStateChanged = "ui/state/changed"
+	MethodTurnStarted    = "turn/started"
+	MethodTurnTerminal   = "turn/terminal"
+	// Deprecated: 远端 orchestration 仍引用旧符号名，wire 值已统一为 turn/terminal。
+	MethodTurnCompleted            = MethodTurnTerminal
 	MethodTurnStalled              = "turn/stalled"
 	MethodTurnResumed              = "turn/resumed"
 	MethodTurnOutputDelta          = "turn/output/delta"
@@ -143,10 +144,7 @@ func bindCore(dispatcher *event.Dispatcher, logger *pkglogger.Logger, publish Pu
 			publish(MethodTurnStarted, ev)
 		}, logger),
 		bus.ResilientSubscribe(dispatcher, func(ev turndto.TurnCompleted) {
-			publish(MethodTurnCompleted, ev)
-		}, logger),
-		bus.ResilientSubscribe(dispatcher, func(ev turndto.TurnInterrupted) {
-			publish(MethodTurnInterrupted, turnInterruptedPayload(ev))
+			publishTurnTerminal(logger, publish, ev)
 		}, logger),
 		bus.ResilientSubscribe(dispatcher, func(ev turndto.TurnStalled) {
 			publish(MethodTurnStalled, turnStalledPayload(ev))
@@ -168,6 +166,19 @@ func bindCore(dispatcher *event.Dispatcher, logger *pkglogger.Logger, publish Pu
 			publish(method, turnOutputDeltaPayload(ev))
 		}, logger),
 	}
+}
+
+func publishTurnTerminal(logger *pkglogger.Logger, publish PublishFunc, ev turndto.TurnCompleted) {
+	terminal, canonical, err := turndto.CanonicalTurnTerminal(ev)
+	if err != nil || !canonical {
+		if logger != nil {
+			logger.Error("eventsurface: missing canonical turn terminal", "thread_id", ev.ThreadID, "turn_id", ev.TurnID)
+			return
+		}
+		pkglogger.Error("eventsurface: missing canonical turn terminal", "thread_id", ev.ThreadID, "turn_id", ev.TurnID)
+		return
+	}
+	publish(MethodTurnTerminal, terminal)
 }
 
 func bindThread(dispatcher *event.Dispatcher, logger *pkglogger.Logger, publish PublishFunc) []context.CancelFunc {
@@ -301,12 +312,6 @@ func threadTokenUsagePayload(ev uidto.UITokensUpdated) map[string]any {
 	payload["output_tokens"] = ev.OutputTokens
 	payload["total_tokens"] = ev.TotalTokens
 	payload["contextWindowTokens"] = ev.ContextWindowTokens
-	return payload
-}
-
-func turnInterruptedPayload(ev turndto.TurnInterrupted) map[string]any {
-	payload := turnHeaderPayload(ev.TurnHeader)
-	setString(payload, "reason", ev.Reason)
 	return payload
 }
 

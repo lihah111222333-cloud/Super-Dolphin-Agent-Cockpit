@@ -400,7 +400,8 @@ it('does not send a template brief when the designer thread fails to start', asy
   await fillEnterpriseTemplateForm('模板主题', 'materials/source.md', '复核负责人');
   fireEvent.click(screen.getByRole('button', { name: '用聊天调整' }));
 
-  expect(await screen.findByRole('alert')).toHaveTextContent('启动政企模板失败：thread offline');
+  expect(await screen.findByRole('alert')).toHaveTextContent('启动政企模板失败，请重试。');
+  expect(screen.queryByText(/thread offline/)).not.toBeInTheDocument();
   expect(backend.startTurn).not.toHaveBeenCalled();
   expect(store.setActiveThread).not.toHaveBeenCalled();
 });
@@ -418,7 +419,8 @@ it('shows an explicit error when sending the enterprise template brief fails', a
   await fillEnterpriseTemplateForm('模板主题', 'materials/source.md', '复核负责人');
   fireEvent.click(screen.getByRole('button', { name: '用聊天调整' }));
 
-  expect(await screen.findByRole('alert')).toHaveTextContent('发送政企模板需求失败：turn offline');
+  expect(await screen.findByRole('alert')).toHaveTextContent('启动政企模板失败，请重试。');
+  expect(screen.queryByText(/turn offline/)).not.toBeInTheDocument();
   expect(backend.startTurn).toHaveBeenCalled();
   expect(store.setActiveThread).not.toHaveBeenCalled();
 });
@@ -500,9 +502,9 @@ it.each([
   }));
 
   await act(async () => {
-    await result.current.startDesignFlow();
+    await expect(result.current.startDesignFlow()).rejects.toThrow(message);
   });
 
-  expect(actionState.setError).toHaveBeenCalledWith(`启动 AI 设计流程失败：${message}`);
+  expect(actionState.setError).toHaveBeenCalledWith('启动 AI 设计流程失败，请重试。');
   expect(backend.startThread).not.toHaveBeenCalled();
 });

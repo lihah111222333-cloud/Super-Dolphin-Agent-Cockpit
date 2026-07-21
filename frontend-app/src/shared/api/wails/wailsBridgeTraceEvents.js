@@ -1,4 +1,3 @@
-// @ts-nocheck
 
 import { isSafeNumber, parse as parseLosslessJSON } from 'lossless-json';
 import {
@@ -10,10 +9,18 @@ import {
 } from './wailsBridgeConstants.js';
 import { bridgeEventParseFailureEnvelope, optionalDiagnosticString, waitRuntime, writeBridgeLog } from './wailsBridgeLogRuntime.js';
 
+/** @typedef {Record<string, unknown>} TraceRecord */
+/** @typedef {TraceRecord & { ts: string, phase: string, status: string }} SanitizedTraceEvent */
+/** @typedef {{ beforeCallback?: (event: unknown) => void, escalateCallbackError?: boolean | ((error: unknown, event: unknown) => boolean), onCallbackError?: (error: unknown, event: unknown) => void }} RuntimeEventCallbackOptions */
+/** @typedef {{ callbackFailedLog?: string, subscribeFailedLog?: string, subscribeReadyLog?: string, subscribeUnavailableLog?: string, unsubscribeDoneLog?: string }} RuntimeEventLogOptions */
+/** @typedef {RuntimeEventCallbackOptions & RuntimeEventLogOptions} RuntimeEventOptions */
+
+/** @param {string} value @returns {number | string} */
 function parseRuntimeEventNumber(value) {
   return isSafeNumber(value) ? Number(value) : value;
 }
 
+/** @param {unknown} rawText @param {string} eventName @returns {unknown} */
 function parseRuntimeEventJSON(rawText, eventName) {
   let parsed;
   try {
@@ -29,42 +36,49 @@ function noopBridgeUnsubscribe() {
   return undefined;
 }
 
+/** @param {unknown} evt @returns {unknown} */
 function normalizeRuntimeEventEnvelope(evt) {
   if (!evt || typeof evt !== 'object') return {};
-  const hasWailsEnvelope = Object.prototype.hasOwnProperty.call(evt, 'name')
-    && Object.prototype.hasOwnProperty.call(evt, 'data');
+  const envelope = /** @type {TraceRecord} */ (evt);
+  const hasWailsEnvelope = Object.prototype.hasOwnProperty.call(envelope, 'name')
+    && Object.prototype.hasOwnProperty.call(envelope, 'data');
   if (!hasWailsEnvelope) return evt;
 
-  const inner = evt.data;
+  const inner = envelope.data;
   if (inner == null || inner === '') return {};
   if (typeof inner === 'object') return inner;
-  if (typeof inner === 'string') return parseRuntimeEventJSON(inner, evt.name);
+  if (typeof inner === 'string') return parseRuntimeEventJSON(inner, optionalDiagnosticString(envelope.name));
   return { data: inner };
 }
 
+/** @param {string} eventName @param {(event: unknown) => unknown} callback @param {RuntimeEventOptions} options */
 function subscribeRuntimeEvent(eventName, callback, options = {}) {
   let off = noopBridgeUnsubscribe;
   let cancelled = false;
   let readySettled = false;
+  /** @type {(value: boolean) => void} */
   let resolveReady;
+  /** @type {Promise<boolean>} */
   const ready = new Promise((resolve) => {
     resolveReady = resolve;
   });
 
-  const settleReady = (value) => {
+  const settleReady = (/** @type {unknown} */ value) => {
     if (readySettled) return;
     readySettled = true;
     resolveReady(value === true);
   };
 
-  const teardown = (runtime, unbind) => {
+  const teardown = (/** @type {unknown} */ runtime, /** @type {unknown} */ unbind) => {
     try {
       if (typeof unbind === 'function') {
         unbind();
         return true;
       }
-      if (runtime?.Events?.Off) {
-        runtime.Events.Off(eventName);
+      const runtimeRecord = runtime && typeof runtime === 'object' ? /** @type {TraceRecord} */ (runtime) : {};
+      const events = runtimeRecord.Events && typeof runtimeRecord.Events === 'object' ? /** @type {TraceRecord} */ (runtimeRecord.Events) : {};
+      if (typeof events.Off === 'function') {
+        events.Off(eventName);
         return true;
       }
     }
@@ -80,14 +94,14 @@ function subscribeRuntimeEvent(eventName, callback, options = {}) {
   };
   const subscription = { ready, unsubscribe };
 
-  const shouldEscalateCallbackError = (error, normalized) => {
+  const shouldEscalateCallbackError = (/** @type {unknown} */ error, /** @type {unknown} */ normalized) => {
     if (typeof options.escalateCallbackError === 'function') {
       return options.escalateCallbackError(error, normalized) === true;
     }
     return options.escalateCallbackError === true;
   };
 
-  const wrapped = (evt) => {
+  const wrapped = (/** @type {unknown} */ evt) => {
     const normalized = normalizeRuntimeEventEnvelope(evt);
     if (typeof options.beforeCallback === 'function') {
       options.beforeCallback(normalized);
@@ -107,12 +121,14 @@ function subscribeRuntimeEvent(eventName, callback, options = {}) {
   };
 
   void waitRuntime().then((runtime) => {
-    if (!runtime?.Events?.On) {
+    const runtimeRecord = runtime && typeof runtime === 'object' ? /** @type {TraceRecord} */ (runtime) : {};
+    const events = runtimeRecord.Events && typeof runtimeRecord.Events === 'object' ? /** @type {TraceRecord} */ (runtimeRecord.Events) : {};
+    if (typeof events.On !== 'function') {
       writeBridgeLog('warn', options.subscribeUnavailableLog || 'runtime.subscribe.unavailable', { eventName });
             settleReady(false);
       return;
     }
-    const unbind = runtime.Events.On(eventName, wrapped);
+    const unbind = events.On(eventName, wrapped);
     if (cancelled) {
       teardown(runtime, unbind);
       settleReady(false);
@@ -132,7 +148,8 @@ function subscribeRuntimeEvent(eventName, callback, options = {}) {
 }
 
 function resolveClientMeta() {
-  const clientKind = typeof window !== 'undefined' && window.__WAILS_SHIM_DEBUG__ === true
+  const clientKind = typeof window !== 'undefined'
+    && /** @type {Window & { __WAILS_SHIM_DEBUG__?: boolean }} */ (window).__WAILS_SHIM_DEBUG__ === true
     ? 'web-debug-shim'
     : 'desktop-wails';
   const clientRoute = typeof window !== 'undefined' && window.location
@@ -141,6 +158,7 @@ function resolveClientMeta() {
   return { clientKind, clientRoute };
 }
 
+/** @param {number} byteLength @returns {string} */
 function randomHex(byteLength) {
   const cryptoSource = globalThis.crypto;
   if (!cryptoSource || typeof cryptoSource.getRandomValues !== 'function') {
@@ -164,10 +182,13 @@ function createTraceContext() {
   };
 }
 
+/** @type {SanitizedTraceEvent[]} */
 let frontendTraceQueue = [];
 let frontendTraceFlushScheduled = false;
 let frontendTraceFlushInFlight = false;
+/** @type {SanitizedTraceEvent[] | null} */
 let frontendTracePendingBatch = null;
+/** @type {ReturnType<typeof setTimeout> | null} */
 let frontendTraceRetryTimer = null;
 let frontendTraceRetryAttempt = 0;
 let frontendTraceRetryDelayMS = 0;
@@ -187,12 +208,13 @@ const FRONTEND_TRACE_RETRY_BASE_MS = 100;
 const FRONTEND_TRACE_RETRY_MAX_MS = 5000;
 
 function isUITestMCPTraceSuppressed() {
-  return !import.meta.env.PROD && import.meta.env.VITE_SUPER_DOLPHIN_UI_TEST_MCP === '1';
+  const env = /** @type {ImportMeta & { env: Record<string, unknown> }} */ (import.meta).env;
+  return env.PROD !== true && env.VITE_SUPER_DOLPHIN_UI_TEST_MCP === '1';
 }
 
 function isFrontendTraceDebugEnabled() {
   if (typeof window === 'undefined') return false;
-  if (window.__AO_FRONTEND_TRACE_DEBUG__ === true) return true;
+  if (/** @type {Window & { __AO_FRONTEND_TRACE_DEBUG__?: boolean }} */ (window).__AO_FRONTEND_TRACE_DEBUG__ === true) return true;
   try {
     return window.localStorage?.getItem('observability.frontend.debug') === 'true';
   }
@@ -201,28 +223,33 @@ function isFrontendTraceDebugEnabled() {
   }
 }
 
+/** @param {unknown} value @param {number} limit @returns {string} */
 function safeTraceString(value, limit = 160) {
   const text = optionalDiagnosticString(value).trim();
   if (!text) return '';
   return text.length > limit ? `${text.slice(0, limit)}…` : text;
 }
 
+/** @param {unknown} value @param {number} limit @returns {string} */
 function safeTraceDiagnosticToken(value, limit = 80) {
   const text = safeTraceString(value, limit);
   if (!text || containsForbiddenTraceText(text)) return '';
   return text;
 }
 
+/** @param {unknown} error @returns {string} */
 function safeTraceErrorMessage(error) {
-  const code = safeTraceDiagnosticToken(error?.code, 80);
-  const name = safeTraceDiagnosticToken(error?.name, 80);
-  const message = safeTraceString(error?.message, 240);
+  const value = error && (typeof error === 'object' || typeof error === 'function') ? /** @type {TraceRecord} */ (error) : {};
+  const code = safeTraceDiagnosticToken(value.code, 80);
+  const name = safeTraceDiagnosticToken(value.name, 80);
+  const message = safeTraceString(value.message, 240);
   const safeMessage = containsForbiddenTraceText(message) ? '' : message;
   if (code && safeMessage) return `${code}: ${safeMessage}`;
   if (safeMessage) return safeMessage;
   return code || name || 'Error';
 }
 
+/** @param {unknown} value @returns {string} */
 function safeTraceErrorValue(value) {
   if (value instanceof Error || (value && typeof value === 'object')) {
     return safeTraceErrorMessage(value);
@@ -232,6 +259,7 @@ function safeTraceErrorValue(value) {
   return safeTraceString(message, 120);
 }
 
+/** @param {unknown} text @returns {boolean} */
 function containsForbiddenTraceText(text) {
   // 误判防护：containsForbiddenTraceText 过滤 error/message 中的敏感 trace 文本。
   const value = safeTraceString(text, 512);
@@ -249,9 +277,11 @@ function containsForbiddenTraceText(text) {
   return false;
 }
 
+/** @param {unknown} metadata @returns {TraceRecord | undefined} */
 function safeTraceMetadata(metadata) {
   // 误判防护：safeTraceMetadata 只允许白名单 metadata key 进入 trace。
   if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) return undefined;
+  /** @type {TraceRecord} */
   const out = {};
   for (const [key, value] of Object.entries(metadata)) {
     if (!FRONTEND_TRACE_ALLOWED_METADATA_KEYS.has(key)) continue;
@@ -264,24 +294,28 @@ function safeTraceMetadata(metadata) {
   return Object.keys(out).length > 0 ? out : undefined;
 }
 
+/** @param {unknown} event @returns {SanitizedTraceEvent | null} */
 function sanitizeFrontendTraceEvent(event) {
   // 误判防护：sanitizeFrontendTraceEvent 是前端 trace 入队前的统一去敏守卫。
   if (!event || typeof event !== 'object' || Array.isArray(event)) return null;
-  const phase = safeTraceString(event.phase);
+  const source = /** @type {TraceRecord} */ (event);
+  const phase = safeTraceString(source.phase);
   if (!FRONTEND_TRACE_ALLOWED_PHASES.has(phase)) return null;
-  const status = safeTraceString(event.status).toLowerCase();
+  const status = safeTraceString(source.status).toLowerCase();
   if (!FRONTEND_TRACE_ALLOWED_STATUSES.has(status)) return null;
   if (FRONTEND_PERFORMANCE_TRACE_PHASES.has(phase)) {
     const expectedStatus = phase === 'frontend.performance.capability_absent' ? 'ok' : 'slow';
     if (status !== expectedStatus) return null;
   }
-  const durationMS = Number(event.duration_ms);
+  const durationMS = Number(source.duration_ms);
+  /** @type {SanitizedTraceEvent} */
   const out = {
     ts: createFrontendTraceTimestamp(),
     phase,
     status,
   };
-  for (const [target, source, limit] of [
+  /** @type {Array<[string, string, number]>} */
+  const stringFields = [
     ['trace_id', 'trace_id', 64],
     ['span_id', 'span_id', 32],
     ['parent_span_id', 'parent_span_id', 32],
@@ -292,20 +326,22 @@ function sanitizeFrontendTraceEvent(event) {
     ['call_id', 'call_id', 160],
     ['client_kind', 'client_kind', 80],
     ['client_route', 'client_route', 240],
-  ]) {
-    const value = safeTraceString(event[source], limit);
+  ];
+  for (const [target, sourceKey, limit] of stringFields) {
+    const value = safeTraceString(source[sourceKey], limit);
     if (value) out[target] = value;
   }
   if (Number.isFinite(durationMS) && durationMS >= 0) out.duration_ms = Math.round(durationMS);
   if (out.status === 'error') {
-    const error = safeTraceErrorValue(event.error);
+    const error = safeTraceErrorValue(source.error);
     if (error) out.error = error;
   }
-  const metadata = safeTraceMetadata(event.metadata);
+  const metadata = safeTraceMetadata(source.metadata);
   if (metadata) out.metadata = metadata;
   return out;
 }
 
+/** @param {SanitizedTraceEvent | null} event @returns {boolean} */
 function shouldRemoteFlushFrontendTrace(event) {
   if (!event) return false;
   if (isUITestMCPTraceSuppressed()) return false;
@@ -357,16 +393,18 @@ function scheduleFrontendTraceRetry() {
   }, frontendTraceRetryDelayMS);
 }
 
+/** @param {unknown} response @param {number} batchLength @returns {'malformed' | 'disabled' | 'acknowledged'} */
 function classifyFrontendTraceACK(response, batchLength) {
   if (!response || typeof response !== 'object' || Array.isArray(response)) return 'malformed';
-  const recorded = response.recorded;
-  const dropped = response.dropped ?? 0;
-  if (!Number.isInteger(recorded) || recorded < 0 || !Number.isInteger(dropped) || dropped < 0) return 'malformed';
-  if (response.enabled === false) {
-    const disabledReason = typeof response.disabled_reason === 'string' ? response.disabled_reason.trim() : '';
+  const value = /** @type {TraceRecord} */ (response);
+  const recorded = value.recorded;
+  const dropped = value.dropped ?? 0;
+  if (typeof recorded !== 'number' || typeof dropped !== 'number' || !Number.isInteger(recorded) || recorded < 0 || !Number.isInteger(dropped) || dropped < 0) return 'malformed';
+  if (value.enabled === false) {
+    const disabledReason = typeof value.disabled_reason === 'string' ? value.disabled_reason.trim() : '';
     return recorded === 0 && dropped === batchLength && disabledReason ? 'disabled' : 'malformed';
   }
-  if (response.enabled !== undefined && response.enabled !== true) return 'malformed';
+  if (value.enabled !== undefined && value.enabled !== true) return 'malformed';
   return recorded + dropped === batchLength ? 'acknowledged' : 'malformed';
 }
 
@@ -381,10 +419,13 @@ async function flushFrontendTraceQueue() {
   let shouldRetry = false;
   try {
     const runtime = await waitRuntime();
-    if (typeof runtime?.Call?.ByID !== 'function') {
+    const runtimeRecord = runtime && typeof runtime === 'object' ? /** @type {TraceRecord} */ (runtime) : {};
+    const call = runtimeRecord.Call && typeof runtimeRecord.Call === 'object' ? /** @type {TraceRecord} */ (runtimeRecord.Call) : {};
+    const byID = call.ByID;
+    if (typeof byID !== 'function') {
       throw new Error('runtime Call.ByID is unavailable');
     }
-    const response = await runtime.Call.ByID(
+    const response = await byID(
       METHOD_IDS.CALL_API,
       FRONTEND_TRACE_INGEST_METHOD,
       { events: batch },
@@ -395,21 +436,25 @@ async function flushFrontendTraceQueue() {
       throw new Error('frontend trace ingest returned a malformed ACK');
     }
     if (ack === 'disabled') {
+      const responseValue = /** @type {TraceRecord} */ (response);
       frontendTraceDisabled = true;
-      frontendTraceDisabledReason = typeof response.disabled_reason === 'string' ? response.disabled_reason : '';
+      frontendTraceDisabledReason = typeof responseValue.disabled_reason === 'string' ? responseValue.disabled_reason : '';
       frontendTraceHealth.terminalDropped += batch.length + frontendTraceQueue.length;
       frontendTracePendingBatch = null;
       frontendTraceQueue = [];
       clearFrontendTraceRetry();
       return;
     }
-    frontendTraceHealth.acknowledged += response.recorded;
-    frontendTraceHealth.serverDropped += response.dropped ?? 0;
-    if ((response.dropped ?? 0) > 0) {
+    const responseValue = /** @type {TraceRecord} */ (response);
+    const recorded = /** @type {number} */ (responseValue.recorded);
+    const dropped = responseValue.dropped === undefined ? 0 : /** @type {number} */ (responseValue.dropped);
+    frontendTraceHealth.acknowledged += recorded;
+    frontendTraceHealth.serverDropped += dropped;
+    if (dropped > 0) {
       writeBridgeLog('warn', 'frontend.trace.flush.partial_drop', {
         count: batch.length,
-        recorded: response.recorded,
-        dropped: response.dropped,
+        recorded,
+        dropped,
       });
     }
     frontendTracePendingBatch = null;
@@ -421,7 +466,7 @@ async function flushFrontendTraceQueue() {
     frontendTraceHealth.lastFailure = safeTraceErrorMessage(error);
     shouldRetry = true;
     console.warn('[Bridge warn] frontend.trace.flush.failed', {
-      error: error?.name || 'Error',
+      error: error instanceof Error && error.name ? error.name : 'Error',
       count: batch.length,
     });
   }
@@ -450,6 +495,7 @@ function scheduleFrontendTraceFlush() {
     });
 }
 
+/** @param {SanitizedTraceEvent} event @returns {boolean} */
 function enqueueFrontendTraceEvent(event) {
   // 误判防护：enqueueFrontendTraceEvent 使用 FRONTEND_TRACE_QUEUE_LIMIT 限制 trace 队列。
   frontendTraceHealth.accepted += 1;
@@ -465,10 +511,11 @@ function enqueueFrontendTraceEvent(event) {
   return true;
 }
 
+/** @param {unknown} event @param {{ flush?: boolean }} options @returns {boolean} */
 function emitFrontendTraceEvent(event, options = {}) {
   if (frontendTraceDisabled) return false;
   const sanitized = sanitizeFrontendTraceEvent(event);
-  if (!shouldRemoteFlushFrontendTrace(sanitized)) return false;
+  if (!sanitized || !shouldRemoteFlushFrontendTrace(sanitized)) return false;
   if (!enqueueFrontendTraceEvent(sanitized)) return false;
   if (options.flush !== false) scheduleFrontendTraceFlush();
   return true;
@@ -478,7 +525,9 @@ function flushFrontendTraceQueueForTest() {
   return flushFrontendTraceQueue();
 }
 
+/** @param {unknown} event @returns {TraceRecord | undefined} */
 function runtimeTelemetryMetadata(event) {
+  /** @type {TraceRecord} */
   const metadata = {};
   for (const key of ['req_id', 'pending_count', 'attempt']) {
     const value = runtimeTelemetryMetadataValue(event, key);
@@ -487,9 +536,15 @@ function runtimeTelemetryMetadata(event) {
   return Object.keys(metadata).length > 0 ? metadata : undefined;
 }
 
+/** @param {unknown} event @param {string} key @returns {unknown} */
 function runtimeTelemetryMetadataValue(event, key) {
-  if (event && Object.prototype.hasOwnProperty.call(event, key)) return event[key];
-  if (event?.metadata && Object.prototype.hasOwnProperty.call(event.metadata, key)) return event.metadata[key];
+  if (!event || typeof event !== 'object' || Array.isArray(event)) return undefined;
+  const source = /** @type {TraceRecord} */ (event);
+  if (Object.prototype.hasOwnProperty.call(source, key)) return source[key];
+  if (source.metadata && typeof source.metadata === 'object' && !Array.isArray(source.metadata)) {
+    const metadata = /** @type {TraceRecord} */ (source.metadata);
+    if (Object.prototype.hasOwnProperty.call(metadata, key)) return metadata[key];
+  }
   return undefined;
 }
 
@@ -508,6 +563,7 @@ function currentMonotonicMS() {
   return value;
 }
 
+/** @param {number} start @returns {number} */
 function elapsedMS(start) {
   if (!Number.isFinite(start)) {
     const error = new Error('bridge start timestamp is invalid');
@@ -517,6 +573,7 @@ function elapsedMS(start) {
   return Math.max(0, Math.round(currentMonotonicMS() - start));
 }
 
+/** @param {DateConstructor} clock @returns {string} */
 function createFrontendTraceTimestamp(clock = Date) {
   if (!clock || typeof clock !== 'function') {
     const error = new Error('frontend trace wall clock is unavailable');
@@ -526,22 +583,25 @@ function createFrontendTraceTimestamp(clock = Date) {
   return new clock().toISOString();
 }
 
+/** @param {unknown} event @returns {TraceRecord | null} */
 function runtimeTelemetryTraceEvent(event) {
   if (!event || typeof event !== 'object' || Array.isArray(event)) return null;
+  const source = /** @type {TraceRecord} */ (event);
   const traceEvent = {
-    phase: event.phase,
-    method: event.method,
-    trace_id: event.trace_id,
-    span_id: event.span_id,
-    call_id: event.call_id,
-    duration_ms: event.duration_ms,
-    status: event.status,
-    error: event.error,
-    metadata: runtimeTelemetryMetadata(event),
+    phase: source.phase,
+    method: source.method,
+    trace_id: source.trace_id,
+    span_id: source.span_id,
+    call_id: source.call_id,
+    duration_ms: source.duration_ms,
+    status: source.status,
+    error: source.error,
+    metadata: runtimeTelemetryMetadata(source),
   };
   return traceEvent;
 }
 
+/** @param {unknown} event */
 function handleRuntimeTelemetryEvent(event) {
   const traceEvent = runtimeTelemetryTraceEvent(event);
   const sanitized = sanitizeFrontendTraceEvent(traceEvent);
@@ -553,22 +613,26 @@ function handleRuntimeTelemetryEvent(event) {
       sanitized,
     );
   }
-  if (FRONTEND_RUNTIME_TRACE_SKIP_METHODS.has(sanitized.method)) return;
+  if (FRONTEND_RUNTIME_TRACE_SKIP_METHODS.has(safeTraceString(sanitized.method))) return;
   emitFrontendTraceEvent(traceEvent);
 }
 
+/** @param {unknown} error */
 function logRuntimeTelemetryExternalHookFailed(error) {
   writeBridgeLog('warn', 'runtime.rpc.telemetry.external_hook_failed', { error });
 }
 
 function installRuntimeTelemetryHook() {
   if (typeof window === 'undefined') return;
-  const currentHook = typeof window.__AO_WAILS_RUNTIME_TELEMETRY__ === 'function'
-    ? window.__AO_WAILS_RUNTIME_TELEMETRY__
+  /** @typedef {((event: unknown) => void) & { __AO_BRIDGE_RUNTIME_TELEMETRY__?: boolean, __AO_PREVIOUS_RUNTIME_TELEMETRY__?: ((event: unknown) => void) | null }} TelemetryHook */
+  const runtimeWindow = /** @type {Window & { __AO_WAILS_RUNTIME_TELEMETRY__?: TelemetryHook }} */ (window);
+  const currentHook = typeof runtimeWindow.__AO_WAILS_RUNTIME_TELEMETRY__ === 'function'
+    ? runtimeWindow.__AO_WAILS_RUNTIME_TELEMETRY__
     : null;
   const externalHook = currentHook?.__AO_BRIDGE_RUNTIME_TELEMETRY__ === true
     ? currentHook.__AO_PREVIOUS_RUNTIME_TELEMETRY__ || null
     : currentHook;
+  /** @type {TelemetryHook} */
   const hook = (event) => {
     if (typeof externalHook === 'function') {
       try {
@@ -582,7 +646,7 @@ function installRuntimeTelemetryHook() {
   };
   hook.__AO_BRIDGE_RUNTIME_TELEMETRY__ = true;
   hook.__AO_PREVIOUS_RUNTIME_TELEMETRY__ = externalHook;
-  window.__AO_WAILS_RUNTIME_TELEMETRY__ = hook;
+  runtimeWindow.__AO_WAILS_RUNTIME_TELEMETRY__ = hook;
 }
 
 installRuntimeTelemetryHook();

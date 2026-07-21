@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { runBackgroundAction, runUIAction } from '../../../shared/ui/runUIAction.js';
 import { Panel } from '../../shared/pageComponents.jsx';
 import { settingsPageService } from '../services/settingsPageService.js';
 import {
@@ -47,7 +48,7 @@ function ModelProvidersCard({ copy, cwd }) {
 
   const registryQuery = useQuery({
     queryKey,
-    queryFn: () => listModelProviders({ cwd: currentCwd }),
+    queryFn: () => runBackgroundAction('settings.model-providers.bootstrap', () => listModelProviders({ cwd: currentCwd })),
     enabled: Boolean(currentCwd),
     refetchOnWindowFocus: false,
     retry: false,
@@ -80,7 +81,7 @@ function ModelProvidersCard({ copy, cwd }) {
 
   useEffect(() => {
     if (!registryQuery.error) return;
-    setNotice({ level: 'warning', message: modelCopy.loadFailed + (registryQuery.error?.message || registryQuery.error) });
+    setNotice({ level: 'warning', message: modelCopy.loadFailed });
   }, [modelCopy.loadFailed, registryQuery.error]);
 
   const load = useCallback(() => {
@@ -92,7 +93,7 @@ function ModelProvidersCard({ copy, cwd }) {
     }
     setDirty(false);
     setNotice({ level: 'info', message: '' });
-    void queryClient.invalidateQueries({ queryKey, exact: true });
+    return runUIAction('settings.model-providers.load', () => queryClient.invalidateQueries({ queryKey, exact: true }), { retryable: true });
   }, [currentCwd, queryClient, queryKey]);
 
   const selectedVendor = useMemo(
@@ -128,12 +129,12 @@ function ModelProvidersCard({ copy, cwd }) {
 
   const save = useCallback(() => {
     if (!currentCwd || saving || !registryState || registryState.cwd !== currentCwd) return;
-    saveMutation.mutate({ registry: registryState.registry, requestCwd: currentCwd });
+    return runUIAction('settings.model-providers.save', () => saveMutation.mutateAsync({ registry: registryState.registry, requestCwd: currentCwd }));
   }, [currentCwd, registryState, saveMutation, saving]);
 
   const apply = useCallback(() => {
     if (!currentCwd || applying || !registryState || registryState.cwd !== currentCwd || !selectedVendor || !selectedVendor.enabled || !selectedVendor.configured) return;
-    applyMutation.mutate({ registry: registryState.registry, requestCwd: currentCwd, vendor: selectedVendor });
+    return runUIAction('settings.model-providers.apply', () => applyMutation.mutateAsync({ registry: registryState.registry, requestCwd: currentCwd, vendor: selectedVendor }));
   }, [applying, applyMutation, currentCwd, registryState, selectedVendor]);
 
   return (
@@ -222,8 +223,8 @@ function useModelProviderApplyMutation(state) {
   });
 }
 
-function setMutationErrorNotice({ error, prefix, setNotice }) {
-  setNotice({ level: 'error', message: prefix + (error?.message || error) });
+function setMutationErrorNotice({ error: _error, prefix, setNotice }) {
+  setNotice({ level: 'error', message: prefix });
 }
 
 function saveModelProviderRegistry(cwd, registry) {

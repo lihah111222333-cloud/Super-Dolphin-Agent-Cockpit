@@ -12,6 +12,7 @@ import (
 	dto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/provider"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/runtimesafe"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/shared"
+	providershared "github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/shared"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/util/ctxutil"
 	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
 )
@@ -56,7 +57,7 @@ func (s *session) turnRawEventLocked(eventType, turnID string, extras map[string
 	if turnID = strings.TrimSpace(turnID); turnID != "" {
 		data["turn_id"] = turnID
 	}
-	return dto.RawProviderEvent{EventType: eventType, Data: data}
+	return attachClaudeTerminalOutcome(dto.RawProviderEvent{EventType: eventType, Data: data})
 }
 func (s *session) dispatch(raw dto.RawProviderEvent) {
 	if s.eventDispatcher != nil {
@@ -69,7 +70,7 @@ func (s *session) turnRawEvent(eventType, turnID string, extras map[string]any) 
 	if turnID = strings.TrimSpace(turnID); turnID != "" {
 		data["turn_id"] = turnID
 	}
-	return dto.RawProviderEvent{EventType: eventType, Data: data}
+	return attachClaudeTerminalOutcome(dto.RawProviderEvent{EventType: eventType, Data: data})
 }
 func currentTurnID(handle *turnHandle) string {
 	if handle == nil {
@@ -79,6 +80,47 @@ func currentTurnID(handle *turnHandle) string {
 		return providerID
 	}
 	return handle.LocalID()
+}
+
+func attachClaudeTerminalOutcome(raw dto.RawProviderEvent) dto.RawProviderEvent {
+	if raw.Terminal != nil {
+		return raw
+	}
+	switch raw.EventType {
+	case "turn:interrupted":
+		termination := providershared.ResolveRawTermination(raw.Data, "provider")
+		outcome := dto.TerminalOutcome{Status: "interrupted", Cause: termination.Cause, RequestID: termination.RequestID, ContractError: termination.ContractError}
+		if termination.ContractError != "" {
+			outcome.Status = "failed"
+		}
+		raw.Terminal = &outcome
+	case "turn:complete":
+		outcome := providershared.ResolveRawTerminalOutcome(raw.Data)
+		raw.Terminal = &outcome
+	}
+	return raw
+}
+
+func (s *session) safeMalformedTerminal(raw dto.RawProviderEvent) dto.RawProviderEvent {
+	if s.logger != nil {
+		s.logger.Warn("claudecli: malformed terminal failed active turn", "event_type", raw.EventType, "agent_id", s.agentID)
+	}
+	return s.turnRawEvent("turn:complete", "", map[string]any{
+		"success": false,
+		"status":  "failed",
+		"error":   "terminal contract: malformed terminal payload",
+	})
+}
+
+func (s *session) normalizeClaudeTerminal(raw dto.RawProviderEvent) dto.RawProviderEvent {
+	if !shouldFinishTurnRaw(raw) {
+		return raw
+	}
+	raw = attachClaudeTerminalOutcome(raw)
+	if raw.Terminal != nil && raw.Terminal.ContractError == "" && strings.TrimSpace(dataString(raw.Data, "turn_id")) != "" {
+		return raw
+	}
+	return s.safeMalformedTerminal(raw)
 }
 
 // applyRaw 处理 Claude CLI 解码后的 raw event。
@@ -95,6 +137,7 @@ func (s *session) applyRaw(tr *transport, raw dto.RawProviderEvent) {
 		}
 		return
 	}
+	raw = s.normalizeClaudeTerminal(raw)
 	if s.shouldSuppressTurn(raw) {
 		if s.logger != nil {
 			s.logger.Warn("claudecli: applyRaw: turn suppressed",
@@ -198,6 +241,8 @@ func (s *session) isCurrentTransport(tr *transport) bool {
 	defer s.mu.Unlock()
 	return s.transport == tr
 }
+
+// finishTurnFromRaw 只用 canonical outcome 收口 active handle，不重新读取 raw success/status。
 func (s *session) finishTurnFromRaw(raw dto.RawProviderEvent) {
 	s.mu.Lock()
 	handle := s.takeActiveTurnLocked()
@@ -205,11 +250,15 @@ func (s *session) finishTurnFromRaw(raw dto.RawProviderEvent) {
 	if handle == nil {
 		return
 	}
-	if raw.EventType == "turn:interrupted" {
+	if raw.Terminal == nil {
+		handle.finish(errors.New("terminal contract: missing canonical terminal outcome"))
+		return
+	}
+	if raw.Terminal.Status == "interrupted" || raw.Terminal.Status == "cancelled" {
 		handle.finish(context.Canceled)
 		return
 	}
-	if dataBool(raw.Data, "success") {
+	if raw.Terminal.Success {
 		handle.finish(nil)
 		return
 	}
@@ -354,6 +403,7 @@ func decodeResultEvent(raw streamEvent, base rawBase) []dto.RawProviderEvent {
 	success := !raw.IsError && !strings.EqualFold(strings.TrimSpace(raw.Subtype), "error")
 	terminalReason := strings.TrimSpace(raw.TerminalReason)
 	data["success"] = success
+	data["status"] = terminalStatus(success)
 	if terminalReason != "" {
 		data["terminal_reason"] = terminalReason
 	}
@@ -394,6 +444,13 @@ func decodeResultEvent(raw streamEvent, base rawBase) []dto.RawProviderEvent {
 		data["error"] = errStr
 	}
 	return []dto.RawProviderEvent{{EventType: "turn:complete", Data: data}}
+}
+
+func terminalStatus(success bool) string {
+	if success {
+		return "completed"
+	}
+	return "failed"
 }
 func baseData(base rawBase, sessionID, timestamp string) map[string]any {
 	return buildEventData(base, sessionID, timestamp, nil)

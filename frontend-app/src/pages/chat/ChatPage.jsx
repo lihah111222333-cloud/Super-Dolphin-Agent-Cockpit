@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { Bot, Code2, FileText, Sailboat, Sparkles } from 'lucide-react';
 import {
   activeThreadForStore,
 } from './adapters/threadStateAdapter.js';
 import { ChatPageHeader } from './components/ChatPageHeader.jsx';
+import { ChatActionFeedback } from './components/ChatActionFeedback.js';
 import { CodePreviewMarkdown } from './markdown/MarkdownMessage.jsx';
 import { chatHeaderFeedbackForStore } from './model/chatHeaderModel.js';
 import { RuntimePanelSlot } from './runtime/RuntimePanelSlot.jsx';
@@ -61,13 +62,6 @@ function renderIntroTitle(title) {
       {title.slice(markerIndex + marker.length)}
     </>
   );
-}
-
-function actionFeedbackTitle(feedback, copy) {
-  if (feedback?.tone !== 'error') return copy.noticeTitle;
-  if (feedback?.category === 'attachment') return copy.attachmentFailedTitle;
-  if (feedback?.category === 'send') return copy.sendFailedTitle;
-  return copy.actionFailedTitle;
 }
 
 function ChatIntroSpotlight({ copy, onSuggestion }) {
@@ -191,7 +185,7 @@ function useActiveChatThreadSync(store, activeThreadId) {
   const loading = Boolean(activeThreadId && store.threadStateLoadingByThread?.[activeThreadId]);
   useEffect(() => {
     if (!activeThreadId || timelineReady || loading) return;
-    runUIAction(() => store.syncThreadState?.(activeThreadId, {
+    runUIAction('thread.sync', () => store.syncThreadState?.(activeThreadId, {
       includeArchived: true,
       includeDiff: true,
       preserveActiveThreadId: true,
@@ -210,15 +204,12 @@ function ChatPage(props) {
   const canUseProjectActions = canUseProjectActionsForStore(store);
   const runtimeProject = runtimeProjectPath(store.activeProject, projectPath);
   const codePreview = useCodePreviewController({ projectPath: runtimeProject, projects: store.projects });
-  const [approvalNotice, setApprovalNotice] = useState('');
   const messageActions = useMemo(() => ({
     onFileRef: codePreview.openFileRef,
     onOpenPath: codePreview.openLocalPath,
     onCitation: (payload) => handleTimelineCitationAction(payload, { store, openFileRef: codePreview.openFileRef }),
     onApproval: (message, approved) => store.respondApproval?.(message, approved),
-    // 审批失败时由 ChatApprovalMessage 调用，通知 UI 显示错误
-    onError: (_event, detail) => { setApprovalNotice(detail || copy.approvalFailed); },
-  }), [codePreview.openFileRef, codePreview.openLocalPath, copy.approvalFailed, store]);
+  }), [codePreview.openFileRef, codePreview.openLocalPath, store]);
   const shellRightPanelWidth = useShellLayoutStore(shellLayoutStore, selectRightPanelWidth);
   const setShellRightPanelWidth = useShellLayoutStore(shellLayoutStore, selectSetRightPanelWidth);
   const viewportWidth = useViewportWidth();
@@ -259,17 +250,7 @@ function ChatPage(props) {
       {showHeader ? (
         <ChatPageHeader copy={copy} store={store} projectPath={projectPath} rightPanelOpen={rightPanelOpen} setRightPanelOpen={setRightPanelOpen} />
       ) : null}
-      {headerFeedback?.message && !headerFeedback?.bootstrapRecovery ? (
-        <output className={`chat-action-toast is-${headerFeedback.tone || 'info'}`} role="alert" data-testid="chat-action-feedback">
-          <strong>{actionFeedbackTitle(headerFeedback, copy)}</strong>
-          <span>{headerFeedback.message}</span>
-        </output>
-      ) : null}
-      {approvalNotice ? (
-        <output className="approval-action-feedback" role="alert" data-testid="approval-action-feedback">
-          {approvalNotice}
-        </output>
-      ) : null}
+      <ChatActionFeedback copy={copy} feedback={headerFeedback} />
       <div ref={chatLayoutRef} className="chat-layout" data-testid="chat-layout" style={{ gridTemplateColumns: layoutColumns }}>
         {introMode ? <ChatIntroSpotlight copy={copy} onSuggestion={prefillIntroSuggestion} /> : null}
         <ThreadRail copy={copy} store={store} />
@@ -364,7 +345,7 @@ function ProviderToggle({ store, canUseProjectActions = true }) {
       title={title}
       onClick={() => {
         if (disabled) return;
-        runUIAction(() => store.toggleProviderMode());
+        runUIAction('settings.provider.toggle', () => store.toggleProviderMode());
       }}
     >
       <span className="provider-track" aria-hidden="true">

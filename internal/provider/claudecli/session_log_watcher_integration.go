@@ -208,7 +208,11 @@ func (s *session) awaitPendingRestartReadyLocked(ctx context.Context) (bool, err
 }
 
 func (s *session) needsRestartLocked(next stagedSessionState) bool {
-	return next.settingsChanged || !s.transport.readyForSend()
+	return next.settingsChanged || s.forceCompletedTransportIsCurrentLocked() || !s.transport.readyForSend()
+}
+
+func (s *session) forceCompletedTransportIsCurrentLocked() bool {
+	return s.transport != nil && s.forceCompletedTransport == s.transport
 }
 
 func (s *session) performRestartLocked(ctx context.Context, next stagedSessionState) error {
@@ -223,6 +227,9 @@ func (s *session) performRestartLocked(ctx context.Context, next stagedSessionSt
 }
 
 func (s *session) restartReasonLocked() string {
+	if s.forceCompletedTransportIsCurrentLocked() {
+		return "force_completed_turn"
+	}
 	if s.transport == nil || !s.transport.readyForSend() {
 		return "transport_unavailable"
 	}
@@ -306,15 +313,16 @@ func (s *session) prepareSessionRestartLocked(ctx context.Context, next stagedSe
 func (s *session) restartSnapshotLocked() restartSnapshot {
 	ready := s.threadReady
 	return restartSnapshot{
-		transport:         s.transport,
-		cleanup:           s.cleanup,
-		watcher:           s.detachLogWatcherLocked(),
-		ready:             ready,
-		readyClosed:       readyChannelClosed(ready),
-		transportModel:    s.transportModel,
-		transportConfig:   s.transportConfig,
-		transportManifest: s.transportManifest,
-		contextWindow:     s.sessionContextWindow,
+		transport:               s.transport,
+		cleanup:                 s.cleanup,
+		watcher:                 s.detachLogWatcherLocked(),
+		ready:                   ready,
+		readyClosed:             readyChannelClosed(ready),
+		transportModel:          s.transportModel,
+		transportConfig:         s.transportConfig,
+		transportManifest:       s.transportManifest,
+		contextWindow:           s.sessionContextWindow,
+		forceCompletedTransport: s.forceCompletedTransport,
 	}
 }
 
@@ -327,6 +335,7 @@ func (s *session) swapRestartTransportLocked(tr *transport, cleanup func(), next
 	s.activeToolCalls = nil
 	s.suppressedTurns = map[string]struct{}{}
 	s.transport = tr
+	s.forceCompletedTransport = nil
 	s.cleanup = cleanup
 	s.transportModel = next.displayModel
 	s.transportConfig = next.config

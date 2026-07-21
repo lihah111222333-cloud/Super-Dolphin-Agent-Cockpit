@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { settingsPageService } from './services/settingsPageService.js';
+import { runBackgroundAction, runUIAction } from '../../shared/ui/runUIAction.js';
 import {
   normalizeProviderName,
   normalizeSettingsCwd,
@@ -35,20 +36,20 @@ function useProviderPreferences(cwd, activeProvider, copy) {
   const [dirty, setDirty] = useState(false);
   const preferencesQuery = useQuery({
     queryKey: settingsProviderPreferencesQueryKey(cwd, provider),
-    queryFn: () => readProviderRuntimePreferences(cwd, provider),
+    queryFn: () => runBackgroundAction('settings.provider.preferences.bootstrap', () => readProviderRuntimePreferences(cwd, provider)),
     enabled: Boolean(normalizeSettingsCwd(cwd) && provider),
     retry: false,
     refetchOnWindowFocus: false,
   });
   const { data: preferencesData, error: preferencesError, refetch } = preferencesQuery;
-  const load = useCallback(() => {
+  const load = useCallback(() => runUIAction('settings.provider.preferences.load', () => {
     setDirty(false);
-    void refetch();
-  }, [refetch, setDirty]);
-  const save = useCallback(async () => {
+    return refetch({ throwOnError: true });
+  }, { retryable: true }), [refetch, setDirty]);
+  const save = useCallback(() => runUIAction('settings.provider.preferences.save', async () => {
     const saved = await saveProviderPreferenceValues({ approvalMode, copy, cwd, provider, saving, setNotice, setSaving, summaryMode });
     if (saved) setDirty(false);
-  }, [approvalMode, copy, cwd, provider, saving, setDirty, setNotice, setSaving, summaryMode]);
+  }), [approvalMode, copy, cwd, provider, saving, setDirty, setNotice, setSaving, summaryMode]);
   const updateSummaryMode = useCallback((value) => {
     setDirty(true);
     setSummaryMode(value);
@@ -70,8 +71,8 @@ function useProviderPreferences(cwd, activeProvider, copy) {
   return { approvalMode, load, notice, provider, save, saving, setApprovalMode: updateApprovalMode, setSummaryMode: updateSummaryMode, summaryMode };
 }
 
-function setProviderPreferenceLoadError(copy, error, setNotice) {
-  setNotice({ level: 'error', message: copy.provider.loadPreferencesFailed + error.message });
+function setProviderPreferenceLoadError(copy, _error, setNotice) {
+  setNotice({ level: 'error', message: copy.provider.loadPreferencesFailed });
 }
 
 function applyProviderPreferenceValues(approvalValue, setApprovalMode, setNotice, setSummaryMode, summaryValue) {
@@ -91,8 +92,8 @@ async function saveProviderPreferenceValues(state) {
     setNotice({ level: 'info', message: copy.provider.savedPrefix + summaryMode + ' / ' + approvalMode });
     return true;
   } catch (error) {
-    setNotice({ level: 'error', message: copy.provider.saveFailed + error.message });
-    return false;
+    setNotice({ level: 'error', message: copy.provider.saveFailed });
+    throw error;
   } finally {
     setSaving(false);
   }

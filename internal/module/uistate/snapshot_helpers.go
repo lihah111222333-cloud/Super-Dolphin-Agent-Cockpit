@@ -20,7 +20,7 @@ type threadActivity struct {
 }
 
 // pushRecentTurn 将 turn 合并进最近列表，并按更新时间倒序截断。
-// 相同 turn 会被新快照替换，避免 sidebar 同时显示旧状态和新状态。
+// 相同 turn 会被新快照替换；同一 thread 的首个终态则不可被冲突终态覆盖。
 func pushRecentTurn(items []TurnSummary, next TurnSummary, limit int) []TurnSummary {
 	next.ID = strings.TrimSpace(next.ID)
 	if next.ID == "" {
@@ -28,8 +28,11 @@ func pushRecentTurn(items []TurnSummary, next TurnSummary, limit int) []TurnSumm
 	}
 	updated := false
 	for i := range items {
-		if items[i].ID != next.ID {
+		if !sameRecentTurnIdentity(items[i], next) {
 			continue
+		}
+		if isTerminalRecentTurn(items[i]) && isTerminalRecentTurn(next) {
+			return items
 		}
 		items[i] = next
 		updated = true
@@ -49,6 +52,28 @@ func pushRecentTurn(items []TurnSummary, next TurnSummary, limit int) []TurnSumm
 		items = append([]TurnSummary(nil), items[:limit]...)
 	}
 	return items
+}
+
+func sameRecentTurnIdentity(left, right TurnSummary) bool {
+	if strings.TrimSpace(left.ID) != strings.TrimSpace(right.ID) {
+		return false
+	}
+	leftThreadID := canonicalRecentTurnThreadID(left)
+	rightThreadID := canonicalRecentTurnThreadID(right)
+	return leftThreadID == rightThreadID || leftThreadID == "" || rightThreadID == ""
+}
+
+func canonicalRecentTurnThreadID(item TurnSummary) string {
+	return strings.TrimSpace(firstNonEmptyString(item.ThreadID, item.AgentID))
+}
+
+func isTerminalRecentTurn(item TurnSummary) bool {
+	switch strings.ToLower(strings.TrimSpace(item.Status)) {
+	case "completed", "failed", "interrupted":
+		return true
+	default:
+		return false
+	}
 }
 
 // markThreadStopped 将线程终态写入 sidebar 快照；deleted 会直接移除可见线程。

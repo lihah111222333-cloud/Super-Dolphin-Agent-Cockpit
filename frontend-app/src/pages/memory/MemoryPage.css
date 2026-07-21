@@ -1,94 +1,68 @@
+/* Memory Center — Stitch redesign: neutral token-driven cards, no gradient/fusion overrides. */
+
 .memory-page,
 .settings-page {
   padding-bottom: 32px;
 }
 
-.memory-stats,
-.similar-alert,
-.memory-cards {
-  margin: 28px;
+/* In-content hero: the shared PageHeader h1 is hidden by the app shell. */
+.memory-hero {
+  margin: 4px 28px 0;
 }
 
-.big {
-  font-size: 40px;
+.memory-hero-title {
+  margin: 0;
+  color: var(--text-pri);
+  font-size: var(--suiyuan-text-headline-size);
+  font-weight: 500;
+  letter-spacing: 0;
+  line-height: var(--suiyuan-text-headline-line);
 }
 
-.memory-page .page-actions {
-  align-items: center;
+.memory-hero-subtitle {
+  margin: 4px 0 0;
+  color: var(--text-sec);
+  font-size: var(--suiyuan-text-body-size);
+  line-height: var(--suiyuan-text-body-line);
 }
 
-.memory-toolbar {
-  margin: 14px 24px;
-}
-
-.memory-search {
-  flex: 1 1 auto;
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.memory-search input {
-  flex: 1;
-  width: 100%;
-  border: none;
-  background: transparent;
-  color: inherit;
-  outline: none;
-  font-size: 14px;
-}
-
-.memory-create {
-  flex: 0 0 auto;
-}
-
-@media (max-width: 640px) {
-  .memory-toolbar {
-    flex-direction: column;
-    align-items: stretch;
-  }
-}
-
+/* Stats row: three equal cards on desktop, one column on narrow screens. */
 .memory-page .memory-stats {
   display: grid;
-  grid-template-columns: repeat(2, minmax(280px, 1fr));
-  gap: 12px;
-  margin: 16px 24px 22px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+  margin: 20px 28px 24px;
 }
 
 .memory-page .memory-stats .panel {
-  min-height: 98px;
-  border-radius: 8px;
-  border-color: color-mix(in srgb, var(--primary) 18%, var(--border));
-  background: color-mix(in srgb, var(--surface) 92%, var(--primary-soft));
-  box-shadow: var(--suiyuan-input-shadow);
+  min-height: 112px;
+  margin: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--suiyuan-radius-card);
+  background: var(--surface);
+  box-shadow: var(--suiyuan-card-shadow);
+  color: var(--text-pri);
+  padding: 18px 20px;
 }
 
-.memory-page .memory-overview-panel,
-.memory-page .memory-auto-dream-panel {
-  position: relative;
-  overflow: hidden;
+.memory-page .memory-stats .panel > h3 {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 12px;
+  color: var(--text-muted);
+  font-size: var(--suiyuan-text-label-xs-size);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  line-height: var(--suiyuan-text-label-xs-line);
+  text-transform: uppercase;
 }
 
-.memory-page .memory-overview-panel::before,
-.memory-page .memory-auto-dream-panel::before {
-  content: "";
-  position: absolute;
-  inset: 0 auto 0 0;
-  width: 3px;
-  background: var(--primary);
-}
-
-.memory-page .memory-auto-dream-panel::before {
-  background: var(--orange);
-}
-
-.memory-page .memory-overview-content,
-.memory-page .memory-auto-dream-content {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: end;
+.memory-page .memory-overview-content {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  flex-wrap: wrap;
   gap: 12px;
 }
 
@@ -97,7 +71,7 @@
   font-size: 34px;
   font-weight: 760;
   letter-spacing: 0;
-  line-height: 0.95;
+  line-height: 1;
 }
 
 .memory-page .memory-overview-breakdown {
@@ -115,7 +89,7 @@
   gap: 6px;
   min-height: 28px;
   margin: 0;
-  border: 1px solid color-mix(in srgb, var(--primary) 14%, var(--border));
+  border: 1px solid var(--border);
   border-radius: 999px;
   background: var(--surface-2);
   color: var(--text-sec);
@@ -126,9 +100,54 @@
   white-space: nowrap;
 }
 
+/* Health panel rows and meter bars. */
+.memory-page .memory-health-panel p {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  color: var(--text-sec);
+  font-size: 13px;
+}
+
+.memory-page meter {
+  flex: 0 0 auto;
+  width: 48%;
+}
+
+.memory-health-track {
+  height: 6px;
+  border-radius: 999px;
+  background: var(--surface-3);
+  overflow: hidden;
+  margin: 8px 0 10px;
+}
+
+.memory-page .memory-health-track {
+  background: var(--surface-3);
+}
+
+.memory-health-track span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--green);
+}
+
+.memory-health-track.warning span {
+  background: var(--orange);
+}
+
+.memory-health-track.danger span {
+  background: var(--error);
+}
+
+/* Auto-dream card: status + description on the left, switch on the right. */
 .memory-page .memory-auto-dream-content {
+  display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
+  gap: 4px 12px;
 }
 
 .memory-page .memory-auto-dream-description {
@@ -141,14 +160,59 @@
 .memory-page .memory-auto-dream-toggle {
   grid-column: 2;
   grid-row: 1 / span 2;
+  justify-self: end;
   align-self: center;
-  min-width: 56px;
-  border-radius: 8px;
-  background: var(--surface-2);
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-sec);
+  font-size: 13px;
   font-weight: 700;
 }
 
+.memory-page .memory-auto-dream-toggle:disabled {
+  opacity: 0.58;
+}
+
+.memory-pending,
+.memory-card .path,
+.memory-form-helper {
+  display: block;
+  margin-top: 8px;
+  color: var(--muted);
+}
+
+/* Toolbar: neutral fusion card holding the pill search and primary create action. */
+.memory-toolbar {
+  margin: 0 28px 16px;
+}
+
+.memory-page .memory-search {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-muted);
+}
+
+.memory-page .memory-search input {
+  flex: 1;
+  width: 100%;
+  border: none;
+  background: transparent;
+  color: var(--text-pri);
+  outline: none;
+  font-size: 14px;
+}
+
+.memory-page .memory-search input::placeholder {
+  color: var(--text-muted);
+  opacity: 1;
+}
+
 .memory-page .memory-create {
+  position: relative;
   display: inline-flex;
   flex: 0 0 auto;
   align-self: flex-start;
@@ -161,14 +225,14 @@
   justify-content: center;
   gap: 6px;
   min-height: 34px;
-  border-radius: 8px;
+  border-radius: 999px;
   border-color: var(--primary-action-border);
   background: var(--primary-action-bg);
   color: var(--primary-action-text);
   box-shadow: var(--primary-action-shadow);
   font-weight: 760;
   letter-spacing: 0;
-  padding: 0 12px;
+  padding: 0 14px;
 }
 
 .memory-page .memory-create-button:hover {
@@ -190,79 +254,17 @@
   transform: rotate(180deg);
 }
 
-.orange-dot,
-.green-dot {
-  display: inline-block;
-  width: 10px;
-  height: 10px;
-  border-radius: 999px;
-  background: var(--orange);
-}
-
-.green-dot {
-  background: var(--green);
-}
-
-meter {
-  width: 48%;
-}
-
-.similar-alert {
-  min-height: 62px;
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  border: 1px solid color-mix(in srgb, var(--warning) 44%, var(--border));
-  border-radius: var(--radius);
-  color: var(--warning);
-  padding: 0 22px;
-  font-size: 20px;
-}
-
-.similar-alert button {
-  margin-left: 12px;
-  color: var(--warning);
-  border-color: color-mix(in srgb, var(--warning) 44%, var(--border));
-}
-
-.similar-alert.is-degraded {
-	background: color-mix(in srgb, var(--warning) 10%, transparent);
-}
-
-.memory-tabs {
-  border-bottom: 1px solid var(--line);
-  margin: 0 28px;
-  padding-left: 0;
-}
-
-.memory-cards {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-  gap: 18px;
-}
-
-.memory-card {
-  border-left: 4px solid var(--orange);
-}
-
-.memory-card header em {
-  color: var(--muted);
-  font-style: normal;
-}
-
-.memory-card footer {
-  margin-top: 16px;
-}
-
-.memory-card footer time {
-  flex: 1 1 auto;
-  min-width: 0;
-  margin-right: auto;
-  color: var(--muted);
-}
-
-.memory-create {
-  position: relative;
+.memory-create-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: var(--z-local-sticky);
+  min-width: 132px;
+  border: 1px solid var(--line);
+  border-radius: var(--suiyuan-radius-control);
+  background: var(--surface);
+  padding: 6px;
+  box-shadow: var(--shadow);
 }
 
 .memory-page .memory-create-menu {
@@ -272,19 +274,6 @@ meter {
   min-width: 148px;
   border-color: var(--border-strong);
   background: var(--surface);
-}
-
-.memory-create-menu {
-  position: absolute;
-  top: calc(100% + 8px);
-  right: 0;
-  z-index: var(--z-local-sticky);
-  min-width: 132px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--surface);
-  padding: 6px;
-  box-shadow: var(--shadow);
 }
 
 .memory-create-menu button,
@@ -314,41 +303,64 @@ meter {
   outline: none;
 }
 
-.memory-health-track {
-  height: 6px;
-  border-radius: 999px;
-  background: var(--surface-3);
-  overflow: hidden;
-  margin: 8px 0 10px;
+/* Similarity alert and expandable groups: readable warning-tinted neutral surfaces. */
+.similar-alert {
+  min-height: 56px;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin: 0 28px 16px;
+  border: 1px solid color-mix(in srgb, var(--warning) 44%, var(--border));
+  border-radius: var(--suiyuan-radius-card);
+  background: color-mix(in srgb, var(--warning) 8%, var(--surface));
+  color: var(--warning);
+  padding: 12px 20px;
+  font-size: 14px;
 }
 
-.memory-health-track span {
-  display: block;
-  height: 100%;
-  border-radius: inherit;
-  background: var(--green);
+.similar-alert button {
+  border-color: color-mix(in srgb, var(--warning) 44%, var(--border));
+  background: var(--surface);
+  color: var(--warning);
 }
 
-.memory-health-track.warning span {
-  background: var(--orange);
+.similar-alert.is-degraded {
+  background: color-mix(in srgb, var(--warning) 10%, var(--surface));
 }
 
-.memory-health-track.danger span {
-  background: var(--error);
+.memory-similar-list {
+  margin: 0 28px 24px;
+  display: grid;
+  gap: 8px;
 }
 
-.memory-pending,
-.memory-card .path,
-.memory-form-helper {
-  display: block;
-  margin-top: 8px;
-  color: var(--muted);
+.memory-similar-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto auto;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid color-mix(in srgb, var(--warning) 26%, var(--border));
+  border-radius: var(--suiyuan-radius-control);
+  background: color-mix(in srgb, var(--warning) 9%, var(--surface));
+  padding: 10px 12px;
+  color: var(--text-sec);
 }
 
-.memory-notice {
-  margin: 14px 28px;
+.memory-similar-item button {
+  min-height: 32px;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: 7px;
+  background: var(--surface-2);
+  color: var(--text-pri);
+  padding: 0 10px;
+}
+
+/* Status notices. */
+.memory-notice {
+  margin: 0 28px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--suiyuan-radius-control);
   padding: 10px 12px;
   color: var(--text-sec);
   background: var(--surface);
@@ -364,35 +376,46 @@ meter {
   color: var(--warning);
 }
 
-.memory-similar-list {
-  margin: -12px 28px 24px;
-  display: grid;
-  gap: 8px;
+/* Category tabs. */
+.memory-tabs {
+  border-bottom: 1px solid var(--line);
+  margin: 0 28px 20px;
+  padding-left: 0;
 }
 
-.memory-similar-item {
+/* Memory cards grid. */
+.memory-cards {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto auto;
-  align-items: center;
-  gap: 10px;
-  border: 1px solid color-mix(in srgb, var(--warning) 26%, var(--border));
-  border-radius: 8px;
-  background: color-mix(in srgb, var(--warning) 9%, var(--surface));
-  padding: 10px 12px;
-  color: var(--text-sec);
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 16px;
+  margin: 0 28px 24px;
 }
 
-.memory-similar-item button {
-  min-height: 32px;
-  border: 1px solid var(--line);
-  border-radius: 7px;
-  background: var(--surface-2);
+.memory-page .memory-card {
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--warning);
+  border-radius: var(--suiyuan-radius-card);
+  background: var(--surface);
+  box-shadow: var(--suiyuan-card-shadow);
   color: var(--text-pri);
-  padding: 0 10px;
+  padding: 20px;
 }
 
 .memory-card.type-project {
   border-left-color: var(--info);
+}
+
+.memory-page .memory-card.type-project {
+  border-left-color: var(--info);
+}
+
+.memory-page .memory-card header em {
+  color: var(--text-muted);
+  font-style: normal;
+}
+
+.memory-page .memory-card p {
+  color: var(--text-sec);
 }
 
 .memory-card code {
@@ -400,6 +423,70 @@ meter {
   overflow-wrap: anywhere;
 }
 
+.memory-page .memory-card code {
+  overflow: visible;
+  color: var(--text-sec);
+}
+
+.memory-card footer {
+  margin-top: 16px;
+}
+
+.memory-card footer time {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin-right: auto;
+  color: var(--muted);
+}
+
+.orange-dot,
+.green-dot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: var(--orange);
+}
+
+.green-dot {
+  background: var(--green);
+}
+
+/* Empty state: roomy neutral panel, never full-viewport, no accent fills. */
+.memory-page .empty-state.memory-empty {
+  min-height: 340px;
+  margin: 0 28px 24px;
+  border: 1px solid var(--border);
+  border-radius: var(--suiyuan-radius-card);
+  background: var(--surface);
+  box-shadow: var(--suiyuan-card-shadow);
+  color: var(--text-muted);
+}
+
+.memory-page .memory-empty > span {
+  width: 66px;
+  height: 66px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--text-sec);
+}
+
+.memory-page .memory-empty h2 {
+  margin: 0;
+  color: var(--text-pri);
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.memory-page .memory-empty p {
+  max-width: 420px;
+  margin: 0;
+  color: var(--text-muted);
+  line-height: 1.6;
+}
+
+/* Editor modal and form fields (rendered in the overlay root; selectors stay unscoped). */
 .memory-editor-modal {
   width: min(760px, calc(100vw - 40px));
 }
@@ -427,7 +514,7 @@ meter {
 .memory-content-label textarea {
   width: 100%;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--suiyuan-radius-control);
   background: var(--surface-2);
   color: var(--text-pri);
   padding: 10px 12px;
@@ -470,14 +557,13 @@ meter {
     grid-template-columns: 1fr;
   }
 
-  .memory-page .memory-overview-content,
+  .memory-page .memory-overview-breakdown {
+    justify-content: flex-start;
+  }
+
   .memory-page .memory-auto-dream-content {
     grid-template-columns: 1fr;
     align-items: start;
-  }
-
-  .memory-page .memory-overview-breakdown {
-    justify-content: flex-start;
   }
 
   .memory-page .memory-auto-dream-toggle {
@@ -487,260 +573,9 @@ meter {
   }
 }
 
-/* Redesigned 3-column memory stats layout */
-.sa-window[data-brand="suiyuan"] .memory-page .memory-stats {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(200px, 1fr));
-  gap: 16px;
-  margin: 24px 28px;
-}
-
-.memory-stats-card.panel {
-  display: flex;
-  flex-direction: column;
-  border-radius: 12px;
-  background: var(--surface-2);
-  border: 1px solid var(--border);
-  padding: 16px;
-  min-height: 140px;
-}
-
-.memory-stats-card-body {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  flex: 1;
-}
-
-.memory-stats-card-body.toggle-layout {
-  position: relative;
-  padding-bottom: 36px;
-}
-
-.memory-stats-card-body.toggle-layout .suiyuan-switch-btn {
-  position: absolute;
-  bottom: 0;
-  right: 0;
-}
-
-.memory-stats-progress-ring {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 44px;
-  height: 44px;
-  border-radius: 999px;
-  border: 3px solid var(--primary);
-  color: var(--text-pri);
-  font-weight: 700;
-  font-size: 13px;
-}
-
-.progress-value {
-  line-height: 1;
-}
-
-.bias-value-badge {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.bias-number {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 24px;
-  border-radius: 999px;
-  background: var(--primary-soft);
-  color: var(--primary);
-  font-weight: 700;
-  font-size: 13px;
-}
-
-.bias-label {
-  font-size: 14px;
-  font-weight: 700;
-  color: var(--text-pri);
-}
-
-.memory-stats-card-desc {
-  margin: 0;
-  font-size: 12px;
-  color: var(--text-muted);
-  line-height: 1.4;
-}
-
-.memory-auto-dream-status {
-  margin: 0 0 4px;
-  font-size: 14px;
-  font-weight: 700;
-  color: var(--text-pri);
-}
-
-/* Custom Memory Empty State Canvas */
-.suiyuan-memory-empty-canvas {
-  border: 2px dashed var(--border);
-  background: transparent;
-  border-radius: 16px;
-  min-height: 280px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  margin: 28px;
-}
-
-.suiyuan-empty-canvas-inner {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  text-align: center;
-  max-width: 320px;
-  gap: 12px;
-}
-
-.suiyuan-empty-canvas-inner svg {
-  color: var(--text-muted);
-}
-
-.suiyuan-empty-canvas-inner h2 {
-  margin: 0;
-  font-size: 18px;
-  font-weight: 700;
-  color: var(--text-pri);
-}
-
-.suiyuan-empty-canvas-inner p {
-  margin: 0;
-  font-size: 13px;
-  color: var(--text-muted);
-  line-height: 1.5;
-}
-
-.empty-canvas-actions {
-  display: flex;
-  gap: 8px;
-  margin-top: 8px;
-}
-
-.empty-canvas-actions button {
-  min-height: 34px;
-  border-radius: 999px;
-  font-size: 13px;
-  font-weight: 700;
-  padding: 0 16px;
-  cursor: pointer;
-  transition: all var(--transition);
-}
-
-.canvas-btn-primary {
-  background: var(--primary) !important;
-  color: var(--primary-ink) !important;
-  border: 0 !important;
-}
-
-.canvas-btn-primary:hover {
-  background: var(--primary-2) !important;
-}
-
-.canvas-btn-secondary {
-  background: var(--surface-2) !important;
-  color: var(--text-pri) !important;
-  border: 1px solid var(--border) !important;
-}
-
-.canvas-btn-secondary:hover {
-  background: var(--surface-3) !important;
-}
-
-/* Redesigned Memory Cards in Fusion style */
-.memory-card {
-  background: var(--suiyuan-fusion-bg) !important;
-  border: 1px solid var(--suiyuan-fusion-border) !important;
-  border-left: 4px solid var(--orange) !important;
-  box-shadow: var(--suiyuan-fusion-shadow) !important;
-  color: var(--suiyuan-fusion-color) !important;
-  border-radius: 16px !important;
-  padding: 20px !important;
-  transition: all var(--transition) !important;
-}
-
-.memory-card:hover {
-  border-color: var(--primary) !important;
-  transform: translateY(-2px) !important;
-  box-shadow: var(--suiyuan-send-shadow) !important;
-}
-
-.memory-card h3 {
-  color: inherit !important;
-  font-size: 16px !important;
-  font-weight: 700 !important;
-}
-
-.memory-card header span {
-  background: color-mix(in srgb, var(--suiyuan-fusion-color) 20%, transparent) !important;
-  color: var(--suiyuan-fusion-color) !important;
-  border: 1px solid color-mix(in srgb, var(--suiyuan-fusion-color) 30%, transparent) !important;
-  font-size: 11px !important;
-  font-weight: 700 !important;
-  border-radius: 999px !important;
-  padding: 2px 8px !important;
-}
-
-.memory-card header em {
-  background: var(--suiyuan-beta-bg) !important;
-  color: var(--suiyuan-beta-color) !important;
-  font-size: 10px !important;
-  font-weight: 700 !important;
-  padding: 2px 6px !important;
-  border-radius: 999px !important;
-  font-style: normal !important;
-}
-
-.memory-card p {
-  color: inherit !important;
-  opacity: 0.9 !important;
-  font-size: 13px !important;
-  margin: 8px 0 !important;
-}
-
-.memory-card code {
-  font-family: var(--font-mono) !important;
-  font-size: 12px !important;
-  color: inherit !important;
-  background: color-mix(in srgb, var(--suiyuan-fusion-color) 10%, transparent) !important;
-  border: 1px dashed color-mix(in srgb, var(--suiyuan-fusion-color) 20%, transparent) !important;
-  border-radius: 8px !important;
-}
-
-.memory-card footer time {
-  color: inherit !important;
-  opacity: 0.75 !important;
-  font-size: 12px !important;
-}
-
-.memory-card button {
-  background: color-mix(in srgb, var(--suiyuan-fusion-color) 10%, transparent) !important;
-  border: 1px solid color-mix(in srgb, var(--suiyuan-fusion-color) 15%, transparent) !important;
-  color: var(--suiyuan-fusion-color) !important;
-  border-radius: 12px !important;
-  font-size: 12px !important;
-  font-weight: 600 !important;
-  transition: all var(--transition) !important;
-}
-
-.memory-card button:hover {
-  background: color-mix(in srgb, var(--suiyuan-fusion-color) 25%, transparent) !important;
-}
-
-.memory-card button.text-danger {
-  color: var(--error) !important;
-  background: color-mix(in srgb, var(--error) 15%, transparent) !important;
-  border-color: transparent !important;
-}
-
-.memory-card button.text-danger:hover {
-  background: var(--error) !important;
-  color: var(--primary-action-text) !important;
+@media (max-width: 640px) {
+  .memory-toolbar {
+    flex-direction: column;
+    align-items: stretch;
+  }
 }

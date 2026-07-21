@@ -1,5 +1,3 @@
-// @ts-nocheck
-
 import { RPC_METHODS } from './backendRpcMethods.js';
 import {
   objectPrototype,
@@ -18,6 +16,9 @@ import {
 import {
 } from './backendApiPayloadCore.js';
 
+/** @typedef {Record<string, unknown>} WorkflowPayload */
+
+/** @param {unknown} params */
 function dashboardDagStartPayload(params) {
   // 误判防护：dashboardDagStartPayload 要求 dagKey，避免 DAG start 空目标。
   const payload = requireKey(RPC_METHODS.DASHBOARD_DAG_START, assertPlainObject(RPC_METHODS.DASHBOARD_DAG_START, params), 'dagKey');
@@ -28,6 +29,7 @@ function dashboardDagStartPayload(params) {
   });
 }
 
+/** @param {unknown} params */
 function dashboardDagCreateAndStartPayload(params) {
   const method = RPC_METHODS.DASHBOARD_DAG_CREATE_AND_START;
   const payload = requireKey(method, requireKey(method, assertPlainObject(method, params), 'dagKey'), 'title');
@@ -48,6 +50,7 @@ function dashboardDagCreateAndStartPayload(params) {
   });
 }
 
+/** @param {unknown} params */
 function dashboardWorkflowMaterialWritePayload(params) {
   const method = RPC_METHODS.DASHBOARD_WORKFLOW_MATERIAL_WRITE;
   const payload = assertPlainObject(method, params);
@@ -58,6 +61,7 @@ function dashboardWorkflowMaterialWritePayload(params) {
   return { path, content };
 }
 
+/** @param {unknown} params */
 function dashboardDagDispatchNodePayload(params) {
   const payload = requireNumber(
     RPC_METHODS.DASHBOARD_DAG_DISPATCH_NODE,
@@ -78,6 +82,7 @@ function dashboardDagDispatchNodePayload(params) {
   };
 }
 
+/** @param {unknown} value @returns {number | undefined} */
 function optionalInteger(value) {
   if (value === undefined || value === null || value === '') return undefined;
   const parsed = Number(value);
@@ -85,6 +90,7 @@ function optionalInteger(value) {
   return Math.trunc(parsed);
 }
 
+/** @param {string} method @param {unknown} params @param {string} key */
 function requireNumber(method, params, key) {
   // 误判防护：requireNumber 阻断缺失或非数字的 backend RPC 参数。
   const payload = assertPlainObject(method, params);
@@ -98,6 +104,7 @@ function requireNumber(method, params, key) {
   return { ...payload, [key]: value };
 }
 
+/** @param {unknown} params */
 function dashboardDagsPayload(params = {}) {
   const payload = assertPlainObject(RPC_METHODS.DASHBOARD_DAGS, params);
   return cleanObject({
@@ -107,6 +114,7 @@ function dashboardDagsPayload(params = {}) {
   });
 }
 
+/** @param {unknown} params */
 function dashboardDagRunsPayload(params) {
   const payload = requireKey(RPC_METHODS.DASHBOARD_DAG_RUNS, assertPlainObject(RPC_METHODS.DASHBOARD_DAG_RUNS, params), 'dagKey');
   return cleanObject({
@@ -116,6 +124,7 @@ function dashboardDagRunsPayload(params) {
   });
 }
 
+/** @param {unknown} params */
 function dashboardDagTerminatePayload(params) {
   const payload = requireKey(
     RPC_METHODS.DASHBOARD_DAG_TERMINATE,
@@ -129,6 +138,7 @@ function dashboardDagTerminatePayload(params) {
   });
 }
 
+/** @param {unknown} params */
 function dashboardDagApplyOpsPayload(params) {
   // 误判防护：dashboardDagApplyOpsPayload 要求 dagKey/baseVersion/ops 数组。
   const payload = requireNumber(
@@ -146,12 +156,14 @@ function dashboardDagApplyOpsPayload(params) {
   };
 }
 
+/** @param {string} method @param {unknown} params */
 function cronIdPayload(method, params) {
   return {
     id: requireKey(method, assertPlainObject(method, params), 'id').id,
   };
 }
 
+/** @param {unknown} params */
 function cronSetEnabledPayload(params) {
   const payload = requireBoolean(
     RPC_METHODS.CRONJOB_SET_ENABLED,
@@ -161,6 +173,7 @@ function cronSetEnabledPayload(params) {
   return { id: payload.id, enabled: payload.enabled };
 }
 
+/** @param {unknown} params */
 function cronListRunsPayload(params) {
   const payload = assertPlainObject(RPC_METHODS.CRONJOB_LIST_RUNS, params);
   const jobID = normalizeString(payload.job_id || payload.jobId);
@@ -171,6 +184,7 @@ function cronListRunsPayload(params) {
   });
 }
 
+/** @param {unknown} params */
 function cronListPayload(params) {
   const method = RPC_METHODS.CRONJOB_LIST;
   const payload = assertPlainObject(method, params);
@@ -180,15 +194,16 @@ function cronListPayload(params) {
   if (Object.keys(payload).some((key) => key !== 'limit' && key !== 'cursor')) {
     throw new Error(`${method}: unexpected payload field`);
   }
-  if (!Number.isInteger(payload.limit) || payload.limit < 1 || payload.limit > 100) {
+  if (typeof payload.limit !== 'number' || !Number.isInteger(payload.limit) || payload.limit < 1 || payload.limit > 100) {
     throw new Error(`${method}: limit must be an integer within range`);
   }
   if (typeof payload.cursor !== 'string') throw new Error(`${method}: cursor must be a string`);
   return { limit: payload.limit, cursor: payload.cursor };
 }
 
+/** @param {string} method @param {unknown} params @param {{ requireId?: boolean }} options */
 function cronJobMutationPayload(method, params, options = {}) {
-  const payload = requireCwd(method, params);
+  const payload = /** @type {WorkflowPayload & { cwd: string }} */ (requireCwd(method, params));
   const name = normalizeString(payload.name);
   const prompt = normalizeString(payload.prompt);
   const scheduleExpr = normalizeString(payload.schedule_expr ?? payload.scheduleExpr);
@@ -214,6 +229,7 @@ function cronJobMutationPayload(method, params, options = {}) {
   });
 }
 
+/** @param {string} method @param {WorkflowPayload} payload */
 function cronJobConfigPayload(method, payload) {
   if (!hasOwn(payload, 'config') || payload.config == null) return undefined;
   if (typeof payload.config !== 'object' || Array.isArray(payload.config)) {
@@ -222,18 +238,21 @@ function cronJobConfigPayload(method, payload) {
   return payload.config;
 }
 
+/** @param {string} method @param {WorkflowPayload} payload */
 function cronJobSkillsPayload(method, payload) {
   if (!hasOwn(payload, 'skills') || payload.skills == null) return undefined;
   if (!Array.isArray(payload.skills)) throw new Error(`${method}: skills must be an array`);
   return payload.skills.map(normalizeString).filter(Boolean);
 }
 
+/** @param {string} method @param {WorkflowPayload} payload */
 function cronJobEnabledPayload(method, payload) {
   if (!hasOwn(payload, 'enabled') || payload.enabled == null) return undefined;
   if (typeof payload.enabled !== 'boolean') throw new Error(`${method}: enabled must be boolean`);
   return payload.enabled;
 }
 
+/** @param {string} method @param {WorkflowPayload} payload */
 function cronJobMaxAttemptsPayload(method, payload) {
   const raw = payload.max_attempts ?? payload.maxAttempts;
   if (raw === undefined || raw === null || raw === '') return undefined;
@@ -244,6 +263,7 @@ function cronJobMaxAttemptsPayload(method, payload) {
   return value;
 }
 
+/** @param {string} method @param {WorkflowPayload} payload */
 function codeProjectsPayload(method, payload) {
   if (!hasOwn(payload, 'projects') || payload.projects == null) return undefined;
   if (!Array.isArray(payload.projects)) throw new Error(`${method}: projects must be an array`);
@@ -251,6 +271,7 @@ function codeProjectsPayload(method, payload) {
   return projects.length > 0 ? projects : undefined;
 }
 
+/** @param {string} method @param {WorkflowPayload} payload @param {string} key */
 function optionalCodeInteger(method, payload, key) {
   if (!hasOwn(payload, key) || payload[key] === undefined || payload[key] === null || payload[key] === '') return undefined;
   const value = Number(payload[key]);
@@ -258,8 +279,10 @@ function optionalCodeInteger(method, payload, key) {
   return Math.trunc(value);
 }
 
+/** @param {string} method @param {unknown} params @param {{ includePosition?: boolean, includeContent?: boolean }} options */
 function codeFilePayload(method, params, options = {}) {
   const payload = requireKey(method, assertPlainObject(method, params), 'filePath');
+  /** @type {WorkflowPayload} */
   const request = {
     filePath: payload.filePath,
     project: normalizeString(payload.project),
@@ -278,6 +301,7 @@ function codeFilePayload(method, params, options = {}) {
 }
 
 
+/** @param {unknown} params */
 function promptWritePayload(params) {
   const payload = requireKey(
     RPC_METHODS.PROMPTS_WRITE,
@@ -306,12 +330,14 @@ function promptWritePayload(params) {
   });
 }
 
+/** @param {WorkflowPayload} payload */
 function promptMatchWhen(payload) {
   if (hasOwn(payload, 'match_when')) return payload.match_when;
   if (hasOwn(payload, 'matchWhen')) return payload.matchWhen;
   return undefined;
 }
 
+/** @param {unknown} params */
 function promptDeletePayload(params) {
   const payload = requireKey(
     RPC_METHODS.PROMPTS_DELETE,
@@ -325,8 +351,9 @@ function promptDeletePayload(params) {
   });
 }
 
+/** @param {unknown} params */
 function promptIntentDraftPayload(params) {
-  const payload = requireCwd(RPC_METHODS.PROMPT_INTENTS_DRAFT, params);
+  const payload = /** @type {WorkflowPayload & { cwd: string }} */ (requireCwd(RPC_METHODS.PROMPT_INTENTS_DRAFT, params));
   const rawInput = promptIntentRawInput(payload);
   return cleanObject({
     cwd: payload.cwd,
@@ -338,17 +365,20 @@ function promptIntentDraftPayload(params) {
   });
 }
 
+/** @param {WorkflowPayload} payload */
 function promptIntentRawInput(payload) {
   const rawInput = normalizeString(payload.raw_input ?? payload.rawInput);
   if (!rawInput) throw new Error(`${RPC_METHODS.PROMPT_INTENTS_DRAFT}: raw_input is required`);
   return rawInput;
 }
 
+/** @param {WorkflowPayload} payload */
 function promptIntentEnableGlobal(payload) {
   const scope = normalizeString(payload.scope);
   return payload.enable_global ?? payload.enableGlobal ?? (scope === 'global' ? true : undefined);
 }
 
+/** @param {WorkflowPayload} payload */
 function promptIntentSourceFields(payload) {
   return {
     source_type: normalizeString(payload.source_type ?? payload.sourceType) || DEFAULT_PROMPT_SOURCE_TYPE,
@@ -357,6 +387,7 @@ function promptIntentSourceFields(payload) {
   };
 }
 
+/** @param {WorkflowPayload} payload */
 function promptProviderFields(payload) {
   return {
     provider: normalizeString(payload.provider ?? payload.modelProvider),
@@ -365,8 +396,9 @@ function promptProviderFields(payload) {
   };
 }
 
+/** @param {string} method @param {unknown} params */
 function memoryConsolidationPayload(method, params) {
-  const payload = requireCwd(method, params);
+  const payload = /** @type {WorkflowPayload & { cwd: string }} */ (requireCwd(method, params));
   return cleanObject({
     cwd: payload.cwd,
     provider: normalizeString(payload.provider ?? payload.modelProvider),
@@ -375,13 +407,15 @@ function memoryConsolidationPayload(method, params) {
   });
 }
 
+/** @param {string} method @param {unknown} params @returns {WorkflowPayload & { cwd: string, draft_key: string }} */
 function promptDraftKeyPayload(method, params) {
-  const payload = requireCwd(method, params);
+  const payload = /** @type {WorkflowPayload & { cwd: string }} */ (requireCwd(method, params));
   const draftKey = normalizeString(payload.draft_key ?? payload.draftKey);
   if (!draftKey) throw new Error(`${method}: draft_key is required`);
   return { ...payload, draft_key: draftKey };
 }
 
+/** @param {unknown} params */
 function promptIntentCommitPayload(params) {
   const payload = promptDraftKeyPayload(RPC_METHODS.PROMPT_INTENTS_COMMIT, params);
   const scope = normalizeString(payload.scope);
@@ -395,11 +429,13 @@ function promptIntentCommitPayload(params) {
   });
 }
 
+/** @param {unknown} params */
 function promptIntentDiscardPayload(params) {
   const payload = promptDraftKeyPayload(RPC_METHODS.PROMPT_INTENTS_DISCARD, params);
   return { cwd: payload.cwd, draft_key: payload.draft_key };
 }
 
+/** @param {unknown} params */
 function promptIntentDryRunPayload(params) {
   const payload = promptDraftKeyPayload(RPC_METHODS.PROMPT_INTENTS_DRY_RUN, params);
   const question = normalizeString(payload.question);
@@ -413,8 +449,9 @@ function promptIntentDryRunPayload(params) {
   });
 }
 
+/** @param {string} method @param {unknown} params */
 function personalizationProfilePayload(method, params) {
-  const payload = requireCwd(method, params);
+  const payload = /** @type {WorkflowPayload & { cwd: string }} */ (requireCwd(method, params));
   if (method === RPC_METHODS.PERSONALIZATION_PROFILE_GET) return { cwd: payload.cwd };
   if (!payload.profile || typeof payload.profile !== 'object' || Array.isArray(payload.profile)) {
     throw new Error(`${method}: profile must be an object`);
@@ -422,16 +459,19 @@ function personalizationProfilePayload(method, params) {
   return { cwd: payload.cwd, profile: payload.profile };
 }
 
+/** @param {string} method @param {unknown} params */
 function promptSectionPayload(method, params) {
   return requireKey(method, requireCwd(method, params), 'prompt_id');
 }
 
+/** @param {unknown} params */
 function lspPromptHintWritePayload(params) {
-  const payload = requireCwd(RPC_METHODS.CONFIG_LSP_PROMPT_HINT_WRITE, params);
+  const payload = /** @type {WorkflowPayload & { cwd: string }} */ (requireCwd(RPC_METHODS.CONFIG_LSP_PROMPT_HINT_WRITE, params));
   if (!hasOwn(payload, 'hint')) throw new Error(`${RPC_METHODS.CONFIG_LSP_PROMPT_HINT_WRITE}: hint is required`);
   return { cwd: payload.cwd, hint: normalizeOptionalString(payload.hint) };
 }
 
+/** @param {unknown} params */
 function videoApiKeyPayload(params) {
   const payload = assertPlainObject(RPC_METHODS.UI_VIDEO_SET_API_KEY, params);
   const apiKey = normalizeString(payload.apiKey);
@@ -439,6 +479,7 @@ function videoApiKeyPayload(params) {
   return { apiKey };
 }
 
+/** @param {unknown} params */
 function builtinToolWritePayload(params) {
   const payload = requireBoolean(
     RPC_METHODS.CONFIG_BUILTIN_TOOLS_WRITE,
@@ -448,6 +489,7 @@ function builtinToolWritePayload(params) {
   return { cwd: payload.cwd, id: payload.id, enabled: payload.enabled };
 }
 
+/** @param {unknown} params */
 function dashboardLogsPayload(params = {}) {
   const payload = assertPlainObject(RPC_METHODS.DASHBOARD_LOGS, params);
   return cleanObject({
@@ -465,6 +507,7 @@ function dashboardLogsPayload(params = {}) {
   });
 }
 
+/** @param {object} value @param {PropertyKey} key @returns {boolean} */
 function hasOwn(value, key) {
   return objectPrototype.hasOwnProperty.call(value, key);
 }

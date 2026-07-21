@@ -1,4 +1,5 @@
 import { lstat, readFile, readdir, realpath } from 'node:fs/promises'
+import { readFileSync } from 'node:fs'
 import { dirname, isAbsolute, join, normalize, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parse as parseJavaScriptSource } from '@babel/parser'
@@ -52,11 +53,16 @@ const GO_PAYLOAD_STRUCTS = new Map([
     'internal/module/turn/rpc_types.go:turnSteerParams',
     'internal/module/turn/rpc_types.go:legacyTurnSteerParams',
   ]],
+  ['turn/interrupt', [
+    'internal/module/turn/rpc_types.go:turnInterruptParams',
+    'internal/module/turn/rpc_types.go:legacyTurnInterruptParams',
+  ]],
 ])
 
 const FRONTEND_PAYLOAD_BUILDERS = new Map([
   ['thread/start', 'threadStartPayload'],
   ['turn/start', 'turnStartPayload'],
+  ['turn/interrupt', 'turnInterruptPayload'],
 ])
 
 const RESPONSE_VALIDATOR_POLICY_EXCEPTIONS = new Map([
@@ -107,6 +113,9 @@ const FRONTEND_FACADE_ONLY_PAYLOAD_KEYS = new Map([
   ['turn/start', [
     'attachments',
   ]],
+  ['turn/interrupt', [
+    'cwd',
+  ]],
 ])
 
 const GO_HANDLER_CALLS = [
@@ -121,31 +130,46 @@ export async function auditRpcContracts({ repoRoot = DEFAULT_REPO_ROOT } = {}) {
   const auditContext = {
     repoRoot,
     sourceByPath: new Map(),
+    sourcePromiseByPath: new Map(),
     astByPath: new Map(),
+    astPromiseByPath: new Map(),
     productionFacadeReferenceIndex: null,
+    auditStats: {
+      sourceReads: 0,
+      astParses: 0,
+      productionFacadeReferenceIndexBuilds: 0,
+      productionSourceFilesIndexed: 0,
+    },
   }
-  const rpcMethodsSource = await readFile(join(repoRoot, RPC_METHODS_PATH), 'utf8')
-  const frontendSource = await readFile(join(repoRoot, RPC_FACADE_PATH), 'utf8')
-  const payloadBuildersSource = await readFile(join(repoRoot, FRONTEND_PAYLOAD_BUILDERS_PATH), 'utf8')
+  const [rpcMethodsSource, frontendSource, payloadBuildersSource, matrixSource, responseValidatorSource] = await Promise.all([
+    readAuditSource(auditContext, RPC_METHODS_PATH),
+    readAuditSource(auditContext, RPC_FACADE_PATH),
+    readAuditSource(auditContext, FRONTEND_PAYLOAD_BUILDERS_PATH),
+    readAuditSource(auditContext, RPC_MATRIX_PATH),
+    readAuditSource(auditContext, RPC_RESPONSE_VALIDATORS_PATH),
+  ])
   assertRpcMethodsFacadeReExport(frontendSource)
   const rpcMethods = parseRpcMethods(
     rpcMethodsSource,
   )
   const methodsByKey = new Map(rpcMethods.map((entry) => [entry.key, entry]))
   const parsedRegistryEntries = parseContractMatrix(
-    await readFile(join(repoRoot, RPC_MATRIX_PATH), 'utf8'),
+    matrixSource,
   )
   const registryEntries = parsedRegistryEntries.map((entry) => ({
     ...entry,
     method: entry.methodReferenceKey ? methodsByKey.get(entry.methodReferenceKey)?.method ?? '' : entry.method,
   }))
-  const backendHandlers = await collectGoRpcHandlers(repoRoot)
-  const goPayloadKeysByMethod = await collectGoPayloadKeys(repoRoot)
+  const [backendHandlers, goPayloadKeysByMethod, hardcodedPayloadGuardFindings, backendFacadeRpcKeys] = await Promise.all([
+    collectGoRpcHandlers(auditContext),
+    collectGoPayloadKeys(auditContext),
+    collectHardcodedPayloadGuardFindings(auditContext, payloadBuildersSource),
+    collectBackendFacadeRpcKeys(auditContext),
+  ])
   const frontendPayloadKeysByMethod = collectFrontendPayloadKeysFromSource(payloadBuildersSource)
-  const hardcodedPayloadGuardFindings = await collectHardcodedPayloadGuardFindings(repoRoot, payloadBuildersSource)
   const [sidebarGoSource, sidebarRuntimeSource] = await Promise.all([
-    readFile(join(repoRoot, SIDEBAR_GO_STATE_PATH), 'utf8'),
-    readFile(join(repoRoot, RPC_RESPONSE_VALIDATORS_RUNTIME_PATH), 'utf8'),
+    readAuditSource(auditContext, SIDEBAR_GO_STATE_PATH),
+    readAuditSource(auditContext, RPC_RESPONSE_VALIDATORS_RUNTIME_PATH),
   ])
   const sidebarRequiredFieldFindings = collectSidebarRequiredFieldFindingsFromSources({
     goSource: sidebarGoSource,
@@ -154,9 +178,7 @@ export async function auditRpcContracts({ repoRoot = DEFAULT_REPO_ROOT } = {}) {
 
   const registryByKey = new Map(registryEntries.map((entry) => [entry.key, entry]))
   const handlerMethods = new Set(backendHandlers.map((entry) => entry.method))
-  const responseValidatorSource = await readFile(join(repoRoot, RPC_RESPONSE_VALIDATORS_PATH), 'utf8')
   const frontendResponseValidators = collectFrontendResponseValidators(responseValidatorSource)
-  const backendFacadeRpcKeys = await collectBackendFacadeRpcKeys(repoRoot)
   const responseContractStrategies = registryEntries
     .concat(rpcMethods.filter((entry) => !registryByKey.has(entry.key)))
     .map((entry) => ({
@@ -231,6 +253,7 @@ export async function auditRpcContracts({ repoRoot = DEFAULT_REPO_ROOT } = {}) {
     missingFrontendResponseValidators,
     invalidFacadeLocators,
     invalidResponsePolicyEvidence,
+    auditStats: { ...auditContext.auditStats },
   }
 }
 
@@ -706,11 +729,18 @@ async function collectInvalidResponsePolicyEvidence(auditContext, registryEntrie
         consumer.ast, consumerSymbol, consumerCalls[0]?.node, consumer.path, policy.handler,
       )
       const runtimeResultFlow = exactTurnInterruptPolicy && resultRuntimeInjection
-        && runtimePassesAwaitedResultToHandler(
-          handler.ast,
-          handlerSymbol,
-          policy.handler.symbol,
-          policy.consumer.symbol,
+        && (
+          runtimePassesAwaitedResultToHandler(
+            handler.ast,
+            handlerSymbol,
+            policy.handler.symbol,
+            policy.consumer.symbol,
+          )
+          || runtimePassesStrictInterruptResultToHandler(
+            handler.ast,
+            policy.handler.symbol,
+            policy.consumer.symbol,
+          )
         )
       if (!directResultFlow && !runtimeResultFlow) {
         findings.push(policyFinding(entry, 'consumer', policy.consumer, 'consumer does not pass the observed RPC result to the located handler'))
@@ -823,20 +853,43 @@ async function pathContainsSymbolicLink(repoRoot, filePath) {
 }
 
 async function readAuditSource(auditContext, filePath) {
-  let source = auditContext.sourceByPath.get(filePath)
-  if (source === undefined) {
-    source = await readFile(join(auditContext.repoRoot, filePath), 'utf8')
-    auditContext.sourceByPath.set(filePath, source)
+  const cached = auditContext.sourceByPath.get(filePath)
+  if (cached !== undefined) return cached
+  let pending = auditContext.sourcePromiseByPath.get(filePath)
+  if (!pending) {
+    auditContext.auditStats.sourceReads += 1
+    pending = readFile(join(auditContext.repoRoot, filePath), 'utf8')
+    auditContext.sourcePromiseByPath.set(filePath, pending)
   }
+  const source = await pending
+  auditContext.sourceByPath.set(filePath, source)
+  auditContext.sourcePromiseByPath.delete(filePath)
+  return source
+}
+
+function readAuditSourceSync(auditContext, filePath) {
+  const cached = auditContext.sourceByPath.get(filePath)
+  if (cached !== undefined) return cached
+  auditContext.auditStats.sourceReads += 1
+  const source = readFileSync(join(auditContext.repoRoot, filePath), 'utf8')
+  auditContext.sourceByPath.set(filePath, source)
   return source
 }
 
 async function readAuditAst(auditContext, filePath) {
-  let ast = auditContext.astByPath.get(filePath)
-  if (!ast) {
-    ast = parseFrontendAst(await readAuditSource(auditContext, filePath))
-    auditContext.astByPath.set(filePath, ast)
+  const cached = auditContext.astByPath.get(filePath)
+  if (cached) return cached
+  let pending = auditContext.astPromiseByPath.get(filePath)
+  if (!pending) {
+    pending = readAuditSource(auditContext, filePath).then((source) => {
+      auditContext.auditStats.astParses += 1
+      return parseFrontendAst(source)
+    })
+    auditContext.astPromiseByPath.set(filePath, pending)
   }
+  const ast = await pending
+  auditContext.astByPath.set(filePath, ast)
+  auditContext.astPromiseByPath.delete(filePath)
   return ast
 }
 
@@ -1584,6 +1637,7 @@ function findExactStateSetterBindings(sources, dismissal, consumerSource) {
   }
   const bindings = []
   for (const source of sources) {
+    if (source.path !== consumerSource.path) continue
     walkAstWithAncestors(source.ast, (candidate, ancestors) => {
       if (
         candidate.type !== 'VariableDeclarator'
@@ -1595,7 +1649,6 @@ function findExactStateSetterBindings(sources, dismissal, consumerSource) {
         || candidate.init.callee.type !== 'Identifier'
         || candidate.init.callee.name !== 'useState'
       ) return
-      if (source.path !== consumerSource.path) return
       const owner = ancestors.findLast((ancestor) => isFunctionNode(ancestor))
       if (!owner) return
       const stateName = candidate.id.elements[0].name
@@ -1743,41 +1796,47 @@ function collectStateControlledUiDescriptors(sources, stateAccess) {
   const descriptors = []
   const returnedObjectNames = returnedStateObjectNamesByPath(sources, stateAccess)
   const aliasesByPath = new Map()
+  const controlledCandidates = []
   for (const source of sources) {
     walkAstWithAncestors(source.ast, (candidate, ancestors) => {
-      if (candidate.type !== 'JSXAttribute' || candidate.name.type !== 'JSXIdentifier') return
-      const expression = candidate.value?.type === 'JSXExpressionContainer' ? candidate.value.expression : null
-      if (!expression || !nodeContainsStateAccess(expression, stateAccess, source.path, returnedObjectNames)) return
-      const opening = ancestors.findLast((ancestor) => ancestor.type === 'JSXOpeningElement')
-      const componentName = opening?.name?.type === 'JSXIdentifier' ? opening.name.name : ''
-      if (!/^[A-Z]/.test(componentName)) return
-      const definition = findUniqueFunctionDefinition(sources, componentName)
-      if (!definition || !functionAcceptsProperty(definition.node, candidate.name.name)) return
-      const aliases = aliasesByPath.get(definition.source.path) ?? new Set()
-      aliases.add(candidate.name.name)
-      aliasesByPath.set(definition.source.path, aliases)
-    })
-  }
-  for (const source of sources) {
-    walkAstWithAncestors(source.ast, (candidate, ancestors) => {
+      if (candidate.type === 'JSXAttribute' && candidate.name.type === 'JSXIdentifier') {
+        const expression = candidate.value?.type === 'JSXExpressionContainer' ? candidate.value.expression : null
+        if (expression && nodeContainsStateAccess(expression, stateAccess, source.path, returnedObjectNames)) {
+          const opening = ancestors.findLast((ancestor) => ancestor.type === 'JSXOpeningElement')
+          const componentName = opening?.name?.type === 'JSXIdentifier' ? opening.name.name : ''
+          const definition = /^[A-Z]/.test(componentName)
+            ? findUniqueFunctionDefinition(sources, componentName)
+            : null
+          if (definition && functionAcceptsProperty(definition.node, candidate.name.name)) {
+            const aliases = aliasesByPath.get(definition.source.path) ?? new Set()
+            aliases.add(candidate.name.name)
+            aliasesByPath.set(definition.source.path, aliases)
+          }
+        }
+      }
       const test = candidate.type === 'ConditionalExpression'
         ? candidate.test
         : candidate.type === 'LogicalExpression' && candidate.operator === '&&'
           ? candidate.left
           : null
-      if (
-        !test
-        || (
-          !nodeContainsStateAccess(test, stateAccess, source.path, returnedObjectNames)
-          && !nodeContainsAlias(test, aliasesByPath.get(source.path) ?? new Set())
-        )
-      ) return
-      const enclosingElement = ancestors.findLast((ancestor) => ancestor.type === 'JSXElement')
-      const branch = candidate.type === 'ConditionalExpression' ? candidate.consequent : candidate.right
-      const controlled = nodeContainsJsxElement(branch) ? branch : enclosingElement
-      if (!controlled) return
-      descriptors.push(...uiDescriptorsFromControlledNode(controlled, source.ast, sources, new Set()))
+      if (!test) return
+      controlledCandidates.push({
+        candidate,
+        enclosingElement: ancestors.findLast((ancestor) => ancestor.type === 'JSXElement'),
+        source,
+        test,
+      })
     })
+  }
+  for (const { candidate, enclosingElement, source, test } of controlledCandidates) {
+    if (
+      !nodeContainsStateAccess(test, stateAccess, source.path, returnedObjectNames)
+      && !nodeContainsAlias(test, aliasesByPath.get(source.path) ?? new Set())
+    ) continue
+    const branch = candidate.type === 'ConditionalExpression' ? candidate.consequent : candidate.right
+    const controlled = nodeContainsJsxElement(branch) ? branch : enclosingElement
+    if (!controlled) continue
+    descriptors.push(...uiDescriptorsFromControlledNode(controlled, source.ast, sources, new Set()))
   }
   return descriptors
 }
@@ -1950,15 +2009,24 @@ function intrinsicJsxRole(name) {
   return ''
 }
 
+const functionDefinitionsBySources = new WeakMap()
+
 function findUniqueFunctionDefinition(sources, name) {
-  const definitions = []
-  for (const source of sources) {
-    traverseAst(source.ast, (candidate) => {
-      if (candidate.type === 'FunctionDeclaration' && candidate.id?.name === name) {
+  let definitionsByName = functionDefinitionsBySources.get(sources)
+  if (!definitionsByName) {
+    definitionsByName = new Map()
+    for (const source of sources) {
+      traverseAst(source.ast, (candidate) => {
+        const candidateName = candidate.type === 'FunctionDeclaration' ? candidate.id?.name : ''
+        if (!candidateName) return
+        const definitions = definitionsByName.get(candidateName) ?? []
         definitions.push({ node: candidate, source })
-      }
-    })
+        definitionsByName.set(candidateName, definitions)
+      })
+    }
+    functionDefinitionsBySources.set(sources, definitionsByName)
   }
+  const definitions = definitionsByName.get(name) ?? []
   return definitions.length === 1 ? definitions[0] : null
 }
 
@@ -2394,7 +2462,12 @@ function hasRuntimeResultHandledRegressionEvidence(ast, testPath, symbol, entry)
     const warningAssertion = assertionTail.some(isExactInterruptWarningAssertion)
     const noSuccessAssertion = assertionTail.some(isExactInterruptNoSuccessAssertion)
     const addWarningAssertion = assertionTail.some(isExactInterruptAddWarningAssertion)
-    if (preludeSafe && awaitedSafe && tailSafe && warningAssertion && noSuccessAssertion && addWarningAssertion) proven = true
+    const rawNoticeLeakAssertion = assertionTail.some((statement) => isExactInterruptRawLeakAssertion(statement, 'notifyAction'))
+    const rawWarningLeakAssertion = assertionTail.some((statement) => isExactInterruptRawLeakAssertion(statement, 'addWarning'))
+    if (
+      preludeSafe && awaitedSafe && tailSafe && warningAssertion && noSuccessAssertion
+      && addWarningAssertion && rawNoticeLeakAssertion && rawWarningLeakAssertion
+    ) proven = true
   })
   return proven
 }
@@ -2491,7 +2564,7 @@ function isExactInterruptWarningAssertion(statement) {
   const matcher = exactExpectMatcher(statement)
   return matcher?.matcher === 'toHaveBeenCalledWith' && matcher.modifiers.length === 0
     && isRuntimeMember(matcher.expectArgument, 'notifyAction')
-    && hasExactStringArguments(matcher.arguments, ['中断当前执行失败：turn already completed', 'warning'])
+    && hasExactStringArguments(matcher.arguments, ['中断当前执行失败，请重试。', 'warning'])
     && isExactStringObject(matcher.arguments[2], { threadId: 'thread-1' })
 }
 
@@ -2508,7 +2581,26 @@ function isExactInterruptAddWarningAssertion(statement) {
   return matcher?.matcher === 'toHaveBeenCalledWith' && matcher.modifiers.length === 0
     && isRuntimeMember(matcher.expectArgument, 'addWarning')
     && hasExactStringArguments(matcher.arguments, ['warn', 'thread.interrupt.failed'])
-    && isExactStringObject(matcher.arguments[2], { threadId: 'thread-1', error: 'turn already completed' })
+    && isExactStringObject(matcher.arguments[2], { threadId: 'thread-1', error: 'action failure; see Health diagnostic ID' })
+}
+
+function isExactInterruptRawLeakAssertion(statement, runtimeMember) {
+  const matcher = exactExpectMatcher(statement)
+  if (
+    matcher?.matcher !== 'toContain' || matcher.modifiers.length !== 1 || matcher.modifiers[0] !== 'not'
+    || matcher.arguments.length !== 1 || matcher.arguments[0].type !== 'StringLiteral'
+    || matcher.arguments[0].value !== 'turn already completed'
+  ) return false
+  const stringify = matcher.expectArgument
+  if (
+    stringify?.type !== 'CallExpression' || stringify.arguments.length !== 1
+    || !isStaticMemberNamed(stringify.callee, 'stringify')
+    || stringify.callee.object.type !== 'Identifier' || stringify.callee.object.name !== 'JSON'
+  ) return false
+  const calls = stringify.arguments[0]
+  return isStaticMemberNamed(calls, 'calls')
+    && isStaticMemberNamed(calls.object, 'mock')
+    && isRuntimeMember(calls.object.object, runtimeMember)
 }
 
 function isStaticMemberNamed(node, name) {
@@ -3307,6 +3399,98 @@ function runtimePassesAwaitedResultToHandler(ast, handlerSymbol, handlerName, co
   return exposures === 1
 }
 
+function runtimePassesStrictInterruptResultToHandler(ast, handlerName, consumerName) {
+  const consumer = findModuleLevelSymbol(ast, consumerName)
+  if (!consumer || consumer.body?.type !== 'BlockStatement') return false
+  const helperDeclarations = consumer.body.body.filter((statement) => (
+    statement.type === 'VariableDeclaration'
+    && statement.kind === 'const'
+    && statement.declarations.length === 1
+    && statement.declarations[0].id.type === 'Identifier'
+    && statement.declarations[0].id.name === 'runActiveThreadRPC'
+    && statement.declarations[0].init?.type === 'ArrowFunctionExpression'
+    && statement.declarations[0].init.async
+  ))
+  if (helperDeclarations.length !== 1) return false
+  const helper = helperDeclarations[0].declarations[0].init
+  const tryStatements = helper.body.body.filter((statement) => statement.type === 'TryStatement')
+  if (tryStatements.length !== 1 || tryStatements[0].finalizer !== null) return false
+  const statements = tryStatements[0].block.body
+  if (statements.length !== 9) return false
+
+  const request = statements[3]?.type === 'VariableDeclaration' && statements[3].declarations.length === 1
+    ? statements[3].declarations[0]
+    : null
+  const requestCall = request?.init
+  if (
+    request?.id.type !== 'Identifier' || request.id.name !== 'request'
+    || requestCall?.type !== 'CallExpression'
+    || requestCall.callee.type !== 'Identifier' || requestCall.callee.name !== 'cleanObject'
+    || requestCall.arguments.length !== 1
+    || requestCall.arguments[0].type !== 'Identifier' || requestCall.arguments[0].name !== 'payload'
+  ) return false
+
+  const result = statements[5]?.type === 'VariableDeclaration' && statements[5].declarations.length === 1
+    ? statements[5].declarations[0]
+    : null
+  const conditional = result?.init
+  const interruptCall = conditional?.consequent?.type === 'AwaitExpression'
+    ? conditional.consequent.argument
+    : null
+  const directCall = conditional?.alternate?.type === 'AwaitExpression'
+    ? conditional.alternate.argument
+    : null
+  if (
+    result?.id.type !== 'Identifier' || result.id.name !== 'result'
+    || conditional?.type !== 'ConditionalExpression'
+    || !isExactActionLiteralMatch(conditional.test, 'thread.interrupt')
+    || !isExactNamedCall(interruptCall, 'interruptWithinTimeout', ['rpc', 'request'])
+    || !isExactNamedCall(directCall, 'rpc', ['request'])
+  ) return false
+
+  if (!isExactHandlerFailureGate(statements[6], handlerName)) return false
+  const validation = statements[7]
+  const validationCall = validation?.consequent?.type === 'ExpressionStatement'
+    ? validation.consequent.expression
+    : null
+  if (
+    validation?.type !== 'IfStatement' || validation.alternate
+    || !isExactActionLiteralMatch(validation.test, 'thread.interrupt')
+    || !isExactNamedCall(validationCall, 'validateInterruptSuccessResponse', ['result', 'request'])
+    || !isExactRuntimeOutcomeReturn(statements[8], true)
+  ) return false
+
+  const pending = statements[4]
+  const pendingCall = pending?.consequent?.type === 'ExpressionStatement'
+    ? pending.consequent.expression
+    : null
+  return pending?.type === 'IfStatement'
+    && !pending.alternate
+    && isExactActionLiteralMatch(pending.test, 'thread.interrupt')
+    && pendingCall?.type === 'CallExpression'
+    && pendingCall.callee.type === 'Identifier' && pendingCall.callee.name === 'notifyAction'
+}
+
+function isExactActionLiteralMatch(node, action) {
+  if (node?.type !== 'BinaryExpression' || node.operator !== '===') return false
+  return (
+    node.left.type === 'Identifier' && node.left.name === 'action'
+    && node.right.type === 'StringLiteral' && node.right.value === action
+  ) || (
+    node.right.type === 'Identifier' && node.right.name === 'action'
+    && node.left.type === 'StringLiteral' && node.left.value === action
+  )
+}
+
+function isExactNamedCall(node, name, argumentNames) {
+  return node?.type === 'CallExpression'
+    && node.callee.type === 'Identifier' && node.callee.name === name
+    && node.arguments.length === argumentNames.length
+    && node.arguments.every((argument, index) => (
+      argument.type === 'Identifier' && argument.name === argumentNames[index]
+    ))
+}
+
 function countRuntimeProofBindings(node, name) {
   let count = 0
   traverseAst(node, (candidate) => {
@@ -3480,6 +3664,7 @@ function isExactRuntimePayloadDeclaration(statement) {
     'activeThreadInterruptTarget',
     'activeTurnTarget',
     'cleanObject',
+    'createRequestId',
     'currentState',
     'cwd',
     'notifyAction',
@@ -3669,54 +3854,42 @@ function handlerDirectlyInspectsEnvelope(handlerSymbol, rpcMethod = '', ast = nu
     return statements.some((statement) => {
       if (statement.type !== 'IfStatement' || isAlwaysFalseExpression(statement.test)) return false
       if (!isExactInterruptFailurePredicate(statement.test, rpcMethod)) return false
-      let readsError = false
-      let warningMessageName = ''
-      if (statement.consequent.type === 'BlockStatement') {
-        for (const child of statement.consequent.body) {
-          if (child.type !== 'VariableDeclaration') continue
-          for (const item of child.declarations) {
-            if (
-              item.id.type === 'Identifier'
-              && item.init?.type === 'CallExpression'
-              && item.init.callee.type === 'Identifier'
-              && item.init.arguments.length === 1
-              && item.init.arguments[0].type === 'Identifier'
-              && item.init.arguments[0].name === 'result'
-              && moduleHelperReturnsResultError(ast, item.init.callee.name)
-            ) warningMessageName = item.id.name
-          }
-        }
-      }
+      let validatesRawEnvelope = false
       let notifyWarning = false
       let addWarning = false
       let returnsTrue = false
       walkAstWithAncestors(statement.consequent, (node, ancestors) => {
         if (ancestors.some((ancestor) => isFunctionNode(ancestor))) return
         if (
-          (node.type === 'MemberExpression' || node.type === 'OptionalMemberExpression')
-          && node.object.type === 'Identifier' && node.object.name === 'result'
-          && node.property.type === 'Identifier' && node.property.name === 'error'
-        ) readsError = true
+          node.type === 'CallExpression'
+          && node.callee.type === 'Identifier'
+          && node.arguments.length === 1
+          && node.arguments[0].type === 'Identifier' && node.arguments[0].name === 'result'
+          && moduleHelperReturnsResultError(ast, node.callee.name)
+        ) validatesRawEnvelope = true
         if (node.type === 'ReturnStatement' && node.argument?.type === 'BooleanLiteral' && node.argument.value) returnsTrue = true
         if (node.type === 'CallExpression' && node.callee.type === 'Identifier' && node.callee.name === 'notifyAction') {
-          const usesMessage = node.arguments.some((argument) => (
-            (argument.type === 'Identifier' && argument.name === warningMessageName)
-            || (warningMessageName && nodeContainsIdentifier(argument, warningMessageName))
-            || (!warningMessageName && nodeContainsResultError(argument))
-          ))
+          const message = node.arguments[0]
           const severity = node.arguments[1]
-          if (usesMessage && severity?.type === 'StringLiteral' && severity.value === 'warning') notifyWarning = true
+          if (
+            message?.type === 'StringLiteral' && message.value === '中断当前执行失败，请重试。'
+            && severity?.type === 'StringLiteral' && severity.value === 'warning'
+          ) notifyWarning = true
         }
         if (node.type === 'CallExpression' && node.callee.type === 'Identifier' && node.callee.name === 'addWarning') {
           const severity = node.arguments[0]
-          const usesMessage = node.arguments.some((argument) => (
-            (warningMessageName && nodeContainsIdentifier(argument, warningMessageName))
-            || (!warningMessageName && nodeContainsResultError(argument))
-          ))
-          if (usesMessage && severity?.type === 'StringLiteral' && severity.value === 'warn') addWarning = true
+          const fields = node.arguments[2]
+          const error = fields?.type === 'ObjectExpression'
+            ? fields.properties.find((property) => property.type === 'ObjectProperty' && staticPropertyKeyName(property) === 'error')
+            : null
+          if (
+            severity?.type === 'StringLiteral' && severity.value === 'warn'
+            && error?.value.type === 'StringLiteral'
+            && error.value.value === 'action failure; see Health diagnostic ID'
+          ) addWarning = true
         }
       })
-      return (readsError || warningMessageName) && notifyWarning && addWarning && returnsTrue
+      return validatesRawEnvelope && notifyWarning && addWarning && returnsTrue
     })
   }
   return statements.some((statement) => {
@@ -3787,18 +3960,6 @@ function isExactInterruptFailurePredicate(node, rpcMethod) {
   )
   return (isActionMatch(node.left) && isFailureMatch(node.right))
     || (isFailureMatch(node.left) && isActionMatch(node.right))
-}
-
-function nodeContainsResultError(node) {
-  let found = false
-  traverseAst(node, (candidate) => {
-    if (
-      (candidate.type === 'MemberExpression' || candidate.type === 'OptionalMemberExpression')
-      && candidate.object.type === 'Identifier' && candidate.object.name === 'result'
-      && candidate.property.type === 'Identifier' && candidate.property.name === 'error'
-    ) found = true
-  })
-  return found
 }
 
 function moduleHelperReturnsResultError(ast, helperName) {
@@ -4100,6 +4261,7 @@ function collectUnusedPolicyFindings(auditContext, entry) {
 }
 
 async function buildProductionFacadeReferenceIndex(auditContext, entries, backendFacadeRpcKeys) {
+  auditContext.auditStats.productionFacadeReferenceIndexBuilds += 1
   const files = await listJavaScriptSourceFiles(join(auditContext.repoRoot, 'frontend-app/src'))
   const excludedPaths = new Set([
     RPC_MATRIX_PATH,
@@ -4111,11 +4273,23 @@ async function buildProductionFacadeReferenceIndex(auditContext, entries, backen
       locator.methodPath,
     ]),
   ])
+  const productionFilePaths = files
+    .map((absolutePath) => relative(auditContext.repoRoot, absolutePath).replaceAll('\\', '/'))
+    .filter((filePath) => !isExcludedProductionScanPath(filePath))
+  const astEntries = []
+  const readBatchSize = 64
+  for (let start = 0; start < productionFilePaths.length; start += readBatchSize) {
+    astEntries.push(...await Promise.all(
+      productionFilePaths.slice(start, start + readBatchSize).map(async (filePath) => (
+        [filePath, await readAuditAst(auditContext, filePath)]
+      )),
+    ))
+  }
+  const astByFilePath = new Map(astEntries)
+  auditContext.auditStats.productionSourceFilesIndexed = astByFilePath.size
   const index = new Map()
   const reExportStatementsByPath = new Map()
-  for (const absolutePath of files) {
-    const filePath = relative(auditContext.repoRoot, absolutePath).replaceAll(String.fromCharCode(92), '/')
-    const ast = await readAuditAst(auditContext, filePath)
+  for (const [filePath, ast] of astByFilePath) {
     const statements = ast.program.body.filter((statement) => (
       statement.source
       && (statement.type === 'ExportAllDeclaration' || statement.type === 'ExportNamedDeclaration')
@@ -4129,10 +4303,8 @@ async function buildProductionFacadeReferenceIndex(auditContext, entries, backen
       collectFacadeReExportPaths(reExportStatementsByPath, entry),
     )
   }
-  for (const absolutePath of files) {
-    const filePath = relative(auditContext.repoRoot, absolutePath).replaceAll('\\', '/')
-    if (excludedPaths.has(filePath) || isExcludedProductionScanPath(filePath)) continue
-    const ast = await readAuditAst(auditContext, filePath)
+  for (const [filePath, ast] of astByFilePath) {
+    if (excludedPaths.has(filePath)) continue
     for (const entry of entries) {
       if (
         !index.has(entry.key)
@@ -4201,20 +4373,19 @@ function collectFacadeReExportPaths(reExportStatementsByPath, entry) {
 }
 
 async function listJavaScriptSourceFiles(directory) {
-  const files = []
-  for (const entry of await readdir(directory, { withFileTypes: true })) {
+  const entries = await readdir(directory, { withFileTypes: true })
+  const groups = await Promise.all(entries.map(async (entry) => {
     const filePath = join(directory, entry.name)
     if (entry.isSymbolicLink()) {
       throw new Error(`production scan tree must not contain symbolic links: ${filePath}`)
     }
     if (entry.isDirectory()) {
-      if (entry.name === 'dist' || entry.name === 'generated' || entry.name === 'node_modules') continue
-      files.push(...await listJavaScriptSourceFiles(filePath))
-      continue
+      if (entry.name === 'dist' || entry.name === 'generated' || entry.name === 'node_modules') return []
+      return listJavaScriptSourceFiles(filePath)
     }
-    if (entry.isFile() && /\.(?:js|jsx|mjs)$/.test(entry.name)) files.push(filePath)
-  }
-  return files.sort()
+    return entry.isFile() && /\.(?:js|jsx|mjs)$/.test(entry.name) ? [filePath] : []
+  }))
+  return groups.flat().sort()
 }
 
 function isExcludedProductionScanPath(filePath) {
@@ -4460,11 +4631,10 @@ function collectBindingNames(pattern, names) {
   }
 }
 
-async function collectBackendFacadeRpcKeys(repoRoot) {
+async function collectBackendFacadeRpcKeys(auditContext) {
   const facadeRpcKeys = new Map()
   for (const filePath of BACKEND_API_FACTORY_PATHS) {
-    const source = await readFile(join(repoRoot, filePath), 'utf8')
-    const ast = parseFrontendAst(source)
+    const ast = await readAuditAst(auditContext, filePath)
     traverseAst(ast, (node) => {
       if (
         node.type !== 'FunctionDeclaration'
@@ -4491,10 +4661,10 @@ async function collectBackendFacadeRpcKeys(repoRoot) {
     })
   }
   for (const [rpcKey, locator] of DIRECT_FACADE_RPC_LOCATORS.entries()) {
-    const implementationSource = await readFile(join(repoRoot, locator.implementationPath), 'utf8')
+    const implementationSource = await readAuditSource(auditContext, locator.implementationPath)
     const methodSource = locator.methodPath === locator.implementationPath
       ? implementationSource
-      : await readFile(join(repoRoot, locator.methodPath), 'utf8')
+      : await readAuditSource(auditContext, locator.methodPath)
     if (
       !collectNamedExports(implementationSource).has(locator.facade)
       || !sourceDeclaresFunction(implementationSource, locator.facade)
@@ -4826,13 +4996,13 @@ function collectFrontendResponseValidators(source) {
   return validators
 }
 
-async function collectGoPayloadKeys(repoRoot) {
+async function collectGoPayloadKeys(auditContext) {
   const out = new Map()
   for (const [method, locators] of GO_PAYLOAD_STRUCTS.entries()) {
     const keys = []
     for (const locator of locators) {
       const [filePath, symbol] = locator.split(':')
-      const source = await readFile(join(repoRoot, filePath), 'utf8')
+      const source = await readAuditSource(auditContext, filePath)
       keys.push(...parseGoStructJSONTags(source, symbol))
     }
     out.set(method, uniqueSorted(keys))
@@ -5022,14 +5192,14 @@ function isMissingSidebarFieldCheck(node, fieldName) {
   )
 }
 
-async function collectHardcodedPayloadGuardFindings(repoRoot, frontendSource) {
+async function collectHardcodedPayloadGuardFindings(auditContext, frontendSource) {
   const inspectedFiles = uniqueSorted([
     ...new Set([...GO_PAYLOAD_STRUCTS.values()].flat().map((locator) => locator.split(':')[0])),
   ])
   const goSources = new Map()
-  for (const filePath of inspectedFiles) {
-    goSources.set(filePath, await readFile(join(repoRoot, filePath), 'utf8'))
-  }
+  await Promise.all(inspectedFiles.map(async (filePath) => {
+    goSources.set(filePath, await readAuditSource(auditContext, filePath))
+  }))
   return collectHardcodedPayloadGuardFindingsFromSources({
     frontendPath: FRONTEND_PAYLOAD_BUILDERS_PATH,
     frontendSource,
@@ -5187,17 +5357,22 @@ function uniqueSorted(values) {
   return [...new Set(values)].sort((a, b) => a.localeCompare(b))
 }
 
-async function collectGoRpcHandlers(repoRoot) {
-  const constants = await collectGoRpcConstants(repoRoot)
+async function collectGoRpcHandlers(auditContext) {
+  const { repoRoot } = auditContext
+  const constants = await collectGoRpcConstants(auditContext)
   const goFiles = []
   for (const root of GO_HANDLER_ROOTS) {
     goFiles.push(...await collectGoFiles(join(repoRoot, root)))
   }
 
-  const sources = await Promise.all(goFiles.map(async (filePath) => ({
-    filePath,
-    source: await readFile(filePath, 'utf8'),
-  })))
+  const sources = []
+  for (const filePath of goFiles) {
+    const auditPath = relative(repoRoot, filePath).replaceAll('\\', '/')
+    const source = auditContext.sourcePromiseByPath.has(auditPath)
+      ? await readAuditSource(auditContext, auditPath)
+      : readAuditSourceSync(auditContext, auditPath)
+    sources.push({ filePath, source })
+  }
 
   const handlers = []
   for (const { filePath, source } of sources) {
@@ -5210,8 +5385,8 @@ async function collectGoRpcHandlers(repoRoot) {
   return uniqueHandlers(handlers)
 }
 
-async function collectGoRpcConstants(repoRoot) {
-  const source = await readFile(join(repoRoot, GO_RPC_CONSTANTS_PATH), 'utf8')
+async function collectGoRpcConstants(auditContext) {
+  const source = await readAuditSource(auditContext, GO_RPC_CONSTANTS_PATH)
   const constants = new Map()
   const constPattern = /^\s*([A-Za-z0-9_]+)\s*=\s*"([^"]+\/[^"]+)"/gm
   let match
@@ -5223,18 +5398,12 @@ async function collectGoRpcConstants(repoRoot) {
 
 async function collectGoFiles(root) {
   const entries = await readdir(root, { withFileTypes: true })
-  const files = []
-  for (const entry of entries) {
+  const groups = await Promise.all(entries.map(async (entry) => {
     const fullPath = join(root, entry.name)
-    if (entry.isDirectory()) {
-      files.push(...await collectGoFiles(fullPath))
-      continue
-    }
-    if (entry.name.endsWith('.go') && !entry.name.endsWith('_test.go')) {
-      files.push(fullPath)
-    }
-  }
-  return files
+    if (entry.isDirectory()) return collectGoFiles(fullPath)
+    return entry.name.endsWith('.go') && !entry.name.endsWith('_test.go') ? [fullPath] : []
+  }))
+  return groups.flat()
 }
 
 function parseLiteralHandlerRegistrations(source, filePath, repoRoot) {

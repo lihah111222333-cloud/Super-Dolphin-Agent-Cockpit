@@ -26,7 +26,7 @@ function useComposerDropTarget(ref, composer) {
     const handleDragEnter = (event) => composer.handleDragEnter(event);
     const handleDragOver = (event) => composer.handleDragOver(event);
     const handleDragLeave = (event) => composer.handleDragLeave(event);
-    const handleDrop = (event) => runUIAction(() => composer.handleDrop(event));
+    const handleDrop = (event) => runUIAction('composer.drop', () => composer.handleDrop(event));
 
     target.addEventListener('dragenter', handleDragEnter);
     target.addEventListener('dragover', handleDragOver);
@@ -49,7 +49,7 @@ function useComposerSendKeyHandler({ canSend, composer, sendMessage }) {
     if (imeLikely) return;
     event.preventDefault();
     if (!canSend) return;
-    runUIAction(() => sendMessage());
+    runUIAction('composer.send', () => sendMessage());
   };
 }
 
@@ -66,13 +66,20 @@ function shouldNavigatePromptHistory(event, textarea, direction) {
   return value.indexOf('\n', selectionStart) === -1;
 }
 
+function runPromptHistoryAction(direction, promptHistory) {
+  if (direction === 'previous') {
+    return runUIAction('prompt-history.previous', () => promptHistory.previous(), { retryable: true });
+  }
+  return runUIAction('prompt-history.next', () => promptHistory.next(), { retryable: true });
+}
+
 function useComposerKeyHandler({ canSend, composer, promptHistory, sendMessage }) {
   const handleSendKey = useComposerSendKeyHandler({ canSend, composer, sendMessage });
   return (event) => {
     const direction = event.key === 'ArrowUp' ? 'previous' : event.key === 'ArrowDown' ? 'next' : '';
     if (direction && !composer.isComposing() && shouldNavigatePromptHistory(event, event.currentTarget, direction)) {
       event.preventDefault();
-      runUIAction(() => promptHistory[direction]());
+      runPromptHistoryAction(direction, promptHistory);
       return;
     }
     handleSendKey(event);
@@ -164,7 +171,7 @@ function ComposerDock({
     handlePromptHistoryKeyDown(event);
   };
   const handleTextareaChange = (event) => setDraft(event.target.value);
-  const handleTextareaPaste = (event) => { runUIAction(() => composer.handlePaste(event)); };
+  const handleTextareaPaste = (event) => { runUIAction('composer.paste', () => composer.handlePaste(event)); };
 
   return (
     <footer

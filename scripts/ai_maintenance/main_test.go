@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"io"
 	"os"
 	"path/filepath"
@@ -23,6 +24,7 @@ func TestBuildGatePlanRoutesFrontendBackendAndGeneratedFiles(t *testing.T) {
 		"frontend:build",
 		"frontend:embed-verify",
 		"frontend:lint",
+		"frontend:typecheck-contracts",
 		"frontend:test",
 		"lsp:changed-diagnostics",
 		"project-map:check",
@@ -46,6 +48,18 @@ func TestBuildGatePlanRoutesAIMaintenanceHooksToSelfTest(t *testing.T) {
 	plan := mustBuildGatePlan(t, []string{".githooks/pre-commit", ".githooks/pre-push"})
 
 	assertStringSetContains(t, plan.RequiredGates, "ai-maintenance:self-test", "diff:whitespace")
+}
+
+func TestBuildGatePlanRoutesCriticalTypecheckSourcesAndInfrastructure(t *testing.T) {
+	for _, file := range []string{
+		"frontend-app/src/shared/ui/runUIAction.js",
+		"frontend-app/tsconfig.contracts.json",
+		"frontend-app/scripts/critical-typecheck-files.json",
+		"frontend-app/scripts/critical-typecheck-guard.mjs",
+	} {
+		plan := mustBuildGatePlan(t, []string{file})
+		assertStringSetContains(t, plan.RequiredGates, "frontend:typecheck-contracts")
+	}
 }
 
 func TestPushGatePlanAddsRiskGatesWithoutChangingCommitPlan(t *testing.T) {
@@ -315,6 +329,131 @@ func TestBuildGatePlanUsesBackendAsAIMaintenanceSelfTestSuperset(t *testing.T) {
 	assertStringSetContains(t, hookPlan.RequiredGates, "ai-maintenance:self-test")
 }
 
+func TestBuildGatePlanRoutesTurnContractProductionChain(t *testing.T) {
+	for _, file := range []string{
+		"internal/dto/turn/schema/turn_terminal.v2.json",
+		"internal/provider/shared/terminal_outcome.go",
+		"frontend-app/package.json",
+		"frontend-app/src/shared/api/backend/backendApiFactoryThread.js",
+		"scripts/turncontract/main.go",
+	} {
+		plan := mustBuildGatePlan(t, []string{file})
+		assertStringSetContains(t, plan.RequiredGates, "turncontract:verify")
+	}
+}
+
+func TestBuildGatePlanRoutesFrontendStaticGuardInputs(t *testing.T) {
+	for _, file := range []string{
+		"frontend-app/package.json",
+		"frontend-app/scripts/frontend-state-ownership-registry.json",
+		"frontend-app/scripts/frontend-dependency-direction-guard.mjs",
+		"frontend-app/src/entities/client/model/helpers/warningRuntime.js",
+		"frontend-app/src/pages/chat/ChatPage.jsx",
+	} {
+		plan := mustBuildGatePlan(t, []string{file})
+		assertStringSetContains(t, plan.RequiredGates, "frontend:static-guards")
+	}
+
+	plan := mustBuildGatePlan(t, []string{"docs/plans/frontend.md"})
+	assertStringSetOmits(t, plan.RequiredGates, "frontend:static-guards")
+}
+
+func TestBuildGatePlanRoutesAllProductionGoToTurnContract(t *testing.T) {
+	for _, file := range []string{
+		"cmd/example/main.go",
+		"internal/platform/uistate/projector_handlers.go",
+		"pkg/example/consumer.go",
+		"scripts/example/producer.go",
+	} {
+		plan := mustBuildGatePlan(t, []string{file})
+		assertStringSetContains(t, plan.RequiredGates, "turncontract:verify")
+	}
+}
+
+func TestBuildGatePlanDoesNotTreatTestOnlyGoAsTurnContractProduction(t *testing.T) {
+	for _, file := range []string{
+		"cmd/example/main_test.go",
+		"internal/dto/turn/contract_field_guard_test.go",
+		"internal/platform/uistate/projector_handlers_test.go",
+		"pkg/example/consumer_test.go",
+		"scripts/example/producer_test.go",
+	} {
+		plan := mustBuildGatePlan(t, []string{file})
+		assertStringSetOmits(t, plan.RequiredGates, "turncontract:verify")
+	}
+}
+
+func TestBuildGatePlanRoutesEveryTurnContractRegistryLocator(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("..", "..", "internal", "dto", "turn", "schema", "field_consumers.json"))
+	if err != nil {
+		t.Fatalf("read turn contract consumer registry: %v", err)
+	}
+	var registry any
+	if err := json.Unmarshal(raw, &registry); err != nil {
+		t.Fatalf("parse turn contract consumer registry: %v", err)
+	}
+	paths := map[string]bool{}
+	collectRegistryLocatorPaths(registry, paths)
+	if len(paths) == 0 {
+		t.Fatal("turn contract consumer registry contains no locator paths")
+	}
+	for locatorPath := range paths {
+		plan := mustBuildGatePlan(t, []string{locatorPath})
+		assertStringSetContains(t, plan.RequiredGates, "turncontract:verify")
+	}
+}
+
+func TestLoadTurnContractPathsFailsClosedForInvalidRegistry(t *testing.T) {
+	tests := []struct {
+		name string
+		body *string
+		want string
+	}{
+		{name: "missing", want: "read turn contract consumer registry"},
+		{name: "malformed", body: stringPointer(`{"version":`), want: "parse turn contract consumer registry"},
+		{name: "wrong version", body: stringPointer(`{"version":1,"schemas":{},"goChains":[],"goConstants":[],"jsMappers":[]}`), want: "version 2"},
+		{name: "wrong structure", body: stringPointer(`{"version":2,"schemas":[],"goChains":[],"goConstants":[],"jsMappers":[]}`), want: "schemas"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			repoRoot := t.TempDir()
+			if test.body != nil {
+				registryPath := filepath.Join(repoRoot, "internal", "dto", "turn", "schema", "field_consumers.json")
+				if err := os.MkdirAll(filepath.Dir(registryPath), 0o755); err != nil {
+					t.Fatalf("mkdir registry dir: %v", err)
+				}
+				if err := os.WriteFile(registryPath, []byte(*test.body), 0o644); err != nil {
+					t.Fatalf("write registry: %v", err)
+				}
+			}
+			_, err := loadTurnContractPaths(repoRoot)
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("loadTurnContractPaths() error = %v, want %q", err, test.want)
+			}
+		})
+	}
+}
+
+func collectRegistryLocatorPaths(value any, paths map[string]bool) {
+	switch typed := value.(type) {
+	case map[string]any:
+		if locatorPath, ok := typed["path"].(string); ok && locatorPath != "" {
+			paths[locatorPath] = true
+		}
+		for _, child := range typed {
+			collectRegistryLocatorPaths(child, paths)
+		}
+	case []any:
+		for _, child := range typed {
+			collectRegistryLocatorPaths(child, paths)
+		}
+	}
+}
+
+func stringPointer(value string) *string {
+	return &value
+}
+
 func TestGatePlanProducerMatchesRunnerAndEvidenceRegistries(t *testing.T) {
 	producerGates := map[string]bool{}
 	for _, files := range [][]string{
@@ -325,6 +464,7 @@ func TestGatePlanProducerMatchesRunnerAndEvidenceRegistries(t *testing.T) {
 		{"internal/contract/provider.go"},
 		{"docs/doc/codemap/ai-index.json"},
 		{"internal/provider/codexapp/session.go"},
+		{"internal/dto/turn/terminal.go"},
 	} {
 		for _, gate := range mustGatePlanForScope(t, files, true).RequiredGates {
 			producerGates[gate] = true
@@ -506,7 +646,11 @@ LSP_EVIDENCE:
 COMMANDS_RUN:
   - cmd: go run ./scripts/lsp_diagnostics_gate --file frontend-app/src/App.jsx
     exit: 0
+  - cmd: cd frontend-app && npm run guard:architecture
+    exit: 0
   - cmd: cd frontend-app && npm run lint
+    exit: 0
+  - cmd: cd frontend-app && npm run typecheck:contracts
     exit: 0
   - cmd: cd frontend-app && npm test
     exit: 0

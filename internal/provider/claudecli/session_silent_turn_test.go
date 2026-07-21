@@ -97,7 +97,7 @@ func requireActiveSilentTurn(t *testing.T, s *session) string {
 
 func completeSilentTurn(t *testing.T, s *session, tr *transport, turnID string) {
 	t.Helper()
-	s.applyRaw(tr, dto.RawProviderEvent{EventType: "turn:complete", Data: map[string]any{"turn_id": turnID, "success": true}})
+	s.applyRaw(tr, dto.RawProviderEvent{EventType: "turn:complete", Data: map[string]any{"turn_id": turnID, "success": true, "status": "completed"}})
 }
 
 func awaitKeepaliveSuccess(t *testing.T, errCh <-chan error, stage string) {

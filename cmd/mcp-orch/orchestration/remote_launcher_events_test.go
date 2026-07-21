@@ -3,8 +3,8 @@ package orchestration
 import (
 	"context"
 	"errors"
+	"fmt"
 	"maps"
-	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -19,6 +19,7 @@ import (
 	mcpdto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/mcp"
 	shareddto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/shared"
 	turndto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/turn"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/eventsurface"
 )
 
 func TestRemoteLauncher_RegistersBeforeThreadStart(t *testing.T) {
@@ -89,10 +90,25 @@ func TestRemoteLauncher_HeartbeatKeepsControlLeaseAlive(t *testing.T) {
 
 func TestRemoteLauncher_TurnCompletedNotificationClearsRemoteBusyState(t *testing.T) {
 	t.Setenv("GO_AGENT_CTL_SESSION_TOKEN", "session-secret")
-	notify := make(chan *jrpc2.Server, 1)
 	addr, _ := startPushRPCServer(t, handler.Map{
 		"turn/start": handler.New(func(ctx context.Context, _ map[string]any) (map[string]any, error) {
-			notify <- jrpc2.ServerFromContext(ctx)
+			server := jrpc2.ServerFromContext(ctx)
+			require.NoError(t, server.Notify(context.Background(), eventsurface.MethodTurnTerminal, turndto.TurnTerminalV2{
+				SchemaVersion: 2,
+				EventID:       "00000000-1111-4222-8333-444444444444",
+				ThreadID:      "thread-1",
+				TurnID:        "stale-remote-turn",
+				Outcome:       "success",
+				OccurredAt:    "2026-07-16T10:11:11.123Z",
+			}))
+			require.NoError(t, server.Notify(context.Background(), eventsurface.MethodTurnTerminal, turndto.TurnTerminalV2{
+				SchemaVersion: 2,
+				EventID:       "11111111-2222-4333-8444-555555555555",
+				ThreadID:      "thread-1",
+				TurnID:        "remote-turn-1",
+				Outcome:       "success",
+				OccurredAt:    "2026-07-16T10:11:12.123Z",
+			}))
 			return map[string]any{"turn_id": "remote-turn-1"}, nil
 		}),
 	})
@@ -107,6 +123,11 @@ func TestRemoteLauncher_TurnCompletedNotificationClearsRemoteBusyState(t *testin
 	agent.state = agentdto.StateIdle
 	agent.remoteThreadID = "thread-1"
 	svc.registry.agents[agent.id] = agent
+	decoy := svc.newAgentLocked("thread-1")
+	decoy.state = agentdto.StateTurnRunning
+	decoy.remoteThreadID = "decoy-thread"
+	decoy.activeTurnID = "decoy-turn"
+	svc.registry.agents[decoy.id] = decoy
 	svc.registry.mu.Unlock()
 
 	err := svc.SubmitTurn(context.Background(), TurnSubmission{
@@ -114,33 +135,17 @@ func TestRemoteLauncher_TurnCompletedNotificationClearsRemoteBusyState(t *testin
 		Inputs:  []shareddto.InputItem{{Type: "text", Content: "hi"}},
 	})
 	require.NoError(t, err)
-	require.Equal(t, agentdto.StateTurnRunning, agent.state)
-	require.Equal(t, "remote-turn-1", agent.activeTurnID)
-
-	var server *jrpc2.Server
-	select {
-	case server = <-notify:
-	case <-time.After(time.Second):
-		t.Fatal("turn/start handler did not capture server")
-	}
-	require.NoError(t, server.Notify(context.Background(), "turn/completed", turndto.TurnCompleted{
-		TurnHeader: shareddto.TurnHeader{
-			AgentHeader: shareddto.AgentHeader{
-				ThreadHeader: shareddto.ThreadHeader{ThreadID: "thread-1"},
-				AgentID:      "agent-1",
-			},
-			TurnIDHeader: shareddto.TurnIDHeader{TurnID: "provider-turn-uuid"},
-		},
-		Success: true,
-		Result:  "done from provider turn",
-	}))
 
 	require.Eventually(t, func() bool {
 		snapshot, err := svc.Snapshot(context.Background(), "agent-1")
 		return err == nil &&
 			snapshot.State == string(agentdto.StateIdle) &&
-			strings.Contains(snapshot.LastReport, "done from provider turn")
+			snapshot.ActiveTurnID == ""
 	}, time.Second, 10*time.Millisecond)
+	decoySnapshot, err := svc.Snapshot(context.Background(), "thread-1")
+	require.NoError(t, err)
+	require.Equal(t, string(agentdto.StateTurnRunning), decoySnapshot.State)
+	require.Equal(t, "decoy-turn", decoySnapshot.ActiveTurnID)
 }
 
 func TestRemoteTerminalRequiresTurnID(t *testing.T) {
@@ -166,6 +171,194 @@ func TestRemoteTerminalRequiresTurnID(t *testing.T) {
 	require.Equal(t, string(agentdto.StateTurnRunning), snapshot.State)
 	require.Equal(t, "remote-turn-1", snapshot.ActiveTurnID)
 	require.NotContains(t, snapshot.LastReport, "done without turn id")
+}
+
+func TestRemoteTerminalFirstCanonicalTruthWins(t *testing.T) {
+	t.Parallel()
+	svc := NewService(silentLogger(), event.NewDispatcher(), nil, nil, nil, nil)
+	agent := svc.newAgentLocked("agent-1")
+	agent.state = agentdto.StateTurnRunning
+	agent.threadID = "thread-1"
+	agent.remoteThreadID = "thread-1"
+	agent.activeTurnID = "remote-turn-1"
+	agent.lastReport = "report before terminal"
+	svc.registry.agents[agent.id] = agent
+
+	success := turndto.TurnTerminalV2{
+		SchemaVersion: 2,
+		EventID:       "event-success",
+		ThreadID:      "thread-1",
+		TurnID:        "remote-turn-1",
+		Outcome:       "success",
+		OccurredAt:    "2026-07-17T01:02:03Z",
+	}
+	svc.handleRemoteTurnTerminal(context.Background(), success)
+	first, err := svc.Snapshot(context.Background(), "agent-1")
+	require.NoError(t, err)
+	require.Equal(t, string(agentdto.StateIdle), first.State)
+	require.Equal(t, "", first.ActiveTurnID)
+	require.Equal(t, "report before terminal", first.LastReport)
+
+	svc.handleRemoteTurnTerminal(context.Background(), success)
+	duplicate, err := svc.Snapshot(context.Background(), "agent-1")
+	require.NoError(t, err)
+	require.Equal(t, first.State, duplicate.State)
+	require.Equal(t, first.LastReport, duplicate.LastReport)
+
+	conflict := turndto.TurnTerminalV2{
+		SchemaVersion: 2,
+		EventID:       "event-conflicting-failure",
+		ThreadID:      "thread-1",
+		TurnID:        "remote-turn-1",
+		Outcome:       "failed",
+		PublicError: &turndto.PublicErrorV1{
+			Code:            "PERMANENT_FAILURE",
+			Title:           "Permanent failure",
+			Message:         "must not replace success",
+			DiagnosticID:    "diag-conflict",
+			Retryable:       false,
+			RecoveryActions: []string{},
+		},
+		OccurredAt: "2026-07-17T01:02:04Z",
+	}
+	svc.handleRemoteTurnTerminal(context.Background(), conflict)
+	afterConflict, err := svc.Snapshot(context.Background(), "agent-1")
+	require.NoError(t, err)
+	require.Equal(t, string(agentdto.StateIdle), afterConflict.State)
+	require.Equal(t, "", afterConflict.ActiveTurnID)
+	require.Equal(t, first.LastReport, afterConflict.LastReport)
+}
+
+func TestRemoteTerminalSealCapacityKeepsTargetChangedProtection(t *testing.T) {
+	svc := NewService(silentLogger(), event.NewDispatcher(), nil, nil, nil, nil)
+	svc.turns.remoteTerminalCapacity = 1
+	agent := svc.newAgentLocked("agent-1")
+	agent.state = agentdto.StateTurnRunning
+	agent.threadID = "thread-1"
+	agent.remoteThreadID = "thread-1"
+	agent.activeTurnID = "remote-turn-1"
+	svc.registry.agents[agent.id] = agent
+
+	first := remoteTerminalFixture("thread-1", "remote-turn-1")
+	svc.handleRemoteTurnTerminal(context.Background(), first)
+	agent.state = agentdto.StateTurnRunning
+	agent.activeTurnID = "remote-turn-2"
+
+	eviction, err := svc.turns.acceptRemoteTurnTerminal(remoteTerminalFixture("thread-other", "remote-turn-other"))
+	require.NoError(t, err)
+	require.True(t, eviction.accepted)
+	svc.turns.releaseRemoteTurnTerminal(eviction)
+
+	conflict := first
+	conflict.EventID = "event-conflicting-old-turn"
+	conflict.Outcome = "failed"
+	conflict.PublicError = &turndto.PublicErrorV1{
+		Code:            "PERMANENT_FAILURE",
+		Title:           "Permanent failure",
+		Message:         "old terminal must not finish the replacement turn",
+		DiagnosticID:    "diag-old-turn",
+		Retryable:       false,
+		RecoveryActions: []string{},
+	}
+	svc.handleRemoteTurnTerminal(context.Background(), conflict)
+
+	snapshot, err := svc.Snapshot(context.Background(), agent.id)
+	require.NoError(t, err)
+	require.Equal(t, string(agentdto.StateTurnRunning), snapshot.State)
+	require.Equal(t, "remote-turn-2", snapshot.ActiveTurnID)
+	stats := svc.turns.remoteTerminalSealStats()
+	require.LessOrEqual(t, stats.Entries, 1)
+	require.Equal(t, uint64(1), stats.CapacityEvictions)
+}
+
+func TestRemoteTerminalSealBoundedPressureAndLifecycleCleanup(t *testing.T) {
+	controller := &turnController{remoteTerminalCapacity: 8}
+	for index := range 128 {
+		acceptance, err := controller.acceptRemoteTurnTerminal(remoteTerminalFixture("thread-pressure", fmt.Sprintf("turn-%03d", index)))
+		require.NoError(t, err)
+		require.True(t, acceptance.accepted)
+		controller.releaseRemoteTurnTerminal(acceptance)
+	}
+	stats := controller.remoteTerminalSealStats()
+	require.Equal(t, 8, stats.Capacity)
+	require.Equal(t, 8, stats.Entries)
+	require.Zero(t, stats.InFlight)
+	require.Equal(t, uint64(120), stats.CapacityEvictions)
+
+	evicted, err := controller.acceptRemoteTurnTerminal(remoteTerminalFixture("thread-pressure", "turn-000"))
+	require.NoError(t, err)
+	require.True(t, evicted.accepted)
+	controller.releaseRemoteTurnTerminal(evicted)
+	duplicate, err := controller.acceptRemoteTurnTerminal(remoteTerminalFixture("thread-pressure", "turn-127"))
+	require.NoError(t, err)
+	require.False(t, duplicate.accepted)
+
+	inFlight, err := controller.acceptRemoteTurnTerminal(remoteTerminalFixture("thread-cleanup", "turn-in-flight"))
+	require.NoError(t, err)
+	cleared := controller.clearRemoteTerminalsForThread("thread-cleanup")
+	require.Equal(t, 1, cleared.InFlight)
+	require.Equal(t, uint64(1), cleared.LifecycleDeferred)
+	controller.releaseRemoteTurnTerminal(inFlight)
+	stats = controller.remoteTerminalSealStats()
+	require.Zero(t, stats.InFlight)
+	require.Equal(t, uint64(1), stats.LifecycleClears)
+}
+
+func TestRemoteTerminalSealConcurrentAccessRemainsBounded(t *testing.T) {
+	controller := &turnController{remoteTerminalCapacity: 64}
+	const workers = 16
+	const terminalsPerWorker = 64
+	errs := make(chan error, workers)
+	group := newTestGoroutineGroup(t)
+	for worker := range workers {
+		group.Go(func() {
+			for index := range terminalsPerWorker {
+				acceptance, err := controller.acceptRemoteTurnTerminal(remoteTerminalFixture(fmt.Sprintf("thread-%02d", worker), fmt.Sprintf("turn-%03d", index)))
+				if err != nil {
+					errs <- err
+					return
+				}
+				if !acceptance.accepted {
+					errs <- errors.New("unique terminal was not accepted")
+					return
+				}
+				controller.releaseRemoteTurnTerminal(acceptance)
+			}
+		})
+	}
+	group.Wait()
+	close(errs)
+	for err := range errs {
+		require.NoError(t, err)
+	}
+	stats := controller.remoteTerminalSealStats()
+	require.Equal(t, 64, stats.Capacity)
+	require.LessOrEqual(t, stats.Entries, stats.Capacity)
+	require.Zero(t, stats.InFlight)
+	require.Equal(t, uint64(workers*terminalsPerWorker-64), stats.CapacityEvictions)
+}
+
+func TestRemoteTerminalSealRejectsCapacityExhaustedByInFlightTerminals(t *testing.T) {
+	controller := &turnController{remoteTerminalCapacity: 2}
+	first, err := controller.acceptRemoteTurnTerminal(remoteTerminalFixture("thread-1", "turn-1"))
+	require.NoError(t, err)
+	second, err := controller.acceptRemoteTurnTerminal(remoteTerminalFixture("thread-2", "turn-2"))
+	require.NoError(t, err)
+	_, err = controller.acceptRemoteTurnTerminal(remoteTerminalFixture("thread-3", "turn-3"))
+	require.EqualError(t, err, "remote terminal seal capacity exhausted by in-flight terminals")
+	controller.releaseRemoteTurnTerminal(first)
+	controller.releaseRemoteTurnTerminal(second)
+}
+
+func remoteTerminalFixture(threadID, turnID string) turndto.TurnTerminalV2 {
+	return turndto.TurnTerminalV2{
+		SchemaVersion: 2,
+		EventID:       "event-" + threadID + "-" + turnID,
+		ThreadID:      threadID,
+		TurnID:        turnID,
+		Outcome:       "success",
+		OccurredAt:    "2026-07-19T01:02:03Z",
+	}
 }
 
 func TestService_SubmitTurnRemoteModeDeadlineFailureClearsBusyState(t *testing.T) {

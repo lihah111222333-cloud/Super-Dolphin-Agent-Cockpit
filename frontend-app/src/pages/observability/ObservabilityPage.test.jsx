@@ -488,11 +488,20 @@ describe('ObservabilityPage module', () => {
 
   it('copies a trace id through the backend clipboard bridge', async () => {
     const table = await queryRecentLogs();
+    let resolveClipboardCopy;
+    copyTextToClipboard.mockImplementationOnce(() => new Promise((resolve) => {
+      resolveClipboardCopy = resolve;
+    }));
 
-    fireEvent.click(within(table).getByRole('button', { name: '复制 Trace ID trace-frontend-1' }));
+    const copyButton = within(table).getByRole('button', { name: '复制 Trace ID trace-frontend-1' });
+    fireEvent.click(copyButton);
 
     await waitFor(() => expect(copyTextToClipboard).toHaveBeenCalledWith('trace-frontend-1'));
-    expect(within(table).getByRole('button', { name: '复制 Trace ID trace-frontend-1' })).toHaveTextContent('已复制');
+    expect(copyButton).toHaveTextContent('复制 Trace ID');
+
+    resolveClipboardCopy(true);
+
+    await waitFor(() => expect(copyButton).toHaveTextContent('已复制'));
     expect(getObservabilityTrace).not.toHaveBeenCalled();
   });
 
@@ -598,7 +607,8 @@ describe('ObservabilityPage module', () => {
     fireEvent.click(within(table).getByRole('button', { name: '打开 Trace trace-frontend-1' }));
 
     const inlineTrace = await within(table).findByTestId('observability-inline-trace-trace-frontend-1');
-    await waitFor(() => expect(inlineTrace).toHaveTextContent('Trace 数据无效：observability trace events 必须是数组'));
+    await waitFor(() => expect(inlineTrace).toHaveTextContent('Trace 加载失败，请重试。'));
+    expect(document.body.textContent).not.toContain('observability trace events');
   });
 
 });

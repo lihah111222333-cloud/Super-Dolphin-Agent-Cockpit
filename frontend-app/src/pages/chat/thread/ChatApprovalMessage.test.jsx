@@ -3,6 +3,8 @@ import { existsSync, readFileSync } from 'node:fs';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { renderWithQueryClient } from '../../../__tests__/reactQueryRender.jsx';
+import { frontendHealthSnapshot, resetFrontendHealthForTest } from '../../../shared/diagnostics/frontendHealthStore.js';
+import { resetVisibleActionFailureForTest, visibleActionFailureSnapshot } from '../../../shared/ui/actionFailureSink.js';
 import { ChatApprovalMessage } from './ChatApprovalMessage.jsx';
 import { Conversation } from './Conversation.jsx';
 
@@ -200,6 +202,8 @@ describe('ChatApprovalMessage', () => {
 
 describe('ChatApprovalMessage bug-locking', () => {
   afterEach(() => {
+    resetFrontendHealthForTest();
+    resetVisibleActionFailureForTest();
     vi.useRealTimers();
     vi.restoreAllMocks();
   });
@@ -215,14 +219,37 @@ describe('ChatApprovalMessage bug-locking', () => {
     time: '2026-06-27T00:00:00Z',
   };
 
-  it('calls onError when onApproval rejects', async () => {
-    const onApproval = vi.fn().mockRejectedValue(new Error('network error'));
+  it('keeps sensitive approval failures out of the DOM and records only the public diagnostic', async () => {
+    const rawCause = 'command=/usr/bin/deploy --token=secret-token cwd=/private/worktree';
+    const onApproval = vi.fn().mockRejectedValue(new Error(rawCause));
     const onError = vi.fn();
     render(
       <ChatApprovalMessage message={baseMessage} actions={{ onApproval, onError }} formatTime={() => '--'} />
     );
     confirmChoice('同意');
-    await waitFor(() => expect(onError).toHaveBeenCalledWith('approval.failed', 'network error'));
+    await waitFor(() => {
+      expect(screen.getByRole('alert')).toHaveTextContent('操作失败，当前页面状态已保留。');
+      expect(screen.getByRole('alert')).not.toHaveTextContent(rawCause);
+      expect(visibleActionFailureSnapshot()).toEqual(expect.objectContaining({
+        actionId: 'approval.respond',
+        publicError: expect.objectContaining({
+          code: 'UI_ACTION_FAILED',
+          diagnosticId: expect.any(String),
+          message: '操作失败，当前页面状态已保留。',
+        }),
+      }));
+      expect(frontendHealthSnapshot()).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          actionId: 'approval.respond',
+          code: 'UI_ACTION_FAILED',
+          diagnosticId: expect.any(String),
+          message: '操作失败，当前页面状态已保留。',
+        }),
+      ]));
+    });
+    expect(document.body).not.toHaveTextContent(rawCause);
+    expect(JSON.stringify(frontendHealthSnapshot())).not.toContain(rawCause);
+    expect(onError).not.toHaveBeenCalled();
     expect(screen.getByRole('button', { name: '同意' })).toHaveAttribute('aria-pressed', 'true');
     expect(screen.getByRole('button', { name: '确认选择' })).toBeEnabled();
   });
@@ -232,13 +259,12 @@ describe('ChatApprovalMessage bug-locking', () => {
     const onApproval = vi.fn()
       .mockRejectedValueOnce(timeoutError)
       .mockResolvedValueOnce(true);
-    const onError = vi.fn();
     render(
-      <ChatApprovalMessage message={baseMessage} actions={{ onApproval, onError }} formatTime={() => '--'} />
+      <ChatApprovalMessage message={baseMessage} actions={{ onApproval }} formatTime={() => '--'} />
     );
     confirmChoice('同意');
-    await waitFor(() => expect(onError).toHaveBeenCalledWith('approval.failed', '审批提交超时'));
-    expect(screen.getByRole('alert')).toHaveTextContent('审批提交超时');
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('操作失败，当前页面状态已保留。'));
+    expect(screen.getByRole('alert')).not.toHaveTextContent('审批提交超时');
     expect(screen.getByRole('button', { name: '同意' })).toHaveAttribute('aria-pressed', 'true');
     expect(screen.getByRole('button', { name: '确认选择' })).toBeEnabled();
 

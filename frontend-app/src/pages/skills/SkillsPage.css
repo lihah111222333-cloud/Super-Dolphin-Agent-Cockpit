@@ -49,7 +49,7 @@
   padding: 40px 20px;
   background: var(--surface);
   border: 1px dashed var(--border);
-  border-radius: var(--radius-md);
+  border-radius: var(--suiyuan-radius-card);
   margin-top: 16px;
 }
 
@@ -239,11 +239,7 @@
   margin: 18px 28px;
 }
 
-.skill-grid {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
+/* .skill-grid 布局定义已迁移到 SkillsPageHub.css（多列卡片网格）。 */
 
 .skill-card,
 .memory-card,
@@ -358,9 +354,10 @@
 }
 
 .skills-resolution-panel {
-  margin: 18px 28px;
+  margin: 0;
   background: var(--surface);
   border: 1px solid color-mix(in srgb, var(--primary) 24%, var(--border));
+  border-left: 3px solid var(--accent);
   border-radius: var(--radius-xl, 16px);
   box-shadow: var(--suiyuan-card-shadow);
   overflow: hidden;
@@ -369,12 +366,15 @@
 .skills-resolution-header {
   padding: 16px 20px;
   border-radius: 0;
+  background: color-mix(in srgb, var(--accent) 6%, var(--surface));
+  border-bottom: 1px solid var(--line);
 }
 
 .skills-resolution-header > strong {
   display: block;
   font-size: 15px;
   font-weight: 700;
+  color: var(--text-pri);
 }
 
 .skills-resolution-list {
@@ -415,11 +415,11 @@
 }
 
 .skills-import-summary-panel {
-  margin: 18px 28px;
+  margin: 0;
   border: 1px solid var(--line);
-  border-radius: var(--radius);
-  background: var(--surface);
-  padding: 14px;
+  border-radius: 12px;
+  background: var(--surface-2);
+  padding: 14px 16px;
 }
 
 .skills-import-summary-head,
@@ -720,14 +720,30 @@
   margin-top: 16px;
 }
 
-.modal-box button,
-.skills-resolution-panel button {
+.modal-box button {
   min-height: 34px;
   border: 1px solid var(--line);
   border-radius: 7px;
   background: var(--surface-2);
   color: var(--text-pri);
   padding: 0 12px;
+}
+
+/* 冲突处理按钮：中性胶囊为默认；主推荐操作走 .suiyuan-btn-fusion 主操作胶囊（不覆盖其主色）。 */
+.skills-resolution-panel button:not(.suiyuan-btn-fusion):not(.suiyuan-btn-fusion-ghost) {
+  min-height: 34px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--text-pri);
+  padding: 0 14px;
+}
+
+.skills-resolution-panel .suiyuan-btn-fusion,
+.skills-resolution-panel .suiyuan-btn-fusion-ghost {
+  min-height: 34px;
+  padding: 0 16px;
+  font-size: 13px;
 }
 
 .skills-editor-modal {
@@ -884,90 +900,7 @@
   cursor: pointer;
 }
 
-/* Add New card dashed styling（整卡为 <button>，重置 UA 按钮样式并接入暗色卡片体系） */
-.mcp-tool-card.add-new-card {
-  border: 2px dashed var(--mcp-card-badge-border);
-  background: var(--mcp-card-bg);
-  cursor: pointer;
-  color: var(--mcp-card-text-muted);
-  font: inherit;
-  text-align: left;
-  width: 100%;
-  transition: all var(--transition);
-}
-
-.mcp-tool-card.add-new-card:hover {
-  border-color: var(--mcp-card-ok);
-  background: var(--mcp-card-bg-hover);
-  color: var(--mcp-card-text);
-  transform: translateY(-2px);
-}
-
-.mcp-tool-card.add-new-card:focus-visible {
-  outline: 2px solid var(--focus-ring);
-  outline-offset: 2px;
-}
-
-.mcp-tool-card.add-new-card:active {
-  transform: translateY(0);
-}
-
-.mcp-tool-icon.add-new {
-  background: var(--mcp-card-icon-bg);
-  color: var(--mcp-card-text-muted);
-  transition: all var(--transition);
-}
-
-.mcp-tool-card.add-new-card:hover .mcp-tool-icon.add-new {
-  color: var(--mcp-card-text);
-}
-
-/* Tab header style overrides */
-.skills-subtabs-header {
-  display: flex;
-  gap: 8px;
-  border-bottom: 1px solid var(--line);
-  padding: 0 28px;
-  margin-bottom: 24px;
-}
-
-.skills-subtabs-header button {
-  background: transparent;
-  border: 0;
-  border-bottom: 2px solid transparent;
-  color: var(--text-muted);
-  font-size: 14px;
-  font-weight: 600;
-  padding: 12px 16px;
-  cursor: pointer;
-  transition: all var(--transition);
-}
-
-.skills-subtabs-header button.active {
-  border-bottom-color: var(--primary);
-  color: var(--text-pri);
-}
-
-.plugins-square-container {
-  padding: 0 28px 28px;
-}
-
-.plugins-square-header {
-  margin-bottom: 24px;
-}
-
-.plugins-square-header h1 {
-  margin: 0 0 8px;
-  font-size: 24px;
-  font-weight: 700;
-  color: var(--text-pri);
-}
-
-.plugins-square-subtitle {
-  margin: 0;
-  font-size: 14px;
-  color: var(--text-muted);
-}
+/* Tab 行、plugins-square 容器与 Add New 卡片的样式已统一迁移到 SkillsPageHub.css。 */
 
 .plugins-square-panel-notice {
   margin: 0 0 12px;
@@ -977,10 +910,6 @@
   background: var(--surface-2);
   color: var(--text-sec);
   font-size: 13px;
-}
-
-.mcp-tool-card:hover {
-  transform: translateY(-2px);
 }
 
 .skill-tool-enabled-field {

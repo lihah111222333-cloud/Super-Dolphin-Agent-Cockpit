@@ -16,6 +16,10 @@ import {
 
 const REPO_ROOT = resolve(import.meta.dirname, '../..')
 const SHADOW_FILES = [
+  'internal/contract/rpc_handler.go',
+  'internal/module/thread/rpc_types.go',
+  'internal/module/turn/rpc_types.go',
+  'internal/module/uistate/state.go',
   'frontend-app/src/shared/api/backendApi.js',
   'frontend-app/src/shared/api/backend/backendRpcMethods.js',
   'frontend-app/src/shared/api/backendApi.contractMatrix.js',
@@ -226,8 +230,15 @@ function realResultHandledSources({
   facade = 'interruptTurn', action = 'thread.interrupt', resultProperty = 'result',
   injectionBody = '',
   handlerCondition = "action === 'thread.interrupt' && result?.ok === false",
-  handlerDefinitions = '',
-  warningBody = "notifyAction(result.error, 'warning'); addWarning('warn', action, { error: result.error })",
+  handlerDefinitions = `
+    function interruptFailureMessage(result) {
+      for (const value of [result?.error, result?.message, result?.reason, result?.status, result?.mode]) {
+        const message = normalizeOptionalTextField(value); if (message) return message
+      }
+      throw new Error('thread.interrupt ok:false response message is required')
+    }
+  `,
+  warningBody = "interruptFailureMessage(result); notifyAction('中断当前执行失败，请重试。', 'warning', { threadId: 'thread-1' }); addWarning('warn', 'thread.interrupt.failed', { threadId: 'thread-1', error: 'action failure; see Health diagnostic ID' })",
   regressionDefinitions = '',
   regressionBeforeAwait = '',
   regressionBetween = '',
@@ -259,7 +270,7 @@ function realResultHandledSources({
           }
           try {
             const cwd = requireCwd(action)
-            const payload = threadActionPayload({ action, activeThreadInterruptTarget, activeTurnTarget, cleanObject, currentState, cwd, notifyAction, threadId })
+            const payload = threadActionPayload({ action, activeThreadInterruptTarget, activeTurnTarget, cleanObject, createRequestId, currentState, cwd, notifyAction, threadId })
             if (!payload) return { ok: false, threadId, result: null }
             const result = await rpc({})
             if (notifyThreadActionFailure({ action, addWarning, notifyAction, ${resultProperty}: result, threadId })) return { ok: false, threadId, result }
@@ -292,9 +303,11 @@ function realResultHandledSources({
         await expect(runtime.activeThreadRPC('thread.interrupt', rpc)).resolves.toBe(false)
         ${regressionBetween}
         expect(rpc).toHaveBeenCalledTimes(1)
-        expect(runtime.notifyAction).toHaveBeenCalledWith('中断当前执行失败：turn already completed', 'warning', { threadId: 'thread-1' })
+        expect(runtime.notifyAction).toHaveBeenCalledWith('中断当前执行失败，请重试。', 'warning', { threadId: 'thread-1' })
         expect(runtime.notifyAction).not.toHaveBeenCalledWith('已发送中断请求', 'success', { threadId: 'thread-1' })
-        expect(runtime.addWarning).toHaveBeenCalledWith('warn', 'thread.interrupt.failed', { threadId: 'thread-1', error: 'turn already completed' })
+        expect(runtime.addWarning).toHaveBeenCalledWith('warn', 'thread.interrupt.failed', { threadId: 'thread-1', error: 'action failure; see Health diagnostic ID' })
+        expect(JSON.stringify(runtime.notifyAction.mock.calls)).not.toContain('turn already completed')
+        expect(JSON.stringify(runtime.addWarning.mock.calls)).not.toContain('turn already completed')
       })
     `,
   }
@@ -493,6 +506,9 @@ describe('rpc contract audit', { timeout: 30000 }, () => {
     expect(report.p0MissingBackendHandlers).toEqual([])
     expect(report.allowedPayloadRegistryDrift).toEqual([])
     expect(report.hardcodedPayloadGuardFindings).toEqual([])
+    expect(report.auditStats).toEqual(expect.objectContaining({
+      productionFacadeReferenceIndexBuilds: 1,
+    }))
     expect(report.sidebarRequiredFieldFindings).toEqual([])
     expect(report.responseContractStrategies).toEqual(expect.arrayContaining([
       {
@@ -525,7 +541,76 @@ describe('rpc contract audit', { timeout: 30000 }, () => {
       'selected_skill_refs',
       'selectedSkillRefs',
     ]))
+    expect(report.frontendPayloadKeysByMethod.get('turn/interrupt')).toEqual(expect.arrayContaining([
+      'expectedTurnId',
+      'requestId',
+      'threadId',
+    ]))
+    expect(report.goPayloadKeysByMethod.get('turn/interrupt')).toEqual(expect.arrayContaining([
+      'expected_turn_id',
+      'expectedTurnId',
+      'request_id',
+      'requestId',
+      'thread_id',
+      'threadId',
+    ]))
   }, 30000)
+
+  it('audits runtime payload builders when facade shadows stay unchanged', async () => {
+    const runtimePath = 'frontend-app/src/shared/api/backend/backendApiFactoryThread.js'
+    const runtimeSource = await readFile(join(REPO_ROOT, runtimePath), 'utf8')
+    const mutatedSource = runtimeSource.replace(
+      "takePayloadField(unused, 'provider')",
+      "takePayloadField(unused, 'provider_shadow')",
+    )
+    expect(mutatedSource).not.toBe(runtimeSource)
+    const repoRoot = await createShadowRepo({ [runtimePath]: mutatedSource })
+
+    const report = await auditRpcContracts({ repoRoot })
+
+    expect(report.allowedPayloadRegistryDrift).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        method: 'thread/start',
+        missingFrontendKeys: expect.arrayContaining(['provider']),
+        extraFrontendKeys: expect.arrayContaining(['provider_shadow']),
+      }),
+    ]))
+  })
+
+  it('audits runtime RPC methods when facade shadows stay unchanged', async () => {
+    const methodsPath = 'frontend-app/src/shared/api/backend/backendRpcMethods.js'
+    const methodsSource = await readFile(join(REPO_ROOT, methodsPath), 'utf8')
+    const mutatedSource = methodsSource.replace(
+      "  THREAD_PROMPT_HISTORY: 'thread/promptHistory',\n",
+      '',
+    )
+    expect(mutatedSource).not.toBe(methodsSource)
+    const repoRoot = await createShadowRepo({ [methodsPath]: mutatedSource })
+
+    const report = await auditRpcContracts({ repoRoot })
+
+    expect(report.registryWithoutRpcMethods).toContain('THREAD_PROMPT_HISTORY')
+  })
+
+  it('fails payload drift when the Stop mapper drops expectedTurnId', async () => {
+    const mapperPath = 'frontend-app/src/shared/api/backend/backendApiFactoryThread.js'
+    const mapperSource = await readFile(join(REPO_ROOT, mapperPath), 'utf8')
+    const mutatedSource = mapperSource.replace(
+      "    { key: 'expectedTurnId', value: takePayloadField(unused, 'expectedTurnId') },\n",
+      '',
+    )
+    expect(mutatedSource).not.toBe(mapperSource)
+    const repoRoot = await createShadowRepo({ [mapperPath]: mutatedSource })
+
+    const report = await auditRpcContracts({ repoRoot })
+
+    expect(report.allowedPayloadRegistryDrift).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        method: 'turn/interrupt',
+        missingFrontendKeys: expect.arrayContaining(['expectedTurnId']),
+      }),
+    ]))
+  }, 15000)
 
   it('derives Sidebar required fields from Go tags and detects missing or stale consumer entries', async () => {
     const goSource = await readFile(join(REPO_ROOT, 'internal/module/uistate/state.go'), 'utf8')
@@ -966,10 +1051,19 @@ describe('rpc contract audit', { timeout: 30000 }, () => {
           'thread_id',
         ])
       }
+      function turnInterruptPayload(params) {
+        const unused = { ...params }
+        return takePayloadFields(unused, [
+          'expectedTurnId',
+          'requestId',
+          'threadId',
+        ])
+      }
     `
 
     expect(collectFrontendPayloadKeysFromSource(source).get('thread/start')).toEqual(['cwd', 'provider'])
     expect(collectFrontendPayloadKeysFromSource(source).get('turn/start')).toEqual(['input', 'thread_id', 'threadId'])
+    expect(collectFrontendPayloadKeysFromSource(source).get('turn/interrupt')).toEqual(['expectedTurnId', 'requestId', 'threadId'])
   })
 
   it('rejects generated response passthrough prose', () => {
@@ -1241,6 +1335,20 @@ describe('rpc contract audit', { timeout: 30000 }, () => {
     expect(report.invalidResponsePolicyEvidence).toEqual([])
   }, 30000)
 
+  it('rejects TURN_INTERRUPT when strict success-envelope validation is removed', async () => {
+    const repoRoot = await createMutatedRealResultHandledShadow({
+      runtime: (source) => source.replace(
+        "      if (action === 'thread.interrupt') validateInterruptSuccessResponse(result, request);\n",
+        '',
+      ),
+    })
+    const report = await auditRpcContracts({ repoRoot })
+    expect(report.invalidResponsePolicyEvidence).toContainEqual(expect.objectContaining({
+      key: 'TURN_INTERRUPT',
+      field: 'consumer',
+    }))
+  }, 15000)
+
   it('accepts one exact helper hop from activeThreadRPC to runActiveThreadRPC', async () => {
     const repoRoot = await createRealResultHandledShadow({})
     const report = await auditRpcContracts({ repoRoot })
@@ -1437,8 +1545,8 @@ describe('rpc contract audit', { timeout: 30000 }, () => {
     const repoRoot = await createMutatedRealResultHandledShadow({
       runtime: (source) => source
         .replace(
-          'const result = await rpc(cleanObject(payload));\n      if (notifyThreadActionFailure({ action, addWarning, notifyAction, result, threadId })) return { ok: false, threadId, result };',
-          'const result = await rpc(cleanObject(payload));\n      if (notifyThreadActionFailure({ action, addWarning, notifyAction, response: result, threadId })) return { ok: false, threadId, result };',
+          'if (notifyThreadActionFailure({ action, addWarning, notifyAction, result, threadId })) return { ok: false, threadId, result };',
+          'if (notifyThreadActionFailure({ action, addWarning, notifyAction, response: result, threadId })) return { ok: false, threadId, result };',
         )
         .concat(`
           async function decoyRuntimeFlow(action, rpc, addWarning, notifyAction, threadId) {
@@ -1458,8 +1566,8 @@ describe('rpc contract audit', { timeout: 30000 }, () => {
     const repoRoot = await createMutatedRealResultHandledShadow({
       runtime: (source) => source
         .replace(
-          'const result = await rpc(cleanObject(payload));\n      if (notifyThreadActionFailure({ action, addWarning, notifyAction, result, threadId })) return { ok: false, threadId, result };',
-          'const result = await rpc(cleanObject(payload));\n      const decoy = () => notifyThreadActionFailure({ action, addWarning, notifyAction, result, threadId });\n      if (notifyThreadActionFailure({ action, addWarning, notifyAction, response: result, threadId })) return { ok: false, threadId, result };',
+          'if (notifyThreadActionFailure({ action, addWarning, notifyAction, result, threadId })) return { ok: false, threadId, result };',
+          'const decoy = () => notifyThreadActionFailure({ action, addWarning, notifyAction, result, threadId });\n      if (notifyThreadActionFailure({ action, addWarning, notifyAction, response: result, threadId })) return { ok: false, threadId, result };',
         ),
     })
     const report = await auditRpcContracts({ repoRoot })
@@ -1547,8 +1655,8 @@ describe('rpc contract audit', { timeout: 30000 }, () => {
           "import { attachActiveThreadRpcRuntime } from './threadLifecycleRuntime.js';\nfunction seedWarning(runtime) { runtime.notifyAction('seeded', 'warning'); }",
         )
         .replaceAll(
-          "expect(rpc).toHaveBeenCalledWith({ cwd: '/repo/app', threadId: 'thread-1', source: 'ui_stop' });\n    expect(runtime.notifyAction)",
-          "expect(rpc).toHaveBeenCalledWith({ cwd: '/repo/app', threadId: 'thread-1', source: 'ui_stop' });\n    seedWarning(runtime);\n    expect(runtime.notifyAction)",
+          "      source: 'ui_stop',\n    });\n    expect(runtime.notifyAction)",
+          "      source: 'ui_stop',\n    });\n    seedWarning(runtime);\n    expect(runtime.notifyAction)",
         ),
     })
     const report = await auditRpcContracts({ repoRoot })
@@ -3166,11 +3274,7 @@ describe('rpc contract audit', { timeout: 30000 }, () => {
     expect(report.invalidResponsePolicyEvidence).toContainEqual(expect.objectContaining({ field: 'shape', reason: 'shape symbol lacks executable narrowing' }))
   }, 30000)
 
-  it('audits runtime payload builders when facade shadows stay unchanged', async function payloadCb(){const runtimePath='frontend-app/src/shared/api/backend/backendApiFactoryThread.js';const runtimeSource=await readFile(join(REPO_ROOT,runtimePath),'utf8');const mutatedSource=runtimeSource.replace("takePayloadField(unused, 'provider')","takePayloadField(unused, 'provider_shadow')");expect(mutatedSource).not.toBe(runtimeSource);const repoRoot=await createShadowRepo({[runtimePath]:mutatedSource});const report=await auditRpcContracts({repoRoot});expect(report.allowedPayloadRegistryDrift).toEqual(expect.arrayContaining([expect.objectContaining({method:'thread/start',missingFrontendKeys:expect.arrayContaining(['provider']),extraFrontendKeys:expect.arrayContaining(['provider_shadow'])})]))})
-
-  it('audits runtime RPC methods when facade shadows stay unchanged', async function methodsCb(){const methodsPath='frontend-app/src/shared/api/backend/backendRpcMethods.js';const methodsSource=await readFile(join(REPO_ROOT,methodsPath),'utf8');const mutatedSource=methodsSource.replace("  THREAD_PROMPT_HISTORY: 'thread/promptHistory',\n",'');expect(mutatedSource).not.toBe(methodsSource);const repoRoot=await createShadowRepo({[methodsPath]:mutatedSource});const report=await auditRpcContracts({repoRoot});expect(report.registryWithoutRpcMethods).toContain('THREAD_PROMPT_HISTORY')})
-
-  it('ignores payload calls inside nested functions and instance fields', function decoyCb(){const source=`function threadStartPayload(params) { const unused = { ...params }; const nested = () => takePayloadField(unused, 'provider'); class Decoy { read = takePayloadField(unused, 'provider') }; void nested; void Decoy; return takePayloadFields(unused, ['cwd']) }\nfunction turnStartPayload(params) { const unused = { ...params }; return takePayloadFields(unused, ['cwd', 'threadId']) }`;expect(collectFrontendPayloadKeysFromSource(source).get('thread/start')).toEqual(['cwd'])})
+  it('ignores payload calls inside nested functions and instance fields', function decoyCb(){const source=`function threadStartPayload(params) { const unused = { ...params }; const nested = () => takePayloadField(unused, 'provider'); class Decoy { read = takePayloadField(unused, 'provider') }; void nested; void Decoy; return takePayloadFields(unused, ['cwd']) }\nfunction turnStartPayload(params) { const unused = { ...params }; return takePayloadFields(unused, ['cwd', 'threadId']) }\nfunction turnInterruptPayload(params) { const unused = { ...params }; return takePayloadFields(unused, ['expectedTurnId', 'requestId', 'threadId']) }`;expect(collectFrontendPayloadKeysFromSource(source).get('thread/start')).toEqual(['cwd'])})
 
   it('fails fast when a required builder has no top-level declaration', () => {
     const source = [

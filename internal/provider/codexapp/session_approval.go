@@ -578,7 +578,7 @@ func (s *session) onNotification(method string, params json.RawMessage) {
 		return
 	}
 	if malformedTerminalNotification(terminalMethod, params) {
-		s.failMalformedTerminalNotification(terminalMethod)
+		s.failMalformedTerminalNotification(terminalMethod, params)
 		return
 	}
 	// 先合并流式输出，再判断是否抑制终态事件，确保 forceComplete 路径仍能释放累积结果。
@@ -594,11 +594,39 @@ func (s *session) onNotification(method string, params json.RawMessage) {
 		return
 	}
 	method = strings.TrimSpace(method)
-	raw := dto.RawProviderEvent{EventType: method, Data: params}
+	raw, accepted := s.prepareAndSealTerminalNotification(method, params)
+	if !accepted {
+		return
+	}
 	if !isApprovalBridgeMethod(method) || s.approvals == nil {
 		s.dispatch(raw)
 	}
-	s.handleNotificationAction(method, params)
+	s.handleNotificationAction(method, params, raw)
+}
+
+// prepareAndSealTerminalNotification attaches the canonical terminal outcome and claims its first-terminal seal.
+// A contract-invalid terminal fails the active turn, while a conflicting sealed terminal is not dispatched again.
+func (s *session) prepareAndSealTerminalNotification(method string, params json.RawMessage) (dto.RawProviderEvent, bool) {
+	raw := dto.RawProviderEvent{EventType: method, Data: params}
+	if !isTurnTerminalEvent(method) {
+		return raw, true
+	}
+	payload := decodeEventPayload(params)
+	clearCodexProviderUserAttribution(payload)
+	outcome := canonicalTurnTerminalOutcome(method, payload)
+	if outcome.ContractError != "" {
+		s.failMalformedTerminalNotification(method, params)
+		return dto.RawProviderEvent{}, false
+	}
+	s.applyAcceptedInterruptRequest(payload, &outcome)
+	raw.Data = payload
+	raw.Terminal = &outcome
+	if s.claimTerminalSeal(payload) {
+		return raw, true
+	}
+	pkglogger.Warn("codexapp: suppressed duplicate turn terminal event",
+		"agent_id", s.agentID, "method", method)
+	return dto.RawProviderEvent{}, false
 }
 
 func malformedTerminalNotification(method string, params json.RawMessage) bool {
@@ -667,12 +695,12 @@ func (s *session) injectAccumulatedResult(params json.RawMessage) json.RawMessag
 	return encodeEventPayload(payload, params)
 }
 
-func (s *session) handleNotificationAction(method string, params json.RawMessage) {
+func (s *session) handleNotificationAction(method string, params json.RawMessage, raw dto.RawProviderEvent) {
 	switch {
 	case isApprovalBridgeMethod(method):
 		s.handleApprovalRequest(method, params)
 	case isTurnTerminalEvent(method):
-		s.finishTurn(params, turnTerminalSuccess(method, decodeEventPayload(params)))
+		s.finishTurn(raw)
 	case s.completeAssistantMessageCompleted(method, params):
 	case method == "connection.dead":
 		s.handleConnectionDead(params)
@@ -701,8 +729,16 @@ func (s *session) completeAssistantMessageCompleted(method string, params json.R
 	if !ok {
 		return false
 	}
-	s.completeSyntheticTurn(turnID, "assistant_message_completed", assistantMessageText(item))
+	s.completeSyntheticTurn(turnID, "assistant_message_completed", assistantMessageText(item), acceptedAssistantItemIDs(item))
 	return true
+}
+
+func acceptedAssistantItemIDs(item map[string]any) []string {
+	itemID := strings.TrimSpace(stringValue(item, "id", "itemId", "item_id"))
+	if itemID == "" {
+		return nil
+	}
+	return []string{itemID}
 }
 
 func isAssistantMessageCompletedMethod(method string) bool {

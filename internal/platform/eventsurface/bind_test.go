@@ -3,6 +3,7 @@ package eventsurface
 import (
 	"context"
 	"encoding/json"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -66,6 +67,270 @@ func TestBindPublishesExpandedSurface(t *testing.T) {
 			t.Fatalf("method %q missing from %#v", method, seen)
 		}
 	}
+}
+
+func TestBindPublishesCanonicalTurnTerminal(t *testing.T) {
+	dispatcher := event.NewDispatcher()
+	defer func() { _ = dispatcher.Close() }()
+
+	got := make(chan publishedEvent, 1)
+	cancels := Bind(dispatcher, nil, func(method string, payload any) {
+		got <- publishedEvent{method: method, payload: payload}
+	})
+	defer cancelAll(cancels)
+
+	now := time.Unix(1710000000, 0).UTC()
+	completed := turndto.TurnCompleted{
+		TurnHeader: bindTestTurnHeader(now),
+		Success:    true,
+		Status:     "completed",
+	}
+	terminal, err := turndto.NewTurnTerminalV2(completed, "bind-terminal-event")
+	if err != nil {
+		t.Fatalf("NewTurnTerminalV2() error = %v", err)
+	}
+	completed, err = turndto.AttachCanonicalTurnTerminal(completed, terminal)
+	if err != nil {
+		t.Fatalf("AttachCanonicalTurnTerminal() error = %v", err)
+	}
+	event.Publish(dispatcher, completed)
+	published := mustReceivePublished(t, got)
+	if published.method != "turn/terminal" {
+		t.Fatalf("terminal method = %q, want turn/terminal", published.method)
+	}
+	payload := payloadMap(published.payload)
+	if err := turndto.ValidateTurnTerminalV2(payload); err != nil {
+		t.Fatalf("canonical terminal payload: %v; payload=%#v", err, payload)
+	}
+	if payload["outcome"] != "success" {
+		t.Fatalf("terminal payload = %#v, want success outcome", payload)
+	}
+	if _, legacy := payload["status"]; legacy {
+		t.Fatalf("terminal payload leaked legacy status: %#v", payload)
+	}
+}
+
+func TestRemoteTurnTerminalRequiresCanonicalPayloadAndExplicitOwner(t *testing.T) {
+	legacy := map[string]any{
+		"agent_id": "agent-1", "thread_id": "thread-1", "turn_id": "turn-1",
+		"success": true, "status": "completed",
+	}
+	if _, err := DecodeRemoteTurnTerminal(jsonValueDecoder(t, legacy)); err == nil {
+		t.Fatal("DecodeRemoteTurnTerminal() accepted legacy TurnCompleted payload")
+	}
+	canonical := turndto.TurnTerminalV2{
+		SchemaVersion: 2,
+		EventID:       "11111111-2222-4333-8444-555555555555",
+		ThreadID:      "thread-1",
+		TurnID:        "turn-1",
+		Outcome:       "success",
+		OccurredAt:    "2026-07-16T10:11:12.123Z",
+	}
+	decoded, err := DecodeRemoteTurnTerminal(jsonValueDecoder(t, canonical))
+	if err != nil {
+		t.Fatalf("DecodeRemoteTurnTerminal() error = %v", err)
+	}
+	if _, err := ProjectRemoteTurnTerminal(decoded, ""); err == nil {
+		t.Fatal("ProjectRemoteTurnTerminal() accepted empty owner")
+	}
+	projected, err := ProjectRemoteTurnTerminal(decoded, "agent-1")
+	if err != nil {
+		t.Fatalf("ProjectRemoteTurnTerminal() error = %v", err)
+	}
+	if projected.AgentID != "agent-1" || projected.ThreadID != "thread-1" || projected.TurnID != "turn-1" || !projected.Success || projected.Status != "completed" {
+		t.Fatalf("projected terminal = %#v, want explicit owner and canonical identity", projected)
+	}
+}
+
+func TestDecodeRemoteTurnTerminalRejectsUnknownFields(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name string
+		raw  string
+	}{
+		{
+			name: "legacy top-level success",
+			raw:  `{"schemaVersion":2,"eventId":"event-1","threadId":"thread-1","turnId":"turn-1","outcome":"success","occurredAt":"2026-07-17T01:02:03Z","success":true}`,
+		},
+		{
+			name: "nested public error extra",
+			raw:  `{"schemaVersion":2,"eventId":"event-2","threadId":"thread-1","turnId":"turn-1","outcome":"failed","publicError":{"code":"FAILED","title":"Failed","message":"failed","diagnosticId":"diag-1","retryable":false,"recoveryActions":[],"extra":"forbidden"},"occurredAt":"2026-07-17T01:02:03Z"}`,
+		},
+		{
+			name: "partial item id typo",
+			raw:  `{"schemaVersion":2,"eventId":"event-3","threadId":"thread-1","turnId":"turn-1","outcome":"success","partialItemId":["item-1"],"occurredAt":"2026-07-17T01:02:03Z"}`,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if _, err := DecodeRemoteTurnTerminal(func(target any) error {
+				return json.Unmarshal([]byte(test.raw), target)
+			}); err == nil {
+				t.Fatal("DecodeRemoteTurnTerminal() accepted unknown field")
+			}
+		})
+	}
+}
+
+const remotePublicErrorLeakFixture = "provider-token=secret-value /private/agent/config.go\nstack: remote failure"
+
+func TestDecodeRemoteTurnTerminalSanitizesUntrustedPublicError(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name     string
+		code     string
+		wantCode string
+	}{
+		{name: "known code", code: "PROVIDER_FAILED", wantCode: "PROVIDER_FAILED"},
+		{name: "unknown safe code", code: "REMOTE_SECRET_FAILURE", wantCode: "REMOTE_SECRET_FAILURE"},
+		{name: "unsafe code", code: "provider-token=secret-value", wantCode: remotePublicErrorCodeFallback},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			terminal, err := DecodeRemoteTurnTerminal(jsonValueDecoder(t, remoteTerminalWithPublicError(test.code)))
+			if err != nil {
+				t.Fatalf("DecodeRemoteTurnTerminal() error = %v", err)
+			}
+			assertSanitizedRemotePublicError(t, terminal.PublicError, test.wantCode)
+		})
+	}
+}
+
+// remoteTerminalWithPublicError 构造包含不可信公开错误字段的远端终态夹具。
+func remoteTerminalWithPublicError(code string) turndto.TurnTerminalV2 {
+	return turndto.TurnTerminalV2{
+		SchemaVersion: 2,
+		EventID:       "event-public-error",
+		ThreadID:      "thread-1",
+		TurnID:        "turn-1",
+		Outcome:       "failed",
+		PublicError: &turndto.PublicErrorV1{
+			Code:            code,
+			Title:           remotePublicErrorLeakFixture,
+			Message:         remotePublicErrorLeakFixture,
+			DiagnosticID:    "diag-remote-1",
+			Retryable:       true,
+			RecoveryActions: []string{},
+		},
+		OccurredAt: "2026-07-20T01:02:03Z",
+	}
+}
+
+// assertSanitizedRemotePublicError 锁定远端边界只输出固定 wire 占位符。
+func assertSanitizedRemotePublicError(t *testing.T, got *turndto.PublicErrorV1, wantCode string) {
+	t.Helper()
+	if got == nil {
+		t.Fatal("DecodeRemoteTurnTerminal() public error = nil")
+	}
+	if got.Code != wantCode {
+		t.Fatalf("public error code = %q, want %q", got.Code, wantCode)
+	}
+	if got.DiagnosticID != "diag-remote-1" {
+		t.Fatalf("diagnostic ID = %q, want safe remote ID", got.DiagnosticID)
+	}
+	if got.Title != remotePublicErrorTitle || got.Message != remotePublicErrorMessage {
+		t.Fatalf("wire copy = %#v, want fixed non-display placeholders", got)
+	}
+	if got.Retryable || len(got.RecoveryActions) != 0 {
+		t.Fatalf("unsafe recovery metadata survived sanitization: %#v", got)
+	}
+	assertNoRemotePublicErrorLeak(t, got.Title)
+	assertNoRemotePublicErrorLeak(t, got.Message)
+	assertNoRemotePublicErrorLeak(t, got.DiagnosticID)
+}
+
+// assertNoRemotePublicErrorLeak 拒绝 token、私有路径和堆栈片段进入公开字段。
+func assertNoRemotePublicErrorLeak(t *testing.T, value string) {
+	t.Helper()
+	if strings.Contains(value, "secret-value") {
+		t.Fatalf("remote public error leaked secret: %q", value)
+	}
+	if strings.Contains(value, "/private/") {
+		t.Fatalf("remote public error leaked private path: %q", value)
+	}
+	if strings.Contains(value, "stack:") {
+		t.Fatalf("remote public error leaked stack: %q", value)
+	}
+}
+
+func TestRemoteTurnTerminalPublishPreservesSanitizedCanonicalPayload(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name     string
+		terminal turndto.TurnTerminalV2
+	}{
+		{
+			name: "failed with public error and partial items",
+			terminal: turndto.TurnTerminalV2{
+				SchemaVersion: 2,
+				EventID:       "event-failed",
+				ThreadID:      "thread-1",
+				TurnID:        "turn-1",
+				Outcome:       "failed",
+				PublicError: &turndto.PublicErrorV1{
+					Code:            "PROVIDER_FAILED",
+					Title:           "Turn failed",
+					Message:         "provider unavailable",
+					DiagnosticID:    "diag-1",
+					Retryable:       false,
+					RecoveryActions: []string{"copy_diagnostics"},
+				},
+				PartialItemIDs: []string{"item-1", "item-2"},
+				OccurredAt:     "2026-07-17T01:02:03.456Z",
+			},
+		},
+		{
+			name: "accepted user termination",
+			terminal: turndto.TurnTerminalV2{
+				SchemaVersion:        2,
+				EventID:              "event-interrupted",
+				ThreadID:             "thread-2",
+				TurnID:               "turn-2",
+				Outcome:              "interrupted",
+				TerminationCause:     "user_request",
+				TerminationRequestID: "request-2",
+				PartialItemIDs:       []string{"item-3"},
+				OccurredAt:           "2026-07-17T02:03:04Z",
+			},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			decoded, err := DecodeRemoteTurnTerminal(jsonValueDecoder(t, test.terminal))
+			if err != nil {
+				t.Fatalf("DecodeRemoteTurnTerminal() error = %v", err)
+			}
+			projected, err := ProjectRemoteTurnTerminal(decoded, "owner-agent")
+			if err != nil {
+				t.Fatalf("ProjectRemoteTurnTerminal() error = %v", err)
+			}
+			var published publishedEvent
+			publishTurnTerminal(nil, func(method string, payload any) {
+				published = publishedEvent{method: method, payload: payload}
+			}, projected)
+			if published.method != MethodTurnTerminal {
+				t.Fatalf("published method = %q, want %q", published.method, MethodTurnTerminal)
+			}
+			got, ok := published.payload.(turndto.TurnTerminalV2)
+			if !ok {
+				t.Fatalf("published payload type = %T, want TurnTerminalV2", published.payload)
+			}
+			want := test.terminal
+			want.PublicError = sanitizeRemotePublicError(test.terminal.PublicError)
+			if !reflect.DeepEqual(got, want) {
+				t.Fatalf("published terminal = %#v, want sanitized input %#v", got, want)
+			}
+		})
+	}
+}
+
+func jsonValueDecoder(t *testing.T, value any) RemoteParamDecoder {
+	t.Helper()
+	raw, err := json.Marshal(value)
+	if err != nil {
+		t.Fatalf("marshal decoder fixture: %v", err)
+	}
+	return func(target any) error { return json.Unmarshal(raw, target) }
 }
 
 func TestBindPublishesRealtimeBridgeEvents(t *testing.T) {
@@ -149,7 +414,7 @@ func TestToolCallEndPayloadIncludesPersistFailure(t *testing.T) {
 	dispatcher := event.NewDispatcher()
 	defer func() { _ = dispatcher.Close() }()
 
-	got := make(chan publishedEvent, 7)
+	got := make(chan publishedEvent, 6)
 	cancels := Bind(dispatcher, nil, func(method string, payload any) {
 		got <- publishedEvent{method: method, payload: payload}
 	})
@@ -158,7 +423,7 @@ func TestToolCallEndPayloadIncludesPersistFailure(t *testing.T) {
 	publishRecoveryAndToolSurfaceEvents(dispatcher)
 
 	seen := map[string]map[string]any{}
-	for range 7 {
+	for range 6 {
 		ev := mustReceivePublished(t, got)
 		seen[ev.method] = payloadMap(ev.payload)
 	}
@@ -242,10 +507,6 @@ func publishRecoveryAndToolSurfaceEvents(dispatcher *event.Dispatcher) {
 		Error:              "boom",
 		Recoverable:        true,
 	})
-	event.Publish(dispatcher, turndto.TurnInterrupted{
-		TurnHeader: turnHeader,
-		Reason:     "cancelled",
-	})
 	event.Publish(dispatcher, tooldto.ToolCallBegin{
 		ToolCallHeader:   bindTestToolCallHeader(turnHeader, "call-1", "search"),
 		RequestID:        11,
@@ -315,9 +576,6 @@ func assertRecoveryAndToolSurfacePayloads(t *testing.T, seen map[string]map[stri
 	}
 	if seen[MethodAgentFailed]["recoverable"] != true {
 		t.Fatalf("agent failed payload = %#v", seen[MethodAgentFailed])
-	}
-	if seen[MethodTurnInterrupted]["turnId"] != "turn-1" {
-		t.Fatalf("turn interrupted payload = %#v", seen[MethodTurnInterrupted])
 	}
 	if seen[MethodToolCall]["callId"] != "call-1" {
 		t.Fatalf("tool call payload = %#v", seen[MethodToolCall])

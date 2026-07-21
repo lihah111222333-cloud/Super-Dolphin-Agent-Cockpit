@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -86,7 +87,7 @@ func TestOnNotification_CodexAssistantItemCompletedCompletesActiveTurnFromAccumu
 		"agentId":"agent-1",
 		"threadId":"provider-thread-1",
 		"turnId":"turn-1",
-		"item":{"type":"agent_message","role":"assistant","content":[]}
+		"item":{"id":"item-accepted-1","type":"agent_message","role":"assistant","content":[]}
 	}`))
 
 	completed := waitRolloutTurnCompleted(t, completedCh)
@@ -95,6 +96,9 @@ func TestOnNotification_CodexAssistantItemCompletedCompletesActiveTurnFromAccumu
 	}
 	if completed.Result != "你好" {
 		t.Fatalf("TurnCompleted.Result = %q, want accumulated assistant message", completed.Result)
+	}
+	if !slices.Equal(completed.PartialItemIDs, []string{"item-accepted-1"}) {
+		t.Fatalf("TurnCompleted.PartialItemIDs = %#v, want accepted assistant item id", completed.PartialItemIDs)
 	}
 	assertTurnDone(t, active, "assistant item/completed did not complete active turn")
 	assertNoToolCallEnd(t, toolEndCh)
@@ -170,11 +174,11 @@ func TestSyntheticAssistantCompletionPreservesToolFailure(t *testing.T) {
 		t.Fatalf("ToolCallEnd = %+v, want failed file read", toolEnd)
 	}
 
-	s.completeSyntheticTurn("turn-1", "rollout_assistant_message", "assistant text")
+	s.completeSyntheticTurn("turn-1", "rollout_assistant_message", "assistant text", nil)
 
 	completed := waitRolloutTurnCompleted(t, completedCh)
-	if completed.Success || completed.Status != "completed_with_errors" {
-		t.Fatalf("TurnCompleted = %+v, want completed_with_errors", completed)
+	if completed.Success || completed.Status != "failed" {
+		t.Fatalf("TurnCompleted = %+v, want failed", completed)
 	}
 	for _, want := range []string{"call-file", "file", "file read failed"} {
 		if !strings.Contains(completed.Error, want) {

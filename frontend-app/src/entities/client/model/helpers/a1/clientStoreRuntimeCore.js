@@ -1,7 +1,7 @@
 
 import { firstOptionalPresent, optionalTextField } from '../../contractStoreModel.js';
 import { getThreadMessages, emitFrontendTraceEvent } from '../../../../../shared/api/backendApi.js';
-import { attachActiveThreadRpcRuntime } from '../../threadLifecycleRuntime.js';
+import { attachActiveThreadRpcRuntime, createStopRequestId } from '../../threadLifecycleRuntime.js';
 import { attachThreadMessagesRuntime } from '../../threadMessagesRuntime.js';
 import { attachAssistantEventRuntime } from '../assistantEventRuntime.js';
 import { attachWarningRuntime } from '../warningRuntime.js';
@@ -21,6 +21,7 @@ import {
   optionalUiArray,
 } from './clientStoreUtils.js';
 import {
+  activeTurnIdForThread,
   activeThreadInterruptTarget,
   backendThreadIdForState,
   extractDeltaText,
@@ -87,7 +88,12 @@ function createClientStoreRuntime(set, get, { getPreference }) {
     threadMessageGenerations: new Map(),
     threadSyncGenerations: new Map(),
     assistantDeltaBuffers: new Map(),
+    turnTerminalStates: new Map(),
+    observedTurnByThread: new Map(),
+    retiredTurnRefs: new Map(),
+    retiredTurnRefsByScope: new Map(),
     assistantDeltaFlushTimer: null,
+    assistantEventScopeEpoch: 0,
     sidebarRefreshSeq: 0,
     bootstrapRetryAfterReconnect: false,
   };
@@ -112,9 +118,11 @@ function createClientStoreRuntime(set, get, { getPreference }) {
   attachBridgeIdentityRuntime(runtime);
   attachAssistantEventRuntime(runtime, {
     ASSISTANT_DELTA_FLUSH_MS,
+    activeTurnIdForThread,
     actionNotice,
     clockNowISO,
     clockNowMillis,
+    emitFrontendTraceEvent,
     extractDeltaText,
     hasOwn,
     normalizeString,
@@ -128,6 +136,7 @@ function createClientStoreRuntime(set, get, { getPreference }) {
     activeThreadInterruptTarget,
     backendThreadIdForState,
     cleanObject,
+    createRequestId: createStopRequestId,
   });
   return runtime;
 }
@@ -211,9 +220,9 @@ function attachLogRuntime(runtime) {
     catch (error) {
       addWarning('error', 'log_level.preference_save.failed', {
         status: 'storage_write_failed',
-        error: error?.message || String(error),
+        error: 'action failure; see Health diagnostic ID',
       });
-      return;
+      throw error;
     }
     set({ logLevel: level });
   };
@@ -254,6 +263,7 @@ function attachScopeRuntime(runtime) {
   const clearChatSurfaceForCwdSwitch = (cwdValue = '', options = {}) => {
     const cwd = normalizePath(cwdValue);
     const preserveActiveThreadId = options.preserveActiveThreadId === true;
+    runtime.invalidateAssistantEventRuntime();
     sequencesByThread.clear();
     patchGenerationsByThread.clear();
     threadMessageGenerations.clear();
@@ -343,9 +353,8 @@ function attachNotificationRuntime(runtime) {
   };
 
   const notifyRPCFailure = (messagePrefix, warningEvent, error, fields = {}) => {
-    const message = error?.message || String(error);
-    notifyAction(`${messagePrefix}失败：${message}`, 'error', fields);
-    addWarning('error', warningEvent, { ...fields, error: message });
+    notifyAction(`${messagePrefix}失败，请重试。`, 'error', fields);
+    addWarning('error', warningEvent, { ...fields, error: 'action failure; see Health diagnostic ID' });
     return false;
   };
 

@@ -108,6 +108,16 @@ func (r *agentRegistry) withAgentReadLocked(agentID string, fn func(*agentState)
 	return fn(agent)
 }
 
+// remoteTerminalTargetTurnIDLocked returns the active turn for a trusted remote terminal owner.
+// The caller must hold the registry lock.
+func (r *agentRegistry) remoteTerminalTargetTurnIDLocked(agentID string) (string, bool) {
+	agent, err := r.lookupAgentByIDLocked(agentID)
+	if err != nil {
+		return "", false
+	}
+	return strings.TrimSpace(agent.activeTurnID), true
+}
+
 func (r *agentRegistry) withAgentReadLockedByAgentID(ctx context.Context, agentID string, fn func(*agentState) error) error {
 	if err := r.lockRead(ctx); err != nil {
 		return err
@@ -220,6 +230,34 @@ func (r *agentRegistry) hasRuntimeAgent(agentID string) bool {
 	defer r.rUnlock()
 	_, err := r.lookupAgentByIDLocked(agentID)
 	return err == nil
+}
+
+// ownerAgentIDForThreadID 通过当前 runtime 的本地或远端 thread 绑定反查唯一 owner。
+func (r *agentRegistry) ownerAgentIDForThreadID(threadID string) (string, error) {
+	threadID = strings.TrimSpace(threadID)
+	if threadID == "" {
+		return "", errors.New("remote terminal thread id is required")
+	}
+	r.rLock()
+	defer r.rUnlock()
+	ownerID := ""
+	for _, candidate := range r.agents {
+		if candidate == nil || (strings.TrimSpace(candidate.threadID) != threadID && strings.TrimSpace(candidate.remoteThreadID) != threadID) {
+			continue
+		}
+		candidateID := strings.TrimSpace(candidate.id)
+		if candidateID == "" {
+			return "", errors.New("remote terminal thread owner has empty agent id")
+		}
+		if ownerID != "" && ownerID != candidateID {
+			return "", fmt.Errorf("remote terminal thread %q has multiple owners", threadID)
+		}
+		ownerID = candidateID
+	}
+	if ownerID == "" {
+		return "", fmt.Errorf("%w: remote thread %s", errAgentNotFound, threadID)
+	}
+	return ownerID, nil
 }
 
 func (r *agentRegistry) turnIDFor(sub TurnSubmission) string {

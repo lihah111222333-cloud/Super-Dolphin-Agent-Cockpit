@@ -16,6 +16,8 @@ type turnInterruptEnvelope struct {
 	stateAfter     string
 	waitedMS       int64
 	activeObserved bool
+	requestID      string
+	requestIDKnown bool
 }
 
 // interruptEnvelope 返回 TurnStatus 内部保存的中断摘要，供 RPC 结果构造使用。
@@ -27,6 +29,13 @@ func (s TurnStatus) interruptEnvelope() turnInterruptEnvelope {
 // 调用方拿到的是返回值副本，tracker 内部状态不会因此被写入 UI envelope。
 func attachInterruptEnvelope(status TurnStatus, envelope turnInterruptEnvelope) TurnStatus {
 	status.interrupt = envelope
+	return status
+}
+
+// attachAcceptedInterruptRequestID 把 provider 已接受的 Stop identity 附到响应状态副本。
+func attachAcceptedInterruptRequestID(status TurnStatus, requestID string) TurnStatus {
+	status.interrupt.requestID = strings.TrimSpace(requestID)
+	status.interrupt.requestIDKnown = true
 	return status
 }
 
@@ -65,6 +74,19 @@ func buildTurnInterruptTimeoutEnvelope(beforeRaw string, afterRaw string, waited
 		stateBefore:    normalizeTurnInterruptState(beforeRaw),
 		stateAfter:     normalizeTurnInterruptState(afterRaw),
 		waitedMS:       waitedMS,
+		activeObserved: true,
+	}
+}
+
+// buildTurnInterruptNotAppliedEnvelope 区分 provider 拒绝当前目标与本地目标已经切换。
+func buildTurnInterruptNotAppliedEnvelope(beforeRaw string) turnInterruptEnvelope {
+	state := normalizeTurnInterruptState(beforeRaw)
+	return turnInterruptEnvelope{
+		confirmed:      false,
+		mode:           "not_applied",
+		interruptSent:  false,
+		stateBefore:    state,
+		stateAfter:     state,
 		activeObserved: true,
 	}
 }

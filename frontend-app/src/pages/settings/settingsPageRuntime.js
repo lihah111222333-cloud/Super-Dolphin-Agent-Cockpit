@@ -406,8 +406,9 @@ async function loadRuntimePreferences({ cwd, isCurrent, setError, setForm }) {
     }
   } catch (err) {
     if (isCurrentPreferenceRequest(isCurrent)) {
-      setError(err.message || String(err));
+      setError('切换 Provider 失败，请重试。');
     }
+    throw err;
   }
 }
 
@@ -496,8 +497,9 @@ async function changeActiveProviderPreference(state) {
     }
   } catch (err) {
     if (isCurrentPreferenceRequest(isCurrent)) {
-      setError(err.message || String(err));
+      setError('切换 Provider 失败，请重试。');
     }
+    throw err;
   }
 }
 
@@ -511,7 +513,8 @@ async function saveRuntimePreferences({ copy, cwd, form, setError, setStatus }) 
     await setPreference({ cwd: projectCwd, key: SETTINGS_KEYS.contextThresholds, value: contextThresholds });
     setStatus(copy.runtime.saved);
   } catch (err) {
-    setError(err.message || String(err));
+    setError('保存运行设置失败，请重试。');
+    throw err;
   }
 }
 
@@ -526,7 +529,8 @@ async function saveProviderRuntimePreferences({ copy, cwd, form, setError, setSt
     await writeProviderRuntimePreferences(projectCwd, provider, form);
     setStatus(copy.provider.settingsSaved);
   } catch (err) {
-    setError(err.message || String(err));
+    setError('保存 Provider 设置失败，请重试。');
+    throw err;
   }
 }
 

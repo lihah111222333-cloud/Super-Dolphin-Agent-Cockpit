@@ -249,14 +249,24 @@ func initializeReadDeadline(ctx context.Context) time.Time {
 }
 
 func (t *transport) writeJSON(v any) error {
+	_, err := t.writeJSONGuarded(v, nil)
+	return err
+}
+
+func (t *transport) writeJSONGuarded(v any, guard func() error) (bool, error) {
 	t.writeMu.Lock()
 	defer t.writeMu.Unlock()
+	if guard != nil {
+		if err := guard(); err != nil {
+			return false, err
+		}
+	}
 	ws, err := t.currentWSOrErr()
 	if err != nil {
-		return err
+		return false, err
 	}
 	_ = ws.SetWriteDeadline(time.Now().Add(10 * time.Second))
-	return ws.WriteJSON(v)
+	return true, ws.WriteJSON(v)
 }
 
 func (t *transport) notifyDirect(method string, params any) error {

@@ -1,13 +1,16 @@
 import { spawn } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
+import WebSocket from 'ws';
 
 const DEFAULT_HTTP_ADDR = '127.0.0.1:4512';
 const DEFAULT_VITE_URL = 'http://127.0.0.1:5175';
 const DEFAULT_TIMEOUT_MS = 180000;
 const DEFAULT_RPC_TIMEOUT_MS = 30000;
+const WAILS_WS_COOKIE_NAME = 'super_dolphin_wails_ws';
 
 export function repoRootFromScript(metaURL = import.meta.url) {
   return path.resolve(path.dirname(fileURLToPath(metaURL)), '..', '..');
@@ -26,6 +29,21 @@ export function buildWebSocketURL(addr) {
   return withWSPath(`ws://${value}`);
 }
 
+export function buildWebSocketOptions(wsURL, token) {
+  const parsed = new URL(wsURL);
+  const normalizedToken = String(token || '').trim();
+  if (!normalizedToken || /[;\r\n]/u.test(normalizedToken)) {
+    throw new Error('SUPER_DOLPHIN_WAILS_WS_TOKEN must be a non-empty cookie-safe value');
+  }
+  const originScheme = parsed.protocol === 'wss:' ? 'https:' : 'http:';
+  return Object.freeze({
+    headers: Object.freeze({
+      Cookie: `${WAILS_WS_COOKIE_NAME}=${normalizedToken}`,
+      Origin: `${originScheme}//${parsed.host}`,
+    }),
+  });
+}
+
 function withWSPath(url) {
   const parsed = new URL(url);
   if (parsed.pathname === '/' || parsed.pathname === '') parsed.pathname = '/wails/ws';
@@ -36,7 +54,7 @@ export function buildJSONRPCRequest(id, method, params = {}) {
   return { jsonrpc: '2.0', id, method, params };
 }
 
-export function smokeConfig(env = process.env, repoRoot = repoRootFromScript()) {
+export function smokeConfig(env = process.env, repoRoot = repoRootFromScript(), randomUUIDImpl = randomUUID) {
   const httpAddr = env.SUPER_DOLPHIN_HTTP_ADDR || DEFAULT_HTTP_ADDR;
   const viteURL = env.VITE_DEV_URL || DEFAULT_VITE_URL;
   return {
@@ -45,6 +63,7 @@ export function smokeConfig(env = process.env, repoRoot = repoRootFromScript()) 
     httpAddr,
     viteURL,
     wsURL: env.SUPER_DOLPHIN_DESKTOP_SMOKE_WS_URL || buildWebSocketURL(httpAddr),
+    wsToken: env.SUPER_DOLPHIN_WAILS_WS_TOKEN || randomUUIDImpl(),
     runner: env.SUPER_DOLPHIN_DESKTOP_SMOKE_RUNNER || path.join(repoRoot, 'run-new-ui-desktop.sh'),
     timeoutMs: positiveInt(env.SUPER_DOLPHIN_DESKTOP_SMOKE_TIMEOUT_MS, DEFAULT_TIMEOUT_MS),
     rpcTimeoutMs: positiveInt(env.SUPER_DOLPHIN_DESKTOP_SMOKE_RPC_TIMEOUT_MS, DEFAULT_RPC_TIMEOUT_MS),
@@ -93,7 +112,7 @@ export async function runDesktopSmoke(config = smokeConfig(), deps = {}) {
   const child = startDesktop(config, deps.spawn || spawn);
   try {
     await waitForHTTP(`http://${config.httpAddr}/metrics`, config.timeoutMs, child);
-    const client = await openWSRPC(config.wsURL, config.rpcTimeoutMs, deps.WebSocket || globalThis.WebSocket);
+    const client = await openWSRPC(config.wsURL, config.wsToken, config.rpcTimeoutMs, deps.WebSocket || WebSocket);
     try {
       await runReadPathSmoke(client, config);
       const threadID = await runThreadStartSmoke(client, config);
@@ -120,6 +139,7 @@ function startDesktop(config, spawnImpl) {
       VITE_DEV_URL: config.viteURL,
       FRONTEND_DEVSERVER_URL: config.viteURL,
       SUPER_DOLPHIN_DESKTOP_SMOKE_ACTIVE: '1',
+      SUPER_DOLPHIN_WAILS_WS_TOKEN: config.wsToken,
     },
     stdio: 'inherit',
   });
@@ -172,11 +192,11 @@ async function waitForHTTP(url, timeoutMs, child) {
   throw new Error(`timed out waiting for backend: ${url}`);
 }
 
-async function openWSRPC(wsURL, timeoutMs, WebSocketImpl) {
+async function openWSRPC(wsURL, wsToken, timeoutMs, WebSocketImpl) {
   if (typeof WebSocketImpl !== 'function') {
     throw new Error('global WebSocket is required; run with Node.js 22 or newer');
   }
-  const ws = new WebSocketImpl(wsURL);
+  const ws = new WebSocketImpl(wsURL, [], buildWebSocketOptions(wsURL, wsToken));
   const pending = new Map();
   let nextID = 1;
   await waitForWSOpen(ws, timeoutMs);
@@ -220,12 +240,17 @@ function parseWSMessage(data) {
   return JSON.parse(String(data));
 }
 
-function withTimeout(promise, timeoutMs, message) {
+async function withTimeout(promise, timeoutMs, message) {
   let timer;
   const timeout = new Promise((_, reject) => {
     timer = setTimeout(() => reject(new Error(message)), timeoutMs);
   });
-  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+  try {
+    return await Promise.race([promise, timeout]);
+  }
+  finally {
+    clearTimeout(timer);
+  }
 }
 
 async function runReadPathSmoke(client, config) {
@@ -249,8 +274,25 @@ async function runFrontendIngestSmoke(client) {
 }
 
 async function runTurnSmoke(client, config, threadID) {
-  await assertObject(client.request('turn/start', { thread_id: threadID, cwd: config.cwd, prompt: 'desktop smoke turn' }), 'turn/start');
-  await assertObject(client.request('turn/interrupt', { thread_id: threadID, source: 'desktop_smoke' }), 'turn/interrupt');
+  const turn = await assertObject(client.request('turn/start', { thread_id: threadID, cwd: config.cwd, prompt: 'desktop smoke turn' }), 'turn/start');
+  await assertObject(client.request('turn/interrupt', buildTurnInterruptParams(threadID, turn)), 'turn/interrupt');
+}
+
+export function buildTurnInterruptParams(threadID, turn, createRequestId = randomUUID) {
+  const canonicalThreadID = typeof threadID === 'string' ? threadID.trim() : '';
+  if (!canonicalThreadID) throw new Error('turn/interrupt requires thread_id');
+  const expectedTurnID = typeof turn?.turn_id === 'string' ? turn.turn_id.trim() : '';
+  if (!expectedTurnID) throw new Error('turn/start response requires turn_id before interrupt');
+  const requestID = createRequestId();
+  if (typeof requestID !== 'string' || !requestID.trim()) {
+    throw new Error('turn/interrupt requires a generated request_id');
+  }
+  return {
+    thread_id: canonicalThreadID,
+    expected_turn_id: expectedTurnID,
+    request_id: requestID.trim(),
+    source: 'desktop_smoke',
+  };
 }
 
 async function assertObject(promise, method) {

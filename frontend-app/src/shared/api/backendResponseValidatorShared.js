@@ -2,13 +2,13 @@
 
 const objectPrototype = Object.prototype;
 
-/** @param {any} value */
+/** @param {unknown} value */
 function normalizeString(value) {
   return typeof value === 'string' ? value.trim() : '';
 }
 
 /**
- * @param {any} value
+ * @param {unknown} value
  * @param {string} key
  */
 function hasOwn(value, key) {
@@ -17,30 +17,31 @@ function hasOwn(value, key) {
 
 /**
  * @param {string} method
- * @param {any} response
+ * @param {unknown} response
+ * @returns {Record<string, unknown>}
  */
 function assertBackendResponseObject(method, response) {
   if (!response || typeof response !== 'object' || Array.isArray(response)) {
     throw new TypeError(`${method} response must be an object`);
   }
-  return response;
+  return /** @type {Record<string, unknown>} */ (response);
 }
 
 /**
  * @param {string} method
- * @param {any} response
+ * @param {unknown} response
  * @param {string} label
  */
 function assertResponseRecord(method, response, label) {
   if (!response || typeof response !== 'object' || Array.isArray(response)) {
     throw new TypeError(`${method} response ${label} must be an object`);
   }
-  return response;
+  return /** @type {Record<string, unknown>} */ (response);
 }
 
 /**
  * @param {string} method
- * @param {any} value
+ * @param {Record<string, unknown>} value
  * @param {string} label
  * @param {readonly string[]} required
  * @param {readonly string[]} optional
@@ -60,7 +61,7 @@ function validateStringFields(method, value, label, required, optional) {
 
 /**
  * @param {string} method
- * @param {Record<string, any>} value
+ * @param {Record<string, unknown>} value
  * @param {ReadonlySet<string>} allowedKeys
  * @param {string} label
  */
@@ -74,7 +75,7 @@ function assertOnlyResponseKeys(method, value, allowedKeys, label) {
 
 /**
  * @param {string} method
- * @param {any} value
+ * @param {unknown} value
  * @param {string} label
  */
 function assertResponseArray(method, value, label) {

@@ -26,6 +26,14 @@ describe('event wire methods', () => {
     expect(isKnownEventWireMethod('unknown/domain/event')).toBe(false);
   });
 
+  it('registers only the canonical terminal wire method', () => {
+    expect(isKnownEventWireMethod('turn/terminal')).toBe(true);
+    expect(isKnownEventWireMethod('turn/completed')).toBe(false);
+    expect(isKnownEventWireMethod('turn/interrupted')).toBe(false);
+    expect(EVENT_TYPED_WIRE_METHODS).not.toContain('turn/completed');
+    expect(EVENT_TYPED_WIRE_METHODS).not.toContain('turn/interrupted');
+  });
+
   it('keeps workspace run outside the raw provider allowlist', () => {
     expect(EVENT_COMPAT_WIRE_PREFIXES).toEqual(['workspace/run/']);
     expect(EVENT_RAW_WIRE_PREFIXES).not.toContain('workspace/run/');
