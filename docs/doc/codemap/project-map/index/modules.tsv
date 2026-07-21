@@ -4,9 +4,9 @@ internal/module/appupdate/github_release.go	internal	modules	go-source	9752	业�
 internal/module/appupdate/manifest_test.go	internal	modules	go-test	7045	业务模块层	internal,module,appupdate,manifest,test,业务模块层
 internal/module/appupdate/manifest.go	internal	modules	go-source	9424	业务模块层	internal,module,appupdate,manifest,业务模块层
 internal/module/appupdate/module.go	internal	modules	go-source	533	业务模块层	internal,module,appupdate,业务模块层
-internal/module/appupdate/package_trust_test.go	internal	modules	go-test	11311	业务模块层	internal,module,appupdate,package,trust,test,业务模块层
+internal/module/appupdate/package_trust_test.go	internal	modules	go-test	11458	业务模块层	internal,module,appupdate,package,trust,test,业务模块层
 internal/module/appupdate/package_trust_tool.go	internal	modules	go-source	3996	业务模块层	internal,module,appupdate,package,trust,tool,业务模块层
-internal/module/appupdate/package_trust.go	internal	modules	go-source	5666	业务模块层	internal,module,appupdate,package,trust,业务模块层
+internal/module/appupdate/package_trust.go	internal	modules	go-source	5987	业务模块层	internal,module,appupdate,package,trust,业务模块层
 internal/module/appupdate/rpc_test.go	internal	modules	go-test	2346	业务模块层	internal,module,appupdate,rpc,test,业务模块层
 internal/module/appupdate/rpc.go	internal	modules	go-source	1874	业务模块层	internal,module,appupdate,rpc,业务模块层
 internal/module/appupdate/service_test.go	internal	modules	go-test	23623	业务模块层	internal,module,appupdate,service,test,业务模块层
