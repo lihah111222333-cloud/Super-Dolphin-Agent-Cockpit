@@ -18,25 +18,21 @@ const BUSINESS_PAGES = Object.freeze([
   {
     label: '插件与技能',
     route: /\/skills$/u,
-    navTestId: 'sidebar-nav',
     assert: async (page) => expect(page.getByRole('heading', { name: 'MCP工具' })).toBeVisible(),
   },
   {
     label: '自动化',
     route: /\/dags$/u,
-    navTestId: 'sidebar-nav',
     assert: async (page) => expect(page.getByRole('heading', { name: '自动化', exact: true })).toBeVisible(),
   },
   {
     label: '提示词',
     route: /\/prompts$/u,
-    navTestId: 'sidebar-nav',
     assert: async (page) => expect(page.getByRole('heading', { name: '个性化' })).toBeVisible(),
   },
   {
     label: '共享文件',
     route: /\/files$/u,
-    navTestId: 'sidebar-nav',
     assert: async (page) => {
       await expect(page.getByRole('heading', { name: '文件产物', exact: true })).toBeVisible();
       await expect(page.getByRole('region', { name: '共享文件状态' })).toBeVisible();
@@ -45,13 +41,11 @@ const BUSINESS_PAGES = Object.freeze([
   {
     label: '记忆中心',
     route: /\/memory$/u,
-    navTestId: 'sidebar-secondary-nav',
     assert: async (page) => expect(page.getByRole('heading', { name: '记忆中心', exact: true })).toBeVisible(),
   },
   {
     label: '链路追踪',
     route: /\/observability$/u,
-    navTestId: 'sidebar-secondary-nav',
     assert: async (page) => expect(page.getByTestId('observability-page')).toBeVisible(),
   },
 ]);
@@ -81,7 +75,7 @@ test('workbench shell keeps critical desktop regions visible and reachable', asy
   await expectNoDocumentHorizontalOverflow(page);
 
   await expectCenterPointClickable(page.getByRole('button', { name: SETTINGS_BUTTON_NAME }));
-  await expectCenterPointClickable(page.getByTestId('sidebar-secondary-nav').getByRole('button', { name: '链路追踪' }));
+  await expectCenterPointClickable(page.getByRole('button', { name: '链路追踪', exact: true }));
   await expectCenterPointClickable(page.getByRole('button', { name: '发送消息' }));
 });
 
@@ -90,7 +84,7 @@ test('business pages keep their desktop first screens healthy', async ({ page })
   await expectLocatorInViewport(page.getByTestId('frontend-app'));
 
   for (const entry of BUSINESS_PAGES) {
-    await page.getByTestId(entry.navTestId).getByRole('button', { name: entry.label }).click();
+    await page.getByRole('button', { name: entry.label, exact: true }).click();
     await expect(page).toHaveURL(entry.route);
     await entry.assert(page);
     await expectNoDocumentHorizontalOverflow(page);
@@ -108,7 +102,7 @@ test('business pages keep their desktop first screens healthy', async ({ page })
 test('risk-controlled read and settings probes stay inside mock Wails', async ({ page }) => {
   await page.goto('/');
 
-  await page.getByTestId('sidebar-secondary-nav').getByRole('button', { name: '链路追踪' }).click();
+  await page.getByRole('button', { name: '链路追踪', exact: true }).click();
   await expect(page).toHaveURL(/\/observability$/u);
   await page.getByRole('button', { name: '查询最新日志' }).click();
   await expect(page.getByTestId('observability-recent-logs')).toBeVisible();

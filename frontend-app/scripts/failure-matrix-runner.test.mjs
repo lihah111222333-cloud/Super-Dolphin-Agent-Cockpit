@@ -4,6 +4,8 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 import {
+  assertFailureMatrixFrontendTestFiles,
+  FRONTEND_TEST_FILES,
   parseGoEvidence,
   parseVitestEvidence,
   validateFailureMatrixEvidence,
@@ -130,6 +132,23 @@ describe('failure matrix runner', () => {
       ...valid,
       mutations: [{ ...valid.mutations[0], replacement: 'before' }],
     })).toThrow(/distinct search and replacement/);
+  });
+
+  it('uses the migrated FM-23 video test and fails before Vitest when a focused file moves', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'failure-matrix-files-'));
+    try {
+      const migratedFM23 = 'src/pages/settings/SettingsPage.video.test.jsx';
+      expect(FRONTEND_TEST_FILES).toContain(migratedFM23);
+      expect(FRONTEND_TEST_FILES).not.toContain('src/pages/settings/SettingsPage.test.jsx');
+      mkdirSync(join(root, 'src', 'pages', 'settings'), { recursive: true });
+      writeFileSync(join(root, migratedFM23), '// FM-23 fixture\n');
+      expect(await assertFailureMatrixFrontendTestFiles(root, [migratedFM23])).toBeUndefined();
+      await expect(assertFailureMatrixFrontendTestFiles(root, [
+        'src/pages/settings/SettingsPage.test.jsx',
+      ])).rejects.toThrow(/frontend test file is missing.*SettingsPage\.test\.jsx/);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 
   it('parses only passed case evidence from Vitest and Go JSON', () => {

@@ -10,8 +10,8 @@ test('desktop new UI core UX smoke', async ({ page }) => {
   await expect(page.getByTestId('app-sidebar')).toBeVisible();
   await expect(page.getByTestId('chat-page')).toBeVisible();
   await expect(page.getByRole('heading', { name: '聊天页面' })).toBeVisible();
-  await expect(page.getByTestId('sidebar-nav').getByRole('button')).toHaveCount(3);
-  await expect(page.getByTestId('sidebar-secondary-nav').getByRole('button')).toHaveCount(3);
+  await expect(page.getByRole('button', { name: '插件与技能', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: '链路追踪', exact: true })).toBeVisible();
 
   const composer = page.getByTestId('composer-input');
   await composer.fill('Playwright UX smoke input');
@@ -22,11 +22,11 @@ test('desktop new UI core UX smoke', async ({ page }) => {
   await chatActions.click();
   const actionsMenu = page.getByTestId('chat-actions-menu');
   await expect(actionsMenu).toBeVisible();
-  await expect(actionsMenu.getByRole('button', { name: '新窗口（独立进程）' })).toBeVisible();
-  await actionsMenu.getByRole('button', { name: '显示侧边栏' }).click();
+  await expect(actionsMenu.getByRole('menuitem', { name: '新窗口（独立进程）' })).toBeVisible();
+  await actionsMenu.getByRole('menuitem', { name: '显示侧边栏' }).click();
   await expect(page.getByTestId('runtime-panel')).toBeVisible();
 
-  await page.getByTestId('sidebar-secondary-nav').getByRole('button', { name: '链路追踪' }).click();
+  await page.getByRole('button', { name: '链路追踪', exact: true }).click();
   await expect(page).toHaveURL(/\/observability$/);
   await expect(page.getByTestId('observability-page')).toBeVisible();
   await page.getByRole('button', { name: '查询最新日志' }).click();

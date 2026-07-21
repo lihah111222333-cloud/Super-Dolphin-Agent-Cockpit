@@ -28,4 +28,22 @@ describe('new UI desktop runner contract', () => {
     expect(bash).toContain('FRONTEND_DEVSERVER_URL must match VITE_DEV_URL');
     expect(powershell).toContain('FRONTEND_DEVSERVER_URL must match VITE_DEV_URL');
   });
+
+  it('prepares the embedded frontend after Vite is ready and before agent-terminal starts', async () => {
+    const bash = await scriptText('run-new-ui-desktop.sh');
+
+    expect(bash).toContain('make frontend-build');
+    expect(bash.lastIndexOf('wait_for_http "$FRONTEND_DEVSERVER_URL"')).toBeLessThan(
+      bash.lastIndexOf('ensure_embedded_frontend'),
+    );
+    expect(bash.lastIndexOf('ensure_embedded_frontend')).toBeLessThan(
+      bash.lastIndexOf('start_desktop_backend'),
+    );
+  });
+
+  it('keeps the desktop UX suite separate from the failure-host fixture', async () => {
+    const desktopConfig = await scriptText('frontend-app/playwright.desktop.config.js');
+
+    expect(desktopConfig).toContain("testMatch: 'desktop-ux.spec.js'");
+  });
 });

@@ -38,8 +38,7 @@ describe('agentic e2e planner', () => {
 
 		expect(action.type).toBe('click');
 		expect(action.target).toEqual({
-			type: 'nestedRole',
-			parentTestId: 'sidebar-secondary-nav',
+			type: 'role',
 			role: 'button',
 			name: '链路追踪',
 		});
@@ -96,8 +95,7 @@ describe('agentic e2e planner', () => {
 			type: 'click',
 			expectRoute: '/skills',
 			target: {
-				type: 'nestedRole',
-				parentTestId: 'sidebar-nav',
+				type: 'role',
 				role: 'button',
 				name: '插件与技能',
 			},

@@ -18,7 +18,7 @@ frontend-app/package-lock.json	frontend-app	app-ui	json	235816	当前 React/Vite
 frontend-app/package.json	frontend-app	app-ui	json	4292	当前 React/Vite 前端包	frontend,app,package,当前,React,Vite,前端包
 frontend-app/playwright.business-flows.config.js	frontend-app	app-ui	js-source	894	当前 React/Vite 前端包	frontend,app,playwright,business,flows,config,当前,React,Vite,前端包
 frontend-app/playwright.desktop-wide.config.js	frontend-app	app-ui	js-source	1030	当前 React/Vite 前端包	frontend,app,playwright,desktop,wide,config,当前,React,Vite,前端包
-frontend-app/playwright.desktop.config.js	frontend-app	app-ui	js-source	617	当前 React/Vite 前端包	frontend,app,playwright,desktop,config,当前,React,Vite,前端包
+frontend-app/playwright.desktop.config.js	frontend-app	app-ui	js-source	652	当前 React/Vite 前端包	frontend,app,playwright,desktop,config,当前,React,Vite,前端包
 frontend-app/playwright.failure.config.js	frontend-app	app-ui	js-source	749	当前 React/Vite 前端包	frontend,app,playwright,failure,config,当前,React,Vite,前端包
 frontend-app/public/favicon.png	frontend-app	app-ui	png	99172	当前 React/Vite 前端包	frontend,app,public,favicon,当前,React,Vite,前端包
 frontend-app/public/favicon.svg	frontend-app	app-ui	svg	295	当前 React/Vite 前端包	frontend,app,public,favicon,当前,React,Vite,前端包
@@ -35,14 +35,14 @@ frontend-app/scripts/action-production-runtime-runner.mjs	frontend-app	app-ui	js
 frontend-app/scripts/agentic-e2e-discovery.mjs	frontend-app	app-ui	js-source	6036	React 前端构建与校验脚本	frontend,app,scripts,agentic,e2e,discovery,React,前端构建与校验脚本
 frontend-app/scripts/agentic-e2e-discovery.test.mjs	frontend-app	app-ui	js-test	5578	React 前端构建与校验脚本	frontend,app,scripts,agentic,e2e,discovery,test,React,前端构建与校验脚本
 frontend-app/scripts/agentic-e2e-dom-facts.test.mjs	frontend-app	app-ui	js-test	3166	React 前端构建与校验脚本	frontend,app,scripts,agentic,e2e,dom,facts,test,React,前端构建与校验脚本
-frontend-app/scripts/agentic-e2e-goals.mjs	frontend-app	app-ui	js-source	7632	React 前端构建与校验脚本	frontend,app,scripts,agentic,e2e,goals,React,前端构建与校验脚本
-frontend-app/scripts/agentic-e2e-planner.mjs	frontend-app	app-ui	js-source	12675	React 前端构建与校验脚本	frontend,app,scripts,agentic,e2e,planner,React,前端构建与校验脚本
-frontend-app/scripts/agentic-e2e-planner.test.mjs	frontend-app	app-ui	js-test	11097	React 前端构建与校验脚本	frontend,app,scripts,agentic,e2e,planner,test,React,前端构建与校验脚本
+frontend-app/scripts/agentic-e2e-goals.mjs	frontend-app	app-ui	js-source	7268	React 前端构建与校验脚本	frontend,app,scripts,agentic,e2e,goals,React,前端构建与校验脚本
+frontend-app/scripts/agentic-e2e-planner.mjs	frontend-app	app-ui	js-source	12622	React 前端构建与校验脚本	frontend,app,scripts,agentic,e2e,planner,React,前端构建与校验脚本
+frontend-app/scripts/agentic-e2e-planner.test.mjs	frontend-app	app-ui	js-test	11010	React 前端构建与校验脚本	frontend,app,scripts,agentic,e2e,planner,test,React,前端构建与校验脚本
 frontend-app/scripts/agentic-e2e-reporter-evidence.test.mjs	frontend-app	app-ui	js-test	14331	React 前端构建与校验脚本	frontend,app,scripts,agentic,e2e,reporter,evidence,test,React,前端构建与校验脚本
 frontend-app/scripts/agentic-e2e-reporter.mjs	frontend-app	app-ui	js-source	8046	React 前端构建与校验脚本	frontend,app,scripts,agentic,e2e,reporter,React,前端构建与校验脚本
-frontend-app/scripts/agentic-e2e-sandbox-wails.test.mjs	frontend-app	app-ui	js-test	20367	React 前端构建与校验脚本	frontend,app,scripts,agentic,e2e,sandbox,wails,test,React,前端构建与校验脚本
+frontend-app/scripts/agentic-e2e-sandbox-wails.test.mjs	frontend-app	app-ui	js-test	23206	React 前端构建与校验脚本	frontend,app,scripts,agentic,e2e,sandbox,wails,test,React,前端构建与校验脚本
 frontend-app/scripts/agentic-e2e-sandbox.mjs	frontend-app	app-ui	js-source	3296	React 前端构建与校验脚本	frontend,app,scripts,agentic,e2e,sandbox,React,前端构建与校验脚本
-frontend-app/scripts/agentic-e2e-wails-mock.mjs	frontend-app	app-ui	js-source	23641	React 前端构建与校验脚本	frontend,app,scripts,agentic,e2e,wails,mock,React,前端构建与校验脚本
+frontend-app/scripts/agentic-e2e-wails-mock.mjs	frontend-app	app-ui	js-source	24983	React 前端构建与校验脚本	frontend,app,scripts,agentic,e2e,wails,mock,React,前端构建与校验脚本
 frontend-app/scripts/agentic-e2e.mjs	frontend-app	app-ui	js-source	26608	React 前端构建与校验脚本	frontend,app,scripts,agentic,e2e,React,前端构建与校验脚本
 frontend-app/scripts/app-shell-store-contract.mjs	frontend-app	app-ui	js-source	4852	React 前端构建与校验脚本	frontend,app,scripts,shell,store,contract,React,前端构建与校验脚本
 frontend-app/scripts/app-shell-store-contract.test.mjs	frontend-app	app-ui	js-test	3969	React 前端构建与校验脚本	frontend,app,scripts,shell,store,contract,test,React,前端构建与校验脚本
@@ -56,7 +56,7 @@ frontend-app/scripts/delivery-smoke-runner.test.mjs	frontend-app	app-ui	js-test	
 frontend-app/scripts/desktop-failure-contract.mjs	frontend-app	app-ui	js-source	1617	React 前端构建与校验脚本	frontend,app,scripts,desktop,failure,contract,React,前端构建与校验脚本
 frontend-app/scripts/desktop-failure-smoke.mjs	frontend-app	app-ui	js-source	21508	React 前端构建与校验脚本	frontend,app,scripts,desktop,failure,smoke,React,前端构建与校验脚本
 frontend-app/scripts/desktop-failure-smoke.test.mjs	frontend-app	app-ui	js-test	8082	React 前端构建与校验脚本	frontend,app,scripts,desktop,failure,smoke,test,React,前端构建与校验脚本
-frontend-app/scripts/desktop-runner-contract.test.mjs	frontend-app	app-ui	js-test	1236	React 前端构建与校验脚本	frontend,app,scripts,desktop,runner,contract,test,React,前端构建与校验脚本
+frontend-app/scripts/desktop-runner-contract.test.mjs	frontend-app	app-ui	js-test	1990	React 前端构建与校验脚本	frontend,app,scripts,desktop,runner,contract,test,React,前端构建与校验脚本
 frontend-app/scripts/desktop-smoke.mjs	frontend-app	app-ui	js-source	11928	React 前端构建与校验脚本	frontend,app,scripts,desktop,smoke,React,前端构建与校验脚本
 frontend-app/scripts/desktop-smoke.test.mjs	frontend-app	app-ui	js-test	3954	React 前端构建与校验脚本	frontend,app,scripts,desktop,smoke,test,React,前端构建与校验脚本
 frontend-app/scripts/desktop-ux-smoke.mjs	frontend-app	app-ui	js-source	7456	React 前端构建与校验脚本	frontend,app,scripts,desktop,ux,smoke,React,前端构建与校验脚本
@@ -67,8 +67,8 @@ frontend-app/scripts/failure-matrix-cases.json	frontend-app	app-ui	json	4229	Rea
 frontend-app/scripts/failure-matrix-fixture-replay.test.mjs	frontend-app	app-ui	js-test	737	React 前端构建与校验脚本	frontend,app,scripts,failure,matrix,fixture,replay,test,React,前端构建与校验脚本
 frontend-app/scripts/failure-matrix-fixtures.json	frontend-app	app-ui	json	2182	React 前端构建与校验脚本	frontend,app,scripts,failure,matrix,fixtures,React,前端构建与校验脚本
 frontend-app/scripts/failure-matrix-mutations.json	frontend-app	app-ui	json	3342	React 前端构建与校验脚本	frontend,app,scripts,failure,matrix,mutations,React,前端构建与校验脚本
-frontend-app/scripts/failure-matrix-runner.mjs	frontend-app	app-ui	js-source	19319	React 前端构建与校验脚本	frontend,app,scripts,failure,matrix,runner,React,前端构建与校验脚本
-frontend-app/scripts/failure-matrix-runner.test.mjs	frontend-app	app-ui	js-test	7261	React 前端构建与校验脚本	frontend,app,scripts,failure,matrix,runner,test,React,前端构建与校验脚本
+frontend-app/scripts/failure-matrix-runner.mjs	frontend-app	app-ui	js-source	19848	React 前端构建与校验脚本	frontend,app,scripts,failure,matrix,runner,React,前端构建与校验脚本
+frontend-app/scripts/failure-matrix-runner.test.mjs	frontend-app	app-ui	js-test	8268	React 前端构建与校验脚本	frontend,app,scripts,failure,matrix,runner,test,React,前端构建与校验脚本
 frontend-app/scripts/frontend-code-size-baseline.mjs	frontend-app	app-ui	js-source	8030	React 前端构建与校验脚本	frontend,app,scripts,code,size,baseline,React,前端构建与校验脚本
 frontend-app/scripts/frontend-code-size-config.mjs	frontend-app	app-ui	js-source	3775	React 前端构建与校验脚本	frontend,app,scripts,code,size,config,React,前端构建与校验脚本
 frontend-app/scripts/frontend-code-size-guard.mjs	frontend-app	app-ui	js-source	3439	React 前端构建与校验脚本	frontend,app,scripts,code,size,guard,React,前端构建与校验脚本
@@ -154,8 +154,9 @@ frontend-app/scripts/rpc-contract-audit-response-policies.test.mjs	frontend-app	
 frontend-app/scripts/rpc-contract-audit-schema-ui-dismissal.test.mjs	frontend-app	app-ui	js-test	13999	React 前端构建与校验脚本	frontend,app,scripts,rpc,contract,audit,schema,ui,dismissal,test,React,前端构建与校验脚本
 frontend-app/scripts/rpc-contract-audit-service-callback.test.mjs	frontend-app	app-ui	js-test	14293	React 前端构建与校验脚本	frontend,app,scripts,rpc,contract,audit,service,callback,test,React,前端构建与校验脚本
 frontend-app/scripts/rpc-contract-audit.mjs	frontend-app	app-ui	js-source	1980	React 前端构建与校验脚本	frontend,app,scripts,rpc,contract,audit,React,前端构建与校验脚本
-frontend-app/scripts/stop-feedback-benchmark.mjs	frontend-app	app-ui	js-source	15158	React 前端构建与校验脚本	frontend,app,scripts,stop,feedback,benchmark,React,前端构建与校验脚本
+frontend-app/scripts/stop-feedback-benchmark.mjs	frontend-app	app-ui	js-source	15416	React 前端构建与校验脚本	frontend,app,scripts,stop,feedback,benchmark,React,前端构建与校验脚本
 frontend-app/scripts/stop-feedback-benchmark.test.mjs	frontend-app	app-ui	js-test	13746	React 前端构建与校验脚本	frontend,app,scripts,stop,feedback,benchmark,test,React,前端构建与校验脚本
+frontend-app/scripts/stop-feedback-contract.test.mjs	frontend-app	app-ui	js-test	1040	React 前端构建与校验脚本	frontend,app,scripts,stop,feedback,contract,test,React,前端构建与校验脚本
 frontend-app/scripts/sync-frontend-dist.mjs	frontend-app	app-ui	js-source	2668	React 前端构建与校验脚本	frontend,app,scripts,sync,dist,React,前端构建与校验脚本
 frontend-app/scripts/sync-frontend-dist.test.mjs	frontend-app	app-ui	js-test	2954	React 前端构建与校验脚本	frontend,app,scripts,sync,dist,test,React,前端构建与校验脚本
 frontend-app/scripts/turn-contract-field-guard-ast.mjs	frontend-app	app-ui	js-source	5512	React 前端构建与校验脚本	frontend,app,scripts,turn,contract,field,guard,ast,React,前端构建与校验脚本
@@ -946,10 +947,10 @@ frontend-app/tests/agentic-harness/agentic-testing-harness.config.ts	frontend-ap
 frontend-app/tests/agentic-harness/identity.mjs	frontend-app	app-ui	js-source	1473	当前 React/Vite 前端包	frontend,app,tests,agentic,harness,identity,当前,React,Vite,前端包
 frontend-app/tests/agentic-harness/launch-super-dolphin.mjs	frontend-app	app-ui	js-source	6132	当前 React/Vite 前端包	frontend,app,tests,agentic,harness,launch,super,dolphin,当前,React,Vite,前端包
 frontend-app/tests/agentic-harness/launch-super-dolphin.test.mjs	frontend-app	app-ui	js-test	3179	当前 React/Vite 前端包	frontend,app,tests,agentic,harness,launch,super,dolphin,test,当前,React,Vite,前端包
-frontend-app/tests/e2e/business-flows.spec.js	frontend-app	app-ui	js-test	20140	React 前端 Playwright E2E 与视觉回归测试	frontend,app,tests,e2e,business,flows,spec,React,前端,Playwright,E2E,与视觉回归测试
+frontend-app/tests/e2e/business-flows.spec.js	frontend-app	app-ui	js-test	21393	React 前端 Playwright E2E 与视觉回归测试	frontend,app,tests,e2e,business,flows,spec,React,前端,Playwright,E2E,与视觉回归测试
 frontend-app/tests/e2e/desktop-failure.spec.js	frontend-app	app-ui	js-test	5114	React 前端 Playwright E2E 与视觉回归测试	frontend,app,tests,e2e,desktop,failure,spec,React,前端,Playwright,E2E,与视觉回归测试
-frontend-app/tests/e2e/desktop-ux.spec.js	frontend-app	app-ui	js-test	3384	React 前端 Playwright E2E 与视觉回归测试	frontend,app,tests,e2e,desktop,ux,spec,React,前端,Playwright,E2E,与视觉回归测试
-frontend-app/tests/e2e/desktop-wide.spec.js	frontend-app	app-ui	js-test	11010	React 前端 Playwright E2E 与视觉回归测试	frontend,app,tests,e2e,desktop,wide,spec,React,前端,Playwright,E2E,与视觉回归测试
+frontend-app/tests/e2e/desktop-ux.spec.js	frontend-app	app-ui	js-test	3379	React 前端 Playwright E2E 与视觉回归测试	frontend,app,tests,e2e,desktop,ux,spec,React,前端,Playwright,E2E,与视觉回归测试
+frontend-app/tests/e2e/desktop-wide.spec.js	frontend-app	app-ui	js-test	10746	React 前端 Playwright E2E 与视觉回归测试	frontend,app,tests,e2e,desktop,wide,spec,React,前端,Playwright,E2E,与视觉回归测试
 frontend-app/tsconfig.contracts.json	frontend-app	app-ui	json	799	当前 React/Vite 前端包	frontend,app,tsconfig,contracts,当前,React,Vite,前端包
 frontend-app/vite.config.js	frontend-app	app-ui	js-source	8292	当前 React/Vite 前端包	frontend,app,vite,config,当前,React,Vite,前端包
 frontend-app/vite.config.test.js	frontend-app	app-ui	js-test	8214	当前 React/Vite 前端包	frontend,app,vite,config,test,当前,React,Vite,前端包

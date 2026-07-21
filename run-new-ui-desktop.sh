@@ -221,6 +221,11 @@ ensure_peer_binaries() {
   rebuild_peer_binaries
 }
 
+ensure_embedded_frontend() {
+  echo "  → building frontend bundle required by agent-terminal embedding"
+  (cd "$PROJECT_DIR" && make frontend-build)
+}
+
 require_positive_integer() {
   local name="$1"
   local value="$2"
@@ -897,6 +902,7 @@ fi
 VITE_PID=$!
 wait_for_http "$FRONTEND_DEVSERVER_URL" "frontend-app vite" "$SUPER_DOLPHIN_FRONTEND_READY_ATTEMPTS"
 
+ensure_embedded_frontend
 start_desktop_backend
 wait_for_backend
 

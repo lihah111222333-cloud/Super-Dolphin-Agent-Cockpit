@@ -8,6 +8,10 @@ import { agenticE2EConfig } from './agentic-e2e.mjs';
 import { AGENTIC_GOAL_IDS, normalizeGoal } from './agentic-e2e-planner.mjs';
 import { prepareAgenticE2ESandbox, snapshotAgenticE2ESandbox } from './agentic-e2e-sandbox.mjs';
 import { assertAgenticE2EMockWailsClean, installAgenticE2EMockWails, readAgenticE2EMockWailsState } from './agentic-e2e-wails-mock.mjs';
+import { validateRuntimeConfigResponse } from '../src/shared/api/response-validators/core/config.js';
+import { validateSidebarStateResponse } from '../src/shared/api/response-validators/runtime/sidebar-state.js';
+import { assertPreferenceResponseShape } from '../src/shared/api/preferenceResponseGuards.js';
+import { validateShortcutOverrides } from '../src/features/shortcut-settings/model/shortcutSettingsModel.js';
 
 describe('agentic e2e config', () => {
 	it('builds a bounded default config', () => {
@@ -180,13 +184,83 @@ describe('agentic e2e strict Wails mock', () => {
 			await page.goto('data:text/html,<main>mock</main>');
 
 			const known = await callMockWailsRPC(page, 'config/read', {});
-			expect(known.result).toEqual({ cwd: sandbox.projectDir });
+			expect(known.result).toEqual(expect.objectContaining({
+				cwd: sandbox.projectDir,
+				model: 'gpt-5.5',
+				approvalPolicy: 'on-failure',
+				sandbox: 'workspace-write',
+				toolRouting: {
+					mode: 'legacy',
+					routerModel: '',
+					routerProvider: 'openai_compatible',
+					routerBaseURL: '',
+					routerHasAPIKey: false,
+					confidenceThreshold: 0.65,
+					timeoutSec: 8,
+				},
+			}));
+			expect(() => validateRuntimeConfigResponse('config/read', known.result)).not.toThrow();
+
+			const sidebar = await callMockWailsRPC(page, 'ui/sidebar/get', { cwd: sandbox.projectDir });
+			expect(sidebar.result).toEqual(expect.objectContaining({
+				threads: [],
+				agents: [],
+				recent_turns: [],
+				workspace: { runs: [] },
+				token_usage: {
+					inputTokens: 0,
+					outputTokens: 0,
+					totalTokens: 0,
+					usedTokens: 0,
+					contextWindowTokens: 128000,
+					usedPercent: 0,
+				},
+			}));
+			expect(() => validateSidebarStateResponse('ui/sidebar/get', sidebar.result)).not.toThrow();
+
+			const shortcuts = await callMockWailsRPC(page, 'ui/preferences/get', {
+				cwd: sandbox.projectDir,
+				key: 'settings.shortcuts.bindings',
+			});
+			expect(shortcuts.result).toEqual({});
+			expect(() => validateShortcutOverrides({ registry: [], overrides: shortcuts.result, platform: 'darwin' })).not.toThrow();
+
+			const preferenceValues = Object.fromEntries(await Promise.all([
+				'settings.provider.active',
+				'settings.provider.codex.effort',
+				'settings.provider.codex.sandbox',
+				'settings.provider.codex.approvalPolicy',
+				'settings.provider.codex.personality',
+				'settings.provider.codex.summary',
+				'settings.provider.codex.model',
+			].map(async (key) => {
+				const response = await callMockWailsRPC(page, 'ui/preferences/get', { cwd: sandbox.projectDir, key });
+				return [key, response.result];
+			})));
+			expect(preferenceValues).toEqual({
+				'settings.provider.active': 'codex',
+				'settings.provider.codex.effort': 'high',
+				'settings.provider.codex.sandbox': 'workspace-write',
+				'settings.provider.codex.approvalPolicy': 'on-failure',
+				'settings.provider.codex.personality': 'none',
+				'settings.provider.codex.summary': 'auto',
+				'settings.provider.codex.model': 'gpt-5.5',
+			});
+			for (const [key, value] of Object.entries(preferenceValues)) {
+				expect(() => assertPreferenceResponseShape(key, value)).not.toThrow();
+			}
 
 			const unknown = await callMockWailsRPC(page, 'missing/method', {});
 			expect(unknown.error.message).toMatch(/unhandled agentic e2e mock RPC/);
 
 			const state = await readAgenticE2EMockWailsState(page);
-			expect(state.calls.map((call) => call.method)).toEqual(['config/read', 'missing/method']);
+			expect(state.calls.map((call) => call.method)).toEqual([
+				'config/read',
+				'ui/sidebar/get',
+				'ui/preferences/get',
+				...Array(7).fill('ui/preferences/get'),
+				'missing/method',
+			]);
 			expect(state.unhandledRPC).toEqual(['missing/method']);
 		}
 		finally {

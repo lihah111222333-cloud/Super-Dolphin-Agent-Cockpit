@@ -8,6 +8,7 @@ if (!executablePath) {
 
 export default defineConfig({
   testDir: './tests/e2e',
+  testMatch: 'desktop-ux.spec.js',
   timeout: 60_000,
   expect: {
     timeout: 15_000,

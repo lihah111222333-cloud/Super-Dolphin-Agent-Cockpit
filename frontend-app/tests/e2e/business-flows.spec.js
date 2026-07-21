@@ -21,7 +21,7 @@ test('discovered business entries open stable read surfaces', async ({ page }) =
 
   await openBusinessEntry(page, { label: '插件与技能', route: /\/skills$/, assert: async () => {
     await expect(page.getByRole('heading', { name: 'MCP工具' })).toBeVisible();
-    await expect(page.getByText('当前页面: 插件与技能')).toBeVisible();
+    await expect(page.getByRole('heading', { name: '插件与技能', exact: true })).toBeVisible();
   } });
 
   await openBusinessEntry(page, { label: '自动化', route: /\/dags$/, assert: async () => {
@@ -39,13 +39,13 @@ test('discovered business entries open stable read surfaces', async ({ page }) =
 
   await openBusinessEntry(page, { label: '记忆中心', route: /\/memory$/, assert: async () => {
     await expect(page.getByRole('heading', { name: '记忆中心', exact: true })).toBeVisible();
-  }, navTestId: 'sidebar-secondary-nav' });
+  } });
 
   await openBusinessEntry(page, { label: '链路追踪', route: /\/observability$/, assert: async () => {
     await expect(page.getByTestId('observability-page')).toBeVisible();
     await page.getByRole('button', { name: '查询最新日志' }).click();
     await expect(page.getByTestId('observability-recent-logs')).toBeVisible();
-  }, navTestId: 'sidebar-secondary-nav' });
+  } });
 
   await page.getByRole('button', { name: '设置' }).click();
   await expect(page).toHaveURL(/\/settings$/);
@@ -116,8 +116,8 @@ test('high-risk chat send creates a thread then starts a turn through the bridge
   ]));
 });
 
-async function openBusinessEntry(page, { label, route, assert, navTestId = 'sidebar-nav' }) {
-  await page.getByTestId(navTestId).getByRole('button', { name: label }).click();
+async function openBusinessEntry(page, { label, route, assert }) {
+  await page.getByRole('button', { name: label, exact: true }).click();
   await expect(page).toHaveURL(route);
   await assert();
 }
@@ -265,6 +265,12 @@ async function installStrictWailsMock(page) {
       }],
     };
     window.__BUSINESS_FLOW_E2E__ = state;
+    window.runtime = {
+      Events: {
+        On: () => () => {},
+        Off: () => {},
+      },
+    };
 
     class StrictMockWebSocket {
       static CONNECTING = 0;
@@ -354,7 +360,7 @@ async function installStrictWailsMock(page) {
     function responseForRPC(method, params) {
       if (method === 'ui/log' || method === 'observability/frontend/ingest') return { ok: true };
       if (method === 'ui/buildInfo') return { version: 'business-flow-e2e' };
-      if (method === 'config/read') return { cwd: '/repo/app' };
+      if (method === 'config/read') return runtimeConfig();
       if (method === 'ui/windowBootstrap/get') return { snapshot: null };
       if (method === 'ui/preferences/get') return preferenceFor(params);
       if (method === 'ui/preferences/getAll') return { preferences: {} };
@@ -401,7 +407,14 @@ async function installStrictWailsMock(page) {
 
     function preferenceFor(params = {}) {
       const key = String(params.key || '');
+      if (key === 'settings.shortcuts.bindings') return {};
       if (key.includes('provider.active')) return 'codex';
+      if (key.includes('codex.sandbox')) return 'workspace-write';
+      if (key.includes('codex.approvalPolicy')) return 'on-failure';
+      if (key.includes('codex.personality')) return 'none';
+      if (key.includes('codex.summary')) return 'auto';
+      if (key.includes('codex.model')) return 'gpt-5.5';
+      if (key.includes('codex.effort')) return 'high';
       if (key.includes('codexModelProvider')) return 'openai';
       if (key.includes('codexHome')) return '~/.codex';
       if (key.includes('codexInstanceKey')) return 'default';
@@ -411,10 +424,42 @@ async function installStrictWailsMock(page) {
     function sidebarSnapshot() {
       return {
         activeThreadId: '',
+        agents: [],
         threads: [],
-        active_turn: null,
-        tokenUsageByThread: {},
+        recent_turns: [],
+        workspace: { runs: [] },
+        token_usage: {
+          inputTokens: 0,
+          outputTokens: 0,
+          totalTokens: 0,
+          usedTokens: 0,
+          contextWindowTokens: 128000,
+          usedPercent: 0,
+        },
         activityStatsByThread: {},
+      };
+    }
+
+    function runtimeConfig() {
+      return {
+        model: 'gpt-5.5',
+        modelProvider: null,
+        cwd: '/repo/app',
+        approvalPolicy: 'on-failure',
+        sandbox: 'workspace-write',
+        config: null,
+        baseInstructions: null,
+        developerInstructions: null,
+        personality: null,
+        toolRouting: {
+          mode: 'legacy',
+          routerModel: '',
+          routerProvider: 'openai_compatible',
+          routerBaseURL: '',
+          routerHasAPIKey: false,
+          confidenceThreshold: 0.65,
+          timeoutSec: 8,
+        },
       };
     }
 

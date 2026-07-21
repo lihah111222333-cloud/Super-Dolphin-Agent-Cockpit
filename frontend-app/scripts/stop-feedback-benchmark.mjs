@@ -186,8 +186,18 @@ function confirmedInterruptResponse() {
 function unconfirmedInterruptResponse() {
   return {
     ok: false,
+    accepted: true,
+    requestId: 'performance-stop-request',
+    expectedTurnId: 'turn-performance',
+    turnId: 'turn-performance',
+    status: 'running',
+    confirmed: true,
     mode: 'interrupt_timeout',
-    message: 'stop confirmation timed out',
+    interruptSent: true,
+    stateBefore: 'running',
+    stateAfter: 'running',
+    waitedMs: 0,
+    activeObserved: true,
   };
 }
 
