@@ -9,6 +9,7 @@ import {
   readdirSync,
   realpathSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -54,6 +55,8 @@ import {
 const scriptRoot = dirname(fileURLToPath(import.meta.url));
 const frozenRepoRoot = resolve(scriptRoot, '..', '..');
 const scorerPath = join(scriptRoot, 'frontend-maintainability-score.mjs');
+const dependencyIntegrityModulePath = './frontend-maintainability-dependency-integrity.mjs';
+const dependencyRefreshPath = join(scriptRoot, 'refresh-frontend-maintainability-dependencies.mjs');
 const plannedBaseSha = 'b40867229af8e17916c00393639ccb0fcb4bf6fc';
 const T05_DELIVERY_EVIDENCE_TEST_TIMEOUT_MS = 30_000;
 const EXECUTABLE_PROBE_TEST_TIMEOUT_MS = 90_000;
@@ -64,6 +67,8 @@ const ACTION_PRODUCER_PROBE_TEST_TIMEOUT_MS = ACTION_PRODUCER_PROBE_TIMEOUT_MS +
 const STRUCTURAL_SCORE_TEST_TIMEOUT_MS = 210_000;
 const temporaryRepositories = [];
 const addedGovernancePaths = [
+  'frontend-app/scripts/frontend-maintainability-dependency-integrity.mjs',
+  'frontend-app/scripts/refresh-frontend-maintainability-dependencies.mjs',
   'frontend-app/scripts/failure-matrix-runner.mjs',
   'frontend-app/scripts/failure-matrix-cases.json',
   'frontend-app/scripts/failure-matrix-fixtures.json',
@@ -164,6 +169,158 @@ function detachedTmpAlias() {
     : tmpdir();
 }
 
+function dependencyIntegrityDocument() {
+  return JSON.parse(readFileSync(join(scriptRoot, 'frontend-maintainability-dependencies.json'), 'utf8'));
+}
+
+function createDependencyIntegrityFixture() {
+  const appRoot = mkdtempSync(join(tmpdir(), 'frontend-maintainability-dependency-integrity-'));
+  temporaryRepositories.push(appRoot);
+  const nodeModulesRoot = join(appRoot, 'node_modules');
+  const packageRoot = join(nodeModulesRoot, 'fixture');
+  const packageLock = {
+    name: 'fixture-app',
+    version: '1.0.0',
+    lockfileVersion: 3,
+    requires: true,
+    packages: {
+      '': { name: 'fixture-app', version: '1.0.0' },
+      'node_modules/fixture': {
+        version: '1.2.3',
+        resolved: 'https://registry.example.invalid/fixture-1.2.3.tgz',
+        integrity: 'sha512-fixture-integrity',
+        bin: { 'fixture-tool': 'tool.js' },
+      },
+    },
+  };
+  mkdirSync(join(nodeModulesRoot, '.bin'), { recursive: true });
+  mkdirSync(packageRoot, { recursive: true });
+  writeFileSync(join(appRoot, 'package-lock.json'), `${JSON.stringify(packageLock, null, 2)}\n`);
+  writeFileSync(join(packageRoot, 'package.json'), '{"name":"fixture","version":"1.2.3"}\n');
+  writeFileSync(join(packageRoot, 'tool.js'), '#!/usr/bin/env node\nexport const version = 1;\n');
+  writeFileSync(join(packageRoot, 'other.js'), 'export const version = 2;\n');
+  symlinkSync('../fixture/tool.js', join(nodeModulesRoot, '.bin', 'fixture-tool'));
+  const hiddenLock = {
+    name: packageLock.name,
+    version: packageLock.version,
+    lockfileVersion: packageLock.lockfileVersion,
+    requires: packageLock.requires,
+    packages: { 'node_modules/fixture': packageLock.packages['node_modules/fixture'] },
+  };
+  writeFileSync(join(nodeModulesRoot, '.package-lock.json'), JSON.stringify(hiddenLock));
+  return { appRoot, hiddenLock, nodeModulesRoot, packageRoot };
+}
+
+function windowsBinShimFixture() {
+  return {
+    '': [
+      '#!/bin/sh',
+      'basedir=$(dirname "$(echo "$0" | sed -e \'s,\\\\,/,g\')")',
+      '',
+      'case `uname` in',
+      '    *CYGWIN*|*MINGW*|*MSYS*)',
+      '        if command -v cygpath > /dev/null 2>&1; then',
+      '            basedir=`cygpath -w "$basedir"`',
+      '        fi',
+      '    ;;',
+      'esac',
+      '',
+      'if [ -x "$basedir/node" ]; then',
+      '  exec "$basedir/node"  "$basedir/../fixture/tool.js" "$@"',
+      'else ',
+      '  exec node  "$basedir/../fixture/tool.js" "$@"',
+      'fi',
+      '',
+    ].join('\n'),
+    '.cmd': [
+      '@ECHO off',
+      'GOTO start',
+      ':find_dp0',
+      'SET dp0=%~dp0',
+      'EXIT /b',
+      ':start',
+      'SETLOCAL',
+      'CALL :find_dp0',
+      '',
+      'IF EXIST "%dp0%\\node.exe" (',
+      '  SET "_prog=%dp0%\\node.exe"',
+      ') ELSE (',
+      '  SET "_prog=node"',
+      '  SET PATHEXT=%PATHEXT:;.JS;=;%',
+      ')',
+      '',
+      'endLocal & goto #_undefined_# 2>NUL || title %COMSPEC% & "%_prog%"  "%dp0%\\..\\fixture\\tool.js" %*',
+      '',
+    ].join('\r\n'),
+    '.ps1': [
+      '#!/usr/bin/env pwsh',
+      '$basedir=Split-Path $MyInvocation.MyCommand.Definition -Parent',
+      '',
+      '$exe=""',
+      'if ($PSVersionTable.PSVersion -lt "6.0" -or $IsWindows) {',
+      '  # Fix case when both the Windows and Linux builds of Node',
+      '  # are installed in the same directory',
+      '  $exe=".exe"',
+      '}',
+      '$ret=0',
+      'if (Test-Path "$basedir/node$exe") {',
+      '  # Support pipeline input',
+      '  if ($MyInvocation.ExpectingInput) {',
+      '    $input | & "$basedir/node$exe"  "$basedir/../fixture/tool.js" $args',
+      '  } else {',
+      '    & "$basedir/node$exe"  "$basedir/../fixture/tool.js" $args',
+      '  }',
+      '  $ret=$LASTEXITCODE',
+      '} else {',
+      '  # Support pipeline input',
+      '  if ($MyInvocation.ExpectingInput) {',
+      '    $input | & "node$exe"  "$basedir/../fixture/tool.js" $args',
+      '  } else {',
+      '    & "node$exe"  "$basedir/../fixture/tool.js" $args',
+      '  }',
+      '  $ret=$LASTEXITCODE',
+      '}',
+      'exit $ret',
+      '',
+    ].join('\n'),
+  };
+}
+
+function createPortableOptionalDependencyFixture(environment) {
+  const fixture = createDependencyIntegrityFixture();
+  const packageLockPath = join(fixture.appRoot, 'package-lock.json');
+  const hiddenLockPath = join(fixture.nodeModulesRoot, '.package-lock.json');
+  const packageLock = JSON.parse(readFileSync(packageLockPath, 'utf8'));
+  const hiddenLock = JSON.parse(readFileSync(hiddenLockPath, 'utf8'));
+  const candidates = {
+    'node_modules/native-darwin-x64': {
+      version: '1.0.0',
+      resolved: 'https://registry.example.invalid/native-darwin-x64-1.0.0.tgz',
+      integrity: 'sha512-darwin-x64-fixture',
+      optional: true,
+      os: ['darwin'],
+      cpu: ['x64'],
+    },
+    'node_modules/native-linux-x64': {
+      version: '1.0.0',
+      resolved: 'https://registry.example.invalid/native-linux-x64-1.0.0.tgz',
+      integrity: 'sha512-linux-x64-fixture',
+      optional: true,
+      os: ['linux'],
+      cpu: ['x64'],
+    },
+  };
+  Object.assign(packageLock.packages, candidates);
+  const selectedPath = `node_modules/native-${environment.platform}-${environment.arch}`;
+  const selectedRoot = join(fixture.appRoot, selectedPath);
+  mkdirSync(selectedRoot, { recursive: true });
+  writeFileSync(join(selectedRoot, 'native.node'), `native payload for ${environment.platform}-${environment.arch}\n`);
+  hiddenLock.packages[selectedPath] = candidates[selectedPath];
+  writeFileSync(packageLockPath, `${JSON.stringify(packageLock, null, 2)}\n`);
+  writeFileSync(hiddenLockPath, JSON.stringify(hiddenLock));
+  return { ...fixture, candidates, environment, hiddenLockPath, packageLockPath, selectedPath, selectedRoot };
+}
+
 it('normalizes empty immutable dependency directories while retaining file integrity', () => {
   const appRoot = mkdtempSync(join(tmpdir(), 'frontend-maintainability-dependency-tree-'));
   temporaryRepositories.push(appRoot);
@@ -180,6 +337,163 @@ it('normalizes empty immutable dependency directories while retaining file integ
   writeFileSync(toolPath, 'export const version = 2;\n');
   expect(dependencyTreeIntegrity(appRoot)).not.toEqual(original);
 });
+
+it('rejects the legacy dependency-integrity schema and validates the profiled schema', async () => {
+  const { validateDependencyIntegrity } = await import('./frontend-maintainability-score.mjs');
+  const document = dependencyIntegrityDocument();
+  expect(document.schemaVersion).toBe(2);
+  expect(validateDependencyIntegrity(document)).toBe(true);
+  expect(() => validateDependencyIntegrity({ ...document, schemaVersion: 1 }))
+    .toThrow('unsupported immutable dependency integrity schema version');
+});
+
+it('rejects an unknown dependency environment before producing an install plan', async () => {
+  const { dependencyInstallPlan } = await import('./frontend-maintainability-score.mjs');
+  const document = dependencyIntegrityDocument();
+  const unknownEnvironment = {
+    platform: 'unsupported-test-platform',
+    arch: 'x64',
+    node: '20.19.4',
+    npm: '10.8.2',
+  };
+  expect(() => dependencyInstallPlan(document, unknownEnvironment))
+    .toThrow('immutable dependency environment is not supported before installation');
+});
+
+it('normalizes platform optional payloads while rejecting selection and lock-integrity tampering', () => {
+  const darwinEnvironment = { platform: 'darwin', arch: 'x64', node: '20.19.4', npm: '10.8.2' };
+  const linuxEnvironment = { platform: 'linux', arch: 'x64', node: '20.19.4', npm: '10.8.2' };
+  const darwinFixture = createPortableOptionalDependencyFixture(darwinEnvironment);
+  const linuxFixture = createPortableOptionalDependencyFixture(linuxEnvironment);
+  const darwin = dependencyTreeIntegrity(darwinFixture.appRoot, { environment: darwinEnvironment });
+  const linux = dependencyTreeIntegrity(linuxFixture.appRoot, { environment: linuxEnvironment });
+  expect({ sha256: darwin.sha256, pathCount: darwin.pathCount })
+    .toEqual({ sha256: linux.sha256, pathCount: linux.pathCount });
+  expect(darwin.optionalSelectionSha256).not.toBe(linux.optionalSelectionSha256);
+
+  rmSync(darwinFixture.selectedRoot, { recursive: true });
+  expect(() => dependencyTreeIntegrity(darwinFixture.appRoot, { environment: darwinEnvironment }))
+    .toThrow('optional dependency presence mismatch');
+  symlinkSync('fixture', darwinFixture.selectedRoot);
+  expect(() => dependencyTreeIntegrity(darwinFixture.appRoot, { environment: darwinEnvironment }))
+    .toThrow('optional dependency root type mismatch');
+  rmSync(darwinFixture.selectedRoot);
+  mkdirSync(darwinFixture.selectedRoot, { recursive: true });
+  writeFileSync(join(darwinFixture.selectedRoot, 'native.node'), 'restored native payload\n');
+  mkdirSync(join(darwinFixture.appRoot, 'node_modules/native-linux-x64'), { recursive: true });
+  expect(() => dependencyTreeIntegrity(darwinFixture.appRoot, { environment: darwinEnvironment }))
+    .toThrow('optional dependency presence mismatch');
+
+  rmSync(join(darwinFixture.appRoot, 'node_modules/native-linux-x64'), { recursive: true });
+  const expectedOptionalLockSha256 = darwin.optionalLockSha256;
+  const packageLock = JSON.parse(readFileSync(darwinFixture.packageLockPath, 'utf8'));
+  packageLock.packages[darwinFixture.selectedPath].integrity = 'sha512-tampered';
+  writeFileSync(darwinFixture.packageLockPath, `${JSON.stringify(packageLock, null, 2)}\n`);
+  expect(() => dependencyTreeIntegrity(darwinFixture.appRoot, {
+    environment: darwinEnvironment,
+    expectedOptionalLockSha256,
+  })).toThrow('optional dependency lock closure mismatch');
+});
+
+it('excludes only the root hidden lock serialization while separately validating its semantic closure', async () => {
+  const { assertHiddenPackageLockClosure } = await import('./frontend-maintainability-score.mjs');
+  const fixture = createDependencyIntegrityFixture();
+  const original = dependencyTreeIntegrity(fixture.appRoot);
+  writeFileSync(
+    join(fixture.nodeModulesRoot, '.package-lock.json'),
+    `${JSON.stringify(fixture.hiddenLock, null, 4)}\n`,
+  );
+  expect(dependencyTreeIntegrity(fixture.appRoot)).toEqual(original);
+  expect(() => assertHiddenPackageLockClosure(fixture.appRoot)).not.toThrow();
+
+  const closureMutations = [
+    ['missing package', (lock) => { delete lock.packages['node_modules/fixture']; }],
+    ['extra package', (lock) => { lock.packages['node_modules/extra'] = { version: '1.0.0' }; }],
+    ['version drift', (lock) => { lock.packages['node_modules/fixture'].version = '9.9.9'; }],
+    ['integrity drift', (lock) => { lock.packages['node_modules/fixture'].integrity = 'sha512-tampered'; }],
+  ];
+  for (const [label, mutate] of closureMutations) {
+    const changedClosure = structuredClone(fixture.hiddenLock);
+    mutate(changedClosure);
+    writeFileSync(join(fixture.nodeModulesRoot, '.package-lock.json'), JSON.stringify(changedClosure));
+    expect(() => assertHiddenPackageLockClosure(fixture.appRoot), label).toThrow('semantic closure mismatch');
+  }
+
+  writeFileSync(join(fixture.nodeModulesRoot, '.package-lock.json'), JSON.stringify(fixture.hiddenLock));
+  const beforeNestedHiddenLock = dependencyTreeIntegrity(fixture.appRoot);
+  writeFileSync(join(fixture.packageRoot, '.package-lock.json'), '{"nested":true}\n');
+  expect(dependencyTreeIntegrity(fixture.appRoot)).not.toEqual(beforeNestedHiddenLock);
+});
+
+it('keeps ordinary payloads and path types inside the dependency fingerprint', () => {
+  const fixture = createDependencyIntegrityFixture();
+  const original = dependencyTreeIntegrity(fixture.appRoot);
+  const toolPath = join(fixture.packageRoot, 'tool.js');
+  writeFileSync(toolPath, '#!/usr/bin/env node\nexport const version = 999;\n');
+  expect(dependencyTreeIntegrity(fixture.appRoot)).not.toEqual(original);
+
+  writeFileSync(toolPath, '#!/usr/bin/env node\nexport const version = 1;\n');
+  rmSync(toolPath);
+  mkdirSync(toolPath);
+  writeFileSync(join(toolPath, 'nested.js'), 'export const nested = true;\n');
+  expect(dependencyTreeIntegrity(fixture.appRoot)).not.toEqual(original);
+
+  rmSync(toolPath, { recursive: true });
+  writeFileSync(toolPath, '#!/usr/bin/env node\nexport const version = 1;\n');
+});
+
+it('rejects POSIX .bin link-target tampering against the lockfile bin closure', async () => {
+  const { assertBinLinkClosure } = await import(dependencyIntegrityModulePath);
+  const fixture = createDependencyIntegrityFixture();
+  const environment = { platform: 'linux', arch: 'x64', node: '20.19.4', npm: '10.8.2' };
+  expect(() => assertBinLinkClosure(fixture.appRoot, environment)).not.toThrow();
+  const binPath = join(fixture.nodeModulesRoot, '.bin', 'fixture-tool');
+  rmSync(binPath);
+  symlinkSync('../fixture/other.js', binPath);
+  expect(() => assertBinLinkClosure(fixture.appRoot, environment)).toThrow('bin link closure mismatch');
+});
+
+it('accepts exact Windows plain/cmd/ps1 shims and rejects added commands in every template', async () => {
+  const { assertBinLinkClosure } = await import(dependencyIntegrityModulePath);
+  const fixture = createDependencyIntegrityFixture();
+  const environment = { platform: 'win32', arch: 'x64', node: '20.19.4', npm: '10.8.2' };
+  const binPath = join(fixture.nodeModulesRoot, '.bin', 'fixture-tool');
+  rmSync(binPath);
+  const templates = windowsBinShimFixture();
+  for (const [suffix, content] of Object.entries(templates)) writeFileSync(`${binPath}${suffix}`, content);
+  expect(() => assertBinLinkClosure(fixture.appRoot, environment)).not.toThrow();
+  for (const [suffix, content] of Object.entries(templates)) {
+    writeFileSync(`${binPath}${suffix}`, `${content}${suffix === '.cmd' ? 'ECHO ATTACK\r\n' : 'echo ATTACK\n'}`);
+    expect(() => assertBinLinkClosure(fixture.appRoot, environment), suffix || 'plain')
+      .toThrow('bin link closure mismatch');
+    writeFileSync(`${binPath}${suffix}`, content);
+  }
+});
+
+it('refreshes the current dependency profile deterministically and prints a canonical summary', () => {
+  const outputRoot = mkdtempSync(join(tmpdir(), 'frontend-maintainability-dependency-refresh-test-'));
+  temporaryRepositories.push(outputRoot);
+  const firstPath = join(outputRoot, 'first.json');
+  const secondPath = join(outputRoot, 'second.json');
+  const refresh = (outputPath) => spawnSync(process.execPath, [dependencyRefreshPath, '--output', outputPath], {
+    cwd: resolve(scriptRoot, '..'),
+    encoding: 'utf8',
+    timeout: 180_000,
+  });
+  const first = refresh(firstPath);
+  const second = refresh(secondPath);
+  expect(first.status, `${first.stdout}\n${first.stderr}`).toBe(0);
+  expect(second.status, `${second.stdout}\n${second.stderr}`).toBe(0);
+  expect(readFileSync(firstPath, 'utf8')).toBe(readFileSync(secondPath, 'utf8'));
+  expect(first.stdout).toMatch(/^ENVIRONMENT_PROFILE\t\S+$/mu);
+  expect(first.stdout).toMatch(/^EXCLUDED_OPTIONAL_ROOTS\t\[.*\]$/mu);
+  expect(first.stdout).toMatch(/^NEUTRAL_TREE_SHA256\t[0-9a-f]{64}$/mu);
+  expect(first.stdout).toMatch(/^NEUTRAL_PATH_COUNT\t[1-9]\d*$/mu);
+  expect(first.stdout).toMatch(/^OPTIONAL_LOCK_SHA256\t[0-9a-f]{64}$/mu);
+  expect(first.stdout).toMatch(/^OPTIONAL_SELECTION_SHA256\t[0-9a-f]{64}$/mu);
+  expect(first.stdout).toMatch(/^BIN_LOCK_SHA256\t[0-9a-f]{64}$/mu);
+  expect(first.stdout).toContain(`OUTPUT\t${firstPath}`);
+}, 240_000);
 
 function write(relativePath, content, repoRoot) {
   const target = join(repoRoot, relativePath);
@@ -1514,6 +1828,8 @@ describe('frozen scorer target binding', () => {
     const commandRoot = mkdtempSync(join(tmpdir(), 'frontend-maintainability-installer-mutation-'));
     const trustedToolsRoot = join(commandRoot, 'trusted-tools');
     const npmShim = join(commandRoot, 'npm');
+    const npmUserAgent = process.env.npm_config_user_agent
+      || `npm/${execFileSync('npm', ['--version'], { encoding: 'utf8' }).trim()} node/${process.versions.node} ${process.platform} ${process.arch}`;
     const immutableToolPaths = [
       'eslint/bin/eslint.js',
       'vitest/vitest.mjs',
@@ -1530,7 +1846,7 @@ describe('frozen scorer target binding', () => {
         mkdirSync(dirname(target), { recursive: true });
         copyFileSync(join(frozenRepoRoot, 'frontend-app', 'node_modules', toolPath), target);
       }
-      writeFileSync(npmShim, [
+      const npmShimLines = [
         '#!/bin/sh',
         'set -eu',
         'mkdir -p ./node_modules/eslint/bin ./node_modules/vitest ./node_modules/vite/bin ./node_modules/@playwright/test',
@@ -1539,8 +1855,9 @@ describe('frozen scorer target binding', () => {
         'cp "$SCORER_TRUSTED_TOOLS/vite/bin/vite.js" ./node_modules/vite/bin/vite.js',
         'cp "$SCORER_TRUSTED_TOOLS/@playwright/test/index.js" ./node_modules/@playwright/test/index.js',
         `printf '%s\\n' 'throw new Error("forged installed tool must not execute");' > "./node_modules/${relativePath}"`,
-      ].join('\n'), { mode: 0o755 });
-      const result = await runManagedCommand(process.execPath, [
+      ];
+      writeFileSync(npmShim, npmShimLines.join('\n'), { mode: 0o755 });
+      const runFinal = () => runManagedCommand(process.execPath, [
         join(fixture.baseRoot, 'frontend-app', 'scripts', 'frontend-maintainability-score.mjs'),
         '--final',
         '--repo', fixture.subjectRoot,
@@ -1550,15 +1867,23 @@ describe('frozen scorer target binding', () => {
         env: {
           ...process.env,
           PATH: `${commandRoot}:${process.env.PATH}`,
+          npm_config_user_agent: npmUserAgent,
           SCORER_TRUSTED_TOOLS: trustedToolsRoot,
         },
         timeoutMs: 90_000,
         killGraceMs: 2_000,
       });
+      const result = await runFinal();
       expect(result.timedOut, [result.stdout, result.stderr].join('\n')).toBe(false);
       expect(result.status).toBe(1);
       expect(result.stderr).toContain(`immutable dependency tool SHA-256 mismatch: ${relativePath}`);
       expect(result.stderr).not.toContain('forged installed tool must not execute');
+      if (relativePath === immutableToolPaths[0]) {
+        writeFileSync(npmShim, npmShimLines.slice(0, -1).join('\n'), { mode: 0o755 });
+        const closureResult = await runFinal();
+        expect(closureResult.status).toBe(1);
+        expect(closureResult.stderr).toContain('optional dependency presence mismatch:');
+      }
     }
     finally {
       execFileSync('git', ['worktree', 'remove', '--force', fixture.subjectRoot], { cwd: fixture.baseRoot });

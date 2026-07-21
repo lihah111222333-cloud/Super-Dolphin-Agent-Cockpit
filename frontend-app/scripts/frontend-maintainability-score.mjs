@@ -19,6 +19,21 @@ import {
 import { productionActionFailureMatrixTitle } from '../src/shared/ui/productionActionFailureMatrixTitles.js';
 import { runManagedCommand, terminateManagedCommands } from './managed-command.mjs';
 import { validateV8HeapEvidence } from './resource-budget.mjs';
+import {
+  assertBinLinkClosure,
+  assertHiddenPackageLockClosure,
+  currentDependencyEnvironment,
+  dependencyInstallPlan,
+  dependencyTreeIntegrity,
+  validateDependencyIntegrity,
+} from './frontend-maintainability-dependency-integrity.mjs';
+
+export {
+  assertHiddenPackageLockClosure,
+  dependencyInstallPlan,
+  dependencyTreeIntegrity,
+  validateDependencyIntegrity,
+};
 
 const scriptPath = fileURLToPath(import.meta.url);
 const frozenScriptRoot = path.dirname(scriptPath);
@@ -36,6 +51,8 @@ const governancePaths = [
   'frontend-app/scripts/frontend-maintainability-score.mjs',
   'frontend-app/scripts/frontend-maintainability-baseline.json',
   'frontend-app/scripts/frontend-maintainability-dependencies.json',
+  'frontend-app/scripts/frontend-maintainability-dependency-integrity.mjs',
+  'frontend-app/scripts/refresh-frontend-maintainability-dependencies.mjs',
   'frontend-app/scripts/frontend-maintainability-red-fixtures.json',
   'frontend-app/scripts/failure-matrix-runner.mjs',
   'frontend-app/scripts/failure-matrix-cases.json',
@@ -566,57 +583,6 @@ function sameDependencyManifest(leftAppRoot, rightAppRoot) {
   return fs.existsSync(left) && fs.existsSync(right) && fs.readFileSync(left).equals(fs.readFileSync(right));
 }
 
-export function dependencyTreeIntegrity(appRoot) {
-  const nodeModulesRoot = path.join(appRoot, 'node_modules');
-  const rootStat = fs.lstatSync(nodeModulesRoot);
-  if (!rootStat.isDirectory() || rootStat.isSymbolicLink()) {
-    fail(`immutable dependency root must be a physical directory: ${nodeModulesRoot}`);
-  }
-  const aggregate = createHash('sha256');
-  let pathCount = 0;
-  const add = (value) => {
-    aggregate.update(value);
-    aggregate.update('\0');
-  };
-  const visit = (absoluteRoot, relativeRoot = '') => {
-    for (const entry of fs.readdirSync(absoluteRoot).sort()) {
-      const absolutePath = path.join(absoluteRoot, entry);
-      const relativePath = relativeRoot ? `${relativeRoot}/${entry}` : entry;
-      const stat = fs.lstatSync(absolutePath);
-      if (stat.isDirectory()) {
-        const childEntries = fs.readdirSync(absolutePath);
-        if (childEntries.length === 0) continue;
-        pathCount += 1;
-        add(relativePath);
-        add('directory');
-        visit(absolutePath, relativePath);
-      }
-      else if (stat.isFile()) {
-        pathCount += 1;
-        add(relativePath);
-        add('file');
-        aggregate.update(fs.readFileSync(absolutePath));
-        aggregate.update('\0');
-      }
-      else if (stat.isSymbolicLink()) {
-        pathCount += 1;
-        add(relativePath);
-        add('symlink');
-        add(fs.readlinkSync(absolutePath));
-      }
-      else {
-        fail(`unsupported immutable dependency entry: ${relativePath}`);
-      }
-    }
-  };
-  visit(nodeModulesRoot);
-  return {
-    nodeModulesRoot,
-    pathCount,
-    sha256: aggregate.digest('hex'),
-  };
-}
-
 function assertImmutableDependencies(appRoot) {
   const packageLockPath = path.join(appRoot, 'package-lock.json');
   if (!fs.existsSync(packageLockPath)) fail(`immutable dependency package-lock is missing: ${packageLockPath}`);
@@ -624,18 +590,28 @@ function assertImmutableDependencies(appRoot) {
   if (packageLockSha256 !== dependencyIntegrity.packageLockSha256) {
     fail(`immutable dependency package-lock SHA-256 mismatch: ${appRoot}`);
   }
-  const actual = dependencyTreeIntegrity(appRoot);
+  const nodeModulesRoot = path.join(appRoot, 'node_modules');
   for (const [relativePath, expectedSha256] of Object.entries(dependencyIntegrity.requiredTools)) {
-    const absolutePath = path.join(actual.nodeModulesRoot, relativePath);
+    const absolutePath = path.join(nodeModulesRoot, relativePath);
     if (!fs.existsSync(absolutePath)) fail(`immutable dependency tool is missing: ${relativePath}`);
     const actualSha256 = createHash('sha256').update(fs.readFileSync(absolutePath)).digest('hex');
     if (actualSha256 !== expectedSha256) fail(`immutable dependency tool SHA-256 mismatch: ${relativePath}`);
   }
-  if (actual.pathCount !== dependencyIntegrity.nodeModulesPathCount) {
+  const plan = dependencyInstallPlan(dependencyIntegrity, currentDependencyEnvironment());
+  const actual = dependencyTreeIntegrity(appRoot, {
+    environment: plan.environment,
+    expectedOptionalLockSha256: dependencyIntegrity.optionalLockSha256,
+  });
+  assertHiddenPackageLockClosure(appRoot);
+  assertBinLinkClosure(appRoot, plan.environment);
+  if (actual.pathCount !== dependencyIntegrity.neutralTree.pathCount) {
     fail(`immutable dependency path count mismatch: ${appRoot}`);
   }
-  if (actual.sha256 !== dependencyIntegrity.nodeModulesTreeSha256) {
+  if (actual.sha256 !== dependencyIntegrity.neutralTree.sha256) {
     fail(`immutable dependency tree SHA-256 mismatch: ${appRoot}`);
+  }
+  if (actual.binLockSha256 !== dependencyIntegrity.binLockSha256) {
+    fail(`immutable dependency bin lock closure mismatch: ${appRoot}`);
   }
   return actual;
 }
@@ -2590,23 +2566,7 @@ export function validateConfiguration(config = controls, fixtureDocument = fixtu
   if (baseline.baseSha !== plannedBaseSha || !/^[0-9a-f]{40}$/.test(baseline.planSnapshotSha)) {
     fail('baseline provenance is incomplete');
   }
-  exactKeys(dependencyIntegrity, [
-    'schemaVersion', 'packageLockSha256', 'nodeModulesTreeSha256', 'nodeModulesPathCount', 'requiredTools',
-  ], 'immutable dependency integrity');
-  if (dependencyIntegrity.schemaVersion !== 1
-    || !/^[0-9a-f]{64}$/.test(dependencyIntegrity.packageLockSha256)
-    || !/^[0-9a-f]{64}$/.test(dependencyIntegrity.nodeModulesTreeSha256)
-    || !Number.isSafeInteger(dependencyIntegrity.nodeModulesPathCount)
-    || dependencyIntegrity.nodeModulesPathCount <= 0) {
-    fail('immutable dependency integrity is invalid');
-  }
-  exactSet(Object.keys(dependencyIntegrity.requiredTools || {}), [
-    '@playwright/test/index.js', 'eslint/bin/eslint.js', 'vite/bin/vite.js', 'vitest/vitest.mjs',
-  ], 'immutable dependency required tools');
-  for (const [relativePath, sha256] of Object.entries(dependencyIntegrity.requiredTools)) {
-    if (!relativePath.startsWith('@') && !relativePath.includes('/')) fail('immutable dependency tool path is invalid');
-    if (!/^[0-9a-f]{64}$/.test(sha256)) fail(`immutable dependency tool SHA-256 is invalid: ${relativePath}`);
-  }
+  validateDependencyIntegrity(dependencyIntegrity);
   return true;
 }
 function performanceControl(control) {
@@ -2709,7 +2669,8 @@ export async function probeResult(probe, { repoRoot = frozenRepoRoot, subjectSha
 async function installDetachedDependencies(detachedAppRoot) {
   const detachedNodeModules = path.join(detachedAppRoot, 'node_modules');
   if (fs.existsSync(detachedNodeModules)) fail('detached SUBJECT already contains node_modules before immutable dependency installation');
-  const result = await commandResult('npm', ['ci', '--ignore-scripts', '--no-audit', '--no-fund', '--offline'], {
+  const plan = dependencyInstallPlan(dependencyIntegrity, currentDependencyEnvironment());
+  const result = await commandResult(plan.command, plan.args, {
     cwd: detachedAppRoot,
     env: process.env,
     timeoutMs: 180_000,
