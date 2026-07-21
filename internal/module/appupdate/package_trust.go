@@ -27,11 +27,19 @@ func providePackageOwnedConfig(platformCfg *platformconfig.Config) (Config, bool
 }
 
 // providePackageOwnedConfigForExecutable 从 exact app executable 推导不可覆盖的 Resources。
-func providePackageOwnedConfigForExecutable(_ *platformconfig.Config, executable string) (Config, bool, error) {
+func providePackageOwnedConfigForExecutable(platformCfg *platformconfig.Config, executable string) (Config, bool, error) {
+	return providePackageOwnedConfigForExecutableOnPlatform(platformCfg, executable, runtimePlatform())
+}
+
+// providePackageOwnedConfigForExecutableOnPlatform 使用显式平台解析包内 trust。
+func providePackageOwnedConfigForExecutableOnPlatform(
+	_ *platformconfig.Config,
+	executable string,
+	platform string,
+) (Config, bool, error) {
 	if err := recovery.RejectPackageTrustOverrides(os.Environ()); err != nil {
 		return Config{}, true, err
 	}
-	platform := runtimePlatform()
 	supported, err := packageUpdateSupported(platform)
 	if err != nil {
 		return Config{}, true, err

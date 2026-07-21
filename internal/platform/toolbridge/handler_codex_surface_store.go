@@ -820,29 +820,6 @@ func (h *Handler) snapshotCodexToolSurfaceBindings(keys []string) map[string]*co
 	return expected
 }
 
-// revokeExpectedCodexToolSurface 只撤下仍指向准备快照或本地代际的 key，并关闭对应 clients。
-func (h *Handler) revokeExpectedCodexToolSurface(expected *codexToolSurface) error {
-	if h == nil || expected == nil {
-		return nil
-	}
-	toClose := map[*codexToolSurface]struct{}{expected: {}}
-	h.surfaceMu.Lock()
-	for _, key := range expected.keys {
-		current := h.surfaces[key]
-		observed := expected.expected[key]
-		if current == expected || observed != nil && current == observed {
-			delete(h.surfaces, key)
-			toClose[current] = struct{}{}
-		}
-	}
-	h.surfaceMu.Unlock()
-	var closeErr error
-	for surface := range toClose {
-		closeErr = errors.Join(closeErr, surface.Close())
-	}
-	return closeErr
-}
-
 func (h *Handler) ensureCodexSurfaceEntryCurrent(ctx context.Context, entry codexToolEntry) error {
 	if entry.executionKind != "stdio" {
 		return nil
