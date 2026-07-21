@@ -753,7 +753,8 @@ internal/platform/toolbridge/p4_s3c_compat_fallback_test.go	internal	platform-pr
 internal/platform/toolbridge/persistent_subagent_flow_test.go	internal	platform-provider	go-test	10763	provider 与 MCP tools 桥接	internal,platform,toolbridge,persistent,subagent,flow,test,provider,与,MCP,tools,桥接
 internal/platform/toolbridge/phase1_diff_test.go	internal	platform-provider	go-test	14720	provider 与 MCP tools 桥接	internal,platform,toolbridge,phase1,diff,test,provider,与,MCP,tools,桥接
 internal/platform/toolbridge/ports.go	internal	platform-provider	go-source	4392	provider 与 MCP tools 桥接	internal,platform,toolbridge,ports,provider,与,MCP,tools,桥接
-internal/platform/toolbridge/protocol_contract.go	internal	platform-provider	go-source	12050	provider 与 MCP tools 桥接	internal,platform,toolbridge,protocol,contract,provider,与,MCP,tools,桥接
+internal/platform/toolbridge/protocol_contract_icon_theme_test.go	internal	platform-provider	go-test	2658	provider 与 MCP tools 桥接	internal,platform,toolbridge,protocol,contract,icon,theme,test,provider,与,MCP,tools,桥接
+internal/platform/toolbridge/protocol_contract.go	internal	platform-provider	go-source	13329	provider 与 MCP tools 桥接	internal,platform,toolbridge,protocol,contract,provider,与,MCP,tools,桥接
 internal/platform/toolbridge/proxy_auth_test.go	internal	platform-provider	go-test	1212	provider 与 MCP tools 桥接	internal,platform,toolbridge,proxy,auth,test,provider,与,MCP,tools,桥接
 internal/platform/toolbridge/proxy_lifecycle_test.go	internal	platform-provider	go-test	9023	provider 与 MCP tools 桥接	internal,platform,toolbridge,proxy,lifecycle,test,provider,与,MCP,tools,桥接
 internal/platform/toolbridge/proxy_notification_test.go	internal	platform-provider	go-test	3392	provider 与 MCP tools 桥接	internal,platform,toolbridge,proxy,notification,test,provider,与,MCP,tools,桥接

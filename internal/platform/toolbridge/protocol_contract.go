@@ -61,10 +61,37 @@ type mcpToolWire struct {
 	Execution    *mcpToolExecution          `json:"execution,omitempty"`
 }
 
+type mcpToolIconTheme string
+
+const (
+	mcpToolIconThemeLight mcpToolIconTheme = "light"
+	mcpToolIconThemeDark  mcpToolIconTheme = "dark"
+)
+
+type mcpToolIconThemeField struct {
+	value   mcpToolIconTheme
+	present bool
+}
+
+// UnmarshalJSON 区分缺失 theme 与显式值，并拒绝协议不允许的 null。
+func (theme *mcpToolIconThemeField) UnmarshalJSON(raw []byte) error {
+	if bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
+		return fmt.Errorf("MCP tool icon theme must not be null")
+	}
+	var value string
+	if err := json.Unmarshal(raw, &value); err != nil {
+		return fmt.Errorf("MCP tool icon theme must be a string: %w", err)
+	}
+	theme.value = mcpToolIconTheme(value)
+	theme.present = true
+	return nil
+}
+
 type mcpToolIcon struct {
-	Src      string   `json:"src"`
-	MIMEType string   `json:"mimeType,omitempty"`
-	Sizes    []string `json:"sizes,omitempty"`
+	Src      string                `json:"src"`
+	MIMEType string                `json:"mimeType,omitempty"`
+	Sizes    []string              `json:"sizes,omitempty"`
+	Theme    mcpToolIconThemeField `json:"theme"`
 }
 
 type mcpToolAnnotations struct {
@@ -107,10 +134,8 @@ func decodeMCPToolWire(raw json.RawMessage) (mcpToolWire, error) {
 	if len(bytes.TrimSpace(tool.InputSchema)) == 0 {
 		return mcpToolWire{}, fmt.Errorf("tool %q inputSchema is required", tool.Name)
 	}
-	for index, icon := range tool.Icons {
-		if strings.TrimSpace(icon.Src) == "" {
-			return mcpToolWire{}, fmt.Errorf("tool %q icon %d src is required", tool.Name, index)
-		}
+	if err := validateMCPToolIcons(tool.Name, tool.Icons); err != nil {
+		return mcpToolWire{}, err
 	}
 	if tool.Execution == nil {
 		tool.Execution = &mcpToolExecution{TaskSupport: mcpToolTaskSupportForbidden}
@@ -123,6 +148,24 @@ func decodeMCPToolWire(raw json.RawMessage) (mcpToolWire, error) {
 		return mcpToolWire{}, fmt.Errorf("tool %q execution.taskSupport %q is invalid", tool.Name, tool.Execution.TaskSupport)
 	}
 	return tool, nil
+}
+
+// validateMCPToolIcons 校验 MCP Tool 图标的必填字段与主题枚举。
+func validateMCPToolIcons(toolName string, icons []mcpToolIcon) error {
+	for index, icon := range icons {
+		if strings.TrimSpace(icon.Src) == "" {
+			return fmt.Errorf("tool %q icon %d src is required", toolName, index)
+		}
+		if !icon.Theme.present {
+			continue
+		}
+		switch icon.Theme.value {
+		case mcpToolIconThemeLight, mcpToolIconThemeDark:
+		default:
+			return fmt.Errorf("tool %q icon %d theme %q is invalid", toolName, index, icon.Theme.value)
+		}
+	}
+	return nil
 }
 
 func decodeStrictMCPJSON(raw json.RawMessage, target any) error {
