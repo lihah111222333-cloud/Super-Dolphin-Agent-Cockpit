@@ -561,16 +561,38 @@ func validateLifecycleContainerID(
 	record coordinatorJobRecord,
 	event localci.FreshContainerLifecycleEvent,
 ) error {
-	if event.Phase == localci.FreshContainerPhasePrepared || event.Phase == localci.FreshContainerPhaseCreating {
+	if !lifecycleContainerIDRequired(record, event) {
 		return nil
 	}
-	if event.ContainerID == "" && record.ContainerID == "" {
+	if lifecycleContainerIDsMissing(record, event) {
 		return fmt.Errorf("%w: lifecycle container ID is missing", errCoordinatorState)
 	}
-	if record.ContainerID != "" && event.ContainerID != record.ContainerID {
+	if lifecycleContainerIDDrifted(record, event) {
 		return fmt.Errorf("%w: lifecycle container ID drifted", errCoordinatorState)
 	}
 	return nil
+}
+
+// lifecycleContainerIDRequired 判定当前生命周期阶段是否必须持有容器身份。
+func lifecycleContainerIDRequired(record coordinatorJobRecord, event localci.FreshContainerLifecycleEvent) bool {
+	switch event.Phase {
+	case localci.FreshContainerPhasePrepared, localci.FreshContainerPhaseCreating:
+		return false
+	case localci.FreshContainerPhaseRemoved:
+		return record.ContainerPhase != localci.FreshContainerPhaseCreating || event.ContainerID != "" || record.ContainerID != ""
+	default:
+		return true
+	}
+}
+
+// lifecycleContainerIDsMissing 判定要求身份的生命周期事件是否同时缺少新旧容器身份。
+func lifecycleContainerIDsMissing(record coordinatorJobRecord, event localci.FreshContainerLifecycleEvent) bool {
+	return event.ContainerID == "" && record.ContainerID == ""
+}
+
+// lifecycleContainerIDDrifted 判定事件容器身份是否偏离持久化身份。
+func lifecycleContainerIDDrifted(record coordinatorJobRecord, event localci.FreshContainerLifecycleEvent) bool {
+	return record.ContainerID != "" && event.ContainerID != record.ContainerID
 }
 
 // validateLifecycleClock 固定首次 start 的 started_at 与 deadline，拒绝重启重算。
@@ -657,7 +679,7 @@ func validateLifecyclePhaseOrder(current, next localci.FreshContainerLifecyclePh
 	allowed := map[localci.FreshContainerLifecyclePhase][]localci.FreshContainerLifecyclePhase{
 		"":                                        {localci.FreshContainerPhasePrepared},
 		localci.FreshContainerPhasePrepared:       {localci.FreshContainerPhasePrepared, localci.FreshContainerPhaseCreating},
-		localci.FreshContainerPhaseCreating:       {localci.FreshContainerPhaseCreating, localci.FreshContainerPhaseCreated},
+		localci.FreshContainerPhaseCreating:       {localci.FreshContainerPhaseCreating, localci.FreshContainerPhaseCreated, localci.FreshContainerPhaseRemovalPending, localci.FreshContainerPhaseRemoved},
 		localci.FreshContainerPhaseCreated:        {localci.FreshContainerPhaseCreated, localci.FreshContainerPhaseStarting, localci.FreshContainerPhaseRemovalPending, localci.FreshContainerPhaseRemoved},
 		localci.FreshContainerPhaseStarting:       {localci.FreshContainerPhaseStarting, localci.FreshContainerPhaseStarted, localci.FreshContainerPhaseRemovalPending, localci.FreshContainerPhaseRemoved},
 		localci.FreshContainerPhaseStarted:        {localci.FreshContainerPhaseStarted, localci.FreshContainerPhaseExited, localci.FreshContainerPhaseRemovalPending, localci.FreshContainerPhaseRemoved},

@@ -179,14 +179,20 @@ func TestGitHooksREADMEDeclaresThinHookEntrypoints(t *testing.T) {
 		{
 			name:           "pre-commit closure",
 			hookPath:       ".githooks/pre-commit",
-			hookEntrypoint: "closure check",
-			documentation:  "`super-dolphin-gate closure check`",
+			hookEntrypoint: `closure check --tree "$staged_tree"`,
+			documentation:  "`super-dolphin-gate closure check --tree <tree>`",
 		},
 		{
 			name:           "pre-commit coordinator",
 			hookPath:       ".githooks/pre-commit",
-			hookEntrypoint: "hook pre-commit",
-			documentation:  "`super-dolphin-gate hook pre-commit`",
+			hookEntrypoint: `hook pre-commit --tree "$staged_tree"`,
+			documentation:  "`super-dolphin-gate hook pre-commit --tree <tree>`",
+		},
+		{
+			name:           "pre-commit coordinator wait",
+			hookPath:       ".githooks/pre-commit",
+			hookEntrypoint: `wait --job "$job_id" --tree "$staged_tree"`,
+			documentation:  "`super-dolphin-gate wait --job <job-id> --tree <tree>`",
 		},
 		{
 			name:           "pre-push coordinator",
@@ -227,7 +233,7 @@ func TestGitHooksREADMEDeclaresThinHookEntrypoints(t *testing.T) {
 		t.Fatal("README must not document hook bypasses")
 	}
 	preCommit := readGuardFile(t, filepath.Join(root, ".githooks", "pre-commit"))
-	for _, required := range []string{"gate_output_file=$(mktemp", "hook_rc\" -ne 13", "^job-[0-9a-f]{32}$", "wait --job \"$job_id\""} {
+	for _, required := range []string{"gate_output_file=$(mktemp", "hook_rc\" -ne 13", "^job-[0-9a-f]{32}$", `wait --job "$job_id" --tree "$staged_tree"`} {
 		if !strings.Contains(preCommit, required) {
 			t.Fatalf("pre-commit does not synchronously wait for queued jobs: missing %q", required)
 		}

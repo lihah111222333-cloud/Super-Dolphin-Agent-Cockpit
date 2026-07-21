@@ -183,33 +183,6 @@ func (r gitRepository) headCommit(ctx context.Context) (string, error) {
 	}
 }
 
-func (r gitRepository) stableIndexTree(ctx context.Context) (string, error) {
-	first, err := r.indexTree(ctx)
-	if err != nil {
-		return "", err
-	}
-	second, err := r.indexTree(ctx)
-	if err != nil {
-		return "", err
-	}
-	if first != second {
-		return "", fmt.Errorf("Git index tree changed while normalizing pre-commit: %s -> %s", first, second)
-	}
-	return first, nil
-}
-
-func (r gitRepository) indexTree(ctx context.Context) (string, error) {
-	treeSHA, err := runGit(ctx, r.identity.WorktreeRoot, nil, "write-tree")
-	if err != nil {
-		return "", err
-	}
-	treeSHA = strings.TrimSpace(treeSHA)
-	if err := r.verifyObject(ctx, treeSHA, "tree"); err != nil {
-		return "", err
-	}
-	return treeSHA, nil
-}
-
 func (r gitRepository) snapshotStableWorktreeTree(ctx context.Context) (string, string, error) {
 	parentSHA, err := r.headCommit(ctx)
 	if err != nil {

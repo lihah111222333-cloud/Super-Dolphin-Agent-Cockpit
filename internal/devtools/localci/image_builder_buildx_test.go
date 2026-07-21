@@ -21,30 +21,92 @@ type buildxCommandCall struct {
 }
 
 type recordingBuildxCommandExecutor struct {
-	calls    []buildxCommandCall
-	metadata []byte
-	output   string
-	err      error
-	path     string
+	calls           []buildxCommandCall
+	contextErrs     []error
+	metadata        []byte
+	output          string
+	err             error
+	path            string
+	builderName     string
+	request         BuildKitBuildRequest
+	inspectOutput   string
+	containerOutput string
+	imageOutput     string
+	onBuild         func()
 }
 
-func (executor *recordingBuildxCommandExecutor) Run(_ context.Context, stdin io.Reader, args ...string) (string, error) {
+func (executor *recordingBuildxCommandExecutor) Run(ctx context.Context, stdin io.Reader, args ...string) (string, error) {
 	data, err := io.ReadAll(stdin)
 	if err != nil {
 		return "", err
 	}
 	executor.calls = append(executor.calls, buildxCommandCall{args: append([]string(nil), args...), stdin: data})
+	executor.contextErrs = append(executor.contextErrs, ctx.Err())
+	if output, handled := executor.controlledCommandOutput(args); handled {
+		return output, executor.err
+	}
+	return executor.runCandidateBuild(args)
+}
+
+func (executor *recordingBuildxCommandExecutor) controlledCommandOutput(args []string) (string, bool) {
+	switch buildxTestCommand(args) {
+	case "buildx create":
+		executor.builderName = valueAfter(args, "--name")
+		return "", true
+	case "buildx inspect":
+		return testBuildxOutput(executor.inspectOutput, "Name: "+executor.builderName+"\nDriver: docker-container\nNodes:\n  Name: node\n  Status: running\n  BuildKit version: "+executor.request.BuildKitVersion+"\n"), true
+	case "container inspect":
+		return testBuildxOutput(executor.containerOutput, executor.request.BuildKitImage+"\n"+digest("a")+"\n"+buildxBuilderCPUQuota+"/"+buildxBuilderCPUPeriod+"/"+buildxBuilderMemoryBytes+"\n"), true
+	case "image inspect":
+		return testBuildxOutput(executor.imageOutput, digest("a")+"\n"+executor.request.BuildKitImage+"\n"), true
+	case "buildx rm":
+		return "", true
+	default:
+		return "", false
+	}
+}
+
+func buildxTestCommand(args []string) string {
+	if len(args) < 2 {
+		return ""
+	}
+	return args[0] + " " + args[1]
+}
+
+func testBuildxOutput(output string, fallback string) string {
+	if output == "" {
+		return fallback
+	}
+	return output
+}
+
+func (executor *recordingBuildxCommandExecutor) runCandidateBuild(args []string) (string, error) {
 	executor.path = buildxMetadataPath(args)
+	if executor.onBuild != nil {
+		executor.onBuild()
+	}
 	if executor.err != nil {
 		return executor.output, executor.err
 	}
 	if executor.path == "" {
 		return "", errors.New("metadata path was not provided")
 	}
-	if err := os.WriteFile(executor.path, executor.metadata, 0o600); err != nil {
+	metadata, err := executor.candidateMetadata()
+	if err != nil {
+		return "", err
+	}
+	metadata = bytes.ReplaceAll(metadata, []byte(testBuildxBuilderPlaceholder), []byte(executor.builderName))
+	if err := os.WriteFile(executor.path, metadata, 0o600); err != nil {
 		return "", err
 	}
 	return executor.output, nil
+}
+
+func (executor *recordingBuildxCommandExecutor) candidateMetadata() ([]byte, error) {
+	if executor.metadata != nil {
+		return executor.metadata, nil
+	}
+	return json.Marshal(validBuildxMetadataDocument(executor.request))
 }
 
 func TestDockerBuildxRunnerUsesFixedCommandAndCanonicalStdin(t *testing.T) {
@@ -58,16 +120,31 @@ func TestDockerBuildxRunnerUsesFixedCommandAndCanonicalStdin(t *testing.T) {
 	if imageDigest != digest("5") {
 		t.Fatalf("image digest = %q", imageDigest)
 	}
-	if len(executor.calls) != 1 {
+	if len(executor.calls) != 6 {
 		t.Fatalf("buildx calls = %d", len(executor.calls))
 	}
-	call := executor.calls[0]
+	assertControlledBuildxLifecycle(t, executor.calls, request)
+	call := executor.calls[4]
 	if !bytes.Equal(call.stdin, request.ContextTar) {
 		t.Fatal("buildx stdin did not receive the canonical context tar")
 	}
 	assertFixedBuildxArgs(t, call.args, request, root)
 	if _, err := os.Stat(filepath.Dir(executor.path)); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("build temporary directory was not removed: %v", err)
+	}
+}
+
+func TestCreatePrivateBuildxWorkspaceCleansUpAfterChmodFailure(t *testing.T) {
+	chmodErr := errors.New("chmod denied")
+	cleanupErr := errors.New("cleanup denied")
+	const workspace = "workspace"
+	removed := ""
+	created, err := createPrivateBuildxWorkspace("", func(string, string) (string, error) { return workspace, nil }, func(string, os.FileMode) error { return chmodErr }, func(path string) error { removed = path; return cleanupErr })
+	if created != "" || removed != workspace {
+		t.Fatalf("created workspace = %q, removed workspace = %q", created, removed)
+	}
+	if !errors.Is(err, chmodErr) || !errors.Is(err, cleanupErr) {
+		t.Fatalf("workspace error = %v", err)
 	}
 }
 
@@ -81,8 +158,9 @@ func TestDockerBuildxRunnerUsesExistingIsolatedCache(t *testing.T) {
 		t.Fatal(err)
 	}
 	cacheFrom := "--cache-from=type=local,src=" + cachePath
-	if !slices.Contains(executor.calls[0].args, cacheFrom) {
-		t.Fatalf("existing isolated cache was not imported: %v", executor.calls[0].args)
+	buildCall := recordedBuildxBuildCall(t, executor.calls)
+	if !slices.Contains(buildCall.args, cacheFrom) {
+		t.Fatalf("existing isolated cache was not imported: %v", buildCall.args)
 	}
 }
 
@@ -245,6 +323,9 @@ func TestDockerBuildxRunnerRejectsUnsafeRequestBeforeCommand(t *testing.T) {
 		{name: "unknown image schema", mutate: func(request *BuildKitBuildRequest) {
 			request.ImageSchemaVersion = "2"
 		}},
+		{name: "mutable BuildKit image", mutate: func(request *BuildKitBuildRequest) {
+			request.BuildKitImage = "moby/buildkit:v0.26.2"
+		}},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -257,6 +338,104 @@ func TestDockerBuildxRunnerRejectsUnsafeRequestBeforeCommand(t *testing.T) {
 			}
 			if len(executor.calls) != 0 {
 				t.Fatal("unsafe BuildKit request reached the command executor")
+			}
+		})
+	}
+}
+
+func TestDockerBuildxRunnerRejectsParserDirectivesBeforeBuilderCreation(t *testing.T) {
+	for _, directive := range []string{"# syntax=docker/dockerfile:1", "# escape=`", "# check=skip=JSONArgsRecommended", "# future-directive=value"} {
+		t.Run(directive, func(t *testing.T) {
+			entries := candidateEntries(directive + "\n" + validCandidateDockerfile())
+			prepared, err := prepareCandidate(candidateRequest(entries, digest("f"), digest("e")))
+			if err != nil {
+				t.Fatal(err)
+			}
+			executor := validBuildxExecutor(t, prepared.buildRequest)
+			runner, _ := newTestDockerBuildxRunner(t, executor)
+			if _, err := runner.Build(context.Background(), prepared.buildRequest); err == nil {
+				t.Fatal("Dockerfile parser directive was accepted")
+			}
+			if len(executor.calls) != 0 {
+				t.Fatal("Dockerfile parser directive reached the command executor")
+			}
+		})
+	}
+}
+
+func TestDockerBuildxRunnerRejectsBuilderVersionAndResourceDrift(t *testing.T) {
+	request := validBuildxRequest(t)
+	tests := []struct {
+		name   string
+		mutate func(*recordingBuildxCommandExecutor)
+	}{
+		{name: "BuildKit version", mutate: func(executor *recordingBuildxCommandExecutor) {
+			executor.inspectOutput = "BuildKit version: v0.0.0\n"
+		}},
+		{name: "resource limits", mutate: func(executor *recordingBuildxCommandExecutor) {
+			executor.containerOutput = request.BuildKitImage + "\n" + digest("a") + "\n0/0/0\n"
+		}},
+		{name: "container image reference", mutate: func(executor *recordingBuildxCommandExecutor) {
+			executor.containerOutput = "docker.io/moby/buildkit@" + digest("b") + "\n" + digest("a") + "\n" + buildxBuilderCPUQuota + "/" + buildxBuilderCPUPeriod + "/" + buildxBuilderMemoryBytes + "\n"
+		}},
+		{name: "image repository digest", mutate: func(executor *recordingBuildxCommandExecutor) {
+			executor.imageOutput = digest("a") + "\n" + "docker.io/moby/buildkit@" + digest("b") + "\n"
+		}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			executor := validBuildxExecutor(t, request)
+			test.mutate(executor)
+			runner, _ := newTestDockerBuildxRunner(t, executor)
+			if _, err := runner.Build(context.Background(), request); err == nil {
+				t.Fatal("drifted controlled builder was accepted")
+			}
+			if len(executor.calls) == 0 || executor.calls[len(executor.calls)-1].args[1] != "rm" {
+				t.Fatalf("controlled builder was not removed after validation failure: %v", executor.calls)
+			}
+			for _, call := range executor.calls {
+				if len(call.args) >= 2 && call.args[0] == "buildx" && call.args[1] == "build" {
+					t.Fatal("drifted controlled builder reached buildx build")
+				}
+			}
+		})
+	}
+}
+
+func TestDockerBuildxRunnerCleansUpWithBoundedContextAfterBuildCancellation(t *testing.T) {
+	request := validBuildxRequest(t)
+	executor := validBuildxExecutor(t, request)
+	ctx, cancel := context.WithCancel(context.Background())
+	executor.onBuild = cancel
+	runner, _ := newTestDockerBuildxRunner(t, executor)
+	_, err := runner.Build(ctx, request)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("canceled build error = %v", err)
+	}
+	if len(executor.calls) != 6 || executor.calls[len(executor.calls)-1].args[1] != "rm" {
+		t.Fatalf("controlled builder cleanup call = %v", executor.calls)
+	}
+	if cleanupErr := executor.contextErrs[len(executor.contextErrs)-1]; cleanupErr != nil {
+		t.Fatalf("controlled builder cleanup reused canceled build context: %v", cleanupErr)
+	}
+}
+
+func TestValidateBuildxInspectVersionRequiresOneRealFormatField(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		output string
+		valid  bool
+	}{
+		{name: "real format", output: "Name: controlled\nBuildKit version: v0.26.2\n", valid: true},
+		{name: "legacy spelling", output: "Buildkit: v0.26.2\n"},
+		{name: "missing", output: "Name: controlled\n"},
+		{name: "duplicate", output: "BuildKit version: v0.26.2\nBuildKit version: v0.26.2\n"},
+		{name: "mismatch", output: "BuildKit version: v0.26.1\n"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			err := validateBuildxInspectVersion(test.output, "v0.26.2")
+			if (err == nil) != test.valid {
+				t.Fatalf("validate BuildKit version error = %v, valid = %t", err, test.valid)
 			}
 		})
 	}
@@ -321,6 +500,20 @@ func TestDockerBuildxRunnerRejectsUnknownTrailingAndMismatchedMetadata(t *testin
 			provenanceInvocation(document)["environment"] = map[string]any{"platform": "linux/amd64"}
 			return marshalBuildxMetadata(t, document)
 		}},
+		{name: "builder identity mismatch", mutate: func(document map[string]any) []byte {
+			provenance := document["buildx.build.provenance"].(map[string]any)
+			provenance["builder"] = map[string]any{"id": "https://attacker.invalid/buildkit"}
+			return marshalBuildxMetadata(t, document)
+		}},
+		{name: "external material", mutate: func(document map[string]any) []byte {
+			provenance := document["buildx.build.provenance"].(map[string]any)
+			provenance["materials"] = []any{map[string]any{"uri": "https://attacker.invalid/material"}}
+			return marshalBuildxMetadata(t, document)
+		}},
+		{name: "frontend mismatch", mutate: func(document map[string]any) []byte {
+			provenanceInvocation(document)["parameters"] = map[string]any{"frontend": "gateway.v0", "args": expectedProvenanceArgs(request)}
+			return marshalBuildxMetadata(t, document)
+		}},
 		{name: "proxy build argument", mutate: func(document map[string]any) []byte {
 			provenanceArgs(document)["build-arg:HTTP_PROXY"] = "http://proxy.invalid"
 			return marshalBuildxMetadata(t, document)
@@ -361,6 +554,10 @@ func TestSanitizedBuildxEnvironmentDropsProxyAndLocksMetadataControls(t *testing
 		"https_proxy=http://proxy.invalid",
 		"BUILDX_METADATA_PROVENANCE=disabled",
 		"BUILDX_METADATA_WARNINGS=1",
+		"BUILDX_BUILDER=attacker-builder",
+		"DOCKER_CONTEXT=attacker-context",
+		"DOCKER_HOST=tcp://attacker.invalid:2376",
+		"DOCKER_CONFIG=/tmp/attacker-config",
 	}
 	actual := sanitizedBuildxEnvironment(environment)
 	wanted := []string{
@@ -415,8 +612,8 @@ func cloneBuildxRequest(request BuildKitBuildRequest) BuildKitBuildRequest {
 func validBuildxExecutor(t *testing.T, request BuildKitBuildRequest) *recordingBuildxCommandExecutor {
 	t.Helper()
 	return &recordingBuildxCommandExecutor{
-		metadata: marshalBuildxMetadata(t, validBuildxMetadataDocument(request)),
-		output:   digest("4") + "\n",
+		request: request,
+		output:  digest("4") + "\n",
 	}
 }
 
@@ -441,24 +638,44 @@ func privateTempRoot(t *testing.T) string {
 
 func assertFixedBuildxArgs(t *testing.T, args []string, request BuildKitBuildRequest, root string) {
 	t.Helper()
+	assertBuildxCommandShape(t, args)
+	assertControlledBuilderArgument(t, args)
+	assertBuildxArgumentsContain(t, args, []string{"--load", "--progress=quiet", "--provenance=false", "--platform=" + request.Platform, "--file=" + request.DockerfilePath, "--network=none"}, "buildx command")
+	assertFixedBuildxTagAndCache(t, args, request)
+	assertBuildxArgumentOrder(t, args, request)
+	assertIsolatedBuildxCache(t, args, request, root)
+	assertNoForbiddenBuildxArguments(t, args)
+}
+
+func assertBuildxCommandShape(t *testing.T, args []string) {
 	if len(args) < 3 || args[0] != "buildx" || args[1] != "build" || args[len(args)-1] != "-" {
 		t.Fatalf("buildx command shape = %v", args)
 	}
-	required := []string{
-		"--load", "--progress=quiet", "--provenance=false", "--platform=" + request.Platform,
-		"--file=" + request.DockerfilePath, "--network=none",
+}
+
+func assertControlledBuilderArgument(t *testing.T, args []string) {
+	builders := prefixedArguments(args, "--builder=")
+	if len(builders) != 1 || !strings.HasPrefix(builders[0], "--builder="+buildxBuilderNamePrefix) {
+		t.Fatalf("buildx controlled builder = %v", builders)
 	}
+}
+
+func assertBuildxArgumentsContain(t *testing.T, args []string, required []string, subject string) {
 	for _, argument := range required {
 		if !slices.Contains(args, argument) {
-			t.Fatalf("buildx command missing %q: %v", argument, args)
+			t.Fatalf("%s missing %q: %v", subject, argument, args)
 		}
 	}
-	assertFixedBuildxTagAndCache(t, args, request)
-	assertBuildxArgumentOrder(t, args, request)
+}
+
+func assertIsolatedBuildxCache(t *testing.T, args []string, request BuildKitBuildRequest, root string) {
 	cacheArgument := "--cache-to=type=local,dest=" + filepath.Join(root, "cache", strings.TrimPrefix(request.CacheNamespace, "sha256:")) + ",mode=min"
 	if !slices.Contains(args, cacheArgument) {
 		t.Fatalf("buildx cache namespace is not isolated: %v", args)
 	}
+}
+
+func assertNoForbiddenBuildxArguments(t *testing.T, args []string) {
 	forbidden := []string{"--secret", "--ssh", "--allow", "network=host", "security.insecure", "http_proxy", "https_proxy", "all_proxy", "docker.sock"}
 	joined := strings.ToLower(strings.Join(args, "\n"))
 	for _, fragment := range forbidden {
@@ -469,7 +686,6 @@ func assertFixedBuildxArgs(t *testing.T, args []string, request BuildKitBuildReq
 }
 
 func assertFixedBuildxTagAndCache(t *testing.T, args []string, request BuildKitBuildRequest) {
-	t.Helper()
 	wantedTag := "--tag=" + expectedCandidateImageTag(request)
 	if actualTags := prefixedArguments(args, "--tag="); !slices.Equal(actualTags, []string{wantedTag}) {
 		t.Fatalf("buildx candidate tags = %v, want %q", actualTags, wantedTag)
@@ -480,7 +696,6 @@ func assertFixedBuildxTagAndCache(t *testing.T, args []string, request BuildKitB
 }
 
 func assertBuildxArgumentOrder(t *testing.T, args []string, request BuildKitBuildRequest) {
-	t.Helper()
 	actualBuildArguments := prefixedArguments(args, "--build-arg=")
 	wantedBuildArguments := make([]string, len(request.BuildArguments))
 	for index, argument := range request.BuildArguments {
@@ -531,91 +746,50 @@ func buildxMetadataPath(args []string) string {
 	return ""
 }
 
-func validBuildxMetadataDocument(request BuildKitBuildRequest) map[string]any {
-	return map[string]any{
-		"buildx.build.provenance": map[string]any{
-			"builder":   map[string]any{"id": ""},
-			"buildType": "https://mobyproject.org/buildkit@v1",
-			"materials": []any{},
-			"invocation": map[string]any{
-				"configSource": map[string]any{
-					"uri":        "http://buildkit-session/test",
-					"digest":     map[string]any{"sha256": strings.TrimPrefix(request.ContextDigest, "sha256:")},
-					"entryPoint": request.DockerfilePath,
-				},
-				"parameters":  map[string]any{"frontend": "dockerfile.v0", "args": expectedProvenanceArgs(request)},
-				"environment": map[string]any{"platform": request.Platform},
-			},
-			"buildConfig": map[string]any{"llbDefinition": []any{}},
-			"metadata":    map[string]any{"https://mobyproject.org/buildkit@v1#hermetic": true},
-		},
-		"buildx.build.ref":             "builder/node/invocation",
-		"cache.manifest":               map[string]any{"digest": digest("7")},
-		"containerimage.config.digest": digest("4"),
-		"containerimage.descriptor": map[string]any{
-			"mediaType": "application/vnd.docker.distribution.manifest.v2+json",
-			"digest":    digest("5"),
-			"size":      512,
-			"platform":  map[string]any{"architecture": "arm64", "os": "linux"},
-		},
-		"containerimage.digest": digest("5"),
-		"image.name":            expectedCandidateImageTag(request),
-	}
-}
+const testBuildxBuilderPlaceholder = "__controlled_builder__"
 
-func expectedCandidateImageTag(request BuildKitBuildRequest) string {
-	return "docker.io/library/super-dolphin-gate-local:candidate-" + strings.TrimPrefix(request.InputDigest, "sha256:")
-}
-
-func expectedProvenanceArgs(request BuildKitBuildRequest) map[string]any {
-	arguments := map[string]any{"force-network-mode": "none"}
-	for _, argument := range request.BuildArguments {
-		arguments["build-arg:"+argument.Name] = argument.Value
-	}
-	for _, label := range buildxBindingLabels(request) {
-		name, value, _ := strings.Cut(strings.TrimPrefix(label, "--label="), "=")
-		arguments["label:"+name] = value
-	}
-	return arguments
-}
-
-func provenanceInvocation(document map[string]any) map[string]any {
-	provenance := document["buildx.build.provenance"].(map[string]any)
-	return provenance["invocation"].(map[string]any)
-}
-
-func provenanceArgs(document map[string]any) map[string]any {
-	parameters := provenanceInvocation(document)["parameters"].(map[string]any)
-	return parameters["args"].(map[string]any)
-}
-
-func marshalBuildxMetadata(t *testing.T, document map[string]any) []byte {
+func assertControlledBuildxLifecycle(t *testing.T, calls []buildxCommandCall, request BuildKitBuildRequest) {
 	t.Helper()
-	data, err := json.Marshal(document)
-	if err != nil {
-		t.Fatal(err)
+	if len(calls) != 6 {
+		t.Fatalf("controlled buildx lifecycle call count = %d", len(calls))
 	}
-	return data
+	name := assertControlledBuilderCreate(t, calls[0].args, request)
+	assertExactBuildxCommand(t, calls[1].args, []string{"buildx", "inspect", "--builder", name, "--bootstrap"}, "controlled builder inspect command")
+	assertExactBuildxCommand(t, calls[2].args, []string{"container", "inspect", "--format", "{{.Config.Image}}\n{{.Image}}\n{{.HostConfig.CpuQuota}}/{{.HostConfig.CpuPeriod}}/{{.HostConfig.Memory}}", controlledBuildxContainerName(name)}, "controlled builder resource inspect command")
+	assertExactBuildxCommand(t, calls[3].args, []string{"image", "inspect", "--format", "{{.Id}}\n{{range .RepoDigests}}{{println .}}{{end}}", request.BuildKitImage}, "controlled builder image inspect command")
+	assertExactBuildxCommand(t, calls[5].args, []string{"buildx", "rm", "--force", name}, "controlled builder cleanup command")
 }
 
-func assertBuildxMetadataRejected(t *testing.T, request BuildKitBuildRequest, metadata []byte) {
-	t.Helper()
-	executor := validBuildxExecutor(t, request)
-	executor.metadata = metadata
-	runner, _ := newTestDockerBuildxRunner(t, executor)
-	if _, err := runner.Build(context.Background(), request); err == nil {
-		t.Fatal("invalid buildx metadata was accepted")
+func assertControlledBuilderCreate(t *testing.T, create []string, request BuildKitBuildRequest) string {
+	if len(create) < 2 || create[0] != "buildx" || create[1] != "create" {
+		t.Fatalf("controlled builder create command = %v", create)
+	}
+	name := valueAfter(create, "--name")
+	assertBuildxArgumentsContain(t, create, []string{"--driver", "docker-container", "--driver-opt=image=" + request.BuildKitImage, "--driver-opt=cpu-quota=" + buildxBuilderCPUQuota, "--driver-opt=cpu-period=" + buildxBuilderCPUPeriod, "--driver-opt=memory=" + buildxBuilderMemory}, "controlled builder create command")
+	return name
+}
+
+func assertExactBuildxCommand(t *testing.T, actual []string, expected []string, subject string) {
+	if !slices.Equal(actual, expected) {
+		t.Fatalf("%s = %v", subject, actual)
 	}
 }
 
-func jsonFieldNames(documentType reflect.Type) []string {
-	fields := make([]string, 0, documentType.NumField())
-	for index := 0; index < documentType.NumField(); index++ {
-		name, _, _ := strings.Cut(documentType.Field(index).Tag.Get("json"), ",")
-		if name != "" && name != "-" {
-			fields = append(fields, name)
+func valueAfter(arguments []string, flag string) string {
+	for index, argument := range arguments {
+		if argument == flag && index+1 < len(arguments) {
+			return arguments[index+1]
 		}
 	}
-	sort.Strings(fields)
-	return fields
+	return ""
+}
+
+func recordedBuildxBuildCall(t *testing.T, calls []buildxCommandCall) buildxCommandCall {
+	for _, call := range calls {
+		if len(call.args) >= 2 && call.args[0] == "buildx" && call.args[1] == "build" {
+			return call
+		}
+	}
+	t.Fatalf("buildx build command was not recorded: %v", calls)
+	return buildxCommandCall{}
 }

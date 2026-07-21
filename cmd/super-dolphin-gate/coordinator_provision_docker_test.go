@@ -458,8 +458,9 @@ func runProductionProvisionOwnerHook(
 	checkpoint := coordinatorTestCheckpoint(t)
 	serveResult := startProductionProvisionOwner(t, checkpoint, dependencies)
 	connector := productionProvisionHookConnector(config, checkpoint)
+	tree := strings.TrimSpace(runHookTestGit(t, repository, "write-tree"))
 	hookErr := runHookWithConnector(
-		[]string{"pre-commit"}, bytes.NewReader(nil), &bytes.Buffer{}, repository, connector,
+		[]string{"pre-commit", "--tree", tree}, bytes.NewReader(nil), &bytes.Buffer{}, repository, connector,
 	)
 	if hookErr == nil {
 		assertSuccessfulProductionProvisionHook(t, config, checkpoint, accepted)

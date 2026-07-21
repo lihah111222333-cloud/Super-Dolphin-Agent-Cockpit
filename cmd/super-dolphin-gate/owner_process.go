@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"strings"
 	"syscall"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/localci"
@@ -42,7 +43,28 @@ func (executableOwnerStarter) StartCoordinatorOwner(ctx context.Context, checkpo
 
 // newCoordinatorOwnerCommand 让 daemon 生命周期独立于有界握手 context。
 func newCoordinatorOwnerCommand(executable string, args ...string) *exec.Cmd {
-	return exec.Command(executable, args...)
+	command := exec.Command(executable, args...)
+	command.Env = coordinatorOwnerEnvironment(os.Environ())
+	return command
+}
+
+// coordinatorOwnerEnvironment 从 owner 子进程移除调用方可控的 Git 仓库定位状态。
+func coordinatorOwnerEnvironment(environment []string) []string {
+	blocked := map[string]struct{}{
+		"GIT_DIR": {}, "GIT_WORK_TREE": {}, "GIT_COMMON_DIR": {}, "GIT_INDEX_FILE": {}, "GIT_OBJECT_DIRECTORY": {},
+		"GIT_ALTERNATE_OBJECT_DIRECTORIES": {}, "GIT_CONFIG": {}, "GIT_CONFIG_GLOBAL": {}, "GIT_CONFIG_SYSTEM": {}, "GIT_CONFIG_COUNT": {},
+	}
+	filtered := make([]string, 0, len(environment))
+	for _, entry := range environment {
+		name, _, found := strings.Cut(entry, "=")
+		if found {
+			if _, blocked := blocked[name]; blocked {
+				continue
+			}
+		}
+		filtered = append(filtered, entry)
+	}
+	return filtered
 }
 
 // startCoordinatorOwnerCommand 在调用方 deadline 内启动、校验握手并移交 owner 子进程。

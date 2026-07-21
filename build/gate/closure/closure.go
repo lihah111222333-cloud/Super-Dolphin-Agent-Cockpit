@@ -42,6 +42,7 @@ type inputManifest struct {
 type toolchainLock struct {
 	SchemaVersion      string   `json:"schema_version"`
 	BuildKitVersion    string   `json:"buildkit_version"`
+	BuildKitImage      string   `json:"buildkit_image"`
 	DockerfileFrontend string   `json:"dockerfile_frontend"`
 	SourceDateEpoch    string   `json:"source_date_epoch"`
 	TargetPlatforms    []string `json:"target_platforms"`

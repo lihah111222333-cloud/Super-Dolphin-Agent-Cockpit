@@ -52,6 +52,7 @@ type BuildKitBuildRequest struct {
 	DockerfileDigest    string
 	Platform            string
 	BuildKitVersion     string
+	BuildKitImage       string
 	DockerfileFrontend  string
 	BuildArguments      []BuildArgument
 	NetworkPolicy       string
@@ -424,7 +425,7 @@ func assemblePreparedCandidate(request CandidateRequest, manifest buildInputMani
 	manifestDigest := bytesDigest(manifestData)
 	toolchainDigest := bytesDigest(lockData)
 	dockerfileDigest := bytesDigest(dockerfile)
-	fields := []string{canonical.ContextDigest, canonical.InputDigest, manifestDigest, toolchainDigest, dockerfileDigest, request.PolicyDigest, request.ImageSchemaVersion, request.Platform, lock.BuildKitVersion, lock.DockerfileFrontend, lock.NetworkPolicy}
+	fields := []string{canonical.ContextDigest, canonical.InputDigest, manifestDigest, toolchainDigest, dockerfileDigest, request.PolicyDigest, request.ImageSchemaVersion, request.Platform, lock.BuildKitVersion, lock.BuildKitImage, lock.DockerfileFrontend, lock.NetworkPolicy}
 	for _, argument := range arguments {
 		fields = append(fields, argument.Name, argument.Value)
 	}
@@ -438,7 +439,7 @@ func assemblePreparedCandidate(request CandidateRequest, manifest buildInputMani
 		ContextTar: append([]byte(nil), canonical.Tar...), ContextDigest: canonical.ContextDigest,
 		InputManifestDigest: manifestDigest, InputDigest: inputDigest, ToolchainDigest: toolchainDigest,
 		DockerfilePath: manifest.Dockerfile, DockerfileDigest: dockerfileDigest, Platform: request.Platform,
-		BuildKitVersion: lock.BuildKitVersion, DockerfileFrontend: lock.DockerfileFrontend,
+		BuildKitVersion: lock.BuildKitVersion, BuildKitImage: lock.BuildKitImage, DockerfileFrontend: lock.DockerfileFrontend,
 		BuildArguments: append([]BuildArgument(nil), arguments...), NetworkPolicy: lock.NetworkPolicy, CacheNamespace: inputDigest,
 	}
 	return preparedCandidate{result: result, buildRequest: buildRequest}

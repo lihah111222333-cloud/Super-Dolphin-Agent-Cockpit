@@ -67,6 +67,7 @@ func productionBuildInputFiles() map[string]string {
 
 func productionToolchainLock() string {
 	return "{\n  \"schema_version\": \"1\",\n  \"buildkit_version\": \"v0.26.2\",\n" +
+		"  \"buildkit_image\": \"docker.io/moby/buildkit@sha256:" + strings.Repeat("d", 64) + "\",\n" +
 		"  \"dockerfile_frontend\": \"builtin:dockerfile.v1\",\n  \"source_date_epoch\": \"0\",\n" +
 		"  \"target_platforms\": [\"linux/amd64\",\"linux/arm64\"],\n" +
 		"  \"base_images\": [{\"name\":\"GO_IMAGE\",\"reference\":\"registry.example.invalid/base/golang@sha256:" + strings.Repeat("b", 64) + "\"}],\n" +

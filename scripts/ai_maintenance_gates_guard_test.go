@@ -43,8 +43,9 @@ func TestAIMaintenanceGateVerifiesLocalHookArtifacts(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertScriptContains(t, script, "go run ./scripts/ai_maintenance run \"$@\"")
-	assertScriptContains(t, preCommit, `"$gate_bin" hook pre-commit >"$gate_output_file" 2>&1`)
-	assertScriptContains(t, preCommit, `exec "$gate_bin" wait --job "$job_id"`)
+	assertScriptContains(t, preCommit, `if ! "$gate_bin" closure check --tree "$staged_tree"; then`)
+	assertScriptContains(t, preCommit, `"$gate_bin" hook pre-commit --tree "$staged_tree" >"$gate_output_file" 2>&1`)
+	assertScriptContains(t, preCommit, `"$gate_bin" wait --job "$job_id" --tree "$staged_tree" >"$wait_output_file" 2>&1`)
 	assertScriptContains(t, prePush, `exec "$gate_bin" hook pre-push "$1" "$2"`)
 	for name, hook := range map[string]string{"pre-commit": preCommit, "pre-push": prePush} {
 		for _, forbidden := range []string{"ai_maintenance", "test_with_guard", "go run", "npm ", "make "} {

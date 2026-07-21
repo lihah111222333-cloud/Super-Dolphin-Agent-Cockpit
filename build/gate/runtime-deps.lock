@@ -77,7 +77,7 @@
   ],
   "inputs": {
     "dockerfile_sha256": "sha256:df4d734d1cbfc6380e5193924780e99c82ed9aba3f7b699f2da1871c1f18bd93",
-    "toolchain_lock_sha256": "sha256:21114a9fc60dbb36bae349d3eb91bd4583060f38b651613f98af208545ce97db",
+  "toolchain_lock_sha256": "sha256:2aa55ab265ffa2286a44717185a30903f7fd0b6dd809fca00ca6c00324a7fde3",
     "go_mod_sha256": "sha256:9f4aea0fd1a670a04d55cc30a53ba509f86ae34773ba59fbfd526322d556733d",
     "go_sum_sha256": "sha256:71781753bbeb956c9ee9ac4db329e6bf9697630e00daa85e3d0cb0f355991c36",
     "nilness_runner_sha256": "sha256:95dc872b202a527293eb57887ddb8fb4caf0a9f6ec5169fd17cbff99f74e8b9d",

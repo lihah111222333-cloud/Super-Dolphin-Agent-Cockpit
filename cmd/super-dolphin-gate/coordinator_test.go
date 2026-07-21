@@ -287,6 +287,43 @@ func TestCoordinatorDuplicateJobEnqueueIsIdempotent(t *testing.T) {
 	}
 }
 
+func TestCoordinatorInvocationClockDefersForUnexecutedCleanupShard(t *testing.T) {
+	started := time.Date(2026, 7, 21, 0, 0, 0, 0, time.UTC)
+	for _, phase := range []localci.FreshContainerLifecyclePhase{
+		localci.FreshContainerPhaseRemovalPending,
+		localci.FreshContainerPhaseRemoved,
+	} {
+		t.Run(string(phase), func(t *testing.T) {
+			shard := coordinatorShardRecord{ContainerPhase: phase, StartedAt: &started}
+			if err := validateStoredShardExecutionClock(shard); err != nil {
+				t.Fatalf("cleanup shard execution clock = %v", err)
+			}
+			record := coordinatorJobRecord{
+				State: jobStateStarted, Profile: gatecontract.ProfileLocalFast,
+				ContainerShards: []coordinatorShardRecord{shard},
+			}
+			if err := validateCoordinatorShardClocks(record); err != nil {
+				t.Fatalf("cleanup shard invocation clock = %v", err)
+			}
+		})
+	}
+}
+
+func TestCoordinatorInvocationClockRejectsExecutingShardWithoutDeadline(t *testing.T) {
+	started := time.Date(2026, 7, 21, 0, 0, 0, 0, time.UTC)
+	shard := coordinatorShardRecord{ContainerPhase: localci.FreshContainerPhaseStarted, StartedAt: &started}
+	if err := validateStoredShardExecutionClock(shard); !errors.Is(err, errCoordinatorState) {
+		t.Fatalf("executing shard validation error = %v, want coordinator state error", err)
+	}
+	record := coordinatorJobRecord{
+		State: jobStateStarted, Profile: gatecontract.ProfileLocalFast,
+		ContainerShards: []coordinatorShardRecord{shard},
+	}
+	if err := validateCoordinatorShardClocks(record); !errors.Is(err, errCoordinatorState) {
+		t.Fatalf("executing shard invocation clock error = %v, want coordinator state error", err)
+	}
+}
+
 func TestCoordinatorCandidateBuildBlocksThreeShardGangUntilAllSlotsFree(t *testing.T) {
 	fixture := startCoordinatorSlotTestFixture(t)
 	client := fixture.client
@@ -500,6 +537,17 @@ func TestCoordinatorStatusAndWaitCLIEmitStructuredState(t *testing.T) {
 		if err := json.Unmarshal(output.Bytes(), &status); err != nil || status.JobID != "job-1" || !status.Terminal {
 			t.Fatalf("structured status=%#v error=%v output=%s", status, err, output.String())
 		}
+	}
+}
+
+func TestWaitCLIRejectsMismatchedAuthoritativeTree(t *testing.T) {
+	client := &scriptedCoordinatorClient{
+		status: jobStatus{JobID: "job-1", State: jobStatePassed, Terminal: true, JobSourceTreeSHA: "tree-a"},
+	}
+	connector := func(context.Context) (coordinatorClient, error) { return client, nil }
+	err := runWaitWithConnector([]string{"--job", "job-1", "--tree", "tree-b"}, &bytes.Buffer{}, connector)
+	if err == nil || !strings.Contains(err.Error(), "does not match staged tree") {
+		t.Fatalf("runWaitWithConnector() error = %v", err)
 	}
 }
 

@@ -219,18 +219,14 @@ func manualSubmissionAuthority() submissionAuthority {
 	}
 }
 
-// runClosureCheck 对当前 index tree 执行受信 CLI 内的不可缓存 gate-image closure witness。
+// runClosureCheck 对 hook 首次捕获的 staged tree 执行受信 CLI 内的不可缓存 closure witness。
 func runClosureCheck(args []string) error {
-	if len(args) != 1 || args[0] != "check" {
-		return protocolError("closure subcommand must be check")
+	if len(args) != 3 || args[0] != "check" || args[1] != "--tree" {
+		return protocolError("closure check requires one --tree <staged-tree-sha> argument")
 	}
-	treeOutput, err := exec.Command("git", "write-tree").Output()
-	if err != nil {
-		return infrastructureError("resolve staged tree for gate-image closure: %v", err)
-	}
-	tree := strings.TrimSpace(string(treeOutput))
+	tree := strings.TrimSpace(args[2])
 	if tree == "" {
-		return infrastructureError("resolve staged tree for gate-image closure: empty tree")
+		return protocolError("closure check staged tree sha is required")
 	}
 	repositoryRoot, err := exec.Command("git", "rev-parse", "--show-toplevel").Output()
 	if err != nil {
@@ -269,7 +265,7 @@ func runWait(args []string, stdout io.Writer) error {
 
 // runWaitWithConnector 通过调用方提供的严格 connector 等待 job。
 func runWaitWithConnector(args []string, stdout io.Writer, connector coordinatorConnector) error {
-	jobID, err := parseRequiredFlag("wait", "job", args)
+	jobID, expectedTree, err := parseWaitArgs(args)
 	if err != nil {
 		return err
 	}
@@ -278,8 +274,26 @@ func runWaitWithConnector(args []string, stdout io.Writer, connector coordinator
 		if waitErr != nil {
 			return infrastructureError("wait for gate job: %v", waitErr)
 		}
+		if expectedTree != "" && status.JobSourceTreeSHA != expectedTree {
+			return gatecontract.WithExitCode(
+				gatecontract.ExitGateViolation,
+				fmt.Errorf("waited gate job tree %s does not match staged tree %s", status.JobSourceTreeSHA, expectedTree),
+			)
+		}
 		return encodeTerminalStatus(stdout, status)
 	})
+}
+
+// parseWaitArgs 解析 job 与可选的 authoritative staged tree，拒绝无绑定等待。
+func parseWaitArgs(args []string) (string, string, error) {
+	if len(args) == 2 && args[0] == "--job" && strings.TrimSpace(args[1]) != "" {
+		return args[1], "", nil
+	}
+	if len(args) == 4 && args[0] == "--job" && strings.TrimSpace(args[1]) != "" &&
+		args[2] == "--tree" && strings.TrimSpace(args[3]) != "" {
+		return args[1], args[3], nil
+	}
+	return "", "", protocolError("wait requires --job <job-id> and optional --tree <staged-tree-sha>")
 }
 
 // encodeSubmittedStatus preserves asynchronous submit by default, while --wait keeps terminal observation on the same coordinator connection.

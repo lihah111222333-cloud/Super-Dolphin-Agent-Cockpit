@@ -7,24 +7,30 @@ if [[ -z "$gate_bin" || ! -x "$gate_bin" ]]; then
   exit 1
 fi
 
-if ! "$gate_bin" closure check; then
+if ! staged_tree=$(git write-tree); then
+  printf '%s\n' 'pre-commit blocked: cannot capture the authoritative staged tree.' >&2
+  exit 1
+fi
+if [[ -z "$staged_tree" ]]; then
+  printf '%s\n' 'pre-commit blocked: cannot capture the authoritative staged tree.' >&2
+  exit 1
+fi
+
+if ! "$gate_bin" closure check --tree "$staged_tree"; then
   printf '%s\n' 'pre-commit blocked: gate-image closure verification failed for the staged tree.' >&2
   exit 1
 fi
 
-while IFS= read -r variable; do
-  [[ -n "$variable" ]] && unset "$variable"
-done < <(git rev-parse --local-env-vars)
-
 umask 077
 gate_output_file=$(mktemp "${TMPDIR:-/tmp}/super-dolphin-precommit.XXXXXX")
+wait_output_file=$(mktemp "${TMPDIR:-/tmp}/super-dolphin-precommit-wait.XXXXXX")
 cleanup_output() {
-  rm -f "$gate_output_file"
+  rm -f "$gate_output_file" "$wait_output_file"
 }
 trap cleanup_output EXIT HUP INT TERM
 
 set +e
-"$gate_bin" hook pre-commit >"$gate_output_file" 2>&1
+"$gate_bin" hook pre-commit --tree "$staged_tree" >"$gate_output_file" 2>&1
 hook_rc=$?
 set -e
 if [[ "$hook_rc" -eq 0 ]]; then
@@ -42,5 +48,23 @@ if [[ ! "$job_id" =~ ^job-[0-9a-f]{32}$ ]]; then
   exit 1
 fi
 cleanup_output
-trap - EXIT HUP INT TERM
-exec "$gate_bin" wait --job "$job_id"
+set +e
+"$gate_bin" wait --job "$job_id" --tree "$staged_tree" >"$wait_output_file" 2>&1
+wait_rc=$?
+set -e
+if [[ "$wait_rc" -ne 0 ]]; then
+  cat "$wait_output_file" >&2
+  exit "$wait_rc"
+fi
+
+if ! final_tree=$(git write-tree); then
+  cat "$wait_output_file" >&2
+  printf '%s\n' 'pre-commit blocked: cannot re-read the staged tree after gate wait.' >&2
+  exit 1
+fi
+if [[ "$final_tree" != "$staged_tree" ]]; then
+  cat "$wait_output_file" >&2
+  printf '%s\n' "pre-commit blocked: staged tree changed during gate wait ($staged_tree -> $final_tree)." >&2
+  exit 1
+fi
+cat "$wait_output_file"

@@ -1,6 +1,7 @@
 {
   "schema_version": "1",
   "buildkit_version": "v0.26.2",
+  "buildkit_image": "docker.io/moby/buildkit@sha256:de10faf919fc71ba4eb1dd7bd6449566d012b0c9436b1c61bfee21d621b009aa",
   "dockerfile_frontend": "builtin:dockerfile.v1",
   "source_date_epoch": "0",
   "target_platforms": [

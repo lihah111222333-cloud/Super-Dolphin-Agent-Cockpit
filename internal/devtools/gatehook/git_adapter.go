@@ -20,19 +20,26 @@ type prePushUpdate struct {
 	remoteSHA string
 }
 
-// NormalizePreCommit 将活动 worktree 的 index 固定为显式 tree+parent submit 请求。
-func NormalizePreCommit(ctx context.Context, cwd, hookInvocationID string) (Request, error) {
+// NormalizePreCommit 将 hook 首次捕获的 staged tree 固定为显式 tree+parent submit 请求。
+func NormalizePreCommit(ctx context.Context, cwd, hookInvocationID, stagedTreeSHA string) (Request, error) {
 	repository, err := resolveGitRepository(ctx, cwd)
 	if err != nil {
 		return Request{}, err
 	}
-	treeSHA, err := repository.stableIndexTree(ctx)
-	if err != nil {
-		return Request{}, err
+	treeSHA := strings.TrimSpace(stagedTreeSHA)
+	if treeSHA == "" {
+		return Request{}, errors.New("pre-commit staged tree sha is required")
+	}
+	if err := repository.verifyObject(ctx, treeSHA, "tree"); err != nil {
+		return Request{}, fmt.Errorf("verify pre-commit staged tree: %w", err)
 	}
 	parentSHA, err := repository.headCommit(ctx)
 	if err != nil {
 		return Request{}, err
+	}
+	source := treeSource(repository.identity.ObjectFormat, treeSHA, parentSHA)
+	if err := source.Validate(); err != nil {
+		return Request{}, fmt.Errorf("validate pre-commit staged tree: %w", err)
 	}
 	invocation, err := gitInvocationIdentity(
 		gatecontract.CIEntrypointGitPreCommit,
@@ -48,7 +55,7 @@ func NormalizePreCommit(ctx context.Context, cwd, hookInvocationID string) (Requ
 		Profile:    gatecontract.ProfileLocalFast,
 		Repository: repository.identity,
 		Invocation: invocation,
-		Source:     treeSource(repository.identity.ObjectFormat, treeSHA, parentSHA),
+		Source:     source,
 	}
 	request := Request{Kind: RequestKindSubmit, Submit: &submit}
 	return request, request.Validate()

@@ -241,10 +241,62 @@ func TestCleanupUnprovedFreshContainerRemovedDoesNotFabricateExitedAt(t *testing
 	if err != nil {
 		t.Fatalf("CleanupUnprovedFreshContainer() error = %v", err)
 	}
-	if !result.Killed || !result.Container.Removed || !result.ExitedAt.IsZero() {
+	if !result.Killed || !result.Container.Removed || result.Container.ContainerID != testContainerID ||
+		result.Container.ResourceWitnessDigest == "" || !result.ExitedAt.IsZero() {
 		t.Fatalf("unproved cleanup result = %#v", result)
 	}
 	assertPendingRemovedLifecycle(t, events)
+}
+
+func TestCleanupUnprovedFreshContainerProvesAbsentIdentity(t *testing.T) {
+	runner, stub, request := freshContainerFixture(t)
+	request.ContainerLabels = map[string]string{"test.cleanup": "absent"}
+	stub.request = request
+	command, err := freshContainerCommand(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	events := make([]FreshContainerLifecycleEvent, 0, 1)
+	cleanup := FreshContainerCleanupRequest{
+		ContainerLabels: request.ContainerLabels,
+		ImageReference:  request.Image.Registry + "@" + request.Image.PlatformManifestDigest,
+		ConfigDigest:    request.Image.ConfigDigest, SourceSnapshotDir: request.SourceSnapshotDir,
+		Command: command, Profile: request.Profile, GateID: request.GateID,
+		LifecycleHook: func(_ context.Context, event FreshContainerLifecycleEvent) error {
+			events = append(events, event)
+			return nil
+		},
+	}
+	result, err := runner.CleanupUnprovedFreshContainer(context.Background(), cleanup)
+	if err != nil {
+		t.Fatalf("CleanupUnprovedFreshContainer() error = %v", err)
+	}
+	assertCleanupAbsenceResult(t, result)
+	assertCleanupAbsenceLifecycle(t, events)
+	assertCleanupAbsenceDidNotMutateContainer(t, stub.calls)
+}
+
+func assertCleanupAbsenceResult(t *testing.T, result FreshContainerResult) {
+	t.Helper()
+	if !result.Container.Removed || result.RemovalProofDigest == "" || !result.ExitedAt.IsZero() {
+		t.Fatalf("absence cleanup result = %#v", result)
+	}
+}
+
+func assertCleanupAbsenceLifecycle(t *testing.T, events []FreshContainerLifecycleEvent) {
+	t.Helper()
+	if len(events) != 1 || events[0].Phase != FreshContainerPhaseRemoved || events[0].ContainerID != "" {
+		t.Fatalf("absence cleanup lifecycle = %#v", events)
+	}
+}
+
+func assertCleanupAbsenceDidNotMutateContainer(t *testing.T, calls [][]string) {
+	t.Helper()
+	for _, call := range calls {
+		if len(call) > 0 && (call[0] == "kill" || call[0] == "rm" || call[0] == "inspect") {
+			t.Fatalf("absent container was mutated or inspected: %#v", calls)
+		}
+	}
 }
 
 func assertPendingRemovedLifecycle(t *testing.T, events []FreshContainerLifecycleEvent) {

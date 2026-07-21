@@ -48,7 +48,7 @@ func recoveryShardNeverStarted(shard coordinatorShardRecord) bool {
 	return shard.ContainerPhase == "" || shard.ContainerPhase == localci.FreshContainerPhasePrepared
 }
 
-// recoveryShardCleanupRequest 用 durable shard 身份构造恢复期清理请求。
+// recoveryShardCleanupRequest 用 durable shard 身份构造恢复期清理请求，不依赖 execution clock。
 func (owner *coordinatorOwner) recoveryShardCleanupRequest(
 	record coordinatorJobRecord,
 	shard coordinatorShardRecord,
@@ -56,17 +56,23 @@ func (owner *coordinatorOwner) recoveryShardCleanupRequest(
 	if recoveryShardNeverStarted(shard) || shard.ContainerPhase == localci.FreshContainerPhaseRemoved {
 		return nil, nil
 	}
-	request, err := owner.recoveryShardRequest(record, shard)
+	if len(shard.Shard.GateIDs) == 0 {
+		return nil, errors.New("recovery shard gate identity is incomplete")
+	}
+	if !reflect.DeepEqual(shard.ContainerLabels, owner.shardContainerLabels(record, shard.Shard)) {
+		return nil, errors.New("recovery shard labels drifted from initial execution")
+	}
+	command, err := gatecontract.ContainerShardExecutorArgv(record.Plan, shard.Shard.GateIDs)
 	if err != nil {
 		return nil, err
 	}
 	return &localci.FreshContainerCleanupRequest{
-		ContainerID: request.ContainerID, ContainerLabels: request.ContainerLabels,
-		ImageReference: request.ImageReference, ConfigDigest: request.ConfigDigest,
-		SourceSnapshotDir: request.SourceSnapshotDir, Command: request.Command,
-		Profile: request.Profile, GateID: request.GateID,
+		ContainerID: shard.ContainerID, ContainerLabels: shard.ContainerLabels,
+		ImageReference: shard.ContainerImageReference, ConfigDigest: shard.ContainerConfigDigest,
+		SourceSnapshotDir: shard.SourceSnapshotDir, Command: command,
+		Profile: record.Profile, GateID: shard.Shard.GateIDs[0],
 		RemovalPending: shard.ContainerPhase == localci.FreshContainerPhaseRemovalPending,
-		LifecycleHook:  request.LifecycleHook,
+		LifecycleHook:  owner.shardCleanupLifecycleHook(record.JobID, shard),
 	}, nil
 }
 
@@ -548,6 +554,30 @@ func (owner *coordinatorOwner) shardContainerLabels(record coordinatorJobRecord,
 func (owner *coordinatorOwner) shardLifecycleHook(jobID string, shard gatecontract.ContainerShard, labels map[string]string) localci.FreshContainerLifecycleHook {
 	return func(ctx context.Context, event localci.FreshContainerLifecycleEvent) error {
 		return owner.store.recordContainerShardLifecycle(ctx, jobID, shard.IdentityDigest, labels, event)
+	}
+}
+
+// shardCleanupLifecycleHook 在 Docker 仅证明资源不存在时延续已验证的持久资源见证。
+func (owner *coordinatorOwner) shardCleanupLifecycleHook(jobID string, shard coordinatorShardRecord) localci.FreshContainerLifecycleHook {
+	return func(ctx context.Context, event localci.FreshContainerLifecycleEvent) error {
+		if shard.ContainerResourceWitnessVerified && shard.ContainerResourceWitness == nil {
+			return errors.New("verified cleanup shard resource witness is missing")
+		}
+		if shard.ContainerResourceWitnessVerified && !lifecycleEventHasResourceWitness(event) {
+			event.HostConfigDigest = shard.ContainerHostConfigDigest
+			event.ResourceWitness = *shard.ContainerResourceWitness
+			event.ResourceWitnessDigest = shard.ContainerResourceWitnessDigest
+		}
+		if event.ExitedAt.IsZero() && shard.ExitedAt != nil {
+			event.ExitedAt = *shard.ExitedAt
+			if shard.CompletedAt != nil {
+				event.CompletedAt = *shard.CompletedAt
+			}
+			if shard.ExitCode != nil {
+				event.ExitCode = *shard.ExitCode
+			}
+		}
+		return owner.store.recordContainerShardLifecycle(ctx, jobID, shard.Shard.IdentityDigest, shard.ContainerLabels, event)
 	}
 }
 

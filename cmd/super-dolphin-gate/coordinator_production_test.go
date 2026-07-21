@@ -261,6 +261,16 @@ func TestProductionBareTrustedRefPromotesBuiltCandidateWithRealEd25519(t *testin
 	assertProductionCandidatePromoted(t, promotion)
 }
 
+func TestProductionStagedTreePromotionAdvancesGenerationAndRemainsExecutable(t *testing.T) {
+	fixture := newProductionTestFixture(t)
+	staged := planProductionStagedTreePromotion(t, fixture)
+	assertProductionStagedTreeCandidate(t, fixture, &staged)
+	assertProductionStagedTreeRecovery(t, fixture, staged)
+	promotion, accepted := promoteProductionStagedTreeCandidate(t, fixture, staged.queued)
+	assertProductionStagedTreePromoted(t, accepted, staged)
+	assertProductionStagedTreeExecutable(t, fixture, promotion, accepted, staged)
+}
+
 func commitProductionCandidate(t *testing.T, fixture productionTestFixture) (string, localci.ReadOnlyGitTree) {
 	t.Helper()
 	changeProductionBuildInput(t, fixture.sourceRepo, "go.mod", "module example.invalid/promoted\n")

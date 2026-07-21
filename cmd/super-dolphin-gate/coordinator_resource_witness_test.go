@@ -34,6 +34,38 @@ func TestCoordinatorOOMTerminalPersistsVerifiedResourceWitnessAfterRemoval(t *te
 	assertTransportedResourceWitness(t, transported, witness, digest)
 }
 
+func TestCoordinatorShardStatusAggregatesOnlyCommonVerifiedResourceWitness(t *testing.T) {
+	witness, digest := testContainerResourceWitness()
+	record := coordinatorJobRecord{ContainerShards: make([]coordinatorShardRecord, 3)}
+	for index := range record.ContainerShards {
+		copy := witness
+		record.ContainerShards[index] = coordinatorShardRecord{
+			ContainerHostConfigDigest: coordinatorDigest("5"), ContainerResourceWitness: &copy,
+			ContainerResourceWitnessDigest: digest, ContainerResourceWitnessVerified: true,
+		}
+	}
+	status := record.status()
+	want := resourceWitnessEvidence{Witness: &witness, Digest: digest, HostDigest: coordinatorDigest("5"), Verified: true}
+	got := resourceWitnessEvidence{Witness: status.ContainerResourceWitness, Digest: status.ContainerResourceWitnessDigest,
+		HostDigest: status.ContainerHostConfigDigest, Verified: status.ContainerResourceWitnessVerified}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("aggregated shard resource evidence = %+v, want %+v", got, want)
+	}
+
+	record.ContainerShards[1].ContainerResourceWitnessVerified = false
+	status = record.status()
+	if status.ContainerResourceWitnessVerified || status.ContainerResourceWitness != nil ||
+		status.ContainerResourceWitnessDigest != "" || status.ContainerHostConfigDigest != "" {
+		t.Fatalf("status exposed partially verified shard resource evidence: %+v", status)
+	}
+	record.ContainerShards[1].ContainerResourceWitnessVerified = true
+	record.ContainerShards[1].ContainerResourceWitness.PidsLimit++
+	status = record.status()
+	if status.ContainerResourceWitnessVerified || status.ContainerResourceWitness != nil {
+		t.Fatalf("status aggregated inconsistent shard resource evidence: %+v", status)
+	}
+}
+
 func assertOOMTerminalRecord(t *testing.T, loaded coordinatorJobRecord) {
 	t.Helper()
 	want := struct {

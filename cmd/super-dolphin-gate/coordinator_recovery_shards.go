@@ -452,14 +452,18 @@ func validateStoredShardContainerIdentity(record coordinatorShardRecord) error {
 func validateStoredShardExecutionClock(record coordinatorShardRecord) error {
 	if slices.Contains([]localci.FreshContainerLifecyclePhase{
 		localci.FreshContainerPhaseStarting, localci.FreshContainerPhaseStarted, localci.FreshContainerPhaseExited,
-		localci.FreshContainerPhaseRemovalPending,
 	}, record.ContainerPhase) && (record.StartedAt == nil || record.Deadline == nil) {
 		return fmt.Errorf("%w: coordinator shard execution clock is missing", errCoordinatorState)
 	}
-	if record.StartedAt != nil && record.Deadline == nil {
+	if record.StartedAt != nil && record.Deadline == nil && !cleanupShardMayLackExecutionDeadline(record.ContainerPhase) {
 		return fmt.Errorf("%w: coordinator shard deadline is missing", errCoordinatorState)
 	}
 	return nil
+}
+
+// cleanupShardMayLackExecutionDeadline 仅允许已进入清理阶段的未执行分片保留开始标记而缺少执行期限。
+func cleanupShardMayLackExecutionDeadline(phase localci.FreshContainerLifecyclePhase) bool {
+	return phase == localci.FreshContainerPhaseRemovalPending || phase == localci.FreshContainerPhaseRemoved
 }
 
 // validateStoredShardCompletion 校验 exited 与可选完成证据的时序和退出码。
@@ -623,7 +627,10 @@ func validateRecoveredCoordinatorShardSet(record coordinatorJobRecord) error {
 
 // validateCoordinatorShardClocks 证明 job 时钟来自最早 shard 且所有已启动 shard 共用 deadline。
 func validateCoordinatorShardClocks(record coordinatorJobRecord) error {
-	started := startedCoordinatorShards(record.ContainerShards)
+	started, err := startedCoordinatorShards(record.ContainerShards)
+	if err != nil {
+		return err
+	}
 	if len(started) == 0 {
 		return validateUnstartedInvocationClock(record)
 	}
@@ -634,14 +641,22 @@ func validateCoordinatorShardClocks(record coordinatorJobRecord) error {
 	return validateCoordinatorInvocationClock(record, firstStart, deadline)
 }
 
-func startedCoordinatorShards(shards []coordinatorShardRecord) []coordinatorShardRecord {
+// startedCoordinatorShards 收集拥有完整执行时钟的分片，并拒绝非清理阶段的半时钟状态。
+func startedCoordinatorShards(shards []coordinatorShardRecord) ([]coordinatorShardRecord, error) {
 	started := make([]coordinatorShardRecord, 0, len(shards))
 	for _, shard := range shards {
-		if shard.StartedAt != nil {
-			started = append(started, shard)
+		if shard.StartedAt == nil {
+			continue
 		}
+		if shard.Deadline == nil {
+			if cleanupShardMayLackExecutionDeadline(shard.ContainerPhase) {
+				continue
+			}
+			return nil, fmt.Errorf("%w: coordinator shard deadline is missing", errCoordinatorState)
+		}
+		started = append(started, shard)
 	}
-	return started
+	return started, nil
 }
 
 // 校验未启动分片调用的时钟要么全缺失，要么严格等于启动时刻加配置超时；不完整或漂移立即返回协调状态错误。

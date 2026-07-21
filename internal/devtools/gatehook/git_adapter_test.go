@@ -17,7 +17,8 @@ func TestNormalizePreCommitUsesActiveLinkedWorktreeIndex(t *testing.T) {
 	writeTestFile(t, linked, "tracked.txt", "staged linked worktree\n")
 	runTestGit(t, linked, "add", "tracked.txt")
 
-	request, err := NormalizePreCommit(context.Background(), linked, "hook-commit-1")
+	expectedTree := strings.TrimSpace(runTestGit(t, linked, "write-tree"))
+	request, err := NormalizePreCommit(context.Background(), linked, "hook-commit-1", expectedTree)
 	if err != nil {
 		t.Fatalf("NormalizePreCommit: %v", err)
 	}
@@ -25,7 +26,6 @@ func TestNormalizePreCommitUsesActiveLinkedWorktreeIndex(t *testing.T) {
 	if err != nil {
 		t.Fatalf("EvalSymlinks linked worktree: %v", err)
 	}
-	expectedTree := strings.TrimSpace(runTestGit(t, linked, "write-tree"))
 	expectedParent := strings.TrimSpace(runTestGit(t, linked, "rev-parse", "HEAD"))
 	if request.Submit.Repository.WorktreeRoot != canonicalLinked {
 		t.Fatalf("worktree root = %q, want %q", request.Submit.Repository.WorktreeRoot, canonicalLinked)
@@ -33,7 +33,7 @@ func TestNormalizePreCommitUsesActiveLinkedWorktreeIndex(t *testing.T) {
 	if request.Submit.Source.Tree.SHA != expectedTree || request.Submit.Source.Tree.ParentCommitSHA != expectedParent {
 		t.Fatalf("source = %#v, want tree %s parent %s", request.Submit.Source, expectedTree, expectedParent)
 	}
-	replay, err := NormalizePreCommit(context.Background(), linked, "hook-commit-1")
+	replay, err := NormalizePreCommit(context.Background(), linked, "hook-commit-1", expectedTree)
 	if err != nil {
 		t.Fatalf("NormalizePreCommit replay: %v", err)
 	}

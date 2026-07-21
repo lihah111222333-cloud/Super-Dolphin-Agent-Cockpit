@@ -138,9 +138,6 @@ func validateRemovedLifecycleExit(event FreshContainerLifecycleEvent, status gat
 	if status != gate.ResultStatusInfraFailed || event.ExitCode != -1 {
 		return errors.New("removed container lifecycle is missing trusted exited_at")
 	}
-	if strings.TrimSpace(event.ContainerID) == "" {
-		return errors.New("removed container lifecycle without exited_at requires container identity")
-	}
 	if err := validateDigest("removal proof digest", event.RemovalProofDigest); err != nil {
 		return fmt.Errorf("removed container lifecycle without exited_at: %w", err)
 	}
@@ -672,26 +669,171 @@ func (runner *FreshContainerRunner) CleanupUnprovedFreshContainer(
 		Profile: request.Profile, GateID: request.GateID, LifecycleHook: request.LifecycleHook,
 	}
 	result := FreshContainerResult{Status: gate.ResultStatusInfraFailed, ImageReference: request.ImageReference, ExitCode: -1}
-	container := newContainerRequest(recovery.ImageReference, recovery.SourceSnapshotDir, recovery.Command, recovery.Profile == gate.ProfileRelease, recovery.ContainerLabels)
-	if ctx == nil || runner == nil || runner.docker == nil {
-		return result, errors.New("cleanup runner and context are required")
-	}
-	if err := runner.docker.validateContainerRequest(container); err != nil {
+	if err := runner.validateCleanupRequest(ctx, recovery); err != nil {
 		return result, err
 	}
 	if request.RemovalPending {
 		return runner.replayPendingRemoval(ctx, recovery, result)
 	}
-	containerID, err := runner.resolveRecoveryContainer(ctx, recovery)
+	containerID, absent, err := runner.resolveCleanupContainer(ctx, recovery)
 	if err != nil {
 		return result, err
 	}
+	if absent {
+		return runner.proveCleanupAbsence(ctx, recovery, result)
+	}
 	result.setContainerID(containerID)
-	document, err := runner.inspectContainer(ctx, containerID)
+	document, absent, err := runner.inspectCleanupContainer(ctx, recovery, containerID)
+	if absent {
+		return runner.proveCleanupAbsence(ctx, recovery, result)
+	}
 	if err == nil {
 		err = runner.validateRecoveryContainerIdentity(document, recovery)
 	}
+	if err == nil {
+		err = runner.attachCleanupResourceWitness(&result, document, recovery)
+	}
 	return runner.terminateUnprovedRecovery(ctx, recovery, result, err)
+}
+
+// validateCleanupRequest 校验清理运行器和待清理容器请求均可安全使用。
+func (runner *FreshContainerRunner) validateCleanupRequest(ctx context.Context, request FreshContainerRecoveryRequest) error {
+	if ctx == nil {
+		return errors.New("cleanup runner and context are required")
+	}
+	if runner == nil {
+		return errors.New("cleanup runner and context are required")
+	}
+	if runner.docker == nil {
+		return errors.New("cleanup runner and context are required")
+	}
+	container := newContainerRequest(request.ImageReference, request.SourceSnapshotDir, request.Command, request.Profile == gate.ProfileRelease, request.ContainerLabels)
+	return runner.docker.validateContainerRequest(container)
+}
+
+// inspectCleanupContainer 在精确持久身份已消失时返回 absence proof，否则保留原始检查错误。
+func (runner *FreshContainerRunner) inspectCleanupContainer(
+	ctx context.Context,
+	request FreshContainerRecoveryRequest,
+	containerID string,
+) (containerInspectDocument, bool, error) {
+	document, err := runner.inspectContainer(ctx, containerID)
+	if err == nil || request.ContainerID == "" {
+		return document, false, err
+	}
+	absent, absenceErr := runner.cleanupIdentityAbsent(ctx, request.ContainerID)
+	if absenceErr != nil {
+		return document, false, errors.Join(err, absenceErr)
+	}
+	return document, absent, err
+}
+
+// attachCleanupResourceWitness 将已验证的容器资源契约保留到清理生命周期中。
+func (runner *FreshContainerRunner) attachCleanupResourceWitness(
+	result *FreshContainerResult,
+	document containerInspectDocument,
+	request FreshContainerRecoveryRequest,
+) error {
+	canonical, err := runner.validateContainerContract(
+		document, result.Container.ContainerID, request.ImageReference, request.ConfigDigest,
+		request.SourceSnapshotDir, request.Command,
+	)
+	if err != nil {
+		return err
+	}
+	if err := validateExpectedContainerLabels(document, request.ContainerLabels); err != nil {
+		return err
+	}
+	hostConfigDigest, err := digestJSON(canonical)
+	if err != nil {
+		return fmt.Errorf("digest cleanup container host config: %w", err)
+	}
+	witness := gate.ContainerResourceWitness{
+		SchemaVersion: gate.ContainerResourceWitnessSchemaVersion,
+		NanoCPUs:      canonical.NanoCPUs, MemoryBytes: canonical.Memory, PidsLimit: canonical.PidsLimit,
+	}
+	witnessDigest, err := witness.Digest()
+	if err != nil {
+		return fmt.Errorf("digest cleanup container resource witness: %w", err)
+	}
+	result.Container.HostConfigDigest = hostConfigDigest
+	result.Container.ResourceWitness = witness
+	result.Container.ResourceWitnessDigest = witnessDigest
+	return nil
+}
+
+// resolveCleanupContainer 将精确持久身份未返回容器视为不存在证明。
+func (runner *FreshContainerRunner) resolveCleanupContainer(
+	ctx context.Context,
+	request FreshContainerRecoveryRequest,
+) (string, bool, error) {
+	if request.ContainerID != "" {
+		return request.ContainerID, false, nil
+	}
+	args := []string{"ps", "--all", "--no-trunc"}
+	keys := make([]string, 0, len(request.ContainerLabels))
+	for key := range request.ContainerLabels {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		args = append(args, "--filter=label="+key+"="+request.ContainerLabels[key])
+	}
+	args = append(args, "--format={{.ID}}")
+	output, err := runner.runCleanup(ctx, args...)
+	if err != nil {
+		return "", false, fmt.Errorf("discover cleanup container: %w", err)
+	}
+	lines := strings.Fields(output)
+	if len(lines) == 0 {
+		return "", true, nil
+	}
+	if len(lines) != 1 || !isContainerID(lines[0]) {
+		return "", false, fmt.Errorf("cleanup identity resolved %d canonical containers, want at most 1", len(lines))
+	}
+	return lines[0], false, nil
+}
+
+func (runner *FreshContainerRunner) cleanupIdentityAbsent(ctx context.Context, containerID string) (bool, error) {
+	output, err := runner.runCleanup(ctx, "ps", "--all", "--no-trunc", "--filter=id="+containerID, "--format={{.ID}}")
+	if err != nil {
+		return false, fmt.Errorf("prove cleanup container absence: %w", err)
+	}
+	return strings.TrimSpace(output) == "", nil
+}
+
+// proveCleanupAbsence records Docker's zero-match result without inventing an execution clock.
+func (runner *FreshContainerRunner) proveCleanupAbsence(
+	ctx context.Context,
+	recovery FreshContainerRecoveryRequest,
+	result FreshContainerResult,
+) (FreshContainerResult, error) {
+	result.Container.Removed = true
+	result.RemovalProofDigest = cleanupAbsenceProofDigest(recovery)
+	result.Evidence = append(result.Evidence, gate.Evidence{Kind: gate.EvidenceKindDocker, Digest: result.RemovalProofDigest})
+	if err := runner.emitCleanupLifecycle(ctx, freshContainerRequestForRecovery(recovery), result, FreshContainerPhaseRemoved); err != nil {
+		return result, err
+	}
+	return result, nil
+}
+
+func cleanupAbsenceProofDigest(request FreshContainerRecoveryRequest) string {
+	keys := make([]string, 0, len(request.ContainerLabels))
+	for key := range request.ContainerLabels {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	var proof strings.Builder
+	proof.WriteString("absent\n")
+	proof.WriteString(request.ContainerID)
+	proof.WriteByte('\n')
+	for _, key := range keys {
+		proof.WriteString(key)
+		proof.WriteByte('=')
+		proof.WriteString(request.ContainerLabels[key])
+		proof.WriteByte('\n')
+	}
+	return digestBytes([]byte(proof.String()))
 }
 
 // replayPendingRemoval 重放删除意图，并在 Docker 证明容器消失后提交最终证明。

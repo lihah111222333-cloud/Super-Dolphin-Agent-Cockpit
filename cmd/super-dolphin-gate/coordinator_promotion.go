@@ -122,6 +122,7 @@ func configuredPromotionPublicKey(config productionCoordinatorConfig) (ed25519.P
 
 type productionCandidateSubmissionPlanner struct {
 	accepted   *productionAcceptedImageLoader
+	authority  *productionGitAuthority
 	candidates *localci.PromotionCandidateStore
 	config     productionCoordinatorConfig
 	now        func() time.Time
@@ -148,7 +149,7 @@ func newProductionCandidateSubmissionPlanner(
 		return nil, err
 	}
 	return &productionCandidateSubmissionPlanner{
-		accepted:   &productionAcceptedImageLoader{state: state, authority: authority},
+		accepted: &productionAcceptedImageLoader{state: state, authority: authority}, authority: authority,
 		candidates: candidates, config: config, now: time.Now,
 	}, nil
 }
@@ -158,30 +159,113 @@ func (planner *productionCandidateSubmissionPlanner) PlanCandidate(
 	ctx context.Context,
 	request imageEnsureRequest,
 ) (localci.PromotionCandidatePlan, error) {
-	if planner == nil || planner.accepted == nil || planner.candidates == nil || planner.now == nil {
-		return localci.PromotionCandidatePlan{}, errors.New("production candidate submission planner is not configured")
+	if err := planner.validateConfiguration(); err != nil {
+		return localci.PromotionCandidatePlan{}, err
 	}
+	tree, accepted, err := planner.loadCandidateTreeAndAccepted(ctx, request)
+	if err != nil {
+		return localci.PromotionCandidatePlan{}, err
+	}
+	trustedCommit, managedTreeCommit, err := planner.candidateTrustedCommit(ctx, request.RepositoryRoot, request.Plan.Source, accepted)
+	if err != nil {
+		return localci.PromotionCandidatePlan{}, err
+	}
+	if err := planner.verifyCandidateTrustedRef(ctx, accepted, trustedCommit, managedTreeCommit); err != nil {
+		return localci.PromotionCandidatePlan{}, err
+	}
+	plan, err := planner.persistCandidatePlan(ctx, tree, accepted, trustedCommit, request.Plan.PolicyDigest)
+	if err != nil || !managedTreeCommit || !plan.BuildRequired {
+		return plan, err
+	}
+	if err := planner.authority.advanceTrustedRef(ctx, accepted.TrustedCommit, trustedCommit, tree.Source.SourceTreeSHA); err != nil {
+		return localci.PromotionCandidatePlan{}, err
+	}
+	return plan, nil
+}
+
+// validateConfiguration 仅接受完整生产依赖，避免提升路径在缺失 authority 时继续执行。
+func (planner *productionCandidateSubmissionPlanner) validateConfiguration() error {
+	if planner == nil || planner.accepted == nil || planner.authority == nil || planner.candidates == nil || planner.now == nil {
+		return errors.New("production candidate submission planner is not configured")
+	}
+	return nil
+}
+
+// loadCandidateTreeAndAccepted 加载并校验请求 tree，再读取当前 accepted state。
+func (planner *productionCandidateSubmissionPlanner) loadCandidateTreeAndAccepted(
+	ctx context.Context,
+	request imageEnsureRequest,
+) (localci.ReadOnlyGitTree, gatecontract.AcceptedImageRecord, error) {
 	tree, err := localci.LoadReadOnlyGitTree(ctx, request.RepositoryRoot, request.Plan.Source)
 	if err != nil {
-		return localci.PromotionCandidatePlan{}, err
+		return localci.ReadOnlyGitTree{}, gatecontract.AcceptedImageRecord{}, err
 	}
 	if tree.Source.SourceTreeSHA != request.JobSourceTreeSHA {
-		return localci.PromotionCandidatePlan{}, errors.New("candidate planner tree does not match submitted job tree")
+		return localci.ReadOnlyGitTree{}, gatecontract.AcceptedImageRecord{}, errors.New("candidate planner tree does not match submitted job tree")
 	}
-	trustedCommit, err := promotionCommitFromSource(request.Plan.Source)
+	accepted, err := planner.accepted.state.Load(ctx)
 	if err != nil {
-		return localci.PromotionCandidatePlan{}, err
+		return localci.ReadOnlyGitTree{}, gatecontract.AcceptedImageRecord{}, err
 	}
-	accepted, err := planner.accepted.Load(ctx)
-	if err != nil {
-		return localci.PromotionCandidatePlan{}, err
+	return tree, accepted, nil
+}
+
+// verifyCandidateTrustedRef 保持 tree 提升恢复分支与既有 commit-backed 校验的 fail-closed 约束。
+func (planner *productionCandidateSubmissionPlanner) verifyCandidateTrustedRef(
+	ctx context.Context,
+	accepted gatecontract.AcceptedImageRecord,
+	trustedCommit string,
+	managedTreeCommit bool,
+) error {
+	if managedTreeCommit {
+		tip, err := planner.authority.trustedTip(ctx)
+		if err != nil {
+			return err
+		}
+		if tip != accepted.TrustedCommit && tip != trustedCommit {
+			return errors.New("trusted ref changed outside staged-tree promotion recovery")
+		}
+	} else if err := planner.authority.verifyRecord(ctx, accepted); err != nil {
+		return err
 	}
+	return nil
+}
+
+// persistCandidatePlan 以当前 accepted state 与固定时间窗创建或复用不可变 build intent。
+func (planner *productionCandidateSubmissionPlanner) persistCandidatePlan(
+	ctx context.Context,
+	tree localci.ReadOnlyGitTree,
+	accepted gatecontract.AcceptedImageRecord,
+	trustedCommit string,
+	policyDigest string,
+) (localci.PromotionCandidatePlan, error) {
 	createdAt := planner.now().UTC()
 	return planner.candidates.Plan(ctx, accepted, localci.PromotionCandidatePlanRequest{
-		Tree: tree, PolicyDigest: request.Plan.PolicyDigest, Platform: planner.config.Platform,
+		Tree: tree, PolicyDigest: policyDigest, Platform: planner.config.Platform,
 		RepoID: planner.config.RepoID, TrustedRef: planner.config.TrustedRef, TrustedCommit: trustedCommit,
 		CreatedAt: createdAt, ExpiresAt: createdAt.Add(time.Duration(planner.config.CandidateTTLSeconds) * time.Second),
 	})
+}
+
+// candidateTrustedCommit 将 staged tree 内化为 authority 受管的确定性提交；其他 source 保持既有外部 ref 合同。
+func (planner *productionCandidateSubmissionPlanner) candidateTrustedCommit(
+	ctx context.Context,
+	repositoryRoot string,
+	source gatecontract.SourceSpec,
+	accepted gatecontract.AcceptedImageRecord,
+) (string, bool, error) {
+	if source.Kind != gatecontract.SourceKindTree {
+		commit, err := promotionCommitFromSource(source)
+		return commit, false, err
+	}
+	if source.Tree == nil {
+		return "", false, errors.New("staged-tree promotion source is missing tree authority")
+	}
+	commit, err := planner.authority.ensureTreeBackedCommit(ctx, repositoryRoot, source.Tree.SHA, accepted.TrustedCommit)
+	if err != nil {
+		return "", false, err
+	}
+	return commit, true, nil
 }
 
 // promotionCommitFromSource 只接受可精确绑定 trusted ref tip 的 commit-backed source。

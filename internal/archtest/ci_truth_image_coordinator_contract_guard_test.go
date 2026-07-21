@@ -26,12 +26,13 @@ func TestCIEntrypointsRequireCoordinatorCLI(t *testing.T) {
 	path := filepath.Dir(fakeBin) + string(os.PathListSeparator) + os.Getenv("PATH")
 
 	for _, test := range []struct {
-		name string
-		path string
-		args []string
-		want []string
+		name          string
+		path          string
+		args          []string
+		want          []string
+		treeBoundHook bool
 	}{
-		{name: "pre-commit", path: ".githooks/pre-commit", want: []string{"closure check", "hook pre-commit"}},
+		{name: "pre-commit", path: ".githooks/pre-commit", treeBoundHook: true},
 		{name: "pre-push", path: ".githooks/pre-push", args: []string{"origin", "https://example.invalid/repository.git"}, want: []string{"hook pre-push origin https://example.invalid/repository.git"}},
 		{name: "codex-stop", path: "scripts/codex_stop_gate.sh", want: []string{"hook codex"}},
 		{name: "candidate-ci", path: "scripts/ci_truth_image_gate.sh", want: []string{"workflow-host"}},
@@ -46,11 +47,67 @@ func TestCIEntrypointsRequireCoordinatorCLI(t *testing.T) {
 			if output, err := command.CombinedOutput(); err != nil {
 				t.Fatalf("%s must fail closed only through the trusted coordinator: %v\\n%s", test.path, err, output)
 			}
-			if got := contractGuardCommandLog(t, logPath); !slices.Equal(got, test.want) {
+			got := contractGuardCommandLog(t, logPath)
+			if test.treeBoundHook {
+				assertTreeBoundPreCommitCoordinatorCommands(t, root, got)
+				return
+			}
+			if !slices.Equal(got, test.want) {
 				t.Fatalf("%s coordinator argv = %#v, want %#v", test.path, got, test.want)
 			}
 		})
 	}
+}
+
+const queuedCoordinatorJobID = "job-00000000000000000000000000000000"
+
+func assertTreeBoundPreCommitCoordinatorCommands(t *testing.T, root string, got []string) {
+	t.Helper()
+	if len(got) != 3 {
+		t.Fatalf("pre-commit coordinator argv = %#v, want closure, hook, and wait", got)
+	}
+	tree := closureTreeForCoordinatorContractGuard(t, root, strings.Fields(got[0]))
+	assertCoordinatorCommandBindsTree(t, "hook", strings.Fields(got[1]), []string{"hook", "pre-commit", "--tree"}, tree)
+	assertCoordinatorCommandBindsTree(t, "wait", strings.Fields(got[2]), []string{"wait", "--job", queuedCoordinatorJobID, "--tree"}, tree)
+}
+
+func closureTreeForCoordinatorContractGuard(t *testing.T, root string, closure []string) string {
+	t.Helper()
+	if len(closure) != 4 {
+		t.Fatalf("closure coordinator argv = %#v, want closure check --tree <tree>", closure)
+	}
+	if !slices.Equal(closure[:3], []string{"closure", "check", "--tree"}) {
+		t.Fatalf("closure coordinator argv = %#v, want closure check --tree <tree>", closure)
+	}
+	tree := closure[3]
+	if tree != stagedTreeForCoordinatorContractGuard(t, root) {
+		t.Fatalf("closure tree = %q, want current staged tree", tree)
+	}
+	return tree
+}
+
+func assertCoordinatorCommandBindsTree(t *testing.T, name string, command, wantPrefix []string, tree string) {
+	t.Helper()
+	if len(command) != len(wantPrefix)+1 {
+		t.Fatalf("%s coordinator argv = %#v, want %#v followed by tree %q", name, command, wantPrefix, tree)
+	}
+	if !slices.Equal(command[:len(wantPrefix)], wantPrefix) {
+		t.Fatalf("%s coordinator argv = %#v, want %#v followed by tree %q", name, command, wantPrefix, tree)
+	}
+	if command[len(wantPrefix)] != tree {
+		t.Fatalf("%s coordinator tree = %q, want %q", name, command[len(wantPrefix)], tree)
+	}
+}
+
+func stagedTreeForCoordinatorContractGuard(t *testing.T, root string) string {
+	t.Helper()
+	command := exec.Command("git", "write-tree")
+	command.Dir = root
+	output, err := command.Output()
+	if err != nil {
+		t.Fatalf("capture staged tree: %v", err)
+	}
+	return strings.TrimSpace(string(output))
 }
 
 // TestCIWorkflowBootstrapsOnlyTheImmutableCoordinator keeps the exceptional
@@ -180,7 +237,7 @@ func writeCoordinatorCLIForContractGuard(t *testing.T) (logPath, binaryPath stri
 	dir := t.TempDir()
 	logPath = filepath.Join(dir, "coordinator.log")
 	binaryPath = filepath.Join(dir, "super-dolphin-gate")
-	script := fmt.Sprintf("#!/usr/bin/env bash\nset -euo pipefail\nprintf '%%s\\n' \"$*\" >> %q\n", logPath)
+	script := fmt.Sprintf("#!/usr/bin/env bash\nset -euo pipefail\nprintf '%%s\\n' \"$*\" >> %q\nif [[ \"$1\" == \"hook\" && \"$2\" == \"pre-commit\" ]]; then\n  printf 'job=%s\\n'\n  exit 13\nfi\n", logPath, queuedCoordinatorJobID)
 	if err := os.WriteFile(binaryPath, []byte(script), 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -231,7 +288,7 @@ func readCoordinatorContractFile(t *testing.T, path string) string {
 func makefileCITargetRecipes(makefile string) map[string][]string {
 	recipes := make(map[string][]string)
 	current := ""
-	for _, line := range strings.Split(makefile, "\n") {
+	for line := range strings.SplitSeq(makefile, "\n") {
 		if strings.HasPrefix(line, "\t") && current != "" {
 			recipes[current] = append(recipes[current], strings.TrimSpace(line))
 			continue

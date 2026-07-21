@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/ed25519"
 	"encoding/base64"
@@ -236,6 +237,17 @@ type productionGitAuthority struct {
 	trustedRef string
 }
 
+const stagedTreePromotionMessage = "super-dolphin-gate staged tree promotion\n"
+
+var stagedTreePromotionEnvironment = []string{
+	"GIT_AUTHOR_NAME=Super Dolphin Gate Authority",
+	"GIT_AUTHOR_EMAIL=gate-authority@super-dolphin.invalid",
+	"GIT_AUTHOR_DATE=946684800 +0000",
+	"GIT_COMMITTER_NAME=Super Dolphin Gate Authority",
+	"GIT_COMMITTER_EMAIL=gate-authority@super-dolphin.invalid",
+	"GIT_COMMITTER_DATE=946684800 +0000",
+}
+
 // newProductionGitAuthority 打开仓库外自包含 bare mirror 并确认 trusted ref 存在。
 func newProductionGitAuthority(ctx context.Context, config productionCoordinatorConfig) (*productionGitAuthority, error) {
 	gitPath, err := exec.LookPath("git")
@@ -323,8 +335,126 @@ func (authority *productionGitAuthority) trustedTip(ctx context.Context) (string
 	return authority.line(ctx, "rev-parse", "--verify", "--end-of-options", authority.trustedRef+"^{commit}")
 }
 
+// ensureTreeBackedCommit 将精确 staged tree 内化到隔离 bare authority，并创建以 acceptedCommit 为父的确定性提交。
+func (authority *productionGitAuthority) ensureTreeBackedCommit(
+	ctx context.Context,
+	repository string,
+	tree string,
+	acceptedCommit string,
+) (string, error) {
+	if authority == nil || tree == "" || acceptedCommit == "" {
+		return "", errors.New("staged-tree promotion authority input is incomplete")
+	}
+	if err := authority.internalizeTree(ctx, repository, tree); err != nil {
+		return "", err
+	}
+	storedTree, err := authority.line(ctx, "rev-parse", "--verify", "--end-of-options", tree+"^{tree}")
+	if err != nil {
+		return "", err
+	}
+	if storedTree != tree {
+		return "", errors.New("trusted authority tree identity drifted during staged-tree import")
+	}
+	commit, err := authority.lineWithInput(ctx, []byte(stagedTreePromotionMessage), stagedTreePromotionEnvironment,
+		"commit-tree", tree, "-p", acceptedCommit)
+	if err != nil {
+		return "", err
+	}
+	if err := authority.verifyTreeBackedCommit(ctx, commit, tree, acceptedCommit); err != nil {
+		return "", err
+	}
+	return commit, nil
+}
+
+// internalizeTree 仅导入精确 tree 可达对象，不创建任何用户可见 ref。
+func (authority *productionGitAuthority) internalizeTree(ctx context.Context, repository string, tree string) error {
+	pack := authority.sourceCommand(ctx, repository, "pack-objects", "--stdout", "--revs")
+	pack.Stdin = strings.NewReader(tree + "\n")
+	index := authority.command(ctx, "index-pack", "--stdin", "--fix-thin")
+	pipe, err := index.StdinPipe()
+	if err != nil {
+		return fmt.Errorf("open trusted Git object import pipe: %w", err)
+	}
+	var packStderr, indexStderr bytes.Buffer
+	pack.Stdout, pack.Stderr, index.Stderr = pipe, &packStderr, &indexStderr
+	if err := index.Start(); err != nil {
+		return fmt.Errorf("start trusted Git object import: %w", err)
+	}
+	if err := pack.Start(); err != nil {
+		_ = pipe.Close()
+		_ = index.Wait()
+		return fmt.Errorf("start staged-tree object export: %w", err)
+	}
+	packErr := pack.Wait()
+	closeErr := pipe.Close()
+	indexErr := index.Wait()
+	if packErr != nil || closeErr != nil || indexErr != nil {
+		return fmt.Errorf("internalize staged tree: export=%v import=%v close=%v export_stderr=%s import_stderr=%s",
+			packErr, indexErr, closeErr, strings.TrimSpace(packStderr.String()), strings.TrimSpace(indexStderr.String()))
+	}
+	return nil
+}
+
+// advanceTrustedRef 以 accepted tip 为精确 CAS 推进唯一受管 ref，并支持幂等恢复。
+func (authority *productionGitAuthority) advanceTrustedRef(
+	ctx context.Context,
+	acceptedCommit string,
+	candidateCommit string,
+	tree string,
+) error {
+	if err := authority.verifyTreeBackedCommit(ctx, candidateCommit, tree, acceptedCommit); err != nil {
+		return err
+	}
+	tip, err := authority.trustedTip(ctx)
+	if err != nil {
+		return err
+	}
+	switch tip {
+	case candidateCommit:
+		return nil
+	case acceptedCommit:
+		if err := authority.run(ctx, "update-ref", authority.trustedRef, candidateCommit, acceptedCommit); err != nil {
+			return err
+		}
+	default:
+		return errors.New("trusted ref changed before staged-tree promotion CAS")
+	}
+	if tip, err := authority.trustedTip(ctx); err != nil {
+		return err
+	} else if tip != candidateCommit {
+		return errors.New("trusted ref did not advance to staged-tree promotion commit")
+	}
+	return nil
+}
+
+// verifyTreeBackedCommit 验证候选提交的 tree 与唯一父提交均精确绑定。
+func (authority *productionGitAuthority) verifyTreeBackedCommit(ctx context.Context, commit string, tree string, parent string) error {
+	commitTree, err := authority.line(ctx, "rev-parse", "--verify", "--end-of-options", commit+"^{tree}")
+	if err != nil {
+		return err
+	}
+	if commitTree != tree {
+		return errors.New("staged-tree promotion commit tree does not match staged tree")
+	}
+	parents, err := authority.line(ctx, "rev-list", "--parents", "-n", "1", commit)
+	if err != nil {
+		return err
+	}
+	fields := strings.Fields(parents)
+	if len(fields) != 2 || fields[0] != commit || fields[1] != parent {
+		return errors.New("staged-tree promotion commit does not have the accepted commit as its sole parent")
+	}
+	return nil
+}
+
 func (authority *productionGitAuthority) line(ctx context.Context, args ...string) (string, error) {
-	output, err := authority.command(ctx, args...).CombinedOutput()
+	return authority.lineWithInput(ctx, nil, nil, args...)
+}
+
+func (authority *productionGitAuthority) lineWithInput(ctx context.Context, input []byte, environment []string, args ...string) (string, error) {
+	command := authority.commandWithEnvironment(ctx, environment, args...)
+	command.Stdin = bytes.NewReader(input)
+	output, err := command.CombinedOutput()
 	if err != nil {
 		return "", fmt.Errorf("trusted Git %s: %w: %s", args[0], err, strings.TrimSpace(string(output)))
 	}
@@ -335,8 +465,33 @@ func (authority *productionGitAuthority) line(ctx context.Context, args ...strin
 	return line, nil
 }
 
+func (authority *productionGitAuthority) run(ctx context.Context, args ...string) error {
+	output, err := authority.command(ctx, args...).CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("trusted Git %s: %w: %s", args[0], err, strings.TrimSpace(string(output)))
+	}
+	if len(output) != 0 {
+		return fmt.Errorf("trusted Git %s returned unexpected output", args[0])
+	}
+	return nil
+}
+
 func (authority *productionGitAuthority) command(ctx context.Context, args ...string) *exec.Cmd {
+	return authority.commandWithEnvironment(ctx, nil, args...)
+}
+
+func (authority *productionGitAuthority) commandWithEnvironment(ctx context.Context, environment []string, args ...string) *exec.Cmd {
 	commandArgs := append([]string{"--git-dir=" + authority.repository}, args...)
+	command := exec.CommandContext(ctx, authority.gitPath, commandArgs...)
+	command.Env = append([]string{
+		"GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL=" + os.DevNull, "GIT_TERMINAL_PROMPT=0",
+		"LC_ALL=C", "PATH=" + os.Getenv("PATH"),
+	}, environment...)
+	return command
+}
+
+func (authority *productionGitAuthority) sourceCommand(ctx context.Context, repository string, args ...string) *exec.Cmd {
+	commandArgs := append([]string{"-C", repository}, args...)
 	command := exec.CommandContext(ctx, authority.gitPath, commandArgs...)
 	command.Env = []string{
 		"GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL=" + os.DevNull, "GIT_TERMINAL_PROMPT=0",

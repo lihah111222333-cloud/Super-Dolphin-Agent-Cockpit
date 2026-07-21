@@ -28,11 +28,18 @@ func TestPreCommitCleanupFailureFailsHook(t *testing.T) {
 	})
 	writeFixTestGuardFile(t, root, "internal/app/cleanup.go", "package app\n")
 	runFixTestGuardGit(t, root, "add", "internal/app/cleanup.go")
+	stagedTree := strings.TrimSpace(runFixTestGuardGitOutput(t, root, "write-tree"))
 	out, err := runPreCommitHookWithEnv(t, root, map[string]string{"TMPDIR": tmpRoot, "GATE_FORCE_CLEANUP_FAILURE": "1"})
 	if err == nil {
 		t.Fatalf("pre-commit cleanup failure succeeded:\n%s", out)
 	}
-	assertOutputContainsAll(t, out, "fixture closure verified staged tree", "pre-commit cleanup failed", "pre-commit cleanup verification failed")
+	assertOutputContainsAll(t, out,
+		"fixture closure verified staged tree "+stagedTree,
+		"fixture hook queued staged tree "+stagedTree+" job=job-0123456789abcdef0123456789abcdef",
+		"fixture wait verified staged tree "+stagedTree+" job=job-0123456789abcdef0123456789abcdef",
+		"pre-commit cleanup failed",
+		"pre-commit cleanup verification failed",
+	)
 }
 
 func TestPreCommitGateFailureCleansSyntheticWorktree(t *testing.T) {

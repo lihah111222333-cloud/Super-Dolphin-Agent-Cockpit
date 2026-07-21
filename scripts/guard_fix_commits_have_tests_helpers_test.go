@@ -236,6 +236,22 @@ set -euo pipefail
 repository_root=$(git rev-parse --show-toplevel)
 fixture_tmp=
 fixture_worktree=
+fixture_job=job-0123456789abcdef0123456789abcdef
+
+require_current_staged_tree() {
+  local command=$1
+  local tree=$2
+  if ! git -C "$repository_root" rev-parse --verify "$tree^{tree}" >/dev/null; then
+    printf 'fixture gate: %s tree is invalid: %s\n' "$command" "$tree" >&2
+    return 1
+  fi
+  local staged_tree
+  staged_tree=$(git -C "$repository_root" write-tree)
+  if [ "$tree" != "$staged_tree" ]; then
+    printf 'fixture gate: %s tree does not match staged tree (%s != %s)\n' "$command" "$tree" "$staged_tree" >&2
+    return 1
+  fi
+}
 
 cleanup() {
   local original_status=${1:-0}
@@ -279,31 +295,45 @@ trap 'finish_cleanup 129; exit $?' HUP
 
 case "${1:-}" in
   closure)
-    if [ "$#" -ne 2 ] || [ "$2" != "check" ]; then
-      printf 'fixture gate: closure subcommand must be check\n' >&2
+    if [ "$#" -ne 4 ] || [ "$2" != "check" ] || [ "$3" != "--tree" ]; then
+      printf 'fixture gate: closure requires check --tree <tree>\n' >&2
       exit 64
     fi
-    tree=$(git write-tree)
-    if [ -z "$tree" ]; then
-      printf 'fixture gate: staged tree is empty\n' >&2
+    tree=$4
+    if ! require_current_staged_tree closure "$tree"; then
       exit 1
     fi
-    git rev-parse --verify "$tree^{tree}" >/dev/null
     printf 'fixture closure verified staged tree %s\n' "$tree"
     ;;
   hook)
-    if [ "$#" -ne 2 ] || [ "$2" != "pre-commit" ]; then
-      printf 'fixture gate: only hook pre-commit is supported\n' >&2
+    if [ "$#" -ne 4 ] || [ "$2" != "pre-commit" ] || [ "$3" != "--tree" ]; then
+      printf 'fixture gate: hook requires pre-commit --tree <tree>\n' >&2
       exit 64
     fi
     if [ -n "${GIT_DIR:-}" ] || [ -n "${GIT_WORK_TREE:-}" ]; then
       printf 'fixture gate: hook inherited repository-local Git environment\n' >&2
       exit 1
     fi
+    tree=$4
+    if ! require_current_staged_tree hook "$tree"; then
+      exit 1
+    fi
+    printf 'fixture hook queued staged tree %s job=%s\n' "$tree" "$fixture_job"
+    exit 13
+    ;;
+  wait)
+    if [ "$#" -ne 5 ] || [ "$2" != "--job" ] || [ "$3" != "$fixture_job" ] || [ "$4" != "--tree" ]; then
+      printf 'fixture gate: wait requires bound job and --tree <tree>\n' >&2
+      exit 64
+    fi
+    tree=$5
+    if ! require_current_staged_tree wait "$tree"; then
+      exit 1
+    fi
+    printf 'fixture wait verified staged tree %s job=%s\n' "$tree" "$fixture_job"
     fixture_tmp=$(mktemp -d "${TMPDIR:-/tmp}/pre-commit-fixture.XXXXXX")
     fixture_worktree="$fixture_tmp/worktree"
     git -C "$repository_root" worktree add --quiet --detach --no-checkout "$fixture_worktree" HEAD
-    tree=$(git -C "$repository_root" write-tree)
     git -C "$fixture_worktree" read-tree "$tree"
     git -C "$fixture_worktree" checkout-index -a
     cd "$fixture_worktree"
@@ -497,6 +527,7 @@ func TestPreCommitCreatesDeterministicEmbedPlaceholderFromStagedSnapshot(t *test
 				writeFixTestGuardFile(t, root, "cmd/agent-terminal/web-dist/index.html", "mutable ignored artifact\n")
 			}
 			runFixTestGuardGit(t, root, "add", "cmd/agent-terminal/main.go")
+			stagedTree := strings.TrimSpace(runFixTestGuardGitOutput(t, root, "write-tree"))
 			out, err := runPreCommitHookWithEnv(t, root, map[string]string{
 				"GATE_ASSERT_RELATIVE_PATH": "cmd/agent-terminal/web-dist/index.html",
 				"GATE_ASSERT_CONTENT":       "staged snapshot",
@@ -504,7 +535,13 @@ func TestPreCommitCreatesDeterministicEmbedPlaceholderFromStagedSnapshot(t *test
 			if err != nil {
 				t.Fatalf("pre-commit embed placeholder failed: %v\n%s", err, out)
 			}
-			assertOutputContainsAll(t, out, "fixture closure verified staged tree", "go vet (staged snapshot)", "pre-commit OK")
+			assertOutputContainsAll(t, out,
+				"fixture closure verified staged tree "+stagedTree,
+				"fixture hook queued staged tree "+stagedTree+" job=job-0123456789abcdef0123456789abcdef",
+				"fixture wait verified staged tree "+stagedTree+" job=job-0123456789abcdef0123456789abcdef",
+				"go vet (staged snapshot)",
+				"pre-commit OK",
+			)
 		})
 	}
 }
@@ -518,7 +555,7 @@ func TestPreCommitFixtureGateRejectsUnsupportedClosureCommand(t *testing.T) {
 	if err == nil {
 		t.Fatalf("fixture gate accepted unsupported closure command:\n%s", out)
 	}
-	assertOutputContainsAll(t, string(out), "fixture gate: closure subcommand must be check")
+	assertOutputContainsAll(t, string(out), "fixture gate: closure requires check --tree <tree>")
 }
 
 func prePushStdin(base, head string) string {

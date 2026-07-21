@@ -13,7 +13,13 @@ if [[ ! -d .githooks ]]; then
     exit 1
 fi
 
-git config core.hooksPath .githooks
+CURRENT_HOOKS_PATH="$(git config --get core.hooksPath 2>/dev/null || true)"
+if [[ -n "$CURRENT_HOOKS_PATH" && "$CURRENT_HOOKS_PATH" != ".githooks" ]]; then
+    echo "existing core.hooksPath = $CURRENT_HOOKS_PATH; refusing to replace it automatically" >&2
+    exit 1
+fi
+
+git config --local core.hooksPath .githooks
 chmod +x .githooks/* 2>/dev/null || true
 
 echo "✅ git hooks 已启用"
@@ -22,4 +28,4 @@ echo ""
 echo "已安装钩子："
 ls -1 .githooks | sed 's|^|   - |'
 echo ""
-echo "提示：紧急事故修复可临时绕过 → git commit --no-verify（事后必须补跑守卫）"
+echo "已有 hooks 不会被安装流程静默替换；请先显式检查并迁移后再重试。"

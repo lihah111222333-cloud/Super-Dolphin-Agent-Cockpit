@@ -58,10 +58,10 @@ func runGitHookWithConnector(
 	return withHookCoordinator(context.Background(), connector, func(ctx context.Context, coordinator hookCoordinator) error {
 		switch args[0] {
 		case "pre-commit":
-			if len(args) != 1 {
-				return protocolError("pre-commit hook accepts no adapter arguments")
+			if len(args) != 3 || args[1] != "--tree" || strings.TrimSpace(args[2]) == "" {
+				return protocolError("pre-commit hook requires one --tree <staged-tree-sha> argument")
 			}
-			return runPreCommitHook(ctx, cwd, stdout, coordinator, deliveryID)
+			return runPreCommitHook(ctx, cwd, stdout, coordinator, deliveryID, args[2])
 		case "pre-push":
 			if len(args) != 3 || strings.TrimSpace(args[1]) == "" || strings.TrimSpace(args[2]) == "" {
 				return protocolError("pre-push hook requires exact remote name and URL arguments")
@@ -73,10 +73,16 @@ func runGitHookWithConnector(
 	})
 }
 
-func runPreCommitHook(ctx context.Context, cwd string, stdout io.Writer, coordinator gatehook.Coordinator, deliveryID string) error {
-	request, err := gatehook.NormalizePreCommit(ctx, cwd, deliveryID)
+func runPreCommitHook(
+	ctx context.Context,
+	cwd string,
+	stdout io.Writer,
+	coordinator gatehook.Coordinator,
+	deliveryID, stagedTreeSHA string,
+) error {
+	request, err := gatehook.NormalizePreCommit(ctx, cwd, deliveryID, stagedTreeSHA)
 	if err != nil {
-		return sourceError("normalize staged index tree: %v", err)
+		return sourceError("normalize captured staged tree: %v", err)
 	}
 	status, executeErr := executeHookRequest(ctx, coordinator, request)
 	if err := gitHookDecision(status, request.Submit.Source.SourceTreeSHA, executeErr); err != nil {

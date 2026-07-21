@@ -461,7 +461,30 @@ func requireOneCoordinatorRow(result sql.Result, action string) error {
 }
 
 func (record coordinatorJobRecord) status() jobStatus {
-	return jobStatus{InvocationID: record.InvocationID, JobID: record.JobID, EnqueueSequence: record.EnqueueSequence, State: record.State, Profile: record.Profile, JobSourceTreeSHA: record.JobSourceTreeSHA, ImageProvenanceSourceTreeSHA: record.ImageProvenanceSourceTreeSHA, SubmittedAt: record.SubmittedAt, StartedAt: record.StartedAt, CompletedAt: record.CompletedAt, GateResults: append([]gatecontract.GateResult(nil), record.GateResults...), Error: record.Error, ContainerHostConfigDigest: record.ContainerHostConfigDigest, ContainerResourceWitness: record.ContainerResourceWitness, ContainerResourceWitnessDigest: record.ContainerResourceWitnessDigest, ContainerResourceWitnessVerified: record.ContainerResourceWitnessVerified, ReceiptID: record.ReceiptID, Terminal: record.State.terminal()}
+	hostDigest, witness, witnessDigest, witnessVerified := record.statusResourceWitness()
+	return jobStatus{InvocationID: record.InvocationID, JobID: record.JobID, EnqueueSequence: record.EnqueueSequence, State: record.State, Profile: record.Profile, JobSourceTreeSHA: record.JobSourceTreeSHA, ImageProvenanceSourceTreeSHA: record.ImageProvenanceSourceTreeSHA, SubmittedAt: record.SubmittedAt, StartedAt: record.StartedAt, CompletedAt: record.CompletedAt, GateResults: append([]gatecontract.GateResult(nil), record.GateResults...), Error: record.Error, ContainerHostConfigDigest: hostDigest, ContainerResourceWitness: witness, ContainerResourceWitnessDigest: witnessDigest, ContainerResourceWitnessVerified: witnessVerified, ReceiptID: record.ReceiptID, Terminal: record.State.terminal()}
+}
+
+// statusResourceWitness 仅在每个分片均已验证时投影一致的资源契约。
+func (record coordinatorJobRecord) statusResourceWitness() (string, *gatecontract.ContainerResourceWitness, string, bool) {
+	if len(record.ContainerShards) == 0 {
+		return record.ContainerHostConfigDigest, record.ContainerResourceWitness,
+			record.ContainerResourceWitnessDigest, record.ContainerResourceWitnessVerified
+	}
+	first := record.ContainerShards[0]
+	if !first.ContainerResourceWitnessVerified || first.ContainerResourceWitness == nil {
+		return "", nil, "", false
+	}
+	for _, shard := range record.ContainerShards[1:] {
+		if !shard.ContainerResourceWitnessVerified || shard.ContainerResourceWitness == nil ||
+			shard.ContainerHostConfigDigest != first.ContainerHostConfigDigest ||
+			shard.ContainerResourceWitnessDigest != first.ContainerResourceWitnessDigest ||
+			*shard.ContainerResourceWitness != *first.ContainerResourceWitness {
+			return "", nil, "", false
+		}
+	}
+	witness := *first.ContainerResourceWitness
+	return first.ContainerHostConfigDigest, &witness, first.ContainerResourceWitnessDigest, true
 }
 
 func (store *coordinatorStore) close() error {

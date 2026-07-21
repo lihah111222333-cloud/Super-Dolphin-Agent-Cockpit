@@ -102,10 +102,16 @@ func TestRemainingUnwiredCommandsFailFastWithStableExit(t *testing.T) {
 
 func TestStatusAndWaitRequireJob(t *testing.T) {
 	t.Parallel()
-	for _, command := range []string{"status", "wait"} {
-		code, _, stderr := executeCLI([]string{command})
-		if code != int(gatecontract.ExitProtocol) || !strings.Contains(stderr, "--job is required") {
-			t.Fatalf("command=%s code=%d stderr=%q", command, code, stderr)
+	for _, testCase := range []struct {
+		command string
+		want    string
+	}{
+		{command: "status", want: "--job is required"},
+		{command: "wait", want: "wait requires --job <job-id> and optional --tree <staged-tree-sha>"},
+	} {
+		code, _, stderr := executeCLI([]string{testCase.command})
+		if code != int(gatecontract.ExitProtocol) || !strings.Contains(stderr, testCase.want) {
+			t.Fatalf("command=%s code=%d stderr=%q want=%q", testCase.command, code, stderr, testCase.want)
 		}
 	}
 }

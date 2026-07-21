@@ -241,6 +241,107 @@ func TestRecoveredShardCleanupFailureRetainsCancellingLease(t *testing.T) {
 	}
 }
 
+func TestRecoveredCreatingOrCreatedShardsWithoutJobClockResolveCleanup(t *testing.T) {
+	for _, test := range []recoveredPreClockShardCleanupCase{
+		{
+			name:   "creating cleanup succeeds",
+			phase:  localci.FreshContainerPhaseCreating,
+			assert: assertRecoveredPreClockCleanupSucceeded,
+		},
+		{
+			name:  "created container is absent",
+			phase: localci.FreshContainerPhaseCreated,
+			prepare: func(runner *recoveryShardRunner, record coordinatorJobRecord) {
+				runner.absentIdentity = record.ContainerShards[1].Shard.IdentityDigest
+			},
+			assert: assertRecoveredPreClockCleanupSucceeded,
+		},
+		{
+			name:  "created cleanup failure stays fail closed",
+			phase: localci.FreshContainerPhaseCreated,
+			prepare: func(runner *recoveryShardRunner, record coordinatorJobRecord) {
+				runner.cleanupFailureIdentity = record.ContainerShards[1].Shard.IdentityDigest
+			},
+			assert: assertRecoveredPreClockCleanupFailedClosed,
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			runRecoveredPreClockShardCleanupCase(t, test)
+		})
+	}
+}
+
+type recoveredPreClockShardCleanupCase struct {
+	name    string
+	phase   localci.FreshContainerLifecyclePhase
+	prepare func(*recoveryShardRunner, coordinatorJobRecord)
+	assert  func(*testing.T, *coordinatorOwner, *recoveryShardRunner, coordinatorJobRecord, coordinatorShardAdmission, error)
+}
+
+func runRecoveredPreClockShardCleanupCase(t *testing.T, test recoveredPreClockShardCleanupCase) {
+	t.Helper()
+	runner := newRecoveryShardRunner()
+	owner, record, admission := recoveredPreClockShardGroupFixture(t, runner, test.phase)
+	if test.prepare != nil {
+		test.prepare(runner, record)
+	}
+
+	err := owner.resumeRecoveredShardGroup(context.Background(), record)
+	test.assert(t, owner, runner, record, admission, err)
+
+	if got := runner.cleanupCount(); got != gatecontract.MaxContainerShards {
+		t.Fatalf("cleanup attempts=%d, want every shard=%d", got, gatecontract.MaxContainerShards)
+	}
+}
+
+func assertRecoveredPreClockCleanupSucceeded(
+	t *testing.T,
+	owner *coordinatorOwner,
+	runner *recoveryShardRunner,
+	record coordinatorJobRecord,
+	admission coordinatorShardAdmission,
+	err error,
+) {
+	t.Helper()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if runner.cleanupBeforeBarrier {
+		t.Fatal("cleanup ran before the cancelling barrier")
+	}
+	assertRecoveredShardTerminal(t, owner, record.JobID, admission.WorkloadID, localci.WorkloadStatusInfraFailed)
+	stored, storeErr := owner.store.job(context.Background(), record.JobID)
+	if storeErr != nil || stored.State != jobStateInfraFailed {
+		t.Fatalf("durable state=%q err=%v, want infra_failed", stored.State, storeErr)
+	}
+}
+
+func assertRecoveredPreClockCleanupFailedClosed(
+	t *testing.T,
+	owner *coordinatorOwner,
+	_ *recoveryShardRunner,
+	record coordinatorJobRecord,
+	admission coordinatorShardAdmission,
+	err error,
+) {
+	t.Helper()
+	if err == nil {
+		t.Fatal("cleanup failure completed a shard group with no job clock")
+	}
+	status, stateErr := owner.schedulerClient.State(context.Background(), admission.WorkloadID)
+	if stateErr != nil || status != localci.WorkloadStatusCancelling {
+		t.Fatalf("scheduler status=%q err=%v, want cancelling", status, stateErr)
+	}
+	stored, storeErr := owner.store.job(context.Background(), record.JobID)
+	if storeErr != nil || stored.State != jobStateStarted {
+		t.Fatalf("durable state=%q err=%v, want started", stored.State, storeErr)
+	}
+	snapshot, snapshotErr := owner.schedulerClient.Snapshot(context.Background())
+	if snapshotErr != nil || len(snapshot.Leases) != gatecontract.MaxContainerShards {
+		t.Fatalf("cleanup failure leases=%#v err=%v", snapshot.Leases, snapshotErr)
+	}
+}
+
 func TestRecoveredShardPostRunEvidenceFailureEntersBarrier(t *testing.T) {
 	runner := newRecoveryShardRunner()
 	owner, record, admission := recoveredShardGroupFixture(t, runner)
@@ -399,6 +500,36 @@ func recoveredShardGroupFixture(
 	return owner, record, admission
 }
 
+func recoveredPreClockShardGroupFixture(
+	t *testing.T,
+	runner *recoveryShardRunner,
+	phase localci.FreshContainerLifecyclePhase,
+) (*coordinatorOwner, coordinatorJobRecord, coordinatorShardAdmission) {
+	t.Helper()
+	owner, record, admission := recoveredShardGroupFixture(t, runner)
+	if _, err := owner.store.db.ExecContext(context.Background(), `UPDATE coordinator_jobs
+		SET started_at = NULL, deadline_at = NULL WHERE job_id = ?`, record.JobID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := owner.store.db.ExecContext(context.Background(), `UPDATE coordinator_job_shards
+		SET container_phase = ?, started_at = NULL, deadline_at = NULL WHERE job_id = ?`, string(phase), record.JobID); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := owner.store.job(context.Background(), record.JobID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.StartedAt != nil || loaded.Deadline != nil {
+		t.Fatalf("recovered job clock=%v/%v, want nil", loaded.StartedAt, loaded.Deadline)
+	}
+	for _, shard := range loaded.ContainerShards {
+		if shard.ContainerPhase != phase {
+			t.Fatalf("shard %q phase=%q, want %q", shard.Shard.IdentityDigest, shard.ContainerPhase, phase)
+		}
+	}
+	return owner, loaded, admission
+}
+
 func prepareRecoveredShardAdmissionFixture(
 	t *testing.T,
 	owner *coordinatorOwner,
@@ -493,6 +624,7 @@ type recoveryShardRunner struct {
 	cleanupBeforeBarrier       bool
 	failedIdentity             string
 	missingIdentity            string
+	absentIdentity             string
 	cleanupFailureIdentity     string
 	cleanupRequests            []string
 	invalidGateEvidence        bool
@@ -547,14 +679,29 @@ func (runner *recoveryShardRunner) CleanupUnprovedFreshContainer(
 	if identity == runner.cleanupFailureIdentity {
 		return localci.FreshContainerResult{}, errors.New("cleanup failed")
 	}
-	recovery := localci.FreshContainerRecoveryRequest{
-		ContainerID: request.ContainerID, ContainerLabels: request.ContainerLabels,
-		ImageReference: request.ImageReference, ConfigDigest: request.ConfigDigest,
-		SourceSnapshotDir: request.SourceSnapshotDir, Command: request.Command,
-		Profile: request.Profile, GateID: request.GateID, StartedAt: runner.groupStarted,
-		Deadline: runner.groupDeadline, LifecycleHook: request.LifecycleHook,
+	witness, witnessDigest := testContainerResourceWitness()
+	result := localci.FreshContainerResult{Status: gatecontract.ResultStatusInfraFailed,
+		ImageReference: request.ImageReference, ExitCode: -1,
+		Container: gatecontract.ContainerEvidence{ContainerID: request.ContainerID, Removed: true,
+			HostConfigDigest: coordinatorDigest("c"), ResourceWitness: witness, ResourceWitnessDigest: witnessDigest},
+		RemovalProofDigest: coordinatorDigest("f")}
+	if identity != runner.absentIdentity {
+		pending := localci.FreshContainerLifecycleEvent{Phase: localci.FreshContainerPhaseRemovalPending,
+			ContainerID: request.ContainerID, ImageReference: request.ImageReference, ConfigDigest: request.ConfigDigest,
+			HostConfigDigest: coordinatorDigest("c"), ResourceWitness: witness, ResourceWitnessDigest: witnessDigest,
+			SourceSnapshotDir: request.SourceSnapshotDir}
+		if err := request.LifecycleHook(context.WithoutCancel(ctx), pending); err != nil {
+			return localci.FreshContainerResult{}, err
+		}
 	}
-	return runner.finish(ctx, recovery, gatecontract.ResultStatusInfraFailed)
+	removed := localci.FreshContainerLifecycleEvent{Phase: localci.FreshContainerPhaseRemoved,
+		ContainerID: request.ContainerID, ImageReference: request.ImageReference, ConfigDigest: request.ConfigDigest,
+		HostConfigDigest: coordinatorDigest("c"), ResourceWitness: witness, ResourceWitnessDigest: witnessDigest,
+		SourceSnapshotDir: request.SourceSnapshotDir, RemovalProofDigest: result.RemovalProofDigest}
+	if err := request.LifecycleHook(context.WithoutCancel(ctx), removed); err != nil {
+		return localci.FreshContainerResult{}, err
+	}
+	return result, nil
 }
 
 func (runner *recoveryShardRunner) finish(

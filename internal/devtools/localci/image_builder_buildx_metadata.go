@@ -15,13 +15,17 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/sourceexport"
 )
 
-const buildxProvenanceType = "https://mobyproject.org/buildkit@v1"
+const (
+	buildxProvenanceType      = "https://mobyproject.org/buildkit@v1"
+	buildxProvenanceBuilderID = "https://github.com/moby/buildkit@v1"
+)
 
 const runtimeDepsLockPath = "build/gate/runtime-deps.lock"
 
 type toolchainLock struct {
 	SchemaVersion      string             `json:"schema_version"`
 	BuildKitVersion    string             `json:"buildkit_version"`
+	BuildKitImage      string             `json:"buildkit_image"`
 	DockerfileFrontend string             `json:"dockerfile_frontend"`
 	SourceDateEpoch    string             `json:"source_date_epoch"`
 	TargetPlatforms    []string           `json:"target_platforms"`
@@ -68,8 +72,11 @@ func validateToolchainVersions(lock toolchainLock) error {
 	if lock.SchemaVersion != "1" {
 		return fmt.Errorf("toolchain schema version %q is unsupported", lock.SchemaVersion)
 	}
-	if lock.BuildKitVersion == "" {
-		return errors.New("BuildKit version is required")
+	if err := validateBuildKitVersion(lock.BuildKitVersion); err != nil {
+		return fmt.Errorf("validate locked BuildKit version: %w", err)
+	}
+	if err := validateBuildKitImageReference(lock.BuildKitImage); err != nil {
+		return fmt.Errorf("validate locked BuildKit image: %w", err)
 	}
 	if lock.DockerfileFrontend != "builtin:dockerfile.v1" {
 		return errors.New("Dockerfile frontend must be the locked builtin:dockerfile.v1 frontend")
@@ -292,12 +299,16 @@ type buildxDescriptor struct {
 }
 
 type buildxProvenance struct {
-	Builder     json.RawMessage  `json:"builder"`
-	BuildType   string           `json:"buildType"`
-	Materials   json.RawMessage  `json:"materials"`
-	Invocation  buildxInvocation `json:"invocation"`
-	BuildConfig json.RawMessage  `json:"buildConfig"`
-	Metadata    json.RawMessage  `json:"metadata"`
+	Builder     buildxProvenanceBuilder `json:"builder"`
+	BuildType   string                  `json:"buildType"`
+	Materials   []json.RawMessage       `json:"materials"`
+	Invocation  buildxInvocation        `json:"invocation"`
+	BuildConfig json.RawMessage         `json:"buildConfig"`
+	Metadata    json.RawMessage         `json:"metadata"`
+}
+
+type buildxProvenanceBuilder struct {
+	ID string `json:"id"`
 }
 
 type buildxInvocation struct {
@@ -328,12 +339,12 @@ type buildxEnvironment struct {
 }
 
 // validateBuildxMetadata 严格解码并复验输出、descriptor 与 provenance 的请求绑定。
-func validateBuildxMetadata(data []byte, request BuildKitBuildRequest, configOutput string) (string, error) {
+func validateBuildxMetadata(data []byte, request BuildKitBuildRequest, configOutput string, builderName string) (string, error) {
 	var metadata buildxMetadata
 	if err := decodeStrictJSON(data, &metadata); err != nil {
 		return "", fmt.Errorf("decode buildx metadata: %w", err)
 	}
-	if err := validateBuildxMetadataFields(metadata, configOutput); err != nil {
+	if err := validateBuildxMetadataFields(metadata, configOutput, builderName); err != nil {
 		return "", err
 	}
 	var provenance buildxProvenance
@@ -360,15 +371,15 @@ func validateBuildxMetadata(data []byte, request BuildKitBuildRequest, configOut
 }
 
 // validateBuildxMetadataFields 校验顶层必填字段和 quiet 输出 config digest。
-func validateBuildxMetadataFields(metadata buildxMetadata, configOutput string) error {
+func validateBuildxMetadataFields(metadata buildxMetadata, configOutput string, builderName string) error {
 	if !rawJSONPresent(metadata.Provenance) {
 		return errors.New("buildx metadata provenance is required")
 	}
 	if !rawJSONPresent(metadata.CacheManifest) {
 		return errors.New("buildx cache manifest metadata is required")
 	}
-	if metadata.BuildReference == "" || strings.TrimSpace(metadata.BuildReference) != metadata.BuildReference {
-		return errors.New("buildx metadata build reference is required")
+	if !strings.HasPrefix(metadata.BuildReference, builderName+"/") || strings.TrimSpace(metadata.BuildReference) != metadata.BuildReference {
+		return errors.New("buildx metadata build reference is not bound to the controlled builder")
 	}
 	if err := validateDigest("buildx metadata config digest", metadata.ConfigDigest); err != nil {
 		return err
@@ -387,9 +398,12 @@ func validateBuildxMetadataFields(metadata buildxMetadata, configOutput string) 
 
 // validateBuildxProvenance 校验 stdin context、平台和固定 frontend 参数。
 func validateBuildxProvenance(provenance buildxProvenance, request BuildKitBuildRequest) error {
-	if !rawJSONPresent(provenance.Builder) || !rawJSONPresent(provenance.Materials) ||
+	if provenance.Builder.ID != buildxProvenanceBuilderID ||
 		!rawJSONPresent(provenance.BuildConfig) || !rawJSONPresent(provenance.Metadata) {
 		return errors.New("buildx provenance is missing required evidence")
+	}
+	if len(provenance.Materials) != 0 {
+		return errors.New("buildx provenance materials must be empty for stdin-only hermetic builds")
 	}
 	if provenance.BuildType != buildxProvenanceType {
 		return errors.New("buildx provenance build type is not supported")

@@ -299,17 +299,18 @@ app-cover-report:
 
 # install-hooks: 一次性激活 .githooks/ 下的 pre-commit / commit-msg / pre-push
 # 用相对路径写入 core.hooksPath，让每个 linked worktree 都解析到自己的 .githooks
-# 检测到既有不同的 core.hooksPath 会先 warn，不阻断
+# 检测到既有不同的 core.hooksPath 会拒绝覆盖，避免静默替换现有 hooks
 INSTALL_HOOKS_DIR := .githooks
 INSTALL_HOOKS_ABS_DIR := $(abspath $(INSTALL_HOOKS_DIR))
 install-hooks:
 	@CURRENT=$$(git config --get core.hooksPath 2>/dev/null || true); \
 	if [ -n "$$CURRENT" ] && [ "$$CURRENT" != "$(INSTALL_HOOKS_DIR)" ]; then \
-	  echo "⚠️  既有 core.hooksPath = $$CURRENT (将被覆盖为 $(INSTALL_HOOKS_DIR))"; \
+	  echo "existing core.hooksPath = $$CURRENT; refusing to replace it automatically" >&2; \
+	  exit 1; \
 	fi
 	@git config core.hooksPath "$(INSTALL_HOOKS_DIR)"
 	@echo "✅ git hooks installed ($(INSTALL_HOOKS_DIR) -> $(INSTALL_HOOKS_ABS_DIR))"
-	@echo "   绕过仅限紧急（仓库规约 docs/1/会话习惯.md §10.12«禁止 bypass pre-commit hook»）：git commit/push --no-verify"
+	@echo "   existing hooks are never replaced automatically; inspect and migrate them explicitly before retrying."
 
 # _hook_check: build 完成后的 hook 装设 + 路径有效性检查，warn-only 不阻断
 # 检 hooksPath 是否使用 worktree-safe 的 .githooks 且该路径真实存在；CI 可用 MAKE_HOOK_CHECK=0 短路提示

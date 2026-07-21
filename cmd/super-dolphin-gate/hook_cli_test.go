@@ -26,7 +26,7 @@ func TestPreCommitHookBindsStagedIndexAndReturnsActionableQueuedStatus(t *testin
 	coordinator := &recordingHookCoordinator{queuePosition: 2}
 
 	err := runHookWithConnector(
-		[]string{"pre-commit"}, bytes.NewReader(nil), &bytes.Buffer{}, repository, hookTestConnector(coordinator),
+		[]string{"pre-commit", "--tree", wantTree}, bytes.NewReader(nil), &bytes.Buffer{}, repository, hookTestConnector(coordinator),
 	)
 	if err == nil || !strings.Contains(err.Error(), "status: super-dolphin-gate status --job") ||
 		!strings.Contains(err.Error(), "wait: super-dolphin-gate wait --job") {
@@ -38,6 +38,172 @@ func TestPreCommitHookBindsStagedIndexAndReturnsActionableQueuedStatus(t *testin
 	if coordinator.grantCount != 0 {
 		t.Fatalf("pre-commit issued %d action grants", coordinator.grantCount)
 	}
+}
+
+func TestPreCommitRejectsInitialStagedTreeCaptureFailure(t *testing.T) {
+	repositoryRoot := strings.TrimSpace(runHookTestGit(t, mustWorkingDirectory(t), "rev-parse", "--show-toplevel"))
+	preCommitPath := filepath.Join(repositoryRoot, ".githooks", "pre-commit")
+	binDirectory := filepath.Join(t.TempDir(), "bin")
+	if err := os.Mkdir(binDirectory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for name, script := range map[string]string{
+		"super-dolphin-gate": "#!/usr/bin/env bash\nexit 64\n",
+		"git":                "#!/usr/bin/env bash\nprintf '%s\\n' 'simulated write-tree failure' >&2\nexit 1\n",
+	} {
+		if err := os.WriteFile(filepath.Join(binDirectory, name), []byte(script), 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	command := exec.Command("/bin/bash", preCommitPath)
+	command.Dir = t.TempDir()
+	command.Env = hookTestEnvironment(
+		"PATH=" + binDirectory + string(os.PathListSeparator) + os.Getenv("PATH"),
+	)
+	output, err := command.CombinedOutput()
+	if err == nil {
+		t.Fatal("pre-commit succeeded after git write-tree failed")
+	}
+	if !strings.Contains(string(output), "pre-commit blocked: cannot capture the authoritative staged tree.") {
+		t.Fatalf("pre-commit output = %q", output)
+	}
+}
+
+func TestPreCommitAlternateIndexTreeStaysAuthoritativeThroughCommit(t *testing.T) {
+	repository := newHookTestRepository(t)
+	gateBinDirectory, treeLog := installAlternateIndexGate(t, repository, "")
+
+	if err := os.WriteFile(filepath.Join(repository, "tracked.txt"), []byte("tree A\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	alternateIndex := filepath.Join(t.TempDir(), "alternate.index")
+	indexedEnvironment := []string{"GIT_INDEX_FILE=" + alternateIndex}
+	runHookTestGitWithEnvironment(t, repository, indexedEnvironment, "read-tree", "HEAD")
+	runHookTestGitWithEnvironment(t, repository, indexedEnvironment, "add", "tracked.txt")
+	treeA := strings.TrimSpace(runHookTestGitWithEnvironment(t, repository, indexedEnvironment, "write-tree"))
+
+	if err := os.WriteFile(filepath.Join(repository, "tracked.txt"), []byte("tree B\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	runHookTestGit(t, repository, "add", "tracked.txt")
+	treeB := strings.TrimSpace(runHookTestGit(t, repository, "write-tree"))
+	if treeA == treeB {
+		t.Fatal("alternate and default indexes unexpectedly resolved to the same tree")
+	}
+
+	commitEnvironment := append(indexedEnvironment,
+		"GATE_TREE_LOG="+treeLog,
+		"PATH="+gateBinDirectory+string(os.PathListSeparator)+os.Getenv("PATH"),
+	)
+	runHookTestGitWithEnvironment(t, repository, commitEnvironment, "commit", "-m", "alternate index gate contract")
+	commitTree := strings.TrimSpace(runHookTestGit(t, repository, "rev-parse", "HEAD^{tree}"))
+	if commitTree != treeA {
+		t.Fatalf("commit tree = %s, want alternate index tree %s", commitTree, treeA)
+	}
+	recorded, err := os.ReadFile(treeLog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "closure:" + treeA + "\ncontainer-source:" + treeA + "\nwait:" + treeA + "\n"
+	if string(recorded) != want {
+		t.Fatalf("gate tree chain = %q, want %q", recorded, want)
+	}
+	if strings.Contains(string(recorded), treeB) {
+		t.Fatalf("default index tree %s was used by the gate chain: %s", treeB, recorded)
+	}
+}
+
+func TestPreCommitRejectsAlternateIndexDriftAfterWait(t *testing.T) {
+	repository := newHookTestRepository(t)
+	initialTree := strings.TrimSpace(runHookTestGit(t, repository, "rev-parse", "HEAD^{tree}"))
+	gateBinDirectory, treeLog := installAlternateIndexGate(t, repository, "; git add tracked.txt; printf 'wait completed\\n'")
+	indexedEnvironment, treeA := stageAlternateIndexTree(t, repository)
+
+	if err := os.WriteFile(filepath.Join(repository, "tracked.txt"), []byte("tree B\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	runHookTestGit(t, repository, "add", "tracked.txt")
+	treeB := strings.TrimSpace(runHookTestGit(t, repository, "write-tree"))
+	if treeA == treeB {
+		t.Fatal("alternate and default indexes unexpectedly resolved to the same tree")
+	}
+
+	commitEnvironment := append(indexedEnvironment,
+		"GATE_TREE_LOG="+treeLog,
+		"PATH="+gateBinDirectory+string(os.PathListSeparator)+os.Getenv("PATH"),
+	)
+	output, err := runHookTestGitWithEnvironmentResult(
+		repository,
+		commitEnvironment,
+		"commit", "-m", "alternate index drift contract",
+	)
+	if err == nil {
+		t.Fatal("commit succeeded after fake wait changed the alternate index")
+	}
+	if !strings.Contains(output, "wait completed") || !strings.Contains(output, "staged tree changed during gate wait") {
+		t.Fatalf("commit rejection output = %q", output)
+	}
+	commitTree := strings.TrimSpace(runHookTestGit(t, repository, "rev-parse", "HEAD^{tree}"))
+	if commitTree != initialTree {
+		t.Fatalf("commit tree = %s, want unchanged HEAD tree %s", commitTree, initialTree)
+	}
+	recorded, err := os.ReadFile(treeLog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "closure:" + treeA + "\ncontainer-source:" + treeA + "\nwait:" + treeA + "\n"
+	if string(recorded) != want {
+		t.Fatalf("gate tree chain = %q, want %q", recorded, want)
+	}
+	if strings.Contains(string(recorded), treeB) {
+		t.Fatalf("tree B %s was treated as passed: %s", treeB, recorded)
+	}
+}
+
+func installAlternateIndexGate(t *testing.T, repository string, waitCommand string) (string, string) {
+	t.Helper()
+	repositoryRoot := strings.TrimSpace(runHookTestGit(t, mustWorkingDirectory(t), "rev-parse", "--show-toplevel"))
+	hooksDirectory := filepath.Join(repository, ".githooks")
+	if err := os.Mkdir(hooksDirectory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	preCommit, err := os.ReadFile(filepath.Join(repositoryRoot, ".githooks", "pre-commit"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(hooksDirectory, "pre-commit"), preCommit, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	runHookTestGit(t, repository, "config", "core.hooksPath", hooksDirectory)
+
+	gateBinDirectory := filepath.Join(t.TempDir(), "bin")
+	if err := os.Mkdir(gateBinDirectory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	treeLog := filepath.Join(t.TempDir(), "trees.log")
+	gateBin := filepath.Join(gateBinDirectory, "super-dolphin-gate")
+	gateScript := "#!/usr/bin/env bash\nset -euo pipefail\ncase \"$1\" in\n" +
+		"  closure) printf 'closure:%s\\n' \"$4\" >> \"$GATE_TREE_LOG\" ;;\n" +
+		"  hook) printf 'container-source:%s\\n' \"$4\" >> \"$GATE_TREE_LOG\"; printf 'queued job=job-0123456789abcdef0123456789abcdef\\n'; exit 13 ;;\n" +
+		"  wait) printf 'wait:%s\\n' \"$5\" >> \"$GATE_TREE_LOG\"" + waitCommand + " ;;\n" +
+		"  *) exit 64 ;;\nesac\n"
+	if err := os.WriteFile(gateBin, []byte(gateScript), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	return gateBinDirectory, treeLog
+}
+
+func stageAlternateIndexTree(t *testing.T, repository string) ([]string, string) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(repository, "tracked.txt"), []byte("tree A\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	alternateIndex := filepath.Join(t.TempDir(), "alternate.index")
+	indexedEnvironment := []string{"GIT_INDEX_FILE=" + alternateIndex}
+	runHookTestGitWithEnvironment(t, repository, indexedEnvironment, "read-tree", "HEAD")
+	runHookTestGitWithEnvironment(t, repository, indexedEnvironment, "add", "tracked.txt")
+	return indexedEnvironment, strings.TrimSpace(runHookTestGitWithEnvironment(t, repository, indexedEnvironment, "write-tree"))
 }
 
 func TestClosureVerifierIgnoresUnavailableWorktreeGeneratorSource(t *testing.T) {
@@ -61,12 +227,20 @@ func TestClosureVerifierIgnoresUnavailableWorktreeGeneratorSource(t *testing.T) 
 	}
 }
 
+func TestClosureCheckRequiresExplicitStagedTree(t *testing.T) {
+	err := runClosureCheck([]string{"check"})
+	if err == nil || !strings.Contains(err.Error(), "requires one --tree") {
+		t.Fatalf("runClosureCheck() error = %v", err)
+	}
+}
+
 func TestGitHookActionsWithSameTreeUseDistinctDeliveryInvocations(t *testing.T) {
 	repository := newHookTestRepository(t)
+	tree := strings.TrimSpace(runHookTestGit(t, repository, "write-tree"))
 	coordinator := &recordingHookCoordinator{}
 	for range 2 {
 		if err := runHookWithConnector(
-			[]string{"pre-commit"}, bytes.NewReader(nil), &bytes.Buffer{}, repository, hookTestConnector(coordinator),
+			[]string{"pre-commit", "--tree", tree}, bytes.NewReader(nil), &bytes.Buffer{}, repository, hookTestConnector(coordinator),
 		); err == nil || !strings.Contains(err.Error(), "status: super-dolphin-gate status --job") {
 			t.Fatalf("runHookWithConnector() error = %v", err)
 		}
@@ -132,10 +306,11 @@ func TestPrePushHookSubmitsEveryVerifiedRef(t *testing.T) {
 
 func TestPreCommitAndCodexPassedEvidenceBindsReceiptAndStatus(t *testing.T) {
 	repository := newHookTestRepository(t)
+	tree := strings.TrimSpace(runHookTestGit(t, repository, "write-tree"))
 	coordinator := &recordingHookCoordinator{passWithReceipt: true}
 	gitOutput := &bytes.Buffer{}
 	if err := runHookWithConnector(
-		[]string{"pre-commit"}, bytes.NewReader(nil), gitOutput, repository, hookTestConnector(coordinator),
+		[]string{"pre-commit", "--tree", tree}, bytes.NewReader(nil), gitOutput, repository, hookTestConnector(coordinator),
 	); err != nil {
 		t.Fatalf("pre-commit error = %v", err)
 	}
@@ -348,15 +523,46 @@ func newHookTestRepository(t *testing.T) string {
 }
 
 func runHookTestGit(t *testing.T, directory string, args ...string) string {
+	return runHookTestGitWithEnvironment(t, directory, nil, args...)
+}
+
+func runHookTestGitWithEnvironment(t *testing.T, directory string, extraEnvironment []string, args ...string) string {
 	t.Helper()
-	command := exec.Command("git", args...)
-	command.Dir = directory
-	command.Env = append(os.Environ(), "GIT_CONFIG_NOSYSTEM=1")
-	output, err := command.CombinedOutput()
+	output, err := runHookTestGitWithEnvironmentResult(directory, extraEnvironment, args...)
 	if err != nil {
 		t.Fatalf("git %v: %v\n%s", args, err, output)
 	}
-	return string(output)
+	return output
+}
+
+func runHookTestGitWithEnvironmentResult(directory string, extraEnvironment []string, args ...string) (string, error) {
+	command := exec.Command("git", args...)
+	command.Dir = directory
+	command.Env = hookTestEnvironment(extraEnvironment...)
+	output, err := command.CombinedOutput()
+	return string(output), err
+}
+
+func hookTestEnvironment(extraEnvironment ...string) []string {
+	overridden := map[string]struct{}{"GIT_CONFIG_NOSYSTEM": {}, "GIT_INDEX_FILE": {}}
+	for _, entry := range extraEnvironment {
+		key, _, found := strings.Cut(entry, "=")
+		if found {
+			overridden[key] = struct{}{}
+		}
+	}
+	environment := make([]string, 0, len(os.Environ())+len(extraEnvironment)+1)
+	for _, entry := range os.Environ() {
+		key, _, found := strings.Cut(entry, "=")
+		if found {
+			if _, ok := overridden[key]; ok {
+				continue
+			}
+		}
+		environment = append(environment, entry)
+	}
+	environment = append(environment, "GIT_CONFIG_NOSYSTEM=1")
+	return append(environment, extraEnvironment...)
 }
 
 func codexHookPayload(repository string, stopActive bool) string {
