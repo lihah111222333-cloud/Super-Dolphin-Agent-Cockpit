@@ -41,7 +41,7 @@ func TestModelProviderOptionalObjectsOmitZeroAndKeepNonZero(t *testing.T) {
 }
 
 func TestModelProviderGoAndFrontendValidatorFieldsStayInSync(t *testing.T) {
-	validatorPath := filepath.Join("..", "..", "..", "frontend-app", "src", "shared", "api", "backendResponseValidators.js")
+	validatorPath := filepath.Join("..", "..", "..", "frontend-app", "src", "shared", "api", "response-validators", "mcp-model-provider.js")
 	source, err := os.ReadFile(validatorPath)
 	if err != nil {
 		t.Fatalf("read frontend validator source: %v", err)
