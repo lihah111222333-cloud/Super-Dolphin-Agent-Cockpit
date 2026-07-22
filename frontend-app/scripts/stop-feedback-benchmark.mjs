@@ -24,10 +24,30 @@ const STOP_FEEDBACK = Object.freeze({
   base: Object.freeze({
     confirmed: Object.freeze({ message: '已发送中断请求', tone: 'success' }),
     unconfirmed: Object.freeze({ message: '中断当前执行失败：stop confirmation timed out', tone: 'warning' }),
+    unconfirmedResponse: Object.freeze({
+      ok: false,
+      mode: 'interrupt_timeout',
+      message: 'stop confirmation timed out',
+    }),
   }),
   candidate: Object.freeze({
     confirmed: Object.freeze({ message: '已发送中断请求', tone: 'success' }),
     unconfirmed: Object.freeze({ message: '停止未确认，任务可能仍在运行', tone: 'warning' }),
+    unconfirmedResponse: Object.freeze({
+      ok: false,
+      accepted: true,
+      requestId: 'performance-stop-request',
+      expectedTurnId: 'turn-performance',
+      turnId: 'turn-performance',
+      status: 'running',
+      confirmed: true,
+      mode: 'interrupt_timeout',
+      interruptSent: true,
+      stateBefore: 'running',
+      stateAfter: 'running',
+      waitedMs: 0,
+      activeObserved: true,
+    }),
   }),
 });
 const STOP_FEEDBACK_PENDING = Object.freeze({ message: '正在请求停止，尚未确认，任务可能仍在运行', tone: 'info' });
@@ -183,24 +203,6 @@ function confirmedInterruptResponse() {
   };
 }
 
-function unconfirmedInterruptResponse() {
-  return {
-    ok: false,
-    accepted: true,
-    requestId: 'performance-stop-request',
-    expectedTurnId: 'turn-performance',
-    turnId: 'turn-performance',
-    status: 'running',
-    confirmed: true,
-    mode: 'interrupt_timeout',
-    interruptSent: true,
-    stateBefore: 'running',
-    stateAfter: 'running',
-    waitedMs: 0,
-    activeObserved: true,
-  };
-}
-
 function createStopFeedbackHarness({
   attachRuntime,
   domMutation,
@@ -294,7 +296,7 @@ function createStopFeedbackHarness({
       return measureOutcome(confirmedInterruptResponse(), contract.confirmed, true);
     },
     measureUnconfirmed() {
-      return measureOutcome(unconfirmedInterruptResponse(), contract.unconfirmed, false);
+      return measureOutcome(contract.unconfirmedResponse, contract.unconfirmed, false);
     },
     async measure() {
       const confirmedMs = await this.measureConfirmed();

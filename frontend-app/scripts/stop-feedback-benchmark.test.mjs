@@ -163,12 +163,26 @@ it('loads the b408 runtime without its missing component and binds BASE and cand
     )).toThrow();
     const loaderUrl = pathToFileURL(resolve(repositoryRoot, 'frontend-app/scripts/stop-feedback-benchmark.mjs')).href;
     const script = `
-      const { loadStopFeedbackTarget, RUNNER_FEEDBACK_PROBE } = await import(${JSON.stringify(loaderUrl)});
-      const result = await Promise.all([
+      const { createStopFeedbackHarness, loadStopFeedbackTarget, RUNNER_FEEDBACK_PROBE } = await import(${JSON.stringify(loaderUrl)});
+      const targets = await Promise.all([
         loadStopFeedbackTarget({ feedbackProbe: RUNNER_FEEDBACK_PROBE, subjectRoot: ${JSON.stringify(baseRoot)}, subjectSha: ${JSON.stringify(FROZEN_PLAN_BASE_SHA)}, subjectTree: ${JSON.stringify(execFileSync('git', ['rev-parse', `${FROZEN_PLAN_BASE_SHA}^{tree}`], { cwd: repositoryRoot, encoding: 'utf8' }).trim())} }),
         loadStopFeedbackTarget({ feedbackProbe: RUNNER_FEEDBACK_PROBE, subjectRoot: ${JSON.stringify(candidateRoot)}, subjectSha: ${JSON.stringify(CANDIDATE_SUBJECT_SHA)}, subjectTree: ${JSON.stringify('2'.repeat(40))} }),
       ]);
-      process.stdout.write(JSON.stringify(result.map(({ feedbackProbe, provenance }) => ({
+      const measurements = [];
+      for (const [index, target] of targets.entries()) {
+        const subjectSha = index === 0 ? ${JSON.stringify(FROZEN_PLAN_BASE_SHA)} : ${JSON.stringify(CANDIDATE_SUBJECT_SHA)};
+        const harness = createStopFeedbackHarness({ subjectSha, target });
+        try {
+          measurements.push({
+            confirmedMs: await harness.measureConfirmed(),
+            unconfirmedMs: await harness.measureUnconfirmed(),
+          });
+        } finally {
+          harness.destroy();
+        }
+      }
+      process.stdout.write(JSON.stringify(targets.map(({ feedbackProbe, provenance }, index) => ({
+        measurements: measurements[index],
         probeIsRunner: feedbackProbe === RUNNER_FEEDBACK_PROBE,
         provenance,
       }))));
@@ -183,6 +197,10 @@ it('loads the b408 runtime without its missing component and binds BASE and cand
     expect(candidate.provenance.subjectSha).toBe(CANDIDATE_SUBJECT_SHA);
     expect(base.provenance.content.files.map(({ path }) => path)).toEqual(P03_SUBJECT_CONTENT_PATHS);
     expect(candidate.provenance.content.contentHash).not.toBe(base.provenance.content.contentHash);
+    for (const target of [base, candidate]) {
+      expect(target.measurements.confirmedMs).toBeGreaterThanOrEqual(0);
+      expect(target.measurements.unconfirmedMs).toBeGreaterThanOrEqual(0);
+    }
   } finally {
     execFileSync('git', ['worktree', 'remove', '--force', baseRoot], { cwd: repositoryRoot, stdio: 'ignore' });
     rmSync(temporaryRoot, { recursive: true, force: true });
@@ -193,10 +211,30 @@ it('binds the immutable BASE subject to the old final contract and every candida
   expect(stopFeedbackContractForSubject(FROZEN_PLAN_BASE_SHA)).toEqual({
     confirmed: { message: '已发送中断请求', tone: 'success' },
     unconfirmed: { message: '中断当前执行失败：stop confirmation timed out', tone: 'warning' },
+    unconfirmedResponse: {
+      ok: false,
+      mode: 'interrupt_timeout',
+      message: 'stop confirmation timed out',
+    },
   });
   expect(stopFeedbackContractForSubject(CANDIDATE_SUBJECT_SHA)).toEqual({
     confirmed: { message: '已发送中断请求', tone: 'success' },
     unconfirmed: { message: '停止未确认，任务可能仍在运行', tone: 'warning' },
+    unconfirmedResponse: {
+      ok: false,
+      accepted: true,
+      requestId: 'performance-stop-request',
+      expectedTurnId: 'turn-performance',
+      turnId: 'turn-performance',
+      status: 'running',
+      confirmed: true,
+      mode: 'interrupt_timeout',
+      interruptSent: true,
+      stateBefore: 'running',
+      stateAfter: 'running',
+      waitedMs: 0,
+      activeObserved: true,
+    },
   });
   expect(() => stopFeedbackContractForSubject('HEAD')).toThrow(/full 40-character/);
 });
