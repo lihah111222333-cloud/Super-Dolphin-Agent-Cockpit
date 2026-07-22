@@ -21,8 +21,14 @@ const requiredTerminalChainNames = [
   'terminal-public-error-diagnostic-projection',
   'terminal-public-error-diagnostic-schema-sanitizer',
 ];
+const repositoryBaselines = new Map();
+const parsedModuleIndex = new Map();
+const lexicalBindingIndex = new Map();
+
+immutableRepositoryBaseline(defaultRepoRoot);
 
 export function validateTurnContractFieldGuard({ repoRoot = defaultRepoRoot, sourceOverrides = new Map() } = {}) {
+  immutableRepositoryBaseline(repoRoot);
   const schemas = canonicalSchemas(repoRoot, sourceOverrides);
   const registry = loadRegistry(repoRoot, sourceOverrides);
   if (registry.version !== 2 || !isRecord(registry.schemas)) {
@@ -127,9 +133,7 @@ function validateExactProjections(chain, actual) {
 
 function discoverJSValidatorConsumers(repoRoot, sourceOverrides, targetSchemas, resolveValidatorExports) {
   const discovered = new Map([...targetSchemas.values()].map((schemaName) => [schemaName, []]));
-  const sourceRoot = path.join(repoRoot, 'frontend-app/src');
-  for (const absolutePath of productionJavaScriptFiles(sourceRoot)) {
-    const relativePath = path.relative(repoRoot, absolutePath).split(path.sep).join('/');
+  for (const relativePath of immutableRepositoryBaseline(repoRoot).productionPaths) {
     const ast = parseModule(readRepositorySource(repoRoot, relativePath, sourceOverrides), relativePath);
     resolveValidatorExports(relativePath);
     const bindings = validatorBindings(
@@ -481,6 +485,15 @@ function isStaticPropertyName(node, parent) {
 }
 
 function createLexicalBindingIndex(source, filePath) {
+  return indexedSourceValue(
+    lexicalBindingIndex,
+    filePath,
+    source,
+    () => createUncachedLexicalBindingIndex(source, filePath),
+  );
+}
+
+function createUncachedLexicalBindingIndex(source, filePath) {
   const linter = new Linter({ configType: 'flat' });
   const messages = linter.verify(source, [{
     languageOptions: {
@@ -636,13 +649,11 @@ export function validateMapperSource(source, mapper) {
 }
 
 function canonicalSchemas(repoRoot, sourceOverrides) {
-  const schemaDir = path.join(repoRoot, 'internal/dto/turn/schema');
   const schemas = new Map();
-  for (const entry of fs.readdirSync(schemaDir, { withFileTypes: true })) {
-    if (entry.isDirectory() || !entry.name.endsWith('.json') || entry.name === 'field_consumers.json') continue;
-    const relativePath = `internal/dto/turn/schema/${entry.name}`;
-    const schema = parseJSON(readRepositorySource(repoRoot, relativePath, sourceOverrides), `canonical schema ${entry.name}`);
-    if (!schema.title || !isRecord(schema.properties)) throw new Error(`canonical schema ${entry.name} must have title and properties`);
+  for (const relativePath of immutableRepositoryBaseline(repoRoot).canonicalSchemaPaths) {
+    const schemaFile = path.posix.basename(relativePath);
+    const schema = parseJSON(readRepositorySource(repoRoot, relativePath, sourceOverrides), `canonical schema ${schemaFile}`);
+    if (!schema.title || !isRecord(schema.properties)) throw new Error(`canonical schema ${schemaFile} must have title and properties`);
     if (schemas.has(schema.title)) throw new Error(`duplicate canonical schema ${schema.title}`);
     schemas.set(schema.title, schema);
   }
@@ -732,6 +743,15 @@ function validateLocatorShape(repoRoot, locator, extension) {
 }
 
 function parseModule(source, filePath) {
+  return indexedSourceValue(
+    parsedModuleIndex,
+    filePath,
+    source,
+    () => parseModuleUncached(source, filePath),
+  );
+}
+
+function parseModuleUncached(source, filePath) {
   try {
     return parse(source, { sourceType: 'module', plugins: ['jsx'] });
   } catch (error) {
@@ -923,8 +943,51 @@ function stringLiteralValue(node) {
 
 function readRepositorySource(repoRoot, relativePath, sourceOverrides) {
   if (sourceOverrides.has(relativePath)) return sourceOverrides.get(relativePath);
-  const absolutePath = path.join(repoRoot, relativePath);
-  return fs.readFileSync(absolutePath, 'utf8');
+  const source = immutableRepositoryBaseline(repoRoot).source(relativePath);
+  if (source !== undefined) return source;
+  return fs.readFileSync(path.join(repoRoot, relativePath), 'utf8');
+}
+
+function immutableRepositoryBaseline(repoRoot) {
+  const normalizedRoot = path.resolve(repoRoot);
+  const cached = repositoryBaselines.get(normalizedRoot);
+  if (cached) return cached;
+
+  const productionPaths = productionJavaScriptFiles(path.join(normalizedRoot, 'frontend-app/src'))
+    .map((absolutePath) => path.relative(normalizedRoot, absolutePath).split(path.sep).join('/'));
+  const schemaDir = path.join(normalizedRoot, 'internal/dto/turn/schema');
+  const canonicalSchemaPaths = fs.readdirSync(schemaDir, { withFileTypes: true })
+    .filter((entry) => !entry.isDirectory() && entry.name.endsWith('.json') && entry.name !== 'field_consumers.json')
+    .map((entry) => `internal/dto/turn/schema/${entry.name}`);
+  const indexedPaths = new Set([...productionPaths, ...canonicalSchemaPaths, registryRelativePath]);
+  const sources = new Map([...indexedPaths].map((relativePath) => [
+    relativePath,
+    fs.readFileSync(path.join(normalizedRoot, relativePath), 'utf8'),
+  ]));
+  const baseline = Object.freeze({
+    canonicalSchemaPaths: Object.freeze(canonicalSchemaPaths),
+    productionPaths: Object.freeze(productionPaths),
+    source(relativePath) {
+      return sources.get(relativePath);
+    },
+  });
+  repositoryBaselines.set(normalizedRoot, baseline);
+  for (const relativePath of productionPaths) {
+    parseModule(sources.get(relativePath), relativePath);
+  }
+  return baseline;
+}
+
+function indexedSourceValue(index, filePath, source, createValue) {
+  let sourceValues = index.get(filePath);
+  if (!sourceValues) {
+    sourceValues = new Map();
+    index.set(filePath, sourceValues);
+  }
+  if (sourceValues.has(source)) return sourceValues.get(source);
+  const value = createValue();
+  sourceValues.set(source, value);
+  return value;
 }
 
 function parseJSON(source, label) {

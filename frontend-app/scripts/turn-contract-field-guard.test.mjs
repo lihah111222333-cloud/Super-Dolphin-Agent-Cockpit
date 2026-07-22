@@ -2,7 +2,20 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+
+const parserProbe = vi.hoisted(() => ({ calls: 0 }));
+
+vi.mock('@babel/parser', async (importOriginal) => {
+  const parser = await importOriginal();
+  return {
+    ...parser,
+    parse(...args) {
+      parserProbe.calls += 1;
+      return parser.parse(...args);
+    },
+  };
+});
 
 import { validateTurnContractFieldGuard } from './turn-contract-field-guard.mjs';
 
@@ -16,6 +29,22 @@ const registryPath = 'internal/dto/turn/schema/field_consumers.json';
 const barrelPath = 'frontend-app/src/shared/contracts/turnContractBarrel.js';
 
 describe('turn contract production field guard', () => {
+  it('parses the immutable baseline once and reparses only a mutation override', () => {
+    const baselineParseCount = parserProbe.calls;
+    expect(baselineParseCount).toBeGreaterThan(1);
+    expect(validateTurnContractFieldGuard({ repoRoot })).toEqual({ schemaCount: 3, mapperCount: 1 });
+    expect(parserProbe.calls).toBe(baselineParseCount);
+
+    const source = read(runtimePath);
+    const mutated = source.replace('validateTurnTerminalV2(payload)', 'payload');
+    expect(mutated).not.toBe(source);
+    expect(() => validateTurnContractFieldGuard({
+      repoRoot,
+      sourceOverrides: new Map([[runtimePath, mutated]]),
+    })).toThrow('missing call validateTurnTerminalV2');
+    expect(parserProbe.calls - baselineParseCount).toBe(1);
+  });
+
   it('resolves canonical schemas, production validators, consumers, and mapper fields', () => {
     expect(validateTurnContractFieldGuard({ repoRoot })).toEqual({ schemaCount: 3, mapperCount: 1 });
   });
