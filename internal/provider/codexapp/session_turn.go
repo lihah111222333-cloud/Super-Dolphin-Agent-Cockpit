@@ -7,13 +7,17 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
 	dto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/provider"
 	shareddto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/shared"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/observability"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/shared"
 	codexprotocol "github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/codexapp/protocol"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/codexapp/supportutil"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/codexapp/toolsurface"
+	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
 )
 
 type turnStartParams struct {
@@ -43,9 +47,178 @@ type turnStartResult struct {
 	} `json:"turn"`
 }
 
+// startingTurnState 是唯一允许在 turn/start 响应前暂存终态的 session-local owner。
+// 它在响应绑定为 live turn 或 RPC 失败时立即释放，不能承载多个并发 start。
+type startingTurnState struct {
+	params   turnStartParams
+	terminal *dto.RawProviderEvent
+}
+
+// StartTurn 启动 provider turn，并记录本地 turn handle、trace 和可重放状态。
+// 动态工具和模型解析必须在远端调用前完成，失败时不会登记 active turn。
+func (s *session) StartTurn(ctx context.Context, req dto.TurnRequest) (contract.TurnHandle, error) {
+	params, err := s.prepareTurnStartParams(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	return s.startTurnWithProvisionalOwner(ctx, req, params)
+}
+
+// prepareTurnStartParams 在远端调用前完成 thread、动态工具和运行时模型配置校验。
+func (s *session) prepareTurnStartParams(ctx context.Context, req dto.TurnRequest) (turnStartParams, error) {
+	threadID, err := requireThreadID(s, req.ThreadID)
+	if err != nil {
+		return turnStartParams{}, err
+	}
+	params, err := buildTurnStartParams(threadID, req)
+	if err != nil {
+		return turnStartParams{}, err
+	}
+	if err := s.applyTurnToolScopeRuntimeConfig(req); err != nil {
+		return turnStartParams{}, err
+	}
+	dynamicTools, err := s.prepareTurnDynamicTools(ctx, req)
+	if err != nil {
+		return turnStartParams{}, err
+	}
+	params.DynamicTools = dynamicTools
+	if err := s.applyRuntimeTurnStartOverrides(ctx, &params); err != nil {
+		return turnStartParams{}, err
+	}
+	s.logTurnStartParams(params)
+	return params, nil
+}
+
+// logTurnStartParams 仅记录安全的配置形状，避免把 sandbox 内容写入日志。
+func (s *session) logTurnStartParams(params turnStartParams) {
+	pkglogger.Debug("codexapp: turn/start params",
+		"agent_id", s.agentID,
+		"model", params.Model,
+		"effort", params.Effort,
+		"sandbox_policy_shape", sandboxPolicyLogShape(params.SandboxPolicy),
+	)
+}
+
+// startTurnWithProvisionalOwner 在 RPC 响应前登记唯一 owner，保证早到终态可延后验证和结算。
+func (s *session) startTurnWithProvisionalOwner(ctx context.Context, req dto.TurnRequest, params turnStartParams) (contract.TurnHandle, error) {
+	starting, err := s.reserveStartingTurn(params)
+	if err != nil {
+		return nil, err
+	}
+	defer s.discardStartingTurn(starting)
+	raw, err := callWithTimeout(ctx, callTargetFunc(s.callTransport), 30*time.Second, "turn/start", params)
+	if err != nil {
+		return nil, supportutil.WrapCodexModelUnsupportedError(err, params.Model)
+	}
+	return s.bindTurnStartResponse(ctx, req, starting, raw)
+}
+
+// bindTurnStartResponse 将 RPC 响应绑定到 provisional owner，并且只分发已验证的早到终态。
+func (s *session) bindTurnStartResponse(ctx context.Context, req dto.TurnRequest, starting *startingTurnState, raw []byte) (contract.TurnHandle, error) {
+	resp, err := decodeTurnStartResult(raw)
+	if err != nil {
+		return nil, err
+	}
+	providerID := strings.TrimSpace(resp.Turn.ID)
+	h := newTurnHandle(resolveLocalTurnID(req.LocalID, providerID), providerID)
+	h.trace, _ = observability.TraceFromContext(ctx)
+	earlyTerminal, err := s.bindStartingTurn(starting, h, providerID)
+	if err != nil {
+		return nil, err
+	}
+	if earlyTerminal != nil {
+		s.dispatch(*earlyTerminal)
+		s.finishTurn(*earlyTerminal)
+	}
+	return h, nil
+}
+
+// reserveStartingTurn 为尚未取得 provider turn ID 的 turn/start 建立唯一 provisional owner。
+func (s *session) reserveStartingTurn(params turnStartParams) (*startingTurnState, error) {
+	if s == nil {
+		return nil, errors.New("codexapp: session is required for turn/start")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.startingTurn != nil {
+		return nil, errors.New("codexapp: turn/start already in flight")
+	}
+	starting := &startingTurnState{params: cloneTurnStartParams(params)}
+	s.startingTurn = starting
+	return starting, nil
+}
+
+// discardStartingTurn 只释放调用方自己的 provisional owner，避免失败 RPC 留下无主终态暂存。
+func (s *session) discardStartingTurn(starting *startingTurnState) {
+	if s == nil || starting == nil {
+		return
+	}
+	s.mu.Lock()
+	if s.startingTurn == starting {
+		s.startingTurn = nil
+	}
+	s.mu.Unlock()
+}
+
+// bindStartingTurn 原子地把 provisional owner 绑定为 live turn，并领取同一 start 期间收到的首个终态。
+func (s *session) bindStartingTurn(starting *startingTurnState, handle *turnHandle, providerID string) (*dto.RawProviderEvent, error) {
+	providerID = strings.TrimSpace(providerID)
+	if s == nil || starting == nil || handle == nil || providerID == "" {
+		return nil, errors.New("codexapp: bind turn/start requires provisional owner, handle, and provider turn id")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.startingTurn != starting {
+		return nil, errors.New("codexapp: turn/start provisional owner was lost")
+	}
+	s.startingTurn = nil
+	if s.turns == nil {
+		s.turns = map[string]*turnHandle{}
+	}
+	s.turns[providerID] = handle
+	s.setActiveTurnLocked(providerID)
+	s.rememberPendingTurnLocked(handle, starting.params)
+	if starting.terminal == nil {
+		return nil, nil
+	}
+	payload := decodeAnyPayload(starting.terminal.Data)
+	if payloadTurnID(payload) != providerID {
+		return nil, nil
+	}
+	handle.terminalClaimed = true
+	staged := *starting.terminal
+	return &staged, nil
+}
+
+// stageStartingTerminal 暂存唯一 provisional start 期间的首个同线程 terminal，等待响应提供可验证的 turn ID。
+func (s *session) stageStartingTerminal(raw dto.RawProviderEvent) bool {
+	if s == nil || raw.Terminal == nil {
+		return false
+	}
+	payload := decodeAnyPayload(raw.Data)
+	if payloadTurnID(payload) == "" {
+		return false
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	starting := s.startingTurn
+	if starting == nil {
+		return false
+	}
+	if expected, actual := strings.TrimSpace(starting.params.ThreadID), payloadThreadID(payload); expected != "" && actual != "" && expected != actual {
+		return false
+	}
+	if starting.terminal != nil {
+		return true
+	}
+	staged := raw
+	starting.terminal = &staged
+	return true
+}
+
 func buildTurnStartParams(threadID string, req dto.TurnRequest) (turnStartParams, error) {
 	selectedSkills := selectedSkillNames(req.Skills)
-	inputs, err := turnInputsFromRequest(req.Inputs, req.Skills, req.TurnAssembly)
+	inputs, err := turnInputsFromRequest(req.Inputs, req.TurnAssembly)
 	if err != nil {
 		return turnStartParams{}, err
 	}
@@ -113,7 +286,7 @@ func trimTurnToolScopeRoots(roots []string) []string {
 }
 
 func buildTurnSteerParams(threadID string, req dto.SteerRequest) (map[string]any, error) {
-	inputs, err := turnInputsFromRequest(req.Inputs, req.Skills, req.TurnAssembly)
+	inputs, err := turnInputsFromRequest(req.Inputs, req.TurnAssembly)
 	if err != nil {
 		return nil, err
 	}
@@ -155,7 +328,7 @@ func selectedSkillNames(skills []dto.SkillRef) []string {
 	return selected
 }
 
-func turnInputsFromRequest(inputs []dto.InputItem, skills []dto.SkillRef, assembly dto.TurnAssembly) ([]turnInputItem, error) {
+func turnInputsFromRequest(inputs []dto.InputItem, assembly dto.TurnAssembly) ([]turnInputItem, error) {
 	items := make([]turnInputItem, 0, len(inputs)+len(assembly.Attachments)+3)
 	// system reminder 和 git 上下文由 thread/start 的 baseInstructions 注入，turn/start 不再重复拼接。
 	for _, attachment := range assembly.Attachments {

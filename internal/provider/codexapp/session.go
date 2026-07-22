@@ -53,8 +53,7 @@ type session struct {
 	activeTurnGeneration   uint64
 	interruptRequests      map[string]*interruptRequestClaim
 	pendingTurn            *turnReplayState
-	terminalSeals          map[string]struct{}
-	terminalSealOrder      []string
+	startingTurn           *startingTurnState
 	suppressed             map[string]struct{}
 	suppressedToolEnds     map[string]struct{}
 	suppressedToolOrder    []string
@@ -85,13 +84,14 @@ var codexToolSurfaceSeq atomic.Uint64
 var errInterruptRequestAlreadyClaimed = errors.New("codexapp: interrupt request already claimed for active turn")
 
 type turnHandle struct {
-	localID    string
-	providerID string
-	trace      observability.TraceContext
-	done       chan struct{}
-	mu         sync.RWMutex
-	err        error
-	once       sync.Once
+	localID         string
+	providerID      string
+	trace           observability.TraceContext
+	terminalClaimed bool
+	done            chan struct{}
+	mu              sync.RWMutex
+	err             error
+	once            sync.Once
 }
 
 // ErrForceCompleteTargetNotFound marks a force-complete request with no active provider turn target.
@@ -191,7 +191,6 @@ func newSessionWithOptions(
 		ctx:                   ctx,
 		cancel:                cancel,
 		turns:                 map[string]*turnHandle{},
-		terminalSeals:         map[string]struct{}{},
 		suppressed:            map[string]struct{}{},
 		suppressedToolEnds:    map[string]struct{}{},
 		processedApprovals:    map[string]*processedApprovalEntry{},
@@ -378,51 +377,6 @@ func (s *session) RuntimeConfigSnapshot() map[string]any {
 		return nil
 	}
 	return out
-}
-
-// StartTurn 启动 provider turn，并记录本地 turn handle、trace 和可重放状态。
-// 动态工具和模型解析必须在远端调用前完成，失败时不会登记 active turn。
-func (s *session) StartTurn(ctx context.Context, req dto.TurnRequest) (contract.TurnHandle, error) {
-	threadID, err := requireThreadID(s, req.ThreadID)
-	if err != nil {
-		return nil, err
-	}
-	params, err := buildTurnStartParams(threadID, req)
-	if err != nil {
-		return nil, err
-	}
-	if err := s.applyTurnToolScopeRuntimeConfig(req); err != nil {
-		return nil, err
-	}
-	if params.DynamicTools, err = s.prepareTurnDynamicTools(ctx, req); err != nil {
-		return nil, err
-	}
-	if err := s.applyRuntimeTurnStartOverrides(ctx, &params); err != nil {
-		return nil, err
-	}
-	pkglogger.Debug("codexapp: turn/start params",
-		"agent_id", s.agentID,
-		"model", params.Model,
-		"effort", params.Effort,
-		"sandbox_policy_shape", sandboxPolicyLogShape(params.SandboxPolicy),
-	)
-	raw, err := callWithTimeout(ctx, callTargetFunc(s.callTransport), 30*time.Second, "turn/start", params)
-	if err != nil {
-		return nil, supportutil.WrapCodexModelUnsupportedError(err, params.Model)
-	}
-	resp, err := decodeTurnStartResult(raw)
-	if err != nil {
-		return nil, err
-	}
-	providerID := strings.TrimSpace(resp.Turn.ID)
-	h := newTurnHandle(resolveLocalTurnID(req.LocalID, providerID), providerID)
-	h.trace, _ = observability.TraceFromContext(ctx)
-	s.mu.Lock()
-	s.turns[providerID] = h
-	s.setActiveTurnLocked(providerID)
-	s.mu.Unlock()
-	s.rememberPendingTurn(h, params)
-	return h, nil
 }
 
 // applyRuntimeTurnStartOverrides 从会话 runtimeConfig 补齐 turn/start 支持的运行时覆盖。
@@ -620,9 +574,6 @@ func (s *session) reserveInterruptRequest(claim interruptTargetClaim, requestID 
 	}
 	if s.interruptRequests[claim.turnID] != nil {
 		return nil, errInterruptRequestAlreadyClaimed
-	}
-	if requestID == "" {
-		return nil, nil
 	}
 	if s.interruptRequests == nil {
 		s.interruptRequests = map[string]*interruptRequestClaim{}

@@ -92,6 +92,16 @@ type replayTurnStatus struct {
 	}
 }
 
+type pendingTurnRecoveryState uint8
+
+const (
+	pendingTurnStillActive pendingTurnRecoveryState = iota
+	pendingTurnLost
+	pendingTurnCompleted
+	pendingTurnFailed
+	pendingTurnCancelled
+)
+
 // CheckHealth 检查 transport 是否仍能响应本地健康探测。
 // 这里只看 app-server 连接本身，避免把 connector/catalog 等远端能力失败误判为会话不可用。
 func (r *recoveryManager) CheckHealth(ctx context.Context) error {
@@ -141,6 +151,14 @@ func (s *session) rememberPendingTurn(handle *turnHandle, params turnStartParams
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.rememberPendingTurnLocked(handle, params)
+}
+
+// rememberPendingTurnLocked 由 StartTurn 的绑定临界区复用，避免 terminal 在登记前穿透 owner 生命周期。
+func (s *session) rememberPendingTurnLocked(handle *turnHandle, params turnStartParams) {
+	if handle == nil {
+		return
+	}
 	s.pendingTurn = &turnReplayState{
 		localID:    strings.TrimSpace(handle.LocalID()),
 		providerID: strings.TrimSpace(handle.ProviderID()),
@@ -428,24 +446,62 @@ func (s *session) recoveryResumeCWD() (string, error) {
 	return cwd, nil
 }
 
-// replayPendingTurn 在恢复后的连接上重放尚未完成的 turn/start。
-// 已完成或快照无效时不做事；重放成功后会把旧 provider turnID 替换为新 ID。
+// replayPendingTurn 只在 provider 明确确认丢失且没有本地 Stop owner 时重放。
+// 已确认终态必须先同步收敛本地 handle，避免恢复成功后留下永远 active 的 turn。
 func (s *session) replayPendingTurn(ctx context.Context) error {
 	if err := shared.CheckCtx(ctx); err != nil {
 		return err
 	}
 	ctx = shared.NonNilContext(ctx)
-	snapshot := s.pendingTurnSnapshot()
-	if snapshot == nil || replayTurnDone(snapshot.handle) {
+	snapshot, state, err := s.pendingTurnRecoveryState(ctx)
+	if err != nil {
+		return err
+	}
+	if snapshot == nil {
 		return nil
 	}
+	settled, err := s.settlePendingTurnForRecovery(snapshot, state)
+	if err != nil {
+		return err
+	}
+	if settled {
+		return nil
+	}
+	return s.replayLostPendingTurn(ctx, snapshot)
+}
+
+// pendingTurnRecoveryState 获取可恢复 turn 的稳定快照和 provider 确认状态。
+func (s *session) pendingTurnRecoveryState(ctx context.Context) (*turnReplayState, pendingTurnRecoveryState, error) {
+	snapshot := s.pendingTurnSnapshot()
+	if snapshot == nil || replayTurnDone(snapshot.handle) {
+		return nil, 0, nil
+	}
 	if err := validatePendingTurnSnapshot(snapshot); err != nil {
-		return err
+		return nil, 0, err
 	}
-	lost, err := s.confirmPendingTurnLost(ctx, snapshot)
-	if err != nil || !lost {
-		return err
+	state, err := s.confirmPendingTurnState(ctx, snapshot)
+	if err != nil {
+		return nil, 0, err
 	}
+	return snapshot, state, nil
+}
+
+// settlePendingTurnForRecovery 优先收敛明确终态或可信 Stop owner，只有 lost 且无 Stop owner 才允许重放。
+func (s *session) settlePendingTurnForRecovery(snapshot *turnReplayState, state pendingTurnRecoveryState) (bool, error) {
+	switch state {
+	case pendingTurnStillActive:
+		return true, nil
+	case pendingTurnLost:
+		return s.settleLostPendingInterrupt(snapshot)
+	case pendingTurnCompleted, pendingTurnFailed, pendingTurnCancelled:
+		return true, s.settleRecoveredPendingTurn(snapshot, state)
+	default:
+		return false, errors.New("codexapp: recovery turn state is required")
+	}
+}
+
+// replayLostPendingTurn 只在远端确认 lost 且本地没有可信 Stop owner 后创建新的 provider turn。
+func (s *session) replayLostPendingTurn(ctx context.Context, snapshot *turnReplayState) error {
 	s.logReplayPendingTurn(snapshot)
 	newProviderID, err := s.replayTurnStart(ctx, snapshot.params)
 	if err != nil {
@@ -456,45 +512,139 @@ func (s *session) replayPendingTurn(ctx context.Context) error {
 	return nil
 }
 
-// confirmPendingTurnLost 查询 provider 侧 turn 状态；仍 active 时禁止重放，避免同一输入执行两次。
-func (s *session) confirmPendingTurnLost(ctx context.Context, snapshot *turnReplayState) (bool, error) {
+// confirmPendingTurnState 查询 provider 侧 turn 状态；仍 active 时禁止重放，避免同一输入执行两次。
+func (s *session) confirmPendingTurnState(ctx context.Context, snapshot *turnReplayState) (pendingTurnRecoveryState, error) {
 	providerID := strings.TrimSpace(snapshot.providerID)
 	if providerID == "" {
-		return false, errors.New("codexapp: replay provider turn id is required")
+		return 0, errors.New("codexapp: replay provider turn id is required")
 	}
 	raw, err := callWithTimeout(ctx, s.transport, 10*time.Second, "turn/status", map[string]any{"threadId": snapshot.params.ThreadID, "turnId": providerID})
 	if err != nil {
-		return false, fmt.Errorf("codexapp: turn/status before replay failed: %w", err)
+		return 0, fmt.Errorf("codexapp: turn/status before replay failed: %w", err)
 	}
 	var payload replayTurnStatus
 	if err := json.Unmarshal(raw, &payload); err != nil {
-		return false, fmt.Errorf("codexapp: turn/status before replay decode failed: %w", err)
+		return 0, fmt.Errorf("codexapp: turn/status before replay decode failed: %w", err)
 	}
 	active := payload.Active
 	if payload.Turn.Active != nil {
 		active = payload.Turn.Active
 	}
 	if active == nil {
-		return false, errors.New("codexapp: turn/status before replay missing active state")
+		return 0, errors.New("codexapp: turn/status before replay missing active state")
 	}
 	if *active {
-		return false, nil
+		return pendingTurnStillActive, nil
 	}
-	return replayAllowedForStatus(payload)
+	return pendingTurnRecoveryStateForStatus(payload)
 }
 
-func replayAllowedForStatus(payload replayTurnStatus) (bool, error) {
+// pendingTurnRecoveryStateForStatus 将 provider 的非 active 状态规范为 recovery 所需的唯一状态集合。
+func pendingTurnRecoveryStateForStatus(payload replayTurnStatus) (pendingTurnRecoveryState, error) {
 	status := strings.ToLower(strings.TrimSpace(shared.FirstNonEmpty(payload.Turn.Status, payload.Status)))
 	switch status {
 	case "lost", "not_found", "not-found", "missing":
-		return true, nil
-	case "completed", "complete", "failed", "canceled", "cancelled", "aborted":
-		return false, nil
+		return pendingTurnLost, nil
+	case "completed", "complete":
+		return pendingTurnCompleted, nil
+	case "failed":
+		return pendingTurnFailed, nil
+	case "canceled", "cancelled", "aborted", "interrupted":
+		return pendingTurnCancelled, nil
 	case "":
-		return false, errors.New("codexapp: turn/status before replay missing lost or terminal state")
+		return 0, errors.New("codexapp: turn/status before replay missing lost or terminal state")
 	default:
-		return false, fmt.Errorf("codexapp: turn/status before replay unknown state %q", status)
+		return 0, fmt.Errorf("codexapp: turn/status before replay unknown state %q", status)
 	}
+}
+
+// settleLostPendingInterrupt 在重放前消费可信的本地 Stop owner。
+// 空 requestID 仍会阻止重放，但绝不伪造 user_request 归因。
+func (s *session) settleLostPendingInterrupt(snapshot *turnReplayState) (bool, error) {
+	h, claim, settled, terminalOwned := s.claimAndTakeRecoveryTurn(snapshot, true)
+	if !settled {
+		if terminalOwned || replayTurnDone(snapshot.handle) {
+			return true, nil
+		}
+		// 没有与当前 turn 代际匹配的 Stop owner 时，保留恢复重放；pendingTurn
+		// 本身是 replay snapshot，不应被误判为一条已接受的 Stop 请求。
+		return false, nil
+	}
+	turnID := strings.TrimSpace(snapshot.providerID)
+	payload := map[string]any{
+		"agentId":   s.agentID,
+		"threadId":  s.agentID,
+		"turnId":    turnID,
+		"timestamp": time.Now().UTC().Format(time.RFC3339Nano),
+		"success":   false,
+		"status":    "cancelled",
+		"error":     "turn cancelled after interrupt recovery",
+	}
+	outcome := &dto.TerminalOutcome{Status: "cancelled", Cause: "system"}
+	payload["termination_cause"] = outcome.Cause
+	if requestID := strings.TrimSpace(claim.requestID); requestID != "" {
+		outcome.Cause = "user_request"
+		outcome.RequestID = requestID
+		payload["termination_cause"] = outcome.Cause
+		payload["termination_request_id"] = outcome.RequestID
+	}
+	s.dispatch(dto.RawProviderEvent{EventType: "turn/completed", Data: payload, Terminal: outcome})
+	h.complete(errors.New("turn cancelled after interrupt recovery"))
+	return true, nil
+}
+
+// settleRecoveredPendingTurn 将明确的远端终态收敛为唯一的本地 canonical terminal。
+func (s *session) settleRecoveredPendingTurn(snapshot *turnReplayState, state pendingTurnRecoveryState) error {
+	h, claim, settled, terminalOwned := s.claimAndTakeRecoveryTurn(snapshot, false)
+	if !settled {
+		if terminalOwned || replayTurnDone(snapshot.handle) {
+			return nil
+		}
+		return errors.New("codexapp: confirmed remote terminal could not settle live turn")
+	}
+	turnID := strings.TrimSpace(snapshot.providerID)
+	payload := map[string]any{
+		"agentId":   s.agentID,
+		"threadId":  s.agentID,
+		"turnId":    turnID,
+		"timestamp": time.Now().UTC().Format(time.RFC3339Nano),
+	}
+	outcome := &dto.TerminalOutcome{}
+	var completeErr error
+	switch state {
+	case pendingTurnCompleted:
+		outcome.Success = true
+		outcome.Status = "completed"
+		payload["success"] = true
+		payload["status"] = outcome.Status
+	case pendingTurnFailed:
+		outcome.Status = "failed"
+		payload["success"] = false
+		payload["status"] = outcome.Status
+		payload["error"] = "turn failed during recovery"
+		completeErr = errors.New("turn failed during recovery")
+	case pendingTurnCancelled:
+		outcome.Status = "cancelled"
+		outcome.Cause = "provider"
+		payload["success"] = false
+		payload["status"] = outcome.Status
+		payload["error"] = "turn cancelled during recovery"
+		payload["termination_cause"] = outcome.Cause
+		completeErr = errors.New("turn cancelled during recovery")
+		if claim != nil {
+			if requestID := strings.TrimSpace(claim.requestID); requestID != "" {
+				outcome.Cause = "user_request"
+				outcome.RequestID = requestID
+				payload["termination_cause"] = outcome.Cause
+				payload["termination_request_id"] = outcome.RequestID
+			}
+		}
+	default:
+		return errors.New("codexapp: recovered terminal state is required")
+	}
+	s.dispatch(dto.RawProviderEvent{EventType: "turn/completed", Data: payload, Terminal: outcome})
+	h.complete(completeErr)
+	return nil
 }
 
 func (s *session) pendingTurnSnapshot() *turnReplayState {
@@ -548,6 +698,7 @@ func (s *session) applyReplayedTurn(snapshot *turnReplayState, newProviderID str
 	var staleProviderID string
 	if snapshot.providerID != "" {
 		delete(s.turns, snapshot.providerID)
+		delete(s.interruptRequests, snapshot.providerID)
 		staleProviderID = snapshot.providerID
 	}
 	s.turns[newProviderID] = snapshot.handle

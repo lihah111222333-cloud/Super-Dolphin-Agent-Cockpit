@@ -14,7 +14,10 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/kelindar/event"
 	dto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/provider"
+	turndto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/turn"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/unified"
 	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
 )
 
@@ -452,6 +455,141 @@ func TestSessionAttemptRecoveryReplaysPendingTurn(t *testing.T) {
 	recorder.assertCounts(t)
 }
 
+func TestSessionAttemptRecoveryLostStopClaimSettlesWithoutReplay(t *testing.T) {
+	for _, tt := range []lostStopRecoveryCase{
+		{name: "pending", state: interruptRequestPending, requestID: "stop-trusted", wantAttribution: true},
+		{name: "accepted", state: interruptRequestAccepted, requestID: "stop-trusted", wantAttribution: true},
+		{name: "anonymous pending", state: interruptRequestPending},
+	} {
+		t.Run(tt.name, func(t *testing.T) { assertLostStopRecoveryCase(t, tt) })
+	}
+}
+
+type lostStopRecoveryCase struct {
+	name            string
+	state           interruptRequestState
+	requestID       string
+	wantAttribution bool
+}
+
+type lostStopRecoveryFixture struct {
+	recorder  *sessionRecoveryRPCRecorder
+	session   *session
+	handle    recoveryTestTurnHandle
+	terminals <-chan turndto.TurnCompleted
+}
+
+func assertLostStopRecoveryCase(t *testing.T, testCase lostStopRecoveryCase) {
+	t.Helper()
+	fixture := newLostStopRecoveryFixture(t, testCase)
+	if err := fixture.session.attemptRecovery("lost stop claim"); err != nil {
+		t.Fatalf("attemptRecovery() error = %v", err)
+	}
+	assertLostStopHandle(t, fixture.handle)
+	assertLostStopTerminal(t, testCase, fixture.terminals)
+	assertLostStopOwnerCleared(t, fixture.session)
+	fixture.recorder.assertLostStopRecoveryWasNotReplayed(t)
+}
+
+func newLostStopRecoveryFixture(t *testing.T, testCase lostStopRecoveryCase) lostStopRecoveryFixture {
+	t.Helper()
+	recorder := &sessionRecoveryRPCRecorder{}
+	server := newCodexTestRPCServer(t, recorder.handle)
+	t.Cleanup(server.Close)
+	bus := event.NewDispatcher()
+	t.Cleanup(func() { _ = bus.Close() })
+	dispatcher := unified.NewEventDispatcher(bus, nil)
+	RegisterTranslators(dispatcher)
+	terminals := make(chan turndto.TurnCompleted, 1)
+	cancelTerminal := event.Subscribe(bus, func(ev turndto.TurnCompleted) { terminals <- ev })
+	t.Cleanup(cancelTerminal)
+	s := newRecoveryTestSessionWithDispatcher(t, server, dispatcher)
+	t.Cleanup(func() { closeCodexTestSession(t, s) })
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	t.Cleanup(cancel)
+	handle := startRecoveryTestTurn(t, ctx, s)
+	setLostStopRecoveryClaim(s, testCase)
+	return lostStopRecoveryFixture{recorder: recorder, session: s, handle: handle, terminals: terminals}
+}
+
+func setLostStopRecoveryClaim(s *session, testCase lostStopRecoveryCase) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.interruptRequests = map[string]*interruptRequestClaim{
+		"turn-1": {turnID: "turn-1", requestID: testCase.requestID, generation: s.activeTurnGeneration, state: testCase.state},
+	}
+}
+
+func assertLostStopHandle(t *testing.T, handle recoveryTestTurnHandle) {
+	t.Helper()
+	select {
+	case <-handle.Done():
+		if handle.Err() == nil {
+			t.Fatal("lost stop claim completed handle without cancellation error")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("lost stop claim left handle active")
+	}
+}
+
+func assertLostStopTerminal(t *testing.T, testCase lostStopRecoveryCase, terminals <-chan turndto.TurnCompleted) {
+	t.Helper()
+	select {
+	case terminal := <-terminals:
+		assertLostStopTerminalDetails(t, testCase, terminal)
+	case <-time.After(time.Second):
+		t.Fatal("lost stop claim did not publish terminal")
+	}
+}
+
+func assertLostStopTerminalDetails(t *testing.T, testCase lostStopRecoveryCase, terminal turndto.TurnCompleted) {
+	t.Helper()
+	if terminal.Success || terminal.Status != "cancelled" {
+		t.Fatalf("recovery terminal = %#v, want cancellation", terminal)
+	}
+	if testCase.wantAttribution {
+		assertTrustedLostStopTerminal(t, testCase.requestID, terminal)
+		return
+	}
+	assertAnonymousLostStopTerminal(t, terminal)
+}
+
+func assertTrustedLostStopTerminal(t *testing.T, requestID string, terminal turndto.TurnCompleted) {
+	t.Helper()
+	if terminal.Reason != "user_request" || terminal.TerminationRequestID != requestID {
+		t.Fatalf("recovery terminal = %#v, want trusted user cancellation", terminal)
+	}
+}
+
+func assertAnonymousLostStopTerminal(t *testing.T, terminal turndto.TurnCompleted) {
+	t.Helper()
+	if terminal.Reason == "user_request" || terminal.TerminationRequestID != "" {
+		t.Fatalf("anonymous Stop terminal forged request attribution: %#v", terminal)
+	}
+}
+
+func assertLostStopOwnerCleared(t *testing.T, s *session) {
+	t.Helper()
+	s.mu.Lock()
+	_, tracked := s.turns["turn-1"]
+	_, claimed := s.interruptRequests["turn-1"]
+	active, pending := s.activeTurnID, s.pendingTurn
+	s.mu.Unlock()
+	if tracked || claimed || active != "" || pending != nil {
+		t.Fatalf("lost stop claim retained owner state: tracked=%v claimed=%v active=%q pending=%#v", tracked, claimed, active, pending)
+	}
+}
+
+func (r *sessionRecoveryRPCRecorder) assertLostStopRecoveryWasNotReplayed(t *testing.T) {
+	t.Helper()
+	r.mu.Lock()
+	turnStarts, turnStatuses := r.turnStarts, r.turnStatuses
+	r.mu.Unlock()
+	if turnStarts != 1 || turnStatuses != 1 {
+		t.Fatalf("recovery calls = turn/start:%d turn/status:%d, want 1 initial start and one status without replay", turnStarts, turnStatuses)
+	}
+}
+
 type sessionRecoveryRPCRecorder struct {
 	mu              sync.Mutex
 	turnStarts      int
@@ -534,8 +672,12 @@ func (r *sessionRecoveryRPCRecorder) assertCounts(t *testing.T) {
 }
 
 func newRecoveryTestSession(t *testing.T, server *httptest.Server) *session {
+	return newRecoveryTestSessionWithDispatcher(t, server, nil)
+}
+
+func newRecoveryTestSessionWithDispatcher(t *testing.T, server *httptest.Server, dispatcher *unified.EventDispatcher) *session {
 	t.Helper()
-	s, err := newSession(context.Background(), pkglogger.Get(), "ws"+strings.TrimPrefix(server.URL, "http"), "agent-1", nil, testApprovalManager(), nil)
+	s, err := newSession(context.Background(), pkglogger.Get(), "ws"+strings.TrimPrefix(server.URL, "http"), "agent-1", dispatcher, testApprovalManager(), nil)
 	if err != nil {
 		t.Fatalf("newSession() error = %v", err)
 	}
@@ -557,6 +699,8 @@ func TestSessionResumeThreadAfterRecoveryRejectsMissingRuntimeCWD(t *testing.T) 
 
 type recoveryTestTurnHandle interface {
 	ProviderID() string
+	Done() <-chan struct{}
+	Err() error
 }
 
 func startRecoveryTestTurn(t *testing.T, ctx context.Context, s *session) recoveryTestTurnHandle {

@@ -3,6 +3,7 @@
 package codexapp
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -27,6 +28,7 @@ import (
 	"github.com/kelindar/event"
 	tooldto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/tool"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/provider/unified"
+	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
 )
 
 type localCodexHelper struct {
@@ -37,6 +39,88 @@ type localCodexHelper struct {
 func TestTransportConnectOnceCapsInboundFrame(t *testing.T) {
 	t.Run("boundary", func(t *testing.T) { assertInboundFrameLimit(t, transportInboundFrameMaxBytes, false) })
 	t.Run("oversized", func(t *testing.T) { assertInboundFrameLimit(t, transportInboundFrameMaxBytes+1, true) })
+}
+
+func TestTransportRespondWithIDDoesNotExposeRawCallError(t *testing.T) {
+	const marker = "token=sk-test-secret dsn=postgres://alice:secret@db/private path=/Users/private/secret.go"
+	logs := captureTransportResponseLogs(t)
+	serverURL, received := newTransportResponseReceiver(t)
+	transport := &transport{serverURL: serverURL}
+	if err := transport.connectOnce(context.Background()); err != nil {
+		t.Fatalf("connectOnce() error = %v", err)
+	}
+	t.Cleanup(transport.closeSocket)
+	if err := transport.RespondWithID(json.RawMessage(`"request-1"`), nil, errors.New(marker)); err != nil {
+		t.Fatalf("RespondWithID() error = %v", err)
+	}
+	assertPublicTransportResponse(t, awaitTransportResponse(t, received), marker)
+	assertSanitizedTransportFailureLog(t, logs.String())
+}
+
+type receivedTransportResponse struct {
+	message jsonRPCMessage
+	err     error
+}
+
+func captureTransportResponseLogs(t *testing.T) *bytes.Buffer {
+	t.Helper()
+	logs := &bytes.Buffer{}
+	old := pkglogger.Get()
+	pkglogger.InitWithConsoleWriter(logs)
+	t.Cleanup(func() { pkglogger.SetForTest(old) })
+	return logs
+}
+
+func newTransportResponseReceiver(t *testing.T) (string, <-chan receivedTransportResponse) {
+	t.Helper()
+	received := make(chan receivedTransportResponse, 1)
+	upgrader := websocket.Upgrader{}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			received <- receivedTransportResponse{err: err}
+			return
+		}
+		defer conn.Close()
+		var message jsonRPCMessage
+		err = conn.ReadJSON(&message)
+		received <- receivedTransportResponse{message: message, err: err}
+	}))
+	t.Cleanup(server.Close)
+	return "ws" + strings.TrimPrefix(server.URL, "http"), received
+}
+
+func awaitTransportResponse(t *testing.T, received <-chan receivedTransportResponse) receivedTransportResponse {
+	t.Helper()
+	select {
+	case response := <-received:
+		return response
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for provider response")
+		return receivedTransportResponse{}
+	}
+}
+
+func assertPublicTransportResponse(t *testing.T, response receivedTransportResponse, marker string) {
+	t.Helper()
+	if response.err != nil {
+		t.Fatalf("provider response read error = %v", response.err)
+	}
+	if response.message.Error == nil || response.message.Error.Code != -32000 || strings.Contains(response.message.Error.Message, marker) || !strings.HasPrefix(response.message.Error.Message, "Tool execution failed. Diagnostic ID: ") {
+		t.Fatalf("provider response = %#v, want public diagnostic error without marker", response.message)
+	}
+}
+
+func assertSanitizedTransportFailureLog(t *testing.T, output string) {
+	t.Helper()
+	for _, raw := range []string{"sk-test-secret", "postgres://alice:secret@db/private", "/Users/private/secret.go"} {
+		if strings.Contains(output, raw) {
+			t.Fatalf("inbound request failure log leaked %q: %s", raw, output)
+		}
+	}
+	if !strings.Contains(output, "Tool execution failed. Diagnostic ID: ") {
+		t.Fatalf("inbound request failure log = %s, want public diagnostic", output)
+	}
 }
 
 func assertInboundFrameLimit(t *testing.T, size int, wantErr bool) {
