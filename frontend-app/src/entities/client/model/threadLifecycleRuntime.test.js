@@ -157,17 +157,82 @@ describe('thread lifecycle runtime', () => {
     );
   });
 
-  it('clears both interrupt timers after a quick result', async () => {
+  it('does not allocate timers when the interrupt RPC resolves in its first microtask', async () => {
+    const setTimeout = vi.spyOn(globalThis, 'setTimeout');
     const clearTimeout = vi.spyOn(globalThis, 'clearTimeout');
     try {
       const runtime = createRuntime();
       attachActiveThreadRpcRuntime(runtime, createDeps());
+      setTimeout.mockClear();
+      clearTimeout.mockClear();
 
       await expect(runtime.activeThreadRPC('thread.interrupt', vi.fn().mockResolvedValue(successfulInterruptResult()))).resolves.toBe(true);
-      expect(clearTimeout).toHaveBeenCalledTimes(2);
+      expect(setTimeout.mock.calls.filter(([, delay]) => delay === 0)).toHaveLength(0);
+      expect(setTimeout.mock.calls.filter(([, delay]) => delay === INTERRUPT_RPC_TIMEOUT_MS)).toHaveLength(0);
+      expect(clearTimeout).not.toHaveBeenCalled();
     }
     finally {
+      setTimeout.mockRestore();
       clearTimeout.mockRestore();
+    }
+  });
+
+  it('does not allocate timers when the interrupt RPC rejects in its first microtask', async () => {
+    const setTimeout = vi.spyOn(globalThis, 'setTimeout');
+    const clearTimeout = vi.spyOn(globalThis, 'clearTimeout');
+    try {
+      const runtime = createRuntime();
+      const error = new Error('backend offline');
+      attachActiveThreadRpcRuntime(runtime, createDeps());
+      setTimeout.mockClear();
+      clearTimeout.mockClear();
+
+      await expect(runtime.activeThreadRPC('thread.interrupt', vi.fn().mockRejectedValue(error))).rejects.toBe(error);
+      expect(setTimeout.mock.calls.filter(([, delay]) => delay === 0)).toHaveLength(0);
+      expect(setTimeout.mock.calls.filter(([, delay]) => delay === INTERRUPT_RPC_TIMEOUT_MS)).toHaveLength(0);
+      expect(clearTimeout).not.toHaveBeenCalled();
+    }
+    finally {
+      setTimeout.mockRestore();
+      clearTimeout.mockRestore();
+    }
+  });
+
+  it('clears unpublished pending feedback when the RPC settles before its 0ms callback', async () => {
+    vi.useFakeTimers();
+    const setTimeout = vi.spyOn(globalThis, 'setTimeout');
+    const clearTimeout = vi.spyOn(globalThis, 'clearTimeout');
+    try {
+      let resolveRpc;
+      const runtime = createRuntime();
+      const rpc = vi.fn(() => new Promise((resolve) => { resolveRpc = resolve; }));
+      attachActiveThreadRpcRuntime(runtime, createDeps());
+      setTimeout.mockClear();
+      clearTimeout.mockClear();
+
+      const pending = runtime.activeThreadRPC('thread.interrupt', rpc);
+      await Promise.resolve();
+      await Promise.resolve();
+      const pendingTimerIndex = setTimeout.mock.calls.findIndex(([, delay]) => delay === 0);
+      expect(pendingTimerIndex).toBeGreaterThanOrEqual(0);
+      expect(setTimeout.mock.calls.filter(([, delay]) => delay === INTERRUPT_RPC_TIMEOUT_MS)).toHaveLength(1);
+      const pendingTimer = setTimeout.mock.results[pendingTimerIndex].value;
+
+      resolveRpc(successfulInterruptResult());
+      await expect(pending).resolves.toBe(true);
+      expect(clearTimeout).toHaveBeenCalledWith(pendingTimer);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(runtime.notifyAction).not.toHaveBeenCalledWith(
+        '正在请求停止，尚未确认，任务可能仍在运行',
+        'info',
+        { threadId: 'thread-1' },
+      );
+      expect(runtime.notifyAction).toHaveBeenCalledWith('已发送中断请求', 'success', { threadId: 'thread-1' });
+    }
+    finally {
+      setTimeout.mockRestore();
+      clearTimeout.mockRestore();
+      vi.useRealTimers();
     }
   });
 
