@@ -1763,6 +1763,7 @@ go_binary_cache_paths=(
   "$root/pkg"
   "$root/go.mod"
   "$root/go.sum"
+  "$root/Makefile"
   "$root/scripts/package_macos.sh"
   "$root/scripts/build_phase_cache/main.go"
 )
@@ -1781,6 +1782,7 @@ go_binary_cache_inputs=(
   "input:CC=$(go env CC)"
   "input:CXX=$(go env CXX)"
   "input:MACOSX_DEPLOYMENT_TARGET=$macos_min_version"
+  "input:CGO_CPPFLAGS=${CGO_CPPFLAGS:-}"
   "input:CGO_CFLAGS=$macos_cgo_cflags"
   "input:CGO_CXXFLAGS=$macos_cgo_cxxflags"
   "input:CGO_LDFLAGS=$macos_cgo_ldflags"
