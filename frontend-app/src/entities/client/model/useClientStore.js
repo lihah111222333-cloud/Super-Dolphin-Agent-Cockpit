@@ -15,9 +15,9 @@ import {
   setActiveProject as setActiveProjectRPC,
 } from '../../../shared/api/backendApi.js';
 import { getValidatedPreference } from '../../../shared/api/preferenceResponseGuards.js';
-import { createComposerSlice } from './composer/composerSlice.js';
-import { createForkSlice } from './fork/forkSlice.js';
-import { createProjectSlice } from './project/projectSlice.js';
+import { createComposerSlice } from './composerSlice.js';
+import { createForkSlice } from './forkSlice.js';
+import { createProjectSlice } from './projectSlice.js';
 import { createRuntimeSlice } from './runtimeSlice.js';
 import {
   recordFrontendApprovalBreadcrumb,

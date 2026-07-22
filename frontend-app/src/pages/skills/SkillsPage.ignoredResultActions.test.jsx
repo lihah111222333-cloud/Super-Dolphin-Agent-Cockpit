@@ -1,6 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
-import { confirmDeleteSkill, saveSkillEditor } from './library/editor/SkillsPageEditorActions.js';
-import { importDatasourceSelection } from './datasource/useDataSourceActions.js';
+import {
+  confirmDeleteSkill,
+  saveSkillEditor,
+} from './SkillsPage.jsx';
+import { importDatasourceSelection } from './DataSourceView.jsx';
 
 const skillMarkdown = [
   '---',
@@ -40,14 +43,8 @@ function skillEditorContext(overrides = {}) {
 }
 
 describe('skills ignored-result actions', () => {
-  it('preserves datasource import state when the contract layer rejects the response', async () => {
-    const facade = {
-      importDatasourceLocalFile: vi
-        .fn()
-        .mockRejectedValue(
-          new TypeError('datasource import response rejected by contract'),
-        ),
-    };
+  it('ignores malformed datasource import body and publishes import success', async () => {
+    const facade = { importDatasourceLocalFile: vi.fn().mockResolvedValue({ malformed: 'datasource-import-sentinel' }) };
     const ctx = {
       facade,
       invalidateDocuments: vi.fn().mockResolvedValue(undefined),
@@ -58,24 +55,22 @@ describe('skills ignored-result actions', () => {
       successText: '资料已导入',
     };
 
-    await expect(importDatasourceSelection(ctx)).rejects.toThrow();
+    const result = await importDatasourceSelection(ctx);
 
+    expect(result).toBeUndefined();
     expect(facade.importDatasourceLocalFile).toHaveBeenCalledWith({
       pickerToken: 'picker-token',
       sourcePath: 'C:\\data\\source.pdf',
     });
-    expect(ctx.setSourcePath).not.toHaveBeenCalled();
-    expect(ctx.setNotice).not.toHaveBeenCalled();
-    expect(ctx.invalidateDocuments).not.toHaveBeenCalled();
+    expect(ctx.setSourcePath).toHaveBeenCalledWith('');
+    expect(ctx.setNotice).toHaveBeenLastCalledWith('资料已导入');
+    expect(ctx.invalidateDocuments).toHaveBeenCalledWith();
+    expect(ctx.setSourcePath.mock.invocationCallOrder[0]).toBeLessThan(ctx.setNotice.mock.invocationCallOrder[0]);
+    expect(ctx.setNotice.mock.invocationCallOrder[0]).toBeLessThan(ctx.invalidateDocuments.mock.invocationCallOrder[0]);
   });
 
   it('ignores malformed create-skill body and publishes save success', async () => {
-    const facade = {
-      createSkill: vi
-        .fn()
-        .mockResolvedValue({ malformed: 'create-skill-sentinel' }),
-      writeSkill: vi.fn(),
-    };
+    const facade = { createSkill: vi.fn().mockResolvedValue({ malformed: 'create-skill-sentinel' }), writeSkill: vi.fn() };
     const ctx = skillEditorContext({ facade });
 
     const result = await saveSkillEditor(ctx);
@@ -90,17 +85,12 @@ describe('skills ignored-result actions', () => {
     expect(ctx.setPatch).toHaveBeenCalledWith({ editorOpen: false });
     expect(ctx.refreshSkillSurface).toHaveBeenCalledWith();
     expect(ctx.setNotice).toHaveBeenLastCalledWith('已保存');
-    expect(ctx.refreshSkillSurface.mock.invocationCallOrder[0]).toBeLessThan(
-      ctx.setNotice.mock.invocationCallOrder.at(-1),
-    );
+    expect(ctx.refreshSkillSurface.mock.invocationCallOrder[0]).toBeLessThan(ctx.setNotice.mock.invocationCallOrder.at(-1));
     expect(ctx.setPatch).toHaveBeenLastCalledWith({ saving: false });
   });
 
   it('ignores malformed write-skill body and publishes save success', async () => {
-    const facade = {
-      createSkill: vi.fn(),
-      writeSkill: vi.fn().mockResolvedValue(['write-skill-malformed-sentinel']),
-    };
+    const facade = { createSkill: vi.fn(), writeSkill: vi.fn().mockResolvedValue(['write-skill-malformed-sentinel']) };
     const activeSkillPath = '/repo/app/.agents/skills/deploy/SKILL.md';
     const base = skillEditorContext({ facade });
     const ctx = { ...base, state: { ...base.state, activeSkillPath } };
@@ -119,29 +109,18 @@ describe('skills ignored-result actions', () => {
     expect(ctx.setPatch).toHaveBeenCalledWith({ editorOpen: false });
     expect(ctx.refreshSkillSurface).toHaveBeenCalledWith();
     expect(ctx.setNotice).toHaveBeenLastCalledWith('已保存');
-    expect(ctx.refreshSkillSurface.mock.invocationCallOrder[0]).toBeLessThan(
-      ctx.setNotice.mock.invocationCallOrder.at(-1),
-    );
+    expect(ctx.refreshSkillSurface.mock.invocationCallOrder[0]).toBeLessThan(ctx.setNotice.mock.invocationCallOrder.at(-1));
     expect(ctx.setPatch).toHaveBeenLastCalledWith({ saving: false });
   });
 
   it('ignores malformed delete-skill body and publishes delete success', async () => {
-    const facade = {
-      deleteSkill: vi
-        .fn()
-        .mockResolvedValue({ malformed: 'delete-skill-sentinel' }),
-    };
+    const facade = { deleteSkill: vi.fn().mockResolvedValue({ malformed: 'delete-skill-sentinel' }) };
     const base = skillEditorContext({ facade });
     const ctx = {
       ...base,
       state: {
         ...base.state,
-        deleteTarget: {
-          name: 'deploy',
-          personalType: '',
-          scope: 'project',
-          title: 'Deploy',
-        },
+        deleteTarget: { name: 'deploy', personalType: '', scope: 'project', title: 'Deploy' },
       },
     };
 
@@ -157,9 +136,7 @@ describe('skills ignored-result actions', () => {
     expect(ctx.setPatch).toHaveBeenCalledWith({ deleteTarget: null });
     expect(ctx.refreshSkillSurface).toHaveBeenCalledWith();
     expect(ctx.setNotice).toHaveBeenLastCalledWith('已删除 Deploy');
-    expect(ctx.refreshSkillSurface.mock.invocationCallOrder[0]).toBeLessThan(
-      ctx.setNotice.mock.invocationCallOrder.at(-1),
-    );
+    expect(ctx.refreshSkillSurface.mock.invocationCallOrder[0]).toBeLessThan(ctx.setNotice.mock.invocationCallOrder.at(-1));
     expect(ctx.setPatch).toHaveBeenLastCalledWith({ deleting: false });
   });
 });

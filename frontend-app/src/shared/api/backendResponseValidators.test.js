@@ -2,13 +2,8 @@ import { describe, expect, it, test } from 'vitest';
 
 import { RPC_METHODS } from './backendApi.js';
 import { createBackendResponseValidators } from './backendResponseValidators.js';
-import { createBackendResponseValidators as createResponseValidatorRegistry } from './response-validators/registry.js';
 
 const validators = createBackendResponseValidators(RPC_METHODS);
-
-test('keeps the public validator factory identical to the domain registry export', () => {
-  expect(createBackendResponseValidators).toBe(createResponseValidatorRegistry);
-});
 
 test('cron list response requires exact snake_case page fields', () => {
   const validate = validators[RPC_METHODS.CRONJOB_LIST];
@@ -17,47 +12,13 @@ test('cron list response requires exact snake_case page fields', () => {
   expect(() => validate(RPC_METHODS.CRONJOB_LIST, { jobs: [], next_cursor: '', has_more: false, extra: true })).toThrow(/exactly/);
 });
 
-function validate(method, response, request) {
+function validate(method, response) {
   const validator = validators[method];
   expect(validator, `${method} must have a validator`).toBeTypeOf('function');
-  return validator(method, response, request);
+  return validator(method, response);
 }
 
 describe('backend response validators', () => {
-  it('strictly validates DAG mutation responses before workflow actions consume them', () => {
-    const node = {
-      id: 7,
-      dag_key: 'daily-brief',
-      node_key: 'review',
-      title: 'Review',
-      status: 'ready',
-      assigned_to: 'agent-reviewer',
-      created_at: '2026-07-21T00:00:00Z',
-      updated_at: '2026-07-21T00:00:00Z',
-    };
-    const dispatchRequest = { dagKey: 'daily-brief', nodeKey: 'review', assignedTo: 'agent-reviewer', runId: 42 };
-    const applyRequest = { dagKey: 'daily-brief', baseVersion: 7, ops: [] };
-    expect(validate(RPC_METHODS.DASHBOARD_DAG_APPLY_OPS, { newVersion: 8 }, applyRequest)).toEqual({ newVersion: 8 });
-    expect(validate(RPC_METHODS.DASHBOARD_DAG_TERMINATE, {})).toEqual({});
-    expect(validate(RPC_METHODS.DASHBOARD_DAG_DISPATCH_NODE, { node, enqueued: true, wakeup_id: 9 }, dispatchRequest)).toEqual({ node, enqueued: true, wakeup_id: 9 });
-    expect(validate(RPC_METHODS.DASHBOARD_DAG_DISPATCH_NODE, { node, enqueued: false }, dispatchRequest)).toEqual({ node, enqueued: false });
-
-    expect(() => validate(RPC_METHODS.DASHBOARD_DAG_APPLY_OPS, { malformed: true }, applyRequest)).toThrow('must not include malformed');
-    expect(() => validate(RPC_METHODS.DASHBOARD_DAG_APPLY_OPS, { newVersion: '8' }, applyRequest)).toThrow('newVersion must be an integer');
-    expect(() => validate(RPC_METHODS.DASHBOARD_DAG_APPLY_OPS, { newVersion: 8.5 }, applyRequest)).toThrow('newVersion must be an integer');
-    expect(() => validate(RPC_METHODS.DASHBOARD_DAG_APPLY_OPS, { newVersion: 8 }, { ...applyRequest, baseVersion: '7' })).toThrow('request baseVersion must be an integer');
-    expect(() => validate(RPC_METHODS.DASHBOARD_DAG_APPLY_OPS, { newVersion: 8 }, { ...applyRequest, baseVersion: 7.5 })).toThrow('request baseVersion must be an integer');
-    expect(() => validate(RPC_METHODS.DASHBOARD_DAG_APPLY_OPS, { newVersion: 7 }, applyRequest)).toThrow('must be greater than request.baseVersion');
-    expect(() => validate(RPC_METHODS.DASHBOARD_DAG_APPLY_OPS, { newVersion: 6 }, applyRequest)).toThrow('must be greater than request.baseVersion');
-    expect(() => validate(RPC_METHODS.DASHBOARD_DAG_TERMINATE, { ok: true })).toThrow('must not include ok');
-    expect(() => validate(RPC_METHODS.DASHBOARD_DAG_DISPATCH_NODE, { node, enqueued: 'true' }, dispatchRequest)).toThrow('enqueued must be a boolean');
-    expect(() => validate(RPC_METHODS.DASHBOARD_DAG_DISPATCH_NODE, { node, enqueued: true }, dispatchRequest)).toThrow('wakeup_id must be an integer');
-    expect(() => validate(RPC_METHODS.DASHBOARD_DAG_DISPATCH_NODE, { node, enqueued: true, wakeup_id: 0 }, dispatchRequest)).toThrow('must be a positive integer');
-    expect(() => validate(RPC_METHODS.DASHBOARD_DAG_DISPATCH_NODE, { node, enqueued: false, wakeup_id: 9 }, dispatchRequest)).toThrow('must be omitted');
-    expect(() => validate(RPC_METHODS.DASHBOARD_DAG_DISPATCH_NODE, { node: { ...node, node_key: 'other' }, enqueued: true, wakeup_id: 9 }, dispatchRequest)).toThrow('must match request.nodeKey');
-    expect(() => validate(RPC_METHODS.DASHBOARD_DAG_DISPATCH_NODE, { node: { ...node, assigned_to: 'other' }, enqueued: true, wakeup_id: 9 }, dispatchRequest)).toThrow('must match request.assignedTo');
-  });
-
   it('keeps model provider optional objects strict when present', () => {
     const vendor = {
       id: 'codex',

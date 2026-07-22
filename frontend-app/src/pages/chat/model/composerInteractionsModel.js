@@ -1,4 +1,4 @@
-import { basename } from '../../../entities/client/model/composer/composerAttachments.js';
+import { basename } from '../../../entities/client/model/composerAttachments.js';
 import { textValue } from '../../shared/pageShared.js';
 
 const CONVERSATION_DROP_TARGET_ID = 'conversation-drop-zone';

@@ -13,9 +13,7 @@ function formatHealthTime(value) {
 
 function useFrontendHealthState() {
   const [state, setState] = useState(() => frontendHealthStateSnapshot());
-  useEffect(() => {
-    return subscribeFrontendHealth(() => setState(frontendHealthStateSnapshot()));
-  }, []);
+  useEffect(() => subscribeFrontendHealth(() => setState(frontendHealthStateSnapshot())), []);
   return state;
 }
 

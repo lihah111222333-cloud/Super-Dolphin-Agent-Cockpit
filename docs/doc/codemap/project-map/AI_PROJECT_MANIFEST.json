@@ -4,11 +4,11 @@
   "rules_sources": [
     ".ai-project-map.overrides.json"
   ],
-  "files": 5064,
+  "files": 4752,
   "domains": {
     "docs-agent": 958,
-    "other": 703,
-    "app-ui": 955,
+    "other": 704,
+    "app-ui": 642,
     "platform-provider": 1112,
     "orchestration": 391,
     "modules": 741,
@@ -21,8 +21,8 @@
       {
         "key": "app-ui",
         "file": "docs/doc/codemap/project-map/index/app-ui.tsv",
-        "file_count": 955,
-        "size_kb": 200.2,
+        "file_count": 642,
+        "size_kb": 130.6,
         "desc": "桌面应用、Wails host、React/Vite 前端与 UI 测试"
       },
       {
@@ -63,8 +63,8 @@
       {
         "key": "other",
         "file": "docs/doc/codemap/project-map/index/other.tsv",
-        "file_count": 703,
-        "size_kb": 137.6,
+        "file_count": 704,
+        "size_kb": 137.8,
         "desc": "公共库、脚本、测试、配置与其他根级资源"
       }
     ]
@@ -73,10 +73,10 @@
     "(root)": 12,
     "cmd": 666,
     "docs": 950,
-    "frontend-app": 949,
+    "frontend-app": 636,
     "internal": 2264,
     "pkg": 30,
-    "scripts": 145,
+    "scripts": 146,
     "sql": 29,
     "test": 9,
     "tests": 1,
@@ -232,7 +232,7 @@
   ],
   "drift": {
     "status": "OK",
-    "unknown_ratio": 0.0028,
+    "unknown_ratio": 0.0029,
     "unknown_files": 14,
     "thresholds": {
       "max_unknown_ratio": 0.05

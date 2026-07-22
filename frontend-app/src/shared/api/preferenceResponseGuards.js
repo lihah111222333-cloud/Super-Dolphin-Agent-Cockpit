@@ -1,5 +1,5 @@
 import { getPreference } from './backendApi.js';
-import { parseStrictDiagnosticPreviewJSON } from './support/safeDiagnosticPreview.js';
+import { parseStrictDiagnosticPreviewJSON } from './safeDiagnosticPreview.js';
 
 const STRING_PREFERENCE_KEYS = new Set([
   'settings.provider.codex.codexHome',

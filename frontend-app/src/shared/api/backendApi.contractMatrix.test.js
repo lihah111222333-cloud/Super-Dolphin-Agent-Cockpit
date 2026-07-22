@@ -43,26 +43,14 @@ const EXPECTED_NEW_RESPONSE_VALIDATORS = Object.freeze([
   ['CONFIG_BUILTIN_TOOLS_READ', 'builtinToolsResponse'],
   ['CONFIG_BUILTIN_TOOLS_WRITE', 'builtinToolsResponse'],
   ['CONFIG_READ', 'runtimeConfigResponse'],
-  ['CRONJOB_CREATE', 'cronJobResponse'],
-  ['CRONJOB_DELETE', 'cronDeleteResponse'],
-  ['CRONJOB_GET', 'cronJobResponse'],
   ['CRONJOB_LIST', 'cronListResponse'],
-  ['CRONJOB_LIST_RUNS', 'cronListRunsResponse'],
-  ['CRONJOB_RUN_ONCE', 'cronJobResponse'],
-  ['CRONJOB_SET_ENABLED', 'cronSetEnabledResponse'],
-  ['CRONJOB_UPDATE', 'cronJobResponse'],
-  ['DASHBOARD_DAG_APPLY_OPS', 'dashboardDagApplyOpsResponse'],
-  ['DASHBOARD_DAG_DISPATCH_NODE', 'dashboardDagDispatchNodeResponse'],
   ['DASHBOARD_DAG_DETAIL', 'dashboardDagDetailResponse'],
   ['DASHBOARD_DAG_RUN', 'dashboardDagRunResponse'],
   ['DASHBOARD_DAG_RUNS', 'dashboardDagRunsResponse'],
-  ['DASHBOARD_DAG_TERMINATE', 'dashboardDagTerminateResponse'],
   ['DASHBOARD_LOGS', 'dashboardLogsResponse'],
   ['DASHBOARD_PROMPTS', 'dashboardPromptsResponse'],
   ['DASHBOARD_WORKFLOW_MATERIAL_WRITE', 'workflowMaterialWriteResponse'],
-  ['DATASOURCE_V2_DELETE', 'datasourceDeleteResponse'],
   ['DATASOURCE_V2_GET', 'datasourceDetailResponse'],
-  ['DATASOURCE_V2_IMPORT_LOCAL_FILE', 'datasourceImportResponse'],
   ['DATASOURCE_V2_LIST', 'datasourceDocumentsResponse'],
   ['DATASOURCE_V2_LIST_CHUNKS', 'datasourceChunksResponse'],
   ['DATASOURCE_V2_UPDATE', 'datasourceDocumentResponse'],
@@ -120,7 +108,6 @@ const EXPECTED_NEW_RESPONSE_VALIDATORS = Object.freeze([
   ['WORKFLOW_TEMPLATES_GET', 'workflowTemplateResponse'],
   ['WORKFLOW_TEMPLATES_LIST', 'workflowTemplatesListResponse'],
   ['WORKFLOW_TEMPLATES_RENDER_DAG', 'workflowTemplateDraftResponse'],
-  ['WORKFLOW_TEMPLATES_ROLLBACK', 'workflowTemplateRollbackResponse'],
   ['WORKFLOW_TEMPLATES_SAVE', 'workflowTemplateSaveResponse'],
 ]);
 
@@ -130,24 +117,43 @@ const EXPECTED_RESPONSE_VALIDATORS = Object.freeze([
 ].sort(([left], [right]) => left.localeCompare(right)));
 
 const EXPECTED_NEW_IGNORED_RESPONSE_POLICIES = Object.freeze([
+  'DASHBOARD_DAG_APPLY_OPS',
   'DASHBOARD_DAG_DELETE',
+  'DASHBOARD_DAG_DISPATCH_NODE',
+  'DASHBOARD_DAG_TERMINATE',
+  'DATASOURCE_V2_DELETE',
+  'DATASOURCE_V2_IMPORT_LOCAL_FILE',
   'SKILLS_CREATE',
   'SKILLS_LOCAL_DELETE',
   'SKILLS_LOCAL_WRITE',
+  'WORKFLOW_TEMPLATES_ROLLBACK',
 ]);
 
 const EXPECTED_LOCKED_RESPONSE_POLICIES = Object.freeze({
-  DASHBOARD_DAG_DELETE: { kind: 'ignored-result', consumer: { path: 'frontend-app/src/pages/workflows/hooks/useWorkflowLifecycleActions.js', symbol: 'useDeleteDagAction' }, regressionTest: { path: 'frontend-app/src/pages/workflows/WorkflowPage.test.jsx', symbol: 'ignores the malformed delete response body after deleting a DAG' } },
-  SKILLS_CREATE: { kind: 'ignored-result', consumer: { path: 'frontend-app/src/pages/skills/library/editor/SkillsPageEditorActions.js', symbol: 'saveSkillEditor' }, outcome: { kind: 'published-callback', target: ['ctx', 'setNotice'] }, regressionTest: { path: 'frontend-app/src/pages/skills/SkillsPage.ignoredResultActions.test.jsx', symbol: 'ignores malformed create-skill body and publishes save success' } },
-  SKILLS_LOCAL_DELETE: { kind: 'ignored-result', consumer: { path: 'frontend-app/src/pages/skills/library/editor/SkillsPageEditorActions.js', symbol: 'confirmDeleteSkill' }, outcome: { kind: 'published-callback', target: ['ctx', 'setNotice'] }, regressionTest: { path: 'frontend-app/src/pages/skills/SkillsPage.ignoredResultActions.test.jsx', symbol: 'ignores malformed delete-skill body and publishes delete success' } },
-  SKILLS_LOCAL_WRITE: { kind: 'ignored-result', consumer: { path: 'frontend-app/src/pages/skills/library/editor/SkillsPageEditorActions.js', symbol: 'saveSkillEditor' }, outcome: { kind: 'published-callback', target: ['ctx', 'setNotice'] }, regressionTest: { path: 'frontend-app/src/pages/skills/SkillsPage.ignoredResultActions.test.jsx', symbol: 'ignores malformed write-skill body and publishes save success' } },
-  UI_LOG: { kind: 'ignored-result', consumer: { path: 'frontend-app/src/shared/api/wails/wailsBridgeRpc.js', symbol: 'sendFrontendLogBatch' }, regressionTest: { path: 'frontend-app/src/shared/api/wailsBridgeLogs.test.js', symbol: 'propagates frontend log batch RPC failures' } },
+  DASHBOARD_DAG_APPLY_OPS: { kind: 'ignored-result', consumer: { path: 'frontend-app/src/pages/workflows/hooks/useWorkflowActions.js', symbol: 'saveScheduleAction' }, outcome: { kind: 'published-callback', target: ['notices', 'showTaskNotice'] }, regressionTest: { path: 'frontend-app/src/pages/workflows/hooks/useWorkflowActions.ignoredResult.test.js', symbol: 'ignores malformed apply-ops body and publishes schedule success' } },
+  DASHBOARD_DAG_DELETE: { kind: 'ignored-result', consumer: { path: 'frontend-app/src/pages/workflows/hooks/useWorkflowActions.js', symbol: 'useDeleteDagAction', visibility: 'module-private' }, regressionTest: { path: 'frontend-app/src/pages/workflows/WorkflowPage.test.jsx', symbol: 'ignores the malformed delete response body after deleting a DAG' } },
+  DASHBOARD_DAG_DISPATCH_NODE: { kind: 'ignored-result', consumer: { path: 'frontend-app/src/pages/workflows/hooks/useWorkflowActions.js', symbol: 'dispatchDagNodeAction' }, outcome: { kind: 'published-callback', target: ['notices', 'showTaskNotice'] }, regressionTest: { path: 'frontend-app/src/pages/workflows/hooks/useWorkflowActions.ignoredResult.test.js', symbol: 'ignores malformed dispatch body and publishes dispatch success' } },
+  DASHBOARD_DAG_TERMINATE: { kind: 'ignored-result', consumer: { path: 'frontend-app/src/pages/workflows/hooks/useWorkflowActions.js', symbol: 'stopSelectedDagAction' }, outcome: { kind: 'published-callback', target: ['notices', 'showTaskNotice'] }, regressionTest: { path: 'frontend-app/src/pages/workflows/hooks/useWorkflowActions.ignoredResult.test.js', symbol: 'ignores malformed terminate body and publishes stop success' } },
+  DATASOURCE_V2_DELETE: { kind: 'ignored-result', consumer: { path: 'frontend-app/src/pages/skills/DataSourceView.jsx', symbol: 'handleDelete', visibility: 'module-private' }, regressionTest: { path: 'frontend-app/src/pages/skills/SkillsPage.test.jsx', symbol: 'ignores RPC response body for datasource delete' } },
+  DATASOURCE_V2_IMPORT_LOCAL_FILE: { kind: 'ignored-result', consumer: { path: 'frontend-app/src/pages/skills/DataSourceView.jsx', symbol: 'importDatasourceSelection' }, outcome: { kind: 'published-callback', target: ['ctx', 'setNotice'] }, regressionTest: { path: 'frontend-app/src/pages/skills/SkillsPage.ignoredResultActions.test.jsx', symbol: 'ignores malformed datasource import body and publishes import success' } },
+  SKILLS_CREATE: { kind: 'ignored-result', consumer: { path: 'frontend-app/src/pages/skills/SkillsPage.jsx', symbol: 'saveSkillEditor' }, outcome: { kind: 'published-callback', target: ['ctx', 'setNotice'] }, regressionTest: { path: 'frontend-app/src/pages/skills/SkillsPage.ignoredResultActions.test.jsx', symbol: 'ignores malformed create-skill body and publishes save success' } },
+  SKILLS_LOCAL_DELETE: { kind: 'ignored-result', consumer: { path: 'frontend-app/src/pages/skills/SkillsPage.jsx', symbol: 'confirmDeleteSkill' }, outcome: { kind: 'published-callback', target: ['ctx', 'setNotice'] }, regressionTest: { path: 'frontend-app/src/pages/skills/SkillsPage.ignoredResultActions.test.jsx', symbol: 'ignores malformed delete-skill body and publishes delete success' } },
+  SKILLS_LOCAL_WRITE: { kind: 'ignored-result', consumer: { path: 'frontend-app/src/pages/skills/SkillsPage.jsx', symbol: 'saveSkillEditor' }, outcome: { kind: 'published-callback', target: ['ctx', 'setNotice'] }, regressionTest: { path: 'frontend-app/src/pages/skills/SkillsPage.ignoredResultActions.test.jsx', symbol: 'ignores malformed write-skill body and publishes save success' } },
+  UI_LOG: { kind: 'ignored-result', consumer: { path: 'frontend-app/src/shared/api/wails/wailsBridgeRpc.js', symbol: 'sendFrontendLogBatch' }, regressionTest: { path: 'frontend-app/src/shared/api/wailsBridge.test.js', symbol: 'propagates frontend log batch RPC failures' } },
   UI_PREFERENCES_GET: { kind: 'consumer-validated', consumer: { path: 'frontend-app/src/shared/api/preferenceResponseGuards.js', symbol: 'getValidatedPreference' }, shape: { path: 'frontend-app/src/shared/api/preferenceResponseGuards.js', symbol: 'assertPreferenceResponseShape' }, regressionTest: { path: 'frontend-app/src/shared/api/preferenceResponseGuards.test.js', symbol: 'rejects malformed UI_PREFERENCES_GET response before returning it' } },
   TURN_INTERRUPT: { kind: 'result-handled', consumer: { path: 'frontend-app/src/entities/client/model/threadLifecycleRuntime.js', symbol: 'attachActiveThreadRpcRuntime' }, handler: { path: 'frontend-app/src/entities/client/model/threadLifecycleRuntime.js', symbol: 'notifyThreadActionFailure' }, regressionTest: { path: 'frontend-app/src/entities/client/model/threadLifecycleRuntime.test.js', symbol: 'reports interrupt ok:false as warning without showing success' } },
+  WORKFLOW_TEMPLATES_ROLLBACK: { kind: 'ignored-result', consumer: { path: 'frontend-app/src/pages/workflows/components/WorkflowEnterpriseTemplates.jsx', symbol: 'rollbackTemplate', visibility: 'module-private' }, regressionTest: { path: 'frontend-app/src/pages/workflows/WorkflowPage.enterprise.test.jsx', symbol: 'filters templates by search and shows version trust compatibility and rollback' } },
 });
 
 const EXPECTED_UNUSED_RESPONSE_POLICIES = Object.freeze([
   'APP_UPDATE_DOWNLOAD',
+  'CRONJOB_CREATE',
+  'CRONJOB_DELETE',
+  'CRONJOB_GET',
+  'CRONJOB_LIST_RUNS',
+  'CRONJOB_RUN_ONCE',
+  'CRONJOB_SET_ENABLED',
+  'CRONJOB_UPDATE',
   'DASHBOARD_DAGS',
   'DATASOURCE_V2_CREATE',
   'MCP_TOOL_LIFECYCLE_EXPORT',
@@ -190,9 +196,9 @@ describe('backend API contract matrix', () => {
     ));
     expect(entries).toHaveLength(140);
     expect(validators).toEqual(EXPECTED_RESPONSE_VALIDATORS);
-    expect(validators).toHaveLength(112);
-    expect(EXPECTED_NEW_RESPONSE_VALIDATORS).toHaveLength(83);
-    expect(policies).toHaveLength(24);
+    expect(validators).toHaveLength(99);
+    expect(EXPECTED_NEW_RESPONSE_VALIDATORS).toHaveLength(70);
+    expect(policies).toHaveLength(37);
     expect(unusedKeys).toEqual(EXPECTED_UNUSED_RESPONSE_POLICIES);
     expect(RPC_CONTRACT_REGISTRY.UI_LOG.responsePolicy.kind).toBe('ignored-result');
     expect(RPC_CONTRACT_REGISTRY.TURN_INTERRUPT.responsePolicy.kind).toBe('result-handled');
@@ -206,6 +212,10 @@ describe('backend API contract matrix', () => {
       .map((entry) => entry.key)
       .sort();
     expect(publishedCallbackKeys).toEqual([
+      'DASHBOARD_DAG_APPLY_OPS',
+      'DASHBOARD_DAG_DISPATCH_NODE',
+      'DASHBOARD_DAG_TERMINATE',
+      'DATASOURCE_V2_IMPORT_LOCAL_FILE',
       'SKILLS_CREATE',
       'SKILLS_LOCAL_DELETE',
       'SKILLS_LOCAL_WRITE',
@@ -215,8 +225,8 @@ describe('backend API contract matrix', () => {
       expect(Object.isFrozen(RPC_CONTRACT_REGISTRY[key].responsePolicy.outcome.target)).toBe(true);
     }
     expect(p2WithoutMandatoryGovernance).toHaveLength(4);
-    expect(28 + EXPECTED_NEW_RESPONSE_VALIDATORS.length + newIgnoredKeys.length + 1).toBe(116);
-    expect(EXPECTED_NEW_RESPONSE_VALIDATORS.length + newIgnoredKeys.length + 1).toBe(88);
+    expect(28 + EXPECTED_NEW_RESPONSE_VALIDATORS.length + newIgnoredKeys.length + 1).toBe(109);
+    expect(EXPECTED_NEW_RESPONSE_VALIDATORS.length + newIgnoredKeys.length + 1).toBe(81);
     expect(JSON.stringify(RPC_CONTRACT_REGISTRY)).not.toContain('responsePassthroughReason');
     expect(JSON.stringify(RPC_CONTRACT_REGISTRY)).not.toContain('response is consumed unchanged by');
 

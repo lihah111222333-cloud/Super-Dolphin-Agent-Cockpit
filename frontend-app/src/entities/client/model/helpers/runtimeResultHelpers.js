@@ -5,7 +5,7 @@ import {
   currentIsoTimestamp,
   parseOptionalTimestamp,
   parseRequiredJsonObject } from '../contractStoreModel.js';
-import { compactSafeDiagnosticPreview } from '../../../../shared/api/support/safeDiagnosticPreview.js';
+import { compactSafeDiagnosticPreview } from '../../../../shared/api/safeDiagnosticPreview.js';
 
 export class ContractError extends Error {
   constructor(message) {

@@ -1,4 +1,4 @@
-import { strictPositiveApprovalRequestId } from '../../../shared/api/support/approvalRequestId.js';
+import { strictPositiveApprovalRequestId } from '../../../shared/api/approvalRequestId.js';
 import { optionalTextField, normalizeOptionalTextField, systemClockMillis, currentIsoTimestamp } from './contractStoreModel.js';
 import {
   isVisibleTimelineItem,

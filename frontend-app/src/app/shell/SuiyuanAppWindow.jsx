@@ -27,10 +27,9 @@ import { APP_COMMAND_IDS, APP_COMMAND_REGISTRY } from '../commands/appCommandReg
 import { createAppCommandRuntime } from '../commands/appCommandRuntime.js';
 import { useAppCommandDispatcher } from '../commands/useAppCommandDispatcher.js';
 import { CommandPalette } from '../../features/command-palette/ui/CommandPalette.jsx';
-import { textValue } from '../../pages/shared/pageShared.js';
+import { errorMessage, textValue } from '../../pages/shared/pageShared.js';
 import { APP_BRAND_NAME, APP_COPY } from '../../shared/i18n/appI18n.js';
 import { runUIAction } from '../../shared/ui/runUIAction.js';
-import { uiActionWarningOptions } from '../../shared/ui/uiActionWarningOptions.js';
 import { ActionFailureSink } from '../../shared/ui/actionFailureSink.jsx';
 import suiyuanBrandIcon from '../../assets/suiyuan-brand-icon.png';
 import { appShortcutPlatform } from './appShortcutPlatform.js';
@@ -75,22 +74,16 @@ function appPageTitleLabel(page, copy) {
   return copy.nav[page] || copy.nav.chat;
 }
 
+function uiActionOptions(store) {
+  return {
+    onError: (error) => {
+      store?.addWarning?.('error', 'ui.action.failed', { error: errorMessage(error) });
+    },
+  };
+}
+
 function AppUpdateBanner({ copy = APP_COPY.zh.update, updateBanner }) {
-  const checkFailed = updateBanner?.status === 'failed';
-  if (!updateBanner?.update && !updateBanner?.message && !checkFailed) return null;
-  if (checkFailed) {
-    return (
-      <section className="app-update-banner" data-testid="app-update-check-failure" role="alert">
-        <div className="app-update-copy">
-          <strong>{copy.checkFailedTitle}</strong>
-          <span>{copy.checkFailedDescription}</span>
-        </div>
-        <div className="app-update-actions">
-          <button type="button" className="app-update-secondary" onClick={updateBanner.dismiss}>{copy.close}</button>
-        </div>
-      </section>
-    );
-  }
+  if (!updateBanner?.update && !updateBanner?.message) return null;
   const version = updateVersionFromResult(updateBanner.update);
   const installing = updateBanner.status === 'installing';
   const recoveryOnly = !updateBanner.update;
@@ -274,7 +267,7 @@ function useBoundAppCommandRuntime(options) {
           run: () => setSidebarOpen((open) => !open),
         },
         [APP_COMMAND_IDS.TURN_INTERRUPT]: {
-          run: () => runUIAction('thread.interrupt', () => store.interruptActiveThread(), uiActionWarningOptions(store)),
+          run: () => runUIAction('thread.interrupt', () => store.interruptActiveThread(), uiActionOptions(store)),
           canExecute: () => store.hasActiveThreadActions() && !hasOpenLocalEscapeSurface(),
           disabledReason: copy.turnInterruptDisabledReason,
         },
@@ -399,7 +392,7 @@ export function SuiyuanAppWindow({ language, shell, shellLayoutStore, shortcutCo
   }, []);
   const startNewChat = useCallback(() => {
     setActivePageFromSidebar('chat');
-    runUIAction('thread.new', () => store?.newThread?.(), uiActionWarningOptions(store));
+    runUIAction('thread.new', () => store?.newThread?.(), uiActionOptions(store));
   }, [setActivePageFromSidebar, store]);
   const commandRuntime = useBoundAppCommandRuntime({
     copy: copy.commands,

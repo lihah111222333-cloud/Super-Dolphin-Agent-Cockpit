@@ -1,9 +1,16 @@
 import { useCallback, useState } from 'react';
 import { runUIAction } from './shared/ui/runUIAction.js';
-import { uiActionWarningOptions } from './shared/ui/uiActionWarningOptions.js';
 import { APP_COPY } from './shared/i18n/appI18n.js';
-import { currentTimestampMillis, optionalTimestampMillis } from './pages/shared/pageShared.js';
+import { currentTimestampMillis, errorMessage, optionalTimestampMillis } from './pages/shared/pageShared.js';
 import { projectThreadLabel } from './WorkbenchSidebarModel.js';
+
+function uiActionOptions(store) {
+  return {
+    onError: (error) => {
+      store?.addWarning?.('error', 'ui.action.failed', { error: errorMessage(error) });
+    },
+  };
+}
 
 export function formatRelativeTime(dateString, copy = APP_COPY.zh.workbench.relativeTime) {
   if (!dateString) return '';
@@ -100,7 +107,7 @@ export function useSidebarThreadActions(store, options = {}) {
     runUIAction('thread.delete', async () => {
       const result = await store?.deleteStaleThreads?.([threadId]);
       if (!result || result.deleted > 0) onDeleteThreads?.([threadId]);
-    }, uiActionWarningOptions(store));
+    }, uiActionOptions(store));
   }, [onDeleteThreads, store]);
 
   return {

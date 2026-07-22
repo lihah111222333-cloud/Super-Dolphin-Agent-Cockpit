@@ -62,7 +62,8 @@ export function decideNextAction(rawFacts = {}, rawGoal = DEFAULT_AGENTIC_GOAL) 
   if (!facts.observabilityPageVisible) {
     return action('click', {
       target: {
-        type: 'role',
+        type: 'nestedRole',
+        parentTestId: 'sidebar-secondary-nav',
         role: 'button',
         name: '链路追踪',
       },

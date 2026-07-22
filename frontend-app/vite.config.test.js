@@ -73,17 +73,6 @@ describe('frontend vite dev proxy', () => {
     expect(body).toContain('/wails/ws');
     expect(body).toContain('__WAILS_SHIM_DEBUG__');
   });
-
-  it('rewrites only the development loader transform to bypass Vite public-file analysis', () => {
-    const config = createFrontendViteConfig({}, { command: 'serve', mode: 'development' });
-    const plugin = config.plugins.find((item) => item?.name === 'super-dolphin-dev-wails-runtime');
-
-    expect(plugin.transform(
-      "return import(/* @vite-ignore */ '/wails/runtime.js');",
-      '/workspace/src/shared/api/wails/wailsRuntimeLoader.js',
-    )).toContain('import(/* @vite-ignore */ wailsRuntimePath)');
-    expect(plugin.transform('export const unchanged = true;', '/workspace/src/shared/api/wails/other.js')).toBeUndefined();
-  });
 });
 
 describe('frontend vite watch config', () => {

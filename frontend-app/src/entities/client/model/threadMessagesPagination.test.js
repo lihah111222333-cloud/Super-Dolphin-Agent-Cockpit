@@ -18,11 +18,11 @@ describe('threadMessagesPagination', () => {
     });
   });
 
-  it('uses required backend pagination fields without inferring values', () => {
+  it('uses backend hasMore and nextBefore when the backend provides them', () => {
     expect(normalizeThreadMessagesPageMeta({
-      hasMore: true,
-      nextBefore: 'cursor-9',
-    })).toEqual({
+      has_more: '1',
+      next_before: 'cursor-9',
+    }, [{ id: 10 }])).toEqual({
       hasMore: true,
       nextBefore: 'cursor-9',
     });
@@ -30,15 +30,39 @@ describe('threadMessagesPagination', () => {
     expect(normalizeThreadMessagesPageMeta({
       hasMore: false,
       nextBefore: 'cursor-ignored',
-    })).toEqual({
+    }, [{ id: 10 }])).toEqual({
       hasMore: false,
-      nextBefore: 'cursor-ignored',
+      nextBefore: '',
     });
   });
 
-  it('fails fast when backend pagination fields are missing or malformed', () => {
-    expect(() => normalizeThreadMessagesPageMeta({})).toThrow('thread/messages response hasMore must be a boolean');
-    expect(() => normalizeThreadMessagesPageMeta({ hasMore: true, nextBefore: 1 })).toThrow('thread/messages response nextBefore must be a string');
+  it('infers hasMore and cursor when backend paging flags are absent', () => {
+    expect(normalizeThreadMessagesPageMeta({ total: 10 }, [
+      { id: 8 },
+      { id: 9 },
+    ])).toEqual({
+      hasMore: true,
+      nextBefore: '8',
+    });
+
+    expect(normalizeThreadMessagesPageMeta({}, [
+      { created_at: '2026-06-15T01:00:02Z' },
+      { createdAt: '2026-06-15T01:00:01Z' },
+    ])).toEqual({
+      hasMore: false,
+      nextBefore: '',
+    });
+  });
+
+  it('treats a full page as having more history and falls back to oldest timestamp cursor', () => {
+    const page = Array.from({ length: THREAD_MESSAGES_PAGE_SIZE }, (_, index) => ({
+      created_at: `2026-06-15T${String(Math.floor(index / 60)).padStart(2, '0')}:${String(index % 60).padStart(2, '0')}:00Z`,
+    }));
+
+    expect(normalizeThreadMessagesPageMeta({}, page)).toEqual({
+      hasMore: true,
+      nextBefore: '2026-06-15T00:00:00Z',
+    });
   });
 
   it('merges pagination patch state for one thread without touching others', () => {

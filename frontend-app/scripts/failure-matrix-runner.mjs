@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { realpathSync } from 'node:fs';
-import { access, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -21,26 +21,6 @@ const GO_PACKAGES = Object.freeze({
   'go-turn': './internal/module/turn',
   'go-wails': './internal/ui/wails',
 });
-export const FRONTEND_TEST_FILES = Object.freeze([
-  'src/entities/client/model/failureMatrix.test.js',
-  'src/entities/client/model/runtimeSlice.test.js',
-  'src/pages/chat/composer/ComposerDock.actionFailure.test.jsx',
-  'src/pages/settings/SettingsPage.video.test.jsx',
-  'src/features/approval/ui/ApprovalDecisionShelf.test.jsx',
-]);
-
-export async function assertFailureMatrixFrontendTestFiles(frontendRoot, testFiles = FRONTEND_TEST_FILES) {
-  for (const testFile of testFiles) {
-    try {
-      await access(path.join(frontendRoot, testFile));
-    } catch (error) {
-      if (error?.code === 'ENOENT') {
-        throw new Error(`failure matrix frontend test file is missing: ${testFile}`);
-      }
-      throw error;
-    }
-  }
-}
 
 export function validateFailureMatrixManifest(manifest) {
   if (!manifest || manifest.schemaVersion !== 1 || !Array.isArray(manifest.cases)) {
@@ -325,12 +305,15 @@ export async function runFailureMatrix(options = {}) {
     try {
       const greenFrontendRoot = path.join(greenRoot, 'frontend-app');
       await symlink(path.join(frontendRoot, 'node_modules'), path.join(greenFrontendRoot, 'node_modules'), 'dir');
-      await assertFailureMatrixFrontendTestFiles(greenFrontendRoot);
       await runCommand(
         path.join(greenFrontendRoot, 'node_modules', '.bin', 'vitest'),
         [
           'run',
-          ...FRONTEND_TEST_FILES,
+          'src/entities/client/model/failureMatrix.test.js',
+          'src/entities/client/model/runtimeSlice.test.js',
+          'src/pages/chat/composer/ComposerDock.actionFailure.test.jsx',
+          'src/pages/settings/SettingsPage.test.jsx',
+          'src/features/approval/ui/ApprovalDecisionShelf.test.jsx',
           '--reporter=json',
           `--outputFile=${vitestReport}`,
           '--no-file-parallelism',

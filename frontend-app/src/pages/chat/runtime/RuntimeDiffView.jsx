@@ -1,6 +1,6 @@
 import React, { useMemo, useRef } from 'react';
+import { useVirtualizer } from '@tanstack/react-virtual';
 import { ChevronDown, File, Search } from 'lucide-react';
-import { useRuntimeDiffVirtualizer } from './useRuntimeDiffVirtualizer.js';
 
 const DIFF_LINE_ESTIMATE_PX = 20;
 const DIFF_LINE_OVERSCAN = 8;
@@ -135,7 +135,9 @@ function RuntimeDiffFile({
 function RuntimeDiffLines({ file, index, parseLineEntries }) {
   const lines = useMemo(() => parseLineEntries(file.text), [file.text, parseLineEntries]);
   const scrollRef = useRef(null);
-  const virtualizer = useRuntimeDiffVirtualizer({
+  // TanStack Virtual exposes imperative methods; keep the waiver local to this hook call.
+  // eslint-disable-next-line react-hooks/incompatible-library
+  const virtualizer = useVirtualizer({
     count: lines.length,
     getScrollElement: () => scrollRef.current,
     estimateSize: () => DIFF_LINE_ESTIMATE_PX,

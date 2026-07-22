@@ -97,9 +97,6 @@ function renderRuntimeActivityPanel(overrides = {}) {
       activityStats: {
         toolCalls: {
           mcp__lsp__lsp_grep: 2,
-          mcp__lsp__patch_edit: 3,
-          lsp_edit: 4,
-          lsp_format_preview: 5,
           json_render: 1,
           mcp__playwright__browser_click: 3,
           go_run: 4,
@@ -110,13 +107,13 @@ function renderRuntimeActivityPanel(overrides = {}) {
       tokenUsage: { usedPercent: 42.5 },
     });
 
-    expect(screen.getByRole('button', { name: 'LSP (7 tools) 调用次数' })).toHaveTextContent('14');
+    expect(screen.getByRole('button', { name: 'LSP (8 tools) 调用次数' })).toHaveTextContent('2');
     expect(screen.getByRole('button', { name: 'JSON-Render 调用次数' })).toHaveTextContent('1');
     expect(screen.getByRole('button', { name: 'Playwright 调用次数' })).toHaveTextContent('3');
     expect(screen.getByRole('button', { name: 'go-run 调用次数' })).toHaveTextContent('4');
     expect(screen.getByRole('button', { name: '命令 调用次数' })).toHaveTextContent('5');
     expect(screen.getByRole('button', { name: '文件 调用次数' })).toHaveTextContent('6');
-    expect(screen.getByRole('button', { name: '工具调用总数' })).toHaveTextContent('22');
+    expect(screen.getByRole('button', { name: '工具调用总数' })).toHaveTextContent('10');
     expect(screen.getByLabelText('上下文使用率 42.5%')).toHaveTextContent('42.5% context');
   });
 
@@ -125,9 +122,6 @@ function renderRuntimeActivityPanel(overrides = {}) {
       activityStats: {
         toolCalls: {
           mcp__lsp__lsp_grep: 2,
-          mcp__lsp__patch_edit: 3,
-          lsp_edit: 4,
-          lsp_format_preview: 5,
         },
       },
       warnings: [{
@@ -139,11 +133,9 @@ function renderRuntimeActivityPanel(overrides = {}) {
       }],
     });
 
-    fireEvent.click(screen.getByRole('button', { name: 'LSP (7 tools) 调用次数' }));
+    fireEvent.click(screen.getByRole('button', { name: 'LSP (8 tools) 调用次数' }));
     expect(screen.getByTestId('runtime-stat-tooltip')).toHaveTextContent('grep');
     expect(screen.getByTestId('runtime-stat-tooltip')).toHaveTextContent('2');
-    expect(screen.getByTestId('runtime-stat-tooltip')).toHaveTextContent('patch_edit');
-    expect(screen.getByTestId('runtime-stat-tooltip')).toHaveTextContent('12');
 
     fireEvent.click(screen.getByText('权限告警').closest('button'));
     expect(screen.getByText('×2')).toBeInTheDocument();
@@ -222,7 +214,7 @@ function renderRuntimeActivityPanel(overrides = {}) {
       }],
     });
 
-    fireEvent.click(screen.getByRole('button', { name: 'LSP (7 tools) 调用次数' }));
+    fireEvent.click(screen.getByRole('button', { name: 'LSP (8 tools) 调用次数' }));
     expect(await screen.findByTestId('runtime-stat-tooltip')).toBeInTheDocument();
     fireEvent.click(screen.getByText('rpc.failed').closest('button'));
 

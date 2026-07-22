@@ -1,8 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { rightPanelWidthSchema as legacyRightPanelWidthSchema } from './shellLayoutSchema.js';
-import { rightPanelWidthSchema } from '../../../shared/model/shellLayoutSchema.js';
-import legacyShellLayoutSchemaSource from './shellLayoutSchema.js?raw';
-import shellLayoutSchemaSource from '../../../shared/model/shellLayoutSchema.js?raw';
+import { rightPanelWidthSchema } from './shellLayoutSchema.js';
+import shellLayoutSchemaSource from './shellLayoutSchema.js?raw';
 
 function expectRightPanelWidthValidationFailure(run) {
   let failure;
@@ -20,11 +18,6 @@ function expectRightPanelWidthValidationFailure(run) {
 }
 
 describe('rightPanelWidthSchema', () => {
-  it('keeps the old shell path as a compatibility re-export of the shared owner', () => {
-    expect(legacyRightPanelWidthSchema).toBe(rightPanelWidthSchema);
-    expect(legacyShellLayoutSchemaSource).toBe("export { ShellLayoutValidationError, rightPanelWidthSchema } from '../../../shared/model/shellLayoutSchema.js';\n");
-  });
-
   it('declares one exact key and the existing explicit initial width', () => {
     expect(rightPanelWidthSchema.key).toBe('super-dolphin.shell.right-panel-width');
     expect(rightPanelWidthSchema.initialValue).toBe(380);

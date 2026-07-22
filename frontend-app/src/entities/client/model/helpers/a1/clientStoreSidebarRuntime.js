@@ -1,9 +1,18 @@
 import { getSidebarState } from '../../../../../shared/api/backendApi.js';
-import { runBackgroundAction } from '../../../../../shared/ui/runUIAction.js';
-import { normalizePath, sidebarThreadsByProjectWith } from './clientStoreUtils.js';
+import { recordFrontendHealth } from '../../../../../shared/diagnostics/frontendHealthStore.js';
+import { diagnosticIdFactoryForError, publicErrorForAction } from '../../../../../shared/ui/publicError.js';
+import { normalizePath } from './clientStoreUtils.js';
 import { actionNotice } from './clientStoreSendModel.js';
 
 const SIDEBAR_REFRESH_FAILURE_MESSAGE = '刷新会话列表失败，请稍后重试。';
+
+function recordSidebarRefreshFailure(error) {
+  const actionId = 'sidebar.project-threads.load';
+  const publicError = publicErrorForAction(actionId, {
+    diagnosticIdFactory: diagnosticIdFactoryForError(error),
+  });
+  recordFrontendHealth({ actionId, publicError });
+}
 
 function refreshEntryIsCurrent(runtime, cwd, refreshEntry) {
   return !refreshEntry.cancelled && runtime.sidebarRefreshesByCwd.get(cwd) === refreshEntry;
@@ -43,12 +52,6 @@ function chatSurfaceRefreshFailedPatch(state, cwd) {
 
 function applySidebarSnapshot(runtime, cwd, options, sidebar) {
   runtime.cacheSidebarSnapshot(cwd, sidebar);
-  if (!options.clearSurface && normalizePath(runtime.currentChatCwd()) !== cwd) {
-    runtime.set((state) => ({
-      sidebarThreadsByProject: sidebarThreadsByProjectWith(state, cwd, sidebar?.threads),
-    }));
-    return;
-  }
   runtime.applySnapshot(sidebar, {
     autoSelectThread: false,
     scopeCwd: cwd,
@@ -65,32 +68,20 @@ function handleSidebarRefreshFailure(runtime, cwd, options, error) {
     runtime.set((state) => chatSurfaceRefreshFailedPatch(state, cwd));
   }
   runtime.addWarning('error', 'thread.sidebar.refresh.failed', { cwd, error });
+  recordSidebarRefreshFailure(error);
 }
 
 async function performSidebarRefreshForCwd(runtime, cwd, options, refreshEntry) {
-  const seq = options.clearSurface ? ++runtime.sidebarRefreshSeq : 0;
-  const generation = refreshEntry.generation;
-  const canApplyRefresh = () => {
-    if (refreshEntry.generation !== generation) return false;
-    return !options.clearSurface || refreshSeqIsCurrent(runtime, cwd, seq);
-  };
+  const seq = ++runtime.sidebarRefreshSeq;
   maybeApplyCachedSidebar(runtime, cwd, options);
   try {
-    const sidebar = await runBackgroundAction(
-      'sidebar.project-threads.load',
-      async () => getSidebarState({ cwd }),
-    );
+    const sidebar = await getSidebarState({ cwd });
     if (!refreshEntryIsCurrent(runtime, cwd, refreshEntry)) return;
-    if (!canApplyRefresh()) return;
+    if (!refreshSeqIsCurrent(runtime, cwd, seq)) return;
     applySidebarSnapshot(runtime, cwd, options, sidebar);
   } catch (error) {
     if (!refreshEntryIsCurrent(runtime, cwd, refreshEntry)) return;
-    if (!canApplyRefresh()) {
-      if (!options.clearSurface && refreshEntry.generation !== generation) {
-        handleSidebarRefreshFailure(runtime, cwd, options, error);
-      }
-      return;
-    }
+    if (!refreshSeqIsCurrent(runtime, cwd, seq)) return;
     handleSidebarRefreshFailure(runtime, cwd, options, error);
   }
 }
@@ -102,10 +93,7 @@ function runSidebarRefreshEntry(runtime, cwd, refreshEntry, options) {
     .finally(() => {
       if (!refreshEntryIsCurrent(runtime, cwd, refreshEntry)) return;
       if (refreshEntry.pending) {
-        runSidebarRefreshEntry(runtime, cwd, refreshEntry, {
-          clearSurface: refreshEntry.clearSurface,
-          preserveActiveThreadId: true,
-        });
+        runSidebarRefreshEntry(runtime, cwd, refreshEntry, { preserveActiveThreadId: true });
         return;
       }
       runtime.sidebarRefreshesByCwd.delete(cwd);
@@ -117,7 +105,6 @@ function createSidebarRefreshEntry(runtime, cwd, options) {
     pending: false,
     cancelled: false,
     clearSurface: options.clearSurface === true,
-    generation: 0,
   };
   runtime.sidebarRefreshesByCwd.set(cwd, refreshEntry);
   runSidebarRefreshEntry(runtime, cwd, refreshEntry, options);
@@ -137,7 +124,6 @@ function queueExistingSidebarRefresh(runtime, cwd, existingRefresh, options) {
     return;
   }
   existingRefresh.pending = true;
-  existingRefresh.generation += 1;
 }
 
 function refreshSidebarSnapshotForCwdInBackground(runtime, cwdValue, options = {}) {

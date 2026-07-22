@@ -68,12 +68,9 @@ describe('app shell model', () => {
     expect(APP_SHELL_STORE_KEYS).toContain('threadRecoveryPendingByThread');
     expect(APP_SHELL_STORE_KEYS).toContain('captureThreadSelection');
     expect(APP_SHELL_STORE_KEYS).toContain('composerCapabilities');
-    expect(APP_SHELL_STORE_KEYS).toContain('refreshSidebarSnapshotForCwdInBackground');
-    expect(APP_SHELL_STORE_KEYS).toContain('sidebarThreadsByProject');
     expect(APP_SHELL_STORE_KEYS).not.toContain('rightPanelWidth');
     expect(APP_SHELL_STORE_KEYS).not.toContain('setRightPanelWidth');
     expect(selected.threadRecoveryPendingByThread).toBe('threadRecoveryPendingByThread-value');
-    expect(selected.sidebarThreadsByProject).toBe('sidebarThreadsByProject-value');
     expect(selected.unrelatedLargeSlice).toBeUndefined();
   });
 });

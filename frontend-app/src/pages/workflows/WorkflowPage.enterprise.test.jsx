@@ -10,7 +10,7 @@ import {
   fillEnterpriseTemplateForm,
   mockEnterpriseTemplates,
   openTemplateCatalog,
-} from './WorkflowPage.testSupport.js';
+} from './WorkflowPage.testSupport.jsx';
 import { useWorkflowActions } from './hooks/useWorkflowActions.js';
 
   beforeEach(() => {
@@ -26,14 +26,7 @@ afterEach(() => {
 
 it('filters templates by search and shows version trust compatibility and rollback', async () => {
   mockWorkflowDag();
-  backend.rollbackWorkflowTemplate.mockResolvedValue({
-    template: {
-      ...enterpriseTemplateDetails['government-enterprise/meeting-minutes'],
-      version: 1,
-      available_versions: [1, 2],
-      final_node_key: 'final_minutes',
-    },
-  });
+  backend.rollbackWorkflowTemplate.mockResolvedValue({ malformed: ['ignored-response-body'] });
   backend.listWorkflowTemplates.mockResolvedValue({
     templates: [{
       ...enterpriseTemplateDetails['government-enterprise/meeting-minutes'],
@@ -68,28 +61,6 @@ it('filters templates by search and shows version trust compatibility and rollba
   expect(screen.getByRole('button', { name: '回滚到 v1' })).toBeEnabled();
   await waitFor(() => expect(backend.listWorkflowTemplates.mock.calls.length).toBeGreaterThan(1));
   expect(screen.queryByRole('alert')).not.toBeInTheDocument();
-});
-
-it('keeps rollback failure visible and does not refresh templates when rollback response validation rejects', async () => {
-  mockWorkflowDag();
-  backend.rollbackWorkflowTemplate.mockRejectedValue(new TypeError('workflowTemplates/rollback response template.version must be a positive integer'));
-  backend.listWorkflowTemplates.mockResolvedValue({
-    templates: [{
-      ...enterpriseTemplateDetails['government-enterprise/meeting-minutes'],
-      version: 2,
-      available_versions: [1, 2],
-      final_node_key: 'final_minutes',
-    }],
-  });
-
-  renderWorkflowPage();
-  await openTemplateCatalog();
-  const listCallsBeforeRollback = backend.listWorkflowTemplates.mock.calls.length;
-  fireEvent.click(screen.getByRole('button', { name: '回滚到 v1' }));
-
-  expect(await screen.findByRole('alert')).toHaveTextContent('回滚模板失败，请重试。');
-  expect(backend.listWorkflowTemplates).toHaveBeenCalledTimes(listCallsBeforeRollback);
-  expect(screen.getByRole('button', { name: '回滚到 v1' })).toBeEnabled();
 });
 
 it('renders the template catalog in the empty state', async () => {

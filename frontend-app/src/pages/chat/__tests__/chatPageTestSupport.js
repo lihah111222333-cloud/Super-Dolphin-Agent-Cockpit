@@ -3,7 +3,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { screen } from '@testing-library/react';
 import { beforeEach, vi } from 'vitest';
 import mermaid from 'mermaid';
-import { createShellLayoutStore } from '../../../shared/model/useShellLayoutStore.js';
+import { createShellLayoutStore } from '../../../app/shell/model/useShellLayoutStore.js';
 import { ChatPage as ChatPageComponent } from '../ChatPage.jsx';
 
 const chatCodeServiceMocks = vi.hoisted(() => ({

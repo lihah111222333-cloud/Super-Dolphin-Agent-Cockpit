@@ -1,14 +1,24 @@
 {
   "schemaVersion": 1,
   "surfaces": {
-    "actionFeedback": ["src/pages/chat/runtime/RuntimeDiffView.jsx"],
-    "terminalPublicError": ["src/shared/contracts/turnContractValidators.js"],
-    "diagnostics": ["src/shared/diagnostics/safeLogFields.js"],
-    "uiAction": ["src/shared/ui/runUIAction.js"],
+    "actionFeedback": [
+      "src/pages/chat/runtime/RuntimeDiffView.jsx"
+    ],
+    "terminalPublicError": [
+      "src/shared/contracts/turnContractValidators.js"
+    ],
+    "diagnostics": [
+      "src/shared/diagnostics/safeLogFields.js"
+    ],
+    "uiAction": [
+      "src/shared/ui/runUIAction.js"
+    ],
     "promptHistory": [
       "src/features/prompt-history/model/promptHistoryController.js"
     ],
-    "storeBridge": ["src/entities/client/model/helpers/bridgeRevision.js"],
+    "storeBridge": [
+      "src/entities/client/model/helpers/bridgeRevision.js"
+    ],
     "rpcAdapter": [
       "src/shared/api/backend/backendApiFactoryThread.js",
       "src/shared/api/backend/backendApiCommon.js"
@@ -34,59 +44,30 @@
     "src/entities/client/model/helpers/providerPreferences.js",
     "src/features/prompt-history/model/promptHistoryController.js",
     "src/pages/chat/runtime/RuntimeDiffView.jsx",
-    "src/pages/chat/runtime/useRuntimeDiffVirtualizer.js",
+    "src/shared/api/approvalRequestId.js",
     "src/shared/api/backend/backendApiCommon.js",
     "src/shared/api/backend/backendApiFactoryCore.js",
     "src/shared/api/backend/backendApiFactoryOps.js",
     "src/shared/api/backend/backendApiFactoryThread.js",
     "src/shared/api/backend/backendApiPayloadCore.js",
     "src/shared/api/backend/backendApiPayloadWorkflow.js",
-    "src/shared/api/backend/backendApiPayloadWorkflowCron.js",
-    "src/shared/api/backend/backendApiPayloadWorkflowDag.js",
-    "src/shared/api/backend/backendApiPayloadWorkflowPrompts.js",
     "src/shared/api/backend/backendApiPayloads.js",
     "src/shared/api/backend/backendRpcMethods.js",
+    "src/shared/api/backendResponseValidatorShared.js",
     "src/shared/api/backendResponseValidators.js",
+    "src/shared/api/backendResponseValidatorsCore.js",
+    "src/shared/api/backendResponseValidatorsRuntime.js",
     "src/shared/api/backendSchemas.js",
+    "src/shared/api/bridgeSafeLogFields.js",
     "src/shared/api/browser/browserStorage.js",
-    "src/shared/api/response-validators/core/config.js",
-    "src/shared/api/response-validators/core/desktop.js",
-    "src/shared/api/response-validators/core/services.js",
-    "src/shared/api/response-validators/core/thread-actions.js",
-    "src/shared/api/response-validators/core/thread-config.js",
-    "src/shared/api/response-validators/core/thread-state.js",
-    "src/shared/api/response-validators/core/thread.js",
-    "src/shared/api/response-validators/core/workflow.js",
-    "src/shared/api/response-validators/datasource.js",
-    "src/shared/api/response-validators/mcp-model-provider.js",
-    "src/shared/api/response-validators/registry.js",
-    "src/shared/api/response-validators/runtime/cron.js",
-    "src/shared/api/response-validators/runtime/sidebar-state.js",
-    "src/shared/api/response-validators/runtime/thread.js",
-    "src/shared/api/response-validators/runtime/toolbridge.js",
-    "src/shared/api/response-validators/runtime/ui.js",
-    "src/shared/api/response-validators/schema-responses.js",
-    "src/shared/api/response-validators/shared.js",
-    "src/shared/api/response-validators/skills.js",
-    "src/shared/api/response-validators/workflow/dag.js",
-    "src/shared/api/response-validators/workflow/templates.js",
     "src/shared/api/safeDiagnosticPreview.js",
-    "src/shared/api/support/approvalRequestId.js",
-    "src/shared/api/support/bridgeSafeLogFields.js",
-    "src/shared/api/support/safeDiagnosticPreview.js",
     "src/shared/api/wails/sharedFilePreviewContract.js",
     "src/shared/api/wails/wailsBridgeClipboardEvents.js",
     "src/shared/api/wails/wailsBridgeConstants.js",
     "src/shared/api/wails/wailsBridgeLogRuntime.js",
     "src/shared/api/wails/wailsBridgeNativeFiles.js",
     "src/shared/api/wails/wailsBridgeRpc.js",
-    "src/shared/api/wails/wailsBridgeTraceContext.js",
     "src/shared/api/wails/wailsBridgeTraceEvents.js",
-    "src/shared/api/wails/wailsBridgeTraceRuntimeEvents.js",
-    "src/shared/api/wails/wailsBridgeTraceRuntimeTelemetry.js",
-    "src/shared/api/wails/wailsBridgeTraceSanitization.js",
-    "src/shared/api/wails/wailsBridgeTraceTransport.js",
-    "src/shared/api/wails/wailsRuntimeLoader.js",
     "src/shared/api/wailsBridge.js",
     "src/shared/contracts/turnContractValidators.js",
     "src/shared/contracts/turnContracts.generated.js",
@@ -98,5 +79,7 @@
     "src/shared/ui/publicError.js",
     "src/shared/ui/runUIAction.js"
   ],
-  "testFiles": ["scripts/contracts-typecheck-guard.test.mjs"]
+  "testFiles": [
+    "scripts/contracts-typecheck-guard.test.mjs"
+  ]
 }

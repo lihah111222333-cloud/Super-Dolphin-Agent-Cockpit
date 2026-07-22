@@ -26,10 +26,10 @@
       "properties": [
         "terminalOutcome"
       ],
-      "ownerWriter": "src/entities/client/model/helpers/assistantEventRuntime/turnLifecycle.js:terminalTimelineItem:object-property:terminalOutcome",
+      "ownerWriter": "src/entities/client/model/helpers/assistantEventRuntime.js:terminalTimelineItem:object-property:terminalOutcome",
       "writers": [
         {
-          "key": "src/entities/client/model/helpers/assistantEventRuntime/turnLifecycle.js:terminalTimelineItem:object-property:terminalOutcome",
+          "key": "src/entities/client/model/helpers/assistantEventRuntime.js:terminalTimelineItem:object-property:terminalOutcome",
           "value": "terminal.outcome",
           "role": "owner"
         }
@@ -48,12 +48,17 @@
       "properties": [
         "publicError"
       ],
-      "ownerWriter": "src/entities/client/model/helpers/assistantEventRuntime/turnLifecycle.js:terminalTimelineItem:object-property:publicError",
+      "ownerWriter": "src/entities/client/model/helpers/assistantEventRuntime.js:terminalTimelineItem:object-property:publicError",
       "writers": [
         {
-          "key": "src/entities/client/model/helpers/assistantEventRuntime/turnLifecycle.js:terminalTimelineItem:object-property:publicError",
+          "key": "src/entities/client/model/helpers/assistantEventRuntime.js:terminalTimelineItem:object-property:publicError",
           "value": "publicError",
           "role": "owner"
+        },
+        {
+          "key": "src/entities/client/model/helpers/a1/clientStoreSidebarRuntime.js:recordSidebarRefreshFailure:object-property:publicError",
+          "value": "publicError",
+          "role": "projector"
         },
         {
           "key": "src/entities/client/model/helpers/a2Slice/forkSliceActions.js:recordForkFailure:object-property:publicError",
@@ -63,11 +68,11 @@
       ],
       "consumers": [
         {
-          "key": "src/entities/client/model/helpers/assistantEventRuntime/turnLifecycle.js:terminalNotice:member-read:publicError",
+          "key": "src/entities/client/model/helpers/assistantEventRuntime.js:terminalNotice:member-read:publicError",
           "role": "mapper-input"
         },
         {
-          "key": "src/entities/client/model/helpers/assistantEventRuntime/turnLifecycle.js:terminalTimelineItem:member-read:publicError",
+          "key": "src/entities/client/model/helpers/assistantEventRuntime.js:terminalTimelineItem:member-read:publicError",
           "role": "mapper-input"
         },
         {

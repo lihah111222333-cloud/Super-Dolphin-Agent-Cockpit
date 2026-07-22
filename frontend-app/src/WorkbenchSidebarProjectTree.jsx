@@ -1,18 +1,124 @@
-import React, { useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Folder, Plus, SquarePlus } from 'lucide-react';
-import { runUIAction } from './shared/ui/runUIAction.js';
-import { uiActionWarningOptions } from './shared/ui/uiActionWarningOptions.js';
+import { getSidebarState } from './shared/api/backendApi.js';
+import { runBackgroundAction, runUIAction } from './shared/ui/runUIAction.js';
 import { APP_COPY } from './shared/i18n/appI18n.js';
+import { currentTimestampMillis, errorMessage, textValue } from './pages/shared/pageShared.js';
 import {
+  mergeProjectThreadSources,
   projectDirectoryItems,
   projectThreadItems,
   projectThreadLabel,
   projectTreeKey,
   sidebarActiveProjectPath,
+  sidebarSnapshotThreads,
   taskThreadItems,
 } from './WorkbenchSidebarModel.js';
 import { formatRelativeTime, useSidebarThreadActions } from './WorkbenchSidebarThreadModel.js';
 import { SidebarThreadRow } from './WorkbenchSidebarThreads.jsx';
+
+const PROJECT_THREAD_CACHE_TTL_MS = 45_000;
+
+function uiActionOptions(store) {
+  return {
+    onError: (error) => {
+      store?.addWarning?.('error', 'ui.action.failed', { error: errorMessage(error) });
+    },
+  };
+}
+
+function patchProjectThreadCacheEntry(current, path, update) {
+  const key = projectTreeKey(path);
+  if (!key) return current;
+  const previous = current[key] || { path, threads: [], loadedAt: 0, loading: false, error: '' };
+  const patch = typeof update === 'function' ? update(previous) : update;
+  return {
+    ...current,
+    [key]: {
+      ...previous,
+      path,
+      ...patch,
+    },
+  };
+}
+
+function renameProjectThreadCacheEntries(current, id, name) {
+  let changed = false;
+  const next = Object.fromEntries(Object.entries(current).map(([key, entry]) => {
+    const threads = Array.isArray(entry?.threads) ? entry.threads : [];
+    const nextThreads = threads.map((thread) => {
+      if (thread?.id !== id) return thread;
+      changed = true;
+      return { ...thread, name, title: name };
+    });
+    return [key, { ...entry, threads: nextThreads }];
+  }));
+  return changed ? next : current;
+}
+
+function removeProjectThreadCacheEntries(current, ids) {
+  let changed = false;
+  const next = Object.fromEntries(Object.entries(current).map(([key, entry]) => {
+    const threads = Array.isArray(entry?.threads) ? entry.threads : [];
+    const nextThreads = threads.filter((thread) => !ids.has(textValue(thread?.id)));
+    if (nextThreads.length !== threads.length) changed = true;
+    return [key, { ...entry, threads: nextThreads }];
+  }));
+  return changed ? next : current;
+}
+
+function refreshProjectThreadCacheEntry(props) {
+  const { force = false, path, projectThreadCacheRef, updateProjectThreadCache } = props;
+  const key = projectTreeKey(path);
+  if (!key) return;
+  const current = projectThreadCacheRef.current[key];
+  if (!force && current && !current.error && currentTimestampMillis('project thread cache clock') - current.loadedAt < PROJECT_THREAD_CACHE_TTL_MS) return;
+  updateProjectThreadCache(path, (previous) => ({
+    threads: Array.isArray(previous.threads) ? previous.threads : [],
+    loading: true,
+    error: '',
+  }));
+  runBackgroundAction('sidebar.project-threads.load', async () => getSidebarState({ cwd: path }))
+    .then((snapshot) => {
+      updateProjectThreadCache(path, {
+        threads: sidebarSnapshotThreads(snapshot),
+        loadedAt: currentTimestampMillis('project thread cache loadedAt'),
+        loading: false,
+        error: '',
+      });
+    })
+    .catch(() => {
+      updateProjectThreadCache(path, (previous) => ({
+        threads: Array.isArray(previous.threads) ? previous.threads : [],
+        loading: false,
+        error: '项目线程加载失败，请查看 Health。',
+      }));
+    });
+}
+
+function useActiveProjectThreadCacheSync(props) {
+  const { activeProjectPath, store, updateProjectThreadCache } = props;
+  useEffect(() => {
+    const activeKey = projectTreeKey(activeProjectPath);
+    if (!activeKey) return;
+    if (store?.bootstrapStatus !== 'ready') return;
+    const loadingKey = projectTreeKey(store?.chatSurfaceLoadingCwd);
+    if (loadingKey && loadingKey === activeKey) return;
+    // 只在全局 bootstrap 完成后同步可信来源，避免刷新初期把临时 activeProject 的空列表写成新鲜缓存。
+    const sidebarThreadCache = store?.sidebarThreadsByProject && typeof store.sidebarThreadsByProject === 'object' ? store.sidebarThreadsByProject : {};
+    const hasSidebarThreads = Object.prototype.hasOwnProperty.call(sidebarThreadCache, activeKey);
+    const sidebarThreads = hasSidebarThreads ? sidebarThreadCache[activeKey] : null;
+    const hasStoreThreads = Array.isArray(store?.threads) && store.threads.length > 0;
+    if (!hasSidebarThreads && !hasStoreThreads) return;
+    const sourceThreads = hasSidebarThreads ? sidebarThreads : store?.threads;
+    updateProjectThreadCache(activeProjectPath, {
+      threads: Array.isArray(sourceThreads) ? sourceThreads : [],
+      loadedAt: currentTimestampMillis('project thread cache loadedAt'),
+      loading: false,
+      error: '',
+    });
+  }, [activeProjectPath, store?.bootstrapStatus, store?.chatSurfaceLoadingCwd, store?.sidebarThreadsByProject, store?.threads, updateProjectThreadCache]);
+}
 
 async function startProjectThreadAction(props) {
   const { activeProjectPath, path, setActivePage, store } = props;
@@ -95,13 +201,16 @@ function ProjectThreadList(props) {
 }
 
 function projectTreeItemViewState(props) {
-  const { activeProjectPath, expandedProjects, item, store } = props;
+  const { activeProjectPath, expandedProjects, item, projectThreadCache, store } = props;
   const projectKey = projectTreeKey(item.path);
   const isActiveProject = Boolean(item.path && projectKey === projectTreeKey(activeProjectPath));
+  const cacheEntry = projectThreadCache[projectKey];
   const sidebarThreads = store?.sidebarThreadsByProject?.[projectKey];
-  const hasSidebarThreads = Array.isArray(sidebarThreads);
-  const projectThreads = projectThreadItems(hasSidebarThreads ? sidebarThreads : [], item.path, hasSidebarThreads ? item.path : activeProjectPath, {
-    allowMissingCwdFallback: hasSidebarThreads,
+  const cachedThreads = cacheEntry?.threads;
+  const activeThreads = isActiveProject ? mergeProjectThreadSources(cachedThreads || sidebarThreads, store?.threads) : (cachedThreads || sidebarThreads);
+  const sourceThreads = Array.isArray(activeThreads) ? activeThreads : [];
+  const projectThreads = projectThreadItems(sourceThreads, item.path, cacheEntry ? item.path : activeProjectPath, {
+    allowMissingCwdFallback: !cacheEntry,
   });
   const hasExplicitState = Object.prototype.hasOwnProperty.call(expandedProjects, item.path);
   const isExpanded = hasExplicitState ? !!expandedProjects[item.path] : isActiveProject;
@@ -109,18 +218,19 @@ function projectTreeItemViewState(props) {
     isActiveProject,
     isExpanded,
     newProjectThreadLabel: `${props.copy.newChat} ${item.name}`,
-    showLoading: isExpanded && projectTreeKey(store?.chatSurfaceLoadingCwd) === projectKey && projectThreads.length === 0,
+    showLoading: isExpanded && cacheEntry?.loading && projectThreads.length === 0,
     visibleThreads: isExpanded ? projectThreads : [],
   };
 }
 
 function ProjectTreeItem(props) {
-  const { copy, expandedProjects, item, onSelectProject, onSelectThread, onStartProjectThread, store, threadActions } = props;
+  const { copy, expandedProjects, item, onSelectProject, onSelectThread, onStartProjectThread, projectThreadCache, store, threadActions } = props;
   const view = projectTreeItemViewState({
     activeProjectPath: props.activeProjectPath,
     copy,
     expandedProjects,
     item,
+    projectThreadCache,
     store,
   });
   return (
@@ -164,10 +274,37 @@ function ProjectTreeItem(props) {
 
 export function SidebarProjectTree({ copy = APP_COPY.zh.workbench, projectPath, setActivePage, store }) {
   const [expandedProjects, setExpandedProjects] = useState({});
-  const actionOptions = uiActionWarningOptions(store);
+  const [projectThreadCache, setProjectThreadCache] = useState({});
+  const projectThreadCacheRef = useRef({});
+  const actionOptions = uiActionOptions(store);
   const projectItems = projectDirectoryItems(projectPath, store?.projects, store?.activeProject);
   const activeProjectPath = sidebarActiveProjectPath(store?.activeProject, projectPath);
-  const threadActions = useSidebarThreadActions(store);
+  useEffect(() => {
+    projectThreadCacheRef.current = projectThreadCache;
+  }, [projectThreadCache]);
+  const updateProjectThreadCache = useCallback((path, update) => {
+    const key = projectTreeKey(path);
+    if (!key) return;
+    setProjectThreadCache((current) => patchProjectThreadCacheEntry(current, path, update));
+  }, []);
+  const renameCachedProjectThread = useCallback((threadId, name) => {
+    const id = textValue(threadId);
+    if (!id) return;
+    setProjectThreadCache((current) => renameProjectThreadCacheEntries(current, id, name));
+  }, []);
+  const removeCachedProjectThreads = useCallback((threadIds = []) => {
+    const ids = new Set((Array.isArray(threadIds) ? threadIds : [threadIds]).map(textValue).filter(Boolean));
+    if (ids.size === 0) return;
+    setProjectThreadCache((current) => removeProjectThreadCacheEntries(current, ids));
+  }, []);
+  const threadActions = useSidebarThreadActions(store, {
+    onDeleteThreads: removeCachedProjectThreads,
+    onRenameThread: renameCachedProjectThread,
+  });
+  const refreshProjectThreadCache = useCallback((path, options = {}) => {
+    refreshProjectThreadCacheEntry({ force: options.force, path, projectThreadCacheRef, updateProjectThreadCache });
+  }, [updateProjectThreadCache]);
+  useActiveProjectThreadCacheSync({ activeProjectPath, store, updateProjectThreadCache });
   const addProject = () => runUIAction('project.add', async () => {
     const added = await store?.addProjectFromPicker?.();
     if (added) setActivePage('chat');
@@ -183,7 +320,7 @@ export function SidebarProjectTree({ copy = APP_COPY.zh.workbench, projectPath, 
         [path]: nextExpanded,
       };
     });
-    if (nextExpanded) store?.refreshSidebarSnapshotForCwdInBackground?.(path);
+    if (nextExpanded) refreshProjectThreadCache(path);
   };
   const startProjectThread = (path, event) => {
     event?.stopPropagation?.();
@@ -219,6 +356,7 @@ export function SidebarProjectTree({ copy = APP_COPY.zh.workbench, projectPath, 
             onSelectProject={selectProject}
             onSelectThread={selectThread}
             onStartProjectThread={startProjectThread}
+            projectThreadCache={projectThreadCache}
             store={store}
             threadActions={threadActions}
           />
@@ -231,7 +369,7 @@ export function SidebarProjectTree({ copy = APP_COPY.zh.workbench, projectPath, 
 export function SidebarTaskSummary({ copy = APP_COPY.zh.workbench, store, setActivePage }) {
   const tasks = taskThreadItems(store?.threads);
   const threadActions = useSidebarThreadActions(store);
-  const actionOptions = uiActionWarningOptions(store);
+  const actionOptions = uiActionOptions(store);
   const selectThread = (threadId) => {
     if (!threadId) return;
     setActivePage('chat');
