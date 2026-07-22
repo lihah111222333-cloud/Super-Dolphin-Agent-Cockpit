@@ -15,6 +15,7 @@ import {
   validatorBindingTarget,
   validatorNamespace,
 } from "./turn-contract-field-guard-bindings.mjs";
+import { immutableRepositoryBaseline } from "./turn-contract-field-guard-baseline.mjs";
 
 const validatorRelativePath =
   "frontend-app/src/shared/contracts/turnContractValidators.js";
@@ -50,13 +51,8 @@ export function discoverJSValidatorConsumers(
   const discovered = new Map(
     [...targetSchemas.values()].map((schemaName) => [schemaName, []]),
   );
-  for (const absolutePath of productionJavaScriptFiles(
-    path.join(repoRoot, "frontend-app/src"),
-  )) {
-    const relativePath = path
-      .relative(repoRoot, absolutePath)
-      .split(path.sep)
-      .join("/");
+  for (const relativePath of immutableRepositoryBaseline(repoRoot)
+    .productionPaths) {
     const ast = parseModuleSource(repoRoot, sourceOverrides, relativePath);
     resolveValidatorExports(relativePath);
     const bindings = validatorBindings(
@@ -100,21 +96,6 @@ export function discoverJSValidatorConsumers(
   for (const [schemaName, consumers] of discovered)
     discovered.set(schemaName, [...new Set(consumers)].sort());
   return discovered;
-}
-
-function productionJavaScriptFiles(root) {
-  const files = [];
-  for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
-    const absolutePath = path.join(root, entry.name);
-    if (entry.isDirectory())
-      files.push(...productionJavaScriptFiles(absolutePath));
-    else if (
-      /\.(?:js|jsx)$/.test(entry.name) &&
-      !/\.(?:test|spec)\.(?:js|jsx)$/.test(entry.name)
-    )
-      files.push(absolutePath);
-  }
-  return files;
 }
 
 export function createValidatorExportResolver(

@@ -51,29 +51,22 @@ func TestStopReturnsInterruptTimeoutAfterRuntimeTeardown(t *testing.T) {
 	calls := []string{}
 	turns := &stubTurnService{interruptErr: context.DeadlineExceeded, calls: &calls}
 	orch := &stubThreadOrchestration{calls: &calls}
-	threadStore := &recordingThreadStore{
-		stubThreadStore: &stubThreadStore{thread: &ThreadRecord{
-			ThreadID: "thread-1",
-			AgentID:  "agent-1",
-			Status:   statusCreated,
-		}},
-		calls: &calls,
-	}
+	svc, scratchpadDir := newScratchpadCleanupService(t)
+	threadStore := &recordingThreadStore{stubThreadStore: svc.threadStore.(*stubThreadStore), calls: &calls}
 	stoppedEvents := 0
-	svc := &service{
-		bindingStore: &stubThreadBindingStore{binding: &BindingRecord{
-			AgentID:          "agent-1",
-			Provider:         "codex",
-			ProviderThreadID: "provider-thread-1",
-			CodexThreadID:    "thread-1",
-		}},
-		threadStore:   threadStore,
-		sessions:      &stubThreadSessions{agentID: "agent-1", session: &stubThreadSession{threadID: "thread-1", calls: &calls}, calls: &calls},
-		turns:         turns,
-		orchestration: orch,
-		emitStopped: func(threaddto.Stopped) {
-			stoppedEvents++
-		},
+	svc.threadStore = threadStore
+	svc.sessions = &stubThreadSessions{
+		agentID: "agent-1",
+		session: &stubThreadSession{threadID: "thread-1", calls: &calls},
+		calls:   &calls,
+	}
+	svc.turns = turns
+	svc.orchestration = orch
+	for _, id := range []string{"thread-1", "provider-thread-1", "agent-1"} {
+		svc.rememberThreadAgent(id, "agent-1")
+	}
+	svc.emitStopped = func(threaddto.Stopped) {
+		stoppedEvents++
 	}
 
 	err := svc.Stop(context.Background(), "thread-1")
@@ -81,17 +74,55 @@ func TestStopReturnsInterruptTimeoutAfterRuntimeTeardown(t *testing.T) {
 		t.Fatalf("Stop() error = %v, want interrupt timeout", err)
 	}
 	assertStopCallPresent(t, calls, "session_close:thread-1", "session close after interrupt timeout")
+	assertStopCallPresent(t, calls, "session_remove:agent-1", "session binding cleanup after interrupt timeout")
 	assertStopCallPresent(t, calls, "agent_stop:agent-1", "managed agent stop after interrupt timeout")
 	assertStopCallBefore(t, calls, "turn_interrupt:thread-1:thread_stopped", "session_close:thread-1", "session close")
 	assertStopCallBefore(t, calls, "session_close:thread-1", "agent_stop:agent-1", "managed agent stop")
-	if callIndex(calls, "thread_status:thread-1:stopped") != -1 {
-		t.Fatalf("status calls = %#v, must not persist stopped after interrupt timeout", calls)
+	assertStopCallBefore(t, calls, "agent_stop:agent-1", "thread_status:thread-1:stopped", "durable stopped status")
+	assertStopCallPresent(t, calls, "turn_cleanup:thread-1:thread_stopped", "turn cleanup after interrupt timeout")
+	if _, statErr := os.Stat(scratchpadDir); !os.IsNotExist(statErr) {
+		t.Fatalf("scratchpad stat error = %v, want removed directory", statErr)
 	}
-	if stoppedEvents != 0 {
-		t.Fatalf("stopped events = %d, want none after interrupt timeout", stoppedEvents)
+	if stoppedEvents != 1 {
+		t.Fatalf("stopped events = %d, want one after durable finalization", stoppedEvents)
+	}
+	for _, id := range []string{"thread-1", "provider-thread-1", "agent-1"} {
+		if agentID := svc.lookupThreadAgent(id); agentID != "" {
+			t.Fatalf("thread-agent binding %q = %q, want cleaned", id, agentID)
+		}
 	}
 	if _, blocked := svc.resumeBlocked.Load("agent-1"); blocked {
 		t.Fatal("resumeBlocked remains after interrupted Stop returned")
+	}
+}
+
+func TestStopDoesNotSwallowDurableFailureAfterInterruptTimeout(t *testing.T) {
+	t.Parallel()
+
+	durableErr := errors.New("durable stopped write failed")
+	svc := newResumeBlockTimingService(t, statusCreated)
+	svc.turns = &stubTurnService{interruptErr: context.DeadlineExceeded}
+	store := &stopFailingStatusThreadStore{
+		stubThreadStore: svc.threadStore.(*stubThreadStore),
+		t:               t,
+		svc:             svc,
+		agentID:         "agent-1",
+		err:             durableErr,
+	}
+	svc.threadStore = store
+
+	err := svc.Stop(context.Background(), "thread-1")
+	if !errors.Is(err, durableErr) {
+		t.Fatalf("Stop() error = %v, want durable failure", err)
+	}
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("Stop() error = %v, want retained interrupt timeout", err)
+	}
+	if !store.statusObserved {
+		t.Fatal("durable stopped write was not attempted")
+	}
+	if _, blocked := svc.resumeBlocked.Load("agent-1"); blocked {
+		t.Fatal("resumeBlocked remains after failed durable write returned")
 	}
 }
 
@@ -801,4 +832,22 @@ func (s *resumeBlockAssertingThreadStore) assertBlocked(stage string) {
 	if _, blocked := s.svc.resumeBlocked.Load(s.agentID); !blocked {
 		s.t.Fatalf("resumeBlocked missing during %s; concurrent Resume can pass before terminal state is durable", stage)
 	}
+}
+
+type stopFailingStatusThreadStore struct {
+	*stubThreadStore
+	t              *testing.T
+	svc            *service
+	agentID        string
+	err            error
+	statusObserved bool
+}
+
+func (s *stopFailingStatusThreadStore) UpdateStatus(context.Context, ThreadStatusUpdate) error {
+	s.statusObserved = true
+	s.t.Helper()
+	if _, blocked := s.svc.resumeBlocked.Load(s.agentID); !blocked {
+		s.t.Fatal("resumeBlocked missing during failed durable stopped write")
+	}
+	return s.err
 }

@@ -1,6 +1,15 @@
 import { parse } from "@babel/parser";
+import { indexedSourceValue } from "./turn-contract-field-guard-cache.mjs";
+
+const parsedModuleIndex = new Map();
 
 export function parseModule(source, filePath) {
+  return indexedSourceValue(parsedModuleIndex, filePath, source, () =>
+    parseModuleUncached(source, filePath),
+  );
+}
+
+function parseModuleUncached(source, filePath) {
   try {
     return parse(source, { sourceType: "module", plugins: ["jsx"] });
   } catch (error) {

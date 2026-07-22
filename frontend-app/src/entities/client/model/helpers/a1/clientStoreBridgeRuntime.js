@@ -68,6 +68,29 @@ function bridgePatchFromPayload(method, payload, threadId) {
   };
 }
 
+const MAX_AGENT_FAILURE_NOTICES = 64;
+
+function agentFailureNotice(runtime, method, payload, threadId) {
+  const agentId = normalizeString(payload.agentId || payload.agent_id);
+  const sessionId = normalizeString(payload.sessionId || payload.session_id);
+  const identity = sessionId || agentId || threadId;
+  if (!identity) return null;
+  const key = `${threadId || 'unknown'}::${sessionId ? 'session' : 'agent'}::${identity}`;
+  const ledger = runtime.agentFailureNoticeLedger;
+  if (ledger.has(key)) return null;
+  if (ledger.size >= MAX_AGENT_FAILURE_NOTICES) {
+    ledger.delete(ledger.keys().next().value);
+  }
+  ledger.set(key, true);
+  const fields = {
+    eventName: method,
+    threadId,
+    agent_id: agentId,
+    reason: 'agent_failed',
+  };
+  return fields;
+}
+
 function emitSlowBridgePatchTrace(method, payload, threadId, durationMs) {
   if (durationMs < BRIDGE_PATCH_SLOW_MS) return;
   emitFrontendTraceEvent({
@@ -189,6 +212,8 @@ function attachBridgeLifecycleRuntime(runtime) {
     notifyAction,
   } = runtime;
 
+  runtime.agentFailureNoticeLedger = new Map();
+
   const handleBridgeLifecycleEvent = (method, eventName, payload) => {
     if (eventName !== 'thread/stopped' && eventName !== 'agent/stopped' && eventName !== 'agent/failed') {
       return false;
@@ -202,13 +227,11 @@ function attachBridgeLifecycleRuntime(runtime) {
       set(statePatch);
       refreshActiveChatSidebarInBackground();
     }
-    if (eventName === 'agent/failed' && stateChanged) {
-      addWarning('error', 'agent.lifecycle.failed', {
-        eventName: method,
-        threadId,
-        agent_id: normalizeString(payload.agentId || payload.agent_id),
-        reason: 'agent_failed',
-      });
+    const failureNotice = eventName === 'agent/failed'
+      ? agentFailureNotice(runtime, method, payload, threadId)
+      : null;
+    if (failureNotice) {
+      addWarning('error', 'agent.lifecycle.failed', failureNotice);
       notifyAction('代理运行失败', 'error', { category: 'agent_lifecycle' });
     }
     return true;

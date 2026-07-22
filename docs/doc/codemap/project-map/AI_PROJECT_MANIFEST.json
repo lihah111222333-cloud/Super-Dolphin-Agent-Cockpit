@@ -4,14 +4,14 @@
   "rules_sources": [
     ".ai-project-map.overrides.json"
   ],
-  "files": 5063,
+  "files": 5068,
   "domains": {
     "docs-agent": 958,
     "other": 703,
-    "app-ui": 954,
-    "platform-provider": 1112,
-    "orchestration": 391,
-    "modules": 741,
+    "app-ui": 956,
+    "platform-provider": 1113,
+    "orchestration": 392,
+    "modules": 742,
     "store-sql": 204
   },
   "index_files": {
@@ -21,29 +21,29 @@
       {
         "key": "app-ui",
         "file": "docs/doc/codemap/project-map/index/app-ui.tsv",
-        "file_count": 954,
-        "size_kb": 200,
+        "file_count": 956,
+        "size_kb": 200.4,
         "desc": "桌面应用、Wails host、React/Vite 前端与 UI 测试"
       },
       {
         "key": "orchestration",
         "file": "docs/doc/codemap/project-map/index/orchestration.tsv",
-        "file_count": 391,
-        "size_kb": 88,
+        "file_count": 392,
+        "size_kb": 88.3,
         "desc": "mcp-orch 编排 peer、DAG、workspace、prompt、command、shared-file 工具"
       },
       {
         "key": "modules",
         "file": "docs/doc/codemap/project-map/index/modules.tsv",
-        "file_count": 741,
-        "size_kb": 144.2,
+        "file_count": 742,
+        "size_kb": 144.4,
         "desc": "业务模块层：dashboard、memory、prompt、skill、thread、turn、uistate 等"
       },
       {
         "key": "platform-provider",
         "file": "docs/doc/codemap/project-map/index/platform-provider.tsv",
-        "file_count": 1112,
-        "size_kb": 205,
+        "file_count": 1113,
+        "size_kb": 205.3,
         "desc": "基础设施与 provider 集成：RPC、hooks、toolbridge、Claude/Codex/统一 provider"
       },
       {
@@ -71,10 +71,10 @@
   },
   "module_counts": {
     "(root)": 12,
-    "cmd": 666,
+    "cmd": 668,
     "docs": 950,
-    "frontend-app": 948,
-    "internal": 2264,
+    "frontend-app": 950,
+    "internal": 2265,
     "pkg": 30,
     "scripts": 145,
     "sql": 29,

@@ -19,6 +19,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
@@ -78,6 +79,13 @@ type Config struct {
 // RequestQuit 是安装 helper 启动后请求桌面宿主退出的回调。
 type RequestQuit func()
 
+type installCommandLauncher func(*exec.Cmd) (bool, error)
+
+var (
+	errUpdateOperationInProgress = errors.New("app update operation already in progress")
+	errUpdateInstallStarted      = errors.New("app update operation rejected: installation has already started")
+)
+
 // Service 定义应用更新检查、下载和安装的业务接口。
 type Service interface {
 	Check(context.Context) (CheckResult, error)
@@ -119,12 +127,14 @@ type selectedUpdate struct {
 	DownloadedAt string          `json:"downloaded_at"`
 }
 
-// service 是 Service 接口的实现，封装 HTTP 客户端和更新配置。
+// service 是 Service 接口的实现；operationState 使用 0=idle、1=active、-1=install-started。
 type service struct {
 	cfg                      Config
 	httpClient               *http.Client
 	requestQuit              RequestQuit
+	launchCommand            installCommandLauncher
 	windowsSignatureVerifier windowsInstallerSignatureVerifier
+	operationState           atomic.Int32
 }
 
 // ProvideConfig 提供配置。
@@ -236,8 +246,30 @@ func newService(cfg Config, client *http.Client, requestQuit RequestQuit) *servi
 		cfg:                      cfg,
 		httpClient:               client,
 		requestQuit:              requestQuit,
+		launchCommand:            launchInstallCommand,
 		windowsSignatureVerifier: verifyWindowsInstallerSignatureWithPowerShell,
 	}
+}
+
+// beginOperation 获取 service 级更新操作租约；安装已启动后永久拒绝后续操作。
+func (s *service) beginOperation() error {
+	if s.operationState.CompareAndSwap(0, 1) {
+		return nil
+	}
+	if s.operationState.Load() < 0 {
+		return errUpdateInstallStarted
+	}
+	return errUpdateOperationInProgress
+}
+
+// endOperation 释放尚未启动 helper 的公共操作租约。
+func (s *service) endOperation() {
+	s.operationState.CompareAndSwap(1, 0)
+}
+
+// markInstallStarted 记录 helper 已成功启动；该 latch 在 service 生命周期内不可逆。
+func (s *service) markInstallStarted() {
+	s.operationState.Store(-1)
 }
 
 // Check 检查是否有可用更新；未启用或版本不高于当前版本时返回 Available=false。
@@ -273,6 +305,15 @@ func (s *service) Check(ctx context.Context) (CheckResult, error) {
 
 // Download 下载并校验更新产物，成功后写入 stage manifest 供 Install 使用。
 func (s *service) Download(ctx context.Context) (DownloadResult, error) {
+	if err := s.beginOperation(); err != nil {
+		return DownloadResult{}, err
+	}
+	defer s.endOperation()
+	return s.download(ctx)
+}
+
+// download 执行单次下载流水线，调用方必须持有 service operation lease。
+func (s *service) download(ctx context.Context) (DownloadResult, error) {
 	if err := s.invalidatePreJournalFailure(); err != nil {
 		return DownloadResult{}, err
 	}
@@ -312,6 +353,10 @@ func (s *service) Download(ctx context.Context) (DownloadResult, error) {
 
 // Install 读取已暂存的更新记录并启动平台安装命令，成功启动后延迟请求宿主退出。
 func (s *service) Install(ctx context.Context) (InstallResult, error) {
+	if err := s.beginOperation(); err != nil {
+		return InstallResult{}, err
+	}
+	defer s.endOperation()
 	return s.install(ctx)
 }
 
@@ -336,17 +381,32 @@ func (s *service) install(ctx context.Context) (InstallResult, error) {
 	if err != nil {
 		return InstallResult{}, err
 	}
-	if err := cmd.Start(); err != nil {
-		return InstallResult{}, fmt.Errorf("start app update helper: %w", err)
+	started, err := s.launchCommand(cmd)
+	if started {
+		s.markInstallStarted()
 	}
-	if cmd.Process == nil {
-		return InstallResult{}, errors.New("start app update helper: process is nil")
+	if err != nil {
+		return InstallResult{}, err
 	}
-	if err := cmd.Process.Release(); err != nil {
-		return InstallResult{}, fmt.Errorf("release app update helper: %w", err)
+	if !started {
+		return InstallResult{}, errors.New("start app update helper: launcher returned without starting process")
 	}
 	s.scheduleRequestQuit()
 	return InstallResult{Started: true, Helper: helper}, nil
+}
+
+// launchInstallCommand 启动并释放安装 helper，started 表示 helper 已成功启动。
+func launchInstallCommand(cmd *exec.Cmd) (bool, error) {
+	if err := cmd.Start(); err != nil {
+		return false, fmt.Errorf("start app update helper: %w", err)
+	}
+	if cmd.Process == nil {
+		return true, errors.New("start app update helper: process is nil")
+	}
+	if err := cmd.Process.Release(); err != nil {
+		return true, fmt.Errorf("release app update helper: %w", err)
+	}
+	return true, nil
 }
 
 func (s *service) validateInstallSelection(staged selectedUpdate) error {
@@ -433,7 +493,11 @@ func newPreJournalGeneration() (string, error) {
 
 // InstallLatest 串联 Download 和 Install，确保安装的是当前检查到的最新产物。
 func (s *service) InstallLatest(ctx context.Context) (InstallResult, error) {
-	if _, err := s.Download(ctx); err != nil {
+	if err := s.beginOperation(); err != nil {
+		return InstallResult{}, err
+	}
+	defer s.endOperation()
+	if _, err := s.download(ctx); err != nil {
 		return InstallResult{}, err
 	}
 	return s.install(ctx)

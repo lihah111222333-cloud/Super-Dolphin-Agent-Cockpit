@@ -3,9 +3,11 @@ import {
   memberPropertyName,
   walkNodeWithParent,
 } from "./turn-contract-field-guard-ast.mjs";
+import { indexedSourceValue } from "./turn-contract-field-guard-cache.mjs";
 
 const validatorRelativePath =
   "frontend-app/src/shared/contracts/turnContractValidators.js";
+const lexicalBindingIndex = new Map();
 
 export function validatorBindingTarget(callee, bindings) {
   if (callee?.type === "Identifier") {
@@ -109,6 +111,12 @@ function isStaticPropertyName(node, parent) {
 }
 
 export function createLexicalBindingIndex(source, filePath) {
+  return indexedSourceValue(lexicalBindingIndex, filePath, source, () =>
+    createUncachedLexicalBindingIndex(source, filePath),
+  );
+}
+
+function createUncachedLexicalBindingIndex(source, filePath) {
   const linter = new Linter({ configType: "flat" });
   const messages = linter.verify(
     source,

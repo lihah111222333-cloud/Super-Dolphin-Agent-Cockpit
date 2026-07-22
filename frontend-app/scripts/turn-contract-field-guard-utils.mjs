@@ -1,9 +1,12 @@
 import fs from "node:fs";
 import path from "node:path";
+import { immutableRepositoryBaseline } from "./turn-contract-field-guard-baseline.mjs";
 
 export function readRepositorySource(repoRoot, relativePath, sourceOverrides) {
   if (sourceOverrides.has(relativePath))
     return sourceOverrides.get(relativePath);
+  const source = immutableRepositoryBaseline(repoRoot).source(relativePath);
+  if (source !== undefined) return source;
   return fs.readFileSync(path.join(repoRoot, relativePath), "utf8");
 }
 

@@ -312,6 +312,49 @@ describe('runtime slice event lifecycle', () => {
       payload: expect.objectContaining({ eventId: 'after-rebind-new' }),
     }));
   });
+
+  it('restores the prepared scope and continues delivering events from the previous project', async () => {
+    const handlers = [];
+    let runtime;
+    runtime = createRuntime({
+      activateAssistantEventScope: vi.fn((scope) => {
+        runtime.assistantEventScope = scope;
+      }),
+    });
+    createRuntimeSlice(runtime, createDeps({
+      onBridgeEvent: vi.fn((handler) => {
+        handlers.push(handler);
+        return { ready: Promise.resolve(true), unsubscribe: vi.fn() };
+      }),
+    }));
+
+    const prepared = await runtime.prepareBridgeEventScope('/repo/other');
+    await expect(runtime.restorePreparedBridgeEventScope(prepared)).resolves.toBe(true);
+
+    expect(runtime.assistantEventScope).toBe('/repo/app');
+    handlers.at(-1)({ type: 'turn/terminal', payload: { eventId: 'restored-old-scope' } });
+    expect(runtime.handleBridgeEvent).toHaveBeenLastCalledWith(expect.objectContaining({
+      payload: expect.objectContaining({ eventId: 'restored-old-scope' }),
+    }));
+  });
+
+  it('generation-fences a stale restore after a newer bridge scope wins', async () => {
+    let runtime;
+    runtime = createRuntime({
+      activateAssistantEventScope: vi.fn((scope) => {
+        runtime.assistantEventScope = scope;
+      }),
+    });
+    const actions = createRuntimeSlice(runtime, createDeps({
+      onBridgeEvent: vi.fn(() => ({ ready: Promise.resolve(true), unsubscribe: vi.fn() })),
+    }));
+
+    const prepared = await runtime.prepareBridgeEventScope('/repo/older');
+    await actions.rebindBridgeEventScope('/repo/newer');
+
+    await expect(runtime.restorePreparedBridgeEventScope(prepared)).resolves.toBe(false);
+    expect(runtime.assistantEventScope).toBe('/repo/newer');
+  });
 });
 
 describe('runtime slice preference validation', () => {

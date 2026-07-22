@@ -1,4 +1,3 @@
-import fs from "node:fs";
 import path from "node:path";
 import {
   isRecord,
@@ -11,30 +10,22 @@ import {
   functionHasValidatorCall,
   resolveJSFunction,
 } from "./turn-contract-field-guard-validation.mjs";
+import { immutableRepositoryBaseline } from "./turn-contract-field-guard-baseline.mjs";
 
 const registryRelativePath = "internal/dto/turn/schema/field_consumers.json";
 
 export function canonicalSchemas(repoRoot, sourceOverrides) {
-  const schemaDir = path.join(repoRoot, "internal/dto/turn/schema");
   const schemas = new Map();
-  for (const entry of fs.readdirSync(schemaDir, { withFileTypes: true })) {
-    if (
-      entry.isDirectory() ||
-      !entry.name.endsWith(".json") ||
-      entry.name === "field_consumers.json"
-    )
-      continue;
+  for (const relativePath of immutableRepositoryBaseline(repoRoot)
+    .canonicalSchemaPaths) {
+    const schemaFile = path.posix.basename(relativePath);
     const schema = parseJSON(
-      readRepositorySource(
-        repoRoot,
-        `internal/dto/turn/schema/${entry.name}`,
-        sourceOverrides,
-      ),
-      `canonical schema ${entry.name}`,
+      readRepositorySource(repoRoot, relativePath, sourceOverrides),
+      `canonical schema ${schemaFile}`,
     );
     if (!schema.title || !isRecord(schema.properties))
       throw new Error(
-        `canonical schema ${entry.name} must have title and properties`,
+        `canonical schema ${schemaFile} must have title and properties`,
       );
     if (schemas.has(schema.title))
       throw new Error(`duplicate canonical schema ${schema.title}`);

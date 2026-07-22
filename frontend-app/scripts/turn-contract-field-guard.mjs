@@ -3,6 +3,7 @@ import process from "node:process";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { generatedSchemas } from "../src/shared/contracts/turnContracts.generated.js";
+import { immutableRepositoryBaseline } from "./turn-contract-field-guard-baseline.mjs";
 import {
   createValidatorExportResolver,
   consumerKey,
@@ -30,10 +31,13 @@ const appRoot = path.resolve(
 );
 const defaultRepoRoot = path.resolve(appRoot, "..");
 
+immutableRepositoryBaseline(defaultRepoRoot);
+
 export function validateTurnContractFieldGuard({
   repoRoot = defaultRepoRoot,
   sourceOverrides = new Map(),
 } = {}) {
+  immutableRepositoryBaseline(repoRoot);
   const schemas = canonicalSchemas(repoRoot, sourceOverrides);
   const registry = loadRegistry(repoRoot, sourceOverrides);
   if (registry.version !== 2 || !isRecord(registry.schemas)) {
