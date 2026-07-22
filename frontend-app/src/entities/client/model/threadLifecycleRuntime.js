@@ -6,7 +6,6 @@ export const INTERRUPT_RPC_TIMEOUT_MS = 15_000;
 const INTERRUPT_RPC_TIMEOUT_CODE = 'THREAD_INTERRUPT_RPC_TIMEOUT';
 const INTERRUPT_PENDING_MESSAGE = '正在请求停止，尚未确认，任务可能仍在运行';
 const INTERRUPT_UNCONFIRMED_MESSAGE = '停止未确认，任务可能仍在运行';
-const interruptPendingTimers = new WeakMap();
 function threadActionRequiresActiveTurn(action) { return action === 'thread.interrupt' || action === 'thread.force_complete'; }
 
 export function createStopRequestId() {
@@ -156,26 +155,39 @@ function interruptTimeoutError() {
   return error;
 }
 
-function scheduleInterruptPendingFeedback(request, publishAction, threadId) {
-  const pendingTimer = globalThis.setTimeout(() => {
-    interruptPendingTimers.delete(request);
-    publishAction(INTERRUPT_PENDING_MESSAGE, 'info', { threadId });
-  }, 0);
-  interruptPendingTimers.set(request, pendingTimer);
-}
+async function interruptWithinTimeoutForPublisher(publishAction, rpc, payload) {
+  const rpcPromise = Promise.resolve(rpc(payload));
+  let outcome;
+  let fulfilled = false;
+  let settled = false;
+  void rpcPromise.then(
+    (result) => {
+      fulfilled = true;
+      outcome = result;
+      settled = true;
+    },
+    (error) => {
+      outcome = error;
+      settled = true;
+    },
+  );
+  await Promise.resolve();
+  if (settled) {
+    if (!fulfilled) throw outcome;
+    return outcome;
+  }
 
-function clearInterruptPendingFeedback(request) {
-  const pendingTimer = interruptPendingTimers.get(request);
-  if (pendingTimer === undefined) return;
-  globalThis.clearTimeout(pendingTimer);
-  interruptPendingTimers.delete(request);
-}
-
-async function interruptWithinTimeout(rpc, payload) {
   let timeoutId;
+  const pendingTimer = globalThis.setTimeout(
+    publishAction,
+    0,
+    INTERRUPT_PENDING_MESSAGE,
+    'info',
+    { threadId: payload.threadId },
+  );
   try {
     return await Promise.race([
-      rpc(payload),
+      rpcPromise,
       new Promise((_, reject) => {
         timeoutId = globalThis.setTimeout(() => reject(interruptTimeoutError()), INTERRUPT_RPC_TIMEOUT_MS);
       }),
@@ -183,7 +195,7 @@ async function interruptWithinTimeout(rpc, payload) {
   }
   finally {
     globalThis.clearTimeout(timeoutId);
-    clearInterruptPendingFeedback(payload);
+    globalThis.clearTimeout(pendingTimer);
   }
 }
 
@@ -278,9 +290,9 @@ function notifyThreadTransportFailure(params) {
 export function attachActiveThreadRpcRuntime(runtime, deps) {
   const { activeThreadInterruptTarget, backendThreadIdForState, cleanObject, createRequestId } = deps;
   const { get, set, requireCwd, notifyAction: publishAction, addWarning } = runtime;
+  const interruptWithinTimeout = interruptWithinTimeoutForPublisher.bind(null, publishAction);
   const notifyAction = (message, tone, details) => {
     if (message === INTERRUPT_PENDING_MESSAGE && tone === 'info' && details?.request) {
-      scheduleInterruptPendingFeedback(details.request, publishAction, details.threadId);
       return;
     }
     publishAction(message, tone, details);
