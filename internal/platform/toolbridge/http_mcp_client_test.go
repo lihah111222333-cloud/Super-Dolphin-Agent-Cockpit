@@ -104,7 +104,7 @@ func TestPrepareCodexToolSurfaceNamesHTTPMCPInitializeFailure(t *testing.T) {
 }
 
 func TestHTTPMCPClientCallToolConvertsJSONRPCErrorToToolResult(t *testing.T) {
-	const message = "context_mode=focused requires non-empty context field"
+	const marker = "token=sk-test-secret dsn=postgres://alice:secret@db/private path=/Users/private/secret.go"
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
 			ID     json.RawMessage `json:"id,omitempty"`
@@ -114,7 +114,7 @@ func TestHTTPMCPClientCallToolConvertsJSONRPCErrorToToolResult(t *testing.T) {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		writeHTTPMCPToolsTestRPCError(w, req.ID, -32602, message)
+		writeHTTPMCPToolsTestRPCError(w, req.ID, -32602, marker)
 	}))
 	defer server.Close()
 	client := &httpMCPClient{client: server.Client(), endpoint: server.URL}
@@ -126,8 +126,8 @@ func TestHTTPMCPClientCallToolConvertsJSONRPCErrorToToolResult(t *testing.T) {
 	if got == nil || got.Success {
 		t.Fatalf("CallTool() success = %#v, want false", got)
 	}
-	if len(got.ContentItems) != 1 || got.ContentItems[0].Text != "toolbridge: HTTP MCP tools/call JSON-RPC error -32602: "+message {
-		t.Fatalf("CallTool() content = %#v, want JSON-RPC error text", got.ContentItems)
+	if len(got.ContentItems) != 1 || strings.Contains(got.ContentItems[0].Text, marker) || !strings.HasPrefix(got.ContentItems[0].Text, "Tool execution failed. Diagnostic ID: ") {
+		t.Fatalf("CallTool() content = %#v, want public diagnostic error without marker", got.ContentItems)
 	}
 }
 

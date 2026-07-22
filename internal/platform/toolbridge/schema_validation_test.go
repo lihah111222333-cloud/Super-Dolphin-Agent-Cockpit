@@ -37,9 +37,7 @@ func TestHostToolInputSchemaRejectsUnknownFieldsBeforeHandler(t *testing.T) {
 	if got == nil || got.Success {
 		t.Fatalf("callHostTool() result = %#v, want failed validation result", got)
 	}
-	if !strings.Contains(got.ContentItems[0].Text, "dryRun") {
-		t.Fatalf("validation result = %#v, want dryRun in error", got)
-	}
+	assertPublicToolErrorPayload(t, got.ContentItems[0].Text, "dryRun")
 }
 
 func TestCodexSurfaceInputSchemaRejectsUnknownFieldsBeforeDispatch(t *testing.T) {
@@ -98,9 +96,10 @@ func TestPeerProxyInputSchemaRejectsUnknownFieldsBeforeForwarding(t *testing.T) 
 	if got.Error == nil {
 		t.Fatalf("proxy response error = nil, want schema validation error")
 	}
-	if !strings.Contains(got.Error.Message, "dryRun") {
-		t.Fatalf("proxy error = %+v, want schema error mentioning dryRun", got.Error)
+	if got.Error.Code != jsonRPCCodeInternal {
+		t.Fatalf("proxy error code = %d, want %d", got.Error.Code, jsonRPCCodeInternal)
 	}
+	assertPublicToolErrorPayload(t, got.Error.Message, "dryRun")
 }
 
 func strictObjectSchema(t *testing.T, fields ...string) json.RawMessage {

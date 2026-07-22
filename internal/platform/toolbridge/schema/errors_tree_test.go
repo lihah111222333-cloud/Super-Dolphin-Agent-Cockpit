@@ -7,8 +7,9 @@ import (
 	"testing"
 )
 
-func TestHelperLimiterRetainsSlotForNestedReapFailure(t *testing.T) {
+func TestHelperLimiterReturnsSlotAfterNestedLateReap(t *testing.T) {
 	limiter := newHelperLimiter(1)
+	var releaseAfterReap func()
 	nested := fmt.Errorf("cleanup failed: %w", errors.Join(
 		errors.New("cleanup context"),
 		newDiagnostic(CodeReapFailed, "fixture did not reap", nil),
@@ -21,14 +22,15 @@ func TestHelperLimiterRetainsSlotForNestedReapFailure(t *testing.T) {
 		t.Fatalf("joined operation code = %q, want primary %q", ErrorCode(operationErr), CodeTimeout)
 	}
 
-	if _, err := limiter.run(context.Background(), func() (Result, error) {
+	if _, err := limiter.run(context.Background(), func(release func()) (Result, error) {
+		releaseAfterReap = release
 		return Result{}, operationErr
 	}); !errors.Is(err, operationErr) {
 		t.Fatalf("limiter.run() error = %v, want joined operation error", err)
 	}
 
 	started := false
-	_, err := limiter.run(context.Background(), func() (Result, error) {
+	_, err := limiter.run(context.Background(), func(func()) (Result, error) {
 		started = true
 		return Result{}, nil
 	})
@@ -37,5 +39,14 @@ func TestHelperLimiterRetainsSlotForNestedReapFailure(t *testing.T) {
 	}
 	if ErrorCode(err) != CodeCapacityExhausted {
 		t.Fatalf("capacity code = %q, want %q; error=%v", ErrorCode(err), CodeCapacityExhausted, err)
+	}
+	if releaseAfterReap == nil {
+		t.Fatal("late reap release callback was not provided")
+	}
+	releaseAfterReap()
+	if _, err := limiter.run(context.Background(), func(func()) (Result, error) {
+		return Result{}, nil
+	}); err != nil {
+		t.Fatalf("limiter.run() after nested late reap error = %v", err)
 	}
 }

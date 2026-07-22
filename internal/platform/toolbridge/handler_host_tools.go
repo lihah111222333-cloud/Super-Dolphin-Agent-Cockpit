@@ -522,13 +522,15 @@ func hostToolErrorResult(req ToolCallRequest, err error) *ToolCallResult {
 	if err == nil {
 		err = errors.New("host tool failed")
 	}
+	logToolCallFailure("host_tool", err)
+	publicError := toolCallPublicError(err)
 	toolName := strings.TrimSpace(req.Name)
 	code, retryable, hint, meta := hostToolErrorEnvelopeFields(req, err)
 	kind := "host_tool_error"
 	envelope := map[string]any{
 		"kind":      kind,
 		"tool":      toolName,
-		"error":     err.Error(),
+		"error":     publicError,
 		"success":   false,
 		"code":      code,
 		"retryable": retryable,
@@ -554,7 +556,7 @@ func hostToolErrorResult(req ToolCallRequest, err error) *ToolCallResult {
 	payload, marshalErr := json.Marshal(envelope)
 	var structured json.RawMessage
 	if marshalErr != nil {
-		payload = []byte(err.Error())
+		payload = []byte(publicError)
 	} else {
 		structured = json.RawMessage(append([]byte(nil), payload...))
 	}

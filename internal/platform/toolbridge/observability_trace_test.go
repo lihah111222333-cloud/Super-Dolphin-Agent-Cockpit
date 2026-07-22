@@ -129,7 +129,7 @@ func TestHandleToolCallErrorTraceIncludesCompactStack(t *testing.T) {
 	}
 }
 
-func TestHandleToolCallErrorTraceUsesSafeErrorPreviewField(t *testing.T) {
+func TestHandleToolCallErrorTraceDoesNotExposeRawError(t *testing.T) {
 	tracer := newToolbridgeTraceService(t)
 	peer := &mcpcontrol.ToolInstance{Peer: &stubPeer{callbackFn: func(context.Context, string, any, any) error {
 		return assertErr("peer denied request token=sk-abcdefghijklmnopqrstuvwxyz")
@@ -154,14 +154,22 @@ func TestHandleToolCallErrorTraceUsesSafeErrorPreviewField(t *testing.T) {
 	if err != nil {
 		t.Fatalf("HandleToolCall() error = %v", err)
 	}
-	if got := result.(*ToolCallResult); got.Success {
+	got, ok := result.(*ToolCallResult)
+	if !ok {
+		t.Fatalf("HandleToolCall() result type = %T, want *ToolCallResult", result)
+	}
+	if got.Success {
 		t.Fatal("HandleToolCall() Success = true, want false")
 	}
+	if len(got.ContentItems) != 1 {
+		t.Fatalf("HandleToolCall() content items = %#v, want one public error", got.ContentItems)
+	}
+	assertPublicToolErrorPayload(t, got.ContentItems[0].Text, "peer denied request token=sk-abcdefghijklmnopqrstuvwxyz")
 
 	end := requireTraceMethod(t, tracer.Query(context.Background(), observability.Query{TraceID: "trace-tool-error-preview"}).Events, "tool.call.end")
 	preview, _ := end.Metadata[observability.ErrorPreviewField].(string)
-	if !strings.Contains(preview, "peer denied request") || strings.Contains(preview, "sk-") {
-		t.Fatalf("error_preview = %q, want sanitized peer error detail", preview)
+	if !strings.Contains(preview, publicToolErrorPrefix) || strings.Contains(preview, "sk-") {
+		t.Fatalf("error_preview = %q, want public diagnostic error without secret", preview)
 	}
 	if end.Metadata[observability.ErrorCodeField] != "tool_call_failed" {
 		t.Fatalf("error_code = %#v, want tool_call_failed", end.Metadata[observability.ErrorCodeField])

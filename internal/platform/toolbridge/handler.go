@@ -30,6 +30,35 @@ const subAgentDelegationDepthLimitMessage = "Sub-agents are not allowed to spawn
 var persistentSubagentDefaultFallbackTotal atomic.Uint64
 
 const (
+	toolCallPublicErrorSummary = "Tool execution failed."
+	toolCallPublicErrorCode    = "tool_execution_failed"
+)
+
+// toolCallPublicError 将原始工具错误收敛为可对外发布的诊断消息。
+func toolCallPublicError(err error) string {
+	return providerdto.PublicMessageForError(toolCallPublicErrorSummary, err)
+}
+
+// toolCallPublicErrorResult 保持工具调用失败语义，同时不向外泄露底层错误文本。
+func toolCallPublicErrorResult(err error) *ToolCallResult {
+	return toolCallErrorResult(toolCallPublicError(err))
+}
+
+// logToolCallFailure 只记录可关联的公开诊断消息，避免未充分脱敏的底层错误离开边界。
+func logToolCallFailure(source string, err error) {
+	if err == nil {
+		return
+	}
+	publicError := toolCallPublicError(err)
+	pkglogger.Warn("toolbridge: tool call failed",
+		"source", strings.TrimSpace(source),
+		observability.ErrorCodeField, toolCallPublicErrorCode,
+		observability.ErrorPreviewField, publicError,
+		"public_error", publicError,
+	)
+}
+
+const (
 	toolbridgeDependencyDispatcher            = "toolbridge.dispatcher"
 	toolbridgeDependencyWorkdirResolver       = "toolbridge.workdir_resolver"
 	toolbridgeDependencyPreferences           = "toolbridge.preferences"
@@ -407,7 +436,8 @@ func (h *Handler) callPeerTool(ctx context.Context, peer mcpcontrol.Peer, req To
 		MetadataKeyWorkspaceRoots: append([]string(nil), req.WorkspaceRoots...),
 	}, &resp)
 	if err != nil {
-		return toolCallErrorResult(err.Error()), nil
+		logToolCallFailure("peer_callback", err)
+		return toolCallPublicErrorResult(err), nil
 	}
 
 	result, err := adaptMCPResponse(resp)

@@ -122,7 +122,7 @@ func (h *Handler) handleProxyRequest(w http.ResponseWriter, r *http.Request) {
 
 	req, err := decodeProxyJSONRPCRequest(r)
 	if err != nil {
-		writeJSONRPCError(w, req.ID, proxyDecodeErrorCode(err), err.Error())
+		writePublicJSONRPCError(w, req.ID, proxyDecodeErrorCode(err), err)
 		return
 	}
 	if strings.TrimSpace(req.JSONRPC) != "2.0" {
@@ -131,7 +131,7 @@ func (h *Handler) handleProxyRequest(w http.ResponseWriter, r *http.Request) {
 	}
 	family, agentID, err := extractPathParts(r.URL.Path)
 	if err != nil {
-		writeJSONRPCError(w, req.ID, jsonRPCCodeInvalidParam, err.Error())
+		writePublicJSONRPCError(w, req.ID, jsonRPCCodeInvalidParam, err)
 		return
 	}
 	switch req.Method {
@@ -266,21 +266,21 @@ func (h *Handler) handleProxyToolsList(w http.ResponseWriter, ctx context.Contex
 	}
 	tools, err := h.listPeerTools(ctx, clientKind)
 	if err != nil {
-		writeJSONRPCError(w, id, jsonRPCCodeInternal, err.Error())
+		writePublicJSONRPCError(w, id, jsonRPCCodeInternal, err)
 		return
 	}
 	workspaceRoot, err := h.proxyMCPToolLifecycleWorkspaceRoot(ctx, agentID)
 	if err != nil {
-		writeJSONRPCError(w, id, jsonRPCCodeInternal, err.Error())
+		writePublicJSONRPCError(w, id, jsonRPCCodeInternal, err)
 		return
 	}
 	if err := h.backfillMCPToolLifecycle(ctx, workspaceRoot, clientKind, clientKind, tools); err != nil {
-		writeJSONRPCError(w, id, jsonRPCCodeInternal, err.Error())
+		writePublicJSONRPCError(w, id, jsonRPCCodeInternal, err)
 		return
 	}
 	tools, err = h.filterMCPToolLifecycleTools(ctx, workspaceRoot, clientKind, clientKind, tools)
 	if err != nil {
-		writeJSONRPCError(w, id, jsonRPCCodeInternal, err.Error())
+		writePublicJSONRPCError(w, id, jsonRPCCodeInternal, err)
 		return
 	}
 	writeJSONRPCResult(w, id, map[string]any{"tools": filterProxyPeerReservedHostTools(tools)})
@@ -324,16 +324,16 @@ func (h *Handler) handleProxyOrchToolsList(w http.ResponseWriter, ctx context.Co
 	}
 	workspaceRoot, err := h.proxyMCPToolLifecycleWorkspaceRoot(ctx, agentID)
 	if err != nil {
-		writeJSONRPCError(w, id, jsonRPCCodeInternal, err.Error())
+		writePublicJSONRPCError(w, id, jsonRPCCodeInternal, err)
 		return
 	}
 	if err := h.backfillMCPToolLifecycle(ctx, workspaceRoot, mcpdto.ClientKindOrch, mcpdto.ClientKindOrch, peerTools); err != nil {
-		writeJSONRPCError(w, id, jsonRPCCodeInternal, err.Error())
+		writePublicJSONRPCError(w, id, jsonRPCCodeInternal, err)
 		return
 	}
 	peerTools, err = h.filterMCPToolLifecycleTools(ctx, workspaceRoot, mcpdto.ClientKindOrch, mcpdto.ClientKindOrch, peerTools)
 	if err != nil {
-		writeJSONRPCError(w, id, jsonRPCCodeInternal, err.Error())
+		writePublicJSONRPCError(w, id, jsonRPCCodeInternal, err)
 		return
 	}
 	tools = h.appendMCPToolsWithShadowWarning(tools, seen, mcpdto.ClientKindOrch, peerTools)
@@ -344,11 +344,11 @@ func (h *Handler) handleProxyOrchToolsList(w http.ResponseWriter, ctx context.Co
 func (h *Handler) handleProxyToolCall(w http.ResponseWriter, ctx context.Context, req proxyJSONRPCRequest, family, agentID string) {
 	params, err := decodeProxyToolCallParams(req.Params)
 	if err != nil {
-		writeJSONRPCError(w, req.ID, jsonRPCCodeInvalidParam, err.Error())
+		writePublicJSONRPCError(w, req.ID, jsonRPCCodeInvalidParam, err)
 		return
 	}
 	if err := validateProxyToolFamily(family, params.Name); err != nil {
-		writeJSONRPCError(w, req.ID, jsonRPCCodeInvalidParam, err.Error())
+		writePublicJSONRPCError(w, req.ID, jsonRPCCodeInvalidParam, err)
 		return
 	}
 
@@ -357,7 +357,7 @@ func (h *Handler) handleProxyToolCall(w http.ResponseWriter, ctx context.Context
 
 	threadID, err := h.resolveProxyThreadID(callCtx, agentID, family)
 	if err != nil {
-		writeJSONRPCError(w, req.ID, jsonRPCCodeInvalidParam, err.Error())
+		writePublicJSONRPCError(w, req.ID, jsonRPCCodeInvalidParam, err)
 		return
 	}
 	callReq := ToolCallRequest{
@@ -373,7 +373,7 @@ func (h *Handler) handleProxyToolCall(w http.ResponseWriter, ctx context.Context
 	result, err := h.routeToolCall(callCtx, callReq)
 	if err != nil {
 		h.publishProxyToolCallEnd(callReq, started, nil, err)
-		writeJSONRPCError(w, req.ID, proxyToolCallErrorCode(err), err.Error())
+		writePublicJSONRPCError(w, req.ID, proxyToolCallErrorCode(err), err)
 		return
 	}
 	if result == nil {
@@ -421,7 +421,7 @@ func (h *Handler) publishProxyToolCallEnd(req ToolCallRequest, started time.Time
 		ElapsedMS:      time.Since(started).Milliseconds(),
 	}
 	if callErr != nil {
-		ev.Error = callErr.Error()
+		ev.Error = toolCallPublicError(callErr)
 	}
 	event.Publish(h.dispatcher, ev)
 }
@@ -514,6 +514,12 @@ func writeJSONRPCResult(w http.ResponseWriter, id any, result any) {
 		return
 	}
 	writeProxyJSON(w, proxyJSONRPCResponse{JSONRPC: "2.0", ID: id, Result: result})
+}
+
+// writePublicJSONRPCError 保持 JSON-RPC code 不变，并阻断底层错误文本离开 proxy 边界。
+func writePublicJSONRPCError(w http.ResponseWriter, id any, code int, err error) {
+	logToolCallFailure("proxy_jsonrpc", err)
+	writeJSONRPCError(w, id, code, toolCallPublicError(err))
 }
 
 // writeJSONRPCError 写入 JSON-RPC error 响应；notification 错误只确认接收，不输出 id:null。

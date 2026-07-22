@@ -476,7 +476,7 @@ func assertPublishedFilesystemSnapshot(
 }
 
 func TestTerminateProcessTreeSignalsLeasedGroup(t *testing.T) {
-	cmd, guard := startGuardedUnixTestProcess(t, "sleep 30")
+	cmd, guard := startGuardedUnixTestProcess(t, "30")
 	killCalled := false
 	guard.killGroup = func(pid int, signal syscall.Signal) error {
 		killCalled = true
@@ -497,8 +497,66 @@ func TestTerminateProcessTreeSignalsLeasedGroup(t *testing.T) {
 	}
 }
 
+func TestStopAndReapLateWaitResultReleasesLimiterCapacity(t *testing.T) {
+	cmd, guard := startGuardedUnixTestProcess(t, "30")
+	releaseWaitResult := make(chan struct{})
+	released := false
+	defer func() {
+		if !released {
+			close(releaseWaitResult)
+		}
+	}()
+	guard.beforeWaitResultPublish = func() {
+		<-releaseWaitResult
+	}
+	waitResult := make(chan error, 1)
+	safego.Go(context.Background(), nil, "toolbridge.schema-late-reap-test.wait", func(context.Context) {
+		waitResult <- waitGuardedProcess(cmd, guard)
+	})
+	lateReapReleased := make(chan struct{}, 1)
+	limiter := newHelperLimiter(1)
+	if _, err := limiter.run(context.Background(), func(releaseAfterReap func()) (Result, error) {
+		return Result{}, stopAndReap(
+			cmd,
+			guard,
+			waitResult,
+			CodeTimeout,
+			"fixture timed out",
+			context.DeadlineExceeded,
+			func() {
+				releaseAfterReap()
+				lateReapReleased <- struct{}{}
+			},
+		)
+	}); ErrorCode(err) != CodeReapFailed {
+		t.Fatalf("limiter.run() code = %q, want %q; error=%v", ErrorCode(err), CodeReapFailed, err)
+	}
+	started := false
+	if _, err := limiter.run(context.Background(), func(func()) (Result, error) {
+		started = true
+		return Result{}, nil
+	}); ErrorCode(err) != CodeCapacityExhausted {
+		t.Fatalf("limiter.run() before original Wait result code = %q, want %q; error=%v", ErrorCode(err), CodeCapacityExhausted, err)
+	}
+	if started {
+		t.Fatal("operation started before the original Wait result confirmed exit")
+	}
+	close(releaseWaitResult)
+	released = true
+	select {
+	case <-lateReapReleased:
+	case <-time.After(reapDeadline):
+		t.Fatal("late wait result did not release limiter capacity")
+	}
+	if _, err := limiter.run(context.Background(), func(func()) (Result, error) {
+		return Result{}, nil
+	}); err != nil {
+		t.Fatalf("limiter.run() after original Wait result error = %v", err)
+	}
+}
+
 func TestWaitPublishBarrierLeasesGroupAcrossPIDReuseWindow(t *testing.T) {
-	cmd, guard := startGuardedUnixTestProcess(t, "sleep 0.05")
+	cmd, guard := startGuardedUnixTestProcess(t, "0.05")
 	waitCompleted := make(chan struct{})
 	releasePublish := make(chan struct{})
 	released := false
@@ -524,7 +582,7 @@ func TestWaitPublishBarrierLeasesGroupAcrossPIDReuseWindow(t *testing.T) {
 	safego.Go(ctx, nil, "toolbridge.schema-wait-publish-barrier-test", func(context.Context) {
 		_, err := waitFilesystemWorker(
 			ctx, ctx, filesystemWorkerSweep, cmd, guard,
-			&boundedBuffer{limit: 64}, &boundedBuffer{limit: 64}, 0,
+			&boundedBuffer{limit: 64}, &boundedBuffer{limit: 64}, 0, nil,
 		)
 		result <- err
 	})
@@ -569,9 +627,9 @@ func assertPathExistence(t *testing.T, path string, want bool) {
 	}
 }
 
-func startGuardedUnixTestProcess(t *testing.T, command string) (*exec.Cmd, *processGuard) {
+func startGuardedUnixTestProcess(t *testing.T, sleepDuration string) (*exec.Cmd, *processGuard) {
 	t.Helper()
-	cmd := exec.Command("sh", "-c", command)
+	cmd := exec.Command("sleep", sleepDuration)
 	guard, err := prepareProcessGuard(cmd)
 	if err != nil {
 		t.Fatal(err)

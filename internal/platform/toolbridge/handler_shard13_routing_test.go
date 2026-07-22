@@ -1,6 +1,7 @@
 package toolbridge
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -13,7 +14,40 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
 	dto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/mcp"
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/mcpcontrol"
+	pkglogger "github.com/lihah111222333-cloud/super-dolphin-agent/pkg/logger"
 )
+
+const publicToolErrorPrefix = "Tool execution failed. Diagnostic ID: "
+
+func assertPublicToolErrorPayload(t *testing.T, payload, raw string) {
+	t.Helper()
+	if !strings.Contains(payload, publicToolErrorPrefix) {
+		t.Fatalf("public tool error payload = %q, want prefix %q", payload, publicToolErrorPrefix)
+	}
+	if strings.Contains(payload, raw) {
+		t.Fatalf("public tool error payload = %q, must not expose raw error %q", payload, raw)
+	}
+}
+
+func TestLogToolCallFailureDoesNotExposeRawError(t *testing.T) {
+	const marker = "token=sk-test-secret dsn=postgres://alice:secret@db/private path=/Users/private/secret.go"
+	var logs bytes.Buffer
+	old := pkglogger.Get()
+	pkglogger.InitWithConsoleWriter(&logs)
+	t.Cleanup(func() { pkglogger.SetForTest(old) })
+
+	logToolCallFailure("test", errors.New(marker))
+
+	output := logs.String()
+	for _, raw := range []string{"sk-test-secret", "postgres://alice:secret@db/private", "/Users/private/secret.go"} {
+		if strings.Contains(output, raw) {
+			t.Fatalf("tool call failure log leaked %q: %s", raw, output)
+		}
+	}
+	if !strings.Contains(output, publicToolErrorPrefix) {
+		t.Fatalf("tool call failure log = %s, want public diagnostic", output)
+	}
+}
 
 func TestToolBridge_ForwardsInjectedCWDToPeer(t *testing.T) {
 	root := t.TempDir()
@@ -475,7 +509,8 @@ func TestToolBridge_Timeout_120s(t *testing.T) {
 }
 
 func TestToolBridge_PeerError_AdaptToResult(t *testing.T) {
-	peerErr := errors.New("peer callback failed")
+	const marker = "token=sk-test-secret dsn=postgres://alice:secret@db/private path=/Users/private/secret.go"
+	peerErr := errors.New(marker)
 	h, _ := newHandlerForTest(newToolCallPeer(t, "inspect", json.RawMessage(`{}`), "", peerErr))
 
 	got, err := h.routeToolCall(context.Background(), ToolCallRequest{Name: "inspect", Arguments: json.RawMessage(`{}`)})
@@ -485,11 +520,14 @@ func TestToolBridge_PeerError_AdaptToResult(t *testing.T) {
 	if got == nil {
 		t.Fatalf("routeToolCall() result = nil, want structured failure result with fail-fast error")
 	}
-	assertSingleTextItem(t, got, peerErr.Error(), false)
+	if got.Success || len(got.ContentItems) != 1 || strings.Contains(got.ContentItems[0].Text, marker) || !strings.HasPrefix(got.ContentItems[0].Text, "Tool execution failed. Diagnostic ID: ") {
+		t.Fatalf("routeToolCall() result = %#v, want public diagnostic error without marker", got)
+	}
 }
 
 func TestProxyToolCall_PeerErrorUsesToolResultNotJSONRPCError(t *testing.T) {
-	peerErr := errors.New("peer callback failed")
+	const marker = "token=sk-test-secret dsn=postgres://alice:secret@db/private path=/Users/private/secret.go"
+	peerErr := errors.New(marker)
 	h, _ := newHandlerForTest(newToolCallPeer(t, "inspect", json.RawMessage(`{}`), "", peerErr))
 	body := string(mustRawJSON(t, map[string]any{
 		"jsonrpc": "2.0",
@@ -512,8 +550,9 @@ func TestProxyToolCall_PeerErrorUsesToolResultNotJSONRPCError(t *testing.T) {
 		t.Fatalf("content = %#v, want one error item", result["content"])
 	}
 	item, ok := content[0].(map[string]any)
-	if !ok || item["text"] != peerErr.Error() {
-		t.Fatalf("content[0] = %#v, want peer error text", content[0])
+	text, ok := item["text"].(string)
+	if !ok || strings.Contains(text, marker) || !strings.HasPrefix(text, "Tool execution failed. Diagnostic ID: ") {
+		t.Fatalf("content[0] = %#v, want public diagnostic error without marker", content[0])
 	}
 }
 
@@ -584,7 +623,5 @@ func TestProxyRequest_RejectsOversizedBody(t *testing.T) {
 	if got.Error.Code != jsonRPCCodeInvalidParam {
 		t.Fatalf("proxy error code = %d, want %d", got.Error.Code, jsonRPCCodeInvalidParam)
 	}
-	if !strings.Contains(got.Error.Message, "request body too large") {
-		t.Fatalf("proxy error message = %q, want request body too large", got.Error.Message)
-	}
+	assertPublicToolErrorPayload(t, got.Error.Message, "request body too large")
 }

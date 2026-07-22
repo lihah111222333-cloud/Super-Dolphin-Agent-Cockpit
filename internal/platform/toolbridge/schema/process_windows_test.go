@@ -41,6 +41,7 @@ func TestStopAndReapClosesWindowsGuardOnTimeout(t *testing.T) {
 		CodeTimeout,
 		"fixture timed out",
 		context.DeadlineExceeded,
+		nil,
 	)
 	if ErrorCode(err) != CodeReapFailed {
 		t.Fatalf("stopAndReap() code = %q, want %q; error=%v", ErrorCode(err), CodeReapFailed, err)

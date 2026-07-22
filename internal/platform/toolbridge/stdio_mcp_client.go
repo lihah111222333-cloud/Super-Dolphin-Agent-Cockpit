@@ -155,7 +155,8 @@ func (c *stdioMCPClient) CallTool(ctx context.Context, name string, args json.Ra
 		MetadataKeyWorkspaceRoots: append([]string(nil), req.WorkspaceRoots...),
 	})
 	if err != nil {
-		return toolCallErrorResult(err.Error()), nil
+		logToolCallFailure("stdio_mcp", err)
+		return toolCallPublicErrorResult(err), nil
 	}
 	var decoded peerToolCallResponse
 	if err := json.Unmarshal(raw, &decoded); err != nil {

@@ -114,9 +114,9 @@ func TestStdioMCPClientCallToolPreservesMCPIsError(t *testing.T) {
 }
 
 func TestStdioMCPClientCallToolConvertsJSONRPCErrorToToolResult(t *testing.T) {
-	const message = "context_mode=focused requires non-empty context field"
+	const marker = "token=sk-test-secret dsn=postgres://alice:secret@db/private path=/Users/private/secret.go"
 	transport := &fakeStdioTransport{reads: []json.RawMessage{
-		json.RawMessage(`{"jsonrpc":"2.0","id":1,"error":{"code":-32602,"message":"` + message + `"}}`),
+		json.RawMessage(`{"jsonrpc":"2.0","id":1,"error":{"code":-32602,"message":"` + marker + `"}}`),
 	}}
 	client := &stdioMCPClient{transport: transport}
 
@@ -127,8 +127,8 @@ func TestStdioMCPClientCallToolConvertsJSONRPCErrorToToolResult(t *testing.T) {
 	if got == nil || got.Success {
 		t.Fatalf("CallTool() success = %#v, want false", got)
 	}
-	if len(got.ContentItems) != 1 || got.ContentItems[0].Text != message {
-		t.Fatalf("CallTool() content = %#v, want %q", got.ContentItems, message)
+	if len(got.ContentItems) != 1 || strings.Contains(got.ContentItems[0].Text, marker) || !strings.HasPrefix(got.ContentItems[0].Text, "Tool execution failed. Diagnostic ID: ") {
+		t.Fatalf("CallTool() content = %#v, want public diagnostic error without marker", got.ContentItems)
 	}
 }
 
