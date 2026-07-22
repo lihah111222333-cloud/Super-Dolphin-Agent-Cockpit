@@ -119,8 +119,7 @@ function resolveFrontendWatchUsePolling(env) {
     superDolphinPolling !== chokidarPolling
   ) {
     throw new Error(
-      'conflicting frontend watch config: SUPER_DOLPHIN_VITE_USE_POLLING resolves to '
-      + `${boolLabel(superDolphinPolling)} but CHOKIDAR_USEPOLLING resolves to ${boolLabel(chokidarPolling)}`,
+      `conflicting frontend watch config: SUPER_DOLPHIN_VITE_USE_POLLING resolves to ${boolLabel(superDolphinPolling)} but CHOKIDAR_USEPOLLING resolves to ${boolLabel(chokidarPolling)}`,
     );
   }
   if (superDolphinPolling !== undefined) {
@@ -140,14 +139,6 @@ function serveDevelopmentWailsRuntimePlugin() {
   return {
     name: 'super-dolphin-dev-wails-runtime',
     apply: 'serve',
-    enforce: 'pre',
-    transform(source, id) {
-      if (!id.endsWith('/src/shared/api/wails/wailsRuntimeLoader.js')) return undefined;
-      return source.replace(
-        "return import(/* @vite-ignore */ '/wails/runtime.js')",
-        "const wailsRuntimePath = '/wails/runtime.js';\n  return import(/* @vite-ignore */ wailsRuntimePath)",
-      );
-    },
     configureServer(server) {
       server.middlewares.use((req, res, next) => {
         const pathname = new URL(req.url || '/', 'http://127.0.0.1').pathname;

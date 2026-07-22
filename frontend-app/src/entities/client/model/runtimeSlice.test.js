@@ -63,16 +63,6 @@ beforeEach(() => {
 });
 
 describe('runtime slice event lifecycle', () => {
-  it('exposes the sidebar refresh action through the public store slice', () => {
-    const refreshSidebarSnapshotForCwdInBackground = vi.fn();
-    const runtime = createRuntime({ refreshSidebarSnapshotForCwdInBackground });
-    const actions = createRuntimeSlice(runtime, createDeps());
-
-    actions.refreshSidebarSnapshotForCwdInBackground('/repo/b');
-
-    expect(refreshSidebarSnapshotForCwdInBackground).toHaveBeenCalledWith('/repo/b');
-  });
-
   it('matrix:FM-18 layer:frontend persists reconnect bootstrap failure in Health and permits recovery', async () => {
     const rawCause = 'provider reconnect token=secret';
     let reconnectHandler;

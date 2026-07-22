@@ -41,13 +41,7 @@ export const pageSurfaceManifest = {
     serviceEntry: 'pages/prompts/services/promptPageService.js',
     ownershipMode: 'dto-golden',
     dtoGoldenTest: 'pages/shared/featureDtoGolden.test.js',
-    ownedStateFiles: [
-      'pages/prompts/PromptPage.jsx',
-      'pages/prompts/PromptPageView.jsx',
-      'pages/prompts/hooks/usePromptPageActions.js',
-      'pages/prompts/hooks/usePromptPageQueries.js',
-      'pages/prompts/hooks/usePromptPersonalization.js',
-    ],
+    ownedStateFiles: ['pages/prompts/PromptPage.jsx', 'features/prompts/PromptPageView.jsx'],
   },
   settings: {
     entry: 'pages/settings/SettingsPage.jsx',

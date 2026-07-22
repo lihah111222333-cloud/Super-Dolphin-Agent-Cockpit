@@ -852,7 +852,7 @@
       "caseId": "c.settings-save",
       "layer": "C",
       "semanticFamily": "settings-save",
-      "file": "src/pages/settings/SettingsPage.video.test.jsx",
+      "file": "src/pages/settings/SettingsPage.test.jsx",
       "testName": "shows save failures from the named video facade method"
     },
     {
@@ -866,21 +866,21 @@
       "caseId": "c.file",
       "layer": "C",
       "semanticFamily": "file",
-      "file": "src/App.feature-routes.test.jsx",
+      "file": "src/App.test.jsx",
       "testName": "keeps cached shared files visible and exposes retry when a background sync fails"
     },
     {
       "caseId": "c.mcp",
       "layer": "C",
       "semanticFamily": "mcp",
-      "file": "src/pages/skills/SkillsPageMcpAndTools.test.jsx",
+      "file": "src/pages/skills/SkillsPage.test.jsx",
       "testName": "renders default MCP controls and sends the start and stop RPC actions"
     },
     {
       "caseId": "c.skill",
       "layer": "C",
       "semanticFamily": "skill",
-      "file": "src/pages/skills/SkillsPageEditorAndResolutions.test.jsx",
+      "file": "src/pages/skills/SkillsPage.test.jsx",
       "testName": "reports a malformed resolution apply response without showing success"
     },
     {
@@ -894,14 +894,14 @@
       "caseId": "c.background-reconnect",
       "layer": "C",
       "semanticFamily": "background-reconnect",
-      "file": "src/entities/client/model/useClientStore.bootstrap.test.js",
+      "file": "src/entities/client/model/useClientStore.test.js",
       "testName": "retries bootstrap after a transient cold-start runtime reconnect"
     },
     {
       "caseId": "c.invalid-response-validator",
       "layer": "C",
       "semanticFamily": "invalid-response-validator",
-      "file": "src/shared/api/backendApi.contractResponseGuards.test.js",
+      "file": "src/shared/api/backendApi.test.js",
       "testName": "fails fast on malformed guarded backend responses before consumers normalize them"
     }
   ],
@@ -4650,7 +4650,7 @@
       ]
     },
     {
-      "file": "src/entities/client/model/helpers/a1/send/clientStoreSendLaunch.js",
+      "file": "src/entities/client/model/helpers/a1/clientStoreSendModel.js",
       "facade": "deleteThread",
       "via": "backendApi",
       "level": "P0",
@@ -4660,7 +4660,7 @@
       ]
     },
     {
-      "file": "src/entities/client/model/helpers/a1/send/clientStoreForkActions.js",
+      "file": "src/entities/client/model/helpers/a1/clientStoreSendModel.js",
       "facade": "listSharedFiles",
       "via": "backendApi",
       "level": "P1",
@@ -4670,7 +4670,7 @@
       ]
     },
     {
-      "file": "src/entities/client/model/helpers/a1/send/clientStoreSendLaunch.js",
+      "file": "src/entities/client/model/helpers/a1/clientStoreSendModel.js",
       "facade": "recoverThread",
       "via": "backendApi",
       "level": "P0",
@@ -4680,17 +4680,18 @@
       ]
     },
     {
-      "file": "src/entities/client/model/helpers/a1/send/clientStoreComposerModelActions.js",
+      "file": "src/entities/client/model/helpers/a1/clientStoreSendModel.js",
       "facade": "setPreference",
       "via": "backendApi",
       "level": "P1",
       "count": 3,
       "actionIds": [
-        "composer.model.selector"
+        "composer.model.selector",
+        "thread.pin"
       ]
     },
     {
-      "file": "src/entities/client/model/helpers/a1/send/clientStoreComposerModelActions.js",
+      "file": "src/entities/client/model/helpers/a1/clientStoreSendModel.js",
       "facade": "setThreadConfig",
       "via": "backendApi",
       "level": "P0",
@@ -4700,7 +4701,7 @@
       ]
     },
     {
-      "file": "src/entities/client/model/helpers/a1/send/clientStoreForkActions.js",
+      "file": "src/entities/client/model/helpers/a1/clientStoreSendModel.js",
       "facade": "forkThread",
       "via": "sessionApi",
       "level": "P1",
@@ -4710,7 +4711,7 @@
       ]
     },
     {
-      "file": "src/entities/client/model/helpers/a1/send/clientStoreSendLaunch.js",
+      "file": "src/entities/client/model/helpers/a1/clientStoreSendModel.js",
       "facade": "startThread",
       "via": "sessionApi",
       "level": "P0",
@@ -4720,21 +4721,11 @@
       ]
     },
     {
-      "file": "src/entities/client/model/helpers/a1/send/clientStoreForkActions.js",
+      "file": "src/entities/client/model/helpers/a1/clientStoreSendModel.js",
       "facade": "startTurn",
       "via": "sessionApi",
       "level": "P0",
-      "count": 1,
-      "actionIds": [
-        "composer.send"
-      ]
-    },
-    {
-      "file": "src/entities/client/model/helpers/a1/send/clientStoreSendLaunch.js",
-      "facade": "startTurn",
-      "via": "sessionApi",
-      "level": "P0",
-      "count": 2,
+      "count": 3,
       "actionIds": [
         "composer.send"
       ]
@@ -4746,11 +4737,11 @@
       "level": "P1",
       "count": 1,
       "actionIds": [
-        "sidebar.project-threads.load"
+        "app.bootstrap.background"
       ]
     },
     {
-      "file": "src/entities/client/model/helpers/a1/thread-actions/clientStoreThreadArchiveActions.js",
+      "file": "src/entities/client/model/helpers/a1/clientStoreThreadActions.js",
       "facade": "archiveThread",
       "via": "backendApi",
       "level": "P0",
@@ -4760,7 +4751,7 @@
       ]
     },
     {
-      "file": "src/entities/client/model/helpers/a1/thread-actions/clientStoreThreadDeleteActions.js",
+      "file": "src/entities/client/model/helpers/a1/clientStoreThreadActions.js",
       "facade": "deleteThread",
       "via": "backendApi",
       "level": "P0",
@@ -4770,7 +4761,7 @@
       ]
     },
     {
-      "file": "src/entities/client/model/helpers/a1/clientStoreThreadRenamePinActions.js",
+      "file": "src/entities/client/model/helpers/a1/clientStoreThreadActions.js",
       "facade": "renameThread",
       "via": "backendApi",
       "level": "P0",
@@ -4780,7 +4771,7 @@
       ]
     },
     {
-      "file": "src/entities/client/model/helpers/a1/clientStoreThreadCopyActions.js",
+      "file": "src/entities/client/model/helpers/a1/clientStoreThreadActions.js",
       "facade": "resolveThreadIdentity",
       "via": "backendApi",
       "level": "P1",
@@ -4790,7 +4781,7 @@
       ]
     },
     {
-      "file": "src/entities/client/model/helpers/a1/clientStoreActiveThreadActions.js",
+      "file": "src/entities/client/model/helpers/a1/clientStoreThreadActions.js",
       "facade": "respondApproval",
       "via": "backendApi",
       "level": "P0",
@@ -4800,37 +4791,18 @@
       ]
     },
     {
-      "file": "src/entities/client/model/helpers/a1/clientStoreThreadRenamePinActions.js",
+      "file": "src/entities/client/model/helpers/a1/clientStoreThreadActions.js",
       "facade": "setPreference",
       "via": "backendApi",
       "level": "P1",
-      "count": 1,
+      "count": 3,
       "actionIds": [
-        "thread.pin"
-      ]
-    },
-    {
-      "file": "src/entities/client/model/helpers/a1/thread-actions/clientStoreThreadArchiveActions.js",
-      "facade": "setPreference",
-      "via": "backendApi",
-      "level": "P1",
-      "count": 1,
-      "actionIds": [
-        "thread.archive"
-      ]
-    },
-    {
-      "file": "src/entities/client/model/helpers/a1/thread-actions/clientStoreThreadDeleteActions.js",
-      "facade": "setPreference",
-      "via": "backendApi",
-      "level": "P1",
-      "count": 1,
-      "actionIds": [
+        "thread.pin",
         "thread.select"
       ]
     },
     {
-      "file": "src/entities/client/model/helpers/a1/thread-actions/clientStoreThreadArchiveActions.js",
+      "file": "src/entities/client/model/helpers/a1/clientStoreThreadActions.js",
       "facade": "unarchiveThread",
       "via": "backendApi",
       "level": "P0",
@@ -4840,7 +4812,7 @@
       ]
     },
     {
-      "file": "src/entities/client/model/helpers/a1/clientStoreDashboardCommandActions.js",
+      "file": "src/entities/client/model/helpers/a1/clientStoreThreadActions.js",
       "facade": "startTurn",
       "via": "sessionApi",
       "level": "P0",
@@ -5585,6 +5557,16 @@
         "settings.prompt.load",
         "settings.shortcuts.bootstrap"
       ]
+    },
+    {
+      "file": "src/WorkbenchSidebarProjectTree.jsx",
+      "facade": "getSidebarState",
+      "via": "backendApi",
+      "level": "P1",
+      "count": 1,
+      "actionIds": [
+        "sidebar.project-threads.load"
+      ]
     }
   ],
   "runtimeBindings": [
@@ -5613,7 +5595,7 @@
       "semanticClass": "settings-save",
       "actionId": "settings.video.save",
       "sourcePath": "src/pages/settings/components/VideoSettingsCard.jsx",
-      "testFile": "src/pages/settings/SettingsPage.video.test.jsx",
+      "testFile": "src/pages/settings/SettingsPage.test.jsx",
       "testName": "shows save failures from the named video facade method"
     },
     {

@@ -108,7 +108,7 @@ function createBackendCaller(callAPI) {
     if (!rpcMethod) throw new Error('backend RPC method is required');
     const response = await callAPI(rpcMethod, assertPlainObject(rpcMethod, params));
     const validator = BACKEND_RESPONSE_VALIDATORS[rpcMethod];
-    return validator ? validator(rpcMethod, response, params) : response;
+    return validator ? validator(rpcMethod, response) : response;
   };
 }
 

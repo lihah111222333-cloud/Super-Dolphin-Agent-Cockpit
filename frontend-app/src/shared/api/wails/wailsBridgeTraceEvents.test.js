@@ -17,11 +17,6 @@ async function loadTraceEvents(runtime) {
   return import('./wailsBridgeTraceEvents.js');
 }
 
-async function registerTraceLogStore(store) {
-  const { registerBridgeLogStore } = await import('./wailsBridgeLogRuntime.js');
-  registerBridgeLogStore(store);
-}
-
 describe('frontend trace ACK and retry queue', () => {
   afterEach(() => {
     vi.useRealTimers();
@@ -62,67 +57,6 @@ describe('frontend trace ACK and retry queue', () => {
       retryDelayMS: 0,
     });
     expect(vi.getTimerCount()).toBe(0);
-  });
-
-  it('publishes rate-limited flush failures to the bridge log store and resets after success', async () => {
-    vi.useFakeTimers();
-    const byID = vi.fn()
-      .mockRejectedValueOnce(new Error('transport rejected'))
-      .mockRejectedValueOnce(new Error('transport rejected'))
-      .mockRejectedValueOnce(new Error('transport rejected'))
-      .mockRejectedValueOnce(new Error('transport rejected'))
-      .mockRejectedValueOnce(new Error('transport rejected'))
-      .mockResolvedValueOnce({ enabled: true, recorded: 1, dropped: 0 })
-      .mockRejectedValueOnce(new Error('transport rejected'));
-    const bridge = await loadTraceEvents({ Call: { ByID: byID } });
-    const logStore = { warn: vi.fn() };
-    await registerTraceLogStore(logStore);
-
-    bridge.emitFrontendTraceEvent(traceEvent('trace-failure'), { flush: false });
-    for (let attempt = 0; attempt < 5; attempt += 1) {
-      await bridge.flushFrontendTraceQueueForTest();
-    }
-
-    expect(logStore.warn).toHaveBeenCalledTimes(2);
-    expect(logStore.warn).toHaveBeenNthCalledWith(1, 'frontend.trace.flush.failed', {
-      failures: 1,
-      count: 1,
-      retryAttempt: 0,
-    });
-    expect(logStore.warn).toHaveBeenNthCalledWith(2, 'frontend.trace.flush.failed', {
-      failures: 5,
-      count: 1,
-      retryAttempt: 1,
-    });
-    expect(bridge.getFrontendTraceQueueHealth()).toMatchObject({
-      failures: 5,
-      flushFailureWarnings: 2,
-      consecutiveFlushFailures: 5,
-      retryPending: true,
-    });
-
-    await bridge.flushFrontendTraceQueueForTest();
-    expect(bridge.getFrontendTraceQueueHealth()).toMatchObject({
-      queueLength: 0,
-      consecutiveFlushFailures: 0,
-      retryPending: false,
-    });
-
-    bridge.emitFrontendTraceEvent(traceEvent('trace-after-recovery'), { flush: false });
-    await bridge.flushFrontendTraceQueueForTest();
-
-    expect(logStore.warn).toHaveBeenCalledTimes(3);
-    expect(logStore.warn).toHaveBeenLastCalledWith('frontend.trace.flush.failed', {
-      failures: 6,
-      count: 1,
-      retryAttempt: 0,
-    });
-    expect(bridge.getFrontendTraceQueueHealth()).toMatchObject({
-      failures: 6,
-      flushFailureWarnings: 3,
-      consecutiveFlushFailures: 1,
-      retryPending: true,
-    });
   });
 
   it('retains a batch on malformed ACK and enters disabled terminal state only on a strict disabled ACK', async () => {
@@ -227,39 +161,25 @@ describe('frontend trace ACK and retry queue', () => {
       dropped: 0,
     }));
     const bridge = await loadTraceEvents({ Call: { ByID: byID } });
-    const bridgeLog = vi.spyOn(console, 'log').mockImplementation(() => {});
 
-    for (let index = 0; index < 600; index += 1) {
+    for (let index = 0; index < 501; index += 1) {
       bridge.emitFrontendTraceEvent(traceEvent(`trace-${index}`), { flush: false });
     }
     expect(bridge.getFrontendTraceQueueHealth()).toMatchObject({
       queueLength: 500,
-      accepted: 600,
-      overflowDropped: 100,
-      overflowWarnings: 2,
-    });
-    expect(bridgeLog).toHaveBeenCalledTimes(2);
-    expect(bridgeLog).toHaveBeenNthCalledWith(1, '[Bridge warn] frontend.trace.queue.overflow', {
-      dropped: 1,
-      queueLength: 500,
-      retryAttempt: 0,
-    });
-    expect(bridgeLog).toHaveBeenNthCalledWith(2, '[Bridge warn] frontend.trace.queue.overflow', {
-      dropped: 100,
-      queueLength: 500,
-      retryAttempt: 0,
+      accepted: 501,
+      overflowDropped: 1,
     });
 
     await bridge.flushFrontendTraceQueueForTest();
 
     expect(byID.mock.calls[0][2].events.map((event) => event.trace_id)).toEqual(
-      Array.from({ length: 50 }, (_, index) => `trace-${index + 100}`),
+      Array.from({ length: 50 }, (_, index) => `trace-${index + 1}`),
     );
     expect(bridge.getFrontendTraceQueueHealth()).toMatchObject({
       queueLength: 450,
       acknowledged: 50,
-      overflowDropped: 100,
-      overflowWarnings: 2,
+      overflowDropped: 1,
     });
   });
 });

@@ -12,6 +12,7 @@ import {
   enterpriseOptionLabel,
   enterpriseOutputTypes,
   enterpriseSaveTemplatePayload,
+  enterpriseTemplateCompat,
   enterpriseTemplateDefaultValues,
   enterpriseTemplateDescription,
   enterpriseTemplateFields,
@@ -20,12 +21,29 @@ import {
   enterpriseTemplateVersionNumber,
   firstPresent,
   renderEnterpriseTemplatePreview,
+  requireArrayField,
+  requireObjectField,
   uniqueWorkflowMaterialStamp,
 } from '../services/workflowEnterpriseTemplateModel.js';
 
 const WORKFLOW_MATERIAL_UPLOAD_PREFIX = 'reports/workflows/uploads';
 const TEXT_MATERIAL_EXTENSIONS = new Set(['.csv', '.json', '.log', '.md', '.text', '.txt', '.xml', '.yaml', '.yml']);
 const BINARY_MATERIAL_EXTENSIONS = new Set(['.doc', '.docx', '.pdf', '.ppt', '.pptx', '.xls', '.xlsx', '.zip']);
+
+function enterpriseTemplateContractError(template) {
+  try {
+    enterpriseTemplateId(template);
+    enterpriseOutputTypes(template);
+    enterpriseTemplateFields(template);
+    const compat = enterpriseTemplateCompat(template);
+    const dagTemplate = requireObjectField(compat.dagTemplate, 'workflow template dag_template');
+    requireArrayField(dagTemplate.nodes, 'workflow template dag_template.nodes');
+    requireObjectField(compat.finalOutput, 'workflow template final_output');
+    return '';
+  } catch (error) {
+    return errorMessage(error);
+  }
+}
 
 function enterpriseTemplateDraftPayload(template, formValues, workflowCwd) {
   return {
@@ -375,4 +393,5 @@ function missingEnterpriseRequiredFields(fields, values) {
   }, []);
 }
 
-export { EnterpriseTemplateForm };
+// eslint-disable-next-line react-refresh/only-export-components
+export { EnterpriseTemplateForm, enterpriseTemplateContractError };

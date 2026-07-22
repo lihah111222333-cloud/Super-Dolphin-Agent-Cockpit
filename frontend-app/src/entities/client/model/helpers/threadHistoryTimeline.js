@@ -1,4 +1,4 @@
-import { optionalTextField, firstOptionalPresent, normalizeOptionalTextField, currentIsoTimestamp } from '../contractStoreModel.js';
+import { optionalTextField, firstOptionalPresent, normalizeOptionalTextField, currentIsoTimestamp, parseRequiredJsonObject } from '../contractStoreModel.js';
 // @ts-check
 
 import {
@@ -59,12 +59,14 @@ function clipboardPreviewUrlForPath(path) {
 }
 
 export function extractHistoryMetadata(message) {
-  const meta = message.metadata !== undefined ? message.metadata : message.meta;
-  if (meta === undefined || meta === null) return null;
-  if (typeof meta !== 'object' || Array.isArray(meta)) {
-    throw new TypeError('thread/messages message metadata must be an object');
+  const meta = message.metadata || message.meta;
+  if (!meta || typeof meta !== 'object') return null;
+  try {
+    return typeof meta === 'string' ? parseRequiredJsonObject(meta) : meta;
   }
-  return meta;
+  catch {
+    return null;
+  }
 }
 
 export function buildHistoryMessageAttachments(message) {

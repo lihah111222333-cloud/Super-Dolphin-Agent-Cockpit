@@ -25,7 +25,6 @@ function useViewportWidth() {
 function useThreadRailLayout({ viewportWidth, rightPanelOpen, rightPanelWidth, layoutRef }) {
   const [threadRailWidth, setThreadRailWidth] = useState(() => threadRailTargetWidth());
   const resizedRef = useRef(false);
-  const activeDragDisposerRef = useRef(null);
   const maxWidth = threadRailTargetWidth(viewportWidth);
   const width = clampWidth(threadRailWidth, THREAD_RAIL_MIN_WIDTH, maxWidth);
 
@@ -37,10 +36,7 @@ function useThreadRailLayout({ viewportWidth, rightPanelOpen, rightPanelWidth, l
     });
   }, [viewportWidth]);
 
-  useEffect(() => () => activeDragDisposerRef.current?.(), []);
-
   const beginResize = (event) => {
-    activeDragDisposerRef.current?.();
     event.preventDefault();
     resizedRef.current = true;
     event.currentTarget?.setPointerCapture?.(event.pointerId);
@@ -48,7 +44,6 @@ function useThreadRailLayout({ viewportWidth, rightPanelOpen, rightPanelWidth, l
     const startX = event.clientX;
     const startWidth = width;
     let latestWidth = startWidth;
-    const layoutElement = layoutRef.current;
 
     const layoutColumnsForWidth = (nextWidth) => {
       const rightWidth = clampWidth(rightPanelWidth, 0, rightPanelMaxWidth(viewportWidth, nextWidth));
@@ -57,40 +52,32 @@ function useThreadRailLayout({ viewportWidth, rightPanelOpen, rightPanelWidth, l
         : 'minmax(0, 1fr)';
     };
 
-    const state = { stopped: false };
-    const dispose = ({ commit }) => {
-      if (state.stopped) return;
-      state.stopped = true;
-      window.removeEventListener('pointermove', move);
-      window.removeEventListener('pointerup', finish);
-      window.removeEventListener('pointercancel', cancel);
-      window.removeEventListener('blur', cancel);
-      event.currentTarget?.releasePointerCapture?.(event.pointerId);
-      if (activeDragDisposerRef.current === cancel) activeDragDisposerRef.current = null;
-      if (!commit && layoutElement) {
-        layoutElement.style.gridTemplateColumns = layoutColumnsForWidth(startWidth);
-      }
-      if (commit) setThreadRailWidth(latestWidth);
-    };
-    const cancel = () => dispose({ commit: false });
-    const finish = () => dispose({ commit: true });
     const move = (moveEvent) => {
       if (Number(moveEvent.buttons) === 0) {
-        finish();
+        stop();
         return;
       }
       const rawNext = startWidth + (moveEvent.clientX - startX);
       latestWidth = clampWidth(rawNext, THREAD_RAIL_MIN_WIDTH, maxWidth);
-      if (layoutElement) {
-        layoutElement.style.gridTemplateColumns = layoutColumnsForWidth(latestWidth);
+      if (layoutRef.current) {
+        layoutRef.current.style.gridTemplateColumns = layoutColumnsForWidth(latestWidth);
       }
     };
 
-    activeDragDisposerRef.current = cancel;
+    const stop = () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', stop);
+      window.removeEventListener('pointercancel', stop);
+      window.removeEventListener('blur', stop);
+      event.currentTarget?.releasePointerCapture?.(event.pointerId);
+
+      setThreadRailWidth(latestWidth);
+    };
+
     window.addEventListener('pointermove', move);
-    window.addEventListener('pointerup', finish);
-    window.addEventListener('pointercancel', cancel);
-    window.addEventListener('blur', cancel);
+    window.addEventListener('pointerup', stop);
+    window.addEventListener('pointercancel', stop);
+    window.addEventListener('blur', stop);
   };
 
   const handleKeyDown = (event) => {
@@ -117,12 +104,10 @@ function useRuntimeSidePanelLayout({
 }) {
   const maxWidth = rightPanelMaxWidth(viewportWidth, railWidth);
   const width = clampWidth(rightPanelWidth, 0, maxWidth);
-  const activeDragDisposerRef = useRef(null);
-  useEffect(() => () => activeDragDisposerRef.current?.(), []);
   useRuntimePanelWidthSync({ maxWidth, open, rightPanelWidth, setOpen, setRightPanelWidth, viewportWidth });
   useRuntimeDiffSync({ activeThreadId, open, store });
   const beginResize = (event) => {
-    beginRightPanelDrag({ activeDragDisposerRef, event, layoutRef, maxWidth, setOpen, setRightPanelWidth, width });
+    beginRightPanelDrag({ event, layoutRef, maxWidth, setOpen, setRightPanelWidth, width });
   };
   const handleKeyDown = (event) => {
     const nextWidth = resizerNextWidth(event, width, maxWidth, 0, 'right');
@@ -195,7 +180,6 @@ function toggleRuntimePanel({
 }
 
 function beginRightPanelDrag({
-  activeDragDisposerRef,
   event,
   layoutRef,
   maxWidth,
@@ -203,18 +187,16 @@ function beginRightPanelDrag({
   setRightPanelWidth,
   width,
 }) {
-  activeDragDisposerRef.current?.();
   event.preventDefault();
   event.currentTarget?.setPointerCapture?.(event.pointerId);
-  const drag = rightPanelDragState({ activeDragDisposerRef, event, layoutRef, maxWidth, setOpen, setRightPanelWidth, width });
+  const drag = rightPanelDragState({ event, layoutRef, maxWidth, setOpen, setRightPanelWidth, width });
   window.addEventListener('pointermove', drag.move);
   window.addEventListener('pointerup', drag.finish);
-  window.addEventListener('pointercancel', drag.cancel);
-  window.addEventListener('blur', drag.cancel);
+  window.addEventListener('pointercancel', drag.finish);
+  window.addEventListener('blur', drag.finish);
 }
 
 function rightPanelDragState({
-  activeDragDisposerRef,
   event,
   layoutRef,
   maxWidth,
@@ -224,37 +206,14 @@ function rightPanelDragState({
 }) {
   const startX = event.clientX;
   const startWidth = width;
-  const layoutElement = layoutRef.current;
   const layoutColumnsForWidth = (nextWidth) => `minmax(0, 1fr) ${SPLITTER_WIDTH}px ${nextWidth}px`;
   const state = { latestWidth: startWidth, stopped: false };
   const applyDragWidth = (nextWidth) => {
-    if (layoutElement) layoutElement.style.gridTemplateColumns = layoutColumnsForWidth(nextWidth);
+    if (layoutRef.current) layoutRef.current.style.gridTemplateColumns = layoutColumnsForWidth(nextWidth);
   };
-  const finishDrag = (commit) => {
-    if (state.stopped) return;
-    state.stopped = true;
-    window.removeEventListener('pointermove', move);
-    window.removeEventListener('pointerup', finish);
-    window.removeEventListener('pointercancel', cancel);
-    window.removeEventListener('blur', cancel);
-    event.currentTarget?.releasePointerCapture?.(event.pointerId);
-    if (activeDragDisposerRef.current === cancel) activeDragDisposerRef.current = null;
-    if (!commit) {
-      if (layoutElement) layoutElement.style.gridTemplateColumns = layoutColumnsForWidth(startWidth);
-      return;
-    }
-    if (state.latestWidth <= RIGHT_PANEL_CLOSE_THRESHOLD) {
-      setRightPanelWidth(0);
-      setOpen(false);
-      return;
-    }
-    setRightPanelWidth(state.latestWidth);
-  };
-  const cancel = () => finishDrag(false);
-  const finish = () => finishDrag(true);
+  const finish = () => finishRightPanelDrag({ event, setOpen, setRightPanelWidth, state, drag });
   const move = (moveEvent) => moveRightPanelDrag({ applyDragWidth, finish, maxWidth, moveEvent, startWidth, startX, state });
-  const drag = { cancel, finish, move };
-  activeDragDisposerRef.current = cancel;
+  const drag = { finish, move };
   return drag;
 }
 
@@ -280,6 +239,22 @@ function moveRightPanelDrag({
   }
   state.latestWidth = clampWidth(rawNext, 0, maxWidth);
   applyDragWidth(state.latestWidth);
+}
+
+function finishRightPanelDrag({ event, setOpen, setRightPanelWidth, state, drag }) {
+  if (state.stopped) return;
+  state.stopped = true;
+  window.removeEventListener('pointermove', drag.move);
+  window.removeEventListener('pointerup', drag.finish);
+  window.removeEventListener('pointercancel', drag.finish);
+  window.removeEventListener('blur', drag.finish);
+  event.currentTarget?.releasePointerCapture?.(event.pointerId);
+  if (state.latestWidth <= RIGHT_PANEL_CLOSE_THRESHOLD) {
+    setRightPanelWidth(0);
+    setOpen(false);
+    return;
+  }
+  setRightPanelWidth(state.latestWidth);
 }
 
 export { RIGHT_PANEL_CLOSE_THRESHOLD, SPLITTER_WIDTH, THREAD_RAIL_MIN_WIDTH, chatLayoutWidthBudget, ratioWidth, resizerNextWidth, rightPanelDefaultWidth, rightPanelMaxWidth, threadRailTargetWidth, useRuntimeSidePanelLayout, useThreadRailLayout, useViewportWidth };

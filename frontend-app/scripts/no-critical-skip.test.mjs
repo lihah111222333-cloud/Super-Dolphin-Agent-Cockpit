@@ -3,9 +3,7 @@ import {
   CRITICAL_SKIP_ROOTS,
   collectCriticalSkipViolations,
   criticalSkipViolationsFromSources,
-  discoverableTestImportsInSource,
   skippedTestsInSource,
-  testSourceViolationsFromSources,
 } from './no-critical-skip.mjs';
 
 describe('critical skip guard', () => {
@@ -120,50 +118,5 @@ describe('critical skip guard', () => {
       name: '<unparseable>',
       parseError: true,
     }]);
-  });
-
-  it('rejects runtime imports between default-discoverable test files', () => {
-    const sources = new Map([
-      [
-        'scripts/rpc-contract-audit.test.mjs',
-        [
-          'import "./rpc-contract-audit-payload-sidebar.test.mjs";',
-          'export * from "./rpc-contract-audit-registry-validator.test.mjs";',
-        ].join('\n'),
-      ],
-      [
-        'scripts/type-consumer.test.ts',
-        [
-          'import type { Fixture } from "./fixture.test.ts";',
-          'import { type NamedFixture } from "./named-fixture.test.ts";',
-          'export type { Fixture } from "./fixture.test.ts";',
-          'export { type NamedFixture } from "./named-fixture.test.ts";',
-        ].join('\n'),
-      ],
-      ['scripts/raw-consumer.test.js', 'import fixture from "./fixture.test.js?raw";'],
-    ]);
-
-    expect(testSourceViolationsFromSources(sources).discoverableTestImports).toEqual([
-      {
-        file: 'scripts/rpc-contract-audit.test.mjs',
-        line: 1,
-        modulePath: './rpc-contract-audit-payload-sidebar.test.mjs',
-      },
-      {
-        file: 'scripts/rpc-contract-audit.test.mjs',
-        line: 2,
-        modulePath: './rpc-contract-audit-registry-validator.test.mjs',
-      },
-    ]);
-  });
-
-  it('does not infer discoverable test imports from comments or strings', () => {
-    const source = [
-      'const fixture = `import "./other.test.js"`;',
-      '// import "./comment.test.js";',
-      'import helper from "./helper.js";',
-    ].join('\n');
-
-    expect(discoverableTestImportsInSource('scripts/clean.test.js', source)).toEqual([]);
   });
 });

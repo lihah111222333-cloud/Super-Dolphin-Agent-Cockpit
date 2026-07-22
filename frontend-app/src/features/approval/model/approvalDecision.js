@@ -1,7 +1,7 @@
 import {
   approvalIdentityFromFields,
   requireApprovalIdentity,
-} from '../../../shared/api/support/approvalRequestId.js';
+} from '../../../shared/api/approvalRequestId.js';
 
 const APPROVAL_STATUSES = new Set(['pending', 'approved', 'rejected']);
 

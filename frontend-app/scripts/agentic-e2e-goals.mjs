@@ -1,8 +1,23 @@
 export const DEFAULT_AGENTIC_COMPOSER_TEXT = 'Agentic E2E feasibility probe';
 export const DEFAULT_AGENTIC_GOAL_ID = 'frontend_navigation_probe';
 
-const navButton = (name) => Object.freeze({
-  type: 'role',
+const sidebarNav = (name) => Object.freeze({
+  type: 'nestedRole',
+  parentTestId: 'sidebar-nav',
+  role: 'button',
+  name,
+});
+
+const secondarySidebarNav = (name) => Object.freeze({
+  type: 'nestedRole',
+  parentTestId: 'sidebar-secondary-nav',
+  role: 'button',
+  name,
+});
+
+const appSidebarNav = (name) => Object.freeze({
+  type: 'nestedRole',
+  parentTestId: 'app-sidebar',
   role: 'button',
   name,
 });
@@ -25,7 +40,7 @@ export const AGENTIC_GOAL_DEFINITIONS = Object.freeze({
     id: DEFAULT_AGENTIC_GOAL_ID,
     kind: 'frontend-navigation-probe',
     targetRoute: '/observability',
-    navigationTarget: navButton('链路追踪'),
+    navigationTarget: secondarySidebarNav('链路追踪'),
     queryTarget: latestLogsAction,
     composerText: DEFAULT_AGENTIC_COMPOSER_TEXT,
   }),
@@ -39,44 +54,44 @@ export const AGENTIC_GOAL_DEFINITIONS = Object.freeze({
     id: 'observability-latest-logs',
     kind: 'observability-latest-logs',
     targetRoute: '/observability',
-    navigationTarget: navButton('链路追踪'),
+    navigationTarget: secondarySidebarNav('链路追踪'),
     queryTarget: latestLogsAction,
   }),
   'plugins-skills-open': Object.freeze({
     id: 'plugins-skills-open',
     kind: 'open-route',
     targetRoute: '/skills',
-    navigationTarget: navButton('插件与技能'),
+    navigationTarget: sidebarNav('插件与技能'),
   }),
   'automation-open': Object.freeze({
     id: 'automation-open',
     kind: 'open-route',
     targetRoute: '/dags',
-    navigationTarget: navButton('自动化'),
+    navigationTarget: sidebarNav('自动化'),
   }),
   'prompts-open': Object.freeze({
     id: 'prompts-open',
     kind: 'open-route',
     targetRoute: '/prompts',
-    navigationTarget: navButton('提示词'),
+    navigationTarget: sidebarNav('提示词'),
   }),
   'shared-files-open': Object.freeze({
     id: 'shared-files-open',
     kind: 'open-route',
     targetRoute: '/files',
-    navigationTarget: navButton('共享文件'),
+    navigationTarget: sidebarNav('共享文件'),
   }),
   'memory-open': Object.freeze({
     id: 'memory-open',
     kind: 'open-route',
     targetRoute: '/memory',
-    navigationTarget: navButton('记忆中心'),
+    navigationTarget: secondarySidebarNav('记忆中心'),
   }),
   'settings-open': Object.freeze({
     id: 'settings-open',
     kind: 'open-route',
     targetRoute: '/settings',
-    navigationTarget: navButton('设置'),
+    navigationTarget: appSidebarNav('设置'),
   }),
   'chat-send-mocked': Object.freeze({
     id: 'chat-send-mocked',
@@ -110,7 +125,7 @@ export const AGENTIC_GOAL_DEFINITIONS = Object.freeze({
     id: 'settings-video-key-save-mocked',
     kind: 'settings-video-key-save-mocked',
     targetRoute: '/settings',
-    navigationTarget: navButton('设置'),
+    navigationTarget: appSidebarNav('设置'),
     inputTarget: Object.freeze({ type: 'css', value: '#settings-sf-key' }),
     saveTarget: Object.freeze({ type: 'nestedRole', parentTestId: 'settings-video-card', role: 'button', name: '保存' }),
     settingsValue: 'agentic-e2e-video-key',
@@ -122,7 +137,7 @@ export const AGENTIC_GOAL_DEFINITIONS = Object.freeze({
     id: 'settings-provider-save-mocked',
     kind: 'settings-provider-save-mocked',
     targetRoute: '/settings',
-    navigationTarget: navButton('设置'),
+    navigationTarget: appSidebarNav('设置'),
     modelTarget: Object.freeze({ type: 'testId', value: 'settings-provider-model' }),
     effortTarget: Object.freeze({ type: 'testId', value: 'settings-provider-effort' }),
     personalityTarget: Object.freeze({ type: 'testId', value: 'settings-provider-personality' }),

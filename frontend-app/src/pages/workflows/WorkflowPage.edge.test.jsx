@@ -7,7 +7,7 @@ import {
   enterpriseTemplateDetail,
   mockEnterpriseTemplates,
   openTemplateCatalog,
-} from './WorkflowPage.testSupport.js';
+} from './WorkflowPage.testSupport.jsx';
 
   beforeEach(() => {
   vi.clearAllMocks();

@@ -192,25 +192,12 @@ describe('promptPageService', () => {
     expect(api.copyTextToClipboard).not.toHaveBeenCalled();
   });
 
-  it('keeps PromptPageView behind service-owning hooks instead of the raw backend API', () => {
+  it('keeps PromptPageView behind promptPageService instead of raw backend API', () => {
     const sourceRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
-    const viewSource = fs.readFileSync(path.join(sourceRoot, 'pages/prompts/PromptPageView.jsx'), 'utf8');
-    const hookFiles = [
-      'usePromptPageActions.js',
-      'usePromptPageQueries.js',
-      'usePromptPersonalization.js',
-    ];
+    const source = fs.readFileSync(path.join(sourceRoot, 'features/prompts/PromptPageView.jsx'), 'utf8');
 
-    expect(viewSource).not.toContain('shared/api/backendApi.js');
-    for (const hookFile of hookFiles) {
-      expect(viewSource, hookFile).toContain(`./hooks/${hookFile}`);
-      const hookSource = fs.readFileSync(
-        path.join(sourceRoot, 'pages/prompts/hooks', hookFile),
-        'utf8',
-      );
-      expect(hookSource, hookFile).toContain('../services/promptPageService.js');
-      expect(hookSource, hookFile).not.toContain('shared/api/backendApi.js');
-    }
+    expect(source).toContain("from '../../pages/prompts/services/promptPageService.js'");
+    expect(source).not.toContain('shared/api/backendApi.js');
   });
 
   it('rejects malformed prompt and profile RPC responses at the public boundary', async () => {

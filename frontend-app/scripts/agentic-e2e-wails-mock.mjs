@@ -36,12 +36,6 @@ export async function installAgenticE2EMockWails(page, options = {}) {
     const allowedSandboxPolicies = new Set(['workspaceWrite', 'readOnly', 'dangerFullAccess']);
     const allowedReadOnlyModes = new Set(['', 'fullAccess', 'restricted']);
     window.__AGENTIC_E2E_MOCK_WAILS__ = state;
-    window.runtime = {
-      Events: {
-        On: () => () => {},
-        Off: () => {},
-      },
-    };
 
     class StrictMockWebSocket {
       static CONNECTING = 0;
@@ -137,7 +131,7 @@ export async function installAgenticE2EMockWails(page, options = {}) {
     function responseForRPC(method, params = {}) {
       if (method === 'ui/log' || method === 'observability/frontend/ingest') return { ok: true };
       if (method === 'ui/buildInfo') return { version: 'agentic-e2e-mock' };
-      if (method === 'config/read') return runtimeConfig();
+      if (method === 'config/read') return { cwd: sandboxConfig.projectDir };
       if (method === 'ui/windowBootstrap/get') return { snapshot: null };
       if (method === 'ui/preferences/get') return preferenceFor(params);
       if (method === 'ui/preferences/getAll') return { preferences: {} };
@@ -187,29 +181,6 @@ export async function installAgenticE2EMockWails(page, options = {}) {
 
     function projectList(active = sandboxConfig.projectDir) {
       return { projects: [sandboxConfig.projectDir], active };
-    }
-
-    function runtimeConfig() {
-      return {
-        model: 'gpt-5.5',
-        modelProvider: null,
-        cwd: sandboxConfig.projectDir,
-        approvalPolicy: 'on-failure',
-        sandbox: 'workspace-write',
-        config: null,
-        baseInstructions: null,
-        developerInstructions: null,
-        personality: null,
-        toolRouting: {
-          mode: 'legacy',
-          routerModel: '',
-          routerProvider: 'openai_compatible',
-          routerBaseURL: '',
-          routerHasAPIKey: false,
-          confidenceThreshold: 0.65,
-          timeoutSec: 8,
-        },
-      };
     }
 
     function selectProjectDir(params = {}) {
@@ -496,14 +467,7 @@ export async function installAgenticE2EMockWails(page, options = {}) {
 
     function preferenceFor(params = {}) {
       const key = String(params.key || '');
-      if (key === 'settings.shortcuts.bindings') return {};
       if (key.includes('provider.active')) return 'codex';
-      if (key.includes('codex.sandbox')) return 'workspace-write';
-      if (key.includes('codex.approvalPolicy')) return 'on-failure';
-      if (key.includes('codex.personality')) return 'none';
-      if (key.includes('codex.summary')) return 'auto';
-      if (key.includes('codex.model')) return 'gpt-5.5';
-      if (key.includes('codex.effort')) return 'high';
       if (key.includes('codexModelProvider')) return 'openai';
       if (key.includes('codexHome')) return sandboxConfig.homeDir;
       if (key.includes('codexInstanceKey')) return 'default';
@@ -513,18 +477,9 @@ export async function installAgenticE2EMockWails(page, options = {}) {
     function sidebarSnapshot() {
       return {
         activeThreadId: '',
-        agents: [],
         threads: [],
-        recent_turns: [],
-        workspace: { runs: [] },
-        token_usage: {
-          inputTokens: 0,
-          outputTokens: 0,
-          totalTokens: 0,
-          usedTokens: 0,
-          contextWindowTokens: 128000,
-          usedPercent: 0,
-        },
+        active_turn: null,
+        tokenUsageByThread: {},
         activityStatsByThread: {},
       };
     }

@@ -1,4 +1,7 @@
+import { join } from 'node:path';
+import { cwd, execPath } from 'node:process';
 import { describe, expect, it } from 'vitest';
+import { runManagedCommand } from './managed-command.mjs';
 import { FROZEN_T04_T05_EXECUTION_CLOSURE_PATHS } from './frontend-execution-closure.mjs';
 import {
   DELIVERY_CASE_IDS,
@@ -66,15 +69,18 @@ describe('delivery smoke runner', () => {
     expect(calls).toBe(0);
   });
 
-  it('runs every ready delivery command in order through the injected command port', async () => {
-    const inspected = inspectDeliveryCommands({ scripts: COMPLETE_SCRIPTS }, MAKEFILE);
-    const calls = [];
-    const verdict = await runDeliveryCommands(inspected, async (program, args, options) => {
-      calls.push({ program, args, options });
-      return { status: 0, signal: null, timedOut: false };
-    }, '/repo');
-
-    expect(verdict).toEqual(expect.objectContaining({
+  it('runs the complete integration delivery surface in final verify mode', async () => {
+    const result = await runManagedCommand(execPath, [join(cwd(), 'scripts/delivery-smoke-runner.mjs'), '--verify'], {
+      cwd: cwd(),
+      timeoutMs: 300_000,
+      killGraceMs: 20_000,
+    });
+    expect(result.timedOut).toBe(false);
+    expect(result.status, result.stderr).toBe(0);
+    const report = JSON.parse(result.stdout);
+    expect(report.caseIds).toEqual(DELIVERY_CASE_IDS);
+    expect(report.testCount).toBe(DELIVERY_CASE_IDS.length);
+    expect(report.verdict).toEqual(expect.objectContaining({
       status: 'PASS',
       executedCommands: DELIVERY_COMMANDS.length,
       commands: DELIVERY_COMMANDS.map(({ id, argv, cwd: commandCwd }) => expect.objectContaining({
@@ -89,14 +95,13 @@ describe('delivery smoke runner', () => {
         status: 'PASS',
       })),
     }));
-    expect(calls).toEqual(DELIVERY_COMMANDS.map(({ argv, cwd: commandCwd }) => ({
-      program: argv[0],
-      args: argv.slice(1),
-      options: {
-        cwd: commandCwd === '.' ? '/repo' : `/repo/${commandCwd}`,
-        timeoutMs: DELIVERY_COMMAND_TIMEOUT_MS,
-        killGraceMs: 20_000,
-      },
-    })));
-  });
+    expect(report.provenance).toEqual(expect.objectContaining({
+      runnerId: 'frontend-delivery-smoke',
+      runnerContentHash: expect.stringMatching(/^[0-9a-f]{64}$/),
+      runnerFiles: DELIVERY_RUNNER_CONTENT_PATHS.map((path) => ({
+        path,
+        sha256: expect.stringMatching(/^[0-9a-f]{64}$/),
+      })),
+    }));
+  }, 325_000);
 });

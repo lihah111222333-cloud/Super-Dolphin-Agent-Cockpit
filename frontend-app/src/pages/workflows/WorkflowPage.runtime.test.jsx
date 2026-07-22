@@ -11,7 +11,7 @@ import {
   verifySharedFileOutputs,
   workflowSharedFileOutputs,
   openEnterpriseTemplateCatalog,
-} from './WorkflowPage.testSupport.js';
+} from './WorkflowPage.testSupport.jsx';
 
   beforeEach(() => {
   vi.clearAllMocks();

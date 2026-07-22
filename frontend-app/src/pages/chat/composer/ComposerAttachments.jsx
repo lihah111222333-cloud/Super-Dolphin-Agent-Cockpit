@@ -1,6 +1,6 @@
 import React from 'react';
 import { File, X } from 'lucide-react';
-import { attachmentDisplayName } from '../../../entities/client/model/composer/composerAttachments.js';
+import { attachmentDisplayName } from '../../../entities/client/model/composerAttachments.js';
 import { composerAttachmentKey } from './composerAttachmentKey.js';
 import { resolveAttachmentImageSrc } from '../thread/timelineMessageModel.js';
 

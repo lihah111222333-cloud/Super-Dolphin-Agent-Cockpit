@@ -4,8 +4,9 @@ const LSP_TOOL_NAMES = Object.freeze([
   'inspect',
   'xref',
   'structure',
-  'patch_edit',
+  'edit',
   'completion',
+  'format_preview',
 ]);
 
 const JSON_RENDER_TOOL_NAMES = Object.freeze(['json_render']);
@@ -39,9 +40,9 @@ function canonicalLspToolName(name) {
     lsp_inspect: 'inspect',
     lsp_xref: 'xref',
     lsp_structure: 'structure',
-    lsp_edit: 'patch_edit',
+    lsp_edit: 'edit',
     lsp_completion: 'completion',
-    lsp_format_preview: 'patch_edit',
+    lsp_format_preview: 'format_preview',
   })[name] || name;
 }
 
@@ -109,7 +110,7 @@ function activityStatItems(stats = {}) {
     return sum + (Number.isFinite(count) ? count : 0);
   }, 0);
   return [
-    { key: 'lsp', label: 'LSP (7 tools)', className: 'stat-lsp', value: sumToolCallsByNames(toolCalls, LSP_TOOL_NAMES) || (Number.isFinite(Number(stats?.lspCalls)) ? Number(stats.lspCalls) : 0) },
+    { key: 'lsp', label: 'LSP (8 tools)', className: 'stat-lsp', value: sumToolCallsByNames(toolCalls, LSP_TOOL_NAMES) || (Number.isFinite(Number(stats?.lspCalls)) ? Number(stats.lspCalls) : 0) },
     { key: 'jsonRender', label: 'JSON-Render', className: 'stat-json-render', value: sumToolCallsByNames(toolCalls, JSON_RENDER_TOOL_NAMES) },
     {
       key: 'playwright',

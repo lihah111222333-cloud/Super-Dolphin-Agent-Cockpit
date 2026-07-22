@@ -1,6 +1,6 @@
 // @ts-check
 
-import { requireApprovalIdentity } from '../support/approvalRequestId.js';
+import { requireApprovalIdentity } from '../approvalRequestId.js';
 import { callAPI as callWailsAPI } from '../wailsBridge.js';
 import { RPC_METHODS } from './backendRpcMethods.js';
 import {

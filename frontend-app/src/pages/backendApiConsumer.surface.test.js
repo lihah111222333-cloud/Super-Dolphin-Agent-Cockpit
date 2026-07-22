@@ -22,26 +22,9 @@ const featureModuleServices = new Map([
   ['memory', 'memoryService.js'],
   ['observability', 'observabilityService.js'],
 ]);
-const featureServiceRoots = new Map([
-  ['pages/prompts/PromptPageView.jsx', pageSurfaceManifest.prompts],
+const featureViewSurfaces = new Map([
+  ['features/prompts/PromptPageView.jsx', pageSurfaceManifest.prompts],
 ]);
-const testOnlyDirectories = new Set([
-  '__tests__',
-  'spec',
-  'specs',
-  'test',
-  'test-support',
-  'tests',
-]);
-
-function isTestOnlySourceEntry(name, directory) {
-  if (directory) return testOnlyDirectories.has(name.toLowerCase());
-  return (
-    /(?:^|[._-])(?:test|spec)(?:[._-]|$)/i.test(name)
-    || /(?:^|[._-])(?:test|spec)(?:[-_]?(?:fixture|fixtures|harness|helper|support))\.[^.]+$/i.test(name)
-    || /Test(?:Fixture|Fixtures|Harness|Helper|Support)\.[^.]+$/.test(name)
-  );
-}
 
 function collectSourceFiles(dirs) {
   const files = [];
@@ -55,11 +38,10 @@ function walk(dir, files) {
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
     const fullPath = path.join(dir, entry.name);
     if (entry.isDirectory()) {
-      if (isTestOnlySourceEntry(entry.name, true)) continue;
       walk(fullPath, files);
       continue;
     }
-    if (!/\.[jt]sx?$/.test(entry.name) || isTestOnlySourceEntry(entry.name, false)) continue;
+    if (!/\.[jt]sx?$/.test(entry.name) || /\.test\.[jt]sx?$/.test(entry.name)) continue;
     files.push(fullPath);
   }
 }
@@ -107,7 +89,7 @@ function resolveImportSpecifier(relativePath, specifier) {
 }
 
 function surfaceForPath(relativePath) {
-  if (featureServiceRoots.has(relativePath)) return featureServiceRoots.get(relativePath);
+  if (featureViewSurfaces.has(relativePath)) return featureViewSurfaces.get(relativePath);
   return Object.values(pageSurfaceManifest)
     .find((surface) => (
       relativePath === surface.entry
@@ -138,32 +120,13 @@ function moduleServiceViolation(relativePath, specifier, surface, serviceEntry) 
 }
 
 function isGuardedSurface(relativePath) {
-  return relativePath.startsWith('pages/') || featureServiceRoots.has(relativePath);
+  return relativePath.startsWith('pages/') || featureViewSurfaces.has(relativePath);
 }
 
-function importsOwnServiceEntry(relativePath, source, surface, visited = new Set()) {
-  if (!surface || visited.has(relativePath)) return false;
-  visited.add(relativePath);
-  const resolvedSpecifiers = staticImportSpecifiers(source)
-    .map((specifier) => resolveImportSpecifier(relativePath, specifier));
-  if (resolvedSpecifiers.includes(surface.serviceEntry)) return true;
-
-  const featureRoot = `${path.posix.dirname(surface.entry)}/`;
-  return resolvedSpecifiers
-    .filter((specifier) => (
-      specifier.startsWith(featureRoot)
-      && /\.[jt]sx?$/.test(specifier)
-    ))
-    .some((specifier) => {
-      const importedPath = path.join(sourceRoot, specifier);
-      if (!fs.existsSync(importedPath) || !fs.statSync(importedPath).isFile()) return false;
-      return importsOwnServiceEntry(
-        specifier,
-        fs.readFileSync(importedPath, 'utf8'),
-        surface,
-        visited,
-      );
-    });
+function importsOwnServiceEntry(relativePath, source, surface) {
+  if (!surface) return false;
+  return staticImportSpecifiers(source)
+    .some((specifier) => resolveImportSpecifier(relativePath, specifier) === surface.serviceEntry);
 }
 
 function crossFeatureSurfaceViolations(relativePath, source) {
@@ -224,8 +187,8 @@ function surfaceImportViolations(relativePath, source) {
 
   violations.push(...crossFeatureSurfaceViolations(relativePath, source));
 
-  if (featureServiceRoots.has(relativePath) && !importsOwnServiceEntry(relativePath, source, surface)) {
-    violations.push(`${relativePath} does not reach ${surface.serviceEntry}`);
+  if (featureViewSurfaces.has(relativePath) && !importsOwnServiceEntry(relativePath, source, surface)) {
+    violations.push(`${relativePath} does not import ${surface.serviceEntry}`);
   }
 
   return violations;
@@ -266,19 +229,6 @@ describe('backend API consumer guardrails', () => {
     expect(backendApiImports(source)).toEqual([]);
     expect(backendApiNamedImports(source)).toEqual([]);
     expect(importsBackendApi(source)).toBe(false);
-  });
-
-  it('excludes test-only support, helper, harness, and fixture artifacts from production scans', () => {
-    for (const name of [
-      'SettingsPageTestSupport.jsx',
-      'clientStoreBackendFixtures.test-helper.js',
-      'styles.test.fixture.js',
-      'useClientStore.testHarness.js',
-    ]) {
-      expect(isTestOnlySourceEntry(name, false), name).toBe(true);
-    }
-    expect(isTestOnlySourceEntry('PromptPageView.jsx', false)).toBe(false);
-    expect(isTestOnlySourceEntry('test-support', true)).toBe(true);
   });
 
   it('keeps page, feature, and entity consumers on named backend facade imports', () => {
@@ -373,23 +323,23 @@ describe('backend API consumer guardrails', () => {
     ]);
   });
 
-  it('does not accept feature service mentions without a reachable static import graph', () => {
-    expect(surfaceImportViolations('pages/prompts/PromptPageView.jsx', `
+  it('does not accept feature service mentions without a real static import', () => {
+    expect(surfaceImportViolations('features/prompts/PromptPageView.jsx', `
       // promptPageService appears in a comment but is not imported.
       const x = 'promptPageService';
       export function PromptPageView() {
         return x;
       }
-    `)).toContain('pages/prompts/PromptPageView.jsx does not reach pages/prompts/services/promptPageService.js');
+    `)).toContain('features/prompts/PromptPageView.jsx does not import pages/prompts/services/promptPageService.js');
 
-    expect(surfaceImportViolations('pages/prompts/PromptPageView.jsx', `
-      export { promptPageService } from './services/promptPageService.js';
-    `)).toContain('pages/prompts/PromptPageView.jsx does not reach pages/prompts/services/promptPageService.js');
+    expect(surfaceImportViolations('features/prompts/PromptPageView.jsx', `
+      export { promptPageService } from '../../pages/prompts/services/promptPageService.js';
+    `)).toContain('features/prompts/PromptPageView.jsx does not import pages/prompts/services/promptPageService.js');
 
-    expect(surfaceImportViolations('pages/prompts/PromptPageView.jsx', `
-      import { usePromptPageActions } from './hooks/usePromptPageActions.js';
+    expect(surfaceImportViolations('features/prompts/PromptPageView.jsx', `
+      import { promptPageService } from '../../pages/prompts/services/promptPageService.js';
       export function PromptPageView() {
-        return usePromptPageActions();
+        return promptPageService;
       }
     `)).toEqual([]);
   });

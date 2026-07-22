@@ -1,8 +1,7 @@
 
-import { BRIDGE_REDACTED_VALUE, isForbiddenBridgeLogKey, normalizeBridgeLogFieldKey, safeBridgeLogFields } from '../support/bridgeSafeLogFields.js';
-import { compactSafeDiagnosticPreview } from '../support/safeDiagnosticPreview.js';
-import { RPC_RESULT_PREVIEW_LIMIT, BRIDGE_ERROR_DATA_SAFE_KEYS } from './wailsBridgeConstants.js';
-import { loadWailsRuntime } from './wailsRuntimeLoader.js';
+import { BRIDGE_REDACTED_VALUE, isForbiddenBridgeLogKey, normalizeBridgeLogFieldKey, safeBridgeLogFields } from '../bridgeSafeLogFields.js';
+import { compactSafeDiagnosticPreview } from '../safeDiagnosticPreview.js';
+import { WAILS_RUNTIME_MODULE, RPC_RESULT_PREVIEW_LIMIT, BRIDGE_ERROR_DATA_SAFE_KEYS } from './wailsBridgeConstants.js';
 
 /** @typedef {Record<string, unknown>} BridgeRecord */
 /** @type {Promise<unknown> | null} */
@@ -17,6 +16,12 @@ function isFrontendTraceDebugEnabled() {
   catch {
     return false;
   }
+}
+
+/** @param {string} modulePath @returns {Promise<unknown>} */
+function nativeImportModule(modulePath) {
+  // public 目录里的 Wails runtime 只能由浏览器原生加载，避免 Vite 注入 ?import 后拦截。
+  return import(/* @vite-ignore */ modulePath);
 }
 
 // Track active log store to pipe warnings and errors
@@ -150,7 +155,7 @@ function compactBridgeValuePreview(value) {
 function waitRuntime() {
   if (!runtimePromise) {
     writeBridgeLog('info', 'bridge.runtime.load.start', {});
-    runtimePromise = loadWailsRuntime()
+    runtimePromise = nativeImportModule(WAILS_RUNTIME_MODULE)
       .then((module) => {
         const runtime = module && typeof module === 'object' ? /** @type {BridgeRecord} */ (module) : {};
         const call = runtime.Call && typeof runtime.Call === 'object' ? /** @type {BridgeRecord} */ (runtime.Call) : {};

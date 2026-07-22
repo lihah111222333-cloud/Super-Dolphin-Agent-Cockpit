@@ -8,7 +8,7 @@ import { attachWarningRuntime } from '../warningRuntime.js';
 import { normalizeActiveProviderName, normalizeCodexIdentityValue, normalizeProviderConfigValue, normalizeProviderRuntimeConfig } from '../providerRuntimeConfig.js';
 import { providerPreferenceKey } from '../providerPreferences.js';
 import { normalizeThreadId, normalizeBackendThreadId } from '../threadIdentity.js';
-import { composerDraftKey, normalizeComposerDraftSnapshot, isEmptyComposerDraftSnapshot } from '../../composer/composerAttachments.js';
+import { composerDraftKey, normalizeComposerDraftSnapshot, isEmptyComposerDraftSnapshot } from '../../composerAttachments.js';
 import { restoreComposerCapabilities } from '../../capabilities/composerCapabilities.js';
 import {
   ASSISTANT_DELTA_FLUSH_MS,

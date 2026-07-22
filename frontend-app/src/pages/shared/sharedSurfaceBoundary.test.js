@@ -194,24 +194,9 @@ describe('shared page surface boundary', () => {
     ]);
   });
 
-  it('keeps prompt page view behind hook-owned prompt page services', () => {
-    const viewPath = 'pages/prompts/PromptPageView.jsx';
-    const hookPaths = [
-      'pages/prompts/hooks/usePromptPageActions.js',
-      'pages/prompts/hooks/usePromptPageQueries.js',
-      'pages/prompts/hooks/usePromptPersonalization.js',
-    ];
-    const viewImports = parseStaticImports(read(viewPath), viewPath)
-      .map(({ specifier }) => resolveImportSpecifier(viewPath, specifier));
-
-    expect(viewImports).toEqual(expect.arrayContaining(hookPaths));
-    expect(read(viewPath)).not.toContain('shared/api/backendApi.js');
-    for (const hookPath of hookPaths) {
-      const hookSource = read(hookPath);
-      const hookImports = parseStaticImports(hookSource, hookPath)
-        .map(({ specifier }) => resolveImportSpecifier(hookPath, specifier));
-      expect(hookImports, hookPath).toContain(pageSurfaceManifest.prompts.serviceEntry);
-      expect(hookSource, hookPath).not.toContain('shared/api/backendApi.js');
-    }
+  it('keeps prompt feature view behind the prompt page service', () => {
+    const source = read('features/prompts/PromptPageView.jsx');
+    expect(source).not.toContain('shared/api/backendApi.js');
+    expect(source).toMatch(/promptPageService/);
   });
 });

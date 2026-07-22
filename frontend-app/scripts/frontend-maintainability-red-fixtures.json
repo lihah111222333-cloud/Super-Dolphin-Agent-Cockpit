@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "fixtures": [
+    { "id": "terminal-failed-partial-success", "area": "terminal", "expected": "failure-visible-no-success" },
+    { "id": "stop-accepted-continues-failed", "area": "stop", "expected": "request-does-not-terminal" },
+    { "id": "claude-interrupted-no-completed", "area": "provider", "expected": "interrupted" },
+    { "id": "codex-completed-cancelled", "area": "provider", "expected": "cancelled" },
+    { "id": "codex-completed-interrupted", "area": "provider", "expected": "interrupted" },
+    { "id": "codex-completed-failed", "area": "provider", "expected": "failed" },
+    { "id": "codex-completed-unknown", "area": "provider", "expected": "contract-error" },
+    { "id": "codex-completed-success-missing", "area": "provider", "expected": "contract-error" },
+    { "id": "codex-completed-success-false", "area": "provider", "expected": "failed" },
+    { "id": "late-t1-event-after-t2", "area": "terminal", "expected": "t2-unchanged" },
+    { "id": "conflicting-terminal", "area": "terminal", "expected": "first-terminal-wins" },
+    { "id": "stop-target-changed", "area": "stop", "expected": "not-applied" },
+    { "id": "provider-cancel-not-user-cancel", "area": "terminal", "expected": "provider-error" },
+    { "id": "prompt-history-console-only", "area": "action", "expected": "visible-error" },
+    { "id": "action-scorer-missing-stale-zero-test", "area": "scorer", "expected": "reject" },
+    { "id": "hook-route-pre-commit-deleted", "area": "scorer", "expected": "reject" },
+    { "id": "hook-route-pre-push-deleted", "area": "scorer", "expected": "reject" },
+    { "id": "hook-route-ai-maintenance-deleted", "area": "scorer", "expected": "reject" },
+    { "id": "frontend-plan-size-bytes", "area": "scorer", "expected": "reject" },
+    { "id": "frontend-plan-size-lines", "area": "scorer", "expected": "reject" },
+    { "id": "provider.reconnect.bootstrap", "area": "action-runtime", "expected": "empty-callback-component-test-red" },
+    { "id": "prompt-history.previous", "area": "action-runtime", "expected": "empty-callback-component-test-red" },
+    { "id": "thread.pin", "area": "action-runtime", "expected": "empty-callback-component-test-red" },
+    { "id": "settings.video.save", "area": "action-runtime", "expected": "empty-callback-component-test-red" },
+    { "id": "approval.respond", "area": "action-runtime", "expected": "empty-callback-component-test-red" }
+  ]
+}
