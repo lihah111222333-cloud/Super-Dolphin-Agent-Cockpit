@@ -788,7 +788,7 @@ internal/platform/toolbridge/proxy.go	internal	platform-provider	go-source	19724
 internal/platform/toolbridge/recovery_driver_integration_test.go	internal	platform-provider	go-test	5022	provider 与 MCP tools 桥接	internal,platform,toolbridge,recovery,driver,integration,test,provider,与,MCP,tools,桥接
 internal/platform/toolbridge/schema_quarantine_red_test.go	internal	platform-provider	go-test	29828	provider 与 MCP tools 桥接	internal,platform,toolbridge,schema,quarantine,red,test,provider,与,MCP,tools,桥接
 internal/platform/toolbridge/schema_validation_test.go	internal	platform-provider	go-test	4562	provider 与 MCP tools 桥接	internal,platform,toolbridge,schema,validation,test,provider,与,MCP,tools,桥接
-internal/platform/toolbridge/schema/attach_failure_test.go	internal	platform-provider	go-test	11149	provider 与 MCP tools 桥接	internal,platform,toolbridge,schema,attach,failure,test,provider,与,MCP,tools,桥接
+internal/platform/toolbridge/schema/attach_failure_test.go	internal	platform-provider	go-test	11073	provider 与 MCP tools 桥接	internal,platform,toolbridge,schema,attach,failure,test,provider,与,MCP,tools,桥接
 internal/platform/toolbridge/schema/canonical.go	internal	platform-provider	go-source	18359	provider 与 MCP tools 桥接	internal,platform,toolbridge,schema,canonical,provider,与,MCP,tools,桥接
 internal/platform/toolbridge/schema/client.go	internal	platform-provider	go-source	15674	provider 与 MCP tools 桥接	internal,platform,toolbridge,schema,client,provider,与,MCP,tools,桥接
 internal/platform/toolbridge/schema/compiler.go	internal	platform-provider	go-source	5199	provider 与 MCP tools 桥接	internal,platform,toolbridge,schema,compiler,provider,与,MCP,tools,桥接

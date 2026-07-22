@@ -1,3 +1,5 @@
+//go:build darwin
+
 package main
 
 import (
@@ -6,7 +8,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -15,12 +16,7 @@ import (
 	recovery "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/appupdaterecovery"
 )
 
-const recoveryTestGeneration = "00112233445566778899aabbccddeeff"
-
 func TestStagedSignatureFailureWritesPreJournalSidecar(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("fixture requires macOS bundle permissions")
-	}
 	exitErr := exec.Command("sh", "-c", "exit 1").Run()
 	oldRunCommand := runCommand
 	t.Cleanup(func() { runCommand = oldRunCommand })
@@ -43,9 +39,6 @@ func TestStagedSignatureFailureWritesPreJournalSidecar(t *testing.T) {
 }
 
 func TestCopiedSignatureFailureRewritesPreJournalSidecar(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("fixture requires macOS bundle permissions")
-	}
 	exitErr := exec.Command("sh", "-c", "exit 1").Run()
 	oldRunCommand := runCommand
 	t.Cleanup(func() { runCommand = oldRunCommand })
@@ -75,9 +68,6 @@ func TestCopiedSignatureFailureRewritesPreJournalSidecar(t *testing.T) {
 }
 
 func TestFirstReleaseCopiedSignatureFailureWritesPreJournalSidecar(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("fixture requires macOS bundle permissions")
-	}
 	exitErr := exec.Command("sh", "-c", "exit 1").Run()
 	oldRunCommand := runCommand
 	t.Cleanup(func() { runCommand = oldRunCommand })
@@ -107,9 +97,6 @@ func TestFirstReleaseCopiedSignatureFailureWritesPreJournalSidecar(t *testing.T)
 }
 
 func TestFirstReleaseClearFailureRemovesCandidateWithoutInstalling(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("fixture requires macOS bundle permissions")
-	}
 	stageDir, dmgPath := testUpdaterStage(t)
 	beginUpdaterAttempt(t, stageDir)
 	oldRunCommand := runCommand
@@ -148,9 +135,6 @@ func TestFirstReleaseClearFailureRemovesCandidateWithoutInstalling(t *testing.T)
 }
 
 func TestPreJournalClearFailureRetainsPreparedTransaction(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("fixture requires macOS bundle permissions")
-	}
 	stageDir, dmgPath := testUpdaterStage(t)
 	beginUpdaterAttempt(t, stageDir)
 	oldRunCommand := runCommand
@@ -209,9 +193,6 @@ func assertPreJournalClearFailureOutcome(t *testing.T, installErr error, helperS
 }
 
 func TestTransactionCreateSuccessConfirmsPreJournalSidecarAbsent(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("fixture requires macOS bundle permissions")
-	}
 	stubSuccessfulDitto(t)
 	stageDir, _ := testUpdaterStage(t)
 	beginUpdaterAttempt(t, stageDir)
@@ -227,9 +208,6 @@ func TestTransactionCreateSuccessConfirmsPreJournalSidecarAbsent(t *testing.T) {
 }
 
 func TestPostCreateSidecarCorruptionCannotOverrideJournalFailure(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("fixture requires macOS bundle permissions")
-	}
 	stubSuccessfulDitto(t)
 	stageDir, dmgPath := testUpdaterStage(t)
 	beginUpdaterAttempt(t, stageDir)
@@ -300,16 +278,4 @@ func testUpdaterStage(t *testing.T) (string, string) {
 		t.Fatal(err)
 	}
 	return stageDir, dmgPath
-}
-
-func realUpdaterTempDir(t *testing.T) string {
-	t.Helper()
-	path, err := filepath.EvalSymlinks(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Chmod(path, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	return path
 }

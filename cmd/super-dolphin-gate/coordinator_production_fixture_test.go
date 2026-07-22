@@ -279,7 +279,7 @@ func newProductionTestFixture(t *testing.T) productionTestFixture {
 		PromotionSigner: productionPromotionKey{
 			Signer: authority.signer, PrivateKeyFile: authority.promotionKeyPath,
 		},
-		CandidateTTLSeconds: 3600, PromotionPollMillis: 20,
+		CandidateTTLSeconds: 3600, PromotionPollMillis: 5_000,
 	}
 	bootstrapRoot, rootTrust, rootPrivateKey := productionBootstrapRootForFixture(
 		t, config, repository.commit, repository.tree, authority.signer, authority.publicKey,

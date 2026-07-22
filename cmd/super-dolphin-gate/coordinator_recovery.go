@@ -252,17 +252,22 @@ func recoveryBuildWorkloads(
 	builds := make([]localci.RecoveryWorkload, 0)
 	seen := make(map[string]struct{})
 	for _, record := range records {
-		for _, dependencyID := range record.SchedulerDependencies {
-			if _, duplicate := seen[dependencyID]; duplicate {
-				continue
-			}
-			build, err := recoveryBuildWorkload(record, dependencyID, snapshot[dependencyID])
-			if err != nil {
-				return nil, err
-			}
-			seen[dependencyID] = struct{}{}
-			builds = append(builds, build)
+		dependencyID, err := candidateBuildDependency(record)
+		if err != nil {
+			return nil, err
 		}
+		if dependencyID == "" {
+			continue
+		}
+		if _, duplicate := seen[dependencyID]; duplicate {
+			continue
+		}
+		build, err := recoveryBuildWorkload(record, dependencyID, snapshot[dependencyID])
+		if err != nil {
+			return nil, err
+		}
+		seen[dependencyID] = struct{}{}
+		builds = append(builds, build)
 	}
 	return builds, nil
 }
@@ -289,15 +294,20 @@ func recoveryBuildWorkload(
 	return localci.RecoveryWorkload{Request: request, Status: status}, nil
 }
 
+// rejectFailedRecoveryDependency 在候选镜像构建已失败时终止恢复中的排队任务。
 func (owner *coordinatorOwner) rejectFailedRecoveryDependency(
 	ctx context.Context,
 	record *coordinatorJobRecord,
 	snapshot map[string]localci.WorkloadSnapshot,
 ) error {
-	if record.State != jobStateQueued || len(record.SchedulerDependencies) == 0 {
+	if record.State != jobStateQueued {
 		return nil
 	}
-	status := snapshot[record.SchedulerDependencies[0]].Status
+	dependencyID, err := candidateBuildDependency(*record)
+	if err != nil || dependencyID == "" {
+		return err
+	}
+	status := snapshot[dependencyID].Status
 	if status != localci.WorkloadStatusFailed && status != localci.WorkloadStatusInfraFailed {
 		return nil
 	}

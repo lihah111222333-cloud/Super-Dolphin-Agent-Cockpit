@@ -314,6 +314,7 @@ func (s *PromotionCandidateStore) failBuild(ctx context.Context, workloadID stri
 			return fmt.Errorf("%w: candidate %q cannot fail from %q", ErrPromotionCandidateState, candidate.CandidateID, candidate.Status)
 		}
 		candidate.Status = PromotionCandidateFailed
+		candidate.compactTerminalBuildPayload()
 		return nil
 	})
 	if err != nil {
@@ -363,7 +364,7 @@ func uniqueActiveCandidate(candidates []PromotionCandidate) (PromotionCandidate,
 func consistentFailedCandidate(candidates []PromotionCandidate) (PromotionCandidate, error) {
 	var failed *PromotionCandidate
 	for i := range candidates {
-		if candidates[i].Status != PromotionCandidateFailed {
+		if candidates[i].Status != PromotionCandidateFailed && candidates[i].Status != PromotionCandidateAdvanceFailed {
 			continue
 		}
 		if failed == nil {
@@ -381,7 +382,7 @@ func consistentFailedCandidate(candidates []PromotionCandidate) (PromotionCandid
 }
 
 func sameFailedCandidateRecoveryAuthority(left, right PromotionCandidate) bool {
-	return left.SourceTree == right.SourceTree &&
+	return left.PromotionMode == right.PromotionMode && left.SourceTree == right.SourceTree &&
 		left.PreviousTrustedCommit == right.PreviousTrustedCommit &&
 		left.ExpectedAcceptedRecordDigest == right.ExpectedAcceptedRecordDigest &&
 		left.ExpectedAcceptedGeneration == right.ExpectedAcceptedGeneration
@@ -396,4 +397,144 @@ func removeAcceptedImageTemp(path string) error {
 		return nil
 	}
 	return fmt.Errorf("remove accepted image temp file: %w", err)
+}
+
+// loadLocked 在持锁状态下严格读取 canonical candidate snapshot。
+func (s *PromotionCandidateStore) loadLocked() (promotionCandidateSnapshot, error) {
+	snapshot := promotionCandidateSnapshot{SchemaVersion: promotionCandidateSchemaVersion, Candidates: []PromotionCandidate{}}
+	exists, err := validateCurrentUIDPrivatePath(s.statePath, s.ownerUID)
+	if err != nil {
+		return promotionCandidateSnapshot{}, fmt.Errorf("validate promotion candidate state: %w", err)
+	}
+	if !exists {
+		return snapshot, nil
+	}
+	file, _, err := openSchedulerFileNoFollow(s.statePath, s.ownerUID, true)
+	if err != nil {
+		return promotionCandidateSnapshot{}, fmt.Errorf("open promotion candidate state: %w", err)
+	}
+	info, err := promotionCandidateFileInfo(file, s.statePath, s.ownerUID)
+	if err != nil {
+		return promotionCandidateSnapshot{}, err
+	}
+	data, err := readPromotionCandidateState(file, info)
+	if err != nil {
+		return promotionCandidateSnapshot{}, err
+	}
+	if err := gate.DecodeStrictJSON(data, &snapshot); err != nil {
+		return promotionCandidateSnapshot{}, fmt.Errorf("decode promotion candidate state: %w", err)
+	}
+	if err := snapshot.Validate(); err != nil {
+		return promotionCandidateSnapshot{}, err
+	}
+	return snapshot, nil
+}
+
+// promotionCandidateFileInfo 复核 pathname/fd 身份并在失败时关闭 fd。
+func promotionCandidateFileInfo(file *os.File, path string, ownerUID int) (os.FileInfo, error) {
+	info, err := file.Stat()
+	if err != nil {
+		return nil, errors.Join(err, file.Close())
+	}
+	if err := validateOpenedAcceptedImageFile(path, info, ownerUID); err != nil {
+		return nil, errors.Join(err, file.Close())
+	}
+	return info, nil
+}
+
+// readPromotionCandidateState 限长读取并在所有路径关闭 canonical state fd。
+func readPromotionCandidateState(file *os.File, info os.FileInfo) ([]byte, error) {
+	if info.Size() > promotionCandidateMaxBytes {
+		return nil, errors.Join(errors.New("promotion candidate state exceeds size limit"), file.Close())
+	}
+	data, readErr := io.ReadAll(io.LimitReader(file, promotionCandidateMaxBytes+1))
+	closeErr := file.Close()
+	if readErr != nil || closeErr != nil {
+		return nil, errors.Join(readErr, closeErr)
+	}
+	if len(data) > promotionCandidateMaxBytes {
+		return nil, errors.New("promotion candidate state exceeds size limit")
+	}
+	return data, nil
+}
+
+// saveLocked 通过私有临时文件、fsync 与 rename 原子替换 canonical snapshot。
+func (s *PromotionCandidateStore) saveLocked(snapshot promotionCandidateSnapshot) (retErr error) {
+	data, err := encodePromotionCandidateSnapshot(snapshot)
+	if err != nil {
+		return err
+	}
+	if s.beforeSave != nil {
+		if err := s.beforeSave(); err != nil {
+			return err
+		}
+	}
+	if err := s.replaceSnapshot(data); err != nil {
+		return err
+	}
+	if s.afterSave != nil {
+		return s.afterSave()
+	}
+	return nil
+}
+
+// encodePromotionCandidateSnapshot 生成受大小上限约束的 canonical JSON。
+func encodePromotionCandidateSnapshot(snapshot promotionCandidateSnapshot) ([]byte, error) {
+	if err := snapshot.Validate(); err != nil {
+		return nil, err
+	}
+	data, err := json.Marshal(snapshot)
+	if err != nil {
+		return nil, fmt.Errorf("marshal promotion candidate state: %w", err)
+	}
+	data = append(data, '\n')
+	if len(data) > promotionCandidateMaxBytes {
+		return nil, errors.New("promotion candidate state exceeds size limit")
+	}
+	return data, nil
+}
+
+// replaceSnapshot 通过 fsync 临时文件与 rename 原子替换 candidate authority。
+func (s *PromotionCandidateStore) replaceSnapshot(data []byte) (retErr error) {
+	file, err := os.CreateTemp(s.root, ".promotion-candidates-*.tmp")
+	if err != nil {
+		return fmt.Errorf("create promotion candidate temp file: %w", err)
+	}
+	tempPath := file.Name()
+	defer func() { retErr = errors.Join(retErr, removeAcceptedImageTemp(tempPath)) }()
+	if err := writeAcceptedImageTemp(file, data, s.ownerUID); err != nil {
+		return err
+	}
+	if err := os.Rename(tempPath, s.statePath); err != nil {
+		return fmt.Errorf("replace promotion candidate state: %w", err)
+	}
+	tempPath = ""
+	if err := syncAcceptedImageRoot(s.root); err != nil {
+		return err
+	}
+	return nil
+}
+
+// acquireLock 使用可取消重试取得 candidate authority 跨进程锁。
+func (s *PromotionCandidateStore) acquireLock(ctx context.Context) (*acceptedImageLock, error) {
+	for {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		file, err := openCurrentUIDPrivateFile(s.lockPath, s.ownerUID)
+		if err != nil {
+			return nil, fmt.Errorf("open promotion candidate lock: %w", err)
+		}
+		if err := lockSchedulerFile(file); err == nil {
+			return &acceptedImageLock{file: file}, nil
+		} else if !schedulerLockAlreadyOwned(err) {
+			return nil, errors.Join(fmt.Errorf("acquire promotion candidate lock: %w", err), file.Close())
+		}
+		if err := file.Close(); err != nil {
+			return nil, err
+		}
+		if err := waitAcceptedImageLock(ctx); err != nil {
+			return nil, err
+		}
+	}
 }

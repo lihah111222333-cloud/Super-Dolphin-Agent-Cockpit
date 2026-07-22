@@ -53,21 +53,74 @@ func TestBuildGatePlanFiltersCanonicalRequiredProfiles(t *testing.T) {
 	local := mustBuildPlan(t, ProfileLocalFast)
 	push := mustBuildPlan(t, ProfilePush)
 	remote := mustBuildPlan(t, ProfileRemoteRequired)
+	promotion := mustBuildPlan(t, ProfilePromotion)
 	release := mustBuildPlan(t, ProfileRelease)
-	assertStrictGateSubset(t, local, push)
-	assertStrictGateSubset(t, local, remote)
+	assertGatePlanIDSetEqual(t, local, push)
+	assertGatePlanIDSetEqual(t, local, remote)
+	assertGatePlanIDSetEqual(t, local, promotion)
 
 	releaseOnly := gateIDSet(release.Gates)
 	for id := range gateIDSet(push.Gates) {
 		delete(releaseOnly, id)
 	}
-	if !reflect.DeepEqual(releaseOnly, map[GateID]bool{GateIDReleaseLayeredCheck: true}) {
+	if !reflect.DeepEqual(releaseOnly, map[GateID]bool{
+		GateIDFrontendFullTest:         true,
+		GateIDBackendTestGuardWithRace: true,
+		GateIDBackendNilness:           true,
+		GateIDReleaseLayeredCheck:      true,
+	}) {
 		t.Fatalf("release-only gates = %v", releaseOnly)
 	}
 	for _, spec := range local.Gates {
 		if !slices.Contains(spec.RequiredProfiles, ProfileLocalFast) {
 			t.Fatalf("local plan contains optional gate %q", spec.ID)
 		}
+	}
+}
+
+func TestFrontendTestGateProfileContract(t *testing.T) {
+	t.Parallel()
+
+	frontendTest := findGateSpec(t, GateIDFrontendTest)
+	if frontendTest.ID != GateID("frontend:test") {
+		t.Fatalf("frontend test id = %q", frontendTest.ID)
+	}
+	wantFrontendProfiles := []Profile{ProfileLocalFast, ProfilePush, ProfileRemoteRequired, ProfilePromotion}
+	if !slices.Equal(frontendTest.RequiredProfiles, wantFrontendProfiles) {
+		t.Fatalf("frontend test required profiles = %v, want %v", frontendTest.RequiredProfiles, wantFrontendProfiles)
+	}
+	if !slices.Equal(frontendTest.Profiles, wantFrontendProfiles) {
+		t.Fatalf("frontend test profiles = %v, want %v", frontendTest.Profiles, wantFrontendProfiles)
+	}
+
+	frontendFullTest := findGateSpec(t, GateIDFrontendFullTest)
+	if frontendFullTest.ID != GateID("frontend:test-full") {
+		t.Fatalf("frontend full test id = %q", frontendFullTest.ID)
+	}
+	if !slices.Equal(frontendFullTest.RequiredProfiles, []Profile{ProfileRelease}) {
+		t.Fatalf("frontend full test required profiles = %v, want release only", frontendFullTest.RequiredProfiles)
+	}
+	if !slices.Equal(frontendFullTest.Profiles, []Profile{ProfileRelease}) {
+		t.Fatalf("frontend full test profiles = %v, want release only", frontendFullTest.Profiles)
+	}
+
+	for _, test := range []struct {
+		profile          Profile
+		wantFrontendTest bool
+		wantFullTest     bool
+	}{
+		{ProfileLocalFast, true, false},
+		{ProfilePush, true, false},
+		{ProfileRemoteRequired, true, false},
+		{ProfilePromotion, true, false},
+		{ProfileRelease, false, true},
+	} {
+		t.Run(string(test.profile), func(t *testing.T) {
+			gates := gateIDSet(mustBuildPlan(t, test.profile).Gates)
+			if gates[GateIDFrontendTest] != test.wantFrontendTest || gates[GateIDFrontendFullTest] != test.wantFullTest {
+				t.Fatalf("%s frontend test gates = regular:%t full:%t, want regular:%t full:%t", test.profile, gates[GateIDFrontendTest], gates[GateIDFrontendFullTest], test.wantFrontendTest, test.wantFullTest)
+			}
+		})
 	}
 }
 
@@ -211,10 +264,28 @@ func assertStrictGateSubset(t *testing.T, subset, superset GatePlan) {
 	}
 }
 
+func assertGatePlanIDSetEqual(t *testing.T, left, right GatePlan) {
+	t.Helper()
+	if !reflect.DeepEqual(gateIDSet(left.Gates), gateIDSet(right.Gates)) {
+		t.Fatalf("%s gates differ from %s gates", left.Profile, right.Profile)
+	}
+}
+
 func gateIDSet(specs []GateSpec) map[GateID]bool {
 	set := make(map[GateID]bool, len(specs))
 	for _, spec := range specs {
 		set[spec.ID] = true
 	}
 	return set
+}
+
+func findGateSpec(t *testing.T, id GateID) GateSpec {
+	t.Helper()
+	for _, spec := range GateRegistry() {
+		if spec.ID == id {
+			return spec
+		}
+	}
+	t.Fatalf("canonical registry does not contain gate %q", id)
+	return GateSpec{}
 }

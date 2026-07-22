@@ -3,6 +3,8 @@ package main
 import (
 	"slices"
 	"strings"
+
+	gateexecutor "github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
 )
 
 // gatePlanForScope 仅在显式推送范围中追加高成本风险门禁，保持提交阶段轻量。
@@ -91,27 +93,12 @@ func hasGoModuleChange(files []string) bool {
 	return slices.ContainsFunc(files, goModuleFile)
 }
 
-var raceSensitivePathPrefixes = []string{
-	"cmd/",
-	"internal/app/",
-	"internal/contract/",
-	"internal/devtools/localci/",
-	"internal/mcpserver/",
-	"internal/module/",
-	"internal/platform/",
-	"internal/provider/",
-	"internal/store/",
-	"internal/ui/",
-	"internal/util/",
-	"pkg/",
-	"scripts/lsp_diagnostics_gate/",
-}
-
 // affectedRacePackages 只返回已登记并发生产面的受影响 Go 包。
 func affectedRacePackages(files []string) []string {
 	packages := map[string]bool{}
+	prefixes := gateexecutor.RaceSensitivePathPrefixes()
 	for _, file := range files {
-		if !hasAnyPrefix(file, raceSensitivePathPrefixes) {
+		if !hasAnyPrefix(file, prefixes) {
 			continue
 		}
 		if pkg, ok := changedGoPackage(file); ok {
@@ -126,14 +113,7 @@ func affectedRacePackagesForPlan(plan gatePlan) []string {
 	if !hasGoModuleChange(plan.ChangedFiles) {
 		return affectedRacePackages(plan.ChangedFiles)
 	}
-	packages := map[string]bool{}
-	for _, pkg := range plan.AffectedGoPackages {
-		path := strings.TrimPrefix(pkg, "./") + "/"
-		if hasAnyPrefix(path, raceSensitivePathPrefixes) {
-			packages[pkg] = true
-		}
-	}
-	return sortedKeys(packages)
+	return gateexecutor.RaceSensitivePackagePatterns()
 }
 
 func hasAnyPrefix(value string, prefixes []string) bool {

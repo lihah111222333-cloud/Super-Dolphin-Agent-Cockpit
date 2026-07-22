@@ -198,6 +198,7 @@ func TestContractFieldCoverageDetectsMissingAndStale(t *testing.T) {
 	}{
 		{producer: reflect.TypeFor[SourceSpec](), registration: sourceSpecConsumerRegistration()},
 		{producer: reflect.TypeFor[GrantRequest](), registration: grantRequestConsumerRegistration()},
+		{producer: reflect.TypeFor[ReleaseAsset](), registration: releaseAssetConsumerRegistration()},
 		{producer: reflect.TypeFor[ResultReceipt](), registration: resultReceiptConsumerRegistration()},
 		{producer: reflect.TypeFor[ContainerShardReceipt](), registration: containerShardReceiptConsumerRegistration()},
 		{producer: reflect.TypeFor[ActionGrant](), registration: actionGrantConsumerRegistration()},
@@ -375,10 +376,18 @@ func grantRequestConsumerRegistration() fieldConsumerRegistration {
 			"action_attempt_id", "action_policy", "adapter", "audience", "expires_at", "generation", "invocation_id",
 			"invocation_owner", "new_sha", "old_sha", "process_challenge", "receipt_digest",
 			"receipt_id", "ref", "remote_url", "repo_id", "request_nonce", "requested_at",
-			"source_tree_sha", "subscriber_capability",
+			"release_assets", "release_commit_sha", "release_repository", "release_tag", "source_tree_sha", "subscriber_capability",
 		},
 		Owner:    "cmd/super-dolphin-gate ActionGrant issuance and consumption boundary",
 		Evidence: "canonical signing plus receipt, generation, tree, audience, ref, nonce, and expiry verification",
+	}
+}
+
+func releaseAssetConsumerRegistration() fieldConsumerRegistration {
+	return fieldConsumerRegistration{
+		Fields:   []string{"name", "sha256", "size"},
+		Owner:    "cmd/super-dolphin-gate release ActionGrant request and consumption boundary",
+		Evidence: "strict release binding validation, canonical signing, and consumer-side compare-and-swap",
 	}
 }
 
@@ -512,6 +521,24 @@ func validRangeSourceSpec() SourceSpec {
 			UpdateKind:        UpdateKindFastForward,
 		},
 		SourceTreeSHA: testTreeSHA,
+	}
+}
+
+func TestContainsImmutableImageReferenceAcceptsOnlyCanonicalDockerHubFamiliarName(t *testing.T) {
+	if !ContainsImmutableImageReference([]string{"docker.io/library/gate@" + testDigest}, "docker.io/library/gate", testDigest) {
+		t.Fatal("exact immutable reference was rejected")
+	}
+	if !ContainsImmutableImageReference([]string{"gate@" + testDigest}, "docker.io/library/gate", testDigest) {
+		t.Fatal("Docker Hub familiar immutable reference was rejected")
+	}
+	for _, repository := range []string{"registry.invalid/gate", "docker.io/team/gate", "docker.io/library/team/gate"} {
+		if ContainsImmutableImageReference([]string{"gate@" + testDigest}, repository, testDigest) {
+			t.Fatalf("familiar alias accepted for %q", repository)
+		}
+	}
+	otherDigest := "sha256:" + strings.Repeat("b", 64)
+	if ContainsImmutableImageReference([]string{"gate@" + otherDigest}, "docker.io/library/gate", testDigest) {
+		t.Fatal("familiar alias accepted a different digest")
 	}
 }
 

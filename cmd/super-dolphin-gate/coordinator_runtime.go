@@ -18,9 +18,12 @@ const (
 	coordinatorStateTransitionTimeout = time.Second
 	coordinatorCleanupTimeout         = 30 * time.Second
 	coordinatorProvisioningTimeout    = 15 * time.Minute
-	coordinatorSourceSetupTimeout     = 5 * time.Minute
+	coordinatorCandidateBuildTimeout  = 45 * time.Minute
+	coordinatorSourceSetupTimeout     = 15 * time.Minute
 	coordinatorNormalTimeout          = 10 * time.Minute
 	coordinatorReleaseTimeout         = 30 * time.Minute
+	coordinatorPromotionPollMinMillis = int64(5_000)
+	coordinatorPromotionPollMaxMillis = int64(60_000)
 )
 
 var (
@@ -512,8 +515,25 @@ func (client *coordinatorTransportClient) enqueuePersistedJob(
 	ctx context.Context,
 	record coordinatorJobRecord,
 ) error {
-	if len(record.SchedulerDependencies) == 1 {
-		if err := client.ensureCandidateBuildEnqueued(ctx, record, record.SchedulerDependencies[0]); err != nil {
+	predecessorID, err := fifoPredecessorDependency(record)
+	if err != nil {
+		return err
+	}
+	if predecessorID != "" {
+		predecessor, err := client.store.job(ctx, predecessorID)
+		if err != nil {
+			return fmt.Errorf("load durable FIFO predecessor for %q: %w", record.JobID, err)
+		}
+		if err := client.ensurePersistedJobScheduled(ctx, predecessor); err != nil {
+			return fmt.Errorf("ensure durable FIFO predecessor for %q: %w", record.JobID, err)
+		}
+	}
+	buildDependency, err := candidateBuildDependency(record)
+	if err != nil {
+		return err
+	}
+	if buildDependency != "" {
+		if err := client.ensureCandidateBuildEnqueued(ctx, record, buildDependency); err != nil {
 			return fmt.Errorf("ensure durable build enqueue for %q: %w", record.JobID, err)
 		}
 	}

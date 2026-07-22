@@ -101,6 +101,21 @@ func TestCoordinatorLifecycleStartingUsesProfileExecutionDeadline(t *testing.T) 
 	}
 }
 
+func TestCoordinatorTimeoutBudgetsSeparateCandidateBuildFromShardExecution(t *testing.T) {
+	if coordinatorCandidateBuildTimeout != 45*time.Minute {
+		t.Fatalf("candidate build timeout = %v, want 45m", coordinatorCandidateBuildTimeout)
+	}
+	if coordinatorProvisioningTimeout >= coordinatorCandidateBuildTimeout {
+		t.Fatalf("provisioning timeout %v must remain separate from candidate build timeout %v", coordinatorProvisioningTimeout, coordinatorCandidateBuildTimeout)
+	}
+	if coordinatorSourceSetupTimeout != 15*time.Minute {
+		t.Fatalf("source setup timeout = %v, want 15m", coordinatorSourceSetupTimeout)
+	}
+	if coordinatorNormalTimeout != 10*time.Minute || coordinatorReleaseTimeout != 30*time.Minute {
+		t.Fatalf("execution timeouts = normal %v release %v", coordinatorNormalTimeout, coordinatorReleaseTimeout)
+	}
+}
+
 func TestCoordinatorLifecycleStartingRejectsDriftedDeadline(t *testing.T) {
 	started := time.Now().UTC()
 	deadline := started.Add(coordinatorNormalTimeout)
@@ -196,10 +211,17 @@ plan_json, profile, job_source_tree_sha, state, submitted_at
 func TestCoordinatorProvisioningDeadlineIsInfraFailedWithoutExecutionClock(t *testing.T) {
 	owner := startDeadlineOwner(t, deadlineBlockingImageEnsurer{}, immediateFreshRunner{})
 	record := reserveDeadlineJob(t, owner, "provision-timeout")
+	if err := owner.store.startJob(context.Background(), record.JobID); err != nil {
+		t.Fatal(err)
+	}
+	record, err := owner.store.job(context.Background(), record.JobID)
+	if err != nil {
+		t.Fatal(err)
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
 	defer cancel()
-	if err := owner.executeJob(ctx, record.JobID); err != nil {
-		t.Fatalf("executeJob() error = %v", err)
+	if err := owner.admitContainerShards(ctx, record); err != nil {
+		t.Fatalf("admitContainerShards() error = %v", err)
 	}
 	completed, err := owner.store.job(context.Background(), record.JobID)
 	if err != nil {
@@ -354,6 +376,8 @@ func persistDeadlineTimeoutLifecycle(
 		localci.FreshContainerPhaseRemoved,
 	} {
 		event := missingExitLifecycleEvent(startedAt, deadline, phase)
+		labels := legacyLifecycleLabels(record)
+		bindCreatingOperationIdentity(t, labels, &event)
 		event.ExitCode = 137
 		if phase == localci.FreshContainerPhaseExited || phase == localci.FreshContainerPhaseRemoved {
 			event.ExitedAt, event.CompletedAt = exitedAt, completedAt
@@ -362,7 +386,7 @@ func persistDeadlineTimeoutLifecycle(
 			event.RemovalProofDigest = removalProof
 		}
 		if err := store.recordContainerLifecycle(
-			context.Background(), record.JobID, gateID, legacyLifecycleLabels(record), event,
+			context.Background(), record.JobID, gateID, labels, event,
 		); err != nil {
 			t.Fatalf("record deadline timeout lifecycle %q: %v", phase, err)
 		}

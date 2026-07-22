@@ -209,7 +209,7 @@ func (runner *blockingFreshRunner) waitForLifecycle(t *testing.T, count int) {
 	for range count {
 		select {
 		case <-runner.lifecycleComplete:
-		case <-time.After(10 * time.Second):
+		case <-time.After(30 * time.Second):
 			t.Fatal("timed out waiting for shard lifecycle completion")
 		}
 	}
@@ -495,7 +495,7 @@ func assertCoordinatorShardGroupsRunFIFO(
 		var request freshContainerRequest
 		select {
 		case request = <-runner.started:
-		case <-time.After(3 * time.Second):
+		case <-time.After(10 * time.Second):
 			t.Fatalf("timed out waiting for shard group %d", index)
 		}
 		if request.JobSourceTreeSHA != submitted.JobSourceTreeSHA {

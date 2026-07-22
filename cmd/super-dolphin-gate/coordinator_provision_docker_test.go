@@ -415,7 +415,7 @@ func productionProvisionDockerManifest(
 		SeccompProfile:     writeProductionProvisionDockerSeccomp(t, releaseInputs),
 		TrustedSourceRoot:  prepareProductionTrustedSourceRoot(t),
 		Platform:           runner.OS + "/" + runner.Architecture, TrustedRootKeys: []productionTrustedKey{trust},
-		CandidateTTLSeconds: 3600, PromotionPollMillis: 20, ActionGrantTTLSeconds: 60,
+		CandidateTTLSeconds: 3600, PromotionPollMillis: 5_000, ActionGrantTTLSeconds: 60,
 	}
 	return manifest, root
 }

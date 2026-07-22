@@ -179,7 +179,9 @@ func persistLegacyLifecycle(
 ) {
 	t.Helper()
 	event := legacyLifecycleEvent(startedAt, deadline, phase)
-	if err := store.recordContainerLifecycle(context.Background(), record.JobID, record.Plan.Gates[0].ID, legacyLifecycleLabels(record), event); err != nil {
+	labels := legacyLifecycleLabels(record)
+	bindCreatingOperationIdentity(t, labels, &event)
+	if err := store.recordContainerLifecycle(context.Background(), record.JobID, record.Plan.Gates[0].ID, labels, event); err != nil {
 		t.Fatalf("record legacy lifecycle %q: %v", phase, err)
 	}
 }
@@ -214,6 +216,22 @@ func legacyLifecycleLabels(record coordinatorJobRecord) map[string]string {
 	return map[string]string{"job": record.JobID}
 }
 
+func bindCreatingOperationIdentity(
+	t *testing.T,
+	labels map[string]string,
+	event *localci.FreshContainerLifecycleEvent,
+) {
+	t.Helper()
+	if event.Phase != localci.FreshContainerPhaseCreating {
+		return
+	}
+	identity, err := localci.FreshContainerOperationIdentity(labels)
+	if err != nil {
+		t.Fatalf("derive creating operation identity: %v", err)
+	}
+	event.ContainerID = identity
+}
+
 func missingExitTerminalStore(t *testing.T) (*coordinatorStore, coordinatorJobRecord, time.Time, time.Time) {
 	t.Helper()
 	store, record := coordinatorLogTestStore(t)
@@ -228,8 +246,10 @@ func missingExitTerminalStore(t *testing.T) (*coordinatorStore, coordinatorJobRe
 		localci.FreshContainerPhaseStarted,
 	} {
 		event := missingExitLifecycleEvent(startedAt, deadline, phase)
+		labels := legacyLifecycleLabels(record)
+		bindCreatingOperationIdentity(t, labels, &event)
 		if err := store.recordContainerLifecycle(
-			context.Background(), record.JobID, record.Plan.Gates[0].ID, legacyLifecycleLabels(record), event,
+			context.Background(), record.JobID, record.Plan.Gates[0].ID, labels, event,
 		); err != nil {
 			t.Fatalf("record missing-exit lifecycle %q: %v", phase, err)
 		}

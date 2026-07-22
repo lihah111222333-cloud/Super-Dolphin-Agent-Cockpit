@@ -116,6 +116,12 @@ const freshContainerPreStartTimeout = 5 * time.Minute
 
 const freshContainerLifecycleCleanupTimeout = 30 * time.Second
 
+const (
+	freshContainerOperationIdentityPrefix = "super-dolphin-create-"
+	creatingAbsenceProofs                 = 3
+	creatingAbsenceRetry                  = 10 * time.Millisecond
+)
+
 // FreshContainerRunner creates one new container for every RunFreshContainer call.
 type FreshContainerRunner struct {
 	docker                  *dockerExecutor
@@ -543,14 +549,19 @@ func failContainerRemoval(result FreshContainerResult, runErr error, cause error
 	return result, errors.Join(runErr, cause)
 }
 
+// emitLifecycle 在 Docker 边界后同步提交可持久化 lifecycle 事件。
 func (runner *FreshContainerRunner) emitLifecycle(
 	ctx context.Context,
 	request FreshContainerRequest,
 	result FreshContainerResult,
 	phase FreshContainerLifecyclePhase,
 ) error {
+	containerID, err := freshContainerLifecycleIdentity(request, result, phase)
+	if err != nil {
+		return err
+	}
 	event := FreshContainerLifecycleEvent{
-		Phase: phase, ContainerID: result.Container.ContainerID,
+		Phase: phase, ContainerID: containerID,
 		ImageReference: result.ImageReference, ConfigDigest: request.Image.ConfigDigest,
 		HostConfigDigest: result.Container.HostConfigDigest,
 		ResourceWitness:  result.Container.ResourceWitness, ResourceWitnessDigest: result.Container.ResourceWitnessDigest,
@@ -568,6 +579,53 @@ func (runner *FreshContainerRunner) emitLifecycle(
 		return fmt.Errorf("persist container lifecycle phase %q: %w", phase, err)
 	}
 	return nil
+}
+
+// freshContainerLifecycleIdentity persists an operation identity before Docker
+// can return the runtime container ID, and reuses it for absence completion.
+func freshContainerLifecycleIdentity(
+	request FreshContainerRequest,
+	result FreshContainerResult,
+	phase FreshContainerLifecyclePhase,
+) (string, error) {
+	if phase == FreshContainerPhaseCreating {
+		return FreshContainerOperationIdentity(request.ContainerLabels)
+	}
+	return result.Container.ContainerID, nil
+}
+
+// FreshContainerOperationIdentity 从完整不可变 labels 闭包派生创建前操作身份。
+func FreshContainerOperationIdentity(labels map[string]string) (string, error) {
+	if len(labels) == 0 {
+		return "", errors.New("container labels are required for operation identity")
+	}
+	for key, value := range labels {
+		if key == "" || value == "" {
+			return "", errors.New("container operation identity labels must be non-empty")
+		}
+	}
+	canonical, err := json.Marshal(labels)
+	if err != nil {
+		return "", fmt.Errorf("encode container operation identity labels: %w", err)
+	}
+	return freshContainerOperationIdentityPrefix + strings.TrimPrefix(digestBytes(canonical), "sha256:"), nil
+}
+
+// IsFreshContainerOperationIdentity 判断持久身份是否表示未完成的创建操作。
+func IsFreshContainerOperationIdentity(value string) bool {
+	if !strings.HasPrefix(value, freshContainerOperationIdentityPrefix) {
+		return false
+	}
+	digest := strings.TrimPrefix(value, freshContainerOperationIdentityPrefix)
+	if len(digest) != 64 {
+		return false
+	}
+	for _, character := range digest {
+		if !((character >= '0' && character <= '9') || (character >= 'a' && character <= 'f')) {
+			return false
+		}
+	}
+	return true
 }
 
 func parseContainerExitCode(output string) (int, error) {
@@ -730,136 +788,4 @@ func recoveredContainerExit(exitCode int) (gate.ResultStatus, error) {
 		return gate.ResultStatusFailed, fmt.Errorf("recovered gate container exited with code %d", exitCode)
 	}
 	return gate.ResultStatusPassed, nil
-}
-
-// validateRecoveryRequest 校验恢复时钟与不可变 Docker 请求，不接受重算 deadline。
-func (runner *FreshContainerRunner) validateRecoveryRequest(request FreshContainerRecoveryRequest) error {
-	if err := request.Profile.Validate(); err != nil {
-		return err
-	}
-	if !hasCanonicalRecoveryClock(request) {
-		return errors.New("recovery started_at and deadline must be non-zero UTC timestamps")
-	}
-	if !request.Deadline.Equal(request.StartedAt.Add(executionTimeout(request.Profile == gate.ProfileRelease))) {
-		return errors.New("recovery deadline does not match the original profile timeout")
-	}
-	if request.ContainerID != "" && !isContainerID(request.ContainerID) {
-		return errors.New("recovery container ID is invalid")
-	}
-	container := newContainerRequest(request.ImageReference, request.SourceSnapshotDir, request.Command, request.Profile == gate.ProfileRelease, request.ContainerLabels)
-	if err := runner.docker.validateContainerRequest(container); err != nil {
-		return err
-	}
-	if err := validateDigest("recovery config digest", request.ConfigDigest); err != nil {
-		return err
-	}
-	if len(request.ContainerLabels) == 0 {
-		return errors.New("recovery container labels are required")
-	}
-	return nil
-}
-
-func hasCanonicalRecoveryClock(request FreshContainerRecoveryRequest) bool {
-	return request.StartedAt.Equal(request.StartedAt.UTC()) && request.Deadline.Equal(request.Deadline.UTC()) &&
-		!request.StartedAt.IsZero() && !request.Deadline.IsZero()
-}
-
-func freshContainerRequestForRecovery(request FreshContainerRecoveryRequest) FreshContainerRequest {
-	return FreshContainerRequest{
-		Image: gate.ImageIdentity{ConfigDigest: request.ConfigDigest}, SourceSnapshotDir: request.SourceSnapshotDir,
-		Profile: request.Profile, GateID: request.GateID, ContainerLabels: request.ContainerLabels,
-		Deadline: request.Deadline, LifecycleHook: request.LifecycleHook,
-	}
-}
-
-// resolveRecoveryContainer 使用持久 ID 或全部 labels 唯一定位原容器。
-func (runner *FreshContainerRunner) resolveRecoveryContainer(
-	ctx context.Context,
-	request FreshContainerRecoveryRequest,
-) (string, error) {
-	if request.ContainerID != "" {
-		return request.ContainerID, nil
-	}
-	keys := make([]string, 0, len(request.ContainerLabels))
-	for key := range request.ContainerLabels {
-		keys = append(keys, key)
-	}
-	slices.Sort(keys)
-	args := []string{"ps", "--all", "--no-trunc"}
-	for _, key := range keys {
-		args = append(args, "--filter=label="+key+"="+request.ContainerLabels[key])
-	}
-	args = append(args, "--format={{.ID}}")
-	output, err := runner.docker.runner.Run(ctx, args...)
-	if err != nil {
-		return "", fmt.Errorf("discover recovery container: %w", err)
-	}
-	lines := strings.Fields(output)
-	if len(lines) != 1 || !isContainerID(lines[0]) {
-		return "", fmt.Errorf("recovery labels resolved %d canonical containers, want 1", len(lines))
-	}
-	return lines[0], nil
-}
-
-func (runner *FreshContainerRunner) validateRecoveryContainer(
-	document containerInspectDocument,
-	request FreshContainerRecoveryRequest,
-) error {
-	if err := runner.validateRecoveryContainerIdentity(document, request); err != nil {
-		return err
-	}
-	if document.State == nil || (!document.State.Running && document.State.Status != "exited") {
-		return errors.New("recovery container is not alive or exited")
-	}
-	return nil
-}
-
-// validateRecoveryContainerIdentity 验证镜像、命令、挂载、隔离与 labels 的闭包。
-func (runner *FreshContainerRunner) validateRecoveryContainerIdentity(
-	document containerInspectDocument,
-	request FreshContainerRecoveryRequest,
-) error {
-	expectedContainerID := document.ID
-	if request.ContainerID != "" {
-		expectedContainerID = request.ContainerID
-	}
-	if err := validateContainerIdentity(
-		document, expectedContainerID, request.ImageReference, request.ConfigDigest, request.Command,
-	); err != nil {
-		return err
-	}
-	if err := validateContainerHostIsolation(document.HostConfig); err != nil {
-		return err
-	}
-	if err := validateContainerMount(document, request.SourceSnapshotDir); err != nil {
-		return err
-	}
-	if document.Config == nil {
-		return errors.New("recovery container config is missing")
-	}
-	for key, expected := range request.ContainerLabels {
-		if document.Config.Labels[key] != expected {
-			return fmt.Errorf("recovery container label %q drifted", key)
-		}
-	}
-	return nil
-}
-
-func (runner *FreshContainerRunner) terminateUnprovedRecovery(
-	ctx context.Context,
-	request FreshContainerRecoveryRequest,
-	result FreshContainerResult,
-	cause error,
-) (FreshContainerResult, error) {
-	cleanupContext, cancel := platformconfig.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
-	defer cancel()
-	_, killErr := runner.docker.runner.Run(cleanupContext, "kill", result.Container.ContainerID)
-	if killErr == nil {
-		result.Killed = true
-		result.KillProofDigest = digestBytes([]byte("killed\n" + result.Container.ContainerID + "\n"))
-	}
-	_, waitErr := runner.docker.runner.Run(cleanupContext, "wait", result.Container.ContainerID)
-	freshRequest := freshContainerRequestForRecovery(request)
-	result, removeErr := runner.removeContainer(cleanupContext, result, freshRequest, nil)
-	return result, errors.Join(cause, killErr, waitErr, removeErr)
 }

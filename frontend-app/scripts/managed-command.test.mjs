@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { cwd, execPath } from 'node:process';
 import { describe, expect, it } from 'vitest';
-import { runManagedCommand, terminateManagedCommands } from './managed-command.mjs';
+import { runManagedCommand, signalProcessTree, terminateManagedCommands } from './managed-command.mjs';
 
 function processIsGone(pid) {
   try {
@@ -31,6 +31,12 @@ async function waitForFile(filePath, timeoutMs = 4_000) {
 }
 
 describe('managed command', () => {
+  it('signals the detached POSIX process group', () => {
+    const calls = [];
+    signalProcessTree({ pid: 42 }, 'SIGTERM', 'linux', (pid, signal) => calls.push({ pid, signal }));
+    expect(calls).toEqual([{ pid: -42, signal: 'SIGTERM' }]);
+  });
+
   it('terminates a timed-out command group including its descendant process', async () => {
     const tempRoot = mkdtempSync(join(tmpdir(), 'managed-command-descendant-'));
     const pidPath = join(tempRoot, 'pids.json');

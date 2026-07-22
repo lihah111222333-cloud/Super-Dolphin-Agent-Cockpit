@@ -187,43 +187,35 @@ func TestUpdateRecoveryReleaseGateIsExposedByMake(t *testing.T) {
 	}
 }
 
-func TestUpdateRecoveryReleaseGateCIRequiresNativeMacOSAndWindowsEvidence(t *testing.T) {
+func TestUpdateRecoveryCIUsesTruthImageCoordinator(t *testing.T) {
 	root := updateRecoveryReleaseGateRepoRoot(t)
-	workflow := updateRecoveryParseWorkflow(t, filepath.Join(root, ".github", "workflows", "ci.yml"))
-
-	macOSJob := updateRecoveryRequireWorkflowJob(t, workflow, "update-recovery-release-gate-macos")
-	if macOSJob.RunsOn != "macos-latest" || !updateRecoveryJobRuns(macOSJob, "make release-update-gate") {
-		t.Fatal("macOS update recovery job must run the full release gate on macos-latest")
-	}
-	windowsJob := updateRecoveryRequireWorkflowJob(t, workflow, "update-recovery-release-gate-windows")
-	for _, want := range []string{
-		"./scripts/test_with_guard.sh ./cmd/super-dolphin-updater ./internal/module/appupdate ./internal/platform/appupdatefailure -count=1",
-		"./scripts/test_with_guard.sh ./cmd/super-dolphin-guard -run 'TestGuard.*(Rollback|Probation|PIDReuse|Termination)' -count=1",
-		"./scripts/test_with_guard.sh ./scripts -run '^TestWindowsPackageVerifierAcceptsRealFixture$' -count=1",
-		`GOOS=windows GOARCH=arm64 CGO_ENABLED=0 ./scripts/go_with_guard.sh test -c -o "$RUNNER_TEMP/updater-arm64.test.exe" ./cmd/super-dolphin-updater`,
-		`GOOS=windows GOARCH=arm64 CGO_ENABLED=0 ./scripts/go_with_guard.sh test -c -o "$RUNNER_TEMP/appupdate-arm64.test.exe" ./internal/module/appupdate`,
-		`GOOS=windows GOARCH=arm64 CGO_ENABLED=0 ./scripts/go_with_guard.sh test -c -o "$RUNNER_TEMP/appupdatefailure-arm64.test.exe" ./internal/platform/appupdatefailure`,
-	} {
-		if !updateRecoveryJobRuns(windowsJob, want) {
-			t.Fatalf("Windows update recovery job missing %q", want)
+	for _, name := range []string{"ci.yml", "sqlite-release-gates.yml"} {
+		workflow := updateRecoveryReleaseGateReadFile(t, filepath.Join(root, ".github", "workflows", name))
+		for _, required := range []string{"truth-image-gates:", "Trusted bootstrap coordinator", "workflow-host", "target=/workspace/super-dolphin-checkout,readonly"} {
+			if !strings.Contains(workflow, required) {
+				t.Fatalf("%s missing truth-image coordinator requirement %q", name, required)
+			}
 		}
-	}
-	if windowsJob.RunsOn != "windows-latest" {
-		t.Fatal("Windows update recovery job must run on windows-latest")
-	}
-	crossPlatform := updateRecoveryRequireWorkflowJob(t, workflow, "cross-platform-smoke")
-	if !slices.Equal(updateRecoveryJobNeeds(t, crossPlatform), []string{"commit-guard", "update-recovery-release-gate-macos", "update-recovery-release-gate-windows"}) {
-		t.Fatal("cross-platform smoke must depend on native macOS and Windows recovery gates")
+		for _, forbidden := range []string{"make release-update-gate", "test_with_guard.sh", "go test"} {
+			if strings.Contains(workflow, forbidden) {
+				t.Fatalf("%s runs update recovery CI on the workflow host: %q", name, forbidden)
+			}
+		}
 	}
 }
 
-func TestUpdateRecoveryReleaseGateCIMarksLinuxAsSupplemental(t *testing.T) {
+func TestUpdateRecoveryNativeReleaseEvidenceRemainsManualOnly(t *testing.T) {
 	root := updateRecoveryReleaseGateRepoRoot(t)
-	workflow := updateRecoveryParseWorkflow(t, filepath.Join(root, ".github", "workflows", "ci.yml"))
-
-	linuxJob := updateRecoveryRequireWorkflowJob(t, workflow, "update-recovery-release-gate-linux-supplemental")
-	if linuxJob.RunsOn != "ubuntu-latest" || !linuxJob.ContinueOnError || !updateRecoveryJobRuns(linuxJob, "make release-update-gate") {
-		t.Fatal("CI Linux update recovery evidence must be supplemental and run the full gate")
+	workflow := updateRecoveryReleaseGateReadFile(t, filepath.Join(root, ".github", "workflows", "release.yml"))
+	for _, required := range []string{"workflow_dispatch:", "update-recovery-release", "package-macos-arm64:", "package-windows-arm64:", "make release-update-gate"} {
+		if !strings.Contains(workflow, required) {
+			t.Fatalf("manual native release workflow missing %q", required)
+		}
+	}
+	for _, forbidden := range []string{"\n  pull_request:", "\n  pull_request_target:", "\n  push:"} {
+		if strings.Contains(workflow, forbidden) {
+			t.Fatalf("native release evidence workflow must remain manual-only: %q", forbidden)
+		}
 	}
 }
 
@@ -237,30 +229,18 @@ func TestUpdateRecoveryWorkflowCommentsCannotFakeGateEvidence(t *testing.T) {
 	}
 }
 
-func TestSQLitePackagingSmokeDependsOnNativeUpdateRecoveryGates(t *testing.T) {
+func TestSQLiteReleaseWorkflowDelegatesNativeGateSelectionToCoordinator(t *testing.T) {
 	root := updateRecoveryReleaseGateRepoRoot(t)
-	workflow := updateRecoveryParseWorkflow(t, filepath.Join(root, ".github", "workflows", "sqlite-release-gates.yml"))
-	macOSJob := updateRecoveryRequireWorkflowJob(t, workflow, "update-recovery-release-gate-macos")
-	if macOSJob.RunsOn != "macos-latest" || !updateRecoveryJobRuns(macOSJob, "make release-update-gate") {
-		t.Fatal("SQLite release workflow macOS job must run the full update recovery gate")
-	}
-	windowsJob := updateRecoveryRequireWorkflowJob(t, workflow, "update-recovery-release-gate-windows")
-	for _, want := range []string{"TestGuard.*(Rollback|Probation|PIDReuse|Termination)", "TestWindowsPackageVerifierAcceptsRealFixture"} {
-		if !updateRecoveryJobRuns(windowsJob, want) {
-			t.Fatalf("SQLite release workflow Windows gate missing %q", want)
+	workflow := updateRecoveryReleaseGateReadFile(t, filepath.Join(root, ".github", "workflows", "sqlite-release-gates.yml"))
+	for _, required := range []string{"truth-image-gates:", "docker pull --platform=linux/amd64", "docker run --rm", "workflow-host"} {
+		if !strings.Contains(workflow, required) {
+			t.Fatalf("SQLite release workflow missing coordinator delegation %q", required)
 		}
 	}
-	if windowsJob.RunsOn != "windows-latest" {
-		t.Fatal("SQLite release workflow Windows gate must run on windows-latest")
-	}
-	linuxJob := updateRecoveryRequireWorkflowJob(t, workflow, "update-recovery-release-gate-linux-supplemental")
-	if !linuxJob.ContinueOnError || !updateRecoveryJobRuns(linuxJob, "make release-update-gate") {
-		t.Fatal("SQLite release workflow Linux evidence must remain supplemental")
-	}
-	packagingJob := updateRecoveryRequireWorkflowJob(t, workflow, "sqlite-packaging-smoke")
-	wantNeeds := []string{"update-recovery-release-gate-macos", "update-recovery-release-gate-windows"}
-	if !slices.Equal(updateRecoveryJobNeeds(t, packagingJob), wantNeeds) {
-		t.Fatalf("SQLite packaging smoke missing native update recovery dependencies %v", wantNeeds)
+	for _, obsoleteJob := range []string{"update-recovery-release-gate-macos:", "update-recovery-release-gate-windows:", "sqlite-packaging-smoke:"} {
+		if strings.Contains(workflow, obsoleteJob) {
+			t.Fatalf("SQLite release workflow retained host gate job %q", obsoleteJob)
+		}
 	}
 }
 

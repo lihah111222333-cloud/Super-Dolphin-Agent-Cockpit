@@ -22,7 +22,7 @@ docs/ai01-docs/project-sop/03-architecture-diagrams.md	docs	docs-agent	doc	4874	
 docs/ai01-docs/project-sop/04-data-model.md	docs	docs-agent	doc	6900	项目文档体系	docs,ai01,project,sop,04,data,model,项目文档体系
 docs/ai01-docs/project-sop/05-interfaces-and-sequences.md	docs	docs-agent	doc	5441	项目文档体系	docs,ai01,project,sop,05,interfaces,and,sequences,项目文档体系
 docs/ai01-docs/project-sop/06-codebase-startup-quality.md	docs	docs-agent	doc	5428	项目文档体系	docs,ai01,project,sop,06,codebase,startup,quality,项目文档体系
-docs/ai01-docs/project-sop/07-ci-cd-ops-incident.md	docs	docs-agent	doc	5487	项目文档体系	docs,ai01,project,sop,07,ci,cd,ops,incident,项目文档体系
+docs/ai01-docs/project-sop/07-ci-cd-ops-incident.md	docs	docs-agent	doc	6203	项目文档体系	docs,ai01,project,sop,07,ci,cd,ops,incident,项目文档体系
 docs/ai01-docs/project-sop/08-delivery-review-knowledge-base.md	docs	docs-agent	doc	5325	项目文档体系	docs,ai01,project,sop,08,delivery,review,knowledge,base,项目文档体系
 docs/ai01-docs/project-sop/README.md	docs	docs-agent	doc	3767	项目文档体系	docs,ai01,project,sop,README,项目文档体系
 docs/ai01-docs/scan/deep-security-scan-feature-integration-20260618.md	docs	docs-agent	doc	15970	项目文档体系	docs,ai01,scan,deep,security,feature,integration,20260618,项目文档体系
@@ -334,7 +334,7 @@ docs/doc/codemap/11-memory.md	docs	docs-agent	doc	27255	手写代码地图卷与
 docs/doc/codemap/11-prompt-thread.md	docs	docs-agent	doc	59096	手写代码地图卷与自动 ai-index	docs,doc,codemap,11,prompt,thread,手写代码地图卷与自动,ai-index
 docs/doc/codemap/12-dream-pipeline.md	docs	docs-agent	doc	11444	手写代码地图卷与自动 ai-index	docs,doc,codemap,12,dream,pipeline,手写代码地图卷与自动,ai-index
 docs/doc/codemap/13-archtest-boundaries.md	docs	docs-agent	doc	19064	手写代码地图卷与自动 ai-index	docs,doc,codemap,13,archtest,boundaries,手写代码地图卷与自动,ai-index
-docs/doc/codemap/capability-contract/capability_manifest.json	docs	docs-agent	json	2700017	手写代码地图卷与自动 ai-index	docs,doc,codemap,capability,contract,manifest,手写代码地图卷与自动,ai-index
+docs/doc/codemap/capability-contract/capability_manifest.json	docs	docs-agent	json	2700543	手写代码地图卷与自动 ai-index	docs,doc,codemap,capability,contract,manifest,手写代码地图卷与自动,ai-index
 docs/doc/codemap/README.md	docs	docs-agent	doc	3133	手写代码地图卷与自动 ai-index	docs,doc,codemap,README,手写代码地图卷与自动,ai-index
 docs/git-history-analysis-2026-07-04.md	docs	docs-agent	doc	18798	项目文档体系	docs,git,history,analysis,2026,07,04,项目文档体系
 docs/git-history-v3-architecture-governance-clusters-2026-07-04.md	docs	docs-agent	doc	16065	项目文档体系	docs,git,history,v3,architecture,governance,clusters,2026,07,04,项目文档体系
@@ -469,7 +469,7 @@ docs/plans/2026-07-14-full-repo-audit-remediation-3-agent-execution.md	docs	docs
 docs/plans/2026-07-15-frontend-maintainability-error-discoverability-90-plan.md	docs	docs-agent	doc	25935	历史计划与迁移执行文档	docs,plans,2026,07,15,frontend,maintainability,error,discoverability,90,plan,历史计划与迁移执行文档
 docs/plans/2026-07-15-full-repo-risk-multi-agent-repair.md	docs	docs-agent	doc	25289	历史计划与迁移执行文档	docs,plans,2026,07,15,full,repo,risk,multi,agent,repair,历史计划与迁移执行文档
 docs/plans/2026-07-15-reasonix-production-hardening-next-absorption.md	docs	docs-agent	doc	19911	历史计划与迁移执行文档	docs,plans,2026,07,15,reasonix,production,hardening,next,absorption,历史计划与迁移执行文档
-docs/plans/2026-07-16-local-docker-truth-image-ci-git-codex-hook-migration.md	docs	docs-agent	doc	60345	历史计划与迁移执行文档	docs,plans,2026,07,16,local,docker,truth,image,ci,git,codex,hook,migration,历史计划与迁移执行文档
+docs/plans/2026-07-16-local-docker-truth-image-ci-git-codex-hook-migration.md	docs	docs-agent	doc	60480	历史计划与迁移执行文档	docs,plans,2026,07,16,local,docker,truth,image,ci,git,codex,hook,migration,历史计划与迁移执行文档
 docs/plans/2026-07-21-frontend-p03-performance-technical-debt.md	docs	docs-agent	doc	3849	历史计划与迁移执行文档	docs,plans,2026,07,21,frontend,p03,performance,technical,debt,历史计划与迁移执行文档
 docs/plans/claude缓存保活计划.md	docs	docs-agent	doc	27030	历史计划与迁移执行文档	docs,plans,claude缓存保活计划,历史计划与迁移执行文档
 docs/plans/context-optimization-per-tool-budget.md	docs	docs-agent	doc	13782	历史计划与迁移执行文档	docs,plans,context,optimization,per,tool,budget,历史计划与迁移执行文档
@@ -836,7 +836,7 @@ docs/scripts/macos_release_smoke.sh	docs	docs-agent	script	19061	项目文档体
 docs/security/gate-hook-production-e2e.md	docs	docs-agent	doc	1345	项目文档体系	docs,security,gate,hook,production,e2e,项目文档体系
 docs/security/internal/check_repofp_delegators.go	docs	docs-agent	go-source	2298	项目文档体系	docs,security,internal,check,repofp,delegators,项目文档体系
 docs/security/p21-redteam.sh	docs	docs-agent	script	7238	项目文档体系	docs,security,p21,redteam,项目文档体系
-docs/security/production-bootstrap-provisioning.md	docs	docs-agent	doc	6795	项目文档体系	docs,security,production,bootstrap,provisioning,项目文档体系
+docs/security/production-bootstrap-provisioning.md	docs	docs-agent	doc	7238	项目文档体系	docs,security,production,bootstrap,provisioning,项目文档体系
 docs/superpowers/plans/2026-04-29-skill-refactor-p1-foundation.md	docs	docs-agent	doc	60142	项目文档体系	docs,superpowers,plans,2026,04,29,skill,refactor,p1,foundation,项目文档体系
 docs/superpowers/plans/2026-04-29-skill-refactor-p2-claude-cutover.md	docs	docs-agent	doc	34495	项目文档体系	docs,superpowers,plans,2026,04,29,skill,refactor,p2,claude,cutover,项目文档体系
 docs/superpowers/plans/2026-04-29-skill-refactor-p3-codex-cutover.md	docs	docs-agent	doc	26090	项目文档体系	docs,superpowers,plans,2026,04,29,skill,refactor,p3,codex,cutover,项目文档体系
@@ -938,7 +938,7 @@ docs/契约/statemachine-event-convention.md	docs	docs-agent	doc	32361	项目文
 docs/契约/workflow-runtime-state-contract.md	docs	docs-agent	doc	4630	项目文档体系	docs,契约,workflow,runtime,state,contract,项目文档体系
 docs/架构/fx-rungroup-skeleton.md	docs	docs-agent	doc	4096	项目文档体系	docs,架构,fx,rungroup,skeleton,项目文档体系
 docs/架构/README.md	docs	docs-agent	doc	2026	项目文档体系	docs,架构,README,项目文档体系
-docs/架构/skeleton-code-guard.md	docs	docs-agent	doc	12018	项目文档体系	docs,架构,skeleton,code,guard,项目文档体系
+docs/架构/skeleton-code-guard.md	docs	docs-agent	doc	12081	项目文档体系	docs,架构,skeleton,code,guard,项目文档体系
 docs/架构/skeleton-event.md	docs	docs-agent	doc	4409	项目文档体系	docs,架构,skeleton,event,项目文档体系
 docs/架构/skeleton-fx.md	docs	docs-agent	doc	14159	项目文档体系	docs,架构,skeleton,fx,项目文档体系
 docs/架构/skeleton-jrpc2.md	docs	docs-agent	doc	4952	项目文档体系	docs,架构,skeleton,jrpc2,项目文档体系
@@ -957,5 +957,5 @@ README.de.md	(root)	docs-agent	doc	31717	仓库根级配置、入口或说明文
 README.es.md	(root)	docs-agent	doc	32222	仓库根级配置、入口或说明文件	README,es,仓库根级配置,入口或说明文件
 README.ja.md	(root)	docs-agent	doc	33029	仓库根级配置、入口或说明文件	README,ja,仓库根级配置,入口或说明文件
 README.ko.md	(root)	docs-agent	doc	31629	仓库根级配置、入口或说明文件	README,ko,仓库根级配置,入口或说明文件
-README.md	(root)	docs-agent	doc	28941	仓库根级配置、入口或说明文件	README,仓库根级配置,入口或说明文件
+README.md	(root)	docs-agent	doc	29092	仓库根级配置、入口或说明文件	README,仓库根级配置,入口或说明文件
 README.zh-CN.md	(root)	docs-agent	doc	25482	仓库根级配置、入口或说明文件	README,zh,CN,仓库根级配置,入口或说明文件

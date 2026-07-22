@@ -67,8 +67,9 @@ func validateProductionProvisionTiming(manifest productionProvisionManifest) err
 	if manifest.CandidateTTLSeconds <= 0 || manifest.CandidateTTLSeconds > 604_800 {
 		return errors.New("production provision candidate_ttl_seconds must be within 1..604800")
 	}
-	if manifest.PromotionPollMillis < 10 || manifest.PromotionPollMillis > 60_000 {
-		return errors.New("production provision promotion_poll_millis must be within 10..60000")
+	if manifest.PromotionPollMillis < coordinatorPromotionPollMinMillis ||
+		manifest.PromotionPollMillis > coordinatorPromotionPollMaxMillis {
+		return errors.New("production provision promotion_poll_millis must be within 5000..60000")
 	}
 	if manifest.ActionGrantTTLSeconds <= 0 || manifest.ActionGrantTTLSeconds > 900 {
 		return errors.New("production provision action_grant_ttl_seconds must be within 1..900")

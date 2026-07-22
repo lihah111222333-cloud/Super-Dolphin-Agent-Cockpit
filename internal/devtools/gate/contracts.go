@@ -133,10 +133,21 @@ type GrantRequest struct {
 	Ref                  string                 `json:"ref,omitempty"`
 	OldSHA               string                 `json:"old_sha,omitempty"`
 	NewSHA               string                 `json:"new_sha,omitempty"`
+	ReleaseRepository    string                 `json:"release_repository,omitempty"`
+	ReleaseTag           string                 `json:"release_tag,omitempty"`
+	ReleaseCommitSHA     string                 `json:"release_commit_sha,omitempty"`
+	ReleaseAssets        []ReleaseAsset         `json:"release_assets,omitempty"`
 	ActionAttemptID      string                 `json:"action_attempt_id"`
 	RequestNonce         string                 `json:"request_nonce"`
 	RequestedAt          time.Time              `json:"requested_at"`
 	ExpiresAt            time.Time              `json:"expires_at"`
+}
+
+// ReleaseAsset binds one GitHub release asset to its normalized upload name and bytes.
+type ReleaseAsset struct {
+	Name   string `json:"name"`
+	SHA256 string `json:"sha256"`
+	Size   int64  `json:"size"`
 }
 
 // GateStatus identifies an individual gate outcome.

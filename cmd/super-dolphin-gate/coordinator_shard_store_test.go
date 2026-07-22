@@ -115,6 +115,7 @@ func persistExactShardLifecycleEvidence(
 			localci.FreshContainerPhaseRemoved,
 		} {
 			event := coordinatorShardLifecycleEvent(shard, phase, shardStart, deadline, sourceSnapshotDir, witness, witnessDigest)
+			bindCreatingOperationIdentity(t, labels, &event)
 			if err := store.recordContainerShardLifecycle(context.Background(), record.JobID, shard.IdentityDigest,
 				labels, event); err != nil {
 				t.Fatalf("recordContainerShardLifecycle(%d, %s): %v", index, phase, err)
@@ -602,6 +603,7 @@ func prepareStartedShard(
 		localci.FreshContainerPhaseStarting, localci.FreshContainerPhaseStarted,
 	} {
 		event := coordinatorShardLifecycleEvent(shard, phase, startedAt, deadline, sourceSnapshotDir, witness, witnessDigest)
+		bindCreatingOperationIdentity(t, labels, &event)
 		if err := store.recordContainerShardLifecycle(context.Background(), record.JobID, shard.IdentityDigest, labels, event); err != nil {
 			t.Fatalf("prepare started shard phase %q: %v", phase, err)
 		}
@@ -651,6 +653,7 @@ func persistCoordinatorShardLifecycles(
 			localci.FreshContainerPhaseRemoved,
 		} {
 			event := coordinatorShardLifecycleEvent(shard, phase, shardStart, deadline, sourceSnapshotDir, witness, witnessDigest)
+			bindCreatingOperationIdentity(t, labels, &event)
 			if err := store.recordContainerShardLifecycle(context.Background(), record.JobID, shard.IdentityDigest, labels, event); err != nil {
 				t.Fatalf("recordContainerShardLifecycle(%d, %s): %v", index, phase, err)
 			}

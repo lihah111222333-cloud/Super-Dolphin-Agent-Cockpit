@@ -17,6 +17,8 @@ const (
 	ExecutorWorkRoot                = "/workspace/work"
 	ExecutorRuntimeSeedRoot         = "/opt/super-dolphin-gate/runtime"
 	ExecutorRuntimeSeedManifestPath = ExecutorRuntimeSeedRoot + "/manifest.json"
+	ExecutorFrontendEmbedSeedRoot   = "/opt/super-dolphin-gate/frontend-embed"
+	ExecutorActionlintBinaryPath    = ExecutorRuntimeSeedRoot + "/bin/actionlint"
 	ExecutorSQLCBinaryPath          = ExecutorRuntimeSeedRoot + "/bin/sqlc"
 	ExecutorSqruffBinaryPath        = ExecutorRuntimeSeedRoot + "/bin/sqruff"
 	executorPlaywrightBrowsersPath  = ExecutorRuntimeSeedRoot + "/frontend/node_modules/.cache/ms-playwright"
@@ -33,6 +35,7 @@ type executorConfig struct {
 	requireReadOnlySource bool
 	runtimeSeedRoot       string
 	runtimeSeedManifest   string
+	frontendEmbedSeedRoot string
 	stdout                io.Writer
 	stderr                io.Writer
 }
@@ -72,7 +75,8 @@ func ExecuteExecutor(ctx context.Context, args []string, stdout io.Writer, stder
 		sourcePath: ExecutorSourcePath, workRoot: ExecutorWorkRoot, searchPath: executorSearchPath,
 		expectedUID: executorUID, requireReadOnlySource: true,
 		runtimeSeedRoot: ExecutorRuntimeSeedRoot, runtimeSeedManifest: ExecutorRuntimeSeedManifestPath,
-		stdout: stdout, stderr: stderr,
+		frontendEmbedSeedRoot: ExecutorFrontendEmbedSeedRoot,
+		stdout:                stdout, stderr: stderr,
 	}
 	return executeProgram(ctx, config, id, program)
 }
@@ -125,7 +129,7 @@ func prepareExecutorRun(
 	layout executorLayout,
 	program ExecutorProgram,
 ) ([]string, []resolvedStep, string, error) {
-	if err := installRuntimeSeeds(config, layout, program); err != nil {
+	if err := installExecutorSeeds(config, layout, program); err != nil {
 		return nil, nil, "", err
 	}
 	environment := executorEnvironment(layout, config.searchPath)
@@ -423,6 +427,9 @@ func validateProgramInputs(sourceCopy string, program ExecutorProgram) error {
 func executorEnvironment(layout executorLayout, searchPath string) []string {
 	return []string{
 		"CI=true", "GIT_CONFIG_NOSYSTEM=1", "GIT_OPTIONAL_LOCKS=0", "GIT_TERMINAL_PROMPT=0",
+		"GIT_AUTHOR_NAME=Super Dolphin Gate Executor", "GIT_AUTHOR_EMAIL=gate-executor@super-dolphin.invalid",
+		"GIT_AUTHOR_DATE=946684800 +0000", "GIT_COMMITTER_NAME=Super Dolphin Gate Executor",
+		"GIT_COMMITTER_EMAIL=gate-executor@super-dolphin.invalid", "GIT_COMMITTER_DATE=946684800 +0000",
 		"GOCACHE=" + layout.goCache, "GOENV=off", "GOMODCACHE=" + layout.goModCache,
 		"GOPROXY=" + executorGoModuleProxy, "GOSUMDB=off", "GOTOOLCHAIN=local",
 		"GOTMPDIR=" + layout.tmp, "HOME=" + layout.home, "LANG=C.UTF-8", "LC_ALL=C.UTF-8",

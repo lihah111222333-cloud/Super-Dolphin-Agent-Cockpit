@@ -378,8 +378,8 @@ func TestInstallRequiresRequestQuitBeforeStartingHelper(t *testing.T) {
 }
 
 func TestInstallIgnoresCanceledContextAfterDetachedHelperStarts(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("darwin helper launch uses /bin/sh")
+	if runtime.GOOS != "darwin" {
+		t.Skip("detached Darwin helper launch requires a Darwin host")
 	}
 	stageDir := appUpdateRealTempDir(t)
 	marker := filepath.Join(stageDir, "helper.started")
@@ -410,8 +410,8 @@ func TestInstallIgnoresCanceledContextAfterDetachedHelperStarts(t *testing.T) {
 }
 
 func TestInstallPassesAllowUnsignedToHelper(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("darwin helper launch uses /bin/sh")
+	if runtime.GOOS != "darwin" {
+		t.Skip("Darwin helper arguments require a Darwin host")
 	}
 	stageDir := appUpdateRealTempDir(t)
 	argsPath := filepath.Join(stageDir, "helper.args")

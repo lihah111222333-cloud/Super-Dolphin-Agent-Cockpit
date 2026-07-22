@@ -4,10 +4,8 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -37,11 +35,20 @@ var (
 type PromotionCandidateStatus string
 
 const (
-	PromotionCandidateQueued   PromotionCandidateStatus = "queued"
-	PromotionCandidateBuilding PromotionCandidateStatus = "building"
-	PromotionCandidateFailed   PromotionCandidateStatus = "build_failed"
-	PromotionCandidateAwaiting PromotionCandidateStatus = "awaiting_trusted_ref"
-	PromotionCandidatePromoted PromotionCandidateStatus = "promoted"
+	PromotionCandidateQueued        PromotionCandidateStatus = "queued"
+	PromotionCandidateBuilding      PromotionCandidateStatus = "building"
+	PromotionCandidateFailed        PromotionCandidateStatus = "build_failed"
+	PromotionCandidateAdvanceFailed PromotionCandidateStatus = "trusted_ref_advance_failed"
+	PromotionCandidateAwaiting      PromotionCandidateStatus = "awaiting_trusted_ref"
+	PromotionCandidatePromoted      PromotionCandidateStatus = "promoted"
+)
+
+// PromotionCandidateMode records whether the coordinator or an external authority advances trusted_ref.
+type PromotionCandidateMode string
+
+const (
+	PromotionCandidateModeManagedTree PromotionCandidateMode = "managed_tree"
+	PromotionCandidateModeExternalRef PromotionCandidateMode = "external_trusted_ref"
 )
 
 // PromotionCandidate is the owner-private durable authority for one non-runnable image candidate.
@@ -68,6 +75,7 @@ type PromotionCandidate struct {
 	ExpectedAcceptedRecordDigest string                     `json:"expected_accepted_record_digest"`
 	ExpectedAcceptedGeneration   uint64                     `json:"expected_accepted_generation"`
 	BuildRequest                 CandidateRequest           `json:"build_request"`
+	PromotionMode                PromotionCandidateMode     `json:"promotion_mode"`
 	CreatedAt                    time.Time                  `json:"created_at"`
 	ExpiresAt                    time.Time                  `json:"expires_at"`
 	PromotionAcceptedAt          *time.Time                 `json:"promotion_accepted_at,omitempty"`
@@ -141,28 +149,51 @@ func (s *PromotionCandidateStore) Plan(
 	if err := validatePromotionCandidatePlanRequest(accepted, request); err != nil {
 		return PromotionCandidatePlan{}, err
 	}
-	inputs, err := ResolveGateImageInputs(request.Tree, request.PolicyDigest, request.Platform)
+	candidate, buildRequired, err := plannedPromotionCandidate(accepted, request)
 	if err != nil {
 		return PromotionCandidatePlan{}, err
 	}
-	if inputs.ImageInputDigest == accepted.ImageInputDigest && request.PolicyDigest == accepted.PolicyDigest {
+	if !buildRequired {
 		return PromotionCandidatePlan{}, nil
 	}
+	stored, err := s.createOrReuse(ctx, candidate)
+	if err != nil {
+		return PromotionCandidatePlan{}, err
+	}
+	return PromotionCandidatePlan{BuildRequired: true, WorkloadID: stored.WorkloadID}, nil
+}
+
+// plannedPromotionCandidate 解析变更输入并组装持久化前不可变候选。
+func plannedPromotionCandidate(
+	accepted gate.AcceptedImageRecord,
+	request PromotionCandidatePlanRequest,
+) (PromotionCandidate, bool, error) {
+	inputs, err := ResolveGateImageInputs(request.Tree, request.PolicyDigest, request.Platform)
+	if err != nil {
+		return PromotionCandidate{}, false, err
+	}
+	if inputs.ImageInputDigest == accepted.ImageInputDigest && request.PolicyDigest == accepted.PolicyDigest {
+		return PromotionCandidate{}, false, nil
+	}
 	if request.TrustedCommit == accepted.TrustedCommit {
-		return PromotionCandidatePlan{}, errors.New("changed image inputs require a trusted commit distinct from accepted state")
+		return PromotionCandidate{}, false, errors.New("changed image inputs require a trusted commit distinct from accepted state")
 	}
 	buildRequest := candidateRequestFromInputs(inputs, accepted)
 	prepared, err := prepareCandidate(buildRequest)
 	if err != nil {
-		return PromotionCandidatePlan{}, err
+		return PromotionCandidate{}, false, err
+	}
+	promotionMode, err := promotionCandidateMode(request.Tree)
+	if err != nil {
+		return PromotionCandidate{}, false, err
 	}
 	expectedDigest, err := gate.AcceptedImageRecordDigest(accepted)
 	if err != nil {
-		return PromotionCandidatePlan{}, fmt.Errorf("digest expected accepted image: %w", err)
+		return PromotionCandidate{}, false, fmt.Errorf("digest expected accepted image: %w", err)
 	}
 	runner := accepted.Runner
 	runner.PolicyDigest = inputs.PolicyDigest
-	candidate := PromotionCandidate{
+	return PromotionCandidate{
 		SchemaVersion: promotionCandidateSchemaVersion, RepoID: request.RepoID, TrustedRef: request.TrustedRef,
 		TrustedCommit: request.TrustedCommit, SourceTree: inputs.SubmittedSourceTree,
 		PreviousTrustedCommit: accepted.TrustedCommit, PolicyDigest: inputs.PolicyDigest, Platform: inputs.Platform,
@@ -171,13 +202,9 @@ func (s *PromotionCandidateStore) Plan(
 		ToolchainDigest: prepared.result.ToolchainDigest, DockerfileDigest: prepared.result.DockerfileDigest,
 		Runner: runner, ExpectedAcceptedRecordDigest: expectedDigest,
 		ExpectedAcceptedGeneration: accepted.Generation, BuildRequest: buildRequest,
-		CreatedAt: request.CreatedAt, ExpiresAt: request.ExpiresAt, Status: PromotionCandidateQueued,
-	}
-	stored, err := s.createOrReuse(ctx, candidate)
-	if err != nil {
-		return PromotionCandidatePlan{}, err
-	}
-	return PromotionCandidatePlan{BuildRequired: true, WorkloadID: stored.WorkloadID}, nil
+		PromotionMode: promotionMode,
+		CreatedAt:     request.CreatedAt, ExpiresAt: request.ExpiresAt, Status: PromotionCandidateQueued,
+	}, true, nil
 }
 
 // ExecuteBuild 运行一次 scheduler 已预留的构建并持久化完整 awaiting artifact。
@@ -279,6 +306,7 @@ func (s *PromotionCandidateStore) createOrReuse(ctx context.Context, candidate P
 			return clonePromotionCandidate(existing), nil
 		}
 	}
+	snapshot.Candidates = retainLivePromotionCandidates(snapshot.Candidates, candidate.CreatedAt)
 	id, err := newPromotionCandidateID()
 	if err != nil {
 		return PromotionCandidate{}, err
@@ -293,6 +321,17 @@ func (s *PromotionCandidateStore) createOrReuse(ctx context.Context, candidate P
 		return PromotionCandidate{}, err
 	}
 	return clonePromotionCandidate(candidate), nil
+}
+
+// retainLivePromotionCandidates drops terminal and expired build payloads before a replacement is persisted.
+func retainLivePromotionCandidates(candidates []PromotionCandidate, now time.Time) []PromotionCandidate {
+	live := make([]PromotionCandidate, 0, len(candidates))
+	for _, candidate := range candidates {
+		if candidate.statusIsActive() && candidate.ExpiresAt.After(now) {
+			live = append(live, candidate)
+		}
+	}
+	return live
 }
 
 func (s *PromotionCandidateStore) beginBuild(ctx context.Context, workloadID string) (PromotionCandidate, error) {
@@ -361,8 +400,39 @@ func (s *PromotionCandidateStore) markPromoted(ctx context.Context, workloadID s
 			return fmt.Errorf("%w: candidate %q cannot become promoted", ErrPromotionCandidateState, candidate.CandidateID)
 		}
 		candidate.Status = PromotionCandidatePromoted
+		candidate.compactTerminalBuildPayload()
 		return nil
 	})
+}
+
+// MarkAdvanceFailed 将 managed trusted-ref CAS 未完成的 awaiting artifact 固化为终态。
+func (s *PromotionCandidateStore) MarkAdvanceFailed(ctx context.Context, workloadID string, advanceErr error) error {
+	if advanceErr == nil {
+		return errors.New("trusted-ref advance failure is required")
+	}
+	cleanupCtx, cancel := BoundedCleanupContext(ctx, promotionCandidateFailureWriteLimit)
+	defer cancel()
+	err := s.mutate(cleanupCtx, workloadID, func(candidate *PromotionCandidate) error {
+		if candidate.Status != PromotionCandidateAwaiting {
+			return fmt.Errorf("%w: candidate %q cannot fail trusted-ref advance from %q", ErrPromotionCandidateState, candidate.CandidateID, candidate.Status)
+		}
+		candidate.Status = PromotionCandidateAdvanceFailed
+		candidate.compactTerminalBuildPayload()
+		return nil
+	})
+	if err != nil {
+		return errors.Join(advanceErr, fmt.Errorf("persist failed trusted-ref advance candidate: %w", err))
+	}
+	return advanceErr
+}
+
+// compactTerminalBuildPayload drops source bytes after the workload can no longer build.
+// Digests, Git identity, image identity, and recovery authority remain durable.
+func (candidate *PromotionCandidate) compactTerminalBuildPayload() {
+	if candidate == nil || candidate.statusIsActive() {
+		return
+	}
+	candidate.BuildRequest.SourceEntries = nil
 }
 
 // mutate 在规范快照中按 workload ID 原子提交单个 candidate 状态变更。
@@ -401,146 +471,6 @@ func (s *PromotionCandidateStore) mutate(
 	return ErrPromotionCandidateNotFound
 }
 
-// loadLocked 在持锁状态下严格读取 canonical candidate snapshot。
-func (s *PromotionCandidateStore) loadLocked() (promotionCandidateSnapshot, error) {
-	snapshot := promotionCandidateSnapshot{SchemaVersion: promotionCandidateSchemaVersion, Candidates: []PromotionCandidate{}}
-	exists, err := validateCurrentUIDPrivatePath(s.statePath, s.ownerUID)
-	if err != nil {
-		return promotionCandidateSnapshot{}, fmt.Errorf("validate promotion candidate state: %w", err)
-	}
-	if !exists {
-		return snapshot, nil
-	}
-	file, _, err := openSchedulerFileNoFollow(s.statePath, s.ownerUID, true)
-	if err != nil {
-		return promotionCandidateSnapshot{}, fmt.Errorf("open promotion candidate state: %w", err)
-	}
-	info, err := promotionCandidateFileInfo(file, s.statePath, s.ownerUID)
-	if err != nil {
-		return promotionCandidateSnapshot{}, err
-	}
-	data, err := readPromotionCandidateState(file, info)
-	if err != nil {
-		return promotionCandidateSnapshot{}, err
-	}
-	if err := gate.DecodeStrictJSON(data, &snapshot); err != nil {
-		return promotionCandidateSnapshot{}, fmt.Errorf("decode promotion candidate state: %w", err)
-	}
-	if err := snapshot.Validate(); err != nil {
-		return promotionCandidateSnapshot{}, err
-	}
-	return snapshot, nil
-}
-
-// promotionCandidateFileInfo 复核 pathname/fd 身份并在失败时关闭 fd。
-func promotionCandidateFileInfo(file *os.File, path string, ownerUID int) (os.FileInfo, error) {
-	info, err := file.Stat()
-	if err != nil {
-		return nil, errors.Join(err, file.Close())
-	}
-	if err := validateOpenedAcceptedImageFile(path, info, ownerUID); err != nil {
-		return nil, errors.Join(err, file.Close())
-	}
-	return info, nil
-}
-
-// readPromotionCandidateState 限长读取并在所有路径关闭 canonical state fd。
-func readPromotionCandidateState(file *os.File, info os.FileInfo) ([]byte, error) {
-	if info.Size() > promotionCandidateMaxBytes {
-		return nil, errors.Join(errors.New("promotion candidate state exceeds size limit"), file.Close())
-	}
-	data, readErr := io.ReadAll(io.LimitReader(file, promotionCandidateMaxBytes+1))
-	closeErr := file.Close()
-	if readErr != nil || closeErr != nil {
-		return nil, errors.Join(readErr, closeErr)
-	}
-	if len(data) > promotionCandidateMaxBytes {
-		return nil, errors.New("promotion candidate state exceeds size limit")
-	}
-	return data, nil
-}
-
-// saveLocked 通过私有临时文件、fsync 与 rename 原子替换 canonical snapshot。
-func (s *PromotionCandidateStore) saveLocked(snapshot promotionCandidateSnapshot) (retErr error) {
-	data, err := encodePromotionCandidateSnapshot(snapshot)
-	if err != nil {
-		return err
-	}
-	if s.beforeSave != nil {
-		if err := s.beforeSave(); err != nil {
-			return err
-		}
-	}
-	if err := s.replaceSnapshot(data); err != nil {
-		return err
-	}
-	if s.afterSave != nil {
-		return s.afterSave()
-	}
-	return nil
-}
-
-// encodePromotionCandidateSnapshot 生成受大小上限约束的 canonical JSON。
-func encodePromotionCandidateSnapshot(snapshot promotionCandidateSnapshot) ([]byte, error) {
-	if err := snapshot.Validate(); err != nil {
-		return nil, err
-	}
-	data, err := json.Marshal(snapshot)
-	if err != nil {
-		return nil, fmt.Errorf("marshal promotion candidate state: %w", err)
-	}
-	data = append(data, '\n')
-	if len(data) > promotionCandidateMaxBytes {
-		return nil, errors.New("promotion candidate state exceeds size limit")
-	}
-	return data, nil
-}
-
-// replaceSnapshot 通过 fsync 临时文件与 rename 原子替换 candidate authority。
-func (s *PromotionCandidateStore) replaceSnapshot(data []byte) (retErr error) {
-	file, err := os.CreateTemp(s.root, ".promotion-candidates-*.tmp")
-	if err != nil {
-		return fmt.Errorf("create promotion candidate temp file: %w", err)
-	}
-	tempPath := file.Name()
-	defer func() { retErr = errors.Join(retErr, removeAcceptedImageTemp(tempPath)) }()
-	if err := writeAcceptedImageTemp(file, data, s.ownerUID); err != nil {
-		return err
-	}
-	if err := os.Rename(tempPath, s.statePath); err != nil {
-		return fmt.Errorf("replace promotion candidate state: %w", err)
-	}
-	tempPath = ""
-	if err := syncAcceptedImageRoot(s.root); err != nil {
-		return err
-	}
-	return nil
-}
-
-// acquireLock 使用可取消重试取得 candidate authority 跨进程锁。
-func (s *PromotionCandidateStore) acquireLock(ctx context.Context) (*acceptedImageLock, error) {
-	for {
-		if err := ctx.Err(); err != nil {
-			return nil, err
-		}
-		file, err := openCurrentUIDPrivateFile(s.lockPath, s.ownerUID)
-		if err != nil {
-			return nil, fmt.Errorf("open promotion candidate lock: %w", err)
-		}
-		if err := lockSchedulerFile(file); err == nil {
-			return &acceptedImageLock{file: file}, nil
-		} else if !schedulerLockAlreadyOwned(err) {
-			return nil, errors.Join(fmt.Errorf("acquire promotion candidate lock: %w", err), file.Close())
-		}
-		if err := file.Close(); err != nil {
-			return nil, err
-		}
-		if err := waitAcceptedImageLock(ctx); err != nil {
-			return nil, err
-		}
-	}
-}
-
 // validateRoot 拒绝非规范、共享、链接或非当前 owner 的 authority 根。
 func (s *PromotionCandidateStore) validateRoot() error {
 	if s == nil || s.root == "" || !filepath.IsAbs(s.root) || filepath.Clean(s.root) != s.root {
@@ -571,7 +501,7 @@ func (s *PromotionCandidateStore) validateCall(ctx context.Context) error {
 func (candidate PromotionCandidate) Validate() error {
 	validators := []func() error{
 		candidate.validateIdentity, candidate.validateDigests, candidate.validateLifetimeAndRunner,
-		candidate.validateBuildBinding, candidate.validateStatus,
+		candidate.validateBuildBinding, candidate.validatePromotionMode, candidate.validateStatus,
 	}
 	for _, validate := range validators {
 		if err := validate(); err != nil {
@@ -646,12 +576,32 @@ func (candidate PromotionCandidate) validateBuildBinding() error {
 	return nil
 }
 
+func (candidate PromotionCandidate) validatePromotionMode() error {
+	switch candidate.PromotionMode {
+	case PromotionCandidateModeManagedTree, PromotionCandidateModeExternalRef:
+		return nil
+	default:
+		return fmt.Errorf("unsupported promotion candidate mode %q", candidate.PromotionMode)
+	}
+}
+
+func promotionCandidateMode(tree ReadOnlyGitTree) (PromotionCandidateMode, error) {
+	switch tree.Source.Kind {
+	case gate.SourceKindTree:
+		return PromotionCandidateModeManagedTree, nil
+	case gate.SourceKindCommit, gate.SourceKindRange:
+		return PromotionCandidateModeExternalRef, nil
+	default:
+		return "", fmt.Errorf("unsupported promotion candidate source kind %q", tree.Source.Kind)
+	}
+}
+
 // validateStatus 阻断 awaiting 前的 runnable identity 与非法晋升状态。
 func (candidate PromotionCandidate) validateStatus() error {
 	switch candidate.Status {
 	case PromotionCandidateQueued, PromotionCandidateBuilding, PromotionCandidateFailed:
 		return candidate.validateUnbuiltStatus()
-	case PromotionCandidateAwaiting, PromotionCandidatePromoted:
+	case PromotionCandidateAdvanceFailed, PromotionCandidateAwaiting, PromotionCandidatePromoted:
 		return candidate.validateBuiltStatus()
 	default:
 		return fmt.Errorf("unsupported promotion candidate status %q", candidate.Status)
@@ -738,14 +688,14 @@ func validateBuiltPromotionCandidate(candidate PromotionCandidate, result Candid
 	if !candidateResultMatches(candidate, result) {
 		return errors.New("built promotion candidate digest closure drifted")
 	}
-	if !result.Built || result.ImageDigest == "" {
+	if !result.Built || result.ImageDigest == "" || result.ConfigDigest == "" {
 		return errors.New("promotion candidate build did not produce a new immutable artifact")
 	}
 	if err := identity.Validate(); err != nil {
 		return err
 	}
-	if identity.PlatformManifestDigest != result.ImageDigest {
-		return errors.New("resolved promotion image does not match build manifest digest")
+	if identity.PlatformManifestDigest != result.ImageDigest || identity.ConfigDigest != result.ConfigDigest {
+		return errors.New("resolved promotion image does not match BuildKit manifest and config digests")
 	}
 	return nil
 }
@@ -772,7 +722,7 @@ func (candidate PromotionCandidate) result() CandidateResult {
 		SourceTreeSHA: candidate.SourceTree, InputDigest: candidate.ImageInputDigest,
 		ContextDigest: candidate.ContextDigest, InputManifestDigest: candidate.InputManifestDigest,
 		ToolchainDigest: candidate.ToolchainDigest, DockerfileDigest: candidate.DockerfileDigest,
-		ImageDigest: candidate.PlatformManifestDigest, Built: true,
+		ImageDigest: candidate.PlatformManifestDigest, ConfigDigest: candidate.Image.ConfigDigest, Built: true,
 	}
 }
 

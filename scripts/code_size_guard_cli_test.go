@@ -35,6 +35,31 @@ func TestGuardRaceOnlyModeRunsGuardsAndOneRaceInvocation(t *testing.T) {
 	}
 }
 
+func TestGuardCombinedRaceModeRunsGuardsOnceAndBothTestLanes(t *testing.T) {
+	result := runTestWithGuardFakeGo(
+		t,
+		"--with-race", "./internal/provider/codexapp",
+		"--", "./internal/devtools/gate", "-count=1",
+	)
+	if result.err != nil {
+		t.Fatalf("combined race guard failed: %v: %s", result.err, result.output)
+	}
+	for _, invocation := range []string{
+		"run ./scripts/code_size_guard.go",
+		"test ./internal/archtest -count=1",
+		"vet -copylocks ./internal/provider/... ./internal/platform/... ./internal/module/thread/...",
+		"test ./internal/devtools/gate -count=1",
+		"test ./internal/provider/codexapp -race -short -count=1 -timeout=180s",
+	} {
+		if strings.Count(result.invocations, invocation) != 1 {
+			t.Fatalf("combined race mode invocation %q is not unique:\n%s", invocation, result.invocations)
+		}
+	}
+	if !strings.Contains(result.invocations, "list ./...") {
+		t.Fatalf("combined race mode omitted nested-module discovery:\n%s", result.invocations)
+	}
+}
+
 func TestCanonicalBackendModeExcludesOnlyExactArchtestPackage(t *testing.T) {
 	result := runTestWithGuardFakeGoWithListOutput(t, strings.Join([]string{
 		"example.test/cmd/control",
@@ -93,6 +118,17 @@ func TestCanonicalBackendModeFailsClosedForInvalidTargetsAndEmptyResolution(t *t
 	}
 	if !strings.Contains(empty.invocations, "list ./internal/...") || strings.Contains(empty.invocations, "test ./internal/archtest -count=1") {
 		t.Fatalf("empty canonical package resolution did not fail before guards:\n%s", empty.invocations)
+	}
+}
+
+func TestCanonicalBackendModePropagatesParallelLaneFailure(t *testing.T) {
+	t.Setenv("FAKE_GO_FAIL_PATTERN", "test example.test/cmd/control")
+	result := runTestWithGuardFakeGoWithListOutput(t, "example.test/cmd/control", "--canonical-backend", "./cmd/...")
+	if result.err == nil {
+		t.Fatalf("canonical backend mode accepted a failed package-test lane:\n%s", result.invocations)
+	}
+	if !strings.Contains(result.output, "canonical backend lanes failed: guard=0 test=7") {
+		t.Fatalf("canonical backend failure did not preserve lane status: %q", result.output)
 	}
 }
 
@@ -429,7 +465,8 @@ func runTestWithGuardFakeGoWithListOutput(t *testing.T, listOutput string, args 
 	script := "#!/usr/bin/env bash\n" +
 		"printf '%s ' \"$@\" >> \"$FAKE_GO_LOG\"\n" +
 		"printf '\\n' >> \"$FAKE_GO_LOG\"\n" +
-		"if [[ \"$1\" == list ]]; then printf '%s\\n' \"$FAKE_GO_LIST_OUTPUT\"; fi\n"
+		"if [[ \"$1\" == list ]]; then printf '%s\\n' \"$FAKE_GO_LIST_OUTPUT\"; fi\n" +
+		"if [[ -n \"${FAKE_GO_FAIL_PATTERN:-}\" && \"$*\" == *\"$FAKE_GO_FAIL_PATTERN\"* ]]; then exit 7; fi\n"
 	if err := os.WriteFile(fakeGo, []byte(script), 0o700); err != nil {
 		t.Fatalf("write fake go: %v", err)
 	}
@@ -438,9 +475,10 @@ func runTestWithGuardFakeGoWithListOutput(t *testing.T, listOutput string, args 
 	environment := upsertEnv(os.Environ(), "REAL_GO_BIN", bashAbsolutePath(fakeGo))
 	environment = upsertEnv(environment, "FAKE_GO_LOG", bashAbsolutePath(logPath))
 	environment = upsertEnv(environment, "FAKE_GO_LIST_OUTPUT", listOutput)
+	environment = upsertEnv(environment, "FAKE_GO_FAIL_PATTERN", os.Getenv("FAKE_GO_FAIL_PATTERN"))
 	environment = upsertEnv(environment, "SUPER_DOLPHIN_GATE_PRODUCTION_DOCKER_E2E", "1")
 	cmd.Env = appendWSLEnvKeysWithGitWorktree(
-		t, environment, "REAL_GO_BIN", "FAKE_GO_LOG", "FAKE_GO_LIST_OUTPUT", "SUPER_DOLPHIN_GATE_PRODUCTION_DOCKER_E2E",
+		t, environment, "REAL_GO_BIN", "FAKE_GO_LOG", "FAKE_GO_LIST_OUTPUT", "FAKE_GO_FAIL_PATTERN", "SUPER_DOLPHIN_GATE_PRODUCTION_DOCKER_E2E",
 	)
 	output, runErr := cmd.CombinedOutput()
 	data, err := os.ReadFile(logPath)

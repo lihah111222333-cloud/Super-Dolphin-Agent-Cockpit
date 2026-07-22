@@ -71,15 +71,17 @@ func preparePreCommitGateFixture(t *testing.T) string {
 	t.Helper()
 	root := prepareFixTestGuardRepo(t)
 	copyFixTestGuardRepoFile(t, root, ".githooks/pre-commit", 0o755)
+	copyFixTestGuardRepoFile(t, root, ".githooks/trusted-gate-launcher.sh", 0o755)
 	copyFixTestGuardRepoFile(t, root, "scripts/configure_hook_node_runtime.sh", 0o755)
 	copyFixTestGuardRepoFile(t, root, "scripts/refresh_generated_artifacts.sh", 0o755)
 	writePreCommitFixtureGateCLI(t, root)
+	runFixTestGuardGit(t, root, "config", "--local", "superdolphin.gateLauncher", filepath.Join(root, ".pre-commit-fixture-bin", "super-dolphin-gate"))
 	writePreCommitFakeCodeGuardScript(t, root)
 	writeFakeAIMaintenanceGateScript(t, root)
 	writePreCommitFakeAIMaintenancePlanner(t, root)
 	writePreCommitFakeCodemapMakefile(t, root)
 	writeFixTestGuardFile(t, root, ".gitignore", ".build-cache/\n")
-	runFixTestGuardGit(t, root, "add", ".githooks/pre-commit", ".gitignore", "scripts/configure_hook_node_runtime.sh", "scripts/refresh_generated_artifacts.sh", "scripts/test_with_guard.sh", "scripts/guard_fix_commits_have_tests.sh", "scripts/ai_maintenance_gates.sh", "scripts/ai_maintenance/main.go", "go.mod", "Makefile")
+	runFixTestGuardGit(t, root, "add", ".githooks/pre-commit", ".githooks/trusted-gate-launcher.sh", ".gitignore", "scripts/configure_hook_node_runtime.sh", "scripts/refresh_generated_artifacts.sh", "scripts/test_with_guard.sh", "scripts/guard_fix_commits_have_tests.sh", "scripts/ai_maintenance_gates.sh", "scripts/ai_maintenance/main.go", "go.mod", "Makefile")
 	runFixTestGuardGit(t, root, "commit", "-m", "chore: 安装 precommit fixture")
 	return root
 }

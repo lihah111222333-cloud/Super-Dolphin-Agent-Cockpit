@@ -1,3 +1,4 @@
+import { EventEmitter } from 'node:events';
 import { describe, expect, it } from 'vitest';
 
 import {
@@ -7,8 +8,11 @@ import {
   buildTurnInterruptParams,
   buildWebSocketOptions,
   buildWebSocketURL,
+  desktopRunnerInvocation,
+  desktopSpawnOptions,
   packageScriptIncludesSmoke,
   smokeConfig,
+  stopDesktop,
 } from './desktop-smoke.mjs';
 
 describe('desktop smoke command', () => {
@@ -68,6 +72,48 @@ describe('desktop smoke command', () => {
   it('prepares the Go embed frontend by default', () => {
     expect(smokeConfig({}, '/repo/app').skipFrontendBuild).toBe(false);
     expect(smokeConfig({ SUPER_DOLPHIN_DESKTOP_SMOKE_SKIP_FRONTEND_BUILD: '1' }, '/repo/app').skipFrontendBuild).toBe(true);
+  });
+
+  it('uses Xvfb only for an explicit Linux CI smoke', () => {
+    const linuxCI = smokeConfig({ CI: 'true' }, '/repo/app', () => 'token', 'linux');
+    expect(linuxCI.headlessDisplay).toBe(true);
+    expect(desktopRunnerInvocation({ ...linuxCI, runner: '/repo/app/run-new-ui-desktop.sh' })).toEqual({
+      command: 'xvfb-run',
+      args: ['-a', '/repo/app/run-new-ui-desktop.sh'],
+    });
+
+    const localLinux = smokeConfig({}, '/repo/app', () => 'token', 'linux');
+    const darwinCI = smokeConfig({ CI: 'true' }, '/repo/app', () => 'token', 'darwin');
+    expect(localLinux.headlessDisplay).toBe(false);
+    expect(darwinCI.headlessDisplay).toBe(false);
+    expect(desktopRunnerInvocation({ ...darwinCI, runner: '/repo/app/run-new-ui-desktop.sh' })).toEqual({
+      command: '/repo/app/run-new-ui-desktop.sh',
+      args: [],
+    });
+  });
+
+  it('isolates the desktop wrapper in a process group on POSIX', () => {
+    const config = smokeConfig({ CI: 'true' }, '/repo/app', () => 'token', 'linux');
+    expect(desktopSpawnOptions(config, 'linux').detached).toBe(true);
+    expect(desktopSpawnOptions(config, 'darwin').detached).toBe(true);
+    expect(desktopSpawnOptions(config, 'win32').detached).toBe(false);
+  });
+
+  it('terminates the desktop process group and any lingering descendants', async () => {
+    const child = Object.assign(new EventEmitter(), {
+      pid: 1234,
+      exitCode: null,
+      signalCode: null,
+    });
+    const signals = [];
+    await stopDesktop(child, (target, signal) => {
+      signals.push(signal);
+      if (signal === 'SIGTERM') {
+        target.exitCode = 0;
+        queueMicrotask(() => target.emit('exit', 0, null));
+      }
+    });
+    expect(signals).toEqual(['SIGTERM', 'SIGKILL']);
   });
 
   it('uses defer_spawn for the default thread/start smoke path', () => {

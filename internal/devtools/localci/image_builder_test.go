@@ -22,12 +22,17 @@ import (
 type recordingBuildKitRunner struct {
 	requests []BuildKitBuildRequest
 	digest   string
+	config   string
 	err      error
 }
 
-func (runner *recordingBuildKitRunner) Build(_ context.Context, request BuildKitBuildRequest) (string, error) {
+func (runner *recordingBuildKitRunner) Build(_ context.Context, request BuildKitBuildRequest) (BuildKitResult, error) {
 	runner.requests = append(runner.requests, request)
-	return runner.digest, runner.err
+	configDigest := runner.config
+	if configDigest == "" {
+		configDigest = digest("9")
+	}
+	return BuildKitResult{PlatformManifestDigest: runner.digest, ConfigDigest: configDigest}, runner.err
 }
 
 func TestNewImageBuilderRejectsTypedNilRunner(t *testing.T) {
@@ -158,6 +163,7 @@ func TestCandidateAndBuildKitFieldRegistriesAreComplete(t *testing.T) {
 		"Platform": "input digest and platform", "AcceptedInputDigest": "reuse decision",
 		"AcceptedPolicyDigest": "policy reuse decision",
 		"AcceptedImageDigest":  "reuse result",
+		"AcceptedConfigDigest": "reuse result",
 	})
 	assertRegisteredFields(t, reflect.TypeFor[BuildKitBuildRequest](), map[string]string{
 		"SourceTreeSHA": "source label", "PolicyDigest": "policy label", "ImageSchemaVersion": "schema label",
@@ -183,7 +189,7 @@ func TestEnsureCandidateBuildsOnlyWhenInputDigestChanges(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !built.Built || len(runner.requests) != 1 {
+	if !built.Built || built.ImageDigest != digest("8") || built.ConfigDigest != digest("9") || len(runner.requests) != 1 {
 		t.Fatal("changed input digest did not trigger one candidate build")
 	}
 }
@@ -206,8 +212,8 @@ func TestEnsureCandidateReusesMatchingInputDigest(t *testing.T) {
 	if reused.Built {
 		t.Fatal("matching input digest started a candidate build")
 	}
-	if reused.ImageDigest != digest("9") {
-		t.Fatalf("reused image digest = %q", reused.ImageDigest)
+	if reused.ImageDigest != digest("9") || reused.ConfigDigest != digest("9") {
+		t.Fatalf("reused image identity = %#v", reused)
 	}
 	if len(runner.requests) != 1 {
 		t.Fatalf("matching input digest did not reuse immutable accepted image: %+v", reused)
@@ -537,6 +543,7 @@ func candidateRequest(entries []sourceexport.TreeEntry, acceptedInput string, ac
 		AcceptedInputDigest:  acceptedInput,
 		AcceptedPolicyDigest: digest("d"),
 		AcceptedImageDigest:  acceptedImage,
+		AcceptedConfigDigest: digest("9"),
 	}
 }
 
@@ -585,7 +592,7 @@ func contentDigest(content string) string {
 }
 
 func validCandidateDockerfile() string {
-	return "ARG RUNTIME_DEPS_IMAGE\nARG SOURCE_DATE_EPOCH=0\nFROM ${RUNTIME_DEPS_IMAGE} AS build\nCOPY go.mod go.sum ./\nCOPY cmd/super-dolphin-gate/main.go ./cmd/super-dolphin-gate/main.go\nRUN --network=none go build -o /out/gate ./cmd/super-dolphin-gate\nFROM scratch\nCOPY --from=build /out/gate /gate\nENTRYPOINT [\"/gate\"]\n"
+	return "ARG RUNTIME_DEPS_IMAGE\nARG SOURCE_DATE_EPOCH=0\nFROM ${RUNTIME_DEPS_IMAGE} AS build\nUSER root\nCOPY go.mod go.sum ./\nCOPY cmd/super-dolphin-gate/main.go ./cmd/super-dolphin-gate/main.go\nRUN --network=none go build -o /out/gate ./cmd/super-dolphin-gate\nFROM scratch\nCOPY --from=build /out/gate /gate\nENTRYPOINT [\"/gate\"]\n"
 }
 
 func forwardStageDockerfile() string {

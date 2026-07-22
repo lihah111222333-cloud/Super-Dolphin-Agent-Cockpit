@@ -30,10 +30,10 @@ function onTerminate() {
   terminateManagedCommands('SIGTERM');
 }
 
-function killPosixProcessGroup(child, signal) {
+function killPosixProcessGroup(child, signal, killImpl = process.kill) {
   if (!child.pid) return;
   try {
-    process.kill(-child.pid, signal);
+    killImpl(-child.pid, signal);
   }
   catch (error) {
     if (error.code !== 'ESRCH') throw error;
@@ -58,9 +58,9 @@ function killWindowsProcessTree(child) {
   });
 }
 
-function signalProcessTree(child, signal) {
-  if (process.platform === 'win32') return killWindowsProcessTree(child);
-  killPosixProcessGroup(child, signal);
+export function signalProcessTree(child, signal, platform = process.platform, killImpl = process.kill) {
+  if (platform === 'win32') return killWindowsProcessTree(child);
+  killPosixProcessGroup(child, signal, killImpl);
   return Promise.resolve();
 }
 

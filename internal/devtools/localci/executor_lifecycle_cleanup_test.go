@@ -276,6 +276,126 @@ func TestCleanupUnprovedFreshContainerProvesAbsentIdentity(t *testing.T) {
 	assertCleanupAbsenceDidNotMutateContainer(t, stub.calls)
 }
 
+func TestCreatingLifecyclePersistsOperationIdentityAcrossRestart(t *testing.T) {
+	runner, stub, request := freshContainerFixture(t)
+	request.ContainerLabels = map[string]string{"test.cleanup": "restart"}
+	stub.request = request
+	operationIdentity := mustFreshContainerOperationIdentity(t, request.ContainerLabels)
+	var creating FreshContainerLifecycleEvent
+	request.LifecycleHook = func(_ context.Context, event FreshContainerLifecycleEvent) error {
+		creating = event
+		return nil
+	}
+	if err := runner.emitLifecycle(context.Background(), request, FreshContainerResult{
+		Status: gate.ResultStatusInfraFailed, ImageReference: request.Image.Registry + "@" + request.Image.PlatformManifestDigest, ExitCode: -1,
+	}, FreshContainerPhaseCreating); err != nil {
+		t.Fatalf("emit creating lifecycle: %v", err)
+	}
+	if creating.ContainerID != operationIdentity || !IsFreshContainerOperationIdentity(creating.ContainerID) {
+		t.Fatalf("persisted creating lifecycle = %#v", creating)
+	}
+	cleanup := creatingCleanupRequest(t, request, creating.ContainerID)
+	stub.psOutputs = []string{"", testContainerID + "\n"}
+	result, err := runner.CleanupUnprovedFreshContainer(context.Background(), cleanup)
+	if err != nil {
+		t.Fatalf("CleanupUnprovedFreshContainer() error = %v", err)
+	}
+	if result.Container.ContainerID != testContainerID || !result.Killed || !result.Container.Removed || stub.psCalls != 3 {
+		t.Fatalf("late create was not recovered exactly: result=%#v calls=%#v", result, stub.calls)
+	}
+}
+
+func TestCreatingCleanupSingleAbsenceDoesNotProveRemoved(t *testing.T) {
+	runner, stub, request := freshContainerFixture(t)
+	request.ContainerLabels = map[string]string{"test.cleanup": "single-absence"}
+	stub.request = request
+	cleanup := creatingCleanupRequest(t, request, mustFreshContainerOperationIdentity(t, request.ContainerLabels))
+	stub.psOutputs = []string{"", testContainerID + "\n"}
+	result, err := runner.CleanupUnprovedFreshContainer(context.Background(), cleanup)
+	if err != nil {
+		t.Fatalf("CleanupUnprovedFreshContainer() error = %v", err)
+	}
+	if result.Container.ContainerID != testContainerID || !result.Killed || !result.Container.Removed || stub.psCalls != 3 {
+		t.Fatalf("single absence finalized creating cleanup: result=%#v calls=%#v", result, stub.calls)
+	}
+}
+
+func TestCreatingCleanupRequiresStableAbsenceBeforeRemoved(t *testing.T) {
+	runner, stub, request := freshContainerFixture(t)
+	request.ContainerLabels = map[string]string{"test.cleanup": "stable-absence"}
+	stub.request = request
+	operationIdentity := mustFreshContainerOperationIdentity(t, request.ContainerLabels)
+	cleanup := creatingCleanupRequest(t, request, operationIdentity)
+	stub.psOutputs = []string{"", "", ""}
+	events := make([]FreshContainerLifecycleEvent, 0, 1)
+	cleanup.LifecycleHook = func(_ context.Context, event FreshContainerLifecycleEvent) error {
+		events = append(events, event)
+		return nil
+	}
+	result, err := runner.CleanupUnprovedFreshContainer(context.Background(), cleanup)
+	if err != nil {
+		t.Fatalf("CleanupUnprovedFreshContainer() error = %v", err)
+	}
+	if result.Container.ContainerID != "" || !result.Container.Removed || stub.psCalls != creatingAbsenceProofs {
+		t.Fatalf("creating absence proof = result=%#v calls=%#v", result, stub.calls)
+	}
+	if len(events) != 1 || events[0].Phase != FreshContainerPhaseRemoved || events[0].ContainerID != operationIdentity {
+		t.Fatalf("stable absence lifecycle = %#v", events)
+	}
+	assertCleanupAbsenceDidNotMutateContainer(t, stub.calls)
+}
+
+func TestCreatingCleanupRejectsOperationIdentityLabelDrift(t *testing.T) {
+	runner, stub, request := freshContainerFixture(t)
+	request.ContainerLabels = map[string]string{"test.cleanup": "expected"}
+	stub.request = request
+	cleanup := creatingCleanupRequest(t, request, mustFreshContainerOperationIdentity(t, map[string]string{"test.cleanup": "drifted"}))
+	if _, err := runner.CleanupUnprovedFreshContainer(context.Background(), cleanup); err == nil {
+		t.Fatal("creating cleanup accepted an operation identity derived from different labels")
+	}
+	if len(stub.calls) != 0 {
+		t.Fatalf("drifted creating identity reached Docker: %#v", stub.calls)
+	}
+}
+
+func TestCreatingCleanupFindsContainerAppearingDuringFinalAbsenceProbe(t *testing.T) {
+	runner, stub, request := freshContainerFixture(t)
+	request.ContainerLabels = map[string]string{"test.cleanup": "delayed-third-probe"}
+	stub.request = request
+	cleanup := creatingCleanupRequest(t, request, mustFreshContainerOperationIdentity(t, request.ContainerLabels))
+	stub.psOutputs = []string{"", "", testContainerID + "\n"}
+	result, err := runner.CleanupUnprovedFreshContainer(context.Background(), cleanup)
+	if err != nil {
+		t.Fatalf("CleanupUnprovedFreshContainer() error = %v", err)
+	}
+	if result.Container.ContainerID != testContainerID || !result.Killed || !result.Container.Removed || stub.psCalls != creatingAbsenceProofs+1 {
+		t.Fatalf("third-probe delayed container was not removed: result=%#v calls=%#v", result, stub.calls)
+	}
+}
+
+func creatingCleanupRequest(t *testing.T, request FreshContainerRequest, operationIdentity string) FreshContainerCleanupRequest {
+	t.Helper()
+	command, err := freshContainerCommand(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return FreshContainerCleanupRequest{
+		ContainerID: operationIdentity, ContainerLabels: request.ContainerLabels,
+		ImageReference: request.Image.Registry + "@" + request.Image.PlatformManifestDigest,
+		ConfigDigest:   request.Image.ConfigDigest, SourceSnapshotDir: request.SourceSnapshotDir,
+		Command: command, Profile: request.Profile, GateID: request.GateID,
+	}
+}
+
+func mustFreshContainerOperationIdentity(t *testing.T, labels map[string]string) string {
+	t.Helper()
+	identity, err := FreshContainerOperationIdentity(labels)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return identity
+}
+
 func assertCleanupAbsenceResult(t *testing.T, result FreshContainerResult) {
 	t.Helper()
 	if !result.Container.Removed || result.RemovalProofDigest == "" || !result.ExitedAt.IsZero() {

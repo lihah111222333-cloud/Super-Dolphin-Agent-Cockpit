@@ -330,7 +330,7 @@ it('normalizes empty immutable dependency directories while retaining file integ
   writeFileSync(toolPath, 'export const version = 1;\n');
 
   const original = dependencyTreeIntegrity(appRoot);
-  mkdirSync(join(nodeModulesRoot, '@empty-scope'));
+  mkdirSync(join(nodeModulesRoot, '@empty-scope', 'nested', 'leaf'), { recursive: true });
 
   expect(dependencyTreeIntegrity(appRoot)).toEqual(original);
 

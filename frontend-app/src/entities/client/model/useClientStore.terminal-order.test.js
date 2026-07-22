@@ -46,6 +46,7 @@ vi.mock("../../../shared/api/backendApi.js", async (importOriginal) => {
 });
 
 import * as backendApi from "../../../shared/api/backendApi.js";
+import { EVENT_TYPED_WIRE_METHODS } from "../../../shared/api/eventWireMethods.js";
 import { resetClientStoreForTests, useClientStore } from "./useClientStore.js";
 
 function deferred() {
@@ -714,4 +715,99 @@ it("rejects legacy or malformed terminal payloads into a visible contract error 
   );
   expect(state.warningEntries).toEqual([expect.objectContaining({ event: "turn.terminal.contract_invalid" })]);
   expect(state.timelinesByThread["thread-1"]).toEqual([]);
+});
+
+it("routes every typed Wails wire method without treating lifecycle events as legacy turn terminals", () => {
+  for (const method of EVENT_TYPED_WIRE_METHODS) {
+    resetClientStoreForTests({
+      cwd: "/repo/app",
+      activeProject: "/repo/app",
+      activeThreadId: "thread-1",
+      threads: [{ id: "thread-1", name: "Existing", provider: "codex", status: "running" }],
+      timelinesByThread: { "thread-1": [] },
+    });
+    registerBridgeEventHandlersForTest();
+
+    runtime.bridgeCallback({
+      type: method,
+      payload: method === "turn/terminal"
+        ? {
+          schemaVersion: 2,
+          eventId: "typed-wire-terminal",
+          threadId: "thread-1",
+          turnId: "turn-1",
+          outcome: "success",
+          occurredAt: "2026-07-21T01:00:00Z",
+        }
+        : method === "task/node/statusChanged"
+          ? {
+            dag_key: "typed-wire-dag",
+            run_key: "typed-wire-run",
+            node_key: "typed-wire-node",
+            new_status: "running",
+          }
+          : {
+            threadId: "thread-1",
+            turnId: "turn-1",
+            input_tokens: 1,
+            output_tokens: 1,
+            context_window: 100,
+          },
+    });
+
+    expect(useClientStore.getState().warningEntries.some(
+      (entry) => entry.event === "turn.terminal.contract_invalid",
+    )).toBe(false);
+  }
+});
+
+it.each([
+  ["thread/stopped", "stopped", { status: "completed", reason: "Authorization: Bearer raw-thread-secret" }],
+  ["agent/stopped", "stopped", { reason: "Authorization: Bearer raw-agent-secret" }],
+  ["agent/failed", "error", { error: "Authorization: Bearer raw-failure-secret /private/agent.log" }],
+])("applies %s lifecycle state, refreshes the sidebar, and keeps diagnostics safe", async (method, status, lifecyclePayload) => {
+  resetClientStoreForTests({
+    cwd: "/repo/app",
+    activeProject: "/repo/app",
+    activeThreadId: "thread-1",
+    threads: [{ id: "thread-1", agentId: "agent-1", name: "Existing", provider: "codex", status: "running" }],
+    statuses: { "thread-1": { status: "running" } },
+    activeTurnByThread: { "thread-1": { id: "turn-1", threadId: "thread-1", status: "running" } },
+  });
+  backendApi.getSidebarState.mockResolvedValue({
+    activeThreadId: "thread-1",
+    threads: [{ id: "thread-1", agentId: "agent-1", name: "Existing", provider: "codex", status }],
+  });
+  registerBridgeEventHandlersForTest();
+  backendApi.getSidebarState.mockClear();
+
+  const event = { type: method, payload: { threadId: "thread-1", agentId: "agent-1", ...lifecyclePayload } };
+  runtime.bridgeCallback(event);
+  runtime.bridgeCallback(event);
+  await flushPromises(16);
+
+  const state = useClientStore.getState();
+  expect(state.threads).toEqual([expect.objectContaining({ id: "thread-1", status })]);
+  expect(state.statuses["thread-1"]).toEqual(expect.objectContaining({ status }));
+  expect(state.activeTurnByThread).not.toHaveProperty("thread-1");
+  expect(backendApi.getSidebarState).toHaveBeenCalledTimes(1);
+  expect(backendApi.getSidebarState).toHaveBeenCalledWith({ cwd: "/repo/app" });
+  expect(state.warningEntries.some((entry) => entry.event === "turn.terminal.contract_invalid")).toBe(false);
+
+  if (method === "agent/failed") {
+    expect(state.actionNotice).toEqual(expect.objectContaining({ message: "代理运行失败", tone: "error" }));
+    expect(state.warningEntries).toEqual([
+      expect.objectContaining({
+        event: "agent.lifecycle.failed",
+        level: "error",
+        occurrenceCount: 1,
+        fields: expect.objectContaining({ agent_id: "agent-1", reason: "agent_failed" }),
+      }),
+    ]);
+    expect(state.warningEntries[0].fields).not.toHaveProperty("error");
+    expect(JSON.stringify({ warnings: state.warningEntries, traces: backendApi.emitFrontendTraceEvent.mock.calls }))
+      .not.toMatch(/raw-failure-secret|\/private\/agent\.log/);
+  } else {
+    expect(state.warningEntries).toEqual([]);
+  }
 });

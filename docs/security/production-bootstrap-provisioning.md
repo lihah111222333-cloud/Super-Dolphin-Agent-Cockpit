@@ -49,7 +49,7 @@ manifest 本身也是仓库外 0600 文件：
     }
   ],
   "candidate_ttl_seconds": 3600,
-  "promotion_poll_millis": 100,
+  "promotion_poll_millis": 5000,
   "action_grant_ttl_seconds": 60
 }
 ```
@@ -82,7 +82,7 @@ authority bundle 使用严格 JSON：
 
 并发首次 submit 共享同一仓库外锁；只有赢家执行 controller，其他调用读取同一 generation 1。任何 root/key/digest/codesign/runner/container/record 漂移都失败，且不会回退到宿主 Go、npm、make 或 candidate CLI。
 
-后续可信树改变镜像输入时，owner 先把包含 source entries 的 build intent 持久化到仓库外 candidate state，再由 scheduler 构建并晋升新 immutable image。该 JSON snapshot 上限为 128 MiB；超过上限会在构建前 fail-closed，不会截断、跳过文件或复用旧镜像。
+后续可信树改变镜像输入时，owner 先把包含 source entries 的 build intent 持久化到仓库外 candidate state，再由 scheduler 在独立 45 分钟预算内构建并晋升新 immutable image。生产轮询必须在 5 到 60 秒之间；候选进入 build failed、advance failed 或 promoted 终态时会删除 source entries，只保留摘要、Git/镜像身份和恢复权威，避免空闲 owner 反复解析大源码载荷。活动 JSON snapshot 上限为 128 MiB；超过上限会在构建前 fail-closed，不会截断、跳过文件或复用旧镜像。每次 job 的自包含 Git bundle 与只读 snapshot 准备另有 15 分钟边界，完成后才启动普通 10 分钟或 release 30 分钟的 fresh-container 执行时钟。
 
 ## 外部前置与残余边界
 

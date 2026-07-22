@@ -7,7 +7,7 @@
 > [!IMPORTANT]
 > **Maintainer declaration: 100% AI-written original code and project-authored documentation, human-directed, repository-guarded.** Product code, test code, and project-owned documentation are written or refactored by AI agents. Humans retain ownership of product intent, architecture decisions, credentials, and releases. Authorship does not imply infallibility: every accepted change remains subject to repository-owned evidence and gates. Upstream legal and community texts retain their original attribution.
 
-**Truth-image delivery enforcement.** Versioned [Git hooks](.githooks/README.md), manual `make ci-l0`, `make ci-l1`, and `make ci-l2-claude`, release, and GitHub Actions all submit to the same fail-closed coordinator. `pre-commit` and the manual L0-L2 commands check the exact staged tree; release and GitHub Actions check the exact commit. A change to a truth-image input automatically builds a candidate image, but it is not runnable until a trusted ref promotes it; ordinary source changes reuse the accepted immutable image. Every CI action then forks a fresh, isolated Docker `PlanExecution` from that truth image. The local scheduler runs at most three tasks concurrently and queues later work FIFO; each task is capped at 4 CPU and 8 GiB, so the Docker budget is about 25 GiB overall. Normal jobs time out after 10 minutes and release jobs after 30 minutes. Missing trusted CLI or provenance, image drift, queue/receipt failure, or a failed gate rejects the action rather than falling back. `commit-msg` continues to require Chinese commit text and fix-test evidence.
+**Truth-image delivery enforcement.** Versioned [Git hooks](.githooks/README.md), manual `make ci-l0`, `make ci-l1`, and `make ci-l2-claude`, release, and GitHub Actions all submit to the same fail-closed coordinator. `pre-commit` and the manual L0-L2 commands check the exact staged tree; release and GitHub Actions check the exact commit. A change to a truth-image input automatically builds a candidate image, but it is not runnable until a trusted ref promotes it; ordinary source changes reuse the accepted immutable image. Every CI action then forks a fresh, isolated Docker `PlanExecution` from that truth image. The local scheduler runs at most three tasks concurrently and queues later work FIFO; each task is capped at 4 CPU and 8 GiB, so the Docker budget is about 25 GiB overall. Fresh-container execution has a 10-minute normal budget or a 30-minute release budget, starting only after admission; source snapshot preparation has a separate 15-minute budget, and a truth-image candidate has a separate 30-minute build-and-promotion budget. Missing trusted CLI or provenance, image drift, queue/receipt failure, or a failed gate rejects the action rather than falling back. `commit-msg` continues to require Chinese commit text and fix-test evidence.
 
 Super Dolphin Agent is a **production-grade, AI-native vibe-coding engineering system and multi-agent development control plane**. It combines a local desktop runtime, MCP orchestration, multi-language LSP navigation, provider integrations, persistent workflows, and machine-enforced engineering boundaries in one working reference implementation.
 
@@ -196,7 +196,7 @@ Calculations remain fallible even after earlier validation. Schedule, identity, 
 ### Prerequisites
 
 - Go 1.25.7
-- Node.js matching `^20.19.0 || ^22.13.0 || >=24` and npm
+- Node.js 20+ and npm
 - OpenAI Codex CLI (`codex`), installed and authenticated
 - `gopls`
 - `typescript-language-server` and TypeScript 5.9.3
@@ -260,7 +260,7 @@ These commands validate architecture rules, guard behavior, generated navigation
 
 | Metric | Value |
 |--------|-------|
-| Architecture Tests | <!-- BEGIN GENERATED ARCHTEST STATS -->Source AST: 342 runnable `Test*` functions across 125 `_test.go` files in `internal/archtest`<!-- END GENERATED ARCHTEST STATS --> |
+| Architecture Tests | <!-- BEGIN GENERATED ARCHTEST STATS -->Source AST: 344 runnable `Test*` functions across 125 `_test.go` files in `internal/archtest`<!-- END GENERATED ARCHTEST STATS --> |
 | Architecture rules | [Generated backend boundary map](docs/doc/codemap/13-archtest-boundaries.md) |
 | Test coverage | Recompute from a current test run; no static percentage is claimed |
 | CI | [GitHub Actions](.github/workflows/ci.yml) |

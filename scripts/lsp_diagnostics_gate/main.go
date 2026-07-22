@@ -487,6 +487,8 @@ func matchingTargetBuildContext(directory string, name string) (*targetCompileTa
 		{GOOS: "darwin", GOARCH: "amd64"},
 		{GOOS: "linux", GOARCH: "amd64"},
 		{GOOS: "linux", GOARCH: "arm64"},
+		{GOOS: "freebsd", GOARCH: "amd64"},
+		{GOOS: "freebsd", GOARCH: "arm64"},
 	} {
 		context := build.Default
 		context.GOOS = target.GOOS

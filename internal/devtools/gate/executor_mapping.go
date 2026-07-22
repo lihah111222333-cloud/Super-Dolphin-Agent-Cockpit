@@ -77,23 +77,28 @@ func RaceSensitivePathPrefixes() []string {
 
 // ExecutorProgram is the immutable command mapping for one canonical GateID.
 type ExecutorProgram struct {
-	Strategy            ExecutorStrategy
-	Steps               []ExecutorStep
-	RequiredPaths       []string
-	RequiredExecutables []string
-	NeedsGoSeed         bool
-	NeedsFrontendSeed   bool
+	Strategy               ExecutorStrategy
+	Steps                  []ExecutorStep
+	RequiredPaths          []string
+	RequiredExecutables    []string
+	NeedsGoSeed            bool
+	NeedsFrontendSeed      bool
+	NeedsFrontendEmbedSeed bool
 }
 
 var executorPrograms = map[GateID]ExecutorProgram{
-	GateIDAIMaintenanceSelfTest: withGoSeed(requirePaths(commandProgram(
+	GateIDAIMaintenanceSelfTest: requireExecutables(withGoSeed(requirePaths(commandProgram(
+		[]string{"actionlint"},
 		[]string{"go", "test", "./scripts/ai_maintenance", "-count=1"},
-		[]string{"go", "test", "./scripts", "-run", "^TestAIMaintenanceGate$", "-count=1"},
-	), "scripts/ai_maintenance/main.go", "scripts/ai_maintenance_gates_guard_test.go")),
+		[]string{"go", "test", "./scripts", "-run", "^TestAIMaintenanceGate", "-count=1"},
+	), ".github/workflows", "scripts/ai_maintenance/main.go", "scripts/ai_maintenance_gates_guard_test.go")), ExecutorActionlintBinaryPath),
 	GateIDFrontendLint: withFrontendSeed(requirePaths(commandProgramIn("frontend-app",
 		[]string{"npm", "run", "lint"},
 	), "frontend-app/package.json", "frontend-app/package-lock.json")),
 	GateIDFrontendTest: withFrontendSeed(requirePaths(commandProgramIn("frontend-app",
+		[]string{"npm", "run", "test:hook"},
+	), "frontend-app/package.json", "frontend-app/package-lock.json")),
+	GateIDFrontendFullTest: withFrontendSeed(requirePaths(commandProgramIn("frontend-app",
 		[]string{"npm", "test"},
 	), "frontend-app/package.json", "frontend-app/package-lock.json")),
 	GateIDFrontendBuild: withFrontendSeed(requirePaths(commandProgramIn("frontend-app",
@@ -102,13 +107,12 @@ var executorPrograms = map[GateID]ExecutorProgram{
 	GateIDFrontendEmbedVerify: withFrontendSeed(requirePaths(commandProgram(
 		[]string{"make", "frontend-embed-verify"},
 	), "Makefile", "scripts/frontend_embed_verify.sh")),
-	GateIDBackendTestWithGuard: withFrontendSeed(withGoSeed(requirePaths(ExecutorProgram{
+	GateIDBackendTestWithGuard: withFrontendEmbedSeed(withGoSeed(requirePaths(ExecutorProgram{
 		Strategy: ExecutorStrategyCommands,
 		Steps: []ExecutorStep{
-			{Directory: "frontend-app", Argv: []string{"npm", "run", "build"}},
-			normalGoExecutorStep([]string{"./scripts/test_with_guard.sh", "--canonical-backend", "./cmd/...", "./internal/...", "./pkg/...", "./scripts/..."}),
+			normalGoExecutorStep(append([]string{"./scripts/test_with_guard.sh", "--canonical-backend"}, canonicalBackendPackagePatterns()...)),
 		},
-	}, "frontend-app/package.json", "frontend-app/package-lock.json", "scripts/test_with_guard.sh", "scripts/check_nested_go_modules.sh"))),
+	}, "scripts/test_with_guard.sh", "scripts/check_nested_go_modules.sh"))),
 	GateIDLSPChangedDiagnostics: requireExecutables(withFrontendSeed(withGoSeed(ExecutorProgram{
 		Strategy: ExecutorStrategyChangedDiagnostics,
 		RequiredPaths: []string{
@@ -116,9 +120,12 @@ var executorPrograms = map[GateID]ExecutorProgram{
 		},
 	})), ExecutorSqruffBinaryPath),
 	GateIDBackendTestGuardWithRace: backendRaceExecutorProgram(),
-	GateIDBackendNilness: withGoSeed(requirePaths(commandProgram(
-		[]string{"go", "run", "./scripts/nilness_guard.go", "-test=false", "--", "./..."},
-	), "scripts/nilness_guard.go")),
+	GateIDBackendNilness: withGoSeed(requirePaths(ExecutorProgram{
+		Strategy: ExecutorStrategyCommands,
+		Steps: []ExecutorStep{
+			normalGoExecutorStep([]string{"go", "run", "./scripts/nilness_guard.go", "-test=false", "--", "./..."}),
+		},
+	}, "scripts/nilness_guard.go")),
 	GateIDSQLCVerify: requireExecutables(requirePaths(ExecutorProgram{
 		Strategy: ExecutorStrategySQLCVerify,
 	}, "sqlc.yaml", "cmd/mcp-orch/sqlc.yaml"), ExecutorSQLCBinaryPath),
@@ -192,14 +199,27 @@ func withFrontendSeed(program ExecutorProgram) ExecutorProgram {
 	return program
 }
 
+func withFrontendEmbedSeed(program ExecutorProgram) ExecutorProgram {
+	program.NeedsFrontendEmbedSeed = true
+	return program
+}
+
 func backendRaceExecutorProgram() ExecutorProgram {
 	packages := RaceSensitivePackagePatterns()
-	argv := append([]string{"./scripts/test_with_guard.sh", "--race-only"}, packages...)
-	argv = append(argv, "-timeout=180s")
-	return withGoSeed(requirePaths(ExecutorProgram{
+	argv := append([]string{"./scripts/test_with_guard.sh", "--with-race"}, packages...)
+	argv = append(argv, "--")
+	argv = append(argv, canonicalBackendPackagePatterns()...)
+	argv = append(argv, "-count=1", "-timeout=180s")
+	return withFrontendEmbedSeed(withGoSeed(requirePaths(ExecutorProgram{
 		Strategy: ExecutorStrategyCommands,
-		Steps:    []ExecutorStep{raceGoExecutorStep(argv)},
-	}, "scripts/test_with_guard.sh", "scripts/check_nested_go_modules.sh"))
+		Steps: []ExecutorStep{
+			raceGoExecutorStep(argv),
+		},
+	}, "scripts/test_with_guard.sh", "scripts/check_nested_go_modules.sh")))
+}
+
+func canonicalBackendPackagePatterns() []string {
+	return []string{"./cmd/...", "./internal/...", "./pkg/...", "./scripts/..."}
 }
 
 func normalGoExecutorStep(argv []string) ExecutorStep {

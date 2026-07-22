@@ -12,6 +12,7 @@ import (
 	"path"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -20,6 +21,8 @@ import (
 const (
 	buildxMetadataLimit       = 16 << 20
 	buildxManifestMedia       = "application/vnd.docker.distribution.manifest.v2+json"
+	buildxConfigMedia         = "application/vnd.docker.container.image.v1+json"
+	buildxLayerMedia          = "application/vnd.docker.image.rootfs.diff.tar.gzip"
 	candidateImageRepository  = "docker.io/library/super-dolphin-gate-local"
 	candidateImageTagPrefix   = "candidate-"
 	buildxBuilderNamePrefix   = "super-dolphin-gate-"
@@ -27,12 +30,21 @@ const (
 	buildxBuilderCPUPeriod    = "100000"
 	buildxBuilderMemory       = "8g"
 	buildxBuilderMemoryBytes  = "8589934592"
+	buildxBuilderPidsLimit    = "512"
 	buildxBuilderCleanupLimit = 30 * time.Second
 )
 
 var forbiddenBuildArgumentNames = map[string]struct{}{
 	"ALL_PROXY": {}, "HTTP_PROXY": {}, "HTTPS_PROXY": {}, "NO_PROXY": {},
 }
+
+var controlledBuildxBuilderNamePattern = regexp.MustCompile(`^super-dolphin-gate-[0-9a-f]{12}-candidate-[a-z0-9]+$`)
+
+var legacyControlledBuildxBuilderNamePattern = regexp.MustCompile(`^super-dolphin-gate-candidate-[0-9]+$`)
+
+var buildxHistoryNodePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]*$`)
+
+var buildxHistoryRecordReferencePattern = regexp.MustCompile(`^[a-z0-9]{25}$`)
 
 type buildxCommandExecutor interface {
 	Run(ctx context.Context, stdin io.Reader, args ...string) (string, error)
@@ -44,6 +56,13 @@ type DockerBuildxRunner struct {
 	root      string
 	workRoot  string
 	cacheRoot string
+	ownerRoot string
+}
+
+type controlledBuildxOwner struct {
+	BuilderName   string `json:"builder_name"`
+	SourceTreeSHA string `json:"source_tree_sha"`
+	InputDigest   string `json:"input_digest"`
 }
 
 type execBuildxCommandExecutor struct{}
@@ -71,10 +90,11 @@ func newDockerBuildxRunner(executor buildxCommandExecutor, trustedRoot string) (
 	}
 	workRoot := filepath.Join(root, "work")
 	cacheRoot := filepath.Join(root, "cache")
-	if err := makePrivateDirectories(workRoot, cacheRoot); err != nil {
+	ownerRoot := filepath.Join(root, "buildx-owners")
+	if err := makePrivateDirectories(workRoot, cacheRoot, ownerRoot); err != nil {
 		return nil, err
 	}
-	return &DockerBuildxRunner{executor: executor, root: root, workRoot: workRoot, cacheRoot: cacheRoot}, nil
+	return &DockerBuildxRunner{executor: executor, root: root, workRoot: workRoot, cacheRoot: cacheRoot, ownerRoot: ownerRoot}, nil
 }
 
 // Run 执行 Docker CLI，并在成功时只返回单一 config digest 输出。
@@ -88,12 +108,16 @@ func (execBuildxCommandExecutor) Run(ctx context.Context, stdin io.Reader, args 
 	if err := ctx.Err(); err != nil {
 		return "", err
 	}
+	if len(args) == 0 {
+		return "", errors.New("docker command arguments are required")
+	}
 	command := exec.CommandContext(ctx, "docker", args...)
 	command.Stdin = stdin
 	command.Env = sanitizedBuildxEnvironment(os.Environ())
 	output, err := command.CombinedOutput()
 	if err != nil {
-		return "", fmt.Errorf("docker buildx build: %w: %s", err, strings.TrimSpace(string(output)))
+		subject := strings.Join(args[:min(len(args), 2)], " ")
+		return "", fmt.Errorf("docker %s: %w: %s", subject, err, strings.TrimSpace(string(output)))
 	}
 	if err := ctx.Err(); err != nil {
 		return "", err
@@ -102,27 +126,27 @@ func (execBuildxCommandExecutor) Run(ctx context.Context, stdin io.Reader, args 
 }
 
 // Build 执行一次隔离候选构建，并从严格绑定的 metadata 返回 platform manifest digest。
-func (runner *DockerBuildxRunner) Build(ctx context.Context, request BuildKitBuildRequest) (imageDigest string, err error) {
+func (runner *DockerBuildxRunner) Build(ctx context.Context, request BuildKitBuildRequest) (result BuildKitResult, err error) {
 	if err := runner.validateBuild(ctx, request); err != nil {
-		return "", err
+		return BuildKitResult{}, err
 	}
 	candidateTag, useCache, err := runner.prepareBuildxExecution(request)
 	if err != nil {
-		return "", err
+		return BuildKitResult{}, err
 	}
 	workspace, err := runner.createPrivateBuildxWorkspace()
 	if err != nil {
-		return "", err
+		return BuildKitResult{}, err
 	}
-	defer runner.cleanupPrivateBuildxWorkspace(workspace, &imageDigest, &err)
+	defer runner.cleanupPrivateBuildxWorkspace(workspace, &result, &err)
 	if err := validateBuildxDockerfileDirectives(request.ContextTar, request.DockerfilePath); err != nil {
-		return "", err
+		return BuildKitResult{}, err
 	}
 	builderName, err := runner.createControlledBuilder(ctx, request, workspace)
 	if err != nil {
-		return "", err
+		return BuildKitResult{}, err
 	}
-	defer runner.cleanupControlledBuilder(ctx, builderName, &imageDigest, &err)
+	defer runner.cleanupControlledBuilder(ctx, builderName, &result, &err)
 	return runner.buildCandidate(ctx, request, workspace, candidateTag, useCache, builderName)
 }
 
@@ -153,45 +177,56 @@ func createPrivateBuildxWorkspace(
 }
 
 // cleanupPrivateBuildxWorkspace 独立回收候选工作区，并把回收失败并入构建结果。
-func (runner *DockerBuildxRunner) cleanupPrivateBuildxWorkspace(workspace string, imageDigest *string, buildErr *error) {
+func (runner *DockerBuildxRunner) cleanupPrivateBuildxWorkspace(workspace string, result *BuildKitResult, buildErr *error) {
 	if cleanupErr := os.RemoveAll(workspace); cleanupErr != nil {
-		*imageDigest = ""
+		*result = BuildKitResult{}
 		*buildErr = errors.Join(*buildErr, fmt.Errorf("remove private buildx workspace: %w", cleanupErr))
 	}
 }
 
 // cleanupControlledBuilder 独立回收受控 builder，并把回收失败并入构建结果。
-func (runner *DockerBuildxRunner) cleanupControlledBuilder(ctx context.Context, builderName string, imageDigest *string, buildErr *error) {
+func (runner *DockerBuildxRunner) cleanupControlledBuilder(ctx context.Context, builderName string, result *BuildKitResult, buildErr *error) {
 	if cleanupErr := runner.removeControlledBuilder(ctx, builderName); cleanupErr != nil {
-		*imageDigest = ""
+		*result = BuildKitResult{}
 		*buildErr = errors.Join(*buildErr, fmt.Errorf("remove controlled buildx builder: %w", cleanupErr))
 	}
 }
 
 // buildCandidate 执行候选构建并验证严格绑定的 metadata。
-func (runner *DockerBuildxRunner) buildCandidate(ctx context.Context, request BuildKitBuildRequest, workspace string, candidateTag string, useCache bool, builderName string) (string, error) {
+func (runner *DockerBuildxRunner) buildCandidate(ctx context.Context, request BuildKitBuildRequest, workspace string, candidateTag string, useCache bool, builderName string) (BuildKitResult, error) {
 	metadataPath := filepath.Join(workspace, "metadata.json")
 	output, err := runner.executor.Run(ctx, bytes.NewReader(request.ContextTar), runner.commandArgs(request, metadataPath, candidateTag, useCache, builderName)...)
 	if err != nil {
-		return "", fmt.Errorf("run candidate buildx command: %w", err)
+		return BuildKitResult{}, fmt.Errorf("run candidate buildx command: %w", err)
 	}
 	if err := ctx.Err(); err != nil {
-		return "", err
+		return BuildKitResult{}, err
 	}
-	configDigest, err := parseBuildxDigestOutput(output)
+	imageDigest, err := parseBuildxDigestOutput(output)
 	if err != nil {
-		return "", err
+		return BuildKitResult{}, err
 	}
 	metadataData, err := readBuildxMetadataFile(metadataPath)
 	if err != nil {
-		return "", err
+		return BuildKitResult{}, err
 	}
-	return validateBuildxMetadata(metadataData, request, configDigest, builderName)
+	metadata, err := validateBuildxMetadata(metadataData, request, imageDigest, builderName)
+	if err != nil {
+		return BuildKitResult{}, err
+	}
+	configDigest, err := runner.resolveBuildxConfigDigest(ctx, builderName, metadata)
+	if err != nil {
+		return BuildKitResult{}, err
+	}
+	return BuildKitResult{PlatformManifestDigest: metadata.ImageDigest, ConfigDigest: configDigest}, nil
 }
 
 // createControlledBuilder 将每次候选构建绑定到新建且受资源限制的 BuildKit 容器。
 func (runner *DockerBuildxRunner) createControlledBuilder(ctx context.Context, request BuildKitBuildRequest, workspace string) (builderName string, err error) {
-	builderName = buildxBuilderName(filepath.Base(workspace))
+	builderName = buildxBuilderName(request.SourceTreeSHA, filepath.Base(workspace))
+	if err := runner.recordControlledBuilder(builderName, request); err != nil {
+		return "", err
+	}
 	createArgs := []string{
 		"buildx", "create", "--name", builderName, "--driver", "docker-container",
 		"--driver-opt=image=" + request.BuildKitImage,
@@ -200,12 +235,17 @@ func (runner *DockerBuildxRunner) createControlledBuilder(ctx context.Context, r
 		"--driver-opt=memory=" + buildxBuilderMemory,
 	}
 	if _, err := runner.executor.Run(ctx, bytes.NewReader(nil), createArgs...); err != nil {
-		return "", fmt.Errorf("create controlled buildx builder: %w", err)
+		createErr := fmt.Errorf("create controlled buildx builder: %w", err)
+		if cleanupErr := runner.removeControlledBuilder(ctx, builderName); cleanupErr != nil {
+			return "", errors.Join(createErr, fmt.Errorf("remove possibly created controlled buildx builder: %w", cleanupErr))
+		}
+		return "", createErr
 	}
+	controlledBuilderName := builderName
 	created := true
 	defer func() {
 		if created && err != nil {
-			if cleanupErr := runner.removeControlledBuilder(ctx, builderName); cleanupErr != nil {
+			if cleanupErr := runner.removeControlledBuilder(ctx, controlledBuilderName); cleanupErr != nil {
 				err = errors.Join(err, fmt.Errorf("remove rejected controlled buildx builder: %w", cleanupErr))
 			}
 		}
@@ -214,7 +254,7 @@ func (runner *DockerBuildxRunner) createControlledBuilder(ctx context.Context, r
 	if err != nil {
 		return "", fmt.Errorf("inspect controlled buildx builder: %w", err)
 	}
-	if err := validateBuildxInspectVersion(inspectOutput, request.BuildKitVersion); err != nil {
+	if err := runner.configureControlledBuilder(ctx, inspectOutput, request.BuildKitVersion, builderName); err != nil {
 		return "", err
 	}
 	if err := runner.validateControlledBuilderResources(ctx, request, builderName); err != nil {
@@ -223,9 +263,24 @@ func (runner *DockerBuildxRunner) createControlledBuilder(ctx context.Context, r
 	return builderName, nil
 }
 
+func (runner *DockerBuildxRunner) configureControlledBuilder(ctx context.Context, inspectOutput string, buildKitVersion string, builderName string) error {
+	if err := validateBuildxInspectVersion(inspectOutput, buildKitVersion); err != nil {
+		return err
+	}
+	return runner.updateControlledBuilderPidsLimit(ctx, builderName)
+}
+
+// updateControlledBuilderPidsLimit 对 bootstrap 后的固定 BuildKit 容器施加进程数上限。
+func (runner *DockerBuildxRunner) updateControlledBuilderPidsLimit(ctx context.Context, builderName string) error {
+	if _, err := runner.executor.Run(ctx, bytes.NewReader(nil), "container", "update", "--pids-limit", buildxBuilderPidsLimit, controlledBuildxContainerName(builderName)); err != nil {
+		return fmt.Errorf("update controlled buildx builder PIDs limit: %w", err)
+	}
+	return nil
+}
+
 // validateControlledBuilderResources 验证容器镜像、资源限制和不可变镜像身份一致。
 func (runner *DockerBuildxRunner) validateControlledBuilderResources(ctx context.Context, request BuildKitBuildRequest, builderName string) error {
-	containerOutput, err := runner.executor.Run(ctx, bytes.NewReader(nil), "container", "inspect", "--format", "{{.Config.Image}}\n{{.Image}}\n{{.HostConfig.CpuQuota}}/{{.HostConfig.CpuPeriod}}/{{.HostConfig.Memory}}", controlledBuildxContainerName(builderName))
+	containerOutput, err := runner.executor.Run(ctx, bytes.NewReader(nil), "container", "inspect", "--format", "{{.Config.Image}}\n{{.Image}}\n{{.HostConfig.CpuQuota}}/{{.HostConfig.CpuPeriod}}/{{.HostConfig.Memory}}/{{.HostConfig.PidsLimit}}", controlledBuildxContainerName(builderName))
 	if err != nil {
 		return fmt.Errorf("inspect controlled buildx builder container: %w", err)
 	}
@@ -239,16 +294,6 @@ func (runner *DockerBuildxRunner) validateControlledBuilderResources(ctx context
 	}
 	if err := validateBuildxImageIdentity(imageOutput, request.BuildKitImage, imageID); err != nil {
 		return err
-	}
-	return nil
-}
-
-func (runner *DockerBuildxRunner) removeControlledBuilder(ctx context.Context, builderName string) error {
-	cleanupCtx, cancel := BoundedCleanupContext(ctx, buildxBuilderCleanupLimit)
-	defer cancel()
-	_, err := runner.executor.Run(cleanupCtx, bytes.NewReader(nil), "buildx", "rm", "--force", builderName)
-	if err != nil {
-		return fmt.Errorf("run bounded controlled buildx builder cleanup: %w", err)
 	}
 	return nil
 }
@@ -286,7 +331,7 @@ func (runner *DockerBuildxRunner) validateBuild(ctx context.Context, request Bui
 func (runner *DockerBuildxRunner) commandArgs(request BuildKitBuildRequest, metadataPath string, candidateTag string, useCache bool, builderName string) []string {
 	cachePath := filepath.Join(runner.cacheRoot, strings.TrimPrefix(request.CacheNamespace, "sha256:"))
 	args := []string{
-		"buildx", "build", "--builder=" + builderName, "--load", "--progress=quiet", "--provenance=false",
+		"buildx", "build", "--builder=" + builderName, "--output=type=docker,oci-mediatypes=false", "--progress=quiet", "--provenance=false",
 		"--platform=" + request.Platform,
 		"--file=" + request.DockerfilePath,
 		"--network=none",
@@ -327,7 +372,29 @@ func (runner *DockerBuildxRunner) cacheAvailable(namespace string) (bool, error)
 		return false, errors.New("buildx cache namespace escapes the private cache root")
 	}
 	if err := validateBuildxCacheLayout(cachePath); err != nil {
+		recovered, recoveryErr := recoverEmptyBuildxCacheNamespace(cachePath)
+		if recoveryErr != nil {
+			return false, errors.Join(err, recoveryErr)
+		}
+		if recovered {
+			return false, nil
+		}
 		return false, err
+	}
+	return true, nil
+}
+
+// recoverEmptyBuildxCacheNamespace 仅回收已通过路径约束且为空的中断导出目录。
+func recoverEmptyBuildxCacheNamespace(cachePath string) (bool, error) {
+	entries, err := os.ReadDir(cachePath)
+	if err != nil {
+		return false, fmt.Errorf("inspect incomplete buildx cache namespace: %w", err)
+	}
+	if len(entries) != 0 {
+		return false, nil
+	}
+	if err := os.Remove(cachePath); err != nil {
+		return false, fmt.Errorf("remove empty buildx cache namespace: %w", err)
 	}
 	return true, nil
 }
@@ -588,8 +655,8 @@ func validBuildxParserDirectiveName(name string) bool {
 	return true
 }
 
-func buildxBuilderName(workspaceBase string) string {
-	return buildxBuilderNamePrefix + workspaceBase
+func buildxBuilderName(sourceTreeSHA string, workspaceBase string) string {
+	return buildxBuilderNamePrefix + sourceTreeSHA[:12] + "-" + workspaceBase
 }
 
 func controlledBuildxContainerName(builderName string) string {
@@ -598,7 +665,7 @@ func controlledBuildxContainerName(builderName string) string {
 
 // validateBuildxInspectVersion 确认 inspect 输出唯一且精确匹配锁定的 BuildKit 版本。
 func validateBuildxInspectVersion(output string, expectedVersion string) error {
-	const prefix = "BuildKit version: "
+	const prefix = "BuildKit version:"
 	found := false
 	for rawLine := range strings.SplitSeq(output, "\n") {
 		line := strings.TrimSpace(rawLine)
@@ -608,9 +675,9 @@ func validateBuildxInspectVersion(output string, expectedVersion string) error {
 		if found {
 			return errors.New("controlled buildx builder inspection contains duplicate BuildKit version fields")
 		}
-		actual := strings.TrimPrefix(line, prefix)
-		if actual == "" || strings.TrimSpace(actual) != actual {
-			return errors.New("controlled buildx builder inspection has an invalid BuildKit version field")
+		actual, err := parseBuildxInspectVersionValue(strings.TrimPrefix(line, prefix))
+		if err != nil {
+			return err
 		}
 		if actual != expectedVersion {
 			return fmt.Errorf("controlled buildx builder BuildKit version %q does not match lock %q", actual, expectedVersion)
@@ -621,6 +688,18 @@ func validateBuildxInspectVersion(output string, expectedVersion string) error {
 		return errors.New("controlled buildx builder inspection is missing the BuildKit version field")
 	}
 	return nil
+}
+
+// parseBuildxInspectVersionValue 接受 Buildx 列对齐空白并拒绝版本值内的空白漂移。
+func parseBuildxInspectVersionValue(value string) (string, error) {
+	if value == "" || (value[0] != ' ' && value[0] != '\t') {
+		return "", errors.New("controlled buildx builder inspection has an invalid BuildKit version field")
+	}
+	actual := strings.TrimLeft(value, " \t")
+	if actual == "" || strings.ContainsAny(actual, " \t") {
+		return "", errors.New("controlled buildx builder inspection has an invalid BuildKit version field")
+	}
+	return actual, nil
 }
 
 // validateBuildxContainerIdentity 验证受控容器使用锁定镜像并保持设定的资源限制。
@@ -635,8 +714,8 @@ func validateBuildxContainerIdentity(output string, expectedImage string) (strin
 	if err := validateDigest("controlled buildx builder container image ID", lines[1]); err != nil {
 		return "", err
 	}
-	if lines[2] != buildxBuilderCPUQuota+"/"+buildxBuilderCPUPeriod+"/"+buildxBuilderMemoryBytes {
-		return "", errors.New("controlled buildx builder resources do not match the 4 CPU / 8 GiB contract")
+	if lines[2] != buildxBuilderCPUQuota+"/"+buildxBuilderCPUPeriod+"/"+buildxBuilderMemoryBytes+"/"+buildxBuilderPidsLimit {
+		return "", errors.New("controlled buildx builder resources do not match the 4 CPU / 8 GiB / 512 pids contract")
 	}
 	return lines[1], nil
 }
@@ -649,7 +728,7 @@ func validateBuildxImageIdentity(output string, expectedImage string, containerI
 	}
 	found := 0
 	for _, reference := range lines[1 : len(lines)-1] {
-		if reference == expectedImage {
+		if buildxRepoDigestMatchesLock(reference, expectedImage) {
 			found++
 		}
 	}
@@ -657,6 +736,15 @@ func validateBuildxImageIdentity(output string, expectedImage string, containerI
 		return errors.New("controlled buildx builder image does not retain the locked immutable repository digest")
 	}
 	return nil
+}
+
+// buildxRepoDigestMatchesLock accepts Docker Hub's sole prefix normalization while preserving repository and digest identity.
+func buildxRepoDigestMatchesLock(reference string, expectedImage string) bool {
+	if reference == expectedImage {
+		return true
+	}
+	const dockerHubPrefix = "docker.io/"
+	return strings.HasPrefix(expectedImage, dockerHubPrefix) && reference == strings.TrimPrefix(expectedImage, dockerHubPrefix)
 }
 
 type buildxPlatform struct {
@@ -767,7 +855,7 @@ func parseBuildxDigestOutput(output string) (string, error) {
 	if trimmed == "" || strings.TrimSpace(trimmed) != trimmed || strings.ContainsAny(trimmed, "\r\n") {
 		return "", errors.New("buildx command output must contain one digest and no trailing output")
 	}
-	if err := validateDigest("buildx config output", trimmed); err != nil {
+	if err := validateDigest("buildx manifest output", trimmed); err != nil {
 		return "", err
 	}
 	return trimmed, nil
@@ -790,7 +878,7 @@ func sanitizedBuildxEnvironment(environment []string) []string {
 	blocked := map[string]struct{}{
 		"ALL_PROXY": {}, "HTTP_PROXY": {}, "HTTPS_PROXY": {}, "NO_PROXY": {},
 		"BUILDX_METADATA_PROVENANCE": {}, "BUILDX_METADATA_WARNINGS": {}, "BUILDX_NO_DEFAULT_ATTESTATIONS": {},
-		"BUILDX_BUILDER": {}, "DOCKER_CONTEXT": {}, "DOCKER_HOST": {}, "DOCKER_TLS_VERIFY": {}, "DOCKER_CERT_PATH": {}, "DOCKER_CONFIG": {},
+		"BUILDX_BUILDER": {}, "DOCKER_CONTEXT": {}, "DOCKER_HOST": {}, "DOCKER_TLS_VERIFY": {}, "DOCKER_CERT_PATH": {},
 	}
 	filtered := make([]string, 0, len(environment)+3)
 	for _, entry := range environment {

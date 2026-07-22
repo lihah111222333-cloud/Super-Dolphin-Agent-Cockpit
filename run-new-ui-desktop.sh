@@ -62,6 +62,12 @@ ensure_dev_codex_cli() {
   local candidate="${SUPER_DOLPHIN_DEV_CODEX_CLI:-}"
   local candidate_dir
 
+  if [ "${SUPER_DOLPHIN_DESKTOP_SMOKE_ACTIVE:-}" = "1" ]; then
+    case "${SUPER_DOLPHIN_DESKTOP_SMOKE_TURN:-}" in
+      1|true|yes) ;;
+      *) candidate="$PROJECT_DIR/frontend-app/scripts/desktop-smoke-codex-stub.mjs" ;;
+    esac
+  fi
   if [ -n "$candidate" ] && [ "${candidate#/}" = "$candidate" ]; then
     candidate="$(command -v "$candidate" 2>/dev/null || true)"
   fi
@@ -219,6 +225,11 @@ ensure_peer_binaries() {
     return 0
   fi
   rebuild_peer_binaries
+}
+
+ensure_embedded_frontend() {
+  echo "  → building frontend bundle required by agent-terminal embedding"
+  (cd "$PROJECT_DIR" && make frontend-build)
 }
 
 require_positive_integer() {
@@ -925,6 +936,7 @@ fi
 VITE_PID=$!
 wait_for_http "$FRONTEND_DEVSERVER_URL" "frontend-app vite" "$SUPER_DOLPHIN_FRONTEND_READY_ATTEMPTS"
 
+ensure_embedded_frontend
 start_desktop_backend
 wait_for_backend
 

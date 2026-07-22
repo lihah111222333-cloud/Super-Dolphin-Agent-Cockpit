@@ -6,30 +6,21 @@ import (
 	"testing"
 )
 
-func hasShellInvocation(script, command string) bool {
-	for line := range strings.SplitSeq(script, "\n") {
-		if strings.TrimSpace(line) == command {
-			return true
+func validateAIMaintenanceHookRoutes(preCommit, prePush, gateScript string) error {
+	for _, required := range []string{
+		`"$gate_bin" closure check --tree "$staged_tree"`,
+		`"$gate_bin" hook pre-commit --tree "$staged_tree"`,
+		`"$gate_bin" wait --job "$job_id" --tree "$staged_tree"`,
+	} {
+		if !strings.Contains(preCommit, required) {
+			return fmt.Errorf("pre-commit must route through trusted gate CLI command %q", required)
 		}
 	}
-	return false
-}
-
-func validateAIMaintenanceHookRoutes(preCommit, prePush, gateScript string) error {
-	if !hasShellInvocation(preCommit, "run_ai_maintenance_staged_gate") {
-		return fmt.Errorf("pre-commit must invoke the staged AI maintenance gate")
-	}
-	if !strings.Contains(preCommit, "./scripts/ai_maintenance_gates.sh") || !strings.Contains(preCommit, "--changed-file") {
-		return fmt.Errorf("pre-commit must route changed files through ai_maintenance_gates.sh")
-	}
-	if !hasShellInvocation(prePush, "run_ai_maintenance_push_gate") {
-		return fmt.Errorf("pre-push must invoke the push AI maintenance gate")
-	}
-	if !strings.Contains(prePush, "./scripts/ai_maintenance_gates.sh") || !strings.Contains(prePush, "--changed-file") {
-		return fmt.Errorf("pre-push must route changed files through ai_maintenance_gates.sh")
+	if !strings.Contains(prePush, `exec "$gate_bin" hook pre-push "$1" "$2"`) {
+		return fmt.Errorf("pre-push must route through the trusted gate CLI")
 	}
 	if !strings.Contains(gateScript, "go run ./scripts/ai_maintenance run \"$@\"") {
-		return fmt.Errorf("ai_maintenance_gates.sh must invoke scripts/ai_maintenance run")
+		return fmt.Errorf("container-owned ai_maintenance_gates.sh must invoke scripts/ai_maintenance run")
 	}
 	return nil
 }
@@ -66,15 +57,15 @@ func TestAIMaintenanceGateRouteDeletionMutations(t *testing.T) {
 		mutate func(*string, *string, *string)
 	}{
 		{
-			name: "pre-commit invocation",
+			name: "pre-commit CLI invocation",
 			mutate: func(preCommit, _, _ *string) {
-				*preCommit = strings.Replace(*preCommit, "\nrun_ai_maintenance_staged_gate\n", "\n", 1)
+				*preCommit = strings.Replace(*preCommit, `"$gate_bin" hook pre-commit --tree "$staged_tree"`, "", 1)
 			},
 		},
 		{
-			name: "pre-push invocation",
+			name: "pre-push CLI invocation",
 			mutate: func(_, prePush, _ *string) {
-				*prePush = strings.Replace(*prePush, "\nrun_ai_maintenance_push_gate\n", "\n", 1)
+				*prePush = strings.Replace(*prePush, `exec "$gate_bin" hook pre-push "$1" "$2"`, "", 1)
 			},
 		},
 		{

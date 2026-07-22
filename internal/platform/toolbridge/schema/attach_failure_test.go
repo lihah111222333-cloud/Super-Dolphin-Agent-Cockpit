@@ -31,7 +31,7 @@ func TestCleanupUnattachedProcessKillsDescendantsBeforeReap(t *testing.T) {
 		t.Fatalf("cleanupUnattachedProcessTree() code = %q, want %q; error=%v", ErrorCode(err), CodeProcessStartFailed, err)
 	}
 	for _, pid := range processIDs {
-		assertAttachFailureProcessGone(t, pid)
+		waitForAttachFailureProcessGone(t, pid)
 	}
 }
 
@@ -236,13 +236,14 @@ func startAttachFailureProcessTree(t *testing.T) (*exec.Cmd, *processGuard, []in
 	if err != nil {
 		t.Fatal(err)
 	}
+	cleanupKillGroup := guard.killGroup
 	if err := cmd.Start(); err != nil {
 		_ = closeProcessGuard(guard)
 		t.Fatal(err)
 	}
 	processIDs := waitForAttachFailureProcessIDs(t, marker)
 	t.Cleanup(func() {
-		_ = guard.killGroup(-guard.groupID, syscall.SIGKILL)
+		_ = cleanupKillGroup(-guard.groupID, syscall.SIGKILL)
 		guard.groupKilled = true
 		_ = closeProcessGuard(guard)
 		for _, pid := range processIDs {
@@ -308,20 +309,16 @@ func captureAttachFailureProcessIdentities(processIDs []int) ([]pidregistry.Stab
 	return identities, nil
 }
 
-func assertAttachFailureProcessGone(t *testing.T, pid int) {
-	t.Helper()
-	if err := syscall.Kill(pid, 0); !errors.Is(err, syscall.ESRCH) {
-		t.Fatalf("process %d remains after attach failure cleanup: %v", pid, err)
-	}
-}
-
 func waitForAttachFailureProcessGone(t *testing.T, pid int) {
 	t.Helper()
 	deadline := time.Now().Add(5 * time.Second)
+	var lastErr error
 	for time.Now().Before(deadline) {
-		if err := syscall.Kill(pid, 0); errors.Is(err, syscall.ESRCH) {
+		lastErr = syscall.Kill(pid, 0)
+		if errors.Is(lastErr, syscall.ESRCH) {
 			return
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
+	t.Fatalf("process %d remains after attach failure cleanup: %v", pid, lastErr)
 }

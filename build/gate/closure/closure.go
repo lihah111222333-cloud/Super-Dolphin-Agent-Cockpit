@@ -167,11 +167,15 @@ func collectClosureFiles(sourceRoot string) ([]string, []string, error) {
 	if err != nil {
 		return nil, nil, err
 	}
+	frontendFiles, err := collectFrontendBuildFiles(sourceRoot)
+	if err != nil {
+		return nil, nil, err
+	}
 	ownerFiles, err := collectRuntimeOwnerFiles(sourceRoot)
 	if err != nil {
 		return nil, nil, err
 	}
-	return mergeSorted(localFiles, ownerFiles), ownerFiles, nil
+	return mergeSorted(mergeSorted(localFiles, frontendFiles), ownerFiles), ownerFiles, nil
 }
 
 // readClosureLocks 读取并交叉校验闭包生成所需的两份锁文件。
@@ -354,6 +358,17 @@ func collectCompileFiles(sourceRoot string) ([]string, error) {
 	})
 }
 
+// collectFrontendBuildFiles 收集真相镜像中离线构建嵌入式前端所需的源码。
+func collectFrontendBuildFiles(sourceRoot string) ([]string, error) {
+	return collectRegularInputs(sourceRoot, []string{
+		"frontend-app/src",
+		"frontend-app/public",
+		"frontend-app/index.html",
+		"frontend-app/recovery.html",
+		"frontend-app/required-dist-entries.txt",
+	})
+}
+
 // collectRegularInputs 收集闭包编译输入中的常规文件。
 func collectRegularInputs(sourceRoot string, roots []string) ([]string, error) {
 	return collectNamedRegularInputs(sourceRoot, "closure", roots)
@@ -529,6 +544,11 @@ func renderDockerfile(lock toolchainLock, runtimeDeps runtimeDepsLock, localFile
 		return nil, err
 	}
 	output.WriteString("RUN --network=none /usr/local/bin/super-dolphin-runtime-seed verify /src /opt/super-dolphin-gate/runtime\n")
+	output.WriteString("RUN --network=none ln -s /opt/super-dolphin-gate/runtime/frontend/node_modules /src/frontend-app/node_modules && \\\n")
+	output.WriteString("    cd /src/frontend-app && npm run build && \\\n")
+	output.WriteString("    test -f /src/cmd/agent-terminal/web-dist/index.html && \\\n")
+	output.WriteString("    test -f /src/cmd/agent-terminal/web-dist/recovery.html && \\\n")
+	output.WriteString("    chmod -R a-w /src/cmd/agent-terminal/web-dist\n")
 	output.WriteString("RUN --network=none CGO_ENABLED=0 go build -mod=vendor -trimpath -buildvcs=false -o /tmp/nilness-guard ./scripts/nilness_guard.go && rm /tmp/nilness-guard\n")
 	output.WriteString("RUN --network=none CGO_ENABLED=0 go test -mod=vendor -run '^$' ./internal/devtools/gatehook\n")
 	output.WriteString("RUN --network=none CGO_ENABLED=0 go build -mod=vendor -trimpath -buildvcs=false -o /out/super-dolphin-gate ./cmd/super-dolphin-gate && \\\n")
@@ -537,6 +557,7 @@ func renderDockerfile(lock toolchainLock, runtimeDeps runtimeDepsLock, localFile
 	output.WriteString("FROM ${RUNTIME_DEPS_IMAGE}\nUSER root\n")
 	output.WriteString("COPY --from=build /out/super-dolphin-gate /super-dolphin-gate\n")
 	output.WriteString("COPY --from=build /out/super-dolphin-gate-executor /usr/local/bin/super-dolphin-gate-executor\n")
+	output.WriteString("COPY --from=build --chown=0:0 /src/cmd/agent-terminal/web-dist /opt/super-dolphin-gate/frontend-embed\n")
 	if err := writeDockerCopyInstructions(&output, ownerFiles, "/opt/super-dolphin-gate/owners/", "runtime owner COPY"); err != nil {
 		return nil, err
 	}

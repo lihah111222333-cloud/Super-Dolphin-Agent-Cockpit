@@ -68,15 +68,14 @@ type ContainerShardRunner func(context.Context, ContainerShard) (ContainerShardR
 
 // BuildContainerShardSet 将单次 canonical invocation 固定切成至多三个容器工作组。
 func BuildContainerShardSet(plan GatePlan, acceptedManifestDigest string, acceptedConfigDigest string) (ContainerShardSet, error) {
-	prerequisites, err := containerShardPrerequisites(plan, acceptedManifestDigest, acceptedConfigDigest)
-	if err != nil {
+	if _, err := containerShardPrerequisites(plan, acceptedManifestDigest, acceptedConfigDigest); err != nil {
 		return ContainerShardSet{}, err
 	}
 	set := ContainerShardSet{
 		Profile: plan.Profile, PlanDigest: plan.PlanDigest, SourceTreeSHA: plan.Source.SourceTreeSHA,
 		AcceptedManifestDigest: acceptedManifestDigest, AcceptedConfigDigest: acceptedConfigDigest,
 	}
-	if err := appendContainerShards(&set, partitionContainerShardGates(prerequisites)); err != nil {
+	if err := appendContainerShards(&set, canonicalContainerShardGroups(plan.Profile)); err != nil {
 		return ContainerShardSet{}, err
 	}
 	if err := set.Validate(); err != nil {
@@ -125,23 +124,6 @@ func gateIDsForPlan(plan GatePlan) []GateID {
 		ids[index] = spec.ID
 	}
 	return ids
-}
-
-// partitionContainerShardGates 根据实测长尾把 normal 与 release 固定映射到三个容器。
-// Frontend 与受限并发的 Go/LSP 分开承担长尾，治理检查使用第三个容器。
-func partitionContainerShardGates(ids []GateID) [][]GateID {
-	groups := make([][]GateID, MaxContainerShards)
-	for _, id := range ids {
-		switch id {
-		case GateIDAIMaintenanceSelfTest, GateIDFrontendLint, GateIDFrontendTest, GateIDFrontendBuild, GateIDFrontendEmbedVerify:
-			groups[0] = append(groups[0], id)
-		case GateIDBackendTestWithGuard, GateIDLSPChangedDiagnostics, GateIDBackendTestGuardWithRace, GateIDBackendNilness:
-			groups[1] = append(groups[1], id)
-		default:
-			groups[2] = append(groups[2], id)
-		}
-	}
-	return groups
 }
 
 // Validate 拒绝伪造身份、重复 gate 覆盖、worker 越权 release 和来源或镜像漂移。

@@ -209,7 +209,7 @@ func validShardLeaseBinding(reservation localci.WorkloadReservation, lease local
 }
 
 func (owner *coordinatorOwner) executeCandidateBuild(ctx context.Context, workloadID string) error {
-	buildCtx, cancel := localci.BoundedOperationContext(ctx, coordinatorProvisioningTimeout)
+	buildCtx, cancel := localci.BoundedOperationContext(ctx, coordinatorCandidateBuildTimeout)
 	err := owner.dependencies.CandidateBuilder.ExecuteBuild(buildCtx, workloadID)
 	cancel()
 	status := localci.WorkloadStatusPassed
@@ -222,7 +222,7 @@ func (owner *coordinatorOwner) executeCandidateBuild(ctx context.Context, worklo
 		return errors.Join(err, fmt.Errorf("complete candidate build workload %q: %w", workloadID, completeErr))
 	}
 	if err != nil {
-		return fmt.Errorf("execute candidate build workload %q within provisioning timeout: %w", workloadID, err)
+		return fmt.Errorf("execute candidate build workload %q within candidate build timeout: %w", workloadID, err)
 	}
 	return nil
 }

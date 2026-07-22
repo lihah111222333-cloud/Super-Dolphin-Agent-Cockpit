@@ -39,6 +39,7 @@ const (
 	GateIDAIMaintenanceSelfTest    GateID = "ai-maintenance:self-test"
 	GateIDFrontendLint             GateID = "frontend:lint"
 	GateIDFrontendTest             GateID = "frontend:test"
+	GateIDFrontendFullTest         GateID = "frontend:test-full"
 	GateIDFrontendBuild            GateID = "frontend:build"
 	GateIDFrontendEmbedVerify      GateID = "frontend:embed-verify"
 	GateIDBackendTestWithGuard     GateID = "backend:test_with_guard"
@@ -100,17 +101,19 @@ func (s GateSpec) Validate() error {
 // GateRegistry 返回单一有序 gate catalog 的隔离副本。
 func GateRegistry() []GateSpec {
 	all := allProfiles()
-	pushRequired := []Profile{ProfilePush, ProfileRemoteRequired, ProfilePromotion, ProfileRelease}
+	nonRelease := []Profile{ProfileLocalFast, ProfilePush, ProfileRemoteRequired, ProfilePromotion}
+	releaseRequired := []Profile{ProfileRelease}
 	registry := []GateSpec{
 		newGateSpec(GateIDAIMaintenanceSelfTest, all, all),
 		newGateSpec(GateIDFrontendLint, all, all),
-		newGateSpec(GateIDFrontendTest, all, all),
+		newGateSpec(GateIDFrontendTest, nonRelease, nonRelease),
+		newGateSpec(GateIDFrontendFullTest, []Profile{ProfileRelease}, []Profile{ProfileRelease}),
 		newGateSpec(GateIDFrontendBuild, all, all),
 		newGateSpec(GateIDFrontendEmbedVerify, all, all),
 		newGateSpec(GateIDBackendTestWithGuard, all, all),
 		newGateSpec(GateIDLSPChangedDiagnostics, all, all),
-		newGateSpec(GateIDBackendTestGuardWithRace, all, pushRequired),
-		newGateSpec(GateIDBackendNilness, all, pushRequired),
+		newGateSpec(GateIDBackendTestGuardWithRace, all, releaseRequired),
+		newGateSpec(GateIDBackendNilness, all, releaseRequired),
 		newGateSpec(GateIDSQLCVerify, all, all),
 		newGateSpec(GateIDCodemapCheck, all, all),
 		newGateSpec(GateIDProjectMapCheck, all, all),

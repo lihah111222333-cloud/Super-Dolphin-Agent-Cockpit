@@ -103,6 +103,16 @@ func TestTruthImageEnsurerBuildsChangedInputAndAwaitsTrustedRef(t *testing.T) {
 	}
 }
 
+func TestCandidateRequestFromInputsCarriesAcceptedConfigDigest(t *testing.T) {
+	accepted := gate.AcceptedImageRecord{ImageInputDigest: digest("2"), PolicyDigest: digest("d"), Image: gate.ImageIdentity{
+		PlatformManifestDigest: digest("3"), ConfigDigest: digest("4"),
+	}}
+	request := candidateRequestFromInputs(GateImageInputs{Platform: "linux/arm64"}, accepted)
+	if request.AcceptedConfigDigest != accepted.Image.ConfigDigest || request.AcceptedImageDigest != accepted.Image.PlatformManifestDigest {
+		t.Fatalf("candidate accepted identity = %#v", request)
+	}
+}
+
 func TestTruthImageEnsurerBuildFailureKeepsAcceptedRecord(t *testing.T) {
 	tree := readOnlyImageTree(t, candidateEntries(validCandidateDockerfile()))
 	inputs := mustResolveGateImageInputs(t, tree)

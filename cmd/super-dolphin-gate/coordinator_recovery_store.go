@@ -576,7 +576,7 @@ func validateLifecycleContainerID(
 // lifecycleContainerIDRequired 判定当前生命周期阶段是否必须持有容器身份。
 func lifecycleContainerIDRequired(record coordinatorJobRecord, event localci.FreshContainerLifecycleEvent) bool {
 	switch event.Phase {
-	case localci.FreshContainerPhasePrepared, localci.FreshContainerPhaseCreating:
+	case localci.FreshContainerPhasePrepared:
 		return false
 	case localci.FreshContainerPhaseRemoved:
 		return record.ContainerPhase != localci.FreshContainerPhaseCreating || event.ContainerID != "" || record.ContainerID != ""
@@ -592,6 +592,11 @@ func lifecycleContainerIDsMissing(record coordinatorJobRecord, event localci.Fre
 
 // lifecycleContainerIDDrifted 判定事件容器身份是否偏离持久化身份。
 func lifecycleContainerIDDrifted(record coordinatorJobRecord, event localci.FreshContainerLifecycleEvent) bool {
+	if record.ContainerPhase == localci.FreshContainerPhaseCreating &&
+		localci.IsFreshContainerOperationIdentity(record.ContainerID) &&
+		event.Phase == localci.FreshContainerPhaseCreated {
+		return false
+	}
 	return record.ContainerID != "" && event.ContainerID != record.ContainerID
 }
 

@@ -20,6 +20,10 @@ import (
 
 const ownerHandshakeMaximumBytes = 16 << 10
 
+// coordinatorOwnerToolchainPath is a fixed allowlist: owner processes must
+// never resolve Git or Docker from the hook caller's PATH.
+const coordinatorOwnerToolchainPath = "/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin:/Applications/Docker.app/Contents/Resources/bin"
+
 type ownerHandshake struct {
 	Ready bool   `json:"ready"`
 	Error string `json:"error,omitempty"`
@@ -48,11 +52,12 @@ func newCoordinatorOwnerCommand(executable string, args ...string) *exec.Cmd {
 	return command
 }
 
-// coordinatorOwnerEnvironment 从 owner 子进程移除调用方可控的 Git 仓库定位状态。
+// coordinatorOwnerEnvironment 移除调用方可控状态，并以固定 Git/Docker 工具链替换 PATH。
 func coordinatorOwnerEnvironment(environment []string) []string {
 	blocked := map[string]struct{}{
 		"GIT_DIR": {}, "GIT_WORK_TREE": {}, "GIT_COMMON_DIR": {}, "GIT_INDEX_FILE": {}, "GIT_OBJECT_DIRECTORY": {},
 		"GIT_ALTERNATE_OBJECT_DIRECTORIES": {}, "GIT_CONFIG": {}, "GIT_CONFIG_GLOBAL": {}, "GIT_CONFIG_SYSTEM": {}, "GIT_CONFIG_COUNT": {},
+		"PATH": {},
 	}
 	filtered := make([]string, 0, len(environment))
 	for _, entry := range environment {
@@ -64,7 +69,7 @@ func coordinatorOwnerEnvironment(environment []string) []string {
 		}
 		filtered = append(filtered, entry)
 	}
-	return filtered
+	return append(filtered, "PATH="+coordinatorOwnerToolchainPath)
 }
 
 // startCoordinatorOwnerCommand 在调用方 deadline 内启动、校验握手并移交 owner 子进程。

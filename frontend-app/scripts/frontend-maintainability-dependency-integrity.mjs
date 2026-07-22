@@ -25,11 +25,13 @@ export const DEPENDENCY_SUPPORTED_ENVIRONMENTS = Object.freeze([{
   targets: [
     { platform: 'darwin', arch: 'arm64' },
     { platform: 'darwin', arch: 'x64' },
+    { platform: 'linux', arch: 'arm64' },
     { platform: 'linux', arch: 'x64' },
     { platform: 'win32', arch: 'x64' },
   ],
   evidence: [
     '.github/workflows/ci.yml#actions/setup-node:20',
+    'build/gate/runtime-deps.lock#linux/arm64',
     'frontend-app/package-lock.json#node_modules/eslint.engines',
     'frontend-app/package-lock.json#node_modules/vite.engines',
     'frontend-app/scripts/frontend-maintainability-score.test.mjs#portable-dependency-integrity',
@@ -436,7 +438,8 @@ export function dependencyTreeIntegrity(appRoot, {
     aggregate.update(value);
     aggregate.update('\0');
   };
-  const visit = (absoluteRoot, relativeRoot = '') => {
+  const collect = (absoluteRoot, relativeRoot = '') => {
+    const records = [];
     for (const entry of fs.readdirSync(absoluteRoot).sort()) {
       const absolutePath = path.join(absoluteRoot, entry);
       const relativePath = relativeRoot ? `${relativeRoot}/${entry}` : entry;
@@ -446,32 +449,34 @@ export function dependencyTreeIntegrity(appRoot, {
         || excludedBinDirectories.has(packageRelativePath)) continue;
       const stat = fs.lstatSync(absolutePath);
       if (stat.isDirectory()) {
-        const childEntries = fs.readdirSync(absolutePath);
-        if (childEntries.length === 0) continue;
-        pathCount += 1;
-        add(relativePath);
-        add('directory');
-        visit(absolutePath, relativePath);
+        const descendants = collect(absolutePath, relativePath);
+        if (descendants.length === 0) continue;
+        records.push({ absolutePath, relativePath, kind: 'directory' }, ...descendants);
       }
       else if (stat.isFile()) {
-        pathCount += 1;
-        add(relativePath);
-        add('file');
-        aggregate.update(fs.readFileSync(absolutePath));
-        aggregate.update('\0');
+        records.push({ absolutePath, relativePath, kind: 'file' });
       }
       else if (stat.isSymbolicLink()) {
-        pathCount += 1;
-        add(relativePath);
-        add('symlink');
-        add(fs.readlinkSync(absolutePath));
+        records.push({ absolutePath, relativePath, kind: 'symlink' });
       }
       else {
         fail(`unsupported immutable dependency entry: ${relativePath}`);
       }
     }
+    return records;
   };
-  visit(nodeModulesRoot);
+  for (const record of collect(nodeModulesRoot)) {
+    pathCount += 1;
+    add(record.relativePath);
+    add(record.kind);
+    if (record.kind === 'file') {
+      aggregate.update(fs.readFileSync(record.absolutePath));
+      aggregate.update('\0');
+    }
+    else if (record.kind === 'symlink') {
+      add(fs.readlinkSync(record.absolutePath));
+    }
+  }
   return {
     nodeModulesRoot,
     pathCount,

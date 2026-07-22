@@ -31,7 +31,7 @@ func schedulerPublicDTOJSONCases() []schedulerTransportJSONCase {
 				"Subsequence": "subsequence", "Kind": "kind", "ServiceCount": "service_count",
 				"GroupIdentity": "group_identity", "GroupSize": "group_size",
 				"ShardIdentities": "shard_identities",
-				"Dependencies": "dependencies",
+				"Dependencies":    "dependencies",
 			},
 		},
 		{name: "Lease", value: Lease{}, want: map[string]string{

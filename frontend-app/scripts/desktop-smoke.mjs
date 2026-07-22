@@ -6,6 +6,8 @@ import { setTimeout as sleep } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 import WebSocket from 'ws';
 
+import { signalProcessTree } from './managed-command.mjs';
+
 const DEFAULT_HTTP_ADDR = '127.0.0.1:4512';
 const DEFAULT_VITE_URL = 'http://127.0.0.1:5175';
 const DEFAULT_TIMEOUT_MS = 180000;
@@ -54,7 +56,12 @@ export function buildJSONRPCRequest(id, method, params = {}) {
   return { jsonrpc: '2.0', id, method, params };
 }
 
-export function smokeConfig(env = process.env, repoRoot = repoRootFromScript(), randomUUIDImpl = randomUUID) {
+export function smokeConfig(
+  env = process.env,
+  repoRoot = repoRootFromScript(),
+  randomUUIDImpl = randomUUID,
+  platform = process.platform,
+) {
   const httpAddr = env.SUPER_DOLPHIN_HTTP_ADDR || DEFAULT_HTTP_ADDR;
   const viteURL = env.VITE_DEV_URL || DEFAULT_VITE_URL;
   return {
@@ -69,6 +76,7 @@ export function smokeConfig(env = process.env, repoRoot = repoRootFromScript(), 
     rpcTimeoutMs: positiveInt(env.SUPER_DOLPHIN_DESKTOP_SMOKE_RPC_TIMEOUT_MS, DEFAULT_RPC_TIMEOUT_MS),
     runTurnPath: truthyEnv(env.SUPER_DOLPHIN_DESKTOP_SMOKE_TURN),
     skipFrontendBuild: truthyEnv(env.SUPER_DOLPHIN_DESKTOP_SMOKE_SKIP_FRONTEND_BUILD),
+    headlessDisplay: platform === 'linux' && truthyEnv(env.CI),
     provider: env.SUPER_DOLPHIN_DESKTOP_SMOKE_PROVIDER || 'codex',
   };
 }
@@ -130,8 +138,13 @@ export async function runDesktopSmoke(config = smokeConfig(), deps = {}) {
 }
 
 function startDesktop(config, spawnImpl) {
-  console.log(`starting desktop: ${config.runner}`);
-  return spawnImpl(config.runner, [], {
+  const invocation = desktopRunnerInvocation(config);
+  console.log(`starting desktop: ${invocation.command} ${invocation.args.join(' ')}`.trim());
+  return spawnImpl(invocation.command, invocation.args, desktopSpawnOptions(config));
+}
+
+export function desktopSpawnOptions(config, platform = process.platform) {
+  return {
     cwd: config.repoRoot,
     env: {
       ...process.env,
@@ -141,8 +154,16 @@ function startDesktop(config, spawnImpl) {
       SUPER_DOLPHIN_DESKTOP_SMOKE_ACTIVE: '1',
       SUPER_DOLPHIN_WAILS_WS_TOKEN: config.wsToken,
     },
+    detached: platform !== 'win32',
     stdio: 'inherit',
-  });
+  };
+}
+
+export function desktopRunnerInvocation(config) {
+  if (config.headlessDisplay) {
+    return Object.freeze({ command: 'xvfb-run', args: Object.freeze(['-a', config.runner]) });
+  }
+  return Object.freeze({ command: config.runner, args: Object.freeze([]) });
 }
 
 function runCommand(command, args, cwd, spawnImpl) {
@@ -160,15 +181,37 @@ function runCommand(command, args, cwd, spawnImpl) {
   });
 }
 
-async function stopDesktop(child) {
+export async function stopDesktop(child, signalImpl = signalProcessTree) {
   if (!child || child.exitCode != null || child.signalCode != null) return;
-  child.kill('SIGTERM');
-  await Promise.race([
-    new Promise((resolve) => child.once('exit', resolve)),
-    sleep(10000).then(() => {
-      if (child.exitCode == null && child.signalCode == null) child.kill('SIGKILL');
-    }),
-  ]);
+  let forceTimer;
+  let forced = false;
+  let forceError;
+  const exitedOrTimedOut = new Promise((resolve) => {
+    child.once('exit', resolve);
+    forceTimer = setTimeout(async () => {
+      try {
+        if (child.exitCode == null && child.signalCode == null) {
+          forced = true;
+          await signalImpl(child, 'SIGKILL');
+        }
+      }
+      catch (error) {
+        forceError = error;
+      }
+      finally {
+        resolve();
+      }
+    }, 10000);
+  });
+  try {
+    await signalImpl(child, 'SIGTERM');
+    await exitedOrTimedOut;
+    if (forceError) throw forceError;
+    if (!forced) await signalImpl(child, 'SIGKILL');
+  }
+  finally {
+    clearTimeout(forceTimer);
+  }
 }
 
 async function waitForHTTP(url, timeoutMs, child) {

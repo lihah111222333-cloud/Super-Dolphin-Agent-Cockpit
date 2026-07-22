@@ -52,9 +52,12 @@ describe('frontend z-index token guard', () => {
     expect(criticalCommands.filter((command) => command === Z_INDEX_GUARD_COMMAND)).toEqual([Z_INDEX_GUARD_COMMAND]);
     expect(criticalCommands.filter((command) => command.startsWith(`${Z_INDEX_GUARD_COMMAND} `))).toEqual([]);
     expect(packageJson.scripts['guard:critical-skip']).not.toMatch(/baseline|allowlist|threshold/);
-    expect(packageJson.scripts['test:hook']).toMatch(/^npm run guard:critical-skip\s*&&/);
-		expect(packageJson.scripts['test:hook']).toContain('vitest run --maxWorkers=4');
-		expect(packageJson.scripts['test:hook']).not.toContain('--no-file-parallelism');
+    expect(packageJson.scripts['test:hook']).toBe('node scripts/frontend-hook-test-runner.mjs');
+    expect(packageJson.scripts['test:hook:preflight']).toMatch(/^npm run guard:critical-skip\s*&&/);
+    expect(packageJson.scripts['test:hook:core']).toContain('vitest run --changed HEAD^ --maxWorkers=2');
+    expect(packageJson.scripts['test:full']).toMatch(/^npm run test:hook:preflight\s*&&/);
+    expect(packageJson.scripts['test:full']).toContain('vitest run --maxWorkers=2');
+    expect(packageJson.scripts['test:hook:core']).not.toContain('--no-file-parallelism');
   });
 
   it('accepts the exact nine-token contract with global and local selectors in one file', () => {

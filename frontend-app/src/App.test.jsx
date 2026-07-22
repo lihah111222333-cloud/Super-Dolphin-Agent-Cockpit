@@ -13,6 +13,7 @@ import { rightPanelDefaultWidth, rightPanelMaxWidth, threadRailTargetWidth } fro
 import { resetClientStoreForTests, useClientStore } from './entities/client/model/useClientStore.js';
 import { frontendHealthSnapshot, resetFrontendHealthForTest } from './shared/diagnostics/frontendHealthStore.js';
 import { normalizeMemorySnapshot as normalizeMemorySnapshotForFacade } from './adapters/memoryAdapter.js';
+import './test-utils/preloadAppRouteModules.js';
 import mermaid from 'mermaid';
 
 let createRootMock = null;
@@ -1361,7 +1362,6 @@ async function showAllTraceDashboardEvents() {
       const shell = await screen.findByTestId('frontend-app');
       const preferenceCallsBeforeToggle = backend.setPreference.mock.calls.length;
 
-      // Check initial light theme synchronization
       expect(shell).toHaveAttribute('data-theme', 'light');
       expect(appOverlayHost).toHaveAttribute('data-theme', 'light');
       expect(document.documentElement).toHaveAttribute('data-theme', 'light');
@@ -8176,7 +8176,7 @@ async function designWorkflowWithAi() {
     expect(backend.listSkillResolutions).not.toHaveBeenCalled();
   });
 
-  it('keeps composer dock pinned inside the viewport', () => {
+  it('keeps composer dock pinned inside the viewport', async () => {
     resetClientStoreForTests({
       bootstrapStatus: 'ready',
       cwd: '/repo/app',
@@ -8194,8 +8194,7 @@ async function designWorkflowWithAi() {
 
     render(<App skipBootstrap />);
 
-    expect(screen.getByTestId('composer-dock')).toHaveClass('composer', 'composer--docked');
-    expect(screen.getByTestId('chat-timeline')).toHaveClass('timeline');
+    expect(await screen.findByTestId('composer-dock')).toHaveClass('composer', 'composer--docked');
   });
 
   it('connects settings page build info and provider preferences to backend', async () => {

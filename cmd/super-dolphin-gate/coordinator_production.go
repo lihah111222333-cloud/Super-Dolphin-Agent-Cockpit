@@ -17,10 +17,34 @@ import (
 	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/localci"
 )
 
+type productionBuildxRunner interface {
+	localci.BuildKitRunner
+	RecoverControlledBuilders(context.Context) error
+}
+
+type productionBuildxFactory func(string) (productionBuildxRunner, error)
+
+var errProductionAcceptedTrustedRefMismatch = errors.New(
+	"accepted image trusted_commit is not the exact configured trusted_ref tip",
+)
+
 // productionCoordinatorDependencies 装配签名 accepted image、Git object source 与一次性 Docker runner。
 func productionCoordinatorDependencies(ctx context.Context) (coordinatorDependencies, error) {
+	return productionCoordinatorDependenciesWithBuildx(ctx, func(root string) (productionBuildxRunner, error) {
+		return localci.NewDockerBuildxRunner(root)
+	})
+}
+
+// productionCoordinatorDependenciesWithBuildx 允许无 Docker 的容器单测验证真实适配器装配边界。
+func productionCoordinatorDependenciesWithBuildx(
+	ctx context.Context,
+	buildxFactory productionBuildxFactory,
+) (coordinatorDependencies, error) {
 	if ctx == nil {
 		return coordinatorDependencies{}, fmt.Errorf("%w: production context is required", errCoordinatorDependency)
+	}
+	if buildxFactory == nil {
+		return coordinatorDependencies{}, fmt.Errorf("%w: production buildx factory is required", errCoordinatorDependency)
 	}
 	if err := validateProductionGitEnvironment(); err != nil {
 		return coordinatorDependencies{}, err
@@ -32,7 +56,7 @@ func productionCoordinatorDependencies(ctx context.Context) (coordinatorDependen
 	if err := validateProductionRuntimeRoot(config.TrustedSourceRoot); err != nil {
 		return coordinatorDependencies{}, err
 	}
-	imageEnsurer, candidateBuilder, watcher, err := newProductionImageServices(ctx, config)
+	imageEnsurer, candidateBuilder, watcher, err := newProductionImageServices(ctx, config, buildxFactory)
 	if err != nil {
 		return coordinatorDependencies{}, err
 	}
@@ -56,6 +80,7 @@ func productionCoordinatorDependencies(ctx context.Context) (coordinatorDependen
 func newProductionImageServices(
 	ctx context.Context,
 	config productionCoordinatorConfig,
+	buildxFactory productionBuildxFactory,
 ) (*productionImageEnsurer, *productionCandidateBuildService, *localci.PromotionController, error) {
 	promotion, err := newProductionPromotionAuthority(ctx, config)
 	if err != nil {
@@ -80,30 +105,50 @@ func newProductionImageServices(
 	if err := validateAcceptedPlatform(record.Image, config.Platform); err != nil {
 		return nil, nil, nil, err
 	}
-	buildx, err := localci.NewDockerBuildxRunner(config.CandidateBuildRoot)
-	if err != nil {
-		return nil, nil, nil, err
-	}
-	builder, err := localci.NewImageBuilder(buildx)
-	if err != nil {
-		return nil, nil, nil, err
-	}
 	truth, err := localci.NewTruthImageEnsurer(promotion.accepted, promotion.candidates)
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	buildService := &productionCandidateBuildService{
-		store: promotion.candidates, accepted: promotion.accepted, authority: promotion.authority,
-		builder: builder, resolver: localci.NewDockerCandidateIdentityResolver(),
-	}
+	promotionPoll := time.Duration(config.PromotionPollMillis) * time.Millisecond
 	watcher, err := localci.NewPromotionController(
 		promotion.candidates, promotion.state, promotion.authority, promotion.signer,
-		time.Duration(config.PromotionPollMillis)*time.Millisecond,
+		promotionPoll,
+	)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	buildService, err := newProductionCandidateBuildService(
+		provisionCtx, config, promotion, buildxFactory, promotionPoll,
 	)
 	if err != nil {
 		return nil, nil, nil, err
 	}
 	return &productionImageEnsurer{truth: truth, platform: config.Platform}, buildService, watcher, nil
+}
+
+// newProductionCandidateBuildService 创建、恢复受控 buildx，并组装候选镜像构建服务。
+func newProductionCandidateBuildService(
+	ctx context.Context,
+	config productionCoordinatorConfig,
+	promotion *productionPromotionAuthority,
+	buildxFactory productionBuildxFactory,
+	promotionPoll time.Duration,
+) (*productionCandidateBuildService, error) {
+	buildx, err := buildxFactory(config.CandidateBuildRoot)
+	if err != nil {
+		return nil, err
+	}
+	if err := buildx.RecoverControlledBuilders(ctx); err != nil {
+		return nil, fmt.Errorf("recover controlled buildx builders before admitting build capacity: %w", err)
+	}
+	builder, err := localci.NewImageBuilder(buildx)
+	if err != nil {
+		return nil, err
+	}
+	return &productionCandidateBuildService{
+		store: promotion.candidates, accepted: promotion.accepted, authority: promotion.authority,
+		builder: builder, resolver: localci.NewDockerCandidateIdentityResolver(), promotionPoll: promotionPoll,
+	}, nil
 }
 
 // recoverInterruptedProductionCandidate 仅恢复能精确证明继承 signed accepted record 的候选。
@@ -119,7 +164,14 @@ func recoverInterruptedProductionCandidate(
 	switch candidate.Status {
 	case localci.PromotionCandidateAwaiting:
 		return promotion.promoteRecoveredCandidate(ctx, poll, candidate)
-	case localci.PromotionCandidateQueued, localci.PromotionCandidateBuilding, localci.PromotionCandidateFailed:
+	case localci.PromotionCandidateQueued, localci.PromotionCandidateBuilding,
+		localci.PromotionCandidateFailed, localci.PromotionCandidateAdvanceFailed:
+		if candidate.PromotionMode == localci.PromotionCandidateModeExternalRef {
+			return nil
+		}
+		if candidate.PromotionMode != localci.PromotionCandidateModeManagedTree {
+			return errors.New("interrupted candidate has an unsupported promotion mode")
+		}
 		return promotion.authority.restoreAcceptedTrustedRef(
 			ctx, accepted.TrustedCommit, candidate.TrustedCommit, candidate.SourceTree,
 		)
@@ -437,7 +489,7 @@ func (authority *productionGitAuthority) verifyRecord(ctx context.Context, recor
 		return err
 	}
 	if tip != record.TrustedCommit {
-		return errors.New("accepted image trusted_commit is not the exact configured trusted_ref tip")
+		return errProductionAcceptedTrustedRefMismatch
 	}
 	tree, err := authority.line(ctx, "rev-parse", "--verify", "--end-of-options", record.TrustedCommit+"^{tree}")
 	if err != nil {

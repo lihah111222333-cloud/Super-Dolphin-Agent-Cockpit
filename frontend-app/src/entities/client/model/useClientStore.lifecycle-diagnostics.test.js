@@ -1,0 +1,249 @@
+import { beforeEach, expect, it, vi } from "vitest";
+
+const runtime = vi.hoisted(() => ({
+  backend: {
+    addProject: vi.fn(),
+    deleteThread: vi.fn(),
+    emitFrontendTraceEvent: vi.fn(),
+    getProjects: vi.fn(),
+    getSidebarState: vi.fn(),
+    getThreadMessages: vi.fn(),
+    getThreadState: vi.fn(),
+    getWindowBootstrap: vi.fn(),
+    onBridgeEvent: vi.fn((callback, options = {}) => {
+      runtime.bridgeCallback = callback;
+      runtime.bridgeOptions = options;
+      return () => {
+        if (runtime.bridgeCallback === callback) {
+          runtime.bridgeCallback = null;
+          runtime.bridgeOptions = null;
+        }
+      };
+    }),
+    onRuntimeReconnect: vi.fn((callback) => {
+      runtime.runtimeReconnectCallback = callback;
+      return () => {
+        runtime.runtimeReconnectCallback = null;
+      };
+    }),
+    readConfig: vi.fn(),
+    setActiveProject: vi.fn(),
+    setPreference: vi.fn(),
+  },
+  bridgeCallback: null,
+  bridgeOptions: null,
+  runtimeReconnectCallback: null,
+}));
+
+vi.mock("../../../shared/api/backendApi.js", async (importOriginal) => {
+  const actual = await importOriginal();
+  return {
+    ...actual,
+    ...runtime.backend,
+    registerBridgeLogStore: actual.registerBridgeLogStore,
+    sendFrontendLogBatch: vi.fn(),
+  };
+});
+
+import * as backendApi from "../../../shared/api/backendApi.js";
+import { resetClientStoreForTests, useClientStore } from "./useClientStore.js";
+
+async function flushPromises(count = 8) {
+  for (let index = 0; index < count; index += 1) await Promise.resolve();
+}
+
+function registerBridgeEventHandlersForTest() {
+  const initialization = useClientStore.getState().initializeEvents();
+  void initialization.catch((error) => {
+    if (error?.message !== "runtime event initialization superseded") throw error;
+  });
+  return initialization;
+}
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  runtime.bridgeCallback = null;
+  runtime.bridgeOptions = null;
+  runtime.runtimeReconnectCallback = null;
+  resetClientStoreForTests();
+  runtime.backend.readConfig.mockResolvedValue({ cwd: "/repo/app" });
+  runtime.backend.getWindowBootstrap.mockResolvedValue({ snapshot: null });
+  runtime.backend.getProjects.mockResolvedValue({ projects: ["/repo/app"], active: "/repo/app" });
+  runtime.backend.setActiveProject.mockResolvedValue({ projects: ["/repo/app"], active: "/repo/app" });
+  runtime.backend.addProject.mockResolvedValue({ projects: ["/repo/app"], active: "/repo/app" });
+  runtime.backend.deleteThread.mockResolvedValue({ ok: true });
+  runtime.backend.setPreference.mockResolvedValue({ ok: true });
+  runtime.backend.getSidebarState.mockResolvedValue({ activeThreadId: "", threads: [] });
+  runtime.backend.getThreadState.mockResolvedValue({ timelinesByThread: {} });
+  runtime.backend.getThreadMessages.mockResolvedValue({ messages: [] });
+});
+
+it("notifies once when an error patch arrives before duplicate agent failure events", async () => {
+  resetClientStoreForTests({
+    cwd: "/repo/app",
+    activeProject: "/repo/app",
+    activeThreadId: "thread-1",
+    threads: [
+      {
+        id: "thread-1",
+        agentId: "agent-1",
+        name: "Existing",
+        provider: "codex",
+        status: "error",
+      },
+    ],
+    statuses: { "thread-1": { status: "error" } },
+    activeTurnByThread: {},
+  });
+  registerBridgeEventHandlersForTest();
+  backendApi.getSidebarState.mockClear();
+  const event = {
+    type: "agent/failed",
+    payload: {
+      threadId: "thread-1",
+      agentId: "agent-1",
+      sessionId: "session-1",
+      error: "Authorization: Bearer raw-failure-secret /private/agent.log",
+    },
+  };
+
+  runtime.bridgeCallback(event);
+  runtime.bridgeCallback(event);
+  await flushPromises(8);
+
+  const state = useClientStore.getState();
+  expect(backendApi.getSidebarState).not.toHaveBeenCalled();
+  expect(state.actionNotice).toEqual(
+    expect.objectContaining({ message: "代理运行失败", tone: "error" }),
+  );
+  expect(state.warningEntries).toEqual([
+    expect.objectContaining({
+      event: "agent.lifecycle.failed",
+      level: "error",
+      occurrenceCount: 1,
+      fields: expect.objectContaining({
+        agent_id: "agent-1",
+        reason: "agent_failed",
+      }),
+    }),
+  ]);
+  expect(
+    JSON.stringify({
+      notice: state.actionNotice,
+      warnings: state.warningEntries,
+      traces: backendApi.emitFrontendTraceEvent.mock.calls,
+    }),
+  ).not.toMatch(/raw-failure-secret|\/private\/agent\.log/);
+});
+
+it.each([
+  ["cancelled", "本轮已取消"],
+  ["interrupted", "本轮已中断"],
+])("keeps a user-requested %s terminal visibly non-successful", (outcome, message) => {
+  resetClientStoreForTests({
+    cwd: "/repo/app",
+    activeProject: "/repo/app",
+    activeThreadId: "thread-1",
+    timelinesByThread: { "thread-1": [] },
+  });
+  registerBridgeEventHandlersForTest();
+
+  runtime.bridgeCallback({
+    type: "turn/terminal",
+    payload: {
+      schemaVersion: 2,
+      eventId: `terminal-${outcome}-1`,
+      threadId: "thread-1",
+      turnId: "turn-1",
+      outcome,
+      terminationCause: "user_request",
+      terminationRequestId: "stop-1",
+      occurredAt: "2026-07-16T01:00:00Z",
+    },
+  });
+
+  const state = useClientStore.getState();
+  expect(state.actionNotice).toEqual(expect.objectContaining({ tone: "info", message }));
+  expect(state.actionNotice.tone).not.toBe("success");
+  expect(state.timelinesByThread["thread-1"]).toEqual([expect.objectContaining({ kind: "turn_terminal", terminalOutcome: outcome })]);
+  expect(state.warningEntries).toEqual([]);
+});
+
+it("routes malformed bridge event parse failures into visible warnings", () => {
+  resetClientStoreForTests({
+    cwd: "/repo/app",
+    activeProject: "/repo/app",
+    activeThreadId: "thread-1",
+  });
+  registerBridgeEventHandlersForTest();
+
+  runtime.bridgeCallback({
+    type: "bridge.event.parse_failed",
+    payload: {
+      eventName: "bridge-event",
+      error: "Unexpected end of JSON input",
+      rawLen: 10,
+      rawPreview: '{"method":',
+    },
+  });
+
+  expect(useClientStore.getState().warningEntries).toEqual([
+    expect.objectContaining({
+      level: "error",
+      event: "bridge.event.parse_failed",
+      fields: expect.objectContaining({
+        eventName: "bridge-event",
+        error: "[redacted]",
+        rawLen: 10,
+      }),
+    }),
+  ]);
+  expect(useClientStore.getState().warningEntries[0].fields).not.toHaveProperty("rawPreview");
+});
+
+it("routes bridge events without a method into visible warnings", () => {
+  resetClientStoreForTests({
+    cwd: "/repo/app",
+    activeProject: "/repo/app",
+    activeThreadId: "thread-1",
+  });
+  registerBridgeEventHandlersForTest();
+
+  runtime.bridgeCallback({ payload: { source: "runtime", rawPreview: "{}" } });
+
+  expect(useClientStore.getState().warningEntries).toEqual([
+    expect.objectContaining({
+      level: "error",
+      event: "bridge.event.method_missing",
+      fields: expect.objectContaining({
+        payloadKeys: ["source", "rawPreview"],
+      }),
+    }),
+  ]);
+  expect(useClientStore.getState().warningEntries[0].fields).not.toHaveProperty("payload");
+});
+
+it("normalizes legacy token usage pushes like the Vue frontend", () => {
+  resetClientStoreForTests({
+    cwd: "/repo/app",
+    activeProject: "/repo/app",
+    activeThreadId: "thread-1",
+    threads: [{ id: "thread-1", name: "Demo", provider: "codex" }],
+  });
+  registerBridgeEventHandlersForTest();
+
+  runtime.bridgeCallback({
+    type: "thread/tokenUsage/updated",
+    payload: {
+      threadId: "thread-1",
+      input_tokens: 40000,
+      output_tokens: 2000,
+      context_window: 258400,
+    },
+  });
+
+  const usage = useClientStore.getState().tokenUsageByThread["thread-1"];
+  expect(usage.usedTokens).toBe(42000);
+  expect(usage.contextWindowTokens).toBe(258400);
+  expect(usage.usedPercent).toBeCloseTo((42000 / 258400) * 100, 6);
+});

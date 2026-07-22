@@ -1,6 +1,7 @@
 package localci
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -13,6 +14,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"slices"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -501,6 +503,253 @@ func requireRecoveryRunner(ctx context.Context, runner *FreshContainerRunner) er
 		return errors.New("recovery runner and context are required")
 	}
 	return nil
+}
+
+// removeControlledBuilder 在限定时间内清理 builder、BuildKit 容器及其 ownership 记录。
+func (runner *DockerBuildxRunner) removeControlledBuilder(ctx context.Context, builderName string) error {
+	cleanupCtx, cancel := BoundedCleanupContext(ctx, buildxBuilderCleanupLimit)
+	defer cancel()
+	_, builderRemoveErr := runner.executor.Run(cleanupCtx, bytes.NewReader(nil), "buildx", "rm", "--force", builderName)
+	_, containerRemoveErr := runner.executor.Run(cleanupCtx, bytes.NewReader(nil), "container", "rm", "--force", controlledBuildxContainerName(builderName))
+	confirmErr := runner.confirmControlledBuilderRemoved(cleanupCtx, builderName)
+	if confirmErr != nil {
+		errorsToJoin := []error{confirmErr}
+		if builderRemoveErr != nil {
+			errorsToJoin = append(errorsToJoin, fmt.Errorf("run bounded controlled buildx builder cleanup: %w", builderRemoveErr))
+		}
+		if containerRemoveErr != nil {
+			errorsToJoin = append(errorsToJoin, fmt.Errorf("run bounded controlled buildx builder container cleanup: %w", containerRemoveErr))
+		}
+		return errors.Join(errorsToJoin...)
+	}
+	if err := os.Remove(runner.controlledBuilderOwnerPath(builderName)); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("remove controlled buildx builder ownership record: %w", err)
+	}
+	return nil
+}
+
+// RecoverControlledBuilders 在接纳构建容量前回收本 runner 记录或前缀归属的 builder。
+func (runner *DockerBuildxRunner) RecoverControlledBuilders(ctx context.Context) error {
+	if err := runner.validateControlledBuilderRecovery(ctx); err != nil {
+		return err
+	}
+	names, err := runner.controlledBuilderNamesForRecovery(ctx)
+	if err != nil {
+		return err
+	}
+	for _, builderName := range sortedBuildxBuilderNames(names) {
+		if err := runner.removeControlledBuilder(ctx, builderName); err != nil {
+			return fmt.Errorf("recover controlled buildx builder %q: %w", builderName, err)
+		}
+	}
+	return nil
+}
+
+// validateControlledBuilderRecovery 在读取或删除资源前校验 recovery 依赖。
+func (runner *DockerBuildxRunner) validateControlledBuilderRecovery(ctx context.Context) error {
+	if runner == nil || buildxCommandExecutorIsNil(runner.executor) {
+		return errors.New("docker buildx runner is required for controlled builder recovery")
+	}
+	if ctx == nil {
+		return errors.New("controlled buildx builder recovery context is required")
+	}
+	return ctx.Err()
+}
+
+// controlledBuilderNamesForRecovery 合并持久化记录、builder 列表与容器列表中的归属名称。
+func (runner *DockerBuildxRunner) controlledBuilderNamesForRecovery(ctx context.Context) (map[string]struct{}, error) {
+	ownerNames, err := runner.recordedControlledBuilderNames()
+	if err != nil {
+		return nil, err
+	}
+	builderNames, err := runner.listControlledBuilderNames(ctx)
+	if err != nil {
+		return nil, err
+	}
+	containerNames, err := runner.listControlledBuilderContainerNames(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return mergeControlledBuildxBuilderNames(ownerNames, builderNames, containerNames), nil
+}
+
+// mergeControlledBuildxBuilderNames 去重所有来源的受控 builder 名称。
+func mergeControlledBuildxBuilderNames(nameLists ...[]string) map[string]struct{} {
+	names := make(map[string]struct{})
+	for _, namesToMerge := range nameLists {
+		for _, name := range namesToMerge {
+			names[name] = struct{}{}
+		}
+	}
+	return names
+}
+
+// recordControlledBuilder 在创建前原子写入并同步 ownership 记录。
+func (runner *DockerBuildxRunner) recordControlledBuilder(builderName string, request BuildKitBuildRequest) error {
+	owner := controlledBuildxOwner{BuilderName: builderName, SourceTreeSHA: request.SourceTreeSHA, InputDigest: request.InputDigest}
+	data, err := json.Marshal(owner)
+	if err != nil {
+		return fmt.Errorf("encode controlled buildx builder ownership record: %w", err)
+	}
+	file, err := os.OpenFile(runner.controlledBuilderOwnerPath(builderName), os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		return fmt.Errorf("record controlled buildx builder ownership before create: %w", err)
+	}
+	if _, writeErr := file.Write(data); writeErr != nil {
+		closeErr := file.Close()
+		return errors.Join(fmt.Errorf("write controlled buildx builder ownership record: %w", writeErr), closeErr)
+	}
+	if syncErr := file.Sync(); syncErr != nil {
+		closeErr := file.Close()
+		return errors.Join(fmt.Errorf("sync controlled buildx builder ownership record: %w", syncErr), closeErr)
+	}
+	if err := file.Close(); err != nil {
+		return fmt.Errorf("close controlled buildx builder ownership record: %w", err)
+	}
+	return nil
+}
+
+// recordedControlledBuilderNames 读取并校验已持久化的受控 builder 名称。
+func (runner *DockerBuildxRunner) recordedControlledBuilderNames() ([]string, error) {
+	entries, err := os.ReadDir(runner.ownerRoot)
+	if err != nil {
+		return nil, fmt.Errorf("read controlled buildx builder ownership records: %w", err)
+	}
+	names := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		builderName, err := runner.recordedControlledBuilderName(entry)
+		if err != nil {
+			return nil, err
+		}
+		names = append(names, builderName)
+	}
+	sort.Strings(names)
+	return names, nil
+}
+
+// recordedControlledBuilderName 校验一个 ownership 文件与其 builder 身份一致。
+func (runner *DockerBuildxRunner) recordedControlledBuilderName(entry os.DirEntry) (string, error) {
+	if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
+		return "", errors.New("controlled buildx builder ownership record directory contains an invalid entry")
+	}
+	builderName := strings.TrimSuffix(entry.Name(), ".json")
+	if !validControlledBuildxBuilderName(builderName) {
+		return "", errors.New("controlled buildx builder ownership record contains an invalid builder name")
+	}
+	data, err := os.ReadFile(filepath.Join(runner.ownerRoot, entry.Name()))
+	if err != nil {
+		return "", fmt.Errorf("read controlled buildx builder ownership record: %w", err)
+	}
+	var owner controlledBuildxOwner
+	if err := json.Unmarshal(data, &owner); err != nil {
+		return "", fmt.Errorf("decode controlled buildx builder ownership record: %w", err)
+	}
+	if owner.BuilderName != builderName || len(owner.SourceTreeSHA) < 12 || !strings.HasPrefix(builderName, buildxBuilderNamePrefix+owner.SourceTreeSHA[:12]+"-") {
+		return "", errors.New("controlled buildx builder ownership record does not match its builder identity")
+	}
+	if err := validateDigest("controlled buildx builder ownership input digest", owner.InputDigest); err != nil {
+		return "", err
+	}
+	return builderName, nil
+}
+
+// confirmControlledBuilderRemoved 确认 builder 与对应容器都不再存在。
+func (runner *DockerBuildxRunner) confirmControlledBuilderRemoved(ctx context.Context, builderName string) error {
+	builderNames, err := runner.listControlledBuilderNames(ctx)
+	if err != nil {
+		return err
+	}
+	if slices.Contains(builderNames, builderName) {
+		return errors.New("controlled buildx builder remains after cleanup")
+	}
+	containerNames, err := runner.listControlledBuilderContainerNames(ctx)
+	if err != nil {
+		return err
+	}
+	if slices.Contains(containerNames, builderName) {
+		return errors.New("controlled buildx builder container remains after cleanup")
+	}
+	return nil
+}
+
+// listControlledBuilderNames 列出并验证受本 runner 前缀约束的 builder。
+func (runner *DockerBuildxRunner) listControlledBuilderNames(ctx context.Context) ([]string, error) {
+	output, err := runner.executor.Run(ctx, bytes.NewReader(nil), "buildx", "ls", "--format", "{{.Name}}")
+	if err != nil {
+		return nil, fmt.Errorf("list controlled buildx builders: %w", err)
+	}
+	return parseControlledBuildxBuilderNames(output, "builder")
+}
+
+// listControlledBuilderContainerNames 列出并验证受本 runner 前缀约束的 BuildKit 容器。
+func (runner *DockerBuildxRunner) listControlledBuilderContainerNames(ctx context.Context) ([]string, error) {
+	output, err := runner.executor.Run(ctx, bytes.NewReader(nil), "container", "ls", "--all", "--filter", "name=^/buildx_buildkit_"+buildxBuilderNamePrefix, "--format", "{{.Names}}")
+	if err != nil {
+		return nil, fmt.Errorf("list controlled buildx builder containers: %w", err)
+	}
+	return parseControlledBuildxContainerNames(output)
+}
+
+// parseControlledBuildxBuilderNames 从 builder 列表筛选并校验受控名称。
+func parseControlledBuildxBuilderNames(output string, subject string) ([]string, error) {
+	names := make([]string, 0)
+	for rawName := range strings.SplitSeq(output, "\n") {
+		name := strings.TrimSpace(rawName)
+		name = strings.TrimSuffix(name, "*")
+		if name == "" || !strings.HasPrefix(name, buildxBuilderNamePrefix) {
+			continue
+		}
+		if !validRecoverableControlledBuildxBuilderName(name) {
+			return nil, fmt.Errorf("controlled buildx %s listing contains an invalid builder name", subject)
+		}
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names, nil
+}
+
+// parseControlledBuildxContainerNames 从容器列表筛选并校验对应的受控 builder 名称。
+func parseControlledBuildxContainerNames(output string) ([]string, error) {
+	const containerPrefix = "buildx_buildkit_"
+	names := make([]string, 0)
+	for rawName := range strings.SplitSeq(output, "\n") {
+		containerName := strings.TrimSpace(rawName)
+		if containerName == "" || !strings.HasPrefix(containerName, containerPrefix+buildxBuilderNamePrefix) {
+			continue
+		}
+		builderName, found := strings.CutSuffix(strings.TrimPrefix(containerName, containerPrefix), "0")
+		if !found || !validRecoverableControlledBuildxBuilderName(builderName) {
+			return nil, errors.New("controlled buildx container listing contains an invalid builder name")
+		}
+		names = append(names, builderName)
+	}
+	sort.Strings(names)
+	return names, nil
+}
+
+// validControlledBuildxBuilderName 判断名称是否符合受控 builder 的固定格式。
+func validControlledBuildxBuilderName(builderName string) bool {
+	return controlledBuildxBuilderNamePattern.MatchString(builderName)
+}
+
+// validRecoverableControlledBuildxBuilderName 仅扩展枚举兼容历史 candidate 临时目录命名。
+func validRecoverableControlledBuildxBuilderName(builderName string) bool {
+	return validControlledBuildxBuilderName(builderName) || legacyControlledBuildxBuilderNamePattern.MatchString(builderName)
+}
+
+// sortedBuildxBuilderNames 返回按字典序稳定排列的受控 builder 名称。
+func sortedBuildxBuilderNames(names map[string]struct{}) []string {
+	values := make([]string, 0, len(names))
+	for name := range names {
+		values = append(values, name)
+	}
+	sort.Strings(values)
+	return values
+}
+
+// controlledBuilderOwnerPath 返回受控 builder 的 ownership 记录路径。
+func (runner *DockerBuildxRunner) controlledBuilderOwnerPath(builderName string) string {
+	return filepath.Join(runner.ownerRoot, builderName+".json")
 }
 
 const noContainerNetwork = "none"

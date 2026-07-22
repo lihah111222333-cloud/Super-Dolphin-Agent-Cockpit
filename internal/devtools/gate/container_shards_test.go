@@ -11,21 +11,27 @@ import (
 	"time"
 )
 
-func TestBuildContainerShardSetPartitionsReleaseExactly(t *testing.T) {
+func TestBuildContainerShardSetUsesProfileSpecificCanonicalGroups(t *testing.T) {
 	if groups := canonicalContainerShardGroups(ProfileRelease); len(groups) != MaxContainerShards {
 		t.Fatalf("canonical release shard groups = %d, want %d", len(groups), MaxContainerShards)
 	}
 	if groups := canonicalContainerShardGroups(ProfileLocalFast); len(groups) != MaxContainerShards {
 		t.Fatalf("canonical local shard groups = %d, want %d", len(groups), MaxContainerShards)
 	}
+	for _, profile := range []Profile{ProfilePush, ProfileRemoteRequired, ProfilePromotion} {
+		if groups := canonicalContainerShardGroups(profile); len(groups) != MaxContainerShards {
+			t.Fatalf("canonical %s shard groups = %d, want %d", profile, len(groups), MaxContainerShards)
+		}
+	}
 	set := testContainerShardSet(t, ProfileRelease)
 	if len(set.Shards) != MaxContainerShards {
 		t.Fatalf("shards = %d, want %d", len(set.Shards), MaxContainerShards)
 	}
 	want := [][]GateID{
-		{GateIDAIMaintenanceSelfTest, GateIDFrontendLint, GateIDFrontendTest, GateIDFrontendBuild, GateIDFrontendEmbedVerify},
-		{GateIDBackendTestWithGuard, GateIDLSPChangedDiagnostics, GateIDBackendTestGuardWithRace, GateIDBackendNilness},
-		{GateIDSQLCVerify, GateIDCodemapCheck, GateIDProjectMapCheck, GateIDCapabilityContractCheck, GateIDWhitespaceCheck},
+		{GateIDAIMaintenanceSelfTest, GateIDFrontendLint, GateIDFrontendFullTest, GateIDFrontendBuild, GateIDFrontendEmbedVerify,
+			GateIDSQLCVerify, GateIDCodemapCheck, GateIDProjectMapCheck, GateIDCapabilityContractCheck, GateIDWhitespaceCheck},
+		{GateIDBackendTestWithGuard, GateIDLSPChangedDiagnostics, GateIDBackendNilness},
+		{GateIDBackendTestGuardWithRace},
 	}
 	normal := testContainerShardSet(t, ProfileLocalFast)
 	normalWant := [][]GateID{
@@ -33,8 +39,19 @@ func TestBuildContainerShardSetPartitionsReleaseExactly(t *testing.T) {
 		{GateIDBackendTestWithGuard, GateIDLSPChangedDiagnostics},
 		{GateIDSQLCVerify, GateIDCodemapCheck, GateIDProjectMapCheck, GateIDCapabilityContractCheck, GateIDWhitespaceCheck},
 	}
+	push := testContainerShardSet(t, ProfilePush)
+	remote := testContainerShardSet(t, ProfileRemoteRequired)
+	promotion := testContainerShardSet(t, ProfilePromotion)
+	pushWant := [][]GateID{
+		{GateIDAIMaintenanceSelfTest, GateIDFrontendLint, GateIDFrontendTest, GateIDFrontendBuild, GateIDFrontendEmbedVerify},
+		{GateIDBackendTestWithGuard, GateIDLSPChangedDiagnostics},
+		{GateIDSQLCVerify, GateIDCodemapCheck, GateIDProjectMapCheck, GateIDCapabilityContractCheck, GateIDWhitespaceCheck},
+	}
 	assertContainerShardGateGroups(t, set, want)
 	assertContainerShardGateGroups(t, normal, normalWant)
+	assertContainerShardGateGroups(t, push, pushWant)
+	assertContainerShardGateGroups(t, remote, pushWant)
+	assertContainerShardGateGroups(t, promotion, pushWant)
 	assertShardSetRejectsSelfConsistentMissingGate(t, set)
 }
 

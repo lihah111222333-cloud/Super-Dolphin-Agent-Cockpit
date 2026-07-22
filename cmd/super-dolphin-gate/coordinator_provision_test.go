@@ -255,6 +255,12 @@ func TestProductionProvisionRejectsTimingAndWritableLauncherDirectory(t *testing
 		t.Fatalf("invalid manifest published install root: %v", err)
 	}
 	fixture = newProductionProvisionFixture(t)
+	fixture.manifest.PromotionPollMillis = 4_999
+	if _, err := provisionProductionWithRuntime(context.Background(), fixture.manifest, &productionProvisionRuntimeStub{}); err == nil ||
+		!strings.Contains(err.Error(), "promotion_poll_millis must be within 5000..60000") {
+		t.Fatalf("provision promotion poll validation error = %v", err)
+	}
+	fixture = newProductionProvisionFixture(t)
 	if err := os.Chmod(filepath.Dir(fixture.manifest.LauncherPath), 0o777); err != nil {
 		t.Fatal(err)
 	}
@@ -380,7 +386,7 @@ func newProductionProvisionFixture(t *testing.T) productionProvisionFixture {
 		ReceiptKeyFile: receiptFile, ActionGrantKeyFile: grantFile, SeccompProfile: seccomp,
 		TrustedSourceRoot: trustedSourceRoot,
 		Platform:          root.Runner.OS + "/" + root.Runner.Architecture, TrustedRootKeys: []productionTrustedKey{trust},
-		CandidateTTLSeconds: 3600, PromotionPollMillis: 20, ActionGrantTTLSeconds: 60,
+		CandidateTTLSeconds: 3600, PromotionPollMillis: 5_000, ActionGrantTTLSeconds: 60,
 	}}
 }
 

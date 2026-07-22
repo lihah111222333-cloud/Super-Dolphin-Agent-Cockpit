@@ -206,23 +206,18 @@ func (store *coordinatorStore) createJob(
 	if err != nil {
 		return coordinatorJobRecord{}, err
 	}
-	dependenciesJSON, err := json.Marshal(dependencies)
-	if err != nil {
-		return coordinatorJobRecord{}, fmt.Errorf("encode coordinator scheduler dependencies: %w", err)
-	}
 	now := time.Now().UTC()
-	result, err := store.db.ExecContext(ctx, `INSERT INTO coordinator_jobs (
-invocation_id, job_id, repository_root, entrypoint, authority_owner, authority_attestation, plan_json, profile, job_source_tree_sha,
-scheduler_subsequence, scheduler_dependencies_json, state, submitted_at
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, invocationID, jobID, repositoryRoot,
-		authority.Entrypoint, authority.Owner, authority.Attestation, planJSON, plan.Profile,
-		plan.Source.SourceTreeSHA, subsequence, dependenciesJSON, jobStateQueued, now.Format(time.RFC3339Nano))
+	tx, err := store.db.BeginTx(ctx, nil)
 	if err != nil {
-		return coordinatorJobRecord{}, fmt.Errorf("persist coordinator invocation/job: %w", err)
+		return coordinatorJobRecord{}, fmt.Errorf("begin coordinator job transaction: %w", err)
 	}
-	sequence, err := result.LastInsertId()
-	if err != nil || sequence <= 0 {
-		return coordinatorJobRecord{}, fmt.Errorf("read coordinator enqueue sequence: %w", err)
+	defer tx.Rollback()
+	sequence, dependencies, err := persistCoordinatorJobTransaction(ctx, tx, invocationID, jobID, repositoryRoot, planJSON, plan, authority, subsequence, dependencies, now)
+	if err != nil {
+		return coordinatorJobRecord{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return coordinatorJobRecord{}, fmt.Errorf("commit coordinator job: %w", err)
 	}
 	return coordinatorJobRecord{
 		InvocationID: invocationID, JobID: jobID, EnqueueSequence: uint64(sequence),
@@ -230,6 +225,73 @@ scheduler_subsequence, scheduler_dependencies_json, state, submitted_at
 		JobSourceTreeSHA: plan.Source.SourceTreeSHA, SchedulerSubsequence: subsequence,
 		SchedulerDependencies: dependencies, State: jobStateQueued, SubmittedAt: now,
 	}, nil
+}
+
+// persistCoordinatorJobTransaction 在同一事务内写入任务并绑定最新未完成前驱。
+func persistCoordinatorJobTransaction(
+	ctx context.Context,
+	tx *sql.Tx,
+	invocationID, jobID, repositoryRoot string,
+	planJSON []byte,
+	plan gatecontract.GatePlan,
+	authority submissionAuthority,
+	subsequence uint32,
+	dependencies []string,
+	now time.Time,
+) (int64, []string, error) {
+	dependenciesJSON, err := json.Marshal(dependencies)
+	if err != nil {
+		return 0, nil, fmt.Errorf("encode coordinator scheduler dependencies: %w", err)
+	}
+	result, err := tx.ExecContext(ctx, `INSERT INTO coordinator_jobs (
+invocation_id, job_id, repository_root, entrypoint, authority_owner, authority_attestation, plan_json, profile, job_source_tree_sha,
+scheduler_subsequence, scheduler_dependencies_json, state, submitted_at
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, invocationID, jobID, repositoryRoot,
+		authority.Entrypoint, authority.Owner, authority.Attestation, planJSON, plan.Profile,
+		plan.Source.SourceTreeSHA, subsequence, dependenciesJSON, jobStateQueued, now.Format(time.RFC3339Nano))
+	if err != nil {
+		return 0, nil, fmt.Errorf("persist coordinator invocation/job: %w", err)
+	}
+	sequence, err := result.LastInsertId()
+	if err != nil || sequence <= 0 {
+		return 0, nil, fmt.Errorf("read coordinator enqueue sequence: %w", err)
+	}
+	dependencies, err = schedulerDependenciesWithActivePredecessor(ctx, tx, sequence, dependencies)
+	if err != nil {
+		return 0, nil, err
+	}
+	dependenciesJSON, err = json.Marshal(dependencies)
+	if err != nil {
+		return 0, nil, fmt.Errorf("encode coordinator FIFO dependencies: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE coordinator_jobs SET scheduler_dependencies_json = ? WHERE job_id = ?`, dependenciesJSON, jobID); err != nil {
+		return 0, nil, fmt.Errorf("persist coordinator FIFO dependency: %w", err)
+	}
+	return sequence, dependencies, nil
+}
+
+type coordinatorJobQueryer interface {
+	QueryRowContext(context.Context, string, ...any) *sql.Row
+}
+
+// schedulerDependenciesWithActivePredecessor keeps concurrent submissions behind the latest unfinished durable job.
+func schedulerDependenciesWithActivePredecessor(
+	ctx context.Context,
+	queryer coordinatorJobQueryer,
+	sequence int64,
+	dependencies []string,
+) ([]string, error) {
+	var predecessor string
+	err := queryer.QueryRowContext(ctx, `SELECT job_id FROM coordinator_jobs
+WHERE enqueue_sequence < ? AND state IN (?, ?) ORDER BY enqueue_sequence DESC LIMIT 1`,
+		sequence, jobStateQueued, jobStateStarted).Scan(&predecessor)
+	if errors.Is(err, sql.ErrNoRows) {
+		return dependencies, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("read coordinator FIFO predecessor: %w", err)
+	}
+	return append(dependencies, predecessor), nil
 }
 
 func schedulerMetadataForCandidatePlan(plan localci.PromotionCandidatePlan) (uint32, []string, error) {

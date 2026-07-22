@@ -603,7 +603,7 @@ Task 1A/1B/1C 可并行，但先冻结共享类型；每条 lane 不得各自复
 | Resources | Docker inspect 证明 `--cpus=4`、`--memory=8g`、非 root、cap-drop、只读 rootfs/source、PID/磁盘/日志限制 |
 | Network isolation | 默认 network none；每 invocation 独占 internal network/service identity；跨 job TCP/DNS 不可达；宿主凭据和 Docker socket 不可见 |
 | Build isolation | 候选 Dockerfile 无 secret/SSH/host network/insecure entitlement/socket/proxy；cache 按 input digest 隔离；只访问锁定依赖代理 |
-| Timeout | job/build/service 的非 release 10m、release 30m；排队时间单列；重启不重置 deadline；超时 kill/wait/remove 且不 passed |
+| Timeout | fresh shard/container 在 admission 后启动执行时钟：非 release 10m、release 30m；排队时间单列，源码快照准备独立 15m；候选 truth-image 构建与晋升独立 30m；重启不重置已启动的执行 deadline；超时 kill/wait/remove 且不 passed |
 | Image truth | canonical tar/context/provenance materials、source object/input manifest/OCI identity 一致；基础镜像/BuildKit/依赖进入闭包 |
 | Trusted runner | 候选 executor 伪造全绿且未启动 required command 时，旧 verifier 通过进程/argv/log/known-bad 闭包证明并拒绝晋升 |
 | Bootstrap | 空 image store 从固定 OCI digest 创建 bootstrap-runner 容器；宿主不执行 gate；篡改 checkout/CLI/verifier、未知 baseline、签名错误失败 |

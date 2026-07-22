@@ -526,11 +526,29 @@ func TestRuntimeDepsProvidesPsForProcessTreeAssertions(t *testing.T) {
 		"https://deb.debian.org",
 		"if [ \"$attempts\" -ge 5 ]",
 		"retry_command sh -c 'apt-get update && apt-get install -y --no-install-recommends",
-		"pkg-config procps'",
+		"pkg-config procps xauth xvfb'",
 		"test -x /usr/bin/ps",
 	} {
 		if !bytes.Contains(dockerfile, []byte(required)) {
 			t.Fatalf("runtime dependency image is missing process inspection contract %q", required)
+		}
+	}
+}
+
+func TestRuntimeDepsProvidesHeadlessDesktopDisplay(t *testing.T) {
+	dockerfile, err := os.ReadFile(filepath.Join("..", "runtime-deps.Dockerfile"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, required := range []string{
+		"procps xauth xvfb'",
+		"test -x /usr/bin/Xvfb",
+		"test -x /usr/bin/xauth",
+		"test -x /usr/bin/xvfb-run",
+		"USER 65532:65532\nRUN --network=none xvfb-run -a sh -ec 'test -n \"$DISPLAY\"'",
+	} {
+		if !bytes.Contains(dockerfile, []byte(required)) {
+			t.Fatalf("runtime dependency image is missing headless desktop contract %q", required)
 		}
 	}
 }

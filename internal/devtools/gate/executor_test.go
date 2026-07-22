@@ -141,8 +141,10 @@ func TestExecutorSequentialGatesDoNotRetainPriorCache(t *testing.T) {
 }
 
 func TestRaceProgramRunsBoundedBackendOnlyInEachFreshExecutorWorkspace(t *testing.T) {
-	guardScript := "#!/bin/sh\nset -eu\ntest \"$1\" = --race-only\nfor arg in \"$@\"; do test \"$arg\" != --; test \"$arg\" != ./cmd/...; done\ntest \"$GOFLAGS\" = -p=1\ntest \"$GOMAXPROCS\" = 1\ntest \"$GOMEMLIMIT\" = 1GiB\ntest ! -e frontend-app/node_modules\ntest ! -e cmd/agent-terminal/web-dist/index.html\n"
+	guardScript := "#!/bin/sh\nset -eu\ntest \"$1\" = --with-race\nsaw_separator=0\nsaw_normal=0\nfor arg in \"$@\"; do\n  test \"$arg\" = -- && saw_separator=1\n  test \"$arg\" = ./cmd/... && saw_normal=1\ndone\ntest \"$saw_separator\" = 1\ntest \"$saw_normal\" = 1\ntest \"$GOFLAGS\" = -p=1\ntest \"$GOMAXPROCS\" = 1\ntest \"$GOMEMLIMIT\" = 1GiB\ntest ! -e frontend-app/node_modules\ntest \"$(cat cmd/agent-terminal/web-dist/index.html)\" = \"immutable embed\"\n"
 	source := newExecutorGitSnapshot(t, map[string]string{
+		".gitignore":                         "cmd/agent-terminal/web-dist/\n",
+		"cmd/agent-terminal/frontend.go":     "package main\n",
 		"go.sum":                             "module sum\n",
 		"scripts/check_nested_go_modules.sh": "#!/bin/sh\nexit 0\n",
 		"scripts/test_with_guard.sh":         guardScript,
@@ -156,6 +158,12 @@ func TestRaceProgramRunsBoundedBackendOnlyInEachFreshExecutorWorkspace(t *testin
 	program.NeedsGoSeed = false
 
 	config := newTestExecutorConfig(t, source)
+	embedRoot := filepath.Join(filepath.Dir(config.workRoot), "frontend-embed")
+	if err := os.Mkdir(embedRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	writeTestFile(t, filepath.Join(embedRoot, "index.html"), "immutable embed\n", 0o600)
+	config.frontendEmbedSeedRoot = embedRoot
 	for run := range 2 {
 		if err := executeProgram(context.Background(), config, GateIDBackendTestGuardWithRace, program); err != nil {
 			t.Fatalf("execute fresh race workspace %d: %v", run, err)
@@ -307,6 +315,12 @@ func TestExecutorEnvironmentIsClosedAndWritable(t *testing.T) {
 	joined := "\n" + strings.Join(environment, "\n") + "\n"
 	for _, want := range []string{
 		"\nHOME=/workspace/work/home\n",
+		"\nGIT_AUTHOR_NAME=Super Dolphin Gate Executor\n",
+		"\nGIT_AUTHOR_EMAIL=gate-executor@super-dolphin.invalid\n",
+		"\nGIT_AUTHOR_DATE=946684800 +0000\n",
+		"\nGIT_COMMITTER_NAME=Super Dolphin Gate Executor\n",
+		"\nGIT_COMMITTER_EMAIL=gate-executor@super-dolphin.invalid\n",
+		"\nGIT_COMMITTER_DATE=946684800 +0000\n",
 		"\nGOCACHE=/workspace/work/go-cache\n",
 		"\nGOMODCACHE=/workspace/work/go-mod-cache\n",
 		"\nGOPROXY=file:///opt/super-dolphin-gate/runtime/go-proxy\n",

@@ -231,7 +231,7 @@ func runGateImageClosureCheck(directory string) error {
 	return runCommand("", "go", gateImageClosureCheckArgs(tree)...)
 }
 
-// resolveGateImageClosureTree derives the canonical closure input from the exact Git index tree.
+// resolveGateImageClosureTree 从指定仓库的 Git index 生成并复核 canonical closure tree object。
 func resolveGateImageClosureTree(directory string) (string, error) {
 	output, err := exec.Command("git", "-C", directory, "write-tree").CombinedOutput()
 	if err != nil {

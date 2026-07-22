@@ -65,7 +65,11 @@ function isWithin(root, candidate) {
   return candidate === root || candidate.startsWith(`${root}${sep}`);
 }
 
-function writeHangingVitest(root, pidPath) {
+function isManagedWorktree(root, repoRoot, candidate) {
+  return candidate !== repoRoot && isWithin(root, candidate);
+}
+
+function writeHangingVitest(root) {
   const scriptPath = join(root, 'hanging-vitest.cjs');
   writeFileSync(scriptPath, `#!/usr/bin/env node
 const { spawn } = require('node:child_process');
@@ -123,7 +127,9 @@ function cleanupArtifacts(root, repoRoot, pidPath) {
       }
     }
   }
-  for (const worktreePath of worktreePaths(repoRoot).filter((candidate) => isWithin(root, candidate))) {
+  for (const worktreePath of worktreePaths(repoRoot).filter((candidate) => (
+    isManagedWorktree(root, repoRoot, candidate)
+  ))) {
     execFileSync('git', ['worktree', 'remove', '--force', worktreePath], {
       cwd: repoRoot,
       encoding: 'utf8',
@@ -137,7 +143,9 @@ async function expectTimedOutRunner(runner, root, repoRoot, pidPath, runnerPrefi
   const pids = JSON.parse(readFileSync(pidPath, 'utf8'));
   await waitForProcessesToExit(pids);
   expect(readdirSync(root).filter((entry) => entry.startsWith(runnerPrefix))).toEqual([]);
-  expect(worktreePaths(repoRoot).some((candidate) => isWithin(root, candidate))).toBe(false);
+  expect(worktreePaths(repoRoot).some((candidate) => (
+    isManagedWorktree(root, repoRoot, candidate)
+  ))).toBe(false);
 }
 
 describePosix('evidence runner lifecycle', () => {
@@ -146,7 +154,7 @@ describePosix('evidence runner lifecycle', () => {
     const repoRoot = createFixtureRepository(root);
     const pidPath = join(root, 'failure-pids.json');
     try {
-      const vitestCommand = writeHangingVitest(root, pidPath);
+      const vitestCommand = writeHangingVitest(root);
       const documents = writeFailureDocuments(root);
       await expectTimedOutRunner(() => runFailureMatrix({
         repoRoot,

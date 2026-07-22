@@ -29,6 +29,8 @@ type freshDockerRunnerStub struct {
 	logOutput     string
 	removeErr     error
 	psOutput      string
+	psOutputs     []string
+	psCalls       int
 	createErr     error
 	startErr      error
 	containerID   string
@@ -76,6 +78,12 @@ func (stub *freshDockerRunnerStub) runLifecycle(command string) (string, error) 
 	case "rm":
 		return "", stub.removeErr
 	case "ps":
+		if stub.psCalls < len(stub.psOutputs) {
+			output := stub.psOutputs[stub.psCalls]
+			stub.psCalls++
+			return output, nil
+		}
+		stub.psCalls++
 		return stub.psOutput, nil
 	default:
 		return "", errors.New("unexpected lifecycle Docker command")
@@ -133,6 +141,8 @@ func (stub *freshDockerRunnerStub) imageInspectJSON() string {
 		descriptor["annotations"] = map[string]string{"config.digest": digest("9")}
 	case "missing descriptor config":
 		descriptor["annotations"] = map[string]string{}
+	case "familiar repository":
+		document["RepoDigests"] = []string{strings.TrimPrefix(identity.Registry, "docker.io/library/") + "@" + identity.PlatformManifestDigest}
 	case "rootfs":
 		document["RootFS"] = map[string]any{"Type": "layers", "Layers": []string{digest("9")}}
 	case "platform":
@@ -230,6 +240,18 @@ func TestRunFreshContainerAcceptsDocker29DescriptorConfigAndReturnsEvidence(t *t
 	if !calledDockerCommand(stub.calls, "ps") {
 		t.Fatalf("Docker removal proof missing: %#v", stub.calls)
 	}
+}
+
+func TestRunFreshContainerAcceptsDockerHubFamiliarDigestReference(t *testing.T) {
+	runner, stub, request := freshContainerFixture(t)
+	request.Image.Registry = candidateImageRepository
+	stub.request = request
+	stub.imageMutation = "familiar repository"
+	result, err := runner.RunFreshContainer(context.Background(), request)
+	if err != nil {
+		t.Fatalf("RunFreshContainer() error = %v", err)
+	}
+	assertFreshContainerEvidence(t, result)
 }
 
 func assertFreshContainerEvidence(t *testing.T, result FreshContainerResult) {
@@ -815,6 +837,7 @@ func validFreshContainerRequest(t *testing.T, source string) FreshContainerReque
 			InputDigest: digest("6"), ToolchainDigest: digest("7"), SchemaVersion: imageInputSchemaVersion,
 		},
 		SourceTreeSHA: jobSourceTree, SourceSnapshotDir: source, Profile: gate.ProfileLocalFast, Plan: plan, GateID: gate.GateIDWhitespaceCheck,
+		ContainerLabels: map[string]string{"test.container": "fresh-container-fixture"},
 	}
 }
 

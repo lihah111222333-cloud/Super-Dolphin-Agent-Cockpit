@@ -343,15 +343,64 @@ func validateStoredReceiptCompletion(record coordinatorJobRecord, receipt *gatec
 	return nil
 }
 
-// validateCoordinatorSchedulerMetadata 仅接受无依赖 job 或单一 build 前驱。
+// validateCoordinatorSchedulerMetadata 仅接受可选 build 前驱和可选的 durable FIFO 前驱。
 func validateCoordinatorSchedulerMetadata(record coordinatorJobRecord) error {
-	if record.SchedulerSubsequence == 0 && len(record.SchedulerDependencies) == 0 {
-		return nil
+	if !validCoordinatorDependencyShape(record.SchedulerSubsequence, len(record.SchedulerDependencies)) {
+		return fmt.Errorf("%w: persisted scheduler dependency shape is invalid", errCoordinatorState)
 	}
-	if record.SchedulerSubsequence != 1 || len(record.SchedulerDependencies) != 1 || record.SchedulerDependencies[0] == "" {
-		return fmt.Errorf("%w: persisted scheduler build dependency is invalid", errCoordinatorState)
+	seen := make(map[string]struct{}, len(record.SchedulerDependencies))
+	for index, dependency := range record.SchedulerDependencies {
+		if dependency == "" {
+			return fmt.Errorf("%w: persisted scheduler dependency %d is empty", errCoordinatorState, index)
+		}
+		if _, duplicate := seen[dependency]; duplicate {
+			return fmt.Errorf("%w: persisted scheduler dependency %q is duplicated", errCoordinatorState, dependency)
+		}
+		seen[dependency] = struct{}{}
 	}
 	return nil
+}
+
+func validCoordinatorDependencyShape(subsequence uint32, dependencyCount int) bool {
+	switch subsequence {
+	case 0:
+		return dependencyCount <= 1
+	case 1:
+		return dependencyCount >= 1 && dependencyCount <= 2
+	default:
+		return false
+	}
+}
+
+func candidateBuildDependency(record coordinatorJobRecord) (string, error) {
+	if record.SchedulerSubsequence == 0 {
+		return "", nil
+	}
+	if record.SchedulerSubsequence != 1 || len(record.SchedulerDependencies) == 0 {
+		return "", fmt.Errorf("%w: persisted scheduler build dependency is invalid", errCoordinatorState)
+	}
+	return record.SchedulerDependencies[0], nil
+}
+
+// fifoPredecessorDependency 从已校验的依赖布局中提取 durable FIFO 前驱。
+func fifoPredecessorDependency(record coordinatorJobRecord) (string, error) {
+	switch record.SchedulerSubsequence {
+	case 0:
+		if len(record.SchedulerDependencies) == 0 {
+			return "", nil
+		}
+		if len(record.SchedulerDependencies) == 1 {
+			return record.SchedulerDependencies[0], nil
+		}
+	case 1:
+		if len(record.SchedulerDependencies) == 1 {
+			return "", nil
+		}
+		if len(record.SchedulerDependencies) == 2 {
+			return record.SchedulerDependencies[1], nil
+		}
+	}
+	return "", fmt.Errorf("%w: persisted scheduler FIFO dependency is invalid", errCoordinatorState)
 }
 
 func receiptsEqual(left, right *gatecontract.ResultReceipt) bool {

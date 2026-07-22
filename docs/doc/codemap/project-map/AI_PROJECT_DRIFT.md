@@ -2,16 +2,16 @@
 
 > 状态：**OK**
 >
-> 已索引文件：5007
+> 已索引文件：5028
 >
-> 未细分职责文件：76
+> 未细分职责文件：80
 
 ## 1. 漂移指标
 
 | 指标 | 当前值 |
 |---|---:|
-| 未细分职责文件数 | 76 |
-| 未细分职责占比 | 1.52% |
+| 未细分职责文件数 | 80 |
+| 未细分职责占比 | 1.59% |
 | 最大未细分职责占比阈值 | 5.00% |
 
 ## 2. 漂移告警
@@ -22,7 +22,7 @@
 
 | 模块 | 文件数 |
 |---|---:|
-| `cmd` | 74 |
+| `cmd` | 78 |
 | `internal` | 2 |
 
 ## 4. 样例文件
@@ -42,6 +42,7 @@
 - `cmd/super-dolphin-gate/coordinator_bootstrap.go`
 - `cmd/super-dolphin-gate/coordinator_bootstrap_container.go`
 - `cmd/super-dolphin-gate/coordinator_bootstrap_controller.go`
+- `cmd/super-dolphin-gate/coordinator_bootstrap_controller_protocol_test.go`
 - `cmd/super-dolphin-gate/coordinator_bootstrap_docker_test.go`
 - `cmd/super-dolphin-gate/coordinator_bootstrap_execution.go`
 - `cmd/super-dolphin-gate/coordinator_bootstrap_root.go`
@@ -58,6 +59,7 @@
 - `cmd/super-dolphin-gate/coordinator_production.go`
 - `cmd/super-dolphin-gate/coordinator_production_config.go`
 - `cmd/super-dolphin-gate/coordinator_production_fixture_test.go`
+- `cmd/super-dolphin-gate/coordinator_production_promotion_test.go`
 - `cmd/super-dolphin-gate/coordinator_production_test.go`
 - `cmd/super-dolphin-gate/coordinator_promotion.go`
 - `cmd/super-dolphin-gate/coordinator_provision.go`
@@ -75,8 +77,6 @@
 - `cmd/super-dolphin-gate/coordinator_recovery_plan_test.go`
 - `cmd/super-dolphin-gate/coordinator_recovery_shards.go`
 - `cmd/super-dolphin-gate/coordinator_recovery_store.go`
-- `cmd/super-dolphin-gate/coordinator_resource_witness_test.go`
-- `cmd/super-dolphin-gate/coordinator_runtime.go`
 
 ## 5. 修复方式
 

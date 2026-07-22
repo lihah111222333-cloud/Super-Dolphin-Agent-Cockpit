@@ -11,7 +11,6 @@ import (
 	"io"
 	"net"
 	"net/url"
-	"path"
 	"slices"
 	"sort"
 	"strconv"
@@ -29,7 +28,14 @@ const (
 
 // BuildKitRunner 只接收经过安全收敛的候选镜像构建请求。
 type BuildKitRunner interface {
-	Build(ctx context.Context, request BuildKitBuildRequest) (imageDigest string, err error)
+	Build(ctx context.Context, request BuildKitBuildRequest) (BuildKitResult, error)
+}
+
+// BuildKitResult binds the platform manifest to the config digest emitted by
+// the same controlled BuildKit invocation.
+type BuildKitResult struct {
+	PlatformManifestDigest string
+	ConfigDigest           string
 }
 
 // BuildArgument 表示由工具链锁生成的确定性 BuildKit 参数。
@@ -69,6 +75,7 @@ type CandidateRequest struct {
 	AcceptedInputDigest  string                   `json:"accepted_input_digest"`
 	AcceptedPolicyDigest string                   `json:"accepted_policy_digest"`
 	AcceptedImageDigest  string                   `json:"accepted_image_digest"`
+	AcceptedConfigDigest string                   `json:"accepted_config_digest"`
 }
 
 // CandidateResult 返回候选输入闭包和唯一不可变镜像产物。
@@ -80,6 +87,7 @@ type CandidateResult struct {
 	ToolchainDigest     string
 	DockerfileDigest    string
 	ImageDigest         string
+	ConfigDigest        string
 	Built               bool
 }
 
@@ -117,13 +125,7 @@ func (builder *ImageBuilder) EnsureCandidate(ctx context.Context, request Candid
 	if err := validateImageBuilderEntry(builder, ctx); err != nil {
 		return CandidateResult{}, err
 	}
-	if err := validateDigest("accepted input digest", request.AcceptedInputDigest); err != nil {
-		return CandidateResult{}, err
-	}
-	if err := validateDigest("accepted policy digest", request.AcceptedPolicyDigest); err != nil {
-		return CandidateResult{}, err
-	}
-	if err := validateDigest("accepted image digest", request.AcceptedImageDigest); err != nil {
+	if err := validateAcceptedCandidateDigests(request); err != nil {
 		return CandidateResult{}, err
 	}
 	prepared, err := prepareCandidate(request)
@@ -132,16 +134,21 @@ func (builder *ImageBuilder) EnsureCandidate(ctx context.Context, request Candid
 	}
 	if prepared.result.InputDigest == request.AcceptedInputDigest && request.PolicyDigest == request.AcceptedPolicyDigest {
 		prepared.result.ImageDigest = request.AcceptedImageDigest
+		prepared.result.ConfigDigest = request.AcceptedConfigDigest
 		return prepared.result, nil
 	}
-	imageDigest, err := builder.runner.Build(ctx, prepared.buildRequest)
+	built, err := builder.runner.Build(ctx, prepared.buildRequest)
 	if err != nil {
 		return CandidateResult{}, fmt.Errorf("build candidate image: %w", err)
 	}
-	if err := validateDigest("candidate image digest", imageDigest); err != nil {
+	if err := validateDigest("candidate image digest", built.PlatformManifestDigest); err != nil {
 		return CandidateResult{}, err
 	}
-	prepared.result.ImageDigest = imageDigest
+	if err := validateDigest("candidate config digest", built.ConfigDigest); err != nil {
+		return CandidateResult{}, err
+	}
+	prepared.result.ImageDigest = built.PlatformManifestDigest
+	prepared.result.ConfigDigest = built.ConfigDigest
 	prepared.result.Built = true
 	return prepared.result, nil
 }
@@ -778,12 +785,9 @@ func validateDockerfileCopySource(source string, closure map[string]sourceexport
 
 // canonicalCopySource 拒绝动态、远程、glob 和非规范 COPY/ADD 来源。
 func canonicalCopySource(source string) (string, error) {
-	cleaned := strings.TrimSuffix(source, "/")
-	if source == "" || source == "." || path.IsAbs(source) {
-		return "", errors.New("path is not canonical")
-	}
-	if path.Clean(source) != cleaned {
-		return "", errors.New("path is not canonical")
+	cleaned, err := canonicalCopyPath(source)
+	if err != nil {
+		return "", err
 	}
 	if strings.ContainsAny(source, "*?[${}") {
 		return "", errors.New("dynamic, remote, and glob sources are forbidden")

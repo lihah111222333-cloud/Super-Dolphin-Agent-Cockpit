@@ -286,6 +286,20 @@ func TestCollectUnknownBuildConstraintFailsClosed(t *testing.T) {
 	}
 }
 
+func TestMatchingTargetBuildContextSupportsOtherUnix(t *testing.T) {
+	root := t.TempDir()
+	const name = "other_unix.go"
+	writeTestFile(t, filepath.Join(root, name), "//go:build unix && !darwin && !linux\n\npackage a\n")
+
+	target, err := matchingTargetBuildContext(root, name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if target == nil || target.GOOS != "freebsd" || target.GOARCH != "amd64" {
+		t.Fatalf("other Unix target = %#v, want freebsd/amd64", target)
+	}
+}
+
 func TestActualStagedWindowsGateFileGetsTargetCompileEvidence(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("Windows source is host-visible on Windows")

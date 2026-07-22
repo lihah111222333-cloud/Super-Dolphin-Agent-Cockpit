@@ -1,15 +1,11 @@
 package localci
 
 import (
-	"archive/tar"
 	"bytes"
 	"context"
-	"crypto/sha1" // #nosec G505 -- Git SHA-1 object IDs require SHA-1 compatibility verification.
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"fmt"
-	"path"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -85,8 +81,15 @@ func (runner *FreshContainerRunner) emitCleanupLifecycle(
 // validateFreshContainerLifecycleEvent 约束非终态、可信退出与无观测清理的时钟边界。
 func validateFreshContainerLifecycleEvent(event FreshContainerLifecycleEvent, status gate.ResultStatus) error {
 	switch event.Phase {
-	case FreshContainerPhasePrepared, FreshContainerPhaseCreating, FreshContainerPhaseCreated,
+	case FreshContainerPhasePrepared, FreshContainerPhaseCreated,
 		FreshContainerPhaseStarting, FreshContainerPhaseStarted:
+		if !event.ExitedAt.IsZero() {
+			return errors.New("non-terminal container lifecycle exited_at must be zero")
+		}
+	case FreshContainerPhaseCreating:
+		if !IsFreshContainerOperationIdentity(event.ContainerID) {
+			return errors.New("creating lifecycle requires deterministic operation identity")
+		}
 		if !event.ExitedAt.IsZero() {
 			return errors.New("non-terminal container lifecycle exited_at must be zero")
 		}
@@ -144,152 +147,6 @@ func validateRemovedLifecycleExit(event FreshContainerLifecycleEvent, status gat
 	return nil
 }
 
-type canonicalContext struct {
-	Tar           []byte
-	ContextDigest string
-	InputDigest   string
-}
-
-// buildCanonicalContext 将已验证 Git blob 规范化为稳定 tar 和输入摘要。
-func buildCanonicalContext(sourceEntries []sourceexport.TreeEntry) (canonicalContext, error) {
-	if len(sourceEntries) == 0 {
-		return canonicalContext{}, errors.New("canonical context requires at least one source entry")
-	}
-	entries := append([]sourceexport.TreeEntry(nil), sourceEntries...)
-	sort.Slice(entries, func(left int, right int) bool { return entries[left].Path < entries[right].Path })
-
-	var archive bytes.Buffer
-	writer := tar.NewWriter(&archive)
-	var manifest []byte
-	seenPaths := make(map[string]string, len(entries))
-	for _, entry := range entries {
-		if err := validateContextEntry(entry, seenPaths); err != nil {
-			return canonicalContext{}, err
-		}
-		mode := int64(0o644)
-		if entry.Mode == "100755" {
-			mode = 0o755
-		}
-		header := &tar.Header{
-			Name: entry.Path, Mode: mode, Size: int64(len(entry.Data)), Typeflag: tar.TypeReg,
-			ModTime: time.Unix(0, 0), Uid: 0, Gid: 0, Format: tar.FormatPAX,
-		}
-		if err := writer.WriteHeader(header); err != nil {
-			return canonicalContext{}, fmt.Errorf("write canonical header %q: %w", entry.Path, err)
-		}
-		if _, err := writer.Write(entry.Data); err != nil {
-			return canonicalContext{}, fmt.Errorf("write canonical content %q: %w", entry.Path, err)
-		}
-		contentHash := sha256.Sum256(entry.Data)
-		manifest = appendManifestField(manifest, entry.Path)
-		manifest = appendManifestField(manifest, entry.Mode)
-		manifest = appendManifestField(manifest, entry.Hash)
-		manifest = appendManifestField(manifest, hex.EncodeToString(contentHash[:]))
-	}
-	if err := writer.Close(); err != nil {
-		return canonicalContext{}, fmt.Errorf("close canonical context: %w", err)
-	}
-	contextHash := sha256.Sum256(archive.Bytes())
-	inputHash := sha256.Sum256(manifest)
-	return canonicalContext{
-		Tar:           archive.Bytes(),
-		ContextDigest: "sha256:" + hex.EncodeToString(contextHash[:]),
-		InputDigest:   "sha256:" + hex.EncodeToString(inputHash[:]),
-	}, nil
-}
-
-func validateContextEntry(entry sourceexport.TreeEntry, seenPaths map[string]string) error {
-	if err := validateContextPath(entry.Path, seenPaths); err != nil {
-		return err
-	}
-	if entry.Mode != "100644" && entry.Mode != "100755" {
-		return fmt.Errorf("source entry %q has unsupported mode %q", entry.Path, entry.Mode)
-	}
-	return validateContextBlob(entry)
-}
-
-// validateContextPath 拒绝非规范路径和大小写折叠冲突。
-func validateContextPath(entryPath string, seenPaths map[string]string) error {
-	if entryPath == "" || entryPath == "." || path.Clean(entryPath) != entryPath || path.IsAbs(entryPath) {
-		return fmt.Errorf("source entry path %q is not canonical", entryPath)
-	}
-	if strings.HasPrefix(entryPath, "../") || strings.ContainsAny(entryPath, "\\\x00") {
-		return fmt.Errorf("source entry path %q is not canonical", entryPath)
-	}
-	foldedPath := strings.ToLower(entryPath)
-	if previousPath, exists := seenPaths[foldedPath]; exists {
-		return fmt.Errorf("source entry path %q collides with %q", entryPath, previousPath)
-	}
-	seenPaths[foldedPath] = entryPath
-	return nil
-}
-
-func validateContextBlob(entry sourceexport.TreeEntry) error {
-	if entry.Hash == "" {
-		return fmt.Errorf("source entry %q is missing verified Git object hash", entry.Path)
-	}
-	calculatedHash, err := gitBlobHash(entry.Hash, entry.Data)
-	if err != nil {
-		return fmt.Errorf("source entry %q: %w", entry.Path, err)
-	}
-	if calculatedHash != entry.Hash {
-		return fmt.Errorf("source entry %q data does not match Git blob %s", entry.Path, entry.Hash)
-	}
-	return nil
-}
-
-func gitBlobHash(objectID string, data []byte) (string, error) {
-	payload := fmt.Appendf(nil, "blob %d\x00", len(data))
-	payload = append(payload, data...)
-	switch len(objectID) {
-	case sha1.Size * 2:
-		sum := sha1.Sum(payload) // #nosec G401 -- this verifies Git's object format, not a security signature.
-		return hex.EncodeToString(sum[:]), nil
-	case sha256.Size * 2:
-		sum := sha256.Sum256(payload)
-		return hex.EncodeToString(sum[:]), nil
-	default:
-		return "", fmt.Errorf("Git blob object ID length %d is unsupported", len(objectID))
-	}
-}
-
-func appendManifestField(manifest []byte, value string) []byte {
-	manifest = append(manifest, value...)
-	return append(manifest, 0)
-}
-
-// ReadOnlyGitTree 携带从 SourceSpec 对应 Git tree 取得的只读源码，不读取进程工作目录。
-type ReadOnlyGitTree struct {
-	Source  gate.SourceSpec
-	Entries []sourceexport.TreeEntry
-}
-
-// GateImageInputs 是一个 job tree 经校验后的确定性镜像输入视图。
-type GateImageInputs struct {
-	SubmittedSourceTree string
-	PolicyDigest        string
-	ImageSchemaVersion  string
-	Platform            string
-	SourceEntries       []sourceexport.TreeEntry
-	ImageInputDigest    string
-	ContextDigest       string
-	InputManifestDigest string
-	ToolchainDigest     string
-	DockerfileDigest    string
-}
-
-type gitTreeNode struct {
-	files map[string]sourceexport.TreeEntry
-	dirs  map[string]*gitTreeNode
-}
-
-type gitTreeItem struct {
-	name      string
-	mode      string
-	oid       []byte
-	directory bool
-}
-
 // ResolveGateImageInputs 校验传入的 Git tree，并推导不依赖活动工作区的规范构建闭包。
 func ResolveGateImageInputs(tree ReadOnlyGitTree, policyDigest string, platform string) (GateImageInputs, error) {
 	if err := verifyReadOnlyGitTree(tree); err != nil {
@@ -311,164 +168,6 @@ func ResolveGateImageInputs(tree ReadOnlyGitTree, policyDigest string, platform 
 		InputManifestDigest: result.InputManifestDigest, ToolchainDigest: result.ToolchainDigest,
 		DockerfileDigest: result.DockerfileDigest,
 	}, nil
-}
-
-func verifyReadOnlyGitTree(tree ReadOnlyGitTree) error {
-	if err := tree.Source.Validate(); err != nil {
-		return fmt.Errorf("validate image source spec: %w", err)
-	}
-	if len(tree.Entries) == 0 {
-		return errors.New("read-only Git tree entries are required")
-	}
-	calculated, err := calculateGitTreeOID(tree.Source.ObjectFormat, tree.Entries)
-	if err != nil {
-		return fmt.Errorf("verify read-only Git tree: %w", err)
-	}
-	if calculated != tree.Source.SourceTreeSHA {
-		return fmt.Errorf("read-only Git tree drift: calculated %s, expected %s", calculated, tree.Source.SourceTreeSHA)
-	}
-	return nil
-}
-
-// calculateGitTreeOID 从扁平 blob 条目重建 Git tree 对象并计算根 OID。
-func calculateGitTreeOID(format gate.GitObjectFormat, entries []sourceexport.TreeEntry) (string, error) {
-	root := newGitTreeNode()
-	seenPaths := make(map[string]string, len(entries))
-	expectedLength, err := gitOIDHexLength(format)
-	if err != nil {
-		return "", err
-	}
-	for _, entry := range entries {
-		if err := validateGitTreeEntry(entry, expectedLength, seenPaths); err != nil {
-			return "", err
-		}
-		if err := root.insert(entry); err != nil {
-			return "", err
-		}
-	}
-	oid, err := hashGitTreeNode(format, root)
-	if err != nil {
-		return "", err
-	}
-	return hex.EncodeToString(oid), nil
-}
-
-func validateGitTreeEntry(entry sourceexport.TreeEntry, expectedLength int, seenPaths map[string]string) error {
-	if err := validateContextEntry(entry, seenPaths); err != nil {
-		return err
-	}
-	if len(entry.Hash) != expectedLength || strings.ToLower(entry.Hash) != entry.Hash {
-		return fmt.Errorf("source entry %q has an object ID incompatible with the SourceSpec object format", entry.Path)
-	}
-	if _, err := hex.DecodeString(entry.Hash); err != nil {
-		return fmt.Errorf("source entry %q has an invalid Git object ID: %w", entry.Path, err)
-	}
-	return nil
-}
-
-func newGitTreeNode() *gitTreeNode {
-	return &gitTreeNode{files: make(map[string]sourceexport.TreeEntry), dirs: make(map[string]*gitTreeNode)}
-}
-
-// insert 将规范文件路径插入 tree，不允许文件与目录互相遮蔽。
-func (node *gitTreeNode) insert(entry sourceexport.TreeEntry) error {
-	parts := strings.Split(entry.Path, "/")
-	current := node
-	for _, directory := range parts[:len(parts)-1] {
-		if _, exists := current.files[directory]; exists {
-			return fmt.Errorf("source path %q crosses file %q", entry.Path, directory)
-		}
-		next, exists := current.dirs[directory]
-		if !exists {
-			next = newGitTreeNode()
-			current.dirs[directory] = next
-		}
-		current = next
-	}
-	name := parts[len(parts)-1]
-	if _, exists := current.dirs[name]; exists {
-		return fmt.Errorf("source path %q conflicts with a directory", entry.Path)
-	}
-	if _, exists := current.files[name]; exists {
-		return fmt.Errorf("source path %q is duplicated", entry.Path)
-	}
-	current.files[name] = entry
-	return nil
-}
-
-// hashGitTreeNode 按 Git tree 排序和二进制编码递归计算节点 OID。
-func hashGitTreeNode(format gate.GitObjectFormat, node *gitTreeNode) ([]byte, error) {
-	items := make([]gitTreeItem, 0, len(node.files)+len(node.dirs))
-	for name, entry := range node.files {
-		oid, err := hex.DecodeString(entry.Hash)
-		if err != nil {
-			return nil, fmt.Errorf("decode blob object %q: %w", entry.Path, err)
-		}
-		items = append(items, gitTreeItem{name: name, mode: entry.Mode, oid: oid})
-	}
-	for name, child := range node.dirs {
-		oid, err := hashGitTreeNode(format, child)
-		if err != nil {
-			return nil, err
-		}
-		items = append(items, gitTreeItem{name: name, mode: "40000", oid: oid, directory: true})
-	}
-	sort.Slice(items, func(left int, right int) bool { return gitTreeItemLess(items[left], items[right]) })
-	var body bytes.Buffer
-	for _, item := range items {
-		fmt.Fprintf(&body, "%s %s", item.mode, item.name)
-		body.WriteByte(0)
-		body.Write(item.oid)
-	}
-	return hashGitObject(format, "tree", body.Bytes())
-}
-
-func gitTreeItemLess(left gitTreeItem, right gitTreeItem) bool {
-	leftSuffix := byte(0)
-	if left.directory {
-		leftSuffix = '/'
-	}
-	rightSuffix := byte(0)
-	if right.directory {
-		rightSuffix = '/'
-	}
-	return bytes.Compare(append([]byte(left.name), leftSuffix), append([]byte(right.name), rightSuffix)) < 0
-}
-
-func hashGitObject(format gate.GitObjectFormat, objectType string, body []byte) ([]byte, error) {
-	payload := fmt.Appendf(nil, "%s %d\x00", objectType, len(body))
-	payload = append(payload, body...)
-	switch format {
-	case gate.GitObjectFormatSHA1:
-		sum := sha1.Sum(payload) // #nosec G401 -- this verifies Git's object format, not a security signature.
-		return sum[:], nil
-	case gate.GitObjectFormatSHA256:
-		sum := sha256.Sum256(payload)
-		return sum[:], nil
-	default:
-		return nil, fmt.Errorf("unsupported Git object format %q", format)
-	}
-}
-
-func gitOIDHexLength(format gate.GitObjectFormat) (int, error) {
-	switch format {
-	case gate.GitObjectFormatSHA1:
-		return sha1.Size * 2, nil
-	case gate.GitObjectFormatSHA256:
-		return sha256.Size * 2, nil
-	default:
-		return 0, fmt.Errorf("unsupported Git object format %q", format)
-	}
-}
-
-func cloneTreeEntries(entries []sourceexport.TreeEntry) []sourceexport.TreeEntry {
-	cloned := make([]sourceexport.TreeEntry, len(entries))
-	for index, entry := range entries {
-		cloned[index] = entry
-		cloned[index].Data = append([]byte(nil), entry.Data...)
-		cloned[index].Path = path.Clean(entry.Path)
-	}
-	return cloned
 }
 
 // LoadReadOnlyGitTree 从已验证 SourceSpec 的 Git object tree 读取镜像输入，不读取工作区文件。
@@ -675,7 +374,7 @@ func (runner *FreshContainerRunner) CleanupUnprovedFreshContainer(
 	if request.RemovalPending {
 		return runner.replayPendingRemoval(ctx, recovery, result)
 	}
-	containerID, absent, err := runner.resolveCleanupContainer(ctx, recovery)
+	containerID, absent, err := runner.resolveCleanupContainerForRecovery(ctx, recovery)
 	if err != nil {
 		return result, err
 	}
@@ -762,22 +461,59 @@ func (runner *FreshContainerRunner) attachCleanupResourceWitness(
 	return nil
 }
 
-// resolveCleanupContainer 将精确持久身份未返回容器视为不存在证明。
+// resolveCleanupContainerForRecovery 对 Creating 操作身份执行有界稳定性确认。
+func (runner *FreshContainerRunner) resolveCleanupContainerForRecovery(
+	ctx context.Context,
+	request FreshContainerRecoveryRequest,
+) (string, bool, error) {
+	if err := validateCreatingOperationIdentity(request); err != nil {
+		return "", false, err
+	}
+	containerID, absent, err := runner.resolveCleanupContainer(ctx, request)
+	if err != nil || !absent || !IsFreshContainerOperationIdentity(request.ContainerID) {
+		return containerID, absent, err
+	}
+	return runner.confirmCreatingContainerAbsence(ctx, request)
+}
+
+func validateCreatingOperationIdentity(request FreshContainerRecoveryRequest) error {
+	if !IsFreshContainerOperationIdentity(request.ContainerID) {
+		return nil
+	}
+	expected, err := FreshContainerOperationIdentity(request.ContainerLabels)
+	if err != nil {
+		return err
+	}
+	if request.ContainerID != expected {
+		return errors.New("creating operation identity drifted from container labels")
+	}
+	return nil
+}
+
+// resolveCleanupContainer 对运行时 ID 直接定位；操作身份必须用完整 labels 闭包发现。
 func (runner *FreshContainerRunner) resolveCleanupContainer(
 	ctx context.Context,
 	request FreshContainerRecoveryRequest,
 ) (string, bool, error) {
-	if request.ContainerID != "" {
+	if request.ContainerID != "" && !IsFreshContainerOperationIdentity(request.ContainerID) {
 		return request.ContainerID, false, nil
 	}
+	return runner.resolveCleanupContainerByLabels(ctx, request.ContainerLabels)
+}
+
+// resolveCleanupContainerByLabels 以完整 labels 集合确认至多一个待清理容器。
+func (runner *FreshContainerRunner) resolveCleanupContainerByLabels(
+	ctx context.Context,
+	labels map[string]string,
+) (string, bool, error) {
 	args := []string{"ps", "--all", "--no-trunc"}
-	keys := make([]string, 0, len(request.ContainerLabels))
-	for key := range request.ContainerLabels {
+	keys := make([]string, 0, len(labels))
+	for key := range labels {
 		keys = append(keys, key)
 	}
 	sort.Strings(keys)
 	for _, key := range keys {
-		args = append(args, "--filter=label="+key+"="+request.ContainerLabels[key])
+		args = append(args, "--filter=label="+key+"="+labels[key])
 	}
 	args = append(args, "--format={{.ID}}")
 	output, err := runner.runCleanup(ctx, args...)
@@ -792,6 +528,33 @@ func (runner *FreshContainerRunner) resolveCleanupContainer(
 		return "", false, fmt.Errorf("cleanup identity resolved %d canonical containers, want at most 1", len(lines))
 	}
 	return lines[0], false, nil
+}
+
+// confirmCreatingContainerAbsence 对迟到 create 执行连续且有界的零结果确认。
+func (runner *FreshContainerRunner) confirmCreatingContainerAbsence(
+	parent context.Context,
+	request FreshContainerRecoveryRequest,
+) (string, bool, error) {
+	ctx, cancel := BoundedCleanupContext(parent, freshContainerLifecycleCleanupTimeout)
+	defer cancel()
+	for attempt := 1; attempt < creatingAbsenceProofs; attempt++ {
+		containerID, absent, err := runner.resolveCleanupContainerByLabels(ctx, request.ContainerLabels)
+		if err != nil {
+			return "", false, err
+		}
+		if !absent {
+			return containerID, false, nil
+		}
+		if attempt+1 == creatingAbsenceProofs {
+			break
+		}
+		select {
+		case <-ctx.Done():
+			return "", false, fmt.Errorf("confirm creating container absence: %w", ctx.Err())
+		case <-time.After(creatingAbsenceRetry):
+		}
+	}
+	return "", true, nil
 }
 
 func (runner *FreshContainerRunner) cleanupIdentityAbsent(ctx context.Context, containerID string) (bool, error) {
@@ -811,7 +574,11 @@ func (runner *FreshContainerRunner) proveCleanupAbsence(
 	result.Container.Removed = true
 	result.RemovalProofDigest = cleanupAbsenceProofDigest(recovery)
 	result.Evidence = append(result.Evidence, gate.Evidence{Kind: gate.EvidenceKindDocker, Digest: result.RemovalProofDigest})
-	if err := runner.emitCleanupLifecycle(ctx, freshContainerRequestForRecovery(recovery), result, FreshContainerPhaseRemoved); err != nil {
+	lifecycleResult := result
+	if IsFreshContainerOperationIdentity(recovery.ContainerID) {
+		lifecycleResult.Container.ContainerID = recovery.ContainerID
+	}
+	if err := runner.emitCleanupLifecycle(ctx, freshContainerRequestForRecovery(recovery), lifecycleResult, FreshContainerPhaseRemoved); err != nil {
 		return result, err
 	}
 	return result, nil
@@ -878,4 +645,140 @@ func (runner *FreshContainerRunner) removePendingContainer(
 		return result, fmt.Errorf("validate pending removal container identity: %w", err)
 	}
 	return runner.terminateUnprovedRecovery(ctx, recovery, result, nil)
+}
+
+// validateRecoveryRequest 校验恢复时钟与不可变 Docker 请求，不接受重算 deadline。
+func (runner *FreshContainerRunner) validateRecoveryRequest(request FreshContainerRecoveryRequest) error {
+	if err := request.Profile.Validate(); err != nil {
+		return err
+	}
+	if !hasCanonicalRecoveryClock(request) {
+		return errors.New("recovery started_at and deadline must be non-zero UTC timestamps")
+	}
+	if !request.Deadline.Equal(request.StartedAt.Add(executionTimeout(request.Profile == gate.ProfileRelease))) {
+		return errors.New("recovery deadline does not match the original profile timeout")
+	}
+	if request.ContainerID != "" && !isContainerID(request.ContainerID) {
+		return errors.New("recovery container ID is invalid")
+	}
+	container := newContainerRequest(request.ImageReference, request.SourceSnapshotDir, request.Command, request.Profile == gate.ProfileRelease, request.ContainerLabels)
+	if err := runner.docker.validateContainerRequest(container); err != nil {
+		return err
+	}
+	if err := validateDigest("recovery config digest", request.ConfigDigest); err != nil {
+		return err
+	}
+	if len(request.ContainerLabels) == 0 {
+		return errors.New("recovery container labels are required")
+	}
+	return nil
+}
+
+// hasCanonicalRecoveryClock 确认恢复请求沿用原始 UTC 开始和截止时钟。
+func hasCanonicalRecoveryClock(request FreshContainerRecoveryRequest) bool {
+	return request.StartedAt.Equal(request.StartedAt.UTC()) && request.Deadline.Equal(request.Deadline.UTC()) &&
+		!request.StartedAt.IsZero() && !request.Deadline.IsZero()
+}
+
+// freshContainerRequestForRecovery 复原终态清理所需的不可变容器请求。
+func freshContainerRequestForRecovery(request FreshContainerRecoveryRequest) FreshContainerRequest {
+	return FreshContainerRequest{
+		Image: gate.ImageIdentity{ConfigDigest: request.ConfigDigest}, SourceSnapshotDir: request.SourceSnapshotDir,
+		Profile: request.Profile, GateID: request.GateID, ContainerLabels: request.ContainerLabels,
+		Deadline: request.Deadline, LifecycleHook: request.LifecycleHook,
+	}
+}
+
+// resolveRecoveryContainer 使用持久 ID 或全部 labels 唯一定位原容器。
+func (runner *FreshContainerRunner) resolveRecoveryContainer(
+	ctx context.Context,
+	request FreshContainerRecoveryRequest,
+) (string, error) {
+	if request.ContainerID != "" {
+		return request.ContainerID, nil
+	}
+	keys := make([]string, 0, len(request.ContainerLabels))
+	for key := range request.ContainerLabels {
+		keys = append(keys, key)
+	}
+	slices.Sort(keys)
+	args := []string{"ps", "--all", "--no-trunc"}
+	for _, key := range keys {
+		args = append(args, "--filter=label="+key+"="+request.ContainerLabels[key])
+	}
+	args = append(args, "--format={{.ID}}")
+	output, err := runner.docker.runner.Run(ctx, args...)
+	if err != nil {
+		return "", fmt.Errorf("discover recovery container: %w", err)
+	}
+	lines := strings.Fields(output)
+	if len(lines) != 1 || !isContainerID(lines[0]) {
+		return "", fmt.Errorf("recovery labels resolved %d canonical containers, want 1", len(lines))
+	}
+	return lines[0], nil
+}
+
+// validateRecoveryContainer 验证候选容器身份及其可接管的运行状态。
+func (runner *FreshContainerRunner) validateRecoveryContainer(
+	document containerInspectDocument,
+	request FreshContainerRecoveryRequest,
+) error {
+	if err := runner.validateRecoveryContainerIdentity(document, request); err != nil {
+		return err
+	}
+	if document.State == nil || (!document.State.Running && document.State.Status != "exited") {
+		return errors.New("recovery container is not alive or exited")
+	}
+	return nil
+}
+
+// validateRecoveryContainerIdentity 验证镜像、命令、挂载、隔离与 labels 的闭包。
+func (runner *FreshContainerRunner) validateRecoveryContainerIdentity(
+	document containerInspectDocument,
+	request FreshContainerRecoveryRequest,
+) error {
+	expectedContainerID := document.ID
+	if request.ContainerID != "" && !IsFreshContainerOperationIdentity(request.ContainerID) {
+		expectedContainerID = request.ContainerID
+	}
+	if err := validateContainerIdentity(
+		document, expectedContainerID, request.ImageReference, request.ConfigDigest, request.Command,
+	); err != nil {
+		return err
+	}
+	if err := validateContainerHostIsolation(document.HostConfig); err != nil {
+		return err
+	}
+	if err := validateContainerMount(document, request.SourceSnapshotDir); err != nil {
+		return err
+	}
+	if document.Config == nil {
+		return errors.New("recovery container config is missing")
+	}
+	for key, expected := range request.ContainerLabels {
+		if document.Config.Labels[key] != expected {
+			return fmt.Errorf("recovery container label %q drifted", key)
+		}
+	}
+	return nil
+}
+
+// terminateUnprovedRecovery 杀死并移除未能证明身份的恢复容器。
+func (runner *FreshContainerRunner) terminateUnprovedRecovery(
+	ctx context.Context,
+	request FreshContainerRecoveryRequest,
+	result FreshContainerResult,
+	cause error,
+) (FreshContainerResult, error) {
+	cleanupContext, cancel := platformconfig.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+	defer cancel()
+	_, killErr := runner.docker.runner.Run(cleanupContext, "kill", result.Container.ContainerID)
+	if killErr == nil {
+		result.Killed = true
+		result.KillProofDigest = digestBytes([]byte("killed\n" + result.Container.ContainerID + "\n"))
+	}
+	_, waitErr := runner.docker.runner.Run(cleanupContext, "wait", result.Container.ContainerID)
+	freshRequest := freshContainerRequestForRecovery(request)
+	result, removeErr := runner.removeContainer(cleanupContext, result, freshRequest, nil)
+	return result, errors.Join(cause, killErr, waitErr, removeErr)
 }

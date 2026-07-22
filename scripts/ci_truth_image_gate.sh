@@ -1,33 +1,40 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-gate_bin=$(command -v super-dolphin-gate 2>/dev/null || true)
-if [[ -z "$gate_bin" || ! -x "$gate_bin" ]]; then
-  printf '%s\n' 'CI truth-image gate blocked: trusted super-dolphin-gate CLI is not installed.' >&2
+repo_root=$(git rev-parse --show-toplevel) || {
+  printf '%s\n' 'CI truth-image gate blocked: repository root is unavailable.' >&2
+  exit 1
+}
+source "$repo_root/.githooks/trusted-gate-launcher.sh"
+if ! gate_bin=$(trusted_gate_launcher "$repo_root"); then
+  printf '%s\n' 'CI truth-image gate blocked: trusted super-dolphin-gate launcher is unavailable.' >&2
   exit 1
 fi
 
 if [[ $# -eq 0 ]]; then
   exec "$gate_bin" workflow-host
 fi
-if [[ $# -ne 1 ]]; then
-  printf '%s\n' 'usage: ci_truth_image_gate.sh [local-fast|push|remote-required|release]' >&2
+if [[ $# -lt 1 ]]; then
+  printf '%s\n' 'usage: ci_truth_image_gate.sh [local-fast|push|remote-required|release] [release grant options]' >&2
   exit 1
 fi
 
 profile=$1
+shift
 case "$profile" in
-  local-fast|push|remote-required|release) ;;
+  local-fast|push|remote-required)
+    if [[ $# -ne 0 ]]; then
+      printf '%s\n' 'CI truth-image gate blocked: release grant options require the release profile.' >&2
+      exit 1
+    fi
+    ;;
+  release) ;;
   *)
     printf 'CI truth-image gate blocked: unsupported profile %q.\n' "$profile" >&2
     exit 1
     ;;
 esac
 
-repo_root=$(git rev-parse --show-toplevel) || {
-  printf '%s\n' 'CI truth-image gate blocked: repository root is unavailable.' >&2
-  exit 1
-}
 cd "$repo_root"
 object_format=$(git rev-parse --show-object-format)
 commit_sha=$(git rev-parse HEAD)
@@ -48,7 +55,7 @@ if [[ "$profile" == "release" ]]; then
     --commit "$commit_sha"
     --source-tree "$commit_tree"
   )
-  exec "$gate_bin" _production-launcher "${submit_args[@]}"
+  exec "$gate_bin" _production-launcher "${submit_args[@]}" "$@"
 fi
 submit_args+=(
   --tree "$staged_tree"

@@ -27,7 +27,9 @@ RUN GOWORK=off GOTOOLCHAIN=local go mod download all && \
 FROM ${NODE_IMAGE} AS frontend-seed
 WORKDIR /src/frontend-app
 COPY frontend-app/package.json frontend-app/package-lock.json ./
-RUN npm ci --ignore-scripts --no-audit --no-fund && \
+RUN NPM_CONFIG_CACHE=/out/frontend/npm-cache npm ci --ignore-scripts --no-audit --no-fund && \
+    rm -rf node_modules && \
+    NPM_CONFIG_CACHE=/out/frontend/npm-cache npm ci --ignore-scripts --no-audit --no-fund --offline && \
     PLAYWRIGHT_BROWSERS_PATH=/src/frontend-app/node_modules/.cache/ms-playwright \
     ./node_modules/.bin/playwright install chromium && \
     mkdir -p /out/frontend && mv node_modules /out/frontend/node_modules
@@ -62,6 +64,7 @@ FROM ${GO_IMAGE} AS tool-seed
 WORKDIR /src/runtime-tools
 COPY build/gate/runtime-tools/go.mod build/gate/runtime-tools/go.sum build/gate/runtime-tools/tools.go ./
 RUN GOWORK=off GOTOOLCHAIN=local go mod download && \
+	CGO_ENABLED=0 GOWORK=off GOTOOLCHAIN=local go build -trimpath -buildvcs=false -o /out/actionlint github.com/rhysd/actionlint/cmd/actionlint && \
     CGO_ENABLED=0 GOWORK=off GOTOOLCHAIN=local go build -trimpath -buildvcs=false -o /out/gopls golang.org/x/tools/gopls && \
     CGO_ENABLED=0 GOWORK=off GOTOOLCHAIN=local go build -trimpath -buildvcs=false -o /out/sqlc github.com/sqlc-dev/sqlc/cmd/sqlc
 
@@ -72,6 +75,7 @@ COPY --from=repository-vendor /out/vendor /runtime/vendor
 COPY --from=repository-vendor /out/vendor /src/vendor
 COPY --from=repository-vendor /out/go-proxy /runtime/go-proxy
 COPY --from=frontend-seed /out/frontend/node_modules /runtime/frontend/node_modules
+COPY --from=frontend-seed /out/frontend/npm-cache /runtime/frontend/npm-cache
 COPY --from=ripgrep-seed /out/bin/rg /runtime/bin/rg
 COPY --from=sqruff-seed /out/bin/sqruff /runtime/bin/sqruff
 RUN GOWORK=off GOTOOLCHAIN=local go build -mod=vendor -trimpath -buildvcs=false -o /out/super-dolphin-runtime-seed ./build/gate/cmd/runtime-seed-manifest && \
@@ -84,9 +88,11 @@ COPY --from=lsp-seed /usr/local/lib/node_modules/npm /usr/local/lib/node_modules
 COPY --from=repository-vendor /out/vendor /opt/super-dolphin-gate/runtime/vendor
 COPY --from=repository-vendor /out/go-proxy /opt/super-dolphin-gate/runtime/go-proxy
 COPY --from=frontend-seed /out/frontend/node_modules /opt/super-dolphin-gate/runtime/frontend/node_modules
+COPY --from=frontend-seed /out/frontend/npm-cache /opt/super-dolphin-gate/runtime/frontend/npm-cache
 COPY --from=lsp-seed /out/lsp/node_modules /opt/super-dolphin-gate/runtime/lsp/node_modules
 COPY --from=manifest-builder /out/super-dolphin-runtime-seed /usr/local/bin/super-dolphin-runtime-seed
 COPY --from=tool-seed /out/gopls /usr/local/bin/gopls
+COPY --from=tool-seed /out/actionlint /opt/super-dolphin-gate/runtime/bin/actionlint
 COPY --from=tool-seed /out/sqlc /opt/super-dolphin-gate/runtime/bin/sqlc
 COPY --from=ripgrep-seed /out/bin/rg /opt/super-dolphin-gate/runtime/bin/rg
 COPY --from=sqruff-seed /out/bin/sqruff /opt/super-dolphin-gate/runtime/bin/sqruff
@@ -105,24 +111,28 @@ RUN set -eu; \
     ln -s /opt/super-dolphin-gate/runtime/lsp/node_modules/.bin/vscode-css-language-server /usr/local/bin/vscode-css-language-server; \
     ln -s /opt/super-dolphin-gate/runtime/lsp/node_modules/.bin/pyright-langserver /usr/local/bin/pyright-langserver; \
     ln -s /opt/super-dolphin-gate/runtime/lsp/node_modules/.bin/bash-language-server /usr/local/bin/bash-language-server; \
+	ln -s /opt/super-dolphin-gate/runtime/bin/actionlint /usr/local/bin/actionlint; \
     printf 'Acquire::Retries "10";\nAcquire::http::No-Cache "true";\nAcquire::http::Pipeline-Depth "0";\n' > /etc/apt/apt.conf.d/80-super-dolphin-retries; \
     if [ -f /etc/apt/sources.list ]; then sed -i 's|http://deb.debian.org|https://deb.debian.org|g' /etc/apt/sources.list; fi; \
     find /etc/apt/sources.list.d -type f \( -name '*.list' -o -name '*.sources' \) -exec sed -i 's|http://deb.debian.org|https://deb.debian.org|g' {} +; \
     retry_command env PLAYWRIGHT_BROWSERS_PATH=/opt/super-dolphin-gate/runtime/frontend/node_modules/.cache/ms-playwright \
       /opt/super-dolphin-gate/runtime/frontend/node_modules/.bin/playwright install-deps chromium; \
-    retry_command sh -c 'apt-get update && apt-get install -y --no-install-recommends libgtk-3-dev libwebkit2gtk-4.1-dev libsoup-3.0-dev pkg-config procps'; \
+    retry_command sh -c 'apt-get update && apt-get install -y --no-install-recommends libgtk-3-dev libwebkit2gtk-4.1-dev libsoup-3.0-dev pkg-config procps xauth xvfb'; \
     rm -rf /var/lib/apt/lists/*; \
     pkg-config --exists gtk+-3.0 webkit2gtk-4.1 gio-unix-2.0 libsoup-3.0; \
     ln -s /opt/super-dolphin-gate/runtime/bin/rg /usr/local/bin/rg; \
     ln -s /opt/super-dolphin-gate/runtime/bin/sqruff /usr/local/bin/sqruff; \
     chmod -R a+rX /opt/super-dolphin-gate/runtime/frontend/node_modules/.cache/ms-playwright; \
-    test -x /usr/bin/git && test -x /usr/bin/make && test -x /usr/bin/python3 && test -x /usr/bin/ps && test -x /usr/local/bin/node && test -x /usr/local/bin/npm; \
-    test -x /usr/local/go/bin/go && test -x /usr/local/bin/gopls && test -x /opt/super-dolphin-gate/runtime/bin/sqlc && test -x /opt/super-dolphin-gate/runtime/bin/rg && test -x /opt/super-dolphin-gate/runtime/bin/sqruff; \
+    chmod -R a+rX /opt/super-dolphin-gate/runtime/frontend/npm-cache; \
+    test -x /usr/bin/git && test -x /usr/bin/make && test -x /usr/bin/python3 && test -x /usr/bin/ps && test -x /usr/bin/Xvfb && test -x /usr/bin/xauth && test -x /usr/bin/xvfb-run && test -x /usr/local/bin/node && test -x /usr/local/bin/npm; \
+    test -x /usr/local/go/bin/go && test -x /usr/local/bin/gopls && test -x /opt/super-dolphin-gate/runtime/bin/actionlint && test -x /opt/super-dolphin-gate/runtime/bin/sqlc && test -x /opt/super-dolphin-gate/runtime/bin/rg && test -x /opt/super-dolphin-gate/runtime/bin/sqruff; \
     test "$(rg --version | head -n 1)" = "ripgrep 13.0.0" && test "$(sqruff --version)" = "sqruff 0.38.0"
 COPY --from=manifest-builder /runtime/manifest.json /opt/super-dolphin-gate/runtime/manifest.json
 ENV PATH=/usr/local/go/bin:/usr/local/bin:/usr/bin:/bin \
     PLAYWRIGHT_BROWSERS_PATH=/opt/super-dolphin-gate/runtime/frontend/node_modules/.cache/ms-playwright \
     GOTOOLCHAIN=local GOPROXY=file:///opt/super-dolphin-gate/runtime/go-proxy GOSUMDB=off
 USER 65532:65532
+RUN --network=none xvfb-run -a sh -ec 'test -n "$DISPLAY"'
 RUN --network=none node -e 'const { chromium } = require("/opt/super-dolphin-gate/runtime/frontend/node_modules/playwright"); chromium.launch({headless:true}).then(async browser => { await browser.close(); }).catch(error => { console.error(error); process.exit(1); });'
 RUN --network=none sqruff --version | grep -Fx 'sqruff 0.38.0'
+RUN --network=none test "$(actionlint -version | head -n 1)" = "v1.7.12"

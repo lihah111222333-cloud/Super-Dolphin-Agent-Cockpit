@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
@@ -277,15 +278,17 @@ func recordOOMContainerLifecycle(
 	startedAt := time.Now().UTC()
 	deadline := startedAt.Add(coordinatorTimeout(started.Profile))
 	started.StartedAt, started.Deadline = &startedAt, &deadline
+	labels := map[string]string{"job": record.JobID}
 	for _, phase := range []localci.FreshContainerLifecyclePhase{
 		localci.FreshContainerPhasePrepared, localci.FreshContainerPhaseCreating, localci.FreshContainerPhaseCreated,
 		localci.FreshContainerPhaseStarting, localci.FreshContainerPhaseStarted,
 		localci.FreshContainerPhaseExited, localci.FreshContainerPhaseRemoved,
 	} {
 		event := oomLifecycleEvent(phase, containerID, sourceSnapshotDir, started, witness, digest)
+		bindCreatingOperationIdentity(t, labels, &event)
 		if err := store.recordContainerLifecycle(
 			context.Background(), record.JobID, record.Plan.Gates[0].ID,
-			map[string]string{"job": record.JobID}, event); err != nil {
+			labels, event); err != nil {
 			t.Fatalf("recordContainerLifecycle(%s) error = %v", phase, err)
 		}
 	}
@@ -385,6 +388,13 @@ func emitFakeContainerLifecycleEvent(
 	}
 	event.CompletedAt, event.ExitCode = startedAt, 0
 	if request.LifecycleHook != nil {
+		if phase == localci.FreshContainerPhaseCreating {
+			operationIdentity, err := localci.FreshContainerOperationIdentity(request.ContainerLabels)
+			if err != nil {
+				return fmt.Errorf("derive fake creating operation identity: %w", err)
+			}
+			event.ContainerID = operationIdentity
+		}
 		return request.LifecycleHook(ctx, event)
 	}
 	return nil

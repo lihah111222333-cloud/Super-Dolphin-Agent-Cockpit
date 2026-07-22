@@ -136,14 +136,14 @@ npm run guard:critical-skip
 
 `pre-push` 按 push range 推导变更面：
 
-- Go 代码：复用同 tree 的普通测试（可用时），补跑 `--archtest-only`、nilness 和独立 `--race-only`。
+- Go 代码：运行同 tree 的完整普通后端与架构检查；高内存 nilness 和独立 race 检查只进入 30 分钟 release profile。
 - 前端代码：`npm run lint`、`npm run test:hook`、`make frontend-embed-verify`；不再额外重复一次 build。
 - SQL/store：`make sqlc-verify-worktree`。
 - codemap/project-map/capcontract：由 AI maintenance 对应 `make *-check`，任何 drift 在 pre-commit/pre-push 都 fail-fast。
 - skill/doc skill surface：`python3 scripts/validate_super_agent_skills.py`。
 - AI-maintenance 自身或相关路径：`scripts/ai_maintenance_gates.sh`。
 
-`scripts/ai_maintenance/*` 的 gate plan 以变更路径推导 required gates，例如 `backend:test_with_guard`、`backend:archtest`、`backend:race`、`sqlc:verify`、`codemap:check`、`project-map:check`、`frontend:*` 和 `diff:whitespace`。pre-commit 会把最终 staged tree 展开到临时 linked worktree，普通后端 gate 只选择直接包及一级反向依赖；push 再补完整架构、nilness 和 race 风险面。可缓存绿色结果的指纹绑定不可变 tree、隔离 index、计划、工具链和稳定环境；只有单提交、同 tree 且 tracked 状态干净的 pre-push 才能复用共同 gate。codemap 与空白检查不缓存，所有缺失输入、损坏 marker 或指纹变化都 fail-fast。
+`scripts/ai_maintenance/*` 的 gate plan 以变更路径推导 required gates，例如 `backend:test_with_guard`、`backend:archtest`、`backend:race`、`sqlc:verify`、`codemap:check`、`project-map:check`、`frontend:*` 和 `diff:whitespace`。pre-commit 会把最终 staged tree 展开到临时 linked worktree，普通后端 gate 只选择直接包及一级反向依赖；push 补完整普通后端与架构风险面，release 再补资源受限的 nilness 和 race。可缓存绿色结果的指纹绑定不可变 tree、隔离 index、计划、工具链和稳定环境；只有单提交、同 tree 且 tracked 状态干净的 pre-push 才能复用共同 gate。codemap 与空白检查不缓存，所有缺失输入、损坏 marker 或指纹变化都 fail-fast。
 
 ---
 

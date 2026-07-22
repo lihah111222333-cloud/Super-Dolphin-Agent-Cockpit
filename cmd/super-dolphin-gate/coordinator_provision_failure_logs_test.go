@@ -61,6 +61,9 @@ func productionProvisionFailureLogTail(log string) string {
 
 func productionProvisionFailureBlock(log string, limit int) string {
 	start := strings.Index(log, "--- FAIL:")
+	if start < 0 {
+		start = productionProvisionNonTestFailureStart(log)
+	}
 	if start < 0 || limit <= 0 {
 		return ""
 	}
@@ -81,6 +84,36 @@ func productionProvisionFailureBlock(log string, limit int) string {
 	return block
 }
 
+func productionProvisionNonTestFailureStart(log string) int {
+	for searchOffset := 0; searchOffset < len(log); {
+		offset := strings.Index(log[searchOffset:], "\nFAIL\t")
+		if offset < 0 {
+			return -1
+		}
+		failureStart := searchOffset + offset
+		failureLine := log[failureStart+1:]
+		if lineEnd := strings.IndexByte(failureLine, '\n'); lineEnd >= 0 {
+			failureLine = failureLine[:lineEnd]
+		}
+		if strings.Contains(failureLine, "[setup failed]") || strings.Contains(failureLine, "[build failed]") {
+			if packageStart := strings.LastIndex(log[:failureStart], "\n# "); packageStart >= 0 {
+				return packageStart + 1
+			}
+			if strings.HasPrefix(log, "# ") {
+				return 0
+			}
+		}
+		if raceStart := strings.LastIndex(log[:failureStart], "\nWARNING: DATA RACE"); raceStart >= 0 {
+			return raceStart + 1
+		}
+		if strings.HasPrefix(log, "WARNING: DATA RACE") {
+			return 0
+		}
+		searchOffset = failureStart + len("\nFAIL\t")
+	}
+	return -1
+}
+
 func utf8LogSuffix(log string, limit int) string {
 	if limit <= 0 {
 		return ""
@@ -99,6 +132,7 @@ func TestProductionProvisionFailureLogTail(t *testing.T) {
 	t.Run("short log is unchanged", testProductionProvisionShortFailureLogTail)
 	t.Run("long log includes failing tail", testProductionProvisionLongFailureLogTail)
 	t.Run("long log preserves failure before tail", testProductionProvisionFailureBeforeTail)
+	t.Run("long log preserves non-test failure before tail", testProductionProvisionNonTestFailureBeforeTail)
 	t.Run("multibyte boundary remains valid UTF-8", testProductionProvisionUTF8FailureLogTail)
 }
 
@@ -147,6 +181,49 @@ func testProductionProvisionFailureBeforeTail(t *testing.T) {
 		if !strings.Contains(got, want) {
 			t.Fatalf("display log missing %q: %q", want, got)
 		}
+	}
+}
+
+func testProductionProvisionNonTestFailureBeforeTail(t *testing.T) {
+	tests := []struct {
+		name    string
+		failure string
+		want    []string
+	}{
+		{
+			name: "setup failure",
+			failure: "# example.invalid/embed\n" +
+				"assets.go:12: go:embed assets/*.json: no matching files found\n" +
+				"FAIL\texample.invalid/embed [setup failed]\n",
+			want: []string{"# example.invalid/embed", "go:embed assets/*.json: no matching files found", "FAIL\texample.invalid/embed [setup failed]"},
+		},
+		{
+			name: "race detector",
+			failure: "WARNING: DATA RACE\n" +
+				"Read at 0x00c0000 by goroutine 7:\n" +
+				"  example.invalid/race.TestConcurrent()\n" +
+				"Found 1 data race(s)\n" +
+				"FAIL\texample.invalid/race\t0.01s\n",
+			want: []string{"WARNING: DATA RACE", "Read at 0x00c0000 by goroutine 7", "Found 1 data race(s)", "FAIL\texample.invalid/race\t0.01s"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			log := strings.Repeat("prefix\n", productionProvisionFailureLogDisplayMaxBytes) + tt.failure +
+				strings.Repeat("passing package\n", productionProvisionFailureLogDisplayMaxBytes) + "final context\n"
+			got := productionProvisionFailureLogTail(log)
+			if len(got) > productionProvisionFailureLogDisplayMaxBytes {
+				t.Fatalf("display log length = %d, want at most %d", len(got), productionProvisionFailureLogDisplayMaxBytes)
+			}
+			if !utf8.ValidString(got) {
+				t.Fatalf("display log is not valid UTF-8: %q", got)
+			}
+			for _, want := range append(tt.want, "final context") {
+				if !strings.Contains(got, want) {
+					t.Fatalf("display log missing %q: %q", want, got)
+				}
+			}
+		})
 	}
 }
 

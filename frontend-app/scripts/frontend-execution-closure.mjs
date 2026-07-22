@@ -18,6 +18,7 @@ export const FROZEN_T04_T05_EXECUTION_CLOSURE_PATHS = Object.freeze([
   'frontend-app/scripts/delivery-smoke-runner.mjs',
   'frontend-app/scripts/managed-command.mjs',
   'frontend-app/scripts/desktop-smoke.mjs',
+  'frontend-app/scripts/desktop-smoke-codex-stub.mjs',
   'frontend-app/scripts/desktop-failure-contract.mjs',
   'frontend-app/scripts/desktop-failure-smoke.mjs',
   'frontend-app/scripts/evidence-provenance.mjs',

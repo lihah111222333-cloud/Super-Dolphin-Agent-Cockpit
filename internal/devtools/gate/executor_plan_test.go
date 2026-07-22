@@ -109,7 +109,7 @@ func TestExecutorPlanDAGSchedulesBackendAfterLSPWithoutDuplicates(t *testing.T) 
 				GateIDProjectMapCheck, GateIDCapabilityContractCheck, GateIDWhitespaceCheck},
 		}},
 		{ProfileRelease, [][]GateID{
-			{GateIDAIMaintenanceSelfTest, GateIDFrontendTest, GateIDLSPChangedDiagnostics, GateIDBackendTestWithGuard,
+			{GateIDAIMaintenanceSelfTest, GateIDFrontendFullTest, GateIDLSPChangedDiagnostics, GateIDBackendTestWithGuard,
 				GateIDBackendTestGuardWithRace, GateIDBackendNilness},
 			{GateIDFrontendLint, GateIDFrontendBuild, GateIDFrontendEmbedVerify, GateIDSQLCVerify, GateIDCodemapCheck,
 				GateIDProjectMapCheck, GateIDCapabilityContractCheck, GateIDWhitespaceCheck},

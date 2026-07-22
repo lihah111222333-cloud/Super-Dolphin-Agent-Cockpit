@@ -19,7 +19,11 @@ func TestInstallRuntimeSeedsBindsLocksAndPreventsOverwrite(t *testing.T) {
 	writeTestFile(t, filepath.Join(source, "frontend-app", "package-lock.json"), "{\"lockfileVersion\":3}\n", 0o600)
 	runtimeRoot, manifestPath := writeRuntimeSeedFixture(t, source)
 	config := executorConfig{runtimeSeedRoot: runtimeRoot, runtimeSeedManifest: manifestPath}
-	layout := executorLayout{sourceCopy: source}
+	npmCache := filepath.Join(realTempDir(t), "npm-cache")
+	if err := os.Mkdir(npmCache, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	layout := executorLayout{sourceCopy: source, npmCache: npmCache}
 	program := ExecutorProgram{NeedsGoSeed: true, NeedsFrontendSeed: true}
 	if err := installRuntimeSeeds(config, layout, program); err != nil {
 		t.Fatalf("installRuntimeSeeds: %v", err)
@@ -27,6 +31,7 @@ func TestInstallRuntimeSeedsBindsLocksAndPreventsOverwrite(t *testing.T) {
 	for _, path := range []string{
 		filepath.Join(source, "vendor", "modules.txt"),
 		filepath.Join(source, "frontend-app", "node_modules", "tool", "index.js"),
+		filepath.Join(npmCache, "_cacache", "content-v2", "sha512", "fixture"),
 	} {
 		if _, err := os.Stat(path); err != nil {
 			t.Fatalf("installed seed path %s: %v", path, err)
@@ -60,6 +65,88 @@ func TestInstallRuntimeSeedsRejectsPackageLockDrift(t *testing.T) {
 	program := ExecutorProgram{NeedsFrontendSeed: true}
 	if err := installRuntimeSeeds(config, executorLayout{sourceCopy: source}, program); err == nil {
 		t.Fatal("runtime seed unexpectedly accepted package-lock.json drift")
+	}
+}
+
+func TestInstallRuntimeSeedsCopiesFrontendEmbedWithoutRuntimeManifest(t *testing.T) {
+	source := realTempDir(t)
+	if err := os.MkdirAll(filepath.Join(source, "cmd", "agent-terminal"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	seedRoot := realTempDir(t)
+	writeTestFile(t, filepath.Join(seedRoot, "index.html"), "<main>embed</main>\n", 0o600)
+	writeTestFile(t, filepath.Join(seedRoot, "assets", "app.js"), "console.log('embed')\n", 0o600)
+
+	config := executorConfig{frontendEmbedSeedRoot: seedRoot}
+	program := ExecutorProgram{NeedsFrontendEmbedSeed: true}
+	if err := installExecutorSeeds(config, executorLayout{sourceCopy: source}, program); err != nil {
+		t.Fatalf("installExecutorSeeds: %v", err)
+	}
+	installed := filepath.Join(source, "cmd", "agent-terminal", "web-dist", "index.html")
+	content, err := os.ReadFile(installed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(content) != "<main>embed</main>\n" {
+		t.Fatalf("installed index.html = %q", content)
+	}
+	asset, err := os.ReadFile(filepath.Join(source, "cmd", "agent-terminal", "web-dist", "assets", "app.js"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(asset) != "console.log('embed')\n" {
+		t.Fatalf("installed asset = %q", asset)
+	}
+}
+
+func TestInstallRuntimeSeedsRejectsFrontendEmbedWithoutIndex(t *testing.T) {
+	source := realTempDir(t)
+	if err := os.MkdirAll(filepath.Join(source, "cmd", "agent-terminal"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	config := executorConfig{frontendEmbedSeedRoot: realTempDir(t)}
+	err := installExecutorSeeds(config, executorLayout{sourceCopy: source}, ExecutorProgram{NeedsFrontendEmbedSeed: true})
+	if err == nil || !strings.Contains(err.Error(), "frontend embed seed index.html") {
+		t.Fatalf("installExecutorSeeds error = %v, want missing frontend embed index.html", err)
+	}
+}
+
+func TestInstallRuntimeSeedsRejectsExistingFrontendEmbedTarget(t *testing.T) {
+	source := realTempDir(t)
+	if err := os.MkdirAll(filepath.Join(source, "cmd", "agent-terminal", "web-dist"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	seedRoot := realTempDir(t)
+	writeTestFile(t, filepath.Join(seedRoot, "index.html"), "<main>embed</main>\n", 0o600)
+
+	config := executorConfig{frontendEmbedSeedRoot: seedRoot}
+	err := installExecutorSeeds(config, executorLayout{sourceCopy: source}, ExecutorProgram{NeedsFrontendEmbedSeed: true})
+	if err == nil || !strings.Contains(err.Error(), "frontend embed seed target already exists") {
+		t.Fatalf("installExecutorSeeds error = %v, want existing frontend embed target rejection", err)
+	}
+}
+
+func TestInstallRuntimeSeedsRejectsEscapingFrontendEmbedSymlink(t *testing.T) {
+	source := realTempDir(t)
+	if err := os.MkdirAll(filepath.Join(source, "cmd", "agent-terminal"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	seedRoot := realTempDir(t)
+	writeTestFile(t, filepath.Join(seedRoot, "index.html"), "<main>embed</main>\n", 0o600)
+	outside := filepath.Join(realTempDir(t), "outside.js")
+	writeTestFile(t, outside, "outside\n", 0o600)
+	relativeOutside, err := filepath.Rel(seedRoot, outside)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(relativeOutside, filepath.Join(seedRoot, "escape.js")); err != nil {
+		t.Fatal(err)
+	}
+
+	config := executorConfig{frontendEmbedSeedRoot: seedRoot}
+	err = installExecutorSeeds(config, executorLayout{sourceCopy: source}, ExecutorProgram{NeedsFrontendEmbedSeed: true})
+	if err == nil || !strings.Contains(err.Error(), "runtime seed symlink escapes seed root") {
+		t.Fatalf("installExecutorSeeds error = %v, want escaping symlink rejection", err)
 	}
 }
 
@@ -178,6 +265,45 @@ func TestRuntimeSeedManifestPublicAPIRoundTrip(t *testing.T) {
 	if err := EncodeRuntimeSeedManifest(io.Discard, missingProxy); err == nil {
 		t.Fatal("EncodeRuntimeSeedManifest unexpectedly accepted a missing module proxy digest")
 	}
+	missingCache := manifest
+	missingCache.NPMCacheTreeSHA256 = ""
+	if err := EncodeRuntimeSeedManifest(io.Discard, missingCache); err == nil {
+		t.Fatal("EncodeRuntimeSeedManifest unexpectedly accepted a missing npm cache digest")
+	}
+}
+
+func TestInstallPreparedRuntimeSeedCopiesCacheAndRejectsInvalidState(t *testing.T) {
+	seedRoot := realTempDir(t)
+	seedFile := filepath.Join(seedRoot, "_cacache", "content-v2", "sha512", "fixture")
+	writeTestFile(t, seedFile, "cached package\n", 0o600)
+	digest := mustRuntimeSeedTreeDigest(t, seedRoot)
+	targetParent := realTempDir(t)
+	targetRoot := filepath.Join(targetParent, "npm-cache")
+	if err := os.Mkdir(targetRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := installPreparedRuntimeSeed(seedRoot, digest, targetRoot); err != nil {
+		t.Fatalf("installPreparedRuntimeSeed: %v", err)
+	}
+	installed := filepath.Join(targetRoot, "_cacache", "content-v2", "sha512", "fixture")
+	content, err := os.ReadFile(installed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(content) != "cached package\n" {
+		t.Fatalf("installed cache content = %q", content)
+	}
+	if err := installPreparedRuntimeSeed(seedRoot, digest, targetRoot); err == nil {
+		t.Fatal("installPreparedRuntimeSeed unexpectedly accepted a non-empty target")
+	}
+	tamperedTarget := filepath.Join(targetParent, "tampered-cache")
+	if err := os.Mkdir(tamperedTarget, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	writeTestFile(t, seedFile, "tampered package\n", 0o600)
+	if err := installPreparedRuntimeSeed(seedRoot, digest, tamperedTarget); err == nil {
+		t.Fatal("installPreparedRuntimeSeed unexpectedly accepted a tampered seed")
+	}
 }
 
 func assertRuntimeSeedManifestFields(t *testing.T, manifest RuntimeSeedManifest) {
@@ -248,6 +374,21 @@ func TestRuntimeSeedManifestRejectsMissingLockedModuleZip(t *testing.T) {
 	}
 }
 
+func TestRuntimeSeedManifestRejectsNPMCacheTamper(t *testing.T) {
+	source := realTempDir(t)
+	writeTestFile(t, filepath.Join(source, "go.sum"), "module sum\n", 0o600)
+	writeTestFile(t, filepath.Join(source, "frontend-app", "package-lock.json"), "{\"lockfileVersion\":3}\n", 0o600)
+	runtimeRoot, _ := writeRuntimeSeedFixture(t, source)
+	manifest, err := BuildRuntimeSeedManifest(source, runtimeRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeTestFile(t, filepath.Join(runtimeRoot, "frontend", "npm-cache", "tampered"), "tamper\n", 0o600)
+	if err := manifest.Validate(source, runtimeRoot); err == nil {
+		t.Fatal("RuntimeSeedManifest.Validate unexpectedly accepted npm cache tamper")
+	}
+}
+
 func TestRuntimeSeedDigestRejectsEscapingSymlinkChain(t *testing.T) {
 	root := realTempDir(t)
 	outside := realTempDir(t)
@@ -271,6 +412,7 @@ func writeRuntimeSeedFixture(t *testing.T, source string) (string, string) {
 	vendorRoot := filepath.Join(runtimeRoot, "vendor")
 	moduleProxyRoot := filepath.Join(runtimeRoot, "go-proxy")
 	nodeModulesRoot := filepath.Join(runtimeRoot, "frontend", "node_modules")
+	npmCacheRoot := filepath.Join(runtimeRoot, "frontend", "npm-cache")
 	writeTestFile(t, filepath.Join(vendorRoot, "modules.txt"), "# modules\n", 0o600)
 	proxyVersionRoot := filepath.Join(moduleProxyRoot, "github.com", "kelindar", "event", "@v")
 	writeTestFile(t, filepath.Join(proxyVersionRoot, "list"), "v1.5.2\n", 0o600)
@@ -279,6 +421,7 @@ func writeRuntimeSeedFixture(t *testing.T, source string) (string, string) {
 	writeTestFile(t, filepath.Join(proxyVersionRoot, "v1.5.2.zip"), "fixture zip\n", 0o600)
 	writeTestFile(t, filepath.Join(proxyVersionRoot, "v1.5.2.ziphash"), strings.Fields(runtimeProxyFixtureSum)[2]+"\n", 0o600)
 	writeTestFile(t, filepath.Join(nodeModulesRoot, "tool", "index.js"), "export {}\n", 0o600)
+	writeTestFile(t, filepath.Join(npmCacheRoot, "_cacache", "content-v2", "sha512", "fixture"), "cached package\n", 0o600)
 	ripgrepPath := filepath.Join(runtimeRoot, "bin", "rg")
 	writeTestFile(t, ripgrepPath, "fixture ripgrep\n", 0o700)
 	sqruffPath := filepath.Join(runtimeRoot, "bin", "sqruff")
@@ -288,13 +431,14 @@ func writeRuntimeSeedFixture(t *testing.T, source string) (string, string) {
 	vendorDigest := mustRuntimeSeedTreeDigest(t, vendorRoot)
 	moduleProxyDigest := mustRuntimeSeedTreeDigest(t, moduleProxyRoot)
 	nodeModulesDigest := mustRuntimeSeedTreeDigest(t, nodeModulesRoot)
+	npmCacheDigest := mustRuntimeSeedTreeDigest(t, npmCacheRoot)
 	ripgrepDigest := mustRuntimeSeedFileDigest(t, ripgrepPath)
 	sqruffDigest := mustRuntimeSeedFileDigest(t, sqruffPath)
 	proxyLockDigest := mustRuntimeSeedFileDigest(t, proxyLockPath)
 	manifest := RuntimeSeedManifest{
 		SchemaVersion: RuntimeSeedSchemaVersion, GoSumSHA256: goSumDigest, VendorTreeSHA256: vendorDigest,
 		ModuleProxyLockSHA256: proxyLockDigest, ModuleProxyTreeSHA256: moduleProxyDigest,
-		PackageLockSHA256: packageLockDigest, NodeModulesTreeSHA256: nodeModulesDigest,
+		PackageLockSHA256: packageLockDigest, NodeModulesTreeSHA256: nodeModulesDigest, NPMCacheTreeSHA256: npmCacheDigest,
 		RipgrepSHA256: ripgrepDigest, SqruffSHA256: sqruffDigest,
 	}
 	encoded, err := json.Marshal(manifest)

@@ -41,29 +41,38 @@ func TestPreCommitHookBindsStagedIndexAndReturnsActionableQueuedStatus(t *testin
 }
 
 func TestPreCommitRejectsInitialStagedTreeCaptureFailure(t *testing.T) {
-	repositoryRoot := strings.TrimSpace(runHookTestGit(t, mustWorkingDirectory(t), "rev-parse", "--show-toplevel"))
-	preCommitPath := filepath.Join(repositoryRoot, ".githooks", "pre-commit")
+	repository := newHookTestRepository(t)
+	gateBinDirectory, _ := installAlternateIndexGate(t, repository, "", "")
+	realGit, err := exec.LookPath("git")
+	if err != nil {
+		t.Fatalf("locate real git: %v", err)
+	}
 	binDirectory := filepath.Join(t.TempDir(), "bin")
 	if err := os.Mkdir(binDirectory, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	for name, script := range map[string]string{
-		"super-dolphin-gate": "#!/usr/bin/env bash\nexit 64\n",
-		"git":                "#!/usr/bin/env bash\nprintf '%s\\n' 'simulated write-tree failure' >&2\nexit 1\n",
-	} {
-		if err := os.WriteFile(filepath.Join(binDirectory, name), []byte(script), 0o700); err != nil {
-			t.Fatal(err)
-		}
+	gitScript := "#!/usr/bin/env bash\nset -euo pipefail\n" +
+		"if [[ $# -eq 1 && $1 == write-tree ]]; then\n" +
+		"  printf '%s\\n' 'simulated write-tree failure' >&2\n" +
+		"  exit 1\n" +
+		"fi\n" +
+		"exec \"${REAL_GIT:?}\" \"$@\"\n"
+	if err := os.WriteFile(filepath.Join(binDirectory, "git"), []byte(gitScript), 0o700); err != nil {
+		t.Fatal(err)
 	}
 
-	command := exec.Command("/bin/bash", preCommitPath)
-	command.Dir = t.TempDir()
+	command := exec.Command("/bin/bash", filepath.Join(repository, ".githooks", "pre-commit"))
+	command.Dir = repository
 	command.Env = hookTestEnvironment(
-		"PATH=" + binDirectory + string(os.PathListSeparator) + os.Getenv("PATH"),
+		"REAL_GIT="+realGit,
+		"PATH="+binDirectory+string(os.PathListSeparator)+gateBinDirectory+string(os.PathListSeparator)+os.Getenv("PATH"),
 	)
 	output, err := command.CombinedOutput()
 	if err == nil {
 		t.Fatal("pre-commit succeeded after git write-tree failed")
+	}
+	if !strings.Contains(string(output), "simulated write-tree failure") {
+		t.Fatalf("pre-commit did not reach the staged tree capture: %q", output)
 	}
 	if !strings.Contains(string(output), "pre-commit blocked: cannot capture the authoritative staged tree.") {
 		t.Fatalf("pre-commit output = %q", output)
@@ -72,7 +81,7 @@ func TestPreCommitRejectsInitialStagedTreeCaptureFailure(t *testing.T) {
 
 func TestPreCommitAlternateIndexTreeStaysAuthoritativeThroughCommit(t *testing.T) {
 	repository := newHookTestRepository(t)
-	gateBinDirectory, treeLog := installAlternateIndexGate(t, repository, "")
+	gateBinDirectory, treeLog := installAlternateIndexGate(t, repository, "", "")
 
 	if err := os.WriteFile(filepath.Join(repository, "tracked.txt"), []byte("tree A\n"), 0o600); err != nil {
 		t.Fatal(err)
@@ -117,7 +126,7 @@ func TestPreCommitAlternateIndexTreeStaysAuthoritativeThroughCommit(t *testing.T
 func TestPreCommitRejectsAlternateIndexDriftAfterWait(t *testing.T) {
 	repository := newHookTestRepository(t)
 	initialTree := strings.TrimSpace(runHookTestGit(t, repository, "rev-parse", "HEAD^{tree}"))
-	gateBinDirectory, treeLog := installAlternateIndexGate(t, repository, "; git add tracked.txt; printf 'wait completed\\n'")
+	gateBinDirectory, treeLog := installAlternateIndexGate(t, repository, "", "; git add tracked.txt; printf 'wait completed\\n'")
 	indexedEnvironment, treeA := stageAlternateIndexTree(t, repository)
 
 	if err := os.WriteFile(filepath.Join(repository, "tracked.txt"), []byte("tree B\n"), 0o600); err != nil {
@@ -161,7 +170,77 @@ func TestPreCommitRejectsAlternateIndexDriftAfterWait(t *testing.T) {
 	}
 }
 
-func installAlternateIndexGate(t *testing.T, repository string, waitCommand string) (string, string) {
+func TestPreCommitRejectsAlternateIndexDriftAfterSynchronousPass(t *testing.T) {
+	repository := newHookTestRepository(t)
+	initialTree := strings.TrimSpace(runHookTestGit(t, repository, "rev-parse", "HEAD^{tree}"))
+	gateBinDirectory, treeLog := installAlternateIndexGate(t, repository, "git add tracked.txt; printf 'container-source:%s\\n' \"$4\" >> \"$GATE_TREE_LOG\"", "")
+	indexedEnvironment, treeA := stageAlternateIndexTree(t, repository)
+
+	if err := os.WriteFile(filepath.Join(repository, "tracked.txt"), []byte("tree B\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	runHookTestGit(t, repository, "add", "tracked.txt")
+	treeB := strings.TrimSpace(runHookTestGit(t, repository, "write-tree"))
+	if treeA == treeB {
+		t.Fatal("alternate and default indexes unexpectedly resolved to the same tree")
+	}
+
+	output, err := runHookTestGitWithEnvironmentResult(repository, append(indexedEnvironment,
+		"GATE_TREE_LOG="+treeLog,
+		"PATH="+gateBinDirectory+string(os.PathListSeparator)+os.Getenv("PATH"),
+	), "commit", "-m", "synchronous alternate index drift contract")
+	if err == nil {
+		t.Fatal("commit succeeded after synchronous gate changed the alternate index")
+	}
+	if !strings.Contains(output, "staged tree changed during gate wait") {
+		t.Fatalf("commit rejection output = %q", output)
+	}
+	if commitTree := strings.TrimSpace(runHookTestGit(t, repository, "rev-parse", "HEAD^{tree}")); commitTree != initialTree {
+		t.Fatalf("commit tree = %s, want unchanged HEAD tree %s", commitTree, initialTree)
+	}
+}
+
+func TestPreCommitRejectsMaliciousPATHWithoutProvisionedLauncher(t *testing.T) {
+	repository := newHookTestRepository(t)
+	repositoryRoot := strings.TrimSpace(runHookTestGit(t, mustWorkingDirectory(t), "rev-parse", "--show-toplevel"))
+	hooksDirectory := filepath.Join(repository, ".githooks")
+	if err := os.Mkdir(hooksDirectory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"pre-commit", "trusted-gate-launcher.sh"} {
+		contents, err := os.ReadFile(filepath.Join(repositoryRoot, ".githooks", name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(hooksDirectory, name), contents, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	runHookTestGit(t, repository, "config", "core.hooksPath", hooksDirectory)
+	if err := os.WriteFile(filepath.Join(repository, "tracked.txt"), []byte("candidate\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	runHookTestGit(t, repository, "add", "tracked.txt")
+
+	maliciousDirectory := t.TempDir()
+	maliciousLog := filepath.Join(t.TempDir(), "malicious.log")
+	maliciousGate := filepath.Join(maliciousDirectory, "super-dolphin-gate")
+	if err := os.WriteFile(maliciousGate, []byte("#!/usr/bin/env bash\nprintf invoked > \"$MALICIOUS_GATE_LOG\"\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	output, err := runHookTestGitWithEnvironmentResult(repository, []string{
+		"MALICIOUS_GATE_LOG=" + maliciousLog,
+		"PATH=" + maliciousDirectory + string(os.PathListSeparator) + os.Getenv("PATH"),
+	}, "commit", "-m", "malicious path contract")
+	if err == nil || !strings.Contains(output, "no trusted launcher is provisioned") {
+		t.Fatalf("malicious PATH result error=%v output=%q", err, output)
+	}
+	if _, err := os.Stat(maliciousLog); !os.IsNotExist(err) {
+		t.Fatalf("malicious PATH launcher was executed: %v", err)
+	}
+}
+
+func installAlternateIndexGate(t *testing.T, repository, hookCommand, waitCommand string) (string, string) {
 	t.Helper()
 	repositoryRoot := strings.TrimSpace(runHookTestGit(t, mustWorkingDirectory(t), "rev-parse", "--show-toplevel"))
 	hooksDirectory := filepath.Join(repository, ".githooks")
@@ -175,6 +254,13 @@ func installAlternateIndexGate(t *testing.T, repository string, waitCommand stri
 	if err := os.WriteFile(filepath.Join(hooksDirectory, "pre-commit"), preCommit, 0o700); err != nil {
 		t.Fatal(err)
 	}
+	launcher, err := os.ReadFile(filepath.Join(repositoryRoot, ".githooks", "trusted-gate-launcher.sh"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(hooksDirectory, "trusted-gate-launcher.sh"), launcher, 0o700); err != nil {
+		t.Fatal(err)
+	}
 	runHookTestGit(t, repository, "config", "core.hooksPath", hooksDirectory)
 
 	gateBinDirectory := filepath.Join(t.TempDir(), "bin")
@@ -183,14 +269,18 @@ func installAlternateIndexGate(t *testing.T, repository string, waitCommand stri
 	}
 	treeLog := filepath.Join(t.TempDir(), "trees.log")
 	gateBin := filepath.Join(gateBinDirectory, "super-dolphin-gate")
+	if hookCommand == "" {
+		hookCommand = "printf 'container-source:%s\\n' \"$4\" >> \"$GATE_TREE_LOG\"; printf 'queued job=job-0123456789abcdef0123456789abcdef\\n'; exit 13"
+	}
 	gateScript := "#!/usr/bin/env bash\nset -euo pipefail\ncase \"$1\" in\n" +
 		"  closure) printf 'closure:%s\\n' \"$4\" >> \"$GATE_TREE_LOG\" ;;\n" +
-		"  hook) printf 'container-source:%s\\n' \"$4\" >> \"$GATE_TREE_LOG\"; printf 'queued job=job-0123456789abcdef0123456789abcdef\\n'; exit 13 ;;\n" +
+		"  hook) " + hookCommand + " ;;\n" +
 		"  wait) printf 'wait:%s\\n' \"$5\" >> \"$GATE_TREE_LOG\"" + waitCommand + " ;;\n" +
 		"  *) exit 64 ;;\nesac\n"
 	if err := os.WriteFile(gateBin, []byte(gateScript), 0o700); err != nil {
 		t.Fatal(err)
 	}
+	runHookTestGit(t, repository, "config", "superdolphin.gateLauncher", gateBin)
 	return gateBinDirectory, treeLog
 }
 

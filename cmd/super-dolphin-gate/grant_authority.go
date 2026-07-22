@@ -37,29 +37,37 @@ type ed25519ActionGrantVerifier struct {
 }
 
 type actionGrantIntent struct {
-	Receipt         gatecontract.ResultReceipt
-	InvocationOwner string
-	Audience        gatecontract.ActionAudience
-	ActionPolicy    string
-	RemoteURL       string
-	Ref             string
-	OldSHA          string
-	NewSHA          string
-	ActionAttemptID string
-	RequestNonce    string
+	Receipt           gatecontract.ResultReceipt
+	InvocationOwner   string
+	Audience          gatecontract.ActionAudience
+	ActionPolicy      string
+	RemoteURL         string
+	Ref               string
+	OldSHA            string
+	NewSHA            string
+	ReleaseRepository string
+	ReleaseTag        string
+	ReleaseCommitSHA  string
+	ReleaseAssets     []gatecontract.ReleaseAsset
+	ActionAttemptID   string
+	RequestNonce      string
 }
 
 type actionGrantExpectation struct {
-	Audience        gatecontract.ActionAudience
-	RepoID          string
-	InvocationID    string
-	SourceTreeSHA   string
-	Generation      uint64
-	RemoteURL       string
-	Ref             string
-	OldSHA          string
-	NewSHA          string
-	ActionAttemptID string
+	Audience          gatecontract.ActionAudience
+	RepoID            string
+	InvocationID      string
+	SourceTreeSHA     string
+	Generation        uint64
+	RemoteURL         string
+	Ref               string
+	OldSHA            string
+	NewSHA            string
+	ReleaseRepository string
+	ReleaseTag        string
+	ReleaseCommitSHA  string
+	ReleaseAssets     []gatecontract.ReleaseAsset
+	ActionAttemptID   string
 }
 
 type actionGrantService struct {
@@ -403,6 +411,8 @@ func (service *actionGrantService) buildRequest(
 		ProcessChallenge: fmt.Sprintf("sha256:%x", challenge), SourceTreeSHA: intent.Receipt.Source.SourceTreeSHA,
 		Generation: intent.Receipt.Generation, Audience: intent.Audience, ActionPolicy: intent.ActionPolicy,
 		RemoteURL: intent.RemoteURL, Ref: intent.Ref, OldSHA: intent.OldSHA, NewSHA: intent.NewSHA,
+		ReleaseRepository: intent.ReleaseRepository, ReleaseTag: intent.ReleaseTag,
+		ReleaseCommitSHA: intent.ReleaseCommitSHA, ReleaseAssets: append([]gatecontract.ReleaseAsset(nil), intent.ReleaseAssets...),
 		ActionAttemptID: intent.ActionAttemptID, RequestNonce: intent.RequestNonce,
 		RequestedAt: requestedAt, ExpiresAt: expiresAt,
 	}
@@ -455,9 +465,13 @@ func actionGrantReceiptDrifted(
 	digest string,
 	request gatecontract.GrantRequest,
 ) bool {
-	return digest != request.ReceiptDigest || receipt.RepoID != request.RepoID ||
+	if digest != request.ReceiptDigest || receipt.RepoID != request.RepoID ||
 		receipt.InvocationID != request.InvocationID || receipt.Generation != request.Generation ||
-		receipt.Source.SourceTreeSHA != request.SourceTreeSHA || receipt.Status != gatecontract.ResultStatusPassed
+		receipt.Source.SourceTreeSHA != request.SourceTreeSHA || receipt.Status != gatecontract.ResultStatusPassed {
+		return true
+	}
+	return request.Audience == gatecontract.ActionAudienceRelease &&
+		(receipt.Source.Commit == nil || receipt.Source.Commit.SHA != request.ReleaseCommitSHA)
 }
 
 // SignActionGrant 使用宿主 Ed25519 私钥签署规范授权载荷。
@@ -490,11 +504,26 @@ func (verifier *ed25519ActionGrantVerifier) VerifyActionGrant(grant gatecontract
 
 // actionGrantMatchesExpectation 比较消费端独立观察到的全部外部动作字段。
 func actionGrantMatchesExpectation(request gatecontract.GrantRequest, expected actionGrantExpectation) bool {
+	return actionGrantIdentityMatches(request, expected) &&
+		actionGrantGitPushMatches(request, expected) &&
+		actionGrantReleaseMatches(request, expected)
+}
+
+// actionGrantIdentityMatches 校验 grant 请求与已签名动作身份的不可替换字段完全一致。
+func actionGrantIdentityMatches(request gatecontract.GrantRequest, expected actionGrantExpectation) bool {
 	return request.Audience == expected.Audience && request.RepoID == expected.RepoID &&
 		request.InvocationID == expected.InvocationID && request.SourceTreeSHA == expected.SourceTreeSHA &&
-		request.Generation == expected.Generation && request.RemoteURL == expected.RemoteURL &&
-		request.Ref == expected.Ref && request.OldSHA == expected.OldSHA && request.NewSHA == expected.NewSHA &&
-		request.ActionAttemptID == expected.ActionAttemptID
+		request.Generation == expected.Generation && request.ActionAttemptID == expected.ActionAttemptID
+}
+
+func actionGrantGitPushMatches(request gatecontract.GrantRequest, expected actionGrantExpectation) bool {
+	return request.RemoteURL == expected.RemoteURL && request.Ref == expected.Ref &&
+		request.OldSHA == expected.OldSHA && request.NewSHA == expected.NewSHA
+}
+
+func actionGrantReleaseMatches(request gatecontract.GrantRequest, expected actionGrantExpectation) bool {
+	return request.ReleaseRepository == expected.ReleaseRepository && request.ReleaseTag == expected.ReleaseTag &&
+		request.ReleaseCommitSHA == expected.ReleaseCommitSHA && reflect.DeepEqual(request.ReleaseAssets, expected.ReleaseAssets)
 }
 
 func actionGrantID(request gatecontract.GrantRequest) (string, error) {

@@ -199,8 +199,9 @@ func (config productionCoordinatorConfig) validatePromotionIdentity() error {
 	if config.CandidateTTLSeconds <= 0 || config.CandidateTTLSeconds > int64((7*24*time.Hour)/time.Second) {
 		return errors.New("production coordinator candidate_ttl_seconds must be within 1..604800")
 	}
-	if config.PromotionPollMillis < 10 || config.PromotionPollMillis > 60_000 {
-		return errors.New("production coordinator promotion_poll_millis must be within 10..60000")
+	if config.PromotionPollMillis < coordinatorPromotionPollMinMillis ||
+		config.PromotionPollMillis > coordinatorPromotionPollMaxMillis {
+		return errors.New("production coordinator promotion_poll_millis must be within 5000..60000")
 	}
 	return nil
 }

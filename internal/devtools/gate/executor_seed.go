@@ -20,7 +20,7 @@ import (
 )
 
 // RuntimeSeedSchemaVersion is the shared image-builder/executor manifest schema.
-const RuntimeSeedSchemaVersion = 5
+const RuntimeSeedSchemaVersion = 6
 
 // RuntimeSeedManifest binds immutable runtime seeds to repository lock files.
 type RuntimeSeedManifest struct {
@@ -31,6 +31,7 @@ type RuntimeSeedManifest struct {
 	ModuleProxyTreeSHA256 string `json:"module_proxy_tree_sha256"`
 	PackageLockSHA256     string `json:"package_lock_sha256"`
 	NodeModulesTreeSHA256 string `json:"node_modules_tree_sha256"`
+	NPMCacheTreeSHA256    string `json:"npm_cache_tree_sha256"`
 	RipgrepSHA256         string `json:"ripgrep_sha256"`
 	SqruffSHA256          string `json:"sqruff_sha256"`
 }
@@ -64,6 +65,12 @@ func installRuntimeSeeds(config executorConfig, layout executorLayout, program E
 			filepath.Join(layout.sourceCopy, "frontend-app", "node_modules"),
 		); err != nil {
 			return fmt.Errorf("install frontend runtime seed: %w", err)
+		}
+		if err := installPreparedRuntimeSeed(
+			filepath.Join(config.runtimeSeedRoot, "frontend", "npm-cache"), manifest.NPMCacheTreeSHA256,
+			layout.npmCache,
+		); err != nil {
+			return fmt.Errorf("install frontend npm cache seed: %w", err)
 		}
 	}
 	return nil
@@ -136,7 +143,8 @@ func (manifest RuntimeSeedManifest) validateShape() error {
 		"module_proxy_lock_sha256": manifest.ModuleProxyLockSHA256,
 		"module_proxy_tree_sha256": manifest.ModuleProxyTreeSHA256,
 		"package_lock_sha256":      manifest.PackageLockSHA256, "node_modules_tree_sha256": manifest.NodeModulesTreeSHA256,
-		"ripgrep_sha256": manifest.RipgrepSHA256, "sqruff_sha256": manifest.SqruffSHA256,
+		"npm_cache_tree_sha256": manifest.NPMCacheTreeSHA256,
+		"ripgrep_sha256":        manifest.RipgrepSHA256, "sqruff_sha256": manifest.SqruffSHA256,
 	} {
 		if !validSHA256Digest(digest) {
 			return fmt.Errorf("runtime seed manifest %s is invalid", name)
@@ -159,10 +167,6 @@ func BuildRuntimeSeedManifest(snapshotRoot string, runtimeRoot string) (RuntimeS
 	if err != nil {
 		return RuntimeSeedManifest{}, fmt.Errorf("digest go.sum: %w", err)
 	}
-	packageLock, err := fileSHA256(filepath.Join(snapshotPath, "frontend-app", "package-lock.json"))
-	if err != nil {
-		return RuntimeSeedManifest{}, fmt.Errorf("digest package-lock.json: %w", err)
-	}
 	vendor, err := RuntimeSeedTreeDigest(filepath.Join(runtimePath, "vendor"))
 	if err != nil {
 		return RuntimeSeedManifest{}, err
@@ -171,7 +175,7 @@ func BuildRuntimeSeedManifest(snapshotRoot string, runtimeRoot string) (RuntimeS
 	if err != nil {
 		return RuntimeSeedManifest{}, err
 	}
-	nodeModules, err := RuntimeSeedTreeDigest(filepath.Join(runtimePath, "frontend", "node_modules"))
+	packageLock, nodeModules, npmCache, err := runtimeFrontendSeedDigests(snapshotPath, runtimePath)
 	if err != nil {
 		return RuntimeSeedManifest{}, err
 	}
@@ -186,9 +190,26 @@ func BuildRuntimeSeedManifest(snapshotRoot string, runtimeRoot string) (RuntimeS
 	return RuntimeSeedManifest{
 		SchemaVersion: RuntimeSeedSchemaVersion, GoSumSHA256: goSum, VendorTreeSHA256: vendor,
 		ModuleProxyLockSHA256: moduleProxyLock, ModuleProxyTreeSHA256: moduleProxy,
-		PackageLockSHA256: packageLock, NodeModulesTreeSHA256: nodeModules,
+		PackageLockSHA256: packageLock, NodeModulesTreeSHA256: nodeModules, NPMCacheTreeSHA256: npmCache,
 		RipgrepSHA256: ripgrep, SqruffSHA256: sqruff,
 	}, nil
+}
+
+// runtimeFrontendSeedDigests 绑定前端锁文件、安装树和离线缓存种子。
+func runtimeFrontendSeedDigests(snapshotPath string, runtimePath string) (string, string, string, error) {
+	packageLock, err := fileSHA256(filepath.Join(snapshotPath, "frontend-app", "package-lock.json"))
+	if err != nil {
+		return "", "", "", fmt.Errorf("digest package-lock.json: %w", err)
+	}
+	nodeModules, err := RuntimeSeedTreeDigest(filepath.Join(runtimePath, "frontend", "node_modules"))
+	if err != nil {
+		return "", "", "", err
+	}
+	npmCache, err := RuntimeSeedTreeDigest(filepath.Join(runtimePath, "frontend", "npm-cache"))
+	if err != nil {
+		return "", "", "", err
+	}
+	return packageLock, nodeModules, npmCache, nil
 }
 
 // runtimeModuleProxyDigests 验证完整 file proxy 后计算锁文件与种子树摘要。
@@ -336,6 +357,26 @@ func installBoundSeed(boundFile string, expectedBoundDigest string, seedRoot str
 	return copyRuntimeSeed(seedPath, targetRoot)
 }
 
+// installPreparedRuntimeSeed 将已验证种子复制到执行器预建的空目录。
+func installPreparedRuntimeSeed(seedRoot string, expectedTreeDigest string, targetRoot string) error {
+	seedPath, err := trustedDirectory(seedRoot, false, -1)
+	if err != nil {
+		return fmt.Errorf("runtime seed directory: %w", err)
+	}
+	treeDigest, err := RuntimeSeedTreeDigest(seedPath)
+	if err != nil {
+		return err
+	}
+	if treeDigest != expectedTreeDigest {
+		return errors.New("runtime seed tree digest does not match manifest")
+	}
+	preparedTarget, err := trustedDirectory(targetRoot, true, -1)
+	if err != nil {
+		return fmt.Errorf("runtime seed target: %w", err)
+	}
+	return copyRuntimeSeedContents(seedPath, preparedTarget)
+}
+
 func fileSHA256(path string) (string, error) {
 	file, err := os.Open(path)
 	if err != nil {
@@ -479,6 +520,21 @@ func copyRuntimeSeed(sourceRoot string, targetRoot string) error {
 	copier := runtimeSeedCopier{sourceRoot: sourceRoot, targetRoot: targetRoot, directories: &directories}
 	err := filepath.WalkDir(sourceRoot, copier.copy)
 	if err != nil {
+		return fmt.Errorf("copy runtime seed: %w", err)
+	}
+	for index := len(directories) - 1; index >= 0; index-- {
+		if err := os.Chmod(directories[index].path, directories[index].mode); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// copyRuntimeSeedContents 将已验证种子复制到已存在的空目标目录。
+func copyRuntimeSeedContents(sourceRoot string, targetRoot string) error {
+	directories := []copiedDirectory{}
+	copier := runtimeSeedCopier{sourceRoot: sourceRoot, targetRoot: targetRoot, directories: &directories}
+	if err := filepath.WalkDir(sourceRoot, copier.copy); err != nil {
 		return fmt.Errorf("copy runtime seed: %w", err)
 	}
 	for index := len(directories) - 1; index >= 0; index-- {

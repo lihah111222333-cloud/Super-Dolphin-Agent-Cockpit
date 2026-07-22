@@ -148,12 +148,18 @@ func TestRuntimeDependencyRefreshInstallsLockedChromiumOnlyInRefreshImage(t *tes
 		"COPY --from=repository-vendor /out/go-proxy /runtime/go-proxy",
 		"COPY --from=repository-vendor /out/go-proxy /opt/super-dolphin-gate/runtime/go-proxy",
 		"COPY --from=ripgrep-seed /out/bin/rg /opt/super-dolphin-gate/runtime/bin/rg",
-		"libgtk-3-dev libwebkit2gtk-4.1-dev libsoup-3.0-dev pkg-config",
+		"libgtk-3-dev libwebkit2gtk-4.1-dev libsoup-3.0-dev pkg-config procps xauth xvfb",
+		"test -x /usr/bin/Xvfb && test -x /usr/bin/xauth && test -x /usr/bin/xvfb-run",
 		"pkg-config --exists gtk+-3.0 webkit2gtk-4.1 gio-unix-2.0 libsoup-3.0",
 		"test \"$(rg --version | head -n 1)\" = \"ripgrep 13.0.0\"",
 		"USER 65532:65532",
+		"RUN --network=none xvfb-run -a sh -ec 'test -n \"$DISPLAY\"'",
 		"RUN --network=none node -e",
 		"GOPROXY=file:///opt/super-dolphin-gate/runtime/go-proxy",
+		"NPM_CONFIG_CACHE=/out/frontend/npm-cache npm ci --ignore-scripts --no-audit --no-fund",
+		"NPM_CONFIG_CACHE=/out/frontend/npm-cache npm ci --ignore-scripts --no-audit --no-fund --offline",
+		"COPY --from=frontend-seed /out/frontend/npm-cache /opt/super-dolphin-gate/runtime/frontend/npm-cache",
+		"chmod -R a+rX /opt/super-dolphin-gate/runtime/frontend/npm-cache",
 	} {
 		if !strings.Contains(text, required) {
 			t.Fatalf("runtime dependency Dockerfile is missing %q", required)

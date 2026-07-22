@@ -438,7 +438,7 @@ func acceptedTruthImageResult(
 		SourceTreeSHA: inputs.SubmittedSourceTree, InputDigest: inputs.ImageInputDigest,
 		ContextDigest: inputs.ContextDigest, InputManifestDigest: inputs.InputManifestDigest,
 		ToolchainDigest: inputs.ToolchainDigest, DockerfileDigest: inputs.DockerfileDigest,
-		ImageDigest: accepted.Image.PlatformManifestDigest,
+		ImageDigest: accepted.Image.PlatformManifestDigest, ConfigDigest: accepted.Image.ConfigDigest,
 	}
 	result := truthImageResult(inputs, accepted, candidate)
 	result.Status = TruthImageEnsureAccepted
@@ -482,8 +482,8 @@ func validateCandidateInputs(inputs GateImageInputs, accepted gate.AcceptedImage
 	if candidate.ToolchainDigest != inputs.ToolchainDigest || candidate.DockerfileDigest != inputs.DockerfileDigest {
 		return errors.New("candidate image toolchain or Dockerfile digest drifted from resolved Git inputs")
 	}
-	if !candidate.Built && candidate.ImageDigest != accepted.Image.PlatformManifestDigest {
-		return errors.New("reused candidate image digest does not match accepted immutable identity")
+	if !candidate.Built && (candidate.ImageDigest != accepted.Image.PlatformManifestDigest || candidate.ConfigDigest != accepted.Image.ConfigDigest) {
+		return errors.New("reused candidate manifest and config digests do not match accepted immutable identity")
 	}
 	return nil
 }
@@ -495,6 +495,7 @@ func candidateRequestFromInputs(inputs GateImageInputs, accepted gate.AcceptedIm
 		Platform: inputs.Platform, AcceptedInputDigest: accepted.ImageInputDigest,
 		AcceptedPolicyDigest: accepted.PolicyDigest,
 		AcceptedImageDigest:  accepted.Image.PlatformManifestDigest,
+		AcceptedConfigDigest: accepted.Image.ConfigDigest,
 	}
 }
 
@@ -691,7 +692,7 @@ func (controller *PromotionController) preparePromotion(
 	candidate PromotionCandidate,
 ) (PromotionCandidate, gate.AcceptedImageRecord, bool, error) {
 	now := controller.now().UTC()
-	if !candidate.ExpiresAt.After(now) {
+	if candidate.expiredBeforeAcceptance(now) {
 		return candidate, gate.AcceptedImageRecord{}, false,
 			fmt.Errorf("%w: %s", ErrPromotionCandidateExpired, candidate.CandidateID)
 	}
@@ -721,6 +722,10 @@ func (controller *PromotionController) preparePromotion(
 		}
 	}
 	return candidate, next, true, nil
+}
+
+func (candidate PromotionCandidate) expiredBeforeAcceptance(now time.Time) bool {
+	return candidate.PromotionAcceptedAt == nil && !candidate.ExpiresAt.After(now)
 }
 
 // commitPromotion 处理重启幂等、CAS hooks、原子晋升与 candidate 终态。

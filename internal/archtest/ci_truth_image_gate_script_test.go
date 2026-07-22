@@ -1,6 +1,9 @@
 package archtest
 
 import (
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -45,8 +48,9 @@ func TestProtectedWorkflowUsesOnePullAndOneBootstrapRun(t *testing.T) {
 }
 
 func TestCITruthImageScriptDelegatesToTrustedCoordinator(t *testing.T) {
-	root := repoRootForCICrossPlatformSmokeGuard(t)
+	root := newCITruthImageScriptRepository(t, false)
 	logPath, fakeCoordinator := writeFakeCoordinator(t)
+	gitOutput(t, root, "config", "--local", "superdolphin.gateLauncher", fakeCoordinator)
 	path := filepath.Dir(fakeCoordinator) + string(os.PathListSeparator) + os.Getenv("PATH")
 	command := exec.Command("bash", filepath.Join(root, "scripts", "ci_truth_image_gate.sh"))
 	command.Dir = root
@@ -61,8 +65,9 @@ func TestCITruthImageScriptDelegatesToTrustedCoordinator(t *testing.T) {
 
 func TestCITruthImageScriptBindsNonReleaseProfilesToActiveStagedTree(t *testing.T) {
 	root := newCITruthImageScriptRepository(t, true)
-	scriptPath := filepath.Join(repoRootForCICrossPlatformSmokeGuard(t), "scripts", "ci_truth_image_gate.sh")
+	scriptPath := filepath.Join(root, "scripts", "ci_truth_image_gate.sh")
 	logPath, fakeCoordinator := writeFakeCoordinator(t)
+	gitOutput(t, root, "config", "--local", "superdolphin.gateLauncher", fakeCoordinator)
 	path := filepath.Dir(fakeCoordinator) + string(os.PathListSeparator) + os.Getenv("PATH")
 	objectFormat := gitOutput(t, root, "rev-parse", "--show-object-format")
 	commitSHA := gitOutput(t, root, "rev-parse", "HEAD")
@@ -93,13 +98,13 @@ func TestCITruthImageScriptBindsNonReleaseProfilesToActiveStagedTree(t *testing.
 
 func TestCITruthImageScriptBindsReleaseToCurrentCommit(t *testing.T) {
 	root := newCITruthImageScriptRepository(t, false)
-	appRoot := repoRootForCICrossPlatformSmokeGuard(t)
 	logPath, fakeCoordinator := writeFakeCoordinator(t)
+	gitOutput(t, root, "config", "--local", "superdolphin.gateLauncher", fakeCoordinator)
 	path := filepath.Dir(fakeCoordinator) + string(os.PathListSeparator) + os.Getenv("PATH")
 	objectFormat := gitOutput(t, root, "rev-parse", "--show-object-format")
 	commitSHA := gitOutput(t, root, "rev-parse", "HEAD")
 	commitTree := gitOutput(t, root, "rev-parse", commitSHA+"^{tree}")
-	command := exec.Command("bash", filepath.Join(appRoot, "scripts", "ci_truth_image_gate.sh"), "release")
+	command := exec.Command("bash", filepath.Join(root, "scripts", "ci_truth_image_gate.sh"), "release")
 	command.Dir = root
 	command.Env = ciTruthImageEnv(path, logPath)
 	if output, err := command.CombinedOutput(); err != nil {
@@ -110,20 +115,133 @@ func TestCITruthImageScriptBindsReleaseToCurrentCommit(t *testing.T) {
 	if got := coordinatorLogLines(t, logPath); !slices.Equal(got, []string{want}) {
 		t.Fatalf("CI script release coordinator argv = %#v, want %q", got, want)
 	}
-	coordinator := readGuardFile(t, filepath.Join(appRoot, "cmd", "super-dolphin-gate", "coordinator_cli.go"))
+	coordinatorPath := filepath.Join(repoRootForCICrossPlatformSmokeGuard(t), "cmd", "super-dolphin-gate", "coordinator_cli.go")
+	coordinator := readGuardFile(t, coordinatorPath)
 	const releaseSubmitAdapter = "runProductionReleaseSubmitPlanWithWaitConnector"
 	if !strings.Contains(coordinator, "func "+releaseSubmitAdapter+"(") {
 		t.Fatalf("release authority adapter %q is missing", releaseSubmitAdapter)
 	}
-	if !strings.Contains(coordinator, "return "+releaseSubmitAdapter+"(plan, stdout, config, repositoryRoot, connector, waitForTerminal)") {
+	normalizedCoordinator := strings.Join(strings.Fields(coordinator), " ")
+	const releaseSubmitCall = "return runProductionReleaseSubmitPlanWithWaitConnector( submit.plan, stdout, config, repositoryRoot, connector, submit.waitForTerminal, submit.releaseGrant, )"
+	if !strings.Contains(normalizedCoordinator, releaseSubmitCall) {
 		t.Fatalf("release authority adapter %q is not wired to the production launcher", releaseSubmitAdapter)
+	}
+	assertCITruthImageFunctionCalls(
+		t,
+		coordinatorPath,
+		releaseSubmitAdapter,
+		"submitAuthoritativeRelease",
+		"waitAndIssueProductionReleaseGrant",
+	)
+	grantCLIPath := filepath.Join(repoRootForCICrossPlatformSmokeGuard(t), "cmd", "super-dolphin-gate", "grant_cli.go")
+	assertCITruthImageFunctionCalls(
+		t,
+		grantCLIPath,
+		"waitAndIssueProductionReleaseGrant",
+		"Wait",
+		"ResultReceipt",
+		"issueReleaseActionGrant",
+	)
+	assertCITruthImageFunctionIdentifiers(t, grantCLIPath, "waitAndIssueProductionReleaseGrant", "jobStatePassed")
+}
+
+// assertCITruthImageFunctionCalls 用 AST 将调用证据限定在指定生产函数体内。
+func assertCITruthImageFunctionCalls(t *testing.T, path, functionName string, requiredCalls ...string) {
+	t.Helper()
+	file, err := parser.ParseFile(token.NewFileSet(), path, nil, parser.SkipObjectResolution)
+	if err != nil {
+		t.Fatalf("parse %s: %v", path, err)
+	}
+	observedCalls := make(map[string]bool)
+	for _, declaration := range file.Decls {
+		function, ok := declaration.(*ast.FuncDecl)
+		if !ok || function.Name.Name != functionName {
+			continue
+		}
+		ast.Inspect(function.Body, func(node ast.Node) bool {
+			if call, ok := node.(*ast.CallExpr); ok {
+				observedCalls[ciTruthImageCalledName(call.Fun)] = true
+			}
+			return true
+		})
+		break
+	}
+	for _, requiredCall := range requiredCalls {
+		if !observedCalls[requiredCall] {
+			t.Fatalf("release authority adapter %q must call %q", functionName, requiredCall)
+		}
+	}
+}
+
+func ciTruthImageCalledName(expression ast.Expr) string {
+	if identifier, ok := expression.(*ast.Ident); ok {
+		return identifier.Name
+	}
+	if selector, ok := expression.(*ast.SelectorExpr); ok {
+		return selector.Sel.Name
+	}
+	return ""
+}
+
+// assertCITruthImageFunctionIdentifiers 将关键状态证据限定在指定生产函数体内。
+func assertCITruthImageFunctionIdentifiers(t *testing.T, path, functionName string, requiredNames ...string) {
+	t.Helper()
+	file, err := parser.ParseFile(token.NewFileSet(), path, nil, parser.SkipObjectResolution)
+	if err != nil {
+		t.Fatalf("parse %s: %v", path, err)
+	}
+	observedNames := make(map[string]bool)
+	for _, declaration := range file.Decls {
+		function, ok := declaration.(*ast.FuncDecl)
+		if !ok || function.Name.Name != functionName {
+			continue
+		}
+		ast.Inspect(function.Body, func(node ast.Node) bool {
+			if identifier, ok := node.(*ast.Ident); ok {
+				observedNames[identifier.Name] = true
+			}
+			return true
+		})
+		break
+	}
+	for _, requiredName := range requiredNames {
+		if !observedNames[requiredName] {
+			t.Fatalf("release grant path %q must reference %q", functionName, requiredName)
+		}
+	}
+}
+
+func TestCITruthImageScriptForwardsReleaseGrantBinding(t *testing.T) {
+	root := newCITruthImageScriptRepository(t, false)
+	logPath, fakeCoordinator := writeFakeCoordinator(t)
+	gitOutput(t, root, "config", "--local", "superdolphin.gateLauncher", fakeCoordinator)
+	path := filepath.Dir(fakeCoordinator) + string(os.PathListSeparator) + os.Getenv("PATH")
+	commitSHA := gitOutput(t, root, "rev-parse", "HEAD")
+	commitTree := gitOutput(t, root, "rev-parse", commitSHA+"^{tree}")
+	grantPath := filepath.Join(t.TempDir(), "grant.json")
+	command := exec.Command("bash", filepath.Join(root, "scripts", "ci_truth_image_gate.sh"), "release",
+		"--release-repository", "super-dolphin/releases", "--release-tag", "v1.2.3",
+		"--release-grant-output", grantPath,
+		"--release-asset", "app.dmg|sha256:"+strings.Repeat("a", 64)+"|1")
+	command.Dir = root
+	command.Env = ciTruthImageEnv(path, logPath)
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("CI script release grant delegation error=%v output=%s", err, output)
+	}
+	want := "_production-launcher submit --wait --profile release --object-format " + gitOutput(t, root, "rev-parse", "--show-object-format") +
+		" --commit " + commitSHA + " --source-tree " + commitTree +
+		" --release-repository super-dolphin/releases --release-tag v1.2.3 --release-grant-output " + grantPath +
+		" --release-asset app.dmg|sha256:" + strings.Repeat("a", 64) + "|1"
+	if got := coordinatorLogLines(t, logPath); !slices.Equal(got, []string{want}) {
+		t.Fatalf("CI script release grant argv = %#v, want %q", got, want)
 	}
 }
 
 func TestCITruthImageScriptRejectsReleaseWithStagedChanges(t *testing.T) {
 	root := newCITruthImageScriptRepository(t, true)
-	scriptPath := filepath.Join(repoRootForCICrossPlatformSmokeGuard(t), "scripts", "ci_truth_image_gate.sh")
+	scriptPath := filepath.Join(root, "scripts", "ci_truth_image_gate.sh")
 	logPath, fakeCoordinator := writeFakeCoordinator(t)
+	gitOutput(t, root, "config", "--local", "superdolphin.gateLauncher", fakeCoordinator)
 	command := exec.Command("bash", scriptPath, "release")
 	command.Dir = root
 	command.Env = ciTruthImageEnv(filepath.Dir(fakeCoordinator)+string(os.PathListSeparator)+os.Getenv("PATH"), logPath)
@@ -142,6 +260,17 @@ func newCITruthImageScriptRepository(t *testing.T, stageChange bool) string {
 	gitOutput(t, root, "init")
 	gitOutput(t, root, "config", "user.email", "ci@example.invalid")
 	gitOutput(t, root, "config", "user.name", "CI Truth Image Test")
+	launcherPath := filepath.Join(repoRootForCICrossPlatformSmokeGuard(t), ".githooks", "trusted-gate-launcher.sh")
+	launcher, err := os.ReadFile(launcherPath)
+	if err != nil {
+		t.Fatalf("read trusted gate launcher fixture: %v", err)
+	}
+	if err := os.Mkdir(filepath.Join(root, ".githooks"), 0o700); err != nil {
+		t.Fatalf("create trusted gate launcher fixture directory: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, ".githooks", "trusted-gate-launcher.sh"), launcher, 0o700); err != nil {
+		t.Fatalf("write trusted gate launcher fixture: %v", err)
+	}
 	if err := os.WriteFile(filepath.Join(root, "tracked.txt"), []byte("base\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -153,17 +282,40 @@ func newCITruthImageScriptRepository(t *testing.T, stageChange bool) string {
 		}
 		gitOutput(t, root, "add", "tracked.txt")
 	}
+	copyCITruthImageScriptFixtures(t, root)
 	return root
 }
 
+func copyCITruthImageScriptFixtures(t *testing.T, root string) {
+	t.Helper()
+	appRoot := repoRootForCICrossPlatformSmokeGuard(t)
+	for _, path := range []string{"scripts/ci_truth_image_gate.sh", ".githooks/trusted-gate-launcher.sh"} {
+		contents, err := os.ReadFile(filepath.Join(appRoot, path))
+		if err != nil {
+			t.Fatal(err)
+		}
+		destination := filepath.Join(root, path)
+		if err := os.MkdirAll(filepath.Dir(destination), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(destination, contents, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
 func TestCITruthImageScriptFailsClosedWithoutTrustedCoordinator(t *testing.T) {
-	root := repoRootForCICrossPlatformSmokeGuard(t)
+	root := newCITruthImageScriptRepository(t, false)
+	logPath, fakeCoordinator := writeFakeCoordinator(t)
 	command := exec.Command("bash", filepath.Join(root, "scripts", "ci_truth_image_gate.sh"))
 	command.Dir = root
-	command.Env = ciTruthImageEnv(t.TempDir(), filepath.Join(t.TempDir(), "unused.log"))
+	command.Env = ciTruthImageEnv(filepath.Dir(fakeCoordinator)+string(os.PathListSeparator)+os.Getenv("PATH"), logPath)
 	output, err := command.CombinedOutput()
-	if err == nil || !strings.Contains(string(output), "trusted super-dolphin-gate CLI is not installed") {
+	if err == nil || !strings.Contains(string(output), "trusted super-dolphin-gate launcher is unavailable") {
 		t.Fatalf("missing trusted coordinator result error=%v output=%s", err, output)
+	}
+	if _, err := os.Stat(logPath); !os.IsNotExist(err) {
+		t.Fatalf("malicious PATH coordinator was executed: %v", err)
 	}
 }
 
@@ -232,8 +384,13 @@ func TestGitHooksREADMEDeclaresThinHookEntrypoints(t *testing.T) {
 	if strings.Contains(readme, "--no-verify") {
 		t.Fatal("README must not document hook bypasses")
 	}
+	assertPreCommitWaitsForQueuedJobs(t, root)
+}
+
+func assertPreCommitWaitsForQueuedJobs(t *testing.T, root string) {
+	t.Helper()
 	preCommit := readGuardFile(t, filepath.Join(root, ".githooks", "pre-commit"))
-	for _, required := range []string{"gate_output_file=$(mktemp", "hook_rc\" -ne 13", "^job-[0-9a-f]{32}$", `wait --job "$job_id" --tree "$staged_tree"`} {
+	for _, required := range []string{"gate_output_file=$(mktemp", "hook_rc\" -eq 13", "^job-[0-9a-f]{32}$", `wait --job "$job_id" --tree "$staged_tree"`} {
 		if !strings.Contains(preCommit, required) {
 			t.Fatalf("pre-commit does not synchronously wait for queued jobs: missing %q", required)
 		}

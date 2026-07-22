@@ -1,9 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-gate_bin=$(command -v super-dolphin-gate 2>/dev/null || true)
-if [[ -z "$gate_bin" || ! -x "$gate_bin" ]]; then
-  printf '%s\n' 'pre-commit blocked: trusted super-dolphin-gate CLI is not installed; install/configure it, then rerun the commit.' >&2
+repo_root=$(git rev-parse --show-toplevel) || {
+  printf '%s\n' 'pre-commit blocked: repository root is unavailable.' >&2
+  exit 1
+}
+source "$repo_root/.githooks/trusted-gate-launcher.sh"
+if ! gate_bin=$(trusted_gate_launcher "$repo_root"); then
+  printf '%s\n' 'pre-commit blocked: trusted super-dolphin-gate launcher is unavailable; provision it with install-hooks, then rerun the commit.' >&2
   exit 1
 fi
 
@@ -33,38 +37,35 @@ set +e
 "$gate_bin" hook pre-commit --tree "$staged_tree" >"$gate_output_file" 2>&1
 hook_rc=$?
 set -e
-if [[ "$hook_rc" -eq 0 ]]; then
-  cat "$gate_output_file"
-  exit 0
-fi
-cat "$gate_output_file" >&2
-if [[ "$hook_rc" -ne 13 ]]; then
+if [[ "$hook_rc" -eq 13 ]]; then
+  cat "$gate_output_file" >&2
+  job_id=$(sed -nE 's/.*job=(job-[0-9a-f]+).*/\1/p' "$gate_output_file" | tail -n 1)
+  if [[ ! "$job_id" =~ ^job-[0-9a-f]{32}$ ]]; then
+    printf '%s\n' 'pre-commit blocked: queued coordinator response did not contain one valid job id.' >&2
+    exit 1
+  fi
+  cleanup_output
+  set +e
+  "$gate_bin" wait --job "$job_id" --tree "$staged_tree" >"$wait_output_file" 2>&1
+  wait_rc=$?
+  set -e
+  if [[ "$wait_rc" -ne 0 ]]; then
+    cat "$wait_output_file" >&2
+    exit "$wait_rc"
+  fi
+elif [[ "$hook_rc" -ne 0 ]]; then
+  cat "$gate_output_file" >&2
   exit "$hook_rc"
 fi
 
-job_id=$(sed -nE 's/.*job=(job-[0-9a-f]+).*/\1/p' "$gate_output_file" | tail -n 1)
-if [[ ! "$job_id" =~ ^job-[0-9a-f]{32}$ ]]; then
-  printf '%s\n' 'pre-commit blocked: queued coordinator response did not contain one valid job id.' >&2
-  exit 1
-fi
-cleanup_output
-set +e
-"$gate_bin" wait --job "$job_id" --tree "$staged_tree" >"$wait_output_file" 2>&1
-wait_rc=$?
-set -e
-if [[ "$wait_rc" -ne 0 ]]; then
-  cat "$wait_output_file" >&2
-  exit "$wait_rc"
-fi
-
 if ! final_tree=$(git write-tree); then
-  cat "$wait_output_file" >&2
+  if [[ "$hook_rc" -eq 13 ]]; then cat "$wait_output_file" >&2; else cat "$gate_output_file" >&2; fi
   printf '%s\n' 'pre-commit blocked: cannot re-read the staged tree after gate wait.' >&2
   exit 1
 fi
 if [[ "$final_tree" != "$staged_tree" ]]; then
-  cat "$wait_output_file" >&2
+  if [[ "$hook_rc" -eq 13 ]]; then cat "$wait_output_file" >&2; else cat "$gate_output_file" >&2; fi
   printf '%s\n' "pre-commit blocked: staged tree changed during gate wait ($staged_tree -> $final_tree)." >&2
   exit 1
 fi
-cat "$wait_output_file"
+if [[ "$hook_rc" -eq 13 ]]; then cat "$wait_output_file"; else cat "$gate_output_file"; fi

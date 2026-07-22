@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 
 	gatecontract "github.com/lihah111222333-cloud/super-dolphin-agent/internal/devtools/gate"
@@ -219,8 +220,17 @@ func (planner *productionCandidateSubmissionPlanner) verifyCandidateTrustedRef(
 		if tip != accepted.TrustedCommit && tip != trustedCommit {
 			return errors.New("trusted ref changed outside staged-tree promotion recovery")
 		}
-	} else if err := planner.authority.verifyRecord(ctx, accepted); err != nil {
+		return nil
+	}
+	tip, err := planner.authority.trustedTip(ctx)
+	if err != nil {
 		return err
+	}
+	if tip == accepted.TrustedCommit {
+		return planner.authority.verifyRecord(ctx, accepted)
+	}
+	if tip != trustedCommit {
+		return errors.New("trusted ref changed outside external promotion authority")
 	}
 	return nil
 }
@@ -282,35 +292,185 @@ func promotionCommitFromSource(source gatecontract.SourceSpec) (string, error) {
 }
 
 type productionCandidateBuildService struct {
-	store     *localci.PromotionCandidateStore
-	accepted  *productionAcceptedImageLoader
-	authority *productionGitAuthority
-	builder   localci.CandidateImageBuilder
-	resolver  localci.CandidateImageIdentityResolver
+	store         *localci.PromotionCandidateStore
+	accepted      *productionAcceptedImageLoader
+	authority     *productionGitAuthority
+	builder       localci.CandidateImageBuilder
+	resolver      localci.CandidateImageIdentityResolver
+	promotionPoll time.Duration
 }
 
 // ExecuteBuild 持久化候选镜像后才推进 canonical trusted ref。
 func (service *productionCandidateBuildService) ExecuteBuild(ctx context.Context, workloadID string) error {
-	if service == nil || service.store == nil || service.accepted == nil || service.authority == nil {
-		return errors.New("production candidate build service is not configured")
+	if err := service.validateConfiguration(); err != nil {
+		return err
 	}
-	candidate, err := service.store.Candidate(ctx, workloadID)
+	candidate, err := service.awaitingCandidate(ctx, workloadID)
 	if err != nil {
 		return err
 	}
+	if err := service.advanceBuiltCandidate(ctx, candidate); err != nil {
+		return err
+	}
+	return service.waitForAcceptedCandidate(ctx, candidate)
+}
+
+// validateConfiguration 拒绝缺失候选构建依赖的服务实例。
+func (service *productionCandidateBuildService) validateConfiguration() error {
+	if service == nil || service.store == nil || service.accepted == nil || service.authority == nil ||
+		service.promotionPoll <= 0 {
+		return errors.New("production candidate build service is not configured")
+	}
+	return nil
+}
+
+// awaitingCandidate 确保构建后持久化的候选正等待 promotion。
+func (service *productionCandidateBuildService) awaitingCandidate(
+	ctx context.Context,
+	workloadID string,
+) (localci.PromotionCandidate, error) {
+	candidate, err := service.store.Candidate(ctx, workloadID)
+	if err != nil {
+		return localci.PromotionCandidate{}, err
+	}
+	if candidate.Status == localci.PromotionCandidateAwaiting {
+		return candidate, nil
+	}
+	if err := service.store.ExecuteBuild(ctx, workloadID, service.builder, service.resolver); err != nil {
+		return localci.PromotionCandidate{}, err
+	}
+	candidate, err = service.store.Candidate(ctx, workloadID)
+	if err != nil {
+		return localci.PromotionCandidate{}, err
+	}
 	if candidate.Status != localci.PromotionCandidateAwaiting {
-		if err := service.store.ExecuteBuild(ctx, workloadID, service.builder, service.resolver); err != nil {
-			return err
-		}
-		candidate, err = service.store.Candidate(ctx, workloadID)
+		return localci.PromotionCandidate{}, errors.New("candidate build did not persist an awaiting promotion artifact")
+	}
+	return candidate, nil
+}
+
+// waitForAcceptedCandidate 保持 scheduler 构建依赖未完成，直到 watcher 已原子发布 accepted generation。
+func (service *productionCandidateBuildService) waitForAcceptedCandidate(
+	ctx context.Context,
+	candidate localci.PromotionCandidate,
+) error {
+	poll := service.promotionPoll
+	if poll < 250*time.Millisecond {
+		poll = 250 * time.Millisecond
+	}
+	ticker := time.NewTicker(poll)
+	defer ticker.Stop()
+	for {
+		pending, err := service.acceptedCandidatePending(ctx, candidate)
 		if err != nil {
 			return err
 		}
+		if !pending {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+		}
 	}
-	if candidate.Status != localci.PromotionCandidateAwaiting {
-		return errors.New("candidate build did not persist an awaiting promotion artifact")
+}
+
+// acceptedCandidatePending 区分可等待的 accepted 基线、完成 promotion 与不可恢复的不匹配。
+func (service *productionCandidateBuildService) acceptedCandidatePending(
+	ctx context.Context,
+	candidate localci.PromotionCandidate,
+) (bool, error) {
+	accepted, err := service.accepted.Load(ctx)
+	if err != nil {
+		if errors.Is(err, errProductionAcceptedTrustedRefMismatch) {
+			return true, nil
+		}
+		return false, fmt.Errorf("load accepted image while awaiting candidate promotion: %w", err)
 	}
-	return service.advanceBuiltCandidate(ctx, candidate)
+	return acceptedCandidatePromotionPending(candidate, accepted)
+}
+
+// acceptedCandidatePromotionPending 仅允许候选精确基线继续等待 watcher 发布。
+func acceptedCandidatePromotionPending(
+	candidate localci.PromotionCandidate,
+	accepted gatecontract.AcceptedImageRecord,
+) (bool, error) {
+	promotionErr := verifyAcceptedCandidate(candidate, accepted)
+	if promotionErr == nil {
+		return false, nil
+	}
+	waiting, err := acceptedIsCandidateBase(candidate, accepted)
+	if err != nil {
+		return false, err
+	}
+	if waiting {
+		return true, nil
+	}
+	return false, promotionErr
+}
+
+// acceptedIsCandidateBase 验证 accepted record 是否仍是候选计划绑定的精确基线。
+func acceptedIsCandidateBase(
+	candidate localci.PromotionCandidate,
+	accepted gatecontract.AcceptedImageRecord,
+) (bool, error) {
+	digest, err := gatecontract.AcceptedImageRecordDigest(accepted)
+	if err != nil {
+		return false, fmt.Errorf("digest accepted candidate base: %w", err)
+	}
+	return accepted.RepoID == candidate.RepoID && accepted.TrustedRef == candidate.TrustedRef &&
+		accepted.TrustedCommit == candidate.PreviousTrustedCommit &&
+		accepted.Generation == candidate.ExpectedAcceptedGeneration &&
+		digest == candidate.ExpectedAcceptedRecordDigest, nil
+}
+
+// verifyAcceptedCandidate 证明新 accepted record 与构建依赖的候选完全同源。
+func verifyAcceptedCandidate(
+	candidate localci.PromotionCandidate,
+	accepted gatecontract.AcceptedImageRecord,
+) error {
+	if !acceptedCandidateAuthorityMatches(candidate, accepted) ||
+		!acceptedCandidateRecordMatches(candidate, accepted) ||
+		!acceptedCandidateImageMatches(candidate, accepted) {
+		return errors.New("promoted candidate does not exactly match the accepted image authority")
+	}
+	return nil
+}
+
+// acceptedCandidateAuthorityMatches 验证 promotion authority 的仓库、ref 与源码身份。
+func acceptedCandidateAuthorityMatches(
+	candidate localci.PromotionCandidate,
+	accepted gatecontract.AcceptedImageRecord,
+) bool {
+	return accepted.RepoID == candidate.RepoID && accepted.TrustedRef == candidate.TrustedRef &&
+		accepted.TrustedCommit == candidate.TrustedCommit && accepted.SourceTree == candidate.SourceTree
+}
+
+// acceptedCandidateRecordMatches 验证候选绑定的策略、输入、generation 与 runner 记录。
+func acceptedCandidateRecordMatches(
+	candidate localci.PromotionCandidate,
+	accepted gatecontract.AcceptedImageRecord,
+) bool {
+	return accepted.PolicyDigest == candidate.PolicyDigest && accepted.ImageInputDigest == candidate.ImageInputDigest &&
+		accepted.Generation == candidate.ExpectedAcceptedGeneration+1 &&
+		accepted.PreviousRecordDigest == candidate.ExpectedAcceptedRecordDigest && accepted.Runner == candidate.Runner
+}
+
+// acceptedCandidateImageMatches 验证 accepted record 固定的镜像身份属于候选构建产物。
+func acceptedCandidateImageMatches(
+	candidate localci.PromotionCandidate,
+	accepted gatecontract.AcceptedImageRecord,
+) bool {
+	return sameProductionImageIdentity(accepted.Image, candidate.Image)
+}
+
+// sameProductionImageIdentity 比对生产镜像的 registry、OCI、平台与 rootfs 身份字段。
+func sameProductionImageIdentity(left gatecontract.ImageIdentity, right gatecontract.ImageIdentity) bool {
+	return left.Registry == right.Registry && left.OCIIndexDigest == right.OCIIndexDigest &&
+		left.PlatformManifestDigest == right.PlatformManifestDigest && left.ConfigDigest == right.ConfigDigest &&
+		left.OS == right.OS && left.Architecture == right.Architecture && left.Variant == right.Variant &&
+		slices.Equal(left.RootFSDiffIDs, right.RootFSDiffIDs)
 }
 
 // advanceBuiltCandidate 仅把完整落盘且精确衔接 accepted record 的候选推进到 trusted ref。
@@ -318,23 +478,44 @@ func (service *productionCandidateBuildService) advanceBuiltCandidate(
 	ctx context.Context,
 	candidate localci.PromotionCandidate,
 ) error {
-	accepted, err := service.accepted.Load(ctx)
+	if candidate.PromotionMode == localci.PromotionCandidateModeExternalRef {
+		return nil
+	}
+	if candidate.PromotionMode != localci.PromotionCandidateModeManagedTree {
+		return errors.New("built candidate has an unsupported promotion mode")
+	}
+	accepted, err := service.managedTreeAccepted(ctx, candidate)
 	if err != nil {
 		return err
 	}
+	if err := service.authority.advanceTrustedRef(
+		ctx, accepted.TrustedCommit, candidate.TrustedCommit, candidate.SourceTree,
+	); err != nil {
+		return service.store.MarkAdvanceFailed(ctx, candidate.WorkloadID, err)
+	}
+	return nil
+}
+
+// managedTreeAccepted 加载 accepted record，并验证 managed-tree 候选与其精确衔接。
+func (service *productionCandidateBuildService) managedTreeAccepted(
+	ctx context.Context,
+	candidate localci.PromotionCandidate,
+) (gatecontract.AcceptedImageRecord, error) {
+	accepted, err := service.accepted.Load(ctx)
+	if err != nil {
+		return gatecontract.AcceptedImageRecord{}, err
+	}
 	expectedDigest, err := gatecontract.AcceptedImageRecordDigest(accepted)
 	if err != nil {
-		return fmt.Errorf("digest current accepted image: %w", err)
+		return gatecontract.AcceptedImageRecord{}, fmt.Errorf("digest current accepted image: %w", err)
 	}
 	if candidate.RepoID != accepted.RepoID || candidate.TrustedRef != accepted.TrustedRef ||
 		candidate.PreviousTrustedCommit != accepted.TrustedCommit ||
 		candidate.ExpectedAcceptedRecordDigest != expectedDigest ||
 		candidate.ExpectedAcceptedGeneration != accepted.Generation {
-		return errors.New("built candidate does not exactly extend the accepted image authority")
+		return gatecontract.AcceptedImageRecord{}, errors.New("built candidate does not exactly extend the accepted image authority")
 	}
-	return service.authority.advanceTrustedRef(
-		ctx, accepted.TrustedCommit, candidate.TrustedCommit, candidate.SourceTree,
-	)
+	return accepted, nil
 }
 
 // ObserveTrustedRef 只读取配置的外部 bare ref 精确 tip 与 tree。

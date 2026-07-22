@@ -6,9 +6,13 @@ if [[ $# -ne 2 || -z "$1" || -z "$2" ]]; then
   exit 1
 fi
 
-gate_bin=$(command -v super-dolphin-gate 2>/dev/null || true)
-if [[ -z "$gate_bin" || ! -x "$gate_bin" ]]; then
-  printf '%s\n' 'pre-push blocked: trusted super-dolphin-gate CLI is not installed; install/configure it, then rerun the push.' >&2
+repo_root=$(git rev-parse --show-toplevel) || {
+  printf '%s\n' 'pre-push blocked: repository root is unavailable.' >&2
+  exit 1
+}
+source "$repo_root/.githooks/trusted-gate-launcher.sh"
+if ! gate_bin=$(trusted_gate_launcher "$repo_root"); then
+  printf '%s\n' 'pre-push blocked: trusted super-dolphin-gate launcher is unavailable; provision it with install-hooks, then rerun the push.' >&2
   exit 1
 fi
 

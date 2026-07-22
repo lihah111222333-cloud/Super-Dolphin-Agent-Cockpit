@@ -22,6 +22,92 @@ func TestCITruthImageCoordinatorGuardsDesktopAndSidecars(t *testing.T) {
 	assertCITruthImageCoordinatorHostActions(t, workflow)
 }
 
+func TestActiveWorkflowInventoryRoutesCIThroughTruthImageCoordinator(t *testing.T) {
+	root := repoRootForCICrossPlatformSmokeGuard(t)
+	entries, err := os.ReadDir(filepath.Join(root, ".github", "workflows"))
+	if err != nil {
+		t.Fatalf("read active workflow directory: %v", err)
+	}
+	ciWorkflows := map[string]bool{
+		"ci.yml":                   false,
+		"sqlite-release-gates.yml": false,
+	}
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		extension := filepath.Ext(entry.Name())
+		if extension != ".yml" && extension != ".yaml" {
+			continue
+		}
+		workflowPath := filepath.Join(root, ".github", "workflows", entry.Name())
+		workflow := readGuardFile(t, workflowPath)
+		if entry.Name() == "release.yml" {
+			assertManualNativeReleaseWorkflow(t, workflowPath, workflow)
+			continue
+		}
+		if _, ok := ciWorkflows[entry.Name()]; !ok {
+			t.Fatalf("unregistered active workflow %s", workflowPath)
+		}
+		ciWorkflows[entry.Name()] = true
+		assertActiveCIWorkflowUsesOnlyCoordinator(t, workflowPath, workflow)
+	}
+	for workflow, seen := range ciWorkflows {
+		if !seen {
+			t.Fatalf("registered CI workflow is missing: %s", workflow)
+		}
+	}
+}
+
+func assertManualNativeReleaseWorkflow(t *testing.T, workflowPath, workflow string) {
+	t.Helper()
+	for _, required := range []string{"workflow_dispatch:", "update-recovery-release", "actions: read", "contents: read"} {
+		if !strings.Contains(workflow, required) {
+			t.Fatalf("%s missing protected native release requirement %q", workflowPath, required)
+		}
+	}
+	for _, forbidden := range []string{"\n  pull_request:", "\n  pull_request_target:", "\n  push:"} {
+		if strings.Contains(workflow, forbidden) {
+			t.Fatalf("%s native release rollout must remain manual-only: %q", workflowPath, forbidden)
+		}
+	}
+}
+
+func assertActiveCIWorkflowUsesOnlyCoordinator(t *testing.T, workflowPath, workflow string) {
+	t.Helper()
+	for _, required := range []string{
+		"id-token: write",
+		"truth-image-gates:",
+		"Trusted bootstrap coordinator",
+		"actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683",
+		"persist-credentials: false",
+		"SUPER_DOLPHIN_GATE_BOOTSTRAP_IMAGE",
+		"SUPER_DOLPHIN_GATE_AUTHORITY_BUNDLE_B64",
+		"docker pull --platform=linux/amd64",
+		"docker run --rm",
+		"workflow-host",
+		"target=/workspace/super-dolphin-checkout,readonly",
+	} {
+		if !strings.Contains(workflow, required) {
+			t.Fatalf("%s missing immutable coordinator requirement %q", workflowPath, required)
+		}
+	}
+	if strings.Count(workflow, "docker pull ") != 1 || strings.Count(workflow, "docker run --rm") != 1 {
+		t.Fatalf("%s must have exactly one immutable coordinator bootstrap", workflowPath)
+	}
+	for _, forbidden := range []string{"go run", "go test", "go vet", "go build", "npm ", "make ", "./scripts/"} {
+		if strings.Contains(workflow, forbidden) {
+			t.Fatalf("%s executes candidate CI outside the truth-image coordinator: %q", workflowPath, forbidden)
+		}
+	}
+	for line := range strings.SplitSeq(workflow, "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "uses:") && line != "uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683" {
+			t.Fatalf("%s has an unapproved host action outside the truth-image coordinator: %q", workflowPath, line)
+		}
+	}
+}
+
 func assertCITruthImageRequiredWorkflowTokens(t *testing.T, workflow string) {
 	t.Helper()
 	requiredWorkflowTokens := []string{
@@ -55,7 +141,7 @@ func assertCITruthImageRequiredWorkflowTokens(t *testing.T, workflow string) {
 func assertCITruthImageThinEntrypoint(t *testing.T, workflow, script, coordinator string) {
 	t.Helper()
 	for _, required := range []string{
-		"command -v super-dolphin-gate",
+		"trusted_gate_launcher",
 		"exec \"$gate_bin\" workflow-host",
 		"submit --wait",
 		"exec \"$gate_bin\" _production-launcher \"${submit_args[@]}\"",

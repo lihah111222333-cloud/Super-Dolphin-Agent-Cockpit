@@ -24,6 +24,7 @@ func TestCIEntrypointsRequireCoordinatorCLI(t *testing.T) {
 	root := coordinatorContractRepoRoot(t)
 	logPath, fakeBin := writeCoordinatorCLIForContractGuard(t)
 	path := filepath.Dir(fakeBin) + string(os.PathListSeparator) + os.Getenv("PATH")
+	configureCoordinatorContractGuardLauncher(t, root, fakeBin)
 
 	for _, test := range []struct {
 		name          string
@@ -242,6 +243,35 @@ func writeCoordinatorCLIForContractGuard(t *testing.T) (logPath, binaryPath stri
 		t.Fatal(err)
 	}
 	return logPath, binaryPath
+}
+func configureCoordinatorContractGuardLauncher(t *testing.T, root, launcher string) {
+	t.Helper()
+	current := exec.Command("git", "config", "--local", "--get", "superdolphin.gateLauncher")
+	current.Dir = root
+	output, err := current.Output()
+	previous := strings.TrimSpace(string(output))
+	if err != nil {
+		if _, ok := err.(*exec.ExitError); !ok {
+			t.Fatalf("read trusted launcher config: %v", err)
+		}
+	}
+	set := exec.Command("git", "config", "--local", "superdolphin.gateLauncher", launcher)
+	set.Dir = root
+	if output, err := set.CombinedOutput(); err != nil {
+		t.Fatalf("configure trusted launcher: %v\n%s", err, output)
+	}
+	t.Cleanup(func() {
+		var restore *exec.Cmd
+		if previous == "" {
+			restore = exec.Command("git", "config", "--local", "--unset", "superdolphin.gateLauncher")
+		} else {
+			restore = exec.Command("git", "config", "--local", "superdolphin.gateLauncher", previous)
+		}
+		restore.Dir = root
+		if output, err := restore.CombinedOutput(); err != nil {
+			t.Errorf("restore trusted launcher config: %v\n%s", err, output)
+		}
+	})
 }
 
 func contractGuardCommandLog(t *testing.T, path string) []string {

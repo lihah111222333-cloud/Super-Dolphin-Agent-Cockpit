@@ -99,15 +99,37 @@ func TestPromotionCandidateBuildFailureGetsFreshWorkload(t *testing.T) {
 		t.Fatal("ExecuteBuild() accepted builder failure")
 	}
 	assertPromotionCandidateStatus(t, fixture.store, first.WorkloadID, PromotionCandidateFailed)
+	assertPromotionCandidatePayloadCompacted(t, fixture.store, first.WorkloadID)
 	second := mustPromotionCandidatePlan(t, fixture)
 	if second.WorkloadID == first.WorkloadID {
 		t.Fatalf("replacement workload reused terminal identity %q", first.WorkloadID)
 	}
+	assertPromotionCandidatePruned(t, fixture.store, first.WorkloadID)
 	builder := mustPromotionCandidateBuilder(t, &recordingBuildKitRunner{digest: digest("8")})
 	if err := fixture.store.ExecuteBuild(context.Background(), second.WorkloadID, builder, promotionIdentityResolverStub{}); err != nil {
 		t.Fatal(err)
 	}
 	assertPromotionCandidateStatus(t, fixture.store, second.WorkloadID, PromotionCandidateAwaiting)
+}
+
+func TestPromotionCandidateAdvanceFailureGetsFreshWorkload(t *testing.T) {
+	fixture := newPromotionPlanFixture(t)
+	first := mustPromotionCandidatePlan(t, fixture)
+	builder := mustPromotionCandidateBuilder(t, &recordingBuildKitRunner{digest: digest("8")})
+	if err := fixture.store.ExecuteBuild(context.Background(), first.WorkloadID, builder, promotionIdentityResolverStub{}); err != nil {
+		t.Fatal(err)
+	}
+	advanceErr := errors.New("trusted-ref CAS rejected")
+	if err := fixture.store.MarkAdvanceFailed(context.Background(), first.WorkloadID, advanceErr); !errors.Is(err, advanceErr) {
+		t.Fatalf("MarkAdvanceFailed() error = %v", err)
+	}
+	assertPromotionCandidateStatus(t, fixture.store, first.WorkloadID, PromotionCandidateAdvanceFailed)
+	assertPromotionCandidatePayloadCompacted(t, fixture.store, first.WorkloadID)
+	second := mustPromotionCandidatePlan(t, fixture)
+	if second.WorkloadID == first.WorkloadID {
+		t.Fatalf("replacement workload reused terminal identity %q", first.WorkloadID)
+	}
+	assertPromotionCandidatePruned(t, fixture.store, first.WorkloadID)
 }
 
 func TestUniqueCandidateForTrustedCommitRecoverySelection(t *testing.T) {
@@ -181,6 +203,25 @@ func assertPromotionCandidateStatus(t *testing.T, store *PromotionCandidateStore
 	}
 }
 
+func assertPromotionCandidatePayloadCompacted(t *testing.T, store *PromotionCandidateStore, workloadID string) {
+	t.Helper()
+	candidate, err := store.Candidate(context.Background(), workloadID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(candidate.BuildRequest.SourceEntries) != 0 || candidate.BuildRequest.SourceTreeSHA != candidate.SourceTree ||
+		candidate.BuildRequest.PolicyDigest != candidate.PolicyDigest {
+		t.Fatalf("terminal candidate payload was not compacted safely: %+v", candidate.BuildRequest)
+	}
+}
+
+func assertPromotionCandidatePruned(t *testing.T, store *PromotionCandidateStore, workloadID string) {
+	t.Helper()
+	if _, err := store.Candidate(context.Background(), workloadID); !errors.Is(err, ErrPromotionCandidateNotFound) {
+		t.Fatalf("terminal candidate %q was retained: %v", workloadID, err)
+	}
+}
+
 func assertPromotionWaitsAtAcceptedTip(t *testing.T, fixture *promotionTestFixture) {
 	t.Helper()
 	if err := fixture.controller.PromoteReady(context.Background()); err != nil {
@@ -194,6 +235,12 @@ func assertPromotionWaitsAtAcceptedTip(t *testing.T, fixture *promotionTestFixtu
 
 func assertPromotionFixtureCompleted(t *testing.T, fixture *promotionTestFixture) {
 	t.Helper()
+	assertPromotedAcceptedRecord(t, fixture)
+	assertPromotedCandidatePersistence(t, fixture)
+}
+
+func assertPromotedAcceptedRecord(t *testing.T, fixture *promotionTestFixture) {
+	t.Helper()
 	promoted, err := fixture.state.Load(context.Background())
 	if err != nil {
 		t.Fatal(err)
@@ -205,9 +252,23 @@ func assertPromotionFixtureCompleted(t *testing.T, fixture *promotionTestFixture
 	if len(promoted.Signature) == 0 {
 		t.Fatal("promoted accepted record is unsigned")
 	}
+}
+
+func assertPromotedCandidatePersistence(t *testing.T, fixture *promotionTestFixture) {
+	t.Helper()
 	awaiting, err := fixture.store.Awaiting(context.Background())
 	if err != nil || len(awaiting) != 0 {
 		t.Fatalf("awaiting after promotion = %d, err=%v", len(awaiting), err)
+	}
+	terminal, err := fixture.store.Candidate(context.Background(), fixture.candidate.WorkloadID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if terminal.Status != PromotionCandidatePromoted || len(terminal.BuildRequest.SourceEntries) != 0 {
+		t.Fatalf("promoted candidate retained source payload: status=%q entries=%d", terminal.Status, len(terminal.BuildRequest.SourceEntries))
+	}
+	if terminal.BuildRequest.SourceTreeSHA != fixture.candidate.SourceTree || terminal.BuildRequest.PolicyDigest != fixture.candidate.PolicyDigest {
+		t.Fatalf("promoted candidate lost durable build identity: %+v", terminal.BuildRequest)
 	}
 }
 
@@ -263,6 +324,7 @@ func TestPromotionControllerRecoversAfterSignAndAfterCASCrashes(t *testing.T) {
 				t.Fatalf("first PromoteReady() error = %v", err)
 			}
 			restarted := mustPromotionController(t, fixture)
+			restarted.now = func() time.Time { return fixture.candidate.ExpiresAt.Add(time.Second) }
 			if err := restarted.PromoteReady(context.Background()); err != nil {
 				t.Fatalf("restarted PromoteReady() error = %v", err)
 			}
@@ -356,7 +418,7 @@ func TestPromotionCandidateFieldRegistriesAreComplete(t *testing.T) {
 		"ToolchainDigest": "toolchain binding", "DockerfileDigest": "Dockerfile binding",
 		"PlatformManifestDigest": "built artifact", "Image": "complete immutable identity", "Runner": "runner trust",
 		"ExpectedAcceptedRecordDigest": "CAS digest", "ExpectedAcceptedGeneration": "CAS generation",
-		"BuildRequest": "durable build payload", "CreatedAt": "creation time", "ExpiresAt": "expiry time",
+		"BuildRequest": "durable build payload", "PromotionMode": "trusted-ref ownership", "CreatedAt": "creation time", "ExpiresAt": "expiry time",
 		"PromotionAcceptedAt": "stable signing time", "Status": "candidate lifecycle",
 	})
 }

@@ -20,6 +20,8 @@ verify_previous_dmg_test_tag=""
 verify_previous_dmg_test_signer=""
 previous_dmg_mount=""
 previous_download_dir=""
+release_grant_dir=""
+release_grant_file=""
 formal_previous_dmg=""
 formal_previous_tag=""
 asset_paths=()
@@ -37,6 +39,9 @@ cleanup() {
   fi
   if [[ -n "$previous_download_dir" && -d "$previous_download_dir" ]]; then
     rm -rf "$previous_download_dir"
+  fi
+  if [[ -n "$release_grant_dir" && -d "$release_grant_dir" ]]; then
+    rm -rf "$release_grant_dir"
   fi
 }
 trap cleanup EXIT
@@ -379,6 +384,50 @@ require_existing_release_marked_latest() {
     echo "release tag $tag must be marked latest; GitHub latest is $latest_tag" >&2
     exit 1
   fi
+}
+
+require_release_truth_gate() {
+  local path name digest size
+  release_grant_dir="$(mktemp -d "${TMPDIR:-/tmp}/super-dolphin-release-grant.XXXXXX")"
+  release_grant_file="$release_grant_dir/action-grant.json"
+  local -a release_gate_args=(
+    --release-repository "$github_repo"
+    --release-tag "$tag"
+    --release-grant-output "$release_grant_file"
+  )
+  for path in "${asset_paths[@]}"; do
+    name="$(basename "$path")"
+    digest="sha256:$(sha256_file "$path")"
+    size="$(file_size "$path")"
+    release_gate_args+=(--release-asset "$name|$digest|$size")
+  done
+  ./scripts/ci_truth_image_gate.sh release "${release_gate_args[@]}"
+}
+
+consume_release_truth_grant() {
+  local gate_bin path name digest size commit tree
+  source "$root/.githooks/trusted-gate-launcher.sh"
+  if ! gate_bin=$(trusted_gate_launcher "$root"); then
+    echo "release grant blocked: trusted super-dolphin-gate launcher is unavailable." >&2
+    exit 1
+  fi
+  commit="$(git rev-parse HEAD)"
+  tree="$(git rev-parse "${commit}^{tree}")"
+  local -a consume_args=(
+    grant consume-release
+    --input "$release_grant_file"
+    --release-repository "$github_repo"
+    --release-tag "$tag"
+    --commit "$commit"
+    --tree "$tree"
+  )
+  for path in "${asset_paths[@]}"; do
+    name="$(basename "$path")"
+    digest="sha256:$(sha256_file "$path")"
+    size="$(file_size "$path")"
+    consume_args+=(--release-asset "$name|$digest|$size")
+  done
+  "$gate_bin" "${consume_args[@]}"
 }
 
 require_gh_access() {
@@ -724,12 +773,15 @@ if [[ "$dry_run" == "1" ]]; then
   exit 0
 fi
 
+require_release_truth_gate
+
 if gh release view "$tag" --repo "$github_repo" >/dev/null 2>&1; then
   echo "release already exists: $tag" >&2
   exit 1
 fi
 
 release_notes="${SUPER_DOLPHIN_RELEASE_NOTES:-Super Dolphin update release $tag.}"
+consume_release_truth_grant
 gh release create "$tag" "${asset_paths[@]}" \
   --repo "$github_repo" \
   --title "Super Dolphin $tag" \

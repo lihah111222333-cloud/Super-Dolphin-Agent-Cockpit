@@ -38,6 +38,11 @@
       "path": "src/test-utils/importAst.js",
       "owner": "frontend-architecture",
       "reason": "AST helper used only by frontend tests; exact registration is checked against the live test-utils directory."
+    },
+    {
+      "path": "src/test-utils/preloadAppRouteModules.js",
+      "owner": "frontend-architecture",
+      "reason": "App test-only route preloader; exact registration keeps cross-page setup out of the production dependency graph."
     }
   ],
   "allowedDirections": [

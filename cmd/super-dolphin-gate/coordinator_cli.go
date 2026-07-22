@@ -70,6 +70,12 @@ func dispatchProductionLauncherFallback(args []string, stdout io.Writer) error {
 	return dispatchCLI(args, stdout)
 }
 
+type productionLauncherSubmit struct {
+	plan            gatecontract.GatePlan
+	waitForTerminal bool
+	releaseGrant    *releaseGrantOptions
+}
+
 // runProductionLauncherWithConnector 保留 production launcher 的全部 CLI 命令面，只有 canonical release submit 进入 authority adapter。
 func runProductionLauncherWithConnector(
 	args []string,
@@ -79,18 +85,20 @@ func runProductionLauncherWithConnector(
 	connector coordinatorConnector,
 	fallback func([]string, io.Writer) error,
 ) error {
-	if len(args) == 0 || args[0] != "submit" {
+	if len(args) == 0 {
 		return fallback(args, stdout)
 	}
-	planArgs, waitForTerminal, err := parseSubmitArgs(args[1:])
+	if args[0] != "submit" {
+		return fallback(args, stdout)
+	}
+	submit, err := parseProductionLauncherSubmit(args[1:])
 	if err != nil {
 		return err
 	}
-	plan, err := parsePlan(planArgs)
-	if err != nil {
-		return err
-	}
-	if plan.Profile != gatecontract.ProfileRelease {
+	if submit.plan.Profile != gatecontract.ProfileRelease {
+		if submit.releaseGrant != nil {
+			return protocolError("release grant options require the release profile")
+		}
 		return runSubmitWithConnector(args[1:], stdout, connector)
 	}
 	config, err := loadConfig()
@@ -101,7 +109,35 @@ func runProductionLauncherWithConnector(
 	if err != nil {
 		return infrastructureError("resolve production release repository root: %v", err)
 	}
-	return runProductionReleaseSubmitPlanWithWaitConnector(plan, stdout, config, repositoryRoot, connector, waitForTerminal)
+	return runProductionReleaseSubmitPlanWithWaitConnector(
+		submit.plan,
+		stdout,
+		config,
+		repositoryRoot,
+		connector,
+		submit.waitForTerminal,
+		submit.releaseGrant,
+	)
+}
+
+// parseProductionLauncherSubmit 同时解析 canonical plan、终态等待和可选的 release grant 参数。
+func parseProductionLauncherSubmit(args []string) (productionLauncherSubmit, error) {
+	planArgsWithReleaseGrant, releaseGrant, err := extractReleaseGrantOptions(args, true)
+	if err != nil {
+		return productionLauncherSubmit{}, err
+	}
+	planArgs, waitForTerminal, err := parseSubmitArgs(planArgsWithReleaseGrant)
+	if err != nil {
+		return productionLauncherSubmit{}, err
+	}
+	plan, err := parsePlan(planArgs)
+	if err != nil {
+		return productionLauncherSubmit{}, err
+	}
+	if releaseGrant != nil && !waitForTerminal {
+		return productionLauncherSubmit{}, protocolError("release grant options require submit --wait")
+	}
+	return productionLauncherSubmit{plan: plan, waitForTerminal: waitForTerminal, releaseGrant: releaseGrant}, nil
 }
 
 // runProductionReleaseSubmitPlanWithWaitConnector 通过 release authority owner 提交计划，并按需等待权威终态。
@@ -112,6 +148,7 @@ func runProductionReleaseSubmitPlanWithWaitConnector(
 	repositoryRoot string,
 	connector coordinatorConnector,
 	waitForTerminal bool,
+	releaseGrant *releaseGrantOptions,
 ) error {
 	if plan.Profile != gatecontract.ProfileRelease {
 		return protocolError("production launcher only supports the release profile")
@@ -136,7 +173,10 @@ func runProductionReleaseSubmitPlanWithWaitConnector(
 		if submitErr != nil {
 			return infrastructureError("submit authoritative release gate job: %v", submitErr)
 		}
-		return encodeSubmittedStatus(ctx, client, stdout, status, waitForTerminal)
+		if releaseGrant == nil {
+			return encodeSubmittedStatus(ctx, client, stdout, status, waitForTerminal)
+		}
+		return waitAndIssueProductionReleaseGrant(ctx, client, stdout, config, status.JobID, plan, *releaseGrant)
 	})
 }
 

@@ -451,10 +451,13 @@ func (s *service) invalidatePreJournalFailure() error {
 	return nil
 }
 
-// beginInstallAttempt 为 Darwin helper 建立 crypto-random generation；其他平台不调用 sidecar。
+// beginInstallAttempt 为 Darwin helper 建立 crypto-random generation；其他产物不调用 sidecar。
 func (s *service) beginInstallAttempt(staged selectedUpdate) (string, error) {
-	if runtime.GOOS != "darwin" || updatePlatformOS(staged.Artifact.Platform) != "darwin" {
+	if updatePlatformOS(staged.Artifact.Platform) != "darwin" {
 		return "", nil
+	}
+	if runtime.GOOS != "darwin" {
+		return "", fmt.Errorf("begin Darwin app update install attempt: %w", appupdatefailure.ErrUnsupported)
 	}
 	if err := os.MkdirAll(s.cfg.StageDir, 0o700); err != nil {
 		return "", fmt.Errorf("create app update stage dir: %w", err)
@@ -689,11 +692,7 @@ func (s *service) verifyInstallGate(staged selectedUpdate) error {
 		if verifier == nil {
 			verifier = verifyWindowsInstallerSignatureWithPowerShell
 		}
-		return verifier(
-			selectedArtifactPath(staged),
-			s.cfg.WindowsPublisher,
-			s.cfg.WindowsThumbprint,
-		)
+		return verifier(selectedArtifactPath(staged), s.cfg.WindowsPublisher, s.cfg.WindowsThumbprint)
 	default:
 		return nil
 	}

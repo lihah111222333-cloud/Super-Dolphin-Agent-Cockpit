@@ -98,40 +98,66 @@ func TestSQLCExecutorUsesPinnedRuntimeBinary(t *testing.T) {
 	}
 }
 
-func TestBackendProgramBuildsFrontendEmbedInsideFreshContainer(t *testing.T) {
-	backend := ExecutorPrograms()[GateIDBackendTestWithGuard]
-	if !backend.NeedsGoSeed || !backend.NeedsFrontendSeed {
-		t.Fatalf("backend gate seed contract = go:%t frontend:%t", backend.NeedsGoSeed, backend.NeedsFrontendSeed)
+func TestAIMaintenanceExecutorRunsPinnedActionlintInsideContainer(t *testing.T) {
+	program := ExecutorPrograms()[GateIDAIMaintenanceSelfTest]
+	if len(program.Steps) < 1 || !slices.Equal(program.Steps[0].Argv, []string{"actionlint"}) {
+		t.Fatalf("AI maintenance executor does not run actionlint first: %#v", program.Steps)
 	}
-	wantBuild := ExecutorStep{Directory: "frontend-app", Argv: []string{"npm", "run", "build"}}
+	if !slices.Contains(program.RequiredExecutables, ExecutorActionlintBinaryPath) {
+		t.Fatalf("AI maintenance executor does not require pinned actionlint: %v", program.RequiredExecutables)
+	}
+}
+
+func TestBackendProgramUsesExecutorFrontendEmbedSeed(t *testing.T) {
+	backend := ExecutorPrograms()[GateIDBackendTestWithGuard]
+	if !backend.NeedsGoSeed || backend.NeedsFrontendSeed || !backend.NeedsFrontendEmbedSeed {
+		t.Fatalf("backend gate seed contract = go:%t frontend:%t frontend_embed:%t", backend.NeedsGoSeed, backend.NeedsFrontendSeed, backend.NeedsFrontendEmbedSeed)
+	}
 	wantTest := ExecutorStep{
 		Argv:        []string{"./scripts/test_with_guard.sh", "--canonical-backend", "./cmd/...", "./internal/...", "./pkg/...", "./scripts/..."},
 		Environment: []string{"GOFLAGS=-p=2", "GOMAXPROCS=2", "GOMEMLIMIT=1GiB"},
 	}
-	if len(backend.Steps) != 2 || !reflect.DeepEqual(backend.Steps[0], wantBuild) ||
-		!reflect.DeepEqual(backend.Steps[1], wantTest) {
-		t.Fatalf("backend gate does not build its immutable frontend embed before canonical tests: %#v", backend.Steps)
+	if !reflect.DeepEqual(backend.Steps, []ExecutorStep{wantTest}) {
+		t.Fatalf("backend gate steps = %#v, want only canonical Go test", backend.Steps)
+	}
+	if !slices.Equal(backend.RequiredPaths, []string{"scripts/test_with_guard.sh", "scripts/check_nested_go_modules.sh"}) {
+		t.Fatalf("backend gate required paths = %v", backend.RequiredPaths)
 	}
 }
 
-func TestRaceAndFrontendProgramsUsePinnedRuntimeInputs(t *testing.T) {
+func TestRaceProgramUsesExecutorFrontendEmbedSeed(t *testing.T) {
 	programs := ExecutorPrograms()
 	race := programs[GateIDBackendTestGuardWithRace]
-	if !race.NeedsGoSeed {
-		t.Fatal("race gate does not require the lock-bound Go seed")
+	if !race.NeedsGoSeed || race.NeedsFrontendSeed || !race.NeedsFrontendEmbedSeed {
+		t.Fatalf("race gate seed contract = go:%t frontend:%t frontend_embed:%t", race.NeedsGoSeed, race.NeedsFrontendSeed, race.NeedsFrontendEmbedSeed)
 	}
-	if race.NeedsFrontendSeed {
-		t.Fatal("race gate must not install or build frontend inputs")
+	wantRaceArgv := append([]string{"./scripts/test_with_guard.sh", "--with-race"}, RaceSensitivePackagePatterns()...)
+	wantRaceArgv = append(wantRaceArgv, "--")
+	wantRaceArgv = append(wantRaceArgv, canonicalBackendPackagePatterns()...)
+	wantRaceArgv = append(wantRaceArgv, "-count=1", "-timeout=180s")
+	wantRaceStep := ExecutorStep{Argv: wantRaceArgv, Environment: []string{"GOFLAGS=-p=1", "GOMAXPROCS=1", "GOMEMLIMIT=1GiB"}}
+	if !reflect.DeepEqual(race.Steps, []ExecutorStep{wantRaceStep}) {
+		t.Fatalf("race executor steps = %#v, want only bounded Go race test", race.Steps)
 	}
-	wantRaceArgv := append([]string{"./scripts/test_with_guard.sh", "--race-only"}, RaceSensitivePackagePatterns()...)
-	wantRaceArgv = append(wantRaceArgv, "-timeout=180s")
-	wantRaceSteps := []ExecutorStep{
-		{Argv: wantRaceArgv, Environment: []string{"GOFLAGS=-p=1", "GOMAXPROCS=1", "GOMEMLIMIT=1GiB"}},
+	if !slices.Equal(race.RequiredPaths, []string{"scripts/test_with_guard.sh", "scripts/check_nested_go_modules.sh"}) {
+		t.Fatalf("race executor required paths = %v", race.RequiredPaths)
 	}
-	if !reflect.DeepEqual(race.Steps, wantRaceSteps) {
-		t.Fatalf("race executor is not bounded to registered concurrency surfaces: %#v", race.Steps)
+}
+
+func TestNilnessProgramUsesBoundedGoResources(t *testing.T) {
+	nilness := ExecutorPrograms()[GateIDBackendNilness]
+	want := ExecutorStep{
+		Argv:        []string{"go", "run", "./scripts/nilness_guard.go", "-test=false", "--", "./..."},
+		Environment: []string{"GOFLAGS=-p=2", "GOMAXPROCS=2", "GOMEMLIMIT=1GiB"},
 	}
-	for _, id := range []GateID{GateIDFrontendLint, GateIDFrontendTest, GateIDFrontendBuild} {
+	if !reflect.DeepEqual(nilness.Steps, []ExecutorStep{want}) {
+		t.Fatalf("nilness gate steps = %#v, want bounded Go execution", nilness.Steps)
+	}
+}
+
+func TestFrontendProgramsUsePinnedRuntimeInputs(t *testing.T) {
+	programs := ExecutorPrograms()
+	for _, id := range []GateID{GateIDFrontendLint, GateIDFrontendTest, GateIDFrontendFullTest, GateIDFrontendBuild} {
 		program := programs[id]
 		if !program.NeedsFrontendSeed {
 			t.Errorf("frontend gate %q does not require the lock-bound node_modules seed", id)
@@ -142,19 +168,42 @@ func TestRaceAndFrontendProgramsUsePinnedRuntimeInputs(t *testing.T) {
 			}
 		}
 	}
+	for _, test := range []struct {
+		id       GateID
+		wantArgv []string
+	}{
+		{GateIDFrontendTest, []string{"npm", "run", "test:hook"}},
+		{GateIDFrontendFullTest, []string{"npm", "test"}},
+	} {
+		t.Run(string(test.id), func(t *testing.T) {
+			program := programs[test.id]
+			if len(program.Steps) != 1 || !slices.Equal(program.Steps[0].Argv, test.wantArgv) || program.Steps[0].Directory != "frontend-app" {
+				t.Fatalf("frontend test program = %#v, want frontend-app %v", program, test.wantArgv)
+			}
+		})
+	}
 	if programs[GateIDLSPChangedDiagnostics].Strategy != ExecutorStrategyChangedDiagnostics {
 		t.Fatal("LSP gate does not derive changed targets from snapshot Git truth")
 	}
 }
 
-func TestBackendRaceExecutorUsesOnlyRegisteredPackages(t *testing.T) {
-	argv := ExecutorPrograms()[GateIDBackendTestGuardWithRace].Steps[0].Argv
-	if slices.Contains(argv, "--") {
-		t.Fatalf("race executor argv includes a duplicate normal-test segment: %v", argv)
+func TestBackendRaceExecutorCombinesCanonicalAndRegisteredPackages(t *testing.T) {
+	race := ExecutorPrograms()[GateIDBackendTestGuardWithRace]
+	if len(race.Steps) != 1 {
+		t.Fatalf("race executor steps = %d, want only race test", len(race.Steps))
 	}
-	packages := argv[2 : len(argv)-1]
+	argv := race.Steps[0].Argv
+	separator := slices.Index(argv, "--")
+	if separator < 0 {
+		t.Fatalf("race executor argv omits the canonical normal-test segment: %v", argv)
+	}
+	packages := argv[2:separator]
 	if !slices.Equal(packages, RaceSensitivePackagePatterns()) {
 		t.Fatalf("race executor argv registry drifted: packages=%v", packages)
+	}
+	wantNormal := append(canonicalBackendPackagePatterns(), "-count=1", "-timeout=180s")
+	if !slices.Equal(argv[separator+1:], wantNormal) {
+		t.Fatalf("race executor canonical package segment = %v, want %v", argv[separator+1:], wantNormal)
 	}
 }
 

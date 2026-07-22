@@ -138,45 +138,34 @@ func TestSQLiteReleaseGateDocsAndWorkflowArePresent(t *testing.T) {
 	workflow := readRequiredFile(t, filepath.Join(root, ".github", "workflows", "sqlite-release-gates.yml"))
 	for _, want := range []string{
 		"ubuntu-latest",
-		"windows-latest",
-		"macos-latest",
-		"go run ./scripts/sqlite_release_gates",
-		"sqlite-release-gate-report.md",
-		".sqlite-release-gate-logs",
-		"actions/upload-artifact",
-		"G12",
+		"id-token: write",
+		"truth-image-gates:",
+		"Trusted bootstrap coordinator",
+		"workflow-host",
+		"SUPER_DOLPHIN_GATE_BOOTSTRAP_IMAGE",
+		"target=/workspace/super-dolphin-checkout,readonly",
 	} {
 		if !strings.Contains(workflow, want) {
 			t.Fatalf("sqlite release gate workflow missing %q", want)
 		}
 	}
+	for _, forbidden := range []string{
+		"actions/setup-go",
+		"actions/upload-artifact",
+		"go run ./scripts/sqlite_release_gates",
+		"go test",
+	} {
+		if strings.Contains(workflow, forbidden) {
+			t.Fatalf("sqlite release gate workflow bypasses the truth-image coordinator with %q", forbidden)
+		}
+	}
 }
 
-func TestSQLiteReleaseGateWorkflowArtifactsAreUploadableAndUnique(t *testing.T) {
+func TestSQLiteReleaseGateWorkflowUsesOnlyTheTruthImageCoordinator(t *testing.T) {
 	root := scriptRepoRoot(t)
 	workflow := readRequiredFile(t, filepath.Join(root, ".github", "workflows", "sqlite-release-gates.yml"))
-	for _, want := range []string{
-		"name: sqlite-release-gate-report-full-ubuntu-latest",
-		"name: sqlite-release-gate-raw-logs-full-ubuntu-latest",
-		"name: sqlite-release-gate-report-g12-${{ matrix.os }}",
-		"name: sqlite-release-gate-raw-logs-g12-${{ matrix.os }}",
-	} {
-		if !strings.Contains(workflow, want) {
-			t.Fatalf("sqlite release gate workflow missing unique artifact name %q", want)
-		}
-	}
-	for _, old := range []string{
-		"name: sqlite-release-gate-report-ubuntu-latest",
-		"name: sqlite-release-gate-raw-logs-ubuntu-latest",
-		"name: sqlite-release-gate-report-${{ matrix.os }}",
-		"name: sqlite-release-gate-raw-logs-${{ matrix.os }}",
-	} {
-		if strings.Contains(workflow, old) {
-			t.Fatalf("sqlite release gate workflow still has colliding artifact name %q", old)
-		}
-	}
-	if got := strings.Count(workflow, "include-hidden-files: true"); got < 2 {
-		t.Fatalf("workflow has include-hidden-files: true count = %d, want at least raw log uploads", got)
+	if strings.Count(workflow, "docker pull ") != 1 || strings.Count(workflow, "docker run --rm") != 1 {
+		t.Fatalf("sqlite release workflow must have one immutable coordinator bootstrap: %q", workflow)
 	}
 }
 

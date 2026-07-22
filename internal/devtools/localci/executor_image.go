@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"path"
 	"regexp"
 	"slices"
 	"sort"
@@ -208,7 +209,7 @@ func (runner *FreshContainerRunner) inspectAndVerifyImage(ctx context.Context, p
 	if document.Config == nil || document.RootFS == nil {
 		return "", errors.New("gate image inspect omitted config or rootfs")
 	}
-	manifestDigest, configDigest, err := validateImageInspectDescriptor(document, prepared.expectedIdentity)
+	manifestDigest, configDigest, err := validateImageInspectDescriptor(document, prepared.expectedIdentity, prepared.expectedImage)
 	if err != nil {
 		return "", err
 	}
@@ -223,7 +224,7 @@ func (runner *FreshContainerRunner) inspectAndVerifyImage(ctx context.Context, p
 	if document.RootFS.Type != "layers" {
 		return "", fmt.Errorf("gate image rootfs type %q is not layers", document.RootFS.Type)
 	}
-	if !slices.Contains(document.RepoDigests, prepared.imageReference) {
+	if !gate.ContainsImmutableImageReference(document.RepoDigests, prepared.expectedIdentity.Registry, prepared.expectedIdentity.PlatformManifestDigest) {
 		return "", errors.New("gate image inspect does not contain the requested platform manifest reference")
 	}
 	if err := validateImageIdentity(identity, document.Config.Labels, prepared.expectedImage); err != nil {
@@ -233,23 +234,25 @@ func (runner *FreshContainerRunner) inspectAndVerifyImage(ctx context.Context, p
 }
 
 // validateImageInspectDescriptor 从 Docker descriptor 读取 manifest/config 身份，绝不把展示 ID 当作 config。
-func validateImageInspectDescriptor(document imageInspectDocument, expected gate.ImageIdentity) (string, string, error) {
-	if document.Descriptor == nil || document.Descriptor.MediaType == "" || document.Descriptor.Size <= 0 {
+func validateImageInspectDescriptor(document imageInspectDocument, expected gate.ImageIdentity, metadata expectedImageMetadata) (string, string, error) {
+	if document.Descriptor == nil || document.Descriptor.MediaType != buildxManifestMedia || document.Descriptor.Size <= 0 {
 		return "", "", errors.New("gate image inspect omitted a complete descriptor")
 	}
 	manifestDigest := document.Descriptor.Digest
-	configDigest := document.Descriptor.Annotations["config.digest"]
 	if err := validateDigest("inspected platform manifest digest", manifestDigest); err != nil {
-		return "", "", err
-	}
-	if err := validateDigest("inspected config digest", configDigest); err != nil {
 		return "", "", err
 	}
 	if manifestDigest != expected.PlatformManifestDigest {
 		return "", "", errors.New("gate image inspect platform manifest digest drifted")
 	}
-	if configDigest != expected.ConfigDigest {
-		return "", "", errors.New("gate image inspect config digest drifted")
+	configDigest, err := resolveDockerDescriptorConfigDigest(
+		document.Descriptor.Annotations,
+		expected.Registry,
+		metadata.InputDigest,
+		expected.ConfigDigest,
+	)
+	if err != nil {
+		return "", "", fmt.Errorf("resolve inspected config digest: %w", err)
 	}
 	if document.ID != manifestDigest && document.ID != configDigest {
 		return "", "", errors.New("gate image inspect ID matches neither manifest nor config identity")
@@ -661,4 +664,23 @@ func digestJSON(value any) (string, error) {
 		return "", err
 	}
 	return digestBytes(buffer.Bytes()), nil
+}
+
+// validateAcceptedCandidateDigests 校验可复用 accepted 镜像的全部不可变摘要。
+func validateAcceptedCandidateDigests(request CandidateRequest) error {
+	for _, digest := range [][2]string{{"accepted input digest", request.AcceptedInputDigest}, {"accepted policy digest", request.AcceptedPolicyDigest}, {"accepted image digest", request.AcceptedImageDigest}, {"accepted config digest", request.AcceptedConfigDigest}} {
+		if err := validateDigest(digest[0], digest[1]); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// canonicalCopyPath 规范化并拒绝空、绝对或非规范的 COPY/ADD 路径。
+func canonicalCopyPath(source string) (string, error) {
+	cleaned := strings.TrimSuffix(source, "/")
+	if source == "" || source == "." || path.IsAbs(source) || path.Clean(source) != cleaned {
+		return "", errors.New("path is not canonical")
+	}
+	return cleaned, nil
 }

@@ -1,122 +1,46 @@
 name: SQLite Release Gates
 
 on:
-  pull_request:
-    branches: [main]
+  pull_request_target:
+    types: [opened, synchronize, reopened]
   push:
     branches: [main]
   workflow_dispatch:
 
 permissions:
   contents: read
+  id-token: write
 
 jobs:
-  update-recovery-release-gate-macos:
-    runs-on: macos-latest
-    timeout-minutes: 20
+  truth-image-gates:
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    env:
+      SUPER_DOLPHIN_GUARD_FAIL_ON_DRIFT: "1"
+      GATE_EVENT_SHA: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.sha || github.sha }}
+      GATE_EVENT_REF: ${{ github.event_name == 'pull_request_target' && format('refs/pull/{0}/head', github.event.pull_request.number) || github.ref }}
+      GATE_EVENT_REPOSITORY: ${{ github.repository }}
+      SUPER_DOLPHIN_GATE_WORKFLOW_OIDC_AUDIENCE: super-dolphin-gate-workflow
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
-          fetch-depth: 0
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-          cache: true
-      - name: Full macOS update recovery release gate
-        run: make release-update-gate
-
-  update-recovery-release-gate-windows:
-    runs-on: windows-latest
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-          cache: true
-      - name: Windows-native update recovery and package verification
-        shell: bash
+          ref: ${{ github.event_name == 'pull_request_target' && format('refs/pull/{0}/head', github.event.pull_request.number) || github.sha }}
+          path: candidate
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Trusted bootstrap coordinator
+        env:
+          SUPER_DOLPHIN_GATE_BOOTSTRAP_IMAGE: ${{ secrets.SUPER_DOLPHIN_GATE_BOOTSTRAP_IMAGE }}
+          SUPER_DOLPHIN_GATE_AUTHORITY_BUNDLE_B64: ${{ secrets.SUPER_DOLPHIN_GATE_AUTHORITY_BUNDLE_B64 }}
         run: |
-          ./scripts/test_with_guard.sh ./cmd/super-dolphin-updater -run 'Test(Guard|ConfigureGuard)' -count=1
-          ./scripts/test_with_guard.sh ./cmd/super-dolphin-guard -run 'TestGuard.*(Rollback|Probation|PIDReuse|Termination)' -count=1
-          ./scripts/test_with_guard.sh ./scripts -run '^TestWindowsPackageVerifierAcceptsRealFixture$' -count=1
-
-  update-recovery-release-gate-linux-supplemental:
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    continue-on-error: true
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-          cache: true
-      - name: Supplemental Linux update recovery evidence
-        run: make release-update-gate
-
-  sqlite-release-gates:
-    runs-on: ubuntu-latest
-    timeout-minutes: 90
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-          cache: true
-      - name: Run G1-G14 SQLite release gates
-        run: go run ./scripts/sqlite_release_gates -logs .sqlite-release-gate-logs -timeout 10m
-      - name: Upload SQLite release gate report
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: sqlite-release-gate-report-full-ubuntu-latest
-          path: docs/cc/数据库切换/sqlite-release-gate-report.md
-          if-no-files-found: error
-      - name: Upload SQLite release gate raw logs
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: sqlite-release-gate-raw-logs-full-ubuntu-latest
-          path: .sqlite-release-gate-logs
-          if-no-files-found: error
-          include-hidden-files: true
-
-  sqlite-packaging-smoke:
-    needs: [update-recovery-release-gate-macos, update-recovery-release-gate-windows]
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 30
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-          cache: true
-      - name: Run G12 packaging smoke
-        run: go run ./scripts/sqlite_release_gates -only G12 -allow-partial -logs .sqlite-release-gate-logs -timeout 10m
-      - name: Upload G12 packaging smoke report
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: sqlite-release-gate-report-g12-${{ matrix.os }}
-          path: docs/cc/数据库切换/sqlite-release-gate-report.md
-          if-no-files-found: error
-      - name: Upload G12 packaging smoke raw logs
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: sqlite-release-gate-raw-logs-g12-${{ matrix.os }}
-          path: .sqlite-release-gate-logs
-          if-no-files-found: error
-          include-hidden-files: true
+          set -euo pipefail
+          image_repository="${SUPER_DOLPHIN_GATE_BOOTSTRAP_IMAGE%@sha256:*}"
+          if [[ ! "$SUPER_DOLPHIN_GATE_BOOTSTRAP_IMAGE" =~ ^[^[:space:]@]+@sha256:[[:xdigit:]]{64}$ ]] || [[ "${image_repository##*/}" == *:* ]]; then
+            echo "immutable bootstrap image digest is required" >&2
+            exit 1
+          fi
+          runtime_root="$(mktemp -d "${RUNNER_TEMP:?}/super-dolphin-gate-runtime.XXXXXX")"
+          trap 'rm -rf "$runtime_root"' EXIT
+          chmod 700 "$runtime_root"
+          docker pull --platform=linux/amd64 "$SUPER_DOLPHIN_GATE_BOOTSTRAP_IMAGE"
+          docker run --rm --cpus=4 --memory=8g --mount type=bind,source=/var/run/docker.sock,target=/var/run/docker.sock --mount type=bind,source="$GITHUB_WORKSPACE/candidate",target=/workspace/super-dolphin-checkout,readonly --mount type=bind,source="$runtime_root",target="$runtime_root" --workdir /workspace/super-dolphin-checkout --env SUPER_DOLPHIN_GATE_AUTHORITY_BUNDLE_B64 --env SUPER_DOLPHIN_GATE_WORKFLOW_RUNTIME_ROOT="$runtime_root" --env SUPER_DOLPHIN_GATE_WORKFLOW_OIDC_AUDIENCE --env ACTIONS_ID_TOKEN_REQUEST_URL --env ACTIONS_ID_TOKEN_REQUEST_TOKEN "$SUPER_DOLPHIN_GATE_BOOTSTRAP_IMAGE" workflow-host --repository-root /workspace/super-dolphin-checkout --event-repository "$GATE_EVENT_REPOSITORY" --event-ref "$GATE_EVENT_REF" --event-sha "$GATE_EVENT_SHA"

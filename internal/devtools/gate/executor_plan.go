@@ -146,7 +146,7 @@ func validateExecutorGateIDs(profile Profile, gateIDs []GateID, shard bool) erro
 	return validatePlanGateIDs(profile, gateIDs)
 }
 
-const canonicalContainerShardGroupCount = 3
+const canonicalContainerShardGroupCount = MaxContainerShards
 
 func validateContainerShardGateIDs(profile Profile, gateIDs []GateID) error {
 	for _, expected := range canonicalContainerShardGroups(profile) {
@@ -157,22 +157,33 @@ func validateContainerShardGateIDs(profile Profile, gateIDs []GateID) error {
 	return errors.New("shard gate list does not match a canonical container shard")
 }
 
-// canonicalContainerShardGroups is available to the standalone executor binary as well as the coordinator.
-// 按稳定规则将必需 gate 分配给容器分片，并在发布配置中排除发布层 gate；仅返回非空分组。
+// canonicalContainerShardGroups is the shared coordinator and executor shard contract.
+// 所有包含 race 的配置都将普通后端与 race 分入不同 shard，避免共享容器内存峰值叠加。
 func canonicalContainerShardGroups(profile Profile) [][]GateID {
 	ids := requiredGateIDs(profile)
 	if profile == ProfileRelease {
 		ids = ids[:len(ids)-1]
 	}
+	isolateRace := slices.Contains(ids, GateIDBackendTestGuardWithRace)
 	groups := make([][]GateID, canonicalContainerShardGroupCount)
 	for _, id := range ids {
 		switch id {
-		case GateIDAIMaintenanceSelfTest, GateIDFrontendLint, GateIDFrontendTest, GateIDFrontendBuild, GateIDFrontendEmbedVerify:
+		case GateIDAIMaintenanceSelfTest, GateIDFrontendLint, GateIDFrontendTest, GateIDFrontendFullTest, GateIDFrontendBuild, GateIDFrontendEmbedVerify:
 			groups[0] = append(groups[0], id)
-		case GateIDBackendTestWithGuard, GateIDLSPChangedDiagnostics, GateIDBackendTestGuardWithRace, GateIDBackendNilness:
+		case GateIDBackendTestWithGuard, GateIDLSPChangedDiagnostics, GateIDBackendNilness:
 			groups[1] = append(groups[1], id)
+		case GateIDBackendTestGuardWithRace:
+			if isolateRace {
+				groups[2] = append(groups[2], id)
+			} else {
+				groups[1] = append(groups[1], id)
+			}
 		default:
-			groups[2] = append(groups[2], id)
+			if isolateRace {
+				groups[0] = append(groups[0], id)
+			} else {
+				groups[2] = append(groups[2], id)
+			}
 		}
 	}
 	nonempty := make([][]GateID, 0, len(groups))
@@ -469,7 +480,8 @@ func executePlanGate(
 		sourcePath: ExecutorSourcePath, workRoot: workRoot, searchPath: executorSearchPath,
 		expectedUID: executorUID, requireReadOnlySource: true,
 		runtimeSeedRoot: ExecutorRuntimeSeedRoot, runtimeSeedManifest: ExecutorRuntimeSeedManifestPath,
-		stdout: log, stderr: log,
+		frontendEmbedSeedRoot: ExecutorFrontendEmbedSeedRoot,
+		stdout:                log, stderr: log,
 	}
 	result := PlanGateExecution{GateID: id, StartedAt: now().UTC(), ExitCode: -1}
 	err := executeProgram(ctx, config, id, cloneExecutorProgram(program))
@@ -520,7 +532,7 @@ func executorPlanLaneRoot(workRoot string, laneIndex int) string {
 // executorPlanLanes 将 exact gate 集合映射到固定、互不共享可写目录的 lane DAG。
 func executorPlanLanes(gateIDs []GateID) ([][]GateID, error) {
 	laneCatalog := [][]GateID{
-		{GateIDAIMaintenanceSelfTest, GateIDFrontendTest, GateIDLSPChangedDiagnostics, GateIDBackendTestWithGuard,
+		{GateIDAIMaintenanceSelfTest, GateIDFrontendTest, GateIDFrontendFullTest, GateIDLSPChangedDiagnostics, GateIDBackendTestWithGuard,
 			GateIDBackendTestGuardWithRace, GateIDBackendNilness, GateIDReleaseLayeredCheck},
 		{GateIDFrontendLint, GateIDFrontendBuild, GateIDFrontendEmbedVerify, GateIDSQLCVerify, GateIDCodemapCheck,
 			GateIDProjectMapCheck, GateIDCapabilityContractCheck, GateIDWhitespaceCheck},

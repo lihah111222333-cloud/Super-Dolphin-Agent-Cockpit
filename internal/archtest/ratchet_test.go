@@ -16,7 +16,7 @@ func TestGuardHookModeFailsOnBaselineOrFreezeDrift(t *testing.T) {
 		"internal/archtest/freeze_baseline.json",
 	)
 	assertGuardModeFileContains(t, root, ".githooks/pre-commit",
-		"command -v super-dolphin-gate",
+		`trusted_gate_launcher "$repo_root"`,
 		`"$gate_bin" closure check --tree "$staged_tree"`,
 		`"$gate_bin" hook pre-commit --tree "$staged_tree" >"$gate_output_file" 2>&1`,
 		`"$gate_bin" wait --job "$job_id" --tree "$staged_tree"`,
@@ -26,13 +26,14 @@ func TestGuardHookModeFailsOnBaselineOrFreezeDrift(t *testing.T) {
 		"ai_maintenance",
 		"test_with_guard",
 		"go run",
+		"command -v super-dolphin-gate",
 	)
 	assertGuardModeFileContains(t, root, "scripts/ai_maintenance/main.go",
 		`"backend:test_with_guard"`,
 		`"./scripts/test_with_guard.sh"`,
 	)
 	assertGuardModeFileContains(t, root, ".githooks/pre-push",
-		"command -v super-dolphin-gate",
+		`trusted_gate_launcher "$repo_root"`,
 		`exec "$gate_bin" hook pre-push "$1" "$2"`,
 	)
 	assertGuardModeFileExcludes(t, root, ".githooks/pre-push",
@@ -40,6 +41,7 @@ func TestGuardHookModeFailsOnBaselineOrFreezeDrift(t *testing.T) {
 		"ai_maintenance",
 		"test_with_guard",
 		"go run",
+		"command -v super-dolphin-gate",
 	)
 	assertGuardModeFileContains(t, root, ".github/workflows/ci.yml",
 		"SUPER_DOLPHIN_GUARD_FAIL_ON_DRIFT: \"1\"",

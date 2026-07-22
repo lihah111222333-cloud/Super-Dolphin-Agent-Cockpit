@@ -51,6 +51,23 @@ func TestWindowsPackagingFailsClosedWithoutUpdateRoutes(t *testing.T) {
 	assertScriptDoesNotContain(t, publisher, "Super-Dolphin-windows-arm64.update.json")
 }
 
+func TestGitHubReleasePublisherConsumesExactReleaseGrantBeforeCreate(t *testing.T) {
+	script := readScript(t, "publish_github_release.sh")
+	for _, want := range []string{
+		"--release-repository \"$github_repo\"",
+		"--release-tag \"$tag\"",
+		"--release-asset \"$name|$digest|$size\"",
+		"--release-grant-output \"$release_grant_file\"",
+		"grant consume-release",
+		"--commit \"$commit\"",
+		"--tree \"$tree\"",
+		"consume_release_truth_grant",
+	} {
+		assertScriptContains(t, script, want)
+	}
+	assertScriptOrderAfter(t, script, "release_notes=", "consume_release_truth_grant", "gh release create")
+}
+
 func TestPackageEnvExampleDocumentsGitHubReleaseUpdateInputsWithoutSecrets(t *testing.T) {
 	example := readScript(t, "../.env.packaging.example")
 	for _, want := range []string{
@@ -164,6 +181,8 @@ func TestGitHubReleasePublisherGuardsDraftPublish(t *testing.T) {
 		"go run ./cmd/super-dolphin-release-manifest -check-key",
 		"go run ./cmd/super-dolphin-release-manifest -verify-manifest",
 		"gh auth status",
+		"require_release_truth_gate",
+		"./scripts/ci_truth_image_gate.sh release",
 		"gh release create \"$tag\"",
 		"--draft",
 		"verify_uploaded_asset_digests",
@@ -180,6 +199,7 @@ func TestGitHubReleasePublisherGuardsDraftPublish(t *testing.T) {
 	assertScriptDoesNotContain(t, script, "Contents/Resources/.env")
 	assertScriptDoesNotContain(t, script, "SUPER_DOLPHIN_UPDATE_PREVIOUS_ENV_FILE")
 	assertScriptOrder(t, script, "resolve_update_public_key", "validate_release_assets")
+	assertScriptOrderAfter(t, script, "require_tag_greater_than_latest", "require_release_truth_gate", "gh release create \"$tag\"")
 	assertScriptOrderAfter(t, script, "gh release create \"$tag\"", "gh release create \"$tag\"", "verify_uploaded_asset_digests")
 	assertScriptOrderAfter(t, script, "gh release create \"$tag\"", "verify_uploaded_asset_digests", "gh release edit \"$tag\"")
 }

@@ -604,6 +604,7 @@ func persistRecoveredShardStartedLifecycles(
 			localci.FreshContainerPhaseCreated, localci.FreshContainerPhaseStarting, localci.FreshContainerPhaseStarted,
 		} {
 			event := coordinatorShardLifecycleEvent(shard, phase, started.Add(time.Duration(index)*time.Microsecond), deadline, snapshotDir, witness, witnessDigest)
+			bindCreatingOperationIdentity(t, labels, &event)
 			if err := owner.store.recordContainerShardLifecycle(context.Background(), record.JobID, shard.IdentityDigest, labels, event); err != nil {
 				t.Fatal(err)
 			}

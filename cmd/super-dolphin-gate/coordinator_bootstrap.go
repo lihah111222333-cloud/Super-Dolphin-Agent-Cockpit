@@ -351,19 +351,74 @@ func validateProductionBootstrapInspectDigests(
 	expected gatecontract.ImageIdentity,
 	reference string,
 ) error {
+	return validateProductionBootstrapInspectIdentity(document, expected, reference)
+}
+
+// validateProductionBootstrapInspectIdentity 逐项校验 Docker inspect 返回的 OCI identity。
+func validateProductionBootstrapInspectIdentity(
+	document productionBootstrapImageInspect,
+	expected gatecontract.ImageIdentity,
+	reference string,
+) error {
+	if err := validateProductionBootstrapManifest(document, expected); err != nil {
+		return err
+	}
+	if err := validateProductionBootstrapReference(expected, reference); err != nil {
+		return err
+	}
+	if err := validateProductionBootstrapConfigBinding(document, expected); err != nil {
+		return err
+	}
+	if err := validateProductionBootstrapRepoDigests(document, expected); err != nil {
+		return err
+	}
+	return validateProductionBootstrapDisplayID(document, expected)
+}
+
+// validateProductionBootstrapManifest 校验平台 manifest digest。
+func validateProductionBootstrapManifest(document productionBootstrapImageInspect, expected gatecontract.ImageIdentity) error {
 	if document.Descriptor == nil || document.Descriptor.Digest != expected.PlatformManifestDigest {
 		return errors.New("production bootstrap runner platform manifest digest drifted")
 	}
-	if document.Descriptor.Annotations["config.digest"] != expected.ConfigDigest {
+	return nil
+}
+
+// validateProductionBootstrapReference 校验 Docker inspect 的请求引用。
+func validateProductionBootstrapReference(expected gatecontract.ImageIdentity, reference string) error {
+	if reference != expected.Registry+"@"+expected.PlatformManifestDigest {
+		return errors.New("production bootstrap runner requested reference drifted")
+	}
+	return nil
+}
+
+// validateProductionBootstrapConfigBinding 校验 config digest 与 Docker display ID 的绑定。
+func validateProductionBootstrapConfigBinding(document productionBootstrapImageInspect, expected gatecontract.ImageIdentity) error {
+	configDigest, hasConfigDigest := document.Descriptor.Annotations["config.digest"]
+	if hasConfigDigest && configDigest != expected.ConfigDigest {
 		return errors.New("production bootstrap runner config digest drifted")
 	}
-	if !slices.Contains(document.RepoDigests, reference) {
+	// Docker's containerd store may expose the manifest as ID without repeating
+	// config.digest; the already-matched manifest digest commits to that config.
+	if !hasConfigDigest && document.ID != expected.ConfigDigest && document.ID != expected.PlatformManifestDigest {
+		return errors.New("production bootstrap runner config digest is not bound by Docker identity")
+	}
+	return nil
+}
+
+// validateProductionBootstrapRepoDigests 校验 manifest 和 OCI index 均可由 RepoDigests 证明。
+func validateProductionBootstrapRepoDigests(document productionBootstrapImageInspect, expected gatecontract.ImageIdentity) error {
+	if !gatecontract.ContainsImmutableImageReference(document.RepoDigests, expected.Registry, expected.PlatformManifestDigest) {
 		return errors.New("production bootstrap runner manifest reference is absent from RepoDigests")
 	}
-	indexReference := expected.Registry + "@" + expected.OCIIndexDigest
-	if expected.OCIIndexDigest != expected.PlatformManifestDigest && !slices.Contains(document.RepoDigests, indexReference) {
+	if expected.OCIIndexDigest != expected.PlatformManifestDigest &&
+		!gatecontract.ContainsImmutableImageReference(document.RepoDigests, expected.Registry, expected.OCIIndexDigest) {
 		return errors.New("production bootstrap runner index reference is absent from RepoDigests")
 	}
+	return nil
+}
+
+// validateProductionBootstrapDisplayID 校验 Docker 展示 ID 是 config 或 manifest digest。
+func validateProductionBootstrapDisplayID(document productionBootstrapImageInspect, expected gatecontract.ImageIdentity) error {
 	if document.ID != expected.ConfigDigest && document.ID != expected.PlatformManifestDigest {
 		return errors.New("production bootstrap runner display ID matches neither config nor manifest")
 	}

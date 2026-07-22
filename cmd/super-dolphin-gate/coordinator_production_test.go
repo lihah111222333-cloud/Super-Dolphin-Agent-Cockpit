@@ -80,6 +80,19 @@ type capturingFreshContainerRunner struct {
 	request localci.FreshContainerRequest
 }
 
+type productionBuildxRunnerStub struct {
+	recovered bool
+}
+
+func (*productionBuildxRunnerStub) Build(context.Context, localci.BuildKitBuildRequest) (localci.BuildKitResult, error) {
+	return localci.BuildKitResult{}, errors.New("unexpected candidate image build")
+}
+
+func (runner *productionBuildxRunnerStub) RecoverControlledBuilders(context.Context) error {
+	runner.recovered = true
+	return nil
+}
+
 type productionBuildKitRunnerStub struct {
 	digest string
 	err    error
@@ -88,8 +101,8 @@ type productionBuildKitRunnerStub struct {
 func (runner productionBuildKitRunnerStub) Build(
 	context.Context,
 	localci.BuildKitBuildRequest,
-) (string, error) {
-	return runner.digest, runner.err
+) (localci.BuildKitResult, error) {
+	return localci.BuildKitResult{PlatformManifestDigest: runner.digest, ConfigDigest: productionDigest("9")}, runner.err
 }
 
 type productionCandidateIdentityResolverStub struct{}
@@ -101,7 +114,7 @@ func (productionCandidateIdentityResolverStub) ResolveCandidateIdentity(
 ) (gatecontract.ImageIdentity, error) {
 	return gatecontract.ImageIdentity{
 		Registry: "docker.io/library/super-dolphin-gate-local", OCIIndexDigest: result.ImageDigest,
-		PlatformManifestDigest: result.ImageDigest, ConfigDigest: productionDigest("9"),
+		PlatformManifestDigest: result.ImageDigest, ConfigDigest: result.ConfigDigest,
 		RootFSDiffIDs: []string{productionDigest("a")}, OS: "linux", Architecture: "arm64",
 	}, nil
 }
@@ -138,10 +151,22 @@ func (*capturingFreshContainerRunner) CleanupUnprovedFreshContainer(
 func TestProductionCoordinatorDependenciesAssembleRealAdapters(t *testing.T) {
 	fixture := newProductionTestFixture(t)
 	t.Setenv(productionCoordinatorConfigEnv, fixture.configPath)
+	buildx := &productionBuildxRunnerStub{}
 
-	dependencies, err := productionCoordinatorDependencies(context.Background())
+	dependencies, err := productionCoordinatorDependenciesWithBuildx(
+		context.Background(),
+		func(root string) (productionBuildxRunner, error) {
+			if root != fixture.config.CandidateBuildRoot {
+				t.Fatalf("candidate build root = %q", root)
+			}
+			return buildx, nil
+		},
+	)
 	if err != nil {
 		t.Fatalf("productionCoordinatorDependencies() error = %v", err)
+	}
+	if !buildx.recovered {
+		t.Fatal("controlled buildx recovery was not required before adapter assembly")
 	}
 	if _, ok := dependencies.ImageEnsurer.(*productionImageEnsurer); !ok {
 		t.Fatalf("ImageEnsurer = %T", dependencies.ImageEnsurer)
@@ -536,6 +561,9 @@ func TestLoadProductionCoordinatorConfigFileValidatesDecodedConfig(t *testing.T)
 		}},
 		{name: "bootstrap_controller_key", want: "bootstrap controller private key", mutate: func(config *productionCoordinatorConfig) {
 			config.BootstrapControllerKeyFile = ""
+		}},
+		{name: "promotion_poll", want: "promotion_poll_millis must be within 5000..60000", mutate: func(config *productionCoordinatorConfig) {
+			config.PromotionPollMillis = 4_999
 		}},
 		{name: "root_overlap", want: "roots must not overlap", mutate: func(config *productionCoordinatorConfig) {
 			config.CandidateBuildRoot = config.AcceptedImageRoot

@@ -9,6 +9,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/contract"
+	"github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/appupdatefailure"
 )
 
 func writeHelperScript(t *testing.T, marker string, sleep time.Duration) string {
@@ -196,5 +199,26 @@ func waitForSignal(t *testing.T, signal <-chan struct{}, name string) {
 	case <-signal:
 	case <-time.After(5 * time.Second):
 		t.Fatalf("timed out waiting for %s", name)
+	}
+}
+
+func seedPreJournalFailure(t *testing.T, stageDir string, code string) {
+	t.Helper()
+	failure, ok := contract.RecoveryFailureForCode(code, "")
+	if !ok {
+		t.Fatalf("RecoveryFailureForCode(%q) = false", code)
+	}
+	if err := appupdatefailure.Begin(stageDir, recoveryTestGeneration); err != nil {
+		t.Fatal(err)
+	}
+	if err := appupdatefailure.Fail(stageDir, recoveryTestGeneration, failure); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func assertPreJournalFailureHidden(t *testing.T, stageDir string, operation string) {
+	t.Helper()
+	if _, exists, err := appupdatefailure.ReadFailure(stageDir); err != nil || exists {
+		t.Fatalf("ReadFailure() after %s = (_, %v, %v), want hidden", operation, exists, err)
 	}
 }
