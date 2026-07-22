@@ -12,6 +12,29 @@ function projectCwdForSelection(project, cwd) {
   return project && project !== '.' ? project : cwd;
 }
 
+async function restoreProjectScopeAfterBackendFailure(runtime, preparedScope, target) {
+  try {
+    await runtime.restorePreparedBridgeEventScope(preparedScope);
+  }
+  catch {
+    runtime.set({ bootstrapStatus: 'failed', error: '连接后端失败，请重试。' });
+    runtime.addWarning('error', 'project.scope.restore_failed', {
+      path: target,
+      error: 'scope compensation failure; see Health diagnostic ID',
+    });
+  }
+}
+
+async function setActiveProjectWithScopeCompensation(runtime, setActiveProject, context) {
+  try {
+    return await setActiveProject({ cwd: context.cwd, path: context.target });
+  }
+  catch (error) {
+    await restoreProjectScopeAfterBackendFailure(runtime, context.preparedScope, context.target);
+    throw error;
+  }
+}
+
 async function registerProjectIfNeeded(deps, context, isCurrentIntent) {
   if (!shouldRegisterProject(context.target, context.previousActiveProject, context.visibleProjects)) return true;
   await deps.addProject({ cwd: context.cwd, path: context.target });
@@ -49,7 +72,11 @@ async function runActiveProjectSwitch(runtime, deps, context) {
     const requestedCwd = projectCwdForSelection(target, cwd);
     preparedScope = await runtime.prepareBridgeEventScope(requestedCwd);
     if (!isCurrentIntent()) return false;
-    const projects = await setActiveProject({ cwd, path: target });
+    const projects = await setActiveProjectWithScopeCompensation(runtime, setActiveProject, {
+      cwd,
+      preparedScope,
+      target,
+    });
     if (!isCurrentIntent()) return false;
     const confirmedCwd = projectCwdForSelection(normalizePath(projects?.active), cwd);
     if (confirmedCwd !== requestedCwd) {

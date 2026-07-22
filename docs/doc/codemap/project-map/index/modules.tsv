@@ -10,10 +10,10 @@ internal/module/appupdate/package_trust.go	internal	modules	go-source	6821	业�
 internal/module/appupdate/rpc_recovery_test.go	internal	modules	go-test	11114	业务模块层	internal,module,appupdate,rpc,recovery,test,业务模块层
 internal/module/appupdate/rpc_test.go	internal	modules	go-test	2346	业务模块层	internal,module,appupdate,rpc,test,业务模块层
 internal/module/appupdate/rpc.go	internal	modules	go-source	3949	业务模块层	internal,module,appupdate,rpc,业务模块层
-internal/module/appupdate/service_operation_test.go	internal	modules	go-test	11855	业务模块层	internal,module,appupdate,service,operation,test,业务模块层
+internal/module/appupdate/service_operation_test.go	internal	modules	go-test	8108	业务模块层	internal,module,appupdate,service,operation,test,业务模块层
 internal/module/appupdate/service_sidecar_stub_test.go	internal	modules	go-test	776	业务模块层	internal,module,appupdate,service,sidecar,stub,test,业务模块层
 internal/module/appupdate/service_test.go	internal	modules	go-test	29102	业务模块层	internal,module,appupdate,service,test,业务模块层
-internal/module/appupdate/service.go	internal	modules	go-source	32195	业务模块层	internal,module,appupdate,service,业务模块层
+internal/module/appupdate/service.go	internal	modules	go-source	32469	业务模块层	internal,module,appupdate,service,业务模块层
 internal/module/appupdate/stage_io.go	internal	modules	go-source	15576	业务模块层	internal,module,appupdate,stage,io,业务模块层
 internal/module/appupdate/windows_signature_test.go	internal	modules	go-test	1416	业务模块层	internal,module,appupdate,windows,signature,test,业务模块层
 internal/module/appupdate/windows_signature.go	internal	modules	go-source	4213	业务模块层	internal,module,appupdate,windows,signature,业务模块层
@@ -591,8 +591,8 @@ internal/module/thread/start_session.go	internal	modules	go-source	26196	thread 
 internal/module/thread/startconfig/sandbox.go	internal	modules	go-source	2659	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,startconfig,sandbox,start,resume,fork,stop,生命周期与绑定真相源
 internal/module/thread/stop_shard16_support_test.go	internal	modules	go-test	7838	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,stop,shard16,support,test,start,resume,fork,生命周期与绑定真相源
 internal/module/thread/stop_stale_runtime_test.go	internal	modules	go-test	1439	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,stop,stale,runtime,test,start,resume,fork,生命周期与绑定真相源
-internal/module/thread/stop_test.go	internal	modules	go-test	26158	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,stop,test,start,resume,fork,生命周期与绑定真相源
-internal/module/thread/stop.go	internal	modules	go-source	15096	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,stop,start,resume,fork,生命周期与绑定真相源
+internal/module/thread/stop_test.go	internal	modules	go-test	28034	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,stop,test,start,resume,fork,生命周期与绑定真相源
+internal/module/thread/stop.go	internal	modules	go-source	16208	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,stop,start,resume,fork,生命周期与绑定真相源
 internal/module/thread/thread_agents_test.go	internal	modules	go-test	991	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,agents,test,start,resume,fork,stop,生命周期与绑定真相源
 internal/module/thread/title_extract_test.go	internal	modules	go-test	3542	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,title,extract,test,start,resume,fork,stop,生命周期与绑定真相源
 internal/module/thread/titleextract/title.go	internal	modules	go-source	5346	thread start/resume/fork/stop 生命周期与绑定真相源	internal,module,thread,titleextract,title,start,resume,fork,stop,生命周期与绑定真相源
@@ -692,7 +692,7 @@ internal/module/uistate/diff_state_test.go	internal	modules	go-test	7164	UI 事�
 internal/module/uistate/diff_state.go	internal	modules	go-source	7841	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,diff,state,UI,事件投影,sidebar,timeline,状态
 internal/module/uistate/factory.go	internal	modules	go-source	3986	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,factory,UI,事件投影,sidebar,timeline,状态
 internal/module/uistate/model_providers_test.go	internal	modules	go-test	11269	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,model,providers,test,UI,事件投影,sidebar,timeline,状态
-internal/module/uistate/model_providers_wire_test.go	internal	modules	go-test	3940	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,model,providers,wire,test,UI,事件投影,sidebar,timeline,状态
+internal/module/uistate/model_providers_wire_test.go	internal	modules	go-test	3956	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,model,providers,wire,test,UI,事件投影,sidebar,timeline,状态
 internal/module/uistate/model_providers.go	internal	modules	go-source	14905	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,model,providers,UI,事件投影,sidebar,timeline,状态
 internal/module/uistate/module_runtime_test.go	internal	modules	go-test	7181	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,runtime,test,UI,事件投影,sidebar,timeline,状态
 internal/module/uistate/module.go	internal	modules	go-source	7519	UI 事件投影、sidebar/timeline 状态	internal,module,uistate,UI,事件投影,sidebar,timeline,状态

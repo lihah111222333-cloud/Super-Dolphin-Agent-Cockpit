@@ -29,12 +29,20 @@ function createActionHarness() {
       const prepared = {
         abort: vi.fn(),
         commit: vi.fn(),
+        generation: 1,
+        previousScope: '/repo/app',
         scope,
       };
       preparedScopes.push(prepared);
       return Promise.resolve(prepared);
     }),
     rebindBridgeEventScope: vi.fn(() => Promise.resolve(true)),
+    restorePreparedBridgeEventScope: vi.fn(async (prepared) => {
+      prepared.abort();
+      const { previousScope } = prepared;
+      await runtime.rebindBridgeEventScope(previousScope);
+      return true;
+    }),
     refreshChatSurfaceForCwdInBackground: vi.fn(),
     requireProjectScopeCwd: vi.fn(() => '/repo/app'),
     saveActiveComposerDraft: vi.fn(),
@@ -148,9 +156,9 @@ describe('projectSliceActions', () => {
 
     expect(runtime.prepareBridgeEventScope).toHaveBeenCalledWith('/repo/newer');
     expect(preparedScopes).toHaveLength(1);
-    expect(preparedScopes[0].abort).toHaveBeenCalledTimes(1);
+    expect(preparedScopes[0].abort).toHaveBeenCalledTimes(2);
     expect(preparedScopes[0].commit).not.toHaveBeenCalled();
-    expect(runtime.rebindBridgeEventScope).not.toHaveBeenCalled();
+    expect(runtime.rebindBridgeEventScope).toHaveBeenCalledWith('/repo/app');
     expect(state()).toEqual({
       activeProject: '/repo/app',
       projects: ['/repo/app', '/repo/older', '/repo/newer'],
@@ -221,5 +229,40 @@ describe('projectSliceActions', () => {
     expect(deps.setActiveProject).not.toHaveBeenCalled();
     expect(runtime.refreshChatSurfaceForCwdInBackground).not.toHaveBeenCalled();
     expect(runtime.notifyAction).toHaveBeenCalledWith('切换项目失败，请重试。', 'error');
+  });
+
+  it('restores the previous bridge scope when the backend rejects after preparation', async () => {
+    const { action, deps, runtime, state } = createActionHarness();
+    const backendError = new Error('project backend offline');
+    deps.setActiveProject.mockRejectedValueOnce(backendError);
+
+    await expect(action('/repo/newer')).rejects.toBe(backendError);
+
+    expect(runtime.prepareBridgeEventScope).toHaveBeenCalledWith('/repo/newer');
+    expect(runtime.restorePreparedBridgeEventScope).toHaveBeenCalledWith(expect.objectContaining({
+      generation: 1,
+      previousScope: '/repo/app',
+    }));
+    expect(runtime.rebindBridgeEventScope).toHaveBeenCalledWith('/repo/app');
+    expect(state().activeProject).toBe('/repo/app');
+  });
+
+  it('marks bootstrap failed when restoring the previous bridge scope fails', async () => {
+    const { action, deps, runtime, state } = createActionHarness();
+    const backendError = new Error('project backend offline');
+    deps.setActiveProject.mockRejectedValueOnce(backendError);
+    runtime.restorePreparedBridgeEventScope.mockRejectedValueOnce(new Error('bridge restore failed'));
+
+    await expect(action('/repo/newer')).rejects.toBe(backendError);
+
+    expect(state()).toEqual(expect.objectContaining({
+      bootstrapStatus: 'failed',
+      error: '连接后端失败，请重试。',
+    }));
+    expect(runtime.addWarning).toHaveBeenCalledWith(
+      'error',
+      'project.scope.restore_failed',
+      expect.objectContaining({ path: '/repo/newer' }),
+    );
   });
 });

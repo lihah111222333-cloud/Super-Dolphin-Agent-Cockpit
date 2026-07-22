@@ -579,12 +579,72 @@ func hookPayload(t *testing.T, topic, kind string, event any) mcp.HookPayload {
 	}
 }
 
-// TestHookConsumerTurnFailedReportsErrorToParent locks the report回传
-// path for a failed child-agent turn: the turn carries its detail in
-// TurnCompleted.Error (result/summary/message are empty), so without
-// the error fallback the parent agent's get_agent_report sees an empty
-// report / "not found" and the failure is silently lost.
-func TestHookConsumerTurnFailedReportsErrorToParent(t *testing.T) {
+// TestHookConsumerTurnFailedReportUsesCanonicalPublicError locks the safe
+// report boundary consumed by get_agent_report.
+func TestHookConsumerTurnFailedReportUsesCanonicalPublicError(t *testing.T) {
+	svc := NewService(silentLogger(), event.NewDispatcher(), nil, nil, nil, nil)
+	agent := addHookTestAgent(t, svc, "agent-1")
+	agent.state = agentdto.StateTurnRunning
+	agent.threadID = "thread-1"
+	agent.remoteThreadID = "thread-1"
+	agent.activeTurnID = "turn-1"
+
+	occurredAt := time.Date(2026, 7, 21, 19, 1, 25, 0, time.UTC)
+	rawFailure := turndto.TurnCompleted{
+		TurnHeader: sharedto.TurnHeader{
+			AgentHeader:  sharedto.AgentHeader{ThreadHeader: sharedto.ThreadHeader{EventHeader: sharedto.EventHeader{Timestamp: occurredAt}, ThreadID: "thread-1"}, AgentID: "agent-1"},
+			TurnIDHeader: sharedto.TurnIDHeader{TurnID: "turn-1"},
+		},
+		Success:    false,
+		Status:     "failed",
+		Result:     "result raw-secret-marker",
+		Summary:    "summary /private/provider/workspace",
+		Message:    "message command://remove-private-data",
+		Error:      "error raw-secret-marker",
+		Reason:     "reason /private/provider/workspace",
+		StopReason: "stop command://remove-private-data",
+	}
+	safeFailure, err := turndto.AttachCanonicalTurnTerminal(rawFailure, turndto.TurnTerminalV2{
+		SchemaVersion: 2,
+		EventID:       "event-safe-failure",
+		ThreadID:      "thread-1",
+		TurnID:        "turn-1",
+		Outcome:       "failed",
+		PublicError: &turndto.PublicErrorV1{
+			Code:            "PROVIDER_FAILED",
+			Title:           "Execution failed",
+			Message:         "Provider could not complete the request.",
+			DiagnosticID:    "diag-public-01",
+			Retryable:       false,
+			RecoveryActions: []string{},
+		},
+		OccurredAt: occurredAt.Format(time.RFC3339),
+	})
+	if err != nil {
+		t.Fatalf("AttachCanonicalTurnTerminal() error = %v", err)
+	}
+	consumer := newHookConsumer(svc, silentLogger())
+	consumer.handleTurnCompleted(context.Background(), safeFailure)
+
+	report, err := svc.GetReport(context.Background(), "agent-1")
+	if err != nil {
+		t.Fatalf("GetReport() error = %v", err)
+	}
+	for _, want := range []string{"Provider could not complete the request.", "diag-public-01"} {
+		if !strings.Contains(report.Report, want) {
+			t.Fatalf("report.Report = %q, want canonical public field %q", report.Report, want)
+		}
+	}
+	for _, secret := range []string{"raw-secret-marker", "/private/provider/workspace", "command://remove-private-data"} {
+		if strings.Contains(report.Report, secret) {
+			t.Fatalf("report.Report = %q, leaked raw failure field %q", report.Report, secret)
+		}
+	}
+}
+
+// TestHookConsumerTurnFailedReportFailsClosedWithoutCanonical verifies legacy
+// hook payloads cannot publish raw provider failure fields.
+func TestHookConsumerTurnFailedReportFailsClosedWithoutCanonical(t *testing.T) {
 	svc := NewService(silentLogger(), event.NewDispatcher(), nil, nil, nil, nil)
 	agent := addHookTestAgent(t, svc, "agent-1")
 	agent.state = agentdto.StateTurnRunning
@@ -593,20 +653,39 @@ func TestHookConsumerTurnFailedReportsErrorToParent(t *testing.T) {
 	agent.activeTurnID = "turn-1"
 
 	consumer := newHookConsumer(svc, silentLogger())
-	consumer.handleTurnCompleted(context.Background(), turndto.TurnCompleted{
+	failure := turndto.TurnCompleted{
 		TurnHeader: sharedto.TurnHeader{
 			AgentHeader:  sharedto.AgentHeader{ThreadHeader: sharedto.ThreadHeader{ThreadID: "thread-1"}, AgentID: "agent-1"},
 			TurnIDHeader: sharedto.TurnIDHeader{TurnID: "turn-1"},
 		},
-		Success: false,
-		Error:   "child agent denied tool permission",
-	})
+		Success:    false,
+		Status:     "failed",
+		Result:     "result missing-raw-secret-marker",
+		Error:      "error /private/provider/missing",
+		StopReason: "command://read-private-key",
+	}
+	if _, err := consumer.After(context.Background(), hookPayload(t, hookTopicTurnAfter, hookRelayKindTurnCompleted, failure)); err != nil {
+		t.Fatalf("After(turn failed) error = %v", err)
+	}
 
 	report, err := svc.GetReport(context.Background(), "agent-1")
 	if err != nil {
 		t.Fatalf("GetReport() error = %v", err)
 	}
-	if !strings.Contains(report.Report, "child agent denied tool permission") {
-		t.Fatalf("report.Report = %q, want it to carry the failed turn's error detail", report.Report)
+	if !strings.Contains(report.Report, "safe public error unavailable") {
+		t.Fatalf("report.Report = %q, want fail-closed public fallback", report.Report)
+	}
+	for _, secret := range []string{"missing-raw-secret-marker", "/private/provider/missing", "command://read-private-key"} {
+		if strings.Contains(report.Report, secret) {
+			t.Fatalf("report.Report = %q, leaked raw failure field %q", report.Report, secret)
+		}
+	}
+}
+
+func TestTurnCompletedReportTextPreservesSuccessfulAssistantText(t *testing.T) {
+	want := "Success output intentionally mentions /example/assistant/path and assistant-secret-marker."
+	got := turnCompletedReportText(turndto.TurnCompleted{Success: true, Result: want})
+	if got != want {
+		t.Fatalf("turnCompletedReportText() = %q, want exact assistant text %q", got, want)
 	}
 }

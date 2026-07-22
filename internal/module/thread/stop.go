@@ -20,6 +20,13 @@ type threadStopState struct {
 	binding   *threadBindingStoreRecord // 当前 thread 对应的 provider binding
 }
 
+// threadRuntimeStopOutcome 保存运行时收束成功后、持久化完成前必须携带的状态。
+// releaseResume 维持恢复阻断，interruptErr 延迟到 durable finalization 完成后再返回。
+type threadRuntimeStopOutcome struct {
+	releaseResume func()
+	interruptErr  error
+}
+
 // errResumeLifecycleBlocked 标记恢复请求被停止/归档生命周期阻断。
 var errResumeLifecycleBlocked = errors.New("thread resume blocked by lifecycle state")
 
@@ -234,13 +241,13 @@ func (s *service) Stop(ctx context.Context, threadID string) error {
 			return err
 		}
 	}
-	releaseResume, err := s.stopThreadRuntime(ctx, stopState, "thread_stopped", false)
+	runtimeStop, err := s.stopThreadRuntimeUntilDurable(ctx, stopState, "thread_stopped", false)
 	if err != nil {
 		return err
 	}
-	defer releaseResume()
+	defer runtimeStop.releaseResume()
 	if err := s.updateThreadStatus(ctx, stopState.stoppedID, statusStopped); err != nil {
-		return err
+		return errors.Join(runtimeStop.interruptErr, err)
 	}
 	cleanupErr := s.cleanupThreadScratchpad(ctx, stopState.stoppedID, stopState.binding)
 	for _, id := range stopState.targets {
@@ -248,7 +255,10 @@ func (s *service) Stop(ctx context.Context, threadID string) error {
 	}
 	turnCleanupErr := s.cleanupThreadTurns(ctx, "thread_stopped", stopState.targets...)
 	s.publishThreadStopped(stopState.stoppedID, stopState.agentID, statusStopped, "stopped")
-	return newLifecyclePartialCleanupError("stop", errors.Join(cleanupErr, turnCleanupErr))
+	return newLifecyclePartialCleanupError(
+		"stop",
+		errors.Join(runtimeStop.interruptErr, cleanupErr, turnCleanupErr),
+	)
 }
 
 // stopPendingLaunchThread 停止待处理启动线程。
@@ -307,6 +317,25 @@ func (s *service) stopThreadRuntime(
 	source string,
 	allowMissingAgent bool,
 ) (func(), error) {
+	result, err := s.stopThreadRuntimeUntilDurable(ctx, stopState, source, allowMissingAgent)
+	if err != nil {
+		return nil, err
+	}
+	if result.interruptErr != nil {
+		result.releaseResume()
+		return nil, result.interruptErr
+	}
+	return result.releaseResume, nil
+}
+
+// stopThreadRuntimeUntilDurable 收束运行时并维持恢复阻断，供调用方完成 durable finalization。
+// interrupt 失败不代表 teardown 失败，因此单独携带，只有 session/agent 收束失败才立即返回。
+func (s *service) stopThreadRuntimeUntilDurable(
+	ctx context.Context,
+	stopState threadStopState,
+	source string,
+	allowMissingAgent bool,
+) (threadRuntimeStopOutcome, error) {
 	pkglogger.Info("thread: stopThreadRuntime ENTERED",
 		"agent_id", stopState.agentID,
 		"stopped_id", stopState.stoppedID,
@@ -324,7 +353,7 @@ func (s *service) stopThreadRuntime(
 				"agent_id", stopState.agentID,
 				"error", err,
 			)
-			return nil, errors.Join(interruptErr, err)
+			return threadRuntimeStopOutcome{}, errors.Join(interruptErr, err)
 		}
 		localSessionGone = true
 	}
@@ -335,13 +364,12 @@ func (s *service) stopThreadRuntime(
 			"agent_id", stopState.agentID,
 			"error", err,
 		)
-		return nil, errors.Join(interruptErr, err)
+		return threadRuntimeStopOutcome{}, errors.Join(interruptErr, err)
 	}
-	if interruptErr != nil {
-		releaseResume()
-		return nil, interruptErr
-	}
-	return releaseResume, nil
+	return threadRuntimeStopOutcome{
+		releaseResume: releaseResume,
+		interruptErr:  interruptErr,
+	}, nil
 }
 
 // interruptStoppingThread 在停止 provider 前尝试中断活跃 turn。

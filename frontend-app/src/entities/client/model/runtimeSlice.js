@@ -157,7 +157,18 @@ function createLifecycleActions(runtime, deps) {
         throw error;
       }
     };
-    transition = { abort, commit, unsubscribe: abort };
+    const previousScope = runtime.assistantEventScope || currentChatScope(runtime);
+    if (!previousScope || previousScope === '.') {
+      abort();
+      throw new Error('runtime bridge previous scope is required');
+    }
+    transition = {
+      abort,
+      commit,
+      generation: rebindGeneration,
+      previousScope,
+      unsubscribe: abort,
+    };
     runtime.pendingBridgeScopeRebind = transition;
     try {
       await subscription.ready;
@@ -176,6 +187,29 @@ function createLifecycleActions(runtime, deps) {
   const rebindBridgeEventScope = async (scope) => {
     const transition = await prepareBridgeEventScope(scope);
     return transition.commit();
+  };
+
+  const restorePreparedBridgeEventScope = async (prepared) => {
+    const generation = Number(prepared?.generation ?? prepared?.rebindGeneration);
+    const previousScope = typeof prepared?.previousScope === 'string' ? prepared.previousScope : '';
+    if (typeof prepared?.abort !== 'function'
+      || !Number.isSafeInteger(generation)
+      || generation < 1
+      || !previousScope
+      || previousScope === '.') {
+      throw new Error('runtime prepared bridge scope is invalid');
+    }
+    if (generation !== runtime.bridgeScopeRebindGeneration) return false;
+    const restoreGeneration = runtime.bridgeScopeRebindGeneration + 1;
+    try {
+      prepared.abort();
+      await rebindBridgeEventScope(previousScope);
+      return true;
+    }
+    catch (error) {
+      if (restoreGeneration !== runtime.bridgeScopeRebindGeneration) return false;
+      throw error;
+    }
   };
 
   const destroy = () => {
@@ -200,11 +234,22 @@ function createLifecycleActions(runtime, deps) {
     runtime.observedTurnByThread?.clear();
     runtime.retiredTurnRefs?.clear();
     runtime.assistantEventLedgersByScope?.clear();
+    runtime.agentFailureNoticeLedger?.clear();
     runtime.sidebarRefreshSeq += 1;
   };
 
-  Object.assign(runtime, { prepareBridgeEventScope, rebindBridgeEventScope });
-  return { initializeEvents, prepareBridgeEventScope, rebindBridgeEventScope, destroy };
+  Object.assign(runtime, {
+    prepareBridgeEventScope,
+    rebindBridgeEventScope,
+    restorePreparedBridgeEventScope,
+  });
+  return {
+    initializeEvents,
+    prepareBridgeEventScope,
+    rebindBridgeEventScope,
+    restorePreparedBridgeEventScope,
+    destroy,
+  };
 }
 
 function scopedBridgeEventHandler(runtime, options = {}) {

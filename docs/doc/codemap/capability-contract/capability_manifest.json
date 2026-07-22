@@ -453,6 +453,7 @@
         "cmd/mcp-orch/orchestration.*turnController.claimTurnWork",
         "cmd/mcp-orch/orchestration.*turnController.clearPendingProviderTurnStart",
         "cmd/mcp-orch/orchestration.*turnController.clearRemoteTerminalsForThread",
+        "cmd/mcp-orch/orchestration.*turnController.compensateProviderTurnStart",
         "cmd/mcp-orch/orchestration.*turnController.deferProviderTurnCompletion",
         "cmd/mcp-orch/orchestration.*turnController.enqueueLocalTurnSubmission",
         "cmd/mcp-orch/orchestration.*turnController.ensureTurnAbortableLocked",
@@ -465,6 +466,8 @@
         "cmd/mcp-orch/orchestration.*turnController.finishRemoteTurnSubmitSuccess",
         "cmd/mcp-orch/orchestration.*turnController.finishTurnStartFailure",
         "cmd/mcp-orch/orchestration.*turnController.finishTurnStartSuccess",
+        "cmd/mcp-orch/orchestration.*turnController.finishTurnStartSuccessFenced",
+        "cmd/mcp-orch/orchestration.*turnController.finishTurnStartSuccessLocked",
         "cmd/mcp-orch/orchestration.*turnController.fireOrForceLocked",
         "cmd/mcp-orch/orchestration.*turnController.handleRemoteTurnSubmitError",
         "cmd/mcp-orch/orchestration.*turnController.interruptAgentSnapshot",
@@ -485,7 +488,6 @@
         "cmd/mcp-orch/orchestration.*turnController.routeRemoteTurnTerminalLocked",
         "cmd/mcp-orch/orchestration.*turnController.startTurnExecution",
         "cmd/mcp-orch/orchestration.*turnController.submitAgentReadyState",
-        "cmd/mcp-orch/orchestration.*turnController.takePendingProviderTurnCompletion",
         "cmd/mcp-orch/orchestration.*turnController.takePendingRemoteTerminalsLocked",
         "cmd/mcp-orch/orchestration.*turnController.trySubmitRemoteTurn",
         "cmd/mcp-orch/orchestration.*turnController.turnIDFor",
@@ -665,6 +667,7 @@
         "cmd/mcp-orch/orchestration.clearAgentLifecycleErrorLocked",
         "cmd/mcp-orch/orchestration.clearAgentStopReasonLocked",
         "cmd/mcp-orch/orchestration.clearAgentTurnStateLocked",
+        "cmd/mcp-orch/orchestration.clearProviderTurnStartFenceLocked",
         "cmd/mcp-orch/orchestration.clearTerminalActiveTurnLocked",
         "cmd/mcp-orch/orchestration.cloneStringPtr",
         "cmd/mcp-orch/orchestration.cloneTurnSubmission",
@@ -830,6 +833,7 @@
         "cmd/mcp-orch/orchestration.mapDAGNodes",
         "cmd/mcp-orch/orchestration.mapDAGSummaries",
         "cmd/mcp-orch/orchestration.mapRuns",
+        "cmd/mcp-orch/orchestration.matchingPendingProviderTerminal",
         "cmd/mcp-orch/orchestration.matchingRemoteTerminals",
         "cmd/mcp-orch/orchestration.materializeArtifactAfterClaim",
         "cmd/mcp-orch/orchestration.materializeSharedfileAfterClaim",
@@ -912,6 +916,8 @@
         "cmd/mcp-orch/orchestration.processPID",
         "cmd/mcp-orch/orchestration.providerTurnAlias",
         "cmd/mcp-orch/orchestration.providerTurnCompletionFingerprint",
+        "cmd/mcp-orch/orchestration.providerTurnStartFence",
+        "cmd/mcp-orch/orchestration.providerTurnStartFenceMatchesLocked",
         "cmd/mcp-orch/orchestration.publicOrchestrationError",
         "cmd/mcp-orch/orchestration.publishAgentFailedEvent",
         "cmd/mcp-orch/orchestration.publishAgentLaunchedEvent",
@@ -1066,6 +1072,7 @@
         "cmd/mcp-orch/orchestration.trimStringPtr",
         "cmd/mcp-orch/orchestration.truncateWakeupError",
         "cmd/mcp-orch/orchestration.turnCompletedEventMatchesAgentThread",
+        "cmd/mcp-orch/orchestration.turnCompletedInternalFailureDetail",
         "cmd/mcp-orch/orchestration.turnCompletedReportText",
         "cmd/mcp-orch/orchestration.turnController",
         "cmd/mcp-orch/orchestration.turnControllerDeps",
@@ -5186,6 +5193,7 @@
         "cmd/mcp-orch/orchestration.*turnController.claimTurnWork",
         "cmd/mcp-orch/orchestration.*turnController.clearPendingProviderTurnStart",
         "cmd/mcp-orch/orchestration.*turnController.clearRemoteTerminalsForThread",
+        "cmd/mcp-orch/orchestration.*turnController.compensateProviderTurnStart",
         "cmd/mcp-orch/orchestration.*turnController.deferProviderTurnCompletion",
         "cmd/mcp-orch/orchestration.*turnController.enqueueLocalTurnSubmission",
         "cmd/mcp-orch/orchestration.*turnController.ensureTurnAbortableLocked",
@@ -5198,6 +5206,8 @@
         "cmd/mcp-orch/orchestration.*turnController.finishRemoteTurnSubmitSuccess",
         "cmd/mcp-orch/orchestration.*turnController.finishTurnStartFailure",
         "cmd/mcp-orch/orchestration.*turnController.finishTurnStartSuccess",
+        "cmd/mcp-orch/orchestration.*turnController.finishTurnStartSuccessFenced",
+        "cmd/mcp-orch/orchestration.*turnController.finishTurnStartSuccessLocked",
         "cmd/mcp-orch/orchestration.*turnController.fireOrForceLocked",
         "cmd/mcp-orch/orchestration.*turnController.handleRemoteTurnSubmitError",
         "cmd/mcp-orch/orchestration.*turnController.interruptAgentSnapshot",
@@ -5218,7 +5228,6 @@
         "cmd/mcp-orch/orchestration.*turnController.routeRemoteTurnTerminalLocked",
         "cmd/mcp-orch/orchestration.*turnController.startTurnExecution",
         "cmd/mcp-orch/orchestration.*turnController.submitAgentReadyState",
-        "cmd/mcp-orch/orchestration.*turnController.takePendingProviderTurnCompletion",
         "cmd/mcp-orch/orchestration.*turnController.takePendingRemoteTerminalsLocked",
         "cmd/mcp-orch/orchestration.*turnController.trySubmitRemoteTurn",
         "cmd/mcp-orch/orchestration.*turnController.turnIDFor",
@@ -5398,6 +5407,7 @@
         "cmd/mcp-orch/orchestration.clearAgentLifecycleErrorLocked",
         "cmd/mcp-orch/orchestration.clearAgentStopReasonLocked",
         "cmd/mcp-orch/orchestration.clearAgentTurnStateLocked",
+        "cmd/mcp-orch/orchestration.clearProviderTurnStartFenceLocked",
         "cmd/mcp-orch/orchestration.clearTerminalActiveTurnLocked",
         "cmd/mcp-orch/orchestration.cloneStringPtr",
         "cmd/mcp-orch/orchestration.cloneTurnSubmission",
@@ -5563,6 +5573,7 @@
         "cmd/mcp-orch/orchestration.mapDAGNodes",
         "cmd/mcp-orch/orchestration.mapDAGSummaries",
         "cmd/mcp-orch/orchestration.mapRuns",
+        "cmd/mcp-orch/orchestration.matchingPendingProviderTerminal",
         "cmd/mcp-orch/orchestration.matchingRemoteTerminals",
         "cmd/mcp-orch/orchestration.materializeArtifactAfterClaim",
         "cmd/mcp-orch/orchestration.materializeSharedfileAfterClaim",
@@ -5645,6 +5656,8 @@
         "cmd/mcp-orch/orchestration.processPID",
         "cmd/mcp-orch/orchestration.providerTurnAlias",
         "cmd/mcp-orch/orchestration.providerTurnCompletionFingerprint",
+        "cmd/mcp-orch/orchestration.providerTurnStartFence",
+        "cmd/mcp-orch/orchestration.providerTurnStartFenceMatchesLocked",
         "cmd/mcp-orch/orchestration.publicOrchestrationError",
         "cmd/mcp-orch/orchestration.publishAgentFailedEvent",
         "cmd/mcp-orch/orchestration.publishAgentLaunchedEvent",
@@ -5799,6 +5812,7 @@
         "cmd/mcp-orch/orchestration.trimStringPtr",
         "cmd/mcp-orch/orchestration.truncateWakeupError",
         "cmd/mcp-orch/orchestration.turnCompletedEventMatchesAgentThread",
+        "cmd/mcp-orch/orchestration.turnCompletedInternalFailureDetail",
         "cmd/mcp-orch/orchestration.turnCompletedReportText",
         "cmd/mcp-orch/orchestration.turnController",
         "cmd/mcp-orch/orchestration.turnControllerDeps",
@@ -9919,6 +9933,7 @@
         "cmd/mcp-orch/orchestration.*turnController.claimTurnWork",
         "cmd/mcp-orch/orchestration.*turnController.clearPendingProviderTurnStart",
         "cmd/mcp-orch/orchestration.*turnController.clearRemoteTerminalsForThread",
+        "cmd/mcp-orch/orchestration.*turnController.compensateProviderTurnStart",
         "cmd/mcp-orch/orchestration.*turnController.deferProviderTurnCompletion",
         "cmd/mcp-orch/orchestration.*turnController.enqueueLocalTurnSubmission",
         "cmd/mcp-orch/orchestration.*turnController.ensureTurnAbortableLocked",
@@ -9931,6 +9946,8 @@
         "cmd/mcp-orch/orchestration.*turnController.finishRemoteTurnSubmitSuccess",
         "cmd/mcp-orch/orchestration.*turnController.finishTurnStartFailure",
         "cmd/mcp-orch/orchestration.*turnController.finishTurnStartSuccess",
+        "cmd/mcp-orch/orchestration.*turnController.finishTurnStartSuccessFenced",
+        "cmd/mcp-orch/orchestration.*turnController.finishTurnStartSuccessLocked",
         "cmd/mcp-orch/orchestration.*turnController.fireOrForceLocked",
         "cmd/mcp-orch/orchestration.*turnController.handleRemoteTurnSubmitError",
         "cmd/mcp-orch/orchestration.*turnController.interruptAgentSnapshot",
@@ -9951,7 +9968,6 @@
         "cmd/mcp-orch/orchestration.*turnController.routeRemoteTurnTerminalLocked",
         "cmd/mcp-orch/orchestration.*turnController.startTurnExecution",
         "cmd/mcp-orch/orchestration.*turnController.submitAgentReadyState",
-        "cmd/mcp-orch/orchestration.*turnController.takePendingProviderTurnCompletion",
         "cmd/mcp-orch/orchestration.*turnController.takePendingRemoteTerminalsLocked",
         "cmd/mcp-orch/orchestration.*turnController.trySubmitRemoteTurn",
         "cmd/mcp-orch/orchestration.*turnController.turnIDFor",
@@ -10131,6 +10147,7 @@
         "cmd/mcp-orch/orchestration.clearAgentLifecycleErrorLocked",
         "cmd/mcp-orch/orchestration.clearAgentStopReasonLocked",
         "cmd/mcp-orch/orchestration.clearAgentTurnStateLocked",
+        "cmd/mcp-orch/orchestration.clearProviderTurnStartFenceLocked",
         "cmd/mcp-orch/orchestration.clearTerminalActiveTurnLocked",
         "cmd/mcp-orch/orchestration.cloneStringPtr",
         "cmd/mcp-orch/orchestration.cloneTurnSubmission",
@@ -10296,6 +10313,7 @@
         "cmd/mcp-orch/orchestration.mapDAGNodes",
         "cmd/mcp-orch/orchestration.mapDAGSummaries",
         "cmd/mcp-orch/orchestration.mapRuns",
+        "cmd/mcp-orch/orchestration.matchingPendingProviderTerminal",
         "cmd/mcp-orch/orchestration.matchingRemoteTerminals",
         "cmd/mcp-orch/orchestration.materializeArtifactAfterClaim",
         "cmd/mcp-orch/orchestration.materializeSharedfileAfterClaim",
@@ -10378,6 +10396,8 @@
         "cmd/mcp-orch/orchestration.processPID",
         "cmd/mcp-orch/orchestration.providerTurnAlias",
         "cmd/mcp-orch/orchestration.providerTurnCompletionFingerprint",
+        "cmd/mcp-orch/orchestration.providerTurnStartFence",
+        "cmd/mcp-orch/orchestration.providerTurnStartFenceMatchesLocked",
         "cmd/mcp-orch/orchestration.publicOrchestrationError",
         "cmd/mcp-orch/orchestration.publishAgentFailedEvent",
         "cmd/mcp-orch/orchestration.publishAgentLaunchedEvent",
@@ -10532,6 +10552,7 @@
         "cmd/mcp-orch/orchestration.trimStringPtr",
         "cmd/mcp-orch/orchestration.truncateWakeupError",
         "cmd/mcp-orch/orchestration.turnCompletedEventMatchesAgentThread",
+        "cmd/mcp-orch/orchestration.turnCompletedInternalFailureDetail",
         "cmd/mcp-orch/orchestration.turnCompletedReportText",
         "cmd/mcp-orch/orchestration.turnController",
         "cmd/mcp-orch/orchestration.turnControllerDeps",
@@ -14652,6 +14673,7 @@
         "cmd/mcp-orch/orchestration.*turnController.claimTurnWork",
         "cmd/mcp-orch/orchestration.*turnController.clearPendingProviderTurnStart",
         "cmd/mcp-orch/orchestration.*turnController.clearRemoteTerminalsForThread",
+        "cmd/mcp-orch/orchestration.*turnController.compensateProviderTurnStart",
         "cmd/mcp-orch/orchestration.*turnController.deferProviderTurnCompletion",
         "cmd/mcp-orch/orchestration.*turnController.enqueueLocalTurnSubmission",
         "cmd/mcp-orch/orchestration.*turnController.ensureTurnAbortableLocked",
@@ -14664,6 +14686,8 @@
         "cmd/mcp-orch/orchestration.*turnController.finishRemoteTurnSubmitSuccess",
         "cmd/mcp-orch/orchestration.*turnController.finishTurnStartFailure",
         "cmd/mcp-orch/orchestration.*turnController.finishTurnStartSuccess",
+        "cmd/mcp-orch/orchestration.*turnController.finishTurnStartSuccessFenced",
+        "cmd/mcp-orch/orchestration.*turnController.finishTurnStartSuccessLocked",
         "cmd/mcp-orch/orchestration.*turnController.fireOrForceLocked",
         "cmd/mcp-orch/orchestration.*turnController.handleRemoteTurnSubmitError",
         "cmd/mcp-orch/orchestration.*turnController.interruptAgentSnapshot",
@@ -14684,7 +14708,6 @@
         "cmd/mcp-orch/orchestration.*turnController.routeRemoteTurnTerminalLocked",
         "cmd/mcp-orch/orchestration.*turnController.startTurnExecution",
         "cmd/mcp-orch/orchestration.*turnController.submitAgentReadyState",
-        "cmd/mcp-orch/orchestration.*turnController.takePendingProviderTurnCompletion",
         "cmd/mcp-orch/orchestration.*turnController.takePendingRemoteTerminalsLocked",
         "cmd/mcp-orch/orchestration.*turnController.trySubmitRemoteTurn",
         "cmd/mcp-orch/orchestration.*turnController.turnIDFor",
@@ -14864,6 +14887,7 @@
         "cmd/mcp-orch/orchestration.clearAgentLifecycleErrorLocked",
         "cmd/mcp-orch/orchestration.clearAgentStopReasonLocked",
         "cmd/mcp-orch/orchestration.clearAgentTurnStateLocked",
+        "cmd/mcp-orch/orchestration.clearProviderTurnStartFenceLocked",
         "cmd/mcp-orch/orchestration.clearTerminalActiveTurnLocked",
         "cmd/mcp-orch/orchestration.cloneStringPtr",
         "cmd/mcp-orch/orchestration.cloneTurnSubmission",
@@ -15029,6 +15053,7 @@
         "cmd/mcp-orch/orchestration.mapDAGNodes",
         "cmd/mcp-orch/orchestration.mapDAGSummaries",
         "cmd/mcp-orch/orchestration.mapRuns",
+        "cmd/mcp-orch/orchestration.matchingPendingProviderTerminal",
         "cmd/mcp-orch/orchestration.matchingRemoteTerminals",
         "cmd/mcp-orch/orchestration.materializeArtifactAfterClaim",
         "cmd/mcp-orch/orchestration.materializeSharedfileAfterClaim",
@@ -15111,6 +15136,8 @@
         "cmd/mcp-orch/orchestration.processPID",
         "cmd/mcp-orch/orchestration.providerTurnAlias",
         "cmd/mcp-orch/orchestration.providerTurnCompletionFingerprint",
+        "cmd/mcp-orch/orchestration.providerTurnStartFence",
+        "cmd/mcp-orch/orchestration.providerTurnStartFenceMatchesLocked",
         "cmd/mcp-orch/orchestration.publicOrchestrationError",
         "cmd/mcp-orch/orchestration.publishAgentFailedEvent",
         "cmd/mcp-orch/orchestration.publishAgentLaunchedEvent",
@@ -15265,6 +15292,7 @@
         "cmd/mcp-orch/orchestration.trimStringPtr",
         "cmd/mcp-orch/orchestration.truncateWakeupError",
         "cmd/mcp-orch/orchestration.turnCompletedEventMatchesAgentThread",
+        "cmd/mcp-orch/orchestration.turnCompletedInternalFailureDetail",
         "cmd/mcp-orch/orchestration.turnCompletedReportText",
         "cmd/mcp-orch/orchestration.turnController",
         "cmd/mcp-orch/orchestration.turnControllerDeps",
@@ -18957,13 +18985,13 @@
   ],
   "summary": {
     "total_packages": 41,
-    "total_functions": 2295,
-    "total_methods": 1220,
+    "total_functions": 2299,
+    "total_methods": 1222,
     "total_interfaces": 186,
     "total_interface_methods": 370,
     "total_exported": 1267,
-    "total_unexported": 3051,
-    "total_structs": 617
+    "total_unexported": 3058,
+    "total_structs": 618
   },
   "packages": [
     {
@@ -20319,6 +20347,20 @@
             {
               "name": "agent",
               "type": "*agentRuntime"
+            }
+          ]
+        },
+        {
+          "name": "clearProviderTurnStartFenceLocked",
+          "exported": false,
+          "params": [
+            {
+              "name": "agent",
+              "type": "*agentRuntime"
+            },
+            {
+              "name": "fence",
+              "type": "providerTurnStartFence"
             }
           ]
         },
@@ -22377,6 +22419,23 @@
           ]
         },
         {
+          "name": "matchingPendingProviderTerminal",
+          "exported": false,
+          "params": [
+            {
+              "name": "pending",
+              "type": "*turndto.TurnCompleted"
+            },
+            {
+              "name": "providerTurnID",
+              "type": "string"
+            }
+          ],
+          "returns": [
+            "*turndto.TurnCompleted"
+          ]
+        },
+        {
           "name": "matchingRemoteTerminals",
           "exported": false,
           "params": [
@@ -23588,6 +23647,23 @@
           ],
           "returns": [
             "[]byte"
+          ]
+        },
+        {
+          "name": "providerTurnStartFenceMatchesLocked",
+          "exported": false,
+          "params": [
+            {
+              "name": "agent",
+              "type": "*agentRuntime"
+            },
+            {
+              "name": "fence",
+              "type": "providerTurnStartFence"
+            }
+          ],
+          "returns": [
+            "bool"
           ]
         },
         {
@@ -25104,6 +25180,19 @@
           ],
           "returns": [
             "bool"
+          ]
+        },
+        {
+          "name": "turnCompletedInternalFailureDetail",
+          "exported": false,
+          "params": [
+            {
+              "name": "ev",
+              "type": "turndto.TurnCompleted"
+            }
+          ],
+          "returns": [
+            "string"
           ]
         },
         {
@@ -32854,6 +32943,10 @@
               "name": "work",
               "type": "turnWork"
             }
+          ],
+          "returns": [
+            "providerTurnStartFence",
+            "error"
           ]
         },
         {
@@ -33009,6 +33102,24 @@
           ],
           "returns": [
             "remoteTerminalSealStats"
+          ]
+        },
+        {
+          "receiver": "*turnController",
+          "name": "compensateProviderTurnStart",
+          "exported": false,
+          "params": [
+            {
+              "name": "fence",
+              "type": "providerTurnStartFence"
+            },
+            {
+              "name": "startedTurnID",
+              "type": "string"
+            }
+          ],
+          "returns": [
+            "error"
           ]
         },
         {
@@ -33226,6 +33337,55 @@
               "name": "startErr",
               "type": "error"
             }
+          ]
+        },
+        {
+          "receiver": "*turnController",
+          "name": "finishTurnStartSuccessFenced",
+          "exported": false,
+          "params": [
+            {
+              "name": "ctx",
+              "type": "context.Context"
+            },
+            {
+              "name": "fence",
+              "type": "providerTurnStartFence"
+            },
+            {
+              "name": "startedTurnID",
+              "type": "string"
+            }
+          ],
+          "returns": [
+            "error"
+          ]
+        },
+        {
+          "receiver": "*turnController",
+          "name": "finishTurnStartSuccessLocked",
+          "exported": false,
+          "params": [
+            {
+              "name": "ctx",
+              "type": "context.Context"
+            },
+            {
+              "name": "agent",
+              "type": "*agentRuntime"
+            },
+            {
+              "name": "fence",
+              "type": "providerTurnStartFence"
+            },
+            {
+              "name": "currentTurnID",
+              "type": "string"
+            }
+          ],
+          "returns": [
+            "*turndto.TurnCompleted",
+            "error"
           ]
         },
         {
@@ -33578,24 +33738,6 @@
           "returns": [
             "bool",
             "error"
-          ]
-        },
-        {
-          "receiver": "*turnController",
-          "name": "takePendingProviderTurnCompletion",
-          "exported": false,
-          "params": [
-            {
-              "name": "work",
-              "type": "turnWork"
-            },
-            {
-              "name": "providerTurnID",
-              "type": "string"
-            }
-          ],
-          "returns": [
-            "*turndto.TurnCompleted"
           ]
         },
         {
@@ -35865,6 +36007,10 @@
         },
         {
           "name": "providerTurnAlias",
+          "exported": false
+        },
+        {
+          "name": "providerTurnStartFence",
           "exported": false
         },
         {

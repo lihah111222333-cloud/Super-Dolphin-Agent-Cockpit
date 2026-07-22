@@ -20,6 +20,7 @@ import (
 	agentdto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/agent"
 	providerdto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/provider"
 	turndto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/turn"
+	platformconfig "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/config"
 	platformstatemachine "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/statemachine"
 )
 
@@ -78,14 +79,31 @@ func (c *turnController) BindActiveTurnID(ctx context.Context, agentID, expected
 	})
 }
 
-func (c *turnController) beginProviderTurnStart(work turnWork) {
-	_ = c.withAgentLocked(work.agentID, func(agent *agentRuntime) error {
-		if agent.activeTurnID == work.turnID && agent.state == agentdto.StateTurnStarting {
-			agent.pendingProviderTurnID = work.turnID
-			agent.pendingProviderTerminal = nil
+type providerTurnStartFence struct {
+	work              turnWork
+	launchSeq         uint64
+	sessionGeneration uint64
+	agent             agentRuntime
+}
+
+// beginProviderTurnStart 在调用 provider 前原子校验 turn ownership，并保存补偿所需的旧生命周期快照。
+func (c *turnController) beginProviderTurnStart(work turnWork) (providerTurnStartFence, error) {
+	fence := providerTurnStartFence{work: work}
+	err := c.withAgentLocked(work.agentID, func(agent *agentRuntime) error {
+		if agent.stopRequested {
+			return fmt.Errorf("provider turn start rejected: agent %q is stopping", agent.id)
 		}
+		if agent.activeTurnID != work.turnID || agent.state != agentdto.StateTurnStarting {
+			return fmt.Errorf("provider turn start rejected: agent %q no longer owns turn %q in starting state", agent.id, work.turnID)
+		}
+		fence.launchSeq = agent.launchSeq
+		fence.sessionGeneration = agent.sessionGeneration
+		fence.agent = *agent
+		agent.pendingProviderTurnID = work.turnID
+		agent.pendingProviderTerminal = nil
 		return nil
 	})
+	return fence, err
 }
 
 func (c *turnController) clearPendingProviderTurnStart(work turnWork) {
@@ -131,23 +149,6 @@ func providerTurnCompletionFingerprint(ev turndto.TurnCompleted) [sha256.Size]by
 		ev.AgentID, ev.ThreadID, ev.TurnID, ev.Success, ev.Error, ev.Status, ev.Reason,
 		ev.Result, ev.Summary, ev.Message, ev.StopReason, ev.TerminationRequestID, ev.PartialItemIDs)
 	return sha256.Sum256([]byte(payload))
-}
-
-func (c *turnController) takePendingProviderTurnCompletion(work turnWork, providerTurnID string) *turndto.TurnCompleted {
-	var terminal *turndto.TurnCompleted
-	_ = c.withAgentLocked(work.agentID, func(agent *agentRuntime) error {
-		if agent.pendingProviderTurnID != work.turnID {
-			return nil
-		}
-		pending := agent.pendingProviderTerminal
-		agent.pendingProviderTurnID = ""
-		agent.pendingProviderTerminal = nil
-		if pending != nil && strings.TrimSpace(pending.TurnID) == providerTurnID {
-			terminal = pending
-		}
-		return nil
-	})
-	return terminal
 }
 
 // reconcileReadyStateLocked 在进程已就绪时修正本地状态和队列状态。
@@ -201,7 +202,15 @@ func (c *turnController) startTurnExecution(ctx context.Context, work turnWork) 
 		c.finishTurnStartFailure(ctx, work, errors.New("turn starter is not configured"))
 		return
 	}
-	c.beginProviderTurnStart(work)
+	fence, err := c.beginProviderTurnStart(work)
+	if err != nil {
+		logger.Warn("orchestration: provider turn start fence rejected",
+			pkglogger.String(pkglogger.FieldAgentID, work.agentID),
+			pkglogger.String(pkglogger.FieldThreadID, work.threadID),
+			pkglogger.String(pkglogger.FieldTurnID, work.turnID),
+			pkglogger.String(pkglogger.FieldError, err.Error()))
+		return
+	}
 	startedTurnID, err := c.turnStarter.StartTurn(ctx, work.submission)
 	if err != nil {
 		logger.Warn("orchestration: turn execution start failed",
@@ -220,38 +229,149 @@ func (c *turnController) startTurnExecution(ctx context.Context, work turnWork) 
 		pkglogger.String(pkglogger.FieldComponent, "submit_turn"),
 		pkglogger.String("started_turn_id", strings.TrimSpace(startedTurnID)),
 		pkglogger.Int64(pkglogger.FieldDurationMS, time.Since(startedAt).Milliseconds()))
-	c.finishTurnStartSuccess(ctx, work, startedTurnID)
+	if err := c.finishTurnStartSuccessFenced(ctx, fence, startedTurnID); err != nil {
+		compensationErr := c.compensateProviderTurnStart(fence, startedTurnID)
+		if compensationErr != nil {
+			logger.Error("orchestration: provider turn start fence compensation failed",
+				pkglogger.String(pkglogger.FieldAgentID, work.agentID),
+				pkglogger.String(pkglogger.FieldThreadID, work.threadID),
+				pkglogger.String(pkglogger.FieldTurnID, work.turnID),
+				pkglogger.String(pkglogger.FieldError, errors.Join(err, compensationErr).Error()))
+			return
+		}
+		logger.Warn("orchestration: compensated provider turn start after fence loss",
+			pkglogger.String(pkglogger.FieldAgentID, work.agentID),
+			pkglogger.String(pkglogger.FieldThreadID, work.threadID),
+			pkglogger.String(pkglogger.FieldTurnID, work.turnID),
+			pkglogger.String(pkglogger.FieldError, err.Error()))
+	}
 }
 
-// finishTurnStartSuccess 记录 provider 接受的 turn ID，并把状态推进到运行中。
+// finishTurnStartSuccess 基于当前生命周期快照完成 provider turn 接受处理。
 func (c *turnController) finishTurnStartSuccess(ctx context.Context, work turnWork, startedTurnID string) {
+	fence := providerTurnStartFence{work: work}
+	if err := c.withAgentLocked(work.agentID, func(agent *agentRuntime) error {
+		fence.launchSeq = agent.launchSeq
+		fence.sessionGeneration = agent.sessionGeneration
+		fence.agent = *agent
+		return nil
+	}); err != nil {
+		c.log().Warn("orchestration: capture provider turn start fence failed",
+			"agent_id", work.agentID, "turn_id", work.turnID, "error", err)
+		return
+	}
+	if err := c.finishTurnStartSuccessFenced(ctx, fence, startedTurnID); err != nil {
+		c.log().Warn("orchestration: finish provider turn start failed",
+			"agent_id", work.agentID, "turn_id", work.turnID, "error", err)
+	}
+}
+
+// finishTurnStartSuccessFenced 在同一锁区校验 start fence、绑定 provider turn，并推进到运行中。
+func (c *turnController) finishTurnStartSuccessFenced(ctx context.Context, fence providerTurnStartFence, startedTurnID string) error {
+	work := fence.work
 	currentTurnID := strings.TrimSpace(startedTurnID)
 	if currentTurnID == "" {
 		currentTurnID = work.turnID
 	}
-	if currentTurnID != work.turnID {
-		if err := c.BindActiveTurnID(ctx, work.agentID, work.turnID, currentTurnID); err != nil {
-			c.clearPendingProviderTurnStart(work)
-			c.log().Warn("orchestration: failed to bind started turn id", "agent_id", work.agentID, "turn_id", currentTurnID, "error", err)
-			return
-		}
-	}
-	pendingTerminal := c.takePendingProviderTurnCompletion(work, currentTurnID)
-	if lockErr := c.withAgentLocked(work.agentID, func(agent *agentRuntime) error {
-		if agent.activeTurnID != work.turnID {
-			return nil
-		}
-		if err := c.fireOrForceLocked(ctx, agent, agentdto.TriggerTurnAccepted); err != nil {
-			c.log().Warn("orchestration: failed to mark turn running", "agent_id", agent.id, "turn_id", currentTurnID, "error", err)
-		}
-		return nil
-	}); lockErr != nil {
-		c.log().Warn("orchestration: finish turn start success lock failed",
-			"agent_id", work.agentID, "turn_id", currentTurnID, "error", lockErr)
+	var pendingTerminal *turndto.TurnCompleted
+	if err := c.withAgentLocked(work.agentID, func(agent *agentRuntime) error {
+		var err error
+		pendingTerminal, err = c.finishTurnStartSuccessLocked(ctx, agent, fence, currentTurnID)
+		return err
+	}); err != nil {
+		return err
 	}
 	if pendingTerminal != nil && c.terminalSink != nil {
 		c.terminalSink.handleBufferedProviderTurnCompletion(ctx, *pendingTerminal)
 	}
+	return nil
+}
+
+// finishTurnStartSuccessLocked 原子完成 fence 校验、别名绑定、终态提取与状态推进。
+func (c *turnController) finishTurnStartSuccessLocked(
+	ctx context.Context,
+	agent *agentRuntime,
+	fence providerTurnStartFence,
+	currentTurnID string,
+) (*turndto.TurnCompleted, error) {
+	work := fence.work
+	if !providerTurnStartFenceMatchesLocked(agent, fence) {
+		clearProviderTurnStartFenceLocked(agent, fence)
+		return nil, fmt.Errorf("provider turn start fence lost for agent %q turn %q", work.agentID, work.turnID)
+	}
+	if currentTurnID != work.turnID {
+		agent.providerTurnAlias = providerTurnAlias{localTurnID: work.turnID, providerTurnID: currentTurnID}
+	}
+	pendingTerminal := matchingPendingProviderTerminal(agent.pendingProviderTerminal, currentTurnID)
+	agent.pendingProviderTurnID = ""
+	agent.pendingProviderTerminal = nil
+	if err := c.fireOrForceLocked(ctx, agent, agentdto.TriggerTurnAccepted); err != nil {
+		return nil, fmt.Errorf("mark provider turn %q running: %w", currentTurnID, err)
+	}
+	return pendingTerminal, nil
+}
+
+// clearProviderTurnStartFenceLocked 只清理旧生命周期自身建立的 pending fence。
+func clearProviderTurnStartFenceLocked(agent *agentRuntime, fence providerTurnStartFence) {
+	if agent.pendingProviderTurnID != fence.work.turnID {
+		return
+	}
+	sameLifecycle := agent.launchSeq == fence.launchSeq &&
+		agent.sessionGeneration == fence.sessionGeneration &&
+		agent.remoteThreadID == fence.agent.remoteThreadID &&
+		agent.cmd == fence.agent.cmd
+	if !sameLifecycle && agent.activeTurnID == fence.work.turnID {
+		return
+	}
+	agent.pendingProviderTurnID = ""
+	agent.pendingProviderTerminal = nil
+}
+
+// matchingPendingProviderTerminal 返回与 provider turn 精确匹配的提前终态。
+func matchingPendingProviderTerminal(pending *turndto.TurnCompleted, providerTurnID string) *turndto.TurnCompleted {
+	if pending == nil || strings.TrimSpace(pending.TurnID) != providerTurnID {
+		return nil
+	}
+	return pending
+}
+
+// providerTurnStartFenceMatchesLocked 校验 provider 返回时仍属于发起请求的同一生命周期。
+func providerTurnStartFenceMatchesLocked(agent *agentRuntime, fence providerTurnStartFence) bool {
+	return agent != nil && !agent.stopRequested &&
+		agent.state == agentdto.StateTurnStarting && agent.activeTurnID == fence.work.turnID &&
+		agent.pendingProviderTurnID == fence.work.turnID &&
+		agent.launchSeq == fence.launchSeq && agent.sessionGeneration == fence.sessionGeneration &&
+		agent.remoteThreadID == fence.agent.remoteThreadID && agent.cmd == fence.agent.cmd
+}
+
+// compensateProviderTurnStart 对旧生命周期快照执行有界中断，并在中断失败时停止旧 session/process。
+func (c *turnController) compensateProviderTurnStart(fence providerTurnStartFence, startedTurnID string) error {
+	snapshot := fence.agent
+	snapshot.activeTurnID = strings.TrimSpace(startedTurnID)
+	if snapshot.activeTurnID == "" {
+		snapshot.activeTurnID = fence.work.turnID
+	}
+	if c.launcher == nil {
+		if snapshot.cmd == nil {
+			return errors.New("provider turn start compensation has no launcher or process snapshot")
+		}
+		return processctl.RequestStop(snapshot.cmd, snapshot.processGuard)
+	}
+	interruptCtx, cancelInterrupt := platformconfig.WithTimeout(context.Background(), platformconfig.InterruptSettleTimeout)
+	interruptErr := c.launcher.Interrupt(interruptCtx, &snapshot, "provider_start_fence_lost")
+	cancelInterrupt()
+	if interruptErr == nil {
+		return nil
+	}
+	c.log().Warn("orchestration: provider turn start compensation interrupt failed; stopping old lifecycle",
+		"agent_id", fence.work.agentID, "turn_id", snapshot.activeTurnID, "error", interruptErr)
+	stopCtx, cancelStop := platformconfig.WithTimeout(context.Background(), platformconfig.InterruptSettleTimeout)
+	stopErr := c.launcher.Stop(stopCtx, &snapshot)
+	cancelStop()
+	if stopErr != nil {
+		return errors.Join(fmt.Errorf("interrupt late provider turn: %w", interruptErr), fmt.Errorf("stop old provider lifecycle: %w", stopErr))
+	}
+	return nil
 }
 
 func (c *turnController) finishTurnStartFailure(ctx context.Context, work turnWork, startErr error) {

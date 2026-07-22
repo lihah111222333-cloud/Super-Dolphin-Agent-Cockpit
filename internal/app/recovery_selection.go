@@ -153,7 +153,9 @@ func isRecoveryDiagnosticID(value string) bool {
 	return true
 }
 
+// RecoveryAction 复用 contract 中面向 Recovery UI 的稳定动作枚举。
 type RecoveryAction = contract.RecoveryAction
+// RecoveryFailure 复用 contract 中可安全展示的结构化恢复失败元数据。
 type RecoveryFailure = contract.RecoveryFailure
 
 const (

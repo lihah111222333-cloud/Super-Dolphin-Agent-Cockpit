@@ -252,6 +252,7 @@ func newService(cfg Config, client *http.Client, requestQuit RequestQuit) *servi
 	}
 }
 
+// beginOperation 获取 service 级更新操作租约；安装已启动后永久拒绝后续操作。
 func (s *service) beginOperation() error {
 	if s.operationState.CompareAndSwap(0, 1) {
 		return nil
@@ -262,8 +263,10 @@ func (s *service) beginOperation() error {
 	return errUpdateOperationInProgress
 }
 
+// endOperation 释放尚未启动 helper 的公共操作租约。
 func (s *service) endOperation() { s.operationState.CompareAndSwap(1, 0) }
 
+// markInstallStarted 记录 helper 已成功启动；该 latch 在 service 生命周期内不可逆。
 func (s *service) markInstallStarted() { s.operationState.Store(-1) }
 
 // Check 检查是否有可用更新；未启用或版本不高于当前版本时返回 Available=false。

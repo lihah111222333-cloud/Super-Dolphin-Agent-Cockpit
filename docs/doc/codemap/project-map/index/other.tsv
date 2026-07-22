@@ -57,7 +57,7 @@ internal/app/provider_hooks_contract_test.go	internal	other	go-test	931	root Fx/
 internal/app/recovery_digest_unix_test.go	internal	other	go-test	6221	root Fx/app 装配、runner 与 graph closure	internal,app,recovery,digest,unix,test,root,Fx,装配,runner,与,graph,closure
 internal/app/recovery_graph_test.go	internal	other	go-test	24901	root Fx/app 装配、runner 与 graph closure	internal,app,recovery,graph,test,root,Fx,装配,runner,与,closure
 internal/app/recovery_graph.go	internal	other	go-source	10671	root Fx/app 装配、runner 与 graph closure	internal,app,recovery,graph,root,Fx,装配,runner,与,closure
-internal/app/recovery_selection.go	internal	other	go-source	17320	root Fx/app 装配、runner 与 graph closure	internal,app,recovery,selection,root,Fx,装配,runner,与,graph,closure
+internal/app/recovery_selection.go	internal	other	go-source	17491	root Fx/app 装配、runner 与 graph closure	internal,app,recovery,selection,root,Fx,装配,runner,与,graph,closure
 internal/app/runner_test.go	internal	other	go-test	8403	root Fx/app 装配、runner 与 graph closure	internal,app,runner,test,root,Fx,装配,与,graph,closure
 internal/app/runner.go	internal	other	go-source	8049	root Fx/app 装配、runner 与 graph closure	internal,app,runner,root,Fx,装配,与,graph,closure
 internal/app/runtime_reporter_adapter.go	internal	other	go-source	2586	root Fx/app 装配、runner 与 graph closure	internal,app,runtime,reporter,adapter,root,Fx,装配,runner,与,graph,closure
