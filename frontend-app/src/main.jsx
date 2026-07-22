@@ -45,6 +45,7 @@ import './shared/styles/MarkdownReferences.css';
 import App, { APP_PROFILER_ID } from './App.jsx';
 import { AppErrorBoundary } from './app/AppErrorBoundary.jsx';
 import { emitFrontendTraceEvent } from './shared/api/backendApi.js';
+import { reportFrontendReadiness } from './shared/api/wails/wailsBridgeRpc.js';
 import { getStoredTheme, syncThemeDOM } from './app/appShellModel.js';
 import {
   frontendBreadcrumbSnapshotSource,
@@ -226,3 +227,15 @@ createRoot(document.getElementById('root')).render(
     ),
   ),
 );
+
+function reportFrontendReadinessAfterPageLoad() {
+  void reportFrontendReadiness().catch(() => {
+    console.error('frontend.readiness.handshake_failed');
+  });
+}
+
+if (document.readyState === 'complete') {
+  queueMicrotask(reportFrontendReadinessAfterPageLoad);
+} else {
+  window.addEventListener('load', reportFrontendReadinessAfterPageLoad, { once: true });
+}

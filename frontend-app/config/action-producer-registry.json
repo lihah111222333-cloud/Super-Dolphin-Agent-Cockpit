@@ -564,18 +564,6 @@
       ]
     },
     {
-      "actionId": "composer.drop",
-      "producerCount": 2,
-      "kind": "user",
-      "owner": "composer/drop",
-      "visibleSink": "ActionFailureSink",
-      "healthSink": "frontendHealthStore",
-      "errorSources": [
-        "sync-throw",
-        "promise-reject"
-      ]
-    },
-    {
       "actionId": "composer.file.select",
       "producerCount": 2,
       "kind": "user",
@@ -592,18 +580,6 @@
       "producerCount": 1,
       "kind": "user",
       "owner": "composer/model",
-      "visibleSink": "ActionFailureSink",
-      "healthSink": "frontendHealthStore",
-      "errorSources": [
-        "sync-throw",
-        "promise-reject"
-      ]
-    },
-    {
-      "actionId": "composer.paste",
-      "producerCount": 1,
-      "kind": "user",
-      "owner": "composer/paste",
       "visibleSink": "ActionFailureSink",
       "healthSink": "frontendHealthStore",
       "errorSources": [

@@ -1,10 +1,15 @@
 import { describe, expect, it, vi } from "vitest";
 
 import {
+  RECOVERY_FALLBACK_DIAGNOSTIC_ID,
   RECOVERY_METHOD_IDS,
+  RecoveryPublicError,
   createRecoveryClient,
   normalizeRecoveryState,
 } from "./recoveryClient.js";
+
+const STARTUP_DIAGNOSTIC_ID = "a".repeat(64);
+const ACTION_DIAGNOSTIC_ID = "b".repeat(64);
 
 function recoveryPayload(overrides = {}) {
   return {
@@ -20,7 +25,7 @@ function recoveryPayload(overrides = {}) {
       lease_owner: "guard-1",
       lease_generation: 2,
       candidate_sha256: "abc123",
-      reason: "health check failed",
+      reason: "RECOVERY_STARTUP_FAILED|" + STARTUP_DIAGNOSTIC_ID,
     },
     ...overrides,
   };
@@ -35,6 +40,42 @@ const INVALID_LEASE_GENERATIONS = [
 ];
 
 describe("Recovery client", () => {
+  it("maps the whitelisted startup reason to fixed public copy", () => {
+    const state = normalizeRecoveryState(recoveryPayload());
+
+    expect(state.projection.reason).toBeInstanceOf(RecoveryPublicError);
+    expect(state.projection.reason).toMatchObject({
+      code: "RECOVERY_STARTUP_FAILED",
+      title: "Recovery mode started",
+      publicMessage:
+        "Recovery mode started because the previous startup did not complete.",
+      diagnosticId: STARTUP_DIAGNOSTIC_ID,
+    });
+  });
+
+  it("fails closed when the projection reason is raw or not whitelisted", () => {
+    const secret =
+      "postgres://admin:password@localhost/db /Users/alice/private.db";
+    let failure;
+
+    try {
+      normalizeRecoveryState(
+        recoveryPayload({
+          projection: { ...recoveryPayload().projection, reason: secret },
+        }),
+      );
+    } catch (error) {
+      failure = error;
+    }
+
+    expect(failure).toBeInstanceOf(RecoveryPublicError);
+    expect(failure).toMatchObject({
+      code: "RECOVERY_UNKNOWN_FAILURE",
+      diagnosticId: RECOVERY_FALLBACK_DIAGNOSTIC_ID,
+    });
+    expect(failure.message).not.toContain(secret);
+  });
+
   it("rejects normal mode instead of reusing normal ready", () => {
     expect(() =>
       normalizeRecoveryState(recoveryPayload({ mode: "normal" })),
@@ -208,10 +249,51 @@ describe("Recovery client", () => {
     ]);
   });
 
-  it("fails fast when the Recovery runtime bridge is unavailable", async () => {
+  it("maps a public Wails action failure without exposing backend text", async () => {
+    const byID = vi
+      .fn()
+      .mockRejectedValue(
+        new Error("RECOVERY_RETRY_FAILED|" + ACTION_DIAGNOSTIC_ID),
+      );
+    const client = createRecoveryClient(async () => ({ Call: { ByID: byID } }));
+
+    await expect(client.retry()).rejects.toMatchObject({
+      code: "RECOVERY_RETRY_FAILED",
+      title: "Recovery retry failed",
+      publicMessage:
+        "Recovery retry could not be completed. You can retry or restore the previous release.",
+      diagnosticId: ACTION_DIAGNOSTIC_ID,
+    });
+  });
+
+  it("fails safely when the Recovery runtime bridge is unavailable", async () => {
     const client = createRecoveryClient(async () => ({}));
-    await expect(client.state()).rejects.toThrow(
+    await expect(client.state()).rejects.toMatchObject({
+      code: "RECOVERY_UNKNOWN_FAILURE",
+      diagnosticId: RECOVERY_FALLBACK_DIAGNOSTIC_ID,
+    });
+    await expect(client.state()).rejects.not.toThrow(
       "Recovery Wails runtime is unavailable",
     );
+  });
+
+  it("maps an unknown runtime failure to fixed public copy", async () => {
+    const secret = "sk-live-secret postgres://password /Users/alice/private.db";
+    const client = createRecoveryClient(async () => {
+      throw new Error(secret);
+    });
+
+    let failure;
+    try {
+      await client.state();
+    } catch (error) {
+      failure = error;
+    }
+    expect(failure).toBeInstanceOf(RecoveryPublicError);
+    expect(failure).toMatchObject({
+      code: "RECOVERY_UNKNOWN_FAILURE",
+      diagnosticId: RECOVERY_FALLBACK_DIAGNOSTIC_ID,
+    });
+    expect(failure.message).not.toContain(secret);
   });
 });

@@ -1,6 +1,6 @@
 {
   "_meta": {
-    "updatedAt": "2026-07-22T04:55:28Z"
+    "updatedAt": "2026-07-22T07:13:31Z"
   },
   "files": {
     "src/App.test.jsx": {
@@ -19,7 +19,7 @@
       ]
     },
     "src/entities/client/model/useClientStore.test.js": {
-      "lines": 8610,
+      "lines": 8550,
       "maxFuncLen": 41,
       "maxNesting": 6,
       "maxParams": 3,
@@ -134,10 +134,12 @@
       "emptyFuncs": 0,
       "todoCount": 0,
       "longLineCount": 0,
-      "frozenViolations": ["file-length"]
+      "frozenViolations": [
+        "file-length"
+      ]
     },
     "scripts/frontend-maintainability-score.test.mjs": {
-      "lines": 2804,
+      "lines": 2794,
       "maxFuncLen": 235,
       "maxNesting": 8,
       "maxParams": 4,
@@ -152,19 +154,6 @@
         "func-length\u0000函数 performanceEvidence 共 235 行，超过上限 150 行"
       ]
     },
-    "scripts/performance-budget-runner.test.mjs": {
-      "lines": 908,
-      "maxFuncLen": 119,
-      "maxNesting": 6,
-      "maxParams": 3,
-      "exportCount": 0,
-      "consoleLogs": 0,
-      "anyCount": 0,
-      "emptyFuncs": 0,
-      "todoCount": 0,
-      "longLineCount": 0,
-      "frozenViolations": ["file-length"]
-    },
     "scripts/rpc-contract-audit.test.mjs": {
       "lines": 3051,
       "maxFuncLen": 86,
@@ -176,7 +165,9 @@
       "emptyFuncs": 0,
       "todoCount": 0,
       "longLineCount": 0,
-      "frozenViolations": ["file-length"]
+      "frozenViolations": [
+        "file-length"
+      ]
     }
   }
 }

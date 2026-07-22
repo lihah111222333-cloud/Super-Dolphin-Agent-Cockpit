@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { performance } from 'node:perf_hooks';
@@ -14,7 +14,6 @@ import {
   measurementTrimmedMean,
   median,
 } from './performance-budget-model.mjs';
-import { ChatActionFeedback as RUNNER_FEEDBACK_PROBE } from '../src/pages/chat/components/ChatActionFeedback.js';
 
 // Eleven observations retain the 80% trimmed mean's outlier rejection without turning DOM commits into a load test.
 const MEASUREMENT_ITERATIONS = 11;
@@ -32,14 +31,15 @@ const STOP_FEEDBACK = Object.freeze({
 });
 const STOP_FEEDBACK_PENDING = Object.freeze({ message: '正在请求停止，尚未确认，任务可能仍在运行', tone: 'info' });
 const STOP_FEEDBACK_COPY = Object.freeze({ noticeTitle: '操作通知' });
+const P03_SUBJECT_FEEDBACK_COMPONENT_PATH = 'frontend-app/src/pages/chat/components/ChatActionFeedback.js';
 const P03_SUBJECT_CONTENT_PATHS = Object.freeze([
   'frontend-app/package-lock.json',
   'frontend-app/package.json',
   'frontend-app/src/entities/client/model/contractStoreModel.js',
   'frontend-app/src/entities/client/model/threadLifecycleRuntime.js',
+  P03_SUBJECT_FEEDBACK_COMPONENT_PATH,
 ]);
 const P03_RUNTIME_PATH = 'frontend-app/src/entities/client/model/threadLifecycleRuntime.js';
-const P03_RUNNER_FEEDBACK_PROBE_PATH = 'frontend-app/src/pages/chat/components/ChatActionFeedback.js';
 
 if (typeof globalThis.document === 'undefined') {
   const { window } = new JSDOM('<!doctype html><html><body></body></html>', { pretendToBeVisual: true });
@@ -90,34 +90,45 @@ function subjectContentEvidence(subjectRoot, contentPaths = P03_SUBJECT_CONTENT_
   return Object.freeze({ contentHash: aggregate.digest('hex'), files: Object.freeze(files) });
 }
 
-function resolveRunnerFeedbackProbe(feedbackProbe = RUNNER_FEEDBACK_PROBE) {
-  if (typeof feedbackProbe !== 'function') throw new TypeError('P03 runner feedback probe is required');
-  return feedbackProbe;
+async function importSubjectModule(subjectRoot, path, label) {
+  const filePath = resolve(subjectRoot, path);
+  if (!existsSync(filePath)) throw new Error(`P03 detached subject is missing ${label}: ${path}`);
+  try {
+    return await import(/* @vite-ignore */ pathToFileURL(filePath).href);
+  } catch (error) {
+    throw new Error(`P03 detached subject ${label} cannot be imported: ${path}`, { cause: error });
+  }
 }
 
-async function loadStopFeedbackTarget({
-  feedbackProbe = RUNNER_FEEDBACK_PROBE,
-  subjectRoot,
-  subjectSha,
-  subjectTree,
-}) {
+async function loadStopFeedbackTarget({ subjectRoot, subjectSha, subjectTree } = {}) {
+  if (typeof subjectRoot !== 'string' || subjectRoot.length === 0) throw new TypeError('P03 subjectRoot is required');
   if (!/^[0-9a-f]{40}$/.test(subjectSha || '')) {
     throw new TypeError('subjectSha must be a full 40-character Git SHA');
   }
   if (!/^[0-9a-f]{40}$/.test(subjectTree || '')) {
     throw new TypeError('subjectTree must be a full 40-character Git tree SHA');
   }
-  const root = resolve(subjectRoot || '');
-  const runtimePath = resolve(root, P03_RUNTIME_PATH);
-  const runtimeModule = await import(/* @vite-ignore */ pathToFileURL(runtimePath).href);
+  const root = resolve(subjectRoot);
+  const componentPath = resolve(root, P03_SUBJECT_FEEDBACK_COMPONENT_PATH);
+  if (!existsSync(componentPath)) {
+    throw new Error(`P03 detached subject feedback component is missing: ${P03_SUBJECT_FEEDBACK_COMPONENT_PATH}`);
+  }
+  const [runtimeModule, componentModule] = await Promise.all([
+    importSubjectModule(root, P03_RUNTIME_PATH, 'runtime'),
+    importSubjectModule(root, P03_SUBJECT_FEEDBACK_COMPONENT_PATH, 'feedback component'),
+  ]);
   if (typeof runtimeModule.attachActiveThreadRpcRuntime !== 'function') {
     throw new Error(`P03 target runtime does not export attachActiveThreadRpcRuntime: ${P03_RUNTIME_PATH}`);
   }
+  if (typeof componentModule.ChatActionFeedback !== 'function') {
+    throw new Error(`P03 target component does not export ChatActionFeedback: ${P03_SUBJECT_FEEDBACK_COMPONENT_PATH}`);
+  }
   return Object.freeze({
     attachRuntime: runtimeModule.attachActiveThreadRpcRuntime,
-    feedbackProbe: resolveRunnerFeedbackProbe(feedbackProbe),
+    feedbackProbe: componentModule.ChatActionFeedback,
     provenance: Object.freeze({
       content: subjectContentEvidence(root),
+      feedbackComponentPath: P03_SUBJECT_FEEDBACK_COMPONENT_PATH,
       runtimePath: P03_RUNTIME_PATH,
       subjectSha,
       subjectTree,
@@ -135,7 +146,9 @@ function resolveStopFeedbackAttachRuntime(attachRuntime, target) {
 }
 
 function resolveStopFeedbackComponent(target, feedbackProbe) {
-  return resolveRunnerFeedbackProbe(feedbackProbe ?? target?.feedbackProbe);
+  const component = feedbackProbe ?? target?.feedbackProbe;
+  if (typeof component !== 'function') throw new TypeError('P03 subject feedback component is required');
+  return component;
 }
 
 function observeFeedbackCommit(host, expected) {
@@ -296,7 +309,6 @@ function createStopFeedbackHarness({
 
 async function runStopFeedbackBenchmark({
   attachRuntime,
-  feedbackProbe,
   subjectSha,
   target,
   sampleCount = SAMPLE_COUNT,
@@ -304,7 +316,10 @@ async function runStopFeedbackBenchmark({
 } = {}) {
   if (sampleCount !== SAMPLE_COUNT) throw new TypeError(`sampleCount must be ${SAMPLE_COUNT}`);
   if (warmupCount !== WARMUP_COUNT) throw new TypeError(`warmupCount must be ${WARMUP_COUNT}`);
-  const harness = createStopFeedbackHarness({ attachRuntime, feedbackProbe, subjectSha, target });
+  if (target?.provenance?.feedbackComponentPath !== P03_SUBJECT_FEEDBACK_COMPONENT_PATH) {
+    throw new Error('P03 target must bind the subject feedback component');
+  }
+  const harness = createStopFeedbackHarness({ attachRuntime, subjectSha, target });
   const measureBatch = async () => {
     const durationsMs = [];
     for (let index = 0; index < MEASUREMENT_ITERATIONS; index += 1) {
@@ -331,9 +346,9 @@ async function runStopFeedbackBenchmark({
     const durationAttemptSamplesMs = durationSamplesMs.map((durationMs) => Object.freeze([durationMs]));
     return Object.freeze({
       metricId: 'P03-feedback-budget',
-      runnerFeedbackProbe: Object.freeze({
-        path: P03_RUNNER_FEEDBACK_PROBE_PATH,
-        source: 'runner',
+      subjectFeedbackComponent: Object.freeze({
+        path: P03_SUBJECT_FEEDBACK_COMPONENT_PATH,
+        source: 'subject',
       }),
       subjectSha,
       subjectRuntime: target?.provenance,
@@ -376,10 +391,9 @@ export {
   FEEDBACK_DURATION_CLOCK,
   FROZEN_PLAN_BASE_SHA,
   MEASUREMENT_ITERATIONS,
-  P03_RUNNER_FEEDBACK_PROBE_PATH,
   P03_RUNTIME_PATH,
   P03_SUBJECT_CONTENT_PATHS,
-  RUNNER_FEEDBACK_PROBE,
+  P03_SUBJECT_FEEDBACK_COMPONENT_PATH,
   STOP_FEEDBACK_PENDING,
   createStopFeedbackHarness,
   loadStopFeedbackTarget,
@@ -387,7 +401,6 @@ export {
   runStopFeedbackBenchmark,
   resolveStopFeedbackAttachRuntime,
   resolveStopFeedbackComponent,
-  resolveRunnerFeedbackProbe,
   stopFeedbackContractForSubject,
   subjectContentEvidence,
   verifyStopFeedbackEvidence,

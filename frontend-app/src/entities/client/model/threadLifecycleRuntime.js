@@ -1,3 +1,4 @@
+import { assertOnlyResponseKeys } from '../../../shared/api/backendResponseValidatorShared.js';
 import { firstOptionalPresent, normalizeOptionalTextField, optionalTextField } from './contractStoreModel.js';
 
 const THREAD_ACTION_LABELS = Object.freeze({ 'thread.interrupt': '中断当前执行', 'thread.force_complete': '强制完成当前执行', 'thread.compact': '压缩上下文', 'thread.recover': '恢复连接' });
@@ -6,6 +7,8 @@ export const INTERRUPT_RPC_TIMEOUT_MS = 15_000;
 const INTERRUPT_RPC_TIMEOUT_CODE = 'THREAD_INTERRUPT_RPC_TIMEOUT';
 const INTERRUPT_PENDING_MESSAGE = '正在请求停止，尚未确认，任务可能仍在运行';
 const INTERRUPT_UNCONFIRMED_MESSAGE = '停止未确认，任务可能仍在运行';
+const INTERRUPT_SUCCESS_RESPONSE_KEYS = new Set(['ok', 'accepted', 'requestId', 'expectedTurnId', 'turnId', 'status', 'confirmed', 'mode', 'interruptSent', 'stateBefore', 'stateAfter', 'waitedMs', 'activeObserved']);
+const INTERRUPT_FAILURE_RESPONSE_KEYS = new Set([...INTERRUPT_SUCCESS_RESPONSE_KEYS, 'errorCode', 'error', 'message', 'reason']);
 const interruptPendingTimers = new WeakMap();
 function threadActionRequiresActiveTurn(action) { return action === 'thread.interrupt' || action === 'thread.force_complete'; }
 
@@ -37,10 +40,19 @@ function requireInterruptResponseText(result, field, expected) {
   }
 }
 
+function validateInterruptFailureResponse(result) {
+  if (result == null || typeof result !== 'object' || Array.isArray(result)) {
+    throw interruptResponseContractError('object');
+  }
+  if (result.ok !== false) throw interruptResponseContractError('ok');
+  assertOnlyResponseKeys('thread.interrupt', result, INTERRUPT_FAILURE_RESPONSE_KEYS, 'body');
+}
+
 function validateInterruptSuccessResponse(result, request) {
   if (result == null || typeof result !== 'object' || Array.isArray(result)) {
     throw interruptResponseContractError('object');
   }
+  assertOnlyResponseKeys('thread.interrupt', result, INTERRUPT_SUCCESS_RESPONSE_KEYS, 'body');
   if (result.ok !== true) throw interruptResponseContractError('ok');
   if (result.accepted !== true) throw interruptResponseContractError('accepted');
   requireInterruptResponseText(result, 'requestId', request.requestId);
@@ -123,6 +135,7 @@ function threadActionPayload(params) {
 function notifyThreadActionFailure(params) {
   const { action, addWarning, notifyAction, result, threadId } = params;
   if (action === 'thread.interrupt' && result?.ok === false) {
+    validateInterruptFailureResponse(result);
     interruptFailureMessage(result);
     if (result.mode === 'interrupt_timeout') {
       notifyAction(INTERRUPT_UNCONFIRMED_MESSAGE, 'warning', { threadId });

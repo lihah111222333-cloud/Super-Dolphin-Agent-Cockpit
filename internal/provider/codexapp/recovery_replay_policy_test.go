@@ -189,6 +189,7 @@ func TestRecoveryInvalidThreadResultDoesNotUpdateOrReplay(t *testing.T) {
 
 type completedTurnRecoveryRecorder struct {
 	activeTurnRecoveryRecorder
+	status string
 }
 
 // handle 模拟 provider 明确报告原 turn 已 completed；恢复流程必须阻断重放。
@@ -205,11 +206,15 @@ func (r *completedTurnRecoveryRecorder) handle(msg jsonRPCMessage) (json.RawMess
 		return mustJSON(map[string]any{"thread": map[string]any{"id": "thread-1"}}), true
 	case "turn/status":
 		r.incrementTurnStatus()
+		status := strings.TrimSpace(r.status)
+		if status == "" {
+			status = "completed"
+		}
 		return mustJSON(map[string]any{
 			"turn": map[string]any{
 				"id":     "turn-1",
 				"active": false,
-				"status": "completed",
+				"status": status,
 			},
 		}), true
 	case "turn/start":
@@ -219,29 +224,63 @@ func (r *completedTurnRecoveryRecorder) handle(msg jsonRPCMessage) (json.RawMess
 	}
 }
 
-func TestRecoveryDoesNotReplayCompletedTurn(t *testing.T) {
-	recorder := &completedTurnRecoveryRecorder{}
+func TestRecoverySettlesConfirmedTerminalTurn(t *testing.T) {
+	for _, status := range []string{"completed", "failed", "cancelled"} {
+		t.Run(status, func(t *testing.T) { assertConfirmedTerminalRecovery(t, status) })
+	}
+}
+
+func assertConfirmedTerminalRecovery(t *testing.T, status string) {
+	t.Helper()
+	recorder := &completedTurnRecoveryRecorder{status: status}
 	server := newCodexTestRPCServer(t, recorder.handle)
-	defer server.Close()
-
+	t.Cleanup(server.Close)
 	s := newRecoveryTestSession(t, server)
-	defer closeCodexTestSession(t, s)
+	t.Cleanup(func() { closeCodexTestSession(t, s) })
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-
+	t.Cleanup(cancel)
 	handle := startRecoveryTestTurn(t, ctx, s)
 	prepareRecoveryReplayState(s)
 	if err := s.attemptRecovery("test recovery"); err != nil {
 		t.Fatalf("attemptRecovery() error = %v", err)
 	}
-
-	if got := handle.ProviderID(); got != "turn-1" {
-		t.Fatalf("ProviderID() after completed confirmation = %q, want original turn-1", got)
-	}
-	if got := s.activeTurnID; got != "turn-1" {
-		t.Fatalf("activeTurnID = %q, want original turn-1", got)
-	}
+	assertConfirmedTerminalHandle(t, status, handle)
+	assertConfirmedTerminalOwnerCleared(t, status, s)
 	recorder.assertNoReplayWhileActive(t)
+}
+
+func assertConfirmedTerminalHandle(t *testing.T, status string, handle recoveryTestTurnHandle) {
+	t.Helper()
+	select {
+	case <-handle.Done():
+		assertConfirmedTerminalHandleResult(t, status, handle.Err())
+	case <-time.After(time.Second):
+		t.Fatalf("%s recovery left handle active", status)
+	}
+}
+
+func assertConfirmedTerminalHandleResult(t *testing.T, status string, err error) {
+	t.Helper()
+	if status == "completed" {
+		if err != nil {
+			t.Fatalf("completed recovery handle error = %v, want nil", err)
+		}
+		return
+	}
+	if err == nil {
+		t.Fatalf("%s recovery handle error = nil, want terminal failure", status)
+	}
+}
+
+func assertConfirmedTerminalOwnerCleared(t *testing.T, status string, s *session) {
+	t.Helper()
+	s.mu.Lock()
+	_, tracked := s.turns["turn-1"]
+	active, pending := s.activeTurnID, s.pendingTurn
+	s.mu.Unlock()
+	if tracked || active != "" || pending != nil {
+		t.Fatalf("%s recovery retained owner state: tracked=%v active=%q pending=%#v", status, tracked, active, pending)
+	}
 }
 
 func TestTurnStartNotReplayedAfterTransportWrite(t *testing.T) {

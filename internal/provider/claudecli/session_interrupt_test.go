@@ -230,6 +230,14 @@ func assertInterruptCleanupFailureRetainsOwnership(t *testing.T, settle func(*tr
 	cancelTerminal := event.Subscribe(bus, func(ev turndto.TurnCompleted) { terminals <- ev })
 	defer cancelTerminal()
 
+	oldWatcher := newSessionLogWatcher(sessionLogWatcherConfig{
+		ResolvePath: func() (string, error) {
+			return "", errors.New("interrupt test old watcher must not resolve a session log")
+		},
+		PollInterval: time.Millisecond,
+	})
+	oldWatcher.start()
+	t.Cleanup(oldWatcher.stopAndWait)
 	tr := newInterruptTestTransport(t, "while :; do sleep 1; done")
 	reg := pidregistry.New()
 	if err := registerTransportPID(reg, tr, "agent-interrupt-failure"); err != nil {
@@ -240,16 +248,24 @@ func assertInterruptCleanupFailureRetainsOwnership(t *testing.T, settle func(*tr
 	cleanupCalled := false
 	s := &session{
 		agentID: "agent-interrupt-failure", threadID: "thread-interrupt-failure", publicThreadID: "thread-public",
-		sessionID: "session-interrupt-failure", transport: tr, cleanup: func() { cleanupCalled = true },
+		sessionID: "11111111-2222-3333-4444-555555555555", history: &historyBackend{sessionDir: t.TempDir()},
+		transport: tr, cleanup: func() { cleanupCalled = true }, logWatcher: oldWatcher,
 		pidRegistry: reg, activeTurn: handle, suppressedTurns: map[string]struct{}{},
 		eventDispatcher: dispatcher, settleTransport: settle,
 	}
+	t.Cleanup(func() {
+		s.mu.Lock()
+		watcher := s.detachLogWatcherLocked()
+		s.mu.Unlock()
+		watcher.stopAndWait()
+	})
 
 	err := s.Interrupt(context.Background(), dto.InterruptRequest{Source: "ui_stop", RequestID: "request-A"})
 	if err == nil {
 		t.Fatal("Interrupt() error = nil, want cleanup failure")
 	}
 	assertFailedInterruptOwnership(t, s, tr, handle, cleanupCalled)
+	assertFailedInterruptLogWatcherRestored(t, s, oldWatcher)
 	assertFailedInterruptHasNoTerminal(t, terminals, handle)
 }
 
@@ -264,6 +280,19 @@ func assertFailedInterruptOwnership(t *testing.T, s *session, tr *transport, han
 	}
 	if !containsPID(currentRegistryChildPIDs(t, "claude-cli"), tr.cmd.Process.Pid) {
 		t.Fatalf("PID %d is no longer managed after failed interrupt", tr.cmd.Process.Pid)
+	}
+}
+
+func assertFailedInterruptLogWatcherRestored(t *testing.T, s *session, oldWatcher *sessionLogWatcher) {
+	t.Helper()
+	s.mu.Lock()
+	watcher := s.logWatcher
+	s.mu.Unlock()
+	if watcher == nil {
+		t.Fatal("failed interrupt did not restore the log watcher")
+	}
+	if watcher == oldWatcher {
+		t.Fatal("failed interrupt restored the stopped log watcher")
 	}
 }
 

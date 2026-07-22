@@ -293,6 +293,39 @@ async function callAPI(method, params = {}) {
   return result;
 }
 
+const FRONTEND_READINESS_RPC_METHOD = 'ui/frontend/readiness';
+
+/** @param {unknown} result @param {'probe' | 'commit'} phase */
+function frontendReadinessEpoch(result, phase) {
+  if (!result || typeof result !== 'object' || Array.isArray(result)) {
+    throw new Error(`frontend readiness ${phase} response must be an object`);
+  }
+  const response = /** @type {RPCPayload} */ (result);
+  const responseFields = Object.keys(response);
+  if (responseFields.length !== 1 || responseFields[0] !== 'epoch') {
+    throw new Error(`frontend readiness ${phase} response must contain only epoch`);
+  }
+  const epoch = response.epoch;
+  if (typeof epoch !== 'number' || !Number.isSafeInteger(epoch) || epoch <= 0) {
+    throw new Error(`frontend readiness ${phase} response must include a positive epoch`);
+  }
+  return epoch;
+}
+
+/** @param {{ documentRef?: Document | { readyState?: unknown } }} [options] */
+async function reportFrontendReadiness({ documentRef = globalThis.document } = {}) {
+  if (!documentRef || documentRef.readyState !== 'complete') {
+    throw new Error('frontend page load is required before readiness');
+  }
+  const probeResult = await callAPI(FRONTEND_READINESS_RPC_METHOD, { phase: 'probe' });
+  const epoch = frontendReadinessEpoch(probeResult, 'probe');
+  const commitResult = await callAPI(FRONTEND_READINESS_RPC_METHOD, { phase: 'commit', epoch });
+  if (frontendReadinessEpoch(commitResult, 'commit') !== epoch) {
+    throw new Error('frontend readiness commit epoch does not match probe epoch');
+  }
+  return epoch;
+}
+
 /** @param {unknown} entries */
 async function sendFrontendLogBatch(entries) {
   const batch = Array.isArray(entries) ? entries.filter(Boolean) : [];
@@ -316,5 +349,5 @@ async function sendFrontendLogBatch(entries) {
 export {
   BridgeRPCTimeoutError, THREAD_HISTORY_SYNC_RPC_TIMEOUT_MS,
   invokeRuntimeByID, callByID, normalizeAPIMethod, normalizeAPIPayload, createAPITrace, buildAPIPayload,
-  logAPIStart, logAPIDone, logAPIFailed, attachAPITraceToError, callAPI, sendFrontendLogBatch,
+  logAPIStart, logAPIDone, logAPIFailed, attachAPITraceToError, callAPI, frontendReadinessEpoch, reportFrontendReadiness, sendFrontendLogBatch,
 };

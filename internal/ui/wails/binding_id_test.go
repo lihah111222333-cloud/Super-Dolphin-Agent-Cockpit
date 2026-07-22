@@ -624,6 +624,94 @@ func TestCallAPIPreservesUILogClientMetaButConsumesTraceMeta(t *testing.T) {
 	}
 }
 
+func newFrontendReadinessTestApp(t *testing.T) (*App, *ActivationReadiness, *WailsLifecycle, uint64) {
+	t.Helper()
+	readiness := NewActivationReadiness()
+	lifecycle := NewWailsLifecycle(nil, nil)
+	app := &App{dispatch: func(context.Context, string, json.RawMessage) (json.RawMessage, error) {
+		t.Fatal("frontend readiness must not use generic RPC dispatch")
+		return nil, nil
+	}}
+	if err := app.bindFrontendReadiness(readiness, lifecycle); err != nil {
+		t.Fatalf("bindFrontendReadiness() error = %v", err)
+	}
+	readiness.MarkApplicationStarted()
+	probe, err := app.CallAPI(frontendReadinessMethod, json.RawMessage(`{"phase":"probe"}`))
+	if err != nil {
+		t.Fatalf("CallAPI(probe) error = %v", err)
+	}
+	response, ok := probe.(map[string]any)
+	if !ok {
+		t.Fatalf("CallAPI(probe) result = %#v, want object", probe)
+	}
+	epochValue, ok := response["epoch"].(float64)
+	if !ok {
+		t.Fatalf("CallAPI(probe) epoch = %#v, want number", response["epoch"])
+	}
+	if epochValue < 1 {
+		t.Fatalf("CallAPI(probe) epoch = %v, want positive number", epochValue)
+	}
+	return app, readiness, lifecycle, uint64(epochValue)
+}
+
+func TestCallAPIFrontendReadinessRejectsStaleEpoch(t *testing.T) {
+	app, readiness, lifecycle, _ := newFrontendReadinessTestApp(t)
+	if _, err := app.CallAPI(frontendReadinessMethod, json.RawMessage(`{"phase":"commit","epoch":999}`)); err == nil {
+		t.Fatal("CallAPI(stale commit) error = nil")
+	}
+	if readiness.FrontendReady() {
+		t.Fatal("stale frontend readiness commit marked readiness")
+	}
+	if lifecycle.frontendReady.Load() {
+		t.Fatal("stale frontend readiness commit marked lifecycle")
+	}
+}
+
+func TestCallAPIFrontendReadinessRejectsUnknownFields(t *testing.T) {
+	app, readiness, lifecycle, _ := newFrontendReadinessTestApp(t)
+	if _, err := app.CallAPI(frontendReadinessMethod, json.RawMessage(`{"phase":"probe","unexpected":true}`)); err == nil {
+		t.Fatal("CallAPI(probe with unknown field) error = nil")
+	}
+	if readiness.FrontendReady() {
+		t.Fatal("unknown frontend readiness field marked readiness")
+	}
+	if lifecycle.frontendReady.Load() {
+		t.Fatal("unknown frontend readiness field marked lifecycle")
+	}
+}
+
+func TestCallAPIFrontendReadinessCommitsCurrentEpochIdempotently(t *testing.T) {
+	app, readiness, lifecycle, epoch := newFrontendReadinessTestApp(t)
+	params := json.RawMessage(fmt.Sprintf(`{"phase":"commit","epoch":%d}`, epoch))
+	if _, err := app.CallAPI(frontendReadinessMethod, params); err != nil {
+		t.Fatalf("CallAPI(commit) error = %v", err)
+	}
+	if !readiness.FrontendReady() {
+		t.Fatal("current frontend readiness commit did not mark readiness")
+	}
+	if !lifecycle.frontendReady.Load() {
+		t.Fatal("current frontend readiness commit did not mark lifecycle")
+	}
+	if _, err := app.CallAPI(frontendReadinessMethod, params); err != nil {
+		t.Fatalf("duplicate CallAPI(commit) error = %v", err)
+	}
+}
+
+func TestCallAPIFrontendReadinessStaysBoundToCurrentApp(t *testing.T) {
+	firstApp, firstReadiness, firstLifecycle, firstEpoch := newFrontendReadinessTestApp(t)
+	_, secondReadiness, secondLifecycle, _ := newFrontendReadinessTestApp(t)
+	params := json.RawMessage(fmt.Sprintf(`{"phase":"commit","epoch":%d}`, firstEpoch))
+	if _, err := firstApp.CallAPI(frontendReadinessMethod, params); err != nil {
+		t.Fatalf("first App CallAPI(commit) error = %v", err)
+	}
+	if !firstReadiness.FrontendReady() || !firstLifecycle.frontendReady.Load() {
+		t.Fatal("current App frontend readiness did not commit")
+	}
+	if secondReadiness.FrontendReady() || secondLifecycle.frontendReady.Load() {
+		t.Fatal("current App frontend readiness leaked into another App instance")
+	}
+}
+
 func TestStripFrontendMeta(t *testing.T) {
 	tests := []struct {
 		name  string

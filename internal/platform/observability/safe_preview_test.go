@@ -57,6 +57,50 @@ func TestSafeToolArgumentsPreviewRedactsQuotedAssignments(t *testing.T) {
 	}
 }
 
+func TestSafeToolArgumentsPreviewRedactsCamelCaseCredentialKeys(t *testing.T) {
+	const (
+		sshKeyValue      = "ssh-key-leak-f2ab2e"
+		accessKeyValue   = "access-key-leak-63d19c"
+		clientKeyValue   = "client-key-leak-c8e4b7"
+		signingKeyValue  = "signing-key-leak-5a2d8e"
+		ordinaryKey      = "ordinary-key-value-4e90d5"
+		ordinaryKeyboard = "ordinary-keyboard-value-2b7fa1"
+	)
+
+	inputs := map[string]any{
+		"map": map[string]any{
+			"sshKey": sshKeyValue,
+			"nested": map[string]any{
+				"accessKey":  accessKeyValue,
+				"clientKey":  clientKeyValue,
+				"signingKey": signingKeyValue,
+			},
+			"key":      ordinaryKey,
+			"keyboard": ordinaryKeyboard,
+		},
+		"raw_json": json.RawMessage(`{"sshKey":"ssh-key-leak-f2ab2e","nested":{"accessKey":"access-key-leak-63d19c","clientKey":"client-key-leak-c8e4b7","signingKey":"signing-key-leak-5a2d8e"},"key":"ordinary-key-value-4e90d5","keyboard":"ordinary-keyboard-value-2b7fa1"}`),
+	}
+
+	for name, raw := range inputs {
+		t.Run(name, func(t *testing.T) {
+			preview := SafeToolArgumentsPreview(raw)
+			for _, sensitiveValue := range []string{sshKeyValue, accessKeyValue, clientKeyValue, signingKeyValue} {
+				if strings.Contains(preview, sensitiveValue) {
+					t.Fatalf("SafeToolArgumentsPreview() = %q, must not contain credential value %q", preview, sensitiveValue)
+				}
+			}
+			for _, ordinaryValue := range []string{ordinaryKey, ordinaryKeyboard} {
+				if !strings.Contains(preview, ordinaryValue) {
+					t.Fatalf("SafeToolArgumentsPreview() = %q, want ordinary map value %q", preview, ordinaryValue)
+				}
+			}
+			if strings.Count(preview, redacted) < 4 {
+				t.Fatalf("SafeToolArgumentsPreview() = %q, want each camelCase credential value redacted", preview)
+			}
+		})
+	}
+}
+
 func TestSafeToolArgumentsPreviewOversizedPrefixedQuotedAssignment(t *testing.T) {
 	const sensitiveValue = "oversized-quoted-value-84d7c2"
 	raw := `provider arguments: --password="` + sensitiveValue + `" keep=visible ` + strings.Repeat("x", 17*1024)

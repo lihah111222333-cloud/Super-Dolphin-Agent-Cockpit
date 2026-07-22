@@ -2,7 +2,6 @@ package toolbridge
 
 import (
 	"errors"
-	"strings"
 	"testing"
 
 	dto "github.com/lihah111222333-cloud/super-dolphin-agent/internal/dto/mcp"
@@ -80,9 +79,10 @@ func TestProxyToolsList_MultiplePeersAmbiguousLikeToolsCall(t *testing.T) {
 	if got.Error == nil {
 		t.Fatalf("proxy tools/list error = nil, want %v parity with tools/call", ErrAmbiguousPeer)
 	}
-	if !strings.Contains(got.Error.Message, ErrAmbiguousPeer.Error()) {
-		t.Fatalf("proxy tools/list error = %+v, want %v", got.Error, ErrAmbiguousPeer)
+	if got.Error.Code != jsonRPCCodeInternal {
+		t.Fatalf("proxy tools/list error code = %d, want %d", got.Error.Code, jsonRPCCodeInternal)
 	}
+	assertPublicToolErrorPayload(t, got.Error.Message, ErrAmbiguousPeer.Error())
 }
 
 func TestProxyToolsList_LSPFiltersPeerMemoryRead(t *testing.T) {

@@ -3,11 +3,18 @@ package turn
 import (
 	"fmt"
 	"go/ast"
+	"go/token"
 	"io/fs"
 	"path/filepath"
 	"sort"
 	"strings"
 )
+
+type validatorTargetTracker struct {
+	aliases     map[string]map[string]bool
+	targets     map[string]string
+	usedTargets map[string]bool
+}
 
 func validateExactGoConsumerCoverage(root string, schemas map[string]schemaRegistryEntry, overrides map[string]string) error {
 	discovered, err := discoverGoValidatorConsumers(root, schemas, overrides)
@@ -101,11 +108,132 @@ func discoverGoConsumersInFile(root, relativePath string, targets map[string]str
 }
 
 func discoverGoConsumersInFunction(relativePath string, fn *ast.FuncDecl, targets map[string]string, discovered map[string][]string) {
-	calls, _, _ := functionEvidence(fn)
+	usedTargets := validatorTargetsInFunction(fn, targets)
 	for target, schemaName := range targets {
-		if calls[target] {
+		if usedTargets[target] {
 			discovered[schemaName] = append(discovered[schemaName], consumerKey(callLocator{Path: relativePath, Symbol: fn.Name.Name, Calls: target}))
 		}
+	}
+}
+
+func validatorTargetsInFunction(fn *ast.FuncDecl, targets map[string]string) map[string]bool {
+	tracker := validatorTargetTracker{
+		aliases:     map[string]map[string]bool{},
+		targets:     targets,
+		usedTargets: map[string]bool{},
+	}
+	ast.Inspect(fn.Body, func(node ast.Node) bool {
+		tracker.trackNode(node)
+		return true
+	})
+	return tracker.usedTargets
+}
+
+func (tracker *validatorTargetTracker) trackNode(node ast.Node) {
+	switch typed := node.(type) {
+	case *ast.AssignStmt:
+		trackValidatorAssignments(typed.Lhs, typed.Rhs, tracker.aliases, tracker.targets, tracker.usedTargets)
+	case *ast.DeclStmt:
+		tracker.trackDeclaration(typed)
+	case *ast.CallExpr:
+		tracker.trackCall(typed)
+	case *ast.ReturnStmt:
+		tracker.trackExpressions(typed.Results)
+	case *ast.SendStmt:
+		tracker.trackExpression(typed.Value)
+	}
+}
+
+func (tracker *validatorTargetTracker) trackDeclaration(declaration *ast.DeclStmt) {
+	general, ok := declaration.Decl.(*ast.GenDecl)
+	if !ok {
+		return
+	}
+	if general.Tok != token.VAR {
+		return
+	}
+	for _, spec := range general.Specs {
+		valueSpec, ok := spec.(*ast.ValueSpec)
+		if ok {
+			tracker.trackValueSpec(valueSpec)
+		}
+	}
+}
+
+func (tracker *validatorTargetTracker) trackValueSpec(specification *ast.ValueSpec) {
+	left := make([]ast.Expr, 0, len(specification.Names))
+	for _, name := range specification.Names {
+		left = append(left, name)
+	}
+	trackValidatorAssignments(left, specification.Values, tracker.aliases, tracker.targets, tracker.usedTargets)
+}
+
+func (tracker *validatorTargetTracker) trackCall(call *ast.CallExpr) {
+	tracker.trackExpression(call.Fun)
+	tracker.trackExpressions(call.Args)
+}
+
+func (tracker *validatorTargetTracker) trackExpressions(expressions []ast.Expr) {
+	for _, expression := range expressions {
+		tracker.trackExpression(expression)
+	}
+}
+
+func (tracker *validatorTargetTracker) trackExpression(expression ast.Expr) {
+	markValidatorTargets(tracker.usedTargets, validatorTargetsInExpression(expression, tracker.aliases, tracker.targets))
+}
+
+func trackValidatorAssignments(
+	left, right []ast.Expr,
+	aliases map[string]map[string]bool,
+	targets map[string]string,
+	usedTargets map[string]bool,
+) {
+	for index, destination := range left {
+		identifier, isIdentifier := destination.(*ast.Ident)
+		if index >= len(right) {
+			if isIdentifier {
+				delete(aliases, identifier.Name)
+			}
+			continue
+		}
+		sourceTargets := validatorTargetsInExpression(right[index], aliases, targets)
+		markValidatorTargets(usedTargets, sourceTargets)
+		if !isIdentifier {
+			continue
+		}
+		if len(sourceTargets) == 0 {
+			delete(aliases, identifier.Name)
+			continue
+		}
+		aliases[identifier.Name] = sourceTargets
+	}
+}
+
+func validatorTargetsInExpression(expression ast.Expr, aliases map[string]map[string]bool, targets map[string]string) map[string]bool {
+	found := map[string]bool{}
+	ast.Inspect(expression, func(node ast.Node) bool {
+		switch typed := node.(type) {
+		case *ast.Ident:
+			if _, ok := targets[typed.Name]; ok {
+				found[typed.Name] = true
+			}
+			markValidatorTargets(found, aliases[typed.Name])
+		case *ast.SelectorExpr:
+			// Source overrides are parsed without package type information. A same-named
+			// selector therefore remains an unresolved potential validator method value.
+			if _, ok := targets[typed.Sel.Name]; ok {
+				found[typed.Sel.Name] = true
+			}
+		}
+		return true
+	})
+	return found
+}
+
+func markValidatorTargets(destination, source map[string]bool) {
+	for target := range source {
+		destination[target] = true
 	}
 }
 

@@ -3480,10 +3480,13 @@
         "internal/provider/codexapp.*session.approvalPolicyValue",
         "internal/provider/codexapp.*session.attemptRecovery",
         "internal/provider/codexapp.*session.beginProcessedApproval",
+        "internal/provider/codexapp.*session.bindStartingTurn",
+        "internal/provider/codexapp.*session.bindTurnStartResponse",
         "internal/provider/codexapp.*session.buildApprovalRequest",
         "internal/provider/codexapp.*session.callForceComplete",
         "internal/provider/codexapp.*session.callTransport",
         "internal/provider/codexapp.*session.callTransportWithGuard",
+        "internal/provider/codexapp.*session.claimAndTakeRecoveryTurn",
         "internal/provider/codexapp.*session.claimInterruptTarget",
         "internal/provider/codexapp.*session.claimTerminalSeal",
         "internal/provider/codexapp.*session.clearProcessedApprovals",
@@ -3492,7 +3495,7 @@
         "internal/provider/codexapp.*session.completeRecoveryReplay",
         "internal/provider/codexapp.*session.completeSyntheticTurn",
         "internal/provider/codexapp.*session.configureThread",
-        "internal/provider/codexapp.*session.confirmPendingTurnLost",
+        "internal/provider/codexapp.*session.confirmPendingTurnState",
         "internal/provider/codexapp.*session.consumeInterruptClaimLocked",
         "internal/provider/codexapp.*session.consumeSuppressedToolEnd",
         "internal/provider/codexapp.*session.consumeSuppressedToolEndAnyTurnLocked",
@@ -3501,6 +3504,7 @@
         "internal/provider/codexapp.*session.consumeTurnOutputAccumulator",
         "internal/provider/codexapp.*session.contextWithTurnTrace",
         "internal/provider/codexapp.*session.currentToolSurfaceID",
+        "internal/provider/codexapp.*session.discardStartingTurn",
         "internal/provider/codexapp.*session.discardTurnToolFailures",
         "internal/provider/codexapp.*session.dispatch",
         "internal/provider/codexapp.*session.dispatchRecoveryAttempt",
@@ -3526,16 +3530,19 @@
         "internal/provider/codexapp.*session.logApprovalRequestResponded",
         "internal/provider/codexapp.*session.logReplayPendingTurn",
         "internal/provider/codexapp.*session.logReplayedTurn",
+        "internal/provider/codexapp.*session.logTurnStartParams",
         "internal/provider/codexapp.*session.markInterruptRequestAccepted",
         "internal/provider/codexapp.*session.markInterruptRequestPending",
         "internal/provider/codexapp.*session.noteReadActivity",
         "internal/provider/codexapp.*session.notifyWriteOutcomeUnknown",
         "internal/provider/codexapp.*session.onInboundMessage",
         "internal/provider/codexapp.*session.onNotification",
+        "internal/provider/codexapp.*session.pendingTurnRecoveryState",
         "internal/provider/codexapp.*session.pendingTurnSnapshot",
         "internal/provider/codexapp.*session.prepareAndSealTerminalNotification",
         "internal/provider/codexapp.*session.prepareToolCall",
         "internal/provider/codexapp.*session.prepareTurnDynamicTools",
+        "internal/provider/codexapp.*session.prepareTurnStartParams",
         "internal/provider/codexapp.*session.publishToolCallBegin",
         "internal/provider/codexapp.*session.publishToolCallEnd",
         "internal/provider/codexapp.*session.purgeCompletedProcessedApprovalsLocked",
@@ -3546,15 +3553,19 @@
         "internal/provider/codexapp.*session.recordTurnToolFailure",
         "internal/provider/codexapp.*session.recoveryResumeCWD",
         "internal/provider/codexapp.*session.recoveryShutdownErr",
+        "internal/provider/codexapp.*session.recoveryTurnLocked",
         "internal/provider/codexapp.*session.remapEventIdentity",
         "internal/provider/codexapp.*session.rememberPendingTurn",
+        "internal/provider/codexapp.*session.rememberPendingTurnLocked",
         "internal/provider/codexapp.*session.rememberRolloutToolName",
+        "internal/provider/codexapp.*session.replayLostPendingTurn",
         "internal/provider/codexapp.*session.replayPendingTurn",
         "internal/provider/codexapp.*session.replayTurnStart",
         "internal/provider/codexapp.*session.requestApprovalDecision",
         "internal/provider/codexapp.*session.requestToolApproval",
         "internal/provider/codexapp.*session.requestToolApprovalWithContext",
         "internal/provider/codexapp.*session.reserveInterruptRequest",
+        "internal/provider/codexapp.*session.reserveStartingTurn",
         "internal/provider/codexapp.*session.resolveTurnStartModel",
         "internal/provider/codexapp.*session.respondInvalidToolCall",
         "internal/provider/codexapp.*session.resumeThreadAfterRecovery",
@@ -3570,17 +3581,22 @@
         "internal/provider/codexapp.*session.setRuntimeConfig",
         "internal/provider/codexapp.*session.setRuntimeConfigValue",
         "internal/provider/codexapp.*session.setThreadID",
+        "internal/provider/codexapp.*session.settleLostPendingInterrupt",
+        "internal/provider/codexapp.*session.settlePendingTurnForRecovery",
+        "internal/provider/codexapp.*session.settleRecoveredPendingTurn",
         "internal/provider/codexapp.*session.shouldSuppressToolEndEvent",
         "internal/provider/codexapp.*session.shouldSuppressTurnEvent",
         "internal/provider/codexapp.*session.shutdownSession",
         "internal/provider/codexapp.*session.shutdownSessionCleanup",
         "internal/provider/codexapp.*session.sniffTurnOutput",
+        "internal/provider/codexapp.*session.stageStartingTerminal",
+        "internal/provider/codexapp.*session.startTurnWithProvisionalOwner",
         "internal/provider/codexapp.*session.suppressToolEnd",
         "internal/provider/codexapp.*session.suppressTurn",
         "internal/provider/codexapp.*session.takeActiveTurnIfMatches",
+        "internal/provider/codexapp.*session.takeRecoveryTurnLocked",
         "internal/provider/codexapp.*session.takeTurn",
         "internal/provider/codexapp.*session.takeTurnToolFailures",
-        "internal/provider/codexapp.*session.terminalSealKey",
         "internal/provider/codexapp.*session.toolEndSuppressionPayload",
         "internal/provider/codexapp.*session.trackCodexRolloutToolName",
         "internal/provider/codexapp.*session.updateRuntimeConfigFromPatch",
@@ -3805,6 +3821,7 @@
         "internal/provider/codexapp.codexSandboxPolicyWireJSON",
         "internal/provider/codexapp.codexSandboxWireJSON",
         "internal/provider/codexapp.codexSupportedPlatformValue",
+        "internal/provider/codexapp.codexTerminalTimestampInvalid",
         "internal/provider/codexapp.codexTerminationPayload",
         "internal/provider/codexapp.codexTimestampProviderError",
         "internal/provider/codexapp.codexToolItemPayload",
@@ -4021,6 +4038,7 @@
         "internal/provider/codexapp.peerPIDTracker.Unregister",
         "internal/provider/codexapp.peerProcessEnv",
         "internal/provider/codexapp.pendingCall",
+        "internal/provider/codexapp.pendingTurnRecoveryStateForStatus",
         "internal/provider/codexapp.poolEntry",
         "internal/provider/codexapp.poolEntryKey",
         "internal/provider/codexapp.poolEvictRunner",
@@ -4061,6 +4079,7 @@
         "internal/provider/codexapp.provideDriverFactory",
         "internal/provider/codexapp.provideServerPool",
         "internal/provider/codexapp.publicToolError",
+        "internal/provider/codexapp.publishCodexTimestampFailureTerminal",
         "internal/provider/codexapp.publishCodexTranslatedEvent",
         "internal/provider/codexapp.putCodexString",
         "internal/provider/codexapp.putDefaultCodexString",
@@ -4070,10 +4089,10 @@
         "internal/provider/codexapp.readManagedCodexInstallRoot",
         "internal/provider/codexapp.recoverableTransportWriteError",
         "internal/provider/codexapp.recoveryManager",
+        "internal/provider/codexapp.recoverySnapshotTurnID",
         "internal/provider/codexapp.registerTranslatorsWithRuntimeHooks",
         "internal/provider/codexapp.releaseSessionPoolSlot",
         "internal/provider/codexapp.removeEnvKeys",
-        "internal/provider/codexapp.replayAllowedForStatus",
         "internal/provider/codexapp.replayTurnDone",
         "internal/provider/codexapp.replayTurnStatus",
         "internal/provider/codexapp.requestedCodexHomeIsAppManaged",
@@ -4137,6 +4156,7 @@
         "internal/provider/codexapp.splitEnv",
         "internal/provider/codexapp.startRemoteThreadWithParams",
         "internal/provider/codexapp.startResult",
+        "internal/provider/codexapp.startingTurnState",
         "internal/provider/codexapp.strictApprovalCallID",
         "internal/provider/codexapp.strictApprovalCallIDValue",
         "internal/provider/codexapp.strictApprovalRequestID",
@@ -8193,10 +8213,13 @@
         "internal/provider/codexapp.*session.approvalPolicyValue",
         "internal/provider/codexapp.*session.attemptRecovery",
         "internal/provider/codexapp.*session.beginProcessedApproval",
+        "internal/provider/codexapp.*session.bindStartingTurn",
+        "internal/provider/codexapp.*session.bindTurnStartResponse",
         "internal/provider/codexapp.*session.buildApprovalRequest",
         "internal/provider/codexapp.*session.callForceComplete",
         "internal/provider/codexapp.*session.callTransport",
         "internal/provider/codexapp.*session.callTransportWithGuard",
+        "internal/provider/codexapp.*session.claimAndTakeRecoveryTurn",
         "internal/provider/codexapp.*session.claimInterruptTarget",
         "internal/provider/codexapp.*session.claimTerminalSeal",
         "internal/provider/codexapp.*session.clearProcessedApprovals",
@@ -8205,7 +8228,7 @@
         "internal/provider/codexapp.*session.completeRecoveryReplay",
         "internal/provider/codexapp.*session.completeSyntheticTurn",
         "internal/provider/codexapp.*session.configureThread",
-        "internal/provider/codexapp.*session.confirmPendingTurnLost",
+        "internal/provider/codexapp.*session.confirmPendingTurnState",
         "internal/provider/codexapp.*session.consumeInterruptClaimLocked",
         "internal/provider/codexapp.*session.consumeSuppressedToolEnd",
         "internal/provider/codexapp.*session.consumeSuppressedToolEndAnyTurnLocked",
@@ -8214,6 +8237,7 @@
         "internal/provider/codexapp.*session.consumeTurnOutputAccumulator",
         "internal/provider/codexapp.*session.contextWithTurnTrace",
         "internal/provider/codexapp.*session.currentToolSurfaceID",
+        "internal/provider/codexapp.*session.discardStartingTurn",
         "internal/provider/codexapp.*session.discardTurnToolFailures",
         "internal/provider/codexapp.*session.dispatch",
         "internal/provider/codexapp.*session.dispatchRecoveryAttempt",
@@ -8239,16 +8263,19 @@
         "internal/provider/codexapp.*session.logApprovalRequestResponded",
         "internal/provider/codexapp.*session.logReplayPendingTurn",
         "internal/provider/codexapp.*session.logReplayedTurn",
+        "internal/provider/codexapp.*session.logTurnStartParams",
         "internal/provider/codexapp.*session.markInterruptRequestAccepted",
         "internal/provider/codexapp.*session.markInterruptRequestPending",
         "internal/provider/codexapp.*session.noteReadActivity",
         "internal/provider/codexapp.*session.notifyWriteOutcomeUnknown",
         "internal/provider/codexapp.*session.onInboundMessage",
         "internal/provider/codexapp.*session.onNotification",
+        "internal/provider/codexapp.*session.pendingTurnRecoveryState",
         "internal/provider/codexapp.*session.pendingTurnSnapshot",
         "internal/provider/codexapp.*session.prepareAndSealTerminalNotification",
         "internal/provider/codexapp.*session.prepareToolCall",
         "internal/provider/codexapp.*session.prepareTurnDynamicTools",
+        "internal/provider/codexapp.*session.prepareTurnStartParams",
         "internal/provider/codexapp.*session.publishToolCallBegin",
         "internal/provider/codexapp.*session.publishToolCallEnd",
         "internal/provider/codexapp.*session.purgeCompletedProcessedApprovalsLocked",
@@ -8259,15 +8286,19 @@
         "internal/provider/codexapp.*session.recordTurnToolFailure",
         "internal/provider/codexapp.*session.recoveryResumeCWD",
         "internal/provider/codexapp.*session.recoveryShutdownErr",
+        "internal/provider/codexapp.*session.recoveryTurnLocked",
         "internal/provider/codexapp.*session.remapEventIdentity",
         "internal/provider/codexapp.*session.rememberPendingTurn",
+        "internal/provider/codexapp.*session.rememberPendingTurnLocked",
         "internal/provider/codexapp.*session.rememberRolloutToolName",
+        "internal/provider/codexapp.*session.replayLostPendingTurn",
         "internal/provider/codexapp.*session.replayPendingTurn",
         "internal/provider/codexapp.*session.replayTurnStart",
         "internal/provider/codexapp.*session.requestApprovalDecision",
         "internal/provider/codexapp.*session.requestToolApproval",
         "internal/provider/codexapp.*session.requestToolApprovalWithContext",
         "internal/provider/codexapp.*session.reserveInterruptRequest",
+        "internal/provider/codexapp.*session.reserveStartingTurn",
         "internal/provider/codexapp.*session.resolveTurnStartModel",
         "internal/provider/codexapp.*session.respondInvalidToolCall",
         "internal/provider/codexapp.*session.resumeThreadAfterRecovery",
@@ -8283,17 +8314,22 @@
         "internal/provider/codexapp.*session.setRuntimeConfig",
         "internal/provider/codexapp.*session.setRuntimeConfigValue",
         "internal/provider/codexapp.*session.setThreadID",
+        "internal/provider/codexapp.*session.settleLostPendingInterrupt",
+        "internal/provider/codexapp.*session.settlePendingTurnForRecovery",
+        "internal/provider/codexapp.*session.settleRecoveredPendingTurn",
         "internal/provider/codexapp.*session.shouldSuppressToolEndEvent",
         "internal/provider/codexapp.*session.shouldSuppressTurnEvent",
         "internal/provider/codexapp.*session.shutdownSession",
         "internal/provider/codexapp.*session.shutdownSessionCleanup",
         "internal/provider/codexapp.*session.sniffTurnOutput",
+        "internal/provider/codexapp.*session.stageStartingTerminal",
+        "internal/provider/codexapp.*session.startTurnWithProvisionalOwner",
         "internal/provider/codexapp.*session.suppressToolEnd",
         "internal/provider/codexapp.*session.suppressTurn",
         "internal/provider/codexapp.*session.takeActiveTurnIfMatches",
+        "internal/provider/codexapp.*session.takeRecoveryTurnLocked",
         "internal/provider/codexapp.*session.takeTurn",
         "internal/provider/codexapp.*session.takeTurnToolFailures",
-        "internal/provider/codexapp.*session.terminalSealKey",
         "internal/provider/codexapp.*session.toolEndSuppressionPayload",
         "internal/provider/codexapp.*session.trackCodexRolloutToolName",
         "internal/provider/codexapp.*session.updateRuntimeConfigFromPatch",
@@ -8518,6 +8554,7 @@
         "internal/provider/codexapp.codexSandboxPolicyWireJSON",
         "internal/provider/codexapp.codexSandboxWireJSON",
         "internal/provider/codexapp.codexSupportedPlatformValue",
+        "internal/provider/codexapp.codexTerminalTimestampInvalid",
         "internal/provider/codexapp.codexTerminationPayload",
         "internal/provider/codexapp.codexTimestampProviderError",
         "internal/provider/codexapp.codexToolItemPayload",
@@ -8734,6 +8771,7 @@
         "internal/provider/codexapp.peerPIDTracker.Unregister",
         "internal/provider/codexapp.peerProcessEnv",
         "internal/provider/codexapp.pendingCall",
+        "internal/provider/codexapp.pendingTurnRecoveryStateForStatus",
         "internal/provider/codexapp.poolEntry",
         "internal/provider/codexapp.poolEntryKey",
         "internal/provider/codexapp.poolEvictRunner",
@@ -8774,6 +8812,7 @@
         "internal/provider/codexapp.provideDriverFactory",
         "internal/provider/codexapp.provideServerPool",
         "internal/provider/codexapp.publicToolError",
+        "internal/provider/codexapp.publishCodexTimestampFailureTerminal",
         "internal/provider/codexapp.publishCodexTranslatedEvent",
         "internal/provider/codexapp.putCodexString",
         "internal/provider/codexapp.putDefaultCodexString",
@@ -8783,10 +8822,10 @@
         "internal/provider/codexapp.readManagedCodexInstallRoot",
         "internal/provider/codexapp.recoverableTransportWriteError",
         "internal/provider/codexapp.recoveryManager",
+        "internal/provider/codexapp.recoverySnapshotTurnID",
         "internal/provider/codexapp.registerTranslatorsWithRuntimeHooks",
         "internal/provider/codexapp.releaseSessionPoolSlot",
         "internal/provider/codexapp.removeEnvKeys",
-        "internal/provider/codexapp.replayAllowedForStatus",
         "internal/provider/codexapp.replayTurnDone",
         "internal/provider/codexapp.replayTurnStatus",
         "internal/provider/codexapp.requestedCodexHomeIsAppManaged",
@@ -8850,6 +8889,7 @@
         "internal/provider/codexapp.splitEnv",
         "internal/provider/codexapp.startRemoteThreadWithParams",
         "internal/provider/codexapp.startResult",
+        "internal/provider/codexapp.startingTurnState",
         "internal/provider/codexapp.strictApprovalCallID",
         "internal/provider/codexapp.strictApprovalCallIDValue",
         "internal/provider/codexapp.strictApprovalRequestID",
@@ -12906,10 +12946,13 @@
         "internal/provider/codexapp.*session.approvalPolicyValue",
         "internal/provider/codexapp.*session.attemptRecovery",
         "internal/provider/codexapp.*session.beginProcessedApproval",
+        "internal/provider/codexapp.*session.bindStartingTurn",
+        "internal/provider/codexapp.*session.bindTurnStartResponse",
         "internal/provider/codexapp.*session.buildApprovalRequest",
         "internal/provider/codexapp.*session.callForceComplete",
         "internal/provider/codexapp.*session.callTransport",
         "internal/provider/codexapp.*session.callTransportWithGuard",
+        "internal/provider/codexapp.*session.claimAndTakeRecoveryTurn",
         "internal/provider/codexapp.*session.claimInterruptTarget",
         "internal/provider/codexapp.*session.claimTerminalSeal",
         "internal/provider/codexapp.*session.clearProcessedApprovals",
@@ -12918,7 +12961,7 @@
         "internal/provider/codexapp.*session.completeRecoveryReplay",
         "internal/provider/codexapp.*session.completeSyntheticTurn",
         "internal/provider/codexapp.*session.configureThread",
-        "internal/provider/codexapp.*session.confirmPendingTurnLost",
+        "internal/provider/codexapp.*session.confirmPendingTurnState",
         "internal/provider/codexapp.*session.consumeInterruptClaimLocked",
         "internal/provider/codexapp.*session.consumeSuppressedToolEnd",
         "internal/provider/codexapp.*session.consumeSuppressedToolEndAnyTurnLocked",
@@ -12927,6 +12970,7 @@
         "internal/provider/codexapp.*session.consumeTurnOutputAccumulator",
         "internal/provider/codexapp.*session.contextWithTurnTrace",
         "internal/provider/codexapp.*session.currentToolSurfaceID",
+        "internal/provider/codexapp.*session.discardStartingTurn",
         "internal/provider/codexapp.*session.discardTurnToolFailures",
         "internal/provider/codexapp.*session.dispatch",
         "internal/provider/codexapp.*session.dispatchRecoveryAttempt",
@@ -12952,16 +12996,19 @@
         "internal/provider/codexapp.*session.logApprovalRequestResponded",
         "internal/provider/codexapp.*session.logReplayPendingTurn",
         "internal/provider/codexapp.*session.logReplayedTurn",
+        "internal/provider/codexapp.*session.logTurnStartParams",
         "internal/provider/codexapp.*session.markInterruptRequestAccepted",
         "internal/provider/codexapp.*session.markInterruptRequestPending",
         "internal/provider/codexapp.*session.noteReadActivity",
         "internal/provider/codexapp.*session.notifyWriteOutcomeUnknown",
         "internal/provider/codexapp.*session.onInboundMessage",
         "internal/provider/codexapp.*session.onNotification",
+        "internal/provider/codexapp.*session.pendingTurnRecoveryState",
         "internal/provider/codexapp.*session.pendingTurnSnapshot",
         "internal/provider/codexapp.*session.prepareAndSealTerminalNotification",
         "internal/provider/codexapp.*session.prepareToolCall",
         "internal/provider/codexapp.*session.prepareTurnDynamicTools",
+        "internal/provider/codexapp.*session.prepareTurnStartParams",
         "internal/provider/codexapp.*session.publishToolCallBegin",
         "internal/provider/codexapp.*session.publishToolCallEnd",
         "internal/provider/codexapp.*session.purgeCompletedProcessedApprovalsLocked",
@@ -12972,15 +13019,19 @@
         "internal/provider/codexapp.*session.recordTurnToolFailure",
         "internal/provider/codexapp.*session.recoveryResumeCWD",
         "internal/provider/codexapp.*session.recoveryShutdownErr",
+        "internal/provider/codexapp.*session.recoveryTurnLocked",
         "internal/provider/codexapp.*session.remapEventIdentity",
         "internal/provider/codexapp.*session.rememberPendingTurn",
+        "internal/provider/codexapp.*session.rememberPendingTurnLocked",
         "internal/provider/codexapp.*session.rememberRolloutToolName",
+        "internal/provider/codexapp.*session.replayLostPendingTurn",
         "internal/provider/codexapp.*session.replayPendingTurn",
         "internal/provider/codexapp.*session.replayTurnStart",
         "internal/provider/codexapp.*session.requestApprovalDecision",
         "internal/provider/codexapp.*session.requestToolApproval",
         "internal/provider/codexapp.*session.requestToolApprovalWithContext",
         "internal/provider/codexapp.*session.reserveInterruptRequest",
+        "internal/provider/codexapp.*session.reserveStartingTurn",
         "internal/provider/codexapp.*session.resolveTurnStartModel",
         "internal/provider/codexapp.*session.respondInvalidToolCall",
         "internal/provider/codexapp.*session.resumeThreadAfterRecovery",
@@ -12996,17 +13047,22 @@
         "internal/provider/codexapp.*session.setRuntimeConfig",
         "internal/provider/codexapp.*session.setRuntimeConfigValue",
         "internal/provider/codexapp.*session.setThreadID",
+        "internal/provider/codexapp.*session.settleLostPendingInterrupt",
+        "internal/provider/codexapp.*session.settlePendingTurnForRecovery",
+        "internal/provider/codexapp.*session.settleRecoveredPendingTurn",
         "internal/provider/codexapp.*session.shouldSuppressToolEndEvent",
         "internal/provider/codexapp.*session.shouldSuppressTurnEvent",
         "internal/provider/codexapp.*session.shutdownSession",
         "internal/provider/codexapp.*session.shutdownSessionCleanup",
         "internal/provider/codexapp.*session.sniffTurnOutput",
+        "internal/provider/codexapp.*session.stageStartingTerminal",
+        "internal/provider/codexapp.*session.startTurnWithProvisionalOwner",
         "internal/provider/codexapp.*session.suppressToolEnd",
         "internal/provider/codexapp.*session.suppressTurn",
         "internal/provider/codexapp.*session.takeActiveTurnIfMatches",
+        "internal/provider/codexapp.*session.takeRecoveryTurnLocked",
         "internal/provider/codexapp.*session.takeTurn",
         "internal/provider/codexapp.*session.takeTurnToolFailures",
-        "internal/provider/codexapp.*session.terminalSealKey",
         "internal/provider/codexapp.*session.toolEndSuppressionPayload",
         "internal/provider/codexapp.*session.trackCodexRolloutToolName",
         "internal/provider/codexapp.*session.updateRuntimeConfigFromPatch",
@@ -13231,6 +13287,7 @@
         "internal/provider/codexapp.codexSandboxPolicyWireJSON",
         "internal/provider/codexapp.codexSandboxWireJSON",
         "internal/provider/codexapp.codexSupportedPlatformValue",
+        "internal/provider/codexapp.codexTerminalTimestampInvalid",
         "internal/provider/codexapp.codexTerminationPayload",
         "internal/provider/codexapp.codexTimestampProviderError",
         "internal/provider/codexapp.codexToolItemPayload",
@@ -13447,6 +13504,7 @@
         "internal/provider/codexapp.peerPIDTracker.Unregister",
         "internal/provider/codexapp.peerProcessEnv",
         "internal/provider/codexapp.pendingCall",
+        "internal/provider/codexapp.pendingTurnRecoveryStateForStatus",
         "internal/provider/codexapp.poolEntry",
         "internal/provider/codexapp.poolEntryKey",
         "internal/provider/codexapp.poolEvictRunner",
@@ -13487,6 +13545,7 @@
         "internal/provider/codexapp.provideDriverFactory",
         "internal/provider/codexapp.provideServerPool",
         "internal/provider/codexapp.publicToolError",
+        "internal/provider/codexapp.publishCodexTimestampFailureTerminal",
         "internal/provider/codexapp.publishCodexTranslatedEvent",
         "internal/provider/codexapp.putCodexString",
         "internal/provider/codexapp.putDefaultCodexString",
@@ -13496,10 +13555,10 @@
         "internal/provider/codexapp.readManagedCodexInstallRoot",
         "internal/provider/codexapp.recoverableTransportWriteError",
         "internal/provider/codexapp.recoveryManager",
+        "internal/provider/codexapp.recoverySnapshotTurnID",
         "internal/provider/codexapp.registerTranslatorsWithRuntimeHooks",
         "internal/provider/codexapp.releaseSessionPoolSlot",
         "internal/provider/codexapp.removeEnvKeys",
-        "internal/provider/codexapp.replayAllowedForStatus",
         "internal/provider/codexapp.replayTurnDone",
         "internal/provider/codexapp.replayTurnStatus",
         "internal/provider/codexapp.requestedCodexHomeIsAppManaged",
@@ -13563,6 +13622,7 @@
         "internal/provider/codexapp.splitEnv",
         "internal/provider/codexapp.startRemoteThreadWithParams",
         "internal/provider/codexapp.startResult",
+        "internal/provider/codexapp.startingTurnState",
         "internal/provider/codexapp.strictApprovalCallID",
         "internal/provider/codexapp.strictApprovalCallIDValue",
         "internal/provider/codexapp.strictApprovalRequestID",
@@ -17624,10 +17684,13 @@
         "internal/provider/codexapp.*session.approvalPolicyValue",
         "internal/provider/codexapp.*session.attemptRecovery",
         "internal/provider/codexapp.*session.beginProcessedApproval",
+        "internal/provider/codexapp.*session.bindStartingTurn",
+        "internal/provider/codexapp.*session.bindTurnStartResponse",
         "internal/provider/codexapp.*session.buildApprovalRequest",
         "internal/provider/codexapp.*session.callForceComplete",
         "internal/provider/codexapp.*session.callTransport",
         "internal/provider/codexapp.*session.callTransportWithGuard",
+        "internal/provider/codexapp.*session.claimAndTakeRecoveryTurn",
         "internal/provider/codexapp.*session.claimInterruptTarget",
         "internal/provider/codexapp.*session.claimTerminalSeal",
         "internal/provider/codexapp.*session.clearProcessedApprovals",
@@ -17636,7 +17699,7 @@
         "internal/provider/codexapp.*session.completeRecoveryReplay",
         "internal/provider/codexapp.*session.completeSyntheticTurn",
         "internal/provider/codexapp.*session.configureThread",
-        "internal/provider/codexapp.*session.confirmPendingTurnLost",
+        "internal/provider/codexapp.*session.confirmPendingTurnState",
         "internal/provider/codexapp.*session.consumeInterruptClaimLocked",
         "internal/provider/codexapp.*session.consumeSuppressedToolEnd",
         "internal/provider/codexapp.*session.consumeSuppressedToolEndAnyTurnLocked",
@@ -17645,6 +17708,7 @@
         "internal/provider/codexapp.*session.consumeTurnOutputAccumulator",
         "internal/provider/codexapp.*session.contextWithTurnTrace",
         "internal/provider/codexapp.*session.currentToolSurfaceID",
+        "internal/provider/codexapp.*session.discardStartingTurn",
         "internal/provider/codexapp.*session.discardTurnToolFailures",
         "internal/provider/codexapp.*session.dispatch",
         "internal/provider/codexapp.*session.dispatchRecoveryAttempt",
@@ -17670,16 +17734,19 @@
         "internal/provider/codexapp.*session.logApprovalRequestResponded",
         "internal/provider/codexapp.*session.logReplayPendingTurn",
         "internal/provider/codexapp.*session.logReplayedTurn",
+        "internal/provider/codexapp.*session.logTurnStartParams",
         "internal/provider/codexapp.*session.markInterruptRequestAccepted",
         "internal/provider/codexapp.*session.markInterruptRequestPending",
         "internal/provider/codexapp.*session.noteReadActivity",
         "internal/provider/codexapp.*session.notifyWriteOutcomeUnknown",
         "internal/provider/codexapp.*session.onInboundMessage",
         "internal/provider/codexapp.*session.onNotification",
+        "internal/provider/codexapp.*session.pendingTurnRecoveryState",
         "internal/provider/codexapp.*session.pendingTurnSnapshot",
         "internal/provider/codexapp.*session.prepareAndSealTerminalNotification",
         "internal/provider/codexapp.*session.prepareToolCall",
         "internal/provider/codexapp.*session.prepareTurnDynamicTools",
+        "internal/provider/codexapp.*session.prepareTurnStartParams",
         "internal/provider/codexapp.*session.publishToolCallBegin",
         "internal/provider/codexapp.*session.publishToolCallEnd",
         "internal/provider/codexapp.*session.purgeCompletedProcessedApprovalsLocked",
@@ -17690,15 +17757,19 @@
         "internal/provider/codexapp.*session.recordTurnToolFailure",
         "internal/provider/codexapp.*session.recoveryResumeCWD",
         "internal/provider/codexapp.*session.recoveryShutdownErr",
+        "internal/provider/codexapp.*session.recoveryTurnLocked",
         "internal/provider/codexapp.*session.remapEventIdentity",
         "internal/provider/codexapp.*session.rememberPendingTurn",
+        "internal/provider/codexapp.*session.rememberPendingTurnLocked",
         "internal/provider/codexapp.*session.rememberRolloutToolName",
+        "internal/provider/codexapp.*session.replayLostPendingTurn",
         "internal/provider/codexapp.*session.replayPendingTurn",
         "internal/provider/codexapp.*session.replayTurnStart",
         "internal/provider/codexapp.*session.requestApprovalDecision",
         "internal/provider/codexapp.*session.requestToolApproval",
         "internal/provider/codexapp.*session.requestToolApprovalWithContext",
         "internal/provider/codexapp.*session.reserveInterruptRequest",
+        "internal/provider/codexapp.*session.reserveStartingTurn",
         "internal/provider/codexapp.*session.resolveTurnStartModel",
         "internal/provider/codexapp.*session.respondInvalidToolCall",
         "internal/provider/codexapp.*session.resumeThreadAfterRecovery",
@@ -17714,17 +17785,22 @@
         "internal/provider/codexapp.*session.setRuntimeConfig",
         "internal/provider/codexapp.*session.setRuntimeConfigValue",
         "internal/provider/codexapp.*session.setThreadID",
+        "internal/provider/codexapp.*session.settleLostPendingInterrupt",
+        "internal/provider/codexapp.*session.settlePendingTurnForRecovery",
+        "internal/provider/codexapp.*session.settleRecoveredPendingTurn",
         "internal/provider/codexapp.*session.shouldSuppressToolEndEvent",
         "internal/provider/codexapp.*session.shouldSuppressTurnEvent",
         "internal/provider/codexapp.*session.shutdownSession",
         "internal/provider/codexapp.*session.shutdownSessionCleanup",
         "internal/provider/codexapp.*session.sniffTurnOutput",
+        "internal/provider/codexapp.*session.stageStartingTerminal",
+        "internal/provider/codexapp.*session.startTurnWithProvisionalOwner",
         "internal/provider/codexapp.*session.suppressToolEnd",
         "internal/provider/codexapp.*session.suppressTurn",
         "internal/provider/codexapp.*session.takeActiveTurnIfMatches",
+        "internal/provider/codexapp.*session.takeRecoveryTurnLocked",
         "internal/provider/codexapp.*session.takeTurn",
         "internal/provider/codexapp.*session.takeTurnToolFailures",
-        "internal/provider/codexapp.*session.terminalSealKey",
         "internal/provider/codexapp.*session.toolEndSuppressionPayload",
         "internal/provider/codexapp.*session.trackCodexRolloutToolName",
         "internal/provider/codexapp.*session.updateRuntimeConfigFromPatch",
@@ -17949,6 +18025,7 @@
         "internal/provider/codexapp.codexSandboxPolicyWireJSON",
         "internal/provider/codexapp.codexSandboxWireJSON",
         "internal/provider/codexapp.codexSupportedPlatformValue",
+        "internal/provider/codexapp.codexTerminalTimestampInvalid",
         "internal/provider/codexapp.codexTerminationPayload",
         "internal/provider/codexapp.codexTimestampProviderError",
         "internal/provider/codexapp.codexToolItemPayload",
@@ -18168,6 +18245,7 @@
         "internal/provider/codexapp.peerPIDTracker.Unregister",
         "internal/provider/codexapp.peerProcessEnv",
         "internal/provider/codexapp.pendingCall",
+        "internal/provider/codexapp.pendingTurnRecoveryStateForStatus",
         "internal/provider/codexapp.poolEntry",
         "internal/provider/codexapp.poolEntryKey",
         "internal/provider/codexapp.poolEvictRunner",
@@ -18208,6 +18286,7 @@
         "internal/provider/codexapp.provideDriverFactory",
         "internal/provider/codexapp.provideServerPool",
         "internal/provider/codexapp.publicToolError",
+        "internal/provider/codexapp.publishCodexTimestampFailureTerminal",
         "internal/provider/codexapp.publishCodexTranslatedEvent",
         "internal/provider/codexapp.putCodexString",
         "internal/provider/codexapp.putDefaultCodexString",
@@ -18217,10 +18296,10 @@
         "internal/provider/codexapp.readManagedCodexInstallRoot",
         "internal/provider/codexapp.recoverableTransportWriteError",
         "internal/provider/codexapp.recoveryManager",
+        "internal/provider/codexapp.recoverySnapshotTurnID",
         "internal/provider/codexapp.registerTranslatorsWithRuntimeHooks",
         "internal/provider/codexapp.releaseSessionPoolSlot",
         "internal/provider/codexapp.removeEnvKeys",
-        "internal/provider/codexapp.replayAllowedForStatus",
         "internal/provider/codexapp.replayTurnDone",
         "internal/provider/codexapp.replayTurnStatus",
         "internal/provider/codexapp.requestedCodexHomeIsAppManaged",
@@ -18283,6 +18362,7 @@
         "internal/provider/codexapp.splitEnv",
         "internal/provider/codexapp.startRemoteThreadWithParams",
         "internal/provider/codexapp.startResult",
+        "internal/provider/codexapp.startingTurnState",
         "internal/provider/codexapp.strictApprovalCallID",
         "internal/provider/codexapp.strictApprovalCallIDValue",
         "internal/provider/codexapp.strictApprovalRequestID",
@@ -18877,13 +18957,13 @@
   ],
   "summary": {
     "total_packages": 41,
-    "total_functions": 2292,
-    "total_methods": 1204,
+    "total_functions": 2295,
+    "total_methods": 1220,
     "total_interfaces": 186,
     "total_interface_methods": 370,
     "total_exported": 1267,
-    "total_unexported": 3031,
-    "total_structs": 616
+    "total_unexported": 3051,
+    "total_structs": 617
   },
   "packages": [
     {
@@ -65780,6 +65860,19 @@
           ]
         },
         {
+          "name": "codexTerminalTimestampInvalid",
+          "exported": false,
+          "params": [
+            {
+              "name": "raw",
+              "type": "dto.RawProviderEvent"
+            }
+          ],
+          "returns": [
+            "bool"
+          ]
+        },
+        {
           "name": "codexTerminationPayload",
           "exported": false,
           "params": [
@@ -68740,6 +68833,20 @@
           ]
         },
         {
+          "name": "pendingTurnRecoveryStateForStatus",
+          "exported": false,
+          "params": [
+            {
+              "name": "payload",
+              "type": "replayTurnStatus"
+            }
+          ],
+          "returns": [
+            "pendingTurnRecoveryState",
+            "error"
+          ]
+        },
+        {
           "name": "poolEvictRunnerAsRunner",
           "exported": false,
           "params": [
@@ -69140,6 +69247,20 @@
           ]
         },
         {
+          "name": "publishCodexTimestampFailureTerminal",
+          "exported": false,
+          "params": [
+            {
+              "name": "raw",
+              "type": "dto.RawProviderEvent"
+            },
+            {
+              "name": "publish",
+              "type": "func(ev any)"
+            }
+          ]
+        },
+        {
           "name": "publishCodexTranslatedEvent",
           "exported": false,
           "params": [
@@ -69275,6 +69396,20 @@
           ]
         },
         {
+          "name": "recoverySnapshotTurnID",
+          "exported": false,
+          "params": [
+            {
+              "name": "snapshot",
+              "type": "*turnReplayState"
+            }
+          ],
+          "returns": [
+            "string",
+            "bool"
+          ]
+        },
+        {
           "name": "registerTranslatorsWithRuntimeHooks",
           "exported": false,
           "params": [
@@ -69313,20 +69448,6 @@
           ],
           "returns": [
             "[]string"
-          ]
-        },
-        {
-          "name": "replayAllowedForStatus",
-          "exported": false,
-          "params": [
-            {
-              "name": "payload",
-              "type": "replayTurnStatus"
-            }
-          ],
-          "returns": [
-            "bool",
-            "error"
           ]
         },
         {
@@ -70861,10 +70982,6 @@
             {
               "name": "inputs",
               "type": "[]dto.InputItem"
-            },
-            {
-              "name": "skills",
-              "type": "[]dto.SkillRef"
             },
             {
               "name": "assembly",
@@ -74182,6 +74299,56 @@
         },
         {
           "receiver": "*session",
+          "name": "bindStartingTurn",
+          "exported": false,
+          "params": [
+            {
+              "name": "starting",
+              "type": "*startingTurnState"
+            },
+            {
+              "name": "handle",
+              "type": "*turnHandle"
+            },
+            {
+              "name": "providerID",
+              "type": "string"
+            }
+          ],
+          "returns": [
+            "*dto.RawProviderEvent",
+            "error"
+          ]
+        },
+        {
+          "receiver": "*session",
+          "name": "bindTurnStartResponse",
+          "exported": false,
+          "params": [
+            {
+              "name": "ctx",
+              "type": "context.Context"
+            },
+            {
+              "name": "req",
+              "type": "dto.TurnRequest"
+            },
+            {
+              "name": "starting",
+              "type": "*startingTurnState"
+            },
+            {
+              "name": "raw",
+              "type": "[]byte"
+            }
+          ],
+          "returns": [
+            "contract.TurnHandle",
+            "error"
+          ]
+        },
+        {
+          "receiver": "*session",
           "name": "buildApprovalRequest",
           "exported": false,
           "params": [
@@ -74270,6 +74437,27 @@
           "returns": [
             "json.RawMessage",
             "error"
+          ]
+        },
+        {
+          "receiver": "*session",
+          "name": "claimAndTakeRecoveryTurn",
+          "exported": false,
+          "params": [
+            {
+              "name": "snapshot",
+              "type": "*turnReplayState"
+            },
+            {
+              "name": "requireInterrupt",
+              "type": "bool"
+            }
+          ],
+          "returns": [
+            "*turnHandle",
+            "*interruptRequestClaim",
+            "bool",
+            "bool"
           ]
         },
         {
@@ -74389,7 +74577,7 @@
         },
         {
           "receiver": "*session",
-          "name": "confirmPendingTurnLost",
+          "name": "confirmPendingTurnState",
           "exported": false,
           "params": [
             {
@@ -74402,7 +74590,7 @@
             }
           ],
           "returns": [
-            "bool",
+            "pendingTurnRecoveryState",
             "error"
           ]
         },
@@ -74535,6 +74723,17 @@
           "exported": false,
           "returns": [
             "string"
+          ]
+        },
+        {
+          "receiver": "*session",
+          "name": "discardStartingTurn",
+          "exported": false,
+          "params": [
+            {
+              "name": "starting",
+              "type": "*startingTurnState"
+            }
           ]
         },
         {
@@ -74890,6 +75089,17 @@
         },
         {
           "receiver": "*session",
+          "name": "logTurnStartParams",
+          "exported": false,
+          "params": [
+            {
+              "name": "params",
+              "type": "turnStartParams"
+            }
+          ]
+        },
+        {
+          "receiver": "*session",
           "name": "markInterruptRequestAccepted",
           "exported": false,
           "params": [
@@ -74977,6 +75187,22 @@
         },
         {
           "receiver": "*session",
+          "name": "pendingTurnRecoveryState",
+          "exported": false,
+          "params": [
+            {
+              "name": "ctx",
+              "type": "context.Context"
+            }
+          ],
+          "returns": [
+            "*turnReplayState",
+            "pendingTurnRecoveryState",
+            "error"
+          ]
+        },
+        {
+          "receiver": "*session",
           "name": "pendingTurnSnapshot",
           "exported": false,
           "returns": [
@@ -75033,6 +75259,25 @@
           ],
           "returns": [
             "[]codexprotocol.DynamicToolSchema",
+            "error"
+          ]
+        },
+        {
+          "receiver": "*session",
+          "name": "prepareTurnStartParams",
+          "exported": false,
+          "params": [
+            {
+              "name": "ctx",
+              "type": "context.Context"
+            },
+            {
+              "name": "req",
+              "type": "dto.TurnRequest"
+            }
+          ],
+          "returns": [
+            "turnStartParams",
             "error"
           ]
         },
@@ -75179,6 +75424,25 @@
         },
         {
           "receiver": "*session",
+          "name": "recoveryTurnLocked",
+          "exported": false,
+          "params": [
+            {
+              "name": "snapshot",
+              "type": "*turnReplayState"
+            },
+            {
+              "name": "turnID",
+              "type": "string"
+            }
+          ],
+          "returns": [
+            "*turnHandle",
+            "bool"
+          ]
+        },
+        {
+          "receiver": "*session",
           "name": "remapEventIdentity",
           "exported": false,
           "params": [
@@ -75193,6 +75457,21 @@
             {
               "name": "hostAgentID",
               "type": "string"
+            }
+          ]
+        },
+        {
+          "receiver": "*session",
+          "name": "rememberPendingTurnLocked",
+          "exported": false,
+          "params": [
+            {
+              "name": "handle",
+              "type": "*turnHandle"
+            },
+            {
+              "name": "params",
+              "type": "turnStartParams"
             }
           ]
         },
@@ -75224,6 +75503,24 @@
               "name": "toolName",
               "type": "string"
             }
+          ]
+        },
+        {
+          "receiver": "*session",
+          "name": "replayLostPendingTurn",
+          "exported": false,
+          "params": [
+            {
+              "name": "ctx",
+              "type": "context.Context"
+            },
+            {
+              "name": "snapshot",
+              "type": "*turnReplayState"
+            }
+          ],
+          "returns": [
+            "error"
           ]
         },
         {
@@ -75330,6 +75627,21 @@
           ],
           "returns": [
             "*interruptRequestClaim",
+            "error"
+          ]
+        },
+        {
+          "receiver": "*session",
+          "name": "reserveStartingTurn",
+          "exported": false,
+          "params": [
+            {
+              "name": "params",
+              "type": "turnStartParams"
+            }
+          ],
+          "returns": [
+            "*startingTurnState",
             "error"
           ]
         },
@@ -75551,6 +75863,58 @@
         },
         {
           "receiver": "*session",
+          "name": "settleLostPendingInterrupt",
+          "exported": false,
+          "params": [
+            {
+              "name": "snapshot",
+              "type": "*turnReplayState"
+            }
+          ],
+          "returns": [
+            "bool",
+            "error"
+          ]
+        },
+        {
+          "receiver": "*session",
+          "name": "settlePendingTurnForRecovery",
+          "exported": false,
+          "params": [
+            {
+              "name": "snapshot",
+              "type": "*turnReplayState"
+            },
+            {
+              "name": "state",
+              "type": "pendingTurnRecoveryState"
+            }
+          ],
+          "returns": [
+            "bool",
+            "error"
+          ]
+        },
+        {
+          "receiver": "*session",
+          "name": "settleRecoveredPendingTurn",
+          "exported": false,
+          "params": [
+            {
+              "name": "snapshot",
+              "type": "*turnReplayState"
+            },
+            {
+              "name": "state",
+              "type": "pendingTurnRecoveryState"
+            }
+          ],
+          "returns": [
+            "error"
+          ]
+        },
+        {
+          "receiver": "*session",
           "name": "shouldSuppressToolEndEvent",
           "exported": false,
           "params": [
@@ -75627,6 +75991,43 @@
         },
         {
           "receiver": "*session",
+          "name": "stageStartingTerminal",
+          "exported": false,
+          "params": [
+            {
+              "name": "raw",
+              "type": "dto.RawProviderEvent"
+            }
+          ],
+          "returns": [
+            "bool"
+          ]
+        },
+        {
+          "receiver": "*session",
+          "name": "startTurnWithProvisionalOwner",
+          "exported": false,
+          "params": [
+            {
+              "name": "ctx",
+              "type": "context.Context"
+            },
+            {
+              "name": "req",
+              "type": "dto.TurnRequest"
+            },
+            {
+              "name": "params",
+              "type": "turnStartParams"
+            }
+          ],
+          "returns": [
+            "contract.TurnHandle",
+            "error"
+          ]
+        },
+        {
+          "receiver": "*session",
           "name": "suppressToolEnd",
           "exported": false,
           "params": [
@@ -75672,6 +76073,21 @@
         },
         {
           "receiver": "*session",
+          "name": "takeRecoveryTurnLocked",
+          "exported": false,
+          "params": [
+            {
+              "name": "turnID",
+              "type": "string"
+            },
+            {
+              "name": "h",
+              "type": "*turnHandle"
+            }
+          ]
+        },
+        {
+          "receiver": "*session",
           "name": "takeTurnToolFailures",
           "exported": false,
           "params": [
@@ -75696,21 +76112,6 @@
           ],
           "returns": [
             "*turnHandle"
-          ]
-        },
-        {
-          "receiver": "*session",
-          "name": "terminalSealKey",
-          "exported": false,
-          "params": [
-            {
-              "name": "payload",
-              "type": "map[string]any"
-            }
-          ],
-          "returns": [
-            "string",
-            "bool"
           ]
         },
         {
@@ -77302,6 +77703,10 @@
         },
         {
           "name": "startResult",
+          "exported": false
+        },
+        {
+          "name": "startingTurnState",
           "exported": false
         },
         {

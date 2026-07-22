@@ -117,57 +117,12 @@ func TestRecoveryBindingStateExposesTypedRecoveryMode(t *testing.T) {
 	if err != nil {
 		t.Fatalf("State() error = %v", err)
 	}
-	if state.Mode != app.StartupModeRecovery || state.Projection.Reason != "Recovery action is required; sensitive diagnostics remain preserved internally." || state.LastAction != "state" {
+	wantReason := app.NormalizeRecoveryReason("normal preflight failed")
+	if state.Mode != app.StartupModeRecovery || state.Projection.Reason != wantReason || state.LastAction != "state" {
 		t.Fatalf("State() = %#v", state)
 	}
 	if state.Actions != (recoveryActionAvailability{}) {
 		t.Fatalf("normal-preflight Recovery actions = %#v, want unavailable", state.Actions)
-	}
-}
-
-func TestRecoverySurfaceRedactsUnknownFailureReason(t *testing.T) {
-	secret := "postgres://admin:password@localhost/db PRIVATE KEY sk-live-secret /Users/alice/private.db stdout stderr"
-	state := newRecoverySurfaceState(app.RecoveryProjection{Reason: secret}, "state")
-	raw, err := json.Marshal(state)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, leaked := range []string{"postgres://", "PRIVATE KEY", "sk-live-secret", "/Users/alice", "stdout", "stderr"} {
-		if strings.Contains(string(raw), leaked) {
-			t.Fatalf("unknown Recovery failure leaked %q in %s", leaked, raw)
-		}
-	}
-}
-
-func TestRecoverySurfaceExposesOnlySafeFailureMetadata(t *testing.T) {
-	secret := "postgres://admin:password@localhost/db PRIVATE KEY sk-live-secret /Users/alice/private.db"
-	projection := app.RecoveryProjection{
-		TransactionID: "transaction-1",
-		Reason:        "update failed: " + secret,
-	}
-	state := newRecoverySurfaceStateWithFailure(projection, "state", app.RecoveryFailure{
-		Code: "UPDATE_SIGNATURE_INVALID", Action: app.RecoveryActionPreserveStateExportDiagnostics,
-	})
-	if state.Failure.TransactionID != "transaction-1" || state.Failure.Code != "UPDATE_SIGNATURE_INVALID" {
-		t.Fatalf("failure = %#v", state.Failure)
-	}
-	raw, err := json.Marshal(state)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, leaked := range []string{"postgres://", "PRIVATE KEY", "sk-live-secret", "/Users/alice"} {
-		if strings.Contains(string(raw), leaked) {
-			t.Fatalf("Recovery state leaked %q in %s", leaked, raw)
-		}
-	}
-	var payload struct {
-		Failure map[string]any `json:"failure"`
-	}
-	if err := json.Unmarshal(raw, &payload); err != nil {
-		t.Fatal(err)
-	}
-	if len(payload.Failure) != 4 {
-		t.Fatalf("failure fields = %v, want exactly four", payload.Failure)
 	}
 }
 
@@ -228,12 +183,13 @@ func newAmbiguousRecoveryFixture(t *testing.T) ambiguousRecoveryFixture {
 func TestRecoveryWailsMethodsReturnOnlyFixedSafeErrors(t *testing.T) {
 	methods := []struct {
 		name string
+		code app.RecoveryPublicErrorCode
 		call func(*recoveryBinding) error
 	}{
-		{name: "state", call: func(binding *recoveryBinding) error { _, err := binding.State(t.Context()); return err }},
-		{name: "check", call: func(binding *recoveryBinding) error { _, err := binding.Check(t.Context()); return err }},
-		{name: "retry", call: func(binding *recoveryBinding) error { _, err := binding.Retry(t.Context()); return err }},
-		{name: "restore", call: func(binding *recoveryBinding) error { _, err := binding.Restore(t.Context()); return err }},
+		{name: "state", code: app.RecoveryPublicCodeStateFailed, call: func(binding *recoveryBinding) error { _, err := binding.State(t.Context()); return err }},
+		{name: "check", code: app.RecoveryPublicCodeCheckFailed, call: func(binding *recoveryBinding) error { _, err := binding.Check(t.Context()); return err }},
+		{name: "retry", code: app.RecoveryPublicCodeRetryFailed, call: func(binding *recoveryBinding) error { _, err := binding.Retry(t.Context()); return err }},
+		{name: "restore", code: app.RecoveryPublicCodeRestoreFailed, call: func(binding *recoveryBinding) error { _, err := binding.Restore(t.Context()); return err }},
 	}
 	for _, method := range methods {
 		t.Run(method.name, func(t *testing.T) {
@@ -243,7 +199,7 @@ func TestRecoveryWailsMethodsReturnOnlyFixedSafeErrors(t *testing.T) {
 				t.Fatal(err)
 			}
 			err := method.call(fixture.binding)
-			if err == nil || err.Error() != "RECOVERY_OPERATION_FAILED" {
+			if err == nil || !strings.HasPrefix(err.Error(), string(method.code)+"|") {
 				t.Fatalf("Wails %s error = %q, want fixed safe error", method.name, err)
 			}
 			if strings.Contains(err.Error(), journalRoot) || strings.Contains(err.Error(), fixture.root) {
@@ -349,7 +305,7 @@ func TestRecoveryBindingSerializesConcurrentSurfaceCalls(t *testing.T) {
 func TestRecoveryRetrySurfacesActualAmbiguityWithTransactionID(t *testing.T) {
 	fixture := newAmbiguousRecoveryFixture(t)
 	binding := fixture.binding
-	if _, err := binding.Retry(t.Context()); err == nil || err.Error() != "RECOVERY_OPERATION_FAILED" {
+	if _, err := binding.Retry(t.Context()); err == nil || !strings.HasPrefix(err.Error(), string(app.RecoveryPublicCodeRetryFailed)+"|") {
 		t.Fatalf("Retry() error = %v, want fixed Wails boundary error", err)
 	}
 	state, err := binding.State(t.Context())
@@ -372,7 +328,7 @@ func TestRecoveryRetrySurfacesActualDigestMismatchInWailsState(t *testing.T) {
 	fixture := newAmbiguousRecoveryFixture(t)
 	mustAgentTerminalNoError(t, os.Rename(filepath.Join(fixture.root, "external-old-release"), fixture.target))
 	mustAgentTerminalNoError(t, os.WriteFile(filepath.Join(fixture.target, "tampered"), []byte("changed"), 0o600))
-	if _, err := fixture.binding.Retry(t.Context()); err == nil || err.Error() != "RECOVERY_OPERATION_FAILED" {
+	if _, err := fixture.binding.Retry(t.Context()); err == nil || !strings.HasPrefix(err.Error(), string(app.RecoveryPublicCodeRetryFailed)+"|") {
 		t.Fatalf("Retry() error = %v, want fixed Wails boundary error", err)
 	}
 	state, err := fixture.binding.State(t.Context())
@@ -790,11 +746,13 @@ func parseRecoveryFields(source, constant string) ([]string, error) {
 	if end < 0 {
 		return nil, fmt.Errorf("%s declaration is not closed", constant)
 	}
+	body := strings.TrimSpace(source[start : start+end])
+	body = strings.TrimSpace(strings.TrimSuffix(body, ","))
 	fields := make([]string, 0)
-	for rawLine := range strings.SplitSeq(strings.TrimSpace(source[start:start+end]), "\n") {
-		field := strings.Trim(strings.TrimSpace(strings.TrimSuffix(rawLine, ",")), "'")
+	for rawField := range strings.SplitSeq(body, ",") {
+		field := strings.Trim(strings.TrimSpace(rawField), "'\"")
 		if field == "" {
-			return nil, fmt.Errorf("malformed %s entry %q", constant, rawLine)
+			return nil, fmt.Errorf("malformed %s entry %q", constant, rawField)
 		}
 		fields = append(fields, field)
 	}

@@ -93,6 +93,23 @@ func TestProxyToolCallLifecycleUsesSafePreview(t *testing.T) {
 	}
 }
 
+func TestPublishProxyToolCallEndDoesNotExposeRawCause(t *testing.T) {
+	dispatcher := event.NewDispatcher()
+	t.Cleanup(func() { _ = dispatcher.Close() })
+	endCh := make(chan tooldto.ToolCallEnd, 1)
+	cancelEnd := event.Subscribe(dispatcher, func(ev tooldto.ToolCallEnd) { endCh <- ev })
+	t.Cleanup(cancelEnd)
+
+	h := &Handler{dispatcher: dispatcher}
+	const marker = "token=sk-test-secret dsn=postgres://alice:secret@db/private path=/Users/private/secret.go"
+	h.publishProxyToolCallEnd(ToolCallRequest{Name: "file", AgentID: "agent-1", ThreadID: "thread-1", CallID: "call-1"}, time.Now(), nil, errors.New(marker))
+
+	end := waitProxyToolEnd(t, endCh)
+	if end.Success || strings.Contains(end.Error, marker) || !strings.HasPrefix(end.Error, "Tool execution failed. Diagnostic ID: ") {
+		t.Fatalf("ToolCallEnd = %+v, want failed public diagnostic error without marker", end)
+	}
+}
+
 func TestProxyToolCallNormalizesPeerStructuredContent(t *testing.T) {
 	args := json.RawMessage(`{"action":"document_symbol","file_path":"smoke.go"}`)
 	h, _ := newHandlerForTest(&mcpcontrol.ToolInstance{Peer: &stubPeer{callbackFn: func(_ context.Context, method string, params any, result any) error {
@@ -141,9 +158,13 @@ func TestProxyToolCallFailsWhenBindingThreadIDMissing(t *testing.T) {
 	h.bindingStore = &toolCallBindingStoreStub{threadID: " "}
 
 	got := callProxyRequest(t, h, "/mcp/lsp/agent-1", proxyLifecycleRequestBody(t, args))
-	if got.Error == nil || !strings.Contains(got.Error.Message, "empty thread id") {
-		t.Fatalf("proxy response error = %+v, want empty thread id error", got.Error)
+	if got.Error == nil {
+		t.Fatal("proxy response error = nil, want invalid params")
 	}
+	if got.Error.Code != jsonRPCCodeInvalidParam {
+		t.Fatalf("proxy error code = %d, want %d", got.Error.Code, jsonRPCCodeInvalidParam)
+	}
+	assertPublicToolErrorPayload(t, got.Error.Message, "empty thread id")
 	assertNoProxyToolBegin(t, beginCh)
 }
 
@@ -157,11 +178,12 @@ func TestProxyToolCallFailsWhenBindingLookupErrors(t *testing.T) {
 	args := json.RawMessage(`{"action":"read_file","file_path":"smoke.go"}`)
 	h, _ := newHandlerForTest(newToolCallPeer(t, "file", args, `{"success":true}`, nil))
 	h.dispatcher = dispatcher
-	h.bindingStore = &toolCallBindingStoreStub{err: errors.New("lookup failed")}
+	const marker = "token=sk-test-secret dsn=postgres://alice:secret@db/private path=/Users/private/secret.go"
+	h.bindingStore = &toolCallBindingStoreStub{err: errors.New(marker)}
 
 	got := callProxyRequest(t, h, "/mcp/lsp/agent-1", proxyLifecycleRequestBody(t, args))
-	if got.Error == nil || !strings.Contains(got.Error.Message, "lookup failed") {
-		t.Fatalf("proxy response error = %+v, want lookup error", got.Error)
+	if got.Error == nil || strings.Contains(got.Error.Message, marker) || !strings.HasPrefix(got.Error.Message, "Tool execution failed. Diagnostic ID: ") {
+		t.Fatalf("proxy response error = %+v, want public diagnostic error without marker", got.Error)
 	}
 	assertNoProxyToolBegin(t, beginCh)
 }

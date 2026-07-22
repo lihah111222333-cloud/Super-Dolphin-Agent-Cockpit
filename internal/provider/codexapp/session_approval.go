@@ -604,8 +604,8 @@ func (s *session) onNotification(method string, params json.RawMessage) {
 	s.handleNotificationAction(method, params, raw)
 }
 
-// prepareAndSealTerminalNotification attaches the canonical terminal outcome and claims its first-terminal seal.
-// A contract-invalid terminal fails the active turn, while a conflicting sealed terminal is not dispatched again.
+// prepareAndSealTerminalNotification 绑定 canonical terminal outcome，并领取首个终态 owner。
+// 协议无效终态会失败 active turn；已被其他 live owner 领取的终态绝不再次分发。
 func (s *session) prepareAndSealTerminalNotification(method string, params json.RawMessage) (dto.RawProviderEvent, bool) {
 	raw := dto.RawProviderEvent{EventType: method, Data: params}
 	if !isTurnTerminalEvent(method) {
@@ -614,15 +614,25 @@ func (s *session) prepareAndSealTerminalNotification(method string, params json.
 	payload := decodeEventPayload(params)
 	clearCodexProviderUserAttribution(payload)
 	outcome := canonicalTurnTerminalOutcome(method, payload)
+	timestampInvalid := codexTerminalTimestampInvalid(raw)
 	if outcome.ContractError != "" {
 		s.failMalformedTerminalNotification(method, params)
 		return dto.RawProviderEvent{}, false
+	}
+	if timestampInvalid {
+		delete(payload, "message")
+		delete(payload, "reason")
+		payload["error"] = codexTerminalTimestampProtocolError
+		outcome = dto.TerminalOutcome{Status: "failed", ContractError: "provider timestamp invalid"}
 	}
 	s.applyAcceptedInterruptRequest(payload, &outcome)
 	raw.Data = payload
 	raw.Terminal = &outcome
 	if s.claimTerminalSeal(payload) {
 		return raw, true
+	}
+	if s.stageStartingTerminal(raw) {
+		return dto.RawProviderEvent{}, false
 	}
 	pkglogger.Warn("codexapp: suppressed duplicate turn terminal event",
 		"agent_id", s.agentID, "method", method)

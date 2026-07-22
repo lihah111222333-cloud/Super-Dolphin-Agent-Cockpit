@@ -1,8 +1,29 @@
 import React from 'react';
-import { act, createEvent, fireEvent, screen, waitFor } from '@testing-library/react';
-import { expect, it, vi } from 'vitest';
+import { act, cleanup, createEvent, fireEvent, screen, waitFor } from '@testing-library/react';
+import { afterEach, expect, it, vi } from 'vitest';
 import { renderWithQueryClient as render } from '../../__tests__/reactQueryRender.jsx';
+import { frontendHealthSnapshot, resetFrontendHealthForTest } from '../../shared/diagnostics/frontendHealthStore.js';
+import { resetVisibleActionFailureForTest, visibleActionFailureSnapshot } from '../../shared/ui/actionFailureSink.js';
 import { TestChatPageWrapper, createActiveThreadStore, onFilesDropped } from './__tests__/chatPageTestSupport.js';
+
+function resetActionFailures() {
+  window.localStorage.clear();
+  resetFrontendHealthForTest();
+  resetVisibleActionFailureForTest();
+}
+
+function expectSingleActionFailure(actionId) {
+  const failures = frontendHealthSnapshot();
+  expect(failures.map((failure) => failure.actionId)).toEqual([actionId]);
+  expect(failures[0]).toEqual(expect.objectContaining({ actionId, occurrences: 1 }));
+  expect(visibleActionFailureSnapshot()).toEqual(expect.objectContaining({ actionId }));
+}
+
+afterEach(async () => {
+  cleanup();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  resetActionFailures();
+});
   it('accepts direct file drops on the composer input', async () => {
     const store = createActiveThreadStore([
       { id: 'msg-1', role: 'assistant', text: '把文件拖进输入框即可。', time: '2026-06-02T08:00:00Z' },
@@ -29,6 +50,71 @@ import { TestChatPageWrapper, createActiveThreadStore, onFilesDropped } from './
       expect(store.attachDroppedFilesForComposer).toHaveBeenCalledWith([dropped]);
     });
     expect(dropEvent.defaultPrevented).toBe(true);
+  });
+
+  it('reports rejected path paste through only the precise paste action', async () => {
+    resetActionFailures();
+    const store = createActiveThreadStore([
+      { id: 'msg-paste-failure', role: 'assistant', text: '粘贴文件。', time: '2026-06-02T08:00:00Z' },
+    ], {
+      attachPathsForComposer: vi.fn().mockRejectedValue(new Error('paste path rejected')),
+    });
+
+    render(<TestChatPageWrapper store={store} projectPath="/repo/app" />);
+    fireEvent.paste(screen.getByTestId('composer-input'), {
+      clipboardData: {
+        files: [],
+        items: [],
+        types: ['text/uri-list'],
+        getData: (type) => (type === 'text/uri-list' ? 'file:///tmp/rejected-paste.txt' : ''),
+      },
+    });
+
+    await waitFor(() => expect(store.attachPathsForComposer).toHaveBeenCalledWith(['/tmp/rejected-paste.txt']));
+    await waitFor(() => expect(frontendHealthSnapshot()).not.toHaveLength(0));
+    expectSingleActionFailure('composer.file.paste-paths');
+  });
+
+  it('reports rejected textarea drop through only the precise file-drop action', async () => {
+    resetActionFailures();
+    const store = createActiveThreadStore([
+      { id: 'msg-textarea-drop-failure', role: 'assistant', text: '拖文件。', time: '2026-06-02T08:00:00Z' },
+    ], {
+      attachDroppedFilesForComposer: vi.fn().mockRejectedValue(new Error('textarea drop rejected')),
+    });
+
+    render(<TestChatPageWrapper store={store} projectPath="/repo/app" />);
+    const dropped = new File(['notes'], 'rejected-input.txt', { type: 'text/plain' });
+    Object.defineProperty(dropped, 'path', { value: '/tmp/rejected-input.txt' });
+    fireEvent(screen.getByTestId('composer-input'), createEvent.drop(screen.getByTestId('composer-input'), {
+      bubbles: false,
+      cancelable: true,
+      dataTransfer: { files: [dropped], items: [], types: ['Files'] },
+    }));
+
+    await waitFor(() => expect(store.attachDroppedFilesForComposer).toHaveBeenCalledWith([dropped]));
+    await waitFor(() => expect(frontendHealthSnapshot()).not.toHaveLength(0));
+    expectSingleActionFailure('composer.file.drop');
+  });
+
+  it('reports rejected conversation drop through only the precise file-drop action', async () => {
+    resetActionFailures();
+    const store = createActiveThreadStore([
+      { id: 'msg-conversation-drop-failure', role: 'assistant', text: '拖文件。', time: '2026-06-02T08:00:00Z' },
+    ], {
+      attachDroppedFilesForComposer: vi.fn().mockRejectedValue(new Error('conversation drop rejected')),
+    });
+
+    render(<TestChatPageWrapper store={store} projectPath="/repo/app" />);
+    const dropped = new File(['notes'], 'rejected-conversation.txt', { type: 'text/plain' });
+    Object.defineProperty(dropped, 'path', { value: '/tmp/rejected-conversation.txt' });
+    fireEvent.drop(screen.getByTestId('conversation-drop-zone'), {
+      dataTransfer: { files: [dropped], items: [], types: ['Files'] },
+    });
+
+    await waitFor(() => expect(store.attachDroppedFilesForComposer).toHaveBeenCalledWith([dropped]));
+    await waitFor(() => expect(frontendHealthSnapshot()).not.toHaveLength(0));
+    expectSingleActionFailure('composer.file.drop');
   });
 
   it('falls back to transfer file paths when a dropped DOM File has no path', async () => {

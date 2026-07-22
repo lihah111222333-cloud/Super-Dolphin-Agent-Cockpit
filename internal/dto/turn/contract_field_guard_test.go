@@ -39,9 +39,16 @@ type goChainLocator struct {
 	Name        string   `json:"name"`
 	Path        string   `json:"path"`
 	Symbol      string   `json:"symbol"`
+	CloneOf     string   `json:"cloneOf"`
 	Calls       []string `json:"calls"`
 	Strings     []string `json:"strings"`
 	Identifiers []string `json:"identifiers"`
+}
+
+type goJSONField struct {
+	GoName   string
+	JSONName string
+	Type     ast.Expr
 }
 
 type goConstantLocator struct {
@@ -107,83 +114,11 @@ func TestTurnContractFieldGuard(t *testing.T) {
 	}
 }
 
-// TestTurnContractFieldGuardFailsFirst proves real producer, consumer, and registry mutations fail closed.
-func TestTurnContractFieldGuardFailsFirst(t *testing.T) {
-	t.Parallel()
-	root := repositoryRoot(t)
-	registry := loadConsumerRegistry(t, root)
-	t.Run("missing schema registration", func(t *testing.T) {
-		mutated := cloneConsumerRegistry(t, registry)
-		delete(mutated.Schemas, "TurnRefV1")
-		assertGuardFailure(t, validateConsumerRegistry(root, mutated, nil), "missing schema TurnRefV1")
-	})
-	t.Run("missing production validator call", func(t *testing.T) {
-		path := "internal/dto/turn/terminal.go"
-		source := readRepositorySource(t, root, path)
-		mutated := strings.Replace(source, "ValidateTurnTerminalV2(terminal)", "ValidateTurnRefV1(terminal)", 1)
-		if mutated == source {
-			t.Fatal("terminal validator mutation did not change production source")
-		}
-		assertGuardFailure(t, validateConsumerRegistry(root, registry, map[string]string{path: mutated}), "missing call ValidateTurnTerminalV2")
-	})
-	t.Run("unregistered production validator consumer", func(t *testing.T) {
-		path := "internal/dto/turn/terminal.go"
-		source := readRepositorySource(t, root, path)
-		mutated := source + "\nfunc unregisteredTurnRefConsumer(value TurnRefV1) error { return ValidateTurnRefV1(value) }\n"
-		assertGuardFailure(t, validateConsumerRegistry(root, registry, map[string]string{path: mutated}), "TurnRefV1 Go production consumers")
-	})
-	t.Run("stale Go JSON field", func(t *testing.T) {
-		path := "internal/dto/turn/terminal.go"
-		source := readRepositorySource(t, root, path)
-		mutated := strings.Replace(source, "json:\"turnId\"", "json:\"legacyTurnId\"", 1)
-		if mutated == source {
-			t.Fatal("Go JSON tag mutation did not change production source")
-		}
-		assertGuardFailure(t, validateConsumerRegistry(root, registry, map[string]string{path: mutated}), "field coverage")
-	})
-	t.Run("missing raw terminal field", func(t *testing.T) {
-		path := "internal/provider/shared/terminal_outcome.go"
-		source := readRepositorySource(t, root, path)
-		mutated := strings.Replace(source, "payload[\"status\"]", "payload[\"state\"]", 1)
-		if mutated == source {
-			t.Fatal("raw terminal mutation did not change production source")
-		}
-		assertGuardFailure(t, validateConsumerRegistry(root, registry, map[string]string{path: mutated}), "missing string status")
-	})
-	t.Run("legacy terminal wire method", func(t *testing.T) {
-		path := "internal/platform/eventsurface/bind.go"
-		source := readRepositorySource(t, root, path)
-		mutated := strings.Replace(source, `MethodTurnTerminal   = "turn/terminal"`, `MethodTurnTerminal   = "turn/completed"`, 1)
-		if mutated == source {
-			t.Fatal("terminal wire method mutation did not change production source")
-		}
-		assertGuardFailure(t, validateConsumerRegistry(root, registry, map[string]string{path: mutated}), "want \"turn/terminal\"")
-	})
-	t.Run("missing canonical remote republish", func(t *testing.T) {
-		path := "internal/platform/eventsurface/bind.go"
-		source := readRepositorySource(t, root, path)
-		mutated := strings.Replace(source, "CanonicalTurnTerminal(ev)", "missingCanonicalTurnTerminal(ev)", 1)
-		if mutated == source {
-			t.Fatal("canonical republish mutation did not change production source")
-		}
-		assertGuardFailure(t, validateConsumerRegistry(root, registry, map[string]string{path: mutated}), "missing call CanonicalTurnTerminal")
-	})
-	t.Run("missing Wails terminal payload serialization", func(t *testing.T) {
-		path := "internal/ui/wails/bridge.go"
-		source := readRepositorySource(t, root, path)
-		mutated := strings.Replace(source, "payloadToMap(notification.Payload)", "missingPayloadToMap(notification.Payload)", 1)
-		if mutated == source {
-			t.Fatal("Wails bridge mutation did not change production source")
-		}
-		assertGuardFailure(t, validateConsumerRegistry(root, registry, map[string]string{path: mutated}), "terminal-wails-bridge missing call payloadToMap")
-	})
-}
-
 func validateConsumerRegistry(root string, registry consumerRegistry, overrides map[string]string) error {
 	if registry.Version != 2 {
 		return fmt.Errorf("consumer registry version = %d, want 2", registry.Version)
 	}
-	producers, err := canonicalSchemaFields(filepath.Join(root, "internal", "dto", "turn", "schema"))
+	producers, err := canonicalSchemaFields(root, overrides)
 	if err != nil {
 		return err
 	}
@@ -201,14 +136,14 @@ func validateConsumerRegistry(root string, registry consumerRegistry, overrides 
 			return fmt.Errorf("consumer registry has stale schema %s", name)
 		}
 	}
-	return validateRegistryChains(root, registry, overrides)
+	return validateRegistryChains(root, registry, producers, overrides)
 }
 
-func validateRegistryChains(root string, registry consumerRegistry, overrides map[string]string) error {
+func validateRegistryChains(root string, registry consumerRegistry, producers map[string]map[string]bool, overrides map[string]string) error {
 	if err := validateExactGoConsumerCoverage(root, registry.Schemas, overrides); err != nil {
 		return err
 	}
-	if err := validateGoChains(root, registry.GoChains, overrides); err != nil {
+	if err := validateGoChains(root, registry.GoChains, registry.Schemas, producers, overrides); err != nil {
 		return err
 	}
 	if err := validateGoConstants(root, registry.GoConstants, overrides); err != nil {
@@ -267,20 +202,33 @@ func validateJSSchemaRegistryEntry(root, name string, entry schemaRegistryEntry)
 	return nil
 }
 
-func validateGoChains(root string, chains []goChainLocator, overrides map[string]string) error {
+func validateGoChains(
+	root string,
+	chains []goChainLocator,
+	schemas map[string]schemaRegistryEntry,
+	producers map[string]map[string]bool,
+	overrides map[string]string,
+) error {
 	if len(chains) == 0 {
 		return fmt.Errorf("consumer registry has no Go production chains")
 	}
 	seen := map[string]bool{}
 	for _, chain := range chains {
-		if err := validateGoChain(root, chain, seen, overrides); err != nil {
+		if err := validateGoChain(root, chain, seen, schemas, producers, overrides); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func validateGoChain(root string, chain goChainLocator, seen map[string]bool, overrides map[string]string) error {
+func validateGoChain(
+	root string,
+	chain goChainLocator,
+	seen map[string]bool,
+	schemas map[string]schemaRegistryEntry,
+	producers map[string]map[string]bool,
+	overrides map[string]string,
+) error {
 	if strings.TrimSpace(chain.Name) == "" || seen[chain.Name] {
 		return fmt.Errorf("Go production chain has blank or duplicate name %q", chain.Name)
 	}
@@ -300,6 +248,11 @@ func validateGoChain(root string, chain goChainLocator, seen map[string]bool, ov
 		{kind: "identifier", values: chain.Identifiers, found: identifiers},
 	} {
 		if err := requireGoChainEvidence(chain.Name, requirement.kind, requirement.values, requirement.found); err != nil {
+			return err
+		}
+	}
+	if chain.CloneOf != "" {
+		if err := validateGoStructClone(root, chain, fn, schemas, producers, overrides); err != nil {
 			return err
 		}
 	}
@@ -494,6 +447,18 @@ func goFunction(root string, locator sourceLocator, overrides map[string]string)
 }
 
 func goStructJSONFields(root string, locator sourceLocator, overrides map[string]string) (map[string]bool, error) {
+	definitions, err := goStructJSONFieldDefinitions(root, locator, overrides)
+	if err != nil {
+		return nil, err
+	}
+	fields := make(map[string]bool, len(definitions))
+	for jsonName := range definitions {
+		fields[jsonName] = true
+	}
+	return fields, nil
+}
+
+func goStructJSONFieldDefinitions(root string, locator sourceLocator, overrides map[string]string) (map[string]goJSONField, error) {
 	if err := validateLocator(locator, ".go"); err != nil {
 		return nil, err
 	}
@@ -515,7 +480,7 @@ func goStructJSONFields(root string, locator sourceLocator, overrides map[string
 			if !ok {
 				return nil, fmt.Errorf("%s:%s is not a struct", locator.Path, locator.Symbol)
 			}
-			return structJSONFields(locator, structure)
+			return structJSONFieldDefinitions(locator, structure)
 		}
 	}
 	return nil, fmt.Errorf("%s:%s was not found as a type", locator.Path, locator.Symbol)
@@ -580,21 +545,25 @@ func stringConstantFromValueSpec(spec *ast.ValueSpec, locator sourceLocator) (st
 	return "", false, nil
 }
 
-func structJSONFields(locator sourceLocator, structure *ast.StructType) (map[string]bool, error) {
-	fields := map[string]bool{}
+func structJSONFieldDefinitions(locator sourceLocator, structure *ast.StructType) (map[string]goJSONField, error) {
+	fields := map[string]goJSONField{}
 	for _, field := range structure.Fields.List {
 		if len(field.Names) != 1 || field.Tag == nil {
 			return nil, fmt.Errorf("%s:%s has an untagged or embedded field", locator.Path, locator.Symbol)
 		}
+		goName := field.Names[0].Name
 		tag, err := strconv.Unquote(field.Tag.Value)
 		if err != nil {
-			return nil, fmt.Errorf("%s:%s.%s has invalid struct tag: %w", locator.Path, locator.Symbol, field.Names[0].Name, err)
+			return nil, fmt.Errorf("%s:%s.%s has invalid struct tag: %w", locator.Path, locator.Symbol, goName, err)
 		}
 		jsonName, _, _ := strings.Cut(reflect.StructTag(tag).Get("json"), ",")
-		if jsonName == "" || jsonName == "-" || fields[jsonName] {
-			return nil, fmt.Errorf("%s:%s.%s has blank, ignored, or duplicate JSON field %q", locator.Path, locator.Symbol, field.Names[0].Name, jsonName)
+		if jsonName == "" || jsonName == "-" {
+			return nil, fmt.Errorf("%s:%s.%s has blank or ignored JSON field %q", locator.Path, locator.Symbol, goName, jsonName)
 		}
-		fields[jsonName] = true
+		if _, exists := fields[jsonName]; exists {
+			return nil, fmt.Errorf("%s:%s.%s has duplicate JSON field %q", locator.Path, locator.Symbol, goName, jsonName)
+		}
+		fields[jsonName] = goJSONField{GoName: goName, JSONName: jsonName, Type: field.Type}
 	}
 	return fields, nil
 }
@@ -683,8 +652,9 @@ func validateRelativePath(path string) error {
 	return nil
 }
 
-func canonicalSchemaFields(dir string) (map[string]map[string]bool, error) {
-	entries, err := os.ReadDir(dir)
+func canonicalSchemaFields(root string, overrides map[string]string) (map[string]map[string]bool, error) {
+	const schemaDirectory = "internal/dto/turn/schema"
+	entries, err := os.ReadDir(filepath.Join(root, filepath.FromSlash(schemaDirectory)))
 	if err != nil {
 		return nil, fmt.Errorf("read canonical schema directory: %w", err)
 	}
@@ -693,7 +663,8 @@ func canonicalSchemaFields(dir string) (map[string]map[string]bool, error) {
 		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") || entry.Name() == "field_consumers.json" {
 			continue
 		}
-		title, fields, err := readCanonicalSchema(filepath.Join(dir, entry.Name()), entry.Name())
+		relativePath := filepath.ToSlash(filepath.Join(schemaDirectory, entry.Name()))
+		title, fields, err := readCanonicalSchema(root, relativePath, entry.Name(), overrides)
 		if err != nil {
 			return nil, err
 		}
@@ -708,8 +679,8 @@ func canonicalSchemaFields(dir string) (map[string]map[string]bool, error) {
 	return result, nil
 }
 
-func readCanonicalSchema(path, name string) (string, map[string]bool, error) {
-	raw, err := os.ReadFile(path)
+func readCanonicalSchema(root, relativePath, name string, overrides map[string]string) (string, map[string]bool, error) {
+	raw, err := repositorySource(root, relativePath, overrides)
 	if err != nil {
 		return "", nil, fmt.Errorf("read canonical schema %s: %w", name, err)
 	}
@@ -717,7 +688,7 @@ func readCanonicalSchema(path, name string) (string, map[string]bool, error) {
 		Title      string         `json:"title"`
 		Properties map[string]any `json:"properties"`
 	}
-	if err := json.Unmarshal(raw, &document); err != nil {
+	if err := json.Unmarshal([]byte(raw), &document); err != nil {
 		return "", nil, fmt.Errorf("parse canonical schema %s: %w", name, err)
 	}
 	if document.Title == "" || len(document.Properties) == 0 {

@@ -1,3 +1,6 @@
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
   CRITICAL_SKIP_ROOTS,
@@ -8,7 +11,84 @@ import {
 
 describe('critical skip guard', () => {
   it('scans frontend source and script tests', () => {
-    expect(CRITICAL_SKIP_ROOTS).toEqual(['src', 'scripts']);
+    expect(CRITICAL_SKIP_ROOTS).toEqual(['src', 'scripts', 'tests']);
+  });
+
+  it('scans tests/e2e and detects explicit test API aliases without flagging normal objects', () => {
+    const root = mkdtempSync(join(tmpdir(), 'critical-skip-e2e-'));
+    try {
+      mkdirSync(join(root, 'src'), { recursive: true });
+      mkdirSync(join(root, 'scripts'), { recursive: true });
+      mkdirSync(join(root, 'tests', 'e2e'), { recursive: true });
+      writeFileSync(join(root, 'tests', 'e2e', 'desktop-aliased.spec.js'), [
+        "import { it as check } from 'vitest';",
+        "import { test as browserTest } from '@playwright/test';",
+        "check.skip('harmless Vitest alias', () => {});",
+        "browserTest.skip('harmless Playwright alias', () => {});",
+        'const ordinary = { skip() {} };',
+        "ordinary.skip('ordinary object');",
+      ].join('\n'));
+
+      expect(collectCriticalSkipViolations({ root })).toEqual([
+        {
+          file: 'tests/e2e/desktop-aliased.spec.js',
+          line: 3,
+          name: 'harmless Vitest alias',
+          parseError: false,
+        },
+        {
+          file: 'tests/e2e/desktop-aliased.spec.js',
+          line: 4,
+          name: 'harmless Playwright alias',
+          parseError: false,
+        },
+      ]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('fails fast for dynamic imports of supported test API modules', () => {
+    const source = [
+      'async function loadTestApi() {',
+      "  const { it: check } = await import('vitest');",
+      "  check.skip('provider flow', () => {});",
+      '}',
+    ].join('\n');
+
+    expect(() => skippedTestsInSource('src/shared/api/dynamic.test.js', source))
+      .toThrow(/critical skip source dynamic test API binding: src\/shared\/api\/dynamic\.test\.js:2/);
+  });
+
+  it('recognizes namespaced Vitest and Playwright test APIs', () => {
+    const source = [
+      "import * as unit from 'vitest';",
+      "import * as browser from '@playwright/test';",
+      "unit.it.skip('provider unit test', () => {});",
+      "browser.test.describe.skip('desktop browser suite', () => {});",
+      "unit['describe']['skip']('workflow suite', () => {});",
+    ].join('\n');
+
+    expect(skippedTestsInSource('tests/e2e/namespaced.spec.js', source)).toEqual([
+      {
+        file: 'tests/e2e/namespaced.spec.js',
+        line: 3,
+        name: 'provider unit test',
+        parseError: false,
+      },
+      {
+        file: 'tests/e2e/namespaced.spec.js',
+        line: 4,
+        name: 'desktop browser suite',
+        parseError: false,
+      },
+      {
+        file: 'tests/e2e/namespaced.spec.js',
+        line: 5,
+        name: 'workflow suite',
+        parseError: false,
+      },
+    ]);
   });
 
   it('fails fast when a configured root is missing', () => {

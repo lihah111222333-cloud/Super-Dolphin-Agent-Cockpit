@@ -7,7 +7,6 @@ import {
   rmSync,
   writeFileSync,
 } from 'node:fs';
-import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { cwd } from 'node:process';
@@ -16,213 +15,27 @@ import {
   FREEZE_RUN_COUNT,
   buildFrozenPerformanceBaseline,
   collectCandidateResourceBudget,
-  collectDetachedStopFeedbackBudget,
   freezePerformanceBaseline,
   parseArguments,
   validateCaseRegistry,
   validateFreezeOutputPath,
   validateFreezePreconditions,
-  validateP03SubjectRuntime,
   verifyPerformanceEvidence,
   writeFrozenBaselineAtomically,
 } from './performance-budget-runner.mjs';
 import {
-  CPU_DURATION_CLOCK,
-  FEEDBACK_DURATION_CLOCK,
-} from './performance-budget-model.mjs';
-import { HEAP_MEASUREMENT_CLOCK } from './resource-budget.mjs';
-import {
-  P03_RUNNER_FEEDBACK_PROBE_PATH,
-  P03_SUBJECT_CONTENT_PATHS,
-} from './stop-feedback-benchmark.mjs';
+  baseline,
+  evidence,
+  pairedTimingCase,
+  SUBJECT_SHA,
+  SUBJECT_TREE,
+  timingCase,
+} from './performance-budget-runner.test-helper.mjs';
 
-const SUBJECT_SHA = 'a'.repeat(40);
-const SUBJECT_TREE = '1'.repeat(40);
 const RUNNER_SHA = 'b'.repeat(40);
 const RUNNER_TREE = '2'.repeat(40);
 const PLAN_SNAPSHOT_SHA = 'c'.repeat(40);
 const RUNNER_CONTENT_HASH = 'd'.repeat(64);
-
-function p03SubjectContentFiles() {
-  return P03_SUBJECT_CONTENT_PATHS.map((path, index) => ({
-    path,
-    sha256: String(index).repeat(64),
-  }));
-}
-
-function p03SubjectContentHash(files) {
-  return createHash('sha256').update(files.map(({ path, sha256 }) => `${path}\0${sha256}\n`).join('')).digest('hex');
-}
-
-function timingCase(durationMedianMs, durationClock = CPU_DURATION_CLOCK) {
-  return {
-    attemptsPerSample: 1,
-    durationClock,
-    iterationCount: 100,
-    durationAttemptSamplesMs: Array.from(
-      { length: 5 },
-      () => [durationMedianMs],
-    ),
-    durationSamplesMs: Array.from({ length: 5 }, () => durationMedianMs),
-    durationMedianMs,
-  };
-}
-
-function pairedTimingCase(normalizedRatio) {
-  const blockCount = 3;
-  const sampleDiagnostics = Array.from({ length: 5 }, (_, sampleIndex) => {
-    const referenceBlockCpuDurationsMs = [10, 11, 12];
-    const productionBlockCpuDurationsMs = referenceBlockCpuDurationsMs
-      .map((reference) => reference * normalizedRatio);
-    const rawNormalizedBlockRatios = productionBlockCpuDurationsMs
-      .map((production, blockIndex) => production / referenceBlockCpuDurationsMs[blockIndex]);
-    return {
-      blockOrders: Array.from(
-        { length: blockCount },
-        (_, blockIndex) => ((sampleIndex + blockIndex) % 2 === 0
-          ? 'production-reference'
-          : 'reference-production'),
-      ),
-      productionBlockCpuDurationsMs,
-      referenceBlockCpuDurationsMs,
-      rawNormalizedBlockRatios,
-      normalizedRatio: [...rawNormalizedBlockRatios].sort((left, right) => left - right)[1],
-    };
-  });
-  const normalizedRatioSamples = sampleDiagnostics.map(({ normalizedRatio: sample }) => sample);
-  return {
-    attemptsPerSample: 1,
-    durationClock: CPU_DURATION_CLOCK,
-    blockCount,
-    blockIterationCount: 100,
-    iterationCount: 300,
-    materializedCount: 80,
-    referenceMaterializedCount: 80,
-    sampleDiagnostics,
-    normalizedRatioSamples,
-    normalizedRatioMedian: [...normalizedRatioSamples].sort((left, right) => left - right)[2],
-  };
-}
-
-function evidence(subjectSha = SUBJECT_SHA) {
-  const p03ContentFiles = p03SubjectContentFiles();
-  const historyCases = Object.fromEntries([
-    'turns-200-tools-1',
-    'turns-200-tools-3',
-    'turns-1000-tools-1',
-    'turns-1000-tools-3',
-    'turns-5000-tools-1',
-    'turns-5000-tools-3',
-  ].map((caseId) => [caseId, pairedTimingCase(1)]));
-  return {
-    schemaVersion: 1,
-    subjectSha,
-    subjectTree: SUBJECT_TREE,
-    generatedAt: '2026-07-18T00:00:00.000Z',
-    environment: {
-      os: { platform: 'darwin', release: 'test-release', arch: 'arm64' },
-      cpu: { model: 'test-cpu', logicalCores: 8 },
-      totalMemoryBytes: 1024,
-      loadAverage: [1, 2, 3],
-      node: 'v25.6.1',
-      npm: '11.0.0',
-      go: 'go version go1.25.0 darwin/arm64',
-    },
-    provenance: {
-      runnerContentHash: 'runner-hash',
-      runnerFiles: [{ path: P03_RUNNER_FEEDBACK_PROBE_PATH, sha256: 'e'.repeat(64) }],
-    },
-    metrics: {
-      'P01-render-isolation': {
-        metricId: 'P01-render-isolation',
-        subjectSha,
-        updateCount: 20,
-        warmupUpdates: 2,
-        mainPageUpdateCommits: 0,
-        unrelatedSubtreeUpdateCommits: 0,
-        mutationUpdateCommits: 20,
-        mutationDetected: true,
-      },
-      'P02-history-budget': {
-        metricId: 'P02-history-budget',
-        subjectSha,
-        sampleCount: 5,
-        warmupCount: 1,
-        cases: historyCases,
-      },
-      'P03-feedback-budget': {
-        metricId: 'P03-feedback-budget',
-        subjectSha,
-        sampleCount: 5,
-        warmupCount: 1,
-        subjectRuntime: {
-          subjectSha,
-          subjectTree: SUBJECT_TREE,
-          runtimePath: 'frontend-app/src/entities/client/model/threadLifecycleRuntime.js',
-          installArgv: ['npm', 'ci'],
-          worktreeClean: true,
-          worktreeStatus: [],
-          content: {
-            contentHash: p03SubjectContentHash(p03ContentFiles),
-            files: p03ContentFiles,
-          },
-        },
-        runnerFeedbackProbe: { path: P03_RUNNER_FEEDBACK_PROBE_PATH, source: 'runner' },
-        cases: { 'stop-visible-feedback': timingCase(100, FEEDBACK_DURATION_CLOCK) },
-      },
-      'P04-resource-budget': {
-        metricId: 'P04-resource-budget',
-        subjectSha,
-        fileCount: 2,
-        totalBundleBytes: 100,
-        maxChunkBytes: 50,
-        heapMeasurementClock: HEAP_MEASUREMENT_CLOCK,
-        heapSampleCount: 5,
-        heapWarmupCount: 1,
-        heapUsedSamplesBytes: [100, 100, 100, 100, 100],
-        heapUsedMedianBytes: 100,
-        heapEnvironment: {
-          node: 'v25.6.1',
-          v8: '14.1.0',
-          platform: 'darwin',
-          arch: 'arm64',
-        },
-        files: [
-          { path: 'assets/a.js', bytes: 50 },
-          { path: 'assets/Chat.js', bytes: 50 },
-        ],
-        baseBuild: {
-          baseSha: subjectSha,
-          baseTree: SUBJECT_TREE,
-          installArgv: ['npm', 'ci'],
-          buildArgv: ['npm', 'run', 'build'],
-          distManifest: [
-            { path: 'assets/a.js', bytes: 50, sha256: 'a'.repeat(64) },
-            { path: 'assets/Chat.js', bytes: 50, sha256: 'b'.repeat(64) },
-          ],
-          distManifestHash: createHash('sha256').update([
-            `assets/a.js\0${50}\0${'a'.repeat(64)}\n`,
-            `assets/Chat.js\0${50}\0${'b'.repeat(64)}\n`,
-          ].join('')).digest('hex'),
-        },
-        candidateBuild: {
-          subjectSha,
-          subjectTree: SUBJECT_TREE,
-          installArgv: ['npm', 'ci'],
-          buildArgv: ['npm', 'run', 'build'],
-          distManifest: [
-            { path: 'assets/a.js', bytes: 50, sha256: 'a'.repeat(64) },
-            { path: 'assets/Chat.js', bytes: 50, sha256: 'b'.repeat(64) },
-          ],
-          distManifestHash: createHash('sha256').update([
-            `assets/a.js\0${50}\0${'a'.repeat(64)}\n`,
-            `assets/Chat.js\0${50}\0${'b'.repeat(64)}\n`,
-          ].join('')).digest('hex'),
-        },
-      },
-    },
-  };
-}
 
 function freezeEvidence({
   generatedAt = '2026-07-18T00:00:00.000Z',
@@ -240,7 +53,7 @@ function freezeEvidence({
     runnerContentHash: RUNNER_CONTENT_HASH,
     runnerFiles: [
       { path: 'frontend-app/scripts/performance-budget-runner.mjs', sha256: 'e'.repeat(64) },
-      { path: P03_RUNNER_FEEDBACK_PROBE_PATH, sha256: 'f'.repeat(64) },
+      { path: 'frontend-app/scripts/managed-command.mjs', sha256: 'f'.repeat(64) },
     ],
     worktreeClean: true,
     worktreeStatus: [],
@@ -287,79 +100,45 @@ function buildFreezeArtifact(runs, expectedProvenance = {
   });
 }
 
-function baseline() {
-  const frozenSampled = {
-    status: 'PASS',
-    subjectSha: 'a'.repeat(40),
-    sampleCount: 5,
-    warmupCount: 1,
-    maxRegressionRatio: 1.15,
-  };
-  const current = evidence();
-  return {
-    provenance: { runnerContentHash: 'runner-hash' },
-    metrics: {
-      'P01-render-isolation': {
-        status: 'PASS',
-        subjectSha: 'a'.repeat(40),
-        absoluteUpdateLimit: 1,
-        updateCount: 20,
-        warmupUpdates: 2,
-        mainPageUpdateCommits: 0,
-        unrelatedSubtreeUpdateCommits: 0,
-      },
-      'P02-history-budget': {
-        ...frozenSampled,
-        cases: current.metrics['P02-history-budget'].cases,
-      },
-      'P03-feedback-budget': {
-        ...frozenSampled,
-        cases: current.metrics['P03-feedback-budget'].cases,
-      },
-      'P04-resource-budget': {
-        status: 'PASS',
-        subjectSha: 'a'.repeat(40),
-        maxRegressionRatio: 1.05,
-        totalBundleBytes: 100,
-        maxChunkBytes: 50,
-        heapMeasurementClock: HEAP_MEASUREMENT_CLOCK,
-        heapSampleCount: 5,
-        heapWarmupCount: 1,
-        heapUsedSamplesBytes: [100, 100, 100, 100, 100],
-        heapUsedMedianBytes: 100,
-        heapEnvironment: {
-          node: 'v25.6.1',
-          v8: '14.1.0',
-          platform: 'darwin',
-          arch: 'arm64',
-        },
-      },
-    },
-  };
-}
-
 function registry() {
   return JSON.parse(readFileSync(join(cwd(), 'scripts/frontend-performance-cases.json'), 'utf8'));
 }
 
 describe('candidate detached resource build', () => {
-  it('builds a clean SUBJECT without dist once and binds the measured artifact provenance', () => {
+  it('builds a clean SUBJECT with bounded managed commands and binds the measured artifact provenance', async () => {
     const commands = [];
     let measured = 0;
-    const execute = (command, args, options) => {
+    const execute = (command, args) => {
       commands.push([command, ...args]);
       if (command === 'git' && args[0] === 'worktree' && args[1] === 'add') {
         mkdirSync(join(args[3], 'frontend-app'), { recursive: true });
-      } else if (command === 'npm' && args[0] === 'ci') {
+      }
+      return '';
+    };
+    const runCommand = async (command, args, options) => {
+      commands.push([command, ...args]);
+      expect(options).toEqual(expect.objectContaining({
+        killGraceMs: expect.any(Number),
+        maxBuffer: expect.any(Number),
+        timeoutMs: expect.any(Number),
+      }));
+      if (command === 'npm' && args[0] === 'ci') {
         expect(existsSync(join(options.cwd, 'dist'))).toBe(false);
       } else if (command === 'npm' && args.join(' ') === 'run build') {
         mkdirSync(join(options.cwd, 'dist', 'assets'), { recursive: true });
         writeFileSync(join(options.cwd, 'dist', 'index.html'), '<main>candidate</main>');
         writeFileSync(join(options.cwd, 'dist', 'assets', 'app.js'), 'globalThis.candidate = true;');
       }
-      return '';
+      return {
+        error: undefined,
+        outputTruncated: false,
+        status: 0,
+        stderr: '',
+        stdout: '',
+        timedOut: false,
+      };
     };
-    const metric = collectCandidateResourceBudget({
+    const metric = await collectCandidateResourceBudget({
       subjectSha: SUBJECT_SHA,
       subjectTree: SUBJECT_TREE,
       repositoryRoot: '/repository',
@@ -379,6 +158,7 @@ describe('candidate detached resource build', () => {
           files,
         };
       },
+      runCommand,
     });
 
     expect(measured).toBe(1);
@@ -398,195 +178,6 @@ describe('candidate detached resource build', () => {
       ]),
       distManifestHash: expect.stringMatching(/^[0-9a-f]{64}$/),
     }));
-  });
-});
-
-describe('P03 detached subject runtime', () => {
-  function subjectTarget() {
-    return {
-      attachRuntime() {},
-      feedbackProbe() {},
-      provenance: {
-        subjectSha: SUBJECT_SHA,
-        subjectTree: SUBJECT_TREE,
-        runtimePath: 'frontend-app/src/entities/client/model/threadLifecycleRuntime.js',
-        content: {
-          contentHash: p03SubjectContentHash(p03SubjectContentFiles()),
-          files: p03SubjectContentFiles(),
-        },
-      },
-    };
-  }
-
-  it('loads the requested clean subject worktree after npm ci and records its target provenance', async () => {
-    const commands = [];
-    const execute = (command, args, options) => {
-      commands.push([command, ...args]);
-      if (command === 'git' && args[0] === 'worktree' && args[1] === 'add') {
-        mkdirSync(join(args[3], 'frontend-app'), { recursive: true });
-        return '';
-      }
-      if (command === 'git' && args.join(' ') === 'rev-parse HEAD') return SUBJECT_SHA;
-      if (command === 'git' && args.join(' ') === 'rev-parse HEAD^{tree}') return SUBJECT_TREE;
-      if (command === 'git' && args.join(' ') === 'status --porcelain --untracked-files=all') return '';
-      if (command === 'npm' && args.join(' ') === 'ci') {
-        expect(options.cwd).toMatch(/frontend-app$/);
-        return '';
-      }
-      if (command === 'git' && args[0] === 'worktree' && args[1] === 'remove') return '';
-      throw new Error(`unexpected command: ${command} ${args.join(' ')}`);
-    };
-    const target = subjectTarget();
-    const metric = await collectDetachedStopFeedbackBudget({
-      subjectSha: SUBJECT_SHA,
-      subjectTree: SUBJECT_TREE,
-      repositoryRoot: '/repository',
-      execute,
-      loadTarget: vi.fn(async (options) => {
-        expect(options).toEqual(expect.objectContaining({ subjectSha: SUBJECT_SHA, subjectTree: SUBJECT_TREE }));
-        return target;
-      }),
-      runBenchmark: vi.fn(async ({ subjectSha, target: loadedTarget }) => {
-        expect(loadedTarget).toBe(target);
-        return { metricId: 'P03-feedback-budget', subjectSha, subjectRuntime: loadedTarget.provenance };
-      }),
-    });
-    expect(metric.subjectRuntime).toEqual(expect.objectContaining({
-      subjectSha: SUBJECT_SHA,
-      subjectTree: SUBJECT_TREE,
-      installArgv: ['npm', 'ci'],
-      worktreeClean: true,
-      worktreeStatus: [],
-    }));
-    expect(commands.map((command) => command.slice(0, 3))).toEqual([
-      ['git', 'worktree', 'add'],
-      ['git', 'rev-parse', 'HEAD'],
-      ['git', 'rev-parse', 'HEAD^{tree}'],
-      ['git', 'status', '--porcelain'],
-      ['npm', 'ci'],
-      ['git', 'status', '--porcelain'],
-      ['git', 'worktree', 'remove'],
-    ]);
-  });
-
-  it('removes the detached worktree and temporary directory when Git identity differs from the requested subject', async () => {
-    const commands = [];
-    let temporaryRoot = '';
-    const mismatchedSha = '9'.repeat(40);
-    const execute = (command, args) => {
-      commands.push([command, ...args]);
-      if (command === 'git' && args[0] === 'worktree' && args[1] === 'add') {
-        temporaryRoot = args[3];
-        mkdirSync(join(temporaryRoot, 'frontend-app'), { recursive: true });
-        return '';
-      }
-      if (command === 'git' && args.join(' ') === 'rev-parse HEAD') return mismatchedSha;
-      if (command === 'git' && args.join(' ') === 'rev-parse HEAD^{tree}') return SUBJECT_TREE;
-      if (command === 'git' && args.join(' ') === 'status --porcelain --untracked-files=all') return '';
-      if (command === 'git' && args[0] === 'worktree' && args[1] === 'remove') return '';
-      throw new Error(`unexpected command: ${command} ${args.join(' ')}`);
-    };
-    await expect(collectDetachedStopFeedbackBudget({
-      subjectSha: SUBJECT_SHA,
-      subjectTree: SUBJECT_TREE,
-      repositoryRoot: '/repository',
-      execute,
-    })).rejects.toThrow(/Git identity/);
-    expect(commands).toContainEqual(['git', 'worktree', 'remove', '--force', temporaryRoot]);
-    expect(existsSync(temporaryRoot)).toBe(false);
-  });
-
-  it('cleans up when npm ci, target loading, or benchmark execution fails', async () => {
-    for (const stage of ['npm ci', 'target load', 'benchmark']) {
-      const commands = [];
-      let temporaryRoot = '';
-      const execute = (command, args) => {
-        commands.push([command, ...args]);
-        if (command === 'git' && args[0] === 'worktree' && args[1] === 'add') {
-          temporaryRoot = args[3];
-          mkdirSync(join(temporaryRoot, 'frontend-app'), { recursive: true });
-          return '';
-        }
-        if (command === 'git' && args.join(' ') === 'rev-parse HEAD') return SUBJECT_SHA;
-        if (command === 'git' && args.join(' ') === 'rev-parse HEAD^{tree}') return SUBJECT_TREE;
-        if (command === 'git' && args.join(' ') === 'status --porcelain --untracked-files=all') return '';
-        if (command === 'npm' && args.join(' ') === 'ci') {
-          if (stage === 'npm ci') throw new Error(stage);
-          return '';
-        }
-        if (command === 'git' && args[0] === 'worktree' && args[1] === 'remove') return '';
-        throw new Error(`unexpected command: ${command} ${args.join(' ')}`);
-      };
-      await expect(collectDetachedStopFeedbackBudget({
-        subjectSha: SUBJECT_SHA,
-        subjectTree: SUBJECT_TREE,
-        repositoryRoot: '/repository',
-        execute,
-        loadTarget: stage === 'target load' ? async () => { throw new Error(stage); } : async () => subjectTarget(),
-        runBenchmark: stage === 'benchmark'
-          ? async () => { throw new Error(stage); }
-          : async ({ subjectSha, target }) => ({
-            metricId: 'P03-feedback-budget', subjectSha, subjectRuntime: target.provenance,
-          }),
-      })).rejects.toThrow(stage);
-      expect(commands).toContainEqual(['git', 'worktree', 'remove', '--force', temporaryRoot]);
-      expect(existsSync(temporaryRoot)).toBe(false);
-    }
-  });
-
-  it('fails closed when P03 target provenance is absent or bound to another subject tree', () => {
-    const absent = evidence();
-    delete absent.metrics['P03-feedback-budget'].subjectRuntime;
-    expect(verifyPerformanceEvidence(absent, baseline()).verdicts
-      .find(({ metricId }) => metricId === 'P03-feedback-budget'))
-      .toEqual(expect.objectContaining({ status: 'NOT_VERIFIED', reason: expect.stringMatching(/detached subject runtime/) }));
-
-    const wrongTree = evidence();
-    wrongTree.metrics['P03-feedback-budget'].subjectRuntime.subjectTree = '9'.repeat(40);
-    expect(verifyPerformanceEvidence(wrongTree, baseline()).verdicts
-      .find(({ metricId }) => metricId === 'P03-feedback-budget').status).toBe('NOT_VERIFIED');
-
-    const missingRunnerProbe = evidence();
-    missingRunnerProbe.provenance.runnerFiles = [];
-    expect(verifyPerformanceEvidence(missingRunnerProbe, baseline()).verdicts
-      .find(({ metricId }) => metricId === 'P03-feedback-budget').status).toBe('NOT_VERIFIED');
-  });
-
-  it('requires the exact ordered P03 production closure with no missing, extra, duplicated, or reordered paths', () => {
-    const current = evidence();
-    const runtime = current.metrics['P03-feedback-budget'];
-    expect(() => validateP03SubjectRuntime(runtime, SUBJECT_SHA, SUBJECT_TREE, current.provenance)).not.toThrow();
-
-    const mutations = [
-      (files) => files.slice(1),
-      (files) => [...files, { path: 'frontend-app/src/untracked.js', sha256: '9'.repeat(64) }],
-      (files) => [...files].reverse(),
-      (files) => files.map((file, index) => (index === 1 ? { ...file, path: files[0].path } : file)),
-    ];
-    for (const mutate of mutations) {
-      const evidenceWithForgedClosure = evidence();
-      const forged = evidenceWithForgedClosure.metrics['P03-feedback-budget'];
-      forged.subjectRuntime.content.files = mutate(forged.subjectRuntime.content.files);
-      expect(() => validateP03SubjectRuntime(forged, SUBJECT_SHA, SUBJECT_TREE, evidenceWithForgedClosure.provenance))
-        .toThrow(/incomplete production closure/);
-    }
-  });
-
-  it('rejects a tampered P03 production file hash or aggregate hash', () => {
-    const mutations = [
-      (runtime) => { runtime.subjectRuntime.content.files[0].sha256 = 'f'.repeat(64); },
-      (runtime) => { runtime.subjectRuntime.content.contentHash = 'e'.repeat(64); },
-    ];
-    for (const mutate of mutations) {
-      const forged = evidence();
-      mutate(forged.metrics['P03-feedback-budget']);
-      expect(() => validateP03SubjectRuntime(
-        forged.metrics['P03-feedback-budget'], SUBJECT_SHA, SUBJECT_TREE, forged.provenance,
-      )).toThrow(/content hash mismatch/);
-      expect(verifyPerformanceEvidence(forged, baseline()).verdicts
-        .find(({ metricId }) => metricId === 'P03-feedback-budget'))
-        .toEqual(expect.objectContaining({ status: 'NOT_VERIFIED' }));
-    }
   });
 });
 
@@ -858,6 +449,8 @@ describe('performance baseline freeze', () => {
       (run) => {
         run.subjectTree = 'f'.repeat(40);
         run.provenance.baselineAudit.baseTree = 'f'.repeat(40);
+        run.metrics['P01-render-isolation'].subjectProduct.subjectTree = 'f'.repeat(40);
+        run.metrics['P02-history-budget'].subjectProduct.subjectTree = 'f'.repeat(40);
         run.metrics['P03-feedback-budget'].subjectRuntime.subjectTree = 'f'.repeat(40);
       },
     ]) {

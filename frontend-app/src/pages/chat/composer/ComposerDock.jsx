@@ -26,7 +26,7 @@ function useComposerDropTarget(ref, composer) {
     const handleDragEnter = (event) => composer.handleDragEnter(event);
     const handleDragOver = (event) => composer.handleDragOver(event);
     const handleDragLeave = (event) => composer.handleDragLeave(event);
-    const handleDrop = (event) => runUIAction('composer.drop', () => composer.handleDrop(event));
+    const handleDrop = (event) => { void composer.handleDrop(event); };
 
     target.addEventListener('dragenter', handleDragEnter);
     target.addEventListener('dragover', handleDragOver);
@@ -171,7 +171,7 @@ function ComposerDock({
     handlePromptHistoryKeyDown(event);
   };
   const handleTextareaChange = (event) => setDraft(event.target.value);
-  const handleTextareaPaste = (event) => { runUIAction('composer.paste', () => composer.handlePaste(event)); };
+  const handleTextareaPaste = (event) => { void composer.handlePaste(event); };
 
   return (
     <footer

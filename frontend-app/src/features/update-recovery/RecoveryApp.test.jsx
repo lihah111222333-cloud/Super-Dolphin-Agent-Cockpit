@@ -2,6 +2,14 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { RecoveryApp } from "./RecoveryApp.jsx";
+import { RecoveryPublicError } from "./recoveryClient.js";
+
+const STARTUP_DIAGNOSTIC_ID = "a".repeat(64);
+const ACTION_DIAGNOSTIC_ID = "b".repeat(64);
+const STARTUP_MESSAGE =
+  "Recovery mode started because the previous startup did not complete.";
+const UNKNOWN_MESSAGE =
+  "Recovery action could not be completed safely. Review the diagnostic ID before trying again.";
 
 function recoveryState(overrides = {}) {
   return {
@@ -17,7 +25,10 @@ function recoveryState(overrides = {}) {
       leaseOwner: "guard-1",
       leaseGeneration: 2,
       candidateSHA256: "abcdef0123456789",
-      reason: "normal preflight failed",
+      reason: new RecoveryPublicError(
+        "RECOVERY_STARTUP_FAILED",
+        STARTUP_DIAGNOSTIC_ID,
+      ),
     },
     ...overrides,
   };
@@ -39,7 +50,10 @@ describe("RecoveryApp", () => {
     expect(
       await screen.findByRole("heading", { name: "Super Dolphin Recovery" }),
     ).toBeVisible();
-    expect(screen.getByText("normal preflight failed")).toBeVisible();
+    expect(screen.getByText(STARTUP_MESSAGE)).toBeVisible();
+    expect(
+      screen.getByText("Diagnostic ID: " + STARTUP_DIAGNOSTIC_ID),
+    ).toBeVisible();
     expect(screen.getByText("transaction-1")).toBeVisible();
     expect(screen.queryByText(/normal ready/i)).not.toBeInTheDocument();
 
@@ -56,7 +70,7 @@ describe("RecoveryApp", () => {
       restore: vi.fn(),
     };
     render(<RecoveryApp client={client} confirmRestore={() => false} />);
-    await screen.findByText("normal preflight failed");
+    await screen.findByText(STARTUP_MESSAGE);
 
     fireEvent.click(screen.getByRole("button", { name: "Restore" }));
 
@@ -85,7 +99,7 @@ describe("RecoveryApp", () => {
       restore: vi.fn(),
     };
     render(<RecoveryApp client={client} />);
-    await screen.findByText("normal preflight failed");
+    await screen.findByText(STARTUP_MESSAGE);
 
     expect(screen.getByRole("button", { name: "Check" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Retry" })).toBeDisabled();
@@ -112,7 +126,7 @@ describe("RecoveryApp", () => {
       ),
     };
     render(<RecoveryApp client={client} confirmRestore={() => true} />);
-    await screen.findByText("normal preflight failed");
+    await screen.findByText(STARTUP_MESSAGE);
     fireEvent.click(screen.getByRole("button", { name: "Restore" }));
     await waitFor(() => expect(client.restore).toHaveBeenCalledTimes(1));
 
@@ -148,10 +162,7 @@ describe("RecoveryApp", () => {
         restore: vi.fn(),
       };
       render(
-        <RecoveryApp
-          client={client}
-          exportDiagnostics={exportDiagnostics}
-        />,
+        <RecoveryApp client={client} exportDiagnostics={exportDiagnostics} />,
       );
       const button = await screen.findByRole("button", { name: label });
       expect(client.retry).not.toHaveBeenCalled();
@@ -196,7 +207,7 @@ describe("RecoveryApp", () => {
       restore: vi.fn(),
     };
     render(<RecoveryApp client={client} exportDiagnostics={vi.fn()} />);
-    await screen.findByText("normal preflight failed");
+    await screen.findByText(STARTUP_MESSAGE);
     fireEvent.click(screen.getByRole("button", { name: "Retry" }));
     expect(
       await screen.findByRole("button", {
@@ -222,12 +233,39 @@ describe("RecoveryApp", () => {
       restore: vi.fn(),
     };
     render(<RecoveryApp client={client} />);
-    await screen.findByText("normal preflight failed");
+    await screen.findByText(STARTUP_MESSAGE);
     fireEvent.click(screen.getByRole("button", { name: "Check" }));
-    expect(await screen.findByRole("alert")).toHaveTextContent(
-      "Recovery action failed. Sensitive diagnostics remain preserved internally.",
-    );
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent(UNKNOWN_MESSAGE);
+    expect(alert).toHaveTextContent("Diagnostic ID: " + "0".repeat(64));
     expect(screen.queryByText(secret)).not.toBeInTheDocument();
   });
 
+  it("shows a whitelisted action error when refreshed State has no structured failure", async () => {
+    const actionError = new RecoveryPublicError(
+      "RECOVERY_CHECK_FAILED",
+      ACTION_DIAGNOSTIC_ID,
+    );
+    const client = {
+      state: vi
+        .fn()
+        .mockResolvedValueOnce(recoveryState())
+        .mockResolvedValueOnce(recoveryState()),
+      check: vi.fn().mockRejectedValue(actionError),
+      retry: vi.fn(),
+      restore: vi.fn(),
+    };
+
+    render(<RecoveryApp client={client} />);
+    await screen.findByText(STARTUP_MESSAGE);
+    fireEvent.click(screen.getByRole("button", { name: "Check" }));
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("Recovery check failed");
+    expect(alert).toHaveTextContent(
+      "Recovery check could not be completed. You can retry or restore the previous release.",
+    );
+    expect(alert).toHaveTextContent("Diagnostic ID: " + ACTION_DIAGNOSTIC_ID);
+    expect(client.state).toHaveBeenCalledTimes(2);
+  });
 });

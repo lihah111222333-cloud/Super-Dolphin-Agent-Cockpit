@@ -15,7 +15,9 @@ const publicErrorPath = 'frontend-app/src/shared/ui/publicError.js';
 const registryPath = 'internal/dto/turn/schema/field_consumers.json';
 const barrelPath = 'frontend-app/src/shared/contracts/turnContractBarrel.js';
 
-describe('turn contract production field guard', () => {
+// Each case intentionally re-runs the whole production contract graph against an isolated source mutation.
+// Keep this timeout local: caching across cases could conceal the exact drift each fail-first case proves.
+describe('turn contract production field guard', { timeout: 20_000 }, () => {
   it('resolves canonical schemas, production validators, consumers, and mapper fields', () => {
     expect(validateTurnContractFieldGuard({ repoRoot })).toEqual({ schemaCount: 3, mapperCount: 1 });
   });
@@ -146,6 +148,22 @@ describe('turn contract production field guard', () => {
       repoRoot,
       sourceOverrides: new Map([[runtimePath, mutated]]),
     })).toThrow('TurnTerminalV2 JS production consumers');
+  });
+
+  it('fails fast when a literal dynamic import resolves a contract validator', () => {
+    const source = `${read(runtimePath)}\nexport async function literalDynamicValidatorConsumer(payload) {\n  const validators = await import('../../../shared/contracts/turnContractValidators.js');\n  return validators.validateTurnTerminalV2(payload);\n}\n`;
+    expect(() => validateTurnContractFieldGuard({
+      repoRoot,
+      sourceOverrides: new Map([[runtimePath, source]]),
+    })).toThrow('dynamic validator import');
+  });
+
+  it('fails fast when a non-literal dynamic import could expose a contract validator', () => {
+    const source = `${read(runtimePath)}\nexport async function nonLiteralDynamicValidatorConsumer(specifier, payload) {\n  const validators = await import(specifier);\n  return validators.validateTurnTerminalV2(payload);\n}\n`;
+    expect(() => validateTurnContractFieldGuard({
+      repoRoot,
+      sourceOverrides: new Map([[runtimePath, source]]),
+    })).toThrow('non-literal dynamic import');
   });
 
   it('fails when production adds an unregistered exported arrow consumer', () => {

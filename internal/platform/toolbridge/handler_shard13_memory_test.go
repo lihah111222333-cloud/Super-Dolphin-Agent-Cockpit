@@ -367,9 +367,7 @@ func TestProxyToolCall_RejectsInvalidParams(t *testing.T) {
 			if got.Error.Code != jsonRPCCodeInvalidParam {
 				t.Fatalf("proxy error code = %d, want %d", got.Error.Code, jsonRPCCodeInvalidParam)
 			}
-			if !strings.Contains(got.Error.Message, tt.wantMsg) {
-				t.Fatalf("proxy error message = %q, want substring %q", got.Error.Message, tt.wantMsg)
-			}
+			assertPublicToolErrorPayload(t, got.Error.Message, tt.wantMsg)
 		})
 	}
 	if len(registry.gotKinds) != 0 {

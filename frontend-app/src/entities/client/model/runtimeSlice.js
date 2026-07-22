@@ -106,7 +106,7 @@ function createLifecycleActions(runtime, deps) {
     return initialization;
   };
 
-  const rebindBridgeEventScope = async (scope) => {
+  const prepareBridgeEventScope = async (scope) => {
     let normalizedScope = scope;
     if (!normalizedScope) normalizedScope = currentChatScope(runtime);
     runtime.assertAssistantEventScopeCapacity?.(normalizedScope);
@@ -119,7 +119,6 @@ function createLifecycleActions(runtime, deps) {
       deps.onBridgeEvent(scopedBridgeEventHandler(runtime, {
         scope: normalizedScope,
         generation: bridgeEventScopeGeneration,
-        rebindGeneration,
         silentBeforeCommit: true,
       }), {
         escalateCallbackError: (_error, evt) => deps.isDagNodeStatusBridgeEvent(evt),
@@ -127,26 +126,56 @@ function createLifecycleActions(runtime, deps) {
       'runtime.bridge.subscribe',
       runtime.eventInitializationGeneration,
     );
-    runtime.pendingBridgeScopeRebind = subscription;
-    try {
-      await subscription.ready;
+    let closed = false;
+    let transition = null;
+    const abort = () => {
+      if (closed) return false;
+      closed = true;
+      subscription.unsubscribe();
+      if (runtime.pendingBridgeScopeRebind === transition) runtime.pendingBridgeScopeRebind = null;
+      return true;
+    };
+    const commit = () => {
+      if (closed) throw new Error('runtime bridge scope preparation is no longer pending');
       if (rebindGeneration !== runtime.bridgeScopeRebindGeneration) {
+        abort();
         throw new Error('runtime bridge scope rebind superseded');
       }
       const previousBridgeUnsubscribe = runtime.bridgeUnsubscribe;
-      const bridgeUnsubscribe = subscription.commit();
-      runtime.activateAssistantEventScope?.(normalizedScope);
-      runtime.bridgeEventScopeGeneration = bridgeEventScopeGeneration;
-      runtime.bridgeUnsubscribe = bridgeUnsubscribe;
-      runtime.pendingBridgeScopeRebind = null;
-      previousBridgeUnsubscribe?.();
-      return true;
+      try {
+        const bridgeUnsubscribe = subscription.commit();
+        runtime.activateAssistantEventScope?.(normalizedScope);
+        closed = true;
+        runtime.bridgeEventScopeGeneration = bridgeEventScopeGeneration;
+        runtime.bridgeUnsubscribe = bridgeUnsubscribe;
+        if (runtime.pendingBridgeScopeRebind === transition) runtime.pendingBridgeScopeRebind = null;
+        previousBridgeUnsubscribe?.();
+        return true;
+      }
+      catch (error) {
+        abort();
+        throw error;
+      }
+    };
+    transition = { abort, commit, unsubscribe: abort };
+    runtime.pendingBridgeScopeRebind = transition;
+    try {
+      await subscription.ready;
+      if (rebindGeneration !== runtime.bridgeScopeRebindGeneration) {
+        abort();
+        throw new Error('runtime bridge scope rebind superseded');
+      }
+      return transition;
     }
     catch (error) {
-      subscription.unsubscribe();
-      if (runtime.pendingBridgeScopeRebind === subscription) runtime.pendingBridgeScopeRebind = null;
+      abort();
       throw error;
     }
+  };
+
+  const rebindBridgeEventScope = async (scope) => {
+    const transition = await prepareBridgeEventScope(scope);
+    return transition.commit();
   };
 
   const destroy = () => {
@@ -159,6 +188,7 @@ function createLifecycleActions(runtime, deps) {
     clearRuntimeUnsubscribe(runtime, 'bridgeUnsubscribe');
     clearRuntimeUnsubscribe(runtime, 'reconnectUnsubscribe');
     runtime.sequencesByThread.clear();
+    runtime.patchGenerationsByThread?.clear();
     runtime.composerDrafts.clear();
     runtime.sidebarSnapshotsByCwd.clear();
     runtime.sidebarRefreshesByCwd.clear();
@@ -173,17 +203,15 @@ function createLifecycleActions(runtime, deps) {
     runtime.sidebarRefreshSeq += 1;
   };
 
-  Object.assign(runtime, { rebindBridgeEventScope });
-  return { initializeEvents, rebindBridgeEventScope, destroy };
+  Object.assign(runtime, { prepareBridgeEventScope, rebindBridgeEventScope });
+  return { initializeEvents, prepareBridgeEventScope, rebindBridgeEventScope, destroy };
 }
 
 function scopedBridgeEventHandler(runtime, options = {}) {
   const generation = options.generation ?? runtime.bridgeEventScopeGeneration;
   let scope = options.scope ?? runtime.assistantEventScope;
   if (!scope) scope = currentChatScope(runtime);
-  const rebindGeneration = options.rebindGeneration ?? 0;
   return (event) => {
-    if (rebindGeneration && rebindGeneration !== runtime.bridgeScopeRebindGeneration) return;
     if (generation !== runtime.bridgeEventScopeGeneration || scope !== runtime.assistantEventScope) {
       if (options.silentBeforeCommit) return;
       runtime.addWarning('warn', 'bridge.event.scope_stale', { scope, generation });

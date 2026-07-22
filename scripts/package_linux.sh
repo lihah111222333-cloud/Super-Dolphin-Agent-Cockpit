@@ -839,6 +839,7 @@ package_linux_main() {
     "$root/pkg"
     "$root/go.mod"
     "$root/go.sum"
+    "$root/Makefile"
     "$root/scripts/package_linux.sh"
     "$root/scripts/build_phase_cache/main.go"
   )
@@ -856,6 +857,7 @@ package_linux_main() {
     "input:CGO_ENABLED=$linux_cgo_enabled"
     "input:CC=$(go env CC)"
     "input:CXX=$(go env CXX)"
+    "input:CGO_CPPFLAGS=${CGO_CPPFLAGS:-}"
     "input:CGO_CFLAGS=${CGO_CFLAGS:-}"
     "input:CGO_CXXFLAGS=${CGO_CXXFLAGS:-}"
     "input:CGO_LDFLAGS=${CGO_LDFLAGS:-}"

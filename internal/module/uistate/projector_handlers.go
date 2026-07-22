@@ -385,7 +385,7 @@ func (s *service) applyTurnInterrupted(ev turndto.TurnInterrupted) {
 	applyMutation(s, threadID, func() {
 		startedAt := (*time.Time)(nil)
 		matchesActiveTurn = sameActiveTurnIdentity(s.state.ActiveTurn, turnID, threadID, agentID)
-		projectTerminal = s.state.ActiveTurn == nil || matchesActiveTurn
+		projectTerminal = matchesActiveTurn
 		if matchesActiveTurn {
 			startedAt = clone.Time(s.state.ActiveTurn.StartedAt)
 			s.state.ActiveTurn = nil
@@ -436,7 +436,7 @@ func (s *service) applyTurnCompleted(ev turndto.TurnCompleted) {
 	projectTerminal := false
 	applyMutation(s, threadID, func() {
 		matchesActiveTurn = sameActiveTurnIdentity(s.state.ActiveTurn, ev.TurnID, threadID, agentID)
-		projectTerminal = s.state.ActiveTurn == nil || matchesActiveTurn
+		projectTerminal = matchesActiveTurn
 		var activeTurn *TurnSummary
 		if matchesActiveTurn {
 			activeTurn = s.state.ActiveTurn

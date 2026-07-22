@@ -1,6 +1,7 @@
 package appupdate
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"strings"
@@ -33,6 +34,37 @@ func TestCheckFetchesGitHubLatestReleaseManifestForCurrentPlatform(t *testing.T)
 	}
 	if result.Artifact == nil || result.Artifact.Platform != "darwin-arm64" {
 		t.Fatalf("Check() artifact = %+v, want darwin-arm64", result.Artifact)
+	}
+}
+
+func TestCheckRejectsChunkedGitHubReleaseMetadataWithoutContentLengthExceedingBodyLimit(t *testing.T) {
+	publicKey, _ := testManifestKeypair(t)
+	oversized := bytes.Repeat([]byte("x"), int(maxGitHubReleaseMetadataBodyBytes)+1)
+	svc := newService(testGitHubServiceConfig(publicKey, appUpdateRealTempDir(t), "1.2.2", "darwin-arm64"), chunkedHTTPClientFor(map[string][]byte{
+		testGitHubAPIURL(): oversized,
+	}), nil)
+
+	_, err := svc.Check(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "exceeds") {
+		t.Fatalf("Check() error = %v, want GitHub release metadata body limit rejection", err)
+	}
+}
+
+func TestCheckRejectsChunkedGitHubManifestAssetWithoutContentLengthExceedingBodyLimit(t *testing.T) {
+	publicKey, _ := testManifestKeypair(t)
+	payload := testGitHubManifestPayload(t, []byte("signed dmg bytes"), "darwin-arm64")
+	oversized := bytes.Repeat([]byte("x"), int(maxUpdateManifestBodyBytes)+1)
+	svc := newService(testGitHubServiceConfig(publicKey, appUpdateRealTempDir(t), "1.2.2", "darwin-arm64"), chunkedHTTPClientFor(map[string][]byte{
+		testGitHubAPIURL(): []byte(testGitHubReleaseJSON(t, "v1.2.3", payload.Artifacts[0], "darwin-arm64")),
+		testGitHubReleaseAssetURL(
+			"v1.2.3",
+			"Super-Dolphin-darwin-arm64.update.json",
+		): oversized,
+	}), nil)
+
+	_, err := svc.Check(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "exceeds") {
+		t.Fatalf("Check() error = %v, want GitHub manifest body limit rejection", err)
 	}
 }
 

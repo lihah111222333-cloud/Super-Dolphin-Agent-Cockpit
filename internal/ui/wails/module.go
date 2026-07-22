@@ -156,16 +156,23 @@ func NewWailsApplication(p ApplicationParams) (*application.App, error) {
 	if p.Readiness == nil {
 		return nil, errors.New("wails activation readiness is required")
 	}
+	if p.Binding == nil {
+		return nil, errors.New("wails app binding is required")
+	}
+	if p.Lifecycle == nil {
+		return nil, errors.New("wails lifecycle is required")
+	}
 	title := applicationTitle()
 	debug := false
-	if p.Binding != nil {
-		if value := strings.TrimSpace(p.Binding.windowTitle); value != "" {
-			title = value
-		}
-		debug = p.Binding.debug
+	if value := strings.TrimSpace(p.Binding.windowTitle); value != "" {
+		title = value
 	}
+	debug = p.Binding.debug
 	assetHandler, err := assetHandlerFromForMode(p.Frontend, debug)
 	if err != nil {
+		return nil, err
+	}
+	if err := p.Binding.bindFrontendReadiness(p.Readiness, p.Lifecycle); err != nil {
 		return nil, err
 	}
 	wailsApp := application.New(application.Options{
@@ -187,7 +194,6 @@ func NewWailsApplication(p ApplicationParams) (*application.App, error) {
 	p.Lifecycle.SetEventEmitter(p.Binding.emitRuntimeEvent)
 	wailsApp.Event.OnApplicationEvent(events.Common.ApplicationStarted, func(*application.ApplicationEvent) {
 		p.Readiness.MarkApplicationStarted()
-		p.Lifecycle.MarkFrontendReady()
 		safego.Go(context.Background(), nil, "wails.clipboard.cleanup", func(context.Context) {
 			cleanupStaleClipboardImages(p.Logger, os.TempDir(), defaultClipboardRetention)
 		})

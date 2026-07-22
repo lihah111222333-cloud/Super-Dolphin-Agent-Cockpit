@@ -33,3 +33,34 @@ func TestActivationReadinessPropagatesMissingActivation(t *testing.T) {
 		t.Fatalf("Wait() error = %v, want %v", err, sentinel)
 	}
 }
+
+func TestActivationReadinessRequiresMatchingFrontendEpoch(t *testing.T) {
+	readiness := NewActivationReadiness()
+	readiness.MarkApplicationStarted()
+
+	epoch, err := readiness.CurrentEpoch()
+	if err != nil {
+		t.Fatalf("CurrentEpoch() error = %v", err)
+	}
+	if err := readiness.MarkFrontendReady(epoch + 1); err == nil {
+		t.Fatal("MarkFrontendReady() error = nil for a stale epoch")
+	}
+	if readiness.FrontendReady() {
+		t.Fatal("FrontendReady() = true after stale epoch")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	if err := readiness.WaitForFrontendReady(ctx); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("WaitForFrontendReady() error before frontend RPC = %v, want deadline", err)
+	}
+	if err := readiness.MarkFrontendReady(epoch); err != nil {
+		t.Fatalf("MarkFrontendReady() error = %v", err)
+	}
+	if err := readiness.MarkFrontendReady(epoch); err != nil {
+		t.Fatalf("duplicate MarkFrontendReady() error = %v", err)
+	}
+	if err := readiness.WaitForFrontendReady(context.Background()); err != nil {
+		t.Fatalf("WaitForFrontendReady() error = %v", err)
+	}
+}

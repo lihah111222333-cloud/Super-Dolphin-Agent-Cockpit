@@ -1,10 +1,10 @@
-import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { realpathSync } from 'node:fs';
 import { mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { runManagedCommand } from './managed-command.mjs';
 
 const DEFAULT_MANIFEST = path.join(path.dirname(fileURLToPath(import.meta.url)), 'failure-matrix-cases.json');
 const DEFAULT_FIXTURES = path.join(path.dirname(fileURLToPath(import.meta.url)), 'failure-matrix-fixtures.json');
@@ -21,6 +21,9 @@ const GO_PACKAGES = Object.freeze({
   'go-turn': './internal/module/turn',
   'go-wails': './internal/ui/wails',
 });
+const DEFAULT_COMMAND_TIMEOUT_MS = 15 * 60 * 1_000;
+const DEFAULT_COMMAND_KILL_GRACE_MS = 1_000;
+const DEFAULT_COMMAND_MAX_BUFFER = 16 * 1024 * 1024;
 
 export function validateFailureMatrixManifest(manifest) {
   if (!manifest || manifest.schemaVersion !== 1 || !Array.isArray(manifest.cases)) {
@@ -191,11 +194,11 @@ function countOccurrences(source, search) {
   return count;
 }
 
-function caseCommand(evidence) {
+function caseCommand(evidence, vitestCommand) {
   if (evidence.layer === 'frontend') {
     if (!evidence.file) throw new Error(`${evidence.caseId}: Vitest evidence file is missing`);
     return {
-      command: path.join('node_modules', '.bin', 'vitest'),
+      command: vitestCommand ?? path.join('node_modules', '.bin', 'vitest'),
       args: ['run', evidence.file, '-t', evidence.test, '--no-file-parallelism', '--maxWorkers=1'],
       cwd: 'frontend-app',
     };
@@ -213,13 +216,23 @@ function commandRecord(spec) {
   return { cwd: spec.cwd, argv: [spec.command, ...spec.args] };
 }
 
-async function runMutationEvidence({ repoRoot, frontendRoot, tempRoot, subjectSha, subjectTreeSha, mutations, evidence }) {
-  const byPair = new Map(evidence.map((entry) => [`${entry.caseId}\u0000${entry.layer}`, entry]));
+async function runMutationEvidence({
+  repoRoot,
+  frontendRoot,
+  tempRoot,
+  subjectSha,
+  subjectTreeSha,
+  mutations,
+  evidence,
+  managedOptions,
+  vitestCommand,
+}) {
+  const byPair = new Map(evidence.map((entry) => [`${entry.caseId}\\u0000${entry.layer}`, entry]));
   const results = [];
   for (const mutation of mutations) {
     const mutationRoot = path.join(tempRoot, `mutation-${mutation.id}`);
-    await runCommand('git', ['worktree', 'add', '--detach', mutationRoot, subjectSha], repoRoot, true);
     try {
+      await runCommand('git', ['worktree', 'add', '--detach', mutationRoot, subjectSha], repoRoot, managedOptions);
       const targetNodeModules = path.join(mutationRoot, 'frontend-app', 'node_modules');
       if (mutation.layer === 'frontend') await symlink(path.join(frontendRoot, 'node_modules'), targetNodeModules, 'dir');
       const sourceFile = path.join(mutationRoot, mutation.sourcePath);
@@ -238,10 +251,15 @@ async function runMutationEvidence({ repoRoot, frontendRoot, tempRoot, subjectSh
       for (const caseId of mutation.caseIds) {
         const green = byPair.get(`${caseId}\u0000${mutation.layer}`);
         if (!green) throw new Error(`${mutation.id}: missing GREEN evidence for ${caseId} layer ${mutation.layer}`);
-        const spec = caseCommand(green);
-        const execution = await captureCommand(spec.command, spec.args, path.join(mutationRoot, spec.cwd));
+        const spec = caseCommand(green, vitestCommand);
+        const execution = await captureCommand(
+          spec.command,
+          spec.args,
+          path.join(mutationRoot, spec.cwd),
+          managedOptions,
+        );
         const output = `${execution.stdout}\n${execution.stderr}`;
-        if (execution.exitCode !== 0 || execution.signal !== null) {
+        if (execution.exitCode !== 0 || execution.signal !== null || execution.error || execution.timedOut) {
           throw new Error(`${mutation.id}: ${caseId} immutable focused GREEN must exit zero`);
         }
         greenRuns.set(caseId, { evidence: green, spec, execution, output });
@@ -249,9 +267,14 @@ async function runMutationEvidence({ repoRoot, frontendRoot, tempRoot, subjectSh
       await writeFile(sourceFile, mutated, 'utf8');
       for (const caseId of mutation.caseIds) {
         const { evidence: green, spec, execution: greenExecution, output: greenOutput } = greenRuns.get(caseId);
-        const red = await captureCommand(spec.command, spec.args, path.join(mutationRoot, spec.cwd));
+        const red = await captureCommand(
+          spec.command,
+          spec.args,
+          path.join(mutationRoot, spec.cwd),
+          managedOptions,
+        );
         const combined = `${red.stdout}\n${red.stderr}`;
-        if (!(red.exitCode > 0) || !combined.includes(caseId)) {
+        if (!(red.exitCode > 0) || red.signal !== null || red.error || red.timedOut || !combined.includes(caseId)) {
           throw new Error(`${mutation.id}: ${caseId} mutation RED must exit non-zero and identify the case`);
         }
         results.push({
@@ -277,7 +300,7 @@ async function runMutationEvidence({ repoRoot, frontendRoot, tempRoot, subjectSh
         });
       }
     } finally {
-      await runCommand('git', ['worktree', 'remove', '--force', mutationRoot], repoRoot, true);
+      await removeRegisteredWorktree(repoRoot, mutationRoot, managedOptions);
     }
   }
   assertExactUniqueSet('failure matrix RED/GREEN caseIds', results.map(({ caseId }) => caseId), REQUIRED_CASE_IDS);
@@ -293,20 +316,22 @@ export async function runFailureMatrix(options = {}) {
   const mutations = validateFailureMatrixMutations(await loadFailureMatrixDocument(mutationsPath));
   const repoRoot = options.repoRoot || path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
   const frontendRoot = path.join(repoRoot, 'frontend-app');
-  const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'failure-matrix-'));
+  const managedOptions = managedCommandOptions(options);
+  const vitestCommand = options.vitestCommand;
+  const tempRoot = await mkdtemp(path.join(options.tempDirectory ?? os.tmpdir(), 'failure-matrix-'));
   try {
-    const git = options.git || ((args) => runCommand('git', args, repoRoot, true));
+    const git = options.git || ((args) => runCommand('git', args, repoRoot, managedOptions));
     const subjectSha = (await git(['rev-parse', 'HEAD'])).trim();
     const subjectTreeSha = (await git(['rev-parse', 'HEAD^{tree}'])).trim();
     const greenRoot = path.join(tempRoot, 'green-subject');
-    await runCommand('git', ['worktree', 'add', '--detach', greenRoot, subjectSha], repoRoot, true);
     const vitestReport = path.join(tempRoot, 'vitest.json');
     let executableEvidence;
     try {
+      await runCommand('git', ['worktree', 'add', '--detach', greenRoot, subjectSha], repoRoot, managedOptions);
       const greenFrontendRoot = path.join(greenRoot, 'frontend-app');
       await symlink(path.join(frontendRoot, 'node_modules'), path.join(greenFrontendRoot, 'node_modules'), 'dir');
       await runCommand(
-        path.join(greenFrontendRoot, 'node_modules', '.bin', 'vitest'),
+        vitestCommand ?? path.join(greenFrontendRoot, 'node_modules', '.bin', 'vitest'),
         [
           'run',
           'src/entities/client/model/failureMatrix.test.js',
@@ -320,6 +345,7 @@ export async function runFailureMatrix(options = {}) {
           '--maxWorkers=1',
         ],
         greenFrontendRoot,
+        managedOptions,
       );
       const frontendEvidence = parseVitestEvidence(JSON.parse(await readFile(vitestReport, 'utf8')), greenFrontendRoot);
       const goCommands = [
@@ -330,12 +356,17 @@ export async function runFailureMatrix(options = {}) {
       ];
       const goEvidence = [];
       for (const command of goCommands) {
-        const output = await runCommand('go', ['test', '-json', command.pkg, '-run', '^TestFailureMatrix', '-count=1'], greenRoot, true);
+        const output = await runCommand(
+          'go',
+          ['test', '-json', command.pkg, '-run', '^TestFailureMatrix', '-count=1'],
+          greenRoot,
+          managedOptions,
+        );
         goEvidence.push(...parseGoEvidence(output, command.layer));
       }
       executableEvidence = [...frontendEvidence, ...goEvidence];
     } finally {
-      await runCommand('git', ['worktree', 'remove', '--force', greenRoot], repoRoot, true);
+      await removeRegisteredWorktree(repoRoot, greenRoot, managedOptions);
     }
     const result = validateFailureMatrixEvidence(cases, fixtures, executableEvidence);
     const redGreenCases = await runMutationEvidence({
@@ -346,6 +377,8 @@ export async function runFailureMatrix(options = {}) {
       subjectTreeSha,
       mutations,
       evidence: executableEvidence,
+      managedOptions,
+      vitestCommand,
     });
     const report = {
       schemaVersion: 1,
@@ -372,39 +405,64 @@ async function writeFileWithParents(filePath, contents) {
   await writeFile(filePath, contents, 'utf8');
 }
 
-function runCommand(command, args, cwd, capture = false) {
-  return new Promise((resolve, reject) => {
-    const child = spawn(command, args, { cwd, stdio: capture ? ['ignore', 'pipe', 'pipe'] : 'inherit' });
-    let stdout = '';
-    let stderr = '';
-    child.stdout?.on('data', (chunk) => { stdout += chunk; });
-    child.stderr?.on('data', (chunk) => { stderr += chunk; });
-    child.once('error', reject);
-    child.once('exit', (code, signal) => {
-      if (code === 0) {
-        resolve(stdout);
-        return;
-      }
-      reject(new Error(`${command} ${args.join(' ')} failed: exit=${code} signal=${signal || ''}\n${stderr}`));
-    });
-  });
+function canonicalWorktreePath(worktreePath) {
+  try {
+    return realpathSync(worktreePath);
+  } catch (error) {
+    if (error.code !== 'ENOENT') throw error;
+  }
+  try {
+    return path.join(realpathSync(path.dirname(worktreePath)), path.basename(worktreePath));
+  } catch (error) {
+    if (error.code !== 'ENOENT') throw error;
+  }
+  return path.resolve(worktreePath);
 }
 
-function captureCommand(command, args, cwd) {
-  return new Promise((resolve, reject) => {
-    const child = spawn(command, args, { cwd, stdio: ['ignore', 'pipe', 'pipe'] });
-    let stdout = '';
-    let stderr = '';
-    child.stdout.on('data', (chunk) => { stdout += chunk; });
-    child.stderr.on('data', (chunk) => { stderr += chunk; });
-    child.once('error', reject);
-    child.once('exit', (code, signal) => resolve({
-      exitCode: code ?? 1,
-      signal: signal || null,
-      stdout,
-      stderr,
-    }));
-  });
+async function removeRegisteredWorktree(repoRoot, worktreePath, options) {
+  const expectedPath = canonicalWorktreePath(worktreePath);
+  const output = await runCommand('git', ['worktree', 'list', '--porcelain'], repoRoot, options);
+  const registered = output.split('\n').some((line) => (
+    line.startsWith('worktree ') && canonicalWorktreePath(line.slice('worktree '.length)) === expectedPath
+  ));
+  if (!registered) return;
+  await runCommand('git', ['worktree', 'remove', '--force', worktreePath], repoRoot, options);
+}
+
+function managedCommandOptions(options) {
+  return {
+    env: options.commandEnv ?? process.env,
+    timeoutMs: options.commandTimeoutMs ?? DEFAULT_COMMAND_TIMEOUT_MS,
+    killGraceMs: options.commandKillGraceMs ?? DEFAULT_COMMAND_KILL_GRACE_MS,
+    maxBuffer: options.commandMaxBuffer ?? DEFAULT_COMMAND_MAX_BUFFER,
+  };
+}
+
+function commandFailure(command, args, execution) {
+  const status = 'exit=' + execution.exitCode + ' signal=' + (execution.signal || '');
+  const reason = execution.error?.message || status;
+  return new Error(command + ' ' + args.join(' ') + ' failed: ' + reason + '\n' + execution.stderr);
+}
+
+async function captureCommand(command, args, cwd, options) {
+  const result = await runManagedCommand(command, args, { cwd, ...options });
+  return {
+    exitCode: result.status ?? 1,
+    signal: result.signal || null,
+    stdout: result.stdout,
+    stderr: result.stderr,
+    timedOut: result.timedOut,
+    outputTruncated: result.outputTruncated,
+    error: result.error,
+  };
+}
+
+async function runCommand(command, args, cwd, options) {
+  const execution = await captureCommand(command, args, cwd, options);
+  if (execution.exitCode === 0 && execution.signal === null && !execution.error && !execution.timedOut) {
+    return execution.stdout;
+  }
+  throw commandFailure(command, args, execution);
 }
 
 export function isMain(metaURL, argv1) {

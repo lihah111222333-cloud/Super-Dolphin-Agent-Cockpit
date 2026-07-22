@@ -1,6 +1,5 @@
-import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { readFileSync } from 'node:fs';
+import { readFileSync, realpathSync } from 'node:fs';
 import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -9,12 +8,16 @@ import {
   mutateProductionBindingsSource,
   runActionProducerGuard,
 } from './action-producer-guard.mjs';
+import { runManagedCommand } from './managed-command.mjs';
 import { productionActionFailureMatrixTitle } from '../src/shared/ui/productionActionFailureMatrixTitles.js';
 
 const APP_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const REPO_ROOT = path.resolve(APP_ROOT, '..');
 const matrix = JSON.parse(readFileSync(path.join(APP_ROOT, 'config/action-producer-test-matrix.json'), 'utf8'));
 const registry = JSON.parse(readFileSync(path.join(APP_ROOT, 'config/action-producer-registry.json'), 'utf8'));
+const DEFAULT_COMMAND_TIMEOUT_MS = 15 * 60 * 1_000;
+const DEFAULT_COMMAND_KILL_GRACE_MS = 1_000;
+const DEFAULT_COMMAND_MAX_BUFFER = 16 * 1024 * 1024;
 
 function sha256(value) {
   return createHash('sha256').update(value).digest('hex');
@@ -22,7 +25,7 @@ function sha256(value) {
 
 function parseCellVitestResult(result) {
   const output = `${result.stdout}\n${result.stderr}`;
-  if (result.exitCode !== 0 || result.signal !== null) {
+  if (result.exitCode !== 0 || result.signal !== null || result.error || result.timedOut) {
     throw new Error('production action matrix Vitest GREEN must exit zero');
   }
   let summary;
@@ -53,35 +56,77 @@ function parseCellVitestResult(result) {
   };
 }
 
-function capture(command, args, cwd) {
-  return new Promise((resolve, reject) => {
-    const child = spawn(command, args, { cwd, stdio: ['ignore', 'pipe', 'pipe'] });
-    let stdout = '';
-    let stderr = '';
-    child.stdout.on('data', (chunk) => { stdout += chunk; });
-    child.stderr.on('data', (chunk) => { stderr += chunk; });
-    child.once('error', reject);
-    child.once('exit', (code, signal) => resolve({ exitCode: code ?? 1, signal: signal || null, stdout, stderr }));
-  });
+function managedCommandOptions(options) {
+  return {
+    env: options.commandEnv ?? process.env,
+    timeoutMs: options.commandTimeoutMs ?? DEFAULT_COMMAND_TIMEOUT_MS,
+    killGraceMs: options.commandKillGraceMs ?? DEFAULT_COMMAND_KILL_GRACE_MS,
+    maxBuffer: options.commandMaxBuffer ?? DEFAULT_COMMAND_MAX_BUFFER,
+  };
 }
 
-async function requireSuccess(command, args, cwd) {
-  const result = await capture(command, args, cwd);
-  if (result.exitCode !== 0 || result.signal !== null) {
-    throw new Error(`${command} ${args.join(' ')} failed: exit=${result.exitCode} signal=${result.signal || ''}\n${result.stderr}`);
+function commandFailure(command, args, result) {
+  const status = 'exit=' + result.exitCode + ' signal=' + (result.signal || '');
+  const reason = result.error?.message || status;
+  return new Error(command + ' ' + args.join(' ') + ' failed: ' + reason + '\n' + result.stderr);
+}
+
+async function capture(command, args, cwd, options) {
+  const result = await runManagedCommand(command, args, { cwd, ...options });
+  return {
+    exitCode: result.status ?? 1,
+    signal: result.signal || null,
+    stdout: result.stdout,
+    stderr: result.stderr,
+    timedOut: result.timedOut,
+    outputTruncated: result.outputTruncated,
+    error: result.error,
+  };
+}
+
+async function requireSuccess(command, args, cwd, options) {
+  const result = await capture(command, args, cwd, options);
+  if (result.exitCode !== 0 || result.signal !== null || result.error || result.timedOut) {
+    throw commandFailure(command, args, result);
   }
   return result.stdout;
+}
+
+function canonicalWorktreePath(worktreePath) {
+  try {
+    return realpathSync(worktreePath);
+  } catch (error) {
+    if (error.code !== 'ENOENT') throw error;
+  }
+  try {
+    return path.join(realpathSync(path.dirname(worktreePath)), path.basename(worktreePath));
+  } catch (error) {
+    if (error.code !== 'ENOENT') throw error;
+  }
+  return path.resolve(worktreePath);
+}
+
+async function removeRegisteredWorktree(repoRoot, worktreePath, options) {
+  const expectedPath = canonicalWorktreePath(worktreePath);
+  const output = await requireSuccess('git', ['worktree', 'list', '--porcelain'], repoRoot, options);
+  const registered = output.split('\n').some((line) => (
+    line.startsWith('worktree ') && canonicalWorktreePath(line.slice('worktree '.length)) === expectedPath
+  ));
+  if (!registered) return;
+  await requireSuccess('git', ['worktree', 'remove', '--force', worktreePath], repoRoot, options);
 }
 
 export async function runActionProductionRuntime(options = {}) {
   const repoRoot = options.repoRoot || REPO_ROOT;
   const appRoot = path.join(repoRoot, 'frontend-app');
+  const managedOptions = managedCommandOptions(options);
+  const vitestCommand = options.vitestCommand;
   const structural = runActionProducerGuard({ root: appRoot });
   const anchors = matrix.runtimeBindings;
   if (!Array.isArray(anchors) || anchors.length === 0) throw new Error('production runtime action anchors must not be empty');
-  const subjectSha = (await requireSuccess('git', ['rev-parse', 'HEAD'], repoRoot)).trim();
-  const subjectTreeSha = (await requireSuccess('git', ['rev-parse', 'HEAD^{tree}'], repoRoot)).trim();
-  const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'action-production-runtime-'));
+  const subjectSha = (await requireSuccess('git', ['rev-parse', 'HEAD'], repoRoot, managedOptions)).trim();
+  const subjectTreeSha = (await requireSuccess('git', ['rev-parse', 'HEAD^{tree}'], repoRoot, managedOptions)).trim();
+  const tempRoot = await mkdtemp(path.join(options.tempDirectory ?? os.tmpdir(), 'action-production-runtime-'));
   const runtimeCases = [];
   if (!Array.isArray(matrix.cells) || matrix.cells.length === 0) throw new Error('production action matrix must not be empty');
   let matrixExecution;
@@ -92,11 +137,11 @@ export async function runActionProductionRuntime(options = {}) {
       ));
       if (bindings.length === 0) throw new Error(`${anchor.actionId}: runtime anchor has no production binding`);
       const mutationRoot = path.join(tempRoot, anchor.actionId.replace(/[^a-z0-9.-]+/giu, '-'));
-      await requireSuccess('git', ['worktree', 'add', '--detach', mutationRoot, subjectSha], repoRoot);
       try {
+        await requireSuccess('git', ['worktree', 'add', '--detach', mutationRoot, subjectSha], repoRoot, managedOptions);
         await symlink(path.join(appRoot, 'node_modules'), path.join(mutationRoot, 'frontend-app', 'node_modules'), 'dir');
         const testArgv = [
-          path.join('node_modules', '.bin', 'vitest'), 'run', anchor.testFile,
+          vitestCommand ?? path.join('node_modules', '.bin', 'vitest'), 'run', anchor.testFile,
           '-t', anchor.testName, '--no-file-parallelism', '--maxWorkers=1',
         ];
         const detachedAppRoot = path.join(mutationRoot, 'frontend-app');
@@ -104,16 +149,16 @@ export async function runActionProductionRuntime(options = {}) {
         const source = await readFile(sourceFile, 'utf8');
         const testFile = path.join(mutationRoot, 'frontend-app', anchor.testFile);
         const testSource = await readFile(testFile);
-        const green = await capture(testArgv[0], testArgv.slice(1), detachedAppRoot);
+        const green = await capture(testArgv[0], testArgv.slice(1), detachedAppRoot, managedOptions);
         const greenOutput = `${green.stdout}\n${green.stderr}`;
-        if (green.exitCode !== 0 || green.signal !== null) {
+        if (green.exitCode !== 0 || green.signal !== null || green.error || green.timedOut) {
           throw new Error(`${anchor.actionId}: production runtime named GREEN must exit zero`);
         }
         const mutated = mutateProductionBindingsSource(source, bindings);
         await writeFile(sourceFile, mutated, 'utf8');
-        const red = await capture(testArgv[0], testArgv.slice(1), detachedAppRoot);
+        const red = await capture(testArgv[0], testArgv.slice(1), detachedAppRoot, managedOptions);
         const redOutput = `${red.stdout}\n${red.stderr}`;
-        if (!(red.exitCode > 0) || red.signal !== null || !redOutput.includes(anchor.testName)) {
+        if (!(red.exitCode > 0) || red.signal !== null || red.error || red.timedOut || !redOutput.includes(anchor.testName)) {
           throw new Error(`${anchor.actionId}: production runtime mutation must produce a named non-zero RED`);
         }
         runtimeCases.push({
@@ -143,17 +188,17 @@ export async function runActionProductionRuntime(options = {}) {
           },
         });
       } finally {
-        await requireSuccess('git', ['worktree', 'remove', '--force', mutationRoot], repoRoot);
+        await removeRegisteredWorktree(repoRoot, mutationRoot, managedOptions);
       }
     }
 
     const testFile = 'src/shared/ui/productionActionFailureMatrix.test.js';
     const testSource = await readFile(path.join(appRoot, testFile));
     const argv = [
-      path.join('node_modules', '.bin', 'vitest'), 'run', testFile,
+      vitestCommand ?? path.join('node_modules', '.bin', 'vitest'), 'run', testFile,
       '--reporter=json', '--no-file-parallelism', '--maxWorkers=1',
     ];
-    const green = await capture(argv[0], argv.slice(1), appRoot);
+    const green = await capture(argv[0], argv.slice(1), appRoot, managedOptions);
     const parsed = parseCellVitestResult(green);
     matrixExecution = {
       testFile,
