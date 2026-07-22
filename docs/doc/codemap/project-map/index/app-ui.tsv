@@ -2,8 +2,8 @@ path	module	domain	type	size_bytes	purpose	search_keys
 cmd/agent-terminal/frontend.go	cmd	app-ui	go-source	824	Wails 桌面 UI、HTTP server、app host 与前端嵌入入口	cmd,agent,terminal,frontend,Wails,桌面,UI,HTTP,server,app,host,与前端嵌入入口
 cmd/agent-terminal/main_recovery_test.go	cmd	app-ui	go-test	24848	Wails 桌面 UI、HTTP server、app host 与前端嵌入入口	cmd,agent,terminal,main,recovery,test,Wails,桌面,UI,HTTP,server,app,host,与前端嵌入入口
 cmd/agent-terminal/main.go	cmd	app-ui	go-source	13585	Wails 桌面 UI、HTTP server、app host 与前端嵌入入口	cmd,agent,terminal,main,Wails,桌面,UI,HTTP,server,app,host,与前端嵌入入口
-cmd/agent-terminal/recovery_ui_test.go	cmd	app-ui	go-test	18767	Wails 桌面 UI、HTTP server、app host 与前端嵌入入口	cmd,agent,terminal,recovery,ui,test,Wails,桌面,UI,HTTP,server,app,host,与前端嵌入入口
-cmd/agent-terminal/recovery_ui.go	cmd	app-ui	go-source	8711	Wails 桌面 UI、HTTP server、app host 与前端嵌入入口	cmd,agent,terminal,recovery,ui,Wails,桌面,UI,HTTP,server,app,host,与前端嵌入入口
+cmd/agent-terminal/recovery_ui_test.go	cmd	app-ui	go-test	22003	Wails 桌面 UI、HTTP server、app host 与前端嵌入入口	cmd,agent,terminal,recovery,ui,test,Wails,桌面,UI,HTTP,server,app,host,与前端嵌入入口
+cmd/agent-terminal/recovery_ui.go	cmd	app-ui	go-source	10845	Wails 桌面 UI、HTTP server、app host 与前端嵌入入口	cmd,agent,terminal,recovery,ui,Wails,桌面,UI,HTTP,server,app,host,与前端嵌入入口
 frontend-app/.env.example	frontend-app	app-ui	example	652	当前 React/Vite 前端包	frontend,app,env,当前,React,Vite,前端包
 frontend-app/.frontend_code_size_guard_baseline_test.json	frontend-app	app-ui	json	76	当前 React/Vite 前端包	frontend,app,code,size,guard,baseline,test,当前,React,Vite,前端包
 frontend-app/.frontend_code_size_guard_baseline.json	frontend-app	app-ui	json	76	当前 React/Vite 前端包	frontend,app,code,size,guard,baseline,当前,React,Vite,前端包
@@ -273,11 +273,11 @@ frontend-app/src/features/slash-commands/model/slashCommandModel.test.js	fronten
 frontend-app/src/features/slash-commands/services/slashCommandCatalogService.js	frontend-app	app-ui	js-source	1401	当前 React/Vite 前端包	frontend,app,src,features,slash,commands,services,slashCommandCatalogService,当前,React,Vite,前端包
 frontend-app/src/features/slash-commands/services/slashCommandCatalogService.test.js	frontend-app	app-ui	js-test	7764	当前 React/Vite 前端包	frontend,app,src,features,slash,commands,services,slashCommandCatalogService,test,当前,React,Vite,前端包
 frontend-app/src/features/update-recovery/RecoveryApp.css	frontend-app	app-ui	css	4667	当前 React/Vite 前端包	frontend,app,src,features,update,recovery,RecoveryApp,当前,React,Vite,前端包
-frontend-app/src/features/update-recovery/RecoveryApp.jsx	frontend-app	app-ui	jsx	3664	当前 React/Vite 前端包	frontend,app,src,features,update,recovery,RecoveryApp,当前,React,Vite,前端包
-frontend-app/src/features/update-recovery/RecoveryApp.test.jsx	frontend-app	app-ui	jsx	4136	当前 React/Vite 前端包	frontend,app,src,features,update,recovery,RecoveryApp,test,当前,React,Vite,前端包
-frontend-app/src/features/update-recovery/recoveryClient.js	frontend-app	app-ui	js-source	4310	当前 React/Vite 前端包	frontend,app,src,features,update,recovery,recoveryClient,当前,React,Vite,前端包
-frontend-app/src/features/update-recovery/recoveryClient.test.js	frontend-app	app-ui	js-test	4377	当前 React/Vite 前端包	frontend,app,src,features,update,recovery,recoveryClient,test,当前,React,Vite,前端包
-frontend-app/src/main.jsx	frontend-app	app-ui	jsx	7294	当前 React/Vite 前端包	frontend,app,src,main,当前,React,Vite,前端包
+frontend-app/src/features/update-recovery/RecoveryApp.jsx	frontend-app	app-ui	jsx	3802	当前 React/Vite 前端包	frontend,app,src,features,update,recovery,RecoveryApp,当前,React,Vite,前端包
+frontend-app/src/features/update-recovery/RecoveryApp.test.jsx	frontend-app	app-ui	jsx	5650	当前 React/Vite 前端包	frontend,app,src,features,update,recovery,RecoveryApp,test,当前,React,Vite,前端包
+frontend-app/src/features/update-recovery/recoveryClient.js	frontend-app	app-ui	js-source	7816	当前 React/Vite 前端包	frontend,app,src,features,update,recovery,recoveryClient,当前,React,Vite,前端包
+frontend-app/src/features/update-recovery/recoveryClient.test.js	frontend-app	app-ui	js-test	6555	当前 React/Vite 前端包	frontend,app,src,features,update,recovery,recoveryClient,test,当前,React,Vite,前端包
+frontend-app/src/main.jsx	frontend-app	app-ui	jsx	7737	当前 React/Vite 前端包	frontend,app,src,main,当前,React,Vite,前端包
 frontend-app/src/pages/backendApiConsumer.surface.test.js	frontend-app	app-ui	js-test	16816	React 页面与路由级 UI	frontend,app,src,pages,backendApiConsumer,surface,test,React,页面与路由级,UI
 frontend-app/src/pages/chat/__tests__/chatPageTestSupport.js	frontend-app	app-ui	js-source	6694	React 页面与路由级 UI	frontend,app,src,pages,chat,tests,chatPageTestSupport,React,页面与路由级,UI
 frontend-app/src/pages/chat/adapters/codePreviewAdapter.js	frontend-app	app-ui	js-source	8267	React 页面与路由级 UI	frontend,app,src,pages,chat,adapters,codePreviewAdapter,React,页面与路由级,UI
@@ -523,7 +523,7 @@ frontend-app/src/pages/workflows/WorkflowPage.runtime.test.jsx	frontend-app	app-
 frontend-app/src/pages/workflows/WorkflowPage.test.jsx	frontend-app	app-ui	jsx	22875	React 页面与路由级 UI	frontend,app,src,pages,workflows,WorkflowPage,test,React,页面与路由级,UI
 frontend-app/src/pages/workflows/WorkflowPage.testSupport.jsx	frontend-app	app-ui	jsx	12832	React 页面与路由级 UI	frontend,app,src,pages,workflows,WorkflowPage,testSupport,React,页面与路由级,UI
 frontend-app/src/pages/workflows/WorkflowPolish.css	frontend-app	app-ui	css	119	React 页面与路由级 UI	frontend,app,src,pages,workflows,WorkflowPolish,React,页面与路由级,UI
-frontend-app/src/recovery-main.jsx	frontend-app	app-ui	jsx	521	当前 React/Vite 前端包	frontend,app,src,recovery,main,当前,React,Vite,前端包
+frontend-app/src/recovery-main.jsx	frontend-app	app-ui	jsx	997	当前 React/Vite 前端包	frontend,app,src,recovery,main,当前,React,Vite,前端包
 frontend-app/src/services/apiClient.js	frontend-app	app-ui	js-source	1709	当前 React/Vite 前端包	frontend,app,src,services,apiClient,当前,React,Vite,前端包
 frontend-app/src/services/modules/fileService.js	frontend-app	app-ui	js-source	1710	当前 React/Vite 前端包	frontend,app,src,services,modules,fileService,当前,React,Vite,前端包
 frontend-app/src/services/modules/fileService.test.js	frontend-app	app-ui	js-test	2147	当前 React/Vite 前端包	frontend,app,src,services,modules,fileService,test,当前,React,Vite,前端包
@@ -569,11 +569,11 @@ frontend-app/src/shared/api/wails/wailsBridgeClipboardEvents.js	frontend-app	app
 frontend-app/src/shared/api/wails/wailsBridgeConstants.js	frontend-app	app-ui	js-source	3498	React 前端 API facade 与 Wails bridge	frontend,app,src,shared,api,wails,wailsBridgeConstants,React,前端,API,facade,与,Wails,bridge
 frontend-app/src/shared/api/wails/wailsBridgeLogRuntime.js	frontend-app	app-ui	js-source	7638	React 前端 API facade 与 Wails bridge	frontend,app,src,shared,api,wails,wailsBridgeLogRuntime,React,前端,API,facade,与,Wails,bridge
 frontend-app/src/shared/api/wails/wailsBridgeNativeFiles.js	frontend-app	app-ui	js-source	15224	React 前端 API facade 与 Wails bridge	frontend,app,src,shared,api,wails,wailsBridgeNativeFiles,React,前端,API,facade,与,Wails,bridge
-frontend-app/src/shared/api/wails/wailsBridgeRpc.js	frontend-app	app-ui	js-source	11039	React 前端 API facade 与 Wails bridge	frontend,app,src,shared,api,wails,wailsBridgeRpc,React,前端,API,facade,与,Wails,bridge
+frontend-app/src/shared/api/wails/wailsBridgeRpc.js	frontend-app	app-ui	js-source	12633	React 前端 API facade 与 Wails bridge	frontend,app,src,shared,api,wails,wailsBridgeRpc,React,前端,API,facade,与,Wails,bridge
 frontend-app/src/shared/api/wails/wailsBridgeTraceEvents.js	frontend-app	app-ui	js-source	25502	React 前端 API facade 与 Wails bridge	frontend,app,src,shared,api,wails,wailsBridgeTraceEvents,React,前端,API,facade,与,Wails,bridge
 frontend-app/src/shared/api/wails/wailsBridgeTraceEvents.test.js	frontend-app	app-ui	js-test	6216	React 前端 API facade 与 Wails bridge	frontend,app,src,shared,api,wails,wailsBridgeTraceEvents,test,React,前端,API,facade,与,Wails,bridge
 frontend-app/src/shared/api/wailsBridge.js	frontend-app	app-ui	js-source	1124	React 前端 API facade 与 Wails bridge	frontend,app,src,shared,api,wailsBridge,React,前端,API,facade,与,Wails,bridge
-frontend-app/src/shared/api/wailsBridge.test.js	frontend-app	app-ui	js-test	73232	React 前端 API facade 与 Wails bridge	frontend,app,src,shared,api,wailsBridge,test,React,前端,API,facade,与,Wails,bridge
+frontend-app/src/shared/api/wailsBridge.test.js	frontend-app	app-ui	js-test	76961	React 前端 API facade 与 Wails bridge	frontend,app,src,shared,api,wailsBridge,test,React,前端,API,facade,与,Wails,bridge
 frontend-app/src/shared/contracts/turnContracts.generated.js	frontend-app	app-ui	js-source	11342	当前 React/Vite 前端包	frontend,app,src,shared,contracts,turnContracts,generated,当前,React,Vite,前端包
 frontend-app/src/shared/contracts/turnContractValidators.js	frontend-app	app-ui	js-source	6835	当前 React/Vite 前端包	frontend,app,src,shared,contracts,turnContractValidators,当前,React,Vite,前端包
 frontend-app/src/shared/contracts/turnContractValidators.test.js	frontend-app	app-ui	js-test	3483	当前 React/Vite 前端包	frontend,app,src,shared,contracts,turnContractValidators,test,当前,React,Vite,前端包

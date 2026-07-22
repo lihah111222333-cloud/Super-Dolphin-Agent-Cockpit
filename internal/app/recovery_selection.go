@@ -2,8 +2,11 @@ package app
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	recovery "github.com/lihah111222333-cloud/super-dolphin-agent/internal/platform/appupdaterecovery"
@@ -21,6 +24,133 @@ const (
 	// StartupDigestTimeout 是生产启动摘要 helper 的唯一 deadline 配置。
 	StartupDigestTimeout = 15 * time.Second
 )
+
+// RecoveryPublicErrorCode 是 Recovery 浏览器边界允许的稳定错误码。
+type RecoveryPublicErrorCode string
+
+const (
+	// RecoveryPublicCodeStartupFailed 表示启动前检查未完成。
+	RecoveryPublicCodeStartupFailed RecoveryPublicErrorCode = "RECOVERY_STARTUP_FAILED"
+	// RecoveryPublicCodeStateFailed 表示无法刷新 Recovery 状态。
+	RecoveryPublicCodeStateFailed RecoveryPublicErrorCode = "RECOVERY_STATE_FAILED"
+	// RecoveryPublicCodeCheckFailed 表示候选版本检查失败。
+	RecoveryPublicCodeCheckFailed RecoveryPublicErrorCode = "RECOVERY_CHECK_FAILED"
+	// RecoveryPublicCodeRetryFailed 表示事务重放失败。
+	RecoveryPublicCodeRetryFailed RecoveryPublicErrorCode = "RECOVERY_RETRY_FAILED"
+	// RecoveryPublicCodeRestoreFailed 表示回滚恢复失败。
+	RecoveryPublicCodeRestoreFailed RecoveryPublicErrorCode = "RECOVERY_RESTORE_FAILED"
+	// RecoveryPublicCodeUnknownFailure 表示公开错误编码未能完成。
+	RecoveryPublicCodeUnknownFailure RecoveryPublicErrorCode = "RECOVERY_UNKNOWN_FAILURE"
+
+	recoveryReasonWireSeparator     = "|"
+	recoveryFallbackDiagnosticInput = "recovery public error encoding failed"
+)
+
+// RecoveryPublicFailure 是可跨 Recovery 浏览器边界的受控错误描述。
+type RecoveryPublicFailure struct {
+	Code          RecoveryPublicErrorCode
+	PublicMessage string
+	DiagnosticID  string
+}
+
+// NewRecoveryPublicFailure 从原始服务端错误派生白名单错误码和不透明诊断标识；无效输入显式返回错误。
+func NewRecoveryPublicFailure(code RecoveryPublicErrorCode, cause error) (RecoveryPublicFailure, error) {
+	if cause == nil {
+		return RecoveryPublicFailure{}, errors.New("Recovery public failure cause is required")
+	}
+	publicMessage, ok := recoveryPublicMessage(code)
+	if !ok {
+		return RecoveryPublicFailure{}, errors.New("Recovery public failure code is not allowlisted")
+	}
+	return newRecoveryPublicFailure(code, publicMessage, cause.Error()), nil
+}
+
+// WireValue 返回 Reason 字段的安全 code|diagnosticID 表示。
+func (failure RecoveryPublicFailure) WireValue() string {
+	return string(failure.Code) + recoveryReasonWireSeparator + failure.DiagnosticID
+}
+
+// RecoveryFallbackFailure 为公开错误编码失败的阻断响应创建固定的白名单错误，不包含原始原因。
+func RecoveryFallbackFailure() RecoveryPublicFailure {
+	publicMessage, _ := recoveryPublicMessage(RecoveryPublicCodeUnknownFailure)
+	return newRecoveryPublicFailure(RecoveryPublicCodeUnknownFailure, publicMessage, recoveryFallbackDiagnosticInput)
+}
+
+// NormalizeRecoveryReason 把任意历史或运行时文本收敛为安全的 Recovery reason wire 值。
+func NormalizeRecoveryReason(reason string) string {
+	if reason == "" {
+		return ""
+	}
+	if code, diagnosticID, ok := parseRecoveryReason(reason); ok {
+		return string(code) + recoveryReasonWireSeparator + diagnosticID
+	}
+	publicMessage, _ := recoveryPublicMessage(RecoveryPublicCodeStartupFailed)
+	return newRecoveryPublicFailure(RecoveryPublicCodeStartupFailed, publicMessage, reason).WireValue()
+}
+
+// newRecoveryPublicFailure 丢弃原始文本，只保留白名单文案与可关联的 SHA-256 诊断标识。
+func newRecoveryPublicFailure(code RecoveryPublicErrorCode, publicMessage string, raw string) RecoveryPublicFailure {
+	sum := sha256.Sum256([]byte(raw))
+	return RecoveryPublicFailure{
+		Code:          code,
+		PublicMessage: publicMessage,
+		DiagnosticID:  hex.EncodeToString(sum[:]),
+	}
+}
+
+// recoveryPublicMessage 只返回审核过的公开文案；调用方对未知码显式返回错误。
+func recoveryPublicMessage(code RecoveryPublicErrorCode) (string, bool) {
+	switch code {
+	case RecoveryPublicCodeStartupFailed:
+		return "Recovery mode started because the previous startup did not complete.", true
+	case RecoveryPublicCodeStateFailed:
+		return "Recovery state could not be loaded. Please restart Recovery.", true
+	case RecoveryPublicCodeCheckFailed:
+		return "Recovery check could not be completed. You can retry or restore the previous release.", true
+	case RecoveryPublicCodeRetryFailed:
+		return "Recovery retry could not be completed. You can retry or restore the previous release.", true
+	case RecoveryPublicCodeRestoreFailed:
+		return "Recovery restore could not be completed. Review diagnostics before trying again.", true
+	case RecoveryPublicCodeUnknownFailure:
+		return "Recovery action could not be completed safely. Review the diagnostic ID before trying again.", true
+	default:
+		return "", false
+	}
+}
+
+// parseRecoveryReason 只保留已验证的安全 wire 值，供刷新后的 transaction 投影复用诊断标识。
+func parseRecoveryReason(value string) (RecoveryPublicErrorCode, string, bool) {
+	codeValue, diagnosticID, found := strings.Cut(value, recoveryReasonWireSeparator)
+	code := RecoveryPublicErrorCode(codeValue)
+	if !found || !isKnownRecoveryPublicCode(code) || !isRecoveryDiagnosticID(diagnosticID) {
+		return "", "", false
+	}
+	return code, diagnosticID, true
+}
+
+// isKnownRecoveryPublicCode 保持 reason 只能复用已发布的稳定码，未知码必须重新归类。
+func isKnownRecoveryPublicCode(code RecoveryPublicErrorCode) bool {
+	switch code {
+	case RecoveryPublicCodeStartupFailed, RecoveryPublicCodeStateFailed, RecoveryPublicCodeCheckFailed,
+		RecoveryPublicCodeRetryFailed, RecoveryPublicCodeRestoreFailed:
+		return true
+	default:
+		return false
+	}
+}
+
+// isRecoveryDiagnosticID 拒绝自由文本，确保诊断标识始终是固定长度的小写 SHA-256。
+func isRecoveryDiagnosticID(value string) bool {
+	if len(value) != sha256.Size*2 {
+		return false
+	}
+	for _, character := range value {
+		if character < '0' || character > '9' && character < 'a' || character > 'f' {
+			return false
+		}
+	}
+	return true
+}
 
 // RecoveryProjection 是 Recovery graph 对持久 transaction 的只读投影。
 type RecoveryProjection struct {
@@ -64,13 +194,21 @@ func SelectStartup(ctx context.Context, input StartupSelectorInput) (StartupSele
 	}
 	transaction, found, err := discoverStartupTransaction(ctx, input)
 	if err != nil {
-		return recoverySelection(input, transaction, err), err
+		selection, publicFailureErr := recoverySelection(input, transaction, err)
+		if publicFailureErr != nil {
+			return StartupSelection{}, publicFailureErr
+		}
+		return selection, err
 	}
 	if !found {
 		return StartupSelection{Mode: StartupModeNormal, Store: input.Store, process: input.Process}, nil
 	}
 	if err := validateStartupTransaction(ctx, transaction, input); err != nil {
-		return recoverySelection(input, transaction, err), err
+		selection, publicFailureErr := recoverySelection(input, transaction, err)
+		if publicFailureErr != nil {
+			return StartupSelection{}, publicFailureErr
+		}
+		return selection, err
 	}
 	return StartupSelection{
 		Mode: StartupModeNormal, Store: input.Store, Transaction: transaction, process: input.Process,
@@ -191,15 +329,20 @@ func validateProbationCandidate(
 	return nil
 }
 
-func recoverySelection(input StartupSelectorInput, transaction recovery.Transaction, cause error) StartupSelection {
-	projection := projectRecoveryTransaction(transaction, cause.Error())
+// recoverySelection 用公开失败 envelope 投影 Recovery 状态，并将编码不变量失败显式返回给调用方。
+func recoverySelection(input StartupSelectorInput, transaction recovery.Transaction, cause error) (StartupSelection, error) {
+	failure, err := NewRecoveryPublicFailure(RecoveryPublicCodeStartupFailed, cause)
+	if err != nil {
+		return StartupSelection{}, err
+	}
+	projection := projectRecoveryTransaction(transaction, failure.WireValue())
 	return StartupSelection{
 		Mode: StartupModeRecovery, Store: input.Store, Transaction: transaction, Projection: projection, process: input.Process,
-	}
+	}, nil
 }
 
 func projectRecoveryTransaction(transaction recovery.Transaction, reason string) RecoveryProjection {
-	projection := RecoveryProjection{Reason: reason}
+	projection := RecoveryProjection{Reason: NormalizeRecoveryReason(reason)}
 	if transaction.Identity.TransactionID != "" {
 		projection.TransactionID = transaction.Identity.TransactionID
 		projection.AttemptID = transaction.Identity.AttemptID

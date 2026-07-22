@@ -1,10 +1,12 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -78,9 +80,13 @@ func TestRecoveryApplicationNormalReturnDoesNotQuit(t *testing.T) {
 }
 
 func TestRecoveryBindingStateExposesTypedRecoveryMode(t *testing.T) {
+	failure, failureErr := app.NewRecoveryPublicFailure(app.RecoveryPublicCodeStartupFailed, errors.New("normal preflight failed"))
+	if failureErr != nil {
+		t.Fatalf("NewRecoveryPublicFailure() error = %v", failureErr)
+	}
 	runtime, err := app.NewRecoveryRuntime(app.StartupSelection{
 		Mode:       app.StartupModeRecovery,
-		Projection: app.RecoveryProjection{Reason: "normal preflight failed"},
+		Projection: app.RecoveryProjection{Reason: failure.WireValue()},
 	})
 	if err != nil {
 		t.Fatalf("NewRecoveryRuntime() error = %v", err)
@@ -89,11 +95,88 @@ func TestRecoveryBindingStateExposesTypedRecoveryMode(t *testing.T) {
 	if err != nil {
 		t.Fatalf("State() error = %v", err)
 	}
-	if state.Mode != app.StartupModeRecovery || state.Projection.Reason != "normal preflight failed" || state.LastAction != "state" {
+	if state.Mode != app.StartupModeRecovery || state.Projection.Reason != failure.WireValue() || state.LastAction != "state" {
 		t.Fatalf("State() = %#v", state)
 	}
 	if state.Actions != (recoveryActionAvailability{}) {
 		t.Fatalf("normal-preflight Recovery actions = %#v, want unavailable", state.Actions)
+	}
+}
+
+func TestRecoverySurfaceDoesNotSerializeRawProjectionReason(t *testing.T) {
+	const rawCause = "secret=sk-recovery path=/private/recovery dsn=postgres://private"
+	state := newRecoverySurfaceState(app.RecoveryProjection{Reason: rawCause}, "state")
+	wire, err := json.Marshal(state)
+	if err != nil {
+		t.Fatalf("marshal Recovery surface state: %v", err)
+	}
+	for _, sensitive := range []string{"secret=sk-recovery", "/private/recovery", "dsn=postgres://private"} {
+		if strings.Contains(string(wire), sensitive) {
+			t.Fatalf("Recovery Wails state leaked %q: %s", sensitive, wire)
+		}
+	}
+	if !strings.HasPrefix(state.Projection.Reason, "RECOVERY_STARTUP_FAILED|") {
+		t.Fatalf("Recovery Wails reason = %q, want stable public code", state.Projection.Reason)
+	}
+}
+
+func TestRecoveryWailsActionFailuresNeverPublishRawCause(t *testing.T) {
+	const rawCause = "secret=sk-recovery path=/private/recovery dsn=postgres://private"
+	for _, code := range []app.RecoveryPublicErrorCode{
+		app.RecoveryPublicCodeCheckFailed,
+		app.RecoveryPublicCodeRetryFailed,
+		app.RecoveryPublicCodeRestoreFailed,
+	} {
+		t.Run(string(code), func(t *testing.T) {
+			err := recoveryPublicFailure(code, errors.New(rawCause))
+			for _, sensitive := range []string{"secret=sk-recovery", "/private/recovery", "dsn=postgres://private"} {
+				if strings.Contains(err.Error(), sensitive) {
+					t.Fatalf("Recovery Wails error leaked %q: %q", sensitive, err)
+				}
+			}
+			if !strings.HasPrefix(err.Error(), string(code)+"|") {
+				t.Fatalf("Recovery Wails error = %q, want public wire code", err)
+			}
+		})
+	}
+}
+
+func TestRecoveryWailsFailureLogNeverPublishesRawCause(t *testing.T) {
+	const rawCause = "secret=sk-recovery path=/private/recovery dsn=postgres://private"
+	for _, test := range []struct {
+		name string
+		code app.RecoveryPublicErrorCode
+		want app.RecoveryPublicErrorCode
+	}{
+		{name: "allowlisted_action", code: app.RecoveryPublicCodeCheckFailed, want: app.RecoveryPublicCodeCheckFailed},
+		{name: "unallowlisted_code", code: app.RecoveryPublicErrorCode(rawCause), want: app.RecoveryPublicCodeUnknownFailure},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var logs bytes.Buffer
+			err := recoveryPublicFailureWithLogger(
+				slog.New(slog.NewTextHandler(&logs, nil)),
+				test.code,
+				errors.New(rawCause),
+			)
+			if !strings.HasPrefix(err.Error(), string(test.want)+"|") {
+				t.Fatalf("Recovery Wails error = %q, want public wire code %q", err, test.want)
+			}
+			output := logs.String()
+			for _, sensitive := range []string{"secret=sk-recovery", "path=/private/recovery", "dsn=postgres://private"} {
+				if strings.Contains(output, sensitive) {
+					t.Fatalf("Recovery Wails log leaked %q: %s", sensitive, output)
+				}
+			}
+			for _, publicField := range []string{
+				"recovery_error_code=" + string(test.want),
+				"public_message=",
+				"diagnostic_id=",
+			} {
+				if !strings.Contains(output, publicField) {
+					t.Fatalf("Recovery Wails log = %q, missing public field %q", output, publicField)
+				}
+			}
+		})
 	}
 }
 

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"log/slog"
 	"net/http"
 	"sync/atomic"
 
@@ -34,6 +35,36 @@ type recoveryBinding struct {
 
 type recoveryEffects struct {
 	Quit func()
+}
+
+type recoveryWireFailure struct {
+	code         app.RecoveryPublicErrorCode
+	diagnosticID string
+}
+
+// Error 只返回 Wails 可消费的安全 wire token，绝不串联原始底层错误。
+func (failure recoveryWireFailure) Error() string {
+	return string(failure.code) + "|" + failure.diagnosticID
+}
+
+// recoveryPublicFailure 是 Wails 的错误出口；日志和 wire 都只保留审核过的公开错误字段。
+func recoveryPublicFailure(code app.RecoveryPublicErrorCode, cause error) error {
+	return recoveryPublicFailureWithLogger(slog.Default(), code, cause)
+}
+
+// recoveryPublicFailureWithLogger 使用指定 logger 记录公开字段，供边界测试验证日志不含原始错误。
+func recoveryPublicFailureWithLogger(logger *slog.Logger, code app.RecoveryPublicErrorCode, cause error) error {
+	failure, err := app.NewRecoveryPublicFailure(code, cause)
+	if err != nil {
+		failure = app.RecoveryFallbackFailure()
+	}
+	logger.Error(
+		"Recovery Wails operation failed",
+		"recovery_error_code", failure.Code,
+		"public_message", failure.PublicMessage,
+		"diagnostic_id", failure.DiagnosticID,
+	)
+	return recoveryWireFailure{code: failure.Code, diagnosticID: failure.DiagnosticID}
 }
 
 type recoveryRestoreOps struct {
@@ -77,42 +108,58 @@ func (actor recoveryQuitActor) Run(ctx context.Context) error {
 
 // State 返回 Recovery mode 与 exact journal 的 typed projection。
 func (binding *recoveryBinding) State(ctx context.Context) (recoverySurfaceState, error) {
-	return binding.stateAfter(ctx, "state")
+	state, err := binding.stateAfter(ctx, "state")
+	if err != nil {
+		return recoverySurfaceState{}, recoveryPublicFailure(app.RecoveryPublicCodeStateFailed, err)
+	}
+	return state, nil
 }
 
 // Check 校验 current candidate 后返回刷新后的 Recovery state。
 func (binding *recoveryBinding) Check(ctx context.Context) (recoverySurfaceState, error) {
 	runtime, err := binding.requireAvailableAction(ctx, "check")
 	if err != nil {
-		return recoverySurfaceState{}, err
+		return recoverySurfaceState{}, recoveryPublicFailure(app.RecoveryPublicCodeCheckFailed, err)
 	}
 	if err := runtime.Check.Check(ctx); err != nil {
-		return recoverySurfaceState{}, err
+		return recoverySurfaceState{}, recoveryPublicFailure(app.RecoveryPublicCodeCheckFailed, err)
 	}
-	return binding.stateAfter(ctx, "check")
+	state, err := binding.stateAfter(ctx, "check")
+	if err != nil {
+		return recoverySurfaceState{}, recoveryPublicFailure(app.RecoveryPublicCodeCheckFailed, err)
+	}
+	return state, nil
 }
 
 // Retry 重放 exact journal intent 后返回刷新后的 Recovery state。
 func (binding *recoveryBinding) Retry(ctx context.Context) (recoverySurfaceState, error) {
 	runtime, err := binding.requireAvailableAction(ctx, "retry")
 	if err != nil {
-		return recoverySurfaceState{}, err
+		return recoverySurfaceState{}, recoveryPublicFailure(app.RecoveryPublicCodeRetryFailed, err)
 	}
 	if _, err := runtime.Retry.Retry(ctx); err != nil {
-		return recoverySurfaceState{}, err
+		return recoverySurfaceState{}, recoveryPublicFailure(app.RecoveryPublicCodeRetryFailed, err)
 	}
-	return binding.stateAfter(ctx, "retry")
+	state, err := binding.stateAfter(ctx, "retry")
+	if err != nil {
+		return recoverySurfaceState{}, recoveryPublicFailure(app.RecoveryPublicCodeRetryFailed, err)
+	}
+	return state, nil
 }
 
 // Restore 使用 current lease 显式恢复旧 release，并返回刷新后的 state。
 func (binding *recoveryBinding) Restore(ctx context.Context) (recoverySurfaceState, error) {
 	runtime, err := binding.requireAvailableAction(ctx, "restore")
 	if err != nil {
-		return recoverySurfaceState{}, err
+		return recoverySurfaceState{}, recoveryPublicFailure(app.RecoveryPublicCodeRestoreFailed, err)
 	}
-	return completeRecoveryRestore(ctx, recoveryRestoreOps{
+	state, err := completeRecoveryRestore(ctx, recoveryRestoreOps{
 		Restore: runtime.Restore.Restore, Projection: runtime.CurrentProjection, Quit: binding.effects.Quit,
 	})
+	if err != nil {
+		return recoverySurfaceState{}, recoveryPublicFailure(app.RecoveryPublicCodeRestoreFailed, err)
+	}
+	return state, nil
 }
 
 // completeRecoveryRestore 等待 transaction-owned rollback/restart 收敛成功后刷新状态并退出 Recovery。
@@ -146,6 +193,7 @@ func (binding *recoveryBinding) stateAfter(ctx context.Context, action string) (
 }
 
 func newRecoverySurfaceState(projection app.RecoveryProjection, action string) recoverySurfaceState {
+	projection.Reason = app.NormalizeRecoveryReason(projection.Reason)
 	actions := recoveryActionsFor(projection)
 	return recoverySurfaceState{
 		Mode: app.StartupModeRecovery, Projection: projection, LastAction: action,

@@ -1,10 +1,12 @@
 package wails
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"runtime"
 	"runtime/debug"
@@ -20,7 +22,10 @@ import (
 
 const (
 	// defaultGroup 是未显式分组的新窗口使用的默认窗口组。
-	defaultGroup = "default"
+	defaultGroup            = "default"
+	frontendReadinessMethod = "ui/frontend/readiness"
+	frontendReadinessProbe  = "probe"
+	frontendReadinessCommit = "commit"
 )
 
 // App 是暴露给 Wails 前端的后端绑定对象。
@@ -33,6 +38,10 @@ type App struct {
 	windowTitle      string                                                                                    // 新窗口标题
 	debug            bool                                                                                      // 是否启用 devtools 和调试窗口行为
 	observability    *observability.Service                                                                    // callAPI trace 写入服务
+
+	frontendReadinessMu sync.RWMutex         // 保护当前 App 绑定的 readiness 与 lifecycle owner
+	frontendReadiness   *ActivationReadiness // 当前 Wails application 的 activation readiness
+	frontendLifecycle   *WailsLifecycle      // 当前 Wails application 的 frontend lifecycle owner
 
 	group string // 当前窗口组
 
@@ -52,6 +61,15 @@ type App struct {
 	datasourceImportPickerTokens *datasourceImportPickerTokens // datasource 本地文件导入的短期 capability 状态
 }
 
+type frontendReadinessRequest struct {
+	Phase string `json:"phase"`
+	Epoch uint64 `json:"epoch,omitempty"`
+}
+
+type frontendReadinessResponse struct {
+	Epoch uint64 `json:"epoch"`
+}
+
 // CallAPI 处理前端统一 RPC 调用，并围绕 dispatch 记录脱敏 trace。
 func (a *App) CallAPI(method string, params json.RawMessage) (any, error) {
 	method, params, ctx, err := a.prepareCallAPIRequest(method, params)
@@ -63,7 +81,12 @@ func (a *App) CallAPI(method string, params json.RawMessage) (any, error) {
 		pkglogger.FromContext(ctx).Warn("wails call api trace record failed", "phase", "start", "method", method, "error", err)
 	}
 	params = stripCallAPITraceParams(method, params)
-	result, err := a.dispatch(ctx, method, params)
+	var result json.RawMessage
+	if method == frontendReadinessMethod {
+		result, err = a.handleFrontendReadiness(params)
+	} else {
+		result, err = a.dispatch(ctx, method, params)
+	}
 	if err != nil {
 		if recordErr := a.recordCallAPITrace(ctx, method, params, startedAt, "wails.call_api.failed", "failed", time.Since(startedAt), observability.StatusError, err); recordErr != nil {
 			pkglogger.FromContext(ctx).Warn("wails call api trace record failed", "phase", "failed", "method", method, "error", recordErr)
@@ -75,6 +98,98 @@ func (a *App) CallAPI(method string, params json.RawMessage) (any, error) {
 		pkglogger.FromContext(ctx).Warn("wails call api trace record failed", "phase", "done", "method", method, "error", err)
 	}
 	return decodeAPIResult(result)
+}
+
+// bindFrontendReadiness 绑定此 App 实例所属的就绪状态，禁止跨 application 复用。
+func (a *App) bindFrontendReadiness(readiness *ActivationReadiness, lifecycle *WailsLifecycle) error {
+	if a == nil {
+		return errors.New("wails frontend readiness: app binding is required")
+	}
+	if readiness == nil || lifecycle == nil {
+		return errors.New("wails frontend readiness: owners are required")
+	}
+	a.frontendReadinessMu.Lock()
+	defer a.frontendReadinessMu.Unlock()
+	if a.frontendReadiness != nil && a.frontendReadiness != readiness {
+		return errors.New("wails frontend readiness: app is already bound to another activation")
+	}
+	if a.frontendLifecycle != nil && a.frontendLifecycle != lifecycle {
+		return errors.New("wails frontend readiness: app is already bound to another lifecycle")
+	}
+	a.frontendReadiness = readiness
+	a.frontendLifecycle = lifecycle
+	return nil
+}
+
+// frontendReadinessOwners 返回当前 App 实例绑定的 activation 与 lifecycle owner。
+func (a *App) frontendReadinessOwners() (*ActivationReadiness, *WailsLifecycle, error) {
+	if a == nil {
+		return nil, nil, errors.New("wails frontend readiness: app binding is required")
+	}
+	a.frontendReadinessMu.RLock()
+	readiness := a.frontendReadiness
+	lifecycle := a.frontendLifecycle
+	a.frontendReadinessMu.RUnlock()
+	if readiness == nil || lifecycle == nil {
+		return nil, nil, errors.New("wails frontend readiness: owners are not bound")
+	}
+	return readiness, lifecycle, nil
+}
+
+// handleFrontendReadiness 处理经过真实 Wails CallAPI 边界到达的前端 probe/commit。
+func (a *App) handleFrontendReadiness(params json.RawMessage) (json.RawMessage, error) {
+	request, err := decodeFrontendReadinessRequest(params)
+	if err != nil {
+		return nil, err
+	}
+	readiness, lifecycle, err := a.frontendReadinessOwners()
+	if err != nil {
+		return nil, err
+	}
+	epoch, err := readiness.CurrentEpoch()
+	if err != nil {
+		return nil, err
+	}
+	switch request.Phase {
+	case frontendReadinessProbe:
+		if request.Epoch != 0 {
+			return nil, errors.New("wails frontend readiness: probe must not include an epoch")
+		}
+	case frontendReadinessCommit:
+		if request.Epoch != epoch {
+			return nil, errors.New("wails frontend readiness: epoch does not match current activation")
+		}
+		// 先更新 lifecycle，再释放 ACK gate，避免 ACK 后仍观察到未 ready 的生命周期状态。
+		lifecycle.MarkFrontendReady()
+		if err := readiness.MarkFrontendReady(epoch); err != nil {
+			return nil, err
+		}
+	default:
+		return nil, errors.New("wails frontend readiness: phase must be probe or commit")
+	}
+	result, err := json.Marshal(frontendReadinessResponse{Epoch: epoch})
+	if err != nil {
+		return nil, fmt.Errorf("wails frontend readiness: encode response: %w", err)
+	}
+	return result, nil
+}
+
+// decodeFrontendReadinessRequest 严格解析握手载荷，拒绝未知字段和尾随 JSON。
+func decodeFrontendReadinessRequest(params json.RawMessage) (frontendReadinessRequest, error) {
+	decoder := json.NewDecoder(bytes.NewReader(params))
+	decoder.DisallowUnknownFields()
+	var request frontendReadinessRequest
+	if err := decoder.Decode(&request); err != nil {
+		return frontendReadinessRequest{}, fmt.Errorf("wails frontend readiness: decode request: %w", err)
+	}
+	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
+		return frontendReadinessRequest{}, errors.New("wails frontend readiness: request must contain one JSON object")
+	}
+	request.Phase = strings.TrimSpace(request.Phase)
+	if request.Phase == "" {
+		return frontendReadinessRequest{}, errors.New("wails frontend readiness: phase is required")
+	}
+	return request, nil
 }
 
 // prepareCallAPIRequest 校验前端 RPC 请求并建立 trace 上下文。

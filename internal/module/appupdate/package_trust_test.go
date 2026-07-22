@@ -30,6 +30,35 @@ func TestProvideConfigUsesPackageOwnedProductionTrust(t *testing.T) {
 	}
 }
 
+func TestProvideConfigRejectsPackageHomeAlias(t *testing.T) {
+	cfg, executable, _, _, home := productionPackageConfigFixture(t, "darwin-arm64")
+	clearUpdateOverrideEnvironment(t)
+	alias := filepath.Join(canonicalTempDir(t), "home-alias")
+	if err := os.Symlink(home, alias); err != nil {
+		t.Fatalf("Symlink(home) error = %v", err)
+	}
+	t.Setenv(envSuperDolphinHome, alias)
+
+	if _, _, err := providePackageOwnedConfigForExecutableOnPlatform(cfg, executable, "darwin-arm64"); err == nil || !strings.Contains(err.Error(), "alias") {
+		t.Fatalf("providePackageOwnedConfigForExecutableOnPlatform() error = %v, want home alias rejection", err)
+	}
+}
+
+func TestProvideConfigRejectsPackageUpdatesAlias(t *testing.T) {
+	cfg, executable, _, _, home := productionPackageConfigFixture(t, "darwin-arm64")
+	clearUpdateOverrideEnvironment(t)
+	outside := canonicalTempDir(t)
+	updates := filepath.Join(home, "updates")
+	if err := os.Symlink(outside, updates); err != nil {
+		t.Fatalf("Symlink(updates) error = %v", err)
+	}
+	t.Setenv(envSuperDolphinHome, home)
+
+	if _, _, err := providePackageOwnedConfigForExecutableOnPlatform(cfg, executable, "darwin-arm64"); err == nil || !strings.Contains(err.Error(), "alias") {
+		t.Fatalf("providePackageOwnedConfigForExecutableOnPlatform() error = %v, want updates alias rejection", err)
+	}
+}
+
 func TestProvideConfigRejectsProductionUpdateOverride(t *testing.T) {
 	cfg, executable, _, _, home := productionPackageConfigFixture(t, "darwin-arm64")
 	clearUpdateOverrideEnvironment(t)
@@ -112,7 +141,7 @@ func productionPackageConfigFixture(t *testing.T, platform string) (*platformcon
 	}
 	writeInfoPlist(t, target, "1.2.5")
 	cfg := &platformconfig.Config{ProjectRoot: t.TempDir(), Dependency: platformconfig.DependencyConfig{Profile: platformconfig.DependencyProfileProduction}}
-	return cfg, executable, resources, target, t.TempDir()
+	return cfg, executable, resources, target, canonicalTempDir(t)
 }
 
 func clearUpdateOverrideEnvironment(t *testing.T) {

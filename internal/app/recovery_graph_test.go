@@ -62,6 +62,41 @@ func TestRecoveryProjectionFieldGuardEnumeratesProducerFields(t *testing.T) {
 	}
 }
 
+func TestRecoveryProjectionReasonDoesNotPublishRawCause(t *testing.T) {
+	const rawCause = "secret=sk-recovery path=/private/recovery dsn=postgres://private"
+	projection := projectRecoveryTransaction(recovery.Transaction{}, rawCause)
+	for _, sensitive := range []string{"secret=sk-recovery", "/private/recovery", "dsn=postgres://private"} {
+		if strings.Contains(projection.Reason, sensitive) {
+			t.Fatalf("Recovery projection reason leaked %q: %q", sensitive, projection.Reason)
+		}
+	}
+	if !strings.HasPrefix(projection.Reason, "RECOVERY_STARTUP_FAILED|") {
+		t.Fatalf("Recovery projection reason = %q, want stable public code", projection.Reason)
+	}
+}
+
+func TestNewRecoveryPublicFailureRejectsInvalidInput(t *testing.T) {
+	const rawCause = "secret=sk-recovery path=/private/recovery dsn=postgres://private"
+	for _, test := range []struct {
+		name  string
+		code  RecoveryPublicErrorCode
+		cause error
+	}{
+		{name: "nil_cause", code: RecoveryPublicCodeStartupFailed},
+		{name: "unallowlisted_code", code: RecoveryPublicErrorCode(rawCause), cause: errors.New(rawCause)},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			failure, err := NewRecoveryPublicFailure(test.code, test.cause)
+			if err == nil {
+				t.Fatalf("NewRecoveryPublicFailure() = %#v, want explicit invalid-input error", failure)
+			}
+			if strings.Contains(err.Error(), rawCause) {
+				t.Fatalf("NewRecoveryPublicFailure() error leaked raw cause: %q", err)
+			}
+		})
+	}
+}
+
 func TestSelectStartupDoesNotRecordHealthyACKBeforeReady(t *testing.T) {
 	store, transaction, process := createStartupProbation(t)
 	selection, err := SelectStartup(context.Background(), StartupSelectorInput{

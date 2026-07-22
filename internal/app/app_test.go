@@ -237,7 +237,39 @@ func TestRunActivatedDesktopDoesNotACKBeforeApplicationStarted(t *testing.T) {
 	}
 }
 
-func TestRunActivatedDesktopACKsAfterApplicationStarted(t *testing.T) {
+func TestRunActivatedDesktopDoesNotACKAfterNativeApplicationStartedWithoutFrontendRPC(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	readiness := uiwails.NewActivationReadiness()
+	readyCalls := 0
+	quitCalls := 0
+
+	err := runActivatedDesktop(
+		ctx,
+		readiness,
+		func(context.Context, DesktopACKPublisher) error {
+			readyCalls++
+			return nil
+		},
+		func() error {
+			readiness.MarkApplicationStarted()
+			<-ctx.Done()
+			return nil
+		},
+		func() { quitCalls++ },
+	)
+	if !errors.Is(err, context.DeadlineExceeded) || !errors.Is(err, errDesktopNotFrontendReady) {
+		t.Fatalf("runActivatedDesktop() error = %v, want frontend readiness timeout", err)
+	}
+	if readyCalls != 0 {
+		t.Fatalf("ready calls = %d, want 0 before frontend RPC readiness", readyCalls)
+	}
+	if quitCalls != 1 {
+		t.Fatalf("quit calls = %d, want 1 after frontend readiness timeout", quitCalls)
+	}
+}
+
+func TestRunActivatedDesktopACKsAfterFrontendReadinessSignal(t *testing.T) {
 	readiness := uiwails.NewActivationReadiness()
 	readyCalled := make(chan struct{})
 	err := runActivatedDesktop(
@@ -248,6 +280,13 @@ func TestRunActivatedDesktopACKsAfterApplicationStarted(t *testing.T) {
 		},
 		func() error {
 			readiness.MarkApplicationStarted()
+			epoch, err := readiness.CurrentEpoch()
+			if err != nil {
+				return err
+			}
+			if err := readiness.MarkFrontendReady(epoch); err != nil {
+				return err
+			}
 			<-readyCalled
 			return nil
 		},
@@ -278,6 +317,13 @@ func TestRunActivatedDesktopRejectsACKWhenRunReturnsDuringReadyCallback(t *testi
 			},
 			func() error {
 				readiness.MarkApplicationStarted()
+				epoch, err := readiness.CurrentEpoch()
+				if err != nil {
+					return err
+				}
+				if err := readiness.MarkFrontendReady(epoch); err != nil {
+					return err
+				}
 				<-readyStarted
 				close(runReturned)
 				return nil
@@ -313,6 +359,13 @@ func TestRunActivatedDesktopPropagatesACKFailureAndQuits(t *testing.T) {
 		},
 		func() error {
 			readiness.MarkApplicationStarted()
+			epoch, err := readiness.CurrentEpoch()
+			if err != nil {
+				return err
+			}
+			if err := readiness.MarkFrontendReady(epoch); err != nil {
+				return err
+			}
 			<-quit
 			return nil
 		},
